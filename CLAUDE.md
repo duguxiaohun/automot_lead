@@ -47,7 +47,7 @@
 ## 3. Git 提交规则
 
 仓库根目录：`c:\Users\11509\Desktop\automot_lead`
-远程：`https://github.com/duguxiaohun/duguxiaohun.git`（main 分支）
+远程：`https://github.com/duguxiaohun/automot_lead.git`（main 分支）
 
 ### 默认追踪文件（git add 白名单）
 
