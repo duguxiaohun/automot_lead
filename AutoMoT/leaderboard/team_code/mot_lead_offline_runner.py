@@ -563,7 +563,7 @@ class LeadTransfuserBackbone(nn.Module):
 # 用户拿到训练好的 LEAD .pth 后,填绝对路径到这里(或在实例化时显式传 ckpt_path)。
 # 加载逻辑:torch.load → 取 ckpt["model"](若是 dict) → 过滤 `backbone.*` 前缀 →
 # strict=False 加载,容忍 ckpt 里有其它非 backbone 条目。
-LEAD_BEV_CKPT_PATH: str | None = None
+LEAD_BEV_CKPT_PATH: str | None = "/home/cruser1/lda/AutoMoT/checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth"
 
 
 class LeadBEVEncoder(nn.Module):
