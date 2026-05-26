@@ -71,7 +71,7 @@
 - LiDAR 栅格：**±40m × [-32, 64]m / 4 px/m / z ∈ [-4, 10] 闭区间含地面**，输出 `(1, 1, 320, 384) float32 [0, 1]`
 - RGB：三视角拼接 **(1, 3, 384, 1152) float32 [0, ~235]**，**不再 `crop_array`**
 - 输出：`{bev_feature: (1, 512, 10, 12), image_feature_grid: (1, 512, 12, 36)}`
-- 权重导入窗口：常量 `LEAD_BEV_CKPT_PATH = None`（本机暂无权重），LEAD 训练 ckpt（`backbone.*` 前缀）准备好后填路径即可，`strict=False` 加载
+- 权重导入窗口：常量 `LEAD_BEV_CKPT_PATH` 当前指向已从 HuggingFace `ln2697/tfv6/tfv6_resnet34/model_0030_0.pth` 提取的 backbone-only ckpt（`/home/cruser1/lda/AutoMoT/checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth`）。**实测 `missing=0 / unexpected=0`**，`LeadTransfuserBackbone` state_dict 与 LEAD 训练 ckpt 100% 匹配。
 
 > ⚠ LEAD backbone 输出 channel 数（512）与 AutoMoT 原（1512）不兼容，无法直接接 AutoMoT 自家 `bev_encoder_proj`——这是切换的代价。详见下面"快推理"。
 
@@ -95,7 +95,7 @@
 | `target_point/ntp`（未来 1.5s/3.0s 真值 → ego frame） | 距离量级 7–75 m，与 AutoMoT RoutePlanner 同分布 | ✅ |
 | `theta` / `pos_global` | 弧度 + 米，与 `inverse_conversion_2d` 配对正确 | ✅ |
 
-**runner 在慢推理路径上不需要任何额外修改**。BEV encoder 的 forward 仍会跑（拿到 `trans_feat`），但 `enable_fast_inference=False` 时不被消费，即便 `LEAD_BEV_CKPT_PATH=None` 走随机初始化也不影响慢推理输出。
+**runner 在慢推理路径上不需要任何额外修改**。BEV encoder 的 forward 仍会跑（拿到 `trans_feat`），但 `enable_fast_inference=False` 时不被消费。当前 `LEAD_BEV_CKPT_PATH` 已指向 LEAD tfv6_resnet34 backbone-only ckpt，backbone 走训练好的权重；即便回退到 None 走随机初始化也不影响慢推理输出。
 
 ---
 
@@ -585,6 +585,8 @@ def smart_resize(height, width, factor=28, min_pixels=56*56, max_pixels=28*28*12
 
 ⇒ **结论**：runner (1152, 384) **既不会被 resize 也不会被压扁**，aspect 3:1 严格保持；图像内容不失真。
 
+> 📊 **实测验证**（一次端到端跑通日志）：runner 喂 4 帧 PIL.size=(1152, 384) + 1 个 prompt 文本 → `kv_cache_fixed_inference` 返回 `gen_context = {kv_lens=[1840], ropes=[256], past_key_values: NaiveCache, packed_position_ids}`。**`kv_lens=1840 ≈ 1728 vision token（4×432）+ ~112 text/system token`**，与上面理论估算完全吻合 ✅。
+
 #### 5.7.4 真正的副作用：vision token 数 / 显存 / 慢推理时间
 
 | 维度 | runner | AutoMoT 在线 | 比例 |
@@ -750,10 +752,11 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
 - BEV encoder 走 LEAD backbone（随机权重也无所谓），forward 跑通但 trans_feat 不消费
 - ⇒ **runner 在慢推理路径上不需要任何额外修改**
 
-**LEAD BEV ckpt 未填**（**待用户提供**）：
-- `LEAD_BEV_CKPT_PATH = None`，backbone 走随机初始化
-- 影响：仅 `bev_feature` 与 `image_feature_grid` 数值无意义；这些被快推理消费，慢推理不消费
-- 行动：用户拿到训练好的 LEAD .pth 后填 `LEAD_BEV_CKPT_PATH`，再启用快推理时才会生效
+**LEAD BEV ckpt 已下载并加载** ✅：
+- 来源：HuggingFace [`ln2697/tfv6/tfv6_resnet34/model_0030_0.pth`](https://huggingface.co/ln2697/tfv6/tree/main/tfv6_resnet34)，经一次性脚本过滤 `backbone.*` 前缀（剥前缀）后保存为 `model_0030_0_backbone_only.pth`
+- 路径：`/home/cruser1/lda/AutoMoT/checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth`
+- 实测加载：`[LeadBEVEncoder] missing=0, unexpected=0` —— 与 `LeadTransfuserBackbone` state_dict 完全匹配
+- 慢推理不消费 `bev_feature`，所以即便后续切回 None 走随机权重也不影响 KV cache 产出；但启用快推理 / 接 LEAD 自家 planning head 时这些权重才有意义
 
 **快推理路径（默认禁用）**：⏸ 启用需重设计整个 decoder
 - 见 §12 "🟡 中期可能做的"
@@ -811,8 +814,10 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
 - ✅ **快推理默认禁用**：`run_step` 新增 `enable_fast_inference=False`，跳过
   `based_kv_cache_context_fast_qwen3vl_dp` 调用，因 LEAD trans_feat shape 与 AutoMoT 自家
   `bev_encoder_proj` 不兼容
-- ✅ **权重导入窗口**：常量 `LEAD_BEV_CKPT_PATH = None` + `LeadBEVEncoder._load_lead_weights`
-  按 `backbone.*` 前缀过滤 state_dict 加载（strict=False）；本机暂无权重时走随机初始化
+- ✅ **权重导入窗口 + 已下载 LEAD tfv6_resnet34 ckpt**：
+  - 常量 `LEAD_BEV_CKPT_PATH = "/home/cruser1/lda/AutoMoT/checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth"`
+  - 一次性脚本下载 HuggingFace `ln2697/tfv6/tfv6_resnet34/model_0030_0.pth` → 过滤 `backbone.*` 前缀（剥前缀）→ 另存 backbone-only → 删完整 ckpt 释放 ~276 MB
+  - `LeadBEVEncoder._load_lead_weights` 走 `strict=False` 加载，**实测 `missing=0 / unexpected=0`**，state_dict 100% 匹配
 
 ### 9.2 之前轮次（保留）
 
@@ -825,7 +830,7 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
 
 ### 9.3 待办
 
-- ⏸ **LEAD BEV ckpt 路径未填**：用户拿到训练好的 `.pth` 后填 `LEAD_BEV_CKPT_PATH`
+- ✅ **LEAD BEV ckpt 已填**：HuggingFace `ln2697/tfv6/tfv6_resnet34/model_0030_0.pth` 提取 backbone-only 加载，missing=0/unexpected=0
 - ⏸ **LEAD 版快推理 decoder 链路重设计**：见 §12 🟡
 - ⏸ traj 时间网格（LEAD 版快推理重训时再决定）
 - ⏸ `self.commands` deque（close-loop 评测才相关）
@@ -862,7 +867,9 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
        BEV encoder 已切换为 LEAD TransfuserBackbone (tfv6 单帧框架, 抄进 runner)
             ⇒ 数据预处理整体回到 LEAD 风格 (±40m × [-32,64]m / 4px/m / z∈[-4,10] 含地面)
             ⇒ trans_feat shape (1, 512, 10, 12), 与 AutoMoT 原 (1, 1512, 8, 8) 不兼容
-            ⇒ 权重通过 LEAD_BEV_CKPT_PATH 常量加载 (默认 None=随机初始化跑通 shape)
+            ⇒ 权重已加载 LEAD tfv6_resnet34 backbone-only ckpt (HuggingFace ln2697/tfv6)
+              路径 /home/cruser1/lda/AutoMoT/checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth
+              实测 missing=0 / unexpected=0, state_dict 100% 匹配
        快推理默认禁用 (enable_fast_inference=False), 因 trans_feat shape 不兼容下游 head
             ⇒ 想启用 LEAD 版快推理需重设计整个 decoder 链路 (proj/queries/heads), 见 §12
        runner 慢推理路径无需修改 (Qwen3-VL 通用 backbone 对图像 shape 鲁棒)
@@ -896,15 +903,15 @@ AutoMoT 在线: 20Hz, 每tick决策 (本仓库 runner 不复用其 BEV encoder/�
    ✅ LiDAR 栅格回到 LEAD 风格 (320, 384), z [-4,10] 含地面
    ✅ RGB 三视角拼接 (1, 3, 384, 1152), 不再 crop_array
    ✅ 快推理默认禁用 (enable_fast_inference=False), trans_feat shape mismatch 不会崩
-   ✅ 权重导入窗口: LEAD_BEV_CKPT_PATH 常量 + LeadBEVEncoder._load_lead_weights
+   ✅ 权重导入窗口 + 已加载 LEAD tfv6_resnet34 ckpt: 实测 missing=0 / unexpected=0
    ✅ 位姿源严格 pos_global + theta, 无回退
    ✅ 去掉二次 JPEG (LEAD .jpg 已 1 次压缩, 对齐训练)
    ✅ CLI 改 --anchor 显式输入, 由采样参数反推 max_history
    ✅ tp/ntp 用未来 1.5s/3.0s 真值: 距离 ≈ speed×lookahead = 7~75m
       精度: prompt 用 :.6f, tensor float32; ego frame: x=前向, y=右向
       速度依赖是预期: 红灯停车时退化 ~(0,0), 用户接受
-   ⏸ LEAD BEV ckpt 文件未填: LEAD_BEV_CKPT_PATH=None, backbone 走随机权重
-      (慢推理路径不消费 trans_feat, 所以随机权重不影响输出; 真要用快推理时再填)
+   ✅ 端到端跑通: 4 帧 (1152,384) RGB + LEAD 栅格 LiDAR → 慢推理 kv_lens=1840
+      (1728 vision token + ~112 text/system token), gen_context 4 个 key 齐全
    ⏸ 离线没维护 self.commands deque (close-loop 评测才相关)
    ⏸ traj 时间网格 6×0.5s vs LEAD GT 8×0.25s (LEAD 版快推理重设计时再决定输出网格)
    ⏸ LEAD 版快推理整体需重设计 (新 projector 512→2560 / 新 queries / 新 heads)
@@ -935,7 +942,7 @@ AutoMoT 在线: 20Hz, 每tick决策 (本仓库 runner 不复用其 BEV encoder/�
      `LeadTransfuserBackbone` / `LeadBEVEncoder`（源代码来自 `lead/lead/tfv6/` 与
      `lead/lead/data_loader/carla_dataset_utils.py`，去掉 lead-only import 与类型装饰器）
    - 数据预处理（LiDAR ±40m × [-32, 64]m / RGB 三视角 1152、不 crop）
-   - 权重导入窗口：`LEAD_BEV_CKPT_PATH`（默认 None ⇒ 随机权重，仅验证 forward shape）
+   - 权重导入窗口：`LEAD_BEV_CKPT_PATH` 当前指向已下载并提取的 LEAD tfv6_resnet34 backbone-only ckpt（HuggingFace `ln2697/tfv6`），实测 `missing=0 / unexpected=0`
    - 快推理默认禁用（`enable_fast_inference=False`）
 
 ### 🟡 中期可能做的（用户决定要恢复快推理时）
