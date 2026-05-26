@@ -107,7 +107,7 @@
 > - `use_noisy_tp`（**默认 False**）控制 ego_position 与 target_points 的选源。False 时 ego_position = `pos_global`，tp 从 `next_target_points_3.25` 读（世界系真值）。
 > - `use_noisy_tp=True` 时再看 `use_kalman_filter_for_gps`：True ⇒ filtered_pos_global + `next_target_points_3.25`，False ⇒ noisy_pos_global + `next_gps_target_points_3.25`。
 > - sensor 扰动开关 `use_sensor_perburtation_prob=0.5` 只影响 image/lidar 是否走 perturbated 版本，不切换位姿源。
-> ⇒ **本仓库默认配置下，训练样本一律用 pos_global（真值）**。 离线 runner 当前是 filtered → pos → noisy 的优先级回退，跟训练默认不完全一致。
+> ⇒ **本仓库默认配置下，训练样本一律用 pos_global（真值）**。离线 runner 已对齐：`_extract_pose_from_meta` 严格用 `pos_global + theta`，缺字段直接 raise，与训练默认完全一致。
 
 **自车动力学**：
 - `speed` (标量 m/s)、`accel_x/y/z`、`angular_velocity_x/y/z`（IMU）
@@ -479,7 +479,7 @@ return hist.T   # 转置后 shape (320, 384)：行=y（左右），列=x（前�
 
 **关键结论**：
 - lead 训练数据**前后非对称**（前 64m / 后 32m），AutoMoT 训练数据**对称 ±32m**。
-- AutoMoT 的 BEV encoder 期望 **256×256 单通道直方图**，与 lead 的 320×384 不一致。**仅 resize 不够**——栅格代表的米数也不同，要同时改 `_rasterize_lidar_xy` 的 `min/max_x/y` 区间到 ±32 才对齐。
+- AutoMoT 的 BEV encoder 期望 **256×256 单通道直方图**，与 lead 的 320×384 不一致。**仅 resize 不够**——栅格代表的米数也不同，必须改栅格 `min/max_x/y` 区间到 ±32。runner 当前**直接调 `bev_data_utils.lidar_to_histogram_features(self.bev_encoder_config)`** 完全沿用 AutoMoT 栅格逻辑，不再有自定义 LEAD 风格栅格函数。
 - lead 三视角拼接 RGB **比 AutoMoT 训练数据宽 128 px**，靠 `crop_array` 裁掉两侧 64 px 才到 1024。这相当于**把侧视部分丢掉**，但拼接位置不对——拼接图中间 384 列是真正的前视，两侧是侧视，crop 后留中间 1024 列：左 320 + 中 384 + 右 320 = 1024，**仍混入大量侧视像素**，与 AutoMoT 单视角 fov=110° 的训练分布不一致。
 - traj 时间网格不匹配是结构性问题：lead 学的是 4 Hz×2 s，AutoMoT 输出 2 Hz×3 s。
 - LiDAR 来源差异：lead `.laz` 含 5 个 ego-aligned sweep（**且可能混入 radar 检测点**），AutoMoT 在线只有当前+上一帧 N×3。点云密度与时间堆叠语义都不同。
@@ -503,14 +503,14 @@ return hist.T   # 转置后 shape (320, 384)：行=y（左右），列=x（前�
 | # | 问题点 | 现状 | 影响 |
 |---|---|---|---|
 | ① | ✅ **已修复**：BEV encoder lidar 输入尺寸 | 改用 `bev_data_utils.lidar_to_histogram_features(self.bev_encoder_config)`，直接按 AutoMoT config 出 `(1, 256, 256)`（±32m / 4 px/m / `z>0.2` 切地面）。`_rasterize_lidar_xy` 函数和 clip 的 `rasterized_lidar` 字段已删除 | trans_feat 回到训练分布的 `(1, 1512, 8, 8)`，BEV token 数恢复 64 |
-| ② | **主推理 lidar PIL 范围/通道错** | 离线版栅格化按 LEAD：`[-32,64]×[-40,40]`，4 px/m，单通道，复制 3 次成 RGB（R=G=B）；尺寸 320×384 | 不影响推理（PIL lidar 在 inferencer `__call__` 里被注释忽略），但保存日志会误导调试 |
+| ② | ✅ **lidar PIL 改用 AutoMoT 栅格** | runner 现在的 `lidar_pil_list` 直接来自 `lidar_to_histogram_features` 输出 (1, 256, 256) [0, 1]，再 *255 转 uint8 复制 3 次成 RGB（R=G=B）。PIL.size=(W=256, H=256) | 仅日志用（PIL lidar 在 inferencer `__call__` 里被注释忽略，不进推理），但日志也已和真正喂模型的 `bev_lidar_tensor` 同源，调试体验对齐 |
 | ③ | **三视角拼接 RGB 直接喂模型** | LEAD `rgb` 是 `(384, 1152, 3)`，runner 不挑前视直接 PIL；`bev_encoder_rgb` 走 `crop_array` 裁到 `(384, 1024, 3)` | inferencer 在 `__call__` 里强 `resize_image(512, 256)`，所以慢路径输入与训练（单视角 1024×512）的视野/比例严重不匹配；bev_encoder 路径 crop 后保留中间 1024 列，**左右仍混入大量侧视像素**，与 AutoMoT 训练分布偏离 |
-| ④ | **target_point/next_target_point 语义不同** | `_extract_tp_ntp_from_future_frames`：取未来 `tp_lookahead_s=1.5 s` 与 `ntp_lookahead_s=3.0 s` 的 GT ego 位置 | 训练/在线时 tp 是 RoutePlanner 输出的“当前未访问的下一个 / 下下个里程碑”，距离可以是几十米的路口转弯点；这里改成短时未来真值（约 ego 前向 5–25m）→ prompt 字符串语义不同，模型理解会偏向“跟着未来真值走”而不是“规划到路口”，且在转弯点附近表现差异极大 |
+| ④ | ✅ **合理对齐 AutoMoT 训练分布**：target_point/ntp 用未来 1.5 s/3.0 s 真值 | `_extract_tp_ntp_from_future_frames`：取未来 `tp_lookahead_s=1.5 s` 与 `ntp_lookahead_s=3.0 s` 的 ego 真值位置，用 `inverse_conversion_2d(future_pos_global, cur_pos_global, cur_theta)` 转 ego frame | **AutoMoT 模型 ≠ LEAD 训练**：模型权重来自 `AutoMoT/checkpoints/AutoMoT`，用 AutoMoT 自家 RoutePlanner（`min_distance=7.5, max_distance=50`）训练，**期望 tp/ntp 在 30–80 m 区间**（用户在线实测 `TP≈(30, 0)`, `NTP≈(82, 2)`）。直接用 LEAD `next_target_points_3.25[1]/[2]` 转 ego frame 后实测**距离 100–200 m**（见 0026.json：`target_point` 转 ego = `(74, 94)` ≈120 m，`next` = `(102, 190)` ≈216 m），与 AutoMoT 训练分布严重错位。用 future 1.5 s/3.0 s 真值 ≈ `speed × lookahead` = 25–50 m（中速时）、~7–15 m（低速时）、~38–75 m（高速时），数量级落在 AutoMoT 训练分布内。⚠ caveat：距离随速度变化，红灯停车时退化到 ~(0, 0)，但用户接受此为预期行为 |
 | ⑤ | ✅ **已修复**：LiDAR 多帧对齐 | `bev_frame_count` 默认改为 **1**——仅用 anchor 单帧 .laz（内含 5 个 ego-aligned sweep），完全对齐 LEAD 训练分布（5 sweep / 0.25 s）。`_align_lidar_points_to_anchor` 函数保留（设 `bev_frame_count>1` 时仍会工作，用 `R(src_theta).T` 严格平移），但默认路径不再触发跨帧拼接 | 单帧路径下完全无 sweep 累积偏差 |
-| ⑥ | **LiDAR 高度过滤几乎一致** | runner 用 `[-4, 10]` (`>=, <`)；LEAD `rasterize_lidar` 用 `[-4, 10]` (`<=, <=`) **闭区间** | 实质等价，仅相差 1 个采样面（z=10 是否保留），不影响推理 |
+| ⑥ | ✅ **已修复**：LiDAR z 过滤直接走 AutoMoT 风格 | runner 不再有自定义 z 过滤；`lidar_to_histogram_features` 内部按 `lidar_split_height=0.2` 切 above（`use_ground_plane=False`），与 BEV encoder 训练分布完全一致。LEAD `rasterize_lidar` 的 `[-4, 10]` 闭区间路径已废弃（连同 `_rasterize_lidar_xy` 函数一起删除） | 完全对齐训练分布；地面层 z ≤ 0.2 被丢弃，与训练一致 |
 | ⑦ | **traj 时间网格不匹配** | runner 拿到 6×0.5 s = 3 s 输出，但 LEAD GT 是 8×0.25 s = 2 s | 如果用 LEAD GT 做 evaluation，需要把 traj 重新插值/采样到 0.25 s 网格，runner 当前没有这一步 |
 | ⑧ | **command 队列状态机离线缺失** | runner 完全不维护 `self.commands = deque(maxlen=2)`；在线 inferencer 的 prompt 里确实不含 command，但 agent 内部 `commands` 队列参与 force_move / 路径切换 / `next_command` 计算 | 当前 runner 走"开环单点推理"，没用控制层；若未来要做 close-loop 评测，必须把 commands 队列搬过来 |
-| ⑨ | **theta 单位** | LEAD `theta` 是 CARLA `ego_orientation_rad`（弧度），通过 `preprocess_compass` + unwrap 累积；和 `pos_global` 配合做 `inverse_conversion_2d` | 与 `automot_utils.inverse_conversion_2d` 期望一致 ✓。⚠ 若想用 `privileged_yaw`（=`np.deg2rad(transform.rotation.yaw)`）替代 `theta`，要确认是否同号（实测同号，但 privileged_yaw 不会 unwrap，跨 ±π 边界会有跳变） |
+| ⑨ | ✅ **theta 单位一致** | LEAD `theta` = `preprocess_compass(IMU)` + `np.unwrap` 累积（弧度，可超 `[-π, π]`）；AutoMoT 在线 `compass_filtered` = `preprocess_compass(IMU)` + `UKF.normalize_angle`（弧度，∈`[-π, π]`）。两者来自**同一公式**（lead.common_utils.inverse_conversion_2d ≡ automot_utils.inverse_conversion_2d），仅 unwrap 边界处理不同 | `inverse_conversion_2d` 内部只用 `cos/sin`，**周期性下 unwrap 与否无影响** ✓。实测 0026.json `theta=1.8477753838` vs `privileged_yaw=1.8477754665` 差异 ~1e-7，runner 用 theta 完全正确 |
 | ⑩ | ✅ **已修复**：位姿源 | `_extract_pose_from_meta` 已简化为**严格用 `pos_global` + `theta`**，不再回退到 filtered/noisy/privileged_yaw；缺字段直接 raise。与 LEAD 训练默认（`use_noisy_tp=False`）完全一致 | 完全对齐训练分布 |
 | ⑪ | **clip_len 与 BUFFER_PHASE** | 离线 12 帧（0.25 s 间隔）= 3 s 历史 vs 在线 31 tick (~1.55 s) buffer 然后再决策 | 时间长度比在线还多，不算问题 |
 | ⑫ | **gen_context 复用语义不同** | runner 每个 anchor 重新 `kv_cache_fixed_inference`（gen_context=None 时）；在线版 `kv_cache_inference_slow_fast_dp` 自己按 `slow_update_interval=2` 帧管理刷新 | 当前 `run_clip` 只用最后一帧 anchor 问题不暴露。**未来若多 anchor 复用，应直接调 `kv_cache_inference_slow_fast_dp` 而不是自己手动凑 gen_context**，否则会跳过 inferencer 内置的 interval 控制 |
@@ -549,12 +549,36 @@ bev_lidar_tensor  : (1, 1, 256, 256)  bf16   [0, 1]                 # AutoMoT �
 
 ### 8.4 当前剩余偏差（已修复 vs 仍存在）
 
-经过几轮修订，BEV 栅格、多帧对齐、位姿源、二次 JPEG 都已对齐训练分布。**剩余偏差**仅 2 项（均为用户明确接受的折中）：
+经过几轮修订，BEV 栅格、多帧对齐、位姿源、二次 JPEG、target_point 分布都已对齐 AutoMoT 训练分布。**剩余偏差**仅 1 项（用户明确接受）：
 
 1. **RGB 是三视角拼接而不是单前视**：慢路径 Qwen3VL ViT 灵活能"读"，快路径用户准备整体替换，所以暂不切前视。
-2. **target_point/ntp 用未来 1.5s/3.0s 真值**：LEAD `next_target_points_3.25` 里的 milestone 量级过远（用户实测有 100m/200m），不适合 AutoMoT 训练分布；1.5s/3s 真值在数值上更接近 AutoMoT RoutePlanner 输出（5~25m）。直行场景 OK，路口转弯前会有"短期实际位置 vs 规划意图"的方向差。
 
 其余偏差（traj 时间网格 6×0.5s vs LEAD GT 8×0.25s、缺少 `self.commands` 队列）仅在 close-loop eval / 轨迹对齐时才相关，开环单 anchor 推理无影响。
+
+### 8.5 精度与单位对照（speed / theta / tp / ntp）
+
+第一次 KV 缓存调用之前所有数值输入的精度/单位/dtype 已与 AutoMoT 在线完全对齐：
+
+| 字段 | AutoMoT 在线 | runner 当前 | 一致性 |
+|---|---|---|---|
+| **speed** 单位 | m/s | m/s（直接读 `meta["speed"]`） | ✅ |
+| **speed** dtype | `torch.float32` tensor | `torch.float32` tensor | ✅ |
+| **speed** prompt 格式 | `f"{speed:.2f} m/s"` ← `build_cleaned_prompt_and_modes` | runner 调**同一个函数** | ✅（自动 `.2f`） |
+| **target_point/ntp** 坐标系 | ego frame（米，CARLA 顺时针 yaw 约定下 `inverse_conversion_2d` 输出，x=前向，y=右向） | 同款 `inverse_conversion_2d(future_pos_global, cur_pos_global, cur_theta)` | ✅ |
+| **target_point/ntp** dtype | `torch.float32` (1, 5) | `torch.float32` (1, 5) | ✅ |
+| **target_point/ntp** prompt 格式 | `f"({cur_x:.6f}, {cur_y:.6f})"` | runner 调同函数 | ✅（自动 `.6f`） |
+| **yaw / theta** 单位 | 弧度 | 弧度 | ✅ |
+| **yaw / theta** 来源 | `compass = preprocess_compass(IMU)` → UKF（输出 `normalize_angle` ∈ `[-π, π]`） | `meta["theta"] = preprocess_compass(IMU) + np.unwrap`（可超 `[-π, π]`） | ⚠ unwrap 与否；`inverse_conversion_2d` 用 `cos/sin` 周期性下**等价** ✅ |
+| **inverse_conversion_2d** 公式 | `R(yaw).T @ (p - ego_pos)`，`R(yaw) = [[cos, -sin], [sin, cos]]` | **完全同款公式**（`lead.common.common_utils` ≡ `automot_utils`） | ✅ |
+| **pos 源** | `gps_filtered`（UKF 滤波 GPS） | `pos_global`（真值，对齐 LEAD 训练默认 `use_noisy_tp=False`） | ⚠ 数值差极小（UKF 收敛后），且 future-cur 同字段做差，差值不变 ✅ |
+| **wp_history** | agent 内 `waypoint_history` deque 维护但**不喂模型**（inferencer 不接收） | runner 也不维护 | ✅（都不用） |
+| **LiDAR 点** | `(N, 3) float32` ego-local | `(N, 3) float32` ego-local（`laspy.read` 取 `las.x/y/z`） | ✅ |
+| **LiDAR BEV** | `(1, 1, 256, 256)` bf16 [0, 1] | `(1, 1, 256, 256)` bf16 [0, 1] | ✅（用同一个 `lidar_to_histogram_features(self.bev_encoder_config)`） |
+| **RGB tensor** | `(1, 3, 384, 1024) bf16` `[0, ~235]` | `(1, 3, 384, 1024) bf16` `[0, ~235]` | ✅ shape/dtype/范围；⚠ 内容含侧视（§8.4 第 1 条） |
+| **`v_target_point`** | `(1, 5) float32 = [speed, tp.x, tp.y, ntp.x, ntp.y]` | 同 | ✅ |
+| **`trans_feat`** | `(1, 1512, 8, 8) bf16` | 同（因 BEV LiDAR 已对齐到 256×256） | ✅ |
+
+**结论**：第一次调用 `kv_cache_fixed_inference` 之前的所有数值/单位/精度都与训练分布对齐。剩下唯一的内容性偏差是 RGB 三视角拼接图本身（不是数值精度问题）。
 
 ---
 
@@ -562,7 +586,7 @@ bev_lidar_tensor  : (1, 1, 256, 256)  bf16   [0, 1]                 # AutoMoT �
 
 1. ✅ **已实施**：`bev_lidar_tensor` 改用 `bev_data_utils.lidar_to_histogram_features(self.bev_encoder_config)`，直接出 (1, 256, 256)；`trans_feat = (1, 1512, 8, 8)` 恢复训练分布。
 2. ⏸ **暂不动**（用户决定）：RGB 切前视。用户准备替换快路径，慢路径 Qwen3VL ViT 能读三视图。
-3. ⏸ **暂不动**（用户决定）：target_point 用 `next_target_points_3.25`。LEAD milestone 距离量级与 AutoMoT 不匹配（实测可达 100m+），保留 1.5s/3s 真值作为更合理的折中。
+3. ✅ **已对齐 AutoMoT 训练分布**：target_point/ntp 用未来 1.5 s/3.0 s 真值。LEAD `next_target_points_3.25` milestone 距离量级（100–200 m，0026.json 实测验证）远超 AutoMoT 训练分布（30–80 m）；future GT 1.5 s/3.0 s 数量级（速度依赖：7~75 m）匹配 AutoMoT 训练 RoutePlanner 输出。距离随速度变化是用户接受的预期行为。
 4. ✅ **已实施**：BEV encoder LiDAR 走 `lidar_to_histogram_features`，AutoMoT 风格栅格。
 5. ✅ **已实施**：`bev_frame_count` 默认改 **1**，仅 anchor 单帧 .laz（含 5 sweep）— 完全对齐 LEAD 训练分布。
 6. ⏸ **未实施**：traj 时间网格 6×0.5s → 8×0.25s 重采样。仅 evaluation 阶段需要，runner 本身不涉及。
@@ -641,7 +665,10 @@ AutoMoT 在线: 20Hz, 每tick决策
    ✅ 去掉二次 JPEG (LEAD .jpg 已 1 次压缩, 对齐训练)
    ✅ CLI 改 --anchor 显式输入, 由采样参数反推 max_history
    ✅ 删除 rasterized_lidar 缓存字段和 _rasterize_lidar_xy 函数
-   ⏸ tp/ntp 用未来 1.5s/3.0s 真值 (用户折中: LEAD next_target_points_3.25 量级太远)
+   ✅ tp/ntp 用未来 1.5s/3.0s 真值: 距离 ≈ speed×lookahead = 7~75m, 落在 AutoMoT 训练分布 30-80m 内
+      (LEAD next_target_points_3.25 milestone 实测 100-200m, 与 AutoMoT 训练不匹配)
+      精度: prompt 用 :.6f, tensor float32; ego frame: x=前向, y=右向 (CARLA 顺时针 yaw 约定)
+      速度依赖是预期: 红灯停车时退化 ~(0,0), 用户接受
    ⏸ RGB 三视角拼接图直喂 (用户: 慢路径 Qwen3VL 能读, 快路径将整体替换)
    ⏸ 离线没维护 self.commands deque (close-loop 评测才相关)
    ⏸ traj 时间网格 6×0.5s vs LEAD GT 8×0.25s (eval 时插值即可, runner 内不涉及)
