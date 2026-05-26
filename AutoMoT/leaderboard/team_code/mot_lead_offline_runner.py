@@ -4,14 +4,20 @@ LEAD video -> AutoMoT offline runner.
 中文说明：
 - 该文件是离线桥接实现，不修改原有在线 Agent。
 - 目标：把 LEAD route 中的某个 anchor 帧（含必要历史窗口）切成 AutoMoT 所需的
-  时序输入，复用 AutoMoT 现有模型初始化与推理链路。
+  时序输入，复用 AutoMoT 现有 Qwen3-VL 慢推理链路。
 - 入口语义：显式指定 anchor（route 内绝对帧索引），由采样参数反推需要的历史长度。
   clip 内 anchor 永远是最后一帧；当 anchor 太靠前导致历史不足时，会重复 frame 0
   补齐并打印 warning（不报错，但需注意数据有重复）。
 - 关键采样规则：RGB 默认使用 [t, t-1, t-2, t-3]（按时间顺序喂入）。
 - BEV/LiDAR：clip 只保存原始点云 (`lidar_points`)，栅格化在 `_prepare_inference_inputs`
-  里完成 —— 跨帧对齐到 anchor ego-local 后调 AutoMoT 的 `lidar_to_histogram_features`
-  (±32m / 4 px/m / z>0.2 切地面) 直接出 (1, 256, 256)，与训练分布一致。
+  里完成 —— 跨帧对齐到 anchor ego-local 后调本文件内的 `lead_rasterize_lidar`
+  (LEAD 风格：±40m × [-32, 64]m / 4 px/m / z ∈ [-4, 10] 闭区间含地面) 直接出
+  (320, 384) 单通道，与 LEAD TransfuserBackbone 训练分布一致。
+- BEV encoder 已切换为本文件底部抄过来的 LEAD TransfuserBackbone（单帧 tfv6 框架），
+  权重通过 `LEAD_BEV_CKPT_PATH` 常量加载（默认 None ⇒ 随机初始化跑通 shape 验证）。
+- 快推理（AutoMoT 自家 bev_encoder_proj + heads + queries）默认禁用，因为 LEAD
+  trans_feat shape (1, 512, 10, 12) 与原 AutoMoT 期望 (1, 1512, 8, 8) 不兼容；
+  要启用 LEAD 版快推理需要重设计整个 decoder 链路（见 PROJECT_CONTEXT.md §12）。
 """
 
 from __future__ import annotations
@@ -28,9 +34,11 @@ from typing import Any
 
 import cv2
 import numpy as np
+import timm
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from PIL import Image
-from safetensors.torch import load_file
 from transformers import HfArgumentParser, AutoTokenizer
 
 try:
@@ -93,7 +101,9 @@ if not hasattr(_automot_module_preset, '_tokenizer_reinitialized'):
 from data.reasoning.data_utils import add_special_tokens
 from mot.evaluation.inference import InterleaveInferencer
 from mot.modeling.automot import AutoMoT
-from mot.modeling.bev_encoder.backbone_extractor import BEVEncoderBackboneExtractor
+# 注：BEV encoder 已切换为 LEAD TransfuserBackbone(见本文件底部 LeadBEVEncoder 类),
+# 不再依赖 AutoMoT 自带的 BEVEncoderBackboneExtractor。保留 bev_encoder_utils 因为
+# normalize_angle / algin_lidar 仍被 LiDAR 跨帧对齐逻辑使用。
 import mot.modeling.bev_encoder.bev_encoder_utils as bev_encoder_t_u
 
 from team_code.automot_utils import (
@@ -103,7 +113,531 @@ from team_code.automot_utils import (
     inverse_conversion_2d,
     load_model_mot,
 )
-from team_code.bev_data_utils import lidar_to_histogram_features
+
+
+# ============================================================================
+# LEAD TransfuserBackbone(本地复制版本)
+#
+# 由于离线 runner 工作时无法 import lead/ 包(两仓库互相看不见),这里把 LEAD 中
+# TransfuserBackbone 所需的最小代码"抄"过来:
+#   - lead/lead/tfv6/transfuser_backbone.py: TransfuserBackbone / GPT / Block / SelfAttention
+#   - lead/lead/tfv6/transfuser_utils.py: normalize_imagenet
+#   - lead/lead/data_loader/carla_dataset_utils.py: rasterize_lidar
+# 同步在 LeadBevConfig 里固定了 carla_leaderboard_mode=True 下的全部 backbone 默认值
+# (取自 lead/lead/training/config_training.py)。
+#
+# 改动相对 LEAD 原文件极小:
+#   - 去掉 lead.* 的 import,GPT/Block/SelfAttention 重命名为 _Lead 前缀避免歧义
+#   - 去掉 jaxtyping/beartype 装饰器,保留语义
+#   - top_down(LEAD planning head 用)被保留为参数注册,前向不调用,
+#     以便加载 LEAD ckpt 时 backbone.up_conv* / c5_conv / upsample* 不报 missing key
+#
+# 权重导入窗口:LEAD_BEV_CKPT_PATH 常量(默认 None ⇒ 随机初始化跑通 shape)。
+# 用户拿到训练好的 LEAD .pth 后填路径即可,LeadBEVEncoder._load_lead_weights 自动按
+# `backbone.*` 前缀过滤 state_dict,strict=False 兼容下游 head 等额外条目。
+# ============================================================================
+
+
+@dataclass
+class LeadBevConfig:
+    """LEAD TransfuserBackbone 所需的最小配置。
+
+    默认值取自 `lead/lead/training/config_training.py`(carla_leaderboard_mode=True)。
+    任何字段如与训练时实际值不符,加载 ckpt 会因 shape mismatch 报错。
+    """
+    # ---- backbone branches ----
+    image_architecture: str = "resnet34"
+    lidar_architecture: str = "resnet34"
+    LTF: bool = False
+    img_vert_anchors: int = 12        # final_image_height(384) // 32
+    img_horz_anchors: int = 36        # num_used_cameras(3) * width(384) // 32
+    lidar_vert_anchors: int = 10      # lidar_height_pixel(320) // 32
+    lidar_horz_anchors: int = 12      # lidar_width_pixel(384) // 32
+    bev_features_chanels: int = 64
+    bev_down_sample_factor: int = 4
+    bev_upsample_factor: int = 2
+    perspective_downsample_factor: int = 1
+    lidar_height_pixel: int = 320     # (max_y - min_y) * pixels_per_meter = 80 * 4
+    lidar_width_pixel: int = 384      # (max_x - min_x) * pixels_per_meter = 96 * 4
+    channel_last: bool = False        # 推理走默认连续内存(LEAD 训练 True,但推理时无收益)
+    # ---- GPT fusion transformer ----
+    block_exp: int = 4
+    n_layer: int = 2
+    n_head: int = 4
+    embd_pdrop: float = 0.1
+    resid_pdrop: float = 0.1
+    attn_pdrop: float = 0.1
+    gpt_linear_layer_init_mean: float = 0.0
+    gpt_linear_layer_init_std: float = 0.02
+    gpt_layer_norm_init_weight: float = 1.0
+    # ---- LEAD rasterize_lidar(carla_leaderboard_mode=True) ----
+    pixels_per_meter: float = 4.0
+    min_x_meter: int = -32
+    max_x_meter: int = 64             # 前向 64m(不对称,前看远后看近)
+    min_y_meter: int = -40
+    max_y_meter: int = 40
+    hist_max_per_pixel: int = 5
+    min_height_lidar: float = -4.0
+    max_height_lidar: float = 10.0    # LEAD 训练保留 z ∈ [-4, 10] 闭区间(含地面)
+    # ---- runtime dtype ----
+    # backbone 内部按 self.config.torch_float_type cast 输入;LEAD 训练时 a100/l40s 上
+    # 自动切 bf16,但我们离线推理走 float32 保数值稳定(normalize_imagenet 数值范围大)。
+    torch_float_type: torch.dtype = torch.float32
+
+
+def lead_rasterize_lidar(
+    points_xyz: np.ndarray,
+    config: LeadBevConfig,
+) -> np.ndarray:
+    """LEAD 风格 LiDAR 栅格化(抄自 lead/lead/data_loader/carla_dataset_utils.py)。
+
+    输入: (N, 3) ego-local 点云(米),CARLA 朝向(x 前 y 右 z 上)。
+    输出: (H, W) float32 [0, 1],H = (max_y-min_y)*ppm = 320, W = (max_x-min_x)*ppm = 384。
+          row = y(右为正),col = x(前为正)。
+
+    z 过滤: [min_height_lidar, max_height_lidar] 闭区间(含地面层)。
+    """
+    H = int((config.max_y_meter - config.min_y_meter) * int(config.pixels_per_meter))
+    W = int((config.max_x_meter - config.min_x_meter) * int(config.pixels_per_meter))
+    if points_xyz.size == 0:
+        return np.zeros((H, W), dtype=np.float32)
+
+    z = points_xyz[..., 2]
+    mask = (z >= config.min_height_lidar) & (z <= config.max_height_lidar)
+    pts = points_xyz[mask]
+
+    xbins = np.linspace(
+        config.min_x_meter,
+        config.max_x_meter,
+        (config.max_x_meter - config.min_x_meter) * int(config.pixels_per_meter) + 1,
+    )
+    ybins = np.linspace(
+        config.min_y_meter,
+        config.max_y_meter,
+        (config.max_y_meter - config.min_y_meter) * int(config.pixels_per_meter) + 1,
+    )
+    hist = np.histogramdd(pts[:, :2], bins=(xbins, ybins))[0]
+    hist = np.clip(hist, 0, config.hist_max_per_pixel) / float(config.hist_max_per_pixel)
+    # .T 后 row=y(右为正), col=x(前为正),与 LEAD/AutoMoT BEV encoder splat 同款轴序。
+    return hist.T.astype(np.float32)
+
+
+def _normalize_imagenet(x: torch.Tensor) -> torch.Tensor:
+    """ImageNet 均值方差归一化(等价 LEAD transfuser_utils.normalize_imagenet)。"""
+    x = x.clone()
+    x[:, 0] = ((x[:, 0] / 255.0) - 0.485) / 0.229
+    x[:, 1] = ((x[:, 1] / 255.0) - 0.456) / 0.224
+    x[:, 2] = ((x[:, 2] / 255.0) - 0.406) / 0.225
+    return x
+
+
+class _LeadSelfAttention(nn.Module):
+    """多头自注意力(抄自 tfv6/transfuser_backbone.py: SelfAttention)。"""
+
+    def __init__(self, n_embd: int, n_head: int, attn_pdrop: float, resid_pdrop: float):
+        super().__init__()
+        assert n_embd % n_head == 0
+        self.key = nn.Linear(n_embd, n_embd)
+        self.query = nn.Linear(n_embd, n_embd)
+        self.value = nn.Linear(n_embd, n_embd)
+        self.dropout = attn_pdrop
+        self.resid_drop = nn.Dropout(resid_pdrop)
+        self.proj = nn.Linear(n_embd, n_embd)
+        self.n_head = n_head
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        b, t, c = x.size()
+        k = self.key(x).view(b, t, self.n_head, c // self.n_head).transpose(1, 2)
+        q = self.query(x).view(b, t, self.n_head, c // self.n_head).transpose(1, 2)
+        v = self.value(x).view(b, t, self.n_head, c // self.n_head).transpose(1, 2)
+        y = torch.nn.functional.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=None,
+            dropout_p=self.dropout if self.training else 0,
+            is_causal=False,
+        )
+        y = y.transpose(1, 2).contiguous().view(b, t, c)
+        y = self.resid_drop(self.proj(y))
+        return y
+
+
+class _LeadBlock(nn.Module):
+    """Transformer block(抄自 tfv6/transfuser_backbone.py: Block)。"""
+
+    def __init__(self, n_embd, n_head, block_exp, attn_pdrop, resid_pdrop):
+        super().__init__()
+        self.ln1 = nn.LayerNorm(n_embd)
+        self.ln2 = nn.LayerNorm(n_embd)
+        self.attn = _LeadSelfAttention(n_embd, n_head, attn_pdrop, resid_pdrop)
+        self.mlp = nn.Sequential(
+            nn.Linear(n_embd, block_exp * n_embd),
+            nn.ReLU(True),
+            nn.Linear(block_exp * n_embd, n_embd),
+            nn.Dropout(resid_pdrop),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x + self.attn(self.ln1(x))
+        x = x + self.mlp(self.ln2(x))
+        return x
+
+
+class _LeadGPT(nn.Module):
+    """GPT-style cross-modal fusion(抄自 tfv6/transfuser_backbone.py: GPT)。"""
+
+    def __init__(self, n_embd: int, config: LeadBevConfig):
+        super().__init__()
+        self.n_embd = n_embd
+        self.config = config
+        self.pos_emb = nn.Parameter(
+            torch.zeros(
+                1,
+                config.img_vert_anchors * config.img_horz_anchors
+                + config.lidar_vert_anchors * config.lidar_horz_anchors,
+                n_embd,
+            )
+        )
+        self.drop = nn.Dropout(config.embd_pdrop)
+        self.blocks = nn.Sequential(
+            *[
+                _LeadBlock(n_embd, config.n_head, config.block_exp,
+                          config.attn_pdrop, config.resid_pdrop)
+                for _ in range(config.n_layer)
+            ]
+        )
+        self.ln_f = nn.LayerNorm(n_embd)
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module: nn.Module) -> None:
+        if isinstance(module, nn.Linear):
+            module.weight.data.normal_(
+                mean=self.config.gpt_linear_layer_init_mean,
+                std=self.config.gpt_linear_layer_init_std,
+            )
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(self.config.gpt_layer_norm_init_weight)
+
+    def forward(self, image_tensor: torch.Tensor, lidar_tensor: torch.Tensor):
+        bz = lidar_tensor.shape[0]
+        lidar_h, lidar_w = lidar_tensor.shape[2:4]
+        img_h, img_w = image_tensor.shape[2:4]
+
+        image_tensor = (
+            image_tensor.permute(0, 2, 3, 1).contiguous().view(bz, -1, self.n_embd)
+        )
+        lidar_tensor = (
+            lidar_tensor.permute(0, 2, 3, 1).contiguous().view(bz, -1, self.n_embd)
+        )
+        token_embeddings = torch.cat((image_tensor, lidar_tensor), dim=1)
+        x = self.drop(self.pos_emb + token_embeddings)
+        x = self.blocks(x)
+        x = self.ln_f(x)
+
+        img_token_n = self.config.img_vert_anchors * self.config.img_horz_anchors
+        image_tensor_out = (
+            x[:, :img_token_n, :]
+            .view(bz, img_h, img_w, -1)
+            .permute(0, 3, 1, 2)
+            .contiguous()
+        )
+        lidar_tensor_out = (
+            x[:, img_token_n:, :]
+            .view(bz, lidar_h, lidar_w, -1)
+            .permute(0, 3, 1, 2)
+            .contiguous()
+        )
+        return image_tensor_out, lidar_tensor_out
+
+
+class LeadTransfuserBackbone(nn.Module):
+    """LEAD TransFuser backbone(抄自 tfv6/transfuser_backbone.py: TransfuserBackbone)。
+
+    主要差异:
+    - 去掉 lead.* import,改用本文件内 _normalize_imagenet / _LeadGPT 等
+    - 去掉 jaxtyping / beartype 装饰器
+    - top_down 方法删除(LEAD 单帧 backbone 推理路径不用),但 c5_conv/up_conv*/upsample*
+      参数保留(LEAD ckpt 里仍存这些权重,strict=False 加载不影响)
+    """
+
+    def __init__(self, device: torch.device, config: LeadBevConfig) -> None:
+        super().__init__()
+        self.device = device
+        self.config = config
+
+        # Image branch
+        self.image_encoder = timm.create_model(
+            config.image_architecture, pretrained=True, features_only=True
+        )
+        self.avgpool_img = nn.AdaptiveAvgPool2d(
+            (config.img_vert_anchors, config.img_horz_anchors)
+        )
+        image_start_index = 0
+        if len(self.image_encoder.return_layers) > 4:
+            image_start_index += 1
+        self.num_image_features = self.image_encoder.feature_info.info[
+            image_start_index + 3
+        ]["num_chs"]
+
+        # LiDAR branch
+        self.lidar_encoder = timm.create_model(
+            config.lidar_architecture,
+            pretrained=False,
+            in_chans=2 if config.LTF else 1,
+            features_only=True,
+        )
+        lidar_start_index = 0
+        if len(self.lidar_encoder.return_layers) > 4:
+            lidar_start_index += 1
+        self.num_lidar_features = self.lidar_encoder.feature_info.info[
+            lidar_start_index + 3
+        ]["num_chs"]
+        self.lidar_channel_to_img = nn.ModuleList(
+            [
+                nn.Conv2d(
+                    self.lidar_encoder.feature_info.info[lidar_start_index + i]["num_chs"],
+                    self.image_encoder.feature_info.info[image_start_index + i]["num_chs"],
+                    kernel_size=1,
+                )
+                for i in range(4)
+            ]
+        )
+        self.img_channel_to_lidar = nn.ModuleList(
+            [
+                nn.Conv2d(
+                    self.image_encoder.feature_info.info[image_start_index + i]["num_chs"],
+                    self.lidar_encoder.feature_info.info[lidar_start_index + i]["num_chs"],
+                    kernel_size=1,
+                )
+                for i in range(4)
+            ]
+        )
+        self.avgpool_lidar = nn.AdaptiveAvgPool2d(
+            (config.lidar_vert_anchors, config.lidar_horz_anchors)
+        )
+
+        # Fusion transformers
+        self.transformers = nn.ModuleList(
+            [
+                _LeadGPT(
+                    n_embd=self.image_encoder.feature_info.info[image_start_index + i]["num_chs"],
+                    config=config,
+                )
+                for i in range(4)
+            ]
+        )
+
+        # Post-fusion convs(top_down 路径用,推理 forward 不调用,但参数保留以
+        # 兼容 LEAD ckpt 的 backbone.* state_dict)
+        self.perspective_upsample_factor = (
+            self.image_encoder.feature_info.info[image_start_index + 3]["reduction"]
+            // config.perspective_downsample_factor
+        )
+        self.upsample = nn.Upsample(
+            scale_factor=config.bev_upsample_factor,
+            mode="bilinear",
+            align_corners=False,
+        )
+        self.upsample2 = nn.Upsample(
+            size=(
+                config.lidar_height_pixel // config.bev_down_sample_factor,
+                config.lidar_width_pixel // config.bev_down_sample_factor,
+            ),
+            mode="bilinear",
+            align_corners=False,
+        )
+        self.up_conv5 = nn.Conv2d(
+            config.bev_features_chanels,
+            config.bev_features_chanels,
+            (3, 3),
+            padding=1,
+        )
+        self.up_conv4 = nn.Conv2d(
+            config.bev_features_chanels,
+            config.bev_features_chanels,
+            (3, 3),
+            padding=1,
+        )
+        self.c5_conv = nn.Conv2d(
+            self.num_lidar_features, config.bev_features_chanels, (1, 1)
+        )
+
+    def forward(self, data: dict) -> tuple[torch.Tensor, torch.Tensor]:
+        """LEAD-style forward。
+
+        Args:
+            data: {'rgb': (B, 3, H, W) [0, 255],
+                   'rasterized_lidar': (B, 1, H_bev, W_bev) [0, 1]}
+        Returns:
+            (lidar_features (B, 512, 10, 12), image_features (B, 512, 12, 36)) for resnet34。
+        """
+        rgb = data["rgb"].to(
+            self.device, dtype=self.config.torch_float_type, non_blocking=True
+        )
+        if self.config.LTF:
+            x = torch.linspace(0, 1, self.config.lidar_width_pixel)
+            y = torch.linspace(0, 1, self.config.lidar_height_pixel)
+            y_grid, x_grid = torch.meshgrid(y, x, indexing="ij")
+            lidar = torch.zeros(
+                (rgb.shape[0], 2, self.config.lidar_height_pixel, self.config.lidar_width_pixel),
+                device=rgb.device,
+            )
+            lidar[:, 0] = y_grid.unsqueeze(0)
+            lidar[:, 1] = x_grid.unsqueeze(0)
+        else:
+            lidar = data["rasterized_lidar"].to(
+                self.device, dtype=self.config.torch_float_type, non_blocking=True
+            )
+        return self._forward(rgb, lidar)
+
+    def _forward(self, image: torch.Tensor, lidar: torch.Tensor):
+        image_features = _normalize_imagenet(image)
+        lidar_features = lidar
+
+        if self.config.channel_last:
+            image_features = image_features.to(memory_format=torch.channels_last)
+            if lidar_features is not None:
+                lidar_features = lidar_features.to(memory_format=torch.channels_last)
+
+        image_layers = iter(self.image_encoder.items())
+        lidar_layers = iter(self.lidar_encoder.items())
+
+        if len(self.image_encoder.return_layers) > 4:
+            image_features = self._forward_layer_block(
+                image_layers, self.image_encoder.return_layers, image_features
+            )
+        if len(self.lidar_encoder.return_layers) > 4:
+            lidar_features = self._forward_layer_block(
+                lidar_layers, self.lidar_encoder.return_layers, lidar_features
+            )
+
+        for i in range(4):
+            image_features = self._forward_layer_block(
+                image_layers, self.image_encoder.return_layers, image_features
+            )
+            lidar_features = self._forward_layer_block(
+                lidar_layers, self.lidar_encoder.return_layers, lidar_features
+            )
+            image_features, lidar_features = self._fuse_features(
+                image_features, lidar_features, i
+            )
+        return lidar_features, image_features
+
+    @staticmethod
+    def _forward_layer_block(layers, return_layers, features):
+        for name, module in layers:
+            features = module(features)
+            if name in return_layers:
+                break
+        return features
+
+    def _fuse_features(self, image_features, lidar_features, layer_idx: int):
+        image_embd_layer = self.avgpool_img(image_features)
+        lidar_embd_layer = self.avgpool_lidar(lidar_features)
+        lidar_embd_layer = self.lidar_channel_to_img[layer_idx](lidar_embd_layer)
+
+        image_features_layer, lidar_features_layer = self.transformers[layer_idx](
+            image_embd_layer, lidar_embd_layer
+        )
+        lidar_features_layer = self.img_channel_to_lidar[layer_idx](lidar_features_layer)
+        image_features_layer = F.interpolate(
+            image_features_layer,
+            size=(image_features.shape[2], image_features.shape[3]),
+            mode="bilinear",
+            align_corners=False,
+        )
+        lidar_features_layer = F.interpolate(
+            lidar_features_layer,
+            size=(lidar_features.shape[2], lidar_features.shape[3]),
+            mode="bilinear",
+            align_corners=False,
+        )
+        image_features = image_features + image_features_layer
+        lidar_features = lidar_features + lidar_features_layer
+        return image_features, lidar_features
+
+
+# LEAD BEV encoder ckpt 路径(本机暂无权重,留 placeholder)。
+# 用户拿到训练好的 LEAD .pth 后,填绝对路径到这里(或在实例化时显式传 ckpt_path)。
+# 加载逻辑:torch.load → 取 ckpt["model"](若是 dict) → 过滤 `backbone.*` 前缀 →
+# strict=False 加载,容忍 ckpt 里有其它非 backbone 条目。
+LEAD_BEV_CKPT_PATH: str | None = None
+
+
+class LeadBEVEncoder(nn.Module):
+    """对齐原 BEVEncoderBackboneExtractor 接口的 LEAD wrapper。
+
+    - 实例化: LeadBEVEncoder(config, device, ckpt_path)
+    - 调用:  out = wrapper(rgb=(B,3,384,1152) [0,255], lidar_bev=(B,1,320,384) [0,1])
+    - 返回 dict 兼容原 AutoMoT key 风格(便于将来切回快推理时少改下游):
+        - bev_feature:        (B, 512, 10, 12)  ← LEAD lidar branch 输出(作为 trans_feat)
+        - image_feature_grid: (B, 512, 12, 36)  ← LEAD image branch 输出
+
+    注意 bev_feature shape != AutoMoT 原 (1, 1512, 8, 8)。
+    runner 默认禁用快推理(enable_fast_inference=False),此 trans_feat 不被消费。
+    """
+
+    def __init__(
+        self,
+        config: LeadBevConfig,
+        device: torch.device,
+        ckpt_path: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.config = config
+        self.device = device
+        self.backbone = LeadTransfuserBackbone(device=device, config=config)
+        if ckpt_path is not None:
+            self._load_lead_weights(ckpt_path)
+        else:
+            print("[LeadBEVEncoder] LEAD_BEV_CKPT_PATH 未设置,backbone 走随机初始化"
+                  "(仅用于跑通 forward shape 验证;正式使用前请填权重路径)")
+        self.backbone.to(device)
+        self.backbone.eval()
+
+    def _load_lead_weights(self, ckpt_path: str) -> None:
+        """从 LEAD .pth 加载 backbone.* 子集(strict=False)。"""
+        ckpt_p = pathlib.Path(ckpt_path)
+        if not ckpt_p.exists():
+            raise FileNotFoundError(f"LEAD BEV ckpt not found: {ckpt_path}")
+        full_sd = torch.load(str(ckpt_p), map_location="cpu")
+        # LEAD training_utils.py 保存格式:整个 model.state_dict() 或 {"model": state_dict}
+        if isinstance(full_sd, dict) and "model" in full_sd and isinstance(full_sd["model"], dict):
+            full_sd = full_sd["model"]
+        backbone_sd = {
+            k[len("backbone."):]: v
+            for k, v in full_sd.items()
+            if k.startswith("backbone.")
+        }
+        if not backbone_sd:
+            # 若 ckpt 已只含 backbone 子模块(无前缀),直接用
+            backbone_sd = full_sd
+        missing, unexpected = self.backbone.load_state_dict(backbone_sd, strict=False)
+        print(f"[LeadBEVEncoder] loaded {ckpt_path}: "
+              f"missing={len(missing)}, unexpected={len(unexpected)}")
+        if missing:
+            print(f"  first 5 missing: {missing[:5]}")
+        if unexpected:
+            print(f"  first 5 unexpected: {unexpected[:5]}")
+
+    def forward(
+        self,
+        rgb: torch.Tensor,
+        lidar_bev: torch.Tensor,
+    ) -> dict:
+        """对齐 BEVEncoderBackboneExtractor.forward(rgb=, lidar_bev=) 调用风格。"""
+        target_dtype = self.config.torch_float_type
+        rgb_cast = rgb.to(self.device, dtype=target_dtype)
+        lidar_cast = lidar_bev.to(self.device, dtype=target_dtype)
+        data = {"rgb": rgb_cast, "rasterized_lidar": lidar_cast}
+        with torch.no_grad():
+            lidar_feat, image_feat = self.backbone(data)
+        return {
+            "bev_feature": lidar_feat,         # (B, 512, 10, 12)
+            "image_feature_grid": image_feat,  # (B, 512, 12, 36)
+        }
 
 
 @dataclass
@@ -183,31 +717,21 @@ class LeadOfflineMoTRunner:
             visual_und=True,
         )
 
-        # 4) BEV encoder（用于 trans_feat）
-        ckpt_dir = _AUTOMOT_ROOT / "checkpoints" / "AutoMoT"
-        combined_ckpt = ckpt_dir / "model.safetensors"
-        combined_sd = load_file(str(combined_ckpt))
-        bev_state_dict = {
-            k[len("bev_encoder.") :]: v
-            for k, v in combined_sd.items()
-            if k.startswith("bev_encoder.")
-        }
-        del combined_sd
-
-        self.bev_encoder = BEVEncoderBackboneExtractor(
-            config_path=str(ckpt_dir),
-            device=str(self.device),
-            state_dict=bev_state_dict,
+        # 4) BEV encoder：用 LEAD TransfuserBackbone(单帧 tfv6 框架,本文件底部抄过来)
+        # 数据预处理(RGB shape / LiDAR 栅格 / 视野范围 / z 过滤)同步切到 LEAD 风格,
+        # 详见 _prepare_inference_inputs。快推理路径默认禁用(trans_feat 不会被消费,
+        # 即便 LEAD backbone 输出 shape (1, 512, 10, 12) 与 AutoMoT 原 (1, 1512, 8, 8)
+        # 不兼容也无影响),见 run_step 的 enable_fast_inference 参数。
+        self.bev_encoder_config = LeadBevConfig()
+        self.bev_encoder = LeadBEVEncoder(
+            config=self.bev_encoder_config,
+            device=self.device,
+            ckpt_path=LEAD_BEV_CKPT_PATH,
         )
-        del bev_state_dict
-
-        self.bev_encoder.eval()
-        self.bev_encoder = self.bev_encoder.to(torch.bfloat16)
-        self.bev_encoder_config = self.bev_encoder.config
 
         print(f"✓ Model initialized on {self.device}")
         print("  - AutoMoT loaded")
-        print("  - BEV Encoder loaded")
+        print("  - BEV Encoder (LEAD TransfuserBackbone) loaded")
         print("  - Inferencer initialized")
 
     @staticmethod
@@ -242,34 +766,30 @@ class LeadOfflineMoTRunner:
 
     @staticmethod
     def _lead_lidar_to_rgb_bev(rasterized_lidar: np.ndarray) -> np.ndarray:
-        """
-        把 (1,H,W) BEV 栅格转成 3 通道可视化 RGB 图（仅日志/调试用）。
+        """把 LEAD 风格 BEV 栅格 (H, W) 或 (1, H, W) 转成 3 通道可视化 RGB(仅日志)。
 
-        说明：
-        - 输入：(1,256,256) float32 [0,1]，来自 lidar_to_histogram_features(config) 输出
-        - 输出：(256,256,3) uint8，用于 PIL Image 显示（不送入模型）
+        - 输入: (320, 384) 或 (1, 320, 384) float32 [0, 1]
+        - 输出: (320, 384, 3) uint8(不送入模型,仅供调试 PIL Image 显示)
         """
         arr = rasterized_lidar
         if arr.ndim == 3 and arr.shape[0] == 1:
             arr = arr[0]
         if arr.ndim != 2:
             raise ValueError(f"rasterized_lidar shape invalid: {arr.shape}")
-        # 值域已是 [0,1]，直接转 uint8
         arr_u8 = (arr.clip(0.0, 1.0) * 255.0).astype(np.uint8)
         bev = np.repeat(arr_u8[:, :, None], 3, axis=2)
         return bev
 
     @staticmethod
     def _lead_lidar_to_bev_encoder_channel(rasterized_lidar: np.ndarray) -> np.ndarray:
-        """
-        把栅格化结果透传给 BEV encoder（只做 shape/dtype 兜底）。
+        """把栅格化结果整成 (1, H, W) float32,送入 LEAD BEV encoder。
 
-        输入：(1,H,W) float32 [0,1]。当前主链路使用 AutoMoT 风格栅格化
-        (lidar_to_histogram_features)，H=W=256；不再需要任何 resize。
-        输出：(1,H,W) float32 [0,1]，直接送入 BEVEncoderBackboneExtractor.forward()。
+        输入: (H, W) 或 (1, H, W) float32 [0, 1]。LEAD 训练分布是
+        H=320(=80m * 4 px/m), W=384(=96m * 4 px/m)。
+        输出: (1, H, W) float32 [0, 1],unsqueeze batch 后 (1, 1, 320, 384) 即可
+        喂给 LeadBEVEncoder.forward(lidar_bev=...)。
         """
         arr = rasterized_lidar
-        # 统一为 (1, H, W) float32
         if arr.ndim == 2:
             arr = arr[None, :, :]
         if arr.ndim != 3:
@@ -436,19 +956,18 @@ class LeadOfflineMoTRunner:
         fused_points = (
             np.concatenate(aligned_chunks, axis=0) if aligned_chunks else np.zeros((0, 3), dtype=np.float32)
         )
-        # (35926, 3)
-        # 改用 AutoMoT 风格栅格化（±32m / 4 px/m / z>0.2 切地面），直接出 (1, 256, 256)。
-        # 这样 BEV encoder 输出 trans_feat 自然是 (1, 1512, 8, 8)，与训练分布一致；
-        # 同时无需再做 cv2.resize 二次插值。bev_encoder_config 来自 AutoMoT 自己的 config。
-        lidar_i = lidar_to_histogram_features(fused_points, self.bev_encoder_config)
-        # shape: (1, 256, 256), float32, range=[0, 1]
+        # (N, 3), N 因帧而异(单帧 anchor 默认 ~3.3e4-3.6e4)
+        # LEAD 风格栅格化:±40m × [-32, 64]m / 4 px/m / z 过滤 [-4, 10] 闭区间(含地面),
+        # 直接出 (320, 384) 单通道直方图,与 LEAD BEV encoder 训练分布完全一致。
+        lidar_i = lead_rasterize_lidar(fused_points, self.bev_encoder_config)
+        # shape: (320, 384), float32, range=[0, 1]
 
         lidar_bev_rgb = self._lead_lidar_to_rgb_bev(lidar_i)
-        # shape: (256, 256, 3), dtype: uint8, range=[0, 255]
+        # shape: (320, 384, 3), dtype: uint8, range=[0, 255]
 
         lidar_pil_list = [Image.fromarray(lidar_bev_rgb, mode="RGB")]
-        # PIL lidar 仅作调试日志：在线/离线的 InterleaveInferencer.__call__ 都把 lidar 参数注释掉了，
-        # 不会进慢路径 prompt，所以这里的 PIL 内容不影响推理。
+        # PIL lidar 仅作调试日志:在线/离线的 InterleaveInferencer.__call__ 都把 lidar 参数注释掉了,
+        # 不会进慢路径 prompt,所以这里的 PIL 内容不影响推理。
 
         # 3) target_point_speed
         speed = float(np.asarray(speed_clip[t]).reshape(-1)[0])
@@ -460,37 +979,33 @@ class LeadOfflineMoTRunner:
             device=self.device,
         )
 
-        # 4) BEV encoder 输入（来自最后一帧三视角拼接 RGB 与 AutoMoT 风格栅格化 LiDAR）
-        # 注意：LEAD .jpg 已经经过 1 次 JPEG 压缩（与 AutoMoT 训练分布一致），
-        # 这里直接复用 PIL 解码结果，避免再 encode/decode 引入二次压缩伪影。
+        # 4) BEV encoder 输入(LEAD 风格,直接喂三视角拼接 RGB,不做 crop):
+        # - RGB: LEAD 训练就是 (3, 384, 1152) 三视角横向拼接,backbone 内部 normalize_imagenet
+        # - LiDAR: (1, 320, 384) 单通道 [0, 1],与 lead/data_loader/carla_dataset_utils.py
+        #   rasterize_lidar 输出完全一致
+        # LEAD .jpg 已是 1 次 JPEG 压缩,这里直接用 PIL 解码结果,不做二次 encode。
         bev_rgb = np.array(rgb_pil_list[-1], dtype=np.uint8)
         # (384, 1152, 3) uint8 RGB, range≈[0, 234]
 
-        # 裁剪 RGB 到训练时使用的视野范围
-        bev_rgb = bev_encoder_t_u.crop_array(self.bev_encoder_config, bev_rgb)
-        # (384, 1024, 3)
-
         bev_rgb = np.transpose(bev_rgb, (2, 0, 1))
-        bev_rgb_tensor = torch.from_numpy(bev_rgb).float().unsqueeze(0).to(self.device, dtype=torch.bfloat16)
-        # torch.Size([1, 3, 384, 1024]),
+        bev_rgb_tensor = torch.from_numpy(bev_rgb).float().unsqueeze(0).to(self.device)
+        # torch.Size([1, 3, 384, 1152]), float32,range=[0, ~235]
+        # 不主动 .to(bf16):LEAD backbone 内部会按 config.torch_float_type(float32) cast,
+        # 强行 bf16 会绕一圈无收益,且与 LEAD 训练时 normalize_imagenet 数值不一致。
 
-
-        # shape: (1, 256, 256), float32, range=[0, 1]
         bev_lidar_1ch = self._lead_lidar_to_bev_encoder_channel(lidar_i)
-        # shape: (1, 256, 256) —— 已是 AutoMoT BEV encoder 训练分布的 shape，无需再 resize
+        # shape: (1, 320, 384) float32 [0, 1]
 
-        bev_lidar_tensor = torch.from_numpy(bev_lidar_1ch).float().unsqueeze(0).to(self.device, dtype=torch.bfloat16)
-        # torch.Size([1, 1, 256, 256])
-
-
+        bev_lidar_tensor = torch.from_numpy(bev_lidar_1ch).float().unsqueeze(0).to(self.device)
+        # torch.Size([1, 1, 320, 384]), float32
 
         # [_prepare_inference_inputs Return Values Stats]
         # - rgb_pil_list: list[4], first image size=(1152, 384), mode=RGB
-        # - lidar_pil_list: list[1], first image size=(256, 256), mode=RGB
-        # - target_point_speed: shape=(1, 5), dtype=float32, range=[0.00132107, 25.0991]
-        # - bev_rgb_tensor torch.Size([1, 3, 384, 1024]),: range=[0, 235]
-        # - bev_lidar_tensor torch.Size([1, 1, 256, 256]),: range=[0, 1]
-        # - bev_indices_desc: [3]   # 默认 anchor=12, bev_count=1, 仅 anchor 单帧（clip 内 idx）
+        # - lidar_pil_list: list[1], first image size=(384, 320), mode=RGB  (PIL.size = W×H)
+        # - target_point_speed: shape=(1, 5), dtype=float32, range≈[0, 25]
+        # - bev_rgb_tensor: torch.Size([1, 3, 384, 1152]), float32, range≈[0, 235]
+        # - bev_lidar_tensor: torch.Size([1, 1, 320, 384]), float32, range=[0, 1]
+        # - bev_indices_desc: [3]   # anchor=12, bev_count=1, 仅 anchor 单帧(clip 内 idx)
         # - bev_indices_asc: [3]
         return rgb_pil_list, lidar_pil_list, target_point_speed, bev_rgb_tensor, bev_lidar_tensor, bev_indices_desc, bev_indices_asc
 
@@ -498,26 +1013,31 @@ class LeadOfflineMoTRunner:
     def run_step(self, lead_clip: dict[str, Any], anchor_t: int,
                  gen_context=None, timestamp: float = 0.0,
                  rgb_frame_step: int = 1, rgb_frame_count: int = 4,
-                 bev_frame_step: int = 1, bev_frame_count: int = 1) -> dict[str, Any]:
-        """
-        离线版 run_step：
-        - 输入：一个 LEAD clip + 指定 anchor 帧 + KV缓存上下文
-        - 输出：AutoMoT 的 text/traj/route + 组装元数据
+                 bev_frame_step: int = 1, bev_frame_count: int = 1,
+                 enable_fast_inference: bool = False) -> dict[str, Any]:
+        """离线版 run_step:输入 LEAD clip + anchor 帧,输出慢推理 gen_context(默认)
+        或慢+快推理 text/traj/route。
 
-        参数说明：
-        - rgb_frame_step: RGB 采样间隔（默认 1 对应 LEAD 的 0.25s，5 对应 AutoMoT 的 1.25s）
-        - rgb_frame_count: RGB 采样帧数（默认 4）
-        - bev_frame_step: BEV 采样间隔（默认 1）
-        - bev_frame_count: BEV 采样帧数（默认 1）—— LEAD 单帧 .laz 已内含 5 累积 sweep，
-          直接用 anchor 单帧即对齐 LEAD 训练分布；改为 2 会拼到 10 sweep / 0.5s，密度×2 时间窗×2
-        
-        关键流程：
-        1. 准备数据 (BEV encoder, 多帧RGB)
-        2. 若gen_context为空，初始化KV缓存
-        3. 用fast推理路径生成轨迹和文本
+        参数:
+        - rgb_frame_step / rgb_frame_count: RGB 历史采样,默认 1 帧步长 × 4 帧
+        - bev_frame_step / bev_frame_count: BEV/LiDAR 历史采样,默认 1 步 × 1 帧
+          (LEAD 单帧 .laz 已含 5 累积 sweep,无需跨帧再拼)
+        - enable_fast_inference: 是否走 AutoMoT 快推理路径。
+          默认 False —— 当前 BEV encoder 已替换为 LEAD TransfuserBackbone,
+          输出 trans_feat shape=(1, 512, 10, 12),与 AutoMoT 自家 bev_encoder_proj
+          期望的 (1, 1512, 8, 8) 不兼容,启用快推理会 shape mismatch 崩溃。
+          快推理 LEAD 版需要重新设计 projector/head/queries,见 PROJECT_CONTEXT.md §12。
+          想跑快推理时(为了 debug/对照),手动传 True 让 ipath 走通(预期会报错)。
+
+        关键流程:
+        1. 准备数据 (LEAD 风格 BEV/LiDAR 输入,多帧 RGB)
+        2. 调用 LEAD BEV encoder 得到 trans_feat(本身只是为了 keep 接口完整,
+           当 enable_fast_inference=False 时实际不被消费,所以即便随机权重也无碍)
+        3. 若 gen_context 为空 → 走慢推理一次,初始化 KV cache
+        4. 可选:enable_fast_inference=True 时再走快推理路径
         """
         group = self._build_group_indices(
-            clip_len=int(self._to_numpy(lead_clip["rgb"]).shape[0]), 
+            clip_len=int(self._to_numpy(lead_clip["rgb"]).shape[0]),
             anchor_t=anchor_t,
             rgb_frame_step=rgb_frame_step,
             rgb_frame_count=rgb_frame_count
@@ -529,52 +1049,53 @@ class LeadOfflineMoTRunner:
 
         prompt_cleaned, understanding_output, reasoning_output = build_cleaned_prompt_and_modes(target_point_speed)
 
+        # LEAD BEV encoder 前向(单帧 transfuser 框架)。
+        # 输入: bev_rgb_tensor (1, 3, 384, 1152) [0, 235], bev_lidar_tensor (1, 1, 320, 384) [0, 1]
+        # 输出: {bev_feature: (1, 512, 10, 12), image_feature_grid: (1, 512, 12, 36)}
+        # 快推理禁用时这个输出不被消费,但保留 forward 调用以验证 backbone shape。
         with torch.no_grad():
-            # bev_rgb_tensor -> shape=(1, 3, 384, 1024), dtype=torch.bfloat16, range=[0, 235]
-            # bev_lidar_tensor -> shape=(1, 1, 256, 256), dtype=torch.bfloat16, range=[0, 1]
             bev_encoder_output = self.bev_encoder(
                 rgb=bev_rgb_tensor,
                 lidar_bev=bev_lidar_tensor,
             )
-        trans_feat = bev_encoder_output["bev_feature"]  # (1, 1512, 8, 8) —— 与训练分布一致
-        # bev_encoder_output keys: ['bev_feature', 'bev_feature_upscale', 'fused_features', 'image_feature_grid']
-        # bev_feature: tensor, shape=(1, 1512, 8, 8), dtype=torch.bfloat16  —— 切到 AutoMoT 栅格后回到训练 shape
-        # bev_feature_upscale: tensor, shape=(1, 64, 64, 64), dtype=torch.bfloat16
-        # fused_features: tensor, shape=(1, 1512, 8, 8), dtype=torch.bfloat16
-        # image_feature_grid: tensor, shape=(1, 1512, 12, 32), dtype=torch.bfloat16  —— 来自 RGB，仍是三视图视野
-        
-        
-        # ========== KV缓存推理 ==========
-        # 第一次调用时初始化KV缓存
-        if gen_context is None:
-            # 构建slow_input_lists：图像列表 + 文本提示
-            slow_input_lists = rgb_pil_list + [prompt_cleaned]
-            # 调用kv_cache_fixed_inference获取初始化的gen_context
-            gen_context = self.inferencer.kv_cache_fixed_inference(slow_input_lists)
-        
-        # 使用fast推理路径，复用gen_context的KV缓存
-        with torch.autocast(device_type="cuda", enabled=True, dtype=torch.bfloat16):
-            gen_text, gen_traj, route, reasoning_hidden_states = self.inferencer.based_kv_cache_context_fast_qwen3vl_dp(
-                trans_feat=trans_feat,
-                gen_context=gen_context,
-                reasoning_tokens=getattr(self.automot.config, 'reasoning_query_tokens', 8),
-                action_tokens=getattr(self.automot.config, 'action_query_tokens', 26),
-                v_target_point=target_point_speed,
-            )
+        trans_feat = bev_encoder_output["bev_feature"]  # (1, 512, 10, 12) LEAD 风格
 
-        # 打印 fast-path 真实输出，确认已跑通 based_kv_cache_context_fast_qwen3vl_dp。
-        traj_shape = tuple(gen_traj.shape) if isinstance(gen_traj, torch.Tensor) else None
-        route_shape = tuple(route.shape) if isinstance(route, torch.Tensor) else None
-        rhs_shape = (
-            tuple(reasoning_hidden_states.shape)
-            if isinstance(reasoning_hidden_states, torch.Tensor)
-            else None
-        )
-        print("[based_kv_cache_context_fast_qwen3vl_dp] success")
-        print(f"  text: {str(gen_text)[:200]}")
-        print(f"  traj_shape: {traj_shape}")
-        print(f"  route_shape: {route_shape}")
-        print(f"  reasoning_hidden_states_shape: {rhs_shape}")
+        # ========== 慢推理(Qwen3-VL frozen) ==========
+        if gen_context is None:
+            slow_input_lists = rgb_pil_list + [prompt_cleaned]
+            gen_context = self.inferencer.kv_cache_fixed_inference(slow_input_lists)
+
+        # ========== 快推理(AutoMoT 自家训练的下游 head) ==========
+        # 默认禁用:LEAD trans_feat (1, 512, 10, 12) 与 AutoMoT bev_encoder_proj 期望
+        # (1, 1512, 8, 8) shape 不兼容。要彻底启用 LEAD 版快推理,需重训整个 decoder 链路,
+        # 见 PROJECT_CONTEXT.md §12 "未来工作"。
+        gen_text = None
+        gen_traj = None
+        route = None
+        reasoning_hidden_states = None
+        if enable_fast_inference:
+            with torch.autocast(device_type="cuda", enabled=True, dtype=torch.bfloat16):
+                gen_text, gen_traj, route, reasoning_hidden_states = self.inferencer.based_kv_cache_context_fast_qwen3vl_dp(
+                    trans_feat=trans_feat,
+                    gen_context=gen_context,
+                    reasoning_tokens=getattr(self.automot.config, 'reasoning_query_tokens', 8),
+                    action_tokens=getattr(self.automot.config, 'action_query_tokens', 26),
+                    v_target_point=target_point_speed,
+                )
+            traj_shape = tuple(gen_traj.shape) if isinstance(gen_traj, torch.Tensor) else None
+            route_shape = tuple(route.shape) if isinstance(route, torch.Tensor) else None
+            rhs_shape = (
+                tuple(reasoning_hidden_states.shape)
+                if isinstance(reasoning_hidden_states, torch.Tensor)
+                else None
+            )
+            print("[based_kv_cache_context_fast_qwen3vl_dp] success (LEAD trans_feat 路径,可能与原训练分布不一致)")
+            print(f"  text: {str(gen_text)[:200]}")
+            print(f"  traj_shape: {traj_shape}")
+            print(f"  route_shape: {route_shape}")
+            print(f"  reasoning_hidden_states_shape: {rhs_shape}")
+        else:
+            print("[run_step] enable_fast_inference=False:跳过快推理,仅返回慢推理 gen_context")
 
         return {
             "timestamp": timestamp,
@@ -587,7 +1108,8 @@ class LeadOfflineMoTRunner:
             "text": gen_text,
             "traj": gen_traj,
             "route": route,
-            "gen_context": gen_context,  # 返回缓存供下一次使用
+            "trans_feat": trans_feat,        # LEAD BEV (1, 512, 10, 12),供调试
+            "gen_context": gen_context,
         }
 
     @torch.no_grad()
