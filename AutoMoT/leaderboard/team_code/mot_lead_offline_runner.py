@@ -14,7 +14,8 @@ LEAD video -> AutoMoT offline runner.
   (LEAD 风格：±40m × [-32, 64]m / 4 px/m / z ∈ [-4, 10] 闭区间含地面) 直接出
   (320, 384) 单通道，与 LEAD TransfuserBackbone 训练分布一致。
 - BEV encoder 已切换为本文件底部抄过来的 LEAD TransfuserBackbone（单帧 tfv6 框架），
-  权重通过 `LEAD_BEV_CKPT_PATH` 常量加载（默认 None ⇒ 随机初始化跑通 shape 验证）。
+  权重通过 `LEAD_BEV_CKPT_PATH` 常量加载 LEAD tfv6_resnet34 backbone-only ckpt
+  （已实测 missing=0 / unexpected=0，state_dict 完全匹配 LEAD 训练分布）。
 - 快推理（AutoMoT 自家 bev_encoder_proj + heads + queries）默认禁用，因为 LEAD
   trans_feat shape (1, 512, 10, 12) 与原 AutoMoT 期望 (1, 1512, 8, 8) 不兼容；
   要启用 LEAD 版快推理需要重设计整个 decoder 链路（见 PROJECT_CONTEXT.md §12）。
@@ -132,9 +133,11 @@ from team_code.automot_utils import (
 #   - top_down(LEAD planning head 用)被保留为参数注册,前向不调用,
 #     以便加载 LEAD ckpt 时 backbone.up_conv* / c5_conv / upsample* 不报 missing key
 #
-# 权重导入窗口:LEAD_BEV_CKPT_PATH 常量(默认 None ⇒ 随机初始化跑通 shape)。
-# 用户拿到训练好的 LEAD .pth 后填路径即可,LeadBEVEncoder._load_lead_weights 自动按
-# `backbone.*` 前缀过滤 state_dict,strict=False 兼容下游 head 等额外条目。
+# 权重导入窗口:LEAD_BEV_CKPT_PATH 常量。当前指向 LEAD tfv6_resnet34 backbone-only ckpt
+# (HuggingFace ln2697/tfv6/tfv6_resnet34/model_0030_0.pth 提取),实测 strict=False 加载
+# missing=0 / unexpected=0,state_dict 100% 匹配。LeadBEVEncoder._load_lead_weights
+# 兼容两种格式:(a) 完整 LEAD ckpt → 按 backbone.* 前缀过滤;(b) 预提取的 backbone-only
+# (无前缀) → 整个 dict 直接加载。设为 None 则走随机初始化(仅用于跑通 forward shape)。
 # ============================================================================
 
 
@@ -559,10 +562,17 @@ class LeadTransfuserBackbone(nn.Module):
         return image_features, lidar_features
 
 
-# LEAD BEV encoder ckpt 路径(本机暂无权重,留 placeholder)。
-# 用户拿到训练好的 LEAD .pth 后,填绝对路径到这里(或在实例化时显式传 ckpt_path)。
-# 加载逻辑:torch.load → 取 ckpt["model"](若是 dict) → 过滤 `backbone.*` 前缀 →
-# strict=False 加载,容忍 ckpt 里有其它非 backbone 条目。
+# LEAD BEV encoder backbone-only ckpt 路径。
+# 当前指向已从 HuggingFace ln2697/tfv6/tfv6_resnet34/model_0030_0.pth 提取的
+# backbone 子集(前缀已剥),实测 strict=False 加载 missing=0 / unexpected=0,
+# state_dict 与 LeadTransfuserBackbone 100% 匹配。
+#
+# 加载逻辑(见 LeadBEVEncoder._load_lead_weights):
+#   1. torch.load → 若含 "model" 子 dict 则取出
+#   2. 优先按 `backbone.*` 前缀过滤(用于直接喂完整 LEAD ckpt 时);若过滤后为空
+#      则视为已预提取的 backbone-only ckpt(无前缀),整个 dict 直接加载
+#   3. strict=False 加载到 self.backbone,容忍 ckpt 里有其它非 backbone 条目
+# 设为 None 则走随机初始化(仅用于跑通 forward shape 验证)。
 LEAD_BEV_CKPT_PATH: str | None = "/home/cruser1/lda/AutoMoT/checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth"
 
 
@@ -1129,9 +1139,11 @@ class LeadOfflineMoTRunner:
         """
         clip_len = int(self._to_numpy(lead_clip["rgb"]).shape[0])
         
-        # 以 clip 最后一帧作为 anchor（对应当前时刻）
+        # 以 clip 最后一帧作为 anchor（对应当前时刻）。
+        # 注意:anchor_t 是 clip 内局部索引(0..clip_len-1),不是 route 内全局帧号;
+        # 全局帧号见 build_clip_from_real_lead_route 打印的 "[load] anchor=... reading frames [a, b]"。
         anchor_t = clip_len - 1
-        print(f"Processing anchor_t={anchor_t} (last frame)...")
+        print(f"Processing clip-local anchor_t={anchor_t} (clip last frame, clip_len={clip_len})...")
         
         out = self.run_step(
             lead_clip=lead_clip, 
