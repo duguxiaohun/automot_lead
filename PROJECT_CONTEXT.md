@@ -48,6 +48,52 @@
 
 ---
 
+## 0.5 路线决策（**重要：决定了哪些差异需要修，哪些可以忽略**）
+
+> 用户在反复讨论后确定的工程路线，所有后续修复优先级都基于此前提：
+
+### 当前关注的路径
+
+**慢推理（Qwen3-VL）** = 当前**唯一**实际有用的路径。
+
+- Qwen3-VL backbone 是 **原始权重 frozen**（**未被 AutoMoT 作者 fine-tune**）
+- 它是通用 vision-language tower，训练数据涵盖互联网各种 aspect ratio / 分辨率 / 视角
+- 内部 vision processor 做 dynamic resolution（smart_resize 到 patch_size 倍数）
+- ⇒ runner 喂 `(W=1152, H=384)` 三视角拼接图 / `(W=1024, H=512)` 单前视 / `(W=512, H=256)` resize 后图，**Qwen3-VL 都能 forward，输出有意义的 hidden states**
+- ⇒ **慢推理路径不需要做 RGB 切片、不需要 resize、不需要选前视**——直接喂当前的三视角拼接图就够
+
+### 已搁置的路径
+
+**快推理**（`bev_encoder` + `bev_encoder_proj` + `reasoning_projector` + `route_head` + `waypoint_head` + 各种 learnable queries）= **用户预计放弃**。
+
+这部分都是 AutoMoT 作者训过的部件，对训练分布敏感。但：
+- 用户表态："快推理的东西我之后大概率会放弃，你就可以暂时先不管了"
+- ⇒ §8.2 表格里所有**仅影响 trans_feat / 快推理路径**的差异（相机物理位置差 1.85 m、LiDAR sweep 数 5 vs 2、bev_encoder RGB 视野不对齐等）**保留作历史记录但不再优化**
+
+### 替代方案：未来若要彻底解决，重训 bev_encoder
+
+如果未来用户决定不放弃 BEV/快推理路径：
+
+- ✅ **推荐**：重训整个 bev_encoder + 下游 projector/head（用 LEAD 数据训练，Qwen3-VL 仍 frozen）。这样 runner 完全不需要做"AutoMoT 训练分布对齐"，所有视角/格式/sweep 数差异自然消失
+- ❌ **不推荐**：只重训 bev_encoder backbone 但保留下游 projector/head 不动——风险高，bev_encoder 输出特征语义变了，下游 projector 没见过，整体性能可能反而变差
+
+详细任务清单见 §12「未来工作」。
+
+### 当前 runner 对慢推理的输入状态
+
+针对慢推理（`kv_cache_fixed_inference(rgb_pil_list + [prompt])`）的**所有输入项已经全部对齐**：
+
+| 输入项 | 现状 | 是否对齐慢推理需求 |
+|---|---|---|
+| 4 帧 RGB PIL `(W=1152, H=384)` 三视角拼接 | 直接喂，不切、不 resize | ✅ Qwen3-VL 自适应消化 |
+| `prompt_cleaned` 文本 | speed `:.2f`、tp/ntp `:.6f`、ego frame 米 | ✅ |
+| `target_point/ntp`（未来 1.5s/3.0s 真值 → ego frame） | 距离量级 7–75 m，与 AutoMoT RoutePlanner 同分布 | ✅ |
+| `theta` / `pos_global` | 弧度 + 米，与 `inverse_conversion_2d` 配对正确 | ✅ |
+
+**runner 在慢推理路径上不需要任何额外修改**。
+
+---
+
 ## 1. 帧率与时间约定（重要！）
 
 | 项 | lead | AutoMoT 在线 | 离线 runner |
@@ -498,13 +544,16 @@ return hist.T   # 转置后 shape (320, 384)：行=y（左右），列=x（前�
 4. LiDAR：在 `_prepare_inference_inputs` 内做"跨帧对齐到 anchor ego-local（用 `R(src_theta).T`，比在线 agent 的 `R(anchor_theta).T` 更严谨）→ `bev_data_utils.lidar_to_histogram_features(self.bev_encoder_config)` AutoMoT 风格栅格化 → (1, 256, 256)"。trans_feat 输出 `(1, 1512, 8, 8)` 与训练分布一致。
 5. 调用 `kv_cache_fixed_inference`（慢路径）+ `based_kv_cache_context_fast_qwen3vl_dp`（快路径），返回 traj/route/text。
 
-### 8.2 当前“跑通”不等于“对”——已识别的不匹配点
+### 8.2 当前"跑通"不等于"对"——已识别的不匹配点
+
+> **阅读提示**：以下表格中标 ⚪ 的项**仅影响快推理路径（trans_feat / bev_encoder / 下游 AutoMoT-trained head）**。按 §0.5 路线决策，快推理预计放弃，**这些项暂不优化**。标 ✅ 的是已修；其它项见对应注释。
+
 
 | # | 问题点 | 现状 | 影响 |
 |---|---|---|---|
 | ① | ✅ **已修复**：BEV encoder lidar 输入尺寸 | 改用 `bev_data_utils.lidar_to_histogram_features(self.bev_encoder_config)`，直接按 AutoMoT config 出 `(1, 256, 256)`（±32m / 4 px/m / `z>0.2` 切地面）。`_rasterize_lidar_xy` 函数和 clip 的 `rasterized_lidar` 字段已删除 | trans_feat 回到训练分布的 `(1, 1512, 8, 8)`，BEV token 数恢复 64 |
 | ② | ✅ **lidar PIL 改用 AutoMoT 栅格** | runner 现在的 `lidar_pil_list` 直接来自 `lidar_to_histogram_features` 输出 (1, 256, 256) [0, 1]，再 *255 转 uint8 复制 3 次成 RGB（R=G=B）。PIL.size=(W=256, H=256) | 仅日志用（PIL lidar 在 inferencer `__call__` 里被注释忽略，不进推理），但日志也已和真正喂模型的 `bev_lidar_tensor` 同源，调试体验对齐 |
-| ③ | **三视角拼接 RGB 直接喂模型** | LEAD `rgb` 是 `(384, 1152, 3)`，runner 不挑前视直接 PIL；`bev_encoder_rgb` 走 `crop_array` 裁到 `(384, 1024, 3)` | inferencer 在 `__call__` 里强 `resize_image(512, 256)`，所以慢路径输入与训练（单视角 1024×512）的视野/比例严重不匹配；bev_encoder 路径 crop 后保留中间 1024 列，**左右仍混入大量侧视像素**，与 AutoMoT 训练分布偏离 |
+| ③ | ⚪ **三视角拼接 RGB 直接喂模型**（**仅快推理相关，已搁置**） | LEAD `rgb` 是 `(384, 1152, 3)`，runner 不挑前视直接 PIL；`bev_encoder_rgb` 走 `crop_array` 裁到 `(384, 1024, 3)` | 慢路径 Qwen3-VL frozen 通用 backbone 能消化任意 aspect/分辨率（按 §0.5 路线决策不做处理）；bev_encoder 路径 crop 后保留中间 1024 列**仍含大量侧视像素**，且相机物理位置差 1.85 m（LEAD 前视 x=+0.35 vs AutoMoT x=-1.50），近场视差和"是否含车头"无法靠图像处理消除——但属于快推理路径，预计放弃 |
 | ④ | ✅ **合理对齐 AutoMoT 训练分布**：target_point/ntp 用未来 1.5 s/3.0 s 真值 | `_extract_tp_ntp_from_future_frames`：取未来 `tp_lookahead_s=1.5 s` 与 `ntp_lookahead_s=3.0 s` 的 ego 真值位置，用 `inverse_conversion_2d(future_pos_global, cur_pos_global, cur_theta)` 转 ego frame | **AutoMoT 模型 ≠ LEAD 训练**：模型权重来自 `AutoMoT/checkpoints/AutoMoT`，用 AutoMoT 自家 RoutePlanner（`min_distance=7.5, max_distance=50`）训练，**期望 tp/ntp 在 30–80 m 区间**（用户在线实测 `TP≈(30, 0)`, `NTP≈(82, 2)`）。直接用 LEAD `next_target_points_3.25[1]/[2]` 转 ego frame 后实测**距离 100–200 m**（见 0026.json：`target_point` 转 ego = `(74, 94)` ≈120 m，`next` = `(102, 190)` ≈216 m），与 AutoMoT 训练分布严重错位。用 future 1.5 s/3.0 s 真值 ≈ `speed × lookahead` = 25–50 m（中速时）、~7–15 m（低速时）、~38–75 m（高速时），数量级落在 AutoMoT 训练分布内。⚠ caveat：距离随速度变化，红灯停车时退化到 ~(0, 0)，但用户接受此为预期行为 |
 | ⑤ | ✅ **已修复**：LiDAR 多帧对齐 | `bev_frame_count` 默认改为 **1**——仅用 anchor 单帧 .laz（内含 5 个 ego-aligned sweep），完全对齐 LEAD 训练分布（5 sweep / 0.25 s）。`_align_lidar_points_to_anchor` 函数保留（设 `bev_frame_count>1` 时仍会工作，用 `R(src_theta).T` 严格平移），但默认路径不再触发跨帧拼接 | 单帧路径下完全无 sweep 累积偏差 |
 | ⑥ | ✅ **已修复**：LiDAR z 过滤直接走 AutoMoT 风格 | runner 不再有自定义 z 过滤；`lidar_to_histogram_features` 内部按 `lidar_split_height=0.2` 切 above（`use_ground_plane=False`），与 BEV encoder 训练分布完全一致。LEAD `rasterize_lidar` 的 `[-4, 10]` 闭区间路径已废弃（连同 `_rasterize_lidar_xy` 函数一起删除） | 完全对齐训练分布；地面层 z ≤ 0.2 被丢弃，与训练一致 |
@@ -547,13 +596,21 @@ bev_lidar_tensor  : (1, 1, 256, 256)  bf16   [0, 1]                 # AutoMoT �
 - 输出 `bev_feature` (trans_feat) = **(1, 1512, 8, 8)**，BEV token 数 = 64，**与训练分布完全一致**
 - `bev_feature_upscale: (1, 64, 64, 64)`、`fused_features: (1, 1512, 8, 8)`、`image_feature_grid: (1, 1512, 12, 32)`
 
-### 8.4 当前剩余偏差（已修复 vs 仍存在）
+### 8.4 当前剩余偏差（按路径分组）
 
-经过几轮修订，BEV 栅格、多帧对齐、位姿源、二次 JPEG、target_point 分布都已对齐 AutoMoT 训练分布。**剩余偏差**仅 1 项（用户明确接受）：
+**慢推理路径（用户**当前关心**的路径）**：✅ **所有偏差均不影响**
+- Qwen3-VL frozen 通用 backbone，能消化 (1152, 384) 三视角拼接图
+- prompt / target_point / theta / pos_global / speed 单位精度全部对齐
+- ⇒ **runner 在慢推理路径上不需要任何额外修改**
 
-1. **RGB 是三视角拼接而不是单前视**：慢路径 Qwen3VL ViT 灵活能"读"，快路径用户准备整体替换，所以暂不切前视。
+**快推理路径（用户预计放弃，暂不优化）**：⚪ 以下偏差**保留为历史记录**：
+- RGB 视野不对齐（含侧视、相机物理位置 x 差 1.85 m）
+- LiDAR sweep 数（5 vs 在线 2）
+- 这些只有重训 bev_encoder + 下游 head 才能根治（见 §12）
 
-其余偏差（traj 时间网格 6×0.5s vs LEAD GT 8×0.25s、缺少 `self.commands` 队列）仅在 close-loop eval / 轨迹对齐时才相关，开环单 anchor 推理无影响。
+**Close-loop / evaluation 才相关**：
+- traj 时间网格 6×0.5s vs LEAD GT 8×0.25s（eval 脚本内重采样即可）
+- `self.commands` deque 缺失（close-loop 状态机才需要）
 
 ### 8.5 精度与单位对照（speed / theta / tp / ntp）
 
@@ -578,7 +635,10 @@ bev_lidar_tensor  : (1, 1, 256, 256)  bf16   [0, 1]                 # AutoMoT �
 | **`v_target_point`** | `(1, 5) float32 = [speed, tp.x, tp.y, ntp.x, ntp.y]` | 同 | ✅ |
 | **`trans_feat`** | `(1, 1512, 8, 8) bf16` | 同（因 BEV LiDAR 已对齐到 256×256） | ✅ |
 
-**结论**：第一次调用 `kv_cache_fixed_inference` 之前的所有数值/单位/精度都与训练分布对齐。剩下唯一的内容性偏差是 RGB 三视角拼接图本身（不是数值精度问题）。
+**结论**：第一次调用 `kv_cache_fixed_inference` 之前的所有数值/单位/精度都与训练分布对齐。
+
+> **针对当前路线（慢推理 Qwen3-VL 为主）**：上表所有项**全部 ✅**——Qwen3-VL frozen 对图像 shape 鲁棒，连 RGB 三视角拼接图都能消化，runner 慢推理路径**不需要任何修改**。
+> **快推理 trans_feat 路径**的偏差（视野/sweep 数等）参见 §8.2 ⚪ 标记项，已搁置。
 
 ---
 
@@ -625,6 +685,11 @@ bev_lidar_tensor  : (1, 1, 256, 256)  bf16   [0, 1]                 # AutoMoT �
 ## 11. 一次性 cheat sheet
 
 ```
+【路线】慢推理 Qwen3-VL (frozen 原始权重) = 唯一关心的路径
+       快推理 (trans_feat / bev_encoder / 下游 AutoMoT-trained head) = 预计放弃, 暂不优化
+       ⇒ runner 慢推理路径无需修改 (Qwen3-VL 通用 backbone 对图像 shape 鲁棒)
+       未来若不放弃快推理 ⇒ 重训整个 decoder 链路, 见 §12
+
 LEAD: 20Hz CARLA, 每0.25s落盘1帧, BEV 4px/m 范围 [-32,64]×[-40,40] 单通道[0,1]
        LiDAR 单帧.laz 内含 5 sweep (lidar_pc_queue maxlen=5 滚动覆盖, 相邻帧无重叠)
             + 可选 radar; 第4列是 time stamp 不是 intensity
@@ -673,3 +738,60 @@ AutoMoT 在线: 20Hz, 每tick决策
    ⏸ 离线没维护 self.commands deque (close-loop 评测才相关)
    ⏸ traj 时间网格 6×0.5s vs LEAD GT 8×0.25s (eval 时插值即可, runner 内不涉及)
 ```
+
+---
+
+## 12. 未来工作 / 路线相关待办
+
+> 这些是**已经讨论但暂不实施**的工作项，按优先级 / 工程量列出。新对话接手时若用户提到要做，可直接查这里。
+
+### 🟢 当前阶段无需做的（基于 §0.5 路线决策）
+
+1. **慢推理 RGB resize / 切片** — ❌ 不做
+   - 理由：Qwen3-VL frozen 通用 backbone，对任意 aspect/分辨率鲁棒；当前 (1152, 384) 三视角拼接图直接喂没问题
+   - 用户明确表态："不希望要做"
+   - ⇒ runner 慢推理路径**保持现状**
+
+2. **bev_encoder 输入对齐**（切 [192:960] 视野、resize 到 (1024, 384)、LiDAR sweep 数对齐等） — ❌ 不做
+   - 理由：仅影响快推理路径，用户预计放弃
+   - 相关历史讨论见 §8.2 ②③④ 表格
+
+### 🟡 中期可能做的（若改变路线 / 想搞快推理）
+
+3. **重训整个 AutoMoT decoder 链路（Qwen3-VL 仍 frozen）**
+   - 范围：`bev_encoder` backbone + `bev_encoder_proj` + 各 `*_projector` + 各 `*_head` + 各 `*_queries`
+   - 数据：LEAD 数据集（已经有 `bev_semantic / detect_boxes / depth / semantic / future_positions / target_speed_classes / next_target_points_3.25 / 离散 command` 等所有需要的 GT）
+   - **训完之后 runner 完全不需要做"AutoMoT 训练分布对齐"**——所有视角/格式/sweep 数差异自然消失
+   - 工程量：大（要搭训练 pipeline、可能要写 Loss、需要 GPU 资源）
+   - **不推荐只重训 bev_encoder backbone**：风险高，输出特征语义变了下游 projector/head 没见过
+
+4. **如果走方案 3 后，PROJECT_CONTEXT.md 大改**：
+   - 删掉 §0.5 中"快推理已搁置"的论断
+   - §8.2 表格里 ②③④ 等"仅快推理"标记全部归零
+   - cheat sheet 顶部路线行重写
+
+### 🔴 远期 / 若做 close-loop 评测才相关
+
+5. **traj 时间网格对齐**（6×0.5s → 8×0.25s 重采样）
+   - 仅在用 LEAD GT 算 ADE/FDE 时需要
+   - runner 内不必处理，加在 evaluation 脚本里即可
+
+6. **离线维护 `self.commands` deque**
+   - 用于 force_move / parking_escape / 路径切换状态机
+   - 当前 runner 走"开环单点推理"用不到
+   - 真要做 close-loop 评测时再加
+
+7. **LiDAR sweep 数对齐**（如果想严格匹配 AutoMoT 在线 2 sweep）
+   - LEAD `.laz` 已经 5 sweep 烧死了，且 `laspy.read` 读不到 `time` 字段无法过滤
+   - 实际无解，除非重训 bev_encoder 让它适配 5 sweep
+
+### 🧰 工程清理（任何时候都可以做）
+
+8. **删除 runner 里和快推理相关的死代码**（如果用户明确放弃）
+   - `BEVEncoderBackboneExtractor` 加载
+   - `_lead_lidar_to_bev_encoder_channel` / 各种 LiDAR 栅格调用
+   - `bev_encoder(...)` 前向调用
+   - `based_kv_cache_context_fast_qwen3vl_dp` 调用
+   - 把 `run_step` / `run_clip` 改成只产出 `gen_context`（慢推理 KV cache）
+   - 体积大幅缩减，文件更聚焦
+   - ⚠ 删除前请用户确认快推理真不要了
