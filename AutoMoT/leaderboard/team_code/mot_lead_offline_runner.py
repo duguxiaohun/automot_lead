@@ -436,6 +436,7 @@ class LeadOfflineMoTRunner:
         fused_points = (
             np.concatenate(aligned_chunks, axis=0) if aligned_chunks else np.zeros((0, 3), dtype=np.float32)
         )
+        # (35926, 3)
         # 改用 AutoMoT 风格栅格化（±32m / 4 px/m / z>0.2 切地面），直接出 (1, 256, 256)。
         # 这样 BEV encoder 输出 trans_feat 自然是 (1, 1512, 8, 8)，与训练分布一致；
         # 同时无需再做 cv2.resize 二次插值。bev_encoder_config 来自 AutoMoT 自己的 config。
@@ -443,6 +444,8 @@ class LeadOfflineMoTRunner:
         # shape: (1, 256, 256), float32, range=[0, 1]
 
         lidar_bev_rgb = self._lead_lidar_to_rgb_bev(lidar_i)
+        # shape: (256, 256, 3), dtype: uint8, range=[0, 255]
+
         lidar_pil_list = [Image.fromarray(lidar_bev_rgb, mode="RGB")]
         # PIL lidar 仅作调试日志：在线/离线的 InterleaveInferencer.__call__ 都把 lidar 参数注释掉了，
         # 不会进慢路径 prompt，所以这里的 PIL 内容不影响推理。
@@ -472,6 +475,7 @@ class LeadOfflineMoTRunner:
         # torch.Size([1, 3, 384, 1024]),
 
 
+        # shape: (1, 256, 256), float32, range=[0, 1]
         bev_lidar_1ch = self._lead_lidar_to_bev_encoder_channel(lidar_i)
         # shape: (1, 256, 256) —— 已是 AutoMoT BEV encoder 训练分布的 shape，无需再 resize
 
@@ -1081,14 +1085,14 @@ def main():
 
     # _print_clip_tensor_stats(clip)
     
-    # [Clip Stats]  默认 anchor=12, max_history=3 -> clip_len=4
-    # - rgb: shape=(4, 384, 1152, 3), dtype=uint8, range=[0, 255]
-    # - lidar_points: list[4] (变长), dtype=float32, points/frame 数值因帧而异, range≈[-93, 124]
-    # - pos_global: shape=(4, 2), dtype=float32, range=[-0.25889, 92.8296]
-    # - theta: shape=(4,), dtype=float32, range=[1.5939, 1.59512]
-    # - speed: shape=(4,), dtype=float32, range=[7.5151e-06, 7.9911]
-    # - target_point: shape=(4, 2), dtype=float32, range=[-0.000894547, 10.5777]
-    # - target_point_next: shape=(4, 2), dtype=float32, range=[-0.000629115, 25.0991]
+    # [Clip Stats]
+    #     - rgb: shape=(4, 384, 1152, 3), dtype=uint8, range=[0, 255]
+    #     - lidar_points: list[4] (变长), dtype=float32, points/frame(min/max/total)=33763/35926/138854, range=[-125.073, 117.508]
+    #     - pos_global: shape=(4, 2), dtype=float32, range=[88.7583, 229.458]
+    #     - theta: shape=(4,), dtype=float32, range=[1.59468, 1.59501]
+    #     - speed: shape=(4,), dtype=float32, range=[6.38579, 7.9911]
+    #     - target_point: shape=(4, 2), dtype=float32, range=[0.000619971, 10.4444]
+    #     - target_point_next: shape=(4, 2), dtype=float32, range=[0.00338461, 26.7549]
     
     runner = LeadOfflineMoTRunner(device=args.device)
     outputs = runner.run_clip(
