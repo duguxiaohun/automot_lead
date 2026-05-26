@@ -58,9 +58,10 @@
 
 - Qwen3-VL backbone 是 **原始权重 frozen**（**未被 AutoMoT 作者 fine-tune**）
 - 它是通用 vision-language tower，训练数据涵盖互联网各种 aspect ratio / 分辨率 / 视角
-- 内部 vision processor 做 dynamic resolution（smart_resize 到 patch_size 倍数）
-- ⇒ runner 喂 `(W=1152, H=384)` 三视角拼接图 / `(W=1024, H=512)` 单前视 / `(W=512, H=256)` resize 后图，**Qwen3-VL 都能 forward，输出有意义的 hidden states**
+- 内部 vision processor 做 dynamic resolution（`smart_resize` **严格维持 aspect ratio**，详见 §5.7）
+- ⇒ runner 喂 `(W=1152, H=384)` 三视角拼接图：smart_resize 后**仍是 (1152, 384) 不变**（已是 factor=32 倍数），aspect 3:1 完美保持，**图像不会被压扁/拉伸/失真**
 - ⇒ **慢推理路径不需要做 RGB 切片、不需要 resize、不需要选前视**——直接喂当前的三视角拼接图就够
+- ⚠ 唯一副作用：vision tokens 比 AutoMoT 在线 (512, 256) 多 **3.4×**（432 vs 128），慢推理显存/时间相应增加。详见 [§5.7](#57-qwen3-vl-image-processing-行为细节决定任意-shape-是否失真的关键)
 
 ### 已搁置的路径
 
@@ -477,6 +478,84 @@ return hist.T   # 转置后 shape (320, 384)：行=y（左右），列=x（前�
 - `AutoMoT/checkpoints/AutoMoT/model.safetensors`（**Qwen3-VL 4B + heads + bev_encoder 全打包**）
 - `AutoMoT/checkpoints/Qwen3-VL-4B/`（tokenizer/processor）
 - `BEVEncoderBackboneExtractor` 从 `model.safetensors` 里取 `bev_encoder.*` 前缀的子集自行装载。
+
+### 5.7 Qwen3-VL Image Processing 行为细节（决定"任意 shape 是否失真"的关键）
+
+> 这一节解答："我直接把 (1152, 384) 三视角拼接图喂给 Qwen3-VL，会不会被偷偷 resize 改变 aspect 导致失真？" 答：**不会失真**，aspect 完美保持。但 vision token 数会变多。
+
+#### 5.7.1 内部使用的 image processor
+
+Qwen3-VL 复用 `Qwen2VLImageProcessor`（[transformers/models/qwen2_vl/image_processing_qwen2_vl.py:54-80](../../AppData/Roaming/Python/Python311/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl.py)）。核心函数 `smart_resize`：
+
+```python
+def smart_resize(height, width, factor=28, min_pixels=56*56, max_pixels=28*28*1280):
+    """
+    1. Both dimensions divisible by 'factor'.
+    2. Total pixels in [min_pixels, max_pixels].
+    3. Aspect ratio maintained as closely as possible.   ← 关键
+    """
+    if max(h, w) / min(h, w) > 200:
+        raise ValueError(...)
+    h_bar = round(height / factor) * factor
+    w_bar = round(width / factor) * factor
+    if h_bar * w_bar > max_pixels:
+        # 等比例缩小（保持 aspect）
+        beta = sqrt(h * w / max_pixels)
+        h_bar, w_bar = floor(height/beta/factor)*factor, floor(width/beta/factor)*factor
+    elif h_bar * w_bar < min_pixels:
+        # 等比例放大（保持 aspect）
+        beta = sqrt(min_pixels / (h * w))
+        h_bar, w_bar = ceil(height*beta/factor)*factor, ceil(width*beta/factor)*factor
+    return h_bar, w_bar
+```
+
+#### 5.7.2 Qwen3-VL 实际参数
+
+从 [automot.py:1700-1709](AutoMoT/Automot/mot/modeling/automot/automot.py#L1700-L1709) 注释里的 `grid_thw=[1, 16, 32]`、`pixel_values shape=(512, 1536)`、`128 vision tokens` 反推（基于 AutoMoT 在线 resize 后 (512, 256) 的实测值）：
+
+| 参数 | 值 | 推理 |
+|---|---|---|
+| `patch_size` | **16** | grid_thw[1]=16 ⇒ H/patch_size=16 ⇒ patch_size = 256/16 = 16 |
+| `merge_size` | **2** | tokens = 16×32 / 4 = 128 ⇒ merge_size² = 4 |
+| `factor` | **32** | factor = patch_size × merge_size = 16 × 2 = 32 |
+| `min_pixels` | 56×56 = 3,136 | 默认值 |
+| `max_pixels` | 28×28×1280 = 1,003,520 | 默认值 |
+
+#### 5.7.3 不同输入尺寸的实际处理结果
+
+`vision_tokens = (h_bar / patch_size) × (w_bar / patch_size) / merge_size² = h_bar × w_bar / (16² × 2²) = h_bar × w_bar / 1024`
+
+| 输入 PIL.size | smart_resize 后 | aspect 是否变化 | 总像素 | vision tokens 数 |
+|---|---|---|---|---|
+| **AutoMoT 在线** `(W=512, H=256)` | (512, 256) 不变（已是 32 倍数） | ✅ 保持 2:1 | 131,072 | **128** |
+| **runner 当前** `(W=1152, H=384)` | (1152, 384) 不变（1152=36×32, 384=12×32） | ✅ 保持 3:1 | 442,368 | **432** |
+| 假设原前视图 `(W=1024, H=512)` | (1024, 512) 不变 | ✅ 保持 2:1 | 524,288 | 512 |
+| 极端例：`(W=2000, H=300)` | smart_resize 后约 (2016, 288) | ✅ 仍 aspect 近 7:1 | 580k | ~568 |
+
+⇒ **结论**：runner (1152, 384) **既不会被 resize 也不会被压扁**，aspect 3:1 严格保持；图像内容不失真。
+
+#### 5.7.4 真正的副作用：vision token 数 / 显存 / 慢推理时间
+
+| 维度 | runner | AutoMoT 在线 | 比例 |
+|---|---|---|---|
+| 每张图 vision tokens | 432 | 128 | **3.4×** |
+| 4 帧总 vision tokens | 1728 | 512 | 3.4× |
+| Attention KV cache 长度（含 text） | ~1800+ | ~700+ | ~2.6× |
+| 慢推理时间（attention O(N²)） | baseline × ~7 | baseline | 显著变慢 |
+| 显存（KV cache 与 attention map） | baseline × 3.4 | baseline | 3.4× |
+
+> ⚠ 如果显存不够或速度受不了，可在 runner `_prepare_inference_inputs` 里加一行：
+> `rgb_pil_list = [img.resize((512, 256), Image.LANCZOS) for img in rgb_pil_list]`
+> 这会让 vision tokens 降到 128/帧，与 AutoMoT 在线对齐。**但用户当前不希望做此处理**（保留原始视野信息，让 Qwen3-VL 自己消化）。
+
+#### 5.7.5 为什么这不影响"Qwen3-VL 慢推理质量"
+
+1. Qwen3-VL backbone **冻结**，权重来自 Qwen 团队原始预训练（互联网通用图像-文本对，**见过各种 aspect / 各种 vision token 数**）
+2. AutoMoT 训练只 fine-tune 下游 projector/heads，**不 fine-tune Qwen3-VL backbone**
+3. 你预计放弃快推理 → 下游 projector/heads 不再用 → vision token 数 432 vs 128 的差异只影响**已搁置的路径**
+4. 你保留的"慢推理"只是用 Qwen3-VL 算 KV cache（即 attention 中间状态）—— Qwen3-VL 通用 backbone 对此完全胜任
+
+⇒ **runner 当前输入对慢推理无任何"隐藏失真"问题。**
 
 ---
 
