@@ -202,7 +202,54 @@
 >
 > `SCENARIO_TYPES` 列表见 [constants.py:334-385](lead/lead/common/constants.py#L334-L385)，总长 **50**（48 个真实场景 + `"noScenarios"` + `"NA"`），所以 `scenario_type_id ∈ [0, 49]`。常用场景如 `Accident, BlockedIntersection, DynamicObjectCrossing, ParkedObstacle, PedestrianCrossing, T_Junction, VehicleTurningRoute, ...`。
 
-### 2.3 配置入口与"carla_leaderboard_mode=True"下的关键参数
+### 2.3 参考样本：`0026.json`（**只读、不参与 git**）
+
+工作目录根有一个 `0026.json` —— **用户提供的一个 LEAD meta.pkl 转 JSON 后的标准参考样本**。
+
+| 属性 | 值 |
+|---|---|
+| 用途 | 验证 meta 字段语义、推算坐标系、做 sanity check 时的参考"标尺" |
+| 工程角色 | **只读资料**，**不参与 git**（在 `.gitignore` 之外，靠 CLAUDE.md §2-3 规则保护：禁止修改、禁止 `git add`） |
+| 顶层 keys 数 | 350（含 29 套 `next_target_points_{k}` + 29 套 `next_gps_target_points_{k}`，`k` 是 tp_pop_distance ∈ {3.0, 3.25, …, 10.0}） |
+| 涵盖字段 | §2.2 列出的所有 meta 字段，**实际数值版本** |
+
+#### 关键字段实测值（供核对）
+
+```json
+{
+    "speed": 16.69856909441179,                       // m/s, 高速直行
+    "pos_global": [229.79, 151.20, 1.37],             // 世界 m
+    "filtered_pos_global": [-3.61, 151.28],           // 注意只有 2 维, 且 x 大不同（GPS frame）
+    "noisy_pos_global": [-3.32, 150.79],
+    "theta": 1.8477753837916513,                      // 弧度 ≈ 105.87°
+    "privileged_yaw": 1.8477754664913886,             // 与 theta 差 ~1e-7
+    "target_speed": 17.94, "speed_limit": 25.0,
+    "previous_target_points": [],                     // 空 ⇒ ego 还在第一个 tp 之前
+    "next_target_points": [                           // 世界坐标 (3D)
+        [233.16, 80.66, 0.58],
+        [118.66, 196.73, 1.72],
+        [18.66, 196.98, 0.0]
+    ],
+    "next_commands": [4, 4, 4]                        // 4 = LANEFOLLOW
+}
+```
+
+#### 用这个样本核对过的关键推论（曾用于决定 runner 设计）
+
+1. **`next_target_points[1]` 转 ego frame 后约 (74, 94) ≈ 120 m**，**`[2]` 约 (102, 190) ≈ 216 m**——LEAD milestone 远超 AutoMoT 训练分布（30–80 m）。这是 §8.2 ④ runner 选 future 1.5s/3.0s GT 而不是 `next_target_points_3.25` 的直接证据。
+2. **`filtered_pos_global` 与 `pos_global` 数值差异巨大**（`x` 分别是 -3.61 vs 229.79）：两者**不在同一坐标系**！filtered_pos_global 是 GPS frame（以 GPS 起点为零），pos_global 是 CARLA world frame。⇒ runner 严格走 `pos_global`，**不能**和 filtered/noisy 混用。
+3. **`theta` 与 `privileged_yaw` 差异 ~1e-7**：实质等价；§8.2 ⑨ runner 选 `theta` 是合理的。
+
+#### 如何使用
+
+- 新 AI 接手时若需要验证 meta 字段含义，**优先查 `0026.json` 而非去翻 `lead/expert/expert.py` 源码**（省 token）
+- 若你需要重新生成或更新参考样本，要么覆盖本机 `0026.json` 文件（不 git），要么用户提供新的
+- **永远不要 `git add 0026.json`**——它是参考资料，不是项目产出
+- **永远不要修改其内容**——它是固定标尺，修改会让历史 §8.2 ④ 推论失效
+
+---
+
+### 2.4 配置入口与"carla_leaderboard_mode=True"下的关键参数
 
 | 参数 | 值（leaderboard mode） | 含义 |
 |---|---|---|
