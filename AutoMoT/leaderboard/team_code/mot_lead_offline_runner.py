@@ -3,9 +3,15 @@ LEAD video -> AutoMoT offline runner.
 
 中文说明：
 - 该文件是离线桥接实现，不修改原有在线 Agent。
-- 目标：把 LEAD 的 video clip（默认 12 帧）切成 AutoMoT 所需的时序输入，
-  复用 AutoMoT 现有模型初始化与推理链路。
-- 关键采样规则：RGB 使用 [t, t-1, t-2, t-3]（按时间顺序喂入）。
+- 目标：把 LEAD route 中的某个 anchor 帧（含必要历史窗口）切成 AutoMoT 所需的
+  时序输入，复用 AutoMoT 现有模型初始化与推理链路。
+- 入口语义：显式指定 anchor（route 内绝对帧索引），由采样参数反推需要的历史长度。
+  clip 内 anchor 永远是最后一帧；当 anchor 太靠前导致历史不足时，会重复 frame 0
+  补齐并打印 warning（不报错，但需注意数据有重复）。
+- 关键采样规则：RGB 默认使用 [t, t-1, t-2, t-3]（按时间顺序喂入）。
+- BEV/LiDAR：clip 只保存原始点云 (`lidar_points`)，栅格化在 `_prepare_inference_inputs`
+  里完成 —— 跨帧对齐到 anchor ego-local 后调 AutoMoT 的 `lidar_to_histogram_features`
+  (±32m / 4 px/m / z>0.2 切地面) 直接出 (1, 256, 256)，与训练分布一致。
 """
 
 from __future__ import annotations
@@ -97,6 +103,7 @@ from team_code.automot_utils import (
     inverse_conversion_2d,
     load_model_mot,
 )
+from team_code.bev_data_utils import lidar_to_histogram_features
 
 
 @dataclass
@@ -236,10 +243,10 @@ class LeadOfflineMoTRunner:
     @staticmethod
     def _lead_lidar_to_rgb_bev(rasterized_lidar: np.ndarray) -> np.ndarray:
         """
-        把 _rasterize_lidar_xy 输出的 (1,H,W) float32 [0,1] 转成 3 通道可视化 BEV 图。
+        把 (1,H,W) BEV 栅格转成 3 通道可视化 RGB 图（仅日志/调试用）。
 
         说明：
-        - 输入：(1,256,256) float32，值域 [0,1]（来自 _rasterize_lidar_xy）
+        - 输入：(1,256,256) float32 [0,1]，来自 lidar_to_histogram_features(config) 输出
         - 输出：(256,256,3) uint8，用于 PIL Image 显示（不送入模型）
         """
         arr = rasterized_lidar
@@ -255,11 +262,11 @@ class LeadOfflineMoTRunner:
     @staticmethod
     def _lead_lidar_to_bev_encoder_channel(rasterized_lidar: np.ndarray) -> np.ndarray:
         """
-        把 _rasterize_lidar_xy 输出直接透传给 BEV encoder。
+        把栅格化结果透传给 BEV encoder（只做 shape/dtype 兜底）。
 
-        输入：(1,H,W) float32 [0,1]，H/W 可变。
-        输出：(1,H,W) float32 [0,1]，供后续按模型配置重采样后送入
-        BEVEncoderBackboneExtractor.forward()。
+        输入：(1,H,W) float32 [0,1]。当前主链路使用 AutoMoT 风格栅格化
+        (lidar_to_histogram_features)，H=W=256；不再需要任何 resize。
+        输出：(1,H,W) float32 [0,1]，直接送入 BEVEncoderBackboneExtractor.forward()。
         """
         arr = rasterized_lidar
         # 统一为 (1, H, W) float32
@@ -353,10 +360,10 @@ class LeadOfflineMoTRunner:
         return [group]
 
     def _prepare_inference_inputs(self, lead_clip: dict[str, Any], group: OfflineGroup,
-                                  bev_frame_step: int = 1, bev_frame_count: int = 2):
+                                  bev_frame_step: int = 1, bev_frame_count: int = 1):
         """把 LEAD clip + group 转为 inferencer 输入。"""
         rgb_clip = self._to_numpy(lead_clip["rgb"])  # 期望 (T,C,H,W) 或 (T,H,W,C)
-        # (12, 384, 1152, 3)
+        # 默认 anchor=12, max_history=3 -> clip_len=4：(4, 384, 1152, 3)
 
         use_pose_aligned_lidar = all(k in lead_clip for k in ("lidar_points", "pos_global", "theta"))
         if not use_pose_aligned_lidar:
@@ -365,22 +372,22 @@ class LeadOfflineMoTRunner:
             )
 
         lidar_points_clip = lead_clip.get("lidar_points", None)
-        # lidar_points_clip[0].shape (4676, 3)
-        
+        # 变长列表 list[4]，每帧 shape ≈ (N_i, 3)，N_i 因帧而异（示例: ~4676~34890）
+
         pos_global_clip = np.asarray(self._to_numpy(lead_clip.get("pos_global", [])), dtype=np.float32)
-        # (12, 2)
+        # (4, 2)
 
         theta_clip = np.asarray(self._to_numpy(lead_clip.get("theta", [])), dtype=np.float32)
-        # (12,)
-        
+        # (4,)
+
         speed_clip = self._to_numpy(lead_clip["speed"])
-        # (12,)  range: [7.5151e-06, 7.9911]
+        # (4,)  range: [7.5151e-06, 7.9911]
 
         tp_clip = self._to_numpy(lead_clip["target_point"])
-        # (12, 2)  range: [-0.000894547, 10.5777]
+        # (4, 2)  range: [-0.000894547, 10.5777]
 
         ntp_clip = self._to_numpy(lead_clip["target_point_next"])
-        # (12, 2)  range: [-0.000629115, 25.0991]
+        # (4, 2)  range: [-0.000629115, 25.0991]
 
         t = group.anchor_t
 
@@ -408,8 +415,8 @@ class LeadOfflineMoTRunner:
 
         for idx in bev_indices_asc:
             pts = np.asarray(lidar_points_clip[idx], dtype=np.float32)
-            # Frame 10: original lidar_points shape: (34275, 3), dtype: float32
-            # Frame 11: original lidar_points shape: (34890, 3), dtype: float32
+            # 默认 anchor=12, bev_count=1, bev_step=1 -> bev_indices_asc=[3]（clip 内 idx，仅 anchor 单帧）
+            # Frame 3: original lidar_points shape ≈ (N, 3), dtype: float32  # N 因帧而异
             
             if pts.ndim != 2 or pts.shape[1] < 3:
                 raise ValueError(f"lidar_points[{idx}] shape invalid: {pts.shape}")
@@ -429,10 +436,16 @@ class LeadOfflineMoTRunner:
         fused_points = (
             np.concatenate(aligned_chunks, axis=0) if aligned_chunks else np.zeros((0, 3), dtype=np.float32)
         )
-        lidar_i = _rasterize_lidar_xy(fused_points)
+        # 改用 AutoMoT 风格栅格化（±32m / 4 px/m / z>0.2 切地面），直接出 (1, 256, 256)。
+        # 这样 BEV encoder 输出 trans_feat 自然是 (1, 1512, 8, 8)，与训练分布一致；
+        # 同时无需再做 cv2.resize 二次插值。bev_encoder_config 来自 AutoMoT 自己的 config。
+        lidar_i = lidar_to_histogram_features(fused_points, self.bev_encoder_config)
+        # shape: (1, 256, 256), float32, range=[0, 1]
 
         lidar_bev_rgb = self._lead_lidar_to_rgb_bev(lidar_i)
         lidar_pil_list = [Image.fromarray(lidar_bev_rgb, mode="RGB")]
+        # PIL lidar 仅作调试日志：在线/离线的 InterleaveInferencer.__call__ 都把 lidar 参数注释掉了，
+        # 不会进慢路径 prompt，所以这里的 PIL 内容不影响推理。
 
         # 3) target_point_speed
         speed = float(np.asarray(speed_clip[t]).reshape(-1)[0])
@@ -444,15 +457,13 @@ class LeadOfflineMoTRunner:
             device=self.device,
         )
 
-        # 4) BEV encoder 输入（来自最后一帧三视角拼接 RGB 与 LEAD rasterized_lidar）
-        rgb_last_np = np.array(rgb_pil_list[-1], dtype=np.uint8)
-        # (384, 1152, 3) range: [0, 234]
-        _, compressed = cv2.imencode(".jpg", cv2.cvtColor(rgb_last_np, cv2.COLOR_RGB2BGR))
-        bev_rgb = cv2.imdecode(compressed, cv2.IMREAD_UNCHANGED)
-        bev_rgb = cv2.cvtColor(bev_rgb, cv2.COLOR_BGR2RGB)
-        # (384, 1152, 3) range: [0, 234]
+        # 4) BEV encoder 输入（来自最后一帧三视角拼接 RGB 与 AutoMoT 风格栅格化 LiDAR）
+        # 注意：LEAD .jpg 已经经过 1 次 JPEG 压缩（与 AutoMoT 训练分布一致），
+        # 这里直接复用 PIL 解码结果，避免再 encode/decode 引入二次压缩伪影。
+        bev_rgb = np.array(rgb_pil_list[-1], dtype=np.uint8)
+        # (384, 1152, 3) uint8 RGB, range≈[0, 234]
 
-        # 裁剪 RGB 到训练时使用的视野范围	
+        # 裁剪 RGB 到训练时使用的视野范围
         bev_rgb = bev_encoder_t_u.crop_array(self.bev_encoder_config, bev_rgb)
         # (384, 1024, 3)
 
@@ -462,47 +473,39 @@ class LeadOfflineMoTRunner:
 
 
         bev_lidar_1ch = self._lead_lidar_to_bev_encoder_channel(lidar_i)
-        # shape: (1, 320, 384),
+        # shape: (1, 256, 256) —— 已是 AutoMoT BEV encoder 训练分布的 shape，无需再 resize
 
-        # # 先按 LEAD 参数栅格化，再按 AutoMoT 模型配置分辨率重采样，避免输入尺寸不匹配。
-        # target_h = int(getattr(self.bev_encoder_config, "lidar_resolution_height", 256))
-        # target_w = int(getattr(self.bev_encoder_config, "lidar_resolution_width", 256))
-        # if bev_lidar_1ch.shape[1] != target_h or bev_lidar_1ch.shape[2] != target_w:
-        #     resized = cv2.resize(bev_lidar_1ch[0], (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-        #     bev_lidar_1ch = resized[None, :, :].astype(np.float32)
-        # torch.Size([1, 1, 256, 256])
-        
-        
         bev_lidar_tensor = torch.from_numpy(bev_lidar_1ch).float().unsqueeze(0).to(self.device, dtype=torch.bfloat16)
-        # torch.Size([1, 1, 320, 384])
+        # torch.Size([1, 1, 256, 256])
 
 
 
         # [_prepare_inference_inputs Return Values Stats]
         # - rgb_pil_list: list[4], first image size=(1152, 384), mode=RGB
-        # - lidar_pil_list: list[1], first image size=(384, 320), mode=RGB
+        # - lidar_pil_list: list[1], first image size=(256, 256), mode=RGB
         # - target_point_speed: shape=(1, 5), dtype=float32, range=[0.00132107, 25.0991]
         # - bev_rgb_tensor torch.Size([1, 3, 384, 1024]),: range=[0, 235]
         # - bev_lidar_tensor torch.Size([1, 1, 256, 256]),: range=[0, 1]
-        # - bev_indices_desc: [11, 10]
-        # - bev_indices_asc: [10, 11]
+        # - bev_indices_desc: [3]   # 默认 anchor=12, bev_count=1, 仅 anchor 单帧（clip 内 idx）
+        # - bev_indices_asc: [3]
         return rgb_pil_list, lidar_pil_list, target_point_speed, bev_rgb_tensor, bev_lidar_tensor, bev_indices_desc, bev_indices_asc
 
     @torch.no_grad()
-    def run_step(self, lead_clip: dict[str, Any], anchor_t: int, 
-                 gen_context=None, timestamp: float = 0.0, 
+    def run_step(self, lead_clip: dict[str, Any], anchor_t: int,
+                 gen_context=None, timestamp: float = 0.0,
                  rgb_frame_step: int = 1, rgb_frame_count: int = 4,
-                 bev_frame_step: int = 1, bev_frame_count: int = 2) -> dict[str, Any]:
+                 bev_frame_step: int = 1, bev_frame_count: int = 1) -> dict[str, Any]:
         """
         离线版 run_step：
         - 输入：一个 LEAD clip + 指定 anchor 帧 + KV缓存上下文
         - 输出：AutoMoT 的 text/traj/route + 组装元数据
-        
+
         参数说明：
         - rgb_frame_step: RGB 采样间隔（默认 1 对应 LEAD 的 0.25s，5 对应 AutoMoT 的 1.25s）
         - rgb_frame_count: RGB 采样帧数（默认 4）
         - bev_frame_step: BEV 采样间隔（默认 1）
-        - bev_frame_count: BEV 采样帧数（默认 2）
+        - bev_frame_count: BEV 采样帧数（默认 1）—— LEAD 单帧 .laz 已内含 5 累积 sweep，
+          直接用 anchor 单帧即对齐 LEAD 训练分布；改为 2 会拼到 10 sweep / 0.5s，密度×2 时间窗×2
         
         关键流程：
         1. 准备数据 (BEV encoder, 多帧RGB)
@@ -524,17 +527,17 @@ class LeadOfflineMoTRunner:
 
         with torch.no_grad():
             # bev_rgb_tensor -> shape=(1, 3, 384, 1024), dtype=torch.bfloat16, range=[0, 235]
-            # bev_lidar_tensor -> shape=(1, 1, 320, 384), dtype=torch.bfloat16, range=[0, 1]
+            # bev_lidar_tensor -> shape=(1, 1, 256, 256), dtype=torch.bfloat16, range=[0, 1]
             bev_encoder_output = self.bev_encoder(
                 rgb=bev_rgb_tensor,
                 lidar_bev=bev_lidar_tensor,
             )
-        trans_feat = bev_encoder_output["bev_feature"]  # (1, 1512, 8, 8)
+        trans_feat = bev_encoder_output["bev_feature"]  # (1, 1512, 8, 8) —— 与训练分布一致
         # bev_encoder_output keys: ['bev_feature', 'bev_feature_upscale', 'fused_features', 'image_feature_grid']
-        # bev_feature: tensor, shape=(1, 1512, 10, 12), dtype=torch.bfloat16, min=-0.890625, max=4.343750
-        # bev_feature_upscale: tensor, shape=(1, 64, 64, 64), dtype=torch.bfloat16, min=0.000000, max=22.875000
-        # fused_features: tensor, shape=(1, 1512, 10, 12), dtype=torch.bfloat16, min=-0.890625, max=4.343750
-        # image_feature_grid: tensor, shape=(1, 1512, 12, 32), dtype=torch.bfloat16, min=-10.187500, max=16.875000
+        # bev_feature: tensor, shape=(1, 1512, 8, 8), dtype=torch.bfloat16  —— 切到 AutoMoT 栅格后回到训练 shape
+        # bev_feature_upscale: tensor, shape=(1, 64, 64, 64), dtype=torch.bfloat16
+        # fused_features: tensor, shape=(1, 1512, 8, 8), dtype=torch.bfloat16
+        # image_feature_grid: tensor, shape=(1, 1512, 12, 32), dtype=torch.bfloat16  —— 来自 RGB，仍是三视图视野
         
         
         # ========== KV缓存推理 ==========
@@ -584,9 +587,9 @@ class LeadOfflineMoTRunner:
         }
 
     @torch.no_grad()
-    def run_clip(self, lead_clip: dict[str, Any], 
+    def run_clip(self, lead_clip: dict[str, Any],
                  rgb_frame_step: int = 1, rgb_frame_count: int = 4,
-                 bev_frame_step: int = 1, bev_frame_count: int = 2) -> list[dict[str, Any]]:
+                 bev_frame_step: int = 1, bev_frame_count: int = 1) -> list[dict[str, Any]]:
         """
         处理整段 LEAD clip，生成单组推理结果（基于最后一帧）。
 
@@ -594,7 +597,7 @@ class LeadOfflineMoTRunner:
         - rgb_frame_step: RGB 采样间隔（默认 1 对应 LEAD 的 0.25s，5 对应 AutoMoT 的 1.25s）
         - rgb_frame_count: RGB 采样帧数（默认 4）
         - bev_frame_step: BEV 采样间隔（默认 1）
-        - bev_frame_count: BEV 采样帧数（默认 2）
+        - bev_frame_count: BEV 采样帧数（默认 1，对齐 LEAD 单帧 .laz 含 5 sweep 的训练分布）
         
         返回包含单个推理结果的列表。
         """
@@ -641,7 +644,7 @@ class LeadOfflineMoTRunner:
 
 def _print_clip_tensor_stats(clip: dict[str, Any]) -> None:
     """打印关键字段的 shape、dtype 与数值范围，便于快速核对输入数据。"""
-    keys = ["rgb", "rasterized_lidar", "lidar_points", "pos_global", "theta",
+    keys = ["rgb", "lidar_points", "pos_global", "theta",
             "speed", "target_point", "target_point_next"]
     print("\n[Clip Stats]")
     for k in keys:
@@ -696,56 +699,6 @@ def _print_clip_tensor_stats(clip: dict[str, Any]) -> None:
             )
         else:
             print(f"  - {k}: shape={shape_str}, dtype={dtype_str}, range=[non-numeric]")
-
-def _rasterize_lidar_xy(points_xyz: np.ndarray) -> np.ndarray:
-    """将点云转换为 BEV 直方图特征（按 LEAD 的 rasterize_lidar 逻辑）。
-
-    坐标系约定（重要）：
-    - 输入 points_xyz 必须已经在“自车局部坐标系（ego local）”下。
-    - 在本脚本主链路中，输入是“当前 anchor 帧自车局部坐标系”下的点云
-      （由 _prepare_inference_inputs 中的 _align_lidar_points_to_anchor 对齐后得到）。
-    - 本函数只做栅格化，不执行坐标系变换。
-
-    参数说明（按 LEAD 配置）：
-    - 范围：x ∈ [-32, 64]，y ∈ [-40, 40]（车辆局部系平面坐标）
-    - 分辨率：4 px/m → 320×384（H×W）
-    - Z 过滤：保留 -4.0 <= z < 10.0
-    - 单层输出（不做 above/below 分层）
-    - 归一化：clip(count, 0, hist_max_per_pixel=5) / 5，值域 [0, 1] float32
-    - 轴交换：histogramdd 输出 (x_bins, y_bins)，.T 得到 (y_bins, x_bins) 即 (H, W)
-
-    返回：
-        np.ndarray，shape=(1, 320, 384)，dtype=float32，值域 [0, 1]
-    """
-    min_x, max_x = -32.0, 64.0
-    min_y, max_y = -40.0, 40.0
-    pixels_per_meter = 4.0
-    hist_max_per_pixel = 5
-    min_height_lidar = -4.0
-    max_height_lidar = 10.0
-
-    h = int((max_y - min_y) * pixels_per_meter)
-    w = int((max_x - min_x) * pixels_per_meter)
-
-    if points_xyz.size == 0:
-        return np.zeros((1, h, w), dtype=np.float32)
-
-    def splat_points(point_cloud: np.ndarray) -> np.ndarray:
-        xbins = np.linspace(min_x, max_x, int((max_x - min_x) * pixels_per_meter) + 1)
-        ybins = np.linspace(min_y, max_y, int((max_y - min_y) * pixels_per_meter) + 1)
-        hist = np.histogramdd(point_cloud[:, :2], bins=(xbins, ybins))[0]
-        hist[hist > hist_max_per_pixel] = hist_max_per_pixel
-        return (hist / hist_max_per_pixel).T
-
-    # LEAD 区间过滤：min_height_lidar <= z < max_height_lidar
-    lidar = points_xyz[(points_xyz[:, 2] >= min_height_lidar) & (points_xyz[:, 2] < max_height_lidar)]
-    if lidar.size == 0:
-        return np.zeros((1, h, w), dtype=np.float32)
-
-    # LEAD 默认 remove_ground_plane=False 时的单层栅格输出
-    features = np.stack([splat_points(lidar)], axis=0).astype(np.float32)
-    return features
-
 
 def _extract_tp_ntp_from_future_frames(
     *,
@@ -817,34 +770,55 @@ def _extract_tp_ntp_from_future_frames(
 
 
 def _extract_pose_from_meta(meta: dict[str, Any]) -> tuple[np.ndarray, float]:
-    """从 LEAD meta 提取全局位置与航向，用于跨帧 LiDAR 对齐。"""
-    pos_xy = np.zeros((2,), dtype=np.float32)
-    for k in ("filtered_pos_global", "pos_global", "noisy_pos_global"):
-        if k in meta:
-            arr = np.asarray(meta[k], dtype=np.float32).reshape(-1)
-            if arr.shape[0] >= 2:
-                pos_xy = arr[:2].astype(np.float32)
-                break
+    """从 LEAD meta 提取全局位置与航向，用于跨帧 LiDAR 对齐与 tp/ntp 转 ego。
 
-    theta = 0.0
-    for k in ("theta", "privileged_yaw"):
-        if k in meta:
-            theta = float(np.asarray(meta[k], dtype=np.float32).reshape(-1)[0])
-            break
+    严格对齐 LEAD 训练默认配置（use_noisy_tp=False）：
+    - 位置：固定用 `pos_global`（真值），不回退到 filtered / noisy
+    - 朝向：固定用 `theta`（compass 经 normalize_angle + unwrap）
+    缺失任一字段视为数据异常直接 raise。
+    """
+    if "pos_global" not in meta:
+        raise KeyError("meta 缺少 pos_global 字段；LEAD 训练默认走真值位姿，请检查数据完整性")
+    arr = np.asarray(meta["pos_global"], dtype=np.float32).reshape(-1)
+    if arr.shape[0] < 2:
+        raise ValueError(f"pos_global 维度不足 2: shape={arr.shape}")
+    pos_xy = arr[:2].astype(np.float32)
+
+    if "theta" not in meta:
+        raise KeyError("meta 缺少 theta 字段")
+    theta = float(np.asarray(meta["theta"], dtype=np.float32).reshape(-1)[0])
 
     return pos_xy, theta
 
 
 def build_clip_from_real_lead_route(
     route_dir: str,
-    clip_len: int = 12,
-    start_frame: int = 0,
+    anchor: int = 12,
+    rgb_frame_step: int = 1,
+    rgb_frame_count: int = 4,
+    bev_frame_step: int = 1,
+    bev_frame_count: int = 1,
     tp_lookahead_s: float = 1.5,
     ntp_lookahead_s: float = 3.0,
     frame_interval_s: float = 0.25,
 ) -> dict[str, Any]:
     """
     从真实 LEAD route 目录构造 runner 所需 clip。
+
+    新语义：显式指定 anchor（route 内的绝对帧索引，0-based），由采样参数反推
+    需要读取的最早历史帧。clip 内 anchor 永远是最后一帧。
+
+    参数：
+    - anchor: 待处理的 anchor 帧索引（route 内绝对索引）。
+    - rgb_frame_step / rgb_frame_count: RGB 历史采样步长与帧数。
+    - bev_frame_step / bev_frame_count: BEV/LiDAR 历史采样步长与帧数。
+    - tp_lookahead_s / ntp_lookahead_s / frame_interval_s: target_point 未来帧设置。
+
+    行为：
+    - 计算 max_history = max((rgb_count-1)*rgb_step, (bev_count-1)*bev_step)
+    - ideal_start = anchor - max_history；若 < 0 则 clamp 到 0 并 warning（补 0 行为
+      由 _build_group_indices 内的 max(..., 0) 完成，会重复 frame 0 的数据）。
+    - 校验 anchor 必须落在 [0, total_frames-1] 内。
 
     目录要求：
     - rgb/*.jpg
@@ -868,15 +842,41 @@ def build_clip_from_real_lead_route(
     if not rgb_files:
         raise FileNotFoundError(f"no rgb frames found in {rgb_dir}")
 
-    end_frame = min(start_frame + clip_len, len(rgb_files))
-    if end_frame - start_frame < clip_len:
+    total_frames = len(rgb_files)
+
+    # 校验 anchor 合理性
+    if anchor < 0:
+        raise ValueError(f"anchor 必须 >= 0，当前 anchor={anchor}")
+    if anchor >= total_frames:
         raise ValueError(
-            f"route frames not enough: requested {clip_len} from {start_frame}, "
-            f"available {len(rgb_files)}"
+            f"anchor={anchor} 超出 route 范围（route 总帧数={total_frames}，"
+            f"合法范围 [0, {total_frames - 1}]）"
         )
 
+    # 根据采样参数反推需要读取的最早历史帧
+    max_history = max(
+        (max(1, rgb_frame_count) - 1) * max(1, rgb_frame_step),
+        (max(1, bev_frame_count) - 1) * max(1, bev_frame_step),
+    )
+    ideal_start = anchor - max_history
+    if ideal_start < 0:
+        pad_count = -ideal_start
+        print(
+            f"[警告] anchor={anchor} 历史不足：需要 {max_history} 帧历史，"
+            f"但 route 起点仅到 frame 0，将通过重复 frame 0 补 {pad_count} 次（"
+            f"补 0 数据会有重复，可能略偏离训练分布）"
+        )
+        actual_start = 0
+    else:
+        actual_start = ideal_start
+
+    print(
+        f"[load] anchor={anchor}, max_history={max_history}, "
+        f"reading frames [{actual_start}, {anchor}] ({anchor - actual_start + 1} frames), "
+        f"total_route_frames={total_frames}"
+    )
+
     rgb_list = []
-    lidar_list = []
     speed_list = []
     tp_list = []
     ntp_list = []
@@ -885,7 +885,7 @@ def build_clip_from_real_lead_route(
     lidar_points_list = []
     meta_cache: dict[int, dict[str, Any]] = {}
 
-    for i in range(start_frame, end_frame):
+    for i in range(actual_start, anchor + 1):
         stem = f"{i:04d}"
         rgb_path = rgb_dir / f"{stem}.jpg"
         meta_path = meta_dir / f"{stem}.pkl"
@@ -938,18 +938,9 @@ def build_clip_from_real_lead_route(
         # (34890, 3)
         
         lidar_points_list.append(pts)
-        
-
-        # 该栅格仅作为离线 clip 的缓存字段（LEAD 参数，形状约 (1, 320, 384)）；
-        # 主推理路径使用“对齐后”栅格并在送入 AutoMoT 前按模型配置重采样。
-        lidar_grid = _rasterize_lidar_xy(pts)
-        # (1, 320, 384)
-        
-        lidar_list.append(lidar_grid)
 
     clip = {
         "rgb": np.stack(rgb_list, axis=0),
-        "rasterized_lidar": np.stack(lidar_list, axis=0),
         "lidar_points": lidar_points_list,
         "pos_global": np.stack(pos_global_list, axis=0).astype(np.float32),
         "theta": np.asarray(theta_list, dtype=np.float32),
@@ -1011,16 +1002,12 @@ def main():
         help="真实 LEAD 路由目录，目录下需包含 rgb、metas、lidar 三个子目录。",
     )
     parser.add_argument(
-        "--start-frame",
-        type=int,
-        default=0,
-        help="从 route 中第几帧开始读（从 0 开始）。例如 0 表示从 0000 开始。",
-    )
-    parser.add_argument(
-        "--clip-len",
+        "--anchor",
         type=int,
         default=12,
-        help="一次推理读取连续多少帧原始数据。比如 12 表示读取 [start_frame, start_frame+11]。",
+        help="待处理的 anchor 帧索引（route 内绝对索引，0-based）。"
+             "实际读取的历史范围由 rgb/bev 的 step/count 反推；anchor 必须 < route 总帧数。"
+             "若历史不足（anchor 太靠前）会触发补 0（重复 frame 0），打印 warning 但不报错。",
     )
     parser.add_argument(
         "--rgb-frame-step",
@@ -1043,8 +1030,9 @@ def main():
     parser.add_argument(
         "--bev-frame-count",
         type=int,
-        default=2,
-        help="每次推理融合多少帧 BEV/LiDAR。默认 2；例如设为 4 时融合 [t, t-step, t-2*step, t-3*step]。",
+        default=1,
+        help="每次推理融合多少帧 BEV/LiDAR。默认 1（对齐 LEAD 训练：单帧 .laz 已含 5 累积 sweep）；"
+             "设为 2 会拼 [t-step, t] 共 10 sweep，密度×2 时间窗×2，偏离训练分布。",
     )
     parser.add_argument(
         "--device",
@@ -1078,27 +1066,29 @@ def main():
 
     clip = build_clip_from_real_lead_route(
         route_dir=args.route_dir,
-        clip_len=max(1, args.clip_len),
-        start_frame=max(0, args.start_frame),
+        anchor=max(0, args.anchor),
+        rgb_frame_step=max(1, args.rgb_frame_step),
+        rgb_frame_count=max(1, args.rgb_frame_count),
+        bev_frame_step=max(1, args.bev_frame_step),
+        bev_frame_count=max(1, args.bev_frame_count),
         tp_lookahead_s=float(args.tp_lookahead_s),
         ntp_lookahead_s=float(args.ntp_lookahead_s),
         frame_interval_s=float(args.frame_interval_s),
     )
     print(f"Using real route dir: {args.route_dir}")
-    print(f"Using frame range: [{max(0, args.start_frame)}, {max(0, args.start_frame)+max(1, args.clip_len)-1}]")
+    print(f"Anchor frame: {args.anchor}")
     print(f"Using route-time mode (tp_lookahead_s={args.tp_lookahead_s}s, ntp_lookahead_s={args.ntp_lookahead_s}s)")
 
     # _print_clip_tensor_stats(clip)
     
-    # [Clip Stats]
-    # - rgb: shape=(12, 384, 1152, 3), dtype=uint8, range=[0, 255]
-    # - rasterized_lidar: shape=(12, 1, 320, 384), dtype=float32, range=[0, 1]
-    # - lidar_points: list[12] (变长), dtype=float32, points/frame(min/max/total)=4676/34890/348082, range=[-93.1718, 124.628]
-    # - pos_global: shape=(12, 2), dtype=float32, range=[-0.25889, 92.8296]
-    # - theta: shape=(12,), dtype=float32, range=[1.5939, 1.59512]
-    # - speed: shape=(12,), dtype=float32, range=[7.5151e-06, 7.9911]
-    # - target_point: shape=(12, 2), dtype=float32, range=[-0.000894547, 10.5777]
-    # - target_point_next: shape=(12, 2), dtype=float32, range=[-0.000629115, 25.0991]
+    # [Clip Stats]  默认 anchor=12, max_history=3 -> clip_len=4
+    # - rgb: shape=(4, 384, 1152, 3), dtype=uint8, range=[0, 255]
+    # - lidar_points: list[4] (变长), dtype=float32, points/frame 数值因帧而异, range≈[-93, 124]
+    # - pos_global: shape=(4, 2), dtype=float32, range=[-0.25889, 92.8296]
+    # - theta: shape=(4,), dtype=float32, range=[1.5939, 1.59512]
+    # - speed: shape=(4,), dtype=float32, range=[7.5151e-06, 7.9911]
+    # - target_point: shape=(4, 2), dtype=float32, range=[-0.000894547, 10.5777]
+    # - target_point_next: shape=(4, 2), dtype=float32, range=[-0.000629115, 25.0991]
     
     runner = LeadOfflineMoTRunner(device=args.device)
     outputs = runner.run_clip(
