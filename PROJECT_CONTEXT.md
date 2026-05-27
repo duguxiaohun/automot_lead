@@ -1198,49 +1198,102 @@ while step < max_length:
 
 ### 14.7 这两种范式对改 `prompt_cleaned` 的影响（关键结论）
 
-> ⚠ **修正**：早期版本本节写"必须额外调 `qwen_vl.chat()`"是错的。AutoMoT 自带 `gen_text` 端口
-> 直接消费 prefill 出的 `gen_context`，**不需要外挂任何 Qwen 接口**。
+> ⚠⚠ **重要订正（2026-05-27 smoke test 实测）**：本节早期版本提到的
+> "AutoMoT 自带 `gen_text` 端口 → 直接出三行 STATUS/SUBGOAL" **实测无效**。
+> AutoMoT ckpt 跑 `gen_text` 会立即吐 EOS → **空字符串**。详见 §14.9。
+>
+> 想真正走范式 A 出文字 → **只能用原版 Qwen3-VL-4B**（外挂 baseline runner），
+> **不能用 AutoMoT ckpt**。详细对照实验见
+> [`AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`](AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py)
+> 的 `--backend automot|qwen|both` smoke test。
 
 1. **直接把 `vlm_prompt_pipeline.build_user_prompt(memory, ...)` 塞进 `prompt_cleaned`，但只跑 `kv_cache_fixed_inference`：**
    - 可以塞，但 VLM **不会按 ANALYSIS/STATUS/SUBGOAL 三行答**
    - 因为 `kv_cache_fixed_inference` 不解码（只 prefill），多塞的内容只是变长 KV cache
    - 效果：reasoning_query / action_query cross-attend 时多看了一段 memory，**间接**影响下游 `(stop/keep, traj)` 输出。**不会有可读文字。**
 
-2. **想真的让 VLM "按 STATUS/SUBGOAL 格式输出"，加一行 `gen_text` 即可：**
+2. **~~AutoMoT 加一行 `gen_text` 即可~~ ⚠ 实测证伪（仅原版 Qwen3-VL-4B 有效）：**
 
    ```python
-   # runner 里 prompt_cleaned 已含 [MEMORY] 块
+   # ⚠ 下面这段代码,只在 ckpt 是原版 Qwen3-VL-4B 时能出三行文本;
+   # ⚠ 换成 AutoMoT ckpt 跑同样的代码,raw_vlm_text 是 "" (立即 EOS,详见 §14.9)。
    slow_input_lists = rgb_pil_list + [prompt_cleaned]
    gen_context = self.inferencer.kv_cache_fixed_inference(slow_input_lists)
 
-   # ★ 关键新增：autoregressive 解码出三行文本
+   # 原版 Qwen3-VL: 正常出 "ANALYSIS: ...\nSTATUS: ...\nSUBGOAL: ..."
+   # AutoMoT ckpt: 立即 EOS,返回 ""
    vlm_response = self.inferencer.gen_text(gen_context, max_length=200)
    parsed = parse_vlm_output(vlm_response)
-   # parsed = {"analysis": ..., "status": "match_speed", "subgoal": "merge_complete"}
 
-   # trans_feat / 下游 head 还想跑 → gen_context 完整保留（gen_text 内部 deepcopy 不污染）
+   # AutoMoT ckpt 的范式 B 下游 head 仍然能跑(范式 B 不经 lm_head,不受影响)
    gen_text2, gen_traj = self.inferencer.based_kv_cache_context_fast_qwen3vl_dp(
        fast_input_lists, gen_context, ...
    )
    ```
 
-   成本：每帧多一次 autoregressive 解码（~200 token，不重做 prefill 大图像，速度可接受）。
+3. **~~"模型按三行答的能力来自 Qwen3-VL 原始指令跟随"这条说法实测不成立。~~** 实测发现 AutoMoT 的 lm_head autoregressive 路径**完全丧失**指令跟随能力——即使训练脚本宣称"backbone 冻结、lm_head 原生未微调"，加载日志里 `Loaded weights: 0 missing` 表明**模型的每一个参数（含 decoder 层、lm_head）都来自 AutoMoT 自家的 `model.safetensors`**，不是从 Qwen3-VL-4B 基座加载的。叠加新加的驾驶 special tokens + `prepare_start_tokens` 用的也是 driving-task 起始 token，SFT 训练分布把 `gen_text` 路径完全特化成"短驾驶 token + 立即 EOS"。详见 §14.9。
 
-3. **格式约束仍是软约束**：
-   - AutoMoT 训练时 **冻结** Qwen3-VL backbone，`lm_head` 是 Qwen3 原生未 fine-tune
-   - 模型按 ANALYSIS/STATUS/SUBGOAL 三行答的能力来自 Qwen3-VL **原始指令跟随**，不保证 100% 遵从
-   - 仍需要 `parse_vlm_output` 的 lenient 正则 + `update_memory` 的事件名白名单校验兜底
-
-4. **范式 A 和范式 B 在同一个 `inferencer` 里共存**：
-   - 范式 A 路径：`kv_cache_fixed_inference + gen_text` （或一步式 `qwen3vl_template_inference`）
-   - 范式 B 路径：`kv_cache_fixed_inference + based_kv_cache_context_fast_qwen3vl_dp`
-   - 同一份 `gen_context` 可以**同时**喂两条路径——这是 prefill / decode 分层架构的红利
+4. **范式 A 和范式 B 共存的红利仍然有效，但配置受 ckpt 约束**：
+   - 范式 A 路径：`kv_cache_fixed_inference + gen_text` —— **必须**用原版 Qwen3-VL-4B
+   - 范式 B 路径：`kv_cache_fixed_inference + based_kv_cache_context_fast_qwen3vl_dp` —— **必须**用 AutoMoT ckpt（因为下游 reasoning_head / waypoints_head 在 baseline Qwen 里根本不存在）
+   - 同一份 `gen_context` 喂两条路径在**架构上**可行，**业务上**两条路径吃的是不同 ckpt，需要在外面起两个 inferencer 实例分别跑（见 `vlm_paradigm_a_runner.py` 的 `--backend both`）
 
 ### 14.8 一句话记忆法
 
-- **范式 A** = LLM 当**对话模型**用。`.generate()` 出文本，正则解析。格式靠 prompt 软约束。
-- **范式 B** = LLM 当**特征提取器 + cross-attention 上下文池**用。一次 forward，外接 head 解码。格式靠 head 的 output shape 硬约束。
-- **AutoMoT 同一个 `inferencer` 自带两种范式**：`kv_cache_fixed_inference + gen_text` 走 A，`kv_cache_fixed_inference + based_kv_cache_context_fast_qwen3vl_dp` 走 B。
+- **范式 A** = LLM 当**对话模型**用。`.generate()` 出文本，正则解析。格式靠 prompt 软约束。**ckpt 必须是原版 Qwen3-VL-4B**。
+- **范式 B** = LLM 当**特征提取器 + cross-attention 上下文池**用。一次 forward，外接 head 解码。格式靠 head 的 output shape 硬约束。**ckpt 必须是 AutoMoT**。
+- **AutoMoT 自带 `gen_text` 端口架构上能跑，业务上跑不出来**——SFT 把 lm_head 训成只会吐 stop/keep + EOS。
 - **"一步到位"端口（`qwen3vl_template_inference` 等）内部仍是 prefill + decode**——这是 Transformer autoregressive 的物理本质，绕不开。
 - `prompt_cleaned` 在范式 B 是 "soft prompt 上下文"，在范式 A 才是真正被回答的"问题"。
+
+
+### 14.9 smoke test 实证：AutoMoT ckpt **不能**走范式 A
+
+**实验脚本**：[`AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`](AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py)
+
+```bash
+python leaderboard/team_code/vlm_paradigm_a_runner.py --backend both
+```
+
+输入完全一致（同一组合成 RGB 图 + 同一个 system/user prompt + 同一份 DrivingMemory），
+输出对比：
+
+| backend | raw VLM text | parsed | 结论 |
+|---|---|---|---|
+| `automot`（AutoMoT ckpt + `kv_cache_fixed_inference + gen_text`）| **`""`**（长度 0）| `{status: None, subgoal: None, analysis: None}` | ❌ 立即 EOS |
+| `qwen`（原版 Qwen3-VL-4B + HF `generate`）| 完整三行 + 正确语义（"The image shows a static, colorful banner ... status has not changed"）| `{status: "initial", subgoal: "slow_traffic_detect", analysis: "..."}`| ✅ 指令跟随 + 视觉理解都正常 |
+
+#### 14.9.1 根因（三层修改叠加）
+
+| 层 | AutoMoT vs 原版 Qwen3-VL-4B 的差异 | 对 `gen_text` 的影响 |
+|---|---|---|
+| **架构** | `layer_module="Qwen3VLMoTDecoderLayer"`；新增 `reasoning_queries`/`action_queries`/`route_queries`/`waypoint_queries`/`reasoning_head`/`waypoints_head`/`anchor_head`/`bev_encoder_proj`/各种 projector | decoder 层的 MoT 通路对 reasoning_query 等位置走另一条 FFN/attention，间接改变 lm_head 输入分布 |
+| **权重** | `Loaded weights: 0 missing, 1146 unexpected` —— **整个模型**（含 decoder + lm_head）的参数都来自 AutoMoT 自家 `model.safetensors`，**不是**从 Qwen3-VL-4B base 加载。doc 早期"backbone 冻结、lm_head 原生未微调"的说法**只描述训练时的梯度策略**，不代表 ckpt 里的数值跟基座完全一致 | lm_head 的输出分布已被 SFT 拉到驾驶 token 上 |
+| **Tokenizer** | [`add_special_tokens`](AutoMoT/Automot/data/reasoning/data_utils.py) 加了驾驶专用 special token；`gen_text` 内部 `prepare_start_tokens(kv_lens, ropes, self.new_token_ids)` 喂的起始 token 是这些新加的 driving-task token，不是普通的 `<\|im_start\|>assistant\n` | 模型一拿到驾驶起始 token，SFT 训练分布告诉它"下一步该立即结束"，第一个采样到的就是 `<\|im_end\|>` |
+
+#### 14.9.2 三种"空输出"失败模式必须分清
+
+| 失败模式 | 是不是 AutoMoT 模型问题 | runner 当前是否中招 | 怎么救 |
+|---|---|---|---|
+| **范式 A `gen_text` 立即 EOS → 空字符串** | ✅ 是模型问题（SFT 把 lm_head 训成只会出短驾驶 token） | ❌ runner 不调用 `gen_text`，**不会中招** | 想要文字 → 切原版 Qwen3-VL（baseline runner）|
+| **范式 B `fast_qwen3vl_dp` 输出空** | ❌ **物理上不可能** —— `is_causal=False, update_past_key_values=False`，一次 forward 出固定 shape hidden state，没有 EOS 概念 | ❌ **不会中招** | —— |
+| **范式 B 整条路被 `enable_fast_inference=False` 跳过 → traj/route 全 None** | ❌ 不是模型问题 —— LEAD trans_feat shape `(1, 512, 10, 12)` 与 AutoMoT `bev_encoder_proj` 期望 `(1, 1512, 8, 8)` 不兼容 | ✅ **当前 runner 默认就是这个状态** | 按 §12 重设计 BEV → projector → query 链路 |
+
+#### 14.9.3 对 `mot_lead_offline_runner.py` 的影响
+
+**不需要改 runner**。理由：
+
+- runner [设计上](AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py#L1092-L1118) 就**从不调用 `gen_text`**，所以 §14.9.2 第 1 行的失败模式压根不会发生
+- runner 的 `prompt_cleaned`（"Your current and next target point is ..."）对齐 SFT 训练分布，没问题
+- runner 当前看着"输出全 None" 是因为 §14.9.2 第 3 行（BEV shape 不兼容），不是模型问题，换千问也救不了（千问没有 waypoints_head）
+
+#### 14.9.4 实操推荐
+
+| 想要什么 | 用什么 ckpt | 走哪条路 |
+|---|---|---|
+| 轨迹 / 动作（waypoints, stop/keep）| AutoMoT | 范式 B（要先修 BEV shape，见 §12）|
+| ANALYSIS / STATUS / SUBGOAL 文字 | 原版 Qwen3-VL-4B | 范式 A（HF `generate` 或 `kv_cache_fixed_inference + gen_text`）|
+| 两者都要 | 起两个 inferencer 并行跑 | `vlm_paradigm_a_runner.py --backend both` |
+
+**绝对不要**：在 AutoMoT ckpt 上调 `gen_text` 期待出三行文本 —— 物理上能跑通（没报错），业务上是空字符串。
 
