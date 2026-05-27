@@ -979,3 +979,529 @@ AutoMoT 在线: 20Hz, 每tick决策 (本仓库 runner 不复用其 BEV encoder/�
      但 `based_kv_cache_context_fast_qwen3vl_dp` 代码块、`reasoning_tokens`/`action_tokens`
      参数等仍保留（方便用户测试时一行切换）
    - 若彻底放弃 AutoMoT 版快推理（用 LEAD 版替代），可删掉相关分支与 inferencer 字段引用
+
+---
+
+## 13. 关键帧 / VLM 提示词外挂三件套（远程服务器侧产物，本机只读）
+
+> 这三个文件来自远程仓库路径 `/datashare/IOL4SGH/data/data/`，本机仓库根目录下也放了一份副本：
+>
+> - [`rule_based_keyframe_filter.py`](rule_based_keyframe_filter.py)
+> - [`vlm_prompt_pipeline.py`](vlm_prompt_pipeline.py)
+> - [`keyframes_all_scenarios.json`](keyframes_all_scenarios.json)
+>
+> **它们不归本项目维护**——不要改、不要 `git add`、不要 push（CLAUDE.md §2 已禁止）。
+> 这里只记录"它们做了什么、字段怎么读、如果要接到 `mot_lead_offline_runner.py`
+> 的 `prompt_cleaned` 上需要怎么用"。
+
+### 13.1 三者的上下游关系
+
+```
+LEAD 数据集 (cache_ln/data/<scenario>/<run>/{metas,bboxes,rgb,results.json})
+   │
+   │  [离线一次性运行]
+   ▼
+rule_based_keyframe_filter.py
+   │  按 43 个 CARLA 场景各自的规则，从 metas/*.pkl 的物理量
+   │  (speed / accel_x / brake / 8 个 dist_to_*) 中挑出
+   │  5 个关键帧：initial → 3 个 middle 事件 → final
+   ▼
+keyframes_all_scenarios.json          ← 静态查表，runtime 直接读
+   │
+   │  [运行时 / 推理时]
+   ▼
+vlm_prompt_pipeline.py
+   │  DrivingMemory 状态机（scenario / status / subgoal / completed）
+   │  + 给 VLM 拼 system + user prompt
+   │  + 解析 VLM 输出推进 status
+   ▼
+VLM 调用（理论上可挂到 AutoMoT 慢推理的 prompt 上）
+```
+
+注意：`vlm_prompt_pipeline.py` 是**框架无关**的——它**不直接读**
+`keyframes_all_scenarios.json`，只用 `SCENARIO_EVENT_SEQUENCES` 字典。两者通过
+"事件名"约定耦合：filter 写出的 `event` 字符串必须在 pipeline 的事件序列里能找到。
+
+### 13.2 `rule_based_keyframe_filter.py` 解读
+
+**作用**：把每个 LEAD run 摘录成 5 个关键帧，供下游做事件级标注 / 评估 / VLM
+监督信号。
+
+**核心数据结构**：
+
+- `SCENARIO_LABELS`（[L34-77](rule_based_keyframe_filter.py#L34)）— 场景 → 一句话英文标签，
+  作为 initial 帧的 `label_text` 写入 JSON
+- `SCENARIO_CONFIG`（[L89-271](rule_based_keyframe_filter.py#L89)）— 每个场景的
+  `(dist_meta_field, approach_threshold_m, (event_A, event_B, event_C))` 元组
+  - `dist_meta_field`：从 `metas/*.pkl` 里读哪个 `dist_to_*` 字段作为"距离接近"信号
+  - `approach_threshold_m`：距离阈值（米），低于它认为"进入交互段"
+  - `(A, B, C)`：三个中间事件的命名（如 `("hazard_detect", "max_brake_or_min_gap", "recover_or_pass")`）
+- `BRAKE_ACCEL_PRIMARY`（[L274](rule_based_keyframe_filter.py#L274)）— `{HardBreakRoute, ControlLoss}`，
+  这两个场景不靠距离信号，靠 brake/accel 找事件峰值
+- `_ALL_DIST_FIELDS`（[L280-289](rule_based_keyframe_filter.py#L280)）— 全部 8 个距离字段名
+
+**输入**（每个 run）：
+
+| 文件 | 用途 |
+|---|---|
+| `results.json` | 取 `meta.duration_game` 算 `seconds_per_frame`、`status`、`infractions`、`route_id` |
+| `metas/*.pkl`（lzma 压缩 pickle） | 取 `speed / accel_x / brake / throttle / dist_to_*` 8 个字段 |
+| `bboxes/*.pkl`（lzma 压缩 pickle） | 当 metas 里相应距离字段缺失时回退，从 bbox `class/distance/position/extent` 算最近车辆/行人/自行车距离 |
+| `rgb/*.jpg` | 最后兜底——靠相邻帧文件大小差找运动峰值 |
+
+**事件挑选流程（[`pick_middle_events` L783](rule_based_keyframe_filter.py#L783)）**：
+
+按优先级试 4 条规则：
+
+1. **CrossingBicycleFlow 专用** — 自行车等待峰值更细的判定（[`_pick_bicycle_flow_events` L693](rule_based_keyframe_filter.py#L693)）
+2. **Cut-in / Merge 专用** — `cutin_onset → caution_peak → stabilize_follow`，
+   onset 用"距离持续下降"判定（[`_pick_cutin_events` L740](rule_based_keyframe_filter.py#L740)）
+3. **Brake/accel 主导**（HardBreakRoute / ControlLoss）— 找 `accel_x` 最负
+   或 `brake` 最大（[`_pick_brake_accel_events` L655](rule_based_keyframe_filter.py#L655)）
+4. **通用距离规则**（[`_pick_distance_events` L599](rule_based_keyframe_filter.py#L599)）：
+   - A = 距离首次低于阈值且开始减速的帧（同时满足 `dist < thresh` 且 `accel < -0.4` 或 `brake > 0.05`）
+   - B = 该段内速度最低的帧（即"最大减速点 / 最近接近点"）
+   - C = B 之后第一个持续 ≥2 帧 `speed > 2 m/s 且 accel > 0.1` 的恢复点
+5. 上述都失败 → **RGB fallback**：相邻 JPG 文件大小差找 3 个峰值帧
+
+**信号源优先级**：metas/*.pkl（confidence≈0.88）→ bboxes/*.pkl（≈0.7）→ rgb_fallback（0.5）。
+对应 JSON 输出里的 `signal_source` 字段。
+
+**几个工程细节**：
+
+- 全部 pickle 都是 **lzma (xz) 压缩**的，[`load_pickle` L324](rule_based_keyframe_filter.py#L324) 有兜底
+- `enforce_event_order`（[L552](rule_based_keyframe_filter.py#L552)）保证 3 个中间事件严格递增
+  且彼此间有最小间隔（默认 2 帧），避免几个事件落在同一帧
+- 帧→时间换算 `t = frame * seconds_per_frame`，其中
+  `seconds_per_frame = duration_game / (total_frames - 1)`，CARLA 数据集典型≈0.25s/帧
+- 默认 dataset_root 在远程：`/home/cruser1/lda/lead/cache_ln/data`（CLI `--dataset-root` 可改）
+
+### 13.3 `keyframes_all_scenarios.json` 字段说明
+
+**顶层结构**：
+
+```json
+{
+  "dataset_root": "/home/cruser1/lda/lead/cache_ln/data",
+  "scenarios": [41 个场景名 ...],
+  "num_runs": 7326,
+  "runs": [ { ...单个 run 条目... }, ... ],
+  "failed_runs": [],
+  "num_failed_runs": 0
+}
+```
+
+注意：实际 JSON 里 `scenarios` 列了 **41** 个（缺 `Accident` 之外的 `AccidentTwoWays`
+变体？——核对 [`keyframes_all_scenarios.json#L3-46`](keyframes_all_scenarios.json#L3) 发现
+没有 `AccidentTwoWays`），与 `SCENARIO_CONFIG` 的 43 项略有差异，可能是数据集里
+有些场景没采到。`num_runs = 7326`，全部成功无失败 run。
+
+**每个 run 条目**：
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `scenario` | str | CARLA 场景名（与 `SCENARIO_CONFIG` 键一致） |
+| `run_id` | str | run 目录名，形如 `Town03_Rep0_route_001783_route0_01_11_02_37_46` |
+| `route_id` | str | 来自 `results.json`，如 `RouteScenario_route_001783_rep0` |
+| `status` | str | run 结果：`Perfect / Completed / Failed / Unknown` 等（来自 `results.json`） |
+| `num_infractions` | int | 该 run 的违规次数（来自 `results.json`） |
+| `signal_source` | str | 关键帧从哪挑出来的：`metas / bboxes / rgb_fallback` |
+| `rule_confidence` | float | 三个中间事件 confidence 的平均，0.0–1.0 |
+| `initial` | obj | 首帧（见下） |
+| `middle` | list[3] | 三个中间关键帧（见下） |
+| `final` | obj | 末帧（见下） |
+| `diagnostics` | obj | `{total_frames, duration_game, seconds_per_frame}` |
+
+**`initial`**：
+
+```json
+{
+  "event": "initial",
+  "frame": 0,
+  "t": 0.0,
+  "label_text": "Brake and avoid accident hazard",   // ← 来自 SCENARIO_LABELS
+  "confidence": 1.0
+}
+```
+
+**`middle` 每个元素**：
+
+```json
+{
+  "event": "hazard_detect",          // 场景特定事件名（与 vlm_prompt_pipeline 的 SCENARIO_EVENT_SEQUENCES 对应）
+  "frame": 37,                       // 在该 run rgb 序列中的 0-based 帧号
+  "t": 9.2974,                       // 对应的游戏时间（秒）
+  "confidence": 0.88                 // 信号强度：metas≈0.88, bboxes≈0.7, rgb≈0.5
+}
+```
+
+**`final`**：
+
+```json
+{
+  "event": "final",
+  "frame": 117,                       // = total_frames - 1
+  "t": 29.4,
+  "final_success": true,              // status ∈ {Perfect, Completed} 且无 timeout/blocked
+  "confidence": 1.0                   // 成功 1.0 / 失败 0.8
+}
+```
+
+**重要：`frame` 是 LEAD 原始 rgb 序列的下标**，**不是** AutoMoT 慢推理那个 4 帧
+clip 的下标。要在 runner 里用它，需要换算到当前 `anchor_t` 对应的原始帧号
+（runner 里 `lead_clip` 已经按某种 frame_step 抽帧，参见 PROJECT_CONTEXT.md §5）。
+
+### 13.4 `vlm_prompt_pipeline.py` 解读
+
+**作用**：把"VLM 看一张前视图 + 一段 memory → 输出 STATUS/SUBGOAL/ANALYSIS"
+封装成可复用的小模块。**不依赖具体 VLM 框架**——`run_pipeline_step` 收一个
+`vlm_fn(system, user) → str` callable，让调用方接 Qwen3-VL / GPT-4V / 任意 VLM。
+
+**核心组件**：
+
+- **`SCENARIO_LABELS`**（[L38-81](vlm_prompt_pipeline.py#L38)）— 与 filter 里那份**完全一致**
+  （独立维护，没共享代码）
+- **`SCENARIO_EVENT_SEQUENCES`**（[L87-130](vlm_prompt_pipeline.py#L87)）— 场景 → 3 个中间事件
+  的元组。**与 filter 里 `SCENARIO_CONFIG` 第 3 项一一对应**，这是两个文件唯一
+  的"事件命名契约"
+- **`EVENT_DESCRIPTIONS`**（[L136-209](vlm_prompt_pipeline.py#L136)）— 每个事件名 → 一句英文
+  人类可读说明，给 VLM 看 memory 时同时贴出
+- **`DrivingMemory`**（[L228](vlm_prompt_pipeline.py#L228)）— dataclass，字段：
+  - `scenario`、`scenario_label`：标识
+  - `event_sequence`：完整序列 `("initial", mid_a, mid_b, mid_c, "final")`
+  - `status`：当前确认到哪个事件
+  - `subgoal`：下一个目标事件
+  - `completed_events`：已走过的事件列表
+- **`build_system_prompt()`**（[L348](vlm_prompt_pipeline.py#L348)）— 返回一段固定 system prompt，
+  让 VLM 严格按 `ANALYSIS: ... \n STATUS: ... \n SUBGOAL: ...` 三行格式输出
+- **`build_memory_block(memory)`**（[L353](vlm_prompt_pipeline.py#L353)）— 把 memory 渲染成
+  `[MEMORY] ... [/MEMORY]` 文本块插入 user prompt
+- **`build_user_prompt(memory, image_description)`**（[L375](vlm_prompt_pipeline.py#L375)）— 拼接
+  `<image>` + memory block + 提问语
+- **`parse_vlm_output(text)`**（[L410](vlm_prompt_pipeline.py#L410)）— 三条正则抽 STATUS/SUBGOAL/ANALYSIS
+- **`update_memory(memory, parsed, strict=False)`**（[L434](vlm_prompt_pipeline.py#L434)）— 推进状态：
+  - 只允许沿 `event_sequence` **前进或保持**，不允许回退
+  - 校验 VLM 返回的事件名必须在序列内（`strict=True` 时抛错，否则忽略）
+  - subgoal 由 `final_status` 推导而非完全相信 VLM
+- **`run_pipeline_step(memory, image_description, vlm_fn)`**（[L516](vlm_prompt_pipeline.py#L516)）— 一步走完
+  build → call → parse → update
+
+**system prompt 关键约束**（[L317-345](vlm_prompt_pipeline.py#L317)）：
+
+- VLM 只能输出"ANALYSIS / STATUS / SUBGOAL"三行
+- STATUS / SUBGOAL 必须是事件序列里的单个 token
+- SUBGOAL 必须是 STATUS 的下一个事件，除非 STATUS 已经是最后一个中间事件（此时
+  SUBGOAL = `final`）
+
+### 13.5 接到 `mot_lead_offline_runner.py` 的 `prompt_cleaned` 上的思路
+
+当前 runner 的 prompt 在
+[`mot_lead_offline_runner.py:1061`](AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py#L1061)
+来自
+[`automot_utils.py:1204 build_cleaned_prompt_and_modes`](AutoMoT/leaderboard/team_code/automot_utils.py#L1204)，
+内容是固定模板：
+
+```
+Your current and next target point is (..., ...), (..., ...),
+and your current velocity is ... m/s. Predict the driving actions ...
+and plan the trajectory for the next 3 seconds.
+```
+
+如果想接入"场景描述 + memory"风格的提示词，**几种可选切入方式**（先列出，
+等用户挑了再实现，不要先斩后奏）：
+
+**方案 A：注入静态场景标签**（最轻）
+
+- 从 LEAD sample 的 `run_id` / 目录名解析出 scenario
+- 查 `SCENARIO_LABELS[scenario]` 得到一句英文场景描述
+- 拼到现有 prompt 前面：`Scenario: <label>. Your current and next target ...`
+- 优点：实现最简单，0 状态；缺点：不利用关键帧 / memory，VLM 不知道当前进度
+
+**方案 B：注入"当前事件 + 下一事件"**（中等）
+
+- 加载 `keyframes_all_scenarios.json`，按 `(scenario, run_id)` 找到该 run 的 5 个关键帧
+- 把当前推理帧号映射到 LEAD 原始序列里的对应帧（注意 anchor_t / frame_step 换算）
+- 找到该帧号落在哪个事件区间（initial→mid0、mid0→mid1、mid1→mid2、mid2→final）
+- 用 `vlm_prompt_pipeline.DrivingMemory(status=区间起点, subgoal=区间终点)`
+  调 `build_memory_block` 拼到 prompt 里
+- 优点：能给 VLM 时序上下文；缺点：runner 是离线单步推理，没法跨步推进 memory，
+  得每步都从 JSON 重算一次
+
+**方案 C：在线推进 memory 状态机**（最重）
+
+- 在 runner 里持有一个 `DrivingMemory` 实例，跨 sample 推进
+- 用 VLM 输出反过来更新 memory，下一步喂带新 status 的 prompt
+- 需要修改 `run_step` 把 VLM 输出截出 STATUS/SUBGOAL（当前 runner 只关心
+  traj 输出，不关心文字）
+- 适合做闭环评测，**不适合当前的"开环单点推理"**模式
+
+**推荐先做方案 A**：成本极低，能立刻验证"prompt 里加场景描述"对模型输出的影响
+有没有意义；做完再考虑要不要升到 B/C。
+
+实施前要先解决的事实问题（等数据/源码确认）：
+
+1. LEAD sample 怎么拿到 `scenario` 名？看 `lead_clip` 的 meta 或目录名？
+2. LEAD 原始帧号 ↔ runner 当前 `anchor_t` 的换算关系（PROJECT_CONTEXT.md §1 帧率约定可参考）
+3. `keyframes_all_scenarios.json` 路径——本机副本只是参考，正式跑要么打成
+   小表打包进 runner，要么读远程路径
+
+> 修改 prompt 时**只动 [`mot_lead_offline_runner.py`](AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py)**
+> 这一个文件——不要去改 `automot_utils.py` 的 `build_cleaned_prompt_and_modes`
+> （那不在白名单里）。可以在 runner 里调它拿到默认 prompt，再在前/后做拼接。
+
+---
+
+## 14. VLM 的两种使用范式（**改 prompt_cleaned 前必读**）
+
+> 这一节解决一个核心认知误区：**`vlm_prompt_pipeline.py` 那种 "VLM 输出三行 STATUS/SUBGOAL"
+> 的范式，和 AutoMoT `kv_cache_fixed_inference` 里的 prompt 处理范式，根本不是一回事。**
+> 把 vlm_prompt_pipeline 风格 prompt 直接塞进 prompt_cleaned，VLM **不会按那个格式答题**——
+> 因为整条 AutoMoT 推理链路从来就没有"让 VLM 生成文字回答"这一步。
+
+### 14.1 总览对比表
+
+| 维度 | 范式 A：**生成式 (generative decoding)** | 范式 B：**Prefill + Learnable Query** |
+|---|---|---|
+| 谁用 | [`vlm_prompt_pipeline.py`](vlm_prompt_pipeline.py)（远程仓库工具，AutoMoT 没接入） | AutoMoT 慢推理 + 快推理链路（runner 真正跑的路径） |
+| 输入 | system + user prompt（+ 图像） | 慢路径喂 prompt + 历史帧；快路径喂当前帧 + 可学 query |
+| 模型动作 | autoregressive 一步步采样 token，到 EOS 或 max_tokens 停 | 慢路径：**只跑一次 forward 留 KV cache**；快路径：**让 query cross-attend cache**，一次 forward 结束 |
+| 模型输出 | **一段字符串**（如 `"ANALYSIS: ...\nSTATUS: match_speed\nSUBGOAL: merge_complete"`） | 慢路径：**KV cache 张量**；快路径：**`last_hidden_state`**（不是文本！） |
+| "解码"在哪 | tokenizer.decode + 正则抽字段 | 在 query 位置的 hidden 上**外接 head**（lm_head 分类 / MLP 回归） |
+| 是否有 for-loop / EOS | **有**（生成循环） | **无**（一次性 forward） |
+| 是否产生新 K/V | 是（每生成一个 token 都扩 cache） | 慢路径：是；快路径：`update_past_key_values=False`，不扩 |
+| 格式约束方式 | system prompt 软约束 + 解析端兜底 | 用**可学 query** + **外接 head** 把输出形状硬约束成需要的张量 |
+| 训练成本 | 复用预训练 LLM 即可（指令跟随能力来自预训练 / SFT） | 需要训 reasoning_queries + lm_head 偏置 + waypoints_head 等所有 head |
+
+### 14.2 范式 A — `vlm_prompt_pipeline.py`：让 VLM 真的"说话"
+
+典型调用栈（参见 [`run_pipeline_step` L516](vlm_prompt_pipeline.py#L516)）：
+
+```python
+system = build_system_prompt()                          # "你必须按三行格式输出..."
+user   = build_user_prompt(memory, image_description)   # <image> + [MEMORY]块 + "请输出ANALYSIS..."
+raw    = vlm_fn(system, user)                           # ← 一次完整 .generate() 调用，返回字符串
+parsed = parse_vlm_output(raw)                          # 正则抽 ANALYSIS / STATUS / SUBGOAL
+updated_memory = update_memory(memory, parsed)          # 校验 + 推进状态机
+```
+
+注意 `vlm_fn` 是个 callable `(system, user) -> str`，**本文件没有实现它**——它把"真正
+调模型"留给上层，签名典型如：
+
+```python
+def vlm_fn(system, user):
+    resp = qwen_vl.chat(
+        messages=[{"role":"system","content":system},
+                  {"role":"user","content":user}],
+        max_new_tokens=200, temperature=0.0,
+    )
+    return resp.text
+```
+
+**格式约束是软约束**：[`_SYSTEM_PROMPT` L317](vlm_prompt_pipeline.py#L317) 写"你必须按三行答"，
+模型 autoregressive 生成时可能不听话——所以兜两层：
+
+1. [`parse_vlm_output` L410](vlm_prompt_pipeline.py#L410)：lenient 正则，抽不到字段返回 `None`
+2. [`update_memory` L434](vlm_prompt_pipeline.py#L434)：
+   - 校验 event 名必须在 `event_sequence` 内，否则丢弃
+   - 只允许 status 在序列上**前进或保持**，不允许回退
+   - subgoal 由代码从 status 推导，不完全相信 VLM
+
+经典 "LLM-as-classifier" 套路：prompt 让模型说人话 → 代码把人话约束回合法状态。
+
+### 14.3 范式 B — AutoMoT：让 VLM 当"编码器 + cross-attention 上下文池"
+
+#### 14.3.1 慢路径 — 只 prefill，不 decode
+
+[`kv_cache_fixed_inference` L1233](AutoMoT/Automot/mot/evaluation/inference.py#L1233)：
+
+```python
+def kv_cache_fixed_inference(self, input_lists, ...):
+    gen_context = self.init_gen_context()                         # 空 KV cache
+    gen_context = self.update_kv_cache_context_qwen3vl(           # ← 关键
+        user_prompt, instruction_prompt, image_list, gen_context
+    )
+    return gen_context   # ← 返回 KV cache 张量，不是字符串！
+```
+
+`update_kv_cache_context_qwen3vl`（[L556](AutoMoT/Automot/mot/evaluation/inference.py#L556)）核心：
+
+```python
+past_key_values, _ = self.model.forward_cache_update_generation(...)   # 跑一次 forward
+```
+
+**整个过程无循环、无采样、无 EOS**。`prompt_cleaned` 那句 "Your current and next target
+point is ... Predict ..." 和 4 张 RGB 一起塞进 Transformer 跑一遍，把每层 attention 的
+K/V 张量留下。返回的 `gen_context` 长这样：
+
+```python
+{
+    'kv_lens': [627],
+    'ropes':   [179],
+    'past_key_values': NaiveCache(...),    # 每层一组 (K, V)
+    'packed_position_ids': (3, 1, 626),
+}
+```
+
+**`prompt_cleaned` 的作用**：当 soft prompt——它的内容（速度、目标点）通过 K/V 影响后续 query
+在每层 attention 里"看到"的上下文。**模型永远不输出对 prompt_cleaned 的文字回答。**
+
+#### 14.3.2 快路径 — `learnable query + cross-attend KV cache + 外接 head`
+
+[`based_kv_cache_context_fast_qwen3vl` L244](AutoMoT/Automot/mot/evaluation/inference.py#L244) 骨架：
+
+```python
+# Step 1: 组装 query 序列
+packed_sequence_fast = ...                  # [L_new, hidden]，初始化 0
+packed_sequence_fast[packed_text_indexes]      = text_embed       # 当前帧文本 token
+packed_sequence_fast[packed_vit_token_indexes] = vit_embed        # 当前帧 RGB/LiDAR 视觉 token
+packed_sequence_fast[packed_reasoning_token_indexes] = \
+    self.model.reasoning_projector(self.reasoning_query_tokens)   # ← 8 个可学 query
+packed_sequence_fast[packed_action_token_indexes] = \
+    self.model.action_projector(self.action_query_tokens)         # ← action 可学 query
+
+# Step 2: query 去 attend 慢路径留下的 KV cache
+last_hidden_state = self.model.language_model.forward_inference(
+    packed_query_sequence=packed_sequence_fast,
+    past_key_values=past_key_values,    # ← 慢路径的 cache
+    is_causal=False,                    # 关键 1：query 全方向 attend
+    update_past_key_values=False,       # 关键 2：不扩 cache
+    ...
+)
+```
+
+两个 flag 揭示本质：
+
+- **`is_causal=False`**：不是 LLM 因果 mask。query 之间互相 attend、query → cache 全 attend。
+  **每个 query 一次性看到全部 cache + 当前帧所有 token**。
+- **`update_past_key_values=False`**：query 跑完一次 forward 就走，不写回 cache。
+
+**没有生成循环**。一次 Transformer forward，输入 query，输出 query 经过 attention 后的 hidden state。
+这是 **Perceiver IO / BLIP-2 Q-Former / DETR object query** 的套路，不是 LLM 的 `.generate()`。
+
+#### 14.3.3 `reasoning_query_tokens=8` 是什么 — 可学 `nn.Embedding`
+
+[`automot.py:317-322`](AutoMoT/Automot/mot/modeling/automot/automot.py#L317)：
+
+```python
+self.reasoning_query_tokens = config.reasoning_query_tokens          # = 8
+self.reasoning_queries = nn.Embedding(
+    num_embeddings=8,
+    embedding_dim=self.reasoning_query_dim,
+)
+self.reasoning_projector = MLPconnector(reasoning_query_dim, hidden_size, ...)
+```
+
+`reasoning_queries.weight` 就是个 `[8, query_dim]` 的**可训练参数矩阵**——和 DETR object query、
+BLIP-2 Q-Former 32 learnable queries 同一概念。每次推理用 `arange(8)` 取出 8 行
+（[`inference.py:33`](AutoMoT/Automot/mot/evaluation/inference.py#L33)）：
+
+```python
+self.reasoning_query_tokens = self.model.reasoning_queries(torch.arange(8, ...))
+# shape: [8, query_dim]
+```
+
+类似还有：
+
+| 名字 | 数量 | 用途 |
+|---|---|---|
+| `reasoning_queries` | 8 | 决策（stop / keep 二分类） |
+| `route_queries` | 20 | route 编码 |
+| `waypoint_queries` | 6 | 6 个轨迹 waypoint |
+| `action_queries` | 26 | anchor + route + waypoint 合集（runner 里 `action_tokens=26`） |
+
+#### 14.3.4 外接 head 才是真正的"解码"
+
+`last_hidden_state` 按下标切出 query 对应位置，分别接 head：
+
+**① Reasoning head — 用 lm_head 做分类（伪装成"生成"）**
+
+[`gen_fast_reasoning_decision` L160](AutoMoT/Automot/mot/evaluation/inference.py#L160)：
+
+```python
+reasoning_hidden_states = last_hidden_state[packed_reasoning_token_indexes]  # [8, 2560]
+reasoning_logits = self.model.language_model.lm_head(reasoning_hidden_states)  # [8, vocab]
+logits_per_sample = reasoning_logits.view(B, 8, -1)
+second_token_logits = logits_per_sample[:, 1, :]                # 只看第 2 个 query
+action_token_ids = [tokenizer.encode(w)[0] for w in ["stop","keep"]]
+action_logits = second_token_logits[:, action_token_ids]        # vocab 维度只留 2 列
+pred = action_logits.argmax(dim=-1)                             # 0=stop, 1=keep
+```
+
+关键 trick：
+
+- **复用 Qwen3 自带 `lm_head`**（`[hidden, vocab]`），不做 autoregressive，只对 8 个 query 各做一次单 token 分类
+- 推理只取**第 2 个 query**（第 1 个对应 `<|im_start|>` 等特殊位置），vocab 维度只保留 `stop / keep` 两个 id，等价于一个**二分类 head**
+- 训练时把这 8 个位置监督到 GT 文字 token（如 `"accelerate, slow, slow"`），所以叫 "gen"；推理时大部分位置被丢弃
+
+**② Waypoints head — 轨迹回归**
+
+[`gen_fast_reasoning_trajectory` L112](AutoMoT/Automot/mot/evaluation/inference.py#L112)：
+
+```python
+action_hidden = last_hidden_state[packed_action_token_indexes]   # [N, 2560]
+action = self.model.waypoints_head(action_hidden)                # MLP -> [N, 12]
+pred_traj = action.reshape(-1, 6, 2)                             # 6 个 (x, y) 轨迹点
+```
+
+**完全不经过 vocab、不调用 tokenizer**，跟语言生成无关。一个标准 MLP head。
+
+**③ Anchor head — 轨迹模式分类**
+
+```python
+pred_anchor = self.model.anchor_head(last_hidden_state[0][packed_anchor_token_indexes])
+```
+
+类似 multi-modal trajectory 的 mode classification。
+
+### 14.4 一帧推理的数据流总图
+
+```
+慢路径 (kv_cache_fixed_inference)
+  输入: 4 张历史 RGB + prompt_cleaned (含速度 / 目标点的英文模板)
+  ─────────────────────────────────────────────
+    forward 一次 Qwen3-VL，把 prompt + 图像编码进每层 attention 的 K/V
+  ─────────────────────────────────────────────
+  输出: past_key_values 张量    ← 不是字符串
+                │
+                ▼
+快路径 (based_kv_cache_context_fast_qwen3vl[_dp])
+  query 序列 = [当前帧 text emb, 当前帧 vit emb, BEV emb,
+                reasoning_query × 8 (可学),
+                action_query  × 26 (可学), ...]
+  ─────────────────────────────────────────────
+    forward_inference (is_causal=False, no kv update)
+    query 与 past_key_values 做 cross-attention，
+    query 之间互相 attend
+  ─────────────────────────────────────────────
+  输出: last_hidden_state
+         │
+         ├─ reasoning 位置 → lm_head → argmax(stop|keep)   "决策"
+         ├─ action    位置 → waypoints_head → (6, 2)        "轨迹"
+         └─ anchor    位置 → anchor_head    → mode           "模式"
+```
+
+### 14.5 这两种范式对改 `prompt_cleaned` 的影响（关键结论）
+
+1. **直接把 `vlm_prompt_pipeline.build_user_prompt(memory, ...)` 输出塞进 `prompt_cleaned`：**
+   - 可以塞，但 VLM **不会按 ANALYSIS/STATUS/SUBGOAL 三行答**
+   - 因为 `kv_cache_fixed_inference` 不解码、不生成 token，多塞的内容只是变长了 KV cache
+   - 效果：reasoning_query 和 action_query cross-attend 时多看了一段 memory 文本，间接影响下游
+     `(stop/keep, traj)` 输出。**不会有"VLM 答了什么"的可读字符串。**
+
+2. **想真的让模型"按 STATUS/SUBGOAL 格式输出"，必须额外跑范式 A：**
+   - 在调 `kv_cache_fixed_inference` **之前**，先用 `qwen_vl.chat()` 跑一次纯 generative
+     调用，拿到 STATUS/SUBGOAL 文本
+   - 再把这段文本拼进 `prompt_cleaned` 作为 soft prompt，照常喂给慢路径
+   - 这是 §13.5 方案 B 的真正实现方式（多一次 VLM 前向，但范式 A 那条链路才能产文字）
+
+3. **范式 A 和范式 B 在 AutoMoT 当前代码里没有接通：**
+   - `vlm_prompt_pipeline.py` 是远程独立工具，没有 import 到 AutoMoT 代码里
+   - 接通的成本 = 在 runner 里写胶水，封装一个 `vlm_fn` callable，调 Qwen3-VL 的 chat 接口
+   - 训练时如果想把 STATUS/SUBGOAL 信号端到端融入 reasoning_query，就是另一个项目了（§13.5 方案 C）
+
+### 14.6 一句话记忆法
+
+- **范式 A** = LLM 当**对话模型**用。`.generate()` 出文本，正则解析。格式靠 prompt 软约束。
+- **范式 B** = LLM 当**特征提取器 + cross-attention 上下文池**用。一次 forward，外接 head 解码。格式靠 head 的 output shape 硬约束。
+- **AutoMoT 是范式 B**。`prompt_cleaned` 是给范式 B 的"上下文 soft prompt"，不是给范式 A 的"问题"。
+
