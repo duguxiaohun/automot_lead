@@ -58,6 +58,7 @@
 - `PROJECT_CONTEXT.md`
 - `CLAUDE.md`
 - `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py`
+- `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
 
 ### 硬性规则
 
