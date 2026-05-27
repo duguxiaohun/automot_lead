@@ -540,7 +540,14 @@ except Exception:
 
 @dataclass
 class ParadigmAStepRecord:
-    """一次 step 的完整审计记录。所有字符串与 parsed 字典都会序列化到 JSON。"""
+    """一次 step 的完整审计记录。所有字符串与 parsed 字典都会序列化到 JSON。
+
+    图像有两层语义,落盘也分两份:
+      - image_files     : 实际喂给 inferencer/processor 的图(可能已被 caller
+                          做过 resize / crop / 色彩调整,对齐训练分布)
+      - raw_image_files : 最原始未处理的图(caller 显式传 raw_images 才有,
+                          用于审计预处理链路是否引入失真)
+    """
     step_idx: int
     timestamp: str
     scenario: str
@@ -554,6 +561,8 @@ class ParadigmAStepRecord:
     memory_after: dict
     save_dir: Optional[str] = None
     image_files: List[str] = field(default_factory=list)
+    raw_image_files: List[str] = field(default_factory=list)
+    num_raw_images: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -561,6 +570,7 @@ class ParadigmAStepRecord:
             "timestamp":        self.timestamp,
             "scenario":         self.scenario,
             "num_images":       self.num_images,
+            "num_raw_images":   self.num_raw_images,
             "memory_before":    self.memory_before,
             "system_prompt":    self.system_prompt,
             "user_prompt":      self.user_prompt,
@@ -570,6 +580,7 @@ class ParadigmAStepRecord:
             "memory_after":     self.memory_after,
             "save_dir":         self.save_dir,
             "image_files":      self.image_files,
+            "raw_image_files":  self.raw_image_files,
         }
 
 
@@ -681,15 +692,22 @@ class ParadigmARunner:
         step_idx: int,
         image_description: str = "<image>",
         save_dir: Optional[str] = None,
+        raw_images: Optional[List[Any]] = None,
     ) -> Tuple[DrivingMemory, ParadigmAStepRecord]:
         """跑一次范式 A 推理 + 落盘。
 
         参数:
-            memory:    当前 DrivingMemory。
-            images:    list[PIL.Image.Image],按时间顺序排列的前视 RGB。
-            step_idx:  该 step 在整段 trajectory 内的序号(只用于命名 / 索引)。
+            memory:     当前 DrivingMemory。
+            images:     list[PIL.Image.Image],**实际喂给 inferencer 的图**
+                        (已经过 caller 的 resize / crop / 色彩调整,对齐训练分布)。
+                        按时间顺序排列的前视 RGB。
+            step_idx:   该 step 在整段 trajectory 内的序号(只用于命名/索引)。
             image_description: 文本里给图像留的占位字符串(纯人读注释)。
-            save_dir:  可选,覆盖 self.save_root 决定的默认 step 目录。
+            save_dir:   可选,覆盖 self.save_root 决定的默认 step 目录。
+            raw_images: 可选,**最原始未处理的图**(例如直接从相机 sensor 出来,
+                        或从数据集 .png 读到内存,还没做任何 resize / crop /
+                        色彩调整)。提供后会另存一份 raw_image_xxx.png,便于
+                        审计预处理链路是否引入失真。
 
         返回:
             (updated_memory, ParadigmAStepRecord)
@@ -728,6 +746,7 @@ class ParadigmARunner:
             timestamp=datetime.utcnow().isoformat(timespec="seconds") + "Z",
             scenario=memory.scenario,
             num_images=len(images),
+            num_raw_images=len(raw_images) if raw_images is not None else 0,
             memory_before=memory.to_dict(),
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -740,7 +759,7 @@ class ParadigmARunner:
         if self.save_root is not None or save_dir is not None:
             target_dir = pathlib.Path(save_dir) if save_dir is not None \
                 else (self.save_root / f"step_{step_idx:06d}")
-            self._dump_record(record, images, target_dir)
+            self._dump_record(record, images, target_dir, raw_images=raw_images)
 
         return new_memory, record
 
@@ -751,7 +770,8 @@ class ParadigmARunner:
     @staticmethod
     def _dump_record(record: ParadigmAStepRecord,
                      images: List[Any],
-                     target_dir: pathlib.Path) -> None:
+                     target_dir: pathlib.Path,
+                     raw_images: Optional[List[Any]] = None) -> None:
         """把 record 全量落盘,文本/JSON/图像分离存放,便于人工 review 与 diff。
 
         目录结构:
@@ -761,14 +781,17 @@ class ParadigmARunner:
                     user_prompt.txt
                     combined_prompt.txt
                     memory_before.json
-                    image_000.png
+                    image_000.png          ← 实际喂给 inferencer 的图(model input)
                     image_001.png
+                    ...
+                    raw_image_000.png      ← (可选) 最原始未处理的图
+                    raw_image_001.png
                     ...
                 outputs/
                     raw_vlm_text.txt
                     parsed.json
                     memory_after.json
-                step.json                   # 汇总索引,所有字段一份冗余 JSON
+                step.json                  # 汇总索引,所有字段一份冗余 JSON
         """
         target_dir = pathlib.Path(target_dir)
         inputs_dir  = target_dir / "inputs"
@@ -784,20 +807,20 @@ class ParadigmARunner:
             json.dumps(record.memory_before, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
-        # 图像输入(PIL 直接 save;非 PIL 则跳过并打印 warning)
-        image_files: List[str] = []
-        for i, img in enumerate(images):
-            fname = f"image_{i:03d}.png"
-            fpath = inputs_dir / fname
-            try:
-                if _HAS_PIL and hasattr(img, "save"):
-                    img.save(str(fpath))
-                    image_files.append(str(fpath.relative_to(target_dir)))
-                else:
-                    print(f"[vlm_paradigm_a_runner] image[{i}] is not PIL.Image, skip save")
-            except Exception as e:
-                print(f"[vlm_paradigm_a_runner] failed to save image[{i}]: {e}")
+        # 实际喂给模型的图(已预处理)
+        image_files: List[str] = ParadigmARunner._save_pil_list(
+            images, inputs_dir, prefix="image_"
+        )
         record.image_files = image_files
+
+        # 最原始未处理的图(可选)
+        raw_image_files: List[str] = []
+        if raw_images is not None and len(raw_images) > 0:
+            raw_image_files = ParadigmARunner._save_pil_list(
+                raw_images, inputs_dir, prefix="raw_image_"
+            )
+        record.raw_image_files = raw_image_files
+
         record.save_dir = str(target_dir)
 
         # 文本输出
@@ -813,6 +836,26 @@ class ParadigmARunner:
         (target_dir / "step.json").write_text(
             json.dumps(record.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
         )
+
+    @staticmethod
+    def _save_pil_list(imgs: List[Any],
+                       out_dir: pathlib.Path,
+                       prefix: str) -> List[str]:
+        """把一组 PIL 图按 ``{prefix}{idx:03d}.png`` 命名落盘,返回相对路径列表。"""
+        saved: List[str] = []
+        for i, img in enumerate(imgs):
+            fname = f"{prefix}{i:03d}.png"
+            fpath = out_dir / fname
+            try:
+                if _HAS_PIL and hasattr(img, "save"):
+                    img.save(str(fpath))
+                    # 这里给 step.json 用的相对路径:相对 target_dir(即 out_dir.parent)
+                    saved.append(str(fpath.relative_to(out_dir.parent)))
+                else:
+                    print(f"[vlm_paradigm_a_runner] {prefix}{i} is not PIL.Image, skip save")
+            except Exception as e:
+                print(f"[vlm_paradigm_a_runner] failed to save {prefix}{i}: {e}")
+        return saved
 
 
 # ============================================================================
@@ -924,7 +967,12 @@ class BaselineQwen3VLRunner:
         images: List[Any],
         step_idx: int,
         save_dir: Optional[str] = None,
+        raw_images: Optional[List[Any]] = None,
     ) -> Tuple[DrivingMemory, ParadigmAStepRecord]:
+        """与 ParadigmARunner.run_paradigm_a_step 接口完全一致。
+
+        raw_images 可选;提供后会另存一份 raw_image_xxx.png,语义同 ParadigmARunner。
+        """
         import torch
         self._ensure_model_loaded()
 
@@ -974,6 +1022,7 @@ class BaselineQwen3VLRunner:
             timestamp=datetime.utcnow().isoformat(timespec="seconds") + "Z",
             scenario=memory.scenario,
             num_images=len(images),
+            num_raw_images=len(raw_images) if raw_images is not None else 0,
             memory_before=memory.to_dict(),
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -988,7 +1037,7 @@ class BaselineQwen3VLRunner:
         if self.save_root is not None or save_dir is not None:
             target_dir = pathlib.Path(save_dir) if save_dir is not None \
                 else (self.save_root / f"step_{step_idx:06d}")
-            ParadigmARunner._dump_record(record, images, target_dir)
+            ParadigmARunner._dump_record(record, images, target_dir, raw_images=raw_images)
 
         return new_memory, record
 
@@ -1056,12 +1105,16 @@ def _dry_run_self_test() -> None:
     print(f"parsed:        {parsed}")
     print(f"updated memory:{new_memory.to_dict()}")
 
+    # 演示双份图像落盘:raw 用 (1920,1080),model_input 用 (1152,384)
+    raw_imgs, mi_imgs = _build_synthetic_raw_and_model_input(num_frames=2)
+
     tmp_dir = pathlib.Path(__file__).parent / "_paradigm_a_self_test_out"
     record = ParadigmAStepRecord(
         step_idx=0,
         timestamp=datetime.utcnow().isoformat(timespec="seconds") + "Z",
         scenario=memory.scenario,
-        num_images=0,
+        num_images=len(mi_imgs),
+        num_raw_images=len(raw_imgs),
         memory_before=memory.to_dict(),
         system_prompt=build_system_prompt(),
         user_prompt=build_user_prompt(memory),
@@ -1070,26 +1123,26 @@ def _dry_run_self_test() -> None:
         parsed=parsed,
         memory_after=new_memory.to_dict(),
     )
-    ParadigmARunner._dump_record(record, images=[], target_dir=tmp_dir / "step_000000")
+    ParadigmARunner._dump_record(
+        record, images=mi_imgs, target_dir=tmp_dir / "step_000000",
+        raw_images=raw_imgs,
+    )
     print(f"\ndumped DRY-RUN record to: {tmp_dir / 'step_000000'}")
+    print(f"  inputs/image_*.png        (model input, {mi_imgs[0].size})")
+    print(f"  inputs/raw_image_*.png    (raw,         {raw_imgs[0].size})")
 
 
 def _build_synthetic_images(num_frames: int = 4,
                             height: int = 384,
                             width: int = 1152) -> List[Any]:
-    """生成 N 张合成 PIL RGB 图,用作真模型 smoke test 的输入。
+    """生成 N 张合成 PIL RGB 图(三色横条 + 帧号角标),目标尺寸 (height, width)。
 
     - 默认 shape (H=384, W=1152) 对齐 mot_lead_offline_runner 的 LEAD 风格
       训练分布(input term: <PIL.Image.Image image mode=RGB size=1152x384>)。
-    - 设计目标:落盘 PNG 能让人**一眼看清**是 3 通道 RGB,且**每帧明显不同**:
-        * 上 1/3 整片纯红 (255, 0, 0)
-        * 中 1/3 整片纯绿 (0, 255, 0)
-        * 下 1/3 整片纯蓝 (0, 0, 255)
-        * 横向叠加 0→100 灰度衰减,让图有点结构感而非纯色块
-        * 左上角 80×80 色块,每帧用不同饱和色编码帧号(黄/青/品红/橙循环),
-          可以肉眼数出帧顺序
-    - 真实评测需要喂 LEAD clip 的实际 RGB,此处的合成图**仅用于走通
-      prefill+decode 通路**,不要指望模型给出语义正确的 STATUS/SUBGOAL。
+    - 设计目标:落盘 PNG 一眼看清是 3 通道 RGB,且每帧明显不同:
+        * 上 1/3 整片纯红 / 中 1/3 整片纯绿 / 下 1/3 整片纯蓝
+        * 横向叠加 0→100 灰度衰减,让图有结构而非纯色块
+        * 左上角 80×80 色块,每帧用不同饱和色编码帧号(黄/青/品红/橙循环)
     """
     if not _HAS_PIL:
         raise RuntimeError("PIL 不可用,无法生成合成图像")
@@ -1101,11 +1154,9 @@ def _build_synthetic_images(num_frames: int = 4,
     images: List[Any] = []
     third = height // 3
 
-    # 横向亮度衰减(0→100),叠在 RGB 之上,让图有横向纹理
     fade = np.linspace(0, 100, width, dtype=np.int16)
-    fade_2d = np.tile(fade[None, :], (height, 1))   # (H, W)
+    fade_2d = np.tile(fade[None, :], (height, 1))
 
-    # 帧号角标颜色(高饱和,与三色横条都不同),方便肉眼数出帧顺序
     marker_colors = [
         (255, 255,   0),   # 黄
         (  0, 255, 255),   # 青
@@ -1113,38 +1164,66 @@ def _build_synthetic_images(num_frames: int = 4,
         (255, 128,   0),   # 橙
     ]
 
+    # 帧号角标大小按图像尺寸自适应(取短边的 1/5,夹在 [40, 200])
+    marker_size = max(40, min(200, min(height, width) // 5))
+
     for t in range(num_frames):
         rgb = np.zeros((height, width, 3), dtype=np.uint8)
+        rgb[:third,            :, 0] = 255
+        rgb[third:2 * third,   :, 1] = 255
+        rgb[2 * third:,        :, 2] = 255
 
-        # 三色横条(用满 0/255,确保肉眼可辨)
-        rgb[:third,            :, 0] = 255    # 上 1/3 红
-        rgb[third:2 * third,   :, 1] = 255    # 中 1/3 绿
-        rgb[2 * third:,        :, 2] = 255    # 下 1/3 蓝
-
-        # 横向衰减,把右半边压暗一点
         rgb_int16 = rgb.astype(np.int16) - fade_2d[..., None]
         rgb = np.clip(rgb_int16, 0, 255).astype(np.uint8)
 
-        # 左上角帧号色块
         mc = marker_colors[t % len(marker_colors)]
-        rgb[:80, :80, 0] = mc[0]
-        rgb[:80, :80, 1] = mc[1]
-        rgb[:80, :80, 2] = mc[2]
+        rgb[:marker_size, :marker_size, 0] = mc[0]
+        rgb[:marker_size, :marker_size, 1] = mc[1]
+        rgb[:marker_size, :marker_size, 2] = mc[2]
 
         images.append(_PILImage.fromarray(rgb, mode="RGB"))
     return images
+
+
+def _build_synthetic_raw_and_model_input(
+    num_frames: int = 4,
+    raw_size: Tuple[int, int] = (1920, 1080),       # (W, H) 模拟原始相机分辨率
+    model_input_size: Tuple[int, int] = (1152, 384), # (W, H) LEAD 风格训练分布
+) -> Tuple[List[Any], List[Any]]:
+    """生成 "原始 raw 图" 与 "已预处理 model-input 图" 两份配对图像。
+
+    返回:
+        (raw_imgs, model_input_imgs) —— 两个 list 长度都是 num_frames,
+        同一索引位置内容一致,只是分辨率/纵横比不同。
+        model_input_imgs 是把 raw_imgs 各自 resize 到 model_input_size 的结果,
+        模拟"caller 拿到原始相机帧 → resize 到训练分布 → 喂进 inferencer"。
+    """
+    raw_w, raw_h = raw_size
+    mi_w,  mi_h  = model_input_size
+
+    raw_imgs = _build_synthetic_images(
+        num_frames=num_frames, height=raw_h, width=raw_w,
+    )
+    # 用 PIL.Image.resize 做"预处理",生成 model input
+    model_input_imgs = [
+        img.resize((mi_w, mi_h), resample=_PILImage.BILINEAR) for img in raw_imgs
+    ]
+    return raw_imgs, model_input_imgs
 
 
 def _run_one_backend(backend: str,
                      memory: DrivingMemory,
                      images: List[Any],
                      save_root: str,
-                     max_gen_tokens: int) -> Tuple[DrivingMemory, ParadigmAStepRecord]:
+                     max_gen_tokens: int,
+                     raw_images: Optional[List[Any]] = None,
+                     ) -> Tuple[DrivingMemory, ParadigmAStepRecord]:
     """跑某一个 backend 的范式 A 推理,统一接口便于对比。
 
     backend:
         "automot"  -> ParadigmARunner       (AutoMoT 微调 ckpt)
         "qwen"     -> BaselineQwen3VLRunner (原版 Qwen3-VL-4B)
+    raw_images: 可选,原始未预处理图,会额外落盘到 inputs/raw_image_xxx.png。
     """
     print("\n" + "=" * 60)
     print(f"[backend={backend}] loading model & running paradigm A step ...")
@@ -1172,7 +1251,7 @@ def _run_one_backend(backend: str,
 
     runner._ensure_model_loaded()
     new_memory, record = runner.run_paradigm_a_step(
-        memory=memory, images=images, step_idx=0,
+        memory=memory, images=images, step_idx=0, raw_images=raw_images,
     )
 
     print("-" * 60)
@@ -1182,6 +1261,8 @@ def _run_one_backend(backend: str,
     print(f"[backend={backend}] parsed:       {record.parsed}")
     print(f"[backend={backend}] memory after: {new_memory.to_dict()}")
     print(f"[backend={backend}] saved to:     {record.save_dir}")
+    print(f"[backend={backend}] image files (model input): {record.image_files}")
+    print(f"[backend={backend}] raw image files:           {record.raw_image_files}")
     return new_memory, record
 
 
@@ -1209,17 +1290,24 @@ def _real_smoke_test(backend: str = "automot",
         save_root = str(_AUTOMOT_ROOT / "eval_json" / "paradigm_a_smoke_test")
     print(f"save_root:    {save_root}\n")
 
-    images = _build_synthetic_images(num_frames=num_frames)
-    print(f"prepared {len(images)} synthetic RGB frames "
-          f"(size={images[0].size}, mode={images[0].mode})")
+    # 同时准备 raw 高分辨原图 + resize 后的 model-input 图,演示双份落盘
+    raw_images, model_input_images = _build_synthetic_raw_and_model_input(
+        num_frames=num_frames,
+        raw_size=(1920, 1080),               # (W, H) 模拟原始相机分辨率
+        model_input_size=(1152, 384),        # (W, H) LEAD 训练分布
+    )
+    print(f"prepared {len(raw_images)} synthetic frames:")
+    print(f"  raw         : size={raw_images[0].size}, mode={raw_images[0].mode}")
+    print(f"  model input : size={model_input_images[0].size}, mode={model_input_images[0].mode}")
 
     if backend in ("automot", "qwen"):
         memory = DrivingMemory.from_scenario(scenario)
         print(f"initial memory: {memory.to_dict()}")
         _run_one_backend(
-            backend, memory, images,
+            backend, memory, model_input_images,
             save_root=save_root,
             max_gen_tokens=max_gen_tokens,
+            raw_images=raw_images,
         )
 
     elif backend == "both":
@@ -1229,9 +1317,10 @@ def _real_smoke_test(backend: str = "automot",
             print(f"\ninitial memory: {memory.to_dict()}")
             sub_root = str(pathlib.Path(save_root) / sub)
             _run_one_backend(
-                sub, memory, images,
+                sub, memory, model_input_images,
                 save_root=sub_root,
                 max_gen_tokens=max_gen_tokens,
+                raw_images=raw_images,
             )
 
         # 对比提示
