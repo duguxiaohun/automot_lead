@@ -815,6 +815,184 @@ class ParadigmARunner:
         )
 
 
+# ============================================================================
+# Baseline runner:HF 原生 Qwen3-VL-4B(未微调)
+# ============================================================================
+#
+# 与 ParadigmARunner 的关系(对比实验设计):
+#
+#   ParadigmARunner       <-- AutoMoT ckpt(驾驶 SFT 微调,自定义 MoT 架构)
+#                              通过 InterleaveInferencer.kv_cache_fixed_inference
+#                              + gen_text 调用
+#
+#   BaselineQwen3VLRunner <-- 原版 Qwen3-VL-4B ckpt(无驾驶微调,HF 标准架构)
+#                              通过 Qwen3VLForConditionalGeneration.generate()
+#                              + AutoProcessor.apply_chat_template 调用
+#
+# 两条路径输入一致(同一张/同一组 PIL RGB + 同一个 system/user prompt + 同一份
+# DrivingMemory),输出对比能反映"驾驶 SFT 微调对 STATUS/SUBGOAL 指令跟随能力"
+# 的净影响。
+#
+# 为什么不能复用同一个 inferencer:
+#   AutoMoT 的 layer_module="Qwen3VLMoTDecoderLayer",且额外定义了
+#   reasoning_queries / action_queries / waypoints_head 等模块,state_dict
+#   完全不兼容原版 Qwen3-VL-4B。所以两个 ckpt 必须各走各的加载链路。
+# ============================================================================
+
+
+class BaselineQwen3VLRunner:
+    """直接用 HF 原生 Qwen3-VL-4B(未微调)跑范式 A。
+
+    用法:
+        runner = BaselineQwen3VLRunner(save_root="eval_json/paradigm_a_qwen_baseline")
+        memory = DrivingMemory.from_scenario("MergerIntoSlowTraffic")
+        new_memory, record = runner.run_paradigm_a_step(
+            memory=memory, images=[pil1, pil2, ...], step_idx=0,
+        )
+    """
+
+    def __init__(
+        self,
+        save_root: Optional[str] = None,
+        device: str = "cuda",
+        max_gen_tokens: int = 256,
+        temperature: float = 0.0,
+        do_sample: bool = False,
+        torch_dtype_str: str = "bfloat16",
+    ):
+        self.save_root = pathlib.Path(save_root).resolve() if save_root else None
+        if self.save_root is not None:
+            self.save_root.mkdir(parents=True, exist_ok=True)
+        self.device = device
+        self.max_gen_tokens = max_gen_tokens
+        self.temperature = temperature
+        self.do_sample = do_sample
+        self.torch_dtype_str = torch_dtype_str
+
+        self.model = None
+        self.processor = None
+
+    # ------------------------------------------------------------------
+    # 模型加载:走 HF 标准接口,与 AutoMoT 完全隔离
+    # ------------------------------------------------------------------
+
+    def _ensure_model_loaded(self) -> None:
+        if self.model is not None:
+            return
+
+        import torch
+        qwen3vl_path = str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B")
+        print(f"[BaselineQwen3VLRunner] loading vanilla Qwen3-VL-4B from {qwen3vl_path} ...")
+
+        # transformers >= 4.45 自带 Qwen3VLForConditionalGeneration;
+        # 若版本太旧请升级 transformers。
+        from transformers import AutoProcessor
+        try:
+            from transformers import Qwen3VLForConditionalGeneration
+        except ImportError:
+            # 退一步走通用 AutoModelForVision2Seq
+            from transformers import AutoModelForVision2Seq as Qwen3VLForConditionalGeneration
+
+        dtype_map = {
+            "bfloat16": torch.bfloat16,
+            "float16":  torch.float16,
+            "float32":  torch.float32,
+        }
+        torch_dtype = dtype_map.get(self.torch_dtype_str, torch.bfloat16)
+
+        self.model = Qwen3VLForConditionalGeneration.from_pretrained(
+            qwen3vl_path,
+            torch_dtype=torch_dtype,
+            local_files_only=True,
+            trust_remote_code=True,
+        ).to(self.device).eval()
+
+        self.processor = AutoProcessor.from_pretrained(
+            qwen3vl_path,
+            local_files_only=True,
+            trust_remote_code=True,
+        )
+        print("[BaselineQwen3VLRunner] vanilla Qwen3-VL-4B ready")
+
+    # ------------------------------------------------------------------
+    # 一次完整 step:apply_chat_template -> processor -> generate -> decode
+    # ------------------------------------------------------------------
+
+    def run_paradigm_a_step(
+        self,
+        memory: DrivingMemory,
+        images: List[Any],
+        step_idx: int,
+        save_dir: Optional[str] = None,
+    ) -> Tuple[DrivingMemory, ParadigmAStepRecord]:
+        import torch
+        self._ensure_model_loaded()
+
+        system_prompt = build_system_prompt()
+        user_prompt   = build_user_prompt(memory, image_description="<image>")
+
+        # 用 Qwen3-VL 官方 chat template 组消息
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": (
+                [{"type": "image", "image": img} for img in images]
+                + [{"type": "text", "text": user_prompt}]
+            )},
+        ]
+        chat_text = self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True,
+        )
+
+        inputs = self.processor(
+            text=[chat_text],
+            images=images if len(images) > 0 else None,
+            return_tensors="pt",
+            padding=True,
+        ).to(self.device)
+
+        gen_kwargs = dict(
+            max_new_tokens=self.max_gen_tokens,
+            do_sample=self.do_sample,
+        )
+        if self.do_sample:
+            gen_kwargs["temperature"] = max(self.temperature, 1e-5)
+
+        with torch.no_grad():
+            gen_ids = self.model.generate(**inputs, **gen_kwargs)
+
+        # 去掉 prompt 部分,只 decode 新生成
+        prompt_len = inputs["input_ids"].shape[1]
+        new_ids = gen_ids[:, prompt_len:]
+        raw_text = self.processor.batch_decode(new_ids, skip_special_tokens=True)[0]
+        raw_text = raw_text.lstrip("\n ")
+
+        parsed = parse_vlm_output(raw_text)
+        new_memory = update_memory(memory, parsed)
+
+        record = ParadigmAStepRecord(
+            step_idx=step_idx,
+            timestamp=datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            scenario=memory.scenario,
+            num_images=len(images),
+            memory_before=memory.to_dict(),
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            # 这里 combined_prompt 字段复用为 "实际喂给 processor 的 chat 模板化文本",
+            # 便于和 ParadigmARunner 的 combined_prompt(AutoMoT instruction 拼法)直接对比
+            combined_prompt=chat_text,
+            raw_vlm_text=raw_text,
+            parsed=parsed,
+            memory_after=new_memory.to_dict(),
+        )
+
+        if self.save_root is not None or save_dir is not None:
+            target_dir = pathlib.Path(save_dir) if save_dir is not None \
+                else (self.save_root / f"step_{step_idx:06d}")
+            ParadigmARunner._dump_record(record, images, target_dir)
+
+        return new_memory, record
+
+
 # ---------------------------------------------------------------------------
 # Framework-agnostic helper(便于不挂模型也能单跑文本流程做单元测试)
 # ---------------------------------------------------------------------------
@@ -930,71 +1108,132 @@ def _build_synthetic_images(num_frames: int = 4,
     return images
 
 
-def _real_smoke_test(save_root: Optional[str] = None,
+def _run_one_backend(backend: str,
+                     memory: DrivingMemory,
+                     images: List[Any],
+                     save_root: str,
+                     max_gen_tokens: int) -> Tuple[DrivingMemory, ParadigmAStepRecord]:
+    """跑某一个 backend 的范式 A 推理,统一接口便于对比。
+
+    backend:
+        "automot"  -> ParadigmARunner       (AutoMoT 微调 ckpt)
+        "qwen"     -> BaselineQwen3VLRunner (原版 Qwen3-VL-4B)
+    """
+    print("\n" + "=" * 60)
+    print(f"[backend={backend}] loading model & running paradigm A step ...")
+    print("=" * 60)
+
+    if backend == "automot":
+        runner = ParadigmARunner(
+            save_root=save_root,
+            device="cuda",
+            max_gen_tokens=max_gen_tokens,
+            text_temperature=0.0,
+            do_sample=False,
+        )
+    elif backend == "qwen":
+        runner = BaselineQwen3VLRunner(
+            save_root=save_root,
+            device="cuda",
+            max_gen_tokens=max_gen_tokens,
+            temperature=0.0,
+            do_sample=False,
+            torch_dtype_str="bfloat16",
+        )
+    else:
+        raise ValueError(f"unknown backend: {backend!r}")
+
+    runner._ensure_model_loaded()
+    new_memory, record = runner.run_paradigm_a_step(
+        memory=memory, images=images, step_idx=0,
+    )
+
+    print("-" * 60)
+    print(f"[backend={backend}] raw VLM text:")
+    print(record.raw_vlm_text)
+    print("-" * 60)
+    print(f"[backend={backend}] parsed:       {record.parsed}")
+    print(f"[backend={backend}] memory after: {new_memory.to_dict()}")
+    print(f"[backend={backend}] saved to:     {record.save_dir}")
+    return new_memory, record
+
+
+def _real_smoke_test(backend: str = "automot",
+                     save_root: Optional[str] = None,
                      scenario: str = "MergerIntoSlowTraffic",
                      num_frames: int = 4,
                      max_gen_tokens: int = 256) -> None:
-    """真实加载 Qwen3-VL-4B + AutoMoT 权重,跑一次 paradigm A 端到端。"""
+    """真实加载模型跑一次 paradigm A 端到端。
+
+    backend:
+        "automot" -> 只跑 AutoMoT 微调 ckpt
+        "qwen"    -> 只跑原版 Qwen3-VL-4B
+        "both"    -> 两个都跑(分别落到 <save_root>/automot/ 和 <save_root>/qwen/),
+                     便于直接 diff 两个 raw_vlm_text.txt
+    """
     print("=" * 60)
-    print("vlm_paradigm_a_runner REAL smoke test (Qwen3-VL + AutoMoT)")
+    print(f"vlm_paradigm_a_runner REAL smoke test (backend={backend})")
     print("=" * 60)
     print(f"AutoMoT root: {_AUTOMOT_ROOT}")
-    print(f"qwen3vl ckpt: {_AUTOMOT_ROOT / 'checkpoints' / 'Qwen3-VL-4B'}")
-    print(f"automot ckpt: {_AUTOMOT_ROOT / 'checkpoints' / 'AutoMoT'}")
+    print(f"qwen3vl ckpt: {_AUTOMOT_ROOT / 'checkpoints' / 'Qwen3-VL-4B'}  (vanilla / baseline)")
+    print(f"automot ckpt: {_AUTOMOT_ROOT / 'checkpoints' / 'AutoMoT'}      (driving SFT)")
 
     if save_root is None:
         save_root = str(_AUTOMOT_ROOT / "eval_json" / "paradigm_a_smoke_test")
     print(f"save_root:    {save_root}\n")
 
-    memory = DrivingMemory.from_scenario(scenario)
-    print(f"initial memory: {memory.to_dict()}\n")
-
     images = _build_synthetic_images(num_frames=num_frames)
     print(f"prepared {len(images)} synthetic RGB frames "
-          f"(size={images[0].size}, mode={images[0].mode})\n")
+          f"(size={images[0].size}, mode={images[0].mode})")
 
-    runner = ParadigmARunner(
-        save_root=save_root,
-        device="cuda",
-        max_gen_tokens=max_gen_tokens,
-        text_temperature=0.0,
-        do_sample=False,
-    )
+    if backend in ("automot", "qwen"):
+        memory = DrivingMemory.from_scenario(scenario)
+        print(f"initial memory: {memory.to_dict()}")
+        _run_one_backend(
+            backend, memory, images,
+            save_root=save_root,
+            max_gen_tokens=max_gen_tokens,
+        )
 
-    print("[1/3] loading model (Qwen3-VL-4B + AutoMoT, 首次较慢)...")
-    runner._ensure_model_loaded()
-    print("[2/3] model ready, running paradigm A step (prefill + decode)...")
+    elif backend == "both":
+        # 两个 backend 各跑一次,起始 memory 一致,落盘到不同子目录便于 diff
+        for sub in ("automot", "qwen"):
+            memory = DrivingMemory.from_scenario(scenario)   # 每个 backend 都用全新 memory
+            print(f"\ninitial memory: {memory.to_dict()}")
+            sub_root = str(pathlib.Path(save_root) / sub)
+            _run_one_backend(
+                sub, memory, images,
+                save_root=sub_root,
+                max_gen_tokens=max_gen_tokens,
+            )
 
-    new_memory, record = runner.run_paradigm_a_step(
-        memory=memory,
-        images=images,
-        step_idx=0,
-    )
+        # 对比提示
+        print("\n" + "=" * 60)
+        print("对比文件路径(diff 这两个看微调对指令跟随的影响):")
+        print(f"  automot raw : {save_root}/automot/step_000000/outputs/raw_vlm_text.txt")
+        print(f"  qwen    raw : {save_root}/qwen/step_000000/outputs/raw_vlm_text.txt")
+        print("=" * 60)
+    else:
+        raise ValueError(f"unknown backend: {backend!r}")
 
-    print("[3/3] done.\n")
-    print("-" * 60)
-    print("raw VLM text:")
-    print(record.raw_vlm_text)
-    print("-" * 60)
-    print(f"parsed:         {record.parsed}")
-    print(f"memory after:   {new_memory.to_dict()}")
-    print(f"saved to:       {record.save_dir}")
-    print("\n注意:输入是合成渐变图,模型很可能给出无意义/格式不规范的输出 ——")
-    print("     这次跑通的是 prefill + decode 通路,语义正确性需要真实 LEAD RGB 才有意义。")
+    print("\n注意:输入是合成渐变图,语义不可信 —— 这次跑通的是 prefill+decode 通路,")
+    print("     真正比较语言能力需要喂真实 LEAD RGB(下一步可仿 mot_lead_offline_runner 接入)。")
 
 
 if __name__ == "__main__":
     import argparse
 
     p = argparse.ArgumentParser(description="vlm_paradigm_a_runner CLI")
+    p.add_argument("--backend", choices=["automot", "qwen", "both"], default="automot",
+                   help="automot = AutoMoT 微调 ckpt;qwen = 原版 Qwen3-VL-4B;both = 两个都跑做对比")
     p.add_argument("--dry-run", action="store_true",
-                   help="不加载 Qwen 权重,只跑文本桩测试 prompt/parse/update 链路")
+                   help="不加载任何权重,只跑文本桩测试 prompt/parse/update 链路")
     p.add_argument("--scenario", type=str, default="MergerIntoSlowTraffic",
                    help="DrivingMemory.from_scenario 用的场景名")
     p.add_argument("--num-frames", type=int, default=4,
                    help="合成 RGB 历史帧数(默认 4,对齐 LEAD 风格采样)")
     p.add_argument("--max-gen-tokens", type=int, default=256,
-                   help="gen_text 最大生成 token 数")
+                   help="generate 最大新生成 token 数")
     p.add_argument("--save-root", type=str, default=None,
                    help="落盘根目录;默认 <AutoMoT>/eval_json/paradigm_a_smoke_test")
     args = p.parse_args()
@@ -1003,6 +1242,7 @@ if __name__ == "__main__":
         _dry_run_self_test()
     else:
         _real_smoke_test(
+            backend=args.backend,
             save_root=args.save_root,
             scenario=args.scenario,
             num_frames=args.num_frames,
