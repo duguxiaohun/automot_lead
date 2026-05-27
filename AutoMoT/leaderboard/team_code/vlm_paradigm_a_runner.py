@@ -1081,10 +1081,15 @@ def _build_synthetic_images(num_frames: int = 4,
 
     - 默认 shape (H=384, W=1152) 对齐 mot_lead_offline_runner 的 LEAD 风格
       训练分布(input term: <PIL.Image.Image image mode=RGB size=1152x384>)。
-    - 内容:水平渐变 + 时间维度上的灰阶偏移(每帧整体亮度往上抬一段),
-      方便人眼区分 4 帧,也避免全黑导致 vit 输出退化。
-    - 这只是为了走通 prefill + decode 端到端流程,不要指望 VLM 给出语义正确的
-      STATUS/SUBGOAL —— 真实评测需要喂 LEAD clip 的实际 RGB。
+    - 设计目标:落盘 PNG 能让人**一眼看清**是 3 通道 RGB,且**每帧明显不同**:
+        * 上 1/3 整片纯红 (255, 0, 0)
+        * 中 1/3 整片纯绿 (0, 255, 0)
+        * 下 1/3 整片纯蓝 (0, 0, 255)
+        * 横向叠加 0→100 灰度衰减,让图有点结构感而非纯色块
+        * 左上角 80×80 色块,每帧用不同饱和色编码帧号(黄/青/品红/橙循环),
+          可以肉眼数出帧顺序
+    - 真实评测需要喂 LEAD clip 的实际 RGB,此处的合成图**仅用于走通
+      prefill+decode 通路**,不要指望模型给出语义正确的 STATUS/SUBGOAL。
     """
     if not _HAS_PIL:
         raise RuntimeError("PIL 不可用,无法生成合成图像")
@@ -1094,16 +1099,38 @@ def _build_synthetic_images(num_frames: int = 4,
         raise RuntimeError(f"smoke test 需要 numpy: {e}")
 
     images: List[Any] = []
-    # 水平渐变模板,uint8 (H, W)
-    grad_row = np.linspace(0, 200, width, dtype=np.float32)
-    grad = np.tile(grad_row[None, :], (height, 1))  # (H, W)
+    third = height // 3
+
+    # 横向亮度衰减(0→100),叠在 RGB 之上,让图有横向纹理
+    fade = np.linspace(0, 100, width, dtype=np.int16)
+    fade_2d = np.tile(fade[None, :], (height, 1))   # (H, W)
+
+    # 帧号角标颜色(高饱和,与三色横条都不同),方便肉眼数出帧顺序
+    marker_colors = [
+        (255, 255,   0),   # 黄
+        (  0, 255, 255),   # 青
+        (255,   0, 255),   # 品红
+        (255, 128,   0),   # 橙
+    ]
 
     for t in range(num_frames):
-        offset = 20 * t   # 帧间亮度偏移
-        chan_r = np.clip(grad + offset, 0, 255).astype(np.uint8)
-        chan_g = np.clip(grad * 0.6 + offset, 0, 255).astype(np.uint8)
-        chan_b = np.clip(grad * 0.3 + offset + 30, 0, 255).astype(np.uint8)
-        rgb = np.stack([chan_r, chan_g, chan_b], axis=-1)  # (H, W, 3)
+        rgb = np.zeros((height, width, 3), dtype=np.uint8)
+
+        # 三色横条(用满 0/255,确保肉眼可辨)
+        rgb[:third,            :, 0] = 255    # 上 1/3 红
+        rgb[third:2 * third,   :, 1] = 255    # 中 1/3 绿
+        rgb[2 * third:,        :, 2] = 255    # 下 1/3 蓝
+
+        # 横向衰减,把右半边压暗一点
+        rgb_int16 = rgb.astype(np.int16) - fade_2d[..., None]
+        rgb = np.clip(rgb_int16, 0, 255).astype(np.uint8)
+
+        # 左上角帧号色块
+        mc = marker_colors[t % len(marker_colors)]
+        rgb[:80, :80, 0] = mc[0]
+        rgb[:80, :80, 1] = mc[1]
+        rgb[:80, :80, 2] = mc[2]
+
         images.append(_PILImage.fromarray(rgb, mode="RGB"))
     return images
 
