@@ -851,20 +851,21 @@ def run_pipeline_step(
 
 
 # ---------------------------------------------------------------------------
-# __main__:不挂模型的烟囱测试
+# __main__:默认走真实 Qwen3-VL-4B + AutoMoT 权重 smoke test;--dry-run 走
+# 纯文本桩(不加载模型)。
 # ---------------------------------------------------------------------------
 
-def _self_test() -> None:
-    """不依赖 Qwen 权重,仅验证 prompt / parse / update / dump 全链路语义。"""
+def _dry_run_self_test() -> None:
+    """不依赖 Qwen 权重,仅验证 prompt / parse / update / dump 全链路语义。
+    需要显式 --dry-run 才会走;默认 main 直接拉真模型。"""
     print("=" * 60)
-    print("vlm_paradigm_a_runner self-test (no real VLM)")
+    print("vlm_paradigm_a_runner DRY-RUN self-test (no real VLM)")
     print("=" * 60)
 
     memory = DrivingMemory.from_scenario("MergerIntoSlowTraffic")
     print(f"initial memory: {memory.to_dict()}\n")
 
     def dummy_vlm_fn(system: str, user: str, images: List[Any]) -> str:
-        # 模拟一个完美遵循格式的 VLM 响应
         return (
             "ANALYSIS: The ego vehicle observes slower vehicles ahead in the "
             "right lane and is decelerating to match their pace.\n"
@@ -877,7 +878,6 @@ def _self_test() -> None:
     print(f"parsed:        {parsed}")
     print(f"updated memory:{new_memory.to_dict()}")
 
-    # 测试落盘(走 ParadigmARunner._dump_record,但不真的调模型)
     tmp_dir = pathlib.Path(__file__).parent / "_paradigm_a_self_test_out"
     record = ParadigmAStepRecord(
         step_idx=0,
@@ -893,8 +893,118 @@ def _self_test() -> None:
         memory_after=new_memory.to_dict(),
     )
     ParadigmARunner._dump_record(record, images=[], target_dir=tmp_dir / "step_000000")
-    print(f"\ndumped self-test record to: {tmp_dir / 'step_000000'}")
+    print(f"\ndumped DRY-RUN record to: {tmp_dir / 'step_000000'}")
+
+
+def _build_synthetic_images(num_frames: int = 4,
+                            height: int = 384,
+                            width: int = 1152) -> List[Any]:
+    """生成 N 张合成 PIL RGB 图,用作真模型 smoke test 的输入。
+
+    - 默认 shape (H=384, W=1152) 对齐 mot_lead_offline_runner 的 LEAD 风格
+      训练分布(input term: <PIL.Image.Image image mode=RGB size=1152x384>)。
+    - 内容:水平渐变 + 时间维度上的灰阶偏移(每帧整体亮度往上抬一段),
+      方便人眼区分 4 帧,也避免全黑导致 vit 输出退化。
+    - 这只是为了走通 prefill + decode 端到端流程,不要指望 VLM 给出语义正确的
+      STATUS/SUBGOAL —— 真实评测需要喂 LEAD clip 的实际 RGB。
+    """
+    if not _HAS_PIL:
+        raise RuntimeError("PIL 不可用,无法生成合成图像")
+    try:
+        import numpy as np
+    except Exception as e:
+        raise RuntimeError(f"smoke test 需要 numpy: {e}")
+
+    images: List[Any] = []
+    # 水平渐变模板,uint8 (H, W)
+    grad_row = np.linspace(0, 200, width, dtype=np.float32)
+    grad = np.tile(grad_row[None, :], (height, 1))  # (H, W)
+
+    for t in range(num_frames):
+        offset = 20 * t   # 帧间亮度偏移
+        chan_r = np.clip(grad + offset, 0, 255).astype(np.uint8)
+        chan_g = np.clip(grad * 0.6 + offset, 0, 255).astype(np.uint8)
+        chan_b = np.clip(grad * 0.3 + offset + 30, 0, 255).astype(np.uint8)
+        rgb = np.stack([chan_r, chan_g, chan_b], axis=-1)  # (H, W, 3)
+        images.append(_PILImage.fromarray(rgb, mode="RGB"))
+    return images
+
+
+def _real_smoke_test(save_root: Optional[str] = None,
+                     scenario: str = "MergerIntoSlowTraffic",
+                     num_frames: int = 4,
+                     max_gen_tokens: int = 256) -> None:
+    """真实加载 Qwen3-VL-4B + AutoMoT 权重,跑一次 paradigm A 端到端。"""
+    print("=" * 60)
+    print("vlm_paradigm_a_runner REAL smoke test (Qwen3-VL + AutoMoT)")
+    print("=" * 60)
+    print(f"AutoMoT root: {_AUTOMOT_ROOT}")
+    print(f"qwen3vl ckpt: {_AUTOMOT_ROOT / 'checkpoints' / 'Qwen3-VL-4B'}")
+    print(f"automot ckpt: {_AUTOMOT_ROOT / 'checkpoints' / 'AutoMoT'}")
+
+    if save_root is None:
+        save_root = str(_AUTOMOT_ROOT / "eval_json" / "paradigm_a_smoke_test")
+    print(f"save_root:    {save_root}\n")
+
+    memory = DrivingMemory.from_scenario(scenario)
+    print(f"initial memory: {memory.to_dict()}\n")
+
+    images = _build_synthetic_images(num_frames=num_frames)
+    print(f"prepared {len(images)} synthetic RGB frames "
+          f"(size={images[0].size}, mode={images[0].mode})\n")
+
+    runner = ParadigmARunner(
+        save_root=save_root,
+        device="cuda",
+        max_gen_tokens=max_gen_tokens,
+        text_temperature=0.0,
+        do_sample=False,
+    )
+
+    print("[1/3] loading model (Qwen3-VL-4B + AutoMoT, 首次较慢)...")
+    runner._ensure_model_loaded()
+    print("[2/3] model ready, running paradigm A step (prefill + decode)...")
+
+    new_memory, record = runner.run_paradigm_a_step(
+        memory=memory,
+        images=images,
+        step_idx=0,
+    )
+
+    print("[3/3] done.\n")
+    print("-" * 60)
+    print("raw VLM text:")
+    print(record.raw_vlm_text)
+    print("-" * 60)
+    print(f"parsed:         {record.parsed}")
+    print(f"memory after:   {new_memory.to_dict()}")
+    print(f"saved to:       {record.save_dir}")
+    print("\n注意:输入是合成渐变图,模型很可能给出无意义/格式不规范的输出 ——")
+    print("     这次跑通的是 prefill + decode 通路,语义正确性需要真实 LEAD RGB 才有意义。")
 
 
 if __name__ == "__main__":
-    _self_test()
+    import argparse
+
+    p = argparse.ArgumentParser(description="vlm_paradigm_a_runner CLI")
+    p.add_argument("--dry-run", action="store_true",
+                   help="不加载 Qwen 权重,只跑文本桩测试 prompt/parse/update 链路")
+    p.add_argument("--scenario", type=str, default="MergerIntoSlowTraffic",
+                   help="DrivingMemory.from_scenario 用的场景名")
+    p.add_argument("--num-frames", type=int, default=4,
+                   help="合成 RGB 历史帧数(默认 4,对齐 LEAD 风格采样)")
+    p.add_argument("--max-gen-tokens", type=int, default=256,
+                   help="gen_text 最大生成 token 数")
+    p.add_argument("--save-root", type=str, default=None,
+                   help="落盘根目录;默认 <AutoMoT>/eval_json/paradigm_a_smoke_test")
+    args = p.parse_args()
+
+    if args.dry_run:
+        _dry_run_self_test()
+    else:
+        _real_smoke_test(
+            save_root=args.save_root,
+            scenario=args.scenario,
+            num_frames=args.num_frames,
+            max_gen_tokens=args.max_gen_tokens,
+        )
