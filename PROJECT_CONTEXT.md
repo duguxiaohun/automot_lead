@@ -1093,28 +1093,154 @@ pred_anchor = self.model.anchor_head(last_hidden_state[0][packed_anchor_token_in
          └─ anchor    位置 → anchor_head    → mode           "模式"
 ```
 
-### 14.5 这两种范式对改 `prompt_cleaned` 的影响（关键结论）
+### 14.5 Prefill + Decode 是 Transformer autoregressive 推理的本质架构
 
-1. **直接把 `vlm_prompt_pipeline.build_user_prompt(memory, ...)` 输出塞进 `prompt_cleaned`：**
+> 解答"能不能不经过 `kv_cache_fixed_inference` 直接有端口生成？" —— **物理上做不到**。
+> 所有"看起来一步生成"的端口（Qwen 原版 `.chat()`、HF `model.generate()`、AutoMoT
+> `qwen3vl_template_inference`、llama.cpp、vLLM……）内部都是 **1 次 prefill + K 次 decode**。
+> 这是 Transformer attention 算法的根本性约束，不是 AutoMoT 的实现选择。
+
+#### 14.5.1 两阶段对比
+
+| 阶段 | 输入 | 计算量 | KV cache | 并行度 | 计算特性 |
+|---|---|---|---|---|---|
+| **Prefill** | N 个 token 一起进 | N×N attention 一次算完 | 写入 N 个位置 | 高（所有 token 并行 attend） | compute-bound |
+| **Decode** | 每步 1 个新 token | 1×(N+k) attention | 每步 append 1 个 | 低（必须串行，下一个依赖前一个） | memory-bound |
+
+#### 14.5.2 为什么不能合并
+
+- 第 N+1 个 token 要等模型把前 N 个 token 的 hidden 算完才知道——它是 `argmax(lm_head(hidden[-1]))` 出来的
+- 第 N+2 个 token 又依赖 N+1 的 hidden ——必须先把 N+1 喂进去再算一次
+- 这是自回归的本质 `p(x_{t+1} | x_1, ..., x_t)`，下一个永远依赖前一个
+
+⇒ 生成 K 个 token **最少**要 1 + K 次 forward。
+
+> 例外：non-autoregressive generation（一次性预测所有 token）理论存在但效果差，工业上几乎不用。
+> speculative decoding / parallel decoding 是优化，**仍然遵循 prefill + decode 框架**，只是 decode 阶段一次跑多个 draft token。
+
+#### 14.5.3 AutoMoT 为什么把 prefill 显式暴露成 `kv_cache_fixed_inference`
+
+**为了跨帧复用 prefill 结果，省掉大图像（vision token 1728 个）的重复编码开销。**
+
+看 [`kv_cache_inference_slow_fast` L1306](AutoMoT/Automot/mot/evaluation/inference.py#L1306)：
+
+```python
+# 慢路径每 slow_update_interval=2 帧才刷一次（贵但低频）
+if frame_idx % slow_update_interval == 0:
+    self._cached_gen_context = self.kv_cache_fixed_inference(slow_input_lists)
+
+# 快路径每帧都跑，复用上面那份 cache（便宜但高频）
+gen_text, gen_traj = self.based_kv_cache_context_fast_qwen3vl(
+    fast_input_lists, self._cached_gen_context, ...
+)
+```
+
+这是工业级 LLM serving 的标准优化（disaggregated prefill / decode），AutoMoT 把它显式暴露
+在 Python 层方便控制。
+
+### 14.6 AutoMoT 里的 generative 端口 — 一步到位看着像，内部仍两步
+
+#### 14.6.1 端口对照表
+
+| 端口 | 包装层数 | 内部展开 | 适用场景 |
+|---|---|---|---|
+| [`qwen3vl_template_inference`](AutoMoT/Automot/mot/evaluation/inference.py#L1409) | **最高 — 一行返回文本** | `update_context_qwen3vl + gen_text` | 单帧 demo，不复用 cache |
+| [`slow_reasoning`](AutoMoT/Automot/mot/evaluation/inference.py#L1446) | 高 | 同上 | 在线 agent 早期版本 |
+| [`kv_cache_fixed_inference`](AutoMoT/Automot/mot/evaluation/inference.py#L1233) **+** [`gen_text`](AutoMoT/Automot/mot/evaluation/inference.py#L820) | 中 — 手控两步 | 你手动拆 | **想跨帧复用 cache，或同时喂快推理 head** |
+| `kv_cache_fixed_inference` **+** `based_kv_cache_context_fast_qwen3vl_dp` | 中 — 跳过 decode | — | 走范式 B（轨迹预测，不要文字） |
+
+#### 14.6.2 一步端口内部展开（证明确实两步）
+
+[`qwen3vl_template_inference`](AutoMoT/Automot/mot/evaluation/inference.py#L1409) 核心：
+
+```python
+gen_context = self.init_gen_context()                                  # 空 cache
+gen_context = self.update_context_qwen3vl(                              # ★ prefill 阶段
+    user_prompt, instruction_prompt, image_list, gen_context
+)
+gen_text = self.gen_text(gen_context, max_length=max_think_token_n)    # ★ decode 阶段
+return [gen_text]
+```
+
+`update_context_qwen3vl` ≈ `update_kv_cache_context_qwen3vl`（同族），底层都走
+`prepare_kv_cache → forward_cache_update_generation`。两步本质等价。
+
+#### 14.6.3 `gen_text` 是真·autoregressive
+
+[`gen_text`](AutoMoT/Automot/mot/evaluation/inference.py#L820) 直接消费 `kv_cache_fixed_inference` 返回的 `gen_context`，
+内部调 [`model.generate_text`](AutoMoT/Automot/mot/modeling/automot/automot.py#L3037) 跑教科书循环：
+
+```python
+step = 0
+curr_tokens = packed_start_tokens
+while step < max_length:
+    output = language_model.forward_inference(
+        ..., past_key_values=past_key_values,
+        is_causal=True,                # ← 与 fast 路径 False 正好相反
+        update_past_key_values=True,   # ← 把新 token 的 K/V 写回 cache
+    )
+    pred_logits = self.language_model.lm_head(output.packed_query_sequence)
+    curr_tokens = argmax(pred_logits) if not do_sample else multinomial(softmax(...))
+    key_values_lens += 1
+    if curr_tokens[0] == end_token_id: break       # 遇到 <|im_end|> 停
+    step += 1
+```
+
+#### 14.6.4 三个函数对照（解答"长短不定 vs 长短一致"）
+
+| | `kv_cache_fixed_inference` | `gen_text` | `based_kv_cache_context_fast_qwen3vl` |
+|---|---|---|---|
+| 是否有 while 循环 | ❌ 一次 forward | ✅ `while step < max_length` | ❌ 一次 forward |
+| `is_causal` | True（decoder 内部） | **True** | **False** |
+| `update_past_key_values` | True | **True**（每生成一 token 扩 cache） | **False** |
+| 输出 | KV cache 张量 | **str（变长，到 EOS 或 max_length）** | hidden state 张量（固定 101 长度） |
+| 长度规律 | cache K/V 长度 = **输入 token 数**（"长短一致"指这个） | 1..max_length，**遇 EOS 提前停 → 不定长** | 固定 = bev+tp+v+reasoning+route+waypoint |
+
+### 14.7 这两种范式对改 `prompt_cleaned` 的影响（关键结论）
+
+> ⚠ **修正**：早期版本本节写"必须额外调 `qwen_vl.chat()`"是错的。AutoMoT 自带 `gen_text` 端口
+> 直接消费 prefill 出的 `gen_context`，**不需要外挂任何 Qwen 接口**。
+
+1. **直接把 `vlm_prompt_pipeline.build_user_prompt(memory, ...)` 塞进 `prompt_cleaned`，但只跑 `kv_cache_fixed_inference`：**
    - 可以塞，但 VLM **不会按 ANALYSIS/STATUS/SUBGOAL 三行答**
-   - 因为 `kv_cache_fixed_inference` 不解码、不生成 token，多塞的内容只是变长了 KV cache
-   - 效果：reasoning_query 和 action_query cross-attend 时多看了一段 memory 文本，间接影响下游
-     `(stop/keep, traj)` 输出。**不会有"VLM 答了什么"的可读字符串。**
+   - 因为 `kv_cache_fixed_inference` 不解码（只 prefill），多塞的内容只是变长 KV cache
+   - 效果：reasoning_query / action_query cross-attend 时多看了一段 memory，**间接**影响下游 `(stop/keep, traj)` 输出。**不会有可读文字。**
 
-2. **想真的让模型"按 STATUS/SUBGOAL 格式输出"，必须额外跑范式 A：**
-   - 在调 `kv_cache_fixed_inference` **之前**，先用 `qwen_vl.chat()` 跑一次纯 generative
-     调用，拿到 STATUS/SUBGOAL 文本
-   - 再把这段文本拼进 `prompt_cleaned` 作为 soft prompt，照常喂给慢路径
-   - 这是 §13.5 方案 B 的真正实现方式（多一次 VLM 前向，但范式 A 那条链路才能产文字）
+2. **想真的让 VLM "按 STATUS/SUBGOAL 格式输出"，加一行 `gen_text` 即可：**
 
-3. **范式 A 和范式 B 在 AutoMoT 当前代码里没有接通：**
-   - `vlm_prompt_pipeline.py` 是远程独立工具，没有 import 到 AutoMoT 代码里
-   - 接通的成本 = 在 runner 里写胶水，封装一个 `vlm_fn` callable，调 Qwen3-VL 的 chat 接口
-   - 训练时如果想把 STATUS/SUBGOAL 信号端到端融入 reasoning_query，就是另一个项目了（§13.5 方案 C）
+   ```python
+   # runner 里 prompt_cleaned 已含 [MEMORY] 块
+   slow_input_lists = rgb_pil_list + [prompt_cleaned]
+   gen_context = self.inferencer.kv_cache_fixed_inference(slow_input_lists)
 
-### 14.6 一句话记忆法
+   # ★ 关键新增：autoregressive 解码出三行文本
+   vlm_response = self.inferencer.gen_text(gen_context, max_length=200)
+   parsed = parse_vlm_output(vlm_response)
+   # parsed = {"analysis": ..., "status": "match_speed", "subgoal": "merge_complete"}
+
+   # trans_feat / 下游 head 还想跑 → gen_context 完整保留（gen_text 内部 deepcopy 不污染）
+   gen_text2, gen_traj = self.inferencer.based_kv_cache_context_fast_qwen3vl_dp(
+       fast_input_lists, gen_context, ...
+   )
+   ```
+
+   成本：每帧多一次 autoregressive 解码（~200 token，不重做 prefill 大图像，速度可接受）。
+
+3. **格式约束仍是软约束**：
+   - AutoMoT 训练时 **冻结** Qwen3-VL backbone，`lm_head` 是 Qwen3 原生未 fine-tune
+   - 模型按 ANALYSIS/STATUS/SUBGOAL 三行答的能力来自 Qwen3-VL **原始指令跟随**，不保证 100% 遵从
+   - 仍需要 `parse_vlm_output` 的 lenient 正则 + `update_memory` 的事件名白名单校验兜底
+
+4. **范式 A 和范式 B 在同一个 `inferencer` 里共存**：
+   - 范式 A 路径：`kv_cache_fixed_inference + gen_text` （或一步式 `qwen3vl_template_inference`）
+   - 范式 B 路径：`kv_cache_fixed_inference + based_kv_cache_context_fast_qwen3vl_dp`
+   - 同一份 `gen_context` 可以**同时**喂两条路径——这是 prefill / decode 分层架构的红利
+
+### 14.8 一句话记忆法
 
 - **范式 A** = LLM 当**对话模型**用。`.generate()` 出文本，正则解析。格式靠 prompt 软约束。
 - **范式 B** = LLM 当**特征提取器 + cross-attention 上下文池**用。一次 forward，外接 head 解码。格式靠 head 的 output shape 硬约束。
-- **AutoMoT 是范式 B**。`prompt_cleaned` 是给范式 B 的"上下文 soft prompt"，不是给范式 A 的"问题"。
+- **AutoMoT 同一个 `inferencer` 自带两种范式**：`kv_cache_fixed_inference + gen_text` 走 A，`kv_cache_fixed_inference + based_kv_cache_context_fast_qwen3vl_dp` 走 B。
+- **"一步到位"端口（`qwen3vl_template_inference` 等）内部仍是 prefill + decode**——这是 Transformer autoregressive 的物理本质，绕不开。
+- `prompt_cleaned` 在范式 B 是 "soft prompt 上下文"，在范式 A 才是真正被回答的"问题"。
 
