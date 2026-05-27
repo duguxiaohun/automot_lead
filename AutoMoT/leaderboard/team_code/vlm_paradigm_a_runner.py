@@ -1181,7 +1181,7 @@ def _build_synthetic_images(num_frames: int = 4,
         rgb[:marker_size, :marker_size, 1] = mc[1]
         rgb[:marker_size, :marker_size, 2] = mc[2]
 
-        images.append(_PILImage.fromarray(rgb, mode="RGB"))
+        images.append(_PILImage.fromarray(rgb))
     return images
 
 
@@ -1255,8 +1255,17 @@ def _run_one_backend(backend: str,
     )
 
     print("-" * 60)
-    print(f"[backend={backend}] raw VLM text:")
-    print(record.raw_vlm_text)
+    print(f"[backend={backend}] raw VLM text (len={len(record.raw_vlm_text)} chars):")
+    print(record.raw_vlm_text if record.raw_vlm_text else "<EMPTY STRING>")
+    if len(record.raw_vlm_text) < 5:
+        # 极短输出多半是模型立即吐 EOS;给出诊断提示而不是让用户看一片空白
+        print(f"[backend={backend}] ⚠ raw_vlm_text 长度 < 5,repr={record.raw_vlm_text!r}")
+        if backend == "automot":
+            print(f"[backend={backend}]   AutoMoT 的 lm_head 训练时只为 reasoning_query 第 2 位做")
+            print(f"[backend={backend}]   stop/keep 二分类(见 PROJECT_CONTEXT §14.3.4),autoregressive")
+            print(f"[backend={backend}]   自由文本生成路径未受 SFT,常见现象是立即生成 EOS = 空字符串。")
+            print(f"[backend={backend}]   想要文字输出,要么换原版 Qwen3-VL(--backend qwen),")
+            print(f"[backend={backend}]   要么改走范式 B 直接拿 reasoning_hidden_states 接 head。")
     print("-" * 60)
     print(f"[backend={backend}] parsed:       {record.parsed}")
     print(f"[backend={backend}] memory after: {new_memory.to_dict()}")
