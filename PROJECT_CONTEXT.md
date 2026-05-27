@@ -144,112 +144,31 @@
 来自 [lead/expert/expert.py:3038-3178](lead/lead/expert/expert.py#L3038-L3178) 与
 [lead/expert/expert_data.py:1142-1230](lead/lead/expert/expert_data.py#L1142-L1230)（offline 二次处理）。
 
-**位姿/朝向**（**全部 CARLA 世界坐标系 + yaw 弧度**）：
-- `pos_global`：ego 真实位置 `[x, y, z]`，单位米（直接来自 `actor.get_location()`）
-- `noisy_pos_global`：加噪 GPS 位置 `[x, y]`
-- `filtered_pos_global`：Kalman 滤波后位置 `[x, y]`
-- `theta`：ego yaw 弧度。流程是 `theta = normalize_angle(compass_imu - π/2)`（[common_utils.py:520](lead/lead/common/common_utils.py#L520)
-  **只是减 90°，没有取反**），再经 `np.unwrap` 累积，可超出 `[-π, π]`
-- `privileged_yaw`：真实 yaw 弧度（=`np.deg2rad(transform.rotation.yaw)`）。**与 `theta` 偏置不同**——
-  compass 与 CARLA transform.yaw 来自不同坐标约定，`theta` 又走过 unwrap。两者**是否同号取决于初始航向**，不是恒成立。若要拿 `privileged_yaw` 替代 `theta`，先在具体数据上对比一下，不要假设
-- `ego_matrix`：4×4 ego→world 齐次变换（把世界点变到 ego frame：`T_world_to_ego = inv(ego_matrix)`）
+> **详细字段值查 `0026.json` 而非翻 expert.py 源码（省 token）**。下面只列关键字段名。
 
-> ⚠ 训练默认走哪个位姿？取决于两个开关（[carla_dataset.py:437-464](lead/lead/data_loader/carla_dataset.py#L437-L464)）：
-> - `use_noisy_tp`（**默认 False**）控制 ego_position 与 target_points 的选源。False 时 ego_position = `pos_global`，tp 从 `next_target_points_3.25` 读（世界系真值）。
-> - `use_noisy_tp=True` 时再看 `use_kalman_filter_for_gps`：True ⇒ filtered_pos_global + `next_target_points_3.25`，False ⇒ noisy_pos_global + `next_gps_target_points_3.25`。
-> - sensor 扰动开关 `use_sensor_perburtation_prob=0.5` 只影响 image/lidar 是否走 perturbated 版本，不切换位姿源。
-> ⇒ **本仓库默认配置下，训练样本一律用 pos_global（真值）**。离线 runner 已对齐：`_extract_pose_from_meta` 严格用 `pos_global + theta`，缺字段直接 raise，与训练默认完全一致。
+| 字段族 | 关键字段 | 备注 |
+|---|---|---|
+| **位姿/朝向** (CARLA world frame + yaw 弧度) | `pos_global` (3D 真值), `noisy_/filtered_pos_global` (GPS frame, **≠ world**), `theta` (compass-π/2, unwrap), `privileged_yaw` (transform.yaw), `ego_matrix` (4×4) | runner 严格用 `pos_global + theta`；训练默认 `use_noisy_tp=False` 也是同源 |
+| **自车动力学** | `speed`, `accel_x/y/z`, `angular_velocity_*`, `target_speed`, `steer/throttle/brake`, `privileged_acceleration/rotation_speed` | |
+| **未来量** (offline 后处理填，**当前帧 ego frame**) | `future_positions` (61, 3) = 60×0.05s = **3 s**, `future_yaws`, `future_speeds` | |
+| **过去量** (反序，新→旧) | `past_positions`, `past_filtered_state`, `past_speeds`, `past_yaws`, `privileged_past_positions` | |
+| **Target points** (**world frame**！) | `next_target_points_{k}`, `next_commands_{k}` (29 套, k∈[3.0..10.0]) + GPS 版 | 训练默认 `tp_pop_distance=3.25`；`target_point = inverse_conversion_2d(next_tp_list[1], pos, yaw)`；`discrete_command_dim=6` one-hot |
+| **Route** | `route` (N≤50, world) | 训练取前 20 → smooth → 前 10 作 GT |
+| **场景标签** | `current_/previous_active_scenario_type`, `vehicle_/light_/walker_/stop_sign_hazard`, `town` | 完整列表见 [carla_dataset.py:250-302](lead/lead/data_loader/carla_dataset.py#L250-L302) |
 
-**自车动力学**：
-- `speed` (标量 m/s)、`accel_x/y/z`、`angular_velocity_x/y/z`（IMU）
-- `target_speed`、`target_speed_limit`、`speed_limit`、`steer`、`throttle`、`brake`
-- `privileged_acceleration`、`privileged_rotation_speed`（用下一帧 speed/yaw 数值差算的，仅 datagen 后处理填充）
+> ⚠ **训练采 8 点×0.25 s vs AutoMoT 输出 6 点×0.5 s**——dataset 用 `future_waypoint_indices=[5,10,…,40]`（`waypoints_spacing=5`）从 `future_positions` 跳采 `num_way_points_prediction=8` 个 0.25 s 间隔点，覆盖 2 s；AutoMoT 输出 6×0.5 s = 3 s。**两者不在同一时间网格**，重训快推理时要解决。
 
-**未来量**（在 `_offline_process_data` 中后处理一次性填入；以**当前帧 ego frame** 为参考）：
-- `future_positions`：shape `(ego_num_temporal_data_points_saved+1, 3) = (61, 3)`，
-  **每项对应 1 个原始 0.05 s tick → 总跨度 60 × 0.05 s = 3 s**。
-- `future_yaws`：同上，相对当前帧的 Δyaw。
-- `future_speeds`：同上。
+> ⚠ **`scenario_type` 是 dataset 派生字段**（[carla_dataset.py:362-374](lead/lead/data_loader/carla_dataset.py#L362-L374)）：current 非 NA 取 current，否则取 previous，否则 "NA"。直接 `pkl["scenario_type"]` 会 KeyError——meta 里只有 `current_/previous_active_scenario_type`。`SCENARIO_TYPES` 共 **50** 项（[constants.py:334-385](lead/lead/common/constants.py#L334-L385)）。
 
-> ⚠ **训练时如何采样未来点**：dataset 用 `future_waypoint_indices = [5, 10, 15, …, 40]`
->（`waypoints_spacing=5`）从这个数组里跳采，得到 `num_way_points_prediction=8` 个 0.25 s
-> 间隔的点，覆盖 2 s。所以**模型监督的是 0.25 s 间隔 8 点**，不是 0.5 s 间隔 6 点。
-> 但 AutoMoT 的输出是 6 点×0.5 s = 3 s，二者**不在同一个时间网格上**。
+### 2.3 参考样本：`0026.json`（**只读，绝对禁止 `git add`**）
 
-**过去量**（每帧实时写入，已是反序：最新→最旧）：
-- `past_positions`、`past_filtered_state`、`past_speeds`、`past_yaws`、`privileged_past_positions`
+工作目录根的 `0026.json` 是 LEAD meta.pkl 转 JSON 标准参考样本，350 个顶层 key（含 29 套 `next_target_points_{k}` k∈{3.0..10.0}），实际数值版本的 §2.2 全部字段。**验证 meta 字段时优先查它，省去翻 `expert.py` 源码**。靠 CLAUDE.md §2-3 规则保护（禁修改、禁入库）。
 
-**Target points / commands**（**世界坐标系**！需在 dataset 中转 ego）：
-- 多套 `tp_pop_distance` 版本：`next_target_points_{k}`、`next_commands_{k}` 与 GPS 版 `next_gps_target_points_{k}`、`next_gps_commands_{k}`
-- 训练默认 `tp_pop_distance = 3.25`，所以读 `next_target_points_3.25` 与 `next_commands_3.25`。
-- 在 dataset 里：`target_point = inverse_conversion_2d(next_tp_list[1], ego_position, ego_yaw)`，
-  `target_point_next = next_tp_list[2]`，`target_point_previous = next_tp_list[0]`。
-- 离散指令维度 `discrete_command_dim = 6`（`carla_leaderboard_mode=True`），用 one-hot。
+**用它核对过的关键推论**（已落地到 runner 设计）：
 
-**Route**：
-- `route`：dense route 世界坐标 `(N, ≥2)`，N≤`num_route_points_saved=50`。
-- 训练取前 `num_route_points_smoothing=20` 个 → perturbate + smooth → 取前 `num_route_points_prediction=10` 作为模型 GT 路线。
-
-**场景标签 / 危险标志**：`vehicle_hazard`、`light_hazard`、`walker_hazard`、`stop_sign_hazard`、`current_active_scenario_type`、`previous_active_scenario_type`、`town` 等。完整属性清单见 [carla_dataset.py:250-302](lead/lead/data_loader/carla_dataset.py#L250-L302)。
-
-> ⚠ **`scenario_type` 是 dataset 派生字段，不是 meta 里直接存的**（[carla_dataset.py:362-374](lead/lead/data_loader/carla_dataset.py#L362-L374)）：
-> ```python
-> if current_active_scenario_type not in (None, "NA"):
->     scenario_type = current_active_scenario_type
-> elif previous_active_scenario_type not in (None, "NA"):
->     scenario_type = previous_active_scenario_type
-> else:
->     scenario_type = "NA"
-> scenario_type_id = SCENARIO_TYPES.index(scenario_type)
-> ```
-> 直接 `pickle.load(*.pkl)["scenario_type"]` 会 **KeyError**——meta 里只有 `current_/previous_active_scenario_type`。
->
-> `SCENARIO_TYPES` 列表见 [constants.py:334-385](lead/lead/common/constants.py#L334-L385)，总长 **50**（48 个真实场景 + `"noScenarios"` + `"NA"`），所以 `scenario_type_id ∈ [0, 49]`。常用场景如 `Accident, BlockedIntersection, DynamicObjectCrossing, ParkedObstacle, PedestrianCrossing, T_Junction, VehicleTurningRoute, ...`。
-
-### 2.3 参考样本：`0026.json`（**只读、不参与 git**）
-
-工作目录根有一个 `0026.json` —— **用户提供的一个 LEAD meta.pkl 转 JSON 后的标准参考样本**。
-
-| 属性 | 值 |
-|---|---|
-| 用途 | 验证 meta 字段语义、推算坐标系、做 sanity check 时的参考"标尺" |
-| 工程角色 | **只读资料**，**不参与 git**（在 `.gitignore` 之外，靠 CLAUDE.md §2-3 规则保护：禁止修改、禁止 `git add`） |
-| 顶层 keys 数 | 350（含 29 套 `next_target_points_{k}` + 29 套 `next_gps_target_points_{k}`，`k` 是 tp_pop_distance ∈ {3.0, 3.25, …, 10.0}） |
-| 涵盖字段 | §2.2 列出的所有 meta 字段，**实际数值版本** |
-
-#### 关键字段实测值（供核对）
-
-```json
-{
-    "speed": 16.69856909441179,                       // m/s, 高速直行
-    "pos_global": [229.79, 151.20, 1.37],             // 世界 m
-    "filtered_pos_global": [-3.61, 151.28],           // 注意只有 2 维, 且 x 大不同（GPS frame）
-    "noisy_pos_global": [-3.32, 150.79],
-    "theta": 1.8477753837916513,                      // 弧度 ≈ 105.87°
-    "privileged_yaw": 1.8477754664913886,             // 与 theta 差 ~1e-7
-    "target_speed": 17.94, "speed_limit": 25.0,
-    "previous_target_points": [],                     // 空 ⇒ ego 还在第一个 tp 之前
-    "next_target_points": [                           // 世界坐标 (3D)
-        [233.16, 80.66, 0.58],
-        [118.66, 196.73, 1.72],
-        [18.66, 196.98, 0.0]
-    ],
-    "next_commands": [4, 4, 4]                        // 4 = LANEFOLLOW
-}
-```
-
-#### 用这个样本核对过的关键推论（曾用于决定 runner 设计）
-
-1. **`next_target_points[1]` 转 ego frame 后约 (74, 94) ≈ 120 m**，**`[2]` 约 (102, 190) ≈ 216 m**——LEAD milestone 远超 AutoMoT 训练分布（30–80 m）。这是 §8.2 ④ runner 选 future 1.5s/3.0s GT 而不是 `next_target_points_3.25` 的直接证据。
-2. **`filtered_pos_global` 与 `pos_global` 数值差异巨大**（`x` 分别是 -3.61 vs 229.79）：两者**不在同一坐标系**！filtered_pos_global 是 GPS frame（以 GPS 起点为零），pos_global 是 CARLA world frame。⇒ runner 严格走 `pos_global`，**不能**和 filtered/noisy 混用。
-3. **`theta` 与 `privileged_yaw` 差异 ~1e-7**：实质等价；§8.2 ⑨ runner 选 `theta` 是合理的。
-
-#### 如何使用
-
-- 新 AI 接手时若需要验证 meta 字段含义，**优先查 `0026.json` 而非去翻 `lead/expert/expert.py` 源码**（省 token）
-- 若你需要重新生成或更新参考样本，要么覆盖本机 `0026.json` 文件（不 git），要么用户提供新的
-- **永远不要 `git add 0026.json`**——它是参考资料，不是项目产出
-- **永远不要修改其内容**——它是固定标尺，修改会让历史 §8.2 ④ 推论失效
+1. `next_target_points[1]` 转 ego ≈120 m、`[2]` ≈216 m，**远超 AutoMoT 训练分布 30–80 m** → §8.2 ④ runner 用 future 1.5s/3.0s GT 而非 `next_target_points_3.25`
+2. `filtered_pos_global` (GPS frame, x=-3.61) 与 `pos_global` (world frame, x=229.79) **不同坐标系** → runner 严格走 `pos_global`
+3. `theta` ≈ `privileged_yaw`（差 ~1e-7）→ runner 用 `theta` 合理
 
 ---
 
@@ -297,83 +216,43 @@
 
 ## 3. lead 中 LiDAR / BEV / RGB 是怎么进入网络的
 
-### 3.1 LiDAR 栅格化（**critical**）
+### 3.1 LiDAR 栅格化（**与 AutoMoT 对照是 runner 关键**）
 
-[lead/data_loader/carla_dataset_utils.py:30-82](lead/lead/data_loader/carla_dataset_utils.py#L30-L82)
-`rasterize_lidar(config, lidar, remove_ground_plane=False)`：
+[`rasterize_lidar`](lead/lead/data_loader/carla_dataset_utils.py#L30-L82)：
 
-```
-# 注意源码中先做了一次 splat_points(lidar) 但结果立刻被覆盖（写法有点绕但等价于）：
-lidar = lidar[(min_height_lidar <= z) & (z <= max_height_lidar)]   # z 过滤 [-4, 10]，闭区间
-xbins = linspace(-32, 64, (96*4)+1=385)   # 384 bins
-ybins = linspace(-40, 40, (80*4)+1=321)   # 320 bins
-hist  = histogramdd(lidar[:, :2], (xbins, ybins))   # shape (384, 320)，行=x 列=y
-hist  = clip(hist, 0, hist_max_per_pixel=5) / 5     # → [0, 1]
-return hist.T   # 转置后 shape (320, 384)：行=y（左右），列=x（前后）
+```python
+lidar = lidar[(min_height_lidar=-4 <= z) & (z <= max_height_lidar=10)]   # 保留地面
+xbins = linspace(-32, 64, 385)   # 384 bins
+ybins = linspace(-40, 40, 321)   # 320 bins
+hist  = histogramdd(lidar[:, :2], (xbins, ybins))
+hist  = clip(hist, 0, 5) / 5     # → [0, 1]
+return hist.T                    # (320, 384) float32 单通道
 ```
 
-- **输入**：`lidar[:, :3]` 是 **ego-local** 坐标，单位米，CARLA 朝向（x 前、y 右、z 上）。
-  `.laz` 在采集时由 `accumulate_lidar` 在 ego frame 拼好；如果 `save_radar_pc_as_lidar=True`，文件里还含 radar 检测点（混在 LiDAR 点之间），离线 `laspy.read` 时无法区分。
-- **输出**：`float32 (320, 384)`，**单通道**，归一化到 `[0, 1]`。
-- 坐标轴：**row = ego y（右为正）；col = ego x（前为正）**，注意非典型朝向。
-- 训练时加载单帧 `.laz` → 内部含 **5 个累积 sweep**（`lidar_pc_queue maxlen=data_save_freq=5`）+ 可选 radar；按 `time < training_used_lidar_steps=10` 过滤实际等于全留。**没有跨帧手动对齐**（采集时已对齐到当前 ego frame）。
-- ⚠ **没有 `_perturbated.laz` 文件**：见 [carla_dataset.py:904](lead/lead/data_loader/carla_dataset.py#L904) 注释 *"LiDAR is always the same"*。
-  perturbation 影响的是 RGB / semantic / depth / radar 是否走 `*_perturbated/` 目录的版本；
-  LiDAR 永远读同一个 `.laz`，扰动是在加载时用
-  [`align_lidar(pc, np.array([0, perturbation_translation, 0]), np.deg2rad(perturbation_rotation))`](lead/lead/data_loader/carla_dataset.py#L944-L949)
-  对点云做**数学仿射变换**（y 平移 + yaw 旋转）模拟出来的，不是另存一份文件。
+- 输入 `lidar[:, :3]` 是 **ego-local** (CARLA 朝向 x 前、y 右、z 上)，采集时已用 `accumulate_lidar` 在 ego frame 拼好 5 sweep
+- 输出 `(320, 384)`：**row=ego y（右正），col=ego x（前正）**——非典型朝向
+- `.laz` 含 5 累积 sweep + 可选 radar 混在一起，`laspy.read` 不可区分
+- **无 `_perturbated.laz` 文件**（[carla_dataset.py:904](lead/lead/data_loader/carla_dataset.py#L904)）；扰动靠 `align_lidar()` 数学变换
 
-> ✅ **与 AutoMoT BEV encoder 的 `lidar_to_histogram_features` 轴序对照**：
-> [bev_data_utils.py:4-34](AutoMoT/leaderboard/team_code/bev_data_utils.py) 的 `splat_points` 部分与 LEAD `rasterize_lidar` 的 `splat_points` **逐行同款**——
-> 都是 `point_cloud[:, :2]`、`bins=(xbins, ybins)`、`hist[hist>max]=max`、`/=max`、最后 `.T`。
-> ⇒ 两者输出**空间轴序完全一致**：`row = ego y（右为正）`，`col = ego x（前为正）`。
+> ⚠ **runner 复用 AutoMoT 栅格的 3 个差异点**（[bev_data_utils.py](AutoMoT/leaderboard/team_code/bev_data_utils.py) `lidar_to_histogram_features`）：
 >
-> ⚠ **但 z 过滤策略完全不同**（runner 想复用 AutoMoT 栅格时必须额外处理）：
->
-> | | LEAD `rasterize_lidar` | AutoMoT `lidar_to_histogram_features` |
+> | | LEAD | AutoMoT |
 > |---|---|---|
-> | z 上界 | `z <= max_height_lidar = 10` | `z < max_height_lidar = 100`（形同虚设） |
-> | z 下界 | `min_height_lidar = -4 <= z`（**保留地面层**） | 无下界，但接着按 `lidar_split_height=0.2` 切 above/below |
-> | 默认输出 | 单层（含地面） | `use_ground_plane=False` ⇒ 只 `stack([above])`，**`z <= 0.2` 全丢** |
-> | 返回 shape | `(H, W) float32`（`.squeeze().astype(...)`） | `(1, H, W) float32`（`np.transpose((2,0,1))`） |
+> | xy 范围 | `[-32,64]×[-40,40]` 不对称 | `±32` 对称 |
+> | z 下界 | `-4 <= z`，**含地面** | 按 `lidar_split_height=0.2` 切 above；`use_ground_plane=False` 时 **z≤0.2 全丢** |
+> | 输出 shape | `(H, W)` 单通道 | `(1, H, W)` 多 channel 维 |
 >
-> ⇒ AutoMoT BEV encoder 训练时**根本看不到 z ≤ 0.2 的地面点**；LEAD 训练时是看得到的。
->
-> 所以 runner 若想用 AutoMoT 风格栅格喂 BEV encoder：
-> 1. **必须改 min/max 区间到 ±32**（lead 是 [-32,64]×[-40,40]，AutoMoT 是 ±32 对称），否则同一像素代表的米数差一倍；
-> 2. **必须先 `z > 0.2` 切掉地面层**，否则会比训练分布多一整层地面密度；
-> 3. 注意输出 shape 多了 channel 维（`(1, H, W)`），喂给 `bev_lidar_tensor.unsqueeze(0)` 时维度刚好对应 `(B=1, C=1, H, W)`。
+> ⇒ runner 用 AutoMoT 栅格要：(1) 改区间到 ±32；(2) 先 `z > 0.2` 切地面；(3) shape `(1, H, W)` 配 `(B=1, C=1, H, W)`
 
 ### 3.2 BEV 占用 / 语义图
 
-[lead/data_loader/carla_dataset_utils.py:800-…](lead/lead/data_loader/carla_dataset_utils.py#L800)
-`build_bev_occupancy()`：
-
-- 在 `1024 × 1024` (=`256 * 4`) 大栅格上绘制 bbox，4 px/m，覆盖 ±128 m。
-- 像素坐标：`cx = (pos.x + 128) * 4`，`cy = (128 - (-pos.y)) * 4 = (128 + pos.y) * 4`。
-  ⇒ **col = ego x（前为正）；row = ego y_carla（右为正）**（与 §3.1 LiDAR raster 同款，**非典型朝向**——和 OpenCV 习惯不同）
-- 数据加载时切到 ego ±[min,max] meter，然后 `.repeat(2, axis=0/1)` 把 `pixels_per_meter_collection=2`
-  的 bev_semantic 升采到 `pixels_per_meter=4`。
-- 最终训练时 BEV semantic & 占用都是 **(320, 384) uint8 类别图**，类别从 `TransfuserBEVSemanticClass`/`TransfuserBEVOccupancyClass`
-  来（`carla_leaderboard_mode=True` 不做 sim2real 转换）。
+[`build_bev_occupancy`](lead/lead/data_loader/carla_dataset_utils.py#L800)：1024×1024 (4 px/m, ±128 m) 大栅格画 bbox，加载时切到 ego ±[min,max]，`bev_semantic` 用 `.repeat(2)` 从 2 px/m 升采到 4 px/m。最终训练用 `(320, 384) uint8` 类别图。坐标轴与 §3.1 LiDAR 同款（col=x 前正，row=y 右正）。
 
 ### 3.3 RGB
 
-[lead/data_loader/carla_dataset.py:528-724](lead/lead/data_loader/carla_dataset.py#L528-L724)：
+[carla_dataset.py:528-724](lead/lead/data_loader/carla_dataset.py#L528-L724)：JPEG → `cv2.imdecode` → BGR2RGB → 颜色扰动 (prob 0.2) → `(C, H, W)` → `used_cameras` 切分。最终 `(3, 384, 1152) uint8 → /255 float`，**不做 ImageNet normalize**（backbone 自己处理）。
 
-1. 读 JPEG bytes → `cv2.imdecode` → BGR2RGB；
-2. `image_augmenter`（颜色扰动、模糊、噪声等，prob 0.2）；
-3. 转 `(C, H, W)`；
-4. 按 `used_cameras` 切分（如只用 1 个相机）；
-5. `crop_height`（默认 0，因为 `cropped_height==height==384`）；
-6. `horizontal_fov_reduction`（默认 0）。
-
-最终输入网络 `rgb` 是 `(3, 384, 1152) uint8 → /255 float`（**视实现而异**，但**不做 ImageNet normalize**——
-这部分由模型 backbone 自己负责）。
-
-### 3.4 Boxes / Radar / Depth / Semantic
-
-略，离线 runner 不用。
+### 3.4 Boxes / Radar / Depth / Semantic — 略，离线 runner 不用。
 
 ---
 
@@ -420,109 +299,40 @@ return hist.T   # 转置后 shape (320, 384)：行=y（左右），列=x（前�
 ⚠ 与 lead 三视角拼接不一样：AutoMoT 在线只挂**单前视 1024×512 fov=110**。
 模型权重就是按这种相机训练的。
 
-### 5.3 tick()：把 CARLA 原始数据攒成 `result` dict
+### 5.3 tick()：CARLA 原始数据 → `result` dict
 
-[mot_b2d_agent.py:561-869](AutoMoT/leaderboard/team_code/mot_b2d_agent.py#L561-L869)。重点：
+[mot_b2d_agent.py:561-869](AutoMoT/leaderboard/team_code/mot_b2d_agent.py#L561-L869)。
 
-1. **GPS+IMU+SPEED → UKF**（`USE_UKF=True`）→ `gps_filtered (2,), compass_filtered (标量)`。
-2. **LiDAR**：
-   - `lidar_to_ego_coordinate(input_data['LIDAR'])`：CARLA 给的是 (N, 4) `xyz+intensity`，
-     这里**只取 `[:, :3]`**输出 N×3，套用 `lidar_rot=[0,0,-90]` 转回 x 前。
-   - 与上一帧 ego-local 点云用 `algin_lidar(...)` 对齐拼接（双帧融合），得到 `lidar_combined (N, 3)`。
-   - 拼接结果走**两条路径**：
-     - **主模型 PIL 路径**：`generate_lidar_bev_images(lidar_combined, img_height=448, img_width=448)`
-       → **`(448, 448, 3) uint8`**，3 通道 = (R=Density log/log(64), G=Height, B=Intensity)。
-       ⚠ 因果链：输入 (N, 3) 进 `generate_lidar_bev_images` 后 line 113 **补一列 1（不是 0）**当伪 intensity，
-       栅格化后 B 通道实际为 255（来自 intensity=1）；最后 line 124 `lidar_bev[:, :, 2] = 0.0`
-       **再强制把 B 通道清零**。所以"B=0"是后处理重写，不是因为输入 intensity 是 0。
-       范围 x,y ∈ [-32, 32]，z ∈ [-2.73, 1.27]，**7 px/m**（更准：64m / 448px ≈ 6.96），
-       预处理 `lidar_pc[:, 0] *= -1`（把 CARLA 的"x 前"翻成"x 后"），然后 `+maxX/+maxY` 平移到非负，落像素时 `int_(x/discretization)` 取行 ⇒ **最终图像里 ego 位于中心，车头朝下、车尾朝上**（与 LEAD `rasterize_lidar` 输出 `row=y col=x` 的"车头朝右"完全不同朝向；调试画图时容易撞坑）；中心 |x|<2.4 且 |y|<1 的点被去掉（避免自车）。
-       归一化到 [0, 255] uint8。
-       ⚠ **这条 PIL 路径在 inferencer `__call__` 里被注释忽略**（详见 §5.5），实际只用作日志。
-     - **BEV encoder 路径**：单独再调 `bev_encoder_t_u.lidar_to_ego_coordinate(config, …)` →
-       手工 `_align_lidar_bev_encoder(...)` 跨帧 → `lidar_to_histogram_features(config)`
-       → **`(1, 256, 256) float32 [0,1]`**（与 lead `rasterize_lidar` 几乎同款 splat+clip+/5+.T），
-       `min/max_x=±32, min/max_y=±32`，4 px/m，`lidar_split_height=0.2` 但
-       `use_ground_plane=False` 所以只用 above 一层。还存在 `min_z_projection=-10, max_z_projection=14`
-       两个额外阈值（见 config.py:411-412），但当前路径不直接调用。
-3. **RGB**：
-   - `tick_data['rgb_front']` = `(H=512, W=1024, 3) uint8`（原始 CAM_FRONT）。
-   - `tick_data['bev_encoder_rgb']` = `(1, 3, 384, 1024) float`，路径：JPEG re-encode（注入压缩伪影）→ `cv2.imdecode` → BGR2RGB → `crop_array(config)` 裁底/裁两侧 → CHW → float（**不 /255**，因为 backbone 内部 `normalize_imagenet` 自己做 `(x/255-mean)/std`，所以喂入要保持 [0, 255] 范围）。
-4. **RoutePlanner** 在 ego frame 给出 `target_point (2,)` 和 `next_target_point (2,)`。
-5. `result['next_command']` = `self.commands[-2]`（向前回退 2 个的高层指令）。
+1. **GPS+IMU+SPEED → UKF** → `gps_filtered (2,), compass_filtered`
+2. **LiDAR**（双路径）：
+   - `lidar_to_ego_coordinate` 取 `[:, :3]`、`lidar_rot=[0,0,-90]` 转回 x 前；与上帧 `algin_lidar` 拼接 → `lidar_combined (N, 3)`
+   - **主模型 PIL 路径**（**仅日志**——`__call__` 内被注释）：`generate_lidar_bev_images` → `(448, 448, 3) uint8`，RGB=(Density, Height, Intensity 后被清零)，**7 px/m**，**车头朝下**（与 LEAD `rasterize_lidar` 车头朝右**不同朝向**，调试画图易撞坑）
+   - **BEV encoder 路径**（实际用）：`lidar_to_histogram_features` → `(1, 256, 256) float32 [0,1]`，`±32 m × ±32 m`，4 px/m，`lidar_split_height=0.2, use_ground_plane=False` 只用 above 层
+3. **RGB**：`rgb_front (H=512, W=1024, 3) uint8` 原始；`bev_encoder_rgb (1, 3, 384, 1024) float` 路径：JPEG re-encode → BGR2RGB → `crop_array` → CHW → float **不 /255**（backbone 内部 `normalize_imagenet` 处理）
+4. RoutePlanner 给 ego frame `target_point (2,), next_target_point (2,)`
+5. `result['next_command'] = self.commands[-2]`（向前回退 2 个）
 
 ### 5.4 run_step() 流程
 
-1. `tick(input_data)` → `tick_data`。
-2. 把所有量塞历史 deque（`maxlen = obs_horizon*10 = 40`）。
-3. `step < BUFFER_PHASE=31` 时强制 `VehicleControl(0, 0, 1)` 预热（UKF 收敛）。
-4. `_build_obs_dict` → `rgb_pil_list`（4 帧 1024×512 PIL，时序由旧到新；间隔 5 tick = 0.25 s）
-   + `lidar_pil_list`（**最新 1 帧** 448×448 PIL）。
-5. `build_cleaned_prompt_and_modes(target_point_speed=cat([speed, tp, ntp]))` →
-   `"Your current and next target point is (x,y), (x',y'), and your current velocity is X m/s. Predict the driving actions ( now, +1s, +2s) and plan the trajectory for the next 3 seconds."`
-   + `understanding_output=False, reasoning_output=True`。
-6. **BEV encoder 推理**：`bev_encoder(rgb=bev_encoder_rgb_bf16, lidar_bev=bev_encoder_lidar_bev_bf16)` → `bev_feature (1, 1512, 8, 8) bf16`。
-7. **MoT inferencer 推理**（`__call__`）：
-   ```python
-   output = self.inferencer(
-       image=rgb_pil_list,            # 4 帧前视
-       front=[rgb_pil_list[-1]],      # ⚠ 实际未进 input_list（在 __call__ 中被注释）
-       lidar=lidar_pil_list,          # ⚠ 同上，未进 input_list
-       text=prompt_cleaned,
-       understanding_output=False,
-       reasoning_output=True,
-       v_target_point=target_point_speed,   # (1, 5)
-       trans_feat=bev_feature,              # (1, 1512, 8, 8)  ← 真正的 BEV 模态
-       do_sample=False, text_temperature=0.0,
-       frame_idx=self.step,
-   )
-   ```
-8. 输出 `output = {text, traj (1,6,2) 已 cumsum, route (1,20,2), dp_vl_feature (8,2560)}`。
-9. `control_pid(route_waypoints=(1,20,2), velocity, speed_waypoints=traj, target_point)`：
-   - 纵向：`desired_speed = ||traj[1] - traj[0]|| * 2`（0.5 s 间隔 → ×2 转 m/s），PID 油门/刹车。
-   - 横向：`route` (20×2) 经 `interpolate_waypoints` 0.1m 间距，传给 `LateralPIDController.step`。
-10. 各种 force_move / parking_escape 覆盖控制；外加一层 35 km/h 硬限速。
-    ⚠ 35 km/h 限速实际生效在 [run_step 末尾 line 1581-1583](AutoMoT/leaderboard/team_code/mot_b2d_agent.py#L1581-L1583)
-    `if gt_velocity * 3.6 > 35: throttle=0, brake=1`；`control_pid` 内 line 1046-1048
-    那处 35 km/h 早期实现是注释掉的兜底示例（**不要把这里当作生效逻辑**）。
+1. `tick()` → `tick_data`，塞历史 deque (`maxlen=40`)
+2. `step < BUFFER_PHASE=31` 强制 `VehicleControl(0, 0, 1)` 预热 UKF
+3. `_build_obs_dict` → `rgb_pil_list` (4 帧 1024×512, 间隔 5 tick=0.25 s) + `lidar_pil_list` (最新 1 帧 448×448)
+4. `build_cleaned_prompt_and_modes(cat([speed, tp, ntp]))` → 固定模板 prompt + `understanding=False, reasoning=True`
+5. BEV encoder: `bev_encoder(rgb_bf16, lidar_bev_bf16)` → `bev_feature (1, 1512, 8, 8) bf16`
+6. `self.inferencer(image=rgb_pil_list, text=prompt, v_target_point=tp_speed, trans_feat=bev_feature, frame_idx=self.step, ...)` —— **`front/lidar` 参数实际被 `__call__` 内部注释忽略**
+7. 输出 `{text, traj (1,6,2) 已 cumsum, route (1,20,2), dp_vl_feature (8,2560)}`
+8. `control_pid`: 纵向 `desired_speed = ||traj[1]-traj[0]|| * 2`（0.5 s ×2 转 m/s） + 横向 `route` 经 `interpolate_waypoints` 0.1 m
+9. force_move / parking_escape 覆盖 + **35 km/h 硬限速**生效点在 [run_step 末尾 line 1581-1583](AutoMoT/leaderboard/team_code/mot_b2d_agent.py#L1581-L1583)，`control_pid` 内同名实现是注释掉的兜底示例
 
-### 5.5 慢/快路径（KV cache）细节
+### 5.5 慢/快路径（KV cache）— **完整范式说明见 §14，本节只列在线特有事实**
 
-[AutoMoT/Automot/mot/evaluation/inference.py](AutoMoT/Automot/mot/evaluation/inference.py)：
-
-**`InterleaveInferencer.__call__`** ([:1507](AutoMoT/Automot/mot/evaluation/inference.py#L1507))：
-- 把 4 帧 RGB `resize_image(width=512, height=256)`（⚠ PIL 风格 W×H = 512×256，即图像高仅 256 行，是硬编码缩放，不管原图多大），加 text，组成 `input_list`。
-- **lidar / front 参数在 `__call__` 内部被**注释掉**，不会进 input_list！**
-  ⇒ 真正的 BEV 模态只能靠 `trans_feat`，PIL lidar 仅做日志/调试。
-- 调用 `kv_cache_inference_slow_fast_dp(input_list, trans_feat=..., v_target_point=..., reasoning_tokens, action_tokens, frame_idx, slow_update_interval=2)`。
-
-**慢路径 `kv_cache_fixed_inference(input_lists)`** ([:1233](AutoMoT/Automot/mot/evaluation/inference.py#L1233))：
-- 走 `update_kv_cache_context_qwen3vl(user_prompt=USER_PROMPT, instruction_prompt=text, image_list, gen_context)`
-- 用 Qwen3VL 模板，包含 system prompt `"You are a mature and professional driver."`。
-- 调 `prepare_kv_cache` → `forward_cache_update_generation` 把整个上下文跑一遍并存进 `NaiveCache`。
-- 返回 `gen_context = {kv_lens, ropes, past_key_values, packed_position_ids}`。
-- 在线下默认每 `slow_update_interval=2` 帧刷一次。
-
-**快路径 `based_kv_cache_context_fast_qwen3vl_dp(trans_feat, gen_context, reasoning_tokens=8, action_tokens=26, v_target_point)`** ([:340](AutoMoT/Automot/mot/evaluation/inference.py#L340))：
-- 用 `prepare_fast_kvcache` 拼一个 101 tokens 的 packed sequence：
-  ```
-  [bev_token(64) | target_point(2) | velocity(1) | reasoning_query(8) | route_query(20) | waypoint_query(6)]
-  ```
-- BEV token 来自 `trans_feat.flatten(2).transpose(1,2)` → `bev_encoder_proj` → 1512→2560
-  - **断言 `C==1512` 必须满足；`H*W==64` 的断言被注释掉了**。
-  - ⚠ 实测：`prepare_fast_kvcache` ([automot.py:1973](AutoMoT/Automot/mot/modeling/automot/automot.py#L1973))
-    会按 `bev_token_max_num_tokens = trans_feat.shape[-1] * trans_feat.shape[-2]` **动态分配**
-    `packed_bev_token_indexes`。所以即便 `trans_feat` 是 `(1, 1512, 10, 12)` = 120 token，
-    也不会 shape mismatch 崩溃，能跑通；但模型权重训练时见到的是 (8, 8) = 64 token 的 BEV 网格，
-    现在 120 token 的特征对应错位，语义已偏离训练分布。
-- target_point/velocity embed 来自专门的 encoder head。
-- learnable query 来自 `reasoning_queries / route_queries / waypoint_queries`。
-- 走 `language_model.forward_inference(..., update_past_key_values=False, is_causal=False)`，只算这 101 个新 token，复用 `past_key_values`。
-- 输出：
-  - `route_head(hidden[route_idx]).view(-1, 20, 2)` → route
-  - `traj_head` 等 → `(1, 6, 2)`，**额外 `.cumsum(dim=1)` 把增量转累计位移**。
-  - `gen_fast_reasoning_decision` 在 reasoning hidden state 上用 `lm_head` 解码出
-    `"<|im_start|> verb, verb, verb<|im_end|>"`（verbs ∈ `{stop, keep, accelerate, slow, ...}`）。
+- `InterleaveInferencer.__call__` ([:1507](AutoMoT/Automot/mot/evaluation/inference.py#L1507)) 在线把 4 帧 RGB **硬编码 resize 到 (W=512, H=256)** 再喂；**`lidar / front` 参数在 `__call__` 内部被注释**，不会进 input_list ⇒ BEV 模态完全靠 `trans_feat`，PIL lidar 仅日志
+- 慢路径 system prompt：`"You are a mature and professional driver."`（Qwen3VL 模板）
+- 在线默认 `slow_update_interval=2`（每 2 帧刷新一次慢路径 KV cache）
+- 快路径 packed sequence 101 token：`[bev(64) | tp(2) | v(1) | reasoning(8) | route(20) | waypoint(6)]`
+  - **断言 `C==1512` 必须满足；`H*W==64` 的断言被注释掉**——`trans_feat (1, 1512, 10, 12)` = 120 token 也能跑，但偏离训练 (8, 8) = 64 token 网格
+- 输出末 `traj_head` 出 `(1, 6, 2)` 后**额外 `.cumsum(dim=1)`** 把增量转累计位移
+- reasoning hidden → `lm_head` 解码出 `"<|im_start|> verb, verb, verb<|im_end|>"`（verbs ∈ {stop, keep, accelerate, slow, ...}）
 
 ### 5.6 AutoMoT 模型权重位置（仓库相对）
 
@@ -530,85 +340,19 @@ return hist.T   # 转置后 shape (320, 384)：行=y（左右），列=x（前�
 - `AutoMoT/checkpoints/Qwen3-VL-4B/`（tokenizer/processor）
 - `BEVEncoderBackboneExtractor` 从 `model.safetensors` 里取 `bev_encoder.*` 前缀的子集自行装载。
 
-### 5.7 Qwen3-VL Image Processing 行为细节（决定"任意 shape 是否失真"的关键）
+### 5.7 Qwen3-VL Image Processing —（**结论：(1152, 384) 输入不失真**）
 
-> 这一节解答："我直接把 (1152, 384) 三视角拼接图喂给 Qwen3-VL，会不会被偷偷 resize 改变 aspect 导致失真？" 答：**不会失真**，aspect 完美保持。但 vision token 数会变多。
+Qwen3-VL 复用 `Qwen2VLImageProcessor.smart_resize`，参数：`patch_size=16, merge_size=2, factor=32`。
+**只要 W、H 都是 32 倍数且总像素在 `[56², 28²×1280]` 内，就不 resize 不变 aspect**。
 
-#### 5.7.1 内部使用的 image processor
-
-Qwen3-VL 复用 `Qwen2VLImageProcessor`（[transformers/models/qwen2_vl/image_processing_qwen2_vl.py:54-80](../../AppData/Roaming/Python/Python311/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl.py)）。核心函数 `smart_resize`：
-
-```python
-def smart_resize(height, width, factor=28, min_pixels=56*56, max_pixels=28*28*1280):
-    """
-    1. Both dimensions divisible by 'factor'.
-    2. Total pixels in [min_pixels, max_pixels].
-    3. Aspect ratio maintained as closely as possible.   ← 关键
-    """
-    if max(h, w) / min(h, w) > 200:
-        raise ValueError(...)
-    h_bar = round(height / factor) * factor
-    w_bar = round(width / factor) * factor
-    if h_bar * w_bar > max_pixels:
-        # 等比例缩小（保持 aspect）
-        beta = sqrt(h * w / max_pixels)
-        h_bar, w_bar = floor(height/beta/factor)*factor, floor(width/beta/factor)*factor
-    elif h_bar * w_bar < min_pixels:
-        # 等比例放大（保持 aspect）
-        beta = sqrt(min_pixels / (h * w))
-        h_bar, w_bar = ceil(height*beta/factor)*factor, ceil(width*beta/factor)*factor
-    return h_bar, w_bar
-```
-
-#### 5.7.2 Qwen3-VL 实际参数
-
-从 [automot.py:1700-1709](AutoMoT/Automot/mot/modeling/automot/automot.py#L1700-L1709) 注释里的 `grid_thw=[1, 16, 32]`、`pixel_values shape=(512, 1536)`、`128 vision tokens` 反推（基于 AutoMoT 在线 resize 后 (512, 256) 的实测值）：
-
-| 参数 | 值 | 推理 |
+| 输入 PIL.size | aspect 保持 | vision tokens/帧 (=H×W/1024) |
 |---|---|---|
-| `patch_size` | **16** | grid_thw[1]=16 ⇒ H/patch_size=16 ⇒ patch_size = 256/16 = 16 |
-| `merge_size` | **2** | tokens = 16×32 / 4 = 128 ⇒ merge_size² = 4 |
-| `factor` | **32** | factor = patch_size × merge_size = 16 × 2 = 32 |
-| `min_pixels` | 56×56 = 3,136 | 默认值 |
-| `max_pixels` | 28×28×1280 = 1,003,520 | 默认值 |
+| AutoMoT 在线 (512, 256) | ✅ 2:1 | 128 |
+| runner 当前 (1152, 384) | ✅ 3:1 | **432** |
 
-#### 5.7.3 不同输入尺寸的实际处理结果
+**实测验证**：runner 喂 4 帧 (1152, 384) + prompt 后 `kv_lens=[1840]` ≈ 1728 vision (4×432) + 112 text，吻合。
 
-`vision_tokens = (h_bar / patch_size) × (w_bar / patch_size) / merge_size² = h_bar × w_bar / (16² × 2²) = h_bar × w_bar / 1024`
-
-| 输入 PIL.size | smart_resize 后 | aspect 是否变化 | 总像素 | vision tokens 数 |
-|---|---|---|---|---|
-| **AutoMoT 在线** `(W=512, H=256)` | (512, 256) 不变（已是 32 倍数） | ✅ 保持 2:1 | 131,072 | **128** |
-| **runner 当前** `(W=1152, H=384)` | (1152, 384) 不变（1152=36×32, 384=12×32） | ✅ 保持 3:1 | 442,368 | **432** |
-| 假设原前视图 `(W=1024, H=512)` | (1024, 512) 不变 | ✅ 保持 2:1 | 524,288 | 512 |
-| 极端例：`(W=2000, H=300)` | smart_resize 后约 (2016, 288) | ✅ 仍 aspect 近 7:1 | 580k | ~568 |
-
-⇒ **结论**：runner (1152, 384) **既不会被 resize 也不会被压扁**，aspect 3:1 严格保持；图像内容不失真。
-
-> 📊 **实测验证**（一次端到端跑通日志）：runner 喂 4 帧 PIL.size=(1152, 384) + 1 个 prompt 文本 → `kv_cache_fixed_inference` 返回 `gen_context = {kv_lens=[1840], ropes=[256], past_key_values: NaiveCache, packed_position_ids}`。**`kv_lens=1840 ≈ 1728 vision token（4×432）+ ~112 text/system token`**，与上面理论估算完全吻合 ✅。
-
-#### 5.7.4 真正的副作用：vision token 数 / 显存 / 慢推理时间
-
-| 维度 | runner | AutoMoT 在线 | 比例 |
-|---|---|---|---|
-| 每张图 vision tokens | 432 | 128 | **3.4×** |
-| 4 帧总 vision tokens | 1728 | 512 | 3.4× |
-| Attention KV cache 长度（含 text） | ~1800+ | ~700+ | ~2.6× |
-| 慢推理时间（attention O(N²)） | baseline × ~7 | baseline | 显著变慢 |
-| 显存（KV cache 与 attention map） | baseline × 3.4 | baseline | 3.4× |
-
-> ⚠ 如果显存不够或速度受不了，可在 runner `_prepare_inference_inputs` 里加一行：
-> `rgb_pil_list = [img.resize((512, 256), Image.LANCZOS) for img in rgb_pil_list]`
-> 这会让 vision tokens 降到 128/帧，与 AutoMoT 在线对齐。**但用户当前不希望做此处理**（保留原始视野信息，让 Qwen3-VL 自己消化）。
-
-#### 5.7.5 为什么这不影响"Qwen3-VL 慢推理质量"
-
-1. Qwen3-VL backbone **冻结**，权重来自 Qwen 团队原始预训练（互联网通用图像-文本对，**见过各种 aspect / 各种 vision token 数**）
-2. AutoMoT 训练只 fine-tune 下游 projector/heads，**不 fine-tune Qwen3-VL backbone**
-3. 你预计放弃快推理 → 下游 projector/heads 不再用 → vision token 数 432 vs 128 的差异只影响**已搁置的路径**
-4. 你保留的"慢推理"只是用 Qwen3-VL 算 KV cache（即 attention 中间状态）—— Qwen3-VL 通用 backbone 对此完全胜任
-
-⇒ **runner 当前输入对慢推理无任何"隐藏失真"问题。**
+**副作用**：vision tokens 是 AutoMoT 在线的 3.4×，显存/attention 时间放大约 3.4×–7×。Qwen3-VL backbone 冻结（预训练见过各种 aspect），**不影响慢推理质量**。需要降显存时可在 `_prepare_inference_inputs` 里 `rgb.resize((512, 256))`，但用户当前不做。
 
 ---
 
@@ -684,35 +428,30 @@ def smart_resize(height, width, factor=28, min_pixels=56*56, max_pixels=28*28*12
 5. BEV encoder：runner 底部 `LeadBEVEncoder` 包装 LEAD `TransfuserBackbone`（tfv6 单帧），输出 `bev_feature: (1, 512, 10, 12)`。
 6. 调用 `kv_cache_fixed_inference`（慢路径 Qwen3-VL）；快推理默认禁用（`enable_fast_inference=False`），不调 `based_kv_cache_context_fast_qwen3vl_dp`。
 
-### 8.2 当前"跑通"不等于"对"——已识别的不匹配点
+### 8.2 历史不匹配点 — 已修复 / 仍存在
 
-> ⚠ **本表大改前提**：BEV encoder 已切换为 LEAD TransfuserBackbone（详见 §0.5），数据预处理回到 LEAD 训练分布，原来"对齐 AutoMoT 训练分布"的努力**全部失效**：
-> - ①②⑥（LiDAR 栅格 / z 过滤 / PIL）→ **🔄 已重写为 LEAD 风格栅格**，不再走 AutoMoT 风格
-> - ③（RGB 视野不对齐）→ **🔄 已失效**：LEAD backbone 训练时就是三视角拼接，无需裁切
-> - ⑤（LiDAR 多帧）→ 仍保留，但语义跟随 LEAD（单帧 .laz 含 5 sweep）
-> - ⑦⑧⑩⑬⑭ 不受影响（与 BEV encoder 选择无关）
->
-> 下面表格保留作历史记录，每一项的"现状"列描述的是**切换前**的实现，与 runner 当前代码已经不一致。runner 当前实际状态详见 §8.3 / §11 cheat sheet。
+> 背景：BEV encoder 已切换为 LEAD TransfuserBackbone（§0.5），数据预处理回到 LEAD 训练分布。
 
-> **阅读提示**：以下表格中标 ⚪ 的项**仅影响快推理路径（trans_feat / bev_encoder / 下游 AutoMoT-trained head）**。按 §0.5 路线决策，快推理预计放弃，**这些项暂不优化**。标 ✅ 的是已修；其它项见对应注释。
+**✅ 已修复**：
+- ① LiDAR 栅格 — 已切 LEAD 风格 `lead_rasterize_lidar` → `(1, 320, 384)`
+- ② LiDAR PIL 仅日志用，与 `bev_lidar_tensor` 同源
+- ④ tp/ntp 用 future 1.5 s/3.0 s 真值（`_extract_tp_ntp_from_future_frames`），落在 AutoMoT 训练分布 30–80 m 内
+- ⑤ LiDAR 单帧（`bev_frame_count=1`），对齐 LEAD 单帧含 5 sweep 训练分布
+- ⑥ z 过滤已随 LEAD 风格栅格走（含地面层）
+- ⑨ theta 用 `meta["theta"]`，与 AutoMoT `compass_filtered` 在 `inverse_conversion_2d` 周期性下等价
+- ⑩ 位姿严格 `pos_global + theta`，缺字段 raise
+- ⑬ 删除二次 JPEG 压缩，直接 `np.array(PIL)`
 
+**仍存在 / 未来才处理**：
 
-| # | 问题点 | 现状 | 影响 |
-|---|---|---|---|
-| ① | ✅ **已修复**：BEV encoder lidar 输入尺寸 | 改用 `bev_data_utils.lidar_to_histogram_features(self.bev_encoder_config)`，直接按 AutoMoT config 出 `(1, 256, 256)`（±32m / 4 px/m / `z>0.2` 切地面）。`_rasterize_lidar_xy` 函数和 clip 的 `rasterized_lidar` 字段已删除 | trans_feat 回到训练分布的 `(1, 1512, 8, 8)`，BEV token 数恢复 64 |
-| ② | ✅ **lidar PIL 改用 AutoMoT 栅格** | runner 现在的 `lidar_pil_list` 直接来自 `lidar_to_histogram_features` 输出 (1, 256, 256) [0, 1]，再 *255 转 uint8 复制 3 次成 RGB（R=G=B）。PIL.size=(W=256, H=256) | 仅日志用（PIL lidar 在 inferencer `__call__` 里被注释忽略，不进推理），但日志也已和真正喂模型的 `bev_lidar_tensor` 同源，调试体验对齐 |
-| ③ | ⚪ **三视角拼接 RGB 直接喂模型**（**仅快推理相关，已搁置**） | LEAD `rgb` 是 `(384, 1152, 3)`，runner 不挑前视直接 PIL；`bev_encoder_rgb` 走 `crop_array` 裁到 `(384, 1024, 3)` | 慢路径 Qwen3-VL frozen 通用 backbone 能消化任意 aspect/分辨率（按 §0.5 路线决策不做处理）；bev_encoder 路径 crop 后保留中间 1024 列**仍含大量侧视像素**，且相机物理位置差 1.85 m（LEAD 前视 x=+0.35 vs AutoMoT x=-1.50），近场视差和"是否含车头"无法靠图像处理消除——但属于快推理路径，预计放弃 |
-| ④ | ✅ **合理对齐 AutoMoT 训练分布**：target_point/ntp 用未来 1.5 s/3.0 s 真值 | `_extract_tp_ntp_from_future_frames`：取未来 `tp_lookahead_s=1.5 s` 与 `ntp_lookahead_s=3.0 s` 的 ego 真值位置，用 `inverse_conversion_2d(future_pos_global, cur_pos_global, cur_theta)` 转 ego frame | **AutoMoT 模型 ≠ LEAD 训练**：模型权重来自 `AutoMoT/checkpoints/AutoMoT`，用 AutoMoT 自家 RoutePlanner（`min_distance=7.5, max_distance=50`）训练，**期望 tp/ntp 在 30–80 m 区间**（用户在线实测 `TP≈(30, 0)`, `NTP≈(82, 2)`）。直接用 LEAD `next_target_points_3.25[1]/[2]` 转 ego frame 后实测**距离 100–200 m**（见 0026.json：`target_point` 转 ego = `(74, 94)` ≈120 m，`next` = `(102, 190)` ≈216 m），与 AutoMoT 训练分布严重错位。用 future 1.5 s/3.0 s 真值 ≈ `speed × lookahead` = 25–50 m（中速时）、~7–15 m（低速时）、~38–75 m（高速时），数量级落在 AutoMoT 训练分布内。⚠ caveat：距离随速度变化，红灯停车时退化到 ~(0, 0)，但用户接受此为预期行为 |
-| ⑤ | ✅ **已修复**：LiDAR 多帧对齐 | `bev_frame_count` 默认改为 **1**——仅用 anchor 单帧 .laz（内含 5 个 ego-aligned sweep），完全对齐 LEAD 训练分布（5 sweep / 0.25 s）。`_align_lidar_points_to_anchor` 函数保留（设 `bev_frame_count>1` 时仍会工作，用 `R(src_theta).T` 严格平移），但默认路径不再触发跨帧拼接 | 单帧路径下完全无 sweep 累积偏差 |
-| ⑥ | ✅ **已修复**：LiDAR z 过滤直接走 AutoMoT 风格 | runner 不再有自定义 z 过滤；`lidar_to_histogram_features` 内部按 `lidar_split_height=0.2` 切 above（`use_ground_plane=False`），与 BEV encoder 训练分布完全一致。LEAD `rasterize_lidar` 的 `[-4, 10]` 闭区间路径已废弃（连同 `_rasterize_lidar_xy` 函数一起删除） | 完全对齐训练分布；地面层 z ≤ 0.2 被丢弃，与训练一致 |
-| ⑦ | **traj 时间网格不匹配** | runner 拿到 6×0.5 s = 3 s 输出，但 LEAD GT 是 8×0.25 s = 2 s | 如果用 LEAD GT 做 evaluation，需要把 traj 重新插值/采样到 0.25 s 网格，runner 当前没有这一步 |
-| ⑧ | **command 队列状态机离线缺失** | runner 完全不维护 `self.commands = deque(maxlen=2)`；在线 inferencer 的 prompt 里确实不含 command，但 agent 内部 `commands` 队列参与 force_move / 路径切换 / `next_command` 计算 | 当前 runner 走"开环单点推理"，没用控制层；若未来要做 close-loop 评测，必须把 commands 队列搬过来 |
-| ⑨ | ✅ **theta 单位一致** | LEAD `theta` = `preprocess_compass(IMU)` + `np.unwrap` 累积（弧度，可超 `[-π, π]`）；AutoMoT 在线 `compass_filtered` = `preprocess_compass(IMU)` + `UKF.normalize_angle`（弧度，∈`[-π, π]`）。两者来自**同一公式**（lead.common_utils.inverse_conversion_2d ≡ automot_utils.inverse_conversion_2d），仅 unwrap 边界处理不同 | `inverse_conversion_2d` 内部只用 `cos/sin`，**周期性下 unwrap 与否无影响** ✓。实测 0026.json `theta=1.8477753838` vs `privileged_yaw=1.8477754665` 差异 ~1e-7，runner 用 theta 完全正确 |
-| ⑩ | ✅ **已修复**：位姿源 | `_extract_pose_from_meta` 已简化为**严格用 `pos_global` + `theta`**，不再回退到 filtered/noisy/privileged_yaw；缺字段直接 raise。与 LEAD 训练默认（`use_noisy_tp=False`）完全一致 | 完全对齐训练分布 |
-| ⑪ | **clip_len 与 BUFFER_PHASE** | 离线 12 帧（0.25 s 间隔）= 3 s 历史 vs 在线 31 tick (~1.55 s) buffer 然后再决策 | 时间长度比在线还多，不算问题 |
-| ⑫ | **gen_context 复用语义不同** | runner 每个 anchor 重新 `kv_cache_fixed_inference`（gen_context=None 时）；在线版 `kv_cache_inference_slow_fast_dp` 自己按 `slow_update_interval=2` 帧管理刷新 | 当前 `run_clip` 只用最后一帧 anchor 问题不暴露。**未来若多 anchor 复用，应直接调 `kv_cache_inference_slow_fast_dp` 而不是自己手动凑 gen_context**，否则会跳过 inferencer 内置的 interval 控制 |
-| ⑬ | ✅ **已修复**：二次 JPEG 压缩 | 删除 `cv2.imencode + imdecode + BGR2RGB` 三步，直接 `np.array(rgb_pil_list[-1])` 取 PIL 解码结果。LEAD .jpg 本身已是 1 次 JPEG，与训练数据分布一致 | 完全对齐训练分布 |
-| ⑭ | **LiDAR / Radar 混合点** | runner 用 `laspy.read(*.laz)` 拿到的可能是 LiDAR + Radar 混合点（取决于采集时 `save_radar_pc_as_lidar` 设置）；runner 不区分，全部喂栅格 | 与训练分布一致（训练时 dataset 也用 `laspy.read` 不区分），所以**不是 bug**；但要注意如果训练时 `duplicate_radar_near_ego=True`，ego 附近密度会被人为增厚 |
+| # | 问题点 | 影响 |
+|---|---|---|
+| ③ ⚪ | bev_encoder RGB 仍含侧视像素 + 相机物理位置差 1.85 m | 仅快推理路径，已搁置（§0.5） |
+| ⑦ | traj 时间网格：runner 拿 6×0.5 s=3 s vs LEAD GT 8×0.25 s=2 s | 用 LEAD GT eval 时需插值；当前未做 |
+| ⑧ | `self.commands` deque 缺失 | 仅 close-loop 才需要 |
+| ⑪ | clip_len 12 帧 (3 s) > 在线 BUFFER_PHASE 31 tick (~1.55 s) | 时间更长，不算 bug |
+| ⑫ | gen_context 复用：runner 每 anchor 重算 vs 在线 `slow_update_interval=2` | 当前 run_clip 单 anchor 不暴露；若多 anchor 复用应直接调 `kv_cache_inference_slow_fast_dp` |
+| ⑭ | LiDAR / Radar 混合点 (`save_radar_pc_as_lidar`) | 与训练分布一致，**不是 bug**；若 `duplicate_radar_near_ego=True` 则 ego 附近密度增厚 |
 
 ### 8.3 数据流形/数值范围（runner 当前实际状态）
 
@@ -766,33 +505,19 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
 - traj 时间网格（LEAD 版快推理重训时决定输出网格）
 - `self.commands` deque 缺失（close-loop 状态机才需要）
 
-### 8.5 精度与单位对照（speed / theta / tp / ntp）
+### 8.5 精度与单位对照（**慢推理路径全部对齐**）
 
-第一次 KV 缓存调用之前所有数值输入的精度/单位/dtype 已与 AutoMoT 在线完全对齐：
+第一次 `kv_cache_fixed_inference` 之前的标量/向量输入与 AutoMoT 在线完全等价：
+- **speed**: m/s, float32, prompt `:.2f`（runner 调同款 `build_cleaned_prompt_and_modes`）
+- **target_point/ntp**: ego frame，同款 `inverse_conversion_2d(future_pos, cur_pos, cur_theta)`，prompt `:.6f`
+- **theta**: 弧度。LEAD 有 `np.unwrap`（可超 [-π, π]），AutoMoT 用 `normalize_angle` ∈ [-π, π]；`inverse_conversion_2d` 用 `cos/sin` 周期性下**等价** ✅
+- **pos 源**: runner 用 `pos_global`（真值，对齐 LEAD 训练默认 `use_noisy_tp=False`），与在线 `gps_filtered` 数值差极小且 future-cur 做差不变
+- **`v_target_point`**: `(1, 5) float32 = [speed, tp.x, tp.y, ntp.x, ntp.y]`
 
-| 字段 | AutoMoT 在线 | runner 当前 | 一致性 |
-|---|---|---|---|
-| **speed** 单位 | m/s | m/s（直接读 `meta["speed"]`） | ✅ |
-| **speed** dtype | `torch.float32` tensor | `torch.float32` tensor | ✅ |
-| **speed** prompt 格式 | `f"{speed:.2f} m/s"` ← `build_cleaned_prompt_and_modes` | runner 调**同一个函数** | ✅（自动 `.2f`） |
-| **target_point/ntp** 坐标系 | ego frame（米，CARLA 顺时针 yaw 约定下 `inverse_conversion_2d` 输出，x=前向，y=右向） | 同款 `inverse_conversion_2d(future_pos_global, cur_pos_global, cur_theta)` | ✅ |
-| **target_point/ntp** dtype | `torch.float32` (1, 5) | `torch.float32` (1, 5) | ✅ |
-| **target_point/ntp** prompt 格式 | `f"({cur_x:.6f}, {cur_y:.6f})"` | runner 调同函数 | ✅（自动 `.6f`） |
-| **yaw / theta** 单位 | 弧度 | 弧度 | ✅ |
-| **yaw / theta** 来源 | `compass = preprocess_compass(IMU)` → UKF（输出 `normalize_angle` ∈ `[-π, π]`） | `meta["theta"] = preprocess_compass(IMU) + np.unwrap`（可超 `[-π, π]`） | ⚠ unwrap 与否；`inverse_conversion_2d` 用 `cos/sin` 周期性下**等价** ✅ |
-| **inverse_conversion_2d** 公式 | `R(yaw).T @ (p - ego_pos)`，`R(yaw) = [[cos, -sin], [sin, cos]]` | **完全同款公式**（`lead.common.common_utils` ≡ `automot_utils`） | ✅ |
-| **pos 源** | `gps_filtered`（UKF 滤波 GPS） | `pos_global`（真值，对齐 LEAD 训练默认 `use_noisy_tp=False`） | ⚠ 数值差极小（UKF 收敛后），且 future-cur 同字段做差，差值不变 ✅ |
-| **wp_history** | agent 内 `waypoint_history` deque 维护但**不喂模型**（inferencer 不接收） | runner 也不维护 | ✅（都不用） |
-| **LiDAR 点** | `(N, 3) float32` ego-local | `(N, 3) float32` ego-local（`laspy.read` 取 `las.x/y/z`） | ✅ |
-| **LiDAR BEV** | `(1, 1, 256, 256)` bf16 [0, 1]（AutoMoT BEV encoder） | `(1, 1, 320, 384)` float32 [0, 1]（LEAD `lead_rasterize_lidar` 输出） | 🔄 已切到 LEAD 风格，对齐 LEAD TransfuserBackbone 训练分布 |
-| **RGB tensor** | `(1, 3, 384, 1024) bf16` `[0, ~235]` | `(1, 3, 384, 1152) float32 [0, ~235]`（三视角拼接，不 crop） | 🔄 已切到 LEAD 风格 |
-| **`v_target_point`** | `(1, 5) float32 = [speed, tp.x, tp.y, ntp.x, ntp.y]` | 同 | ✅ |
-| **`trans_feat`** | `(1, 1512, 8, 8) bf16`（AutoMoT 训练分布） | `(1, 512, 10, 12) float32`（LEAD backbone 输出） | 🔄 与 AutoMoT 自家快推理 head 不兼容；慢推理不消费 |
-
-**结论**：第一次调用 `kv_cache_fixed_inference` 之前的所有数值/单位/精度都与训练分布对齐。
-
-> **针对当前路线（慢推理 Qwen3-VL 为主）**：上表所有项**全部 ✅**——Qwen3-VL frozen 对图像 shape 鲁棒，连 RGB 三视角拼接图都能消化，runner 慢推理路径**不需要任何修改**。
-> **快推理 trans_feat 路径**的偏差（视野/sweep 数等）参见 §8.2 ⚪ 标记项，已搁置。
+**🔄 切到 LEAD 风格（与 AutoMoT 原训练分布不同，但慢推理 Qwen3-VL frozen 鲁棒，不影响）**：
+- LiDAR BEV: `(1, 1, 320, 384) float32 [0, 1]` (LEAD) ← 原 `(1, 1, 256, 256) bf16` (AutoMoT)
+- RGB tensor: `(1, 3, 384, 1152) float32` 三视角不 crop ← 原 `(1, 3, 384, 1024) bf16`
+- `trans_feat`: `(1, 512, 10, 12)` (LEAD backbone) ← 原 `(1, 1512, 8, 8)`；与 AutoMoT 快推理 head 不兼容，但慢推理不消费
 
 ---
 
@@ -1024,174 +749,62 @@ VLM 调用（理论上可挂到 AutoMoT 慢推理的 prompt 上）
 
 ### 13.2 `rule_based_keyframe_filter.py` 解读
 
-**作用**：把每个 LEAD run 摘录成 5 个关键帧，供下游做事件级标注 / 评估 / VLM
-监督信号。
+**作用**：把每个 LEAD run 摘录成 5 个关键帧（initial / middle×3 / final），写入 JSON。
 
-**核心数据结构**：
+**核心字典**（详见源文件，本机有副本）：
+- `SCENARIO_LABELS` ([L34](rule_based_keyframe_filter.py#L34)) — 场景 → initial 帧 `label_text`
+- `SCENARIO_CONFIG` ([L89](rule_based_keyframe_filter.py#L89)) — 场景 → `(dist_field, threshold_m, (event_A, event_B, event_C))`
+- `BRAKE_ACCEL_PRIMARY = {HardBreakRoute, ControlLoss}` — 走 brake/accel 分支
+- `_ALL_DIST_FIELDS` — 8 个 `dist_to_*` 字段
 
-- `SCENARIO_LABELS`（[L34-77](rule_based_keyframe_filter.py#L34)）— 场景 → 一句话英文标签，
-  作为 initial 帧的 `label_text` 写入 JSON
-- `SCENARIO_CONFIG`（[L89-271](rule_based_keyframe_filter.py#L89)）— 每个场景的
-  `(dist_meta_field, approach_threshold_m, (event_A, event_B, event_C))` 元组
-  - `dist_meta_field`：从 `metas/*.pkl` 里读哪个 `dist_to_*` 字段作为"距离接近"信号
-  - `approach_threshold_m`：距离阈值（米），低于它认为"进入交互段"
-  - `(A, B, C)`：三个中间事件的命名（如 `("hazard_detect", "max_brake_or_min_gap", "recover_or_pass")`）
-- `BRAKE_ACCEL_PRIMARY`（[L274](rule_based_keyframe_filter.py#L274)）— `{HardBreakRoute, ControlLoss}`，
-  这两个场景不靠距离信号，靠 brake/accel 找事件峰值
-- `_ALL_DIST_FIELDS`（[L280-289](rule_based_keyframe_filter.py#L280)）— 全部 8 个距离字段名
+**输入**：`results.json`（duration/status/infractions）+ `metas/*.pkl`（speed/accel/brake + dist_to_*，lzma 压缩）+ `bboxes/*.pkl`（距离回退）+ `rgb/*.jpg`（最后兜底）。
 
-**输入**（每个 run）：
+**事件挑选优先级**（[`pick_middle_events` L783](rule_based_keyframe_filter.py#L783)）：
+1. CrossingBicycleFlow 专用（[`_pick_bicycle_flow_events`](rule_based_keyframe_filter.py#L693)）
+2. Cut-in / Merge 专用（[`_pick_cutin_events`](rule_based_keyframe_filter.py#L740)）
+3. Brake/accel 主导（[`_pick_brake_accel_events`](rule_based_keyframe_filter.py#L655)）
+4. 通用距离规则（[`_pick_distance_events`](rule_based_keyframe_filter.py#L599)）：A = 距离首次 `< thresh` 且开始减速；B = 该段速度最低帧；C = B 后 ≥2 帧 `speed>2 ∧ accel>0.1` 的恢复点
+5. RGB fallback：相邻 JPG 文件大小差找 3 峰值帧
 
-| 文件 | 用途 |
-|---|---|
-| `results.json` | 取 `meta.duration_game` 算 `seconds_per_frame`、`status`、`infractions`、`route_id` |
-| `metas/*.pkl`（lzma 压缩 pickle） | 取 `speed / accel_x / brake / throttle / dist_to_*` 8 个字段 |
-| `bboxes/*.pkl`（lzma 压缩 pickle） | 当 metas 里相应距离字段缺失时回退，从 bbox `class/distance/position/extent` 算最近车辆/行人/自行车距离 |
-| `rgb/*.jpg` | 最后兜底——靠相邻帧文件大小差找运动峰值 |
+**信号源 confidence**：metas≈0.88 / bboxes≈0.7 / rgb_fallback≈0.5（写入 `signal_source` 字段）。
 
-**事件挑选流程（[`pick_middle_events` L783](rule_based_keyframe_filter.py#L783)）**：
-
-按优先级试 4 条规则：
-
-1. **CrossingBicycleFlow 专用** — 自行车等待峰值更细的判定（[`_pick_bicycle_flow_events` L693](rule_based_keyframe_filter.py#L693)）
-2. **Cut-in / Merge 专用** — `cutin_onset → caution_peak → stabilize_follow`，
-   onset 用"距离持续下降"判定（[`_pick_cutin_events` L740](rule_based_keyframe_filter.py#L740)）
-3. **Brake/accel 主导**（HardBreakRoute / ControlLoss）— 找 `accel_x` 最负
-   或 `brake` 最大（[`_pick_brake_accel_events` L655](rule_based_keyframe_filter.py#L655)）
-4. **通用距离规则**（[`_pick_distance_events` L599](rule_based_keyframe_filter.py#L599)）：
-   - A = 距离首次低于阈值且开始减速的帧（同时满足 `dist < thresh` 且 `accel < -0.4` 或 `brake > 0.05`）
-   - B = 该段内速度最低的帧（即"最大减速点 / 最近接近点"）
-   - C = B 之后第一个持续 ≥2 帧 `speed > 2 m/s 且 accel > 0.1` 的恢复点
-5. 上述都失败 → **RGB fallback**：相邻 JPG 文件大小差找 3 个峰值帧
-
-**信号源优先级**：metas/*.pkl（confidence≈0.88）→ bboxes/*.pkl（≈0.7）→ rgb_fallback（0.5）。
-对应 JSON 输出里的 `signal_source` 字段。
-
-**几个工程细节**：
-
-- 全部 pickle 都是 **lzma (xz) 压缩**的，[`load_pickle` L324](rule_based_keyframe_filter.py#L324) 有兜底
-- `enforce_event_order`（[L552](rule_based_keyframe_filter.py#L552)）保证 3 个中间事件严格递增
-  且彼此间有最小间隔（默认 2 帧），避免几个事件落在同一帧
-- 帧→时间换算 `t = frame * seconds_per_frame`，其中
-  `seconds_per_frame = duration_game / (total_frames - 1)`，CARLA 数据集典型≈0.25s/帧
-- 默认 dataset_root 在远程：`/home/cruser1/lda/lead/cache_ln/data`（CLI `--dataset-root` 可改）
+**工程细节**：pickle 是 lzma xz 压缩；`enforce_event_order` 保证 3 中间事件严格递增（min_gap=2）；`t = frame * seconds_per_frame`，典型 ≈0.25 s/帧；远程默认 root `/home/cruser1/lda/lead/cache_ln/data`。
 
 ### 13.3 `keyframes_all_scenarios.json` 字段说明
 
-**顶层结构**：
+**顶层**：`{dataset_root, scenarios[41], num_runs=7326, runs[], failed_runs=[], num_failed_runs=0}`。
+（41 个场景，比 `SCENARIO_CONFIG` 的 43 项少 2，数据集没采全）
 
-```json
-{
-  "dataset_root": "/home/cruser1/lda/lead/cache_ln/data",
-  "scenarios": [41 个场景名 ...],
-  "num_runs": 7326,
-  "runs": [ { ...单个 run 条目... }, ... ],
-  "failed_runs": [],
-  "num_failed_runs": 0
-}
-```
+**每个 run 条目字段**：
 
-注意：实际 JSON 里 `scenarios` 列了 **41** 个（缺 `Accident` 之外的 `AccidentTwoWays`
-变体？——核对 [`keyframes_all_scenarios.json#L3-46`](keyframes_all_scenarios.json#L3) 发现
-没有 `AccidentTwoWays`），与 `SCENARIO_CONFIG` 的 43 项略有差异，可能是数据集里
-有些场景没采到。`num_runs = 7326`，全部成功无失败 run。
+| 字段 | 含义 |
+|---|---|
+| `scenario` | CARLA 场景名 |
+| `run_id` | run 目录名，如 `Town03_Rep0_route_001783_...` |
+| `route_id` / `status` / `num_infractions` | 来自 `results.json` |
+| `signal_source` | `metas` / `bboxes` / `rgb_fallback` |
+| `rule_confidence` | 3 中间事件 confidence 均值 |
+| `initial` | `{event:"initial", frame:0, t:0.0, label_text, confidence:1.0}` ←  `label_text` 来自 `SCENARIO_LABELS` |
+| `middle[3]` | `{event, frame, t, confidence}` — event 与 `vlm_prompt_pipeline.SCENARIO_EVENT_SEQUENCES` 对应 |
+| `final` | `{event:"final", frame=total-1, t, final_success, confidence:1.0/0.8}` |
+| `diagnostics` | `{total_frames, duration_game, seconds_per_frame}` |
 
-**每个 run 条目**：
-
-| 字段 | 类型 | 含义 |
-|---|---|---|
-| `scenario` | str | CARLA 场景名（与 `SCENARIO_CONFIG` 键一致） |
-| `run_id` | str | run 目录名，形如 `Town03_Rep0_route_001783_route0_01_11_02_37_46` |
-| `route_id` | str | 来自 `results.json`，如 `RouteScenario_route_001783_rep0` |
-| `status` | str | run 结果：`Perfect / Completed / Failed / Unknown` 等（来自 `results.json`） |
-| `num_infractions` | int | 该 run 的违规次数（来自 `results.json`） |
-| `signal_source` | str | 关键帧从哪挑出来的：`metas / bboxes / rgb_fallback` |
-| `rule_confidence` | float | 三个中间事件 confidence 的平均，0.0–1.0 |
-| `initial` | obj | 首帧（见下） |
-| `middle` | list[3] | 三个中间关键帧（见下） |
-| `final` | obj | 末帧（见下） |
-| `diagnostics` | obj | `{total_frames, duration_game, seconds_per_frame}` |
-
-**`initial`**：
-
-```json
-{
-  "event": "initial",
-  "frame": 0,
-  "t": 0.0,
-  "label_text": "Brake and avoid accident hazard",   // ← 来自 SCENARIO_LABELS
-  "confidence": 1.0
-}
-```
-
-**`middle` 每个元素**：
-
-```json
-{
-  "event": "hazard_detect",          // 场景特定事件名（与 vlm_prompt_pipeline 的 SCENARIO_EVENT_SEQUENCES 对应）
-  "frame": 37,                       // 在该 run rgb 序列中的 0-based 帧号
-  "t": 9.2974,                       // 对应的游戏时间（秒）
-  "confidence": 0.88                 // 信号强度：metas≈0.88, bboxes≈0.7, rgb≈0.5
-}
-```
-
-**`final`**：
-
-```json
-{
-  "event": "final",
-  "frame": 117,                       // = total_frames - 1
-  "t": 29.4,
-  "final_success": true,              // status ∈ {Perfect, Completed} 且无 timeout/blocked
-  "confidence": 1.0                   // 成功 1.0 / 失败 0.8
-}
-```
-
-**重要：`frame` 是 LEAD 原始 rgb 序列的下标**，**不是** AutoMoT 慢推理那个 4 帧
-clip 的下标。要在 runner 里用它，需要换算到当前 `anchor_t` 对应的原始帧号
-（runner 里 `lead_clip` 已经按某种 frame_step 抽帧，参见 PROJECT_CONTEXT.md §5）。
+> ⚠ **`frame` 是 LEAD 原始 rgb 序列的下标，不是 AutoMoT 4 帧 clip 内的下标**。runner 里用它需要先把 `anchor_t` 换算到原始帧号（§5 已抽帧）。
 
 ### 13.4 `vlm_prompt_pipeline.py` 解读
 
-**作用**：把"VLM 看一张前视图 + 一段 memory → 输出 STATUS/SUBGOAL/ANALYSIS"
-封装成可复用的小模块。**不依赖具体 VLM 框架**——`run_pipeline_step` 收一个
-`vlm_fn(system, user) → str` callable，让调用方接 Qwen3-VL / GPT-4V / 任意 VLM。
+**作用**：把"VLM 看图 + memory → 输出 STATUS/SUBGOAL/ANALYSIS"封装成框架无关小模块。`run_pipeline_step(memory, image, vlm_fn)` 收一个 `vlm_fn(system, user)->str` callable，下游接任意 VLM。
 
-**核心组件**：
+**核心组件**（详见源文件）：
+- `SCENARIO_LABELS` ([L38](vlm_prompt_pipeline.py#L38)) — 与 filter 里那份**完全一致**（独立维护）
+- `SCENARIO_EVENT_SEQUENCES` ([L87](vlm_prompt_pipeline.py#L87)) — 场景 → 3 中间事件元组；**与 filter 的 `SCENARIO_CONFIG` 第 3 项一一对应**，两文件唯一的"事件命名契约"
+- `EVENT_DESCRIPTIONS` ([L136](vlm_prompt_pipeline.py#L136)) — 事件名 → 人类可读英文说明
+- `DrivingMemory` ([L228](vlm_prompt_pipeline.py#L228)) dataclass：`scenario, scenario_label, event_sequence=("initial", mid_a, mid_b, mid_c, "final"), status, subgoal, completed_events`
+- `build_system_prompt / build_memory_block / build_user_prompt / parse_vlm_output / update_memory`
 
-- **`SCENARIO_LABELS`**（[L38-81](vlm_prompt_pipeline.py#L38)）— 与 filter 里那份**完全一致**
-  （独立维护，没共享代码）
-- **`SCENARIO_EVENT_SEQUENCES`**（[L87-130](vlm_prompt_pipeline.py#L87)）— 场景 → 3 个中间事件
-  的元组。**与 filter 里 `SCENARIO_CONFIG` 第 3 项一一对应**，这是两个文件唯一
-  的"事件命名契约"
-- **`EVENT_DESCRIPTIONS`**（[L136-209](vlm_prompt_pipeline.py#L136)）— 每个事件名 → 一句英文
-  人类可读说明，给 VLM 看 memory 时同时贴出
-- **`DrivingMemory`**（[L228](vlm_prompt_pipeline.py#L228)）— dataclass，字段：
-  - `scenario`、`scenario_label`：标识
-  - `event_sequence`：完整序列 `("initial", mid_a, mid_b, mid_c, "final")`
-  - `status`：当前确认到哪个事件
-  - `subgoal`：下一个目标事件
-  - `completed_events`：已走过的事件列表
-- **`build_system_prompt()`**（[L348](vlm_prompt_pipeline.py#L348)）— 返回一段固定 system prompt，
-  让 VLM 严格按 `ANALYSIS: ... \n STATUS: ... \n SUBGOAL: ...` 三行格式输出
-- **`build_memory_block(memory)`**（[L353](vlm_prompt_pipeline.py#L353)）— 把 memory 渲染成
-  `[MEMORY] ... [/MEMORY]` 文本块插入 user prompt
-- **`build_user_prompt(memory, image_description)`**（[L375](vlm_prompt_pipeline.py#L375)）— 拼接
-  `<image>` + memory block + 提问语
-- **`parse_vlm_output(text)`**（[L410](vlm_prompt_pipeline.py#L410)）— 三条正则抽 STATUS/SUBGOAL/ANALYSIS
-- **`update_memory(memory, parsed, strict=False)`**（[L434](vlm_prompt_pipeline.py#L434)）— 推进状态：
-  - 只允许沿 `event_sequence` **前进或保持**，不允许回退
-  - 校验 VLM 返回的事件名必须在序列内（`strict=True` 时抛错，否则忽略）
-  - subgoal 由 `final_status` 推导而非完全相信 VLM
-- **`run_pipeline_step(memory, image_description, vlm_fn)`**（[L516](vlm_prompt_pipeline.py#L516)）— 一步走完
-  build → call → parse → update
+**`update_memory` 关键约束**：只允许沿 `event_sequence` **前进或保持，不许回退**；非法事件名 strict=True 抛错否则忽略；subgoal 由 `final_status` 推导而非信 VLM。
 
-**system prompt 关键约束**（[L317-345](vlm_prompt_pipeline.py#L317)）：
-
-- VLM 只能输出"ANALYSIS / STATUS / SUBGOAL"三行
-- STATUS / SUBGOAL 必须是事件序列里的单个 token
-- SUBGOAL 必须是 STATUS 的下一个事件，除非 STATUS 已经是最后一个中间事件（此时
-  SUBGOAL = `final`）
+**system prompt 约束** ([L317](vlm_prompt_pipeline.py#L317))：只输出 ANALYSIS/STATUS/SUBGOAL 三行；STATUS/SUBGOAL 必须是序列内事件；SUBGOAL = STATUS 的下一个事件（最后一个中间事件时 = `final`）。
 
 ### 13.5 接到 `mot_lead_offline_runner.py` 的 `prompt_cleaned` 上的思路
 
