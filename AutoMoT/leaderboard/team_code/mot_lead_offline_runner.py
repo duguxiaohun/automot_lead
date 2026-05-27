@@ -966,6 +966,7 @@ class LeadOfflineMoTRunner:
         fused_points = (
             np.concatenate(aligned_chunks, axis=0) if aligned_chunks else np.zeros((0, 3), dtype=np.float32)
         )
+        #  shape=(35926, 3), x_range=(-125.073,111.427), y_range=(-39.984,40.016), z_range=(-1.070,10.030)
         # (N, 3), N 因帧而异(单帧 anchor 默认 ~3.3e4-3.6e4)
         # LEAD 风格栅格化:±40m × [-32, 64]m / 4 px/m / z 过滤 [-4, 10] 闭区间(含地面),
         # 直接出 (320, 384) 单通道直方图,与 LEAD BEV encoder 训练分布完全一致。
@@ -1061,7 +1062,7 @@ class LeadOfflineMoTRunner:
 
         # LEAD BEV encoder 前向(单帧 transfuser 框架)。
         # 输入: bev_rgb_tensor (1, 3, 384, 1152) [0, 235], bev_lidar_tensor (1, 1, 320, 384) [0, 1]
-        # 输出: {bev_feature: (1, 512, 10, 12), image_feature_grid: (1, 512, 12, 36)}
+        # 输出: {bev_feature: (1, 512, 10, 12) [-2.79, 11.89], image_feature_grid: (1, 512, 12, 36) [-4.53, 50.80]}
         # 快推理禁用时这个输出不被消费,但保留 forward 调用以验证 backbone shape。
         with torch.no_grad():
             bev_encoder_output = self.bev_encoder(
@@ -1073,6 +1074,15 @@ class LeadOfflineMoTRunner:
         # ========== 慢推理(Qwen3-VL frozen) ==========
         if gen_context is None:
             slow_input_lists = rgb_pil_list + [prompt_cleaned]
+            # shapes: [(384, 1152, 3), (384, 1152, 3), (384, 1152, 3), (384, 1152, 3), 'str(len=214)']
+            # input term is: <PIL.Image.Image image mode=RGB size=1152x384 at 0x7F0213313E80>
+            # input term is: <PIL.Image.Image image mode=RGB size=1152x384 at 0x7F0213313D90>
+            # input term is: <PIL.Image.Image image mode=RGB size=1152x384 at 0x7F0213313C40>
+            # input term is: <PIL.Image.Image image mode=RGB size=1152x384 at 0x7F0213313D60>
+            # input term is: Your current and next target point is (9.696953, 0.001055), (26.754944, 0.004383), 
+            # and your current velocity is 6.39 m/s. Predict the driving actions ( now, +1s, +2s) and 
+            # plan the trajectory for the next 3 seconds.
+            
             gen_context = self.inferencer.kv_cache_fixed_inference(slow_input_lists)
 
         # ========== 快推理(AutoMoT 自家训练的下游 head) ==========
@@ -1137,6 +1147,16 @@ class LeadOfflineMoTRunner:
         
         返回包含单个推理结果的列表。
         """
+
+        # [Clip Stats]
+        #     - rgb: shape=(4, 384, 1152, 3), dtype=uint8, range=[0, 255]
+        #     - lidar_points: list[4] (变长), dtype=float32, points/frame(min/max/total)=33763/35926/138854, range=[-125.073, 117.508]
+        #     - pos_global: shape=(4, 2), dtype=float32, range=[88.7583, 229.458]
+        #     - theta: shape=(4,), dtype=float32, range=[1.59468, 1.59501]
+        #     - speed: shape=(4,), dtype=float32, range=[6.38579, 7.9911]
+        #     - target_point: shape=(4, 2), dtype=float32, range=[0.000619971, 10.4444]
+        #     - target_point_next: shape=(4, 2), dtype=float32, range=[0.00338461, 26.7549]
+    
         clip_len = int(self._to_numpy(lead_clip["rgb"]).shape[0])
         
         # 以 clip 最后一帧作为 anchor（对应当前时刻）。
