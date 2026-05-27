@@ -1211,6 +1211,119 @@ def _build_synthetic_raw_and_model_input(
     return raw_imgs, model_input_imgs
 
 
+# ---------------------------------------------------------------------------
+# 真实 LEAD 数据加载(借鉴 mot_lead_offline_runner.build_clip_from_real_lead_route
+# 的 RGB-only 部分;不依赖 laspy/AutoMoT 重型 import,启动开销小)
+# ---------------------------------------------------------------------------
+
+# LEAD 路径里典型 scenario 段位置:
+#   /data/lead_data/data/<Scenario>/Town03_Rep0_route_..../
+#                       ^^^^^^^^^^
+# 自动从 route_dir 提取 scenario 名,若名字在 SCENARIO_LABELS 里就直接用。
+
+def _auto_detect_scenario_from_route(route_dir: str) -> Optional[str]:
+    """尝试从 LEAD 路径里抠出 scenario 名;失败返回 None。"""
+    parts = pathlib.Path(route_dir).resolve().parts
+    for p in reversed(parts):
+        if p in SCENARIO_LABELS:
+            return p
+    return None
+
+
+def _load_lead_rgb_clip(
+    route_dir: str,
+    anchor: int = 12,
+    rgb_frame_step: int = 1,
+    rgb_frame_count: int = 4,
+) -> Tuple[List[Any], List[Any]]:
+    """从真实 LEAD route 目录读 anchor 时刻的 RGB 历史帧(按时间顺序)。
+
+    复刻 mot_lead_offline_runner 的两个核心规则:
+      1. 采样索引: `[anchor - i*step for i in range(count)]`,然后反转成升序
+         (与 `_build_group_indices` 同款),不足处用 max(..., 0) 钳到 frame 0。
+      2. RGB 读取: cv2.imread + BGR→RGB,直接做 PIL,**不 resize**
+         (LEAD 在线模式 RGB 已是 (1152, 384) 训练分布,runner 也不 resize)。
+
+    返回:
+        (raw_imgs, model_input_imgs)
+          raw_imgs:        list[PIL] —— cv2 读取后的原图(LEAD 原始 1152×384,
+                           BGR→RGB,无 resize)。
+          model_input_imgs: list[PIL] —— 与 raw_imgs **完全相同**对象。LEAD
+                           原图已对齐训练分布,无需再处理,所以这一份 == raw。
+                           落盘时仍会另存一份 image_xxx.png,保持接口对称。
+
+    注意:本函数**只读 RGB**,不读 meta/lidar/pose,所以不需要 laspy / xz pickle
+    依赖,也不会触发 AutoMoT 模块的重型 import,启动开销 ≈ 仅 cv2 + PIL。
+    """
+    try:
+        import cv2
+    except Exception as e:
+        raise RuntimeError(f"需要 opencv-python 才能读 LEAD jpg: {e}")
+    if not _HAS_PIL:
+        raise RuntimeError("PIL 不可用,无法构造 PIL.Image")
+
+    route = pathlib.Path(route_dir)
+    if not route.exists():
+        raise FileNotFoundError(f"route_dir 不存在: {route_dir}")
+    rgb_dir = route / "rgb"
+    if not rgb_dir.exists():
+        raise FileNotFoundError(f"route_dir 下缺少 rgb 子目录: {rgb_dir}")
+
+    rgb_files = sorted(rgb_dir.glob("*.jpg"))
+    if not rgb_files:
+        raise FileNotFoundError(f"{rgb_dir} 下没有 .jpg 文件")
+    total = len(rgb_files)
+
+    if anchor < 0:
+        raise ValueError(f"anchor 必须 >= 0,当前 anchor={anchor}")
+    if anchor >= total:
+        raise ValueError(
+            f"anchor={anchor} 超出 route 范围(总帧数={total},合法 [0, {total - 1}])"
+        )
+
+    rgb_frame_step = max(1, rgb_frame_step)
+    rgb_frame_count = max(1, rgb_frame_count)
+
+    # 同 mot_lead_offline_runner._build_group_indices
+    desc = [max(anchor - i * rgb_frame_step, 0) for i in range(rgb_frame_count)]
+    asc = list(reversed(desc))
+
+    # 历史不足时的 warning(与 runner 同款语义)
+    ideal_start = anchor - (rgb_frame_count - 1) * rgb_frame_step
+    if ideal_start < 0:
+        print(
+            f"[警告] anchor={anchor} 历史不足:需要 {(rgb_frame_count - 1) * rgb_frame_step} "
+            f"帧历史但 route 起点仅到 0,采样里会重复 frame 0 共 {-ideal_start} 次"
+        )
+
+    print(
+        f"[load] route={route} total_frames={total} anchor={anchor} "
+        f"rgb_step={rgb_frame_step} rgb_count={rgb_frame_count}"
+    )
+    print(f"[load] sampled rgb indices (asc): {asc}")
+
+    raw_imgs: List[Any] = []
+    for idx in asc:
+        stem = f"{idx:04d}"
+        rgb_path = rgb_dir / f"{stem}.jpg"
+        if not rgb_path.exists():
+            # 兼容部分 LEAD 命名(有些用其他位宽),退一步用文件列表索引
+            rgb_path = rgb_files[idx]
+        bgr = cv2.imread(str(rgb_path), cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise RuntimeError(f"cv2 读图失败: {rgb_path}")
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        raw_imgs.append(_PILImage.fromarray(rgb, mode="RGB"))
+
+    # LEAD 原图已对齐训练分布(1152, 384),不需要再 resize;
+    # 为了保持双份落盘接口对称,model_input == raw(共享同一组 PIL 对象)。
+    model_input_imgs = list(raw_imgs)
+
+    if len(raw_imgs) > 0:
+        print(f"[load] loaded {len(raw_imgs)} frames, size={raw_imgs[0].size}, mode={raw_imgs[0].mode}")
+    return raw_imgs, model_input_imgs
+
+
 def _run_one_backend(backend: str,
                      memory: DrivingMemory,
                      images: List[Any],
@@ -1279,7 +1392,10 @@ def _real_smoke_test(backend: str = "automot",
                      save_root: Optional[str] = None,
                      scenario: str = "MergerIntoSlowTraffic",
                      num_frames: int = 4,
-                     max_gen_tokens: int = 256) -> None:
+                     max_gen_tokens: int = 256,
+                     route_dir: Optional[str] = None,
+                     anchor: int = 12,
+                     rgb_frame_step: int = 1) -> None:
     """真实加载模型跑一次 paradigm A 端到端。
 
     backend:
@@ -1287,6 +1403,11 @@ def _real_smoke_test(backend: str = "automot",
         "qwen"    -> 只跑原版 Qwen3-VL-4B
         "both"    -> 两个都跑(分别落到 <save_root>/automot/ 和 <save_root>/qwen/),
                      便于直接 diff 两个 raw_vlm_text.txt
+
+    route_dir:
+        None        -> 用合成图(三色横条 + 角标),仅验证 prefill+decode 通路
+        <real path> -> 用真实 LEAD route 目录里的 RGB,语义可信
+                       (借鉴 mot_lead_offline_runner.build_clip_from_real_lead_route)
     """
     print("=" * 60)
     print(f"vlm_paradigm_a_runner REAL smoke test (backend={backend})")
@@ -1299,13 +1420,33 @@ def _real_smoke_test(backend: str = "automot",
         save_root = str(_AUTOMOT_ROOT / "eval_json" / "paradigm_a_smoke_test")
     print(f"save_root:    {save_root}\n")
 
-    # 同时准备 raw 高分辨原图 + resize 后的 model-input 图,演示双份落盘
-    raw_images, model_input_images = _build_synthetic_raw_and_model_input(
-        num_frames=num_frames,
-        raw_size=(1920, 1080),               # (W, H) 模拟原始相机分辨率
-        model_input_size=(1152, 384),        # (W, H) LEAD 训练分布
-    )
-    print(f"prepared {len(raw_images)} synthetic frames:")
+    # 优先用真实 LEAD RGB;否则退回合成图
+    if route_dir:
+        print(f"[input source] real LEAD route: {route_dir}")
+        raw_images, model_input_images = _load_lead_rgb_clip(
+            route_dir=route_dir,
+            anchor=anchor,
+            rgb_frame_step=rgb_frame_step,
+            rgb_frame_count=num_frames,
+        )
+
+        # 尝试从路径自动识别 scenario(覆盖 --scenario 默认值)
+        auto_scen = _auto_detect_scenario_from_route(route_dir)
+        if auto_scen is not None and auto_scen != scenario:
+            print(f"[scenario] auto-detected '{auto_scen}' from route path,"
+                  f" overriding --scenario='{scenario}'")
+            scenario = auto_scen
+        elif auto_scen is None:
+            print(f"[scenario] could not auto-detect from path, using --scenario='{scenario}'")
+    else:
+        print("[input source] synthetic test pattern (no --route-dir given)")
+        raw_images, model_input_images = _build_synthetic_raw_and_model_input(
+            num_frames=num_frames,
+            raw_size=(1920, 1080),               # (W, H) 模拟原始相机分辨率
+            model_input_size=(1152, 384),        # (W, H) LEAD 训练分布
+        )
+
+    print(f"prepared {len(raw_images)} frames:")
     print(f"  raw         : size={raw_images[0].size}, mode={raw_images[0].mode}")
     print(f"  model input : size={model_input_images[0].size}, mode={model_input_images[0].mode}")
 
@@ -1341,26 +1482,43 @@ def _real_smoke_test(backend: str = "automot",
     else:
         raise ValueError(f"unknown backend: {backend!r}")
 
-    print("\n注意:输入是合成渐变图,语义不可信 —— 这次跑通的是 prefill+decode 通路,")
-    print("     真正比较语言能力需要喂真实 LEAD RGB(下一步可仿 mot_lead_offline_runner 接入)。")
+    if route_dir:
+        print("\n[OK] 输入是真实 LEAD RGB,语义可信。raw_vlm_text 反映模型真实视觉理解能力。")
+    else:
+        print("\n[注意] 输入是合成渐变图,语义不可信 —— 仅验证 prefill+decode 通路。")
+        print("       想做真实语义对比,加 --route-dir <LEAD route 路径> 即可。")
 
 
 if __name__ == "__main__":
     import argparse
 
     p = argparse.ArgumentParser(description="vlm_paradigm_a_runner CLI")
-    p.add_argument("--backend", choices=["automot", "qwen", "both"], default="automot",
+    p.add_argument("--backend", choices=["automot", "qwen", "both"], default="both",
                    help="automot = AutoMoT 微调 ckpt;qwen = 原版 Qwen3-VL-4B;both = 两个都跑做对比")
     p.add_argument("--dry-run", action="store_true",
                    help="不加载任何权重,只跑文本桩测试 prompt/parse/update 链路")
     p.add_argument("--scenario", type=str, default="MergerIntoSlowTraffic",
-                   help="DrivingMemory.from_scenario 用的场景名")
+                   help="DrivingMemory.from_scenario 用的场景名;"
+                        "若 --route-dir 路径里能自动识别 scenario,会覆盖此值")
     p.add_argument("--num-frames", type=int, default=4,
-                   help="合成 RGB 历史帧数(默认 4,对齐 LEAD 风格采样)")
+                   help="RGB 历史帧数(默认 4,对齐 LEAD 风格采样)。"
+                        "合成模式下决定 _build_synthetic 的帧数;真实模式下决定采样窗口")
     p.add_argument("--max-gen-tokens", type=int, default=256,
                    help="generate 最大新生成 token 数")
     p.add_argument("--save-root", type=str, default=None,
                    help="落盘根目录;默认 <AutoMoT>/eval_json/paradigm_a_smoke_test")
+
+    # ---- LEAD 真实数据入口(借鉴 mot_lead_offline_runner 同名参数) ----
+    p.add_argument("--route-dir", type=str, default=None,
+                   help="真实 LEAD 路由目录,目录下需有 rgb/*.jpg 子目录。"
+                        "示例: /data/lead_data/data/Accident/Town03_Rep0_route_001783_...。"
+                        "不传 → 用合成图(仅验证通路,语义不可信)。")
+    p.add_argument("--anchor", type=int, default=12,
+                   help="待处理的 anchor 帧索引(route 内绝对索引,0-based)。"
+                        "仅在 --route-dir 提供时生效")
+    p.add_argument("--rgb-frame-step", type=int, default=1,
+                   help="RGB 历史采样步长(单位:帧)。默认 1(LEAD 每帧 ~0.25s),"
+                        "设 5 约 1.25s 间隔。仅 --route-dir 时生效")
     args = p.parse_args()
 
     if args.dry_run:
@@ -1372,4 +1530,7 @@ if __name__ == "__main__":
             scenario=args.scenario,
             num_frames=args.num_frames,
             max_gen_tokens=args.max_gen_tokens,
+            route_dir=args.route_dir,
+            anchor=args.anchor,
+            rgb_frame_step=args.rgb_frame_step,
         )
