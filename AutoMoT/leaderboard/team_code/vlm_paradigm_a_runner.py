@@ -1,25 +1,26 @@
 """范式 A 在线运行脚本：把 vlm_prompt_pipeline.py 迁移到 AutoMoT 工程内,
-并接上真实的 Qwen3-VL（通过 AutoMoT 的 InterleaveInferencer）。
+并接上本地 Qwen / AutoMoT 两条对照路径。
 
 设计原则（参考 PROJECT_CONTEXT.md §14.7 第 2 点）:
-    范式 A = LLM 当对话模型用 → `.generate()` 出文本 → 正则解析。
-    AutoMoT 同一个 inferencer 自带两种范式:
-        - 范式 A:   kv_cache_fixed_inference + gen_text         (本文件)
+    范式 A = LLM 当对话模型用 → 自回归 decode 出文本 → 正则解析。
+    本文件保留两条互相隔离的范式 A backend:
+        - qwen:     本地 checkpoints/Qwen3-VL-4B + HF past_key_values 显式 prefill/decode
+        - automot:  AutoMoT ckpt + kv_cache_fixed_inference + gen_text（实测通常立即 EOS）
+    AutoMoT inferencer 还自带范式 B:
         - 范式 B:   kv_cache_fixed_inference + based_kv_cache_context_fast_qwen3vl_dp
 
-调用流程（一次 step）:
+qwen backend 调用流程（一次 step）:
     1. build_system_prompt() / build_user_prompt(memory, ...) → 拼装文本
-    2. inferencer.kv_cache_fixed_inference([img1, img2, ..., combined_prompt])
-           ↑ prefill: 一次 forward 把 prompt + 图像编码进 KV cache
-    3. inferencer.gen_text(gen_context, max_length=200)
-           ↑ decode: autoregressive 出文本字符串
-    4. parse_vlm_output(raw) → {"analysis":..., "status":..., "subgoal":...}
-    5. update_memory(memory, parsed) → 推进状态机
+    2. processor.apply_chat_template(...) + processor(...)
+    3. model(**inputs, use_cache=True)
+           ↑ prefill: 一次 forward 把 prompt + 图像编码进 HF past_key_values
+    4. _decode_with_explicit_cache(...)
+           ↑ decode: 每步只喂上一个 token + past_key_values
+    5. parse_vlm_output(raw) → {"analysis":..., "status":..., "subgoal":...}
+    6. update_memory(memory, parsed) → 推进状态机
 
 每次 step 都把所有文本输入和输出落盘到 save_dir/step_xxxxxx/ 下,
 便于事后审计模型行为。
-
-只新增本文件,不修改 AutoMoT/lead 其它任何文件。
 """
 
 from __future__ import annotations
@@ -879,7 +880,7 @@ class ParadigmARunner:
 
 
 # ============================================================================
-# Baseline runner:HF 原生 Qwen3-VL-4B(未微调)
+# Baseline runner:AutoMoT/checkpoints 里的本地 Qwen3-VL-4B
 # ============================================================================
 #
 # 与 ParadigmARunner 的关系(对比实验设计):
@@ -888,23 +889,23 @@ class ParadigmARunner:
 #                              通过 InterleaveInferencer.kv_cache_fixed_inference
 #                              + gen_text 调用
 #
-#   BaselineQwen3VLRunner <-- 原版 Qwen3-VL-4B ckpt(无驾驶微调,HF 标准架构)
-#                              通过 Qwen3VLForConditionalGeneration.generate()
-#                              + AutoProcessor.apply_chat_template 调用
+#   BaselineQwen3VLRunner <-- AutoMoT/checkpoints/Qwen3-VL-4B 本地 ckpt
+#                              通过 AutoProcessor.apply_chat_template
+#                              + HF past_key_values 显式 prefill/decode 调用
 #
 # 两条路径输入一致(同一张/同一组 PIL RGB + 同一个 system/user prompt + 同一份
 # DrivingMemory),输出对比能反映"驾驶 SFT 微调对 STATUS/SUBGOAL 指令跟随能力"
-# 的净影响。
+# 的影响。
 #
 # 为什么不能复用同一个 inferencer:
 #   AutoMoT 的 layer_module="Qwen3VLMoTDecoderLayer",且额外定义了
 #   reasoning_queries / action_queries / waypoints_head 等模块,state_dict
-#   完全不兼容原版 Qwen3-VL-4B。所以两个 ckpt 必须各走各的加载链路。
+#   完全不兼容 Qwen3-VL-4B。所以两个 ckpt 必须各走各的加载链路。
 # ============================================================================
 
 
 class BaselineQwen3VLRunner:
-    """直接用 HF 原生 Qwen3-VL-4B(未微调)跑范式 A。
+    """直接用 AutoMoT/checkpoints/Qwen3-VL-4B 本地权重跑范式 A。
 
     用法:
         runner = BaselineQwen3VLRunner(save_root="eval_json/paradigm_a_qwen_baseline")
@@ -936,7 +937,7 @@ class BaselineQwen3VLRunner:
         self.processor = None
 
     # ------------------------------------------------------------------
-    # 模型加载:走 HF 标准接口,与 AutoMoT 完全隔离
+    # 模型加载:只读本地 AutoMoT/checkpoints/Qwen3-VL-4B,不联网下载
     # ------------------------------------------------------------------
 
     def _ensure_model_loaded(self) -> None:
@@ -945,7 +946,7 @@ class BaselineQwen3VLRunner:
 
         import torch
         qwen3vl_path = str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B")
-        print(f"[BaselineQwen3VLRunner] loading vanilla Qwen3-VL-4B from {qwen3vl_path} ...")
+        print(f"[BaselineQwen3VLRunner] loading local Qwen3-VL-4B from {qwen3vl_path} ...")
 
         # transformers >= 4.45 自带 Qwen3VLForConditionalGeneration;
         # 若版本太旧请升级 transformers。
@@ -975,10 +976,89 @@ class BaselineQwen3VLRunner:
             local_files_only=True,
             trust_remote_code=True,
         )
-        print("[BaselineQwen3VLRunner] vanilla Qwen3-VL-4B ready")
+        print("[BaselineQwen3VLRunner] local Qwen3-VL-4B ready")
+
+    def _decode_with_explicit_cache(self, inputs: Any) -> Any:
+        """本地 Qwen 专用:显式 prefill KV cache,再逐 token decode 文本。
+
+        这里故意不复用 AutoMoT 的 InterleaveInferencer.gen_text:那套函数吃的是
+        AutoMoT 自定义 MoT 模型的 NaiveCache / new_token_ids / start-token 逻辑。
+        本地 Qwen baseline 使用 transformers 标准 past_key_values。
+        """
+        import torch
+
+        eos_token_id = getattr(self.model.generation_config, "eos_token_id", None)
+        if eos_token_id is None:
+            tokenizer = getattr(self.processor, "tokenizer", None)
+            eos_token_id = getattr(tokenizer, "eos_token_id", None)
+        if eos_token_id is None:
+            eos_token_ids = set()
+        elif isinstance(eos_token_id, (list, tuple, set)):
+            eos_token_ids = {int(x) for x in eos_token_id}
+        else:
+            eos_token_ids = {int(eos_token_id)}
+
+        attention_mask = inputs.get("attention_mask", None)
+        decoded_input_ids = inputs["input_ids"]
+        generated_tokens: List[Any] = []
+
+        # Prefill:完整多模态 prompt 只 forward 一次,拿到 KV cache 和首个 token logits。
+        outputs = self.model(
+            **inputs,
+            use_cache=True,
+            return_dict=True,
+        )
+        past_key_values = outputs.past_key_values
+        next_logits = outputs.logits[:, -1, :]
+
+        for _ in range(self.max_gen_tokens):
+            if self.do_sample:
+                logits = next_logits / max(self.temperature, 1e-5)
+                probs = torch.softmax(logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+            else:
+                next_token = torch.argmax(next_logits, dim=-1, keepdim=True)
+
+            generated_tokens.append(next_token)
+            decoded_input_ids = torch.cat([decoded_input_ids, next_token], dim=1)
+
+            token_id = int(next_token[0, 0].item())
+            if token_id in eos_token_ids:
+                break
+
+            if attention_mask is not None:
+                attention_mask = torch.cat(
+                    [attention_mask, torch.ones_like(next_token, device=attention_mask.device)],
+                    dim=1,
+                )
+
+            # Decode:后续每步只喂刚生成的 token + 上一步 KV cache。
+            if hasattr(self.model, "prepare_inputs_for_generation"):
+                model_inputs = self.model.prepare_inputs_for_generation(
+                    decoded_input_ids,
+                    past_key_values=past_key_values,
+                    attention_mask=attention_mask,
+                    use_cache=True,
+                )
+            else:
+                model_inputs = {
+                    "input_ids": next_token,
+                    "past_key_values": past_key_values,
+                    "use_cache": True,
+                }
+                if attention_mask is not None:
+                    model_inputs["attention_mask"] = attention_mask
+
+            outputs = self.model(**model_inputs, return_dict=True)
+            past_key_values = outputs.past_key_values
+            next_logits = outputs.logits[:, -1, :]
+
+        if not generated_tokens:
+            return inputs["input_ids"].new_empty((1, 0))
+        return torch.cat(generated_tokens, dim=1)
 
     # ------------------------------------------------------------------
-    # 一次完整 step:apply_chat_template -> processor -> generate -> decode
+    # 一次完整 step:apply_chat_template -> processor -> prefill -> decode
     # ------------------------------------------------------------------
 
     def run_paradigm_a_step(
@@ -999,7 +1079,7 @@ class BaselineQwen3VLRunner:
         system_prompt = build_system_prompt()
         user_prompt   = build_user_prompt(memory, image_description="<image>")
 
-        # 用 Qwen3-VL 官方 chat template 组消息
+        # 用本地 processor 的 Qwen3-VL chat template 组消息
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": (
@@ -1018,19 +1098,9 @@ class BaselineQwen3VLRunner:
             padding=True,
         ).to(self.device)
 
-        gen_kwargs = dict(
-            max_new_tokens=self.max_gen_tokens,
-            do_sample=self.do_sample,
-        )
-        if self.do_sample:
-            gen_kwargs["temperature"] = max(self.temperature, 1e-5)
-
         with torch.no_grad():
-            gen_ids = self.model.generate(**inputs, **gen_kwargs)
+            new_ids = self._decode_with_explicit_cache(inputs)
 
-        # 去掉 prompt 部分,只 decode 新生成
-        prompt_len = inputs["input_ids"].shape[1]
-        new_ids = gen_ids[:, prompt_len:]
         raw_text = self.processor.batch_decode(new_ids, skip_special_tokens=True)[0]
         raw_text = raw_text.lstrip("\n ")
 
@@ -1098,7 +1168,7 @@ def run_pipeline_step(
 
 
 # ---------------------------------------------------------------------------
-# __main__:默认走真实 Qwen3-VL-4B + AutoMoT 权重 smoke test;--dry-run 走
+# __main__:默认走本地 Qwen3-VL-4B + AutoMoT 权重 smoke test;--dry-run 走
 # 纯文本桩(不加载模型)。
 # ---------------------------------------------------------------------------
 
@@ -1420,7 +1490,7 @@ def _run_one_backend(backend: str,
 
     backend:
         "automot"  -> ParadigmARunner       (AutoMoT 微调 ckpt)
-        "qwen"     -> BaselineQwen3VLRunner (原版 Qwen3-VL-4B)
+        "qwen"     -> BaselineQwen3VLRunner (AutoMoT/checkpoints/Qwen3-VL-4B)
     raw_images: 可选,原始未预处理图,会额外落盘到 inputs/raw_image_xxx.png。
     """
     print("\n" + "=" * 60)
@@ -1462,7 +1532,7 @@ def _run_one_backend(backend: str,
             print(f"[backend={backend}]   AutoMoT 的 lm_head 训练时只为 reasoning_query 第 2 位做")
             print(f"[backend={backend}]   stop/keep 二分类(见 PROJECT_CONTEXT §14.3.4),autoregressive")
             print(f"[backend={backend}]   自由文本生成路径未受 SFT,常见现象是立即生成 EOS = 空字符串。")
-            print(f"[backend={backend}]   想要文字输出,要么换原版 Qwen3-VL(--backend qwen),")
+            print(f"[backend={backend}]   想要文字输出,要么换本地 Qwen3-VL(--backend qwen),")
             print(f"[backend={backend}]   要么改走范式 B 直接拿 reasoning_hidden_states 接 head。")
     print("-" * 60)
     print(f"[backend={backend}] parsed:       {record.parsed}")
@@ -1485,7 +1555,7 @@ def _real_smoke_test(backend: str = "automot",
 
     backend:
         "automot" -> 只跑 AutoMoT 微调 ckpt
-        "qwen"    -> 只跑原版 Qwen3-VL-4B
+        "qwen"    -> 只跑 AutoMoT/checkpoints/Qwen3-VL-4B
         "both"    -> 两个都跑(分别落到 <save_root>/automot/ 和 <save_root>/qwen/),
                      便于直接 diff 两个 raw_vlm_text.txt
 
@@ -1498,7 +1568,7 @@ def _real_smoke_test(backend: str = "automot",
     print(f"vlm_paradigm_a_runner REAL smoke test (backend={backend})")
     print("=" * 60)
     print(f"AutoMoT root: {_AUTOMOT_ROOT}")
-    print(f"qwen3vl ckpt: {_AUTOMOT_ROOT / 'checkpoints' / 'Qwen3-VL-4B'}  (vanilla / baseline)")
+    print(f"qwen3vl ckpt: {_AUTOMOT_ROOT / 'checkpoints' / 'Qwen3-VL-4B'}  (local baseline)")
     print(f"automot ckpt: {_AUTOMOT_ROOT / 'checkpoints' / 'AutoMoT'}      (driving SFT)")
 
     if save_root is None:
@@ -1579,7 +1649,7 @@ if __name__ == "__main__":
 
     p = argparse.ArgumentParser(description="vlm_paradigm_a_runner CLI")
     p.add_argument("--backend", choices=["automot", "qwen", "both"], default="both",
-                   help="automot = AutoMoT 微调 ckpt;qwen = 原版 Qwen3-VL-4B;both = 两个都跑做对比")
+                   help="automot = AutoMoT 微调 ckpt;qwen = checkpoints/Qwen3-VL-4B 本地权重;both = 两个都跑做对比")
     p.add_argument("--dry-run", action="store_true",
                    help="不加载任何权重,只跑文本桩测试 prompt/parse/update 链路")
     p.add_argument("--scenario", type=str, default="MergerIntoSlowTraffic",
@@ -1589,7 +1659,7 @@ if __name__ == "__main__":
                    help="RGB 历史帧数(默认 4,对齐 LEAD 风格采样)。"
                         "合成模式下决定 _build_synthetic 的帧数;真实模式下决定采样窗口")
     p.add_argument("--max-gen-tokens", type=int, default=256,
-                   help="generate 最大新生成 token 数")
+                   help="decode 最大新生成 token 数")
     p.add_argument("--save-root", type=str, default=None,
                    help="落盘根目录;默认 <AutoMoT>/eval_json/paradigm_a_smoke_test")
 

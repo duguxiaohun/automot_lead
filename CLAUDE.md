@@ -23,6 +23,11 @@
 - `AutoMoT/` 仓库的在线推理慢/快路径与 KV cache 流程
 - LiDAR / RGB / target_point / scenario_type 在两边的所有差异
 - `mot_lead_offline_runner.py` 当前已知偏离训练分布的具体点（含 ⚠ 标记）
+- `vlm_paradigm_a_runner.py` 的本地 Qwen 文字生成规则：`qwen` backend 只读
+  `AutoMoT/checkpoints/Qwen3-VL-4B`（`local_files_only=True`），并用 HF 标准
+  `past_key_values` 显式 prefill/decode；AutoMoT `InterleaveInferencer` /
+  `qwen3vl_template_inference` 绑定自定义 MoT 架构，不要拿来直接跑
+  standalone Qwen 完整自由文本生成
 
 整理成可直接消费的形式。**不要从源码重新扒**，会浪费 token 且容易得出错误结论
 （前几轮迭代已经证实凭印象推断会犯多种事实错误，详见 PROJECT_CONTEXT.md 的修订历史）。
