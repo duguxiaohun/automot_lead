@@ -1034,10 +1034,16 @@ class BaselineQwen3VLRunner:
 
             # Decode:后续每步只喂刚生成的 token + 上一步 KV cache。
             if hasattr(self.model, "prepare_inputs_for_generation"):
+                cache_position = torch.arange(
+                    decoded_input_ids.shape[1] - 1,
+                    decoded_input_ids.shape[1],
+                    device=decoded_input_ids.device,
+                )
                 model_inputs = self.model.prepare_inputs_for_generation(
                     decoded_input_ids,
                     past_key_values=past_key_values,
                     attention_mask=attention_mask,
+                    cache_position=cache_position,
                     use_cache=True,
                 )
             else:
