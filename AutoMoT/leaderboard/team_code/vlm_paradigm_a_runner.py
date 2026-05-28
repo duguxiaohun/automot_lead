@@ -1230,6 +1230,39 @@ def _auto_detect_scenario_from_route(route_dir: str) -> Optional[str]:
     return None
 
 
+def _ensure_hwc_uint8(img: Any) -> Any:
+    """复刻 LeadOfflineMoTRunner._ensure_hwc_uint8。
+
+    源出处: mot_lead_offline_runner.py:_ensure_hwc_uint8 (约 L754)。
+    这里**逐字复刻**而非 import,避免触发 AutoMoT 重型模块初始化(tokenizer / processor 等)。
+
+    功能:把任意输入规范化为 (H, W, 3) uint8 RGB:
+        - CHW → HWC(若首维是 1/3/4)
+        - float → uint8(假定 [0,1] 范围)
+        - 通道 >3 → 截前 3 个
+        - 通道 ==1 → 复制成 3 通道
+    """
+    try:
+        import numpy as np
+    except Exception as e:
+        raise RuntimeError(f"_ensure_hwc_uint8 需要 numpy: {e}")
+
+    arr = img
+    if arr.ndim == 3 and arr.shape[0] in (1, 3, 4):
+        # CHW -> HWC
+        arr = np.transpose(arr, (1, 2, 0))
+    if arr.ndim != 3:
+        raise ValueError(f"RGB frame ndim invalid: {arr.ndim}")
+    if arr.dtype != np.uint8:
+        arr = np.clip(arr, 0.0, 1.0)
+        arr = (arr * 255.0).astype(np.uint8)
+    if arr.shape[2] > 3:
+        arr = arr[:, :, :3]
+    if arr.shape[2] == 1:
+        arr = np.repeat(arr, 3, axis=2)
+    return arr
+
+
 def _load_lead_rgb_clip(
     route_dir: str,
     anchor: int = 12,
@@ -1238,27 +1271,37 @@ def _load_lead_rgb_clip(
 ) -> Tuple[List[Any], List[Any]]:
     """从真实 LEAD route 目录读 anchor 时刻的 RGB 历史帧(按时间顺序)。
 
-    复刻 mot_lead_offline_runner 的两个核心规则:
-      1. 采样索引: `[anchor - i*step for i in range(count)]`,然后反转成升序
-         (与 `_build_group_indices` 同款),不足处用 max(..., 0) 钳到 frame 0。
-      2. RGB 读取: cv2.imread + BGR→RGB,直接做 PIL,**不 resize**
-         (LEAD 在线模式 RGB 已是 (1152, 384) 训练分布,runner 也不 resize)。
+    数据路径**完全镜像** mot_lead_offline_runner,分两阶段:
+
+      阶段 1 (对应 build_clip_from_real_lead_route L1456-L1460):
+          cv2.imread → cv2.cvtColor(BGR2RGB) → 追加到 rgb_list
+          最后 np.stack(rgb_list) → (T, H, W, 3) uint8
+
+      阶段 2 (对应 _prepare_inference_inputs L925-L933):
+          for idx in asc:
+              rgb_i = rgb_clip[idx]                          # (H, W, 3)
+              rgb_hwc = _ensure_hwc_uint8(rgb_i)              # 规范化
+              rgb_pil_list.append(Image.fromarray(rgb_hwc, mode="RGB"))
+
+    采样规则同 _build_group_indices(L856-L870):
+          desc = [max(anchor - i*step, 0) for i in range(count)]
+          asc  = list(reversed(desc))
+      不足处通过 max(..., 0) 钳到 frame 0(会重复采样,与 runner 同款 warning 行为)。
+
+    LEAD 在线模式 RGB 已是 (1152, 384) 训练分布,runner 不做 resize,
+    所以 model_input == raw(共享同一组 PIL 对象,落盘时仍会另存一份保持接口对称)。
 
     返回:
-        (raw_imgs, model_input_imgs)
-          raw_imgs:        list[PIL] —— cv2 读取后的原图(LEAD 原始 1152×384,
-                           BGR→RGB,无 resize)。
-          model_input_imgs: list[PIL] —— 与 raw_imgs **完全相同**对象。LEAD
-                           原图已对齐训练分布,无需再处理,所以这一份 == raw。
-                           落盘时仍会另存一份 image_xxx.png,保持接口对称。
+        (raw_imgs, model_input_imgs) —— 两份 list 长度相同,内容一致。
 
     注意:本函数**只读 RGB**,不读 meta/lidar/pose,所以不需要 laspy / xz pickle
-    依赖,也不会触发 AutoMoT 模块的重型 import,启动开销 ≈ 仅 cv2 + PIL。
+    依赖,也不会触发 AutoMoT 模块的重型 import,启动开销 ≈ 仅 cv2 + PIL + numpy。
     """
     try:
         import cv2
+        import numpy as np
     except Exception as e:
-        raise RuntimeError(f"需要 opencv-python 才能读 LEAD jpg: {e}")
+        raise RuntimeError(f"需要 opencv-python + numpy: {e}")
     if not _HAS_PIL:
         raise RuntimeError("PIL 不可用,无法构造 PIL.Image")
 
@@ -1302,25 +1345,47 @@ def _load_lead_rgb_clip(
     )
     print(f"[load] sampled rgb indices (asc): {asc}")
 
-    raw_imgs: List[Any] = []
+    # =====================================================================
+    # 阶段 1: cv2 读图 → BGR→RGB → 追加到 list (镜像 build_clip_from_real_lead_route)
+    # =====================================================================
+    rgb_ndarray_list: List[Any] = []
     for idx in asc:
         stem = f"{idx:04d}"
         rgb_path = rgb_dir / f"{stem}.jpg"
         if not rgb_path.exists():
-            # 兼容部分 LEAD 命名(有些用其他位宽),退一步用文件列表索引
+            # 兼容部分 LEAD 命名(其它位宽),退一步用文件列表索引
             rgb_path = rgb_files[idx]
         bgr = cv2.imread(str(rgb_path), cv2.IMREAD_COLOR)
         if bgr is None:
             raise RuntimeError(f"cv2 读图失败: {rgb_path}")
-        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        raw_imgs.append(_PILImage.fromarray(rgb, mode="RGB"))
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)   # (H, W, 3) uint8
+        rgb_ndarray_list.append(rgb)
 
-    # LEAD 原图已对齐训练分布(1152, 384),不需要再 resize;
-    # 为了保持双份落盘接口对称,model_input == raw(共享同一组 PIL 对象)。
+    # np.stack 成 (T, H, W, 3) —— 对齐 runner clip["rgb"] 的存储形态。
+    # 即使后续不真的索引,这一步保留是为了让数据路径与 runner 完全一致。
+    rgb_clip = np.stack(rgb_ndarray_list, axis=0)
+    # 期望 shape (T, 384, 1152, 3),dtype=uint8
+
+    # =====================================================================
+    # 阶段 2: 逐帧 _ensure_hwc_uint8 → PIL.fromarray (镜像 _prepare_inference_inputs)
+    # =====================================================================
+    raw_imgs: List[Any] = []
+    for t in range(rgb_clip.shape[0]):
+        rgb_i = rgb_clip[t]                              # (H, W, 3)
+        rgb_hwc = _ensure_hwc_uint8(rgb_i)               # 规范化(此处对 LEAD jpg 是 no-op,
+                                                          # 但保留以兼容其它 dtype/shape 输入)
+        raw_imgs.append(_PILImage.fromarray(rgb_hwc, mode="RGB"))
+
+    # LEAD 原图已对齐训练分布(1152, 384),无需再 resize;
+    # 双份落盘接口保持对称,所以 model_input == raw(共享同一组 PIL 对象)。
     model_input_imgs = list(raw_imgs)
 
     if len(raw_imgs) > 0:
-        print(f"[load] loaded {len(raw_imgs)} frames, size={raw_imgs[0].size}, mode={raw_imgs[0].mode}")
+        print(
+            f"[load] loaded {len(raw_imgs)} frames, "
+            f"clip_shape={tuple(rgb_clip.shape)}, "
+            f"PIL size={raw_imgs[0].size}, mode={raw_imgs[0].mode}"
+        )
     return raw_imgs, model_input_imgs
 
 
