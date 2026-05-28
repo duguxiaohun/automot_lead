@@ -1509,7 +1509,7 @@ if __name__ == "__main__":
                    help="落盘根目录;默认 <AutoMoT>/eval_json/paradigm_a_smoke_test")
 
     # ---- LEAD 真实数据入口(借鉴 mot_lead_offline_runner 同名参数) ----
-    p.add_argument("--route-dir", type=str, default=None,
+    p.add_argument("--route-dir", type=str, default='/data/lead_data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46',
                    help="真实 LEAD 路由目录,目录下需有 rgb/*.jpg 子目录。"
                         "示例: /data/lead_data/data/Accident/Town03_Rep0_route_001783_...。"
                         "不传 → 用合成图(仅验证通路,语义不可信)。")
