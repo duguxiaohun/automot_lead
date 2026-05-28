@@ -299,33 +299,48 @@ class DrivingMemory:
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = """\
-You are an autonomous driving assistant evaluating a single front-camera \
-image from an ego vehicle.
+You are an autonomous driving agent controlling an ego vehicle.
+
+Input:
+- You receive a short RGB clip ordered oldest to newest.
+- Each frame is a stitched three-camera view: left, front, and right.
+- These are your recent observations while driving. The last frame is the \
+current moment; earlier frames show how the scene has evolved.
 
 Your task:
-1. Examine the image carefully.
-2. Read the current MEMORY (scenario context, status, and subgoal).
-3. Determine whether the current driving STATUS has changed based on visual \
-evidence in the image.
-4. Identify the appropriate next SUBGOAL the ego vehicle should pursue.
-5. Provide a brief ANALYSIS (2-4 sentences) explaining your reasoning.
+1. Read MEMORY to understand the driving scenario, the ordered \
+EVENT_SEQUENCE, and each event description.
+2. Use the scenario and event descriptions to infer the expected overall \
+evolution of this driving task.
+3. Use the recent observations to understand the current scene, surrounding \
+agents, road layout, and task progress.
+4. Decide the current STATUS at the newest frame.
+5. Identify the next SUBGOAL the ego vehicle should pursue.
+6. Briefly explain the visual evidence.
+
+Definitions:
+- EVENT_SEQUENCE is the only valid ordered state machine for this scenario.
+- EVENT_DESCRIPTIONS explains what each event stage means.
+- An event_name is exactly one token copied verbatim from EVENT_SEQUENCE.
+- STATUS is the current task stage reached at the newest frame.
+- SUBGOAL is the event immediately after STATUS in EVENT_SEQUENCE. If STATUS \
+is final, SUBGOAL is final.
+- If the visual evidence is ambiguous, keep the previous STATUS from MEMORY.
 
 Output format - respond EXACTLY as shown below, with no extra text before or \
 after the block:
 
-ANALYSIS: <2-4 sentence description of what you observe and how it maps to \
-the scenario events>
+ANALYSIS: <2-4 sentence description of scene evolution and task-stage evidence>
 STATUS: <event_name>
 SUBGOAL: <event_name>
 
 Rules:
-- STATUS and SUBGOAL must each be a single event name from the scenario's \
-event sequence (e.g., "slow_traffic_detect", "match_speed").
-- STATUS may stay the same as the memory STATUS if the situation has not \
-changed.
-- SUBGOAL must be the event immediately after STATUS in the sequence, unless \
-STATUS is already the last middle event, in which case SUBGOAL is "final".
-- Do NOT invent event names outside the provided sequence.
+- STATUS and SUBGOAL must each be copied verbatim from EVENT_SEQUENCE.
+- Do NOT invent event names outside EVENT_SEQUENCE.
+- Do NOT skip event stages. STATUS may stay the same as MEMORY STATUS or \
+advance by one event only.
+- SUBGOAL must be the immediate next event after STATUS, unless STATUS is \
+final.
 - Be concise and precise."""
 
 
@@ -335,14 +350,19 @@ def build_system_prompt() -> str:
 
 def build_memory_block(memory: DrivingMemory) -> str:
     seq_str = " -> ".join(memory.event_sequence)
+    event_desc_str = "\n".join(
+        f"- {event}: {EVENT_DESCRIPTIONS.get(event, event)}"
+        for event in memory.event_sequence
+    )
     completed_str = ", ".join(memory.completed_events) if memory.completed_events else "none"
     status_desc = memory.status_description()
     subgoal_desc = memory.subgoal_description()
 
     return (
         "[MEMORY]\n"
-        f"SCENARIO: {memory.scenario_label}\n"
+        f"SCENARIO: {memory.scenario}  # {memory.scenario_label}\n"
         f"EVENT_SEQUENCE: {seq_str}\n"
+        f"EVENT_DESCRIPTIONS:\n{event_desc_str}\n"
         f"STATUS: {memory.status}  # {status_desc}\n"
         f"SUBGOAL: {memory.subgoal}  # {subgoal_desc}\n"
         f"COMPLETED: {completed_str}\n"
@@ -359,8 +379,8 @@ def build_user_prompt(memory: DrivingMemory, image_description: str = "<image>")
     return (
         f"{image_description}\n\n"
         f"{memory_block}\n\n"
-        "Given the image above and the memory context, output your ANALYSIS, "
-        "STATUS, and SUBGOAL."
+        "Given the observations above and the memory context, output your "
+        "ANALYSIS, STATUS, and SUBGOAL."
     )
 
 
