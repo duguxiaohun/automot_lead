@@ -987,6 +987,15 @@ class BaselineQwen3VLRunner:
         """
         import torch
 
+        # ['input_ids', 'attention_mask', 'pixel_values', 'image_grid_thw']
+        # input_ids shape: torch.Size([1, 2316])
+        # attention_mask shape: torch.Size([1, 2316])
+        # pixel_values shape: torch.Size([6912, 1536])
+        # image_grid_thw shape: torch.Size([4, 3])
+
+
+
+
         eos_token_id = getattr(self.model.generation_config, "eos_token_id", None)
         if eos_token_id is None:
             tokenizer = getattr(self.processor, "tokenizer", None)
@@ -1008,14 +1017,28 @@ class BaselineQwen3VLRunner:
             use_cache=True,
             return_dict=True,
         )
+
+        # keys: ['logits', 'past_key_values', 'rope_deltas']
+        # 'logits': torch.Size([1, 2316, 151936])
+        # 'past_key_values': <class 'transformers.cache_utils.DynamicCache'>, 
+        # 'rope_deltas': torch.Size([1, 1])}
+
         past_key_values = outputs.past_key_values
+        # outputs.logits 形状为 (batch_size, seq_len, vocab_size)
+        # 取最后一个时间步 logits (index -1) 的原因:
+        # 在自回归/生成场景中，模型会对输入序列中每个位置预测下一个 token 的分布。
+        # 当我们把完整的 prompt 一次性前向（prefill）后，序列的最后一个位置对应的是
+        # "在已给定 prompt 之后模型接下来要生成的第一个 token" 的 logits。
+        # 因此使用 outputs.logits[:, -1, :] 作为下一步采样/贪心决策的依据。
         next_logits = outputs.logits[:, -1, :]
+        # torch.Size([1, 151936])
 
         for _ in range(self.max_gen_tokens):
             if self.do_sample:
                 logits = next_logits / max(self.temperature, 1e-5)
                 probs = torch.softmax(logits, dim=-1)
                 next_token = torch.multinomial(probs, num_samples=1)
+                # torch.Size([1, 1])
             else:
                 next_token = torch.argmax(next_logits, dim=-1, keepdim=True)
 
@@ -1032,6 +1055,7 @@ class BaselineQwen3VLRunner:
                     dim=1,
                 )
 
+
             # Decode:后续每步只喂刚生成的 token + 上一步 KV cache。
             if hasattr(self.model, "prepare_inputs_for_generation"):
                 cache_position = torch.arange(
@@ -1046,6 +1070,8 @@ class BaselineQwen3VLRunner:
                     cache_position=cache_position,
                     use_cache=True,
                 )
+                # keys: ['cache_position', 'past_key_values', 'input_ids', 'inputs_embeds', 'position_ids', 'attention_mask', 'pixel_values', 'pixel_values_videos', 'image_grid_thw', 'video_grid_thw', 'use_cache']
+                # model_inputs input_ids shape: torch.Size([1, 1])
             else:
                 model_inputs = {
                     "input_ids": next_token,
@@ -1056,7 +1082,15 @@ class BaselineQwen3VLRunner:
                     model_inputs["attention_mask"] = attention_mask
 
             outputs = self.model(**model_inputs, return_dict=True)
+            #  {'logits': torch.Size([1, 1, 151936]), 
+            # 'past_key_values': <class 'transformers.cache_utils.DynamicCache'>, 
+            # 'rope_deltas': torch.Size([1, 1])}
+
+
             past_key_values = outputs.past_key_values
+            # 同样道理：每次 decode 步骤模型返回的 logits 形状仍为
+            # (batch_size, seq_len, vocab_size)。当我们只喂入最新生成的 token
+            # 并带上 past_key_values 时，最后一个位置的 logits 对应下一步要选的 token。
             next_logits = outputs.logits[:, -1, :]
 
         if not generated_tokens:
@@ -1097,18 +1131,23 @@ class BaselineQwen3VLRunner:
             messages, tokenize=False, add_generation_prompt=True,
         )
 
+
         inputs = self.processor(
             text=[chat_text],
             images=images if len(images) > 0 else None,
             return_tensors="pt",
             padding=True,
         ).to(self.device)
+        # processor inputs keys: ['input_ids', 'attention_mask', 'pixel_values', 'image_grid_thw']
 
         with torch.no_grad():
             new_ids = self._decode_with_explicit_cache(inputs)
 
         raw_text = self.processor.batch_decode(new_ids, skip_special_tokens=True)[0]
         raw_text = raw_text.lstrip("\n ")
+        # ANALYSIS: The ego vehicle is approaching a dark, foggy road where a hazard (a vehicle ahead) is visible, indicating the hazard detection phase has begun. The scene shows reduced visibility and the presence of an obstacle ahead, consistent with hazard detection.
+        # STATUS: hazard_detect
+        # SUBGOAL: max_brake_or_min_gap
 
         parsed = parse_vlm_output(raw_text)
         new_memory = update_memory(memory, parsed)
