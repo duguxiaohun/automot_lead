@@ -2,13 +2,20 @@
 
 > 本文件会被 Claude Code 在每次启动时**自动加载**到上下文。所有规则对所有
 > 后续对话有效，无需用户重复说明。
+>
+> 本项目同时维护 [`AGENTS.md`](AGENTS.md) 作为 Codex / 通用 coding agent 的入口。
+> **CLAUDE.md 与 AGENTS.md 必须保持规则同步**：任何一边新增/修改文件白名单、
+> git 规则、工作流偏好、禁止事项、项目入口说明时，必须同步更新另一边。
 
 ---
 
 ## 1. 第一动作 — 先读项目文档
 
 **在开始任何工作（包括回答简单问题、写代码、改文件）之前**，请先读取
-[`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md)。
+[`AGENTS.md`](AGENTS.md) 和 [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md)。
+
+- `AGENTS.md` 是给 Codex / 通用 agent 的镜像入口；Claude 也要读，确保两边规则一致。
+- `PROJECT_CONTEXT.md` 是项目技术事实来源；Claude 和 Codex 都必须读。
 
 这个文件已经把：
 
@@ -23,6 +30,9 @@
 如果对 PROJECT_CONTEXT.md 里某处描述有疑问 → 去源码核对 → 核对后**直接修正
 文档**（修正方式见下面"修改范围"）。
 
+如果修改了本文件中任何规则，也必须同步修改 `AGENTS.md`；如果发现 `AGENTS.md`
+比本文件更新，也必须把对应规则同步回本文件。不要让 Claude 和 Codex 看到两套不同规则。
+
 ---
 
 ## 2. 修改范围限制（**强制**）
@@ -34,6 +44,7 @@
 | `PROJECT_CONTEXT.md` | 项目说明文档，需要随代码修改持续更新 |
 | `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py` | 用户主战场：把 LEAD 数据离线喂给 AutoMoT 推理的桥接脚本 |
 | `CLAUDE.md` | 本规则文件（仅在调整规则时修改） |
+| `AGENTS.md` | 通用 AI / coding agent 入口说明文件 |
 
 **其它所有文件**（`lead/` 整个目录、`AutoMoT/` 其余文件、配置等）**不准动**——
 它们是用户从远程服务器同步下来的参考源码，作只读资料用。
@@ -57,6 +68,7 @@
 
 - `PROJECT_CONTEXT.md`
 - `CLAUDE.md`
+- `AGENTS.md`
 - `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py`
 - `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
 
@@ -90,8 +102,17 @@ git push
 ### 当用户同意新建/修改白名单外文件时
 
 1. 在本文件 §3 的"默认追踪文件"列表里**添加新文件**
-2. 把新文件一并 `git add`
-3. commit message 注明"按用户同意新增 XXX"
+2. 在 `AGENTS.md` 的文件修改范围 / git 规则里同步添加同一个文件
+3. 把新文件一并 `git add`
+4. commit message 注明"按用户同意新增 XXX"
+
+### 当修改 AI 规则文档时
+
+- 修改 `CLAUDE.md` 时必须检查并同步 `AGENTS.md`
+- 修改 `AGENTS.md` 时必须检查并同步 `CLAUDE.md`
+- 如果新增需要后续 agent 记住的项目事实，优先写入 `PROJECT_CONTEXT.md`；同时在
+  `CLAUDE.md` / `AGENTS.md` 加入口提醒或索引
+- 提交时精确执行：`git add CLAUDE.md AGENTS.md PROJECT_CONTEXT.md`（只 add 实际改动过的文件）
 
 ---
 
