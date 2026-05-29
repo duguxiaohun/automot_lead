@@ -61,6 +61,10 @@ class GenerationTrace:
     decode_steps: List[DecodeStep] = field(default_factory=list)
     prefill_cache_file: Optional[str] = None
     final_cache_file: Optional[str] = None
+    system_prompt_cache_enabled: bool = False
+    system_prompt_cache_used: bool = False
+    system_prompt_cache_note: Optional[str] = None
+    system_prompt_cache_summary: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """转换成 JSON 可序列化结构，供 runner 落盘到 generation_trace.json。"""
@@ -73,6 +77,10 @@ class GenerationTrace:
             "decode_steps": [x.__dict__ for x in self.decode_steps],
             "prefill_cache_file": self.prefill_cache_file,
             "final_cache_file": self.final_cache_file,
+            "system_prompt_cache_enabled": self.system_prompt_cache_enabled,
+            "system_prompt_cache_used": self.system_prompt_cache_used,
+            "system_prompt_cache_note": self.system_prompt_cache_note,
+            "system_prompt_cache_summary": self.system_prompt_cache_summary,
         }
 
 
@@ -126,6 +134,27 @@ def _outputs_summary(outputs: Any) -> Dict[str, Any]:
     return out
 
 
+def _clone_cache(cache: Any) -> Any:
+    """复制一份可传回模型的 KV cache。
+
+    transformers 的 DynamicCache 在增量推理时可能被原地 append。如果直接复用
+    system prompt 的同一个 cache 对象，第一次 user suffix prefill 就可能污染缓存。
+    因此这里把 cache 转成 legacy tuple，并 clone 其中 tensor；这样每次调用都拿到
+    一份干净的 system-prefix cache。
+    """
+
+    if hasattr(cache, "to_legacy_cache"):
+        cache = cache.to_legacy_cache()
+
+    if isinstance(cache, tuple):
+        return tuple(_clone_cache(x) for x in cache)
+    if isinstance(cache, list):
+        return [_clone_cache(x) for x in cache]
+    if hasattr(cache, "detach") and hasattr(cache, "clone"):
+        return cache.detach().clone()
+    return cache
+
+
 class LocalQwen3VLInstructEngine:
     """本地 Qwen3-VL-Instruct 的最小推理封装。
 
@@ -142,6 +171,7 @@ class LocalQwen3VLInstructEngine:
         temperature: float = 0.0,
         do_sample: bool = False,
         save_cache: bool = False,
+        cache_system_prompt: bool = False,
     ):
         # checkpoint_dir 必须是本地已经下载好的 Qwen3-VL-4B-Instruct 目录。
         self.checkpoint_dir = pathlib.Path(checkpoint_dir).resolve()
@@ -156,10 +186,12 @@ class LocalQwen3VLInstructEngine:
         self.temperature = temperature
         self.do_sample = do_sample
         self.save_cache = save_cache
+        self.cache_system_prompt = cache_system_prompt
 
         # 延迟加载，避免创建 runner 时就占显存；第一次 generate/prefill 前才加载。
         self.model = None
         self.processor = None
+        self._system_prompt_cache: Optional[Dict[str, Any]] = None
 
     def load(self) -> None:
         """加载本地 model 和 processor，不允许联网补文件。"""
@@ -239,6 +271,15 @@ class LocalQwen3VLInstructEngine:
             add_generation_prompt=True,
         )
 
+    def apply_system_prefix_template(self, system_prompt: str) -> str:
+        """只展开固定 system turn，用作可复用 KV cache 的文本前缀。"""
+
+        return self.processor.apply_chat_template(
+            [{"role": "system", "content": system_prompt}],
+            tokenize=False,
+            add_generation_prompt=False,
+        )
+
     def prepare_inputs(self, chat_text: str, images: List[Any]) -> Any:
         """把聊天文本和图片一起转成模型输入张量。
 
@@ -266,6 +307,97 @@ class LocalQwen3VLInstructEngine:
             use_cache=True,
             return_dict=True,
         )
+
+    def _get_system_prompt_cache(self, system_prompt: str) -> Dict[str, Any]:
+        """获取或创建 system prompt 的 prefix KV cache。
+
+        cache 只在同一个 engine 实例内复用；如果 system_prompt 文本变化，就重新
+        prefill。这里缓存的是“system turn 展开后”的 token 前缀，不包含 user 图片、
+        user memory，也不包含 assistant generation prompt。
+        """
+
+        if (
+            self._system_prompt_cache is not None
+            and self._system_prompt_cache.get("system_prompt") == system_prompt
+        ):
+            return self._system_prompt_cache
+
+        prefix_text = self.apply_system_prefix_template(system_prompt)
+        prefix_inputs = self.prepare_inputs(prefix_text, [])
+        prefix_outputs = self.prefill(prefix_inputs)
+
+        self._system_prompt_cache = {
+            "system_prompt": system_prompt,
+            "prefix_text": prefix_text,
+            "input_ids": prefix_inputs["input_ids"].detach().clone(),
+            "attention_mask": prefix_inputs.get("attention_mask", None),
+            "past_key_values": _clone_cache(prefix_outputs.past_key_values),
+            "summary": {
+                "prefix_input_summary": _inputs_summary(prefix_inputs),
+                "prefix_cache_summary": summarize_kv_cache(prefix_outputs.past_key_values),
+            },
+        }
+        return self._system_prompt_cache
+
+    def prefill_with_optional_system_cache(
+        self,
+        system_prompt: str,
+        full_inputs: Any,
+        trace: GenerationTrace,
+    ) -> Any:
+        """根据开关选择完整 prefill 或 system-prefix cache prefill。
+
+        打开 cache_system_prompt 后，先检查完整 input_ids 是否确实以 system prefix
+        input_ids 开头。只有严格匹配时才复用 KV；否则自动退回完整 prefill，避免
+        chat template/tokenizer 边界不一致导致位置错位。
+        """
+
+        if not self.cache_system_prompt:
+            trace.system_prompt_cache_note = "disabled"
+            return self.prefill(full_inputs)
+
+        import torch
+
+        prefix_cache = self._get_system_prompt_cache(system_prompt)
+        prefix_ids = prefix_cache["input_ids"].to(full_inputs["input_ids"].device)
+        full_ids = full_inputs["input_ids"]
+        prefix_len = int(prefix_ids.shape[1])
+        full_len = int(full_ids.shape[1])
+
+        trace.system_prompt_cache_summary = prefix_cache.get("summary", {})
+        if full_len <= prefix_len:
+            trace.system_prompt_cache_note = "fallback: full input is not longer than system prefix"
+            return self.prefill(full_inputs)
+
+        if not torch.equal(full_ids[:, :prefix_len], prefix_ids):
+            trace.system_prompt_cache_note = "fallback: full input_ids do not start with system prefix"
+            return self.prefill(full_inputs)
+
+        suffix_ids = full_ids[:, prefix_len:]
+        attention_mask = full_inputs.get("attention_mask", None)
+        cache_position = torch.arange(prefix_len, full_len, device=full_ids.device)
+        model_kwargs = {
+            k: v for k, v in full_inputs.items()
+            if k not in ("input_ids", "attention_mask")
+        }
+
+        try:
+            outputs = self.model(
+                input_ids=suffix_ids,
+                attention_mask=attention_mask,
+                past_key_values=_clone_cache(prefix_cache["past_key_values"]),
+                cache_position=cache_position,
+                use_cache=True,
+                return_dict=True,
+                **model_kwargs,
+            )
+        except Exception as e:
+            trace.system_prompt_cache_note = f"fallback: suffix prefill failed: {repr(e)}"
+            return self.prefill(full_inputs)
+
+        trace.system_prompt_cache_used = True
+        trace.system_prompt_cache_note = f"used: prefix_len={prefix_len}, suffix_len={suffix_ids.shape[1]}"
+        return outputs
 
     def _eos_ids(self) -> set:
         """读取当前模型的结束 token id 集合。"""
@@ -427,26 +559,20 @@ class LocalQwen3VLInstructEngine:
         
 
 
+        trace = GenerationTrace(
+            chat_text=chat_text,
+            input_summary=_inputs_summary(inputs),
+            final_cache_summary={},
+            prefill_cache_summary={},
+            system_prompt_cache_enabled=self.cache_system_prompt,
+        )
+
         # 真实 LEAD 4 帧常见 input_summary 形态示例：
         # input_ids/attention_mask: [1, 文本+视觉总 token 数]
         # pixel_values: [视觉 patch 数, hidden 输入维度]
         # image_grid_thw: [图片张数, 3]，每行是 time/height/width 网格。
-        prefill_outputs = self.prefill(inputs)
-        # prefill outputs summary: {
-            # 'keys': ['logits', 'past_key_values', 'rope_deltas'], 
-            # 'logits': {'shape': [1, 2332, 151936], 'dtype': 'torch.bfloat16', 'device': 'cuda:0'}, 
-            # 'past_key_values': {'type': 'DynamicCache', 
-            # 'layers': [{'layer': 0, 'type': 'tuple', 'key': {'shape': [1, 8, 2332, 128], 'dtype': 'torch.bfloat16', 'device': 'cuda:0'}, 'value': {'shape': [1, 8, 2332, 128], 'dtype': 'torch.bfloat16', 'device': 'cuda:0'}}, 
-                # {'layer': 35, 'type': 'tuple', 'key': {'shape': [1, 8, 2332, 128], 'dtype': 'torch.bfloat16', 'device': 'cuda:0'}, 'value': {'shape': [1, 8, 2332, 128], 'dtype': 'torch.bfloat16', 'device': 'cuda:0'}}], 
-                # 'legacy_type': 'tuple', 'num_layers': 36}}
-
-
-        trace = GenerationTrace(
-            chat_text=chat_text,
-            input_summary=_inputs_summary(inputs),
-            prefill_cache_summary=summarize_kv_cache(prefill_outputs.past_key_values),
-            final_cache_summary={},
-        )
+        prefill_outputs = self.prefill_with_optional_system_cache(system_prompt, inputs, trace)
+        trace.prefill_cache_summary = summarize_kv_cache(prefill_outputs.past_key_values)
 
         # 4) 自回归 decode：new_ids 只包含新生成的 token，不包含 prompt token。
         new_ids = self.decode(inputs, prefill_outputs, trace, cache_dir=cache_dir)

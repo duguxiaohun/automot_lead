@@ -256,6 +256,7 @@ def run_once(args: argparse.Namespace) -> None:
         temperature=args.temperature,
         do_sample=args.do_sample,
         save_cache=args.save_cache,
+        cache_system_prompt=args.cache_system_prompt,
     )
     raw_text, trace = engine.generate(
         system_prompt=system_prompt,
@@ -328,6 +329,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="开启采样生成；默认关闭以便复现实验。")
     parser.add_argument("--save-cache", action="store_true",
                         help="用 torch.save 保存 prefill/final past_key_values 张量，文件可能很大。")
+    parser.add_argument("--cache-system-prompt", action="store_true",
+                        help="缓存固定 system prompt 的 KV cache；若前缀 token 不匹配会自动退回完整 prefill。")
     parser.add_argument("--save-root", type=str, default=None)
     parser.add_argument("--scenario", type=str, default="MergerIntoSlowTraffic")
     parser.add_argument("--num-frames", type=int, default=4)
