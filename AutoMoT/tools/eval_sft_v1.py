@@ -23,8 +23,8 @@ from collections import Counter, defaultdict
 from typing import Dict, List, Optional
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
-_PROJECT_ROOT = _THIS_FILE.parents[1]
-_AUTOMOT_ROOT = _PROJECT_ROOT / "AutoMoT"
+_AUTOMOT_ROOT = _THIS_FILE.parents[1]
+_PROJECT_ROOT = _THIS_FILE.parents[2]
 for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SFT v1 训练入口 — ms-swift LoRA on Qwen3-VL-4B-Instruct.
 #
-# 用法：
-#   单卡：  bash tools/sft_v1_train.sh single
-#   8 卡 DDP：bash tools/sft_v1_train.sh ddp
+# 用法（从仓库根运行）：
+#   单卡：  bash AutoMoT/tools/sft_v1_train.sh single
+#   8 卡 DDP：bash AutoMoT/tools/sft_v1_train.sh ddp
 #
-# 数据先用 tools/build_sft_dataset_v1.py 生成。LoRA 只训 language model 的
-# attention + MLP projections，ViT 冻结，详见 tools/SFT_V1_PLAN.md。
+# 数据先用 AutoMoT/tools/build_sft_dataset_v1.py 生成。LoRA 只训 language model 的
+# attention + MLP projections，ViT 冻结，详见 AutoMoT/tools/SFT_V1_PLAN.md。
 
 set -euo pipefail
 
