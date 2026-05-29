@@ -336,11 +336,17 @@ Definitions:
 - SUBGOAL is the event immediately after STATUS in EVENT_SEQUENCE. If STATUS \
 is final, SUBGOAL is final.
 - If the visual evidence is ambiguous, keep the previous STATUS from MEMORY.
+- Default behavior is to keep STATUS unchanged. Advancing STATUS requires a \
+concrete, frame-grounded visual change between the earliest and the latest \
+frame in the clip.
 
 Output format - respond EXACTLY as shown below, with no extra text before or \
 after the block:
 
-ANALYSIS: <2-4 sentence description of scene evolution and task-stage evidence>
+ANALYSIS: <2-4 sentences. First describe what is concretely visible in the \
+LAST frame. Then describe what CHANGED between the earliest and the latest \
+frame. Only after that, state whether the observed evidence supports \
+advancing STATUS.>
 STATUS: <event_name>
 SUBGOAL: <event_name>
 
@@ -351,6 +357,7 @@ Rules:
 advance by one event only.
 - SUBGOAL must be the immediate next event after STATUS, unless STATUS is \
 final.
+- When in doubt between staying and advancing, STAY.
 - Be concise and precise."""
 
 
