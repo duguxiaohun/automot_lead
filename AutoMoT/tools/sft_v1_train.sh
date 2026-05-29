@@ -2,8 +2,13 @@
 # SFT v1 训练入口 — ms-swift LoRA on Qwen3-VL-4B-Instruct.
 #
 # 用法（从仓库根运行）：
-#   单卡：  bash AutoMoT/tools/sft_v1_train.sh single
-#   8 卡 DDP：bash AutoMoT/tools/sft_v1_train.sh ddp
+#   单卡：       bash AutoMoT/tools/sft_v1_train.sh single
+#   8 卡 DDP：    bash AutoMoT/tools/sft_v1_train.sh ddp
+#   sanity 自检：bash AutoMoT/tools/sft_v1_train.sh check
+#     （check 模式只跑 2 step、不保存 ckpt，用来确认 loss_scale 是否生效。
+#      正常 mask 下初始 loss 应只来自 STATUS/SUBGOAL 段，数值在 ~6-10 量级；
+#      若初始 loss < 3 多半是 ANALYSIS 段也被算进去了，模型在抄占位句。
+#      跑前最好先 python AutoMoT/tools/check_loss_mask.py 看 token 级 mask 是否对。）
 #
 # 数据先用 AutoMoT/tools/build_sft_dataset_v1.py 生成。LoRA 只训 language model 的
 # attention + MLP projections，ViT 冻结，详见 AutoMoT/tools/SFT_V1_PLAN.md。
@@ -95,6 +100,16 @@ case "${MODE}" in
         EVAL_STEPS=200
         EXTRA_LAUNCH=""
         ;;
+    check)
+        echo "[mode] check (loss_scale sanity, 2 steps only — no checkpoint, no eval)"
+        # 只跑 2 step，bs=1 grad_acc=1，关 save/eval。目的是看初始 loss 数值。
+        # 走单卡，避免 DDP 启动开销污染"短训"的可观察性。
+        PER_DEVICE_BS=1
+        GRAD_ACC=1
+        SAVE_STEPS=999999
+        EVAL_STEPS=999999
+        EXTRA_LAUNCH="--max_steps 2"
+        ;;
     ddp)
         echo "[mode] DDP across 8 GPUs"
         # 8 卡正式训练。swift 通常会读取 NPROC_PER_NODE 启动 torchrun/分布式。
@@ -111,7 +126,7 @@ case "${MODE}" in
         EXTRA_LAUNCH=""
         ;;
     *)
-        echo "Unknown mode: ${MODE}. Use 'single' or 'ddp'." >&2
+        echo "Unknown mode: ${MODE}. Use 'single' / 'ddp' / 'check'." >&2
         exit 1
         ;;
 esac

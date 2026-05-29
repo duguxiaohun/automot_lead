@@ -316,16 +316,23 @@ def stratify_scenario(
         buckets[s.memory_in_status].append(s)
 
     chosen_keep: List[SampleRecord] = []
+    # 用 id() 而不是 dataclass 默认 __eq__ 判重：SampleRecord 是 dataclass，
+    # `s in chosen_keep` 会按字段值比较，遇到内容相同的样本会被错误剔除。
+    # 这里 (run_id, anchor) 实际唯一所以现在不出错，但用对象 id 更稳。
+    chosen_ids: set = set()
     if buckets:
         per_bucket = max(1, target_keep // len(buckets))
         for status, samples in buckets.items():
             if len(samples) > per_bucket:
-                chosen_keep.extend(rng.sample(samples, per_bucket))
+                picked = rng.sample(samples, per_bucket)
             else:
-                chosen_keep.extend(samples)
+                picked = list(samples)
+            for s in picked:
+                chosen_keep.append(s)
+                chosen_ids.add(id(s))
         # 补齐到 target_keep。
         if len(chosen_keep) < target_keep:
-            remaining = [s for s in keeps if s not in chosen_keep]
+            remaining = [s for s in keeps if id(s) not in chosen_ids]
             need = target_keep - len(chosen_keep)
             if remaining:
                 chosen_keep.extend(rng.sample(remaining, min(need, len(remaining))))

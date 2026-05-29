@@ -322,8 +322,12 @@ def main():
                         help="0 表示评估全部 val 样本，>0 时只评估前 N 条做快速验收。")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--torch-dtype", default="bfloat16")
-    parser.add_argument("--cache-system-prompt", action="store_true", default=True,
-                        help="复用 system prompt 的 KV prefix，节省推理时间。")
+    # BooleanOptionalAction 让用户能用 --no-cache-system-prompt 关掉。
+    # 之前 action="store_true" + default=True 是死值，flag 永远拨不掉。
+    parser.add_argument("--cache-system-prompt",
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help="复用 system prompt 的 KV prefix，节省推理时间。"
+                             "--no-cache-system-prompt 可关闭。")
     parser.add_argument("--output-json", type=str,
                         default=str(_AUTOMOT_ROOT / "eval_json" / "sft_v1_metrics.json"))
     parser.add_argument("--skip-anchor12-sanity", action="store_true",
