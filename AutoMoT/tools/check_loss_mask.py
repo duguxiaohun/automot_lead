@@ -1,14 +1,15 @@
 """SFT v1 loss_scale sanity check — 在 token 级别可视化 ANALYSIS 段 mask。
 
-不依赖 ms-swift，也不依赖 GPU。只用 HuggingFace tokenizer + 你已经生成的
+主体检查不依赖 GPU。脚本会先用 HuggingFace tokenizer + 你已经生成的
 jsonl 样本，把 assistant content 按字符 → token 映射展开，标出三段：
 
     [MASK]  对应 ANALYSIS: Observations recorded.\n   （swift loss_scale 应权重 0）
     [LOSS]  对应 STATUS: <event_name>\n               （应算 loss）
     [LOSS]  对应 SUBGOAL: <event_name>                 （应算 loss）
 
-目的不是模拟 swift 内部 loss_scale 算法，而是给你一份"如果 swift 做对了，
-这些 token 应该是 mask、那些 token 应该算 loss"的人工对照表。
+随后会可选调用 `tools/sft_v1_loss_scale_plugin.py` 里的 ms-swift 插件本体，
+确认 STATUS/SUBGOAL event_name 确实位于插件返回的 loss 段。若当前环境没装
+ms-swift，这一步会打印 WARN；远程训练环境必须让这一步通过。
 
 典型用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
 
@@ -30,18 +31,19 @@ python tools/check_loss_mask.py \
 - 如果 STATUS event_name 只有 1 个 token，说明 BPE 把它当成完整词；
   这是 v1 监督信号最稠密的位置，绝对不能被 mask
 - 如果发现 ANALYSIS 段有 token 被标 [LOSS]（或反过来），说明
-  PLACEHOLDER_ANALYSIS 跟训练脚本里的 LOSS_SCALE regex 不匹配，必须修
+  PLACEHOLDER_ANALYSIS 跟 loss_scale 插件 regex 不匹配，必须修
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import importlib.util
 import os
 import pathlib
 import re
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 # 本文件位于 AutoMoT/tools/。parents[1]=AutoMoT/，parents[2]=automot_lead 仓库根。
 # 这里推断路径不是为了 sys.path import 别的模块——本脚本不 import qwen3vl_local——
@@ -253,6 +255,75 @@ def summarize(tags: List[str], decoded: List[str]) -> Dict[str, int]:
     }
 
 
+def parse_status_lines(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """抽取 assistant 输出里的 STATUS / SUBGOAL 事件名。"""
+    status_match = re.search(r"^STATUS:\s*(.+)$", text, flags=re.MULTILINE)
+    subgoal_match = re.search(r"^SUBGOAL:\s*(.+)$", text, flags=re.MULTILINE)
+    status = status_match.group(1).strip() if status_match else None
+    subgoal = subgoal_match.group(1).strip() if subgoal_match else None
+    return status, subgoal
+
+
+def print_plugin_loss_scale_check(text: str) -> None:
+    """调用 ms-swift 插件本体，确认它把 STATUS/SUBGOAL 留在 loss 段。
+
+    这一步比上面的纯 regex/token 表更接近训练侧：swift 训练时会通过
+    `--external_plugins tools/sft_v1_loss_scale_plugin.py` 注册并调用同一个
+    `SftV1AnalysisMaskLossScale.get_loss_scale()`。如果这里的 loss 段没有包含
+    STATUS / SUBGOAL 的 event_name，`bash tools/sft_v1_train.sh check` 的低 loss
+    就不能继续信任。
+    """
+    print()
+    print("===== plugin loss_scale sanity =====")
+    plugin_path = _THIS_FILE.with_name("sft_v1_loss_scale_plugin.py")
+    try:
+        spec = importlib.util.spec_from_file_location("sft_v1_loss_scale_plugin", plugin_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"cannot load plugin spec: {plugin_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        loss_scale = module.SftV1AnalysisMaskLossScale()
+        parts, scales = loss_scale.get_loss_scale(text)
+    except Exception as exc:
+        print(f"[WARN] 无法加载/调用 ms-swift loss_scale 插件：{exc!r}")
+        print("       如果远程已安装 ms-swift，请优先修这个问题再跑训练。")
+        print("====================================")
+        return
+
+    cursor = 0
+    for idx, (part, scale) in enumerate(zip(parts, scales)):
+        start = text.find(part, cursor) if isinstance(part, str) else -1
+        end = start + len(part) if start >= 0 and isinstance(part, str) else -1
+        cursor = end if end >= 0 else cursor
+        preview = part.replace("\n", "\\n").replace("\r", "\\r") if isinstance(part, str) else repr(part)
+        print(f"[plugin] seg={idx} scale={scale} chars=[{start},{end}) text={preview!r}")
+
+    loss_text = "".join(part for part, scale in zip(parts, scales)
+                        if scale > 0 and isinstance(part, str))
+    mask_text = "".join(part for part, scale in zip(parts, scales)
+                        if scale == 0 and isinstance(part, str))
+    status, subgoal = parse_status_lines(text)
+    checks: Sequence[Tuple[str, Optional[str]]] = (
+        ("STATUS", status),
+        ("SUBGOAL", subgoal),
+    )
+    for label, value in checks:
+        if not value:
+            print(f"[WARN] {label} event_name 解析失败。")
+            continue
+        in_loss = value in loss_text
+        in_mask = value in mask_text
+        print(f"[plugin] {label} event_name={value!r} in_loss={in_loss} in_mask={in_mask}")
+        if not in_loss or in_mask:
+            print(f"[WARN] {label} event_name 没有被正确保留为 loss token。")
+
+    if not any(scale == 0 for scale in scales):
+        print("[WARN] 插件没有产生任何 0 权重段，ANALYSIS 可能会参与 loss。")
+    if not any(scale > 0 for scale in scales):
+        print("[WARN] 插件没有产生任何 loss 段，STATUS/SUBGOAL 可能被全 mask。")
+    print("====================================")
+
+
 def main():
     """主流程：
     1. 解析命令行 → 拿到 jsonl 路径 + sample 编号 + tokenizer 目录
@@ -360,6 +431,7 @@ def main():
               "确认 PLACEHOLDER_ANALYSIS 是不是把 STATUS 行也吞掉了。")
     if summary["n_mask"] == 0:
         print("[WARN] 没有任何 token 被 mask。检查 LOSS_SCALE_REGEX 与 PLACEHOLDER_ANALYSIS。")
+    print_plugin_loss_scale_check(assistant_text)
 
 
 if __name__ == "__main__":
