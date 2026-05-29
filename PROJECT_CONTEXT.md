@@ -1302,6 +1302,8 @@ python leaderboard/team_code/vlm_paradigm_a_runner.py --backend both
 
 新增入口 [`qwen3vl_instruct_paradigm_a_runner.py`](AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py)，只跑本地 `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct`，不再保留 `Qwen3.5-4B` / `both` 分支；`vlm_paradigm_a_runner.py` 仍负责 AutoMoT vs Qwen 的旧对照实验。
 
+模型来源固定为 HuggingFace `repo_id=Qwen/Qwen3-VL-4B-Instruct`，用户远程环境已下载到 `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct`。后续运行必须只读本地目录，不允许联网下载。
+
 本地可魔改代码放在 [`AutoMoT/qwen3vl_local/`](AutoMoT/qwen3vl_local/)：
 
 - `prompt_pipeline.py`：从 `vlm_paradigm_a_runner.py` 的 `vlm_prompt_pipeline.py` 迁移块完整同步，包含 `EVENT_DESCRIPTIONS`、`build_memory_block`、system/user prompt、三行输出解析、memory update。
