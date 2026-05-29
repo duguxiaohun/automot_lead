@@ -68,6 +68,7 @@
 - `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
 - `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py`
 - `AutoMoT/qwen3vl_local/`
+- `tools/`（LoRA SFT 微调相关脚本与计划文档，v1 起）
 
 其它文件默认只读，尤其是：
 
@@ -99,6 +100,7 @@ git add AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py
 git add AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py
 git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/prompt_pipeline.py
+git add tools/SFT_V1_PLAN.md tools/build_sft_dataset_v1.py tools/sft_v1_train.sh tools/eval_sft_v1.py
 ```
 
 commit 前先看：
