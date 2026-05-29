@@ -432,7 +432,11 @@ class DiTMoT(nn.Module):
         return pe[:gh, :gw, :].reshape(gh * gw, -1)
 
     def _build_cond(self, t: torch.Tensor) -> torch.Tensor:
+        # _timestep_embedding 内部强制走 float32 算 sin/cos 保精度；但 t_mlp 的权重
+        # 在 bf16/fp16 训练时已经是低精度，直接喂 fp32 输入会 mat1/mat2 dtype mismatch。
+        # 这里在 Linear 之前对齐 dtype，与 DiT 权重保持一致。
         t_emb = _timestep_embedding(t, self.cfg.cond_dim)
+        t_emb = t_emb.to(dtype=self.t_mlp[0].weight.dtype)
         return self.t_mlp(t_emb)
 
     def forward(
