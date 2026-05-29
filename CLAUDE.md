@@ -58,8 +58,11 @@
 | `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py` | 用户主战场：把 LEAD 数据离线喂给 AutoMoT 推理的桥接脚本 |
 | `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py` | 范式 A 对照脚本，保留 automot/qwen 双 backend |
 | `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py` | standalone Qwen3-VL-4B-Instruct 范式 A 脚本 |
-| `AutoMoT/qwen3vl_local/` | Qwen3-VL-Instruct 本地 helper 包，包含 prompt、图片读取、显式 KV cache 推理 |
+| `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py` | 子目标 latent 生成新路线 runner（teacher-forced prefill → DiT-MoT → flow matching，详见 PROJECT_CONTEXT.md §15） |
+| `AutoMoT/qwen3vl_local/` | Qwen3-VL-Instruct 本地 helper 包；其中 `goalgen/` 子包是 §15 新路线全部模块（vae/prompt/qwen_kv/keyframes/dit/flow） |
 | `AutoMoT/tools/SFT_V1_PLAN.md` / `SFT_V1_RUN.md` / `build_sft_dataset_v1.py` / `sft_v1_train.sh` / `sft_v1_loss_scale_plugin.py` / `eval_sft_v1.py` / `check_loss_mask.py` | LoRA SFT v1 微调相关脚本、计划与运行教程（注意只这 7 个，AutoMoT/tools/ 下其它原始脚本仍为只读参考） |
+| `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md` / `GOALGEN_V1_RUN.md` | 子目标 latent 生成路线 v1 设计与操作手册（与 goalgen 子包代码同目录） |
+| `AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py` / `train_v1.py` / `train_v1.sh` | GoalGen v1 数据集构建 + 训练入口（DDP / 单卡 / check 三模式） |
 | `CLAUDE.md` | 本规则文件（仅在调整规则时修改） |
 | `AGENTS.md` | 通用 AI / coding agent 入口说明文件 |
 
@@ -89,11 +92,24 @@
 - `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py`
 - `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
 - `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py`
+- `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`
 - `AutoMoT/qwen3vl_local/__init__.py`
 - `AutoMoT/qwen3vl_local/cache_utils.py`
 - `AutoMoT/qwen3vl_local/engine.py`
 - `AutoMoT/qwen3vl_local/image_io.py`
 - `AutoMoT/qwen3vl_local/prompt_pipeline.py`
+- `AutoMoT/qwen3vl_local/goalgen/__init__.py`
+- `AutoMoT/qwen3vl_local/goalgen/vae.py`
+- `AutoMoT/qwen3vl_local/goalgen/prompt.py`
+- `AutoMoT/qwen3vl_local/goalgen/qwen_kv.py`
+- `AutoMoT/qwen3vl_local/goalgen/keyframes.py`
+- `AutoMoT/qwen3vl_local/goalgen/dit.py`
+- `AutoMoT/qwen3vl_local/goalgen/flow.py`
+- `AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py`
+- `AutoMoT/qwen3vl_local/goalgen/train_v1.py`
+- `AutoMoT/qwen3vl_local/goalgen/train_v1.sh`
+- `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md`
+- `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_RUN.md`
 - `AutoMoT/tools/SFT_V1_PLAN.md`
 - `AutoMoT/tools/SFT_V1_RUN.md`
 - `AutoMoT/tools/build_sft_dataset_v1.py`

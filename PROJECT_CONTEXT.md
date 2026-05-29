@@ -582,6 +582,8 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
 - BEV encoder：`AutoMoT/Automot/mot/modeling/bev_encoder/`
 - 数据预处理：`AutoMoT/Automot/preprocess/generate_lidar_bev_b2d.py`
 - **离线 runner（用户主战场）**：`AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py`
+- **独立 VAE 模块（冻结，子目标 latent 生成路线第一阶段）**：`AutoMoT/vae_standalone/`（详见 §15）
+- **子目标 latent 生成 runner（KV cache + DiT flow matching 路线）**：`AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py` + `AutoMoT/qwen3vl_local/goalgen/`（详见 §15）
 
 ---
 
@@ -1328,3 +1330,131 @@ python leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py --route-dir <
 CLI 参数尽量对齐 `vlm_paradigm_a_runner.py`：`--route-dir` 默认同样指向
 `/data/lead_data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46`，
 可传空字符串退回合成图。
+
+---
+
+## 15. VAE Standalone + 基于 KV cache 的子目标 latent 生成路线（新路线）
+
+> 这一节描述 §14 范式 A 的姊妹路线：不再让 Qwen3-VL "说话"，而是把
+> teacher-forced 的场景状态作为 prompt 让它只跑 prefill，拿到 KV cache 当作
+> "语言/场景上下文池"，再驱动一个 **flow-matching DiT** 在 VAE latent 空间
+> 上生成"子目标对应关键帧"的预测 latent。监督真值来自 keyframes_all_scenarios.json
+> 指定的关键帧 RGB 经同一冻结 VAE 编码。
+
+### 15.1 VAE Standalone 模块（冻结的图像编码 / 解码器）
+
+目录：[`AutoMoT/vae_standalone/`](AutoMoT/vae_standalone/)（**只读参考代码**，不在白名单内，不要直接改）。
+
+来源：Vista 项目的 first-stage VAE 单独抽出来，权重 372 keys。
+
+文件：
+
+- 入口脚本 [`vae_reconstruct.py`](AutoMoT/vae_standalone/vae_reconstruct.py)：encode → decode → 输出 MSE / PSNR / L1。
+- 配置 [`config/vae_only.yaml`](AutoMoT/vae_standalone/config/vae_only.yaml)：`first_stage_config` 通过 `instantiate_from_config` 实例化 `vwm.models.autoencoder.AutoencodingEngine`。
+- 权重 `weights/vae_only.safetensors`：来自 `extract_vae_weights.py` 从 Vista 完整 ckpt 抽取 `first_stage_model.*` 前缀。
+- 子模块 `vwm/`：必要的最小依赖（`models.autoencoder`、`modules.latentmodules.model.Encoder`、`modules.autoencoding.temporal_ae.VideoDecoder`、regularizer、distributions、attention、util）。
+
+关键事实（写代码前必看）：
+
+| 项 | 值 |
+|---|---|
+| 输入归一化 | `mean = std = 0.5`，张量范围 `[-1, 1]`（不是 `[0,1]` 也不是 ImageNet 均值） |
+| 输入尺寸约束 | H、W 必须是 **64 的倍数** |
+| Encoder | 普通 2D `vwm.modules.latentmodules.model.Encoder`，`z_channels=4`，`ch=128`，`ch_mult=[1,2,4,4]`，下采 8 倍 |
+| Decoder | `vwm.modules.autoencoding.temporal_ae.VideoDecoder`（temporal kernel size=3），单帧/batch=1 时取 `overlap=0` |
+| 缩放因子 | `scale_factor = 0.18215`；encode 后 `z = z * scale_factor`，decode 前 `z = z / scale_factor` |
+| 自动混精度 | `disable_first_stage_autocast=True`，即默认**关闭** autocast |
+| 单轮 batch 上限 | `en_and_decode_n_samples_a_time = 14`（推理时按这个切片，避免大张量爆显存） |
+| 不依赖 | 不需要 Vista 主干 UNet / conditioner / sample.py / sample_utils.py |
+
+形状映射示例（路线里 LEAD 三视角直接走 1152×384）：
+
+| 输入 `[B, 3, H, W]` | latent `[B, 4, H/8, W/8]` | 备注 |
+|---|---|---|
+| `[B, 3, 384, 1152]` | `[B, 4, 48, 144]` = **6912** token / batch | LEAD stitched 三视角，**当前路线默认** |
+| `[B, 3, 576, 1024]` | `[B, 4, 72, 128]` | 1024×576 vista 测试样张 |
+| `[B, 3, 256, 256]` | `[B, 4, 32, 32]` | 通用 256 方图 |
+
+使用模式（写在新路线代码里、不要再去碰 vae_standalone 本身）：
+
+1. `python -c` 不可行（vae_standalone 依赖路径相对自身）；新路线把 `AutoMoT/vae_standalone` 加进 `sys.path` 后再 `from vwm.util import instantiate_from_config` / `from safetensors.torch import load_file` 走和 `vae_reconstruct.py` 同样的加载流程。
+2. 加载后 `model.eval()` + 所有参数 `requires_grad_(False)`，全程**冻结**。
+3. encode 用 `model.encode(x_in)`，注意 x_in 必须是 [-1,1] 归一化后的张量；不要漏 `* scale_factor`。
+4. decode 仅用于可视化（推理后想把预测 latent 还原成 RGB），训练阶段不需要。
+
+### 15.2 路线总览：teacher-forced Qwen prefill → DiT-MoT → flow matching
+
+```
+[hist + current RGB]                       [subgoal keyframe RGB]
+        │                                            │
+        ▼                                            ▼
+┌───────────────────────────┐               ┌──────────────────┐
+│ Qwen3-VL-Instruct (frozen)│               │  VAE encode      │
+│ teacher-forced prompt:    │               │  (frozen)        │
+│  告诉它 STATUS/SUBGOAL    │               └──────────────────┘
+│  只 prefill,不 decode     │                        │
+│  收 36 层 past_key_values │                  z1 (target latent)
+└───────────────────────────┘
+        │                                    z_t = (1-t)·z0 + t·z1
+        │  默认 select_last:Qwen 36 层 / 3 段              ▲
+        │  每段取最后一层 → 12 段 token-level (K, V)        │
+        │  (concat_layers 模式留作 ablation)                │
+        ▼                                                 │
+┌──────────────────────────────────────────────────────────────┐
+│ DiT (trainable, 12 layers, MoT joint attention)              │
+│ vision token = concat[                                       │
+│   proj(z_t),                       # noisy target latent     │
+│   proj(VAE(history_frame_1..F)),   # 所有历史帧 latent       │
+│ ] + type / frame / 位置编码 + timestep                        │
+│                                                              │
+│ 每层 block:                                                  │
+│   Q = vision_token (only updated)                            │
+│   K = concat[ vision_K_proj(q), language_K_seg[i] ]          │
+│   V = concat[ vision_V_proj(q), language_V_seg[i] ]          │
+│   language K/V 来自 Qwen, 全程冻结                            │
+└──────────────────────────────────────────────────────────────┘
+        │
+        ▼
+   v_pred (velocity on subgoal latent)
+        │
+        ▼  flow matching loss
+   L = ‖ v_pred − (z1 − z0) ‖²
+```
+
+关键设计点（与用户达成的决定）：
+
+1. **融合方式**：MoT joint-attention。DiT block 不做单独 cross-attn；vision Q 与 (vision K/V + language K/V) 一起做一次 attention。
+2. **层映射**：E3 分段。Qwen 共 36 层 → 12 段（每段 3 层），DiT 也设 12 层。默认 `select_last`：每段取该 3 层组的**最后一层** token-level K/V，shape `[B, 8, S, 128]`（省显存、loss 等价上不损失主要信息）；`concat_layers` 把 3 层 K/V 沿 token 轴 concat 留作 ablation；`mean` 是旧版层平均，已弃用。第 i 层 DiT block 使用第 i 段 KV。
+3. **视觉锚点**：把所有历史帧（builder 默认 4 帧）的 VAE latent 分别 patchify 后 concat 到 vision token 序列；每帧用独立的 frame embedding 区分，最后一帧 = 当前 anchor。
+4. **目录组织**：新模块全部放进 `AutoMoT/qwen3vl_local/goalgen/` 子包，CLI 入口为 `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`。
+
+### 15.3 文件分工（`AutoMoT/qwen3vl_local/goalgen/`）
+
+| 文件 | 职责 |
+|---|---|
+| `__init__.py` | 子包导出索引 |
+| `vae.py` | 把 `AutoMoT/vae_standalone` 临时加进 sys.path，封装 `FrozenVAE.load(cfg_path, weights_path)`，提供 `encode(pil_list)` / `decode(z)`；输入归一化、shape 校验、scale_factor 处理全部内聚在这里；加载即冻结 |
+| `prompt.py` | teacher-forced prompt 模板。结构同 §14.10 但 system 删掉"输出 ANALYSIS/STATUS/SUBGOAL"那段，user 改为"当前 STATUS=X（描述）/ 子任务 SUBGOAL=Y（描述）"；输出函数 `build_teacher_system_prompt` + `build_teacher_user_prompt(memory)` |
+| `qwen_kv.py` | 复用现有 `LocalQwen3VLInstructEngine` 的 prefill；`teacher_forced_prefill(...)` 返回 `PrefillResult`（含 `pooled_kv` 字段名是历史遗留 + 维度元信息）；`segment_kv_for_dit(past_key_values, num_segments=12, mode="select_last")` 把 36 层切成 12 段，默认每段取最后一层 token-level K/V，可选 `concat_layers`（3 层 token 维 concat）或 `mean`（旧版层平均）；`pool_kv_for_dit` 是同义别名；输出 K/V 全部 detach |
+| `keyframes.py` | 读 `keyframes_all_scenarios.json`，按 `(scenario, run_id, subgoal_event)` 查 `frame_idx`；`load_keyframe_rgb(route_dir, frame_idx)` 返回 stitched 三视角 RGB PIL |
+| `dit.py` | DiT-MoT 主体。`DiTMoTBlock`：vision Q + joint-attn(K=cat[vision_K, lang_K], V=cat[vision_V, lang_V]) + MLP；`DiTMoT`：patchify vision latent → token + AdaLN-Zero (timestep) → 12 个 block → unpatchify 回 latent shape；语言 K/V 由外部传入；附带 `language_kv_input_dim_from_pooled` 辅助函数 |
+| `flow.py` | 1) 训练采样：`t ~ U[0,1]`，`z0 ~ N(0,I)`，`z_t=(1-t)z0+t z1`，`v_target = z1 - z0`；2) `flow_matching_loss(v_pred, v_target)`；3) 推理 Euler 积分 `euler_sample(velocity_fn, ...)`：`z = z + dt * v_pred` 从 t=0 到 t=1 |
+| `build_dataset_v1.py` | 扫 `keyframes_all_scenarios.json`，按 `Completed/Perfect` 筛 run，把每个状态段展开成 (anchor, status, subgoal, target_frame, history/current/target RGB 路径) jsonl；按 `status->subgoal` 桶 stratified 抽样；按 run_id 8:2 划 train/val；每个 route 用 file-list 缓存避免 N 次 stat |
+| `train_v1.py` | DDP / 单卡训练入口。`engine.load() + freeze_module()` 显式冻 Qwen；`FrozenVAE.load()` 内部已冻 VAE；`_probe_language_kv_dim()` 用首条样本推 language_kv_input_dim（避免硬编码）；AdamW 只优化 DiT 参数；DDP 模式 grad-accum 期间走 `dit.no_sync()` 减少 all-reduce；每 `--save-steps` 落盘 `goalgen_v1.pt` + `latest.pt` |
+| `train_v1.sh` | check / single / ddp 三模式；按 `nvidia-smi` 自动挑空闲 GPU、自动选空闲 MASTER_PORT；环境变量 `LANGUAGE_KV_INPUT_DIM=auto` 默认走 trainer 内部 probe，传整数可跳过 |
+| `GOALGEN_V1_PLAN.md` | v1 路线设计、形状默认表、参数量预估、显存预估、风险表、v1/v2 边界 |
+| `GOALGEN_V1_RUN.md` | 0 检查输入 / 1 build dataset / 2 train check→single→ddp / 3 forward smoke / 4 troubleshooting / 5 形状默认表 / 6 显存预期 |
+
+CLI 入口 `qwen3vl_dit_goalgen_runner.py`：
+
+- 复用 `prepare_images` / `load_lead_rgb_clip` / `DrivingMemory` / `auto_detect_scenario_from_route`。
+- 多一个 `--subgoal` 参数（默认从 `DrivingMemory.from_scenario(scenario).subgoal` 推；推理调试可显式覆盖）。
+- 多一个 `--run-id` / 自动识别 run，方便 `keyframes.py` 查目标帧；找不到目标帧时打印警告并跳过 loss，仅做 forward。
+- 单次执行：teacher-forced prefill → 分段 KV（默认 `select_last`）→ 准备 z0 / 历史多帧 latent z_history / 真值 latent z1 → DiT forward → loss。
+- 输出 step.json：保存 prompt、Qwen KV summary、分段后段 shape、DiT 输入 / 输出 latent shape、loss、目标帧路径。
+
+### 15.4 与现有 §14.10 的关系
+
+- **完全独立的入口**，不修改 [`qwen3vl_instruct_paradigm_a_runner.py`](AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py) 或 `qwen3vl_local/` 现有模块。
+- 复用现有 `LocalQwen3VLInstructEngine` 的 `load`/`prepare_inputs`/`prefill` 方法（teacher-forced 路线只缺 decode 那段，不需要分叉 engine 实现）。
+- 新模块都在 `goalgen/` 子包里，旧 runner 不会被影响。
