@@ -195,6 +195,14 @@ SFT_RESPECT_CUDA_VISIBLE_DEVICES=1 DDP_GPU_COUNT=4 bash tools/sft_v1_train.sh dd
 SFT_RESPECT_NPROC_PER_NODE=1 bash tools/sft_v1_train.sh ddp
 ```
 
+DDP rendezvous 端口也会自动处理：脚本默认设置 `MASTER_ADDR=127.0.0.1`，如果
+`MASTER_PORT` 没有设置，或已设置但端口被占用，会自动选择一个空闲端口并在启动日志里打印。
+如果你确实要严格沿用外部已经设置好的 `MASTER_PORT`，加：
+
+```bash
+SFT_RESPECT_MASTER_PORT=1 MASTER_PORT=29501 bash tools/sft_v1_train.sh ddp
+```
+
 如果你已经知道要用哪几张卡，直接显式指定 `CUDA_VISIBLE_DEVICES`，不要同时传
 `DDP_GPU_COUNT`：
 

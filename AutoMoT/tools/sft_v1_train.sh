@@ -103,6 +103,7 @@ mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
 # DDP_GPU_COUNT 显式传入时视为强信号：重新挑指定数量的卡。
 # 若要严格尊重外部已有 CUDA_VISIBLE_DEVICES，可设 SFT_RESPECT_CUDA_VISIBLE_DEVICES=1。
 # 若要严格尊重外部已有 NPROC_PER_NODE，可设 SFT_RESPECT_NPROC_PER_NODE=1。
+# 若要严格尊重外部已有 MASTER_PORT，可设 SFT_RESPECT_MASTER_PORT=1。
 pick_idle_gpus() {
     local want_count="$1"
     local selected
@@ -136,6 +137,48 @@ count_visible_gpus() {
     else
         awk -F',' '{print NF}' <<< "${visible}"
     fi
+}
+
+is_port_free() {
+    local port="$1"
+    python -c 'import socket, sys
+port = int(sys.argv[1])
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    sock.bind(("", port))
+except OSError:
+    sys.exit(1)
+finally:
+    sock.close()
+' "${port}" >/dev/null 2>&1
+}
+
+find_free_master_port() {
+    python -c 'import socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.bind(("", 0))
+print(sock.getsockname()[1])
+sock.close()
+' 2>/dev/null || echo "$((20000 + RANDOM % 20000))"
+}
+
+configure_master_port() {
+    export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
+
+    if [[ "${SFT_RESPECT_MASTER_PORT:-0}" == "1" ]]; then
+        export MASTER_PORT="${MASTER_PORT:-29500}"
+        return 0
+    fi
+
+    if [[ -n "${MASTER_PORT:-}" ]]; then
+        if is_port_free "${MASTER_PORT}"; then
+            export MASTER_PORT
+            return 0
+        fi
+        echo "[ddp][warn] MASTER_PORT=${MASTER_PORT} is already in use; selecting a free port"
+    fi
+
+    export MASTER_PORT="$(find_free_master_port)"
 }
 
 # ---------------------------------------------------------------------------
@@ -230,6 +273,7 @@ case "${MODE}" in
         if [[ "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then
             echo "[gpu][warn] requested ${DDP_GPU_COUNT} GPUs but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
         fi
+        configure_master_port
         # NCCL 调优：H20 NVLink 优先。若远程机器不是 NVLink 拓扑，出现 NCCL 卡住时
         # 可以临时 unset NCCL_P2P_LEVEL 或退到 single/少卡模式排查。
         export NCCL_P2P_LEVEL=NVL
@@ -247,6 +291,8 @@ echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC_PER_NODE=${NPROC_PER_NODE}"
 if [[ "${MODE}" == "ddp" ]]; then
     echo "[gpu] requested DDP_GPU_COUNT=${DDP_GPU_COUNT:-8}"
+    echo "[ddp] MASTER_ADDR=${MASTER_ADDR}"
+    echo "[ddp] MASTER_PORT=${MASTER_PORT}"
 fi
 
 # ---------------------------------------------------------------------------
