@@ -1297,3 +1297,32 @@ python leaderboard/team_code/vlm_paradigm_a_runner.py --backend both
 | 两者都要 | 起两个 inferencer 并行跑 | `vlm_paradigm_a_runner.py --backend both` |
 
 **绝对不要**：在 AutoMoT ckpt 上调 `gen_text` 期待出三行文本 —— 物理上能跑通（没报错），业务上是空字符串。
+
+### 14.10 Qwen3-VL-4B-Instruct standalone 范式 A runner
+
+新增入口 [`qwen3vl_instruct_paradigm_a_runner.py`](AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py)，只跑本地 `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct`，不再保留 `Qwen3.5-4B` / `both` 分支；`vlm_paradigm_a_runner.py` 仍负责 AutoMoT vs Qwen 的旧对照实验。
+
+本地可魔改代码放在 [`AutoMoT/qwen3vl_local/`](AutoMoT/qwen3vl_local/)：
+
+- `prompt_pipeline.py`：从 `vlm_paradigm_a_runner.py` 的 `vlm_prompt_pipeline.py` 迁移块完整同步，包含 `EVENT_DESCRIPTIONS`、`build_memory_block`、system/user prompt、三行输出解析、memory update。
+- `image_io.py`：合成 RGB 与 LEAD route `rgb/*.jpg` 读取。
+- `engine.py`：显式拆分 `build_messages -> apply_chat_template -> prepare_inputs -> prefill -> decode`，decode 逐 token 更新 `past_key_values`。
+- `cache_utils.py`：KV cache shape/dtype/device summary；可选 `--save-cache` 把 prefill/final cache 用 `torch.save` 落盘。
+
+运行边界：
+
+- 只允许本地 checkpoint，`local_files_only=True`，并设置 `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1`，禁止下载。
+- `Qwen3-VL-4B-Instruct` 与原 `AutoMoT/checkpoints/Qwen3-VL-4B` 不能假设权重一致：前者是 instruct/post-training 版，后者是原本 baseline Qwen 目录；tokenizer/processor 可能同源，但模型权重不是同一个语义对象。
+- 每次运行都会保存 prompt、raw text、parsed、memory、`generation_trace.json`。即使不加 `--save-cache`，trace 也包含 KV cache 结构摘要；加 `--save-cache` 会额外保存 `.pt` tensor 文件，体积可能很大。
+
+示例：
+
+```bash
+python leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py
+python leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py --save-cache
+python leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py --route-dir <LEAD route> --anchor 12
+```
+
+CLI 参数尽量对齐 `vlm_paradigm_a_runner.py`：`--route-dir` 默认同样指向
+`/data/lead_data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46`，
+可传空字符串退回合成图。
