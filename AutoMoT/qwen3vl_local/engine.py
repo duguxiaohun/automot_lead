@@ -362,7 +362,11 @@ class LocalQwen3VLInstructEngine:
         prefix_ids = prefix_cache["input_ids"].to(full_inputs["input_ids"].device)
         full_ids = full_inputs["input_ids"]
         prefix_len = int(prefix_ids.shape[1])
+        # system prompt 393 token 
+
+
         full_len = int(full_ids.shape[1])
+        # full input 2332 token (system prompt + user prompt + vision token)
 
         trace.system_prompt_cache_summary = prefix_cache.get("summary", {})
         if full_len <= prefix_len:
