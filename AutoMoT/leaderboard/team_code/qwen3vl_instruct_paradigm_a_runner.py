@@ -167,6 +167,18 @@ def prepare_images(args: argparse.Namespace) -> Tuple[str, List[Any], List[Any]]
     return scenario, raw_images, model_input_images
 
 
+def describe_image_inputs(num_images: int) -> str:
+    """Return text that describes the already-injected visual inputs."""
+    if num_images <= 0:
+        return "No visual observations are provided for this step."
+    if num_images == 1:
+        return "The image above is the current visual observation."
+    return (
+        f"The {num_images} images above are ordered oldest to newest; "
+        "the last image is the current moment."
+    )
+
+
 def run_once(args: argparse.Namespace) -> None:
     checkpoint_dir = pathlib.Path(args.checkpoint_dir).resolve()
     if not checkpoint_dir.exists():
@@ -181,7 +193,10 @@ def run_once(args: argparse.Namespace) -> None:
     scenario, raw_images, model_input_images = prepare_images(args)
     memory = DrivingMemory.from_scenario(scenario)
     system_prompt = build_system_prompt()
-    user_prompt = build_user_prompt(memory, image_description="<image>")
+    user_prompt = build_user_prompt(
+        memory,
+        image_description=describe_image_inputs(len(model_input_images)),
+    )
 
     engine = LocalQwen3VLInstructEngine(
         checkpoint_dir=checkpoint_dir,

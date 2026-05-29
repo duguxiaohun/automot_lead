@@ -353,11 +353,16 @@ def build_memory_block(memory: DrivingMemory) -> str:
     )
 
 
-def build_user_prompt(memory: DrivingMemory, image_description: str = "<image>") -> str:
-    """构造 user 段提示词。image_description 用于在文本里给图像留占位标记,
-    真正的图像通过 inferencer 的 image_list 参数另路注入(范式 A 复用 AutoMoT
-    现成的 USER_PROMPT 模板,模板中已含 <|vision_start|>...<|vision_end|>
-    视觉占位 token,所以这里的字符串占位仅是给人读的注释)。"""
+def build_user_prompt(
+    memory: DrivingMemory,
+    image_description: str = "Refer to the visual observation(s) above.",
+) -> str:
+    """Build the user prompt.
+
+    image_description is ordinary text that describes visual inputs already
+    inserted by the caller. Real Qwen image tokens come from structured image
+    messages and the processor, not from this string.
+    """
     memory_block = build_memory_block(memory)
     return (
         f"{image_description}\n\n"
@@ -367,8 +372,10 @@ def build_user_prompt(memory: DrivingMemory, image_description: str = "<image>")
     )
 
 
-def build_combined_prompt(memory: DrivingMemory,
-                          image_description: str = "<image>") -> str:
+def build_combined_prompt(
+    memory: DrivingMemory,
+    image_description: str = "Refer to the visual observation(s) above.",
+) -> str:
     """范式 A 实际喂给 inferencer 的合并 prompt = system + user。
 
     背景:AutoMoT 的 kv_cache_fixed_inference(input_lists) 把 input_lists 里
