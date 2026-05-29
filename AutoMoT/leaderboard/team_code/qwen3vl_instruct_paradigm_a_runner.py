@@ -263,6 +263,9 @@ def run_once(args: argparse.Namespace) -> None:
         images=model_input_images,
         cache_dir=cache_dir,
     )
+    # ANALYSIS: The ego vehicle is approaching a dark, foggy road where a vehicle ahead is slowing down, indicating an impending hazard. The scene suggests the hazard is becoming more apparent as the frames progress, aligning with the transition from initial to hazard_detect.
+    # STATUS: hazard_detect
+    # SUBGOAL: max_brake_or_min_gap
 
     # 4) 解析模型自由文本，并用状态机约束更新 memory。
     parsed = parse_vlm_output(raw_text)
