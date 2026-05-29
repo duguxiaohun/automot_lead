@@ -169,11 +169,35 @@ ANALYSIS 占位段。ms-swift 3.12.x 不接受 JSON regex 形式的 `--loss_scal
 bash tools/sft_v1_train.sh ddp
 ```
 
+默认会用 `nvidia-smi` 自动挑最空闲的 8 张 GPU。想指定卡数但仍自动挑最闲的
+N 张，用 `DDP_GPU_COUNT`：
+
+```bash
+# 自动挑最空闲的 4 张 GPU
+DDP_GPU_COUNT=4 bash tools/sft_v1_train.sh ddp
+
+# 自动挑最空闲的 2 张 GPU
+DDP_GPU_COUNT=2 bash tools/sft_v1_train.sh ddp
+```
+
+如果你已经知道要用哪几张卡，直接显式指定 `CUDA_VISIBLE_DEVICES`，脚本会尊重：
+
+```bash
+CUDA_VISIBLE_DEVICES=2,5,6,7 bash tools/sft_v1_train.sh ddp
+```
+
 **预期**：
 
-- 总 step ≈ 710（按 7560 train 样本 / 等效 bs 32 × 3 epoch）；
+- 8 卡总 step ≈ 710（按 7560 train 样本 / 等效 bs 32 × 3 epoch）；如果改成 4 卡，等效 bs 约 16，step 约翻倍；
 - 每 100 step 保存一次 LoRA adapter 到 `checkpoints/sft_v1_lora/checkpoint-XXX/`；
-- 训练 loss 从 ~7-8 降到 ~1-2。
+- 训练 loss 大致从 check 阶段量级继续下降，最终以 eval 指标为准。
+
+**中途检查**：
+
+- swift 会把日志写到 `checkpoints/sft_v1_lora/v*/logging.jsonl`；
+- 每 `save_steps=100` 会保存一次 LoRA adapter checkpoint，即使训练没跑完，也可以拿已有
+  `checkpoint-100` / `checkpoint-200` 做 `eval_sft_v1.py --lora-dir ...` 快速检查；
+- `save_total_limit=3`，最多保留最近 3 个 checkpoint。
 
 **单卡退回**（如果 8 卡 NCCL 出问题）：
 
