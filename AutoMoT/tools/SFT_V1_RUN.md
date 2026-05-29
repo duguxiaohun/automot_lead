@@ -180,7 +180,23 @@ DDP_GPU_COUNT=4 bash tools/sft_v1_train.sh ddp
 DDP_GPU_COUNT=2 bash tools/sft_v1_train.sh ddp
 ```
 
-如果你已经知道要用哪几张卡，直接显式指定 `CUDA_VISIBLE_DEVICES`，脚本会尊重：
+注意：DDP 模式会默认让 `NPROC_PER_NODE` 跟随最终的 `CUDA_VISIBLE_DEVICES` 数量。
+`DDP_GPU_COUNT` 显式传入时会覆盖外层残留的 `CUDA_VISIBLE_DEVICES`，避免远程环境里已有
+`CUDA_VISIBLE_DEVICES=0` 或 `NPROC_PER_NODE=1` 导致实际只起单卡。
+如果你确实要严格沿用外部已经设置好的 `CUDA_VISIBLE_DEVICES`，加：
+
+```bash
+SFT_RESPECT_CUDA_VISIBLE_DEVICES=1 DDP_GPU_COUNT=4 bash tools/sft_v1_train.sh ddp
+```
+
+如果你确实要严格沿用外部已经设置好的 `NPROC_PER_NODE`，加：
+
+```bash
+SFT_RESPECT_NPROC_PER_NODE=1 bash tools/sft_v1_train.sh ddp
+```
+
+如果你已经知道要用哪几张卡，直接显式指定 `CUDA_VISIBLE_DEVICES`，不要同时传
+`DDP_GPU_COUNT`：
 
 ```bash
 CUDA_VISIBLE_DEVICES=2,5,6,7 bash tools/sft_v1_train.sh ddp

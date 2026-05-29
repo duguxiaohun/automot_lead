@@ -36,6 +36,10 @@ set -euo pipefail
 # MODE 只控制 batch/step/DDP 相关配置；训练命令主体保持一致，方便单卡 smoke test
 # 和 8 卡正式训练对齐。
 MODE="${1:-ddp}"
+DDP_GPU_COUNT_WAS_SET=0
+if [[ -n "${DDP_GPU_COUNT+x}" ]]; then
+    DDP_GPU_COUNT_WAS_SET=1
+fi
 
 # ---------------------------------------------------------------------------
 # 路径（按需 override：可以在 shell 里 export 同名变量再运行本脚本）。
@@ -94,9 +98,11 @@ mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
 # ---------------------------------------------------------------------------
 # GPU 选择
 # ---------------------------------------------------------------------------
-# 如果用户/调度系统已经设置 CUDA_VISIBLE_DEVICES，脚本完全尊重它。
-# 否则用 nvidia-smi 按 memory.used、utilization.gpu 从小到大排序，自动挑最空闲 GPU。
-# DDP 默认挑 DDP_GPU_COUNT 张（默认 8）；如果机器可见 GPU 更少，就按实际挑到的数量设置 NPROC_PER_NODE。
+# 默认用 nvidia-smi 按 memory.used、utilization.gpu 从小到大排序，自动挑最空闲 GPU。
+# DDP 模式下 NPROC_PER_NODE 默认跟随最终 CUDA_VISIBLE_DEVICES，避免外层残留单进程配置。
+# DDP_GPU_COUNT 显式传入时视为强信号：重新挑指定数量的卡。
+# 若要严格尊重外部已有 CUDA_VISIBLE_DEVICES，可设 SFT_RESPECT_CUDA_VISIBLE_DEVICES=1。
+# 若要严格尊重外部已有 NPROC_PER_NODE，可设 SFT_RESPECT_NPROC_PER_NODE=1。
 pick_idle_gpus() {
     local want_count="$1"
     local selected
@@ -201,8 +207,29 @@ case "${MODE}" in
         EVAL_STEPS=100
         SAVE_STRATEGY="steps"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
-        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus "${DDP_GPU_COUNT}")}"
-        export NPROC_PER_NODE="${NPROC_PER_NODE:-$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")}"
+        if [[ "${DDP_GPU_COUNT_WAS_SET}" == "1" && "${SFT_RESPECT_CUDA_VISIBLE_DEVICES:-0}" != "1" ]]; then
+            SELECTED_GPUS="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
+            if [[ -n "${CUDA_VISIBLE_DEVICES:-}" && "${CUDA_VISIBLE_DEVICES}" != "${SELECTED_GPUS}" ]]; then
+                echo "[gpu][warn] override existing CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} because DDP_GPU_COUNT was set explicitly"
+                echo "[gpu][warn] set SFT_RESPECT_CUDA_VISIBLE_DEVICES=1 to keep the existing visible-device mask"
+            fi
+            export CUDA_VISIBLE_DEVICES="${SELECTED_GPUS}"
+        else
+            export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus "${DDP_GPU_COUNT}")}"
+        fi
+        ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
+        if [[ "${SFT_RESPECT_NPROC_PER_NODE:-0}" == "1" ]]; then
+            export NPROC_PER_NODE="${NPROC_PER_NODE:-${ACTUAL_GPU_COUNT}}"
+        else
+            if [[ -n "${NPROC_PER_NODE:-}" && "${NPROC_PER_NODE}" != "${ACTUAL_GPU_COUNT}" ]]; then
+                echo "[gpu][warn] override existing NPROC_PER_NODE=${NPROC_PER_NODE} to match CUDA_VISIBLE_DEVICES"
+                echo "[gpu][warn] set SFT_RESPECT_NPROC_PER_NODE=1 to keep the existing process count"
+            fi
+            export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
+        fi
+        if [[ "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then
+            echo "[gpu][warn] requested ${DDP_GPU_COUNT} GPUs but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+        fi
         # NCCL 调优：H20 NVLink 优先。若远程机器不是 NVLink 拓扑，出现 NCCL 卡住时
         # 可以临时 unset NCCL_P2P_LEVEL 或退到 single/少卡模式排查。
         export NCCL_P2P_LEVEL=NVL
