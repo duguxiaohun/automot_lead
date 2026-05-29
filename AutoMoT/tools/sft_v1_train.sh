@@ -26,9 +26,9 @@
 #
 # 重要约束：
 #   1. 本脚本默认 HuggingFace 离线，只读本地 MODEL_DIR，不允许联网下载。
-#   2. v1 目标是 STATUS/SUBGOAL，不学 ANALYSIS；LOSS_SCALE 会把 ANALYSIS 段 loss 置 0。
+#   2. v1 目标是 STATUS/SUBGOAL，不学 ANALYSIS；自定义 loss_scale 插件会把 ANALYSIS 段 loss 置 0。
 #   3. `--freeze_vit true` 冻结视觉塔，LoRA 只挂到语言 decoder 的投影层。
-#   4. 如果远程发现 loss_scale 没生效，先不要继续长训，改用手动 label mask。
+#   4. 如果远程发现 loss_scale 没生效，先不要继续长训，检查 tools/sft_v1_loss_scale_plugin.py。
 
 set -euo pipefail
 
@@ -73,9 +73,11 @@ LOGGING_STEPS=5
 #
 # 注意：
 # - 占位字符串与 build_sft_dataset_v1.py 的 PLACEHOLDER_ANALYSIS 必须一致；
-# - regex 只覆盖 "ANALYSIS:" 到 "\nSTATUS:" 之间的 token；
+# - ms-swift 3.12.x 的 --loss_scale 只接受已注册策略名，不能直接传 regex JSON；
+# - 插件里的 regex 只覆盖 "ANALYSIS:" 到 "\nSTATUS:" 之间的 token；
 # - STATUS/SUBGOAL 的字面前缀和 event_name 都保留 loss，用来强化固定输出格式。
-LOSS_SCALE='{"ANALYSIS:.*?(?=\nSTATUS:)": 0.0}'
+LOSS_SCALE="sft_v1_analysis_mask"
+LOSS_SCALE_PLUGIN="tools/sft_v1_loss_scale_plugin.py"
 
 # HuggingFace 强制离线（与 runner 行为一致，禁止下载）。
 # 远程机器如果模型缺文件，应先由用户手动准备 checkpoint，不要让训练脚本隐式联网补齐。
@@ -166,6 +168,7 @@ esac
 # - --train_type lora 配合 --target_modules 只命中 LLM decoder 的 7 个投影。
 # - --freeze_vit true 冻结视觉塔。
 # - --save_only_model true 只存 LoRA adapter，省盘空间。
+# - --external_plugins 注册 SFT v1 自定义 loss_scale。
 # - --loss_scale 把 ANALYSIS 段权重置 0；STATUS / SUBGOAL 段保持 1.0。
 # - --gradient_checkpointing 在 4B 模型上影响不大但能省 ~30% 激活显存。
 #
@@ -200,6 +203,7 @@ swift sft \
     --save_only_model true \
     --report_to none \
     --dataloader_num_workers 4 \
+    --external_plugins "${LOSS_SCALE_PLUGIN}" \
     --loss_scale "${LOSS_SCALE}" \
     ${EXTRA_LAUNCH}
 
