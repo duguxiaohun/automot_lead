@@ -9,6 +9,29 @@
 4. 对每个采样帧拼 messages（system + user + assistant），写 train / val jsonl。
 
 注意：assistant 的 STATUS 段是当前帧 GT，user 的 MEMORY 块是上一帧 GT —— 防 leak。
+
+典型用法：
+
+```bash
+# 远程真实数据环境：生成完整训练 / 验证 jsonl
+python AutoMoT/tools/build_sft_dataset_v1.py \
+  --keyframes keyframes_all_scenarios.json \
+  --data-root /data/lead_data/data \
+  --output-dir AutoMoT/checkpoints/sft_v1_data
+
+# 本地或远程快速检查：只取少量场景和 run，验证 jsonl schema 是否能生成
+python AutoMoT/tools/build_sft_dataset_v1.py --dry-run --output-dir /tmp/sft_v1_dry
+```
+
+输出文件：
+- train.jsonl：ms-swift 的训练集，每行一个多模态 chat 样本。
+- val.jsonl：按 run_id 切开的验证集，避免同一 route 的相邻帧同时出现在 train/val。
+- stats.json：每个场景保留/推进样本数量，排查类别不均衡时先看它。
+
+重要边界：
+- 本脚本只生成图片路径，不读取图片内容；真正图片读取发生在 ms-swift 训练侧或 eval_sft_v1.py。
+- 这里的 `images` 路径必须和 runner 看到的 RGB clip 顺序一致：oldest -> newest。
+- v1 的 ANALYSIS 是占位文本；训练脚本用 loss_scale 把该段 loss 置 0，主监督信号是 STATUS。
 """
 
 from __future__ import annotations
@@ -101,6 +124,15 @@ def build_run_timeline(run: dict) -> Optional[RunTimeline]:
     """从 keyframes_all_scenarios.json 的一条 run 构造时间轴。
 
     返回 None 表示该 run 不可用（status 不在白名单 / 缺字段 / 序列不闭合）。
+
+    keyframes_all_scenarios.json 只给出 5 个关键帧：
+    initial、middle[0]、middle[1]、middle[2]、final。训练时需要每个 anchor frame
+    都有一个 GT STATUS，所以这里把关键帧扩展成闭区间时间轴。例如：
+
+        [initial.frame, middle0.frame - 1] -> initial
+        [middle0.frame, middle1.frame - 1] -> middle0.event
+
+    这样 anchor 正好等于 middle0.frame 时，GT 就已经切到 middle0.event。
     """
 
     if run.get("status") not in ACCEPTED_RUN_STATUS:
@@ -124,6 +156,8 @@ def build_run_timeline(run: dict) -> Optional[RunTimeline]:
     seconds_per_frame = diag.get("seconds_per_frame", 0.2513)
 
     # 期望事件名顺序与 prompt_pipeline.get_full_sequence 完全一致。
+    # 如果 keyframes 里的事件名和 prompt_pipeline 状态机不一致，宁可丢弃该 run，
+    # 否则 target_subgoal 会由另一套序列推导，训练信号会自相矛盾。
     expected_seq = get_full_sequence(scenario)
     actual_seq = (
         initial["event"],
@@ -188,7 +222,19 @@ def collect_candidates(
     k_frames: int,
     buffer: int,
 ) -> Tuple[List[SampleRecord], List[SampleRecord]]:
-    """枚举 run 内所有合法候选样本，返回 (保持类, 推进类)。"""
+    """枚举 run 内所有合法候选样本，返回 (保持类, 推进类)。
+
+    `memory_in_status` 来自 prev_anchor，`target_status` 来自 anchor。
+    这样训练样本模拟真实在线推理：模型看到上一轮 memory，再根据当前最新帧决定
+    是否推进 STATUS。
+
+    两类样本的语义：
+    - keep：prev_anchor 和 anchor 落在同一状态区间，模型应该保持 STATUS。
+    - advance：prev_anchor 在上一状态，anchor 正好落在 GT 转换帧，模型应该推进一步。
+
+    v1 的核心痛点是“模型太早推进”，所以 keep 样本会避开转换帧附近 buffer，
+    防止模糊边界污染“应该保持”的监督。
+    """
 
     keep_samples: List[SampleRecord] = []
     advance_samples: List[SampleRecord] = []
@@ -256,13 +302,15 @@ def stratify_scenario(
     target_advance = int(target_total * advance_ratio)
     target_keep = target_total - target_advance
 
-    # 推进类全收（或下采样到 target_advance）。
+    # 推进类天然少：每条 run 最多只有 4 个转换帧。
+    # 如果数量不够目标比例，就全收；不要为了比例复制样本，避免过拟合某些 route。
     if len(advances) > target_advance:
         chosen_adv = rng.sample(advances, target_advance)
     else:
         chosen_adv = list(advances)
 
-    # 保持类按 memory_in_status 分桶，平衡采样。
+    # 保持类数量通常远多于推进类，而且不同 status 段长度差异很大。
+    # 按 memory_in_status 分桶可以防止长 initial/final 段把中间状态淹没。
     buckets: Dict[str, List[SampleRecord]] = defaultdict(list)
     for s in keeps:
         buckets[s.memory_in_status].append(s)
@@ -304,8 +352,35 @@ def build_image_paths(
 
     desc_frames = [max(anchor - i * RGB_FRAME_STEP, 0) for i in range(RGB_FRAME_COUNT)]
     ordered = list(reversed(desc_frames))
-    run_dir = run_dir_template.format(scenario=scenario, run_id=run_id)
-    return [f"{run_dir}/rgb/{f:04d}.jpg" for f in ordered]
+    run_dir = pathlib.Path(run_dir_template.format(scenario=scenario, run_id=run_id))
+    rgb_dir = run_dir / "rgb"
+
+    # 与 qwen3vl_local.image_io.load_lead_rgb_clip 保持同一套容错。
+    #
+    # 为什么不能简单写死 f"{idx:04d}.jpg"：
+    # - keyframes 的 frame 是 0-based 索引；
+    # - 某些 LEAD route 的落盘文件可能从 0001.jpg 起步；
+    # - runner 读取时已经有 fallback 到 sorted(rgb/*.jpg)[idx]。
+    #
+    # 训练数据如果不采用同样 fallback，LoRA 训练可能会看到不存在的图片路径，
+    # 或者和 runner 的 anchor 对齐错一帧。
+    if not rgb_dir.exists():
+        return [str(rgb_dir / f"{f:04d}.jpg") for f in ordered]
+
+    rgb_files = sorted(rgb_dir.glob("*.jpg"))
+    if not rgb_files:
+        return [str(rgb_dir / f"{f:04d}.jpg") for f in ordered]
+
+    resolved: List[str] = []
+    for idx in ordered:
+        rgb_path = rgb_dir / f"{idx:04d}.jpg"
+        if rgb_path.exists():
+            resolved.append(str(rgb_path))
+        elif 0 <= idx < len(rgb_files):
+            resolved.append(str(rgb_files[idx]))
+        else:
+            resolved.append(str(rgb_path))
+    return resolved
 
 
 def _next_event_in_seq(scenario: str, status: str) -> str:
@@ -322,7 +397,16 @@ def build_messages(
     sample: SampleRecord,
     image_paths: List[str],
 ) -> Dict:
-    """拼 messages 列表 + images，最终成为 jsonl 一行。"""
+    """拼 messages 列表 + images，最终成为 jsonl 一行。
+
+    ms-swift 多模态 SFT 常用格式是：
+    - 顶层 `images` 保存图片路径列表；
+    - user.content 里用 `<image>` 占位符标记图片插入位置；
+    - assistant.content 是需要计算 loss 的回答文本。
+
+    注意这里的 user prompt 复用 qwen3vl_local.prompt_pipeline，保证训练时看到的
+    system/user 指令和 standalone runner 尽量一致。
+    """
 
     scenario = sample.scenario
 
@@ -354,10 +438,14 @@ def build_messages(
     system_content = build_system_prompt()
     user_text = build_user_prompt(memory_in, image_description=image_description)
     # ms-swift 多模态 user content 用 <image> 占位符注入图片。每张图一个 <image>。
+    # eval_sft_v1.py 会在复原 prompt 时去掉这些占位符，再交给本项目的 structured
+    # image message 路径；因此 `<image>` 只服务于训练框架，不进入本地 engine 的 user_prompt。
     user_content = "".join("<image>" for _ in image_paths) + "\n" + user_text
 
     target_subgoal = _next_event_in_seq(scenario, sample.target_status)
     assistant_content = (
+        # v1 暂不学习自然语言解释。这个固定句子只是保留三段输出格式，
+        # 训练脚本会用 loss_scale 把 ANALYSIS 段权重置 0。
         f"ANALYSIS: {PLACEHOLDER_ANALYSIS}\n"
         f"STATUS: {sample.target_status}\n"
         f"SUBGOAL: {target_subgoal}"
@@ -387,7 +475,12 @@ def split_train_val(
     val_ratio: float,
     rng: random.Random,
 ) -> Tuple[List[Dict], List[Dict]]:
-    """按 run_id 划分 train / val。防止 frame 级 leak。"""
+    """按 run_id 划分 train / val。防止 frame 级 leak。
+
+    同一 route 内相邻帧高度相似。如果按 sample 随机切分，训练集和验证集会包含
+    同一段驾驶过程的相邻 anchor，验证指标会虚高。按 run_id 划分虽然会让 val
+    数量略不均衡，但更能反映泛化到新 route 的状态识别能力。
+    """
 
     run_ids = sorted(samples_by_run.keys())
     rng.shuffle(run_ids)
@@ -456,6 +549,9 @@ def main():
     run_dir_template = args.data_root + "/{scenario}/{run_id}"
 
     # 对每个场景：收集候选 → stratify → 拼 messages。
+    #
+    # 这里先在场景内部平衡，再把所有场景合并。这样训练集不会被样本数最多的场景
+    # 主导，模型更容易学到“每个 scenario 都有自己的 EVENT_SEQUENCE”。
     samples_by_run: Dict[str, List[Dict]] = defaultdict(list)
     scenario_stats: Dict[str, Dict[str, int]] = {}
 

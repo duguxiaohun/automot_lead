@@ -11,6 +11,30 @@ LoRA adapter 用 peft 加载到 base model。
 
 cache_system_prompt 默认开启：所有样本 system prompt 相同，prefix KV cache
 复用可省约 50% 推理时间。
+
+典型用法：
+
+```bash
+# 评估 LoRA adapter（默认路径 AutoMoT/checkpoints/sft_v1_lora）
+python AutoMoT/tools/eval_sft_v1.py
+
+# 只评估 base 模型，作为微调前 baseline
+python AutoMoT/tools/eval_sft_v1.py --lora-dir ""
+
+# 快速验收前 32 条样本，并跳过 anchor=12 单例
+python AutoMoT/tools/eval_sft_v1.py --max-samples 32 --skip-anchor12-sanity
+
+# 指定某个 checkpoint step 目录
+python AutoMoT/tools/eval_sft_v1.py \
+  --lora-dir AutoMoT/checkpoints/sft_v1_lora/checkpoint-300
+```
+
+评估逻辑：
+- val.jsonl 里的 assistant message 是 GT，只用于提取 STATUS/SUBGOAL，不会喂给模型。
+- user message 中训练用的 `<image>` 占位符会被去掉；真实图片通过 engine 的
+  structured image content 传入，和 qwen3vl_instruct_paradigm_a_runner.py 保持一致。
+- anchor12_sanity 是额外的单例检查：跑最初触发“过早推进”的 route/anchor，
+  看模型是否把 STATUS 保持为 initial。
 """
 
 from __future__ import annotations
@@ -31,6 +55,9 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine  # noqa: E402
 from qwen3vl_local.prompt_pipeline import (  # noqa: E402
+    DrivingMemory,
+    build_system_prompt,
+    build_user_prompt,
     get_full_sequence,
     parse_vlm_output,
 )
@@ -50,6 +77,11 @@ def attach_lora_adapter(engine: LocalQwen3VLInstructEngine, adapter_dir: str) ->
     """把训好的 LoRA adapter 挂到 engine.model 上。
 
     engine.load() 已经把 base model 放到设备上，这里只需要 peft 包一层。
+
+    调用前必须先 `engine.load()`：
+    - LocalQwen3VLInstructEngine 默认懒加载，构造函数不会立刻加载权重；
+    - PeftModel.from_pretrained 需要一个已经存在的 base model；
+    - 如果忘记 load，这里会把 None 传给 PEFT，评估在开始前就崩。
     """
     from peft import PeftModel
     print(f"[eval] attaching LoRA adapter from {adapter_dir}")
@@ -92,6 +124,12 @@ def reconstruct_prompts(sample: Dict) -> Dict[str, str]:
 
     engine.generate 接受单独的 system_prompt + user_prompt + images 三件。
     user_content 在 build_sft_dataset_v1 里前置了多个 <image>，这里去掉。
+
+    为什么训练和评估这里不同：
+    - ms-swift 训练侧用 `<image>` 文本占位符匹配顶层 images 路径；
+    - 本项目本地 engine 走 HuggingFace processor 的 structured message，
+      图片以 {"type": "image", "image": PIL} 形式传入；
+    - 因此 eval 需要还原出“纯 user prompt”，避免 `<image>` 文本被模型当普通文本读。
     """
     system = sample["messages"][0]["content"]
     user_raw = sample["messages"][1]["content"]
@@ -112,7 +150,12 @@ def predict_status(
     sample: Dict,
     images_loader,
 ) -> Optional[str]:
-    """对一条样本跑推理，解析出 STATUS。失败返回 None。"""
+    """对一条样本跑推理，解析出 STATUS。失败返回 None。
+
+    这个函数只返回 STATUS，因为 v1 的核心指标都是状态机指标。
+    raw_text 仍然经过 parse_vlm_output，所以如果模型输出格式坏掉，STATUS 会变成 None，
+    最终体现在 accuracy 下降，而不是用异常中断整个评估。
+    """
     pieces = reconstruct_prompts(sample)
     pil_images = images_loader(pieces["images"])
     raw_text, _ = engine.generate(
@@ -136,6 +179,132 @@ def next_event_in_seq(scenario: str, status: Optional[str]) -> Optional[str]:
     return seq[idx + 1] if idx + 1 < len(seq) else None
 
 
+def build_rgb_paths_from_route(
+    route_dir: str,
+    anchor: int,
+    *,
+    frame_step: int = 1,
+    frame_count: int = 4,
+) -> List[str]:
+    """按 runner 规则构造 RGB clip 路径，并兼容 0000/0001 起始命名。
+
+    anchor12 sanity 不来自 val.jsonl，所以需要现场构造图片路径。
+    这里复制 build_sft_dataset_v1.py 的路径容错逻辑，保证 sanity 单例和验证集样本
+    使用同一种 RGB 对齐规则。
+    """
+
+    route = pathlib.Path(route_dir)
+    rgb_dir = route / "rgb"
+    desc = [max(anchor - i * frame_step, 0) for i in range(frame_count)]
+    ordered = list(reversed(desc))
+
+    if not rgb_dir.exists():
+        return [str(rgb_dir / f"{idx:04d}.jpg") for idx in ordered]
+
+    rgb_files = sorted(rgb_dir.glob("*.jpg"))
+    if not rgb_files:
+        return [str(rgb_dir / f"{idx:04d}.jpg") for idx in ordered]
+
+    paths: List[str] = []
+    for idx in ordered:
+        exact = rgb_dir / f"{idx:04d}.jpg"
+        if exact.exists():
+            paths.append(str(exact))
+        elif 0 <= idx < len(rgb_files):
+            paths.append(str(rgb_files[idx]))
+        else:
+            paths.append(str(exact))
+    return paths
+
+
+def build_anchor_sanity_sample(args: argparse.Namespace) -> Dict:
+    """构造 anchor=12 fail case 的单样本，用同一套 predict_status 评估。
+
+    这个样本不是训练/验证集的一部分，而是固定回归测试：
+    原始 base Qwen 在这个 early anchor 上容易把 Accident 的 STATUS 从 initial
+    提前推进到 hazard_detect。LoRA v1 的底线就是这里要回到 initial。
+    """
+
+    memory = DrivingMemory.from_scenario(args.anchor12_scenario)
+    image_paths = build_rgb_paths_from_route(
+        args.anchor12_route_dir,
+        args.anchor12_anchor,
+    )
+    image_description = (
+        f"The {len(image_paths)} images above are ordered oldest to newest; "
+        "the last image is the current moment."
+    )
+    user_text = build_user_prompt(memory, image_description=image_description)
+    # 构造成和 jsonl 样本一样的形态，后续统一走 reconstruct_prompts()。
+    # 这样 sanity 单例和 val 样本不会因为 prompt 复原路径不同而产生额外变量。
+    user_content = "".join("<image>" for _ in image_paths) + "\n" + user_text
+
+    return {
+        "scenario": args.anchor12_scenario,
+        "run_id": pathlib.Path(args.anchor12_route_dir).name,
+        "anchor": args.anchor12_anchor,
+        "images": image_paths,
+        "messages": [
+            {"role": "system", "content": build_system_prompt()},
+            {"role": "user", "content": user_content},
+            {
+                "role": "assistant",
+                "content": (
+                    f"ANALYSIS: Observations recorded.\n"
+                    f"STATUS: {args.anchor12_expected_status}\n"
+                    f"SUBGOAL: {next_event_in_seq(args.anchor12_scenario, args.anchor12_expected_status)}"
+                ),
+            },
+        ],
+        "is_transition_sample": False,
+    }
+
+
+def run_anchor12_sanity(
+    engine: LocalQwen3VLInstructEngine,
+    args: argparse.Namespace,
+    images_loader,
+) -> Dict:
+    """跑原始 anchor=12 fail case，返回可写入 metrics 的结果。
+
+    这里捕获异常而不是直接 raise：
+    - 远程数据路径可能暂时没挂载；
+    - 用户可能只想先跑 val 指标；
+    - metrics 里记录 error 比整个评估中断更方便排查。
+    """
+
+    if args.skip_anchor12_sanity:
+        return {"enabled": False, "passed": None}
+
+    sample = build_anchor_sanity_sample(args)
+    try:
+        pred = predict_status(engine, sample, images_loader)
+        expected = args.anchor12_expected_status
+        return {
+            "enabled": True,
+            "passed": pred == expected,
+            "pred_status": pred,
+            "expected_status": expected,
+            "scenario": sample["scenario"],
+            "run_id": sample["run_id"],
+            "anchor": sample["anchor"],
+            "images": sample["images"],
+            "error": None,
+        }
+    except Exception as e:
+        return {
+            "enabled": True,
+            "passed": False,
+            "pred_status": None,
+            "expected_status": args.anchor12_expected_status,
+            "scenario": sample["scenario"],
+            "run_id": sample["run_id"],
+            "anchor": sample["anchor"],
+            "images": sample["images"],
+            "error": str(e),
+        }
+
+
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
@@ -157,6 +326,13 @@ def main():
                         help="复用 system prompt 的 KV prefix，节省推理时间。")
     parser.add_argument("--output-json", type=str,
                         default=str(_AUTOMOT_ROOT / "eval_json" / "sft_v1_metrics.json"))
+    parser.add_argument("--skip-anchor12-sanity", action="store_true",
+                        help="跳过原始 anchor=12 fail case 单例检查。")
+    parser.add_argument("--anchor12-route-dir", type=str,
+                        default="/data/lead_data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46")
+    parser.add_argument("--anchor12-scenario", type=str, default="Accident")
+    parser.add_argument("--anchor12-anchor", type=int, default=12)
+    parser.add_argument("--anchor12-expected-status", type=str, default="initial")
     args = parser.parse_args()
 
     samples = read_jsonl(args.val_jsonl)
@@ -165,6 +341,9 @@ def main():
     print(f"[eval] loaded {len(samples)} samples from {args.val_jsonl}")
 
     # 启动 engine + 可选挂 LoRA。
+    #
+    # 注意：engine 构造函数只保存配置，不加载权重。这里显式 engine.load()，
+    # 一方面让 PEFT 有 base model 可挂，另一方面让后续 predict_status 不再重复触发加载。
     engine = LocalQwen3VLInstructEngine(
         checkpoint_dir=pathlib.Path(args.model_dir),
         device=args.device,
@@ -175,17 +354,28 @@ def main():
         save_cache=False,
         cache_system_prompt=args.cache_system_prompt,
     )
+    engine.load()
     if args.lora_dir:
         attach_lora_adapter(engine, args.lora_dir)
 
     # eval 时 jsonl 已经给了绝对路径，直接 PIL 打开就够。
-    # 与 runner load_lead_rgb_clip 的 model_input_size 处理保持一致。
+    # 与 runner load_lead_rgb_clip 一样保留 RGB 原图，不做额外 resize/crop；
+    # Qwen processor 会自己处理 dynamic resolution。
     from PIL import Image  # type: ignore
 
     def images_loader(paths: List[str]):
+        # 每次打开后立刻 convert("RGB")，避免 PIL 延迟读取导致文件句柄在生成期间才报错。
         return [Image.open(p).convert("RGB") for p in paths]
 
+    # 先跑固定 fail case，方便日志最前面就看见“这次 LoRA 是否解决了原问题”。
+    # 如果该 route 不存在，可用 --skip-anchor12-sanity 跳过。
+    anchor12_sanity = run_anchor12_sanity(engine, args, images_loader)
+    if anchor12_sanity.get("enabled"):
+        print(f"[anchor12] {anchor12_sanity}")
+
     # 计数器。
+    # keep/advance 分开统计：只看总体 accuracy 会掩盖“模型永远保持”或“模型总是提前推进”
+    # 这两种完全不同的失败模式。
     n_keep = n_keep_correct = n_early_adv = 0
     n_adv = n_adv_correct = 0
     per_scenario: Dict[str, Counter] = defaultdict(Counter)
@@ -202,6 +392,9 @@ def main():
             print(f"[err {i}] {e}")
             pred = None
 
+        # 对 keep 样本，pred == next(GT) 就是最关心的 early advance。
+        # 其它错误（输出 None、跳到更后状态、输出非法状态）不会计入 early_advance，
+        # 但会让 keep_accuracy 下降。
         next_gt = next_event_in_seq(scenario, gt_status)
 
         if not is_trans:
@@ -226,6 +419,7 @@ def main():
                   f"adv_acc={n_adv_correct/max(1,n_adv):.3f}  "
                   f"early_adv={n_early_adv/max(1,n_keep):.3f}")
 
+    # metrics 保持 JSON 可序列化，方便后续画曲线或比较多个 checkpoint。
     metrics = {
         "n_total": len(samples),
         "n_keep": n_keep,
@@ -233,6 +427,7 @@ def main():
         "keep_accuracy": n_keep_correct / max(1, n_keep),
         "advance_accuracy": n_adv_correct / max(1, n_adv),
         "early_advance_rate": n_early_adv / max(1, n_keep),
+        "anchor12_sanity": anchor12_sanity,
         "per_scenario": {k: dict(v) for k, v in per_scenario.items()},
         "config": vars(args),
     }
