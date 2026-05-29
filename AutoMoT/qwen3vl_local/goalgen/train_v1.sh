@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# GoalGen v1 training launcher. Run from AutoMoT/.
+#
+# Usage:
+#   bash qwen3vl_local/goalgen/train_v1.sh check
+#   bash qwen3vl_local/goalgen/train_v1.sh single
+#   bash qwen3vl_local/goalgen/train_v1.sh ddp
+set -euo pipefail
+
+MODE="${1:-ddp}"
+DDP_GPU_COUNT_WAS_SET=0
+if [[ -n "${DDP_GPU_COUNT+x}" ]]; then
+    DDP_GPU_COUNT_WAS_SET=1
+fi
+
+TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/goalgen_v1_data/train.jsonl}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/goalgen_v1_dit}"
+
+PATCH_SIZE="${PATCH_SIZE:-2}"
+HIDDEN_DIM="${HIDDEN_DIM:-768}"
+N_HEADS="${N_HEADS:-12}"
+NUM_LAYERS="${NUM_LAYERS:-12}"
+COND_DIM="${COND_DIM:-256}"
+MLP_RATIO="${MLP_RATIO:-4.0}"
+LANGUAGE_KV_INPUT_DIM="${LANGUAGE_KV_INPUT_DIM:-auto}"   # train_v1.py 会用首条样本 segmented KV 推维度；显式给整数（如 1024）可跳过 probe
+MAX_HISTORY_FRAMES="${MAX_HISTORY_FRAMES:-8}"
+QWEN_KV_SEGMENT_MODE="${QWEN_KV_SEGMENT_MODE:-select_last}"
+
+LR="${LR:-1e-4}"
+WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
+WARMUP_RATIO="${WARMUP_RATIO:-0.02}"
+QWEN_DTYPE="${QWEN_DTYPE:-bfloat16}"
+VAE_DTYPE="${VAE_DTYPE:-float32}"
+DIT_DTYPE="${DIT_DTYPE:-bfloat16}"
+
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+export HF_HOME="${HF_HOME:-${OUTPUT_DIR}/.hf_cache}"
+mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
+
+pick_idle_gpus() {
+    local want_count="$1"
+    local selected
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        selected="$(
+            nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits \
+                | awk -F',' '{gsub(/ /, "", $1); gsub(/ /, "", $2); gsub(/ /, "", $3); print $2, $3, $1}' \
+                | sort -n -k1,1 -k2,2 \
+                | head -n "${want_count}" \
+                | awk '{print $3}' \
+                | paste -sd, -
+        )"
+        if [[ -n "${selected}" ]]; then
+            echo "${selected}"
+            return 0
+        fi
+    fi
+    if [[ "${want_count}" -le 1 ]]; then echo "0"; else seq -s, 0 "$((want_count - 1))"; fi
+}
+
+count_visible_gpus() {
+    local visible="$1"
+    if [[ -z "${visible}" ]]; then echo "0"; else awk -F',' '{print NF}' <<< "${visible}"; fi
+}
+
+is_port_free() {
+    local port="$1"
+    python -c 'import socket, sys
+port = int(sys.argv[1])
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    sock.bind(("", port))
+except OSError:
+    sys.exit(1)
+finally:
+    sock.close()
+' "${port}" >/dev/null 2>&1
+}
+
+find_free_master_port() {
+    python -c 'import socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.bind(("", 0))
+print(sock.getsockname()[1])
+sock.close()
+' 2>/dev/null || echo "$((20000 + RANDOM % 20000))"
+}
+
+configure_master_port() {
+    export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
+    if [[ "${GOALGEN_RESPECT_MASTER_PORT:-0}" == "1" ]]; then
+        export MASTER_PORT="${MASTER_PORT:-29500}"
+        return 0
+    fi
+    if [[ -n "${MASTER_PORT:-}" ]] && is_port_free "${MASTER_PORT}"; then
+        export MASTER_PORT
+        return 0
+    fi
+    export MASTER_PORT="$(find_free_master_port)"
+}
+
+COMMON_ARGS=(
+    --train-jsonl "${TRAIN_JSONL}"
+    --checkpoint-dir "${MODEL_DIR}"
+    --output-dir "${OUTPUT_DIR}"
+    --patch-size "${PATCH_SIZE}"
+    --hidden-dim "${HIDDEN_DIM}"
+    --n-heads "${N_HEADS}"
+    --mlp-ratio "${MLP_RATIO}"
+    --num-layers "${NUM_LAYERS}"
+    --cond-dim "${COND_DIM}"
+    --max-history-frames "${MAX_HISTORY_FRAMES}"
+    --qwen-kv-segment-mode "${QWEN_KV_SEGMENT_MODE}"
+    --language-kv-input-dim "${LANGUAGE_KV_INPUT_DIM}"
+    --learning-rate "${LR}"
+    --weight-decay "${WEIGHT_DECAY}"
+    --warmup-ratio "${WARMUP_RATIO}"
+    --qwen-dtype "${QWEN_DTYPE}"
+    --vae-dtype "${VAE_DTYPE}"
+    --dit-dtype "${DIT_DTYPE}"
+)
+
+case "${MODE}" in
+    check)
+        echo "[mode] check"
+        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
+        export NPROC_PER_NODE=1
+        python qwen3vl_local/goalgen/train_v1.py \
+            "${COMMON_ARGS[@]}" \
+            --num-epochs 1 \
+            --grad-accum-steps 1 \
+            --logging-steps 1 \
+            --save-steps 999999 \
+            --max-train-steps 2
+        ;;
+    single)
+        echo "[mode] single"
+        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
+        export NPROC_PER_NODE=1
+        python qwen3vl_local/goalgen/train_v1.py \
+            "${COMMON_ARGS[@]}" \
+            --num-epochs "${NUM_EPOCHS:-1}" \
+            --grad-accum-steps "${GRAD_ACC:-4}" \
+            --logging-steps "${LOGGING_STEPS:-10}" \
+            --save-steps "${SAVE_STEPS:-200}"
+        ;;
+    ddp)
+        echo "[mode] ddp"
+        DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
+        if [[ "${DDP_GPU_COUNT_WAS_SET}" == "1" && "${GOALGEN_RESPECT_CUDA_VISIBLE_DEVICES:-0}" != "1" ]]; then
+            export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
+        else
+            export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus "${DDP_GPU_COUNT}")}"
+        fi
+        ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
+        if [[ "${GOALGEN_RESPECT_NPROC_PER_NODE:-0}" == "1" ]]; then
+            export NPROC_PER_NODE="${NPROC_PER_NODE:-${ACTUAL_GPU_COUNT}}"
+        else
+            export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
+        fi
+        configure_master_port
+        export NCCL_P2P_LEVEL="${NCCL_P2P_LEVEL:-NVL}"
+        export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
+        echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+        echo "[gpu] NPROC_PER_NODE=${NPROC_PER_NODE}"
+        echo "[ddp] MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT}"
+        torchrun --nproc_per_node="${NPROC_PER_NODE}" \
+            --master_addr="${MASTER_ADDR}" \
+            --master_port="${MASTER_PORT}" \
+            qwen3vl_local/goalgen/train_v1.py \
+            "${COMMON_ARGS[@]}" \
+            --num-epochs "${NUM_EPOCHS:-1}" \
+            --grad-accum-steps "${GRAD_ACC:-4}" \
+            --logging-steps "${LOGGING_STEPS:-10}" \
+            --save-steps "${SAVE_STEPS:-200}"
+        ;;
+    *)
+        echo "Unknown mode: ${MODE}. Use check/single/ddp." >&2
+        exit 1
+        ;;
+esac
