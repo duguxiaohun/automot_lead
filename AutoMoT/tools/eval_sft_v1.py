@@ -322,8 +322,20 @@ def main():
                         help="0 表示评估全部 val 样本，>0 时只评估前 N 条做快速验收。")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--torch-dtype", default="bfloat16")
-    # BooleanOptionalAction 让用户能用 --no-cache-system-prompt 关掉。
-    # 之前 action="store_true" + default=True 是死值，flag 永远拨不掉。
+    # ---- 关于 --cache-system-prompt ----
+    # 这个开关控制 engine.generate 是否复用 system prompt 的 KV cache prefix。
+    # 所有 val 样本共享同一段 system prompt（约 400 token），开启后每条样本
+    # 跳过 system prompt 的 prefill 重算，整轮 eval 时间约能省 50%。
+    #
+    # 旧实现 action="store_true" + default=True 的死锁：
+    #   * store_true 只在命令行写 --cache-system-prompt 时把值设 True，否则 default；
+    #   * default 又写死 True；
+    #   * 结果：不管命令行写不写这个 flag，最终值永远是 True，没有任何方式关闭。
+    #
+    # 修法用 argparse.BooleanOptionalAction（Python 3.9+）：
+    #   * 自动配对生成 --cache-system-prompt / --no-cache-system-prompt 两个 flag；
+    #   * default=True 表示默认开启，用户加 --no-cache-system-prompt 即可关闭；
+    #   * 关闭后 engine 每条样本重新 prefill system prompt（debug KV cache 路径用）。
     parser.add_argument("--cache-system-prompt",
                         action=argparse.BooleanOptionalAction, default=True,
                         help="复用 system prompt 的 KV prefix，节省推理时间。"
