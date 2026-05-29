@@ -1,0 +1,276 @@
+# SFT v1 运行教程 — 从生成数据到拿到评估指标
+
+> 本文档是 [SFT_V1_PLAN.md](SFT_V1_PLAN.md) 的"操作手册"对照：PLAN 讲设计与
+> 决策依据，本 RUN 讲实际怎么跑。所有命令默认 **从仓库根 `automot_lead/` 执行**，
+> 默认目标环境是远程 8×H20 服务器，Windows 本地只用来 dry-run / 静态 check。
+
+---
+
+## 0. 准备：远程同步代码 + 确认模型权重
+
+```bash
+cd ~/automot_lead          # 或你的远程仓库路径
+git pull                   # 拉到最新（应包含 0c8dc27 或更新）
+
+# 确认 base 模型已下载
+ls AutoMoT/checkpoints/Qwen3-VL-4B-Instruct/ | head -5
+# 期望：config.json / tokenizer.json / *.safetensors / ...
+```
+
+如果模型不在 `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct/`，后续命令都可以前缀
+`MODEL_DIR=/真实路径` 临时 override，例如：
+
+```bash
+MODEL_DIR=/data/lead_data/checkpoints/Qwen3-VL-4B-Instruct \
+  bash AutoMoT/tools/sft_v1_train.sh ddp
+```
+
+---
+
+## 1. 生成 SFT 数据集（CPU，约 1–3 分钟）
+
+```bash
+python AutoMoT/tools/build_sft_dataset_v1.py \
+    --keyframes keyframes_all_scenarios.json \
+    --data-root /data/lead_data/data \
+    --samples-per-scenario 200 \
+    --output-dir AutoMoT/checkpoints/sft_v1_data
+```
+
+**预期输出**（节选）：
+
+```
+[load] 7326 total runs in keyframes
+[filter] kept 7326 runs; skipped by status: {}
+[stratify] Accident         keep= 686 adv= 20 -> chosen=200 (adv=50)
+[stratify] AccidentTwoWays  keep=1024 adv= 20 -> chosen=200 (adv=50)
+...
+[split] train=~7560  val=~840
+[write] AutoMoT/checkpoints/sft_v1_data/train.jsonl
+[write] AutoMoT/checkpoints/sft_v1_data/val.jsonl
+[write] AutoMoT/checkpoints/sft_v1_data/stats.json
+```
+
+**通过条件**：
+
+- `train.jsonl` + `val.jsonl` + `stats.json` 三个文件都生成；
+- `stats.json` 里 `transition_in_train` ≈ 总数的 25%；
+- 单条样本里 `messages[1].content` 含 4 个 `<image>` 占位符；
+- `images` 列表里 4 个 RGB 路径都指向 `/data/lead_data/data/<scenario>/<run_id>/rgb/*.jpg`。
+
+**常见报错**：
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `keyframes_all_scenarios.json` 找不到 | 仓库根没有这个文件 | `--keyframes /data/lead_data/keyframes_all_scenarios.json` 显式指 |
+| 某些 scenario 提示样本不足 200 | 该场景 `Completed/Perfect` run 太少 | 不影响，会自动按现有量取；看 `stats.json` 里 `chosen_total` 哪些场景 < 200 |
+| `images` 路径全是 `0000.jpg / 0001.jpg / ...` 字面值 | `--data-root` 在本机不可访问 | 远程跑时 data-root 必须可见，不然 fallback 会退到字面路径，训练时找不到图 |
+
+---
+
+## 2. 静态 sanity：token 级 mask 是否对（CPU，<10 秒）
+
+```bash
+python AutoMoT/tools/check_loss_mask.py
+```
+
+**预期输出**：
+
+```
+[load] jsonl=.../train.jsonl sample_idx=0
+[load] scenario=Accident run_id=... anchor=...
+
+===== assistant text =====
+ANALYSIS: Observations recorded.
+STATUS: hazard_detect
+SUBGOAL: max_brake_or_min_gap
+==========================
+
+[mask] regex matched chars [0,32)  -> 'ANALYSIS: Observations recorded.'
+
+ idx tag        id     char_range  decoded
+--------------------------------------------------------------------------------
+   0 [MASK]  19394          [0,9)  'ANALYSIS:'
+   1 [MASK]    220         [9,10)  ' '
+   2 [MASK]   4571        [10,13)  'Obs'
+   ...
+   7 [LOSS]    198        [32,33)  '\n'
+   8 [LOSS]  31650        [33,40)  'STATUS:'
+   ...
+
+[summary] total tokens = 18, mask = 7, loss = 11
+```
+
+**通过条件**（**必须全部满足**）：
+
+- ANALYSIS 段每个 token 都打 `[MASK]`；
+- `STATUS:` / `SUBGOAL:` 行的 token 都打 `[LOSS]`；
+- `summary` 里 `n_mask ≥ 5`、`n_loss ≥ 8`；
+- **无 `[WARN]` 行输出**。
+
+**异常处理**：看到 `[WARN]` 必须先修再继续，常见原因：
+
+| WARN | 原因 | 处理 |
+|---|---|---|
+| `regex 匹配不到` | `PLACEHOLDER_ANALYSIS` 与 `LOSS_SCALE_REGEX` 漂移 | 检查 `build_sft_dataset_v1.py` 与 `sft_v1_train.sh` 是否同步 |
+| `没有任何 token 被 mask` | tokenizer 把 ANALYSIS 整段合成单 token 并跨过 `\nSTATUS:` 边界 | 换一个不会被 tokenizer 合并的占位句 |
+| `算 loss 的 token 太少` | STATUS / SUBGOAL 行被吞掉了 | 检查 jsonl 里 assistant content 三段格式是否完整 |
+
+---
+
+## 3. 动态 sanity：跑 2 step 看真实 loss 数值（**需要 GPU**，约 1–2 分钟）
+
+```bash
+bash AutoMoT/tools/sft_v1_train.sh check
+```
+
+**预期 loss 数值**（健康范围）：
+
+```
+{'loss': 7.8x, 'grad_norm': ..., 'learning_rate': ..., 'epoch': 0.0x}
+{'loss': 7.5x, 'grad_norm': ..., 'learning_rate': ..., 'epoch': 0.0x}
+```
+
+**判读规则**：
+
+| loss 数值 | 判读 | 处理 |
+|---|---|---|
+| **6 ≤ loss ≤ 10** | ✅ 健康，mask 工作正常，可上正式训 | 进 step 4 |
+| `loss < 3` | ❌ STATUS / SUBGOAL 也被 mask 了 | 查 swift 版本，可能 `--loss_scale` 语法变了；走 PLAN §11 回退 |
+| `loss > 12` | ❌ ANALYSIS 段也算 loss 了 | 走 PLAN §11 回退：写 `sft_v1_preprocessor.py` 手动 mask labels |
+
+---
+
+## 4. 正式训练（**8×H20 DDP，约 1.5 小时**）
+
+```bash
+bash AutoMoT/tools/sft_v1_train.sh ddp
+```
+
+**预期**：
+
+- 总 step ≈ 710（按 7560 train 样本 / 等效 bs 32 × 3 epoch）；
+- 每 100 step 保存一次 LoRA adapter 到 `AutoMoT/checkpoints/sft_v1_lora/checkpoint-XXX/`；
+- 训练 loss 从 ~7-8 降到 ~1-2。
+
+**单卡退回**（如果 8 卡 NCCL 出问题）：
+
+```bash
+bash AutoMoT/tools/sft_v1_train.sh single
+```
+
+单卡约 8–10 小时。
+
+**显存观察**（H20 96GB，bf16 LoRA r=16）：
+
+| 阶段 | 单卡占用 |
+|---|---|
+| 模型 + LoRA 加载完 | ~10 GB |
+| forward + activation | ~25 GB |
+| backward + adam state | ~32 GB |
+| **稳态峰值** | **~30-35 GB** |
+
+如果超过 80 GB，先把 `per_device_train_batch_size` 从 2 降到 1，再排查是否
+`--gradient_checkpointing` 没生效。
+
+---
+
+## 5. 评估（约 10–30 分钟，取决于 val 大小）
+
+```bash
+# 完整 val 集 + anchor=12 fail case sanity
+python AutoMoT/tools/eval_sft_v1.py \
+    --lora-dir AutoMoT/checkpoints/sft_v1_lora
+
+# 或先快速验收前 100 条样本看趋势
+python AutoMoT/tools/eval_sft_v1.py \
+    --lora-dir AutoMoT/checkpoints/sft_v1_lora \
+    --max-samples 100
+```
+
+**预期输出末尾**（节选）：
+
+```json
+{
+  "n_total": 840,
+  "n_keep": 630,
+  "n_advance": 210,
+  "keep_accuracy": 0.96,
+  "advance_accuracy": 0.65,
+  "early_advance_rate": 0.03,
+  "anchor12_sanity": {
+    "enabled": true,
+    "passed": true,
+    "pred_status": "initial",
+    "expected_status": "initial"
+  }
+}
+```
+
+**通过条件**（与 PLAN §8 一致）：
+
+| 指标 | v1 目标 | 优先级 |
+|---|---|---|
+| `keep_accuracy` | ≥ 0.95 | 高 |
+| `advance_accuracy` | ≥ 0.60 | 中 |
+| **`early_advance_rate`** | **≤ 0.05** | **最高（核心痛点）** |
+| **`anchor12_sanity.passed`** | **= true** | **必须** |
+
+### Baseline 对照（强烈推荐）
+
+先跑 base 模型留个对照，再跑 LoRA 看是否真的解决了"过早推进"：
+
+```bash
+# base 模型（不挂 LoRA），跑前 200 条 val 做 baseline
+python AutoMoT/tools/eval_sft_v1.py \
+    --lora-dir "" \
+    --max-samples 200 \
+    --output-json AutoMoT/eval_json/sft_v1_metrics_base.json
+
+# 训完再跑同样规模 LoRA
+python AutoMoT/tools/eval_sft_v1.py \
+    --lora-dir AutoMoT/checkpoints/sft_v1_lora \
+    --max-samples 200 \
+    --output-json AutoMoT/eval_json/sft_v1_metrics_lora.json
+```
+
+对比 `early_advance_rate`：base 通常 0.3–0.5，LoRA 应降到 < 0.05。
+如果 LoRA 后仍 > 0.15，说明 v1 LoRA 没真正学到"默认保持"——
+进 PLAN §11 风险表排查 chat template 一致性问题。
+
+---
+
+## 一行串起来（happy path，不推荐生产用）
+
+```bash
+python AutoMoT/tools/build_sft_dataset_v1.py --data-root /data/lead_data/data \
+  --output-dir AutoMoT/checkpoints/sft_v1_data && \
+python AutoMoT/tools/check_loss_mask.py && \
+bash AutoMoT/tools/sft_v1_train.sh check && \
+bash AutoMoT/tools/sft_v1_train.sh ddp && \
+python AutoMoT/tools/eval_sft_v1.py --lora-dir AutoMoT/checkpoints/sft_v1_lora
+```
+
+**强烈建议分步跑**，每步看输出确认再进下一步——尤其是 step 2/3 sanity，
+跳过会让 step 4 烧 1.5 小时但什么都没学到。
+
+---
+
+## 6. 出问题时贴什么内容方便排查
+
+| 步骤 | 贴这些 |
+|---|---|
+| step 1 后 | `AutoMoT/checkpoints/sft_v1_data/stats.json` 完整内容 |
+| step 2 后 | `check_loss_mask.py` 完整 stdout |
+| step 3 后 | `sft_v1_train.sh check` 输出最后 30 行（含 loss 数值与 warning） |
+| step 4 中 | 每 100 step 的训练 log（loss / grad_norm / lr 趋势）即可，不需要全部 |
+| step 5 后 | `AutoMoT/eval_json/sft_v1_metrics.json` 全文 |
+
+---
+
+## 7. 与 v2 / 后续迭代的关系
+
+- v1 完成（4 项指标全过）后，进 [SFT_V1_PLAN.md §9](SFT_V1_PLAN.md) 列出的 v2 计划：
+  ANALYSIS 蒸馏（用 v1 LoRA + GT status 反向写 analysis 真值）；
+- v1 没过的话，按 [SFT_V1_PLAN.md §11](SFT_V1_PLAN.md) 风险表逐条排查，
+  不要直接堆 v2 上去。

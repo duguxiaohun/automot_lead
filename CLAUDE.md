@@ -59,7 +59,7 @@
 | `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py` | 范式 A 对照脚本，保留 automot/qwen 双 backend |
 | `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py` | standalone Qwen3-VL-4B-Instruct 范式 A 脚本 |
 | `AutoMoT/qwen3vl_local/` | Qwen3-VL-Instruct 本地 helper 包，包含 prompt、图片读取、显式 KV cache 推理 |
-| `AutoMoT/tools/SFT_V1_PLAN.md` / `build_sft_dataset_v1.py` / `sft_v1_train.sh` / `eval_sft_v1.py` / `check_loss_mask.py` | LoRA SFT v1 微调相关脚本与计划文档（注意只这 5 个，AutoMoT/tools/ 下其它原始脚本仍为只读参考） |
+| `AutoMoT/tools/SFT_V1_PLAN.md` / `SFT_V1_RUN.md` / `build_sft_dataset_v1.py` / `sft_v1_train.sh` / `eval_sft_v1.py` / `check_loss_mask.py` | LoRA SFT v1 微调相关脚本、计划与运行教程（注意只这 6 个，AutoMoT/tools/ 下其它原始脚本仍为只读参考） |
 | `CLAUDE.md` | 本规则文件（仅在调整规则时修改） |
 | `AGENTS.md` | 通用 AI / coding agent 入口说明文件 |
 
@@ -95,6 +95,7 @@
 - `AutoMoT/qwen3vl_local/image_io.py`
 - `AutoMoT/qwen3vl_local/prompt_pipeline.py`
 - `AutoMoT/tools/SFT_V1_PLAN.md`
+- `AutoMoT/tools/SFT_V1_RUN.md`
 - `AutoMoT/tools/build_sft_dataset_v1.py`
 - `AutoMoT/tools/sft_v1_train.sh`
 - `AutoMoT/tools/eval_sft_v1.py`
