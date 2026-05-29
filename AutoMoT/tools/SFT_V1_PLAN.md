@@ -154,7 +154,7 @@ ms-swift 命令行：
 
 ```bash
 # DDP 模式
-NPROC_PER_NODE=8 swift sft \
+swift sft \
     --model "checkpoints/Qwen3-VL-4B-Instruct" \
     --dataset "checkpoints/sft_v1_data/train.jsonl" \
     --val_dataset "checkpoints/sft_v1_data/val.jsonl" \
@@ -181,6 +181,13 @@ NPROC_PER_NODE=8 swift sft \
 `freeze_vit=true` → 显式冻结 ViT，配合 LoRA `target_modules` 只命中 LLM decoder。
 
 完整命令在 `AutoMoT/tools/sft_v1_train.sh`。
+
+`sft_v1_train.sh` 在用户未设置 `CUDA_VISIBLE_DEVICES` 时，会用 `nvidia-smi`
+按 `memory.used` / `utilization.gpu` 自动选择最空闲 GPU：`check/single`
+选 1 张并设 `NPROC_PER_NODE=1`；`ddp` 默认选 8 张，并按实际选到的数量设置
+`NPROC_PER_NODE`。如果远程调度系统已经分配了可见卡，脚本会尊重已有的
+`CUDA_VISIBLE_DEVICES`。`check` 模式不传 `--val_dataset`，只跑 2 个训练 step，
+不加载/评估 val 集。
 
 ## 8. 评估
 

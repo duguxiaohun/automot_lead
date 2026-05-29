@@ -18,6 +18,7 @@
 #   TRAIN_JSONL=/path/to/train.jsonl \
 #   VAL_JSONL=/path/to/val.jsonl \
 #   OUTPUT_DIR=/path/to/sft_v1_lora \
+#   CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
 #   bash tools/sft_v1_train.sh ddp
 #
 # 训练产物：
@@ -91,6 +92,47 @@ export HF_HOME="${HF_HOME:-${OUTPUT_DIR}/.hf_cache}"
 mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
 
 # ---------------------------------------------------------------------------
+# GPU 选择
+# ---------------------------------------------------------------------------
+# 如果用户/调度系统已经设置 CUDA_VISIBLE_DEVICES，脚本完全尊重它。
+# 否则用 nvidia-smi 按 memory.used、utilization.gpu 从小到大排序，自动挑最空闲 GPU。
+# DDP 默认挑 8 张；如果机器可见 GPU 少于 8 张，就按实际挑到的数量设置 NPROC_PER_NODE。
+pick_idle_gpus() {
+    local want_count="$1"
+    local selected
+
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        selected="$(
+            nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits \
+                | awk -F',' '{gsub(/ /, "", $1); gsub(/ /, "", $2); gsub(/ /, "", $3); print $2, $3, $1}' \
+                | sort -n -k1,1 -k2,2 \
+                | head -n "${want_count}" \
+                | awk '{print $3}' \
+                | paste -sd, -
+        )"
+        if [[ -n "${selected}" ]]; then
+            echo "${selected}"
+            return 0
+        fi
+    fi
+
+    if [[ "${want_count}" -le 1 ]]; then
+        echo "0"
+    else
+        seq -s, 0 "$((want_count - 1))"
+    fi
+}
+
+count_visible_gpus() {
+    local visible="$1"
+    if [[ -z "${visible}" ]]; then
+        echo "0"
+    else
+        awk -F',' '{print NF}' <<< "${visible}"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # 模式分支
 # ---------------------------------------------------------------------------
 case "${MODE}" in
@@ -98,10 +140,13 @@ case "${MODE}" in
         echo "[mode] single-GPU"
         # 单卡模式用于 smoke test 或显存足够时的小规模训练。
         # 等效 batch = PER_DEVICE_BS * GRAD_ACC = 8。
+        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
+        export NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
         PER_DEVICE_BS=4
         GRAD_ACC=2
         SAVE_STEPS=200
         EVAL_STEPS=200
+        VAL_ARGS=(--val_dataset "${VAL_JSONL}")
         EXTRA_LAUNCH=""
         ;;
     check)
@@ -133,11 +178,14 @@ case "${MODE}" in
         # ---- 不进 DDP 的原因 ----
         # 8 卡 DDP 启动 NCCL handshake 通常要 10-30 秒，会把"短训观察 loss"的
         # 信号淹没在启动日志里。check 模式默认走单卡 / 单进程，让 stdout 干净。
-        # 如果用户想在 8 卡环境下也跑 check，可手动 NPROC_PER_NODE=8 bash ... check。
+        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
+        export NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
         PER_DEVICE_BS=1
         GRAD_ACC=1
         SAVE_STEPS=999999
         EVAL_STEPS=999999
+        # check 只验证 2 个训练 step 的 loss_scale，不传 val_dataset，避免加载/评估 val 的 ~800 条样本。
+        VAL_ARGS=()
         EXTRA_LAUNCH="--max_steps 2"
         ;;
     ddp)
@@ -148,11 +196,14 @@ case "${MODE}" in
         GRAD_ACC=2
         SAVE_STEPS=100
         EVAL_STEPS=100
-        export NPROC_PER_NODE=8
+        DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
+        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus "${DDP_GPU_COUNT}")}"
+        export NPROC_PER_NODE="${NPROC_PER_NODE:-$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")}"
         # NCCL 调优：H20 NVLink 优先。若远程机器不是 NVLink 拓扑，出现 NCCL 卡住时
         # 可以临时 unset NCCL_P2P_LEVEL 或退到 single/少卡模式排查。
         export NCCL_P2P_LEVEL=NVL
         export NCCL_DEBUG=WARN
+        VAL_ARGS=(--val_dataset "${VAL_JSONL}")
         EXTRA_LAUNCH=""
         ;;
     *)
@@ -160,6 +211,9 @@ case "${MODE}" in
         exit 1
         ;;
 esac
+
+echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "[gpu] NPROC_PER_NODE=${NPROC_PER_NODE}"
 
 # ---------------------------------------------------------------------------
 # 启动训练
@@ -178,7 +232,7 @@ esac
 swift sft \
     --model "${MODEL_DIR}" \
     --dataset "${TRAIN_JSONL}" \
-    --val_dataset "${VAL_JSONL}" \
+    "${VAL_ARGS[@]}" \
     --train_type lora \
     --target_modules q_proj k_proj v_proj o_proj gate_proj up_proj down_proj \
     --lora_rank "${LORA_RANK}" \

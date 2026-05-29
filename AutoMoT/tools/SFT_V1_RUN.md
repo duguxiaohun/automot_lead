@@ -133,6 +133,8 @@ bash tools/sft_v1_train.sh check
 这个命令会通过 `--external_plugins tools/sft_v1_loss_scale_plugin.py` 注册
 `sft_v1_analysis_mask`，再用 `--loss_scale sft_v1_analysis_mask` mask 掉
 ANALYSIS 占位段。ms-swift 3.12.x 不接受 JSON regex 形式的 `--loss_scale`。
+`check` 模式默认用 `nvidia-smi` 自动选择当前最空闲的一张 GPU，并且不传 `--val_dataset`，
+所以只跑 2 个训练 step，不会加载/评估 val 集的约 800 条样本。
 
 **预期 loss 数值**（健康范围）：
 
@@ -156,6 +158,7 @@ ANALYSIS 占位段。ms-swift 3.12.x 不接受 JSON regex 形式的 `--loss_scal
 | `swift: command not found` | 当前环境没装 ms-swift 或 PATH 不对 | 先确认 `which python && which swift && pip show ms-swift` |
 | `KeyError: 'sft_v1_analysis_mask'` | 插件没被加载，loss_scale 策略未注册 | 确认从 `AutoMoT/` 目录运行；检查 `tools/sft_v1_loss_scale_plugin.py` 是否存在 |
 | `KeyError: '{"ANALYSIS...": 0.0}'` | 仍在用旧版 JSON regex 命令 | 拉最新脚本，确认 `sft_v1_train.sh` 里有 `--external_plugins` |
+| `invalid device ordinal` / CUDA 选错卡 | 远程调度只分配了部分卡，或 `CUDA_VISIBLE_DEVICES` 与实际可见卡不一致 | 不手动指定时脚本会自动挑空闲卡；若调度系统已分配卡，显式使用它给出的 `CUDA_VISIBLE_DEVICES` |
 
 ---
 
