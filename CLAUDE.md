@@ -28,6 +28,13 @@
   `past_key_values` 显式 prefill/decode；AutoMoT `InterleaveInferencer` /
   `qwen3vl_template_inference` 绑定自定义 MoT 架构，不要拿来直接跑
   standalone Qwen 完整自由文本生成
+- `qwen3vl_instruct_paradigm_a_runner.py` 是 standalone Qwen-only 范式 A runner，
+  只跑本地 `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct`；必须
+  `local_files_only=True` 且设置 HF/Transformers offline 环境变量，禁止下载；
+  不 import `vlm_paradigm_a_runner.py`，不接 AutoMoT `InterleaveInferencer`
+- `AutoMoT/qwen3vl_local/` 保存 Qwen3-VL-Instruct 本地可魔改代码：
+  `prompt_pipeline.py` 从 `vlm_paradigm_a_runner.py` 的迁移块同步完整提示词/状态机；
+  另含 LEAD RGB 读取、显式 prefill/decode、KV cache summary 与可选 `torch.save`
 
 整理成可直接消费的形式。**不要从源码重新扒**，会浪费 token 且容易得出错误结论
 （前几轮迭代已经证实凭印象推断会犯多种事实错误，详见 PROJECT_CONTEXT.md 的修订历史）。
@@ -48,6 +55,9 @@
 |---|---|
 | `PROJECT_CONTEXT.md` | 项目说明文档，需要随代码修改持续更新 |
 | `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py` | 用户主战场：把 LEAD 数据离线喂给 AutoMoT 推理的桥接脚本 |
+| `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py` | 范式 A 对照脚本，保留 automot/qwen 双 backend |
+| `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py` | standalone Qwen3-VL-4B-Instruct 范式 A 脚本 |
+| `AutoMoT/qwen3vl_local/` | Qwen3-VL-Instruct 本地 helper 包，包含 prompt、图片读取、显式 KV cache 推理 |
 | `CLAUDE.md` | 本规则文件（仅在调整规则时修改） |
 | `AGENTS.md` | 通用 AI / coding agent 入口说明文件 |
 
@@ -76,6 +86,12 @@
 - `AGENTS.md`
 - `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py`
 - `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
+- `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py`
+- `AutoMoT/qwen3vl_local/__init__.py`
+- `AutoMoT/qwen3vl_local/cache_utils.py`
+- `AutoMoT/qwen3vl_local/engine.py`
+- `AutoMoT/qwen3vl_local/image_io.py`
+- `AutoMoT/qwen3vl_local/prompt_pipeline.py`
 
 ### 硬性规则
 
