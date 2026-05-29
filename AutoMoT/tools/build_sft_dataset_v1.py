@@ -15,7 +15,7 @@
 ```bash
 # 远程真实数据环境：生成完整训练 / 验证 jsonl
 python tools/build_sft_dataset_v1.py \
-  --keyframes ../keyframes_all_scenarios.json \
+  --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --data-root /data/lead_data/data \
   --output-dir checkpoints/sft_v1_data
 

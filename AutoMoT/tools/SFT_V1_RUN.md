@@ -6,8 +6,8 @@
 > **关键约定**：所有命令默认 **从 `AutoMoT/` 目录执行**（远程默认 cwd），
 > 不是从仓库根 `automot_lead/`。所以脚本路径写 `tools/...` 不是 `AutoMoT/tools/...`，
 > checkpoint 路径写 `checkpoints/...` 不是 `AutoMoT/checkpoints/...`。
-> 唯一例外：`keyframes_all_scenarios.json` 在仓库根而非 `AutoMoT/` 下，
-> 所以从 AutoMoT/ 视角是 `../keyframes_all_scenarios.json`。
+> 唯一例外：远程环境的 `keyframes_all_scenarios.json` 固定放在
+> `/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json`，下面示例统一使用这个绝对路径。
 
 ---
 
@@ -37,7 +37,7 @@ MODEL_DIR=/data/lead_data/checkpoints/Qwen3-VL-4B-Instruct \
 
 ```bash
 python tools/build_sft_dataset_v1.py \
-    --keyframes ../keyframes_all_scenarios.json \
+    --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
     --data-root /data/lead_data/data \
     --samples-per-scenario 200 \
     --output-dir checkpoints/sft_v1_data
@@ -68,7 +68,7 @@ python tools/build_sft_dataset_v1.py \
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `keyframes_all_scenarios.json` 找不到 | 路径写错（仓库根 vs AutoMoT/） | 用 `--keyframes ../keyframes_all_scenarios.json` 或 `/data/lead_data/keyframes_all_scenarios.json` 绝对路径 |
+| `keyframes_all_scenarios.json` 找不到 | 路径写错（远程不在仓库根） | 用 `--keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json` |
 | 某些 scenario 提示样本不足 200 | 该场景 `Completed/Perfect` run 太少 | 不影响，会自动按现有量取；看 `stats.json` 里 `chosen_total` 哪些场景 < 200 |
 | `images` 路径全是 `0000.jpg / 0001.jpg / ...` 字面值 | `--data-root` 在本机不可访问 | 远程跑时 data-root 必须可见，不然 fallback 会退到字面路径，训练时找不到图 |
 
@@ -314,7 +314,7 @@ python tools/eval_sft_v1.py \
 
 ```bash
 python tools/build_sft_dataset_v1.py --data-root /data/lead_data/data \
-  --keyframes ../keyframes_all_scenarios.json \
+  --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --output-dir checkpoints/sft_v1_data && \
 python tools/check_loss_mask.py && \
 bash tools/sft_v1_train.sh check && \
