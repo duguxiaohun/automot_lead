@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 # SFT v1 训练入口 — ms-swift LoRA on Qwen3-VL-4B-Instruct.
 #
-# 用法（从仓库根运行）：
-#   单卡：       bash AutoMoT/tools/sft_v1_train.sh single
-#   8 卡 DDP：    bash AutoMoT/tools/sft_v1_train.sh ddp
-#   sanity 自检：bash AutoMoT/tools/sft_v1_train.sh check
+# 用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
+#   单卡：       bash tools/sft_v1_train.sh single
+#   8 卡 DDP：    bash tools/sft_v1_train.sh ddp
+#   sanity 自检：bash tools/sft_v1_train.sh check
 #     （check 模式只跑 2 step、不保存 ckpt，用来确认 loss_scale 是否生效。
 #      正常 mask 下初始 loss 应只来自 STATUS/SUBGOAL 段，数值在 ~6-10 量级；
 #      若初始 loss < 3 多半是 ANALYSIS 段也被算进去了，模型在抄占位句。
-#      跑前最好先 python AutoMoT/tools/check_loss_mask.py 看 token 级 mask 是否对。）
+#      跑前最好先 python tools/check_loss_mask.py 看 token 级 mask 是否对。）
 #
-# 数据先用 AutoMoT/tools/build_sft_dataset_v1.py 生成。LoRA 只训 language model 的
-# attention + MLP projections，ViT 冻结，详见 AutoMoT/tools/SFT_V1_PLAN.md。
+# 数据先用 tools/build_sft_dataset_v1.py 生成。LoRA 只训 language model 的
+# attention + MLP projections，ViT 冻结，详见 tools/SFT_V1_PLAN.md。
 #
 # 常用 override：
 #   MODEL_DIR=/path/to/Qwen3-VL-4B-Instruct \
 #   TRAIN_JSONL=/path/to/train.jsonl \
 #   VAL_JSONL=/path/to/val.jsonl \
 #   OUTPUT_DIR=/path/to/sft_v1_lora \
-#   bash AutoMoT/tools/sft_v1_train.sh ddp
+#   bash tools/sft_v1_train.sh ddp
 #
 # 训练产物：
 #   OUTPUT_DIR 下保存 LoRA adapter checkpoint。eval_sft_v1.py 的 --lora-dir
@@ -39,15 +39,17 @@ MODE="${1:-ddp}"
 # ---------------------------------------------------------------------------
 # 路径（按需 override：可以在 shell 里 export 同名变量再运行本脚本）。
 #
-# MODEL_DIR 必须是完整本地 checkpoint 目录，例如：
-#   AutoMoT/checkpoints/Qwen3-VL-4B-Instruct
+# MODEL_DIR 必须是完整本地 checkpoint 目录。默认相对 AutoMoT/ cwd：
+#   checkpoints/Qwen3-VL-4B-Instruct   （即 AutoMoT/checkpoints/Qwen3-VL-4B-Instruct）
 # TRAIN_JSONL / VAL_JSONL 是 build_sft_dataset_v1.py 生成的 jsonl。
 # OUTPUT_DIR 是 LoRA adapter 输出目录，不建议放到源码目录外的临时位置，避免后续 eval 找不到。
+# 想用绝对路径覆盖时直接 export 同名变量：
+#   MODEL_DIR=/data/lead_data/checkpoints/Qwen3-VL-4B-Instruct bash tools/sft_v1_train.sh ddp
 # ---------------------------------------------------------------------------
-MODEL_DIR="${MODEL_DIR:-AutoMoT/checkpoints/Qwen3-VL-4B-Instruct}"
-TRAIN_JSONL="${TRAIN_JSONL:-AutoMoT/checkpoints/sft_v1_data/train.jsonl}"
-VAL_JSONL="${VAL_JSONL:-AutoMoT/checkpoints/sft_v1_data/val.jsonl}"
-OUTPUT_DIR="${OUTPUT_DIR:-AutoMoT/checkpoints/sft_v1_lora}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v1_data/train.jsonl}"
+VAL_JSONL="${VAL_JSONL:-checkpoints/sft_v1_data/val.jsonl}"
+OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_v1_lora}"
 
 # ---------------------------------------------------------------------------
 # 通用超参（DDP 与单卡共享）。
@@ -168,7 +170,7 @@ esac
 # - --gradient_checkpointing 在 4B 模型上影响不大但能省 ~30% 激活显存。
 #
 # 训练前建议先跑：
-#   python AutoMoT/tools/eval_sft_v1.py --lora-dir "" --max-samples 32 --skip-anchor12-sanity
+#   python tools/eval_sft_v1.py --lora-dir "" --max-samples 32 --skip-anchor12-sanity
 # 得到 base baseline；训练后再跑同样 val 子集 + LoRA，看 keep/early_advance 是否改善。
 swift sft \
     --model "${MODEL_DIR}" \

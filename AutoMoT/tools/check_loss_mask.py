@@ -10,18 +10,18 @@ jsonl 样本，把 assistant content 按字符 → token 映射展开，标出�
 目的不是模拟 swift 内部 loss_scale 算法，而是给你一份"如果 swift 做对了，
 这些 token 应该是 mask、那些 token 应该算 loss"的人工对照表。
 
-典型用法（远程或本地都可）：
+典型用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
 
 ```bash
 # 默认看 train.jsonl 第一条
-python AutoMoT/tools/check_loss_mask.py
+python tools/check_loss_mask.py
 
 # 看第 N 条
-python AutoMoT/tools/check_loss_mask.py --sample-idx 7
+python tools/check_loss_mask.py --sample-idx 7
 
 # 指定 tokenizer 目录
-python AutoMoT/tools/check_loss_mask.py \
-    --tokenizer-dir AutoMoT/checkpoints/Qwen3-VL-4B-Instruct
+python tools/check_loss_mask.py \
+    --tokenizer-dir checkpoints/Qwen3-VL-4B-Instruct
 ```
 
 观察要点：
@@ -270,7 +270,7 @@ def main():
     """
     parser = argparse.ArgumentParser()
     # 默认 jsonl 是 build_sft_dataset_v1.py 的默认输出位置，
-    # 这样最常见命令 `python AutoMoT/tools/check_loss_mask.py` 就能跑通。
+    # 这样最常见命令 `python tools/check_loss_mask.py`（从 AutoMoT/ cwd）就能跑通。
     parser.add_argument("--jsonl", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v1_data" / "train.jsonl"))
     # 大多数时间看第 0 条就够；遇到特殊 scenario 想看时再调。
