@@ -12,21 +12,21 @@ LoRA adapter 用 peft 加载到 base model。
 cache_system_prompt 默认开启：所有样本 system prompt 相同，prefix KV cache
 复用可省约 50% 推理时间。
 
-典型用法：
+典型用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
 
 ```bash
-# 评估 LoRA adapter（默认路径 AutoMoT/checkpoints/sft_v1_lora）
-python AutoMoT/tools/eval_sft_v1.py
+# 评估 LoRA adapter（默认路径 checkpoints/sft_v1_lora）
+python tools/eval_sft_v1.py
 
 # 只评估 base 模型，作为微调前 baseline
-python AutoMoT/tools/eval_sft_v1.py --lora-dir ""
+python tools/eval_sft_v1.py --lora-dir ""
 
 # 快速验收前 32 条样本，并跳过 anchor=12 单例
-python AutoMoT/tools/eval_sft_v1.py --max-samples 32 --skip-anchor12-sanity
+python tools/eval_sft_v1.py --max-samples 32 --skip-anchor12-sanity
 
 # 指定某个 checkpoint step 目录
-python AutoMoT/tools/eval_sft_v1.py \
-  --lora-dir AutoMoT/checkpoints/sft_v1_lora/checkpoint-300
+python tools/eval_sft_v1.py \
+  --lora-dir checkpoints/sft_v1_lora/checkpoint-300
 ```
 
 评估逻辑：

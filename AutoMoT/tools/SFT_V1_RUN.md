@@ -1,28 +1,34 @@
 # SFT v1 运行教程 — 从生成数据到拿到评估指标
 
 > 本文档是 [SFT_V1_PLAN.md](SFT_V1_PLAN.md) 的"操作手册"对照：PLAN 讲设计与
-> 决策依据，本 RUN 讲实际怎么跑。所有命令默认 **从仓库根 `automot_lead/` 执行**，
-> 默认目标环境是远程 8×H20 服务器，Windows 本地只用来 dry-run / 静态 check。
+> 决策依据，本 RUN 讲实际怎么跑。
+>
+> **关键约定**：所有命令默认 **从 `AutoMoT/` 目录执行**（远程默认 cwd），
+> 不是从仓库根 `automot_lead/`。所以脚本路径写 `tools/...` 不是 `AutoMoT/tools/...`，
+> checkpoint 路径写 `checkpoints/...` 不是 `AutoMoT/checkpoints/...`。
+> 唯一例外：`keyframes_all_scenarios.json` 在仓库根而非 `AutoMoT/` 下，
+> 所以从 AutoMoT/ 视角是 `../keyframes_all_scenarios.json`。
 
 ---
 
 ## 0. 准备：远程同步代码 + 确认模型权重
 
 ```bash
-cd ~/automot_lead          # 或你的远程仓库路径
-git pull                   # 拉到最新（应包含 0c8dc27 或更新）
+cd ~/automot_lead          # 仓库根
+git pull                   # 拉到最新
+cd AutoMoT                 # 进入 AutoMoT/ 作为后续所有命令的 cwd
 
 # 确认 base 模型已下载
-ls AutoMoT/checkpoints/Qwen3-VL-4B-Instruct/ | head -5
+ls checkpoints/Qwen3-VL-4B-Instruct/ | head -5
 # 期望：config.json / tokenizer.json / *.safetensors / ...
 ```
 
-如果模型不在 `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct/`，后续命令都可以前缀
-`MODEL_DIR=/真实路径` 临时 override，例如：
+如果模型不在 `checkpoints/Qwen3-VL-4B-Instruct/`，后续命令都可以前缀
+`MODEL_DIR=/真实绝对路径` 临时 override，例如：
 
 ```bash
 MODEL_DIR=/data/lead_data/checkpoints/Qwen3-VL-4B-Instruct \
-  bash AutoMoT/tools/sft_v1_train.sh ddp
+  bash tools/sft_v1_train.sh ddp
 ```
 
 ---
@@ -30,11 +36,11 @@ MODEL_DIR=/data/lead_data/checkpoints/Qwen3-VL-4B-Instruct \
 ## 1. 生成 SFT 数据集（CPU，约 1–3 分钟）
 
 ```bash
-python AutoMoT/tools/build_sft_dataset_v1.py \
-    --keyframes keyframes_all_scenarios.json \
+python tools/build_sft_dataset_v1.py \
+    --keyframes ../keyframes_all_scenarios.json \
     --data-root /data/lead_data/data \
     --samples-per-scenario 200 \
-    --output-dir AutoMoT/checkpoints/sft_v1_data
+    --output-dir checkpoints/sft_v1_data
 ```
 
 **预期输出**（节选）：
@@ -46,9 +52,9 @@ python AutoMoT/tools/build_sft_dataset_v1.py \
 [stratify] AccidentTwoWays  keep=1024 adv= 20 -> chosen=200 (adv=50)
 ...
 [split] train=~7560  val=~840
-[write] AutoMoT/checkpoints/sft_v1_data/train.jsonl
-[write] AutoMoT/checkpoints/sft_v1_data/val.jsonl
-[write] AutoMoT/checkpoints/sft_v1_data/stats.json
+[write] checkpoints/sft_v1_data/train.jsonl
+[write] checkpoints/sft_v1_data/val.jsonl
+[write] checkpoints/sft_v1_data/stats.json
 ```
 
 **通过条件**：
@@ -62,7 +68,7 @@ python AutoMoT/tools/build_sft_dataset_v1.py \
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `keyframes_all_scenarios.json` 找不到 | 仓库根没有这个文件 | `--keyframes /data/lead_data/keyframes_all_scenarios.json` 显式指 |
+| `keyframes_all_scenarios.json` 找不到 | 路径写错（仓库根 vs AutoMoT/） | 用 `--keyframes ../keyframes_all_scenarios.json` 或 `/data/lead_data/keyframes_all_scenarios.json` 绝对路径 |
 | 某些 scenario 提示样本不足 200 | 该场景 `Completed/Perfect` run 太少 | 不影响，会自动按现有量取；看 `stats.json` 里 `chosen_total` 哪些场景 < 200 |
 | `images` 路径全是 `0000.jpg / 0001.jpg / ...` 字面值 | `--data-root` 在本机不可访问 | 远程跑时 data-root 必须可见，不然 fallback 会退到字面路径，训练时找不到图 |
 
@@ -71,13 +77,13 @@ python AutoMoT/tools/build_sft_dataset_v1.py \
 ## 2. 静态 sanity：token 级 mask 是否对（CPU，<10 秒）
 
 ```bash
-python AutoMoT/tools/check_loss_mask.py
+python tools/check_loss_mask.py
 ```
 
 **预期输出**：
 
 ```
-[load] jsonl=.../train.jsonl sample_idx=0
+[load] jsonl=checkpoints/sft_v1_data/train.jsonl sample_idx=0
 [load] scenario=Accident run_id=... anchor=...
 
 ===== assistant text =====
@@ -121,7 +127,7 @@ SUBGOAL: max_brake_or_min_gap
 ## 3. 动态 sanity：跑 2 step 看真实 loss 数值（**需要 GPU**，约 1–2 分钟）
 
 ```bash
-bash AutoMoT/tools/sft_v1_train.sh check
+bash tools/sft_v1_train.sh check
 ```
 
 **预期 loss 数值**（健康范围）：
@@ -137,26 +143,26 @@ bash AutoMoT/tools/sft_v1_train.sh check
 |---|---|---|
 | **6 ≤ loss ≤ 10** | ✅ 健康，mask 工作正常，可上正式训 | 进 step 4 |
 | `loss < 3` | ❌ STATUS / SUBGOAL 也被 mask 了 | 查 swift 版本，可能 `--loss_scale` 语法变了；走 PLAN §11 回退 |
-| `loss > 12` | ❌ ANALYSIS 段也算 loss 了 | 走 PLAN §11 回退：写 `sft_v1_preprocessor.py` 手动 mask labels |
+| `loss > 12` | ❌ ANALYSIS 段也算 loss 了 | 走 PLAN §11 回退：写 `tools/sft_v1_preprocessor.py` 手动 mask labels |
 
 ---
 
 ## 4. 正式训练（**8×H20 DDP，约 1.5 小时**）
 
 ```bash
-bash AutoMoT/tools/sft_v1_train.sh ddp
+bash tools/sft_v1_train.sh ddp
 ```
 
 **预期**：
 
 - 总 step ≈ 710（按 7560 train 样本 / 等效 bs 32 × 3 epoch）；
-- 每 100 step 保存一次 LoRA adapter 到 `AutoMoT/checkpoints/sft_v1_lora/checkpoint-XXX/`；
+- 每 100 step 保存一次 LoRA adapter 到 `checkpoints/sft_v1_lora/checkpoint-XXX/`；
 - 训练 loss 从 ~7-8 降到 ~1-2。
 
 **单卡退回**（如果 8 卡 NCCL 出问题）：
 
 ```bash
-bash AutoMoT/tools/sft_v1_train.sh single
+bash tools/sft_v1_train.sh single
 ```
 
 单卡约 8–10 小时。
@@ -179,12 +185,12 @@ bash AutoMoT/tools/sft_v1_train.sh single
 
 ```bash
 # 完整 val 集 + anchor=12 fail case sanity
-python AutoMoT/tools/eval_sft_v1.py \
-    --lora-dir AutoMoT/checkpoints/sft_v1_lora
+python tools/eval_sft_v1.py \
+    --lora-dir checkpoints/sft_v1_lora
 
 # 或先快速验收前 100 条样本看趋势
-python AutoMoT/tools/eval_sft_v1.py \
-    --lora-dir AutoMoT/checkpoints/sft_v1_lora \
+python tools/eval_sft_v1.py \
+    --lora-dir checkpoints/sft_v1_lora \
     --max-samples 100
 ```
 
@@ -222,16 +228,16 @@ python AutoMoT/tools/eval_sft_v1.py \
 
 ```bash
 # base 模型（不挂 LoRA），跑前 200 条 val 做 baseline
-python AutoMoT/tools/eval_sft_v1.py \
+python tools/eval_sft_v1.py \
     --lora-dir "" \
     --max-samples 200 \
-    --output-json AutoMoT/eval_json/sft_v1_metrics_base.json
+    --output-json eval_json/sft_v1_metrics_base.json
 
 # 训完再跑同样规模 LoRA
-python AutoMoT/tools/eval_sft_v1.py \
-    --lora-dir AutoMoT/checkpoints/sft_v1_lora \
+python tools/eval_sft_v1.py \
+    --lora-dir checkpoints/sft_v1_lora \
     --max-samples 200 \
-    --output-json AutoMoT/eval_json/sft_v1_metrics_lora.json
+    --output-json eval_json/sft_v1_metrics_lora.json
 ```
 
 对比 `early_advance_rate`：base 通常 0.3–0.5，LoRA 应降到 < 0.05。
@@ -243,12 +249,13 @@ python AutoMoT/tools/eval_sft_v1.py \
 ## 一行串起来（happy path，不推荐生产用）
 
 ```bash
-python AutoMoT/tools/build_sft_dataset_v1.py --data-root /data/lead_data/data \
-  --output-dir AutoMoT/checkpoints/sft_v1_data && \
-python AutoMoT/tools/check_loss_mask.py && \
-bash AutoMoT/tools/sft_v1_train.sh check && \
-bash AutoMoT/tools/sft_v1_train.sh ddp && \
-python AutoMoT/tools/eval_sft_v1.py --lora-dir AutoMoT/checkpoints/sft_v1_lora
+python tools/build_sft_dataset_v1.py --data-root /data/lead_data/data \
+  --keyframes ../keyframes_all_scenarios.json \
+  --output-dir checkpoints/sft_v1_data && \
+python tools/check_loss_mask.py && \
+bash tools/sft_v1_train.sh check && \
+bash tools/sft_v1_train.sh ddp && \
+python tools/eval_sft_v1.py --lora-dir checkpoints/sft_v1_lora
 ```
 
 **强烈建议分步跑**，每步看输出确认再进下一步——尤其是 step 2/3 sanity，
@@ -260,11 +267,11 @@ python AutoMoT/tools/eval_sft_v1.py --lora-dir AutoMoT/checkpoints/sft_v1_lora
 
 | 步骤 | 贴这些 |
 |---|---|
-| step 1 后 | `AutoMoT/checkpoints/sft_v1_data/stats.json` 完整内容 |
+| step 1 后 | `checkpoints/sft_v1_data/stats.json` 完整内容 |
 | step 2 后 | `check_loss_mask.py` 完整 stdout |
 | step 3 后 | `sft_v1_train.sh check` 输出最后 30 行（含 loss 数值与 warning） |
 | step 4 中 | 每 100 step 的训练 log（loss / grad_norm / lr 趋势）即可，不需要全部 |
-| step 5 后 | `AutoMoT/eval_json/sft_v1_metrics.json` 全文 |
+| step 5 后 | `eval_json/sft_v1_metrics.json` 全文 |
 
 ---
 

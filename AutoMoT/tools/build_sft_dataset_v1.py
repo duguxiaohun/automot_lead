@@ -10,17 +10,17 @@
 
 注意：assistant 的 STATUS 段是当前帧 GT，user 的 MEMORY 块是上一帧 GT —— 防 leak。
 
-典型用法：
+典型用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
 
 ```bash
 # 远程真实数据环境：生成完整训练 / 验证 jsonl
-python AutoMoT/tools/build_sft_dataset_v1.py \
-  --keyframes keyframes_all_scenarios.json \
+python tools/build_sft_dataset_v1.py \
+  --keyframes ../keyframes_all_scenarios.json \
   --data-root /data/lead_data/data \
-  --output-dir AutoMoT/checkpoints/sft_v1_data
+  --output-dir checkpoints/sft_v1_data
 
 # 本地或远程快速检查：只取少量场景和 run，验证 jsonl schema 是否能生成
-python AutoMoT/tools/build_sft_dataset_v1.py --dry-run --output-dir /tmp/sft_v1_dry
+python tools/build_sft_dataset_v1.py --dry-run --output-dir /tmp/sft_v1_dry
 ```
 
 输出文件：
