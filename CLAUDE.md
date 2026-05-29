@@ -29,9 +29,10 @@
   `qwen3vl_template_inference` 绑定自定义 MoT 架构，不要拿来直接跑
   standalone Qwen 完整自由文本生成
 - `qwen3vl_instruct_paradigm_a_runner.py` 是 standalone Qwen-only 范式 A runner，
-  只跑本地 `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct`；必须
-  `local_files_only=True` 且设置 HF/Transformers offline 环境变量，禁止下载；
-  不 import `vlm_paradigm_a_runner.py`，不接 AutoMoT `InterleaveInferencer`
+  只跑本地 `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct`；该目录对应
+  HuggingFace `repo_id=Qwen/Qwen3-VL-4B-Instruct`，用户远程环境已下载。
+  必须 `local_files_only=True` 且设置 HF/Transformers offline 环境变量，
+  禁止下载；不 import `vlm_paradigm_a_runner.py`，不接 AutoMoT `InterleaveInferencer`
 - `AutoMoT/qwen3vl_local/` 保存 Qwen3-VL-Instruct 本地可魔改代码：
   `prompt_pipeline.py` 从 `vlm_paradigm_a_runner.py` 的迁移块同步完整提示词/状态机；
   另含 LEAD RGB 读取、显式 prefill/decode、KV cache summary 与可选 `torch.save`
