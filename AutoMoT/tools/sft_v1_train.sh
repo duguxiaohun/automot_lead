@@ -146,6 +146,7 @@ case "${MODE}" in
         GRAD_ACC=2
         SAVE_STEPS=200
         EVAL_STEPS=200
+        SAVE_STRATEGY="steps"
         VAL_ARGS=(--val_dataset "${VAL_JSONL}")
         EXTRA_LAUNCH=""
         ;;
@@ -184,6 +185,7 @@ case "${MODE}" in
         GRAD_ACC=1
         SAVE_STEPS=999999
         EVAL_STEPS=999999
+        SAVE_STRATEGY="no"
         # check 只验证 2 个训练 step 的 loss_scale，不传 val_dataset，避免加载/评估 val 的 ~800 条样本。
         VAL_ARGS=()
         EXTRA_LAUNCH="--max_steps 2"
@@ -196,6 +198,7 @@ case "${MODE}" in
         GRAD_ACC=2
         SAVE_STEPS=100
         EVAL_STEPS=100
+        SAVE_STRATEGY="steps"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
         export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus "${DDP_GPU_COUNT}")}"
         export NPROC_PER_NODE="${NPROC_PER_NODE:-$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")}"
@@ -253,6 +256,7 @@ swift sft \
     --logging_steps "${LOGGING_STEPS}" \
     --save_steps "${SAVE_STEPS}" \
     --eval_steps "${EVAL_STEPS}" \
+    --save_strategy "${SAVE_STRATEGY}" \
     --save_total_limit 3 \
     --save_only_model true \
     --report_to none \

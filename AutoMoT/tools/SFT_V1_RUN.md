@@ -139,17 +139,18 @@ ANALYSIS 占位段。ms-swift 3.12.x 不接受 JSON regex 形式的 `--loss_scal
 **预期 loss 数值**（健康范围）：
 
 ```
-{'loss': 7.8x, 'grad_norm': ..., 'learning_rate': ..., 'epoch': 0.0x}
-{'loss': 7.5x, 'grad_norm': ..., 'learning_rate': ..., 'epoch': 0.0x}
+{'loss': 1~10, 'grad_norm': ..., 'learning_rate': ..., 'epoch': 0.0x}
 ```
 
 **判读规则**：
 
-| loss 数值 | 判读 | 处理 |
+| 现象 | 判读 | 处理 |
 |---|---|---|
-| **6 ≤ loss ≤ 10** | ✅ 健康，mask 工作正常，可上正式训 | 进 step 4 |
-| `loss < 3` | ❌ STATUS / SUBGOAL 也被 mask 了 | 查 swift 版本，可能 `--loss_scale` 语法变了；走 PLAN §11 回退 |
+| `python tools/check_loss_mask.py` 的 plugin sanity 显示 STATUS/SUBGOAL `in_loss=True, in_mask=False`，且 `check` loss 有限非 NaN | ✅ 训练侧 mask 大方向正常 | 可进 step 4 |
+| `loss < 3` 但 plugin sanity 通过 | ⚠️ base 模型对固定格式和短 event token 预测很容易，不单独视为失败 | 继续看正式训练/评估指标 |
+| `loss < 0.1` 或 `grad_norm=0` | ❌ 可能 STATUS/SUBGOAL 也被 mask 了 | 先查 `check_loss_mask.py` 的 plugin sanity |
 | `loss > 12` | ❌ ANALYSIS 段也算 loss 了 | 走 PLAN §11 回退：写 `tools/sft_v1_preprocessor.py` 手动 mask labels |
+| check 结束保存了 `checkpoint-2` | ❌ check 模式不该保存 checkpoint | 拉最新脚本，确认含 `--save_strategy no` |
 
 **常见启动报错**：
 

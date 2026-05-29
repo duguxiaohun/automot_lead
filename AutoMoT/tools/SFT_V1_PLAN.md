@@ -226,7 +226,7 @@ eval 时打开 `cache_system_prompt=True`：所有样本 system prompt 相同，
 | ms-swift 自定义 loss_scale 插件未注册 | `KeyError: 'sft_v1_analysis_mask'` 或训练日志里找不到 `external_plugins` | 确认从 `AutoMoT/` 目录运行，且 `tools/sft_v1_loss_scale_plugin.py` 存在；必要时用绝对路径传 `--external_plugins` |
 | ms-swift loss_scale 在多模态 template 上不生效 | 训前几个 step `loss` 完全不下降，或 ANALYSIS 段也产生强梯度 | 再退一步写 `AutoMoT/tools/sft_v1_preprocessor.py` 手动 mask labels |
 | 训练侧 `<image>` 文本占位与 runner / engine.build_messages 的 structured image content 在 chat template 展开后**不完全一致**（vision token 数差、位置偏） | LoRA 训完后 eval STATUS accuracy 远低于训练 loss 体现的水平；或 anchor12_sanity 完全没改善 | 训完第一个 checkpoint 后，对**同一条** val sample 分别走（a）swift 训练 collator 的 input_ids 与（b）runner engine.generate 的 prefill input_ids，diff token 序列。Mismatch ≤ 5 token 可忽略；> 20 必须排查模板差异 |
-| 插件 regex 与 `PLACEHOLDER_ANALYSIS` 不匹配（占位句改了 regex 没改、或反过来） | 训练初始 loss 异常（< 3 表示全段被 mask；> 12 表示 ANALYSIS 也算 loss） | 训前先跑 `python tools/check_loss_mask.py` 看 token 级 mask 是否对；再跑 `bash tools/sft_v1_train.sh check` 看 2 step loss 数值 |
+| 插件 regex 与 `PLACEHOLDER_ANALYSIS` 不匹配（占位句改了 regex 没改、或反过来） | `check_loss_mask.py` 的 plugin sanity 显示 STATUS/SUBGOAL 不在 loss 段，或 ANALYSIS 不在 0 权重段 | 先修 `sft_v1_loss_scale_plugin.py`；再跑 `python tools/check_loss_mask.py` 和 `bash tools/sft_v1_train.sh check` |
 | `Completed/Perfect` filter 后某场景样本不够 200 | 数据生成时 warning | `--samples_per_scenario` 调低，或允许该场景全收 |
 | 推进类样本天然稀少（每 route 仅 4 转换帧） | val 集推进类样本 < 30 | 取消"按 run_id 划 val"改"按 scenario 内 8:2 划"，但 leak 风险上升 |
 | 训完保持类 accuracy 高但推进类 < 50% | 模型学过头变成"永远不推进" | 调推进类配比到 35%；或加 v1.5 阶段把推进类反复训 |
