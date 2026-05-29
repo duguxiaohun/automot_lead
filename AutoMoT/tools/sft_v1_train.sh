@@ -3,7 +3,7 @@
 #
 # 用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
 #   单卡：       bash tools/sft_v1_train.sh single
-#   8 卡 DDP：    bash tools/sft_v1_train.sh ddp
+#   DDP：        bash tools/sft_v1_train.sh ddp
 #   sanity 自检：bash tools/sft_v1_train.sh check
 #     （check 模式只跑 2 step、不保存 ckpt，用来确认 loss_scale 是否生效。
 #      正常 mask 下初始 loss 应只来自 STATUS/SUBGOAL 段，数值在 ~6-10 量级；
@@ -18,7 +18,7 @@
 #   TRAIN_JSONL=/path/to/train.jsonl \
 #   VAL_JSONL=/path/to/val.jsonl \
 #   OUTPUT_DIR=/path/to/sft_v1_lora \
-#   CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+#   DDP_GPU_COUNT=4 \
 #   bash tools/sft_v1_train.sh ddp
 #
 # 训练产物：
@@ -96,7 +96,7 @@ mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
 # ---------------------------------------------------------------------------
 # 如果用户/调度系统已经设置 CUDA_VISIBLE_DEVICES，脚本完全尊重它。
 # 否则用 nvidia-smi 按 memory.used、utilization.gpu 从小到大排序，自动挑最空闲 GPU。
-# DDP 默认挑 8 张；如果机器可见 GPU 少于 8 张，就按实际挑到的数量设置 NPROC_PER_NODE。
+# DDP 默认挑 DDP_GPU_COUNT 张（默认 8）；如果机器可见 GPU 更少，就按实际挑到的数量设置 NPROC_PER_NODE。
 pick_idle_gpus() {
     local want_count="$1"
     local selected
@@ -191,9 +191,10 @@ case "${MODE}" in
         EXTRA_LAUNCH="--max_steps 2"
         ;;
     ddp)
-        echo "[mode] DDP across 8 GPUs"
-        # 8 卡正式训练。swift 通常会读取 NPROC_PER_NODE 启动 torchrun/分布式。
-        # 等效 batch = 8 GPUs * PER_DEVICE_BS * GRAD_ACC = 32。
+        echo "[mode] DDP"
+        # 多卡正式训练。swift 通常会读取 NPROC_PER_NODE 启动 torchrun/分布式。
+        # 默认等效 batch = 8 GPUs * PER_DEVICE_BS * GRAD_ACC = 32；
+        # 若用 DDP_GPU_COUNT 改卡数，等效 batch 会随卡数线性变化。
         PER_DEVICE_BS=2
         GRAD_ACC=2
         SAVE_STEPS=100
@@ -217,6 +218,9 @@ esac
 
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC_PER_NODE=${NPROC_PER_NODE}"
+if [[ "${MODE}" == "ddp" ]]; then
+    echo "[gpu] requested DDP_GPU_COUNT=${DDP_GPU_COUNT:-8}"
+fi
 
 # ---------------------------------------------------------------------------
 # 启动训练
