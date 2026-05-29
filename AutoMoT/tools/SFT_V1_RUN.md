@@ -130,6 +130,10 @@ SUBGOAL: max_brake_or_min_gap
 bash tools/sft_v1_train.sh check
 ```
 
+这个命令会通过 `--external_plugins tools/sft_v1_loss_scale_plugin.py` 注册
+`sft_v1_analysis_mask`，再用 `--loss_scale sft_v1_analysis_mask` mask 掉
+ANALYSIS 占位段。ms-swift 3.12.x 不接受 JSON regex 形式的 `--loss_scale`。
+
 **预期 loss 数值**（健康范围）：
 
 ```
@@ -144,6 +148,14 @@ bash tools/sft_v1_train.sh check
 | **6 ≤ loss ≤ 10** | ✅ 健康，mask 工作正常，可上正式训 | 进 step 4 |
 | `loss < 3` | ❌ STATUS / SUBGOAL 也被 mask 了 | 查 swift 版本，可能 `--loss_scale` 语法变了；走 PLAN §11 回退 |
 | `loss > 12` | ❌ ANALYSIS 段也算 loss 了 | 走 PLAN §11 回退：写 `tools/sft_v1_preprocessor.py` 手动 mask labels |
+
+**常见启动报错**：
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `swift: command not found` | 当前环境没装 ms-swift 或 PATH 不对 | 先确认 `which python && which swift && pip show ms-swift` |
+| `KeyError: 'sft_v1_analysis_mask'` | 插件没被加载，loss_scale 策略未注册 | 确认从 `AutoMoT/` 目录运行；检查 `tools/sft_v1_loss_scale_plugin.py` 是否存在 |
+| `KeyError: '{"ANALYSIS...": 0.0}'` | 仍在用旧版 JSON regex 命令 | 拉最新脚本，确认 `sft_v1_train.sh` 里有 `--external_plugins` |
 
 ---
 

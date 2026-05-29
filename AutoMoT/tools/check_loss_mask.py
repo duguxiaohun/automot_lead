@@ -57,7 +57,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
-# 必须与 sft_v1_train.sh 里 LOSS_SCALE 的 key 字面完全一致。
+# 必须与 sft_v1_loss_scale_plugin.py 里的 regex 字面语义完全一致。
 #
 # regex 语义拆开：
 #   ANALYSIS:          —— 锚定占位段开头，跟 build_sft_dataset_v1.py 的
@@ -68,8 +68,8 @@ os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 #                          这样匹配 range 就是 "ANALYSIS: ... " 直到 \n 之前，
 #                          \n 本身落到下一段（STATUS 行）保留给 loss 算
 #
-# 同步规则：本常量与 sft_v1_train.sh 的 LOSS_SCALE 必须同时改、同时验。
-# 如果哪边偷偷改了一边，可能出现 "regex 在本脚本上对、但 swift 训练时不对" 的假象。
+# 同步规则：本常量与 sft_v1_loss_scale_plugin.py 的 _ANALYSIS_REGEX 必须同时改、
+# 同时验。如果哪边偷偷改了一边，可能出现"本脚本上对、但 swift 训练时不对"的假象。
 LOSS_SCALE_REGEX = r"ANALYSIS:.*?(?=\nSTATUS:)"
 
 
