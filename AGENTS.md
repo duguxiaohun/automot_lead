@@ -73,7 +73,8 @@
 - `AutoMoT/tools/sft_v1_train.sh`
 - `AutoMoT/tools/eval_sft_v1.py`
 - `AutoMoT/tools/check_loss_mask.py`
-  （以上 5 个是 LoRA SFT v1 微调相关；`AutoMoT/tools/` 下其它原始脚本仍为只读参考）
+- `AutoMoT/tools/SFT_V1_RUN.md`
+  （以上 6 个是 LoRA SFT v1 微调相关；`AutoMoT/tools/` 下其它原始脚本仍为只读参考）
 
 其它文件默认只读，尤其是：
 
@@ -105,7 +106,7 @@ git add AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py
 git add AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py
 git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/prompt_pipeline.py
-git add AutoMoT/tools/SFT_V1_PLAN.md AutoMoT/tools/build_sft_dataset_v1.py AutoMoT/tools/sft_v1_train.sh AutoMoT/tools/eval_sft_v1.py AutoMoT/tools/check_loss_mask.py
+git add AutoMoT/tools/SFT_V1_PLAN.md AutoMoT/tools/SFT_V1_RUN.md AutoMoT/tools/build_sft_dataset_v1.py AutoMoT/tools/sft_v1_train.sh AutoMoT/tools/eval_sft_v1.py AutoMoT/tools/check_loss_mask.py
 ```
 
 commit 前先看：
