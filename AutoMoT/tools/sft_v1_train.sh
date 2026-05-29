@@ -102,8 +102,34 @@ case "${MODE}" in
         ;;
     check)
         echo "[mode] check (loss_scale sanity, 2 steps only — no checkpoint, no eval)"
-        # 只跑 2 step，bs=1 grad_acc=1，关 save/eval。目的是看初始 loss 数值。
-        # 走单卡，避免 DDP 启动开销污染"短训"的可观察性。
+        # ---- check 模式做什么 ----
+        # 用 swift 真实训练管道跑 2 个 optimizer step 就停，目的只有一个：
+        # 看初始 loss 数值合不合理，从而间接判断 --loss_scale 在多模态 chat
+        # template 上是不是真的把 ANALYSIS 段权重置 0 了。
+        #
+        # ---- 怎么判断 ----
+        # 健康初始 loss 数量级（贪心 cross-entropy 假设）：
+        #   * STATUS / SUBGOAL 段约 8-15 个有效 token，每个 token 起步 loss
+        #     约等于 log(vocab_size) ≈ log(152064) ≈ 11.9；
+        #   * 平均下来 batch-mean loss 应落在 ~6-10 区间。
+        #
+        # 异常判读：
+        #   * loss < 3：很可能 loss_scale 把 STATUS / SUBGOAL 也一起 mask 了，
+        #     训练几乎无梯度。继续训会得到一个"什么都不学"的 LoRA。
+        #   * loss > 12：ANALYSIS 段也算 loss 了；模型会优先学复读
+        #     "Observations recorded."，STATUS 学习速度被稀释。
+        #   * loss 在 6-10：可继续上 single / ddp 正式训。
+        #
+        # ---- 配置选择 ----
+        # PER_DEVICE_BS=1 / GRAD_ACC=1：让 step 时间最短，2 step 总耗时 < 2 min。
+        # SAVE_STEPS / EVAL_STEPS 设极大：彻底关掉 checkpoint / eval，本模式
+        # 不应该写盘也不应该跑验证集。
+        # EXTRA_LAUNCH="--max_steps 2"：硬截 2 step 就退出，不管 num_train_epochs。
+        #
+        # ---- 不进 DDP 的原因 ----
+        # 8 卡 DDP 启动 NCCL handshake 通常要 10-30 秒，会把"短训观察 loss"的
+        # 信号淹没在启动日志里。check 模式默认走单卡 / 单进程，让 stdout 干净。
+        # 如果用户想在 8 卡环境下也跑 check，可手动 NPROC_PER_NODE=8 bash ... check。
         PER_DEVICE_BS=1
         GRAD_ACC=1
         SAVE_STEPS=999999

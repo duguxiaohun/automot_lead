@@ -316,9 +316,17 @@ def stratify_scenario(
         buckets[s.memory_in_status].append(s)
 
     chosen_keep: List[SampleRecord] = []
-    # 用 id() 而不是 dataclass 默认 __eq__ 判重：SampleRecord 是 dataclass，
-    # `s in chosen_keep` 会按字段值比较，遇到内容相同的样本会被错误剔除。
-    # 这里 (run_id, anchor) 实际唯一所以现在不出错，但用对象 id 更稳。
+    # ---- 为什么用 id() set 而不是 `s in chosen_keep` ----
+    # SampleRecord 是 @dataclass，Python 自动给它生成 __eq__：两个实例只要所有
+    # 字段值都相等就视为相等。这意味着：
+    #   * `if s not in chosen_keep` 会按"值"判等，而不是按"是不是同一个对象"；
+    #   * 如果某一天 collect_candidates() 为同一 (run_id, anchor) 产生
+    #     两个独立的 SampleRecord 实例（比如多次调用合并、或加新字段后
+    #     夫妻字段都一样），值相等的 record 会被错误剔除，导致 remaining 漏掉
+    #     真正"未被选中的对象"。
+    # 这里 (run_id, anchor) 实际唯一所以现在不出错，但用对象 id 做集合判重
+    # 不依赖 dataclass __eq__ 行为，未来加字段 / 改字段也不会塌。
+    # 另外好处：id() set 查询 O(1)，比 `in list` O(n) 在补齐循环里也更快。
     chosen_ids: set = set()
     if buckets:
         per_bucket = max(1, target_keep // len(buckets))
