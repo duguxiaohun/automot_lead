@@ -23,9 +23,10 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 # 把 AutoMoT 加入 sys.path，复用 prompt_pipeline 里的 system prompt / memory / 状态机。
+# 本文件位于 AutoMoT/tools/，parents[1]=AutoMoT/，parents[2]=automot_lead 仓库根。
 _THIS_FILE = pathlib.Path(__file__).resolve()
-_PROJECT_ROOT = _THIS_FILE.parents[1]
-_AUTOMOT_ROOT = _PROJECT_ROOT / "AutoMoT"
+_AUTOMOT_ROOT = _THIS_FILE.parents[1]
+_PROJECT_ROOT = _THIS_FILE.parents[2]
 for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)

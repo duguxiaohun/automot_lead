@@ -33,7 +33,7 @@ SUBGOAL: <event_name>
 字段；ms-swift 训练侧用 `--loss_scale` regex 把 ANALYSIS 段权重设为 0。
 
 > **未来微调**：如果远程发现 `--loss_scale` 与多模态 chat template 不兼容，
-> 退路是在 `tools/sft_v1_preprocessor.py` 写一个自定义 preprocessor，
+> 退路是在 `AutoMoT/tools/sft_v1_preprocessor.py` 写一个自定义 preprocessor，
 > 在 tokenize 后手动把 ANALYSIS token range 的 labels 设 -100。当前先用 swift 内置功能。
 
 ## 3. 数据集 schema
@@ -64,7 +64,7 @@ SUBGOAL: <event_name>
 
 ## 4. 数据生成流程
 
-`tools/build_sft_dataset_v1.py` 完成（**纯 CPU、不需要 GPU**）：
+`AutoMoT/tools/build_sft_dataset_v1.py` 完成（**纯 CPU、不需要 GPU**）：
 
 ```
 对 keyframes_all_scenarios.json["runs"] 中每条 run：
@@ -179,11 +179,11 @@ NPROC_PER_NODE=8 swift sft \
 `save_only_model=true` → 只存 LoRA adapter（~120 MB / step），不存 optimizer state。
 `freeze_vit=true` → 显式冻结 ViT，配合 LoRA `target_modules` 只命中 LLM decoder。
 
-完整命令在 `tools/sft_v1_train.sh`。
+完整命令在 `AutoMoT/tools/sft_v1_train.sh`。
 
 ## 8. 评估
 
-`tools/eval_sft_v1.py` 在 val.jsonl 上跑推理，输出 4 个指标：
+`AutoMoT/tools/eval_sft_v1.py` 在 val.jsonl 上跑推理，输出 4 个指标：
 
 | 指标 | 计算 | v1 目标 |
 |---|---|---|
@@ -204,16 +204,16 @@ eval 时打开 `cache_system_prompt=True`：所有样本 system prompt 相同，
 
 | 文件 | 用途 | 在哪儿跑 |
 |---|---|---|
-| `tools/SFT_V1_PLAN.md` | 本文件 | — |
-| `tools/build_sft_dataset_v1.py` | 解析 keyframes + LEAD route → jsonl | 本地或远程，纯 CPU |
-| `tools/sft_v1_train.sh` | swift sft 启动脚本（DDP + 单卡两个模式） | 远程 |
-| `tools/eval_sft_v1.py` | 离线 STATUS 评估 + anchor=12 sanity | 远程 |
+| `AutoMoT/tools/SFT_V1_PLAN.md` | 本文件 | — |
+| `AutoMoT/tools/build_sft_dataset_v1.py` | 解析 keyframes + LEAD route → jsonl | 本地或远程，纯 CPU |
+| `AutoMoT/tools/sft_v1_train.sh` | swift sft 启动脚本（DDP + 单卡两个模式） | 远程 |
+| `AutoMoT/tools/eval_sft_v1.py` | 离线 STATUS 评估 + anchor=12 sanity | 远程 |
 
 ## 11. 已知风险与回退路径
 
 | 风险 | 触发条件 | 回退 |
 |---|---|---|
-| ms-swift `--loss_scale` regex 在多模态 template 上不生效 | 训前几个 step `loss` 完全不下降，或 ANALYSIS 段也产生强梯度 | 改写 `tools/sft_v1_preprocessor.py` 手动 mask labels |
+| ms-swift `--loss_scale` regex 在多模态 template 上不生效 | 训前几个 step `loss` 完全不下降，或 ANALYSIS 段也产生强梯度 | 改写 `AutoMoT/tools/sft_v1_preprocessor.py` 手动 mask labels |
 | `Completed/Perfect` filter 后某场景样本不够 200 | 数据生成时 warning | `--samples_per_scenario` 调低，或允许该场景全收 |
 | 推进类样本天然稀少（每 route 仅 4 转换帧） | val 集推进类样本 < 30 | 取消"按 run_id 划 val"改"按 scenario 内 8:2 划"，但 leak 风险上升 |
 | 训完保持类 accuracy 高但推进类 < 50% | 模型学过头变成"永远不推进" | 调推进类配比到 35%；或加 v1.5 阶段把推进类反复训 |
