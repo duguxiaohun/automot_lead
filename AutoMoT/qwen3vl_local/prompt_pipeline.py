@@ -1,8 +1,16 @@
-"""Local copy of the vlm_prompt_pipeline state machine used by Qwen3-VL paradigm A.
+"""Qwen3-VL 范式 A 使用的 prompt 与状态机流水线。
 
-This file is migrated from AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py
-so the standalone Qwen runner uses the same prompts, event descriptions, parser,
-and memory update semantics as the original paradigm-A smoke test.
+这个文件把“驾驶场景状态机”从旧的 vlm_paradigm_a_runner.py 迁移成可复用模块：
+
+- SCENARIO_LABELS：场景名到人类可读任务说明。
+- SCENARIO_EVENT_SEQUENCES：每个场景允许的事件推进顺序。
+- EVENT_DESCRIPTIONS：每个事件 token 的自然语言解释。
+- DrivingMemory：跨帧保留的当前状态、下一目标和已完成事件。
+- build_*_prompt：把 memory 和视觉输入说明拼成 Qwen 对话 prompt。
+- parse_vlm_output/update_memory：把 VLM 自由文本收回到结构化状态机。
+
+注意：这个模块只生成文字 prompt 和解析文字输出，不读取图片，也不负责真实 image
+token 注入。图片由 engine.build_messages() 的 structured image content 处理。
 """
 
 from __future__ import annotations
@@ -23,6 +31,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 # ---------------------------------------------------------------------------
 # Scenario labels
 # ---------------------------------------------------------------------------
+# 这些 label 只给 prompt 提供场景语义提示，不参与合法性校验。
+# 真正的可选 STATUS/SUBGOAL 来自 SCENARIO_EVENT_SEQUENCES。
 
 SCENARIO_LABELS: Dict[str, str] = {
     "Accident":                               "Brake and avoid accident hazard",
@@ -73,6 +83,9 @@ SCENARIO_LABELS: Dict[str, str] = {
 # Per-scenario ordered event sequences  (initial → middle[0..2] → final)
 # ---------------------------------------------------------------------------
 
+# 每个场景是一条严格有序状态机：完整序列会由 get_full_sequence() 补成
+# initial -> middle[0] -> middle[1] -> middle[2] -> final。
+# 模型只能保持当前 STATUS 或向前推进，不能跳阶段、不能倒退。
 SCENARIO_EVENT_SEQUENCES: Dict[str, Tuple[str, str, str]] = {
     "Accident":                               ("hazard_detect",            "max_brake_or_min_gap",       "recover_or_pass"),
     "AccidentTwoWays":                        ("hazard_detect",            "max_brake_or_min_gap",       "recover_or_pass"),
@@ -121,6 +134,8 @@ SCENARIO_EVENT_SEQUENCES: Dict[str, Tuple[str, str, str]] = {
 # ---------------------------------------------------------------------------
 # Human-readable event descriptions
 # ---------------------------------------------------------------------------
+# prompt 会把当前场景涉及到的事件说明展开给模型，让它知道每个 event token
+# 在驾驶语义上代表什么。
 
 EVENT_DESCRIPTIONS: Dict[str, str] = {
     # --- shared terminal events ---
@@ -200,6 +215,8 @@ EVENT_DESCRIPTIONS: Dict[str, str] = {
 
 def get_full_sequence(scenario: str) -> Tuple[str, ...]:
     """返回某场景的完整事件序列（initial + 3 中段事件 + final）。"""
+    # 返回某个场景的完整事件序列。不存在的 scenario 直接报错，
+    # 这样可以尽早发现 route 自动识别或命令行参数传错。
     middle = SCENARIO_EVENT_SEQUENCES.get(scenario)
     if middle is None:
         raise ValueError(f"Unknown scenario: '{scenario}'. "
@@ -215,6 +232,9 @@ def get_full_sequence(scenario: str) -> Tuple[str, ...]:
 class DrivingMemory:
     """每次 VLM 调用后传入并被更新的持久化状态。"""
 
+    # 跨帧/跨步持久化的驾驶任务状态。当前 runner 只跑单步，但该结构为未来
+    # 多步循环预留：每次 VLM 输出 STATUS 后，update_memory 会产出下一次 prompt
+    # 可继续使用的新 memory。
     scenario: str
     scenario_label: str
     event_sequence: Tuple[str, ...]
@@ -224,6 +244,7 @@ class DrivingMemory:
 
     @classmethod
     def from_scenario(cls, scenario: str) -> "DrivingMemory":
+        # 初始状态固定为 initial，下一目标是该场景序列里的第一个真实事件。
         label = SCENARIO_LABELS.get(scenario, f"Handle {scenario} scenario")
         seq = get_full_sequence(scenario)
         return cls(
@@ -237,6 +258,7 @@ class DrivingMemory:
 
     @classmethod
     def from_dict(cls, d: dict) -> "DrivingMemory":
+        # 从 JSON/dict 恢复 memory，方便未来多步推理续跑。
         scenario = d["scenario"]
         seq = get_full_sequence(scenario)
         return cls(
@@ -249,6 +271,7 @@ class DrivingMemory:
         )
 
     def to_dict(self) -> dict:
+        # 转成 JSON 可写结构；tuple 序列显式转 list。
         return {
             "scenario":         self.scenario,
             "scenario_label":   self.scenario_label,
@@ -259,15 +282,19 @@ class DrivingMemory:
         }
 
     def is_complete(self) -> bool:
+        # final 是状态机唯一终点。
         return self.status == "final"
 
     def status_description(self) -> str:
+        # 给 prompt 注释当前 STATUS 的自然语言含义。
         return EVENT_DESCRIPTIONS.get(self.status, self.status)
 
     def subgoal_description(self) -> str:
+        # 给 prompt 注释当前 SUBGOAL 的自然语言含义。
         return EVENT_DESCRIPTIONS.get(self.subgoal, self.subgoal)
 
     def _next_event_after(self, event: str) -> Optional[str]:
+        # 根据状态机顺序推导下一事件；不存在或已到末尾时返回 None。
         try:
             idx = self.event_sequence.index(event)
         except ValueError:
@@ -328,10 +355,21 @@ final.
 
 
 def build_system_prompt() -> str:
+    """返回固定 system prompt。
+
+    system prompt 负责定义模型角色、输入含义、状态机规则和严格输出格式。
+    """
+
     return _SYSTEM_PROMPT
 
 
 def build_memory_block(memory: DrivingMemory) -> str:
+    """把当前 memory 展开成 prompt 中的 [MEMORY] 块。
+
+    这里故意把 EVENT_SEQUENCE 和对应 EVENT_DESCRIPTIONS 全量写入 prompt：
+    模型不需要记住项目里的状态机表，只需从当前 prompt 复制合法 event token。
+    """
+
     seq_str = " -> ".join(memory.event_sequence)
     event_desc_str = "\n".join(
         f"- {event}: {EVENT_DESCRIPTIONS.get(event, event)}"
@@ -357,11 +395,11 @@ def build_user_prompt(
     memory: DrivingMemory,
     image_description: str = "Refer to the visual observation(s) above.",
 ) -> str:
-    """Build the user prompt.
+    """构造 user prompt。
 
-    image_description is ordinary text that describes visual inputs already
-    inserted by the caller. Real Qwen image tokens come from structured image
-    messages and the processor, not from this string.
+    image_description 是普通文本，用来描述调用方已经插入的视觉输入。例如
+    “N 张图片按 oldest -> newest 排列”。真实 Qwen image token 来自 structured
+    image messages 和 processor，不来自这个字符串。
     """
     memory_block = build_memory_block(memory)
     return (
@@ -399,6 +437,8 @@ def build_combined_prompt(
 # ---------------------------------------------------------------------------
 # Output parsing
 # ---------------------------------------------------------------------------
+# 三个正则只负责“从自由文本里找到字段”，不做合法性判断。
+# 合法性由 update_memory 根据当前场景的 EVENT_SEQUENCE 再统一处理。
 
 _STATUS_RE   = re.compile(r"^\s*STATUS\s*:\s*(\S+)", re.MULTILINE | re.IGNORECASE)
 _SUBGOAL_RE  = re.compile(r"^\s*SUBGOAL\s*:\s*(\S+)", re.MULTILINE | re.IGNORECASE)
@@ -413,6 +453,7 @@ def parse_vlm_output(text: str) -> Dict[str, Optional[str]]:
 
     宽松匹配:大小写不敏感,允许前后空白。任意字段抽不到返回 None。
     """
+    # 匹配策略刻意宽松：大小写不敏感，允许前后空白；抽不到的字段返回 None。
     status_m   = _STATUS_RE.search(text)
     subgoal_m  = _SUBGOAL_RE.search(text)
     analysis_m = _ANALYSIS_RE.search(text)
@@ -442,12 +483,14 @@ def update_memory(
     - subgoal 由代码从 status 推导(防止 VLM 跳号),只在 VLM 给出的 subgoal
       与推导值一致时采纳
     """
+    # parsed 来自自由文本，不能直接信任。下面先做事件名白名单校验，再做顺序校验。
     new_status  = parsed.get("status")
     new_subgoal = parsed.get("subgoal")
 
     valid_events = set(memory.event_sequence)
 
     if new_status and new_status not in valid_events:
+        # 模型发明了不存在的状态名。非 strict 模式下丢弃该字段，让 memory 保守保持。
         if strict:
             raise ValueError(
                 f"VLM returned STATUS '{new_status}' which is not in the "
@@ -456,6 +499,7 @@ def update_memory(
         new_status = None
 
     if new_subgoal and new_subgoal not in valid_events:
+        # SUBGOAL 同理，必须来自当前场景状态机。
         if strict:
             raise ValueError(
                 f"VLM returned SUBGOAL '{new_subgoal}' which is not in the "
@@ -469,6 +513,7 @@ def update_memory(
             current_idx = memory.event_sequence.index(memory.status)
             new_idx     = memory.event_sequence.index(new_status)
             if new_idx >= current_idx:
+                # 允许保持或向前推进；不允许倒退。
                 final_status = new_status
         except ValueError:
             pass
@@ -476,6 +521,7 @@ def update_memory(
     derived_subgoal = memory._next_event_after(final_status) or "final"
 
     if new_subgoal and new_subgoal == derived_subgoal:
+        # 只有和状态机推导一致的 SUBGOAL 才信任模型输出。
         final_subgoal = new_subgoal
     else:
         final_subgoal = derived_subgoal
