@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# GoalGen v1 training launcher. Run from AutoMoT/.
+# GoalGen v1 训练启动脚本。请在 AutoMoT/ 目录下运行。
 #
-# Usage:
+# 用法：
 #   bash qwen3vl_local/goalgen/train_v1.sh check
 #   bash qwen3vl_local/goalgen/train_v1.sh single
 #   bash qwen3vl_local/goalgen/train_v1.sh ddp
@@ -14,14 +14,14 @@ if [[ -n "${DDP_GPU_COUNT+x}" ]]; then
 fi
 
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/goalgen_v1_data/train.jsonl}"
-VAL_JSONL="${VAL_JSONL:-checkpoints/goalgen_v1_data/val.jsonl}"   # 默认与 builder 输出一致；不存在 trainer 会自动跳过 val/sample 日志
+VAL_JSONL="${VAL_JSONL:-checkpoints/goalgen_v1_data/val.jsonl}"   # 默认与数据构建器输出一致；不存在时训练器会自动跳过验证/样例日志
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
-# 可选 LoRA adapter：默认空 = 用 base Qwen；想接 SFT v1 微调后的语言编码，传
-# QWEN_ADAPTER_DIR=checkpoints/sft_v1_lora（adapter 目录，不是 merged 模型目录）
+# 可选 LoRA 适配器：默认空 = 用基础 Qwen；想接 SFT v1 微调后的语言编码，传
+# QWEN_ADAPTER_DIR=checkpoints/sft_v1_lora（适配器目录，不是合并后的模型目录）
 QWEN_ADAPTER_DIR="${QWEN_ADAPTER_DIR:-}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/goalgen_v1_dit}"
 
-# TensorBoard / val / image sample 默认值；想关闭 image sample 设 IMAGE_LOG_EVERY=0
+# TensorBoard / 验证 / 图像样例默认值；想关闭图像样例设 IMAGE_LOG_EVERY=0
 VAL_STEPS="${VAL_STEPS:-500}"
 VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-64}"
 IMAGE_LOG_EVERY="${IMAGE_LOG_EVERY:-500}"
@@ -34,7 +34,7 @@ N_HEADS="${N_HEADS:-12}"
 NUM_LAYERS="${NUM_LAYERS:-12}"
 COND_DIM="${COND_DIM:-256}"
 MLP_RATIO="${MLP_RATIO:-4.0}"
-LANGUAGE_KV_INPUT_DIM="${LANGUAGE_KV_INPUT_DIM:-auto}"   # train_v1.py 会用首条样本 segmented KV 推维度；显式给整数（如 1024）可跳过 probe
+LANGUAGE_KV_INPUT_DIM="${LANGUAGE_KV_INPUT_DIM:-auto}"   # train_v1.py 会用首条样本的分段 KV 推维度；显式给整数（如 1024）可跳过探测
 MAX_HISTORY_FRAMES="${MAX_HISTORY_FRAMES:-8}"
 QWEN_KV_SEGMENT_MODE="${QWEN_KV_SEGMENT_MODE:-select_last}"
 
@@ -195,7 +195,7 @@ case "${MODE}" in
             --save-steps "${SAVE_STEPS:-200}"
         ;;
     *)
-        echo "Unknown mode: ${MODE}. Use check/single/ddp." >&2
+        echo "未知模式：${MODE}。可用模式：check / single / ddp。" >&2
         exit 1
         ;;
 esac

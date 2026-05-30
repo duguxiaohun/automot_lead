@@ -17,24 +17,24 @@ from ..prompt_pipeline import EVENT_DESCRIPTIONS, DrivingMemory
 
 
 _TEACHER_SYSTEM_PROMPT = """\
-You are an autonomous driving agent controlling an ego vehicle.
+你是一个自动驾驶智能体，正在控制自车。
 
-Input:
-- You receive a short RGB clip ordered oldest to newest.
-- Each frame is a stitched three-camera view: left, front, and right.
-- The last frame is the current moment; earlier frames show how the scene has evolved.
-- You will be TOLD the current STATUS and the next SUBGOAL together with their semantic descriptions; these are ground truth, not a question.
+输入说明：
+- 你会收到一小段按时间排序的 RGB 图像，顺序是从最旧到最新。
+- 每一帧都是三视角拼接图，包含左视、前视、右视。
+- 最后一帧代表当前时刻，前面的帧展示场景如何演化。
+- 当前 STATUS 和下一步 SUBGOAL 会直接告诉你，并附带语义说明；它们是真值，不是让你猜的问题。
 
-What this conversation is for:
-- We are not asking you to predict STATUS or SUBGOAL.
-- Build an internal grounded understanding of: (a) what the ego vehicle is doing right now under the given STATUS, and (b) what visual / dynamic change must happen for the SUBGOAL to be reached.
-- Your KV cache after reading this turn will be consumed downstream by a latent image generator that predicts how the scene will look once the SUBGOAL is reached. So your job is to consolidate the visual scene, the given STATUS and the given SUBGOAL into rich hidden states.
+这轮对话的目的：
+- 不要求你预测 STATUS 或 SUBGOAL。
+- 你需要在内部建立扎实的场景理解：第一，自车在给定 STATUS 下当前正在做什么；第二，场景中需要出现什么视觉或动态变化，才算到达 SUBGOAL。
+- 你读完这轮输入后产生的 KV cache 会被下游潜变量图像生成器使用；下游模型要预测到达 SUBGOAL 时画面会是什么样。因此你的任务是把视觉场景、给定 STATUS、给定 SUBGOAL 压缩成信息丰富的隐藏状态。
 
-Definitions:
-- SCENARIO names the driving challenge (e.g., Accident, MergerIntoSlowTraffic).
-- EVENT_SEQUENCE is the ordered state machine for this scenario.
-- STATUS is the event the ego is currently at (ground truth, given to you).
-- SUBGOAL is the immediate next event in EVENT_SEQUENCE that the ego should reach (ground truth, given to you)."""
+术语说明：
+- SCENARIO 表示驾驶挑战类型。
+- EVENT_SEQUENCE 是该场景的有序状态机。
+- STATUS 是自车当前所在事件，是真值。
+- SUBGOAL 是 EVENT_SEQUENCE 中自车马上要到达的下一个事件，也是真值。"""
 
 
 def build_teacher_system_prompt() -> str:
@@ -76,12 +76,12 @@ def _format_memory_block(memory: DrivingMemory) -> str:
     return (
         "[GROUND_TRUTH_STATE]\n"
         f"SCENARIO: {memory.scenario}  # {memory.scenario_label}\n"
-        "EVENT_SEQUENCE (each step explained in order):\n"
+        "EVENT_SEQUENCE（按顺序解释每一步）:\n"
         f"{seq_desc_str}\n"
-        f"STATUS (ground truth, you are now here): {memory.status}\n"
-        f"  meaning: {status_desc}\n"
-        f"SUBGOAL (ground truth, next event to reach): {memory.subgoal}\n"
-        f"  meaning: {subgoal_desc}\n"
+        f"STATUS（真值，当前所在事件）: {memory.status}\n"
+        f"  含义: {status_desc}\n"
+        f"SUBGOAL（真值，下一步要到达的事件）: {memory.subgoal}\n"
+        f"  含义: {subgoal_desc}\n"
         "[/GROUND_TRUTH_STATE]"
     )
 
@@ -93,16 +93,16 @@ def build_teacher_user_prompt(
     """构造 teacher-forced 模式下的 user prompt。
 
     与范式 A 区别：末尾不要求模型输出 ANALYSIS/STATUS/SUBGOAL；改为提示
-    "internalize this state into your hidden representation"，便于 KV cache 收口。
+    "把当前驾驶状态压缩进隐藏表示"，便于 KV cache 收口。
     """
 
     block = _format_memory_block(memory)
     return (
         f"{image_description}\n\n"
         f"{block}\n\n"
-        "Given the visual observations and the ground-truth STATUS / SUBGOAL above, "
-        "internalize this driving state into your hidden representation. "
-        "Do not output any analysis text. Acknowledge briefly with a single word: \"ok\"."
+        "请结合上面的视觉观测以及真值 STATUS / SUBGOAL，"
+        "把当前驾驶状态压缩进你的隐藏表示中。"
+        "不要输出分析文字，只用一个词简短确认：\"ok\"。"
     )
 
 
@@ -110,10 +110,10 @@ def describe_image_inputs(num_images: int) -> str:
     """与 standalone 范式 A runner 完全一致的图片说明句子。"""
 
     if num_images <= 0:
-        return "No visual observations are provided for this step."
+        return "这一步没有提供视觉观测。"
     if num_images == 1:
-        return "The image above is the current visual observation."
+        return "上面的图像是当前时刻的视觉观测。"
     return (
-        f"The {num_images} images above are ordered oldest to newest; "
-        "the last image is the current moment."
+        f"上面的 {num_images} 张图像按时间从旧到新排列；"
+        "最后一张图像是当前时刻。"
     )

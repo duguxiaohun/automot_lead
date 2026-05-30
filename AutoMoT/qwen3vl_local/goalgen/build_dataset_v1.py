@@ -1,16 +1,15 @@
-"""Build GoalGen v1 jsonl datasets from keyframe timelines.
+"""从关键帧时间线构建 GoalGen v1 的 jsonl 数据集。
 
-Run from ``AutoMoT/`` on the remote machine, for example:
+本脚本应在远端机器的 ``AutoMoT/`` 目录下运行，例如：
 
 python qwen3vl_local/goalgen/build_dataset_v1.py \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --data-root /data/lead_data/data \
   --output-dir checkpoints/goalgen_v1_data
 
-The builder mirrors the SFT v1 timeline idea, but the target is different:
-for each anchor frame, STATUS is the current GT state and SUBGOAL is the next
-event in the scenario sequence. The supervised image target is the future
-keyframe where that SUBGOAL begins.
+构建逻辑沿用 SFT v1 的事件时间线思路，但监督目标不同：
+对每个锚点帧，STATUS 是该帧的真值状态，SUBGOAL 是场景事件链里的下一个事件；
+图像监督目标则是这个 SUBGOAL 开始发生时的未来关键帧。
 """
 
 from __future__ import annotations
@@ -153,7 +152,7 @@ def iter_status_ranges(timeline: RunTimeline) -> Iterable[Tuple[int, int, str]]:
         target_frame = timeline.event_frames.get(subgoal)
         if target_frame is None:
             continue
-        # The valid anchors are strictly before the subgoal keyframe.
+        # 合法锚点必须严格早于子目标关键帧；等于目标帧会退化成"预测当前图"。
         yield start, min(end, target_frame - 1), status
 
 
@@ -371,7 +370,7 @@ def split_train_val(
     for run_id, samples in samples_by_run.items():
         (val if run_id in val_runs else train).extend(samples)
     # 再 shuffle 一次让 train / val 内部样本顺序与原 run 顺序无关；
-    # trainer 自己每 epoch 还会 reshuffle，这里 shuffle 主要是为了让"按行读取的 dry run"
+    # 训练器自己每个 epoch 还会重新洗牌，这里 shuffle 主要是为了让"按行读取的 dry run"
     # 也能看到混合分布而不是连续同 run。
     rng.shuffle(train)
     rng.shuffle(val)
@@ -379,15 +378,15 @@ def split_train_val(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build GoalGen v1 jsonl dataset")
+    parser = argparse.ArgumentParser(description="构建 GoalGen v1 的 jsonl 数据集")
     parser.add_argument("--keyframes", default=DEFAULT_KEYFRAMES)
     parser.add_argument("--data-root", default=DEFAULT_DATA_ROOT)
     parser.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints" / "goalgen_v1_data"))
     parser.add_argument("--samples-per-scenario", type=int, default=1000,
-                        help="0 means keep all valid anchors; default keeps a large balanced subset.")
+                        help="0 表示保留所有合法锚点；默认保留较大的均衡子集。")
     parser.add_argument("--frame-stride", type=int, default=1)
     parser.add_argument("--min-future-gap", type=int, default=1,
-                        help="Require target_frame - anchor >= this many frames.")
+                        help="要求 target_frame - anchor 至少达到这个帧数。")
     parser.add_argument("--num-frames", type=int, default=RGB_FRAME_COUNT)
     parser.add_argument("--rgb-frame-step", type=int, default=RGB_FRAME_STEP)
     parser.add_argument("--val-ratio", type=float, default=0.10)
@@ -400,7 +399,7 @@ def main() -> None:
     output_dir = pathlib.Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[load] keyframes={keyframes_path}")
+    print(f"[load] 关键帧={keyframes_path}")
     with keyframes_path.open("r", encoding="utf-8") as f:
         payload = json.load(f)
     runs = payload.get("runs", [])
@@ -422,8 +421,8 @@ def main() -> None:
         }
 
     print(
-        f"[filter] kept_runs={sum(len(v) for v in timelines_by_scenario.values())} "
-        f"skipped={dict(skipped)}"
+        f"[filter] 保留 run 数={sum(len(v) for v in timelines_by_scenario.values())} "
+        f"跳过={dict(skipped)}"
     )
 
     samples_by_run: Dict[str, List[dict]] = defaultdict(list)
@@ -456,8 +455,8 @@ def main() -> None:
             "chosen_by_transition": dict(sorted(by_transition.items())),
         }
         print(
-            f"[scenario] {scenario:42s} runs={len(timelines):4d} "
-            f"candidates={len(candidates):7d} chosen={len(chosen):5d}"
+            f"[scenario] {scenario:42s} run 数={len(timelines):4d} "
+            f"候选={len(candidates):7d} 选中={len(chosen):5d}"
         )
 
     train, val = split_train_val(samples_by_run, args.val_ratio, rng)
@@ -484,9 +483,9 @@ def main() -> None:
             indent=2,
         )
 
-    print(f"[write] {train_path}")
-    print(f"[write] {val_path}")
-    print(f"[write] {stats_path}")
+    print(f"[write] 写入训练集 {train_path}")
+    print(f"[write] 写入验证集 {val_path}")
+    print(f"[write] 写入统计 {stats_path}")
 
 
 if __name__ == "__main__":

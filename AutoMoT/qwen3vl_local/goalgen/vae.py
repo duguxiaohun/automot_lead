@@ -35,7 +35,7 @@ def _ensure_vae_standalone_on_path() -> None:
 
     p = str(_VAE_STANDALONE_DIR)
     if not _VAE_STANDALONE_DIR.exists():
-        raise FileNotFoundError(f"vae_standalone not found: {_VAE_STANDALONE_DIR}")
+        raise FileNotFoundError(f"找不到 vae_standalone：{_VAE_STANDALONE_DIR}")
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -90,7 +90,7 @@ class FrozenVAE:
         1. 把 vae_standalone 加进 sys.path；
         2. 用 OmegaConf 读 vae_only.yaml，instantiate_from_config 拿到模型骨架；
         3. 用 safetensors.load_file 读权重，strict=False 是因为 vae_only.safetensors
-           只包含 first_stage 部分，原始 sd 没有 loss / regularizer 的可选键。
+           只包含 first_stage 部分，原始权重里没有损失 / 正则器的可选键。
         """
 
         # 必须在 import vwm 之前注入 sys.path，否则下一行会 ModuleNotFoundError。
@@ -100,9 +100,9 @@ class FrozenVAE:
         from vwm.util import instantiate_from_config  # noqa: E402
 
         if not config_path.exists():
-            raise FileNotFoundError(f"vae config not found: {config_path}")
+            raise FileNotFoundError(f"找不到 VAE 配置：{config_path}")
         if not weights_path.exists():
-            raise FileNotFoundError(f"vae weights not found: {weights_path}")
+            raise FileNotFoundError(f"找不到 VAE 权重：{weights_path}")
 
         # OmegaConf 读 yaml；first_stage_config 是 vwm 风格的 target+params 配置。
         cfg_yaml = OmegaConf.load(str(config_path))
@@ -112,9 +112,9 @@ class FrozenVAE:
         # 实际场景下 missing/unexpected 应该都很少（多数 < 5），所以直接打印 len 即可。
         sd = load_file(str(weights_path))
         missing, unexpected = first_stage_model.load_state_dict(sd, strict=False)
-        print(f"[goalgen.vae] missing={len(missing)} unexpected={len(unexpected)}")
+        print(f"[goalgen.vae] 缺失键={len(missing)} 非预期键={len(unexpected)}")
 
-        # 字符串 dtype 转 torch.dtype。默认 fp32：vae_only.yaml 关了 autocast，
+        # 字符串 dtype 转 torch.dtype。默认 fp32：vae_only.yaml 关了自动混精，
         # 用 bf16 会有少量重构精度损失，对 z1 监督质量有影响。
         dtype_map = {
             "float32": torch.float32,
@@ -124,7 +124,7 @@ class FrozenVAE:
         torch_dtype = dtype_map.get(dtype, torch.float32)
         torch_device = torch.device(device)
 
-        # 一次性把模型搬到目标 device 和 dtype，避免后续 encode/decode 时频繁迁移。
+        # 一次性把模型搬到目标 device 和 dtype，避免后续编码/解码时频繁迁移。
         first_stage_model = first_stage_model.to(device=torch_device, dtype=torch_dtype)
 
         # 把 scale_factor 和 autocast 开关从 yaml 抽出来，封装成 dataclass，
@@ -142,7 +142,7 @@ class FrozenVAE:
             raise ValueError(f"VAE input H/W 必须是 64 的倍数，得到 H={h} W={w}")
 
     def pil_to_tensor(self, images: List[Image.Image]) -> torch.Tensor:
-        """PIL 列表 -> [B,3,H,W] 归一化张量，居中校验 shape。"""
+        """PIL 列表 -> [B,3,H,W] 归一化张量，并校验形状。"""
 
         tensors: List[torch.Tensor] = []
         for img in images:
@@ -179,7 +179,7 @@ class FrozenVAE:
         """latent -> [-1,1] 范围的 RGB 张量；仅推理 / 可视化用。"""
 
         # 强制对齐 (device, dtype)：DiT 训练 / 推理时 z 通常是 bf16，VAE 权重默认 fp32；
-        # 不 cast 会在 model.decode 第一层 Conv2d 上抛 dtype mismatch（且错误堆栈在
+        # 不转换会在 model.decode 第一层 Conv2d 上抛 dtype mismatch（且错误堆栈在
         # C++ 端不好定位）。这里 .to 是 no-op 当 z 已经匹配，所以无副作用。
         z = z.to(device=self.device, dtype=self.dtype)
         z_in = z / self.cfg.scale_factor
@@ -193,7 +193,7 @@ class FrozenVAE:
             return self.model.decode(z_in, **kwargs)
 
     def latent_shape_for(self, height: int, width: int, batch: int = 1) -> Tuple[int, int, int, int]:
-        """根据输入分辨率推 latent shape；下采 8 倍 + z_channels=4。"""
+        """根据输入分辨率推潜变量形状；下采 8 倍 + z_channels=4。"""
 
         self._validate_shape(height, width)
         return (batch, 4, height // 8, width // 8)

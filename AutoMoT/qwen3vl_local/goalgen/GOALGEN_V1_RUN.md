@@ -1,9 +1,10 @@
-# GoalGen v1 Run
+# GoalGen v1 运行手册
 
-> All commands below are run from `AutoMoT/` on the remote machine.
-> GoalGen files live under `qwen3vl_local/goalgen/`.
+> 下面所有命令都在远端机器上 `AutoMoT/` 目录里执行。
+> GoalGen 相关文件都放在 `qwen3vl_local/goalgen/` 下。本手册只覆盖 v1：
+> 先构建 jsonl 数据，再做两步训练检查，确认无误后再跑单卡或 DDP。
 
-## 0. Check Inputs
+## 0. 检查输入
 
 ```bash
 cd ~/automot_lead
@@ -17,7 +18,7 @@ ls /data/lead_data/data/Accident | head -3
 ls /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json
 ```
 
-## 1. Build Dataset
+## 1. 构建数据集
 
 ```bash
 python qwen3vl_local/goalgen/build_dataset_v1.py \
@@ -27,17 +28,17 @@ python qwen3vl_local/goalgen/build_dataset_v1.py \
   --output-dir checkpoints/goalgen_v1_data
 ```
 
-The builder follows the SFT v1 timeline idea:
+数据构建器沿用 SFT v1 的时间线思路，但目标从"文本标签"换成"未来子目标关键帧"：
 
-- `status` is the GT status at `anchor`.
-- `subgoal` is the next event after `status`.
-- `target_frame` is the keyframe where `subgoal` starts.
-- Samples require `target_frame > anchor`.
+- `status` 是 `anchor` 帧的 GT status；
+- `subgoal` 是 `status` 之后的下一个事件；
+- `target_frame` 是 `subgoal` 触发所在的 keyframe；
+- 样本必须满足 `target_frame > anchor`（子目标只能在未来）。
 
-Use `--samples-per-scenario 0` to keep every valid anchor. The default `1000`
-keeps a large balanced subset per scenario.
+传 `--samples-per-scenario 0` 可以保留所有合法锚点帧；默认 `1000` 会按场景
+做一个**较大但已经平衡过的子集**。
 
-Outputs:
+输出：
 
 ```text
 checkpoints/goalgen_v1_data/train.jsonl
@@ -45,23 +46,23 @@ checkpoints/goalgen_v1_data/val.jsonl
 checkpoints/goalgen_v1_data/stats.json
 ```
 
-## 2. Train
+## 2. 训练
 
 ```bash
-# Two optimizer steps, for pipeline sanity.
+# 跑 2 个优化器步，验证完整链路是否通
 bash qwen3vl_local/goalgen/train_v1.sh check
 
-# Single GPU.
+# 单卡训练
 bash qwen3vl_local/goalgen/train_v1.sh single
 
-# DDP. Defaults to the 8 idlest GPUs and an auto-selected free port.
+# DDP，默认自动挑 8 个最闲的 GPU 和一个空闲端口
 bash qwen3vl_local/goalgen/train_v1.sh ddp
 
-# DDP with 4 auto-selected GPUs.
+# DDP，只用 4 张自动挑选的 GPU
 DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train_v1.sh ddp
 ```
 
-Common overrides:
+常用覆盖参数：
 
 ```bash
 TRAIN_JSONL=checkpoints/goalgen_v1_data/train.jsonl \
@@ -71,23 +72,23 @@ QWEN_KV_SEGMENT_MODE=select_last \
 bash qwen3vl_local/goalgen/train_v1.sh ddp
 ```
 
-`QWEN_KV_SEGMENT_MODE` defaults to `select_last`; only override to
-`concat_layers` for ablation comparison.
+`QWEN_KV_SEGMENT_MODE` 默认是 `select_last`；只有在做消融对比时才切到
+`concat_layers`。
 
-Training freezes Qwen and VAE. Only DiT-MoT is optimized.
+训练阶段 **Qwen 与 VAE 全程冻结，只更新 DiT-MoT**。
 
-**默认跑 base Qwen，不挂任何 LoRA / adapter。** 想接续 SFT v1 微调后的语言编码再看
-§2.0.1；当前训练生成模型阶段无需关心 adapter，直接用上面命令即可。
+**默认跑基础 Qwen，不挂任何 LoRA / 适配器。** 想接续 SFT v1 微调后的语言编码再看
+§2.0.1；当前训练生成模型阶段无需关心适配器，直接用上面命令即可。
 
-### 2.0.1 接入 LoRA / PEFT adapter（接续 SFT v1 微调后的 Qwen）
+### 2.0.1 接入 LoRA / PEFT 适配器（接续 SFT v1 微调后的 Qwen）
 
-> **默认不挂 LoRA**：训练 / eval / runner 三个入口的 `--qwen-adapter-dir` 默认为空字符串，
-> 这种情况下完全走 base Qwen，不会 import peft 也不会读 adapter 目录。
+> **默认不挂 LoRA**：训练 / 评测 / 单步 runner 三个入口的 `--qwen-adapter-dir` 默认为空字符串，
+> 这种情况下完全走基础 Qwen，不会导入 `peft`，也不会读适配器目录。
 > 当前训练生成模型阶段**不需要**做任何事，直接 `bash qwen3vl_local/goalgen/train_v1.sh ddp`
 > 即可——下面这一节只有在你后续想接续 SFT v1 微调后的语言编码时再读。
 
-如果想让 GoalGen 直接吃 SFT v1 微调后的语言编码，传 LoRA adapter 目录即可，**不需要**
-事先 merge：
+如果想让 GoalGen 直接吃 SFT v1 微调后的语言编码，传 LoRA 适配器目录即可，**不需要**
+事先合并：
 
 ```bash
 QWEN_ADAPTER_DIR=checkpoints/sft_v1_lora \
@@ -97,25 +98,25 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 
 实现细节（`engine.attach_lora_adapter`）：
 
-- base Qwen 不变；adapter 用 `PeftModel.from_pretrained(base, adapter_dir)` 包一层；
-- 默认 `merge=True` 走 `merge_and_unload()`：LoRA 权重合进 base 矩阵，之后 `engine.model`
-  上不再有 PEFT 包装，prefill / KV 提取 / segment 切分对 LoRA 的存在完全无感知；
+- 基础 Qwen 不变；适配器用 `PeftModel.from_pretrained(base, adapter_dir)` 包一层；
+- 默认 `merge=True` 走 `merge_and_unload()`：LoRA 权重合进基础矩阵，之后 `engine.model`
+  上不再有 PEFT 包装，预填充 / KV 提取 / 分段切分对 LoRA 的存在完全无感知；
 - LoRA 不改变 `n_kv_heads / head_dim / num_layers`，所以 `language_kv_input_dim` 与
-  base Qwen 一致，DiT 形状不用动；
-- merge 后训练前向比 PeftModel 包装快 ~5–10%，且更省一份 LoRA 分支显存；
-- 想保留 PEFT 包装（debug 用）传 `--no-qwen-adapter-merge`。
+  基础 Qwen 一致，DiT 形状不用动；
+- 合并后训练前向比 PeftModel 包装快约 5–10%，且更省一份 LoRA 分支显存；
+- 想保留 PEFT 包装（调试用）传 `--no-qwen-adapter-merge`。
 
-**eval / runner 必须传同一个 `--qwen-adapter-dir`**：训练用 adapter 而 eval 用 base
+**评测 / runner 必须传同一个 `--qwen-adapter-dir`**：训练用适配器而评测用基础模型
 会让 KV 分布偏移，指标完全不可比。
 
-为了防止"忘了传"导致的静默错误生成，eval / runner 在加载 DiT ckpt 时会从
+为了防止"忘了传"导致的静默错误生成，评测 / runner 在加载 DiT 检查点时会从
 `payload["args"]` 读训练时的 `qwen_adapter_dir`，**与当前 CLI 严格比对**：
 
-- 训练 + 当前都是 base（空串）→ OK
-- 训练 + 当前都是同一 adapter 目录（绝对路径比较）→ OK，info 输出
-- 训练 + 当前都挂 adapter 但 merge 开关不同 → info 提醒（数学等价，fp 精度差异）
-- **adapter 路径不一致 → 默认 raise RuntimeError，明确告诉你训练时是什么、当前是什么**
-- 想 ablation 跨 adapter 对比时传 `--allow-qwen-adapter-mismatch` 转为 WARN 继续
+- 训练 + 当前都是基础模型（空串）→ OK
+- 训练 + 当前都是同一适配器目录（绝对路径比较）→ OK，输出提示
+- 训练 + 当前都挂适配器但合并开关不同 → 输出提示（数学等价，只有浮点精度差异）
+- **适配器路径不一致 → 默认抛 `RuntimeError`，明确告诉你训练时是什么、当前是什么**
+- 想做跨适配器消融对比时传 `--allow-qwen-adapter-mismatch`，转为警告后继续
 
 ```bash
 # eval
@@ -125,7 +126,7 @@ python qwen3vl_local/goalgen/eval_v1.py \
   --qwen-adapter-dir checkpoints/sft_v1_lora \
   --out-dir eval_json/goalgen_v1_sftv1
 
-# runner（单步 forward smoke）
+# runner（单步前向冒烟测试）
 python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
   --route-dir /data/lead_data/data/Accident/Town03_... \
   --anchor 12 \
@@ -133,7 +134,7 @@ python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit_sftv1/latest.pt
 ```
 
-Outputs:
+输出：
 
 ```text
 checkpoints/goalgen_v1_dit/latest.pt
@@ -143,21 +144,21 @@ checkpoints/goalgen_v1_dit/tb/                # TensorBoard event 文件
 
 ## 2.1 TensorBoard
 
-Training writes scalars and image samples to `OUTPUT_DIR/tb/` (rank 0 only). Open
-it on the remote machine, then port-forward to your laptop:
+训练时只在 0 号进程写标量与图像样例到 `OUTPUT_DIR/tb/`。先在远端起 TensorBoard
+服务，再把端口转发到本机：
 
 ```bash
-# 远程：起 tb server，绑 0.0.0.0 让本地能连
+# 远程：起 TensorBoard 服务，绑定 0.0.0.0 让本地能连
 tensorboard --logdir checkpoints/goalgen_v1_dit/tb --port 6006 --bind_all
-# 本地：ssh port forward
+# 本地：SSH 端口转发
 ssh -L 6006:localhost:6006 user@remote
 # 浏览器打开 http://localhost:6006
 ```
 
 ### 端口冲突自适应
 
-TensorBoard 默认不会自动避让端口（`--port 6006` 占用直接报 `Address already in
-use` 退出）。多个用户共用同一台机器或重启留有僵尸 tb 进程时建议用下面两种方案
+TensorBoard 默认不会自动避让端口（`--port 6006` 占用会直接报 `Address already in
+use` 并退出）。多个用户共用同一台机器或重启后留有旧进程时，建议用下面两种方案
 之一：
 
 **方案 A：让 OS 分配空闲端口**
@@ -167,8 +168,8 @@ use` 退出）。多个用户共用同一台机器或重启留有僵尸 tb 进�
 tensorboard --logdir checkpoints/goalgen_v1_dit/tb --port 0 --bind_all
 ```
 
-读出来的 N 同样可以 `ssh -L N:localhost:N`。缺点：tb 没起来之前你不知道端口号，
-适合人工跟 tb stdout 时用。
+读出来的 N 同样可以 `ssh -L N:localhost:N`。缺点：服务没起来之前你不知道端口号，
+适合人工盯启动输出时用。
 
 **方案 B：脚本里先探空闲端口**
 
@@ -177,46 +178,46 @@ tensorboard --logdir checkpoints/goalgen_v1_dit/tb --port 0 --bind_all
 TB_PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
 echo "[tb] picked port ${TB_PORT}"
 tensorboard --logdir checkpoints/goalgen_v1_dit/tb --port "${TB_PORT}" --bind_all &
-# 本地用同一个端口 ssh forward
+# 本地用同一个端口做 SSH 转发
 ssh -L "${TB_PORT}:localhost:${TB_PORT}" user@remote
 ```
 
-这种方式 tb 起之前端口就确定了，适合后台 `&` 跑 + 远程自动化脚本。注意 Python 探完
+这种方式在服务启动前端口就确定了，适合后台 `&` 跑 + 远程自动化脚本。注意 Python 探完
 端口到 tb 实际 bind 之间有几毫秒窗口可能被别的进程抢，**生产场景**直接重跑一次
 即可（再次探出的端口几乎肯定不同）。
 
-Tags:
+标签含义：
 
-| Tag | Meaning |
+| Tag | 含义 |
 |---|---|
-| `train/loss` | flow matching MSE on `v_pred - v_target`，越低越好 |
+| `train/loss` | 流匹配均方误差，对比 `v_pred` 与 `v_target`，越低越好 |
 | `train/cos` | `cosine_similarity(v_pred, v_target)`，越接近 1 越好（健康训练 ~0.5+） |
 | `train/lr` | 当前学习率（cosine 调度后的值） |
 | `diag/grad_norm` | clip 前的全梯度范数；正常应稳定在 1–10，持续上涨说明在炸 |
 | `diag/kv_seq_len` | 每条样本 Qwen prefill 后 token 数，监控 prompt 是否异常变长 |
-| `val/loss` | 在 val 子集（默认前 64 条）上同样口径的 loss |
+| `val/loss` | 在验证子集（默认前 64 条）上同样口径的损失 |
 | `val/cos` | val 子集 velocity 余弦 |
-| `samples/pred_vs_gt` | 每 `IMAGE_LOG_EVERY` 步生成的 pred / gt 并排图，依次：pred₀, gt₀, pred₁, gt₁, … |
+| `samples/pred_vs_gt` | 每 `IMAGE_LOG_EVERY` 步生成的预测 / 真值并排图，依次：pred₀, gt₀, pred₁, gt₁, … |
 
 控制开销：
 
 ```bash
-# 仅保留标量曲线，关掉 image sample（每次约 32 步 euler，含 VAE decode）
+# 仅保留标量曲线，关掉图像样例（每次约 32 步 Euler，含 VAE 解码）
 IMAGE_LOG_EVERY=0 bash qwen3vl_local/goalgen/train_v1.sh ddp
 
-# val / image 频率可分别调
+# 验证 / 图像频率可分别调
 VAL_STEPS=200 IMAGE_LOG_EVERY=1000 bash qwen3vl_local/goalgen/train_v1.sh ddp
 
-# 完全关闭 tb（仅 stdout 日志，用于 check 模式快速跑 2 step）
-bash qwen3vl_local/goalgen/train_v1.sh check  # check 模式默认仍写 tb，需要时手动加 --no-tb
+# 完全关闭 TensorBoard（仅保留 stdout 日志，用于 check 模式快速跑 2 步）
+bash qwen3vl_local/goalgen/train_v1.sh check  # check 模式默认仍写 TensorBoard，需要时手动加 --no-tb
 ```
 
-DDP 下 tb writer 只在 rank 0 起，其它 rank 不写文件；val / image sample 同样
-只在 rank 0 跑（用 DDP 解包后的裸 DiT），不参与 all-reduce。
+DDP 下 TensorBoard 写入器只在 0 号进程启动，其它进程不写文件；验证 / 图像样例同样
+只在 0 号进程跑（用 DDP 解包后的裸 DiT），不参与跨卡归约。
 
-## 3. Forward Smoke
+## 3. 单条前向冒烟测试
 
-The old single-step runner is still useful for inspecting one route:
+老的单步 runner 用来检查单条 route 仍然有用：
 
 ```bash
 python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
@@ -228,20 +229,19 @@ python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
   --save-root eval_json/qwen3vl_dit_goalgen
 ```
 
-To inspect a trained DiT instead of a random initialized model, add:
+如果要喂训练好的 DiT 而不是随机初始化的，加上：
 
 ```bash
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt
 ```
 
-The runner validates `STATUS/SUBGOAL`, requires `target_frame > anchor`, and
-feeds all history latents to DiT, matching the training interface. Dataset
-training should still use `build_dataset_v1.py`.
+runner 会校验 `STATUS/SUBGOAL`、强制要求 `target_frame > anchor`，并且把所有
+历史潜变量喂给 DiT（和训练接口一致）。**数据集训练仍走 `build_dataset_v1.py`**。
 
-## 3.5 离线 Eval
+## 3.5 离线评测
 
-`eval_v1.py` 跑 `val.jsonl`，对每条样本：teacher-forced Qwen prefill → VAE encode →
-Euler 采样 → VAE decode，输出四个指标和图像并排。
+`eval_v1.py` 跑 `val.jsonl`，对每条样本执行：teacher-forced Qwen 预填充 → VAE 编码 →
+Euler 采样 → VAE 解码，输出四个指标和图像并排。
 
 ```bash
 python qwen3vl_local/goalgen/eval_v1.py \
@@ -257,7 +257,7 @@ python qwen3vl_local/goalgen/eval_v1.py \
 
 | 指标 | 含义 | 期望方向 |
 |---|---|---|
-| `latent_mse` | `MSE(z1_pred, z1_gt)`，与训练 loss 同口径但对 z 而非 v | 越低越好 |
+| `latent_mse` | `MSE(z1_pred, z1_gt)`，与训练损失同口径但对 z 而非 v | 越低越好 |
 | `latent_cos` | `cosine(z1_pred, z1_gt)` | 越接近 1 越好 |
 | `pixel_l1` / `psnr` | VAE.decode 后 [-1,1] RGB 的 L1 与 PSNR | l1 越低 / psnr 越高 |
 | `velocity_cos` | 5 个 t 点 (0.1/0.3/0.5/0.7/0.9) v 余弦平均 | 训练健康性，与 train/cos 同口径 |
@@ -271,76 +271,77 @@ eval_json/goalgen_v1/samples/00000_pred.png  # 前 image-dump-count 条 pred / g
 eval_json/goalgen_v1/samples/00000_gt.png
 ```
 
-`pixel_l1 / psnr` 是直接对比 VAE.decode 后的 RGB；地板取决于 VAE 重建质量本身，
-所以光看绝对值意义有限——做"base ckpt vs 训练后 ckpt"或"step-200 vs step-1000"
+`pixel_l1 / psnr` 是直接对比 VAE 解码后的 RGB；下限取决于 VAE 重建质量本身，
+所以光看绝对值意义有限——做"基础检查点 vs 训练后检查点"或"step-200 vs step-1000"
 横向对比时 delta 才有意义。
 
-## 4. Troubleshooting
+## 4. 排障
 
-| Symptom | Likely cause | Fix |
+| 现象 | 可能原因 | 修复 |
 |---|---|---|
-| `keyframes json not found` | Wrong remote path | Use `/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json` |
-| `RGB image not found` | `--data-root` does not match LEAD data | Use `/data/lead_data/data` or the actual mounted path |
-| Qwen prefill OOM | Too many frames / large KV | Use fewer GPUs per process only if needed; otherwise keep `num_frames=4` and use H20-class GPUs |
-| DDP port conflict | Existing `MASTER_PORT` is occupied | Launcher auto-selects a port unless `GOALGEN_RESPECT_MASTER_PORT=1` |
-| Slow training | Qwen prefill and VAE encode run per sample | This is expected for v1; later versions can cache segmented KV/latents |
-| Qwen/DiT OOM after switching to full KV ablation | `QWEN_KV_SEGMENT_MODE=concat_layers` keeps 3 Qwen layers per DiT block (3x language tokens) | Drop back to default `QWEN_KV_SEGMENT_MODE=select_last`; use `mean` only for old ablation. |
-| `target_frame must be in the future` | Manual `--target-frame` or keyframes event is <= `--anchor` | Choose a later anchor target, or let the dataset builder select valid anchors. |
-| `SUBGOAL ... does not match STATUS` | CLI override violates the scenario event chain | Use STATUS only; runner derives the next SUBGOAL automatically. |
-| `language KV batch ... != vision batch ...` | DDP rank received KV from a different sample | Make sure each sample has its own `teacher_forced_prefill`; do not stack different samples' KV. |
-| `pooled_kv segments X != DiT layers Y` | `--num-layers` and `num_segments` drifted apart | Keep `--num-layers` (trainer) and the segmenter's `num_segments` (qwen_kv.py default 12) equal. |
-| `RuntimeError: shape mismatch` inside JointAttention | Hardcoded `language_kv_input_dim` no longer matches base model's `n_kv_heads * head_dim` | Use `--language-kv-input-dim auto` (default); trainer infers it from the first sample's segmented KV. |
+| 关键帧 JSON 不存在 | 远端路径错了 | 使用 `/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json` |
+| RGB 图像不存在 | `--data-root` 与 LEAD 数据不匹配 | 使用 `/data/lead_data/data` 或实际挂载路径 |
+| Qwen 预填充显存溢出 | 历史帧太多 / KV 太大 | 必要时减少每进程占用，否则保持 `num_frames=4`、用 H20 级 GPU |
+| DDP 端口冲突 | 已有 `MASTER_PORT` 被占 | launcher 默认自动选端口；如需保留固定端口设 `GOALGEN_RESPECT_MASTER_PORT=1` |
+| 训练慢 | Qwen 预填充与 VAE 编码每个样本都重算 | v1 已知瓶颈；后续版本将缓存分段 KV / 潜变量 |
+| 切到完整 KV 消融后显存溢出 | `QWEN_KV_SEGMENT_MODE=concat_layers` 让每个 DiT 层包含 3 层 Qwen（语言 token 3 倍） | 回到默认 `QWEN_KV_SEGMENT_MODE=select_last`；`mean` 仅作旧消融 |
+| `target_frame must be in the future` | 手动 `--target-frame` 或 keyframes 事件 <= `--anchor` | 选更晚的目标帧，或让数据构建器自动选合法锚点 |
+| `SUBGOAL ... does not match STATUS` | CLI 覆盖打破了 scenario 事件链 | 只指定 STATUS，让 runner 自己推下一个 SUBGOAL |
+| `language KV batch ... != vision batch ...` | DDP 进程拿到的 KV 来自别的样本 | 保证每个样本各自走 `teacher_forced_prefill`；不要堆别人样本的 KV |
+| `pooled_kv segments X != DiT layers Y` | `--num-layers` 与 `num_segments` 漂移 | 保持 `--num-layers`（训练器）与分段函数的 `num_segments`（qwen_kv.py 默认 12）一致 |
+| JointAttention 内部 `RuntimeError: shape mismatch` | 硬编码的 `language_kv_input_dim` 与基础模型 `n_kv_heads * head_dim` 不一致 | 使用 `--language-kv-input-dim auto`（默认），让训练器从第一条样本的分段 KV 推断 |
 
-## 5. Shape Defaults
+## 5. 默认形状
 
-These values are the contract between `build_dataset_v1.py`, `train_v1.py`,
-and `qwen3vl_dit_goalgen_runner.py`. **If you change one of them, update both
-this file and `GOALGEN_V1_PLAN.md`.**
+下列默认值是 `build_dataset_v1.py`、`train_v1.py`、
+`qwen3vl_dit_goalgen_runner.py` 三方共同遵守的契约。**任何一个改动都必须同步
+更新本文件与 `GOALGEN_V1_PLAN.md`**。
 
-| Param | Default | Effect when changed |
+| 参数 | 默认值 | 修改后影响 |
 |---|---|---|
-| LEAD stitched RGB | 1152x384 | Hard-coded by data; do not change without re-stitching. |
-| VAE latent | [B, 4, 48, 144] | Derived from RGB via /8 downsample. |
-| `--patch-size 2` | grid (24, 72) = 1728 token / latent | Use 4 to cut tokens 4x; lower fidelity. |
-| `--hidden-dim 768` | 768 / head_dim 64 | Must be divisible by `--n-heads`. |
-| `--n-heads 12` | head_dim = 64 | Must divide `--hidden-dim`. |
-| `--num-layers 12` | == KV segments | Must equal `segment_kv_for_dit(num_segments=...)`. Default 12. |
-| `--mlp-ratio 4.0` | MLP hidden = 768 * 4 | DiT-XL convention. |
-| `--cond-dim 256` | Timestep embedding dim | Affects per-layer AdaLN modulation size. |
-| `--max-history-frames 8` | Allows builder-default 4 history latents plus room for longer clips | Must be >= `len(history_rgb_paths)` in the jsonl. |
-| `--qwen-kv-segment-mode select_last` | Each segment is the last Qwen layer of its 3-layer group; token-level K/V `[B, 8, S, 128]`. Default. | Switch to `concat_layers` only for ablation (3x language tokens, much heavier). |
-| `--dit-checkpoint` | Optional path to `latest.pt` or `checkpoint-*/goalgen_v1.pt` | Omit only for structure smoke tests with random DiT weights. |
-| `--language-kv-input-dim auto` | Inferred from `n_kv_heads * head_dim` of segmented KV (Qwen3-VL-4B-Instruct = 1024) | Set to a fixed int only if you know the base model's KV shape and want to skip the auto probe. |
+| LEAD 拼接 RGB | 1152x384 | 由数据决定，不重新拼图就不要改 |
+| VAE latent | [B, 4, 48, 144] | 来自 RGB / 8 下采样 |
+| `--patch-size 2` | 网格 (24, 72) = 每个潜变量 1728 个 token | 改 4 会让 token 数减 4 倍，细节精度下降 |
+| `--hidden-dim 768` | 隐藏维度 768 / 每头维度 64 | 必须能整除 `--n-heads` |
+| `--n-heads 12` | 每头维度 = 64 | 必须整除 `--hidden-dim` |
+| `--num-layers 12` | 等于 KV 段数 | 必须等于 `segment_kv_for_dit(num_segments=...)`，默认 12 |
+| `--mlp-ratio 4.0` | MLP 隐藏维度 = 768 * 4 | DiT-XL 常用约定 |
+| `--cond-dim 256` | 时间步嵌入维度 | 影响每层 AdaLN 调制向量的输出大小 |
+| `--max-history-frames 8` | 容纳数据构建器默认 4 帧历史，余量给更长片段 | 必须 >= jsonl 中 `len(history_rgb_paths)` |
+| `--qwen-kv-segment-mode select_last` | 每段取 3 层 Qwen 中的最后一层；token-level K/V `[B, 8, S, 128]`，默认 | 只在做消融时切到 `concat_layers`（语言 token 3 倍，明显更重） |
+| `--dit-checkpoint` | 可选，传 `latest.pt` 或 `checkpoint-*/goalgen_v1.pt` | 只有做随机初始化结构冒烟测试时才省略 |
+| `--language-kv-input-dim auto` | 从分段 KV 的 `n_kv_heads * head_dim` 推断（Qwen3-VL-4B-Instruct = 1024） | 只有在你确知 base 模型 KV shape 且想跳过 auto probe 时才传定值 |
 
-## 6. Memory Expectations (training, batch=1, bf16 DiT)
+## 6. 显存预期（训练，batch=1，DiT 用 bfloat16）
 
-Per rank on H20 96GB:
+H20 96GB 上每个进程：
 
-- Qwen 4B (bf16) ~8 GB
-- VAE (fp32) ~0.4 GB
-- Segmented KV with `select_last` (12 segments, bf16) ~1 GB
-- DiT + activations + backward + AdamW: higher than old single-frame latent path because DiT now sees all history latents
+- Qwen 4B（bfloat16）约 8 GB
+- VAE（float32）约 0.4 GB
+- 分段 KV（`select_last`，12 段，bfloat16）约 1 GB
+- DiT 权重 + 激活 + 反传 + AdamW：比老的单帧潜变量路径要大，因为现在 DiT
+  会看到所有历史潜变量
 
-If this OOMs under default `select_last`, reduce `HIDDEN_DIM` or history frames.
-Switching to `concat_layers` will triple language tokens per block, so only use
-it for ablation. DDP replicates Qwen + VAE on every rank, so v2 should
-offline-cache segmented KV + latents to remove this duplication.
+如果默认 `select_last` 下都显存溢出，可以减小 `HIDDEN_DIM` 或者减少历史帧数。切到
+`concat_layers` 会把每个 DiT 层的语言 token 数翻 3 倍，**只用于消融实验**。
+DDP 下每个进程都重复加载一份 Qwen + VAE，所以 v2 必须把分段 KV + 潜变量
+**离线缓存**，消除这种复制开销。
 
-## 7. Forward Smoke vs Training Smoke
+## 7. 前向冒烟测试与训练冒烟测试
 
-Two different sanity entry points:
+这是两个**不同**的最小验证入口：
 
-| Entry | Purpose |
+| 入口 | 用途 |
 |---|---|
-| `qwen3vl_dit_goalgen_runner.py` | One-shot forward on a specific LEAD route. STATUS/SUBGOAL are validated against the scenario chain. Use for inspecting one sample's shapes, `step.json`, and optional trained DiT checkpoint behavior. |
-| `train_v1.sh check` | Two optimizer steps on the actual jsonl. Verifies that backward + DDP + optimizer step all wire up. Use before launching a full DDP run. |
+| `qwen3vl_dit_goalgen_runner.py` | 在某条 LEAD route 上跑一次前向。STATUS/SUBGOAL 会按场景链做校验。用于检查一条样本的形状、`step.json` 以及可选 DiT 检查点的行为。 |
+| `train_v1.sh check` | 在真实 jsonl 上跑 2 个优化器步。验证反传 + DDP + 优化器更新全链路正常。**全量 DDP 跑之前必跑**。 |
 
-Always run `check` before `single` / `ddp`.
+跑 `single` / `ddp` 之前**永远先跑** `check`。
 
-## 8. What v1 does NOT do
+## 8. v1 不做的事
 
-- No multi-step Euler sampling at training time; loss is computed at a single random `t`.
-- No EMA / CFG / latent caching.
-- No image-decode evaluation; metric = loss + velocity cosine only.
+- 训练阶段**不**跑多步 Euler 采样；损失只在单个随机 `t` 上计算。
+- 不上 EMA / CFG / latent caching。
+- 不做图像解码评测；指标只看损失 + 速度余弦。
 
-See `GOALGEN_V1_PLAN.md` "v1 / v2 Boundary" for the full list.
+完整边界见 `GOALGEN_V1_PLAN.md` 的 "v1 / v2 边界" 一节。

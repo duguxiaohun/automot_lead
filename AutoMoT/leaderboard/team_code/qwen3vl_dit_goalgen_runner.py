@@ -5,10 +5,11 @@
   1. 读取历史 + 当前 RGB（复用 image_io.load_lead_rgb_clip）。
   2. teacher-forced 调用本地 Qwen3-VL-Instruct，只做 prefill，切成 DiT 层级 KV。
   3. 用冻结 VAE 把"历史帧 + 子目标关键帧"编到 latent。
-  4. flow matching 采样 (z_t, t, v_target)，跑一次 DiT-MoT forward。
-  5. 输出 step.json：prompt、Qwen KV summary、segmented KV summary、DiT 输入/输出 shape、loss。
+  4. 流匹配采样 (z_t, t, v_target)，跑一次 DiT-MoT 前向。
+  5. 输出 step.json：提示词、Qwen KV 摘要、分段 KV 摘要、DiT 输入/输出形状、损失。
 
-这是 forward + loss 单步入口，不是完整训练循环；训练脚本未来再单独写。
+这是前向 + 损失的单步入口，不是完整训练循环；真正训练请走
+`qwen3vl_local/goalgen/train_v1.py` 或 `train_v1.sh`。
 """
 
 from __future__ import annotations
@@ -72,7 +73,7 @@ from qwen3vl_local.goalgen.vae import FrozenVAE, default_vae_paths  # noqa: E402
 def _prepare_images(args: argparse.Namespace) -> Tuple[str, str, List[Any]]:
     """读取历史 + 当前 RGB。返回 (scenario, run_id, model_input_images)。
 
-    没有 route_dir 时退回合成图，run_id 留空（后续找不到 keyframe，就只跑 forward）。
+    没有 route_dir 时退回合成图，run_id 留空（后续找不到关键帧，就只跑前向）。
     """
 
     scenario = args.scenario
@@ -86,7 +87,7 @@ def _prepare_images(args: argparse.Namespace) -> Tuple[str, str, List[Any]]:
         )
         auto_scenario = auto_detect_scenario_from_route(args.route_dir)
         if auto_scenario and auto_scenario != scenario:
-            print(f"[scenario] auto-detected '{auto_scenario}', overriding '{scenario}'")
+            print(f"[scenario] 自动识别到 '{auto_scenario}'，覆盖命令行里的 '{scenario}'")
             scenario = auto_scenario
         run_id = args.run_id or infer_run_id_from_route(args.route_dir)
     else:
@@ -122,38 +123,38 @@ def _resolve_target_keyframe(
     if frame is None:
         print(
             f"[keyframes] miss: scenario={scenario} run_id={run_id} event={subgoal_event}; "
-            "将跳过 loss 仅做 forward"
+            "将跳过损失计算，仅做前向"
         )
     return frame
 
 
 def _apply_memory_overrides(memory: DrivingMemory, args: argparse.Namespace) -> None:
-    """Apply CLI STATUS/SUBGOAL overrides and keep the state-machine contract strict."""
+    """应用命令行里的 STATUS/SUBGOAL 覆盖，并严格保持状态机契约。"""
 
     if args.status:
         if args.status not in memory.event_sequence:
             raise ValueError(
-                f"invalid STATUS '{args.status}' for {memory.scenario}; "
-                f"valid events={memory.event_sequence}"
+                f"对场景 {memory.scenario} 来说，STATUS '{args.status}' 不合法；"
+                f"合法事件={memory.event_sequence}"
             )
         memory.status = args.status
 
     expected_subgoal = memory._next_event_after(memory.status)
     if expected_subgoal is None:
         raise ValueError(
-            f"STATUS '{memory.status}' has no future subgoal in {memory.event_sequence}"
+            f"STATUS '{memory.status}' 在事件链 {memory.event_sequence} 中没有后续子目标"
         )
 
     if args.subgoal:
         if args.subgoal not in memory.event_sequence:
             raise ValueError(
-                f"invalid SUBGOAL '{args.subgoal}' for {memory.scenario}; "
-                f"valid events={memory.event_sequence}"
+                f"对场景 {memory.scenario} 来说，SUBGOAL '{args.subgoal}' 不合法；"
+                f"合法事件={memory.event_sequence}"
             )
         if args.subgoal != expected_subgoal:
             raise ValueError(
-                f"SUBGOAL '{args.subgoal}' does not match STATUS '{memory.status}'. "
-                f"Expected next event: '{expected_subgoal}'."
+                f"SUBGOAL '{args.subgoal}' 与 STATUS '{memory.status}' 不匹配。"
+                f"期望的下一个事件是：'{expected_subgoal}'。"
             )
         memory.subgoal = args.subgoal
     else:
@@ -170,7 +171,7 @@ def _build_dit(
 
     优先级（高 → 低）：
     1. ckpt payload 里的 dit_config —— 保证"训练时用什么配置，推理就用什么"，
-       即使 CLI 默认值在代码迭代中漂了也不会撞 shape mismatch。
+       即使命令行默认值在代码迭代中漂了，也不会撞到形状不匹配。
     2. CLI 显式覆盖（patch_size/hidden_dim/n_heads/mlp_ratio/cond_dim/max_history_frames）。
        不显式传时不覆盖。
     3. language_kv_input_dim **永远**从当前 pooled_kv 推 —— 这是运行时事实
@@ -184,20 +185,20 @@ def _build_dit(
     if args.dit_checkpoint:
         ckpt_path = pathlib.Path(args.dit_checkpoint).resolve()
         # 先读 payload 以便从中拿 dit_config 反建模型；map_location=device 防止
-        # 拉到 cuda:0 撞别人占用，让 ckpt 直接落到当前 rank 卡上。
+        # 拉到 cuda:0 撞别人占用，让检查点直接落到当前进程使用的卡上。
         payload = torch.load(ckpt_path, map_location=device)
         saved_cfg_dict = payload.get("dit_config") if isinstance(payload, dict) else None
         # train_v1.save_checkpoint 把 vars(args) 整个存进 payload["args"]，里面包含
         # qwen_adapter_dir / qwen_adapter_merge，用于 Qwen 条件分布一致性校验。
         saved_args_dict = payload.get("args") if isinstance(payload, dict) else None
 
-    # ---- Qwen adapter 一致性校验 ----
-    # 静默风险：DiT 是用 LoRA-Qwen KV 训练的，但推理忘传 --qwen-adapter-dir，shape 完全
+    # ---- Qwen 适配器一致性校验 ----
+    # 静默风险：DiT 是用 LoRA-Qwen KV 训练的，但推理忘传 --qwen-adapter-dir，形状完全
     # 一致 strict load 也不报错，但 KV 数值分布漂掉，DiT 在错的语言条件下生成。
-    # 默认严格 raise；ablation 想故意跨 adapter 对比时传 --allow-qwen-adapter-mismatch。
+    # 默认严格抛错；消融实验想故意跨适配器对比时传 --allow-qwen-adapter-mismatch。
     if saved_args_dict is not None and args.dit_checkpoint:
         def _resolve_adapter(s: str) -> str:
-            # 空串保持空（base Qwen）；非空 resolve 到绝对路径让"相对 vs 绝对"也能匹配。
+            # 空串保持空（基础 Qwen）；非空 resolve 到绝对路径让"相对 vs 绝对"也能匹配。
             return str(pathlib.Path(s).resolve()) if s else ""
 
         saved_adapter = _resolve_adapter(saved_args_dict.get("qwen_adapter_dir", "") or "")
@@ -211,20 +212,20 @@ def _build_dit(
                 f"当前推理 qwen_adapter_dir='{current_adapter or '<base>'}'，不一致会导致 KV "
                 f"分布漂移，DiT 输出无意义。"
                 f" 解决：把 --qwen-adapter-dir 改成训练时同款；"
-                f"故意 ablation 时传 --allow-qwen-adapter-mismatch。"
+                f"故意做消融时传 --allow-qwen-adapter-mismatch。"
             )
             if not args.allow_qwen_adapter_mismatch:
                 raise RuntimeError(msg)
             print(f"[dit] WARN: {msg}")
         elif saved_adapter and saved_merge != current_merge:
-            # merge=True/False 数学上等价（LoRA delta 加进 base），数值差异在 fp 精度量级；
-            # 不阻断训练，只 info 提醒。
+            # merge=True/False 数学上等价（LoRA delta 加进基础权重），数值差异在浮点精度量级；
+            # 不阻断训练，只输出提示。
             print(
-                f"[dit] info: qwen_adapter_merge 训练={saved_merge} 推理={current_merge}（数学等价，仅 fp 精度差异）"
+                f"[dit] 提示：qwen_adapter_merge 训练={saved_merge} 推理={current_merge}（数学等价，仅浮点精度差异）"
             )
         else:
             print(
-                f"[dit] qwen_adapter consistency OK: "
+                f"[dit] qwen_adapter 一致性检查通过："
                 f"adapter='{current_adapter or '<base>'}' merge={current_merge}"
             )
 
@@ -244,7 +245,7 @@ def _build_dit(
     if saved_cfg_dict is not None:
         # 先做形状预检：ckpt 训练时 num_layers / language_kv_input_dim 与现在运行时
         # 推出来的值不一致 → strict=True load 必然炸 attention 投影矩阵，但报错堆栈
-        # 在 SDPA / Linear shape mismatch 底层不好定位。这里提前断言给出双数字 + 原因
+        # 在 SDPA / Linear 的形状不匹配底层不好定位。这里提前断言给出双数字 + 原因
         # 提示，比 load_state_dict 的原始报错可读得多。
         saved_layers = saved_cfg_dict.get("num_layers")
         saved_lang_dim = saved_cfg_dict.get("language_kv_input_dim")
@@ -271,24 +272,24 @@ def _build_dit(
         # ckpt 没存 latent_channels 时（旧 ckpt）保留 CLI 默认值。
         merged.setdefault("latent_channels", cli_kwargs["latent_channels"])
         cfg = DiTMoTConfig(**merged)
-        print(f"[dit] config rebuilt from ckpt dit_config: {ckpt_path}")
+        print(f"[dit] 已从检查点 dit_config 重建配置：{ckpt_path}")
     else:
         cfg = DiTMoTConfig(**cli_kwargs)
         if args.dit_checkpoint:
-            # 旧 ckpt（只存 state_dict 没存 cfg）警告：strict load 可能撞 shape，给个提示。
-            print(f"[dit] WARN: ckpt has no dit_config, falling back to CLI args. "
-                  f"shape mismatch on load is possible if training used non-default geometry.")
+            # 旧检查点（只存 state_dict 没存 cfg）警告：strict load 可能撞形状，给个提示。
+            print(f"[dit] 警告：检查点里没有 dit_config，将退回命令行参数。"
+                  f"如果训练时用了非默认几何配置，加载时可能形状不匹配。")
 
     model = DiTMoT(cfg).to(device=device, dtype=dtype)
 
     if payload is not None:
-        # payload 既可能是 {"dit_state_dict": ..., ...}（trainer 落盘格式），也可能是裸 state_dict
-        # （早期手工 save）；做兼容兜底。
+        # payload 既可能是 {"dit_state_dict": ..., ...}（训练器落盘格式），也可能是裸 state_dict
+        # （早期手工保存）；做兼容兜底。
         state_dict = payload.get("dit_state_dict", payload) if isinstance(payload, dict) else payload
         model.load_state_dict(state_dict, strict=True)
-        print(f"[dit] loaded checkpoint: {pathlib.Path(args.dit_checkpoint).resolve()}")
+        print(f"[dit] 已加载检查点：{pathlib.Path(args.dit_checkpoint).resolve()}")
     else:
-        print("[dit] no --dit-checkpoint provided; using randomly initialized DiT")
+        print("[dit] 未提供 --dit-checkpoint；使用随机初始化的 DiT")
 
     print(
         f"[dit] hidden={cfg.hidden_dim} heads={cfg.n_heads} layers={cfg.num_layers} "
@@ -303,7 +304,7 @@ def _build_dit(
 
 
 def run_once(args: argparse.Namespace) -> None:
-    """单次 forward + loss 入口。整体串五步：图 → Qwen → VAE → DiT → 落盘。"""
+    """单次前向 + 损失入口。整体串五步：图 → Qwen → VAE → DiT → 落盘。"""
 
     # step_000000 命名留给未来的多 step / 训练 loop；当前 runner 永远只写一个目录。
     save_root = pathlib.Path(args.save_root).resolve() if args.save_root else _DEFAULT_OUTPUT_ROOT
@@ -327,7 +328,7 @@ def run_once(args: argparse.Namespace) -> None:
             derived_status = kf_index.find_status_for_anchor(scenario, run_id, args.anchor)
             if derived_status:
                 memory.status = derived_status
-                # subgoal 同步推到下一个事件，与 builder 行为对齐。
+                # subgoal 同步推到下一个事件，与数据构建器行为对齐。
                 next_ev = memory._next_event_after(memory.status)
                 if next_ev:
                     memory.subgoal = next_ev
@@ -399,13 +400,13 @@ def run_once(args: argparse.Namespace) -> None:
     )
     # images 是 oldest->newest 排序；DiT 直接看整段历史 latent，最后一帧是当前 anchor。
     z_history = vae.encode(images).unsqueeze(0)
-    print(f"[vae] z_history shape={tuple(z_history.shape)} dtype={z_history.dtype}")
+    print(f"[vae] z_history 形状={tuple(z_history.shape)} dtype={z_history.dtype}")
 
     # 目标真值：从 keyframes_all_scenarios.json 查 subgoal 对应帧；找不到 -> None。
     target_frame = _resolve_target_keyframe(args, scenario, run_id, memory.subgoal)
     if target_frame is not None and target_frame <= args.anchor:
         raise ValueError(
-            f"target_frame must be in the future: target_frame={target_frame} <= anchor={args.anchor}"
+            f"target_frame 必须在未来：target_frame={target_frame} <= anchor={args.anchor}"
         )
     z_target: Optional[torch.Tensor] = None
     target_meta: Dict[str, Any] = {"subgoal_event": memory.subgoal, "frame_idx": target_frame}
@@ -416,20 +417,20 @@ def run_once(args: argparse.Namespace) -> None:
             keyframe_img = load_keyframe_rgb(args.route_dir, target_frame)
             z_target = vae.encode([keyframe_img])
             target_meta["latent_shape"] = list(z_target.shape)
-            print(f"[vae] z_target frame={target_frame} shape={tuple(z_target.shape)}")
+            print(f"[vae] z_target 帧={target_frame} 形状={tuple(z_target.shape)}")
         except Exception as e:
             # 单条样本失败不应该崩溃整个 runner；记录到 target_meta 后继续走 fallback。
-            print(f"[vae] failed to load target keyframe: {e}")
+            print(f"[vae] 读取目标关键帧失败：{e}")
             target_meta["error"] = str(e)
 
-    # 4) DiT 构造 + 一次 forward。
+    # 4) DiT 构造 + 一次前向。
     # DiT 的 num_layers 由 KV 段数决定（与 args.num_layers 强一致），
     # language_kv_input_dim 也从第 0 段动态推断，避免 hardcode 1024。
     dit_dtype_map = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}
     dit_dtype = dit_dtype_map.get(args.dit_dtype, torch.float32)
     dit = _build_dit(prefill.pooled_kv, args, device=engine.device, dtype=dit_dtype)
 
-    # 把所有 vision 张量与 language KV 统一到 dit_dtype，避免 attention 内部 mix dtype
+    # 把所有视觉张量与语言 KV 统一到 dit_dtype，避免 attention 内部混合 dtype
     # 报 RuntimeError。Qwen prefill 默认 bf16，DiT 默认 fp32，必须在这里桥接。
     z_history_in = z_history.to(dtype=dit_dtype)
     pooled_kv_in = [
@@ -440,21 +441,21 @@ def run_once(args: argparse.Namespace) -> None:
     if z_target is not None:
         z1 = z_target.to(dtype=dit_dtype)
     else:
-        # fallback：没有真值时随机一个 z1 做形状/数值通路验证。
-        # loss 数字在这条路径下**不可信**，只能用来判断 forward 是否能跑通。
+        # 兜底：没有真值时随机一个 z1 做形状/数值通路验证。
+        # 损失数字在这条路径下**不可信**，只能用来判断前向是否能跑通。
         z1 = torch.randn_like(z_history_in[:, -1])
-        target_meta.setdefault("note", "no real target keyframe; loss is a smoke-test number only")
+        target_meta.setdefault("note", "没有真实目标关键帧；损失只是冒烟测试数字")
 
     # flow matching 采 (z_t, z0, t, v_target)。每次调用 t 和 z0 都重新随机，所以
-    # 跑两次 runner 看到的 loss 数值会不同，这是正常的。
+    # 跑两次 runner 看到的损失数值会不同，这是正常的。
     batch = sample_flow_batch(z1=z1)
-    # DiT 一次 forward：vision 流 = (z_t, z_history)，language 流 = pooled_kv_in。
+    # DiT 一次前向：视觉流 = (z_t, z_history)，语言流 = pooled_kv_in。
     dit.eval()
     with torch.no_grad():
         v_pred = dit(batch.z_t, z_history_in, batch.t, pooled_kv_in)
-    # loss 是单 scalar；当前 runner 不反传，只看数值是否合理。
+    # 损失是单个标量；当前 runner 不反传，只看数值是否合理。
     loss = flow_matching_loss(v_pred, batch.v_target)
-    print(f"[dit] v_pred shape={tuple(v_pred.shape)} loss={float(loss):.6f}")
+    print(f"[dit] v_pred 形状={tuple(v_pred.shape)} 损失={float(loss):.6f}")
 
     # 5) 落盘 step.json。
     record = {
@@ -466,8 +467,8 @@ def run_once(args: argparse.Namespace) -> None:
         "status_description": EVENT_DESCRIPTIONS.get(memory.status, memory.status),
         "subgoal_description": EVENT_DESCRIPTIONS.get(memory.subgoal, memory.subgoal),
         "checkpoint_dir": str(engine.checkpoint_dir),
-        # adapter 信息：未传时 dir 为空字符串、attached=False。base 与 LoRA 实验对比时
-        # 这两个字段是 step.json 里最关键的可追溯线索（KV / loss 差异都跟它强相关）。
+        # 适配器信息：未传时 dir 为空字符串、attached=False。基础模型与 LoRA 实验对比时
+        # 这两个字段是 step.json 里最关键的可追溯线索（KV / 损失差异都跟它强相关）。
         "qwen_adapter": {
             "dir": args.qwen_adapter_dir or "",
             "attached": bool(args.qwen_adapter_dir),
@@ -512,20 +513,20 @@ def run_once(args: argparse.Namespace) -> None:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Teacher-forced Qwen3-VL → DiT-MoT → flow matching runner")
+    p = argparse.ArgumentParser(description="真值强制 Qwen3-VL → DiT-MoT → 流匹配单步 runner")
     # Qwen / engine
     p.add_argument("--checkpoint-dir", type=str, default=str(_CHECKPOINT_DIR))
     p.add_argument("--device", default="auto")
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32", "auto"], default="bfloat16")
     # LoRA / PEFT adapter（与 train_v1 / eval_v1 同口径）。
     p.add_argument("--qwen-adapter-dir", type=str, default="",
-                   help="可选 LoRA / PEFT adapter 目录；为空则跑 base Qwen。"
-                        " 与训练 / eval 同款，确保 KV 分布一致。")
+                   help="可选 LoRA / PEFT 适配器目录；为空则跑基础 Qwen。"
+                        " 与训练 / 评测同款，确保 KV 分布一致。")
     p.add_argument("--qwen-adapter-merge", action="store_true", default=True)
     p.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false")
     p.add_argument("--allow-qwen-adapter-mismatch", action="store_true", default=False,
                    help="允许 DiT ckpt 训练时的 qwen_adapter_dir 与当前 CLI 不一致；"
-                        " 仅 ablation 用，默认 raise 防止 KV 分布漂移导致的静默错误生成。")
+                        " 仅消融实验使用；默认抛错，防止 KV 分布漂移导致静默错误生成。")
     # Frames
     p.add_argument("--scenario", type=str, default="MergerIntoSlowTraffic")
     p.add_argument("--status", type=str, default=None, help="覆盖 memory.status；不传则用 DrivingMemory 默认 'initial'")
@@ -547,7 +548,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="显式指定目标关键帧索引；不传则从 keyframes JSON 查")
     # VAE
     p.add_argument("--vae-dtype", type=str, default="float32",
-                   help="VAE 内部 dtype；vae_only.yaml 默认关闭 autocast，所以这里推荐 float32")
+                   help="VAE 内部 dtype；vae_only.yaml 默认关闭自动混精，所以这里推荐 float32")
     # DiT
     p.add_argument("--patch-size", type=int, default=2)
     p.add_argument("--hidden-dim", type=int, default=768)
