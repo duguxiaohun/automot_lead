@@ -17,23 +17,37 @@
   (d) velocity_cos: cosine(v_pred, v_target)，t 在 {0.1, 0.3, 0.5, 0.7, 0.9} 各采 1 次平均
                     —— 训练健康性诊断，跟训练时的 train/cos 同口径
 
-落盘：
-  - <out>/eval_v1_summary.json    汇总（mean/std/by_scenario）
-  - <out>/eval_v1_perline.jsonl   每条样本一行：scenario / run_id / anchor / status /
-                                  subgoal / 四个指标 / 可选 decoded_png_path / gt_png_path
-  - <out>/samples/<idx>_pred.png  仅前 --image-dump-count 条样本
-  - <out>/samples/<idx>_gt.png
+输出布局（与 train_v1.sh 同根，OUTPUT_DIR 平铺，B 方案）：
+  传 --save-root <OUTPUT_DIR>（推荐，新默认）：
+    <save_root>/eval/eval_v1_summary.json
+    <save_root>/eval/eval_v1_perline.jsonl
+    <save_root>/eval/samples/<idx>_pred.png  (前 --image-dump-count 条)
+    <save_root>/eval/samples/<idx>_gt.png
+    <save_root>/eval_tb/<run_tag>/    ← TB scalar + image（独立 run，可与训练 tb/ 并列）
+  不传 --save-root：沿用旧 --out-dir eval_json/goalgen_v1 行为。
+
+多卡分片（H）：
+  脚本读 RANK / WORLD_SIZE / LOCAL_RANK；torchrun 启动自动分片，rank0 聚合
+  perline 写文件 + TB。
 
 典型用法（远程，在 AutoMoT/ 目录下）：
 
 ```bash
+# 单卡，与训练同根
 python qwen3vl_local/goalgen/eval_v1.py \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
-  --out-dir eval_json/goalgen_v1 \
-  --max-samples 200 \
-  --euler-steps 32 \
-  --image-dump-count 32
+  --save-root checkpoints/goalgen_v1_dit \
+  --max-samples 200
+
+# 多卡分片
+torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \
+  --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
+  --save-root checkpoints/goalgen_v1_dit
+
+# 旧用法（无 save-root，落到 eval_json/）依旧能跑：
+python qwen3vl_local/goalgen/eval_v1.py \
+  --out-dir eval_json/goalgen_v1
 ```
 """
 
@@ -50,6 +64,7 @@ from dataclasses import asdict
 from typing import Any, Dict, List, Tuple
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from PIL import Image
 
@@ -64,6 +79,14 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+
+# TensorBoard 可选依赖；缺包就静默关闭 TB 写入，不让 eval 崩。
+try:
+    from torch.utils.tensorboard import SummaryWriter  # noqa: E402
+    _TB_AVAILABLE = True
+except Exception:
+    SummaryWriter = None  # type: ignore[assignment]
+    _TB_AVAILABLE = False
 
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine  # noqa: E402
 from qwen3vl_local.goalgen.dit import (  # noqa: E402
@@ -339,22 +362,117 @@ def _maybe_dump_pair(
     return {"decoded_png_path": str(pred_path), "gt_png_path": str(gt_path)}
 
 
+# --------------------------------------------------------------------------- #
+# 分布式 + 路径 helper（H）
+# --------------------------------------------------------------------------- #
+
+def setup_distributed() -> Tuple[int, int, int]:
+    """与 train_v1.py 同口径：torchrun 注入 RANK / WORLD_SIZE / LOCAL_RANK。
+
+    单卡 = world_size=1，dist init 不触发，所有 if rank0 分支恒进。
+    """
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    if world_size > 1:
+        dist.init_process_group(backend="nccl")
+        if torch.cuda.is_available():
+            torch.cuda.set_device(local_rank)
+    return rank, local_rank, world_size
+
+
+def cleanup_distributed() -> None:
+    if dist.is_available() and dist.is_initialized():
+        dist.destroy_process_group()
+
+
+def is_rank0(rank: int) -> bool:
+    return rank == 0
+
+
+def all_gather_records(records: List[Dict[str, Any]], world_size: int) -> List[Dict[str, Any]]:
+    if world_size <= 1 or not dist.is_available() or not dist.is_initialized():
+        return records
+    bucket: List[Optional[List[Dict[str, Any]]]] = [None] * world_size  # type: ignore[type-var]
+    dist.all_gather_object(bucket, records)
+    merged: List[Dict[str, Any]] = []
+    for shard in bucket:
+        if shard:
+            merged.extend(shard)
+    merged.sort(key=lambda r: r.get("sample_idx", 0))
+    return merged
+
+
+def _resolve_eval_paths(args: argparse.Namespace) -> Dict[str, pathlib.Path]:
+    """根据 --save-root 决定 eval/ 目录与 eval_tb/<run_tag>/ 目录。
+
+    传 --save-root <ROOT>（推荐）→ 落到 <ROOT>/eval/ + <ROOT>/eval_tb/<run_tag>/。
+    不传 → 沿用 --out-dir 老行为（写到 eval_json/goalgen_v1）。
+    """
+    save_root = args.save_root.strip() if args.save_root else ""
+    run_tag = (args.run_tag or "").strip() or _default_run_tag(args)
+    if save_root:
+        root = pathlib.Path(save_root)
+        eval_dir = root / "eval"
+        tb_dir = root / "eval_tb" / run_tag
+    else:
+        eval_dir = pathlib.Path(args.out_dir)
+        # 老路径下 TB 也放到 eval_json/<name>/tb（与 train_v1 写的 OUTPUT_DIR/tb 不冲突）
+        tb_dir = eval_dir / "tb"
+    return {
+        "eval_dir": eval_dir,
+        "tb_dir": tb_dir,
+        "samples_dir": eval_dir / "samples",
+        "perline_jsonl": eval_dir / "eval_v1_perline.jsonl",
+        "summary_json": eval_dir / "eval_v1_summary.json",
+    }
+
+
+def _default_run_tag(args: argparse.Namespace) -> str:
+    """根据 dit_checkpoint 路径推 TB run 名。
+
+    checkpoint-000200/goalgen_v1.pt → ckpt200
+    latest.pt → latest
+    其它 → 文件名（去 .pt 后缀）
+    """
+    p = pathlib.Path(args.dit_checkpoint)
+    parent_name = p.parent.name
+    if parent_name.startswith("checkpoint-"):
+        try:
+            return "ckpt" + str(int(parent_name.split("-", 1)[1]))
+        except (ValueError, IndexError):
+            pass
+    return p.stem or "latest"
+
+
 @torch.no_grad()
 def eval_loop(args: argparse.Namespace) -> None:
-    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+    rank, local_rank, world_size = setup_distributed()
+
+    # device：多卡时 pin 到 LOCAL_RANK；单卡走 --gpu。
+    if world_size > 1 and torch.cuda.is_available():
+        device = torch.device(f"cuda:{local_rank}")
+    else:
+        device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
         raise RuntimeError("GoalGen eval 需要 CUDA；离线机器只能跑数据校验，不能跑 eval。")
 
-    out_dir = pathlib.Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    samples_dir = out_dir / "samples"
+    paths = _resolve_eval_paths(args)
+    out_dir = paths["eval_dir"]
+    samples_dir = paths["samples_dir"]
+    if is_rank0(rank):
+        out_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[eval] world_size={world_size} rank={rank} eval_dir={out_dir}")
+        if args.save_root:
+            print(f"[eval] tb_dir={paths['tb_dir']} (run_tag={_default_run_tag(args) if not args.run_tag else args.run_tag})")
 
     samples = load_jsonl(pathlib.Path(args.val_jsonl))
     if not samples:
         raise RuntimeError(f"验证 jsonl 为空：{args.val_jsonl}")
     if args.max_samples > 0:
         samples = samples[: args.max_samples]
-    print(f"[data] 验证样本={len(samples)} 来源={args.val_jsonl}")
+    if is_rank0(rank):
+        print(f"[data] 验证样本={len(samples)} 来源={args.val_jsonl}")
 
     # 1) 起 engine / vae。
     engine = LocalQwen3VLInstructEngine(
@@ -394,13 +512,19 @@ def eval_loop(args: argparse.Namespace) -> None:
     )
 
     # 3) per-line + 汇总。
-    perline_path = out_dir / "eval_v1_perline.jsonl"
-    summary_path = out_dir / "eval_v1_summary.json"
+    perline_path = paths["perline_jsonl"]
+    summary_path = paths["summary_json"]
     by_scenario: Dict[str, List[Dict[str, float]]] = defaultdict(list)
     all_metrics: List[Dict[str, float]] = []
+    # 分布式时本地 rank 只累积自己的分片到 perline_rows，最后 all_gather 由 rank0 落盘。
+    perline_rows: List[Dict[str, Any]] = []
 
-    with perline_path.open("w", encoding="utf-8") as fout:
-        for idx, sample in enumerate(samples):
+    for idx, sample in enumerate(samples):
+        # rank 分片：每条样本只被一个 rank 处理。步长 world_size 对 NFS 缓存更友好。
+        if world_size > 1 and (idx % world_size) != rank:
+            continue
+        # 占位 with 块的缩进保持原样（下方 unindent 到 for 同级）
+        if True:
             history_images = [load_rgb(p) for p in sample["history_rgb_paths"]]
             target_img = load_rgb(sample["target_rgb_path"])
             memory = memory_from_sample(sample)
@@ -461,7 +585,7 @@ def eval_loop(args: argparse.Namespace) -> None:
                 "velocity_cos": m_vcos,
             }
             row.update(png_paths)
-            fout.write(json.dumps(row, ensure_ascii=False) + "\n")
+            perline_rows.append(row)
 
             all_metrics.append({
                 "latent_mse": m_mse,
@@ -473,11 +597,35 @@ def eval_loop(args: argparse.Namespace) -> None:
             by_scenario[sample.get("scenario", "<unknown>")].append(all_metrics[-1])
 
             if (idx + 1) % args.log_every == 0 or idx == len(samples) - 1:
-                print(
-                    f"[eval] {idx + 1}/{len(samples)} "
-                    f"latent_mse={m_mse:.6f} latent_cos={m_cos:.4f} "
-                    f"pixel_l1={m_l1:.4f} psnr={m_psnr:.2f} v_cos={m_vcos:.4f}"
-                )
+                if is_rank0(rank):
+                    print(
+                        f"[eval][rank{rank}] {idx + 1}/{len(samples)} "
+                        f"latent_mse={m_mse:.6f} latent_cos={m_cos:.4f} "
+                        f"pixel_l1={m_l1:.4f} psnr={m_psnr:.2f} v_cos={m_vcos:.4f}"
+                    )
+
+    # ---- 跨 rank 聚合（H）----
+    if world_size > 1:
+        dist.barrier()
+    perline_rows = all_gather_records(perline_rows, world_size)
+
+    if not is_rank0(rank):
+        cleanup_distributed()
+        return
+
+    # 由 rank0 用合并后的 perline 重算 by_scenario / overall（替代分片视角的本地 all_metrics）
+    by_scenario = defaultdict(list)
+    all_metrics = []
+    for row in perline_rows:
+        m = {
+            "latent_mse": row["latent_mse"],
+            "latent_cos": row["latent_cos"],
+            "pixel_l1": row["pixel_l1"],
+            "psnr": row["psnr"],
+            "velocity_cos": row["velocity_cos"],
+        }
+        all_metrics.append(m)
+        by_scenario[row.get("scenario", "<unknown>")].append(m)
 
     # 4) 汇总（按 scenario 拆分 + 整体）。
     def _agg(metrics: List[Dict[str, float]]) -> Dict[str, float]:
@@ -498,7 +646,14 @@ def eval_loop(args: argparse.Namespace) -> None:
         "config": vars(args),
         "overall": _agg(all_metrics),
         "by_scenario": {s: _agg(ms) for s, ms in sorted(by_scenario.items())},
+        "world_size": world_size,
     }
+
+    # ---- 写 perline + summary ----
+    perline_path.parent.mkdir(parents=True, exist_ok=True)
+    with perline_path.open("w", encoding="utf-8") as fout:
+        for row in perline_rows:
+            fout.write(json.dumps(row, ensure_ascii=False) + "\n")
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
@@ -515,13 +670,103 @@ def eval_loop(args: argparse.Namespace) -> None:
             f"velocity_cos={overall['velocity_cos_mean']:.4f}"
         )
 
+    # ---- TensorBoard 写入（G）----
+    # 与 SFT eval 同口径：scalar 用 ckpt step 作为 global_step（latest.pt 退到 0），
+    # 让"同一 DiT 在不同训练步 ckpt 的 eval"形成横向曲线。
+    # image：把前 image_dump_count 条样本的 pred 和 gt 都写到 TB，方便人眼对比；
+    # 多次 eval 同一 ckpt 会重叠，建议用 --run-tag 区分（如 ckpt500 / final）。
+    tb_dir = paths["tb_dir"]
+    if (not args.no_tb) and _TB_AVAILABLE and overall:
+        tb_dir.mkdir(parents=True, exist_ok=True)
+        writer = SummaryWriter(log_dir=str(tb_dir))
+        try:
+            step = _infer_ckpt_step(args.dit_checkpoint)
+            for k in ("latent_mse", "latent_cos", "pixel_l1", "psnr", "velocity_cos"):
+                writer.add_scalar(f"eval/{k}", overall[f"{k}_mean"], step)
+                writer.add_scalar(f"eval/{k}_std", overall[f"{k}_std"], step)
+            # by_scenario 拆开写：横向看哪个场景拉低整体指标。
+            for sc, agg in summary["by_scenario"].items():
+                for k in ("latent_mse", "latent_cos", "pixel_l1", "psnr", "velocity_cos"):
+                    if f"{k}_mean" in agg:
+                        writer.add_scalar(f"eval_by_scenario/{sc}/{k}", agg[f"{k}_mean"], step)
+            # 图像：复用 samples_dir 里已落盘的 PNG（rank 分片各自写过，文件已就绪）；
+            # 取前 min(image_dump_count, 8) 条做交错排（pred, gt, pred, gt ...）写入 TB。
+            try:
+                _write_tb_image_grid(writer, perline_rows, step, max_pairs=8)
+            except Exception as e:
+                print(f"[tb][warn] image grid 写入失败：{e}")
+            print(f"[tb] eval scalars + image grid written to {tb_dir}")
+        finally:
+            writer.close()
+    elif args.no_tb:
+        print("[tb] 已通过 --no-tb 关闭 TB 写入。")
+    elif not _TB_AVAILABLE:
+        print("[tb] 警告：SummaryWriter 不可用，跳过 TB 写入。")
+
+    cleanup_distributed()
+
+
+def _infer_ckpt_step(ckpt_path: str) -> int:
+    """从 dit_checkpoint 路径推 step：checkpoint-NNNNNN/goalgen_v1.pt → NNNNNN；其他 → 0。"""
+    parent = pathlib.Path(ckpt_path).parent.name
+    if parent.startswith("checkpoint-"):
+        try:
+            return int(parent.split("-", 1)[1])
+        except (ValueError, IndexError):
+            return 0
+    return 0
+
+
+def _write_tb_image_grid(
+    writer: Any,
+    perline_rows: List[Dict[str, Any]],
+    step: int,
+    max_pairs: int = 8,
+) -> None:
+    """把前 N 条样本的 pred/gt PNG 读回来交错排写到 TB Image 面板。
+
+    交错布局（pred_0, gt_0, pred_1, gt_1, ...）与训练 image_samples 同口径，让人
+    一眼能"一对一"对照预测和真值；超过 max_pairs 时截断（image 写太多 TB 会卡）。
+    """
+    import numpy as np  # 局部 import：TB 写图才需要，不污染顶层导入。
+    pairs: List[Tuple[str, str]] = []
+    for row in perline_rows:
+        pred = row.get("decoded_png_path")
+        gt = row.get("gt_png_path")
+        if pred and gt and pathlib.Path(pred).exists() and pathlib.Path(gt).exists():
+            pairs.append((pred, gt))
+        if len(pairs) >= max_pairs:
+            break
+    if not pairs:
+        return
+    interleaved = []
+    for pred, gt in pairs:
+        for path in (pred, gt):
+            img = Image.open(path).convert("RGB")
+            arr = np.asarray(img).astype("float32") / 255.0  # [H, W, 3] in [0,1]
+            arr = arr.transpose(2, 0, 1)  # → [3, H, W] for TB add_images NCHW
+            interleaved.append(torch.from_numpy(arr))
+    grid = torch.stack(interleaved, dim=0)
+    writer.add_images("eval/pred_vs_gt", grid, step, dataformats="NCHW")
+
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="在 val.jsonl 上评测 GoalGen v1 DiT")
     p.add_argument("--val-jsonl", default="checkpoints/goalgen_v1_data/val.jsonl")
     p.add_argument("--dit-checkpoint", default="checkpoints/goalgen_v1_dit/latest.pt")
     p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
-    p.add_argument("--out-dir", default="eval_json/goalgen_v1")
+    p.add_argument("--out-dir", default="eval_json/goalgen_v1",
+                   help="兼容旧路径：未传 --save-root 时使用此目录。")
+    # ---- 新增：与 train 同根（B + J）----
+    p.add_argument("--save-root", type=str, default="",
+                   help="统一保存根目录（推荐：与 train OUTPUT_DIR 相同）。"
+                        "传时 eval 产物落到 <root>/eval/，TB 落到 <root>/eval_tb/<run_tag>/，"
+                        "可与训练 <root>/tb/ 并列在 TB run 列表里。"
+                        "不传时沿用 --out-dir 老行为。")
+    p.add_argument("--run-tag", type=str, default="",
+                   help="TB run 子目录名，默认从 --dit-checkpoint 推导（ckpt200 / latest 等）。")
+    p.add_argument("--no-tb", action="store_true",
+                   help="完全关闭 TB 写入（仅保留 stdout + json + perline）。")
 
     p.add_argument("--gpu", type=int, default=0)
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
