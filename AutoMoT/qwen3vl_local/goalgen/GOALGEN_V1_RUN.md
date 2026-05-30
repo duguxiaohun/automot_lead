@@ -97,6 +97,37 @@ ssh -L 6006:localhost:6006 user@remote
 # 浏览器打开 http://localhost:6006
 ```
 
+### 端口冲突自适应
+
+TensorBoard 默认不会自动避让端口（`--port 6006` 占用直接报 `Address already in
+use` 退出）。多个用户共用同一台机器或重启留有僵尸 tb 进程时建议用下面两种方案
+之一：
+
+**方案 A：让 OS 分配空闲端口**
+
+```bash
+# --port 0 时 tb 会从 OS 拿一个空闲端口；启动后从 stdout 里读"TensorBoard ... http://localhost:NNNNN"
+tensorboard --logdir checkpoints/goalgen_v1_dit/tb --port 0 --bind_all
+```
+
+读出来的 N 同样可以 `ssh -L N:localhost:N`。缺点：tb 没起来之前你不知道端口号，
+适合人工跟 tb stdout 时用。
+
+**方案 B：脚本里先探空闲端口**
+
+```bash
+# 在远程 shell 里一行算出空闲端口（与 train_v1.sh 里 find_free_master_port 同手法）
+TB_PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
+echo "[tb] picked port ${TB_PORT}"
+tensorboard --logdir checkpoints/goalgen_v1_dit/tb --port "${TB_PORT}" --bind_all &
+# 本地用同一个端口 ssh forward
+ssh -L "${TB_PORT}:localhost:${TB_PORT}" user@remote
+```
+
+这种方式 tb 起之前端口就确定了，适合后台 `&` 跑 + 远程自动化脚本。注意 Python 探完
+端口到 tb 实际 bind 之间有几毫秒窗口可能被别的进程抢，**生产场景**直接重跑一次
+即可（再次探出的端口几乎肯定不同）。
+
 Tags:
 
 | Tag | Meaning |

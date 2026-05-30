@@ -257,6 +257,18 @@ ssh -L 6007:localhost:6007 user@remote
 # 浏览器 http://localhost:6007
 ```
 
+端口冲突自适应（同 GoalGen RUN §2.1）：
+
+```bash
+# 让 OS 自动选端口，从 tb stdout 里读
+tensorboard --logdir checkpoints/sft_v1_lora/tb --port 0 --bind_all
+
+# 或脚本里先探空闲端口
+TB_PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
+tensorboard --logdir checkpoints/sft_v1_lora/tb --port "${TB_PORT}" --bind_all &
+ssh -L "${TB_PORT}:localhost:${TB_PORT}" user@remote
+```
+
 常见 tag：
 
 | Tag | 含义 |
