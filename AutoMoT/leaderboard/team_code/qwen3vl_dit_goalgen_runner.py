@@ -425,6 +425,13 @@ def run_once(args: argparse.Namespace) -> None:
         "status_description": EVENT_DESCRIPTIONS.get(memory.status, memory.status),
         "subgoal_description": EVENT_DESCRIPTIONS.get(memory.subgoal, memory.subgoal),
         "checkpoint_dir": str(engine.checkpoint_dir),
+        # adapter 信息：未传时 dir 为空字符串、attached=False。base 与 LoRA 实验对比时
+        # 这两个字段是 step.json 里最关键的可追溯线索（KV / loss 差异都跟它强相关）。
+        "qwen_adapter": {
+            "dir": args.qwen_adapter_dir or "",
+            "attached": bool(args.qwen_adapter_dir),
+            "merge": bool(args.qwen_adapter_merge) if args.qwen_adapter_dir else None,
+        },
         "num_images": len(images),
         "qwen_kv": {
             "seq_len": prefill.seq_len,

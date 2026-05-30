@@ -402,8 +402,12 @@ def eval_loop(args: argparse.Namespace) -> None:
             # ---- 四个指标 ----
             m_mse = latent_mse(z1_pred, z1_gt)
             m_cos = latent_cosine(z1_pred, z1_gt)
-            rgb_pred = vae.decode(z1_pred).clamp(-1.0, 1.0)
-            rgb_gt = vae.decode(z1_gt).clamp(-1.0, 1.0)
+            # 显式 cast 到 vae (device, dtype)：与 train_v1._decode_latent_to_image 同口径
+            # 的 defensive layer，避免未来 vae.py 内部 cast 被删时这里悄悄 dtype mismatch。
+            z1_pred_for_vae = z1_pred.to(device=vae.device, dtype=vae.dtype)
+            z1_gt_for_vae = z1_gt.to(device=vae.device, dtype=vae.dtype)
+            rgb_pred = vae.decode(z1_pred_for_vae).clamp(-1.0, 1.0)
+            rgb_gt = vae.decode(z1_gt_for_vae).clamp(-1.0, 1.0)
             m_l1, m_psnr = pixel_l1_psnr(rgb_pred, rgb_gt)
             m_vcos = velocity_cosine_multi_t(dit, z_history, pooled_kv, z1_gt, device, dit_dtype)
 

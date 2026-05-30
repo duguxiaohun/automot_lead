@@ -202,6 +202,11 @@ def _decode_latent_to_image(vae: FrozenVAE, z: torch.Tensor) -> torch.Tensor:
     clamp 防止偶发数值出 [-1,1] 把渲染搞糊。
     """
 
+    # 显式 cast 到 vae 自己的 (device, dtype) 作为 defensive layer：
+    # 训练 dit_dtype=bf16 而 vae_dtype=fp32 时不 cast 直接喂 vae.decode 会撞 dtype mismatch。
+    # FrozenVAE.decode 内部也做了同样的 cast（vae.py），这里再做一次防止未来有人重构
+    # 把 vae 内部那道保险删掉时下游悄悄崩，符合"训练主路径绝不能被 image sample 拖崩"的原则。
+    z = z.to(device=vae.device, dtype=vae.dtype)
     decoded = vae.decode(z)
     decoded = decoded.clamp(-1.0, 1.0)
     return ((decoded + 1.0) / 2.0).float().cpu()
