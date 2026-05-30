@@ -137,11 +137,44 @@ def build_dit_from_ckpt(
 
     payload = torch.load(ckpt_path, map_location=device)
     saved_cfg_dict = payload.get("dit_config") if isinstance(payload, dict) else None
+    saved_args_dict = payload.get("args") if isinstance(payload, dict) else None
 
     runtime_kwargs = dict(
         num_layers=len(pooled_kv),
         language_kv_input_dim=language_kv_input_dim_from_pooled(pooled_kv),
     )
+
+    # ---- Qwen adapter 一致性校验（与 runner 同口径）----
+    # eval 用错 adapter 会让 KV 分布偏移，指标完全不可比；shape 一致 strict load 不报错。
+    if saved_args_dict is not None:
+        def _resolve_adapter(s: str) -> str:
+            return str(pathlib.Path(s).resolve()) if s else ""
+
+        saved_adapter = _resolve_adapter(saved_args_dict.get("qwen_adapter_dir", "") or "")
+        current_adapter = _resolve_adapter(args.qwen_adapter_dir or "")
+        saved_merge = bool(saved_args_dict.get("qwen_adapter_merge", True))
+        current_merge = bool(args.qwen_adapter_merge)
+
+        if saved_adapter != current_adapter:
+            msg = (
+                f"DiT 训练时 qwen_adapter_dir='{saved_adapter or '<base>'}'，"
+                f"当前 eval qwen_adapter_dir='{current_adapter or '<base>'}'，不一致会让 KV 分布"
+                f"漂移，eval 指标不可比。"
+                f" 解决：把 --qwen-adapter-dir 改成训练时同款；"
+                f"故意 ablation 时传 --allow-qwen-adapter-mismatch。"
+            )
+            if not args.allow_qwen_adapter_mismatch:
+                raise RuntimeError(msg)
+            print(f"[dit] WARN: {msg}")
+        elif saved_adapter and saved_merge != current_merge:
+            print(
+                f"[dit] info: qwen_adapter_merge 训练={saved_merge} eval={current_merge}（数学等价，仅 fp 精度差异）"
+            )
+        else:
+            print(
+                f"[dit] qwen_adapter consistency OK: "
+                f"adapter='{current_adapter or '<base>'}' merge={current_merge}"
+            )
 
     if saved_cfg_dict is not None:
         # 形状预检与 runner 同口径：训练时与运行时的 num_layers / language_kv_input_dim
@@ -500,6 +533,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         " 训练若用了 adapter，eval 也必须传同一个目录。")
     p.add_argument("--qwen-adapter-merge", action="store_true", default=True)
     p.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false")
+    p.add_argument("--allow-qwen-adapter-mismatch", action="store_true", default=False,
+                   help="允许 DiT ckpt 训练时的 qwen_adapter_dir 与当前 CLI 不一致；"
+                        " 仅 ablation 用，默认 raise 防止 KV 分布漂移导致指标不可比。")
 
     # DiT 几何参数：仅在 ckpt 没存 dit_config 时使用（旧 ckpt 兼容）。
     p.add_argument("--patch-size", type=int, default=2)
