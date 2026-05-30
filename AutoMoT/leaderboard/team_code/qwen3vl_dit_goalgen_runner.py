@@ -201,12 +201,32 @@ def _build_dit(
     )
 
     if saved_cfg_dict is not None:
+        # 先做形状预检：ckpt 训练时 num_layers / language_kv_input_dim 与现在运行时
+        # 推出来的值不一致 → strict=True load 必然炸 attention 投影矩阵，但报错堆栈
+        # 在 SDPA / Linear shape mismatch 底层不好定位。这里提前断言给出双数字 + 原因
+        # 提示，比 load_state_dict 的原始报错可读得多。
+        saved_layers = saved_cfg_dict.get("num_layers")
+        saved_lang_dim = saved_cfg_dict.get("language_kv_input_dim")
+        runtime_layers = cli_kwargs["num_layers"]
+        runtime_lang_dim = cli_kwargs["language_kv_input_dim"]
+        if saved_layers is not None and saved_layers != runtime_layers:
+            raise RuntimeError(
+                f"DiT ckpt num_layers={saved_layers}（训练时）≠ 运行时 KV 段数={runtime_layers}。"
+                f" 解决：训练与推理保持同样的 --num-layers，"
+                f"或修改 qwen_kv 段数与之对齐。"
+            )
+        if saved_lang_dim is not None and saved_lang_dim != runtime_lang_dim:
+            raise RuntimeError(
+                f"DiT ckpt language_kv_input_dim={saved_lang_dim}（训练时 Qwen n_kv_heads*head_dim）"
+                f" ≠ 当前 Qwen 推出来的 {runtime_lang_dim}。 解决：用与训练时同款 Qwen 权重，"
+                f"或重新训练 DiT。"
+            )
+
         # ckpt 存的字段以它为准；CLI 没显式提到的就接受 saved 值。
-        # 但 num_layers / language_kv_input_dim 永远用运行时事实（pooled_kv 推出来的），
-        # 不读 saved——这两个是"DiT 形状必须和当前 KV 对齐"的硬约束。
+        # num_layers / language_kv_input_dim 上面已经校验一致，这里直接走 saved 也等价。
         merged = dict(saved_cfg_dict)
-        merged["num_layers"] = cli_kwargs["num_layers"]
-        merged["language_kv_input_dim"] = cli_kwargs["language_kv_input_dim"]
+        merged["num_layers"] = runtime_layers
+        merged["language_kv_input_dim"] = runtime_lang_dim
         # ckpt 没存 latent_channels 时（旧 ckpt）保留 CLI 默认值。
         merged.setdefault("latent_channels", cli_kwargs["latent_channels"])
         cfg = DiTMoTConfig(**merged)

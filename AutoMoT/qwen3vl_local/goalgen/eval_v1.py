@@ -144,6 +144,23 @@ def build_dit_from_ckpt(
     )
 
     if saved_cfg_dict is not None:
+        # 形状预检与 runner 同口径：训练时与运行时的 num_layers / language_kv_input_dim
+        # 不一致 → strict load 必炸 attention 投影。提前断言给出双数字 + 原因。
+        saved_layers = saved_cfg_dict.get("num_layers")
+        saved_lang_dim = saved_cfg_dict.get("language_kv_input_dim")
+        runtime_layers = runtime_kwargs["num_layers"]
+        runtime_lang_dim = runtime_kwargs["language_kv_input_dim"]
+        if saved_layers is not None and saved_layers != runtime_layers:
+            raise RuntimeError(
+                f"DiT ckpt num_layers={saved_layers}（训练时）≠ 运行时 KV 段数={runtime_layers}。"
+                f" 解决：eval 与训练保持同样的 --num-layers。"
+            )
+        if saved_lang_dim is not None and saved_lang_dim != runtime_lang_dim:
+            raise RuntimeError(
+                f"DiT ckpt language_kv_input_dim={saved_lang_dim}（训练时 Qwen n_kv*head_dim）"
+                f" ≠ 当前 Qwen 推出来的 {runtime_lang_dim}。 解决：用与训练时同款 Qwen 权重。"
+            )
+
         merged = dict(saved_cfg_dict)
         merged.update(runtime_kwargs)
         merged.setdefault("latent_channels", 4)
