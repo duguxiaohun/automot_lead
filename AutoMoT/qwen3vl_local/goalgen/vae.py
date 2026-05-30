@@ -178,6 +178,10 @@ class FrozenVAE:
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """latent -> [-1,1] 范围的 RGB 张量；仅推理 / 可视化用。"""
 
+        # 强制对齐 (device, dtype)：DiT 训练 / 推理时 z 通常是 bf16，VAE 权重默认 fp32；
+        # 不 cast 会在 model.decode 第一层 Conv2d 上抛 dtype mismatch（且错误堆栈在
+        # C++ 端不好定位）。这里 .to 是 no-op 当 z 已经匹配，所以无副作用。
+        z = z.to(device=self.device, dtype=self.dtype)
         z_in = z / self.cfg.scale_factor
         # VideoDecoder 需要 timesteps；单帧时给当前 batch 大小即可。
         from vwm.modules.autoencoding.temporal_ae import VideoDecoder  # noqa: E402
