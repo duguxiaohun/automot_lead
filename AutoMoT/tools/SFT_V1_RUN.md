@@ -243,6 +243,32 @@ bash tools/sft_v1_train.sh single
 如果超过 80 GB，先把 `per_device_train_batch_size` 从 2 降到 1，再排查是否
 `--gradient_checkpointing` 没生效。
 
+### 4.1 TensorBoard
+
+训练时 swift / transformers 把 train + eval 曲线写到 `OUTPUT_DIR/tb`（`--report_to
+tensorboard`）。eval 在 `single` / `ddp` 模式下按 `EVAL_STEPS`（默认 100/200）跑
+一次，标量自动落到 `eval/loss`。
+
+```bash
+# 远程
+tensorboard --logdir checkpoints/sft_v1_lora/tb --port 6007 --bind_all
+# 本地
+ssh -L 6007:localhost:6007 user@remote
+# 浏览器 http://localhost:6007
+```
+
+常见 tag：
+
+| Tag | 含义 |
+|---|---|
+| `train/loss` | per-step LoRA loss（含 loss_scale plugin 的权重） |
+| `train/learning_rate` | cosine 调度后的 lr |
+| `train/grad_norm` | swift 内部已记录 |
+| `eval/loss` | val 子集上的 loss，监控过拟合 |
+
+`check` 模式把 `EVAL_STEPS=999999` 关掉 eval，所以 check 跑只有 train 曲线；
+若想 check 时也看 eval 曲线，临时改 `EVAL_STEPS=1` 加 `VAL_ARGS=(--val_dataset ...)`。
+
 ---
 
 ## 5. 评估（约 10–30 分钟，取决于 val 大小）

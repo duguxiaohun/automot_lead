@@ -336,7 +336,8 @@ swift sft \
     --save_strategy "${SAVE_STRATEGY}" \
     --save_total_limit 3 \
     --save_only_model true \
-    --report_to none \
+    --report_to tensorboard \
+    --logging_dir "${OUTPUT_DIR}/tb" \
     --dataloader_num_workers 4 \
     --external_plugins "${LOSS_SCALE_PLUGIN}" \
     --loss_scale "${LOSS_SCALE}" \
