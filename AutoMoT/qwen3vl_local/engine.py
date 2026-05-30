@@ -243,6 +243,46 @@ class LocalQwen3VLInstructEngine:
             trust_remote_code=True,
         )
 
+    def attach_lora_adapter(self, adapter_dir: str, merge: bool = True) -> None:
+        """把训好的 LoRA / PEFT adapter 挂到 base model 上。
+
+        必须先 self.load()：PeftModel.from_pretrained 需要一个已经加载到设备上的 base
+        model 才能包；忘记 load 会把 None 传给 PEFT 直接崩。
+
+        merge=True 时调用 model.merge_and_unload()：把 LoRA 权重合并进 base 矩阵后返回
+        一个纯 Transformer（不再有 LoRA 分支）。好处：
+        - forward 时不再走"base + adapter delta"两路相加，省 ~5–10% 推理时间；
+        - 后续逻辑（包括 prefill / KV 提取 / 段切分）完全等价于训练后的"merged Qwen"，
+          GoalGen 这条路下游对 LoRA 的存在无感知。
+        merge=False 时保留 PeftModel 包装，方便 debug LoRA 自身行为（极少用）。
+
+        LoRA 不改变 n_kv_heads / head_dim / num_layers，所以 segment_kv_for_dit 等
+        下游模块完全不受影响——KV 形状一致，只是数值变成了"微调后"的结果。
+        """
+
+        if self.model is None:
+            raise RuntimeError("attach_lora_adapter must be called after engine.load()")
+
+        # 延迟导入：未用 LoRA 的 runner 不应被 peft 缺失绊倒。
+        from peft import PeftModel
+
+        adapter_path = pathlib.Path(adapter_dir).resolve()
+        if not adapter_path.exists():
+            raise FileNotFoundError(f"adapter dir not found: {adapter_path}")
+
+        print(f"[qwen3vl-local] attaching LoRA adapter: {adapter_path}")
+        self.model = PeftModel.from_pretrained(
+            self.model,
+            str(adapter_path),
+            is_trainable=False,
+        )
+        if merge:
+            # merge_and_unload 返回的是合并后的纯 base model 实例；之后 self.model 上
+            # 不再有 PEFT 包装，外部代码用法与未挂 adapter 时完全一致。
+            print("[qwen3vl-local] merging LoRA into base weights (merge_and_unload)")
+            self.model = self.model.merge_and_unload()
+        self.model.eval()
+
     def build_messages(self, system_prompt: str, user_prompt: str, images: List[Any]) -> List[dict]:
         """构造 Qwen processor 认识的 structured chat messages。
 

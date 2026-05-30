@@ -324,6 +324,12 @@ def run_once(args: argparse.Namespace) -> None:
         save_cache=False,
         cache_system_prompt=False,
     )
+    # 显式 load + 可选 attach LoRA：teacher_forced_prefill 内部也会 lazy load，
+    # 但 attach_lora_adapter 必须在 load 之后调，所以这里先把顺序固定下来。
+    engine.load()
+    if args.qwen_adapter_dir:
+        engine.attach_lora_adapter(args.qwen_adapter_dir, merge=args.qwen_adapter_merge)
+
     # num_segments 与 DiT layers 强绑定（PLAN §0 默认 12）；后面 _build_dit 会用
     # len(prefill.pooled_kv) 作为 DiT num_layers，所以这俩永远一致。
     prefill = teacher_forced_prefill(
@@ -463,6 +469,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--checkpoint-dir", type=str, default=str(_CHECKPOINT_DIR))
     p.add_argument("--device", default="auto")
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32", "auto"], default="bfloat16")
+    # LoRA / PEFT adapter（与 train_v1 / eval_v1 同口径）。
+    p.add_argument("--qwen-adapter-dir", type=str, default="",
+                   help="可选 LoRA / PEFT adapter 目录；为空则跑 base Qwen。"
+                        " 与训练 / eval 同款，确保 KV 分布一致。")
+    p.add_argument("--qwen-adapter-merge", action="store_true", default=True)
+    p.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false")
     # Frames
     p.add_argument("--scenario", type=str, default="MergerIntoSlowTraffic")
     p.add_argument("--status", type=str, default=None, help="覆盖 memory.status；不传则用 DrivingMemory 默认 'initial'")

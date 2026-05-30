@@ -76,6 +76,46 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 
 Training freezes Qwen and VAE. Only DiT-MoT is optimized.
 
+### 2.0.1 接入 LoRA / PEFT adapter（接续 SFT v1 微调后的 Qwen）
+
+如果想让 GoalGen 直接吃 SFT v1 微调后的语言编码，传 LoRA adapter 目录即可，**不需要**
+事先 merge：
+
+```bash
+QWEN_ADAPTER_DIR=checkpoints/sft_v1_lora \
+OUTPUT_DIR=checkpoints/goalgen_v1_dit_sftv1 \
+bash qwen3vl_local/goalgen/train_v1.sh ddp
+```
+
+实现细节（`engine.attach_lora_adapter`）：
+
+- base Qwen 不变；adapter 用 `PeftModel.from_pretrained(base, adapter_dir)` 包一层；
+- 默认 `merge=True` 走 `merge_and_unload()`：LoRA 权重合进 base 矩阵，之后 `engine.model`
+  上不再有 PEFT 包装，prefill / KV 提取 / segment 切分对 LoRA 的存在完全无感知；
+- LoRA 不改变 `n_kv_heads / head_dim / num_layers`，所以 `language_kv_input_dim` 与
+  base Qwen 一致，DiT 形状不用动；
+- merge 后训练前向比 PeftModel 包装快 ~5–10%，且更省一份 LoRA 分支显存；
+- 想保留 PEFT 包装（debug 用）传 `--no-qwen-adapter-merge`。
+
+**eval / runner 必须传同一个 `--qwen-adapter-dir`**：训练用 adapter 而 eval 用 base
+会让 KV 分布偏移，指标完全不可比。
+
+```bash
+# eval
+python qwen3vl_local/goalgen/eval_v1.py \
+  --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
+  --dit-checkpoint checkpoints/goalgen_v1_dit_sftv1/latest.pt \
+  --qwen-adapter-dir checkpoints/sft_v1_lora \
+  --out-dir eval_json/goalgen_v1_sftv1
+
+# runner（单步 forward smoke）
+python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
+  --route-dir /data/lead_data/data/Accident/Town03_... \
+  --anchor 12 \
+  --qwen-adapter-dir checkpoints/sft_v1_lora \
+  --dit-checkpoint checkpoints/goalgen_v1_dit_sftv1/latest.pt
+```
+
 Outputs:
 
 ```text
