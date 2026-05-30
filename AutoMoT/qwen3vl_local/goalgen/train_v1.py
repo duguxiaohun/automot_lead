@@ -49,16 +49,25 @@ from qwen3vl_local.prompt_pipeline import DrivingMemory  # noqa: E402
 
 
 def setup_distributed() -> tuple[int, int, int]:
+    # 走 torchrun / accelerate 启动时这三个变量由 launcher 注入；直接读 env 而不是
+    # argparse 是为了让单卡 / DDP 共用一份脚本——单卡时三个值都默认 0/1，下面
+    # if world_size > 1 分支不触发，调用方无需写两套代码路径。
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     if world_size > 1:
+        # nccl 是 GPU-GPU all-reduce 后端；gloo 在多 GPU 上慢一个数量级，DiT
+        # 这种 bf16 大量同步的工作量必须用 nccl。
         dist.init_process_group(backend="nccl")
+        # 必须在 init_process_group 之后立刻 set_device，否则后续 torch.cuda.xxx
+        # 默认落到 cuda:0，多个 rank 会抢同一张卡然后挂死。
         torch.cuda.set_device(local_rank)
     return rank, local_rank, world_size
 
 
 def cleanup_distributed() -> None:
+    # is_available + is_initialized 双重保护：单卡跑（没 init）也调用这个函数也安全，
+    # 不会丢出 "Default process group not initialized" 异常。
     if dist.is_available() and dist.is_initialized():
         dist.destroy_process_group()
 
@@ -163,8 +172,12 @@ def _probe_language_kv_dim(
 
 
 def cosine_velocity(v_pred: torch.Tensor, v_target: torch.Tensor) -> float:
+    # .detach() 切计算图防误传梯度；.float() 把 bf16 / fp16 升回 fp32 再算余弦，
+    # 否则低精度下 sum_x2 容易溢出/下溢，dot 值会被截断到 0 或 inf。
     pred = v_pred.detach().float().flatten(1)
     target = v_target.detach().float().flatten(1)
+    # flatten(1) 把 [B, C, H, W] 摊成 [B, C*H*W]，沿 dim=1 算余弦相似度，再 batch 平均。
+    # 这个指标比 loss 更直观：训练健康时 cos 应该从 ~0 单调升到 ~0.5+，loss 反映得没这么明显。
     return float(F.cosine_similarity(pred, target, dim=1).mean().item())
 
 
@@ -177,20 +190,30 @@ def save_checkpoint(
     args: argparse.Namespace,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    # step 用 :06d 0-padding 让目录名按字典序自然递增，方便 `ls | sort` 拿最新 ckpt；
+    # 如果不 pad，"checkpoint-9" 会排在 "checkpoint-10" 后面。
     target = output_dir / f"checkpoint-{step:06d}"
     target.mkdir(parents=True, exist_ok=True)
+    # 兼容 DDP 包过的模型：DDP 会把真模型放在 .module 下；裸模型直接用自己。
+    # 不解包就会 save 进 "module.xxx" 前缀的 state_dict，再加载到单卡时 key 对不上。
     module = model.module if hasattr(model, "module") else model
     torch.save(
         {
             "step": step,
             "dit_state_dict": module.state_dict(),
+            # optimizer / scheduler state 用于 resume 训练（AdamW 的 m/v、cosine 进度）；
+            # 不存就只能从头训。仅落最新一个 step，磁盘成本可控。
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict(),
+            # dit_config 直接 dump 配置 dataclass：恢复时不依赖代码默认值漂移，
+            # 例如以后改了默认 hidden_dim，旧 ckpt 仍能按存档的配置正确重建模型。
             "dit_config": asdict(module.cfg),
             "args": vars(args),
         },
         target / "goalgen_v1.pt",
     )
+    # latest.pt 是"轻量版本"：只存 weights + config，不存 optimizer / scheduler，
+    # 给下游 inference / eval 用，避免每次都拖一份几百 MB 的 AdamW state。
     latest = output_dir / "latest.pt"
     torch.save(
         {
@@ -208,12 +231,19 @@ def make_scheduler(
     total_steps: int,
     warmup_ratio: float,
 ) -> torch.optim.lr_scheduler.LambdaLR:
+    # max(1, ...) 防止 total_steps=0 或 warmup_ratio=0 时 warmup_steps 变 0，导致下面
+    # 除零；warmup 至少跑一步在工程上无害，可避免 check 模式 total_steps=2 时崩溃。
     warmup_steps = max(1, int(total_steps * warmup_ratio))
 
     def lr_lambda(step: int) -> float:
         if step < warmup_steps:
+            # 线性 warmup：从 1/warmup 缓慢爬到 1.0；step+1 起步，避免第一步 lr=0。
+            # 用 LambdaLR 的好处是这里返回的是"对 base_lr 的乘子"，所以无需手算 lr。
             return float(step + 1) / float(warmup_steps)
+        # progress ∈ [0, 1]；分母用 max(1, ...) 防 total_steps == warmup_steps 时除零。
         progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+        # min(1.0, progress) 是兜底：optimizer 可能多走几步（例如 save 时多 step 一下），
+        # 不夹断的话 cos(>π) 会让 lr 反向爬上去，破坏收敛末期的稳定。
         return 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
@@ -280,17 +310,28 @@ def train(args: argparse.Namespace) -> None:
         dit = torch.nn.parallel.DistributedDataParallel(dit, device_ids=[local_rank])
 
     optimizer = torch.optim.AdamW(
+        # 这里只传 dit.parameters()：Qwen / VAE 上面已 freeze_module 关掉 grad，但 optimizer
+        # 看到 requires_grad=False 仍会保留它们的 state（占显存）。显式只传 DiT 参数能
+        # 把 AdamW 的 m/v state 也限制在 DiT 上，省一份 Qwen 量级的优化器内存。
         dit.parameters(),
         lr=args.learning_rate,
+        # betas=(0.9, 0.95) 是 DiT / 大型 diffusion 模型的常见配方；第二阶矩衰减比 Adam
+        # 默认 0.999 快，对 latent flow matching 这种损失曲线较平的目标更稳。
         betas=(0.9, 0.95),
         weight_decay=args.weight_decay,
     )
+    # 把样本数夹到 world_size 整除，让每个 rank 拿到等长 shard；不夹断会出现"某 rank 多
+    # backward 一次"，DDP all-reduce 等不到对应张量进而挂死。
     usable_per_epoch = (len(samples) // world_size) * world_size
     if usable_per_epoch <= 0:
         raise RuntimeError(f"dataset too small for world_size={world_size}: {len(samples)} samples")
+    # 每 rank 单 epoch 的 optimizer step 数 = shard 样本数 / grad_accum_steps，向上取整。
+    # ceil 而不是 floor 是为了让"最后不满一个 accum 组也能 step 一次"，否则尾部样本
+    # 算完梯度却不更新，浪费 forward。
     steps_per_epoch = max(1, math.ceil((usable_per_epoch / world_size) / args.grad_accum_steps))
     total_steps = max(1, steps_per_epoch * args.num_epochs)
     if args.max_train_steps > 0:
+        # CLI 给了硬上限就 clip；常用于 check 模式只跑两步快速验证而无需改 num_epochs。
         total_steps = min(total_steps, args.max_train_steps)
     scheduler = make_scheduler(optimizer, total_steps, args.warmup_ratio)
 
@@ -303,22 +344,41 @@ def train(args: argparse.Namespace) -> None:
     try:
         for epoch in range(args.num_epochs):
             order = list(range(len(samples)))
+            # 每 epoch 用 seed+epoch 重洗：保证不同 epoch 见到的顺序不同（防止周期性过拟合），
+            # 又保证同一份 seed + 同一台机器复现完全一致——所有 rank 用相同 seed 算出相同 order，
+            # 才能保证下面 order[rank::world_size] 切出的 shard 互不重叠且无遗漏。
             random.Random(args.seed + epoch).shuffle(order)
+            # 砍到 usable_per_epoch（world_size 整除）：避免尾部样本造成 rank 间 shard 长度差 1，
+            # 那会让 DDP 在最后一个 step 卡死等不到对应张量的 all-reduce。
             order = order[:usable_per_epoch]
+            # 步长 world_size 跳取：rank 0 拿 [0, W, 2W, ...]，rank 1 拿 [1, W+1, ...]，
+            # 每个 sample_idx 只会被一个 rank 处理；比 chunk-by-chunk 切分对 NFS 缓存更友好
+            # （相邻 rank 的样本来自相邻 run 的概率低，scattered read 反而能让磁盘并行加载）。
             shard = order[rank::world_size]
 
             for local_idx, sample_idx in enumerate(shard):
                 sample = samples[sample_idx]
+                # 同一张历史图片要喂 Qwen（作为 vision token）也要喂 VAE（作为 z_history），
+                # 一次 load_rgb 复用避免读两遍盘；列表顺序与 jsonl 里 "history_rgb_paths" 一致，
+                # 即"旧 → 新"，下面 VAE encode 和 DiT frame_embed 都依赖这个顺序。
                 history_images = [load_rgb(p) for p in sample["history_rgb_paths"]]
                 target_img = load_rgb(sample["target_rgb_path"])
                 memory = memory_from_sample(sample)
 
+                # ---- 计算 grad accum 的本地 micro 位置 ----
+                # micro_pos: 在当前 accum 组内是第几条（1-based），用来判断要不要触发 optimizer.step
+                # micro_start / micro_end: 当前 accum 组覆盖的 shard 索引范围；
+                # 用 min(..., len(shard)) 处理尾部不满一个 accum 组的情况：尾巴的 group_size
+                # 可能 < grad_accum_steps，此时 loss / micro_group_size 才能保持梯度尺度等价。
                 micro_pos = (local_idx % args.grad_accum_steps) + 1
                 micro_start = local_idx - (micro_pos - 1)
                 micro_end = min(micro_start + args.grad_accum_steps, len(shard))
                 micro_group_size = micro_end - micro_start
                 will_step = micro_pos == micro_group_size
 
+                # Qwen prefill：把 history 图像 + teacher-forced STATUS/SUBGOAL 真值塞进 Qwen，
+                # 拿出 36 层 past_key_values 切 12 段。num_segments 必须 = DiT 层数，否则
+                # DiT.forward 会在 zip(blocks, pooled_kv) 时静默错位（旧版会 silent，新版会 raise）。
                 prefill = teacher_forced_prefill(
                     engine=engine,
                     memory=memory,
@@ -326,29 +386,46 @@ def train(args: argparse.Namespace) -> None:
                     num_segments=args.num_layers,
                     kv_segment_mode=args.qwen_kv_segment_mode,
                 )
+                # KV 来自 Qwen，dtype 可能是 bf16 / fp16；DiT 内部走 dit_dtype（默认 bf16）。
+                # 显式 .to 强制对齐：不齐时 SDPA 会在 attention 内部 raise dtype mismatch，
+                # 错误堆栈在 C++ 端不好定位，所以这里 forward 之前就把语言 KV 搬到目标 device + dtype。
                 pooled_kv = [
                     (k.to(device=device, dtype=dit_dtype), v.to(device=device, dtype=dit_dtype))
                     for k, v in prefill.pooled_kv
                 ]
 
+                # VAE 默认 fp32 输出（vae_only.yaml 关了 autocast），.to(dit_dtype) 才能和 DiT 对齐。
+                # .unsqueeze(0)：vae.encode 返回 [F, 4, 48, 144]（F 是历史帧数），加 batch 维变 [1, F, ...]，
+                # DiT 的 forward 期望 [B, F, C, H, W]，这里 B=1（per-rank batch）。
                 z_history = vae.encode(history_images).to(dtype=dit_dtype).unsqueeze(0)
+                # 目标帧只有一张，encode 返回 [1, 4, 48, 144] 直接当作 z1（[B, C, H, W]），不需要再加维。
                 z1 = vae.encode([target_img]).to(dtype=dit_dtype)
+                # 在 z1 上采 z0 / t / 计算 z_t、v_target。z0 / t 留给 flow.py 内部默认采样，
+                # 这里不传是为了让每条样本独立采，跟其他样本的随机性解耦。
                 batch = sample_flow_batch(z1=z1)
 
                 v_pred = dit(batch.z_t, z_history, batch.t, pooled_kv)
                 loss_raw = flow_matching_loss(v_pred, batch.v_target)
+                # 除以 micro_group_size：grad accum 时把 N 个 micro 的梯度加起来等价于 batch=N，
+                # 但 PyTorch loss.backward() 是累加而不是平均，所以这里手动均一化，否则梯度尺度
+                # 会随 grad_accum_steps 漂；尾部不满组时用动态 micro_group_size 保持等价。
                 loss = loss_raw / micro_group_size
 
                 # DDP 优化：grad accum 期间的 micro-step 不做 all-reduce，仅累积本地梯度；
                 # 只在最后一个 micro-step 让 backward 触发 all-reduce 一次。
                 # 单卡或非 grad-accum 边界以外用 nullcontext，行为与原版一致。
                 if world_size > 1 and not will_step:
+                    # dit.no_sync() 是 DDP 提供的 contextmanager：把 reduce hook 暂时摘掉，
+                    # backward 仍照常累积本地 .grad 但不触发跨 rank 同步；总 all-reduce 次数
+                    # 从 N×grad_accum 降到 N，对 bandwidth 有显著收益。
                     sync_ctx = dit.no_sync()
                 else:
                     sync_ctx = nullcontext()
                 with sync_ctx:
                     loss.backward()
 
+                # 累计统计量。用 detach + item() 解开计算图避免误持有 v_pred 引用；
+                # 写成 += float(...) 比 .item() 直接更直观，且避免在低概率下触发 GPU sync。
                 running_loss += float(loss_raw.detach().item())
                 running_cos += cosine_velocity(v_pred, batch.v_target)
                 running_micro += 1
@@ -356,9 +433,13 @@ def train(args: argparse.Namespace) -> None:
 
                 if will_step:
                     if args.max_grad_norm > 0:
+                        # clip_grad_norm_ 必须在 step 之前调；flow matching 初期 v_target 数值可能
+                        # 很大（z1 - z0 在 latent 尺度上方差 ~2），不裁剪偶发会让 lr=1e-4 也炸。
                         torch.nn.utils.clip_grad_norm_(dit.parameters(), args.max_grad_norm)
                     optimizer.step()
                     scheduler.step()
+                    # set_to_none=True 比 zero_(0) 快：让 .grad = None，下次 backward 第一次写
+                    # 直接分配新张量，省一次"已分配张量清零"的 kernel。
                     optimizer.zero_grad(set_to_none=True)
                     global_step += 1
 

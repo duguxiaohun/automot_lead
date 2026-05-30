@@ -90,21 +90,31 @@ def euler_sample(
     """
 
     # z_init 为空时随机一个标准正态，作为 t=0 处的起点。
+    # 用 randn 而不是 zeros 是 rectified flow 的硬性约定：训练时 z0 ~ N(0, I)，
+    # 推理时 z0 也必须从同一分布采，否则模型在初值方向上的 v_pred 就是分布外。
     if z_init is None:
         z = torch.randn(shape, device=device, dtype=dtype)
     else:
-        # 强制 to(device, dtype)：调用方有可能传不同 device 或 fp32 的 z_init。
+        # 强制 to(device, dtype)：调用方有可能传不同 device 或 fp32 的 z_init；
+        # 不强转会让闭包里 dit 的 attention 在 K/V dtype 不一致时报 SDPA mismatch。
         z = z_init.to(device=device, dtype=dtype)
 
     # 等步长 Euler：t 从 0 走到 1，步长 dt = 1/num_steps。
-    # rectified flow 的优势就是直线轨迹，Euler 在 32 步内通常已经足够好。
+    # rectified flow 的优势就是直线轨迹，Euler 在 32 步内通常已经足够好；要更细可以加到 64，
+    # 但收益递减很快，超过 100 步对生成质量几乎无提升。
     dt = 1.0 / num_steps
     for step in range(num_steps):
-        # 当前时间点 t_val ∈ {0, dt, 2dt, ..., 1-dt}；闭包里看到的 t 是 [B] 张量。
+        # 当前时间点 t_val ∈ {0, dt, 2dt, ..., 1-dt}；最后一步落在 1-dt 而不是 1，
+        # 是因为我们用"左端点"近似积分（前向 Euler）；用右端点会跑到 t=1 之外的外推区。
         t_val = step * dt
+        # 把标量 t 广播到 [B] 张量，方便闭包内部用同样的 broadcast 规则；
+        # full() 而不是 expand(randn[]) 是因为 t 必须是确定常量，randn 会引入不需要的噪声。
         t_b = torch.full((shape[0],), t_val, device=device, dtype=dtype)
         # velocity_fn 是 (z, t) -> v 的闭包；runner 用 lambda 把 pooled_kv / z_history 捕获进来。
+        # 这样 euler_sample 本身完全不知道 DiT 接口签名，可以无修改给其它生成主干复用。
         v = velocity_fn(z, t_b)
         # 一阶 Euler 更新：z(t + dt) ≈ z(t) + dt * v(z(t), t)。
+        # rectified flow 的真值轨迹就是直线，所以一阶 Euler 在理论上是无误差的近似（仅
+        # 受 v_pred 自身误差影响），不需要 RK4 / Heun 这类高阶积分器。
         z = z + dt * v
     return z
