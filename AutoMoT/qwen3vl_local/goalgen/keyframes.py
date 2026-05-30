@@ -106,6 +106,64 @@ class KeyframeIndex:
                 return int(frame) if frame is not None else None
         return None
 
+    def find_status_for_anchor(
+        self,
+        scenario: str,
+        run_id: str,
+        anchor: int,
+    ) -> Optional[str]:
+        """根据 anchor 帧号反查它落在哪个 status 区间。
+
+        逻辑与 build_dataset_v1.build_run_timeline 完全一致：
+          - initial 区间：[initial.frame, middle[0].frame - 1]
+          - middle[i] 区间：[middle[i].frame, middle[i+1].frame - 1]（i<2）
+                          或 [middle[2].frame, final.frame - 1]（i==2）
+          - final 区间：[final.frame, +∞)
+        anchor 落在某区间内，那个区间的 event 名就是当前 STATUS。
+
+        找不到 run / 区间结构异常 / anchor 落在 initial.frame 之前都返回 None，
+        让 runner 走"打 WARNING 退回默认 initial"的兜底分支。
+
+        用法（runner debug）：
+            status = KeyframeIndex.load().find_status_for_anchor(scenario, run_id, anchor)
+            if status: memory.status = status
+            else: print("[runner] WARN: anchor 落在已知区间之外，使用默认 initial")
+        """
+
+        run = self.find_run(scenario, run_id)
+        if run is None:
+            return None
+
+        # 把 initial / middle / final 摊平成 [(start_frame, event), ...] 升序列表。
+        # builder 用 (start, end, event) 区间表；这里只用 start 也够：anchor 落在第 i
+        # 个 start 之后但第 i+1 个 start 之前就属于第 i 段。这种"按起点查"对 final 段
+        # 也天然成立（它的 start 就是最后一个，anchor >= final.frame 都算 final）。
+        events: List[Dict[str, Any]] = []
+        ini = run.get("initial")
+        if ini and ini.get("frame") is not None:
+            events.append(ini)
+        for ev in run.get("middle", []) or []:
+            if ev.get("frame") is not None:
+                events.append(ev)
+        fin = run.get("final")
+        if fin and fin.get("frame") is not None:
+            events.append(fin)
+        if not events:
+            return None
+
+        starts = [int(ev["frame"]) for ev in events]
+        # anchor 在 initial 之前是脏数据（builder 也会拒掉这种 run），返回 None。
+        if anchor < starts[0]:
+            return None
+        # 从后往前扫第一个 start <= anchor 的事件；用 bisect 也行但 5 个元素直接扫更易读。
+        current: Optional[str] = None
+        for ev, start in zip(events, starts):
+            if start <= anchor:
+                current = ev.get("event")
+            else:
+                break
+        return current
+
 
 def infer_run_id_from_route(route_dir: str) -> str:
     """LEAD 数据通常 data/<Scenario>/<run_id>/，最后一段就是 run_id。"""

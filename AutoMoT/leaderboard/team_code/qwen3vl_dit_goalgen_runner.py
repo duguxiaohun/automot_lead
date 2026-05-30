@@ -253,6 +253,36 @@ def run_once(args: argparse.Namespace) -> None:
     #    顺便在路径有效时自动识别 scenario 和 run_id。
     scenario, run_id, images = _prepare_images(args)
     memory = DrivingMemory.from_scenario(scenario)
+
+    # 1.5) 若用户没显式 --status，按 (scenario, run_id, anchor) 反查真值 STATUS。
+    # 不查直接用 DrivingMemory.from_scenario(scenario) 的默认 "initial" 会让 prompt
+    # 在中后段 anchor 上撒谎（告诉 Qwen "你现在是 initial"），下游 KV 全错。
+    # 查不到（路径无效 / anchor 不在已知区间）走 warning 兜底，让用户明确看到。
+    if not args.status and run_id and args.route_dir:
+        try:
+            kf_index = KeyframeIndex.load(
+                pathlib.Path(args.keyframes_json) if args.keyframes_json else None
+            )
+            derived_status = kf_index.find_status_for_anchor(scenario, run_id, args.anchor)
+            if derived_status:
+                memory.status = derived_status
+                # subgoal 同步推到下一个事件，与 builder 行为对齐。
+                next_ev = memory._next_event_after(memory.status)
+                if next_ev:
+                    memory.subgoal = next_ev
+                print(
+                    f"[runner] auto-derived STATUS={memory.status} SUBGOAL={memory.subgoal} "
+                    f"from (scenario={scenario}, run_id={run_id}, anchor={args.anchor})"
+                )
+            else:
+                print(
+                    f"[runner] WARN: 反查 STATUS 失败（run/anchor 在 keyframes JSON 中无匹配），"
+                    f"沿用默认 STATUS='{memory.status}'。若 anchor={args.anchor} 不在 initial 段，"
+                    "prompt 真值会撒谎，请显式传 --status。"
+                )
+        except FileNotFoundError as e:
+            print(f"[runner] WARN: 无法加载 keyframes JSON ({e})，跳过 STATUS 反查")
+
     _apply_memory_overrides(memory, args)
     print(
         f"[runner] scenario={scenario} run_id={run_id or '<none>'} "
