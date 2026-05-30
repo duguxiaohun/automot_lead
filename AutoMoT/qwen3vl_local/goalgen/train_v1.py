@@ -442,8 +442,14 @@ def train(args: argparse.Namespace) -> None:
         cache_system_prompt=False,
     )
     engine.load()
+    # 可选：挂上 SFT v1 训出来的 LoRA adapter，让 GoalGen prefill 用"微调后的语言编码"。
+    # merge=True 把 LoRA 权重合并进 base 矩阵；之后 self.model 上无 PEFT 包装，KV 提取
+    # / 段切分等下游代码完全无感知。--no-qwen-adapter-merge 可关闭合并保留 PeftModel。
+    if args.qwen_adapter_dir:
+        engine.attach_lora_adapter(args.qwen_adapter_dir, merge=args.qwen_adapter_merge)
     # 显式冻结 Qwen 全部参数。即便 optimizer 没传 Qwen 参数 + prefill 在 no_grad
     # 上下文里，这道保险能防止未来误用 .parameters() 把 Qwen 喂进 optimizer。
+    # 这里在 attach 之后冻一次：merged 模型有自己的新参数视图，也要标 requires_grad=False。
     freeze_module(engine.model)
 
     vae_cfg, vae_weights = default_vae_paths()
@@ -715,6 +721,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32", "auto"], default="bfloat16")
     p.add_argument("--vae-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
     p.add_argument("--dit-dtype", choices=["float32", "float16", "bfloat16"], default="bfloat16")
+    # LoRA / PEFT adapter：空字符串表示不挂；否则在 engine.load() 之后 attach。
+    # merge 默认开启把 LoRA 合进 base 矩阵，省 prefill 推理时间。
+    p.add_argument("--qwen-adapter-dir", type=str, default="",
+                   help="可选 LoRA / PEFT adapter 目录；为空则跑 base Qwen。")
+    p.add_argument("--qwen-adapter-merge", action="store_true", default=True,
+                   help="挂 adapter 后立即 merge_and_unload；默认开。")
+    p.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false",
+                   help="保留 PeftModel 包装不合并（debug LoRA 自身行为用）。")
 
     p.add_argument("--patch-size", type=int, default=2)
     p.add_argument("--hidden-dim", type=int, default=768)

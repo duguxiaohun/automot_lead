@@ -335,6 +335,10 @@ def eval_loop(args: argparse.Namespace) -> None:
         cache_system_prompt=False,
     )
     engine.load()
+    # eval 必须用与训练时同款 Qwen 编码：训练挂了 LoRA，eval 不挂会导致 KV 分布漂移，
+    # 指标对比毫无意义。所以这里也走同样的 attach + merge 路径。
+    if args.qwen_adapter_dir:
+        engine.attach_lora_adapter(args.qwen_adapter_dir, merge=args.qwen_adapter_merge)
 
     vae_cfg_path, vae_weights = default_vae_paths()
     vae = FrozenVAE.load(
@@ -486,6 +490,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
     p.add_argument("--vae-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
     p.add_argument("--dit-dtype", choices=["float32", "float16", "bfloat16"], default="bfloat16")
+    # LoRA / PEFT adapter（与 train_v1 同口径）：eval 必须用与训练同款 Qwen 编码。
+    p.add_argument("--qwen-adapter-dir", type=str, default="",
+                   help="可选 LoRA / PEFT adapter 目录；为空则跑 base Qwen。"
+                        " 训练若用了 adapter，eval 也必须传同一个目录。")
+    p.add_argument("--qwen-adapter-merge", action="store_true", default=True)
+    p.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false")
 
     # DiT 几何参数：仅在 ckpt 没存 dit_config 时使用（旧 ckpt 兼容）。
     p.add_argument("--patch-size", type=int, default=2)

@@ -16,6 +16,9 @@ fi
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/goalgen_v1_data/train.jsonl}"
 VAL_JSONL="${VAL_JSONL:-checkpoints/goalgen_v1_data/val.jsonl}"   # 默认与 builder 输出一致；不存在 trainer 会自动跳过 val/sample 日志
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+# 可选 LoRA adapter：默认空 = 用 base Qwen；想接 SFT v1 微调后的语言编码，传
+# QWEN_ADAPTER_DIR=checkpoints/sft_v1_lora（adapter 目录，不是 merged 模型目录）
+QWEN_ADAPTER_DIR="${QWEN_ADAPTER_DIR:-}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/goalgen_v1_dit}"
 
 # TensorBoard / val / image sample 默认值；想关闭 image sample 设 IMAGE_LOG_EVERY=0
@@ -113,6 +116,7 @@ COMMON_ARGS=(
     --train-jsonl "${TRAIN_JSONL}"
     --val-jsonl "${VAL_JSONL}"
     --checkpoint-dir "${MODEL_DIR}"
+    --qwen-adapter-dir "${QWEN_ADAPTER_DIR}"
     --output-dir "${OUTPUT_DIR}"
     --patch-size "${PATCH_SIZE}"
     --hidden-dim "${HIDDEN_DIM}"
