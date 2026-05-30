@@ -40,6 +40,8 @@ class PrefillResult:
 def _to_layer_list(past_key_values: Any) -> List[Tuple[torch.Tensor, torch.Tensor]]:
     """Normalize DynamicCache / legacy tuple into ``[(K, V), ...]``."""
 
+    # transformers 4.42+ 默认返回 DynamicCache 对象（不是 tuple）；用 to_legacy_cache()
+    # 把它一致转成老式 [(K, V), ...] 结构，下游切分代码不用再对两种 cache 类型各写一套。
     if hasattr(past_key_values, "to_legacy_cache"):
         past_key_values = past_key_values.to_legacy_cache()
     if not isinstance(past_key_values, (list, tuple)):
@@ -50,6 +52,9 @@ def _to_layer_list(past_key_values: Any) -> List[Tuple[torch.Tensor, torch.Tenso
         if not isinstance(layer, (list, tuple)) or len(layer) != 2:
             raise TypeError("each layer should be a (K, V) pair")
         k, v = layer
+        # detach 切断对 Qwen 计算图的引用：上游 prefill 在 no_grad 里跑本身无 grad，
+        # detach 是道保险——防止未来有人忘了 no_grad 时 DiT 训练的反传无意间穿回 Qwen，
+        # 把"Qwen 全程冻结"的约定打破。
         layers.append((k.detach(), v.detach()))
     return layers
 
@@ -83,6 +88,10 @@ def segment_kv_for_dit(
         raise ValueError(f"unsupported qwen KV segment mode: {mode}")
 
     segments: List[Tuple[torch.Tensor, torch.Tensor]] = []
+    # 36 / 12 = 3，base=3，extra=0 是常规情况；如果总层数不整除（例如 37 层 / 12 段），
+    # 余数 extra 全塞给最后一段，让前 11 段都是 base，最后一段吃残余。
+    # 不平均分配是为了保持"前段对前层 Qwen"的语义稳定——浅层 → DiT 浅 block；
+    # 余数堆在末段对生成头尾的 KV 影响较小。
     base = total // num_segments
     extra = total - base * num_segments
     cursor = 0
@@ -91,12 +100,19 @@ def segment_kv_for_dit(
         seg_layers = layers[cursor: cursor + seg_len]
 
         if mode == "select_last":
+            # 取 group 内最后一层 Qwen 的 K/V。语言侧 token 数保持 S（≈2300），
+            # 显存最省；最后一层通常承载语义最丰富的 hidden，比第一层更适合喂下游。
             segments.append(seg_layers[-1])
         elif mode == "mean":
+            # 旧版层平均：把 3 层的 K/V 在 layer 维 stack 后求均值。
+            # 缺点是把不同层语义混在一起，方向性会被冲淡，留作 ablation 对照。
             ks = torch.stack([kv[0] for kv in seg_layers], dim=0)
             vs = torch.stack([kv[1] for kv in seg_layers], dim=0)
             segments.append((ks.mean(dim=0), vs.mean(dim=0)))
         else:
+            # concat_layers：3 层 K/V 沿 token 轴 (dim=2) 拼接，单段 token 数 = 3*S。
+            # 信息保留最完整但语言侧每个 DiT block 的 attention 成本翻 3 倍，
+            # 在 96GB H20 + bf16 上 4 帧历史 + 12 层 DiT 接近 OOM 临界。
             k_cat = torch.cat([kv[0] for kv in seg_layers], dim=2)
             v_cat = torch.cat([kv[1] for kv in seg_layers], dim=2)
             segments.append((k_cat, v_cat))
@@ -128,9 +144,14 @@ def teacher_forced_prefill(
 ) -> PrefillResult:
     """Run teacher-forced Qwen prefill and return DiT-ready K/V memories."""
 
+    # engine.load() 内部做"已加载就跳过"的幂等检查；每个 step 都喊一次是为了让 trainer
+    # 重启后第一个 step 也能自动唤醒模型，避免 runner 处理 lazy load 状态分支。
     engine.load()
 
     system_prompt = build_teacher_system_prompt()
+    # describe_image_inputs(len(images)) 让 prompt 文字与实际传入图像数一致；
+    # Qwen processor 不会校验"prompt 里说了几张图 vs 真传几张图"，文字和实物对齐有助于
+    # KV cache 里"图像和语言之间的对应关系"质量。
     user_prompt = build_teacher_user_prompt(
         memory,
         image_description=describe_image_inputs(len(images)),
@@ -140,6 +161,8 @@ def teacher_forced_prefill(
     chat_text = engine.apply_chat_template(messages)
     inputs = engine.prepare_inputs(chat_text, images)
 
+    # no_grad 是性能 + 内存的硬性需求：Qwen ~4B 参数，prefill 一旦带 autograd state
+    # 会瞬间多吃几个 GB；且我们不会回传梯度到 Qwen，开 grad 完全是浪费。
     with torch.no_grad():
         outputs = engine.prefill(inputs)
 
@@ -148,6 +171,8 @@ def teacher_forced_prefill(
         num_segments=num_segments,
         mode=kv_segment_mode,
     )
+    # 从第 0 段读形状元信息：所有段的 (B, n_kv_heads, S, head_dim) 一致（除 concat_layers
+    # 模式下 S 维三倍以外），下游只需要参考一段即可推出 language_kv_input_dim。
     k0, _ = segmented[0]
 
     return PrefillResult(
@@ -155,6 +180,8 @@ def teacher_forced_prefill(
         seq_len=int(k0.shape[2]),
         n_kv_heads=int(k0.shape[1]),
         head_dim=int(k0.shape[3]),
+        # 这里再调一次 _to_layer_list 不会重新 detach（已经 detach 过），只是为了拿到层数；
+        # 比缓存 len(layers) 多一次 O(layers) 遍历，但代码更线性、不依赖局部状态。
         num_qwen_layers=len(_to_layer_list(outputs.past_key_values)),
         chat_text=chat_text,
         kv_segment_mode=kv_segment_mode,

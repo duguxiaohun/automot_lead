@@ -81,6 +81,8 @@ def next_event_in_sequence(scenario: str, status: str) -> Optional[str]:
 
 
 def build_run_timeline(run: dict) -> Optional[RunTimeline]:
+    # 只接收 Completed / Perfect 的 run：失败 run 的 event 链可能在中途断掉，
+    # 用这种 run 的"过去 → 子目标"对训练是错的（agent 实际没到达 SUBGOAL）。
     if run.get("status") not in ACCEPTED_RUN_STATUS:
         return None
 
@@ -92,6 +94,8 @@ def build_run_timeline(run: dict) -> Optional[RunTimeline]:
     middle = run.get("middle", [])
     final = run.get("final")
     total_frames = run.get("diagnostics", {}).get("total_frames")
+    # LEAD 约定每个场景必有 1 个 initial + 3 个 middle + 1 个 final = 5 个事件；
+    # middle 数量不等于 3 说明这条 run 已经偏离标准链，跳过比硬补更安全。
     if not initial or len(middle) != 3 or not final or total_frames is None:
         return None
 
@@ -103,9 +107,13 @@ def build_run_timeline(run: dict) -> Optional[RunTimeline]:
         middle[2]["event"],
         final["event"],
     )
+    # 严格全等检查：事件**顺序**必须与场景模板逐字一致。LEAD 偶尔会出现"中途事件名
+    # 被替换或漏掉"的脏 run，名字对得上但顺序错位也算坏数据，扔掉。
     if actual_seq != expected_seq:
         return None
 
+    # 把"每个 status 占据的连续帧区间"摊平。后一个事件起点 - 1 当作前一个 status 区间末尾，
+    # 这样区间间两两不重叠也无缝隙；final 区间一直延伸到 total_frames - 1。
     boundaries = [
         (initial["frame"], middle[0]["frame"] - 1, initial["event"]),
         (middle[0]["frame"], middle[1]["frame"] - 1, middle[0]["event"]),
@@ -113,6 +121,8 @@ def build_run_timeline(run: dict) -> Optional[RunTimeline]:
         (middle[2]["frame"], final["frame"] - 1, middle[2]["event"]),
         (final["frame"], total_frames - 1, final["event"]),
     ]
+    # 任何一个 status 区间长度 <= 0 都说明事件帧顺序乱了（例如 middle[0].frame >= middle[1].frame）；
+    # 这是 LEAD 时间链异常，整条 run 都不能用。
     for start, end, _status in boundaries:
         if start > end:
             return None
@@ -226,13 +236,24 @@ def collect_samples(
             continue
         target_frame = timeline.event_frames[subgoal]
 
+        # min_anchor 两边夹：
+        # - 不早于 status 区间 start（anchor 必须落在当前 status 内，否则 STATUS 真值就错了）；
+        # - 至少有 (num_frames-1) * rgb_frame_step 帧的过去，否则 history_frames 会被 max(., 0) 截断
+        #   出现重复帧，下游 VAE 编出来的 z_history 退化成"贴图叠加"，破坏时序信息。
         min_anchor = max(start, (num_frames - 1) * rgb_frame_step)
+        # max_anchor：
+        # - 不超过 status 区间 end（同上：anchor 不能跨到下一个 status）；
+        # - 距离 target_frame 至少 min_future_gap 帧（避免目标帧 = 当前帧的退化样本，
+        #   那种样本对生成模型完全没价值，会把模型推向"恒等映射"陷阱）。
         max_anchor = min(end, target_frame - min_future_gap)
         if min_anchor > max_anchor:
+            # status 区间太短或者太靠近 target_frame 时整段不可用；跳过该 status 而不是补救。
             continue
 
         for anchor in range(min_anchor, max_anchor + 1, frame_stride):
             frames = history_frames(anchor, num_frames, rgb_frame_step)
+            # 复用 route 级 rgb_cache 字典查文件，避免每 anchor × 历史帧数 次 stat 调用；
+            # 7000 run × 几十 anchor × 4 历史帧 × 2 (history + target) 是百万次量级，必须缓存。
             hist_paths = [resolve_rgb_path(route_dir, f, rgb_cache=rgb_cache) for f in frames]
             current_path = hist_paths[-1]
             target_path = resolve_rgb_path(route_dir, target_frame, rgb_cache=rgb_cache)
@@ -258,19 +279,28 @@ def choose_samples(
     target_total: int,
     rng: random.Random,
 ) -> List[GoalGenSample]:
+    # target_total <= 0 表示"不限量、全部要"（CLI `--samples-per-scenario 0`）；
+    # 候选数本身不足 target_total 时也不上采样，避免引入重复样本污染训练分布。
     if target_total <= 0 or len(samples) <= target_total:
         chosen = list(samples)
         rng.shuffle(chosen)
         return chosen
 
+    # 按 (status, subgoal) 转移对分桶，做分层抽样。每个 status->subgoal 是一种"状态变换类型"，
+    # 不分桶直接随机会让某些少见 transition（例如 rare scenario 的 final 段）数量过低，
+    # 导致 DiT 在那类转移上欠拟合。
     buckets: Dict[str, List[GoalGenSample]] = defaultdict(list)
     for sample in samples:
         buckets[f"{sample.status}->{sample.subgoal}"].append(sample)
 
     chosen: List[GoalGenSample] = []
+    # 用 id() 作为去重 key 而不是把 GoalGenSample 加进 set：dataclass 默认 unhashable，
+    # 且我们只需要"对象身份"等价而非"内容"等价，id() 在 list 元素未释放时唯一。
     chosen_ids = set()
     per_bucket = max(1, target_total // max(1, len(buckets)))
     for bucket_samples in buckets.values():
+        # 单桶足额就采 per_bucket；不足就全收。比例不均时这里会"先把所有少数桶吃完，
+        # 大桶按 per_bucket 截断"，下面 if 分支再补到 target_total。
         picked = (
             rng.sample(bucket_samples, per_bucket)
             if len(bucket_samples) > per_bucket
@@ -281,10 +311,13 @@ def choose_samples(
             chosen_ids.add(id(sample))
 
     if len(chosen) < target_total:
+        # 凑不够 target_total（少数桶太少）→ 从所有未选样本里随机补；
+        # 此时已无法保证桶均匀，但样本总量优先级更高。
         remaining = [s for s in samples if id(s) not in chosen_ids]
         need = target_total - len(chosen)
         chosen.extend(rng.sample(remaining, min(need, len(remaining))))
     elif len(chosen) > target_total:
+        # per_bucket 向下取整 + 大桶塞满，可能轻微超 target；这里随机砍掉多余的。
         chosen = rng.sample(chosen, target_total)
 
     rng.shuffle(chosen)
@@ -323,8 +356,13 @@ def split_train_val(
     val_ratio: float,
     rng: random.Random,
 ) -> Tuple[List[dict], List[dict]]:
+    # 按 run_id 切分，不按样本切：同一 run 的相邻 anchor 共享大量视觉上下文，
+    # 如果同一 run 的样本既出现在 train 又出现在 val，验证集泄漏会让 loss 假性下降。
+    # sorted 给定 run_ids 顺序是确定的，再加 rng.shuffle 让切分本身可复现。
     run_ids = sorted(samples_by_run.keys())
     rng.shuffle(run_ids)
+    # max(1, ...) 兜底：val_ratio 太小 + run 数太少时仍保证至少 1 个 val run，
+    # 避免空 val.jsonl 让下游 eval 脚本崩溃。
     num_val = max(1, int(len(run_ids) * val_ratio)) if run_ids else 0
     val_runs = set(run_ids[:num_val])
 
@@ -332,6 +370,9 @@ def split_train_val(
     val: List[dict] = []
     for run_id, samples in samples_by_run.items():
         (val if run_id in val_runs else train).extend(samples)
+    # 再 shuffle 一次让 train / val 内部样本顺序与原 run 顺序无关；
+    # trainer 自己每 epoch 还会 reshuffle，这里 shuffle 主要是为了让"按行读取的 dry run"
+    # 也能看到混合分布而不是连续同 run。
     rng.shuffle(train)
     rng.shuffle(val)
     return train, val

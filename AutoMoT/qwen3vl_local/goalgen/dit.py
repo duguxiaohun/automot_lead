@@ -389,19 +389,29 @@ class DiTMoT(nn.Module):
         self.cfg = cfg
 
         # vision 两个流分别 patchify；权重共享会丢失"当前帧 / 目标 latent"语义区分。
+        # 共享 Conv2d 会让 z_t（含大量噪声）和 z_history（清晰图像）共用一组卷积，
+        # 等价于强迫模型在同一线性子空间里表达两种分布，初期 loss 会更难下降。
         self.patch_zt = Patchify(cfg.latent_channels, cfg.hidden_dim, cfg.patch_size)
         self.patch_zc = Patchify(cfg.latent_channels, cfg.hidden_dim, cfg.patch_size)
 
-        # 类型 embedding：区分"noisy 目标 token"与"当前帧 anchor token"。
+        # type_embed[0]=noisy target, [1]=history anchor，全部零初始化。
+        # 不像 frame_embed 那样 normal_(0, 0.02)，是因为 type 只有两类、Patchify 已经
+        # 给了它们不同的线性投影；type_embed 留作"训练中学到的偏置"，零起点对收敛更稳。
         self.type_embed = nn.Parameter(torch.zeros(2, cfg.hidden_dim))
+        # frame_embed 必须随机初始化：history 多帧走同一个 patch_zc 卷出来，仅靠卷积权重
+        # 无法区分"第 0 帧 vs 第 3 帧"。std=0.02 与 BERT / DiT 位置 embed 的常用值一致。
         self.frame_embed = nn.Parameter(torch.zeros(cfg.max_history_frames, cfg.hidden_dim))
         nn.init.normal_(self.frame_embed, mean=0.0, std=0.02)
 
         # 2D 位置编码：用预生成最大尺寸表，按实际 grid 切片即可，避免重复计算。
+        # persistent=False：不写进 state_dict，节省 ckpt 体积——pos_embed 完全由配置决定，
+        # 重新加载时 __init__ 会重算，存进 ckpt 反而冗余且容易在分辨率变更时不匹配。
         pe = _make_2d_sincos_pos_embed(cfg.hidden_dim, cfg.max_grid_h, cfg.max_grid_w)
         self.register_buffer("pos_embed_table", pe, persistent=False)
 
-        # 时间步 conditioning。
+        # 时间步 conditioning：sin/cos embed(t) → MLP → cond_dim 向量。
+        # cond_dim*4 是 DiT / DDPM 常用的 4× 扩展宽度，SiLU 是 diffusion 社区默认激活；
+        # 用 ReLU 会让小 t 区域梯度死亡，cond signal 在 warmup 阶段拉不起来。
         self.t_mlp = nn.Sequential(
             nn.Linear(cfg.cond_dim, cfg.cond_dim * 4),
             nn.SiLU(),
