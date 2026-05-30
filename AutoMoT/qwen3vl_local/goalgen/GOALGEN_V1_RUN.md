@@ -108,6 +108,15 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 **eval / runner 必须传同一个 `--qwen-adapter-dir`**：训练用 adapter 而 eval 用 base
 会让 KV 分布偏移，指标完全不可比。
 
+为了防止"忘了传"导致的静默错误生成，eval / runner 在加载 DiT ckpt 时会从
+`payload["args"]` 读训练时的 `qwen_adapter_dir`，**与当前 CLI 严格比对**：
+
+- 训练 + 当前都是 base（空串）→ OK
+- 训练 + 当前都是同一 adapter 目录（绝对路径比较）→ OK，info 输出
+- 训练 + 当前都挂 adapter 但 merge 开关不同 → info 提醒（数学等价，fp 精度差异）
+- **adapter 路径不一致 → 默认 raise RuntimeError，明确告诉你训练时是什么、当前是什么**
+- 想 ablation 跨 adapter 对比时传 `--allow-qwen-adapter-mismatch` 转为 WARN 继续
+
 ```bash
 # eval
 python qwen3vl_local/goalgen/eval_v1.py \

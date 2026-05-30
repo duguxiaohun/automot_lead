@@ -180,12 +180,53 @@ def _build_dit(
 
     payload = None
     saved_cfg_dict = None
+    saved_args_dict = None
     if args.dit_checkpoint:
         ckpt_path = pathlib.Path(args.dit_checkpoint).resolve()
         # 先读 payload 以便从中拿 dit_config 反建模型；map_location=device 防止
         # 拉到 cuda:0 撞别人占用，让 ckpt 直接落到当前 rank 卡上。
         payload = torch.load(ckpt_path, map_location=device)
         saved_cfg_dict = payload.get("dit_config") if isinstance(payload, dict) else None
+        # train_v1.save_checkpoint 把 vars(args) 整个存进 payload["args"]，里面包含
+        # qwen_adapter_dir / qwen_adapter_merge，用于 Qwen 条件分布一致性校验。
+        saved_args_dict = payload.get("args") if isinstance(payload, dict) else None
+
+    # ---- Qwen adapter 一致性校验 ----
+    # 静默风险：DiT 是用 LoRA-Qwen KV 训练的，但推理忘传 --qwen-adapter-dir，shape 完全
+    # 一致 strict load 也不报错，但 KV 数值分布漂掉，DiT 在错的语言条件下生成。
+    # 默认严格 raise；ablation 想故意跨 adapter 对比时传 --allow-qwen-adapter-mismatch。
+    if saved_args_dict is not None and args.dit_checkpoint:
+        def _resolve_adapter(s: str) -> str:
+            # 空串保持空（base Qwen）；非空 resolve 到绝对路径让"相对 vs 绝对"也能匹配。
+            return str(pathlib.Path(s).resolve()) if s else ""
+
+        saved_adapter = _resolve_adapter(saved_args_dict.get("qwen_adapter_dir", "") or "")
+        current_adapter = _resolve_adapter(args.qwen_adapter_dir or "")
+        saved_merge = bool(saved_args_dict.get("qwen_adapter_merge", True))
+        current_merge = bool(args.qwen_adapter_merge)
+
+        if saved_adapter != current_adapter:
+            msg = (
+                f"DiT 训练时 qwen_adapter_dir='{saved_adapter or '<base>'}'，"
+                f"当前推理 qwen_adapter_dir='{current_adapter or '<base>'}'，不一致会导致 KV "
+                f"分布漂移，DiT 输出无意义。"
+                f" 解决：把 --qwen-adapter-dir 改成训练时同款；"
+                f"故意 ablation 时传 --allow-qwen-adapter-mismatch。"
+            )
+            if not args.allow_qwen_adapter_mismatch:
+                raise RuntimeError(msg)
+            print(f"[dit] WARN: {msg}")
+        elif saved_adapter and saved_merge != current_merge:
+            # merge=True/False 数学上等价（LoRA delta 加进 base），数值差异在 fp 精度量级；
+            # 不阻断训练，只 info 提醒。
+            print(
+                f"[dit] info: qwen_adapter_merge 训练={saved_merge} 推理={current_merge}（数学等价，仅 fp 精度差异）"
+            )
+        else:
+            print(
+                f"[dit] qwen_adapter consistency OK: "
+                f"adapter='{current_adapter or '<base>'}' merge={current_merge}"
+            )
 
     # 起手用 CLI / saved cfg 的全集打底，下面会被 saved_cfg 覆盖（如果有）。
     cli_kwargs = dict(
@@ -482,6 +523,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         " 与训练 / eval 同款，确保 KV 分布一致。")
     p.add_argument("--qwen-adapter-merge", action="store_true", default=True)
     p.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false")
+    p.add_argument("--allow-qwen-adapter-mismatch", action="store_true", default=False,
+                   help="允许 DiT ckpt 训练时的 qwen_adapter_dir 与当前 CLI 不一致；"
+                        " 仅 ablation 用，默认 raise 防止 KV 分布漂移导致的静默错误生成。")
     # Frames
     p.add_argument("--scenario", type=str, default="MergerIntoSlowTraffic")
     p.add_argument("--status", type=str, default=None, help="覆盖 memory.status；不传则用 DrivingMemory 默认 'initial'")
