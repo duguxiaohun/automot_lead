@@ -166,9 +166,29 @@ def _build_dit(
     device: torch.device,
     dtype: torch.dtype,
 ) -> DiTMoT:
-    """根据 segmented KV 维度构造 DiT 配置并实例化。"""
+    """根据 segmented KV 维度构造 DiT 配置并实例化。
 
-    cfg = DiTMoTConfig(
+    优先级（高 → 低）：
+    1. ckpt payload 里的 dit_config —— 保证"训练时用什么配置，推理就用什么"，
+       即使 CLI 默认值在代码迭代中漂了也不会撞 shape mismatch。
+    2. CLI 显式覆盖（patch_size/hidden_dim/n_heads/mlp_ratio/cond_dim/max_history_frames）。
+       不显式传时不覆盖。
+    3. language_kv_input_dim **永远**从当前 pooled_kv 推 —— 这是运行时事实
+       （取决于当下用的 Qwen 配置），不能用 ckpt 里训练时的值，否则换 Qwen 就崩。
+    4. num_layers **永远**等于 len(pooled_kv) —— 同理，DiT 层数和 KV 段数必须强对齐。
+    """
+
+    payload = None
+    saved_cfg_dict = None
+    if args.dit_checkpoint:
+        ckpt_path = pathlib.Path(args.dit_checkpoint).resolve()
+        # 先读 payload 以便从中拿 dit_config 反建模型；map_location=device 防止
+        # 拉到 cuda:0 撞别人占用，让 ckpt 直接落到当前 rank 卡上。
+        payload = torch.load(ckpt_path, map_location=device)
+        saved_cfg_dict = payload.get("dit_config") if isinstance(payload, dict) else None
+
+    # 起手用 CLI / saved cfg 的全集打底，下面会被 saved_cfg 覆盖（如果有）。
+    cli_kwargs = dict(
         latent_channels=4,
         patch_size=args.patch_size,
         hidden_dim=args.hidden_dim,
@@ -179,15 +199,36 @@ def _build_dit(
         language_kv_input_dim=language_kv_input_dim_from_pooled(pooled_kv),
         max_history_frames=args.max_history_frames,
     )
+
+    if saved_cfg_dict is not None:
+        # ckpt 存的字段以它为准；CLI 没显式提到的就接受 saved 值。
+        # 但 num_layers / language_kv_input_dim 永远用运行时事实（pooled_kv 推出来的），
+        # 不读 saved——这两个是"DiT 形状必须和当前 KV 对齐"的硬约束。
+        merged = dict(saved_cfg_dict)
+        merged["num_layers"] = cli_kwargs["num_layers"]
+        merged["language_kv_input_dim"] = cli_kwargs["language_kv_input_dim"]
+        # ckpt 没存 latent_channels 时（旧 ckpt）保留 CLI 默认值。
+        merged.setdefault("latent_channels", cli_kwargs["latent_channels"])
+        cfg = DiTMoTConfig(**merged)
+        print(f"[dit] config rebuilt from ckpt dit_config: {ckpt_path}")
+    else:
+        cfg = DiTMoTConfig(**cli_kwargs)
+        if args.dit_checkpoint:
+            # 旧 ckpt（只存 state_dict 没存 cfg）警告：strict load 可能撞 shape，给个提示。
+            print(f"[dit] WARN: ckpt has no dit_config, falling back to CLI args. "
+                  f"shape mismatch on load is possible if training used non-default geometry.")
+
     model = DiTMoT(cfg).to(device=device, dtype=dtype)
-    if args.dit_checkpoint:
-        ckpt_path = pathlib.Path(args.dit_checkpoint).resolve()
-        payload = torch.load(ckpt_path, map_location=device)
-        state_dict = payload.get("dit_state_dict", payload)
+
+    if payload is not None:
+        # payload 既可能是 {"dit_state_dict": ..., ...}（trainer 落盘格式），也可能是裸 state_dict
+        # （早期手工 save）；做兼容兜底。
+        state_dict = payload.get("dit_state_dict", payload) if isinstance(payload, dict) else payload
         model.load_state_dict(state_dict, strict=True)
-        print(f"[dit] loaded checkpoint: {ckpt_path}")
+        print(f"[dit] loaded checkpoint: {pathlib.Path(args.dit_checkpoint).resolve()}")
     else:
         print("[dit] no --dit-checkpoint provided; using randomly initialized DiT")
+
     print(
         f"[dit] hidden={cfg.hidden_dim} heads={cfg.n_heads} layers={cfg.num_layers} "
         f"patch={cfg.patch_size} lang_kv_in={cfg.language_kv_input_dim}"
