@@ -55,7 +55,7 @@ class KeyframeIndex:
     def load(cls, path: Optional[pathlib.Path] = None) -> "KeyframeIndex":
         target = pathlib.Path(path) if path else _DEFAULT_KEYFRAMES_JSON
         if not target.exists():
-            raise FileNotFoundError(f"keyframes json not found: {target}")
+            raise FileNotFoundError(f"关键帧 JSON 不存在：{target}")
         with target.open("r", encoding="utf-8") as f:
             payload = json.load(f)
         return cls(payload)
@@ -90,7 +90,7 @@ class KeyframeIndex:
                 run_id="Town03_..._02_37_46",
                 event=memory.subgoal,   # 例如 "hazard_detect"
             )
-            if idx is None: 跳过真值，用 randn z1 兜底跑 forward。
+            if idx is None: 跳过真值，用 randn z1 兜底跑前向。
 
         线性扫一个 run 内部 5 个事件（initial + 3 middle + final），没必要 hash；
         加 hash 反而让"事件 token 拼错"的错误更难定位。
@@ -127,7 +127,7 @@ class KeyframeIndex:
         用法（runner debug）：
             status = KeyframeIndex.load().find_status_for_anchor(scenario, run_id, anchor)
             if status: memory.status = status
-            else: print("[runner] WARN: anchor 落在已知区间之外，使用默认 initial")
+            else: print("[runner] 警告：anchor 落在已知区间之外，使用默认 initial")
         """
 
         run = self.find_run(scenario, run_id)
@@ -135,7 +135,7 @@ class KeyframeIndex:
             return None
 
         # 把 initial / middle / final 摊平成 [(start_frame, event), ...] 升序列表。
-        # builder 用 (start, end, event) 区间表；这里只用 start 也够：anchor 落在第 i
+        # 数据构建器用 (start, end, event) 区间表；这里只用 start 也够：anchor 落在第 i
         # 个 start 之后但第 i+1 个 start 之前就属于第 i 段。这种"按起点查"对 final 段
         # 也天然成立（它的 start 就是最后一个，anchor >= final.frame 都算 final）。
         events: List[Dict[str, Any]] = []
@@ -152,7 +152,7 @@ class KeyframeIndex:
             return None
 
         starts = [int(ev["frame"]) for ev in events]
-        # anchor 在 initial 之前是脏数据（builder 也会拒掉这种 run），返回 None。
+        # anchor 在 initial 之前是脏数据（数据构建器也会拒掉这种 run），返回 None。
         if anchor < starts[0]:
             return None
         # 从后往前扫第一个 start <= anchor 的事件；用 bisect 也行但 5 个元素直接扫更易读。
@@ -181,7 +181,7 @@ def load_keyframe_rgb(route_dir: str, frame_idx: int) -> Image.Image:
         import cv2
         import numpy as np
     except Exception as e:
-        raise RuntimeError(f"load_keyframe_rgb requires opencv-python + numpy: {e}")
+        raise RuntimeError(f"load_keyframe_rgb 需要 opencv-python + numpy：{e}")
 
     # 先按 LEAD 的默认命名约定（4 位数 0-padding）拼路径。
     rgb_dir = pathlib.Path(route_dir) / "rgb"
@@ -191,7 +191,7 @@ def load_keyframe_rgb(route_dir: str, frame_idx: int) -> Image.Image:
         # 中 sorted 顺序的第 frame_idx 个 .jpg 拿。仍然出错才报。
         files = sorted(rgb_dir.glob("*.jpg"))
         if frame_idx < 0 or frame_idx >= len(files):
-            raise FileNotFoundError(f"no such keyframe: {rgb_path}")
+            raise FileNotFoundError(f"找不到这个关键帧：{rgb_path}")
         rgb_path = files[frame_idx]
 
     # cv2.imread 读出来是 BGR；后续 VAE 期望 RGB，所以这里立即转。
@@ -199,7 +199,7 @@ def load_keyframe_rgb(route_dir: str, frame_idx: int) -> Image.Image:
     # （那条链路也用 cv2 + cvtColor，避免不同 JPEG 解码器导致的轻微像素差异）。
     bgr = cv2.imread(str(rgb_path), cv2.IMREAD_COLOR)
     if bgr is None:
-        raise RuntimeError(f"cv2 failed to read keyframe: {rgb_path}")
+        raise RuntimeError(f"cv2 读取关键帧失败：{rgb_path}")
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     # VAE.encode 接受 PIL.Image 列表，所以这里转回 PIL。
     return Image.fromarray(rgb, mode="RGB")

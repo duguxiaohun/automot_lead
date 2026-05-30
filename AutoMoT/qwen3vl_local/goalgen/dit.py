@@ -2,8 +2,8 @@
 
 设计要点（详见 PROJECT_CONTEXT.md §15）：
 
-- 输入是冻结 VAE 编出来的 latent：noisy 目标 z_t 与历史帧 z_history。
-- z_t 与每一帧历史 latent 各自 patchify，拼成 vision token 序列；历史帧使用
+- 输入是冻结 VAE 编出来的潜变量：含噪目标 z_t 与历史帧 z_history。
+- z_t 与每一帧历史潜变量各自切成图块，拼成视觉 token 序列；历史帧使用
   类型 embedding + frame embedding 区分。
 - 每层 block 做 MoT 风格的 joint attention：
     Q = vision_token 投出来的 Q
@@ -12,13 +12,13 @@
   其中 language K/V 是冻结的 Qwen pooled KV 经过 per-layer 线性投影到 DiT hidden 后，
   按 (n_heads, head_dim) 重排得到。
 - timestep 用 AdaLN-Zero 注入；vision token 不修改 language 部分。
-- 输出只读出"z_t 那一段" token，unpatchify 回 [B, 4, H/8, W/8]，作为 velocity 预测。
+- 输出只读出"z_t 那一段" token，反图块化回 [B, 4, H/8, W/8]，作为速度预测。
 
-关键 shape（默认配置，针对 LEAD 1152x384）：
+关键形状（默认配置，针对 LEAD 1152x384）：
 
-- VAE latent: [B, 4, 48, 144]
-- patch_size = 2  -> patch grid (24, 72) -> 1728 token / latent
-- vision token = 1728 (z_t) + F * 1728 (z_history)，builder 默认 F=4 -> 8640 token
+- VAE 潜变量: [B, 4, 48, 144]
+- patch_size = 2  -> 图块网格 (24, 72) -> 每个潜变量 1728 个 token
+- 视觉 token = 1728 (z_t) + F * 1728 (z_history)，数据构建器默认 F=4 -> 8640 个 token
 - hidden_dim = 768, n_heads = 12, head_dim = 64
 - language token = Qwen prefill seq_len, 例如 ~2332
 """
@@ -42,9 +42,9 @@ import torch.nn.functional as F
 def _make_2d_sincos_pos_embed(hidden_dim: int, grid_h: int, grid_w: int) -> torch.Tensor:
     """简单 2D sin-cos 位置编码，沿 H 和 W 各占 hidden_dim 的一半。
 
-    返回 shape [grid_h * grid_w, hidden_dim]，写成 float32 让加载时易复用。
+    返回形状 [grid_h * grid_w, hidden_dim]，写成 float32 让加载时易复用。
 
-    用法：DiTMoT 在 __init__ 里调用一次，注册成 buffer；forward 时按当前 grid
+    用法：DiTMoT 在 __init__ 里调用一次，注册成 buffer；前向时按当前网格
     切片即可，避免每次都重新计算。
 
     为什么不用可学习位置编码：vision token 数（grid 尺寸）会随 LEAD vs Vista
@@ -192,7 +192,7 @@ class JointAttention(nn.Module):
     ):
         super().__init__()
         if hidden_dim % n_heads != 0:
-            raise ValueError("hidden_dim must be divisible by n_heads")
+            raise ValueError("hidden_dim 必须能被 n_heads 整除")
         self.n_heads = n_heads
         self.head_dim = hidden_dim // n_heads
 
@@ -230,7 +230,7 @@ class JointAttention(nn.Module):
         """
 
         k, v = lang_kv
-        # qwen_kv.teacher_forced_prefill 通常以 batch=1 跑 Qwen prefill；DiT 训练
+        # qwen_kv.teacher_forced_prefill 通常以 batch=1 跑 Qwen 预填充；DiT 训练
         # 时可能 batch>1。这里允许 1->B 的 expand：expand 不拷贝内存，attention
         # 内部按 batch 维只读取，不会写回，所以共享语言 KV 是安全的。
         if k.shape[0] != batch_size:
@@ -390,7 +390,7 @@ class DiTMoT(nn.Module):
 
         # vision 两个流分别 patchify；权重共享会丢失"当前帧 / 目标 latent"语义区分。
         # 共享 Conv2d 会让 z_t（含大量噪声）和 z_history（清晰图像）共用一组卷积，
-        # 等价于强迫模型在同一线性子空间里表达两种分布，初期 loss 会更难下降。
+        # 等价于强迫模型在同一线性子空间里表达两种分布，初期损失会更难下降。
         self.patch_zt = Patchify(cfg.latent_channels, cfg.hidden_dim, cfg.patch_size)
         self.patch_zc = Patchify(cfg.latent_channels, cfg.hidden_dim, cfg.patch_size)
 
@@ -456,7 +456,7 @@ class DiTMoT(nn.Module):
         t: torch.Tensor,
         pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]],
     ) -> torch.Tensor:
-        """单步 forward。
+        """单步前向。
 
         输入约定：
         - z_t：[B, C, H, W]，noisy 目标 latent。
@@ -480,11 +480,11 @@ class DiTMoT(nn.Module):
             z_history = z_history.unsqueeze(1)
         if z_history.ndim != 5:
             raise ValueError(
-                f"z_history should be [B,F,C,H,W] or [B,C,H,W], got {tuple(z_history.shape)}"
+                f"z_history 应为 [B,F,C,H,W] 或 [B,C,H,W]，实际得到 {tuple(z_history.shape)}"
             )
         if z_history.shape[1] > self.cfg.max_history_frames:
             raise ValueError(
-                f"history frames {z_history.shape[1]} > max_history_frames={self.cfg.max_history_frames}"
+                f"历史帧数 {z_history.shape[1]} > max_history_frames={self.cfg.max_history_frames}"
             )
 
         # target 流和 history 流分别 patchify。history 流复用同一个 Patchify，
@@ -536,8 +536,8 @@ def language_kv_input_dim_from_pooled(pooled_kv: List[Tuple[torch.Tensor, torch.
     """
 
     if not pooled_kv:
-        raise ValueError("pooled_kv is empty")
+        raise ValueError("pooled_kv 为空")
     k0, _ = pooled_kv[0]
     if k0.ndim != 4:
-        raise ValueError(f"expected pooled K shape [B, n_kv_heads, S, head_dim], got {k0.shape}")
+        raise ValueError(f"期望 pooled K 形状为 [B, n_kv_heads, S, head_dim]，实际得到 {k0.shape}")
     return int(k0.shape[1] * k0.shape[3])

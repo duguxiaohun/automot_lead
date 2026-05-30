@@ -68,7 +68,7 @@ def flow_matching_loss(v_pred: torch.Tensor, v_target: torch.Tensor) -> torch.Te
     保留这个独立函数而不是直接在 runner 写 `.mean()`，是为了：
     - v2 想加 t 相关的加权（如 `(1 - t)` 或 `1/(1-t+eps)`）时只改这里；
     - v2 想引入"前景区域 mask"加权或"latent 通道差异"时也只改这里；
-    - 训练脚本不感知 loss 形式变化。
+    - 训练脚本不感知损失形式变化。
     """
 
     return (v_pred - v_target).pow(2).mean()
@@ -96,7 +96,7 @@ def euler_sample(
         z = torch.randn(shape, device=device, dtype=dtype)
     else:
         # 强制 to(device, dtype)：调用方有可能传不同 device 或 fp32 的 z_init；
-        # 不强转会让闭包里 dit 的 attention 在 K/V dtype 不一致时报 SDPA mismatch。
+        # 不强转会让闭包里 dit 的 attention 在 K/V dtype 不一致时报 SDPA 不匹配。
         z = z_init.to(device=device, dtype=dtype)
 
     # 等步长 Euler：t 从 0 走到 1，步长 dt = 1/num_steps。

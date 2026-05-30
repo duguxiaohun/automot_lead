@@ -1,18 +1,18 @@
-"""GoalGen v1 离线 eval：在 val.jsonl 上跑 DiT、解码图像、报告四个核心指标。
+"""GoalGen v1 离线评测：在 val.jsonl 上跑 DiT、解码图像、报告四个核心指标。
 
 数据流（与 train_v1 完全同构，只是不反传）：
-  history RGB -> frozen Qwen prefill -> segmented KV
-  history RGB -> frozen VAE -> z_history
-  target keyframe RGB -> frozen VAE -> z1 (GT)
+  history RGB -> 冻结 Qwen 预填充 -> 分段 KV
+  history RGB -> 冻结 VAE -> z_history
+  target keyframe RGB -> 冻结 VAE -> z1（真值）
   z0 ~ N(0, I)
-  z1_pred = euler_sample(velocity_fn=DiT(.|z_history, KV), num_steps=K) from z0
-  pred RGB = VAE.decode(z1_pred)
+  z1_pred = 从 z0 通过 Euler 采样得到
+  pred RGB = VAE 解码 z1_pred
 
 四个指标（与 5.3 约定一致）：
 
-  (a) latent_mse:   MSE(z1_pred, z1_gt)     —— 与训练 loss 同构，最直接
+  (a) latent_mse:   MSE(z1_pred, z1_gt)     —— 与训练损失同构，最直接
   (b) latent_cos:   cosine(z1_pred, z1_gt)  —— 向量方向上的相似度，对尺度不敏感
-  (c) pixel_l1 / psnr:  VAE.decode 后 [-1,1] RGB 的 L1 + 等价 PSNR
+  (c) pixel_l1 / psnr:  VAE 解码后 [-1,1] RGB 的 L1 + 等价 PSNR
                         —— 量"生成的子目标图像"质量；地板是 VAE 重建误差
   (d) velocity_cos: cosine(v_pred, v_target)，t 在 {0.1, 0.3, 0.5, 0.7, 0.9} 各采 1 次平均
                     —— 训练健康性诊断，跟训练时的 train/cos 同口径
@@ -21,10 +21,10 @@
   - <out>/eval_v1_summary.json    汇总（mean/std/by_scenario）
   - <out>/eval_v1_perline.jsonl   每条样本一行：scenario / run_id / anchor / status /
                                   subgoal / 四个指标 / 可选 decoded_png_path / gt_png_path
-  - <out>/samples/<idx>_pred.png  仅前 --image-dump-count 条
+  - <out>/samples/<idx>_pred.png  仅前 --image-dump-count 条样本
   - <out>/samples/<idx>_gt.png
 
-典型用法（远程，AutoMoT/ 下）：
+典型用法（远程，在 AutoMoT/ 目录下）：
 
 ```bash
 python qwen3vl_local/goalgen/eval_v1.py \
@@ -90,7 +90,7 @@ def load_jsonl(path: pathlib.Path) -> List[Dict[str, Any]]:
 def load_rgb(path: str) -> Image.Image:
     p = pathlib.Path(path)
     if not p.exists():
-        raise FileNotFoundError(f"RGB image not found: {p}")
+        raise FileNotFoundError(f"RGB 图像不存在：{p}")
     img = Image.open(p)
     if img.mode != "RGB":
         img = img.convert("RGB")
@@ -144,8 +144,8 @@ def build_dit_from_ckpt(
         language_kv_input_dim=language_kv_input_dim_from_pooled(pooled_kv),
     )
 
-    # ---- Qwen adapter 一致性校验（与 runner 同口径）----
-    # eval 用错 adapter 会让 KV 分布偏移，指标完全不可比；shape 一致 strict load 不报错。
+    # ---- Qwen 适配器一致性校验（与 runner 同口径）----
+    # 评测用错适配器会让 KV 分布偏移，指标完全不可比；形状一致时 strict load 不报错。
     if saved_args_dict is not None:
         def _resolve_adapter(s: str) -> str:
             return str(pathlib.Path(s).resolve()) if s else ""
@@ -161,18 +161,18 @@ def build_dit_from_ckpt(
                 f"当前 eval qwen_adapter_dir='{current_adapter or '<base>'}'，不一致会让 KV 分布"
                 f"漂移，eval 指标不可比。"
                 f" 解决：把 --qwen-adapter-dir 改成训练时同款；"
-                f"故意 ablation 时传 --allow-qwen-adapter-mismatch。"
+                f"故意做消融时传 --allow-qwen-adapter-mismatch。"
             )
             if not args.allow_qwen_adapter_mismatch:
                 raise RuntimeError(msg)
             print(f"[dit] WARN: {msg}")
         elif saved_adapter and saved_merge != current_merge:
             print(
-                f"[dit] info: qwen_adapter_merge 训练={saved_merge} eval={current_merge}（数学等价，仅 fp 精度差异）"
+                f"[dit] 提示：qwen_adapter_merge 训练={saved_merge} 评测={current_merge}（数学等价，仅浮点精度差异）"
             )
         else:
             print(
-                f"[dit] qwen_adapter consistency OK: "
+                f"[dit] qwen_adapter 一致性检查通过："
                 f"adapter='{current_adapter or '<base>'}' merge={current_merge}"
             )
 
@@ -198,7 +198,7 @@ def build_dit_from_ckpt(
         merged.update(runtime_kwargs)
         merged.setdefault("latent_channels", 4)
         cfg = DiTMoTConfig(**merged)
-        print(f"[dit] config rebuilt from ckpt dit_config")
+        print(f"[dit] 已从检查点里的 dit_config 重建配置")
     else:
         # 旧 ckpt 兼容路径：靠 CLI 默认值 + 运行时维度凑齐。
         cfg = DiTMoTConfig(
@@ -211,13 +211,13 @@ def build_dit_from_ckpt(
             max_history_frames=args.max_history_frames,
             **runtime_kwargs,
         )
-        print("[dit] WARN: ckpt 无 dit_config，回退 CLI 默认值")
+        print("[dit] 警告：检查点无 dit_config，回退命令行默认值")
 
     model = DiTMoT(cfg).to(device=device, dtype=dtype)
     state_dict = payload.get("dit_state_dict", payload) if isinstance(payload, dict) else payload
     model.load_state_dict(state_dict, strict=True)
     model.eval()
-    print(f"[dit] loaded checkpoint: {ckpt_path}")
+    print(f"[dit] 已加载检查点：{ckpt_path}")
     print(
         f"[dit] hidden={cfg.hidden_dim} heads={cfg.n_heads} layers={cfg.num_layers} "
         f"patch={cfg.patch_size} lang_kv_in={cfg.language_kv_input_dim}"
@@ -249,7 +249,7 @@ def _probe_language_kv(
 
 
 def latent_mse(z_pred: torch.Tensor, z_gt: torch.Tensor) -> float:
-    # 全局 MSE，不分通道；与训练 loss 同口径（只是 v_target 换成 z）。
+    # 全局 MSE，不分通道；与训练损失同口径（只是 v_target 换成 z）。
     return float((z_pred.float() - z_gt.float()).pow(2).mean().item())
 
 
@@ -351,10 +351,10 @@ def eval_loop(args: argparse.Namespace) -> None:
 
     samples = load_jsonl(pathlib.Path(args.val_jsonl))
     if not samples:
-        raise RuntimeError(f"empty val jsonl: {args.val_jsonl}")
+        raise RuntimeError(f"验证 jsonl 为空：{args.val_jsonl}")
     if args.max_samples > 0:
         samples = samples[: args.max_samples]
-    print(f"[data] val={len(samples)} source={args.val_jsonl}")
+    print(f"[data] 验证样本={len(samples)} 来源={args.val_jsonl}")
 
     # 1) 起 engine / vae。
     engine = LocalQwen3VLInstructEngine(
@@ -383,7 +383,7 @@ def eval_loop(args: argparse.Namespace) -> None:
 
     # 2) 用第一条样本探一次 KV，反推 DiT shape 并加载 ckpt。
     dit_dtype = dtype_from_name(args.dit_dtype)
-    print("[probe] inferring DiT shape from first sample's segmented KV ...")
+    print("[probe] 正在用第一条样本的分段 KV 推断 DiT 形状 ...")
     probe_pooled = _probe_language_kv(engine, samples[0], args.num_layers, args.qwen_kv_segment_mode)
     dit = build_dit_from_ckpt(
         ckpt_path=pathlib.Path(args.dit_checkpoint).resolve(),
@@ -435,8 +435,8 @@ def eval_loop(args: argparse.Namespace) -> None:
             # ---- 四个指标 ----
             m_mse = latent_mse(z1_pred, z1_gt)
             m_cos = latent_cosine(z1_pred, z1_gt)
-            # 显式 cast 到 vae (device, dtype)：与 train_v1._decode_latent_to_image 同口径
-            # 的 defensive layer，避免未来 vae.py 内部 cast 被删时这里悄悄 dtype mismatch。
+            # 显式转到 vae 的 (device, dtype)：与 train_v1._decode_latent_to_image 同口径
+            # 的防御层，避免未来 vae.py 内部 cast 被删时这里悄悄 dtype mismatch。
             z1_pred_for_vae = z1_pred.to(device=vae.device, dtype=vae.dtype)
             z1_gt_for_vae = z1_gt.to(device=vae.device, dtype=vae.dtype)
             rgb_pred = vae.decode(z1_pred_for_vae).clamp(-1.0, 1.0)
@@ -502,9 +502,9 @@ def eval_loop(args: argparse.Namespace) -> None:
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
-    print(f"[done] perline={perline_path}")
-    print(f"[done] summary={summary_path}")
-    print(f"[done] samples png dir={samples_dir}（前 {args.image_dump_count} 条）")
+    print(f"[done] 逐行结果={perline_path}")
+    print(f"[done] 汇总结果={summary_path}")
+    print(f"[done] 样例 PNG 目录={samples_dir}（前 {args.image_dump_count} 条）")
     overall = summary["overall"]
     if overall:
         print(
@@ -517,7 +517,7 @@ def eval_loop(args: argparse.Namespace) -> None:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Evaluate GoalGen v1 DiT on val.jsonl")
+    p = argparse.ArgumentParser(description="在 val.jsonl 上评测 GoalGen v1 DiT")
     p.add_argument("--val-jsonl", default="checkpoints/goalgen_v1_data/val.jsonl")
     p.add_argument("--dit-checkpoint", default="checkpoints/goalgen_v1_dit/latest.pt")
     p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
@@ -527,15 +527,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
     p.add_argument("--vae-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
     p.add_argument("--dit-dtype", choices=["float32", "float16", "bfloat16"], default="bfloat16")
-    # LoRA / PEFT adapter（与 train_v1 同口径）：eval 必须用与训练同款 Qwen 编码。
+    # LoRA / PEFT 适配器（与 train_v1 同口径）：评测必须用与训练同款 Qwen 编码。
     p.add_argument("--qwen-adapter-dir", type=str, default="",
-                   help="可选 LoRA / PEFT adapter 目录；为空则跑 base Qwen。"
-                        " 训练若用了 adapter，eval 也必须传同一个目录。")
+                   help="可选 LoRA / PEFT 适配器目录；为空则跑基础 Qwen。"
+                        " 训练若用了适配器，评测也必须传同一个目录。")
     p.add_argument("--qwen-adapter-merge", action="store_true", default=True)
     p.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false")
     p.add_argument("--allow-qwen-adapter-mismatch", action="store_true", default=False,
                    help="允许 DiT ckpt 训练时的 qwen_adapter_dir 与当前 CLI 不一致；"
-                        " 仅 ablation 用，默认 raise 防止 KV 分布漂移导致指标不可比。")
+                        " 仅消融实验使用；默认抛错，防止 KV 分布漂移导致指标不可比。")
 
     # DiT 几何参数：仅在 ckpt 没存 dit_config 时使用（旧 ckpt 兼容）。
     p.add_argument("--patch-size", type=int, default=2)
@@ -550,11 +550,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    default="select_last")
 
     p.add_argument("--max-samples", type=int, default=0,
-                   help="0 表示跑完整 val；正整数会截断。")
+                   help="0 表示跑完整验证集；正整数会截断。")
     p.add_argument("--euler-steps", type=int, default=32,
-                   help="生成 z1_pred 的 Euler 步数；rectified flow 下 32 足够。")
+                   help="生成 z1_pred 的 Euler 步数；rectified flow 下 32 通常足够。")
     p.add_argument("--image-dump-count", type=int, default=32,
-                   help="前 N 条样本同时落 pred / gt PNG，方便人眼对比。")
+                   help="前 N 条样本同时落预测 / 真值 PNG，方便人眼对比。")
     p.add_argument("--log-every", type=int, default=10)
     p.add_argument("--seed", type=int, default=20260530)
     return p

@@ -1,8 +1,7 @@
-"""Qwen teacher-forced prefill helpers for GoalGen.
+"""GoalGen 使用的 Qwen teacher-forced prefill helper。
 
-This module reuses ``LocalQwen3VLInstructEngine`` only for prefill. Qwen stays
-frozen; the returned K/V tensors are detached and used as language memory by
-DiT-MoT.
+本模块只复用 ``LocalQwen3VLInstructEngine`` 跑 prefill。Qwen 全程冻结；返回的
+K/V 张量都已 detach，作为 DiT-MoT 的语言 memory 使用。
 """
 
 from __future__ import annotations
@@ -19,13 +18,12 @@ from .prompt import build_teacher_system_prompt, build_teacher_user_prompt, desc
 
 @dataclass
 class PrefillResult:
-    """Teacher-forced prefill output consumed by DiT.
+    """供 DiT 消费的 teacher-forced 预填充结果。
 
-    ``pooled_kv`` keeps the historical field name for compatibility. With the
-    default ``select_last`` mode each DiT segment is the **last** Qwen layer of
-    its 3-layer group (token-level K/V, shape ``[B, n_kv, S, head_dim]``);
-    ``concat_layers`` is the heavier "concat all 3 layers along token axis"
-    variant kept available for ablation.
+    ``pooled_kv`` 保留历史字段名只是为了兼容旧调用方。默认 ``select_last`` 模式下，
+    每个 DiT 段拿到的是对应 3 层 Qwen 小组里的**最后一层** token-level K/V，
+    形状为 ``[B, n_kv, S, head_dim]``；``concat_layers`` 是更重的变体，会把
+    3 层沿 token 维拼接，只用于消融实验。
     """
 
     pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]]
@@ -38,19 +36,19 @@ class PrefillResult:
 
 
 def _to_layer_list(past_key_values: Any) -> List[Tuple[torch.Tensor, torch.Tensor]]:
-    """Normalize DynamicCache / legacy tuple into ``[(K, V), ...]``."""
+    """把 DynamicCache 或旧式 tuple 统一规整成 ``[(K, V), ...]``。"""
 
     # transformers 4.42+ 默认返回 DynamicCache 对象（不是 tuple）；用 to_legacy_cache()
     # 把它一致转成老式 [(K, V), ...] 结构，下游切分代码不用再对两种 cache 类型各写一套。
     if hasattr(past_key_values, "to_legacy_cache"):
         past_key_values = past_key_values.to_legacy_cache()
     if not isinstance(past_key_values, (list, tuple)):
-        raise TypeError(f"unexpected past_key_values type: {type(past_key_values)}")
+        raise TypeError(f"不支持的 past_key_values 类型：{type(past_key_values)}")
 
     layers: List[Tuple[torch.Tensor, torch.Tensor]] = []
     for layer in past_key_values:
         if not isinstance(layer, (list, tuple)) or len(layer) != 2:
-            raise TypeError("each layer should be a (K, V) pair")
+            raise TypeError("每一层都应该是 (K, V) 二元组")
         k, v = layer
         # detach 切断对 Qwen 计算图的引用：上游 prefill 在 no_grad 里跑本身无 grad，
         # detach 是道保险——防止未来有人忘了 no_grad 时 DiT 训练的反传无意间穿回 Qwen，
@@ -64,28 +62,27 @@ def segment_kv_for_dit(
     num_segments: int = 12,
     mode: str = "select_last",
 ) -> List[Tuple[torch.Tensor, torch.Tensor]]:
-    """Split Qwen KV cache into DiT-layer memories.
+    """把 Qwen KV cache 切成按 DiT 层使用的语言记忆。
 
-    Default ``select_last`` keeps only the last Qwen layer of each group as
-    token-level K/V: for a 36-layer Qwen and a 12-layer DiT, block i receives
-    Qwen layer ``3i + 2`` directly, shape ``[B, n_kv, S, D]``.
+    默认 ``select_last`` 只保留每个小组的最后一层 Qwen，直接作为 token-level K/V：
+    对 36 层 Qwen 与 12 层 DiT 来说，第 i 个 DiT 层拿到 Qwen 的第 ``3i + 2``
+    层，形状是 ``[B, n_kv, S, D]``。
 
-    ``concat_layers`` is the heavier variant: it keeps all 3 layers in the group
-    by concatenating along the token axis -> ``[B, n_kv, 3*S, D]``. Use only for
-    ablation; default is the memory-friendly ``select_last``.
-    ``mean`` preserves the old layer-mean behavior.
+    ``concat_layers`` 是更重的变体：保留组内全部 3 层，并沿 token 轴拼成
+    ``[B, n_kv, 3*S, D]``。它只用于消融实验；默认应使用更省显存的
+    ``select_last``。``mean`` 保留旧版层平均行为，方便对照。
     """
 
     layers = _to_layer_list(past_key_values)
     total = len(layers)
     if num_segments <= 0:
-        raise ValueError("num_segments must be > 0")
+        raise ValueError("num_segments 必须 > 0")
     if total < num_segments:
-        raise ValueError(f"qwen layers {total} < num_segments {num_segments}")
+        raise ValueError(f"Qwen 层数 {total} 小于 num_segments {num_segments}")
 
     mode = mode.lower()
     if mode not in {"concat_layers", "select_last", "mean"}:
-        raise ValueError(f"unsupported qwen KV segment mode: {mode}")
+        raise ValueError(f"不支持的 Qwen KV 分段模式：{mode}")
 
     segments: List[Tuple[torch.Tensor, torch.Tensor]] = []
     # 36 / 12 = 3，base=3，extra=0 是常规情况；如果总层数不整除（例如 37 层 / 12 段），
@@ -105,14 +102,14 @@ def segment_kv_for_dit(
             segments.append(seg_layers[-1])
         elif mode == "mean":
             # 旧版层平均：把 3 层的 K/V 在 layer 维 stack 后求均值。
-            # 缺点是把不同层语义混在一起，方向性会被冲淡，留作 ablation 对照。
+            # 缺点是把不同层语义混在一起，方向性会被冲淡，留作消融对照。
             ks = torch.stack([kv[0] for kv in seg_layers], dim=0)
             vs = torch.stack([kv[1] for kv in seg_layers], dim=0)
             segments.append((ks.mean(dim=0), vs.mean(dim=0)))
         else:
             # concat_layers：3 层 K/V 沿 token 轴 (dim=2) 拼接，单段 token 数 = 3*S。
             # 信息保留最完整但语言侧每个 DiT block 的 attention 成本翻 3 倍，
-            # 在 96GB H20 + bf16 上 4 帧历史 + 12 层 DiT 接近 OOM 临界。
+            # 在 96GB H20 + bf16 上 4 帧历史 + 12 层 DiT 接近显存溢出临界。
             k_cat = torch.cat([kv[0] for kv in seg_layers], dim=2)
             v_cat = torch.cat([kv[1] for kv in seg_layers], dim=2)
             segments.append((k_cat, v_cat))
@@ -126,7 +123,7 @@ def pool_kv_for_dit(
     num_segments: int = 12,
     mode: str = "select_last",
 ) -> List[Tuple[torch.Tensor, torch.Tensor]]:
-    """Backward-compatible alias; default no longer layer-pools."""
+    """向后兼容别名；默认行为已经不再做层平均。"""
 
     return segment_kv_for_dit(
         past_key_values,
@@ -142,9 +139,9 @@ def teacher_forced_prefill(
     num_segments: int = 12,
     kv_segment_mode: str = "select_last",
 ) -> PrefillResult:
-    """Run teacher-forced Qwen prefill and return DiT-ready K/V memories."""
+    """运行 teacher-forced Qwen 预填充，并返回 DiT 可直接使用的 K/V 记忆。"""
 
-    # engine.load() 内部做"已加载就跳过"的幂等检查；每个 step 都喊一次是为了让 trainer
+    # engine.load() 内部做"已加载就跳过"的幂等检查；每一步都喊一次是为了让训练器
     # 重启后第一个 step 也能自动唤醒模型，避免 runner 处理 lazy load 状态分支。
     engine.load()
 
@@ -189,7 +186,7 @@ def teacher_forced_prefill(
 
 
 def summarize_pooled_kv(pooled: List[Tuple[torch.Tensor, torch.Tensor]]) -> Dict[str, Any]:
-    """Return a compact JSON-friendly summary without tensor payloads."""
+    """返回适合写入 JSON 的紧凑摘要，不包含真实张量内容。"""
 
     if not pooled:
         return {"num_segments": 0}
