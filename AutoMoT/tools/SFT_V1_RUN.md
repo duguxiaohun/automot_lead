@@ -334,6 +334,59 @@ python tools/eval_sft_v1.py \
 如果 LoRA 后仍 > 0.15，说明 v1 LoRA 没真正学到"默认保持"——
 进 PLAN §11 风险表排查 chat template 一致性问题。
 
+### 逐条 prediction 落盘
+
+`eval_sft_v1.py` 默认同时落两份 jsonl，方便人工 review 与 base/LoRA 横向对比：
+
+```text
+eval_json/sft_v1_predictions.jsonl       # 全部样本一条一行
+eval_json/sft_v1_predictions_diff.jsonl  # 只挑 pred_status != gt_status 的样本
+```
+
+每行字段：
+
+```json
+{
+  "sample_idx": 17,
+  "scenario": "Accident",
+  "run_id": "...",
+  "anchor": 12,
+  "is_transition_sample": false,
+  "gt_status": "initial",
+  "gt_subgoal": "hazard_detect",
+  "pred_status": "hazard_detect",
+  "pred_subgoal": "max_brake_or_min_gap",
+  "raw_text": "ANALYSIS: ...\nSTATUS: hazard_detect\nSUBGOAL: max_brake_or_min_gap",
+  "error_kind": "early_advance",
+  "error": null
+}
+```
+
+`error_kind` 是核心分类字段，stdout 也会打印分布 Counter：
+
+| 值 | 含义 |
+|---|---|
+| `ok` | pred == gt |
+| `early_advance` | keep 样本上 pred == next(gt)，最关心的失败模式 |
+| `none` | 输出格式坏，没有解析到 STATUS |
+| `inference_error` | generate 阶段抛异常（OOM / 路径错等） |
+| `other` | 其它（advance 样本未对齐 / 跳更远 / 非法 token 等） |
+
+base / LoRA 横向对比，直接 diff 两份 predictions.jsonl：
+
+```bash
+python -c "
+import json
+def load(p): return [json.loads(l) for l in open(p)]
+b = {r['sample_idx']: r['pred_status'] for r in load('eval_json/sft_v1_predictions_base.jsonl')}
+l = {r['sample_idx']: r['pred_status'] for r in load('eval_json/sft_v1_predictions_lora.jsonl')}
+changed = [k for k in b if b[k] != l[k]]
+print(f'changed={len(changed)} samples')
+"
+```
+
+想关掉某一份输出，传空字符串：`--predictions-jsonl ""` / `--predictions-diff-jsonl ""`。
+
 ---
 
 ## 一行串起来（happy path，不推荐生产用）

@@ -44,7 +44,7 @@ import json
 import pathlib
 import sys
 from collections import Counter, defaultdict
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
 _AUTOMOT_ROOT = _THIS_FILE.parents[1]
@@ -145,16 +145,16 @@ def reconstruct_prompts(sample: Dict) -> Dict[str, str]:
 # 单样本推理
 # ---------------------------------------------------------------------------
 
-def predict_status(
+def predict_full(
     engine: LocalQwen3VLInstructEngine,
     sample: Dict,
     images_loader,
-) -> Optional[str]:
-    """对一条样本跑推理，解析出 STATUS。失败返回 None。
+) -> Tuple[str, Dict[str, Optional[str]]]:
+    """跑一次推理，同时返回 (raw_text, parsed_dict)。
 
-    这个函数只返回 STATUS，因为 v1 的核心指标都是状态机指标。
-    raw_text 仍然经过 parse_vlm_output，所以如果模型输出格式坏掉，STATUS 会变成 None，
-    最终体现在 accuracy 下降，而不是用异常中断整个评估。
+    parsed_dict 至少含 status / subgoal / analysis 三个字段；缺失字段为 None。
+    比原来的 predict_status 多返回 raw_text，是为了让 predictions jsonl 能保留
+    模型完整输出（用户人工 review case 时定位错在哪个段，比只有 status 直观）。
     """
     pieces = reconstruct_prompts(sample)
     pil_images = images_loader(pieces["images"])
@@ -165,6 +165,20 @@ def predict_status(
         cache_dir=None,
     )
     parsed = parse_vlm_output(raw_text)
+    return raw_text, parsed
+
+
+def predict_status(
+    engine: LocalQwen3VLInstructEngine,
+    sample: Dict,
+    images_loader,
+) -> Optional[str]:
+    """对一条样本跑推理，解析出 STATUS。失败返回 None。
+
+    保留旧签名供 anchor12 sanity 等老调用方使用；新代码请用 predict_full
+    拿到 raw_text + parsed_dict。
+    """
+    _, parsed = predict_full(engine, sample, images_loader)
     return parsed.get("status")
 
 
@@ -342,6 +356,16 @@ def main():
                              "--no-cache-system-prompt 可关闭。")
     parser.add_argument("--output-json", type=str,
                         default=str(_AUTOMOT_ROOT / "eval_json" / "sft_v1_metrics.json"))
+    # ---- 逐条预测落盘（#5.5）----
+    # predictions-jsonl 写全部样本（用于离线对比 / 人工 review）；
+    # predictions-diff-jsonl 只写 pred ≠ gt 的样本，方便快速看错误 case。
+    # 空字符串表示跳过；默认开启全量 predictions，diff 默认与之同目录。
+    parser.add_argument("--predictions-jsonl", type=str,
+                        default=str(_AUTOMOT_ROOT / "eval_json" / "sft_v1_predictions.jsonl"),
+                        help="逐条 prediction 落盘路径；空字符串关闭。")
+    parser.add_argument("--predictions-diff-jsonl", type=str,
+                        default=str(_AUTOMOT_ROOT / "eval_json" / "sft_v1_predictions_diff.jsonl"),
+                        help="只落 pred_status != gt_status 的样本；空字符串关闭。")
     parser.add_argument("--skip-anchor12-sanity", action="store_true",
                         help="跳过原始 anchor=12 fail case 单例检查。")
     parser.add_argument("--anchor12-route-dir", type=str,
@@ -395,18 +419,30 @@ def main():
     n_keep = n_keep_correct = n_early_adv = 0
     n_adv = n_adv_correct = 0
     per_scenario: Dict[str, Counter] = defaultdict(Counter)
+    # 逐条 prediction 缓存：只在 --predictions-jsonl 或 --predictions-diff-jsonl 启用时累计，
+    # 避免 max_samples=0 跑完整 val 时占额外内存（一行 dict 也就几百字节，800 条无压力）。
+    predictions_records: List[Dict[str, Any]] = []
+    capture_predictions = bool(args.predictions_jsonl) or bool(args.predictions_diff_jsonl)
 
     for i, sample in enumerate(samples):
         scenario = sample["scenario"]
         gt = extract_assistant_target(sample)
         gt_status = gt["status"]
+        gt_subgoal = gt.get("subgoal") if isinstance(gt, dict) else None
         is_trans = sample.get("is_transition_sample", False)
 
+        # 用 predict_full 拿 raw_text + parsed 一起返回；旧 predict_status 改为 wrapper。
+        raw_text: Optional[str] = None
+        pred: Optional[str] = None
+        pred_subgoal: Optional[str] = None
+        err: Optional[str] = None
         try:
-            pred = predict_status(engine, sample, images_loader)
+            raw_text, parsed = predict_full(engine, sample, images_loader)
+            pred = parsed.get("status")
+            pred_subgoal = parsed.get("subgoal")
         except Exception as e:
             print(f"[err {i}] {e}")
-            pred = None
+            err = str(e)
 
         # 对 keep 样本，pred == next(GT) 就是最关心的 early advance。
         # 其它错误（输出 None、跳到更后状态、输出非法状态）不会计入 early_advance，
@@ -428,6 +464,38 @@ def main():
                 n_adv_correct += 1
                 per_scenario[scenario]["adv_correct"] += 1
             per_scenario[scenario]["adv_total"] += 1
+
+        if capture_predictions:
+            # error_kind 按"为什么 pred 错"分类，方便后续 diff 文件直接做 Counter 统计：
+            #   ok                 — pred == gt
+            #   early_advance      — pred == next(gt)（keep 样本最关心的错误）
+            #   none               — 没有解析到 status（输出格式坏）
+            #   inference_error    — generate 阶段抛异常
+            #   other              — 其它（跳更后状态 / 非法 token / advance 样本未对齐 / ...）
+            if pred is None and err is not None:
+                error_kind = "inference_error"
+            elif pred is None:
+                error_kind = "none"
+            elif pred == gt_status:
+                error_kind = "ok"
+            elif not is_trans and pred == next_gt:
+                error_kind = "early_advance"
+            else:
+                error_kind = "other"
+            predictions_records.append({
+                "sample_idx": i,
+                "scenario": scenario,
+                "run_id": sample.get("run_id"),
+                "anchor": sample.get("anchor"),
+                "is_transition_sample": is_trans,
+                "gt_status": gt_status,
+                "gt_subgoal": gt_subgoal,
+                "pred_status": pred,
+                "pred_subgoal": pred_subgoal,
+                "raw_text": raw_text,
+                "error_kind": error_kind,
+                "error": err,
+            })
 
         if (i + 1) % 50 == 0:
             print(f"[eval] {i+1}/{len(samples)}  "
@@ -454,6 +522,27 @@ def main():
     print(f"[done] metrics written to {out_path}")
     print(json.dumps({k: v for k, v in metrics.items() if k != "per_scenario"},
                      ensure_ascii=False, indent=2))
+
+    # ---- 逐条 prediction 落盘（#5.5）----
+    # 一行一条 JSON：方便用 `jq .error_kind` / pandas 直接做透视；diff 只挑 error_kind != "ok"，
+    # 让人工查错时不被正确样本淹没。
+    if args.predictions_jsonl and predictions_records:
+        pred_path = pathlib.Path(args.predictions_jsonl)
+        pred_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(pred_path, "w", encoding="utf-8") as f:
+            for row in predictions_records:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        print(f"[done] predictions written to {pred_path} (n={len(predictions_records)})")
+    if args.predictions_diff_jsonl and predictions_records:
+        diff_rows = [r for r in predictions_records if r["error_kind"] != "ok"]
+        diff_path = pathlib.Path(args.predictions_diff_jsonl)
+        diff_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(diff_path, "w", encoding="utf-8") as f:
+            for row in diff_rows:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        # 顺便打印 error_kind 分布，让 stdout 直接给出错误结构概览。
+        kinds = Counter(r["error_kind"] for r in predictions_records)
+        print(f"[done] diff written to {diff_path} (n={len(diff_rows)}); error_kind={dict(kinds)}")
 
 
 if __name__ == "__main__":
