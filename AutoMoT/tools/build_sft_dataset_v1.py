@@ -71,7 +71,7 @@ from qwen3vl_local.prompt_pipeline import (  # noqa: E402
 # 上一帧距当前帧的间隔 K。LEAD 数据约 4 Hz，K=4 ≈ 1 秒前。详见 PLAN §1。
 DEFAULT_K_FRAMES = 4
 
-# GT 转换帧前后丢弃的 buffer 半径，避免标注噪声。
+# 保持类样本避开 GT 转换帧附近的 buffer 半径，避免边界标注噪声。
 DEFAULT_BOUNDARY_BUFFER = 2
 
 # 每帧 image 采样的步长 / 数量，需要与 runner 默认值（image_io.load_lead_rgb_clip）一致。
@@ -230,10 +230,10 @@ def collect_candidates(
 
     两类样本的语义：
     - keep：prev_anchor 和 anchor 落在同一状态区间，模型应该保持 STATUS。
-    - advance：prev_anchor 在上一状态，anchor 正好落在 GT 转换帧，模型应该推进一步。
+    - advance：prev_anchor 在上一状态，anchor 已落在新状态窗口，模型应该推进一步。
 
-    v1 的核心痛点是“模型太早推进”，所以 keep 样本会避开转换帧附近 buffer，
-    防止模糊边界污染“应该保持”的监督。
+    v1 的核心痛点是“模型太早推进”，所以 keep 样本会避开转换帧附近 buffer；
+    但转换后的 [f_t, f_t + K - 1] 会自然成为推进窗口，给模型补足“过界后应推进”的监督。
     """
 
     keep_samples: List[SampleRecord] = []
@@ -269,11 +269,8 @@ def collect_candidates(
                 is_transition_sample=False,
             ))
         else:
-            # 推进类样本：anchor 应正好等于某个 GT 转换帧（这样 STATUS 变化最干净）。
-            # 不强求 anchor == transition_frame，但要求 prev_anchor 仍在上一段。
-            if anchor not in timeline.transition_frames:
-                # 跨转换但 anchor 不在转换点上的样本——丢弃以减少 GT 噪声。
-                continue
+            # 推进类样本：只要 prev_anchor 还在上一段、anchor 已经落到新段，就应该推进。
+            # 对单个转换帧 f_t 和 K=4，这会产生 [f_t, f_t+3] 的推进窗口。
             advance_samples.append(SampleRecord(
                 scenario=timeline.scenario,
                 run_id=timeline.run_id,
@@ -302,7 +299,7 @@ def stratify_scenario(
     target_advance = int(target_total * advance_ratio)
     target_keep = target_total - target_advance
 
-    # 推进类天然少：每条 run 最多只有 4 个转换帧。
+    # 推进类天然少：每条 run 最多约 4 * K 个转换窗口样本。
     # 如果数量不够目标比例，就全收；不要为了比例复制样本，避免过拟合某些 route。
     if len(advances) > target_advance:
         chosen_adv = rng.sample(advances, target_advance)

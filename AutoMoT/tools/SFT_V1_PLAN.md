@@ -78,9 +78,10 @@ ANALYSIS 段权重设为 0。
         [frame_final, total_frames-1] → "final"
 
     采样候选：
-        转换帧 ±2 → 全部丢弃（buffer）
-        对每个 status 段：取段内所有可用帧
-        对每个 GT 转换帧 f_t：构造推进类样本 (prev=f_t-K 落在上一段, curr=f_t 落在新段)
+        保持类：转换帧前后 ±2 的近边界样本丢弃（buffer），避免提前/滞后噪声
+        推进类：对每个 GT 转换帧 f_t，保留 [f_t, f_t+K-1] 中所有跨段样本
+                即 prev=anchor-K 落在上一段、curr=anchor 落在新段
+                例如 K=4、f_t=100 时，100/101/102/103 都作为推进类
 
     stratified 取样到目标配比：
         推进类 25% / 保持类 75%（保持类 4 段平均分）
@@ -229,6 +230,6 @@ eval 时打开 `cache_system_prompt=True`：所有样本 system prompt 相同，
 | 训练侧 `<image>` 文本占位与 runner / engine.build_messages 的 structured image content 在 chat template 展开后**不完全一致**（vision token 数差、位置偏） | LoRA 训完后 eval STATUS accuracy 远低于训练 loss 体现的水平；或 anchor12_sanity 完全没改善 | 训完第一个 checkpoint 后，对**同一条** val sample 分别走（a）swift 训练 collator 的 input_ids 与（b）runner engine.generate 的 prefill input_ids，diff token 序列。Mismatch ≤ 5 token 可忽略；> 20 必须排查模板差异 |
 | 插件 regex 与 `PLACEHOLDER_ANALYSIS` 不匹配（占位句改了 regex 没改、或反过来） | `check_loss_mask.py` 的 plugin sanity 显示 STATUS/SUBGOAL 不在 loss 段，或 ANALYSIS 不在 0 权重段 | 先修 `sft_v1_loss_scale_plugin.py`；再跑 `python tools/check_loss_mask.py` 和 `bash tools/sft_v1_train.sh check` |
 | `Completed/Perfect` filter 后某场景样本不够 200 | 数据生成时 warning | `--samples_per_scenario` 调低，或允许该场景全收 |
-| 推进类样本天然稀少（每 route 仅 4 转换帧） | val 集推进类样本 < 30 | 取消"按 run_id 划 val"改"按 scenario 内 8:2 划"，但 leak 风险上升 |
+| 推进类样本天然稀少（每 route 约 4*K 个转换窗口样本） | val 集推进类样本 < 30 | 取消"按 run_id 划 val"改"按 scenario 内 8:2 划"，但 leak 风险上升 |
 | 训完保持类 accuracy 高但推进类 < 50% | 模型学过头变成"永远不推进" | 调推进类配比到 35%；或加 v1.5 阶段把推进类反复训 |
 | 8 卡 DDP NCCL OOM 或卡顿 | H20 NVLink 带宽 / NCCL 配置 | 退到 4 卡或 2 卡 DDP；`per_device_train_batch_size` 降到 1 |
