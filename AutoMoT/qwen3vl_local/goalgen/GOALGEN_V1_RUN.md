@@ -81,7 +81,50 @@ Outputs:
 ```text
 checkpoints/goalgen_v1_dit/latest.pt
 checkpoints/goalgen_v1_dit/checkpoint-000200/goalgen_v1.pt
+checkpoints/goalgen_v1_dit/tb/                # TensorBoard event 文件
 ```
+
+## 2.1 TensorBoard
+
+Training writes scalars and image samples to `OUTPUT_DIR/tb/` (rank 0 only). Open
+it on the remote machine, then port-forward to your laptop:
+
+```bash
+# 远程：起 tb server，绑 0.0.0.0 让本地能连
+tensorboard --logdir checkpoints/goalgen_v1_dit/tb --port 6006 --bind_all
+# 本地：ssh port forward
+ssh -L 6006:localhost:6006 user@remote
+# 浏览器打开 http://localhost:6006
+```
+
+Tags:
+
+| Tag | Meaning |
+|---|---|
+| `train/loss` | flow matching MSE on `v_pred - v_target`，越低越好 |
+| `train/cos` | `cosine_similarity(v_pred, v_target)`，越接近 1 越好（健康训练 ~0.5+） |
+| `train/lr` | 当前学习率（cosine 调度后的值） |
+| `diag/grad_norm` | clip 前的全梯度范数；正常应稳定在 1–10，持续上涨说明在炸 |
+| `diag/kv_seq_len` | 每条样本 Qwen prefill 后 token 数，监控 prompt 是否异常变长 |
+| `val/loss` | 在 val 子集（默认前 64 条）上同样口径的 loss |
+| `val/cos` | val 子集 velocity 余弦 |
+| `samples/pred_vs_gt` | 每 `IMAGE_LOG_EVERY` 步生成的 pred / gt 并排图，依次：pred₀, gt₀, pred₁, gt₁, … |
+
+控制开销：
+
+```bash
+# 仅保留标量曲线，关掉 image sample（每次约 32 步 euler，含 VAE decode）
+IMAGE_LOG_EVERY=0 bash qwen3vl_local/goalgen/train_v1.sh ddp
+
+# val / image 频率可分别调
+VAL_STEPS=200 IMAGE_LOG_EVERY=1000 bash qwen3vl_local/goalgen/train_v1.sh ddp
+
+# 完全关闭 tb（仅 stdout 日志，用于 check 模式快速跑 2 step）
+bash qwen3vl_local/goalgen/train_v1.sh check  # check 模式默认仍写 tb，需要时手动加 --no-tb
+```
+
+DDP 下 tb writer 只在 rank 0 起，其它 rank 不写文件；val / image sample 同样
+只在 rank 0 跑（用 DDP 解包后的裸 DiT），不参与 all-reduce。
 
 ## 3. Forward Smoke
 

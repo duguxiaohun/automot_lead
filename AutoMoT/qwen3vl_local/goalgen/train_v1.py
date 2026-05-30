@@ -42,10 +42,19 @@ from qwen3vl_local.goalgen.dit import (  # noqa: E402
     DiTMoTConfig,
     language_kv_input_dim_from_pooled,
 )
-from qwen3vl_local.goalgen.flow import flow_matching_loss, sample_flow_batch  # noqa: E402
+from qwen3vl_local.goalgen.flow import euler_sample, flow_matching_loss, sample_flow_batch  # noqa: E402
 from qwen3vl_local.goalgen.qwen_kv import teacher_forced_prefill  # noqa: E402
 from qwen3vl_local.goalgen.vae import FrozenVAE, default_vae_paths  # noqa: E402
 from qwen3vl_local.prompt_pipeline import DrivingMemory  # noqa: E402
+
+# 延迟到运行时再 import：训练机一定有 tb（pytorch 自带），但本地静态检查时可能没装；
+# 即便 tb import 失败也不应该挂掉整个 trainer，留 `--no-tb` 作为兜底。
+try:
+    from torch.utils.tensorboard import SummaryWriter  # noqa: E402
+    _TB_AVAILABLE = True
+except Exception:  # pragma: no cover - 运行时缺包才会进
+    SummaryWriter = None  # type: ignore[assignment]
+    _TB_AVAILABLE = False
 
 
 def setup_distributed() -> tuple[int, int, int]:
@@ -181,6 +190,144 @@ def cosine_velocity(v_pred: torch.Tensor, v_target: torch.Tensor) -> float:
     return float(F.cosine_similarity(pred, target, dim=1).mean().item())
 
 
+# --------------------------------------------------------------------------- #
+# TensorBoard helpers
+# --------------------------------------------------------------------------- #
+
+
+def _decode_latent_to_image(vae: FrozenVAE, z: torch.Tensor) -> torch.Tensor:
+    """Latent → [0,1] 范围 RGB 张量 [B, 3, H, W]，给 tb writer.add_image / add_images 用。
+
+    VAE 解码默认输出 [-1,1]（与训练输入归一化一致），tb 渲染要 [0,1]，所以这里 +1 /2。
+    clamp 防止偶发数值出 [-1,1] 把渲染搞糊。
+    """
+
+    decoded = vae.decode(z)
+    decoded = decoded.clamp(-1.0, 1.0)
+    return ((decoded + 1.0) / 2.0).float().cpu()
+
+
+@torch.no_grad()
+def _run_val_pass(
+    engine: LocalQwen3VLInstructEngine,
+    vae: FrozenVAE,
+    dit_module: torch.nn.Module,
+    val_samples: List[Dict[str, Any]],
+    args: argparse.Namespace,
+    device: torch.device,
+    dit_dtype: torch.dtype,
+) -> Dict[str, float]:
+    """跑一小撮 val 样本只算 forward loss / cos，不做 backward / euler sample。
+
+    设计取舍：
+    - 只在 rank 0 调，所以传 dit_module（DDP 解包后的裸模型），无需 all-reduce；
+    - 每条样本走完整 prefill + encode 流程，慢但语义忠实；
+    - 取 val_max_samples 上限避免每次 val 时间失控。
+    """
+
+    dit_module.eval()
+    losses: List[float] = []
+    cosines: List[float] = []
+    for sample in val_samples:
+        history_images = [load_rgb(p) for p in sample["history_rgb_paths"]]
+        target_img = load_rgb(sample["target_rgb_path"])
+        memory = memory_from_sample(sample)
+
+        prefill = teacher_forced_prefill(
+            engine=engine,
+            memory=memory,
+            images=history_images,
+            num_segments=args.num_layers,
+            kv_segment_mode=args.qwen_kv_segment_mode,
+        )
+        pooled_kv = [
+            (k.to(device=device, dtype=dit_dtype), v.to(device=device, dtype=dit_dtype))
+            for k, v in prefill.pooled_kv
+        ]
+        z_history = vae.encode(history_images).to(dtype=dit_dtype).unsqueeze(0)
+        z1 = vae.encode([target_img]).to(dtype=dit_dtype)
+        batch = sample_flow_batch(z1=z1)
+        v_pred = dit_module(batch.z_t, z_history, batch.t, pooled_kv)
+        losses.append(float(flow_matching_loss(v_pred, batch.v_target).item()))
+        cosines.append(cosine_velocity(v_pred, batch.v_target))
+
+    dit_module.train()
+    n = max(1, len(losses))
+    return {"val/loss": sum(losses) / n, "val/cos": sum(cosines) / n}
+
+
+@torch.no_grad()
+def _log_image_samples(
+    writer: Any,
+    engine: LocalQwen3VLInstructEngine,
+    vae: FrozenVAE,
+    dit_module: torch.nn.Module,
+    val_samples: List[Dict[str, Any]],
+    args: argparse.Namespace,
+    device: torch.device,
+    dit_dtype: torch.dtype,
+    step: int,
+) -> None:
+    """每 image-log-every step 写一组 pred vs gt 图像并排到 tb。
+
+    image-log-samples 条样本各跑一次 euler_sample（用 image-log-euler-steps 步数），
+    再 VAE.decode 得到 pred RGB；与 GT keyframe 直接读盘后归一化对齐做并排比较。
+    完整数据流和 eval_v1 一致，所以这里看到的图就是模型当前的"生成能力快照"。
+    """
+
+    if writer is None or not val_samples:
+        return
+    dit_module.eval()
+    pred_imgs: List[torch.Tensor] = []
+    gt_imgs: List[torch.Tensor] = []
+    take = min(args.image_log_samples, len(val_samples))
+    for sample in val_samples[:take]:
+        history_images = [load_rgb(p) for p in sample["history_rgb_paths"]]
+        target_img = load_rgb(sample["target_rgb_path"])
+        memory = memory_from_sample(sample)
+
+        prefill = teacher_forced_prefill(
+            engine=engine,
+            memory=memory,
+            images=history_images,
+            num_segments=args.num_layers,
+            kv_segment_mode=args.qwen_kv_segment_mode,
+        )
+        pooled_kv = [
+            (k.to(device=device, dtype=dit_dtype), v.to(device=device, dtype=dit_dtype))
+            for k, v in prefill.pooled_kv
+        ]
+        z_history = vae.encode(history_images).to(dtype=dit_dtype).unsqueeze(0)
+        z1_gt = vae.encode([target_img]).to(dtype=dit_dtype)
+
+        # euler 起点 z0 用固定 seed 让"同一 step 同一样本"复现相同图像，
+        # 跨 step 跨样本随机性仍然存在，便于观察模型而不是观察噪声。
+        gen = torch.Generator(device=device).manual_seed(args.seed + step + 1)
+        z_init = torch.randn(z1_gt.shape, device=device, dtype=dit_dtype, generator=gen)
+        z1_pred = euler_sample(
+            velocity_fn=lambda z, t: dit_module(z, z_history, t, pooled_kv),
+            shape=tuple(z1_gt.shape),
+            device=device,
+            dtype=dit_dtype,
+            num_steps=args.image_log_euler_steps,
+            z_init=z_init,
+        )
+        pred_imgs.append(_decode_latent_to_image(vae, z1_pred)[0])
+        gt_imgs.append(_decode_latent_to_image(vae, z1_gt)[0])
+
+    if pred_imgs:
+        # 交错排：pred_0, gt_0, pred_1, gt_1, ... 直接靠 tb 行列布局对比；
+        # 这种 layout 比 [all_pred, all_gt] 二段式更便于人眼"对一对一"比对。
+        interleaved = []
+        for p, g in zip(pred_imgs, gt_imgs):
+            interleaved.append(p)
+            interleaved.append(g)
+        grid = torch.stack(interleaved, dim=0)
+        writer.add_images("samples/pred_vs_gt", grid, step, dataformats="NCHW")
+
+    dit_module.train()
+
+
 def save_checkpoint(
     output_dir: pathlib.Path,
     model: torch.nn.Module,
@@ -260,8 +407,29 @@ def train(args: argparse.Namespace) -> None:
     if not samples:
         raise RuntimeError(f"empty train jsonl: {args.train_jsonl}")
 
+    # val 集只在 rank 0 用（val + image sample 仅 rank 0 跑），其它 rank 留空省 IO。
+    val_samples: List[Dict[str, Any]] = []
+    if is_rank0(rank) and args.val_jsonl:
+        val_path = pathlib.Path(args.val_jsonl)
+        if val_path.exists():
+            val_samples = load_jsonl(val_path)[: max(0, args.val_max_samples)]
+            print(f"[data] val={len(val_samples)} (cap={args.val_max_samples}) source={val_path}")
+        else:
+            print(f"[data] WARN: val jsonl 不存在 ({val_path})，跳过 val/sample 记录")
+
     if is_rank0(rank):
         print(f"[data] train={len(samples)} world_size={world_size}")
+
+    # TensorBoard：只在 rank 0 起 writer，避免多 rank 写同一目录冲突。
+    # 写到 output_dir/tb（与 ckpt 同根，按用户 5.1 选项）。
+    writer = None
+    if is_rank0(rank) and args.tb and _TB_AVAILABLE:
+        tb_dir = output_dir / "tb"
+        tb_dir.mkdir(parents=True, exist_ok=True)
+        writer = SummaryWriter(log_dir=str(tb_dir))
+        print(f"[tb] SummaryWriter -> {tb_dir}")
+    elif is_rank0(rank) and args.tb and not _TB_AVAILABLE:
+        print("[tb] WARN: SummaryWriter import 失败，tb 关闭")
 
     engine = LocalQwen3VLInstructEngine(
         checkpoint_dir=pathlib.Path(args.checkpoint_dir).resolve(),
@@ -339,7 +507,13 @@ def train(args: argparse.Namespace) -> None:
     running_loss = 0.0
     running_cos = 0.0
     running_micro = 0
+    running_kv_seq_len = 0  # 累计 Qwen prefill seq_len，做 logging 间均值
+    last_grad_norm = 0.0    # 记录 clip 前 grad_norm，做 logging 间最近值
     accum = 0
+
+    # DDP 解包：val / image sample 用 dit_module 直接 forward，不经过 DDP hooks，
+    # 既省 all-reduce 又避免 module.training=True 期间 dropout 等差异影响诊断。
+    dit_module = dit.module if hasattr(dit, "module") else dit
 
     try:
         for epoch in range(args.num_epochs):
@@ -429,13 +603,19 @@ def train(args: argparse.Namespace) -> None:
                 running_loss += float(loss_raw.detach().item())
                 running_cos += cosine_velocity(v_pred, batch.v_target)
                 running_micro += 1
+                # prefill.seq_len 是这条样本 Qwen prefill 后的 token 数；监控这一项可以
+                # 早期发现"prompt 不知不觉变长"导致 KV/显存膨胀，也能确认 builder 没漏帧。
+                running_kv_seq_len += int(prefill.seq_len)
                 accum += 1
 
                 if will_step:
                     if args.max_grad_norm > 0:
                         # clip_grad_norm_ 必须在 step 之前调；flow matching 初期 v_target 数值可能
                         # 很大（z1 - z0 在 latent 尺度上方差 ~2），不裁剪偶发会让 lr=1e-4 也炸。
-                        torch.nn.utils.clip_grad_norm_(dit.parameters(), args.max_grad_norm)
+                        # 返回值是 clip 前的全局梯度范数，写进 tb 用来诊断"训练是否在快炸"。
+                        last_grad_norm = float(
+                            torch.nn.utils.clip_grad_norm_(dit.parameters(), args.max_grad_norm)
+                        )
                     optimizer.step()
                     scheduler.step()
                     # set_to_none=True 比 zero_(0) 快：让 .grad = None，下次 backward 第一次写
@@ -445,15 +625,69 @@ def train(args: argparse.Namespace) -> None:
 
                     if is_rank0(rank) and global_step % args.logging_steps == 0:
                         denom = max(1, running_micro)
+                        avg_loss = running_loss / denom
+                        avg_cos = running_cos / denom
+                        avg_kv_seq = running_kv_seq_len / denom
+                        cur_lr = scheduler.get_last_lr()[0]
                         print(
                             f"[train] epoch={epoch} step={global_step}/{total_steps} "
-                            f"loss={running_loss / denom:.6f} "
-                            f"cos={running_cos / denom:.4f} "
-                            f"lr={scheduler.get_last_lr()[0]:.3e}"
+                            f"loss={avg_loss:.6f} cos={avg_cos:.4f} "
+                            f"grad_norm={last_grad_norm:.3f} kv_seq={avg_kv_seq:.0f} "
+                            f"lr={cur_lr:.3e}"
                         )
+                        if writer is not None:
+                            # 标量分组：train/* 用于训练曲线；diag/* 用于诊断指标。
+                            # 这种命名让 tb 左侧 tag 树自动分组，不会被几十个指标淹没。
+                            writer.add_scalar("train/loss", avg_loss, global_step)
+                            writer.add_scalar("train/cos", avg_cos, global_step)
+                            writer.add_scalar("train/lr", cur_lr, global_step)
+                            writer.add_scalar("diag/grad_norm", last_grad_norm, global_step)
+                            writer.add_scalar("diag/kv_seq_len", avg_kv_seq, global_step)
                         running_loss = 0.0
                         running_cos = 0.0
                         running_micro = 0
+                        running_kv_seq_len = 0
+
+                    # val 评估：每 val_steps 跑一次 val 子集（仅 rank 0，使用解包后的 dit_module）。
+                    # 失败不阻断训练——val 集脏数据 / 单条 OOM 都先 log 再继续。
+                    if (
+                        is_rank0(rank)
+                        and writer is not None
+                        and val_samples
+                        and args.val_steps > 0
+                        and global_step % args.val_steps == 0
+                    ):
+                        try:
+                            metrics = _run_val_pass(
+                                engine, vae, dit_module, val_samples,
+                                args, device, dit_dtype,
+                            )
+                            for tag, value in metrics.items():
+                                writer.add_scalar(tag, value, global_step)
+                            print(
+                                f"[val] step={global_step} loss={metrics['val/loss']:.6f} "
+                                f"cos={metrics['val/cos']:.4f}"
+                            )
+                        except Exception as e:
+                            print(f"[val] WARN: val pass 出错，跳过：{e}")
+
+                    # 图像 sample：每 image_log_every 步生成一组 pred vs gt 落 tb，
+                    # 是判断"loss 在降但生成质量是否真的在改善"的关键可视化。
+                    # 由于含一次 euler_sample（默认 32 步），频率不宜过高。
+                    if (
+                        is_rank0(rank)
+                        and writer is not None
+                        and val_samples
+                        and args.image_log_every > 0
+                        and global_step % args.image_log_every == 0
+                    ):
+                        try:
+                            _log_image_samples(
+                                writer, engine, vae, dit_module, val_samples,
+                                args, device, dit_dtype, global_step,
+                            )
+                        except Exception as e:
+                            print(f"[image] WARN: image sample 失败，跳过：{e}")
 
                     if is_rank0(rank) and args.save_steps > 0 and global_step % args.save_steps == 0:
                         save_checkpoint(output_dir, dit, optimizer, scheduler, global_step, args)
@@ -467,6 +701,9 @@ def train(args: argparse.Namespace) -> None:
             save_checkpoint(output_dir, dit, optimizer, scheduler, global_step, args)
             print(f"[done] saved GoalGen DiT under {output_dir}")
     finally:
+        # writer 必须在 cleanup_distributed 之前 close，避免 tb 写最后一笔时进程组已挂。
+        if writer is not None:
+            writer.close()
         cleanup_distributed()
 
 
@@ -508,6 +745,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-train-steps", type=int, default=0,
                    help="0 means run num_epochs; positive value caps optimizer steps.")
     p.add_argument("--seed", type=int, default=20260529)
+
+    # ------ TensorBoard / val / image sample ------
+    p.add_argument("--tb", action="store_true", default=True,
+                   help="rank 0 写 TensorBoard 到 output_dir/tb；--no-tb 关掉。")
+    p.add_argument("--no-tb", dest="tb", action="store_false",
+                   help="完全关闭 tb 写入（仅保留 stdout 日志）。")
+    p.add_argument("--val-jsonl", type=str, default="",
+                   help="val jsonl 路径；非空时按 --val-steps 间隔跑 val/loss + val/cos 并落 tb。")
+    p.add_argument("--val-steps", type=int, default=500,
+                   help="每多少 optimizer step 跑一次 val；0 关闭。")
+    p.add_argument("--val-max-samples", type=int, default=64,
+                   help="val 集每次最多取多少条样本，防止 val 时间失控。")
+    p.add_argument("--image-log-every", type=int, default=500,
+                   help="每多少 optimizer step 落一组 pred vs gt 图像；0 关闭。")
+    p.add_argument("--image-log-samples", type=int, default=4,
+                   help="每次落几张图（也是 euler_sample 调用次数，越多越慢）。")
+    p.add_argument("--image-log-euler-steps", type=int, default=32,
+                   help="image sample 用的 Euler 步数；32 在 rectified flow 下通常够用。")
     return p
 
 

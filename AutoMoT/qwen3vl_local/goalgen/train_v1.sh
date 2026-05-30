@@ -14,8 +14,16 @@ if [[ -n "${DDP_GPU_COUNT+x}" ]]; then
 fi
 
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/goalgen_v1_data/train.jsonl}"
+VAL_JSONL="${VAL_JSONL:-checkpoints/goalgen_v1_data/val.jsonl}"   # 默认与 builder 输出一致；不存在 trainer 会自动跳过 val/sample 日志
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/goalgen_v1_dit}"
+
+# TensorBoard / val / image sample 默认值；想关闭 image sample 设 IMAGE_LOG_EVERY=0
+VAL_STEPS="${VAL_STEPS:-500}"
+VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-64}"
+IMAGE_LOG_EVERY="${IMAGE_LOG_EVERY:-500}"
+IMAGE_LOG_SAMPLES="${IMAGE_LOG_SAMPLES:-4}"
+IMAGE_LOG_EULER_STEPS="${IMAGE_LOG_EULER_STEPS:-32}"
 
 PATCH_SIZE="${PATCH_SIZE:-2}"
 HIDDEN_DIM="${HIDDEN_DIM:-768}"
@@ -103,6 +111,7 @@ configure_master_port() {
 
 COMMON_ARGS=(
     --train-jsonl "${TRAIN_JSONL}"
+    --val-jsonl "${VAL_JSONL}"
     --checkpoint-dir "${MODEL_DIR}"
     --output-dir "${OUTPUT_DIR}"
     --patch-size "${PATCH_SIZE}"
@@ -120,6 +129,11 @@ COMMON_ARGS=(
     --qwen-dtype "${QWEN_DTYPE}"
     --vae-dtype "${VAE_DTYPE}"
     --dit-dtype "${DIT_DTYPE}"
+    --val-steps "${VAL_STEPS}"
+    --val-max-samples "${VAL_MAX_SAMPLES}"
+    --image-log-every "${IMAGE_LOG_EVERY}"
+    --image-log-samples "${IMAGE_LOG_SAMPLES}"
+    --image-log-euler-steps "${IMAGE_LOG_EULER_STEPS}"
 )
 
 case "${MODE}" in
