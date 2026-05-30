@@ -76,7 +76,15 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 
 Training freezes Qwen and VAE. Only DiT-MoT is optimized.
 
+**默认跑 base Qwen，不挂任何 LoRA / adapter。** 想接续 SFT v1 微调后的语言编码再看
+§2.0.1；当前训练生成模型阶段无需关心 adapter，直接用上面命令即可。
+
 ### 2.0.1 接入 LoRA / PEFT adapter（接续 SFT v1 微调后的 Qwen）
+
+> **默认不挂 LoRA**：训练 / eval / runner 三个入口的 `--qwen-adapter-dir` 默认为空字符串，
+> 这种情况下完全走 base Qwen，不会 import peft 也不会读 adapter 目录。
+> 当前训练生成模型阶段**不需要**做任何事，直接 `bash qwen3vl_local/goalgen/train_v1.sh ddp`
+> 即可——下面这一节只有在你后续想接续 SFT v1 微调后的语言编码时再读。
 
 如果想让 GoalGen 直接吃 SFT v1 微调后的语言编码，传 LoRA adapter 目录即可，**不需要**
 事先 merge：
