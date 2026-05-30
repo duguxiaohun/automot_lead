@@ -150,6 +150,43 @@ The runner validates `STATUS/SUBGOAL`, requires `target_frame > anchor`, and
 feeds all history latents to DiT, matching the training interface. Dataset
 training should still use `build_dataset_v1.py`.
 
+## 3.5 离线 Eval
+
+`eval_v1.py` 跑 `val.jsonl`，对每条样本：teacher-forced Qwen prefill → VAE encode →
+Euler 采样 → VAE decode，输出四个指标和图像并排。
+
+```bash
+python qwen3vl_local/goalgen/eval_v1.py \
+  --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
+  --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
+  --out-dir eval_json/goalgen_v1 \
+  --max-samples 200 \
+  --euler-steps 32 \
+  --image-dump-count 32
+```
+
+四个指标（与 5.3 设计一致）：
+
+| 指标 | 含义 | 期望方向 |
+|---|---|---|
+| `latent_mse` | `MSE(z1_pred, z1_gt)`，与训练 loss 同口径但对 z 而非 v | 越低越好 |
+| `latent_cos` | `cosine(z1_pred, z1_gt)` | 越接近 1 越好 |
+| `pixel_l1` / `psnr` | VAE.decode 后 [-1,1] RGB 的 L1 与 PSNR | l1 越低 / psnr 越高 |
+| `velocity_cos` | 5 个 t 点 (0.1/0.3/0.5/0.7/0.9) v 余弦平均 | 训练健康性，与 train/cos 同口径 |
+
+输出：
+
+```text
+eval_json/goalgen_v1/eval_v1_summary.json    # overall + by_scenario 聚合
+eval_json/goalgen_v1/eval_v1_perline.jsonl   # 每条样本一行
+eval_json/goalgen_v1/samples/00000_pred.png  # 前 image-dump-count 条 pred / gt PNG 并排（自己 ssh 拉回看）
+eval_json/goalgen_v1/samples/00000_gt.png
+```
+
+`pixel_l1 / psnr` 是直接对比 VAE.decode 后的 RGB；地板取决于 VAE 重建质量本身，
+所以光看绝对值意义有限——做"base ckpt vs 训练后 ckpt"或"step-200 vs step-1000"
+横向对比时 delta 才有意义。
+
 ## 4. Troubleshooting
 
 | Symptom | Likely cause | Fix |
