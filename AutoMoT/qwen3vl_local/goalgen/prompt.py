@@ -57,15 +57,28 @@ def _format_memory_block(memory: DrivingMemory) -> str:
       "语义描述"绑成相邻 token，对下游 DiT 取 KV 时更有信息密度。
     """
 
-    seq_str = " -> ".join(memory.event_sequence)
+    # 把整个事件链每一步都展开成 "event: description"。
+    # 之前只写 EVENT_SEQUENCE token 串，Qwen 在 KV 里只能拿到事件名 token 没有语义解释；
+    # 全量列出后，DiT 通过 KV 读到的"每个子任务是什么"是密集的语义 token，对生成模型
+    # 的语义引导更稳。token 成本 ~5 事件 × 30 token ≈ +6%，相对 prefill ~2300 token 可忽略。
+    seq_desc_lines = [
+        f"- {event}: {EVENT_DESCRIPTIONS.get(event, event)}"
+        for event in memory.event_sequence
+    ]
+    seq_desc_str = "\n".join(seq_desc_lines)
     status_desc = EVENT_DESCRIPTIONS.get(memory.status, memory.status)
     subgoal_desc = EVENT_DESCRIPTIONS.get(memory.subgoal, memory.subgoal)
 
+    # STATUS / SUBGOAL 仍单独标出 + 重复一次 meaning：
+    # 序列里已经写过一遍各事件描述了，这里再单独点名"现在你在哪、下一站是哪"，
+    # 是为了让 Qwen attention 在 KV 里形成强对应——序列描述提供"全景"，
+    # 这两行提供"焦点"，对下游 DiT 取 KV 时定位最有用的 token 帮助更大。
     return (
         "[GROUND_TRUTH_STATE]\n"
         f"SCENARIO: {memory.scenario}  # {memory.scenario_label}\n"
-        f"EVENT_SEQUENCE: {seq_str}\n"
-        f"STATUS (ground truth, current): {memory.status}\n"
+        "EVENT_SEQUENCE (each step explained in order):\n"
+        f"{seq_desc_str}\n"
+        f"STATUS (ground truth, you are now here): {memory.status}\n"
         f"  meaning: {status_desc}\n"
         f"SUBGOAL (ground truth, next event to reach): {memory.subgoal}\n"
         f"  meaning: {subgoal_desc}\n"
