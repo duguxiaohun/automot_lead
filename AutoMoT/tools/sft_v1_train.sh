@@ -344,3 +344,31 @@ swift sft \
     ${EXTRA_LAUNCH}
 
 echo "[done] LoRA adapter saved under ${OUTPUT_DIR}"
+
+# ---------------------------------------------------------------------------
+# TensorBoard / eval 路径提示
+#
+# 训练产物布局（与 eval_sft_v1.py / probe_sft_v1.py 同根 — 即 OUTPUT_DIR 平铺）：
+#   OUTPUT_DIR/
+#     ├─ checkpoint-*/      LoRA adapter（每 SAVE_STEPS 一份）
+#     ├─ tb/                训练 TensorBoard events（swift 写入）
+#     ├─ eval/              eval_sft_v1.py 写的 metrics.json + predictions.jsonl
+#     ├─ eval_tb/           eval_sft_v1.py 写的 TB scalar/text（独立 run，TB 可同时看）
+#     └─ eval_cases/        probe_sft_v1.py 随机场景 case dump（input/output/loss）
+#
+# 看 TensorBoard：直接把 logdir 指到 OUTPUT_DIR 根目录，左侧 run 列表会同时显示
+# tb（训练）和 eval_tb（多个 ckpt 的 eval 结果）；用 tools/tb_serve.sh 一条命令
+# 起服务，stdout 会打印本地浏览器要用的 ssh 隧道命令，本地点链接就能看。
+# ---------------------------------------------------------------------------
+echo ""
+echo "============================================================"
+echo "[hint] 看 TensorBoard："
+echo "  bash tools/tb_serve.sh ${OUTPUT_DIR}"
+echo ""
+echo "[hint] 在 val 集上跑 eval（指标 + TB 标量 + 预测 jsonl）："
+echo "  python tools/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
+echo "  # 多卡分片：torchrun --nproc_per_node=4 tools/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
+echo ""
+echo "[hint] 在随机场景上 dump case（输入 prompt+图像，输出文本，per-token loss）："
+echo "  python tools/probe_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR} --num-per-scenario 4"
+echo "============================================================"

@@ -199,3 +199,36 @@ case "${MODE}" in
         exit 1
         ;;
 esac
+
+# ---------------------------------------------------------------------------
+# TensorBoard / eval / probe 入口提示
+#
+# 训练产物 OUTPUT_DIR 平铺布局（与 eval_v1.py / probe_v1.py 同根）：
+#   OUTPUT_DIR/
+#     ├─ checkpoint-*/ + latest.pt    DiT 权重
+#     ├─ tb/                          训练 TensorBoard events（含 train/* val/* image_samples）
+#     ├─ eval/                        eval_v1.py 写的 metrics + perline + samples PNG
+#     ├─ eval_tb/                     eval_v1.py 写的 TB scalar / image（独立 run）
+#     └─ eval_cases/                  probe_v1.py 随机场景 case dump
+# ---------------------------------------------------------------------------
+echo ""
+echo "============================================================"
+echo "[hint] 看 TensorBoard（训练曲线 + 多次 eval 同时显示）："
+echo "  bash tools/tb_serve.sh ${OUTPUT_DIR}"
+echo ""
+echo "[hint] eval（指标 + TB scalar/image + perline jsonl）："
+echo "  python qwen3vl_local/goalgen/eval_v1.py \\"
+echo "    --dit-checkpoint ${OUTPUT_DIR}/latest.pt \\"
+echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
+echo "    --save-root ${OUTPUT_DIR}"
+echo ""
+echo "[hint] 多卡 eval 分片："
+echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \\"
+echo "    --dit-checkpoint ${OUTPUT_DIR}/latest.pt --save-root ${OUTPUT_DIR}"
+echo ""
+echo "[hint] 随机场景 case dump（输入历史/预测/真值 PNG + memory + per-step v_cos）："
+echo "  python qwen3vl_local/goalgen/probe_v1.py \\"
+echo "    --dit-checkpoint ${OUTPUT_DIR}/latest.pt \\"
+echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
+echo "    --save-root ${OUTPUT_DIR} --num-per-scenario 4"
+echo "============================================================"

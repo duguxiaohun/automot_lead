@@ -142,49 +142,40 @@ checkpoints/goalgen_v1_dit/checkpoint-000200/goalgen_v1.pt
 checkpoints/goalgen_v1_dit/tb/                # TensorBoard event 文件
 ```
 
-## 2.1 TensorBoard
+## 2.1 TensorBoard（推荐用 tools/tb_serve.sh 一条命令）
 
-训练时只在 0 号进程写标量与图像样例到 `OUTPUT_DIR/tb/`。先在远端起 TensorBoard
-服务，再把端口转发到本机：
+训练 + eval 都往 `OUTPUT_DIR` 下平铺保存：
 
-```bash
-# 远程：起 TensorBoard 服务，绑定 0.0.0.0 让本地能连
-tensorboard --logdir checkpoints/goalgen_v1_dit/tb --port 6006 --bind_all
-# 本地：SSH 端口转发
-ssh -L 6006:localhost:6006 user@remote
-# 浏览器打开 http://localhost:6006
+```
+checkpoints/goalgen_v1_dit/
+├─ checkpoint-*/ + latest.pt  DiT 权重
+├─ tb/                        训练 TB events（train/* val/* samples/pred_vs_gt）
+├─ eval/                      eval_v1.py 写的 summary + perline + samples PNG
+├─ eval_tb/<ckpt-tag>/        eval_v1.py 写的指标 scalar + pred_vs_gt 图（每 ckpt 一个 run）
+└─ eval_cases/                probe_v1.py 随机场景 case dump
 ```
 
-### 端口冲突自适应
+启动 TB 指 `--logdir checkpoints/goalgen_v1_dit` 时，左侧 run 列表会同时显示 `tb`
+（训练）和 `eval_tb/<ckpt>`（每次 eval 一个）。
 
-TensorBoard 默认不会自动避让端口（`--port 6006` 占用会直接报 `Address already in
-use` 并退出）。多个用户共用同一台机器或重启后留有旧进程时，建议用下面两种方案
-之一：
-
-**方案 A：让 OS 分配空闲端口**
+**推荐：用一条命令搞定**（自动选端口 + bind_all + 直接打印你本地要用的 SSH 命令）：
 
 ```bash
-# --port 0 时 tb 会从 OS 拿一个空闲端口；启动后从 stdout 里读"TensorBoard ... http://localhost:NNNNN"
-tensorboard --logdir checkpoints/goalgen_v1_dit/tb --port 0 --bind_all
+# 远端，在 AutoMoT/ 目录下
+bash tools/tb_serve.sh checkpoints/goalgen_v1_dit
 ```
 
-读出来的 N 同样可以 `ssh -L N:localhost:N`。缺点：服务没起来之前你不知道端口号，
-适合人工盯启动输出时用。
+`tb_serve.sh` 会打印类似：
 
-**方案 B：脚本里先探空闲端口**
-
-```bash
-# 在远程 shell 里一行算出空闲端口（与 train_v1.sh 里 find_free_master_port 同手法）
-TB_PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
-echo "[tb] picked port ${TB_PORT}"
-tensorboard --logdir checkpoints/goalgen_v1_dit/tb --port "${TB_PORT}" --bind_all &
-# 本地用同一个端口做 SSH 转发
-ssh -L "${TB_PORT}:localhost:${TB_PORT}" user@remote
+```
+[tb] >>> 在你的本地终端跑：
+      ssh -i "C:\Users\IOL4SGH\.ssh\id_rsa" -N -L 41273:localhost:41273 cruser1@szh-gpu-cr02.apac.bosch.com
+[tb] >>> 然后浏览器打开:  http://localhost:41273
 ```
 
-这种方式在服务启动前端口就确定了，适合后台 `&` 跑 + 远程自动化脚本。注意 Python 探完
-端口到 tb 实际 bind 之间有几毫秒窗口可能被别的进程抢，**生产场景**直接重跑一次
-即可（再次探出的端口几乎肯定不同）。
+直接复制 SSH 命令到本地，浏览器打开 `http://localhost:<port>` 即可。Ctrl-C 关本脚本
+TB 服务一起退。固定端口：`TB_PORT=6008 bash tools/tb_serve.sh ...`。
+换其它远端：`TB_SSH_USER=other@host TB_SSH_KEY=/path/to/key bash tools/tb_serve.sh ...`。
 
 标签含义：
 
@@ -240,18 +231,38 @@ runner 会校验 `STATUS/SUBGOAL`、强制要求 `target_frame > anchor`，并�
 
 ## 3.5 离线评测
 
-`eval_v1.py` 跑 `val.jsonl`，对每条样本执行：teacher-forced Qwen 预填充 → VAE 编码 →
-Euler 采样 → VAE 解码，输出四个指标和图像并排。
+### 3.5.1 两类测试
+
+| 类型 | 脚本 | 用途 |
+|---|---|---|
+| A. 聚合指标 + TB | `qwen3vl_local/goalgen/eval_v1.py` | 跑 val.jsonl，写四指标到 `OUTPUT_DIR/eval/` + TB scalar 到 `OUTPUT_DIR/eval_tb/<ckpt>/` |
+| A. 多卡分片 | 同上 + `torchrun` | val 大时切多卡，rank0 聚合写文件 |
+| B. 场景 case dump | `qwen3vl_local/goalgen/probe_v1.py` | 随机抽几条样本，每条目录写：历史 RGB + 真值 + pred PNG + euler 轨迹 + memory + metrics + overview.md |
+
+`eval_v1.py` 对每条样本：teacher-forced Qwen 预填充 → VAE 编码 → Euler 采样 → VAE 解码 → 四指标 + 图像。
 
 ```bash
+# 单卡 — 推荐路径（与训练同根）
 python qwen3vl_local/goalgen/eval_v1.py \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
-  --out-dir eval_json/goalgen_v1 \
-  --max-samples 200 \
-  --euler-steps 32 \
-  --image-dump-count 32
+  --qwen-adapter-dir checkpoints/sft_v1_lora \
+  --save-root checkpoints/goalgen_v1_dit \
+  --max-samples 200 --euler-steps 32 --image-dump-count 32
+
+# 多卡分片
+torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \
+  --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
+  --qwen-adapter-dir checkpoints/sft_v1_lora \
+  --save-root checkpoints/goalgen_v1_dit
+
+# 旧用法（写到 eval_json/）仍兼容
+python qwen3vl_local/goalgen/eval_v1.py \
+  --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
+  --out-dir eval_json/goalgen_v1
 ```
+
+`--save-root` 让 eval 写到 `<root>/eval/eval_v1_summary.json` + `<root>/eval/eval_v1_perline.jsonl` + `<root>/eval/samples/`，TB scalar/image 写到 `<root>/eval_tb/<ckpt-tag>/`。
 
 四个指标（与 5.3 设计一致）：
 
@@ -262,18 +273,53 @@ python qwen3vl_local/goalgen/eval_v1.py \
 | `pixel_l1` / `psnr` | VAE.decode 后 [-1,1] RGB 的 L1 与 PSNR | l1 越低 / psnr 越高 |
 | `velocity_cos` | 5 个 t 点 (0.1/0.3/0.5/0.7/0.9) v 余弦平均 | 训练健康性，与 train/cos 同口径 |
 
-输出：
+新增 TB tag（写到 `eval_tb/<ckpt>/`）：
 
-```text
-eval_json/goalgen_v1/eval_v1_summary.json    # overall + by_scenario 聚合
-eval_json/goalgen_v1/eval_v1_perline.jsonl   # 每条样本一行
-eval_json/goalgen_v1/samples/00000_pred.png  # 前 image-dump-count 条 pred / gt PNG 并排（自己 ssh 拉回看）
-eval_json/goalgen_v1/samples/00000_gt.png
+| Tag | 含义 |
+|---|---|
+| `eval/latent_mse` / `latent_cos` / `pixel_l1` / `psnr` / `velocity_cos` | overall mean，按 ckpt step 形成横向曲线 |
+| `eval/<...>_std` | overall std |
+| `eval_by_scenario/<sc>/<metric>` | 拆场景 |
+| `eval/pred_vs_gt` | image 面板：前 8 条 pred + gt 交错排 |
+
+### 3.5.2 场景 case dump（probe_v1）
+
+```bash
+python qwen3vl_local/goalgen/probe_v1.py \
+  --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
+  --qwen-adapter-dir checkpoints/sft_v1_lora \
+  --save-root checkpoints/goalgen_v1_dit \
+  --num-per-scenario 4 --seed 0
+
+# 同 seed + --case-suffix 对比多个 ckpt
+python qwen3vl_local/goalgen/probe_v1.py \
+  --dit-checkpoint checkpoints/goalgen_v1_dit/checkpoint-000500/goalgen_v1.pt \
+  --save-root checkpoints/goalgen_v1_dit \
+  --num-per-scenario 4 --seed 0 --case-suffix "_ckpt500"
 ```
+
+每条 case 目录：
+
+```
+OUTPUT_DIR/eval_cases/Accident__Town03_..._001783__12/
+├─ input_history/00.jpg ... 03.jpg
+├─ target_raw.jpg              真值原图
+├─ target_vae_recon.png        真值 VAE encode→decode（生成质量天花板对比）
+├─ pred.png                    DiT 采样 + VAE 解码
+├─ euler_trace.json            per-step t / v_cos_vs_gt_direction / z_l2_to_gt
+├─ memory.json                 DrivingMemory 完整 dump
+├─ metrics.json                latent_mse / latent_cos / pixel_l1 / psnr / velocity_cos
+├─ meta.json                   dit_checkpoint / qwen_adapter / 推理耗时
+└─ overview.md                 一页 markdown，人工 review 入口
+```
+
+`euler_trace.json` 里：
+- `v_cos_vs_gt_direction`：每步 v_pred 与真值方向 `z1_gt - z_init` 的 cosine；理想轨迹整段接近 1
+- `z_l2_to_gt`：当前 z_t 到真值 z1_gt 的 L2 距离；理想应单调下降
 
 `pixel_l1 / psnr` 是直接对比 VAE 解码后的 RGB；下限取决于 VAE 重建质量本身，
 所以光看绝对值意义有限——做"基础检查点 vs 训练后检查点"或"step-200 vs step-1000"
-横向对比时 delta 才有意义。
+横向对比时 delta 才有意义。`target_vae_recon.png` 是 VAE 自己的重建天花板。
 
 ## 4. 排障
 

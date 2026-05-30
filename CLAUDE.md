@@ -60,9 +60,9 @@
 | `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py` | standalone Qwen3-VL-4B-Instruct 范式 A 脚本 |
 | `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py` | 子目标 latent 生成新路线 runner（teacher-forced prefill → DiT-MoT → flow matching，详见 PROJECT_CONTEXT.md §15） |
 | `AutoMoT/qwen3vl_local/` | Qwen3-VL-Instruct 本地 helper 包；其中 `goalgen/` 子包是 §15 新路线全部模块（vae/prompt/qwen_kv/keyframes/dit/flow） |
-| `AutoMoT/tools/SFT_V1_PLAN.md` / `SFT_V1_RUN.md` / `build_sft_dataset_v1.py` / `sft_v1_train.sh` / `sft_v1_loss_scale_plugin.py` / `eval_sft_v1.py` / `check_loss_mask.py` | LoRA SFT v1 微调相关脚本、计划与运行教程（注意只这 7 个，AutoMoT/tools/ 下其它原始脚本仍为只读参考） |
+| `AutoMoT/tools/SFT_V1_PLAN.md` / `SFT_V1_RUN.md` / `build_sft_dataset_v1.py` / `sft_v1_train.sh` / `sft_v1_loss_scale_plugin.py` / `eval_sft_v1.py` / `check_loss_mask.py` / `tb_serve.sh` / `probe_sft_v1.py` | LoRA SFT v1 微调相关脚本、计划与运行教程；`tb_serve.sh` 是通用 TensorBoard 启动器（GoalGen 也复用，自动选端口 + bind_all + 打印 ssh 隧道命令）；`probe_sft_v1.py` 是随机场景 case-level dump；以上 9 个白名单，`AutoMoT/tools/` 下其它原始脚本仍为只读参考 |
 | `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md` / `GOALGEN_V1_RUN.md` | 子目标 latent 生成路线 v1 设计与操作手册（与 goalgen 子包代码同目录） |
-| `AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py` / `train_v1.py` / `train_v1.sh` / `eval_v1.py` | GoalGen v1 数据集构建 + 训练入口（DDP / 单卡 / check 三模式）+ 离线 eval（latent / pixel / velocity 指标 + PNG 落盘） |
+| `AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py` / `train_v1.py` / `train_v1.sh` / `eval_v1.py` / `probe_v1.py` | GoalGen v1 数据集构建 + 训练入口（DDP / 单卡 / check 三模式）+ 离线 eval（latent / pixel / velocity + PNG + TB scalar/image，支持 torchrun 分片）+ `probe_v1.py` 随机场景 case-level dump |
 | `CLAUDE.md` | 本规则文件（仅在调整规则时修改） |
 | `AGENTS.md` | 通用 AI / coding agent 入口说明文件 |
 
@@ -109,6 +109,7 @@
 - `AutoMoT/qwen3vl_local/goalgen/train_v1.py`
 - `AutoMoT/qwen3vl_local/goalgen/train_v1.sh`
 - `AutoMoT/qwen3vl_local/goalgen/eval_v1.py`
+- `AutoMoT/qwen3vl_local/goalgen/probe_v1.py`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_RUN.md`
 - `AutoMoT/tools/SFT_V1_PLAN.md`
@@ -117,6 +118,8 @@
 - `AutoMoT/tools/sft_v1_train.sh`
 - `AutoMoT/tools/sft_v1_loss_scale_plugin.py`
 - `AutoMoT/tools/eval_sft_v1.py`
+- `AutoMoT/tools/tb_serve.sh`
+- `AutoMoT/tools/probe_sft_v1.py`
 - `AutoMoT/tools/check_loss_mask.py`
 
 ### 硬性规则

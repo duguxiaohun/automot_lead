@@ -243,31 +243,42 @@ bash tools/sft_v1_train.sh single
 如果超过 80 GB，先把 `per_device_train_batch_size` 从 2 降到 1，再排查是否
 `--gradient_checkpointing` 没生效。
 
-### 4.1 TensorBoard
+### 4.1 TensorBoard（推荐用 tools/tb_serve.sh 一条命令搞定）
 
-训练时 swift / transformers 把 train + eval 曲线写到 `OUTPUT_DIR/tb`（`--report_to
-tensorboard`）。eval 在 `single` / `ddp` 模式下按 `EVAL_STEPS`（默认 100/200）跑
-一次，标量自动落到 `eval/loss`。
+训练 + eval 现在统一往 `OUTPUT_DIR` 下平铺保存：
 
-```bash
-# 远程
-tensorboard --logdir checkpoints/sft_v1_lora/tb --port 6007 --bind_all
-# 本地
-ssh -L 6007:localhost:6007 user@remote
-# 浏览器 http://localhost:6007
+```
+checkpoints/sft_v1_lora/
+├─ checkpoint-*/      LoRA adapter
+├─ tb/                训练 TB events（swift 写，--report_to tensorboard）
+├─ eval/              eval_sft_v1.py 写的 metrics.json + predictions.jsonl
+├─ eval_tb/<ckpt>/    eval_sft_v1.py 写的指标 scalar + text（每个 ckpt 一个 TB run）
+└─ eval_cases/        probe_sft_v1.py 随机场景 case dump
 ```
 
-端口冲突自适应（同 GoalGen RUN §2.1）：
+TensorBoard 启动 `--logdir checkpoints/sft_v1_lora` 时，左侧 run 列表会同时列出
+`tb`（训练）和 `eval_tb/<ckpt-tag>`（每次 eval 一个 run）。
+
+推荐用脚本一条命令搞定（自动选空闲端口 + bind_all + 直接打印你本地要用的 SSH 命令）：
 
 ```bash
-# 让 OS 自动选端口，从 tb stdout 里读
-tensorboard --logdir checkpoints/sft_v1_lora/tb --port 0 --bind_all
-
-# 或脚本里先探空闲端口
-TB_PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
-tensorboard --logdir checkpoints/sft_v1_lora/tb --port "${TB_PORT}" --bind_all &
-ssh -L "${TB_PORT}:localhost:${TB_PORT}" user@remote
+# 远端：起 TB（在 AutoMoT/ 目录下）
+bash tools/tb_serve.sh checkpoints/sft_v1_lora
 ```
+
+`tb_serve.sh` 会打印类似：
+
+```
+[tb] >>> 在你的本地终端跑：
+      ssh -i "C:\Users\IOL4SGH\.ssh\id_rsa" -N -L 41273:localhost:41273 cruser1@szh-gpu-cr02.apac.bosch.com
+[tb] >>> 然后浏览器打开:  http://localhost:41273
+```
+
+直接复制粘贴 SSH 命令到本地终端，然后浏览器打开提示里的 `http://localhost:<port>`
+就能看曲线。Ctrl-C 关掉 tb_serve.sh 时 TB 服务一起退。
+
+想固定端口：`TB_PORT=6007 bash tools/tb_serve.sh checkpoints/sft_v1_lora`。
+换其它远端：`TB_SSH_USER=other@host TB_SSH_KEY=/path/to/key bash tools/tb_serve.sh ...`。
 
 常见 tag：
 
@@ -276,7 +287,12 @@ ssh -L "${TB_PORT}:localhost:${TB_PORT}" user@remote
 | `train/loss` | per-step LoRA loss（含 loss_scale plugin 的权重） |
 | `train/learning_rate` | cosine 调度后的 lr |
 | `train/grad_norm` | swift 内部已记录 |
-| `eval/loss` | val 子集上的 loss，监控过拟合 |
+| `eval/loss` | val 子集上的 loss（swift 训练里 EVAL_STEPS 触发） |
+| `eval/keep_accuracy` | **离线** eval_sft_v1.py 写到 eval_tb/ 的 scalar |
+| `eval/early_advance_rate` | 同上，最关心的指标 |
+| `eval/anchor12_passed` | anchor=12 sanity（0/1）|
+| `eval_by_scenario/<sc>/*` | 拆场景看哪些场景拉低整体指标 |
+| `eval/samples_preview` | text 面板：前 8 条 pred vs gt markdown |
 
 `check` 模式把 `EVAL_STEPS=999999` 关掉 eval，所以 check 跑只有 train 曲线；
 若想 check 时也看 eval 曲线，临时改 `EVAL_STEPS=1` 加 `VAL_ARGS=(--val_dataset ...)`。
@@ -285,16 +301,77 @@ ssh -L "${TB_PORT}:localhost:${TB_PORT}" user@remote
 
 ## 5. 评估（约 10–30 分钟，取决于 val 大小）
 
+### 5.0 两类测试
+
+| 类型 | 脚本 | 用途 |
+|---|---|---|
+| A. 聚合指标 + TB | `tools/eval_sft_v1.py` | 全 val 集跑一遍，scalar 写到 `OUTPUT_DIR/eval_tb/<ckpt>/`，与训练曲线并排 |
+| A. 多卡分片 | 同上 + `torchrun` | val 大时切多卡加速 |
+| B. 场景 case dump | `tools/probe_sft_v1.py` | 随机抽几个场景的样本，把 input prompt + 图像 + 模型 raw 输出 + per-token loss 都保存到 `OUTPUT_DIR/eval_cases/<scenario>__<run>__<anchor>/` |
+
 ```bash
-# 完整 val 集 + anchor=12 fail case sanity
+# 单卡 — 推荐路径，与训练同根（写到 OUTPUT_DIR/eval/ + OUTPUT_DIR/eval_tb/）
 python tools/eval_sft_v1.py \
-    --lora-dir checkpoints/sft_v1_lora
+    --lora-dir checkpoints/sft_v1_lora \
+    --save-root checkpoints/sft_v1_lora
+
+# 多卡分片
+torchrun --standalone --nproc_per_node=4 tools/eval_sft_v1.py \
+    --lora-dir checkpoints/sft_v1_lora \
+    --save-root checkpoints/sft_v1_lora
+
+# 旧用法（写到 eval_json/）仍然兼容
+python tools/eval_sft_v1.py --lora-dir checkpoints/sft_v1_lora
 
 # 或先快速验收前 100 条样本看趋势
 python tools/eval_sft_v1.py \
     --lora-dir checkpoints/sft_v1_lora \
+    --save-root checkpoints/sft_v1_lora \
     --max-samples 100
 ```
+
+> `--save-root` 让 eval 写到 `<root>/eval/metrics.json` + `<root>/eval/predictions.jsonl`，
+> TB 写到 `<root>/eval_tb/<ckpt-tag>/`；不传时沿用 `eval_json/sft_v1_*` 老默认。
+> `--run-tag` 显式指定 TB run 名（默认从 lora 目录名派生：`base` / `ckpt300` / `lora`）。
+
+### 5.1 场景 case dump（probe）
+
+```bash
+# LoRA 下抽 16 条样本（4 场景 × 4 条），每条独立目录写齐 prompt/图像/GT/pred/token_loss
+python tools/probe_sft_v1.py \
+    --lora-dir checkpoints/sft_v1_lora \
+    --save-root checkpoints/sft_v1_lora \
+    --num-per-scenario 4 --seed 0
+
+# 同 seed 跑一次 base 模型，--case-suffix 防止覆盖
+python tools/probe_sft_v1.py \
+    --lora-dir "" \
+    --save-root checkpoints/sft_v1_lora \
+    --num-per-scenario 4 --seed 0 --case-suffix "_base"
+
+# 只看 Accident / Construction
+python tools/probe_sft_v1.py \
+    --lora-dir checkpoints/sft_v1_lora --save-root checkpoints/sft_v1_lora \
+    --scenarios Accident,Construction --num-per-scenario 6 --seed 7
+```
+
+每条 case 目录布局：
+
+```
+OUTPUT_DIR/eval_cases/Accident__Town03_Rep0_route_001783_route0_01_11_02_37_46__12/
+├─ input_images/00.jpg ... 03.jpg      symlink/copy 历史 4 帧
+├─ system_prompt.txt
+├─ user_prompt.txt                     去掉 <image> 占位的纯文本
+├─ gt.txt                              GT assistant 完整三行
+├─ pred.txt                            模型 raw 输出
+├─ token_loss.json                     per-token NLL + ANALYSIS 段 mask（与训练 loss_scale 同口径）
+├─ meta.json                           lora_dir / model_dir / 推理耗时 / seed
+└─ overview.md                         一页 markdown 串起来 — 人工 review 入口
+```
+
+`token_loss.json` 里有 `mean_loss_raw`、`mean_loss_status_subgoal_only`、
+`mean_loss_analysis_only` 三个均值：训练时 ANALYSIS 段被 mask=0 不算 loss，
+看 `mean_loss_status_subgoal_only` 才是真实训练目标的 loss 数值。
 
 **预期输出末尾**（节选）：
 
