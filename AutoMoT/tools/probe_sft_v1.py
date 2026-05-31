@@ -12,7 +12,8 @@ eval_sft_v1.py 是聚合视角：跑完整 val 出 keep_acc / early_advance / pe
     * 模型预测 raw 文本（与 eval_sft_v1.py 同一推理路径）；
     * **token-level loss**：teacher-forced 给 assistant 一遍，逐 token 给出 NLL；
       额外用 sft_v1_loss_scale_plugin 同款 regex 算"masked loss"，让你直接看到
-      ANALYSIS 段 mask=0 后真正用于训练的损失到底分布在哪几个 token；
+      ANALYSIS 占位 + ``STATUS:`` / ``SUBGOAL:`` 字面 mask=0 后真正用于训练的
+      两段事件名 token 损失分布；
     * meta.json：lora_dir / model_dir / scenario / run_id / anchor / 推理耗时；
     * overview.md：把上面所有内容合并到一页，单文件即可人工 review。
 
@@ -89,9 +90,17 @@ import torch.nn.functional as F  # noqa: E402
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine  # noqa: E402
 from qwen3vl_local.prompt_pipeline import parse_vlm_output  # noqa: E402
 
-# 与 eval_sft_v1.py / sft_v1_loss_scale_plugin.py 同款 regex —— 在 char 维度
-# 框出 ANALYSIS 占位段。probe 用同一份让"训练时被 mask 掉的 token 范围"与实际一致。
-_ANALYSIS_REGEX = re.compile(r"ANALYSIS:.*?(?=\nSTATUS:)", flags=re.DOTALL)
+# 与 sft_v1_loss_scale_plugin.py / check_loss_mask.py 同款 regex —— 在 char
+# 维度框出 STATUS 行事件名 + SUBGOAL 行事件名两段 loss 区域，其它一切（ANALYSIS
+# 占位、STATUS: / SUBGOAL: 字面、换行）训练时 mask=0。probe 用同一份让"训练时
+# 被 mask 掉的 token 范围"与实际一致。
+_FULL_PATTERN = re.compile(
+    r"ANALYSIS:.*?\nSTATUS:[ \t]*"
+    r"(?P<status>\S[^\n]*?)"
+    r"\s*\nSUBGOAL:[ \t]*"
+    r"(?P<subgoal>\S[^\n]*)",
+    flags=re.DOTALL,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -192,7 +201,7 @@ def compute_token_loss(
     pil_images: List[Any],
     gt_text: str,
 ) -> Dict[str, Any]:
-    """teacher-forced 跑一遍，给 assistant 段 per-token 拆出 nll + analysis mask。
+    """teacher-forced 跑一遍，给 assistant 段 per-token 拆出 nll + 训练 loss mask。
 
     流程：
       1. apply_chat_template(messages, add_generation_prompt=True) 得到"system+user
@@ -202,9 +211,11 @@ def compute_token_loss(
       3. processor 各编码一次，full_ids 长度 - prefix_ids 长度 = assistant token 数；
       4. 用 full_ids 跑一次 model.forward(use_cache=False, return_dict=True) 拿 logits；
       5. shift logits/labels 后对 assistant 区段算 cross entropy（不平均，留 per-token）；
-      6. 用 _ANALYSIS_REGEX 在 gt_text 上找 ANALYSIS 段 char span，反查在 assistant
-         token 序列里对应的范围，标 mask=0（与 sft_v1_loss_scale_plugin.py 同口径）；
-      7. 输出 per-token 列表 + 三段 mean（raw / status_subgoal_only / analysis_only）。
+      6. 用 _FULL_PATTERN 在 gt_text 上找 STATUS / SUBGOAL 事件名两段 char span，
+         反查在 assistant token 序列里对应的范围，仅这两段 token 标 mask=1，其它
+         （ANALYSIS 占位 + STATUS: / SUBGOAL: 字面 + 空白）标 mask=0 — 与
+         sft_v1_loss_scale_plugin.py 的 v1 升级版同口径；
+      7. 输出 per-token 列表 + 三段 mean（raw / status_subgoal_only / masked_literals）。
 
     注意：
       - 这里 mask 是按 *char 长度* + tokenizer 重切换算的近似（assistant_only
@@ -280,36 +291,59 @@ def compute_token_loss(
     token_texts = tokenizer.convert_ids_to_tokens(asst_ids)
     token_strs = [tokenizer.decode([tid]) for tid in asst_ids]
 
-    # ---- 4) ANALYSIS char-span → token mask ----
-    match = _ANALYSIS_REGEX.search(gt_text)
+    # ---- 4) STATUS / SUBGOAL 事件名 char-span → token mask ----
+    # mask=1 仅在 STATUS 行的 event_name 和 SUBGOAL 行的 event_name 两段 token；
+    # mask=0 = 训练时 loss_scale 设为 0 的"字面 token"（ANALYSIS 占位 + STATUS:
+    # 字面 + SUBGOAL: 字面 + 空白）。语义和 sft_v1_loss_scale_plugin.py 完全对齐。
+    match = _FULL_PATTERN.search(gt_text)
     if match is None:
-        # 没匹配到（GT 不带 ANALYSIS 段，纯 STATUS+SUBGOAL）：mask 全 1
-        analysis_mask = [1.0] * len(nll)
+        # FULL_PATTERN 匹配不到（占位 / 三段格式漂移）：保守全 mask=0，
+        # 避免把字面 token 也错算成 loss；mean_loss_status_subgoal_only 在
+        # 下方会用 masked_count==0 兜底返回 0.0，并由 caller 自行判断异常。
+        loss_mask = [0.0] * len(nll)
     else:
-        # 用 tokenizer 重切 GT 段三块，按 token 数粗略对齐：
-        # head_chars = gt_text[:match.start()] (通常为空)
-        # analysis_chars = gt_text[match.start():match.end()]
-        # tail_chars = gt_text[match.end():] (STATUS + SUBGOAL)
-        head_ids = tokenizer.encode(gt_text[:match.start()], add_special_tokens=False) if match.start() > 0 else []
-        analysis_ids = tokenizer.encode(gt_text[match.start():match.end()], add_special_tokens=False)
-        # tail 不单独 encode，长度 = assistant_token_count - len(head) - len(analysis)
-        head_n = len(head_ids)
-        an_n = len(analysis_ids)
-        analysis_mask = [1.0] * len(nll)
-        # 把 [head_n, head_n + an_n) 区间标 0；区间超出时自动 clamp。
-        lo = min(head_n, len(analysis_mask))
-        hi = min(head_n + an_n, len(analysis_mask))
-        for k in range(lo, hi):
-            analysis_mask[k] = 0.0
+        status_start, status_end = match.span("status")
+        subgoal_start, subgoal_end = match.span("subgoal")
+        # 按四个 char 切片各自 tokenize，得到累积 token 偏移量：
+        #   [0:status_start]            → prefix（含 ANALYSIS + "\nSTATUS: "）
+        #   [status_start:status_end]   → STATUS 事件名 token
+        #   [status_end:subgoal_start]  → mid（含 "\nSUBGOAL: "）
+        #   [subgoal_start:subgoal_end] → SUBGOAL 事件名 token
+        # tail 部分（如尾随 \n / EOS 占位）一律 mask=0，不必单独 encode。
+        prefix_n = len(tokenizer.encode(gt_text[:status_start], add_special_tokens=False)) \
+            if status_start > 0 else 0
+        status_n = len(tokenizer.encode(gt_text[status_start:status_end], add_special_tokens=False))
+        mid_n = len(tokenizer.encode(gt_text[status_end:subgoal_start], add_special_tokens=False)) \
+            if subgoal_start > status_end else 0
+        subgoal_n = len(tokenizer.encode(gt_text[subgoal_start:subgoal_end], add_special_tokens=False))
+
+        loss_mask = [0.0] * len(nll)
+        # STATUS 事件名 token 区间 [prefix_n, prefix_n + status_n)
+        s_lo = min(prefix_n, len(loss_mask))
+        s_hi = min(prefix_n + status_n, len(loss_mask))
+        for k in range(s_lo, s_hi):
+            loss_mask[k] = 1.0
+        # SUBGOAL 事件名 token 区间 [prefix_n + status_n + mid_n, +subgoal_n)
+        g_lo = min(prefix_n + status_n + mid_n, len(loss_mask))
+        g_hi = min(prefix_n + status_n + mid_n + subgoal_n, len(loss_mask))
+        for k in range(g_lo, g_hi):
+            loss_mask[k] = 1.0
 
     # ---- 5) 汇总三种平均 ----
+    # 字段名变化（v1 mask 升级）：
+    #   mean_loss_status_subgoal_only：mask=1 的 token 平均（两段事件名）—
+    #     语义升级，从"非 ANALYSIS 部分"收窄为"仅两段事件名"，旧字段名沿用
+    #     保持下游脚本 / tb 解析兼容；
+    #   mean_loss_masked_literals：mask=0 的 token 平均（ANALYSIS 占位 +
+    #     STATUS:/SUBGOAL: 字面 + 空白）— 原 mean_loss_analysis_only 重命名，
+    #     因为现在被 mask 的不只是 ANALYSIS，包含所有字面 token。
     mean_raw = float(sum(nll) / max(1, len(nll)))
-    masked_sum = sum(n * m for n, m in zip(nll, analysis_mask))
-    masked_count = sum(analysis_mask)
+    masked_sum = sum(n * m for n, m in zip(nll, loss_mask))
+    masked_count = sum(loss_mask)
     mean_masked = float(masked_sum / masked_count) if masked_count > 0 else 0.0
-    analysis_sum = sum(n * (1.0 - m) for n, m in zip(nll, analysis_mask))
-    analysis_count = sum(1.0 - m for m in analysis_mask)
-    mean_analysis = float(analysis_sum / analysis_count) if analysis_count > 0 else 0.0
+    literals_sum = sum(n * (1.0 - m) for n, m in zip(nll, loss_mask))
+    literals_count = sum(1.0 - m for m in loss_mask)
+    mean_literals = float(literals_sum / literals_count) if literals_count > 0 else 0.0
 
     per_token = [
         {
@@ -318,7 +352,7 @@ def compute_token_loss(
             "token": token_texts[k],
             "text": token_strs[k],
             "nll": float(nll[k]),
-            "mask": float(analysis_mask[k]),
+            "mask": float(loss_mask[k]),
         }
         for k, tid in enumerate(asst_ids)
     ]
@@ -329,7 +363,7 @@ def compute_token_loss(
         "assistant_token_count": assistant_token_count,
         "mean_loss_raw": mean_raw,
         "mean_loss_status_subgoal_only": mean_masked,
-        "mean_loss_analysis_only": mean_analysis,
+        "mean_loss_masked_literals": mean_literals,
         "per_token": per_token,
     }
 
@@ -383,8 +417,8 @@ def render_overview_md(
     else:
         lines.append(f"- assistant_token_count: **{token_loss['assistant_token_count']}**")
         lines.append(f"- mean_loss_raw (所有 token): **{token_loss['mean_loss_raw']:.4f}**")
-        lines.append(f"- mean_loss_status_subgoal_only (训练真正学的部分): **{token_loss['mean_loss_status_subgoal_only']:.4f}**")
-        lines.append(f"- mean_loss_analysis_only (训练时被 mask=0 的部分): {token_loss['mean_loss_analysis_only']:.4f}")
+        lines.append(f"- mean_loss_status_subgoal_only (训练真正学的两段事件名): **{token_loss['mean_loss_status_subgoal_only']:.4f}**")
+        lines.append(f"- mean_loss_masked_literals (训练时 mask=0 的字面 token: ANALYSIS + STATUS:/SUBGOAL: + 空白): {token_loss['mean_loss_masked_literals']:.4f}")
         lines.append("")
         # 头 32 个 token 的 per-token loss 直接列在 markdown 里，方便人眼一瞥找异常 token
         lines.append("Top tokens (first 32, m=mask weight):")

@@ -1,14 +1,19 @@
-"""SFT v1 loss_scale sanity check — 在 token 级别可视化 ANALYSIS 段 mask。
+"""SFT v1 loss_scale sanity check — 在 token 级别可视化 STATUS / SUBGOAL 事件名 loss 段。
 
 主体检查不依赖 GPU。脚本会先用 HuggingFace tokenizer + 你已经生成的
-jsonl 样本，把 assistant content 按字符 → token 映射展开，标出三段：
+jsonl 样本，把 assistant content 按字符 → token 映射展开，标出每个 token：
 
-    [MASK]  对应 ANALYSIS: Observations recorded.\n   （swift loss_scale 应权重 0）
-    [LOSS]  对应 STATUS: <event_name>\n               （应算 loss）
-    [LOSS]  对应 SUBGOAL: <event_name>                 （应算 loss）
+    [LOSS]  对应 STATUS 行的事件名 token
+    [LOSS]  对应 SUBGOAL 行的事件名 token
+    [MASK]  其它所有 token（ANALYSIS 占位、STATUS: 字面、\\nSUBGOAL: 字面、尾随空白）
+
+v1 把 ``STATUS:`` / ``SUBGOAL:`` 字面也从 loss 里剔除——理由见
+``sft_v1_loss_scale_plugin.py`` 顶部 docstring：Qwen3-VL 基模在 system prompt
+强约束下已经会按三段格式输出，关键词字面不需要再训；保留它们反而会让"复读
+STATUS:"成为最廉价的降 loss 路径。
 
 随后会可选调用 `tools/sft_v1_loss_scale_plugin.py` 里的 ms-swift 插件本体，
-确认 STATUS/SUBGOAL event_name 确实位于插件返回的 loss 段。若当前环境没装
+确认 STATUS / SUBGOAL 事件名确实位于插件返回的 loss 段。若当前环境没装
 ms-swift，这一步会打印 WARN；远程训练环境必须让这一步通过。
 
 典型用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
@@ -21,17 +26,16 @@ python tools/check_loss_mask.py
 python tools/check_loss_mask.py --sample-idx 7
 
 # 指定 tokenizer 目录
-python tools/check_loss_mask.py \
+python tools/check_loss_mask.py \\
     --tokenizer-dir checkpoints/Qwen3-VL-4B-Instruct
 ```
 
 观察要点：
-- ANALYSIS 段每个 token 都应被列为 [MASK]，token 数应在 5-10 之间
-- STATUS / SUBGOAL 的字面前缀和 event_name token 应被列为 [LOSS]
-- 如果 STATUS event_name 只有 1 个 token，说明 BPE 把它当成完整词；
-  这是 v1 监督信号最稠密的位置，绝对不能被 mask
-- 如果发现 ANALYSIS 段有 token 被标 [LOSS]（或反过来），说明
-  PLACEHOLDER_ANALYSIS 跟 loss_scale 插件 regex 不匹配，必须修
+- ``STATUS:`` / ``SUBGOAL:`` 这些字面 token 全部应该被列为 [MASK]
+- ``ANALYSIS: Observations recorded.\\n`` 占位段每个 token 也应该 [MASK]
+- 只有 STATUS 行和 SUBGOAL 行的 **事件名 token** 应该被列为 [LOSS]
+  （多数事件名 1–3 个 token，整段 assistant 通常只有 2–6 个 [LOSS] token）
+- ``n_loss < 2`` 是危险信号：可能 regex 把事件名错切到 [MASK]，要先修
 """
 
 from __future__ import annotations
@@ -59,20 +63,27 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
-# 必须与 sft_v1_loss_scale_plugin.py 里的 regex 字面语义完全一致。
+# 必须与 sft_v1_loss_scale_plugin.py 里的 _FULL_PATTERN 字面语义完全一致。
 #
 # regex 语义拆开：
-#   ANALYSIS:          —— 锚定占位段开头，跟 build_sft_dataset_v1.py 的
-#                          PLACEHOLDER_ANALYSIS = "Observations recorded." 前缀对齐
-#   .*?                —— 非贪婪匹配，吃掉 "Observations recorded." 这段任意内容
-#                          （包含可能的换行——配合 flags=re.DOTALL）
-#   (?=\nSTATUS:)      —— 前瞻断言：吃到 \nSTATUS: 之前为止，但不消费它
-#                          这样匹配 range 就是 "ANALYSIS: ... " 直到 \n 之前，
-#                          \n 本身落到下一段（STATUS 行）保留给 loss 算
+#   ANALYSIS:.*?\nSTATUS:[ \t]*    —— 吞掉 "ANALYSIS: ... \nSTATUS: " 整段
+#                                     (DOTALL 让 .*? 也能匹配换行)
+#   (?P<status>\S[^\n]*?)          —— 捕获 STATUS 后面的事件名（同一行、非空开头）
+#   \s*\nSUBGOAL:[ \t]*            —— 吞掉中间换行 + "SUBGOAL: "
+#   (?P<subgoal>\S[^\n]*)          —— 捕获 SUBGOAL 后面的事件名
 #
-# 同步规则：本常量与 sft_v1_loss_scale_plugin.py 的 _ANALYSIS_REGEX 必须同时改、
+# 用 `\S[^\n]*` 而不是 `\w+`：兼容多 token 事件名 / 内部空格变体；同时保证
+# 不跨行，避免吞到下一段 special token。
+#
+# 同步规则：本常量与 sft_v1_loss_scale_plugin.py 的 _FULL_PATTERN 必须同时改、
 # 同时验。如果哪边偷偷改了一边，可能出现"本脚本上对、但 swift 训练时不对"的假象。
-LOSS_SCALE_REGEX = r"ANALYSIS:.*?(?=\nSTATUS:)"
+FULL_PATTERN = re.compile(
+    r"ANALYSIS:.*?\nSTATUS:[ \t]*"
+    r"(?P<status>\S[^\n]*?)"
+    r"\s*\nSUBGOAL:[ \t]*"
+    r"(?P<subgoal>\S[^\n]*)",
+    flags=re.DOTALL,
+)
 
 
 def load_first_sample(jsonl_path: pathlib.Path, idx: int) -> Dict:
@@ -96,28 +107,25 @@ def load_first_sample(jsonl_path: pathlib.Path, idx: int) -> Dict:
     raise IndexError(f"jsonl {jsonl_path} has fewer than {idx+1} samples")
 
 
-def find_mask_char_range(text: str) -> Optional[Tuple[int, int]]:
-    """在 assistant text 上按 LOSS_SCALE_REGEX 找 ANALYSIS 段的"字符"区间。
+def find_loss_char_ranges(text: str) -> List[Tuple[int, int]]:
+    """在 assistant text 上按 FULL_PATTERN 找两段事件名的"字符"区间。
+
+    返回 [(status_start, status_end), (subgoal_start, subgoal_end)]；
+    匹配不到返回空列表，调用方会把所有 token 都标 [MASK] 并触发 [WARN]，
+    因为这意味着插件运行时也会落到 fallback（只 mask ANALYSIS 段、其余全算
+    loss），训练监督会被 STATUS:/SUBGOAL: 字面 token 主导——是危险信号。
 
     为什么是字符 range 而不是 token range：
-    - swift 的 loss_scale 实现细节（按 char 还是按 token 匹配）我们无法 100%
-      复刻，但 swift 拿到的输入文本和我们这里的 text 是同一份；
-    - 只要我们能找出"哪些字符应该被 mask"，再通过 tokenizer 的 offsets_mapping
-      把它映射回 token，就能判断"在 token 级 swift 应该把哪些 token mask 掉"；
-    - 这样不依赖 swift 内部行为，只依赖"swift 用的也是这个 regex + 同一文本"
-      这一个已知假设。
-
-    返回值：
-    - [start, end) 半开区间，end 落在 '\\nSTATUS:' 之前（regex 用了前瞻断言不消费）；
-    - 匹配不到返回 None，调用方会把所有 token 都标 [LOSS] 并触发警告，
-      因为这种情况下 swift 训练时整段 ANALYSIS 都会算 loss——是危险信号。
+    - swift 的 loss_scale 实现把文本按 part 切，每个 part 一个 scale；但
+      part 边界落在 char 上，最终 token 级 mask 由 tokenizer 在每个 part 内
+      独立 tokenize 得到。我们这里用 tokenizer 的 offset_mapping 把 char range
+      映射回 token，能近似还原训练时的 token 级 mask 状态，不依赖 swift 内部
+      实现细节。
     """
-    # re.DOTALL 让 . 也能匹配 \n。理论上 PLACEHOLDER_ANALYSIS 是单行不含 \n，
-    # 但用户后续可能换成多行占位，加 DOTALL 让 regex 更鲁棒。
-    m = re.search(LOSS_SCALE_REGEX, text, flags=re.DOTALL)
+    m = FULL_PATTERN.search(text)
     if m is None:
-        return None
-    return m.start(), m.end()
+        return []
+    return [m.span("status"), m.span("subgoal")]
 
 
 def tokenize_with_offsets(tokenizer, text: str) -> Tuple[List[int], List[Tuple[int, int]], List[str]]:
@@ -126,7 +134,7 @@ def tokenize_with_offsets(tokenizer, text: str) -> Tuple[List[int], List[Tuple[i
     HuggingFace fast tokenizer 的 ``return_offsets_mapping=True`` 会额外返回
     ``offset_mapping``：每个 token 在原始字符串中占用的字符 range（半开区间）。
     没有 offsets 的话，我们只能拿到 token id 序列，但无从知道"token #i 对应
-    原文哪几个字符"，也就没法用上面 find_mask_char_range 的字符 range 来分段。
+    原文哪几个字符"，也就没法用上面 find_loss_char_ranges 的字符 range 来分段。
 
     参数：
     - tokenizer：HuggingFace ``PreTrainedTokenizerFast`` 实例（必须 fast，
@@ -163,36 +171,37 @@ def tokenize_with_offsets(tokenizer, text: str) -> Tuple[List[int], List[Tuple[i
 
 def classify_tokens(
     offsets: List[Tuple[int, int]],
-    mask_range: Optional[Tuple[int, int]],
+    loss_ranges: List[Tuple[int, int]],
 ) -> List[str]:
-    """把每个 token 标成 ``[MASK]``（loss 权重 0）或 ``[LOSS]``（正常算 loss）。
+    """把每个 token 标成 ``[LOSS]``（落在事件名区间）或 ``[MASK]``（其它一切）。
 
-    判定逻辑：对每个 token 的字符 range (s, e)，判断它是否与 mask_range
-    (ms, me) 有非空交集。半开区间相交的标准式是 ``s < me and e > ms``：
-    - ``s < me``：token 的起点在 mask 区间结束之前；
-    - ``e > ms``：token 的终点在 mask 区间开始之后；
-    - 两者同时成立 ⇒ token 至少与 mask_range 有 1 个字符重叠 ⇒ 视为 [MASK]。
+    判定逻辑：对每个 token 的字符 range (s, e)，判断它是否与 loss_ranges 中
+    **任一**区间 (rs, re) 有非空交集。半开区间相交的标准式是
+    ``s < re and e > rs``。两者同时成立 ⇒ token 至少与该 loss 区间有 1 个字符
+    重叠 ⇒ 视为 [LOSS]。
 
     边界情况：
-    - 跨边界 token：BPE 可能把 "Observations recorded.\\nSTATUS" 中
-      ``recorded.`` 与 ``\\n`` 切成同一 token，这种 token 既覆盖 mask_range
-      又覆盖 STATUS: 之前的 \\n。本判定下它会算 [MASK]，是保守选择
-      （宁可少算一点 STATUS 段的 loss 也不要让 ANALYSIS 漏到 [LOSS]）。
-      实测 Qwen3-VL tokenizer 不会出现这种跨边界 token，因为换行 \\n 单独成 token。
-    - mask_range is None：regex 在 text 上完全匹配不到，意味着 PLACEHOLDER_ANALYSIS
-      或 STATUS: 段哪个被改坏了。这种情况下不能贸然全标 [MASK]——那样训练会
-      0 梯度 NaN——所以全标 [LOSS] 并由 main() 打印 [WARN] 提示。
+    - 跨边界 token：BPE 可能把 ``": initial"`` 与前面的 ``STATUS:`` 切成同一
+      token；这种情况下该 token 既覆盖 STATUS: 字面又覆盖事件名。本判定下
+      它会被标 [LOSS]，是保守选择（宁可让 `:` 这个无害 token 进入 loss，
+      也不要让 ``initial`` 漏到 [MASK] 丢掉主信号）。实测 Qwen3-VL tokenizer
+      对 ``STATUS: initial\\n`` 切成 ``STATUS``/``:``/`` initial``/``\\n`` 等，
+      不会出现关键词与事件名同 token 的情况。
+    - loss_ranges 为空：FULL_PATTERN 完全匹配不到，意味着 assistant content
+      格式漂移（PLACEHOLDER_ANALYSIS 被改了 / 三段结构被破坏 / context 被
+      swift 切成残片）。这种情况下不能贸然全 [LOSS]——那样训练侧 swift 会
+      退回 fallback 路径，把整段除 ANALYSIS 外的内容都算 loss，仍达不到本
+      sanity 的设计目标。这里全部标 [MASK]，由 main() 打印 [WARN] 显式提示。
     """
+    if not loss_ranges:
+        return ["[MASK]"] * len(offsets)
     tags: List[str] = []
-    if mask_range is None:
-        return ["[LOSS]"] * len(offsets)
-    ms, me = mask_range
     for (s, e) in offsets:
-        # 经典"半开区间相交"判定，等价于 `not (e <= ms or s >= me)`。
-        if s < me and e > ms:
-            tags.append("[MASK]")
-        else:
-            tags.append("[LOSS]")
+        in_loss = any(
+            s < re_end and e > re_start
+            for (re_start, re_end) in loss_ranges
+        )
+        tags.append("[LOSS]" if in_loss else "[MASK]")
     return tags
 
 
@@ -211,8 +220,10 @@ def print_token_table(
            1 [MASK]    220   [9,10)   ' '
            2 [MASK]   4571  [10,13)   'Obs'
            ...
-           7 [LOSS]    198  [32,33)   '\\n'
-           8 [LOSS]  31650  [33,40)   'STATUS:'
+           7 [MASK]    198  [32,33)   '\\n'
+           8 [MASK]  31650  [33,40)   'STATUS:'
+           9 [MASK]    220  [40,41)   ' '
+          10 [LOSS]  91969  [41,48)   'initial'
 
     阅读要点：
     - idx：从 0 开始的 token 序号；
@@ -237,10 +248,13 @@ def summarize(tags: List[str], decoded: List[str]) -> Dict[str, int]:
 
     用途：表格打印完后，给出一行总结让人快速判断是否健康。main() 还会基于
     这里的 n_loss / n_mask 触发警告：
-    - n_loss < 5：STATUS / SUBGOAL 段 token 太少，说明监督信号稀薄
-      （正常情况下 STATUS / SUBGOAL 行加起来应该有 8-15 个有效 token）；
-    - n_mask == 0：regex 完全没命中或命中区间不含任何 token，训练时
-      ANALYSIS 段会全部算 loss，模型会学成"先抄占位句再答 STATUS"。
+    - n_loss < 2：STATUS / SUBGOAL 事件名 token 都至少 1 个，加起来 < 2 说明
+      regex 切错了边界（典型：DOTALL 把事件名也吃进 mask 段）；
+    - n_loss > 10：事件名加起来不应超过 10 个 token（snake_case 词最多 4–5 个
+      BPE token，两段事件名 ≤ 10 是常识上限）；超过往往是 FULL_PATTERN 把
+      关键词字面也算进 loss，要回查 regex；
+    - n_mask < 5：ANALYSIS 占位句 + STATUS: + SUBGOAL: 等字面合计至少 ~10
+      token，< 5 说明 regex 没匹配到完整三段、走了 fallback 或干脆没 match。
 
     joined_length 主要给调试用：和原始 text 长度对比，能看出 tokenizer 是否
     丢了字符（理论上不会，但 fast tokenizer 偶发 normalization 问题时有用）。
@@ -265,13 +279,18 @@ def parse_status_lines(text: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 def print_plugin_loss_scale_check(text: str) -> None:
-    """调用 ms-swift 插件本体，确认它把 STATUS/SUBGOAL 留在 loss 段。
+    """调用 ms-swift 插件本体，确认它把 STATUS / SUBGOAL 事件名留在 loss 段。
 
     这一步比上面的纯 regex/token 表更接近训练侧：swift 训练时会通过
     `--external_plugins tools/sft_v1_loss_scale_plugin.py` 注册并调用同一个
-    `SftV1AnalysisMaskLossScale.get_loss_scale()`。如果这里的 loss 段没有包含
-    STATUS / SUBGOAL 的 event_name，`bash tools/sft_v1_train.sh check` 的低 loss
-    就不能继续信任。
+    ``SftV1AnalysisMaskLossScale.get_loss_scale()``。如果这里返回的 loss 段
+    没有包含 STATUS / SUBGOAL 的事件名（或 STATUS: / SUBGOAL: 字面也跑到了
+    loss 段），那 `bash tools/sft_v1_train.sh check` 报的 loss 数值就不能再信。
+
+    预期输出（健康）：
+    - 多个 0 权重段（含 "ANALYSIS:..."、"STATUS: "、"\\nSUBGOAL: "、尾随空白）
+    - 仅 2 个 1.0 权重段，分别是 STATUS / SUBGOAL 的事件名
+    - 两个 event_name 都 ``in_loss=True, in_mask=False``
     """
     print()
     print("===== plugin loss_scale sanity =====")
@@ -317,10 +336,20 @@ def print_plugin_loss_scale_check(text: str) -> None:
         if not in_loss or in_mask:
             print(f"[WARN] {label} event_name 没有被正确保留为 loss token。")
 
+    # 额外检查：STATUS:/SUBGOAL: 这些字面 token 必须落在 mask 段，不能进 loss。
+    # 这是 v1 升级后的硬约束（与 SFT_V1_PLAN.md §2 Loss 组成表对齐）。
+    for literal in ("ANALYSIS:", "STATUS:", "SUBGOAL:"):
+        if literal in text:
+            in_loss = literal in loss_text
+            in_mask = literal in mask_text
+            print(f"[plugin] literal={literal!r} in_loss={in_loss} in_mask={in_mask}")
+            if in_loss:
+                print(f"[WARN] 字面 {literal!r} 不应进入 loss 段；regex / 插件需排查。")
+
     if not any(scale == 0 for scale in scales):
-        print("[WARN] 插件没有产生任何 0 权重段，ANALYSIS 可能会参与 loss。")
+        print("[WARN] 插件没有产生任何 0 权重段，ANALYSIS / STATUS: / SUBGOAL: 字面可能会参与 loss。")
     if not any(scale > 0 for scale in scales):
-        print("[WARN] 插件没有产生任何 loss 段，STATUS/SUBGOAL 可能被全 mask。")
+        print("[WARN] 插件没有产生任何 loss 段，STATUS / SUBGOAL 事件名可能被全 mask。")
     print("====================================")
 
 
@@ -328,10 +357,11 @@ def main():
     """主流程：
     1. 解析命令行 → 拿到 jsonl 路径 + sample 编号 + tokenizer 目录
     2. 从 jsonl 取 1 条样本，抽出 assistant content
-    3. 在 assistant content 上跑 LOSS_SCALE_REGEX，确认是否能找到 ANALYSIS 段
+    3. 在 assistant content 上跑 FULL_PATTERN，找两段事件名 char 区间
     4. 用 Qwen3-VL tokenizer 把 content tokenize 出 offsets
-    5. 把字符 mask range 映射到 token tags
+    5. 把字符 loss range 映射到 token tags
     6. 打印对照表 + summary + 必要的 [WARN]
+    7. 调用插件本体跑一次 get_loss_scale，验证 STATUS / SUBGOAL 事件名落在 loss 段
 
     各阶段退出码（便于 CI / shell 脚本检测）：
         0  正常结束（即使带 [WARN] 也算 0，需要人工看输出判定）
@@ -372,18 +402,17 @@ def main():
     print("==========================")
     print()
 
-    # ---- 阶段 2：在 char 级用 regex 找 mask range ----
+    # ---- 阶段 2：在 char 级用 regex 找两段事件名 loss 区间 ----
     # 这一步与 tokenize 无关，是字符串纯文本匹配。如果这里就 match 不到，说明
-    # PLACEHOLDER_ANALYSIS 与 LOSS_SCALE_REGEX 之间已经漂移了，必须先修配置再来跑。
-    mask_range = find_mask_char_range(assistant_text)
-    if mask_range is None:
-        print("[WARN] LOSS_SCALE regex 在 assistant text 上匹配不到。"
-              "ANALYSIS 段不会被 mask，训练时整段都会算 loss！")
+    # PLACEHOLDER_ANALYSIS 与 FULL_PATTERN 之间已经漂移了，必须先修配置再来跑。
+    loss_ranges = find_loss_char_ranges(assistant_text)
+    if not loss_ranges:
+        print("[WARN] FULL_PATTERN 在 assistant text 上匹配不到。"
+              "STATUS / SUBGOAL 事件名都不会被识别为 loss 段，整段都会被标 [MASK]！")
     else:
-        # 把匹配区间切片打印，让用户确认"是不是只圈住了 ANALYSIS 段、没溢出到 STATUS"。
-        masked_str = assistant_text[mask_range[0]:mask_range[1]]
-        print(f"[mask] regex matched chars [{mask_range[0]},{mask_range[1]})  "
-              f"-> {masked_str!r}")
+        # 把两段事件名分别打印，让用户确认"是不是只圈住了事件名、没溢出到 STATUS:/SUBGOAL: 字面"。
+        for label, (s, e) in zip(("STATUS", "SUBGOAL"), loss_ranges):
+            print(f"[loss-range] {label:7s} chars [{s},{e})  -> {assistant_text[s:e]!r}")
 
     print()
     # ---- 阶段 3：加载 tokenizer（远程必装；本地可能因依赖版本不兼容失败）----
@@ -416,21 +445,24 @@ def main():
     # tokenize_with_offsets 用 fast tokenizer 拿到 offsets，前提是 from_pretrained
     # 返回的是 fast 版本。Qwen3-VL 默认配 fast tokenizer，所以这里不主动 use_fast 参数。
     ids, offsets, decoded = tokenize_with_offsets(tokenizer, assistant_text)
-    tags = classify_tokens(offsets, mask_range)
+    tags = classify_tokens(offsets, loss_ranges)
     print_token_table(ids, offsets, decoded, tags)
 
     # ---- 阶段 5：聚合指标 + 阈值告警 ----
-    # 这两个 WARN 阈值的意义见 summarize() docstring。CI / 自动化场景如果想把
+    # 这三个 WARN 阈值的意义见 summarize() docstring。CI / 自动化场景如果想把
     # WARN 升级成 fail，可以在外面 grep 输出里有没有 "[WARN]" 决定退出码。
     summary = summarize(tags, decoded)
     print()
     print(f"[summary] total tokens = {len(ids)}, "
           f"mask = {summary['n_mask']}, loss = {summary['n_loss']}")
-    if summary["n_loss"] < 5:
-        print("[WARN] 算 loss 的 token 太少（<5），STATUS/SUBGOAL 监督信号可能稀薄。"
-              "确认 PLACEHOLDER_ANALYSIS 是不是把 STATUS 行也吞掉了。")
-    if summary["n_mask"] == 0:
-        print("[WARN] 没有任何 token 被 mask。检查 LOSS_SCALE_REGEX 与 PLACEHOLDER_ANALYSIS。")
+    if summary["n_loss"] < 2:
+        print("[WARN] 算 loss 的 token 太少（<2）。STATUS / SUBGOAL 事件名最少应各占 1 个 token，"
+              "现在小于 2 说明 regex 切错了边界。")
+    if summary["n_loss"] > 10:
+        print("[WARN] 算 loss 的 token 太多（>10）。两段事件名加起来不应超过 10 token，"
+              "可能 STATUS: / SUBGOAL: 字面也被算进 loss。")
+    if summary["n_mask"] < 5:
+        print("[WARN] 被 mask 的 token 太少（<5）。检查 PLACEHOLDER_ANALYSIS / FULL_PATTERN 是否漂移。")
     print_plugin_loss_scale_check(assistant_text)
 
 
