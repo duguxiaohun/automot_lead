@@ -517,8 +517,14 @@ def main():
                         help="LEAD 数据根目录。每个 scenario 是子目录。")
     parser.add_argument("--output-dir", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v1_data"))
-    parser.add_argument("--samples-per-scenario", type=int, default=200)
-    parser.add_argument("--advance-ratio", type=float, default=0.25)
+    # samples-per-scenario / advance-ratio：
+    # 200/0.25 是 v1 早期版本；ckpt-8100 那次实测 STATUS 答对但 EOS 信号被刷崩，
+    # 主因之一是数据太少导致同一 sample 被反复看几十遍。
+    # 800/0.35 是当前默认：全集从 ~4000 涨到 ~14000，推进类比例提到 35%，
+    # 配合 sft_v1_train.sh 里 num_epochs=2 / lr=5e-5，等效 batch=32 时
+    # 总 step ≈ 900，与 PLAN §6 估算量级回到一致。
+    parser.add_argument("--samples-per-scenario", type=int, default=800)
+    parser.add_argument("--advance-ratio", type=float, default=0.35)
     parser.add_argument("--k-frames", type=int, default=DEFAULT_K_FRAMES)
     parser.add_argument("--boundary-buffer", type=int, default=DEFAULT_BOUNDARY_BUFFER)
     parser.add_argument("--val-ratio", type=float, default=0.10)
