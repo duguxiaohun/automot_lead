@@ -47,7 +47,6 @@
 python qwen3vl_local/goalgen/eval_v1.py \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
-  --qwen-adapter-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/goalgen_v1_dit \
   --max-samples 100
 
@@ -71,15 +70,11 @@ import math
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Tuple
-
-import torch
-import torch.distributed as dist
-import torch.nn.functional as F
-from PIL import Image
 
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
@@ -92,6 +87,60 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+
+
+def _cli_has(name: str) -> bool:
+    return any(item == name or item.startswith(name + "=") for item in sys.argv[1:])
+
+
+def _pick_idle_gpus(n: int = 1) -> str:
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return ""
+    rows = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            rows.append((int(parts[1]), int(parts[2]), parts[0]))
+        except ValueError:
+            continue
+    rows.sort(key=lambda x: (x[0], x[1], int(x[2]) if x[2].isdigit() else 9999))
+    return ",".join(row[2] for row in rows[:n])
+
+
+def _maybe_set_idle_gpu_mask() -> None:
+    """单进程 eval 默认自动挑空闲 GPU；显式 --gpu / CUDA mask / torchrun 时保持外部配置。"""
+    if os.environ.get("CUDA_VISIBLE_DEVICES"):
+        return
+    if int(os.environ.get("WORLD_SIZE", "1")) > 1 or os.environ.get("LOCAL_RANK"):
+        return
+    if os.environ.get("GOALGEN_EVAL_DISABLE_AUTO_GPU", "0") == "1":
+        return
+    if _cli_has("--gpu"):
+        return
+    selected = _pick_idle_gpus(1)
+    if selected:
+        os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        print(f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; process uses cuda:0")
+
+
+_maybe_set_idle_gpu_mask()
+
+import torch  # noqa: E402
+import torch.distributed as dist  # noqa: E402
+import torch.nn.functional as F  # noqa: E402
+from PIL import Image  # noqa: E402
 
 # TensorBoard 可选依赖；缺包就静默关闭 TB 写入，不让 eval 崩。
 try:
@@ -107,7 +156,7 @@ from qwen3vl_local.goalgen.dit import (  # noqa: E402
     DiTMoTConfig,
     language_kv_input_dim_from_pooled,
 )
-from qwen3vl_local.goalgen.flow import euler_sample, sample_flow_batch  # noqa: E402
+from qwen3vl_local.goalgen.flow import euler_sample_cfg, sample_flow_batch  # noqa: E402
 from qwen3vl_local.goalgen.prompt import (  # noqa: E402
     build_teacher_system_prompt,
     build_teacher_user_prompt,
@@ -255,7 +304,13 @@ def build_dit_from_ckpt(
         print("[dit] 警告：检查点无 dit_config，回退命令行默认值")
 
     model = DiTMoT(cfg).to(device=device, dtype=dtype)
-    state_dict = payload.get("dit_state_dict", payload) if isinstance(payload, dict) else payload
+    if isinstance(payload, dict) and args.use_ema and payload.get("ema_state_dict") is not None:
+        state_dict = payload["ema_state_dict"]
+        print(f"[dit] using EMA weights for eval (decay={payload.get('ema_decay', 'unknown')})")
+    else:
+        state_dict = payload.get("dit_state_dict", payload) if isinstance(payload, dict) else payload
+        if isinstance(payload, dict) and args.use_ema:
+            print("[dit] WARN: checkpoint has no ema_state_dict; using raw DiT weights")
     model.load_state_dict(state_dict, strict=True)
     model.eval()
     print(f"[dit] 已加载检查点：{ckpt_path}")
@@ -282,6 +337,29 @@ def _probe_language_kv(
         num_segments=num_segments,
         kv_segment_mode=kv_segment_mode,
     ).pooled_kv
+
+
+def _load_vae_latent_stats_from_ckpt(vae: FrozenVAE, ckpt_path: pathlib.Path) -> None:
+    payload = torch.load(ckpt_path, map_location="cpu")
+    if isinstance(payload, dict) and payload.get("latent_stats"):
+        vae.load_latent_stats_dict(payload["latent_stats"])
+        print(f"[vae] loaded latent stats from {ckpt_path}")
+    else:
+        print("[vae] WARN: checkpoint has no latent_stats; VAE latents are not channel-normalized")
+
+
+def _make_z_init_from_prior(
+    z_history: torch.Tensor,
+    shape: Tuple[int, int, int, int],
+    device: torch.device,
+    dtype: torch.dtype,
+    alpha: float,
+    sigma: float,
+    generator: torch.Generator,
+) -> torch.Tensor:
+    noise = torch.randn(shape, device=device, dtype=dtype, generator=generator)
+    z_prior = z_history[:, -1].to(device=device, dtype=dtype)
+    return alpha * z_prior + sigma * noise
 
 
 # --------------------------------------------------------------------------- #
@@ -325,6 +403,8 @@ def velocity_cosine_multi_t(
     z1: torch.Tensor,
     device: torch.device,
     dtype: torch.dtype,
+    z0_prior_alpha: float = 1.0,
+    z0_prior_sigma: float = 1.0,
     t_grid: Tuple[float, ...] = (0.1, 0.3, 0.5, 0.7, 0.9),
 ) -> float:
     """在 5 个固定 t 各采一次 v_pred / v_target，算余弦相似度的平均值。
@@ -335,13 +415,17 @@ def velocity_cosine_multi_t(
     cosines: List[float] = []
     for t_val in t_grid:
         # 固定 z0：所有 t 用同一份 z0 让 v_target = z1 - z0 也固定，对比维度只剩 t 与 v_pred。
-        z0 = torch.randn_like(z1)
         t = torch.full((z1.shape[0],), t_val, device=device, dtype=dtype)
-        z_t = (1.0 - t_val) * z0 + t_val * z1
-        v_target = z1 - z0
-        v_pred = dit(z_t, z_history, t, pooled_kv)
+        batch = sample_flow_batch(
+            z1=z1,
+            z_prior=z_history[:, -1],
+            alpha=z0_prior_alpha,
+            sigma=z0_prior_sigma,
+            t=t,
+        )
+        v_pred = dit(batch.z_t, z_history, batch.t, pooled_kv)
         p = v_pred.float().flatten(1)
-        g = v_target.float().flatten(1)
+        g = batch.v_target.float().flatten(1)
         cosines.append(float(F.cosine_similarity(p, g, dim=1).mean().item()))
     return sum(cosines) / len(cosines)
 
@@ -757,6 +841,7 @@ def eval_loop(args: argparse.Namespace) -> None:
         device=str(device),
         dtype=args.vae_dtype,
     )
+    _load_vae_latent_stats_from_ckpt(vae, pathlib.Path(args.dit_checkpoint).resolve())
 
     # 2) 用第一条样本探一次 KV，反推 DiT shape 并加载 ckpt。
     dit_dtype = dtype_from_name(args.dit_dtype)
@@ -805,13 +890,24 @@ def eval_loop(args: argparse.Namespace) -> None:
             # ---- 生成预测 latent（euler）----
             # 固定 seed：让同一条样本在同一 ckpt 上 eval 多次得到相同结果，便于复现。
             gen = torch.Generator(device=device).manual_seed(args.seed + idx)
-            z_init = torch.randn(z1_gt.shape, device=device, dtype=dit_dtype, generator=gen)
-            z1_pred = euler_sample(
-                velocity_fn=lambda z, t: dit(z, z_history, t, pooled_kv),
+            z_init = _make_z_init_from_prior(
+                z_history=z_history,
+                shape=tuple(z1_gt.shape),
+                device=device,
+                dtype=dit_dtype,
+                alpha=args.z0_prior_alpha,
+                sigma=args.z0_prior_sigma,
+                generator=gen,
+            )
+            z1_pred = euler_sample_cfg(
+                dit=dit,
+                z_history=z_history,
+                pooled_kv=pooled_kv,
                 shape=tuple(z1_gt.shape),
                 device=device,
                 dtype=dit_dtype,
                 num_steps=args.euler_steps,
+                cfg_scale=args.cfg_scale,
                 z_init=z_init,
             )
 
@@ -825,7 +921,16 @@ def eval_loop(args: argparse.Namespace) -> None:
             rgb_pred = vae.decode(z1_pred_for_vae).clamp(-1.0, 1.0)
             rgb_gt = vae.decode(z1_gt_for_vae).clamp(-1.0, 1.0)
             m_l1, m_psnr = pixel_l1_psnr(rgb_pred, rgb_gt)
-            m_vcos = velocity_cosine_multi_t(dit, z_history, pooled_kv, z1_gt, device, dit_dtype)
+            m_vcos = velocity_cosine_multi_t(
+                dit,
+                z_history,
+                pooled_kv,
+                z1_gt,
+                device,
+                dit_dtype,
+                z0_prior_alpha=args.z0_prior_alpha,
+                z0_prior_sigma=args.z0_prior_sigma,
+            )
 
             png_paths = _maybe_dump_pair(idx, rgb_pred, rgb_gt, samples_dir, args.image_dump_count)
 
@@ -1072,7 +1177,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="最多 dump 多少条样本（防止误开后铺满磁盘）。"
                         "0 = 不限（受 --max-samples 限制）。")
 
-    p.add_argument("--gpu", type=int, default=0)
+    p.add_argument("--gpu", type=int, default=0,
+                   help="进程内 GPU 编号。未显式传 --gpu 时，单进程 eval 会先自动挑空闲物理 GPU 并映射为 cuda:0。")
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
     p.add_argument("--vae-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
     p.add_argument("--dit-dtype", choices=["float32", "float16", "bfloat16"], default="bfloat16")
@@ -1102,6 +1208,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="0 表示跑完整验证集；正整数会截断。")
     p.add_argument("--euler-steps", type=int, default=32,
                    help="生成 z1_pred 的 Euler 步数；rectified flow 下 32 通常足够。")
+    p.add_argument("--cfg-scale", type=float, default=2.0)
+    p.add_argument("--z0-prior-alpha", type=float, default=1.0)
+    p.add_argument("--z0-prior-sigma", type=float, default=1.0)
+    p.add_argument("--use-ema", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--image-dump-count", type=int, default=32,
                    help="前 N 条样本同时落预测 / 真值 PNG，方便人眼对比。")
     p.add_argument("--log-every", type=int, default=10)

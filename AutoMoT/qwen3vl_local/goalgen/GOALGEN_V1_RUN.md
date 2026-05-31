@@ -24,7 +24,7 @@ ls /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json
 python qwen3vl_local/goalgen/build_dataset_v1.py \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --data-root /data/lead_data/data \
-  --samples-per-scenario 1000 \
+  --samples-per-scenario 0 \
   --output-dir checkpoints/goalgen_v1_data
 ```
 
@@ -35,8 +35,8 @@ python qwen3vl_local/goalgen/build_dataset_v1.py \
 - `target_frame` 是 `subgoal` 触发所在的 keyframe；
 - 样本必须满足 `target_frame > anchor`（子目标只能在未来）。
 
-传 `--samples-per-scenario 0` 可以保留所有合法锚点帧；默认 `1000` 会按场景
-做一个**较大但已经平衡过的子集**。
+默认 `--samples-per-scenario 0` 会保留所有合法锚点帧；如需小规模消融，再显式传
+正整数上限。
 
 输出：
 
@@ -77,24 +77,25 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 
 训练阶段 **Qwen 与 VAE 全程冻结，只更新 DiT-MoT**。
 
-**默认跑基础 Qwen，不挂任何 LoRA / 适配器。** 想接续 SFT v1 微调后的语言编码再看
-§2.0.1；当前训练生成模型阶段无需关心适配器，直接用上面命令即可。
+第二轮默认启用：共享 patchify、EMA `0.9999`、logit-normal t 采样、CFG drop `0.1` /
+推理 scale `2.0`、VAE latent per-channel 标准化、z_current prior 起点、LR `2e-4`、
+warmup `0.05`。这些改动与旧 ckpt 不兼容，按方案 A 从零重训。
+首次训练会在 `checkpoints/goalgen_v1_data/latent_stats.json` 缓存 latent mean/std；
+后续训练默认复用，必要时传 `--recompute-latent-stats` 重算。
 
-### 2.0.1 接入 LoRA / PEFT 适配器（接续 SFT v1 微调后的 Qwen）
+**默认跑基础 Qwen，不挂任何 LoRA / 适配器。** 当前 GoalGen 阶段先不要传
+`QWEN_ADAPTER_DIR` / `--qwen-adapter-dir`，直接用上面命令即可。
+
+### 2.0.1 LoRA / PEFT 适配器（暂不启用，仅保留边界）
 
 > **默认不挂 LoRA**：训练 / 评测 / 单步 runner 三个入口的 `--qwen-adapter-dir` 默认为空字符串，
 > 这种情况下完全走基础 Qwen，不会导入 `peft`，也不会读适配器目录。
 > 当前训练生成模型阶段**不需要**做任何事，直接 `bash qwen3vl_local/goalgen/train_v1.sh ddp`
-> 即可——下面这一节只有在你后续想接续 SFT v1 微调后的语言编码时再读。
+> 即可。下面只记录以后如果重新启用 adapter 时需要同步检查的边界；常规命令不要照抄这里。
 
-如果想让 GoalGen 直接吃 SFT v1 微调后的语言编码，传 LoRA 适配器目录即可，**不需要**
-事先合并：
-
-```bash
-QWEN_ADAPTER_DIR=checkpoints/sft_v1_lora \
-OUTPUT_DIR=checkpoints/goalgen_v1_dit_sftv1 \
-bash qwen3vl_local/goalgen/train_v1.sh ddp
-```
+如果以后确实要让 GoalGen 接 SFT v1 微调后的语言编码，训练 / 评测 / runner 必须显式传
+同一个 adapter 目录；当前手册的主流程不提供可直接照抄的 LoRA 命令，避免误触发 `peft`
+导入。
 
 实现细节（`engine.attach_lora_adapter`）：
 
@@ -118,22 +119,8 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 - **适配器路径不一致 → 默认抛 `RuntimeError`，明确告诉你训练时是什么、当前是什么**
 - 想做跨适配器消融对比时传 `--allow-qwen-adapter-mismatch`，转为警告后继续
 
-```bash
-# eval（小样本完整 dump）
-python qwen3vl_local/goalgen/eval_v1.py \
-  --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
-  --dit-checkpoint checkpoints/goalgen_v1_dit_sftv1/latest.pt \
-  --qwen-adapter-dir checkpoints/sft_v1_lora \
-  --save-root checkpoints/goalgen_v1_dit_sftv1 \
-  --max-samples 100
-
-# runner（单步前向冒烟测试）
-python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
-  --route-dir /data/lead_data/data/Accident/Town03_... \
-  --anchor 12 \
-  --qwen-adapter-dir checkpoints/sft_v1_lora \
-  --dit-checkpoint checkpoints/goalgen_v1_dit_sftv1/latest.pt
-```
+当前阶段不要给 eval / runner 传 adapter；如果后续恢复该分支，再单独补一组带 adapter
+的命令，并同步检查 DiT ckpt 里的 `qwen_adapter_dir` 一致性。
 
 输出：
 
@@ -257,22 +244,25 @@ VAE 解码 → 5 指标 + 输入图文 + pred/gt 对比图全部本地保存。
 python qwen3vl_local/goalgen/eval_v1.py \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
-  --qwen-adapter-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/goalgen_v1_dit \
   --max-samples 100
 
 # 跑全集只出聚合指标 + TB（不 dump，磁盘友好）
 python qwen3vl_local/goalgen/eval_v1.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
-  --qwen-adapter-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/goalgen_v1_dit
 
 # 多卡分片
 torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
-  --qwen-adapter-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/goalgen_v1_dit
 ```
+
+单进程 eval 默认会在加载 Qwen/VAE 前调用 `nvidia-smi`，按 `memory.used`、
+`utilization.gpu` 从小到大自动选择一张最空闲的 GPU，并设置
+`CUDA_VISIBLE_DEVICES=<选中卡>`；进程内仍使用 `cuda:0`。如果外部已经设置
+`CUDA_VISIBLE_DEVICES`、显式传 `--gpu N`，或使用 `torchrun`，脚本会尊重外部设置。
+要关闭自动选卡：`GOALGEN_EVAL_DISABLE_AUTO_GPU=1 python qwen3vl_local/goalgen/eval_v1.py ...`。
 
 **关键参数**：
 
@@ -284,8 +274,13 @@ torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \
 | `--full-dump` / `--no-full-dump` | 自动 | 默认 `--max-samples > 0` 时开 |
 | `--full-dump-limit N` | 0 = 不限 | dump 上限，防止误开铺满磁盘 |
 | `--euler-steps` | 32 | Euler 采样步数（rectified flow 下 32 通常足够）|
+| `--cfg-scale` | 2.0 | classifier-free guidance 强度；训练默认 drop=0.1 |
+| `--z0-prior-alpha` / `--z0-prior-sigma` | 1.0 / 1.0 | 推理起点 = 当前帧 latent + 噪声，需与训练一致 |
+| `--use-ema` / `--no-use-ema` | True | 默认读取 ckpt 里的 EMA 权重；旧 ckpt 无 EMA 时回退 raw 权重并 warning |
 | `--image-dump-count` | 32 | `samples/` 目录里轻量预览 PNG 的条数（与 cases/ 完整 dump 独立）|
 | `--no-tb` | False | 关闭 TB（默认开；步骤二 TB 是项目主入口）|
+| `--qwen-adapter-dir` | 空字符串 | 默认跑基础 Qwen 且不会导入 `peft`；当前 GoalGen 阶段先不要传 |
+| `--gpu` | 0 | 进程内 GPU 编号；未显式传时会先自动选择空闲物理 GPU 并映射为 `cuda:0` |
 
 **产物布局**（每次 eval 后）：
 
@@ -351,7 +346,7 @@ checkpoints/goalgen_v1_dit/eval/
 ```
 
 **`pixel_l1 / psnr` 的绝对值意义有限**——下限取决于 VAE 重建质量本身。做 base /
-LoRA / step-200 / step-1000 横向对比时看 delta；单看绝对值不要直接当"生成质量"。
+step-200 / step-1000 横向对比时看 delta；单看绝对值不要直接当"生成质量"。
 `target_vae_recon.png` 给出 VAE 重建天花板作参照。
 
 ### 3.5.4 TB tag（写到 eval_tb/&lt;run_tag&gt;/）
@@ -371,7 +366,6 @@ LoRA / step-200 / step-1000 横向对比时看 delta；单看绝对值不要直�
 ```bash
 python qwen3vl_local/goalgen/probe_v1.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
-  --qwen-adapter-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0
 
@@ -467,7 +461,6 @@ DDP 下每个进程都重复加载一份 Qwen + VAE，所以 v2 必须把分段 
 ## 8. v1 不做的事
 
 - 训练阶段**不**跑多步 Euler 采样；损失只在单个随机 `t` 上计算。
-- 不上 EMA / CFG / latent caching。
-- 不做图像解码评测；指标只看损失 + 速度余弦。
+- 已上 EMA / CFG / latent stats caching / 图像解码评测；仍未做完整 KV 与 latent 离线数据集缓存。
 
 完整边界见 `GOALGEN_V1_PLAN.md` 的 "v1 / v2 边界" 一节。
