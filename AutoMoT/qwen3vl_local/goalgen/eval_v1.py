@@ -1,4 +1,5 @@
-"""GoalGen v1 离线评测：在 val.jsonl 上跑 DiT、解码图像、报告四个核心指标。
+"""GoalGen v1 离线评测：在 val.jsonl 上跑 DiT、解码图像、报告 5 个核心指标 +
+小样本完整 dump（输入图像/输入文本/输出图像/指标全部本地落盘）。
 
 数据流（与 train_v1 完全同构，只是不反传）：
   history RGB -> 冻结 Qwen 预填充 -> 分段 KV
@@ -8,46 +9,57 @@
   z1_pred = 从 z0 通过 Euler 采样得到
   pred RGB = VAE 解码 z1_pred
 
-四个指标（与 5.3 约定一致）：
+5 个核心指标（含义见 summary.json["_metric_doc"]）：
+  (a) latent_mse:   MSE(z1_pred, z1_gt)     —— 越小越好；与训练损失同口径
+  (b) latent_cos:   cosine(z1_pred, z1_gt)  —— 越接近 1 越好（方向相似）
+  (c) pixel_l1:     解码 RGB 的 L1            —— 越小越好；地板 = VAE 重建误差
+  (d) psnr:         解码 RGB 的 PSNR (dB)   —— 越大越好；地板 = VAE 重建 PSNR
+  (e) velocity_cos: 5 个固定 t 上 v_pred vs v_target cosine 平均 —— 越接近 1 越好
 
-  (a) latent_mse:   MSE(z1_pred, z1_gt)     —— 与训练损失同构，最直接
-  (b) latent_cos:   cosine(z1_pred, z1_gt)  —— 向量方向上的相似度，对尺度不敏感
-  (c) pixel_l1 / psnr:  VAE 解码后 [-1,1] RGB 的 L1 + 等价 PSNR
-                        —— 量"生成的子目标图像"质量；地板是 VAE 重建误差
-  (d) velocity_cos: cosine(v_pred, v_target)，t 在 {0.1, 0.3, 0.5, 0.7, 0.9} 各采 1 次平均
-                    —— 训练健康性诊断，跟训练时的 train/cos 同口径
+输出布局（必填 --save-root，与 train_v1.sh 同根）：
+  <save_root>/eval/eval_v1_summary.json     聚合指标 + _metric_doc 说明
+  <save_root>/eval/eval_v1_perline.jsonl    每条样本一行（含 5 指标 + png 路径）
+  <save_root>/eval/cases/<NNNNN>__<scenario>__<run>__anchor<N>/   小样本完整 dump
+      inputs/system_prompt.txt              teacher-forced system prompt 全文
+      inputs/user_prompt.txt                teacher-forced user prompt 全文
+      inputs/memory.json                    DrivingMemory（scenario / status / subgoal）
+      inputs/history_00.jpg ... 03.jpg      history RGB，**复制**到本地
+      inputs/target_raw.jpg                 真值 keyframe 原图（VAE 输入）
+      outputs/pred.png                      DiT 采样 + VAE 解码（最关心的输出）
+      outputs/target_vae_recon.png          真值经 VAE encode→decode，作生成质量天花板
+      outputs/compare.png                   target_raw | pred | target_vae_recon 横拼图
+      metrics.json                          单 case 5 指标 + _metric_doc
+      step.json                             完整元信息（dit_ckpt / qwen_adapter / seed）
+      summary.md                            一页可读，顶部直接引用 compare.png
+  <save_root>/eval_tb/<run_tag>/            TB scalar + image grid（步骤二 TB 入口）
 
-输出布局（与 train_v1.sh 同根，OUTPUT_DIR 平铺，B 方案）：
-  传 --save-root <OUTPUT_DIR>（推荐，新默认）：
-    <save_root>/eval/eval_v1_summary.json
-    <save_root>/eval/eval_v1_perline.jsonl
-    <save_root>/eval/samples/<idx>_pred.png  (前 --image-dump-count 条)
-    <save_root>/eval/samples/<idx>_gt.png
-    <save_root>/eval_tb/<run_tag>/    ← TB scalar + image（独立 run，可与训练 tb/ 并列）
-  不传 --save-root：沿用旧 --out-dir eval_json/goalgen_v1 行为。
+完整 dump 触发条件：
+  默认 --max-samples > 0 时开启（小样本 spot-check）；--full-dump / --no-full-dump 显式覆盖。
 
 多卡分片（H）：
-  脚本读 RANK / WORLD_SIZE / LOCAL_RANK；torchrun 启动自动分片，rank0 聚合
-  perline 写文件 + TB。
+  脚本读 RANK / WORLD_SIZE / LOCAL_RANK；torchrun 启动自动分片，rank0 聚合 perline + TB。
+  完整 dump 由各 rank 各自写自己分片的 case 目录（互不冲突）。
 
 典型用法（远程，在 AutoMoT/ 目录下）：
 
 ```bash
-# 单卡，与训练同根
+# 小样本完整 dump（推荐：可直接拿到本地人工 review pred.png vs target_raw.jpg）
 python qwen3vl_local/goalgen/eval_v1.py \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
+  --qwen-adapter-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/goalgen_v1_dit \
-  --max-samples 200
+  --max-samples 100
 
-# 多卡分片
-torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \
+# 全集跑指标 + TB（不 dump 详情）
+python qwen3vl_local/goalgen/eval_v1.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit
 
-# 旧用法（无 save-root，落到 eval_json/）依旧能跑：
-python qwen3vl_local/goalgen/eval_v1.py \
-  --out-dir eval_json/goalgen_v1
+# 多卡分片跑全集
+torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \
+  --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
+  --save-root checkpoints/goalgen_v1_dit
 ```
 """
 
@@ -58,10 +70,11 @@ import json
 import math
 import os
 import pathlib
+import shutil
 import sys
 from collections import defaultdict
 from dataclasses import asdict
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.distributed as dist
@@ -95,6 +108,11 @@ from qwen3vl_local.goalgen.dit import (  # noqa: E402
     language_kv_input_dim_from_pooled,
 )
 from qwen3vl_local.goalgen.flow import euler_sample, sample_flow_batch  # noqa: E402
+from qwen3vl_local.goalgen.prompt import (  # noqa: E402
+    build_teacher_system_prompt,
+    build_teacher_user_prompt,
+    describe_image_inputs,
+)
 from qwen3vl_local.goalgen.qwen_kv import teacher_forced_prefill  # noqa: E402
 from qwen3vl_local.goalgen.vae import FrozenVAE, default_vae_paths  # noqa: E402
 from qwen3vl_local.prompt_pipeline import DrivingMemory  # noqa: E402
@@ -363,6 +381,239 @@ def _maybe_dump_pair(
 
 
 # --------------------------------------------------------------------------- #
+# 完整 dump：把单条样本的 inputs/outputs/summary 全写到一个 case 目录
+# --------------------------------------------------------------------------- #
+
+
+def _copy_image(src: str, dst: pathlib.Path) -> bool:
+    """复制 RGB 图像到 case 目录（不 symlink，方便远端跑完拉到本地）。源不存在返回 False。"""
+    src_path = pathlib.Path(src)
+    if not src_path.exists():
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src_path, dst)
+    return True
+
+
+def _save_compare_png(
+    rgb_pred: torch.Tensor,
+    rgb_gt_vae: torch.Tensor,
+    target_raw_path: Optional[str],
+    out_path: pathlib.Path,
+) -> None:
+    """横向拼 [target_raw | pred | target_vae_recon] 三联图。
+
+    - target_raw：真值原图（VAE 输入前的样子），从 sample["target_rgb_path"] 读。
+    - pred：DiT 采样 + VAE 解码（模型生成）。
+    - target_vae_recon：真值经 VAE encode→decode（生成质量天花板）。
+
+    三张图高度统一为 pred 的高度（VAE 解码出来通常 256/512 这个量级），
+    target_raw 按等比例 resize。如果 target_raw 读不到，只拼后两张。
+    """
+    # pred / vae_recon 都是 [3, H, W] in [-1, 1]
+    def _tensor_to_pil(t: torch.Tensor) -> Image.Image:
+        t = t.clamp(-1.0, 1.0)
+        arr = ((t + 1.0) / 2.0 * 255.0).round().clamp(0, 255).to(torch.uint8).cpu().numpy().transpose(1, 2, 0)
+        return Image.fromarray(arr, mode="RGB")
+
+    pred_img = _tensor_to_pil(rgb_pred)
+    recon_img = _tensor_to_pil(rgb_gt_vae)
+    H = pred_img.height
+
+    parts: List[Image.Image] = []
+    if target_raw_path and pathlib.Path(target_raw_path).exists():
+        raw = Image.open(target_raw_path).convert("RGB")
+        # 按 pred 高度等比例缩放，保留三视角拼接的横向条带感
+        new_w = max(1, int(raw.width * H / max(raw.height, 1)))
+        parts.append(raw.resize((new_w, H), Image.BILINEAR))
+    parts.append(pred_img)
+    parts.append(recon_img)
+
+    total_w = sum(p.width for p in parts)
+    canvas = Image.new("RGB", (total_w, H), (0, 0, 0))
+    x = 0
+    for p in parts:
+        canvas.paste(p, (x, 0))
+        x += p.width
+    canvas.save(out_path)
+
+
+def _render_goalgen_summary_md(
+    case_dir_name: str,
+    sample: Dict[str, Any],
+    sample_idx: int,
+    memory: DrivingMemory,
+    system_prompt: str,
+    user_prompt: str,
+    metrics: Dict[str, float],
+    saved_history: List[str],
+    has_target_raw: bool,
+    args: argparse.Namespace,
+) -> str:
+    """一页 markdown：顶部就是 compare.png（target_raw | pred | recon 横拼），
+    一眼就能看出"模型生成的子目标图像 vs 真值长啥样"——这就是用户最关心的可视化。
+    """
+    lines: List[str] = [
+        f"# Case: {sample.get('scenario')}/{sample.get('run_id')} anchor={sample.get('anchor')}",
+        "",
+        f"- val.jsonl sample_idx: **{sample_idx}**",
+        f"- target_frame: {sample.get('target_frame')}",
+        f"- dit_checkpoint: `{args.dit_checkpoint}`",
+        f"- qwen_adapter_dir: `{args.qwen_adapter_dir or '<base>'}`",
+        f"- euler_steps: {args.euler_steps}, seed: {args.seed + sample_idx}",
+        "",
+        "## 最关心的可视化：target_raw | pred | target_vae_recon",
+        "",
+        "![compare](outputs/compare.png)",
+        "",
+        "- **target_raw**：真值 keyframe 原图（VAE 输入前的样子）",
+        "- **pred**：DiT 采样 + VAE 解码（模型生成的子目标图像）",
+        "- **target_vae_recon**：真值经 VAE encode→decode；生成质量的天花板（pred 不会比这个清）",
+        "",
+        "## Metrics",
+        "| metric | value | 说明 |",
+        "|---|---|---|",
+        f"| latent_mse   | {metrics['latent_mse']:.6f} | MSE(z1_pred, z1_gt)；与训练损失同口径，越小越好 |",
+        f"| latent_cos   | {metrics['latent_cos']:.4f} | cosine(z1_pred, z1_gt)；越接近 1 越好 |",
+        f"| pixel_l1     | {metrics['pixel_l1']:.4f} | 解码 RGB L1；越小越好 |",
+        f"| psnr         | {metrics['psnr']:.2f} | 解码 RGB PSNR (dB)；越大越好 |",
+        f"| velocity_cos | {metrics['velocity_cos']:.4f} | 5 个 t 上 v_pred vs v_target cosine 平均；训练健康度同口径 |",
+        "",
+        "## Memory (driving state)",
+        "```json",
+        json.dumps(asdict(memory), ensure_ascii=False, indent=2),
+        "```",
+        "",
+        "## Input history (oldest → newest)",
+    ]
+    src_history = sample.get("history_rgb_paths", [])
+    for k, fname in enumerate(saved_history):
+        src = src_history[k] if k < len(src_history) else ""
+        lines.append(f"- ![h{k}](inputs/{fname}) `inputs/{fname}` ← src `{src}`")
+    if has_target_raw:
+        lines.append("")
+        lines.append("## Target raw")
+        lines.append(f"- ![target_raw](inputs/target_raw.jpg) `inputs/target_raw.jpg` ← src `{sample.get('target_rgb_path', '')}`")
+    lines.append("")
+    lines.append("## Teacher-forced system prompt")
+    lines.append("```")
+    lines.append(system_prompt)
+    lines.append("```")
+    lines.append("")
+    lines.append("## Teacher-forced user prompt")
+    lines.append("```")
+    lines.append(user_prompt)
+    lines.append("```")
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def dump_goalgen_case(
+    case_dir: pathlib.Path,
+    sample: Dict[str, Any],
+    sample_idx: int,
+    memory: DrivingMemory,
+    rgb_pred: torch.Tensor,
+    rgb_gt_vae: torch.Tensor,
+    metrics: Dict[str, float],
+    args: argparse.Namespace,
+) -> None:
+    """把一条样本完整 dump 到 <case_dir>/{inputs, outputs, metrics.json, step.json, summary.md}。
+
+    与 SFT eval 的 dump_case 同口径（inputs/outputs 二分 + 顶层 summary.md），
+    区别是 GoalGen 的"输出"是图像而不是文本，所以 outputs/ 下放 pred.png /
+    target_vae_recon.png / compare.png 三张 PNG。
+    """
+    inputs_dir = case_dir / "inputs"
+    outputs_dir = case_dir / "outputs"
+    inputs_dir.mkdir(parents=True, exist_ok=True)
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1) inputs：teacher-forced 输入文本（system + user）+ memory + history RGB + target_raw。
+    system_prompt = build_teacher_system_prompt()
+    user_prompt = build_teacher_user_prompt(
+        memory,
+        image_description=describe_image_inputs(len(sample.get("history_rgb_paths", []))),
+    )
+    (inputs_dir / "system_prompt.txt").write_text(system_prompt, encoding="utf-8")
+    (inputs_dir / "user_prompt.txt").write_text(user_prompt, encoding="utf-8")
+    (inputs_dir / "memory.json").write_text(
+        json.dumps(asdict(memory), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    saved_history: List[str] = []
+    for k, src in enumerate(sample.get("history_rgb_paths", [])):
+        fname = f"history_{k:02d}.jpg"
+        if _copy_image(src, inputs_dir / fname):
+            saved_history.append(fname)
+        else:
+            print(f"[dump][warn] sample_idx={sample_idx} history src 不存在：{src}")
+    target_raw_path = sample.get("target_rgb_path")
+    has_target_raw = bool(target_raw_path and _copy_image(target_raw_path, inputs_dir / "target_raw.jpg"))
+    if target_raw_path and not has_target_raw:
+        print(f"[dump][warn] sample_idx={sample_idx} target_raw 不存在：{target_raw_path}")
+
+    # 2) outputs：pred.png（模型生成）+ target_vae_recon.png（VAE 天花板）+ compare.png（横拼三联图）。
+    _save_rgb_png(rgb_pred[0], outputs_dir / "pred.png")
+    _save_rgb_png(rgb_gt_vae[0], outputs_dir / "target_vae_recon.png")
+    _save_compare_png(
+        rgb_pred=rgb_pred[0],
+        rgb_gt_vae=rgb_gt_vae[0],
+        target_raw_path=str(inputs_dir / "target_raw.jpg") if has_target_raw else None,
+        out_path=outputs_dir / "compare.png",
+    )
+
+    # 3) metrics.json：单 case 5 指标 + _metric_doc（指标含义跟 summary.json 顶层同）。
+    metric_doc = {
+        "latent_mse": "MSE(z1_pred, z1_gt)；与训练损失同口径，越小越好",
+        "latent_cos": "cosine(z1_pred, z1_gt)；越接近 1 越好（方向相似）",
+        "pixel_l1": "解码 RGB [-1,1] L1；越小越好；地板 = VAE 重建误差",
+        "psnr": "解码 RGB PSNR (dB)；越大越好；地板 = VAE 重建 PSNR",
+        "velocity_cos": "5 个固定 t 上 v_pred vs v_target cosine 平均；越接近 1 越好",
+    }
+    (case_dir / "metrics.json").write_text(
+        json.dumps({"_metric_doc": metric_doc, **metrics}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    # 4) step.json：完整元信息（dit_ckpt / qwen_adapter / euler_steps / seed），可回溯。
+    step = {
+        "sample_idx": sample_idx,
+        "scenario": sample.get("scenario"),
+        "run_id": sample.get("run_id"),
+        "anchor": sample.get("anchor"),
+        "target_frame": sample.get("target_frame"),
+        "history_rgb_paths_src": sample.get("history_rgb_paths", []),
+        "history_files_local": saved_history,
+        "target_rgb_path_src": target_raw_path or "",
+        "target_raw_local": "inputs/target_raw.jpg" if has_target_raw else None,
+        "metrics": metrics,
+        "dit_checkpoint": args.dit_checkpoint,
+        "qwen_adapter_dir": args.qwen_adapter_dir or "",
+        "qwen_adapter_merge": bool(args.qwen_adapter_merge),
+        "euler_steps": args.euler_steps,
+        "seed": args.seed + sample_idx,
+    }
+    (case_dir / "step.json").write_text(
+        json.dumps(step, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # 5) summary.md：一页可读，顶部就是 compare.png（用户最关心的可视化）。
+    md = _render_goalgen_summary_md(
+        case_dir_name=case_dir.name,
+        sample=sample,
+        sample_idx=sample_idx,
+        memory=memory,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        metrics=metrics,
+        saved_history=saved_history,
+        has_target_raw=has_target_raw,
+        args=args,
+    )
+    (case_dir / "summary.md").write_text(md, encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
 # 分布式 + 路径 helper（H）
 # --------------------------------------------------------------------------- #
 
@@ -404,25 +655,18 @@ def all_gather_records(records: List[Dict[str, Any]], world_size: int) -> List[D
 
 
 def _resolve_eval_paths(args: argparse.Namespace) -> Dict[str, pathlib.Path]:
-    """根据 --save-root 决定 eval/ 目录与 eval_tb/<run_tag>/ 目录。
+    """所有 eval 产物在 <save_root>/eval/ 与 <save_root>/eval_tb/<run_tag>/ 之下。
 
-    传 --save-root <ROOT>（推荐）→ 落到 <ROOT>/eval/ + <ROOT>/eval_tb/<run_tag>/。
-    不传 → 沿用 --out-dir 老行为（写到 eval_json/goalgen_v1）。
+    --save-root 必填（main 里 argparse required=True 强制）。
     """
-    save_root = args.save_root.strip() if args.save_root else ""
+    root = pathlib.Path(args.save_root)
     run_tag = (args.run_tag or "").strip() or _default_run_tag(args)
-    if save_root:
-        root = pathlib.Path(save_root)
-        eval_dir = root / "eval"
-        tb_dir = root / "eval_tb" / run_tag
-    else:
-        eval_dir = pathlib.Path(args.out_dir)
-        # 老路径下 TB 也放到 eval_json/<name>/tb（与 train_v1 写的 OUTPUT_DIR/tb 不冲突）
-        tb_dir = eval_dir / "tb"
+    eval_dir = root / "eval"
     return {
         "eval_dir": eval_dir,
-        "tb_dir": tb_dir,
+        "tb_dir": root / "eval_tb" / run_tag,
         "samples_dir": eval_dir / "samples",
+        "cases_dir": eval_dir / "cases",
         "perline_jsonl": eval_dir / "eval_v1_perline.jsonl",
         "summary_json": eval_dir / "eval_v1_summary.json",
     }
@@ -462,9 +706,9 @@ def eval_loop(args: argparse.Namespace) -> None:
     samples_dir = paths["samples_dir"]
     if is_rank0(rank):
         out_dir.mkdir(parents=True, exist_ok=True)
+        run_tag = args.run_tag.strip() if args.run_tag else _default_run_tag(args)
         print(f"[eval] world_size={world_size} rank={rank} eval_dir={out_dir}")
-        if args.save_root:
-            print(f"[eval] tb_dir={paths['tb_dir']} (run_tag={_default_run_tag(args) if not args.run_tag else args.run_tag})")
+        print(f"[eval] tb_dir={paths['tb_dir']} (run_tag={run_tag})")
 
     samples = load_jsonl(pathlib.Path(args.val_jsonl))
     if not samples:
@@ -473,6 +717,21 @@ def eval_loop(args: argparse.Namespace) -> None:
         samples = samples[: args.max_samples]
     if is_rank0(rank):
         print(f"[data] 验证样本={len(samples)} 来源={args.val_jsonl}")
+
+    # ---- 完整 dump 模式判定（与 SFT eval_sft_v1 同口径）----
+    # 默认：--max-samples > 0 → 开；跑全集 → 关。
+    # 显式 --full-dump / --no-full-dump 可覆盖默认。
+    if args.full_dump is None:
+        full_dump_enabled = args.max_samples > 0
+    else:
+        full_dump_enabled = bool(args.full_dump)
+    dump_limit = args.full_dump_limit if args.full_dump_limit > 0 else len(samples)
+    cases_dir = paths["cases_dir"]
+    if full_dump_enabled and is_rank0(rank):
+        cases_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[dump] 完整 dump 启用 → cases_dir={cases_dir}")
+        print(f"[dump] dump 数量上限 = {dump_limit}（每个 rank 写自己分片的 case 目录，互不冲突）")
+    dump_count_local = 0  # 本 rank 已经 dump 的样本数
 
     # 1) 起 engine / vae。
     engine = LocalQwen3VLInstructEngine(
@@ -570,6 +829,36 @@ def eval_loop(args: argparse.Namespace) -> None:
 
             png_paths = _maybe_dump_pair(idx, rgb_pred, rgb_gt, samples_dir, args.image_dump_count)
 
+            # ---- 完整 dump：每条样本一个 case 目录（在 rank 分片内顺序写）----
+            if full_dump_enabled and dump_count_local < dump_limit:
+                metrics_one = {
+                    "latent_mse": m_mse,
+                    "latent_cos": m_cos,
+                    "pixel_l1": m_l1,
+                    "psnr": m_psnr,
+                    "velocity_cos": m_vcos,
+                }
+                case_name = (
+                    f"{idx:05d}__{sample.get('scenario', 'unknown')}"
+                    f"__{sample.get('run_id', 'norun')}"
+                    f"__anchor{sample.get('anchor', 'na')}"
+                )
+                try:
+                    dump_goalgen_case(
+                        case_dir=cases_dir / case_name,
+                        sample=sample,
+                        sample_idx=idx,
+                        memory=memory,
+                        rgb_pred=rgb_pred,
+                        rgb_gt_vae=rgb_gt,
+                        metrics=metrics_one,
+                        args=args,
+                    )
+                    dump_count_local += 1
+                except Exception as dump_err:
+                    # dump 失败不影响主指标；只 warn。
+                    print(f"[dump][warn] sample_idx={idx} dump 失败：{dump_err}")
+
             row: Dict[str, Any] = {
                 "sample_idx": idx,
                 "scenario": sample.get("scenario"),
@@ -642,7 +931,15 @@ def eval_loop(args: argparse.Namespace) -> None:
         out["count"] = len(metrics)
         return out
 
+    metric_doc = {
+        "latent_mse": "MSE(z1_pred, z1_gt)；与训练损失同口径，越小越好",
+        "latent_cos": "cosine(z1_pred, z1_gt)；越接近 1 越好（方向相似）",
+        "pixel_l1": "解码 RGB [-1,1] L1；越小越好；地板 = VAE 重建误差",
+        "psnr": "解码 RGB PSNR (dB)；越大越好；地板 = VAE 重建 PSNR",
+        "velocity_cos": "5 个固定 t 上 v_pred vs v_target cosine 平均；越接近 1 越好",
+    }
     summary = {
+        "_metric_doc": metric_doc,
         "config": vars(args),
         "overall": _agg(all_metrics),
         "by_scenario": {s: _agg(ms) for s, ms in sorted(by_scenario.items())},
@@ -659,7 +956,9 @@ def eval_loop(args: argparse.Namespace) -> None:
 
     print(f"[done] 逐行结果={perline_path}")
     print(f"[done] 汇总结果={summary_path}")
-    print(f"[done] 样例 PNG 目录={samples_dir}（前 {args.image_dump_count} 条）")
+    print(f"[done] 样例 PNG 目录={samples_dir}（前 {args.image_dump_count} 条 pred/gt 分开 PNG）")
+    if full_dump_enabled:
+        print(f"[done] rank0 完整 dump 目录={cases_dir}（rank0 本地写 {dump_count_local} 条 case，含 compare.png + 输入图文）")
     overall = summary["overall"]
     if overall:
         print(
@@ -755,18 +1054,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--val-jsonl", default="checkpoints/goalgen_v1_data/val.jsonl")
     p.add_argument("--dit-checkpoint", default="checkpoints/goalgen_v1_dit/latest.pt")
     p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
-    p.add_argument("--out-dir", default="eval_json/goalgen_v1",
-                   help="兼容旧路径：未传 --save-root 时使用此目录。")
-    # ---- 新增：与 train 同根（B + J）----
-    p.add_argument("--save-root", type=str, default="",
-                   help="统一保存根目录（推荐：与 train OUTPUT_DIR 相同）。"
-                        "传时 eval 产物落到 <root>/eval/，TB 落到 <root>/eval_tb/<run_tag>/，"
-                        "可与训练 <root>/tb/ 并列在 TB run 列表里。"
-                        "不传时沿用 --out-dir 老行为。")
+    p.add_argument("--save-root", type=str, required=True,
+                   help="统一保存根目录（必填，通常与 train_v1.sh OUTPUT_DIR 相同）。"
+                        "eval 产物落到 <root>/eval/，TB 落到 <root>/eval_tb/<run_tag>/。")
     p.add_argument("--run-tag", type=str, default="",
                    help="TB run 子目录名，默认从 --dit-checkpoint 推导（ckpt200 / latest 等）。")
     p.add_argument("--no-tb", action="store_true",
-                   help="完全关闭 TB 写入（仅保留 stdout + json + perline）。")
+                   help="完全关闭 TB 写入（仅保留 stdout + json + perline）。"
+                        "GoalGen 一侧 TB 默认开（步骤二 TB 入口）。")
+    # ---- 完整 dump 开关（用户最关心的"小样本完整保存"路径）----
+    p.add_argument("--full-dump", dest="full_dump",
+                   action=argparse.BooleanOptionalAction, default=None,
+                   help="是否每条样本完整 dump（inputs/outputs/compare.png/summary.md）。"
+                        "默认行为：--max-samples > 0 时开，跑全集（max-samples=0）时关。"
+                        "可显式 --full-dump / --no-full-dump 覆盖。")
+    p.add_argument("--full-dump-limit", type=int, default=0,
+                   help="最多 dump 多少条样本（防止误开后铺满磁盘）。"
+                        "0 = 不限（受 --max-samples 限制）。")
 
     p.add_argument("--gpu", type=int, default=0)
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
