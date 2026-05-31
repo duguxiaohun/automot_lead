@@ -28,6 +28,10 @@ IMAGE_LOG_EVERY="${IMAGE_LOG_EVERY:-500}"
 IMAGE_LOG_SAMPLES="${IMAGE_LOG_SAMPLES:-4}"
 IMAGE_LOG_EULER_STEPS="${IMAGE_LOG_EULER_STEPS:-32}"
 
+# checkpoint 保留策略：每个 epoch 末写一份 checkpoint-XXXXXX/，更老的滚动淘汰；
+# val/loss 最小的一份额外拷贝为 best.pt（顶层独立保存，不受 keep 影响）。
+KEEP_RECENT_CHECKPOINTS="${KEEP_RECENT_CHECKPOINTS:-3}"
+
 PATCH_SIZE="${PATCH_SIZE:-2}"
 HIDDEN_DIM="${HIDDEN_DIM:-768}"
 N_HEADS="${N_HEADS:-12}"
@@ -154,6 +158,7 @@ COMMON_ARGS=(
     --image-log-every "${IMAGE_LOG_EVERY}"
     --image-log-samples "${IMAGE_LOG_SAMPLES}"
     --image-log-euler-steps "${IMAGE_LOG_EULER_STEPS}"
+    --keep-recent-checkpoints "${KEEP_RECENT_CHECKPOINTS}"
 )
 
 case "${MODE}" in
@@ -161,12 +166,13 @@ case "${MODE}" in
         echo "[mode] check"
         export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
         export NPROC_PER_NODE=1
+        # check 模式跑 2 个优化器 step 就退出（--max-train-steps 2）；epoch 末 save 分支
+        # 不会被触发，循环外的 fallback 会写一份 ckpt 兜底。
         python qwen3vl_local/goalgen/train_v1.py \
             "${COMMON_ARGS[@]}" \
             --num-epochs 1 \
             --grad-accum-steps 1 \
             --logging-steps 1 \
-            --save-steps 999999 \
             --max-train-steps 2
         ;;
     single)
@@ -177,8 +183,7 @@ case "${MODE}" in
             "${COMMON_ARGS[@]}" \
             --num-epochs "${NUM_EPOCHS:-1}" \
             --grad-accum-steps "${GRAD_ACC:-4}" \
-            --logging-steps "${LOGGING_STEPS:-10}" \
-            --save-steps "${SAVE_STEPS:-200}"
+            --logging-steps "${LOGGING_STEPS:-10}"
         ;;
     ddp)
         echo "[mode] ddp"
@@ -207,8 +212,7 @@ case "${MODE}" in
             "${COMMON_ARGS[@]}" \
             --num-epochs "${NUM_EPOCHS:-1}" \
             --grad-accum-steps "${GRAD_ACC:-4}" \
-            --logging-steps "${LOGGING_STEPS:-10}" \
-            --save-steps "${SAVE_STEPS:-200}"
+            --logging-steps "${LOGGING_STEPS:-10}"
         ;;
     *)
         echo "未知模式：${MODE}。可用模式：check / single / ddp。" >&2
@@ -221,8 +225,10 @@ esac
 #
 # 训练产物 OUTPUT_DIR 平铺布局（与 eval_v1.py / probe_v1.py 同根）：
 #   OUTPUT_DIR/
-#     ├─ checkpoint-*/ + latest.pt    DiT 权重
-#     ├─ tb/                          训练 TensorBoard events（含 train/* val/* image_samples）
+#     ├─ best.pt + best.json          val/loss 历史最小的轻量权重（eval 默认指向它）
+#     ├─ latest.pt                    最近一次保存的轻量权重（无 val 时 eval 回退到它）
+#     ├─ checkpoint-*/                各 epoch DiT 全量 ckpt（含 optimizer/scheduler，保留最近 N=KEEP_RECENT_CHECKPOINTS）
+#     ├─ tb/                          训练 TensorBoard events（含 train/* val/* epoch_end/* image_samples）
 #     ├─ eval/                        eval_v1.py 写的 metrics + perline + samples PNG
 #     ├─ eval_tb/                     eval_v1.py 写的 TB scalar / image（独立 run）
 #     └─ eval_cases/                  probe_v1.py 随机场景 case dump
@@ -234,17 +240,17 @@ echo "  bash tools/tb_serve.sh ${OUTPUT_DIR}"
 echo ""
 echo "[hint] eval（指标 + TB scalar/image + perline jsonl）："
 echo "  python qwen3vl_local/goalgen/eval_v1.py \\"
-echo "    --dit-checkpoint ${OUTPUT_DIR}/latest.pt \\"
+echo "    --dit-checkpoint ${OUTPUT_DIR}/best.pt \\"
 echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
 echo "    --save-root ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 多卡 eval 分片："
 echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \\"
-echo "    --dit-checkpoint ${OUTPUT_DIR}/latest.pt --save-root ${OUTPUT_DIR}"
+echo "    --dit-checkpoint ${OUTPUT_DIR}/best.pt --save-root ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 随机场景 case dump（输入历史/预测/真值 PNG + memory + per-step v_cos）："
 echo "  python qwen3vl_local/goalgen/probe_v1.py \\"
-echo "    --dit-checkpoint ${OUTPUT_DIR}/latest.pt \\"
+echo "    --dit-checkpoint ${OUTPUT_DIR}/best.pt \\"
 echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
 echo "    --save-root ${OUTPUT_DIR} --num-per-scenario 4"
 echo "============================================================"

@@ -702,8 +702,10 @@ def main():
     parser.add_argument("--model-dir", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Instruct"))
     parser.add_argument("--lora-dir", type=str,
-                        default="",
-                        help="可选 LoRA adapter；默认空字符串，只评估 base 模型且不会导入 peft。")
+                        default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v1_lora"),
+                        help="LoRA adapter 目录。默认指向训练 OUTPUT_DIR=checkpoints/sft_v1_lora；"
+                             "训练若开启 --load_best_model_at_end，该目录顶层就是 val/loss 最小的 best 权重。"
+                             "传 --lora-dir '' 评 base 模型；传具体 checkpoint-XXX 子目录评特定 epoch 快照。")
     parser.add_argument("--max-samples", type=int, default=0,
                         help="0 表示评估全部 val 样本，>0 时只评估前 N 条做快速验收。")
     parser.add_argument("--device", default="auto",
