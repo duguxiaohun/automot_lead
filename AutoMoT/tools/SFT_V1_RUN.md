@@ -103,7 +103,8 @@ STATUS: hazard_detect
 SUBGOAL: max_brake_or_min_gap
 ==========================
 
-[mask] regex matched chars [0,32)  -> 'ANALYSIS: Observations recorded.'
+[loss-range] STATUS  chars [41,54)  -> 'hazard_detect'
+[loss-range] SUBGOAL chars [64,82)  -> 'max_brake_or_min_gap'
 
  idx tag        id     char_range  decoded
 --------------------------------------------------------------------------------
@@ -111,27 +112,38 @@ SUBGOAL: max_brake_or_min_gap
    1 [MASK]    220         [9,10)  ' '
    2 [MASK]   4571        [10,13)  'Obs'
    ...
-   7 [LOSS]    198        [32,33)  '\n'
-   8 [LOSS]  31650        [33,40)  'STATUS:'
-   ...
+   7 [MASK]    198        [32,33)  '\n'
+   8 [MASK]  31650        [33,40)  'STATUS:'
+   9 [MASK]    220        [40,41)  ' '
+  10 [LOSS]  ...           [41,...) 'hazard'
+  11 [LOSS]  ...                   '_detect'
+  12 [MASK]    198                 '\n'
+  13 [MASK]  ...                   'SUBGOAL:'
+  ...
+  16 [LOSS]  ...                   'max'
+  17 [LOSS]  ...                   '_brake'
+  ...
 
-[summary] total tokens = 18, mask = 7, loss = 11
+[summary] total tokens = ~20, mask = ~14, loss = 4~6
 ```
 
 **通过条件**（**必须全部满足**）：
 
-- ANALYSIS 段每个 token 都打 `[MASK]`；
-- `STATUS:` / `SUBGOAL:` 行的 token 都打 `[LOSS]`；
-- `summary` 里 `n_mask ≥ 5`、`n_loss ≥ 8`；
+- ANALYSIS 占位段每个 token 都打 `[MASK]`；
+- `STATUS:` 与 `SUBGOAL:` 这两个**字面关键词**的 token 也打 `[MASK]`；
+- 只有 STATUS 行和 SUBGOAL 行的 **事件名 token** 打 `[LOSS]`；
+- `summary` 里 `2 ≤ n_loss ≤ 10`、`n_mask ≥ 5`；
+- plugin sanity 里两个 `literal=STATUS:/SUBGOAL: in_loss=False, in_mask=True`；
 - **无 `[WARN]` 行输出**。
 
 **异常处理**：看到 `[WARN]` 必须先修再继续，常见原因：
 
 | WARN | 原因 | 处理 |
 |---|---|---|
-| `regex 匹配不到` | `PLACEHOLDER_ANALYSIS` 与 `LOSS_SCALE_REGEX` 漂移 | 检查 `build_sft_dataset_v1.py` 与 `sft_v1_train.sh` 是否同步 |
-| `没有任何 token 被 mask` | tokenizer 把 ANALYSIS 整段合成单 token 并跨过 `\nSTATUS:` 边界 | 换一个不会被 tokenizer 合并的占位句 |
-| `算 loss 的 token 太少` | STATUS / SUBGOAL 行被吞掉了 | 检查 jsonl 里 assistant content 三段格式是否完整 |
+| `FULL_PATTERN 匹配不到` | `PLACEHOLDER_ANALYSIS` 与 `FULL_PATTERN` 漂移；或 jsonl 三段格式被破坏 | 检查 `build_sft_dataset_v1.py` 的 `assistant_content` 模板、确认仍是 `ANALYSIS:\nSTATUS:\nSUBGOAL:` 三段 |
+| `算 loss 的 token 太少（<2）` | regex 把事件名吃进了 mask 段，或 jsonl 里 STATUS / SUBGOAL 行缺事件名 | 看 token 表里 status_start / subgoal_start 落点；常见是事件名前多了空格 / 制表符让 regex 错切 |
+| `算 loss 的 token 太多（>10）` | regex 把 `STATUS:` / `SUBGOAL:` 字面也算进 loss | 比对 `sft_v1_loss_scale_plugin.py::_FULL_PATTERN` 与 `check_loss_mask.py::FULL_PATTERN` 是否一致 |
+| `字面 STATUS:/SUBGOAL: in_loss=True` | 插件回退到 `_ANALYSIS_ONLY_REGEX` fallback 路径（context 被 swift 切碎传入） | 升级 ms-swift 或回退到上一个验证过的 swift 版本；fallback 仅 mask ANALYSIS、字面会进 loss |
 
 ---
 
@@ -142,25 +154,31 @@ bash tools/sft_v1_train.sh check
 ```
 
 这个命令会通过 `--external_plugins tools/sft_v1_loss_scale_plugin.py` 注册
-`sft_v1_analysis_mask`，再用 `--loss_scale sft_v1_analysis_mask` mask 掉
-ANALYSIS 占位段。ms-swift 3.12.x 不接受 JSON regex 形式的 `--loss_scale`。
-`check` 模式默认用 `nvidia-smi` 自动选择当前最空闲的一张 GPU，并且不传 `--val_dataset`，
-所以只跑 2 个训练 step，不会加载/评估 val 集的约 800 条样本。
+`sft_v1_analysis_mask`，再用 `--loss_scale sft_v1_analysis_mask` 把 ANALYSIS 占位 +
+`STATUS:` / `SUBGOAL:` 字面 + 段间空白全部 mask=0，只让两段事件名 token 算 loss。
+ms-swift 3.12.x 不接受 JSON regex 形式的 `--loss_scale`。`check` 模式默认用
+`nvidia-smi` 自动选择当前最空闲的一张 GPU，并且不传 `--val_dataset`，所以只跑 2
+个训练 step，不会加载/评估 val 集的约 800 条样本。
 
 **预期 loss 数值**（健康范围）：
 
 ```
-{'loss': 1~10, 'grad_norm': ..., 'learning_rate': ..., 'epoch': 0.0x}
+{'loss': 0.3~6, 'grad_norm': ..., 'learning_rate': ..., 'epoch': 0.0x}
 ```
+
+> v1 mask 升级后，每条样本只剩 2–6 个事件名 token 算 loss。基模对常见事件名（如
+> `initial`、`hazard_detect`）预测难度本来就低，所以早期 loss 比上一版（含字面 token）
+> 系统性偏低 1–2 个量级是正常现象。重点不是 loss 绝对值，而是 plugin sanity 通过 +
+> 训练曲线收敛 + eval 指标。
 
 **判读规则**：
 
 | 现象 | 判读 | 处理 |
 |---|---|---|
-| `python tools/check_loss_mask.py` 的 plugin sanity 显示 STATUS/SUBGOAL `in_loss=True, in_mask=False`，且 `check` loss 有限非 NaN | ✅ 训练侧 mask 大方向正常 | 可进 step 4 |
-| `loss < 3` 但 plugin sanity 通过 | ⚠️ base 模型对固定格式和短 event token 预测很容易，不单独视为失败 | 继续看正式训练/评估指标 |
-| `loss < 0.1` 或 `grad_norm=0` | ❌ 可能 STATUS/SUBGOAL 也被 mask 了 | 先查 `check_loss_mask.py` 的 plugin sanity |
-| `loss > 12` | ❌ ANALYSIS 段也算 loss 了 | 走 PLAN §11 回退：写 `tools/sft_v1_preprocessor.py` 手动 mask labels |
+| `python tools/check_loss_mask.py` 的 plugin sanity 显示 STATUS/SUBGOAL `in_loss=True, in_mask=False` 且字面 `STATUS:/SUBGOAL: in_loss=False, in_mask=True`，且 `check` loss 有限非 NaN | ✅ 训练侧 mask 大方向正常 | 可进 step 4 |
+| `loss < 1` 但 plugin sanity 通过 | ⚠️ 事件名 token 数少 + 基模对短词预测容易，正常现象 | 继续看正式训练/评估指标 |
+| `loss < 0.01` 或 `grad_norm=0` | ❌ 可能两段 event_name 也被 mask 了（全 0 权重） | 先查 `check_loss_mask.py` 的 `n_loss` 是否 ≥ 2 |
+| `loss > 8` | ❌ STATUS: / SUBGOAL: 字面或 ANALYSIS 占位也算 loss 了；可能 swift fallback | 先查 plugin sanity 是否走主路径 `_FULL_PATTERN`；若回退到 fallback，走 PLAN §11 回退：写 `tools/sft_v1_preprocessor.py` 手动 mask labels |
 | check 结束保存了 `checkpoint-2` | ❌ check 模式不该保存 checkpoint | 拉最新脚本，确认含 `--save_strategy no` |
 
 **常见启动报错**：
@@ -502,15 +520,15 @@ probe 的 case 目录布局（与 eval cases 类似，但多 `token_loss.json`�
 checkpoints/sft_v1_lora/eval_cases/<scenario>__<run>__<anchor>/
 ├─ input_images/00.jpg ... 03.jpg
 ├─ system_prompt.txt / user_prompt.txt / gt.txt / pred.txt
-├─ token_loss.json   ← per-token NLL + ANALYSIS 段 mask（与训练 loss_scale 同口径）
+├─ token_loss.json   ← per-token NLL + 仅两段 event_name token 标 mask=1（与训练 loss_scale 同口径）
 ├─ meta.json
 └─ overview.md
 ```
 
-`token_loss.json` 三个均值：
-- `mean_loss_raw`：所有 token 平均（含被 mask 的 ANALYSIS）
-- `mean_loss_status_subgoal_only`：训练时真正在优化的部分
-- `mean_loss_analysis_only`：训练时 mask=0 的部分（参考值）
+`token_loss.json` 三个均值（v1 mask 升级后的语义）：
+- `mean_loss_raw`：所有 token 平均（含被 mask 的字面 token）
+- `mean_loss_status_subgoal_only`：训练时真正在优化的两段事件名 token 平均
+- `mean_loss_masked_literals`：训练时 mask=0 的字面 token 平均（ANALYSIS 占位 + `STATUS:` / `SUBGOAL:` 字面 + 空白），参考值
 
 什么时候用 probe 而不是 eval cases：
 - 想看模型在 STATUS / SUBGOAL 具体哪个 token 上犹豫（per-token NLL 曲线）

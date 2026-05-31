@@ -1,8 +1,15 @@
 # SFT v1 训练计划 — Qwen3-VL-4B-Instruct LoRA
 
 > **目标**：让范式 A runner 在 anchor 早期帧（GT 转换点之前）严格保持当前 STATUS，
-> 不再"反向编理由"提前推进。v1 只学 STATUS（顺带 SUBGOAL token），ANALYSIS 完全
-> 不算 loss，等 v1 收敛后再做 v2 的 ANALYSIS 蒸馏。
+> 不再"反向编理由"提前推进。v1 **只学两段 `<event_name>`**（STATUS 行的事件名 +
+> SUBGOAL 行的事件名），ANALYSIS 占位 + `STATUS:` / `SUBGOAL:` 字面全部 mask=0，
+> 等 v1 收敛后再做 v2 的 ANALYSIS 蒸馏。
+>
+> 为什么连关键词字面也 mask：Qwen3-VL 基模在 system prompt 约束下已经会按三段格式
+> 输出，`STATUS:` / `SUBGOAL:` 这些字面不需要再训。这些关键词在 tokenizer 下占
+> 3–5 个 token，而真正事件名只占 1–3 个，若把字面也算 loss，监督信号会被字面 token
+> 主导，"复读 STATUS:"成为最廉价的降 loss 路径（即 ckpt-8100 那次的失败模式 — STATUS
+> 行循环复读直到 max_gen_tokens）。
 
 ---
 
@@ -21,20 +28,31 @@ STATUS: <event_name>
 SUBGOAL: <event_name>
 ```
 
-| Token 段 | labels | 权重 | 备注 |
-|---|---|---|---|
-| `ANALYSIS: Observations recorded.\n` 全段 | **-100**（mask） | 0 | v1 不学 analysis 内容；占位字符串只为保住三段输出格式 |
-| `STATUS: ` 字面 | 算 | 1.0 | 学输出格式 |
-| `<event_name>` for STATUS | 算 | 1.0 | **主信号** |
-| `\nSUBGOAL: ` 字面 | 算 | 1.0 | 学输出格式 |
-| `<event_name>` for SUBGOAL | 算 | 1.0 | 由 STATUS 推导，但仍算 loss 强化关联；token 数少天然权重小 |
+| Token 段 | 权重 | 备注 |
+|---|---|---|
+| `ANALYSIS: Observations recorded.\n` | **0** | 占位句，仅为保住三段输出格式；v1 不学 analysis 内容 |
+| `STATUS: ` 字面（含冒号 + 空格） | **0** | Qwen 基模在 system prompt 约束下已会输出，不再训 |
+| `<event_name>` for STATUS | **1.0** | **主信号 1** |
+| `\nSUBGOAL: ` 字面（含换行 + 冒号 + 空格） | **0** | 同上 |
+| `<event_name>` for SUBGOAL | **1.0** | **主信号 2**（由状态机从 STATUS 推导，token 数少） |
+| 末尾换行 / EOS 占位 | **0** | 让 swift 自己处理 special token，不让我们污染 |
 
 实现：在 build 阶段 assistant content 写完整三段；ms-swift 3.12.x 训练侧用
 `tools/sft_v1_loss_scale_plugin.py` 注册 `sft_v1_analysis_mask` 策略，把
-ANALYSIS 段权重设为 0。
+context 切成 `[prefix, status_event, mid, subgoal_event, tail]` 五段、权重分别
+`[0, 1, 0, 1, 0]`。
 
-> 备注：ms-swift 3.12.6 的 `--loss_scale` 只接受已注册策略名，不接受任意
-> JSON regex。插件内部仍用 `ANALYSIS:.*?(?=\nSTATUS:)` 做文本切分。
+每条样本最终算 loss 的 token 数典型 2–6 个，全部是事件名 token。
+
+> 备注 1：ms-swift 3.12.6 的 `--loss_scale` 只接受已注册策略名，不接受任意 JSON
+> regex。策略名 `sft_v1_analysis_mask` 沿用历史（已写进 `sft_v1_train.sh`），不必
+> 改名；其行为已升级为"mask 所有字面 + 仅保留两段事件名"。
+>
+> 备注 2：本 mask 行为依赖 ms-swift 把整条 assistant content 作为完整 string 传给
+> `get_loss_scale`。若 swift 升级后改成按 round / sentence 切碎传入，主 regex
+> `_FULL_PATTERN` 会匹配不到，插件回退到 `_ANALYSIS_ONLY_REGEX` fallback（仅 mask
+> ANALYSIS 段，STATUS:/SUBGOAL: 字面在 fallback 下会算 loss）。每次升级 swift
+> 前先跑 `python tools/check_loss_mask.py` 看 plugin sanity 一节是否仍命中主路径。
 
 ## 3. 数据集 schema
 
