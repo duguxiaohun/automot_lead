@@ -30,7 +30,6 @@ eval_v1.py 给的是聚合视角（mean/std/by_scenario）；probe_v1 给的是�
 ```bash
 python qwen3vl_local/goalgen/probe_v1.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
-  --qwen-adapter-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0
 
@@ -72,8 +71,6 @@ import torch.nn.functional as F  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine  # noqa: E402
-from qwen3vl_local.goalgen.dit import language_kv_input_dim_from_pooled  # noqa: E402
-from qwen3vl_local.goalgen.flow import sample_flow_batch  # noqa: E402
 from qwen3vl_local.goalgen.qwen_kv import teacher_forced_prefill  # noqa: E402
 from qwen3vl_local.goalgen.vae import FrozenVAE, default_vae_paths  # noqa: E402
 from qwen3vl_local.prompt_pipeline import DrivingMemory  # noqa: E402
@@ -91,6 +88,8 @@ from qwen3vl_local.goalgen.eval_v1 import (  # noqa: E402
     pixel_l1_psnr,
     velocity_cosine_multi_t,
     _probe_language_kv,
+    _load_vae_latent_stats_from_ckpt,
+    _make_z_init_from_prior,
     _save_rgb_png,
 )
 
@@ -147,6 +146,7 @@ def euler_sample_with_trace(
     z1_gt: torch.Tensor,
     z_init: torch.Tensor,
     num_steps: int,
+    cfg_scale: float,
 ) -> Tuple[torch.Tensor, Dict[str, List[float]]]:
     """跑 Euler 采样的同时记录每一步的 v_cos 与 z_t L2 距离 GT 的轨迹。
 
@@ -161,7 +161,9 @@ def euler_sample_with_trace(
     for step in range(num_steps):
         t_val = step * dt
         t = torch.full((z_t.shape[0],), t_val, device=device, dtype=dtype)
-        v_pred = dit(z_t, z_history, t, pooled_kv)
+        v_cond = dit(z_t, z_history, t, pooled_kv, force_uncond=False)
+        v_uncond = dit(z_t, z_history, t, pooled_kv, force_uncond=True)
+        v_pred = v_uncond + cfg_scale * (v_cond - v_uncond)
         # 拿"真值方向" v_target_gt = z1_gt - z_init 与当前 v_pred 算 cosine（只是诊断，
         # 不参与生成）。flow matching 中 v_target = z1 - z0 是常量，所以同一个样本
         # 32 步的 v_cos_vs_gt 都用同一个分母 reference，曲线漂移=模型走偏。
@@ -268,6 +270,10 @@ def main() -> None:
     parser.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false")
     parser.add_argument("--allow-qwen-adapter-mismatch", action="store_true", default=False)
     parser.add_argument("--euler-steps", type=int, default=32)
+    parser.add_argument("--cfg-scale", type=float, default=2.0)
+    parser.add_argument("--z0-prior-alpha", type=float, default=1.0)
+    parser.add_argument("--z0-prior-sigma", type=float, default=1.0)
+    parser.add_argument("--use-ema", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--patch-size", type=int, default=2)
     parser.add_argument("--hidden-dim", type=int, default=768)
     parser.add_argument("--n-heads", type=int, default=12)
@@ -310,6 +316,7 @@ def main() -> None:
         device=str(device),
         dtype=args.vae_dtype,
     )
+    _load_vae_latent_stats_from_ckpt(vae, pathlib.Path(args.dit_checkpoint).resolve())
 
     dit_dtype = dtype_from_name(args.dit_dtype)
     probe_pooled = _probe_language_kv(engine, samples[0], args.num_layers, args.qwen_kv_segment_mode)
@@ -360,9 +367,23 @@ def main() -> None:
         z1_gt = vae.encode([target_img]).to(dtype=dit_dtype)
 
         gen = torch.Generator(device=device).manual_seed(args.seed + sample_idx)
-        z_init = torch.randn(z1_gt.shape, device=device, dtype=dit_dtype, generator=gen)
+        z_init = _make_z_init_from_prior(
+            z_history=z_history,
+            shape=tuple(z1_gt.shape),
+            device=device,
+            dtype=dit_dtype,
+            alpha=args.z0_prior_alpha,
+            sigma=args.z0_prior_sigma,
+            generator=gen,
+        )
         z1_pred, trace = euler_sample_with_trace(
-            dit, z_history, pooled_kv, z1_gt, z_init, num_steps=args.euler_steps,
+            dit,
+            z_history,
+            pooled_kv,
+            z1_gt,
+            z_init,
+            num_steps=args.euler_steps,
+            cfg_scale=args.cfg_scale,
         )
 
         m_mse = latent_mse(z1_pred, z1_gt)
@@ -372,7 +393,16 @@ def main() -> None:
         rgb_pred = vae.decode(z1_pred_for_vae).clamp(-1.0, 1.0)
         rgb_gt = vae.decode(z1_gt_for_vae).clamp(-1.0, 1.0)
         m_l1, m_psnr = pixel_l1_psnr(rgb_pred, rgb_gt)
-        m_vcos = velocity_cosine_multi_t(dit, z_history, pooled_kv, z1_gt, device, dit_dtype)
+        m_vcos = velocity_cosine_multi_t(
+            dit,
+            z_history,
+            pooled_kv,
+            z1_gt,
+            device,
+            dit_dtype,
+            z0_prior_alpha=args.z0_prior_alpha,
+            z0_prior_sigma=args.z0_prior_sigma,
+        )
         elapsed = time.time() - t0
 
         # 3) PNG dump
@@ -404,6 +434,10 @@ def main() -> None:
             "qwen_adapter_dir": args.qwen_adapter_dir,
             "qwen_adapter_merge": args.qwen_adapter_merge,
             "euler_steps": args.euler_steps,
+            "cfg_scale": args.cfg_scale,
+            "z0_prior_alpha": args.z0_prior_alpha,
+            "z0_prior_sigma": args.z0_prior_sigma,
+            "use_ema": args.use_ema,
             "seed": args.seed,
             "case_suffix": args.case_suffix,
             "elapsed_sec": elapsed,
