@@ -71,7 +71,7 @@ from qwen3vl_local.prompt_pipeline import (  # noqa: E402
 # 上一帧距当前帧的间隔 K。LEAD 数据约 4 Hz，K=4 ≈ 1 秒前。详见 PLAN §1。
 DEFAULT_K_FRAMES = 4
 
-# 保持类样本避开 GT 转换帧附近的 buffer 半径，避免边界标注噪声。
+# 保持类样本只避开 GT 转换帧前的 buffer 帧，避免把临界前帧当成稳定 keep。
 DEFAULT_BOUNDARY_BUFFER = 2
 
 # 每帧 image 采样的步长 / 数量，需要与 runner 默认值（image_io.load_lead_rgb_clip）一致。
@@ -205,10 +205,14 @@ def lookup_status(timeline: RunTimeline, frame: int) -> Optional[str]:
     return None
 
 
-def is_near_transition(timeline: RunTimeline, frame: int, buffer: int) -> bool:
-    """判断 frame 是否落在任一 GT 转换帧的 ±buffer 内。"""
+def is_pre_transition_buffer(timeline: RunTimeline, frame: int, buffer: int) -> bool:
+    """判断 frame 是否落在任一 GT 转换帧前的 buffer 窗口内。
+
+    例如 buffer=2、转换帧 f_t=37 时，只丢弃 anchor=35/36 的 keep 样本；
+    anchor=37 起已经进入新 status，应由 advance 样本提供推进监督。
+    """
     for t in timeline.transition_frames:
-        if abs(frame - t) <= buffer:
+        if t - buffer <= frame < t:
             return True
     return False
 
@@ -232,8 +236,9 @@ def collect_candidates(
     - keep：prev_anchor 和 anchor 落在同一状态区间，模型应该保持 STATUS。
     - advance：prev_anchor 在上一状态，anchor 已落在新状态窗口，模型应该推进一步。
 
-    v1 的核心痛点是“模型太早推进”，所以 keep 样本会避开转换帧附近 buffer；
-    但转换后的 [f_t, f_t + K - 1] 会自然成为推进窗口，给模型补足“过界后应推进”的监督。
+    v1 的核心痛点是“模型太早推进”，所以 keep 样本只避开转换前 buffer；
+    转换帧 f_t 起已经是新 status，[f_t, f_t + K - 1] 会自然成为推进窗口，
+    给模型补足“过界后应推进”的监督。
     """
 
     keep_samples: List[SampleRecord] = []
@@ -256,8 +261,8 @@ def collect_candidates(
         is_transition = (prev_status != curr_status)
 
         if not is_transition:
-            # 保持类样本：避开转换帧 ±buffer。
-            if is_near_transition(timeline, anchor, buffer):
+            # 保持类样本：只避开转换前 buffer，转换帧之后交给推进类监督。
+            if is_pre_transition_buffer(timeline, anchor, buffer):
                 continue
             keep_samples.append(SampleRecord(
                 scenario=timeline.scenario,
