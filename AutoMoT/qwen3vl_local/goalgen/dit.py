@@ -3,8 +3,8 @@
 设计要点（详见 PROJECT_CONTEXT.md §15）：
 
 - 输入是冻结 VAE 编出来的潜变量：含噪目标 z_t 与历史帧 z_history。
-- z_t 与每一帧历史潜变量各自切成图块，拼成视觉 token 序列；历史帧使用
-  类型 embedding + frame embedding 区分。
+- z_t 与每一帧历史潜变量**共享同一个 Patchify**（v2 改动；v1 是两个独立卷积），
+  拼成视觉 token 序列；类型由 type_embed 区分、时序由 frame_embed 区分。
 - 每层 block 做 MoT 风格的 joint attention：
     Q = vision_token 投出来的 Q
     K = concat[ vision_K, language_K_seg[i] ]
@@ -260,6 +260,7 @@ class JointAttention(nn.Module):
         self,
         vision_tokens: torch.Tensor,
         lang_kv: Tuple[torch.Tensor, torch.Tensor],
+        lang_kv_is_projected: bool = False,
     ) -> torch.Tensor:
         """Joint attention：vision Q 同时看 vision K/V 与 language K/V。
 
@@ -267,6 +268,12 @@ class JointAttention(nn.Module):
         self、一次 cross），joint-attn 是**一次** attention，K/V 沿 token 维拼起来。
         这样 vision token 可以在同一个 softmax 内同时挑选"参考自己邻域"还是
         "对齐语言上下文"，更接近 AutoMoT 里"快慢 MoT"原始设计。
+
+        ``lang_kv_is_projected``：True 表示 ``lang_kv`` 已经处于 DiT 的
+        ``(n_heads, head_dim)`` 子空间（形状 ``[B 或 1, n_heads, S, head_dim]``），
+        跳过 ``lang_k_proj`` / ``lang_v_proj``。这条路径专门服务于 CFG 训练中
+        的 ``null_lang_k / null_lang_v``：null KV 由 DiT 自己持有、参数量极小，
+        不需要再经过 Qwen → DiT 的语言投影。
         """
 
         b, n_v, _ = vision_tokens.shape
@@ -275,8 +282,21 @@ class JointAttention(nn.Module):
         k_v = self.k_proj(vision_tokens).view(b, n_v, self.n_heads, self.head_dim).transpose(1, 2)
         v_v = self.v_proj(vision_tokens).view(b, n_v, self.n_heads, self.head_dim).transpose(1, 2)
 
-        # 语言侧把 Qwen pooled KV 投到 DiT 自己的 (n_heads, head_dim)；详见上面方法注释。
-        k_l, v_l = self._project_language_kv(lang_kv, batch_size=b)
+        if lang_kv_is_projected:
+            # CFG null KV 路径：lang_kv 已经在 DiT (n_heads, head_dim) 子空间，
+            # 不需要再走 lang_k_proj / lang_v_proj。仅做必要的 batch 广播。
+            k_l, v_l = lang_kv
+            if k_l.shape[0] != b:
+                if k_l.shape[0] == 1:
+                    k_l = k_l.expand(b, -1, -1, -1)
+                    v_l = v_l.expand(b, -1, -1, -1)
+                else:
+                    raise ValueError(
+                        f"projected null KV batch {k_l.shape[0]} 不等于 vision batch {b}"
+                    )
+        else:
+            # 语言侧把 Qwen pooled KV 投到 DiT 自己的 (n_heads, head_dim)；详见上面方法注释。
+            k_l, v_l = self._project_language_kv(lang_kv, batch_size=b)
 
         # 沿 token 维拼接：[B, H, N_v, D] + [B, H, N_l, D] -> [B, H, N_v + N_l, D]。
         # Q 仍只有 vision token，所以 attention 输出 token 数 = N_v，意味着这一层
@@ -323,11 +343,15 @@ class DiTMoTBlock(nn.Module):
         vision_tokens: torch.Tensor,
         lang_kv: Tuple[torch.Tensor, torch.Tensor],
         cond: torch.Tensor,
+        lang_kv_is_projected: bool = False,
     ) -> torch.Tensor:
         """单 block forward：AdaLN-Zero -> JointAttn -> AdaLN-Zero -> MLP。
 
         cond 由外部一次性算好（来自 timestep MLP），所有 block 共用同一个 cond，但每个
         block 内部的 AdaLN modulation 矩阵不共享 -> 每层有自己的 shift/scale/gate。
+
+        ``lang_kv_is_projected`` 透传给 JointAttention：CFG uncond 路径下使用 DiT
+        自己的 null_lang_k/v，已经在 DiT (n_heads, head_dim) 子空间。
         """
 
         # 一次 Linear 出 6 个调制向量（attn 3 + mlp 3）。
@@ -336,7 +360,7 @@ class DiTMoTBlock(nn.Module):
         # ---- attention 子层 ----
         # norm1 是无仿射的 LayerNorm；shift/scale 由 cond 提供，相当于每层独立可学的 affine。
         h = self._apply_mod(self.norm1(vision_tokens), shift_a, scale_a)
-        h = self.attn(h, lang_kv)
+        h = self.attn(h, lang_kv, lang_kv_is_projected=lang_kv_is_projected)
         # gate_a 初始为 0（AdaLNModulation.zero_init），让 attention 在训练开始时不
         # 改变 vision_tokens；这是 DiT/MMDiT 标配，对 flow matching 非常友好。
         vision_tokens = vision_tokens + gate_a.unsqueeze(1) * h
@@ -388,20 +412,40 @@ class DiTMoT(nn.Module):
         super().__init__()
         self.cfg = cfg
 
-        # vision 两个流分别 patchify；权重共享会丢失"当前帧 / 目标 latent"语义区分。
-        # 共享 Conv2d 会让 z_t（含大量噪声）和 z_history（清晰图像）共用一组卷积，
-        # 等价于强迫模型在同一线性子空间里表达两种分布，初期损失会更难下降。
-        self.patch_zt = Patchify(cfg.latent_channels, cfg.hidden_dim, cfg.patch_size)
-        self.patch_zc = Patchify(cfg.latent_channels, cfg.hidden_dim, cfg.patch_size)
+        # 共享 patchify：z_t（含噪目标）和 z_history（干净历史）走同一组 Conv2d 投影。
+        # 旧版本使用两个独立 Patchify 试图"硬区分噪声/干净"，但 SD3 / Flux / Sora /
+        # PixArt 都走共享路径，让两类 latent token 落在同一线性子空间，再用
+        # type_embed + frame_embed + timestep cond 去区分。t=1 时 z_t = z1（与 z_history
+        # 同分布），共享投影后注意力的 prior 更自然；训练初期收敛也更稳，且省一半参数。
+        self.patch = Patchify(cfg.latent_channels, cfg.hidden_dim, cfg.patch_size)
 
-        # type_embed[0]=noisy target, [1]=history anchor，全部零初始化。
-        # 不像 frame_embed 那样 normal_(0, 0.02)，是因为 type 只有两类、Patchify 已经
-        # 给了它们不同的线性投影；type_embed 留作"训练中学到的偏置"，零起点对收敛更稳。
+        # type_embed[0]=noisy target, [1]=history anchor。
+        # 改为 normal 初始化（与 frame_embed 同步）：合并 patchify 后，type_embed 是
+        # 区分 z_t / z_history 的主要载体；零初始化会让训练开始时"两类 token 完全相同"，
+        # 只能靠 frame_embed（仅 history 有）+ timestep cond 间接区分，反而拖慢收敛。
+        # std=0.02 与 BERT / DiT 位置 embed 的常用值一致。
         self.type_embed = nn.Parameter(torch.zeros(2, cfg.hidden_dim))
-        # frame_embed 必须随机初始化：history 多帧走同一个 patch_zc 卷出来，仅靠卷积权重
+        nn.init.normal_(self.type_embed, mean=0.0, std=0.02)
+        # frame_embed 必须随机初始化：history 多帧走同一个 patchify 卷出来，仅靠卷积权重
         # 无法区分"第 0 帧 vs 第 3 帧"。std=0.02 与 BERT / DiT 位置 embed 的常用值一致。
         self.frame_embed = nn.Parameter(torch.zeros(cfg.max_history_frames, cfg.hidden_dim))
         nn.init.normal_(self.frame_embed, mean=0.0, std=0.02)
+
+        # CFG 训练用的 null language KV：每层独立，直接存于 DiT (n_heads, head_dim) 子空间，
+        # bypass JointAttention 内部的 lang_proj。s_null=1：null 只贡献一个 token，
+        # attention softmax 里几乎免费；这是 SD3 / Flux 的标准实践。
+        # 用"长度 S~2300 的 zero KV"代替会让 softmax 大量取平均，反而压低有效信号。
+        # 零初始化：训练开始时 uncond 路径等价于"忽略语言"，配合 AdaLN-Zero gate=0，
+        # 模型在前若干步几乎不被 CFG 干扰；几千步后会逐渐学到非平凡的 null embedding。
+        head_dim_dit = cfg.hidden_dim // cfg.n_heads
+        self.null_lang_k = nn.ParameterList([
+            nn.Parameter(torch.zeros(1, cfg.n_heads, 1, head_dim_dit))
+            for _ in range(cfg.num_layers)
+        ])
+        self.null_lang_v = nn.ParameterList([
+            nn.Parameter(torch.zeros(1, cfg.n_heads, 1, head_dim_dit))
+            for _ in range(cfg.num_layers)
+        ])
 
         # 2D 位置编码：用预生成最大尺寸表，按实际 grid 切片即可，避免重复计算。
         # persistent=False：不写进 state_dict，节省 ckpt 体积——pos_embed 完全由配置决定，
@@ -455,6 +499,7 @@ class DiTMoT(nn.Module):
         z_history: torch.Tensor,
         t: torch.Tensor,
         pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]],
+        force_uncond: bool = False,
     ) -> torch.Tensor:
         """单步前向。
 
@@ -465,6 +510,9 @@ class DiTMoT(nn.Module):
         - t：[B]，flow matching 时间步 ∈ [0,1]。
         - pooled_kv：长度必须 == num_layers；每段是 (K, V)，形状
           [B 或 1, n_kv_heads, S, head_dim]，dtype 通常和 DiT 自身一致。
+        - force_uncond：True 表示用 DiT 自身的 null_lang_k/v 代替 pooled_kv
+          走 uncond 路径（CFG 训练 / 引导推理用）。pooled_kv 此时仍需传入，
+          只是不被使用——保留位置以保持接口稳定。
 
         输出：v_pred 与 z_t 同形状，对应 velocity 预测。
         """
@@ -487,9 +535,9 @@ class DiTMoT(nn.Module):
                 f"历史帧数 {z_history.shape[1]} > max_history_frames={self.cfg.max_history_frames}"
             )
 
-        # target 流和 history 流分别 patchify。history 流复用同一个 Patchify，
-        # 再用 frame embedding 区分从旧到新的不同帧。
-        tok_t, grid_t = self.patch_zt(z_t)
+        # 共享 patchify：z_t 与 z_history 走同一组 Conv2d 投影。
+        # type_embed + frame_embed + timestep cond 负责区分 noisy / clean / 时序。
+        tok_t, grid_t = self.patch(z_t)
         gh, gw = grid_t
 
         pe = self._pos_embed(gh, gw).to(dtype=tok_t.dtype, device=tok_t.device)
@@ -497,7 +545,7 @@ class DiTMoT(nn.Module):
 
         history_tokens: List[torch.Tensor] = []
         for frame_idx in range(z_history.shape[1]):
-            tok_h, grid_h = self.patch_zc(z_history[:, frame_idx])
+            tok_h, grid_h = self.patch(z_history[:, frame_idx])
             if grid_h != grid_t:
                 raise ValueError(
                     f"z_t / z_history patch grid 不一致：{grid_t} vs {grid_h}（要求 H/W 相同）"
@@ -512,9 +560,17 @@ class DiTMoT(nn.Module):
         # cond 只算一次，所有 block 共享；AdaLN modulation 矩阵是 per-block 的。
         cond = self._build_cond(t)
 
-        # 逐层走 block。每层用 pooled_kv[i] 作为冻结语言 memory。
-        for block, lang_kv in zip(self.blocks, pooled_kv):
-            vision_tokens = block(vision_tokens, lang_kv, cond)
+        # 逐层走 block。每层用 pooled_kv[i] 作为冻结语言 memory；
+        # force_uncond=True 时改用 DiT 自带的 null_lang_k/v（CFG 路径）。
+        for i, (block, lang_kv) in enumerate(zip(self.blocks, pooled_kv)):
+            if force_uncond:
+                null_kv = (
+                    self.null_lang_k[i].to(dtype=vision_tokens.dtype),
+                    self.null_lang_v[i].to(dtype=vision_tokens.dtype),
+                )
+                vision_tokens = block(vision_tokens, null_kv, cond, lang_kv_is_projected=True)
+            else:
+                vision_tokens = block(vision_tokens, lang_kv, cond)
 
         # final AdaLN：DiT 标准结构，AdaLN 输出 6 个调制向量但 final 只用前 2 个
         # （shift/scale）。后 4 个忽略；保留同一个 AdaLNModulation 类是为了减少

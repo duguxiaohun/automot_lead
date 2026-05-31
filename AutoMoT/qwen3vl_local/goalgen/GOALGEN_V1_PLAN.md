@@ -14,10 +14,15 @@ Qwen3-VL-Instruct 预填充后得到的键值缓存。这样做的核心原因�
 历史 RGB        ->  冻结 Qwen prefill   ->  分段的 token-level KV
 历史 RGB        ->  冻结 VAE            ->  z_history
 子目标关键帧 RGB ->  冻结 VAE            ->  z1
-z0 ~ N(0, I)，z_t = (1 - t) * z0 + t * z1
+z0 = z_current + eps，t ~ logit-normal(0, 1)，z_t = (1 - t) * z0 + t * z1
 DiT-MoT(z_t, z_history, t, 分段 KV)   ->  v_pred
 loss = MSE(v_pred, z1 - z0)
 ```
+
+当前第二轮训练默认已经把第一档 diffusion 标配全部纳入 v1 代码路径：共享 patchify、
+type embedding normal 初始化、EMA、logit-normal t 采样、CFG 训练/推理、VAE latent
+per-channel 标准化、z_current prior 起点，以及学习率 `2e-4` + warmup `0.05`。
+这批改动与旧 ckpt 不兼容，第二轮应从零重训。
 
 Qwen 和 VAE 全程冻结，**只有 DiT-MoT 参与训练**。这条边界非常重要：
 训练损失只能更新 DiT，不能让语言模型或 VAE 被反向传播污染，否则后续所有
@@ -44,8 +49,8 @@ qwen3vl_local/goalgen/build_dataset_v1.py
 5. 只保留 `target_frame > anchor` 的样本（也就是子目标必须发生在未来）。
 6. 按 scenario 和 `status -> subgoal` 做分层采样。
 
-默认每个场景最多取 `1000` 条样本。如需保留所有合法锚点帧，传
-`--samples-per-scenario 0`。
+默认 `--samples-per-scenario 0`，保留所有合法锚点帧；如需做小规模消融，可显式传
+正整数上限。
 
 样本字段结构：
 
@@ -111,10 +116,15 @@ qwen3vl_local/goalgen/train_v1.sh
 Optimizer 设置：
 
 - AdamW，**只更新 DiT 参数**。
-- 学习率 `1e-4`。
+- 学习率 `2e-4`。
 - weight decay `0.01`。
 - cosine 学习率调度。
-- warmup ratio `0.02`。
+- warmup ratio `0.05`。
+- `t_sampler=logit_normal`。
+- `z0_prior_alpha=1.0, z0_prior_sigma=1.0`，起点为当前帧 latent + 噪声。
+- CFG：训练 `cfg_drop_prob=0.1`，推理 `cfg_scale=2.0`。
+- EMA：`ema_decay=0.9999`，val / image log / eval / probe 默认使用 EMA 权重。
+- VAE latent stats：训练启动时在 `train.jsonl` 同目录缓存 `latent_stats.json`，encode 后标准化、decode 前反标准化。
 
 检查点中只保存 DiT 自身的权重以及优化器 / 调度器状态
 （仅用于断点续训和诊断，不包含冻结模型）。
@@ -125,8 +135,9 @@ Optimizer 设置：
 
 | 模块 | 大致参数量 |
 |---|---|
-| Patchify x2（Conv2d 4 -> 768，kernel=2） | ~12K × 2 |
+| Shared Patchify（Conv2d 4 -> 768，kernel=2） | ~12K |
 | Type embedding（2, 768） | 1.5K |
+| CFG null KV（每层 K/V 各 1 token） | ~18K |
 | Timestep MLP（cond_dim=256，4x） | ~0.5M |
 | 单层 JointAttention（q/k/v/o + lang_k/v） | ~3.9M |
 | 单层 MLP（768 -> 3072 -> 768） | ~4.7M |
@@ -147,6 +158,7 @@ Optimizer 设置：
 | Qwen prefill（~2300 token，36 层 KV） | ~3-4GB |
 | 分段后的 12 个 KV（select_last，bf16） | ~1GB |
 | DiT-MoT 权重（bf16） | ~0.25GB |
+| DiT EMA shadow（fp32） | ~0.5GB |
 | DiT 前向激活（默认 `select_last` 下：视觉 N=8640、语言 S~2300 / 每层） | 中等；若改用 `concat_layers`，语言 token 数会涨到约 6900，对应激活也线性放大 |
 | DiT 反传 + AdamW 状态 | ~2GB |
 | **单卡训练总计（batch=1）** | **~17-20GB** |
@@ -188,17 +200,15 @@ target latent 都**离线缓存到磁盘**，避免每个进程重复计算。
 
 - v1 在线计算 Qwen KV 与 VAE 潜变量，逻辑简单但**慢**。
 - DiT 现在直接消费 `history_rgb_paths` 里所有历史潜变量。
-- 还没有 EMA / CFG / 缓存 latent 数据集这些设施。
-- 还没有解码图像层面的评测；目前只用损失与速度余弦做早期健康检查。
+- 仍未做完整 KV / history latent / target latent 离线缓存；Qwen/VAE 仍在线计算，因此训练慢。
+- 已有 EMA / CFG / latent stats 缓存 / 解码图像评测；第二轮默认都开启。
 
 ## v1 / v2 边界
 
 v1 显式**不做**的事情（写在这里防止未来 agent 擅自扩张范围）：
 
 - 不做分段 KV / 潜变量的离线缓存。
-- 不给 DiT 加 EMA。
-- 不做无分类器引导（语言流不做随机丢弃）。
+- 不做完整离线 KV / latent 数据集缓存（只缓存 per-channel latent stats）。
 - 不做多目标监督（每条样本就一个子目标关键帧）。
-- 不做解码图像层面的评测，只跟踪损失 + 速度余弦。
 
 v2 在 v1 的前向单步验证 + 训练冒烟测试在远端 H20 集群跑通之后再启动。

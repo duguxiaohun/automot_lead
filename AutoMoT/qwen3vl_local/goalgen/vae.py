@@ -13,7 +13,7 @@ from __future__ import annotations
 import pathlib
 import sys
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from PIL import Image
@@ -75,6 +75,9 @@ class FrozenVAE:
             transforms.ToTensor(),
             transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
         ])
+        self.latent_mean = torch.zeros(1, 4, 1, 1, device=self.device, dtype=self.dtype)
+        self.latent_std = torch.ones(1, 4, 1, 1, device=self.device, dtype=self.dtype)
+        self.latent_stats_enabled = False
 
     @classmethod
     def load(
@@ -153,6 +156,43 @@ class FrozenVAE:
             tensors.append(self._to_tensor(img))
         return torch.stack(tensors, dim=0).to(device=self.device, dtype=self.dtype)
 
+    def set_latent_stats(self, mean: torch.Tensor, std: torch.Tensor) -> None:
+        """Enable per-channel latent normalization on scaled VAE latents."""
+
+        mean = mean.detach().to(device=self.device, dtype=self.dtype).view(1, 4, 1, 1)
+        std = std.detach().to(device=self.device, dtype=self.dtype).view(1, 4, 1, 1)
+        self.latent_mean = mean
+        self.latent_std = std.clamp_min(1e-6)
+        self.latent_stats_enabled = True
+
+    def clear_latent_stats(self) -> None:
+        self.latent_mean = torch.zeros(1, 4, 1, 1, device=self.device, dtype=self.dtype)
+        self.latent_std = torch.ones(1, 4, 1, 1, device=self.device, dtype=self.dtype)
+        self.latent_stats_enabled = False
+
+    def latent_stats_dict(self) -> Optional[Dict[str, List[float]]]:
+        if not self.latent_stats_enabled:
+            return None
+        return {
+            "mean": [float(x) for x in self.latent_mean.view(-1).detach().float().cpu()],
+            "std": [float(x) for x in self.latent_std.view(-1).detach().float().cpu()],
+        }
+
+    def load_latent_stats_dict(self, stats: Dict[str, List[float]]) -> None:
+        self.set_latent_stats(
+            torch.tensor(stats["mean"], dtype=torch.float32),
+            torch.tensor(stats["std"], dtype=torch.float32),
+        )
+
+    @torch.no_grad()
+    def encode_raw(self, images: List[Image.Image]) -> torch.Tensor:
+        """PIL images -> scaled VAE latents, before per-channel normalization."""
+
+        x = self.pil_to_tensor(images)
+        with torch.autocast("cuda", enabled=(not self.cfg.disable_autocast and self.device.type == "cuda")):
+            z = self.model.encode(x)
+        return z * self.cfg.scale_factor
+
     @torch.no_grad()
     def encode(self, images: List[Image.Image]) -> torch.Tensor:
         """PIL 列表 -> latent，乘过 scale_factor。
@@ -165,14 +205,10 @@ class FrozenVAE:
            DiT 学到的 v_target 就漂掉了。
         """
 
-        x = self.pil_to_tensor(images)
-        # autocast 的两个开关：
-        # - self.cfg.disable_autocast 来自 yaml；vae_only.yaml 默认 true（禁用）。
-        # - device.type == "cuda"：cpu 上不支持 autocast("cuda")。
-        with torch.autocast("cuda", enabled=(not self.cfg.disable_autocast and self.device.type == "cuda")):
-            z = self.model.encode(x)
-        # scale_factor 与 Vista / SD VAE 设定一致：默认 0.18215。
-        return z * self.cfg.scale_factor
+        z = self.encode_raw(images)
+        if self.latent_stats_enabled:
+            z = (z - self.latent_mean) / self.latent_std
+        return z
 
     @torch.no_grad()
     def decode(self, z: torch.Tensor) -> torch.Tensor:
@@ -182,6 +218,8 @@ class FrozenVAE:
         # 不转换会在 model.decode 第一层 Conv2d 上抛 dtype mismatch（且错误堆栈在
         # C++ 端不好定位）。这里 .to 是 no-op 当 z 已经匹配，所以无副作用。
         z = z.to(device=self.device, dtype=self.dtype)
+        if self.latent_stats_enabled:
+            z = z * self.latent_std + self.latent_mean
         z_in = z / self.cfg.scale_factor
         # VideoDecoder 需要 timesteps；单帧时给当前 batch 大小即可。
         from vwm.modules.autoencoding.temporal_ae import VideoDecoder  # noqa: E402
