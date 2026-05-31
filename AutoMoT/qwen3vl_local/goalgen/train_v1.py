@@ -14,10 +14,11 @@ import math
 import os
 import pathlib
 import random
+import shutil
 import sys
 from contextlib import nullcontext
 from dataclasses import asdict
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import torch
 import torch.distributed as dist
@@ -506,6 +507,49 @@ def save_checkpoint(
     )
 
 
+def _prune_old_checkpoints(output_dir: pathlib.Path, keep: int) -> None:
+    """保留最新 keep 个 checkpoint-XXXXXX/，更老的整体删除。
+
+    best.pt / latest.pt 都在 OUTPUT_DIR 顶层，不在 checkpoint-* 模式里，所以
+    不会被这个 prune 误删；即使 best 对应的 step 早已被淘汰，best.pt 文件仍然存在。
+    """
+
+    if keep <= 0:
+        return
+    ckpts = sorted(p for p in output_dir.glob("checkpoint-*") if p.is_dir())
+    if len(ckpts) <= keep:
+        return
+    for old in ckpts[:-keep]:
+        shutil.rmtree(old, ignore_errors=True)
+
+
+def _update_best_checkpoint(
+    output_dir: pathlib.Path,
+    val_loss: float,
+    best_loss: float,
+    step: int,
+) -> Tuple[float, bool]:
+    """若 val_loss 比 best_loss 更优，把当前 latest.pt 拷贝成 best.pt，并写 best.json 元信息。
+
+    返回 (新 best_loss, 是否更新)。NaN / inf val_loss 视为无效，跳过。
+    通过 copy 而不是 symlink：保证最新 N 个 ckpt 被滚动淘汰后 best.pt 仍能独立存活。
+    """
+
+    if not math.isfinite(val_loss) or val_loss >= best_loss:
+        return best_loss, False
+    src = output_dir / "latest.pt"
+    if not src.exists():
+        return best_loss, False
+    dst = output_dir / "best.pt"
+    shutil.copyfile(str(src), str(dst))
+    meta = output_dir / "best.json"
+    meta.write_text(
+        json.dumps({"step": step, "val_loss": float(val_loss)}, indent=2),
+        encoding="utf-8",
+    )
+    return val_loss, True
+
+
 def make_scheduler(
     optimizer: torch.optim.Optimizer,
     total_steps: int,
@@ -657,6 +701,9 @@ def train(args: argparse.Namespace) -> None:
     running_kv_seq_len = 0  # 累计 Qwen prefill seq_len，做 logging 间均值
     last_grad_norm = 0.0    # 记录 clip 前 grad_norm，做 logging 间最近值
     accum = 0
+    # best 跟踪：跨 epoch 保留 val/loss 历史最小值。无 val_samples 时永远不更新，
+    # 也就不会产生 best.pt，eval_v1.py 默认会 fallback 到 latest.pt。
+    best_loss = float("inf")
 
     # DDP 解包：验证 / 图像样例用 dit_module 直接前向，不经过 DDP hooks，
     # 既省跨卡归约，又避免 module.training=True 期间 dropout 等差异影响诊断。
@@ -848,16 +895,61 @@ def train(args: argparse.Namespace) -> None:
                         except Exception as e:
                             print(f"[image] 警告：图像样例生成失败，跳过：{e}")
 
-                    if is_rank0(rank) and args.save_steps > 0 and global_step % args.save_steps == 0:
-                        save_checkpoint(output_dir, dit, optimizer, scheduler, ema, latent_stats, global_step, args)
-
                     if global_step >= total_steps:
                         break
             if global_step >= total_steps:
+                # max_train_steps 截断时跳出 epoch 循环；不在此 epoch 末做 save，
+                # 完整保存交给循环外的 fallback 分支统一处理。
                 break
 
+            # ---- epoch 末：跑一次 val → 写 epoch ckpt → 滚动淘汰 → 比较 best ----
+            # 与 step 内 val 完全独立：step 内 val 受 args.val_steps 控制（默认 500 step
+            # 一次，是训练监控信号）；epoch 末 val 是 best 跟踪的判定信号，每个 epoch 末必跑一次。
+            if is_rank0(rank):
+                epoch_val_loss = math.nan
+                if val_samples:
+                    try:
+                        with ema.apply_to(dit_module):
+                            metrics = _run_val_pass(
+                                engine, vae, dit_module, val_samples,
+                                args, device, dit_dtype,
+                            )
+                        epoch_val_loss = float(metrics["val/loss"])
+                        if writer is not None:
+                            # epoch_end/ 子前缀避免和 step 内 val/* 标量混在同一曲线上。
+                            for tag, value in metrics.items():
+                                writer.add_scalar(f"epoch_end/{tag}", value, epoch + 1)
+                        print(
+                            f"[val][epoch={epoch+1}] loss={epoch_val_loss:.6f} "
+                            f"cos={metrics.get('val/cos', float('nan')):.4f}"
+                        )
+                    except Exception as e:
+                        print(f"[val] epoch={epoch+1} 验证失败，跳过 best 比较：{e}")
+
+                save_checkpoint(
+                    output_dir, dit, optimizer, scheduler, ema, latent_stats,
+                    global_step, args,
+                )
+                _prune_old_checkpoints(output_dir, keep=args.keep_recent_checkpoints)
+                best_loss, updated = _update_best_checkpoint(
+                    output_dir, epoch_val_loss, best_loss, global_step,
+                )
+                if updated:
+                    print(
+                        f"[best] new best val/loss={best_loss:.6f} @ step={global_step} -> best.pt"
+                    )
+
+        # 兜底 save：epoch 中途因 max_train_steps 截断时，循环里不会写 ckpt；
+        # 这里补一刀，附带滚动淘汰，让 OUTPUT_DIR 里至少有最新一份可用 ckpt。
+        # 正常跑完 num_epochs 时，最后 epoch 末已经 save 过，本分支跳过避免重复写盘。
         if is_rank0(rank):
-            save_checkpoint(output_dir, dit, optimizer, scheduler, ema, latent_stats, global_step, args)
+            tail_ckpt = output_dir / f"checkpoint-{global_step:06d}"
+            if not tail_ckpt.exists():
+                save_checkpoint(
+                    output_dir, dit, optimizer, scheduler, ema, latent_stats,
+                    global_step, args,
+                )
+                _prune_old_checkpoints(output_dir, keep=args.keep_recent_checkpoints)
             print(f"[done] GoalGen DiT 已保存到 {output_dir}")
     finally:
         # writer 必须在 cleanup_distributed 之前 close，避免 tb 写最后一笔时进程组已挂。
@@ -908,7 +1000,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--warmup-ratio", type=float, default=0.05)
     p.add_argument("--max-grad-norm", type=float, default=1.0)
     p.add_argument("--logging-steps", type=int, default=10)
-    p.add_argument("--save-steps", type=int, default=200)
+    p.add_argument("--keep-recent-checkpoints", type=int, default=3,
+                   help="checkpoint-XXXXXX/ 滚动保留数量；更老的会被整体删除。"
+                        "best.pt 在顶层独立保存，不受此 keep 影响。")
     p.add_argument("--max-train-steps", type=int, default=0,
                    help="0 表示按 num_epochs 跑完；正整数表示限制优化器更新步数。")
     p.add_argument("--seed", type=int, default=20260529)

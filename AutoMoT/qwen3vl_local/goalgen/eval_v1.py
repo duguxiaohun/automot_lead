@@ -1154,10 +1154,30 @@ def _write_tb_image_grid(
     writer.add_images("eval/pred_vs_gt", grid, step, dataformats="NCHW")
 
 
+def _resolve_default_dit_checkpoint() -> str:
+    """默认 --dit-checkpoint：优先 best.pt，缺则 latest.pt。
+
+    用户显式传 --dit-checkpoint 会直接覆盖；本函数只在 build_arg_parser 调用时
+    探测一次。两个文件都不存在时仍返回 best.pt 路径——让 ckpt 加载阶段抛出
+    明确的 "FileNotFoundError"，比这里偷偷往下走更容易排查。
+    """
+
+    default_dir = _AUTOMOT_ROOT / "checkpoints" / "goalgen_v1_dit"
+    best = default_dir / "best.pt"
+    latest = default_dir / "latest.pt"
+    if best.exists():
+        return str(best)
+    if latest.exists():
+        return str(latest)
+    return str(best)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="在 val.jsonl 上评测 GoalGen v1 DiT")
     p.add_argument("--val-jsonl", default="checkpoints/goalgen_v1_data/val.jsonl")
-    p.add_argument("--dit-checkpoint", default="checkpoints/goalgen_v1_dit/latest.pt")
+    p.add_argument("--dit-checkpoint", default=_resolve_default_dit_checkpoint(),
+                   help="DiT ckpt 路径。默认探测顺序：best.pt > latest.pt（位于训练默认 OUTPUT_DIR 下）。"
+                        "训练若启用 val_jsonl + epoch save，best.pt = val/loss 最小的那次轻量权重。")
     p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
     p.add_argument("--save-root", type=str, required=True,
                    help="统一保存根目录（必填，通常与 train_v1.sh OUTPUT_DIR 相同）。"

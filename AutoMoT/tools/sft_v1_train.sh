@@ -198,9 +198,11 @@ case "${MODE}" in
         export NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
         PER_DEVICE_BS=4
         GRAD_ACC=2
-        SAVE_STEPS=200
-        EVAL_STEPS=200
-        SAVE_STRATEGY="steps"
+        # epoch 触发：每个 epoch 末尾保存 + eval；配合 --load_best_model_at_end，
+        # 训练结束后 OUTPUT_DIR 顶层是 val/loss 最小的 best 权重，checkpoint-XXX/
+        # 是各 epoch 快照（受 save_total_limit 滚动淘汰）。
+        SAVE_STRATEGY="epoch"
+        EVAL_STRATEGY="epoch"
         VAL_ARGS=(--val_dataset "${VAL_JSONL}")
         EXTRA_LAUNCH=""
         ;;
@@ -226,7 +228,7 @@ case "${MODE}" in
         #
         # ---- 配置选择 ----
         # PER_DEVICE_BS=1 / GRAD_ACC=1：让 step 时间最短，2 step 总耗时 < 2 min。
-        # SAVE_STEPS / EVAL_STEPS 设极大：彻底关掉 checkpoint / eval，本模式
+        # SAVE_STRATEGY=no / EVAL_STRATEGY=no：彻底关掉 checkpoint / eval，本模式
         # 不应该写盘也不应该跑验证集。
         # EXTRA_LAUNCH="--max_steps 2"：硬截 2 step 就退出，不管 num_train_epochs。
         #
@@ -237,9 +239,10 @@ case "${MODE}" in
         export NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
         PER_DEVICE_BS=1
         GRAD_ACC=1
-        SAVE_STEPS=999999
-        EVAL_STEPS=999999
+        # check 模式不写盘也不跑 eval：SAVE_STRATEGY=no + EVAL_STRATEGY=no，
+        # 同时 BEST_ARGS 会被清空（load_best 要求 save/eval 都开）。
         SAVE_STRATEGY="no"
+        EVAL_STRATEGY="no"
         # check 只验证 2 个训练 step 的 loss_scale，不传 val_dataset，避免加载/评估 val 的 ~800 条样本。
         VAL_ARGS=()
         EXTRA_LAUNCH="--max_steps 2"
@@ -251,9 +254,9 @@ case "${MODE}" in
         # 若用 DDP_GPU_COUNT 改卡数，等效 batch 会随卡数线性变化。
         PER_DEVICE_BS=2
         GRAD_ACC=2
-        SAVE_STEPS=100
-        EVAL_STEPS=100
-        SAVE_STRATEGY="steps"
+        # epoch 触发 + best 跟踪，行为同 single 模式（含义见 single 分支注释）。
+        SAVE_STRATEGY="epoch"
+        EVAL_STRATEGY="epoch"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
         if [[ "${DDP_GPU_COUNT_WAS_SET}" == "1" && "${SFT_RESPECT_CUDA_VISIBLE_DEVICES:-0}" != "1" ]]; then
             SELECTED_GPUS="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
@@ -301,6 +304,24 @@ if [[ "${MODE}" == "ddp" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# best ckpt 跟踪
+# ---------------------------------------------------------------------------
+# --load_best_model_at_end 行为：训练结束时把 val/loss 最小的 epoch ckpt 装载回模型，
+# 并以"主权重"形式落到 OUTPUT_DIR 顶层（adapter_model.safetensors 等）；各 epoch
+# 快照仍保留在 checkpoint-XXX/ 子目录，受 save_total_limit 滚动淘汰。
+# 注意：HF Trainer 要求 save_strategy == eval_strategy，否则 best 跟踪会报错。
+# check 模式既不 save 也不 eval，关掉 best 跟踪。
+if [[ "${MODE}" == "check" ]]; then
+    BEST_ARGS=()
+else
+    BEST_ARGS=(
+        --load_best_model_at_end true
+        --metric_for_best_model loss
+        --greater_is_better false
+    )
+fi
+
+# ---------------------------------------------------------------------------
 # 启动训练
 # ---------------------------------------------------------------------------
 # 说明：
@@ -336,16 +357,16 @@ swift sft \
     --max_length "${MAX_LENGTH}" \
     --output_dir "${OUTPUT_DIR}" \
     --logging_steps "${LOGGING_STEPS}" \
-    --save_steps "${SAVE_STEPS}" \
-    --eval_steps "${EVAL_STEPS}" \
     --save_strategy "${SAVE_STRATEGY}" \
-    --save_total_limit 5 \
+    --eval_strategy "${EVAL_STRATEGY}" \
+    --save_total_limit 3 \
     --save_only_model true \
     --report_to tensorboard \
     --logging_dir "${OUTPUT_DIR}/tb" \
     --dataloader_num_workers 4 \
     --external_plugins "${LOSS_SCALE_PLUGIN}" \
     --loss_scale "${LOSS_SCALE}" \
+    "${BEST_ARGS[@]}" \
     ${EXTRA_LAUNCH}
 
 echo "[done] LoRA adapter saved under ${OUTPUT_DIR}"
@@ -355,7 +376,8 @@ echo "[done] LoRA adapter saved under ${OUTPUT_DIR}"
 #
 # 训练产物布局（与 eval_sft_v1.py / probe_sft_v1.py 同根 — 即 OUTPUT_DIR 平铺）：
 #   OUTPUT_DIR/
-#     ├─ checkpoint-*/      LoRA adapter（每 SAVE_STEPS 一份）
+#     ├─ adapter_model.*    训练结束 best 权重（val/loss 最小的那个 epoch 装回）
+#     ├─ checkpoint-*/      各 epoch LoRA adapter 快照（保留最近 3 个）
 #     ├─ tb/                训练 TensorBoard events（swift 写入）
 #     ├─ eval/              eval_sft_v1.py 写的 metrics.json + predictions.jsonl
 #     ├─ eval_tb/           eval_sft_v1.py 写的 TB scalar/text（独立 run，TB 可同时看）
