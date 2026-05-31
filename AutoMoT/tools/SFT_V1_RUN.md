@@ -259,7 +259,7 @@ checkpoints/sft_v1_lora/
 TensorBoard 启动 `--logdir checkpoints/sft_v1_lora` 时，左侧 run 列表会同时列出
 `tb`（训练）和 `eval_tb/<ckpt-tag>`（每次 eval 一个 run）。
 
-推荐用脚本一条命令搞定（自动选空闲端口 + bind_all + 直接打印你本地要用的 SSH 命令）：
+推荐用脚本一条命令搞定（自动选空闲端口 + bind_all）：
 
 ```bash
 # 远端：起 TB（在 AutoMoT/ 目录下）
@@ -269,16 +269,12 @@ bash tools/tb_serve.sh checkpoints/sft_v1_lora
 `tb_serve.sh` 会打印类似：
 
 ```
-[tb] >>> 在你的本地终端跑：
-      ssh -i "C:\Users\IOL4SGH\.ssh\id_rsa" -N -L 41273:localhost:41273 cruser1@szh-gpu-cr02.apac.bosch.com
-[tb] >>> 然后浏览器打开:  http://localhost:41273
+[tb] TensorBoard 已启动 → 在本地浏览器直接打开：
+      http://localhost:41273
 ```
 
-直接复制粘贴 SSH 命令到本地终端，然后浏览器打开提示里的 `http://localhost:<port>`
-就能看曲线。Ctrl-C 关掉 tb_serve.sh 时 TB 服务一起退。
-
-想固定端口：`TB_PORT=6007 bash tools/tb_serve.sh checkpoints/sft_v1_lora`。
-换其它远端：`TB_SSH_USER=other@host TB_SSH_KEY=/path/to/key bash tools/tb_serve.sh ...`。
+VSCode Remote 会自动把端口转发到本地，直接浏览器打开 URL 即可。Ctrl-C 关掉
+tb_serve.sh 时 TB 服务一起退。固定端口用 `TB_PORT=6007 bash tools/tb_serve.sh ...`。
 
 常见 tag：
 
@@ -288,11 +284,10 @@ bash tools/tb_serve.sh checkpoints/sft_v1_lora
 | `train/learning_rate` | cosine 调度后的 lr |
 | `train/grad_norm` | swift 内部已记录 |
 | `eval/loss` | val 子集上的 loss（swift 训练里 EVAL_STEPS 触发） |
-| `eval/keep_accuracy` | **离线** eval_sft_v1.py 写到 eval_tb/ 的 scalar |
-| `eval/early_advance_rate` | 同上，最关心的指标 |
-| `eval/anchor12_passed` | anchor=12 sanity（0/1）|
-| `eval_by_scenario/<sc>/*` | 拆场景看哪些场景拉低整体指标 |
-| `eval/samples_preview` | text 面板：前 8 条 pred vs gt markdown |
+
+**注意**：`eval_sft_v1.py` 现在**默认不写 TB**（步骤一 TB 入口已让位给步骤二 GoalGen
+那侧；用户反馈本侧 TB 容易加载失败）。需要时显式加 `--tb`，eval scalar 才会落到
+`OUTPUT_DIR/eval_tb/<run_tag>/`。
 
 `check` 模式把 `EVAL_STEPS=999999` 关掉 eval，所以 check 跑只有 train 曲线；
 若想 check 时也看 eval 曲线，临时改 `EVAL_STEPS=1` 加 `VAL_ARGS=(--val_dataset ...)`。
@@ -301,96 +296,114 @@ bash tools/tb_serve.sh checkpoints/sft_v1_lora
 
 ## 5. 评估（约 10–30 分钟，取决于 val 大小）
 
-### 5.0 两类测试
+`--save-root` **必填**，所有产物落到 `<save_root>/eval/` 与 `<save_root>/eval_tb/<run_tag>/`。
+推荐 `--save-root` = 训练 OUTPUT_DIR（即 `checkpoints/sft_v1_lora`），与训练 ckpt
+平铺在同一根下。
 
-| 类型 | 脚本 | 用途 |
-|---|---|---|
-| A. 聚合指标 + TB | `tools/eval_sft_v1.py` | 全 val 集跑一遍，scalar 写到 `OUTPUT_DIR/eval_tb/<ckpt>/`，与训练曲线并排 |
-| A. 多卡分片 | 同上 + `torchrun` | val 大时切多卡加速 |
-| B. 场景 case dump | `tools/probe_sft_v1.py` | 随机抽几个场景的样本，把 input prompt + 图像 + 模型 raw 输出 + per-token loss 都保存到 `OUTPUT_DIR/eval_cases/<scenario>__<run>__<anchor>/` |
+### 5.0 两个入口
+
+| 脚本 | 跑全集出聚合指标 | 每条样本完整 dump | 额外提供 |
+|---|---|---|---|
+| `tools/eval_sft_v1.py` | ✅ | ✅（默认 `--max-samples > 0` 时开） | predictions.jsonl + metrics.json + 可选 TB |
+| `tools/probe_sft_v1.py` | ❌（按 scenario 抽样） | ✅ | per-token NLL + 训练 loss_scale 同口径 mask |
+
+**简单决策**：先跑 `eval_sft_v1.py --max-samples 100` 就能拿到 100 个 case 完整
+dump + 全部指标；只有需要看"具体哪些 token 拉高了 loss"时再跑 probe。
+
+### 5.1 eval_sft_v1.py
 
 ```bash
-# 单卡 — 推荐路径，与训练同根（写到 OUTPUT_DIR/eval/ + OUTPUT_DIR/eval_tb/）
-python tools/eval_sft_v1.py \
-    --lora-dir checkpoints/sft_v1_lora \
-    --save-root checkpoints/sft_v1_lora
-
-# 多卡分片
-torchrun --standalone --nproc_per_node=4 tools/eval_sft_v1.py \
-    --lora-dir checkpoints/sft_v1_lora \
-    --save-root checkpoints/sft_v1_lora
-
-# 旧用法（写到 eval_json/）仍然兼容
-python tools/eval_sft_v1.py --lora-dir checkpoints/sft_v1_lora
-
-# 或先快速验收前 100 条样本看趋势
+# 推荐：小样本 + 完整 dump（每条样本一个目录，inputs/outputs 都本地化）
 python tools/eval_sft_v1.py \
     --lora-dir checkpoints/sft_v1_lora \
     --save-root checkpoints/sft_v1_lora \
     --max-samples 100
-```
 
-> `--save-root` 让 eval 写到 `<root>/eval/metrics.json` + `<root>/eval/predictions.jsonl`，
-> TB 写到 `<root>/eval_tb/<ckpt-tag>/`；不传时沿用 `eval_json/sft_v1_*` 老默认。
-> `--run-tag` 显式指定 TB run 名（默认从 lora 目录名派生：`base` / `ckpt300` / `lora`）。
-
-### 5.1 场景 case dump（probe）
-
-```bash
-# LoRA 下抽 16 条样本（4 场景 × 4 条），每条独立目录写齐 prompt/图像/GT/pred/token_loss
-python tools/probe_sft_v1.py \
+# 跑全集只出聚合指标（不 dump，磁盘友好）
+python tools/eval_sft_v1.py \
     --lora-dir checkpoints/sft_v1_lora \
-    --save-root checkpoints/sft_v1_lora \
-    --num-per-scenario 4 --seed 0
+    --save-root checkpoints/sft_v1_lora
 
-# 同 seed 跑一次 base 模型，--case-suffix 防止覆盖
-python tools/probe_sft_v1.py \
+# 多卡分片（适合全集）
+torchrun --standalone --nproc_per_node=4 tools/eval_sft_v1.py \
+    --lora-dir checkpoints/sft_v1_lora \
+    --save-root checkpoints/sft_v1_lora
+
+# base 模型 baseline；--run-tag base 让 TB run 名清晰
+python tools/eval_sft_v1.py \
     --lora-dir "" \
     --save-root checkpoints/sft_v1_lora \
-    --num-per-scenario 4 --seed 0 --case-suffix "_base"
-
-# 只看 Accident / Construction
-python tools/probe_sft_v1.py \
-    --lora-dir checkpoints/sft_v1_lora --save-root checkpoints/sft_v1_lora \
-    --scenarios Accident,Construction --num-per-scenario 6 --seed 7
+    --run-tag base --max-samples 100
 ```
 
-每条 case 目录布局：
+**关键参数**：
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--save-root` | （必填） | 产物根目录，通常等于训练 OUTPUT_DIR |
+| `--run-tag` | 自动派生 | TB run 子目录名（`base` / `ckpt300` / `lora`） |
+| `--max-samples` | 0 = 全集 | 截断 val 样本数 |
+| `--full-dump` / `--no-full-dump` | 自动 | 默认 `--max-samples > 0` 时开；显式覆盖 |
+| `--full-dump-limit N` | 0 = 不限 | dump 上限，防止误开铺满磁盘 |
+| `--tb` / `--no-tb` | `--no-tb` | 默认不写 TB（步骤一 TB 已让位给步骤二） |
+| `--skip-anchor12-sanity` | False | 跳过 anchor=12 单例检查 |
+
+**产物布局**（每次 eval 后）：
 
 ```
-OUTPUT_DIR/eval_cases/Accident__Town03_Rep0_route_001783_route0_01_11_02_37_46__12/
-├─ input_images/00.jpg ... 03.jpg      symlink/copy 历史 4 帧
-├─ system_prompt.txt
-├─ user_prompt.txt                     去掉 <image> 占位的纯文本
-├─ gt.txt                              GT assistant 完整三行
-├─ pred.txt                            模型 raw 输出
-├─ token_loss.json                     per-token NLL + ANALYSIS 段 mask（与训练 loss_scale 同口径）
-├─ meta.json                           lora_dir / model_dir / 推理耗时 / seed
-└─ overview.md                         一页 markdown 串起来 — 人工 review 入口
+checkpoints/sft_v1_lora/eval/
+├─ metrics.json                聚合指标 + _metric_doc 含义说明
+├─ predictions.jsonl           全部样本一行（含 raw_text / parsed / error_kind）
+├─ predictions_diff.jsonl      只挑 error_kind != "ok" 的样本（人工查错入口）
+└─ cases/                      完整 dump（小样本时自动开）
+   └─ 00017__Accident__Town03_Rep0_route_001783__anchor12__early_advance/
+      ├─ inputs/
+      │  ├─ system_prompt.txt              system 原文
+      │  ├─ user_prompt.txt                user 原文（去 <image> 占位）
+      │  └─ image_00.jpg ... image_03.jpg  history 4 帧，**复制**到本地
+      ├─ outputs/
+      │  ├─ raw_text.txt                   模型 raw 输出
+      │  └─ parsed.json                    pred/gt status+subgoal + status_match + subgoal_match
+      ├─ step.json                         完整元信息（sample_idx / lora_dir / 图像路径）
+      └─ summary.md                        一页 markdown，**顶部就是 SUBGOAL/STATUS 对比表**
 ```
 
-`token_loss.json` 里有 `mean_loss_raw`、`mean_loss_status_subgoal_only`、
-`mean_loss_analysis_only` 三个均值：训练时 ANALYSIS 段被 mask=0 不算 loss，
-看 `mean_loss_status_subgoal_only` 才是真实训练目标的 loss 数值。
+`summary.md` 渲染后，顶部直接看到：
 
-**预期输出末尾**（节选）：
+```
+## GT vs Pred
+| field    | GT (truth)      | Pred (model)        | match |
+| STATUS   | `initial`       | `hazard_detect`     | ❌    |
+| SUBGOAL  | `hazard_detect` | `max_brake_or_min_gap` | ❌ |
+```
+
+再往下是输入图、system/user prompt、GT 全文、Pred raw 全文——人工 review 单文件够。
+
+**case 目录名编码**：`<sample_idx>__<scenario>__<run_id>__anchor<N>__<error_kind>`，
+按 `error_kind` 排序后 `early_advance` / `none` / `other` 的 case 自然聚在一起。
+
+### 5.2 metrics.json 字段
 
 ```json
 {
+  "_metric_doc": {
+    "keep_accuracy": "保持类样本 STATUS == GT 的比例（越大越好）",
+    "advance_accuracy": "推进类样本 STATUS == GT 的比例（越大越好）",
+    "early_advance_rate": "保持类样本 STATUS == next(GT) 的比例（越小越好；核心痛点）",
+    "anchor12_sanity": "anchor=12 固定 fail case 上 STATUS 是否回到 initial；passed=true 即原始 bug 已修",
+    "per_scenario": "按 scenario 拆开的细分计数"
+  },
   "n_total": 840,
   "n_keep": 630,
   "n_advance": 210,
   "keep_accuracy": 0.96,
   "advance_accuracy": 0.65,
   "early_advance_rate": 0.03,
-  "anchor12_sanity": {
-    "enabled": true,
-    "passed": true,
-    "pred_status": "initial",
-    "expected_status": "initial"
-  }
+  "anchor12_sanity": { "enabled": true, "passed": true, "pred_status": "initial", "expected_status": "initial" }
 }
 ```
+
+`_metric_doc` 是 JSON 内嵌的指标含义，省得回 doc 查。
 
 **通过条件**（与 PLAN §8 一致）：
 
@@ -401,80 +414,80 @@ OUTPUT_DIR/eval_cases/Accident__Town03_Rep0_route_001783_route0_01_11_02_37_46__
 | **`early_advance_rate`** | **≤ 0.05** | **最高（核心痛点）** |
 | **`anchor12_sanity.passed`** | **= true** | **必须** |
 
-### Baseline 对照（强烈推荐）
+### 5.3 predictions.jsonl 字段
 
-先跑 base 模型留个对照，再跑 LoRA 看是否真的解决了"过早推进"：
-
-```bash
-# base 模型（不挂 LoRA），跑前 200 条 val 做 baseline
-python tools/eval_sft_v1.py \
-    --lora-dir "" \
-    --max-samples 200 \
-    --output-json eval_json/sft_v1_metrics_base.json
-
-# 训完再跑同样规模 LoRA
-python tools/eval_sft_v1.py \
-    --lora-dir checkpoints/sft_v1_lora \
-    --max-samples 200 \
-    --output-json eval_json/sft_v1_metrics_lora.json
-```
-
-对比 `early_advance_rate`：base 通常 0.3–0.5，LoRA 应降到 < 0.05。
-如果 LoRA 后仍 > 0.15，说明 v1 LoRA 没真正学到"默认保持"——
-进 PLAN §11 风险表排查 chat template 一致性问题。
-
-### 逐条 prediction 落盘
-
-`eval_sft_v1.py` 默认同时落两份 jsonl，方便人工 review 与 base/LoRA 横向对比：
-
-```text
-eval_json/sft_v1_predictions.jsonl       # 全部样本一条一行
-eval_json/sft_v1_predictions_diff.jsonl  # 只挑 pred_status != gt_status 的样本
-```
-
-每行字段：
+每行一条样本：
 
 ```json
 {
-  "sample_idx": 17,
-  "scenario": "Accident",
-  "run_id": "...",
-  "anchor": 12,
+  "sample_idx": 17, "scenario": "Accident", "run_id": "...", "anchor": 12,
   "is_transition_sample": false,
-  "gt_status": "initial",
-  "gt_subgoal": "hazard_detect",
-  "pred_status": "hazard_detect",
-  "pred_subgoal": "max_brake_or_min_gap",
+  "gt_status": "initial", "gt_subgoal": "hazard_detect",
+  "pred_status": "hazard_detect", "pred_subgoal": "max_brake_or_min_gap",
   "raw_text": "ANALYSIS: ...\nSTATUS: hazard_detect\nSUBGOAL: max_brake_or_min_gap",
-  "error_kind": "early_advance",
-  "error": null
+  "error_kind": "early_advance", "error": null
 }
 ```
 
-`error_kind` 是核心分类字段，stdout 也会打印分布 Counter：
+`error_kind` 分类：
 
 | 值 | 含义 |
 |---|---|
 | `ok` | pred == gt |
 | `early_advance` | keep 样本上 pred == next(gt)，最关心的失败模式 |
-| `none` | 输出格式坏，没有解析到 STATUS |
-| `inference_error` | generate 阶段抛异常（OOM / 路径错等） |
-| `other` | 其它（advance 样本未对齐 / 跳更远 / 非法 token 等） |
+| `none` | 输出格式坏，没解析到 STATUS |
+| `inference_error` | generate 阶段抛异常（OOM / 路径错） |
+| `other` | 其它（跳更远状态 / 非法 token / advance 样本未对齐） |
 
-base / LoRA 横向对比，直接 diff 两份 predictions.jsonl：
+**base vs LoRA 横向对比**：跑两次 eval，分别用 `--run-tag base` / `--run-tag lora`，
+然后 diff 两份 predictions.jsonl：
 
 ```bash
 python -c "
 import json
 def load(p): return [json.loads(l) for l in open(p)]
-b = {r['sample_idx']: r['pred_status'] for r in load('eval_json/sft_v1_predictions_base.jsonl')}
-l = {r['sample_idx']: r['pred_status'] for r in load('eval_json/sft_v1_predictions_lora.jsonl')}
-changed = [k for k in b if b[k] != l[k]]
-print(f'changed={len(changed)} samples')
-"
+b = {r['sample_idx']: r['pred_status'] for r in load('checkpoints/sft_v1_lora/eval/predictions.jsonl')}
+# ... 另起一个 save-root 跑 base，比较"
 ```
 
-想关掉某一份输出，传空字符串：`--predictions-jsonl ""` / `--predictions-diff-jsonl ""`。
+(同一个 save-root 跑两次会覆盖 predictions.jsonl；要并存就拆 `--save-root checkpoints/sft_v1_base`。)
+
+### 5.4 probe_sft_v1.py（深度诊断）
+
+```bash
+# 抽 16 条样本（4 场景 × 4 条）
+python tools/probe_sft_v1.py \
+    --lora-dir checkpoints/sft_v1_lora \
+    --save-root checkpoints/sft_v1_lora \
+    --num-per-scenario 4 --seed 0
+
+# 同 seed 跑 base，--case-suffix 防覆盖
+python tools/probe_sft_v1.py \
+    --lora-dir "" --save-root checkpoints/sft_v1_lora \
+    --num-per-scenario 4 --seed 0 --case-suffix "_base"
+```
+
+probe 的 case 目录布局（与 eval cases 类似，但多 `token_loss.json`）：
+
+```
+checkpoints/sft_v1_lora/eval_cases/<scenario>__<run>__<anchor>/
+├─ input_images/00.jpg ... 03.jpg
+├─ system_prompt.txt / user_prompt.txt / gt.txt / pred.txt
+├─ token_loss.json   ← per-token NLL + ANALYSIS 段 mask（与训练 loss_scale 同口径）
+├─ meta.json
+└─ overview.md
+```
+
+`token_loss.json` 三个均值：
+- `mean_loss_raw`：所有 token 平均（含被 mask 的 ANALYSIS）
+- `mean_loss_status_subgoal_only`：训练时真正在优化的部分
+- `mean_loss_analysis_only`：训练时 mask=0 的部分（参考值）
+
+什么时候用 probe 而不是 eval cases：
+- 想看模型在 STATUS / SUBGOAL 具体哪个 token 上犹豫（per-token NLL 曲线）
+- 怀疑 loss_scale plugin mask 边界漂移（probe 用同一份 regex 反推 token mask）
+
+否则 eval cases 已经够人工 review。
 
 ---
 
@@ -487,7 +500,8 @@ python tools/build_sft_dataset_v1.py --data-root /data/lead_data/data \
 python tools/check_loss_mask.py && \
 bash tools/sft_v1_train.sh check && \
 bash tools/sft_v1_train.sh ddp && \
-python tools/eval_sft_v1.py --lora-dir checkpoints/sft_v1_lora
+python tools/eval_sft_v1.py --lora-dir checkpoints/sft_v1_lora \
+  --save-root checkpoints/sft_v1_lora --max-samples 100
 ```
 
 **强烈建议分步跑**，每步看输出确认再进下一步——尤其是 step 2/3 sanity，
@@ -503,7 +517,7 @@ python tools/eval_sft_v1.py --lora-dir checkpoints/sft_v1_lora
 | step 2 后 | `check_loss_mask.py` 完整 stdout |
 | step 3 后 | `sft_v1_train.sh check` 输出最后 30 行（含 loss 数值与 warning） |
 | step 4 中 | 每 100 step 的训练 log（loss / grad_norm / lr 趋势）即可，不需要全部 |
-| step 5 后 | `eval_json/sft_v1_metrics.json` 全文 |
+| step 5 后 | `checkpoints/sft_v1_lora/eval/metrics.json` 全文 + 任意 1 个 `cases/.../summary.md` |
 
 ---
 

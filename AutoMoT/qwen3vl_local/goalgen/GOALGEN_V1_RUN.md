@@ -119,12 +119,13 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 - 想做跨适配器消融对比时传 `--allow-qwen-adapter-mismatch`，转为警告后继续
 
 ```bash
-# eval
+# eval（小样本完整 dump）
 python qwen3vl_local/goalgen/eval_v1.py \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --dit-checkpoint checkpoints/goalgen_v1_dit_sftv1/latest.pt \
   --qwen-adapter-dir checkpoints/sft_v1_lora \
-  --out-dir eval_json/goalgen_v1_sftv1
+  --save-root checkpoints/goalgen_v1_dit_sftv1 \
+  --max-samples 100
 
 # runner（单步前向冒烟测试）
 python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
@@ -150,15 +151,19 @@ checkpoints/goalgen_v1_dit/tb/                # TensorBoard event 文件
 checkpoints/goalgen_v1_dit/
 ├─ checkpoint-*/ + latest.pt  DiT 权重
 ├─ tb/                        训练 TB events（train/* val/* samples/pred_vs_gt）
-├─ eval/                      eval_v1.py 写的 summary + perline + samples PNG
+├─ eval/                      eval_v1.py 产物
+│  ├─ eval_v1_summary.json    聚合指标 + _metric_doc 说明
+│  ├─ eval_v1_perline.jsonl   每条样本一行
+│  ├─ samples/                前 N 条 pred / gt 分开 PNG（轻量预览）
+│  └─ cases/                  小样本完整 dump（compare.png + 输入图文）
 ├─ eval_tb/<ckpt-tag>/        eval_v1.py 写的指标 scalar + pred_vs_gt 图（每 ckpt 一个 run）
-└─ eval_cases/                probe_v1.py 随机场景 case dump
+└─ eval_cases/                probe_v1.py 随机场景 case dump（含 euler trace）
 ```
 
 启动 TB 指 `--logdir checkpoints/goalgen_v1_dit` 时，左侧 run 列表会同时显示 `tb`
 （训练）和 `eval_tb/<ckpt>`（每次 eval 一个）。
 
-**推荐：用一条命令搞定**（自动选端口 + bind_all + 直接打印你本地要用的 SSH 命令）：
+**推荐：用一条命令搞定**（自动选端口 + bind_all）：
 
 ```bash
 # 远端，在 AutoMoT/ 目录下
@@ -168,14 +173,12 @@ bash tools/tb_serve.sh checkpoints/goalgen_v1_dit
 `tb_serve.sh` 会打印类似：
 
 ```
-[tb] >>> 在你的本地终端跑：
-      ssh -i "C:\Users\IOL4SGH\.ssh\id_rsa" -N -L 41273:localhost:41273 cruser1@szh-gpu-cr02.apac.bosch.com
-[tb] >>> 然后浏览器打开:  http://localhost:41273
+[tb] TensorBoard 已启动 → 在本地浏览器直接打开：
+      http://localhost:41273
 ```
 
-直接复制 SSH 命令到本地，浏览器打开 `http://localhost:<port>` 即可。Ctrl-C 关本脚本
+VSCode Remote 会自动把端口转发到本地，浏览器直接打开 URL 即可。Ctrl-C 关本脚本
 TB 服务一起退。固定端口：`TB_PORT=6008 bash tools/tb_serve.sh ...`。
-换其它远端：`TB_SSH_USER=other@host TB_SSH_KEY=/path/to/key bash tools/tb_serve.sh ...`。
 
 标签含义：
 
@@ -231,58 +234,139 @@ runner 会校验 `STATUS/SUBGOAL`、强制要求 `target_frame > anchor`，并�
 
 ## 3.5 离线评测
 
-### 3.5.1 两类测试
+`--save-root` **必填**，产物落到 `<save_root>/eval/` 与 `<save_root>/eval_tb/<run_tag>/`。
+推荐 `--save-root` = 训练 OUTPUT_DIR（`checkpoints/goalgen_v1_dit`）。
 
-| 类型 | 脚本 | 用途 |
-|---|---|---|
-| A. 聚合指标 + TB | `qwen3vl_local/goalgen/eval_v1.py` | 跑 val.jsonl，写四指标到 `OUTPUT_DIR/eval/` + TB scalar 到 `OUTPUT_DIR/eval_tb/<ckpt>/` |
-| A. 多卡分片 | 同上 + `torchrun` | val 大时切多卡，rank0 聚合写文件 |
-| B. 场景 case dump | `qwen3vl_local/goalgen/probe_v1.py` | 随机抽几条样本，每条目录写：历史 RGB + 真值 + pred PNG + euler 轨迹 + memory + metrics + overview.md |
+### 3.5.1 两个入口
 
-`eval_v1.py` 对每条样本：teacher-forced Qwen 预填充 → VAE 编码 → Euler 采样 → VAE 解码 → 四指标 + 图像。
+| 脚本 | 跑全集出聚合指标 | 每条样本完整 dump | 额外提供 |
+|---|---|---|---|
+| `qwen3vl_local/goalgen/eval_v1.py` | ✅ | ✅（默认 `--max-samples > 0` 时开） | summary + perline + 可选 TB（默认开）|
+| `qwen3vl_local/goalgen/probe_v1.py` | ❌（按 scenario 抽样） | ✅ | per-step euler trace（v_cos / z_l2 单调下降曲线）|
+
+**简单决策**：先跑 `eval_v1.py --max-samples 100` 就能拿到 compare.png 三联对比 +
+全部指标；只有想看"Euler 32 步轨迹是否单调收敛"时再跑 probe。
+
+`eval_v1.py` 对每条样本：teacher-forced Qwen 预填充 → VAE 编码 → Euler 32 步采样 →
+VAE 解码 → 5 指标 + 输入图文 + pred/gt 对比图全部本地保存。
+
+### 3.5.2 eval_v1.py
 
 ```bash
-# 单卡 — 推荐路径（与训练同根）
+# 推荐：小样本 + 完整 dump（每条样本一个目录，含 compare.png 三联图）
 python qwen3vl_local/goalgen/eval_v1.py \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --qwen-adapter-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/goalgen_v1_dit \
-  --max-samples 200 --euler-steps 32 --image-dump-count 32
+  --max-samples 100
+
+# 跑全集只出聚合指标 + TB（不 dump，磁盘友好）
+python qwen3vl_local/goalgen/eval_v1.py \
+  --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
+  --qwen-adapter-dir checkpoints/sft_v1_lora \
+  --save-root checkpoints/goalgen_v1_dit
 
 # 多卡分片
 torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --qwen-adapter-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/goalgen_v1_dit
-
-# 旧用法（写到 eval_json/）仍兼容
-python qwen3vl_local/goalgen/eval_v1.py \
-  --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
-  --out-dir eval_json/goalgen_v1
 ```
 
-`--save-root` 让 eval 写到 `<root>/eval/eval_v1_summary.json` + `<root>/eval/eval_v1_perline.jsonl` + `<root>/eval/samples/`，TB scalar/image 写到 `<root>/eval_tb/<ckpt-tag>/`。
+**关键参数**：
 
-四个指标（与 5.3 设计一致）：
-
-| 指标 | 含义 | 期望方向 |
+| 参数 | 默认 | 说明 |
 |---|---|---|
-| `latent_mse` | `MSE(z1_pred, z1_gt)`，与训练损失同口径但对 z 而非 v | 越低越好 |
-| `latent_cos` | `cosine(z1_pred, z1_gt)` | 越接近 1 越好 |
-| `pixel_l1` / `psnr` | VAE.decode 后 [-1,1] RGB 的 L1 与 PSNR | l1 越低 / psnr 越高 |
-| `velocity_cos` | 5 个 t 点 (0.1/0.3/0.5/0.7/0.9) v 余弦平均 | 训练健康性，与 train/cos 同口径 |
+| `--save-root` | （必填） | 产物根目录，通常等于训练 OUTPUT_DIR |
+| `--run-tag` | 自动（`ckpt200` / `latest` 等） | TB run 子目录名 |
+| `--max-samples` | 0 = 全集 | 截断 val 样本数 |
+| `--full-dump` / `--no-full-dump` | 自动 | 默认 `--max-samples > 0` 时开 |
+| `--full-dump-limit N` | 0 = 不限 | dump 上限，防止误开铺满磁盘 |
+| `--euler-steps` | 32 | Euler 采样步数（rectified flow 下 32 通常足够）|
+| `--image-dump-count` | 32 | `samples/` 目录里轻量预览 PNG 的条数（与 cases/ 完整 dump 独立）|
+| `--no-tb` | False | 关闭 TB（默认开；步骤二 TB 是项目主入口）|
 
-新增 TB tag（写到 `eval_tb/<ckpt>/`）：
+**产物布局**（每次 eval 后）：
+
+```
+checkpoints/goalgen_v1_dit/eval/
+├─ eval_v1_summary.json        聚合指标 + _metric_doc 含义说明
+├─ eval_v1_perline.jsonl       每条样本一行（5 指标 + PNG 路径）
+├─ samples/                    轻量预览：前 N 条 pred / gt 分开 PNG
+│  ├─ 00000_pred.png
+│  ├─ 00000_gt.png
+│  └─ ...
+└─ cases/                      完整 dump（小样本时自动开）
+   └─ 00017__Accident__Town03_Rep0_route_001783__anchor12/
+      ├─ inputs/
+      │  ├─ system_prompt.txt          teacher-forced system 原文
+      │  ├─ user_prompt.txt            teacher-forced user 原文（含 ground-truth state）
+      │  ├─ memory.json                DrivingMemory（scenario / status / subgoal / event_sequence）
+      │  ├─ history_00.jpg ... 03.jpg  history RGB，**复制**到本地
+      │  └─ target_raw.jpg             真值 keyframe 原图（VAE 输入前）
+      ├─ outputs/
+      │  ├─ pred.png                   DiT 采样 + VAE 解码（模型生成）
+      │  ├─ target_vae_recon.png       真值经 VAE encode→decode（生成质量天花板）
+      │  └─ compare.png                **横拼三联图：target_raw | pred | target_vae_recon**
+      ├─ metrics.json                  单 case 5 指标 + _metric_doc
+      ├─ step.json                     完整元信息（dit_ckpt / qwen_adapter / euler_steps / seed）
+      └─ summary.md                    一页 markdown，**顶部直接引用 compare.png**
+```
+
+`summary.md` 渲染后顶部：
+
+```markdown
+## 最关心的可视化：target_raw | pred | target_vae_recon
+![compare](outputs/compare.png)
+
+- target_raw：真值 keyframe 原图
+- pred：DiT 采样 + VAE 解码（模型生成的子目标图像）
+- target_vae_recon：真值经 VAE encode→decode；生成质量天花板（pred 不会比这清）
+```
+
+`compare.png` 是用户最关心的可视化——一眼能看出"模型生成的子目标 vs 真值"差距，
+不用打开三个文件分别看。
+
+### 3.5.3 metrics 字段
+
+`eval_v1_summary.json` 顶层带 `_metric_doc`：
+
+```json
+{
+  "_metric_doc": {
+    "latent_mse": "MSE(z1_pred, z1_gt)；与训练损失同口径，越小越好",
+    "latent_cos": "cosine(z1_pred, z1_gt)；越接近 1 越好",
+    "pixel_l1": "解码 RGB [-1,1] L1；越小越好；地板 = VAE 重建误差",
+    "psnr": "解码 RGB PSNR (dB)；越大越好；地板 = VAE 重建 PSNR",
+    "velocity_cos": "5 个固定 t 上 v_pred vs v_target cosine 平均；越接近 1 越好"
+  },
+  "overall": {
+    "latent_mse_mean": 0.34, "latent_mse_std": 0.12,
+    "latent_cos_mean": 0.78, "latent_cos_std": 0.09,
+    "psnr_mean": 21.4, ...
+  },
+  "by_scenario": { ... }
+}
+```
+
+**`pixel_l1 / psnr` 的绝对值意义有限**——下限取决于 VAE 重建质量本身。做 base /
+LoRA / step-200 / step-1000 横向对比时看 delta；单看绝对值不要直接当"生成质量"。
+`target_vae_recon.png` 给出 VAE 重建天花板作参照。
+
+### 3.5.4 TB tag（写到 eval_tb/&lt;run_tag&gt;/）
 
 | Tag | 含义 |
 |---|---|
 | `eval/latent_mse` / `latent_cos` / `pixel_l1` / `psnr` / `velocity_cos` | overall mean，按 ckpt step 形成横向曲线 |
 | `eval/<...>_std` | overall std |
-| `eval_by_scenario/<sc>/<metric>` | 拆场景 |
+| `eval_by_scenario/<sc>/<metric>` | 拆场景看哪些场景拉低指标 |
 | `eval/pred_vs_gt` | image 面板：前 8 条 pred + gt 交错排 |
 
-### 3.5.2 场景 case dump（probe_v1）
+`--logdir checkpoints/goalgen_v1_dit` 一条命令同时看训练 `tb/` 和多个 ckpt 的
+`eval_tb/<ckpt>/`；不同 ckpt 在 TB 左侧 run 列表里并列。
+
+### 3.5.5 probe_v1.py（深度诊断）
 
 ```bash
 python qwen3vl_local/goalgen/probe_v1.py \
@@ -291,35 +375,31 @@ python qwen3vl_local/goalgen/probe_v1.py \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0
 
-# 同 seed + --case-suffix 对比多个 ckpt
+# 多 ckpt 横向对比：同 seed + --case-suffix 防覆盖
 python qwen3vl_local/goalgen/probe_v1.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/checkpoint-000500/goalgen_v1.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0 --case-suffix "_ckpt500"
 ```
 
-每条 case 目录：
+probe 的 case 目录布局（与 eval cases 类似，但多 `euler_trace.json`）：
 
 ```
-OUTPUT_DIR/eval_cases/Accident__Town03_..._001783__12/
+checkpoints/goalgen_v1_dit/eval_cases/<scenario>__<run>__<anchor>/
 ├─ input_history/00.jpg ... 03.jpg
-├─ target_raw.jpg              真值原图
-├─ target_vae_recon.png        真值 VAE encode→decode（生成质量天花板对比）
-├─ pred.png                    DiT 采样 + VAE 解码
-├─ euler_trace.json            per-step t / v_cos_vs_gt_direction / z_l2_to_gt
-├─ memory.json                 DrivingMemory 完整 dump
-├─ metrics.json                latent_mse / latent_cos / pixel_l1 / psnr / velocity_cos
-├─ meta.json                   dit_checkpoint / qwen_adapter / 推理耗时
-└─ overview.md                 一页 markdown，人工 review 入口
+├─ target_raw.jpg / target_vae_recon.png / pred.png
+├─ euler_trace.json   ← per-step t / v_cos_vs_gt_direction / z_l2_to_gt
+├─ memory.json / metrics.json / meta.json
+└─ overview.md
 ```
 
 `euler_trace.json` 里：
 - `v_cos_vs_gt_direction`：每步 v_pred 与真值方向 `z1_gt - z_init` 的 cosine；理想轨迹整段接近 1
 - `z_l2_to_gt`：当前 z_t 到真值 z1_gt 的 L2 距离；理想应单调下降
 
-`pixel_l1 / psnr` 是直接对比 VAE 解码后的 RGB；下限取决于 VAE 重建质量本身，
-所以光看绝对值意义有限——做"基础检查点 vs 训练后检查点"或"step-200 vs step-1000"
-横向对比时 delta 才有意义。`target_vae_recon.png` 是 VAE 自己的重建天花板。
+什么时候用 probe 而不是 eval cases：
+- 想看 Euler 32 步轨迹是否单调收敛（v_cos 曲线是否一路 ≈1、z_l2 是否单调下降）
+- 怀疑 DiT 采样在中段"走偏"——eval cases 只给最终输出，probe 给每一步
 
 ## 4. 排障
 

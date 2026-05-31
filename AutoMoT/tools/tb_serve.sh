@@ -21,9 +21,10 @@
 # 可选环境变量 override：
 #   TB_PORT=6007   ← 强制端口；不传时自动从 OS 取空闲端口
 #   TB_BIND=0.0.0.0 ← 改 bind 地址；默认 --bind_all（等价 0.0.0.0）
-#   TB_SSH_USER=cruser1@szh-gpu-cr02.apac.bosch.com ← 默认已写入用户当前远端 host
-#   TB_SSH_KEY="C:\Users\IOL4SGH\.ssh\id_rsa"      ← 默认已写入用户的私钥路径
 #   TB_EXTRA="--samples_per_plugin images=200"  ← 透传给 tensorboard 的额外参数
+#
+# 注：本机已有别的方式把远端 6006 通到本地（VSCode Remote 自动端口转发 / 现成隧道 /
+# 公网 IP 直连），脚本不再打印 ssh 隧道命令；只打印浏览器直接打开的 URL。
 #
 # 退出：
 #   Ctrl-C 一次即可，trap 会确保 TB 子进程一起退出，不会留僵尸。
@@ -103,10 +104,6 @@ if [[ -n "${TB_EXTRA:-}" ]]; then
     EXTRA_ARGS=(${TB_EXTRA})
 fi
 
-# 默认填用户当前的远端 ssh 信息，所以 stdout 打印的 ssh 命令可以直接复制粘贴。
-# 换其它远端时设 TB_SSH_USER / TB_SSH_KEY 即可 override。
-REMOTE_HOST="${TB_SSH_USER:-cruser1@szh-gpu-cr02.apac.bosch.com}"
-SSH_KEY="${TB_SSH_KEY:-C:\\Users\\IOL4SGH\\.ssh\\id_rsa}"
 LOGDIR_ABS="$(cd "$(dirname "${LOGDIR}")" 2>/dev/null && pwd || pwd)/$(basename "${LOGDIR}")"
 
 # ---- 4. 启动 TB ----
@@ -144,17 +141,11 @@ done
 cat <<EOF
 
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-[tb] TensorBoard 已启动，在本地浏览器打开它：
+[tb] TensorBoard 已启动 → 在本地浏览器直接打开：
 
-  步骤 1：在本地（不是远端）打开一个新终端，跑下面这条命令开 ssh 隧道：
-      ssh -i "${SSH_KEY}" -N -L ${PORT}:localhost:${PORT} ${REMOTE_HOST}
-
-  步骤 2：在本地浏览器打开：
       http://localhost:${PORT}
 
 注：
-  - 远端如果有公网 IP 且 ${PORT} 端口防火墙放行，也可以直接访问
-    http://<远端公网IP>:${PORT} 而不开隧道；大部分集群都不允许，所以推荐隧道。
   - 训练 + eval 同时跑时，TB 左侧 run 列表会显示 tb / eval_tb 两个子目录。
   - Ctrl-C 关掉本脚本时 TensorBoard 也会一起退出。
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>

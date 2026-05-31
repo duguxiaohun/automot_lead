@@ -1,52 +1,61 @@
-"""SFT v1 离线评估 — 跑 val.jsonl，输出 4 个核心指标 + anchor=12 sanity。
+"""SFT v1 离线评估 — 跑 val.jsonl，输出指标 + 小样本完整结果 dump。
 
 复用 AutoMoT/qwen3vl_local/engine.py 的 LocalQwen3VLInstructEngine 做推理；
 LoRA adapter 用 peft 加载到 base model。
 
-指标（与 tools/SFT_V1_PLAN.md §8 一致）：
-  - keep_accuracy:      保持类样本 STATUS == GT 的比例
-  - advance_accuracy:   推进类样本 STATUS == GT 的比例
-  - early_advance_rate: 保持类样本 STATUS == next(GT) 的比例（核心痛点）
-  - anchor12_sanity:    anchor=12 fail case 上 STATUS 是否回到 initial
+四个核心指标（与 tools/SFT_V1_PLAN.md §8 一致；含义见 metrics.json["_metric_doc"]）：
+  - keep_accuracy:      保持类样本 STATUS == GT 的比例（越大越好）
+  - advance_accuracy:   推进类样本 STATUS == GT 的比例（越大越好）
+  - early_advance_rate: 保持类样本 STATUS == next(GT) 的比例（越小越好，核心痛点）
+  - anchor12_sanity:    anchor=12 fail case 上 STATUS 是否回到 initial（True 即过）
 
-cache_system_prompt 默认开启：所有样本 system prompt 相同，prefix KV cache
-复用可省约 50% 推理时间。
+输出布局（与 sft_v1_train.sh 同根，--save-root 必填）：
+  <save_root>/eval/metrics.json           聚合指标 + _metric_doc 说明
+  <save_root>/eval/predictions.jsonl      每条样本一行（含 raw_text / parsed）
+  <save_root>/eval/predictions_diff.jsonl 只保留 pred ≠ gt 的样本（人工查错）
+  <save_root>/eval/cases/<scenario>__<run>__<anchor>/   小样本完整 dump（默认开）
+      inputs/system_prompt.txt           system prompt 原文
+      inputs/user_prompt.txt             user prompt 原文（去 <image> 占位）
+      inputs/image_00.jpg ... image_03.jpg  history RGB，**复制**到本地（不 symlink）
+      outputs/raw_text.txt               模型 raw 输出
+      outputs/parsed.json                解析后的 status/subgoal/analysis
+      step.json                          单 case 完整元信息
+      summary.md                         一页 markdown，顶部突出 SUBGOAL 对比表
+  <save_root>/eval_tb/<run_tag>/         可选 TB scalar/text（默认 --no-tb，
+                                         因为本项目 TB 入口在步骤二 GoalGen 那侧）
 
-输出布局（与 sft_v1_train.sh 同根，OUTPUT_DIR 平铺）：
-  传 --save-root <OUTPUT_DIR> 时（推荐，新默认）：
-    <save_root>/eval/metrics.json
-    <save_root>/eval/predictions.jsonl
-    <save_root>/eval/predictions_diff.jsonl
-    <save_root>/eval_tb/<run_tag>/   ← scalar (keep_acc / adv_acc / early_adv ...) + text
-  不传 --save-root 时：沿用旧行为，写到 eval_json/sft_v1_metrics.json 等老路径。
+完整 dump 触发条件：
+  默认在 --max-samples > 0 时启用（小样本 spot-check 场景），dump 数量 = max-samples；
+  也可显式 --full-dump 开 / --no-full-dump 关；--full-dump-limit N 限制 dump 数量。
+  当 --max-samples=0（跑全集 val）时，dump 默认关——几百条样本写完整 dump 既慢又占盘。
 
 多卡分片（H）：
   脚本读取 RANK / WORLD_SIZE / LOCAL_RANK 环境变量；torchrun 启动时自动分片，
   每个 rank 处理 sample_idx % world_size == rank 的样本。聚合阶段用
   all_gather_object 把所有 predictions 合到 rank0，再统一写文件 + TB。
-  单卡用法不变（不需要 torchrun）。
+  完整 dump 的文件由各 rank 各自落盘（per-case 目录互不冲突）。
 
 典型用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
 
 ```bash
-# 单卡，eval 写到 OUTPUT_DIR/eval/ + OUTPUT_DIR/eval_tb/ （推荐）
-python tools/eval_sft_v1.py --lora-dir checkpoints/sft_v1_lora \
+# 小样本验收 + 完整 dump（推荐：拿到本地人工 review）
+python tools/eval_sft_v1.py \
+  --lora-dir checkpoints/sft_v1_lora \
+  --save-root checkpoints/sft_v1_lora \
+  --max-samples 100
+
+# 全集跑指标（不 dump 详情）
+python tools/eval_sft_v1.py \
+  --lora-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/sft_v1_lora
 
-# 多卡分片
+# 多卡分片跑全集
 torchrun --standalone --nproc_per_node=4 tools/eval_sft_v1.py \
   --lora-dir checkpoints/sft_v1_lora --save-root checkpoints/sft_v1_lora
 
-# 只评估 base 模型，作为微调前 baseline（仍可指定 save-root）
-python tools/eval_sft_v1.py --lora-dir "" --save-root checkpoints/sft_v1_lora \
-  --run-tag base
-
-# 快速验收前 32 条样本，并跳过 anchor=12 单例
-python tools/eval_sft_v1.py --max-samples 32 --skip-anchor12-sanity \
-  --save-root checkpoints/sft_v1_lora
-
-# 旧用法（无 save-root，落到 eval_json/）依旧能跑：
-python tools/eval_sft_v1.py
+# 只评估 base 模型，做微调前 baseline
+python tools/eval_sft_v1.py --lora-dir "" \
+  --save-root checkpoints/sft_v1_lora --run-tag base --max-samples 100
 ```
 
 评估逻辑：
@@ -62,6 +71,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import shutil
 import sys
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Tuple
@@ -201,6 +211,11 @@ def extract_assistant_target(sample: Dict) -> Dict[str, str]:
     }
 
 
+def extract_assistant_target_raw(sample: Dict) -> str:
+    """完整 GT 文本（含 ANALYSIS + STATUS + SUBGOAL），供 dump 落 gt.txt 使用。"""
+    return sample["messages"][-1]["content"]
+
+
 def reconstruct_prompts(sample: Dict) -> Dict[str, str]:
     """从 jsonl 还原 system_prompt / user_prompt 字符串与 image 路径。
 
@@ -262,6 +277,190 @@ def predict_status(
     """
     _, parsed = predict_full(engine, sample, images_loader)
     return parsed.get("status")
+
+
+# ---------------------------------------------------------------------------
+# 完整 dump：把单条样本的 inputs/outputs/summary 全写到一个 case 目录
+# ---------------------------------------------------------------------------
+
+def _copy_image(src: str, dst: pathlib.Path) -> bool:
+    """把 image 复制到 case 目录（不 symlink；用户要的是"图像存本地"，
+    远端跑完拉到本地时 symlink 会断）。源图不存在时返回 False，调用方记日志。
+    """
+    src_path = pathlib.Path(src)
+    if not src_path.exists():
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src_path, dst)
+    return True
+
+
+def _format_status_subgoal_comparison_md(
+    gt_status: Optional[str],
+    pred_status: Optional[str],
+    gt_subgoal: Optional[str],
+    pred_subgoal: Optional[str],
+) -> str:
+    """渲染最突出的 GT vs Pred 对比表。
+    模型每条样本最关心的就是 STATUS / SUBGOAL 两行是不是和真值一致；
+    这里加上 ✅/❌ 让人一眼分辨。
+    """
+    status_match = "✅" if gt_status == pred_status else "❌"
+    subgoal_match = "✅" if gt_subgoal == pred_subgoal else "❌"
+    return (
+        "| field | GT (truth) | Pred (model) | match |\n"
+        "|---|---|---|---|\n"
+        f"| **STATUS**  | `{gt_status}` | `{pred_status}` | {status_match} |\n"
+        f"| **SUBGOAL** | `{gt_subgoal}` | `{pred_subgoal}` | {subgoal_match} |\n"
+    )
+
+
+def _render_case_summary_md(
+    sample: Dict[str, Any],
+    sample_idx: int,
+    system_prompt: str,
+    user_prompt: str,
+    gt_status: Optional[str],
+    gt_subgoal: Optional[str],
+    gt_raw: str,
+    pred_status: Optional[str],
+    pred_subgoal: Optional[str],
+    pred_raw: str,
+    error_kind: str,
+    error_msg: Optional[str],
+    saved_images: List[str],
+    args: argparse.Namespace,
+) -> str:
+    """一页 markdown：顶部 SUBGOAL/STATUS 对比表 → 输入图引用 → 完整 prompt → GT vs Pred 原文。
+    刻意把对比表放最上面：人工 review 第一眼就能看到对错。
+    """
+    sc = sample.get("scenario", "?")
+    rid = sample.get("run_id", "?")
+    anc = sample.get("anchor", "?")
+    is_trans = sample.get("is_transition_sample", False)
+    lines: List[str] = [
+        f"# Case: {sc}/{rid} anchor={anc} (transition={is_trans})",
+        "",
+        f"- val.jsonl sample_idx: **{sample_idx}**",
+        f"- error_kind: **{error_kind}**" + (f"（{error_msg}）" if error_msg else ""),
+        f"- lora_dir: `{args.lora_dir or '<base>'}`",
+        f"- model_dir: `{args.model_dir}`",
+        "",
+        "## GT vs Pred",
+        _format_status_subgoal_comparison_md(gt_status, pred_status, gt_subgoal, pred_subgoal),
+        "",
+        "## Input images (history → current，oldest→newest)",
+    ]
+    src_paths = sample.get("images", [])
+    for k, fname in enumerate(saved_images):
+        src = src_paths[k] if k < len(src_paths) else ""
+        lines.append(f"- ![img{k}](inputs/{fname}) `inputs/{fname}` ← src `{src}`")
+    lines.append("")
+    lines.append("## System prompt")
+    lines.append("```")
+    lines.append(system_prompt)
+    lines.append("```")
+    lines.append("")
+    lines.append("## User prompt")
+    lines.append("```")
+    lines.append(user_prompt)
+    lines.append("```")
+    lines.append("")
+    lines.append("## GT (assistant ground truth)")
+    lines.append("```")
+    lines.append(gt_raw)
+    lines.append("```")
+    lines.append("")
+    lines.append("## Pred (model raw output)")
+    lines.append("```")
+    lines.append(pred_raw or "<inference error>")
+    lines.append("```")
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def dump_case(
+    case_dir: pathlib.Path,
+    sample: Dict[str, Any],
+    sample_idx: int,
+    pieces: Dict[str, Any],
+    gt_status: Optional[str],
+    gt_subgoal: Optional[str],
+    gt_raw: str,
+    pred_status: Optional[str],
+    pred_subgoal: Optional[str],
+    pred_raw: str,
+    error_kind: str,
+    error_msg: Optional[str],
+    args: argparse.Namespace,
+) -> None:
+    """把一条样本完整 dump 到 <case_dir>/{inputs, outputs, step.json, summary.md}。
+
+    与 qwen3vl_instruct_paradigm_a_runner.dump_record 同口径：inputs / outputs 二分
+    + 顶层 summary.md 一页可读；区别是这里没有 KV trace（SFT 推理走 generate，
+    KV 内部细节由 probe_sft_v1.py 提供）。
+    """
+    inputs_dir = case_dir / "inputs"
+    outputs_dir = case_dir / "outputs"
+    inputs_dir.mkdir(parents=True, exist_ok=True)
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1) inputs：prompt 原文 + 图像复制到本地（用户明确要求"图像也得存本地"）。
+    (inputs_dir / "system_prompt.txt").write_text(pieces["system"], encoding="utf-8")
+    (inputs_dir / "user_prompt.txt").write_text(pieces["user"], encoding="utf-8")
+    saved_image_names: List[str] = []
+    for k, src in enumerate(pieces.get("images", [])):
+        fname = f"image_{k:02d}.jpg"
+        ok = _copy_image(src, inputs_dir / fname)
+        if ok:
+            saved_image_names.append(fname)
+        else:
+            print(f"[dump][warn] sample_idx={sample_idx} 源图不存在，跳过：{src}")
+
+    # 2) outputs：raw + parsed。
+    (outputs_dir / "raw_text.txt").write_text(pred_raw or "<inference error>", encoding="utf-8")
+    parsed_obj = {
+        "pred_status": pred_status,
+        "pred_subgoal": pred_subgoal,
+        "gt_status": gt_status,
+        "gt_subgoal": gt_subgoal,
+        "status_match": gt_status == pred_status,
+        "subgoal_match": gt_subgoal == pred_subgoal,
+        "error_kind": error_kind,
+        "error_msg": error_msg,
+    }
+    (outputs_dir / "parsed.json").write_text(
+        json.dumps(parsed_obj, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # 3) step.json：单条 case 的完整元信息（含 val.jsonl 行号，可回溯）。
+    step = {
+        "sample_idx": sample_idx,
+        "scenario": sample.get("scenario"),
+        "run_id": sample.get("run_id"),
+        "anchor": sample.get("anchor"),
+        "is_transition_sample": sample.get("is_transition_sample", False),
+        "image_paths_src": sample.get("images", []),
+        "image_files_local": saved_image_names,
+        "gt": {"status": gt_status, "subgoal": gt_subgoal, "raw": gt_raw},
+        "pred": {"status": pred_status, "subgoal": pred_subgoal, "raw": pred_raw},
+        "error_kind": error_kind,
+        "error_msg": error_msg,
+        "lora_dir": args.lora_dir,
+        "model_dir": args.model_dir,
+    }
+    (case_dir / "step.json").write_text(
+        json.dumps(step, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # 4) summary.md：一页可读，顶部就是 SUBGOAL/STATUS 对比表。
+    md = _render_case_summary_md(
+        sample, sample_idx, pieces["system"], pieces["user"],
+        gt_status, gt_subgoal, gt_raw,
+        pred_status, pred_subgoal, pred_raw,
+        error_kind, error_msg, saved_image_names, args,
+    )
+    (case_dir / "summary.md").write_text(md, encoding="utf-8")
 
 
 def next_event_in_seq(scenario: str, status: Optional[str]) -> Optional[str]:
@@ -405,57 +604,23 @@ def run_anchor12_sanity(
 # 主流程
 # ---------------------------------------------------------------------------
 
-def _resolve_output_paths(args: argparse.Namespace) -> Dict[str, Optional[pathlib.Path]]:
-    """根据 --save-root 与旧 --output-json/--predictions-* 决定最终落盘路径。
+def _resolve_output_paths(args: argparse.Namespace) -> Dict[str, pathlib.Path]:
+    """所有 eval 产物在 <save_root>/eval/ 与 <save_root>/eval_tb/<run_tag>/ 之下。
 
-    平铺规则（与 sft_v1_train.sh 同根）：
-      传 --save-root <ROOT> 时，所有 eval 产物落到 <ROOT>/eval/* + <ROOT>/eval_tb/<run_tag>/。
-      不传时沿用旧默认（eval_json/sft_v1_*）。
-
-    用户显式给 --output-json 等老参数时，老参数永远胜出（J 兼容性）。
+    --save-root 是必填（main 里已 argparse required=True 强制）。老 --out-dir /
+    --output-json 等已删，路径不再可单文件 override；要分文件夹直接换 --save-root。
     """
-    out: Dict[str, Optional[pathlib.Path]] = {
-        "metrics_json": None,
-        "predictions_jsonl": None,
-        "predictions_diff_jsonl": None,
-        "tb_dir": None,
-    }
-
-    save_root = args.save_root.strip() if args.save_root else ""
+    root = pathlib.Path(args.save_root)
     run_tag = (args.run_tag or "").strip() or _default_run_tag(args)
-
-    if save_root:
-        root = pathlib.Path(save_root)
-        eval_dir = root / "eval"
-        tb_dir = root / "eval_tb" / run_tag
-        out["metrics_json"] = eval_dir / "metrics.json"
-        out["predictions_jsonl"] = eval_dir / "predictions.jsonl"
-        out["predictions_diff_jsonl"] = eval_dir / "predictions_diff.jsonl"
-        out["tb_dir"] = tb_dir
-    else:
-        # 旧默认值；与历史命令行兼容。
-        out["metrics_json"] = pathlib.Path(args.output_json) if args.output_json else None
-        out["predictions_jsonl"] = pathlib.Path(args.predictions_jsonl) if args.predictions_jsonl else None
-        out["predictions_diff_jsonl"] = pathlib.Path(args.predictions_diff_jsonl) if args.predictions_diff_jsonl else None
-        out["tb_dir"] = pathlib.Path(args.tb_dir) if args.tb_dir else None
-
-    # 用户显式传了非默认 --output-json 等，强制覆盖（防止 save-root 静默掩盖）。
-    parser_defaults = {
-        "output_json": str(_AUTOMOT_ROOT / "eval_json" / "sft_v1_metrics.json"),
-        "predictions_jsonl": str(_AUTOMOT_ROOT / "eval_json" / "sft_v1_predictions.jsonl"),
-        "predictions_diff_jsonl": str(_AUTOMOT_ROOT / "eval_json" / "sft_v1_predictions_diff.jsonl"),
+    eval_dir = root / "eval"
+    return {
+        "eval_dir": eval_dir,
+        "metrics_json": eval_dir / "metrics.json",
+        "predictions_jsonl": eval_dir / "predictions.jsonl",
+        "predictions_diff_jsonl": eval_dir / "predictions_diff.jsonl",
+        "cases_dir": eval_dir / "cases",
+        "tb_dir": root / "eval_tb" / run_tag,
     }
-    if save_root:
-        if args.output_json and args.output_json != parser_defaults["output_json"]:
-            out["metrics_json"] = pathlib.Path(args.output_json)
-        if args.predictions_jsonl and args.predictions_jsonl != parser_defaults["predictions_jsonl"]:
-            out["predictions_jsonl"] = pathlib.Path(args.predictions_jsonl)
-        if args.predictions_diff_jsonl and args.predictions_diff_jsonl != parser_defaults["predictions_diff_jsonl"]:
-            out["predictions_diff_jsonl"] = pathlib.Path(args.predictions_diff_jsonl)
-        if args.tb_dir:
-            out["tb_dir"] = pathlib.Path(args.tb_dir)
-
-    return out
 
 
 def _default_run_tag(args: argparse.Namespace) -> str:
@@ -485,52 +650,32 @@ def main():
                         help="0 表示评估全部 val 样本，>0 时只评估前 N 条做快速验收。")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--torch-dtype", default="bfloat16")
-    # ---- 新增：统一保存根目录（B + J）----
-    # 传 --save-root <OUTPUT_DIR> 时，metrics / predictions / TB 全部落到
-    # <OUTPUT_DIR>/eval/ + <OUTPUT_DIR>/eval_tb/<run_tag>/，与训练 OUTPUT_DIR/tb
-    # 平铺在同一根下，TB 一条 --logdir 就能同时看训练曲线 + 多个 ckpt 的 eval 指标。
-    # 不传时保持旧行为（写 eval_json/sft_v1_*）。
-    parser.add_argument("--save-root", type=str, default="",
-                        help="统一保存根目录（推荐：与 train 的 OUTPUT_DIR 相同）。"
-                             "传时 metrics/predictions/TB 全部落到 <root>/eval/ 与 <root>/eval_tb/<run_tag>/。"
-                             "不传则沿用 --output-json / --predictions-jsonl 老默认。")
+    # ---- 统一保存根目录（必填）----
+    # metrics / predictions / cases / TB 全部落到 <save_root>/eval/ 与
+    # <save_root>/eval_tb/<run_tag>/，与训练 <save_root>/tb/ 同根。
+    parser.add_argument("--save-root", type=str, required=True,
+                        help="统一保存根目录（必填，通常与 train 的 OUTPUT_DIR 相同）。"
+                             "metrics/predictions/cases 落到 <root>/eval/，TB 落到 <root>/eval_tb/<run_tag>/。")
     parser.add_argument("--run-tag", type=str, default="",
                         help="TB run 子目录名，默认根据 --lora-dir 自动派生（base / ckpt300 / lora 等）。")
-    parser.add_argument("--tb-dir", type=str, default="",
-                        help="TB events 写入目录；不传时由 --save-root + --run-tag 决定。"
-                             "传空 + 没传 save-root → 关闭 TB 写入。")
-    parser.add_argument("--no-tb", action="store_true",
-                        help="完全关闭 TB 写入（仅保留 stdout + json 输出）。")
-    # ---- 关于 --cache-system-prompt ----
-    # 这个开关控制 engine.generate 是否复用 system prompt 的 KV cache prefix。
-    # 所有 val 样本共享同一段 system prompt（约 400 token），开启后每条样本
-    # 跳过 system prompt 的 prefill 重算，整轮 eval 时间约能省 50%。
-    #
-    # 旧实现 action="store_true" + default=True 的死锁：
-    #   * store_true 只在命令行写 --cache-system-prompt 时把值设 True，否则 default；
-    #   * default 又写死 True；
-    #   * 结果：不管命令行写不写这个 flag，最终值永远是 True，没有任何方式关闭。
-    #
-    # 修法用 argparse.BooleanOptionalAction（Python 3.9+）：
-    #   * 自动配对生成 --cache-system-prompt / --no-cache-system-prompt 两个 flag；
-    #   * default=True 表示默认开启，用户加 --no-cache-system-prompt 即可关闭；
-    #   * 关闭后 engine 每条样本重新 prefill system prompt（debug KV cache 路径用）。
+    parser.add_argument("--tb", action="store_true",
+                        help="显式打开 TB 写入；默认 --no-tb（本项目 TB 入口在步骤二 GoalGen 那侧）。")
+    parser.add_argument("--no-tb", dest="tb", action="store_false",
+                        help="关闭 TB（默认值）。")
+    parser.set_defaults(tb=False)
     parser.add_argument("--cache-system-prompt",
                         action=argparse.BooleanOptionalAction, default=True,
                         help="复用 system prompt 的 KV prefix，节省推理时间。"
                              "--no-cache-system-prompt 可关闭。")
-    parser.add_argument("--output-json", type=str,
-                        default=str(_AUTOMOT_ROOT / "eval_json" / "sft_v1_metrics.json"))
-    # ---- 逐条预测落盘（#5.5）----
-    # predictions-jsonl 写全部样本（用于离线对比 / 人工 review）；
-    # predictions-diff-jsonl 只写 pred ≠ gt 的样本，方便快速看错误 case。
-    # 空字符串表示跳过；默认开启全量 predictions，diff 默认与之同目录。
-    parser.add_argument("--predictions-jsonl", type=str,
-                        default=str(_AUTOMOT_ROOT / "eval_json" / "sft_v1_predictions.jsonl"),
-                        help="逐条 prediction 落盘路径；空字符串关闭。")
-    parser.add_argument("--predictions-diff-jsonl", type=str,
-                        default=str(_AUTOMOT_ROOT / "eval_json" / "sft_v1_predictions_diff.jsonl"),
-                        help="只落 pred_status != gt_status 的样本；空字符串关闭。")
+    # ---- 完整 dump 开关（用户最关心的"小样本完整保存"路径）----
+    parser.add_argument("--full-dump", dest="full_dump",
+                        action=argparse.BooleanOptionalAction, default=None,
+                        help="是否每条样本完整 dump（inputs/outputs/summary.md）。"
+                             "默认行为：--max-samples > 0 时开，跑全集（max-samples=0）时关。"
+                             "可显式 --full-dump / --no-full-dump 覆盖。")
+    parser.add_argument("--full-dump-limit", type=int, default=0,
+                        help="最多 dump 多少条样本（防止误开后铺满磁盘）。"
+                             "0 = 不限（受 --max-samples 限制）。")
     parser.add_argument("--skip-anchor12-sanity", action="store_true",
                         help="跳过原始 anchor=12 fail case 单例检查。")
     parser.add_argument("--anchor12-route-dir", type=str,
@@ -606,10 +751,24 @@ def main():
     n_keep = n_keep_correct = n_early_adv = 0
     n_adv = n_adv_correct = 0
     per_scenario: Dict[str, Counter] = defaultdict(Counter)
-    # 逐条 prediction 缓存：始终启用，便于 rank 间 all_gather 后由 rank0 重算指标；
-    # 一行 dict 几百字节，万级样本上限也只占几 MB，可接受。
+    # 逐条 prediction 缓存：始终启用，便于 rank 间 all_gather 后由 rank0 重算指标。
     predictions_records: List[Dict[str, Any]] = []
-    capture_predictions = bool(out_paths["predictions_jsonl"]) or bool(out_paths["predictions_diff_jsonl"]) or world_size > 1
+
+    # ---- 完整 dump 模式判定（用户最关心的"小样本完整保存"路径）----
+    # 默认行为：传 --max-samples > 0 时开（小样本 spot-check），跑全集时关。
+    # 显式 --full-dump / --no-full-dump 覆盖默认。
+    if args.full_dump is None:
+        full_dump_enabled = args.max_samples > 0
+    else:
+        full_dump_enabled = bool(args.full_dump)
+    # dump 数量上限：先看 --full-dump-limit，再 fall back 到全部样本。
+    dump_limit = args.full_dump_limit if args.full_dump_limit > 0 else len(samples)
+    cases_dir = out_paths["cases_dir"]
+    if full_dump_enabled and is_rank0(rank):
+        cases_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[dump] 完整 dump 启用 → cases_dir={cases_dir}（每条样本一个目录）")
+        print(f"[dump] dump 数量上限 = {dump_limit}（每个 rank 各自落盘，互不冲突）")
+    dump_count_local = 0  # 本 rank 已经 dump 的样本数
 
     for i, sample in enumerate(samples):
         # rank 分片：每条样本只在 i % world_size == rank 时由当前 rank 处理。
@@ -657,37 +816,66 @@ def main():
                 per_scenario[scenario]["adv_correct"] += 1
             per_scenario[scenario]["adv_total"] += 1
 
-        if capture_predictions:
-            # error_kind 按"为什么 pred 错"分类，方便后续 diff 文件直接做 Counter 统计：
-            #   ok                 — pred == gt
-            #   early_advance      — pred == next(gt)（keep 样本最关心的错误）
-            #   none               — 没有解析到 status（输出格式坏）
-            #   inference_error    — generate 阶段抛异常
-            #   other              — 其它（跳更后状态 / 非法 token / advance 样本未对齐 / ...）
-            if pred is None and err is not None:
-                error_kind = "inference_error"
-            elif pred is None:
-                error_kind = "none"
-            elif pred == gt_status:
-                error_kind = "ok"
-            elif not is_trans and pred == next_gt:
-                error_kind = "early_advance"
-            else:
-                error_kind = "other"
-            predictions_records.append({
-                "sample_idx": i,
-                "scenario": scenario,
-                "run_id": sample.get("run_id"),
-                "anchor": sample.get("anchor"),
-                "is_transition_sample": is_trans,
-                "gt_status": gt_status,
-                "gt_subgoal": gt_subgoal,
-                "pred_status": pred,
-                "pred_subgoal": pred_subgoal,
-                "raw_text": raw_text,
-                "error_kind": error_kind,
-                "error": err,
-            })
+        # error_kind 按"为什么 pred 错"分类，方便后续 diff 文件直接做 Counter 统计：
+        #   ok                 — pred == gt
+        #   early_advance      — pred == next(gt)（keep 样本最关心的错误）
+        #   none               — 没有解析到 status（输出格式坏）
+        #   inference_error    — generate 阶段抛异常
+        #   other              — 其它（跳更后状态 / 非法 token / advance 样本未对齐 / ...）
+        if pred is None and err is not None:
+            error_kind = "inference_error"
+        elif pred is None:
+            error_kind = "none"
+        elif pred == gt_status:
+            error_kind = "ok"
+        elif not is_trans and pred == next_gt:
+            error_kind = "early_advance"
+        else:
+            error_kind = "other"
+        predictions_records.append({
+            "sample_idx": i,
+            "scenario": scenario,
+            "run_id": sample.get("run_id"),
+            "anchor": sample.get("anchor"),
+            "is_transition_sample": is_trans,
+            "gt_status": gt_status,
+            "gt_subgoal": gt_subgoal,
+            "pred_status": pred,
+            "pred_subgoal": pred_subgoal,
+            "raw_text": raw_text,
+            "error_kind": error_kind,
+            "error": err,
+        })
+
+        # ---- 完整 dump：每条样本一个 case 目录（在 rank 分片内顺序写）----
+        # 写到 dump_limit 上限后停 — 防止跑大集合时误开把磁盘灌满。
+        if full_dump_enabled and dump_count_local < dump_limit:
+            pieces = reconstruct_prompts(sample)
+            gt_full_raw = extract_assistant_target_raw(sample)
+            case_name = (
+                f"{i:05d}__{scenario}__{sample.get('run_id', 'norun')}"
+                f"__anchor{sample.get('anchor', 'na')}__{error_kind}"
+            )
+            try:
+                dump_case(
+                    case_dir=cases_dir / case_name,
+                    sample=sample,
+                    sample_idx=i,
+                    pieces=pieces,
+                    gt_status=gt_status,
+                    gt_subgoal=gt_subgoal,
+                    gt_raw=gt_full_raw,
+                    pred_status=pred,
+                    pred_subgoal=pred_subgoal,
+                    pred_raw=raw_text or "",
+                    error_kind=error_kind,
+                    error_msg=err,
+                    args=args,
+                )
+                dump_count_local += 1
+            except Exception as dump_err:
+                # dump 失败不影响主指标；只 warn。
+                print(f"[dump][warn] sample_idx={i} dump 失败：{dump_err}")
 
         if (i + 1) % 50 == 0 and is_rank0(rank):
             # 多卡时本地 rank 的 n_keep_correct 只是本分片的视角，先打印一个本地估计；
@@ -735,8 +923,17 @@ def main():
                 per_scenario[scenario]["adv_correct"] += 1
             per_scenario[scenario]["adv_total"] += 1
 
-    # metrics 保持 JSON 可序列化，方便后续画曲线或比较多个 checkpoint。
+    # metrics 顶部放一个 _metric_doc：人工打开 metrics.json 就能直接看到每个指标含义，
+    # 不用再翻文档。用户明确反馈"指标太多看不懂"，文档放在数据旁边最不容易丢。
+    metric_doc = {
+        "keep_accuracy": "保持类样本 STATUS == GT 的比例（越大越好；模型该 hold 时 hold）",
+        "advance_accuracy": "推进类样本 STATUS == GT 的比例（越大越好；模型该 advance 时 advance）",
+        "early_advance_rate": "保持类样本 STATUS == next(GT) 的比例（越小越好；模型不该 advance 时 advance — 核心痛点）",
+        "anchor12_sanity": "anchor=12 固定 fail case 上 STATUS 是否回到 initial；passed=true 即原始 bug 已修",
+        "per_scenario": "按 scenario 拆开的细分计数：{keep_correct, keep_total, early_advance, adv_correct, adv_total}",
+    }
     metrics = {
+        "_metric_doc": metric_doc,
         "n_total": len(predictions_records) if predictions_records else len(samples),
         "n_keep": n_keep,
         "n_advance": n_adv,
@@ -779,11 +976,11 @@ def main():
         kinds = Counter(r.get("error_kind", "?") for r in predictions_records)
         print(f"[done] diff written to {diff_path} (n={len(diff_rows)}); error_kind={dict(kinds)}")
 
-    # ---- TensorBoard 写入（G）----
-    # 把 scalar 指标 + 几条文本样例（pred vs gt）写到 eval_tb/<run_tag>/，
-    # 让训练 OUTPUT_DIR/tb 与多次 eval 在同一 --logdir 下并列出现。
+    # ---- TensorBoard 写入（默认关）----
+    # 用户明确要求："tb 只需要步骤二（GoalGen）的"。这里默认 --no-tb；用户显式 --tb 才写。
+    # 写入时仍然落到 eval_tb/<run_tag>/，与训练 OUTPUT_DIR/tb 同根。
     tb_dir = out_paths["tb_dir"]
-    if (not args.no_tb) and tb_dir is not None and _TB_AVAILABLE:
+    if args.tb and _TB_AVAILABLE:
         tb_dir.mkdir(parents=True, exist_ok=True)
         writer = SummaryWriter(log_dir=str(tb_dir))
         try:
@@ -817,12 +1014,15 @@ def main():
             print(f"[tb] eval scalars + text written to {tb_dir}")
         finally:
             writer.close()
-    elif args.no_tb:
-        print("[tb] 已通过 --no-tb 关闭 TB 写入。")
-    elif tb_dir is None:
-        print("[tb] 未指定 --save-root / --tb-dir，跳过 TB 写入。")
+    elif not args.tb:
+        print("[tb] 默认不写 TB（本项目 TB 入口在步骤二 GoalGen）；需要时加 --tb。")
     elif not _TB_AVAILABLE:
         print("[tb] 警告：SummaryWriter 不可用（torch.utils.tensorboard 导入失败），跳过 TB 写入。")
+
+    if full_dump_enabled and is_rank0(rank):
+        # rank0 看不见其它 rank 的本地 dump_count；只汇报本 rank 的实际写入。
+        # 用户跑单卡时 rank0 拿到全部 dump，多卡时各 rank 写各自的，目录里数一下即可。
+        print(f"[dump] rank0 本地完整 dump 已写 {dump_count_local} 条到 {cases_dir}")
 
     cleanup_distributed()
 
