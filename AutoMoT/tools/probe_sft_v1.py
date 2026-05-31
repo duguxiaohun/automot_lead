@@ -31,21 +31,20 @@ eval_sft_v1.py 是聚合视角：跑完整 val 出 keep_acc / early_advance / pe
 典型用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
 
 ```bash
-# 在 LoRA 下抽 16 个场景样本（每场景 4 条）做人工 review
+# 默认跑 base，抽 16 个场景样本（每场景 4 条）做人工 review
 python tools/probe_sft_v1.py \
-  --lora-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/sft_v1_lora \
   --num-per-scenario 4 --seed 0
 
-# 跑 base 模型同样 16 条样本：替 --lora-dir ""，--seed 保持一致 → 选中样本完全一致，
-# 可以把两个 case dump 目录并排比较
+# 只有明确要看 LoRA 时才传 adapter；同 seed 选中样本完全一致，方便并排比较
 python tools/probe_sft_v1.py \
-  --lora-dir "" --save-root checkpoints/sft_v1_lora \
-  --num-per-scenario 4 --seed 0 --case-suffix "_base"
+  --lora-dir checkpoints/sft_v1_lora/checkpoint-900 \
+  --save-root checkpoints/sft_v1_lora \
+  --num-per-scenario 4 --seed 0 --case-suffix "_lora"
 
 # 只看 Accident / Construction 两个场景
 python tools/probe_sft_v1.py \
-  --lora-dir checkpoints/sft_v1_lora --save-root checkpoints/sft_v1_lora \
+  --save-root checkpoints/sft_v1_lora \
   --scenarios Accident,Construction --num-per-scenario 6 --seed 7
 ```
 
@@ -433,8 +432,8 @@ def main() -> None:
     parser.add_argument("--model-dir", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Instruct"))
     parser.add_argument("--lora-dir", type=str,
-                        default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v1_lora"),
-                        help="LoRA adapter；空串则跑 base 模型（适合做 LoRA vs base 横向对比）。")
+                        default="",
+                        help="可选 LoRA adapter；默认空串跑 base 模型且不会导入 peft。")
     parser.add_argument("--save-root", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v1_lora"),
                         help="case dump 写到 <save-root>/eval_cases/<scenario>__<run>__<anchor>/")

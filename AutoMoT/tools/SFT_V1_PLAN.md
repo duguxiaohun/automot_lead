@@ -78,10 +78,11 @@ ANALYSIS 段权重设为 0。
         [frame_final, total_frames-1] → "final"
 
     采样候选：
-        保持类：转换帧前后 ±2 的近边界样本丢弃（buffer），避免提前/滞后噪声
+        保持类：只丢弃转换帧前 buffer 帧（默认 f_t-2、f_t-1），避免把临界前帧当成稳定 keep
         推进类：对每个 GT 转换帧 f_t，保留 [f_t, f_t+K-1] 中所有跨段样本
                 即 prev=anchor-K 落在上一段、curr=anchor 落在新段
                 例如 K=4、f_t=100 时，100/101/102/103 都作为推进类
+                若 f_t=37、K=4、buffer=2：35/36 keep 丢弃；37/38/39/40 advance 保留
 
     stratified 取样到目标配比：
         推进类 35% / 保持类 65%（保持类 4 段平均分）

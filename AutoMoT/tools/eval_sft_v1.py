@@ -1,7 +1,7 @@
 """SFT v1 离线评估 — 跑 val.jsonl，输出指标 + 小样本完整结果 dump。
 
 复用 AutoMoT/qwen3vl_local/engine.py 的 LocalQwen3VLInstructEngine 做推理；
-LoRA adapter 用 peft 加载到 base model。
+默认只跑 base model；只有显式传 --lora-dir 时才导入 peft 并加载 LoRA adapter。
 
 四个核心指标（与 tools/SFT_V1_PLAN.md §8 一致；含义见 metrics.json["_metric_doc"]）：
   - keep_accuracy:      保持类样本 STATUS == GT 的比例（越大越好）
@@ -40,22 +40,22 @@ LoRA adapter 用 peft 加载到 base model。
 ```bash
 # 小样本验收 + 完整 dump（推荐：拿到本地人工 review）
 python tools/eval_sft_v1.py \
-  --lora-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/sft_v1_lora \
   --max-samples 100
 
 # 全集跑指标（不 dump 详情）
 python tools/eval_sft_v1.py \
-  --lora-dir checkpoints/sft_v1_lora \
   --save-root checkpoints/sft_v1_lora
 
 # 多卡分片跑全集
 torchrun --standalone --nproc_per_node=4 tools/eval_sft_v1.py \
-  --lora-dir checkpoints/sft_v1_lora --save-root checkpoints/sft_v1_lora
+  --save-root checkpoints/sft_v1_lora
 
-# 只评估 base 模型，做微调前 baseline
-python tools/eval_sft_v1.py --lora-dir "" \
-  --save-root checkpoints/sft_v1_lora --run-tag base --max-samples 100
+# 显式评估某个 LoRA checkpoint 时再传 adapter
+python tools/eval_sft_v1.py \
+  --lora-dir checkpoints/sft_v1_lora/checkpoint-900 \
+  --save-root checkpoints/sft_v1_lora/checkpoint-900 \
+  --max-samples 100
 ```
 
 评估逻辑：
@@ -72,6 +72,7 @@ import argparse
 import json
 import pathlib
 import shutil
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Tuple
@@ -88,6 +89,63 @@ import os  # noqa: E402
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+
+
+def _cli_value(name: str) -> Optional[str]:
+    """轻量读取启动参数，避免 argparse 之前就 import torch 后无法安全改 CUDA mask。"""
+    prefix = name + "="
+    for i, item in enumerate(sys.argv[1:]):
+        if item == name and i + 2 <= len(sys.argv[1:]):
+            return sys.argv[i + 2]
+        if item.startswith(prefix):
+            return item[len(prefix):]
+    return None
+
+
+def _pick_idle_gpus(n: int = 1) -> str:
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return ""
+    rows = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            rows.append((int(parts[1]), int(parts[2]), parts[0]))
+        except ValueError:
+            continue
+    rows.sort(key=lambda x: (x[0], x[1], int(x[2]) if x[2].isdigit() else 9999))
+    return ",".join(row[2] for row in rows[:n])
+
+
+def _maybe_set_idle_gpu_mask() -> None:
+    """单进程 eval 默认自动挑空闲 GPU；显式 device / CUDA mask / torchrun 时保持外部配置。"""
+    if os.environ.get("CUDA_VISIBLE_DEVICES"):
+        return
+    if int(os.environ.get("WORLD_SIZE", "1")) > 1 or os.environ.get("LOCAL_RANK"):
+        return
+    if os.environ.get("SFT_EVAL_DISABLE_AUTO_GPU", "0") == "1":
+        return
+    device_arg = _cli_value("--device")
+    if device_arg and device_arg != "auto":
+        return
+    selected = _pick_idle_gpus(1)
+    if selected:
+        os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        print(f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; process uses cuda:0/auto")
+
+
+_maybe_set_idle_gpu_mask()
 
 import torch  # noqa: E402
 import torch.distributed as dist  # noqa: E402
@@ -644,11 +702,13 @@ def main():
     parser.add_argument("--model-dir", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Instruct"))
     parser.add_argument("--lora-dir", type=str,
-                        default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v1_lora"),
-                        help="设为空字符串则只评估 base 模型（baseline）。")
+                        default="",
+                        help="可选 LoRA adapter；默认空字符串，只评估 base 模型且不会导入 peft。")
     parser.add_argument("--max-samples", type=int, default=0,
                         help="0 表示评估全部 val 样本，>0 时只评估前 N 条做快速验收。")
-    parser.add_argument("--device", default="auto")
+    parser.add_argument("--device", default="auto",
+                        help="默认 auto；单进程时会先自动挑空闲物理 GPU 并映射到 cuda:0。"
+                             "显式传 cuda:N 会关闭自动 GPU mask。")
     parser.add_argument("--torch-dtype", default="bfloat16")
     # ---- 统一保存根目录（必填）----
     # metrics / predictions / cases / TB 全部落到 <save_root>/eval/ 与

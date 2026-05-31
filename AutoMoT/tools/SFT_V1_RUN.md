@@ -69,6 +69,12 @@ python tools/build_sft_dataset_v1.py \
 - 单条样本里 `messages[1].content` 含 4 个 `<image>` 占位符；
 - `images` 列表里 4 个 RGB 路径都指向 `/data/lead_data/data/<scenario>/<run_id>/rgb/*.jpg`。
 
+**边界采样口径**：
+
+- 保持类只丢弃转换帧前的 buffer 帧，默认 `buffer=2`，也就是 `f_t-2` / `f_t-1`；
+- 转换帧 `f_t` 起已经属于新 STATUS，若 `prev_anchor=anchor-K` 仍在旧 STATUS，则作为推进类保留；
+- 例如 `f_t=37`、`K=4` 时，`anchor=35/36` 的 keep 被丢弃，`anchor=37/38/39/40` 都是 advance。
+
 **常见报错**：
 
 | 现象 | 原因 | 处理 |
@@ -331,28 +337,31 @@ dump + 全部指标；只有需要看"具体哪些 token 拉高了 loss"时再�
 ### 5.1 eval_sft_v1.py
 
 ```bash
-# 推荐：小样本 + 完整 dump（每条样本一个目录，inputs/outputs 都本地化）
+# 推荐：先跑 base 小样本 + 完整 dump；默认不会导入 peft / LoRA
 python tools/eval_sft_v1.py \
-    --lora-dir checkpoints/sft_v1_lora \
     --save-root checkpoints/sft_v1_lora \
     --max-samples 100
 
-# 跑全集只出聚合指标（不 dump，磁盘友好）
+# 跑全集只出聚合指标（不 dump，磁盘友好）；默认同样是 base
 python tools/eval_sft_v1.py \
-    --lora-dir checkpoints/sft_v1_lora \
     --save-root checkpoints/sft_v1_lora
 
 # 多卡分片（适合全集）
 torchrun --standalone --nproc_per_node=4 tools/eval_sft_v1.py \
-    --lora-dir checkpoints/sft_v1_lora \
     --save-root checkpoints/sft_v1_lora
 
-# base 模型 baseline；--run-tag base 让 TB run 名清晰
+# 只有明确要评估 LoRA adapter 时，才传 --lora-dir
 python tools/eval_sft_v1.py \
-    --lora-dir "" \
-    --save-root checkpoints/sft_v1_lora \
-    --run-tag base --max-samples 100
+    --lora-dir checkpoints/sft_v1_lora/checkpoint-900 \
+    --save-root checkpoints/sft_v1_lora/checkpoint-900 \
+    --max-samples 100
 ```
+
+单进程 eval 默认会在加载模型前调用 `nvidia-smi`，按 `memory.used`、`utilization.gpu`
+从小到大自动选择一张最空闲的 GPU，并设置 `CUDA_VISIBLE_DEVICES=<选中卡>`；进程内仍使用
+`cuda:0` / `--device auto`。如果外部已经设置 `CUDA_VISIBLE_DEVICES`、显式传
+`--device cuda:N`，或使用 `torchrun`，脚本会尊重外部设置。要关闭自动选卡：
+`SFT_EVAL_DISABLE_AUTO_GPU=1 python tools/eval_sft_v1.py ...`。
 
 **关键参数**：
 
@@ -363,6 +372,8 @@ python tools/eval_sft_v1.py \
 | `--max-samples` | 0 = 全集 | 截断 val 样本数 |
 | `--full-dump` / `--no-full-dump` | 自动 | 默认 `--max-samples > 0` 时开；显式覆盖 |
 | `--full-dump-limit N` | 0 = 不限 | dump 上限，防止误开铺满磁盘 |
+| `--lora-dir` | 空字符串 | 默认跑 base 且不会导入 `peft`；只有明确评估 LoRA 时才传 adapter 目录 |
+| `--device` | `auto` | 单进程默认配合自动选空闲 GPU；显式 `cuda:N` 时关闭自动 mask |
 | `--tb` / `--no-tb` | `--no-tb` | 默认不写 TB（步骤一 TB 已让位给步骤二） |
 | `--skip-anchor12-sanity` | False | 跳过 anchor=12 单例检查 |
 
@@ -473,16 +484,16 @@ b = {r['sample_idx']: r['pred_status'] for r in load('checkpoints/sft_v1_lora/ev
 ### 5.4 probe_sft_v1.py（深度诊断）
 
 ```bash
-# 抽 16 条样本（4 场景 × 4 条）
+# 默认跑 base，抽 16 条样本（4 场景 × 4 条）
 python tools/probe_sft_v1.py \
-    --lora-dir checkpoints/sft_v1_lora \
     --save-root checkpoints/sft_v1_lora \
     --num-per-scenario 4 --seed 0
 
-# 同 seed 跑 base，--case-suffix 防覆盖
+# 只有明确要看 LoRA adapter 时才传 --lora-dir，--case-suffix 防覆盖
 python tools/probe_sft_v1.py \
-    --lora-dir "" --save-root checkpoints/sft_v1_lora \
-    --num-per-scenario 4 --seed 0 --case-suffix "_base"
+    --lora-dir checkpoints/sft_v1_lora/checkpoint-900 \
+    --save-root checkpoints/sft_v1_lora \
+    --num-per-scenario 4 --seed 0 --case-suffix "_lora"
 ```
 
 probe 的 case 目录布局（与 eval cases 类似，但多 `token_loss.json`）：
@@ -518,8 +529,7 @@ python tools/build_sft_dataset_v1.py --data-root /data/lead_data/data \
 python tools/check_loss_mask.py && \
 bash tools/sft_v1_train.sh check && \
 bash tools/sft_v1_train.sh ddp && \
-python tools/eval_sft_v1.py --lora-dir checkpoints/sft_v1_lora \
-  --save-root checkpoints/sft_v1_lora --max-samples 100
+python tools/eval_sft_v1.py --save-root checkpoints/sft_v1_lora --max-samples 100
 ```
 
 **强烈建议分步跑**，每步看输出确认再进下一步——尤其是 step 2/3 sanity，
