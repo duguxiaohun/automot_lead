@@ -64,14 +64,19 @@ OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_v1_lora}"
 #
 # LORA_RANK=16 是 v1 的保守起点：参数量足够学习状态边界，又不至于大幅破坏 base 模型。
 # ---------------------------------------------------------------------------
-NUM_EPOCHS=3
-LR=1e-4
+# v1 第二轮调参（前一轮 ckpt-8100 严重过训，EOS 被刷崩、出现 STATUS 行循环复读）：
+# - NUM_EPOCHS 3→2：配合数据扩量到 ~14k 后，等效 batch=32 时总 step ≈ 900。
+# - LR 1e-4→5e-5：13 个有效 loss token 的薄监督，1e-4 容易把 LM 头冲过头。
+# - LORA_DROPOUT 0.05→0.1 / WEIGHT_DECAY 0.01→0.05：正则加倍，抑制对短目标过拟合。
+# - LORA_RANK/ALPHA 不动，保留容量；MAX_LENGTH 不动，覆盖 4 图 + memory。
+NUM_EPOCHS=2
+LR=5e-5
 WARMUP_RATIO=0.03
-WEIGHT_DECAY=0.01
+WEIGHT_DECAY=0.05
 MAX_LENGTH=3072
 LORA_RANK=16
 LORA_ALPHA=32
-LORA_DROPOUT=0.05
+LORA_DROPOUT=0.1
 LOGGING_STEPS=5
 
 # loss_scale 把 ANALYSIS 段 token 权重置 0（v1 不学 analysis 内容）。
@@ -334,7 +339,7 @@ swift sft \
     --save_steps "${SAVE_STEPS}" \
     --eval_steps "${EVAL_STEPS}" \
     --save_strategy "${SAVE_STRATEGY}" \
-    --save_total_limit 3 \
+    --save_total_limit 5 \
     --save_only_model true \
     --report_to tensorboard \
     --logging_dir "${OUTPUT_DIR}/tb" \

@@ -39,19 +39,24 @@ MODEL_DIR=/data/lead_data/checkpoints/Qwen3-VL-4B-Instruct \
 python tools/build_sft_dataset_v1.py \
     --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
     --data-root /data/lead_data/data \
-    --samples-per-scenario 200 \
+    --samples-per-scenario 800 \
     --output-dir checkpoints/sft_v1_data
 ```
+
+> 默认值已经是 `--samples-per-scenario 800 --advance-ratio 0.35`（脚本里写死，无需手动传）。
+> 前一轮 v1 训练用 200/0.25 + lr 1e-4 + epoch 3 跑出了 ckpt-8100 严重过训
+> （STATUS 答对但模型陷入复读、EOS 被刷崩）。当前默认配合 sft_v1_train.sh 的 epoch=2 / lr=5e-5
+> 重新校准训练 step 数。
 
 **预期输出**（节选）：
 
 ```
 [load] 7326 total runs in keyframes
 [filter] kept 7326 runs; skipped by status: {}
-[stratify] Accident         keep= 686 adv= 20 -> chosen=200 (adv=50)
-[stratify] AccidentTwoWays  keep=1024 adv= 20 -> chosen=200 (adv=50)
+[stratify] Accident         keep= 686 adv= 20 -> chosen=706 (adv=20)
+[stratify] AccidentTwoWays  keep=1024 adv= 20 -> chosen=800 (adv=20)
 ...
-[split] train=~7560  val=~840
+[split] train=~14400  val=~1600
 [write] checkpoints/sft_v1_data/train.jsonl
 [write] checkpoints/sft_v1_data/val.jsonl
 [write] checkpoints/sft_v1_data/stats.json
@@ -60,7 +65,7 @@ python tools/build_sft_dataset_v1.py \
 **通过条件**：
 
 - `train.jsonl` + `val.jsonl` + `stats.json` 三个文件都生成；
-- `stats.json` 里 `transition_in_train` ≈ 总数的 25%；
+- `stats.json` 里 `transition_in_train` ≈ 总数的 30% 左右（推进类天然稀少，达不到 35% 目标时会自动收所有可得的；不会复制样本）；
 - 单条样本里 `messages[1].content` 含 4 个 `<image>` 占位符；
 - `images` 列表里 4 个 RGB 路径都指向 `/data/lead_data/data/<scenario>/<run_id>/rgb/*.jpg`。
 
@@ -69,7 +74,7 @@ python tools/build_sft_dataset_v1.py \
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `keyframes_all_scenarios.json` 找不到 | 路径写错（远程不在仓库根） | 用 `--keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json` |
-| 某些 scenario 提示样本不足 200 | 该场景 `Completed/Perfect` run 太少 | 不影响，会自动按现有量取；看 `stats.json` 里 `chosen_total` 哪些场景 < 200 |
+| 某些 scenario 提示样本不足 800 | 该场景 `Completed/Perfect` run 太少 | 不影响，会自动按现有量取；看 `stats.json` 里 `chosen_total` 哪些场景 < 800 |
 | `images` 路径全是 `0000.jpg / 0001.jpg / ...` 字面值 | `--data-root` 在本机不可访问 | 远程跑时 data-root 必须可见，不然 fallback 会退到字面路径，训练时找不到图 |
 
 ---
@@ -163,7 +168,7 @@ ANALYSIS 占位段。ms-swift 3.12.x 不接受 JSON regex 形式的 `--loss_scal
 
 ---
 
-## 4. 正式训练（**8×H20 DDP，约 1.5 小时**）
+## 4. 正式训练（**8×H20 DDP，约 2 小时**）
 
 ```bash
 bash tools/sft_v1_train.sh ddp
@@ -212,16 +217,29 @@ CUDA_VISIBLE_DEVICES=2,5,6,7 bash tools/sft_v1_train.sh ddp
 
 **预期**：
 
-- 8 卡总 step ≈ 710（按 7560 train 样本 / 等效 bs 32 × 3 epoch）；如果改成 4 卡，等效 bs 约 16，step 约翻倍；
+- 8 卡总 step ≈ 900（按 ~14400 train 样本 / 等效 bs 32 × 2 epoch）；如果改成 4 卡，等效 bs 约 16，step 约翻倍；
 - 每 100 step 保存一次 LoRA adapter 到 `checkpoints/sft_v1_lora/checkpoint-XXX/`；
 - 训练 loss 大致从 check 阶段量级继续下降，最终以 eval 指标为准。
 
-**中途检查**：
+**中途检查 + 选 ckpt 策略**（吸取 ckpt-8100 教训）：
 
 - swift 会把日志写到 `checkpoints/sft_v1_lora/v*/logging.jsonl`；
-- 每 `save_steps=100` 会保存一次 LoRA adapter checkpoint，即使训练没跑完，也可以拿已有
-  `checkpoint-100` / `checkpoint-200` 做 `eval_sft_v1.py --lora-dir ...` 快速检查；
-- `save_total_limit=3`，最多保留最近 3 个 checkpoint。
+- 每 `save_steps=100` 会保存一次 LoRA adapter checkpoint，最多保留 5 个（`save_total_limit=5`）。
+- **不要无脑用最后一个 ckpt**。训练完后对每个保留的 ckpt 跑一次 eval 抽样，
+  挑 `early_advance_rate ↓` + `advance_accuracy ↑` 拐点的那个：
+
+  ```bash
+  for s in 200 400 600 800 900; do
+      python tools/eval_sft_v1.py \
+          --lora-dir checkpoints/sft_v1_lora/v*/checkpoint-${s} \
+          --save-root checkpoints/sft_v1_lora/v*/checkpoint-${s} \
+          --max-samples 200 --no-full-dump
+  done
+  ```
+
+  对照各 `eval/metrics.json`，曲线"训过头"的典型征兆是 `advance_accuracy` 涨到峰值后回落、
+  `early_advance_rate` 抬头，同时 `predictions_diff.jsonl` 里出现 `raw_text` 含
+  重复 `STATUS:` 行 → 选回退到峰值那个 ckpt，不要用更晚的。
 
 **单卡退回**（如果 8 卡 NCCL 出问题）：
 

@@ -84,8 +84,8 @@ ANALYSIS 段权重设为 0。
                 例如 K=4、f_t=100 时，100/101/102/103 都作为推进类
 
     stratified 取样到目标配比：
-        推进类 25% / 保持类 75%（保持类 4 段平均分）
-        每场景目标 200 样本
+        推进类 35% / 保持类 65%（保持类 4 段平均分）
+        每场景目标 800 样本
 
     每个采样帧 f：
         构造 anchor=f, prev_anchor=f-K=f-4
@@ -136,20 +136,26 @@ ms-swift 命令行：
 | 项 | DDP (8×H20) | 单卡 |
 |---|---|---|
 | precision | bf16 | bf16 |
-| num_train_epochs | 3 | 3 |
+| num_train_epochs | 2 | 2 |
 | per_device_train_batch_size | 2 | 4 |
 | gradient_accumulation_steps | 2 | 2 |
 | **等效 batch_size** | 32 | 8 |
-| learning_rate | 1e-4 | 1e-4 |
+| learning_rate | 5e-5 | 5e-5 |
 | warmup_ratio | 0.03 | 0.03 |
 | lr_scheduler_type | cosine | cosine |
-| weight_decay | 0.01 | 0.01 |
+| weight_decay | 0.05 | 0.05 |
+| lora_dropout | 0.1 | 0.1 |
 | max_length | 3072 | 3072 |
 | gradient_checkpointing | true | true |
 | save_steps / eval_steps | 100 | 200 |
+| save_total_limit | 5 | 5 |
 | logging_steps | 5 | 10 |
 
-总 step 数（DDP）：8400 train × 0.9 / 32 × 3 ≈ **710 step**，单 H20 ~25 min/epoch，约 **1.5 小时**全部跑完。
+总 step 数（DDP）：~16000 train × 0.9 / 32 × 2 ≈ **900 step**，单 H20 ~25 min/epoch，约 **2 小时**全部跑完。
+
+> 与 ckpt-8100 那次的关键区别：上一轮全集 ~4000、3 epoch、lr 1e-4，DDP 实际跑出
+> 8100 step 远超规划 → STATUS 答对但模型陷入 STATUS 行循环复读、EOS 信号被刷崩。
+> 本版数据 ×4 + 半 lr + 加正则 + epoch 砍半，目标把训练落在 plan §6 估算量级内。
 
 ## 7. 8×H20 DDP 启动
 
@@ -161,18 +167,20 @@ swift sft \
     --val_dataset "checkpoints/sft_v1_data/val.jsonl" \
     --train_type lora \
     --target_modules q_proj k_proj v_proj o_proj gate_proj up_proj down_proj \
-    --lora_rank 16 --lora_alpha 32 --lora_dropout 0.05 \
+    --lora_rank 16 --lora_alpha 32 --lora_dropout 0.1 \
     --freeze_vit true \
-    --num_train_epochs 3 \
+    --num_train_epochs 2 \
     --per_device_train_batch_size 2 \
     --gradient_accumulation_steps 2 \
-    --learning_rate 1e-4 \
+    --learning_rate 5e-5 \
     --warmup_ratio 0.03 --lr_scheduler_type cosine \
+    --weight_decay 0.05 \
     --bf16 true \
     --gradient_checkpointing true \
     --max_length 3072 \
     --output_dir "checkpoints/sft_v1_lora" \
     --logging_steps 5 --save_steps 100 --eval_steps 100 \
+    --save_total_limit 5 \
     --save_only_model true \
     --external_plugins "tools/sft_v1_loss_scale_plugin.py" \
     --loss_scale "sft_v1_analysis_mask"
@@ -231,5 +239,6 @@ eval 时打开 `cache_system_prompt=True`：所有样本 system prompt 相同，
 | 插件 regex 与 `PLACEHOLDER_ANALYSIS` 不匹配（占位句改了 regex 没改、或反过来） | `check_loss_mask.py` 的 plugin sanity 显示 STATUS/SUBGOAL 不在 loss 段，或 ANALYSIS 不在 0 权重段 | 先修 `sft_v1_loss_scale_plugin.py`；再跑 `python tools/check_loss_mask.py` 和 `bash tools/sft_v1_train.sh check` |
 | `Completed/Perfect` filter 后某场景样本不够 200 | 数据生成时 warning | `--samples_per_scenario` 调低，或允许该场景全收 |
 | 推进类样本天然稀少（每 route 约 4*K 个转换窗口样本） | val 集推进类样本 < 30 | 取消"按 run_id 划 val"改"按 scenario 内 8:2 划"，但 leak 风险上升 |
-| 训完保持类 accuracy 高但推进类 < 50% | 模型学过头变成"永远不推进" | 调推进类配比到 35%；或加 v1.5 阶段把推进类反复训 |
+| 训完保持类 accuracy 高但推进类 < 50% | 模型学过头变成"永远不推进" | 当前已用 advance_ratio=0.35 缓解；仍 < 50% 则加 v1.5 阶段把推进类反复训 |
+| 训完模型输出陷入 "STATUS: X\nSTATUS: X\n..." 循环复读直到 max_gen_tokens | 训练过度（早期 ckpt-8100 case）：lr 1e-4 + epoch 3 + 数据 ~4k 导致同一 sample 看几十遍，EOS 信号被先冲掉 | 用 eval_sft_v1.py 逐 ckpt（100/200/.../900）跑指标曲线，挑 early_advance_rate 最低 + advance_accuracy 不退化的拐点；**永远不要直接用最后一个 ckpt**；若整个曲线都坏，回退 lr 至 3e-5 |
 | 8 卡 DDP NCCL OOM 或卡顿 | H20 NVLink 带宽 / NCCL 配置 | 退到 4 卡或 2 卡 DDP；`per_device_train_batch_size` 降到 1 |
