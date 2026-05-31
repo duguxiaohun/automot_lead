@@ -382,7 +382,7 @@ def main() -> None:
     parser.add_argument("--keyframes", default=DEFAULT_KEYFRAMES)
     parser.add_argument("--data-root", default=DEFAULT_DATA_ROOT)
     parser.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints" / "goalgen_v1_data"))
-    parser.add_argument("--samples-per-scenario", type=int, default=1000,
+    parser.add_argument("--samples-per-scenario", type=int, default=0,
                         help="0 表示保留所有合法锚点；默认保留较大的均衡子集。")
     parser.add_argument("--frame-stride", type=int, default=1)
     parser.add_argument("--min-future-gap", type=int, default=1,

@@ -42,7 +42,12 @@ from qwen3vl_local.goalgen.dit import (  # noqa: E402
     DiTMoTConfig,
     language_kv_input_dim_from_pooled,
 )
-from qwen3vl_local.goalgen.flow import euler_sample, flow_matching_loss, sample_flow_batch  # noqa: E402
+from qwen3vl_local.goalgen.flow import (  # noqa: E402
+    DiTEMA,
+    euler_sample_cfg,
+    flow_matching_loss,
+    sample_flow_batch,
+)
 from qwen3vl_local.goalgen.qwen_kv import teacher_forced_prefill  # noqa: E402
 from qwen3vl_local.goalgen.vae import FrozenVAE, default_vae_paths  # noqa: E402
 from qwen3vl_local.prompt_pipeline import DrivingMemory  # noqa: E402
@@ -190,6 +195,102 @@ def cosine_velocity(v_pred: torch.Tensor, v_target: torch.Tensor) -> float:
     return float(F.cosine_similarity(pred, target, dim=1).mean().item())
 
 
+def _latent_stats_path(args: argparse.Namespace) -> pathlib.Path:
+    if args.latent_stats_path:
+        return pathlib.Path(args.latent_stats_path)
+    return pathlib.Path(args.train_jsonl).parent / "latent_stats.json"
+
+
+@torch.no_grad()
+def _compute_latent_stats(
+    vae: FrozenVAE,
+    samples: List[Dict[str, Any]],
+    max_samples: int,
+) -> Dict[str, Any]:
+    """Compute per-channel mean/std on raw scaled VAE latents.
+
+    We scan history frames and target frames from the first N jsonl rows. This
+    keeps the cache cheap while covering both conditioning latents and target
+    latents with the same distribution used by DiT.
+    """
+
+    take = len(samples) if max_samples <= 0 else min(max_samples, len(samples))
+    count = 0
+    sum_c = torch.zeros(4, dtype=torch.float64, device=vae.device)
+    sumsq_c = torch.zeros(4, dtype=torch.float64, device=vae.device)
+    pixel_count = 0
+
+    for sample in samples[:take]:
+        paths = list(sample["history_rgb_paths"]) + [sample["target_rgb_path"]]
+        images = [load_rgb(p) for p in paths]
+        z = vae.encode_raw(images).detach().double()
+        sum_c += z.sum(dim=(0, 2, 3))
+        sumsq_c += z.pow(2).sum(dim=(0, 2, 3))
+        pixel_count += int(z.shape[0] * z.shape[2] * z.shape[3])
+        count += len(images)
+
+    if pixel_count <= 0:
+        raise RuntimeError("latent stats 统计失败：没有可用 latent")
+
+    mean = sum_c / pixel_count
+    var = (sumsq_c / pixel_count) - mean.pow(2)
+    std = var.clamp_min(1e-12).sqrt()
+    return {
+        "mean": [float(x) for x in mean.detach().cpu()],
+        "std": [float(x) for x in std.detach().cpu()],
+        "num_jsonl_samples": take,
+        "num_images": count,
+        "space": "scaled_vae_latent",
+    }
+
+
+def _load_or_compute_latent_stats(
+    vae: FrozenVAE,
+    samples: List[Dict[str, Any]],
+    args: argparse.Namespace,
+    rank: int,
+    world_size: int,
+) -> Dict[str, Any]:
+    stats_path = _latent_stats_path(args)
+    if is_rank0(rank):
+        if stats_path.exists() and not args.recompute_latent_stats:
+            with stats_path.open("r", encoding="utf-8") as f:
+                stats = json.load(f)
+            print(f"[latent_stats] loaded {stats_path}")
+        else:
+            print(
+                f"[latent_stats] computing from first {args.latent_stats_max_samples} "
+                f"samples -> {stats_path}"
+            )
+            stats = _compute_latent_stats(vae, samples, args.latent_stats_max_samples)
+            stats_path.parent.mkdir(parents=True, exist_ok=True)
+            with stats_path.open("w", encoding="utf-8") as f:
+                json.dump(stats, f, ensure_ascii=False, indent=2)
+            print(f"[latent_stats] mean={stats['mean']} std={stats['std']}")
+    if world_size > 1:
+        dist.barrier()
+    if not is_rank0(rank):
+        with stats_path.open("r", encoding="utf-8") as f:
+            stats = json.load(f)
+
+    vae.load_latent_stats_dict(stats)
+    return stats
+
+
+def _make_z_init_from_prior(
+    z_history: torch.Tensor,
+    shape: tuple[int, int, int, int],
+    device: torch.device,
+    dtype: torch.dtype,
+    alpha: float,
+    sigma: float,
+    generator: torch.Generator,
+) -> torch.Tensor:
+    noise = torch.randn(shape, device=device, dtype=dtype, generator=generator)
+    z_prior = z_history[:, -1].to(device=device, dtype=dtype)
+    return alpha * z_prior + sigma * noise
+
+
 # --------------------------------------------------------------------------- #
 # TensorBoard 辅助函数
 # --------------------------------------------------------------------------- #
@@ -251,7 +352,15 @@ def _run_val_pass(
         ]
         z_history = vae.encode(history_images).to(dtype=dit_dtype).unsqueeze(0)
         z1 = vae.encode([target_img]).to(dtype=dit_dtype)
-        batch = sample_flow_batch(z1=z1)
+        batch = sample_flow_batch(
+            z1=z1,
+            z_prior=z_history[:, -1],
+            alpha=args.z0_prior_alpha,
+            sigma=args.z0_prior_sigma,
+            t_sampler=args.t_sampler,
+            t_logit_mean=args.t_logit_mean,
+            t_logit_std=args.t_logit_std,
+        )
         v_pred = dit_module(batch.z_t, z_history, batch.t, pooled_kv)
         losses.append(float(flow_matching_loss(v_pred, batch.v_target).item()))
         cosines.append(cosine_velocity(v_pred, batch.v_target))
@@ -308,13 +417,24 @@ def _log_image_samples(
         # euler 起点 z0 用固定 seed 让"同一 step 同一样本"复现相同图像，
         # 跨 step 跨样本随机性仍然存在，便于观察模型而不是观察噪声。
         gen = torch.Generator(device=device).manual_seed(args.seed + step + 1)
-        z_init = torch.randn(z1_gt.shape, device=device, dtype=dit_dtype, generator=gen)
-        z1_pred = euler_sample(
-            velocity_fn=lambda z, t: dit_module(z, z_history, t, pooled_kv),
+        z_init = _make_z_init_from_prior(
+            z_history=z_history,
+            shape=tuple(z1_gt.shape),
+            device=device,
+            dtype=dit_dtype,
+            alpha=args.z0_prior_alpha,
+            sigma=args.z0_prior_sigma,
+            generator=gen,
+        )
+        z1_pred = euler_sample_cfg(
+            dit=dit_module,
+            z_history=z_history,
+            pooled_kv=pooled_kv,
             shape=tuple(z1_gt.shape),
             device=device,
             dtype=dit_dtype,
             num_steps=args.image_log_euler_steps,
+            cfg_scale=args.cfg_scale,
             z_init=z_init,
         )
         pred_imgs.append(_decode_latent_to_image(vae, z1_pred)[0])
@@ -338,6 +458,8 @@ def save_checkpoint(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler.LambdaLR,
+    ema: DiTEMA,
+    latent_stats: Dict[str, Any],
     step: int,
     args: argparse.Namespace,
 ) -> None:
@@ -360,6 +482,9 @@ def save_checkpoint(
             # dit_config 直接 dump 配置 dataclass：恢复时不依赖代码默认值漂移，
             # 例如以后改了默认 hidden_dim，旧 ckpt 仍能按存档的配置正确重建模型。
             "dit_config": asdict(module.cfg),
+            "ema_state_dict": ema.state_dict(),
+            "ema_decay": ema.decay,
+            "latent_stats": latent_stats,
             "args": vars(args),
         },
         target / "goalgen_v1.pt",
@@ -371,7 +496,10 @@ def save_checkpoint(
         {
             "step": step,
             "dit_state_dict": module.state_dict(),
+            "ema_state_dict": ema.state_dict(),
+            "ema_decay": ema.decay,
             "dit_config": asdict(module.cfg),
+            "latent_stats": latent_stats,
             "args": vars(args),
         },
         latest,
@@ -466,6 +594,7 @@ def train(args: argparse.Namespace) -> None:
     )
     # FrozenVAE.__init__ 已经 requires_grad_(False)，这里再确认 eval 一次。
     vae.model.eval()
+    latent_stats = _load_or_compute_latent_stats(vae, samples, args, rank, world_size)
 
     # 解析 language_kv_input_dim：默认 auto -> 用第一条样本做一次 dummy prefill 推维度。
     # 给 int 时按 CLI 值走（用户明确知道 base 模型的 n_kv_heads * head_dim 想跳过 probe 时用）。
@@ -485,6 +614,7 @@ def train(args: argparse.Namespace) -> None:
 
     dit_dtype = dtype_from_name(args.dit_dtype)
     dit = build_dit(args, language_kv_input_dim=language_kv_dim).to(device=device, dtype=dit_dtype)
+    ema = DiTEMA(dit, decay=args.ema_decay)
     if world_size > 1:
         dit = torch.nn.parallel.DistributedDataParallel(dit, device_ids=[local_rank])
 
@@ -587,9 +717,18 @@ def train(args: argparse.Namespace) -> None:
                 z1 = vae.encode([target_img]).to(dtype=dit_dtype)
                 # 在 z1 上采 z0 / t / 计算 z_t、v_target。z0 / t 留给 flow.py 内部默认采样，
                 # 这里不传是为了让每条样本独立采，跟其他样本的随机性解耦。
-                batch = sample_flow_batch(z1=z1)
+                batch = sample_flow_batch(
+                    z1=z1,
+                    z_prior=z_history[:, -1],
+                    alpha=args.z0_prior_alpha,
+                    sigma=args.z0_prior_sigma,
+                    t_sampler=args.t_sampler,
+                    t_logit_mean=args.t_logit_mean,
+                    t_logit_std=args.t_logit_std,
+                )
 
-                v_pred = dit(batch.z_t, z_history, batch.t, pooled_kv)
+                force_uncond = random.random() < args.cfg_drop_prob
+                v_pred = dit(batch.z_t, z_history, batch.t, pooled_kv, force_uncond=force_uncond)
                 loss_raw = flow_matching_loss(v_pred, batch.v_target)
                 # 除以 micro_group_size：grad accum 时把 N 个 micro 的梯度加起来等价于 batch=N，
                 # 但 PyTorch loss.backward() 是累加而不是平均，所以这里手动均一化，否则梯度尺度
@@ -622,13 +761,14 @@ def train(args: argparse.Namespace) -> None:
                 if will_step:
                     if args.max_grad_norm > 0:
                         # clip_grad_norm_ 必须在 step 之前调；flow matching 初期 v_target 数值可能
-                        # 很大（z1 - z0 在 latent 尺度上方差 ~2），不裁剪偶发会让 lr=1e-4 也炸。
+                        # 很大（z1 - z0 在 latent 尺度上方差 ~2），不裁剪偶发会让 2e-4 学习率也炸。
                         # 返回值是 clip 前的全局梯度范数，写进 tb 用来诊断"训练是否在快炸"。
                         last_grad_norm = float(
                             torch.nn.utils.clip_grad_norm_(dit.parameters(), args.max_grad_norm)
                         )
                     optimizer.step()
                     scheduler.step()
+                    ema.update(dit_module)
                     # set_to_none=True 比 zero_(0) 快：让 .grad = None，下次 backward 第一次写
                     # 直接分配新张量，省一次"已分配张量清零"的 kernel。
                     optimizer.zero_grad(set_to_none=True)
@@ -669,10 +809,11 @@ def train(args: argparse.Namespace) -> None:
                         and global_step % args.val_steps == 0
                     ):
                         try:
-                            metrics = _run_val_pass(
-                                engine, vae, dit_module, val_samples,
-                                args, device, dit_dtype,
-                            )
+                            with ema.apply_to(dit_module):
+                                metrics = _run_val_pass(
+                                    engine, vae, dit_module, val_samples,
+                                    args, device, dit_dtype,
+                                )
                             for tag, value in metrics.items():
                                 writer.add_scalar(tag, value, global_step)
                             print(
@@ -693,15 +834,16 @@ def train(args: argparse.Namespace) -> None:
                         and global_step % args.image_log_every == 0
                     ):
                         try:
-                            _log_image_samples(
-                                writer, engine, vae, dit_module, val_samples,
-                                args, device, dit_dtype, global_step,
-                            )
+                            with ema.apply_to(dit_module):
+                                _log_image_samples(
+                                    writer, engine, vae, dit_module, val_samples,
+                                    args, device, dit_dtype, global_step,
+                                )
                         except Exception as e:
                             print(f"[image] 警告：图像样例生成失败，跳过：{e}")
 
                     if is_rank0(rank) and args.save_steps > 0 and global_step % args.save_steps == 0:
-                        save_checkpoint(output_dir, dit, optimizer, scheduler, global_step, args)
+                        save_checkpoint(output_dir, dit, optimizer, scheduler, ema, latent_stats, global_step, args)
 
                     if global_step >= total_steps:
                         break
@@ -709,7 +851,7 @@ def train(args: argparse.Namespace) -> None:
                 break
 
         if is_rank0(rank):
-            save_checkpoint(output_dir, dit, optimizer, scheduler, global_step, args)
+            save_checkpoint(output_dir, dit, optimizer, scheduler, ema, latent_stats, global_step, args)
             print(f"[done] GoalGen DiT 已保存到 {output_dir}")
     finally:
         # writer 必须在 cleanup_distributed 之前 close，避免 tb 写最后一笔时进程组已挂。
@@ -755,15 +897,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p.add_argument("--num-epochs", type=int, default=1)
     p.add_argument("--grad-accum-steps", type=int, default=4)
-    p.add_argument("--learning-rate", type=float, default=1e-4)
+    p.add_argument("--learning-rate", type=float, default=2e-4)
     p.add_argument("--weight-decay", type=float, default=0.01)
-    p.add_argument("--warmup-ratio", type=float, default=0.02)
+    p.add_argument("--warmup-ratio", type=float, default=0.05)
     p.add_argument("--max-grad-norm", type=float, default=1.0)
     p.add_argument("--logging-steps", type=int, default=10)
     p.add_argument("--save-steps", type=int, default=200)
     p.add_argument("--max-train-steps", type=int, default=0,
                    help="0 表示按 num_epochs 跑完；正整数表示限制优化器更新步数。")
     p.add_argument("--seed", type=int, default=20260529)
+    p.add_argument("--t-sampler", choices=["uniform", "logit_normal"], default="logit_normal")
+    p.add_argument("--t-logit-mean", type=float, default=0.0)
+    p.add_argument("--t-logit-std", type=float, default=1.0)
+    p.add_argument("--z0-prior-alpha", type=float, default=1.0)
+    p.add_argument("--z0-prior-sigma", type=float, default=1.0)
+    p.add_argument("--cfg-drop-prob", type=float, default=0.1)
+    p.add_argument("--cfg-scale", type=float, default=2.0)
+    p.add_argument("--ema-decay", type=float, default=0.9999)
+    p.add_argument("--latent-stats-path", type=str, default="")
+    p.add_argument("--latent-stats-max-samples", type=int, default=1000)
+    p.add_argument("--recompute-latent-stats", action="store_true", default=False)
 
     # ------ TensorBoard / 验证 / 图像样例 ------
     p.add_argument("--tb", action="store_true", default=True,
