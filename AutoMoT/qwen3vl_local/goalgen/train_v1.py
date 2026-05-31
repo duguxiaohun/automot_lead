@@ -616,7 +616,13 @@ def train(args: argparse.Namespace) -> None:
     dit = build_dit(args, language_kv_input_dim=language_kv_dim).to(device=device, dtype=dit_dtype)
     ema = DiTEMA(dit, decay=args.ema_decay)
     if world_size > 1:
-        dit = torch.nn.parallel.DistributedDataParallel(dit, device_ids=[local_rank])
+        # find_unused_parameters=True：DiT 的 null_lang_k / null_lang_v（24 个 Parameter）
+        # 仅在 force_uncond=True 的 micro-step 被使用；cfg_drop_prob=0.1 时大多数
+        # iteration 不会触发，DDP 默认模式会因为"上一次 reduction 未完成所有 param"而 raise。
+        # 打开后 DDP 会每次 forward 遍历参数图找未使用 param，开销极小（<1%）。
+        dit = torch.nn.parallel.DistributedDataParallel(
+            dit, device_ids=[local_rank], find_unused_parameters=True
+        )
 
     optimizer = torch.optim.AdamW(
         # 这里只传 dit.parameters()：Qwen / VAE 上面已 freeze_module 关掉 grad，但 optimizer
