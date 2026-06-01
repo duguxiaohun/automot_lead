@@ -1,0 +1,327 @@
+# SFT v2 设计文档 — ANALYSIS 监督升级 + 双 prompt 蒸馏
+
+> v1 的核心痛点是"监督信号只覆盖 5% 的 token、但 LoRA 梯度扰动 100% 的 forward"，
+> 导致无论怎么调 lr / epoch / 早停，ANALYSIS 段都会被无监督扰动拉崩，最终连
+> `STATUS:` / `SUBGOAL:` 行都生成不出来。v2 用"冻结 base Qwen 蒸馏 ANALYSIS"把
+> 监督信号补满到 100%，从根上修复这个范式缺陷。
+>
+> 关键约定：所有命令默认 **从 `AutoMoT/` 目录执行**，操作流程见 [SFT_V2_RUN.md](SFT_V2_RUN.md)。
+
+---
+
+## 1. 为什么要 v2 — v1 的根因诊断
+
+v1 [SFT_V1_PLAN.md](SFT_V1_PLAN.md) 的设计是"只让 STATUS / SUBGOAL 的事件名 token 算 loss，其他都 mask=0"。
+实测发现（详见 v1 ckpt-8100 与 ckpt-3764 两轮失败 case）：
+
+| 现象 | 根因 |
+|---|---|
+| ANALYSIS 段复读 `Observations recorded.` → `tunnel, tunnel, tunnel` | LoRA 低秩增量同时作用于全 forward path，无监督段没有 loss 约束，分布漂移 |
+| 训练 loss 还在缓慢下降时 STATUS / SUBGOAL 已不再生成 | 事件名 token nll 已 ≈ 0.01（早就过收敛），继续训只在压剩余边际，副作用扩散 |
+| 早停 ckpt（200/600/900）也崩 | 监督信号覆盖面是结构问题，不是训练时长问题 |
+
+→ **必须让 ANALYSIS 段也带监督信号**，从而约束 LoRA 不漂移。但 ANALYSIS 段在 keyframes
+原始标注里**没有真值**，只能蒸馏出来。
+
+v1 PLAN §9 原本写"用 v1 LoRA + GT status 自蒸馏"，但前提是 v1 能跑通 — 现在 v1 自己就崩了，
+自蒸馏直接退化。**v2 改用冻结 base Qwen 做 teacher**。
+
+---
+
+## 2. 核心设计 — 两条 prompt、两条数据管线
+
+### 2.1 Teacher 管线（offline 一次性产 ANALYSIS GT）
+
+- **输入**：4 帧 RGB（与 student 完全一致）+ MEMORY（anchor-K 的 STATUS）+ **PRIVILEGED 块**
+  （当前 anchor 的 GT STATUS 与 transition flag）。
+- **任务**：从已知答案反推视觉证据，按"先描述图片可见内容 → 描述帧间变化 → 简要说明
+  支持当前 STATUS 的视觉依据"三步式写 2–4 句 ANALYSIS。
+- **执行者**：冻结的 `Qwen3-VL-4B-Instruct` base 模型（不带 LoRA）。
+- **输出**：纯文本 ANALYSIS 正文（不带 `ANALYSIS:` 前缀），写回 student GT 的 ANALYSIS 槽位。
+
+### 2.2 Student 管线（LoRA SFT 训练）
+
+- **输入**：4 帧 RGB + MEMORY（anchor-K 的 STATUS）。**永远不见 PRIVILEGED**。prompt 与
+  v1 完全一致（复用 `qwen3vl_local.prompt_pipeline.build_system_prompt` / `build_user_prompt`）。
+- **GT 三段**：
+  - `ANALYSIS: <teacher 生成的视觉证据>` ← 蒸馏自 base
+  - `STATUS: <GT>` ← keyframes 标注
+  - `SUBGOAL: <GT>` ← 状态机推导
+- **loss 覆盖**：100% assistant token 都参与 loss，但差异化加权（详见 §5）。
+
+### 2.3 两条 prompt 必须严格分离
+
+**绝对禁止**把 PRIVILEGED 块写进 student jsonl 的 user content。一旦 student 训练时见过
+PRIVILEGED 字段，推理分布就废了 —— 因为推理时根本拿不到 GT STATUS。
+
+实现层面：v2 jsonl 的 `messages` 字段里 system / user 与 v1 完全 byte 级相同；
+PRIVILEGED 只出现在 teacher 推理时临时拼装的 prompt 里，不落盘。
+
+---
+
+## 3. Teacher prompt 模板（v2 实现固定文本）
+
+### 3.1 Teacher system prompt
+
+```
+You are a vision-grounded annotation teacher for an autonomous driving
+status-tracking task.
+
+Input:
+- 4 RGB frames (oldest -> newest), stitched three-camera view.
+- MEMORY: the previous anchor (anchor-K) STATUS and EVENT_SEQUENCE.
+- PRIVILEGED: the ground-truth current STATUS at the newest frame, and
+  whether this anchor is KEEP (state unchanged) or ADVANCE (state moved
+  forward from MEMORY STATUS).
+
+Task:
+Produce a single line of ANALYSIS that a student model (which does NOT see
+PRIVILEGED) could plausibly infer from images alone. Sentence order MUST be:
+1. First sentence: concretely describe what is visible in the LAST frame.
+2. Second sentence: describe what CHANGED between the earliest and the
+   latest frame.
+3. Third sentence: state whether the observed evidence supports staying at
+   MEMORY STATUS or advancing to the current STATUS, tying it to the visual
+   evidence above.
+
+Constraints:
+- Do NOT mention or reference the PRIVILEGED block; write as if from images only.
+- Do NOT invent visual content not actually present.
+- Be concise, grounded, factual; 2-4 sentences total, all on a single line.
+- Do NOT output STATUS or SUBGOAL; only the ANALYSIS body text (no "ANALYSIS:" prefix).
+
+Output EXACTLY one line of text (the ANALYSIS body, no prefix, no trailing newline).
+```
+
+### 3.2 Teacher user prompt（在 student user prompt 基础上加 PRIVILEGED）
+
+```
+<image><image><image><image>
+The 4 images above are ordered oldest to newest; the last image is the current moment.
+
+[MEMORY]
+SCENARIO: ...
+EVENT_SEQUENCE: ... -> ... -> ... -> ... -> final
+EVENT_DESCRIPTIONS:
+- ...
+STATUS: <prev_anchor_status>
+SUBGOAL: <next_in_sequence>
+COMPLETED: ...
+[/MEMORY]
+
+[PRIVILEGED]
+CURRENT_GT_STATUS: <target_status>
+TRANSITION: <keep|advance>
+PREV_STATUS: <prev_anchor_status>
+[/PRIVILEGED]
+
+Given the observations, memory, and privileged ground truth, output the
+ANALYSIS body that the student should plausibly produce from images alone.
+```
+
+### 3.3 Teacher 输出后处理
+
+teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pipeline：
+
+1. `lstrip("ANALYSIS:")` + `strip()` — 兜底去掉可能的前缀。
+2. 截断到第一个 `\nSTATUS:` / `\nSUBGOAL:` / `\n\n` 之前 — 防 teacher 自作主张续写。
+3. 把剩余的 `\n` 替换为空格 — 强制单行。
+4. 截断到最长 480 字符 — 防个别样本 teacher 跑飞拉长 jsonl。
+5. 如果空白后剩余 < 20 字符（teacher 输出垮了）→ 兜底用 `"Observations recorded."` 占位，
+   并在 `teacher_meta.fallback=true` 里 mark，便于事后排查比例。
+
+---
+
+## 4. 数据格式 + 两阶段管线
+
+### 4.1 v2 jsonl 字段
+
+在 v1 schema 基础上加：
+
+```json
+{
+  "dataset_version": "v2",            // 必填；"v2_pending" 或 "v2"
+  "scenario": "...", "run_id": "...", "anchor": N, "prev_anchor": M,
+  "images": [...],
+  "messages": [
+    {"role": "system",    "content": <v1 system prompt 原样>},
+    {"role": "user",      "content": <v1 user prompt 原样，含 <image> 占位>},
+    {"role": "assistant", "content":
+        "ANALYSIS: <teacher 生成内容>\nSTATUS: <GT>\nSUBGOAL: <GT>"}
+  ],
+  "is_transition_sample": bool,
+  "teacher_meta": {
+    "model_dir": "checkpoints/Qwen3-VL-4B-Instruct",
+    "seed": 20260601,
+    "generated_at": "2026-06-01T15:30:00Z",
+    "analysis_chars": 287,
+    "fallback": false               // teacher 跑飞回退到 Observations recorded.
+  }
+}
+```
+
+`dataset_version` 字段让 `eval_sft_v1.py` / `probe_sft_v1.py` 自动检测格式（v1 跳过、v2 沿用）。
+
+### 4.2 阶段 1 — `build_sft_dataset_v1.py --mode v2`
+
+复用 v1 全部采样逻辑，只改 `build_messages` 的 assistant 段：把 ANALYSIS 文本换成特殊占位
+`__TEACHER_PENDING__`，并写 `dataset_version: "v2_pending"`。
+
+产物：`<output-dir>/train.jsonl` / `val.jsonl` / `stats.json`（schema 同 v1，区别靠目录隔离）。
+
+### 4.3 阶段 2 — `build_sft_dataset_v2_teacher.py`
+
+输入：阶段 1 产出的 pending jsonl。流程：
+
+1. 加载冻结 base Qwen（`local_files_only=True`，bf16，eval mode）。
+2. 对每条 pending 样本：
+   - 解析 MEMORY STATUS / target_status / transition flag。
+   - 拼 teacher system + user prompt（§3）。
+   - `engine.generate(...)` 跑一次，max_new_tokens=256，temperature=0（greedy）。
+   - 走 §3.3 后处理拿到干净 ANALYSIS 文本。
+   - 把 `messages[2].content` 里的 `__TEACHER_PENDING__` 替换为生成结果。
+   - `dataset_version` 改 `"v2"`，填 `teacher_meta`。
+3. **resumable**：每完成 100 条 flush 一次输出 jsonl；启动时如果输出 jsonl 已存在，
+   按 `(scenario, run_id, anchor)` 去重跳过已完成样本。
+4. **多卡分片**：读 `RANK / WORLD_SIZE`，每个 rank 处理 `sample_idx % world_size == rank`
+   的样本，各自落盘到 `train.jsonl.rank<R>`；最后 rank0 合并。
+
+预计耗时：14400 train + 1600 val ≈ 16000 样本 × 3 秒/样本 ÷ 8 卡 ≈ 100 分钟。
+
+### 4.4 student GT 拼接位置
+
+teacher 只产出 ANALYSIS 正文。student GT 三段在 `build_sft_dataset_v2_teacher.py` 里
+直接拼接：
+
+```python
+assistant = (
+    f"ANALYSIS: {teacher_text}\n"
+    f"STATUS: {target_status}\n"
+    f"SUBGOAL: {target_subgoal}"
+)
+```
+
+注意末尾**不带换行**（与 v1 完全对齐，便于 plugin regex 复用同款边界）。
+
+---
+
+## 5. Loss 权重设计 — `sft_v2_loss_scale_plugin.py`
+
+策略名：`sft_v2_analysis_supervised`。切片如下：
+
+| 段 | 权重 | 理由 |
+|---|---|---|
+| `ANALYSIS:` 字面 + 空格 | 0 | 关键词字面无学习价值，与 v1 同 |
+| ANALYSIS body text | **0.3** | 蒸馏目标 — teacher 输出有随机性，0.3 让 student 学到"形状与事实"但不强制逐 token 复现 |
+| 换行 `\n` + `STATUS:` 字面 + 空格 | 0 | 同 v1 |
+| STATUS event_name | **1.0** | 核心监督 — 与 v1 同 |
+| 换行 `\n` + `SUBGOAL:` 字面 + 空格 | 0 | 同 v1 |
+| SUBGOAL event_name | **1.0** | 核心监督 — 与 v1 同 |
+| 末尾 EOS / `\n` | 0 | 同 v1 |
+
+regex 在 v1 `_FULL_PATTERN` 基础上加一个 `(?P<analysis>...)` 捕获组，把 ANALYSIS body
+单独切出来 weight 0.3。
+
+### 为什么是 0.3 不是 1.0
+
+- teacher 输出是采样结果，**不是真值**。把 ANALYSIS 也给 1.0 等于强迫 student 完美复现
+  teacher 的语气和措辞，等于让 student 学到 teacher 的"随机噪声"。
+- 0.3 是经验值（GoalGen 等多任务训练里常用区间），保证 ANALYSIS 段有梯度信号约束 LoRA
+  不漂移，又不会主导整体 loss。
+- 等效"loss 权重比"：单条样本里 ANALYSIS ≈ 30 token × 0.3 = 9，STATUS+SUBGOAL ≈ 6 token × 1.0 = 6，
+  ANALYSIS 占比约 60%。这个比例确保 LoRA 仍优先优化 STATUS / SUBGOAL 决策，ANALYSIS 只是约束。
+- 实测发现 ANALYSIS 段还在漂移 → 调到 0.5；ANALYSIS 段过拟合 teacher 措辞 → 调到 0.1。
+
+---
+
+## 6. 训练超参（与 v1 对照）
+
+| 超参 | v1 | v2 | 说明 |
+|---|---|---|---|
+| LoRA rank / alpha | 16 / 32 | 16 / 32 | 不变 |
+| lr | 5e-5 | **3e-5** | v2 监督信号 token 数 × 5（v1 ~6 → v2 ~30），lr 同步下调避免过冲 |
+| num_train_epochs | 2 | 2 | 不变（先看 v1 step 上限管不管用） |
+| weight_decay | 0.05 | 0.05 | 不变 |
+| lora_dropout | 0.1 | 0.1 | 不变 |
+| per_device_bs × grad_acc | 2 × 2 | 2 × 2 | 不变（DDP 8 卡等效 bs=32） |
+| max_length | 3072 | **3584** | ANALYSIS 段比 v1 长（占位 7 token → teacher 30+ token），适度放宽 |
+| loss_scale | `sft_v1_analysis_mask` | `sft_v2_analysis_supervised` | 见 §5 |
+| save / eval strategy | epoch + best on val/loss | epoch + best on val/loss | 不变 |
+
+预计 total step ≈ 900（与 v1 同），但 v2 每个 step 的有效梯度来自 ~30 个 token 而不是 ~6 个，
+**真实有效优化量 ≈ v1 的 4–5 倍**。这也是为什么 v2 第一版不上 KL — 监督信号本身已经回到健康量级。
+
+---
+
+## 7. 评估
+
+完全复用 `eval_sft_v1.py` 与 `probe_sft_v1.py`。它们按 `STATUS:` / `SUBGOAL:` 行 grep 解析
+预测，ANALYSIS 变长不影响指标。
+
+**v2 新增观察项**（不进 metrics.json，靠 probe overview.md / case-level 人工 review）：
+
+- ANALYSIS 段是否依然在"先看图 → 再分析"三步式上？（teacher 灌进去后再被 student 学得是否走样）
+- ANALYSIS 与 STATUS / SUBGOAL 是否一致？（出现"ANALYSIS 描述减速，STATUS=initial"是矛盾信号）
+- 不同 ckpt 间 ANALYSIS 风格漂移是否可控？（如果某个 ckpt ANALYSIS 开始复读 teacher 高频短语，
+  说明过拟合 teacher 风格，参考 §5 把权重从 0.3 调到 0.1）
+
+通过条件（与 v1 §8 一致）：
+
+| 指标 | 目标 | 优先级 |
+|---|---|---|
+| `keep_accuracy` | ≥ 0.95 | 高 |
+| `advance_accuracy` | ≥ 0.60 | 中 |
+| `early_advance_rate` | ≤ 0.05 | 最高 |
+| `anchor12_sanity.passed` | = true | 必须 |
+| **新增**：probe 中 ANALYSIS 段无复读 / 无截断 | 必须 | 必须（v1 翻车点） |
+
+---
+
+## 8. 失败回退路径
+
+| 风险 | 触发条件 | 回退 |
+|---|---|---|
+| teacher 大批量输出"Observations recorded." 兜底 | `teacher_meta.fallback=true` 比例 > 5% | 检查 base Qwen 是否在 PRIVILEGED prompt 上 OOM 截断；调小 max_new_tokens，或把 §3.1 system prompt 缩短 |
+| teacher 输出在 STATUS=keep 与 STATUS=advance 上风格一致（学不出区分） | probe 看 keep / advance 两类的 ANALYSIS 措辞几乎相同 | base 模型分辨力不足；考虑用 v1 LoRA 早期 ckpt（ANALYSIS 还没崩的那个 epoch）做 teacher |
+| v2 训练 loss 不降 | 训 50 step 后 loss 还在 4+ | plugin regex 漂移或 max_length 截掉 ANALYSIS 段；先跑 `check_loss_mask.py` 改写 v2 sanity（见 RUN §2） |
+| v2 训练 loss 降但 ANALYSIS 段输出仍复读 | ckpt-100/300/600 都见复读 | 把 §5 ANALYSIS 权重从 0.3 调到 0.5；仍不行进 §9 KL 正则 |
+| ANALYSIS 段过拟合 teacher 措辞，每个场景都用同一句套话 | probe 看不同 case 的 ANALYSIS 几乎相同 | 权重 0.3 → 0.1；或在 teacher 阶段把 temperature 从 0 调到 0.3 增加多样性 |
+| max_length 3584 仍触发 truncation warning | swift 日志 | 缩短 teacher system prompt 或把 ANALYSIS 后处理截断阈值从 480 char 降到 300 char |
+
+---
+
+## 9. v3 / KL 正则（v2 收官后再启动，本期不实现）
+
+v2 第一版**故意不上 KL**，理由：齐全监督就是治根药，KL 是 belt-and-suspenders。先确认治根
+药管用再决定要不要保险，否则会引入工程复杂度（swift 不原生支持自定义 compute_loss + 双
+forward + reference model 显存翻倍）。
+
+如果 v2 验证后仍出现 ANALYSIS 漂移（§8 倒数第二行场景），按下面路线进 v3：
+
+1. **舍弃 swift，切 HF Trainer + custom compute_loss**（工程量 2–3 天）。
+2. 在 `compute_loss` 里：
+   - student forward 拿 `logits_lora`。
+   - 冻结 base forward 拿 `logits_base`（no grad、bf16）。
+   - 仅在 mask=0 位置（即 PLAN §5 表里权重为 0 的字面段）算 `KL(softmax(logits_lora) ‖ softmax(logits_base))`。
+   - 总 loss = `weighted_ce + λ * kl_loss`，λ 从 0.01 起步。
+3. 显存代价：base forward 占 ~10GB，与 student forward 共享 ViT 输出可省一半 → 单卡 ~50GB。
+4. 测试组：v3 train.sh 复用 v2 数据集，不重新生成。
+
+---
+
+## 10. 文件清单
+
+| 文件 | 类型 | 作用 |
+|---|---|---|
+| `AutoMoT/tools/SFT_V2_PLAN.md` | 新增 | 本文件 |
+| `AutoMoT/tools/SFT_V2_RUN.md` | 新增 | 操作手册 |
+| `AutoMoT/tools/build_sft_dataset_v1.py` | 改 | 加 `--mode v2`：输出 pending jsonl |
+| `AutoMoT/tools/build_sft_dataset_v2_teacher.py` | 新增 | 离线 teacher 推理，填 ANALYSIS GT |
+| `AutoMoT/tools/sft_v2_loss_scale_plugin.py` | 新增 | 注册 `sft_v2_analysis_supervised` |
+| `AutoMoT/tools/sft_v2_train.sh` | 新增 | v2 训练入口（与 v1 同套 GPU/MASTER_PORT 自动选址） |
+| `AutoMoT/tools/eval_sft_v1.py` | 改 | 按 `dataset_version` 字段自动检测，沿用同一份评估逻辑 |
+| `AutoMoT/tools/probe_sft_v1.py` | 改 | 同上 |
+| `CLAUDE.md` / `AGENTS.md` | 改 | 同步白名单 |
+
+`check_loss_mask.py` 暂不动 —— 它是 v1 专用 sanity，v2 sanity 检查直接在 RUN.md §2 里
+用 `python -c` 小脚本搞定，不值得新建专用工具。

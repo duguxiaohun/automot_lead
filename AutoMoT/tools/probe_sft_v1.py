@@ -485,6 +485,12 @@ def main() -> None:
     args = parser.parse_args()
 
     samples = read_jsonl(args.val_jsonl)
+    # 显式打印数据集版本，避免误把 v1 LoRA 挂到 v2 数据集上跑 probe。
+    ds_ver = samples[0].get("dataset_version", "v1") if samples else "unknown"
+    print(f"[probe] dataset_version={ds_ver}")
+    if ds_ver == "v2_pending":
+        print("[probe][warn] dataset_version=v2_pending: gt.txt 里 ANALYSIS 段是 "
+              "__TEACHER_PENDING__ 占位；请先跑 tools/build_sft_dataset_v2_teacher.py 填真值")
     scenarios_filter = [s.strip() for s in args.scenarios.split(",") if s.strip()] or None
     picked = select_samples(samples, scenarios_filter, args.num_per_scenario, args.seed)
     print(f"[probe] selected {len(picked)} samples from {len(samples)} total "

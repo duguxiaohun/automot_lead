@@ -79,6 +79,12 @@
 - `AutoMoT/tools/tb_serve.sh`
 - `AutoMoT/tools/probe_sft_v1.py`
   （以上 9 个是 LoRA SFT v1 / TB / probe 相关；`tb_serve.sh` 是通用 TensorBoard 启动器，GoalGen 也复用；`probe_sft_v1.py` 是随机场景 case-level dump；`AutoMoT/tools/` 下其它原始脚本仍为只读参考）
+- `AutoMoT/tools/SFT_V2_PLAN.md`
+- `AutoMoT/tools/SFT_V2_RUN.md`
+- `AutoMoT/tools/build_sft_dataset_v2_teacher.py`
+- `AutoMoT/tools/sft_v2_loss_scale_plugin.py`
+- `AutoMoT/tools/sft_v2_train.sh`
+  （以上 5 个是 SFT v2 升级：teacher 用冻结 base Qwen + PRIVILEGED prompt 离线产 ANALYSIS 真值；student 全段都算 loss，差异化权重；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；`eval_sft_v1.py` / `probe_sft_v1.py` 自动按 jsonl 字段检测 v1/v2）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py`
@@ -121,6 +127,7 @@ git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py A
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
 git add AutoMoT/tools/SFT_V1_PLAN.md AutoMoT/tools/SFT_V1_RUN.md AutoMoT/tools/build_sft_dataset_v1.py AutoMoT/tools/sft_v1_train.sh AutoMoT/tools/sft_v1_loss_scale_plugin.py AutoMoT/tools/eval_sft_v1.py AutoMoT/tools/check_loss_mask.py AutoMoT/tools/tb_serve.sh AutoMoT/tools/probe_sft_v1.py
+git add AutoMoT/tools/SFT_V2_PLAN.md AutoMoT/tools/SFT_V2_RUN.md AutoMoT/tools/build_sft_dataset_v2_teacher.py AutoMoT/tools/sft_v2_loss_scale_plugin.py AutoMoT/tools/sft_v2_train.sh
 git add AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_RUN.md AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py AutoMoT/qwen3vl_local/goalgen/train_v1.py AutoMoT/qwen3vl_local/goalgen/train_v1.sh AutoMoT/qwen3vl_local/goalgen/eval_v1.py AutoMoT/qwen3vl_local/goalgen/probe_v1.py
 ```
 

@@ -1,6 +1,14 @@
-"""SFT v1 数据集生成脚本 — 为 Qwen3-VL-4B-Instruct LoRA 微调准备样本。
+"""SFT v1 / v2 数据集生成脚本 — 为 Qwen3-VL-4B-Instruct LoRA 微调准备样本。
 
-设计目标见 tools/SFT_V1_PLAN.md。本脚本纯 CPU、不需要 GPU，可以在本地或远程跑。
+设计目标见 tools/SFT_V1_PLAN.md 与 tools/SFT_V2_PLAN.md。本脚本纯 CPU、不需要
+GPU，可以在本地或远程跑。
+
+v1 / v2 共享所有采样 / split / image 路径逻辑，区别仅在 assistant 的 ANALYSIS 段：
+
+| 模式 | assistant.ANALYSIS 段 | dataset_version 字段 | 用途 |
+|---|---|---|---|
+| v1 | 固定占位 `Observations recorded.` | 不写 | LoRA 训练时 loss_scale mask=0，本 jsonl 直接进训练 |
+| v2 | 特殊占位 `__TEACHER_PENDING__` | `"v2_pending"` | 需要再过一道 build_sft_dataset_v2_teacher.py 填真值 |
 
 核心流程：
 1. 读 keyframes_all_scenarios.json，过滤 status ∈ {"Completed","Perfect"} 的 run。
@@ -9,15 +17,23 @@
 4. 对每个采样帧拼 messages（system + user + assistant），写 train / val jsonl。
 
 注意：assistant 的 STATUS 段是当前帧 GT，user 的 MEMORY 块是上一帧 GT —— 防 leak。
+**两个模式的 system / user prompt byte 级完全一致**，v2 不会在 jsonl 里泄露任何 GT。
+teacher 推理用的 PRIVILEGED prompt 由 build_sft_dataset_v2_teacher.py 临时拼装，不落盘。
 
 典型用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
 
 ```bash
-# 远程真实数据环境：生成完整训练 / 验证 jsonl
+# v1：生成完整训练 / 验证 jsonl，ANALYSIS 段是占位
 python tools/build_sft_dataset_v1.py \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --data-root /data/lead_data/data \
   --output-dir checkpoints/sft_v1_data
+
+# v2：生成 pending jsonl，ANALYSIS 段是 __TEACHER_PENDING__ 占位
+python tools/build_sft_dataset_v1.py --mode v2 \
+  --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
+  --data-root /data/lead_data/data \
+  --output-dir checkpoints/sft_v2_data_pending
 
 # 本地或远程快速检查：只取少量场景和 run，验证 jsonl schema 是否能生成
 python tools/build_sft_dataset_v1.py --dry-run --output-dir /tmp/sft_v1_dry
@@ -32,6 +48,7 @@ python tools/build_sft_dataset_v1.py --dry-run --output-dir /tmp/sft_v1_dry
 - 本脚本只生成图片路径，不读取图片内容；真正图片读取发生在 ms-swift 训练侧或 eval_sft_v1.py。
 - 这里的 `images` 路径必须和 runner 看到的 RGB clip 顺序一致：oldest -> newest。
 - v1 的 ANALYSIS 是占位文本；训练脚本用 loss_scale 把该段 loss 置 0，主监督信号是 STATUS。
+- v2 的 ANALYSIS 是 `__TEACHER_PENDING__`；teacher 脚本会把它替换为冻结 base Qwen 的输出。
 """
 
 from __future__ import annotations
@@ -83,6 +100,10 @@ ACCEPTED_RUN_STATUS = {"Completed", "Perfect"}
 
 # 占位 ANALYSIS。v1 训练时这段 token 会被 swift loss_scale 设权重 0。
 PLACEHOLDER_ANALYSIS = "Observations recorded."
+
+# v2 模式专用占位。teacher 脚本会扫这个串、用真实 ANALYSIS 文本替换。
+# 故意选一个不会在自然语言里出现、tokenizer 又能轻松切开的 sentinel。
+PLACEHOLDER_ANALYSIS_V2_PENDING = "__TEACHER_PENDING__"
 
 
 # ---------------------------------------------------------------------------
@@ -413,6 +434,7 @@ def _next_event_in_seq(scenario: str, status: str) -> str:
 def build_messages(
     sample: SampleRecord,
     image_paths: List[str],
+    mode: str = "v1",
 ) -> Dict:
     """拼 messages 列表 + images，最终成为 jsonl 一行。
 
@@ -423,6 +445,13 @@ def build_messages(
 
     注意这里的 user prompt 复用 qwen3vl_local.prompt_pipeline，保证训练时看到的
     system/user 指令和 standalone runner 尽量一致。
+
+    ``mode`` 取值：
+    - ``"v1"``：assistant.ANALYSIS 段填固定占位 ``Observations recorded.``。
+    - ``"v2"``：assistant.ANALYSIS 段填 ``__TEACHER_PENDING__``，并写
+      ``dataset_version: "v2_pending"``；由 build_sft_dataset_v2_teacher.py 后续
+      把占位替换为冻结 base Qwen 的真实输出。**system / user 与 v1 完全一致**，
+      保证 student 训练 / 推理分布不漂移。
     """
 
     scenario = sample.scenario
@@ -460,15 +489,18 @@ def build_messages(
     user_content = "".join("<image>" for _ in image_paths) + "\n" + user_text
 
     target_subgoal = _next_event_in_seq(scenario, sample.target_status)
+    # v1：ANALYSIS 段用固定占位，训练时被 loss_scale mask=0。
+    # v2：ANALYSIS 段用 __TEACHER_PENDING__ 占位，由 teacher 脚本后续替换为真实蒸馏文本。
+    analysis_text = (
+        PLACEHOLDER_ANALYSIS_V2_PENDING if mode == "v2" else PLACEHOLDER_ANALYSIS
+    )
     assistant_content = (
-        # v1 暂不学习自然语言解释。这个固定句子只是保留三段输出格式，
-        # 训练脚本会用 loss_scale 把 ANALYSIS 段权重置 0。
-        f"ANALYSIS: {PLACEHOLDER_ANALYSIS}\n"
+        f"ANALYSIS: {analysis_text}\n"
         f"STATUS: {sample.target_status}\n"
         f"SUBGOAL: {target_subgoal}"
     )
 
-    return {
+    record: Dict = {
         "scenario": sample.scenario,
         "run_id": sample.run_id,
         "anchor": sample.anchor,
@@ -481,6 +513,19 @@ def build_messages(
         ],
         "is_transition_sample": sample.is_transition_sample,
     }
+    # v2 显式 mark dataset_version，方便 teacher 脚本与 eval/probe 自动识别。
+    # v1 沿用旧 schema 不加这个字段，避免污染 v1 历史 jsonl。
+    if mode == "v2":
+        record["dataset_version"] = "v2_pending"
+        # target_status / transition flag 也存进 metadata，teacher 脚本不用再推导
+        # （它原本可以从 messages[2] 反 parse，但显式字段更稳）。
+        record["v2_teacher_meta_input"] = {
+            "target_status": sample.target_status,
+            "target_subgoal": target_subgoal,
+            "memory_in_status": sample.memory_in_status,
+            "transition": "advance" if sample.is_transition_sample else "keep",
+        }
+    return record
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +559,10 @@ def split_train_val(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SFT v1 dataset builder")
+    parser = argparse.ArgumentParser(description="SFT v1/v2 dataset builder")
+    parser.add_argument("--mode", type=str, default="v1", choices=["v1", "v2"],
+                        help="v1 写 Observations recorded. 占位；v2 写 __TEACHER_PENDING__ "
+                             "占位，由 tools/build_sft_dataset_v2_teacher.py 后续填真值。")
     parser.add_argument("--keyframes", type=str,
                         default=str(_PROJECT_ROOT / "keyframes_all_scenarios.json"))
     parser.add_argument("--data-root", type=str,
@@ -598,7 +646,7 @@ def main():
             image_paths = build_image_paths(
                 run_dir_template, s.scenario, s.run_id, s.anchor
             )
-            sample_dict = build_messages(s, image_paths)
+            sample_dict = build_messages(s, image_paths, mode=args.mode)
             samples_by_run[s.run_id].append(sample_dict)
 
         n_adv = sum(1 for s in chosen if s.is_transition_sample)
