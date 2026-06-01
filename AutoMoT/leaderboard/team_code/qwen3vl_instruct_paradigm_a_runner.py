@@ -337,7 +337,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--route-dir",
         type=str,
-        default="/data/lead_data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46",
+        default="/datashare/IOL4SGH/data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46",
         help=(
             "真实 LEAD route 目录，目录下需要有 rgb/*.jpg。"
             "传空字符串则使用合成图，仅用于验证链路，语义不可依赖。"

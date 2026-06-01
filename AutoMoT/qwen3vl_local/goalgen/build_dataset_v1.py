@@ -4,7 +4,7 @@
 
 python qwen3vl_local/goalgen/build_dataset_v1.py \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
-  --data-root /data/lead_data/data \
+  --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/goalgen_v1_data
 
 构建逻辑沿用 SFT v1 的事件时间线思路，但监督目标不同：
@@ -40,7 +40,7 @@ from qwen3vl_local.prompt_pipeline import (  # noqa: E402
 
 ACCEPTED_RUN_STATUS = {"Completed", "Perfect"}
 DEFAULT_KEYFRAMES = "/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json"
-DEFAULT_DATA_ROOT = "/data/lead_data/data"
+DEFAULT_DATA_ROOT = "/datashare/IOL4SGH/data/data"
 RGB_FRAME_COUNT = 4
 RGB_FRAME_STEP = 1
 

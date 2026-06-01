@@ -1352,7 +1352,7 @@ def _build_synthetic_raw_and_model_input(
 # ---------------------------------------------------------------------------
 
 # LEAD 路径里典型 scenario 段位置:
-#   /data/lead_data/data/<Scenario>/Town03_Rep0_route_..../
+#   /datashare/IOL4SGH/data/data/<Scenario>/Town03_Rep0_route_..../
 #                       ^^^^^^^^^^
 # 自动从 route_dir 提取 scenario 名,若名字在 SCENARIO_LABELS 里就直接用。
 
@@ -1709,9 +1709,9 @@ if __name__ == "__main__":
                    help="落盘根目录;默认 <AutoMoT>/eval_json/paradigm_a_smoke_test")
 
     # ---- LEAD 真实数据入口(借鉴 mot_lead_offline_runner 同名参数) ----
-    p.add_argument("--route-dir", type=str, default='/data/lead_data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46',
+    p.add_argument("--route-dir", type=str, default='/datashare/IOL4SGH/data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46',
                    help="真实 LEAD 路由目录,目录下需有 rgb/*.jpg 子目录。"
-                        "示例: /data/lead_data/data/Accident/Town03_Rep0_route_001783_...。"
+                        "示例: /datashare/IOL4SGH/data/data/Accident/Town03_Rep0_route_001783_...。"
                         "不传 → 用合成图(仅验证通路,语义不可信)。")
     p.add_argument("--anchor", type=int, default=12,
                    help="待处理的 anchor 帧索引(route 内绝对索引,0-based)。"
