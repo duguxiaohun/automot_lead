@@ -14,18 +14,27 @@
 
 运行目录：AutoMoT/
 
-运行（单卡）：自动挑 1 张最空闲 GPU；若已手动设置 CUDA_VISIBLE_DEVICES，则尊重手动设置。::
+运行（单卡）：默认强制挑 1 张最空闲 GPU**覆盖**已有的 CUDA_VISIBLE_DEVICES。
+确实要手动锁定 GPU 时 `PATCH_UNPATCH_RESPECT_CUDA_VISIBLE_DEVICES=1` 关掉自动覆盖。::
 
     python vae_standalone/train_patch_unpatch.py \
         --train-jsonl checkpoints/goalgen_v1_data/train.jsonl \
         --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
         --output-dir checkpoints/patch_unpatch_v1
 
-DDP：自动挑 nproc_per_node 张最空闲 GPU；若已手动设置 CUDA_VISIBLE_DEVICES，则尊重手动设置。::
+DDP：torchrun 启动后每个 worker 已经持有独立 CUDA 上下文，**.py 内部无法再换卡**
+（CUDA driver 已初始化，修改 CUDA_VISIBLE_DEVICES 无效），必须由 launcher 提前
+挑好。下面这段一行 shell 自动挑 4 张最闲 GPU 再交给 torchrun::
 
+    export CUDA_VISIBLE_DEVICES=$(
+        nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits \
+        | sort -t',' -k2 -n | head -n 4 | awk -F',' '{print $1}' | paste -sd, -
+    )
     torchrun --standalone --nproc_per_node=4 \
         vae_standalone/train_patch_unpatch.py \
-        --train-jsonl ... --val-jsonl ... --output-dir ...
+        --train-jsonl checkpoints/goalgen_v1_data/train.jsonl \
+        --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
+        --output-dir checkpoints/patch_unpatch_v1
 
 训练产物（顶层）::
 
@@ -153,9 +162,23 @@ def pick_idle_gpus(want_count: int) -> str:
 
 
 def auto_configure_cuda_visible_devices(want_count: int) -> str:
-    if "CUDA_VISIBLE_DEVICES" in os.environ:
-        current = os.environ.get("CUDA_VISIBLE_DEVICES", "")
-        return f"preset:{current}"
+    """挑 want_count 张最空闲 GPU 并 export CUDA_VISIBLE_DEVICES。
+
+    单卡（want_count=1）：**默认覆盖**外部已设的 CUDA_VISIBLE_DEVICES，强制挑最闲。
+        显式 ``PATCH_UNPATCH_RESPECT_CUDA_VISIBLE_DEVICES=1`` opt-out。
+    DDP（want_count>1）：在 .py 里改 CUDA_VISIBLE_DEVICES 无效（torchrun 启动每个
+        worker 时 CUDA driver 已初始化，visible set 固化）。所以这里只在"外部完全没
+        设 CUDA_VISIBLE_DEVICES"的兜底情况下 pick；建议用户在 torchrun 前 export 好。
+    """
+
+    respect = os.environ.get("PATCH_UNPATCH_RESPECT_CUDA_VISIBLE_DEVICES", "0") == "1"
+
+    if respect and "CUDA_VISIBLE_DEVICES" in os.environ:
+        return f"preset-respect:{os.environ['CUDA_VISIBLE_DEVICES']}"
+
+    if want_count > 1 and "CUDA_VISIBLE_DEVICES" in os.environ:
+        # DDP 场景下尊重 launcher 已挑好的，不在 .py 里覆盖（CUDA 已初始化改不动）。
+        return f"ddp-preset:{os.environ['CUDA_VISIBLE_DEVICES']}"
 
     selected = pick_idle_gpus(want_count)
     if selected:
@@ -163,7 +186,9 @@ def auto_configure_cuda_visible_devices(want_count: int) -> str:
         picked = len([x for x in selected.split(",") if x.strip()])
         if picked < want_count:
             return f"auto-partial:{selected}"
-        return f"auto:{selected}"
+        # 标记 source 类型：单卡覆盖 vs 单卡新挑 vs DDP 兜底
+        prefix = "auto-override" if want_count == 1 and "CUDA_VISIBLE_DEVICES" in os.environ else "auto"
+        return f"{prefix}:{selected}"
     return "auto-unavailable"
 
 
@@ -561,29 +586,43 @@ def train(args: argparse.Namespace) -> None:
 
             for local_idx, sample_idx in enumerate(shard):
                 sample = samples[sample_idx]
-                images = [load_rgb(p) for p in collect_image_paths(sample)]
+                image_paths = collect_image_paths(sample)
+                n_frames = len(image_paths)
 
-                # 一次 encode 拿到 6 帧 latent；patch/unpatch 是 per-frame，可以
-                # 当 batch=6 处理，相当于免费 6× 数据。
-                z = vae_encode_no_grad(vae, images).to(dtype=dtype)
+                # 逐帧 forward+backward：把"单条 sample 当 batch=N"拆成 N 个 sub-step，
+                # 一次只让 1 帧的 VAE decode activation 驻留在显存，**显存峰值 ÷ N**。
+                # 数学等价：F.mse_loss 默认 reduction='mean'；一次 forward N 帧的 loss
+                #   = mean over (N * C * H * W) 个元素
+                # 拆开后 N 次 sub-step 累 (1/N) 的 grad，sum 之后
+                #   = (1/N) * sum_i mean over (1 * C * H * W) 个元素
+                # 两者完全相等（mean over N 帧的整体 = N 帧 per-frame mean 的平均）。
+                # 这是 train_patch_unpatch.py 在 H20 95GB 上从 OOM 到能跑的关键改动。
+                sample_pixel_mse = 0.0
+                sample_latent_mse = 0.0
+                for img_path in image_paths:
+                    img = load_rgb(img_path)
+                    # encode 单张 → [1, C, h, w]；no_grad 释放 encoder activation。
+                    z_i = vae_encode_no_grad(vae, [img]).to(dtype=dtype)
+                    # 前向：z → patch → unpatch → z_hat
+                    z_hat_i = model(z_i)
+                    latent_mse_i = F.mse_loss(z_hat_i, z_i.to(dtype=z_hat_i.dtype))
+                    # pixel 重建：z_hat → VAE.decode → x_hat；与原图 x 比 MSE。
+                    # 这是主目标：让 patch/unpatch 在 latent 空间的微小损失，
+                    # 不会被解码放大成可见图像差异。
+                    x_i = vae.pil_to_tensor([img])
+                    x_hat_i = vae_decode_with_grad(vae, z_hat_i).clamp(-1.0, 1.0)
+                    pixel_mse_i = F.mse_loss(x_hat_i, x_i.to(dtype=x_hat_i.dtype))
+                    # 1/n_frames 让 N 帧梯度求和等价于一次 forward 整 batch 的 mean。
+                    loss_i = (args.lambda_pixel * pixel_mse_i + args.lambda_latent * latent_mse_i) / n_frames
+                    # 再除 grad_accum_steps 把 N micro 的梯度规模和"无累积"对齐。
+                    (loss_i / args.grad_accum_steps).backward()
+                    sample_pixel_mse += float(pixel_mse_i.detach().item())
+                    sample_latent_mse += float(latent_mse_i.detach().item())
 
-                # 前向：z → patch → unpatch → z_hat
-                z_hat = model(z)
-                latent_mse = F.mse_loss(z_hat, z)
-
-                # pixel 重建：z_hat → VAE.decode → x_hat；与原图 x 比 MSE。
-                # 这是主目标：让 patch/unpatch 在 latent 空间的微小损失，不会被
-                # 解码放大成可见图像差异。
-                x = vae.pil_to_tensor(images)
-                x_hat = vae_decode_with_grad(vae, z_hat).clamp(-1.0, 1.0)
-                pixel_mse = F.mse_loss(x_hat, x.to(dtype=x_hat.dtype))
-
-                loss = args.lambda_pixel * pixel_mse + args.lambda_latent * latent_mse
-                # 累积步内 loss 缩放，让梯度规模和"无累积时"对齐。
-                (loss / args.grad_accum_steps).backward()
-
-                running_pixel += float(pixel_mse.detach().item())
-                running_latent += float(latent_mse.detach().item())
+                # 累计单条 sample 的 N 帧平均（与原代码一次 forward 整 batch 的
+                # pixel_mse 数值含义一致），供 logging 用。
+                running_pixel += sample_pixel_mse / n_frames
+                running_latent += sample_latent_mse / n_frames
                 running_micro += 1
 
                 # 边界判定：当前 micro 是 accum 组里最后一条，或 shard 已扫完。
@@ -687,7 +726,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--hidden-dim", type=int, default=768)
     p.add_argument("--patch-size", type=int, default=2)
 
-    p.add_argument("--num-epochs", type=int, default=5)
+    # epoch 数：831k 样本 × 5 帧 ≈ 4.1M frame-step / epoch；4 GPU × accum 2 =
+    # 等效 batch 8 → ~520k optimizer step / epoch。patch/unpatch 是俩小卷积/线性
+    # 层，1 epoch 已经远远过收敛；2 epoch 留一点 cosine decay 尾段做精修。
+    # 想要更多就显式 --num-epochs 3 之类，没必要默认就 5（会浪费几天 wall-time）。
+    p.add_argument("--num-epochs", type=int, default=2)
     p.add_argument("--grad-accum-steps", type=int, default=2)
     p.add_argument("--learning-rate", type=float, default=2e-4)
     p.add_argument("--weight-decay", type=float, default=0.01)
