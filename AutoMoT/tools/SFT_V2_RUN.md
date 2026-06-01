@@ -1,4 +1,4 @@
-# SFT v2 运行教程 — 从生成 teacher 数据到拿到评估指标
+# SFT v2 运行教程 — pending 数据 + 运行时 teacher 真值
 
 > 本文档是 [SFT_V2_PLAN.md](SFT_V2_PLAN.md) 的"操作手册"对照：PLAN 讲设计与决策依据，
 > 本 RUN 讲实际怎么跑。
@@ -57,11 +57,22 @@ print(repr(r['messages'][2]['content']))
 
 ---
 
-## 2. 阶段 2：teacher 推理填 ANALYSIS（**GPU**，8 卡分片约 100 分钟）
+## 2. teacher ANALYSIS 生成策略
 
-这是 v2 最重的一步。teacher 加载冻结 base Qwen，对每条 pending 样本跑一次推理产 ANALYSIS。
+**默认不要长期维护写死 ANALYSIS 的训练集。**
 
-### 2.0 训练前 teacher 预览（不写训练集，推荐先跑）
+v2 的长期数据集是 `checkpoints/sft_v2_data_pending/`：里面只保存图像、MEMORY、
+STATUS/SUBGOAL 与 `__TEACHER_PENDING__` 占位。冻结 teacher 只在两种场景现场推理：
+
+- 训练前预览：少量样本，确认 teacher 输出是否符合预期，不写训练 jsonl。
+- 训练启动时：`sft_v2_train.sh` 检测到 `dataset_version == "v2_pending"` 后，自动调用
+  `build_sft_dataset_v2_teacher.py` 生成临时 runtime jsonl，默认写到
+  `checkpoints/sft_v2_lora/runtime_teacher_data/`。
+
+说明：ms-swift 训练入口需要 jsonl 文件，所以这里的“实时”是训练启动时临时物化 teacher
+真值，不是每个 batch 在线调用 teacher；pending 源数据不会被回写。
+
+### 2.1 训练前 teacher 预览（不写训练集，推荐先跑）
 
 如果 keyframes / prompt / 数据采样之后会改，先从 pending jsonl 里抽少量样本现场跑
 teacher，打开网页看 ANALYSIS 是否符合预期。这个步骤只写 inspect 目录，不会把
@@ -95,48 +106,23 @@ VSCode Remote / SSH 端口转发后，在浏览器打开这个地址检查：
 - `teacher_user.txt` 里的 PRIVILEGED 块是否符合当前样本；
 - `teacher_analysis_live.txt` 是否按“看图 -> 变化 -> 结论”写，且没有泄漏 PRIVILEGED 字样。
 
-### 2.1 8 卡分片跑（推荐）
+### 2.2 可选：手动临时物化 teacher jsonl
 
-```bash
-torchrun --standalone --nproc_per_node=8 tools/build_sft_dataset_v2_teacher.py \
-    --pending-dir checkpoints/sft_v2_data_pending \
-    --output-dir checkpoints/sft_v2_data \
-    --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-    --seed 20260601
-```
-
-每个 rank 处理 `sample_idx % world_size == rank` 的样本，各自落盘到
-`<output-dir>/train.jsonl.rank<R>` / `val.jsonl.rank<R>`，跑完后 rank0 自动合并为
-`train.jsonl` / `val.jsonl`，删 rank 分片文件。
-
-### 2.2 单卡跑（小批量调试或 8 卡不可用）
+通常不需要手动跑这一步，正式训练会自动做。只有你想提前做 plugin 静态 sanity、
+复用同一份 teacher 输出，或排查 fallback 比例时才需要：
 
 ```bash
 python tools/build_sft_dataset_v2_teacher.py \
     --pending-dir checkpoints/sft_v2_data_pending \
-    --output-dir checkpoints/sft_v2_data \
-    --max-samples 32           # 只跑前 32 条，验证流水线
+    --output-dir checkpoints/sft_v2_runtime_debug \
+    --max-samples 32
 ```
 
 teacher 脚本默认用 `nvidia-smi` 自动挑空闲 GPU：单进程挑 1 张，
 `torchrun --nproc_per_node=N` 时挑 N 张。已有 `CUDA_VISIBLE_DEVICES` 时尊重外部设置；
 要关闭自动选卡，设 `SFT_TEACHER_DISABLE_AUTO_GPU=1`。
 
-### 2.3 中断后续跑
-
-teacher 脚本启动时会扫描 `<output-dir>/train.jsonl` 与 `val.jsonl` 已有内容，
-按 `(scenario, run_id, anchor)` 三元组做指纹，跳过已生成样本。直接重跑同一条命令即可继续：
-
-```bash
-# 中断了，重跑（同一条命令）
-torchrun --standalone --nproc_per_node=8 tools/build_sft_dataset_v2_teacher.py \
-    --pending-dir checkpoints/sft_v2_data_pending \
-    --output-dir checkpoints/sft_v2_data \
-    --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-    --seed 20260601
-```
-
-### 2.4 通过条件
+### 2.3 通过条件
 
 - `<output-dir>/train.jsonl` 行数 == `<pending-dir>/train.jsonl` 行数；val 同理。
 - 任意行 `dataset_version == "v2"`、`teacher_meta.model_dir` 不为空。
@@ -148,7 +134,7 @@ torchrun --standalone --nproc_per_node=8 tools/build_sft_dataset_v2_teacher.py \
 python -c "
 import json
 n_total = n_fb = 0
-with open('checkpoints/sft_v2_data/train.jsonl') as f:
+with open('checkpoints/sft_v2_runtime_debug/train.jsonl') as f:
     for line in f:
         r = json.loads(line)
         n_total += 1
@@ -157,15 +143,15 @@ print(f'total={n_total} fallback={n_fb} ratio={n_fb/max(n_total,1):.2%}')
 "
 ```
 
-### 2.5 抽检 teacher 输出质量
+### 2.4 抽检 teacher 输出质量
 
-推荐改用专用可视化脚本（见 §2.6），这里保留最小抽检：
+推荐改用专用可视化脚本（见 §2.1），这里保留最小抽检：
 
 ```bash
 python -c "
 import json, random
 random.seed(0)
-with open('checkpoints/sft_v2_data/train.jsonl') as f:
+with open('checkpoints/sft_v2_runtime_debug/train.jsonl') as f:
     rows = [json.loads(l) for l in f]
 for r in random.sample(rows, 5):
     print('---', r['scenario'], r['run_id'], 'anchor=', r['anchor'])
@@ -179,7 +165,7 @@ for r in random.sample(rows, 5):
 - ❌ 出现 PRIVILEGED 字眼或直接泄漏 GT（例如 `the current STATUS is X`）
 - ❌ 大量样本同一句套话（teacher 表达塌缩）
 
-### 2.6 teacher 可视化抽检（推荐）
+### 2.5 teacher 可视化抽检（推荐）
 
 新增工具：`tools/inspect_teacher_outputs.py`
 
@@ -189,15 +175,15 @@ for r in random.sample(rows, 5):
 - 加 `--serve --port 0` 会自动选空闲端口并启动 `index.html` 预览服务
 
 ```bash
-# 模式 A：默认只读 v2 jsonl，按场景均匀抽样
+# 模式 A：只读已物化 v2 jsonl，按场景均匀抽样
 python tools/inspect_teacher_outputs.py \
-    --jsonl checkpoints/sft_v2_data/train.jsonl \
+    --jsonl checkpoints/sft_v2_runtime_debug/train.jsonl \
     --save-root checkpoints/sft_v2_teacher_inspect \
     --num-per-scenario 3 --seed 42
 
-# 模式 B：现场重跑 teacher（推荐用于改 teacher prompt 后复核）
+# 模式 B：从 pending 现场重跑 teacher（推荐用于改 prompt / 数据后复核）
 python tools/inspect_teacher_outputs.py \
-    --jsonl checkpoints/sft_v2_data/train.jsonl \
+    --jsonl checkpoints/sft_v2_data_pending/train.jsonl \
     --save-root checkpoints/sft_v2_teacher_inspect_live \
     --num-per-scenario 3 --seed 42 \
     --live --serve --port 0 \
@@ -236,13 +222,13 @@ v2 现在有专用静态 sanity 脚本：`tools/check_loss_mask_v2.py`。
 - plugin 主路径 sanity：直接调用 `sft_v2_loss_scale_plugin.py`，验证切片和权重
 
 ```bash
-python tools/check_loss_mask_v2.py
+python tools/check_loss_mask_v2.py --jsonl checkpoints/sft_v2_runtime_debug/train.jsonl
 
 # 看第 N 条样本
-python tools/check_loss_mask_v2.py --sample-idx 7
+python tools/check_loss_mask_v2.py --jsonl checkpoints/sft_v2_runtime_debug/train.jsonl --sample-idx 7
 
-# 指定 v2 val 集抽检
-python tools/check_loss_mask_v2.py --jsonl checkpoints/sft_v2_data/val.jsonl --sample-idx 3
+# 训练跑过后，也可以检查 runtime teacher 数据
+python tools/check_loss_mask_v2.py --jsonl checkpoints/sft_v2_lora/runtime_teacher_data/val.jsonl --sample-idx 3
 ```
 
 **通过条件**（必须全部满足）：
@@ -273,7 +259,8 @@ w=1.00: 'max_brake_or_min_gap'
 bash tools/sft_v2_train.sh check
 ```
 
-与 v1 一样，2 step、不保存 ckpt、不跑 val。建议先过完 §3 静态 sanity 再跑这里。
+与 v1 一样，2 step、不保存 ckpt、不跑 val。check 模式会自动从 pending 数据生成最多
+32 条 runtime teacher 样本；不会改写 pending 数据集。
 
 **预期 loss 数值**（健康范围）：
 
@@ -296,7 +283,7 @@ bash tools/sft_v2_train.sh check
 
 ---
 
-## 5. 正式训练（**8×H20 DDP，约 2 小时**）
+## 5. 正式训练（**8×H20 DDP**）
 
 ```bash
 bash tools/sft_v2_train.sh ddp
@@ -305,8 +292,18 @@ bash tools/sft_v2_train.sh ddp
 GPU / 端口 / DDP rendezvous 行为与 v1 完全一致（自动选最空闲卡、自动找空闲 MASTER_PORT、
 NCCL_P2P_LEVEL=NVL 等）。所有 v1 的 `DDP_GPU_COUNT` / `SFT_RESPECT_*` 环境变量在 v2 同名。
 
+正式训练第一步会先把 `checkpoints/sft_v2_data_pending/` 临时物化到
+`checkpoints/sft_v2_lora/runtime_teacher_data/`，再把这份 runtime jsonl 交给 ms-swift。
+默认 `RUNTIME_TEACHER_REFRESH=1`，每次训练启动都会刷新这个 runtime 缓存，避免 keyframes /
+prompt 改了以后复用旧 teacher 文本。如果上次 teacher 物化中断、想续跑同一份 pending，可显式：
+
+```bash
+RUNTIME_TEACHER_REFRESH=0 bash tools/sft_v2_train.sh ddp
+```
+
 **预期**：
-- 8 卡总 step ≈ 900（与 v1 同）；4 卡 ≈ 1800；
+- teacher runtime 物化：8 卡约 100 分钟，单卡小样本 check 约 1–2 分钟；
+- LoRA 训练：8 卡总 step ≈ 900（与 v1 同）；4 卡 ≈ 1800；
 - 每个 epoch 末尾保存一次 LoRA adapter 到 `checkpoints/sft_v2_lora/v*/checkpoint-XXX/`，
   保留最近 3 个；
 - 训练 loss 大致从 check 阶段量级下降到 0.5–1.5 区间（v2 ANALYSIS 段 loss 不会到 0，
@@ -322,19 +319,19 @@ NCCL_P2P_LEVEL=NVL 等）。所有 v1 的 `DDP_GPU_COUNT` / `SFT_RESPECT_*` 环�
 # 小样本 + 完整 dump
 python tools/eval_sft_v1.py \
     --lora-dir checkpoints/sft_v2_lora \
-    --val-jsonl checkpoints/sft_v2_data/val.jsonl \
+    --val-jsonl checkpoints/sft_v2_lora/runtime_teacher_data/val.jsonl \
     --save-root checkpoints/sft_v2_lora \
     --max-samples 100
 
 # 全集分片
 torchrun --standalone --nproc_per_node=4 tools/eval_sft_v1.py \
     --lora-dir checkpoints/sft_v2_lora \
-    --val-jsonl checkpoints/sft_v2_data/val.jsonl \
+    --val-jsonl checkpoints/sft_v2_lora/runtime_teacher_data/val.jsonl \
     --save-root checkpoints/sft_v2_lora
 ```
 
 **关键参数变化**：v1 默认 val 路径写死 `checkpoints/sft_v1_data/val.jsonl`，v2 必须显式
-`--val-jsonl checkpoints/sft_v2_data/val.jsonl`，否则会评 v1 数据集。
+`--val-jsonl checkpoints/sft_v2_lora/runtime_teacher_data/val.jsonl`，否则会评 v1 数据集或 pending 占位数据。
 eval / probe 会默认自动挑空闲 GPU；多卡 eval 用 `torchrun --nproc_per_node=N`
 时会自动挑 N 张。
 
@@ -343,7 +340,7 @@ eval / probe 会默认自动挑空闲 GPU；多卡 eval 用 `torchrun --nproc_pe
 ```bash
 python tools/probe_sft_v1.py \
     --lora-dir checkpoints/sft_v2_lora \
-    --val-jsonl checkpoints/sft_v2_data/val.jsonl \
+    --val-jsonl checkpoints/sft_v2_lora/runtime_teacher_data/val.jsonl \
     --save-root checkpoints/sft_v2_lora \
     --num-per-scenario 3 --seed 42 \
     --case-suffix "_v2"
@@ -369,7 +366,7 @@ python tools/eval_sft_v1.py \
 # v2 LoRA 在 v2 val 上的指标（注意 GT 不同，但 STATUS/SUBGOAL GT 一致）
 python tools/eval_sft_v1.py \
     --lora-dir checkpoints/sft_v2_lora \
-    --val-jsonl checkpoints/sft_v2_data/val.jsonl \
+    --val-jsonl checkpoints/sft_v2_lora/runtime_teacher_data/val.jsonl \
     --save-root checkpoints/sft_v2_lora \
     --max-samples 200
 ```
@@ -386,7 +383,7 @@ python tools/eval_sft_v1.py \
 | 步骤 | 贴这些 |
 |---|---|
 | 阶段 1 | `checkpoints/sft_v2_data_pending/stats.json` |
-| 阶段 2 | §2.4 的 fallback 比例统计 + §2.5 随机 5 条 ANALYSIS |
+| teacher 预览 / runtime | 预览网页截图，或 runtime 目录的 fallback 比例统计 + 随机 5 条 ANALYSIS |
 | §3 sanity | inline 脚本完整 stdout |
 | §4 check | check 模式输出最后 30 行（含 loss 数值） |
 | §5 训练中 | 每 100 step 的 loss / grad_norm 趋势 |

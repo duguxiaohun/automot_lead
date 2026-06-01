@@ -28,16 +28,17 @@ v1 PLAN §9 原本写"用 v1 LoRA + GT status 自蒸馏"，但前提是 v1 能�
 
 ---
 
-## 2. 核心设计 — 两条 prompt、两条数据管线
+## 2. 核心设计 — 两条 prompt、pending 数据与运行时 teacher
 
-### 2.1 Teacher 管线（offline 一次性产 ANALYSIS GT）
+### 2.1 Teacher 管线（训练前预览 / 训练启动时临时产 ANALYSIS）
 
 - **输入**：4 帧 RGB（与 student 完全一致）+ MEMORY（anchor-K 的 STATUS）+ **PRIVILEGED 块**
   （当前 anchor 的 GT STATUS 与 transition flag）。
 - **任务**：从已知答案反推视觉证据，按"先描述图片可见内容 → 描述帧间变化 → 简要说明
   支持当前 STATUS 的视觉依据"三步式写 2–4 句 ANALYSIS。
 - **执行者**：冻结的 `Qwen3-VL-4B-Instruct` base 模型（不带 LoRA）。
-- **输出**：纯文本 ANALYSIS 正文（不带 `ANALYSIS:` 前缀），写回 student GT 的 ANALYSIS 槽位。
+- **输出**：纯文本 ANALYSIS 正文（不带 `ANALYSIS:` 前缀），只写入预览目录或训练时
+  runtime jsonl；不回写长期维护的 pending 数据集。
 
 ### 2.2 Student 管线（LoRA SFT 训练）
 
@@ -55,7 +56,8 @@ v1 PLAN §9 原本写"用 v1 LoRA + GT status 自蒸馏"，但前提是 v1 能�
 PRIVILEGED 字段，推理分布就废了 —— 因为推理时根本拿不到 GT STATUS。
 
 实现层面：v2 jsonl 的 `messages` 字段里 system / user 与 v1 完全 byte 级相同；
-PRIVILEGED 只出现在 teacher 推理时临时拼装的 prompt 里，不落盘。
+PRIVILEGED 只出现在 teacher 推理时临时拼装的 prompt 里。长期 pending jsonl 不落盘
+teacher ANALYSIS；训练时 runtime jsonl 会落盘 teacher 结果，作为本次训练的临时缓存。
 
 ---
 
@@ -132,7 +134,7 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
 
 ---
 
-## 4. 数据格式 + 两阶段管线
+## 4. 数据格式 + 运行时物化管线
 
 ### 4.1 v2 jsonl 字段
 
@@ -140,7 +142,7 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
 
 ```json
 {
-  "dataset_version": "v2",            // 必填；"v2_pending" 或 "v2"
+  "dataset_version": "v2",            // "v2_pending" 长期保存；"v2" 仅用于 runtime/调试物化产物
   "scenario": "...", "run_id": "...", "anchor": N, "prev_anchor": M,
   "images": [...],
   "messages": [
@@ -150,7 +152,7 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
         "ANALYSIS: <teacher 生成内容>\nSTATUS: <GT>\nSUBGOAL: <GT>"}
   ],
   "is_transition_sample": bool,
-  "teacher_meta": {
+  "teacher_meta": {                    // 仅 dataset_version == "v2" 时存在
     "model_dir": "checkpoints/Qwen3-VL-4B-Instruct",
     "seed": 20260601,
     "generated_at": "2026-06-01T15:30:00Z",
@@ -169,9 +171,21 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
 
 产物：`<output-dir>/train.jsonl` / `val.jsonl` / `stats.json`（schema 同 v1，区别靠目录隔离）。
 
-### 4.3 阶段 2 — `build_sft_dataset_v2_teacher.py`
+### 4.3 运行时 teacher 物化 — `sft_v2_train.sh` + `build_sft_dataset_v2_teacher.py`
 
-输入：阶段 1 产出的 pending jsonl。流程：
+默认训练入口是 `bash tools/sft_v2_train.sh ddp|single|check`。它会先读取
+`TRAIN_JSONL` 第一条样本：
+
+- 如果 `dataset_version == "v2_pending"`：自动调用 `build_sft_dataset_v2_teacher.py`，
+  把 teacher ANALYSIS 临时生成到 `RUNTIME_TEACHER_DIR`（默认
+  `checkpoints/sft_v2_lora/runtime_teacher_data/`），再把这份 runtime jsonl 交给 ms-swift。
+- 如果 `dataset_version == "v2"`：说明用户显式传入了已物化 jsonl，训练脚本直接使用。
+
+默认 `RUNTIME_TEACHER_REFRESH=1`，训练启动时会刷新 runtime teacher cache，避免 keyframes /
+prompt 改动后复用旧 ANALYSIS。只有明确要续跑同一份 pending 的中断任务时，才设
+`RUNTIME_TEACHER_REFRESH=0`。
+
+`build_sft_dataset_v2_teacher.py` 输入 pending jsonl，流程：
 
 1. 加载冻结 base Qwen（`local_files_only=True`，bf16，eval mode）。
 2. 对每条 pending 样本：
@@ -187,10 +201,12 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
    的样本，各自落盘到 `train.jsonl.rank<R>`；最后 rank0 合并。
 
 预计耗时：14400 train + 1600 val ≈ 16000 样本 × 3 秒/样本 ÷ 8 卡 ≈ 100 分钟。
+这一步是训练启动阶段的 runtime 缓存，不再要求用户维护 `checkpoints/sft_v2_data/`
+这种固定 teacher 数据集。
 
 ### 4.4 student GT 拼接位置
 
-teacher 只产出 ANALYSIS 正文。student GT 三段在 `build_sft_dataset_v2_teacher.py` 里
+teacher 只产出 ANALYSIS 正文。student GT 三段在 runtime 物化时
 直接拼接：
 
 ```python
@@ -283,7 +299,7 @@ regex 在 v1 `_FULL_PATTERN` 基础上加一个 `(?P<analysis>...)` 捕获组，
 |---|---|---|
 | teacher 大批量输出"Observations recorded." 兜底 | `teacher_meta.fallback=true` 比例 > 5% | 检查 base Qwen 是否在 PRIVILEGED prompt 上 OOM 截断；调小 max_new_tokens，或把 §3.1 system prompt 缩短 |
 | teacher 输出在 STATUS=keep 与 STATUS=advance 上风格一致（学不出区分） | probe 看 keep / advance 两类的 ANALYSIS 措辞几乎相同 | base 模型分辨力不足；考虑用 v1 LoRA 早期 ckpt（ANALYSIS 还没崩的那个 epoch）做 teacher |
-| v2 训练 loss 不降 | 训 50 step 后 loss 还在 4+ | plugin regex 漂移或 max_length 截掉 ANALYSIS 段；先跑 `check_loss_mask.py` 改写 v2 sanity（见 RUN §2） |
+| v2 训练 loss 不降 | 训 50 step 后 loss 还在 4+ | plugin regex 漂移或 max_length 截掉 ANALYSIS 段；先跑 `check_loss_mask_v2.py` 检查 runtime jsonl（见 RUN §3） |
 | v2 训练 loss 降但 ANALYSIS 段输出仍复读 | ckpt-100/300/600 都见复读 | 把 §5 ANALYSIS 权重从 0.3 调到 0.5；仍不行进 §9 KL 正则 |
 | ANALYSIS 段过拟合 teacher 措辞，每个场景都用同一句套话 | probe 看不同 case 的 ANALYSIS 几乎相同 | 权重 0.3 → 0.1；或在 teacher 阶段把 temperature 从 0 调到 0.3 增加多样性 |
 | max_length 3584 仍触发 truncation warning | swift 日志 | 缩短 teacher system prompt 或把 ANALYSIS 后处理截断阈值从 480 char 降到 300 char |
@@ -316,12 +332,12 @@ forward + reference model 显存翻倍）。
 | `AutoMoT/tools/SFT_V2_PLAN.md` | 新增 | 本文件 |
 | `AutoMoT/tools/SFT_V2_RUN.md` | 新增 | 操作手册 |
 | `AutoMoT/tools/build_sft_dataset_v1.py` | 改 | 加 `--mode v2`：输出 pending jsonl |
-| `AutoMoT/tools/build_sft_dataset_v2_teacher.py` | 新增 | 离线 teacher 推理，填 ANALYSIS GT |
+| `AutoMoT/tools/build_sft_dataset_v2_teacher.py` | 新增 | 从 pending jsonl 运行 teacher，生成 runtime/调试用 ANALYSIS GT |
 | `AutoMoT/tools/sft_v2_loss_scale_plugin.py` | 新增 | 注册 `sft_v2_analysis_supervised` |
 | `AutoMoT/tools/sft_v2_train.sh` | 新增 | v2 训练入口（与 v1 同套 GPU/MASTER_PORT 自动选址） |
 | `AutoMoT/tools/eval_sft_v1.py` | 改 | 按 `dataset_version` 字段自动检测，沿用同一份评估逻辑 |
 | `AutoMoT/tools/probe_sft_v1.py` | 改 | 同上 |
 | `CLAUDE.md` / `AGENTS.md` | 改 | 同步白名单 |
 
-`check_loss_mask.py` 暂不动 —— 它是 v1 专用 sanity，v2 sanity 检查直接在 RUN.md §2 里
-用 `python -c` 小脚本搞定，不值得新建专用工具。
+`check_loss_mask_v2.py` 是 v2 专用 token 级 sanity；输入必须是已经 runtime 物化后的
+`dataset_version == "v2"` jsonl，不能直接检查 pending 占位数据。
