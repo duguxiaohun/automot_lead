@@ -297,6 +297,10 @@ bash tools/sft_v1_train.sh single
 checkpoints/sft_v1_lora/
 ├─ checkpoint-*/      LoRA adapter
 ├─ tb/                训练 TB events（swift 写，--report_to tensorboard）
+├─ invocations/       每次 eval_sft_v1.py 启动写一份 <ts>_<host>_pid<pid>.txt
+│                     （sys.argv + env + git_commit），事后追溯"这版 eval 是
+│                     哪条命令跑的"；SFT 训练入口走 swift cli，trainer_state.json
+│                     已经记录了训练命令，所以训练时不再额外 dump
 ├─ eval/              eval_sft_v1.py 写的 metrics.json + predictions.jsonl
 ├─ eval_tb/<ckpt>/    eval_sft_v1.py 写的指标 scalar + text（每个 ckpt 一个 TB run）
 └─ eval_cases/        probe_sft_v1.py 随机场景 case dump
