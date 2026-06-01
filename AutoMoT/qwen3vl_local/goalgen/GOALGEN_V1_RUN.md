@@ -144,6 +144,18 @@ CUDNN_BENCHMARK=1 bash qwen3vl_local/goalgen/train_v1.sh ddp
 H20 单卡 97GB，当前默认 `batch=1 × grad_accum=4`，单卡占用 ~22GB。剩余 70GB+ 余量
 可以用来上 batch（C 方案，未实现）；现阶段先维持现状。
 
+**关于 `NUM_EPOCHS`（默认 2，已与 train_v1.py CLI default 对齐）**：
+
+train_v1.sh single / ddp 两个分支默认 `--num-epochs 2`，train_v1.py 自身 CLI
+default 也是 2，两边一致。计算依据：
+
+- 831k 样本 / 4 GPU / GRAD_ACC=4 ≈ **52k optimizer step / epoch**
+- DiT 从零训通常 100-200k step 才稳定收敛，1 epoch 偏少
+- 2 epoch ≈ 104k step，配合 cosine decay 收尾，进入 DiT 收敛区间下界
+
+想要多跑：`NUM_EPOCHS=3 bash qwen3vl_local/goalgen/train_v1.sh ddp` 显式覆盖。
+check 模式写死 `--num-epochs 1` + `--max-train-steps 2`，纯链路验证用，不动。
+
 训练阶段 **Qwen 与 VAE 全程冻结，只更新 DiT-MoT**。
 
 第二轮默认启用：共享 patchify、EMA `0.9999`、logit-normal t 采样、CFG drop `0.1` /
@@ -181,6 +193,9 @@ checkpoints/goalgen_v1_dit/tb/                # TensorBoard event 文件
 checkpoints/goalgen_v1_dit/
 ├─ checkpoint-*/ + latest.pt  DiT 权重
 ├─ tb/                        训练 TB events（train/* val/* samples/pred_vs_gt）
+├─ invocations/               每次 train_v1.py / eval_v1.py 启动写一份
+│                             <ts>_<host>_pid<pid>.txt（sys.argv + env + git_commit），
+│                             事后追溯"这版 ckpt 是哪条命令训出来的"
 ├─ eval/                      eval_v1.py 产物
 │  ├─ eval_v1_summary.json    聚合指标 + _metric_doc 说明
 │  ├─ eval_v1_perline.jsonl   每条样本一行

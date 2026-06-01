@@ -45,6 +45,10 @@ DDP：torchrun 启动后每个 worker 已经持有独立 CUDA 上下文，**.py 
         patch_unpatch_best.safetensors      # val/pixel_mse 历史最小
         patch_unpatch_best.json             # {"step": ..., "val_pixel_mse": ...}
       tb/                                   # TensorBoard events
+      invocations/                          # 每次启动 rank0 写一份
+                                            # <ts>_<host>_pid<pid>.txt（sys.argv +
+                                            # 关键 env + git_commit），事后追溯
+                                            # "这版 ckpt 是哪条命令训出来的"
 """
 
 from __future__ import annotations
