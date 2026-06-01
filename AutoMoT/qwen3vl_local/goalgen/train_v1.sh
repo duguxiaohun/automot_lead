@@ -44,6 +44,11 @@ NUM_LAYERS="${NUM_LAYERS:-12}"
 COND_DIM="${COND_DIM:-256}"
 MLP_RATIO="${MLP_RATIO:-4.0}"
 LANGUAGE_KV_INPUT_DIM="${LANGUAGE_KV_INPUT_DIM:-auto}"   # train_v1.py 会用首条样本的分段 KV 推维度；显式给整数（如 1024）可跳过探测
+# 历史帧数上限：仅控制 DiT 的 frame_embed 容量，**不是**控制 Qwen 喂几张图。
+# Qwen 实际吃到的图数 = jsonl 里 history_rgb_paths 长度，由 build_dataset_v1.py
+# 构建时的 --num-frames 决定（默认 RGB_FRAME_COUNT=4）。
+# 想真正缩短 Qwen prefill：重建数据集时调小 --num-frames，再训练；
+# 这里改 MAX_HISTORY_FRAMES 不影响 Qwen wall-time。保持 8 作为上限留余量。
 MAX_HISTORY_FRAMES="${MAX_HISTORY_FRAMES:-8}"
 QWEN_KV_SEGMENT_MODE="${QWEN_KV_SEGMENT_MODE:-select_last}"
 
@@ -67,6 +72,11 @@ export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export HF_HOME="${HF_HOME:-${OUTPUT_DIR}/.hf_cache}"
 mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
+
+# 可选：torch.compile(dit) 加速 DiT forward（10-20%）。Qwen3-VL 走 HF DynamicCache，
+# 控制流不友好不 compile；只 compile DiT。默认关，置 1 启用。
+COMPILE_DIT="${COMPILE_DIT:-0}"
+export GOALGEN_COMPILE_DIT="${COMPILE_DIT}"
 
 pick_idle_gpus() {
     local want_count="$1"
