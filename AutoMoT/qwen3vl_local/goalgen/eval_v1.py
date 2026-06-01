@@ -156,7 +156,6 @@ from qwen3vl_local.engine import LocalQwen3VLInstructEngine  # noqa: E402
 from qwen3vl_local.goalgen.dit import (  # noqa: E402
     DiTMoT,
     DiTMoTConfig,
-    language_kv_input_dim_from_pooled,
 )
 from qwen3vl_local.goalgen.flow import euler_sample_cfg, sample_flow_batch  # noqa: E402
 from qwen3vl_local.goalgen.prompt import (  # noqa: E402
@@ -286,8 +285,9 @@ def build_dit_from_ckpt(
 ) -> DiTMoT:
     """读取 ckpt → 反建 DiTMoTConfig → 实例化 → strict load。
 
-    num_layers 与 language_kv_input_dim 永远取自当前 pooled_kv，这两条是"DiT 形状必须
-    与运行时 Qwen KV 对齐"的硬约束；其它字段优先 ckpt 存档。
+    v2 起 num_layers 仍从 pooled_kv 推；不再有 language_kv_input_dim 字段，
+    pooled_kv 的 (n_heads=8, head_dim=128) 必须与 DiT cfg 严格一致，
+    DiTMoT.forward 内部会做硬断言。
     """
 
     payload = torch.load(ckpt_path, map_location=device)
@@ -296,7 +296,6 @@ def build_dit_from_ckpt(
 
     runtime_kwargs = dict(
         num_layers=len(pooled_kv),
-        language_kv_input_dim=language_kv_input_dim_from_pooled(pooled_kv),
     )
 
     # ---- Qwen 适配器一致性校验（与 runner 同口径）----
@@ -332,24 +331,20 @@ def build_dit_from_ckpt(
             )
 
     if saved_cfg_dict is not None:
-        # 形状预检与 runner 同口径：训练时与运行时的 num_layers / language_kv_input_dim
-        # 不一致 → strict load 必炸 attention 投影。提前断言给出双数字 + 原因。
+        # 形状预检：训练时与运行时的 num_layers 不一致 → strict load 必炸 attention 投影。
+        # 提前断言给出双数字 + 原因。v2 不再有 language_kv_input_dim，KV 形状由 DiTMoT.forward
+        # 内部断言（n_heads × head_dim 必须 == Qwen K/V 形状）。
         saved_layers = saved_cfg_dict.get("num_layers")
-        saved_lang_dim = saved_cfg_dict.get("language_kv_input_dim")
         runtime_layers = runtime_kwargs["num_layers"]
-        runtime_lang_dim = runtime_kwargs["language_kv_input_dim"]
         if saved_layers is not None and saved_layers != runtime_layers:
             raise RuntimeError(
                 f"DiT ckpt num_layers={saved_layers}（训练时）≠ 运行时 KV 段数={runtime_layers}。"
                 f" 解决：eval 与训练保持同样的 --num-layers。"
             )
-        if saved_lang_dim is not None and saved_lang_dim != runtime_lang_dim:
-            raise RuntimeError(
-                f"DiT ckpt language_kv_input_dim={saved_lang_dim}（训练时 Qwen n_kv*head_dim）"
-                f" ≠ 当前 Qwen 推出来的 {runtime_lang_dim}。 解决：用与训练时同款 Qwen 权重。"
-            )
 
         merged = dict(saved_cfg_dict)
+        # 兼容性：旧 v1 ckpt 里有 language_kv_input_dim 字段，DiTMoTConfig 已不接受 -> 弹掉。
+        merged.pop("language_kv_input_dim", None)
         merged.update(runtime_kwargs)
         merged.setdefault("latent_channels", 4)
         cfg = DiTMoTConfig(**merged)
@@ -368,6 +363,19 @@ def build_dit_from_ckpt(
         )
         print("[dit] 警告：检查点无 dit_config，回退命令行默认值")
 
+    # v2 强校验：DiT (n_heads, head_dim) 必须严格 = Qwen pooled K/V 的形状。
+    # 这里在 instantiate 之前提前检查，错误堆栈更清晰。
+    if pooled_kv:
+        k0, _ = pooled_kv[0]
+        kv_n_heads = int(k0.shape[1])
+        kv_head_dim = int(k0.shape[3])
+        if cfg.n_heads != kv_n_heads or (cfg.hidden_dim // cfg.n_heads) != kv_head_dim:
+            raise RuntimeError(
+                f"DiT cfg (n_heads={cfg.n_heads}, head_dim={cfg.hidden_dim // cfg.n_heads}) "
+                f"与运行时 Qwen K/V (n_kv_heads={kv_n_heads}, head_dim={kv_head_dim}) 不匹配；"
+                "v2 要求严格相同。请确认 Qwen 模型 / DiT cfg 一致（默认 8×128）。"
+            )
+
     model = DiTMoT(cfg).to(device=device, dtype=dtype)
     if isinstance(payload, dict) and args.use_ema and payload.get("ema_state_dict") is not None:
         state_dict = payload["ema_state_dict"]
@@ -380,8 +388,8 @@ def build_dit_from_ckpt(
     model.eval()
     print(f"[dit] 已加载检查点：{ckpt_path}")
     print(
-        f"[dit] hidden={cfg.hidden_dim} heads={cfg.n_heads} layers={cfg.num_layers} "
-        f"patch={cfg.patch_size} lang_kv_in={cfg.language_kv_input_dim}"
+        f"[dit] hidden={cfg.hidden_dim} heads={cfg.n_heads} head_dim={cfg.hidden_dim // cfg.n_heads} "
+        f"layers={cfg.num_layers} patch={cfg.patch_size}"
     )
     return model
 
@@ -1279,9 +1287,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         " 仅消融实验使用；默认抛错，防止 KV 分布漂移导致指标不可比。")
 
     # DiT 几何参数：仅在 ckpt 没存 dit_config 时使用（旧 ckpt 兼容）。
-    p.add_argument("--patch-size", type=int, default=2)
-    p.add_argument("--hidden-dim", type=int, default=768)
-    p.add_argument("--n-heads", type=int, default=12)
+    # v2 默认与 train_v1.py 同步：patch=4 / hidden=1024 / n_heads=8。
+    p.add_argument("--patch-size", type=int, default=4)
+    p.add_argument("--hidden-dim", type=int, default=1024)
+    p.add_argument("--n-heads", type=int, default=8)
     p.add_argument("--mlp-ratio", type=float, default=4.0)
     p.add_argument("--num-layers", type=int, default=12)
     p.add_argument("--cond-dim", type=int, default=256)

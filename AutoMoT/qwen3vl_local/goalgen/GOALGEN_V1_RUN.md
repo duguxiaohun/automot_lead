@@ -503,7 +503,7 @@ python qwen3vl_local/goalgen/probe_v1.py \
 | `SUBGOAL ... does not match STATUS` | CLI 覆盖打破了 scenario 事件链 | 只指定 STATUS，让 runner 自己推下一个 SUBGOAL |
 | `language KV batch ... != vision batch ...` | DDP 进程拿到的 KV 来自别的样本 | 保证每个样本各自走 `teacher_forced_prefill`；不要堆别人样本的 KV |
 | `pooled_kv segments X != DiT layers Y` | `--num-layers` 与 `num_segments` 漂移 | 保持 `--num-layers`（训练器）与分段函数的 `num_segments`（qwen_kv.py 默认 12）一致 |
-| JointAttention 内部 `RuntimeError: shape mismatch` | 硬编码的 `language_kv_input_dim` 与基础模型 `n_kv_heads * head_dim` 不一致 | 使用 `--language-kv-input-dim auto`（默认），让训练器从第一条样本的分段 KV 推断 |
+| `pooled_kv[0] K 形状 ... 与 DiT (n_heads, head_dim) 不匹配` | v2 起 DiT 直接消费 Qwen K/V，没有 lang_k/v_proj 兜底 | 让 `--n-heads` 等于 Qwen `num_key_value_heads`、`--hidden-dim / --n-heads` 等于 Qwen `head_dim`。Qwen3-VL-4B-Instruct 默认 8 × 128，对应 `--n-heads 8 --hidden-dim 1024` |
 
 ## 5. 默认形状
 
@@ -515,16 +515,19 @@ python qwen3vl_local/goalgen/probe_v1.py \
 |---|---|---|
 | LEAD 拼接 RGB | 1152x384 | 由数据决定，不重新拼图就不要改 |
 | VAE latent | [B, 4, 48, 144] | 来自 RGB / 8 下采样 |
-| `--patch-size 2` | 网格 (24, 72) = 每个潜变量 1728 个 token | 改 4 会让 token 数减 4 倍，细节精度下降 |
-| `--hidden-dim 768` | 隐藏维度 768 / 每头维度 64 | 必须能整除 `--n-heads` |
-| `--n-heads 12` | 每头维度 = 64 | 必须整除 `--hidden-dim` |
+| `--patch-size 4` | 网格 (12, 36) = 每个潜变量 432 个 token（v1 是 2 / 1728） | 改小 → token 数翻 4 倍 attention 显著变重；改大 → 输出空间分辨率更粗 |
+| `--hidden-dim 1024` | 隐藏维度 1024 / 每头维度 128（v1 是 768/64） | **必须 = Qwen `num_key_value_heads * head_dim`**，否则 v2 DiT 与 Qwen K/V 形状不对齐 |
+| `--n-heads 8` | 每头维度 = 128（v1 是 12） | **必须 = Qwen `num_key_value_heads`**；Qwen3-VL-4B-Instruct 是 8 |
 | `--num-layers 12` | 等于 KV 段数 | 必须等于 `segment_kv_for_dit(num_segments=...)`，默认 12 |
-| `--mlp-ratio 4.0` | MLP 隐藏维度 = 768 * 4 | DiT-XL 常用约定 |
+| `--mlp-ratio 4.0` | SwiGLU 内层维度 = 1024 * 4 = 4096 | DiT / Qwen3 / SD3 通用约定 |
 | `--cond-dim 256` | 时间步嵌入维度 | 影响每层 AdaLN 调制向量的输出大小 |
 | `--max-history-frames 8` | 容纳数据构建器默认 4 帧历史，余量给更长片段 | 必须 >= jsonl 中 `len(history_rgb_paths)` |
 | `--qwen-kv-segment-mode select_last` | 每段取 3 层 Qwen 中的最后一层；token-level K/V `[B, 8, S, 128]`，默认 | 只在做消融时切到 `concat_layers`（语言 token 3 倍，明显更重） |
 | `--dit-checkpoint` | 可选，传 `latest.pt` 或 `checkpoint-*/goalgen_v1.pt` | 只有做随机初始化结构冒烟测试时才省略 |
-| `--language-kv-input-dim auto` | 从分段 KV 的 `n_kv_heads * head_dim` 推断（Qwen3-VL-4B-Instruct = 1024） | 只有在你确知 base 模型 KV shape 且想跳过 auto probe 时才传定值 |
+| `--muon-lr 2e-3` | Muon optimizer 学习率，仅作用 2D 权重矩阵 | 通常比 AdamW LR 大 5-10×；Newton-Schulz 正交化后步长更稳 |
+| `--muon-momentum 0.95` | Muon SGD-momentum 因子（Nesterov） | Keller Jordan NanoGPT 实现默认值 |
+| `--compile-dit` / `--no-compile` | `torch.compile(DiT)`；默认开启 | 首次 step 编译 30-90 秒；动态 seq_len 走 dynamic shape |
+| `--grad-ckpt` / `--no-grad-ckpt` | per-block gradient checkpointing；默认开启 | 显存省 ~40%、wall-clock 多 ~30% |
 
 ## 6. 显存预期（训练，batch=1，DiT 用 bfloat16）
 

@@ -77,26 +77,40 @@ qwen3vl_local/goalgen/build_dataset_v1.py
 }
 ```
 
-## 模型默认配置
+## 模型默认配置（v2 架构，2026-06 切换）
+
+> 与 v1 的关键差异：**hidden_dim 1024 / n_heads 8 / head_dim 128 / patch=4**，
+> 直接对齐 Qwen3-VL-4B-Instruct 的 `(num_key_value_heads=8, head_dim=128)`，
+> 让语言 K/V 不再经过任何线性投影。`lang_k_proj` / `lang_v_proj` 已删除。
+> 同时 MLP 走 SwiGLU、所有 norm 走 RMSNorm、attention 内加 q_norm/k_norm，
+> 与 Qwen3 / SD3 / Flux 现代 transformer 标配对齐。
 
 - LEAD RGB 尺寸：`1152 x 384`
 - VAE latent 形状：`[B, 4, 48, 144]`
-- DiT 图块大小：`2`
-- DiT 上的潜变量图块网格：`(24, 72) = 1728` 个图块 token
+- DiT 图块大小：`4`（v1 是 2）
+- DiT 上的潜变量图块网格：`(12, 36) = 432` 个图块 token（v1 是 1728）
 - 数据构建器默认 4 帧历史时，DiT 视觉 token 总数：
-  `z_t` token + `4 * z_history` token = `8640`
-- DiT 隐藏维度：`768`
-- DiT 注意力头数：`12`
+  `z_t` token + `4 * z_history` token = `2160`（v1 是 8640）
+- DiT 隐藏维度：`1024`（v1 是 768）
+- DiT 注意力头数：`8`（v1 是 12）
+- DiT 单头维度：`128`（v1 是 64）
 - DiT 层数：`12`
+- DiT MLP：SwiGLU，`mlp_ratio=4.0`（inner=4096）
+- DiT norm：全部 RMSNorm（block norm1/norm2/final_norm 无 affine + AdaLN modulation；
+  attention 内的 q_norm/k_norm 走带 affine 的 RMSNorm，仅对 vision Q/K 归一化，
+  language K 保持 Qwen 自己 k_norm 过的形态不再二次归一化）
 - Qwen 分段 KV：默认 `select_last` 模式。Qwen 共 36 层，被切成 12 段，
   每段取其 3 层小组里的最后一层（token-level K/V，shape 为
   `[B, 8, S, 128]`）。`concat_layers` 只保留为消融实验选项。
-- Qwen KV 输入维度：`8 * 128 = 1024`（在 `select_last` 与 `concat_layers`
-  下都是同一个值）
+- 语言 K/V 接入方式：**直接复用 Qwen 的 `(8, 128)` 子空间**，无任何线性投影。
+  vision Q/K/V 在 DiT 内部投影到同一 `(8, 128)` 空间，与语言 K/V 沿 token 维 concat，
+  做一次 joint attention。
 
 **如果以上任何一个默认形状被修改，必须同步修改本文件和运行手册**。
 这些数字不是说明性文字，而是数据构建、训练、单步 runner、离线评测共同遵守的
-接口契约。
+接口契约。换 Qwen 基础模型（不同 `num_key_value_heads × head_dim`）时，
+DiT `hidden_dim` 与 `n_heads` 必须同步改动让 `hidden_dim / n_heads == Qwen head_dim`，
+否则 `DiTMoT.forward` 第一步就会抛 `RuntimeError`。
 
 ## 训练
 
@@ -113,41 +127,58 @@ qwen3vl_local/goalgen/train_v1.sh
 - `single`：单卡训练。
 - `ddp`：多卡 DDP。自动挑可用 GPU、自动选空闲端口。
 
-Optimizer 设置：
+Optimizer 设置（v2 双 optimizer）：
 
-- AdamW，**只更新 DiT 参数**。
-- 学习率 `2e-4`。
-- weight decay `0.01`。
-- cosine 学习率调度。
-- warmup ratio `0.05`。
-- `t_sampler=logit_normal`。
+- **Muon**（接管 2D 权重矩阵 = attention/MLP/AdaLN 的所有 Linear）：
+  - 学习率默认 `2e-3`（比 AdamW 大 10×；Newton-Schulz 正交化后单位步长更稳）。
+  - momentum `0.95`、Nesterov `True`、Newton-Schulz 5 步。
+  - weight decay `0.0`（2D 矩阵的 Muon 通常不挂 wd）。
+- **AdamW**（接管其它 = Conv2d patch.proj、norm 1D weight、embeddings、null_lang_k/v、t_mlp 等）：
+  - 学习率默认 `2e-4`，weight decay `0.01`，betas `(0.9, 0.95)`。
+- 两个 optimizer 共享同一份 cosine + warmup ratio `0.05` 的 LR 调度（`_DualScheduler` 同步驱动）。
+- `t_sampler=logit_normal`（SD3 配方，t 集中在 0.5 附近）。
 - `z0_prior_alpha=1.0, z0_prior_sigma=1.0`，起点为当前帧 latent + 噪声。
 - CFG：训练 `cfg_drop_prob=0.1`，推理 `cfg_scale=2.0`。
-- EMA：`ema_decay=0.9999`，val / image log / eval / probe 默认使用 EMA 权重。
+- EMA：`ema_decay=0.9999`，val / image log / eval / probe / runner 默认使用 EMA 权重。
 - VAE latent stats：训练启动时在 `train.jsonl` 同目录缓存 `latent_stats.json`，encode 后标准化、decode 前反标准化。
+
+Runtime 优化（v2 默认全部开启，可通过 sh 环境变量关闭）：
+
+- `torch.compile(dit)`：mode=default、dynamic=True、fullgraph=False；首次 step
+  会编译 30-90 秒。`COMPILE_DIT=0` 关闭。
+- Gradient checkpointing：per-block + `use_reentrant=False`，显存省 ~40% / wall-clock
+  多 ~30%。`GRAD_CKPT=0` 关闭。
+- Flash-attention 由 PyTorch SDPA 自动调度（H100/A100 上自动走 flash 后端）。
 
 检查点中只保存 DiT 自身的权重以及优化器 / 调度器状态
 （仅用于断点续训和诊断，不包含冻结模型）。
 
-## 参数预算（默认配置）
+## 参数预算（v2 默认配置）
 
 下表只统计 DiT-MoT（Qwen 与 VAE 冻结、不计入）：
 
 | 模块 | 大致参数量 |
 |---|---|
-| Shared Patchify（Conv2d 4 -> 768，kernel=2） | ~12K |
-| Type embedding（2, 768） | 1.5K |
-| CFG null KV（每层 K/V 各 1 token） | ~18K |
+| Shared Patchify（Conv2d 4 -> 1024，kernel=4） | ~66K |
+| Type embedding（2, 1024） | 2K |
+| Frame embedding（8, 1024） | 8K |
+| CFG null KV（12 层 × K+V × `[1,8,1,128]`） | ~24K |
 | Timestep MLP（cond_dim=256，4x） | ~0.5M |
-| 单层 JointAttention（q/k/v/o + lang_k/v） | ~3.9M |
-| 单层 MLP（768 -> 3072 -> 768） | ~4.7M |
-| 单层 AdaLN modulation（256 -> 4608） | ~1.2M |
-| 单个 block 合计 | ~9.8M |
-| 12 个 block 合计 | ~118M |
-| Unpatchify Linear(768 -> 16) | ~12K |
-| **DiT 总计（粗算）** | **~120M** |
+| 单层 JointAttention（q/k/v/o，**已删 lang_k/v_proj**） | ~4.2M |
+| 单层 SwiGLU MLP（1024 → 4096 × 2 gate/up + 4096 → 1024 down） | ~12.6M |
+| 单层 AdaLN modulation（256 → 6144） | ~1.6M |
+| 单层 q_norm/k_norm（RMSNorm head_dim=128，仅 vision） | 256 |
+| 单个 block 合计 | ~18.4M |
+| 12 个 block 合计 | ~221M |
+| Final norm + final_mod | ~1.6M |
+| Unpatchify Linear(1024 → 4×16=64) | ~66K |
+| **DiT 总计（粗算）** | **~225M** |
 
-`bfloat16` 权重大约占 240MB。Qwen 4B 与 VAE 自身需要额外显存，但**不产生梯度**。
+`bfloat16` 权重大约占 450MB。Qwen 4B 与 VAE 自身需要额外显存，但**不产生梯度**。
+
+参数量较 v1（~120M）增长 ~1.88×，主要来自 hidden 768→1024（attention/MLP 全线扩张）
+以及 MLP 从 GELU 2-Linear → SwiGLU 3-Linear（×1.5）。但 patch=4 后视觉 token 数砍到
+1/4，attention FLOPs 净下降约 4×，wall-clock 仍更快。
 
 ## 显存预算（H20 96GB，batch=1，DiT 用 bfloat16）
 
@@ -172,7 +203,7 @@ target latent 都**离线缓存到磁盘**，避免每个进程重复计算。
 | 风险 | 触发条件 | 应对方式 |
 |---|---|---|
 | KV 段数 != DiT 层数 | DiT 前向内部抛出 `pooled_kv segments ... != DiT layers ...` | 保持 `--num-layers` 与分段函数的 `num_segments` 一致。两侧默认都是 12。 |
-| `language_kv_input_dim` 硬编码但基础模型变了 | DiT 第一层语言投影矩阵形状不匹配 -> `RuntimeError` | `train_v1.py` 现在会从第一个样本的分段 KV 自动推断该值。传 `--language-kv-input-dim auto`（默认）即可。 |
+| 换 Qwen 模型后 K/V 头数 / head_dim 变化 | `DiTMoT.forward` 抛 `pooled_kv[0] K 形状 ... 与 DiT (n_heads=..., head_dim=...) 不匹配` | v2 起 DiT 直接消费 Qwen K/V，没有 lang_k/v_proj 兜底；必须改 `--hidden-dim` / `--n-heads` 让 `hidden_dim // n_heads == Qwen head_dim`、`n_heads == Qwen num_key_value_heads`。 |
 | 完整 KV 模式显存溢出 | `concat_layers` 会把每个 DiT 层的语言显存放大约 3 倍 | 默认保持 `QWEN_KV_SEGMENT_MODE=select_last`；只在做消融实验时切到 `concat_layers`；`mean` 仅作历史消融保留。 |
 | `bfloat16` Qwen KV 与 `float32` DiT 之间数据类型不一致 | SDPA 内部抛 `RuntimeError` | 训练器会在前向之前把分段 KV、z_history、z1 显式 `.to(dtype=dit_dtype)`。保持 `--qwen-dtype` 与 `--dit-dtype` 兼容，或者依赖这一行显式转换。 |
 | Qwen 预填充序列过长（LEAD `num_frames > 4`） | H20 96GB 上 Qwen 预填充显存溢出 | 减小 `--num-frames`，或者用 `--qwen-dtype float16` 降低 Qwen 推理显存。 |
