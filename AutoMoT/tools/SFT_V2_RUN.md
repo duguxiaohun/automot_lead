@@ -292,6 +292,33 @@ bash tools/sft_v2_train.sh ddp
 GPU / 端口 / DDP rendezvous 行为与 v1 完全一致（自动选最空闲卡、自动找空闲 MASTER_PORT、
 NCCL_P2P_LEVEL=NVL 等）。所有 v1 的 `DDP_GPU_COUNT` / `SFT_RESPECT_*` 环境变量在 v2 同名。
 
+默认 `ddp` 按 8 卡跑。如果机器只想用 N 张卡，不要手动写死卡号，直接用
+`DDP_GPU_COUNT=N`，脚本会自动挑 N 张最空闲 GPU，并让 teacher runtime 物化和后面的
+ms-swift 训练都使用同一组卡：
+
+```bash
+# 自动挑最空闲的 4 张 GPU
+DDP_GPU_COUNT=4 bash tools/sft_v2_train.sh ddp
+
+# 自动挑最空闲的 2 张 GPU
+DDP_GPU_COUNT=2 bash tools/sft_v2_train.sh ddp
+```
+
+注意：`DDP_GPU_COUNT` 显式传入时会覆盖外层残留的 `CUDA_VISIBLE_DEVICES`，避免远程
+环境里已有单卡 mask 导致实际只起 1 张卡。如果调度系统已经分配好卡、你要严格沿用外部
+mask，再加：
+
+```bash
+SFT_RESPECT_CUDA_VISIBLE_DEVICES=1 DDP_GPU_COUNT=4 bash tools/sft_v2_train.sh ddp
+```
+
+如果已经明确知道要用哪几张卡，才手动设置 `CUDA_VISIBLE_DEVICES`，并且不要同时传
+`DDP_GPU_COUNT`：
+
+```bash
+CUDA_VISIBLE_DEVICES=2,5,6,7 bash tools/sft_v2_train.sh ddp
+```
+
 正式训练第一步会先把 `checkpoints/sft_v2_data_pending/` 临时物化到
 `checkpoints/sft_v2_lora/runtime_teacher_data/`，再把这份 runtime jsonl 交给 ms-swift。
 默认 `RUNTIME_TEACHER_REFRESH=1`，每次训练启动都会刷新这个 runtime 缓存，避免 keyframes /
