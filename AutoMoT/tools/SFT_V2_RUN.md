@@ -121,6 +121,8 @@ print(f'total={n_total} fallback={n_fb} ratio={n_fb/max(n_total,1):.2%}')
 
 ### 2.5 抽检 teacher 输出质量
 
+推荐改用专用可视化脚本（见 §2.6），这里保留最小抽检：
+
 ```bash
 python -c "
 import json, random
@@ -134,32 +136,85 @@ for r in random.sample(rows, 5):
 "
 ```
 
-人工 review 几条：
-- ✅ ANALYSIS 单行、2–4 句、按"看图 → 变化 → 结论"三步式
-- ❌ 出现 PRIVILEGED 字眼 / 直接说 `"the current STATUS is X"` → teacher 没遵守约束，
-  考虑改 §3.1 system prompt 或加强后处理 strip
-- ❌ 大量样本同一句套话 → teacher temperature=0 + 简单 prompt 太死板，加 `--teacher-temperature 0.3`
+人工 review 判读：
+- ✅ ANALYSIS 单行、2–4 句、按“看图 -> 变化 -> 结论”三步式
+- ❌ 出现 PRIVILEGED 字眼或直接泄漏 GT（例如 `the current STATUS is X`）
+- ❌ 大量样本同一句套话（teacher 表达塌缩）
+
+### 2.6 teacher 可视化抽检（推荐）
+
+新增工具：`tools/inspect_teacher_outputs.py`
+
+- 默认模式 A（只读 jsonl，不重跑 teacher）：快、稳定、可一次抽几十条
+- `--live` 模式 B：现场重跑 teacher，多产出 `teacher_raw.txt` 和 `teacher_postprocess.json`
+- 采样默认按 scenario 均匀抽样（每场景 `--num-per-scenario` 条）
+
+```bash
+# 模式 A：默认只读 v2 jsonl，按场景均匀抽样
+python tools/inspect_teacher_outputs.py \
+    --jsonl checkpoints/sft_v2_data/train.jsonl \
+    --save-root checkpoints/sft_v2_teacher_inspect \
+    --num-per-scenario 3 --seed 42
+
+# 模式 B：现场重跑 teacher（推荐用于改 teacher prompt 后复核）
+python tools/inspect_teacher_outputs.py \
+    --jsonl checkpoints/sft_v2_data/train.jsonl \
+    --save-root checkpoints/sft_v2_teacher_inspect_live \
+    --num-per-scenario 3 --seed 42 \
+    --live --model-dir checkpoints/Qwen3-VL-4B-Instruct
+```
+
+每个 case 目录会生成：
+
+```
+checkpoints/sft_v2_teacher_inspect/cases/<sample_idx>__<scenario>__<run_id>__anchor<N>/
+├─ input_images/00.jpg ... 03.jpg
+├─ teacher_user.txt
+├─ teacher_analysis.txt
+├─ student_assistant.txt
+├─ meta.json
+└─ overview.md
+```
+
+`--live` 额外多两个文件：
+- `teacher_raw.txt`
+- `teacher_postprocess.json`
+
+重点看 `overview.md` 顶部三项：
+- `target_status` 与 `transition` 是否和样本语义一致
+- `teacher_analysis` 是否符合“看图 -> 变化 -> 结论”
+- `teacher_fallback_flag` 是否大量为 true（若高于 5%，先修 teacher 再训）
 
 ---
 
 ## 3. 静态 sanity：v2 plugin mask 是否对（CPU，< 30 秒）
 
-v2 没有专用 `check_loss_mask.py`，但可以用一段 inline 脚本验证 plugin regex 切片是否正确。
+v2 现在有专用静态 sanity 脚本：`tools/check_loss_mask_v2.py`。
+
+它会做两层检查：
+- token 级可视化：把 assistant 每个 token 标成 `[W0.0] / [W0.3] / [W1.0]`
+- plugin 主路径 sanity：直接调用 `sft_v2_loss_scale_plugin.py`，验证切片和权重
 
 ```bash
-python -c "
-import sys, json
-sys.path.insert(0, 'tools')
-from sft_v2_loss_scale_plugin import SftV2AnalysisSupervisedLossScale
-plugin = SftV2AnalysisSupervisedLossScale()
-ctx = 'ANALYSIS: I see a foggy tunnel with cars ahead. Compared to the earlier frame the ego has slowed down. This visual evidence supports advancing to hazard_detect.\nSTATUS: hazard_detect\nSUBGOAL: max_brake_or_min_gap'
-parts, scales = plugin.get_loss_scale(ctx)
-for p, s in zip(parts, scales):
-    print(f'w={s:.2f}: {p!r}')
-"
+python tools/check_loss_mask_v2.py
+
+# 看第 N 条样本
+python tools/check_loss_mask_v2.py --sample-idx 7
+
+# 指定 v2 val 集抽检
+python tools/check_loss_mask_v2.py --jsonl checkpoints/sft_v2_data/val.jsonl --sample-idx 3
 ```
 
-**预期输出**（6 段；上下文末尾无 EOS 时无 tail 段，加上 EOS 时多 1 段，最多 7 段）：
+**通过条件**（必须全部满足）：
+
+- token 表里 ANALYSIS 正文 token 为 `[W0.3]`
+- token 表里 STATUS/SUBGOAL 事件名 token 为 `[W1.0]`
+- `ANALYSIS:` / `STATUS:` / `SUBGOAL:` 字面 token 都是 `[W0.0]`
+- plugin 输出中，`ANALYSIS body in_loss=True`、两段 `event_name in_loss=True`
+- plugin 输出中，`literal='ANALYSIS:'/'STATUS:'/'SUBGOAL:' in_loss=False`
+- plugin 分段数量为 6 或 7（有 tail 时为 7）
+
+**预期切片形状**（示例）：
 
 ```
 w=0.00: 'ANALYSIS: '
@@ -170,12 +225,6 @@ w=0.00: '\nSUBGOAL: '
 w=1.00: 'max_brake_or_min_gap'
 ```
 
-**通过条件**：
-- `"".join(parts) == ctx`（必须，swift 内部对齐要求）
-- ANALYSIS body 权重 0.3
-- 两个 event_name 权重 1.0
-- 其余字面 0
-
 ---
 
 ## 4. 动态 sanity：跑 2 step 看真实 loss（**GPU**，约 1–2 分钟）
@@ -184,16 +233,26 @@ w=1.00: 'max_brake_or_min_gap'
 bash tools/sft_v2_train.sh check
 ```
 
-与 v1 一样，2 step、不保存 ckpt、不跑 val。预期初始 loss 在 **3–8 区间**（比 v1 偏高，因为
-v2 多了 ANALYSIS 段约 30 个 token 参与 loss，初始 nll 也包含进去）。
+与 v1 一样，2 step、不保存 ckpt、不跑 val。建议先过完 §3 静态 sanity 再跑这里。
+
+**预期 loss 数值**（健康范围）：
+
+```
+{'loss': 3~8, 'grad_norm': ..., 'learning_rate': ..., 'epoch': 0.0x}
+```
+
+说明：
+- v2 会监督 ANALYSIS 正文（权重 0.3），所以 loss 统计口径与 v1 不同
+- 重点看“mask 是否生效 + loss 是否有限非 NaN”，不是盯绝对值
 
 判读：
 
 | 现象 | 判读 | 处理 |
 |---|---|---|
-| loss ∈ [3, 8] | ✅ ANALYSIS + STATUS + SUBGOAL 都在算 loss | 进 §5 正式训练 |
-| loss < 1 | ❌ plugin 把所有段都 mask 了 | 跑 §3 sanity 看 regex 是否漂移 |
-| loss > 12 | ⚠️ teacher ANALYSIS 太长或字面被错误算 loss | 看 `MAX_LENGTH` 是否截断；看 plugin 切片是否对 |
+| `check_loss_mask_v2.py` 通过 + check loss 有限且非 NaN | ✅ 训练侧权重大方向正常 | 进 §5 正式训练 |
+| loss < 1 或 `grad_norm=0` | ❌ 可能事件名 token 也被 mask 掉了（全 0 权重） | 先看 §3 的 `w1` token 数是否 ≥ 2 |
+| loss > 12 | ⚠️ 可能字面 token 误入 loss，或 teacher ANALYSIS 异常长 | 先看 §3 plugin literal 检查；再查 teacher 可视化 §2.6 |
+| check 模式仍保存了 checkpoint | ❌ check 不该落盘 | 拉最新 `tools/sft_v2_train.sh`，确认 `--save_strategy no` |
 
 ---
 

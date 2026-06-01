@@ -84,7 +84,9 @@
 - `AutoMoT/tools/build_sft_dataset_v2_teacher.py`
 - `AutoMoT/tools/sft_v2_loss_scale_plugin.py`
 - `AutoMoT/tools/sft_v2_train.sh`
-  （以上 5 个是 SFT v2 升级：teacher 用冻结 base Qwen + PRIVILEGED prompt 离线产 ANALYSIS 真值；student 全段都算 loss，差异化权重；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；`eval_sft_v1.py` / `probe_sft_v1.py` 自动按 jsonl 字段检测 v1/v2）
+- `AutoMoT/tools/check_loss_mask_v2.py`
+- `AutoMoT/tools/inspect_teacher_outputs.py`
+  （以上 7 个是 SFT v2 升级：teacher 用冻结 base Qwen + PRIVILEGED prompt 离线产 ANALYSIS 真值；student 全段都算 loss，差异化权重；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；`eval_sft_v1.py` / `probe_sft_v1.py` 自动按 jsonl 字段检测 v1/v2；`check_loss_mask_v2.py` 用于 v2 token 级静态 sanity；`inspect_teacher_outputs.py` 用于 teacher 产物可视化抽检，默认离线读 jsonl，`--live` 可现场重跑 teacher）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py`
@@ -93,6 +95,8 @@
 - `AutoMoT/qwen3vl_local/goalgen/eval_v1.py`
 - `AutoMoT/qwen3vl_local/goalgen/probe_v1.py`
   （以上 7 个是子目标 latent 生成路线 v1 数据/训练/eval/probe/文档，详见 PROJECT_CONTEXT.md §15；MD 与代码同位于 goalgen 子包内，不要再在 tools/ 下创建重复 MD）
+- `AutoMoT/vae_standalone/train_patch_unpatch.py`
+  （patch/unpatch 端到端图像重建训练脚本：image→VAE.encode→patch→unpatch→VAE.decode→image；VAE 冻结。产物 `patch_unpatch_*.safetensors` 可被 `DiTMoT.load_patch_unpatch` 直接加载，state_dict key 与 DiTMoT 内 `self.patch` / `self.unpatch` 一一对应。`AutoMoT/vae_standalone/` 下其它原始文件仍为只读参考）
 
 其它文件默认只读，尤其是：
 
@@ -127,8 +131,9 @@ git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py A
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
 git add AutoMoT/tools/SFT_V1_PLAN.md AutoMoT/tools/SFT_V1_RUN.md AutoMoT/tools/build_sft_dataset_v1.py AutoMoT/tools/sft_v1_train.sh AutoMoT/tools/sft_v1_loss_scale_plugin.py AutoMoT/tools/eval_sft_v1.py AutoMoT/tools/check_loss_mask.py AutoMoT/tools/tb_serve.sh AutoMoT/tools/probe_sft_v1.py
-git add AutoMoT/tools/SFT_V2_PLAN.md AutoMoT/tools/SFT_V2_RUN.md AutoMoT/tools/build_sft_dataset_v2_teacher.py AutoMoT/tools/sft_v2_loss_scale_plugin.py AutoMoT/tools/sft_v2_train.sh
+git add AutoMoT/tools/SFT_V2_PLAN.md AutoMoT/tools/SFT_V2_RUN.md AutoMoT/tools/build_sft_dataset_v2_teacher.py AutoMoT/tools/sft_v2_loss_scale_plugin.py AutoMoT/tools/sft_v2_train.sh AutoMoT/tools/check_loss_mask_v2.py AutoMoT/tools/inspect_teacher_outputs.py
 git add AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_RUN.md AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py AutoMoT/qwen3vl_local/goalgen/train_v1.py AutoMoT/qwen3vl_local/goalgen/train_v1.sh AutoMoT/qwen3vl_local/goalgen/eval_v1.py AutoMoT/qwen3vl_local/goalgen/probe_v1.py
+git add AutoMoT/vae_standalone/train_patch_unpatch.py
 ```
 
 commit 前先看：
