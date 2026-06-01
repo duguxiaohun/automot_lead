@@ -3,7 +3,7 @@
 #
 # 与 sft_v1_train.sh 的核心区别：
 #   - --loss_scale 改用 sft_v2_analysis_supervised（v2 plugin，ANALYSIS body 权重 0.3）；
-#   - 默认数据路径改 sft_v2_data/；OUTPUT_DIR 改 sft_v2_lora；
+#   - 默认读 sft_v2_data_pending/，训练启动时临时物化 teacher ANALYSIS 到 OUTPUT_DIR/runtime_teacher_data/；
 #   - LR 5e-5 → 3e-5（v2 监督 token 数 × 5，lr 同步下调避免过冲，详见 SFT_V2_PLAN.md §6）；
 #   - MAX_LENGTH 3072 → 3584（v2 ANALYSIS 段更长）。
 #
@@ -17,7 +17,8 @@
 #      v2 初始 loss 应在 3-8 区间，比 v1 偏高，因为多了 ANALYSIS 段约 30 个 token
 #      参与 loss；判读细节见 SFT_V2_RUN.md §4。）
 #
-# 数据先用 tools/build_sft_dataset_v1.py --mode v2 + tools/build_sft_dataset_v2_teacher.py 生成。
+# 数据先用 tools/build_sft_dataset_v1.py --mode v2 生成 pending jsonl。
+# 训练脚本默认在运行时调用冻结 teacher 生成临时 ANALYSIS 真值，不把 teacher 文本写回 pending 数据集。
 #
 # 常用 override：
 #   MODEL_DIR=/path/to/Qwen3-VL-4B-Instruct \
@@ -43,9 +44,12 @@ fi
 # 路径默认值（v2 专用）
 # ---------------------------------------------------------------------------
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
-TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v2_data/train.jsonl}"
-VAL_JSONL="${VAL_JSONL:-checkpoints/sft_v2_data/val.jsonl}"
+TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v2_data_pending/train.jsonl}"
+VAL_JSONL="${VAL_JSONL:-checkpoints/sft_v2_data_pending/val.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_v2_lora}"
+RUNTIME_TEACHER_DIR="${RUNTIME_TEACHER_DIR:-${OUTPUT_DIR}/runtime_teacher_data}"
+RUNTIME_TEACHER_SEED="${RUNTIME_TEACHER_SEED:-20260601}"
+RUNTIME_TEACHER_REFRESH="${RUNTIME_TEACHER_REFRESH:-1}"
 
 # ---------------------------------------------------------------------------
 # 超参（v2 调整版，详见 SFT_V2_PLAN.md §6）
@@ -158,6 +162,85 @@ configure_master_port() {
     export MASTER_PORT="$(find_free_master_port)"
 }
 
+jsonl_dataset_version() {
+    local path="$1"
+    python -c 'import json, sys
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    for line in f:
+        line = line.strip()
+        if line:
+            print(json.loads(line).get("dataset_version", "v1"))
+            break
+' "${path}"
+}
+
+materialize_runtime_teacher_if_needed() {
+    local train_version
+    train_version="$(jsonl_dataset_version "${TRAIN_JSONL}")"
+    if [[ "${train_version}" != "v2_pending" ]]; then
+        echo "[teacher] TRAIN_JSONL is ${train_version}; use as-is: ${TRAIN_JSONL}"
+        return 0
+    fi
+
+    local pending_dir
+    pending_dir="$(dirname "${TRAIN_JSONL}")"
+    local pending_val
+    pending_val="${pending_dir}/val.jsonl"
+    if [[ "${VAL_JSONL}" != "${pending_val}" ]]; then
+        echo "[teacher][warn] pending train/val should live in one dir; override VAL_JSONL=${pending_val}"
+        VAL_JSONL="${pending_val}"
+    fi
+
+    mkdir -p "${RUNTIME_TEACHER_DIR}"
+    if [[ "${RUNTIME_TEACHER_REFRESH}" == "1" ]]; then
+        if [[ -z "${RUNTIME_TEACHER_DIR}" || "${RUNTIME_TEACHER_DIR}" == "/" || "${RUNTIME_TEACHER_DIR}" == "." ]]; then
+            echo "[teacher][err] unsafe RUNTIME_TEACHER_DIR=${RUNTIME_TEACHER_DIR}" >&2
+            exit 2
+        fi
+        echo "[teacher] refresh runtime cache because RUNTIME_TEACHER_REFRESH=1"
+        rm -f \
+            "${RUNTIME_TEACHER_DIR}/train.jsonl" \
+            "${RUNTIME_TEACHER_DIR}/val.jsonl" \
+            "${RUNTIME_TEACHER_DIR}/stats.json" \
+            "${RUNTIME_TEACHER_DIR}"/train.jsonl.rank* \
+            "${RUNTIME_TEACHER_DIR}"/val.jsonl.rank*
+    else
+        echo "[teacher] keep existing runtime cache because RUNTIME_TEACHER_REFRESH=${RUNTIME_TEACHER_REFRESH}"
+    fi
+    echo "[teacher] runtime materialize teacher ANALYSIS"
+    echo "[teacher] pending_dir=${pending_dir}"
+    echo "[teacher] output_dir=${RUNTIME_TEACHER_DIR}"
+    echo "[teacher] source pending jsonl is not modified"
+
+    local teacher_args=(
+        --pending-dir "${pending_dir}"
+        --output-dir "${RUNTIME_TEACHER_DIR}"
+        --model-dir "${MODEL_DIR}"
+        --seed "${RUNTIME_TEACHER_SEED}"
+    )
+    if [[ "${MODE}" == "check" ]]; then
+        teacher_args+=(--max-samples "${RUNTIME_TEACHER_MAX_SAMPLES:-32}")
+    elif [[ -n "${RUNTIME_TEACHER_MAX_SAMPLES:-}" && "${RUNTIME_TEACHER_MAX_SAMPLES}" != "0" ]]; then
+        teacher_args+=(--max-samples "${RUNTIME_TEACHER_MAX_SAMPLES}")
+    fi
+
+    if [[ "${MODE}" == "ddp" && "${NPROC_PER_NODE}" -gt 1 ]]; then
+        torchrun --nproc_per_node="${NPROC_PER_NODE}" \
+            --master_addr="${MASTER_ADDR}" \
+            --master_port="${MASTER_PORT}" \
+            tools/build_sft_dataset_v2_teacher.py \
+            "${teacher_args[@]}"
+    else
+        python tools/build_sft_dataset_v2_teacher.py "${teacher_args[@]}"
+    fi
+
+    TRAIN_JSONL="${RUNTIME_TEACHER_DIR}/train.jsonl"
+    VAL_JSONL="${RUNTIME_TEACHER_DIR}/val.jsonl"
+    echo "[teacher] runtime train=${TRAIN_JSONL}"
+    echo "[teacher] runtime val=${VAL_JSONL}"
+}
+
 # ---------------------------------------------------------------------------
 # 模式分支
 # ---------------------------------------------------------------------------
@@ -170,7 +253,6 @@ case "${MODE}" in
         GRAD_ACC=2
         SAVE_STRATEGY="epoch"
         EVAL_STRATEGY="epoch"
-        VAL_ARGS=(--val_dataset "${VAL_JSONL}")
         EXTRA_LAUNCH=""
         ;;
     check)
@@ -185,7 +267,6 @@ case "${MODE}" in
         GRAD_ACC=1
         SAVE_STRATEGY="no"
         EVAL_STRATEGY="no"
-        VAL_ARGS=()
         EXTRA_LAUNCH="--max_steps 2"
         ;;
     ddp)
@@ -221,7 +302,6 @@ case "${MODE}" in
         configure_master_port
         export NCCL_P2P_LEVEL=NVL
         export NCCL_DEBUG=WARN
-        VAL_ARGS=(--val_dataset "${VAL_JSONL}")
         EXTRA_LAUNCH=""
         ;;
     *)
@@ -236,6 +316,14 @@ if [[ "${MODE}" == "ddp" ]]; then
     echo "[gpu] requested DDP_GPU_COUNT=${DDP_GPU_COUNT:-8}"
     echo "[ddp] MASTER_ADDR=${MASTER_ADDR}"
     echo "[ddp] MASTER_PORT=${MASTER_PORT}"
+fi
+
+materialize_runtime_teacher_if_needed
+
+if [[ "${MODE}" == "check" ]]; then
+    VAL_ARGS=()
+else
+    VAL_ARGS=(--val_dataset "${VAL_JSONL}")
 fi
 
 # ANALYSIS 权重 override 提示，方便事后回溯。

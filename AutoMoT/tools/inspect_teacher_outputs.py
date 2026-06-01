@@ -463,7 +463,7 @@ def main() -> None:
     parser.add_argument(
         "--jsonl",
         type=str,
-        default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v2_data" / "train.jsonl"),
+        default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v2_lora" / "runtime_teacher_data" / "train.jsonl"),
     )
     parser.add_argument(
         "--save-root",
@@ -498,6 +498,8 @@ def main() -> None:
         sys.exit(2)
 
     rows = read_jsonl(jsonl_path)
+    if rows and rows[0].get("dataset_version") == "v2_pending" and not args.live:
+        print("[warn] 输入是 v2_pending，占位 ANALYSIS 不适合只读抽检；建议加 --live 现场重跑 teacher。")
     scenarios = [x.strip() for x in args.scenarios.split(",") if x.strip()] or None
     picked = sample_balanced_by_scenario(rows, args.num_per_scenario, args.seed, scenarios)
 

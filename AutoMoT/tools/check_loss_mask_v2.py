@@ -206,7 +206,7 @@ def main() -> None:
     parser.add_argument(
         "--jsonl",
         type=str,
-        default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v2_data" / "train.jsonl"),
+        default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v2_lora" / "runtime_teacher_data" / "train.jsonl"),
     )
     parser.add_argument("--sample-idx", type=int, default=0)
     parser.add_argument(
@@ -222,6 +222,10 @@ def main() -> None:
         sys.exit(2)
 
     sample = load_one_sample(jsonl_path, args.sample_idx)
+    if sample.get("dataset_version") == "v2_pending":
+        print("[err] check_loss_mask_v2.py 需要已物化 teacher ANALYSIS 的 v2 jsonl，不能直接检查 v2_pending 占位数据。", file=sys.stderr)
+        print("[hint] 先跑 bash tools/sft_v2_train.sh check，或手动运行 tools/build_sft_dataset_v2_teacher.py 生成 runtime jsonl。", file=sys.stderr)
+        sys.exit(2)
     assistant = sample["messages"][-1]["content"]
     print(f"[load] jsonl={jsonl_path} sample_idx={args.sample_idx}")
     print(f"[load] dataset_version={sample.get('dataset_version')} scenario={sample.get('scenario')} run_id={sample.get('run_id')} anchor={sample.get('anchor')}")

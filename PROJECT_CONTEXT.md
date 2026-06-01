@@ -1473,3 +1473,24 @@ SFT v1/v2、GoalGen、VAE patch/unpatch 的训练、eval、probe、teacher 入�
 - `torchrun --nproc_per_node=N`：默认按同一规则挑 N 张卡，并按 `LOCAL_RANK` pin 到对应可见卡。
 - 已有 `CUDA_VISIBLE_DEVICES`：尊重外部 mask；训练 launcher 中显式 `DDP_GPU_COUNT=N` 表示重新自动挑 N 张卡。
 - 自动选卡关闭开关按入口命名，例如 `SFT_EVAL_DISABLE_AUTO_GPU=1`、`GOALGEN_EVAL_DISABLE_AUTO_GPU=1`、`SFT_TEACHER_DISABLE_AUTO_GPU=1`。
+
+---
+
+## 17. SFT v2 teacher 数据规则
+
+SFT v2 不再把冻结 teacher 生成的 ANALYSIS 作为长期维护数据集写死。长期数据集只保留
+`checkpoints/sft_v2_data_pending/` 这种 `dataset_version == "v2_pending"` jsonl：
+图像、MEMORY、STATUS/SUBGOAL 与 `__TEACHER_PENDING__` 占位会落盘，teacher 文本不会回写。
+
+- 训练前预览：`tools/inspect_teacher_outputs.py --live --serve --port 0` 从 pending jsonl 抽样，
+  现场调用冻结 teacher，并把网页预览写到 inspect 目录；不改训练 jsonl。
+- 正式训练：`tools/sft_v2_train.sh` 检测到 `v2_pending` 后，训练启动阶段调用
+  `tools/build_sft_dataset_v2_teacher.py`，把 ANALYSIS 临时物化到
+  `checkpoints/sft_v2_lora/runtime_teacher_data/`（可用 `RUNTIME_TEACHER_DIR` 覆盖），再交给 ms-swift。
+  默认 `RUNTIME_TEACHER_REFRESH=1` 会刷新 runtime cache，避免数据或 prompt 改动后复用旧
+  teacher 文本；只有续跑同一份 pending 的中断物化任务时才设 `RUNTIME_TEACHER_REFRESH=0`。
+- `check_loss_mask_v2.py`、`eval_sft_v1.py`、`probe_sft_v1.py` 需要用已经物化后的
+  `dataset_version == "v2"` jsonl，例如 runtime teacher 目录下的 `val.jsonl`。
+
+由于 ms-swift 训练入口读取 jsonl，当前“实时 teacher 真值”实现为训练启动时临时物化，
+不是每个 mini-batch 在线调用 teacher；pending 源数据仍然可随 keyframes / prompt 改动重新生成。
