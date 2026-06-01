@@ -589,6 +589,9 @@ class DiTMoT(nn.Module):
 
         输出：v_pred 与 z_t 同形状，对应 velocity 预测。
         """
+        # z_t  torch.Size([1, 4, 48, 144]) 
+        # z_history  torch.Size([1, 4, 4, 48, 144]) 
+        # t  torch.Size([1])
 
         # 这一步检查在第一次 forward 时定位"runner / 训练脚本里把 num_layers 改了
         # 一边没改另一边"的低级错误，比让 attention 中段越界报错可读得多。
@@ -610,10 +613,15 @@ class DiTMoT(nn.Module):
 
         # 共享 patchify：z_t 与 z_history 走同一组 Conv2d 投影。
         # type_embed + frame_embed + timestep cond 负责区分 noisy / clean / 时序。
+
         tok_t, grid_t = self.patch(z_t)
+        # tok_t  torch.Size([1, 1728, 768])
+        # grid_t(24, 72)
         gh, gw = grid_t
 
         pe = self._pos_embed(gh, gw).to(dtype=tok_t.dtype, device=tok_t.device)
+        # torch.Size([1728, 768])
+
         tok_t = tok_t + pe + self.type_embed[0]
 
         history_tokens: List[torch.Tensor] = []
@@ -628,10 +636,13 @@ class DiTMoT(nn.Module):
 
         # 顺序：先放 z_t（输出要切回来），再放历史 latent tokens（旧 -> 新）。
         vision_tokens = torch.cat([tok_t, *history_tokens], dim=1)
+        # torch.Size([1, 8640, 768])
+
         n_t = tok_t.shape[1]
 
         # cond 只算一次，所有 block 共享；AdaLN modulation 矩阵是 per-block 的。
         cond = self._build_cond(t)
+        # torch.Size([1, 256])
 
         # 逐层走 block。每层用 pooled_kv[i] 作为冻结语言 memory；
         # force_uncond=True 时改用 DiT 自带的 null_lang_k/v（CFG 路径）。
@@ -643,7 +654,9 @@ class DiTMoT(nn.Module):
                 )
                 vision_tokens = block(vision_tokens, null_kv, cond, lang_kv_is_projected=True)
             else:
+                # lang_kv[0]/[1] torch.Size([1, 8, 2255, 128]) torch.Size([1, 8, 2255, 128])
                 vision_tokens = block(vision_tokens, lang_kv, cond)
+                # torch.Size([1, 8640, 768])
 
         # final AdaLN：DiT 标准结构，AdaLN 输出 6 个调制向量但 final 只用前 2 个
         # （shift/scale）。后 4 个忽略；保留同一个 AdaLNModulation 类是为了减少
