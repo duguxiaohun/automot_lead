@@ -174,6 +174,69 @@ from qwen3vl_local.prompt_pipeline import DrivingMemory  # noqa: E402
 # --------------------------------------------------------------------------- #
 
 
+def _dump_invocation(output_dir: pathlib.Path, rank: int = 0) -> None:
+    """把 sys.argv + 关键 env vars + 元信息写到 ``output_dir/invocations/<ts>_<host>_pid<pid>.txt``。
+
+    只 rank0 写；失败不阻塞 eval（缺 git / IO 错误等都吞掉只打印一行警告）。
+    事后想"这版 eval 是哪条命令跑的"直接 cat 就够，不用回翻 shell history。
+    """
+
+    if rank != 0:
+        return
+    try:
+        import datetime as _dt
+        import platform as _platform
+        import shlex as _shlex
+        import socket as _socket
+        import subprocess as _subprocess
+
+        ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        host = _socket.gethostname()
+        inv_dir = output_dir / "invocations"
+        inv_dir.mkdir(parents=True, exist_ok=True)
+        out_path = inv_dir / f"{ts}_{host}_pid{os.getpid()}.txt"
+
+        env_keys = (
+            "CUDA_VISIBLE_DEVICES", "WORLD_SIZE", "RANK", "LOCAL_RANK",
+            "MASTER_ADDR", "MASTER_PORT", "NCCL_DEBUG", "NCCL_P2P_LEVEL",
+            "PYTORCH_CUDA_ALLOC_CONF",
+            "GOALGEN_COMPILE_DIT", "GOALGEN_CUDNN_BENCHMARK",
+            "HF_HOME", "HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE",
+        )
+        try:
+            git = _subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(pathlib.Path(__file__).resolve().parent),
+                capture_output=True, text=True, timeout=5,
+            )
+            git_commit = git.stdout.strip() if git.returncode == 0 else "<unavailable>"
+        except Exception:
+            git_commit = "<unavailable>"
+
+        lines = [
+            f"# saved at {ts}",
+            f"# hostname = {host}",
+            f"# pid = {os.getpid()}",
+            f"# python = {sys.version.split()[0]}",
+            f"# torch = {getattr(torch, '__version__', '<unknown>')}",
+            f"# platform = {_platform.platform()}",
+            f"# git_commit = {git_commit}",
+            "",
+            "# ---- selected env vars ----",
+            *[f"{k}={os.environ.get(k, '<unset>')}" for k in env_keys],
+            "",
+            "# ---- sys.argv (one per line) ----",
+            *sys.argv,
+            "",
+            "# ---- shell replay ----",
+            " ".join(_shlex.quote(a) for a in sys.argv),
+        ]
+        out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"[invocation] saved -> {out_path}")
+    except Exception as exc:
+        print(f"[invocation] 保存失败（不阻塞）：{exc}")
+
+
 def load_jsonl(path: pathlib.Path) -> List[Dict[str, Any]]:
     with path.open("r", encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
@@ -778,6 +841,7 @@ def _default_run_tag(args: argparse.Namespace) -> str:
 @torch.no_grad()
 def eval_loop(args: argparse.Namespace) -> None:
     rank, local_rank, world_size = setup_distributed()
+    _dump_invocation(pathlib.Path(args.save_root), rank=rank)
 
     # device：多卡时 pin 到 LOCAL_RANK；单卡走 --gpu。
     if world_size > 1 and torch.cuda.is_available():
