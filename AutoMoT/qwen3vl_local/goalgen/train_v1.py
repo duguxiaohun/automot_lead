@@ -207,29 +207,50 @@ def _compute_latent_stats(
     vae: FrozenVAE,
     samples: List[Dict[str, Any]],
     max_samples: int,
+    rank: int = 0,
+    world_size: int = 1,
 ) -> Dict[str, Any]:
     """Compute per-channel mean/std on raw scaled VAE latents.
 
     We scan history frames and target frames from the first N jsonl rows. This
     keeps the cache cheap while covering both conditioning latents and target
     latents with the same distribution used by DiT.
+
+    多卡时按 ``samples[rank::world_size]`` 跳取分片（与训练 loop 的分片方式一致：
+    均匀分散对 NFS 缓存更友好），各 rank 独立累计本地 sum/sumsq/count，最后通过
+    ``dist.all_reduce(SUM)`` 跨进程汇总。这跟单卡跑 take 个 sample 数学等价，
+    wall-time ÷ world_size，杜绝了"rank0 串行算 1000 次 VAE encode，其它 rank 干等"。
     """
 
     take = len(samples) if max_samples <= 0 else min(max_samples, len(samples))
-    count = 0
+    # 用 device 上的 float64 张量做累加，方便 all_reduce 直接归约。
     sum_c = torch.zeros(4, dtype=torch.float64, device=vae.device)
     sumsq_c = torch.zeros(4, dtype=torch.float64, device=vae.device)
-    pixel_count = 0
+    pixel_count_t = torch.zeros(1, dtype=torch.float64, device=vae.device)
+    count_t = torch.zeros(1, dtype=torch.float64, device=vae.device)
 
-    for sample in samples[:take]:
+    # rank::world_size 跳取：每个 sample_idx 只被一个 rank 处理；4 卡时 rank0 拿
+    # [0,4,8,...]，rank1 拿 [1,5,9,...]，对相邻 run 的 NFS 缓存命中模式更友好。
+    shard_indices = list(range(take))[rank::world_size]
+    for idx in shard_indices:
+        sample = samples[idx]
         paths = list(sample["history_rgb_paths"]) + [sample["target_rgb_path"]]
         images = [load_rgb(p) for p in paths]
         z = vae.encode_raw(images).detach().double()
         sum_c += z.sum(dim=(0, 2, 3))
         sumsq_c += z.pow(2).sum(dim=(0, 2, 3))
-        pixel_count += int(z.shape[0] * z.shape[2] * z.shape[3])
-        count += len(images)
+        pixel_count_t += float(z.shape[0] * z.shape[2] * z.shape[3])
+        count_t += float(len(images))
 
+    if world_size > 1 and dist.is_available() and dist.is_initialized():
+        # 跨 rank 汇总各自分片的统计量。SUM 后正好 = 全 take 的总和，
+        # 再算 mean/std 与单卡数学等价。pixel_count 和 count 也走 SUM。
+        dist.all_reduce(sum_c, op=dist.ReduceOp.SUM)
+        dist.all_reduce(sumsq_c, op=dist.ReduceOp.SUM)
+        dist.all_reduce(pixel_count_t, op=dist.ReduceOp.SUM)
+        dist.all_reduce(count_t, op=dist.ReduceOp.SUM)
+
+    pixel_count = int(pixel_count_t.item())
     if pixel_count <= 0:
         raise RuntimeError("latent stats 统计失败：没有可用 latent")
 
@@ -240,7 +261,7 @@ def _compute_latent_stats(
         "mean": [float(x) for x in mean.detach().cpu()],
         "std": [float(x) for x in std.detach().cpu()],
         "num_jsonl_samples": take,
-        "num_images": count,
+        "num_images": int(count_t.item()),
         "space": "scaled_vae_latent",
     }
 
@@ -253,26 +274,42 @@ def _load_or_compute_latent_stats(
     world_size: int,
 ) -> Dict[str, Any]:
     stats_path = _latent_stats_path(args)
+
+    # cache 命中判断在 rank0 做，再 broadcast 给其它 rank。
+    # 避免 rank0 觉得没命中（在算），rank1 觉得命中（去 load 半成品 / 空文件）。
+    cache_hit = False
     if is_rank0(rank):
-        if stats_path.exists() and not args.recompute_latent_stats:
-            with stats_path.open("r", encoding="utf-8") as f:
-                stats = json.load(f)
+        cache_hit = stats_path.exists() and not args.recompute_latent_stats
+    if world_size > 1 and dist.is_available() and dist.is_initialized():
+        flag = torch.tensor([1 if cache_hit else 0], dtype=torch.int32, device=vae.device)
+        dist.broadcast(flag, src=0)
+        cache_hit = bool(flag.item())
+
+    if cache_hit:
+        # 所有 rank 都直接读 cache（json 文件几 KB，比 broadcast tensor 简单）。
+        with stats_path.open("r", encoding="utf-8") as f:
+            stats = json.load(f)
+        if is_rank0(rank):
             print(f"[latent_stats] loaded {stats_path}")
-        else:
+    else:
+        if is_rank0(rank):
             print(
                 f"[latent_stats] computing from first {args.latent_stats_max_samples} "
-                f"samples -> {stats_path}"
+                f"samples (sharded across {world_size} ranks) -> {stats_path}"
             )
-            stats = _compute_latent_stats(vae, samples, args.latent_stats_max_samples)
+        # 所有 rank 一起跑分片计算 + all_reduce 汇总；wall-time ÷ world_size。
+        stats = _compute_latent_stats(
+            vae, samples, args.latent_stats_max_samples,
+            rank=rank, world_size=world_size,
+        )
+        if is_rank0(rank):
             stats_path.parent.mkdir(parents=True, exist_ok=True)
             with stats_path.open("w", encoding="utf-8") as f:
                 json.dump(stats, f, ensure_ascii=False, indent=2)
             print(f"[latent_stats] mean={stats['mean']} std={stats['std']}")
-    if world_size > 1:
-        dist.barrier()
-    if not is_rank0(rank):
-        with stats_path.open("r", encoding="utf-8") as f:
-            stats = json.load(f)
+        # 等 rank0 写完文件再让其它 rank 离开，避免后续步骤竞争未落盘的文件。
+        if world_size > 1 and dist.is_available() and dist.is_initialized():
+            dist.barrier()
 
     vae.load_latent_stats_dict(stats)
     return stats

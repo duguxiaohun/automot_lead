@@ -75,7 +75,34 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 `QWEN_KV_SEGMENT_MODE` 默认是 `select_last`；只有在做消融对比时才切到
 `concat_layers`。
 
-### 2.0.0 加速调参（默认已生效 + 可选开关）
+### 2.0.0 启动期 latent_stats（首次计算 + cache）
+
+训练入口会先做一次 per-channel latent mean/std 计算，写到
+`<train_jsonl>.parent/latent_stats.json`（默认 `checkpoints/goalgen_v1_data/latent_stats.json`）。
+
+- **首次启动**：所有 rank 一起跑分片计算（rank::world_size 跳取），4 卡时
+  wall-time ÷4，原 ~3 分钟 → ~45 秒。完成后 rank0 写文件。
+- **第二次起**：cache 命中直接 load，秒过。
+
+可调：
+
+```bash
+# 减少样本数（默认 1000）。latent 分布本身平稳，1000 → 200 mean/std 偏差极小，
+# 首次计算时间相应减少 5×。
+LATENT_STATS_MAX_SAMPLES=200 bash qwen3vl_local/goalgen/train_v1.sh ddp
+
+# 强制重算（默认 cache 命中就跳过）。一般只在换 VAE 权重或换 data_root 时才需要。
+# 注意：train_v1.py 走 args.recompute_latent_stats（CLI 参数），train_v1.sh 暂未
+# 暴露开关；要重算的话直接删除 latent_stats.json。
+```
+
+如果你**每次启动都看到 `computing from ...`**（即 cache 不命中），常见原因：
+
+1. `latent_stats.json` 文件不存在或被清理 — `ls -la checkpoints/goalgen_v1_data/latent_stats.json`
+2. `TRAIN_JSONL` 每次换路径 → stats_path 跟着变 — 把 TRAIN_JSONL 固定下来
+3. 加了 `--recompute-latent-stats` CLI — 检查 train_v1.sh 的 COMMON_ARGS
+
+### 2.0.1 加速调参（默认已生效 + 可选开关）
 
 **默认启用，无需配置**（写进 `train_v1.py` / `train_v1.sh`）：
 
