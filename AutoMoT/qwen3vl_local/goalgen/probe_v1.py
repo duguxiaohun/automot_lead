@@ -24,6 +24,7 @@ eval_v1.py 给的是聚合视角（mean/std/by_scenario）；probe_v1 给的是�
     overview.md
 
 不接 torchrun（与 probe_sft_v1.py 同理：per-sample 顺序写文件更直观）。
+未显式设置 `CUDA_VISIBLE_DEVICES` 或 `--gpu` 时，默认自动挑 1 张空闲 GPU。
 
 典型用法（**从 AutoMoT/ 目录运行**）：
 
@@ -49,6 +50,7 @@ import os
 import pathlib
 import random
 import shutil
+import subprocess
 import sys
 import time
 from collections import defaultdict
@@ -65,6 +67,53 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+
+
+def _cli_has(name: str) -> bool:
+    return any(item == name or item.startswith(name + "=") for item in sys.argv[1:])
+
+
+def _pick_idle_gpus(n: int = 1) -> str:
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return ""
+    rows = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            rows.append((int(parts[1]), int(parts[2]), parts[0]))
+        except ValueError:
+            continue
+    rows.sort(key=lambda x: (x[0], x[1], int(x[2]) if x[2].isdigit() else 9999))
+    return ",".join(row[2] for row in rows[:n])
+
+
+def _maybe_set_idle_gpu_mask() -> None:
+    """probe 默认自动挑 1 张空闲 GPU；显式 --gpu / CUDA mask 时保持外部配置。"""
+    if "CUDA_VISIBLE_DEVICES" in os.environ:
+        return
+    if os.environ.get("GOALGEN_PROBE_DISABLE_AUTO_GPU", "0") == "1":
+        return
+    if _cli_has("--gpu"):
+        return
+    selected = _pick_idle_gpus(1)
+    if selected:
+        os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        print(f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; process uses cuda:0")
+
+
+_maybe_set_idle_gpu_mask()
 
 import torch  # noqa: E402
 import torch.nn.functional as F  # noqa: E402

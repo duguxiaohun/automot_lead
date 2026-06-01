@@ -61,6 +61,40 @@ print(repr(r['messages'][2]['content']))
 
 这是 v2 最重的一步。teacher 加载冻结 base Qwen，对每条 pending 样本跑一次推理产 ANALYSIS。
 
+### 2.0 训练前 teacher 预览（不写训练集，推荐先跑）
+
+如果 keyframes / prompt / 数据采样之后会改，先从 pending jsonl 里抽少量样本现场跑
+teacher，打开网页看 ANALYSIS 是否符合预期。这个步骤只写 inspect 目录，不会把
+teacher ANALYSIS 回写到训练 jsonl。
+
+如果只想生成一个很小的预览数据集，先跑：
+
+```bash
+python tools/build_sft_dataset_v1.py --mode v2 --dry-run \
+    --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
+    --data-root /data/lead_data/data \
+    --output-dir checkpoints/sft_v2_preview_pending
+```
+
+然后把下面命令里的 `checkpoints/sft_v2_data_pending/train.jsonl` 换成
+`checkpoints/sft_v2_preview_pending/train.jsonl`。
+
+```bash
+python tools/inspect_teacher_outputs.py \
+    --jsonl checkpoints/sft_v2_data_pending/train.jsonl \
+    --save-root checkpoints/sft_v2_teacher_preview_live \
+    --num-per-scenario 1 --seed 42 \
+    --live --serve --port 0 \
+    --model-dir checkpoints/Qwen3-VL-4B-Instruct
+```
+
+脚本会自动挑 1 张空闲 GPU，并打印类似 `http://127.0.0.1:<PORT>/index.html` 的地址。
+VSCode Remote / SSH 端口转发后，在浏览器打开这个地址检查：
+
+- 输入 4 帧图像是否对；
+- `teacher_user.txt` 里的 PRIVILEGED 块是否符合当前样本；
+- `teacher_analysis_live.txt` 是否按“看图 -> 变化 -> 结论”写，且没有泄漏 PRIVILEGED 字样。
+
 ### 2.1 8 卡分片跑（推荐）
 
 ```bash
@@ -78,11 +112,15 @@ torchrun --standalone --nproc_per_node=8 tools/build_sft_dataset_v2_teacher.py \
 ### 2.2 单卡跑（小批量调试或 8 卡不可用）
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python tools/build_sft_dataset_v2_teacher.py \
+python tools/build_sft_dataset_v2_teacher.py \
     --pending-dir checkpoints/sft_v2_data_pending \
     --output-dir checkpoints/sft_v2_data \
     --max-samples 32           # 只跑前 32 条，验证流水线
 ```
+
+teacher 脚本默认用 `nvidia-smi` 自动挑空闲 GPU：单进程挑 1 张，
+`torchrun --nproc_per_node=N` 时挑 N 张。已有 `CUDA_VISIBLE_DEVICES` 时尊重外部设置；
+要关闭自动选卡，设 `SFT_TEACHER_DISABLE_AUTO_GPU=1`。
 
 ### 2.3 中断后续跑
 
@@ -148,6 +186,7 @@ for r in random.sample(rows, 5):
 - 默认模式 A（只读 jsonl，不重跑 teacher）：快、稳定、可一次抽几十条
 - `--live` 模式 B：现场重跑 teacher，多产出 `teacher_raw.txt` 和 `teacher_postprocess.json`
 - 采样默认按 scenario 均匀抽样（每场景 `--num-per-scenario` 条）
+- 加 `--serve --port 0` 会自动选空闲端口并启动 `index.html` 预览服务
 
 ```bash
 # 模式 A：默认只读 v2 jsonl，按场景均匀抽样
@@ -161,7 +200,8 @@ python tools/inspect_teacher_outputs.py \
     --jsonl checkpoints/sft_v2_data/train.jsonl \
     --save-root checkpoints/sft_v2_teacher_inspect_live \
     --num-per-scenario 3 --seed 42 \
-    --live --model-dir checkpoints/Qwen3-VL-4B-Instruct
+    --live --serve --port 0 \
+    --model-dir checkpoints/Qwen3-VL-4B-Instruct
 ```
 
 每个 case 目录会生成：
@@ -295,6 +335,8 @@ torchrun --standalone --nproc_per_node=4 tools/eval_sft_v1.py \
 
 **关键参数变化**：v1 默认 val 路径写死 `checkpoints/sft_v1_data/val.jsonl`，v2 必须显式
 `--val-jsonl checkpoints/sft_v2_data/val.jsonl`，否则会评 v1 数据集。
+eval / probe 会默认自动挑空闲 GPU；多卡 eval 用 `torchrun --nproc_per_node=N`
+时会自动挑 N 张。
 
 ### probe 也复用 v1 脚本
 

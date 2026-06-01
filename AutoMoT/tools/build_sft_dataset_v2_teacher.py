@@ -23,8 +23,8 @@ torchrun --standalone --nproc_per_node=8 tools/build_sft_dataset_v2_teacher.py \
     --model-dir checkpoints/Qwen3-VL-4B-Instruct \\
     --seed 20260601
 
-# 单卡调试，前 32 条
-CUDA_VISIBLE_DEVICES=0 python tools/build_sft_dataset_v2_teacher.py \\
+# 单卡调试，前 32 条（自动挑 1 张空闲 GPU）
+python tools/build_sft_dataset_v2_teacher.py \\
     --pending-dir checkpoints/sft_v2_data_pending \\
     --output-dir checkpoints/sft_v2_data \\
     --max-samples 32
@@ -38,6 +38,7 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
 import time
 from typing import Dict, List, Set, Tuple
@@ -50,6 +51,51 @@ _PROJECT_ROOT = _THIS_FILE.parents[2]
 for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+
+def _pick_idle_gpus(n: int = 1) -> str:
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return ""
+    rows = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            rows.append((int(parts[1]), int(parts[2]), parts[0]))
+        except ValueError:
+            continue
+    rows.sort(key=lambda x: (x[0], x[1], int(x[2]) if x[2].isdigit() else 9999))
+    return ",".join(row[2] for row in rows[:n])
+
+
+def _maybe_set_idle_gpu_mask() -> None:
+    """teacher 单卡/torchrun 多卡默认自动挑空闲 GPU；已有 CUDA mask 时保持外部配置。"""
+    if "CUDA_VISIBLE_DEVICES" in os.environ:
+        return
+    if os.environ.get("SFT_TEACHER_DISABLE_AUTO_GPU", "0") == "1":
+        return
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    selected = _pick_idle_gpus(world_size)
+    if selected:
+        os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        print(
+            f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; "
+            f"world_size={world_size}"
+        )
+
+
+_maybe_set_idle_gpu_mask()
 
 from PIL import Image  # noqa: E402
 
@@ -414,22 +460,23 @@ def _ddp_env() -> Tuple[int, int, int]:
 def _pin_local_gpu(local_rank: int, world_size: int) -> None:
     """torchrun 多进程时把每个 rank 钉到对应 LOCAL_RANK 的 GPU。
 
-    torchrun 默认会设 ``CUDA_VISIBLE_DEVICES`` 给每个子进程，但本脚本里
-    LocalQwen3VLInstructEngine.load() 走 device='auto' 会用 cuda:0 — 这正是
-    torchrun 屏蔽后的索引，没问题。这里只为冗余：如果用户手动 `python -m torch.distributed.run`
-    没设 CUDA_VISIBLE_DEVICES，就显式按 LOCAL_RANK pin。
+    自动选卡时每个 rank 会看到同一组 CUDA_VISIBLE_DEVICES；必须 set_device(local_rank)，
+    让 LocalQwen3VLInstructEngine 的 device='auto' 落到当前 rank 对应的可见卡。
     """
     if world_size <= 1:
         return
-    if "CUDA_VISIBLE_DEVICES" in os.environ:
-        return
-    # 退路：仅 pin 当前进程能看到的卡，不影响其他进程。
     try:
         import torch
         if torch.cuda.is_available() and torch.cuda.device_count() > local_rank:
             torch.cuda.set_device(local_rank)
+        elif torch.cuda.is_available():
+            raise RuntimeError(
+                f"torchrun local_rank={local_rank} 但当前只看到 "
+                f"{torch.cuda.device_count()} 张 GPU；"
+                f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')}"
+            )
     except Exception as e:  # noqa: BLE001
-        print(f"[gpu] warn: failed to pin local_rank={local_rank}: {e}")
+        raise RuntimeError(f"failed to pin local_rank={local_rank}: {e}") from e
 
 
 # ---------------------------------------------------------------------------
