@@ -129,20 +129,22 @@ def _pick_idle_gpus(n: int = 1) -> str:
 
 
 def _maybe_set_idle_gpu_mask() -> None:
-    """单进程 eval 默认自动挑空闲 GPU；显式 device / CUDA mask / torchrun 时保持外部配置。"""
-    if os.environ.get("CUDA_VISIBLE_DEVICES"):
-        return
-    if int(os.environ.get("WORLD_SIZE", "1")) > 1 or os.environ.get("LOCAL_RANK"):
+    """默认自动挑空闲 GPU；单进程挑 1 张，torchrun 按 WORLD_SIZE 挑 N 张。"""
+    if "CUDA_VISIBLE_DEVICES" in os.environ:
         return
     if os.environ.get("SFT_EVAL_DISABLE_AUTO_GPU", "0") == "1":
         return
     device_arg = _cli_value("--device")
     if device_arg and device_arg != "auto":
         return
-    selected = _pick_idle_gpus(1)
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    selected = _pick_idle_gpus(world_size)
     if selected:
         os.environ["CUDA_VISIBLE_DEVICES"] = selected
-        print(f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; process uses cuda:0/auto")
+        print(
+            f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; "
+            f"world_size={world_size}"
+        )
 
 
 _maybe_set_idle_gpu_mask()
@@ -709,7 +711,7 @@ def main():
     parser.add_argument("--max-samples", type=int, default=0,
                         help="0 表示评估全部 val 样本，>0 时只评估前 N 条做快速验收。")
     parser.add_argument("--device", default="auto",
-                        help="默认 auto；单进程时会先自动挑空闲物理 GPU 并映射到 cuda:0。"
+                        help="默认 auto；未显式设置 CUDA mask 时会自动挑空闲物理 GPU 并映射到 cuda:0。"
                              "显式传 cuda:N 会关闭自动 GPU mask。")
     parser.add_argument("--torch-dtype", default="bfloat16")
     # ---- 统一保存根目录（必填）----

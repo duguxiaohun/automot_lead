@@ -1454,6 +1454,7 @@ CLI 入口 `qwen3vl_dit_goalgen_runner.py`：
 - 多一个 `--subgoal` 参数（默认从 `DrivingMemory.from_scenario(scenario).subgoal` 推；推理调试可显式覆盖）。
 - 多一个 `--run-id` / 自动识别 run，方便 `keyframes.py` 查目标帧；找不到目标帧时打印警告并跳过 loss，仅做 forward。
 - 单次执行：teacher-forced prefill → 分段 KV（默认 `select_last`）→ 准备 z0 / 历史多帧 latent z_history / 真值 latent z1 → DiT forward → loss。
+- 未显式设置 `CUDA_VISIBLE_DEVICES` 或 `--device cuda:N` 时，默认自动挑 1 张空闲 GPU。
 - 输出 step.json：保存 prompt、Qwen KV summary、分段后段 shape、DiT 输入 / 输出 latent shape、loss、目标帧路径。
 
 ### 15.4 与现有 §14.10 的关系
@@ -1461,3 +1462,14 @@ CLI 入口 `qwen3vl_dit_goalgen_runner.py`：
 - **完全独立的入口**，不修改 [`qwen3vl_instruct_paradigm_a_runner.py`](AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py) 或 `qwen3vl_local/` 现有模块。
 - 复用现有 `LocalQwen3VLInstructEngine` 的 `load`/`prepare_inputs`/`prefill` 方法（teacher-forced 路线只缺 decode 那段，不需要分叉 engine 实现）。
 - 新模块都在 `goalgen/` 子包里，旧 runner 不会被影响。
+
+---
+
+## 16. GPU 选址统一规则
+
+SFT v1/v2、GoalGen、VAE patch/unpatch 的训练、eval、probe、teacher 入口默认都自动寻找空闲 GPU。文档示例不要默认写 `CUDA_VISIBLE_DEVICES=0`；手动 CUDA mask 只作为用户显式覆盖。
+
+- 单进程入口：默认调用 `nvidia-smi`，按 `memory.used`、`utilization.gpu` 从低到高挑 1 张卡。
+- `torchrun --nproc_per_node=N`：默认按同一规则挑 N 张卡，并按 `LOCAL_RANK` pin 到对应可见卡。
+- 已有 `CUDA_VISIBLE_DEVICES`：尊重外部 mask；训练 launcher 中显式 `DDP_GPU_COUNT=N` 表示重新自动挑 N 张卡。
+- 自动选卡关闭开关按入口命名，例如 `SFT_EVAL_DISABLE_AUTO_GPU=1`、`GOALGEN_EVAL_DISABLE_AUTO_GPU=1`、`SFT_TEACHER_DISABLE_AUTO_GPU=1`。

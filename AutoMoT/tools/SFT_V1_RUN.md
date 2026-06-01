@@ -379,10 +379,10 @@ python tools/eval_sft_v1.py \
     --max-samples 100
 ```
 
-单进程 eval 默认会在加载模型前调用 `nvidia-smi`，按 `memory.used`、`utilization.gpu`
-从小到大自动选择一张最空闲的 GPU，并设置 `CUDA_VISIBLE_DEVICES=<选中卡>`；进程内仍使用
-`cuda:0` / `--device auto`。如果外部已经设置 `CUDA_VISIBLE_DEVICES`、显式传
-`--device cuda:N`，或使用 `torchrun`，脚本会尊重外部设置。要关闭自动选卡：
+eval 默认会在加载模型前调用 `nvidia-smi`，按 `memory.used`、`utilization.gpu`
+从小到大自动选择空闲 GPU：单进程挑 1 张，`torchrun --nproc_per_node=N` 时挑 N 张。
+进程内仍使用 `cuda:0` / `--device auto`。如果外部已经设置 `CUDA_VISIBLE_DEVICES`
+或显式传 `--device cuda:N`，脚本会尊重外部设置。要关闭自动选卡：
 `SFT_EVAL_DISABLE_AUTO_GPU=1 python tools/eval_sft_v1.py ...`。
 
 **关键参数**：
@@ -395,7 +395,7 @@ python tools/eval_sft_v1.py \
 | `--full-dump` / `--no-full-dump` | 自动 | 默认 `--max-samples > 0` 时开；显式覆盖 |
 | `--full-dump-limit N` | 0 = 不限 | dump 上限，防止误开铺满磁盘 |
 | `--lora-dir` | 空字符串 | 默认跑 base 且不会导入 `peft`；只有明确评估 LoRA 时才传 adapter 目录 |
-| `--device` | `auto` | 单进程默认配合自动选空闲 GPU；显式 `cuda:N` 时关闭自动 mask |
+| `--device` | `auto` | 默认配合自动选空闲 GPU；显式 `cuda:N` 时关闭自动 mask |
 | `--tb` / `--no-tb` | `--no-tb` | 默认不写 TB（步骤一 TB 已让位给步骤二） |
 | `--skip-anchor12-sanity` | False | 跳过 anchor=12 单例检查 |
 
@@ -519,6 +519,9 @@ python tools/probe_sft_v1.py \
 ```
 
 probe 的 case 目录布局（与 eval cases 类似，但多 `token_loss.json`）：
+
+probe 不接 torchrun；未显式设置 `CUDA_VISIBLE_DEVICES` 或 `--device cuda:N` 时，
+默认自动挑 1 张空闲 GPU。
 
 ```
 checkpoints/sft_v1_lora/eval_cases/<scenario>__<run>__<anchor>/

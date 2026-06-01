@@ -186,6 +186,9 @@ git push
   （`[path:line](path#Lxxx)`），不是源码副本
 - **不要替用户决定是否 push**——commit 可以自己做，push 之前问一下
   （push 一旦发到 main，外部可见，难撤回）
+- **不要在运行文档里默认写 `CUDA_VISIBLE_DEVICES=0`**。SFT v1/v2、GoalGen、
+  VAE patch/unpatch 的训练、eval、probe、teacher 入口默认都应自动寻找空闲 GPU；
+  手动 CUDA mask 只用于说明用户显式覆盖。
 
 ---
 
@@ -195,5 +198,9 @@ git push
   对照表）+ §8（runner 当前不匹配点列表）
 - 改完 runner 后**同步更新** PROJECT_CONTEXT.md §8 的相应条目（标记为已修复，
   或把新的不匹配点加进去）
+- 写或改 SFT / GoalGen / VAE 运行命令时，保持 GPU 选址规则一致：单进程默认
+  `nvidia-smi` 自动挑 1 张空闲 GPU；`torchrun --nproc_per_node=N` 默认自动挑 N 张；
+  已有 `CUDA_VISIBLE_DEVICES` 时尊重外部 mask，训练 launcher 的 `DDP_GPU_COUNT=N`
+  表示重新自动挑 N 张。
 - 用户偏好：先解释思路 → 列方案优缺点 → 等用户选 → 才开始改代码。不要"先斩后奏"
 - 用户用简体中文交流，代码注释也用简体中文，变量名 / 函数名保持英文

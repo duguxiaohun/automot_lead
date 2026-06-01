@@ -192,6 +192,7 @@ python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
 
 runner 会校验 `STATUS/SUBGOAL`、强制要求 `target_frame > anchor`，并且把所有
 历史潜变量喂给 DiT（和训练接口一致）。**数据集训练仍走 `build_dataset_v1.py`**。
+未显式设置 `CUDA_VISIBLE_DEVICES` 或 `--device cuda:N` 时，runner 默认自动挑 1 张空闲 GPU。
 
 ## 3.5 离线评测
 
@@ -232,10 +233,10 @@ torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \
   --save-root checkpoints/goalgen_v1_dit
 ```
 
-单进程 eval 默认会在加载 Qwen/VAE 前调用 `nvidia-smi`，按 `memory.used`、
-`utilization.gpu` 从小到大自动选择一张最空闲的 GPU，并设置
-`CUDA_VISIBLE_DEVICES=<选中卡>`；进程内仍使用 `cuda:0`。如果外部已经设置
-`CUDA_VISIBLE_DEVICES`、显式传 `--gpu N`，或使用 `torchrun`，脚本会尊重外部设置。
+eval 默认会在加载 Qwen/VAE 前调用 `nvidia-smi`，按 `memory.used`、
+`utilization.gpu` 从小到大自动选择空闲 GPU：单进程挑 1 张，
+`torchrun --nproc_per_node=N` 时挑 N 张。进程内仍使用 `cuda:0`。如果外部已经设置
+`CUDA_VISIBLE_DEVICES` 或显式传 `--gpu N`，脚本会尊重外部设置。
 要关闭自动选卡：`GOALGEN_EVAL_DISABLE_AUTO_GPU=1 python qwen3vl_local/goalgen/eval_v1.py ...`。
 
 **关键参数**：
@@ -349,6 +350,9 @@ python qwen3vl_local/goalgen/probe_v1.py \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0 --case-suffix "_ckpt500"
 ```
+
+probe 不接 torchrun；未显式设置 `CUDA_VISIBLE_DEVICES` 或 `--gpu` 时，默认自动挑
+1 张空闲 GPU。
 
 probe 的 case 目录布局（与 eval cases 类似，但多 `euler_trace.json`）：
 

@@ -120,19 +120,21 @@ def _pick_idle_gpus(n: int = 1) -> str:
 
 
 def _maybe_set_idle_gpu_mask() -> None:
-    """单进程 eval 默认自动挑空闲 GPU；显式 --gpu / CUDA mask / torchrun 时保持外部配置。"""
-    if os.environ.get("CUDA_VISIBLE_DEVICES"):
-        return
-    if int(os.environ.get("WORLD_SIZE", "1")) > 1 or os.environ.get("LOCAL_RANK"):
+    """默认自动挑空闲 GPU；单进程挑 1 张，torchrun 按 WORLD_SIZE 挑 N 张。"""
+    if "CUDA_VISIBLE_DEVICES" in os.environ:
         return
     if os.environ.get("GOALGEN_EVAL_DISABLE_AUTO_GPU", "0") == "1":
         return
     if _cli_has("--gpu"):
         return
-    selected = _pick_idle_gpus(1)
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    selected = _pick_idle_gpus(world_size)
     if selected:
         os.environ["CUDA_VISIBLE_DEVICES"] = selected
-        print(f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; process uses cuda:0")
+        print(
+            f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; "
+            f"world_size={world_size}"
+        )
 
 
 _maybe_set_idle_gpu_mask()
@@ -1198,7 +1200,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "0 = 不限（受 --max-samples 限制）。")
 
     p.add_argument("--gpu", type=int, default=0,
-                   help="进程内 GPU 编号。未显式传 --gpu 时，单进程 eval 会先自动挑空闲物理 GPU 并映射为 cuda:0。")
+                   help="进程内 GPU 编号。未显式传 --gpu 且未设置 CUDA mask 时，会自动挑空闲物理 GPU 并映射为 cuda:0。")
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
     p.add_argument("--vae-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
     p.add_argument("--dit-dtype", choices=["float32", "float16", "bfloat16"], default="bfloat16")

@@ -53,6 +53,7 @@ python tools/probe_sft_v1.py \
 - 不接 torchrun。probe 输出量小、需要 per-sample 写文件，单卡顺序跑可读性最高；
   多卡分片反而会让 stdout 交错难读。需要并行时直接起多个 python 进程，各自跑
   不同 --scenarios 切分；
+- 未显式设置 `CUDA_VISIBLE_DEVICES` 或 `--device cuda:N` 时，默认自动挑 1 张空闲 GPU；
 - token-level loss 走"两次 encode 拼接"的近似定位（precise offset_mapping 在
   Qwen3-VL processor 上需要特殊处理，工程价值不大）；
 - 图像默认 symlink，windows 失败退化 copy。
@@ -67,6 +68,7 @@ import pathlib
 import random
 import re
 import shutil
+import subprocess
 import sys
 import time
 from collections import defaultdict
@@ -83,6 +85,60 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+
+
+def _cli_value(name: str) -> Optional[str]:
+    prefix = name + "="
+    for i, item in enumerate(sys.argv[1:]):
+        if item == name and i + 2 <= len(sys.argv[1:]):
+            return sys.argv[i + 2]
+        if item.startswith(prefix):
+            return item[len(prefix):]
+    return None
+
+
+def _pick_idle_gpus(n: int = 1) -> str:
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return ""
+    rows = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            rows.append((int(parts[1]), int(parts[2]), parts[0]))
+        except ValueError:
+            continue
+    rows.sort(key=lambda x: (x[0], x[1], int(x[2]) if x[2].isdigit() else 9999))
+    return ",".join(row[2] for row in rows[:n])
+
+
+def _maybe_set_idle_gpu_mask() -> None:
+    """probe 默认自动挑 1 张空闲 GPU；显式 device / CUDA mask 时保持外部配置。"""
+    if "CUDA_VISIBLE_DEVICES" in os.environ:
+        return
+    if os.environ.get("SFT_PROBE_DISABLE_AUTO_GPU", "0") == "1":
+        return
+    device_arg = _cli_value("--device")
+    if device_arg and device_arg != "auto":
+        return
+    selected = _pick_idle_gpus(1)
+    if selected:
+        os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        print(f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; process uses cuda:0/auto")
+
+
+_maybe_set_idle_gpu_mask()
 
 import torch  # noqa: E402
 import torch.nn.functional as F  # noqa: E402
