@@ -75,22 +75,28 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 `QWEN_KV_SEGMENT_MODE` 默认是 `select_last`；只有在做消融对比时才切到
 `concat_layers`。
 
-### 2.0.0 加速调参（默认已生效部分 + 可选开关）
+### 2.0.0 加速调参（默认已生效 + 可选开关）
 
-**默认启用，无需配置**（已写进 `train_v1.py`）：
+**默认启用，无需配置**（写进 `train_v1.py` / `train_v1.sh`）：
 
-- `torch.backends.cudnn.benchmark = True`：DiT 输入 shape 在固定 history_frames /
-  patch_size 下稳定，让 cuDNN 自动选最优 conv kernel。
 - `torch.set_float32_matmul_precision("high")`：TF32 matmul 加速，bf16/fp32 路径上
-  几乎无精度损失。
+  几乎无精度损失，不影响显存峰值。
+- `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`：分配器使用可扩展段，
+  减少显存碎片，对 latent_stats / DiT 长跑有边际收益。
 
-**可选**：
+**可选开关**：
 
 ```bash
-# 启用 torch.compile(dit) 优化 DiT forward（约 10-20% 加速；首步会有几十秒到一两分钟
-# 编译开销）。失败会自动回退原模型不阻塞训练。Qwen 走 HF DynamicCache + Python
-# 控制流，compile 不友好，只 compile DiT。
+# 1) torch.compile(dit) 加速 DiT forward（约 10-20% 加速；首步会有几十秒到一两分钟
+#    编译开销）。失败会自动回退原模型不阻塞训练。Qwen 走 HF DynamicCache + Python
+#    控制流，compile 不友好，只 compile DiT。
 COMPILE_DIT=1 bash qwen3vl_local/goalgen/train_v1.sh ddp
+
+# 2) cuDNN benchmark（让 cuDNN 自动选最优 conv kernel，约 5-10% 速度）。
+#    ⚠ 第一次见到每个 conv shape 时会**同时探测多个 algorithm**，每个都申请 workspace，
+#    瞬时显存峰值高出稳态 10-30GB。VAE conv3d + 大 spatial 在 H20 95GB 上实测会把
+#    [latent_stats] 阶段直接 OOM。**默认关**；显存有大余量再启用。
+CUDNN_BENCHMARK=1 bash qwen3vl_local/goalgen/train_v1.sh ddp
 ```
 
 **关于 `MAX_HISTORY_FRAMES`（容易踩的坑）**：

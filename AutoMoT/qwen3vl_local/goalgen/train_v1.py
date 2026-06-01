@@ -579,11 +579,20 @@ def train(args: argparse.Namespace) -> None:
     if device.type != "cuda":
         raise RuntimeError("GoalGen 训练需要 CUDA；本地只适合跑数据构建，训练请放到远端机器。")
 
-    # cuDNN benchmark：DiT 输入 shape 在固定 history_frames / patch_size 下稳定，
-    # 让 cuDNN 自动选最优 conv kernel。Qwen 走 SDPA 不依赖 cuDNN，不受影响。
-    torch.backends.cudnn.benchmark = True
+    # cuDNN benchmark：第一次见到 conv shape 时会同时探测多个 algorithm，每个都申请
+    # workspace，**瞬时显存峰值可能高出稳态 10-30GB**。VAE 走 conv3d + 大 spatial 时
+    # 尤其严重（实测在 H20 95GB 上能把 [latent_stats] 阶段直接 OOM）。
+    # 默认改为关闭；如果你的 GPU 显存有大余量、想拿那 5-10% 速度，导出
+    # GOALGEN_CUDNN_BENCHMARK=1 显式启用。
+    if os.environ.get("GOALGEN_CUDNN_BENCHMARK", "0") == "1":
+        torch.backends.cudnn.benchmark = True
+        if is_rank0(rank):
+            print("[cudnn] benchmark=True 启用（瞬时 workspace 峰值更高，注意 OOM 风险）")
+    else:
+        torch.backends.cudnn.benchmark = False
+
     # TF32 matmul：bf16/fp32 路径上启用 TensorCore 的 TF32 加速，精度损失可忽略，
-    # 对 DiT linear / VAE encode 都有用。
+    # 不影响显存峰值，无 OOM 风险，保留默认开启。
     torch.set_float32_matmul_precision("high")
 
     output_dir = pathlib.Path(args.output_dir)

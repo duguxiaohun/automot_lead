@@ -78,6 +78,17 @@ mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
 COMPILE_DIT="${COMPILE_DIT:-0}"
 export GOALGEN_COMPILE_DIT="${COMPILE_DIT}"
 
+# 可选：cuDNN benchmark（让 cuDNN 自动挑最优 conv kernel）。第一次见到每个 conv
+# shape 时会同时探测多个 algorithm，瞬时显存峰值高出稳态 10-30GB。VAE conv3d
+# + 大 spatial 在 H20 95GB 上实测会直接 OOM，所以默认关。显存有充裕余量
+# （比如 batch=1 稳态 < 60GB）且想拿那 5-10% 速度，再置 1 启用。
+CUDNN_BENCHMARK="${CUDNN_BENCHMARK:-0}"
+export GOALGEN_CUDNN_BENCHMARK="${CUDNN_BENCHMARK}"
+
+# 显存碎片缓解：分配器使用 expandable_segments，能减少 fragmentation。
+# 即便 cudnn.benchmark 关掉，对 latent_stats / DiT 训练长跑也有边际收益。
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+
 pick_idle_gpus() {
     local want_count="$1"
     local selected
