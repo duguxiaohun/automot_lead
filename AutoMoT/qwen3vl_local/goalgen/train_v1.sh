@@ -34,6 +34,11 @@ KEEP_RECENT_CHECKPOINTS="${KEEP_RECENT_CHECKPOINTS:-3}"
 
 PATCH_SIZE="${PATCH_SIZE:-2}"
 HIDDEN_DIM="${HIDDEN_DIM:-768}"
+# 可选：把 AutoMoT/vae_standalone/train_patch_unpatch.py 训出来的权重塞回 DiT。
+# 留空 = 维持原行为（patch/unpatch 随机初始化跟 DiT 一起训练）。
+PATCH_UNPATCH_WEIGHTS="${PATCH_UNPATCH_WEIGHTS:-}"
+# 默认加载即冻结；要联合微调 patch/unpatch 设 PATCH_UNPATCH_UNFREEZE=1。
+PATCH_UNPATCH_UNFREEZE="${PATCH_UNPATCH_UNFREEZE:-0}"
 N_HEADS="${N_HEADS:-12}"
 NUM_LAYERS="${NUM_LAYERS:-12}"
 COND_DIM="${COND_DIM:-256}"
@@ -132,6 +137,7 @@ COMMON_ARGS=(
     --output-dir "${OUTPUT_DIR}"
     --patch-size "${PATCH_SIZE}"
     --hidden-dim "${HIDDEN_DIM}"
+    --patch-unpatch-weights "${PATCH_UNPATCH_WEIGHTS}"
     --n-heads "${N_HEADS}"
     --mlp-ratio "${MLP_RATIO}"
     --num-layers "${NUM_LAYERS}"
@@ -160,6 +166,12 @@ COMMON_ARGS=(
     --image-log-euler-steps "${IMAGE_LOG_EULER_STEPS}"
     --keep-recent-checkpoints "${KEEP_RECENT_CHECKPOINTS}"
 )
+
+# --patch-unpatch-unfreeze 是 store_true 旗标，只在请求时追加；store_true
+# 不接受值，所以不能像普通 KV 参数那样无脑塞。
+if [[ "${PATCH_UNPATCH_UNFREEZE}" == "1" ]]; then
+    COMMON_ARGS+=(--patch-unpatch-unfreeze)
+fi
 
 case "${MODE}" in
     check)

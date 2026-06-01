@@ -658,6 +658,23 @@ def train(args: argparse.Namespace) -> None:
 
     dit_dtype = dtype_from_name(args.dit_dtype)
     dit = build_dit(args, language_kv_input_dim=language_kv_dim).to(device=device, dtype=dit_dtype)
+
+    # 可选：加载 vae_standalone/train_patch_unpatch.py 训出来的 patch/unpatch 权重。
+    # 默认 freeze=True，patch/unpatch 不再更新；optimizer 下面会按 requires_grad
+    # 过滤参数，所以冻结后既省 AdamW state 也省反传计算。不提供路径就保持现状
+    # （patch/unpatch 与 DiT 一起随机初始化联合训练）。
+    if args.patch_unpatch_weights:
+        info = dit.load_patch_unpatch(
+            args.patch_unpatch_weights,
+            freeze=not args.patch_unpatch_unfreeze,
+        )
+        if is_rank0(rank):
+            print(f"[patch_unpatch] 加载 {args.patch_unpatch_weights}: {info}")
+    elif is_rank0(rank):
+        print("[patch_unpatch] 未提供权重 -> patch/unpatch 跟随 DiT 随机初始化训练")
+
+    # EMA 在 patch/unpatch 加载完之后初始化：让 EMA 起步快照 = 预训过的权重，
+    # 而不是 build_dit 给的随机值；否则训练初期 EMA 推理图像会失真很久。
     ema = DiTEMA(dit, decay=args.ema_decay)
     if world_size > 1:
         # find_unused_parameters=True：DiT 的 null_lang_k / null_lang_v（24 个 Parameter）
@@ -672,7 +689,9 @@ def train(args: argparse.Namespace) -> None:
         # 这里只传 dit.parameters()：Qwen / VAE 上面已 freeze_module 关掉 grad，但 optimizer
         # 看到 requires_grad=False 仍会保留它们的 state（占显存）。显式只传 DiT 参数能
         # 把 AdamW 的 m/v state 也限制在 DiT 上，省一份 Qwen 量级的优化器内存。
-        dit.parameters(),
+        # 再过滤 requires_grad：加载 patch/unpatch 预训权重并 freeze 后，对应 4 个参数
+        # （patch.proj.* / unpatch.proj.*）也不应该出现在 AdamW state 里。
+        [p for p in dit.parameters() if p.requires_grad],
         lr=args.learning_rate,
         # betas=(0.9, 0.95) 是 DiT / 大型 diffusion 模型的常见配方；第二阶矩衰减比 Adam
         # 默认 0.999 快，对 latent flow matching 这种损失曲线较平的目标更稳。
@@ -977,6 +996,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p.add_argument("--patch-size", type=int, default=2)
     p.add_argument("--hidden-dim", type=int, default=768)
+    # 可选 patch/unpatch 预训权重（来自 vae_standalone/train_patch_unpatch.py）。
+    # 给路径就加载并默认冻结；不给就维持原行为（随机初始化、跟 DiT 一起训练）。
+    p.add_argument("--patch-unpatch-weights", type=str, default="",
+                   help='可选 patch_unpatch_*.safetensors 路径；非空时调用 '
+                        'DiTMoT.load_patch_unpatch 加载并冻结。')
+    p.add_argument("--patch-unpatch-unfreeze", action="store_true", default=False,
+                   help="加载 patch/unpatch 权重后仍允许联合更新（默认加载即冻结）。")
     p.add_argument("--n-heads", type=int, default=12)
     p.add_argument("--mlp-ratio", type=float, default=4.0)
     p.add_argument("--num-layers", type=int, default=12)

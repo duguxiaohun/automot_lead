@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import math
+import pathlib
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -492,6 +493,78 @@ class DiTMoT(nn.Module):
         t_emb = _timestep_embedding(t, self.cfg.cond_dim)
         t_emb = t_emb.to(dtype=self.t_mlp[0].weight.dtype)
         return self.t_mlp(t_emb)
+
+    def load_patch_unpatch(self, path: str, freeze: bool = True) -> dict:
+        """从 ``AutoMoT/vae_standalone/train_patch_unpatch.py`` 训出的 safetensors 加载
+        patch + unpatch 权重。
+
+        - ``path`` 指向 ``patch_unpatch_*.safetensors``；它的 state_dict key 是
+          ``patch.proj.weight / patch.proj.bias / unpatch.proj.weight / unpatch.proj.bias``，
+          与本模块内 ``self.patch`` / ``self.unpatch`` 完全一致，直接 load_state_dict
+          即可，无需 rename。
+        - ``freeze=True``（默认）：加载后把 patch / unpatch 切到 eval、关掉 grad；
+          train_v1 的 optimizer 只收 ``requires_grad=True`` 的参数，所以这条路径下
+          它们不会被更新。
+        - ``freeze=False``：仅加载初值，仍按可训练参数对待——主要给"先暖启再联合
+          微调"的实验留口子，常规用法不需要。
+
+        返回一个 dict，列出加载的 key 与 missing/unexpected，便于训练日志打印。
+        """
+
+        from safetensors.torch import load_file  # noqa: E402
+
+        p = pathlib.Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"patch/unpatch 权重不存在: {p}")
+        sd = load_file(str(p))
+
+        expected = {
+            "patch.proj.weight",
+            "patch.proj.bias",
+            "unpatch.proj.weight",
+            "unpatch.proj.bias",
+        }
+        pick = {k: v for k, v in sd.items() if k in expected}
+        missing = sorted(expected - set(pick.keys()))
+        unexpected = sorted(set(sd.keys()) - expected)
+
+        if missing:
+            # 缺 key 一定是格式错配——例如把 DiT 全量 ckpt 当 patch_unpatch 加载，
+            # 直接抛错而不是 strict=False 静默吞掉，避免 DiT 拿到错误初始化继续训。
+            raise ValueError(
+                f"patch/unpatch 权重缺少必要 key: {missing}；实际文件键: {sorted(sd.keys())}"
+            )
+
+        # 形状校验：用本模块当前的 state_dict 对比每个 key 的 shape；不一致说明
+        # 训练 patch/unpatch 时的 hidden_dim / patch_size / latent_channels 与
+        # DiTMoTConfig 不匹配，必须立刻报错。
+        own_sd = self.state_dict()
+        for k, v in pick.items():
+            if own_sd[k].shape != v.shape:
+                raise ValueError(
+                    f"patch/unpatch 权重 {k} shape 不匹配："
+                    f"DiT 期望 {tuple(own_sd[k].shape)}，文件 {tuple(v.shape)}。"
+                    "检查 --patch-size / --hidden-dim 是否与训练 patch_unpatch 时一致。"
+                )
+
+        # strict=False：本模块还有其它 key（blocks/null_lang_*/pos_embed_table 等）
+        # 不能要求文件里有；这里 pick 只含 patch/unpatch 的 4 个 key，等价于只覆盖这部分。
+        self.load_state_dict(pick, strict=False)
+
+        if freeze:
+            for pp in self.patch.parameters():
+                pp.requires_grad_(False)
+            for pp in self.unpatch.parameters():
+                pp.requires_grad_(False)
+            self.patch.eval()
+            self.unpatch.eval()
+
+        return {
+            "loaded_keys": sorted(pick.keys()),
+            "missing": missing,
+            "unexpected": unexpected,
+            "frozen": freeze,
+        }
 
     def forward(
         self,
