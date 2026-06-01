@@ -542,10 +542,8 @@ checkpoints/sft_v1_lora/eval_cases/<scenario>__<run>__<anchor>/
 
 ### 5.5 训练完小批量诊断 → 打包发给 AI 审阅（推荐流程）
 
-**适用场景**：训练刚结束、还没决定挑哪个 ckpt、想快速判断"模型是不是已经在干活、有没有跑歪"。
-不要等到全集 eval 跑完（30 分钟）再判断方向，先用小批量 + AI 审阅做粗筛。
-
-#### 5.5.1 一条命令产出诊断材料
+用途：训练刚结束时先抽 ~30 个 case 粗筛，判断模型是否在干活；方向对再跑全集
+`eval_sft_v1.py` 拿正式指标。
 
 ```bash
 # 推荐：base + LoRA 各跑一份 probe（同 seed 选中样本完全一致，便于并排比较）
@@ -563,77 +561,14 @@ python tools/probe_sft_v1.py \
     --case-suffix "_lora_ckpt900"
 ```
 
-- `--num-per-scenario 3` × ~10 个场景 ≈ 30 个 case，整体 ≤ 2 分钟（基本是推理时间）
-- 同 `--seed 42`：base 和 lora 跑出的样本是同一批，可以直接并排对比
-- `--case-suffix` 防互相覆盖
+产物在 `checkpoints/sft_v1_lora/eval_cases/`：每个 case 含 4 帧输入、
+`user_prompt.txt`、`gt.txt`、`pred.txt`、`token_loss.json`、`meta.json`、
+`overview.md`，另有 `_index_*.jsonl`。给 AI 审阅时直接打包 `eval_cases/`。
 
-#### 5.5.2 产物结构（这是要发给 AI 看的"诊断包"）
-
-```
-checkpoints/sft_v1_lora/eval_cases/
-├─ Accident__Town03_Rep0_route_001783__anchor12_base/
-│  ├─ input_images/00.jpg ... 03.jpg     ← 模型当时实际看到的 4 帧 RGB
-│  ├─ system_prompt.txt                  ← 完整 system prompt
-│  ├─ user_prompt.txt                    ← 完整 user prompt（含 MEMORY）
-│  ├─ gt.txt                             ← ANALYSIS / STATUS / SUBGOAL 真值三行
-│  ├─ pred.txt                           ← 模型 raw 输出
-│  ├─ token_loss.json                    ← per-token NLL + 三段均值
-│  ├─ meta.json                          ← scenario / run_id / anchor / ckpt / 耗时
-│  └─ overview.md                        ← 一页 markdown，把上面全部串起来
-├─ Accident__Town03_Rep0_route_001783__anchor12_lora_ckpt900/
-│  └─ （同上结构）
-├─ Construction__... × 数十个 case
-└─ _index_base.jsonl / _index_lora_ckpt900.jsonl   ← 全部 case 的扁平索引
-```
-
-#### 5.5.3 怎么发给 Claude / AI
-
-| 想问的问题 | 最少要带的文件 | 怎么发 |
-|---|---|---|
-| "模型整体怎么样、有没有跑歪" | 整个 `eval_cases/` zip | 上传 zip，让 AI 抽看几个 case |
-| "某一类场景模型出错" | 该 scenario 下 3–5 个 case_dir 的 `overview.md` + `gt.txt` + `pred.txt` | 拖文件 / 复制内容 |
-| "图像 / 输入是不是有问题" | 任一 case 的 `input_images/03.jpg` + `user_prompt.txt` + `pred.txt` | 把 jpg 和 txt 一起拖进对话 |
-| "复读 STATUS: 是不是又出现了" | 任一 case 的 `pred.txt` 全文 | 直接粘贴 |
-| "ckpt-X vs ckpt-Y 谁更好" | 同 seed 同 case_suffix 的两套 `_index_*.jsonl` + 几个有差异 case 的 `overview.md` | 拖文件夹 |
-
-最省事的姿势：**直接把整个 `eval_cases/` zip 上传**，然后问"看看模型效果怎么样，问题主要在哪里"。
-
-#### 5.5.4 Claude 能从这堆文件里看出什么
-
-按"先看哪个、看到什么得出什么结论"列：
-
-**第一眼看 `pred.txt` vs `gt.txt`**（每个 case 都看）：
-- ✅ `STATUS:` 行和 `SUBGOAL:` 行的事件名都对 → 模型基本在干活
-- ❌ `STATUS:` 行后面是 `\nSTATUS: X\nSTATUS: X` 反复 → **关键词复读**（PLAN §11 那条失败模式），通常意味着训练过头 / lr 偏大
-- ❌ `STATUS:` 后面接的事件名跳到下一段（如真值 `initial` 模型输出 `hazard_detect`） → **提前推进**（v1 核心痛点），看是否集中在 anchor 接近转换帧的样本
-- ❌ raw_text 截断在 ANALYSIS 段没出 STATUS → 输出格式坏，多半 base 模型本身被 LoRA 拉跑了
-- ❌ `STATUS:` 后面是奇怪 token / 乱码 → tokenizer 词表不一致 / LoRA 挂错 adapter
-
-**第二眼看 `overview.md` 的 Token-level loss summary**：
-- `mean_loss_status_subgoal_only` < 0.05：事件名几乎已经记住，可能进入过拟合区，结合 ckpt 编号判断
-- `mean_loss_status_subgoal_only` > 2：模型对事件名还没收敛，ckpt 偏早
-- `mean_loss_masked_literals` 数值大幅波动：字面 token 在 raw 序列里有意外，可能是 chat template 对不齐
-- per_token 表里某个事件名 token 的 nll 异常大（> 5）：模型在那个具体词上犹豫，常发生在 advance 样本的转换边界
-
-**第三眼看 `input_images/` + `user_prompt.txt`**：
-- 4 张 jpg 顺序 `00 → 03` 是 oldest → newest（最后一张是当前帧）
-- user_prompt 里 `[MEMORY]` 块的 `STATUS` 应该是**上一帧** GT（不是当前帧），否则 leak
-- 如果发现 user_prompt 里 `[MEMORY]` 没了 / 顺序乱了 → build_sft_dataset_v1.py 出问题，先回 §1 重新生成
-
-**第四眼看 `meta.json`**：
-- `lora_dir` 为空 = base，非空才是 LoRA；并排比较时先 grep `lora_dir`
-- `elapsed` 异常长（> 5s/case）= GPU 没在用 / autocast 没开 / KV cache 失效
-
-#### 5.5.5 反过来：AI 看不出什么、必须靠 metrics
-
-probe 是 case-level 视角，**不报聚合指标**。下面这些必须靠 `eval_sft_v1.py` 的 `metrics.json`：
-
-- `keep_accuracy` / `advance_accuracy` 在总样本上的真值（probe 只抽 30 条，统计不可信）
-- `early_advance_rate` 全集占比
-- `anchor12_sanity.passed`（probe 没跑这条固定 sanity case）
-- per_scenario 拆分
-
-所以推荐顺序是：先跑 §5.5.1 拿到 30 个 case 发给 AI 做粗筛 → 如果方向对，再跑全集 `eval_sft_v1.py` 拿数字。
+快速判断顺序：先看 `pred.txt` vs `gt.txt` 的 STATUS/SUBGOAL 是否正确、是否复读；
+再看 `token_loss.json` 里事件名 token 的 NLL；最后查输入帧顺序和 `meta.json` 的
+`lora_dir`。probe 只做 case-level 粗筛，正式的 `keep_accuracy`、`advance_accuracy`、
+`early_advance_rate`、per-scenario 指标仍以全集 `eval_sft_v1.py` 为准。
 
 ---
 
