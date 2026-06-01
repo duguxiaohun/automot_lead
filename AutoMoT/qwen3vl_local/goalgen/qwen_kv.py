@@ -7,6 +7,7 @@ K/V 张量都已 detach，作为 DiT-MoT 的语言 memory 使用。
 from __future__ import annotations
 
 from dataclasses import dataclass
+from multiprocessing.util import DEBUG
 from typing import Any, Dict, List, Tuple
 
 import torch
@@ -171,6 +172,15 @@ def teacher_forced_prefill(
     # 从第 0 段读形状元信息：所有段的 (B, n_kv_heads, S, head_dim) 一致（除 concat_layers
     # 模式下 S 维三倍以外），下游只需要参考一段即可推出 language_kv_input_dim。
     k0, _ = segmented[0]
+
+    # -> seq_len: 2255
+    # -> n_kv_heads: 8
+    # -> head_dim: 128
+    # -> num_qwen_layers (原始 KV Cache 层数): 36
+    # -> kv_segment_mode: 'select_last'
+    # -> chat_text (length: 2701): '<|im_start|>system\nYou are an autonomous driving a...'
+    # -> pooled_kv (共 12 段):
+    #     段 00 | K shape: torch.Size([1, 8, 2255, 128]), V shape: torch.Size([1, 8, 2255, 128])
 
     return PrefillResult(
         pooled_kv=segmented,
