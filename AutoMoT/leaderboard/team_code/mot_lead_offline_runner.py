@@ -1556,7 +1556,7 @@ def main():
     parser.add_argument(
         "--route-dir",
         type=str,
-        default='/data/lead_data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46',
+        default='/datashare/IOL4SGH/data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46',
         help="真实 LEAD 路由目录，目录下需包含 rgb、metas、lidar 三个子目录。",
     )
     parser.add_argument(

@@ -27,7 +27,7 @@ ls checkpoints/Qwen3-VL-4B-Instruct/ | head -5
 `MODEL_DIR=/真实绝对路径` 临时 override，例如：
 
 ```bash
-MODEL_DIR=/data/lead_data/checkpoints/Qwen3-VL-4B-Instruct \
+MODEL_DIR=/datashare/IOL4SGH/AutoMoT/models/Qwen3-VL-4B-Instruct \
   bash tools/sft_v1_train.sh ddp
 ```
 
@@ -38,7 +38,7 @@ MODEL_DIR=/data/lead_data/checkpoints/Qwen3-VL-4B-Instruct \
 ```bash
 python tools/build_sft_dataset_v1.py \
     --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
-    --data-root /data/lead_data/data \
+    --data-root /datashare/IOL4SGH/data/data \
     --samples-per-scenario 800 \
     --output-dir checkpoints/sft_v1_data
 ```
@@ -67,7 +67,7 @@ python tools/build_sft_dataset_v1.py \
 - `train.jsonl` + `val.jsonl` + `stats.json` 三个文件都生成；
 - `stats.json` 里 `transition_in_train` ≈ 总数的 30% 左右（推进类天然稀少，达不到 35% 目标时会自动收所有可得的；不会复制样本）；
 - 单条样本里 `messages[1].content` 含 4 个 `<image>` 占位符；
-- `images` 列表里 4 个 RGB 路径都指向 `/data/lead_data/data/<scenario>/<run_id>/rgb/*.jpg`。
+- `images` 列表里 4 个 RGB 路径都指向 `/datashare/IOL4SGH/data/data/<scenario>/<run_id>/rgb/*.jpg`。
 
 **边界采样口径**：
 
@@ -578,7 +578,7 @@ python tools/probe_sft_v1.py \
 ## 一行串起来（happy path，不推荐生产用）
 
 ```bash
-python tools/build_sft_dataset_v1.py --data-root /data/lead_data/data \
+python tools/build_sft_dataset_v1.py --data-root /datashare/IOL4SGH/data/data \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --output-dir checkpoints/sft_v1_data && \
 python tools/check_loss_mask.py && \

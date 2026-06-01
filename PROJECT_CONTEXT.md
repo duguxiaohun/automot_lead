@@ -1328,7 +1328,7 @@ python leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py --route-dir <
 ```
 
 CLI 参数尽量对齐 `vlm_paradigm_a_runner.py`：`--route-dir` 默认同样指向
-`/data/lead_data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46`，
+`/datashare/IOL4SGH/data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46`，
 可传空字符串退回合成图。
 
 ---

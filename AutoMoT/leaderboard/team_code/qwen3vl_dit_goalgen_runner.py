@@ -590,7 +590,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--route-dir",
         type=str,
-        default="/data/lead_data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46",
+        default="/datashare/IOL4SGH/data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46",
     )
     p.add_argument("--anchor", type=int, default=12)
     p.add_argument("--rgb-frame-step", type=int, default=1)

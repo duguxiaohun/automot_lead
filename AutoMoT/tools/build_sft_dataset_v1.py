@@ -26,13 +26,13 @@ teacher 推理用的 PRIVILEGED prompt 由 build_sft_dataset_v2_teacher.py 临�
 # v1：生成完整训练 / 验证 jsonl，ANALYSIS 段是占位
 python tools/build_sft_dataset_v1.py \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
-  --data-root /data/lead_data/data \
+  --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/sft_v1_data
 
 # v2：生成 pending jsonl，ANALYSIS 段是 __TEACHER_PENDING__ 占位
 python tools/build_sft_dataset_v1.py --mode v2 \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
-  --data-root /data/lead_data/data \
+  --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/sft_v2_data_pending
 
 # 本地或远程快速检查：只取少量场景和 run，验证 jsonl schema 是否能生成
@@ -566,7 +566,7 @@ def main():
     parser.add_argument("--keyframes", type=str,
                         default=str(_PROJECT_ROOT / "keyframes_all_scenarios.json"))
     parser.add_argument("--data-root", type=str,
-                        default="/data/lead_data/data",
+                        default="/datashare/IOL4SGH/data/data",
                         help="LEAD 数据根目录。每个 scenario 是子目录。")
     parser.add_argument("--output-dir", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v1_data"))

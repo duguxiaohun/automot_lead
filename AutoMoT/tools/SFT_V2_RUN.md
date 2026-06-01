@@ -31,7 +31,7 @@ ls checkpoints/Qwen3-VL-4B-Instruct/ | head -5
 python tools/build_sft_dataset_v1.py \
     --mode v2 \
     --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
-    --data-root /data/lead_data/data \
+    --data-root /datashare/IOL4SGH/data/data \
     --output-dir checkpoints/sft_v2_data_pending
 ```
 
@@ -83,7 +83,7 @@ teacher ANALYSIS 回写到训练 jsonl。
 ```bash
 python tools/build_sft_dataset_v1.py --mode v2 --dry-run \
     --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
-    --data-root /data/lead_data/data \
+    --data-root /datashare/IOL4SGH/data/data \
     --output-dir checkpoints/sft_v2_preview_pending
 ```
 

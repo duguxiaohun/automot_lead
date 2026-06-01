@@ -49,7 +49,7 @@ fi
 # TRAIN_JSONL / VAL_JSONL 是 build_sft_dataset_v1.py 生成的 jsonl。
 # OUTPUT_DIR 是 LoRA adapter 输出目录，不建议放到源码目录外的临时位置，避免后续 eval 找不到。
 # 想用绝对路径覆盖时直接 export 同名变量：
-#   MODEL_DIR=/data/lead_data/checkpoints/Qwen3-VL-4B-Instruct bash tools/sft_v1_train.sh ddp
+#   MODEL_DIR=/datashare/IOL4SGH/AutoMoT/models/Qwen3-VL-4B-Instruct bash tools/sft_v1_train.sh ddp
 # ---------------------------------------------------------------------------
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v1_data/train.jsonl}"

@@ -14,7 +14,7 @@ cd AutoMoT
 ls checkpoints/Qwen3-VL-4B-Instruct/ | head -5
 ls vae_standalone/weights/vae_only.safetensors
 ls vae_standalone/config/vae_only.yaml
-ls /data/lead_data/data/Accident | head -3
+ls /datashare/IOL4SGH/data/data/Accident | head -3
 ls /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json
 ```
 
@@ -23,7 +23,7 @@ ls /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json
 ```bash
 python qwen3vl_local/goalgen/build_dataset_v1.py \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
-  --data-root /data/lead_data/data \
+  --data-root /datashare/IOL4SGH/data/data \
   --samples-per-scenario 0 \
   --output-dir checkpoints/goalgen_v1_data
 ```
@@ -176,7 +176,7 @@ DDP 下 TensorBoard 写入器只在 0 号进程启动，其它进程不写文件
 
 ```bash
 python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
-  --route-dir /data/lead_data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46 \
+  --route-dir /datashare/IOL4SGH/data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46 \
   --anchor 12 \
   --num-frames 4 \
   --keyframes-json /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
@@ -410,7 +410,7 @@ python qwen3vl_local/goalgen/probe_v1.py \
 | 现象 | 可能原因 | 修复 |
 |---|---|---|
 | 关键帧 JSON 不存在 | 远端路径错了 | 使用 `/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json` |
-| RGB 图像不存在 | `--data-root` 与 LEAD 数据不匹配 | 使用 `/data/lead_data/data` 或实际挂载路径 |
+| RGB 图像不存在 | `--data-root` 与 LEAD 数据不匹配 | 使用 `/datashare/IOL4SGH/data/data` 或实际挂载路径 |
 | Qwen 预填充显存溢出 | 历史帧太多 / KV 太大 | 必要时减少每进程占用，否则保持 `num_frames=4`、用 H20 级 GPU |
 | DDP 端口冲突 | 已有 `MASTER_PORT` 被占 | launcher 默认自动选端口；如需保留固定端口设 `GOALGEN_RESPECT_MASTER_PORT=1` |
 | 训练慢 | Qwen 预填充与 VAE 编码每个样本都重算 | v1 已知瓶颈；后续版本将缓存分段 KV / 潜变量 |
