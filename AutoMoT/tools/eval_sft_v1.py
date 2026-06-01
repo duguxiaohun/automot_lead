@@ -760,6 +760,14 @@ def main():
         samples = samples[:args.max_samples]
     if is_rank0(rank):
         print(f"[eval] loaded {len(samples)} samples from {args.val_jsonl}")
+        # 显式打印数据集版本，避免误把 v1 LoRA 挂到 v2 数据集上（ANALYSIS 段 GT 差异巨大）。
+        # v1 jsonl 无 dataset_version 字段；v2 必有 "v2" 或调试用 "v2_pending"。
+        ds_ver = samples[0].get("dataset_version", "v1") if samples else "unknown"
+        print(f"[eval] dataset_version={ds_ver}")
+        if ds_ver == "v2_pending":
+            print("[eval][warn] dataset_version=v2_pending: ANALYSIS 段还是 __TEACHER_PENDING__ "
+                  "占位，eval 解析 STATUS/SUBGOAL 不受影响但 case dump 里 GT ANALYSIS 会很难看；"
+                  "请先跑 tools/build_sft_dataset_v2_teacher.py 填真值")
 
     # 启动 engine + 可选挂 LoRA。
     #
