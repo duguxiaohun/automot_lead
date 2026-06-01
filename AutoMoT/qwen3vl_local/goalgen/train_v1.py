@@ -579,6 +579,13 @@ def train(args: argparse.Namespace) -> None:
     if device.type != "cuda":
         raise RuntimeError("GoalGen 训练需要 CUDA；本地只适合跑数据构建，训练请放到远端机器。")
 
+    # cuDNN benchmark：DiT 输入 shape 在固定 history_frames / patch_size 下稳定，
+    # 让 cuDNN 自动选最优 conv kernel。Qwen 走 SDPA 不依赖 cuDNN，不受影响。
+    torch.backends.cudnn.benchmark = True
+    # TF32 matmul：bf16/fp32 路径上启用 TensorCore 的 TF32 加速，精度损失可忽略，
+    # 对 DiT linear / VAE encode 都有用。
+    torch.set_float32_matmul_precision("high")
+
     output_dir = pathlib.Path(args.output_dir)
     samples = load_jsonl(pathlib.Path(args.train_jsonl))
     if not samples:
@@ -684,6 +691,25 @@ def train(args: argparse.Namespace) -> None:
         dit = torch.nn.parallel.DistributedDataParallel(
             dit, device_ids=[local_rank], find_unused_parameters=True
         )
+        # 解包真模型供 EMA / 验证 / 图像样例旁路 DDP+compile 调用。
+        dit_module = dit.module
+    else:
+        dit_module = dit
+
+    # 可选 torch.compile(dit)：通过 GOALGEN_COMPILE_DIT=1 启用。
+    # - 只 compile DiT；Qwen3-VL 走 HF DynamicCache + Python 控制流不友好。
+    # - mode="default" 用 Inductor 优化 attention/linear；fullgraph=False 容忍少量
+    #   Python 分支（如 force_uncond），不强求一次性 graph 化。
+    # - dynamic=True：pooled_kv 的 seq_len 跨 sample 会变，避免反复重 trace。
+    # - 失败时回退原模型，不阻塞训练。
+    if os.environ.get("GOALGEN_COMPILE_DIT", "0") == "1":
+        try:
+            dit = torch.compile(dit, mode="default", fullgraph=False, dynamic=True)
+            if is_rank0(rank):
+                print("[compile] torch.compile(dit) 启用 (mode=default, dynamic=True)")
+        except Exception as exc:
+            if is_rank0(rank):
+                print(f"[compile] torch.compile 失败，回退原模型：{exc}")
 
     optimizer = torch.optim.AdamW(
         # 这里只传 dit.parameters()：Qwen / VAE 上面已 freeze_module 关掉 grad，但 optimizer
@@ -724,9 +750,9 @@ def train(args: argparse.Namespace) -> None:
     # 也就不会产生 best.pt，eval_v1.py 默认会 fallback 到 latest.pt。
     best_loss = float("inf")
 
-    # DDP 解包：验证 / 图像样例用 dit_module 直接前向，不经过 DDP hooks，
+    # dit_module 已在 DDP wrap 时定义（如果有 world_size>1 走 dit.module，否则裸 dit）；
+    # 这里只复述用途：验证 / 图像样例用 dit_module 直接前向，旁路 DDP + torch.compile，
     # 既省跨卡归约，又避免 module.training=True 期间 dropout 等差异影响诊断。
-    dit_module = dit.module if hasattr(dit, "module") else dit
 
     try:
         for epoch in range(args.num_epochs):

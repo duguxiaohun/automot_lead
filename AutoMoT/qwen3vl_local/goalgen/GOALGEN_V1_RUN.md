@@ -75,6 +75,42 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 `QWEN_KV_SEGMENT_MODE` 默认是 `select_last`；只有在做消融对比时才切到
 `concat_layers`。
 
+### 2.0.0 加速调参（默认已生效部分 + 可选开关）
+
+**默认启用，无需配置**（已写进 `train_v1.py`）：
+
+- `torch.backends.cudnn.benchmark = True`：DiT 输入 shape 在固定 history_frames /
+  patch_size 下稳定，让 cuDNN 自动选最优 conv kernel。
+- `torch.set_float32_matmul_precision("high")`：TF32 matmul 加速，bf16/fp32 路径上
+  几乎无精度损失。
+
+**可选**：
+
+```bash
+# 启用 torch.compile(dit) 优化 DiT forward（约 10-20% 加速；首步会有几十秒到一两分钟
+# 编译开销）。失败会自动回退原模型不阻塞训练。Qwen 走 HF DynamicCache + Python
+# 控制流，compile 不友好，只 compile DiT。
+COMPILE_DIT=1 bash qwen3vl_local/goalgen/train_v1.sh ddp
+```
+
+**关于 `MAX_HISTORY_FRAMES`（容易踩的坑）**：
+
+它只是 **DiT 的 `frame_embed` 容量上限**，**不是**控制 Qwen 喂几张图。Qwen 实际吃到
+的图数 = jsonl 里 `history_rgb_paths` 列表长度，由 `build_dataset_v1.py` 构建时
+`--num-frames` 决定（默认常量 `RGB_FRAME_COUNT = 4`）。
+
+所以——
+
+- 想让 Qwen prefill 真的变快：重建数据集时把 `--num-frames` 调小（比如 2），再
+  重训。但这会改变模型可见的上下文长度，需要观察 val/loss 的变化。
+- 单独改 `MAX_HISTORY_FRAMES` 不会影响 Qwen wall-time，只会决定 DiT 是否抛
+  "历史帧数 > max_history_frames" 错误。默认 8 留余量。
+
+**关于显存预算（重要）**：
+
+H20 单卡 97GB，当前默认 `batch=1 × grad_accum=4`，单卡占用 ~22GB。剩余 70GB+ 余量
+可以用来上 batch（C 方案，未实现）；现阶段先维持现状。
+
 训练阶段 **Qwen 与 VAE 全程冻结，只更新 DiT-MoT**。
 
 第二轮默认启用：共享 patchify、EMA `0.9999`、logit-normal t 采样、CFG drop `0.1` /
