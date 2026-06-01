@@ -1155,7 +1155,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--language-kv-input-dim", type=str, default="auto",
                    help='"auto" 时从首条样本分段 KV 推导；或传具体整数（如 1024）跳过探测。')
 
-    p.add_argument("--num-epochs", type=int, default=1)
+    # num_epochs 默认 2：与 train_v1.sh 的 NUM_EPOCHS:-2 保持一致；831k 样本 /
+    # 4 GPU / GRAD_ACC=4 ≈ 52k step/epoch，DiT 从零训通常 100-200k step 才稳定收敛。
+    p.add_argument("--num-epochs", type=int, default=2)
     p.add_argument("--grad-accum-steps", type=int, default=4)
     p.add_argument("--learning-rate", type=float, default=2e-4)
     p.add_argument("--weight-decay", type=float, default=0.01)
