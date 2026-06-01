@@ -12,17 +12,19 @@
 - 主 loss = pixel MSE（image_hat vs image）；--lambda-latent > 0 时可叠加 latent MSE
   作为辅助监督，默认 0 表示用户问需求时确认的"端到端图像重建"目标。
 
-运行（单卡）::
+运行目录：AutoMoT/
 
-    python AutoMoT/vae_standalone/train_patch_unpatch.py \
+运行（单卡）：自动挑 1 张最空闲 GPU；若已手动设置 CUDA_VISIBLE_DEVICES，则尊重手动设置。::
+
+    python vae_standalone/train_patch_unpatch.py \
         --train-jsonl checkpoints/goalgen_v1_data/train.jsonl \
         --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
         --output-dir checkpoints/patch_unpatch_v1
 
-DDP::
+DDP：自动挑 nproc_per_node 张最空闲 GPU；若已手动设置 CUDA_VISIBLE_DEVICES，则尊重手动设置。::
 
     torchrun --standalone --nproc_per_node=4 \
-        AutoMoT/vae_standalone/train_patch_unpatch.py \
+        vae_standalone/train_patch_unpatch.py \
         --train-jsonl ... --val-jsonl ... --output-dir ...
 
 训练产物（顶层）::
@@ -44,6 +46,7 @@ import math
 import os
 import pathlib
 import random
+import subprocess
 import sys
 from typing import Any, Dict, List
 
@@ -114,11 +117,68 @@ class PatchUnpatchAutoencoder(torch.nn.Module):
 # --------------------------------------------------------------------------- #
 
 
+def pick_idle_gpus(want_count: int) -> str:
+    """用 nvidia-smi 按显存占用、GPU 利用率从低到高挑卡。"""
+
+    if want_count <= 0:
+        return ""
+    try:
+        proc = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return ""
+
+    rows: List[tuple[int, int, int]] = []
+    for line in proc.stdout.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            gpu_idx = int(parts[0])
+            mem_used = int(parts[1])
+            util = int(parts[2])
+        except ValueError:
+            continue
+        rows.append((mem_used, util, gpu_idx))
+    rows.sort()
+    return ",".join(str(gpu_idx) for _, _, gpu_idx in rows[:want_count])
+
+
+def auto_configure_cuda_visible_devices(want_count: int) -> str:
+    if "CUDA_VISIBLE_DEVICES" in os.environ:
+        current = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+        return f"preset:{current}"
+
+    selected = pick_idle_gpus(want_count)
+    if selected:
+        os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        picked = len([x for x in selected.split(",") if x.strip()])
+        if picked < want_count:
+            return f"auto-partial:{selected}"
+        return f"auto:{selected}"
+    return "auto-unavailable"
+
+
 def setup_distributed() -> tuple[int, int, int]:
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    gpu_source = auto_configure_cuda_visible_devices(world_size)
+    os.environ["PATCH_UNPATCH_GPU_SOURCE"] = gpu_source
     if world_size > 1:
+        if torch.cuda.is_available() and torch.cuda.device_count() < world_size:
+            raise RuntimeError(
+                f"DDP 需要 {world_size} 张可见 GPU，但当前只看到 {torch.cuda.device_count()} 张；"
+                f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')}"
+            )
         dist.init_process_group(backend="nccl")
         torch.cuda.set_device(local_rank)
     return rank, local_rank, world_size
@@ -331,6 +391,13 @@ def train(args: argparse.Namespace) -> None:
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
         raise RuntimeError("训练 patch/unpatch 需要 CUDA")
+    if is_rank0(rank):
+        print(
+            "[gpu] "
+            f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')} "
+            f"source={os.environ.get('PATCH_UNPATCH_GPU_SOURCE', '<unknown>')} "
+            f"world_size={world_size} local_rank={local_rank} device={device}"
+        )
 
     dtype_map = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}
     dtype = dtype_map[args.dtype]

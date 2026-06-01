@@ -1343,13 +1343,16 @@ CLI 参数尽量对齐 `vlm_paradigm_a_runner.py`：`--route-dir` 默认同样�
 
 ### 15.1 VAE Standalone 模块（冻结的图像编码 / 解码器）
 
-目录：[`AutoMoT/vae_standalone/`](AutoMoT/vae_standalone/)（**只读参考代码**，不在白名单内，不要直接改）。
+目录：[`AutoMoT/vae_standalone/`](AutoMoT/vae_standalone/)。
+白名单内只有 [`train_patch_unpatch.py`](AutoMoT/vae_standalone/train_patch_unpatch.py)；
+其它 VAE 原始文件仍只读。
 
 来源：Vista 项目的 first-stage VAE 单独抽出来，权重 372 keys。
 
 文件：
 
 - 入口脚本 [`vae_reconstruct.py`](AutoMoT/vae_standalone/vae_reconstruct.py)：encode → decode → 输出 MSE / PSNR / L1。
+- 训练脚本 [`train_patch_unpatch.py`](AutoMoT/vae_standalone/train_patch_unpatch.py)：冻结 VAE，端到端训练 DiT 同款 `Patchify` / `Unpatchify` 做图像重建；在 `AutoMoT/` 下运行，默认用 `nvidia-smi` 自动挑空闲 GPU。
 - 配置 [`config/vae_only.yaml`](AutoMoT/vae_standalone/config/vae_only.yaml)：`first_stage_config` 通过 `instantiate_from_config` 实例化 `vwm.models.autoencoder.AutoencodingEngine`。
 - 权重 `weights/vae_only.safetensors`：来自 `extract_vae_weights.py` 从 Vista 完整 ckpt 抽取 `first_stage_model.*` 前缀。
 - 子模块 `vwm/`：必要的最小依赖（`models.autoencoder`、`modules.latentmodules.model.Encoder`、`modules.autoencoding.temporal_ae.VideoDecoder`、regularizer、distributions、attention、util）。
@@ -1375,7 +1378,7 @@ CLI 参数尽量对齐 `vlm_paradigm_a_runner.py`：`--route-dir` 默认同样�
 | `[B, 3, 576, 1024]` | `[B, 4, 72, 128]` | 1024×576 vista 测试样张 |
 | `[B, 3, 256, 256]` | `[B, 4, 32, 32]` | 通用 256 方图 |
 
-使用模式（写在新路线代码里、不要再去碰 vae_standalone 本身）：
+使用模式（新路线代码优先复用 `qwen3vl_local/goalgen/vae.py`；除白名单里的 `train_patch_unpatch.py` 外，不要再去碰 vae_standalone 原始文件）：
 
 1. `python -c` 不可行（vae_standalone 依赖路径相对自身）；新路线把 `AutoMoT/vae_standalone` 加进 `sys.path` 后再 `from vwm.util import instantiate_from_config` / `from safetensors.torch import load_file` 走和 `vae_reconstruct.py` 同样的加载流程。
 2. 加载后 `model.eval()` + 所有参数 `requires_grad_(False)`，全程**冻结**。

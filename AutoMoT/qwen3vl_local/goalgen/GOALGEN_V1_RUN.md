@@ -86,41 +86,15 @@ warmup `0.05`。这些改动与旧 ckpt 不兼容，按方案 A 从零重训。
 **默认跑基础 Qwen，不挂任何 LoRA / 适配器。** 当前 GoalGen 阶段先不要传
 `QWEN_ADAPTER_DIR` / `--qwen-adapter-dir`，直接用上面命令即可。
 
-### 2.0.1 LoRA / PEFT 适配器（暂不启用，仅保留边界）
+### 2.0.1 LoRA / PEFT 适配器（暂不启用）
 
-> **默认不挂 LoRA**：训练 / 评测 / 单步 runner 三个入口的 `--qwen-adapter-dir` 默认为空字符串，
-> 这种情况下完全走基础 Qwen，不会导入 `peft`，也不会读适配器目录。
-> 当前训练生成模型阶段**不需要**做任何事，直接 `bash qwen3vl_local/goalgen/train_v1.sh ddp`
-> 即可。下面只记录以后如果重新启用 adapter 时需要同步检查的边界；常规命令不要照抄这里。
+当前 GoalGen 默认使用基础 Qwen，训练 / eval / runner 都不要传
+`QWEN_ADAPTER_DIR` 或 `--qwen-adapter-dir`。
 
-如果以后确实要让 GoalGen 接 SFT v1 微调后的语言编码，训练 / 评测 / runner 必须显式传
-同一个 adapter 目录；当前手册的主流程不提供可直接照抄的 LoRA 命令，避免误触发 `peft`
-导入。
-
-实现细节（`engine.attach_lora_adapter`）：
-
-- 基础 Qwen 不变；适配器用 `PeftModel.from_pretrained(base, adapter_dir)` 包一层；
-- 默认 `merge=True` 走 `merge_and_unload()`：LoRA 权重合进基础矩阵，之后 `engine.model`
-  上不再有 PEFT 包装，预填充 / KV 提取 / 分段切分对 LoRA 的存在完全无感知；
-- LoRA 不改变 `n_kv_heads / head_dim / num_layers`，所以 `language_kv_input_dim` 与
-  基础 Qwen 一致，DiT 形状不用动；
-- 合并后训练前向比 PeftModel 包装快约 5–10%，且更省一份 LoRA 分支显存；
-- 想保留 PEFT 包装（调试用）传 `--no-qwen-adapter-merge`。
-
-**评测 / runner 必须传同一个 `--qwen-adapter-dir`**：训练用适配器而评测用基础模型
-会让 KV 分布偏移，指标完全不可比。
-
-为了防止"忘了传"导致的静默错误生成，评测 / runner 在加载 DiT 检查点时会从
-`payload["args"]` 读训练时的 `qwen_adapter_dir`，**与当前 CLI 严格比对**：
-
-- 训练 + 当前都是基础模型（空串）→ OK
-- 训练 + 当前都是同一适配器目录（绝对路径比较）→ OK，输出提示
-- 训练 + 当前都挂适配器但合并开关不同 → 输出提示（数学等价，只有浮点精度差异）
-- **适配器路径不一致 → 默认抛 `RuntimeError`，明确告诉你训练时是什么、当前是什么**
-- 想做跨适配器消融对比时传 `--allow-qwen-adapter-mismatch`，转为警告后继续
-
-当前阶段不要给 eval / runner 传 adapter；如果后续恢复该分支，再单独补一组带 adapter
-的命令，并同步检查 DiT ckpt 里的 `qwen_adapter_dir` 一致性。
+以后如果恢复 adapter 分支，必须保证训练、eval、runner 使用同一个 adapter 目录。
+eval / runner 会读取 DiT ckpt 中记录的 `qwen_adapter_dir` 并与当前 CLI 比对：
+路径不一致默认报错；确实要做跨 adapter 消融时再传
+`--allow-qwen-adapter-mismatch`。
 
 输出：
 
@@ -397,12 +371,8 @@ checkpoints/goalgen_v1_dit/eval_cases/<scenario>__<run>__<anchor>/
 
 ### 3.5.6 训练完小批量诊断 → 打包发给 AI 审阅（推荐流程）
 
-**适用场景**：DiT 训练刚结束、还没决定挑哪个 ckpt、想快速判断"生成出来的图是不是已经像样、问题是 VAE 瓶颈还是 DiT 没学好"。
-不要等全集 eval 跑完再判断方向，先用小批量 + AI 审阅做粗筛。
-
-**这一节解决的关键问题**：图像生成不像文本可以 print 出来扫一眼——pred 模糊？颜色漂移？结构缺失？只看 `pixel_l1=0.18` 这种数字判断不了原因，必须把 `compare.png` 三联图给人 / AI 看才能说出"是 VAE 瓶颈、还是 DiT 没收敛、还是 prompt 没对齐"。
-
-#### 3.5.6.1 一条命令产出诊断材料
+用途：DiT 训练刚结束时先抽 ~30 个 case 粗筛，看看生成图是否像样；方向对再跑全集
+`eval_v1.py` 拿正式指标和 TB 曲线。
 
 ```bash
 # 推荐：每个场景抽 3 条，~30 个 case，3–5 分钟（基本是采样时间）
@@ -420,94 +390,16 @@ python qwen3vl_local/goalgen/probe_v1.py \
   --case-suffix "_ckpt500"
 ```
 
-- `--num-per-scenario 3` × ~10 个场景 ≈ 30 个 case
-- 同 `--seed 42`：不同 ckpt 跑出的样本是同一批，可以拿同一 case 直接对比
-- `--case-suffix` 防互相覆盖
+产物在 `checkpoints/goalgen_v1_dit/eval_cases/`：每个 case 含 `input_history/`、
+`target_raw.jpg`、`target_vae_recon.png`、`pred.png`、`euler_trace.json`、
+`memory.json`、`metrics.json`、`meta.json`、`overview.md`，另有 `_index_*.jsonl`。
+给 AI 审阅时直接打包 `eval_cases/`；若用 `eval_v1.py --max-samples 30 --full-dump`，
+优先看它生成的 `compare.png` 三联图。
 
-#### 3.5.6.2 产物结构（这是要发给 AI 看的"诊断包"）
-
-```
-checkpoints/goalgen_v1_dit/eval_cases/
-├─ Accident__Town03_Rep0_route_001783__anchor12_latest/
-│  ├─ input_history/00.jpg ... 03.jpg     ← 历史 4 帧（条件输入）
-│  ├─ target_raw.jpg                      ← 真值 keyframe 原图（VAE 输入前）
-│  ├─ target_vae_recon.png                ← 真值经 VAE encode→decode（生成质量天花板）
-│  ├─ pred.png                            ← DiT 采样 + VAE 解码（**最关心的输出**）
-│  ├─ euler_trace.json                    ← per-step v_cos / z_l2 曲线
-│  ├─ memory.json                         ← DrivingMemory（scenario / status / subgoal / completed_events）
-│  ├─ metrics.json                        ← 单 case 5 指标 + _metric_doc
-│  ├─ meta.json                           ← dit_ckpt / qwen_adapter / euler_steps / seed
-│  └─ overview.md                         ← 一页 markdown，串起上面全部
-├─ Accident__..._ckpt500/                 ← 同一 case 的 ckpt-500 版本（同 seed）
-│  └─ （同上结构）
-├─ Construction__... × 数十个 case
-└─ _index_latest.jsonl / _index_ckpt500.jsonl   ← 全部 case 的扁平索引
-```
-
-eval_v1.py 的 cases/ 比 probe 多一张 `compare.png`（target_raw | pred | target_vae_recon 横拼三联），如果走 `eval_v1.py --max-samples 30 --full-dump` 而不是 probe，**`compare.png` 才是 AI 审阅时最先看的那张**。两种产物都可以送审，结构基本一致。
-
-#### 3.5.6.3 怎么发给 Claude / AI
-
-| 想问的问题 | 最少要带的文件 | 怎么发 |
-|---|---|---|
-| "模型整体生成效果怎么样、有没有跑歪" | 整个 `eval_cases/` zip（或 eval/cases/ zip） | 上传 zip，让 AI 抽看几个 case 的 PNG |
-| "生成图模糊 / 有伪影 / 颜色漂移" | 任一 case 的 `compare.png`（或 `target_raw.jpg` + `pred.png` + `target_vae_recon.png` 三张并排） | 直接把图拖进对话 |
-| "是 VAE 瓶颈还是 DiT 没学好" | 同一 case 的 `target_vae_recon.png` + `pred.png` | 两张图并排发，AI 会比较两边差距 |
-| "Euler 采样轨迹是不是收敛" | 任一 case 的 `euler_trace.json` + `pred.png` | 拖文件 |
-| "ckpt-500 vs latest 谁更好" | 同 seed 同 case 的两个目录 `..._ckpt500/` 和 `..._latest/` 各自 `pred.png` + `metrics.json` | 拖两个文件夹 |
-| "某场景特别差（如 Construction）" | 该 scenario 下 3–5 个 case 的 `overview.md` + `compare.png` | 拖文件 |
-
-最省事的姿势：**把整个 `eval_cases/` zip 上传**，问"看看生成效果怎么样、问题在哪里"。AI 会按下面 3.5.6.4 的清单做一遍。
-
-#### 3.5.6.4 Claude 能从这堆文件里看出什么
-
-按"先看哪个、看到什么得出什么结论"列：
-
-**第一眼看 `compare.png` 三联图（或 pred.png + target_vae_recon.png 并排）**：
-
-| 现象 | 结论 |
-|---|---|
-| pred 整体一片**糊**、几乎看不出场景结构 | DiT 没学好；ckpt 太早 / lr 不够 / EMA 没生效。结合 metrics.json 的 `latent_cos` 看，< 0.3 基本确认 |
-| pred 结构对、但**细节糊** + `target_vae_recon` 也糊 | **VAE 瓶颈**，不是 DiT 的锅。pred 不会比 target_vae_recon 清，得回去看 VAE 重训或换更高 spatial resolution |
-| pred 结构对、**比 target_vae_recon 还糊**很多 | DiT 收敛不够，但已经在干活；继续训 / 拿更晚的 ckpt |
-| pred 整体**颜色偏冷 / 偏暖**、与 target_raw 系统性色差 | latent 标准化 mean/std 漂移；查 `latent_stats.json` 是否用对了 ckpt 对应的统计 |
-| pred **黑屏 / 全灰 / 全噪声** | 推理起点 `z0_prior_alpha/sigma` 与训练不一致；或 CFG `--cfg-scale` 偏离训练 drop（默认 0.1 对应推理 2.0） |
-| pred **左右翻转 / 上下颠倒** | history 帧顺序错（应该 oldest → newest，`00 → 03`），看 meta.json 里 image 路径 |
-| pred 有规则**网格 / 方块**伪影 | VAE 解码器问题（多半在 patchify / decoder upsample 模块） |
-| pred **几乎复制 target_raw 上一帧**、没"未来感" | DiT 直接学了"复制 z_current"，flow matching 信号被忽略；查 `--z0-prior-alpha` 是不是太大 |
-
-**第二眼看 `metrics.json`**：
-- `latent_mse_mean` > 0.5：DiT 还远没收敛；ckpt 太早
-- `latent_cos_mean` < 0.3：方向都不对，重训
-- `latent_cos_mean` > 0.7 但 `pixel_l1` 仍偏大：latent 对了、VAE 解码丢了细节，多半是 VAE 瓶颈
-- `psnr_mean` 单看绝对值无意义（参考 `target_vae_recon` 的天花板），重要的是 ckpt 之间的 delta
-- `velocity_cos` < 0.7：rectified flow 训练信号弱，确认 t 采样是不是 logit-normal、CFG drop 是不是 0.1
-
-**第三眼看 `euler_trace.json`（probe 才有）**：
-- `v_cos_vs_gt_direction` 整段接近 1（如 [0.92, 0.94, 0.93, ...]）→ 健康
-- `v_cos` 一头一尾接近 1、**中段掉到 0.3** → DiT 中间时间步 t=0.5 附近没训透
-- `v_cos` 整段都低（< 0.5）→ DiT 整体没学
-- `z_l2_to_gt` **单调下降**（如 [4.2, 3.1, 2.4, 1.8, ...]）→ 健康
-- `z_l2_to_gt` 中段反弹（先下降再上升）→ Euler 步长太大 / 训练 t 分布与推理不匹配，考虑加 `--euler-steps`
-- `z_l2_to_gt` 一直平 → DiT 输出几乎是 0，可能 CFG 缩放过大把信号抵消了
-
-**第四眼看 `input_history/` + `memory.json` + `meta.json`**：
-- 4 张 jpg 顺序 `00 → 03` 是 oldest → newest（最后一张是 anchor 帧）
-- `memory.json` 里的 `status` 应该是 anchor 当前 GT，`subgoal` 是下一段事件
-- `meta.json` 的 `qwen_adapter` 应为空字符串（GoalGen 阶段不挂 LoRA）；非空但你**没准备挂 LoRA** → eval 路径混进了 SFT 的 adapter，结果不可信
-- `meta.json` 的 `euler_steps` / `cfg_scale` / `z0_prior_*` 必须与训练 args 一致；不一致时 pred 失真不是模型问题
-
-#### 3.5.6.5 反过来：AI 看不出什么、必须靠 metrics 全集
-
-probe / 小批量 eval 是 case-level 视角，**不报聚合指标**。下面这些必须靠
-`eval_v1.py` 不带 `--max-samples` 的全集跑：
-
-- `overall.latent_mse_mean / latent_cos_mean / psnr_mean` 真值
-- `by_scenario` 拆分（哪些场景特别差）
-- TB 上多 ckpt 横向曲线
-- ckpt 选优（哪一步 `latent_cos` 拐点）
-
-所以推荐顺序是：先跑 §3.5.6.1 拿到 30 个 case 发给 AI 做粗筛（判定方向 / 找问题类型）→ 如果方向对，再跑全集 `eval_v1.py` 拿数字 + TB 曲线挑 ckpt。
+快速判断顺序：先看 `pred` vs `target_vae_recon` 区分 VAE 瓶颈和 DiT 未收敛；
+再看 `metrics.json` 的 `latent_cos / pixel_l1 / velocity_cos`；最后用
+`euler_trace.json` 和 `meta.json` 查采样轨迹、CFG、`z0_prior_*`、adapter 是否一致。
+小批量 probe 只做方向判断，正式 ckpt 选择仍以全集 `eval_v1.py` 和 TB 曲线为准。
 
 ## 4. 排障
 
