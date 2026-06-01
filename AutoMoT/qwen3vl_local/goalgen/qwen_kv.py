@@ -170,7 +170,8 @@ def teacher_forced_prefill(
         mode=kv_segment_mode,
     )
     # 从第 0 段读形状元信息：所有段的 (B, n_kv_heads, S, head_dim) 一致（除 concat_layers
-    # 模式下 S 维三倍以外），下游只需要参考一段即可推出 language_kv_input_dim。
+    # 模式下 S 维三倍以外）。v2 起 DiT 直接以 (n_heads=8, head_dim=128) 接 Qwen K/V，
+    # 不再需要 language_kv_input_dim probe；这些字段保留只是给 runner/eval 做形状摘要。
     k0, _ = segmented[0]
 
     # -> seq_len: 2255

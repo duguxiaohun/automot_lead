@@ -1,26 +1,35 @@
-"""DiT-MoT：12 层 joint-attention 的 latent 扩散主干。
+"""DiT-MoT：12 层 joint-attention 的 latent 扩散主干（v2 架构对齐 Qwen K/V）。
 
-设计要点（详见 PROJECT_CONTEXT.md §15）：
+v2 相对 v1 的核心改动（详见 PROJECT_CONTEXT.md §15）：
 
-- 输入是冻结 VAE 编出来的潜变量：含噪目标 z_t 与历史帧 z_history。
-- z_t 与每一帧历史潜变量**共享同一个 Patchify**（v2 改动；v1 是两个独立卷积），
-  拼成视觉 token 序列；类型由 type_embed 区分、时序由 frame_embed 区分。
-- 每层 block 做 MoT 风格的 joint attention：
-    Q = vision_token 投出来的 Q
-    K = concat[ vision_K, language_K_seg[i] ]
-    V = concat[ vision_V, language_V_seg[i] ]
-  其中 language K/V 是冻结的 Qwen pooled KV 经过 per-layer 线性投影到 DiT hidden 后，
-  按 (n_heads, head_dim) 重排得到。
-- timestep 用 AdaLN-Zero 注入；vision token 不修改 language 部分。
-- 输出只读出"z_t 那一段" token，反图块化回 [B, 4, H/8, W/8]，作为速度预测。
+- **维度直接对齐 Qwen K/V 子空间**：hidden_dim=1024、n_heads=8、head_dim=128，
+  全部跟 Qwen3-VL-4B-Instruct 的 (num_key_value_heads, head_dim) 完全相同。
+  作用是**彻底删掉 v1 里的 `lang_k_proj` / `lang_v_proj` 两条 1024→768 跨维线性投影**，
+  Qwen 的 K/V 直接当 DiT 的语言 K/V 用，零信息损失。
+- **patch_size=4**：视觉 token 数缩到 v1 的 1/4（24×72→6×18），attention FLOPs 大约
+  缩 16×。代价是输出空间分辨率粗一倍；GoalGen 的 subgoal latent 不需要像素级细节，
+  这个 trade-off 划算。
+- **q_norm / k_norm（RMSNorm）**：仿 Qwen3 / AutoMoT PackedAttentionMoT，对 vision Q/K
+  在 attention 内做 head-wise RMS 归一化。**对 language K 不再次 norm**——Qwen 那边
+  已经 k_norm 过了，再做会重复归一化，破坏量级。这条解决"vision K 和 language K
+  量级不一致导致 softmax 偏向某一边"的隐患。
+- **LayerNorm → RMSNorm**：norm1 / norm2 / final_norm 全部换 RMSNorm（无 affine，
+  scale/shift 由 AdaLN 提供）。SD3 / Flux / Qwen3 一致做法，对训练稳定有帮助。
+- **MLP → SwiGLU**：旧版 `Linear→GELU(tanh)→Linear`，新版 `gate * silu(up) → down`。
+  参数量上涨 1.5×，但单位参数 quality 更高。
+
+输入是冻结 VAE 编出来的潜变量：含噪目标 z_t 与历史帧 z_history。z_t 与每一帧
+历史潜变量共享同一个 Patchify，拼成视觉 token 序列；类型由 type_embed 区分、
+时序由 frame_embed 区分。timestep 用 AdaLN-Zero 注入；vision token 不修改 language
+部分。输出只读出"z_t 那一段" token，反图块化回 [B, 4, H/8, W/8]，作为速度预测。
 
 关键形状（默认配置，针对 LEAD 1152x384）：
 
 - VAE 潜变量: [B, 4, 48, 144]
-- patch_size = 2  -> 图块网格 (24, 72) -> 每个潜变量 1728 个 token
-- 视觉 token = 1728 (z_t) + F * 1728 (z_history)，数据构建器默认 F=4 -> 8640 个 token
-- hidden_dim = 768, n_heads = 12, head_dim = 64
-- language token = Qwen prefill seq_len, 例如 ~2332
+- patch_size = 4  -> 图块网格 (12, 36) -> 每个潜变量 432 个 token
+- 视觉 token = 432 (z_t) + F * 432 (z_history)，数据构建器默认 F=4 -> 2160 个 token
+- hidden_dim = 1024, n_heads = 8, head_dim = 128
+- language token = Qwen prefill seq_len, 例如 ~2300
 """
 
 from __future__ import annotations
@@ -112,6 +121,42 @@ def _timestep_embedding(t: torch.Tensor, dim: int, max_period: int = 10000) -> t
     return emb
 
 
+class RMSNorm(nn.Module):
+    """简单 RMSNorm 实现：x / sqrt(mean(x^2) + eps) * weight。
+
+    本模块多处复用：
+    - block 的 norm1 / norm2 / final_norm（不带 affine，scale/shift 由 AdaLN 提供）
+    - attention 内的 q_norm / k_norm（带 affine，对 head_dim 这一维做归一化，
+      与 Qwen3 / AutoMoT 的 q_norm/k_norm 语义一致）
+
+    elementwise_affine=True 时学习 weight，形状 [dim]；与 nn.LayerNorm 接口对齐。
+    内部强制 float32 计算后再转回原 dtype，避免 bf16 下 mean 漂移。
+    """
+
+    def __init__(self, dim: int, eps: float = 1e-6, elementwise_affine: bool = True):
+        super().__init__()
+        self.eps = eps
+        self.elementwise_affine = elementwise_affine
+        if elementwise_affine:
+            # weight=1 是恒等起点；训练初期等价于"只做 RMS 归一化、不缩放"。
+            self.weight = nn.Parameter(torch.ones(dim))
+        else:
+            # 不学 affine 时也注册一个 None 占位，避免外部代码做 hasattr 检查时混乱。
+            self.register_parameter("weight", None)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # 升 fp32 计算 RMS：bf16 下 x^2 平均很容易丢精度，归一化后量级会漂。
+        # 计算完再转回 x 的 dtype，避免下游 dtype 不一致。
+        orig_dtype = x.dtype
+        x_fp = x.float()
+        rms = x_fp.pow(2).mean(dim=-1, keepdim=True).add_(self.eps).rsqrt_()
+        x_fp = x_fp * rms
+        x_out = x_fp.to(orig_dtype)
+        if self.elementwise_affine:
+            x_out = x_out * self.weight
+        return x_out
+
+
 # --------------------------------------------------------------------------- #
 # Building blocks
 # --------------------------------------------------------------------------- #
@@ -178,18 +223,44 @@ class AdaLNModulation(nn.Module):
         return tuple(out.chunk(6, dim=-1))
 
 
+class SwiGLU(nn.Module):
+    """SwiGLU 前馈：gate * silu(up) → down。
+
+    替换旧版 `Linear → GELU(tanh) → Linear`。参数量从 2*hidden*inner 涨到 3*hidden*inner，
+    但 LLaMA / Qwen3 / SD3 / Flux 都用 SwiGLU，单位参数 quality 比 GELU 高，
+    收敛也更稳。inner = int(hidden * mlp_ratio)；保持跟旧版同一 mlp_ratio=4。
+    """
+
+    def __init__(self, hidden_dim: int, inner_dim: int):
+        super().__init__()
+        # gate / up 两条并列的投影；为了和 Qwen3 的命名风格一致，
+        # gate ≡ Qwen 的 gate_proj，up ≡ Qwen 的 up_proj，down ≡ Qwen 的 down_proj。
+        self.gate_proj = nn.Linear(hidden_dim, inner_dim, bias=False)
+        self.up_proj = nn.Linear(hidden_dim, inner_dim, bias=False)
+        self.down_proj = nn.Linear(inner_dim, hidden_dim, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # silu(gate) * up 是 SwiGLU 的标准形式（也叫 SiLU-GLU）；
+        # Qwen3 / LLaMA-2 等都是 silu，而不是 GELU-GLU。
+        return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
+
+
 class JointAttention(nn.Module):
     """vision Q 与 (vision K/V + language K/V) 做一次 attention。
 
-    vision_K/V 来自 vision token 自身的投影；language_K/V 来自外部 pooled Qwen KV，
-    经过 per-layer 线性投影到 (n_heads, head_dim)。
+    v2 关键改动：DiT 的 (n_heads, head_dim) 直接 = Qwen 的 (num_key_value_heads, head_dim)
+    = (8, 128)，所以语言 K/V **无需任何线性投影**就能直接 concat。彻底删掉了 v1 的
+    `lang_k_proj` / `lang_v_proj` 两条 1024→hidden 跨维投影。
+
+    vision Q/K 在投影后额外走一次 RMSNorm（q_norm / k_norm），与 Qwen3 / AutoMoT 的
+    PackedAttentionMoT 的做法一致。这一步对量级对齐至关重要：Qwen K 已经是 k_norm
+    过的（单位 RMS），vision K 不 norm 就会量级失配，softmax 偏向某一侧。
     """
 
     def __init__(
         self,
         hidden_dim: int,
         n_heads: int,
-        language_kv_input_dim: int,
     ):
         super().__init__()
         if hidden_dim % n_heads != 0:
@@ -197,65 +268,17 @@ class JointAttention(nn.Module):
         self.n_heads = n_heads
         self.head_dim = hidden_dim // n_heads
 
-        # vision 三投影。
-        self.q_proj = nn.Linear(hidden_dim, hidden_dim)
-        self.k_proj = nn.Linear(hidden_dim, hidden_dim)
-        self.v_proj = nn.Linear(hidden_dim, hidden_dim)
+        # vision 三投影。bias=False 与 Qwen3 默认对齐（attention bias 通常关掉）。
+        self.q_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.k_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.v_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
 
-        # language K/V 投影：从 Qwen pooled KV flatten 后的维度映射到 DiT hidden。
-        self.lang_k_proj = nn.Linear(language_kv_input_dim, hidden_dim)
-        self.lang_v_proj = nn.Linear(language_kv_input_dim, hidden_dim)
+        # head-wise RMSNorm：作用在最后一维 head_dim 上。Qwen3 q_norm/k_norm 同款。
+        # 不 norm V（与 Qwen3 一致），V 只是"被加权求和的内容"，不参与点积匹配。
+        self.q_norm = RMSNorm(self.head_dim, eps=1e-6, elementwise_affine=True)
+        self.k_norm = RMSNorm(self.head_dim, eps=1e-6, elementwise_affine=True)
 
-        self.out_proj = nn.Linear(hidden_dim, hidden_dim)
-
-    def _project_language_kv(
-        self,
-        lang_kv: Tuple[torch.Tensor, torch.Tensor],
-        batch_size: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """[B, n_kv_heads, S, head_dim] -> [B, n_heads, S, dit_head_dim]。
-
-        这是 MoT joint attention 里"语言通道接进 DiT 注意力"的关键一步。Qwen 的
-        K/V 头数（默认 8）和 head_dim（默认 128）与 DiT 的 n_heads（12）/ head_dim
-        （64）通常对不上，所以走如下三步：
-
-        1. 把 (n_kv_heads, head_dim) **flatten 到最后一维**：从 [B, n_kv, S, Hk]
-           permute 成 [B, S, n_kv, Hk] 再 view 成 [B, S, n_kv * Hk]。这一维就是
-           "每个 token 在 Qwen 那边的所有 KV 头拼起来"，对应 PLAN §5 中的
-           language_kv_input_dim（Qwen3-VL-4B-Instruct: 8 × 128 = 1024）。
-        2. Linear(1024 -> 768) 把它投到 DiT hidden 维。**注意**：这条投影是 DiT
-           的可训练参数（每个 block 一个独立投影），但梯度**不会回到 Qwen**，
-           因为 lang_kv 是 detach 出来的，所以 Qwen 保持冻结。
-        3. 再 view 成 (n_heads=12, head_dim=64) 并 transpose 成 attention 期望的
-           [B, n_heads, S, head_dim] 形状，方便和 vision 流的 K/V concat。
-        """
-
-        k, v = lang_kv
-        # qwen_kv.teacher_forced_prefill 通常以 batch=1 跑 Qwen 预填充；DiT 训练
-        # 时可能 batch>1。这里允许 1->B 的 expand：expand 不拷贝内存，attention
-        # 内部按 batch 维只读取，不会写回，所以共享语言 KV 是安全的。
-        if k.shape[0] != batch_size:
-            if k.shape[0] == 1:
-                k = k.expand(batch_size, -1, -1, -1)
-                v = v.expand(batch_size, -1, -1, -1)
-            else:
-                # batch 既不等也不是 1，说明上游 dataloader 拼 batch 时没保持
-                # "一条样本一份 prefill"约定，需要立刻报错而不是错位 broadcast。
-                raise ValueError(
-                    f"language KV batch {k.shape[0]} 不等于 vision batch {batch_size}"
-                )
-        b, n_kv, s, hk = k.shape
-
-        # 步骤 1：[B, n_kv, S, Hk] -> [B, S, n_kv*Hk]
-        # permute 后内存非连续，所以紧跟 reshape；contiguous 由 reshape 内部处理。
-        k_flat = k.permute(0, 2, 1, 3).reshape(b, s, n_kv * hk)
-        v_flat = v.permute(0, 2, 1, 3).reshape(b, s, n_kv * hk)
-
-        # 步骤 2 + 3：Linear 投到 hidden_dim，再切成 DiT 的 (n_heads, head_dim)。
-        # transpose(1, 2) 把 head 维放到 dim=1，得到 [B, H, S, D]，符合 SDPA 期望。
-        k_dit = self.lang_k_proj(k_flat).view(b, s, self.n_heads, self.head_dim).transpose(1, 2)
-        v_dit = self.lang_v_proj(v_flat).view(b, s, self.n_heads, self.head_dim).transpose(1, 2)
-        return k_dit, v_dit
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
 
     def forward(
         self,
@@ -265,17 +288,20 @@ class JointAttention(nn.Module):
     ) -> torch.Tensor:
         """Joint attention：vision Q 同时看 vision K/V 与 language K/V。
 
+        - lang_kv：``(K, V)``，形状 ``[B 或 1, n_heads=8, S, head_dim=128]``；
+          与 DiT (n_heads, head_dim) 已经天然同形，无需投影。
+        - lang_kv_is_projected：v2 起这个参数**总是 True 语义**——language KV 永远
+          在 DiT 自己的 (n_heads, head_dim) 子空间。保留这个参数名只是为了让外层
+          DiTMoTBlock 接口最小变动；实际不再有 "is_projected vs not" 的分支。
+
         与普通 cross-attention 的核心区别：cross-attn 是两次 attention（一次
         self、一次 cross），joint-attn 是**一次** attention，K/V 沿 token 维拼起来。
         这样 vision token 可以在同一个 softmax 内同时挑选"参考自己邻域"还是
         "对齐语言上下文"，更接近 AutoMoT 里"快慢 MoT"原始设计。
-
-        ``lang_kv_is_projected``：True 表示 ``lang_kv`` 已经处于 DiT 的
-        ``(n_heads, head_dim)`` 子空间（形状 ``[B 或 1, n_heads, S, head_dim]``），
-        跳过 ``lang_k_proj`` / ``lang_v_proj``。这条路径专门服务于 CFG 训练中
-        的 ``null_lang_k / null_lang_v``：null KV 由 DiT 自己持有、参数量极小，
-        不需要再经过 Qwen → DiT 的语言投影。
         """
+
+        # lang_kv_is_projected 形参保留向后兼容；v2 起 lang_kv 一定已经在 DiT 子空间。
+        del lang_kv_is_projected
 
         b, n_v, _ = vision_tokens.shape
         # vision 三个线性投影 + 切头：用法跟普通 transformer 一致。
@@ -283,21 +309,35 @@ class JointAttention(nn.Module):
         k_v = self.k_proj(vision_tokens).view(b, n_v, self.n_heads, self.head_dim).transpose(1, 2)
         v_v = self.v_proj(vision_tokens).view(b, n_v, self.n_heads, self.head_dim).transpose(1, 2)
 
-        if lang_kv_is_projected:
-            # CFG null KV 路径：lang_kv 已经在 DiT (n_heads, head_dim) 子空间，
-            # 不需要再走 lang_k_proj / lang_v_proj。仅做必要的 batch 广播。
-            k_l, v_l = lang_kv
-            if k_l.shape[0] != b:
-                if k_l.shape[0] == 1:
-                    k_l = k_l.expand(b, -1, -1, -1)
-                    v_l = v_l.expand(b, -1, -1, -1)
-                else:
-                    raise ValueError(
-                        f"projected null KV batch {k_l.shape[0]} 不等于 vision batch {b}"
-                    )
-        else:
-            # 语言侧把 Qwen pooled KV 投到 DiT 自己的 (n_heads, head_dim)；详见上面方法注释。
-            k_l, v_l = self._project_language_kv(lang_kv, batch_size=b)
+        # head-wise RMSNorm：作用在最后一维 head_dim 上，把 vision Q/K 拉到单位 RMS，
+        # 跟 Qwen 已 k_norm 过的 language K 在尺度上对齐。V 不 norm。
+        q = self.q_norm(q)
+        k_v = self.k_norm(k_v)
+
+        # 语言侧：直接取出（无投影、无 norm）。Qwen K 已经 k_norm 过；DiT 这边再 norm
+        # 会重复归一化，反而破坏 Qwen 学到的尺度。
+        k_l, v_l = lang_kv
+        if k_l.shape[0] != b:
+            if k_l.shape[0] == 1:
+                # qwen_kv.teacher_forced_prefill 通常以 batch=1 跑 Qwen 预填充；DiT 训练
+                # 时可能 batch>1。expand 不拷贝内存，attention 内部按 batch 维只读取，
+                # 不会写回，共享语言 KV 是安全的。
+                k_l = k_l.expand(b, -1, -1, -1)
+                v_l = v_l.expand(b, -1, -1, -1)
+            else:
+                # batch 既不等也不是 1：上游 dataloader 拼 batch 时没保持"一条样本一份 prefill"
+                # 约定，立刻报错而不是错位 broadcast。
+                raise ValueError(
+                    f"language KV batch {k_l.shape[0]} 不等于 vision batch {b}"
+                )
+
+        # 形状一致性最后一道校验：language KV 必须已经在 DiT (n_heads, head_dim) 子空间。
+        # 走到这里如果不一致，多半是 qwen_kv.py 或 dataloader 出了维度问题，立刻报错可读性更好。
+        if k_l.shape[1] != self.n_heads or k_l.shape[3] != self.head_dim:
+            raise ValueError(
+                f"language K 形状 {tuple(k_l.shape)} 与 DiT (n_heads={self.n_heads}, "
+                f"head_dim={self.head_dim}) 不对齐；v2 起需要严格相同。检查 qwen_kv 输出。"
+            )
 
         # 沿 token 维拼接：[B, H, N_v, D] + [B, H, N_l, D] -> [B, H, N_v + N_l, D]。
         # Q 仍只有 vision token，所以 attention 输出 token 数 = N_v，意味着这一层
@@ -306,6 +346,7 @@ class JointAttention(nn.Module):
         v_cat = torch.cat([v_v, v_l], dim=2)
 
         # 用 PyTorch 内置 SDPA，性能更稳；在新版本会自动选 flash-attn / mem-efficient。
+        # 显式偏好 flash 后端在 train_v1.py 全局 sdpa_kernel 上下文里设置，本层只调标准接口。
         attn = F.scaled_dot_product_attention(q, k_cat, v_cat, dropout_p=0.0)
         # 把 head 维合回去：[B, H, N_v, D] -> [B, N_v, H*D] -> Linear hidden。
         out = attn.transpose(1, 2).contiguous().view(b, n_v, self.n_heads * self.head_dim)
@@ -313,26 +354,24 @@ class JointAttention(nn.Module):
 
 
 class DiTMoTBlock(nn.Module):
-    """单个 DiT-MoT block：AdaLN -> JointAttention -> AdaLN -> MLP，全部带 gate。"""
+    """单个 DiT-MoT block：RMSNorm + AdaLN -> JointAttention -> RMSNorm + AdaLN -> SwiGLU，全部带 gate。"""
 
     def __init__(
         self,
         hidden_dim: int,
         n_heads: int,
         mlp_ratio: float,
-        language_kv_input_dim: int,
         cond_dim: int,
     ):
         super().__init__()
-        self.norm1 = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
-        self.attn = JointAttention(hidden_dim, n_heads, language_kv_input_dim)
-        self.norm2 = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
+        # norm1 / norm2 不带 affine：scale/shift 由 AdaLN modulation 提供，
+        # 否则 norm 的 weight 会和 AdaLN 的 scale 互相打架。
+        self.norm1 = RMSNorm(hidden_dim, eps=1e-6, elementwise_affine=False)
+        self.attn = JointAttention(hidden_dim, n_heads)
+        self.norm2 = RMSNorm(hidden_dim, eps=1e-6, elementwise_affine=False)
         mlp_hidden = int(hidden_dim * mlp_ratio)
-        self.mlp = nn.Sequential(
-            nn.Linear(hidden_dim, mlp_hidden),
-            nn.GELU(approximate="tanh"),
-            nn.Linear(mlp_hidden, hidden_dim),
-        )
+        # SwiGLU 替换旧版 GELU MLP；参数量上涨 1.5×，但与 Qwen3 / SD3 / Flux 一致。
+        self.mlp = SwiGLU(hidden_dim, mlp_hidden)
         self.modulation = AdaLNModulation(hidden_dim, cond_dim)
 
     @staticmethod
@@ -346,20 +385,20 @@ class DiTMoTBlock(nn.Module):
         cond: torch.Tensor,
         lang_kv_is_projected: bool = False,
     ) -> torch.Tensor:
-        """单 block forward：AdaLN-Zero -> JointAttn -> AdaLN-Zero -> MLP。
+        """单 block forward：RMSNorm+AdaLN-Zero -> JointAttn -> RMSNorm+AdaLN-Zero -> SwiGLU。
 
         cond 由外部一次性算好（来自 timestep MLP），所有 block 共用同一个 cond，但每个
         block 内部的 AdaLN modulation 矩阵不共享 -> 每层有自己的 shift/scale/gate。
 
-        ``lang_kv_is_projected`` 透传给 JointAttention：CFG uncond 路径下使用 DiT
-        自己的 null_lang_k/v，已经在 DiT (n_heads, head_dim) 子空间。
+        ``lang_kv_is_projected`` v2 起总是隐含 True，保留参数仅为兼容旧接口；底层
+        JointAttention 也不再依赖它分支。
         """
 
         # 一次 Linear 出 6 个调制向量（attn 3 + mlp 3）。
         shift_a, scale_a, gate_a, shift_m, scale_m, gate_m = self.modulation(cond)
 
         # ---- attention 子层 ----
-        # norm1 是无仿射的 LayerNorm；shift/scale 由 cond 提供，相当于每层独立可学的 affine。
+        # norm1 是无 affine 的 RMSNorm；shift/scale 由 cond 提供，相当于每层独立可学的 affine。
         h = self._apply_mod(self.norm1(vision_tokens), shift_a, scale_a)
         h = self.attn(h, lang_kv, lang_kv_is_projected=lang_kv_is_projected)
         # gate_a 初始为 0（AdaLNModulation.zero_init），让 attention 在训练开始时不
@@ -380,32 +419,35 @@ class DiTMoTBlock(nn.Module):
 
 @dataclass
 class DiTMoTConfig:
-    """DiT-MoT 默认配置；变更默认值时同时更新 PROJECT_CONTEXT.md §15。"""
+    """DiT-MoT 默认配置；变更默认值时同时更新 PROJECT_CONTEXT.md §15。
+
+    v2 默认值（2026-06 切换）：
+    - hidden_dim=1024, n_heads=8, head_dim=128 -> 直接对齐 Qwen K/V (8, 128)
+    - patch_size=4：视觉 token 数缩到 v1 的 1/4
+    - MLP 走 SwiGLU、所有 norm 走 RMSNorm（不再有 language_kv_input_dim 字段）
+    """
 
     latent_channels: int = 4
-    patch_size: int = 2
-    hidden_dim: int = 768
-    n_heads: int = 12
+    patch_size: int = 4
+    hidden_dim: int = 1024
+    n_heads: int = 8
     mlp_ratio: float = 4.0
     num_layers: int = 12
     cond_dim: int = 256
-    # Qwen pooled KV 的 (n_kv_heads, head_dim) flatten 后维度。
-    # 默认对应 Qwen3-VL-4B-Instruct：n_kv_heads=8, head_dim=128 -> 1024。
-    language_kv_input_dim: int = 1024
-    max_grid_h: int = 64
-    max_grid_w: int = 192
+    max_grid_h: int = 32
+    max_grid_w: int = 96
     max_history_frames: int = 8
 
 
 class DiTMoT(nn.Module):
-    """完整 DiT-MoT 主干。
+    """完整 DiT-MoT 主干（v2 架构）。
 
     forward 输入：
       - z_t   : [B, C, H, W]，含噪声的目标 latent
       - z_history : [B, F, C, H, W]，历史 VAE latent（旧 -> 新）
       - t     : [B]，flow matching 时间步 ∈ [0,1]
       - pooled_kv : 长度 = num_layers 的列表，元素为 (K_seg, V_seg)；每个张量形状
-                    [B, n_kv_heads, S, head_dim]
+                    [B, n_heads, S, head_dim] = [B, 8, S, 128]（v2 起必须严格匹配）
     输出：v_pred : [B, C, H, W]，velocity 预测，对应 z_t 的 patch grid。
     """
 
@@ -433,7 +475,7 @@ class DiTMoT(nn.Module):
         nn.init.normal_(self.frame_embed, mean=0.0, std=0.02)
 
         # CFG 训练用的 null language KV：每层独立，直接存于 DiT (n_heads, head_dim) 子空间，
-        # bypass JointAttention 内部的 lang_proj。s_null=1：null 只贡献一个 token，
+        # 跟 v1 一样、形状跟着新 (8, 128) 走。s_null=1：null 只贡献一个 token，
         # attention softmax 里几乎免费；这是 SD3 / Flux 的标准实践。
         # 用"长度 S~2300 的 zero KV"代替会让 softmax 大量取平均，反而压低有效信号。
         # 零初始化：训练开始时 uncond 路径等价于"忽略语言"，配合 AdaLN-Zero gate=0，
@@ -468,15 +510,31 @@ class DiTMoT(nn.Module):
                 hidden_dim=cfg.hidden_dim,
                 n_heads=cfg.n_heads,
                 mlp_ratio=cfg.mlp_ratio,
-                language_kv_input_dim=cfg.language_kv_input_dim,
                 cond_dim=cfg.cond_dim,
             )
             for _ in range(cfg.num_layers)
         ])
 
-        self.final_norm = nn.LayerNorm(cfg.hidden_dim, elementwise_affine=False, eps=1e-6)
+        self.final_norm = RMSNorm(cfg.hidden_dim, eps=1e-6, elementwise_affine=False)
         self.final_mod = AdaLNModulation(cfg.hidden_dim, cfg.cond_dim)
         self.unpatch = Unpatchify(cfg.hidden_dim, cfg.latent_channels, cfg.patch_size)
+
+        # gradient checkpointing 开关：train_v1.py 通过 enable_gradient_checkpointing()
+        # 切换。默认 False 保持 forward 路径稳定，开了之后每个 block 用 checkpoint 包裹。
+        self.gradient_checkpointing = False
+
+    def enable_gradient_checkpointing(self, enabled: bool = True) -> None:
+        """启用 / 关闭 per-block gradient checkpointing。
+
+        train_v1.py 在 build_dit 之后按 CLI flag 调一次。打开后每个 DiTMoTBlock 的
+        forward 用 torch.utils.checkpoint 包裹，反向传播时再算一次前向；显存省 ~40%，
+        wall-clock per step 多 ~30%。
+
+        注意：use_reentrant=False 是新版 PyTorch 推荐，兼容 DDP 和 torch.compile。
+        老接口 reentrant=True 在 DDP 下会和 find_unused_parameters 互掐。
+        """
+
+        self.gradient_checkpointing = bool(enabled)
 
     def _pos_embed(self, gh: int, gw: int) -> torch.Tensor:
         if gh > self.cfg.max_grid_h or gw > self.cfg.max_grid_w:
@@ -502,6 +560,8 @@ class DiTMoT(nn.Module):
           ``patch.proj.weight / patch.proj.bias / unpatch.proj.weight / unpatch.proj.bias``，
           与本模块内 ``self.patch`` / ``self.unpatch`` 完全一致，直接 load_state_dict
           即可，无需 rename。
+        - **v2 注意**：v1 的 safetensors（hidden=768 / patch=2）与 v2（hidden=1024 / patch=4）
+          形状不兼容，无法直接加载；必须用 ``train_patch_unpatch.py`` 的新默认值重训。
         - ``freeze=True``（默认）：加载后把 patch / unpatch 切到 eval、关掉 grad；
           train_v1 的 optimizer 只收 ``requires_grad=True`` 的参数，所以这条路径下
           它们不会被更新。
@@ -537,14 +597,14 @@ class DiTMoT(nn.Module):
 
         # 形状校验：用本模块当前的 state_dict 对比每个 key 的 shape；不一致说明
         # 训练 patch/unpatch 时的 hidden_dim / patch_size / latent_channels 与
-        # DiTMoTConfig 不匹配，必须立刻报错。
+        # DiTMoTConfig 不匹配，必须立刻报错。v1→v2 切换时这里会精准命中。
         own_sd = self.state_dict()
         for k, v in pick.items():
             if own_sd[k].shape != v.shape:
                 raise ValueError(
                     f"patch/unpatch 权重 {k} shape 不匹配："
                     f"DiT 期望 {tuple(own_sd[k].shape)}，文件 {tuple(v.shape)}。"
-                    "检查 --patch-size / --hidden-dim 是否与训练 patch_unpatch 时一致。"
+                    "v1 ckpt（hidden=768/patch=2）与 v2（hidden=1024/patch=4）不兼容，需重训。"
                 )
 
         # strict=False：本模块还有其它 key（blocks/null_lang_*/pos_embed_table 等）
@@ -582,15 +642,16 @@ class DiTMoT(nn.Module):
           最后一帧就是当前 anchor；DiT 会直接看历史视觉 latent。
         - t：[B]，flow matching 时间步 ∈ [0,1]。
         - pooled_kv：长度必须 == num_layers；每段是 (K, V)，形状
-          [B 或 1, n_kv_heads, S, head_dim]，dtype 通常和 DiT 自身一致。
+          ``[B 或 1, n_heads=8, S, head_dim=128]``，dtype 通常和 DiT 自身一致。
+          **v2 要求严格 (n_heads, head_dim) 匹配**，否则在 JointAttention 内会抛错。
         - force_uncond：True 表示用 DiT 自身的 null_lang_k/v 代替 pooled_kv
           走 uncond 路径（CFG 训练 / 引导推理用）。pooled_kv 此时仍需传入，
           只是不被使用——保留位置以保持接口稳定。
 
         输出：v_pred 与 z_t 同形状，对应 velocity 预测。
         """
-        # z_t  torch.Size([1, 4, 48, 144]) 
-        # z_history  torch.Size([1, 4, 4, 48, 144]) 
+        # z_t  torch.Size([1, 4, 48, 144])
+        # z_history  torch.Size([1, 4, 4, 48, 144])
         # t  torch.Size([1])
 
         # 这一步检查在第一次 forward 时定位"runner / 训练脚本里把 num_layers 改了
@@ -598,6 +659,16 @@ class DiTMoT(nn.Module):
         if len(pooled_kv) != self.cfg.num_layers:
             raise ValueError(
                 f"pooled_kv 段数 {len(pooled_kv)} 与 DiT 层数 {self.cfg.num_layers} 不一致"
+            )
+
+        # v2 严格性校验：仅用 pooled_kv[0] 抽样检测，避免每层都查浪费 CPU。
+        # 不在 JointAttention 内做这步是为了在最早期就抓错，错误信息更直接。
+        k0, _ = pooled_kv[0]
+        if not force_uncond and (k0.shape[1] != self.cfg.n_heads or k0.shape[3] != (self.cfg.hidden_dim // self.cfg.n_heads)):
+            raise ValueError(
+                f"pooled_kv[0] K 形状 {tuple(k0.shape)} 与 DiT (n_heads={self.cfg.n_heads}, "
+                f"head_dim={self.cfg.hidden_dim // self.cfg.n_heads}) 不匹配。"
+                "v2 要求严格相同；检查 qwen_kv 输出或换 Qwen 模型时的 num_key_value_heads。"
             )
 
         if z_history.ndim == 4:
@@ -615,12 +686,11 @@ class DiTMoT(nn.Module):
         # type_embed + frame_embed + timestep cond 负责区分 noisy / clean / 时序。
 
         tok_t, grid_t = self.patch(z_t)
-        # tok_t  torch.Size([1, 1728, 768])
-        # grid_t(24, 72)
+        # tok_t  torch.Size([1, 432, 1024])   <- v2 默认 patch=4 时网格 (12, 36)
+        # grid_t (12, 36)
         gh, gw = grid_t
 
         pe = self._pos_embed(gh, gw).to(dtype=tok_t.dtype, device=tok_t.device)
-        # torch.Size([1728, 768])
 
         tok_t = tok_t + pe + self.type_embed[0]
 
@@ -636,7 +706,7 @@ class DiTMoT(nn.Module):
 
         # 顺序：先放 z_t（输出要切回来），再放历史 latent tokens（旧 -> 新）。
         vision_tokens = torch.cat([tok_t, *history_tokens], dim=1)
-        # torch.Size([1, 8640, 768])
+        # patch=4 / F=4 时 torch.Size([1, 2160, 1024])
 
         n_t = tok_t.shape[1]
 
@@ -652,11 +722,10 @@ class DiTMoT(nn.Module):
                     self.null_lang_k[i].to(dtype=vision_tokens.dtype),
                     self.null_lang_v[i].to(dtype=vision_tokens.dtype),
                 )
-                vision_tokens = block(vision_tokens, null_kv, cond, lang_kv_is_projected=True)
+                vision_tokens = self._maybe_checkpoint(block, vision_tokens, null_kv, cond, True)
             else:
-                # lang_kv[0]/[1] torch.Size([1, 8, 2255, 128]) torch.Size([1, 8, 2255, 128])
-                vision_tokens = block(vision_tokens, lang_kv, cond)
-                # torch.Size([1, 8640, 768])
+                # lang_kv[0]/[1] torch.Size([1, 8, ~2300, 128])
+                vision_tokens = self._maybe_checkpoint(block, vision_tokens, lang_kv, cond, False)
 
         # final AdaLN：DiT 标准结构，AdaLN 输出 6 个调制向量但 final 只用前 2 个
         # （shift/scale）。后 4 个忽略；保留同一个 AdaLNModulation 类是为了减少
@@ -670,16 +739,33 @@ class DiTMoT(nn.Module):
         out_t = vision_out[:, :n_t, :]
         return self.unpatch(out_t, (gh, gw))
 
+    def _maybe_checkpoint(
+        self,
+        block: DiTMoTBlock,
+        vision_tokens: torch.Tensor,
+        lang_kv: Tuple[torch.Tensor, torch.Tensor],
+        cond: torch.Tensor,
+        is_uncond: bool,
+    ) -> torch.Tensor:
+        """统一 block forward 调用点：根据 self.gradient_checkpointing 决定是否包裹 checkpoint。
 
-def language_kv_input_dim_from_pooled(pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]]) -> int:
-    """从 pooled_kv 推断 language_kv_input_dim = n_kv_heads * head_dim。
+        放在独立方法里有两个好处：
+        1. forward 主干保持线性可读，不被 if 分叉打断。
+        2. 未来想接 selective activation checkpointing（部分层走 checkpoint）只需要
+           改这里的 if 条件。
 
-    runner 在构造 DiTMoTConfig 前调用，省得手动算 Qwen KV 维度。
-    """
+        use_reentrant=False：新版 PyTorch 默认行为，对 DDP / torch.compile 友好；
+        老接口的 reentrant=True 在 DDP 下需要 find_unused_parameters=True，开销大。
+        """
 
-    if not pooled_kv:
-        raise ValueError("pooled_kv 为空")
-    k0, _ = pooled_kv[0]
-    if k0.ndim != 4:
-        raise ValueError(f"期望 pooled K 形状为 [B, n_kv_heads, S, head_dim]，实际得到 {k0.shape}")
-    return int(k0.shape[1] * k0.shape[3])
+        # gradient_checkpointing 只在训练且 requires_grad 的张量上启用；eval 模式下走纯前向。
+        if self.gradient_checkpointing and self.training and vision_tokens.requires_grad:
+            return torch.utils.checkpoint.checkpoint(
+                block,
+                vision_tokens,
+                lang_kv,
+                cond,
+                is_uncond,  # 对应 block.forward 的 lang_kv_is_projected 形参；语义已在 v2 中作废
+                use_reentrant=False,
+            )
+        return block(vision_tokens, lang_kv, cond, lang_kv_is_projected=is_uncond)

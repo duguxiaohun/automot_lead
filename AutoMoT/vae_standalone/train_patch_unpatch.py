@@ -726,9 +726,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--output-dir", required=True, help="权重 + TB 输出根目录")
 
     # 必须和 DiTMoTConfig 默认值一致；改这里时 DiT 端要同步。
+    # v2 默认（2026-06 切换）：hidden=1024 / patch=4，与 DiT v2 对齐 Qwen K/V (8×128)。
+    # 旧 v1 (hidden=768 / patch=2) 训出的 safetensors 与 DiT v2 形状不兼容，必须重训。
     p.add_argument("--latent-channels", type=int, default=4)
-    p.add_argument("--hidden-dim", type=int, default=768)
-    p.add_argument("--patch-size", type=int, default=2)
+    p.add_argument("--hidden-dim", type=int, default=1024)
+    p.add_argument("--patch-size", type=int, default=4)
 
     # epoch 数：831k 样本 × 5 帧 ≈ 4.1M frame-step / epoch；4 GPU × accum 2 =
     # 等效 batch 8 → ~520k optimizer step / epoch。patch/unpatch 是俩小卷积/线性

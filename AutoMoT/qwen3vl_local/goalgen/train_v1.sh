@@ -32,18 +32,19 @@ IMAGE_LOG_EULER_STEPS="${IMAGE_LOG_EULER_STEPS:-32}"
 # val/loss 最小的一份额外拷贝为 best.pt（顶层独立保存，不受 keep 影响）。
 KEEP_RECENT_CHECKPOINTS="${KEEP_RECENT_CHECKPOINTS:-3}"
 
-PATCH_SIZE="${PATCH_SIZE:-2}"
-HIDDEN_DIM="${HIDDEN_DIM:-768}"
+# v2 默认架构（2026-06 切换）：patch=4 / hidden=1024 / n_heads=8 -> 直接对齐 Qwen K/V (8×128)
+PATCH_SIZE="${PATCH_SIZE:-4}"
+HIDDEN_DIM="${HIDDEN_DIM:-1024}"
 # 可选：把 AutoMoT/vae_standalone/train_patch_unpatch.py 训出来的权重塞回 DiT。
 # 留空 = 维持原行为（patch/unpatch 随机初始化跟 DiT 一起训练）。
+# v2 注意：必须用 hidden=1024 / patch=4 训出的 safetensors，旧版 hidden=768 不兼容。
 PATCH_UNPATCH_WEIGHTS="${PATCH_UNPATCH_WEIGHTS:-}"
 # 默认加载即冻结；要联合微调 patch/unpatch 设 PATCH_UNPATCH_UNFREEZE=1。
 PATCH_UNPATCH_UNFREEZE="${PATCH_UNPATCH_UNFREEZE:-0}"
-N_HEADS="${N_HEADS:-12}"
+N_HEADS="${N_HEADS:-8}"
 NUM_LAYERS="${NUM_LAYERS:-12}"
 COND_DIM="${COND_DIM:-256}"
 MLP_RATIO="${MLP_RATIO:-4.0}"
-LANGUAGE_KV_INPUT_DIM="${LANGUAGE_KV_INPUT_DIM:-auto}"   # train_v1.py 会用首条样本的分段 KV 推维度；显式给整数（如 1024）可跳过探测
 # 历史帧数上限：仅控制 DiT 的 frame_embed 容量，**不是**控制 Qwen 喂几张图。
 # Qwen 实际吃到的图数 = jsonl 里 history_rgb_paths 长度，由 build_dataset_v1.py
 # 构建时的 --num-frames 决定（默认 RGB_FRAME_COUNT=4）。
@@ -67,16 +68,26 @@ EMA_DECAY="${EMA_DECAY:-0.9999}"
 LATENT_STATS_PATH="${LATENT_STATS_PATH:-}"
 LATENT_STATS_MAX_SAMPLES="${LATENT_STATS_MAX_SAMPLES:-1000}"
 
+# v2 新增：Muon optimizer（专门接管 2D 权重矩阵），与 AdamW 双轨；AdamW 接管 1D / 4D
+# 参数（norm weight、embedding、Conv2d patch.proj、null_lang_k/v）。Muon LR 通常
+# 比 AdamW 大 5-10×；momentum 0.95 是 Keller Jordan NanoGPT 实现默认。
+MUON_LR="${MUON_LR:-2e-3}"
+MUON_MOMENTUM="${MUON_MOMENTUM:-0.95}"
+
+# v2 默认开启 gradient checkpointing（patch=4 后 token 数本就不多，启用 ckpt
+# 几乎不影响速度但显存余量更宽）。GRAD_CKPT=0 关闭。
+GRAD_CKPT="${GRAD_CKPT:-1}"
+
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export HF_HOME="${HF_HOME:-${OUTPUT_DIR}/.hf_cache}"
 mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
 
-# 可选：torch.compile(dit) 加速 DiT forward（10-20%）。Qwen3-VL 走 HF DynamicCache，
-# 控制流不友好不 compile；只 compile DiT。默认关，置 1 启用。
-COMPILE_DIT="${COMPILE_DIT:-0}"
-export GOALGEN_COMPILE_DIT="${COMPILE_DIT}"
+# v2 默认开启 torch.compile(dit)：patch=4 后 token 数砍到 1/4，compile 的固定 overhead
+# 比 v1 划算很多。COMPILE_DIT=0 关闭。注意：首次 step 编译耗时 30-90 秒，CHECK 模式
+# 会显得偏慢。
+COMPILE_DIT="${COMPILE_DIT:-1}"
 
 # 可选：cuDNN benchmark（让 cuDNN 自动挑最优 conv kernel）。第一次见到每个 conv
 # shape 时会同时探测多个 algorithm，瞬时显存峰值高出稳态 10-30GB。VAE conv3d
@@ -165,9 +176,10 @@ COMMON_ARGS=(
     --cond-dim "${COND_DIM}"
     --max-history-frames "${MAX_HISTORY_FRAMES}"
     --qwen-kv-segment-mode "${QWEN_KV_SEGMENT_MODE}"
-    --language-kv-input-dim "${LANGUAGE_KV_INPUT_DIM}"
     --learning-rate "${LR}"
     --weight-decay "${WEIGHT_DECAY}"
+    --muon-lr "${MUON_LR}"
+    --muon-momentum "${MUON_MOMENTUM}"
     --warmup-ratio "${WARMUP_RATIO}"
     --t-sampler "${T_SAMPLER}"
     --z0-prior-alpha "${Z0_PRIOR_ALPHA}"
@@ -192,6 +204,16 @@ COMMON_ARGS=(
 # 不接受值，所以不能像普通 KV 参数那样无脑塞。
 if [[ "${PATCH_UNPATCH_UNFREEZE}" == "1" ]]; then
     COMMON_ARGS+=(--patch-unpatch-unfreeze)
+fi
+
+# v2 默认 torch.compile + grad-ckpt 都开；置 0 时显式追加 --no-compile / --no-grad-ckpt
+# 触发 argparse 的 store_false 分支。这种 0/1 → 显式追加 flag 的写法保持 sh 端简单
+# （COMPILE_DIT=0/1）同时与 argparse BooleanOptionalAction 兼容。
+if [[ "${COMPILE_DIT}" == "0" ]]; then
+    COMMON_ARGS+=(--no-compile)
+fi
+if [[ "${GRAD_CKPT}" == "0" ]]; then
+    COMMON_ARGS+=(--no-grad-ckpt)
 fi
 
 case "${MODE}" in

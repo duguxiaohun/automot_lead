@@ -1401,35 +1401,58 @@ CLI 参数尽量对齐 `vlm_paradigm_a_runner.py`：`--route-dir` 默认同样�
         │                                    z_t = (1-t)·z0 + t·z1
         │  默认 select_last:Qwen 36 层 / 3 段              ▲
         │  每段取最后一层 → 12 段 token-level (K, V)        │
-        │  (concat_layers 模式留作 ablation)                │
+        │  shape [B, 8, S, 128]  ←  v2 直接消费,不投影      │
         ▼                                                 │
 ┌──────────────────────────────────────────────────────────────┐
-│ DiT (trainable, 12 layers, MoT joint attention)              │
+│ DiT-MoT v2 (trainable, 12 layers, joint attention)           │
+│ hidden=1024  n_heads=8  head_dim=128  patch=4                │
+│  → (n_heads, head_dim) 严格 = Qwen (n_kv_heads, head_dim)    │
+│                                                              │
 │ vision token = concat[                                       │
 │   proj(z_t),                       # noisy target latent     │
 │   proj(VAE(history_frame_1..F)),   # 所有历史帧 latent       │
 │ ] + type / frame / 位置编码 + timestep                        │
 │                                                              │
 │ 每层 block:                                                  │
-│   Q = vision_token (only updated)                            │
-│   K = concat[ vision_K_proj(q), language_K_seg[i] ]          │
-│   V = concat[ vision_V_proj(q), language_V_seg[i] ]          │
+│   Q = q_norm(q_proj(vision_token))                           │
+│   K = concat[ k_norm(k_proj(vision)), language_K_seg[i] ]    │
+│   V = concat[ v_proj(vision), language_V_seg[i] ]            │
+│   ☆ language K/V 不再做任何线性投影,直接 cat ☆               │
 │   language K/V 来自 Qwen, 全程冻结                            │
+│ MLP = SwiGLU(1024 → 4096 → 1024)                             │
+│ Norm = RMSNorm (block) + AdaLN-Zero modulation               │
 └──────────────────────────────────────────────────────────────┘
         │
         ▼
    v_pred (velocity on subgoal latent)
         │
-        ▼  flow matching loss
+        ▼  flow matching loss + logit-normal t + EMA + CFG
    L = ‖ v_pred − (z1 − z0) ‖²
 ```
 
-关键设计点（与用户达成的决定）：
+关键设计点（v2 切换，2026-06）：
 
 1. **融合方式**：MoT joint-attention。DiT block 不做单独 cross-attn；vision Q 与 (vision K/V + language K/V) 一起做一次 attention。
-2. **层映射**：E3 分段。Qwen 共 36 层 → 12 段（每段 3 层），DiT 也设 12 层。默认 `select_last`：每段取该 3 层组的**最后一层** token-level K/V，shape `[B, 8, S, 128]`（省显存、loss 等价上不损失主要信息）；`concat_layers` 把 3 层 K/V 沿 token 轴 concat 留作 ablation；`mean` 是旧版层平均，已弃用。第 i 层 DiT block 使用第 i 段 KV。
-3. **视觉锚点**：把所有历史帧（builder 默认 4 帧）的 VAE latent 分别 patchify 后 concat 到 vision token 序列；每帧用独立的 frame embedding 区分，最后一帧 = 当前 anchor。
-4. **目录组织**：新模块全部放进 `AutoMoT/qwen3vl_local/goalgen/` 子包，CLI 入口为 `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`。
+2. **维度对齐**：DiT `(n_heads, head_dim) = (8, 128)` 直接等于 Qwen3-VL-4B-Instruct 的 `(num_key_value_heads, head_dim)`，**彻底删掉 v1 的 `lang_k_proj` / `lang_v_proj` 两条 1024→768 跨维线性投影**。语言 K/V 原样接进 DiT attention，无信息压缩损失。
+3. **层映射**：E3 分段。Qwen 共 36 层 → 12 段（每段 3 层），DiT 也设 12 层。默认 `select_last`：每段取该 3 层组的**最后一层** token-level K/V，shape `[B, 8, S, 128]`（省显存、loss 等价上不损失主要信息）；`concat_layers` 把 3 层 K/V 沿 token 轴 concat 留作 ablation；`mean` 是旧版层平均，已弃用。第 i 层 DiT block 使用第 i 段 KV。
+4. **现代化 transformer 组件**（仿 Qwen3 / SD3 / Flux）：
+   - block norm1 / norm2 / final_norm 全部 RMSNorm（无 affine，配 AdaLN modulation）
+   - JointAttention 内 q_norm / k_norm（带 affine 的 RMSNorm，仅作用 vision Q/K；language K 已被 Qwen 自己 k_norm 过，不再二次归一化）
+   - MLP → SwiGLU（`gate * silu(up) → down`，参数量 ×1.5 但单位参数 quality 更高）
+5. **视觉锚点**：把所有历史帧（builder 默认 4 帧）的 VAE latent 分别 patchify 后 concat 到 vision token 序列；每帧用独立的 frame embedding 区分，最后一帧 = 当前 anchor。
+6. **patch_size=4**（v1 是 2）：视觉 token 数从 8640 砍到 2160，attention FLOPs 缩 ~4×；输出空间分辨率粗一倍，对 subgoal latent 任务可接受。
+7. **目录组织**：新模块全部放进 `AutoMoT/qwen3vl_local/goalgen/` 子包，CLI 入口为 `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`。
+
+v2 训练侧增强（与上面架构同步落地）：
+
+- **Muon optimizer**（2D 权重矩阵）+ **AdamW**（1D / 4D 参数、embedding、Conv2d、null_lang_k/v）双轨；用 `_DualOptimizer` / `_DualScheduler` 包装让训练 loop 接口零变化。
+- **torch.compile(dit)** 默认开启（patch=4 后 compile 固定 overhead 比 v1 划算）；`COMPILE_DIT=0` 关闭。
+- **Gradient checkpointing**（per-block，`use_reentrant=False`）默认开启；`GRAD_CKPT=0` 关闭。
+- **EMA**（decay=0.9999）默认开启，val / image log / eval / probe / runner 均默认走 EMA 权重；ckpt 同时保存裸 + EMA state_dict。
+- **logit-normal t 采样**（SD3 配方）默认开启，CFG drop=0.1、cfg_scale=2.0。
+- **flash-attention** 由 PyTorch SDPA 自动调度（H100/A100 上自动走 flash 后端）。
+
+v2 与 v1 ckpt **不向后兼容**（hidden_dim、patch_size 都变了；MLP/norm 模块名也变了），必须从零重训。`patch_unpatch_*.safetensors` 同理：v1 的 768/2 与 v2 的 1024/4 形状互不兼容。
 
 ### 15.3 文件分工（`AutoMoT/qwen3vl_local/goalgen/`）
 
@@ -1438,13 +1461,13 @@ CLI 参数尽量对齐 `vlm_paradigm_a_runner.py`：`--route-dir` 默认同样�
 | `__init__.py` | 子包导出索引 |
 | `vae.py` | 把 `AutoMoT/vae_standalone` 临时加进 sys.path，封装 `FrozenVAE.load(cfg_path, weights_path)`，提供 `encode(pil_list)` / `decode(z)`；输入归一化、shape 校验、scale_factor 处理全部内聚在这里；加载即冻结 |
 | `prompt.py` | teacher-forced prompt 模板。结构同 §14.10 但 system 删掉"输出 ANALYSIS/STATUS/SUBGOAL"那段，user 改为"当前 STATUS=X（描述）/ 子任务 SUBGOAL=Y（描述）"；输出函数 `build_teacher_system_prompt` + `build_teacher_user_prompt(memory)` |
-| `qwen_kv.py` | 复用现有 `LocalQwen3VLInstructEngine` 的 prefill；`teacher_forced_prefill(...)` 返回 `PrefillResult`（含 `pooled_kv` 字段名是历史遗留 + 维度元信息）；`segment_kv_for_dit(past_key_values, num_segments=12, mode="select_last")` 把 36 层切成 12 段，默认每段取最后一层 token-level K/V，可选 `concat_layers`（3 层 token 维 concat）或 `mean`（旧版层平均）；`pool_kv_for_dit` 是同义别名；输出 K/V 全部 detach |
+| `qwen_kv.py` | 复用现有 `LocalQwen3VLInstructEngine` 的 prefill；`teacher_forced_prefill(...)` 返回 `PrefillResult`（含 `pooled_kv` 字段名是历史遗留 + 维度元信息）；`segment_kv_for_dit(past_key_values, num_segments=12, mode="select_last")` 把 36 层切成 12 段，默认每段取最后一层 token-level K/V，可选 `concat_layers`（3 层 token 维 concat）或 `mean`（旧版层平均）；`pool_kv_for_dit` 是同义别名；输出 K/V 全部 detach。v2 起 DiT 直接消费这些 K/V，下游不再需要 `language_kv_input_dim` probe |
 | `keyframes.py` | 读 `keyframes_all_scenarios.json`，按 `(scenario, run_id, subgoal_event)` 查 `frame_idx`；`load_keyframe_rgb(route_dir, frame_idx)` 返回 stitched 三视角 RGB PIL |
-| `dit.py` | DiT-MoT 主体。`DiTMoTBlock`：vision Q + joint-attn(K=cat[vision_K, lang_K], V=cat[vision_V, lang_V]) + MLP；`DiTMoT`：patchify vision latent → token + AdaLN-Zero (timestep) → 12 个 block → unpatchify 回 latent shape；语言 K/V 由外部传入；附带 `language_kv_input_dim_from_pooled` 辅助函数 |
+| `dit.py` | DiT-MoT 主体（v2 架构）。`DiTMoTBlock`：vision Q + joint-attn(K=cat[vision_K, lang_K], V=cat[vision_V, lang_V]) + SwiGLU MLP；`DiTMoT`：patchify vision latent → token + AdaLN-Zero (timestep) → 12 个 block → unpatchify 回 latent shape；语言 K/V 由外部传入并**直接消费**（无线性投影）；自带 `RMSNorm`、`SwiGLU` 实现；`enable_gradient_checkpointing()` 切换 per-block ckpt |
 | `flow.py` | 1) 训练采样：`t ~ U[0,1]`，`z0 ~ N(0,I)`，`z_t=(1-t)z0+t z1`，`v_target = z1 - z0`；2) `flow_matching_loss(v_pred, v_target)`；3) 推理 Euler 积分 `euler_sample(velocity_fn, ...)`：`z = z + dt * v_pred` 从 t=0 到 t=1 |
 | `build_dataset_v1.py` | 扫 `keyframes_all_scenarios.json`，按 `Completed/Perfect` 筛 run，把每个状态段展开成 (anchor, status, subgoal, target_frame, history/current/target RGB 路径) jsonl；按 `status->subgoal` 桶 stratified 抽样；按 run_id 8:2 划 train/val；每个 route 用 file-list 缓存避免 N 次 stat |
-| `train_v1.py` | DDP / 单卡训练入口。`engine.load() + freeze_module()` 显式冻 Qwen；`FrozenVAE.load()` 内部已冻 VAE；`_probe_language_kv_dim()` 用首条样本推 language_kv_input_dim（避免硬编码）；AdamW 只优化 DiT 参数；DDP 模式 grad-accum 期间走 `dit.no_sync()` 减少 all-reduce；每 `--save-steps` 落盘 `goalgen_v1.pt` + `latest.pt` |
-| `train_v1.sh` | check / single / ddp 三模式；按 `nvidia-smi` 自动挑空闲 GPU、自动选空闲 MASTER_PORT；环境变量 `LANGUAGE_KV_INPUT_DIM=auto` 默认走 trainer 内部 probe，传整数可跳过 |
+| `train_v1.py` | DDP / 单卡训练入口（v2）。`engine.load() + freeze_module()` 显式冻 Qwen；`FrozenVAE.load()` 内部已冻 VAE；**Muon + AdamW 双 optimizer**（`_DualOptimizer` 包装 + `_DualScheduler` 同步驱动 LR）；DDP 模式 grad-accum 期间走 `dit.no_sync()` 减少 all-reduce；默认开启 `torch.compile(dit)` + per-block gradient checkpointing + EMA；每 `--save-steps` 落盘 `goalgen_v1.pt` + `latest.pt`（含 EMA state_dict + 双 optimizer 字典） |
+| `train_v1.sh` | check / single / ddp 三模式；按 `nvidia-smi` 自动挑空闲 GPU、自动选空闲 MASTER_PORT；v2 默认 `PATCH_SIZE=4 HIDDEN_DIM=1024 N_HEADS=8 MUON_LR=2e-3 GRAD_CKPT=1 COMPILE_DIT=1`；`COMPILE_DIT=0` / `GRAD_CKPT=0` 关闭对应优化 |
 | `GOALGEN_V1_PLAN.md` | v1 路线设计、形状默认表、参数量预估、显存预估、风险表、v1/v2 边界 |
 | `GOALGEN_V1_RUN.md` | 0 检查输入 / 1 build dataset / 2 train check→single→ddp / 3 forward smoke / 4 troubleshooting / 5 形状默认表 / 6 显存预期 |
 

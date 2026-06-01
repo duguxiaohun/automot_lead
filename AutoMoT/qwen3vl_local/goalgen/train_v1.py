@@ -41,7 +41,6 @@ from qwen3vl_local.engine import LocalQwen3VLInstructEngine  # noqa: E402
 from qwen3vl_local.goalgen.dit import (  # noqa: E402
     DiTMoT,
     DiTMoTConfig,
-    language_kv_input_dim_from_pooled,
 )
 from qwen3vl_local.goalgen.flow import (  # noqa: E402
     DiTEMA,
@@ -189,11 +188,16 @@ def dtype_from_name(name: str) -> torch.dtype:
     }[name]
 
 
-def build_dit(args: argparse.Namespace, language_kv_input_dim: int) -> DiTMoT:
-    """构造 DiT-MoT。
+def build_dit(args: argparse.Namespace) -> DiTMoT:
+    """构造 DiT-MoT（v2 架构）。
 
-    language_kv_input_dim 由调用方根据实际 segmented KV 推出，避免硬编码 1024 在换
-    基础模型时直接撞到 attention 形状不匹配。
+    v2 起 DiT 的 (n_heads, head_dim) 必须严格等于 Qwen 的 (num_key_value_heads, head_dim)，
+    所以**不再需要 language_kv_input_dim 这一字段**。默认 hidden_dim=1024 / n_heads=8 /
+    head_dim=128 已经对齐 Qwen3-VL-4B-Instruct；想接其它 Qwen 时调 --hidden-dim /
+    --n-heads 保持二者乘积等于 Qwen K/V 总维度即可。
+
+    实际 K/V 形状是否真匹配在 DiTMoT.forward 第一个 step 内做严格断言（pooled_kv[0] 形状），
+    出错时报错路径直接，不需要额外的 probe。
     """
 
     cfg = DiTMoTConfig(
@@ -204,7 +208,6 @@ def build_dit(args: argparse.Namespace, language_kv_input_dim: int) -> DiTMoT:
         mlp_ratio=args.mlp_ratio,
         num_layers=args.num_layers,
         cond_dim=args.cond_dim,
-        language_kv_input_dim=language_kv_input_dim,
         max_history_frames=args.max_history_frames,
     )
     return DiTMoT(cfg)
@@ -223,39 +226,216 @@ def freeze_module(module: torch.nn.Module) -> None:
     module.eval()
 
 
-def _probe_language_kv_dim(
-    engine: LocalQwen3VLInstructEngine,
-    samples: List[Dict[str, Any]],
-    num_segments: int,
-    kv_segment_mode: str,
-) -> int:
-    """跑第一条样本 prefill 拿真实 segmented KV，反推 language_kv_input_dim。
+# --------------------------------------------------------------------------- #
+# Muon optimizer：对 2D 权重矩阵走 Newton-Schulz 正交化的 momentum。
+# --------------------------------------------------------------------------- #
 
-    这避免了把 `n_kv_heads * head_dim`（Qwen3-VL-4B-Instruct = 8*128 = 1024）
-    硬编码到 CLI，使得换 base 模型时不需要手动改参数；同时让 build_dit 的输入
-    维度永远与下游前向一致。
+
+@torch.no_grad()
+def _zeropower_via_newtonschulz5(G: torch.Tensor, steps: int = 5) -> torch.Tensor:
+    """5 步 Newton-Schulz 迭代，把 G 投到与 G 同左奇异空间的"半正交"矩阵。
+
+    数学含义：返回值 ≈ U @ V.T（G = U Σ V.T 的 SVD 简化形式），相当于把
+    G 的奇异值统统拉到 ~1，只保留方向。这正是 Muon 的核心 trick——SGD-momentum
+    输出做正交化后，每个奇异方向都用相同步长更新，避开了 AdamW 那种"看着 m/v
+    自适应、其实在不同方向 LR 漂移"的问题。
+
+    Implementation notes：
+    - 系数 (a, b, c) = (3.4445, -4.7750, 2.0315) 来自 Keller Jordan 的 NanoGPT
+      speedrun 实现；这组系数比经典 (3, -3, 1) 在小步数下收敛更快。
+    - 计算用 bfloat16 做：Newton-Schulz 对量级不敏感，bf16 已足够；省一半显存。
+    - 横长矩阵（行 > 列）先转置：减少中间 X @ X.T 的内存，最后再转回来。
     """
 
-    sample = samples[0]
-    history_images = [load_rgb(p) for p in sample["history_rgb_paths"]]
-    memory = memory_from_sample(sample)
-    probe = teacher_forced_prefill(
-        engine=engine,
-        memory=memory,
-        images=history_images,
-        num_segments=num_segments,
-        kv_segment_mode=kv_segment_mode,
-    )
-    # -> seq_len: 2255
-    # -> n_kv_heads: 8
-    # -> head_dim: 128
-    # -> num_qwen_layers (原始 KV Cache 层数): 36
-    # -> kv_segment_mode: 'select_last'
-    # -> chat_text (length: 2701): '<|im_start|>system\nYou are an autonomous driving a...'
-    # -> pooled_kv (共 12 段):
-    #     段 00 | K shape: torch.Size([1, 8, 2255, 128]), V shape: torch.Size([1, 8, 2255, 128])
+    assert G.ndim == 2, f"Muon Newton-Schulz 仅适用 2D 矩阵，got {G.shape}"
+    a, b, c = 3.4445, -4.7750, 2.0315
+    X = G.to(torch.bfloat16)
+    # 归一化：除以 Frobenius 范数让 X 的奇异值都 ≤ 1，是 Newton-Schulz 收敛区间的前提。
+    # +1e-7 防御零梯度（warmup 早期 + 大量稀疏 grad 时会出现）。
+    X = X / (X.norm() + 1e-7)
+    transposed = X.shape[0] > X.shape[1]
+    if transposed:
+        X = X.T
+    for _ in range(steps):
+        # 经典 5 步形式：A = X X.T；B = b A + c A^2；X ← a X + B X
+        # 等价于多项式 p(X X.T) X，把奇异值 σ 推向 1（p(σ²) σ ≈ 1）。
+        A = X @ X.T
+        B = b * A + c * (A @ A)
+        X = a * X + B @ X
+    if transposed:
+        X = X.T
+    return X.to(G.dtype)
 
-    return language_kv_input_dim_from_pooled(probe.pooled_kv)
+
+class Muon(torch.optim.Optimizer):
+    """Muon optimizer：2D 权重矩阵专用，对 SGD-momentum 输出做 Newton-Schulz 正交化。
+
+    用法（与 AdamW 配套）：
+        muon_params  = [p for n, p in dit.named_parameters() if p.ndim == 2 and p.requires_grad]
+        other_params = [p for n, p in dit.named_parameters() if p.ndim != 2 and p.requires_grad]
+        muon  = Muon(muon_params, lr=0.02, momentum=0.95, weight_decay=0.0)
+        adamw = AdamW(other_params, lr=2e-4, betas=(0.9, 0.95), weight_decay=0.01)
+        # train loop:
+        muon.step(); adamw.step()
+        muon.zero_grad(set_to_none=True); adamw.zero_grad(set_to_none=True)
+
+    Caveats：
+    - **只接受 2D 张量**：Conv2d 权重（4D）、Embedding（2D 但语义不同）、norm 的 1D weight
+      应该交给 AdamW，不要塞进 Muon。本实现对 ndim≠2 直接抛错。
+    - LR 通常比 AdamW 大 5-10×（典型 0.01-0.05），weight_decay=0 起步；不要照搬 AdamW 配方。
+    - 单卡正确；DDP 下每个 rank 自己跑 Newton-Schulz 在 grad sync 后是等价的（grad 已 all-reduce），
+      不需要额外的同步逻辑。
+    - 配合 `torch.compile` 可能在 ns 迭代上失败：本实现走 ``@torch.no_grad`` + 手动 op，
+      compile 的 dynamo trace 不必进 Muon.step，所以兼容性 OK。
+
+    参考：Keller Jordan, "Muon: An optimizer for hidden layers in neural networks",
+    https://github.com/KellerJordan/Muon
+    """
+
+    def __init__(
+        self,
+        params,
+        lr: float = 0.02,
+        momentum: float = 0.95,
+        nesterov: bool = True,
+        ns_steps: int = 5,
+        weight_decay: float = 0.0,
+    ):
+        if lr <= 0:
+            raise ValueError(f"Muon lr 必须 > 0，got {lr}")
+        if not 0.0 <= momentum < 1.0:
+            raise ValueError(f"Muon momentum ∈ [0,1)，got {momentum}")
+        defaults = dict(
+            lr=lr,
+            momentum=momentum,
+            nesterov=nesterov,
+            ns_steps=ns_steps,
+            weight_decay=weight_decay,
+        )
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            lr = group["lr"]
+            momentum = group["momentum"]
+            nesterov = group["nesterov"]
+            ns_steps = group["ns_steps"]
+            weight_decay = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                if p.ndim != 2:
+                    # 严格校验：Muon 设计上只跑 2D；4D Conv 或 1D norm 进来肯定是 param group
+                    # 分组出错，直接报错而不是默默跳过（默默跳过会让人误以为 Muon 在更新这些参数）。
+                    raise RuntimeError(
+                        f"Muon 仅接受 2D 张量，但收到 ndim={p.ndim} shape={tuple(p.shape)}。"
+                        "请检查 param group 分组：把 Conv2d / Embedding / 1D 参数交给 AdamW。"
+                    )
+                g = p.grad
+                state = self.state[p]
+                if "momentum_buffer" not in state:
+                    state["momentum_buffer"] = torch.zeros_like(g)
+                buf = state["momentum_buffer"]
+                # 经典 momentum：buf = momentum * buf + g
+                buf.mul_(momentum).add_(g)
+                # Nesterov 在 buf 基础上再前瞻一步：update = g + momentum * buf
+                # 收敛更快、过冲更轻；Keller Jordan 实现默认开启。
+                update = g.add(buf, alpha=momentum) if nesterov else buf
+
+                # Newton-Schulz 正交化：把 update 推到与之对齐的"半正交"矩阵。
+                ortho = _zeropower_via_newtonschulz5(update, steps=ns_steps)
+
+                # 缩放：保证不同 shape 的层有可比的 update 量级。
+                # 高个矩阵（rows > cols）的"半正交"自带较大量级，需要 sqrt(rows/cols) 缩放。
+                rows, cols = p.shape
+                scale = max(1.0, rows / cols) ** 0.5
+
+                # 解耦 weight decay：仿 AdamW，wd 直接乘 p，与 grad 路径独立；
+                # 默认 weight_decay=0（对 attention 权重通常不加 wd）。
+                if weight_decay != 0.0:
+                    p.data.mul_(1.0 - lr * weight_decay)
+                p.data.add_(ortho, alpha=-lr * scale)
+        return loss
+
+
+def split_dit_params_for_muon(
+    dit_module: torch.nn.Module,
+) -> Tuple[List[torch.nn.Parameter], List[torch.nn.Parameter]]:
+    """把 DiT 参数分成 (muon_2d, adamw_other) 两组。
+
+    分组规则：
+    - 2D 权重（attention q/k/v/o、MLP gate/up/down、AdaLN modulation Linear、
+      t_mlp 的 Linear、unpatch.proj 的 Linear）-> Muon
+    - 其它（Conv2d patch.proj、所有 4D 张量、所有 1D weight 与 bias、embeddings、
+      pos_embed_table、null_lang_k/v）-> AdamW
+    - requires_grad=False 的参数（patch/unpatch 冻结时）跳过
+
+    返回的两组合并起来应该等于 dit_module.parameters() 里所有可训参数，无遗漏。
+    """
+
+    muon_params: List[torch.nn.Parameter] = []
+    other_params: List[torch.nn.Parameter] = []
+    for name, p in dit_module.named_parameters():
+        if not p.requires_grad:
+            continue
+        if p.ndim == 2:
+            muon_params.append(p)
+        else:
+            other_params.append(p)
+    return muon_params, other_params
+
+
+class _DualOptimizer:
+    """轻量包装：把 Muon + AdamW 当一个 optimizer 用。
+
+    设计目标：让训练 loop 里 `optimizer.step()` / `optimizer.zero_grad()` /
+    `optimizer.state_dict()` 都不用改动；LambdaLR scheduler 也能直接走，
+    因为 ``.param_groups`` 暴露的是两边 group 的合集，每个 group 都有自己的 base_lr。
+
+    不继承 ``torch.optim.Optimizer``：那要求传入 params 走 super().__init__，
+    而我们这里两边各有独立的 Optimizer 子实例，套继承反而别扭。
+
+    save_checkpoint 走 state_dict() 时返回 ``{"muon": ..., "adamw": ...}``，
+    load 时按相同结构反向加载。
+    """
+
+    def __init__(self, muon: torch.optim.Optimizer, adamw: torch.optim.Optimizer):
+        self.muon = muon
+        self.adamw = adamw
+
+    @property
+    def param_groups(self) -> List[Dict[str, Any]]:
+        # 顺序：先 Muon 再 AdamW；LambdaLR 会按这个顺序逐 group 缩放 LR，与 base_lr
+        # 在 Optimizer 子实例里的设置一致，无需特殊处理。
+        return self.muon.param_groups + self.adamw.param_groups
+
+    def step(self, closure=None) -> None:
+        # 注意：两边 step 顺序不影响最终结果（各自独立的参数子集）。
+        self.muon.step(closure=None)
+        self.adamw.step(closure=None)
+
+    def zero_grad(self, set_to_none: bool = True) -> None:
+        self.muon.zero_grad(set_to_none=set_to_none)
+        self.adamw.zero_grad(set_to_none=set_to_none)
+
+    def state_dict(self) -> Dict[str, Any]:
+        return {"muon": self.muon.state_dict(), "adamw": self.adamw.state_dict()}
+
+    def load_state_dict(self, sd: Dict[str, Any]) -> None:
+        # 旧 ckpt（v1 单 AdamW）没有这个分组结构；提示用户重新训练，不做兼容性 hack。
+        if "muon" not in sd or "adamw" not in sd:
+            raise RuntimeError(
+                "optimizer state_dict 缺少 muon/adamw 键；这通常是想 resume v1 单 AdamW ckpt。"
+                "v2 架构改动后参数 shape 与 v1 不兼容，必须从头训练。"
+            )
+        self.muon.load_state_dict(sd["muon"])
+        self.adamw.load_state_dict(sd["adamw"])
 
 
 def cosine_velocity(v_pred: torch.Tensor, v_target: torch.Tensor) -> float:
@@ -659,11 +839,13 @@ def _update_best_checkpoint(
     return val_loss, True
 
 
-def make_scheduler(
-    optimizer: torch.optim.Optimizer,
-    total_steps: int,
-    warmup_ratio: float,
-) -> torch.optim.lr_scheduler.LambdaLR:
+def _cosine_warmup_lambda(total_steps: int, warmup_ratio: float):
+    """共享的 LR lambda：warmup 线性 + 之后 cosine 衰减到 0。
+
+    返回的乘子对所有 param_group 同样作用——Muon 和 AdamW 各自的 base_lr 由
+    optimizer 本身设置，这里只产生统一的进度因子。
+    """
+
     # max(1, ...) 防止 total_steps=0 或 warmup_ratio=0 时 warmup_steps 变 0，导致下面
     # 除零；warmup 至少跑一步在工程上无害，可避免 check 模式 total_steps=2 时崩溃。
     warmup_steps = max(1, int(total_steps * warmup_ratio))
@@ -679,6 +861,51 @@ def make_scheduler(
         # 不夹断的话 cos(>π) 会让 lr 反向爬上去，破坏收敛末期的稳定。
         return 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
 
+    return lr_lambda
+
+
+class _DualScheduler:
+    """同时驱动 Muon 与 AdamW 两个 LambdaLR；接口与单 LambdaLR 等价。
+
+    每个底层 LambdaLR 都按自己 optimizer 的 base_lr 缩放同一份 lambda 因子；
+    所以 `get_last_lr()` 默认返回两边的 LR 拼起来，方便日志区分。
+    """
+
+    def __init__(self, optimizer: _DualOptimizer, lr_lambda):
+        self.muon_sched = torch.optim.lr_scheduler.LambdaLR(optimizer.muon, lr_lambda)
+        self.adamw_sched = torch.optim.lr_scheduler.LambdaLR(optimizer.adamw, lr_lambda)
+
+    def step(self) -> None:
+        self.muon_sched.step()
+        self.adamw_sched.step()
+
+    def get_last_lr(self) -> List[float]:
+        # 顺序：muon 在前、adamw 在后；与 _DualOptimizer.param_groups 顺序一致。
+        # 训练日志只读 [0] 拿 Muon LR；想看 AdamW LR 翻列表后段或单独 print。
+        return self.muon_sched.get_last_lr() + self.adamw_sched.get_last_lr()
+
+    def state_dict(self) -> Dict[str, Any]:
+        return {"muon": self.muon_sched.state_dict(), "adamw": self.adamw_sched.state_dict()}
+
+    def load_state_dict(self, sd: Dict[str, Any]) -> None:
+        if "muon" not in sd or "adamw" not in sd:
+            raise RuntimeError(
+                "scheduler state_dict 缺少 muon/adamw 键；v1 单 scheduler ckpt 不兼容 v2。"
+            )
+        self.muon_sched.load_state_dict(sd["muon"])
+        self.adamw_sched.load_state_dict(sd["adamw"])
+
+
+def make_scheduler(
+    optimizer,
+    total_steps: int,
+    warmup_ratio: float,
+):
+    """构造调度器：单 optimizer 走 LambdaLR；_DualOptimizer 走 _DualScheduler。"""
+
+    lr_lambda = _cosine_warmup_lambda(total_steps, warmup_ratio)
+    if isinstance(optimizer, _DualOptimizer):
+        return _DualScheduler(optimizer, lr_lambda)
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
@@ -766,33 +993,17 @@ def train(args: argparse.Namespace) -> None:
     vae.model.eval()
     latent_stats = _load_or_compute_latent_stats(vae, samples, args, rank, world_size)
 
-    # 解析 language_kv_input_dim：默认 auto -> 用第一条样本做一次 dummy prefill 推维度。
-    # 给 int 时按 CLI 值走（用户明确知道 base 模型的 n_kv_heads * head_dim 想跳过 probe 时用）。
-    if isinstance(args.language_kv_input_dim, str) and args.language_kv_input_dim.lower() == "auto":
-        if is_rank0(rank):
-            print("[probe] 正在用第一条样本的分段 KV 推断 language_kv_input_dim ...")
-        language_kv_dim = _probe_language_kv_dim(
-            engine,
-            samples,
-            args.num_layers,
-            args.qwen_kv_segment_mode,
-        )
-        # -> seq_len: 2255
-        # -> n_kv_heads: 8
-        # -> head_dim: 128
-        # -> num_qwen_layers (原始 KV Cache 层数): 36
-        # -> kv_segment_mode: 'select_last'
-        # -> chat_text (length: 2701): '<|im_start|>system\nYou are an autonomous driving a...'
-        # -> pooled_kv (共 12 段):
-        #     段 00 | K shape: torch.Size([1, 8, 2255, 128]), V shape: torch.Size([1, 8, 2255, 128])
-
-        if is_rank0(rank):
-            print(f"[probe] language_kv_input_dim={language_kv_dim}")
-    else:
-        language_kv_dim = int(args.language_kv_input_dim)
-
+    # v2 起 DiT (n_heads, head_dim) 必须严格匹配 Qwen (n_kv_heads, head_dim)，
+    # 不再需要运行时 probe；实际不匹配时 DiTMoT.forward 会在第一步 step 内抛清晰错误。
+    # 把校验留在前向是为了让"换 Qwen 模型却忘改 --hidden-dim/--n-heads"的低级问题
+    # 立刻被捕获，而不是在训练若干小时后在 attention 层 SDPA 内崩。
     dit_dtype = dtype_from_name(args.dit_dtype)
-    dit = build_dit(args, language_kv_input_dim=language_kv_dim).to(device=device, dtype=dit_dtype)
+    dit = build_dit(args).to(device=device, dtype=dit_dtype)
+    if is_rank0(rank):
+        print(
+            f"[build] DiT v2 cfg: hidden={args.hidden_dim} n_heads={args.n_heads} "
+            f"head_dim={args.hidden_dim // args.n_heads} patch={args.patch_size} layers={args.num_layers}"
+        )
 
     # 可选：加载 vae_standalone/train_patch_unpatch.py 训出来的 patch/unpatch 权重。
     # 默认 freeze=True，patch/unpatch 不再更新；optimizer 下面会按 requires_grad
@@ -807,6 +1018,14 @@ def train(args: argparse.Namespace) -> None:
             print(f"[patch_unpatch] 加载 {args.patch_unpatch_weights}: {info}")
     elif is_rank0(rank):
         print("[patch_unpatch] 未提供权重 -> patch/unpatch 跟随 DiT 随机初始化训练")
+
+    # 可选 gradient checkpointing：显存省 ~40%，wall-clock 多 ~30%。
+    # 默认开（patch=4 后 token 数本就不多，启用 ckpt 几乎不影响速度但能塞更大 batch）；
+    # 想压低单步耗时关 `--no-grad-ckpt` 即可。
+    if args.grad_ckpt:
+        dit.enable_gradient_checkpointing(True)
+        if is_rank0(rank):
+            print("[ckpt] gradient checkpointing 启用（per-block，use_reentrant=False）")
 
     # EMA 在 patch/unpatch 加载完之后初始化：让 EMA 起步快照 = 预训过的权重，
     # 而不是 build_dit 给的随机值；否则训练初期 EMA 推理图像会失真很久。
@@ -824,13 +1043,14 @@ def train(args: argparse.Namespace) -> None:
     else:
         dit_module = dit
 
-    # 可选 torch.compile(dit)：通过 GOALGEN_COMPILE_DIT=1 启用。
+    # 可选 torch.compile(dit)：v2 起默认**开启**（patch=4 后 token 数砍到 1/4，
+    # compile 的固定 overhead 比 v1 划算很多）。`--no-compile` 关掉作为退路。
     # - 只 compile DiT；Qwen3-VL 走 HF DynamicCache + Python 控制流不友好。
     # - mode="default" 用 Inductor 优化 attention/linear；fullgraph=False 容忍少量
     #   Python 分支（如 force_uncond），不强求一次性 graph 化。
     # - dynamic=True：pooled_kv 的 seq_len 跨 sample 会变，避免反复重 trace。
     # - 失败时回退原模型，不阻塞训练。
-    if os.environ.get("GOALGEN_COMPILE_DIT", "0") == "1":
+    if args.compile_dit:
         try:
             dit = torch.compile(dit, mode="default", fullgraph=False, dynamic=True)
             if is_rank0(rank):
@@ -839,19 +1059,38 @@ def train(args: argparse.Namespace) -> None:
             if is_rank0(rank):
                 print(f"[compile] torch.compile 失败，回退原模型：{exc}")
 
-    optimizer = torch.optim.AdamW(
-        # 这里只传 dit.parameters()：Qwen / VAE 上面已 freeze_module 关掉 grad，但 optimizer
-        # 看到 requires_grad=False 仍会保留它们的 state（占显存）。显式只传 DiT 参数能
-        # 把 AdamW 的 m/v state 也限制在 DiT 上，省一份 Qwen 量级的优化器内存。
-        # 再过滤 requires_grad：加载 patch/unpatch 预训权重并 freeze 后，对应 4 个参数
-        # （patch.proj.* / unpatch.proj.*）也不应该出现在 AdamW state 里。
-        [p for p in dit.parameters() if p.requires_grad],
+    # v2 双 optimizer：Muon 跑 2D 权重矩阵，AdamW 跑其它（Conv2d patch.proj、norm 1D weight、
+    # embedding、null_lang_k/v 等）。Muon 在大型 attention 模型上比单 AdamW 收敛 1.5-2× 更快，
+    # 但仅对 2D 矩阵有效——所以 1D / 4D 参数仍走 AdamW。
+    # 注意分组取自 `dit_module`（DDP 解包后的真模型）：DDP wrap 不改参数引用，
+    # 但 named_parameters() 名字会多出 "module." 前缀，分组逻辑只看 ndim 所以不受影响。
+    muon_params, adamw_params = split_dit_params_for_muon(dit_module)
+    if is_rank0(rank):
+        n_muon = sum(p.numel() for p in muon_params)
+        n_adamw = sum(p.numel() for p in adamw_params)
+        print(
+            f"[optim] Muon 接管 2D 权重: {len(muon_params)} 张, {n_muon/1e6:.2f}M 参数; "
+            f"AdamW 接管其它: {len(adamw_params)} 张, {n_adamw/1e6:.2f}M 参数"
+        )
+    muon_optimizer = Muon(
+        muon_params,
+        lr=args.muon_lr,
+        momentum=args.muon_momentum,
+        nesterov=True,
+        ns_steps=5,
+        weight_decay=0.0,  # 2D 矩阵的 Muon 一般不挂 wd；wd 留给 AdamW 那条路径
+    )
+    adamw_optimizer = torch.optim.AdamW(
+        adamw_params,
         lr=args.learning_rate,
         # betas=(0.9, 0.95) 是 DiT / 大型 diffusion 模型的常见配方；第二阶矩衰减比 Adam
         # 默认 0.999 快，对 latent flow matching 这种损失曲线较平的目标更稳。
         betas=(0.9, 0.95),
         weight_decay=args.weight_decay,
     )
+    # 用一个轻量包装把两个 optimizer 当成一个用：scheduler / step / zero_grad / state_dict
+    # 都自动作用到两者。保留双 optimizer 各自独立调度的 LR 由 LambdaLR 自动按 base_lr 缩放。
+    optimizer = _DualOptimizer(muon=muon_optimizer, adamw=adamw_optimizer)
     # 把样本数夹到 world_size 整除，让每个进程拿到等长分片；不夹断会出现"某进程多
     # backward 一次"，DDP all-reduce 等不到对应张量进而挂死。
     usable_per_epoch = (len(samples) // world_size) * world_size
@@ -1005,19 +1244,24 @@ def train(args: argparse.Namespace) -> None:
                         avg_loss = running_loss / denom
                         avg_cos = running_cos / denom
                         avg_kv_seq = running_kv_seq_len / denom
-                        cur_lr = scheduler.get_last_lr()[0]
+                        # _DualScheduler.get_last_lr() 返回 [muon_lr, ..., adamw_lr, ...]；
+                        # 取首尾分别作 Muon / AdamW 代表 LR 写日志。单 scheduler 时两者一致。
+                        last_lrs = scheduler.get_last_lr()
+                        muon_lr_now = last_lrs[0]
+                        adamw_lr_now = last_lrs[-1]
                         print(
                             f"[train] epoch={epoch} step={global_step}/{total_steps} "
                             f"loss={avg_loss:.6f} cos={avg_cos:.4f} "
                             f"grad_norm={last_grad_norm:.3f} kv_seq={avg_kv_seq:.0f} "
-                            f"lr={cur_lr:.3e}"
+                            f"muon_lr={muon_lr_now:.3e} adamw_lr={adamw_lr_now:.3e}"
                         )
                         if writer is not None:
                             # 标量分组：train/* 用于训练曲线；diag/* 用于诊断指标。
                             # 这种命名让 tb 左侧 tag 树自动分组，不会被几十个指标淹没。
                             writer.add_scalar("train/loss", avg_loss, global_step)
                             writer.add_scalar("train/cos", avg_cos, global_step)
-                            writer.add_scalar("train/lr", cur_lr, global_step)
+                            writer.add_scalar("train/muon_lr", muon_lr_now, global_step)
+                            writer.add_scalar("train/adamw_lr", adamw_lr_now, global_step)
                             writer.add_scalar("diag/grad_norm", last_grad_norm, global_step)
                             writer.add_scalar("diag/kv_seq_len", avg_kv_seq, global_step)
                         running_loss = 0.0
@@ -1148,16 +1392,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false",
                    help="保留 PeftModel 包装不合并（调试 LoRA 自身行为用）。")
 
-    p.add_argument("--patch-size", type=int, default=2)
-    p.add_argument("--hidden-dim", type=int, default=768)
+    # v2 默认架构：patch=4 / hidden=1024 / n_heads=8 / head_dim=128
+    # 与 Qwen3-VL-4B-Instruct 的 (num_key_value_heads=8, head_dim=128) 严格对齐，
+    # 这样语言 K/V 直接接入 DiT attention，省掉 lang_k_proj/v_proj 跨维线性。
+    p.add_argument("--patch-size", type=int, default=4)
+    p.add_argument("--hidden-dim", type=int, default=1024)
     # 可选 patch/unpatch 预训权重（来自 vae_standalone/train_patch_unpatch.py）。
     # 给路径就加载并默认冻结；不给就维持原行为（随机初始化、跟 DiT 一起训练）。
+    # v2 注意：必须用 hidden=1024 / patch=4 默认重训的 safetensors，旧版 hidden=768 不兼容。
     p.add_argument("--patch-unpatch-weights", type=str, default="",
                    help='可选 patch_unpatch_*.safetensors 路径；非空时调用 '
-                        'DiTMoT.load_patch_unpatch 加载并冻结。')
+                        'DiTMoT.load_patch_unpatch 加载并冻结。v2 起需 hidden=1024/patch=4 训出。')
     p.add_argument("--patch-unpatch-unfreeze", action="store_true", default=False,
                    help="加载 patch/unpatch 权重后仍允许联合更新（默认加载即冻结）。")
-    p.add_argument("--n-heads", type=int, default=12)
+    p.add_argument("--n-heads", type=int, default=8)
     p.add_argument("--mlp-ratio", type=float, default=4.0)
     p.add_argument("--num-layers", type=int, default=12)
     p.add_argument("--cond-dim", type=int, default=256)
@@ -1168,17 +1416,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    default="select_last",
                    help="select_last 每段只取最后一层 Qwen KV，省显存（默认）；"
                         "concat_layers 把 3 层 token 维拼起来（重，消融用）；mean 为旧版层平均。")
-    # str 类型 + "auto" 默认值：训练器启动后先跑一条样本探测真实 KV 维度。
-    # 想固定到具体整数（跳过 probe）也支持，传 `--language-kv-input-dim 1024` 即可。
-    p.add_argument("--language-kv-input-dim", type=str, default="auto",
-                   help='"auto" 时从首条样本分段 KV 推导；或传具体整数（如 1024）跳过探测。')
 
     # num_epochs 默认 2：与 train_v1.sh 的 NUM_EPOCHS:-2 保持一致；831k 样本 /
     # 4 GPU / GRAD_ACC=4 ≈ 52k step/epoch，DiT 从零训通常 100-200k step 才稳定收敛。
     p.add_argument("--num-epochs", type=int, default=2)
     p.add_argument("--grad-accum-steps", type=int, default=4)
+    # AdamW 走 1D/4D 参数（norm weight、embeddings、Conv2d patch.proj、null_lang_k/v）
     p.add_argument("--learning-rate", type=float, default=2e-4)
     p.add_argument("--weight-decay", type=float, default=0.01)
+    # Muon 走 2D 矩阵（attention/MLP/AdaLN linear）。Muon LR 通常 5-10× 大于 AdamW。
+    p.add_argument("--muon-lr", type=float, default=2e-3,
+                   help="Muon optimizer 学习率（仅作用于 2D 权重矩阵）；通常比 AdamW 大 5-10×。")
+    p.add_argument("--muon-momentum", type=float, default=0.95,
+                   help="Muon momentum；与 nesterov=True 配合，0.95 是 Keller Jordan 默认。")
+    # v2 默认开启：torch.compile + gradient checkpointing
+    p.add_argument("--compile-dit", action="store_true", default=True,
+                   help="torch.compile(DiT) 启用（默认开）。")
+    p.add_argument("--no-compile", dest="compile_dit", action="store_false",
+                   help="关闭 torch.compile（首次 step 编译慢时可临时关掉）。")
+    p.add_argument("--grad-ckpt", action="store_true", default=True,
+                   help="per-block gradient checkpointing 启用（默认开）。")
+    p.add_argument("--no-grad-ckpt", dest="grad_ckpt", action="store_false",
+                   help="关闭 gradient checkpointing（追求 wall-clock 时用，但显存上涨）。")
     p.add_argument("--warmup-ratio", type=float, default=0.05)
     p.add_argument("--max-grad-norm", type=float, default=1.0)
     p.add_argument("--logging-steps", type=int, default=10)
