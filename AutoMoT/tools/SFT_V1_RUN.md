@@ -160,6 +160,8 @@ ms-swift 3.12.x 不接受 JSON regex 形式的 `--loss_scale`。`check` 模式�
 `nvidia-smi` 自动选择当前最空闲的一张 GPU，并且不传 `--val_dataset`，所以只跑 2
 个训练 step，不会加载/评估 val 集的约 800 条样本。
 
+建议先过完 §2 静态 sanity，再跑这里。
+
 **预期 loss 数值**（健康范围）：
 
 ```
@@ -171,14 +173,16 @@ ms-swift 3.12.x 不接受 JSON regex 形式的 `--loss_scale`。`check` 模式�
 > 系统性偏低 1–2 个量级是正常现象。重点不是 loss 绝对值，而是 plugin sanity 通过 +
 > 训练曲线收敛 + eval 指标。
 
+与 v2 一样，重点看“mask 是否生效 + loss 是否有限非 NaN”，不要只盯绝对值。
+
 **判读规则**：
 
 | 现象 | 判读 | 处理 |
 |---|---|---|
-| `python tools/check_loss_mask.py` 的 plugin sanity 显示 STATUS/SUBGOAL `in_loss=True, in_mask=False` 且字面 `STATUS:/SUBGOAL: in_loss=False, in_mask=True`，且 `check` loss 有限非 NaN | ✅ 训练侧 mask 大方向正常 | 可进 step 4 |
+| `python tools/check_loss_mask.py` 的 plugin sanity 显示两段 `event_name in_loss=True, in_mask=False`，且字面 `STATUS:/SUBGOAL: in_loss=False, in_mask=True`，并且 `check` loss 有限非 NaN | ✅ 训练侧 mask 大方向正常 | 可进 step 4 |
 | `loss < 1` 但 plugin sanity 通过 | ⚠️ 事件名 token 数少 + 基模对短词预测容易，正常现象 | 继续看正式训练/评估指标 |
-| `loss < 0.01` 或 `grad_norm=0` | ❌ 可能两段 event_name 也被 mask 了（全 0 权重） | 先查 `check_loss_mask.py` 的 `n_loss` 是否 ≥ 2 |
-| `loss > 8` | ❌ STATUS: / SUBGOAL: 字面或 ANALYSIS 占位也算 loss 了；可能 swift fallback | 先查 plugin sanity 是否走主路径 `_FULL_PATTERN`；若回退到 fallback，走 PLAN §11 回退：写 `tools/sft_v1_preprocessor.py` 手动 mask labels |
+| `loss < 0.01` 或 `grad_norm=0` | ❌ 可能两段 `event_name` 也被 mask 了（全 0 权重） | 先查 `check_loss_mask.py` 的 `n_loss` 是否 ≥ 2 |
+| `loss > 8` | ⚠️ 可能 `STATUS:` / `SUBGOAL:` 字面或 ANALYSIS 占位误入 loss；也可能 swift fallback | 先查 plugin sanity 是否走主路径 `_FULL_PATTERN`；若回退到 fallback，按 PLAN §11 回退：写 `tools/sft_v1_preprocessor.py` 手动 mask labels |
 | check 结束保存了 `checkpoint-2` | ❌ check 模式不该保存 checkpoint | 拉最新脚本，确认含 `--save_strategy no` |
 
 **常见启动报错**：
