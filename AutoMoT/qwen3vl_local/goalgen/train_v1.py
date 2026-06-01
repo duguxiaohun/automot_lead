@@ -246,6 +246,15 @@ def _probe_language_kv_dim(
         num_segments=num_segments,
         kv_segment_mode=kv_segment_mode,
     )
+    # -> seq_len: 2255
+    # -> n_kv_heads: 8
+    # -> head_dim: 128
+    # -> num_qwen_layers (原始 KV Cache 层数): 36
+    # -> kv_segment_mode: 'select_last'
+    # -> chat_text (length: 2701): '<|im_start|>system\nYou are an autonomous driving a...'
+    # -> pooled_kv (共 12 段):
+    #     段 00 | K shape: torch.Size([1, 8, 2255, 128]), V shape: torch.Size([1, 8, 2255, 128])
+
     return language_kv_input_dim_from_pooled(probe.pooled_kv)
 
 
@@ -768,6 +777,15 @@ def train(args: argparse.Namespace) -> None:
             args.num_layers,
             args.qwen_kv_segment_mode,
         )
+        # -> seq_len: 2255
+        # -> n_kv_heads: 8
+        # -> head_dim: 128
+        # -> num_qwen_layers (原始 KV Cache 层数): 36
+        # -> kv_segment_mode: 'select_last'
+        # -> chat_text (length: 2701): '<|im_start|>system\nYou are an autonomous driving a...'
+        # -> pooled_kv (共 12 段):
+        #     段 00 | K shape: torch.Size([1, 8, 2255, 128]), V shape: torch.Size([1, 8, 2255, 128])
+
         if is_rank0(rank):
             print(f"[probe] language_kv_input_dim={language_kv_dim}")
     else:
