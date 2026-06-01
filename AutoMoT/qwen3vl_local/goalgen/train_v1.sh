@@ -212,9 +212,12 @@ case "${MODE}" in
         echo "[mode] single"
         export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
         export NPROC_PER_NODE=1
+        # NUM_EPOCHS 默认 2：831k 样本 / GRAD_ACC=4 ≈ 207k optimizer step / epoch
+        # （单卡），DiT 从零训通常 100-200k step 才看到收敛趋势，1 epoch 偏少；
+        # 2 epoch 配合 cosine decay 收尾。想再多就显式 NUM_EPOCHS=3 之类。
         python qwen3vl_local/goalgen/train_v1.py \
             "${COMMON_ARGS[@]}" \
-            --num-epochs "${NUM_EPOCHS:-1}" \
+            --num-epochs "${NUM_EPOCHS:-2}" \
             --grad-accum-steps "${GRAD_ACC:-4}" \
             --logging-steps "${LOGGING_STEPS:-10}"
         ;;
@@ -238,12 +241,15 @@ case "${MODE}" in
         echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
         echo "[gpu] NPROC_PER_NODE=${NPROC_PER_NODE}"
         echo "[ddp] MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT}"
+        # NUM_EPOCHS 默认 2：831k / 4 GPU / GRAD_ACC=4 ≈ 52k optimizer step / epoch；
+        # DiT 从零训通常 100-200k step 才稳定收敛，1 epoch 偏少；2 epoch 给 cosine
+        # decay 留尾段精修。需要更多就显式 NUM_EPOCHS=3 之类。
         torchrun --nproc_per_node="${NPROC_PER_NODE}" \
             --master_addr="${MASTER_ADDR}" \
             --master_port="${MASTER_PORT}" \
             qwen3vl_local/goalgen/train_v1.py \
             "${COMMON_ARGS[@]}" \
-            --num-epochs "${NUM_EPOCHS:-1}" \
+            --num-epochs "${NUM_EPOCHS:-2}" \
             --grad-accum-steps "${GRAD_ACC:-4}" \
             --logging-steps "${LOGGING_STEPS:-10}"
         ;;
