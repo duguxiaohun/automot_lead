@@ -1582,15 +1582,15 @@ eval_sft_v1.py 一处暴露的两个坑，扫了全仓 LoRA 加载 + `max_gen_to
 - `AutoMoT/qwen3vl_local/goalgen/train_v1.py` / `probe_v1.py` / `eval_v1.py` / `qwen3vl_dit_goalgen_runner.py` — `max_gen_tokens=0` 是**故意**的（GoalGen 这条只取 Qwen KV，不需要自由文本，0 是正确值）；挂 LoRA 全都默认 `engine.attach_lora_adapter(merge=True)` ✓
 - `AutoMoT/tools/build_sft_dataset_v2_teacher.py` — CLI 默认 256，不挂 LoRA ✓
 
-### 18.5 v2 loss_scale plugin 段切换字面 mask 是致命陷阱（2026-06-02）
+### 18.5 v2 loss_scale plugin 结构字面 mask 是致命陷阱（2026-06-02）
 
 **症状**：用 v2 7526-step ckpt 跑 eval，5/5 样本输出陷入 `ANALYSIS: <body 1> ANALYSIS: <body 2> ANALYSIS: <body 3> ...` 循环复读，顶到 `max_gen_tokens=512` 都不出 `STATUS:` / `SUBGOAL:`，`pred_status=None / pred_subgoal=None`。训练 loss 顺利下降，自由生成完全失控。
 
-**根因**：v2.0 plugin（commit ef0eb19 之前）照搬 v1 思路，把段切换字面 `\nSTATUS:` / `\nSUBGOAL:` 以及可能进入 plugin context 的末尾 tail/EOS 全部 weight=0 mask 掉，理由是"关键词字面无学习价值"。在 cross-entropy 框架下 weight=0 ⇔ 该位置 next-token-prediction 完全无梯度。v1 时代 ANALYSIS body 是固定占位 `Observations recorded.`（7 token），mask 段切换没事——base 先验在 7 token 后切到 `\n` 是必然的；v2 ANALYSIS body 升到 80-150 token 后，LoRA 学到的"ANALYSIS body 风格"先验在长上下文里累积，没有梯度推它切到 `\n`，自由生成倾向继续写 ANALYSIS。
+**根因**：v2.0 plugin（commit ef0eb19 之前）照搬 v1 思路，把起手字面 `ANALYSIS:`、段切换字面 `\nSTATUS:` / `\nSUBGOAL:` 以及可能进入 plugin context 的末尾 tail/EOS 全部 weight=0 mask 掉，理由是"关键词字面无学习价值"。在 cross-entropy 框架下 weight=0 ⇔ 该位置 next-token-prediction 完全无梯度。v1 时代 ANALYSIS body 是固定占位 `Observations recorded.`（7 token），mask 段切换没事——base 先验在 7 token 后切到 `\n` 是必然的；v2 ANALYSIS body 升到 80-150 token 后，LoRA 学到的"ANALYSIS body 风格"先验在长上下文里累积，没有梯度推它切到 `\n`，自由生成倾向继续写 ANALYSIS；同理，`ANALYSIS:` 起手也不该只赌 base/chat template 先验。
 
-**修法（commit 8afd96f）**：plugin `_split_full` 里 mid1 (`\nSTATUS: `) / mid2 (`\nSUBGOAL: `) / tail 三处 weight 全部 0→1.0。段切换字面一定进 loss；tail/EOS 是否真实出现在训练 context 由 ms-swift chat template / runtime 拼接决定，但一旦进入 plugin context 就必须是 1.0。等效"loss 权重比"：ANALYSIS body 80 token × 0.3 ≈ 24，结构性字面 12 token × 1.0 ≈ 12，tail/EOS 可选约 1，结构占 ~33-35%，刚好足以约束切段。同步更新 [SFT_V2_PLAN.md §5](AutoMoT/tools/SFT_V2_PLAN.md#5-loss-权重设计--sft_v2_loss_scale_pluginpy) 权重表 + 加"段切换字面为什么不能 mask"小节。`check_loss_mask_v2.py` 的 `synthetic tail/EOS sanity` 只验证 plugin 对 tail 的权重规则，不等价于证明 ms-swift runtime 一定把 EOS 传进 context。
+**修法（commit 8afd96f + 后续修订）**：plugin `_split_full` 里 prefix (`ANALYSIS: `) / mid1 (`\nSTATUS: `) / mid2 (`\nSUBGOAL: `) / tail 全部 weight 1.0。起手/段切换结构字面一定进 loss；tail/EOS 是否真实出现在训练 context 由 ms-swift chat template / runtime 拼接决定，但一旦进入 plugin context 就必须是 1.0。等效"loss 权重比"：ANALYSIS body 80 token × 0.3 ≈ 24，结构性字面约 14 token × 1.0 ≈ 14，tail/EOS 可选约 1，结构占 ~36-38%，刚好足以约束三段格式。同步更新 [SFT_V2_PLAN.md §5](AutoMoT/tools/SFT_V2_PLAN.md#5-loss-权重设计--sft_v2_loss_scale_pluginpy) 权重表 + 加"结构字面为什么不能 mask"小节。`check_loss_mask_v2.py` 的 `synthetic tail/EOS sanity` 只验证 plugin 对 tail 的权重规则，不等价于证明 ms-swift runtime 一定把 EOS 传进 context。
 
-**通用原则**：未来再设计 loss_scale 时，**结构性切换字面（标记从一段切换到下一段的 token 序列）必须 weight ≥ 1.0**，只有"字面值无监督价值"的 assistant prefix 起手部分（chat template 强制开始）才能 weight=0。tail/EOS / 末尾换行同理——若它们进入 loss_scale 可见的 assistant context，就属于"决定何时停止"的 token，不能 mask。
+**通用原则**：未来再设计 loss_scale 时，**决定输出格式的结构字面（起手 label、段切换 label、停止 token）必须 weight ≥ 1.0**。不要把 `ANALYSIS:` 这类起手 label 当成"无学习价值"的普通模板文本；它决定模型是否还记得按三段格式开始输出。tail/EOS / 末尾换行同理——若它们进入 loss_scale 可见的 assistant context，就属于"决定何时停止"的 token，不能 mask。
 
 ### 18.6 teacher / student prompt 长度控制（两条腿一起上）
 
