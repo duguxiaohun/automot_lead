@@ -4,8 +4,8 @@
 
 1) ANALYSIS 段正文 token 权重应为 0.3
 2) STATUS / SUBGOAL 的事件名 token 权重应为 1.0
-3) 起手 ANALYSIS: 字面应为 0.0；段切换字面（\nSTATUS: / \nSUBGOAL:）
-   应为 1.0；jsonl 若没有 tail/EOS，脚本会额外合成一个 "\n<eos>" tail
+3) 起手 ANALYSIS: 字面与段切换字面（\nSTATUS: / \nSUBGOAL:）都应为 1.0；
+   jsonl 若没有 tail/EOS，脚本会额外合成一个 "\n<eos>" tail
    检查 plugin 对 tail/EOS 的权重是否为 1.0。注意：synthetic tail 只验证
    plugin 行为，不证明 ms-swift runtime context 一定包含 EOS。
 
@@ -106,9 +106,10 @@ def classify_weights(
     for off in offsets:
         # 对齐 sft_v2_loss_scale_plugin._split_full:
         # [prefix, analysis, mid1, status, mid2, subgoal, tail]
-        # -> [0.0, 0.3, 1.0, 1.0, 1.0, 1.0, 1.0]
+        # -> [1.0, 0.3, 1.0, 1.0, 1.0, 1.0, 1.0]
         if (
-            overlap(off, ranges["mid1"])
+            overlap(off, ranges["prefix"])
+            or overlap(off, ranges["mid1"])
             or overlap(off, ranges["status"])
             or overlap(off, ranges["mid2"])
             or overlap(off, ranges["subgoal"])
@@ -208,15 +209,14 @@ def print_plugin_check(text: str) -> None:
 
     # 字面检查（2026-06-02 修订，对齐 plugin 段切换权重升级）：
     #
-    #   "ANALYSIS:" —— assistant prefix 起手字面，仍 mask（weight=0）；in_loss=True 才报警。
-    #   "STATUS:" / "SUBGOAL:" —— 段切换字面前面带 "\n"，现在 weight=1.0；预期 in_loss=True，
-    #                           只有当它们落到 mask 段（in_mask=True）才报警。
+    #   "ANALYSIS:" / "STATUS:" / "SUBGOAL:" 都是输出结构字面，现在 weight=1.0；
+    #   预期 in_loss=True，只有当它们落到 mask 段（in_mask=True）才报警。
     #
-    # 历史踩坑：v2.0 plugin 把段切换字面 mask=0，自由生成陷入 "ANALYSIS×N 循环复读"，
+    # 历史踩坑：v2.0 plugin 把结构字面 mask=0，自由生成陷入 "ANALYSIS×N 循环复读"，
     # 详见 PROJECT_CONTEXT.md §18.5。
     LITERAL_CHECKS = (
         # (字面, 预期 in_loss, 不符合时的 WARN 消息)
-        ("ANALYSIS:", False, "字面 'ANALYSIS:' 不应进入 loss（assistant prefix 起手，weight=0）"),
+        ("ANALYSIS:", True,  "字面 'ANALYSIS:' 应该进入 loss（起手结构字面 weight=1.0）"),
         ("STATUS:",   True,  "字面 'STATUS:' 应该进入 loss（段切换字面 weight=1.0，2026-06-02 修订）"),
         ("SUBGOAL:",  True,  "字面 'SUBGOAL:' 应该进入 loss（段切换字面 weight=1.0，2026-06-02 修订）"),
     )
@@ -352,8 +352,8 @@ def main() -> None:
         print("[WARN] 权重 1.0 token 太少（<2），事件名可能被切错")
     if stat["n_w03"] < 3:
         print("[WARN] 权重 0.3 token 太少（<3），ANALYSIS 正文可能没被纳入监督")
-    if stat["n_w0"] < 1:
-        print("[WARN] 权重 0.0 token 太少，起手 ANALYSIS: prefix 可能误入监督")
+    if stat["n_w0"] > 0:
+        print("[WARN] 完整三段样本里仍出现 W0.0 token，请确认是否有预期外前缀/空白被 mask")
 
     print_plugin_check(assistant)
     print_synthetic_eos_check(assistant, tokenizer)
