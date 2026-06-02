@@ -23,13 +23,10 @@
 >
 > ```bash
 > rm -rf checkpoints/sft_v2_data_pending
-> # 同时必须清掉旧 runtime teacher cache，否则下次启动会默认复用旧 teacher 文本：
-> rm -rf checkpoints/sft_v2_lora/runtime_teacher_data
-> # 或者用 RUNTIME_TEACHER_REFRESH=1 让 sft_v2_train.sh 启动时自动清并重跑：
-> # RUNTIME_TEACHER_REFRESH=1 bash tools/sft_v2_train.sh ddp
 > ```
 >
-> 然后从 §1 重新跑。
+> 然后从 §1 重新跑。`sft_v2_train.sh` 默认 `RUNTIME_TEACHER_REFRESH=1`，下次启动
+> 会自动清掉 `runtime_teacher_data/` 重跑 teacher，无需手动删 runtime cache。
 
 ---
 
@@ -89,19 +86,17 @@ print(repr(r['messages'][2]['content']))
 **默认不要长期维护写死 ANALYSIS 的训练集。**
 
 v2 的长期数据集是 `checkpoints/sft_v2_data_pending/`：里面只保存图像、MEMORY、
-STATUS/SUBGOAL 与 `__TEACHER_PENDING__` 占位。冻结 teacher 在两种场景现场推理：
+STATUS/SUBGOAL 与 `__TEACHER_PENDING__` 占位。冻结 teacher 只在两种场景现场推理：
 
 - 训练前预览：少量样本，确认 teacher 输出是否符合预期，不写训练 jsonl。
-- 训练启动时自动 bulk 物化：`bash tools/sft_v2_train.sh single|ddp|check` 看到
-  `TRAIN_JSONL` 是 `v2_pending` 且 `runtime_teacher_data/` 还没有可复用的
-  `dataset_version == "v2"` jsonl 时，会自动调用 `build_sft_dataset_v2_teacher.py`
-  跑一份临时 runtime jsonl，默认写到
-  `checkpoints/sft_v2_lora/runtime_teacher_data/`（check 模式写到 `runtime_teacher_check_data/`），
-  完成后才进 swift sft。已存在 runtime cache 时默认直接复用，不会重复 100 min；
-  想强制重跑（例如 prompt / keyframes 改过）显式 `RUNTIME_TEACHER_REFRESH=1`。
+- 训练启动时：`sft_v2_train.sh` 检测到 `dataset_version == "v2_pending"` 后，自动调用
+  `build_sft_dataset_v2_teacher.py` 生成临时 runtime jsonl，默认写到
+  `checkpoints/sft_v2_lora/runtime_teacher_data/`，再把这份 runtime jsonl 交给 ms-swift。
+  默认 `RUNTIME_TEACHER_REFRESH=1` → 每次启动都清旧 cache 重跑，与当前 prompt / keyframes
+  保持一致；只有续跑同一份 pending 的中断任务时才设 `RUNTIME_TEACHER_REFRESH=0`。
 
-说明：ms-swift 训练入口需要 jsonl 文件，所以这里的"实时"实现为"启动时 bulk 物化
-一份 runtime jsonl"，而不是逐 step 现场跑 teacher。pending 源数据不会被回写。
+说明：ms-swift 训练入口需要 jsonl 文件，所以这里的"实时"是训练启动时临时物化 teacher
+真值，不是每个 batch 在线调用 teacher；pending 源数据不会被回写。
 
 ### 2.1 训练前 teacher 预览（不写训练集，推荐先跑）
 
@@ -386,13 +381,9 @@ python tools/inspect_teacher_outputs.py \
 bash tools/sft_v2_train.sh check
 ```
 
-与 v1 一样，2 step、不保存 ckpt、不跑 val。check 模式会自动从 pending 数据生成最多
-32 条 runtime teacher 样本；默认写到 `checkpoints/sft_v2_lora/runtime_teacher_check_data/`，
-不会覆盖正式训练用的 `runtime_teacher_data/`，也不会改写 pending 数据集。
-
-> check 模式默认 `RUNTIME_TEACHER_REFRESH=1`（与 single/ddp 默认 0 不同），每次都会清掉
-> 上一次 32 条小样本并重跑，确保 sanity 看到的是当前最新 prompt / plugin 的 teacher 输出。
-> 如果你确实想反复跑 check 复用同一份 32 条 sanity，显式 `RUNTIME_TEACHER_REFRESH=0 bash tools/sft_v2_train.sh check`。
+与 v1 一样，2 step、不保存 ckpt、不跑 val。check 模式会自动从 pending 数据物化最多
+32 条 runtime teacher 样本到 `checkpoints/sft_v2_lora/runtime_teacher_data/`（默认
+`RUNTIME_TEACHER_REFRESH=1` 会先清旧 cache），然后跑 2 step。pending 数据集不会被改写。
 
 **预期 loss 数值**（健康范围，**2026-06-02 修订**：plugin 升级后结构字面进 loss，effective 监督 token 从 v2.0 的 ~30 升到 ~44-45，loss 数值会略偏高；EOS 是否额外计入以 ms-swift runtime context 为准）：
 
@@ -452,26 +443,17 @@ SFT_RESPECT_CUDA_VISIBLE_DEVICES=1 DDP_GPU_COUNT=4 bash tools/sft_v2_train.sh dd
 CUDA_VISIBLE_DEVICES=2,5,6,7 bash tools/sft_v2_train.sh ddp
 ```
 
-正式训练对 teacher 物化的处理（**启动时自动 bulk 物化**）：
-
-- 如果 `checkpoints/sft_v2_lora/runtime_teacher_data/train.jsonl` 和 `val.jsonl` 已经存在，
-  且第一行 `dataset_version == "v2"`，脚本直接复用这份 runtime jsonl 训练，
-  不会重复 100 min teacher 全量推理。
-- 如果只有 pending jsonl、没有可复用 runtime jsonl，脚本会自动调用
-  `build_sft_dataset_v2_teacher.py` 跑一份完整 runtime jsonl（约 100 min/8 卡），
-  完成后才进 swift sft；中途不需要任何 opt-in flag。
-- `check` 模式仍只小样本物化最多 32 条，只用于 sanity；默认写到
-  `runtime_teacher_check_data/`，不跑全集，也不覆盖正式 runtime cache。
-
-如果 prompt / keyframes 改过、想丢弃旧 runtime cache 强制重跑 teacher，显式：
+正式训练第一步会先把 `checkpoints/sft_v2_data_pending/` 临时物化到
+`checkpoints/sft_v2_lora/runtime_teacher_data/`，再把这份 runtime jsonl 交给 ms-swift。
+默认 `RUNTIME_TEACHER_REFRESH=1` → 每次启动都会刷新 runtime cache，避免 keyframes /
+prompt 改了之后复用旧 teacher 文本。如果上次 teacher 物化中断、想续跑同一份 pending，可显式：
 
 ```bash
-RUNTIME_TEACHER_REFRESH=1 DDP_GPU_COUNT=2 bash tools/sft_v2_train.sh ddp
+RUNTIME_TEACHER_REFRESH=0 bash tools/sft_v2_train.sh ddp
 ```
 
-`RUNTIME_TEACHER_REFRESH` 默认 0 = 已有 cache 时复用；设 1 才会清掉旧 runtime jsonl
-并重新跑 teacher。teacher 物化本身天然支持断点续跑（见 PLAN §4.3），所以即便
-上次 100 min 中途断了，下一次默认（REFRESH=0）就会基于已落盘的 rank 分片续完。
+teacher 物化本身天然支持断点续跑（rank 分片 + 每 100 条 flush），所以 REFRESH=0 时
+下一次启动会基于已落盘的 rank 分片续完。
 
 **预期**：
 - teacher runtime 物化：8 卡约 100 分钟，单卡小样本 check 约 1–2 分钟；
