@@ -1509,7 +1509,8 @@ SFT v2 不再把冻结 teacher 生成的 ANALYSIS 作为长期维护数据集写
   现场调用冻结 teacher，并把网页预览写到 inspect 目录；不改训练 jsonl。
 - 正式训练：`tools/sft_v2_train.sh` 检测到 `v2_pending` 后，**先看 runtime cache 是否
   完整**（`RUNTIME_TEACHER_DIR` 默认 `checkpoints/sft_v2_lora/runtime_teacher_data/`
-  下的 `train.jsonl` + `val.jsonl` 都存在 + 第一行 `dataset_version == "v2"`）：
+  下的 `manifest.json` 存在 + `train.jsonl` / `val.jsonl` 第一行 `dataset_version == "v2"` +
+  manifest 记录的 `max_samples==0` + pending/runtime 行数与当前实际 jsonl 行数严格匹配）：
   - 有完整 cache → 秒进训练，跳过物化。**GPU 数无关**：2 卡产的 cache 切到 4 卡 / 8 卡
     启动都能直接复用，不需要任何额外参数。
   - 没完整 cache → 自动调用 `tools/build_sft_dataset_v2_teacher.py` 全量物化
@@ -1525,6 +1526,17 @@ SFT v2 不再把冻结 teacher 生成的 ANALYSIS 作为长期维护数据集写
 由于 ms-swift 训练入口读取 jsonl，当前"实时 teacher 真值"实现为"首次启动一次性物化
 + 之后任意卡数复用同一份 runtime jsonl"，不是每个 mini-batch 在线调用 teacher；
 pending 源数据仍然可随 keyframes / prompt 改动重新生成，且不会被 teacher 回写。
+
+**Cache 完整性靠 `manifest.json` 保护**（2026-06-02 加固）：早期版本只看
+`train.jsonl` / `val.jsonl` 是否非空 + 第一行 `dataset_version == "v2"`，挡不住
+旧版 check 写到正式目录的 32 条小样本、`RUNTIME_TEACHER_MAX_SAMPLES=N` 调试残留、
+或 train 完整但 val 只写一半的中断状态。现在 `build_sft_dataset_v2_teacher.py`
+在 rank0 + `--max-samples 0` 全集跑完 + pending/runtime 行数严格相等时，才写
+`manifest.json`（schema_version=1，含 pending/runtime 行数 + model_dir + seed +
+completed_at）；`sft_v2_train.sh runtime_teacher_pair_is_ready()` 强校验 manifest
+存在 + 五项行数完全对得上才接受复用。任何不满足的 cache 自动重新物化。
+**升级提示**：升级前的旧 cache 没有 manifest，下次启动会被强制重物化一次；之后
+正常无脑复用。
 
 ## 18. SFT v2 eval 端两个工程坑（2026-06-02 实测）
 

@@ -209,16 +209,64 @@ with open(path, "r", encoding="utf-8") as f:
 ' "${path}"
 }
 
-# 检测 runtime cache 是否完整可复用：train.jsonl + val.jsonl 都存在、非空、
-# 且第一行 dataset_version == "v2"。GPU 数无关。
+# 检测 runtime cache 是否完整可复用。GPU 数无关。
+# 强校验：必须有 manifest.json，且 manifest 记录的 pending/runtime 行数与当前实际
+# 文件行数严格匹配。manifest 由 build_sft_dataset_v2_teacher.py 在"全集跑完
+# (max_samples==0) + train+val 都跑了 + runtime 行数等于 pending 行数"时才写入，
+# 所以 32 条 debug cache / 半截 val / skip-train 部分跑都不会通过校验。
 runtime_teacher_pair_is_ready() {
     local train_path="${RUNTIME_TEACHER_DIR}/train.jsonl"
     local val_path="${RUNTIME_TEACHER_DIR}/val.jsonl"
+    local manifest_path="${RUNTIME_TEACHER_DIR}/manifest.json"
 
-    [[ -s "${train_path}" && -s "${val_path}" ]] || return 1
+    [[ -s "${train_path}" && -s "${val_path}" && -s "${manifest_path}" ]] || return 1
     [[ "$(jsonl_dataset_version "${train_path}")" == "v2" ]] || return 1
     [[ "$(jsonl_dataset_version "${val_path}")" == "v2" ]] || return 1
-    return 0
+
+    # python 一次性把所有校验做完，避免反复 shell-out。
+    # 校验项：
+    #   - manifest.max_samples == 0
+    #   - manifest.runtime_train_rows == actual lines in runtime/train.jsonl
+    #   - manifest.runtime_val_rows   == actual lines in runtime/val.jsonl
+    #   - manifest.pending_train_rows == actual lines in pending/train.jsonl
+    #   - manifest.pending_val_rows   == actual lines in pending/val.jsonl
+    # 任一失败 → return 1。
+    python - "$manifest_path" "$train_path" "$val_path" \
+        "$(dirname "${TRAIN_JSONL}")/train.jsonl" \
+        "$(dirname "${TRAIN_JSONL}")/val.jsonl" <<'PY' || return 1
+import json, sys, pathlib
+mf_path, rt_train, rt_val, pd_train, pd_val = (pathlib.Path(p) for p in sys.argv[1:6])
+try:
+    mf = json.loads(mf_path.read_text(encoding="utf-8"))
+except Exception as e:
+    print(f"[reuse-check] manifest parse fail: {e}")
+    sys.exit(1)
+if int(mf.get("max_samples", -1)) != 0:
+    print(f"[reuse-check] reject: manifest.max_samples={mf.get('max_samples')} (need 0)")
+    sys.exit(1)
+def count(p):
+    if not p.exists():
+        return -1
+    n = 0
+    with open(p, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                n += 1
+    return n
+rt_train_n, rt_val_n = count(rt_train), count(rt_val)
+pd_train_n, pd_val_n = count(pd_train), count(pd_val)
+checks = {
+    "runtime_train_rows": (mf.get("runtime_train_rows"), rt_train_n),
+    "runtime_val_rows":   (mf.get("runtime_val_rows"),   rt_val_n),
+    "pending_train_rows": (mf.get("pending_train_rows"), pd_train_n),
+    "pending_val_rows":   (mf.get("pending_val_rows"),   pd_val_n),
+}
+for key, (mf_val, actual) in checks.items():
+    if mf_val != actual:
+        print(f"[reuse-check] reject: {key} manifest={mf_val} actual={actual}")
+        sys.exit(1)
+sys.exit(0)
+PY
 }
 
 materialize_runtime_teacher_if_needed() {
@@ -262,6 +310,7 @@ materialize_runtime_teacher_if_needed() {
             "${RUNTIME_TEACHER_DIR}/train.jsonl" \
             "${RUNTIME_TEACHER_DIR}/val.jsonl" \
             "${RUNTIME_TEACHER_DIR}/stats.json" \
+            "${RUNTIME_TEACHER_DIR}/manifest.json" \
             "${RUNTIME_TEACHER_DIR}"/train.jsonl.rank* \
             "${RUNTIME_TEACHER_DIR}"/val.jsonl.rank*
     else
@@ -282,6 +331,13 @@ materialize_runtime_teacher_if_needed() {
         teacher_args+=(--max-samples "${RUNTIME_TEACHER_MAX_SAMPLES:-32}")
     elif [[ -n "${RUNTIME_TEACHER_MAX_SAMPLES:-}" && "${RUNTIME_TEACHER_MAX_SAMPLES}" != "0" ]]; then
         teacher_args+=(--max-samples "${RUNTIME_TEACHER_MAX_SAMPLES}")
+        # 警告：sample-limited 跑不会写 manifest，下次 sft_v2_train.sh 启动会拒绝复用、
+        # 重新跑 teacher。debug 场景请改用 build_sft_dataset_v2_teacher.py 直接调用 +
+        # --output-dir 指向独立的 debug 目录（详见 SFT_V2_RUN.md §2.2）。
+        echo "[teacher][warn] RUNTIME_TEACHER_MAX_SAMPLES=${RUNTIME_TEACHER_MAX_SAMPLES} in ${MODE} mode" >&2
+        echo "[teacher][warn]   - this run will NOT write manifest.json" >&2
+        echo "[teacher][warn]   - the resulting cache in ${RUNTIME_TEACHER_DIR} is NOT reusable by next launch" >&2
+        echo "[teacher][warn]   - consider running build_sft_dataset_v2_teacher.py with --output-dir <debug-dir> instead" >&2
     fi
 
     if [[ "${MODE}" == "ddp" && "${NPROC_PER_NODE}" -gt 1 ]]; then

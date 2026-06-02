@@ -128,9 +128,14 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
 1. `lstrip("ANALYSIS:")` + `strip()` — 兜底去掉可能的前缀。
 2. 截断到第一个 `\nSTATUS:` / `\nSUBGOAL:` / `\n\n` 之前 — 防 teacher 自作主张续写。
 3. 把剩余的 `\n` 替换为空格 — 强制单行。
-4. 截断到最长 480 字符 — 防个别样本 teacher 跑飞拉长 jsonl。
-5. 如果空白后剩余 < 20 字符（teacher 输出垮了）→ 兜底用 `"Observations recorded."` 占位，
-   并在 `teacher_meta.fallback=true` 里 mark，便于事后排查比例。
+4. 截断到最长 420 字符（约 70 词），在句号 / 问号 / 感叹号边界优雅截，
+   退化为词边界 — 防个别样本 teacher 跑飞拉长 jsonl。
+5. 如果空白后剩余 < 80 字符（约 12 词，teacher 输出垮了或只剩一句结论）→
+   兜底用 `"Observations recorded."` 占位，并在 `teacher_meta.fallback=true` 里 mark，
+   便于事后排查比例。上下限同时收紧的目的：teacher prompt 里的 "40-70 words" 是 nudge，
+   postprocess 是外部 enforce，双保险才稳。详见
+   [`build_sft_dataset_v2_teacher.py:_postprocess`](build_sft_dataset_v2_teacher.py)
+   常量 `_MAX_ANALYSIS_CHARS=420 / _MIN_ANALYSIS_CHARS=80`。
 
 ---
 
@@ -178,8 +183,12 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
 
 - 如果 `dataset_version == "v2_pending"`：
   - 看 `RUNTIME_TEACHER_DIR`（默认 `checkpoints/sft_v2_lora/runtime_teacher_data/`）
-    下有没有完整 cache（`train.jsonl` + `val.jsonl` 都存在 + 第一行
-    `dataset_version == "v2"`）。
+    下有没有完整 cache。**完整性强校验**：`manifest.json` 存在 + 第一行
+    `dataset_version == "v2"` + manifest 记录的 `max_samples==0` + pending/runtime
+    行数与当前实际 jsonl 行数严格匹配。manifest 由 `build_sft_dataset_v2_teacher.py`
+    在"全集跑完 + train/val 都跑了 + 行数对得上"时才写入；32 条 debug cache、
+    半截 val、`--max-samples N` 跑出来的小样本一律不写 manifest，所以一律不会被
+    误当成完整 cache 复用。
   - **有完整 cache → 直接复用**（GPU 数无关：2 卡产的 cache 切 4 卡 / 8 卡都能直接用），
     跳过 100 min 物化，秒进 swift sft。
   - 没完整 cache → 自动调用 `build_sft_dataset_v2_teacher.py`，把 teacher ANALYSIS
