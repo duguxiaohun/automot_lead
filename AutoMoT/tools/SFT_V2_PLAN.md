@@ -176,19 +176,21 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
 默认训练入口是 `bash tools/sft_v2_train.sh ddp|single|check`。它会先读取
 `TRAIN_JSONL` 第一条样本：
 
-- 如果 `dataset_version == "v2_pending"`：正式 `single/ddp` 默认**不会**自动全量调用
-  `build_sft_dataset_v2_teacher.py`，防止一个普通训练命令意外开始跑全集 teacher。
-  - 若 `RUNTIME_TEACHER_DIR`（默认 `checkpoints/sft_v2_lora/runtime_teacher_data/`）
-    下已有完整 `dataset_version == "v2"` 的 `train.jsonl` / `val.jsonl`，脚本直接复用。
-  - 若没有可复用 runtime 数据，脚本会退出并提示显式加
-    `RUNTIME_TEACHER_MATERIALIZE=1` 才生成/刷新 runtime teacher 数据。
-  - `check` 模式例外：只物化最多 32 条小样本用于 sanity，默认写到
+- 如果 `dataset_version == "v2_pending"`：脚本**启动时自动 bulk 物化** runtime teacher
+  jsonl 到 `RUNTIME_TEACHER_DIR`（默认 `checkpoints/sft_v2_lora/runtime_teacher_data/`），
+  然后再进 swift sft。整个过程不需要显式 opt-in flag。
+  - 若 `RUNTIME_TEACHER_DIR` 下已有完整 `dataset_version == "v2"` 的 `train.jsonl` /
+    `val.jsonl`，脚本直接复用，跳过 100 min 全量物化。
+  - 若没有可复用 runtime 数据，脚本会自动调用 `build_sft_dataset_v2_teacher.py`
+    跑一份完整 runtime jsonl，落盘到 `RUNTIME_TEACHER_DIR`，pending 源数据不被修改。
+  - `check` 模式只物化最多 32 条小样本用于 sanity，默认写到
     `runtime_teacher_check_data/`，不跑全集也不覆盖正式 runtime cache。
 - 如果 `dataset_version == "v2"`：说明用户显式传入了已物化 jsonl，训练脚本直接使用。
 
-显式 `RUNTIME_TEACHER_MATERIALIZE=1` 时，默认 `RUNTIME_TEACHER_REFRESH=1` 会刷新 runtime
-teacher cache，避免 keyframes / prompt 改动后复用旧 ANALYSIS。只有明确要续跑同一份
-pending 的中断物化任务时，才设 `RUNTIME_TEACHER_REFRESH=0`。
+默认 `RUNTIME_TEACHER_REFRESH=0` = 已有 runtime cache 时直接复用；显式
+`RUNTIME_TEACHER_REFRESH=1` 会清掉旧 runtime jsonl 并强制重跑 teacher，用于 keyframes /
+prompt 改过、必须丢弃旧 ANALYSIS 的场景。teacher 物化本身支持断点续跑
+（详见下文 step 3 与 step 4），所以上次 100 min 中途断了，下一次默认就会续完。
 
 `build_sft_dataset_v2_teacher.py` 输入 pending jsonl，流程：
 
@@ -206,8 +208,8 @@ pending 的中断物化任务时，才设 `RUNTIME_TEACHER_REFRESH=0`。
    的样本，各自落盘到 `train.jsonl.rank<R>`；最后 rank0 合并。
 
 预计耗时：14400 train + 1600 val ≈ 16000 样本 × 3 秒/样本 ÷ 8 卡 ≈ 100 分钟。
-这一步是显式 opt-in 的 runtime 缓存，不再要求用户维护 `checkpoints/sft_v2_data/`
-这种固定 teacher 数据集，也不会回写长期 pending 数据集。
+这一步是训练启动时自动落盘的 runtime 缓存，不再要求用户维护 `checkpoints/sft_v2_data/`
+这种固定 teacher 数据集，也不会回写长期 pending 数据集；下次启动若 cache 仍在则复用。
 
 ### 4.4 student GT 拼接位置
 
