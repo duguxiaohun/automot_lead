@@ -19,14 +19,14 @@
 # 8 卡分片跑全集（约 100 分钟）
 torchrun --standalone --nproc_per_node=8 tools/build_sft_dataset_v2_teacher.py \\
     --pending-dir checkpoints/sft_v2_data_pending \\
-    --output-dir checkpoints/sft_v2_data \\
+    --output-dir checkpoints/sft_v2_runtime_debug \\
     --model-dir checkpoints/Qwen3-VL-4B-Instruct \\
     --seed 20260601
 
 # 单卡调试，前 32 条（自动挑 1 张空闲 GPU）
 python tools/build_sft_dataset_v2_teacher.py \\
     --pending-dir checkpoints/sft_v2_data_pending \\
-    --output-dir checkpoints/sft_v2_data \\
+    --output-dir checkpoints/sft_v2_runtime_debug \\
     --max-samples 32
 ```
 """
