@@ -16,8 +16,8 @@
   ``ANALYSIS:<clean>\\nSTATUS:`` 喂回 engine 续解段（详见 PROJECT_CONTEXT.md §18.7）。
   健康 LoRA 上不会触发、无开销；不健康 LoRA 上每个失败样本会多跑 2 次 forward。
   ``--no-fallback`` 关掉看 first-pass 真实表现，与 anchor12 sanity 视角一致。
-  metrics.json 带 ``fallback_count`` / ``fallback_rate``，stdout 末尾会高亮一行
-  ``[eval] partial-continue fallback: used=N/M (X%)``，0 即"LoRA 自己出完整三段，健康"。
+  metrics.json 带 ``fallback_count`` / ``fallback_rate`` / ``fallback_success_count``，
+  stdout 末尾会高亮一行 ``attempted=N/M``，0 即"LoRA 自己出完整三段，健康"。
 
 四个核心指标（与 tools/SFT_V1_PLAN.md §8 一致；含义见 metrics.json["_metric_doc"]）：
   - keep_accuracy:      保持类样本 STATUS == GT 的比例（越大越好）
@@ -87,11 +87,12 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
 from collections import Counter, defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
 _AUTOMOT_ROOT = _THIS_FILE.parents[1]
@@ -394,12 +395,25 @@ _FALLBACK_MAX_ANALYSIS_CHARS = 400
 
 def _truncate_to_clean_analysis(raw_text: str, max_chars: int = _FALLBACK_MAX_ANALYSIS_CHARS) -> str:
     """raw_text 模型循环复读时可能是 ``ANA body ... ANALYSIS: ANA body 2 ...``。
-    截到首次出现的第二段 ``ANALYSIS:`` 之前，再按句号边界截到 max_chars。
+    截到首次出现的第二段 ``ANALYSIS:`` 或 ``STATUS/SUBGOAL`` 段标记之前，
+    再按句号边界截到 max_chars。
     """
     text = raw_text
-    idx = text.find("\nANALYSIS:")
-    if idx > 0:
-        text = text[:idx]
+    first = re.search(r"^\s*ANALYSIS\s*:", text, flags=re.IGNORECASE)
+    start = first.end() if first else 0
+    body_tail = text[start:]
+    cut_points = []
+    repeat = re.search(r"(?:\n|\s)ANALYSIS\s*:", body_tail, flags=re.IGNORECASE)
+    if repeat is not None:
+        cut_points.append(start + repeat.start())
+    marker = re.search(r"\n\s*(?:STATUS|SUBGOAL)\s*:", body_tail, flags=re.IGNORECASE)
+    if marker is not None:
+        cut_points.append(start + marker.start())
+    inline_marker = re.search(r"\s(?:STATUS|SUBGOAL)\s*:", body_tail, flags=re.IGNORECASE)
+    if inline_marker is not None:
+        cut_points.append(start + inline_marker.start())
+    if cut_points:
+        text = text[: min(cut_points)]
     if len(text) > max_chars:
         window = text[:max_chars]
         best = -1
@@ -415,20 +429,49 @@ def _truncate_to_clean_analysis(raw_text: str, max_chars: int = _FALLBACK_MAX_AN
     return text.rstrip()
 
 
-def _parse_event_name(continuation: str) -> Optional[str]:
-    """从模型续解的文本中取首个 event_name token。
+def _normalize_event_name(text: Optional[str], valid_events: Sequence[str]) -> Optional[str]:
+    """从短文本开头取第一个合法 event_name。
+
+    模型有时会续解成 ``hazard_detect.``、``STATUS: hazard_detect``，甚至多吐
+    一点解释文字。这里不信任自由文本，只接受当前 scenario EVENT_SEQUENCE 内的首个
+    word token；常见句末标点会被自然剥离。
+    """
+    if not text:
+        return None
+    valid = set(valid_events)
+    cleaned = text.strip()
+    cleaned = re.sub(r"^(?:STATUS|SUBGOAL)\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+    m = re.match(r"[A-Za-z0-9_]+", cleaned)
+    if not m:
+        return None
+    token = m.group(0)
+    return token if token in valid else None
+
+
+def _parse_event_name(
+    continuation: str,
+    valid_events: Sequence[str],
+    expected_label: Optional[str] = None,
+) -> Optional[str]:
+    """从模型续解的文本中取首段 word chars 作为候选 event_name。
 
     续解返回的文本一般形如 ``" hazard_detect\\nSUBGOAL: ..."`` 或 ``"hazard_detect"``。
-    截到第一个换行 / 段切换字面 / 空格之前，再 strip 掉残留标点。
+    截到第一个换行 / 段切换字面之前，再只接受当前 scenario 的 EVENT_SEQUENCE 内
+    token，避免把 ``The`` / ``None`` / 错段 label 这类续解废 token 当成有效预测。
     """
     cleaned = continuation.strip()
-    for stop in ("\nSUBGOAL", "\nSTATUS", "\n", " "):
+    label = re.match(r"^(STATUS|SUBGOAL)\s*:\s*", cleaned, flags=re.IGNORECASE)
+    if label is not None:
+        got = label.group(1).upper()
+        if expected_label and got != expected_label.upper():
+            return None
+        cleaned = cleaned[label.end():]
+    for stop in ("\nSUBGOAL", "\nSTATUS", "\n"):
         idx = cleaned.find(stop)
-        if idx > 0:
+        if idx >= 0:
             cleaned = cleaned[:idx]
             break
-    cleaned = cleaned.strip(" :\t\n")
-    return cleaned if cleaned else None
+    return _normalize_event_name(cleaned, valid_events)
 
 
 def _continue_partial(
@@ -465,13 +508,13 @@ def predict_full(
 
     自动 partial-continue fallback（``enable_fallback=True``）：first-pass 输出缺 STATUS
     或 SUBGOAL 时（典型场景 = v2 plugin bug 期间训出的 ckpt 陷入 ANALYSIS 循环），
-    自动拼 partial ``ANALYSIS:<clean>\\nSTATUS:`` 喂回 engine 续解；拿到 STATUS
-    后再拼 ``+ <status>\\nSUBGOAL:`` 续解 SUBGOAL。重组后的 raw_text 是干净的三段
-    格式。parsed["fallback"] 记录是否触发以及哪几段是续解出来的，方便人工 review。
+    先复用 first-pass 中已经合法的 STATUS/SUBGOAL，只对缺失段拼 partial 续解。
+    重组后的 raw_text 是干净的三段格式。parsed["fallback"] 记录是否触发以及
+    哪几段是续解 / 复用出来的，方便人工 review。
 
     ``enable_fallback=False`` 时跳过续解，直接返回 first-pass 的 raw_text 与解析
     结果（缺段就让 parsed.status/subgoal 维持 None），用于诊断 LoRA 自身的真实
-    表现。fallback_info["used"] 此时永远为 False，stages=["disabled"]。
+    表现。fallback_info["attempted"] 此时永远为 False，stages=["disabled"]。
     """
     pieces = reconstruct_prompts(sample)
     pil_images = images_loader(pieces["images"])
@@ -482,49 +525,80 @@ def predict_full(
         cache_dir=None,
     )
     parsed = parse_vlm_output(raw_text)
+    first_pass_raw_text = raw_text
 
-    fallback_info: Dict[str, Any] = {"used": False, "stages": []}
+    fallback_info: Dict[str, Any] = {
+        "attempted": False,
+        "succeeded": False,
+        "used": False,  # backward-compatible alias for succeeded
+        "stages": [],
+    }
     if not enable_fallback:
         # 显式禁用兜底——把状态留 None，让上层 metrics 看到 first-pass 真实命中率。
         fallback_info["stages"].append("disabled")
+        fallback_info["first_pass_raw_text"] = first_pass_raw_text
         parsed["fallback"] = fallback_info
         return raw_text, parsed
 
     if parsed.get("status") is None or parsed.get("subgoal") is None:
-        # 1) 截掉循环复读的多余段，确保 partial 里只有干净的第一段 ANALYSIS。
-        analysis_body = _truncate_to_clean_analysis(raw_text)
+        fallback_info["attempted"] = True
+        fallback_info["first_pass_raw_text"] = first_pass_raw_text
+        try:
+            valid_events = get_full_sequence(str(sample.get("scenario", "")))
+        except Exception:
+            valid_events = tuple()
+
+        # 1) 优先使用 parser 已经抽出的 ANALYSIS body。不要直接拿 raw_text 当
+        # partial，否则 first-pass 已有 STATUS 但缺 SUBGOAL 时会构造出双 STATUS。
+        analysis_body = parsed.get("analysis") or _truncate_to_clean_analysis(raw_text)
         if analysis_body.lstrip().upper().startswith("ANALYSIS:"):
-            partial_status = f"{analysis_body}\nSTATUS:"
+            analysis_line = analysis_body.strip()
         else:
-            partial_status = f"ANALYSIS: {analysis_body}\nSTATUS:"
+            analysis_line = f"ANALYSIS: {analysis_body.strip()}"
 
-        # 2) 续解 STATUS event_name。
-        status_cont = _continue_partial(engine, pieces, pil_images, partial_status)
-        status_event = _parse_event_name(status_cont) if status_cont else None
+        # 2) first-pass 已有合法 STATUS 时直接复用，只补缺失 SUBGOAL；
+        # 否则才续解 STATUS。
+        status_event = _normalize_event_name(parsed.get("status"), valid_events)
+        partial_status = f"{analysis_line}\nSTATUS:"
+        fallback_info["partial_status"] = partial_status
         if status_event:
-            fallback_info["used"] = True
-            fallback_info["stages"].append("status")
+            fallback_info["stages"].append("status_reused")
         else:
-            fallback_info["stages"].append("status_failed")
+            status_cont = _continue_partial(engine, pieces, pil_images, partial_status)
+            fallback_info["status_continuation"] = status_cont
+            status_event = _parse_event_name(status_cont, valid_events, expected_label="STATUS") if status_cont else None
+            if status_event:
+                fallback_info["stages"].append("status")
+            else:
+                fallback_info["stages"].append("status_failed")
 
-        # 3) 续解 SUBGOAL event_name（前提是 STATUS 拿到了）。
+        # 3) first-pass 已有合法 SUBGOAL 时也复用；否则在 STATUS 已知时续解 SUBGOAL。
         subgoal_event: Optional[str] = None
         if status_event:
-            partial_subgoal = f"{partial_status} {status_event}\nSUBGOAL:"
-            subgoal_cont = _continue_partial(engine, pieces, pil_images, partial_subgoal)
-            subgoal_event = _parse_event_name(subgoal_cont) if subgoal_cont else None
+            subgoal_event = _normalize_event_name(parsed.get("subgoal"), valid_events)
             if subgoal_event:
-                fallback_info["stages"].append("subgoal")
+                fallback_info["stages"].append("subgoal_reused")
             else:
-                fallback_info["stages"].append("subgoal_failed")
+                partial_subgoal = f"{partial_status} {status_event}\nSUBGOAL:"
+                fallback_info["partial_subgoal"] = partial_subgoal
+                subgoal_cont = _continue_partial(engine, pieces, pil_images, partial_subgoal)
+                fallback_info["subgoal_continuation"] = subgoal_cont
+                subgoal_event = _parse_event_name(subgoal_cont, valid_events, expected_label="SUBGOAL") if subgoal_cont else None
+                if subgoal_event:
+                    fallback_info["stages"].append("subgoal")
+                else:
+                    fallback_info["stages"].append("subgoal_failed")
 
         # 4) 重组 raw_text + 重新 parse。任意一段 fallback 失败，那段会缺失。
         if status_event:
-            rebuilt = f"{partial_status} {status_event}"
+            rebuilt = f"{analysis_line}\nSTATUS: {status_event}"
             if subgoal_event:
                 rebuilt = f"{rebuilt}\nSUBGOAL: {subgoal_event}"
             raw_text = rebuilt
             parsed = parse_vlm_output(raw_text)
+            fallback_info["rebuilt_raw_text"] = raw_text
+            fallback_info["succeeded"] = parsed.get("status") is not None and parsed.get("subgoal") is not None
+            fallback_info["used"] = fallback_info["succeeded"]
 
     parsed["fallback"] = fallback_info
     return raw_text, parsed
@@ -605,8 +679,9 @@ def _render_case_summary_md(
     """一页 markdown：顶部 SUBGOAL/STATUS 对比表 → 输入图引用 → 完整 prompt → GT vs Pred 原文。
     刻意把对比表放最上面：人工 review 第一眼就能看到对错。
 
-    fallback_info 不为 None 且 used=True 时，会在顶部信息块附加一行 "fallback"，
-    把哪几段是续解出来的写明，便于人工区分"模型自己生成"vs"靠 fallback 拼出来"
+    fallback_info 不为 None 且 attempted=True 时，会在顶部信息块附加一行 "fallback"，
+    把是否续解成功、哪几段是续解出来的写明，便于人工区分"模型自己生成"vs
+    "靠 fallback 拼出来"
     的样本。详见 PROJECT_CONTEXT.md §18.7。
     """
     sc = sample.get("scenario", "?")
@@ -621,9 +696,10 @@ def _render_case_summary_md(
         f"- lora_dir: `{args.lora_dir or '<base>'}`",
         f"- model_dir: `{args.model_dir}`",
     ]
-    if fallback_info and fallback_info.get("used"):
+    if fallback_info and fallback_info.get("attempted"):
         stages = ", ".join(fallback_info.get("stages") or []) or "n/a"
-        lines.append(f"- **fallback used**: stages = `{stages}`（first-pass 缺段，靠 partial-continue 续解补齐）")
+        result = "succeeded" if fallback_info.get("succeeded") else "failed"
+        lines.append(f"- **fallback attempted**: {result}, stages = `{stages}`（first-pass 缺段，尝试 partial-continue）")
     lines += [
         "",
         "## GT vs Pred",
@@ -700,6 +776,11 @@ def dump_case(
 
     # 2) outputs：raw + parsed。
     (outputs_dir / "raw_text.txt").write_text(pred_raw or "<inference error>", encoding="utf-8")
+    if fallback_info and fallback_info.get("first_pass_raw_text"):
+        (outputs_dir / "first_pass_raw_text.txt").write_text(
+            str(fallback_info.get("first_pass_raw_text")),
+            encoding="utf-8",
+        )
     parsed_obj = {
         "pred_status": pred_status,
         "pred_subgoal": pred_subgoal,
@@ -710,7 +791,7 @@ def dump_case(
         "error_kind": error_kind,
         "error_msg": error_msg,
         # partial-continue fallback meta（PROJECT_CONTEXT.md §18.7）。
-        "fallback": fallback_info or {"used": False, "stages": []},
+        "fallback": fallback_info or {"attempted": False, "succeeded": False, "used": False, "stages": []},
     }
     (outputs_dir / "parsed.json").write_text(
         json.dumps(parsed_obj, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -729,7 +810,7 @@ def dump_case(
         "pred": {"status": pred_status, "subgoal": pred_subgoal, "raw": pred_raw},
         "error_kind": error_kind,
         "error_msg": error_msg,
-        "fallback": fallback_info or {"used": False, "stages": []},
+        "fallback": fallback_info or {"attempted": False, "succeeded": False, "used": False, "stages": []},
         "lora_dir": args.lora_dir,
         "model_dir": args.model_dir,
     }
@@ -1121,7 +1202,12 @@ def main():
         pred_subgoal: Optional[str] = None
         err: Optional[str] = None
         # fallback_info：predict_full 内部 partial-continue 兜底是否触发 + 哪几段。
-        fallback_info: Dict[str, Any] = {"used": False, "stages": []}
+        fallback_info: Dict[str, Any] = {
+            "attempted": False,
+            "succeeded": False,
+            "used": False,
+            "stages": [],
+        }
         try:
             raw_text, parsed = predict_full(
                 engine, sample, images_loader,
@@ -1185,7 +1271,8 @@ def main():
             "error_kind": error_kind,
             "error": err,
             # partial-continue fallback meta（PROJECT_CONTEXT.md §18.7）：
-            #   used=True 表示 first-pass 缺 STATUS/SUBGOAL 触发了续解兜底；
+            #   attempted=True 表示 first-pass 缺 STATUS/SUBGOAL 触发了续解兜底；
+            #   succeeded=True 表示续解后拼回完整三段；
             #   stages 列出哪几段是续解出来的（"status"/"subgoal"）或失败原因。
             "fallback": fallback_info,
         })
@@ -1275,13 +1362,20 @@ def main():
         "early_advance_rate": "保持类样本 STATUS == next(GT) 的比例（越小越好；模型不该 advance 时 advance — 核心痛点）",
         "anchor12_sanity": "anchor=12 固定 fail case 上 STATUS 是否回到 initial；passed=true 即原始 bug 已修",
         "per_scenario": "按 scenario 拆开的细分计数：{keep_correct, keep_total, early_advance, adv_correct, adv_total}",
-        "fallback_count": "partial-continue 兜底触发的样本数（PROJECT_CONTEXT.md §18.7）；健康 LoRA 应该接近 0，>0 表示模型 first-pass 缺 STATUS/SUBGOAL 段，靠 fallback 拼回",
+        "fallback_count": "partial-continue 兜底尝试的样本数（PROJECT_CONTEXT.md §18.7）；健康 LoRA 应该接近 0，>0 表示模型 first-pass 缺 STATUS/SUBGOAL 段",
         "fallback_rate": "fallback_count / n_total",
+        "fallback_success_count": "fallback 尝试后成功拼回完整 STATUS/SUBGOAL 的样本数",
+        "fallback_success_rate": "fallback_success_count / max(1, fallback_count)",
     }
-    # 统计 fallback 触发样本数（only used=True 才计入；stages 内分项不单独统计）。
+    # 统计 fallback 尝试 / 成功样本数。attempted 比 succeeded 更适合衡量 LoRA
+    # first-pass 结构健康度；succeeded 只说明兜底是否救回。
     fallback_count = sum(
         1 for r in predictions_records
-        if (r.get("fallback") or {}).get("used") is True
+        if (r.get("fallback") or {}).get("attempted") is True
+    )
+    fallback_success_count = sum(
+        1 for r in predictions_records
+        if (r.get("fallback") or {}).get("succeeded") is True
     )
     n_total = len(predictions_records) if predictions_records else len(samples)
     metrics = {
@@ -1296,6 +1390,8 @@ def main():
         "per_scenario": {k: dict(v) for k, v in per_scenario.items()},
         "fallback_count": fallback_count,
         "fallback_rate": fallback_count / max(1, n_total),
+        "fallback_success_count": fallback_success_count,
+        "fallback_success_rate": fallback_success_count / max(1, fallback_count),
         "config": vars(args),
         "world_size": world_size,
     }
@@ -1315,7 +1411,9 @@ def main():
     if args.fallback:
         print(
             f"[eval] partial-continue fallback: "
-            f"used={fallback_count}/{n_total} ({fallback_count / max(1, n_total):.1%})"
+            f"attempted={fallback_count}/{n_total} ({fallback_count / max(1, n_total):.1%}), "
+            f"succeeded={fallback_success_count}/{max(1, fallback_count)} "
+            f"({fallback_success_count / max(1, fallback_count):.1%})"
             + ("  ← 0 表示 LoRA 自己出完整三段，健康" if fallback_count == 0 else "")
         )
     else:

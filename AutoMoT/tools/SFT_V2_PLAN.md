@@ -223,8 +223,9 @@ assistant = (
 
 ## 5. Loss 权重设计 — `sft_v2_loss_scale_plugin.py`
 
-策略名：`sft_v2_analysis_supervised`。切片如下（**2026-06-02 修订**：段切换字面与 EOS
-从 0 改为 1.0，详见下方"段切换字面为什么不能 mask"）：
+策略名：`sft_v2_analysis_supervised`。切片如下（**2026-06-02 修订**：段切换字面从
+0 改为 1.0；tail/EOS 若由 ms-swift chat template 放进 plugin context，也必须为
+1.0，详见下方"段切换字面为什么不能 mask"）：
 
 | 段 | 权重 | 理由 |
 |---|---|---|
@@ -234,14 +235,14 @@ assistant = (
 | STATUS event_name | **1.0** | 核心监督 |
 | 换行 `\n` + `SUBGOAL:` 字面 + 空格 | **1.0** | **段切换信号**（v2 修订）— 0 会让 STATUS 后无切换 |
 | SUBGOAL event_name | **1.0** | 核心监督 |
-| 末尾 EOS / `\n` | **1.0** | **EOS 信号**（v2 修订）— 0 会让自由生成顶到 max_gen_tokens |
+| 末尾 tail / EOS / `\n`（若进入 plugin context） | **1.0** | **停止信号**（v2 修订）— 若该 token 由 ms-swift 模板传入，不能 mask |
 
 regex 在 v1 `_FULL_PATTERN` 基础上加一个 `(?P<analysis>...)` 捕获组，把 ANALYSIS body
 单独切出来 weight 0.3。
 
 ### 段切换字面为什么不能 mask（v2.0 踩坑，2026-06-02）
 
-v2.0 初版照搬 v1 思路把 `\nSTATUS:` / `\nSUBGOAL:` / EOS 全部 mask 成 0，理由是
+v2.0 初版照搬 v1 思路把 `\nSTATUS:` / `\nSUBGOAL:` 以及可能进入 context 的 tail/EOS 全部 mask 成 0，理由是
 "关键词字面无学习价值"。实测在 ckpt-7526 上推理：
 
 - 模型输出陷入 `ANALYSIS: ... ANALYSIS: ... ANALYSIS: ...` 循环复读，
@@ -255,9 +256,12 @@ v1 ANALYSIS 是固定占位（`Observations recorded.`，7 token），段切换 
 LoRA 学到的"ANALYSIS body 风格"先验在长上下文中累积，**没有梯度推它切到 `\n`**，
 自由生成时自然倾向继续写下一段 ANALYSIS。
 
-**修法**：所有结构性切换字面（`\nSTATUS:` / `\nSUBGOAL:`）和 EOS 必须 weight ≥ 1.0。
-这两个段加起来 ≈ 12 token（10+2），相对 ANALYSIS body 80-150 token × 0.3 ≈ 24-45 的
-等效梯度量，**不会主导 loss**，只是补一条结构性约束。
+**修法**：所有结构性切换字面（`\nSTATUS:` / `\nSUBGOAL:`）必须 weight ≥ 1.0；
+tail/EOS 若由 ms-swift chat template / runtime 拼进 plugin context，也必须 weight ≥ 1.0。
+两个段切换字面加起来 ≈ 12 token（10+2），相对 ANALYSIS body 80-150 token × 0.3 ≈
+24-45 的等效梯度量，**不会主导 loss**，只是补一条结构性约束。静态脚本只能用
+synthetic tail 验证 plugin 对 tail/EOS 的权重规则；真实 EOS 是否进 loss 以 ms-swift
+实际 context 为准。
 
 ### 为什么 ANALYSIS body 是 0.3 不是 1.0
 
@@ -267,7 +271,8 @@ LoRA 学到的"ANALYSIS body 风格"先验在长上下文中累积，**没有梯
   不漂移，又不会主导整体 loss。
 - 等效"loss 权重比"（v2 修订后）：单条样本里 ANALYSIS ≈ 80 token × 0.3 = 24，
   STATUS+SUBGOAL event_name ≈ 6 token × 1.0 = 6，段切换字面 ≈ 12 token × 1.0 = 12，
-  EOS ≈ 1 × 1.0 = 1。结构性信号合计 19，ANALYSIS 占 ~55%，结构占 ~45%。
+  tail/EOS 若进入 context 则再约 1 × 1.0。结构性信号合计约 18-19，
+  ANALYSIS 占 ~56-57%，结构占 ~43-44%。
 - 实测发现 ANALYSIS 段还在漂移 → ANALYSIS 权重 0.3 → 0.5；过拟合 teacher 措辞 → 0.3 → 0.1。
 
 ---
@@ -277,7 +282,7 @@ LoRA 学到的"ANALYSIS body 风格"先验在长上下文中累积，**没有梯
 | 超参 | v1 | v2 | 说明 |
 |---|---|---|---|
 | LoRA rank / alpha | 16 / 32 | 16 / 32 | 不变 |
-| lr | 5e-5 | **3e-5** | v2 监督信号 token 数 × 7.5（v1 ~6 → v2 ~45，含 ANALYSIS body + 段切换字面 + EOS，2026-06-02 修订；旧版 ~30），lr 同步下调避免过冲 |
+| lr | 5e-5 | **3e-5** | v2 监督信号 token 数 × 7 左右（v1 ~6 → v2 ~42-43，含 ANALYSIS body + 段切换字面 + 可选 tail/EOS，2026-06-02 修订；旧版 ~30），lr 同步下调避免过冲 |
 | num_train_epochs | 2 | 2 | 不变（先看 v1 step 上限管不管用） |
 | weight_decay | 0.05 | 0.05 | 不变 |
 | lora_dropout | 0.1 | 0.1 | 不变 |
@@ -286,8 +291,8 @@ LoRA 学到的"ANALYSIS body 风格"先验在长上下文中累积，**没有梯
 | loss_scale | `sft_v1_analysis_mask` | `sft_v2_analysis_supervised` | 见 §5 |
 | save / eval strategy | epoch + best on val/loss | epoch + best on val/loss | 不变 |
 
-预计 total step ≈ 900（与 v1 同），但 v2 每个 step 的有效梯度来自 ~45 个 token（含 ANALYSIS
-body weight=0.3 + 段切换字面 weight=1.0 + EOS weight=1.0，2026-06-02 修订；旧版 ~30）而不是
+预计 total step ≈ 900（与 v1 同），但 v2 每个 step 的有效梯度来自 ~42-43 个 token（含 ANALYSIS
+body weight=0.3 + 段切换字面 weight=1.0 + 可选 tail/EOS weight=1.0，2026-06-02 修订；旧版 ~30）而不是
 v1 的 ~6 个，**真实有效优化量 ≈ v1 的 7 倍**。这也是为什么 v2 第一版不上 KL — 监督信号本身
 已经回到健康量级。
 

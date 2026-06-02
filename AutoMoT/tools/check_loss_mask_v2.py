@@ -4,7 +4,10 @@
 
 1) ANALYSIS 段正文 token 权重应为 0.3
 2) STATUS / SUBGOAL 的事件名 token 权重应为 1.0
-3) 其余字面（ANALYSIS:/STATUS:/SUBGOAL:）与空白应为 0.0
+3) 起手 ANALYSIS: 字面应为 0.0；段切换字面（\nSTATUS: / \nSUBGOAL:）
+   应为 1.0；jsonl 若没有 tail/EOS，脚本会额外合成一个 "\n<eos>" tail
+   检查 plugin 对 tail/EOS 的权重是否为 1.0。注意：synthetic tail 只验证
+   plugin 行为，不证明 ms-swift runtime context 一定包含 EOS。
 
 并且会调用 tools/sft_v2_loss_scale_plugin.py 的真实插件类做一次切片校验，
 确保训练侧不会出现“本地正则看起来对，swift 实际走了 fallback”这种分歧。
@@ -62,10 +65,17 @@ def find_weight_ranges(text: str) -> Dict[str, Tuple[int, int]]:
     m = FULL_PATTERN.search(text)
     if m is None:
         return {}
+    a_start, a_end = m.span("analysis")
+    s_start, s_end = m.span("status")
+    g_start, g_end = m.span("subgoal")
     return {
-        "analysis": m.span("analysis"),
-        "status": m.span("status"),
-        "subgoal": m.span("subgoal"),
+        "prefix": (0, a_start),
+        "analysis": (a_start, a_end),
+        "mid1": (a_end, s_start),
+        "status": (s_start, s_end),
+        "mid2": (s_end, g_start),
+        "subgoal": (g_start, g_end),
+        "tail": (g_end, len(text)),
     }
 
 
@@ -94,8 +104,16 @@ def classify_weights(
 
     out: List[float] = []
     for off in offsets:
-        # 优先级：1.0 > 0.3 > 0.0
-        if overlap(off, ranges["status"]) or overlap(off, ranges["subgoal"]):
+        # 对齐 sft_v2_loss_scale_plugin._split_full:
+        # [prefix, analysis, mid1, status, mid2, subgoal, tail]
+        # -> [0.0, 0.3, 1.0, 1.0, 1.0, 1.0, 1.0]
+        if (
+            overlap(off, ranges["mid1"])
+            or overlap(off, ranges["status"])
+            or overlap(off, ranges["mid2"])
+            or overlap(off, ranges["subgoal"])
+            or overlap(off, ranges["tail"])
+        ):
             out.append(1.0)
         elif overlap(off, ranges["analysis"]):
             out.append(0.3)
@@ -215,6 +233,55 @@ def print_plugin_check(text: str) -> None:
     print("================================")
 
 
+def print_synthetic_eos_check(text: str, tokenizer) -> None:
+    """jsonl assistant content 通常不含 chat template 的 EOS。
+
+    为了验证 plugin 的 tail/EOS 权重，不把 EOS 硬塞进 SUBGOAL 同一行，而是在
+    assistant 后追加一行 tokenizer.eos_token（通常是 ``<|im_end|>``）。这样
+    ``_FULL_PATTERN`` 的 subgoal 捕获仍停在原事件名，追加部分会落入 tail。
+    这个检查只验证 plugin 对 tail 的权重规则；真实训练时 EOS 是否进入 context
+    由 ms-swift 的 chat template / runtime 拼接决定。若 runtime 把 EOS 贴在
+    SUBGOAL 同一行，它会落入 subgoal 段，权重同样是 1.0；这里专门覆盖换行 tail。
+    """
+    ranges = find_weight_ranges(text)
+    if not ranges:
+        return
+    tail_start, tail_end = ranges["tail"]
+    if tail_end > tail_start:
+        print("[tail/eos] 原始 assistant 已含 tail；上面的 token/plugin 表已覆盖 tail 权重。")
+        return
+
+    eos_token = getattr(tokenizer, "eos_token", None) or "<|im_end|>"
+    synthetic = text.rstrip() + "\n" + eos_token
+    synthetic_ranges = find_weight_ranges(synthetic)
+    if not synthetic_ranges:
+        print("[tail/eos][WARN] 合成 EOS tail 后 FULL_PATTERN 反而匹配失败")
+        return
+    s, e = synthetic_ranges["tail"]
+    tail_text = synthetic[s:e]
+    print()
+    print("===== synthetic tail/EOS sanity =====")
+    print("[tail/eos] synthetic-only: 验证 plugin tail 权重，不等价于断言 ms-swift runtime 一定传入 EOS。")
+    print("[tail/eos] note: 若 runtime 把 EOS 贴在 SUBGOAL 同一行，它会落入 subgoal 段，仍是 W1.0。")
+    print(f"[tail/eos] appended={eos_token!r} tail chars [{s},{e}) -> {tail_text!r}")
+
+    ids, offsets, decoded = tokenize_with_offsets(tokenizer, synthetic)
+    weights = classify_weights(offsets, synthetic_ranges)
+    tail_rows = [
+        (i, tid, off, tok, w)
+        for i, (tid, off, tok, w) in enumerate(zip(ids, offsets, decoded, weights))
+        if overlap(off, synthetic_ranges["tail"])
+    ]
+    if not tail_rows:
+        print("[tail/eos][WARN] tokenizer offset 中没有落入 tail 的 token")
+    for i, tid, off, tok, w in tail_rows:
+        repr_tok = tok.replace("\n", "\\n").replace("\r", "\\r")
+        print(f"[tail/eos] idx={i} {tag_from_weight(w)} w={w:.1f} id={tid} chars=[{off[0]},{off[1]}) decoded={repr_tok!r}")
+    if any(w < 0.99 for _, _, _, _, w in tail_rows):
+        print("[tail/eos][WARN] tail/EOS token 未全部按 W1.0 标注")
+    print_plugin_check(synthetic)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -250,9 +317,9 @@ def main() -> None:
 
     ranges = find_weight_ranges(assistant)
     if not ranges:
-        print("[WARN] FULL_PATTERN 匹配不到，token 会全部按 0.0 处理")
+        print("[WARN] FULL_PATTERN 匹配不到，静态 token 表无法按 full pattern 分类；请以下方 plugin sanity 的真实切片为准。")
     else:
-        for name in ("analysis", "status", "subgoal"):
+        for name in ("prefix", "analysis", "mid1", "status", "mid2", "subgoal", "tail"):
             s, e = ranges[name]
             print(f"[range] {name:8s} chars [{s},{e}) -> {assistant[s:e]!r}")
 
@@ -285,10 +352,11 @@ def main() -> None:
         print("[WARN] 权重 1.0 token 太少（<2），事件名可能被切错")
     if stat["n_w03"] < 3:
         print("[WARN] 权重 0.3 token 太少（<3），ANALYSIS 正文可能没被纳入监督")
-    if stat["n_w0"] < 5:
-        print("[WARN] 权重 0.0 token 太少，字面/空白可能误入监督")
+    if stat["n_w0"] < 1:
+        print("[WARN] 权重 0.0 token 太少，起手 ANALYSIS: prefix 可能误入监督")
 
     print_plugin_check(assistant)
+    print_synthetic_eos_check(assistant, tokenizer)
 
 
 if __name__ == "__main__":
