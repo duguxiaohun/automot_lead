@@ -23,8 +23,7 @@
 >
 > ```bash
 > rm -rf checkpoints/sft_v2_data_pending
-> # 也建议同时清掉上一次 runtime teacher 缓存（默认 RUNTIME_TEACHER_REFRESH=1 会自动清，
-> # 但显式删一次更安心）：
+> # 如需重新显式物化 runtime teacher，也建议同时清掉上一次缓存：
 > rm -rf checkpoints/sft_v2_lora/runtime_teacher_data
 > ```
 >
@@ -91,12 +90,12 @@ v2 的长期数据集是 `checkpoints/sft_v2_data_pending/`：里面只保存图
 STATUS/SUBGOAL 与 `__TEACHER_PENDING__` 占位。冻结 teacher 只在两种场景现场推理：
 
 - 训练前预览：少量样本，确认 teacher 输出是否符合预期，不写训练 jsonl。
-- 训练启动时：`sft_v2_train.sh` 检测到 `dataset_version == "v2_pending"` 后，自动调用
-  `build_sft_dataset_v2_teacher.py` 生成临时 runtime jsonl，默认写到
-  `checkpoints/sft_v2_lora/runtime_teacher_data/`。
+- 显式物化时：用户明确设置 `RUNTIME_TEACHER_MATERIALIZE=1` 后，
+  `sft_v2_train.sh` 才会调用 `build_sft_dataset_v2_teacher.py` 生成临时 runtime jsonl，
+  默认写到 `checkpoints/sft_v2_lora/runtime_teacher_data/`。
 
-说明：ms-swift 训练入口需要 jsonl 文件，所以这里的“实时”是训练启动时临时物化 teacher
-真值，不是每个 batch 在线调用 teacher；pending 源数据不会被回写。
+说明：ms-swift 训练入口需要 jsonl 文件，所以这里的“实时”只能实现为 runtime jsonl；
+正式 `single/ddp` 默认不会从 pending 自动跑全集 teacher。pending 源数据不会被回写。
 
 ### 2.1 训练前 teacher 预览（不写训练集，推荐先跑）
 
@@ -134,8 +133,8 @@ VSCode Remote / SSH 端口转发后，在浏览器打开这个地址检查：
 
 ### 2.2 可选：手动临时物化 teacher jsonl
 
-通常不需要手动跑这一步，正式训练会自动做。只有你想提前做 plugin 静态 sanity、
-复用同一份 teacher 输出，或排查 fallback 比例时才需要：
+通常不需要手动跑这一步。只有你想提前做 plugin 静态 sanity、复用同一份 teacher 输出，
+或排查 fallback 比例时才需要：
 
 ```bash
 python tools/build_sft_dataset_v2_teacher.py \
@@ -382,7 +381,8 @@ bash tools/sft_v2_train.sh check
 ```
 
 与 v1 一样，2 step、不保存 ckpt、不跑 val。check 模式会自动从 pending 数据生成最多
-32 条 runtime teacher 样本；不会改写 pending 数据集。
+32 条 runtime teacher 样本；默认写到 `checkpoints/sft_v2_lora/runtime_teacher_check_data/`，
+不会覆盖正式训练用的 `runtime_teacher_data/`，也不会改写 pending 数据集。
 
 **预期 loss 数值**（健康范围，**2026-06-02 修订**：plugin 升级后结构字面进 loss，effective 监督 token 从 v2.0 的 ~30 升到 ~44-45，loss 数值会略偏高；EOS 是否额外计入以 ms-swift runtime context 为准）：
 
@@ -417,8 +417,7 @@ GPU / 端口 / DDP rendezvous 行为与 v1 完全一致（自动选最空闲卡�
 NCCL_P2P_LEVEL=NVL 等）。所有 v1 的 `DDP_GPU_COUNT` / `SFT_RESPECT_*` 环境变量在 v2 同名。
 
 默认 `ddp` 按 8 卡跑。如果机器只想用 N 张卡，不要手动写死卡号，直接用
-`DDP_GPU_COUNT=N`，脚本会自动挑 N 张最空闲 GPU，并让 teacher runtime 物化和后面的
-ms-swift 训练都使用同一组卡：
+`DDP_GPU_COUNT=N`，脚本会自动挑 N 张最空闲 GPU，让后面的 ms-swift 训练使用同一组卡：
 
 ```bash
 # 自动挑最空闲的 4 张 GPU
@@ -443,13 +442,25 @@ SFT_RESPECT_CUDA_VISIBLE_DEVICES=1 DDP_GPU_COUNT=4 bash tools/sft_v2_train.sh dd
 CUDA_VISIBLE_DEVICES=2,5,6,7 bash tools/sft_v2_train.sh ddp
 ```
 
-正式训练第一步会先把 `checkpoints/sft_v2_data_pending/` 临时物化到
-`checkpoints/sft_v2_lora/runtime_teacher_data/`，再把这份 runtime jsonl 交给 ms-swift。
-默认 `RUNTIME_TEACHER_REFRESH=1`，每次训练启动都会刷新这个 runtime 缓存，避免 keyframes /
+正式训练默认**不会**从 `checkpoints/sft_v2_data_pending/` 全量跑 teacher。行为是：
+
+- 如果 `checkpoints/sft_v2_lora/runtime_teacher_data/train.jsonl` 和 `val.jsonl` 已经存在，
+  且第一行 `dataset_version == "v2"`，脚本直接复用这份 runtime jsonl 训练。
+- 如果只有 pending jsonl、没有可复用 runtime jsonl，脚本会退出并提示你显式选择下一步。
+- `check` 模式仍会小样本物化最多 32 条，只用于 sanity；默认写到
+  `runtime_teacher_check_data/`，不跑全集，也不覆盖正式 runtime cache。
+
+如果确实要生成/刷新 runtime teacher 数据，必须显式：
+
+```bash
+RUNTIME_TEACHER_MATERIALIZE=1 DDP_GPU_COUNT=2 bash tools/sft_v2_train.sh ddp
+```
+
+显式物化时默认 `RUNTIME_TEACHER_REFRESH=1`，会刷新 runtime 缓存，避免 keyframes /
 prompt 改了以后复用旧 teacher 文本。如果上次 teacher 物化中断、想续跑同一份 pending，可显式：
 
 ```bash
-RUNTIME_TEACHER_REFRESH=0 bash tools/sft_v2_train.sh ddp
+RUNTIME_TEACHER_MATERIALIZE=1 RUNTIME_TEACHER_REFRESH=0 bash tools/sft_v2_train.sh ddp
 ```
 
 **预期**：

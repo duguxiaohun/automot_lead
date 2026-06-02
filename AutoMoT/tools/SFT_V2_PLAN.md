@@ -176,14 +176,19 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
 默认训练入口是 `bash tools/sft_v2_train.sh ddp|single|check`。它会先读取
 `TRAIN_JSONL` 第一条样本：
 
-- 如果 `dataset_version == "v2_pending"`：自动调用 `build_sft_dataset_v2_teacher.py`，
-  把 teacher ANALYSIS 临时生成到 `RUNTIME_TEACHER_DIR`（默认
-  `checkpoints/sft_v2_lora/runtime_teacher_data/`），再把这份 runtime jsonl 交给 ms-swift。
+- 如果 `dataset_version == "v2_pending"`：正式 `single/ddp` 默认**不会**自动全量调用
+  `build_sft_dataset_v2_teacher.py`，防止一个普通训练命令意外开始跑全集 teacher。
+  - 若 `RUNTIME_TEACHER_DIR`（默认 `checkpoints/sft_v2_lora/runtime_teacher_data/`）
+    下已有完整 `dataset_version == "v2"` 的 `train.jsonl` / `val.jsonl`，脚本直接复用。
+  - 若没有可复用 runtime 数据，脚本会退出并提示显式加
+    `RUNTIME_TEACHER_MATERIALIZE=1` 才生成/刷新 runtime teacher 数据。
+  - `check` 模式例外：只物化最多 32 条小样本用于 sanity，默认写到
+    `runtime_teacher_check_data/`，不跑全集也不覆盖正式 runtime cache。
 - 如果 `dataset_version == "v2"`：说明用户显式传入了已物化 jsonl，训练脚本直接使用。
 
-默认 `RUNTIME_TEACHER_REFRESH=1`，训练启动时会刷新 runtime teacher cache，避免 keyframes /
-prompt 改动后复用旧 ANALYSIS。只有明确要续跑同一份 pending 的中断任务时，才设
-`RUNTIME_TEACHER_REFRESH=0`。
+显式 `RUNTIME_TEACHER_MATERIALIZE=1` 时，默认 `RUNTIME_TEACHER_REFRESH=1` 会刷新 runtime
+teacher cache，避免 keyframes / prompt 改动后复用旧 ANALYSIS。只有明确要续跑同一份
+pending 的中断物化任务时，才设 `RUNTIME_TEACHER_REFRESH=0`。
 
 `build_sft_dataset_v2_teacher.py` 输入 pending jsonl，流程：
 
@@ -201,8 +206,8 @@ prompt 改动后复用旧 ANALYSIS。只有明确要续跑同一份 pending 的�
    的样本，各自落盘到 `train.jsonl.rank<R>`；最后 rank0 合并。
 
 预计耗时：14400 train + 1600 val ≈ 16000 样本 × 3 秒/样本 ÷ 8 卡 ≈ 100 分钟。
-这一步是训练启动阶段的 runtime 缓存，不再要求用户维护 `checkpoints/sft_v2_data/`
-这种固定 teacher 数据集。
+这一步是显式 opt-in 的 runtime 缓存，不再要求用户维护 `checkpoints/sft_v2_data/`
+这种固定 teacher 数据集，也不会回写长期 pending 数据集。
 
 ### 4.4 student GT 拼接位置
 
