@@ -95,8 +95,10 @@ STATUS/SUBGOAL 与 `__TEACHER_PENDING__` 占位。冻结 teacher 在两种场景
 - 训练启动时（**首次物化 + 之后任意卡数复用**）：`sft_v2_train.sh` 检测到
   `dataset_version == "v2_pending"` 后，**先看 `RUNTIME_TEACHER_DIR`（默认
   `checkpoints/sft_v2_lora/runtime_teacher_data/`）下有没有完整 cache**
-  （`manifest.json` 存在 + 第一行 `dataset_version == "v2"` + manifest 记录的
-  pending/runtime 行数与当前实际行数严格匹配）：
+  （`manifest.json` 存在 + 第一行 `dataset_version == "v2"` +
+  `schema_version == 2` + `max_samples == 0` + `model_dir` / seed /
+  `max_new_tokens=256` / `teacher_temperature=0.0` 与当前 launcher 配置一致 +
+  manifest 记录的 pending/runtime 行数与当前实际行数严格匹配）：
   - 有完整 cache → 秒进训练，跳过物化。**cache 与卡数无关**：2 卡跑出来的 cache
     切到 4 卡 / 8 卡启动都能直接复用。
   - 没完整 cache → 自动调用 `build_sft_dataset_v2_teacher.py` 全量物化一次
@@ -463,7 +465,8 @@ CUDA_VISIBLE_DEVICES=2,5,6,7 bash tools/sft_v2_train.sh ddp
 正式训练对 teacher 物化的处理（**首次物化一次 + 后续任意卡数复用**）：
 
 - 如果 `checkpoints/sft_v2_lora/runtime_teacher_data/` 下既有 `train.jsonl` / `val.jsonl`
-  又有 `manifest.json`，且 manifest 校验通过（max_samples==0 全集跑 + pending/runtime
+  又有 `manifest.json`，且 manifest 校验通过（schema_version=2 + max_samples==0 全集跑 +
+  当前 `MODEL_DIR` / `RUNTIME_TEACHER_SEED` / teacher 生成参数一致 + pending/runtime
   行数严格匹配）→ **脚本直接复用这份 cache 进训练**，跳过 100 min 物化。cache 与卡数
   无关：2 卡产的 cache，切到 4 卡 / 8 卡跑也直接用。**没有 manifest 或行数不匹配的
   cache（旧版残留、debug `--max-samples N` 跑出来的、半截 val 等）一律不接受复用。**
