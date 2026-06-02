@@ -228,6 +228,9 @@ runtime_teacher_pair_is_ready() {
     #   - manifest.max_samples == 0（全集跑）
     #   - manifest.model_dir   == 当前 MODEL_DIR（teacher 模型必须一致）
     #   - manifest.seed        == 当前 RUNTIME_TEACHER_SEED（greedy 时不影响输出但记录用）
+    #   - manifest.max_new_tokens == 256（sft_v2_train.sh 始终用 teacher 脚本默认值；
+    #     有人手动调用 teacher 脚本改了这俩参数后，下次 sft_v2_train.sh 必须拒绝复用）
+    #   - manifest.teacher_temperature == 0.0
     #   - manifest.runtime_train_rows == actual lines in runtime/train.jsonl
     #   - manifest.runtime_val_rows   == actual lines in runtime/val.jsonl
     #   - manifest.pending_train_rows == actual lines in pending/train.jsonl
@@ -241,6 +244,14 @@ import json, os, sys, pathlib
 mf_path, rt_train, rt_val, pd_train, pd_val = (pathlib.Path(p) for p in sys.argv[1:6])
 cur_model_dir = sys.argv[6]
 cur_seed = sys.argv[7]
+
+# sft_v2_train.sh 的 teacher 调用始终不传 --max-new-tokens / --teacher-temperature，
+# 用的就是 build_sft_dataset_v2_teacher.py 的 argparse 默认值。这里把期望值
+# 硬编码与 teacher 脚本默认一致；如果以后 sft_v2_train.sh 想支持调它们，这两
+# 行要改成从 env 读 + teacher 脚本 default 也同步。
+EXPECTED_MAX_NEW_TOKENS = 256
+EXPECTED_TEACHER_TEMPERATURE = 0.0
+
 try:
     mf = json.loads(mf_path.read_text(encoding="utf-8"))
 except Exception as e:
@@ -260,6 +271,17 @@ if mf_model != cur_model:
     sys.exit(1)
 if str(mf.get("seed", "")) != str(cur_seed):
     print(f"[reuse-check] reject: seed manifest={mf.get('seed')} current={cur_seed}")
+    sys.exit(1)
+# gen 参数校验：schema_version < 2 的旧 manifest 没有这俩字段，按缺失处理 → 拒绝。
+if int(mf.get("max_new_tokens", -1)) != EXPECTED_MAX_NEW_TOKENS:
+    print(f"[reuse-check] reject: max_new_tokens manifest={mf.get('max_new_tokens')} expected={EXPECTED_MAX_NEW_TOKENS}")
+    sys.exit(1)
+try:
+    mf_temp = float(mf.get("teacher_temperature", -1))
+except (TypeError, ValueError):
+    mf_temp = -1.0
+if mf_temp != EXPECTED_TEACHER_TEMPERATURE:
+    print(f"[reuse-check] reject: teacher_temperature manifest={mf.get('teacher_temperature')} expected={EXPECTED_TEACHER_TEMPERATURE}")
     sys.exit(1)
 def count(p):
     if not p.exists():
@@ -303,6 +325,18 @@ materialize_runtime_teacher_if_needed() {
         VAL_JSONL="${pending_val}"
     fi
 
+    # 进入物化路径前，先做"复用 / 清理 / 续跑"三种状态判定：
+    # 1) cache 完整且校验通过 → reuse 秒进训练
+    # 2) manifest 存在但校验失败（model_dir / seed / gen 参数 / 行数等不匹配）
+    #    → stale config，rm 全部 (train+val+stats+manifest+.rank*) 重物化
+    # 3) manifest 缺失但 final jsonl 存在 → 旧版残留 / 单进程跑完一半被打断
+    #    → rm final jsonl 防 back-stamp，保留 .rank* 给真正的 DDP 中断态续跑
+    # 4) 都没有，或只有 .rank* 分片 → 直接物化（fingerprint 去重自动 resume）
+    local manifest_existed=0
+    if [[ -f "${RUNTIME_TEACHER_DIR}/manifest.json" ]]; then
+        manifest_existed=1
+    fi
+
     # 复用分支：non-check 模式 + 没要求强制刷新 + cache 完整 → 秒进训练。
     # check 模式总是物化 32 条小样本（且默认走 runtime_teacher_check_data/ 独立目录）。
     if [[ "${MODE}" != "check" && "${RUNTIME_TEACHER_REFRESH}" != "1" ]] \
@@ -317,11 +351,12 @@ materialize_runtime_teacher_if_needed() {
     fi
 
     mkdir -p "${RUNTIME_TEACHER_DIR}"
+    if [[ -z "${RUNTIME_TEACHER_DIR}" || "${RUNTIME_TEACHER_DIR}" == "/" || "${RUNTIME_TEACHER_DIR}" == "." ]]; then
+        echo "[teacher][err] unsafe RUNTIME_TEACHER_DIR=${RUNTIME_TEACHER_DIR}" >&2
+        exit 2
+    fi
+
     if [[ "${RUNTIME_TEACHER_REFRESH}" == "1" ]]; then
-        if [[ -z "${RUNTIME_TEACHER_DIR}" || "${RUNTIME_TEACHER_DIR}" == "/" || "${RUNTIME_TEACHER_DIR}" == "." ]]; then
-            echo "[teacher][err] unsafe RUNTIME_TEACHER_DIR=${RUNTIME_TEACHER_DIR}" >&2
-            exit 2
-        fi
         echo "[teacher] refresh runtime cache because RUNTIME_TEACHER_REFRESH=1"
         rm -f \
             "${RUNTIME_TEACHER_DIR}/train.jsonl" \
@@ -330,19 +365,31 @@ materialize_runtime_teacher_if_needed() {
             "${RUNTIME_TEACHER_DIR}/manifest.json" \
             "${RUNTIME_TEACHER_DIR}"/train.jsonl.rank* \
             "${RUNTIME_TEACHER_DIR}"/val.jsonl.rank*
-    elif [[ ! -f "${RUNTIME_TEACHER_DIR}/manifest.json" ]] \
-        && { [[ -s "${RUNTIME_TEACHER_DIR}/train.jsonl" ]] || [[ -s "${RUNTIME_TEACHER_DIR}/val.jsonl" ]]; }; then
-        # 防 back-stamp：manifest 缺失但 final jsonl 存在 = 旧版残留或单进程被打断的中间态。
-        # 若不清掉，teacher 脚本的 fingerprint 去重会把已存在行当 done、不重新生成，
-        # 反而在末尾给 stale 数据"补签"出一份 manifest。
-        # 保留 .rank* 分片（DDP 中断状态可以续跑），只清 final jsonl 强制重物化。
+    elif [[ "${manifest_existed}" == "1" && "${MODE}" != "check" ]]; then
+        # manifest 存在但 reuse_check 失败 → stale config（model_dir / seed / gen 参数
+        # 或 行数不匹配）。这种情况 .rank* 分片也是用旧配置生成的，必须一起清掉，
+        # 否则 teacher 脚本会把它们当 done 跳过，最终给 stale 数据补签新 manifest。
+        echo "[teacher] manifest.json existed but failed reuse-check → stale config; wiping cache (incl. .rank*) to force fresh materialize"
+        rm -f \
+            "${RUNTIME_TEACHER_DIR}/train.jsonl" \
+            "${RUNTIME_TEACHER_DIR}/val.jsonl" \
+            "${RUNTIME_TEACHER_DIR}/stats.json" \
+            "${RUNTIME_TEACHER_DIR}/manifest.json" \
+            "${RUNTIME_TEACHER_DIR}"/train.jsonl.rank* \
+            "${RUNTIME_TEACHER_DIR}"/val.jsonl.rank*
+    elif { [[ -s "${RUNTIME_TEACHER_DIR}/train.jsonl" ]] || [[ -s "${RUNTIME_TEACHER_DIR}/val.jsonl" ]]; }; then
+        # manifest 缺失 + final jsonl 存在 = 旧版残留或单进程被打断的中间态。
+        # 防 back-stamp：rm final jsonl 强制 teacher 重生成；保留 .rank* 给真正的
+        # DDP 中断态续跑（rank 分片是按 fingerprint 写的，没有 model_dir 元数据
+        # 锁定，可以被后续任意配置 dedup 使用，但这里假定 manifest 升级是单次
+        # 一次性事件，残留 rank 几乎不会跟新 model_dir / seed 冲突）。
         echo "[teacher] manifest.json missing but train/val jsonl exists → orphan/old cache, removing to force re-materialize"
         rm -f \
             "${RUNTIME_TEACHER_DIR}/train.jsonl" \
             "${RUNTIME_TEACHER_DIR}/val.jsonl" \
             "${RUNTIME_TEACHER_DIR}/stats.json"
     else
-        echo "[teacher] keep existing runtime files (no complete cache yet, or check mode); build_sft_dataset_v2_teacher.py will resume via fingerprint dedup"
+        echo "[teacher] keep existing runtime files (fresh dir, or only .rank* shards for DDP mid-interrupt resume); build_sft_dataset_v2_teacher.py will resume via fingerprint dedup"
     fi
     echo "[teacher] runtime materialize teacher ANALYSIS (no reusable cache; auto triggered)"
     echo "[teacher] pending_dir=${pending_dir}"
