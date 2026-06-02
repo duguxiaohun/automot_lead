@@ -277,6 +277,19 @@ def _fingerprint(row: Dict) -> Tuple[str, str, int]:
     return (row["scenario"], row["run_id"], int(row["anchor"]))
 
 
+def _count_jsonl_rows(path: pathlib.Path) -> int:
+    """计数 jsonl 非空行数。manifest 完整性校验用。"""
+
+    if not path.exists():
+        return 0
+    n = 0
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                n += 1
+    return n
+
+
 def _scan_done(path: pathlib.Path) -> Set[Tuple[str, str, int]]:
     """读 path 里已写样本的指纹集合。文件不存在 / 损坏行都跳过。"""
     done: Set[Tuple[str, str, int]] = set()
@@ -615,6 +628,60 @@ def main() -> None:
             for split in splits:
                 output_path = output_dir / split
                 _merge_rank_files(output_path, world_size)
+
+    # rank0 写 manifest.json — 复用判定的唯一可信来源。
+    # 只在以下条件都满足时写：
+    #   1) 当前 rank 是 0；
+    #   2) 这次跑是全集（args.max_samples == 0），不是 --max-samples N 的 debug；
+    #   3) train + val 两个 pending 文件 + 两个 runtime 文件都存在；
+    #   4) runtime 行数与 pending 行数严格相等（每条 pending 都跑出了 runtime 行，
+    #      包含 fallback）。
+    # 任何一条不满足 → 不写 manifest → sft_v2_train.sh 下次启动会拒绝复用、
+    # 重新跑 teacher。这样 32-条 debug cache / 半截 val / skip-train 部分跑都不会被
+    # 当成"完整可复用"。
+    if rank == 0 and args.max_samples == 0:
+        pending_train_path = pending_dir / "train.jsonl"
+        pending_val_path = pending_dir / "val.jsonl"
+        runtime_train_path = output_dir / "train.jsonl"
+        runtime_val_path = output_dir / "val.jsonl"
+
+        all_present = all(
+            p.exists() for p in (pending_train_path, pending_val_path,
+                                 runtime_train_path, runtime_val_path)
+        )
+        if not all_present:
+            print("[manifest] skip: not all of pending/runtime train+val present "
+                  "(skip-train/skip-val or single-split run)")
+        else:
+            pending_train_rows = _count_jsonl_rows(pending_train_path)
+            pending_val_rows = _count_jsonl_rows(pending_val_path)
+            runtime_train_rows = _count_jsonl_rows(runtime_train_path)
+            runtime_val_rows = _count_jsonl_rows(runtime_val_path)
+
+            if (runtime_train_rows != pending_train_rows
+                    or runtime_val_rows != pending_val_rows):
+                print(f"[manifest] skip: row count mismatch — "
+                      f"pending=({pending_train_rows},{pending_val_rows}) vs "
+                      f"runtime=({runtime_train_rows},{runtime_val_rows})")
+            else:
+                manifest = {
+                    "schema_version": 1,
+                    "pending_train_path": str(pending_train_path),
+                    "pending_val_path": str(pending_val_path),
+                    "pending_train_rows": pending_train_rows,
+                    "pending_val_rows": pending_val_rows,
+                    "runtime_train_rows": runtime_train_rows,
+                    "runtime_val_rows": runtime_val_rows,
+                    "model_dir": str(args.model_dir),
+                    "seed": int(args.seed),
+                    "max_samples": int(args.max_samples),
+                    "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }
+                manifest_path = output_dir / "manifest.json"
+                manifest_path.write_text(json.dumps(manifest, indent=2,
+                                                   ensure_ascii=False))
+                print(f"[manifest] wrote {manifest_path} ({pending_train_rows} train, "
+                      f"{pending_val_rows} val)")
 
     print(f"[done] rank={rank} processed={total_processed} fallback={total_fallback}")
 
