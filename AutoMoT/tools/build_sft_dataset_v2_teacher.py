@@ -665,7 +665,10 @@ def main() -> None:
                       f"runtime=({runtime_train_rows},{runtime_val_rows})")
             else:
                 manifest = {
-                    "schema_version": 1,
+                    # schema_version 升 2：新增 max_new_tokens / teacher_temperature
+                    # 字段。sft_v2_train.sh 的 reuse-check 也要校验它们，避免有人
+                    # 手动调用 teacher 脚本改了 gen 参数后被 sft_v2_train.sh 误复用。
+                    "schema_version": 2,
                     "pending_train_path": str(pending_train_path),
                     "pending_val_path": str(pending_val_path),
                     "pending_train_rows": pending_train_rows,
@@ -675,6 +678,8 @@ def main() -> None:
                     "model_dir": str(args.model_dir),
                     "seed": int(args.seed),
                     "max_samples": int(args.max_samples),
+                    "max_new_tokens": int(args.max_new_tokens),
+                    "teacher_temperature": float(args.teacher_temperature),
                     "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 }
                 manifest_path = output_dir / "manifest.json"
