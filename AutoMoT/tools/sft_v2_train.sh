@@ -3,7 +3,8 @@
 #
 # 与 sft_v1_train.sh 的核心区别：
 #   - --loss_scale 改用 sft_v2_analysis_supervised（v2 plugin，ANALYSIS body 权重 0.3）；
-#   - 默认读 sft_v2_data_pending/，训练启动时临时物化 teacher ANALYSIS 到 OUTPUT_DIR/runtime_teacher_data/；
+#   - 默认读 sft_v2_data_pending/，但正式训练不会自动全量物化 teacher；
+#     如需生成 runtime teacher 数据，必须显式 RUNTIME_TEACHER_MATERIALIZE=1；
 #   - LR 5e-5 → 3e-5（v2 监督 token 数 × 5，lr 同步下调避免过冲，详见 SFT_V2_PLAN.md §6）；
 #   - MAX_LENGTH 3072 → 3584（v2 ANALYSIS 段更长）。
 #
@@ -18,7 +19,8 @@
 #      参与 loss；判读细节见 SFT_V2_RUN.md §4。）
 #
 # 数据先用 tools/build_sft_dataset_v1.py --mode v2 生成 pending jsonl。
-# 训练脚本默认在运行时调用冻结 teacher 生成临时 ANALYSIS 真值，不把 teacher 文本写回 pending 数据集。
+# 正式训练默认不会从 pending 全量生成 teacher ANALYSIS；已有 runtime v2 jsonl 会直接复用。
+# 如需刷新/生成 runtime teacher 数据，显式加 RUNTIME_TEACHER_MATERIALIZE=1。
 #
 # 常用 override：
 #   MODEL_DIR=/path/to/Qwen3-VL-4B-Instruct \
@@ -47,9 +49,17 @@ MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v2_data_pending/train.jsonl}"
 VAL_JSONL="${VAL_JSONL:-checkpoints/sft_v2_data_pending/val.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_v2_lora}"
+RUNTIME_TEACHER_DIR_WAS_SET=0
+if [[ -n "${RUNTIME_TEACHER_DIR+x}" ]]; then
+    RUNTIME_TEACHER_DIR_WAS_SET=1
+fi
 RUNTIME_TEACHER_DIR="${RUNTIME_TEACHER_DIR:-${OUTPUT_DIR}/runtime_teacher_data}"
+if [[ "${MODE}" == "check" && "${RUNTIME_TEACHER_DIR_WAS_SET}" != "1" ]]; then
+    RUNTIME_TEACHER_DIR="${OUTPUT_DIR}/runtime_teacher_check_data"
+fi
 RUNTIME_TEACHER_SEED="${RUNTIME_TEACHER_SEED:-20260601}"
 RUNTIME_TEACHER_REFRESH="${RUNTIME_TEACHER_REFRESH:-1}"
+RUNTIME_TEACHER_MATERIALIZE="${RUNTIME_TEACHER_MATERIALIZE:-0}"
 
 # ---------------------------------------------------------------------------
 # 超参（v2 调整版，详见 SFT_V2_PLAN.md §6）
@@ -186,6 +196,16 @@ with open(path, "r", encoding="utf-8") as f:
 ' "${path}"
 }
 
+runtime_teacher_pair_is_ready() {
+    local train_path="${RUNTIME_TEACHER_DIR}/train.jsonl"
+    local val_path="${RUNTIME_TEACHER_DIR}/val.jsonl"
+
+    [[ -s "${train_path}" && -s "${val_path}" ]] || return 1
+    [[ "$(jsonl_dataset_version "${train_path}")" == "v2" ]] || return 1
+    [[ "$(jsonl_dataset_version "${val_path}")" == "v2" ]] || return 1
+    return 0
+}
+
 materialize_runtime_teacher_if_needed() {
     local train_version
     train_version="$(jsonl_dataset_version "${TRAIN_JSONL}")"
@@ -201,6 +221,31 @@ materialize_runtime_teacher_if_needed() {
     if [[ "${VAL_JSONL}" != "${pending_val}" ]]; then
         echo "[teacher][warn] pending train/val should live in one dir; override VAL_JSONL=${pending_val}"
         VAL_JSONL="${pending_val}"
+    fi
+
+    if [[ "${MODE}" != "check" && "${RUNTIME_TEACHER_MATERIALIZE}" != "1" ]]; then
+        if runtime_teacher_pair_is_ready; then
+            TRAIN_JSONL="${RUNTIME_TEACHER_DIR}/train.jsonl"
+            VAL_JSONL="${RUNTIME_TEACHER_DIR}/val.jsonl"
+            echo "[teacher] use existing runtime teacher cache because RUNTIME_TEACHER_MATERIALIZE=${RUNTIME_TEACHER_MATERIALIZE}"
+            echo "[teacher] runtime train=${TRAIN_JSONL}"
+            echo "[teacher] runtime val=${VAL_JSONL}"
+            echo "[teacher] set RUNTIME_TEACHER_MATERIALIZE=1 to explicitly refresh/regenerate it"
+            return 0
+        fi
+
+        cat >&2 <<EOF
+[teacher][err] TRAIN_JSONL is v2_pending, and formal ${MODE} mode will not auto-materialize full teacher data.
+[teacher][err] This prevents accidentally running all teacher generation from a normal train command.
+[teacher][err] Options:
+[teacher][err]   1) Reuse an existing v2 jsonl:
+[teacher][err]      TRAIN_JSONL=${RUNTIME_TEACHER_DIR}/train.jsonl VAL_JSONL=${RUNTIME_TEACHER_DIR}/val.jsonl bash tools/sft_v2_train.sh ${MODE}
+[teacher][err]   2) Explicitly generate/refresh runtime teacher data, then train:
+[teacher][err]      RUNTIME_TEACHER_MATERIALIZE=1 bash tools/sft_v2_train.sh ${MODE}
+[teacher][err]   3) For a tiny sanity run only:
+[teacher][err]      bash tools/sft_v2_train.sh check
+EOF
+        exit 2
     fi
 
     mkdir -p "${RUNTIME_TEACHER_DIR}"

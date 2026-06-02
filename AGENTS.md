@@ -86,7 +86,7 @@
 - `AutoMoT/tools/sft_v2_train.sh`
 - `AutoMoT/tools/check_loss_mask_v2.py`
 - `AutoMoT/tools/inspect_teacher_outputs.py`
-  （以上 7 个是 SFT v2 升级：长期数据集只保留 `v2_pending` 占位 jsonl；冻结 base Qwen + PRIVILEGED prompt 的 ANALYSIS 真值由 `sft_v2_train.sh` 在训练启动时临时物化到 runtime 目录，默认刷新 runtime cache，或由 `inspect_teacher_outputs.py --live` 做训练前预览；student 全段都算 loss，差异化权重；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；`eval_sft_v1.py` / `probe_sft_v1.py` 自动按 jsonl 字段检测 v1/v2；`check_loss_mask_v2.py` 用于已物化 v2 jsonl 的 token 级静态 sanity）
+  （以上 7 个是 SFT v2 升级：长期数据集只保留 `v2_pending` 占位 jsonl；冻结 base Qwen + PRIVILEGED prompt 的 ANALYSIS 真值不回写 pending，正式 `single/ddp` 默认不自动全量物化 teacher，只有显式 `RUNTIME_TEACHER_MATERIALIZE=1` 才生成/刷新 runtime teacher 数据；已有 `dataset_version == "v2"` runtime jsonl 可直接复用，`check` 模式仅物化最多 32 条 sanity 且默认写到 `runtime_teacher_check_data/`，不覆盖正式 runtime cache；`inspect_teacher_outputs.py --live` 做训练前预览；student 全段都算 loss，差异化权重；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；`eval_sft_v1.py` / `probe_sft_v1.py` 自动按 jsonl 字段检测 v1/v2；`check_loss_mask_v2.py` 用于已物化 v2 jsonl 的 token 级静态 sanity）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py`
