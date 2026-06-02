@@ -1517,3 +1517,67 @@ SFT v2 不再把冻结 teacher 生成的 ANALYSIS 作为长期维护数据集写
 
 由于 ms-swift 训练入口读取 jsonl，当前“实时 teacher 真值”实现为训练启动时临时物化，
 不是每个 mini-batch 在线调用 teacher；pending 源数据仍然可随 keyframes / prompt 改动重新生成。
+
+## 18. SFT v2 eval 端两个工程坑（2026-06-02 实测）
+
+v2 训练 loss 顺利下降，但 `tools/eval_sft_v1.py` 跑 v2 ckpt 出现两层假象，**和训练完全无关**，
+两层都修在 eval 脚本侧：
+
+### 18.1 PeftModel wrapper 在 Qwen3-VL 上 forward 错位 → "ANALERTA" 乱码
+
+**症状**：raw_text 是 `ANALERTA` / `ANAL` / `ANALERTY` 之类 4–10 字符碎片，2–5 个 token 后立刻 EOS；
+全部样本 `pred_status=None`。
+
+**根因**：`eval_sft_v1.py` 顶层 `attach_lora_adapter()` 用 `PeftModel.from_pretrained(...)` 把
+LoRA 当 wrapper 挂上，**不 merge**。这条路径在 Qwen3-VL 的 M-RoPE +
+`prepare_inputs_for_generation` 上不兼容，cache 与 suffix 间的 position 接缝错位，
+generation 从第二步起就出垃圾 token 并立刻 EOS。
+
+**排除链**（按此顺序对照，缺一不可定位）：
+- `--no-cache-system-prompt` 还崩 → 排除 system prompt KV cache 路径。
+- `--lora-dir ''`（base）正常 → 排除 chat template / engine path / prompt 问题，**LoRA 是元凶**。
+- 改走 `engine.attach_lora_adapter(args.lora_dir, merge=True)`（`merge_and_unload`） → 立刻输出
+  正常英文 ANALYSIS，确认 **LoRA 权重健康，只是加载方式错**。
+
+**长期修法**：`eval_sft_v1.py` 加 `--merge-lora` 开关，**默认 True**。`--no-merge-lora` 仅留作
+调试 PEFT 自身的 escape hatch。
+
+### 18.2 `max_gen_tokens=96` 截断 → 只输出 ANALYSIS 段
+
+**症状**（在 18.1 修了之后才会暴露）：ANALYSIS 段流畅完整，但模型说完 ANALYSIS 就 EOS，
+没有 `STATUS:` / `SUBGOAL:` 两行，parser 解不到 status / subgoal 仍报 None。
+
+**根因**：`LocalQwen3VLInstructEngine.__init__` 默认 `max_gen_tokens=96`
+（[engine.py:185](AutoMoT/qwen3vl_local/engine.py#L185)），是 v1 时代留的——v1 ANALYSIS 是固定占位
+`Observations recorded.`（~7 token），96 远远够用；v2 ANALYSIS body 是 teacher 蒸馏真值，
+80–150 token，**96 整段被吃光**。`eval_sft_v1.py` 老版直接硬写 96，没 CLI override。
+
+**长期修法**：`eval_sft_v1.py` 加 `--max-gen-tokens` CLI 参数，**默认 256**（v2 友好，v1 也兼容）。
+
+### 18.3 给未来 agent 的 takeaway
+
+- 训练 loss 下降 ≠ 推理生成正常。SFT loss 是 teacher-forcing 下算的，自回归生成下小误差会
+  指数放大。看 raw_text，不要只看 loss / pred 字段。
+- "Qwen3-VL + LoRA + PeftModel wrapper" 这条组合现在已知不靠谱；任何评测 / 推理脚本
+  挂 LoRA 都必须走 `merge_and_unload`（engine 的 `attach_lora_adapter(merge=True)`），
+  不要走脚本里临时 `PeftModel.from_pretrained` 的方式。
+- 升级 ANALYSIS 监督（v1→v2 / v2→未来）时，eval 的 `max_gen_tokens` 必须同步升。新版本
+  ANALYSIS 期望长度变了，就先抬一档（256→512）再说。
+
+### 18.4 本次同步修订涉及的脚本（2026-06-02）
+
+eval_sft_v1.py 一处暴露的两个坑，扫了全仓 LoRA 加载 + `max_gen_tokens` 使用点，**同次修订
+顺手对齐**的脚本列表（避免下次又踩同一个坑）：
+
+| 文件 | 改动 |
+|---|---|
+| `AutoMoT/tools/eval_sft_v1.py` | 加 `--merge-lora`（默认 True）+ `--max-gen-tokens`（默认 256）CLI；engine 构造 / LoRA 加载分支改走默认 merge 路径 |
+| `AutoMoT/tools/probe_sft_v1.py` | 同样加两个 CLI；硬写 `max_gen_tokens=96` 改成 `args.max_gen_tokens`；LoRA 加载从 `PeftModel.from_pretrained` 改成 `engine.attach_lora_adapter(merge=True)`，并删除"merge 与否数学上等价"那条已被实测推翻的注释 |
+| `AutoMoT/tools/inspect_teacher_outputs.py` | 两处 `max_gen_tokens=160` → 256，与 `build_sft_dataset_v2_teacher.py --max-new-tokens` 默认 256 对齐，避免训练前预览看到的 ANALYSIS 比正式训练物化时更早被截 |
+
+明确**没改**且**确认安全**的脚本：
+
+- `AutoMoT/qwen3vl_local/engine.py` — 默认 `max_gen_tokens=256` + `attach_lora_adapter(merge=True)` 早已是默认值 ✓
+- `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py` / `qwen3vl_instruct_paradigm_a_runner.py` — 默认 256 且不挂 LoRA ✓
+- `AutoMoT/qwen3vl_local/goalgen/train_v1.py` / `probe_v1.py` / `eval_v1.py` / `qwen3vl_dit_goalgen_runner.py` — `max_gen_tokens=0` 是**故意**的（GoalGen 这条只取 Qwen KV，不需要自由文本，0 是正确值）；挂 LoRA 全都默认 `engine.attach_lora_adapter(merge=True)` ✓
+- `AutoMoT/tools/build_sft_dataset_v2_teacher.py` — CLI 默认 256，不挂 LoRA ✓

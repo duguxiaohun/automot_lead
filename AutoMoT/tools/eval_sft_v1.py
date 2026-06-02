@@ -1,7 +1,17 @@
-"""SFT v1 离线评估 — 跑 val.jsonl，输出指标 + 小样本完整结果 dump。
+"""SFT v1 / v2 离线评估 — 跑 val.jsonl，输出指标 + 小样本完整结果 dump。
 
 复用 AutoMoT/qwen3vl_local/engine.py 的 LocalQwen3VLInstructEngine 做推理；
 默认只跑 base model；只有显式传 --lora-dir 时才导入 peft 并加载 LoRA adapter。
+
+**v2 关键开关（默认值已按 v2 踩坑结论校准，v1 评估也兼容）**：
+
+- ``--merge-lora`` 默认 True：加载 LoRA 后立刻 ``merge_and_unload`` 合并进 base。
+  实测 PeftModel wrapper 在 Qwen3-VL 上 forward 路径不兼容（M-RoPE +
+  prepare_inputs_for_generation 错位），会让 generation 从第二步起输出乱码
+  （典型症状："ANALERTA" / "ANAL" 这种 4-10 字符碎片然后 EOS）。
+- ``--max-gen-tokens`` 默认 256：v1 ANALYSIS 占位短（~7 token）96 够用；
+  v2 ANALYSIS 是 teacher 蒸馏真值（80-150 token），96 会截断到只剩 ANALYSIS
+  一段，STATUS/SUBGOAL 出不来 → 全部样本 pred_status=None。
 
 四个核心指标（与 tools/SFT_V1_PLAN.md §8 一致；含义见 metrics.json["_metric_doc"]）：
   - keep_accuracy:      保持类样本 STATUS == GT 的比例（越大越好）
@@ -794,6 +804,22 @@ def main():
                         action=argparse.BooleanOptionalAction, default=True,
                         help="复用 system prompt 的 KV prefix，节省推理时间。"
                              "--no-cache-system-prompt 可关闭。")
+    # ---- LoRA 加载方式 + 生成长度上限（v2 实测关键两个开关）----
+    # 历史踩坑：早期 v2 eval 输出是 "ANALERTA" / "ANAL" 这种 4-10 字符乱码——根因
+    # 不是 LoRA 训练崩，而是 PeftModel wrapper 在 Qwen3-VL 的 forward 路径
+    # （M-RoPE + prepare_inputs_for_generation）上不兼容；merge_and_unload 后立刻
+    # 恢复正常英文。所以默认 merge=True。--no-merge-lora 仅用于调试 PEFT 自身行为。
+    parser.add_argument("--merge-lora",
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help="是否在加载 LoRA 后调用 merge_and_unload 合并进 base。"
+                             "默认 True；PeftModel wrapper 路径在 Qwen3-VL 上实测会让"
+                             "生成从第二步起乱码（如 'ANALERTA'）。--no-merge-lora 仅调试用。")
+    # v1 ANALYSIS 是固定占位 'Observations recorded.'（~7 token），96 够；
+    # v2 ANALYSIS 是 teacher 蒸馏真值（80-150 token），96 会截断到只剩 ANALYSIS 段，
+    # STATUS/SUBGOAL 永远出不来 → parser 解不到 status 全报 None。
+    parser.add_argument("--max-gen-tokens", type=int, default=256,
+                        help="自回归生成 token 数上限。默认 256（v2 友好）。"
+                             "v1 老脚本曾默认 96，v2 ANALYSIS body 长会被截断，必须 ≥ 200。")
     # ---- 完整 dump 开关（用户最关心的"小样本完整保存"路径）----
     parser.add_argument("--full-dump", dest="full_dump",
                         action=argparse.BooleanOptionalAction, default=None,
@@ -850,7 +876,7 @@ def main():
         checkpoint_dir=pathlib.Path(args.model_dir),
         device=device,
         torch_dtype=args.torch_dtype,
-        max_gen_tokens=96,        # ANALYSIS + STATUS + SUBGOAL 一般 < 80 token
+        max_gen_tokens=args.max_gen_tokens,
         temperature=0.0,
         do_sample=False,
         save_cache=False,
@@ -858,7 +884,16 @@ def main():
     )
     engine.load()
     if args.lora_dir:
-        attach_lora_adapter(engine, args.lora_dir)
+        if args.merge_lora:
+            # 走 engine 自带的 merge_and_unload 路径：把 LoRA delta 合并进 base 矩阵后
+            # forward 时不再走 PeftModel wrapper，规避 Qwen3-VL M-RoPE 错位（详见
+            # --merge-lora 帮助文本）。merge 后 self.model 是纯 base 实例，eval 与
+            # base 模型走完全一样的代码路径。
+            engine.attach_lora_adapter(args.lora_dir, merge=True)
+        else:
+            # legacy wrapper 路径，仅用于对照 / 调试 PEFT 自身行为；
+            # 已知在 Qwen3-VL 上会让 generation 从第二步起乱码。
+            attach_lora_adapter(engine, args.lora_dir)
 
     # eval 时 jsonl 已经给了绝对路径，直接 PIL 打开就够。
     # 与 runner load_lead_rgb_clip 一样保留 RGB 原图，不做额外 resize/crop；
