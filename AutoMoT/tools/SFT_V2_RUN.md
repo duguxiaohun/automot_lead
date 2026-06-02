@@ -331,8 +331,12 @@ RUNTIME_TEACHER_REFRESH=0 bash tools/sft_v2_train.sh ddp
 **预期**：
 - teacher runtime 物化：8 卡约 100 分钟，单卡小样本 check 约 1–2 分钟；
 - LoRA 训练：8 卡总 step ≈ 900（与 v1 同）；4 卡 ≈ 1800；
-- 每个 epoch 末尾保存一次 LoRA adapter 到 `checkpoints/sft_v2_lora/v*/checkpoint-XXX/`，
-  保留最近 3 个；
+- 每 `SAVE_STEPS`（默认 10000）步保存一次 LoRA adapter 到 `checkpoints/sft_v2_lora/v*/checkpoint-XXX/`，
+  `SAVE_TOTAL_LIMIT`（默认 3）控制保留数 → 等效最近 30k 步；epoch 边界不再单独 save，
+  但训练结束时最后一份 ckpt ≈ 最后一个 epoch 末快照，best 仍由 `load_best_model_at_end`
+  按 eval/loss 装回 `OUTPUT_DIR` 顶层 `adapter_model.*`。
+  `SAVE_STEPS` / `SAVE_TOTAL_LIMIT` 是 env，按需 `SAVE_STEPS=200 bash tools/sft_v2_train.sh ddp`
+  临时缩小间隔；
 - 训练 loss 大致从 check 阶段量级下降到 0.5–1.5 区间（v2 ANALYSIS 段 loss 不会到 0，
   因为 teacher 文本本身有随机性，模型不可能逐 token 完美复现）。
 
