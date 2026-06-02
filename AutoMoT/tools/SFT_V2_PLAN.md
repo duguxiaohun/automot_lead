@@ -176,14 +176,21 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
 默认训练入口是 `bash tools/sft_v2_train.sh ddp|single|check`。它会先读取
 `TRAIN_JSONL` 第一条样本：
 
-- 如果 `dataset_version == "v2_pending"`：自动调用 `build_sft_dataset_v2_teacher.py`，
-  把 teacher ANALYSIS 临时生成到 `RUNTIME_TEACHER_DIR`（默认
-  `checkpoints/sft_v2_lora/runtime_teacher_data/`），再把这份 runtime jsonl 交给 ms-swift。
+- 如果 `dataset_version == "v2_pending"`：
+  - 看 `RUNTIME_TEACHER_DIR`（默认 `checkpoints/sft_v2_lora/runtime_teacher_data/`）
+    下有没有完整 cache（`train.jsonl` + `val.jsonl` 都存在 + 第一行
+    `dataset_version == "v2"`）。
+  - **有完整 cache → 直接复用**（GPU 数无关：2 卡产的 cache 切 4 卡 / 8 卡都能直接用），
+    跳过 100 min 物化，秒进 swift sft。
+  - 没完整 cache → 自动调用 `build_sft_dataset_v2_teacher.py`，把 teacher ANALYSIS
+    全量物化到 `RUNTIME_TEACHER_DIR`，再交给 ms-swift。本身 `fingerprint` 去重，所以
+    中断后下次启动会基于已落盘的 rank 分片续跑、不重复算。
 - 如果 `dataset_version == "v2"`：说明用户显式传入了已物化 jsonl，训练脚本直接使用。
 
-默认 `RUNTIME_TEACHER_REFRESH=1`，训练启动时会刷新 runtime teacher cache，避免 keyframes /
-prompt 改动后复用旧 ANALYSIS。只有明确要续跑同一份 pending 的中断任务时，才设
-`RUNTIME_TEACHER_REFRESH=0`。
+`RUNTIME_TEACHER_REFRESH` 默认 0 = cache 完整时复用；显式 1 = 清掉旧 cache 强制
+全量重跑，用于 keyframes / prompt 改过、必须丢弃旧 ANALYSIS 的场景。
+`check` 模式例外：默认强制 REFRESH=1 + 写到独立的 `runtime_teacher_check_data/`
+目录，确保每次 sanity 看最新 teacher 且不会覆盖正式 cache。
 
 `build_sft_dataset_v2_teacher.py` 输入 pending jsonl，流程：
 
@@ -201,8 +208,9 @@ prompt 改动后复用旧 ANALYSIS。只有明确要续跑同一份 pending 的�
    的样本，各自落盘到 `train.jsonl.rank<R>`；最后 rank0 合并。
 
 预计耗时：14400 train + 1600 val ≈ 16000 样本 × 3 秒/样本 ÷ 8 卡 ≈ 100 分钟。
-这一步是训练启动阶段的 runtime 缓存，不再要求用户维护 `checkpoints/sft_v2_data/`
-这种固定 teacher 数据集。
+这一步是训练启动阶段的 runtime 缓存（首次跑物化一次、之后无脑复用，跨 GPU 数也能
+直接用），不再要求用户维护 `checkpoints/sft_v2_data/` 这种固定 teacher 数据集，
+也不会回写长期 pending 数据集。
 
 ### 4.4 student GT 拼接位置
 

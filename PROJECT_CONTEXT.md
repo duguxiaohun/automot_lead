@@ -1507,19 +1507,24 @@ SFT v2 不再把冻结 teacher 生成的 ANALYSIS 作为长期维护数据集写
 
 - 训练前预览：`tools/inspect_teacher_outputs.py --live --serve --port 0` 从 pending jsonl 抽样，
   现场调用冻结 teacher，并把网页预览写到 inspect 目录；不改训练 jsonl。
-- 正式训练：`tools/sft_v2_train.sh` 检测到 `v2_pending` 后，训练启动阶段调用
-  `tools/build_sft_dataset_v2_teacher.py` 把 teacher ANALYSIS 临时物化到
-  `checkpoints/sft_v2_lora/runtime_teacher_data/`（可用 `RUNTIME_TEACHER_DIR` 覆盖），
-  再把这份 runtime jsonl 交给 ms-swift。默认 `RUNTIME_TEACHER_REFRESH=1` 每次启动都
-  会清旧 cache 重跑 teacher，避免 keyframes / prompt 改动后复用旧 ANALYSIS；只有
-  续跑同一份 pending 的中断物化任务时才设 `RUNTIME_TEACHER_REFRESH=0`，teacher 物化
-  本身支持断点续跑（rank 分片 + 100 条 flush）。
+- 正式训练：`tools/sft_v2_train.sh` 检测到 `v2_pending` 后，**先看 runtime cache 是否
+  完整**（`RUNTIME_TEACHER_DIR` 默认 `checkpoints/sft_v2_lora/runtime_teacher_data/`
+  下的 `train.jsonl` + `val.jsonl` 都存在 + 第一行 `dataset_version == "v2"`）：
+  - 有完整 cache → 秒进训练，跳过物化。**GPU 数无关**：2 卡产的 cache 切到 4 卡 / 8 卡
+    启动都能直接复用，不需要任何额外参数。
+  - 没完整 cache → 自动调用 `tools/build_sft_dataset_v2_teacher.py` 全量物化
+    （8 卡 ~100 min / 4 卡 ~200 min / 2 卡 ~6.7h）到该目录，再交给 ms-swift。
+    中断后下次启动会基于 fingerprint 去重续跑、不从 0 重算。
+  - 想强制重跑（prompt / keyframes 改过、想丢弃旧 ANALYSIS）→
+    `RUNTIME_TEACHER_REFRESH=1` 或手动 `rm -rf runtime_teacher_data/`。
+  - `check` 模式例外：默认 `RUNTIME_TEACHER_REFRESH=1` + 写到独立的
+    `runtime_teacher_check_data/`，每次 sanity 看最新 teacher 且不会覆盖正式 cache。
 - `check_loss_mask_v2.py`、`eval_sft_v1.py`、`probe_sft_v1.py` 需要用已经物化后的
   `dataset_version == "v2"` jsonl，例如 runtime teacher 目录下的 `val.jsonl`。
 
-由于 ms-swift 训练入口读取 jsonl，当前"实时 teacher 真值"实现为"训练启动时临时物化
-一份 runtime jsonl"，不是每个 mini-batch 在线调用 teacher；pending 源数据仍然可随
-keyframes / prompt 改动重新生成，且不会被 teacher 回写。
+由于 ms-swift 训练入口读取 jsonl，当前"实时 teacher 真值"实现为"首次启动一次性物化
++ 之后任意卡数复用同一份 runtime jsonl"，不是每个 mini-batch 在线调用 teacher；
+pending 源数据仍然可随 keyframes / prompt 改动重新生成，且不会被 teacher 回写。
 
 ## 18. SFT v2 eval 端两个工程坑（2026-06-02 实测）
 
