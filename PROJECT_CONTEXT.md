@@ -1527,16 +1527,30 @@ SFT v2 不再把冻结 teacher 生成的 ANALYSIS 作为长期维护数据集写
 + 之后任意卡数复用同一份 runtime jsonl"，不是每个 mini-batch 在线调用 teacher；
 pending 源数据仍然可随 keyframes / prompt 改动重新生成，且不会被 teacher 回写。
 
-**Cache 完整性靠 `manifest.json` 保护**（2026-06-02 加固）：早期版本只看
-`train.jsonl` / `val.jsonl` 是否非空 + 第一行 `dataset_version == "v2"`，挡不住
-旧版 check 写到正式目录的 32 条小样本、`RUNTIME_TEACHER_MAX_SAMPLES=N` 调试残留、
+**Cache 完整性靠 `manifest.json` 保护**（2026-06-02 加固 → 2026-06-02 加 back-stamp 防护）：
+早期版本只看 `train.jsonl` / `val.jsonl` 是否非空 + 第一行 `dataset_version == "v2"`，
+挡不住旧版 check 写到正式目录的 32 条小样本、`RUNTIME_TEACHER_MAX_SAMPLES=N` 调试残留、
 或 train 完整但 val 只写一半的中断状态。现在 `build_sft_dataset_v2_teacher.py`
 在 rank0 + `--max-samples 0` 全集跑完 + pending/runtime 行数严格相等时，才写
 `manifest.json`（schema_version=1，含 pending/runtime 行数 + model_dir + seed +
-completed_at）；`sft_v2_train.sh runtime_teacher_pair_is_ready()` 强校验 manifest
-存在 + 五项行数完全对得上才接受复用。任何不满足的 cache 自动重新物化。
+completed_at）。`sft_v2_train.sh runtime_teacher_pair_is_ready()` 强校验：
+
+1. `manifest.json` 存在；
+2. `manifest.max_samples == 0`；
+3. `manifest.model_dir` realpath 与当前 `MODEL_DIR` 一致（防换 teacher 模型时复用旧 cache）；
+4. `manifest.seed` 与当前 `RUNTIME_TEACHER_SEED` 一致；
+5. manifest 记录的 pending/runtime 行数与当前实际 jsonl 行数全部相等。
+
+任何一项失败 → 拒绝复用。**Back-stamp 防护**：还要防一种情况——manifest 缺失但
+旧 full `train.jsonl` / `val.jsonl` 已经在目录里（manifest 升级前残留、或单进程
+跑完一半被打断后又写全了 jsonl）。如果不清掉，teacher 脚本 fingerprint 去重会把
+旧行当 done 不重新生成，反而在末尾给 stale 数据补签出一份新 manifest。
+`sft_v2_train.sh` 进入物化路径前会检测"manifest 缺 + final jsonl 存在"，自动 rm
+`train.jsonl` / `val.jsonl` / `stats.json`，但**保留 `.rank*` 分片**（这样真正的
+DDP 中断态仍能通过 fingerprint 去重续跑、不浪费已落盘进度）。
+
 **升级提示**：升级前的旧 cache 没有 manifest，下次启动会被强制重物化一次；之后
-正常无脑复用。
+正常无脑复用。换 MODEL_DIR / RUNTIME_TEACHER_SEED 也会触发重物化，符合直觉。
 
 ## 18. SFT v2 eval 端两个工程坑（2026-06-02 实测）
 

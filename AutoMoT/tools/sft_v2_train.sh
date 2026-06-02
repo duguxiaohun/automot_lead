@@ -225,7 +225,9 @@ runtime_teacher_pair_is_ready() {
 
     # python 一次性把所有校验做完，避免反复 shell-out。
     # 校验项：
-    #   - manifest.max_samples == 0
+    #   - manifest.max_samples == 0（全集跑）
+    #   - manifest.model_dir   == 当前 MODEL_DIR（teacher 模型必须一致）
+    #   - manifest.seed        == 当前 RUNTIME_TEACHER_SEED（greedy 时不影响输出但记录用）
     #   - manifest.runtime_train_rows == actual lines in runtime/train.jsonl
     #   - manifest.runtime_val_rows   == actual lines in runtime/val.jsonl
     #   - manifest.pending_train_rows == actual lines in pending/train.jsonl
@@ -233,9 +235,12 @@ runtime_teacher_pair_is_ready() {
     # 任一失败 → return 1。
     python - "$manifest_path" "$train_path" "$val_path" \
         "$(dirname "${TRAIN_JSONL}")/train.jsonl" \
-        "$(dirname "${TRAIN_JSONL}")/val.jsonl" <<'PY' || return 1
-import json, sys, pathlib
+        "$(dirname "${TRAIN_JSONL}")/val.jsonl" \
+        "${MODEL_DIR}" "${RUNTIME_TEACHER_SEED}" <<'PY' || return 1
+import json, os, sys, pathlib
 mf_path, rt_train, rt_val, pd_train, pd_val = (pathlib.Path(p) for p in sys.argv[1:6])
+cur_model_dir = sys.argv[6]
+cur_seed = sys.argv[7]
 try:
     mf = json.loads(mf_path.read_text(encoding="utf-8"))
 except Exception as e:
@@ -243,6 +248,18 @@ except Exception as e:
     sys.exit(1)
 if int(mf.get("max_samples", -1)) != 0:
     print(f"[reuse-check] reject: manifest.max_samples={mf.get('max_samples')} (need 0)")
+    sys.exit(1)
+# model_dir 用 realpath 归一化对比，避免相对/绝对路径差异误判。
+try:
+    mf_model = os.path.realpath(str(mf.get("model_dir", "")))
+    cur_model = os.path.realpath(cur_model_dir)
+except Exception:
+    mf_model, cur_model = str(mf.get("model_dir", "")), cur_model_dir
+if mf_model != cur_model:
+    print(f"[reuse-check] reject: model_dir manifest={mf.get('model_dir')} (realpath={mf_model}) current={cur_model_dir} (realpath={cur_model})")
+    sys.exit(1)
+if str(mf.get("seed", "")) != str(cur_seed):
+    print(f"[reuse-check] reject: seed manifest={mf.get('seed')} current={cur_seed}")
     sys.exit(1)
 def count(p):
     if not p.exists():
@@ -313,6 +330,17 @@ materialize_runtime_teacher_if_needed() {
             "${RUNTIME_TEACHER_DIR}/manifest.json" \
             "${RUNTIME_TEACHER_DIR}"/train.jsonl.rank* \
             "${RUNTIME_TEACHER_DIR}"/val.jsonl.rank*
+    elif [[ ! -f "${RUNTIME_TEACHER_DIR}/manifest.json" ]] \
+        && { [[ -s "${RUNTIME_TEACHER_DIR}/train.jsonl" ]] || [[ -s "${RUNTIME_TEACHER_DIR}/val.jsonl" ]]; }; then
+        # 防 back-stamp：manifest 缺失但 final jsonl 存在 = 旧版残留或单进程被打断的中间态。
+        # 若不清掉，teacher 脚本的 fingerprint 去重会把已存在行当 done、不重新生成，
+        # 反而在末尾给 stale 数据"补签"出一份 manifest。
+        # 保留 .rank* 分片（DDP 中断状态可以续跑），只清 final jsonl 强制重物化。
+        echo "[teacher] manifest.json missing but train/val jsonl exists → orphan/old cache, removing to force re-materialize"
+        rm -f \
+            "${RUNTIME_TEACHER_DIR}/train.jsonl" \
+            "${RUNTIME_TEACHER_DIR}/val.jsonl" \
+            "${RUNTIME_TEACHER_DIR}/stats.json"
     else
         echo "[teacher] keep existing runtime files (no complete cache yet, or check mode); build_sft_dataset_v2_teacher.py will resume via fingerprint dedup"
     fi
