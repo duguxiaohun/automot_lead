@@ -86,7 +86,7 @@
 - `AutoMoT/tools/sft_v2_train.sh`
 - `AutoMoT/tools/check_loss_mask_v2.py`
 - `AutoMoT/tools/inspect_teacher_outputs.py`
-  （以上 7 个是 SFT v2 升级：长期数据集只保留 `v2_pending` 占位 jsonl；冻结 base Qwen + PRIVILEGED prompt 的 ANALYSIS 真值由 `sft_v2_train.sh` 在训练启动时临时物化到 runtime 目录，默认 `RUNTIME_TEACHER_REFRESH=1` 每次启动都刷新 runtime cache（`RUNTIME_TEACHER_REFRESH=0` 才复用旧 cache 续跑），或由 `inspect_teacher_outputs.py --live` 做训练前预览；student 全段都算 loss，差异化权重；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；`eval_sft_v1.py` / `probe_sft_v1.py` 自动按 jsonl 字段检测 v1/v2；`check_loss_mask_v2.py` 用于已物化 v2 jsonl 的 token 级静态 sanity）
+  （以上 7 个是 SFT v2 升级：长期数据集只保留 `v2_pending` 占位 jsonl；冻结 base Qwen + PRIVILEGED prompt 的 ANALYSIS 真值由 `sft_v2_train.sh` 在训练启动时临时物化到 runtime 目录，默认 `RUNTIME_TEACHER_REFRESH=1` 每次启动都刷新 runtime cache（`RUNTIME_TEACHER_REFRESH=0` 才复用旧 cache 续跑），或由 `inspect_teacher_outputs.py --live` 做训练前预览；student 全段都算 loss（ANALYSIS body 0.3 / 起手字面 `ANALYSIS:`、段切换字面 `\nSTATUS:` / `\nSUBGOAL:`、STATUS+SUBGOAL event_name、可能进入 context 的 tail/EOS 全部 1.0；v2.0 旧版字面 mask=0 是致命陷阱，详见 PROJECT_CONTEXT.md §18.5）；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；`eval_sft_v1.py` / `probe_sft_v1.py` 自动按 jsonl 字段检测 v1/v2；`check_loss_mask_v2.py` 用于已物化 v2 jsonl 的 token 级静态 sanity）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py`

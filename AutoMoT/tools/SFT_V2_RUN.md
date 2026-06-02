@@ -358,9 +358,11 @@ teacher prompt 加了 word-count target（"40-70 words"）+ postprocess 收紧�
 
 ```bash
 python tools/inspect_teacher_outputs.py \
-    --pending-dir checkpoints/sft_v2_data_pending \
+    --jsonl checkpoints/sft_v2_data_pending/train.jsonl \
     --save-root /tmp/inspect_pre_retrain \
-    --live --num 20 --serve --port 0
+    --num-per-scenario 3 --seed 42 \
+    --live --serve --port 0 \
+    --model-dir checkpoints/Qwen3-VL-4B-Instruct
 ```
 
 **抽样必看项**：
