@@ -184,7 +184,9 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
 - 如果 `dataset_version == "v2_pending"`：
   - 看 `RUNTIME_TEACHER_DIR`（默认 `checkpoints/sft_v2_lora/runtime_teacher_data/`）
     下有没有完整 cache。**完整性强校验**：`manifest.json` 存在 + 第一行
-    `dataset_version == "v2"` + manifest 记录的 `max_samples==0` + pending/runtime
+    `dataset_version == "v2"` + `schema_version == 2` +
+    `max_samples==0` + `model_dir` / seed / `max_new_tokens=256` /
+    `teacher_temperature=0.0` 与当前 launcher 配置一致 + pending/runtime
     行数与当前实际 jsonl 行数严格匹配。manifest 由 `build_sft_dataset_v2_teacher.py`
     在"全集跑完 + train/val 都跑了 + 行数对得上"时才写入；32 条 debug cache、
     半截 val、`--max-samples N` 跑出来的小样本一律不写 manifest，所以一律不会被
@@ -192,8 +194,9 @@ teacher 是生成模型，不保证严格遵守"单行无前缀"。后处理 pip
   - **有完整 cache → 直接复用**（GPU 数无关：2 卡产的 cache 切 4 卡 / 8 卡都能直接用），
     跳过 100 min 物化，秒进 swift sft。
   - 没完整 cache → 自动调用 `build_sft_dataset_v2_teacher.py`，把 teacher ANALYSIS
-    全量物化到 `RUNTIME_TEACHER_DIR`，再交给 ms-swift。本身 `fingerprint` 去重，所以
-    中断后下次启动会基于已落盘的 rank 分片续跑、不重复算。
+    全量物化到 `RUNTIME_TEACHER_DIR`，再交给 ms-swift。没有 manifest 的 final/rank
+    残留默认视为不可验证 orphan cache，会先清掉再重物化，避免旧 teacher 配置分片
+    被 fingerprint 去重误当成当前产物。
 - 如果 `dataset_version == "v2"`：说明用户显式传入了已物化 jsonl，训练脚本直接使用。
 
 `RUNTIME_TEACHER_REFRESH` 默认 0 = cache 完整时复用；显式 1 = 清掉旧 cache 强制

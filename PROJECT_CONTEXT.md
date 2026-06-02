@@ -1527,13 +1527,13 @@ SFT v2 不再把冻结 teacher 生成的 ANALYSIS 作为长期维护数据集写
 + 之后任意卡数复用同一份 runtime jsonl"，不是每个 mini-batch 在线调用 teacher；
 pending 源数据仍然可随 keyframes / prompt 改动重新生成，且不会被 teacher 回写。
 
-**Cache 完整性靠 `manifest.json` 保护**（2026-06-02 加固 → 2026-06-02 加 back-stamp 防护）：
+**Cache 完整性靠 `manifest.json` 保护**（2026-06-02 加固 → 2026-06-02 加 back-stamp / orphan rank 防护）：
 早期版本只看 `train.jsonl` / `val.jsonl` 是否非空 + 第一行 `dataset_version == "v2"`，
 挡不住旧版 check 写到正式目录的 32 条小样本、`RUNTIME_TEACHER_MAX_SAMPLES=N` 调试残留、
 或 train 完整但 val 只写一半的中断状态。现在 `build_sft_dataset_v2_teacher.py`
 在 rank0 + `--max-samples 0` 全集跑完 + pending/runtime 行数严格相等时，才写
-`manifest.json`（schema_version=1，含 pending/runtime 行数 + model_dir + seed +
-completed_at）。`sft_v2_train.sh runtime_teacher_pair_is_ready()` 强校验（manifest schema_version=2）：
+`manifest.json`（schema_version=2，含 pending/runtime 行数 + model_dir + seed +
+max_new_tokens + teacher_temperature + completed_at）。`sft_v2_train.sh runtime_teacher_pair_is_ready()` 强校验：
 
 1. `manifest.json` 存在；
 2. `manifest.max_samples == 0`；
@@ -1551,15 +1551,15 @@ completed_at）。`sft_v2_train.sh runtime_teacher_pair_is_ready()` 强校验（
 - **manifest 存在但 reuse_check 失败**（stale config — model_dir / seed / gen 参数
   或行数不匹配）：清全部（**包括 `.rank*`**，因为分片也是用旧配置生成的，留着会被
   teacher 脚本 dedup 跳过、又给 stale 数据补签新 manifest）；
-- **manifest 缺失 + final jsonl 存在**（旧版残留 / 单进程跑完一半被打断后又写全了
-  jsonl）：清 final jsonl + stats，**保留 `.rank*`**（真正的 DDP 中断态可以续跑、
-  不浪费已落盘进度；rank 分片没有 model_dir 元数据锁定，但假设 manifest 升级是
-  单次事件，残留 rank 几乎不会跟新 model_dir / seed 冲突）；
-- **只有 `.rank*` 或目录为空**：不清，直接物化（fingerprint dedup 自动 resume）。
+- **manifest 缺失 + final jsonl 或 `.rank*` 存在**（旧版残留 / 单进程或 DDP
+  中断态 / 没有可验证元数据的 orphan cache）：清全部（**包括 `.rank*`**）。rank
+  分片虽然行内有 teacher_meta，但 teacher 脚本的 resume 去重只看样本 fingerprint，
+  不检查 model_dir / seed / gen 参数；保留它们可能让旧配置分片被当成当前产物；
+- **目录为空**：直接物化。
 
-如果不做"manifest 存在但失败 → 清全部"这条，teacher 脚本 fingerprint 去重会把旧
-`train.jsonl` / `val.jsonl` 当 done 跳过、不重生成，最终在末尾给 stale 数据补签
-出一份新 manifest（"伪复用"），让 model_dir / seed / gen 参数变更的承诺失效。
+如果不做这些清理，teacher 脚本 fingerprint 去重会把旧 `train.jsonl` / `val.jsonl`
+或 `.rank*` 当 done 跳过、不重生成，最终在末尾给 stale 数据补签出一份新 manifest
+（"伪复用"），让 model_dir / seed / gen 参数变更的承诺失效。
 
 **升级提示**：升级前的旧 cache 没有 manifest（或 schema_version < 2），下次启动会被
 强制重物化一次；之后正常无脑复用。换 MODEL_DIR / RUNTIME_TEACHER_SEED 也会触发

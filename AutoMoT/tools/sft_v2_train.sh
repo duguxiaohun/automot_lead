@@ -329,9 +329,9 @@ materialize_runtime_teacher_if_needed() {
     # 1) cache 完整且校验通过 → reuse 秒进训练
     # 2) manifest 存在但校验失败（model_dir / seed / gen 参数 / 行数等不匹配）
     #    → stale config，rm 全部 (train+val+stats+manifest+.rank*) 重物化
-    # 3) manifest 缺失但 final jsonl 存在 → 旧版残留 / 单进程跑完一半被打断
-    #    → rm final jsonl 防 back-stamp，保留 .rank* 给真正的 DDP 中断态续跑
-    # 4) 都没有，或只有 .rank* 分片 → 直接物化（fingerprint 去重自动 resume）
+    # 3) manifest 缺失但 final jsonl / .rank* 存在 → orphan cache，rm 全部
+    #    防止旧配置分片被 fingerprint 去重误当成当前 teacher 产物
+    # 4) 目录为空 → 直接物化
     local manifest_existed=0
     if [[ -f "${RUNTIME_TEACHER_DIR}/manifest.json" ]]; then
         manifest_existed=1
@@ -377,19 +377,24 @@ materialize_runtime_teacher_if_needed() {
             "${RUNTIME_TEACHER_DIR}/manifest.json" \
             "${RUNTIME_TEACHER_DIR}"/train.jsonl.rank* \
             "${RUNTIME_TEACHER_DIR}"/val.jsonl.rank*
-    elif { [[ -s "${RUNTIME_TEACHER_DIR}/train.jsonl" ]] || [[ -s "${RUNTIME_TEACHER_DIR}/val.jsonl" ]]; }; then
-        # manifest 缺失 + final jsonl 存在 = 旧版残留或单进程被打断的中间态。
-        # 防 back-stamp：rm final jsonl 强制 teacher 重生成；保留 .rank* 给真正的
-        # DDP 中断态续跑（rank 分片是按 fingerprint 写的，没有 model_dir 元数据
-        # 锁定，可以被后续任意配置 dedup 使用，但这里假定 manifest 升级是单次
-        # 一次性事件，残留 rank 几乎不会跟新 model_dir / seed 冲突）。
-        echo "[teacher] manifest.json missing but train/val jsonl exists → orphan/old cache, removing to force re-materialize"
+    elif [[ -s "${RUNTIME_TEACHER_DIR}/train.jsonl" ]] \
+        || [[ -s "${RUNTIME_TEACHER_DIR}/val.jsonl" ]] \
+        || compgen -G "${RUNTIME_TEACHER_DIR}/train.jsonl.rank*" > /dev/null \
+        || compgen -G "${RUNTIME_TEACHER_DIR}/val.jsonl.rank*" > /dev/null; then
+        # manifest 缺失 + final/rank 残留 = 旧版残留或未完成中间态。
+        # rank 分片没有独立 manifest 锁定 model_dir / seed / gen 参数；如果保留，
+        # teacher 脚本只按样本 fingerprint 去重，可能把旧配置分片当成当前产物。
+        # 因此默认清掉全部不可验证缓存，牺牲一次中断续跑进度，换取 teacher GT 正确性。
+        echo "[teacher] manifest.json missing but runtime residue exists → orphan/unverifiable cache; wiping cache (incl. .rank*) to force fresh materialize"
         rm -f \
             "${RUNTIME_TEACHER_DIR}/train.jsonl" \
             "${RUNTIME_TEACHER_DIR}/val.jsonl" \
-            "${RUNTIME_TEACHER_DIR}/stats.json"
+            "${RUNTIME_TEACHER_DIR}/stats.json" \
+            "${RUNTIME_TEACHER_DIR}/manifest.json" \
+            "${RUNTIME_TEACHER_DIR}"/train.jsonl.rank* \
+            "${RUNTIME_TEACHER_DIR}"/val.jsonl.rank*
     else
-        echo "[teacher] keep existing runtime files (fresh dir, or only .rank* shards for DDP mid-interrupt resume); build_sft_dataset_v2_teacher.py will resume via fingerprint dedup"
+        echo "[teacher] no reusable runtime cache; build_sft_dataset_v2_teacher.py will materialize from scratch"
     fi
     echo "[teacher] runtime materialize teacher ANALYSIS (no reusable cache; auto triggered)"
     echo "[teacher] pending_dir=${pending_dir}"
