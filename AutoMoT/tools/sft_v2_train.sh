@@ -3,10 +3,11 @@
 #
 # 与 sft_v1_train.sh 的核心区别：
 #   - --loss_scale 改用 sft_v2_analysis_supervised（v2 plugin，ANALYSIS body 权重 0.3）；
-#   - 默认读 sft_v2_data_pending/，训练启动时自动调 build_sft_dataset_v2_teacher.py
-#     全量物化 teacher ANALYSIS 到 OUTPUT_DIR/runtime_teacher_data/，再进 swift sft；
-#     默认 RUNTIME_TEACHER_REFRESH=1 → 每次启动都清旧 cache 重跑，保证 teacher 与
-#     当前 prompt/keyframes 一致；显式 RUNTIME_TEACHER_REFRESH=0 才复用旧 cache；
+#   - 默认读 sft_v2_data_pending/；首次启动若 runtime cache 不存在，自动调用
+#     build_sft_dataset_v2_teacher.py 全量物化 teacher ANALYSIS 到
+#     OUTPUT_DIR/runtime_teacher_data/，再进 swift sft；之后再启动（任意卡数）会
+#     自动检测到完整 cache 直接复用、跳过物化。改 prompt / keyframes 后想强制重跑
+#     teacher，显式 RUNTIME_TEACHER_REFRESH=1 或直接 rm -rf runtime_teacher_data/；
 #   - LR 5e-5 → 3e-5（v2 监督 token 数 × 5，lr 同步下调避免过冲，详见 SFT_V2_PLAN.md §6）；
 #   - MAX_LENGTH 3072 → 3584（v2 ANALYSIS 段更长）。
 #
@@ -21,8 +22,8 @@
 #      参与 loss；判读细节见 SFT_V2_RUN.md §4。）
 #
 # 数据先用 tools/build_sft_dataset_v1.py --mode v2 生成 pending jsonl。
-# 训练脚本默认在运行时调用冻结 teacher 生成临时 ANALYSIS 真值，不把 teacher 文本写回
-# pending 数据集；默认每次启动都刷新 runtime teacher cache。
+# 训练脚本首次启动会调用冻结 teacher 一次性物化 ANALYSIS 真值到 runtime 目录，之后
+# 任意卡数启动都自动复用同一份 cache，不重复物化。pending 源数据不会被回写。
 #
 # 常用 override：
 #   MODEL_DIR=/path/to/Qwen3-VL-4B-Instruct \
@@ -51,11 +52,27 @@ MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v2_data_pending/train.jsonl}"
 VAL_JSONL="${VAL_JSONL:-checkpoints/sft_v2_data_pending/val.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_v2_lora}"
+# check 模式默认写到独立子目录，避免误清掉正式训练用的 runtime_teacher_data/。
+RUNTIME_TEACHER_DIR_WAS_SET=0
+if [[ -n "${RUNTIME_TEACHER_DIR+x}" ]]; then
+    RUNTIME_TEACHER_DIR_WAS_SET=1
+fi
 RUNTIME_TEACHER_DIR="${RUNTIME_TEACHER_DIR:-${OUTPUT_DIR}/runtime_teacher_data}"
+if [[ "${MODE}" == "check" && "${RUNTIME_TEACHER_DIR_WAS_SET}" != "1" ]]; then
+    RUNTIME_TEACHER_DIR="${OUTPUT_DIR}/runtime_teacher_check_data"
+fi
 RUNTIME_TEACHER_SEED="${RUNTIME_TEACHER_SEED:-20260601}"
-# 默认 1 = 每次启动都清旧 runtime cache 重跑 teacher，保证与当前 prompt / keyframes
-# 一致；只有明确要续跑同一份 pending 的中断任务时才设 0。
-RUNTIME_TEACHER_REFRESH="${RUNTIME_TEACHER_REFRESH:-1}"
+# single/ddp 默认 0 = 已有完整 runtime cache 时直接复用、跳过物化；显式 1 = 清掉旧
+# cache 强制重跑（prompt/keyframes 改过、想丢弃旧 ANALYSIS 时用）。
+# check 模式例外：若用户没显式设 REFRESH，默认置 1，确保每次 sanity 看到最新 teacher。
+RUNTIME_TEACHER_REFRESH_WAS_SET=0
+if [[ -n "${RUNTIME_TEACHER_REFRESH+x}" ]]; then
+    RUNTIME_TEACHER_REFRESH_WAS_SET=1
+fi
+RUNTIME_TEACHER_REFRESH="${RUNTIME_TEACHER_REFRESH:-0}"
+if [[ "${MODE}" == "check" && "${RUNTIME_TEACHER_REFRESH_WAS_SET}" != "1" ]]; then
+    RUNTIME_TEACHER_REFRESH="1"
+fi
 
 # ---------------------------------------------------------------------------
 # 超参（v2 调整版，详见 SFT_V2_PLAN.md §6）
@@ -192,6 +209,18 @@ with open(path, "r", encoding="utf-8") as f:
 ' "${path}"
 }
 
+# 检测 runtime cache 是否完整可复用：train.jsonl + val.jsonl 都存在、非空、
+# 且第一行 dataset_version == "v2"。GPU 数无关。
+runtime_teacher_pair_is_ready() {
+    local train_path="${RUNTIME_TEACHER_DIR}/train.jsonl"
+    local val_path="${RUNTIME_TEACHER_DIR}/val.jsonl"
+
+    [[ -s "${train_path}" && -s "${val_path}" ]] || return 1
+    [[ "$(jsonl_dataset_version "${train_path}")" == "v2" ]] || return 1
+    [[ "$(jsonl_dataset_version "${val_path}")" == "v2" ]] || return 1
+    return 0
+}
+
 materialize_runtime_teacher_if_needed() {
     local train_version
     train_version="$(jsonl_dataset_version "${TRAIN_JSONL}")"
@@ -209,6 +238,19 @@ materialize_runtime_teacher_if_needed() {
         VAL_JSONL="${pending_val}"
     fi
 
+    # 复用分支：non-check 模式 + 没要求强制刷新 + cache 完整 → 秒进训练。
+    # check 模式总是物化 32 条小样本（且默认走 runtime_teacher_check_data/ 独立目录）。
+    if [[ "${MODE}" != "check" && "${RUNTIME_TEACHER_REFRESH}" != "1" ]] \
+        && runtime_teacher_pair_is_ready; then
+        TRAIN_JSONL="${RUNTIME_TEACHER_DIR}/train.jsonl"
+        VAL_JSONL="${RUNTIME_TEACHER_DIR}/val.jsonl"
+        echo "[teacher] reuse existing runtime teacher cache at ${RUNTIME_TEACHER_DIR}"
+        echo "[teacher] cache is GPU-count agnostic; set RUNTIME_TEACHER_REFRESH=1 (or rm -rf the dir) to regenerate"
+        echo "[teacher] runtime train=${TRAIN_JSONL}"
+        echo "[teacher] runtime val=${VAL_JSONL}"
+        return 0
+    fi
+
     mkdir -p "${RUNTIME_TEACHER_DIR}"
     if [[ "${RUNTIME_TEACHER_REFRESH}" == "1" ]]; then
         if [[ -z "${RUNTIME_TEACHER_DIR}" || "${RUNTIME_TEACHER_DIR}" == "/" || "${RUNTIME_TEACHER_DIR}" == "." ]]; then
@@ -223,9 +265,9 @@ materialize_runtime_teacher_if_needed() {
             "${RUNTIME_TEACHER_DIR}"/train.jsonl.rank* \
             "${RUNTIME_TEACHER_DIR}"/val.jsonl.rank*
     else
-        echo "[teacher] keep existing runtime cache because RUNTIME_TEACHER_REFRESH=${RUNTIME_TEACHER_REFRESH}"
+        echo "[teacher] keep existing runtime files (no complete cache yet, or check mode); build_sft_dataset_v2_teacher.py will resume via fingerprint dedup"
     fi
-    echo "[teacher] runtime materialize teacher ANALYSIS"
+    echo "[teacher] runtime materialize teacher ANALYSIS (no reusable cache; auto triggered)"
     echo "[teacher] pending_dir=${pending_dir}"
     echo "[teacher] output_dir=${RUNTIME_TEACHER_DIR}"
     echo "[teacher] source pending jsonl is not modified"
