@@ -8,6 +8,28 @@
 > `checkpoints/...` 不是 `AutoMoT/checkpoints/...`。`keyframes_all_scenarios.json`
 > 远程固定放在 `/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json`。
 
+> ⚠️ **如果近期改过下列任意一项 prompt / 数据格式 → 必须删旧 pending 重新跑 §1**：
+>
+> - [`qwen3vl_local/prompt_pipeline.py`](../qwen3vl_local/prompt_pipeline.py) 的 `_SYSTEM_PROMPT`
+>   或 `build_user_prompt` / `build_memory_block`（student 端 prompt，影响 messages[0] / messages[1]）；
+> - [`build_sft_dataset_v1.py`](build_sft_dataset_v1.py) 的拼装逻辑或采样规则。
+>
+> 因为 pending jsonl 一旦生成，里面的 `messages[0]['content']` / `messages[1]['content']`
+> 就是当时的 prompt 文本快照；[`build_sft_dataset_v2_teacher.py`](build_sft_dataset_v2_teacher.py) 物化 runtime teacher
+> **只替换 ANALYSIS 占位**，不会重写 system / user。直接复用旧 pending 训出来的 LoRA
+> 会出现"训练时一套 prompt、eval 时另一套 prompt"的分布漂移。
+>
+> 删法：
+>
+> ```bash
+> rm -rf checkpoints/sft_v2_data_pending
+> # 也建议同时清掉上一次 runtime teacher 缓存（默认 RUNTIME_TEACHER_REFRESH=1 会自动清，
+> # 但显式删一次更安心）：
+> rm -rf checkpoints/sft_v2_lora/runtime_teacher_data
+> ```
+>
+> 然后从 §1 重新跑。
+
 ---
 
 ## 0. 准备
@@ -26,6 +48,10 @@ ls checkpoints/Qwen3-VL-4B-Instruct/ | head -5
 ---
 
 ## 1. 阶段 1：生成 pending jsonl（CPU，约 1–3 分钟）
+
+> 📌 **重生成时机**：见本文顶部 ⚠️ 提醒。改过 `prompt_pipeline.py` 的 `_SYSTEM_PROMPT`、
+> `build_user_prompt`、`build_memory_block` 中任意一个 → **必须先** `rm -rf checkpoints/sft_v2_data_pending`
+> 再跑下面的命令。pending jsonl 是"prompt 文本快照"，teacher 物化时不重写 system/user。
 
 ```bash
 python tools/build_sft_dataset_v1.py \
@@ -231,25 +257,117 @@ python tools/check_loss_mask_v2.py --jsonl checkpoints/sft_v2_runtime_debug/trai
 python tools/check_loss_mask_v2.py --jsonl checkpoints/sft_v2_lora/runtime_teacher_data/val.jsonl --sample-idx 3
 ```
 
-**通过条件**（必须全部满足）：
+**通过条件**（必须全部满足，**2026-06-02 修订**：段切换字面 / EOS 改为 W1.0，详见 PROJECT_CONTEXT.md §18.5）：
 
 - token 表里 ANALYSIS 正文 token 为 `[W0.3]`
 - token 表里 STATUS/SUBGOAL 事件名 token 为 `[W1.0]`
-- `ANALYSIS:` / `STATUS:` / `SUBGOAL:` 字面 token 都是 `[W0.0]`
-- plugin 输出中，`ANALYSIS body in_loss=True`、两段 `event_name in_loss=True`
-- plugin 输出中，`literal='ANALYSIS:'/'STATUS:'/'SUBGOAL:' in_loss=False`
+- token 表里 `\nSTATUS:` / `\nSUBGOAL:` 段切换字面 token 为 **`[W1.0]`**（旧版是 W0.0，修订后必须 W1.0）
+- token 表里末尾 EOS / `\n` 为 **`[W1.0]`**（旧版是 W0.0，修订后必须 W1.0）
+- 只有起手 `ANALYSIS:` 字面 token 仍是 `[W0.0]`（assistant prefix，chat template 强制开始）
+- plugin 输出中，`ANALYSIS body in_loss=True`、两段 `event_name in_loss=True`、`\nSTATUS:` / `\nSUBGOAL:` / EOS `in_loss=True`
 - plugin 分段数量为 6 或 7（有 tail 时为 7）
 
-**预期切片形状**（示例）：
+**预期切片形状**（2026-06-02 修订后；示例）：
 
 ```
-w=0.00: 'ANALYSIS: '
+w=0.00: 'ANALYSIS: '          # 仅起手字面 mask
 w=0.30: 'I see a foggy tunnel ... advancing to hazard_detect.'
-w=0.00: '\nSTATUS: '
+w=1.00: '\nSTATUS: '          # 段切换字面：必须 1.0
 w=1.00: 'hazard_detect'
-w=0.00: '\nSUBGOAL: '
+w=1.00: '\nSUBGOAL: '         # 段切换字面：必须 1.0
 w=1.00: 'max_brake_or_min_gap'
+w=1.00: '<|im_end|>\n'        # EOS：必须 1.0
 ```
+
+---
+
+### 3.5 重训前命中率门槛（**重要：不达标必查 teacher**）
+
+`check_loss_mask_v2.py` 跑单条样本 OK 不够——必须确认 `_FULL_PATTERN`
+在 runtime teacher 数据**整体**命中率 ≥ 95%。命中率低于 95% 说明 teacher 物化
+后 ANALYSIS body 里混进了多行或异常字符，plugin 走 fallback `_split_analysis_only`
+（fallback 下 STATUS/SUBGOAL 字面会被 weight=1.0 训练但段结构不对），训练会跑偏。
+
+```bash
+# 在 AutoMoT/ 根目录运行。importlib 路径加载 plugin，避免 tools/ 不是 Python 包导致
+# `from tools.sft_v2_loss_scale_plugin import ...` 失败；同时绕开 ms-swift 重型导入
+# （plugin 顶层 from swift...import LossScale 会拖一整套 ms-swift，单纯查 regex 不值）。
+python - <<'PY'
+import importlib.util, json, pathlib
+
+plugin_path = pathlib.Path("tools/sft_v2_loss_scale_plugin.py").resolve()
+spec = importlib.util.spec_from_file_location("sft_v2_loss_scale_plugin", plugin_path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+_FULL_PATTERN = mod._FULL_PATTERN
+
+path = "checkpoints/sft_v2_lora/runtime_teacher_data/train.jsonl"
+hit = total = 0
+samples_fail = []
+with open(path, encoding="utf-8") as f:
+    for i, line in enumerate(f):
+        if not line.strip():
+            continue
+        total += 1
+        msgs = json.loads(line)["messages"]
+        if _FULL_PATTERN.search(msgs[-1]["content"]):
+            hit += 1
+        elif len(samples_fail) < 5:
+            samples_fail.append((i, msgs[-1]["content"][:200]))
+print(f"hit_rate = {hit}/{total} = {hit/total:.2%}")
+for i, snippet in samples_fail:
+    print(f"--- sample {i} fail snippet ---\n{snippet}\n")
+PY
+```
+
+> 备注：上面 python heredoc 仍然会触发 `import sft_v2_loss_scale_plugin` 里
+> `from swift.plugin.loss_scale.loss_scale import LossScale` 这条顶层 import；
+> 在远程训练机上 swift 是装好的，没问题。如果在没装 ms-swift 的环境跑（如本地
+> mac dev box），把上面 plugin 加载替换成 inline 直接复制 regex 串：
+>
+> ```python
+> import re
+> _FULL_PATTERN = re.compile(
+>     r"ANALYSIS:[ \t]*"
+>     r"(?P<analysis>[^\n]*?)"
+>     r"\s*\nSTATUS:[ \t]*"
+>     r"(?P<status>\S[^\n]*?)"
+>     r"\s*\nSUBGOAL:[ \t]*"
+>     r"(?P<subgoal>\S[^\n]*)",
+>     flags=re.DOTALL,
+> )
+> ```
+
+**判读门槛**：
+
+| 命中率 | 判读 | 处理 |
+|---|---|---|
+| ≥ 95% | ✅ teacher 物化分布健康 | 进 §4 跑 dynamic check |
+| 90–95% | ⚠️ teacher 有少量异常样本（多行 / 异常长） | 看打印的 fail snippet；若是多行 ANALYSIS → 查 teacher postprocess `_truncate_at_sentence_boundary` 是否生效 |
+| < 90% | ❌ teacher prompt / postprocess 已经垮了 | **不要训**，回 §2 查 teacher：抽样 `inspect_teacher_outputs.py --live`，重点看 ANALYSIS body 平均长度、是否多行、是否退化到 fallback `Observations recorded.`；调好 teacher prompt 长度约束后重新物化 |
+
+### 3.6 inspect_teacher_outputs 抽样必看项（重训前一次性确认）
+
+teacher prompt 加了 word-count target（"40-70 words"）+ postprocess 收紧上下限
+（80-420 字符），重训前必须用 inspect 工具抽 20–50 条样本人眼过一遍，
+确认 teacher 真的进入了新分布：
+
+```bash
+python tools/inspect_teacher_outputs.py \
+    --pending-dir checkpoints/sft_v2_data_pending \
+    --save-root /tmp/inspect_pre_retrain \
+    --live --num 20 --serve --port 0
+```
+
+**抽样必看项**：
+
+- 大多数 ANALYSIS body 长度落在 200–400 字符（≈ 30–70 词）。<150 字符或 >450 字符的样本应该是少数（< 5%）。
+- ANALYSIS body 是单行（没有内嵌 `\n`），且以句号 / 问号 / 感叹号收尾（不在 word 中间被截）。
+- ANALYSIS body 不出现 `STATUS:` / `SUBGOAL:` 字面（teacher 自己生成结构会污染 plugin regex 切片）。
+- `truncated_sentence=True` 比例 < 30%——比例过高说明 teacher 普遍超长，需要再压缩 prompt 长度约束。
+- `fallback=true` 比例 < 5%——比例过高说明 teacher 普遍过短或垮，需要看 prompt 是不是约束太紧。
+
+抽样结果不满足以上任何一条 → 回去调 teacher prompt 或 postprocess 上下限，**不要直接训**。
 
 ---
 
@@ -262,15 +380,16 @@ bash tools/sft_v2_train.sh check
 与 v1 一样，2 step、不保存 ckpt、不跑 val。check 模式会自动从 pending 数据生成最多
 32 条 runtime teacher 样本；不会改写 pending 数据集。
 
-**预期 loss 数值**（健康范围）：
+**预期 loss 数值**（健康范围，**2026-06-02 修订**：plugin 升级后段切换字面进 loss，effective 监督 token 从 v2.0 的 ~30 升到 ~45，loss 数值会略偏高）：
 
 ```
-{'loss': 3~8, 'grad_norm': ..., 'learning_rate': ..., 'epoch': 0.0x}
+{'loss': 3~10, 'grad_norm': ..., 'learning_rate': ..., 'epoch': 0.0x}
 ```
 
 说明：
-- v2 会监督 ANALYSIS 正文（权重 0.3），所以 loss 统计口径与 v1 不同
-- 重点看“mask 是否生效 + loss 是否有限非 NaN”，不是盯绝对值
+- v2 会监督 ANALYSIS 正文（权重 0.3）+ 段切换字面（权重 1.0，2026-06-02 修订）+ EOS（权重 1.0），所以 loss 统计口径与 v1 不同
+- 重点看"mask 是否生效 + loss 是否有限非 NaN"，不是盯绝对值
+- v2.0 旧版（commit ef0eb19 之前）健康范围曾是 3~8；修订后 effective 监督 token 增加约 50%，区间上沿略上抬
 
 判读：
 
@@ -278,7 +397,8 @@ bash tools/sft_v2_train.sh check
 |---|---|---|
 | `check_loss_mask_v2.py` 通过 + check loss 有限且非 NaN | ✅ 训练侧权重大方向正常 | 进 §5 正式训练 |
 | loss < 1 或 `grad_norm=0` | ❌ 可能事件名 token 也被 mask 掉了（全 0 权重） | 先看 §3 的 `w1` token 数是否 ≥ 2 |
-| loss > 12 | ⚠️ 可能字面 token 误入 loss，或 teacher ANALYSIS 异常长 | 先看 §3 plugin literal 检查；再查 teacher 可视化 §2.6 |
+| loss 在 8~10 区间 | ✅ v2 修订后正常（段切换字面 + EOS 进 loss 抬高了数值），**不是异常** | 直接进 §5 |
+| loss > 14 | ⚠️ 可能 teacher ANALYSIS 异常长 / regex 大面积 fallback | 先看 §3.5 `_FULL_PATTERN` 命中率；再查 teacher 可视化 §2.6 |
 | check 模式仍保存了 checkpoint | ❌ check 不该落盘 | 拉最新 `tools/sft_v2_train.sh`，确认 `--save_strategy no` |
 
 ---

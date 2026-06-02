@@ -113,6 +113,12 @@ Produce a single line of ANALYSIS that a student model (which does NOT see PRIVI
 2. Second sentence: describe what CHANGED between the earliest and the latest frame.
 3. Third sentence: state whether the observed evidence supports staying at MEMORY STATUS or advancing to the current STATUS, tying it to the visual evidence above.
 
+Length target (strict):
+- Aim for 40-70 words total across the 3 sentences.
+- Going under 25 words tends to skip the visual evidence step and become a bare conclusion - do NOT do that.
+- Going over 90 words tends to invent extra details, repeat clauses, or drift off-task - do NOT do that.
+- Each sentence should carry one specific visual fact; do not pad with hedging phrases ("it seems that", "we can observe that", "as we can see").
+
 Constraints:
 - Do NOT mention or reference the PRIVILEGED block; write as if from images only.
 - Do NOT invent visual content not actually present.
@@ -174,6 +180,28 @@ def build_teacher_user_prompt(student_user_no_image: str, meta: Dict[str, Any]) 
     return student_user_no_image.rstrip() + privileged
 
 
+# 与 build_sft_dataset_v2_teacher.py::_postprocess 同口径（2026-06-02 收紧）：
+# 上限 480→420（约 70 词），下限 20→80（约 12 词），长截改成在句号边界优雅截。
+_MAX_ANALYSIS_CHARS = 420
+_MIN_ANALYSIS_CHARS = 80
+
+
+def _truncate_at_sentence_boundary(t: str, hard_limit: int) -> str:
+    """与 build_sft_dataset_v2_teacher.py 同实现：句号 > 词边界 > 硬截。"""
+    if len(t) <= hard_limit:
+        return t
+    window = t[:hard_limit]
+    best = -1
+    for punct in (". ", "! ", "? "):
+        idx = window.rfind(punct)
+        if idx > best:
+            best = idx + 1
+    if best > hard_limit // 2:
+        return t[:best].rstrip()
+    cut_pos = window.rfind(" ")
+    return t[: cut_pos if cut_pos > 0 else hard_limit].rstrip()
+
+
 def postprocess_teacher(raw_text: str) -> Dict[str, Any]:
     if raw_text is None:
         raw_text = ""
@@ -183,7 +211,7 @@ def postprocess_teacher(raw_text: str) -> Dict[str, Any]:
         "removed_prefix": False,
         "stop_marker": None,
         "newline_collapsed": False,
-        "truncated_480": False,
+        "truncated_sentence": False,  # v2 修订：长截改在句号边界做了，原 truncated_480 字段名换掉
         "fallback": False,
     }
 
@@ -209,12 +237,12 @@ def postprocess_teacher(raw_text: str) -> Dict[str, Any]:
         info["newline_collapsed"] = True
     t = collapsed
 
-    if len(t) > 480:
-        cut_pos = t.rfind(" ", 0, 480)
-        t = t[: cut_pos if cut_pos > 0 else 480].rstrip()
-        info["truncated_480"] = True
+    before_trunc = t
+    t = _truncate_at_sentence_boundary(t, _MAX_ANALYSIS_CHARS)
+    if t != before_trunc:
+        info["truncated_sentence"] = True
 
-    if len(t) < 20:
+    if len(t) < _MIN_ANALYSIS_CHARS:
         t = "Observations recorded."
         info["fallback"] = True
 

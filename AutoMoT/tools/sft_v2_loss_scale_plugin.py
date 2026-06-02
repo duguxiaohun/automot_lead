@@ -9,18 +9,30 @@
 ==================  ======  =================================================
 段                  权重    理由
 ==================  ======  =================================================
-``ANALYSIS:`` 字面  0       关键词无学习价值
+``ANALYSIS:`` 字面  0       assistant prefix 起手字面，由 chat template 强制开始
 ANALYSIS body       0.3     蒸馏目标 — 0.3 让 student 学到形状但不被 teacher
                             的措辞随机性主导（teacher 是采样输出非真值）
-``\\nSTATUS:`` 字面 0       关键词无学习价值
+``\\nSTATUS:`` 字面 **1.0** 段切换信号 — v2 实测必须 ≥1.0；mask=0 会让模型在
+                            ANALYSIS body 末尾无梯度学切段，自由生成时陷入
+                            "ANALYSIS×N 循环复读"（详见 §"段切换不能 mask"）
 STATUS event_name   1.0     核心监督
-``\\nSUBGOAL:`` 字面 0      关键词无学习价值
+``\\nSUBGOAL:`` 字面 **1.0** 同 ``\\nSTATUS:`` — 段切换信号必须有监督
 SUBGOAL event_name  1.0     核心监督
-末尾换行 / EOS      0       占位
+末尾换行 / EOS      **1.0** 让模型学会 emit EOS；v2 ANALYSIS 长后 base 先验
+                            不够稳，mask=0 会让自由生成顶到 max_gen_tokens
 ==================  ======  =================================================
 
 ANALYSIS 权重可通过环境变量 ``SFT_V2_ANALYSIS_WEIGHT`` 在启动训练前 override
 （用例：实测 ANALYSIS 还在漂移 → 0.5；过拟合 teacher 措辞 → 0.1）。
+
+**段切换不能 mask（v2 致命踩坑，2026-06-02）**：
+v2.0 (commit ef0eb19 之前) 把 ``\\nSTATUS:`` / ``\\nSUBGOAL:`` / EOS 全部 mask
+成 0，理由是"关键词字面无学习价值"——这条推断在 v1 ANALYSIS 是固定占位
+（7 token）时确实没事，但 v2 ANALYSIS 升到 80-150 token 自由文本后，模型在
+ANALYSIS body 末尾 token 的 next-token-prediction 没有任何梯度推它去 emit
+``\\n``/``STATUS``，自由生成时倾向于继续写 ANALYSIS body 风格的 token，
+陷入"ANALYSIS×N 循环"直到 max_gen_tokens 耗尽。修法：所有结构性切换字面
+weight 必须 ≥ 1.0，让模型学到"ANALYSIS body 结束后必须 emit 段切换 token"。
 
 策略名 ``sft_v2_analysis_supervised`` 与 ``tools/sft_v2_train.sh`` 里
 ``--loss_scale`` 对应。
@@ -148,30 +160,35 @@ class SftV2AnalysisSupervisedLossScale(LossScale):
         scales.append(ANALYSIS_WEIGHT)
 
         # mid1: a_end .. s_start = "\nSTATUS: "
+        # 注意 weight=1.0 而不是 0：段切换字面必须被监督，否则模型在 ANALYSIS body
+        # 末尾无梯度学切段，自由生成时陷入 "ANALYSIS×N 循环"。详见模块 docstring。
         mid1 = context[a_end:s_start]
         if mid1:
             parts.append(mid1)
-            scales.append(0.0)
+            scales.append(1.0)
 
         # STATUS event_name
         parts.append(context[s_start:s_end])
         scales.append(STATUS_WEIGHT)
 
         # mid2: s_end .. g_start = "\nSUBGOAL: "
+        # 同 mid1：段切换字面必须 weight ≥ 1.0。
         mid2 = context[s_end:g_start]
         if mid2:
             parts.append(mid2)
-            scales.append(0.0)
+            scales.append(1.0)
 
         # SUBGOAL event_name
         parts.append(context[g_start:g_end])
         scales.append(SUBGOAL_WEIGHT)
 
         # tail: g_end .. len(context) = 末尾换行 / EOS 占位 / special token
+        # weight=1.0 让模型显式学会 emit EOS；v2 ANALYSIS 长度增加后 base 模型对
+        # "什么时候停"的先验不再足以稳定收尾，mask=0 会让自由生成顶到上限。
         tail = context[g_end:]
         if tail:
             parts.append(tail)
-            scales.append(0.0)
+            scales.append(1.0)
 
         return parts, scales
 

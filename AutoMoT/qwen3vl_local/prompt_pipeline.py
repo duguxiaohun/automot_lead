@@ -343,14 +343,19 @@ frame in the clip.
 Output format - respond EXACTLY as shown below, with no extra text before or \
 after the block:
 
-ANALYSIS: <2-4 sentences. First describe what is concretely visible in the \
-LAST frame. Then describe what CHANGED between the earliest and the latest \
-frame. Only after that, state whether the observed evidence supports \
-advancing STATUS.>
+ANALYSIS: <2-4 sentences, 40-70 words total. First describe what is concretely \
+visible in the LAST frame. Then describe what CHANGED between the earliest and \
+the latest frame. Only after that, state whether the observed evidence \
+supports advancing STATUS. Going under 25 words tends to skip the visual \
+evidence step; going over 90 words tends to repeat or invent details - avoid \
+both.>
 STATUS: <event_name>
 SUBGOAL: <event_name>
 
 Rules:
+- The output MUST contain all three lines (ANALYSIS, STATUS, SUBGOAL) in this \
+order. Stop immediately after the SUBGOAL line; do NOT start a second \
+ANALYSIS block.
 - STATUS and SUBGOAL must each be copied verbatim from EVENT_SEQUENCE.
 - Do NOT invent event names outside EVENT_SEQUENCE.
 - Do NOT skip event stages. STATUS may stay the same as MEMORY STATUS or \
