@@ -130,6 +130,12 @@ Produce a single line of ANALYSIS that a student model (which does NOT see PRIVI
 2. Second sentence: describe what CHANGED between the earliest and the latest frame.
 3. Third sentence: state whether the observed evidence supports staying at MEMORY STATUS or advancing to the current STATUS, tying it to the visual evidence above.
 
+Length target (strict):
+- Aim for 40-70 words total across the 3 sentences.
+- Going under 25 words tends to skip the visual evidence step and become a bare conclusion - do NOT do that.
+- Going over 90 words tends to invent extra details, repeat clauses, or drift off-task - do NOT do that.
+- Each sentence should carry one specific visual fact; do not pad with hedging phrases ("it seems that", "we can observe that", "as we can see").
+
 Constraints:
 - Do NOT mention or reference the PRIVILEGED block; write as if from images only.
 - Do NOT invent visual content not actually present.
@@ -191,15 +197,52 @@ _PREFIX_PATTERN = re.compile(r"^\s*ANALYSIS\s*:\s*", re.IGNORECASE)
 _STOP_MARKERS = ("\nSTATUS:", "\nSUBGOAL:", "\n\n", "<|im_end|>")
 
 
+_MAX_ANALYSIS_CHARS = 420   # 对应 ~70 词 / ~110 token 上限
+_MIN_ANALYSIS_CHARS = 80    # 对应 ~12 词 / ~20 token 下限
+
+
+def _truncate_at_sentence_boundary(t: str, hard_limit: int) -> str:
+    """优雅截断：先找最后一个句号/问号/感叹号边界（≤ hard_limit），
+    退化为词边界，再退化为硬截。
+
+    设计目的：teacher 偶尔会超长（自我延展），硬截在 word 中间会让训练 GT 末尾
+    出现半句话（"The vehicle is approachin"），模型学到这种结尾会让自由生成
+    也喜欢在 word 中间停。句号边界优雅截 → 训练 GT 永远是完整句子。
+    """
+    if len(t) <= hard_limit:
+        return t
+    window = t[:hard_limit]
+    # 句末标点 + 后面跟空格或字符串结尾，倒着找最后一个。
+    best = -1
+    for punct in (". ", "! ", "? "):
+        idx = window.rfind(punct)
+        if idx > best:
+            best = idx + 1  # 把标点包进保留段，空格不要
+    if best > hard_limit // 2:
+        return t[:best].rstrip()
+    # 句号没找到合适位置，回退到词边界。
+    cut_pos = window.rfind(" ")
+    return t[: cut_pos if cut_pos > 0 else hard_limit].rstrip()
+
+
 def _postprocess(text: str) -> Tuple[str, bool]:
     """teacher 输出后处理，返回 ``(cleaned, fallback_used)``。
 
-    具体步骤见 SFT_V2_PLAN.md §3.3：
+    具体步骤（与 SFT_V2_PLAN.md §3.3 同口径，2026-06-02 收紧长度边界）：
+
     1. strip 前后空白 + ``ANALYSIS:`` 前缀。
     2. 截断到第一个 ``STATUS:`` / ``SUBGOAL:`` / 双换行 / im_end 之前。
     3. 把剩余 ``\\n`` 替换为空格 — 强制单行。
-    4. 截断到 480 字符（按词边界）。
-    5. 清理后 < 20 字符则回退到 ``Observations recorded.``。
+    4. 长度上限：超过 ``_MAX_ANALYSIS_CHARS`` (420，约 70 词) → 在句号 / 问号 /
+       感叹号边界优雅截，退化为词边界（避免在 word 中间截断）。
+    5. 长度下限：< ``_MIN_ANALYSIS_CHARS`` (80，约 12 词) 视为 teacher 输出垮了
+       （单纯一句结论、丢了视觉证据），回退到 ``Observations recorded.``
+       占位让 student 不至于学到坏样本。
+
+    上下限同时收紧的目的：teacher prompt 里写的 "40-70 words" 是 nudge，
+    postprocess 是外部 enforce —— 双保险才稳。下限从 20 字符抬到 80 字符，是因为
+    20 字符（~4 词）可以混进 "The car stops." 这种没视觉描述的退化样本；
+    80 字符保证至少有一句具体场景描述。
     """
 
     if not text:
@@ -218,12 +261,10 @@ def _postprocess(text: str) -> Tuple[str, bool]:
     # 压扁单行：所有连续空白（包括换行）→ 单空格。
     t = re.sub(r"\s+", " ", t).strip()
 
-    if len(t) > 480:
-        # 按词边界截断，避免在 word 中间截断。
-        cut_pos = t.rfind(" ", 0, 480)
-        t = t[: cut_pos if cut_pos > 0 else 480].rstrip()
+    # 句号边界优雅截。
+    t = _truncate_at_sentence_boundary(t, _MAX_ANALYSIS_CHARS)
 
-    if len(t) < 20:
+    if len(t) < _MIN_ANALYSIS_CHARS:
         return _FALLBACK_ANALYSIS, True
     return t, False
 

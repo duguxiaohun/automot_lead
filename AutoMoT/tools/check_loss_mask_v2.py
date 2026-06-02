@@ -188,12 +188,26 @@ def print_plugin_check(text: str) -> None:
         if target_w > 0 and (not in_loss or in_mask):
             print(f"[WARN] {label} 没有按预期进入 loss 区域")
 
-    for literal in ("ANALYSIS:", "STATUS:", "SUBGOAL:"):
+    # 字面检查（2026-06-02 修订，对齐 plugin 段切换权重升级）：
+    #
+    #   "ANALYSIS:" —— assistant prefix 起手字面，仍 mask（weight=0）；in_loss=True 才报警。
+    #   "STATUS:" / "SUBGOAL:" —— 段切换字面前面带 "\n"，现在 weight=1.0；预期 in_loss=True，
+    #                           只有当它们落到 mask 段（in_mask=True）才报警。
+    #
+    # 历史踩坑：v2.0 plugin 把段切换字面 mask=0，自由生成陷入 "ANALYSIS×N 循环复读"，
+    # 详见 PROJECT_CONTEXT.md §18.5。
+    LITERAL_CHECKS = (
+        # (字面, 预期 in_loss, 不符合时的 WARN 消息)
+        ("ANALYSIS:", False, "字面 'ANALYSIS:' 不应进入 loss（assistant prefix 起手，weight=0）"),
+        ("STATUS:",   True,  "字面 'STATUS:' 应该进入 loss（段切换字面 weight=1.0，2026-06-02 修订）"),
+        ("SUBGOAL:",  True,  "字面 'SUBGOAL:' 应该进入 loss（段切换字面 weight=1.0，2026-06-02 修订）"),
+    )
+    for literal, expect_in_loss, warn_msg in LITERAL_CHECKS:
         in_loss = literal in loss_text
         in_mask = literal in masked_text
-        print(f"[plugin] literal={literal!r} in_loss={in_loss} in_mask={in_mask}")
-        if in_loss:
-            print(f"[WARN] 字面 {literal!r} 不应进入 loss")
+        print(f"[plugin] literal={literal!r} in_loss={in_loss} in_mask={in_mask} expect_in_loss={expect_in_loss}")
+        if in_loss != expect_in_loss:
+            print(f"[WARN] {warn_msg}")
 
     # 目标切片通常是 6 段（无 tail）或 7 段（有 tail）。
     if len(parts) < 6 or len(parts) > 7:

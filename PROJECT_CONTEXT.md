@@ -1581,3 +1581,45 @@ eval_sft_v1.py 一处暴露的两个坑，扫了全仓 LoRA 加载 + `max_gen_to
 - `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py` / `qwen3vl_instruct_paradigm_a_runner.py` — 默认 256 且不挂 LoRA ✓
 - `AutoMoT/qwen3vl_local/goalgen/train_v1.py` / `probe_v1.py` / `eval_v1.py` / `qwen3vl_dit_goalgen_runner.py` — `max_gen_tokens=0` 是**故意**的（GoalGen 这条只取 Qwen KV，不需要自由文本，0 是正确值）；挂 LoRA 全都默认 `engine.attach_lora_adapter(merge=True)` ✓
 - `AutoMoT/tools/build_sft_dataset_v2_teacher.py` — CLI 默认 256，不挂 LoRA ✓
+
+### 18.5 v2 loss_scale plugin 段切换字面 mask 是致命陷阱（2026-06-02）
+
+**症状**：用 v2 7526-step ckpt 跑 eval，5/5 样本输出陷入 `ANALYSIS: <body 1> ANALYSIS: <body 2> ANALYSIS: <body 3> ...` 循环复读，顶到 `max_gen_tokens=512` 都不出 `STATUS:` / `SUBGOAL:`，`pred_status=None / pred_subgoal=None`。训练 loss 顺利下降，自由生成完全失控。
+
+**根因**：v2.0 plugin（commit ef0eb19 之前）照搬 v1 思路，把段切换字面 `\nSTATUS:` / `\nSUBGOAL:` 和末尾 EOS 全部 weight=0 mask 掉，理由是"关键词字面无学习价值"。在 cross-entropy 框架下 weight=0 ⇔ 该位置 next-token-prediction 完全无梯度。v1 时代 ANALYSIS body 是固定占位 `Observations recorded.`（7 token），mask 段切换没事——base 先验在 7 token 后切到 `\n` 是必然的；v2 ANALYSIS body 升到 80-150 token 后，LoRA 学到的"ANALYSIS body 风格"先验在长上下文里累积，没有梯度推它切到 `\n`，自由生成倾向继续写 ANALYSIS。
+
+**修法（commit XXXX）**：plugin `_split_full` 里 mid1 (`\nSTATUS: `) / mid2 (`\nSUBGOAL: `) / tail (EOS) 三处 weight 全部 0→1.0。等效"loss 权重比"：ANALYSIS body 80 token × 0.3 ≈ 24，结构性字面 13 token × 1.0 ≈ 13，结构占 ~35%，刚好足以约束切段。同步更新 [SFT_V2_PLAN.md §5](AutoMoT/tools/SFT_V2_PLAN.md#5-loss-权重设计--sft_v2_loss_scale_pluginpy) 权重表 + 加"段切换字面为什么不能 mask"小节。
+
+**通用原则**：未来再设计 loss_scale 时，**结构性切换字面（标记从一段切换到下一段的 token 序列）必须 weight ≥ 1.0**，只有"字面值无监督价值"的 assistant prefix 起手部分（chat template 强制开始）才能 weight=0。EOS / 末尾换行同理——任何"决定何时停止"的 token 都要有梯度。
+
+### 18.6 teacher / student prompt 长度控制（两条腿一起上）
+
+发现 18.5 期间另一个隐患：v2.0 teacher prompt 只说 "2-4 sentences, all on a single line"，没给字数 / 词数上限，teacher 偶尔产出 200+ token 的过长 ANALYSIS；过长的 ANALYSIS 让 student 学到"延展是被允许的"，与 18.5 段切换信号缺失叠加，加剧 ANALYSIS 循环复读。
+
+**两条腿设计**：
+- **prompt 内部 nudge**：teacher / student system prompt 都加 "Aim for 40-70 words total" + "going under 25 → bare conclusion, do NOT do that" + "going over 90 → invent/repeat, do NOT do that"，让模型在采样时自己往目标区间收。文件位置：
+  - teacher：[build_sft_dataset_v2_teacher.py `_TEACHER_SYSTEM_PROMPT`](AutoMoT/tools/build_sft_dataset_v2_teacher.py#L120) 和 [inspect_teacher_outputs.py 同名常量](AutoMoT/tools/inspect_teacher_outputs.py#L103) **必须同步**（历史复制粘贴造成两份独立文本）。
+  - student：[prompt_pipeline.py `_SYSTEM_PROMPT`](AutoMoT/qwen3vl_local/prompt_pipeline.py#L311) 的 ANALYSIS 描述里加同样 word target。
+- **postprocess 外部 enforce**：teacher 后处理 `_postprocess` 把字符上限从 480 收到 420（约 70 词），下限从 20 抬到 80（约 12 词），并把长截改成在句号/问号/感叹号边界优雅截（避免训练 GT 末尾出现半句话 "The vehicle is approachin"，模型学到这种结尾会喜欢在 word 中间停）。同样 `build_sft_dataset_v2_teacher.py` 与 `inspect_teacher_outputs.py` 各持一份 postprocess 实现，**必须同步**。
+
+**通用原则**：训练数据的"分布形状"（长度、起手风格、结尾风格）会被 student 完全继承。teacher 阶段任何"宽容"的 fallback（如长截到 word 中间、过短样本不丢弃）都会以训练数据的形式喂给 student，造成自由生成时同样表现。teacher 端必须严控分布——内部 prompt nudge + 外部 postprocess enforce 双保险。
+
+### 18.7 eval 端 partial-continue 兜底（fallback）
+
+为应对 18.5 类问题在未来其它形式再出现（不一定是循环复读，也可能是 SUBGOAL 段被截 / 模型偶发跳段），eval 推理路径加了一道永久兜底：
+
+**实现**：
+- [engine.py `generate_from_partial`](AutoMoT/qwen3vl_local/engine.py)：新方法，输入 `system_prompt + user_prompt + images + partial_assistant_text`，把 chat_text + partial 拼到一起作为已生成 prefix，正常 prefill+decode，返回**只含新生成**的 token。
+- [eval_sft_v1.py `predict_full`](AutoMoT/tools/eval_sft_v1.py)：first-pass 生成完后 parse 失败（status 或 subgoal 为 None）→ 触发 fallback：
+  1. `_truncate_to_clean_analysis(raw_text)`：截掉循环复读的多余 ANALYSIS 段，保留首段干净 ANALYSIS body；
+  2. 拼 `partial = "ANALYSIS: <body>\nSTATUS:"` 喂 `generate_from_partial` 续解 STATUS event_name；
+  3. 拼 `partial + " <status>\nSUBGOAL:"` 续解 SUBGOAL event_name；
+  4. 重组干净三段 raw_text 后重新 parse。
+- predictions.jsonl / case dump 的 step.json / case summary.md 都带 `fallback: {used, stages}` 字段；metrics.json 加 `fallback_count` / `fallback_rate`。
+
+**判读**：
+- 健康 LoRA：`fallback_count = 0`，模型 first-pass 就出完整三段。
+- `fallback_count > 0` 但拼回后指标正常：说明 LoRA 学结构有缺陷但 STATUS/SUBGOAL 决策能力还在；可以临时用，但应该回去查 plugin / 数据。
+- `fallback_count > 50%`：模型已经不能稳定生成结构了，eval 数字虽然好看但不能上线，必须重训。
+
+**为什么不直接 grammar-constrained decoding**：Qwen3-VL 上没有现成的 logits processor 支持，自己写要处理 M-RoPE + cache_position 一致性，工程复杂度远大于 partial-continue 路径；partial-continue 也更通用——任何"生成卡在某一段"的失败模式都能用同样 prefix 兜。

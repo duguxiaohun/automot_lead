@@ -629,6 +629,66 @@ class LocalQwen3VLInstructEngine:
 
         return raw_text.lstrip("\n "), trace
 
+    def generate_from_partial(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        images: List[Any],
+        partial_assistant_text: str,
+        cache_dir: Optional[pathlib.Path] = None,
+    ) -> tuple[str, GenerationTrace]:
+        """从已有的 partial assistant 文本接着自回归生成。
+
+        典型用法（eval 端 partial-continue fallback）：模型 first-pass 输出了
+        ``ANALYSIS: ...`` 但没继续写 ``\\nSTATUS: <event>\\nSUBGOAL: <event>``
+        三段（例如 v2 训练 plugin bug 导致段切换 mask=0，自由生成陷入 ANALYSIS
+        循环）。这时把 ``cleaned_analysis + "\\nSTATUS:"`` 作为 partial 喂回，
+        让模型补出 event_name；再用 ``+ "\\nSUBGOAL:"`` 喂第二轮拿 SUBGOAL。
+        参见 PROJECT_CONTEXT.md §18.7。
+
+        实现思路：apply_chat_template(add_generation_prompt=True) 已经把上下文
+        推到 assistant turn 开头（末尾是 ``<|im_start|>assistant\\n``），直接在
+        chat_text 末尾拼 partial_assistant_text 作为"已生成 prefix"，然后正常
+        prefill + decode，模型会从 partial 的下一个 token 接着写。
+
+        返回值 ``raw_text`` 只包含**新生成**的 token，不含 partial 部分（与
+        ``generate()`` 接口对称）；调用方自己负责拼回 partial。
+        """
+
+        import torch  # noqa: F401  # decode 依赖 torch，与 generate 一致
+
+        self.load()
+
+        # 1) 与 generate 相同：先把 messages 渲染成 chat_text，再在末尾追加 partial。
+        # 注意 chat template 的 add_generation_prompt=True 已经把末尾推到了
+        # ``<|im_start|>assistant\n``；partial 直接拼接，模型从 partial 之后续解。
+        messages = self.build_messages(system_prompt, user_prompt, images)
+        chat_text = self.apply_chat_template(messages)
+        full_text = chat_text + partial_assistant_text
+
+        # 2) 张量化：processor 同时绑定文本和图像。partial 内含的换行 / 字面字符
+        # 不会触发新的视觉占位，所以 pixel_values / image_grid_thw 不变。
+        inputs = self.prepare_inputs(full_text, images)
+
+        trace = GenerationTrace(
+            chat_text=full_text,
+            input_summary=_inputs_summary(inputs),
+            final_cache_summary={},
+            prefill_cache_summary={},
+            system_prompt_cache_enabled=self.cache_system_prompt,
+        )
+
+        # 3) prefill：system prompt cache 复用逻辑无需特殊处理 —— prefix_cache
+        # 只比对 input_ids 前 prefix_len 个 token（即 system turn 那一段），
+        # partial 拼在 user turn 之后，对 prefix 比对完全透明。
+        prefill_outputs = self.prefill_with_optional_system_cache(system_prompt, inputs, trace)
+        trace.prefill_cache_summary = summarize_kv_cache(prefill_outputs.past_key_values)
+
+        # 4) decode：完全复用 generate 同一条路径，只是初始 inputs 末尾已经带了 partial。
+        new_ids = self.decode(inputs, prefill_outputs, trace, cache_dir=cache_dir)
+        raw_text = self.processor.batch_decode(new_ids, skip_special_tokens=True)[0]
+        return raw_text.lstrip("\n "), trace
+
 
 def dump_trace(trace: GenerationTrace, out_dir: pathlib.Path) -> None:
     """把 generation trace 单独落盘，方便不打开 step.json 也能看推理细节。"""
