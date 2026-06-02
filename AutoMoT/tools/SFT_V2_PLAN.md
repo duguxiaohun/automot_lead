@@ -348,7 +348,7 @@ v1 的 ~6 个，**真实有效优化量 ≈ v1 的 7 倍**。这也是为什么 
 | v2 训练 loss 不降 | 训 50 step 后 loss 还在 4+ | plugin regex 漂移或 max_length 截掉 ANALYSIS 段；先跑 `check_loss_mask_v2.py` 检查 runtime jsonl（见 RUN §3） |
 | v2 训练 loss 降但 ANALYSIS 段输出仍复读 | ckpt-100/300/600 都见复读 | 把 §5 ANALYSIS 权重从 0.3 调到 0.5；仍不行进 §9 KL 正则 |
 | ANALYSIS 段过拟合 teacher 措辞，每个场景都用同一句套话 | probe 看不同 case 的 ANALYSIS 几乎相同 | 权重 0.3 → 0.1；或在 teacher 阶段把 temperature 从 0 调到 0.3 增加多样性 |
-| max_length 3584 仍触发 truncation warning | swift 日志 | 缩短 teacher system prompt 或把 ANALYSIS 后处理截断阈值从 480 char 降到 300 char |
+| max_length 3584 仍触发 truncation warning | swift 日志 | 缩短 teacher system prompt 或把 ANALYSIS 后处理截断阈值 `_MAX_ANALYSIS_CHARS` 从 420 char（当前默认）降到 300 char |
 
 ---
 
