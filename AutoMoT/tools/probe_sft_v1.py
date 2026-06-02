@@ -536,6 +536,17 @@ def main() -> None:
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--torch-dtype", type=str, default="bfloat16")
     parser.add_argument("--cache-system-prompt", action=argparse.BooleanOptionalAction, default=True)
+    # 与 eval_sft_v1.py 同口径：merge_and_unload 是默认，避免 PeftModel wrapper 在
+    # Qwen3-VL 上的 forward 错位（详见 PROJECT_CONTEXT.md §18.1）。--no-merge-lora
+    # 仅留作调试 PEFT 自身的 escape hatch。
+    parser.add_argument("--merge-lora",
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help="加载 LoRA 后是否 merge_and_unload。默认 True；"
+                             "--no-merge-lora 会复现已知 Qwen3-VL forward bug，仅调试用。")
+    # v1 ANALYSIS 是固定占位（~7 token）96 够；v2 ANALYSIS 是 teacher 蒸馏真值
+    # （80-150 token），96 会截断到只剩 ANALYSIS 段。默认 256 与 eval_sft_v1.py 一致。
+    parser.add_argument("--max-gen-tokens", type=int, default=256,
+                        help="自回归生成 token 数上限。默认 256；v2 必须 ≥ 200。")
     parser.add_argument("--skip-token-loss", action="store_true",
                         help="不算 token-level loss（只 dump prompt/GT/pred + 图），加速 probe")
     args = parser.parse_args()
@@ -557,7 +568,7 @@ def main() -> None:
         checkpoint_dir=pathlib.Path(args.model_dir),
         device=args.device,
         torch_dtype=args.torch_dtype,
-        max_gen_tokens=96,
+        max_gen_tokens=args.max_gen_tokens,
         temperature=0.0,
         do_sample=False,
         save_cache=False,
@@ -565,12 +576,17 @@ def main() -> None:
     )
     engine.load()
     if args.lora_dir:
-        # 与 eval_sft_v1.attach_lora_adapter 同口径：不 merge，留 PeftModel 形态，
-        # 因为 probe 路径要走 model.forward 算 token loss，merge 与否数学上等价。
-        from peft import PeftModel  # type: ignore
-        print(f"[probe] attaching LoRA: {args.lora_dir}")
-        engine.model = PeftModel.from_pretrained(engine.model, args.lora_dir, is_trainable=False)
-        engine.model.eval()
+        # 走 engine.attach_lora_adapter(merge=True)：实测 PeftModel wrapper 在
+        # Qwen3-VL 上 forward 错位，generation 会出 "ANALERTA" 这种乱码
+        # （详见 PROJECT_CONTEXT.md §18.1）。token-level loss 也走同一条 forward，
+        # 一并受影响，不再适用以前注释里"merge 与否数学上等价"的推断。
+        if args.merge_lora:
+            engine.attach_lora_adapter(args.lora_dir, merge=True)
+        else:
+            from peft import PeftModel  # type: ignore
+            print(f"[probe] attaching LoRA (no-merge debug path): {args.lora_dir}")
+            engine.model = PeftModel.from_pretrained(engine.model, args.lora_dir, is_trainable=False)
+            engine.model.eval()
 
     from PIL import Image  # type: ignore
 
