@@ -257,14 +257,17 @@ python tools/check_loss_mask_v2.py --jsonl checkpoints/sft_v2_runtime_debug/trai
 python tools/check_loss_mask_v2.py --jsonl checkpoints/sft_v2_lora/runtime_teacher_data/val.jsonl --sample-idx 3
 ```
 
-**通过条件**（必须全部满足，**2026-06-02 修订**：段切换字面 / EOS 改为 W1.0，详见 PROJECT_CONTEXT.md §18.5）：
+**通过条件**（必须全部满足，**2026-06-02 修订**：段切换字面改为 W1.0；tail/EOS 若进入 plugin context 也必须 W1.0，详见 PROJECT_CONTEXT.md §18.5）：
 
 - token 表里 ANALYSIS 正文 token 为 `[W0.3]`
 - token 表里 STATUS/SUBGOAL 事件名 token 为 `[W1.0]`
 - token 表里 `\nSTATUS:` / `\nSUBGOAL:` 段切换字面 token 为 **`[W1.0]`**（旧版是 W0.0，修订后必须 W1.0）
-- token 表里末尾 EOS / `\n` 为 **`[W1.0]`**（旧版是 W0.0，修订后必须 W1.0）
+- 若原始 assistant content 自带 tail，token 表里 tail token 为 **`[W1.0]`**；常见 jsonl 不含 EOS 时，
+  脚本会额外打印 `synthetic tail/EOS sanity`，合成 `\n<eos>` tail 并确认 plugin 会把 tail/EOS 标为 **`[W1.0]`**。
+  这只验证 plugin 行为；真实训练 EOS 是否进入 loss 由 ms-swift chat template / runtime context 决定
 - 只有起手 `ANALYSIS:` 字面 token 仍是 `[W0.0]`（assistant prefix，chat template 强制开始）
-- plugin 输出中，`ANALYSIS body in_loss=True`、两段 `event_name in_loss=True`、`\nSTATUS:` / `\nSUBGOAL:` / EOS `in_loss=True`
+- plugin 输出中，`ANALYSIS body in_loss=True`、两段 `event_name in_loss=True`、`\nSTATUS:` / `\nSUBGOAL:` `in_loss=True`；
+  `synthetic tail/EOS sanity` 的 plugin check 中 tail/EOS `in_loss=True`
 - plugin 分段数量为 6 或 7（有 tail 时为 7）
 
 **预期切片形状**（2026-06-02 修订后；示例）：
@@ -276,7 +279,7 @@ w=1.00: '\nSTATUS: '          # 段切换字面：必须 1.0
 w=1.00: 'hazard_detect'
 w=1.00: '\nSUBGOAL: '         # 段切换字面：必须 1.0
 w=1.00: 'max_brake_or_min_gap'
-w=1.00: '<|im_end|>\n'        # EOS：必须 1.0
+w=1.00: '\n<|im_end|>'        # synthetic tail/EOS sanity：若 tail/EOS 进入 context，必须 1.0
 ```
 
 ---
@@ -380,14 +383,14 @@ bash tools/sft_v2_train.sh check
 与 v1 一样，2 step、不保存 ckpt、不跑 val。check 模式会自动从 pending 数据生成最多
 32 条 runtime teacher 样本；不会改写 pending 数据集。
 
-**预期 loss 数值**（健康范围，**2026-06-02 修订**：plugin 升级后段切换字面进 loss，effective 监督 token 从 v2.0 的 ~30 升到 ~45，loss 数值会略偏高）：
+**预期 loss 数值**（健康范围，**2026-06-02 修订**：plugin 升级后段切换字面进 loss，effective 监督 token 从 v2.0 的 ~30 升到 ~42-43，loss 数值会略偏高；EOS 是否额外计入以 ms-swift runtime context 为准）：
 
 ```
 {'loss': 3~10, 'grad_norm': ..., 'learning_rate': ..., 'epoch': 0.0x}
 ```
 
 说明：
-- v2 会监督 ANALYSIS 正文（权重 0.3）+ 段切换字面（权重 1.0，2026-06-02 修订）+ EOS（权重 1.0），所以 loss 统计口径与 v1 不同
+- v2 会监督 ANALYSIS 正文（权重 0.3）+ 段切换字面（权重 1.0，2026-06-02 修订）；tail/EOS 若由 ms-swift 放进 plugin context 也按 1.0，所以 loss 统计口径与 v1 不同
 - 重点看"mask 是否生效 + loss 是否有限非 NaN"，不是盯绝对值
 - v2.0 旧版（commit ef0eb19 之前）健康范围曾是 3~8；修订后 effective 监督 token 增加约 50%，区间上沿略上抬
 
@@ -397,7 +400,7 @@ bash tools/sft_v2_train.sh check
 |---|---|---|
 | `check_loss_mask_v2.py` 通过 + check loss 有限且非 NaN | ✅ 训练侧权重大方向正常 | 进 §5 正式训练 |
 | loss < 1 或 `grad_norm=0` | ❌ 可能事件名 token 也被 mask 掉了（全 0 权重） | 先看 §3 的 `w1` token 数是否 ≥ 2 |
-| loss 在 8~10 区间 | ✅ v2 修订后正常（段切换字面 + EOS 进 loss 抬高了数值），**不是异常** | 直接进 §5 |
+| loss 在 8~10 区间 | ✅ v2 修订后正常（段切换字面进 loss，tail/EOS 可能也进 loss，抬高了数值），**不是异常** | 直接进 §5 |
 | loss > 14 | ⚠️ 可能 teacher ANALYSIS 异常长 / regex 大面积 fallback | 先看 §3.5 `_FULL_PATTERN` 命中率；再查 teacher 可视化 §2.6 |
 | check 模式仍保存了 checkpoint | ❌ check 不该落盘 | 拉最新 `tools/sft_v2_train.sh`，确认 `--save_strategy no` |
 

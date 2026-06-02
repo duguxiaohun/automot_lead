@@ -1586,11 +1586,11 @@ eval_sft_v1.py 一处暴露的两个坑，扫了全仓 LoRA 加载 + `max_gen_to
 
 **症状**：用 v2 7526-step ckpt 跑 eval，5/5 样本输出陷入 `ANALYSIS: <body 1> ANALYSIS: <body 2> ANALYSIS: <body 3> ...` 循环复读，顶到 `max_gen_tokens=512` 都不出 `STATUS:` / `SUBGOAL:`，`pred_status=None / pred_subgoal=None`。训练 loss 顺利下降，自由生成完全失控。
 
-**根因**：v2.0 plugin（commit ef0eb19 之前）照搬 v1 思路，把段切换字面 `\nSTATUS:` / `\nSUBGOAL:` 和末尾 EOS 全部 weight=0 mask 掉，理由是"关键词字面无学习价值"。在 cross-entropy 框架下 weight=0 ⇔ 该位置 next-token-prediction 完全无梯度。v1 时代 ANALYSIS body 是固定占位 `Observations recorded.`（7 token），mask 段切换没事——base 先验在 7 token 后切到 `\n` 是必然的；v2 ANALYSIS body 升到 80-150 token 后，LoRA 学到的"ANALYSIS body 风格"先验在长上下文里累积，没有梯度推它切到 `\n`，自由生成倾向继续写 ANALYSIS。
+**根因**：v2.0 plugin（commit ef0eb19 之前）照搬 v1 思路，把段切换字面 `\nSTATUS:` / `\nSUBGOAL:` 以及可能进入 plugin context 的末尾 tail/EOS 全部 weight=0 mask 掉，理由是"关键词字面无学习价值"。在 cross-entropy 框架下 weight=0 ⇔ 该位置 next-token-prediction 完全无梯度。v1 时代 ANALYSIS body 是固定占位 `Observations recorded.`（7 token），mask 段切换没事——base 先验在 7 token 后切到 `\n` 是必然的；v2 ANALYSIS body 升到 80-150 token 后，LoRA 学到的"ANALYSIS body 风格"先验在长上下文里累积，没有梯度推它切到 `\n`，自由生成倾向继续写 ANALYSIS。
 
-**修法（commit XXXX）**：plugin `_split_full` 里 mid1 (`\nSTATUS: `) / mid2 (`\nSUBGOAL: `) / tail (EOS) 三处 weight 全部 0→1.0。等效"loss 权重比"：ANALYSIS body 80 token × 0.3 ≈ 24，结构性字面 13 token × 1.0 ≈ 13，结构占 ~35%，刚好足以约束切段。同步更新 [SFT_V2_PLAN.md §5](AutoMoT/tools/SFT_V2_PLAN.md#5-loss-权重设计--sft_v2_loss_scale_pluginpy) 权重表 + 加"段切换字面为什么不能 mask"小节。
+**修法（commit 8afd96f）**：plugin `_split_full` 里 mid1 (`\nSTATUS: `) / mid2 (`\nSUBGOAL: `) / tail 三处 weight 全部 0→1.0。段切换字面一定进 loss；tail/EOS 是否真实出现在训练 context 由 ms-swift chat template / runtime 拼接决定，但一旦进入 plugin context 就必须是 1.0。等效"loss 权重比"：ANALYSIS body 80 token × 0.3 ≈ 24，结构性字面 12 token × 1.0 ≈ 12，tail/EOS 可选约 1，结构占 ~33-35%，刚好足以约束切段。同步更新 [SFT_V2_PLAN.md §5](AutoMoT/tools/SFT_V2_PLAN.md#5-loss-权重设计--sft_v2_loss_scale_pluginpy) 权重表 + 加"段切换字面为什么不能 mask"小节。`check_loss_mask_v2.py` 的 `synthetic tail/EOS sanity` 只验证 plugin 对 tail 的权重规则，不等价于证明 ms-swift runtime 一定把 EOS 传进 context。
 
-**通用原则**：未来再设计 loss_scale 时，**结构性切换字面（标记从一段切换到下一段的 token 序列）必须 weight ≥ 1.0**，只有"字面值无监督价值"的 assistant prefix 起手部分（chat template 强制开始）才能 weight=0。EOS / 末尾换行同理——任何"决定何时停止"的 token 都要有梯度。
+**通用原则**：未来再设计 loss_scale 时，**结构性切换字面（标记从一段切换到下一段的 token 序列）必须 weight ≥ 1.0**，只有"字面值无监督价值"的 assistant prefix 起手部分（chat template 强制开始）才能 weight=0。tail/EOS / 末尾换行同理——若它们进入 loss_scale 可见的 assistant context，就属于"决定何时停止"的 token，不能 mask。
 
 ### 18.6 teacher / student prompt 长度控制（两条腿一起上）
 
@@ -1611,15 +1611,17 @@ eval_sft_v1.py 一处暴露的两个坑，扫了全仓 LoRA 加载 + `max_gen_to
 **实现**：
 - [engine.py `generate_from_partial`](AutoMoT/qwen3vl_local/engine.py)：新方法，输入 `system_prompt + user_prompt + images + partial_assistant_text`，把 chat_text + partial 拼到一起作为已生成 prefix，正常 prefill+decode，返回**只含新生成**的 token。
 - [eval_sft_v1.py `predict_full`](AutoMoT/tools/eval_sft_v1.py)：first-pass 生成完后 parse 失败（status 或 subgoal 为 None）→ 触发 fallback：
-  1. `_truncate_to_clean_analysis(raw_text)`：截掉循环复读的多余 ANALYSIS 段，保留首段干净 ANALYSIS body；
-  2. 拼 `partial = "ANALYSIS: <body>\nSTATUS:"` 喂 `generate_from_partial` 续解 STATUS event_name；
-  3. 拼 `partial + " <status>\nSUBGOAL:"` 续解 SUBGOAL event_name；
+  1. 优先使用 parser 已抽出的 ANALYSIS body；若没有，再用 `_truncate_to_clean_analysis(raw_text)` 截掉循环复读的多余 ANALYSIS 段以及已吐出的 `STATUS/SUBGOAL` 标记，避免 partial 里出现重复段；
+  2. first-pass 已有合法 STATUS 时直接复用并记录 `status_reused`；否则拼 `partial = "ANALYSIS: <body>\nSTATUS:"` 喂 `generate_from_partial` 续解 STATUS event_name；
+  3. first-pass 已有合法 SUBGOAL 时直接复用并记录 `subgoal_reused`；否则拼 `partial + " <status>\nSUBGOAL:"` 续解 SUBGOAL event_name；
   4. 重组干净三段 raw_text 后重新 parse。
-- predictions.jsonl / case dump 的 step.json / case summary.md 都带 `fallback: {used, stages}` 字段；metrics.json 加 `fallback_count` / `fallback_rate`。
+  5. STATUS/SUBGOAL 续解解析只取当前短段开头的 `[A-Za-z0-9_]+` word token，并要求它属于当前 scenario 的 `EVENT_SEQUENCE`；`hazard_detect.` 可正常归一化，解释性废话不会被全文搜索误接收；若模型在 STATUS 阶段吐出 `SUBGOAL:` 这类错段 label，会直接拒收。
+- predictions.jsonl / case dump 的 step.json / case summary.md 都带 `fallback: {attempted, succeeded, used, stages, first_pass_raw_text, ...}` 字段；`used` 保留为 `succeeded` 的兼容别名。case dump 额外保存 `outputs/first_pass_raw_text.txt`，避免 fallback 拼回后覆盖模型第一遍真实输出。metrics.json 加 `fallback_count` / `fallback_rate`（尝试次数）与 `fallback_success_count` / `fallback_success_rate`（救回次数）。
 
 **判读**：
 - 健康 LoRA：`fallback_count = 0`，模型 first-pass 就出完整三段。
-- `fallback_count > 0` 但拼回后指标正常：说明 LoRA 学结构有缺陷但 STATUS/SUBGOAL 决策能力还在；可以临时用，但应该回去查 plugin / 数据。
+- `fallback_count > 0` 且 `fallback_success_count` 接近 `fallback_count`、拼回后指标正常：说明 LoRA 学结构有缺陷但 STATUS/SUBGOAL 决策能力还在；可以临时用，但应该回去查 plugin / 数据。
+- `fallback_count > 0` 但 `fallback_success_count` 很低：说明兜底也无法稳定救回，eval 指标应按 first-pass 失败理解，不要被 fallback 后的局部样本迷惑。
 - `fallback_count > 50%`：模型已经不能稳定生成结构了，eval 数字虽然好看但不能上线，必须重训。
 
 **为什么不直接 grammar-constrained decoding**：Qwen3-VL 上没有现成的 logits processor 支持，自己写要处理 M-RoPE + cache_position 一致性，工程复杂度远大于 partial-continue 路径；partial-continue 也更通用——任何"生成卡在某一段"的失败模式都能用同样 prefix 兜。

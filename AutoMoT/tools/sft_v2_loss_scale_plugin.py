@@ -18,15 +18,16 @@ ANALYSIS body       0.3     蒸馏目标 — 0.3 让 student 学到形状但不�
 STATUS event_name   1.0     核心监督
 ``\\nSUBGOAL:`` 字面 **1.0** 同 ``\\nSTATUS:`` — 段切换信号必须有监督
 SUBGOAL event_name  1.0     核心监督
-末尾换行 / EOS      **1.0** 让模型学会 emit EOS；v2 ANALYSIS 长后 base 先验
-                            不够稳，mask=0 会让自由生成顶到 max_gen_tokens
+末尾 tail / EOS     **1.0** 若由 ms-swift 模板放进 plugin context，就属于停止
+                            信号；v2 ANALYSIS 长后不能 mask
 ==================  ======  =================================================
 
 ANALYSIS 权重可通过环境变量 ``SFT_V2_ANALYSIS_WEIGHT`` 在启动训练前 override
 （用例：实测 ANALYSIS 还在漂移 → 0.5；过拟合 teacher 措辞 → 0.1）。
 
 **段切换不能 mask（v2 致命踩坑，2026-06-02）**：
-v2.0 (commit ef0eb19 之前) 把 ``\\nSTATUS:`` / ``\\nSUBGOAL:`` / EOS 全部 mask
+v2.0 (commit ef0eb19 之前) 把 ``\\nSTATUS:`` / ``\\nSUBGOAL:`` / 可能进入
+context 的 tail/EOS 全部 mask
 成 0，理由是"关键词字面无学习价值"——这条推断在 v1 ANALYSIS 是固定占位
 （7 token）时确实没事，但 v2 ANALYSIS 升到 80-150 token 自由文本后，模型在
 ANALYSIS body 末尾 token 的 next-token-prediction 没有任何梯度推它去 emit
@@ -82,9 +83,9 @@ SUBGOAL_WEIGHT = _parse_weight("SFT_V2_SUBGOAL_WEIGHT", 1.0)
 # 各段含义：
 #   ANALYSIS:[ \t]*               —— "ANALYSIS:" 字面 + 后空格（mask）
 #   (?P<analysis>[^\n]*?)         —— ANALYSIS body 正文（单行、非贪婪）
-#   \s*\nSTATUS:[ \t]*            —— 换行 + "STATUS: " 字面（mask）
+#   \s*\nSTATUS:[ \t]*            —— 换行 + "STATUS: " 字面（段切换信号）
 #   (?P<status>\S[^\n]*?)         —— STATUS event_name
-#   \s*\nSUBGOAL:[ \t]*           —— 换行 + "SUBGOAL: " 字面（mask）
+#   \s*\nSUBGOAL:[ \t]*           —— 换行 + "SUBGOAL: " 字面（段切换信号）
 #   (?P<subgoal>\S[^\n]*)         —— SUBGOAL event_name
 #
 # 与 v1 完全一致地避免吞到下一段 special token：用 ``[^\n]*`` 限制非换行。
@@ -107,7 +108,8 @@ _ANALYSIS_ONLY_REGEX = re.compile(r"ANALYSIS:.*?(?=\nSTATUS:)", flags=re.DOTALL)
 
 class SftV2AnalysisSupervisedLossScale(LossScale):
     """v2 mask 策略：ANALYSIS body 给 0.3 权重，STATUS/SUBGOAL event_name 给 1.0，
-    其它字面 / 空白 / EOS 全部 mask 为 0。详见模块 docstring。
+    段切换字面与 tail/EOS 也给 1.0；只有起手 ANALYSIS: prefix mask 为 0。
+    详见模块 docstring。
     """
 
     def get_loss_scale(
@@ -136,7 +138,7 @@ class SftV2AnalysisSupervisedLossScale(LossScale):
         [prefix("ANALYSIS: "), analysis, mid1("\\nSTATUS: "), status,
          mid2("\\nSUBGOAL: "), subgoal, tail]
 
-        权重对应 [0, 0.3, 0, 1, 0, 1, 0]。切法保证 ``"".join(parts) == context``
+        权重对应 [0, 0.3, 1, 1, 1, 1, 1]。切法保证 ``"".join(parts) == context``
         与 ms-swift 内部对齐要求一致。
         """
 
@@ -182,9 +184,9 @@ class SftV2AnalysisSupervisedLossScale(LossScale):
         parts.append(context[g_start:g_end])
         scales.append(SUBGOAL_WEIGHT)
 
-        # tail: g_end .. len(context) = 末尾换行 / EOS 占位 / special token
-        # weight=1.0 让模型显式学会 emit EOS；v2 ANALYSIS 长度增加后 base 模型对
-        # "什么时候停"的先验不再足以稳定收尾，mask=0 会让自由生成顶到上限。
+        # tail: g_end .. len(context) = 末尾换行 / EOS 占位 / special token。
+        # 若 ms-swift runtime 把 tail/EOS 放进 plugin context，它就是停止信号，
+        # 必须保留梯度；静态 jsonl 通常不含这个 tail。
         tail = context[g_end:]
         if tail:
             parts.append(tail)
