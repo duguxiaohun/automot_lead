@@ -246,13 +246,16 @@ CUDA_VISIBLE_DEVICES=2,5,6,7 bash tools/sft_v1_train.sh ddp
 **预期**：
 
 - 8 卡总 step ≈ 900（按 ~14400 train 样本 / 等效 bs 32 × 2 epoch）；如果改成 4 卡，等效 bs 约 16，step 约翻倍；
-- 每 100 step 保存一次 LoRA adapter 到 `checkpoints/sft_v1_lora/checkpoint-XXX/`；
+- 每 `SAVE_STEPS`（默认 10000）步保存一次 LoRA adapter 到 `checkpoints/sft_v1_lora/checkpoint-XXX/`；
+  数据量小的运行可能整轮训练都到不了 10000 步，按需 export `SAVE_STEPS=200`（举例）压短间隔；
 - 训练 loss 大致从 check 阶段量级继续下降，最终以 eval 指标为准。
 
 **中途检查 + 选 ckpt 策略**（吸取 ckpt-8100 教训）：
 
 - swift 会把日志写到 `checkpoints/sft_v1_lora/v*/logging.jsonl`；
-- 每 `save_steps=100` 会保存一次 LoRA adapter checkpoint，最多保留 5 个（`save_total_limit=5`）。
+- 当前默认 `--save_strategy steps --save_steps 10000 --save_total_limit 3` → 保留最近 30k 步快照；
+  数据量大、一个 epoch 跑几天的场景就靠它拿到中间产物。`SAVE_STEPS` / `SAVE_TOTAL_LIMIT` 是 env，
+  按需 `SAVE_STEPS=200 SAVE_TOTAL_LIMIT=5 bash tools/sft_v1_train.sh ddp` 临时缩小间隔 / 多留几份。
 - **不要无脑用最后一个 ckpt**。训练完后对每个保留的 ckpt 跑一次 eval 抽样，
   挑 `early_advance_rate ↓` + `advance_accuracy ↑` 拐点的那个：
 

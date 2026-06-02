@@ -752,11 +752,22 @@ def save_checkpoint(
     latent_stats: Dict[str, Any],
     step: int,
     args: argparse.Namespace,
+    name_prefix: str = "checkpoint-",
 ) -> None:
+    """保存训练 ckpt。
+
+    name_prefix 控制目录名前缀：
+    - 默认 "checkpoint-"：epoch 末快照，参与 --keep-recent-checkpoints 滚动。
+    - "step-checkpoint-"：训练中按 --step-save-every 触发的 step 快照，参与
+      --keep-recent-step-checkpoints 滚动，与 epoch ckpt 互不淘汰。
+    两套命名共用同一份序列化逻辑，避免双重维护；eval_v1.py 的 _infer_ckpt_step
+    会同时识别两种前缀。
+    """
+
     output_dir.mkdir(parents=True, exist_ok=True)
     # step 用 :06d 0-padding 让目录名按字典序自然递增，方便 `ls | sort` 拿最新 ckpt；
     # 如果不 pad，"checkpoint-9" 会排在 "checkpoint-10" 后面。
-    target = output_dir / f"checkpoint-{step:06d}"
+    target = output_dir / f"{name_prefix}{step:06d}"
     target.mkdir(parents=True, exist_ok=True)
     # 兼容 DDP 包过的模型：DDP 会把真模型放在 .module 下；裸模型直接用自己。
     # 不解包就会 save 进 "module.xxx" 前缀的 state_dict，再加载到单卡时 key 对不上。
@@ -796,16 +807,32 @@ def save_checkpoint(
     )
 
 
-def _prune_old_checkpoints(output_dir: pathlib.Path, keep: int) -> None:
-    """保留最新 keep 个 checkpoint-XXXXXX/，更老的整体删除。
+def _prune_old_checkpoints(
+    output_dir: pathlib.Path,
+    keep: int,
+    name_prefix: str = "checkpoint-",
+) -> None:
+    """保留最新 keep 个 {name_prefix}XXXXXX/，更老的整体删除。
 
     best.pt / latest.pt 都在 OUTPUT_DIR 顶层，不在 checkpoint-* 模式里，所以
     不会被这个 prune 误删；即使 best 对应的 step 早已被淘汰，best.pt 文件仍然存在。
+
+    name_prefix:
+    - "checkpoint-"      ：epoch 末池（受 --keep-recent-checkpoints 控制）。
+    - "step-checkpoint-" ：step 池（受 --keep-recent-step-checkpoints 控制）。
+    glob 用 f"{name_prefix}*"，所以两个池互不污染：epoch prune 不会动到 step ckpt，
+    反之亦然。注意 step-checkpoint-* 也匹配 checkpoint-*，所以 epoch 池的 glob
+    必须显式排除 step- 前缀，下面做了过滤。
     """
 
     if keep <= 0:
         return
-    ckpts = sorted(p for p in output_dir.glob("checkpoint-*") if p.is_dir())
+    raw = [p for p in output_dir.glob(f"{name_prefix}*") if p.is_dir()]
+    if name_prefix == "checkpoint-":
+        # "checkpoint-*" 也会匹配 "step-checkpoint-*"，显式过滤掉 step 池；否则
+        # epoch prune 会误删 step ckpt（用户明确要求两池独立）。
+        raw = [p for p in raw if not p.name.startswith("step-checkpoint-")]
+    ckpts = sorted(raw)
     if len(ckpts) <= keep:
         return
     for old in ckpts[:-keep]:
@@ -1312,6 +1339,32 @@ def train(args: argparse.Namespace) -> None:
                         except Exception as e:
                             print(f"[image] 警告：图像样例生成失败，跳过：{e}")
 
+                    # ---- step 级 ckpt：用户场景"数据量大、几天才跑完 1 epoch"，
+                    # 单靠 epoch 末 save 拿不到中间产物。每 --step-save-every 步写一份
+                    # step-checkpoint-NNNNNN/ 到独立池，--keep-recent-step-checkpoints
+                    # 控制滚动数量（默认 3，即最近 30k 步）。命名前缀与 epoch ckpt 分开，
+                    # 两个池互不淘汰对方；epoch 末逻辑完全不变。
+                    if (
+                        is_rank0(rank)
+                        and args.step_save_every > 0
+                        and global_step > 0
+                        and global_step % args.step_save_every == 0
+                    ):
+                        save_checkpoint(
+                            output_dir, dit, optimizer, scheduler, ema, latent_stats,
+                            global_step, args,
+                            name_prefix="step-checkpoint-",
+                        )
+                        _prune_old_checkpoints(
+                            output_dir,
+                            keep=args.keep_recent_step_checkpoints,
+                            name_prefix="step-checkpoint-",
+                        )
+                        print(
+                            f"[ckpt] step ckpt 已写 step-checkpoint-{global_step:06d}/ "
+                            f"(keep={args.keep_recent_step_checkpoints})"
+                        )
+
                     if global_step >= total_steps:
                         break
             if global_step >= total_steps:
@@ -1444,6 +1497,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-recent-checkpoints", type=int, default=3,
                    help="checkpoint-XXXXXX/ 滚动保留数量；更老的会被整体删除。"
                         "best.pt 在顶层独立保存，不受此 keep 影响。")
+    # ---- step-level ckpt（独立池，epoch 行为不动） ----
+    # 用户场景：数据量上来后一个 epoch 几天都跑不完，光靠 epoch 末 save 拿不到中间
+    # 产物。每 --step-save-every 步额外写一份 step-checkpoint-NNNNNN/，独立 keep 池
+    # （默认 3，即最近 30k 步）；与 epoch 池不互相淘汰。eval_v1.py / probe_v1.py 的
+    # _infer_ckpt_step / _default_run_tag 已同步识别 step-checkpoint- 前缀。
+    p.add_argument("--step-save-every", type=int, default=10000,
+                   help="每多少优化器步额外写一份 step-checkpoint-NNNNNN/；0 关闭 step 保存。")
+    p.add_argument("--keep-recent-step-checkpoints", type=int, default=3,
+                   help="step-checkpoint-XXXXXX/ 滚动保留数量；默认 3，配合 step-save-every=10000 即最近 30k 步。")
     p.add_argument("--max-train-steps", type=int, default=0,
                    help="0 表示按 num_epochs 跑完；正整数表示限制优化器更新步数。")
     p.add_argument("--seed", type=int, default=20260529)

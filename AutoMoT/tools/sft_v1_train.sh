@@ -79,6 +79,19 @@ LORA_ALPHA=32
 LORA_DROPOUT=0.1
 LOGGING_STEPS=5
 
+# ---------------------------------------------------------------------------
+# Step-based checkpoint 保存（用户场景：数据量上来后 epoch 周期太长）
+# ---------------------------------------------------------------------------
+# HF Trainer 不允许同时跑 epoch + steps 两种 save_strategy，且 load_best_model_at_end
+# 要求 save_strategy == eval_strategy。所以 v1/v2 都改成纯 step 保存：每 SAVE_STEPS
+# 步保存一次 + 评估一次，--save_total_limit 控制保留最近 N 个 checkpoint-XXX/。
+# best 跟踪不变（按 eval/loss 选 best 装回 OUTPUT_DIR 顶层 adapter_model.*）。
+# 训练结束时最后一个 step ckpt 自然约等于"最后一个 epoch 末快照"。
+# 默认 SAVE_STEPS=10000 / SAVE_TOTAL_LIMIT=3 → 等效"保留最近 30k 步"。
+# 想换 5k / 20k / 改保留数，export 同名变量即可，不必动脚本。
+SAVE_STEPS="${SAVE_STEPS:-10000}"
+SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-3}"
+
 # loss_scale 把 ANALYSIS 段 token 权重置 0（v1 不学 analysis 内容）。
 #
 # 注意：
@@ -198,11 +211,12 @@ case "${MODE}" in
         export NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
         PER_DEVICE_BS=4
         GRAD_ACC=2
-        # epoch 触发：每个 epoch 末尾保存 + eval；配合 --load_best_model_at_end，
-        # 训练结束后 OUTPUT_DIR 顶层是 val/loss 最小的 best 权重，checkpoint-XXX/
-        # 是各 epoch 快照（受 save_total_limit 滚动淘汰）。
-        SAVE_STRATEGY="epoch"
-        EVAL_STRATEGY="epoch"
+        # step 触发：每 SAVE_STEPS 步保存 + eval（默认 10000）；--save_total_limit
+        # 控制保留最近 N 个 checkpoint-XXX/（默认 3，等效最近 30k 步）。--load_best_model_at_end
+        # 仍按 eval/loss 把 best 装回 OUTPUT_DIR 顶层（adapter_model.*）；epoch 边界
+        # 不再单独 save，但训练结束时最后一个 step ckpt ≈ 最后一个 epoch 末快照。
+        SAVE_STRATEGY="steps"
+        EVAL_STRATEGY="steps"
         VAL_ARGS=(--val_dataset "${VAL_JSONL}")
         EXTRA_LAUNCH=""
         ;;
@@ -254,9 +268,10 @@ case "${MODE}" in
         # 若用 DDP_GPU_COUNT 改卡数，等效 batch 会随卡数线性变化。
         PER_DEVICE_BS=2
         GRAD_ACC=2
-        # epoch 触发 + best 跟踪，行为同 single 模式（含义见 single 分支注释）。
-        SAVE_STRATEGY="epoch"
-        EVAL_STRATEGY="epoch"
+        # step 触发 + best 跟踪（含义见 single 分支注释）。SAVE_STEPS/SAVE_TOTAL_LIMIT
+        # 是 env 可调；用户场景"数据量大、epoch 周期太长"时这是拿到中间产物的唯一路径。
+        SAVE_STRATEGY="steps"
+        EVAL_STRATEGY="steps"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
         if [[ "${DDP_GPU_COUNT_WAS_SET}" == "1" && "${SFT_RESPECT_CUDA_VISIBLE_DEVICES:-0}" != "1" ]]; then
             SELECTED_GPUS="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
@@ -358,8 +373,10 @@ swift sft \
     --output_dir "${OUTPUT_DIR}" \
     --logging_steps "${LOGGING_STEPS}" \
     --save_strategy "${SAVE_STRATEGY}" \
+    --save_steps "${SAVE_STEPS}" \
     --eval_strategy "${EVAL_STRATEGY}" \
-    --save_total_limit 3 \
+    --eval_steps "${SAVE_STEPS}" \
+    --save_total_limit "${SAVE_TOTAL_LIMIT}" \
     --save_only_model true \
     --report_to tensorboard \
     --logging_dir "${OUTPUT_DIR}/tb" \
@@ -376,8 +393,10 @@ echo "[done] LoRA adapter saved under ${OUTPUT_DIR}"
 #
 # 训练产物布局（与 eval_sft_v1.py / probe_sft_v1.py 同根 — 即 OUTPUT_DIR 平铺）：
 #   OUTPUT_DIR/
-#     ├─ adapter_model.*    训练结束 best 权重（val/loss 最小的那个 epoch 装回）
-#     ├─ checkpoint-*/      各 epoch LoRA adapter 快照（保留最近 3 个）
+#     ├─ adapter_model.*    训练结束 best 权重（eval/loss 最小的那个 step ckpt 装回）
+#     ├─ checkpoint-*/      step LoRA adapter 快照（每 SAVE_STEPS 步一份，保留最近 SAVE_TOTAL_LIMIT 个）
+#     │                     默认 SAVE_STEPS=10000、SAVE_TOTAL_LIMIT=3 → 等效最近 30k 步
+#     │                     训练结束时最后一份 ≈ 最后一个 epoch 末快照
 #     ├─ tb/                训练 TensorBoard events（swift 写入）
 #     ├─ eval/              eval_sft_v1.py 写的 metrics.json + predictions.jsonl
 #     ├─ eval_tb/           eval_sft_v1.py 写的 TB scalar/text（独立 run，TB 可同时看）

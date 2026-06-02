@@ -191,7 +191,13 @@ checkpoints/goalgen_v1_dit/tb/                # TensorBoard event 文件
 
 ```
 checkpoints/goalgen_v1_dit/
-├─ checkpoint-*/ + latest.pt  DiT 权重
+├─ checkpoint-*/              epoch 末 DiT 快照（--keep-recent-checkpoints，默认 3）
+├─ step-checkpoint-*/         每 --step-save-every 步（默认 10000）的中途快照
+│                             独立 --keep-recent-step-checkpoints（默认 3）滚动 → 等效最近 30k 步
+│                             数据量大、几天才跑完 1 epoch 时靠它拿到中间产物
+│                             eval_v1.py / probe_v1.py 直接传
+│                             `step-checkpoint-XXXXXX/goalgen_v1.pt` 路径即可加载
+├─ latest.pt / best.pt        顶层轻量权重（任意 save 都刷新 latest；best 由 epoch 末 val 触发）
 ├─ tb/                        训练 TB events（train/* val/* samples/pred_vs_gt）
 ├─ invocations/               每次 train_v1.py / eval_v1.py 启动写一份
 │                             <ts>_<host>_pid<pid>.txt（sys.argv + env + git_commit），

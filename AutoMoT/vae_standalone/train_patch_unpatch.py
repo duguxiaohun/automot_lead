@@ -40,15 +40,19 @@ DDP：torchrun 启动后每个 worker 已经持有独立 CUDA 上下文，**.py 
 
     OUTPUT_DIR/
       weights/
-        patch_unpatch_latest.safetensors    # 每个 epoch 末覆盖
-        patch_unpatch_epoch{NNN}.safetensors# 每个 epoch 末单独存
-        patch_unpatch_best.safetensors      # val/pixel_mse 历史最小
-        patch_unpatch_best.json             # {"step": ..., "val_pixel_mse": ...}
-      tb/                                   # TensorBoard events
-      invocations/                          # 每次启动 rank0 写一份
-                                            # <ts>_<host>_pid<pid>.txt（sys.argv +
-                                            # 关键 env + git_commit），事后追溯
-                                            # "这版 ckpt 是哪条命令训出来的"
+        patch_unpatch_latest.safetensors        # 每个 epoch 末 + 每个 step ckpt 都覆盖
+        patch_unpatch_epoch{NNN}.safetensors    # 每个 epoch 末单独存（无 prune，全留）
+        patch_unpatch_step{NNNNNN}.safetensors  # 每 --step-save-every 步存
+                                                # 独立 keep 池（--keep-recent-step-checkpoints，默认 3）
+                                                # 默认配合 step-save-every=10000 即最近 30k 步
+                                                # 数据量大跑不完一个 epoch 时靠它拿到中间产物
+        patch_unpatch_best.safetensors          # val/pixel_mse 历史最小
+        patch_unpatch_best.json                 # {"step": ..., "val_pixel_mse": ...}
+      tb/                                       # TensorBoard events
+      invocations/                              # 每次启动 rank0 写一份
+                                                # <ts>_<host>_pid<pid>.txt（sys.argv +
+                                                # 关键 env + git_commit），事后追溯
+                                                # "这版 ckpt 是哪条命令训出来的"
 """
 
 from __future__ import annotations
@@ -377,6 +381,27 @@ def save_weights(model: torch.nn.Module, path: pathlib.Path) -> None:
     save_file(sd, str(path))
 
 
+def _prune_step_weights(weights_dir: pathlib.Path, keep: int) -> None:
+    """保留最新 keep 个 patch_unpatch_step{NNNNNN}.safetensors，更老的删除。
+
+    与 epoch 系列 (patch_unpatch_epoch{NNN}.safetensors) 独立：epoch 文件
+    永久保留（与原行为一致，用户明确要求 epoch 逻辑不变）；step 文件按
+    --keep-recent-step-checkpoints 滚动。
+    best / latest 在 weights/ 顶层另存，命名前缀不冲突，prune 不会动到。
+    """
+
+    if keep <= 0:
+        return
+    step_files = sorted(weights_dir.glob("patch_unpatch_step*.safetensors"))
+    if len(step_files) <= keep:
+        return
+    for old in step_files[:-keep]:
+        try:
+            old.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def make_scheduler(
     optimizer: torch.optim.Optimizer,
     total_steps: int,
@@ -691,6 +716,27 @@ def train(args: argparse.Namespace) -> None:
                             )
                             print(f"[best] 更新 pixel_mse={best_pixel:.6f} @ step {global_step}")
 
+                    # ---- step 级 ckpt：用户场景"数据量上来后一个 epoch 几天才跑完"，
+                    # 光靠 epoch 末 save 拿不到中间产物。每 --step-save-every 步写一份
+                    # patch_unpatch_step{NNNNNN}.safetensors 到 weights/，独立 keep 池
+                    # （默认 3，配合 step-save-every=10000 即最近 30k 步）。epoch 系列
+                    # （patch_unpatch_epoch{NNN}.safetensors）按原行为不动；latest 也同步刷新。
+                    # 产物可直接传给 DiTMoT.load_patch_unpatch（train_v1.py 的 --patch-unpatch-weights）。
+                    if (
+                        is_rank0(rank)
+                        and args.step_save_every > 0
+                        and global_step > 0
+                        and global_step % args.step_save_every == 0
+                    ):
+                        step_path = weights_dir / f"patch_unpatch_step{global_step:06d}.safetensors"
+                        save_weights(model, step_path)
+                        save_weights(model, weights_dir / "patch_unpatch_latest.safetensors")
+                        _prune_step_weights(weights_dir, keep=args.keep_recent_step_checkpoints)
+                        print(
+                            f"[ckpt] step ckpt 已写 {step_path.name} + latest "
+                            f"(keep={args.keep_recent_step_checkpoints})"
+                        )
+
                     if global_step >= total_steps:
                         break
 
@@ -757,6 +803,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="patch/unpatch 的训练精度。")
 
     p.add_argument("--logging-steps", type=int, default=10)
+    # ---- step-level ckpt（与 epoch 系列独立池） ----
+    # 用户场景：数据量上来后一个 epoch 几天都跑不完，仅靠 epoch 末 save 拿不到
+    # 中间产物。每 --step-save-every 步写 patch_unpatch_step{NNNNNN}.safetensors 到
+    # weights/，独立 keep 池（默认 3，等效最近 30k 步）；epoch 系列保持原行为不变。
+    p.add_argument("--step-save-every", type=int, default=10000,
+                   help="每多少 optimizer step 额外写一份 patch_unpatch_stepNNNNNN.safetensors；0 关闭。")
+    p.add_argument("--keep-recent-step-checkpoints", type=int, default=3,
+                   help="step 系列 safetensors 滚动保留数量；默认 3，配合 step-save-every=10000 即最近 30k 步。")
     p.add_argument("--val-steps", type=int, default=200, help="每多少 optimizer step 跑一次 val；0 关闭。")
     p.add_argument("--val-max-samples", type=int, default=32)
     p.add_argument("--image-log-samples", type=int, default=4,

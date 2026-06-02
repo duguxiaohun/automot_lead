@@ -832,13 +832,21 @@ def _resolve_eval_paths(args: argparse.Namespace) -> Dict[str, pathlib.Path]:
 def _default_run_tag(args: argparse.Namespace) -> str:
     """根据 dit_checkpoint 路径推 TB run 名。
 
-    checkpoint-000200/goalgen_v1.pt → ckpt200
+    checkpoint-000200/goalgen_v1.pt      → ckpt200
+    step-checkpoint-090000/goalgen_v1.pt → stepckpt90000
     latest.pt → latest
     其它 → 文件名（去 .pt 后缀）
     """
     p = pathlib.Path(args.dit_checkpoint)
     parent_name = p.parent.name
-    if parent_name.startswith("checkpoint-"):
+    if parent_name.startswith("step-checkpoint-"):
+        # 注意：step-checkpoint- 也以 "checkpoint-" 子串出现，必须先于下面的 elif
+        # 命中（startswith 优先匹配更长的前缀）。
+        try:
+            return "stepckpt" + str(int(parent_name.split("-", 2)[2]))
+        except (ValueError, IndexError):
+            pass
+    elif parent_name.startswith("checkpoint-"):
         try:
             return "ckpt" + str(int(parent_name.split("-", 1)[1]))
         except (ValueError, IndexError):
@@ -1185,8 +1193,20 @@ def eval_loop(args: argparse.Namespace) -> None:
 
 
 def _infer_ckpt_step(ckpt_path: str) -> int:
-    """从 dit_checkpoint 路径推 step：checkpoint-NNNNNN/goalgen_v1.pt → NNNNNN；其他 → 0。"""
+    """从 dit_checkpoint 路径推 step。
+
+    checkpoint-NNNNNN/goalgen_v1.pt      → NNNNNN  （epoch 池）
+    step-checkpoint-NNNNNN/goalgen_v1.pt → NNNNNN  （step 池）
+    其它 → 0
+    """
     parent = pathlib.Path(ckpt_path).parent.name
+    # 必须先匹配更长的前缀；否则 step-checkpoint-NNN 会落到 startswith("checkpoint-")
+    # 的分支去 split("-", 1)[1] → 拿到 "checkpoint-NNN"，int() 会抛错退到 0。
+    if parent.startswith("step-checkpoint-"):
+        try:
+            return int(parent.split("-", 2)[2])
+        except (ValueError, IndexError):
+            return 0
     if parent.startswith("checkpoint-"):
         try:
             return int(parent.split("-", 1)[1])

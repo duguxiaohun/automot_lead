@@ -69,6 +69,17 @@ LORA_ALPHA=32
 LORA_DROPOUT=0.1
 LOGGING_STEPS=5
 
+# ---------------------------------------------------------------------------
+# Step-based checkpoint 保存（与 v1 同口径）
+# ---------------------------------------------------------------------------
+# HF Trainer 不允许 epoch + steps 同时 save；load_best_model_at_end 要求
+# save_strategy == eval_strategy。所以 v1/v2 都改成纯 step 保存：每 SAVE_STEPS
+# 步保存 + 评估，--save_total_limit 控制保留最近 N 个 checkpoint-XXX/。
+# 默认 SAVE_STEPS=10000 / SAVE_TOTAL_LIMIT=3 → 等效"保留最近 30k 步"。
+# 想换 5k / 20k / 改保留数，export 同名变量即可。
+SAVE_STEPS="${SAVE_STEPS:-10000}"
+SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-3}"
+
 # v2 plugin：ANALYSIS body 权重 0.3、STATUS/SUBGOAL event_name 1.0、其它 0。
 LOSS_SCALE="sft_v2_analysis_supervised"
 LOSS_SCALE_PLUGIN="tools/sft_v2_loss_scale_plugin.py"
@@ -251,8 +262,11 @@ case "${MODE}" in
         export NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
         PER_DEVICE_BS=4
         GRAD_ACC=2
-        SAVE_STRATEGY="epoch"
-        EVAL_STRATEGY="epoch"
+        # step 触发：每 SAVE_STEPS 步保存 + eval；best 仍由 load_best_model_at_end 装回
+        # OUTPUT_DIR 顶层 adapter_model.*。epoch 边界不再单独 save，但训练结束时
+        # 最后一个 step ckpt ≈ 最后一个 epoch 末快照。
+        SAVE_STRATEGY="steps"
+        EVAL_STRATEGY="steps"
         EXTRA_LAUNCH=""
         ;;
     check)
@@ -273,8 +287,9 @@ case "${MODE}" in
         echo "[mode] DDP"
         PER_DEVICE_BS=2
         GRAD_ACC=2
-        SAVE_STRATEGY="epoch"
-        EVAL_STRATEGY="epoch"
+        # step 触发 + best 跟踪（含义见 single 分支注释）。
+        SAVE_STRATEGY="steps"
+        EVAL_STRATEGY="steps"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
         if [[ "${DDP_GPU_COUNT_WAS_SET}" == "1" && "${SFT_RESPECT_CUDA_VISIBLE_DEVICES:-0}" != "1" ]]; then
             SELECTED_GPUS="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
@@ -368,8 +383,10 @@ swift sft \
     --output_dir "${OUTPUT_DIR}" \
     --logging_steps "${LOGGING_STEPS}" \
     --save_strategy "${SAVE_STRATEGY}" \
+    --save_steps "${SAVE_STEPS}" \
     --eval_strategy "${EVAL_STRATEGY}" \
-    --save_total_limit 3 \
+    --eval_steps "${SAVE_STEPS}" \
+    --save_total_limit "${SAVE_TOTAL_LIMIT}" \
     --save_only_model true \
     --report_to tensorboard \
     --logging_dir "${OUTPUT_DIR}/tb" \
