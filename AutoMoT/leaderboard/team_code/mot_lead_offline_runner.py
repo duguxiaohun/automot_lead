@@ -656,16 +656,43 @@ class LeadBEVEncoder(nn.Module):
 
 
 def _cache_tensor_to_bhsd(x: torch.Tensor) -> torch.Tensor:
-    """Normalize Qwen cache tensor to (B, num_kv_heads, seq_len, head_dim)."""
+    """把单个 Qwen cache 张量统一成 LeadMoT attention 需要的 4D 形状。
+
+    目标形状
+    ========
+    LeadMoT 的 `PrefixKVAttention` 直接把 frozen Qwen 的 K/V 拼到 gen 自己
+    算出的 K/V 后面，所以语言 cache 必须是：
+
+        (B, num_kv_heads, seq_len, head_dim)
+
+    对 Qwen3-VL-4B-Instruct 来说就是 `(B, 8, S, 128)`。
+
+    为什么这里要兼容 3D / 4D
+    ==========================
+    - HF 标准 `past_key_values` 通常已经是 4D: `(B, H_kv, S, D)`。
+    - AutoMoT 自定义 `NaiveCache` 为了在线 cache 复用，可能把 batch 维压掉，
+      存成 3D: `(S, H_kv, D)`。
+
+    本函数只做**形状规整 + detach**，不做 dtype/device 迁移、不做线性投影、
+    不改 cache 数值；这保证 LeadMoT 读到的就是 frozen Qwen 原始 K/V。
+    """
+    # 类型防御：cache 里如果混进 list/None，后续 shape 访问会报很隐晦的错；
+    # 这里提前给出具体类型，方便定位是哪一路 cache 解析失败。
     if not isinstance(x, torch.Tensor):
         raise TypeError(f"Qwen cache item must be a tensor, got {type(x).__name__}")
 
     if x.ndim == 4:
+        # HF 标准形态，已经是 (B, H_kv, S, D)。detach 切断慢推理计算图，
+        # 因为这里是 frozen Qwen cache，只作为 prefix memory 消费。
         return x.detach()
     if x.ndim == 3:
-        # AutoMoT NaiveCache stores packed cache as (seq_len, num_kv_heads, head_dim).
+        # AutoMoT NaiveCache 存的是 (S, H_kv, D)，缺 batch 维且维度顺序不同。
+        # permute(1,0,2) -> (H_kv, S, D)，unsqueeze(0) -> (1, H_kv, S, D)。
+        # contiguous() 是为了后续 attention concat / view 时拿到连续内存布局。
         return x.detach().permute(1, 0, 2).unsqueeze(0).contiguous()
 
+    # 只允许 3D/4D。2D 代表 head 维或 seq 维丢了，5D 通常代表外面又包了一层 batch，
+    # 都不能被安全猜测，直接抛错比静默 reshape 更安全。
     raise ValueError(f"Unsupported Qwen cache tensor shape: {tuple(x.shape)}")
 
 
@@ -1351,7 +1378,21 @@ class LeadOfflineMoTRunner:
                 gen_context.get("past_key_values", None),
                 self.leadmot_config,
             )
+
+            # target_point_speed 是 _prepare_inference_inputs 里组好的 5 维状态：
+            #   [speed, target_point_x, target_point_y, next_target_point_x, next_target_point_y]
+            # 这里转 float32 的原因：
+            # - 速度 / target point 是连续物理量，保留 fp32 输入更稳；
+            # - decoder 自身已经是 bf16，进入 StatusTokenEncoder/Linear 时 PyTorch 会按模块 dtype
+            #   做计算，输入 fp32 不会改变输出契约；
+            # - 不在这里归一化，保持 AutoMoT status token 的真实做法：speed/tp/ntp 都用原始米制值。
             status = target_point_speed.to(self.device, dtype=torch.float32)
+
+            # LeadMoTPlanningDecoder.forward 做四件事：
+            # 1. BEV:    (B,512,10,12) -> 120 个 1024 维 token；
+            # 2. Status: speed/tp/ntp -> 3 个 1024 维 token；
+            # 3. Query:  route 10 个 + waypoint 8 个可学 query；
+            # 4. Blocks: 141 个 gen token 逐层读 pooled_kv，最后 Linear+cumsum 出 LEAD 轨迹契约。
             leadmot_out = self.leadmot_decoder(
                 pooled_kv=pooled_kv,
                 bev=trans_feat,
@@ -1359,6 +1400,11 @@ class LeadOfflineMoTRunner:
                 target_point=status[:, 1:3],
                 target_point_next=status[:, 3:5],
             )
+
+            # 三个输出都保持 GPU tensor 到 return 前再统一 detach：
+            # - pred_route:            LEAD route 契约 (B,10,2)，空间路径点；
+            # - pred_future_waypoints: LEAD future_waypoints 契约 (B,8,2)，4Hz 2s 轨迹；
+            # - gen_hidden:            debug/可视化用的最终 141 token hidden，不是控制必需。
             leadmot_route = leadmot_out["pred_route"]
             leadmot_future_waypoints = leadmot_out["pred_future_waypoints"]
             leadmot_gen_hidden = leadmot_out["gen_hidden"]
