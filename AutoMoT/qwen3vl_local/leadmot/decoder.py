@@ -109,16 +109,21 @@ class LeadMoTPlanningDecoder(nn.Module):
                 f"pooled_kv 段数 {len(pooled_kv)} 与 decoder 层数 "
                 f"{self.config.num_layers} 不一致"
             )
-        k0, v0 = pooled_kv[0]
-        if k0.shape != v0.shape:
-            raise ValueError(f"pooled_kv[0] K/V shape 不一致：{k0.shape} vs {v0.shape}")
-        if k0.ndim != 4:
-            raise ValueError(f"pooled_kv[0] K 应为 [B,H,S,D]，实际 {tuple(k0.shape)}")
-        if k0.shape[1] != self.config.num_kv_heads or k0.shape[3] != self.config.head_dim:
-            raise ValueError(
-                f"pooled_kv[0] K 形状 {tuple(k0.shape)} 与 "
-                f"(heads={self.config.num_kv_heads}, head_dim={self.config.head_dim}) 不匹配"
-            )
+        # 全部 num_layers 段都校验，避免某层 segment 形状错只在 attention 内才炸
+        for i, (k, v) in enumerate(pooled_kv):
+            if k.shape != v.shape:
+                raise ValueError(
+                    f"pooled_kv[{i}] K/V shape 不一致：{tuple(k.shape)} vs {tuple(v.shape)}"
+                )
+            if k.ndim != 4:
+                raise ValueError(
+                    f"pooled_kv[{i}] K 应为 [B,H,S,D]，实际 {tuple(k.shape)}"
+                )
+            if k.shape[1] != self.config.num_kv_heads or k.shape[3] != self.config.head_dim:
+                raise ValueError(
+                    f"pooled_kv[{i}] K 形状 {tuple(k.shape)} 与 "
+                    f"(heads={self.config.num_kv_heads}, head_dim={self.config.head_dim}) 不匹配"
+                )
 
     def forward(
         self,
