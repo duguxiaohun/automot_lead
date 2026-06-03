@@ -1257,6 +1257,12 @@ class LeadOfflineMoTRunner:
         # 返回 dict 里所有 tensor 字段都 detach 到 CPU，避免多 clip 收集 outputs 时
         # 持续挂 GPU 引用累积显存。gen_context 例外：它含 past_key_values，下一帧
         # 慢推理还要直接复用同设备的 cache。
+        # _detach_cpu_float : 轨迹/路径这类小张量统一转 fp32，省得下游算 L1/ADE/numpy
+        #                      可视化时到处补 .float()
+        # _detach_cpu       : 大张量保留原 dtype（通常 bf16），下游需要 fp32 自己转
+        def _detach_cpu_float(x: Any) -> Any:
+            return x.detach().float().cpu() if isinstance(x, torch.Tensor) else x
+
         def _detach_cpu(x: Any) -> Any:
             return x.detach().cpu() if isinstance(x, torch.Tensor) else x
 
@@ -1269,13 +1275,16 @@ class LeadOfflineMoTRunner:
             "bev_indices_asc": bev_indices_asc,
             "prompt": prompt_cleaned,
             "text": gen_text,
-            "traj": _detach_cpu(gen_traj),
-            "route": _detach_cpu(route),
-            "leadmot_route": _detach_cpu(leadmot_route),
-            "leadmot_future_waypoints": _detach_cpu(leadmot_future_waypoints),
-            "leadmot_gen_hidden": _detach_cpu(leadmot_gen_hidden),
-            "trans_feat": _detach_cpu(trans_feat),     # LEAD BEV (1, 512, 10, 12),供调试
-            "gen_context": gen_context,                # GPU 引用保留,下一帧 cache 复用
+            "traj": _detach_cpu_float(gen_traj),
+            "route": _detach_cpu_float(route),
+            "leadmot_route": _detach_cpu_float(leadmot_route),
+            "leadmot_future_waypoints": _detach_cpu_float(leadmot_future_waypoints),
+            "leadmot_gen_hidden": _detach_cpu(leadmot_gen_hidden),     # bf16, debug/扩展用
+            # trans_feat 当前转 CPU 仅供 shape/debug 用，没有下游 GPU 消费方。
+            # 若未来 run_step 后还要接别的 GPU head（如新 BEV planning），需把这一行
+            # 改成保留 GPU 引用（去掉 _detach_cpu 包装），并自行管理显存释放。
+            "trans_feat": _detach_cpu(trans_feat),                     # LEAD BEV (1, 512, 10, 12)
+            "gen_context": gen_context,                                # GPU 引用保留,下一帧 cache 复用
         }
 
     @torch.no_grad()
