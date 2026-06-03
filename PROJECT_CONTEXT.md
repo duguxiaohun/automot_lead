@@ -676,6 +676,33 @@ AutoMoT 在线: 20Hz, 每tick决策 (本仓库 runner 不复用其 BEV encoder/�
 - 本路线故意不复刻 AutoMoT 的高级决策 / reasoning head / text head；只保留
   frozen Qwen cache + BEV + status -> LEAD route/waypoint 的动作生成骨架。
 
+### 11.6.1 运行时约定（runner 层接入细节）
+
+- **lazy bf16 实例化**：`__init__` 阶段不创建 decoder，只设占位
+  `self.leadmot_decoder = None` + `self.leadmot_dtype = torch.bfloat16`；
+  首次进入 `enable_leadmot_planning=True` 分支才走 `_ensure_leadmot_decoder()`
+  构建 + 搬 device + 转 bf16 + `.eval()`。
+  - fp32 ≈ 584 MB，bf16 ≈ 292 MB；默认关闭时显存开销 0。
+- **返回 dict 字段 dtype 约定**：`run_step` 返回前统一 `.detach()` 到 CPU
+  - 轨迹/路径类（小张量）：`traj` / `route` / `leadmot_route` / `leadmot_future_waypoints`
+    走 `_detach_cpu_float`，统一 **fp32 CPU**，下游算 L1/ADE/numpy 可视化不必再
+    手动 `.float()`。
+  - 大张量：`leadmot_gen_hidden (B,141,1024)` / `trans_feat (B,512,10,12)` 保留
+    原 dtype（通常 bf16）到 CPU，下游需要 fp32 自行转。
+  - `gen_context` 例外：保留 GPU 引用，因为下一帧慢推理 cache 复用仍需要同 device。
+- **代码级中文注释已齐**：leadmot 子包 7 个 `.py` 文件（`__init__` / `config` /
+  `projectors` / `query_bank` / `heads` / `mot_block` / `decoder`）和 runner 中
+  `_qwen_cache_to_layer_list` / `_segment_qwen_cache_for_leadmot` /
+  `_ensure_leadmot_decoder` / leadmot 调用块均带详细中文注释，新会话/审计读源码可
+  直接看注释理解 attention 数学和 MoT 设计取舍，不需要从头回看 ARCHITECTURE.md。
+
+### 11.6.2 下一步约定
+
+- **训练/推理 Qwen cache 同源**：训练侧用哪份 frozen Qwen 拿 cache，推理时必须
+  用同一份。详见 `AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md` §6 警告。
+- **checkpoint 加载**：runner 暂未实现 `--leadmot-ckpt` flag；训完权重后再补
+  `decoder.load_state_dict(torch.load(path), strict=False)` 通路。
+
 ---
 
 ## 12. 未来工作 / 路线相关待办

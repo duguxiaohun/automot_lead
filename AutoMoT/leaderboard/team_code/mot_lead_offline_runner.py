@@ -102,6 +102,10 @@ if not hasattr(_automot_module_preset, '_tokenizer_reinitialized'):
 from data.reasoning.data_utils import add_special_tokens
 from mot.evaluation.inference import InterleaveInferencer
 from mot.modeling.automot import AutoMoT
+# LeadMoT 子包：frozen Qwen prefix K/V + LEAD BEV 风格快推理 decoder
+# - 输入：池化后的 Qwen K/V (12 段) + LEAD BEV (B,512,10,12) + ego status
+# - 输出：(B,10,2) pred_route + (B,8,2) pred_future_waypoints，天然对齐 LEAD planning_decoder 契约
+# - 详细架构见 AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md
 from qwen3vl_local.leadmot import LeadMoTPlanningDecoder, LeadMoTPlanningDecoderConfig
 # 注：BEV encoder 已切换为 LEAD TransfuserBackbone(见本文件底部 LeadBEVEncoder 类),
 # 不再依赖 AutoMoT 自带的 BEVEncoderBackboneExtractor。保留 bev_encoder_utils 因为
@@ -666,18 +670,42 @@ def _cache_tensor_to_bhsd(x: torch.Tensor) -> torch.Tensor:
 
 
 def _qwen_cache_to_layer_list(past_key_values: Any) -> list[tuple[torch.Tensor, torch.Tensor]]:
-    """Extract per-layer K/V tensors from HF DynamicCache or AutoMoT NaiveCache."""
+    """把任意形态的 Qwen past_key_values 统一成 list[(K, V)] 的逐层格式。
+
+    背景
+    ====
+    AutoMoT 慢推理产出的 `gen_context["past_key_values"]` 在不同环境下类型可能不同：
+    - HuggingFace 新版 `DynamicCache`：带 `to_legacy_cache()` 方法
+    - AutoMoT 自定义 `NaiveCache`：带 `.key_cache` / `.value_cache` 属性（可能是 dict 也可能是 list）
+    - HF legacy tuple：直接是 `list[(k, v), ...]`
+
+    本函数统一三种形态，输出 `list[(k, v)]`，每个 K/V 都过 `_cache_tensor_to_bhsd`
+    标准化成 (B, num_kv_heads, S, head_dim) 4D 张量，便于 LeadMoT decoder 直接消费。
+
+    参数:
+        past_key_values: 任意上述格式的 Qwen KV cache 对象
+    返回:
+        list[(K, V)]，长度 = Qwen 层数（Qwen3-VL-4B-Instruct 是 36）
+        每个 K/V 形状 (B, num_kv_heads=8, S, head_dim=128)
+    """
+    # None 检查：调用方应保证慢推理已经跑完
     if past_key_values is None:
         raise ValueError("gen_context does not contain past_key_values")
 
+    # HF 新版 Cache 对象提供 to_legacy_cache() 转回旧版 tuple 格式，统一处理
     if hasattr(past_key_values, "to_legacy_cache"):
         past_key_values = past_key_values.to_legacy_cache()
 
+    # 最终结果容器：每个元素是某一层的 (K, V) tuple
     layers: list[tuple[torch.Tensor, torch.Tensor]] = []
 
+    # ---- 路径 1：AutoMoT NaiveCache (有 key_cache/value_cache 属性) ----
     if hasattr(past_key_values, "key_cache") and hasattr(past_key_values, "value_cache"):
         key_cache = past_key_values.key_cache
         value_cache = past_key_values.value_cache
+
+        # NaiveCache 内部可能用 dict（key=layer_id）也可能用 list（index=layer_id）
+        # 两种都要处理：取出 layer_ids 排序，然后用统一的 getter 取值
         if isinstance(key_cache, dict):
             layer_ids = sorted(key_cache.keys())
             get_key = key_cache.get
@@ -687,6 +715,7 @@ def _qwen_cache_to_layer_list(past_key_values: Any) -> list[tuple[torch.Tensor, 
             get_key = key_cache.__getitem__
             get_value = value_cache.__getitem__
 
+        # 逐层取出 K/V，过 _cache_tensor_to_bhsd 标准化形状，跳过 None 层（防御性）
         for layer_id in layer_ids:
             k = get_key(layer_id)
             v = get_value(layer_id)
@@ -695,15 +724,19 @@ def _qwen_cache_to_layer_list(past_key_values: Any) -> list[tuple[torch.Tensor, 
             layers.append((_cache_tensor_to_bhsd(k), _cache_tensor_to_bhsd(v)))
         return layers
 
+    # ---- 路径 2：HF legacy tuple 格式 list[(k, v), ...] ----
     if isinstance(past_key_values, (list, tuple)):
         for layer in past_key_values:
+            # 空层跳过
             if layer is None:
                 continue
+            # 每层必须是 (K, V) 二元组（HF 标准）
             if not isinstance(layer, (list, tuple)) or len(layer) < 2:
                 raise ValueError(f"Invalid legacy cache layer item: {type(layer).__name__}")
             layers.append((_cache_tensor_to_bhsd(layer[0]), _cache_tensor_to_bhsd(layer[1])))
         return layers
 
+    # 既不是 NaiveCache 也不是 legacy tuple，类型不识别
     raise TypeError(f"Unsupported past_key_values type: {type(past_key_values).__name__}")
 
 
@@ -711,21 +744,67 @@ def _segment_qwen_cache_for_leadmot(
     past_key_values: Any,
     config: LeadMoTPlanningDecoderConfig,
 ) -> list[tuple[torch.Tensor, torch.Tensor]]:
-    """Pool frozen Qwen layers into LeadMoT decoder layers with select-last segments."""
+    """把 36 层 Qwen K/V 按 select_last 池化成 12 段 LeadMoT decoder 用的 prefix K/V。
+
+    池化策略
+    ========
+    把 Qwen num_layers (36) 切成 config.num_layers (12) 段，每段取最后一层的 K/V。
+    例如：
+    - 段 0: 取 Qwen 第 2 层 K/V（段 [0,1,2]）
+    - 段 1: 取 Qwen 第 5 层 K/V（段 [3,4,5]）
+    - ...
+    - 段 11: 取 Qwen 第 35 层 K/V（段 [33,34,35]）
+
+    这与 goalgen `segment_kv_for_dit(mode='select_last')` 同义；
+    runner 内联一份是为了减少跨子包依赖（goalgen 是另一条路线）。
+
+    为什么 select_last
+    ==================
+    每段取最后一层而不是平均/拼接：
+    - 最后一层语义最丰富，最接近 Qwen 最终理解
+    - 显存最省（只取 1 层而不是 3 层平均/拼接）
+    - 跟 goalgen v2 实测效果一致
+
+    参数:
+        past_key_values: frozen Qwen prefill 输出的 KV cache（任意形态）
+        config:          LeadMoTPlanningDecoderConfig，提供 num_layers / num_kv_heads / head_dim
+    返回:
+        list[(K, V)] 长度 = config.num_layers (12)，每段一对 K/V
+    """
+    # 先把任意形态 cache 统一成 list[(K, V)] 标准形状
     layers = _qwen_cache_to_layer_list(past_key_values)
+
+    # Qwen 层数必须 >= LeadMoT 层数，否则池化分段会不够分
+    # 实际场景：Qwen3-VL-4B-Instruct 36 层 >> LeadMoT 默认 12 层，永远够
     if len(layers) < config.num_layers:
         raise ValueError(
             f"Qwen cache layers ({len(layers)}) fewer than LeadMoT layers ({config.num_layers})"
         )
+
+    # 当前只实现了 select_last，其它模式（mean / concat_layers）暂未支持
+    # 如果未来要支持，参考 goalgen.qwen_kv.segment_kv_for_dit
     if config.kv_segment_mode != "select_last":
         raise ValueError(f"Unsupported kv_segment_mode={config.kv_segment_mode!r}")
 
+    # 池化结果容器
     selected: list[tuple[torch.Tensor, torch.Tensor]] = []
+
+    # 逐段计算：第 seg_idx 段对应 Qwen 哪一层
     for seg_idx in range(config.num_layers):
+        # 段右边界（half-open）：(seg_idx+1) * len(layers) / num_layers
+        # 比如 12 段 / 36 层时：第 0 段右边界 = 3，最后一层是 index 2
+        # round 是为了处理 num_qwen_layers 不能被 num_layers 整除的边界情况
         end = round((seg_idx + 1) * len(layers) / config.num_layers)
+        # select_last：段内最后一层 index = end - 1
+        # max(0, ...) 保险防止边界算成负数
         layer_idx = max(0, end - 1)
         k, v = layers[layer_idx]
+
+        # 顺便再校验一遍 config 自洽（防御性，避免下游 attention 报错）
         config.validate_qwen_kv_shape()
+
+        # 这一段 K/V 的形状必须严格匹配 (num_kv_heads, head_dim)
+        # 否则 PrefixKVAttention 直接拼接时会 shape mismatch
         expected = (config.num_kv_heads, config.head_dim)
         actual_k = (int(k.shape[1]), int(k.shape[-1]))
         actual_v = (int(v.shape[1]), int(v.shape[-1]))
@@ -734,6 +813,7 @@ def _segment_qwen_cache_for_leadmot(
                 f"Qwen cache shape mismatch at layer {layer_idx}: "
                 f"k={tuple(k.shape)}, v={tuple(v.shape)}, expected heads/dim={expected}"
             )
+
         selected.append((k, v))
     return selected
 
@@ -827,8 +907,21 @@ class LeadOfflineMoTRunner:
             ckpt_path=LEAD_BEV_CKPT_PATH,
         )
 
-        # LeadMoT decoder 默认不实例化，避免慢推理工作流白占 ~584MB fp32 显存。
-        # 首次启用 enable_leadmot_planning 时 lazy build，默认 bf16。
+        # ============================================================
+        # LeadMoT decoder：lazy init 占位
+        # ============================================================
+        # 默认不实例化 decoder。原因：
+        # - decoder 约 153M 参数，fp32 占 ~584MB，bf16 占 ~292MB
+        # - 大部分慢推理工作流（仅取 Qwen gen_context 做下游分析）不需要这个 decoder
+        # - 让用户显式 --enable-leadmot-planning 才付出显存代价
+        #
+        # 真正构建在 _ensure_leadmot_decoder() 里，run_step 内首次进入
+        # enable_leadmot_planning 分支时触发。
+        #
+        # 三个占位字段：
+        # - leadmot_config:  配置实例，lazy build 时填充
+        # - leadmot_decoder: nn.Module 实例，lazy build 时填充
+        # - leadmot_dtype:   默认 bf16，可在 lazy build 前修改成别的 dtype
         self.leadmot_config: LeadMoTPlanningDecoderConfig | None = None
         self.leadmot_decoder: LeadMoTPlanningDecoder | None = None
         self.leadmot_dtype: torch.dtype = torch.bfloat16
@@ -840,11 +933,30 @@ class LeadOfflineMoTRunner:
         print("  - Inferencer initialized")
 
     def _ensure_leadmot_decoder(self) -> None:
-        """首次调用时按 self.leadmot_dtype 在 self.device 上构建 LeadMoT decoder。"""
+        """首次调用时按 self.leadmot_dtype 在 self.device 上构建 LeadMoT decoder。
+
+        幂等：decoder 已经构建过会直接 return，不重复构建。
+
+        构建步骤：
+        1. 实例化默认配置 LeadMoTPlanningDecoderConfig（CARLA 模式）
+        2. 立刻 validate_qwen_kv_shape() 抛出配置错误（hidden / num_kv_heads / head_dim 不自洽）
+        3. 实例化 LeadMoTPlanningDecoder
+        4. .to(device, dtype) 搬到推理设备并转 bf16
+        5. .eval() 关闭 dropout（本子包默认 dropout=0，但保留 .eval() 调用作为约定）
+        """
+        # 幂等检查：已经构建过就直接返回，不重复初始化
         if self.leadmot_decoder is not None:
             return
+
+        # 默认配置：LEAD CARLA 模式（route=10, waypoint=8, hidden=1024 等）
+        # 如果未来要覆盖配置，在这里改成 LeadMoTPlanningDecoderConfig(num_layers=8, ...) 之类
         self.leadmot_config = LeadMoTPlanningDecoderConfig()
+
+        # 早校验：配置错的话立即 raise，不要延迟到 forward 内部 attention 报错
         self.leadmot_config.validate_qwen_kv_shape()
+
+        # 实例化 + 搬设备 + 转 dtype + 切 eval
+        # 链式 .to(...).eval() 在 PyTorch 里都返回 self，方便链式赋值
         self.leadmot_decoder = (
             LeadMoTPlanningDecoder(self.leadmot_config)
             .to(device=self.device, dtype=self.leadmot_dtype)
@@ -1198,15 +1310,43 @@ class LeadOfflineMoTRunner:
         # 默认禁用:LEAD trans_feat (1, 512, 10, 12) 与 AutoMoT bev_encoder_proj 期望
         # (1, 1512, 8, 8) shape 不兼容。要彻底启用 LEAD 版快推理,需重训整个 decoder 链路,
         # 见 PROJECT_CONTEXT.md §12 "未来工作"。
-        # ========== LEAD-MoT planning head (frozen Qwen prefix K/V + LEAD BEV) ==========
-        # This path is opt-in because the decoder is architectural wiring only until trained.
+        # ============================================================
+        # LEAD-MoT 快推理路径（frozen Qwen prefix K/V + LEAD BEV）
+        # ============================================================
+        # 这条路是 opt-in 的：必须用户传 --enable-leadmot-planning 才会跑。
+        # 默认关闭原因：
+        # 1. decoder 是架构层组装，权重未训练，预测值无意义（随机输出）
+        # 2. 需要加载 checkpoint 才能产生真实预测（TODO：等训完接 --leadmot-ckpt）
+        # 3. 即使不出预测，跑一遍 forward 也会占用 ~300MB bf16 显存 + 计算
+        #
+        # 调用方负责：
+        # - 提供已经填好 past_key_values 的 gen_context（慢推理产物）
+        # - 提供 LEAD BEV (B,512,10,12) 和 ego status (B,5)
+        # 本节负责：
+        # - 池化 Qwen K/V 36 层 -> 12 段 prefix K/V
+        # - 调 decoder forward 拿到 pred_route / pred_future_waypoints
+        # - 打印 shape 方便调试
+
+        # 三个输出字段先置 None，enable_leadmot_planning=False 时直接保持 None
+        # 调用方拿到 None 就知道这条路没跑
         leadmot_route = None
         leadmot_future_waypoints = None
         leadmot_gen_hidden = None
+
         if enable_leadmot_planning:
+            # ---- 输入校验 ----
+            # gen_context 必须是 dict 才能 .get("past_key_values")
+            # 慢推理（kv_cache_fixed_inference）正常返回 dict，但防御性检查一下
             if not isinstance(gen_context, dict):
                 raise TypeError(f"gen_context must be a dict, got {type(gen_context).__name__}")
+
+            # ---- 首次进入时 lazy 构建 decoder ----
+            # 之后再进入直接复用已构建的实例
             self._ensure_leadmot_decoder()
+
+            # ---- 池化 Qwen K/V：36 层 -> 12 段 prefix K/V ----
+            # select_last 模式：每段取最后一层（语义最丰富、显存最省）
+            # 返回 list[(K, V)] 长度 = 12，每个 K/V 形状 (B, 8, S, 128)
             pooled_kv = _segment_qwen_cache_for_leadmot(
                 gen_context.get("past_key_values", None),
                 self.leadmot_config,
