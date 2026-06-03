@@ -657,7 +657,8 @@ AutoMoT 在线: 20Hz, 每tick决策 (本仓库 runner 不复用其 BEV encoder/�
   `gen_context["past_key_values"]`。
 - runner 内部把 AutoMoT `NaiveCache` / HF legacy cache 统一整理为
   `(B, num_kv_heads=8, seq_len, head_dim=128)`，再按 `select_last` 把 36 层 Qwen cache
-  分段成 12 个 LeadMoT block 使用的 prefix K/V。
+  分段成 12 个 LeadMoT block 使用的 prefix K/V。AutoMoT 3D cache `(S,8,128)`
+  会显式转成 `(1,8,S,128)`；HF 4D cache 保持 `(B,8,S,128)`，只 detach 不投影。
 - `AutoMoT/qwen3vl_local/leadmot/` 中的 attention 直接 concat frozen Qwen K/V，
   不对语言 K/V 再做线性投影；gen 路 hidden=1024，即 `8 * 128`。
 - BEV 输入来自 LEAD `LeadBEVEncoder`：`bev_feature (B,512,10,12)`，先投影成
@@ -692,8 +693,8 @@ AutoMoT 在线: 20Hz, 每tick决策 (本仓库 runner 不复用其 BEV encoder/�
   - `gen_context` 例外：保留 GPU 引用，因为下一帧慢推理 cache 复用仍需要同 device。
 - **代码级中文注释已齐**：leadmot 子包 7 个 `.py` 文件（`__init__` / `config` /
   `projectors` / `query_bank` / `heads` / `mot_block` / `decoder`）和 runner 中
-  `_qwen_cache_to_layer_list` / `_segment_qwen_cache_for_leadmot` /
-  `_ensure_leadmot_decoder` / leadmot 调用块均带详细中文注释，新会话/审计读源码可
+  `_cache_tensor_to_bhsd` / `_qwen_cache_to_layer_list` /
+  `_segment_qwen_cache_for_leadmot` / `_ensure_leadmot_decoder` / leadmot 调用块均带详细中文注释，新会话/审计读源码可
   直接看注释理解 attention 数学和 MoT 设计取舍，不需要从头回看 ARCHITECTURE.md。
 
 ### 11.6.2 下一步约定

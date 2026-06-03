@@ -261,3 +261,27 @@ out = decoder(
 > 重要：`segment_kv_for_dit` 的 `num_segments` **必须** 等于
 > `decoder.config.num_layers`。如果改 decoder 层数，这里也要一起改，
 > 否则 `_check_pooled_kv` 会在 forward 入口直接抛错。
+
+### 7.1 当前 runner 的真实接入方式
+
+`mot_lead_offline_runner.py` 已经把上面的三段式接进 `run_step`，但默认仍关闭：
+
+- `--enable-leadmot-planning` 才会进入 LeadMoT 分支；
+- decoder 用 `_ensure_leadmot_decoder()` lazy build，默认 `torch.bfloat16`，避免只跑慢推理时多占显存；
+- Qwen cache 通过 runner 内部 `_qwen_cache_to_layer_list()` 兼容 HF legacy cache / HF `DynamicCache` / AutoMoT `NaiveCache`；
+- `_cache_tensor_to_bhsd()` 把单层 K/V 统一成 `(B, 8, S, 128)`，其中 AutoMoT 3D cache `(S,8,128)` 会被转成 `(1,8,S,128)`；
+- `_segment_qwen_cache_for_leadmot()` 按 `select_last` 从 36 层 Qwen cache 选 12 段，默认选层为 `2,5,8,...,35`；
+- `target_point_speed` 在 runner 里被拆成 `speed`、`target_point`、`target_point_next`，不做归一化，保持 AutoMoT status token 做法；
+- 返回 dict 前，小轨迹张量 `leadmot_route` / `leadmot_future_waypoints` 会转成 **fp32 CPU**，`leadmot_gen_hidden` 保留原 dtype detach 到 CPU，`gen_context` 保留 GPU cache 引用。
+
+因此，当前链路可以验证：
+
+```
+LEAD RGB + prompt
+  -> AutoMoT frozen/Qwen slow prefill
+  -> past_key_values
+  -> LeadMoT prefix-KV decoder
+  -> leadmot_route / leadmot_future_waypoints
+```
+
+但它还不能代表可用驾驶质量：decoder 没有加载训练好的 `leadmot` checkpoint，输出仍是随机初始化 head 的 shape smoke。
