@@ -102,6 +102,7 @@ if not hasattr(_automot_module_preset, '_tokenizer_reinitialized'):
 from data.reasoning.data_utils import add_special_tokens
 from mot.evaluation.inference import InterleaveInferencer
 from mot.modeling.automot import AutoMoT
+from qwen3vl_local.leadmot import LeadMoTPlanningDecoder, LeadMoTPlanningDecoderConfig
 # 注：BEV encoder 已切换为 LEAD TransfuserBackbone(见本文件底部 LeadBEVEncoder 类),
 # 不再依赖 AutoMoT 自带的 BEVEncoderBackboneExtractor。保留 bev_encoder_utils 因为
 # normalize_angle / algin_lidar 仍被 LiDAR 跨帧对齐逻辑使用。
@@ -650,6 +651,93 @@ class LeadBEVEncoder(nn.Module):
         }
 
 
+def _cache_tensor_to_bhsd(x: torch.Tensor) -> torch.Tensor:
+    """Normalize Qwen cache tensor to (B, num_kv_heads, seq_len, head_dim)."""
+    if not isinstance(x, torch.Tensor):
+        raise TypeError(f"Qwen cache item must be a tensor, got {type(x).__name__}")
+
+    if x.ndim == 4:
+        return x.detach()
+    if x.ndim == 3:
+        # AutoMoT NaiveCache stores packed cache as (seq_len, num_kv_heads, head_dim).
+        return x.detach().permute(1, 0, 2).unsqueeze(0).contiguous()
+
+    raise ValueError(f"Unsupported Qwen cache tensor shape: {tuple(x.shape)}")
+
+
+def _qwen_cache_to_layer_list(past_key_values: Any) -> list[tuple[torch.Tensor, torch.Tensor]]:
+    """Extract per-layer K/V tensors from HF DynamicCache or AutoMoT NaiveCache."""
+    if past_key_values is None:
+        raise ValueError("gen_context does not contain past_key_values")
+
+    if hasattr(past_key_values, "to_legacy_cache"):
+        past_key_values = past_key_values.to_legacy_cache()
+
+    layers: list[tuple[torch.Tensor, torch.Tensor]] = []
+
+    if hasattr(past_key_values, "key_cache") and hasattr(past_key_values, "value_cache"):
+        key_cache = past_key_values.key_cache
+        value_cache = past_key_values.value_cache
+        if isinstance(key_cache, dict):
+            layer_ids = sorted(key_cache.keys())
+            get_key = key_cache.get
+            get_value = value_cache.get
+        else:
+            layer_ids = range(len(key_cache))
+            get_key = key_cache.__getitem__
+            get_value = value_cache.__getitem__
+
+        for layer_id in layer_ids:
+            k = get_key(layer_id)
+            v = get_value(layer_id)
+            if k is None or v is None:
+                continue
+            layers.append((_cache_tensor_to_bhsd(k), _cache_tensor_to_bhsd(v)))
+        return layers
+
+    if isinstance(past_key_values, (list, tuple)):
+        for layer in past_key_values:
+            if layer is None:
+                continue
+            if not isinstance(layer, (list, tuple)) or len(layer) < 2:
+                raise ValueError(f"Invalid legacy cache layer item: {type(layer).__name__}")
+            layers.append((_cache_tensor_to_bhsd(layer[0]), _cache_tensor_to_bhsd(layer[1])))
+        return layers
+
+    raise TypeError(f"Unsupported past_key_values type: {type(past_key_values).__name__}")
+
+
+def _segment_qwen_cache_for_leadmot(
+    past_key_values: Any,
+    config: LeadMoTPlanningDecoderConfig,
+) -> list[tuple[torch.Tensor, torch.Tensor]]:
+    """Pool frozen Qwen layers into LeadMoT decoder layers with select-last segments."""
+    layers = _qwen_cache_to_layer_list(past_key_values)
+    if len(layers) < config.num_layers:
+        raise ValueError(
+            f"Qwen cache layers ({len(layers)}) fewer than LeadMoT layers ({config.num_layers})"
+        )
+    if config.kv_segment_mode != "select_last":
+        raise ValueError(f"Unsupported kv_segment_mode={config.kv_segment_mode!r}")
+
+    selected: list[tuple[torch.Tensor, torch.Tensor]] = []
+    for seg_idx in range(config.num_layers):
+        end = round((seg_idx + 1) * len(layers) / config.num_layers)
+        layer_idx = max(0, end - 1)
+        k, v = layers[layer_idx]
+        config.validate_qwen_kv_shape()
+        expected = (config.num_kv_heads, config.head_dim)
+        actual_k = (int(k.shape[1]), int(k.shape[-1]))
+        actual_v = (int(v.shape[1]), int(v.shape[-1]))
+        if actual_k != expected or actual_v != expected:
+            raise ValueError(
+                f"Qwen cache shape mismatch at layer {layer_idx}: "
+                f"k={tuple(k.shape)}, v={tuple(v.shape)}, expected heads/dim={expected}"
+            )
+        selected.append((k, v))
+    return selected
+
+
 @dataclass
 class OfflineGroup:
     """单个离线样本组的描述信息。"""
@@ -739,9 +827,15 @@ class LeadOfflineMoTRunner:
             ckpt_path=LEAD_BEV_CKPT_PATH,
         )
 
+        self.leadmot_config = LeadMoTPlanningDecoderConfig()
+        self.leadmot_config.validate_qwen_kv_shape()
+        self.leadmot_decoder = LeadMoTPlanningDecoder(self.leadmot_config).to(self.device)
+        self.leadmot_decoder.eval()
+
         print(f"✓ Model initialized on {self.device}")
         print("  - AutoMoT loaded")
         print("  - BEV Encoder (LEAD TransfuserBackbone) loaded")
+        print("  - LeadMoT decoder initialized (untrained, opt-in)")
         print("  - Inferencer initialized")
 
     @staticmethod
@@ -1025,7 +1119,8 @@ class LeadOfflineMoTRunner:
                  gen_context=None, timestamp: float = 0.0,
                  rgb_frame_step: int = 1, rgb_frame_count: int = 4,
                  bev_frame_step: int = 1, bev_frame_count: int = 1,
-                 enable_fast_inference: bool = False) -> dict[str, Any]:
+                 enable_fast_inference: bool = False,
+                 enable_leadmot_planning: bool = False) -> dict[str, Any]:
         """离线版 run_step:输入 LEAD clip + anchor 帧,输出慢推理 gen_context(默认)
         或慢+快推理 text/traj/route。
 
@@ -1089,6 +1184,33 @@ class LeadOfflineMoTRunner:
         # 默认禁用:LEAD trans_feat (1, 512, 10, 12) 与 AutoMoT bev_encoder_proj 期望
         # (1, 1512, 8, 8) shape 不兼容。要彻底启用 LEAD 版快推理,需重训整个 decoder 链路,
         # 见 PROJECT_CONTEXT.md §12 "未来工作"。
+        # ========== LEAD-MoT planning head (frozen Qwen prefix K/V + LEAD BEV) ==========
+        # This path is opt-in because the decoder is architectural wiring only until trained.
+        leadmot_route = None
+        leadmot_future_waypoints = None
+        leadmot_gen_hidden = None
+        if enable_leadmot_planning:
+            if not isinstance(gen_context, dict):
+                raise TypeError(f"gen_context must be a dict, got {type(gen_context).__name__}")
+            pooled_kv = _segment_qwen_cache_for_leadmot(
+                gen_context.get("past_key_values", None),
+                self.leadmot_config,
+            )
+            status = target_point_speed.to(self.device, dtype=torch.float32)
+            leadmot_out = self.leadmot_decoder(
+                pooled_kv=pooled_kv,
+                bev=trans_feat,
+                speed=status[:, 0],
+                target_point=status[:, 1:3],
+                target_point_next=status[:, 3:5],
+            )
+            leadmot_route = leadmot_out["pred_route"]
+            leadmot_future_waypoints = leadmot_out["pred_future_waypoints"]
+            leadmot_gen_hidden = leadmot_out["gen_hidden"]
+            print("[LeadMoT] prefix-KV planning success (decoder is untrained unless checkpoint is loaded)")
+            print(f"  leadmot_route_shape: {tuple(leadmot_route.shape)}")
+            print(f"  leadmot_future_waypoints_shape: {tuple(leadmot_future_waypoints.shape)}")
+
         gen_text = None
         gen_traj = None
         route = None
@@ -1128,6 +1250,9 @@ class LeadOfflineMoTRunner:
             "text": gen_text,
             "traj": gen_traj,
             "route": route,
+            "leadmot_route": leadmot_route,
+            "leadmot_future_waypoints": leadmot_future_waypoints,
+            "leadmot_gen_hidden": leadmot_gen_hidden,
             "trans_feat": trans_feat,        # LEAD BEV (1, 512, 10, 12),供调试
             "gen_context": gen_context,
         }
@@ -1135,7 +1260,8 @@ class LeadOfflineMoTRunner:
     @torch.no_grad()
     def run_clip(self, lead_clip: dict[str, Any],
                  rgb_frame_step: int = 1, rgb_frame_count: int = 4,
-                 bev_frame_step: int = 1, bev_frame_count: int = 1) -> list[dict[str, Any]]:
+                 bev_frame_step: int = 1, bev_frame_count: int = 1,
+                 enable_leadmot_planning: bool = False) -> list[dict[str, Any]]:
         """
         处理整段 LEAD clip，生成单组推理结果（基于最后一帧）。
 
@@ -1173,7 +1299,8 @@ class LeadOfflineMoTRunner:
             rgb_frame_step=rgb_frame_step,
             rgb_frame_count=rgb_frame_count,
             bev_frame_step=bev_frame_step,
-            bev_frame_count=bev_frame_count
+            bev_frame_count=bev_frame_count,
+            enable_leadmot_planning=enable_leadmot_planning
         )
         
         outputs: list[dict[str, Any]] = []
@@ -1599,6 +1726,11 @@ def main():
         help="推理设备。默认 auto 自动选择显存占用最低 GPU；也可手动指定如 cuda:7 或 cpu。",
     )
     parser.add_argument(
+        "--enable-leadmot-planning",
+        action="store_true",
+        help="Enable experimental LEAD-MoT route/waypoint head from frozen Qwen prefix K/V + LEAD BEV.",
+    )
+    parser.add_argument(
         "--tp-lookahead-s",
         type=float,
         default=1.5,
@@ -1654,16 +1786,29 @@ def main():
         rgb_frame_step=max(1, args.rgb_frame_step),
         rgb_frame_count=max(1, args.rgb_frame_count),
         bev_frame_step=max(1, args.bev_frame_step),
-        bev_frame_count=max(1, args.bev_frame_count)
+        bev_frame_count=max(1, args.bev_frame_count),
+        enable_leadmot_planning=bool(args.enable_leadmot_planning)
     )
 
     print(f"\nGenerated {len(outputs)} inference result(s)")
     for i, out in enumerate(outputs):
+        leadmot_route_shape = (
+            tuple(out["leadmot_route"].shape)
+            if isinstance(out.get("leadmot_route"), torch.Tensor)
+            else None
+        )
+        leadmot_waypoints_shape = (
+            tuple(out["leadmot_future_waypoints"].shape)
+            if isinstance(out.get("leadmot_future_waypoints"), torch.Tensor)
+            else None
+        )
         print(
             f"\n[Result {i}]  anchor_t={out['anchor_t']}, "
             f"rgb_frames={out['rgb_indices_asc']}, "
             f"bev_frames={out['bev_indices_asc']}, "
-            f"text={str(out['text'])[:80]}..."
+            f"text={str(out['text'])[:80]}..., "
+            f"leadmot_route_shape={leadmot_route_shape}, "
+            f"leadmot_waypoints_shape={leadmot_waypoints_shape}"
         )
 
 
