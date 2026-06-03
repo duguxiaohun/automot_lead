@@ -178,6 +178,14 @@ heads:
 > 加一个 `lang_key_padding_mask: (B, S)` 参数，并在 `MoTDecoderBlock` /
 > `LeadMoTPlanningDecoder.forward` 透传下去。
 
+> ⚠️ **训练 / 推理 cache 必须同源**：本 decoder 的 prefix K/V 必须来自
+> **同一个** frozen Qwen 实例。如果训练时用 standalone `Qwen3-VL-4B-Instruct`
+> （`qwen3vl_local/engine.py` 加载）生成 cache，推理时却换成 AutoMoT
+> checkpoint 的 Qwen/MoT 路径（`InterleaveInferencer.kv_cache_fixed_inference`）
+> 生成 cache，**即使 36 层数和 (8, S, 128) 形状完全一致**，两个模型里 K/V
+> 的语义分布也不同——decoder 看到的"语言上下文"和训练时不一致，会显著掉点。
+> 本子包不强制校验这条约束，调用方必须保证 cache 来源一致。
+
 ---
 
 ## 7. 调用模板

@@ -827,16 +827,30 @@ class LeadOfflineMoTRunner:
             ckpt_path=LEAD_BEV_CKPT_PATH,
         )
 
-        self.leadmot_config = LeadMoTPlanningDecoderConfig()
-        self.leadmot_config.validate_qwen_kv_shape()
-        self.leadmot_decoder = LeadMoTPlanningDecoder(self.leadmot_config).to(self.device)
-        self.leadmot_decoder.eval()
+        # LeadMoT decoder 默认不实例化，避免慢推理工作流白占 ~584MB fp32 显存。
+        # 首次启用 enable_leadmot_planning 时 lazy build，默认 bf16。
+        self.leadmot_config: LeadMoTPlanningDecoderConfig | None = None
+        self.leadmot_decoder: LeadMoTPlanningDecoder | None = None
+        self.leadmot_dtype: torch.dtype = torch.bfloat16
 
         print(f"✓ Model initialized on {self.device}")
         print("  - AutoMoT loaded")
         print("  - BEV Encoder (LEAD TransfuserBackbone) loaded")
-        print("  - LeadMoT decoder initialized (untrained, opt-in)")
+        print("  - LeadMoT decoder lazy (will be built on first --enable-leadmot-planning)")
         print("  - Inferencer initialized")
+
+    def _ensure_leadmot_decoder(self) -> None:
+        """首次调用时按 self.leadmot_dtype 在 self.device 上构建 LeadMoT decoder。"""
+        if self.leadmot_decoder is not None:
+            return
+        self.leadmot_config = LeadMoTPlanningDecoderConfig()
+        self.leadmot_config.validate_qwen_kv_shape()
+        self.leadmot_decoder = (
+            LeadMoTPlanningDecoder(self.leadmot_config)
+            .to(device=self.device, dtype=self.leadmot_dtype)
+            .eval()
+        )
+        print(f"✓ LeadMoT decoder lazy-built on {self.device} ({self.leadmot_dtype})")
 
     @staticmethod
     def _to_numpy(x: Any) -> np.ndarray:
@@ -1192,6 +1206,7 @@ class LeadOfflineMoTRunner:
         if enable_leadmot_planning:
             if not isinstance(gen_context, dict):
                 raise TypeError(f"gen_context must be a dict, got {type(gen_context).__name__}")
+            self._ensure_leadmot_decoder()
             pooled_kv = _segment_qwen_cache_for_leadmot(
                 gen_context.get("past_key_values", None),
                 self.leadmot_config,
@@ -1239,6 +1254,12 @@ class LeadOfflineMoTRunner:
         else:
             print("[run_step] enable_fast_inference=False:跳过快推理,仅返回慢推理 gen_context")
 
+        # 返回 dict 里所有 tensor 字段都 detach 到 CPU，避免多 clip 收集 outputs 时
+        # 持续挂 GPU 引用累积显存。gen_context 例外：它含 past_key_values，下一帧
+        # 慢推理还要直接复用同设备的 cache。
+        def _detach_cpu(x: Any) -> Any:
+            return x.detach().cpu() if isinstance(x, torch.Tensor) else x
+
         return {
             "timestamp": timestamp,
             "anchor_t": anchor_t,
@@ -1248,13 +1269,13 @@ class LeadOfflineMoTRunner:
             "bev_indices_asc": bev_indices_asc,
             "prompt": prompt_cleaned,
             "text": gen_text,
-            "traj": gen_traj,
-            "route": route,
-            "leadmot_route": leadmot_route,
-            "leadmot_future_waypoints": leadmot_future_waypoints,
-            "leadmot_gen_hidden": leadmot_gen_hidden,
-            "trans_feat": trans_feat,        # LEAD BEV (1, 512, 10, 12),供调试
-            "gen_context": gen_context,
+            "traj": _detach_cpu(gen_traj),
+            "route": _detach_cpu(route),
+            "leadmot_route": _detach_cpu(leadmot_route),
+            "leadmot_future_waypoints": _detach_cpu(leadmot_future_waypoints),
+            "leadmot_gen_hidden": _detach_cpu(leadmot_gen_hidden),
+            "trans_feat": _detach_cpu(trans_feat),     # LEAD BEV (1, 512, 10, 12),供调试
+            "gen_context": gen_context,                # GPU 引用保留,下一帧 cache 复用
         }
 
     @torch.no_grad()
