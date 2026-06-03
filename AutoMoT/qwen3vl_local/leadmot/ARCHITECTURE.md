@@ -5,6 +5,37 @@
 
 ---
 
+## 0. 如何阅读本文档与代码
+
+按"概念→实现→集成"三层来读：
+
+| 你想了解的 | 看哪里 |
+|---|---|
+| 整体设计取舍 / 为什么这么做 | 本文档 §1-§7 |
+| 与 AutoMoT 严格 MoT 的 attention 数学差异 | 本文档 §2 |
+| 张量形状 / packed gen 序列布局 | 本文档 §4, §5 |
+| 每个 `nn.Module` 的输入输出契约 | 各 `.py` 文件顶部 docstring |
+| 每行代码具体在做什么、为什么 | 各 `.py` 文件内行级中文注释 |
+| 训练/推理 cache 同源等运行时约定 | 本文档 §6 + `PROJECT_CONTEXT.md` §11.6 |
+| runner 怎么接通慢路 → 池化 → 本子包 | `mot_lead_offline_runner.py` 中 leadmot 段落的中文注释 + `PROJECT_CONTEXT.md` §11.6.1 |
+
+**所有源文件均带详细中文注释**：函数 docstring 说"做什么、参数、返回"，
+行级注释说"为什么这么写、什么时候会出问题"。新会话审计代码可以直接看注释。
+
+子包文件清单（按依赖顺序）：
+
+```
+config.py        - LeadMoTPlanningDecoderConfig：所有维度/层数/校验
+projectors.py    - LeadBEVProjector / WaypointInputAdaptor / StatusTokenEncoder
+query_bank.py    - RouteQueryBank (10) / WaypointQueryBank (8)
+heads.py         - RouteHead / WaypointHead = Linear + cumsum
+mot_block.py     - RMSNorm / SwiGLU / PrefixKVAttention / MoTDecoderBlock
+decoder.py       - LeadMoTPlanningDecoder（顶层组装）
+__init__.py      - 子包入口 + 一句话说明
+```
+
+---
+
 ## 1. 设计目标
 
 - **输出契约严格按 LEAD `PlanningDecoder`**：
