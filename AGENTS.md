@@ -46,7 +46,9 @@
 
 - `lead/`：数据采集、训练、闭环评测仓库。CARLA 20Hz，每 5 tick 落盘 1 帧，即 4Hz。
 - `AutoMoT/`：在线驾驶仓库。慢路径是 Qwen3-VL + KV cache，快路径依赖 BEV encoder + DP heads。
-- 当前离线 runner 的实际可用路径是慢推理路径：`kv_cache_fixed_inference(...)`。
+- 当前离线 runner 的 LeadMoT 分支默认走本地 `AutoMoT/qwen3vl_local` 的
+  `LocalQwen3VLInstructEngine` 做 frozen Qwen prefill；AutoMoT legacy
+  `kv_cache_fixed_inference(...)` 只有显式 `--enable-automot-slow` 才加载/运行。
 - 快推理路径默认禁用：`enable_fast_inference=False`。
 - runner 已切换到 LEAD 风格的 `LeadTransfuserBackbone` / `LeadBEVEncoder`，但其输出与 AutoMoT 原快推理 decoder shape 不兼容，因此不能直接打开快推理。
 - LEAD RGB 是三视角拼接 `(W=1152, H=384)`；当前慢推理直接喂给 Qwen3-VL，不切片、不 resize、不选前视。
@@ -77,7 +79,7 @@
 - `AutoMoT/qwen3vl_local/leadmot/heads.py`
 - `AutoMoT/qwen3vl_local/leadmot/mot_block.py`
 - `AutoMoT/qwen3vl_local/leadmot/decoder.py`
-  （LEAD-MoT 快推理 decoder 子包：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8x128 对齐 Qwen K/V 子空间。runner 用 `LocalQwen3VLInstructEngine` 跑慢推理（不能用 AutoMoT InterleaveInferencer，权重不同源），lazy bf16。详见 `leadmot/ARCHITECTURE.md` 与 `PROJECT_CONTEXT.md §11.6`）
+  （LEAD-MoT 快推理 decoder 子包：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8x128 对齐 Qwen K/V 子空间。runner 的 LEAD-MoT 分支必须用 `LocalQwen3VLInstructEngine` 单独跑 frozen Qwen prefill（不能复用 AutoMoT InterleaveInferencer 的 `gen_context`，权重不同源）；runner 默认不加载 AutoMoT 主模型，只有 `--enable-automot-slow` 才走旧慢路径；`--leadmot-ckpt` 显式加载 decoder 权重，不传则随机初始化。详见 `leadmot/ARCHITECTURE.md` 与 `PROJECT_CONTEXT.md §11.6`）
 - `AutoMoT/tools/SFT_V1_PLAN.md`
 - `AutoMoT/tools/build_sft_dataset_v1.py`
 - `AutoMoT/tools/sft_v1_train.sh`

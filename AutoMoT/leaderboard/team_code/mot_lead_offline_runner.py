@@ -3,8 +3,9 @@ LEAD video -> AutoMoT offline runner.
 
 中文说明：
 - 该文件是离线桥接实现，不修改原有在线 Agent。
-- 目标：把 LEAD route 中的某个 anchor 帧（含必要历史窗口）切成 AutoMoT 所需的
-  时序输入，复用 AutoMoT 现有 Qwen3-VL 慢推理链路。
+- 目标：把 LEAD route 中的某个 anchor 帧（含必要历史窗口）切成本 runner 所需的
+  时序输入。默认走本地 Qwen3-VL-Instruct + LeadMoT；旧 AutoMoT 慢路径只在
+  `--enable-automot-slow` 时加载。
 - 入口语义：显式指定 anchor（route 内绝对帧索引），由采样参数反推需要的历史长度。
   clip 内 anchor 永远是最后一帧；当 anchor 太靠前导致历史不足时，会重复 frame 0
   补齐并打印 warning（不报错，但需注意数据有重复）。
@@ -72,42 +73,6 @@ for path in [projects_root, mot_dp_path, mot_path]:
     if path not in sys.path:
         sys.path.insert(0, path)
 
-# ！重要：在导入automot模块前，必须设置tokenizer路径
-# 因为automot.py模块初始化时会创建全局tokenizer对象
-_qwen3vl_path = str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B")
-# Setting Qwen3VL tokenizer/processor path to: /home/cruser1/lda/AutoMoT/checkpoints/Qwen3-VL-4B
-
-import mot.modeling.automot.automot as _automot_module_preset
-_automot_module_preset.QWEN3VL_TOKENIZER_PATH = _qwen3vl_path
-_automot_module_preset.QWEN3VL_PROCESSOR_PATH = _qwen3vl_path
-# 强制重新初始化tokenizer
-if not hasattr(_automot_module_preset, '_tokenizer_reinitialized'):
-    from transformers import AutoTokenizer as Qwen3Tokenizer
-    from data.reasoning.data_utils import add_special_tokens as _add_special_tokens
-    try:
-        _tmp_tokenizer = Qwen3Tokenizer.from_pretrained(_qwen3vl_path, local_files_only=True, trust_remote_code=True)
-        _tmp_tokenizer, _, _ = _add_special_tokens(_tmp_tokenizer)
-        _automot_module_preset.tokenizer = _tmp_tokenizer
-        _automot_module_preset._tokenizer_reinitialized = True
-        print(f"✓ Pre-initialized tokenizer from {_qwen3vl_path}")
-    except Exception as e:
-        print(f"Warning: Could not pre-initialize tokenizer: {e}")
-        # 尝试加载Qwen3VLForConditionalGenerationMoT的tokenizer作为备选
-        try:
-            _tmp_tokenizer = Qwen3Tokenizer.from_pretrained(
-                str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B"),
-                local_files_only=True,
-                trust_remote_code=True,
-            )
-            _tmp_tokenizer, _, _ = _add_special_tokens(_tmp_tokenizer)
-            _automot_module_preset.tokenizer = _tmp_tokenizer
-            print(f"✓ Pre-initialized tokenizer (fallback) from Qwen3-VL-4B")
-        except Exception as e2:
-            print(f"Error initializing tokenizer: {e2}")
-
-from data.reasoning.data_utils import add_special_tokens
-from mot.evaluation.inference import InterleaveInferencer
-from mot.modeling.automot import AutoMoT
 # LeadMoT 子包：frozen Qwen prefix K/V + LEAD BEV 风格快推理 decoder
 # - 输入：池化后的 Qwen K/V (12 段) + LEAD BEV (B,512,10,12) + ego status
 # - 输出：(B,10,2) pred_route + (B,8,2) pred_future_waypoints，天然对齐 LEAD planning_decoder 契约
@@ -141,13 +106,53 @@ _LEADMOT_QWEN_SYSTEM_PROMPT = (
 # normalize_angle / algin_lidar 仍被 LiDAR 跨帧对齐逻辑使用。
 import mot.modeling.bev_encoder.bev_encoder_utils as bev_encoder_t_u
 
-from team_code.automot_utils import (
-    InferenceArguments,
-    ModelArguments,
-    build_cleaned_prompt_and_modes,
-    inverse_conversion_2d,
-    load_model_mot,
-)
+def inverse_conversion_2d(point: np.ndarray, translation: np.ndarray, yaw: float) -> np.ndarray:
+    """把 world frame 2D 点转换到当前 ego frame。
+
+    这是 `team_code.automot_utils.inverse_conversion_2d` 的本地等价实现。
+    之所以内联，是为了让 LeadMoT-only 路线在没有 CARLA Python API 的环境里也能
+    import 本 runner；`automot_utils.py` 顶部会无条件 `import carla`。
+    """
+    rotation_matrix = np.array(
+        [[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]],
+        dtype=np.float32,
+    )
+    return rotation_matrix.T @ (np.asarray(point, dtype=np.float32) - np.asarray(translation, dtype=np.float32))
+
+
+def build_cleaned_prompt_and_modes(target_point_speed: Any) -> tuple[str, bool, bool]:
+    """构造 Qwen/规划分支使用的英文驾驶 prompt。
+
+    本地等价于 `automot_utils.build_cleaned_prompt_and_modes`，避免 LeadMoT-only
+    import 阶段被 `automot_utils -> carla` 依赖卡住。prompt 字面格式保持一致。
+    """
+    if isinstance(target_point_speed, torch.Tensor):
+        tp = target_point_speed.detach().cpu().view(-1)
+        speed = float(tp[0].item())
+        cur_x, cur_y = float(tp[1].item()), float(tp[2].item())
+        next_x, next_y = float(tp[3].item()), float(tp[4].item())
+    elif isinstance(target_point_speed, np.ndarray):
+        tp = target_point_speed.reshape(-1)
+        speed = float(tp[0])
+        cur_x, cur_y = float(tp[1]), float(tp[2])
+        next_x, next_y = float(tp[3]), float(tp[4])
+    elif isinstance(target_point_speed, (list, tuple)):
+        if len(target_point_speed) < 5:
+            raise ValueError(
+                f"Expected 5 elements [speed, cur_x, cur_y, next_x, next_y], got {len(target_point_speed)}"
+            )
+        speed = float(target_point_speed[0])
+        cur_x, cur_y = float(target_point_speed[1]), float(target_point_speed[2])
+        next_x, next_y = float(target_point_speed[3]), float(target_point_speed[4])
+    else:
+        raise TypeError(f"Unsupported type for target_point_speed: {type(target_point_speed)}")
+
+    prompt = (
+        f"Your current and next target point is ({cur_x:.6f}, {cur_y:.6f}), "
+        f"({next_x:.6f}, {next_y:.6f}), and your current velocity is {speed:.2f} m/s. "
+        "Predict the driving actions ( now, +1s, +2s) and plan the trajectory for the next 3 seconds."
+    )
+    return prompt, False, True
 
 
 # ============================================================================
@@ -730,7 +735,12 @@ def _qwen_cache_to_layer_list(past_key_values: Any) -> list[tuple[torch.Tensor, 
 
     背景
     ====
-    AutoMoT 慢推理产出的 `gen_context["past_key_values"]` 在不同环境下类型可能不同：
+    LeadMoT 分支当前使用 standalone `LocalQwen3VLInstructEngine` 跑 frozen Qwen prefill，
+    标准输出通常是 HF `DynamicCache`。这里仍兼容 AutoMoT `NaiveCache`，只是为了让
+    调试旧 cache dump / 历史实验时不需要另写转换器；LeadMoT 正式训练 / 推理不要复用
+    `gen_context["past_key_values"]`，否则 Qwen 权重不同源。
+
+    常见 cache 形态：
     - HuggingFace 新版 `DynamicCache`：带 `to_legacy_cache()` 方法
     - AutoMoT 自定义 `NaiveCache`：带 `.key_cache` / `.value_cache` 属性（可能是 dict 也可能是 list）
     - HF legacy tuple：直接是 `list[(k, v), ...]`
@@ -744,9 +754,9 @@ def _qwen_cache_to_layer_list(past_key_values: Any) -> list[tuple[torch.Tensor, 
         list[(K, V)]，长度 = Qwen 层数（Qwen3-VL-4B-Instruct 是 36）
         每个 K/V 形状 (B, num_kv_heads=8, S, head_dim=128)
     """
-    # None 检查：调用方应保证慢推理已经跑完
+    # None 检查：调用方应保证 standalone Qwen prefill 已经跑完
     if past_key_values is None:
-        raise ValueError("gen_context does not contain past_key_values")
+        raise ValueError("Qwen prefill output does not contain past_key_values")
 
     # HF 新版 Cache 对象提供 to_legacy_cache() 转回旧版 tuple 格式，统一处理
     if hasattr(past_key_values, "to_legacy_cache"):
@@ -888,7 +898,7 @@ class LeadOfflineMoTRunner:
     LEAD clip 的离线推理执行器。
 
     中文说明：
-    - 初始化 AutoMoT + BEV encoder。
+    - 默认只初始化 LEAD BEV encoder；AutoMoT legacy 慢/快路径必须显式开启才加载。
     - 接收 LEAD video clip（包含 T 帧）并按 AutoMoT 在线策略重组输入。
     - 支持“一个 clip 生成多组样本”，提高数据利用率。
     """
@@ -896,12 +906,36 @@ class LeadOfflineMoTRunner:
     def __init__(
         self,
         device: str = "cuda:0",
+        load_automot: bool = False,
+        leadmot_ckpt_path: str | pathlib.Path | None = None,
     ):
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
-        self._setup_model()
+        self.load_automot = bool(load_automot)
+        self.leadmot_ckpt_path = pathlib.Path(leadmot_ckpt_path).resolve() if leadmot_ckpt_path else None
+        self.automot: Any | None = None
+        self.inferencer: Any | None = None
+        self.inference_args: Any | None = None
+        self._setup_model(load_automot=self.load_automot)
 
-    def _setup_model(self) -> None:
-        """模型初始化：复用 AutoMoT 在线推理配置。"""
+    def _setup_automot_model(self) -> None:
+        """按需初始化 AutoMoT legacy 慢/快推理链路。
+
+        LeadMoT-only 路线不需要 AutoMoT 主模型，也不需要 AutoMoT 的
+        `InterleaveInferencer` / `gen_context`。本函数只在用户显式要求
+        `--enable-automot-slow`（或未来开启 AutoMoT fast 对照）时调用。
+        """
+        from data.reasoning.data_utils import add_special_tokens
+        from mot.evaluation.inference import InterleaveInferencer
+        from team_code.automot_utils import InferenceArguments, ModelArguments, load_model_mot
+
+        # 重要：在导入 automot 模块后、加载 AutoMoT 权重前，显式指向本地 tokenizer。
+        # 这段历史逻辑只服务 AutoMoT legacy 路径；LeadMoT-only 不再提前碰
+        # AutoMoT/checkpoints/Qwen3-VL-4B。
+        qwen3vl_path = str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B")
+        import mot.modeling.automot.automot as _automot_module
+        _automot_module.QWEN3VL_TOKENIZER_PATH = qwen3vl_path
+        _automot_module.QWEN3VL_PROCESSOR_PATH = qwen3vl_path
+
         parser = HfArgumentParser((ModelArguments, InferenceArguments))
         model_args, inference_args = parser.parse_args_into_dataclasses(args=[])
         
@@ -913,15 +947,10 @@ class LeadOfflineMoTRunner:
             model_args.model_path = actual_model_path
             print(f"✓ Using model path: {model_args.model_path}")
         
-        # 修正qwen3vl_path
-        model_args.qwen3vl_path = str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B")
+        # 修正 qwen3vl_path：AutoMoT legacy 路径只读本地 Qwen3-VL-4B。
+        model_args.qwen3vl_path = qwen3vl_path
         
         self.inference_args = inference_args
-
-        # 设置 tokenizer 和 processor 路径（在模型加载前）
-        import mot.modeling.automot.automot as _automot_module
-        _automot_module.QWEN3VL_TOKENIZER_PATH = model_args.qwen3vl_path
-        _automot_module.QWEN3VL_PROCESSOR_PATH = model_args.qwen3vl_path
 
         # 1) 主模型
         # 修正automot_utils中的路径变量以使用正确的model_path
@@ -931,7 +960,7 @@ class LeadOfflineMoTRunner:
         _automot_utils_module.ModelArguments.__dataclass_fields__["model_path"].default = model_args.model_path
         _automot_utils_module.ModelArguments.__dataclass_fields__["qwen3vl_path"].default = model_args.qwen3vl_path
 
-        self.automot: AutoMoT = load_model_mot(self.device)
+        self.automot = load_model_mot(self.device)
 
         # 2) 获取tokenizer（已在load_model_mot中全局初始化）
         tokenizer = AutoTokenizer.from_pretrained(
@@ -954,8 +983,16 @@ class LeadOfflineMoTRunner:
             visual_gen=True,
             visual_und=True,
         )
+        print("  - AutoMoT legacy model/inferencer loaded")
 
-        # 4) BEV encoder：用 LEAD TransfuserBackbone(单帧 tfv6 框架,本文件底部抄过来)
+    def _setup_model(self, *, load_automot: bool) -> None:
+        """模型初始化：默认 LeadMoT-only，AutoMoT legacy 链路按需加载。"""
+        if load_automot:
+            self._setup_automot_model()
+        else:
+            print("  - AutoMoT legacy model skipped (LeadMoT/local-Qwen mode)")
+
+        # BEV encoder：用 LEAD TransfuserBackbone(单帧 tfv6 框架,本文件底部抄过来)
         # 数据预处理(RGB shape / LiDAR 栅格 / 视野范围 / z 过滤)同步切到 LEAD 风格,
         # 详见 _prepare_inference_inputs。快推理路径默认禁用(trans_feat 不会被消费,
         # 即便 LEAD backbone 输出 shape (1, 512, 10, 12) 与 AutoMoT 原 (1, 1512, 8, 8)
@@ -991,10 +1028,12 @@ class LeadOfflineMoTRunner:
         self.leadmot_qwen_engine: LocalQwen3VLInstructEngine | None = None
 
         print(f"✓ Model initialized on {self.device}")
-        print("  - AutoMoT loaded")
         print("  - BEV Encoder (LEAD TransfuserBackbone) loaded")
         print("  - LeadMoT decoder lazy (will be built on first --enable-leadmot-planning)")
-        print("  - Inferencer initialized")
+        if self.leadmot_ckpt_path is None:
+            print("  - LeadMoT checkpoint: none (decoder will stay randomly initialized)")
+        else:
+            print(f"  - LeadMoT checkpoint: {self.leadmot_ckpt_path}")
 
     def _ensure_leadmot_decoder(self) -> None:
         """首次调用时按 self.leadmot_dtype 在 self.device 上构建 LeadMoT decoder。
@@ -1027,6 +1066,76 @@ class LeadOfflineMoTRunner:
             .eval()
         )
         print(f"✓ LeadMoT decoder lazy-built on {self.device} ({self.leadmot_dtype})")
+        if self.leadmot_ckpt_path is not None:
+            self._load_leadmot_weights(self.leadmot_ckpt_path)
+        else:
+            print("[LeadMoT] no --leadmot-ckpt provided; decoder uses random initialization")
+
+    @staticmethod
+    def _strip_state_dict_prefixes(state_dict: dict[str, Any]) -> dict[str, Any]:
+        """清理常见训练封装前缀，得到 decoder 自己的 state_dict key。
+
+        训练脚本可能保存：
+        - 纯 decoder state_dict；
+        - DDP 包过的 `module.xxx`；
+        - runner / trainer 包过的 `leadmot_decoder.xxx` 或 `decoder.xxx`。
+        这里只做 key 前缀裁剪，不改 tensor 数值。
+        """
+        prefixes = ("module.", "leadmot_decoder.", "decoder.", "model.")
+        cleaned: dict[str, Any] = {}
+        for key, value in state_dict.items():
+            new_key = str(key)
+            changed = True
+            while changed:
+                changed = False
+                for prefix in prefixes:
+                    if new_key.startswith(prefix):
+                        new_key = new_key[len(prefix):]
+                        changed = True
+            cleaned[new_key] = value
+        return cleaned
+
+    def _load_leadmot_weights(self, ckpt_path: pathlib.Path) -> None:
+        """从显式 checkpoint 加载 LeadMoT decoder 权重。
+
+        没有显式传 `--leadmot-ckpt` 时不会调用本函数，decoder 保持 PyTorch 默认随机
+        初始化。支持常见 `.pt/.pth` 字典和 `.safetensors`；如果 checkpoint 外层包了
+        `state_dict` / `model` / `decoder` / `leadmot_decoder`，会自动取内层。
+        """
+        if self.leadmot_decoder is None:
+            raise RuntimeError("LeadMoT decoder must be built before loading weights")
+        if not ckpt_path.exists():
+            raise FileNotFoundError(f"LeadMoT checkpoint not found: {ckpt_path}")
+
+        if ckpt_path.suffix.lower() == ".safetensors":
+            from safetensors.torch import load_file
+            raw = load_file(str(ckpt_path), device="cpu")
+        else:
+            raw = torch.load(str(ckpt_path), map_location="cpu")
+
+        state_dict = raw
+        if isinstance(raw, dict):
+            for key in ("state_dict", "model", "decoder", "leadmot_decoder"):
+                inner = raw.get(key)
+                if isinstance(inner, dict):
+                    state_dict = inner
+                    break
+        if not isinstance(state_dict, dict):
+            raise TypeError(
+                f"Unsupported LeadMoT checkpoint format: expected dict, got {type(state_dict).__name__}"
+            )
+
+        state_dict = self._strip_state_dict_prefixes(state_dict)
+        missing, unexpected = self.leadmot_decoder.load_state_dict(state_dict, strict=False)
+        self.leadmot_decoder.to(device=self.device, dtype=self.leadmot_dtype).eval()
+        print(
+            f"[LeadMoT] loaded checkpoint {ckpt_path}: "
+            f"missing={len(missing)}, unexpected={len(unexpected)}"
+        )
+        if missing:
+            print(f"  first 8 missing: {missing[:8]}")
+        if unexpected:
+            print(f"  first 8 unexpected: {unexpected[:8]}")
 
     def _ensure_leadmot_qwen_engine(self) -> None:
         """首次进入 enable_leadmot_planning 分支时 lazy 构建 standalone Qwen 引擎。
@@ -1402,9 +1511,9 @@ class LeadOfflineMoTRunner:
                  rgb_frame_step: int = 1, rgb_frame_count: int = 4,
                  bev_frame_step: int = 1, bev_frame_count: int = 1,
                  enable_fast_inference: bool = False,
+                 enable_automot_slow: bool = False,
                  enable_leadmot_planning: bool = False) -> dict[str, Any]:
-        """离线版 run_step:输入 LEAD clip + anchor 帧,输出慢推理 gen_context(默认)
-        或慢+快推理 text/traj/route。
+        """离线版 run_step:输入 LEAD clip + anchor 帧,输出所选推理分支结果。
 
         参数:
         - rgb_frame_step / rgb_frame_count: RGB 历史采样,默认 1 帧步长 × 4 帧
@@ -1416,13 +1525,17 @@ class LeadOfflineMoTRunner:
           期望的 (1, 1512, 8, 8) 不兼容,启用快推理会 shape mismatch 崩溃。
           快推理 LEAD 版需要重新设计 projector/head/queries,见 PROJECT_CONTEXT.md §12。
           想跑快推理时(为了 debug/对照),手动传 True 让 ipath 走通(预期会报错)。
+        - enable_automot_slow: 是否走历史 AutoMoT `kv_cache_fixed_inference`。
+          LeadMoT-only 路线不需要它；只有做旧慢路径/旧快路径对照时才显式打开。
+        - enable_leadmot_planning: 是否走本地 Qwen3-VL-Instruct prefill + LeadMoT decoder。
 
         关键流程:
         1. 准备数据 (LEAD 风格 BEV/LiDAR 输入,多帧 RGB)
         2. 调用 LEAD BEV encoder 得到 trans_feat(本身只是为了 keep 接口完整,
-           当 enable_fast_inference=False 时实际不被消费,所以即便随机权重也无碍)
-        3. 若 gen_context 为空 → 走慢推理一次,初始化 KV cache
-        4. 可选:enable_fast_inference=True 时再走快推理路径
+           当 enable_leadmot_planning / enable_fast_inference 都关时只供 debug)
+        3. 可选: enable_automot_slow=True 时才跑 AutoMoT 慢推理,初始化 gen_context
+        4. 可选: enable_leadmot_planning=True 时跑本地 Qwen prefill + LeadMoT decoder
+        5. 可选: enable_fast_inference=True 时再走 AutoMoT legacy 快推理路径
         """
         group = self._build_group_indices(
             clip_len=int(self._to_numpy(lead_clip["rgb"]).shape[0]),
@@ -1448,8 +1561,17 @@ class LeadOfflineMoTRunner:
             )
         trans_feat = bev_encoder_output["bev_feature"]  # (1, 512, 10, 12) LEAD 风格
 
-        # ========== 慢推理(Qwen3-VL frozen) ==========
-        if gen_context is None:
+        # ========== AutoMoT legacy 慢推理(Qwen3-VL/MoT gen_context) ==========
+        # LeadMoT-only 路线不需要这一步：LeadMoT 会用 LocalQwen3VLInstructEngine
+        # 单独跑本地 Qwen prefill。只有用户显式要求旧慢路径，或开启旧 fast 对照时，
+        # 才需要 AutoMoT InterleaveInferencer 的 gen_context。
+        need_automot_context = bool(enable_automot_slow or enable_fast_inference)
+        if need_automot_context and self.inferencer is None:
+            raise RuntimeError(
+                "AutoMoT legacy inference requested, but runner was created with "
+                "load_automot=False. Pass --enable-automot-slow to CLI initialization."
+            )
+        if need_automot_context and gen_context is None:
             slow_input_lists = rgb_pil_list + [prompt_cleaned]
             # shapes: [(384, 1152, 3), (384, 1152, 3), (384, 1152, 3), (384, 1152, 3), 'str(len=214)']
             # input term is: <PIL.Image.Image image mode=RGB size=1152x384 at 0x7F0213313E80>
@@ -1461,6 +1583,8 @@ class LeadOfflineMoTRunner:
             # plan the trajectory for the next 3 seconds.
             
             gen_context = self.inferencer.kv_cache_fixed_inference(slow_input_lists)
+        elif not need_automot_context:
+            print("[run_step] AutoMoT slow inference disabled: skip kv_cache_fixed_inference")
 
         # ========== 快推理(AutoMoT 自家训练的下游 head) ==========
         # 默认禁用:LEAD trans_feat (1, 512, 10, 12) 与 AutoMoT bev_encoder_proj 期望
@@ -1472,7 +1596,7 @@ class LeadOfflineMoTRunner:
         # 这条路是 opt-in 的：必须用户传 --enable-leadmot-planning 才会跑。
         # 默认关闭原因：
         # 1. decoder 是架构层组装，权重未训练，预测值无意义（随机输出）
-        # 2. 需要加载 checkpoint 才能产生真实预测（TODO：等训完接 --leadmot-ckpt）
+        # 2. 需要显式 --leadmot-ckpt 加载训练权重才能产生真实预测
         # 3. 即使不出预测，跑一遍 forward 也会占用 ~300MB bf16 显存 + 计算
         #
         # 调用方负责：
@@ -1553,6 +1677,8 @@ class LeadOfflineMoTRunner:
         route = None
         reasoning_hidden_states = None
         if enable_fast_inference:
+            if self.inferencer is None or self.automot is None:
+                raise RuntimeError("AutoMoT fast inference requires load_automot=True")
             with torch.autocast(device_type="cuda", enabled=True, dtype=torch.bfloat16):
                 gen_text, gen_traj, route, reasoning_hidden_states = self.inferencer.based_kv_cache_context_fast_qwen3vl_dp(
                     trans_feat=trans_feat,
@@ -1574,7 +1700,7 @@ class LeadOfflineMoTRunner:
             print(f"  route_shape: {route_shape}")
             print(f"  reasoning_hidden_states_shape: {rhs_shape}")
         else:
-            print("[run_step] enable_fast_inference=False:跳过快推理,仅返回慢推理 gen_context")
+            print("[run_step] enable_fast_inference=False:跳过 AutoMoT legacy 快推理")
 
         # 返回 dict 里所有 tensor 字段都 detach 到 CPU，避免多 clip 收集 outputs 时
         # 持续挂 GPU 引用累积显存。gen_context 例外：它含 past_key_values，下一帧
@@ -1613,6 +1739,7 @@ class LeadOfflineMoTRunner:
     def run_clip(self, lead_clip: dict[str, Any],
                  rgb_frame_step: int = 1, rgb_frame_count: int = 4,
                  bev_frame_step: int = 1, bev_frame_count: int = 1,
+                 enable_automot_slow: bool = False,
                  enable_leadmot_planning: bool = False) -> list[dict[str, Any]]:
         """
         处理整段 LEAD clip，生成单组推理结果（基于最后一帧）。
@@ -1652,6 +1779,7 @@ class LeadOfflineMoTRunner:
             rgb_frame_count=rgb_frame_count,
             bev_frame_step=bev_frame_step,
             bev_frame_count=bev_frame_count,
+            enable_automot_slow=enable_automot_slow,
             enable_leadmot_planning=enable_leadmot_planning
         )
         
@@ -2083,6 +2211,17 @@ def main():
         help="Enable experimental LEAD-MoT route/waypoint head from frozen Qwen prefix K/V + LEAD BEV.",
     )
     parser.add_argument(
+        "--leadmot-ckpt",
+        type=str,
+        default=None,
+        help="LeadMoT decoder checkpoint path (.pt/.pth/.safetensors). If omitted, decoder stays randomly initialized.",
+    )
+    parser.add_argument(
+        "--enable-automot-slow",
+        action="store_true",
+        help="Enable legacy AutoMoT InterleaveInferencer kv_cache_fixed_inference. Off by default in local-Qwen LeadMoT mode.",
+    )
+    parser.add_argument(
         "--tp-lookahead-s",
         type=float,
         default=1.5,
@@ -2132,13 +2271,18 @@ def main():
     #     - target_point: shape=(4, 2), dtype=float32, range=[0.000619971, 10.4444]
     #     - target_point_next: shape=(4, 2), dtype=float32, range=[0.00338461, 26.7549]
     
-    runner = LeadOfflineMoTRunner(device=args.device)
+    runner = LeadOfflineMoTRunner(
+        device=args.device,
+        load_automot=bool(args.enable_automot_slow),
+        leadmot_ckpt_path=args.leadmot_ckpt,
+    )
     outputs = runner.run_clip(
         clip, 
         rgb_frame_step=max(1, args.rgb_frame_step),
         rgb_frame_count=max(1, args.rgb_frame_count),
         bev_frame_step=max(1, args.bev_frame_step),
         bev_frame_count=max(1, args.bev_frame_count),
+        enable_automot_slow=bool(args.enable_automot_slow),
         enable_leadmot_planning=bool(args.enable_leadmot_planning)
     )
 
