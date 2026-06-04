@@ -1,0 +1,167 @@
+# LeadMoT V1 训练运行说明
+
+## 1. 构建训练索引
+
+```bash
+cd AutoMoT
+python qwen3vl_local/leadmot/build_dataset_v1.py \
+  --data-root /datashare/IOL4SGH/data/data \
+  --output-dir checkpoints/leadmot_v1_data \
+  --check-readable
+```
+
+快速抽样调试：
+
+```bash
+python qwen3vl_local/leadmot/build_dataset_v1.py \
+  --data-root /datashare/IOL4SGH/data/data \
+  --output-dir checkpoints/leadmot_v1_data_debug \
+  --samples-per-route 8 \
+  --stride 5 \
+  --check-readable
+```
+
+## 2. Sanity check
+
+```bash
+cd AutoMoT
+TRAIN_JSONL=checkpoints/leadmot_v1_data/train.jsonl \
+VAL_JSONL=checkpoints/leadmot_v1_data/val.jsonl \
+bash qwen3vl_local/leadmot/train_v1.sh check
+```
+
+`check` 默认只跑 2 个训练 step，不写 TensorBoard，不做验证，用来确认 Qwen prefill、BEV、decoder 和两类轨迹监督全部能接上。
+
+## 3. 单卡训练
+
+```bash
+cd AutoMoT
+bash qwen3vl_local/leadmot/train_v1.sh single
+```
+
+如果外部已设置 `CUDA_VISIBLE_DEVICES`，脚本会尊重该设置；否则自动用 `nvidia-smi` 选择显存占用最低的一张卡。
+
+常用覆盖：
+
+```bash
+CUDA_VISIBLE_DEVICES=3 \
+LR=1e-4 \
+NUM_EPOCHS=4 \
+GRAD_ACC=8 \
+bash qwen3vl_local/leadmot/train_v1.sh single
+```
+
+## 4. 多卡 DDP
+
+```bash
+cd AutoMoT
+DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train_v1.sh ddp
+```
+
+规则：
+
+- 设置 `DDP_GPU_COUNT=N` 时，脚本自动挑 N 张空闲 GPU，并覆盖 `CUDA_VISIBLE_DEVICES`。
+- 不设置 `DDP_GPU_COUNT` 但外部已有 `CUDA_VISIBLE_DEVICES` 时，按外部 mask 启动。
+- 不设置任何 GPU 环境变量时，默认尝试挑 8 张空闲 GPU。
+- `MASTER_PORT` 未设置时自动找空闲端口；已设置但端口被占用会直接报错。
+
+## 5. 默认训练参数
+
+```text
+LR=1e-4
+WEIGHT_DECAY=0.01
+WARMUP_RATIO=0.03
+NUM_EPOCHS=1
+GRAD_ACC=8
+ROUTE_LOSS_WEIGHT=0.5
+WAYPOINT_LOSS_WEIGHT=1.0
+LOSS_TYPE=l1
+LEADMOT_ROPE_TYPE=mrope
+DECODER_DTYPE=bfloat16
+QWEN_DTYPE=bfloat16
+QWEN_LOAD_STAGGER_S=2.0
+VAL_STEPS=500
+VAL_MAX_SAMPLES=64
+VAL_SAMPLE_SEED=202607
+DECODER_DROPOUT=0.1
+```
+
+只有 LeadMoT decoder 更新参数；Qwen3-VL-Instruct 与 LeadBEVEncoder 都是 frozen eval。
+
+DDP 训练中的 validation 会按 `VAL_MAX_SAMPLES` 截断后在所有 rank 间分片，每张卡各跑自己的 Qwen/BEV/decoder forward，再 all-reduce 聚合 loss，避免 rank0 串行扫 val、其它 rank 空等。
+val 子集不是固定取 jsonl 头部，而是用 `VAL_SAMPLE_SEED` 从 val 全量中确定性抽样，减少场景分布偏置。
+DDP 加载 Qwen 时默认按 `LOCAL_RANK * QWEN_LOAD_STAGGER_S` 错峰，降低多 rank 同时读 4B checkpoint 对共享文件系统的压力。
+
+## 6. Eval
+
+```bash
+cd AutoMoT
+python qwen3vl_local/leadmot/eval_v1.py \
+  --jsonl checkpoints/leadmot_v1_data/val.jsonl \
+  --checkpoint checkpoints/leadmot_v1_decoder/best.pt \
+  --output-dir checkpoints/leadmot_v1_decoder/eval \
+  --max-samples 256
+```
+
+多卡分片：
+
+```bash
+torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval_v1.py \
+  --jsonl checkpoints/leadmot_v1_data/val.jsonl \
+  --checkpoint checkpoints/leadmot_v1_decoder/best.pt \
+  --output-dir checkpoints/leadmot_v1_decoder/eval
+```
+
+输出：
+
+```text
+checkpoints/leadmot_v1_decoder/eval/eval_v1_summary.json
+checkpoints/leadmot_v1_decoder/eval/eval_v1_perline.jsonl
+```
+
+## 7. Probe
+
+```bash
+cd AutoMoT
+python qwen3vl_local/leadmot/probe_v1.py \
+  --jsonl checkpoints/leadmot_v1_data/val.jsonl \
+  --checkpoint checkpoints/leadmot_v1_decoder/best.pt \
+  --output-dir checkpoints/leadmot_v1_decoder/probe \
+  --num-per-scenario 2 \
+  --max-cases 24
+```
+
+每个 case 会写：
+
+```text
+planning_overlay.png
+predictions.json
+metrics.json
+sample.json
+overview.md
+```
+
+## 8. 断点与加载
+
+恢复训练：
+
+```bash
+RESUME=checkpoints/leadmot_v1_decoder/latest.pt \
+bash qwen3vl_local/leadmot/train_v1.sh single
+```
+
+只加载 decoder 权重、重置 optimizer/scheduler：
+
+```bash
+INIT_FROM_CKPT=checkpoints/leadmot_v1_decoder/latest.pt \
+bash qwen3vl_local/leadmot/train_v1.sh single
+```
+
+推理 demo 加载：
+
+```bash
+python leaderboard/team_code/mot_lead_offline_runner.py \
+  --leadmot-ckpt checkpoints/leadmot_v1_decoder/best.pt
+```
+
+如果没有 val 集或还没有 `best.pt`，用 `latest.pt`。

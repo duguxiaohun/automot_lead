@@ -58,7 +58,7 @@ class LeadMoTPlanningDecoder(nn.Module):
         )
 
         # gen 路 12 层 decoder，每层用一段 pooled_kv
-        # 所有 block 共享同一个 rope 配置，运行时根据 cfg.rope_type 在 MRoPE/MHRoPE 间分发
+        # 所有 block 共享同一份 rope 配置，运行时按 cfg.rope_type 分发（mrope/mhrope/none）
         active_section = cfg.active_mrope_section()
         self.blocks = nn.ModuleList(
             [
@@ -68,7 +68,6 @@ class LeadMoTPlanningDecoder(nn.Module):
                     ffn_hidden_size=cfg.ffn_hidden_size,
                     dropout=cfg.dropout,
                     rope_theta=cfg.rope_theta,
-                    use_rope=cfg.use_rope,
                     rope_type=cfg.rope_type,
                     mrope_section=active_section,
                 )

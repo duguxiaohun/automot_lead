@@ -1,10 +1,8 @@
-"""LEAD-MoT 快推理 decoder 子包。
+"""LeadMoT planning decoder package.
 
-慢推理 (Qwen3-VL prefill) 由 `mot_lead_offline_runner.py` 调
-`qwen3vl_local.engine.LocalQwen3VLInstructEngine` 完成，本子包消费 past_key_values。
-训练通路（数据/loss/optimizer）不在本子包。
-
-详见同目录 `ARCHITECTURE.md`。
+Runtime imports expose only decoder modules. Training utilities live in
+separate scripts in this directory and are not imported here, so the offline
+runner keeps a small dependency surface.
 """
 
 from .config import LeadMoTPlanningDecoderConfig
