@@ -7,8 +7,7 @@ cd AutoMoT
 python qwen3vl_local/leadmot/build_dataset_v1.py \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/leadmot_v1_data \
-  --samples-per-scenario 0 \
-  --check-readable
+  --samples-per-scenario 0
 ```
 
 快速抽样调试：
@@ -18,11 +17,12 @@ python qwen3vl_local/leadmot/build_dataset_v1.py \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/leadmot_v1_data_debug \
   --samples-per-scenario 50 \
-  --stride 5 \
-  --check-readable
+  --stride 5
 ```
 
 `--samples-per-scenario 0` 与 GoalGen 一致，表示每个 scenario 保留所有合法 anchor；传正整数时按 route-balanced 方式抽样。构建器输出 `train.jsonl` / `val.jsonl` / `stats.json`，train/val 按 route 切分，避免同一路线相邻 anchor 同时进入训练和验证。
+
+`--check-readable` 是可选项，**默认不开**：开了之后每个 anchor 要做 6 次 lzma + 12 次 file stat，几百 route 的数据集会变成几小时。train_v1 已经有 DDP-safe 占位 loss 兜底坏样本，不需要在构建期预校验。
 
 ## 2. Sanity check
 
