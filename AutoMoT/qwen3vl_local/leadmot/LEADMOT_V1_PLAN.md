@@ -87,7 +87,8 @@ checkpoints/leadmot_v1_decoder/
 - `latest.pt`
 - `best.pt`（有 val 时）
 - `best.json`（best checkpoint 的 val_loss / epoch / step 元信息）
-- `checkpoint-epochXX.pt`
+- `checkpoint-epochXX.pt`（epoch 末池，保留最近 `KEEP_RECENT_CHECKPOINTS` 份）
+- `step-checkpoint-NNNNNN.pt`（每 `STEP_SAVE_EVERY` 步独立池，保留最近 `KEEP_RECENT_STEP_CHECKPOINTS` 份，与 epoch 池互不淘汰）
 - `tb/`（安装 TensorBoard 时）
 - `invocations/`（train/eval/probe argv + env + git_commit）
 

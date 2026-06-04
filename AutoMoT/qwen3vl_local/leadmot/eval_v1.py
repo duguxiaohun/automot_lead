@@ -107,7 +107,12 @@ def _resolve_checkpoint(checkpoint: str, save_root: str) -> Path:
         return best
     if latest.exists():
         return latest
-    raise FileNotFoundError(f"no default LeadMoT checkpoint found: tried {best} and {latest}")
+    # 训练中途可能还没 best/latest，再回退到最新 step / epoch 快照。
+    for glob_pat in ("step-checkpoint-*.pt", "checkpoint-epoch*.pt"):
+        pool = sorted(root.glob(glob_pat))
+        if pool:
+            return pool[-1]
+    raise FileNotFoundError(f"no default LeadMoT checkpoint found under {root}")
 
 
 def _resolve_output_dir(args: argparse.Namespace) -> Path:
@@ -133,7 +138,7 @@ def _compute_metrics(outputs: dict[str, torch.Tensor], gt_route: torch.Tensor, g
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jsonl", default="checkpoints/leadmot_v1_data/val.jsonl")
-    parser.add_argument("--checkpoint", default="", help="Default: <save-root>/best.pt, falling back to latest.pt.")
+    parser.add_argument("--checkpoint", default="", help="Default: <save-root>/best.pt -> latest.pt -> newest step/epoch checkpoint.")
     parser.add_argument("--save-root", default="", help="GoalGen-style root; eval artifacts go to <save-root>/eval when --output-dir is omitted.")
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--model-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
