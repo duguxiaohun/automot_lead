@@ -1,228 +1,110 @@
 # LeadMoTPlanningDecoder 架构说明
 
-> 这是 LEAD-MoT 快推理 decoder 的设计文档。代码在同目录其它 `.py` 文件里。
-> 本文档只讲架构（数据流、张量形状、模块边界），不讲训练（数据集、loss、optimizer）。
-
----
-
-## 0. 如何阅读本文档与代码
-
-按"概念→实现→集成"三层来读：
-
-| 你想了解的 | 看哪里 |
-|---|---|
-| 整体设计取舍 / 为什么这么做 | 本文档 §1-§7 |
-| 与 AutoMoT 严格 MoT 的 attention 数学差异 | 本文档 §2 |
-| 张量形状 / packed gen 序列布局 | 本文档 §4, §5 |
-| 每个 `nn.Module` 的输入输出契约 | 各 `.py` 文件顶部 docstring |
-| 每行代码具体在做什么、为什么 | 各 `.py` 文件内行级中文注释 |
-| 训练/推理 cache 同源等运行时约定 | 本文档 §6 + `PROJECT_CONTEXT.md` §11.6 |
-| runner 怎么接通慢路 → 池化 → 本子包 | `mot_lead_offline_runner.py` 中 leadmot 段落的中文注释 + `PROJECT_CONTEXT.md` §11.6.1 |
-
-**所有源文件均带详细中文注释**：函数 docstring 说"做什么、参数、返回"，
-行级注释说"为什么这么写、什么时候会出问题"。新会话审计代码可以直接看注释。
-
-子包文件清单（按依赖顺序）：
-
-```
-config.py        - LeadMoTPlanningDecoderConfig：所有维度/层数/校验
-projectors.py    - LeadBEVProjector / WaypointInputAdaptor / StatusTokenEncoder
-query_bank.py    - RouteQueryBank (10) / WaypointQueryBank (8)
-heads.py         - RouteHead / WaypointHead = Linear + cumsum
-mot_block.py     - RMSNorm / SwiGLU / PrefixKVAttention / MoTDecoderBlock
-decoder.py       - LeadMoTPlanningDecoder（顶层组装）
-__init__.py      - 子包入口 + 一句话说明
-```
-
----
+LEAD-MoT 快推理 decoder 设计文档。代码在同目录 `.py` 文件。
 
 ## 1. 设计目标
 
-- **输出契约严格按 LEAD `PlanningDecoder`**：
-  - `pred_route`            : `(B, 10, 2)` ego-local 米，对齐 `data["route"]`
-  - `pred_future_waypoints` : `(B,  8, 2)` ego-local 米，对齐 `data["future_waypoints"]`，4Hz x 2s
-- **语言 memory 严格走 frozen Qwen prefix K/V**：
-  - `pooled_kv[i] = (K, V)`
-  - 每个张量形状为 `(B 或 1, 8, S, 128)`
-  - K/V 直接进入 attention，不经过任何线性投影
-- **gen 路 hidden=1024**：`8 heads * 128 head_dim`，和 Qwen K/V 子空间完全一致。
-- **status encoder 严格复刻 AutoMoT 快路**：
-  - speed: `Linear(1,256)->ReLU->Linear(256,512)->ReLU->Linear(512,1024)`
-  - target points: 共享 `WaypointInputAdaptor`，输入 `(B,2,2)`，输出 `(B,2,1024)`
-
----
+- **输出严格按 LEAD `PlanningDecoder`**：
+  - `pred_route (B, 10, 2)` 对齐 `data["route"]`
+  - `pred_future_waypoints (B, 8, 2)` 对齐 `data["future_waypoints"]`，4Hz × 2s
+- **frozen Qwen prefix K/V，不过 Linear**：`pooled_kv[i] = (K, V)`，每个 `(B or 1, 8, S, 128)`
+- **gen 路 hidden=1024 = 8 × 128**，与 Qwen num_kv_heads × head_dim 子空间一致
+- **status encoder 严格复刻 AutoMoT 快路**：velocity MLP + 共享 WaypointInputAdaptor
 
 ## 2. 与 AutoMoT 严格 MoT 的关系
 
-AutoMoT 原生 MoT 在 Qwen LM **每一层** transformer 内做双路 Q/K/V 投影分流：
-gen token 真正混在 frozen Qwen 的 packed sequence 中，每层 attention 同时
-看 frozen cache 的 K/V 和当前层新算出的 gen K/V
-（[qwen3vl_navit.py:678-770](../../Automot/mot/modeling/automot/qwen3vl_navit.py#L678)）。
+AutoMoT 严格 MoT 在 Qwen LM 每一层内做 q/k/v_proj_mot_gen 分流（[qwen3vl_navit.py:678-770](../../Automot/mot/modeling/automot/qwen3vl_navit.py#L678)）。本子包把 gen 路放外部独立 12 层 transformer，每层读一段 select_last 池化的 K/V。**attention 数学结构等价**，差别在工程封装。
 
-本子包不 patch Qwen 源码，而是把 gen 路放到外部的独立 12 层 transformer，每层
-读 frozen Qwen 一段池化后的 K/V。**attention 数学结构与严格 MoT 一致**，差别
-集中在工程封装。
-
-### 2.1 attention 计算对照
+attention 对照：
 
 ```
-AutoMoT 严格 MoT，对第 layer_idx 层（共 36 层）：
-  Q_gen = q_proj_mot_gen(new_gen);  K_gen = k_proj_mot_gen(new_gen);  V_gen = v_proj_mot_gen(new_gen)
-  Q_gen, K_gen = apply_rotary_pos_emb(Q_gen, K_gen, pos)
-  K_cache, V_cache = past_key_values[layer_idx]    # 已带 prefill 时 RoPE，不再投影
+AutoMoT 严格 MoT (Qwen LM 第 layer_idx 层, 共 36 层):
+  Q_gen = q_proj_mot_gen(new_gen);  K/V 同理（+ apply_rotary_pos_emb 给新 K）
+  K_cache, V_cache = past_key_values[layer_idx]   # 已带 RoPE，不投影
   attn(Q_gen, merge(K_cache, K_gen), merge(V_cache, V_gen))
-  → o_proj_mot_gen → 进入下一层
 
-本子包 leadmot，对第 i 层（共 12 层）：
-  Q_gen = q_proj(gen);    K_gen = k_proj(gen);    V_gen = v_proj(gen)
-  Q_gen = q_norm(Q_gen);  K_gen = k_norm(K_gen)   # head_dim 上 RMSNorm
-  K_pooled, V_pooled = pooled_kv[i]                # = Qwen 第 (3i+2) 层 K/V, select_last，不投影
+leadmot (独立第 i 层, 共 12 层):
+  Q_gen = q_proj(gen); K/V 同理; 各自 q_norm/k_norm (head_dim 上 RMSNorm)
+  K_pooled, V_pooled = pooled_kv[i]                # Qwen 第 (3i+2) 层 K/V
   attn(Q_gen, concat(K_gen, K_pooled), concat(V_gen, V_pooled))
-  → o_proj → 进入下一层
 ```
 
-### 2.2 对照表
+关键差异（其余项一致）：
 
-| 维度 | AutoMoT 严格 MoT | 本子包 leadmot | 实质差异 |
+| 维度 | AutoMoT | leadmot | 影响 |
 |---|---|---|---|
-| gen Q/K/V 独立投影 | ✅ `_mot_gen` 后缀 | ✅ 自己的 `q/k/v_proj` | 🟢 一致 |
-| frozen K/V 不过 Linear | ✅ | ✅ | 🟢 一致 |
-| q_norm / k_norm | ✅ Qwen3 风格 | ✅ Qwen3 风格 | 🟢 一致 |
-| SwiGLU FFN | ✅ `mlp_mot_gen` | ✅ SwiGLU | 🟢 一致 |
-| transformer 层数 | 36（Qwen LM 全部） | 12（独立） | 🟡 层数 1/3 |
-| 每层 K/V 来源 | 第 N 层 cache | Qwen 第 (3i+2) 层（select_last） | 🟡 浅层信息丢失 |
-| gen hidden | 2560（Qwen 主干） | 1024（= 8×128） | 🟡 FFN 内部表达更窄 |
-| 是否 GQA | ✅ Qwen GQA | ❌ MHA, num_heads=num_kv_heads=8 | 🟡 Q 表达略少，但 K/V 对齐零成本 |
-| gen token 新 K 是否加 RoPE | ✅ apply_rotary_pos_emb | ❌ 不加 | 🔴 相对位置编码不连贯，详见 §2.3 |
-| 与 text token 同层分流 | ✅ | — 我们不输出 text | ⚪ 分流概念退化 |
-| 参数初始化 | 从 Qwen 复制 + 微调（[qwen3vl_navit.py:1411-1417](../../Automot/mot/modeling/automot/qwen3vl_navit.py#L1411)） | 从头随机 | 🔴 训练成本更高 |
-| 输出头 | reasoning + route(20) + waypoint(6) | route(10) + waypoint(8) | ⚪ 明确接受 |
+| transformer 层数 | 36 | 12 | 浅层信息丢失 |
+| gen hidden | 2560 | 1024 (=8×128) | FFN 内部更窄 |
+| GQA | ✅ | ❌ MHA num_heads=num_kv_heads=8 | Q 表达略少 |
+| gen 新 K 加 RoPE | ✅ | ❌ | cache 相对位置感被抹平 |
+| 参数初始化 | 从 Qwen 复制 | 从头随机 | 训练成本更高 |
+| 输出头 | reasoning + route(20) + waypoint(6) | route(10) + waypoint(8) | 明确接受 |
 
-### 2.3 RoPE 缺失的影响
+### 2.1 已知风险点
 
-cache K 在 prefill 阶段已加 RoPE（按绝对位置）。如果 gen Q 不加 RoPE，
-attention 时 cache 内部 token 的相对位置感会被抹平。**这是与严格 MoT 真正
-的功能性差异**，但：
+**RoPE 缺失**：gen Q 不加 RoPE，对 cache 的 attention 会丢相对位置感。gen 段自身位置固定无影响；如训练时发现 gen 区分不出 cache 中不同位置 token，下一步可补 RoPE。
 
-- gen 段自身（BEV / status / query）位置固定且数量少，BEV 已有 2D pos embed，
-  不依赖 RoPE
-- gen 对 cache 的 attention 只用来读"语义内容"，不依赖严格相对位置
-- goalgen v2 的 DiT 也是这么做的（[dit.py JointAttention](../goalgen/dit.py)），跑得起来
-
-如果训练时发现 gen 区分不出 cache 中不同位置 token，下一步可补 RoPE。
-
-### 2.4 参数初始化的潜在补救
-
-AutoMoT 通过 `init_mot()` 把 `_mot_gen` 参数从同名原 Qwen 参数复制起步，相当
-于"从训好的 transformer 起步再微调"。本子包当前从头随机初始化，可能需要更多
-数据 / 更慢收敛。
-
-如果训不动，可考虑用 Qwen 第 (3i+2) 层的 `q/k/v/o_proj`、`q_norm/k_norm`、
-`mlp` 权重初始化 leadmot 第 i 层对应模块（维度对齐的部分，hidden 不同维度的
-权重需要降维投影或新初始化）。属于后续优化项。
-
-### 2.5 结论
-
-leadmot **就是 MoT 风格的 KV cache 动作生成**——attention 数学和严格 MoT 同
-构。剩下的差异（层数、池化、RoPE、初始化）是工程取舍，与 goalgen v2 一致，
-已被那条线证明可行。
-
----
+**参数从随机起步**：如训不动，可考虑从 Qwen 第 (3i+2) 层的 q/k/v/o_proj、norm、mlp 权重初始化 leadmot 第 i 层（仅维度对齐部分）。
 
 ## 3. 模块拓扑
 
 ```
 LeadMoTPlanningDecoder
-├── LeadBEVProjector            BEV (B,512,10,12) -> (B,120,1024)
-├── StatusTokenEncoder
-│   ├── encode_speed             (B,) + AutoMoT velocity MLP -> (B,1,1024)
-│   └── encode_target_points      tp/ntp (B,2,2) shared adaptor -> (B,2,1024)
-├── RouteQueryBank               (B,) -> (B,10,1024)
-├── WaypointQueryBank            (B,) -> (B, 8,1024)
-├── blocks: ModuleList[MoTDecoderBlock x 12]
-│   每层: RMSNorm -> PrefixKVAttention(gen K/V + Qwen K/V) -> residual
-│         RMSNorm -> SwiGLU FFN -> residual
-├── gen_final_norm               RMSNorm
-├── RouteHead                    Linear(1024->2) + cumsum -> (B,10,2)
-└── WaypointHead                 Linear(1024->2) + cumsum -> (B, 8,2)
+├── LeadBEVProjector        BEV (B,512,10,12) -> (B,120,1024)
+├── StatusTokenEncoder      speed/tp/ntp -> 3 × (B,1,1024)
+├── RouteQueryBank          -> (B,10,1024)
+├── WaypointQueryBank       -> (B,8,1024)
+├── blocks × 12             RMSNorm -> PrefixKVAttention -> +res -> RMSNorm -> SwiGLU -> +res
+├── gen_final_norm
+├── RouteHead               Linear(1024->2) + cumsum -> (B,10,2)
+└── WaypointHead            Linear(1024->2) + cumsum -> (B,8,2)
 ```
-
----
 
 ## 4. packed gen 序列 layout
 
-总长 `L_gen = 141`，固定，没有 padding。
-
 ```
-索引  [   0 .. 120) | [120] | [121] | [122] | [123 .. 133) | [133 .. 141)
-内容    BEV 120       speed   tp      ntp     route_q 10     waypoint_q 8
+索引   [0..120)  [120]  [121]  [122]  [123..133)  [133..141)
+内容    BEV 120  speed  tp     ntp    route_q 10  waypoint_q 8
 ```
 
-`LeadMoTPlanningDecoderConfig.slice_layout()` 返回这张索引表，`decoder.forward()`
-末尾按它切出 `route_hidden` 和 `wp_hidden`。
-
----
+`config.slice_layout()` 是这张表的真值，`_build_gen_sequence` 的 cat 顺序必须匹配。
 
 ## 5. 前向张量流
 
 ```
-[调用方完成的慢推理]
-RGB 4f + prompt
-  -> frozen Qwen prefill
-  -> past_key_values
-  -> segment_kv_for_dit(..., num_segments=12, mode="select_last")
-  -> pooled_kv: list[(K,V)] * 12, each K/V (B or 1, 8, S, 128)
+[调用方完成]
+  Qwen3-VL-Instruct prefill -> past_key_values (36 层)
+  -> segment_kv_for_dit(num_segments=12, mode='select_last')
+  -> pooled_kv: list[(K,V)] × 12, each (B or 1, 8, S, 128)
 
-[本子包快推理]
-bev (B,512,10,12) ---+
-speed (B,) ----------+
-tp (B,2) ------------+--> _build_gen_sequence -> gen_seq (B,141,1024)
-ntp (B,2) -----------+
-
-for i in 0..11:
-  gen_seq = MoTDecoderBlock_i(gen_seq, pooled_kv[i])
-
-slice:
-  route_hidden = gen_seq[:, 123:133, :]   (B,10,1024)
-  wp_hidden    = gen_seq[:, 133:141, :]   (B, 8,1024)
-
-heads:
-  delta_route -> cumsum -> pred_route            (B,10,2)
-  delta_wp    -> cumsum -> pred_future_waypoints (B, 8,2)
+[本子包]
+  bev/speed/tp/ntp -> _build_gen_sequence -> gen_seq (B,141,1024)
+  for i in 0..11:
+    gen_seq = MoTDecoderBlock_i(gen_seq, pooled_kv[i])
+  切片 + heads(Linear+cumsum) -> pred_route (B,10,2), pred_future_waypoints (B,8,2)
 ```
-
----
 
 ## 6. 不在本子包做的事
 
-- **Qwen prefill / KV 分段**：复用 `goalgen/qwen_kv.py` 的 `_to_layer_list`
-  / `segment_kv_for_dit` 思路，或由调用方生成等价 `pooled_kv`。
-- **真值轨迹提取**：从 LEAD pkl 取 `future_waypoints` / `route`。
-- **损失函数**：L1 / Huber / 时间权重。
-- **优化器 / 数据加载 / 训练循环 / eval 脚本**。
+- Qwen prefill / KV 分段：调用方做，可参考 `goalgen/qwen_kv.py:segment_kv_for_dit`
+- 真值轨迹提取（LEAD `future_waypoints` / `route`）
+- 损失函数 / 优化器 / 数据加载 / 训练循环 / eval 脚本
 
-> ⚠️ **prefix padding mask 未支持**：`PrefixKVAttention` 当前不接受任何
-> attention mask。单样本推理 / 每卡 B=1 训练**无影响**（没有 padding）。
-> 但**多样本同 batch 训练**时，如果不同样本的 Qwen prompt 长度不同，
-> Qwen prefill 会左 padding，K/V 里 padding 位置不会被屏蔽，attention
-> 会给它们少量概率质量造成数值偏差。届时需为 `PrefixKVAttention.forward`
-> 加一个 `lang_key_padding_mask: (B, S)` 参数，并在 `MoTDecoderBlock` /
-> `LeadMoTPlanningDecoder.forward` 透传下去。
+### 已知待解决问题
 
-> ⚠️ **训练 / 推理 cache 必须同源**：本 decoder 的 prefix K/V 必须来自
-> **同一个** frozen Qwen 实例。如果训练时用 standalone `Qwen3-VL-4B-Instruct`
-> （`qwen3vl_local/engine.py` 加载）生成 cache，推理时却换成 AutoMoT
-> checkpoint 的 Qwen/MoT 路径（`InterleaveInferencer.kv_cache_fixed_inference`）
-> 生成 cache，**即使 36 层数和 (8, S, 128) 形状完全一致**，两个模型里 K/V
-> 的语义分布也不同——decoder 看到的"语言上下文"和训练时不一致，会显著掉点。
-> 本子包不强制校验这条约束，调用方必须保证 cache 来源一致。
+> ⚠️ **prefix padding mask 未支持**：`PrefixKVAttention` 不接 attention mask。
+> 单样本推理 / 每卡 B=1 训练无影响。多样本同 batch 训练时不同样本 prompt 长度
+> 不同会触发 Qwen 左 padding，需为 `PrefixKVAttention.forward` 加
+> `lang_key_padding_mask: (B, S)` 参数并透传。
 
----
+> ⚠️ **训练 / 推理 cache 必须同源**：prefix K/V 必须来自同一个 frozen Qwen 实例。
+> 用 standalone `Qwen3-VL-4B-Instruct` 训练就必须用同一份推理。runner 已修复
+> 这条：`mot_lead_offline_runner.py` 在 `enable_leadmot_planning` 分支用
+> `LocalQwen3VLInstructEngine` 单独跑 prefill，不再复用
+> `gen_context["past_key_values"]`（那是 AutoMoT MoT 的产物）。训练侧也必须
+> 用同一 engine + 同一对 (system, user) prompt。
 
 ## 7. 调用模板
-
-完整调用必须包含 **三个阶段**：(1) frozen Qwen prefill；(2) KV 分段池化；
-(3) leadmot decoder 前向。
 
 ```python
 import torch
@@ -231,57 +113,26 @@ from AutoMoT.qwen3vl_local.goalgen.qwen_kv import segment_kv_for_dit
 
 decoder = LeadMoTPlanningDecoder().cuda()
 
-# --- 1) frozen Qwen prefill：调用 engine 拿 past_key_values ---
-# engine.prefill 内部已 use_cache=True，无需改 engine.py
+# 1) frozen Qwen prefill (engine.prefill 已 use_cache=True)
 with torch.no_grad():
     qwen_outputs = engine.prefill(qwen_inputs)
-past_key_values = qwen_outputs.past_key_values    # 36 层 (k, v)
+past_key_values = qwen_outputs.past_key_values
 
-# --- 2) 把 36 层 KV 池化成 decoder.config.num_layers (=12) 段 ---
-# num_segments / mode 必须与 decoder 配置一致，否则 _check_pooled_kv 会报错
+# 2) 池化 num_segments 必须 = decoder.config.num_layers
 pooled_kv = segment_kv_for_dit(
     past_key_values,
     num_segments=decoder.config.num_layers,
-    mode=decoder.config.kv_segment_mode,         # 默认 'select_last'
+    mode=decoder.config.kv_segment_mode,
 )
-# pooled_kv: list[(K, V)] * 12, each K/V shape (B or 1, 8, S, 128)
 
-# --- 3) 快路前向 ---
+# 3) decoder forward
 out = decoder(
     pooled_kv=pooled_kv,
-    bev=bev,                       # (B, 512, 10, 12)
-    speed=speed,                   # (B,) 或 (B, 1)
-    target_point=tp,               # (B, 2)
-    target_point_next=ntp,         # (B, 2)
+    bev=bev,                   # (B, 512, 10, 12)
+    speed=speed,               # (B,) 或 (B, 1)
+    target_point=tp,           # (B, 2)
+    target_point_next=ntp,     # (B, 2)
 )
 # out["pred_route"]            : (B, 10, 2)
 # out["pred_future_waypoints"] : (B,  8, 2)
 ```
-
-> 重要：`segment_kv_for_dit` 的 `num_segments` **必须** 等于
-> `decoder.config.num_layers`。如果改 decoder 层数，这里也要一起改，
-> 否则 `_check_pooled_kv` 会在 forward 入口直接抛错。
-
-### 7.1 当前 runner 的真实接入方式
-
-`mot_lead_offline_runner.py` 已经把上面的三段式接进 `run_step`，但默认仍关闭：
-
-- `--enable-leadmot-planning` 才会进入 LeadMoT 分支；
-- decoder 用 `_ensure_leadmot_decoder()` lazy build，默认 `torch.bfloat16`，避免只跑慢推理时多占显存；
-- Qwen cache 通过 runner 内部 `_qwen_cache_to_layer_list()` 兼容 HF legacy cache / HF `DynamicCache` / AutoMoT `NaiveCache`；
-- `_cache_tensor_to_bhsd()` 把单层 K/V 统一成 `(B, 8, S, 128)`，其中 AutoMoT 3D cache `(S,8,128)` 会被转成 `(1,8,S,128)`；
-- `_segment_qwen_cache_for_leadmot()` 按 `select_last` 从 36 层 Qwen cache 选 12 段，默认选层为 `2,5,8,...,35`；
-- `target_point_speed` 在 runner 里被拆成 `speed`、`target_point`、`target_point_next`，不做归一化，保持 AutoMoT status token 做法；
-- 返回 dict 前，小轨迹张量 `leadmot_route` / `leadmot_future_waypoints` 会转成 **fp32 CPU**，`leadmot_gen_hidden` 保留原 dtype detach 到 CPU，`gen_context` 保留 GPU cache 引用。
-
-因此，当前链路可以验证：
-
-```
-LEAD RGB + prompt
-  -> AutoMoT frozen/Qwen slow prefill
-  -> past_key_values
-  -> LeadMoT prefix-KV decoder
-  -> leadmot_route / leadmot_future_waypoints
-```
-
-但它还不能代表可用驾驶质量：decoder 没有加载训练好的 `leadmot` checkpoint，输出仍是随机初始化 head 的 shape smoke。

@@ -685,7 +685,11 @@ class ParadigmARunner:
 
         self.automot = load_model_mot(self.device)
 
-        tokenizer = AutoTokenizer.from_pretrained(model_args.qwen3vl_path)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.qwen3vl_path,
+            local_files_only=True,
+            trust_remote_code=True,
+        )
         tokenizer, new_token_ids, _ = add_special_tokens(tokenizer)
         self.automot.language_model.tokenizer = tokenizer
 

@@ -77,7 +77,7 @@
 - `AutoMoT/qwen3vl_local/leadmot/heads.py`
 - `AutoMoT/qwen3vl_local/leadmot/mot_block.py`
 - `AutoMoT/qwen3vl_local/leadmot/decoder.py`
-  （以上 8 个是 LEAD-MoT 快推理 decoder 子包：架构对齐 LEAD `PlanningDecoder` 输出契约——`pred_route (B,10,2)` + `pred_future_waypoints (B,8,2)`，cumsum + Linear head；骨架借 AutoMoT MoT 精神——gen 路独立 12 层 decoder + frozen Qwen prefix K/V attention，语言 K/V 不再过额外线性投影；gen hidden=1024=8×128 直接对齐 Qwen num_kv_heads×head_dim；status 严格按 AutoMoT velocity MLP + 共享 WaypointInputAdaptor；block 用 Qwen3 风格 RMSNorm + q/k_norm + SwiGLU。纯 `nn.Module` 架构，不含训练 / 数据 / loss；所有 `.py` 文件含代码级详细中文注释。frozen Qwen3-VL 慢推理由子包外完成，runner 接入用 lazy bf16 init + 返回 fp32 轨迹 detach.cpu；runner 内 `_cache_tensor_to_bhsd` / `_qwen_cache_to_layer_list` / `_segment_qwen_cache_for_leadmot` / `_ensure_leadmot_decoder` / leadmot 调用块也要保持中文代码级注释。详见 `leadmot/ARCHITECTURE.md` 与 `PROJECT_CONTEXT.md §11.6`）
+  （LEAD-MoT 快推理 decoder 子包：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8x128 对齐 Qwen K/V 子空间。runner 用 `LocalQwen3VLInstructEngine` 跑慢推理（不能用 AutoMoT InterleaveInferencer，权重不同源），lazy bf16。详见 `leadmot/ARCHITECTURE.md` 与 `PROJECT_CONTEXT.md §11.6`）
 - `AutoMoT/tools/SFT_V1_PLAN.md`
 - `AutoMoT/tools/build_sft_dataset_v1.py`
 - `AutoMoT/tools/sft_v1_train.sh`

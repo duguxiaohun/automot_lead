@@ -648,61 +648,28 @@ AutoMoT 在线: 20Hz, 每tick决策 (本仓库 runner 不复用其 BEV encoder/�
 
 ## 11.6 LeadMoT prefix-KV planning path（已接入，默认关闭）
 
-当前 runner 新增了一条**实验性的 LEAD-MoT planning path**，和 AutoMoT 原生
-`enable_fast_inference` 不是同一条路：
+实验性 LEAD-MoT planning path，与 AutoMoT 原生 `enable_fast_inference` 解耦：
 
-- 入口：`mot_lead_offline_runner.py` 的 `run_step(..., enable_leadmot_planning=True)`，
-  CLI 为 `--enable-leadmot-planning`。
-- 慢路径仍先跑 `kv_cache_fixed_inference(rgb_pil_list + [prompt])`，得到 frozen Qwen 的
-  `gen_context["past_key_values"]`。
-- runner 内部把 AutoMoT `NaiveCache` / HF legacy cache 统一整理为
-  `(B, num_kv_heads=8, seq_len, head_dim=128)`，再按 `select_last` 把 36 层 Qwen cache
-  分段成 12 个 LeadMoT block 使用的 prefix K/V。AutoMoT 3D cache `(S,8,128)`
-  会显式转成 `(1,8,S,128)`；HF 4D cache 保持 `(B,8,S,128)`，只 detach 不投影。
-- `AutoMoT/qwen3vl_local/leadmot/` 中的 attention 直接 concat frozen Qwen K/V，
-  不对语言 K/V 再做线性投影；gen 路 hidden=1024，即 `8 * 128`。
-- BEV 输入来自 LEAD `LeadBEVEncoder`：`bev_feature (B,512,10,12)`，先投影成
-  120 个 gen token；status token 严格按 AutoMoT 的 speed MLP + 共享
-  `WaypointInputAdaptor` 编码。
-- 输出头天然对齐 LEAD 轨迹契约：`leadmot_route (B,10,2)` 和
-  `leadmot_future_waypoints (B,8,2)`，均为 delta head + `cumsum`。
+- **入口**：`run_step(..., enable_leadmot_planning=True)` / CLI `--enable-leadmot-planning`
+- **cache 来源**：standalone `Qwen3-VL-4B-Instruct`（`LocalQwen3VLInstructEngine`），
+  **不复用** AutoMoT `InterleaveInferencer` cache（权重不同源）。runner lazy 加载
+  engine，每次跑独立 prefill，prompt = `_LEADMOT_QWEN_SYSTEM_PROMPT` + `prompt_cleaned`。
+  训练侧必须用同一 engine + 同一对 prompt 才能 cache 同源。
+- **KV 池化**：HF DynamicCache / AutoMoT NaiveCache / legacy tuple 统一成
+  `(B,8,S,128)`，AutoMoT 3D 显式补到 4D；按 `select_last` 36 层 -> 12 段 prefix K/V。
+- **输入**：BEV (1,512,10,12) from LEAD `LeadBEVEncoder`；status: speed + tp + ntp
+  按 AutoMoT velocity MLP + 共享 WaypointInputAdaptor 编码。
+- **输出**：`leadmot_route (B,10,2)` + `leadmot_future_waypoints (B,8,2)`，delta + cumsum。
+- **运行时**：decoder lazy bf16（默认 0 显存；启用后 ~292MB）。run_step 返回前轨迹
+  fp32 detach.cpu，大张量（gen_hidden / trans_feat）bf16 detach.cpu，gen_context 保留 GPU。
+- **状态**：decoder 未加载训练权重，输出数值不能当驾驶结果，仅供架构 / shape 调试。
 
-重要边界：
+### 待办
 
-- 这条 path 目前只是**架构接入 / shape debug / 训练入口前置**，decoder 没有加载训练权重，
-  输出数值不能当可用驾驶结果。
-- AutoMoT 原生 `enable_fast_inference=True` 仍保持默认关闭，因为它的
-  `bev_encoder_proj` / DP heads 期望 `(B,1512,8,8)`，不能直接吃 LEAD BEV
-  `(B,512,10,12)`。
-- 本路线故意不复刻 AutoMoT 的高级决策 / reasoning head / text head；只保留
-  frozen Qwen cache + BEV + status -> LEAD route/waypoint 的动作生成骨架。
-
-### 11.6.1 运行时约定（runner 层接入细节）
-
-- **lazy bf16 实例化**：`__init__` 阶段不创建 decoder，只设占位
-  `self.leadmot_decoder = None` + `self.leadmot_dtype = torch.bfloat16`；
-  首次进入 `enable_leadmot_planning=True` 分支才走 `_ensure_leadmot_decoder()`
-  构建 + 搬 device + 转 bf16 + `.eval()`。
-  - fp32 ≈ 584 MB，bf16 ≈ 292 MB；默认关闭时显存开销 0。
-- **返回 dict 字段 dtype 约定**：`run_step` 返回前统一 `.detach()` 到 CPU
-  - 轨迹/路径类（小张量）：`traj` / `route` / `leadmot_route` / `leadmot_future_waypoints`
-    走 `_detach_cpu_float`，统一 **fp32 CPU**，下游算 L1/ADE/numpy 可视化不必再
-    手动 `.float()`。
-  - 大张量：`leadmot_gen_hidden (B,141,1024)` / `trans_feat (B,512,10,12)` 保留
-    原 dtype（通常 bf16）到 CPU，下游需要 fp32 自行转。
-  - `gen_context` 例外：保留 GPU 引用，因为下一帧慢推理 cache 复用仍需要同 device。
-- **代码级中文注释已齐**：leadmot 子包 7 个 `.py` 文件（`__init__` / `config` /
-  `projectors` / `query_bank` / `heads` / `mot_block` / `decoder`）和 runner 中
-  `_cache_tensor_to_bhsd` / `_qwen_cache_to_layer_list` /
-  `_segment_qwen_cache_for_leadmot` / `_ensure_leadmot_decoder` / leadmot 调用块均带详细中文注释，新会话/审计读源码可
-  直接看注释理解 attention 数学和 MoT 设计取舍，不需要从头回看 ARCHITECTURE.md。
-
-### 11.6.2 下一步约定
-
-- **训练/推理 Qwen cache 同源**：训练侧用哪份 frozen Qwen 拿 cache，推理时必须
-  用同一份。详见 `AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md` §6 警告。
-- **checkpoint 加载**：runner 暂未实现 `--leadmot-ckpt` flag；训完权重后再补
-  `decoder.load_state_dict(torch.load(path), strict=False)` 通路。
+- **训练侧 cache 同源**：训练必须用同一个 `LocalQwen3VLInstructEngine` + 同一对
+  prompt（详见 `leadmot/ARCHITECTURE.md` §6 警告）。
+- **checkpoint 加载**：runner 未实现 `--leadmot-ckpt`；训完后补
+  `decoder.load_state_dict(..., strict=False)`。
 
 ---
 
