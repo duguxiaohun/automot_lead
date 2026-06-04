@@ -621,11 +621,12 @@ AutoMoT 在线: 20Hz, 每tick决策 (本仓库 runner 不复用其 BEV encoder/�
        RGB 历史 deque(maxlen=40 tick=2s), 采样[-1,-6,-11,-16] 跨度15tick=0.75s
        LiDAR(主可视PIL): ~6.96px/m, [-32,32]², 448×448×3 uint8 (仅日志)
        inferencer: 4 PIL RGB(慢) + trans_feat(快) → traj/route/text
-       慢: kv_cache_fixed_inference (Qwen3-VL frozen, 通用 backbone, runner 在用)
+       慢: kv_cache_fixed_inference (Qwen3-VL frozen, 通用 backbone, runner 仅在 --enable-automot-slow 时用)
        快: based_kv_cache_context_fast_qwen3vl_dp (AutoMoT-trained head, runner 默认禁用)
        (历史 AutoMoT BEV encoder 细节见 §6, runner 已不再使用)
 
 离线 runner: 当前状态
+   ✅ 默认不加载 AutoMoT 主模型 / InterleaveInferencer；LeadMoT 分支用本地 qwen3vl_local prefill
    ✅ BEV encoder 已切换为 LEAD TransfuserBackbone (tfv6, 抄进 runner)
    ✅ LiDAR 栅格回到 LEAD 风格 (320, 384), z [-4,10] 含地面
    ✅ RGB 三视角拼接 (1, 3, 384, 1152), 不再 crop_array
@@ -655,21 +656,24 @@ AutoMoT 在线: 20Hz, 每tick决策 (本仓库 runner 不复用其 BEV encoder/�
   **不复用** AutoMoT `InterleaveInferencer` cache（权重不同源）。runner lazy 加载
   engine，每次跑独立 prefill，prompt = `_LEADMOT_QWEN_SYSTEM_PROMPT` + `prompt_cleaned`。
   训练侧必须用同一 engine + 同一对 prompt 才能 cache 同源。
+- **AutoMoT legacy 路径**：runner 默认 **不加载** AutoMoT 主模型 / `InterleaveInferencer`，
+  也不跑 `kv_cache_fixed_inference`；只有显式 `--enable-automot-slow` 才加载旧慢路径。
 - **KV 池化**：HF DynamicCache / AutoMoT NaiveCache / legacy tuple 统一成
   `(B,8,S,128)`，AutoMoT 3D 显式补到 4D；按 `select_last` 36 层 -> 12 段 prefix K/V。
 - **输入**：BEV (1,512,10,12) from LEAD `LeadBEVEncoder`；status: speed + tp + ntp
   按 AutoMoT velocity MLP + 共享 WaypointInputAdaptor 编码。
 - **输出**：`leadmot_route (B,10,2)` + `leadmot_future_waypoints (B,8,2)`，delta + cumsum。
-- **运行时**：decoder lazy bf16（默认 0 显存；启用后 ~292MB）。run_step 返回前轨迹
-  fp32 detach.cpu，大张量（gen_hidden / trans_feat）bf16 detach.cpu，gen_context 保留 GPU。
-- **状态**：decoder 未加载训练权重，输出数值不能当驾驶结果，仅供架构 / shape 调试。
+- **运行时**：decoder lazy bf16（默认 0 显存；启用后 ~292MB）。`--leadmot-ckpt`
+  显式加载 `.pt/.pth/.safetensors` 权重；不传则保持随机初始化并打印提示。run_step
+  返回前轨迹 fp32 detach.cpu，大张量（gen_hidden / trans_feat）bf16 detach.cpu。
+- **状态**：未传 `--leadmot-ckpt` 时输出数值不能当驾驶结果，仅供架构 / shape 调试。
 
 ### 待办
 
 - **训练侧 cache 同源**：训练必须用同一个 `LocalQwen3VLInstructEngine` + 同一对
   prompt（详见 `leadmot/ARCHITECTURE.md` §6 警告）。
-- **checkpoint 加载**：runner 未实现 `--leadmot-ckpt`；训完后补
-  `decoder.load_state_dict(..., strict=False)`。
+- **训练权重**：训完后通过 `--leadmot-ckpt <path>` 导入；runner 会 `strict=False`
+  加载并打印 missing / unexpected key。
 
 ---
 
@@ -704,8 +708,11 @@ AutoMoT 在线: 20Hz, 每tick决策 (本仓库 runner 不复用其 BEV encoder/�
 4. **LEAD-MoT prefix-KV decoder 架构接入**（**已做，未训练**）
    - 范围：LEAD trans_feat `(1, 512, 10, 12)` → `LeadBEVProjector`（512→1024，120 token）
      + status tokens + route/waypoint queries + prefix-KV decoder blocks + LEAD route/waypoint heads
-   - frozen Qwen cache：从 `kv_cache_fixed_inference` 的 `past_key_values` 中取 36 层 K/V，
-     按 `select_last` 分成 12 段；语言 K/V 直接 concat 到 gen attention，不再做线性投影
+   - frozen Qwen cache：由 standalone `LocalQwen3VLInstructEngine` 读取本地
+     `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct` 独立 prefill，**不复用**
+     AutoMoT `InterleaveInferencer` / `kv_cache_fixed_inference` 的 `gen_context`；
+     训练 / 推理必须同源。36 层 K/V 按 `select_last` 分成 12 段；语言 K/V
+     直接 concat 到 gen attention，不再做线性投影
    - 输出：`leadmot_route (B,10,2)`、`leadmot_future_waypoints (B,8,2)`，不做高级决策 / reasoning text
    - 入口：`run_step(..., enable_leadmot_planning=True)` 或 CLI `--enable-leadmot-planning`
    - 边界：当前 decoder 未加载训练权重，只能验证 shape 和链路；真正动作质量要等训练 pipeline / Loss / checkpoint
