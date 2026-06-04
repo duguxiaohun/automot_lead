@@ -16,8 +16,8 @@ LEAD video -> LeadMoT offline runner.
 - BEV encoder 已切换为本文件底部抄过来的 LEAD TransfuserBackbone（单帧 tfv6 框架），
   权重通过 `LEAD_BEV_CKPT_PATH` 常量加载 LEAD tfv6_resnet34 backbone-only ckpt
   （已实测 missing=0 / unexpected=0，state_dict 完全匹配 LEAD 训练分布）。
-- AutoMoT legacy 慢/快推理链路已移除：不再加载旧主模型，不再调用旧 slow/fast head。
-  python mot_lead_offline_runner.py --leadmot-ckpt /path/to/leadmot.pt
+- 慢推理走 standalone `LocalQwen3VLInstructEngine`，快推理走 LeadMoT decoder：
+    python mot_lead_offline_runner.py --enable-leadmot-planning --leadmot-ckpt /path/to/leadmot.pt
 
 """
 
@@ -616,8 +616,7 @@ class LeadBEVEncoder(nn.Module):
         - bev_feature:        (B, 512, 10, 12)  ← LEAD lidar branch 输出(作为 trans_feat)
         - image_feature_grid: (B, 512, 12, 36)  ← LEAD image branch 输出
 
-    注意 bev_feature shape != AutoMoT 原 (1, 1512, 8, 8)。
-    当前 runner 直接把 trans_feat 交给 LeadMoT decoder，不再保留 AutoMoT fast head 接口。
+    bev_feature shape (1, 512, 10, 12) 直接喂 LeadMoT decoder。
     """
 
     def __init__(
@@ -1057,8 +1056,8 @@ class LeadOfflineMoTRunner:
         self,
         rgb_pil_list: list,
         user_prompt: str,
-    ) -> Any:
-        """用 standalone Qwen 跑一次 prefill，返回 past_key_values 给 leadmot 池化用。
+    ) -> tuple[Any, int | None]:
+        """用 standalone Qwen 跑一次 prefill，返回 past_key_values 和 gen RoPE 起点。
 
         参数:
             rgb_pil_list: 4 帧 PIL Image，三视角拼接 (1152, 384)，直接供本地 Qwen prefill 使用
@@ -1068,6 +1067,9 @@ class LeadOfflineMoTRunner:
             past_key_values：HuggingFace 标准 cache 对象，36 层
             每层 (B, num_kv_heads=8, S, head_dim=128)。可直接喂
             `_segment_qwen_cache_for_leadmot` 池化。
+            rope_position_offset：后续 gen token 的 1D RoPE 起点。优先用
+            `input_ids.shape[-1] + outputs.rope_deltas`，等价于 Qwen3-VL 增量 decode
+            时的下一 token 位置；拿不到时返回 None，由 decoder 回退到 cache seq_len。
 
         与 goalgen.qwen_kv.teacher_forced_prefill 的差异
         =================================================
@@ -1097,7 +1099,14 @@ class LeadOfflineMoTRunner:
         # 跑 prefill。装饰器 @torch.no_grad 已经保证了不带 autograd state；
         # engine.prefill 内部传 use_cache=True，返回 outputs.past_key_values
         outputs = engine.prefill(inputs)
-        return outputs.past_key_values
+        rope_position_offset: int | None = None
+        input_ids = inputs.get("input_ids", None) if hasattr(inputs, "get") else None
+        rope_deltas = getattr(outputs, "rope_deltas", None)
+        if input_ids is not None and rope_deltas is not None:
+            input_len = int(input_ids.shape[-1])
+            delta = int(rope_deltas.detach().cpu().reshape(-1)[0].item())
+            rope_position_offset = input_len + delta
+        return outputs.past_key_values, rope_position_offset
 
     @staticmethod
     def _to_numpy(x: Any) -> np.ndarray:
@@ -1422,7 +1431,7 @@ class LeadOfflineMoTRunner:
 
         # standalone Qwen prefill -> past_key_values（cache 同源关键步骤，
         # 训练侧必须用同一个 engine + 同一对 system/user prompt 才能匹配）
-        leadmot_past_key_values = self._run_leadmot_qwen_prefill(
+        leadmot_past_key_values, leadmot_rope_position_offset = self._run_leadmot_qwen_prefill(
             rgb_pil_list=rgb_pil_list,
             user_prompt=prompt_cleaned,
         )
@@ -1442,6 +1451,7 @@ class LeadOfflineMoTRunner:
             speed=status[:, 0],
             target_point=status[:, 1:3],
             target_point_next=status[:, 3:5],
+            rope_position_offset=leadmot_rope_position_offset,
         )
         leadmot_route = leadmot_out["pred_route"]
         leadmot_future_waypoints = leadmot_out["pred_future_waypoints"]
