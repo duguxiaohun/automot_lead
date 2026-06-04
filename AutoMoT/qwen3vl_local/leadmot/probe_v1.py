@@ -24,6 +24,7 @@ from qwen3vl_local.leadmot import LeadMoTPlanningDecoder, LeadMoTPlanningDecoder
 from qwen3vl_local.leadmot.train_v1 import (
     LEAD_BEV_CKPT_PATH,
     LeadMoTTrainRuntime,
+    _dump_invocation,
     _dtype,
     _extract_targets,
     _planning_loss,
@@ -31,6 +32,9 @@ from qwen3vl_local.leadmot.train_v1 import (
     _setup_offline_env,
 )
 from qwen3vl_local.leadmot.eval_v1 import _compute_metrics
+
+
+DEFAULT_OUTPUT_ROOT = Path("checkpoints/leadmot_v1_decoder")
 
 
 def _pick_idle_gpu() -> str:
@@ -75,6 +79,33 @@ def _load_decoder(path: Path, device: torch.device, dtype: torch.dtype) -> tuple
     decoder.load_state_dict(state["decoder"], strict=True)
     decoder.eval()
     return decoder, config
+
+
+def _checkpoint_root(save_root: str) -> Path:
+    return Path(save_root) if save_root else DEFAULT_OUTPUT_ROOT
+
+
+def _resolve_checkpoint(checkpoint: str, save_root: str) -> Path:
+    if checkpoint:
+        path = Path(checkpoint)
+        if not path.exists():
+            raise FileNotFoundError(f"checkpoint not found: {path}")
+        return path
+    root = _checkpoint_root(save_root)
+    best = root / "best.pt"
+    latest = root / "latest.pt"
+    if best.exists():
+        return best
+    if latest.exists():
+        return latest
+    raise FileNotFoundError(f"no default LeadMoT checkpoint found: tried {best} and {latest}")
+
+
+def _resolve_output_dir(args: argparse.Namespace) -> Path:
+    if args.output_dir:
+        return Path(args.output_dir)
+    root = Path(args.save_root) if args.save_root else DEFAULT_OUTPUT_ROOT
+    return root / "eval_cases"
 
 
 def _case_name(sample: dict[str, Any], idx: int) -> str:
@@ -136,8 +167,9 @@ def _select_samples(rows: list[dict[str, Any]], num_per_scenario: int, max_cases
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jsonl", default="checkpoints/leadmot_v1_data/val.jsonl")
-    parser.add_argument("--checkpoint", default="checkpoints/leadmot_v1_decoder/best.pt")
-    parser.add_argument("--output-dir", default="checkpoints/leadmot_v1_decoder/probe")
+    parser.add_argument("--checkpoint", default="", help="Default: <save-root>/best.pt, falling back to latest.pt.")
+    parser.add_argument("--save-root", default="", help="GoalGen-style root; case dumps go to <save-root>/eval_cases when --output-dir is omitted.")
+    parser.add_argument("--output-dir", default="")
     parser.add_argument("--model-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
     parser.add_argument("--lead-bev-ckpt", default=str(LEAD_BEV_CKPT_PATH))
     parser.add_argument("--device", default="auto")
@@ -172,11 +204,14 @@ def main() -> None:
     device = torch.device("cuda", 0) if torch.cuda.is_available() else torch.device("cpu")
     rows = _read_jsonl(Path(args.jsonl))
     samples = _select_samples(rows, args.num_per_scenario, args.max_cases, args.seed)
-    output_dir = Path(args.output_dir)
+    output_dir = _resolve_output_dir(args)
     output_dir.mkdir(parents=True, exist_ok=True)
+    invocation_root = Path(args.save_root) if args.save_root else output_dir.parent
+    _dump_invocation(invocation_root, rank=0)
 
     decoder_dtype = _dtype(args.decoder_dtype)
-    decoder, decoder_config = _load_decoder(Path(args.checkpoint), device, decoder_dtype)
+    checkpoint_path = _resolve_checkpoint(args.checkpoint, args.save_root)
+    decoder, decoder_config = _load_decoder(checkpoint_path, device, decoder_dtype)
     runtime = LeadMoTTrainRuntime(args, device)
 
     index_rows = []

@@ -34,6 +34,7 @@ LEAD 的 decoder head 是 `Linear(hidden,2) -> torch.cumsum(dim=1)`：模型内�
 ```bash
 python qwen3vl_local/leadmot/build_dataset_v1.py \
   --data-root /datashare/IOL4SGH/data/data \
+  --samples-per-scenario 0 \
   --output-dir checkpoints/leadmot_v1_data
 ```
 
@@ -44,7 +45,7 @@ python qwen3vl_local/leadmot/build_dataset_v1.py \
 - anchor meta 的 `route`：按 LEAD 训练语义先取 `route[:20]`，执行等价 `smooth_path(target_first_distance=2.5)`，再取前 10 点监督 `pred_route`。
 - anchor meta 的 `future_positions[[5,10,...,40]]`：监督 8 个未来 waypoint，LEAD 4Hz 下覆盖 2s。
 
-默认 `--stride 5`，让相邻 anchor 大约间隔 1 秒，减少高度重叠的伪样本；如需全量密集 anchor，可显式 `--stride 1`。建议构建正式训练索引时加 `--check-readable`，提前按训练实际读取集合检查历史 RGB/meta/LAZ、anchor 标签 meta，以及 TP/NTP 未来 meta，过滤缺文件或 meta 解压失败的样本，避免 DDP 训练中单条坏样本造成 collective 错位。
+默认 `--samples-per-scenario 0` 与 GoalGen 一致，表示每个 scenario 保留所有合法 anchor；传正整数时按 route-balanced 方式抽样。默认 `--stride 5`，让相邻 anchor 大约间隔 1 秒，减少高度重叠的伪样本；如需全量密集 anchor，可显式 `--stride 1`。train/val 按 route 切分，避免同一路线相邻 anchor 同时进入训练和验证。构建器输出 `train.jsonl` / `val.jsonl` / `stats.json`。建议构建正式训练索引时加 `--check-readable`，提前按训练实际读取集合检查历史 RGB/meta/LAZ、anchor 标签 meta，以及 TP/NTP 未来 meta，过滤缺文件或 meta 解压失败的样本，避免 DDP 训练中单条坏样本造成 collective 错位。
 
 当前不做 Qwen pooled KV 离线缓存。原因是 prompt / RoPE / prefix 组织还在迭代期，prompt 一改缓存就失效；训练先保证范式正确，再考虑缓存工程。
 
@@ -85,8 +86,10 @@ checkpoints/leadmot_v1_decoder/
 
 - `latest.pt`
 - `best.pt`（有 val 时）
+- `best.json`（best checkpoint 的 val_loss / epoch / step 元信息）
 - `checkpoint-epochXX.pt`
 - `tb/`（安装 TensorBoard 时）
+- `invocations/`（train/eval/probe argv + env + git_commit）
 
 runner 侧用 `--leadmot-ckpt checkpoints/leadmot_v1_decoder/best.pt` 或 `latest.pt` 加载。
 
@@ -94,5 +97,5 @@ checkpoint 写入使用 `torch.save(tmp)` + `os.replace(tmp, final)`，避免 NF
 
 ## Eval / Probe
 
-- `eval_v1.py`：离线汇总 `loss / route ADE/FDE / waypoint ADE/FDE`，支持 torchrun 分片；每个 rank 跑自己的样本，rank0 合并 summary/perline。
-- `probe_v1.py`：随机按 scenario 抽 case，落盘 `planning_overlay.png`、`predictions.json`、`metrics.json`、`overview.md`，用于肉眼检查预测和 GT 是否同向、同尺度、同坐标系。
+- `eval_v1.py`：离线汇总 `loss / route ADE/FDE / waypoint ADE/FDE`，支持 torchrun 分片；每个 rank 跑自己的样本，rank0 合并 summary/perline。推荐传 `--save-root checkpoints/leadmot_v1_decoder`，产物落到 `<save-root>/eval/`。
+- `probe_v1.py`：随机按 scenario 抽 case，落盘 `planning_overlay.png`、`predictions.json`、`metrics.json`、`overview.md`，用于肉眼检查预测和 GT 是否同向、同尺度、同坐标系。推荐传 `--save-root checkpoints/leadmot_v1_decoder`，case 落到 `<save-root>/eval_cases/`。

@@ -53,6 +53,71 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _dump_invocation(output_dir: Path, rank: int = 0) -> None:
+    if rank != 0:
+        return
+    try:
+        import datetime as _dt
+        import platform as _platform
+        import shlex as _shlex
+        import socket as _socket
+        import subprocess as _subprocess
+
+        ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        host = _socket.gethostname()
+        inv_dir = output_dir / "invocations"
+        inv_dir.mkdir(parents=True, exist_ok=True)
+        out_path = inv_dir / f"{ts}_{host}_pid{os.getpid()}.txt"
+
+        env_keys = (
+            "CUDA_VISIBLE_DEVICES",
+            "WORLD_SIZE",
+            "RANK",
+            "LOCAL_RANK",
+            "MASTER_ADDR",
+            "MASTER_PORT",
+            "NCCL_DEBUG",
+            "PYTORCH_CUDA_ALLOC_CONF",
+            "HF_HOME",
+            "HF_HUB_OFFLINE",
+            "TRANSFORMERS_OFFLINE",
+        )
+        try:
+            git = _subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(AUTOMOT_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            git_commit = git.stdout.strip() if git.returncode == 0 else "<unavailable>"
+        except Exception:
+            git_commit = "<unavailable>"
+
+        lines = [
+            f"# saved at {ts}",
+            f"# hostname = {host}",
+            f"# pid = {os.getpid()}",
+            f"# python = {sys.version.split()[0]}",
+            f"# torch = {getattr(torch, '__version__', '<unknown>')}",
+            f"# platform = {_platform.platform()}",
+            f"# git_commit = {git_commit}",
+            "",
+            "# ---- selected env vars ----",
+            *[f"{key}={os.environ.get(key, '<unset>')}" for key in env_keys],
+            "",
+            "# ---- sys.argv (one per line) ----",
+            *sys.argv,
+            "",
+            "# ---- shell replay ----",
+            " ".join(_shlex.quote(arg) for arg in sys.argv),
+        ]
+        out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"[invocation] saved -> {out_path}")
+    except Exception as exc:
+        print(f"[invocation] save failed (ignored): {exc}")
+
+
 def _setup_offline_env() -> None:
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
@@ -411,6 +476,30 @@ def _save_checkpoint(
     os.replace(tmp_path, path)
 
 
+def _write_best_meta(output_dir: Path, checkpoint: Path, val_loss: float, epoch: int, step: int) -> None:
+    meta = {
+        "checkpoint": str(checkpoint),
+        "val_loss": float(val_loss),
+        "epoch": int(epoch),
+        "step": int(step),
+    }
+    tmp_path = output_dir / f".best.json.tmp.{os.getpid()}"
+    tmp_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp_path, output_dir / "best.json")
+
+
+def _prune_old_epoch_checkpoints(output_dir: Path, keep_recent: int) -> None:
+    # 只滚动淘汰 epoch 全量 ckpt；best.pt / latest.pt 不在此列，永远保留。
+    if keep_recent <= 0:
+        return
+    ckpts = sorted(output_dir.glob("checkpoint-epoch*.pt"))
+    for stale in ckpts[:-keep_recent]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+
+
 def _load_checkpoint(
     path: Path,
     decoder: torch.nn.Module,
@@ -502,6 +591,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--logging-steps", type=int, default=20)
     parser.add_argument("--save-steps", type=int, default=500)
+    parser.add_argument("--keep-recent-checkpoints", type=int, default=3, help="Roll over epoch checkpoints; 0 keeps all. best.pt/latest.pt are never pruned.")
     parser.add_argument("--val-steps", type=int, default=500)
     parser.add_argument("--val-max-samples", type=int, default=64)
     parser.add_argument("--val-sample-seed", type=int, default=202607)
@@ -539,6 +629,8 @@ def main() -> None:
 
     rank, local_rank, world_size = _init_distributed()
     device = torch.device("cuda", local_rank) if torch.cuda.is_available() else torch.device("cpu")
+    output_dir = Path(args.output_dir)
+    _dump_invocation(output_dir, rank)
 
     seed = args.seed + rank
     random.seed(seed)
@@ -626,7 +718,6 @@ def main() -> None:
         )
 
     decoder.train()
-    output_dir = Path(args.output_dir)
     optimizer.zero_grad(set_to_none=True)
     log_start = time.time()
     stop_training = False
@@ -713,6 +804,7 @@ def main() -> None:
                                 global_step,
                                 best_val,
                             )
+                            _write_best_meta(output_dir, output_dir / "best.pt", best_val, epoch + 1, global_step)
                     _barrier()
                     decoder.train()
 
@@ -726,6 +818,7 @@ def main() -> None:
         if rank == 0:
             _save_checkpoint(output_dir / f"checkpoint-epoch{epoch + 1:02d}.pt", decoder, optimizer, scheduler, decoder_config, args, epoch + 1, global_step, best_val)
             _save_checkpoint(output_dir / "latest.pt", decoder, optimizer, scheduler, decoder_config, args, epoch + 1, global_step, best_val)
+            _prune_old_epoch_checkpoints(output_dir, args.keep_recent_checkpoints)
         if stop_training:
             break
 

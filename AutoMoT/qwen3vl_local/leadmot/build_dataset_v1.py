@@ -14,6 +14,7 @@ import lzma
 import math
 import pickle
 import random
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
 
@@ -120,7 +121,62 @@ def _route_name(data_root: Path, route_dir: Path) -> tuple[str, str]:
     return route_dir.parent.name, route_dir.name
 
 
-def _build_samples(args: argparse.Namespace) -> list[dict]:
+def _choose_samples_by_route(samples: list[dict], target_total: int, rng: random.Random) -> list[dict]:
+    if target_total <= 0 or len(samples) <= target_total:
+        chosen = list(samples)
+        rng.shuffle(chosen)
+        return chosen
+
+    buckets: dict[str, list[dict]] = defaultdict(list)
+    for sample in samples:
+        buckets[str(sample["route_id"])].append(sample)
+
+    chosen: list[dict] = []
+    chosen_ids: set[int] = set()
+    per_bucket = max(1, target_total // max(1, len(buckets)))
+    for bucket_samples in buckets.values():
+        picked = rng.sample(bucket_samples, per_bucket) if len(bucket_samples) > per_bucket else list(bucket_samples)
+        for sample in picked:
+            chosen.append(sample)
+            chosen_ids.add(id(sample))
+
+    if len(chosen) < target_total:
+        remaining = [sample for sample in samples if id(sample) not in chosen_ids]
+        chosen.extend(rng.sample(remaining, min(target_total - len(chosen), len(remaining))))
+    elif len(chosen) > target_total:
+        chosen = rng.sample(chosen, target_total)
+
+    rng.shuffle(chosen)
+    return chosen
+
+
+def _split_train_val_by_route(samples: list[dict], val_ratio: float, rng: random.Random) -> tuple[list[dict], list[dict]]:
+    by_route: dict[str, list[dict]] = defaultdict(list)
+    for sample in samples:
+        route_key = f"{sample.get('scenario')}::{sample.get('route_id')}"
+        by_route[route_key].append(sample)
+
+    route_keys = sorted(by_route)
+    rng.shuffle(route_keys)
+    val_count = int(round(len(route_keys) * val_ratio)) if route_keys and val_ratio > 0 else 0
+    if len(route_keys) > 1 and val_ratio > 0 and val_count == 0:
+        val_count = 1
+    if len(route_keys) > 1:
+        val_count = min(val_count, len(route_keys) - 1)
+    else:
+        val_count = 0
+    val_routes = set(route_keys[:val_count])
+
+    train: list[dict] = []
+    val: list[dict] = []
+    for route_key, rows in by_route.items():
+        (val if route_key in val_routes else train).extend(rows)
+    rng.shuffle(train)
+    rng.shuffle(val)
+    return train, val
+
+
+def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
     data_root = Path(args.data_root).expanduser().resolve()
     if not data_root.exists():
         raise FileNotFoundError(f"data root not found: {data_root}")
@@ -136,7 +192,8 @@ def _build_samples(args: argparse.Namespace) -> list[dict]:
         int(math.ceil(args.next_target_point_lookahead_s / args.frame_interval_s)),
     )
     rng = random.Random(args.seed)
-    samples: list[dict] = []
+    candidates_by_scenario: dict[str, list[dict]] = defaultdict(list)
+    scenario_route_counts: Counter[str] = Counter()
     route_count = 0
     skipped_routes = 0
     skipped_samples = 0
@@ -151,10 +208,9 @@ def _build_samples(args: argparse.Namespace) -> list[dict]:
             continue
 
         anchors = list(range(first_anchor, last_anchor_exclusive, max(1, args.stride)))
-        if args.samples_per_route > 0 and len(anchors) > args.samples_per_route:
-            anchors = sorted(rng.sample(anchors, args.samples_per_route))
-
         scenario, route_id = _route_name(data_root, route_dir)
+        scenario_route_counts[scenario] += 1
+        route_candidates: list[dict] = []
         for anchor in anchors:
             if args.check_readable:
                 ok, reason = _sample_is_readable(route_dir, anchor, frame_count, args)
@@ -163,7 +219,7 @@ def _build_samples(args: argparse.Namespace) -> list[dict]:
                     if args.verbose_skips:
                         print(f"[skip] {route_dir}@{anchor:04d}: {reason}")
                     continue
-            samples.append(
+            route_candidates.append(
                 {
                     "schema_version": 1,
                     "scenario": scenario,
@@ -180,21 +236,37 @@ def _build_samples(args: argparse.Namespace) -> list[dict]:
                     "future_waypoint_indices": args.future_waypoint_indices,
                 }
             )
+        candidates_by_scenario[scenario].extend(route_candidates)
 
-    rng.shuffle(samples)
-    print(
-        json.dumps(
-            {
-                "data_root": str(data_root),
-                "route_count": route_count,
-                "skipped_routes": skipped_routes,
-                "skipped_samples": skipped_samples,
-                "samples": len(samples),
-            },
-            ensure_ascii=False,
+    samples: list[dict] = []
+    scenario_stats: dict[str, dict] = {}
+    target_per_scenario = 50 if args.dry_run else args.samples_per_scenario
+    for scenario, candidates in sorted(candidates_by_scenario.items()):
+        chosen = _choose_samples_by_route(candidates, target_per_scenario, rng)
+        by_route = Counter(str(sample["route_id"]) for sample in chosen)
+        scenario_stats[scenario] = {
+            "routes": int(scenario_route_counts[scenario]),
+            "candidates": len(candidates),
+            "chosen": len(chosen),
+            "chosen_by_route": dict(sorted(by_route.items())),
+        }
+        print(
+            f"[scenario] {scenario:42s} routes={scenario_route_counts[scenario]:4d} "
+            f"candidates={len(candidates):7d} chosen={len(chosen):7d}"
         )
-    )
-    return samples
+        samples.extend(chosen)
+    rng.shuffle(samples)
+    stats = {
+        "config": vars(args),
+        "data_root": str(data_root),
+        "route_count": route_count,
+        "skipped_routes": skipped_routes,
+        "skipped_samples": skipped_samples,
+        "samples": len(samples),
+        "scenario_stats": scenario_stats,
+    }
+    print(json.dumps({k: v for k, v in stats.items() if k != "scenario_stats"}, ensure_ascii=False))
+    return samples, stats
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -208,12 +280,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", required=True, help="LEAD data root or one route directory.")
     parser.add_argument("--output-dir", default="checkpoints/leadmot_v1_data")
-    parser.add_argument("--val-ratio", type=float, default=0.02)
+    parser.add_argument("--val-ratio", type=float, default=0.10)
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--stride", type=int, default=5, help="Default 5 keeps anchors roughly 1 second apart for LEAD 4Hz data.")
-    parser.add_argument("--samples-per-route", type=int, default=0, help="0 keeps all valid anchors.")
+    parser.add_argument("--samples-per-scenario", type=int, default=0, help="0 keeps all valid anchors per scenario; positive values sample a route-balanced subset.")
     parser.add_argument("--check-readable", action="store_true", help="Verify sampled history rgb/laz/meta and future TP/NTP meta before writing JSONL.")
     parser.add_argument("--verbose-skips", action="store_true")
+    parser.add_argument("--dry-run", action="store_true", help="Keep at most 50 samples per scenario and still write train/val/stats.")
     parser.add_argument("--min-anchor", type=int, default=0)
     parser.add_argument("--frame-interval-s", type=float, default=0.25)
     parser.add_argument("--rgb-frame-count", type=int, default=4)
@@ -236,23 +309,20 @@ def main() -> None:
     args = parse_args()
     if not 0.0 <= args.val_ratio < 0.5:
         raise ValueError("--val-ratio must be in [0, 0.5)")
-    samples = _build_samples(args)
-    val_count = int(round(len(samples) * args.val_ratio))
-    if len(samples) > 1 and val_count == 0 and args.val_ratio > 0:
-        val_count = 1
-    val_rows = samples[:val_count]
-    train_rows = samples[val_count:]
+    samples, stats = _build_samples(args)
+    rng = random.Random(args.seed)
+    train_rows, val_rows = _split_train_val_by_route(samples, args.val_ratio, rng)
 
     output_dir = Path(args.output_dir)
     _write_jsonl(output_dir / "train.jsonl", train_rows)
     _write_jsonl(output_dir / "val.jsonl", val_rows)
-    manifest = {
-        "schema_version": 1,
-        "args": vars(args),
+    stats.update(
+        {
         "train_rows": len(train_rows),
         "val_rows": len(val_rows),
-    }
-    (output_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        }
+    )
+    (output_dir / "stats.json").write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"wrote train={len(train_rows)} val={len(val_rows)} to {output_dir}")
 
 
