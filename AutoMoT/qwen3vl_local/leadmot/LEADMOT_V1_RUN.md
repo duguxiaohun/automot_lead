@@ -91,13 +91,22 @@ VAL_STEPS=500
 VAL_MAX_SAMPLES=64
 VAL_SAMPLE_SEED=202607
 DECODER_DROPOUT=0.1
+EMA=1
+EMA_DECAY=0.999
+IMAGE_LOG_EVERY=1000
+IMAGE_LOG_SAMPLES=4
+IMAGE_LOG_SEED=20260101
 ```
 
 只有 LeadMoT decoder 更新参数；Qwen3-VL-Instruct 与 LeadBEVEncoder 都是 frozen eval。不传位置参数时 `bash qwen3vl_local/leadmot/train_v1.sh` 默认走 `ddp`（与 GoalGen 一致）。保存逻辑对齐 GoalGen，共 4 类产物：`best.pt`/`best.json`（val 最优）、`latest.pt`（每 `SAVE_STEPS` 步覆盖 + epoch 末）、`checkpoint-epochNN.pt`（epoch 末池，保留最近 `KEEP_RECENT_CHECKPOINTS` 份）、`step-checkpoint-NNNNNN.pt`（每 `STEP_SAVE_EVERY` 步独立池，保留最近 `KEEP_RECENT_STEP_CHECKPOINTS` 份）。epoch 池与 step 池互不淘汰；`best.pt` / `latest.pt` 永远保留。
 
-DDP 训练中的 validation 会按 `VAL_MAX_SAMPLES` 截断后在所有 rank 间分片，每张卡各跑自己的 Qwen/BEV/decoder forward，再 all-reduce 聚合 loss，避免 rank0 串行扫 val、其它 rank 空等。
+DDP 训练中的 validation 会按 `VAL_MAX_SAMPLES` 截断后在所有 rank 间分片，每张卡各跑自己的 Qwen/BEV/decoder forward，再 all-reduce 聚合 loss / ADE / FDE，避免 rank0 串行扫 val、其它 rank 空等。开 EMA 时 val 会跑两遍（raw + EMA），TB 上分别记到 `val/*` 和 `val_ema/*`，best.pt 选 EMA val/loss 作为指标。
 val 子集不是固定取 jsonl 头部，而是用 `VAL_SAMPLE_SEED` 从 val 全量中确定性抽样，减少场景分布偏置。
 DDP 加载 Qwen 时默认按 `LOCAL_RANK * QWEN_LOAD_STAGGER_S` 错峰，降低多 rank 同时读 4B checkpoint 对共享文件系统的压力。
+
+`IMAGE_LOG_EVERY` 步触发一次 rank0 渲染：从 val 抽 `IMAGE_LOG_SAMPLES` 条画 pred vs gt 拼图贴到 TB（`samples/planning_overlay_raw` 与开 EMA 时的 `samples/planning_overlay_ema`），便于训练过程肉眼看模型质量进化。设 `IMAGE_LOG_EVERY=0` 关闭，check 模式默认关闭。
+
+EMA：默认 `EMA=1` `EMA_DECAY=0.999`，关掉用 `EMA=0`。eval/probe 默认 `--use-ema`，旧 ckpt 不带 EMA 字段时自动回落到 raw 权重。
 
 ## 6. Eval
 
@@ -140,6 +149,8 @@ python qwen3vl_local/leadmot/probe_v1.py \
 ```
 
 `eval_v1.py` / `probe_v1.py` 未显式传 `--checkpoint` 时，会在 `--save-root` 下依次尝试 `best.pt` -> `latest.pt` -> 最新 `step-checkpoint-*.pt` -> 最新 `checkpoint-epoch*.pt`；不传 `--save-root` 则使用默认 `checkpoints/leadmot_v1_decoder`。需要消融或指定中间 ckpt 时再显式传 `--checkpoint`。
+
+`--use-ema` 默认开（与训练侧 EMA on/off 无关，只判断 ckpt 里有没有 `ema_state_dict`）：有就用 EMA shadow，没有就回落 raw 并 print 警告。想强制对比 raw 加 `--no-use-ema`。`probe_v1` 会在 `eval_cases/probe_meta.json` 记录本次跑的 `use_ema`，方便 raw vs ema 两次 probe 结果摆在一起比。
 
 每个 case 会写：
 

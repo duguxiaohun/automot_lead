@@ -1,7 +1,8 @@
-"""LEAD 风格输出头：Linear(hidden -> 2) + cumsum。
+"""Planning 输出头。
 
-跟 LEAD `PlanningDecoder.wp_decoder / route_decoder` 同构（单层 Linear，不上 MLP）。
-模型预测相邻点 delta，cumsum 还原成 ego-local 累计坐标。
+两个 LEAD head 都刻意保持简单：``Linear(hidden -> 2)`` 先预测每一步 delta，
+再用 ``cumsum`` 转成 ego-frame 累计点。因此训练标签是绝对/累计 ego-frame 点，
+不是相邻点之间的 delta。
 """
 
 from __future__ import annotations
@@ -11,33 +12,32 @@ import torch.nn as nn
 
 
 class _DeltaCumsumHead(nn.Module):
-    """通用 (B, N, hidden) -> Linear(hidden, 2) -> cumsum -> (B, N, 2)。"""
+    """共享的 ``(B, N, hidden) -> (B, N, 2)`` delta-to-point head。"""
 
     def __init__(self, hidden_size: int, point_dim: int = 2):
         super().__init__()
         self.point_dim = point_dim
         self.proj = nn.Linear(hidden_size, point_dim)
-        # bias=0 保证训练初期预测从原点起步
+        # bias 初始化为 0，让初始路径尽量贴近 ego 原点附近。
         nn.init.zeros_(self.proj.bias)
         nn.init.trunc_normal_(self.proj.weight, std=0.02)
 
     def forward(self, query_hidden: torch.Tensor) -> torch.Tensor:
-        # delta 在 bf16 下计算后，cumsum 必须升到 fp32 累加，否则远端点（~30m）累计误差可达
-        # 0.1~0.25m 量级，直接顶死 FDE 精度天花板。这里输出保持 fp32 不再回退 bf16，
-        # 下游 loss / metric 本来就用 fp32，避免末步重新量化。
+        """预测点间 delta，并用 fp32 累计，降低远端 FDE 数值误差。"""
         delta = self.proj(query_hidden)
+        # cumsum 保持 fp32：bf16 连续累计到轨迹末端时可能积累可见的米级舍入误差。
         return torch.cumsum(delta.float(), dim=1)
 
 
 class RouteHead(_DeltaCumsumHead):
-    """(B, 10, hidden) -> (B, 10, 2)，对齐 LEAD data["route"]。"""
+    """Route head：默认 ``(B, 10, hidden) -> (B, 10, 2)``。"""
 
     def __init__(self, hidden_size: int = 1024, point_dim: int = 2):
         super().__init__(hidden_size=hidden_size, point_dim=point_dim)
 
 
 class WaypointHead(_DeltaCumsumHead):
-    """(B, 8, hidden) -> (B, 8, 2)，对齐 LEAD data["future_waypoints"]。"""
+    """Waypoint head：默认 ``(B, 8, hidden) -> (B, 8, 2)``。"""
 
     def __init__(self, hidden_size: int = 1024, point_dim: int = 2):
         super().__init__(hidden_size=hidden_size, point_dim=point_dim)

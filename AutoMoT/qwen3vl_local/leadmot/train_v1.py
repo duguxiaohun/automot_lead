@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Train LeadMoT decoder with frozen Qwen3-VL and frozen LeadBEVEncoder."""
+"""在 frozen Qwen3-VL 和 frozen LeadBEVEncoder 上训练 LeadMoT decoder。"""
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import datetime as _dt
 import json
 import lzma
 import math
@@ -13,10 +14,11 @@ import pickle
 import random
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import torch
@@ -44,6 +46,7 @@ from qwen3vl_local.leadmot import LeadMoTPlanningDecoder, LeadMoTPlanningDecoder
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    """读取 UTF-8 JSONL 文件，返回字典列表。"""
     rows: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -54,10 +57,12 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def _dump_invocation(output_dir: Path, rank: int = 0) -> None:
+    """保存 argv/env/git 元信息，方便复现实验。"""
     if rank != 0:
         return
     try:
-        import datetime as _dt
+        # _dt 已在文件顶层 import；platform/shlex/socket/subprocess 只用于写
+        # invocations/ 记录，延迟 import 可以减少训练启动路径的额外依赖。
         import platform as _platform
         import shlex as _shlex
         import socket as _socket
@@ -82,6 +87,7 @@ def _dump_invocation(output_dir: Path, rank: int = 0) -> None:
             "HF_HUB_OFFLINE",
             "TRANSFORMERS_OFFLINE",
             "LEADMOT_CUDNN_BENCHMARK",
+            "LEADMOT_NCCL_TIMEOUT_MIN",
         )
         try:
             git = _subprocess.run(
@@ -104,13 +110,13 @@ def _dump_invocation(output_dir: Path, rank: int = 0) -> None:
             f"# platform = {_platform.platform()}",
             f"# git_commit = {git_commit}",
             "",
-            "# ---- selected env vars ----",
+            "# ---- 选中的环境变量 ----",
             *[f"{key}={os.environ.get(key, '<unset>')}" for key in env_keys],
             "",
-            "# ---- sys.argv (one per line) ----",
+            "# ---- sys.argv（每行一个） ----",
             *sys.argv,
             "",
-            "# ---- shell replay ----",
+            "# ---- shell 复现命令 ----",
             " ".join(_shlex.quote(arg) for arg in sys.argv),
         ]
         out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -120,6 +126,7 @@ def _dump_invocation(output_dir: Path, rank: int = 0) -> None:
 
 
 def _setup_offline_env() -> None:
+    """强制当前训练入口使用本地/离线 HuggingFace 行为。"""
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
     os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
@@ -127,6 +134,7 @@ def _setup_offline_env() -> None:
 
 
 def _init_distributed() -> tuple[int, int, int]:
+    """初始化 torchrun 分布式训练，并把每个 rank 绑定到对应 GPU。"""
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -134,16 +142,20 @@ def _init_distributed() -> tuple[int, int, int]:
         torch.cuda.set_device(local_rank)
     if world_size > 1 and not dist.is_initialized():
         backend = "nccl" if torch.cuda.is_available() else "gloo"
-        dist.init_process_group(backend=backend)
+        timeout = _dt.timedelta(minutes=int(os.environ.get("LEADMOT_NCCL_TIMEOUT_MIN", "10")))
+        # 让 Qwen/BEV 加载卡死或坏 I/O 导致的 rank 停滞更早暴露。
+        dist.init_process_group(backend=backend, timeout=timeout)
     return rank, local_rank, world_size
 
 
 def _barrier() -> None:
+    """只在 torch.distributed 已启用时同步各 rank。"""
     if dist.is_available() and dist.is_initialized():
         dist.barrier()
 
 
 def _dtype(name: str) -> torch.dtype:
+    """把 CLI dtype 字符串映射成 torch dtype。"""
     lowered = name.lower()
     if lowered in {"bf16", "bfloat16"}:
         return torch.bfloat16
@@ -155,6 +167,7 @@ def _dtype(name: str) -> torch.dtype:
 
 
 def _pad_rows(array: np.ndarray, rows: int) -> np.ndarray:
+    """裁剪或重复最后一个点，让轨迹刚好有 rows 个点。"""
     array = np.asarray(array, dtype=np.float32).reshape(-1, 2)
     if array.shape[0] >= rows:
         return array[:rows]
@@ -171,7 +184,7 @@ def _circle_line_segment_intersection(
     pt2: np.ndarray,
     tangent_tol: float = 1e-9,
 ) -> list[tuple[float, float]]:
-    """LEAD carla_dataset_utils.circle_line_segment_intersection with full_line=True."""
+    """LEAD carla_dataset_utils.circle_line_segment_intersection 的 full_line=True 版本。"""
     if np.linalg.norm(pt1 - pt2) < 1e-9:
         return []
     (p1x, p1y), (p2x, p2y), (cx, cy) = pt1, pt2, circle_center
@@ -195,7 +208,7 @@ def _circle_line_segment_intersection(
 
 
 def _lead_iterative_line_interpolation(route: np.ndarray, rows: int, target_first_distance: float = 2.5) -> np.ndarray:
-    """Minimal LEAD iterative_line_interpolation equivalent for route labels."""
+    """用于 route 标签的最小 LEAD iterative_line_interpolation 等价实现。"""
     interpolated_route_points: list[np.ndarray] = []
     min_distance = 1.0
     last_interpolated_point = np.array([0.0, 0.0], dtype=np.float32)
@@ -249,7 +262,7 @@ def _lead_iterative_line_interpolation(route: np.ndarray, rows: int, target_firs
 
 
 def _smooth_route(route: np.ndarray, rows: int = 10) -> np.ndarray:
-    """LEAD smooth_path equivalent: smooth first 20 route points, then keep prediction rows."""
+    """LEAD smooth_path 等价逻辑：先平滑前 20 个 route 点，再截取预测需要的行数。"""
     route = np.asarray(route, dtype=np.float32).reshape(-1, 2)
     smoothing_rows = max(rows, 20)
     route = route[:smoothing_rows]
@@ -262,13 +275,17 @@ def _smooth_route(route: np.ndarray, rows: int = 10) -> np.ndarray:
     return _lead_iterative_line_interpolation(route, smoothing_rows)[:rows]
 
 
-@lru_cache(maxsize=16384)
+# 这个 cache 保持适中；每个 DDP rank 都会各自持有一份。
+# 主要用于避免重复 anchor 反复做 lzma 解压。
+@lru_cache(maxsize=4096)
 def _load_meta_cached(route_dir: str, anchor: int) -> dict[str, Any]:
+    """加载并缓存一个压缩 anchor meta pickle。"""
     with lzma.open(Path(route_dir) / "metas" / f"{anchor:04d}.pkl", "rb") as f:
         return pickle.load(f)
 
 
 def _load_meta(route_dir: Path, anchor: int) -> dict[str, Any]:
+    """给缓存 meta loader 包一层 Path 友好的入口。"""
     return _load_meta_cached(str(route_dir), int(anchor))
 
 
@@ -278,10 +295,10 @@ def _extract_targets(
     waypoint_rows: int,
     smooth_route: bool,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return absolute ego-frame GT points, matching LEAD loss semantics.
+    """返回绝对 ego-frame GT 点，对齐 LEAD loss 语义。
 
-    LEAD heads predict point deltas internally, then cumsum them before loss.
-    Therefore labels here stay as accumulated ego-local coordinates.
+    LEAD head 内部先预测点间 delta，再 cumsum 后计算 loss。
+    因此这里的标签保持累计 ego-local 坐标，而不是相邻 delta。
     """
     route_dir = Path(sample["route_dir"])
     meta = _load_meta(route_dir, int(sample["anchor"]))
@@ -299,6 +316,7 @@ def _extract_targets(
 
 
 def _point_loss(pred: torch.Tensor, target: torch.Tensor, loss_type: str) -> torch.Tensor:
+    """根据配置分派到对应的逐点回归 loss。"""
     if loss_type == "l1":
         return F.l1_loss(pred, target)
     if loss_type == "smooth_l1":
@@ -314,6 +332,7 @@ def _planning_loss(
     waypoint_weight: float,
     loss_type: str,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """把 waypoint loss 和 route ADE+FDE loss 合成总规划 loss。"""
     pred_wp = outputs["pred_future_waypoints"].float()
     pred_route = outputs["pred_route"].float()
     gt_waypoints = gt_waypoints.float()
@@ -325,13 +344,39 @@ def _planning_loss(
     return route_weight * route_loss + waypoint_weight * wp_loss, route_loss, wp_loss
 
 
+@torch.no_grad()
+def _compute_planning_metrics(
+    outputs: dict[str, torch.Tensor],
+    gt_route: torch.Tensor,
+    gt_waypoints: torch.Tensor,
+) -> dict[str, float]:
+    """计算 train/eval/probe 共用的米制 ADE/FDE 指标。"""
+    pred_route = outputs["pred_route"].float()
+    pred_wp = outputs["pred_future_waypoints"].float()
+    route_err = torch.linalg.norm(pred_route - gt_route.float(), dim=-1)
+    wp_err = torch.linalg.norm(pred_wp - gt_waypoints.float(), dim=-1)
+    return {
+        "route_ade_m": float(route_err.mean().item()),
+        "route_fde_m": float(route_err[:, -1].mean().item()),
+        "waypoint_ade_m": float(wp_err.mean().item()),
+        "waypoint_fde_m": float(wp_err[:, -1].mean().item()),
+    }
+
+
 def _optimizer_param_groups(model: torch.nn.Module, weight_decay: float) -> list[dict[str, Any]]:
+    """把 AdamW 参数拆成 decay / no-decay 两组。
+
+    矩阵权重使用 weight decay；bias、norm 权重、embedding 和 query bank 不用，
+    因为 decay 会把这些 learned lookup vector 往 0 拉。
+    """
     decay: list[torch.nn.Parameter] = []
     no_decay: list[torch.nn.Parameter] = []
-    for _name, param in model.named_parameters():
+    embed_keywords = ("pos_embed", "query_bank", ".embed.")
+    for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if param.ndim >= 2:
+        is_embed = any(key in name for key in embed_keywords)
+        if param.ndim >= 2 and not is_embed:
             decay.append(param)
         else:
             no_decay.append(param)
@@ -341,14 +386,116 @@ def _optimizer_param_groups(model: torch.nn.Module, weight_decay: float) -> list
     ]
 
 
+def _param_breakdown(decoder: torch.nn.Module, runtime: "LeadMoTTrainRuntime | None" = None) -> dict[str, Any]:
+    """返回启动时 trainable/frozen 模块的参数量统计。"""
+    module = decoder.module if hasattr(decoder, "module") else decoder
+
+    def _count(mod: torch.nn.Module | None) -> tuple[int, int]:
+        """返回单个模块的总参数量和可训练参数量。"""
+        if mod is None:
+            return (0, 0)
+        total = sum(p.numel() for p in mod.parameters())
+        trainable = sum(p.numel() for p in mod.parameters() if p.requires_grad)
+        return total, trainable
+
+    decoder_breakdown: dict[str, int] = {}
+    for name, sub in module.named_children():
+        decoder_breakdown[name] = sum(p.numel() for p in sub.parameters() if p.requires_grad)
+
+    out: dict[str, Any] = {
+        "decoder_total": int(sum(p.numel() for p in module.parameters())),
+        "decoder_trainable": int(sum(p.numel() for p in module.parameters() if p.requires_grad)),
+        "decoder_breakdown": decoder_breakdown,
+    }
+    if runtime is not None:
+        qwen_total, qwen_train = _count(getattr(runtime.runner.leadmot_qwen_engine, "model", None))
+        bev_total, bev_train = _count(runtime.runner.bev_encoder)
+        out["qwen_total"] = int(qwen_total)
+        out["qwen_trainable"] = int(qwen_train)
+        out["bev_encoder_total"] = int(bev_total)
+        out["bev_encoder_trainable"] = int(bev_train)
+    return out
+
+
+# ============================================================
+# Decoder EMA 辅助类。
+# ============================================================
+class _DecoderEMA:
+    """维护 decoder 参数的 fp32 指数滑动平均。
+
+    shadow key 在 DDP wrap 前创建，因此 update/apply 必须传 unwrapped module。
+    eval/probe 默认优先使用这些 EMA 权重。
+    """
+
+    def __init__(self, model: torch.nn.Module, decay: float = 0.999):
+        self.decay = float(decay)
+        # 即使 decoder 用 bf16 训练，EMA shadow 也保持 fp32。
+        self.shadow: dict[str, torch.Tensor] = {}
+        for name, p in model.named_parameters():
+            if p.requires_grad:
+                self.shadow[name] = p.detach().float().clone()
+
+    @torch.no_grad()
+    def update(self, model: torch.nn.Module) -> None:
+        """执行 shadow = decay * shadow + (1 - decay) * param。"""
+        one_minus = 1.0 - self.decay
+        for name, p in model.named_parameters():
+            if name in self.shadow:
+                self.shadow[name].mul_(self.decay).add_(p.detach().float(), alpha=one_minus)
+
+    def state_dict(self) -> dict[str, Any]:
+        """返回可写入 checkpoint 的 EMA 状态。"""
+        return {
+            "decay": self.decay,
+            "shadow": {name: tensor.cpu() for name, tensor in self.shadow.items()},
+        }
+
+    def load_state_dict(self, state: dict[str, Any], strict: bool = True) -> None:
+        """从 checkpoint 恢复 EMA shadow。"""
+        shadow = state.get("shadow", state)
+        if strict and set(shadow) != set(self.shadow):
+            missing = sorted(set(self.shadow) - set(shadow))
+            extra = sorted(set(shadow) - set(self.shadow))
+            raise RuntimeError(f"EMA state mismatch: missing={missing[:5]} extra={extra[:5]}")
+        if "decay" in state:
+            self.decay = float(state["decay"])
+        for name, tensor in shadow.items():
+            if name in self.shadow:
+                self.shadow[name] = tensor.detach().float().clone()
+
+    @contextmanager
+    def apply_to(self, model: torch.nn.Module):
+        """临时把 decoder 参数替换成 EMA shadow，退出时恢复原权重。"""
+        backup: dict[str, torch.Tensor] = {}
+        for name, p in model.named_parameters():
+            if name in self.shadow:
+                backup[name] = p.detach().clone()
+                with torch.no_grad():
+                    p.data.copy_(self.shadow[name].to(device=p.device, dtype=p.dtype))
+        try:
+            yield
+        finally:
+            for name, p in model.named_parameters():
+                if name in backup:
+                    with torch.no_grad():
+                        p.data.copy_(backup[name])
+
+
 class LeadMoTTrainRuntime:
+    """复用 runner 预处理路径的 runtime wrapper，Qwen/BEV 全部 frozen。"""
+
     def __init__(self, args: argparse.Namespace, device: torch.device) -> None:
         self.args = args
         self.device = device
 
+        # 训练入口按从 AutoMoT 目录启动设计，因此 model_dir 和 BEV ckpt
+        # 默认都相对 AutoMoT/checkpoints。
         qwen_dir = Path(args.model_dir).expanduser().resolve()
         if not qwen_dir.exists():
             raise FileNotFoundError(f"Qwen checkpoint not found: {qwen_dir}")
+
+        # 构造 runner 前先 patch 模块级路径。Qwen/BEV setup 由 runner 统一负责，
+        # 这样 train/eval/probe 与 offline inference 的行为保持一致。
         mot_runner.LEAD_BEV_CKPT_PATH = Path(args.lead_bev_ckpt).expanduser().resolve()
         mot_runner._QWEN_INSTRUCT_CHECKPOINT_DIR = qwen_dir
         self.runner = LeadOfflineMoTRunner(
@@ -361,6 +508,8 @@ class LeadMoTTrainRuntime:
         for param in self.runner.bev_encoder.parameters():
             param.requires_grad_(False)
 
+        # 多 rank 加载 Qwen 时错峰，避免所有 rank 同时猛读共享文件系统上的
+        # safetensors 权重文件。
         local_rank = int(os.environ.get("LOCAL_RANK", "0"))
         if local_rank > 0 and args.qwen_load_stagger_s > 0:
             time.sleep(local_rank * args.qwen_load_stagger_s)
@@ -372,6 +521,7 @@ class LeadMoTTrainRuntime:
             param.requires_grad_(False)
 
     def _build_clip(self, sample: dict[str, Any]):
+        """为一个 JSONL 样本构建 runner 实际使用的 clip dict。"""
         kwargs = dict(
             route_dir=Path(sample["route_dir"]),
             anchor=int(sample["anchor"]),
@@ -387,6 +537,7 @@ class LeadMoTTrainRuntime:
         )
         if self.args.verbose_samples:
             return build_clip_from_real_lead_route(**kwargs)
+        # builder 会打印逐样本 debug 行；正常训练时静默掉，保持日志可读。
         with open(os.devnull, "w", encoding="utf-8") as devnull, contextlib.redirect_stdout(devnull):
             return build_clip_from_real_lead_route(**kwargs)
 
@@ -397,8 +548,11 @@ class LeadMoTTrainRuntime:
         decoder_config: LeadMoTPlanningDecoderConfig,
         decoder_dtype: torch.dtype,
     ) -> dict[str, torch.Tensor]:
+        """先跑 frozen 预处理/prefill，再调用可训练 decoder。"""
         clip = self._build_clip(sample)
         clip_len = int(np.asarray(clip["rgb"]).shape[0])
+        # build_clip_from_real_lead_route 返回的 clip 里 anchor 永远是最后一帧，
+        # 因此 anchor_t = clip_len - 1。
         group = self.runner._build_group_indices(
             clip_len=clip_len,
             anchor_t=clip_len - 1,
@@ -415,6 +569,7 @@ class LeadMoTTrainRuntime:
         ) = self.runner._prepare_inference_inputs(clip, group)
 
         with torch.no_grad():
+            # Qwen 和 BEV 都 frozen；只有这个 block 后面的 decoder 调用参与 autograd。
             prompt_cleaned, _enable_thinking, _enable_mot_reasoning = build_cleaned_prompt_and_modes(target_point_speed)
             past_key_values, rope_position_offset = self.runner._run_leadmot_qwen_prefill(
                 rgb_pil_list=rgb_pil_list,
@@ -424,6 +579,8 @@ class LeadMoTTrainRuntime:
             bev_features = self.runner.bev_encoder(rgb=bev_rgb_tensor, lidar_bev=bev_lidar_tensor)["bev_feature"]
 
         status = target_point_speed.to(device=self.device, dtype=decoder_dtype)
+        # runner 给出的 target_point_speed 布局：
+        # [speed, target_x, target_y, next_target_x, next_target_y]。
         return decoder(
             pooled_kv=pooled_kv,
             bev=bev_features.to(device=self.device, dtype=decoder_dtype),
@@ -435,9 +592,11 @@ class LeadMoTTrainRuntime:
 
 
 def _make_scheduler(optimizer: torch.optim.Optimizer, total_steps: int, warmup_ratio: float):
+    """按 optimizer update step 创建 warmup + cosine LR schedule。"""
     warmup_steps = max(1, int(total_steps * warmup_ratio))
 
     def lr_lambda(step: int) -> float:
+        """返回某个 optimizer step 对应的学习率倍率。"""
         if step < warmup_steps:
             return float(step + 1) / float(warmup_steps)
         progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
@@ -456,28 +615,32 @@ def _save_checkpoint(
     epoch: int,
     step: int,
     best_val: float | None,
+    ema: "_DecoderEMA | None" = None,
 ) -> None:
+    """原子保存 decoder、optimizer、scheduler、config 和可选 EMA。"""
     module = decoder.module if hasattr(decoder, "module") else decoder
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f".{path.name}.tmp.{os.getpid()}")
-    torch.save(
-        {
-            "schema_version": 1,
-            "decoder": module.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "scheduler": scheduler.state_dict(),
-            "decoder_config": asdict(decoder_config),
-            "args": vars(args),
-            "epoch": epoch,
-            "step": step,
-            "best_val": best_val,
-        },
-        tmp_path,
-    )
+    payload = {
+        "schema_version": 1,
+        "decoder": module.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "decoder_config": asdict(decoder_config),
+        "args": vars(args),
+        "epoch": epoch,
+        "step": step,
+        "best_val": best_val,
+    }
+    if ema is not None:
+        payload["ema_state_dict"] = ema.state_dict()
+        payload["ema_decay"] = ema.decay
+    torch.save(payload, tmp_path)
     os.replace(tmp_path, path)
 
 
 def _write_best_meta(output_dir: Path, checkpoint: Path, val_loss: float, epoch: int, step: int) -> None:
+    """原子写出 best.pt 对应的人类可读元信息。"""
     meta = {
         "checkpoint": str(checkpoint),
         "val_loss": float(val_loss),
@@ -490,8 +653,7 @@ def _write_best_meta(output_dir: Path, checkpoint: Path, val_loss: float, epoch:
 
 
 def _prune_old_checkpoints(output_dir: Path, keep_recent: int, glob_pat: str) -> None:
-    # 按 glob 滚动淘汰对应池；best.pt / latest.pt 不在任何池里，永远保留。
-    # epoch 池 glob "checkpoint-epoch*.pt" 与 step 池 "step-checkpoint-*.pt" 前缀不同，互不污染。
+    """对某个滚动 checkpoint 池只保留最新的若干文件。"""
     if keep_recent <= 0:
         return
     ckpts = sorted(output_dir.glob(glob_pat))
@@ -507,7 +669,9 @@ def _load_checkpoint(
     decoder: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler.LRScheduler,
+    ema: "_DecoderEMA | None" = None,
 ) -> tuple[int, int, float | None]:
+    """恢复 decoder、optimizer、scheduler 和可选 EMA 状态。"""
     state = torch.load(path, map_location="cpu")
     schema = int(state.get("schema_version", 0))
     if schema != 1:
@@ -516,15 +680,158 @@ def _load_checkpoint(
     module.load_state_dict(state["decoder"], strict=True)
     optimizer.load_state_dict(state["optimizer"])
     scheduler.load_state_dict(state["scheduler"])
+    if ema is not None:
+        ema_sd = state.get("ema_state_dict")
+        if ema_sd is not None:
+            ema.load_state_dict(ema_sd, strict=True)
+            print(f"[resume] EMA restored (decay={state.get('ema_decay', ema.decay)})")
+        else:
+            print("[resume] WARN: --ema-decay set but checkpoint has no ema_state_dict; "
+                  "EMA shadow re-initialized from current decoder weights.")
     return int(state.get("epoch", 0)), int(state.get("step", 0)), state.get("best_val")
 
 
 def _load_decoder_only(path: Path, decoder: torch.nn.Module) -> None:
+    """只加载 decoder 权重，不加载 optimizer/scheduler，用于 init-from-ckpt。"""
     state = torch.load(path, map_location="cpu")
     state_dict = state["decoder"] if isinstance(state, dict) and "decoder" in state else state
     module = decoder.module if hasattr(decoder, "module") else decoder
     module.load_state_dict(state_dict, strict=True)
 
+
+# ============================================================
+# TensorBoard planning overlay 辅助函数。
+# ============================================================
+def _render_planning_overlay_np(
+    pred_route: torch.Tensor,
+    gt_route: torch.Tensor,
+    pred_wp: torch.Tensor,
+    gt_wp: torch.Tensor,
+    title: str = "",
+) -> np.ndarray:
+    """把 route/waypoint 的预测与 GT 渲染成 TensorBoard RGB 图。
+
+    这里用 PIL 而不是 matplotlib，避免远程训练任务依赖图形后端。
+    """
+    from PIL import Image, ImageDraw  # 延迟 import，减轻 train 启动路径。
+
+    width, height = 540, 360
+    margin = 32
+    img = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(img)
+    all_pts = torch.cat([pred_route, gt_route, pred_wp, gt_wp], dim=0).cpu().float()
+    max_x = max(float(all_pts[:, 0].max().item()), 10.0)
+    min_x = min(float(all_pts[:, 0].min().item()), 0.0)
+    max_abs_y = max(float(all_pts[:, 1].abs().max().item()), 5.0)
+
+    def project(pt):
+        """把 ego-frame 米制坐标映射到图像像素。"""
+        x = float(pt[0])
+        y = float(pt[1])
+        px = margin + (x - min_x) / max(max_x - min_x, 1e-6) * (width - 2 * margin)
+        py = height / 2 - y / max(max_abs_y, 1e-6) * (height / 2 - margin)
+        return (px, py)
+
+    # 参考轴能让横向/前向尺度错误在 TensorBoard 上更容易被看出来。
+    draw.line([(margin, height / 2), (width - margin, height / 2)], fill=(220, 220, 220), width=1)
+    draw.line([project((0.0, -max_abs_y)), project((0.0, max_abs_y))], fill=(220, 220, 220), width=1)
+
+    def poly(points, color, legend_row, label):
+        """画一条轨迹折线和对应图例。"""
+        pts = [project(p) for p in points]
+        if len(pts) >= 2:
+            draw.line(pts, fill=color, width=2)
+        for p in pts:
+            draw.ellipse((p[0] - 2, p[1] - 2, p[0] + 2, p[1] + 2), fill=color)
+        draw.text((margin, 8 + legend_row * 14), label, fill=color)
+
+    poly(gt_route, (40, 120, 220), 0, "gt route")
+    poly(pred_route, (20, 70, 150), 1, "pred route")
+    poly(gt_wp, (30, 160, 70), 2, "gt waypoint")
+    poly(pred_wp, (210, 90, 40), 3, "pred waypoint")
+    if title:
+        draw.text((margin, height - 18), title, fill=(80, 80, 80))
+    return np.asarray(img, dtype=np.uint8)
+
+
+@torch.no_grad()
+def _log_image_samples(
+    writer: Any,
+    runtime: "LeadMoTTrainRuntime",
+    decoder: torch.nn.Module,
+    decoder_config: LeadMoTPlanningDecoderConfig,
+    val_samples: list[dict[str, Any]],
+    args: argparse.Namespace,
+    decoder_dtype: torch.dtype,
+    step: int,
+    ema: "_DecoderEMA | None",
+) -> None:
+    """周期性记录 raw/EMA 权重的 prediction-vs-GT overlay。
+
+    decoder 参数必须传未包 DDP 的原始 module，因为 EMA shadow key 不带 DDP
+    的 "module." 前缀。
+    """
+    if writer is None or not val_samples or args.image_log_samples <= 0:
+        return
+
+    def _to_tb(panels: list[np.ndarray]) -> torch.Tensor | None:
+        """把 HWC uint8 panel 转成 TensorBoard 需要的 NCHW float tensor。"""
+        if not panels:
+            return None
+        arr = np.stack(panels, axis=0).astype(np.float32) / 255.0
+        return torch.from_numpy(arr).permute(0, 3, 1, 2).contiguous()
+
+    decoder.eval()
+    try:
+        take = min(args.image_log_samples, len(val_samples))
+        rng = random.Random(args.image_log_seed + step)
+        picked = rng.sample(val_samples, take) if len(val_samples) > take else list(val_samples)
+
+        panels_raw: list[np.ndarray] = []
+        panels_ema: list[np.ndarray] = []
+        for sample in picked:
+            try:
+                gt_route, gt_wp = _extract_targets(sample, args.route_points, args.waypoint_points, args.smooth_route)
+                gt_route_b = gt_route.unsqueeze(0).to(runtime.device)
+                gt_wp_b = gt_wp.unsqueeze(0).to(runtime.device)
+
+                outputs = runtime.forward_sample(sample, decoder, decoder_config, decoder_dtype)
+                metrics = _compute_planning_metrics(outputs, gt_route_b, gt_wp_b)
+                panels_raw.append(
+                    _render_planning_overlay_np(
+                        outputs["pred_route"][0].cpu().float(),
+                        gt_route.cpu().float(),
+                        outputs["pred_future_waypoints"][0].cpu().float(),
+                        gt_wp.cpu().float(),
+                        title=f"raw step={step} route_fde={metrics['route_fde_m']:.2f}m wp_fde={metrics['waypoint_fde_m']:.2f}m",
+                    )
+                )
+
+                if ema is not None:
+                    with ema.apply_to(decoder):
+                        outputs_ema = runtime.forward_sample(sample, decoder, decoder_config, decoder_dtype)
+                    metrics_ema = _compute_planning_metrics(outputs_ema, gt_route_b, gt_wp_b)
+                    panels_ema.append(
+                        _render_planning_overlay_np(
+                            outputs_ema["pred_route"][0].cpu().float(),
+                            gt_route.cpu().float(),
+                            outputs_ema["pred_future_waypoints"][0].cpu().float(),
+                            gt_wp.cpu().float(),
+                            title=f"ema step={step} route_fde={metrics_ema['route_fde_m']:.2f}m wp_fde={metrics_ema['waypoint_fde_m']:.2f}m",
+                        )
+                    )
+            except Exception as exc:
+                print(f"[image-log] skip {sample.get('route_dir')}@{sample.get('anchor')}: {exc}", flush=True)
+                continue
+
+        raw_grid = _to_tb(panels_raw)
+        if raw_grid is not None:
+            writer.add_images("samples/planning_overlay_raw", raw_grid, step, dataformats="NCHW")
+        ema_grid = _to_tb(panels_ema)
+        if ema_grid is not None:
+            writer.add_images("samples/planning_overlay_ema", ema_grid, step, dataformats="NCHW")
+    finally:
+        decoder.train()
 
 @torch.no_grad()
 def _validate(
@@ -536,47 +843,95 @@ def _validate(
     decoder_dtype: torch.dtype,
     rank: int = 0,
     world_size: int = 1,
-) -> float:
+    ema: "_DecoderEMA | None" = None,
+) -> dict[str, float]:
+    """运行分片 validation，并在各 rank 间 all-reduce 汇总。
+
+    decoder 必须是 unwrapped module。DDP 只用于训练梯度；
+    validation 走 no_grad，并只 reduce scalar 累加量。
+    """
+    nan_summary = {"loss": float("nan"), "route_ade_m": float("nan"), "route_fde_m": float("nan"), "waypoint_ade_m": float("nan"), "waypoint_fde_m": float("nan")}
     if not samples:
-        return float("nan")
+        return nan_summary
     decoder.eval()
-    total = 0.0
-    count = 0
     if args.val_max_samples > 0 and len(samples) > args.val_max_samples:
         rng = random.Random(args.val_sample_seed)
         limited_samples = rng.sample(samples, args.val_max_samples)
     else:
         limited_samples = list(samples)
-    for sample in limited_samples[rank::world_size]:
-        # 与 eval 同理：val 的 all_reduce 在循环后一次完成，坏样本 skip 不破坏 DDP 同步。
-        try:
-            outputs = runtime.forward_sample(sample, decoder, decoder_config, decoder_dtype)
-            gt_route, gt_wp = _extract_targets(sample, args.route_points, args.waypoint_points, args.smooth_route)
-            gt_route = gt_route.unsqueeze(0).to(runtime.device)
-            gt_wp = gt_wp.unsqueeze(0).to(runtime.device)
-            loss, _route_loss, _wp_loss = _planning_loss(
-                outputs, gt_route, gt_wp, args.route_loss_weight, args.waypoint_loss_weight, args.loss_type
-            )
-        except Exception as exc:
-            if rank == 0:
-                print(
-                    f"[skip-val] sample={sample.get('route_dir')}@{sample.get('anchor')}: "
-                    f"{type(exc).__name__}: {exc}",
-                    flush=True,
+
+    def _run_pass() -> tuple[float, dict[str, float], int]:
+        """运行当前 rank 的 validation shard，并返回本地累加量。"""
+        total_loss = 0.0
+        agg = {"route_ade_m": 0.0, "route_fde_m": 0.0, "waypoint_ade_m": 0.0, "waypoint_fde_m": 0.0}
+        local_count = 0
+        for sample in limited_samples[rank::world_size]:
+            try:
+                outputs = runtime.forward_sample(sample, decoder, decoder_config, decoder_dtype)
+                gt_route, gt_wp = _extract_targets(
+                    sample, args.route_points, args.waypoint_points, args.smooth_route
                 )
-            continue
-        total += float(loss.item())
-        count += 1
-    decoder.train()
+                gt_route = gt_route.unsqueeze(0).to(runtime.device)
+                gt_wp = gt_wp.unsqueeze(0).to(runtime.device)
+                loss, _route_loss, _wp_loss = _planning_loss(
+                    outputs, gt_route, gt_wp,
+                    args.route_loss_weight, args.waypoint_loss_weight, args.loss_type,
+                )
+                metrics = _compute_planning_metrics(outputs, gt_route, gt_wp)
+            except Exception as exc:
+                if rank == 0:
+                    print(
+                        f"[skip-val] sample={sample.get('route_dir')}@{sample.get('anchor')}: "
+                        f"{type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
+                continue
+            total_loss += float(loss.item())
+            for key in agg:
+                agg[key] += metrics[key]
+            local_count += 1
+        return total_loss, agg, local_count
+
+    try:
+        if ema is not None:
+            with ema.apply_to(decoder):
+                total, agg, count = _run_pass()
+        else:
+            total, agg, count = _run_pass()
+    finally:
+        # 与 _log_image_samples 同理：无论 _run_pass 是否抛异常都恢复 train。
+        # apply_to 自己的 try/finally 会把 shadow 写回 backup，不污染原权重。
+        decoder.train()
+
     if dist.is_available() and dist.is_initialized():
-        packed = torch.tensor([total, float(count)], device=runtime.device, dtype=torch.float64)
+        packed = torch.tensor(
+            [total, agg["route_ade_m"], agg["route_fde_m"], agg["waypoint_ade_m"], agg["waypoint_fde_m"], float(count)],
+            device=runtime.device,
+            dtype=torch.float64,
+        )
         dist.all_reduce(packed, op=dist.ReduceOp.SUM)
         total = float(packed[0].item())
-        count = int(packed[1].item())
-    return total / max(1, count)
+        agg = {
+            "route_ade_m": float(packed[1].item()),
+            "route_fde_m": float(packed[2].item()),
+            "waypoint_ade_m": float(packed[3].item()),
+            "waypoint_fde_m": float(packed[4].item()),
+        }
+        count = int(packed[5].item())
+
+    if count <= 0:
+        return nan_summary
+    return {
+        "loss": total / count,
+        "route_ade_m": agg["route_ade_m"] / count,
+        "route_fde_m": agg["route_fde_m"] / count,
+        "waypoint_ade_m": agg["waypoint_ade_m"] / count,
+        "waypoint_fde_m": agg["waypoint_fde_m"] / count,
+    }
 
 
 def parse_args() -> argparse.Namespace:
+    """解析 train_v1 CLI 参数。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--train-jsonl", default="checkpoints/leadmot_v1_data/train.jsonl")
     parser.add_argument("--val-jsonl", default="checkpoints/leadmot_v1_data/val.jsonl")
@@ -586,7 +941,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume", default="")
     parser.add_argument("--init-from-ckpt", default="", help="Load decoder weights only and reset optimizer/scheduler.")
     parser.add_argument("--seed", type=int, default=2026)
-    # decoder 从零初始化（~150M），backbone 全冻结：多跑几个 epoch + 略高 LR 更易收敛。
+    # decoder 从零初始化（约 150M），backbone 全冻结：多跑几个 epoch + 略高 LR 更易收敛。
     parser.add_argument("--num-epochs", type=int, default=3)
     parser.add_argument("--max-train-steps", type=int, default=0)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
@@ -624,10 +979,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit-val-samples", type=int, default=0)
     parser.add_argument("--verbose-samples", action="store_true")
     parser.add_argument("--no-tb", action="store_true")
+    # ---- EMA ----
+    # 默认开 EMA，decay=0.999 适配 LeadMoT 默认 3 epoch 短 schedule（warmup ~500 step）；
+    # 长 schedule（>= 10 epoch）可考虑 0.9999 但需相应延长 warmup。--no-ema 关闭。
+    parser.add_argument("--ema", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--ema-decay", type=float, default=0.999)
+    # ---- TB 图像样例（预测 vs 真值 overlay） ----
+    parser.add_argument("--image-log-every", type=int, default=1000,
+                        help="Write planning overlay images to TB every N optimizer steps; 0 disables.")
+    parser.add_argument("--image-log-samples", type=int, default=4,
+                        help="How many val samples to render per image-log step.")
+    parser.add_argument("--image-log-seed", type=int, default=20260101,
+                        help="Base seed for picking image-log samples; full seed = base + step.")
     return parser.parse_args()
 
 
 def main() -> None:
+    """在 Qwen 和 BEV encoder 保持 frozen 时训练 decoder。"""
     args = parse_args()
     _setup_offline_env()
     os.environ.setdefault("QWEN3VL_LOCAL_DTYPE", args.qwen_dtype)
@@ -644,10 +1012,10 @@ def main() -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    # TF32 matmul：bf16/fp32 路径启用 TensorCore TF32 加速，精度损失可忽略，不抬显存峰值。
+    # 在 Ampere/Hopper GPU 上允许 TF32 matmul，换取更高吞吐。
     torch.set_float32_matmul_precision("high")
-    # cuDNN benchmark 默认关（首见 conv shape 时探测多 algorithm 会抬高瞬时 workspace 峰值）；
-    # 显存有余量想要那点速度时导出 LEADMOT_CUDNN_BENCHMARK=1 显式开启。
+    # cuDNN benchmark 默认关：首见 conv shape 时探测多种 algorithm 会抬高瞬时 workspace 峰值；
+    # 显存有余量想要那点速度时设 LEADMOT_CUDNN_BENCHMARK=1 显式开启。
     torch.backends.cudnn.benchmark = os.environ.get("LEADMOT_CUDNN_BENCHMARK", "0") == "1"
     train_rows = _read_jsonl(Path(args.train_jsonl))
     val_rows = _read_jsonl(Path(args.val_jsonl)) if Path(args.val_jsonl).exists() else []
@@ -685,22 +1053,30 @@ def main() -> None:
         total_steps = min(total_steps, args.max_train_steps)
     scheduler = _make_scheduler(optimizer, total_steps, args.warmup_ratio)
 
+    # EMA shadow 必须在 DDP wrap 之前对 unwrapped 创建：apply_to / update 都 walk
+    # named_parameters，DDP 包后 key 多 "module." 前缀会全部 miss。Resume 时把
+    # EMA 一起 load 进来，让恢复后的 EMA shadow 跟训练状态一致。
+    ema = _DecoderEMA(decoder, decay=args.ema_decay) if args.ema else None
+
     start_epoch = 0
     global_step = 0
     best_val: float | None = None
     if args.resume:
-        start_epoch, global_step, best_val = _load_checkpoint(Path(args.resume), decoder, optimizer, scheduler)
+        start_epoch, global_step, best_val = _load_checkpoint(
+            Path(args.resume), decoder, optimizer, scheduler, ema=ema
+        )
 
     runtime = LeadMoTTrainRuntime(args, device)
     _barrier()
 
     if world_size > 1:
-        # find_unused_parameters=True：配合坏数据占位 loss / dropout 分支，保证个别 micro-step
-        # 有参数未 fire 时 DDP reducer 不挂死；遗遍参数图开销 <1%，与 GoalGen 一致。
+        # find_unused_parameters=False：占位 loss 已显式触及全部可训参数（sum(p.sum()) * 0），
+        # 每个 micro-step 上每个 param 都进入计算图；不需要 reducer 多扫一遍 unused。
+        # 关掉省 1-3% 吞吐，且避免少数坏 sample 时 reducer 的额外路径。
         decoder = DistributedDataParallel(
             decoder,
             device_ids=[local_rank] if device.type == "cuda" else None,
-            find_unused_parameters=True,
+            find_unused_parameters=False,
         )
 
     writer = None
@@ -714,26 +1090,25 @@ def main() -> None:
 
     if rank == 0:
         module = decoder.module if hasattr(decoder, "module") else decoder
-        print(
-            json.dumps(
-                {
-                    "train_rows": len(train_rows),
-                    "rank_rows": len(rank_rows),
-                    "val_rows": len(val_rows),
-                    "world_size": world_size,
-                    "device": str(device),
-                    "lr": args.learning_rate,
-                    "epochs": args.num_epochs,
-                    "grad_accum": args.grad_accum_steps,
-                    "total_steps": total_steps,
-                    "loss_type": args.loss_type,
-                    "leadmot_rope_type": args.leadmot_rope_type,
-                    "trainable_params": sum(p.numel() for p in module.parameters() if p.requires_grad),
-                    "label_semantics": "absolute ego-frame route/future_waypoints; decoder heads cumsum internal deltas",
-                },
-                ensure_ascii=False,
-            )
-        )
+        startup_log = {
+            "train_rows": len(train_rows),
+            "rank_rows": len(rank_rows),
+            "val_rows": len(val_rows),
+            "world_size": world_size,
+            "device": str(device),
+            "lr": args.learning_rate,
+            "epochs": args.num_epochs,
+            "grad_accum": args.grad_accum_steps,
+            "total_steps": total_steps,
+            "loss_type": args.loss_type,
+            "leadmot_rope_type": args.leadmot_rope_type,
+            "ema": bool(args.ema),
+            "ema_decay": float(args.ema_decay) if args.ema else None,
+            "image_log_every": int(args.image_log_every),
+            "label_semantics": "absolute ego-frame route/future_waypoints; decoder heads cumsum internal deltas",
+            **_param_breakdown(decoder, runtime),
+        }
+        print(json.dumps(startup_log, ensure_ascii=False))
 
     decoder.train()
     optimizer.zero_grad(set_to_none=True)
@@ -748,9 +1123,8 @@ def main() -> None:
             is_update = (micro_idx + 1) % args.grad_accum_steps == 0 or (micro_idx + 1) == len(epoch_rows)
             sync_ctx = decoder.no_sync() if world_size > 1 and not is_update else contextlib.nullcontext()
             with sync_ctx:
-                # 坏数据（缺帧 / LAZ 损坏 / meta 解压失败）随时可能 raise。这里做 DDP-safe
-                # 兜底：失败时构造一个触及全部可训练参数的 0 loss，backward + all-reduce 仍能走完，
-                # 各 rank 的 micro 步数和 is_update 边界完全一致，不会让 NCCL collective 错位挂死。
+                # 大规模离线数据里可能出现坏样本。失败样本也必须让每个 rank
+                # 走一次 backward，否则 DDP collective 可能错位。
                 try:
                     outputs = runtime.forward_sample(sample, decoder, decoder_config, decoder_dtype)
                     gt_route, gt_wp = _extract_targets(sample, args.route_points, args.waypoint_points, args.smooth_route)
@@ -759,6 +1133,8 @@ def main() -> None:
                     loss, route_loss, waypoint_loss = _planning_loss(
                         outputs, gt_route, gt_wp, args.route_loss_weight, args.waypoint_loss_weight, args.loss_type
                     )
+                    # 米制指标和 loss 一起记，方便看曲线时做 sanity check。
+                    train_metrics = _compute_planning_metrics(outputs, gt_route, gt_wp)
                     micro_loss = loss / max(1, args.grad_accum_steps)
                 except Exception as exc:
                     if rank == 0 or args.verbose_samples:
@@ -767,8 +1143,8 @@ def main() -> None:
                             f"{type(exc).__name__}: {exc}",
                             flush=True,
                         )
-                    # 触及全部参数的占位 loss：保证 DDP reducer 对所有参数都 fire（与正常 forward 一致），
-                    # 且梯度恒为 0，不污染本次 accumulation。
+                    # 用 0 loss 触碰所有可训练参数。梯度仍是 0，
+                    # 但 DDP reducer 能看到一致的计算图。
                     placeholder = sum(
                         p.sum() for p in decoder_module.parameters() if p.requires_grad
                     )
@@ -776,6 +1152,12 @@ def main() -> None:
                     loss = torch.zeros((), device=device)
                     route_loss = torch.zeros((), device=device)
                     waypoint_loss = torch.zeros((), device=device)
+                    train_metrics = {
+                        "route_ade_m": float("nan"),
+                        "route_fde_m": float("nan"),
+                        "waypoint_ade_m": float("nan"),
+                        "waypoint_fde_m": float("nan"),
+                    }
                 micro_loss.backward()
 
             if is_update:
@@ -784,6 +1166,9 @@ def main() -> None:
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
+                if ema is not None:
+                    # EMA 必须在 optimizer.step() 后更新，否则会慢一个 step。
+                    ema.update(decoder_module)
                 global_step += 1
 
                 if rank == 0 and global_step % args.logging_steps == 0:
@@ -792,6 +1177,8 @@ def main() -> None:
                     print(
                         f"step={global_step} epoch={epoch + 1} loss={loss.item():.4f} "
                         f"route={route_loss.item():.4f} wp={waypoint_loss.item():.4f} "
+                        f"route_fde={train_metrics['route_fde_m']:.2f}m "
+                        f"wp_fde={train_metrics['waypoint_fde_m']:.2f}m "
                         f"grad={float(grad_norm):.3f} lr={lr:.3e} updates/s={args.logging_steps / elapsed:.4f}"
                     )
                     if writer is not None:
@@ -799,40 +1186,108 @@ def main() -> None:
                         writer.add_scalar("train/route_loss", route_loss.item(), global_step)
                         writer.add_scalar("train/waypoint_loss", waypoint_loss.item(), global_step)
                         writer.add_scalar("train/lr", lr, global_step)
+                        writer.add_scalar("train/grad_norm", float(grad_norm), global_step)
+                        for mkey, mval in train_metrics.items():
+                            if math.isfinite(mval):
+                                writer.add_scalar(f"train/{mkey}", mval, global_step)
                     log_start = time.time()
+
+                # 图像日志由 rank0 用 no_grad 额外跑一遍，前后用 barrier 包住。
+                # 用未包 DDP 的 module + no_grad，不触发 DDP 梯度同步，对后续训练 collective 无副作用。
+                # 每个 rank 每个 micro-step 仍会跑 backward，因此 NCCL 保持对齐。
+                do_image_log = (
+                    args.image_log_every > 0
+                    and global_step % args.image_log_every == 0
+                    and bool(val_rows)
+                )
+                if do_image_log:
+                    _barrier()
+                    if rank == 0:
+                        # rank0 渲染失败（PIL / OOM / TB writer）不应卡死其它 rank：
+                        # 其它 rank 已 barrier 等本步 rank0 完成，未捕获异常会让后续 barrier 永远等不到。
+                        # try/except 兜底：log 一行警告然后继续训练。decoder.eval()/train() 已在
+                        # _log_image_samples 内部 try/finally 保护；这里再包一层防御。
+                        try:
+                            _log_image_samples(
+                                writer=writer,
+                                runtime=runtime,
+                                decoder=module,
+                                decoder_config=decoder_config,
+                                val_samples=val_rows,
+                                args=args,
+                                decoder_dtype=decoder_dtype,
+                                step=global_step,
+                                ema=ema,
+                            )
+                        except Exception as exc:
+                            print(f"[image-log] step={global_step} failed: {type(exc).__name__}: {exc}", flush=True)
+                            # 保险：万一 decoder 残留在 eval 模式或 EMA 没还原，强制恢复。
+                            module.train()
+                    _barrier()
+                    decoder.train()
 
                 do_val = args.val_steps > 0 and bool(val_rows) and global_step % args.val_steps == 0
                 if do_val:
                     _barrier()
-                    val_loss = _validate(runtime, module, decoder_config, val_rows, args, decoder_dtype, rank, world_size)
+                    val_summary = _validate(
+                        runtime, module, decoder_config, val_rows, args, decoder_dtype,
+                        rank, world_size, ema=None,
+                    )
+                    val_summary_ema: dict[str, float] | None = None
+                    if ema is not None:
+                        _barrier()
+                        val_summary_ema = _validate(
+                            runtime, module, decoder_config, val_rows, args, decoder_dtype,
+                            rank, world_size, ema=ema,
+                        )
                     if rank == 0:
-                        print(f"val step={global_step} loss={val_loss:.4f}")
+                        msg = (
+                            f"val step={global_step} loss={val_summary['loss']:.4f} "
+                            f"route_fde={val_summary['route_fde_m']:.2f}m "
+                            f"wp_fde={val_summary['waypoint_fde_m']:.2f}m"
+                        )
+                        if val_summary_ema is not None:
+                            msg += (
+                                f" | ema loss={val_summary_ema['loss']:.4f} "
+                                f"route_fde={val_summary_ema['route_fde_m']:.2f}m "
+                                f"wp_fde={val_summary_ema['waypoint_fde_m']:.2f}m"
+                            )
+                        print(msg)
                         if writer is not None:
-                            writer.add_scalar("val/loss", val_loss, global_step)
-                        # NaN/inf 的 val_loss 视为无效，跳过更新，避免污染已有的 best.pt。
-                        if math.isfinite(val_loss) and (best_val is None or val_loss < best_val):
-                            best_val = val_loss
+                            for vkey, vval in val_summary.items():
+                                if math.isfinite(vval):
+                                    writer.add_scalar(f"val/{vkey}", vval, global_step)
+                            if val_summary_ema is not None:
+                                for vkey, vval in val_summary_ema.items():
+                                    if math.isfinite(vval):
+                                        writer.add_scalar(f"val_ema/{vkey}", vval, global_step)
+                        best_source = val_summary_ema if val_summary_ema is not None else val_summary
+                        best_candidate = best_source["loss"]
+                        if math.isfinite(best_candidate) and (best_val is None or best_candidate < best_val):
+                            best_val = best_candidate
                             _save_checkpoint(
                                 output_dir / "best.pt",
-                                decoder,
-                                optimizer,
-                                scheduler,
-                                decoder_config,
-                                args,
-                                epoch,
-                                global_step,
-                                best_val,
+                                decoder, optimizer, scheduler, decoder_config, args,
+                                epoch, global_step, best_val, ema=ema,
                             )
                             _write_best_meta(output_dir, output_dir / "best.pt", best_val, epoch + 1, global_step)
                     _barrier()
                     decoder.train()
 
                 if rank == 0 and args.save_steps > 0 and global_step % args.save_steps == 0:
-                    _save_checkpoint(output_dir / "latest.pt", decoder, optimizer, scheduler, decoder_config, args, epoch, global_step, best_val)
+                    _save_checkpoint(
+                        output_dir / "latest.pt",
+                        decoder, optimizer, scheduler, decoder_config, args,
+                        epoch, global_step, best_val, ema=ema,
+                    )
 
                 # step 级独立快照池：长 epoch 下也能拿到中间产物，与 epoch 池互不淘汰。
                 if rank == 0 and args.step_save_every > 0 and global_step % args.step_save_every == 0:
-                    _save_checkpoint(output_dir / f"step-checkpoint-{global_step:06d}.pt", decoder, optimizer, scheduler, decoder_config, args, epoch, global_step, best_val)
+                    _save_checkpoint(
+                        output_dir / f"step-checkpoint-{global_step:06d}.pt",
+                        decoder, optimizer, scheduler, decoder_config, args,
+                        epoch, global_step, best_val, ema=ema,
+                    )
                     _prune_old_checkpoints(output_dir, args.keep_recent_step_checkpoints, "step-checkpoint-*.pt")
 
                 if args.max_train_steps > 0 and global_step >= args.max_train_steps:
@@ -840,8 +1295,16 @@ def main() -> None:
                     break
 
         if rank == 0:
-            _save_checkpoint(output_dir / f"checkpoint-epoch{epoch + 1:02d}.pt", decoder, optimizer, scheduler, decoder_config, args, epoch + 1, global_step, best_val)
-            _save_checkpoint(output_dir / "latest.pt", decoder, optimizer, scheduler, decoder_config, args, epoch + 1, global_step, best_val)
+            _save_checkpoint(
+                output_dir / f"checkpoint-epoch{epoch + 1:02d}.pt",
+                decoder, optimizer, scheduler, decoder_config, args,
+                epoch + 1, global_step, best_val, ema=ema,
+            )
+            _save_checkpoint(
+                output_dir / "latest.pt",
+                decoder, optimizer, scheduler, decoder_config, args,
+                epoch + 1, global_step, best_val, ema=ema,
+            )
             _prune_old_checkpoints(output_dir, args.keep_recent_checkpoints, "checkpoint-epoch*.pt")
         if stop_training:
             break

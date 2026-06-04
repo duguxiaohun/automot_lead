@@ -27,9 +27,9 @@ NUM_EPOCHS="${NUM_EPOCHS:-3}"
 GRAD_ACC="${GRAD_ACC:-8}"
 LOGGING_STEPS="${LOGGING_STEPS:-20}"
 SAVE_STEPS="${SAVE_STEPS:-500}"
-KEEP_RECENT_CHECKPOINTS="${KEEP_RECENT_CHECKPOINTS:-3}"  # epoch 全量 ckpt 滚动保留份数；best.pt/latest.pt 不受影响
-STEP_SAVE_EVERY="${STEP_SAVE_EVERY:-10000}"  # 每 N 步额外存一份 step-checkpoint-NNNNNN.pt；0 关闭
-KEEP_RECENT_STEP_CHECKPOINTS="${KEEP_RECENT_STEP_CHECKPOINTS:-3}"  # step ckpt 独立滚动池，与 epoch 池互不淘汰
+KEEP_RECENT_CHECKPOINTS="${KEEP_RECENT_CHECKPOINTS:-3}"
+STEP_SAVE_EVERY="${STEP_SAVE_EVERY:-10000}"
+KEEP_RECENT_STEP_CHECKPOINTS="${KEEP_RECENT_STEP_CHECKPOINTS:-3}"
 VAL_STEPS="${VAL_STEPS:-500}"
 VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-64}"
 VAL_SAMPLE_SEED="${VAL_SAMPLE_SEED:-202607}"
@@ -41,6 +41,14 @@ DECODER_DROPOUT="${DECODER_DROPOUT:-0.1}"
 DECODER_DTYPE="${DECODER_DTYPE:-bfloat16}"
 QWEN_DTYPE="${QWEN_DTYPE:-bfloat16}"
 QWEN_LOAD_STAGGER_S="${QWEN_LOAD_STAGGER_S:-2.0}"
+# EMA defaults on. Set EMA=0 to save raw-only checkpoints.
+# Longer schedules can try EMA_DECAY=0.9999; short runs should keep 0.999.
+EMA="${EMA:-1}"
+EMA_DECAY="${EMA_DECAY:-0.999}"
+# TensorBoard planning overlays; set IMAGE_LOG_EVERY=0 to disable.
+IMAGE_LOG_EVERY="${IMAGE_LOG_EVERY:-1000}"
+IMAGE_LOG_SAMPLES="${IMAGE_LOG_SAMPLES:-4}"
+IMAGE_LOG_SEED="${IMAGE_LOG_SEED:-20260101}"
 RGB_FRAME_COUNT="${RGB_FRAME_COUNT:-4}"
 RGB_FRAME_STEP="${RGB_FRAME_STEP:-1}"
 BEV_FRAME_COUNT="${BEV_FRAME_COUNT:-1}"
@@ -137,6 +145,10 @@ common_args=(
   --decoder-dtype "${DECODER_DTYPE}"
   --qwen-dtype "${QWEN_DTYPE}"
   --qwen-load-stagger-s "${QWEN_LOAD_STAGGER_S}"
+  --ema-decay "${EMA_DECAY}"
+  --image-log-every "${IMAGE_LOG_EVERY}"
+  --image-log-samples "${IMAGE_LOG_SAMPLES}"
+  --image-log-seed "${IMAGE_LOG_SEED}"
   --rgb-frame-count "${RGB_FRAME_COUNT}"
   --rgb-frame-step "${RGB_FRAME_STEP}"
   --bev-frame-count "${BEV_FRAME_COUNT}"
@@ -151,6 +163,13 @@ if [[ -n "${RESUME}" ]]; then
 fi
 if [[ -n "${INIT_FROM_CKPT}" ]]; then
   common_args+=(--init-from-ckpt "${INIT_FROM_CKPT}")
+fi
+# EMA=0 disables EMA; eval/probe default to --use-ema and fall back to raw if missing.
+# Raw-only checkpoints remain compatible with eval/probe.
+if [[ "${EMA}" == "0" ]]; then
+  common_args+=(--no-ema)
+else
+  common_args+=(--ema)
 fi
 
 case "${MODE}" in
@@ -168,6 +187,7 @@ case "${MODE}" in
       --max-train-steps "${MAX_TRAIN_STEPS:-2}" \
       --save-steps 0 \
       --val-steps 0 \
+      --image-log-every 0 \
       --no-tb \
       ${EXTRA_ARGS}
     ;;
@@ -223,11 +243,11 @@ esac
 if [[ "${MODE}" != "check" ]]; then
   echo ""
   echo "============================================================"
-  echo "[hint] TensorBoard（训练曲线 + eval 标量同板对比）："
+  echo "[hint] TensorBoard:"
   echo "  bash tools/tb_serve.sh ${OUTPUT_DIR}"
-  echo "[hint] 离线 eval（多卡分片）："
+  echo "[hint] offline eval:"
   echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval_v1.py --save-root ${OUTPUT_DIR}"
-  echo "[hint] case 级 probe（dump 预测 vs 真值对比图）："
+  echo "[hint] case probe:"
   echo "  python qwen3vl_local/leadmot/probe_v1.py --save-root ${OUTPUT_DIR}"
   echo "============================================================"
 fi
