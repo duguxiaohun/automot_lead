@@ -45,7 +45,7 @@ python qwen3vl_local/leadmot/build_dataset_v1.py \
 - anchor meta 的 `route`：按 LEAD 训练语义先取 `route[:20]`，执行等价 `smooth_path(target_first_distance=2.5)`，再取前 10 点监督 `pred_route`。
 - anchor meta 的 `future_positions[[5,10,...,40]]`：监督 8 个未来 waypoint，LEAD 4Hz 下覆盖 2s。
 
-默认 `--samples-per-scenario 0` 与 GoalGen 一致，表示每个 scenario 保留所有合法 anchor；传正整数时按 route-balanced 方式抽样。默认 `--stride 5`，让相邻 anchor 大约间隔 1 秒，减少高度重叠的伪样本；如需全量密集 anchor，可显式 `--stride 1`。train/val 按 route 切分，避免同一路线相邻 anchor 同时进入训练和验证。构建器输出 `train.jsonl` / `val.jsonl` / `stats.json`。建议构建正式训练索引时加 `--check-readable`，提前按训练实际读取集合检查历史 RGB/meta/LAZ、anchor 标签 meta，以及 TP/NTP 未来 meta，过滤缺文件或 meta 解压失败的样本，避免 DDP 训练中单条坏样本造成 collective 错位。
+默认 `--samples-per-scenario 0` 与 GoalGen 一致，表示每个 scenario 保留所有合法 anchor；传正整数时按 route-balanced 方式抽样。默认 `--stride 5`，让相邻 anchor 大约间隔 1 秒，减少高度重叠的伪样本；如需全量密集 anchor，可显式 `--stride 1`。train/val 按 route 切分，避免同一路线相邻 anchor 同时进入训练和验证。构建器输出 `train.jsonl` / `val.jsonl` / `stats.json`。`--check-readable` 可选但默认**不推荐**：开了之后每个 anchor 要做 6 次 lzma + 12 次 file stat，几百 route 数据集会变成几小时；train_v1 已经有 DDP-safe 占位 loss 兜底坏样本，不再需要在构建期预校验。
 
 当前不做 Qwen pooled KV 离线缓存。原因是 prompt / RoPE / prefix 组织还在迭代期，prompt 一改缓存就失效；训练先保证范式正确，再考虑缓存工程。
 
