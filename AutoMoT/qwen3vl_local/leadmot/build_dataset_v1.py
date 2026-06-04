@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import lzma
 import math
-import pickle
 import random
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -43,82 +41,6 @@ def _count_frames(route_dir: Path) -> int:
     meta_count = len(list((route_dir / "metas").glob("*.pkl")))
     lidar_count = len(list((route_dir / "lidar").glob("*.laz")))
     return min(rgb_count, meta_count, lidar_count)
-
-
-def _frame_paths(route_dir: Path, frame_idx: int) -> tuple[Path, Path, Path]:
-    """返回某个 LEAD 帧号对应的 rgb/meta/lidar 路径。"""
-    stem = f"{frame_idx:04d}"
-    return (
-        route_dir / "rgb" / f"{stem}.jpg",
-        route_dir / "metas" / f"{stem}.pkl",
-        route_dir / "lidar" / f"{stem}.laz",
-    )
-
-
-def _load_meta(meta_path: Path) -> tuple[dict | None, str]:
-    """读取压缩的 LEAD meta pickle，失败时返回错误字符串。"""
-    try:
-        with lzma.open(meta_path, "rb") as f:
-            meta = pickle.load(f)
-    except Exception as exc:
-        return None, f"bad meta {meta_path.name}: {exc}"
-    if not isinstance(meta, dict):
-        return None, f"bad meta {meta_path.name}: expected dict, got {type(meta).__name__}"
-    return meta, ""
-
-
-def _sample_is_readable(route_dir: Path, anchor: int, frame_count: int, args: argparse.Namespace) -> tuple[bool, str]:
-    """检查 train_v1 处理一个 anchor 样本时实际需要的文件。
-
-    这个可选检查会多做 I/O，但能在 DDP 训练前发现缺失/损坏文件；
-    否则某个 rank 读到坏样本时可能拖住整场训练。
-    """
-    history_margin = max(
-        (max(1, args.rgb_frame_count) - 1) * max(1, args.rgb_frame_step),
-        (max(1, args.bev_frame_count) - 1) * max(1, args.bev_frame_step),
-    )
-    actual_start = max(0, anchor - history_margin)
-    tp_offset = int(round(float(args.target_point_lookahead_s) / max(1e-6, float(args.frame_interval_s))))
-    ntp_offset = int(round(float(args.next_target_point_lookahead_s) / max(1e-6, float(args.frame_interval_s))))
-
-    # 检查历史帧和未来 TP/NTP 帧时顺手复用已加载 meta，避免重复解压。
-    meta_cache: dict[int, dict] = {}
-    for frame_idx in range(actual_start, anchor + 1):
-        rgb_path, meta_path, lidar_path = _frame_paths(route_dir, frame_idx)
-        for path in (rgb_path, meta_path, lidar_path):
-            if not path.exists():
-                return False, f"missing {path.relative_to(route_dir)}"
-        meta, reason = _load_meta(meta_path)
-        if meta is None:
-            return False, reason
-        for key in ("pos_global", "theta"):
-            if key not in meta:
-                return False, f"missing {meta_path.name}[{key!r}]"
-        meta_cache[frame_idx] = meta
-
-        for future_idx in {
-            min(max(0, frame_idx + max(0, tp_offset)), frame_count - 1),
-            min(max(0, frame_idx + max(0, ntp_offset)), frame_count - 1),
-        }:
-            if future_idx in meta_cache:
-                continue
-            future_meta_path = route_dir / "metas" / f"{future_idx:04d}.pkl"
-            if not future_meta_path.exists():
-                return False, f"missing {future_meta_path.relative_to(route_dir)}"
-            future_meta, reason = _load_meta(future_meta_path)
-            if future_meta is None:
-                return False, reason
-            if "pos_global" not in future_meta:
-                return False, f"missing {future_meta_path.name}['pos_global']"
-            meta_cache[future_idx] = future_meta
-
-    anchor_meta = meta_cache.get(anchor)
-    if anchor_meta is None:
-        return False, "anchor meta not loaded"
-    for key in ("route", "future_positions"):
-        if key not in anchor_meta:
-            return False, f"missing anchor meta[{key!r}]"
-    return True, ""
 
 
 def _route_name(data_root: Path, route_dir: Path) -> tuple[str, str]:
@@ -220,7 +142,6 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
     scenario_route_counts: Counter[str] = Counter()
     route_count = 0
     skipped_routes = 0
-    skipped_samples = 0
 
     for route_dir in _iter_route_dirs(data_root):
         route_count += 1
@@ -235,32 +156,26 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
         anchors = list(range(first_anchor, last_anchor_exclusive, max(1, args.stride)))
         scenario, route_id = _route_name(data_root, route_dir)
         scenario_route_counts[scenario] += 1
-        route_candidates: list[dict] = []
-        for anchor in anchors:
-            if args.check_readable:
-                ok, reason = _sample_is_readable(route_dir, anchor, frame_count, args)
-                if not ok:
-                    skipped_samples += 1
-                    if args.verbose_skips:
-                        print(f"[skip] {route_dir}@{anchor:04d}: {reason}")
-                    continue
-            route_candidates.append(
-                {
-                    "schema_version": 1,
-                    "scenario": scenario,
-                    "route_id": route_id,
-                    "route_dir": str(route_dir),
-                    "anchor": anchor,
-                    "frame_interval_s": args.frame_interval_s,
-                    "rgb_frame_count": args.rgb_frame_count,
-                    "rgb_frame_step": args.rgb_frame_step,
-                    "bev_frame_count": args.bev_frame_count,
-                    "bev_frame_step": args.bev_frame_step,
-                    "target_point_lookahead_s": args.target_point_lookahead_s,
-                    "next_target_point_lookahead_s": args.next_target_point_lookahead_s,
-                    "future_waypoint_indices": args.future_waypoint_indices,
-                }
-            )
+        # 不再做 lzma/pickle 预校验：每 anchor 6 次解压在大数据集上让构建从分钟级
+        # 变成几小时；train_v1 已经有 DDP-safe 占位 loss 兜底坏样本，预校验不再必要。
+        route_candidates = [
+            {
+                "schema_version": 1,
+                "scenario": scenario,
+                "route_id": route_id,
+                "route_dir": str(route_dir),
+                "anchor": anchor,
+                "frame_interval_s": args.frame_interval_s,
+                "rgb_frame_count": args.rgb_frame_count,
+                "rgb_frame_step": args.rgb_frame_step,
+                "bev_frame_count": args.bev_frame_count,
+                "bev_frame_step": args.bev_frame_step,
+                "target_point_lookahead_s": args.target_point_lookahead_s,
+                "next_target_point_lookahead_s": args.next_target_point_lookahead_s,
+                "future_waypoint_indices": args.future_waypoint_indices,
+            }
+            for anchor in anchors
+        ]
         candidates_by_scenario[scenario].extend(route_candidates)
 
     samples: list[dict] = []
@@ -286,7 +201,6 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
         "data_root": str(data_root),
         "route_count": route_count,
         "skipped_routes": skipped_routes,
-        "skipped_samples": skipped_samples,
         "samples": len(samples),
         "scenario_stats": scenario_stats,
     }
@@ -311,8 +225,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--stride", type=int, default=5, help="Default 5 keeps anchors roughly 1 second apart for LEAD 4Hz data.")
     parser.add_argument("--samples-per-scenario", type=int, default=0, help="0 keeps all valid anchors per scenario; positive values sample a route-balanced subset.")
-    parser.add_argument("--check-readable", action="store_true", help="Verify sampled history rgb/laz/meta and future TP/NTP meta before writing JSONL.")
-    parser.add_argument("--verbose-skips", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="Keep at most 50 samples per scenario and still write train/val/stats.")
     parser.add_argument("--min-anchor", type=int, default=0)
     parser.add_argument("--frame-interval-s", type=float, default=0.25)
