@@ -81,6 +81,7 @@ def _dump_invocation(output_dir: Path, rank: int = 0) -> None:
             "HF_HOME",
             "HF_HUB_OFFLINE",
             "TRANSFORMERS_OFFLINE",
+            "LEADMOT_CUDNN_BENCHMARK",
         )
         try:
             git = _subprocess.run(
@@ -508,6 +509,9 @@ def _load_checkpoint(
     scheduler: torch.optim.lr_scheduler.LRScheduler,
 ) -> tuple[int, int, float | None]:
     state = torch.load(path, map_location="cpu")
+    schema = int(state.get("schema_version", 0))
+    if schema != 1:
+        print(f"[resume] warning: checkpoint schema_version={schema} != 1, fields may have drifted: {path}")
     module = decoder.module if hasattr(decoder, "module") else decoder
     module.load_state_dict(state["decoder"], strict=True)
     optimizer.load_state_dict(state["optimizer"])
@@ -640,6 +644,11 @@ def main() -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
 
+    # TF32 matmul：bf16/fp32 路径启用 TensorCore TF32 加速，精度损失可忽略，不抬显存峰值。
+    torch.set_float32_matmul_precision("high")
+    # cuDNN benchmark 默认关（首见 conv shape 时探测多 algorithm 会抬高瞬时 workspace 峰值）；
+    # 显存有余量想要那点速度时导出 LEADMOT_CUDNN_BENCHMARK=1 显式开启。
+    torch.backends.cudnn.benchmark = os.environ.get("LEADMOT_CUDNN_BENCHMARK", "0") == "1"
     train_rows = _read_jsonl(Path(args.train_jsonl))
     val_rows = _read_jsonl(Path(args.val_jsonl)) if Path(args.val_jsonl).exists() else []
     if args.limit_train_samples > 0:
@@ -686,7 +695,13 @@ def main() -> None:
     _barrier()
 
     if world_size > 1:
-        decoder = DistributedDataParallel(decoder, device_ids=[local_rank] if device.type == "cuda" else None)
+        # find_unused_parameters=True：配合坏数据占位 loss / dropout 分支，保证个别 micro-step
+        # 有参数未 fire 时 DDP reducer 不挂死；遗遍参数图开销 <1%，与 GoalGen 一致。
+        decoder = DistributedDataParallel(
+            decoder,
+            device_ids=[local_rank] if device.type == "cuda" else None,
+            find_unused_parameters=True,
+        )
 
     writer = None
     if rank == 0 and not args.no_tb:
@@ -794,7 +809,8 @@ def main() -> None:
                         print(f"val step={global_step} loss={val_loss:.4f}")
                         if writer is not None:
                             writer.add_scalar("val/loss", val_loss, global_step)
-                        if best_val is None or val_loss < best_val:
+                        # NaN/inf 的 val_loss 视为无效，跳过更新，避免污染已有的 best.pt。
+                        if math.isfinite(val_loss) and (best_val is None or val_loss < best_val):
                             best_val = val_loss
                             _save_checkpoint(
                                 output_dir / "best.pt",
