@@ -3,6 +3,11 @@
 默认数值按 LEAD CARLA leaderboard 模式：route=10, waypoint=8, dt=0.25s。
 gen 路 hidden=1024=8*128 直接对齐 Qwen3-VL-4B-Instruct (num_kv_heads, head_dim)，
 让 frozen K/V 不过 Linear 直接 concat 进 attention。
+
+RoPE 支持两种模式（参考 https://github.com/JJJYmmm/Multimodal-RoPEs）：
+- mrope    : Qwen3-VL 标准 M-RoPE，head_dim/2 切 3 段分别用 t/h/w 旋转
+- mhrope   : Multi-Head RoPE，head 维分配 3 轴（不同 head 用不同 axis）
+两种共享同一份 3D position_ids；切 RoPE 类型 = 切 freq allocation 策略。
 """
 
 from dataclasses import dataclass
@@ -21,6 +26,18 @@ class LeadMoTPlanningDecoderConfig:
     head_dim: int = 128
     num_qwen_layers: int = 36
     kv_segment_mode: str = "select_last"   # 'select_last' / 'mean' / 'concat_layers'
+
+    # ---- RoPE 配置 ----
+    use_rope: bool = True
+    rope_theta: float = 5000000.0
+    # rope_type: "mrope" (Qwen3-VL 标准) | "mhrope" (head-wise allocation)
+    rope_type: str = "mrope"
+    # M-RoPE: head_dim//2 切 3 段，sum 必须 == head_dim//2 (=64)
+    # 默认 Qwen3-VL-4B-Instruct 标准 [16, 24, 24]
+    mrope_section_dim: Tuple[int, int, int] = (16, 24, 24)
+    # MH-RoPE: num_heads 切 3 段（每段共享同一 axis），sum 必须 <= num_heads
+    # 默认 (3, 3, 2)：3 个 head 用 temporal，3 个用 height，2 个用 width
+    mrope_section_head: Tuple[int, int, int] = (3, 3, 2)
 
     # BEV (LEAD LeadTransfuserBackbone 输出)
     bev_channels: int = 512
@@ -67,8 +84,16 @@ class LeadMoTPlanningDecoderConfig:
     def ffn_hidden_size(self) -> int:
         return int(self.hidden_size * self.mlp_ratio)
 
+    def active_mrope_section(self) -> Tuple[int, int, int]:
+        """根据 rope_type 返回当前用的 mrope_section（dim 版或 head 版）。"""
+        if self.rope_type == "mrope":
+            return self.mrope_section_dim
+        if self.rope_type == "mhrope":
+            return self.mrope_section_head
+        raise ValueError(f"Unknown rope_type: {self.rope_type!r}")
+
     def validate_qwen_kv_shape(self) -> None:
-        """prefix-KV 工作的两条硬约束。"""
+        """prefix-KV / RoPE 工作的硬约束。"""
         if self.hidden_size != self.num_kv_heads * self.head_dim:
             raise ValueError(
                 f"hidden_size 必须 = num_kv_heads * head_dim，"
@@ -78,3 +103,21 @@ class LeadMoTPlanningDecoderConfig:
             raise ValueError(
                 f"num_heads 必须 = num_kv_heads，当前 {self.num_heads} != {self.num_kv_heads}"
             )
+        if not self.use_rope:
+            return
+        if self.rope_type not in {"mrope", "mhrope"}:
+            raise ValueError(f"rope_type 必须是 'mrope' 或 'mhrope'，当前 {self.rope_type!r}")
+        if self.head_dim % 2 != 0:
+            raise ValueError(f"RoPE 要求 head_dim 偶数，当前 {self.head_dim}")
+        if self.rope_type == "mrope":
+            if sum(self.mrope_section_dim) != self.head_dim // 2:
+                raise ValueError(
+                    f"M-RoPE: sum(mrope_section_dim)={sum(self.mrope_section_dim)} "
+                    f"必须 = head_dim//2={self.head_dim // 2}"
+                )
+        else:  # mhrope
+            if sum(self.mrope_section_head) > self.num_heads:
+                raise ValueError(
+                    f"MH-RoPE: sum(mrope_section_head)={sum(self.mrope_section_head)} "
+                    f"不能超过 num_heads={self.num_heads}"
+                )

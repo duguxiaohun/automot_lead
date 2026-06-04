@@ -661,6 +661,10 @@ LEAD-MoT planning path 已取代 `mot_lead_offline_runner.py` 内的 AutoMoT leg
   不跑 `kv_cache_fixed_inference`，不保留 `--enable-automot-slow` 或原 fast head 接口。
 - **KV 池化**：只接受 HF DynamicCache / legacy tuple，统一成
   `(B,8,S,128)`；按 `select_last` 36 层 -> 12 段 prefix K/V。
+- **RoPE 接缝**：language K/V 已在本地 Qwen prefill 内带 Qwen3-VL M-RoPE；
+  LeadMoT 只给 gen Q/K 加 1D RoPE。runner 优先用
+  `input_ids.shape[-1] + outputs.rope_deltas` 作为 gen token 起点；缺 `rope_deltas`
+  时 decoder 回退到 prefix cache `seq_len`。
 - **输入**：BEV (1,512,10,12) from LEAD `LeadBEVEncoder`；status: speed + tp + ntp
   按 AutoMoT velocity MLP + 共享 WaypointInputAdaptor 编码。
 - **输出**：`leadmot_route (B,10,2)` + `leadmot_future_waypoints (B,8,2)`，delta + cumsum。

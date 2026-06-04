@@ -79,7 +79,7 @@
 - `AutoMoT/qwen3vl_local/leadmot/heads.py`
 - `AutoMoT/qwen3vl_local/leadmot/mot_block.py`
 - `AutoMoT/qwen3vl_local/leadmot/decoder.py`
-  （LEAD-MoT 快推理 decoder 子包：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8x128 对齐 Qwen K/V 子空间。runner 必须用 `LocalQwen3VLInstructEngine` 单独跑 frozen Qwen prefill，只接受同源 HF `past_key_values`；不复用 AutoMoT InterleaveInferencer 的 `gen_context`，也不保留 AutoMoT legacy slow/fast 接口；`--leadmot-ckpt` 显式加载 decoder 权重，不传则随机初始化。详见 `leadmot/ARCHITECTURE.md` 与 `PROJECT_CONTEXT.md §11.6`）
+  （LEAD-MoT 快推理 decoder 子包：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8x128 对齐 Qwen K/V 子空间；gen Q/K 按 `input_len + rope_deltas` 加 1D RoPE，language K/V 已由 Qwen prefill 带 M-RoPE 不重复旋转。runner 必须用 `LocalQwen3VLInstructEngine` 单独跑 frozen Qwen prefill，只接受同源 HF `past_key_values`；不复用 AutoMoT InterleaveInferencer 的 `gen_context`，也不保留 AutoMoT legacy slow/fast 接口；`--leadmot-ckpt` 显式加载 decoder 权重，不传则随机初始化。详见 `leadmot/ARCHITECTURE.md` 与 `PROJECT_CONTEXT.md §11.6`）
 - `AutoMoT/tools/SFT_V1_PLAN.md`
 - `AutoMoT/tools/build_sft_dataset_v1.py`
 - `AutoMoT/tools/sft_v1_train.sh`

@@ -58,6 +58,8 @@ class LeadMoTPlanningDecoder(nn.Module):
         )
 
         # gen 路 12 层 decoder，每层用一段 pooled_kv
+        # 所有 block 共享同一个 rope 配置，运行时根据 cfg.rope_type 在 MRoPE/MHRoPE 间分发
+        active_section = cfg.active_mrope_section()
         self.blocks = nn.ModuleList(
             [
                 MoTDecoderBlock(
@@ -65,6 +67,10 @@ class LeadMoTPlanningDecoder(nn.Module):
                     num_heads=cfg.num_heads,
                     ffn_hidden_size=cfg.ffn_hidden_size,
                     dropout=cfg.dropout,
+                    rope_theta=cfg.rope_theta,
+                    use_rope=cfg.use_rope,
+                    rope_type=cfg.rope_type,
+                    mrope_section=active_section,
                 )
                 for _ in range(cfg.num_layers)
             ]
@@ -140,6 +146,7 @@ class LeadMoTPlanningDecoder(nn.Module):
         speed: torch.Tensor,
         target_point: torch.Tensor,
         target_point_next: torch.Tensor,
+        rope_position_offset: int | torch.Tensor | None = None,
     ) -> Dict[str, torch.Tensor]:
         self._check_pooled_kv(pooled_kv)
         gen_seq = self._build_gen_sequence(
@@ -149,7 +156,11 @@ class LeadMoTPlanningDecoder(nn.Module):
 
         # 第 i 层 block 用 pooled_kv[i] 作 prefix K/V
         for block, lang_kv in zip(self.blocks, pooled_kv):
-            gen_seq = block(gen_seq=gen_seq, lang_kv=lang_kv)
+            gen_seq = block(
+                gen_seq=gen_seq,
+                lang_kv=lang_kv,
+                rope_position_offset=rope_position_offset,
+            )
         gen_seq = self.gen_final_norm(gen_seq)
 
         # 按 slice_layout 切出 route / waypoint 段 hidden
