@@ -16,8 +16,8 @@ LEAD video -> LeadMoT offline runner.
 - BEV encoder 已切换为本文件底部抄过来的 LEAD TransfuserBackbone（单帧 tfv6 框架），
   权重通过 `LEAD_BEV_CKPT_PATH` 常量加载 LEAD tfv6_resnet34 backbone-only ckpt
   （已实测 missing=0 / unexpected=0，state_dict 完全匹配 LEAD 训练分布）。
-- 慢推理走 standalone `LocalQwen3VLInstructEngine`，快推理走 LeadMoT decoder：
-    python mot_lead_offline_runner.py --enable-leadmot-planning --leadmot-ckpt /path/to/leadmot.pt
+- 慢推理走 standalone `LocalQwen3VLInstructEngine`，快推理走 LeadMoT decoder（默认且唯一路径）：
+    python mot_lead_offline_runner.py --leadmot-ckpt /path/to/leadmot.pt
 
 """
 
@@ -859,9 +859,15 @@ class LeadOfflineMoTRunner:
         self,
         device: str = "cuda:0",
         leadmot_ckpt_path: str | pathlib.Path | None = None,
+        leadmot_rope_type: str = "mrope",
     ):
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.leadmot_ckpt_path = pathlib.Path(leadmot_ckpt_path).resolve() if leadmot_ckpt_path else None
+        if leadmot_rope_type not in {"mrope", "mhrope", "none"}:
+            raise ValueError(
+                f"leadmot_rope_type 必须是 mrope/mhrope/none，got {leadmot_rope_type!r}"
+            )
+        self.leadmot_rope_type = leadmot_rope_type
         self._setup_model()
 
     def _setup_model(self) -> None:
@@ -894,6 +900,7 @@ class LeadOfflineMoTRunner:
         self.leadmot_config: LeadMoTPlanningDecoderConfig | None = None
         self.leadmot_decoder: LeadMoTPlanningDecoder | None = None
         self.leadmot_dtype: torch.dtype = torch.bfloat16
+        self.leadmot_qwen_dtype: str = os.environ.get("QWEN3VL_LOCAL_DTYPE", "bfloat16")
         self.leadmot_qwen_engine: LocalQwen3VLInstructEngine | None = None
 
         print(f"✓ Model initialized on {self.device}")
@@ -921,8 +928,10 @@ class LeadOfflineMoTRunner:
             return
 
         # 默认配置：LEAD CARLA 模式（route=10, waypoint=8, hidden=1024 等）
-        # 如果未来要覆盖配置，在这里改成 LeadMoTPlanningDecoderConfig(num_layers=8, ...) 之类
-        self.leadmot_config = LeadMoTPlanningDecoderConfig()
+        # rope_type 由 self.leadmot_rope_type 控制（CLI --rope 传进来）
+        self.leadmot_config = LeadMoTPlanningDecoderConfig(
+            rope_type=self.leadmot_rope_type,
+        )
 
         # 早校验：配置错的话立即 raise，不要延迟到 forward 内部 attention 报错
         self.leadmot_config.validate_qwen_kv_shape()
@@ -1041,7 +1050,7 @@ class LeadOfflineMoTRunner:
         self.leadmot_qwen_engine = LocalQwen3VLInstructEngine(
             checkpoint_dir=_QWEN_INSTRUCT_CHECKPOINT_DIR,
             device=self.device,
-            torch_dtype="bfloat16",
+            torch_dtype=self.leadmot_qwen_dtype,
         )
 
         # engine.load() 内部做 from_pretrained + .to(device) + .eval()，offline 严格模式
@@ -1909,6 +1918,16 @@ def main():
         help="LeadMoT decoder checkpoint path (.pt/.pth/.safetensors). If omitted, decoder stays randomly initialized.",
     )
     parser.add_argument(
+        "--rope",
+        type=str,
+        default="mrope",
+        choices=["mrope", "mhrope", "none"],
+        help="LeadMoT 快推理 RoPE 类型："
+             "'mrope' (默认, Qwen3-VL 标准 M-RoPE，与 prefix K 数学完全等价) / "
+             "'mhrope' (head-wise allocation，需配套 patch standalone Qwen prefill 才能完整生效) / "
+             "'none' (gen Q/K 不旋转，位置感缺失但 attention 仍可计算)。",
+    )
+    parser.add_argument(
         "--tp-lookahead-s",
         type=float,
         default=1.5,
@@ -1961,6 +1980,7 @@ def main():
     runner = LeadOfflineMoTRunner(
         device=args.device,
         leadmot_ckpt_path=args.leadmot_ckpt,
+        leadmot_rope_type=args.rope,
     )
     outputs = runner.run_clip(
         clip,

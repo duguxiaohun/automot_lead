@@ -22,8 +22,11 @@ class _DeltaCumsumHead(nn.Module):
         nn.init.trunc_normal_(self.proj.weight, std=0.02)
 
     def forward(self, query_hidden: torch.Tensor) -> torch.Tensor:
+        # delta 在 bf16 下计算后，cumsum 必须升到 fp32 累加，否则远端点（~30m）累计误差可达
+        # 0.1~0.25m 量级，直接顶死 FDE 精度天花板。这里输出保持 fp32 不再回退 bf16，
+        # 下游 loss / metric 本来就用 fp32，避免末步重新量化。
         delta = self.proj(query_hidden)
-        return torch.cumsum(delta, dim=1)
+        return torch.cumsum(delta.float(), dim=1)
 
 
 class RouteHead(_DeltaCumsumHead):

@@ -498,8 +498,9 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
 - 当前 LeadMoT decoder 消费 `bev_feature`；如后续把 `LEAD_BEV_CKPT_PATH=None`，decoder 仍能跑通 shape，但 BEV 表征会随机初始化。
 
 **AutoMoT legacy slow/fast 路径**：✅ 已从 `mot_lead_offline_runner.py` 移除
-- 不再保留 `--enable-automot-slow` / `--enable-leadmot-planning` / `enable_fast_inference`
+- 不再保留 `--enable-automot-slow` / `enable_fast_inference` 等切回旧链路的 flag
 - 不再保留 AutoMoT `InterleaveInferencer` / `kv_cache_fixed_inference` / 原 fast head 调用接口
+- LeadMoT 现为 runner 默认且唯一路径，不需要 `--enable-leadmot-planning` 开关
 
 **Close-loop / evaluation 才相关**：
 - traj 时间网格（LEAD 版快推理重训时决定输出网格）
@@ -599,7 +600,8 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
               实测 missing=0 / unexpected=0, state_dict 100% 匹配
        AutoMoT legacy slow/fast 已从 runner 移除
             ⇒ 不加载 InterleaveInferencer，不调用 kv_cache_fixed_inference / 原 fast head
-            ⇒ 无 --enable-automot-slow / --enable-leadmot-planning / enable_fast_inference
+            ⇒ 无 --enable-automot-slow / enable_fast_inference 等回退 flag
+       LeadMoT 是 runner 默认且唯一路径，无 --enable-leadmot-planning 开关
        `--leadmot-ckpt` 显式加载 LeadMoT decoder 权重；不传则随机初始化，仅供链路/shape 调试
 
 LEAD: 20Hz CARLA, 每0.25s落盘1帧, BEV 4px/m 范围 [-32,64]×[-40,40] 单通道[0,1]
@@ -682,6 +684,33 @@ LEAD-MoT planning path 已取代 `mot_lead_offline_runner.py` 内的 AutoMoT leg
 
 ---
 
+## 11.7 LeadMoT v1 decoder training
+
+LeadMoT v1 训练入口已放在 `AutoMoT/qwen3vl_local/leadmot/`，与 GoalGen 一样文档和代码同位：
+
+- `LEADMOT_V1_PLAN.md`：训练设计、两类轨迹真值语义、默认超参。
+- `LEADMOT_V1_RUN.md`：构建索引、check / single / DDP 启动命令。
+- `build_dataset_v1.py`：扫描 LEAD route 目录，生成轻量 `train.jsonl` / `val.jsonl`；不复制图像、LiDAR、meta。
+- `train_v1.py`：复用 `mot_lead_offline_runner.py` 的 Qwen prefill、prompt、BEV、KV segmentation 和数据准备路径；Qwen3-VL-Instruct 与 LeadBEVEncoder frozen eval，只训练 `LeadMoTPlanningDecoder`。
+- `train_v1.sh`：check / single / DDP launcher；默认自动挑空闲 GPU，外部 `CUDA_VISIBLE_DEVICES` 优先，`DDP_GPU_COUNT=N` 显式要求重新挑 N 张卡。
+- `eval_v1.py`：离线汇总 loss / route ADE/FDE / waypoint ADE/FDE；支持 torchrun 分片，rank0 合并 perline/summary。
+- `probe_v1.py`：随机 case-level dump，输出预测 vs GT 的 `planning_overlay.png` 与 JSON 指标，便于肉眼检查坐标系和轨迹尺度。
+
+训练真值包含两类轨迹，且都按 LEAD 语义处理：
+
+- `route`：当前 ego 坐标系下的空间路线 checkpoints，监督 `pred_route (B,10,2)`，闭环 route controller 使用。
+- `future_waypoints`：当前 ego 坐标系下的未来自车绝对点，默认取 `future_positions[[5,10,...,40]]` 得到 8 点 / 2 秒，监督 `pred_future_waypoints (B,8,2)`，闭环 waypoint PID 使用。
+
+注意：GT 不是相邻 delta。LEAD 原 `planning_decoder.py` / `tfv5_planning_decoder.py` 都是 `Linear(hidden,2) -> torch.cumsum(dim=1)` 后再直接对 `data["route"]` / `data["future_waypoints"]` 算 loss；因此 LeadMoT heads 也保持 `Linear+cumsum`，训练 loss 直接对累计 ego-frame 点。默认 loss 为 `1.0 * waypoint_L1 + 0.5 * (route_ADE_L1 + route_FDE_L1)`；如需更平滑的早期梯度，可显式 `--loss-type smooth_l1`。
+
+默认索引构建 `--stride 5`，相邻 anchor 约间隔 1 秒；正式索引建议加 `--check-readable`，提前按训练实际读取集合检查历史 RGB/meta/LAZ、anchor 标签 meta，以及 TP/NTP 未来 meta，过滤缺文件或 meta 解压失败的坏样本，避免 DDP 训练中单 rank 异常造成 collective 错位。默认优化参数：AdamW，LR `1e-4`，weight decay `0.01`（只作用于 ndim>=2 的权重，bias/RMSNorm 不做 decay），betas `(0.9,0.95)`，warmup `0.03`，epoch `1`，grad accumulation `8`，grad clip `1.0`，训练 dropout `0.1`，decoder/Qwen dtype 默认 bf16；训练侧 `--qwen-dtype` 会传给 runner lazy `LocalQwen3VLInstructEngine`，保证 train/eval/probe 与 runner 同源加载。训练完成后用 `--leadmot-ckpt checkpoints/leadmot_v1_decoder/best.pt` 或 `latest.pt` 接入 runner。head 内 `Linear -> cumsum` 的 cumsum 临时用 fp32，降低 bf16 累计误差；checkpoint 写入采用 tmp + `os.replace`，避免半截文件。
+
+当前不做 Qwen pooled KV 离线缓存：prompt / prefix 组织 / RoPE 范式还未完全冻结，prompt 一改缓存就全部失效；先保持在线 frozen prefill，等训练范式稳定后再评估缓存收益。DDP validation 已改为多 rank 分片：先用 `VAL_SAMPLE_SEED` 从 val 全量确定性抽 `VAL_MAX_SAMPLES` 条，再每个 rank 跑 `rank::world_size` 子集，最后 all-reduce 聚合 loss，避免只有 rank0 串行验证。
+
+---
+
+LeadMoT v1 的 route 标签平滑与 LEAD 训练保持一致：先取 anchor meta 的 `route[:20]`，按 `smooth_path(target_first_distance=2.5)` 的几何交点算法生成 20 个等距点，再取前 10 个监督 `pred_route`。训练实现内联最小等价逻辑，不 import/修改 `lead/`。
+
 ## 12. 未来工作 / 路线相关待办
 
 > 这些是**已经讨论但暂不实施**的工作项，按优先级 / 工程量列出。新对话接手时若用户提到要做，可直接查这里。
@@ -743,8 +772,8 @@ LEAD-MoT planning path 已取代 `mot_lead_offline_runner.py` 内的 AutoMoT leg
 8. **AutoMoT legacy runner 分支清理**（**已完成**）
    - `mot_lead_offline_runner.py` 已移除 AutoMoT `InterleaveInferencer`、
      `kv_cache_fixed_inference`、`based_kv_cache_context_fast_qwen3vl_dp` 调用入口
-   - 不再保留 `--enable-automot-slow`、`--enable-leadmot-planning`、`enable_fast_inference`
-     这类切回旧链路的接口
+   - 不再保留 `--enable-automot-slow`、`enable_fast_inference` 这类回退旧链路的 flag
+   - LeadMoT 是 runner 默认且唯一路径，不需要 `--enable-leadmot-planning` 开关
 
 ---
 

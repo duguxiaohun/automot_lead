@@ -260,19 +260,19 @@ class PrefixKVAttention(nn.Module):
         num_heads: int,
         dropout: float = 0.0,
         rope_theta: float = 5000000.0,
-        use_rope: bool = True,
         rope_type: str = "mrope",
         mrope_section: Tuple[int, int, int] = (16, 24, 24),
     ):
         super().__init__()
         if hidden_size % num_heads != 0:
             raise ValueError("hidden_size 必须能被 num_heads 整除")
+        if rope_type not in {"mrope", "mhrope", "none"}:
+            raise ValueError(f"rope_type 必须是 mrope/mhrope/none，got {rope_type!r}")
         self.hidden_size = hidden_size
         self.num_heads = num_heads
         self.head_dim = hidden_size // num_heads
         self.dropout = float(dropout)
         self.rope_theta = float(rope_theta)
-        self.use_rope = bool(use_rope)
         self.rope_type = rope_type
         self.mrope_section = tuple(mrope_section)
 
@@ -322,7 +322,7 @@ class PrefixKVAttention(nn.Module):
         rope_position_offset,
         prefix_seq_len: int,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """根据 rope_type 选 mrope / mhrope。offset=None 时回退到 prefix cache 长度。"""
+        """根据 rope_type 选 mrope / mhrope（"none" 时不进入本函数）。"""
         b, _, n, _ = q.shape
         if rope_position_offset is None:
             rope_position_offset = prefix_seq_len
@@ -331,11 +331,10 @@ class PrefixKVAttention(nn.Module):
         )
         if self.rope_type == "mrope":
             return apply_mrope(q, k_g, position_ids_3d, self.rope_theta, self.mrope_section)
-        if self.rope_type == "mhrope":
-            return apply_mhrope(
-                q, k_g, position_ids_3d, self.rope_theta, self.mrope_section, self.num_heads,
-            )
-        raise ValueError(f"未知 rope_type={self.rope_type!r}")
+        # mhrope
+        return apply_mhrope(
+            q, k_g, position_ids_3d, self.rope_theta, self.mrope_section, self.num_heads,
+        )
 
     def forward(
         self,
@@ -354,7 +353,7 @@ class PrefixKVAttention(nn.Module):
 
         k_l, v_l = self._check_and_cast_lang_kv(lang_kv, batch_size=b, ref=q)
 
-        if self.use_rope:
+        if self.rope_type != "none":
             q, k_g = self._apply_rope(q, k_g, rope_position_offset, prefix_seq_len=int(k_l.shape[2]))
 
         # 沿 token 维 (dim=2) 拼接，gen 在前 lang 在后（与 goalgen DiT 一致）
@@ -380,7 +379,6 @@ class MoTDecoderBlock(nn.Module):
         ffn_hidden_size: int,
         dropout: float = 0.0,
         rope_theta: float = 5000000.0,
-        use_rope: bool = True,
         rope_type: str = "mrope",
         mrope_section: Tuple[int, int, int] = (16, 24, 24),
     ):
@@ -391,7 +389,6 @@ class MoTDecoderBlock(nn.Module):
             num_heads,
             dropout=dropout,
             rope_theta=rope_theta,
-            use_rope=use_rope,
             rope_type=rope_type,
             mrope_section=mrope_section,
         )

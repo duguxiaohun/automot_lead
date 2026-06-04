@@ -73,13 +73,20 @@
 - `AutoMoT/qwen3vl_local/`（含 `goalgen/` 子包；详见 PROJECT_CONTEXT.md §15）
 - `AutoMoT/qwen3vl_local/leadmot/__init__.py`
 - `AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md`
+- `AutoMoT/qwen3vl_local/leadmot/LEADMOT_V1_PLAN.md`
+- `AutoMoT/qwen3vl_local/leadmot/LEADMOT_V1_RUN.md`
+- `AutoMoT/qwen3vl_local/leadmot/build_dataset_v1.py`
+- `AutoMoT/qwen3vl_local/leadmot/train_v1.py`
+- `AutoMoT/qwen3vl_local/leadmot/train_v1.sh`
+- `AutoMoT/qwen3vl_local/leadmot/eval_v1.py`
+- `AutoMoT/qwen3vl_local/leadmot/probe_v1.py`
 - `AutoMoT/qwen3vl_local/leadmot/config.py`
 - `AutoMoT/qwen3vl_local/leadmot/projectors.py`
 - `AutoMoT/qwen3vl_local/leadmot/query_bank.py`
 - `AutoMoT/qwen3vl_local/leadmot/heads.py`
 - `AutoMoT/qwen3vl_local/leadmot/mot_block.py`
 - `AutoMoT/qwen3vl_local/leadmot/decoder.py`
-  （LEAD-MoT 快推理 decoder 子包：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8x128 对齐 Qwen K/V 子空间；gen Q/K 按 `input_len + rope_deltas` 加 1D RoPE，language K/V 已由 Qwen prefill 带 M-RoPE 不重复旋转。runner 必须用 `LocalQwen3VLInstructEngine` 单独跑 frozen Qwen prefill，只接受同源 HF `past_key_values`；不复用 AutoMoT InterleaveInferencer 的 `gen_context`，也不保留 AutoMoT legacy slow/fast 接口；`--leadmot-ckpt` 显式加载 decoder 权重，不传则随机初始化。详见 `leadmot/ARCHITECTURE.md` 与 `PROJECT_CONTEXT.md §11.6`）
+  （LEAD-MoT 快推理 decoder 子包及 v1 decoder-only 训练/eval/probe 入口：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8x128 对齐 Qwen K/V 子空间；gen Q/K 按 `input_len + rope_deltas` 加 1D RoPE，language K/V 已由 Qwen prefill 带 M-RoPE 不重复旋转。训练时冻结 Qwen3-VL-Instruct 与 LeadBEVEncoder，只训练 LeadMoT decoder；GT 包含 route / future_waypoints 两类 ego-frame 累计点，head 内 Linear+cumsum 后直接对绝对点算 loss；`eval_v1.py` 汇总 loss/ADE/FDE，`probe_v1.py` 随机 case-level dump 预测与 GT 对比图。runner 必须用 `LocalQwen3VLInstructEngine` 单独跑 frozen Qwen prefill，只接受同源 HF `past_key_values`；不复用 AutoMoT InterleaveInferencer 的 `gen_context`，也不保留 AutoMoT legacy slow/fast 接口；`--leadmot-ckpt` 显式加载 decoder 权重，不传则随机初始化。详见 `leadmot/ARCHITECTURE.md`、`leadmot/LEADMOT_V1_PLAN.md` 与 `PROJECT_CONTEXT.md §11.6/§11.7`）
 - `AutoMoT/tools/SFT_V1_PLAN.md`
 - `AutoMoT/tools/build_sft_dataset_v1.py`
 - `AutoMoT/tools/sft_v1_train.sh`
@@ -144,7 +151,7 @@ git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
 git add AutoMoT/tools/SFT_V1_PLAN.md AutoMoT/tools/SFT_V1_RUN.md AutoMoT/tools/build_sft_dataset_v1.py AutoMoT/tools/sft_v1_train.sh AutoMoT/tools/sft_v1_loss_scale_plugin.py AutoMoT/tools/eval_sft_v1.py AutoMoT/tools/check_loss_mask.py AutoMoT/tools/tb_serve.sh AutoMoT/tools/probe_sft_v1.py
 git add AutoMoT/tools/SFT_V2_PLAN.md AutoMoT/tools/SFT_V2_RUN.md AutoMoT/tools/build_sft_dataset_v2_teacher.py AutoMoT/tools/sft_v2_loss_scale_plugin.py AutoMoT/tools/sft_v2_train.sh AutoMoT/tools/check_loss_mask_v2.py AutoMoT/tools/inspect_teacher_outputs.py
 git add AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_RUN.md AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py AutoMoT/qwen3vl_local/goalgen/train_v1.py AutoMoT/qwen3vl_local/goalgen/train_v1.sh AutoMoT/qwen3vl_local/goalgen/eval_v1.py AutoMoT/qwen3vl_local/goalgen/probe_v1.py
-git add AutoMoT/qwen3vl_local/leadmot/__init__.py AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md AutoMoT/qwen3vl_local/leadmot/config.py AutoMoT/qwen3vl_local/leadmot/projectors.py AutoMoT/qwen3vl_local/leadmot/query_bank.py AutoMoT/qwen3vl_local/leadmot/heads.py AutoMoT/qwen3vl_local/leadmot/mot_block.py AutoMoT/qwen3vl_local/leadmot/decoder.py
+git add AutoMoT/qwen3vl_local/leadmot/__init__.py AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_V1_PLAN.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_V1_RUN.md AutoMoT/qwen3vl_local/leadmot/build_dataset_v1.py AutoMoT/qwen3vl_local/leadmot/train_v1.py AutoMoT/qwen3vl_local/leadmot/train_v1.sh AutoMoT/qwen3vl_local/leadmot/eval_v1.py AutoMoT/qwen3vl_local/leadmot/probe_v1.py AutoMoT/qwen3vl_local/leadmot/config.py AutoMoT/qwen3vl_local/leadmot/projectors.py AutoMoT/qwen3vl_local/leadmot/query_bank.py AutoMoT/qwen3vl_local/leadmot/heads.py AutoMoT/qwen3vl_local/leadmot/mot_block.py AutoMoT/qwen3vl_local/leadmot/decoder.py
 git add AutoMoT/vae_standalone/train_patch_unpatch.py
 ```
 

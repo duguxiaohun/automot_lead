@@ -36,38 +36,35 @@ leadmot (独立第 i 层, 共 12 层):
 | transformer 层数 | 36 | 12 | 浅层信息丢失 |
 | gen hidden | 2560 | 1024 (=8×128) | FFN 内部更窄 |
 | GQA | ✅ | ❌ MHA num_heads=num_kv_heads=8 | Q 表达略少 |
-| gen 新 Q/K 加 RoPE | ✅ M-RoPE | ✅ MRoPE / MHRoPE 可选 | 见 §2.1 |
+| gen 新 Q/K 加 RoPE | ✅ M-RoPE | ✅ mrope / mhrope / none 可选 | 见 §2.1 |
 | 参数初始化 | 从 Qwen 复制 | 从头随机 | 训练成本更高 |
 | 输出头 | reasoning + route(20) + waypoint(6) | route(10) + waypoint(8) | 明确接受 |
 
-### 2.1 RoPE：MRoPE / MHRoPE 二选一
+### 2.1 RoPE：mrope / mhrope / none 三选一
 
-`PrefixKVAttention` 用 `rope_type` 在两种 freq allocation 间分发（参考
-[JJJYmmm/Multimodal-RoPEs](https://github.com/JJJYmmm/Multimodal-RoPEs) ICLR 2026）。
-两者共用同一份 3D position（gen token 是接 prefill 末尾的新文本 token，三轴全等）。
+CLI flag `--rope` (默认 `mrope`)；config 字段 `rope_type`。
+参考 [JJJYmmm/Multimodal-RoPEs](https://github.com/JJJYmmm/Multimodal-RoPEs) ICLR 2026。
 
-| RoPE 类型 | 分配策略 | section 含义 | 默认 |
-|---|---|---|---|
-| `mrope` | head_dim//2 切 3 段，每段用一个 axis | `mrope_section_dim` 三段长度 (sum = head_dim/2 = 64) | `(16, 24, 24)` Qwen3-VL 标准 |
-| `mhrope` | num_heads 切 3 段，每段共享一个 axis | `mrope_section_head` 三段 head 数 (sum ≤ num_heads = 8) | `(3, 3, 2)`，剩余 0 个 head pad 零 |
+| 选项 | 跟 prefix K 兼容性 | 算法 |
+|---|---|---|
+| `mrope` (默认) | **完全等价** | head_dim/2 切 3 段，分别用 t/h/w 旋转；`mrope_section_dim=(16,24,24)` 跟 Qwen3-VL 标准一致 |
+| `mhrope` | 部分兼容 | num_heads 切 3 段，每段 head 共享一个 axis；`mrope_section_head=(3,3,2)`，剩余 0 个 head 不旋转 |
+| `none` | 位置感缺失 | gen Q/K 不旋转，attention 仍可计算 |
 
-**MRoPE 与 Qwen3-VL prefix K 的兼容性**：Qwen3-VL prefix K 本身就是按 M-RoPE 旋转
-（vision token 三轴 (t,h,w) 互不等，text token (t,t,t) 全等）。LeadMoT gen Q 用
-mrope 旋转时，因为 gen token 三轴全等，head_dim 三段都用 t 旋转 — 跟 Qwen 原版
-"gen Q · prefix K" attention 数学完全一致：
+**为什么 `mrope` 跟 Qwen 自带 RoPE 完全等价**：Qwen3-VL prefix K 按 M-RoPE 旋转
+（vision token 三轴 (t,h,w) 互不等，text token (t,t,t) 全等）。LeadMoT gen token
+是接 prefill 末尾的新文本 token，三轴全等，head_dim 三段都用 t 旋转。dot product
+逐段相对位置 (t_Q−t_K, t_Q−h_K, t_Q−w_K) 跟 Qwen 原版 attention 完全一致。
 
-| head_dim 段 | gen Q 旋转用 | prefix vision K 旋转用 | 相对位置 |
-|---|---|---|---|
-| 0 | t_Q | t_K | t_Q − t_K |
-| 1 | t_Q | h_K | t_Q − h_K |
-| 2 | t_Q | w_K | t_Q − w_K |
+**为什么 `mhrope` 需要 patch Qwen**：MHRoPE 把 axis 分配到 **head 维**（不同
+head 用不同 axis）。如果 prefix K 仍是默认 M-RoPE（head_dim 切段）旋转，gen Q 用
+head-wise allocation 会数学不匹配。要让 mhrope 完整生效必须同时把 standalone
+Qwen3-VL 的 prefill 也切到 MHRoPE 模式（patch transformers 包内的
+`modeling_qwen3_vl.py`），本子包不替调用方做这事。
 
-**MHRoPE 与 prefix K 的兼容性警告**：MHRoPE 把 axis 分配到 **head 维**——
-不同 head 用不同 axis。如果 prefix K 是默认 M-RoPE 旋转的（head_dim 切段），
-gen Q 改用 head-wise allocation 会有不匹配。要充分利用 MHRoPE 需要 **同时** patch
-standalone Qwen3-VL 的 prefill 改用 MHRoPE 旋转 K/V（即 frozen Qwen 也要切到
-MHRoPE 模式）。本子包只暴露接口，**真正切到 MHRoPE 时调用方必须自己处理 Qwen
-prefill 侧的 RoPE patch**。
+**`none` 模式**：gen Q/K 完全不旋转。attention 是合法 dot product（gen 能看见
+prefix），但相对位置编码不连贯。模型不会崩，只是少了精确的 token 顺序信号。
+适合做对照实验。
 
 **起点对齐**：`rope_position_offset` 优先用 `input_ids.shape[-1] + outputs.rope_deltas`
 （Qwen3-VL 增量 decode 的 next-token position），拿不到时回退 prefix `cache.seq_len`。
@@ -132,9 +129,8 @@ LeadMoTPlanningDecoder
 
 > ⚠️ **训练 / 推理 cache 必须同源**：prefix K/V 必须来自同一个 frozen Qwen 实例。
 > 用 standalone `Qwen3-VL-4B-Instruct` 训练就必须用同一份推理。runner 已修复
-> 这条：`mot_lead_offline_runner.py` 在 `enable_leadmot_planning` 分支用
-> `LocalQwen3VLInstructEngine` 单独跑 prefill，不再复用
-> `gen_context["past_key_values"]`（那是 AutoMoT MoT 的产物）。训练侧也必须
+> 这条：`mot_lead_offline_runner.py` 用 `LocalQwen3VLInstructEngine` 单独跑
+> prefill（AutoMoT `InterleaveInferencer` 路径已彻底删除）。训练侧也必须
 > 用同一 engine + 同一对 (system, user) prompt。
 
 ## 7. 调用模板
