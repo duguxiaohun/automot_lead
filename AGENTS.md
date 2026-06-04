@@ -30,7 +30,7 @@
 
 这个工作区在做的是：
 
-把 `lead/` 采集/训练出来的 CARLA 离线数据，伪装成 `AutoMoT/` 在线 agent 的输入，让 AutoMoT 的 Qwen3-VL 慢推理路径可以在 LEAD 数据上离线跑起来，并逐步分析两边数据分布、坐标系、RGB/LiDAR/BEV/target_point 的差异。
+把 `lead/` 采集/训练出来的 CARLA 离线数据，整理成本地 Qwen3-VL-Instruct frozen prefill + LeadMoT decoder 能直接消费的离线输入，并逐步分析两边数据分布、坐标系、RGB/LiDAR/BEV/target_point 的差异。
 
 当前主要战场：
 
@@ -46,12 +46,12 @@
 
 - `lead/`：数据采集、训练、闭环评测仓库。CARLA 20Hz，每 5 tick 落盘 1 帧，即 4Hz。
 - `AutoMoT/`：在线驾驶仓库。慢路径是 Qwen3-VL + KV cache，快路径依赖 BEV encoder + DP heads。
-- 当前离线 runner 的 LeadMoT 分支默认走本地 `AutoMoT/qwen3vl_local` 的
-  `LocalQwen3VLInstructEngine` 做 frozen Qwen prefill；AutoMoT legacy
-  `kv_cache_fixed_inference(...)` 只有显式 `--enable-automot-slow` 才加载/运行。
-- 快推理路径默认禁用：`enable_fast_inference=False`。
-- runner 已切换到 LEAD 风格的 `LeadTransfuserBackbone` / `LeadBEVEncoder`，但其输出与 AutoMoT 原快推理 decoder shape 不兼容，因此不能直接打开快推理。
-- LEAD RGB 是三视角拼接 `(W=1152, H=384)`；当前慢推理直接喂给 Qwen3-VL，不切片、不 resize、不选前视。
+- 当前离线 runner 只走本地 `AutoMoT/qwen3vl_local` 的
+  `LocalQwen3VLInstructEngine` 做 frozen Qwen prefill，再接 LeadMoT decoder；
+  已移除 AutoMoT legacy `kv_cache_fixed_inference(...)` / `InterleaveInferencer`
+  / 原 fast head 接口，不再保留 `--enable-automot-slow` 或 `enable_fast_inference`。
+- runner 已切换到 LEAD 风格的 `LeadTransfuserBackbone` / `LeadBEVEncoder`，其输出直接供 LeadMoT 使用；不能再接 AutoMoT 原快推理 decoder。
+- LEAD RGB 是三视角拼接 `(W=1152, H=384)`；当前本地 Qwen frozen prefill 直接喂整图，不切片、不 resize、不选前视。
 - `vlm_paradigm_a_runner.py` 的 `qwen` backend 必须只读本地 `AutoMoT/checkpoints/Qwen3-VL-4B`（`local_files_only=True`），并用 HF 标准 `past_key_values` 显式 prefill/decode 做文字输出；AutoMoT 现有 `InterleaveInferencer` / `qwen3vl_template_inference` 绑定 AutoMoT 自定义 MoT 架构，不要拿来直接支撑 standalone Qwen 的完整自由文本生成。
 - `qwen3vl_instruct_paradigm_a_runner.py` 是 standalone Qwen-only 范式 A runner，只跑本地 `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct`；该目录对应 HuggingFace `repo_id=Qwen/Qwen3-VL-4B-Instruct`，用户远程环境已下载。必须 `local_files_only=True` 且设置 HF/Transformers offline 环境变量，禁止下载；不 import `vlm_paradigm_a_runner.py`，不接 AutoMoT `InterleaveInferencer`。
 - `AutoMoT/qwen3vl_local/` 保存 Qwen3-VL-Instruct 本地可魔改代码：`prompt_pipeline.py` 从 `vlm_paradigm_a_runner.py` 的迁移块同步完整提示词/状态机；另含 LEAD RGB 读取、显式 prefill/decode、KV cache summary 与可选 `torch.save`。
@@ -79,7 +79,7 @@
 - `AutoMoT/qwen3vl_local/leadmot/heads.py`
 - `AutoMoT/qwen3vl_local/leadmot/mot_block.py`
 - `AutoMoT/qwen3vl_local/leadmot/decoder.py`
-  （LEAD-MoT 快推理 decoder 子包：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8x128 对齐 Qwen K/V 子空间。runner 的 LEAD-MoT 分支必须用 `LocalQwen3VLInstructEngine` 单独跑 frozen Qwen prefill（不能复用 AutoMoT InterleaveInferencer 的 `gen_context`，权重不同源）；runner 默认不加载 AutoMoT 主模型，只有 `--enable-automot-slow` 才走旧慢路径；`--leadmot-ckpt` 显式加载 decoder 权重，不传则随机初始化。详见 `leadmot/ARCHITECTURE.md` 与 `PROJECT_CONTEXT.md §11.6`）
+  （LEAD-MoT 快推理 decoder 子包：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8x128 对齐 Qwen K/V 子空间。runner 必须用 `LocalQwen3VLInstructEngine` 单独跑 frozen Qwen prefill，只接受同源 HF `past_key_values`；不复用 AutoMoT InterleaveInferencer 的 `gen_context`，也不保留 AutoMoT legacy slow/fast 接口；`--leadmot-ckpt` 显式加载 decoder 权重，不传则随机初始化。详见 `leadmot/ARCHITECTURE.md` 与 `PROJECT_CONTEXT.md §11.6`）
 - `AutoMoT/tools/SFT_V1_PLAN.md`
 - `AutoMoT/tools/build_sft_dataset_v1.py`
 - `AutoMoT/tools/sft_v1_train.sh`
