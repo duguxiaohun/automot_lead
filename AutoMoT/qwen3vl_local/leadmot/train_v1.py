@@ -488,11 +488,12 @@ def _write_best_meta(output_dir: Path, checkpoint: Path, val_loss: float, epoch:
     os.replace(tmp_path, output_dir / "best.json")
 
 
-def _prune_old_epoch_checkpoints(output_dir: Path, keep_recent: int) -> None:
-    # 只滚动淘汰 epoch 全量 ckpt；best.pt / latest.pt 不在此列，永远保留。
+def _prune_old_checkpoints(output_dir: Path, keep_recent: int, glob_pat: str) -> None:
+    # 按 glob 滚动淘汰对应池；best.pt / latest.pt 不在任何池里，永远保留。
+    # epoch 池 glob "checkpoint-epoch*.pt" 与 step 池 "step-checkpoint-*.pt" 前缀不同，互不污染。
     if keep_recent <= 0:
         return
-    ckpts = sorted(output_dir.glob("checkpoint-epoch*.pt"))
+    ckpts = sorted(output_dir.glob(glob_pat))
     for stale in ckpts[:-keep_recent]:
         try:
             stale.unlink()
@@ -592,6 +593,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--logging-steps", type=int, default=20)
     parser.add_argument("--save-steps", type=int, default=500)
     parser.add_argument("--keep-recent-checkpoints", type=int, default=3, help="Roll over epoch checkpoints; 0 keeps all. best.pt/latest.pt are never pruned.")
+    parser.add_argument("--step-save-every", type=int, default=10000, help="Write an extra step-checkpoint-NNNNNN.pt every N optimizer steps; 0 disables step snapshots.")
+    parser.add_argument("--keep-recent-step-checkpoints", type=int, default=3, help="Roll over step checkpoints; default 3 (last 30k steps at step-save-every=10000). Independent from epoch pool.")
     parser.add_argument("--val-steps", type=int, default=500)
     parser.add_argument("--val-max-samples", type=int, default=64)
     parser.add_argument("--val-sample-seed", type=int, default=202607)
@@ -811,6 +814,11 @@ def main() -> None:
                 if rank == 0 and args.save_steps > 0 and global_step % args.save_steps == 0:
                     _save_checkpoint(output_dir / "latest.pt", decoder, optimizer, scheduler, decoder_config, args, epoch, global_step, best_val)
 
+                # step 级独立快照池：长 epoch 下也能拿到中间产物，与 epoch 池互不淘汰。
+                if rank == 0 and args.step_save_every > 0 and global_step % args.step_save_every == 0:
+                    _save_checkpoint(output_dir / f"step-checkpoint-{global_step:06d}.pt", decoder, optimizer, scheduler, decoder_config, args, epoch, global_step, best_val)
+                    _prune_old_checkpoints(output_dir, args.keep_recent_step_checkpoints, "step-checkpoint-*.pt")
+
                 if args.max_train_steps > 0 and global_step >= args.max_train_steps:
                     stop_training = True
                     break
@@ -818,7 +826,7 @@ def main() -> None:
         if rank == 0:
             _save_checkpoint(output_dir / f"checkpoint-epoch{epoch + 1:02d}.pt", decoder, optimizer, scheduler, decoder_config, args, epoch + 1, global_step, best_val)
             _save_checkpoint(output_dir / "latest.pt", decoder, optimizer, scheduler, decoder_config, args, epoch + 1, global_step, best_val)
-            _prune_old_epoch_checkpoints(output_dir, args.keep_recent_checkpoints)
+            _prune_old_checkpoints(output_dir, args.keep_recent_checkpoints, "checkpoint-epoch*.pt")
         if stop_training:
             break
 

@@ -85,13 +85,15 @@ QWEN_DTYPE=bfloat16
 QWEN_LOAD_STAGGER_S=2.0
 SAVE_STEPS=500
 KEEP_RECENT_CHECKPOINTS=3
+STEP_SAVE_EVERY=10000
+KEEP_RECENT_STEP_CHECKPOINTS=3
 VAL_STEPS=500
 VAL_MAX_SAMPLES=64
 VAL_SAMPLE_SEED=202607
 DECODER_DROPOUT=0.1
 ```
 
-只有 LeadMoT decoder 更新参数；Qwen3-VL-Instruct 与 LeadBEVEncoder 都是 frozen eval。不传位置参数时 `bash qwen3vl_local/leadmot/train_v1.sh` 默认走 `ddp`（与 GoalGen 一致）。每个 epoch 末写一份 `checkpoint-epochNN.pt`，超过 `KEEP_RECENT_CHECKPOINTS` 份后滚动淘汰；`best.pt` / `latest.pt` 不受影响。
+只有 LeadMoT decoder 更新参数；Qwen3-VL-Instruct 与 LeadBEVEncoder 都是 frozen eval。不传位置参数时 `bash qwen3vl_local/leadmot/train_v1.sh` 默认走 `ddp`（与 GoalGen 一致）。保存逻辑对齐 GoalGen，共 4 类产物：`best.pt`/`best.json`（val 最优）、`latest.pt`（每 `SAVE_STEPS` 步覆盖 + epoch 末）、`checkpoint-epochNN.pt`（epoch 末池，保留最近 `KEEP_RECENT_CHECKPOINTS` 份）、`step-checkpoint-NNNNNN.pt`（每 `STEP_SAVE_EVERY` 步独立池，保留最近 `KEEP_RECENT_STEP_CHECKPOINTS` 份）。epoch 池与 step 池互不淘汰；`best.pt` / `latest.pt` 永远保留。
 
 DDP 训练中的 validation 会按 `VAL_MAX_SAMPLES` 截断后在所有 rank 间分片，每张卡各跑自己的 Qwen/BEV/decoder forward，再 all-reduce 聚合 loss，避免 rank0 串行扫 val、其它 rank 空等。
 val 子集不是固定取 jsonl 头部，而是用 `VAL_SAMPLE_SEED` 从 val 全量中确定性抽样，减少场景分布偏置。
@@ -137,7 +139,7 @@ python qwen3vl_local/leadmot/probe_v1.py \
   --max-cases 24
 ```
 
-`eval_v1.py` / `probe_v1.py` 未显式传 `--checkpoint` 时，会在 `--save-root` 下优先加载 `best.pt`，不存在时 fallback 到 `latest.pt`；不传 `--save-root` 则使用默认 `checkpoints/leadmot_v1_decoder`。需要消融或指定中间 ckpt 时再显式传 `--checkpoint`。
+`eval_v1.py` / `probe_v1.py` 未显式传 `--checkpoint` 时，会在 `--save-root` 下依次尝试 `best.pt` -> `latest.pt` -> 最新 `step-checkpoint-*.pt` -> 最新 `checkpoint-epoch*.pt`；不传 `--save-root` 则使用默认 `checkpoints/leadmot_v1_decoder`。需要消融或指定中间 ckpt 时再显式传 `--checkpoint`。
 
 每个 case 会写：
 

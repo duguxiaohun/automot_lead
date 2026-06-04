@@ -28,6 +28,8 @@ GRAD_ACC="${GRAD_ACC:-8}"
 LOGGING_STEPS="${LOGGING_STEPS:-20}"
 SAVE_STEPS="${SAVE_STEPS:-500}"
 KEEP_RECENT_CHECKPOINTS="${KEEP_RECENT_CHECKPOINTS:-3}"  # epoch 全量 ckpt 滚动保留份数；best.pt/latest.pt 不受影响
+STEP_SAVE_EVERY="${STEP_SAVE_EVERY:-10000}"  # 每 N 步额外存一份 step-checkpoint-NNNNNN.pt；0 关闭
+KEEP_RECENT_STEP_CHECKPOINTS="${KEEP_RECENT_STEP_CHECKPOINTS:-3}"  # step ckpt 独立滚动池，与 epoch 池互不淘汰
 VAL_STEPS="${VAL_STEPS:-500}"
 VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-64}"
 VAL_SAMPLE_SEED="${VAL_SAMPLE_SEED:-202607}"
@@ -122,6 +124,8 @@ common_args=(
   --logging-steps "${LOGGING_STEPS}"
   --save-steps "${SAVE_STEPS}"
   --keep-recent-checkpoints "${KEEP_RECENT_CHECKPOINTS}"
+  --step-save-every "${STEP_SAVE_EVERY}"
+  --keep-recent-step-checkpoints "${KEEP_RECENT_STEP_CHECKPOINTS}"
   --val-steps "${VAL_STEPS}"
   --val-max-samples "${VAL_MAX_SAMPLES}"
   --val-sample-seed "${VAL_SAMPLE_SEED}"
@@ -212,6 +216,7 @@ esac
 #     ├─ best.pt + best.json        val/loss 历史最小（eval/probe 默认指向它）
 #     ├─ latest.pt                  最近一次保存（无 val 时回退到它）
 #     ├─ checkpoint-epochNN.pt      各 epoch 全量 ckpt（保留最近 KEEP_RECENT_CHECKPOINTS）
+#     ├─ step-checkpoint-NNNNNN.pt  每 STEP_SAVE_EVERY 步快照（保留最近 KEEP_RECENT_STEP_CHECKPOINTS）
 #     ├─ tb/                        训练 TensorBoard events
 #     └─ invocations/               每次启动的 argv / env / git commit
 # ---------------------------------------------------------------------------
