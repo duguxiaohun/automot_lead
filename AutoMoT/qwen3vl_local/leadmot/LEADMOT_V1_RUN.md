@@ -7,6 +7,7 @@ cd AutoMoT
 python qwen3vl_local/leadmot/build_dataset_v1.py \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/leadmot_v1_data \
+  --samples-per-scenario 0 \
   --check-readable
 ```
 
@@ -16,10 +17,12 @@ python qwen3vl_local/leadmot/build_dataset_v1.py \
 python qwen3vl_local/leadmot/build_dataset_v1.py \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/leadmot_v1_data_debug \
-  --samples-per-route 8 \
+  --samples-per-scenario 50 \
   --stride 5 \
   --check-readable
 ```
+
+`--samples-per-scenario 0` 与 GoalGen 一致，表示每个 scenario 保留所有合法 anchor；传正整数时按 route-balanced 方式抽样。构建器输出 `train.jsonl` / `val.jsonl` / `stats.json`，train/val 按 route 切分，避免同一路线相邻 anchor 同时进入训练和验证。
 
 ## 2. Sanity check
 
@@ -68,10 +71,10 @@ DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train_v1.sh ddp
 ## 5. 默认训练参数
 
 ```text
-LR=1e-4
+LR=2e-4
 WEIGHT_DECAY=0.01
-WARMUP_RATIO=0.03
-NUM_EPOCHS=1
+WARMUP_RATIO=0.05
+NUM_EPOCHS=3
 GRAD_ACC=8
 ROUTE_LOSS_WEIGHT=0.5
 WAYPOINT_LOSS_WEIGHT=1.0
@@ -80,13 +83,15 @@ LEADMOT_ROPE_TYPE=mrope
 DECODER_DTYPE=bfloat16
 QWEN_DTYPE=bfloat16
 QWEN_LOAD_STAGGER_S=2.0
+SAVE_STEPS=500
+KEEP_RECENT_CHECKPOINTS=3
 VAL_STEPS=500
 VAL_MAX_SAMPLES=64
 VAL_SAMPLE_SEED=202607
 DECODER_DROPOUT=0.1
 ```
 
-只有 LeadMoT decoder 更新参数；Qwen3-VL-Instruct 与 LeadBEVEncoder 都是 frozen eval。
+只有 LeadMoT decoder 更新参数；Qwen3-VL-Instruct 与 LeadBEVEncoder 都是 frozen eval。不传位置参数时 `bash qwen3vl_local/leadmot/train_v1.sh` 默认走 `ddp`（与 GoalGen 一致）。每个 epoch 末写一份 `checkpoint-epochNN.pt`，超过 `KEEP_RECENT_CHECKPOINTS` 份后滚动淘汰；`best.pt` / `latest.pt` 不受影响。
 
 DDP 训练中的 validation 会按 `VAL_MAX_SAMPLES` 截断后在所有 rank 间分片，每张卡各跑自己的 Qwen/BEV/decoder forward，再 all-reduce 聚合 loss，避免 rank0 串行扫 val、其它 rank 空等。
 val 子集不是固定取 jsonl 头部，而是用 `VAL_SAMPLE_SEED` 从 val 全量中确定性抽样，减少场景分布偏置。
@@ -98,8 +103,7 @@ DDP 加载 Qwen 时默认按 `LOCAL_RANK * QWEN_LOAD_STAGGER_S` 错峰，降低�
 cd AutoMoT
 python qwen3vl_local/leadmot/eval_v1.py \
   --jsonl checkpoints/leadmot_v1_data/val.jsonl \
-  --checkpoint checkpoints/leadmot_v1_decoder/best.pt \
-  --output-dir checkpoints/leadmot_v1_decoder/eval \
+  --save-root checkpoints/leadmot_v1_decoder \
   --max-samples 256
 ```
 
@@ -108,8 +112,7 @@ python qwen3vl_local/leadmot/eval_v1.py \
 ```bash
 torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval_v1.py \
   --jsonl checkpoints/leadmot_v1_data/val.jsonl \
-  --checkpoint checkpoints/leadmot_v1_decoder/best.pt \
-  --output-dir checkpoints/leadmot_v1_decoder/eval
+  --save-root checkpoints/leadmot_v1_decoder
 ```
 
 输出：
@@ -117,7 +120,11 @@ torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval_v1.py \
 ```text
 checkpoints/leadmot_v1_decoder/eval/eval_v1_summary.json
 checkpoints/leadmot_v1_decoder/eval/eval_v1_perline.jsonl
+checkpoints/leadmot_v1_decoder/eval_tb/<ckpt>_<时间戳>/
+checkpoints/leadmot_v1_decoder/invocations/*.txt
 ```
+
+`eval_tb/` 每跑一次 eval 落一个独立 run，可用 `bash tools/tb_serve.sh checkpoints/leadmot_v1_decoder` 把训练曲线和多次 eval 标量叠在同一块 TensorBoard 上对比。
 
 ## 7. Probe
 
@@ -125,15 +132,17 @@ checkpoints/leadmot_v1_decoder/eval/eval_v1_perline.jsonl
 cd AutoMoT
 python qwen3vl_local/leadmot/probe_v1.py \
   --jsonl checkpoints/leadmot_v1_data/val.jsonl \
-  --checkpoint checkpoints/leadmot_v1_decoder/best.pt \
-  --output-dir checkpoints/leadmot_v1_decoder/probe \
+  --save-root checkpoints/leadmot_v1_decoder \
   --num-per-scenario 2 \
   --max-cases 24
 ```
 
+`eval_v1.py` / `probe_v1.py` 未显式传 `--checkpoint` 时，会在 `--save-root` 下优先加载 `best.pt`，不存在时 fallback 到 `latest.pt`；不传 `--save-root` 则使用默认 `checkpoints/leadmot_v1_decoder`。需要消融或指定中间 ckpt 时再显式传 `--checkpoint`。
+
 每个 case 会写：
 
 ```text
+checkpoints/leadmot_v1_decoder/eval_cases/<case>/
 planning_overlay.png
 predictions.json
 metrics.json
@@ -165,3 +174,5 @@ python leaderboard/team_code/mot_lead_offline_runner.py \
 ```
 
 如果没有 val 集或还没有 `best.pt`，用 `latest.pt`。
+
+训练输出目录同样会包含 `invocations/`，记录每次 `train_v1.py` 启动时的 argv、关键环境变量和 git commit，方便之后追溯 ckpt 来源。

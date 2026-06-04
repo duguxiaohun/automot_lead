@@ -23,12 +23,16 @@ from qwen3vl_local.leadmot.train_v1 import (
     LEAD_BEV_CKPT_PATH,
     LeadMoTTrainRuntime,
     _barrier,
+    _dump_invocation,
     _dtype,
     _extract_targets,
     _planning_loss,
     _read_jsonl,
     _setup_offline_env,
 )
+
+
+DEFAULT_OUTPUT_ROOT = Path("checkpoints/leadmot_v1_decoder")
 
 
 def _pick_idle_gpu() -> str:
@@ -86,6 +90,33 @@ def _load_decoder(path: Path, device: torch.device, dtype: torch.dtype) -> tuple
     return decoder, config
 
 
+def _checkpoint_root(save_root: str) -> Path:
+    return Path(save_root) if save_root else DEFAULT_OUTPUT_ROOT
+
+
+def _resolve_checkpoint(checkpoint: str, save_root: str) -> Path:
+    if checkpoint:
+        path = Path(checkpoint)
+        if not path.exists():
+            raise FileNotFoundError(f"checkpoint not found: {path}")
+        return path
+    root = _checkpoint_root(save_root)
+    best = root / "best.pt"
+    latest = root / "latest.pt"
+    if best.exists():
+        return best
+    if latest.exists():
+        return latest
+    raise FileNotFoundError(f"no default LeadMoT checkpoint found: tried {best} and {latest}")
+
+
+def _resolve_output_dir(args: argparse.Namespace) -> Path:
+    if args.output_dir:
+        return Path(args.output_dir)
+    root = Path(args.save_root) if args.save_root else DEFAULT_OUTPUT_ROOT
+    return root / "eval"
+
+
 def _compute_metrics(outputs: dict[str, torch.Tensor], gt_route: torch.Tensor, gt_wp: torch.Tensor) -> dict[str, float]:
     pred_route = outputs["pred_route"].float()
     pred_wp = outputs["pred_future_waypoints"].float()
@@ -102,8 +133,9 @@ def _compute_metrics(outputs: dict[str, torch.Tensor], gt_route: torch.Tensor, g
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jsonl", default="checkpoints/leadmot_v1_data/val.jsonl")
-    parser.add_argument("--checkpoint", default="checkpoints/leadmot_v1_decoder/best.pt")
-    parser.add_argument("--output-dir", default="checkpoints/leadmot_v1_decoder/eval")
+    parser.add_argument("--checkpoint", default="", help="Default: <save-root>/best.pt, falling back to latest.pt.")
+    parser.add_argument("--save-root", default="", help="GoalGen-style root; eval artifacts go to <save-root>/eval when --output-dir is omitted.")
+    parser.add_argument("--output-dir", default="")
     parser.add_argument("--model-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
     parser.add_argument("--lead-bev-ckpt", default=str(LEAD_BEV_CKPT_PATH))
     parser.add_argument("--device", default="auto")
@@ -141,11 +173,14 @@ def main() -> None:
     if args.max_samples > 0:
         rows = rows[: args.max_samples]
     shard = rows[rank::world_size]
-    output_dir = Path(args.output_dir)
+    output_dir = _resolve_output_dir(args)
     output_dir.mkdir(parents=True, exist_ok=True)
+    invocation_root = Path(args.save_root) if args.save_root else output_dir.parent
+    _dump_invocation(invocation_root, rank)
 
     decoder_dtype = _dtype(args.decoder_dtype)
-    decoder, decoder_config = _load_decoder(Path(args.checkpoint), device, decoder_dtype)
+    checkpoint_path = _resolve_checkpoint(args.checkpoint, args.save_root)
+    decoder, decoder_config = _load_decoder(checkpoint_path, device, decoder_dtype)
     runtime = LeadMoTTrainRuntime(args, device)
 
     sums = {"loss": 0.0, "route_loss": 0.0, "waypoint_loss": 0.0, "route_ade": 0.0, "route_fde": 0.0, "waypoint_ade": 0.0, "waypoint_fde": 0.0}
@@ -154,9 +189,9 @@ def main() -> None:
     with perline_path.open("w", encoding="utf-8", newline="\n") as f:
         with torch.no_grad():
             for idx, sample in enumerate(shard):
-                # eval 的 all_reduce 只在循环结束后做一次，单条坏样本直接 skip 不会破坏 DDP 同步：
-                # 各 rank 处理的有效样本数可不同，最终按 total_count 求和再平均仍然正确。
                 try:
+                    # Eval only all-reduces once after the loop. Bad samples can be
+                    # skipped independently per rank and averaged by global valid count.
                     outputs = runtime.forward_sample(sample, decoder, decoder_config, decoder_dtype)
                     gt_route, gt_wp = _extract_targets(sample, args.route_points, args.waypoint_points, args.smooth_route)
                     gt_route = gt_route.unsqueeze(0).to(device)
@@ -182,7 +217,7 @@ def main() -> None:
     keys = list(sums)
     total_count = max(1, int(packed[-1].item()))
     summary = {key: float(packed[i].item() / total_count) for i, key in enumerate(keys)}
-    summary.update({"count": total_count, "checkpoint": str(Path(args.checkpoint)), "jsonl": str(Path(args.jsonl)), "world_size": world_size})
+    summary.update({"count": total_count, "checkpoint": str(checkpoint_path), "jsonl": str(Path(args.jsonl)), "world_size": world_size})
 
     _barrier()
     if rank == 0:
@@ -193,6 +228,21 @@ def main() -> None:
                 if part.exists():
                     out.write(part.read_text(encoding="utf-8"))
         (output_dir / "eval_v1_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        # eval_tb：每次 eval 一个独立 run_tag，多 ckpt 可在同一 TensorBoard 叠加对比（对齐 goalgen）。
+        try:
+            import time as _time
+
+            from torch.utils.tensorboard import SummaryWriter
+
+            run_tag = f"{checkpoint_path.stem}_{_time.strftime('%Y%m%d_%H%M%S')}"
+            tb_dir = invocation_root / "eval_tb" / run_tag
+            with SummaryWriter(tb_dir) as tb_writer:
+                for key, val in summary.items():
+                    if isinstance(val, (int, float)) and not isinstance(val, bool):
+                        tb_writer.add_scalar(f"eval/{key}", float(val), 0)
+            print(f"[eval-tb] {tb_dir}")
+        except Exception as exc:
+            print(f"[eval-tb] disabled: {exc}")
         print(json.dumps(summary, ensure_ascii=False, indent=2))
     _barrier()
     if dist.is_available() and dist.is_initialized():

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-single}"  # check | single | ddp
+MODE="${1:-ddp}"  # check | single | ddp
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUTOMOT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -27,6 +27,7 @@ NUM_EPOCHS="${NUM_EPOCHS:-3}"
 GRAD_ACC="${GRAD_ACC:-8}"
 LOGGING_STEPS="${LOGGING_STEPS:-20}"
 SAVE_STEPS="${SAVE_STEPS:-500}"
+KEEP_RECENT_CHECKPOINTS="${KEEP_RECENT_CHECKPOINTS:-3}"  # epoch 全量 ckpt 滚动保留份数；best.pt/latest.pt 不受影响
 VAL_STEPS="${VAL_STEPS:-500}"
 VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-64}"
 VAL_SAMPLE_SEED="${VAL_SAMPLE_SEED:-202607}"
@@ -120,6 +121,7 @@ common_args=(
   --grad-accum-steps "${GRAD_ACC}"
   --logging-steps "${LOGGING_STEPS}"
   --save-steps "${SAVE_STEPS}"
+  --keep-recent-checkpoints "${KEEP_RECENT_CHECKPOINTS}"
   --val-steps "${VAL_STEPS}"
   --val-max-samples "${VAL_MAX_SAMPLES}"
   --val-sample-seed "${VAL_SAMPLE_SEED}"
@@ -203,3 +205,25 @@ case "${MODE}" in
     exit 2
     ;;
 esac
+
+# ---------------------------------------------------------------------------
+# 产物布局（OUTPUT_DIR 平铺，与 eval_v1.py / probe_v1.py 同根）：
+#   OUTPUT_DIR/
+#     ├─ best.pt + best.json        val/loss 历史最小（eval/probe 默认指向它）
+#     ├─ latest.pt                  最近一次保存（无 val 时回退到它）
+#     ├─ checkpoint-epochNN.pt      各 epoch 全量 ckpt（保留最近 KEEP_RECENT_CHECKPOINTS）
+#     ├─ tb/                        训练 TensorBoard events
+#     └─ invocations/               每次启动的 argv / env / git commit
+# ---------------------------------------------------------------------------
+if [[ "${MODE}" != "check" ]]; then
+  echo ""
+  echo "============================================================"
+  echo "[hint] TensorBoard（训练曲线 + eval 标量同板对比）："
+  echo "  bash tools/tb_serve.sh ${OUTPUT_DIR}"
+  echo "[hint] 离线 eval（多卡分片）："
+  echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval_v1.py --save-root ${OUTPUT_DIR}"
+  echo "[hint] case 级 probe（dump 预测 vs 真值对比图）："
+  echo "  python qwen3vl_local/leadmot/probe_v1.py --save-root ${OUTPUT_DIR}"
+  echo "============================================================"
+fi
+
