@@ -1,22 +1,8 @@
-"""LeadMoTPlanningDecoder：顶层组装，串起 projectors / query_bank / mot_block / heads。
+"""LeadMoT planning decoder 顶层模块。
 
-forward 接口:
-    pooled_kv         : list[(K, V)] 长度 = num_layers (=12)
-                        每个 K/V (B 或 1, 8, S, 128)
-                        来源 frozen Qwen prefill -> segment_kv_for_dit(num_segments=12, mode='select_last')
-                        调用方负责池化（详见 ARCHITECTURE.md §7）
-    bev               : (B, 512, 10, 12)
-    speed             : (B,) 或 (B, 1)
-    target_point      : (B, 2)
-    target_point_next : (B, 2)
-
-return:
-    pred_route             : (B, 10, 2) ego-local 米，对齐 LEAD data["route"]
-    pred_future_waypoints  : (B,  8, 2) ego-local 米，对齐 LEAD data["future_waypoints"]
-    gen_hidden             : (B, 141, 1024) 调试/扩展用
-
-当前是 MoT 形态的工程简化实现（独立 12 层 transformer 读 frozen K/V），不是严格 MoT
-（严格 MoT 在 Qwen LM 36 层内做 q/k/v_proj_mot_gen 分流）。详见 ARCHITECTURE.md §2。
+decoder 从 runner 接收 frozen Qwen prefix K/V 和 frozen LEAD BEV feature。
+它先构建 generated-token 序列，再跑 12 层 Prefix-KV decoder block，
+最后用 LEAD 风格 head 读取 route / waypoint query 切片。
 """
 
 from __future__ import annotations
@@ -34,20 +20,25 @@ from .query_bank import RouteQueryBank, WaypointQueryBank
 
 
 class LeadMoTPlanningDecoder(nn.Module):
-    """LEAD-MoT 快推理 decoder（详见模块 docstring）。"""
+    """接在 frozen Qwen 和 frozen BEV 上训练的快推理 planning decoder。
+
+    Forward 输入：
+    - ``pooled_kv``：frozen Qwen K/V 的 12 个 segment，每层 block 用一个；
+    - ``bev``：LEAD BEV feature map，形状 ``(B, 512, 10, 12)``；
+    - ``speed``、``target_point``、``target_point_next``：ego 状态输入；
+    - ``rope_position_offset``：来自 Qwen prefill 的 next-token 位置 offset。
+    """
 
     def __init__(self, config: Optional[LeadMoTPlanningDecoderConfig] = None):
         super().__init__()
         self.config = config or LeadMoTPlanningDecoderConfig()
-        # 提前校验配置自洽，避免延迟到 attention 内部报错
+        # 提前检查：prefix K/V 会直接进 attention，不经过 Linear 投影兜底。
         self.config.validate_qwen_kv_shape()
         cfg = self.config
 
-        # 输入投影
         self.bev_projector = LeadBEVProjector(cfg)
         self.status_encoder = StatusTokenEncoder(cfg)
 
-        # 可学 query
         self.route_query_bank = RouteQueryBank(
             num_queries=cfg.num_route_queries,
             hidden_size=cfg.hidden_size,
@@ -57,8 +48,8 @@ class LeadMoTPlanningDecoder(nn.Module):
             hidden_size=cfg.hidden_size,
         )
 
-        # gen 路 12 层 decoder，每层用一段 pooled_kv
-        # 所有 block 共享同一份 rope 配置，运行时按 cfg.rope_type 分发（mrope/mhrope/none）
+        # 每个 block attention 到一个 pooled Qwen K/V segment。
+        # 所有 block 共用同一套 RoPE 策略，保证 train/eval/runner 对齐。
         active_section = cfg.active_mrope_section()
         self.blocks = nn.ModuleList(
             [
@@ -76,7 +67,6 @@ class LeadMoTPlanningDecoder(nn.Module):
         )
         self.gen_final_norm = RMSNorm(cfg.hidden_size, eps=1e-6, elementwise_affine=True)
 
-        # 输出头
         self.route_head = RouteHead(hidden_size=cfg.hidden_size, point_dim=cfg.point_dim)
         self.waypoint_head = WaypointHead(hidden_size=cfg.hidden_size, point_dim=cfg.point_dim)
 
@@ -87,7 +77,7 @@ class LeadMoTPlanningDecoder(nn.Module):
         target_point: torch.Tensor,
         target_point_next: torch.Tensor,
     ) -> torch.Tensor:
-        """拼成 packed gen 序列 (B, 141, hidden)，顺序必须匹配 config.slice_layout。"""
+        """按 ``slice_layout`` 约定顺序打包 BEV/status/query token。"""
         batch_size = bev.shape[0]
         bev_tokens = self.bev_projector(bev)
         speed_tok = self.status_encoder.encode_speed(speed)
@@ -104,7 +94,7 @@ class LeadMoTPlanningDecoder(nn.Module):
             device=bev_tokens.device,
             dtype=bev_tokens.dtype,
         )
-        # 顺序: BEV(120) | speed(1) | tp(1) | ntp(1) | route_q(10) | wp_q(8) = 141
+        # 布局：BEV | speed | target point | next target point | route Q | waypoint Q。
         gen_seq = torch.cat([bev_tokens, speed_tok, tp_tok, ntp_tok, route_q, wp_q], dim=1)
         if gen_seq.shape[1] != self.config.total_gen_tokens():
             raise RuntimeError(
@@ -113,29 +103,21 @@ class LeadMoTPlanningDecoder(nn.Module):
             )
         return gen_seq
 
-    def _check_pooled_kv(
-        self,
-        pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]],
-    ) -> None:
-        """提前校验所有 num_layers 段的 K/V 形状，避免延迟到 attention 才报错。"""
+    def _check_pooled_kv(self, pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]]) -> None:
+        """attention 开始前检查 K/V segment 数量和形状。"""
         if len(pooled_kv) != self.config.num_layers:
             raise ValueError(
-                f"pooled_kv 段数 {len(pooled_kv)} 与 decoder 层数 "
-                f"{self.config.num_layers} 不一致"
+                f"pooled_kv has {len(pooled_kv)} segments, expected {self.config.num_layers}"
             )
         for i, (k, v) in enumerate(pooled_kv):
             if k.shape != v.shape:
-                raise ValueError(
-                    f"pooled_kv[{i}] K/V shape 不一致：{tuple(k.shape)} vs {tuple(v.shape)}"
-                )
+                raise ValueError(f"pooled_kv[{i}] K/V shape mismatch: {tuple(k.shape)} vs {tuple(v.shape)}")
             if k.ndim != 4:
-                raise ValueError(
-                    f"pooled_kv[{i}] K 应为 [B,H,S,D]，实际 {tuple(k.shape)}"
-                )
+                raise ValueError(f"pooled_kv[{i}] K must be [B,H,S,D], got {tuple(k.shape)}")
             if k.shape[1] != self.config.num_kv_heads or k.shape[3] != self.config.head_dim:
                 raise ValueError(
-                    f"pooled_kv[{i}] K 形状 {tuple(k.shape)} 与 "
-                    f"(heads={self.config.num_kv_heads}, head_dim={self.config.head_dim}) 不匹配"
+                    f"pooled_kv[{i}] shape {tuple(k.shape)} does not match "
+                    f"(heads={self.config.num_kv_heads}, head_dim={self.config.head_dim})"
                 )
 
     def forward(
@@ -147,13 +129,16 @@ class LeadMoTPlanningDecoder(nn.Module):
         target_point_next: torch.Tensor,
         rope_position_offset: int | torch.Tensor | None = None,
     ) -> Dict[str, torch.Tensor]:
+        """返回 route 和 future-waypoint 预测。"""
         self._check_pooled_kv(pooled_kv)
         gen_seq = self._build_gen_sequence(
-            bev=bev, speed=speed,
-            target_point=target_point, target_point_next=target_point_next,
+            bev=bev,
+            speed=speed,
+            target_point=target_point,
+            target_point_next=target_point_next,
         )
 
-        # 第 i 层 block 用 pooled_kv[i] 作 prefix K/V
+        # 第 i 个 block 使用 pooled_kv[i] 作为 language prefix K/V。
         for block, lang_kv in zip(self.blocks, pooled_kv):
             gen_seq = block(
                 gen_seq=gen_seq,
@@ -162,7 +147,7 @@ class LeadMoTPlanningDecoder(nn.Module):
             )
         gen_seq = self.gen_final_norm(gen_seq)
 
-        # 按 slice_layout 切出 route / waypoint 段 hidden
+        # 只有 query 切片进入 planning head；BEV/status token 只作为上下文。
         layout = self.config.slice_layout()
         r_start, r_end = layout["route"]
         w_start, w_end = layout["waypoint"]

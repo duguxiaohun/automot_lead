@@ -1,8 +1,7 @@
-"""LeadMoT planning decoder package.
+"""LeadMoT planning decoder 包。
 
-Runtime imports expose only decoder modules. Training utilities live in
-separate scripts in this directory and are not imported here, so the offline
-runner keeps a small dependency surface.
+运行时这里只暴露 decoder 相关模块。训练工具放在同目录独立脚本里，
+不会从这里 import，避免 offline runner 的依赖面被训练代码污染。
 """
 
 from .config import LeadMoTPlanningDecoderConfig

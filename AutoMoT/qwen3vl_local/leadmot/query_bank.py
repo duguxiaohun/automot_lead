@@ -1,7 +1,7 @@
-"""可学 query embedding 表。
+"""用于 route / waypoint 预测的可学习 query bank。
 
-route 和 waypoint 各一个独立 bank，便于分别冻结/换数量。
-forward 用 expand 把单份 embedding 广播到 batch，不开新显存。
+decoder 会把这些 learned token 拼在 BEV 和 status token 后面。
+route head 读取 route query，waypoint head 读取 waypoint query。
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ import torch.nn as nn
 
 
 class _QueryBank(nn.Module):
+    """基础 embedding table，forward 时按当前 batch 展开。"""
+
     def __init__(self, num_queries: int, hidden_size: int):
         super().__init__()
         self.num_queries = num_queries
@@ -19,7 +21,7 @@ class _QueryBank(nn.Module):
         nn.init.trunc_normal_(self.embed.weight, std=0.02)
 
     def forward(self, batch_size: int, device=None, dtype=None) -> torch.Tensor:
-        """返回 (B, num_queries, hidden)，所有 batch 共享同一份 embedding (expand 不拷贝)。"""
+        """返回 ``(B, num_queries, hidden)``，不为每个样本额外分配参数。"""
         idx = torch.arange(self.num_queries, device=device or self.embed.weight.device)
         q = self.embed(idx).unsqueeze(0).expand(batch_size, -1, -1)
         if dtype is not None:
@@ -28,14 +30,14 @@ class _QueryBank(nn.Module):
 
 
 class RouteQueryBank(_QueryBank):
-    """LEAD route：默认 10 个 query。"""
+    """默认 10 个可学习 route query，对齐 LEAD route 标签。"""
 
     def __init__(self, num_queries: int = 10, hidden_size: int = 1024):
         super().__init__(num_queries=num_queries, hidden_size=hidden_size)
 
 
 class WaypointQueryBank(_QueryBank):
-    """LEAD waypoint：默认 8 个 query（4Hz × 2s）。"""
+    """默认 8 个可学习 waypoint query，对齐 CARLA 2 秒预测窗口。"""
 
     def __init__(self, num_queries: int = 8, hidden_size: int = 1024):
         super().__init__(num_queries=num_queries, hidden_size=hidden_size)

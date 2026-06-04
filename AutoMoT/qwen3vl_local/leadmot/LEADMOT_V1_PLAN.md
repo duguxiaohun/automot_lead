@@ -70,6 +70,36 @@ Waypoint 直接服务控制，权重更高；route 作为空间路线监督，�
 
 Route / waypoint head 内部在 cumsum 时临时升到 fp32，再 cast 回原 dtype，避免 bf16 连续累计带来末点误差。
 
+## EMA
+
+默认开 EMA shadow（CLI `--ema`，env `EMA=1`，decay=0.999），结构与 goalgen `DiTEMA` 同：fp32 存储、`mul_`+`add_` 融合更新。
+
+- `ema.update(decoder_module)` 放在 `optimizer.step()` **之后**；放之前 shadow 拿未更新的旧参数会"慢一步"。
+- val 用 `with ema.apply_to(decoder): ...` 上下文跑一次，得到 `val_ema/*` 一组 scalar；EMA 关时只有 `val/*`。
+- `best.pt` 选 EMA val/loss 优先（更稳）；EMA 关时回退 raw val/loss。
+- ckpt 同时持久化 `decoder` 与 `ema_state_dict` + `ema_decay`，`eval_v1.py` / `probe_v1.py` 默认 `--use-ema=True`；旧 ckpt 无 EMA 字段时自动回退 raw + print 警告。
+- decay 选择：默认 0.999 适配 LeadMoT 默认短 schedule（warmup ~500 step）；长 schedule (≥10 epoch) 可调 0.9999，但 warmup 期前一段 EMA 会拖收敛速度。
+
+## TB 图像 overlay 样例
+
+每 `image-log-every` 步（默认 1000）rank0 从 val 抽 `image-log-samples`（默认 4）条样本，渲染 pred vs gt 的 route + waypoint overlay 拼图（小 PIL 画，比 matplotlib 轻），贴到 TB：
+
+- `samples/planning_overlay_raw`：raw 权重输出
+- `samples/planning_overlay_ema`：EMA 权重输出（开 EMA 时多一组）
+
+在 TB 上直接看模型质量进化，比 loss 曲线直观。所有 rank barrier 等 rank0 渲染完再继续训练，不破坏 DDP collective。`image-log-every=0` 关闭。
+
+## TB 标量
+
+| Group | Key | 说明 |
+|---|---|---|
+| `train/` | `loss` / `route_loss` / `waypoint_loss` / `lr` / `grad_norm` | 训练损失与诊断 |
+| `train/` | `route_ade_m` / `route_fde_m` / `waypoint_ade_m` / `waypoint_fde_m` | 米数级 ADE/FDE，与 eval/probe 同口径 |
+| `val/` | 同上 5 个 | raw 权重 val |
+| `val_ema/` | 同上 5 个 | EMA 权重 val（开 EMA 时） |
+
+`eval_v1.py` 的 `eval_tb/<ckpt>_<ts>/` 子目录会写同名 key `eval/*`，可以在同一 TB 板上叠加对比训练 / 多 ckpt 离线 eval。
+
 ## RoPE
 
 训练前向复用 `mot_lead_offline_runner.py` 的推理路径，因此 M-RoPE/MHRoPE 的使用位置与 demo 一致。默认仍建议 `mrope`；`mhrope` 只有在 Qwen prefill 侧也同步 patch 时才打开。
