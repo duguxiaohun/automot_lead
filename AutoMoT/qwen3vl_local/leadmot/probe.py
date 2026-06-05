@@ -77,22 +77,32 @@ def _load_decoder(
 ) -> tuple[LeadMoTPlanningDecoder, LeadMoTPlanningDecoderConfig]:
     """加载 decoder 权重；可用时优先使用 EMA 权重。"""
     state = torch.load(path, map_location="cpu")
-    cfg_dict = state.get("decoder_config", {})
+    cfg_dict = dict(state.get("decoder_config", {}))
     if "route_points" in cfg_dict and "num_route_queries" not in cfg_dict:
         cfg_dict["num_route_queries"] = cfg_dict.pop("route_points")
     if "waypoint_points" in cfg_dict and "num_waypoint_queries" not in cfg_dict:
         cfg_dict["num_waypoint_queries"] = cfg_dict.pop("waypoint_points")
+
+    ema_sd = state.get("ema_state_dict") if isinstance(state, dict) else None
+    using_ema = bool(use_ema and ema_sd is not None)
+    state_dict = ema_sd if using_ema else state["decoder"]
+    if "use_bev" not in cfg_dict:
+        cfg_dict["use_bev"] = any(str(key).startswith("bev_projector.") for key in state_dict)
+        print(
+            "[leadmot] checkpoint has no decoder_config.use_bev; "
+            f"inferred use_bev={cfg_dict['use_bev']} from state_dict keys"
+        )
+
     config = LeadMoTPlanningDecoderConfig(**{k: v for k, v in cfg_dict.items() if k in LeadMoTPlanningDecoderConfig.__dataclass_fields__})
     decoder = LeadMoTPlanningDecoder(config).to(device=device, dtype=dtype)
 
-    ema_sd = state.get("ema_state_dict") if isinstance(state, dict) else None
-    if use_ema and ema_sd is not None:
-        decoder.load_state_dict(ema_sd, strict=True)
+    if using_ema:
+        decoder.load_state_dict(state_dict, strict=True)
         print(f"[leadmot] using EMA weights (decay={state.get('ema_decay', 'unknown')})")
     else:
         if use_ema and ema_sd is None:
             print("[leadmot] WARN: --use-ema set but checkpoint has no ema_state_dict; using raw decoder weights")
-        decoder.load_state_dict(state["decoder"], strict=True)
+        decoder.load_state_dict(state_dict, strict=True)
     decoder.eval()
     return decoder, config
 

@@ -1,4 +1,4 @@
-"""GoalGen v1 离线评测：在 val.jsonl 上跑 DiT、解码图像、报告 5 个核心指标 +
+"""GoalGen v1/v2 离线评测：在 val.jsonl 上跑 DiT、解码图像、报告 5 个核心指标 +
 小样本完整 dump（输入图像/输入文本/输出图像/指标全部本地落盘）。
 
 数据流（与 train 完全同构，只是不反传）：
@@ -285,7 +285,7 @@ def build_dit_from_ckpt(
 ) -> DiTMoT:
     """读取 ckpt → 反建 DiTMoTConfig → 实例化 → strict load。
 
-    v2 起 num_layers 仍从 pooled_kv 推；不再有 language_kv_input_dim 字段，
+    当前共享架构的 num_layers 仍从 pooled_kv 推；不再有 language_kv_input_dim 字段，
     pooled_kv 的 (n_heads=8, head_dim=128) 必须与 DiT cfg 严格一致，
     DiTMoT.forward 内部会做硬断言。
     """
@@ -332,7 +332,7 @@ def build_dit_from_ckpt(
 
     if saved_cfg_dict is not None:
         # 形状预检：训练时与运行时的 num_layers 不一致 → strict load 必炸 attention 投影。
-        # 提前断言给出双数字 + 原因。v2 不再有 language_kv_input_dim，KV 形状由 DiTMoT.forward
+        # 提前断言给出双数字 + 原因。当前架构不再有 language_kv_input_dim，KV 形状由 DiTMoT.forward
         # 内部断言（n_heads × head_dim 必须 == Qwen K/V 形状）。
         saved_layers = saved_cfg_dict.get("num_layers")
         runtime_layers = runtime_kwargs["num_layers"]
@@ -343,7 +343,7 @@ def build_dit_from_ckpt(
             )
 
         merged = dict(saved_cfg_dict)
-        # 兼容性：旧 v1 ckpt 里有 language_kv_input_dim 字段，DiTMoTConfig 已不接受 -> 弹掉。
+        # 兼容性：早期架构 ckpt 里有 language_kv_input_dim 字段，DiTMoTConfig 已不接受 -> 弹掉。
         merged.pop("language_kv_input_dim", None)
         merged.update(runtime_kwargs)
         merged.setdefault("latent_channels", 4)
@@ -373,7 +373,7 @@ def build_dit_from_ckpt(
             raise RuntimeError(
                 f"DiT cfg (n_heads={cfg.n_heads}, head_dim={cfg.hidden_dim // cfg.n_heads}) "
                 f"与运行时 Qwen K/V (n_kv_heads={kv_n_heads}, head_dim={kv_head_dim}) 不匹配；"
-                "v2 要求严格相同。请确认 Qwen 模型 / DiT cfg 一致（默认 8×128）。"
+                "当前共享架构要求严格相同。请确认 Qwen 模型 / DiT cfg 一致（默认 8×128）。"
             )
 
     model = DiTMoT(cfg).to(device=device, dtype=dtype)
@@ -1289,7 +1289,7 @@ def _resolve_default_dit_checkpoint(save_root_hint: Optional[str] = None) -> str
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="在 val.jsonl 上评测 GoalGen v1 DiT")
+    p = argparse.ArgumentParser(description="在 val.jsonl 上评测 GoalGen v1/v2 共用 DiT")
     p.add_argument("--val-jsonl", default="checkpoints/goalgen_v1_data/val.jsonl")
     p.add_argument("--dit-checkpoint", default="",
                    help="DiT ckpt 路径。**留空时由 main() 根据 --save-root 自动推**："
@@ -1332,7 +1332,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         " 仅消融实验使用；默认抛错，防止 KV 分布漂移导致指标不可比。")
 
     # DiT 几何参数：仅在 ckpt 没存 dit_config 时使用（旧 ckpt 兼容）。
-    # v2 默认与 train.py 同步：patch=4 / hidden=1024 / n_heads=8。
+    # 当前共享默认与 train.py 同步：patch=4 / hidden=1024 / n_heads=8。
     p.add_argument("--patch-size", type=int, default=4)
     p.add_argument("--hidden-dim", type=int, default=1024)
     p.add_argument("--n-heads", type=int, default=8)

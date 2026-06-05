@@ -11,7 +11,7 @@ GoalGen 子包**单一代码、双版本**：v1 / v2 共用同一份脚本，靠
 - **[v1/v2 通用]** = 不论跑 v1 还是 v2 都按这节做；
 - **[v1 only]** = 只 v1 跑这条命令时需要；
 - **[v2 only]** = 只 v2 跑这条命令时需要；
-- **[v1 默认 / v2 fine-tune]** = 同一命令 v1 与 v2 默认值不同，分别列出。
+- **[mode-specific]** = 同一命令在 `VERSION=v1` 与 `VERSION=v2` 下默认值不同，分别列出。
 
 | 切换点 | v1 | v2 |
 |---|---|---|
@@ -131,7 +131,7 @@ VERSION=v2 RUN_TAG=lr3e3_muon \
   产物路径、`INIT_FROM_CKPT`），CLI 参数集合完全相同；
 - warm start 只加载 **DiT 权重 + EMA shadow** 两块，不接 `optimizer / scheduler /
   global_step`，即 cosine LR 重新走 warmup、AdamW/Muon 状态全部清零；
-- `--init-from-ckpt` 走 `strict=True` **作为护栏**：v2 默认完全沿用 v1 架构
+- `--init-from-ckpt` 走 `strict=True` **作为护栏**：`VERSION=v2` 完全沿用当前共享架构
   （`PATCH_SIZE=4 / HIDDEN_DIM=1024 / N_HEADS=8 / NUM_LAYERS=12`），state_dict
   key + shape 一一对应，**不会触发**；只有当你后续手动改了 `HIDDEN_DIM / N_HEADS /
   NUM_LAYERS / PATCH_SIZE` 之类 env 又忘了清空 `INIT_FROM_CKPT`，才会立刻抛
@@ -290,6 +290,8 @@ default 也是 2，两边一致。计算依据：
 - 831k 样本 / 4 GPU / GRAD_ACC=4 ≈ **52k optimizer step / epoch**
 - DiT 从零训通常 100-200k step 才稳定收敛，1 epoch 偏少
 - 2 epoch ≈ 104k step，配合 cosine decay 收尾，进入 DiT 收敛区间下界
+- v2 是 warm start fine-tune，真实 step 数以 `goalgen_v2_data/stats.json` 为准；
+  默认仍先用 2 epoch，配合 LR / Muon LR 减半和短 warmup。
 
 想要多跑：`NUM_EPOCHS=3 bash qwen3vl_local/goalgen/train.sh ddp` 显式覆盖。
 check 模式写死 `--num-epochs 1` + `--max-train-steps 2`，纯链路验证用，不动。
@@ -647,7 +649,7 @@ python qwen3vl_local/goalgen/probe.py \
 | `SUBGOAL ... does not match STATUS` | CLI 覆盖打破了 scenario 事件链 | 只指定 STATUS，让 runner 自己推下一个 SUBGOAL |
 | `language KV batch ... != vision batch ...` | DDP 进程拿到的 KV 来自别的样本 | 保证每个样本各自走 `teacher_forced_prefill`；不要堆别人样本的 KV |
 | `pooled_kv segments X != DiT layers Y` | `--num-layers` 与 `num_segments` 漂移 | 保持 `--num-layers`（训练器）与分段函数的 `num_segments`（qwen_kv.py 默认 12）一致 |
-| `pooled_kv[0] K 形状 ... 与 DiT (n_heads, head_dim) 不匹配` | v2 起 DiT 直接消费 Qwen K/V，没有 lang_k/v_proj 兜底 | 让 `--n-heads` 等于 Qwen `num_key_value_heads`、`--hidden-dim / --n-heads` 等于 Qwen `head_dim`。Qwen3-VL-4B-Instruct 默认 8 × 128，对应 `--n-heads 8 --hidden-dim 1024` |
+| `pooled_kv[0] K 形状 ... 与 DiT (n_heads, head_dim) 不匹配` | 当前共享架构直接消费 Qwen K/V，没有 lang_k/v_proj 兜底 | 让 `--n-heads` 等于 Qwen `num_key_value_heads`、`--hidden-dim / --n-heads` 等于 Qwen `head_dim`。Qwen3-VL-4B-Instruct 默认 8 × 128，对应 `--n-heads 8 --hidden-dim 1024` |
 
 ## 5. 默认形状
 
@@ -659,9 +661,9 @@ python qwen3vl_local/goalgen/probe.py \
 |---|---|---|
 | LEAD 拼接 RGB | 1152x384 | 由数据决定，不重新拼图就不要改 |
 | VAE latent | [B, 4, 48, 144] | 来自 RGB / 8 下采样 |
-| `--patch-size 4` | 网格 (12, 36) = 每个潜变量 432 个 token（v1 是 2 / 1728） | 改小 → token 数翻 4 倍 attention 显著变重；改大 → 输出空间分辨率更粗 |
-| `--hidden-dim 1024` | 隐藏维度 1024 / 每头维度 128（v1 是 768/64） | **必须 = Qwen `num_key_value_heads * head_dim`**，否则 v2 DiT 与 Qwen K/V 形状不对齐 |
-| `--n-heads 8` | 每头维度 = 128（v1 是 12） | **必须 = Qwen `num_key_value_heads`**；Qwen3-VL-4B-Instruct 是 8 |
+| `--patch-size 4` | 网格 (12, 36) = 每个潜变量 432 个 token（早期历史架构 patch=2 / 1728 token） | 改小 → token 数翻 4 倍 attention 显著变重；改大 → 输出空间分辨率更粗 |
+| `--hidden-dim 1024` | 隐藏维度 1024 / 每头维度 128（早期历史架构 768/64） | **必须 = Qwen `num_key_value_heads * head_dim`**，否则当前 DiT 与 Qwen K/V 形状不对齐 |
+| `--n-heads 8` | 每头维度 = 128（早期历史架构 12 heads） | **必须 = Qwen `num_key_value_heads`**；Qwen3-VL-4B-Instruct 是 8 |
 | `--num-layers 12` | 等于 KV 段数 | 必须等于 `segment_kv_for_dit(num_segments=...)`，默认 12 |
 | `--mlp-ratio 4.0` | SwiGLU 内层维度 = 1024 * 4 = 4096 | DiT / Qwen3 / SD3 通用约定 |
 | `--cond-dim 256` | 时间步嵌入维度 | 影响每层 AdaLN 调制向量的输出大小 |

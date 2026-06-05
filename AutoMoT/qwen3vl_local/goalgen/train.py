@@ -1,4 +1,4 @@
-"""使用 build_dataset.py 生成的 jsonl 训练 GoalGen v1 DiT-MoT。
+"""使用 build_dataset.py 生成的 jsonl 训练 GoalGen v1/v2 共用 DiT-MoT。
 
 这个训练入口刻意保持小而直白：
 - Qwen3-VL-Instruct 全程冻结，只用于 teacher-forced 预填充。
@@ -189,9 +189,9 @@ def dtype_from_name(name: str) -> torch.dtype:
 
 
 def build_dit(args: argparse.Namespace) -> DiTMoT:
-    """构造 DiT-MoT（v2 架构）。
+    """构造 DiT-MoT（当前 v1/v2 共享架构）。
 
-    v2 起 DiT 的 (n_heads, head_dim) 必须严格等于 Qwen 的 (num_key_value_heads, head_dim)，
+    当前 DiT 的 (n_heads, head_dim) 必须严格等于 Qwen 的 (num_key_value_heads, head_dim)，
     所以**不再需要 language_kv_input_dim 这一字段**。默认 hidden_dim=1024 / n_heads=8 /
     head_dim=128 已经对齐 Qwen3-VL-4B-Instruct；想接其它 Qwen 时调 --hidden-dim /
     --n-heads 保持二者乘积等于 Qwen K/V 总维度即可。
@@ -428,11 +428,11 @@ class _DualOptimizer:
         return {"muon": self.muon.state_dict(), "adamw": self.adamw.state_dict()}
 
     def load_state_dict(self, sd: Dict[str, Any]) -> None:
-        # 旧 ckpt（v1 单 AdamW）没有这个分组结构；提示用户重新训练，不做兼容性 hack。
+        # 旧 ckpt（历史单 AdamW）没有这个分组结构；提示用户重新训练，不做兼容性 hack。
         if "muon" not in sd or "adamw" not in sd:
             raise RuntimeError(
-                "optimizer state_dict 缺少 muon/adamw 键；这通常是想 resume v1 单 AdamW ckpt。"
-                "v2 架构改动后参数 shape 与 v1 不兼容，必须从头训练。"
+                "optimizer state_dict 缺少 muon/adamw 键；这通常是想 resume 历史单 AdamW ckpt。"
+                "当前架构/优化器与历史 ckpt 不兼容，必须从头训练或使用匹配的 warm-start 权重。"
             )
         self.muon.load_state_dict(sd["muon"])
         self.adamw.load_state_dict(sd["adamw"])
@@ -917,7 +917,7 @@ class _DualScheduler:
     def load_state_dict(self, sd: Dict[str, Any]) -> None:
         if "muon" not in sd or "adamw" not in sd:
             raise RuntimeError(
-                "scheduler state_dict 缺少 muon/adamw 键；v1 单 scheduler ckpt 不兼容 v2。"
+                "scheduler state_dict 缺少 muon/adamw 键；早期单 scheduler ckpt 不兼容当前 dual scheduler schema。"
             )
         self.muon_sched.load_state_dict(sd["muon"])
         self.adamw_sched.load_state_dict(sd["adamw"])
@@ -1020,7 +1020,7 @@ def train(args: argparse.Namespace) -> None:
     vae.model.eval()
     latent_stats = _load_or_compute_latent_stats(vae, samples, args, rank, world_size)
 
-    # v2 起 DiT (n_heads, head_dim) 必须严格匹配 Qwen (n_kv_heads, head_dim)，
+    # 当前共享架构要求 DiT (n_heads, head_dim) 严格匹配 Qwen (n_kv_heads, head_dim)，
     # 不再需要运行时 probe；实际不匹配时 DiTMoT.forward 会在第一步 step 内抛清晰错误。
     # 把校验留在前向是为了让"换 Qwen 模型却忘改 --hidden-dim/--n-heads"的低级问题
     # 立刻被捕获，而不是在训练若干小时后在 attention 层 SDPA 内崩。
@@ -1028,7 +1028,7 @@ def train(args: argparse.Namespace) -> None:
     dit = build_dit(args).to(device=device, dtype=dit_dtype)
     if is_rank0(rank):
         print(
-            f"[build] DiT v2 cfg: hidden={args.hidden_dim} n_heads={args.n_heads} "
+            f"[build] DiT cfg: hidden={args.hidden_dim} n_heads={args.n_heads} "
             f"head_dim={args.hidden_dim // args.n_heads} patch={args.patch_size} layers={args.num_layers}"
         )
 
@@ -1107,8 +1107,8 @@ def train(args: argparse.Namespace) -> None:
     else:
         dit_module = dit
 
-    # 可选 torch.compile(dit)：v2 起默认**开启**（patch=4 后 token 数砍到 1/4，
-    # compile 的固定 overhead 比 v1 划算很多）。`--no-compile` 关掉作为退路。
+    # 可选 torch.compile(dit)：当前默认开启（patch=4 后 token 数较少，
+    # compile 的固定 overhead 更容易摊平）。`--no-compile` 关掉作为退路。
     # - 只 compile DiT；Qwen3-VL 走 HF DynamicCache + Python 控制流不友好。
     # - mode="default" 用 Inductor 优化 attention/linear；fullgraph=False 容忍少量
     #   Python 分支（如 force_uncond），不强求一次性 graph 化。
@@ -1123,7 +1123,7 @@ def train(args: argparse.Namespace) -> None:
             if is_rank0(rank):
                 print(f"[compile] torch.compile 失败，回退原模型：{exc}")
 
-    # v2 双 optimizer：Muon 跑 2D 权重矩阵，AdamW 跑其它（Conv2d patch.proj、norm 1D weight、
+    # 当前共享优化器配置：Muon 跑 2D 权重矩阵，AdamW 跑其它（Conv2d patch.proj、norm 1D weight、
     # embedding、null_lang_k/v 等）。Muon 在大型 attention 模型上比单 AdamW 收敛 1.5-2× 更快，
     # 但仅对 2D 矩阵有效——所以 1D / 4D 参数仍走 AdamW。
     # 注意分组取自 `dit_module`（DDP 解包后的真模型）：DDP wrap 不改参数引用，
@@ -1466,7 +1466,7 @@ def train(args: argparse.Namespace) -> None:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="训练 GoalGen v1 DiT-MoT")
+    p = argparse.ArgumentParser(description="训练 GoalGen v1/v2 共用 DiT-MoT")
     p.add_argument("--train-jsonl", default="checkpoints/goalgen_v1_data/train.jsonl")
     p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
     p.add_argument("--output-dir", default="checkpoints/goalgen_v1_dit")
@@ -1482,17 +1482,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false",
                    help="保留 PeftModel 包装不合并（调试 LoRA 自身行为用）。")
 
-    # v2 默认架构：patch=4 / hidden=1024 / n_heads=8 / head_dim=128
+    # 当前共享架构：patch=4 / hidden=1024 / n_heads=8 / head_dim=128
     # 与 Qwen3-VL-4B-Instruct 的 (num_key_value_heads=8, head_dim=128) 严格对齐，
     # 这样语言 K/V 直接接入 DiT attention，省掉 lang_k_proj/v_proj 跨维线性。
     p.add_argument("--patch-size", type=int, default=4)
     p.add_argument("--hidden-dim", type=int, default=1024)
     # 可选 patch/unpatch 预训权重（来自 vae_standalone/train_patch_unpatch.py）。
     # 给路径就加载并默认冻结；不给就维持原行为（随机初始化、跟 DiT 一起训练）。
-    # v2 注意：必须用 hidden=1024 / patch=4 默认重训的 safetensors，旧版 hidden=768 不兼容。
+    # 架构兼容性注意：必须用 hidden=1024 / patch=4 训出的 safetensors，
+    # 早期 hidden=768 / patch=2 权重不兼容。
     p.add_argument("--patch-unpatch-weights", type=str, default="",
                    help='可选 patch_unpatch_*.safetensors 路径；非空时调用 '
-                        'DiTMoT.load_patch_unpatch 加载并冻结。v2 起需 hidden=1024/patch=4 训出。')
+                        'DiTMoT.load_patch_unpatch 加载并冻结。需用当前架构 hidden=1024/patch=4 训出。')
     p.add_argument("--patch-unpatch-unfreeze", action="store_true", default=False,
                    help="加载 patch/unpatch 权重后仍允许联合更新（默认加载即冻结）。")
     # warm start：从 latest.pt / best.pt schema 的轻量 ckpt 里读 dit_state_dict +
@@ -1528,7 +1529,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Muon optimizer 学习率（仅作用于 2D 权重矩阵）；通常比 AdamW 大 5-10×。")
     p.add_argument("--muon-momentum", type=float, default=0.95,
                    help="Muon momentum；与 nesterov=True 配合，0.95 是 Keller Jordan 默认。")
-    # v2 默认开启：torch.compile + gradient checkpointing
+    # 当前默认开启：torch.compile + gradient checkpointing
     p.add_argument("--compile-dit", action="store_true", default=True,
                    help="torch.compile(DiT) 启用（默认开）。")
     p.add_argument("--no-compile", dest="compile_dit", action="store_false",

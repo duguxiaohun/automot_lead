@@ -83,7 +83,8 @@
 - 不调用 `kv_cache_fixed_inference`
 - 不保留 `--enable-automot-slow` / `enable_fast_inference`
 - Qwen prefill 只来自本地 `AutoMoT/qwen3vl_local.engine.LocalQwen3VLInstructEngine`
-- BEV feature `(1, 512, 10, 12)` 直接交给 LeadMoT decoder；`--leadmot-ckpt` 显式加载 decoder 权重，不传则随机初始化
+- LeadMoT decoder 的 `use_bev` 由 checkpoint `decoder_config.use_bev` 决定；`use_bev=True` 时 BEV feature `(1, 512, 10, 12)` 交给 decoder，`use_bev=False` 时 runner 完全跳过 BEV encoder forward，decoder 不实例化 `bev_projector`。
+- `--leadmot-ckpt` 显式加载 decoder 权重并使用 `strict=True`；`use_bev=True` 必须导入已有 BEV projector 参数，`use_bev=False` 必须彻底不用 BEV，禁止把随机 BEV projector 混入推理。不传 ckpt 只作为随机初始化的链路 / shape 调试。
 
 ### 当前 runner 对 Qwen frozen prefill 的输入状态
 
@@ -96,7 +97,7 @@
 | `target_point/ntp`（未来 1.5s/3.0s 真值 → ego frame） | 距离量级 7–75 m，与 AutoMoT RoutePlanner 同分布 | ✅ |
 | `theta` / `pos_global` | 弧度 + 米，与 `inverse_conversion_2d` 配对正确 | ✅ |
 
-BEV encoder 的 forward 会跑（拿到 `trans_feat`），并直接供 LeadMoT decoder 使用。当前 `LEAD_BEV_CKPT_PATH` 已指向 LEAD tfv6_resnet34 backbone-only ckpt，backbone 走训练好的权重。
+当 `leadmot_config.use_bev=True` 时，BEV encoder forward 会跑（拿到 `trans_feat`），并直接供 LeadMoT decoder 使用；当前 `LEAD_BEV_CKPT_PATH` 已指向 LEAD tfv6_resnet34 backbone-only ckpt，backbone 走训练好的权重。当 `use_bev=False` 时，runner 不构造这一路输入，`trans_feat=None`，快推理不加入 BEV 信息。
 
 ---
 
@@ -495,7 +496,7 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
 - 来源：HuggingFace [`ln2697/tfv6/tfv6_resnet34/model_0030_0.pth`](https://huggingface.co/ln2697/tfv6/tree/main/tfv6_resnet34)，经一次性脚本过滤 `backbone.*` 前缀（剥前缀）后保存为 `model_0030_0_backbone_only.pth`
 - 路径：`/home/cruser1/lda/AutoMoT/checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth`
 - 实测加载：`[LeadBEVEncoder] missing=0, unexpected=0` —— 与 `LeadTransfuserBackbone` state_dict 完全匹配
-- 当前 LeadMoT decoder 消费 `bev_feature`；如后续把 `LEAD_BEV_CKPT_PATH=None`，decoder 仍能跑通 shape，但 BEV 表征会随机初始化。
+- 当前 LeadMoT decoder 只有在 `use_bev=True` checkpoint 下才消费 `bev_feature`；此时应保持 `LEAD_BEV_CKPT_PATH` 指向已训练的 LEAD backbone 权重。`use_bev=False` checkpoint 下 runner 完全跳过 BEV encoder forward，不能用随机 BEV 表征凑 shape。
 
 **AutoMoT legacy slow/fast 路径**：✅ 已从 `mot_lead_offline_runner.py` 移除
 - 不再保留 `--enable-automot-slow` / `enable_fast_inference` 等切回旧链路的 flag
@@ -543,7 +544,7 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
 - ✅ **权重导入窗口 + 已下载 LEAD tfv6_resnet34 ckpt**：
   - 常量 `LEAD_BEV_CKPT_PATH = "/home/cruser1/lda/AutoMoT/checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth"`
   - 一次性脚本下载 HuggingFace `ln2697/tfv6/tfv6_resnet34/model_0030_0.pth` → 过滤 `backbone.*` 前缀（剥前缀）→ 另存 backbone-only → 删完整 ckpt 释放 ~276 MB
-  - `LeadBEVEncoder._load_lead_weights` 走 `strict=False` 加载，**实测 `missing=0 / unexpected=0`**，state_dict 100% 匹配
+  - `LeadBEVEncoder._load_lead_weights` 对 backbone 子集走 `strict=False` 加载，**实测 `missing=0 / unexpected=0`**，state_dict 100% 匹配；LeadMoT decoder checkpoint 另行 `strict=True` 加载，不能把 BEV projector 随机补上
 
 ### 9.2 之前轮次（保留）
 
@@ -557,7 +558,7 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
 ### 9.3 待办
 
 - ✅ **LEAD BEV ckpt 已填**：HuggingFace `ln2697/tfv6/tfv6_resnet34/model_0030_0.pth` 提取 backbone-only 加载，missing=0/unexpected=0
-- ✅ **LEAD-MoT decoder 架构已接入**：prefix-KV + LEAD BEV + LEAD route/waypoint heads，当前为唯一规划路径；未传 ckpt 时随机初始化
+- ✅ **LEAD-MoT decoder 架构已接入**：prefix-KV + 可选 LEAD BEV + LEAD route/waypoint heads，当前为唯一规划路径；传 ckpt 时按 `decoder_config.use_bev` 实例化并 `strict=True` 加载，未传 ckpt 时随机初始化仅供链路调试
 - ⏸ traj 时间网格（LEAD 版快推理重训时再决定）
 - ⏸ `self.commands` deque（close-loop 评测才相关）
 
@@ -602,7 +603,7 @@ bev_lidar_tensor  : (1, 1, 320, 384)  float32 [0, 1]                 # LEAD 风�
             ⇒ 不加载 InterleaveInferencer，不调用 kv_cache_fixed_inference / 原 fast head
             ⇒ 无 --enable-automot-slow / enable_fast_inference 等回退 flag
        LeadMoT 是 runner 默认且唯一路径，无 --enable-leadmot-planning 开关
-       `--leadmot-ckpt` 显式加载 LeadMoT decoder 权重；不传则随机初始化，仅供链路/shape 调试
+       `--leadmot-ckpt` 显式加载 LeadMoT decoder 权重；runner 先读 ckpt 的 `decoder_config.use_bev` 再实例化 decoder，并 `strict=True` 加载；不传则随机初始化，仅供链路/shape 调试
 
 LEAD: 20Hz CARLA, 每0.25s落盘1帧, BEV 4px/m 范围 [-32,64]×[-40,40] 单通道[0,1]
        LiDAR 单帧.laz 内含 5 sweep (lidar_pc_queue maxlen=5 滚动覆盖, 相邻帧无重叠)
@@ -645,7 +646,7 @@ AutoMoT 在线: 20Hz, 每tick决策 (本仓库 runner 不复用其 BEV encoder/�
       LEAD 栅格 LiDAR → trans_feat；两者进入 LeadMoT decoder
    ⏸ 离线没维护 self.commands deque (close-loop 评测才相关)
    ⏸ traj 时间网格 6×0.5s vs LEAD GT 8×0.25s (LEAD 版快推理重设计时再决定输出网格)
-   ✅ LEAD-MoT 架构已接入 (512→1024 BEV projector / prefix-KV attention / LEAD route+waypoint heads)，是当前唯一规划路径；未传 ckpt 时随机初始化
+   ✅ LEAD-MoT 架构已接入（可选 512→1024 BEV projector / prefix-KV attention / LEAD route+waypoint heads），是当前唯一规划路径；传 ckpt 时按 `decoder_config.use_bev` 实例化并 `strict=True` 加载，未传 ckpt 时随机初始化仅供链路调试
 ```
 
 ---
@@ -671,16 +672,22 @@ LEAD-MoT planning path 已取代 `mot_lead_offline_runner.py` 内的 AutoMoT leg
   按 AutoMoT velocity MLP + 共享 WaypointInputAdaptor 编码。
 - **输出**：`leadmot_route (B,10,2)` + `leadmot_future_waypoints (B,8,2)`，delta + cumsum。
 - **运行时**：decoder lazy bf16（默认 0 显存；启用后 ~292MB）。`--leadmot-ckpt`
-  显式加载 `.pt/.pth/.safetensors` 权重；不传则保持随机初始化并打印提示。run_step
-  返回前轨迹 fp32 detach.cpu，大张量（gen_hidden / trans_feat）bf16 detach.cpu。
+  显式加载 `.pt/.pth/.safetensors` 权重；runner 会优先读取 checkpoint 的
+  `decoder_config.use_bev`，旧 ckpt 缺字段时从 `bev_projector.*` key 推断，再用
+  `strict=True` 加载权重。`use_bev=True` 必须有已训练的 `bev_projector` 参数；
+  `use_bev=False` 则 decoder 不建 `bev_projector`，run_step 也不 forward BEV encoder。
+  不传 ckpt 则保持随机初始化并打印提示。run_step 返回前轨迹 fp32 detach.cpu，
+  大张量（gen_hidden / trans_feat）bf16 detach.cpu。
 - **状态**：未传 `--leadmot-ckpt` 时输出数值不能当驾驶结果，仅供架构 / shape 调试。
 
 ### 待办
 
 - **训练侧 cache 同源**：训练必须用同一个 `LocalQwen3VLInstructEngine` + 同一对
   prompt（详见 `leadmot/ARCHITECTURE.md` §6 警告）。
-- **训练权重**：训完后通过 `--leadmot-ckpt <path>` 导入；runner 会 `strict=False`
-  加载并打印 missing / unexpected key。
+- **训练权重**：训完后通过 `--leadmot-ckpt <path>` 导入；runner 会按 checkpoint
+  `decoder_config.use_bev` 实例化 decoder，并 `strict=True` 加载。`use_bev=True`
+  就必须导入已有 BEV projector 参数，`use_bev=False` 就彻底不用 BEV，不能随机初始化
+  BEV projector 后再加载 no-BEV ckpt。
 
 ---
 
@@ -703,7 +710,7 @@ LeadMoT v1 训练入口已放在 `AutoMoT/qwen3vl_local/leadmot/`，与 GoalGen 
 
 注意：GT 不是相邻 delta。LEAD 原 `planning_decoder.py` / `tfv5_planning_decoder.py` 都是 `Linear(hidden,2) -> torch.cumsum(dim=1)` 后再直接对 `data["route"]` / `data["future_waypoints"]` 算 loss；因此 LeadMoT heads 也保持 `Linear+cumsum`，训练 loss 直接对累计 ego-frame 点。默认 loss 为 `1.0 * waypoint_L1 + 0.5 * (route_ADE_L1 + route_FDE_L1)`；如需更平滑的早期梯度，可显式 `--loss-type smooth_l1`。
 
-默认索引构建对齐 GoalGen：`--samples-per-scenario 0` 表示每个 scenario 保留所有合法 anchor，传正整数时按 route-balanced 方式抽样；输出 `train.jsonl` / `val.jsonl` / `stats.json`，train/val 按 route 切分，避免同一路线相邻 anchor 泄漏到验证集。默认 `--stride 5`，相邻 anchor 约间隔 1 秒；正式索引建议加 `--check-readable`，提前按训练实际读取集合检查历史 RGB/meta/LAZ、anchor 标签 meta，以及 TP/NTP 未来 meta，过滤缺文件或 meta 解压失败的坏样本，避免 DDP 训练中单 rank 异常造成 collective 错位。默认优化参数：AdamW，LR `1e-4`，weight decay `0.01`（只作用于 ndim>=2 的权重，bias/RMSNorm 不做 decay），betas `(0.9,0.95)`，warmup `0.03`，epoch `1`，grad accumulation `8`，grad clip `1.0`，训练 dropout `0.1`，decoder/Qwen dtype 默认 bf16；训练侧 `--qwen-dtype` 会传给 runner lazy `LocalQwen3VLInstructEngine`，保证 train/eval/probe 与 runner 同源加载。训练/eval/probe 输出会写 `invocations/` 记录 argv/env/git_commit；有 val 时 `best.pt` 同步写 `best.json` 元信息。eval/probe 推荐使用 `--save-root checkpoints/leadmot_v1_decoder`，分别落到 `<save-root>/eval/` 和 `<save-root>/eval_cases/`，默认 checkpoint 探测顺序为 `best.pt` → `latest.pt`。训练完成后用 `--leadmot-ckpt checkpoints/leadmot_v1_decoder/best.pt` 或 `latest.pt` 接入 runner。head 内 `Linear -> cumsum` 的 cumsum 临时用 fp32，降低 bf16 累计误差；checkpoint 写入采用 tmp + `os.replace`，避免半截文件。
+默认索引构建对齐 GoalGen：`--samples-per-scenario 0` 表示每个 scenario 保留所有合法 anchor，传正整数时按 route-balanced 方式抽样；输出 `train.jsonl` / `val.jsonl` / `stats.json`，train/val 按 route 切分，避免同一路线相邻 anchor 泄漏到验证集。默认 `--stride 5`，相邻 anchor 约间隔 1 秒；正式索引建议加 `--check-readable`，提前按训练实际读取集合检查历史 RGB/meta/LAZ、anchor 标签 meta，以及 TP/NTP 未来 meta，过滤缺文件或 meta 解压失败的坏样本，避免 DDP 训练中单 rank 异常造成 collective 错位。默认优化参数：AdamW，LR `1e-4`，weight decay `0.01`（只作用于 ndim>=2 的权重，bias/RMSNorm 不做 decay），betas `(0.9,0.95)`，warmup `0.03`，epoch `1`，grad accumulation `8`，grad clip `1.0`，训练 dropout `0.1`，decoder/Qwen dtype 默认 bf16；训练侧 `--qwen-dtype` 会传给 runner lazy `LocalQwen3VLInstructEngine`，保证 train/eval/probe 与 runner 同源加载。训练/eval/probe 输出会写 `invocations/` 记录 argv/env/git_commit；有 val 时 `best.pt` 同步写 `best.json` 元信息。eval/probe 推荐使用 `--save-root checkpoints/leadmot_v1_decoder`，分别落到 `<save-root>/eval/` 和 `<save-root>/eval_cases/`，默认 checkpoint 探测顺序为 `best.pt` → `latest.pt`；eval/probe 会从 checkpoint 读取 `decoder_config.use_bev`，旧 ckpt 缺字段时按 `bev_projector.*` key 推断，并 `strict=True` 加载 decoder。训练完成后用 `--leadmot-ckpt checkpoints/leadmot_v1_decoder/best.pt` 或 `latest.pt` 接入 runner。head 内 `Linear -> cumsum` 的 cumsum 临时用 fp32，降低 bf16 累计误差；checkpoint 写入采用 tmp + `os.replace`，避免半截文件。
 
 当前不做 Qwen pooled KV 离线缓存：prompt / prefix 组织 / RoPE 范式还未完全冻结，prompt 一改缓存就全部失效；先保持在线 frozen prefill，等训练范式稳定后再评估缓存收益。DDP validation 已改为多 rank 分片：先用 `VAL_SAMPLE_SEED` 从 val 全量确定性抽 `VAL_MAX_SAMPLES` 条，再每个 rank 跑 `rank::world_size` 子集，最后 all-reduce 聚合 loss，避免只有 rank0 串行验证。
 
@@ -1469,10 +1476,10 @@ CLI 参数尽量对齐 `vlm_paradigm_a_runner.py`：`--route-dir` 默认同样�
         │                                    z_t = (1-t)·z0 + t·z1
         │  默认 select_last:Qwen 36 层 / 3 段              ▲
         │  每段取最后一层 → 12 段 token-level (K, V)        │
-        │  shape [B, 8, S, 128]  ←  v2 直接消费,不投影      │
+        │  shape [B, 8, S, 128]  ←  当前共享架构直接消费,不投影 │
         ▼                                                 │
 ┌──────────────────────────────────────────────────────────────┐
-│ DiT-MoT v2 (trainable, 12 layers, joint attention)           │
+│ DiT-MoT current shared arch (trainable, 12 layers, joint attention) │
 │ hidden=1024  n_heads=8  head_dim=128  patch=4                │
 │  → (n_heads, head_dim) 严格 = Qwen (n_kv_heads, head_dim)    │
 │                                                              │
@@ -1498,29 +1505,29 @@ CLI 参数尽量对齐 `vlm_paradigm_a_runner.py`：`--route-dir` 默认同样�
    L = ‖ v_pred − (z1 − z0) ‖²
 ```
 
-关键设计点（v2 切换，2026-06）：
+关键设计点（当前共享架构，2026-06 切换后）：
 
 1. **融合方式**：MoT joint-attention。DiT block 不做单独 cross-attn；vision Q 与 (vision K/V + language K/V) 一起做一次 attention。
-2. **维度对齐**：DiT `(n_heads, head_dim) = (8, 128)` 直接等于 Qwen3-VL-4B-Instruct 的 `(num_key_value_heads, head_dim)`，**彻底删掉 v1 的 `lang_k_proj` / `lang_v_proj` 两条 1024→768 跨维线性投影**。语言 K/V 原样接进 DiT attention，无信息压缩损失。
+2. **维度对齐**：DiT `(n_heads, head_dim) = (8, 128)` 直接等于 Qwen3-VL-4B-Instruct 的 `(num_key_value_heads, head_dim)`，**彻底删掉早期架构的 `lang_k_proj` / `lang_v_proj` 两条 1024→768 跨维线性投影**。语言 K/V 原样接进 DiT attention，无信息压缩损失。
 3. **层映射**：E3 分段。Qwen 共 36 层 → 12 段（每段 3 层），DiT 也设 12 层。默认 `select_last`：每段取该 3 层组的**最后一层** token-level K/V，shape `[B, 8, S, 128]`（省显存、loss 等价上不损失主要信息）；`concat_layers` 把 3 层 K/V 沿 token 轴 concat 留作 ablation；`mean` 是旧版层平均，已弃用。第 i 层 DiT block 使用第 i 段 KV。
 4. **现代化 transformer 组件**（仿 Qwen3 / SD3 / Flux）：
    - block norm1 / norm2 / final_norm 全部 RMSNorm（无 affine，配 AdaLN modulation）
    - JointAttention 内 q_norm / k_norm（带 affine 的 RMSNorm，仅作用 vision Q/K；language K 已被 Qwen 自己 k_norm 过，不再二次归一化）
    - MLP → SwiGLU（`gate * silu(up) → down`，参数量 ×1.5 但单位参数 quality 更高）
 5. **视觉锚点**：把所有历史帧（builder 默认 4 帧）的 VAE latent 分别 patchify 后 concat 到 vision token 序列；每帧用独立的 frame embedding 区分，最后一帧 = 当前 anchor。
-6. **patch_size=4**（v1 是 2）：视觉 token 数从 8640 砍到 2160，attention FLOPs 缩 ~4×；输出空间分辨率粗一倍，对 subgoal latent 任务可接受。
+6. **patch_size=4**（早期历史架构是 2）：视觉 token 数从 8640 砍到 2160，attention FLOPs 缩 ~4×；输出空间分辨率粗一倍，对 subgoal latent 任务可接受。
 7. **目录组织**：新模块全部放进 `AutoMoT/qwen3vl_local/goalgen/` 子包，CLI 入口为 `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`。
 
-v2 训练侧增强（与上面架构同步落地）：
+当前共享训练侧增强（与上面架构同步落地）：
 
 - **Muon optimizer**（2D 权重矩阵）+ **AdamW**（1D / 4D 参数、embedding、Conv2d、null_lang_k/v）双轨；用 `_DualOptimizer` / `_DualScheduler` 包装让训练 loop 接口零变化。
-- **torch.compile(dit)** 默认开启（patch=4 后 compile 固定 overhead 比 v1 划算）；`COMPILE_DIT=0` 关闭。
+- **torch.compile(dit)** 默认开启（patch=4 后 token 数较少，compile 固定 overhead 更容易摊平）；`COMPILE_DIT=0` 关闭。
 - **Gradient checkpointing**（per-block，`use_reentrant=False`）默认开启；`GRAD_CKPT=0` 关闭。
 - **EMA**（decay=0.9999）默认开启，val / image log / eval / probe / runner 均默认走 EMA 权重；ckpt 同时保存裸 + EMA state_dict。
 - **logit-normal t 采样**（SD3 配方）默认开启，CFG drop=0.1、cfg_scale=2.0。
 - **flash-attention** 由 PyTorch SDPA 自动调度（H100/A100 上自动走 flash 后端）。
 
-v2 与 v1 ckpt **不向后兼容**（hidden_dim、patch_size 都变了；MLP/norm 模块名也变了），必须从零重训。`patch_unpatch_*.safetensors` 同理：v1 的 768/2 与 v2 的 1024/4 形状互不兼容。
+当前共享架构与早期历史 ckpt **不向后兼容**（hidden_dim、patch_size 都变了；MLP/norm 模块名也变了），必须从零重训。`patch_unpatch_*.safetensors` 同理：早期 768/2 与当前 1024/4 形状互不兼容。
 
 ### 15.3 文件分工（`AutoMoT/qwen3vl_local/goalgen/`）
 
@@ -1529,14 +1536,14 @@ v2 与 v1 ckpt **不向后兼容**（hidden_dim、patch_size 都变了；MLP/nor
 | `__init__.py` | 子包导出索引 |
 | `vae.py` | 把 `AutoMoT/vae_standalone` 临时加进 sys.path，封装 `FrozenVAE.load(cfg_path, weights_path)`，提供 `encode(pil_list)` / `decode(z)`；输入归一化、shape 校验、scale_factor 处理全部内聚在这里；加载即冻结 |
 | `prompt.py` | teacher-forced prompt 模板。结构同 §14.10 但 system 删掉"输出 ANALYSIS/STATUS/SUBGOAL"那段，user 改为"当前 STATUS=X（描述）/ 子任务 SUBGOAL=Y（描述）"；输出函数 `build_teacher_system_prompt` + `build_teacher_user_prompt(memory)` |
-| `qwen_kv.py` | 复用现有 `LocalQwen3VLInstructEngine` 的 prefill；`teacher_forced_prefill(...)` 返回 `PrefillResult`（含 `pooled_kv` 字段名是历史遗留 + 维度元信息）；`segment_kv_for_dit(past_key_values, num_segments=12, mode="select_last")` 把 36 层切成 12 段，默认每段取最后一层 token-level K/V，可选 `concat_layers`（3 层 token 维 concat）或 `mean`（旧版层平均）；`pool_kv_for_dit` 是同义别名；输出 K/V 全部 detach。v2 起 DiT 直接消费这些 K/V，下游不再需要 `language_kv_input_dim` probe |
+| `qwen_kv.py` | 复用现有 `LocalQwen3VLInstructEngine` 的 prefill；`teacher_forced_prefill(...)` 返回 `PrefillResult`（含 `pooled_kv` 字段名是历史遗留 + 维度元信息）；`segment_kv_for_dit(past_key_values, num_segments=12, mode="select_last")` 把 36 层切成 12 段，默认每段取最后一层 token-level K/V，可选 `concat_layers`（3 层 token 维 concat）或 `mean`（旧版层平均）；`pool_kv_for_dit` 是同义别名；输出 K/V 全部 detach。当前共享架构直接消费这些 K/V，下游不再需要 `language_kv_input_dim` probe |
 | `keyframes.py` | 读 `keyframes_all_scenarios.json`，按 `(scenario, run_id, subgoal_event)` 查 `frame_idx`；`load_keyframe_rgb(route_dir, frame_idx)` 返回 stitched 三视角 RGB PIL |
-| `dit.py` | DiT-MoT 主体（v2 架构）。`DiTMoTBlock`：vision Q + joint-attn(K=cat[vision_K, lang_K], V=cat[vision_V, lang_V]) + SwiGLU MLP；`DiTMoT`：patchify vision latent → token + AdaLN-Zero (timestep) → 12 个 block → unpatchify 回 latent shape；语言 K/V 由外部传入并**直接消费**（无线性投影）；自带 `RMSNorm`、`SwiGLU` 实现；`enable_gradient_checkpointing()` 切换 per-block ckpt |
+| `dit.py` | DiT-MoT 主体（当前 v1/v2 共享架构）。`DiTMoTBlock`：vision Q + joint-attn(K=cat[vision_K, lang_K], V=cat[vision_V, lang_V]) + SwiGLU MLP；`DiTMoT`：patchify vision latent → token + AdaLN-Zero (timestep) → 12 个 block → unpatchify 回 latent shape；语言 K/V 由外部传入并**直接消费**（无线性投影）；自带 `RMSNorm`、`SwiGLU` 实现；`enable_gradient_checkpointing()` 切换 per-block ckpt |
 | `flow.py` | 1) 训练采样：`t ~ U[0,1]`，`z0 ~ N(0,I)`，`z_t=(1-t)z0+t z1`，`v_target = z1 - z0`；2) `flow_matching_loss(v_pred, v_target)`；3) 推理 Euler 积分 `euler_sample(velocity_fn, ...)`：`z = z + dt * v_pred` 从 t=0 到 t=1 |
 | `build_dataset.py` | 扫 `keyframes_all_scenarios.json`，按 `Completed/Perfect` 筛 run，把每个状态段展开成 (anchor, status, subgoal, target_frame, history/current/target RGB 路径) jsonl；按 `status->subgoal` 桶 stratified 抽样；按 run_id 8:2 划 train/val；每个 route 用 file-list 缓存避免 N 次 stat |
-| `train.py` | DDP / 单卡训练入口（v2）。`engine.load() + freeze_module()` 显式冻 Qwen；`FrozenVAE.load()` 内部已冻 VAE；**Muon + AdamW 双 optimizer**（`_DualOptimizer` 包装 + `_DualScheduler` 同步驱动 LR）；DDP 模式 grad-accum 期间走 `dit.no_sync()` 减少 all-reduce；默认开启 `torch.compile(dit)` + per-block gradient checkpointing + EMA；每 `--save-steps` 落盘 `goalgen_v1.pt` + `latest.pt`（含 EMA state_dict + 双 optimizer 字典） |
-| `train.sh` | check / single / ddp 三模式；按 `nvidia-smi` 自动挑空闲 GPU、自动选空闲 MASTER_PORT；v2 默认 `PATCH_SIZE=4 HIDDEN_DIM=1024 N_HEADS=8 MUON_LR=2e-3 GRAD_CKPT=1 COMPILE_DIT=1`；`COMPILE_DIT=0` / `GRAD_CKPT=0` 关闭对应优化 |
-| `GOALGEN_PLAN.md` | v1 路线设计、形状默认表、参数量预估、显存预估、风险表、v1/v2 边界 |
+| `train.py` | DDP / 单卡训练入口（v1/v2 共用）。`engine.load() + freeze_module()` 显式冻 Qwen；`FrozenVAE.load()` 内部已冻 VAE；**Muon + AdamW 双 optimizer**（`_DualOptimizer` 包装 + `_DualScheduler` 同步驱动 LR）；DDP 模式 grad-accum 期间走 `dit.no_sync()` 减少 all-reduce；默认开启 `torch.compile(dit)` + per-block gradient checkpointing + EMA；每 `--save-steps` 落盘 `goalgen_v1.pt` + `latest.pt`（含 EMA state_dict + 双 optimizer 字典） |
+| `train.sh` | check / single / ddp 三模式；按 `nvidia-smi` 自动挑空闲 GPU、自动选空闲 MASTER_PORT；当前共享默认 `PATCH_SIZE=4 HIDDEN_DIM=1024 N_HEADS=8 MUON_LR=2e-3 GRAD_CKPT=1 COMPILE_DIT=1`；`COMPILE_DIT=0` / `GRAD_CKPT=0` 关闭对应优化 |
+| `GOALGEN_PLAN.md` | v1/v2 共用路线设计、形状默认表、参数量预估、显存预估、风险表、v1/v2 边界 |
 | `GOALGEN_RUN.md` | 0 检查输入 / 1 build dataset / 2 train check→single→ddp / 3 forward smoke / 4 troubleshooting / 5 形状默认表 / 6 显存预期 |
 
 CLI 入口 `qwen3vl_dit_goalgen_runner.py`：

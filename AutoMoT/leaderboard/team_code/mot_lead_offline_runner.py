@@ -911,6 +911,68 @@ class LeadOfflineMoTRunner:
         else:
             print(f"  - LeadMoT checkpoint: {self.leadmot_ckpt_path}")
 
+    def _read_leadmot_checkpoint(self, ckpt_path: pathlib.Path) -> Any:
+        """Read a LeadMoT checkpoint once before decoder construction."""
+        if not ckpt_path.exists():
+            raise FileNotFoundError(f"LeadMoT checkpoint not found: {ckpt_path}")
+        if ckpt_path.suffix.lower() == ".safetensors":
+            from safetensors.torch import load_file
+            return load_file(str(ckpt_path), device="cpu")
+        return torch.load(str(ckpt_path), map_location="cpu")
+
+    @staticmethod
+    def _compat_leadmot_config_dict(cfg_dict: dict[str, Any]) -> dict[str, Any]:
+        """Normalize old checkpoint config key names."""
+        cfg = dict(cfg_dict)
+        if "route_points" in cfg and "num_route_queries" not in cfg:
+            cfg["num_route_queries"] = cfg.pop("route_points")
+        if "waypoint_points" in cfg and "num_waypoint_queries" not in cfg:
+            cfg["num_waypoint_queries"] = cfg.pop("waypoint_points")
+        return cfg
+
+    @staticmethod
+    def _state_dict_uses_bev(state_dict: dict[str, Any]) -> bool:
+        """Infer whether a raw decoder state_dict contains BEV parameters."""
+        return any(str(key).startswith("bev_projector.") for key in state_dict)
+
+    def _extract_leadmot_state_dict(self, raw: Any) -> dict[str, Any]:
+        """Extract decoder weights from supported LeadMoT checkpoint schemas."""
+        state_dict = raw
+        if isinstance(raw, dict):
+            for key in ("state_dict", "model", "decoder", "leadmot_decoder"):
+                inner = raw.get(key)
+                if isinstance(inner, dict):
+                    state_dict = inner
+                    break
+        if not isinstance(state_dict, dict):
+            raise TypeError(
+                f"Unsupported LeadMoT checkpoint format: expected dict, got {type(state_dict).__name__}"
+            )
+        return self._strip_state_dict_prefixes(state_dict)
+
+    def _leadmot_config_from_checkpoint(self, raw: Any) -> LeadMoTPlanningDecoderConfig:
+        """Build decoder config from checkpoint metadata, falling back to state_dict inference.
+
+        Invariant: a no-BEV checkpoint constructs a no-BEV decoder. We never instantiate
+        a random BEV projector and then load a USE_BEV=0 checkpoint into it.
+        """
+        cfg_dict = raw.get("decoder_config", {}) if isinstance(raw, dict) else {}
+        cfg_dict = self._compat_leadmot_config_dict(cfg_dict)
+        allowed = LeadMoTPlanningDecoderConfig.__dataclass_fields__
+        config_kwargs = {k: v for k, v in cfg_dict.items() if k in allowed}
+        if "rope_type" not in config_kwargs:
+            config_kwargs["rope_type"] = self.leadmot_rope_type
+        config = LeadMoTPlanningDecoderConfig(**config_kwargs)
+
+        if "use_bev" not in cfg_dict:
+            state_dict = self._extract_leadmot_state_dict(raw)
+            config.use_bev = self._state_dict_uses_bev(state_dict)
+            print(
+                "[LeadMoT] checkpoint has no decoder_config.use_bev; "
+                f"inferred use_bev={config.use_bev} from state_dict keys"
+            )
+        return config
+
     def _ensure_leadmot_decoder(self) -> None:
         """首次调用时按 self.leadmot_dtype 在 self.device 上构建 LeadMoT decoder。
 
@@ -927,11 +989,16 @@ class LeadOfflineMoTRunner:
         if self.leadmot_decoder is not None:
             return
 
-        # 默认配置：LEAD CARLA 模式（route=10, waypoint=8, hidden=1024 等）
-        # rope_type 由 self.leadmot_rope_type 控制（CLI --rope 传进来）
-        self.leadmot_config = LeadMoTPlanningDecoderConfig(
-            rope_type=self.leadmot_rope_type,
-        )
+        ckpt_payload = None
+        if self.leadmot_ckpt_path is not None:
+            ckpt_payload = self._read_leadmot_checkpoint(self.leadmot_ckpt_path)
+            self.leadmot_config = self._leadmot_config_from_checkpoint(ckpt_payload)
+        else:
+            # No checkpoint means an explicit random-init debug run. In that case CLI --rope
+            # is the config source and BEV stays enabled by default.
+            self.leadmot_config = LeadMoTPlanningDecoderConfig(
+                rope_type=self.leadmot_rope_type,
+            )
 
         # 早校验：配置错的话立即 raise，不要延迟到 forward 内部 attention 报错
         self.leadmot_config.validate_qwen_kv_shape()
@@ -943,9 +1010,12 @@ class LeadOfflineMoTRunner:
             .to(device=self.device, dtype=self.leadmot_dtype)
             .eval()
         )
-        print(f"✓ LeadMoT decoder lazy-built on {self.device} ({self.leadmot_dtype})")
+        print(
+            f"✓ LeadMoT decoder lazy-built on {self.device} ({self.leadmot_dtype}), "
+            f"use_bev={self.leadmot_config.use_bev}"
+        )
         if self.leadmot_ckpt_path is not None:
-            self._load_leadmot_weights(self.leadmot_ckpt_path)
+            self._load_leadmot_weights(self.leadmot_ckpt_path, raw=ckpt_payload)
         else:
             print("[LeadMoT] no --leadmot-ckpt provided; decoder uses random initialization")
 
@@ -973,7 +1043,7 @@ class LeadOfflineMoTRunner:
             cleaned[new_key] = value
         return cleaned
 
-    def _load_leadmot_weights(self, ckpt_path: pathlib.Path) -> None:
+    def _load_leadmot_weights(self, ckpt_path: pathlib.Path, raw: Any | None = None) -> None:
         """从显式 checkpoint 加载 LeadMoT decoder 权重。
 
         没有显式传 `--leadmot-ckpt` 时不会调用本函数，decoder 保持 PyTorch 默认随机
@@ -982,38 +1052,14 @@ class LeadOfflineMoTRunner:
         """
         if self.leadmot_decoder is None:
             raise RuntimeError("LeadMoT decoder must be built before loading weights")
-        if not ckpt_path.exists():
-            raise FileNotFoundError(f"LeadMoT checkpoint not found: {ckpt_path}")
-
-        if ckpt_path.suffix.lower() == ".safetensors":
-            from safetensors.torch import load_file
-            raw = load_file(str(ckpt_path), device="cpu")
-        else:
-            raw = torch.load(str(ckpt_path), map_location="cpu")
-
-        state_dict = raw
-        if isinstance(raw, dict):
-            for key in ("state_dict", "model", "decoder", "leadmot_decoder"):
-                inner = raw.get(key)
-                if isinstance(inner, dict):
-                    state_dict = inner
-                    break
-        if not isinstance(state_dict, dict):
-            raise TypeError(
-                f"Unsupported LeadMoT checkpoint format: expected dict, got {type(state_dict).__name__}"
-            )
-
-        state_dict = self._strip_state_dict_prefixes(state_dict)
-        missing, unexpected = self.leadmot_decoder.load_state_dict(state_dict, strict=False)
+        raw = raw if raw is not None else self._read_leadmot_checkpoint(ckpt_path)
+        state_dict = self._extract_leadmot_state_dict(raw)
+        self.leadmot_decoder.load_state_dict(state_dict, strict=True)
         self.leadmot_decoder.to(device=self.device, dtype=self.leadmot_dtype).eval()
         print(
             f"[LeadMoT] loaded checkpoint {ckpt_path}: "
-            f"missing={len(missing)}, unexpected={len(unexpected)}"
+            "strict=True"
         )
-        if missing:
-            print(f"  first 8 missing: {missing[:8]}")
-        if unexpected:
-            print(f"  first 8 unexpected: {unexpected[:8]}")
 
     def _ensure_leadmot_qwen_engine(self) -> None:
         """首次 run_step 时 lazy 构建 standalone Qwen 引擎。
@@ -1422,22 +1468,27 @@ class LeadOfflineMoTRunner:
 
         prompt_cleaned, _understanding_output, _reasoning_output = build_cleaned_prompt_and_modes(target_point_speed)
 
+        # Build decoder before BEV forward so checkpoint config decides whether BEV is used.
+        self._ensure_leadmot_qwen_engine()
+        self._ensure_leadmot_decoder()
+        assert self.leadmot_config is not None
+
         # LEAD BEV encoder 前向(单帧 transfuser 框架)。
         # 输入: bev_rgb_tensor (1, 3, 384, 1152) [0, 235], bev_lidar_tensor (1, 1, 320, 384) [0, 1]
         # 输出: {bev_feature: (1, 512, 10, 12) [-2.79, 11.89], image_feature_grid: (1, 512, 12, 36) [-4.53, 50.80]}
         # bev_feature 直接作为 LeadMoT decoder 的 BEV 输入。
-        with torch.no_grad():
-            bev_encoder_output = self.bev_encoder(
-                rgb=bev_rgb_tensor,
-                lidar_bev=bev_lidar_tensor,
-            )
-        trans_feat = bev_encoder_output["bev_feature"]  # (1, 512, 10, 12) LEAD 风格
+        if self.leadmot_config.use_bev:
+            with torch.no_grad():
+                bev_encoder_output = self.bev_encoder(
+                    rgb=bev_rgb_tensor,
+                    lidar_bev=bev_lidar_tensor,
+                )
+        else:
+            bev_encoder_output = None
+        trans_feat = bev_encoder_output["bev_feature"] if bev_encoder_output is not None else None
 
         # ========== LeadMoT 推理（standalone Qwen prefix K/V + LEAD BEV）==========
         # 唯一路径：lazy 构建 standalone Qwen engine + LeadMoT decoder（幂等）
-        self._ensure_leadmot_qwen_engine()
-        self._ensure_leadmot_decoder()
-
         # standalone Qwen prefill -> past_key_values（cache 同源关键步骤，
         # 训练侧必须用同一个 engine + 同一对 system/user prompt 才能匹配）
         leadmot_past_key_values, leadmot_rope_position_offset = self._run_leadmot_qwen_prefill(

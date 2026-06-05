@@ -2,8 +2,8 @@
 
 > **代码组织约定**：GoalGen 子包采用"单一代码、双版本"风格——v1 / v2 共享同一份
 > 脚本（`build_dataset.py` / `train.py` / `train.sh` / `eval.py` / `probe.py`），
-> 靠 `--mode` 参数与 `VERSION` env 切换两套行为。本文档默认描述的是 v1（GoalGen 的
-> 原始版本）；任何 v2 differs 的地方都用 **[v2 only]** 标签明确标出，v1 / v2
+> 靠 `--mode` 参数与 `VERSION` env 切换两套数据/训练配方。本文档描述的是当前共享
+> 架构；任何 v2 differs 的地方都用 **[v2 only]** 标签明确标出，v1 / v2
 > 都共用的部分用 **[v1/v2 通用]** 标识或不加标签（即默认通用）。
 >
 > 路线意图：v1 = 在 LEAD 全部 4 类 status→subgoal transition 上从零训 DiT；
@@ -47,7 +47,7 @@ qwen3vl_local/goalgen/build_dataset.py
 ```
 
 它在结构上对齐 `tools/build_sft_dataset_v1.py`，但监督目标不同：SFT v1 监督
-文本中的状态/子目标，GoalGen v1 监督未来子目标关键帧的 VAE 潜变量。流程如下：
+文本中的状态/子目标，GoalGen v1/v2 监督未来子目标关键帧的 VAE 潜变量。流程如下：
 
 1. 读取 `/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json`。
 2. 只保留 `Completed` / `Perfect` 的 run。
@@ -102,9 +102,9 @@ qwen3vl_local/goalgen/build_dataset.py
 }
 ```
 
-## 模型默认配置（v2 架构，2026-06 切换）
+## 模型默认配置（当前共享架构，2026-06 切换）
 
-> 与 v1 的关键差异：**hidden_dim 1024 / n_heads 8 / head_dim 128 / patch=4**，
+> 与更早历史架构的关键差异：**hidden_dim 1024 / n_heads 8 / head_dim 128 / patch=4**，
 > 直接对齐 Qwen3-VL-4B-Instruct 的 `(num_key_value_heads=8, head_dim=128)`，
 > 让语言 K/V 不再经过任何线性投影。`lang_k_proj` / `lang_v_proj` 已删除。
 > 同时 MLP 走 SwiGLU、所有 norm 走 RMSNorm、attention 内加 q_norm/k_norm，
@@ -112,13 +112,13 @@ qwen3vl_local/goalgen/build_dataset.py
 
 - LEAD RGB 尺寸：`1152 x 384`
 - VAE latent 形状：`[B, 4, 48, 144]`
-- DiT 图块大小：`4`（v1 是 2）
-- DiT 上的潜变量图块网格：`(12, 36) = 432` 个图块 token（v1 是 1728）
+- DiT 图块大小：`4`（早期历史值是 2）
+- DiT 上的潜变量图块网格：`(12, 36) = 432` 个图块 token（早期历史值是 1728）
 - 数据构建器默认 4 帧历史时，DiT 视觉 token 总数：
-  `z_t` token + `4 * z_history` token = `2160`（v1 是 8640）
-- DiT 隐藏维度：`1024`（v1 是 768）
-- DiT 注意力头数：`8`（v1 是 12）
-- DiT 单头维度：`128`（v1 是 64）
+  `z_t` token + `4 * z_history` token = `2160`（早期历史值是 8640）
+- DiT 隐藏维度：`1024`（早期历史值是 768）
+- DiT 注意力头数：`8`（早期历史值是 12）
+- DiT 单头维度：`128`（早期历史值是 64）
 - DiT 层数：`12`
 - DiT MLP：SwiGLU，`mlp_ratio=4.0`（inner=4096）
 - DiT norm：全部 RMSNorm（block norm1/norm2/final_norm 无 affine + AdaLN modulation；
@@ -152,7 +152,7 @@ qwen3vl_local/goalgen/train.sh
 - `single`：单卡训练。
 - `ddp`：多卡 DDP。自动挑可用 GPU、自动选空闲端口。
 
-Optimizer 设置（v2 双 optimizer）：
+Optimizer 设置（当前共享训练配置，v2 会覆盖 LR / warmup 默认值做 fine-tune）：
 
 - **Muon**（接管 2D 权重矩阵 = attention/MLP/AdaLN 的所有 Linear）：
   - 学习率默认 `2e-3`（比 AdamW 大 10×；Newton-Schulz 正交化后单位步长更稳）。
@@ -167,7 +167,7 @@ Optimizer 设置（v2 双 optimizer）：
 - EMA：`ema_decay=0.9999`，val / image log / eval / probe / runner 默认使用 EMA 权重。
 - VAE latent stats：训练启动时在 `train.jsonl` 同目录缓存 `latent_stats.json`，encode 后标准化、decode 前反标准化。
 
-Runtime 优化（v2 默认全部开启，可通过 sh 环境变量关闭）：
+Runtime 优化（当前默认全部开启，可通过 sh 环境变量关闭）：
 
 - `torch.compile(dit)`：mode=default、dynamic=True、fullgraph=False；首次 step
   会编译 30-90 秒。`COMPILE_DIT=0` 关闭。
@@ -178,7 +178,7 @@ Runtime 优化（v2 默认全部开启，可通过 sh 环境变量关闭）：
 检查点中只保存 DiT 自身的权重以及优化器 / 调度器状态
 （仅用于断点续训和诊断，不包含冻结模型）。
 
-## 参数预算（v2 默认配置）
+## 参数预算（当前共享架构）
 
 下表只统计 DiT-MoT（Qwen 与 VAE 冻结、不计入）：
 
@@ -228,7 +228,7 @@ target latent 都**离线缓存到磁盘**，避免每个进程重复计算。
 | 风险 | 触发条件 | 应对方式 |
 |---|---|---|
 | KV 段数 != DiT 层数 | DiT 前向内部抛出 `pooled_kv segments ... != DiT layers ...` | 保持 `--num-layers` 与分段函数的 `num_segments` 一致。两侧默认都是 12。 |
-| 换 Qwen 模型后 K/V 头数 / head_dim 变化 | `DiTMoT.forward` 抛 `pooled_kv[0] K 形状 ... 与 DiT (n_heads=..., head_dim=...) 不匹配` | v2 起 DiT 直接消费 Qwen K/V，没有 lang_k/v_proj 兜底；必须改 `--hidden-dim` / `--n-heads` 让 `hidden_dim // n_heads == Qwen head_dim`、`n_heads == Qwen num_key_value_heads`。 |
+| 换 Qwen 模型后 K/V 头数 / head_dim 变化 | `DiTMoT.forward` 抛 `pooled_kv[0] K 形状 ... 与 DiT (n_heads=..., head_dim=...) 不匹配` | 当前共享架构直接消费 Qwen K/V，没有 lang_k/v_proj 兜底；必须改 `--hidden-dim` / `--n-heads` 让 `hidden_dim // n_heads == Qwen head_dim`、`n_heads == Qwen num_key_value_heads`。 |
 | 完整 KV 模式显存溢出 | `concat_layers` 会把每个 DiT 层的语言显存放大约 3 倍 | 默认保持 `QWEN_KV_SEGMENT_MODE=select_last`；只在做消融实验时切到 `concat_layers`；`mean` 仅作历史消融保留。 |
 | `bfloat16` Qwen KV 与 `float32` DiT 之间数据类型不一致 | SDPA 内部抛 `RuntimeError` | 训练器会在前向之前把分段 KV、z_history、z1 显式 `.to(dtype=dit_dtype)`。保持 `--qwen-dtype` 与 `--dit-dtype` 兼容，或者依赖这一行显式转换。 |
 | Qwen 预填充序列过长（LEAD `num_frames > 4`） | H20 96GB 上 Qwen 预填充显存溢出 | 减小 `--num-frames`，或者用 `--qwen-dtype float16` 降低 Qwen 推理显存。 |
@@ -254,7 +254,7 @@ target latent 都**离线缓存到磁盘**，避免每个进程重复计算。
 
 ## 已知局限
 
-- v1 在线计算 Qwen KV 与 VAE 潜变量，逻辑简单但**慢**。
+- 当前训练仍在线计算 Qwen KV 与 VAE 潜变量，逻辑简单但**慢**。
 - DiT 现在直接消费 `history_rgb_paths` 里所有历史潜变量。
 - 仍未做完整 KV / history latent / target latent 离线缓存；Qwen/VAE 仍在线计算，因此训练慢。
 - 已有 EMA / CFG / latent stats 缓存 / 解码图像评测；第二轮默认都开启。
@@ -267,20 +267,25 @@ v1 显式**不做**的事情（写在这里防止未来 agent 擅自扩张范围
 - 不做完整离线 KV / latent 数据集缓存（只缓存 per-channel latent stats）。
 - 不做多目标监督（每条样本就一个子目标关键帧）。
 
-**当前"v2"的范围仅限数据集分布裁剪 + 默认从 v1 warm start**（见上一节 `--mode v2`
-和下面 `VERSION=v2`）：
+**当前 v1/v2 的边界是数据分布与训练配方，不是两套模型代码**：
+
+- `--mode v1`：保留全部 4 类 transition，`VERSION=v1` 默认从零训；
+- `--mode v2`：只保留 middle 之间 2 类 transition，`VERSION=v2` 默认从 v1 best.pt
+  warm start，并把 LR / Muon LR 减半、warmup ratio 改为 `0.02`；
+- 两者共享同一个 `DiTMoT` 架构、同一套 Qwen KV 分段、VAE 编码、CFG、EMA、eval/probe
+  入口。
+
+具体工程约定：
 
 - 复用 `build_dataset.py` 同一脚本，靠 `--mode` 切换 transition 集合；
 - 输出 jsonl 字段 schema 与 v1 完全一致（`scenario / run_id / anchor / status /
   subgoal / target_frame / history_rgb_paths / current_rgb_path / target_rgb_path /
   memory`），train / eval / probe 入口不动；
-- DiT 架构、Qwen KV 分段、VAE 编码、CFG、EMA 等所有训练侧配置保持 v1 默认；
 - `train.sh` 新增 `VERSION` env：`VERSION=v2` 时自动把数据切到 `goalgen_v2_data/`、
   产物落到 `goalgen_v2_dit/`、并把 `--init-from-ckpt` 默认指向 `goalgen_v1_dit/latest/best.pt`
   （latest 是脚本自动维护的 symlink，下条），做 **DiT 权重 + EMA shadow 双 strict=True
   warm start**（不接 optimizer / scheduler / step），实质等同于"换数据子集 + 继承架构
-  权重"重新训练。架构默认完全沿用 v1，strict=True 在这条路径上是"防 env 漂移"的
-  护栏（v1→v2 默认配置不会触发）。
+  权重"重新训练。strict=True 在这条路径上是"防 env 漂移"的护栏；
 - `train.sh` 同时引入 **run 子目录隔离 + latest symlink**（v1/v2 通用）：每次启动
   把 OUTPUT_DIR 自动改写成 `${OUTPUT_DIR_BASE}/run_${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}/`，
   所有 ckpt / TB events / eval 产物都落在 run 子目录里；base 顶层维护一个相对路径的
@@ -288,5 +293,6 @@ v1 显式**不做**的事情（写在这里防止未来 agent 擅自扩张范围
   退回老的"顶层覆盖"行为，仅用于排查脚本兼容性。这样反复跑同一 VERSION 的训练
   不会再覆盖旧 ckpt，TB 也能天然多 run 对比。
 
-后续需要"真正的 v2 训练栈"（例如离线缓存分段 KV / latent、多目标监督、新的损失项），
-应在 v1 远端冒烟测试通过后另起 `train_v2.py` 等文件，并按项目规则同步白名单。
+后续如果要做离线缓存分段 KV / latent、多目标监督、新损失项等大改，应先明确新版本边界；
+默认仍优先沿用当前单一入口，用 `VERSION` / CLI 开关扩展。若确实需要新增文件，必须先按项目规则
+同步白名单与入口文档。
