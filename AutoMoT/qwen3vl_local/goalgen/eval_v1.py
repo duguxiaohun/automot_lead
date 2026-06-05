@@ -1248,30 +1248,55 @@ def _write_tb_image_grid(
     writer.add_images("eval/pred_vs_gt", grid, step, dataformats="NCHW")
 
 
-def _resolve_default_dit_checkpoint() -> str:
-    """默认 --dit-checkpoint：优先 best.pt，缺则 latest.pt。
+def _resolve_default_dit_checkpoint(save_root_hint: Optional[str] = None) -> str:
+    """根据 --save-root 推 base 目录，再按"latest 子目录 > 老顶层"顺序找 ckpt。
 
-    用户显式传 --dit-checkpoint 会直接覆盖；本函数只在 build_arg_parser 调用时
-    探测一次。两个文件都不存在时仍返回 best.pt 路径——让 ckpt 加载阶段抛出
-    明确的 "FileNotFoundError"，比这里偷偷往下走更容易排查。
+    base 推导（让默认 ckpt 跟着 --save-root 自动切换到对应 v1/v2 训练产物，
+    用户不必再手动同步两个路径）：
+    - save_root_hint=None → 兼容老调用：base = checkpoints/goalgen_v1_dit
+    - save_root_hint 末尾是 "latest" 或 "run_XXX" → base = parent（用户传 symlink
+      或具体 run 时，应在 base 层探测，而不是再在 run 子目录里嵌套找 latest）
+    - 其它情况 → base = save_root_hint 自身（假设传的是 base 顶层）
+
+    探测顺序（base 已确定后）：
+    1. <base>/latest/best.pt        ← 新布局首选：train_v1.sh 维护的 latest symlink 下的 best
+    2. <base>/latest/latest.pt      ← 训练末尾快照（无 val_jsonl 时 best.pt 不存在）
+    3. <base>/best.pt               ← 老顶层布局（NO_RUN_SUBDIR=1 或 v2 之前的训练产物）
+    4. <base>/latest.pt             ← 同上，老顶层兜底
+
+    都没有时仍返回 (1) 的路径——让 ckpt 加载阶段抛 FileNotFoundError，比在这里
+    偷偷往下走更容易排查。
     """
 
-    default_dir = _AUTOMOT_ROOT / "checkpoints" / "goalgen_v1_dit"
-    best = default_dir / "best.pt"
-    latest = default_dir / "latest.pt"
-    if best.exists():
-        return str(best)
-    if latest.exists():
-        return str(latest)
-    return str(best)
+    if save_root_hint:
+        hint = pathlib.Path(save_root_hint)
+        if hint.name == "latest" or hint.name.startswith("run_"):
+            base = hint.parent
+        else:
+            base = hint
+    else:
+        base = _AUTOMOT_ROOT / "checkpoints" / "goalgen_v1_dit"
+
+    for candidate in (
+        base / "latest" / "best.pt",
+        base / "latest" / "latest.pt",
+        base / "best.pt",
+        base / "latest.pt",
+    ):
+        if candidate.exists():
+            return str(candidate)
+    return str(base / "latest" / "best.pt")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="在 val.jsonl 上评测 GoalGen v1 DiT")
     p.add_argument("--val-jsonl", default="checkpoints/goalgen_v1_data/val.jsonl")
-    p.add_argument("--dit-checkpoint", default=_resolve_default_dit_checkpoint(),
-                   help="DiT ckpt 路径。默认探测顺序：best.pt > latest.pt（位于训练默认 OUTPUT_DIR 下）。"
-                        "训练若启用 val_jsonl + epoch save，best.pt = val/loss 最小的那次轻量权重。")
+    p.add_argument("--dit-checkpoint", default="",
+                   help="DiT ckpt 路径。**留空时由 main() 根据 --save-root 自动推**："
+                        "<base>/latest/best.pt > <base>/latest/latest.pt > <base>/best.pt > <base>/latest.pt。"
+                        "其中 base 是 --save-root 推出来的训练根目录（v1/v2 自动跟随）。"
+                        "训练若启用 val_jsonl + epoch save，best.pt = val/loss 最小的那次轻量权重。"
+                        "想绑定具体历史 run 直接传 <base>/run_YYYYmmdd_HHMMSS/best.pt。")
     p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
     p.add_argument("--save-root", type=str, required=True,
                    help="统一保存根目录（必填，通常与 train_v1.sh OUTPUT_DIR 相同）。"
@@ -1336,6 +1361,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_arg_parser().parse_args()
+    # --dit-checkpoint 留空时由 resolver 推：基于 --save-root 找到对应 base
+    # 下的 latest/best.pt（v1/v2 自动跟随训练产物，无需用户两处同步路径）。
+    if not args.dit_checkpoint:
+        args.dit_checkpoint = _resolve_default_dit_checkpoint(args.save_root)
+        print(f"[ckpt] --dit-checkpoint 未指定，自动解析 = {args.dit_checkpoint}")
     eval_loop(args)
 
 

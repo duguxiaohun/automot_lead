@@ -266,10 +266,17 @@ v1 显式**不做**的事情（写在这里防止未来 agent 擅自扩张范围
   memory`），train / eval / probe 入口不动；
 - DiT 架构、Qwen KV 分段、VAE 编码、CFG、EMA 等所有训练侧配置保持 v1 默认；
 - `train_v1.sh` 新增 `VERSION` env：`VERSION=v2` 时自动把数据切到 `goalgen_v2_data/`、
-  产物落到 `goalgen_v2_dit/`、并把 `--init-from-ckpt` 默认指向 `goalgen_v1_dit/best.pt`，
-  做 **DiT 权重 + EMA shadow 双 strict=True warm start**（不接 optimizer / scheduler /
-  step），实质等同于"换数据子集 + 继承架构权重"重新训练。架构默认完全沿用 v1，
-  strict=True 在这条路径上是"防 env 漂移"的护栏（v1→v2 默认配置不会触发）。
+  产物落到 `goalgen_v2_dit/`、并把 `--init-from-ckpt` 默认指向 `goalgen_v1_dit/latest/best.pt`
+  （latest 是脚本自动维护的 symlink，下条），做 **DiT 权重 + EMA shadow 双 strict=True
+  warm start**（不接 optimizer / scheduler / step），实质等同于"换数据子集 + 继承架构
+  权重"重新训练。架构默认完全沿用 v1，strict=True 在这条路径上是"防 env 漂移"的
+  护栏（v1→v2 默认配置不会触发）。
+- `train_v1.sh` 同时引入 **run 子目录隔离 + latest symlink**（v1/v2 通用）：每次启动
+  把 OUTPUT_DIR 自动改写成 `${OUTPUT_DIR_BASE}/run_${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}/`，
+  所有 ckpt / TB events / eval 产物都落在 run 子目录里；base 顶层维护一个相对路径的
+  `latest` symlink 指向最新 run。HF weights 缓存放 base 层共享。`NO_RUN_SUBDIR=1`
+  退回老的"顶层覆盖"行为，仅用于排查脚本兼容性。这样反复跑同一 VERSION 的训练
+  不会再覆盖旧 ckpt，TB 也能天然多 run 对比。
 
 后续需要"真正的 v2 训练栈"（例如离线缓存分段 KV / latent、多目标监督、新的损失项），
 应在 v1 远端冒烟测试通过后另起 `train_v2.py` 等文件，并按项目规则同步白名单。

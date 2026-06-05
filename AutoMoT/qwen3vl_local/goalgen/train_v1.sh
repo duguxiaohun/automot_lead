@@ -29,7 +29,11 @@ if [[ "${VERSION}" == "v2" ]]; then
     # 想从 latest.pt warm start：INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest.pt
     # 想完全从零训 v2：INIT_FROM_CKPT=NONE（任何不存在的路径会被 train_v1.py 报错，
     # 真要从零就显式 INIT_FROM_CKPT="" 把默认覆盖掉）。
-    INIT_FROM_CKPT="${INIT_FROM_CKPT:-checkpoints/goalgen_v1_dit/best.pt}"
+    # 默认指向 v1 顶层 symlink：checkpoints/goalgen_v1_dit/latest/best.pt
+    # （latest 是本脚本维护的 symlink，永远指向最新 v1 run_XXXXXX/）。
+    # 老 schema（v1 训练时还没启用 run 子目录，best.pt 直接在 OUTPUT_DIR 顶层）：
+    # 显式传 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/best.pt 即可。
+    INIT_FROM_CKPT="${INIT_FROM_CKPT:-checkpoints/goalgen_v1_dit/latest/best.pt}"
 elif [[ "${VERSION}" == "v1" ]]; then
     TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/goalgen_v1_data/train.jsonl}"
     VAL_JSONL="${VAL_JSONL:-checkpoints/goalgen_v1_data/val.jsonl}"   # 默认与数据构建器输出一致；不存在时训练器会自动跳过验证/样例日志
@@ -102,11 +106,35 @@ MUON_MOMENTUM="${MUON_MOMENTUM:-0.95}"
 # 几乎不影响速度但显存余量更宽）。GRAD_CKPT=0 关闭。
 GRAD_CKPT="${GRAD_CKPT:-1}"
 
+# 防覆盖：每次启动自动建一个 run 子目录，ckpt / TB / eval 产物全部写到子目录里。
+# 顶层 OUTPUT_DIR_BASE/ 维护一个 latest symlink 指向当前 run，方便 INIT_FROM_CKPT /
+# eval --dit-checkpoint 直接写 ${OUTPUT_DIR_BASE}/latest/best.pt 不用看时间戳。
+# - RUN_TAG=xxx：用 run_xxx/ 作为子目录名（人类可读，便于消融对比）；
+# - 不设：用 run_$(date +%Y%m%d_%H%M%S)/，保证字典序 = 时间序；
+# - NO_RUN_SUBDIR=1：完全跳过子目录隔离，回退到老的"顶层覆盖"行为（仅用于排查脚本兼容性）。
+OUTPUT_DIR_BASE="${OUTPUT_DIR}"
+RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
+if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
+    OUTPUT_DIR="${OUTPUT_DIR_BASE}/run_${RUN_TAG}"
+fi
+
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
-export HF_HOME="${HF_HOME:-${OUTPUT_DIR}/.hf_cache}"
+# HF_HOME 故意放在 OUTPUT_DIR_BASE 层（不进 run 子目录）：Qwen weights 缓存按 base
+# 共享，避免每个 run 重新拉一份占 8GB。
+export HF_HOME="${HF_HOME:-${OUTPUT_DIR_BASE}/.hf_cache}"
 mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
+
+# 维护 latest symlink → run_${RUN_TAG}。
+# - 用相对路径目标：OUTPUT_DIR_BASE 整个搬走时 symlink 仍然有效。
+# - ln -sfn：force + no-dereference，原子地 atomic-replace 旧 symlink，并发安全
+#   （DDP 多 rank 在同一节点跑同一脚本时只有 rank0 由 bash 创建，但即便撞车 ln -sfn
+#   也是 idempotent）。
+# - NO_RUN_SUBDIR=1 时不动 latest，OUTPUT_DIR 就是 base 本身，保持向后兼容。
+if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
+    ln -sfn "run_${RUN_TAG}" "${OUTPUT_DIR_BASE}/latest"
+fi
 
 # v2 默认开启 torch.compile(dit)：patch=4 后 token 数砍到 1/4，compile 的固定 overhead
 # 比 v1 划算很多。COMPILE_DIT=0 关闭。注意：首次 step 编译耗时 30-90 秒，CHECK 模式
@@ -244,6 +272,11 @@ fi
 echo "[version] VERSION=${VERSION}"
 echo "[version] TRAIN_JSONL=${TRAIN_JSONL}"
 echo "[version] OUTPUT_DIR=${OUTPUT_DIR}"
+if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
+    echo "[version] OUTPUT_DIR_BASE=${OUTPUT_DIR_BASE} (latest symlink -> run_${RUN_TAG})"
+else
+    echo "[version] NO_RUN_SUBDIR=1（已禁用 run 子目录隔离，注意可能覆盖旧 ckpt）"
+fi
 if [[ -n "${INIT_FROM_CKPT}" ]]; then
     echo "[version] INIT_FROM_CKPT=${INIT_FROM_CKPT}（warm start：DiT + EMA strict=True）"
 else
@@ -318,22 +351,35 @@ esac
 # ---------------------------------------------------------------------------
 # TensorBoard / eval / probe 入口提示
 #
-# 训练产物 OUTPUT_DIR 平铺布局（与 eval_v1.py / probe_v1.py 同根）：
-#   OUTPUT_DIR/
-#     ├─ best.pt + best.json          val/loss 历史最小的轻量权重（eval 默认指向它）
-#     ├─ latest.pt                    最近一次保存的轻量权重（无 val 时 eval 回退到它）
-#     ├─ checkpoint-*/                各 epoch DiT 全量 ckpt（含 optimizer/scheduler，保留最近 N=KEEP_RECENT_CHECKPOINTS）
-#     ├─ tb/                          训练 TensorBoard events（含 train/* val/* epoch_end/* image_samples）
-#     ├─ eval/                        eval_v1.py 写的 metrics + perline + samples PNG
-#     ├─ eval_tb/                     eval_v1.py 写的 TB scalar / image（独立 run）
-#     └─ eval_cases/                  probe_v1.py 随机场景 case dump
+# 训练产物 OUTPUT_DIR_BASE/ 多 run 布局：
+#   OUTPUT_DIR_BASE/                        e.g. checkpoints/goalgen_v2_dit/
+#     ├─ latest -> run_YYYYmmdd_HHMMSS      symlink，永远指向最新 run（本脚本维护）
+#     ├─ run_20260605_1430/                 一次完整训练的所有产物
+#     │   ├─ best.pt + best.json
+#     │   ├─ latest.pt
+#     │   ├─ checkpoint-XXXXXX/
+#     │   ├─ step-checkpoint-XXXXXX/
+#     │   ├─ tb/
+#     │   ├─ eval/ + eval_tb/
+#     │   └─ eval_cases/
+#     ├─ run_20260606_0915/                 下一次训练，完全独立不会覆盖上一份
+#     └─ .hf_cache/                         Qwen HF 缓存按 base 共享
+#
+# 下游命令既可写 ${OUTPUT_DIR_BASE}/latest/best.pt（自动跟最新 run），也可写
+# ${OUTPUT_DIR_BASE}/run_XXXX/best.pt 指定历史 run 做对比。
 # ---------------------------------------------------------------------------
 echo ""
 echo "============================================================"
-echo "[hint] 看 TensorBoard（训练曲线 + 多次 eval 同时显示）："
-echo "  bash tools/tb_serve.sh ${OUTPUT_DIR}"
+echo "[hint] 看 TensorBoard（多次 run 自动对比，base 目录下所有 run 都会展开）："
+echo "  bash tools/tb_serve.sh ${OUTPUT_DIR_BASE}"
 echo ""
-echo "[hint] eval（指标 + TB scalar/image + perline jsonl）："
+echo "[hint] eval 最新 run（latest symlink）："
+echo "  python qwen3vl_local/goalgen/eval_v1.py \\"
+echo "    --dit-checkpoint ${OUTPUT_DIR_BASE}/latest/best.pt \\"
+echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
+echo "    --save-root ${OUTPUT_DIR_BASE}/latest"
+echo ""
+echo "[hint] eval 当前 run（绑定本次 RUN_TAG，不受后续新 run 影响）："
 echo "  python qwen3vl_local/goalgen/eval_v1.py \\"
 echo "    --dit-checkpoint ${OUTPUT_DIR}/best.pt \\"
 echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
@@ -341,11 +387,11 @@ echo "    --save-root ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 多卡 eval 分片："
 echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \\"
-echo "    --dit-checkpoint ${OUTPUT_DIR}/best.pt --save-root ${OUTPUT_DIR}"
+echo "    --dit-checkpoint ${OUTPUT_DIR_BASE}/latest/best.pt --save-root ${OUTPUT_DIR_BASE}/latest"
 echo ""
 echo "[hint] 随机场景 case dump（输入历史/预测/真值 PNG + memory + per-step v_cos）："
 echo "  python qwen3vl_local/goalgen/probe_v1.py \\"
-echo "    --dit-checkpoint ${OUTPUT_DIR}/best.pt \\"
+echo "    --dit-checkpoint ${OUTPUT_DIR_BASE}/latest/best.pt \\"
 echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
-echo "    --save-root ${OUTPUT_DIR} --num-per-scenario 4"
+echo "    --save-root ${OUTPUT_DIR_BASE}/latest --num-per-scenario 4"
 echo "============================================================"
