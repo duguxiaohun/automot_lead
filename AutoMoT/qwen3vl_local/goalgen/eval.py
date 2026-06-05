@@ -169,9 +169,11 @@ def _share_cvd_via_file_for_ddp(want_count: int) -> str:
 def _maybe_set_idle_gpu_mask() -> None:
     """默认自动挑空闲 GPU 并覆盖外层残留的 CUDA_VISIBLE_DEVICES；单进程挑 1 张，
     torchrun 多 worker 由 rank0 挑 N 张后经文件 IPC 同步给各 rank（避免每 worker 各自
-    nvidia-smi 抖动撞卡）。
+    nvidia-smi 抖动撞卡）。单进程显式传 --gpu N 时视为用户锁定进程内设备，不覆盖 CVD。
     """
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if world_size <= 1 and _cli_has("--gpu"):
+        return
     if world_size > 1:
         selected = _share_cvd_via_file_for_ddp(world_size)
     else:
@@ -1364,7 +1366,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "0 = 不限（受 --max-samples 限制）。")
 
     p.add_argument("--gpu", type=int, default=0,
-                   help="进程内 GPU 编号。未显式传 --gpu 且未设置 CUDA mask 时，会自动挑空闲物理 GPU 并映射为 cuda:0。")
+                   help="进程内 GPU 编号。默认保持 0 并自动挑空闲物理 GPU 映射为 cuda:0；"
+                        "单进程显式传 --gpu N 时不覆盖 CUDA_VISIBLE_DEVICES。")
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
     p.add_argument("--vae-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
     p.add_argument("--dit-dtype", choices=["float32", "float16", "bfloat16"], default="bfloat16")

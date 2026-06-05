@@ -283,6 +283,52 @@ def is_rank0(rank: int) -> bool:
     return rank == 0
 
 
+def _resolve_run_output_dir(base_dir: pathlib.Path, rank: int, world_size: int) -> pathlib.Path:
+    """在 base_dir 下建 run_<时间戳> 子目录，避免多次训练互相覆盖。
+
+    - NO_RUN_SUBDIR=1 / PATCH_UNPATCH_NO_RUN_SUBDIR=1（旧别名，向后兼容）：
+      回退老行为，直接用 base_dir 顶层（可能覆盖旧权重）。命名与 bash 入口
+      （goalgen / leadmot / sft_v1 / sft_v2）的 NO_RUN_SUBDIR 对齐，详见
+      PROJECT_CONTEXT.md §11。
+    - RUN_TAG=xxx / PATCH_UNPATCH_RUN_TAG=xxx（旧别名）：用 run_xxx 作为子目录名
+      （人类可读，便于消融对比）。
+    - 多卡时由 rank0 决定时间戳，再经 dist.broadcast_object_list 同步给其它 rank，
+      避免各 rank 独立 strftime 抖动落到不同子目录。
+    - rank0 维护 base_dir/latest symlink 指向当前 run（相对目标，base 搬走仍有效）。
+    """
+    import datetime as _dt
+
+    # 统一名 NO_RUN_SUBDIR 优先；缺省时回退到旧前缀名，保留对历史脚本 / 文档的兼容。
+    if (
+        os.environ.get("NO_RUN_SUBDIR", "").strip() == "1"
+        or os.environ.get("PATCH_UNPATCH_NO_RUN_SUBDIR", "0") == "1"
+    ):
+        return base_dir
+
+    run_tag = os.environ.get("RUN_TAG", "").strip() or os.environ.get("PATCH_UNPATCH_RUN_TAG", "").strip()
+    if not run_tag:
+        if world_size > 1 and dist.is_available() and dist.is_initialized():
+            holder = [None]
+            if rank == 0:
+                holder[0] = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+            dist.broadcast_object_list(holder, src=0)
+            run_tag = str(holder[0])
+        else:
+            run_tag = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    run_dir = base_dir / f"run_{run_tag}"
+    if rank == 0:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        link = base_dir / "latest"
+        try:
+            if link.is_symlink() or link.exists():
+                link.unlink()
+            link.symlink_to(f"run_{run_tag}")
+        except OSError as exc:
+            print(f"[run] 警告：无法创建 latest symlink: {exc}")
+    return run_dir
+
+
 def _dump_invocation(output_dir: pathlib.Path, rank: int = 0) -> None:
     """把 sys.argv + 关键 env vars + 元信息写到 ``output_dir/invocations/<ts>_<host>_pid<pid>.txt``。
 
@@ -576,7 +622,9 @@ def train(args: argparse.Namespace) -> None:
     dtype_map = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}
     dtype = dtype_map[args.dtype]
 
-    output_dir = pathlib.Path(args.output_dir)
+    output_dir = _resolve_run_output_dir(pathlib.Path(args.output_dir), rank, world_size)
+    if is_rank0(rank):
+        print(f"[run] OUTPUT_DIR={output_dir}")
     _dump_invocation(output_dir, rank=rank)
     weights_dir = output_dir / "weights"
     if is_rank0(rank):

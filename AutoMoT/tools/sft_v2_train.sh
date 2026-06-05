@@ -52,14 +52,27 @@ MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v2_data_pending/train.jsonl}"
 VAL_JSONL="${VAL_JSONL:-checkpoints/sft_v2_data_pending/val.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_v2_lora}"
+
+# 防覆盖：每次启动自动建 run_<时间戳> 子目录，LoRA adapter / checkpoint-XXX / tb
+# 产物全部写进子目录，顶层 OUTPUT_DIR_BASE/ 维护 latest symlink 指向当前 run。
+# - RUN_TAG=xxx：用 run_xxx/ 做子目录名；不设用 run_$(date +%Y%m%d_%H%M%S)/；
+# - NO_RUN_SUBDIR=1：回退老的"顶层覆盖"行为。
+# 关键：runtime_teacher_data/ 与 HF_HOME 都钉在 OUTPUT_DIR_BASE 层（不进 run 子目录），
+# 否则每个 run 都会重新物化 teacher（冻结 base Qwen 跑全量生成，极贵）、manifest
+# 跨启动复用机制也失效。所以 OUTPUT_DIR_BASE 必须在下方 teacher dir 之前就算好。
+OUTPUT_DIR_BASE="${OUTPUT_DIR}"
+RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
+if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
+    OUTPUT_DIR="${OUTPUT_DIR_BASE}/run_${RUN_TAG}"
+fi
 # check 模式默认写到独立子目录，避免误清掉正式训练用的 runtime_teacher_data/。
 RUNTIME_TEACHER_DIR_WAS_SET=0
 if [[ -n "${RUNTIME_TEACHER_DIR+x}" ]]; then
     RUNTIME_TEACHER_DIR_WAS_SET=1
 fi
-RUNTIME_TEACHER_DIR="${RUNTIME_TEACHER_DIR:-${OUTPUT_DIR}/runtime_teacher_data}"
+RUNTIME_TEACHER_DIR="${RUNTIME_TEACHER_DIR:-${OUTPUT_DIR_BASE}/runtime_teacher_data}"
 if [[ "${MODE}" == "check" && "${RUNTIME_TEACHER_DIR_WAS_SET}" != "1" ]]; then
-    RUNTIME_TEACHER_DIR="${OUTPUT_DIR}/runtime_teacher_check_data"
+    RUNTIME_TEACHER_DIR="${OUTPUT_DIR_BASE}/runtime_teacher_check_data"
 fi
 RUNTIME_TEACHER_SEED="${RUNTIME_TEACHER_SEED:-20260601}"
 # single/ddp 默认 0 = 已有完整 runtime cache 时直接复用、跳过物化；显式 1 = 清掉旧
@@ -112,9 +125,14 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 
-# 缓存指向 output_dir 内，避免误读 ~/.cache。
-export HF_HOME="${HF_HOME:-${OUTPUT_DIR}/.hf_cache}"
+# 缓存指向 base 层，避免误读 ~/.cache，也让所有 run 共享 tokenizer/model cache。
+export HF_HOME="${HF_HOME:-${OUTPUT_DIR_BASE}/.hf_cache}"
 mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
+if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
+    # ln -sfn：force + no-dereference，原子替换旧 symlink；相对目标，base 搬走仍有效。
+    ln -sfn "run_${RUN_TAG}" "${OUTPUT_DIR_BASE}/latest"
+    echo "[run] OUTPUT_DIR=${OUTPUT_DIR}  (latest -> run_${RUN_TAG})"
+fi
 
 # ---------------------------------------------------------------------------
 # GPU / MASTER_PORT 选址（与 v1 sft_v1_train.sh 完全相同的函数，复制保持解耦）

@@ -222,5 +222,9 @@ git push
   单进程默认 `nvidia-smi` 自动挑 1 张空闲 GPU，并覆盖已有 mask；
   `torchrun --nproc_per_node=N` 默认自动挑 N 张最空闲 GPU，并覆盖已有 mask；
   `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡，具体卡号仍由脚本自动挑。
+- 写或改训练 launcher 时，保持**防覆盖目录约定**一致（详见 PROJECT_CONTEXT.md §11）：
+  在用户给的 `OUTPUT_DIR` 下再套 `run_<RUN_TAG>/` 子目录（`RUN_TAG` 默认时间戳，bash 段算一次），
+  base 层维护 `latest` symlink，`NO_RUN_SUBDIR=1` 回退；共享缓存（`HF_HOME`、SFT v2
+  `runtime_teacher_data/`）必须钉在 base 层、不进 run 子目录，避免每次重物化。
 - 用户偏好：先解释思路 → 列方案优缺点 → 等用户选 → 才开始改代码。不要"先斩后奏"
 - 用户用简体中文交流，代码注释也用简体中文，变量名 / 函数名保持英文
