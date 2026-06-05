@@ -13,13 +13,37 @@ if [[ -n "${DDP_GPU_COUNT+x}" ]]; then
     DDP_GPU_COUNT_WAS_SET=1
 fi
 
-TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/goalgen_v1_data/train.jsonl}"
-VAL_JSONL="${VAL_JSONL:-checkpoints/goalgen_v1_data/val.jsonl}"   # 默认与数据构建器输出一致；不存在时训练器会自动跳过验证/样例日志
+# VERSION：v1 / v2 切换数据目录 + 输出目录 + warm-start ckpt 的"一键开关"。
+# - VERSION=v1（默认）：完全沿用旧行为，从零训 DiT，数据走 goalgen_v1_data/，
+#   产物落 goalgen_v1_dit/。
+# - VERSION=v2：数据切到 goalgen_v2_data/（只含 middle[*]→middle[*] 两段 transition），
+#   产物落 goalgen_v2_dit/，并默认从 v1 best.pt 做 warm start。
+# 任何具体路径用户都可以通过显式 env 覆盖（TRAIN_JSONL / OUTPUT_DIR / INIT_FROM_CKPT）。
+VERSION="${VERSION:-v1}"
+if [[ "${VERSION}" == "v2" ]]; then
+    TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/goalgen_v2_data/train.jsonl}"
+    VAL_JSONL="${VAL_JSONL:-checkpoints/goalgen_v2_data/val.jsonl}"
+    OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/goalgen_v2_dit}"
+    # v2 默认从 v1 训练产物里的 best.pt warm start：DiT 权重 + EMA shadow 都加载，
+    # 不接 optimizer / scheduler / step，等同于"换数据子集 + 继承架构权重"重新训练。
+    # 想从 latest.pt warm start：INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest.pt
+    # 想完全从零训 v2：INIT_FROM_CKPT=NONE（任何不存在的路径会被 train_v1.py 报错，
+    # 真要从零就显式 INIT_FROM_CKPT="" 把默认覆盖掉）。
+    INIT_FROM_CKPT="${INIT_FROM_CKPT:-checkpoints/goalgen_v1_dit/best.pt}"
+elif [[ "${VERSION}" == "v1" ]]; then
+    TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/goalgen_v1_data/train.jsonl}"
+    VAL_JSONL="${VAL_JSONL:-checkpoints/goalgen_v1_data/val.jsonl}"   # 默认与数据构建器输出一致；不存在时训练器会自动跳过验证/样例日志
+    OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/goalgen_v1_dit}"
+    INIT_FROM_CKPT="${INIT_FROM_CKPT:-}"
+else
+    echo "未知 VERSION：${VERSION}。可用：v1 / v2。" >&2
+    exit 1
+fi
+
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 # 可选 LoRA 适配器：默认空 = 用基础 Qwen；想接 SFT v1 微调后的语言编码，传
 # QWEN_ADAPTER_DIR=checkpoints/sft_v1_lora（适配器目录，不是合并后的模型目录）
 QWEN_ADAPTER_DIR="${QWEN_ADAPTER_DIR:-}"
-OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/goalgen_v1_dit}"
 
 # TensorBoard / 验证 / 图像样例默认值；想关闭图像样例设 IMAGE_LOG_EVERY=0
 VAL_STEPS="${VAL_STEPS:-500}"
@@ -170,6 +194,7 @@ COMMON_ARGS=(
     --patch-size "${PATCH_SIZE}"
     --hidden-dim "${HIDDEN_DIM}"
     --patch-unpatch-weights "${PATCH_UNPATCH_WEIGHTS}"
+    --init-from-ckpt "${INIT_FROM_CKPT}"
     --n-heads "${N_HEADS}"
     --mlp-ratio "${MLP_RATIO}"
     --num-layers "${NUM_LAYERS}"
@@ -214,6 +239,15 @@ if [[ "${COMPILE_DIT}" == "0" ]]; then
 fi
 if [[ "${GRAD_CKPT}" == "0" ]]; then
     COMMON_ARGS+=(--no-grad-ckpt)
+fi
+
+echo "[version] VERSION=${VERSION}"
+echo "[version] TRAIN_JSONL=${TRAIN_JSONL}"
+echo "[version] OUTPUT_DIR=${OUTPUT_DIR}"
+if [[ -n "${INIT_FROM_CKPT}" ]]; then
+    echo "[version] INIT_FROM_CKPT=${INIT_FROM_CKPT}（warm start：DiT + EMA strict=True）"
+else
+    echo "[version] INIT_FROM_CKPT=<空>（DiT 从零随机初始化）"
 fi
 
 case "${MODE}" in
