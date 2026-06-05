@@ -192,7 +192,7 @@ ms-swift 3.12.x 不接受 JSON regex 形式的 `--loss_scale`。`check` 模式�
 | `swift: command not found` | 当前环境没装 ms-swift 或 PATH 不对 | 先确认 `which python && which swift && pip show ms-swift` |
 | `KeyError: 'sft_v1_analysis_mask'` | 插件没被加载，loss_scale 策略未注册 | 确认从 `AutoMoT/` 目录运行；检查 `tools/sft_v1_loss_scale_plugin.py` 是否存在 |
 | `KeyError: '{"ANALYSIS...": 0.0}'` | 仍在用旧版 JSON regex 命令 | 拉最新脚本，确认 `sft_v1_train.sh` 里有 `--external_plugins` |
-| `invalid device ordinal` / CUDA 选错卡 | 远程调度只分配了部分卡，或 `CUDA_VISIBLE_DEVICES` 与实际可见卡不一致 | 不手动指定时脚本会自动挑空闲卡；若调度系统已分配卡，显式使用它给出的 `CUDA_VISIBLE_DEVICES` |
+| `invalid device ordinal` / CUDA 选错卡 | 外层残留 mask 或进程数与实际 GPU 数不一致 | 训练/eval/probe 入口都会重新自动挑空闲卡并覆盖旧 mask；DDP 用 `DDP_GPU_COUNT=N` 指定需要几张卡 |
 
 ---
 
@@ -213,20 +213,9 @@ DDP_GPU_COUNT=4 bash tools/sft_v1_train.sh ddp
 DDP_GPU_COUNT=2 bash tools/sft_v1_train.sh ddp
 ```
 
-注意：DDP 模式会默认让 `NPROC_PER_NODE` 跟随最终的 `CUDA_VISIBLE_DEVICES` 数量。
-`DDP_GPU_COUNT` 显式传入时会覆盖外层残留的 `CUDA_VISIBLE_DEVICES`，避免远程环境里已有
-`CUDA_VISIBLE_DEVICES=0` 或 `NPROC_PER_NODE=1` 导致实际只起单卡。
-如果你确实要严格沿用外部已经设置好的 `CUDA_VISIBLE_DEVICES`，加：
-
-```bash
-SFT_RESPECT_CUDA_VISIBLE_DEVICES=1 DDP_GPU_COUNT=4 bash tools/sft_v1_train.sh ddp
-```
-
-如果你确实要严格沿用外部已经设置好的 `NPROC_PER_NODE`，加：
-
-```bash
-SFT_RESPECT_NPROC_PER_NODE=1 bash tools/sft_v1_train.sh ddp
-```
+注意：DDP 模式会默认让 `NPROC_PER_NODE` 跟随脚本自动挑到的 GPU 数量。
+`DDP_GPU_COUNT` 显式传入时会覆盖外层残留的 `CUDA_VISIBLE_DEVICES` 和 `NPROC_PER_NODE`，
+避免远程环境里已有单卡 mask 导致实际只起单卡。
 
 DDP rendezvous 端口也会自动处理：脚本默认设置 `MASTER_ADDR=127.0.0.1`，如果
 `MASTER_PORT` 没有设置，或已设置但端口被占用，会自动选择一个空闲端口并在启动日志里打印。
@@ -234,13 +223,6 @@ DDP rendezvous 端口也会自动处理：脚本默认设置 `MASTER_ADDR=127.0.
 
 ```bash
 SFT_RESPECT_MASTER_PORT=1 MASTER_PORT=29501 bash tools/sft_v1_train.sh ddp
-```
-
-如果你已经知道要用哪几张卡，直接显式指定 `CUDA_VISIBLE_DEVICES`，不要同时传
-`DDP_GPU_COUNT`：
-
-```bash
-CUDA_VISIBLE_DEVICES=2,5,6,7 bash tools/sft_v1_train.sh ddp
 ```
 
 **预期**：
@@ -387,10 +369,8 @@ python tools/eval_sft_v1.py \
 ```
 
 eval 默认会在加载模型前调用 `nvidia-smi`，按 `memory.used`、`utilization.gpu`
-从小到大自动选择空闲 GPU：单进程挑 1 张，`torchrun --nproc_per_node=N` 时挑 N 张。
-进程内仍使用 `cuda:0` / `--device auto`。如果外部已经设置 `CUDA_VISIBLE_DEVICES`
-或显式传 `--device cuda:N`，脚本会尊重外部设置。要关闭自动选卡：
-`SFT_EVAL_DISABLE_AUTO_GPU=1 python tools/eval_sft_v1.py ...`。
+从小到大自动选择空闲 GPU：单进程挑 1 张，`torchrun --nproc_per_node=N` 时挑 N 张，
+并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`。进程内仍使用 `cuda:0` / `--device auto`。
 
 **关键参数**：
 
@@ -402,7 +382,7 @@ eval 默认会在加载模型前调用 `nvidia-smi`，按 `memory.used`、`utili
 | `--full-dump` / `--no-full-dump` | 自动 | 默认 `--max-samples > 0` 时开；显式覆盖 |
 | `--full-dump-limit N` | 0 = 不限 | dump 上限，防止误开铺满磁盘 |
 | `--lora-dir` | 空字符串 | 默认跑 base 且不会导入 `peft`；只有明确评估 LoRA 时才传 adapter 目录 |
-| `--device` | `auto` | 默认配合自动选空闲 GPU；显式 `cuda:N` 时关闭自动 mask |
+| `--device` | `auto` | 默认配合自动选空闲 GPU；如需纯 CPU 调试才传 `cpu` |
 | `--tb` / `--no-tb` | `--no-tb` | 默认不写 TB（步骤一 TB 已让位给步骤二） |
 | `--skip-anchor12-sanity` | False | 跳过 anchor=12 单例检查 |
 
@@ -527,8 +507,7 @@ python tools/probe_sft_v1.py \
 
 probe 的 case 目录布局（与 eval cases 类似，但多 `token_loss.json`）：
 
-probe 不接 torchrun；未显式设置 `CUDA_VISIBLE_DEVICES` 或 `--device cuda:N` 时，
-默认自动挑 1 张空闲 GPU。
+probe 不接 torchrun；默认自动挑 1 张空闲 GPU，并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`。
 
 ```
 checkpoints/sft_v1_lora/eval_cases/<scenario>__<run>__<anchor>/

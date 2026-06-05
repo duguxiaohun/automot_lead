@@ -699,7 +699,7 @@ LeadMoT v1 训练入口已放在 `AutoMoT/qwen3vl_local/leadmot/`，与 GoalGen 
 - `LEADMOT_RUN.md`：构建索引、check / single / DDP 启动命令。
 - `build_dataset.py`：扫描 LEAD route 目录，生成轻量 `train.jsonl` / `val.jsonl`；不复制图像、LiDAR、meta。
 - `train.py`：复用 `mot_lead_offline_runner.py` 的 Qwen prefill、prompt、BEV、KV segmentation 和数据准备路径；Qwen3-VL-Instruct 与 LeadBEVEncoder frozen eval，只训练 `LeadMoTPlanningDecoder`。
-- `train.sh`：check / single / DDP launcher；默认自动挑空闲 GPU，外部 `CUDA_VISIBLE_DEVICES` 优先，`DDP_GPU_COUNT=N` 显式要求重新挑 N 张卡。
+- `train.sh`：check / single / DDP launcher；默认自动挑空闲 GPU 并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`，`DDP_GPU_COUNT=N` 只表示需要自动挑 N 张卡。
 - `eval.py`：离线汇总 loss / route ADE/FDE / waypoint ADE/FDE；支持 torchrun 分片，rank0 合并 perline/summary。
 - `probe.py`：随机 case-level dump，输出预测 vs GT 的 `planning_overlay.png` 与 JSON 指标，便于肉眼检查坐标系和轨迹尺度。
 
@@ -1552,7 +1552,7 @@ CLI 入口 `qwen3vl_dit_goalgen_runner.py`：
 - 多一个 `--subgoal` 参数（默认从 `DrivingMemory.from_scenario(scenario).subgoal` 推；推理调试可显式覆盖）。
 - 多一个 `--run-id` / 自动识别 run，方便 `keyframes.py` 查目标帧；找不到目标帧时打印警告并跳过 loss，仅做 forward。
 - 单次执行：teacher-forced prefill → 分段 KV（默认 `select_last`）→ 准备 z0 / 历史多帧 latent z_history / 真值 latent z1 → DiT forward → loss。
-- 未显式设置 `CUDA_VISIBLE_DEVICES` 或 `--device cuda:N` 时，默认自动挑 1 张空闲 GPU。
+- 默认自动挑 1 张空闲 GPU，并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`；进程内使用 `cuda:0/auto`。
 - 输出 step.json：保存 prompt、Qwen KV summary、分段后段 shape、DiT 输入 / 输出 latent shape、loss、目标帧路径。
 
 ### 15.4 与现有 §14.10 的关系
@@ -1565,12 +1565,11 @@ CLI 入口 `qwen3vl_dit_goalgen_runner.py`：
 
 ## 16. GPU 选址统一规则
 
-SFT v1/v2、GoalGen、VAE patch/unpatch 的训练、eval、probe、teacher 入口默认都自动寻找空闲 GPU。文档示例不要默认写 `CUDA_VISIBLE_DEVICES=0`；手动 CUDA mask 只作为用户显式覆盖。
+SFT v1/v2、GoalGen、LeadMoT、VAE patch/unpatch 以及白名单 runner 的训练、eval、probe、teacher / 推理入口默认都自动寻找空闲 GPU。文档示例不要写 shell 手动设置 `CUDA_VISIBLE_DEVICES` 的选卡片段；白名单内 GPU 入口按用户要求覆盖已有 mask。
 
-- 单进程入口：默认调用 `nvidia-smi`，按 `memory.used`、`utilization.gpu` 从低到高挑 1 张卡。
-- `torchrun --nproc_per_node=N`：默认按同一规则挑 N 张卡，并按 `LOCAL_RANK` pin 到对应可见卡。
-- 已有 `CUDA_VISIBLE_DEVICES`：尊重外部 mask；训练 launcher 中显式 `DDP_GPU_COUNT=N` 表示重新自动挑 N 张卡。
-- 自动选卡关闭开关按入口命名，例如 `SFT_EVAL_DISABLE_AUTO_GPU=1`、`GOALGEN_EVAL_DISABLE_AUTO_GPU=1`、`SFT_TEACHER_DISABLE_AUTO_GPU=1`。
+- 单进程入口：默认调用 `nvidia-smi`，按 `memory.used`、`utilization.gpu` 从低到高挑 1 张卡，并覆盖已有 mask。
+- `torchrun --nproc_per_node=N`：默认按同一规则挑 N 张卡，覆盖已有 mask，并按 `LOCAL_RANK` pin 到对应可见卡。
+- `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡；具体卡号仍由脚本自动挑最空闲的 N 张，不提供“尊重外部 mask”的分支。
 
 ---
 

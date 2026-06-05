@@ -53,7 +53,7 @@ python tools/probe_sft_v1.py \
 - 不接 torchrun。probe 输出量小、需要 per-sample 写文件，单卡顺序跑可读性最高；
   多卡分片反而会让 stdout 交错难读。需要并行时直接起多个 python 进程，各自跑
   不同 --scenarios 切分；
-- 未显式设置 `CUDA_VISIBLE_DEVICES` 或 `--device cuda:N` 时，默认自动挑 1 张空闲 GPU；
+- 默认自动挑 1 张空闲 GPU，并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`；
 - token-level loss 走"两次 encode 拼接"的近似定位（precise offset_mapping 在
   Qwen3-VL processor 上需要特殊处理，工程价值不大）；
 - 图像默认 symlink，windows 失败退化 copy。
@@ -124,18 +124,18 @@ def _pick_idle_gpus(n: int = 1) -> str:
 
 
 def _maybe_set_idle_gpu_mask() -> None:
-    """probe 默认自动挑 1 张空闲 GPU；显式 device / CUDA mask 时保持外部配置。"""
-    if "CUDA_VISIBLE_DEVICES" in os.environ:
-        return
-    if os.environ.get("SFT_PROBE_DISABLE_AUTO_GPU", "0") == "1":
-        return
+    """probe 默认自动挑 1 张空闲 GPU；--device 显式传 cpu / cuda[:N] 时不覆盖 CVD。"""
     device_arg = _cli_value("--device")
-    if device_arg and device_arg != "auto":
+    if device_arg and device_arg.strip().lower() not in ("", "auto"):
         return
     selected = _pick_idle_gpus(1)
     if selected:
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
         os.environ["CUDA_VISIBLE_DEVICES"] = selected
-        print(f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; process uses cuda:0/auto")
+        print(
+            f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; "
+            f"process uses cuda:0/auto; previous={previous or '<unset>'}"
+        )
 
 
 _maybe_set_idle_gpu_mask()

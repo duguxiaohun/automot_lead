@@ -37,7 +37,7 @@ from qwen3vl_local.leadmot.train import (
 DEFAULT_OUTPUT_ROOT = Path("checkpoints/leadmot_v1_decoder")
 
 
-def _pick_idle_gpu() -> str:
+def _pick_idle_gpus(n: int = 1) -> str:
     """从 nvidia-smi 中选择占用最低的 GPU，失败则返回空字符串。"""
     try:
         out = subprocess.check_output(
@@ -56,17 +56,24 @@ def _pick_idle_gpu() -> str:
             except ValueError:
                 pass
     rows.sort()
-    return rows[0][1] if rows else ""
+    return ",".join(row[1] for row in rows[:n])
 
 
 def _maybe_set_gpu(device: str) -> None:
-    """如果外部未设置 CUDA_VISIBLE_DEVICES，则自动选择 1 张 GPU。"""
-    if device != "auto" or "CUDA_VISIBLE_DEVICES" in os.environ:
+    """自动选择空闲 GPU，并覆盖外层残留的 CUDA_VISIBLE_DEVICES。
+
+    --device 显式传 cpu / cuda[:N] 时尊重用户锁卡，不覆盖 CVD；仅 auto / 空值走自动覆盖。
+    """
+    if device and device.strip().lower() not in ("", "auto"):
         return
-    selected = _pick_idle_gpu()
+    selected = _pick_idle_gpus(1)
     if selected:
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
         os.environ["CUDA_VISIBLE_DEVICES"] = selected
-        print(f"[gpu] auto selected CUDA_VISIBLE_DEVICES={selected}")
+        print(
+            f"[gpu] auto selected CUDA_VISIBLE_DEVICES={selected}; "
+            f"process uses cuda:0/auto; previous={previous or '<unset>'}"
+        )
 
 
 def _load_decoder(

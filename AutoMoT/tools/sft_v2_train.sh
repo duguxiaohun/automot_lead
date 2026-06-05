@@ -11,7 +11,7 @@
 #   - LR 5e-5 → 3e-5（v2 监督 token 数 × 5，lr 同步下调避免过冲，详见 SFT_V2_PLAN.md §6）；
 #   - MAX_LENGTH 3072 → 3584（v2 ANALYSIS 段更长）。
 #
-# GPU / MASTER_PORT 自动选址逻辑与 v1 完全相同，所有 SFT_RESPECT_* 环境变量同名。
+# GPU / MASTER_PORT 自动选址逻辑与 v1 完全相同；GPU 始终自动挑空闲卡并覆盖旧 mask。
 #
 # 用法（**从 AutoMoT/ 目录运行**）：
 #   单卡：       bash tools/sft_v2_train.sh single
@@ -442,8 +442,8 @@ materialize_runtime_teacher_if_needed() {
 case "${MODE}" in
     single)
         echo "[mode] single-GPU"
-        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
-        export NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
+        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
+        export NPROC_PER_NODE=1
         PER_DEVICE_BS=4
         GRAD_ACC=2
         # step 触发：每 SAVE_STEPS 步保存 + eval；best 仍由 load_best_model_at_end 装回
@@ -459,8 +459,8 @@ case "${MODE}" in
         # 比 v1（6-10）偏低，因为 v2 ANALYSIS body 段加 0.3 权重后单 token loss 被稀释；
         # 但比 v1 mask=0 时多了 ~30 个 token 参与 loss，整体仍在可读量级。
         # 判读细节见 SFT_V2_RUN.md §4。
-        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
-        export NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
+        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
+        export NPROC_PER_NODE=1
         PER_DEVICE_BS=1
         GRAD_ACC=1
         SAVE_STRATEGY="no"
@@ -475,26 +475,9 @@ case "${MODE}" in
         SAVE_STRATEGY="steps"
         EVAL_STRATEGY="steps"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
-        if [[ "${DDP_GPU_COUNT_WAS_SET}" == "1" && "${SFT_RESPECT_CUDA_VISIBLE_DEVICES:-0}" != "1" ]]; then
-            SELECTED_GPUS="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
-            if [[ -n "${CUDA_VISIBLE_DEVICES:-}" && "${CUDA_VISIBLE_DEVICES}" != "${SELECTED_GPUS}" ]]; then
-                echo "[gpu][warn] override existing CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} because DDP_GPU_COUNT was set explicitly"
-                echo "[gpu][warn] set SFT_RESPECT_CUDA_VISIBLE_DEVICES=1 to keep the existing visible-device mask"
-            fi
-            export CUDA_VISIBLE_DEVICES="${SELECTED_GPUS}"
-        else
-            export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus "${DDP_GPU_COUNT}")}"
-        fi
+        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
         ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
-        if [[ "${SFT_RESPECT_NPROC_PER_NODE:-0}" == "1" ]]; then
-            export NPROC_PER_NODE="${NPROC_PER_NODE:-${ACTUAL_GPU_COUNT}}"
-        else
-            if [[ -n "${NPROC_PER_NODE:-}" && "${NPROC_PER_NODE}" != "${ACTUAL_GPU_COUNT}" ]]; then
-                echo "[gpu][warn] override existing NPROC_PER_NODE=${NPROC_PER_NODE} to match CUDA_VISIBLE_DEVICES"
-                echo "[gpu][warn] set SFT_RESPECT_NPROC_PER_NODE=1 to keep the existing process count"
-            fi
-            export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
-        fi
+        export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
         if [[ "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then
             echo "[gpu][warn] requested ${DDP_GPU_COUNT} GPUs but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
         fi

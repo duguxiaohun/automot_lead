@@ -202,10 +202,10 @@ push 前也问用户，不要替用户决定是否 push 到 main。
 
 GPU 运行入口统一规则：
 
-- SFT v1/v2、GoalGen、VAE patch/unpatch 的训练、eval、probe、teacher 入口默认都要自动寻找空闲 GPU。
-- 文档示例不要默认写 `CUDA_VISIBLE_DEVICES=0`；除非是在说明"用户显式覆盖"。
-- 单进程入口默认用 `nvidia-smi` 自动挑 1 张最空闲 GPU；`torchrun --nproc_per_node=N` 入口默认自动挑 N 张。
-- 如果外部已经设置 `CUDA_VISIBLE_DEVICES`，脚本应尊重外部 mask；训练 launcher 的 `DDP_GPU_COUNT=N` 是明确要求重新自动挑 N 张卡。
+- SFT v1/v2、GoalGen、LeadMoT、VAE patch/unpatch 以及白名单 runner 的训练、eval、probe、teacher / 推理入口默认都要自动寻找空闲 GPU。
+- 文档示例不要写 shell 手动设置 `CUDA_VISIBLE_DEVICES` 的选卡片段。
+- 白名单内所有 GPU 运行入口都按用户要求彻底放弃手动 `CUDA_VISIBLE_DEVICES` 选择：单进程入口默认用 `nvidia-smi` 自动挑 1 张最空闲 GPU，并覆盖已有 mask；`torchrun --nproc_per_node=N` 入口默认自动挑 N 张最空闲 GPU，并覆盖已有 mask，再按 `LOCAL_RANK` pin 到对应可见卡。
+- 训练 launcher 的 `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡；具体卡号仍由脚本自动挑最空闲的 N 张，不提供“尊重外部 mask”的分支。
 
 ---
 

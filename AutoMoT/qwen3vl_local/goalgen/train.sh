@@ -181,7 +181,20 @@ pick_idle_gpus() {
             return 0
         fi
     fi
-    if [[ "${want_count}" -le 1 ]]; then echo "0"; else seq -s, 0 "$((want_count - 1))"; fi
+    # nvidia-smi 缺失或没返回任何行：不再盲目 fallback 到 0..N-1（ddp 下会撞忙卡），
+    # 返回空串交给 require_idle_gpus 显式 exit 1，与 leadmot/train.sh 对齐。
+    return 1
+}
+
+require_idle_gpus() {
+    local count="$1"
+    local picked
+    picked="$(pick_idle_gpus "${count}" || true)"
+    if [[ -z "${picked}" ]]; then
+        echo "No GPU selected by nvidia-smi; refusing to guess CUDA_VISIBLE_DEVICES." >&2
+        exit 1
+    fi
+    echo "${picked}"
 }
 
 count_visible_gpus() {
@@ -298,7 +311,7 @@ fi
 case "${MODE}" in
     check)
         echo "[mode] check"
-        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
+        export CUDA_VISIBLE_DEVICES="$(require_idle_gpus 1)"
         export NPROC_PER_NODE=1
         # check 模式跑 2 个优化器 step 就退出（--max-train-steps 2）；epoch 末 save 分支
         # 不会被触发，循环外的 fallback 会写一份 ckpt 兜底。
@@ -311,7 +324,7 @@ case "${MODE}" in
         ;;
     single)
         echo "[mode] single"
-        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
+        export CUDA_VISIBLE_DEVICES="$(require_idle_gpus 1)"
         export NPROC_PER_NODE=1
         # NUM_EPOCHS 默认 2：831k 样本 / GRAD_ACC=4 ≈ 207k optimizer step / epoch
         # （单卡），DiT 从零训通常 100-200k step 才看到收敛趋势，1 epoch 偏少；
@@ -325,17 +338,9 @@ case "${MODE}" in
     ddp)
         echo "[mode] ddp"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
-        if [[ "${DDP_GPU_COUNT_WAS_SET}" == "1" && "${GOALGEN_RESPECT_CUDA_VISIBLE_DEVICES:-0}" != "1" ]]; then
-            export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
-        else
-            export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus "${DDP_GPU_COUNT}")}"
-        fi
+        export CUDA_VISIBLE_DEVICES="$(require_idle_gpus "${DDP_GPU_COUNT}")"
         ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
-        if [[ "${GOALGEN_RESPECT_NPROC_PER_NODE:-0}" == "1" ]]; then
-            export NPROC_PER_NODE="${NPROC_PER_NODE:-${ACTUAL_GPU_COUNT}}"
-        else
-            export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
-        fi
+        export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
         configure_master_port
         export NCCL_P2P_LEVEL="${NCCL_P2P_LEVEL:-NVL}"
         export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
