@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import pathlib
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -43,6 +44,60 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+
+
+def _cli_value(name: str) -> Optional[str]:
+    prefix = name + "="
+    for i, item in enumerate(sys.argv[1:]):
+        if item == name and i + 2 <= len(sys.argv[1:]):
+            return sys.argv[i + 2]
+        if item.startswith(prefix):
+            return item[len(prefix):]
+    return None
+
+
+def _pick_idle_gpus(n: int = 1) -> str:
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return ""
+    rows = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            rows.append((int(parts[1]), int(parts[2]), parts[0]))
+        except ValueError:
+            continue
+    rows.sort(key=lambda x: (x[0], x[1], int(x[2]) if x[2].isdigit() else 9999))
+    return ",".join(row[2] for row in rows[:n])
+
+
+def _maybe_set_idle_gpu_mask() -> None:
+    """默认自动挑 1 张空闲 GPU；--device 显式传 cpu / cuda[:N] 时不覆盖 CVD。"""
+    device_arg = _cli_value("--device")
+    if device_arg and device_arg.strip().lower() not in ("", "auto"):
+        return
+    selected = _pick_idle_gpus(1)
+    if selected:
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        print(
+            f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; "
+            f"process uses cuda:0/auto; previous={previous or '<unset>'}"
+        )
+
+
+_maybe_set_idle_gpu_mask()
 
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine, dump_trace  # noqa: E402
 from qwen3vl_local.image_io import (  # noqa: E402

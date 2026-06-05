@@ -116,11 +116,10 @@ mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
 # ---------------------------------------------------------------------------
 # GPU 选择
 # ---------------------------------------------------------------------------
-# 默认用 nvidia-smi 按 memory.used、utilization.gpu 从小到大排序，自动挑最空闲 GPU。
-# DDP 模式下 NPROC_PER_NODE 默认跟随最终 CUDA_VISIBLE_DEVICES，避免外层残留单进程配置。
-# DDP_GPU_COUNT 显式传入时视为强信号：重新挑指定数量的卡。
-# 若要严格尊重外部已有 CUDA_VISIBLE_DEVICES，可设 SFT_RESPECT_CUDA_VISIBLE_DEVICES=1。
-# 若要严格尊重外部已有 NPROC_PER_NODE，可设 SFT_RESPECT_NPROC_PER_NODE=1。
+# 默认用 nvidia-smi 按 memory.used、utilization.gpu 从小到大排序，自动挑最空闲 GPU，
+# 并覆盖外部残留的 CUDA_VISIBLE_DEVICES。
+# DDP 模式下 NPROC_PER_NODE 跟随最终 CUDA_VISIBLE_DEVICES，避免外层残留单进程配置。
+# DDP_GPU_COUNT 只表示要挑多少张卡；具体卡号仍由脚本自动挑最空闲的 N 张。
 # 若要严格尊重外部已有 MASTER_PORT，可设 SFT_RESPECT_MASTER_PORT=1。
 pick_idle_gpus() {
     local want_count="$1"
@@ -207,8 +206,8 @@ case "${MODE}" in
         echo "[mode] single-GPU"
         # 单卡模式用于 smoke test 或显存足够时的小规模训练。
         # 等效 batch = PER_DEVICE_BS * GRAD_ACC = 8。
-        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
-        export NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
+        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
+        export NPROC_PER_NODE=1
         PER_DEVICE_BS=4
         GRAD_ACC=2
         # step 触发：每 SAVE_STEPS 步保存 + eval（默认 10000）；--save_total_limit
@@ -249,8 +248,8 @@ case "${MODE}" in
         # ---- 不进 DDP 的原因 ----
         # 8 卡 DDP 启动 NCCL handshake 通常要 10-30 秒，会把"短训观察 loss"的
         # 信号淹没在启动日志里。check 模式默认走单卡 / 单进程，让 stdout 干净。
-        export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus 1)}"
-        export NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
+        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
+        export NPROC_PER_NODE=1
         PER_DEVICE_BS=1
         GRAD_ACC=1
         # check 模式不写盘也不跑 eval：SAVE_STRATEGY=no + EVAL_STRATEGY=no，
@@ -273,26 +272,9 @@ case "${MODE}" in
         SAVE_STRATEGY="steps"
         EVAL_STRATEGY="steps"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
-        if [[ "${DDP_GPU_COUNT_WAS_SET}" == "1" && "${SFT_RESPECT_CUDA_VISIBLE_DEVICES:-0}" != "1" ]]; then
-            SELECTED_GPUS="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
-            if [[ -n "${CUDA_VISIBLE_DEVICES:-}" && "${CUDA_VISIBLE_DEVICES}" != "${SELECTED_GPUS}" ]]; then
-                echo "[gpu][warn] override existing CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} because DDP_GPU_COUNT was set explicitly"
-                echo "[gpu][warn] set SFT_RESPECT_CUDA_VISIBLE_DEVICES=1 to keep the existing visible-device mask"
-            fi
-            export CUDA_VISIBLE_DEVICES="${SELECTED_GPUS}"
-        else
-            export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$(pick_idle_gpus "${DDP_GPU_COUNT}")}"
-        fi
+        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
         ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
-        if [[ "${SFT_RESPECT_NPROC_PER_NODE:-0}" == "1" ]]; then
-            export NPROC_PER_NODE="${NPROC_PER_NODE:-${ACTUAL_GPU_COUNT}}"
-        else
-            if [[ -n "${NPROC_PER_NODE:-}" && "${NPROC_PER_NODE}" != "${ACTUAL_GPU_COUNT}" ]]; then
-                echo "[gpu][warn] override existing NPROC_PER_NODE=${NPROC_PER_NODE} to match CUDA_VISIBLE_DEVICES"
-                echo "[gpu][warn] set SFT_RESPECT_NPROC_PER_NODE=1 to keep the existing process count"
-            fi
-            export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
-        fi
+        export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
         if [[ "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then
             echo "[gpu][warn] requested ${DDP_GPU_COUNT} GPUs but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
         fi

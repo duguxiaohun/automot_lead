@@ -1905,9 +1905,14 @@ def _auto_select_gpu() -> str:
                 except (ValueError, IndexError):
                     continue
         
-        device = f"cuda:{best_gpu}"
-        print(f"[自动检测] 选择 GPU: {device} (显存使用: {min_usage:.0f}MB)")
-        return device
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(best_gpu)
+        print(
+            f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={best_gpu}; "
+            f"process uses cuda:0; previous={previous or '<unset>'}; "
+            f"memory.used={min_usage:.0f}MB"
+        )
+        return "cuda:0"
     except Exception as e:
         print(f"[警告] 自动检测 GPU 失败: {e}，使用默认 cuda:0")
         return "cuda:0"

@@ -57,12 +57,11 @@ cd AutoMoT
 bash qwen3vl_local/leadmot/train.sh single
 ```
 
-如果外部已设置 `CUDA_VISIBLE_DEVICES`，脚本会尊重该设置；否则自动用 `nvidia-smi` 选择显存占用最低的一张卡。
+脚本会自动用 `nvidia-smi` 选择显存占用最低的一张卡，并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`。
 
 常用覆盖：
 
 ```bash
-CUDA_VISIBLE_DEVICES=3 \
 LR=1e-4 \
 NUM_EPOCHS=4 \
 GRAD_ACC=8 \
@@ -79,8 +78,7 @@ DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
 规则：
 
 - 设置 `DDP_GPU_COUNT=N` 时，脚本自动挑 N 张空闲 GPU，并覆盖 `CUDA_VISIBLE_DEVICES`。
-- 不设置 `DDP_GPU_COUNT` 但外部已有 `CUDA_VISIBLE_DEVICES` 时，按外部 mask 启动。
-- 不设置任何 GPU 环境变量时，默认尝试挑 8 张空闲 GPU。
+- 不设置 `DDP_GPU_COUNT` 时，默认尝试挑 8 张空闲 GPU。
 - `MASTER_PORT` 未设置时自动找空闲端口；已设置但端口被占用会直接报错。
 
 ### 4.x USE_BEV 开关（v1 内部消融）

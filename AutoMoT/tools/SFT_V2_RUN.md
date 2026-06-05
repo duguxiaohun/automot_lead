@@ -159,9 +159,9 @@ python tools/build_sft_dataset_v2_teacher.py \
     --max-samples 32
 ```
 
-teacher 脚本默认用 `nvidia-smi` 自动挑空闲 GPU：单进程挑 1 张，
-`torchrun --nproc_per_node=N` 时挑 N 张。已有 `CUDA_VISIBLE_DEVICES` 时尊重外部设置；
-要关闭自动选卡，设 `SFT_TEACHER_DISABLE_AUTO_GPU=1`。
+teacher 脚本默认用 `nvidia-smi` 自动挑空闲 GPU 并覆盖外层残留的
+`CUDA_VISIBLE_DEVICES`：单进程挑 1 张，`torchrun --nproc_per_node=N` 由 rank0 挑 N 张
+后经文件 IPC 同步给各 rank（避免每个 worker 各自 `nvidia-smi` 抖动撞同一张卡）。
 
 ### 2.3 通过条件
 
@@ -434,7 +434,7 @@ bash tools/sft_v2_train.sh ddp
 ```
 
 GPU / 端口 / DDP rendezvous 行为与 v1 完全一致（自动选最空闲卡、自动找空闲 MASTER_PORT、
-NCCL_P2P_LEVEL=NVL 等）。所有 v1 的 `DDP_GPU_COUNT` / `SFT_RESPECT_*` 环境变量在 v2 同名。
+NCCL_P2P_LEVEL=NVL 等）。`DDP_GPU_COUNT` 只控制需要几张卡；卡号始终由脚本自动选择。
 
 默认 `ddp` 按 8 卡跑。如果机器只想用 N 张卡，不要手动写死卡号，直接用
 `DDP_GPU_COUNT=N`，脚本会自动挑 N 张最空闲 GPU，让后面的 ms-swift 训练使用同一组卡：
@@ -447,20 +447,8 @@ DDP_GPU_COUNT=4 bash tools/sft_v2_train.sh ddp
 DDP_GPU_COUNT=2 bash tools/sft_v2_train.sh ddp
 ```
 
-注意：`DDP_GPU_COUNT` 显式传入时会覆盖外层残留的 `CUDA_VISIBLE_DEVICES`，避免远程
-环境里已有单卡 mask 导致实际只起 1 张卡。如果调度系统已经分配好卡、你要严格沿用外部
-mask，再加：
-
-```bash
-SFT_RESPECT_CUDA_VISIBLE_DEVICES=1 DDP_GPU_COUNT=4 bash tools/sft_v2_train.sh ddp
-```
-
-如果已经明确知道要用哪几张卡，才手动设置 `CUDA_VISIBLE_DEVICES`，并且不要同时传
-`DDP_GPU_COUNT`：
-
-```bash
-CUDA_VISIBLE_DEVICES=2,5,6,7 bash tools/sft_v2_train.sh ddp
-```
+注意：`DDP_GPU_COUNT` 显式传入时会覆盖外层残留的 `CUDA_VISIBLE_DEVICES` 和
+`NPROC_PER_NODE`，避免远程环境里已有单卡 mask 导致实际只起 1 张卡。
 
 正式训练对 teacher 物化的处理（**首次物化一次 + 后续任意卡数复用**）：
 
@@ -522,8 +510,8 @@ torchrun --standalone --nproc_per_node=4 tools/eval_sft_v1.py \
 
 **关键参数变化**：v1 默认 val 路径写死 `checkpoints/sft_v1_data/val.jsonl`，v2 必须显式
 `--val-jsonl checkpoints/sft_v2_lora/runtime_teacher_data/val.jsonl`，否则会评 v1 数据集或 pending 占位数据。
-eval / probe 会默认自动挑空闲 GPU；多卡 eval 用 `torchrun --nproc_per_node=N`
-时会自动挑 N 张。
+eval / probe 会默认自动挑空闲 GPU 并覆盖旧 mask；多卡 eval 用 `torchrun --nproc_per_node=N`
+时由 rank0 挑 N 张并经文件 IPC 同步给各 rank（无每-worker race）。
 
 ### probe 也复用 v1 脚本
 

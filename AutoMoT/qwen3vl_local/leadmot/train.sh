@@ -76,6 +76,17 @@ pick_idle_gpus() {
     | paste -sd, -
 }
 
+require_idle_gpus() {
+  local count="$1"
+  local picked
+  picked="$(pick_idle_gpus "${count}" || true)"
+  if [[ -z "${picked}" ]]; then
+    echo "No GPU selected by nvidia-smi; refusing to reuse external CUDA_VISIBLE_DEVICES." >&2
+    exit 1
+  fi
+  echo "${picked}"
+}
+
 count_visible_gpus() {
   if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
     awk -F, '{print NF}' <<< "${CUDA_VISIBLE_DEVICES}"
@@ -186,12 +197,7 @@ fi
 
 case "${MODE}" in
   check)
-    if [[ -z "${CUDA_VISIBLE_DEVICES:-}" ]]; then
-      picked="$(pick_idle_gpus 1 || true)"
-      if [[ -n "${picked}" ]]; then
-        export CUDA_VISIBLE_DEVICES="${picked}"
-      fi
-    fi
+    export CUDA_VISIBLE_DEVICES="$(require_idle_gpus 1)"
     python qwen3vl_local/leadmot/train.py \
       "${common_args[@]}" \
       --limit-train-samples "${LIMIT_TRAIN_SAMPLES:-2}" \
@@ -204,28 +210,14 @@ case "${MODE}" in
       ${EXTRA_ARGS}
     ;;
   single)
-    if [[ -z "${CUDA_VISIBLE_DEVICES:-}" ]]; then
-      picked="$(pick_idle_gpus 1 || true)"
-      if [[ -n "${picked}" ]]; then
-        export CUDA_VISIBLE_DEVICES="${picked}"
-      fi
-    fi
+    export CUDA_VISIBLE_DEVICES="$(require_idle_gpus 1)"
     python qwen3vl_local/leadmot/train.py "${common_args[@]}" ${EXTRA_ARGS}
     ;;
   ddp)
-    if [[ -n "${DDP_GPU_COUNT:-}" ]]; then
-      picked="$(pick_idle_gpus "${DDP_GPU_COUNT}" || true)"
-      if [[ -n "${picked}" ]]; then
-        export CUDA_VISIBLE_DEVICES="${picked}"
-      fi
-    elif [[ -z "${CUDA_VISIBLE_DEVICES:-}" ]]; then
-      picked="$(pick_idle_gpus 8 || true)"
-      if [[ -n "${picked}" ]]; then
-        export CUDA_VISIBLE_DEVICES="${picked}"
-      fi
-    fi
+    DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
+    export CUDA_VISIBLE_DEVICES="$(require_idle_gpus "${DDP_GPU_COUNT}")"
     configure_master_port
-    NPROC_PER_NODE="${NPROC_PER_NODE:-$(count_visible_gpus)}"
+    NPROC_PER_NODE="$(count_visible_gpus)"
     if [[ "${NPROC_PER_NODE}" -lt 1 ]]; then
       echo "No GPU found for ddp mode." >&2
       exit 1

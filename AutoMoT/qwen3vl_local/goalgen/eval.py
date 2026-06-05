@@ -72,6 +72,8 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from collections import defaultdict
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Tuple
@@ -119,16 +121,61 @@ def _pick_idle_gpus(n: int = 1) -> str:
     return ",".join(row[2] for row in rows[:n])
 
 
+# DDP race 兜底：torchrun 多 worker 且外部未预设 CVD 时，只让 rank0 跑 nvidia-smi 挑卡
+# → atomic 写共享文件，其它 rank 阻塞读，避免每 worker 各自挑卡导致 set_device 撞同一张卡。
+_GPU_PICK_IMPORT_TIME = time.time()
+_GPU_PICK_WAIT_TIMEOUT_S = 60.0
+_GPU_PICK_STALE_TOLERANCE_S = 30.0
+_GPU_PICK_LOCK_PREFIX = "goalgen_eval_cvd"
+
+
+def _share_cvd_via_file_for_ddp(want_count: int) -> str:
+    """rank0 挑卡 → 共享文件 → 其它 rank 读；锁文件按 MASTER_ADDR+MASTER_PORT 命名隔离
+    不同 run，非 rank0 用 mtime >= 本进程 import 时刻 - 容差 拒绝上一轮残留旧文件。"""
+    rank = int(os.environ.get("RANK", "0"))
+    master_addr = os.environ.get("MASTER_ADDR", "localhost")
+    master_port = os.environ.get("MASTER_PORT", "29500")
+    lock_path = pathlib.Path(tempfile.gettempdir()) / f"{_GPU_PICK_LOCK_PREFIX}_{master_addr}_{master_port}.txt"
+    min_mtime = _GPU_PICK_IMPORT_TIME - _GPU_PICK_STALE_TOLERANCE_S
+    if rank == 0:
+        selected = _pick_idle_gpus(want_count)
+        if not selected:
+            return ""
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+        tmp_path = lock_path.with_suffix(f".tmp_{os.getpid()}")
+        tmp_path.write_text(selected, encoding="utf-8")
+        os.replace(tmp_path, lock_path)
+        return selected
+    deadline = time.time() + _GPU_PICK_WAIT_TIMEOUT_S
+    while True:
+        try:
+            mtime = lock_path.stat().st_mtime
+        except FileNotFoundError:
+            mtime = -1.0
+        if mtime >= min_mtime:
+            break
+        if time.time() > deadline:
+            raise RuntimeError(
+                f"rank {rank} timed out waiting {_GPU_PICK_WAIT_TIMEOUT_S:.0f}s for "
+                f"rank0 to publish CUDA_VISIBLE_DEVICES at {lock_path}"
+            )
+        time.sleep(0.05)
+    return lock_path.read_text(encoding="utf-8").strip()
+
+
 def _maybe_set_idle_gpu_mask() -> None:
-    """默认自动挑空闲 GPU；单进程挑 1 张，torchrun 按 WORLD_SIZE 挑 N 张。"""
-    if "CUDA_VISIBLE_DEVICES" in os.environ:
-        return
-    if os.environ.get("GOALGEN_EVAL_DISABLE_AUTO_GPU", "0") == "1":
-        return
-    if _cli_has("--gpu"):
-        return
+    """默认自动挑空闲 GPU 并覆盖外层残留的 CUDA_VISIBLE_DEVICES；单进程挑 1 张，
+    torchrun 多 worker 由 rank0 挑 N 张后经文件 IPC 同步给各 rank（避免每 worker 各自
+    nvidia-smi 抖动撞卡）。
+    """
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    selected = _pick_idle_gpus(world_size)
+    if world_size > 1:
+        selected = _share_cvd_via_file_for_ddp(world_size)
+    else:
+        selected = _pick_idle_gpus(1)
     if selected:
         os.environ["CUDA_VISIBLE_DEVICES"] = selected
         print(

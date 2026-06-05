@@ -24,7 +24,7 @@ eval.py 给的是聚合视角（mean/std/by_scenario）；probe 给的是单条�
     overview.md
 
 不接 torchrun（与 probe_sft_v1.py 同理：per-sample 顺序写文件更直观）。
-未显式设置 `CUDA_VISIBLE_DEVICES` 或 `--gpu` 时，默认自动挑 1 张空闲 GPU。
+默认自动挑 1 张空闲 GPU，并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`。
 
 典型用法（**从 AutoMoT/ 目录运行**）：
 
@@ -101,16 +101,14 @@ def _pick_idle_gpus(n: int = 1) -> str:
 
 def _maybe_set_idle_gpu_mask() -> None:
     """probe 默认自动挑 1 张空闲 GPU；显式 --gpu / CUDA mask 时保持外部配置。"""
-    if "CUDA_VISIBLE_DEVICES" in os.environ:
-        return
-    if os.environ.get("GOALGEN_PROBE_DISABLE_AUTO_GPU", "0") == "1":
-        return
-    if _cli_has("--gpu"):
-        return
     selected = _pick_idle_gpus(1)
     if selected:
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
         os.environ["CUDA_VISIBLE_DEVICES"] = selected
-        print(f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; process uses cuda:0")
+        print(
+            f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; "
+            f"process uses cuda:0; previous={previous or '<unset>'}"
+        )
 
 
 _maybe_set_idle_gpu_mask()

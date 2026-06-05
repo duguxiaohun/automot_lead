@@ -79,20 +79,20 @@ def _pick_idle_gpus(n: int = 1) -> str:
 
 
 def _maybe_set_idle_gpu_mask() -> None:
-    """live inspect 默认自动挑 1 张空闲 GPU；显式 device / CUDA mask 时保持外部配置。"""
-    if "CUDA_VISIBLE_DEVICES" in os.environ:
-        return
-    if os.environ.get("SFT_TEACHER_INSPECT_DISABLE_AUTO_GPU", "0") == "1":
-        return
+    """live inspect 默认自动挑 1 张空闲 GPU；--device 显式传 cpu / cuda[:N] 时不覆盖 CVD。"""
     device_arg = _cli_value("--device")
-    if device_arg and device_arg != "auto":
+    if device_arg and device_arg.strip().lower() not in ("", "auto"):
         return
     if "--live" not in sys.argv[1:]:
         return
     selected = _pick_idle_gpus(1)
     if selected:
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
         os.environ["CUDA_VISIBLE_DEVICES"] = selected
-        print(f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; process uses cuda:0/auto")
+        print(
+            f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; "
+            f"process uses cuda:0/auto; previous={previous or '<unset>'}"
+        )
 
 
 _maybe_set_idle_gpu_mask()

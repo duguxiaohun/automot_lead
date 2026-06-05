@@ -14,22 +14,16 @@
 
 运行目录：AutoMoT/
 
-运行（单卡）：默认强制挑 1 张最空闲 GPU**覆盖**已有的 CUDA_VISIBLE_DEVICES。
-确实要手动锁定 GPU 时 `PATCH_UNPATCH_RESPECT_CUDA_VISIBLE_DEVICES=1` 关掉自动覆盖。::
+运行（单卡）：脚本启动后自动挑 1 张最空闲 GPU，并覆盖已有的 CUDA_VISIBLE_DEVICES。::
 
     python vae_standalone/train_patch_unpatch.py \
         --train-jsonl checkpoints/goalgen_v1_data/train.jsonl \
         --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
         --output-dir checkpoints/patch_unpatch_v1
 
-DDP：torchrun 启动后每个 worker 已经持有独立 CUDA 上下文，**.py 内部无法再换卡**
-（CUDA driver 已初始化，修改 CUDA_VISIBLE_DEVICES 无效），必须由 launcher 提前
-挑好。下面这段一行 shell 自动挑 4 张最闲 GPU 再交给 torchrun::
+DDP：不用提前设置 CUDA_VISIBLE_DEVICES。脚本会在每个 worker 触碰 CUDA 前，
+按 ``WORLD_SIZE`` 自动挑 N 张最空闲 GPU，并把同一组可见卡写入各 worker 环境。::
 
-    export CUDA_VISIBLE_DEVICES=$(
-        nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits \
-        | sort -t',' -k2 -n | head -n 4 | awk -F',' '{print $1}' | paste -sd, -
-    )
     torchrun --standalone --nproc_per_node=4 \
         vae_standalone/train_patch_unpatch.py \
         --train-jsonl checkpoints/goalgen_v1_data/train.jsonl \
@@ -65,12 +59,21 @@ import pathlib
 import random
 import subprocess
 import sys
+import tempfile
+import time
 from typing import Any, Dict, List
 
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from PIL import Image
+
+# 用于 DDP race 兜底：非 rank0 等待 rank0 写共享 CVD 文件时，只接受 mtime 不早于
+# 本进程 import 时刻的文件，避免读到上一轮训练遗留的 stale GPU 选择。允许 30s
+# 容差（rank0 通常比其它 worker 略早启动，torchrun 内不同 worker 也有抖动）。
+_SCRIPT_IMPORT_TIME = time.time()
+_DDP_CVD_WAIT_TIMEOUT_S = 60.0
+_DDP_CVD_STALE_TOLERANCE_S = 30.0
 
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
@@ -169,33 +172,87 @@ def pick_idle_gpus(want_count: int) -> str:
     return ",".join(str(gpu_idx) for _, _, gpu_idx in rows[:want_count])
 
 
-def auto_configure_cuda_visible_devices(want_count: int) -> str:
-    """挑 want_count 张最空闲 GPU 并 export CUDA_VISIBLE_DEVICES。
+def _share_cvd_via_file_for_ddp(want_count: int) -> str:
+    """DDP 场景：rank0 挑卡 → atomic 写共享文件，其它 rank 阻塞读，避免每个 worker
+    各自跑 nvidia-smi 导致的 race（不同 worker 看到的 memory.used 抖动可能挑出不同
+    GPU 子集，torch.cuda.set_device(local_rank) 就会撞同一张卡）。
 
-    单卡（want_count=1）：**默认覆盖**外部已设的 CUDA_VISIBLE_DEVICES，强制挑最闲。
-        显式 ``PATCH_UNPATCH_RESPECT_CUDA_VISIBLE_DEVICES=1`` opt-out。
-    DDP（want_count>1）：在 .py 里改 CUDA_VISIBLE_DEVICES 无效（torchrun 启动每个
-        worker 时 CUDA driver 已初始化，visible set 固化）。所以这里只在"外部完全没
-        设 CUDA_VISIBLE_DEVICES"的兜底情况下 pick；建议用户在 torchrun 前 export 好。
+    锁文件路径用 MASTER_ADDR + MASTER_PORT 命名，把跨 run 的混用风险降到最低；
+    非 rank0 通过 mtime >= 本进程 import 时刻 - 容差 来拒绝读到上一轮残留的旧文件。
     """
 
-    respect = os.environ.get("PATCH_UNPATCH_RESPECT_CUDA_VISIBLE_DEVICES", "0") == "1"
+    rank = int(os.environ.get("RANK", "0"))
+    master_addr = os.environ.get("MASTER_ADDR", "localhost")
+    master_port = os.environ.get("MASTER_PORT", "29500")
+    lock_dir = pathlib.Path(tempfile.gettempdir())
+    lock_path = lock_dir / f"patch_unpatch_cvd_{master_addr}_{master_port}.txt"
+    min_mtime = _SCRIPT_IMPORT_TIME - _DDP_CVD_STALE_TOLERANCE_S
 
-    if respect and "CUDA_VISIBLE_DEVICES" in os.environ:
-        return f"preset-respect:{os.environ['CUDA_VISIBLE_DEVICES']}"
+    if rank == 0:
+        old_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+        selected = pick_idle_gpus(want_count)
+        if not selected:
+            return "auto-unavailable"
+        # 先把可能的 stale lockfile 清掉再 atomic write，确保其它 rank 读到的一定是本次值。
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+        tmp_path = lock_path.with_suffix(f".tmp_{os.getpid()}")
+        tmp_path.write_text(selected, encoding="utf-8")
+        os.replace(tmp_path, lock_path)
+        os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        picked = len([x for x in selected.split(",") if x.strip()])
+        prefix = "auto-override-rank0" if old_visible else "auto-rank0"
+        if picked < want_count:
+            return f"auto-partial-rank0:{selected}"
+        return f"{prefix}:{selected}"
 
-    if want_count > 1 and "CUDA_VISIBLE_DEVICES" in os.environ:
-        # DDP 场景下尊重 launcher 已挑好的，不在 .py 里覆盖（CUDA 已初始化改不动）。
-        return f"ddp-preset:{os.environ['CUDA_VISIBLE_DEVICES']}"
+    # 非 rank0：等 rank0 写出"新鲜"文件再读。
+    deadline = time.time() + _DDP_CVD_WAIT_TIMEOUT_S
+    while True:
+        try:
+            mtime = lock_path.stat().st_mtime
+        except FileNotFoundError:
+            mtime = -1.0
+        if mtime >= min_mtime:
+            break
+        if time.time() > deadline:
+            raise RuntimeError(
+                f"rank {rank} timed out waiting {_DDP_CVD_WAIT_TIMEOUT_S:.0f}s for "
+                f"rank0 to publish CUDA_VISIBLE_DEVICES at {lock_path}"
+            )
+        time.sleep(0.05)
+    selected = lock_path.read_text(encoding="utf-8").strip()
+    if not selected:
+        return "auto-unavailable"
+    old_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    os.environ["CUDA_VISIBLE_DEVICES"] = selected
+    prefix = "auto-override-follow" if old_visible else "auto-follow"
+    return f"{prefix}:{selected}"
 
+
+def auto_configure_cuda_visible_devices(want_count: int) -> str:
+    """挑 want_count 张最空闲 GPU 并覆盖 CUDA_VISIBLE_DEVICES。
+
+    单卡（want_count<=1）：直接 pick_idle_gpus 覆盖，process 内 CUDA driver 尚未
+    初始化，覆盖后再首次 .cuda() 时就用新卡。
+    DDP（want_count>1）：走 rank0-elects 模式（见 ``_share_cvd_via_file_for_ddp``）。
+    本脚本不再要求用户在 torchrun 之前手动 export CUDA_VISIBLE_DEVICES；rank0 会
+    在每个 worker 触碰 CUDA 前挑好卡，通过文件 IPC 同步给其它 rank。
+    """
+
+    if want_count > 1:
+        return _share_cvd_via_file_for_ddp(want_count)
+
+    old_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
     selected = pick_idle_gpus(want_count)
     if selected:
         os.environ["CUDA_VISIBLE_DEVICES"] = selected
         picked = len([x for x in selected.split(",") if x.strip()])
         if picked < want_count:
             return f"auto-partial:{selected}"
-        # 标记 source 类型：单卡覆盖 vs 单卡新挑 vs DDP 兜底
-        prefix = "auto-override" if want_count == 1 and "CUDA_VISIBLE_DEVICES" in os.environ else "auto"
+        prefix = "auto-override" if old_visible else "auto"
         return f"{prefix}:{selected}"
     return "auto-unavailable"
 
@@ -251,7 +308,7 @@ def _dump_invocation(output_dir: pathlib.Path, rank: int = 0) -> None:
         env_keys = (
             "CUDA_VISIBLE_DEVICES", "WORLD_SIZE", "RANK", "LOCAL_RANK",
             "MASTER_ADDR", "MASTER_PORT", "NCCL_DEBUG", "NCCL_P2P_LEVEL",
-            "PYTORCH_CUDA_ALLOC_CONF",
+            "PYTORCH_CUDA_ALLOC_CONF", "PATCH_UNPATCH_GPU_SOURCE",
             "GOALGEN_COMPILE_DIT", "GOALGEN_CUDNN_BENCHMARK",
             "HF_HOME", "HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE",
         )
@@ -771,9 +828,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--val-jsonl", default="", help="可选；非空且文件存在时按 --val-steps 评估")
     p.add_argument("--output-dir", required=True, help="权重 + TB 输出根目录")
 
-    # 必须和 DiTMoTConfig 默认值一致；改这里时 DiT 端要同步。
-    # v2 默认（2026-06 切换）：hidden=1024 / patch=4，与 DiT v2 对齐 Qwen K/V (8×128)。
-    # 旧 v1 (hidden=768 / patch=2) 训出的 safetensors 与 DiT v2 形状不兼容，必须重训。
+    # 必须和 DiTMoTConfig 当前共享默认值一致；改这里时 DiT 端要同步。
+    # 2026-06 切换后：hidden=1024 / patch=4，与 DiT 对齐 Qwen K/V (8×128)。
+    # 早期 hidden=768 / patch=2 训出的 safetensors 与当前 DiT 形状不兼容，必须重训。
     p.add_argument("--latent-channels", type=int, default=4)
     p.add_argument("--hidden-dim", type=int, default=1024)
     p.add_argument("--patch-size", type=int, default=4)
