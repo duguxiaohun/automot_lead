@@ -21,7 +21,7 @@ if str(AUTOMOT_ROOT) not in sys.path:
     sys.path.insert(0, str(AUTOMOT_ROOT))
 
 from qwen3vl_local.leadmot import LeadMoTPlanningDecoder, LeadMoTPlanningDecoderConfig
-from qwen3vl_local.leadmot.train_v1 import (
+from qwen3vl_local.leadmot.train import (
     LEAD_BEV_CKPT_PATH,
     LeadMoTTrainRuntime,
     _compute_planning_metrics,

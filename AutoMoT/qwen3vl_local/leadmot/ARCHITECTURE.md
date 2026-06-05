@@ -116,7 +116,7 @@ LeadMoT decoder:
 
 - Qwen 图片/文本 prompt 构建与 prefill：由 runner/runtime 调用 `LocalQwen3VLInstructEngine` 完成。
 - LEAD route clip 构建、LiDAR/RGB/BEV 对齐：由 `mot_lead_offline_runner.py` 的离线路径完成。
-- 训练 loss、optimizer、EMA、checkpoint、eval/probe：由 `train_v1.py`、`eval_v1.py`、`probe_v1.py` 完成；运行细节见 `LEADMOT_V1_PLAN.md` 与 `LEADMOT_V1_RUN.md`。
+- 训练 loss、optimizer、EMA、checkpoint、eval/probe：由 `train.py`、`eval.py`、`probe.py` 完成；运行细节见 `LEADMOT_PLAN.md` 与 `LEADMOT_RUN.md`。
 
 ## 8. 已知边界
 

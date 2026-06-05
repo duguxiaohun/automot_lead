@@ -1,4 +1,4 @@
-"""使用 build_dataset_v1.py 生成的 jsonl 训练 GoalGen v1 DiT-MoT。
+"""使用 build_dataset.py 生成的 jsonl 训练 GoalGen v1 DiT-MoT。
 
 这个训练入口刻意保持小而直白：
 - Qwen3-VL-Instruct 全程冻结，只用于 teacher-forced 预填充。
@@ -676,7 +676,7 @@ def _log_image_samples(
 
     image-log-samples 条样本各跑一次 Euler 采样（用 image-log-euler-steps 步数），
     再通过 VAE 解码得到预测 RGB；与真值关键帧直接读盘后归一化对齐做并排比较。
-    完整数据流和 eval_v1 一致，所以这里看到的图就是模型当前的"生成能力快照"。
+    完整数据流和 eval 一致，所以这里看到的图就是模型当前的"生成能力快照"。
     """
 
     if writer is None or not val_samples:
@@ -760,7 +760,7 @@ def save_checkpoint(
     - 默认 "checkpoint-"：epoch 末快照，参与 --keep-recent-checkpoints 滚动。
     - "step-checkpoint-"：训练中按 --step-save-every 触发的 step 快照，参与
       --keep-recent-step-checkpoints 滚动，与 epoch ckpt 互不淘汰。
-    两套命名共用同一份序列化逻辑，避免双重维护；eval_v1.py 的 _infer_ckpt_step
+    两套命名共用同一份序列化逻辑，避免双重维护；eval.py 的 _infer_ckpt_step
     会同时识别两种前缀。
     """
 
@@ -1178,7 +1178,7 @@ def train(args: argparse.Namespace) -> None:
     last_grad_norm = 0.0    # 记录 clip 前 grad_norm，做 logging 间最近值
     accum = 0
     # best 跟踪：跨 epoch 保留 val/loss 历史最小值。无 val_samples 时永远不更新，
-    # 也就不会产生 best.pt，eval_v1.py 默认会 fallback 到 latest.pt。
+    # 也就不会产生 best.pt，eval.py 默认会 fallback 到 latest.pt。
     best_loss = float("inf")
 
     # dit_module 已在 DDP wrap 时定义（如果有 world_size>1 走 dit.module，否则裸 dit）；
@@ -1516,7 +1516,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="select_last 每段只取最后一层 Qwen KV，省显存（默认）；"
                         "concat_layers 把 3 层 token 维拼起来（重，消融用）；mean 为旧版层平均。")
 
-    # num_epochs 默认 2：与 train_v1.sh 的 NUM_EPOCHS:-2 保持一致；831k 样本 /
+    # num_epochs 默认 2：与 train.sh 的 NUM_EPOCHS:-2 保持一致；831k 样本 /
     # 4 GPU / GRAD_ACC=4 ≈ 52k step/epoch，DiT 从零训通常 100-200k step 才稳定收敛。
     p.add_argument("--num-epochs", type=int, default=2)
     p.add_argument("--grad-accum-steps", type=int, default=4)
@@ -1546,7 +1546,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # ---- step-level ckpt（独立池，epoch 行为不动） ----
     # 用户场景：数据量上来后一个 epoch 几天都跑不完，光靠 epoch 末 save 拿不到中间
     # 产物。每 --step-save-every 步额外写一份 step-checkpoint-NNNNNN/，独立 keep 池
-    # （默认 3，即最近 30k 步）；与 epoch 池不互相淘汰。eval_v1.py / probe_v1.py 的
+    # （默认 3，即最近 30k 步）；与 epoch 池不互相淘汰。eval.py / probe.py 的
     # _infer_ckpt_step / _default_run_tag 已同步识别 step-checkpoint- 前缀。
     p.add_argument("--step-save-every", type=int, default=10000,
                    help="每多少优化器步额外写一份 step-checkpoint-NNNNNN/；0 关闭 step 保存。")

@@ -2,7 +2,7 @@
 """为 LeadMoT decoder 训练构建轻量 JSONL 索引。
 
 JSONL 只保存 route 目录和 anchor 帧引用。RGB、LiDAR、BEV、Qwen prefill
-这些重工作都留给 train_v1.py，因此这一步很快，也适合反复重建。
+这些重工作都留给 train.py，因此这一步很快，也适合反复重建。
 """
 
 from __future__ import annotations
@@ -157,7 +157,7 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
         scenario, route_id = _route_name(data_root, route_dir)
         scenario_route_counts[scenario] += 1
         # 不再做 lzma/pickle 预校验：每 anchor 6 次解压在大数据集上让构建从分钟级
-        # 变成几小时；train_v1 已经有 DDP-safe 占位 loss 兜底坏样本，预校验不再必要。
+        # 变成几小时；train 已经有 DDP-safe 占位 loss 兜底坏样本，预校验不再必要。
         route_candidates = [
             {
                 "schema_version": 1,

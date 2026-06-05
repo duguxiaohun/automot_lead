@@ -114,7 +114,7 @@ class KeyframeIndex:
     ) -> Optional[str]:
         """根据 anchor 帧号反查它落在哪个 status 区间。
 
-        逻辑与 build_dataset_v1.build_run_timeline 完全一致：
+        逻辑与 build_dataset.build_run_timeline 完全一致：
           - initial 区间：[initial.frame, middle[0].frame - 1]
           - middle[i] 区间：[middle[i].frame, middle[i+1].frame - 1]（i<2）
                           或 [middle[2].frame, final.frame - 1]（i==2）

@@ -20,7 +20,7 @@ if str(AUTOMOT_ROOT) not in sys.path:
     sys.path.insert(0, str(AUTOMOT_ROOT))
 
 from qwen3vl_local.leadmot import LeadMoTPlanningDecoder, LeadMoTPlanningDecoderConfig
-from qwen3vl_local.leadmot.train_v1 import (
+from qwen3vl_local.leadmot.train import (
     LEAD_BEV_CKPT_PATH,
     LeadMoTTrainRuntime,
     _barrier,
@@ -72,7 +72,7 @@ def _maybe_set_gpu(device: str) -> None:
 def _init_dist() -> tuple[int, int, int]:
     """当 eval 由 torchrun 启动时初始化 torch.distributed。
 
-    与 train_v1._init_distributed 使用同款 NCCL timeout：默认 10 分钟，
+    与 train._init_distributed 使用同款 NCCL timeout：默认 10 分钟，
     可用 LEADMOT_NCCL_TIMEOUT_MIN 覆盖。eval 通常是分钟级任务，
     timeout 短一点更便于定位单 rank 卡死（Qwen load 慢 / NFS 抖动）。
     """
@@ -155,10 +155,10 @@ def _resolve_output_dir(args: argparse.Namespace) -> Path:
     return root / "eval"
 
 
-# 旧版本本地实现的 _compute_metrics 已删除：现在统一从 train_v1 import
+# 旧版本本地实现的 _compute_metrics 已删除：现在统一从 train import
 # _compute_planning_metrics。所有 ADE/FDE 都带 `_m` 后缀（米），与
 # train/val/val_ema 同口径，TB 同名 scalar 可以叠在一张图上对比。
-# 兼容 alias：让旧的 probe_v1 import 路径短期内继续可用，未来可以删。
+# 兼容 alias：让旧的 probe import 路径短期内继续可用，未来可以删。
 _compute_metrics = _compute_planning_metrics
 
 
@@ -220,7 +220,7 @@ def main() -> None:
     decoder, decoder_config = _load_decoder(checkpoint_path, device, decoder_dtype, use_ema=args.use_ema)
     runtime = LeadMoTTrainRuntime(args, device)
 
-    # sums 的 key 直接对齐 train_v1._compute_planning_metrics 返回的 `_m` 后缀键，
+    # sums 的 key 直接对齐 train._compute_planning_metrics 返回的 `_m` 后缀键，
     # 这样 eval/* TB scalar 跟训练 train/* val/* val_ema/* 三组 scalar 完全同名，
     # 可以叠在同一张 TB 板上比对。
     sums = {

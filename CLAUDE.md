@@ -66,9 +66,9 @@
 | `AutoMoT/qwen3vl_local/` | Qwen3-VL-Instruct 本地 helper 包；其中 `goalgen/` 子包是 §15 新路线全部模块（vae/prompt/qwen_kv/keyframes/dit/flow） |
 | `AutoMoT/tools/SFT_V1_PLAN.md` / `SFT_V1_RUN.md` / `build_sft_dataset_v1.py` / `sft_v1_train.sh` / `sft_v1_loss_scale_plugin.py` / `eval_sft_v1.py` / `check_loss_mask.py` / `tb_serve.sh` / `probe_sft_v1.py` | LoRA SFT v1 微调相关脚本、计划与运行教程；`tb_serve.sh` 是通用 TensorBoard 启动器（GoalGen 也复用，自动选端口 + bind_all + 打印 ssh 隧道命令）；`probe_sft_v1.py` 是随机场景 case-level dump；以上 9 个白名单，`AutoMoT/tools/` 下其它原始脚本仍为只读参考；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`，v2 模式产 ANALYSIS 槽位空占位的 pending jsonl |
 | `AutoMoT/tools/SFT_V2_PLAN.md` / `SFT_V2_RUN.md` / `build_sft_dataset_v2_teacher.py` / `sft_v2_loss_scale_plugin.py` / `sft_v2_train.sh` / `check_loss_mask_v2.py` / `inspect_teacher_outputs.py` | SFT v2 升级：长期数据集只保留 `v2_pending` 占位 jsonl；冻结 base Qwen + PRIVILEGED prompt 的 ANALYSIS 真值由 `sft_v2_train.sh` 在**首次**训练启动时一次性物化到 runtime 目录并写 `manifest.json`，之后任意卡数启动通过 manifest（schema_version=2 + max_samples==0 + model_dir/seed/gen 参数 + pending/runtime 行数严格匹配）校验，校验通过才直接复用（GPU 数无关），无需任何额外参数；32 条 debug cache、半截 val、`--max-samples N` 跑出来的不写 manifest 不会被误复用；无 manifest 的 final/rank 残留默认清掉重物化，避免旧 teacher 分片被 fingerprint 去重误用；改 prompt / keyframes 后想强制重跑 → `RUNTIME_TEACHER_REFRESH=1` 或手动 `rm -rf runtime_teacher_data/`；`check` 模式例外，默认 REFRESH=1 + 独立 `runtime_teacher_check_data/` 目录。也可由 `inspect_teacher_outputs.py --live` 做训练前预览。student 全段都算 loss（ANALYSIS body 0.3 / 起手字面 `ANALYSIS:`、段切换字面 `\nSTATUS:` / `\nSUBGOAL:`、STATUS+SUBGOAL event_name、可能进入 context 的 tail/EOS 全部 1.0；v2.0 旧版字面 mask=0 是致命陷阱，详见 PROJECT_CONTEXT.md §18.5）；`build_sft_dataset_v2_teacher.py` 支持多卡分片；`check_loss_mask_v2.py` 用于已物化 v2 jsonl 的 token 级静态 sanity |
-| `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md` / `GOALGEN_V1_RUN.md` | 子目标 latent 生成路线 v1 设计与操作手册（与 goalgen 子包代码同目录） |
-| `AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py` / `train_v1.py` / `train_v1.sh` / `eval_v1.py` / `probe_v1.py` | GoalGen v1 数据集构建 + 训练入口（DDP / 单卡 / check 三模式）+ 离线 eval（latent / pixel / velocity + PNG + TB scalar/image，支持 torchrun 分片）+ `probe_v1.py` 随机场景 case-level dump |
-| `AutoMoT/qwen3vl_local/leadmot/` 子包（含 v1 训练/eval/probe 文件） | LEAD-MoT 快推理 decoder：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8×128 对齐 Qwen K/V 子空间；status 按 AutoMoT velocity MLP + 共享 WaypointInputAdaptor；block 用 Qwen3 风格 RMSNorm + q/k_norm + SwiGLU；gen Q/K 按 `input_len + rope_deltas` 加 1D RoPE，language K/V 已由 Qwen prefill 带 M-RoPE 不重复旋转。v1 训练入口只训练 decoder，冻结 Qwen3-VL-Instruct 与 LeadBEVEncoder；GT 包含 route / future_waypoints 两类 ego-frame 累计点，head 内 Linear+cumsum 后直接对绝对点算 loss；`eval_v1.py` 汇总 loss/ADE/FDE，`probe_v1.py` 随机 case-level dump 预测与 GT 对比图。runner 必须用 `LocalQwen3VLInstructEngine` 单独跑 frozen Qwen prefill，只接受同源 HF `past_key_values`；**不能复用 AutoMoT InterleaveInferencer 的 `gen_context`**，也不保留 AutoMoT legacy slow/fast 接口；`--leadmot-ckpt` 显式加载 decoder 权重，不传则随机初始化。详见 `leadmot/ARCHITECTURE.md`、`leadmot/LEADMOT_V1_PLAN.md` 与 `PROJECT_CONTEXT.md §11.6/§11.7` |
+| `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md` / `GOALGEN_RUN.md` | 子目标 latent 生成路线 v1 设计与操作手册（与 goalgen 子包代码同目录） |
+| `AutoMoT/qwen3vl_local/goalgen/build_dataset.py` / `train.py` / `train.sh` / `eval.py` / `probe.py` | GoalGen v1 数据集构建 + 训练入口（DDP / 单卡 / check 三模式）+ 离线 eval（latent / pixel / velocity + PNG + TB scalar/image，支持 torchrun 分片）+ `probe.py` 随机场景 case-level dump |
+| `AutoMoT/qwen3vl_local/leadmot/` 子包（含 v1 训练/eval/probe 文件） | LEAD-MoT 快推理 decoder：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8×128 对齐 Qwen K/V 子空间；status 按 AutoMoT velocity MLP + 共享 WaypointInputAdaptor；block 用 Qwen3 风格 RMSNorm + q/k_norm + SwiGLU；gen Q/K 按 `input_len + rope_deltas` 加 1D RoPE，language K/V 已由 Qwen prefill 带 M-RoPE 不重复旋转。v1 训练入口只训练 decoder，冻结 Qwen3-VL-Instruct 与 LeadBEVEncoder；GT 包含 route / future_waypoints 两类 ego-frame 累计点，head 内 Linear+cumsum 后直接对绝对点算 loss；`eval.py` 汇总 loss/ADE/FDE，`probe.py` 随机 case-level dump 预测与 GT 对比图。runner 必须用 `LocalQwen3VLInstructEngine` 单独跑 frozen Qwen prefill，只接受同源 HF `past_key_values`；**不能复用 AutoMoT InterleaveInferencer 的 `gen_context`**，也不保留 AutoMoT legacy slow/fast 接口；`--leadmot-ckpt` 显式加载 decoder 权重，不传则随机初始化。详见 `leadmot/ARCHITECTURE.md`、`leadmot/LEADMOT_PLAN.md` 与 `PROJECT_CONTEXT.md §11.6/§11.7` |
 | `AutoMoT/vae_standalone/train_patch_unpatch.py` | patch / unpatch 端到端图像重建训练脚本：image→VAE.encode→patch→unpatch→VAE.decode→image，VAE 冻结；产物 `patch_unpatch_*.safetensors` 可被 `DiTMoT.load_patch_unpatch` 直接加载并默认冻结。`AutoMoT/vae_standalone/` 下其它原始文件（vwm/、config/、weights/、vae_reconstruct.py 等）仍为只读参考 |
 | `CLAUDE.md` | 本规则文件（仅在调整规则时修改） |
 | `AGENTS.md` | 通用 AI / coding agent 入口说明文件 |
@@ -112,20 +112,20 @@
 - `AutoMoT/qwen3vl_local/goalgen/keyframes.py`
 - `AutoMoT/qwen3vl_local/goalgen/dit.py`
 - `AutoMoT/qwen3vl_local/goalgen/flow.py`
-- `AutoMoT/qwen3vl_local/goalgen/build_dataset_v1.py`
-- `AutoMoT/qwen3vl_local/goalgen/train_v1.py`
-- `AutoMoT/qwen3vl_local/goalgen/train_v1.sh`
-- `AutoMoT/qwen3vl_local/goalgen/eval_v1.py`
-- `AutoMoT/qwen3vl_local/goalgen/probe_v1.py`
+- `AutoMoT/qwen3vl_local/goalgen/build_dataset.py`
+- `AutoMoT/qwen3vl_local/goalgen/train.py`
+- `AutoMoT/qwen3vl_local/goalgen/train.sh`
+- `AutoMoT/qwen3vl_local/goalgen/eval.py`
+- `AutoMoT/qwen3vl_local/goalgen/probe.py`
 - `AutoMoT/qwen3vl_local/leadmot/__init__.py`
 - `AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md`
-- `AutoMoT/qwen3vl_local/leadmot/LEADMOT_V1_PLAN.md`
-- `AutoMoT/qwen3vl_local/leadmot/LEADMOT_V1_RUN.md`
-- `AutoMoT/qwen3vl_local/leadmot/build_dataset_v1.py`
-- `AutoMoT/qwen3vl_local/leadmot/train_v1.py`
-- `AutoMoT/qwen3vl_local/leadmot/train_v1.sh`
-- `AutoMoT/qwen3vl_local/leadmot/eval_v1.py`
-- `AutoMoT/qwen3vl_local/leadmot/probe_v1.py`
+- `AutoMoT/qwen3vl_local/leadmot/LEADMOT_PLAN.md`
+- `AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md`
+- `AutoMoT/qwen3vl_local/leadmot/build_dataset.py`
+- `AutoMoT/qwen3vl_local/leadmot/train.py`
+- `AutoMoT/qwen3vl_local/leadmot/train.sh`
+- `AutoMoT/qwen3vl_local/leadmot/eval.py`
+- `AutoMoT/qwen3vl_local/leadmot/probe.py`
 - `AutoMoT/qwen3vl_local/leadmot/config.py`
 - `AutoMoT/qwen3vl_local/leadmot/projectors.py`
 - `AutoMoT/qwen3vl_local/leadmot/query_bank.py`
@@ -133,8 +133,8 @@
 - `AutoMoT/qwen3vl_local/leadmot/mot_block.py`
 - `AutoMoT/qwen3vl_local/leadmot/decoder.py`
 - `AutoMoT/vae_standalone/train_patch_unpatch.py`
-- `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_PLAN.md`
-- `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1_RUN.md`
+- `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
+- `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md`
 - `AutoMoT/tools/SFT_V1_PLAN.md`
 - `AutoMoT/tools/SFT_V1_RUN.md`
 - `AutoMoT/tools/build_sft_dataset_v1.py`

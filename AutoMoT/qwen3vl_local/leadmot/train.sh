@@ -53,6 +53,12 @@ RGB_FRAME_COUNT="${RGB_FRAME_COUNT:-4}"
 RGB_FRAME_STEP="${RGB_FRAME_STEP:-1}"
 BEV_FRAME_COUNT="${BEV_FRAME_COUNT:-1}"
 BEV_FRAME_STEP="${BEV_FRAME_STEP:-1}"
+# USE_BEV=1（默认）：decoder 在 gen 序列里拼 120 个 BEV token，对应 v1 全套行为。
+# USE_BEV=0：消融配置，decoder 完全靠 frozen Qwen prefix K/V + ego 状态做 planning，
+# BEV encoder 也跳过 forward 不算图，节省一份 LEAD TransfuserBackbone forward 时间/显存。
+# 注意切换 USE_BEV 会导致 state_dict 不兼容（decoder.bev_projector 子模块存在性变化），
+# 不能跨 USE_BEV 加载 --init-from-ckpt。
+USE_BEV="${USE_BEV:-1}"
 FRAME_INTERVAL_S="${FRAME_INTERVAL_S:-0.25}"
 TP_LOOKAHEAD_S="${TP_LOOKAHEAD_S:-1.5}"
 NTP_LOOKAHEAD_S="${NTP_LOOKAHEAD_S:-3.0}"
@@ -171,6 +177,12 @@ if [[ "${EMA}" == "0" ]]; then
 else
   common_args+=(--ema)
 fi
+# USE_BEV=0 时把 BooleanOptionalAction 的 --no-use-bev 透传过去，关闭 decoder BEV 通路。
+if [[ "${USE_BEV}" == "0" ]]; then
+  common_args+=(--no-use-bev)
+else
+  common_args+=(--use-bev)
+fi
 
 case "${MODE}" in
   check)
@@ -180,7 +192,7 @@ case "${MODE}" in
         export CUDA_VISIBLE_DEVICES="${picked}"
       fi
     fi
-    python qwen3vl_local/leadmot/train_v1.py \
+    python qwen3vl_local/leadmot/train.py \
       "${common_args[@]}" \
       --limit-train-samples "${LIMIT_TRAIN_SAMPLES:-2}" \
       --limit-val-samples "${LIMIT_VAL_SAMPLES:-1}" \
@@ -198,7 +210,7 @@ case "${MODE}" in
         export CUDA_VISIBLE_DEVICES="${picked}"
       fi
     fi
-    python qwen3vl_local/leadmot/train_v1.py "${common_args[@]}" ${EXTRA_ARGS}
+    python qwen3vl_local/leadmot/train.py "${common_args[@]}" ${EXTRA_ARGS}
     ;;
   ddp)
     if [[ -n "${DDP_GPU_COUNT:-}" ]]; then
@@ -222,7 +234,7 @@ case "${MODE}" in
       --nproc_per_node="${NPROC_PER_NODE}" \
       --master_addr="${MASTER_ADDR}" \
       --master_port="${MASTER_PORT}" \
-      qwen3vl_local/leadmot/train_v1.py "${common_args[@]}" ${EXTRA_ARGS}
+      qwen3vl_local/leadmot/train.py "${common_args[@]}" ${EXTRA_ARGS}
     ;;
   *)
     echo "Usage: $0 [check|single|ddp]" >&2
@@ -231,7 +243,7 @@ case "${MODE}" in
 esac
 
 # ---------------------------------------------------------------------------
-# 产物布局（OUTPUT_DIR 平铺，与 eval_v1.py / probe_v1.py 同根）：
+# 产物布局（OUTPUT_DIR 平铺，与 eval.py / probe.py 同根）：
 #   OUTPUT_DIR/
 #     ├─ best.pt + best.json        val/loss 历史最小（eval/probe 默认指向它）
 #     ├─ latest.pt                  最近一次保存（无 val 时回退到它）
@@ -246,9 +258,9 @@ if [[ "${MODE}" != "check" ]]; then
   echo "[hint] TensorBoard:"
   echo "  bash tools/tb_serve.sh ${OUTPUT_DIR}"
   echo "[hint] offline eval:"
-  echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval_v1.py --save-root ${OUTPUT_DIR}"
+  echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval.py --save-root ${OUTPUT_DIR}"
   echo "[hint] case probe:"
-  echo "  python qwen3vl_local/leadmot/probe_v1.py --save-root ${OUTPUT_DIR}"
+  echo "  python qwen3vl_local/leadmot/probe.py --save-root ${OUTPUT_DIR}"
   echo "============================================================"
 fi
 

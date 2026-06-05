@@ -1,7 +1,7 @@
 """GoalGen v1 离线评测：在 val.jsonl 上跑 DiT、解码图像、报告 5 个核心指标 +
 小样本完整 dump（输入图像/输入文本/输出图像/指标全部本地落盘）。
 
-数据流（与 train_v1 完全同构，只是不反传）：
+数据流（与 train 完全同构，只是不反传）：
   history RGB -> 冻结 Qwen 预填充 -> 分段 KV
   history RGB -> 冻结 VAE -> z_history
   target keyframe RGB -> 冻结 VAE -> z1（真值）
@@ -16,7 +16,7 @@
   (d) psnr:         解码 RGB 的 PSNR (dB)   —— 越大越好；地板 = VAE 重建 PSNR
   (e) velocity_cos: 5 个固定 t 上 v_pred vs v_target cosine 平均 —— 越接近 1 越好
 
-输出布局（必填 --save-root，与 train_v1.sh 同根）：
+输出布局（必填 --save-root，与 train.sh 同根）：
   <save_root>/eval/eval_v1_summary.json     聚合指标 + _metric_doc 说明
   <save_root>/eval/eval_v1_perline.jsonl    每条样本一行（含 5 指标 + png 路径）
   <save_root>/eval/cases/<NNNNN>__<scenario>__<run>__anchor<N>/   小样本完整 dump
@@ -44,19 +44,19 @@
 
 ```bash
 # 小样本完整 dump（推荐：可直接拿到本地人工 review pred.png vs target_raw.jpg）
-python qwen3vl_local/goalgen/eval_v1.py \
+python qwen3vl_local/goalgen/eval.py \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --max-samples 100
 
 # 全集跑指标 + TB（不 dump 详情）
-python qwen3vl_local/goalgen/eval_v1.py \
+python qwen3vl_local/goalgen/eval.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit
 
 # 多卡分片跑全集
-torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \
+torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit
 ```
@@ -169,7 +169,7 @@ from qwen3vl_local.prompt_pipeline import DrivingMemory  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
-# I/O helpers (与 train_v1 等价，复制而非 import 是为了让 eval 文件可独立运行)
+# I/O helpers (与 train 等价，复制而非 import 是为了让 eval 文件可独立运行)
 # --------------------------------------------------------------------------- #
 
 
@@ -775,7 +775,7 @@ def dump_goalgen_case(
 # --------------------------------------------------------------------------- #
 
 def setup_distributed() -> Tuple[int, int, int]:
-    """与 train_v1.py 同口径：torchrun 注入 RANK / WORLD_SIZE / LOCAL_RANK。
+    """与 train.py 同口径：torchrun 注入 RANK / WORLD_SIZE / LOCAL_RANK。
 
     单卡 = world_size=1，dist init 不触发，所有 if rank0 分支恒进。
     """
@@ -996,7 +996,7 @@ def eval_loop(args: argparse.Namespace) -> None:
             # ---- 四个指标 ----
             m_mse = latent_mse(z1_pred, z1_gt)
             m_cos = latent_cosine(z1_pred, z1_gt)
-            # 显式转到 vae 的 (device, dtype)：与 train_v1._decode_latent_to_image 同口径
+            # 显式转到 vae 的 (device, dtype)：与 train._decode_latent_to_image 同口径
             # 的防御层，避免未来 vae.py 内部 cast 被删时这里悄悄 dtype mismatch。
             z1_pred_for_vae = z1_pred.to(device=vae.device, dtype=vae.dtype)
             z1_gt_for_vae = z1_gt.to(device=vae.device, dtype=vae.dtype)
@@ -1259,7 +1259,7 @@ def _resolve_default_dit_checkpoint(save_root_hint: Optional[str] = None) -> str
     - 其它情况 → base = save_root_hint 自身（假设传的是 base 顶层）
 
     探测顺序（base 已确定后）：
-    1. <base>/latest/best.pt        ← 新布局首选：train_v1.sh 维护的 latest symlink 下的 best
+    1. <base>/latest/best.pt        ← 新布局首选：train.sh 维护的 latest symlink 下的 best
     2. <base>/latest/latest.pt      ← 训练末尾快照（无 val_jsonl 时 best.pt 不存在）
     3. <base>/best.pt               ← 老顶层布局（NO_RUN_SUBDIR=1 或 v2 之前的训练产物）
     4. <base>/latest.pt             ← 同上，老顶层兜底
@@ -1299,7 +1299,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "想绑定具体历史 run 直接传 <base>/run_YYYYmmdd_HHMMSS/best.pt。")
     p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
     p.add_argument("--save-root", type=str, required=True,
-                   help="统一保存根目录（必填，通常与 train_v1.sh OUTPUT_DIR 相同）。"
+                   help="统一保存根目录（必填，通常与 train.sh OUTPUT_DIR 相同）。"
                         "eval 产物落到 <root>/eval/，TB 落到 <root>/eval_tb/<run_tag>/。")
     p.add_argument("--run-tag", type=str, default="",
                    help="TB run 子目录名，默认从 --dit-checkpoint 推导（ckpt200 / latest 等）。")
@@ -1321,7 +1321,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
     p.add_argument("--vae-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
     p.add_argument("--dit-dtype", choices=["float32", "float16", "bfloat16"], default="bfloat16")
-    # LoRA / PEFT 适配器（与 train_v1 同口径）：评测必须用与训练同款 Qwen 编码。
+    # LoRA / PEFT 适配器（与 train 同口径）：评测必须用与训练同款 Qwen 编码。
     p.add_argument("--qwen-adapter-dir", type=str, default="",
                    help="可选 LoRA / PEFT 适配器目录；为空则跑基础 Qwen。"
                         " 训练若用了适配器，评测也必须传同一个目录。")
@@ -1332,7 +1332,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         " 仅消融实验使用；默认抛错，防止 KV 分布漂移导致指标不可比。")
 
     # DiT 几何参数：仅在 ckpt 没存 dit_config 时使用（旧 ckpt 兼容）。
-    # v2 默认与 train_v1.py 同步：patch=4 / hidden=1024 / n_heads=8。
+    # v2 默认与 train.py 同步：patch=4 / hidden=1024 / n_heads=8。
     p.add_argument("--patch-size", type=int, default=4)
     p.add_argument("--hidden-dim", type=int, default=1024)
     p.add_argument("--n-heads", type=int, default=8)

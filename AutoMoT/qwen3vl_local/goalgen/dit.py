@@ -346,7 +346,7 @@ class JointAttention(nn.Module):
         v_cat = torch.cat([v_v, v_l], dim=2)
 
         # 用 PyTorch 内置 SDPA，性能更稳；在新版本会自动选 flash-attn / mem-efficient。
-        # 显式偏好 flash 后端在 train_v1.py 全局 sdpa_kernel 上下文里设置，本层只调标准接口。
+        # 显式偏好 flash 后端在 train.py 全局 sdpa_kernel 上下文里设置，本层只调标准接口。
         attn = F.scaled_dot_product_attention(q, k_cat, v_cat, dropout_p=0.0)
         # 把 head 维合回去：[B, H, N_v, D] -> [B, N_v, H*D] -> Linear hidden。
         out = attn.transpose(1, 2).contiguous().view(b, n_v, self.n_heads * self.head_dim)
@@ -519,14 +519,14 @@ class DiTMoT(nn.Module):
         self.final_mod = AdaLNModulation(cfg.hidden_dim, cfg.cond_dim)
         self.unpatch = Unpatchify(cfg.hidden_dim, cfg.latent_channels, cfg.patch_size)
 
-        # gradient checkpointing 开关：train_v1.py 通过 enable_gradient_checkpointing()
+        # gradient checkpointing 开关：train.py 通过 enable_gradient_checkpointing()
         # 切换。默认 False 保持 forward 路径稳定，开了之后每个 block 用 checkpoint 包裹。
         self.gradient_checkpointing = False
 
     def enable_gradient_checkpointing(self, enabled: bool = True) -> None:
         """启用 / 关闭 per-block gradient checkpointing。
 
-        train_v1.py 在 build_dit 之后按 CLI flag 调一次。打开后每个 DiTMoTBlock 的
+        train.py 在 build_dit 之后按 CLI flag 调一次。打开后每个 DiTMoTBlock 的
         forward 用 torch.utils.checkpoint 包裹，反向传播时再算一次前向；显存省 ~40%，
         wall-clock per step 多 ~30%。
 
@@ -563,7 +563,7 @@ class DiTMoT(nn.Module):
         - **v2 注意**：v1 的 safetensors（hidden=768 / patch=2）与 v2（hidden=1024 / patch=4）
           形状不兼容，无法直接加载；必须用 ``train_patch_unpatch.py`` 的新默认值重训。
         - ``freeze=True``（默认）：加载后把 patch / unpatch 切到 eval、关掉 grad；
-          train_v1 的 optimizer 只收 ``requires_grad=True`` 的参数，所以这条路径下
+          train 的 optimizer 只收 ``requires_grad=True`` 的参数，所以这条路径下
           它们不会被更新。
         - ``freeze=False``：仅加载初值，仍按可训练参数对待——主要给"先暖启再联合
           微调"的实验留口子，常规用法不需要。

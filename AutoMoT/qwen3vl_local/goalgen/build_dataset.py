@@ -2,7 +2,7 @@
 
 本脚本应在远端机器的 ``AutoMoT/`` 目录下运行，例如：
 
-python qwen3vl_local/goalgen/build_dataset_v1.py \
+python qwen3vl_local/goalgen/build_dataset.py \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/goalgen_v1_data

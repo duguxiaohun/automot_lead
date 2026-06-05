@@ -9,7 +9,7 @@
   5. 输出 step.json：提示词、Qwen KV 摘要、分段 KV 摘要、DiT 输入/输出形状、损失。
 
 这是前向 + 损失的单步入口，不是完整训练循环；真正训练请走
-`qwen3vl_local/goalgen/train_v1.py` 或 `train_v1.sh`。
+`qwen3vl_local/goalgen/train.py` 或 `train.sh`。
 """
 
 from __future__ import annotations
@@ -242,7 +242,7 @@ def _build_dit(
         # 拉到 cuda:0 撞别人占用，让检查点直接落到当前进程使用的卡上。
         payload = torch.load(ckpt_path, map_location=device)
         saved_cfg_dict = payload.get("dit_config") if isinstance(payload, dict) else None
-        # train_v1.save_checkpoint 把 vars(args) 整个存进 payload["args"]，里面包含
+        # train.save_checkpoint 把 vars(args) 整个存进 payload["args"]，里面包含
         # qwen_adapter_dir / qwen_adapter_merge，用于 Qwen 条件分布一致性校验。
         saved_args_dict = payload.get("args") if isinstance(payload, dict) else None
 
@@ -580,7 +580,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--checkpoint-dir", type=str, default=str(_CHECKPOINT_DIR))
     p.add_argument("--device", default="auto")
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32", "auto"], default="bfloat16")
-    # LoRA / PEFT adapter（与 train_v1 / eval_v1 同口径）。
+    # LoRA / PEFT adapter（与 train / eval 同口径）。
     p.add_argument("--qwen-adapter-dir", type=str, default="",
                    help="可选 LoRA / PEFT 适配器目录；为空则跑基础 Qwen。"
                         " 与训练 / 评测同款，确保 KV 分布一致。")
@@ -624,7 +624,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    default="select_last")
     p.add_argument("--dit-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
     p.add_argument("--dit-checkpoint", type=str, default=None,
-                   help="可选：加载 train_v1.py 保存的 latest.pt 或 checkpoint-*/goalgen_v1.pt")
+                   help="可选：加载 train.py 保存的 latest.pt 或 checkpoint-*/goalgen_v1.pt")
     p.add_argument("--use-ema", action=argparse.BooleanOptionalAction, default=True,
                    help="加载 ckpt 时优先使用 EMA 权重；--no-use-ema 走原始 DiT 权重做对照。")
     # Output
