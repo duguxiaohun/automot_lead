@@ -2,9 +2,9 @@
 # GoalGen v1 训练启动脚本。请在 AutoMoT/ 目录下运行。
 #
 # 用法：
-#   bash qwen3vl_local/goalgen/train_v1.sh check
-#   bash qwen3vl_local/goalgen/train_v1.sh single
-#   bash qwen3vl_local/goalgen/train_v1.sh ddp
+#   bash qwen3vl_local/goalgen/train.sh check
+#   bash qwen3vl_local/goalgen/train.sh single
+#   bash qwen3vl_local/goalgen/train.sh ddp
 set -euo pipefail
 
 MODE="${1:-ddp}"
@@ -27,13 +27,24 @@ if [[ "${VERSION}" == "v2" ]]; then
     # v2 默认从 v1 训练产物里的 best.pt warm start：DiT 权重 + EMA shadow 都加载，
     # 不接 optimizer / scheduler / step，等同于"换数据子集 + 继承架构权重"重新训练。
     # 想从 latest.pt warm start：INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest.pt
-    # 想完全从零训 v2：INIT_FROM_CKPT=NONE（任何不存在的路径会被 train_v1.py 报错，
+    # 想完全从零训 v2：INIT_FROM_CKPT=NONE（任何不存在的路径会被 train.py 报错，
     # 真要从零就显式 INIT_FROM_CKPT="" 把默认覆盖掉）。
     # 默认指向 v1 顶层 symlink：checkpoints/goalgen_v1_dit/latest/best.pt
     # （latest 是本脚本维护的 symlink，永远指向最新 v1 run_XXXXXX/）。
     # 老 schema（v1 训练时还没启用 run 子目录，best.pt 直接在 OUTPUT_DIR 顶层）：
     # 显式传 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/best.pt 即可。
     INIT_FROM_CKPT="${INIT_FROM_CKPT:-checkpoints/goalgen_v1_dit/latest/best.pt}"
+    # v2 默认走 **fine-tune 保守配方**（warm start 起点已是 v1 best.pt，初期 LR 过大
+    # 会一步把 v1 学好的权重重新打散，得不偿失）：
+    # - LR 减半（AdamW 1e-4 / Muon 1e-3）
+    # - warmup 缩短到 0.02（权重已经合理，不需要长 warmup 平稳起步）
+    # - NUM_EPOCHS 保持 2：v2 数据量约 v1 50-70% + warm start，与 v1 同 epoch 数
+    #   实际 step 数大约只剩 v1 的 30-50%，足够 fine-tune 收敛
+    # 想恢复 v1 from-scratch 风格（LR=2e-4 等），显式传 LR=2e-4 / MUON_LR=2e-3 即可。
+    LR="${LR:-1e-4}"
+    MUON_LR="${MUON_LR:-1e-3}"
+    WARMUP_RATIO="${WARMUP_RATIO:-0.02}"
+    NUM_EPOCHS="${NUM_EPOCHS:-2}"
 elif [[ "${VERSION}" == "v1" ]]; then
     TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/goalgen_v1_data/train.jsonl}"
     VAL_JSONL="${VAL_JSONL:-checkpoints/goalgen_v1_data/val.jsonl}"   # 默认与数据构建器输出一致；不存在时训练器会自动跳过验证/样例日志
@@ -74,7 +85,7 @@ NUM_LAYERS="${NUM_LAYERS:-12}"
 COND_DIM="${COND_DIM:-256}"
 MLP_RATIO="${MLP_RATIO:-4.0}"
 # 历史帧数上限：仅控制 DiT 的 frame_embed 容量，**不是**控制 Qwen 喂几张图。
-# Qwen 实际吃到的图数 = jsonl 里 history_rgb_paths 长度，由 build_dataset_v1.py
+# Qwen 实际吃到的图数 = jsonl 里 history_rgb_paths 长度，由 build_dataset.py
 # 构建时的 --num-frames 决定（默认 RGB_FRAME_COUNT=4）。
 # 想真正缩短 Qwen prefill：重建数据集时调小 --num-frames，再训练；
 # 这里改 MAX_HISTORY_FRAMES 不影响 Qwen wall-time。保持 8 作为上限留余量。
@@ -290,7 +301,7 @@ case "${MODE}" in
         export NPROC_PER_NODE=1
         # check 模式跑 2 个优化器 step 就退出（--max-train-steps 2）；epoch 末 save 分支
         # 不会被触发，循环外的 fallback 会写一份 ckpt 兜底。
-        python qwen3vl_local/goalgen/train_v1.py \
+        python qwen3vl_local/goalgen/train.py \
             "${COMMON_ARGS[@]}" \
             --num-epochs 1 \
             --grad-accum-steps 1 \
@@ -304,7 +315,7 @@ case "${MODE}" in
         # NUM_EPOCHS 默认 2：831k 样本 / GRAD_ACC=4 ≈ 207k optimizer step / epoch
         # （单卡），DiT 从零训通常 100-200k step 才看到收敛趋势，1 epoch 偏少；
         # 2 epoch 配合 cosine decay 收尾。想再多就显式 NUM_EPOCHS=3 之类。
-        python qwen3vl_local/goalgen/train_v1.py \
+        python qwen3vl_local/goalgen/train.py \
             "${COMMON_ARGS[@]}" \
             --num-epochs "${NUM_EPOCHS:-2}" \
             --grad-accum-steps "${GRAD_ACC:-4}" \
@@ -336,7 +347,7 @@ case "${MODE}" in
         torchrun --nproc_per_node="${NPROC_PER_NODE}" \
             --master_addr="${MASTER_ADDR}" \
             --master_port="${MASTER_PORT}" \
-            qwen3vl_local/goalgen/train_v1.py \
+            qwen3vl_local/goalgen/train.py \
             "${COMMON_ARGS[@]}" \
             --num-epochs "${NUM_EPOCHS:-2}" \
             --grad-accum-steps "${GRAD_ACC:-4}" \
@@ -374,23 +385,23 @@ echo "[hint] 看 TensorBoard（多次 run 自动对比，base 目录下所有 ru
 echo "  bash tools/tb_serve.sh ${OUTPUT_DIR_BASE}"
 echo ""
 echo "[hint] eval 最新 run（latest symlink）："
-echo "  python qwen3vl_local/goalgen/eval_v1.py \\"
+echo "  python qwen3vl_local/goalgen/eval.py \\"
 echo "    --dit-checkpoint ${OUTPUT_DIR_BASE}/latest/best.pt \\"
 echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
 echo "    --save-root ${OUTPUT_DIR_BASE}/latest"
 echo ""
 echo "[hint] eval 当前 run（绑定本次 RUN_TAG，不受后续新 run 影响）："
-echo "  python qwen3vl_local/goalgen/eval_v1.py \\"
+echo "  python qwen3vl_local/goalgen/eval.py \\"
 echo "    --dit-checkpoint ${OUTPUT_DIR}/best.pt \\"
 echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
 echo "    --save-root ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 多卡 eval 分片："
-echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \\"
+echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval.py \\"
 echo "    --dit-checkpoint ${OUTPUT_DIR_BASE}/latest/best.pt --save-root ${OUTPUT_DIR_BASE}/latest"
 echo ""
 echo "[hint] 随机场景 case dump（输入历史/预测/真值 PNG + memory + per-step v_cos）："
-echo "  python qwen3vl_local/goalgen/probe_v1.py \\"
+echo "  python qwen3vl_local/goalgen/probe.py \\"
 echo "    --dit-checkpoint ${OUTPUT_DIR_BASE}/latest/best.pt \\"
 echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
 echo "    --save-root ${OUTPUT_DIR_BASE}/latest --num-per-scenario 4"

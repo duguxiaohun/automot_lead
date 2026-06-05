@@ -1,8 +1,18 @@
-# GoalGen v1 设计方案
+# GoalGen 设计方案（v1 / v2 共用）
+
+> **代码组织约定**：GoalGen 子包采用"单一代码、双版本"风格——v1 / v2 共享同一份
+> 脚本（`build_dataset.py` / `train.py` / `train.sh` / `eval.py` / `probe.py`），
+> 靠 `--mode` 参数与 `VERSION` env 切换两套行为。本文档默认描述的是 v1（GoalGen 的
+> 原始版本）；任何 v2 differs 的地方都用 **[v2 only]** 标签明确标出，v1 / v2
+> 都共用的部分用 **[v1/v2 通用]** 标识或不加标签（即默认通用）。
+>
+> 路线意图：v1 = 在 LEAD 全部 4 类 status→subgoal transition 上从零训 DiT；
+> v2 = 只用 middle 之间 2 类 transition + 从 v1 best.pt warm start 做 fine-tune。
+> 完整对比见 [`GOALGEN_RUN.md`](GOALGEN_RUN.md) 顶部的"版本与模式速查"。
 
 ## 目标
 
-GoalGen v1 训练一个在 VAE 潜变量空间上工作的 DiT-MoT 生成器。它不直接预测
+GoalGen 训练一个在 VAE 潜变量空间上工作的 DiT-MoT 生成器。它不直接预测
 RGB 像素，而是预测"子目标关键帧"对应的潜变量速度场；条件信息来自冻结的
 Qwen3-VL-Instruct 预填充后得到的键值缓存。这样做的核心原因是：Qwen 负责把
 历史视觉、当前状态、下一子目标压进语言/视觉上下文，DiT 只学习"在这个上下文下，
@@ -33,7 +43,7 @@ Qwen 和 VAE 全程冻结，**只有 DiT-MoT 参与训练**。这条边界非常
 数据集构建脚本：
 
 ```text
-qwen3vl_local/goalgen/build_dataset_v1.py
+qwen3vl_local/goalgen/build_dataset.py
 ```
 
 它在结构上对齐 `tools/build_sft_dataset_v1.py`，但监督目标不同：SFT v1 监督
@@ -132,8 +142,8 @@ DiT `hidden_dim` 与 `n_heads` 必须同步改动让 `hidden_dim / n_heads == Qw
 训练入口：
 
 ```text
-qwen3vl_local/goalgen/train_v1.py
-qwen3vl_local/goalgen/train_v1.sh
+qwen3vl_local/goalgen/train.py
+qwen3vl_local/goalgen/train.sh
 ```
 
 启动模式：
@@ -222,8 +232,8 @@ target latent 都**离线缓存到磁盘**，避免每个进程重复计算。
 | 完整 KV 模式显存溢出 | `concat_layers` 会把每个 DiT 层的语言显存放大约 3 倍 | 默认保持 `QWEN_KV_SEGMENT_MODE=select_last`；只在做消融实验时切到 `concat_layers`；`mean` 仅作历史消融保留。 |
 | `bfloat16` Qwen KV 与 `float32` DiT 之间数据类型不一致 | SDPA 内部抛 `RuntimeError` | 训练器会在前向之前把分段 KV、z_history、z1 显式 `.to(dtype=dit_dtype)`。保持 `--qwen-dtype` 与 `--dit-dtype` 兼容，或者依赖这一行显式转换。 |
 | Qwen 预填充序列过长（LEAD `num_frames > 4`） | H20 96GB 上 Qwen 预填充显存溢出 | 减小 `--num-frames`，或者用 `--qwen-dtype float16` 降低 Qwen 推理显存。 |
-| 目标关键帧在磁盘上不存在 | 抛出"RGB 图像不存在"类错误 | 在能挂载到 LEAD 数据的机器上重新跑 `build_dataset_v1.py`。 |
-| 给 `--status` / `--subgoal` 传了错误的字符串 | runner 抛错，因为 STATUS/SUBGOAL 违反事件链 | 优先只指定 STATUS，让 runner 自己推 SUBGOAL；训练数据走 `build_dataset_v1.py` 生成的 jsonl。 |
+| 目标关键帧在磁盘上不存在 | 抛出"RGB 图像不存在"类错误 | 在能挂载到 LEAD 数据的机器上重新跑 `build_dataset.py`。 |
+| 给 `--status` / `--subgoal` 传了错误的字符串 | runner 抛错，因为 STATUS/SUBGOAL 违反事件链 | 优先只指定 STATUS，让 runner 自己推 SUBGOAL；训练数据走 `build_dataset.py` 生成的 jsonl。 |
 | 目标关键帧不在未来 | runner 抛出"target_frame 必须在未来" | 使用数据集自动构出的样本，或者保证 `--target-frame > --anchor`。 |
 | DDP 进程卡死 | 某个进程因切片长度对不齐多跑了一次 `loss.backward()` | `usable_per_epoch = (N // world_size) * world_size` 已经保证所有进程切片等长。**不要去改切片逻辑**。 |
 | 训练慢、瓶颈在 Qwen 预填充 | 每个样本都要做一次完整 Qwen 前向 | 这是 v1 已知瓶颈。v2 必须把分段 KV、history/target latent 全部预先算好并缓存到磁盘。 |
@@ -234,9 +244,9 @@ target latent 都**离线缓存到磁盘**，避免每个进程重复计算。
 值发生变化时，必须同步执行：
 
 1. 更新本文件的默认配置小节。
-2. 同步更新 `GOALGEN_V1_RUN.md` 里对应的数字。
+2. 同步更新 `GOALGEN_RUN.md` 里对应的数字。
 3. 如果改的是 `RGB_FRAME_COUNT` 或 `RGB_FRAME_STEP`，**必须重跑**
-   `build_dataset_v1.py`（jsonl 里编码了具体的帧索引）。
+   `build_dataset.py`（jsonl 里编码了具体的帧索引）。
 4. 如果改的是 `patch_size`, `hidden_dim`, `n_heads` 或 `num_layers`，
    必须**从零重训** DiT（老检查点全部不兼容）。
 
@@ -260,18 +270,18 @@ v1 显式**不做**的事情（写在这里防止未来 agent 擅自扩张范围
 **当前"v2"的范围仅限数据集分布裁剪 + 默认从 v1 warm start**（见上一节 `--mode v2`
 和下面 `VERSION=v2`）：
 
-- 复用 `build_dataset_v1.py` 同一脚本，靠 `--mode` 切换 transition 集合；
+- 复用 `build_dataset.py` 同一脚本，靠 `--mode` 切换 transition 集合；
 - 输出 jsonl 字段 schema 与 v1 完全一致（`scenario / run_id / anchor / status /
   subgoal / target_frame / history_rgb_paths / current_rgb_path / target_rgb_path /
   memory`），train / eval / probe 入口不动；
 - DiT 架构、Qwen KV 分段、VAE 编码、CFG、EMA 等所有训练侧配置保持 v1 默认；
-- `train_v1.sh` 新增 `VERSION` env：`VERSION=v2` 时自动把数据切到 `goalgen_v2_data/`、
+- `train.sh` 新增 `VERSION` env：`VERSION=v2` 时自动把数据切到 `goalgen_v2_data/`、
   产物落到 `goalgen_v2_dit/`、并把 `--init-from-ckpt` 默认指向 `goalgen_v1_dit/latest/best.pt`
   （latest 是脚本自动维护的 symlink，下条），做 **DiT 权重 + EMA shadow 双 strict=True
   warm start**（不接 optimizer / scheduler / step），实质等同于"换数据子集 + 继承架构
   权重"重新训练。架构默认完全沿用 v1，strict=True 在这条路径上是"防 env 漂移"的
   护栏（v1→v2 默认配置不会触发）。
-- `train_v1.sh` 同时引入 **run 子目录隔离 + latest symlink**（v1/v2 通用）：每次启动
+- `train.sh` 同时引入 **run 子目录隔离 + latest symlink**（v1/v2 通用）：每次启动
   把 OUTPUT_DIR 自动改写成 `${OUTPUT_DIR_BASE}/run_${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}/`，
   所有 ckpt / TB events / eval 产物都落在 run 子目录里；base 顶层维护一个相对路径的
   `latest` symlink 指向最新 run。HF weights 缓存放 base 层共享。`NO_RUN_SUBDIR=1`

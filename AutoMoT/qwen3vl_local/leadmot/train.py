@@ -576,14 +576,20 @@ class LeadMoTTrainRuntime:
                 user_prompt=prompt_cleaned,
             )
             pooled_kv = _segment_qwen_cache_for_leadmot(past_key_values, decoder_config)
-            bev_features = self.runner.bev_encoder(rgb=bev_rgb_tensor, lidar_bev=bev_lidar_tensor)["bev_feature"]
+            # use_bev=False：跳过 BEV encoder 调用，省去整套 LEAD TransfuserBackbone
+            # 的 forward 时间和显存；decoder 内部自然走 use_bev=False 分支不拼 BEV token。
+            if decoder_config.use_bev:
+                bev_features = self.runner.bev_encoder(rgb=bev_rgb_tensor, lidar_bev=bev_lidar_tensor)["bev_feature"]
+            else:
+                bev_features = None
 
         status = target_point_speed.to(device=self.device, dtype=decoder_dtype)
         # runner 给出的 target_point_speed 布局：
         # [speed, target_x, target_y, next_target_x, next_target_y]。
         return decoder(
             pooled_kv=pooled_kv,
-            bev=bev_features.to(device=self.device, dtype=decoder_dtype),
+            bev=(bev_features.to(device=self.device, dtype=decoder_dtype)
+                 if bev_features is not None else None),
             speed=status[:, 0],
             target_point=status[:, 1:3],
             target_point_next=status[:, 3:5],
@@ -931,7 +937,7 @@ def _validate(
 
 
 def parse_args() -> argparse.Namespace:
-    """解析 train_v1 CLI 参数。"""
+    """解析 train CLI 参数。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--train-jsonl", default="checkpoints/leadmot_v1_data/train.jsonl")
     parser.add_argument("--val-jsonl", default="checkpoints/leadmot_v1_data/val.jsonl")
@@ -972,6 +978,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rgb-frame-step", type=int, default=1)
     parser.add_argument("--bev-frame-count", type=int, default=1)
     parser.add_argument("--bev-frame-step", type=int, default=1)
+    # use_bev：decoder 是否在 gen 序列里拼 BEV(120) token。默认 True（v1 全套行为）。
+    # --no-use-bev 时 gen 序列只剩 21 个 status/query token，decoder 完全靠 frozen
+    # Qwen prefix K/V + 自车状态做 planning。注意切换 use_bev 时 state_dict 不兼容，
+    # 切档必须从头训或单独 warm start，不能直接 --init-from-ckpt 跨 use_bev 加载。
+    parser.add_argument("--use-bev", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--frame-interval-s", type=float, default=0.25)
     parser.add_argument("--target-point-lookahead-s", type=float, default=1.5)
     parser.add_argument("--next-target-point-lookahead-s", type=float, default=3.0)
@@ -1038,6 +1049,7 @@ def main() -> None:
         num_waypoint_queries=args.waypoint_points,
         rope_type=args.leadmot_rope_type,
         dropout=args.decoder_dropout,
+        use_bev=args.use_bev,
     )
     decoder = LeadMoTPlanningDecoder(decoder_config).to(device=device, dtype=decoder_dtype)
     if args.init_from_ckpt:

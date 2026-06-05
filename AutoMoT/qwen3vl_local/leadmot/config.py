@@ -1,7 +1,7 @@
 """LeadMoT planning decoder 的配置。
 
 本子包按从 ``AutoMoT`` 目录运行来写路径，例如：
-``python qwen3vl_local/leadmot/train_v1.py``。
+``python qwen3vl_local/leadmot/train.py``。
 
 默认值对齐 LEAD CARLA 设置：
 - route head 预测 10 个 ego-frame route 点；
@@ -48,6 +48,14 @@ class LeadMoTPlanningDecoderConfig:
     bev_channels: int = 512
     bev_grid: Tuple[int, int] = (10, 12)
 
+    # 是否在 gen 序列里加入 BEV token（亦即"快推理是否融合 BEV 信息"）。
+    # - True（默认）：v1 行为，gen 序列 = BEV(120) + speed + tp + ntp + route + waypoint = 141 token；
+    # - False：消融配置，gen 序列只含 21 个 status/query token（speed + tp + ntp + route + wp），
+    #   decoder 完全靠 frozen Qwen prefix K/V + ego 状态做 planning，BEV encoder 仍可外部跑
+    #   （只是 decoder 不接它的输出）。state_dict 在两档之间**不兼容**（bev_projector 一档存在
+    #   一档不存在），切换时必须从头训或单独 warm start。
+    use_bev: bool = True
+
     # Query 数量对齐 LEAD planning 标签。
     num_route_queries: int = 10
     num_waypoint_queries: int = 8
@@ -65,10 +73,11 @@ class LeadMoTPlanningDecoderConfig:
     def total_gen_tokens(self) -> int:
         """返回 packed generated-token 序列长度。
 
-        默认布局是 BEV(120) + speed(1) + target point(1) + next target point(1)
-        + route queries(10) + waypoint queries(8) = 141。
+        use_bev=True：BEV(120) + speed(1) + target point(1) + next target point(1)
+                      + route queries(10) + waypoint queries(8) = 141
+        use_bev=False：跳过 BEV 那 120 个 token，gen 序列长度 = 21。
         """
-        bev_tokens = self.bev_grid[0] * self.bev_grid[1]
+        bev_tokens = self.bev_grid[0] * self.bev_grid[1] if self.use_bev else 0
         return bev_tokens + 3 + self.num_route_queries + self.num_waypoint_queries
 
     def slice_layout(self):
@@ -76,11 +85,13 @@ class LeadMoTPlanningDecoderConfig:
 
         这里必须和 ``LeadMoTPlanningDecoder._build_gen_sequence`` 的拼接顺序同步。
         两个 head 只读取 route 和 waypoint 对应切片。
+        use_bev=False 时不放 "bev" 键，下游访问 layout["bev"] 应该先判断 use_bev。
         """
-        bev_tokens = self.bev_grid[0] * self.bev_grid[1]
         idx = 0
         layout = {}
-        layout["bev"] = (idx, idx + bev_tokens); idx += bev_tokens
+        if self.use_bev:
+            bev_tokens = self.bev_grid[0] * self.bev_grid[1]
+            layout["bev"] = (idx, idx + bev_tokens); idx += bev_tokens
         layout["speed"] = (idx, idx + 1); idx += 1
         layout["tp"] = (idx, idx + 1); idx += 1
         layout["ntp"] = (idx, idx + 1); idx += 1

@@ -1,4 +1,12 @@
-# LeadMoT V1 训练计划
+# LeadMoT 训练计划
+
+> **版本说明**：LeadMoT 目前**只有 v1 一个版本**——单一一套训练/eval/probe 栈。
+> 命名风格已经与 GoalGen 对齐（`train.py` / `train.sh` / `eval.py` / `probe.py`，
+> 不带 _v1 后缀），未来要做 v2 时按 GoalGen 套路用 `--mode` / `VERSION` env 扩展
+> 而**不**新建 `train_v2.py` 之类文件。
+>
+> **v1 内部当前唯一可控的结构开关**：`use_bev`（config 字段，CLI `--use-bev` /
+> `--no-use-bev`，sh `USE_BEV=0/1`，默认 `True`）。开关含义见下面 §6 "use_bev"。
 
 ## 目标
 
@@ -29,10 +37,10 @@ LEAD 的 decoder head 是 `Linear(hidden,2) -> torch.cumsum(dim=1)`：模型内�
 
 ## 数据
 
-`build_dataset_v1.py` 只生成轻量 JSONL 索引，不复制图像、LiDAR 或 meta：
+`build_dataset.py` 只生成轻量 JSONL 索引，不复制图像、LiDAR 或 meta：
 
 ```bash
-python qwen3vl_local/leadmot/build_dataset_v1.py \
+python qwen3vl_local/leadmot/build_dataset.py \
   --data-root /datashare/IOL4SGH/data/data \
   --samples-per-scenario 0 \
   --output-dir checkpoints/leadmot_v1_data
@@ -45,7 +53,7 @@ python qwen3vl_local/leadmot/build_dataset_v1.py \
 - anchor meta 的 `route`：按 LEAD 训练语义先取 `route[:20]`，执行等价 `smooth_path(target_first_distance=2.5)`，再取前 10 点监督 `pred_route`。
 - anchor meta 的 `future_positions[[5,10,...,40]]`：监督 8 个未来 waypoint，LEAD 4Hz 下覆盖 2s。
 
-默认 `--samples-per-scenario 0` 与 GoalGen 一致，表示每个 scenario 保留所有合法 anchor；传正整数时按 route-balanced 方式抽样。默认 `--stride 5`，让相邻 anchor 大约间隔 1 秒，减少高度重叠的伪样本；如需全量密集 anchor，可显式 `--stride 1`。train/val 按 route 切分，避免同一路线相邻 anchor 同时进入训练和验证。构建器输出 `train.jsonl` / `val.jsonl` / `stats.json`。`--check-readable` 可选但默认**不推荐**：开了之后每个 anchor 要做 6 次 lzma + 12 次 file stat，几百 route 数据集会变成几小时；train_v1 已经有 DDP-safe 占位 loss 兜底坏样本，不再需要在构建期预校验。
+默认 `--samples-per-scenario 0` 与 GoalGen 一致，表示每个 scenario 保留所有合法 anchor；传正整数时按 route-balanced 方式抽样。默认 `--stride 5`，让相邻 anchor 大约间隔 1 秒，减少高度重叠的伪样本；如需全量密集 anchor，可显式 `--stride 1`。train/val 按 route 切分，避免同一路线相邻 anchor 同时进入训练和验证。构建器输出 `train.jsonl` / `val.jsonl` / `stats.json`。`--check-readable` 可选但默认**不推荐**：开了之后每个 anchor 要做 6 次 lzma + 12 次 file stat，几百 route 数据集会变成几小时；train 已经有 DDP-safe 占位 loss 兜底坏样本，不再需要在构建期预校验。
 
 当前不做 Qwen pooled KV 离线缓存。原因是 prompt / RoPE / prefix 组织还在迭代期，prompt 一改缓存就失效；训练先保证范式正确，再考虑缓存工程。
 
@@ -77,7 +85,7 @@ Route / waypoint head 内部在 cumsum 时临时升到 fp32，再 cast 回原 dt
 - `ema.update(decoder_module)` 放在 `optimizer.step()` **之后**；放之前 shadow 拿未更新的旧参数会"慢一步"。
 - val 用 `with ema.apply_to(decoder): ...` 上下文跑一次，得到 `val_ema/*` 一组 scalar；EMA 关时只有 `val/*`。
 - `best.pt` 选 EMA val/loss 优先（更稳）；EMA 关时回退 raw val/loss。
-- ckpt 同时持久化 `decoder` 与 `ema_state_dict` + `ema_decay`，`eval_v1.py` / `probe_v1.py` 默认 `--use-ema=True`；旧 ckpt 无 EMA 字段时自动回退 raw + print 警告。
+- ckpt 同时持久化 `decoder` 与 `ema_state_dict` + `ema_decay`，`eval.py` / `probe.py` 默认 `--use-ema=True`；旧 ckpt 无 EMA 字段时自动回退 raw + print 警告。
 - decay 选择：默认 0.999 适配 LeadMoT 默认短 schedule（warmup ~500 step）；长 schedule (≥10 epoch) 可调 0.9999，但 warmup 期前一段 EMA 会拖收敛速度。
 
 ## TB 图像 overlay 样例
@@ -98,7 +106,7 @@ Route / waypoint head 内部在 cumsum 时临时升到 fp32，再 cast 回原 dt
 | `val/` | 同上 5 个 | raw 权重 val |
 | `val_ema/` | 同上 5 个 | EMA 权重 val（开 EMA 时） |
 
-`eval_v1.py` 的 `eval_tb/<ckpt>_<ts>/` 子目录会写同名 key `eval/*`，可以在同一 TB 板上叠加对比训练 / 多 ckpt 离线 eval。
+`eval.py` 的 `eval_tb/<ckpt>_<ts>/` 子目录会写同名 key `eval/*`，可以在同一 TB 板上叠加对比训练 / 多 ckpt 离线 eval。
 
 ## RoPE
 
@@ -128,5 +136,26 @@ checkpoint 写入使用 `torch.save(tmp)` + `os.replace(tmp, final)`，避免 NF
 
 ## Eval / Probe
 
-- `eval_v1.py`：离线汇总 `loss / route ADE/FDE / waypoint ADE/FDE`，支持 torchrun 分片；每个 rank 跑自己的样本，rank0 合并 summary/perline。推荐传 `--save-root checkpoints/leadmot_v1_decoder`，产物落到 `<save-root>/eval/`。
-- `probe_v1.py`：随机按 scenario 抽 case，落盘 `planning_overlay.png`、`predictions.json`、`metrics.json`、`overview.md`，用于肉眼检查预测和 GT 是否同向、同尺度、同坐标系。推荐传 `--save-root checkpoints/leadmot_v1_decoder`，case 落到 `<save-root>/eval_cases/`。
+- `eval.py`：离线汇总 `loss / route ADE/FDE / waypoint ADE/FDE`，支持 torchrun 分片；每个 rank 跑自己的样本，rank0 合并 summary/perline。推荐传 `--save-root checkpoints/leadmot_v1_decoder`，产物落到 `<save-root>/eval/`。
+- `probe.py`：随机按 scenario 抽 case，落盘 `planning_overlay.png`、`predictions.json`、`metrics.json`、`overview.md`，用于肉眼检查预测和 GT 是否同向、同尺度、同坐标系。推荐传 `--save-root checkpoints/leadmot_v1_decoder`，case 落到 `<save-root>/eval_cases/`。
+
+## use_bev 开关
+
+`LeadMoTPlanningDecoderConfig.use_bev`（默认 `True`）决定 decoder 是否在 gen 序列里
+拼 120 个 BEV token。两档行为：
+
+| `use_bev` | gen 序列长度 | `decoder.bev_projector` 子模块 | BEV encoder forward | 适用场景 |
+|---|---|---|---|---|
+| `True`（默认） | 141（BEV 120 + 21 status/queries） | 存在 | 跑 | 主训练，对齐 v1 完整路径 |
+| `False` | 21（只 status + queries） | **不实例化** | 跳过 | 消融实验、限显存环境 |
+
+**state_dict 在两档之间不兼容**（`bev_projector` 子模块存在性变化），因此：
+
+- 不能跨 `use_bev` 用 `--init-from-ckpt`；切档必须从头训或单独 warm start；
+- eval / probe 从 ckpt 里自动读 `use_bev`（保存在 `decoder_config` 字典里），无需重复在 CLI 指定；
+- runner（`mot_lead_offline_runner.py`）调用 decoder 时也按 ckpt 里的 `use_bev` 决定是否给 `bev=` 参数喂数据。
+
+CLI / env 接口：
+
+- `train.py --use-bev` / `--no-use-bev`（argparse `BooleanOptionalAction`）；
+- `train.sh USE_BEV=0/1`（env，默认 `1`，转 `--no-use-bev` / `--use-bev` 透传）。

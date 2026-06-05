@@ -1,6 +1,6 @@
 """GoalGen v1 case-level probe — 随机选 N 个场景的样本，dump 输入+生成+真值+诊断。
 
-eval_v1.py 给的是聚合视角（mean/std/by_scenario）；probe_v1 给的是单条样本视角：
+eval.py 给的是聚合视角（mean/std/by_scenario）；probe 给的是单条样本视角：
 - 历史 RGB 全图（symlink）
 - VAE 重建的 history reference（rank0 一次 encode→decode，看 VAE 自身重建损失）
 - 真值 keyframe RGB + 真值经 VAE encode→decode 的 reference
@@ -11,7 +11,7 @@ eval_v1.py 给的是聚合视角（mean/std/by_scenario）；probe_v1 给的是�
 - meta.json（dit_checkpoint / qwen_adapter / euler_steps / 推理耗时）
 - overview.md（一页 markdown 把上述全部串起来）
 
-输出布局（与 train_v1.sh 同根 — OUTPUT_DIR 平铺）：
+输出布局（与 train.sh 同根 — OUTPUT_DIR 平铺）：
   <save_root>/eval_cases/<scenario>__<run_id>__<anchor>/
     input_history/00.jpg ... 03.jpg
     target_raw.jpg          (真值 keyframe 原图)
@@ -29,13 +29,13 @@ eval_v1.py 给的是聚合视角（mean/std/by_scenario）；probe_v1 给的是�
 典型用法（**从 AutoMoT/ 目录运行**）：
 
 ```bash
-python qwen3vl_local/goalgen/probe_v1.py \
+python qwen3vl_local/goalgen/probe.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0
 
 # 同 seed 跑两个不同 ckpt + 不同 case-suffix，目录不互相覆盖，便于人工对比
-python qwen3vl_local/goalgen/probe_v1.py \
+python qwen3vl_local/goalgen/probe.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/checkpoint-000500/goalgen_v1.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0 --case-suffix "_ckpt500"
@@ -124,9 +124,9 @@ from qwen3vl_local.goalgen.qwen_kv import teacher_forced_prefill  # noqa: E402
 from qwen3vl_local.goalgen.vae import FrozenVAE, default_vae_paths  # noqa: E402
 from qwen3vl_local.prompt_pipeline import DrivingMemory  # noqa: E402
 
-# 直接复用 eval_v1 里已经写好的 ckpt 反向构建 DiT、probe KV、score helper，
+# 直接复用 eval 里已经写好的 ckpt 反向构建 DiT、probe KV、score helper，
 # 不重复实现。
-from qwen3vl_local.goalgen.eval_v1 import (  # noqa: E402
+from qwen3vl_local.goalgen.eval import (  # noqa: E402
     build_dit_from_ckpt,
     dtype_from_name,
     latent_cosine,
@@ -298,8 +298,8 @@ def render_overview_md(
 def _resolve_default_dit_checkpoint(save_root_hint: Optional[str] = None) -> str:
     """根据 --save-root 推 base 目录，再按"latest 子目录 > 老顶层"顺序找 ckpt。
 
-    与 eval_v1.py 同名函数保持完全一致的语义，**不 import 复用**以避免触发
-    eval_v1 的模块级副作用（GPU mask 检测、依赖加载等）。维护时两边同步改。
+    与 eval.py 同名函数保持完全一致的语义，**不 import 复用**以避免触发
+    eval 的模块级副作用（GPU mask 检测、依赖加载等）。维护时两边同步改。
 
     base 推导：
     - save_root_hint=None → base = checkpoints/goalgen_v1_dit（老兼容）

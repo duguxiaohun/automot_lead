@@ -688,13 +688,13 @@ LEAD-MoT planning path 已取代 `mot_lead_offline_runner.py` 内的 AutoMoT leg
 
 LeadMoT v1 训练入口已放在 `AutoMoT/qwen3vl_local/leadmot/`，与 GoalGen 一样文档和代码同位：
 
-- `LEADMOT_V1_PLAN.md`：训练设计、两类轨迹真值语义、默认超参。
-- `LEADMOT_V1_RUN.md`：构建索引、check / single / DDP 启动命令。
-- `build_dataset_v1.py`：扫描 LEAD route 目录，生成轻量 `train.jsonl` / `val.jsonl`；不复制图像、LiDAR、meta。
-- `train_v1.py`：复用 `mot_lead_offline_runner.py` 的 Qwen prefill、prompt、BEV、KV segmentation 和数据准备路径；Qwen3-VL-Instruct 与 LeadBEVEncoder frozen eval，只训练 `LeadMoTPlanningDecoder`。
-- `train_v1.sh`：check / single / DDP launcher；默认自动挑空闲 GPU，外部 `CUDA_VISIBLE_DEVICES` 优先，`DDP_GPU_COUNT=N` 显式要求重新挑 N 张卡。
-- `eval_v1.py`：离线汇总 loss / route ADE/FDE / waypoint ADE/FDE；支持 torchrun 分片，rank0 合并 perline/summary。
-- `probe_v1.py`：随机 case-level dump，输出预测 vs GT 的 `planning_overlay.png` 与 JSON 指标，便于肉眼检查坐标系和轨迹尺度。
+- `LEADMOT_PLAN.md`：训练设计、两类轨迹真值语义、默认超参。
+- `LEADMOT_RUN.md`：构建索引、check / single / DDP 启动命令。
+- `build_dataset.py`：扫描 LEAD route 目录，生成轻量 `train.jsonl` / `val.jsonl`；不复制图像、LiDAR、meta。
+- `train.py`：复用 `mot_lead_offline_runner.py` 的 Qwen prefill、prompt、BEV、KV segmentation 和数据准备路径；Qwen3-VL-Instruct 与 LeadBEVEncoder frozen eval，只训练 `LeadMoTPlanningDecoder`。
+- `train.sh`：check / single / DDP launcher；默认自动挑空闲 GPU，外部 `CUDA_VISIBLE_DEVICES` 优先，`DDP_GPU_COUNT=N` 显式要求重新挑 N 张卡。
+- `eval.py`：离线汇总 loss / route ADE/FDE / waypoint ADE/FDE；支持 torchrun 分片，rank0 合并 perline/summary。
+- `probe.py`：随机 case-level dump，输出预测 vs GT 的 `planning_overlay.png` 与 JSON 指标，便于肉眼检查坐标系和轨迹尺度。
 
 训练真值包含两类轨迹，且都按 LEAD 语义处理：
 
@@ -1533,11 +1533,11 @@ v2 与 v1 ckpt **不向后兼容**（hidden_dim、patch_size 都变了；MLP/nor
 | `keyframes.py` | 读 `keyframes_all_scenarios.json`，按 `(scenario, run_id, subgoal_event)` 查 `frame_idx`；`load_keyframe_rgb(route_dir, frame_idx)` 返回 stitched 三视角 RGB PIL |
 | `dit.py` | DiT-MoT 主体（v2 架构）。`DiTMoTBlock`：vision Q + joint-attn(K=cat[vision_K, lang_K], V=cat[vision_V, lang_V]) + SwiGLU MLP；`DiTMoT`：patchify vision latent → token + AdaLN-Zero (timestep) → 12 个 block → unpatchify 回 latent shape；语言 K/V 由外部传入并**直接消费**（无线性投影）；自带 `RMSNorm`、`SwiGLU` 实现；`enable_gradient_checkpointing()` 切换 per-block ckpt |
 | `flow.py` | 1) 训练采样：`t ~ U[0,1]`，`z0 ~ N(0,I)`，`z_t=(1-t)z0+t z1`，`v_target = z1 - z0`；2) `flow_matching_loss(v_pred, v_target)`；3) 推理 Euler 积分 `euler_sample(velocity_fn, ...)`：`z = z + dt * v_pred` 从 t=0 到 t=1 |
-| `build_dataset_v1.py` | 扫 `keyframes_all_scenarios.json`，按 `Completed/Perfect` 筛 run，把每个状态段展开成 (anchor, status, subgoal, target_frame, history/current/target RGB 路径) jsonl；按 `status->subgoal` 桶 stratified 抽样；按 run_id 8:2 划 train/val；每个 route 用 file-list 缓存避免 N 次 stat |
-| `train_v1.py` | DDP / 单卡训练入口（v2）。`engine.load() + freeze_module()` 显式冻 Qwen；`FrozenVAE.load()` 内部已冻 VAE；**Muon + AdamW 双 optimizer**（`_DualOptimizer` 包装 + `_DualScheduler` 同步驱动 LR）；DDP 模式 grad-accum 期间走 `dit.no_sync()` 减少 all-reduce；默认开启 `torch.compile(dit)` + per-block gradient checkpointing + EMA；每 `--save-steps` 落盘 `goalgen_v1.pt` + `latest.pt`（含 EMA state_dict + 双 optimizer 字典） |
-| `train_v1.sh` | check / single / ddp 三模式；按 `nvidia-smi` 自动挑空闲 GPU、自动选空闲 MASTER_PORT；v2 默认 `PATCH_SIZE=4 HIDDEN_DIM=1024 N_HEADS=8 MUON_LR=2e-3 GRAD_CKPT=1 COMPILE_DIT=1`；`COMPILE_DIT=0` / `GRAD_CKPT=0` 关闭对应优化 |
-| `GOALGEN_V1_PLAN.md` | v1 路线设计、形状默认表、参数量预估、显存预估、风险表、v1/v2 边界 |
-| `GOALGEN_V1_RUN.md` | 0 检查输入 / 1 build dataset / 2 train check→single→ddp / 3 forward smoke / 4 troubleshooting / 5 形状默认表 / 6 显存预期 |
+| `build_dataset.py` | 扫 `keyframes_all_scenarios.json`，按 `Completed/Perfect` 筛 run，把每个状态段展开成 (anchor, status, subgoal, target_frame, history/current/target RGB 路径) jsonl；按 `status->subgoal` 桶 stratified 抽样；按 run_id 8:2 划 train/val；每个 route 用 file-list 缓存避免 N 次 stat |
+| `train.py` | DDP / 单卡训练入口（v2）。`engine.load() + freeze_module()` 显式冻 Qwen；`FrozenVAE.load()` 内部已冻 VAE；**Muon + AdamW 双 optimizer**（`_DualOptimizer` 包装 + `_DualScheduler` 同步驱动 LR）；DDP 模式 grad-accum 期间走 `dit.no_sync()` 减少 all-reduce；默认开启 `torch.compile(dit)` + per-block gradient checkpointing + EMA；每 `--save-steps` 落盘 `goalgen_v1.pt` + `latest.pt`（含 EMA state_dict + 双 optimizer 字典） |
+| `train.sh` | check / single / ddp 三模式；按 `nvidia-smi` 自动挑空闲 GPU、自动选空闲 MASTER_PORT；v2 默认 `PATCH_SIZE=4 HIDDEN_DIM=1024 N_HEADS=8 MUON_LR=2e-3 GRAD_CKPT=1 COMPILE_DIT=1`；`COMPILE_DIT=0` / `GRAD_CKPT=0` 关闭对应优化 |
+| `GOALGEN_PLAN.md` | v1 路线设计、形状默认表、参数量预估、显存预估、风险表、v1/v2 边界 |
+| `GOALGEN_RUN.md` | 0 检查输入 / 1 build dataset / 2 train check→single→ddp / 3 forward smoke / 4 troubleshooting / 5 形状默认表 / 6 显存预期 |
 
 CLI 入口 `qwen3vl_dit_goalgen_runner.py`：
 
@@ -1694,7 +1694,7 @@ eval_sft_v1.py 一处暴露的两个坑，扫了全仓 LoRA 加载 + `max_gen_to
 
 - `AutoMoT/qwen3vl_local/engine.py` — 默认 `max_gen_tokens=256` + `attach_lora_adapter(merge=True)` 早已是默认值 ✓
 - `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py` / `qwen3vl_instruct_paradigm_a_runner.py` — 默认 256 且不挂 LoRA ✓
-- `AutoMoT/qwen3vl_local/goalgen/train_v1.py` / `probe_v1.py` / `eval_v1.py` / `qwen3vl_dit_goalgen_runner.py` — `max_gen_tokens=0` 是**故意**的（GoalGen 这条只取 Qwen KV，不需要自由文本，0 是正确值）；挂 LoRA 全都默认 `engine.attach_lora_adapter(merge=True)` ✓
+- `AutoMoT/qwen3vl_local/goalgen/train.py` / `probe.py` / `eval.py` / `qwen3vl_dit_goalgen_runner.py` — `max_gen_tokens=0` 是**故意**的（GoalGen 这条只取 Qwen KV，不需要自由文本，0 是正确值）；挂 LoRA 全都默认 `engine.attach_lora_adapter(merge=True)` ✓
 - `AutoMoT/tools/build_sft_dataset_v2_teacher.py` — CLI 默认 256，不挂 LoRA ✓
 
 ### 18.5 v2 loss_scale plugin 结构字面 mask 是致命陷阱（2026-06-02）

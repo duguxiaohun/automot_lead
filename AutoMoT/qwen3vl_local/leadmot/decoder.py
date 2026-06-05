@@ -36,7 +36,10 @@ class LeadMoTPlanningDecoder(nn.Module):
         self.config.validate_qwen_kv_shape()
         cfg = self.config
 
-        self.bev_projector = LeadBEVProjector(cfg)
+        # use_bev=False 时不建 bev_projector，节省参数 + 避免误用。
+        # state_dict 在两档间不兼容（一档有 bev_projector 子模块，一档没有），
+        # 切换 use_bev 必须从头训或单独 warm start。
+        self.bev_projector = LeadBEVProjector(cfg) if cfg.use_bev else None
         self.status_encoder = StatusTokenEncoder(cfg)
 
         self.route_query_bank = RouteQueryBank(
@@ -72,34 +75,46 @@ class LeadMoTPlanningDecoder(nn.Module):
 
     def _build_gen_sequence(
         self,
-        bev: torch.Tensor,
+        bev: Optional[torch.Tensor],
         speed: torch.Tensor,
         target_point: torch.Tensor,
         target_point_next: torch.Tensor,
     ) -> torch.Tensor:
-        """按 ``slice_layout`` 约定顺序打包 BEV/status/query token。"""
-        batch_size = bev.shape[0]
-        bev_tokens = self.bev_projector(bev)
+        """按 ``slice_layout`` 约定顺序打包 BEV/status/query token。
+
+        use_bev=False 时 bev 参数被忽略（可传 None），gen 序列从 speed 段开始拼。
+        """
+        if self.config.use_bev:
+            if bev is None:
+                raise ValueError("config.use_bev=True 但 forward bev=None；要禁用 BEV 请把 config.use_bev 改为 False。")
+            batch_size = bev.shape[0]
+            bev_tokens = self.bev_projector(bev)
+            device = bev_tokens.device
+            dtype = bev_tokens.dtype
+        else:
+            # use_bev=False：BEV 通路完全跳过，从 speed 推 batch/device/dtype。
+            batch_size = speed.shape[0]
+            device = speed.device
+            dtype = speed.dtype
+            bev_tokens = None
+
         speed_tok = self.status_encoder.encode_speed(speed)
         tp_tok, ntp_tok = self.status_encoder.encode_target_points(
             target_point, target_point_next,
         )
-        route_q = self.route_query_bank(
-            batch_size,
-            device=bev_tokens.device,
-            dtype=bev_tokens.dtype,
-        )
-        wp_q = self.waypoint_query_bank(
-            batch_size,
-            device=bev_tokens.device,
-            dtype=bev_tokens.dtype,
-        )
-        # 布局：BEV | speed | target point | next target point | route Q | waypoint Q。
-        gen_seq = torch.cat([bev_tokens, speed_tok, tp_tok, ntp_tok, route_q, wp_q], dim=1)
+        route_q = self.route_query_bank(batch_size, device=device, dtype=dtype)
+        wp_q = self.waypoint_query_bank(batch_size, device=device, dtype=dtype)
+        # 布局：(BEV) | speed | target point | next target point | route Q | waypoint Q
+        # 注意 dtype 对齐到 BEV 通路一致（use_bev=False 时退回 speed dtype）。
+        parts = []
+        if bev_tokens is not None:
+            parts.append(bev_tokens)
+        parts.extend([speed_tok, tp_tok, ntp_tok, route_q, wp_q])
+        gen_seq = torch.cat(parts, dim=1)
         if gen_seq.shape[1] != self.config.total_gen_tokens():
             raise RuntimeError(
                 f"gen seq length mismatch: got {gen_seq.shape[1]}, "
-                f"expect {self.config.total_gen_tokens()}"
+                f"expect {self.config.total_gen_tokens()}（use_bev={self.config.use_bev}）"
             )
         return gen_seq
 
@@ -123,7 +138,7 @@ class LeadMoTPlanningDecoder(nn.Module):
     def forward(
         self,
         pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]],
-        bev: torch.Tensor,
+        bev: Optional[torch.Tensor],
         speed: torch.Tensor,
         target_point: torch.Tensor,
         target_point_next: torch.Tensor,

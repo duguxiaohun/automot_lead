@@ -1,8 +1,31 @@
-# GoalGen v1 运行手册
+# GoalGen 运行手册（v1 + v2）
 
 > 下面所有命令都在远端机器上 `AutoMoT/` 目录里执行。
-> GoalGen 相关文件都放在 `qwen3vl_local/goalgen/` 下。本手册只覆盖 v1：
-> 先构建 jsonl 数据，再做两步训练检查，确认无误后再跑单卡或 DDP。
+> GoalGen 相关文件都放在 `qwen3vl_local/goalgen/` 下。
+
+## 版本与模式速查
+
+GoalGen 子包**单一代码、双版本**：v1 / v2 共用同一份脚本，靠 `--mode` / `VERSION` env
+切换行为。所有节标题里：
+
+- **[v1/v2 通用]** = 不论跑 v1 还是 v2 都按这节做；
+- **[v1 only]** = 只 v1 跑这条命令时需要；
+- **[v2 only]** = 只 v2 跑这条命令时需要；
+- **[v1 默认 / v2 fine-tune]** = 同一命令 v1 与 v2 默认值不同，分别列出。
+
+| 切换点 | v1 | v2 |
+|---|---|---|
+| 数据集构建 | `build_dataset.py --mode v1`（默认） | `build_dataset.py --mode v2` |
+| 训练入口 | `bash train.sh ddp`（VERSION 默认 v1） | `VERSION=v2 bash train.sh ddp` |
+| 数据目录默认 | `checkpoints/goalgen_v1_data/` | `checkpoints/goalgen_v2_data/` |
+| 训练产物默认 | `checkpoints/goalgen_v1_dit/run_XXX/` | `checkpoints/goalgen_v2_dit/run_XXX/` |
+| Warm start | 默认从零；可显式 `INIT_FROM_CKPT=...` | 默认从 `goalgen_v1_dit/latest/best.pt` warm start |
+| LR / Muon LR | `2e-4 / 2e-3` | `1e-4 / 1e-3`（fine-tune 减半） |
+| Warmup ratio | `0.05` | `0.02`（短 warmup） |
+| Epoch | 默认 `2` | 默认 `2` |
+| Transition 集合 | 4 类（含 initial / final 两端） | 2 类（只 middle 之间） |
+
+eval / probe **没有版本概念**——它们按 `--save-root` 推 base，v1/v2 都正确。
 
 ## 0. 检查输入
 
@@ -22,7 +45,7 @@ ls /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json
 
 ```bash
 # v1：保留全部 4 类 transition（initial→middle[0] / middle 之间 2 段 / middle[2]→final）
-python qwen3vl_local/goalgen/build_dataset_v1.py \
+python qwen3vl_local/goalgen/build_dataset.py \
   --mode v1 \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --data-root /datashare/IOL4SGH/data/data \
@@ -32,7 +55,7 @@ python qwen3vl_local/goalgen/build_dataset_v1.py \
 
 ```bash
 # v2：只保留三个 middle 子目标之间的两段转换（middle[0]→middle[1] / middle[1]→middle[2]）
-python qwen3vl_local/goalgen/build_dataset_v1.py \
+python qwen3vl_local/goalgen/build_dataset.py \
   --mode v2 \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --data-root /datashare/IOL4SGH/data/data \
@@ -66,16 +89,16 @@ checkpoints/goalgen_v2_data/{train,val}.jsonl + stats.json   # --mode v2
 
 ```bash
 # 跑 2 个优化器步，验证完整链路是否通
-bash qwen3vl_local/goalgen/train_v1.sh check
+bash qwen3vl_local/goalgen/train.sh check
 
 # 单卡训练
-bash qwen3vl_local/goalgen/train_v1.sh single
+bash qwen3vl_local/goalgen/train.sh single
 
 # DDP，默认自动挑 8 个最闲的 GPU 和一个空闲端口
-bash qwen3vl_local/goalgen/train_v1.sh ddp
+bash qwen3vl_local/goalgen/train.sh ddp
 
 # DDP，只用 4 张自动挑选的 GPU
-DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train_v1.sh ddp
+DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
 ```
 
 ### 2.0.x v2 训练（从 v1 best.pt warm start）
@@ -84,22 +107,22 @@ DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train_v1.sh ddp
 # 一键 v2：自动把 TRAIN/VAL → goalgen_v2_data/、OUTPUT_DIR → goalgen_v2_dit/，
 # INIT_FROM_CKPT 默认指向 v1 训练产物 checkpoints/goalgen_v1_dit/latest/best.pt
 # （latest 是 v1 上一次训练时本脚本自动维护的 symlink，指向 v1 最新的 run_XXXXXX/）
-VERSION=v2 bash qwen3vl_local/goalgen/train_v1.sh ddp
+VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
 
 # 想从 v1 latest.pt（训练末尾）而不是 best.pt warm start：
 VERSION=v2 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/latest.pt \
-  bash qwen3vl_local/goalgen/train_v1.sh ddp
+  bash qwen3vl_local/goalgen/train.sh ddp
 
 # 想从 v1 某个具体的历史 run warm start（绑定时间戳，不受后续新 v1 run 影响）：
 VERSION=v2 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/run_20260605_1430/best.pt \
-  bash qwen3vl_local/goalgen/train_v1.sh ddp
+  bash qwen3vl_local/goalgen/train.sh ddp
 
 # 想完全从零训 v2（不 warm start）：显式置空 INIT_FROM_CKPT
-VERSION=v2 INIT_FROM_CKPT="" bash qwen3vl_local/goalgen/train_v1.sh ddp
+VERSION=v2 INIT_FROM_CKPT="" bash qwen3vl_local/goalgen/train.sh ddp
 
 # 给本次 v2 run 自命名（消融实验时方便对比，否则默认是时间戳 run_YYYYmmdd_HHMMSS）：
 VERSION=v2 RUN_TAG=lr3e3_muon \
-  bash qwen3vl_local/goalgen/train_v1.sh ddp
+  bash qwen3vl_local/goalgen/train.sh ddp
 ```
 
 行为说明：
@@ -119,7 +142,7 @@ VERSION=v2 RUN_TAG=lr3e3_muon \
 
 ### 2.0.y 防覆盖：run 子目录 + latest symlink（v1/v2 通用）
 
-每次 `bash train_v1.sh ...` 启动，sh 会自动把产物写到一个 **run 子目录**里：
+每次 `bash train.sh ...` 启动，sh 会自动把产物写到一个 **run 子目录**里：
 
 ```
 checkpoints/goalgen_v2_dit/                    ← OUTPUT_DIR_BASE
@@ -147,16 +170,16 @@ checkpoints/goalgen_v2_dit/                    ← OUTPUT_DIR_BASE
 # 1. 最省心：只传 --save-root，--dit-checkpoint 自动推
 #    eval/probe 会按 <base>/latest/best.pt > latest/latest.pt > 顶层 best.pt > latest.pt
 #    的顺序探测，自动跟最新 run；启动时打印 "[ckpt] --dit-checkpoint 未指定，自动解析 = ..."
-python qwen3vl_local/goalgen/eval_v1.py \
+python qwen3vl_local/goalgen/eval.py \
   --save-root checkpoints/goalgen_v2_dit
 
 # 2. 显式指向 latest symlink（语义同上，但路径写得明）
-python qwen3vl_local/goalgen/eval_v1.py \
+python qwen3vl_local/goalgen/eval.py \
   --dit-checkpoint checkpoints/goalgen_v2_dit/latest/best.pt \
   --save-root checkpoints/goalgen_v2_dit/latest
 
 # 3. 绑定具体历史 run（消融对比、可复现，最严格）
-python qwen3vl_local/goalgen/eval_v1.py \
+python qwen3vl_local/goalgen/eval.py \
   --dit-checkpoint checkpoints/goalgen_v2_dit/run_20260605_1430/best.pt \
   --save-root checkpoints/goalgen_v2_dit/run_20260605_1430
 
@@ -184,7 +207,7 @@ TRAIN_JSONL=checkpoints/goalgen_v1_data/train.jsonl \
 OUTPUT_DIR=checkpoints/goalgen_v1_dit \
 DDP_GPU_COUNT=4 \
 QWEN_KV_SEGMENT_MODE=select_last \
-bash qwen3vl_local/goalgen/train_v1.sh ddp
+bash qwen3vl_local/goalgen/train.sh ddp
 ```
 
 `QWEN_KV_SEGMENT_MODE` 默认是 `select_last`；只有在做消融对比时才切到
@@ -204,10 +227,10 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 ```bash
 # 减少样本数（默认 1000）。latent 分布本身平稳，1000 → 200 mean/std 偏差极小，
 # 首次计算时间相应减少 5×。
-LATENT_STATS_MAX_SAMPLES=200 bash qwen3vl_local/goalgen/train_v1.sh ddp
+LATENT_STATS_MAX_SAMPLES=200 bash qwen3vl_local/goalgen/train.sh ddp
 
 # 强制重算（默认 cache 命中就跳过）。一般只在换 VAE 权重或换 data_root 时才需要。
-# 注意：train_v1.py 走 args.recompute_latent_stats（CLI 参数），train_v1.sh 暂未
+# 注意：train.py 走 args.recompute_latent_stats（CLI 参数），train.sh 暂未
 # 暴露开关；要重算的话直接删除 latent_stats.json。
 ```
 
@@ -215,11 +238,11 @@ LATENT_STATS_MAX_SAMPLES=200 bash qwen3vl_local/goalgen/train_v1.sh ddp
 
 1. `latent_stats.json` 文件不存在或被清理 — `ls -la checkpoints/goalgen_v1_data/latent_stats.json`
 2. `TRAIN_JSONL` 每次换路径 → stats_path 跟着变 — 把 TRAIN_JSONL 固定下来
-3. 加了 `--recompute-latent-stats` CLI — 检查 train_v1.sh 的 COMMON_ARGS
+3. 加了 `--recompute-latent-stats` CLI — 检查 train.sh 的 COMMON_ARGS
 
 ### 2.0.1 加速调参（默认已生效 + 可选开关）
 
-**默认启用，无需配置**（写进 `train_v1.py` / `train_v1.sh`）：
+**默认启用，无需配置**（写进 `train.py` / `train.sh`）：
 
 - `torch.set_float32_matmul_precision("high")`：TF32 matmul 加速，bf16/fp32 路径上
   几乎无精度损失，不影响显存峰值。
@@ -232,19 +255,19 @@ LATENT_STATS_MAX_SAMPLES=200 bash qwen3vl_local/goalgen/train_v1.sh ddp
 # 1) torch.compile(dit) 加速 DiT forward（约 10-20% 加速；首步会有几十秒到一两分钟
 #    编译开销）。失败会自动回退原模型不阻塞训练。Qwen 走 HF DynamicCache + Python
 #    控制流，compile 不友好，只 compile DiT。
-COMPILE_DIT=1 bash qwen3vl_local/goalgen/train_v1.sh ddp
+COMPILE_DIT=1 bash qwen3vl_local/goalgen/train.sh ddp
 
 # 2) cuDNN benchmark（让 cuDNN 自动选最优 conv kernel，约 5-10% 速度）。
 #    ⚠ 第一次见到每个 conv shape 时会**同时探测多个 algorithm**，每个都申请 workspace，
 #    瞬时显存峰值高出稳态 10-30GB。VAE conv3d + 大 spatial 在 H20 95GB 上实测会把
 #    [latent_stats] 阶段直接 OOM。**默认关**；显存有大余量再启用。
-CUDNN_BENCHMARK=1 bash qwen3vl_local/goalgen/train_v1.sh ddp
+CUDNN_BENCHMARK=1 bash qwen3vl_local/goalgen/train.sh ddp
 ```
 
 **关于 `MAX_HISTORY_FRAMES`（容易踩的坑）**：
 
 它只是 **DiT 的 `frame_embed` 容量上限**，**不是**控制 Qwen 喂几张图。Qwen 实际吃到
-的图数 = jsonl 里 `history_rgb_paths` 列表长度，由 `build_dataset_v1.py` 构建时
+的图数 = jsonl 里 `history_rgb_paths` 列表长度，由 `build_dataset.py` 构建时
 `--num-frames` 决定（默认常量 `RGB_FRAME_COUNT = 4`）。
 
 所以——
@@ -259,16 +282,16 @@ CUDNN_BENCHMARK=1 bash qwen3vl_local/goalgen/train_v1.sh ddp
 H20 单卡 97GB，当前默认 `batch=1 × grad_accum=4`，单卡占用 ~22GB。剩余 70GB+ 余量
 可以用来上 batch（C 方案，未实现）；现阶段先维持现状。
 
-**关于 `NUM_EPOCHS`（默认 2，已与 train_v1.py CLI default 对齐）**：
+**关于 `NUM_EPOCHS`（默认 2，已与 train.py CLI default 对齐）**：
 
-train_v1.sh single / ddp 两个分支默认 `--num-epochs 2`，train_v1.py 自身 CLI
+train.sh single / ddp 两个分支默认 `--num-epochs 2`，train.py 自身 CLI
 default 也是 2，两边一致。计算依据：
 
 - 831k 样本 / 4 GPU / GRAD_ACC=4 ≈ **52k optimizer step / epoch**
 - DiT 从零训通常 100-200k step 才稳定收敛，1 epoch 偏少
 - 2 epoch ≈ 104k step，配合 cosine decay 收尾，进入 DiT 收敛区间下界
 
-想要多跑：`NUM_EPOCHS=3 bash qwen3vl_local/goalgen/train_v1.sh ddp` 显式覆盖。
+想要多跑：`NUM_EPOCHS=3 bash qwen3vl_local/goalgen/train.sh ddp` 显式覆盖。
 check 模式写死 `--num-epochs 1` + `--max-train-steps 2`，纯链路验证用，不动。
 
 训练阶段 **Qwen 与 VAE 全程冻结，只更新 DiT-MoT**。
@@ -310,20 +333,20 @@ checkpoints/goalgen_v1_dit/
 ├─ step-checkpoint-*/         每 --step-save-every 步（默认 10000）的中途快照
 │                             独立 --keep-recent-step-checkpoints（默认 3）滚动 → 等效最近 30k 步
 │                             数据量大、几天才跑完 1 epoch 时靠它拿到中间产物
-│                             eval_v1.py / probe_v1.py 直接传
+│                             eval.py / probe.py 直接传
 │                             `step-checkpoint-XXXXXX/goalgen_v1.pt` 路径即可加载
 ├─ latest.pt / best.pt        顶层轻量权重（任意 save 都刷新 latest；best 由 epoch 末 val 触发）
 ├─ tb/                        训练 TB events（train/* val/* samples/pred_vs_gt）
-├─ invocations/               每次 train_v1.py / eval_v1.py 启动写一份
+├─ invocations/               每次 train.py / eval.py 启动写一份
 │                             <ts>_<host>_pid<pid>.txt（sys.argv + env + git_commit），
 │                             事后追溯"这版 ckpt 是哪条命令训出来的"
-├─ eval/                      eval_v1.py 产物
+├─ eval/                      eval.py 产物
 │  ├─ eval_v1_summary.json    聚合指标 + _metric_doc 说明
 │  ├─ eval_v1_perline.jsonl   每条样本一行
 │  ├─ samples/                前 N 条 pred / gt 分开 PNG（轻量预览）
 │  └─ cases/                  小样本完整 dump（compare.png + 输入图文）
-├─ eval_tb/<ckpt-tag>/        eval_v1.py 写的指标 scalar + pred_vs_gt 图（每 ckpt 一个 run）
-└─ eval_cases/                probe_v1.py 随机场景 case dump（含 euler trace）
+├─ eval_tb/<ckpt-tag>/        eval.py 写的指标 scalar + pred_vs_gt 图（每 ckpt 一个 run）
+└─ eval_cases/                probe.py 随机场景 case dump（含 euler trace）
 ```
 
 启动 TB 指 `--logdir checkpoints/goalgen_v1_dit` 时，左侧 run 列表会同时显示 `tb`
@@ -363,13 +386,13 @@ TB 服务一起退。固定端口：`TB_PORT=6008 bash tools/tb_serve.sh ...`。
 
 ```bash
 # 仅保留标量曲线，关掉图像样例（每次约 32 步 Euler，含 VAE 解码）
-IMAGE_LOG_EVERY=0 bash qwen3vl_local/goalgen/train_v1.sh ddp
+IMAGE_LOG_EVERY=0 bash qwen3vl_local/goalgen/train.sh ddp
 
 # 验证 / 图像频率可分别调
-VAL_STEPS=200 IMAGE_LOG_EVERY=1000 bash qwen3vl_local/goalgen/train_v1.sh ddp
+VAL_STEPS=200 IMAGE_LOG_EVERY=1000 bash qwen3vl_local/goalgen/train.sh ddp
 
 # 完全关闭 TensorBoard（仅保留 stdout 日志，用于 check 模式快速跑 2 步）
-bash qwen3vl_local/goalgen/train_v1.sh check  # check 模式默认仍写 TensorBoard，需要时手动加 --no-tb
+bash qwen3vl_local/goalgen/train.sh check  # check 模式默认仍写 TensorBoard，需要时手动加 --no-tb
 ```
 
 DDP 下 TensorBoard 写入器只在 0 号进程启动，其它进程不写文件；验证 / 图像样例同样
@@ -396,7 +419,7 @@ python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
 ```
 
 runner 会校验 `STATUS/SUBGOAL`、强制要求 `target_frame > anchor`，并且把所有
-历史潜变量喂给 DiT（和训练接口一致）。**数据集训练仍走 `build_dataset_v1.py`**。
+历史潜变量喂给 DiT（和训练接口一致）。**数据集训练仍走 `build_dataset.py`**。
 未显式设置 `CUDA_VISIBLE_DEVICES` 或 `--device cuda:N` 时，runner 默认自动挑 1 张空闲 GPU。
 
 ## 3.5 离线评测
@@ -408,32 +431,32 @@ runner 会校验 `STATUS/SUBGOAL`、强制要求 `target_frame > anchor`，并�
 
 | 脚本 | 跑全集出聚合指标 | 每条样本完整 dump | 额外提供 |
 |---|---|---|---|
-| `qwen3vl_local/goalgen/eval_v1.py` | ✅ | ✅（默认 `--max-samples > 0` 时开） | summary + perline + 可选 TB（默认开）|
-| `qwen3vl_local/goalgen/probe_v1.py` | ❌（按 scenario 抽样） | ✅ | per-step euler trace（v_cos / z_l2 单调下降曲线）|
+| `qwen3vl_local/goalgen/eval.py` | ✅ | ✅（默认 `--max-samples > 0` 时开） | summary + perline + 可选 TB（默认开）|
+| `qwen3vl_local/goalgen/probe.py` | ❌（按 scenario 抽样） | ✅ | per-step euler trace（v_cos / z_l2 单调下降曲线）|
 
-**简单决策**：先跑 `eval_v1.py --max-samples 100` 就能拿到 compare.png 三联对比 +
+**简单决策**：先跑 `eval.py --max-samples 100` 就能拿到 compare.png 三联对比 +
 全部指标；只有想看"Euler 32 步轨迹是否单调收敛"时再跑 probe。
 
-`eval_v1.py` 对每条样本：teacher-forced Qwen 预填充 → VAE 编码 → Euler 32 步采样 →
+`eval.py` 对每条样本：teacher-forced Qwen 预填充 → VAE 编码 → Euler 32 步采样 →
 VAE 解码 → 5 指标 + 输入图文 + pred/gt 对比图全部本地保存。
 
-### 3.5.2 eval_v1.py
+### 3.5.2 eval.py
 
 ```bash
 # 推荐：小样本 + 完整 dump（每条样本一个目录，含 compare.png 三联图）
-python qwen3vl_local/goalgen/eval_v1.py \
+python qwen3vl_local/goalgen/eval.py \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --max-samples 100
 
 # 跑全集只出聚合指标 + TB（不 dump，磁盘友好）
-python qwen3vl_local/goalgen/eval_v1.py \
+python qwen3vl_local/goalgen/eval.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit
 
 # 多卡分片
-torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval_v1.py \
+torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit
 ```
@@ -442,7 +465,7 @@ eval 默认会在加载 Qwen/VAE 前调用 `nvidia-smi`，按 `memory.used`、
 `utilization.gpu` 从小到大自动选择空闲 GPU：单进程挑 1 张，
 `torchrun --nproc_per_node=N` 时挑 N 张。进程内仍使用 `cuda:0`。如果外部已经设置
 `CUDA_VISIBLE_DEVICES` 或显式传 `--gpu N`，脚本会尊重外部设置。
-要关闭自动选卡：`GOALGEN_EVAL_DISABLE_AUTO_GPU=1 python qwen3vl_local/goalgen/eval_v1.py ...`。
+要关闭自动选卡：`GOALGEN_EVAL_DISABLE_AUTO_GPU=1 python qwen3vl_local/goalgen/eval.py ...`。
 
 **关键参数**：
 
@@ -541,16 +564,16 @@ step-200 / step-1000 横向对比时看 delta；单看绝对值不要直接当"�
 `--logdir checkpoints/goalgen_v1_dit` 一条命令同时看训练 `tb/` 和多个 ckpt 的
 `eval_tb/<ckpt>/`；不同 ckpt 在 TB 左侧 run 列表里并列。
 
-### 3.5.5 probe_v1.py（深度诊断）
+### 3.5.5 probe.py（深度诊断）
 
 ```bash
-python qwen3vl_local/goalgen/probe_v1.py \
+python qwen3vl_local/goalgen/probe.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0
 
 # 多 ckpt 横向对比：同 seed + --case-suffix 防覆盖
-python qwen3vl_local/goalgen/probe_v1.py \
+python qwen3vl_local/goalgen/probe.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/checkpoint-000500/goalgen_v1.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0 --case-suffix "_ckpt500"
@@ -581,18 +604,18 @@ checkpoints/goalgen_v1_dit/eval_cases/<scenario>__<run>__<anchor>/
 ### 3.5.6 训练完小批量诊断 → 打包发给 AI 审阅（推荐流程）
 
 用途：DiT 训练刚结束时先抽 ~30 个 case 粗筛，看看生成图是否像样；方向对再跑全集
-`eval_v1.py` 拿正式指标和 TB 曲线。
+`eval.py` 拿正式指标和 TB 曲线。
 
 ```bash
 # 推荐：每个场景抽 3 条，~30 个 case，3–5 分钟（基本是采样时间）
-python qwen3vl_local/goalgen/probe_v1.py \
+python qwen3vl_local/goalgen/probe.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 3 --seed 42 \
   --case-suffix "_latest"
 
 # 想横向比 ckpt-500 vs latest：同 seed + 不同 case_suffix 防覆盖
-python qwen3vl_local/goalgen/probe_v1.py \
+python qwen3vl_local/goalgen/probe.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/checkpoint-000500/goalgen_v1.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 3 --seed 42 \
@@ -602,13 +625,13 @@ python qwen3vl_local/goalgen/probe_v1.py \
 产物在 `checkpoints/goalgen_v1_dit/eval_cases/`：每个 case 含 `input_history/`、
 `target_raw.jpg`、`target_vae_recon.png`、`pred.png`、`euler_trace.json`、
 `memory.json`、`metrics.json`、`meta.json`、`overview.md`，另有 `_index_*.jsonl`。
-给 AI 审阅时直接打包 `eval_cases/`；若用 `eval_v1.py --max-samples 30 --full-dump`，
+给 AI 审阅时直接打包 `eval_cases/`；若用 `eval.py --max-samples 30 --full-dump`，
 优先看它生成的 `compare.png` 三联图。
 
 快速判断顺序：先看 `pred` vs `target_vae_recon` 区分 VAE 瓶颈和 DiT 未收敛；
 再看 `metrics.json` 的 `latent_cos / pixel_l1 / velocity_cos`；最后用
 `euler_trace.json` 和 `meta.json` 查采样轨迹、CFG、`z0_prior_*`、adapter 是否一致。
-小批量 probe 只做方向判断，正式 ckpt 选择仍以全集 `eval_v1.py` 和 TB 曲线为准。
+小批量 probe 只做方向判断，正式 ckpt 选择仍以全集 `eval.py` 和 TB 曲线为准。
 
 ## 4. 排障
 
@@ -628,9 +651,9 @@ python qwen3vl_local/goalgen/probe_v1.py \
 
 ## 5. 默认形状
 
-下列默认值是 `build_dataset_v1.py`、`train_v1.py`、
+下列默认值是 `build_dataset.py`、`train.py`、
 `qwen3vl_dit_goalgen_runner.py` 三方共同遵守的契约。**任何一个改动都必须同步
-更新本文件与 `GOALGEN_V1_PLAN.md`**。
+更新本文件与 `GOALGEN_PLAN.md`**。
 
 | 参数 | 默认值 | 修改后影响 |
 |---|---|---|
@@ -672,7 +695,7 @@ DDP 下每个进程都重复加载一份 Qwen + VAE，所以 v2 必须把分段 
 | 入口 | 用途 |
 |---|---|
 | `qwen3vl_dit_goalgen_runner.py` | 在某条 LEAD route 上跑一次前向。STATUS/SUBGOAL 会按场景链做校验。用于检查一条样本的形状、`step.json` 以及可选 DiT 检查点的行为。 |
-| `train_v1.sh check` | 在真实 jsonl 上跑 2 个优化器步。验证反传 + DDP + 优化器更新全链路正常。**全量 DDP 跑之前必跑**。 |
+| `train.sh check` | 在真实 jsonl 上跑 2 个优化器步。验证反传 + DDP + 优化器更新全链路正常。**全量 DDP 跑之前必跑**。 |
 
 跑 `single` / `ddp` 之前**永远先跑** `check`。
 
@@ -681,4 +704,4 @@ DDP 下每个进程都重复加载一份 Qwen + VAE，所以 v2 必须把分段 
 - 训练阶段**不**跑多步 Euler 采样；损失只在单个随机 `t` 上计算。
 - 已上 EMA / CFG / latent stats caching / 图像解码评测；仍未做完整 KV 与 latent 离线数据集缓存。
 
-完整边界见 `GOALGEN_V1_PLAN.md` 的 "v1 / v2 边界" 一节。
+完整边界见 `GOALGEN_PLAN.md` 的 "v1 / v2 边界" 一节。
