@@ -142,12 +142,22 @@ def build_run_timeline(run: dict) -> Optional[RunTimeline]:
     )
 
 
-def iter_status_ranges(timeline: RunTimeline) -> Iterable[Tuple[int, int, str]]:
+def iter_status_ranges(
+    timeline: RunTimeline,
+    mode: str = "v1",
+) -> Iterable[Tuple[int, int, str]]:
     for start, end, status in timeline.intervals:
         if status == "final":
             continue
         subgoal = next_event_in_sequence(timeline.scenario, status)
         if not subgoal:
+            continue
+        # v2 模式只保留三个 middle 子目标之间的两段转换：
+        # middle[0]→middle[1]、middle[1]→middle[2]。
+        # 排除 status == "initial"（起手 transition）和 subgoal == "final"（收尾 transition）；
+        # 这两类样本被认为在生成训练中信号弱（initial 视觉上没有任何"任务进度"信息、
+        # final 子目标视觉上常常是"减速/停车"，对未来关键帧生成几乎不携带方向信息）。
+        if mode == "v2" and (status == "initial" or subgoal == "final"):
             continue
         target_frame = timeline.event_frames.get(subgoal)
         if target_frame is None:
@@ -221,6 +231,7 @@ def collect_samples(
     min_future_gap: int,
     num_frames: int,
     rgb_frame_step: int,
+    mode: str = "v1",
 ) -> List[GoalGenSample]:
     route_dir = data_root / timeline.scenario / timeline.run_id
     samples: List[GoalGenSample] = []
@@ -229,7 +240,7 @@ def collect_samples(
     # 几个数量级的 stat 调用，对 7000 routes 的 dataset build 几乎是必须的优化。
     rgb_cache = _load_rgb_directory(route_dir / "rgb")
 
-    for start, end, status in iter_status_ranges(timeline):
+    for start, end, status in iter_status_ranges(timeline, mode=mode):
         subgoal = next_event_in_sequence(timeline.scenario, status)
         if subgoal is None:
             continue
@@ -378,10 +389,27 @@ def split_train_val(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="构建 GoalGen v1 的 jsonl 数据集")
+    parser = argparse.ArgumentParser(description="构建 GoalGen v1/v2 的 jsonl 数据集")
+    parser.add_argument(
+        "--mode",
+        choices=("v1", "v2"),
+        default="v1",
+        help=(
+            "v1：保留全部 4 类 status→subgoal 转换（含 initial→middle[0] 与 middle[2]→final）；"
+            "v2：只保留三个 middle 子目标之间的两段转换 middle[0]→middle[1] / middle[1]→middle[2]，"
+            "即排除当前状态是 initial、以及子目标是 final 的样本。"
+        ),
+    )
     parser.add_argument("--keyframes", default=DEFAULT_KEYFRAMES)
     parser.add_argument("--data-root", default=DEFAULT_DATA_ROOT)
-    parser.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints" / "goalgen_v1_data"))
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help=(
+            "默认 None：根据 --mode 自动落在 checkpoints/goalgen_v1_data 或 goalgen_v2_data；"
+            "显式指定时尊重用户路径。"
+        ),
+    )
     parser.add_argument("--samples-per-scenario", type=int, default=0,
                         help="0 表示保留所有合法锚点；默认保留较大的均衡子集。")
     parser.add_argument("--frame-stride", type=int, default=1)
@@ -396,8 +424,14 @@ def main() -> None:
 
     rng = random.Random(args.seed)
     keyframes_path = pathlib.Path(args.keyframes)
+    # --output-dir 没显式给 → 按 mode 默认走 goalgen_v1_data / goalgen_v2_data，
+    # 避免 v2 误覆盖 v1 已经构建好的 jsonl。
+    if args.output_dir is None:
+        default_name = "goalgen_v2_data" if args.mode == "v2" else "goalgen_v1_data"
+        args.output_dir = str(_AUTOMOT_ROOT / "checkpoints" / default_name)
     output_dir = pathlib.Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[mode] {args.mode}（输出目录={output_dir}）")
 
     print(f"[load] 关键帧={keyframes_path}")
     with keyframes_path.open("r", encoding="utf-8") as f:
@@ -441,6 +475,7 @@ def main() -> None:
                     min_future_gap=max(1, args.min_future_gap),
                     num_frames=args.num_frames,
                     rgb_frame_step=args.rgb_frame_step,
+                    mode=args.mode,
                 )
             )
         chosen = choose_samples(candidates, target_per_scenario, rng)

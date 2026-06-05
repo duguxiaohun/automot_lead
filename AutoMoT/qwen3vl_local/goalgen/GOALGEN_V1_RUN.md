@@ -21,11 +21,23 @@ ls /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json
 ## 1. 构建数据集
 
 ```bash
+# v1：保留全部 4 类 transition（initial→middle[0] / middle 之间 2 段 / middle[2]→final）
 python qwen3vl_local/goalgen/build_dataset_v1.py \
+  --mode v1 \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --data-root /datashare/IOL4SGH/data/data \
-  --samples-per-scenario 0 \
-  --output-dir checkpoints/goalgen_v1_data
+  --samples-per-scenario 0
+# 默认输出：checkpoints/goalgen_v1_data/
+```
+
+```bash
+# v2：只保留三个 middle 子目标之间的两段转换（middle[0]→middle[1] / middle[1]→middle[2]）
+python qwen3vl_local/goalgen/build_dataset_v1.py \
+  --mode v2 \
+  --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
+  --data-root /datashare/IOL4SGH/data/data \
+  --samples-per-scenario 0
+# 默认输出：checkpoints/goalgen_v2_data/
 ```
 
 数据构建器沿用 SFT v1 的时间线思路，但目标从"文本标签"换成"未来子目标关键帧"：
@@ -35,15 +47,19 @@ python qwen3vl_local/goalgen/build_dataset_v1.py \
 - `target_frame` 是 `subgoal` 触发所在的 keyframe；
 - 样本必须满足 `target_frame > anchor`（子目标只能在未来）。
 
+`--mode v2` 在此基础上额外剔除 `status == "initial"` 与 `subgoal == "final"` 两端样本，
+让训练分布只聚焦"三个子目标之间的实质性场景演变"。jsonl 字段 schema 与 v1 完全一致，
+train / eval / probe 入口通过 `--data-dir checkpoints/goalgen_v2_data` 直接复用，
+**不需要 train_v2.py 等新代码**。
+
 默认 `--samples-per-scenario 0` 会保留所有合法锚点帧；如需小规模消融，再显式传
 正整数上限。
 
-输出：
+输出（v1 / v2 各自一份，互不覆盖）：
 
 ```text
-checkpoints/goalgen_v1_data/train.jsonl
-checkpoints/goalgen_v1_data/val.jsonl
-checkpoints/goalgen_v1_data/stats.json
+checkpoints/goalgen_v1_data/{train,val}.jsonl + stats.json   # --mode v1
+checkpoints/goalgen_v2_data/{train,val}.jsonl + stats.json   # --mode v2
 ```
 
 ## 2. 训练
@@ -61,6 +77,36 @@ bash qwen3vl_local/goalgen/train_v1.sh ddp
 # DDP，只用 4 张自动挑选的 GPU
 DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train_v1.sh ddp
 ```
+
+### 2.0.x v2 训练（从 v1 best.pt warm start）
+
+```bash
+# 一键 v2：自动把 TRAIN/VAL → goalgen_v2_data/、OUTPUT_DIR → goalgen_v2_dit/，
+# INIT_FROM_CKPT 默认指向 v1 训练产物 checkpoints/goalgen_v1_dit/best.pt
+VERSION=v2 bash qwen3vl_local/goalgen/train_v1.sh ddp
+
+# 想从 v1 latest.pt（训练末尾）而不是 best.pt warm start：
+VERSION=v2 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest.pt \
+  bash qwen3vl_local/goalgen/train_v1.sh ddp
+
+# 想完全从零训 v2（不 warm start）：显式置空 INIT_FROM_CKPT
+VERSION=v2 INIT_FROM_CKPT="" bash qwen3vl_local/goalgen/train_v1.sh ddp
+```
+
+行为说明：
+
+- `VERSION=v2` 与 `VERSION=v1`（默认）的唯一差异是几个 env 的默认值（数据路径、
+  产物路径、`INIT_FROM_CKPT`），CLI 参数集合完全相同；
+- warm start 只加载 **DiT 权重 + EMA shadow** 两块，不接 `optimizer / scheduler /
+  global_step`，即 cosine LR 重新走 warmup、AdamW/Muon 状态全部清零；
+- `--init-from-ckpt` 走 `strict=True` **作为护栏**：v2 默认完全沿用 v1 架构
+  （`PATCH_SIZE=4 / HIDDEN_DIM=1024 / N_HEADS=8 / NUM_LAYERS=12`），state_dict
+  key + shape 一一对应，**不会触发**；只有当你后续手动改了 `HIDDEN_DIM / N_HEADS /
+  NUM_LAYERS / PATCH_SIZE` 之类 env 又忘了清空 `INIT_FROM_CKPT`，才会立刻抛
+  size mismatch，避免静默载入错权重；
+- v1 产物里 `checkpoint-XXXXXX/` 和 `step-checkpoint-XXXXXX/` 含 optimizer state，
+  **不能**直接用作 `--init-from-ckpt` 的目标（schema 不同）；只能用 `best.pt` /
+  `latest.pt` 这种顶层轻量 ckpt。
 
 常用覆盖参数：
 

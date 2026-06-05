@@ -52,6 +52,21 @@ qwen3vl_local/goalgen/build_dataset_v1.py
 默认 `--samples-per-scenario 0`，保留所有合法锚点帧；如需做小规模消融，可显式传
 正整数上限。
 
+**`--mode v1` vs `--mode v2`（同一脚本，输出目录隔离）：**
+
+- `--mode v1`（默认）：保留全部 4 类 `status → subgoal` 转换，即
+  `initial → middle[0]` / `middle[0] → middle[1]` / `middle[1] → middle[2]` / `middle[2] → final`。
+  默认输出 `checkpoints/goalgen_v1_data/`。
+- `--mode v2`：只保留三个 `middle` 子目标之间的两段转换，即
+  `middle[0] → middle[1]` / `middle[1] → middle[2]`；排除 `status == "initial"` 与
+  `subgoal == "final"` 两端样本。默认输出 `checkpoints/goalgen_v2_data/`。
+  动机：起手 `initial` 帧视觉上没有"任务进度"信息、收尾 `final` 子目标视觉上常常退化为
+  "减速 / 停车"，对 DiT 生成未来关键帧几乎不携带方向信号；v2 把这两端剔除以让训练
+  分布只聚焦在子目标之间的"实质性场景演变"上。
+
+`--mode` 字段会写进 `stats.json` 的 `config`，下游训练 / 评测脚本通过 `--data-dir` 指向
+`goalgen_v2_data/` 即可直接复用 v1 的 train / eval / probe 入口，**不需要新代码路径**。
+
 样本字段结构：
 
 ```json
@@ -242,4 +257,19 @@ v1 显式**不做**的事情（写在这里防止未来 agent 擅自扩张范围
 - 不做完整离线 KV / latent 数据集缓存（只缓存 per-channel latent stats）。
 - 不做多目标监督（每条样本就一个子目标关键帧）。
 
-v2 在 v1 的前向单步验证 + 训练冒烟测试在远端 H20 集群跑通之后再启动。
+**当前"v2"的范围仅限数据集分布裁剪 + 默认从 v1 warm start**（见上一节 `--mode v2`
+和下面 `VERSION=v2`）：
+
+- 复用 `build_dataset_v1.py` 同一脚本，靠 `--mode` 切换 transition 集合；
+- 输出 jsonl 字段 schema 与 v1 完全一致（`scenario / run_id / anchor / status /
+  subgoal / target_frame / history_rgb_paths / current_rgb_path / target_rgb_path /
+  memory`），train / eval / probe 入口不动；
+- DiT 架构、Qwen KV 分段、VAE 编码、CFG、EMA 等所有训练侧配置保持 v1 默认；
+- `train_v1.sh` 新增 `VERSION` env：`VERSION=v2` 时自动把数据切到 `goalgen_v2_data/`、
+  产物落到 `goalgen_v2_dit/`、并把 `--init-from-ckpt` 默认指向 `goalgen_v1_dit/best.pt`，
+  做 **DiT 权重 + EMA shadow 双 strict=True warm start**（不接 optimizer / scheduler /
+  step），实质等同于"换数据子集 + 继承架构权重"重新训练。架构默认完全沿用 v1，
+  strict=True 在这条路径上是"防 env 漂移"的护栏（v1→v2 默认配置不会触发）。
+
+后续需要"真正的 v2 训练栈"（例如离线缓存分段 KV / latent、多目标监督、新的损失项），
+应在 v1 远端冒烟测试通过后另起 `train_v2.py` 等文件，并按项目规则同步白名单。

@@ -1046,6 +1046,32 @@ def train(args: argparse.Namespace) -> None:
     elif is_rank0(rank):
         print("[patch_unpatch] 未提供权重 -> patch/unpatch 跟随 DiT 随机初始化训练")
 
+    # warm start：在 patch/unpatch 加载之后、EMA 实例化之前先把 ckpt 的 dit_state_dict
+    # copy 进当前 dit。次序很重要——先 patch_unpatch、再 warm-start dit、再建 EMA，
+    # 这样 EMA 初始 shadow 自动等于 ckpt 里 dit 的权重，再被随后的 ema_state_dict 覆盖。
+    # ckpt 里如果有 _orig_mod. / module. 前缀（DDP 或 compile wrap 后 save 的痕迹），
+    # save_checkpoint 已 unwrap module.，compile 也用 default mode 不带前缀，所以
+    # 这里直接 strict=True，让前缀异常显式抛错而不是吞掉。
+    warm_ckpt_payload = None
+    if args.init_from_ckpt:
+        warm_ckpt_path = pathlib.Path(args.init_from_ckpt)
+        if not warm_ckpt_path.is_file():
+            raise FileNotFoundError(f"--init-from-ckpt 指向的文件不存在：{warm_ckpt_path}")
+        # map_location="cpu"：先放 CPU，再 load_state_dict 时 PyTorch 自动 copy_ 到
+        # dit 当前 device + dtype；避免 ckpt 的 device 与本进程 device 不一致导致额外搬运。
+        warm_ckpt_payload = torch.load(warm_ckpt_path, map_location="cpu", weights_only=False)
+        if "dit_state_dict" not in warm_ckpt_payload:
+            raise KeyError(
+                f"--init-from-ckpt {warm_ckpt_path} 缺少 dit_state_dict 字段；"
+                f"该路径应指向 latest.pt / best.pt 这种轻量 ckpt。"
+            )
+        dit.load_state_dict(warm_ckpt_payload["dit_state_dict"], strict=True)
+        if is_rank0(rank):
+            src_step = warm_ckpt_payload.get("step", "?")
+            print(
+                f"[warm_start] DiT 权重已从 {warm_ckpt_path} 载入（src step={src_step}, strict=True）"
+            )
+
     # 可选 gradient checkpointing：显存省 ~40%，wall-clock 多 ~30%。
     # 默认开（patch=4 后 token 数本就不多，启用 ckpt 几乎不影响速度但能塞更大 batch）；
     # 想压低单步耗时关 `--no-grad-ckpt` 即可。
@@ -1057,6 +1083,17 @@ def train(args: argparse.Namespace) -> None:
     # EMA 在 patch/unpatch 加载完之后初始化：让 EMA 起步快照 = 预训过的权重，
     # 而不是 build_dit 给的随机值；否则训练初期 EMA 推理图像会失真很久。
     ema = DiTEMA(dit, decay=args.ema_decay)
+    # warm start 第二步：把 ckpt 里的 ema_state_dict 覆盖到刚建好的 EMA shadow。
+    # 不接 EMA 时（warm_ckpt_payload 没这个 key 或用户只想 warm-start DiT）跳过——
+    # 此时 EMA shadow = 当前 dit 权重，与 patch_unpatch 老语义一致。
+    if warm_ckpt_payload is not None and "ema_state_dict" in warm_ckpt_payload:
+        ema.load_state_dict(warm_ckpt_payload["ema_state_dict"], strict=True)
+        if is_rank0(rank):
+            print(
+                f"[warm_start] EMA shadow 已从 {args.init_from_ckpt} 载入（strict=True）"
+            )
+    # 释放 ckpt 引用，避免 DDP wrap / optimizer 构建期间多占一份 host 内存。
+    del warm_ckpt_payload
     if world_size > 1:
         # find_unused_parameters=True：DiT 的 null_lang_k / null_lang_v（24 个 Parameter）
         # 仅在 force_uncond=True 的 micro-step 被使用；cfg_drop_prob=0.1 时大多数
@@ -1458,6 +1495,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         'DiTMoT.load_patch_unpatch 加载并冻结。v2 起需 hidden=1024/patch=4 训出。')
     p.add_argument("--patch-unpatch-unfreeze", action="store_true", default=False,
                    help="加载 patch/unpatch 权重后仍允许联合更新（默认加载即冻结）。")
+    # warm start：从 latest.pt / best.pt schema 的轻量 ckpt 里读 dit_state_dict +
+    # ema_state_dict，作为本次训练的初始权重 / EMA shadow。**不**加载 optimizer /
+    # scheduler / global_step——这是 warm start（接近 fine-tune），不是 resume。
+    # 典型用法：v2 从 v1 best.pt 续训，让 DiT 起点已经是 v1 训好的参数。
+    # strict=True：架构不一致直接报错，避免 hidden_dim / n_heads 改动后静默载入错权重。
+    p.add_argument("--init-from-ckpt", type=str, default="",
+                   help="可选 latest.pt / best.pt 路径；非空时只加载 dit_state_dict + "
+                        "ema_state_dict 做 warm start（不接 optimizer/scheduler/step）。"
+                        "strict=True 校验，架构不匹配立即抛错。")
     p.add_argument("--n-heads", type=int, default=8)
     p.add_argument("--mlp-ratio", type=float, default=4.0)
     p.add_argument("--num-layers", type=int, default=12)
