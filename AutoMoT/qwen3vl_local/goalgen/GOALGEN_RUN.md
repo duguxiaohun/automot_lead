@@ -104,11 +104,18 @@ checkpoints/goalgen_v*_dit/latest -> run_<tag>
 ### 3.1 v2 多卡启动
 
 ```bash
-# 多卡 + 默认 best.pt（自动从 checkpoints/goalgen_v1_dit/latest/best.pt warm start）
+# 默认 8 卡 + 默认 best.pt（自动从 checkpoints/goalgen_v1_dit/latest/best.pt warm start）
 VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
 
-# 多卡 + 指定 pt
+# 默认 8 卡 + 指定 pt
 VERSION=v2 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/latest.pt \
+    bash qwen3vl_local/goalgen/train.sh ddp
+
+# 指定 N 卡 + 默认 best.pt（这里 N=4，卡号仍由脚本自动挑最空闲的）
+VERSION=v2 DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
+
+# 指定 N 卡 + 指定 pt
+VERSION=v2 DDP_GPU_COUNT=4 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/latest.pt \
     bash qwen3vl_local/goalgen/train.sh ddp
 ```
 
