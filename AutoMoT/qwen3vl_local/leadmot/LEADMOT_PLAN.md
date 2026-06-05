@@ -152,8 +152,11 @@ checkpoint 写入使用 `torch.save(tmp)` + `os.replace(tmp, final)`，避免 NF
 **state_dict 在两档之间不兼容**（`bev_projector` 子模块存在性变化），因此：
 
 - 不能跨 `use_bev` 用 `--init-from-ckpt`；切档必须从头训或单独 warm start；
-- eval / probe 从 ckpt 里自动读 `use_bev`（保存在 `decoder_config` 字典里），无需重复在 CLI 指定；
-- runner（`mot_lead_offline_runner.py`）调用 decoder 时也按 ckpt 里的 `use_bev` 决定是否给 `bev=` 参数喂数据。
+- eval / probe 从 ckpt 里自动读 `use_bev`（保存在 `decoder_config` 字典里），旧 ckpt 缺字段时按 `bev_projector.*` key 推断，无需重复在 CLI 指定；
+- runner（`mot_lead_offline_runner.py`）会先读取 ckpt 的 `decoder_config.use_bev` 再实例化
+  decoder；旧 ckpt 没该字段时按 state_dict 里是否存在 `bev_projector.*` 推断。
+  加载 decoder 权重使用 `strict=True`：`use_bev=True` 必须导入已有 BEV projector 参数，
+  `use_bev=False` 则完全不实例化 / 不 forward BEV，绝不把随机 BEV projector 混进推理。
 
 CLI / env 接口：
 

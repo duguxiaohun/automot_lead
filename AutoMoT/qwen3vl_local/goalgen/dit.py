@@ -1,12 +1,12 @@
-"""DiT-MoT：12 层 joint-attention 的 latent 扩散主干（v2 架构对齐 Qwen K/V）。
+"""DiT-MoT：12 层 joint-attention 的 latent 扩散主干（当前 v1/v2 共享架构）。
 
-v2 相对 v1 的核心改动（详见 PROJECT_CONTEXT.md §15）：
+当前共享架构相对早期历史架构的核心改动（详见 PROJECT_CONTEXT.md §15）：
 
 - **维度直接对齐 Qwen K/V 子空间**：hidden_dim=1024、n_heads=8、head_dim=128，
   全部跟 Qwen3-VL-4B-Instruct 的 (num_key_value_heads, head_dim) 完全相同。
-  作用是**彻底删掉 v1 里的 `lang_k_proj` / `lang_v_proj` 两条 1024→768 跨维线性投影**，
+  作用是**彻底删掉早期架构里的 `lang_k_proj` / `lang_v_proj` 两条 1024→768 跨维线性投影**，
   Qwen 的 K/V 直接当 DiT 的语言 K/V 用，零信息损失。
-- **patch_size=4**：视觉 token 数缩到 v1 的 1/4（24×72→6×18），attention FLOPs 大约
+- **patch_size=4**：视觉 token 数缩到早期 patch=2 架构的 1/4（24×72→12×36），attention FLOPs 大约
   缩 16×。代价是输出空间分辨率粗一倍；GoalGen 的 subgoal latent 不需要像素级细节，
   这个 trade-off 划算。
 - **q_norm / k_norm（RMSNorm）**：仿 Qwen3 / AutoMoT PackedAttentionMoT，对 vision Q/K
@@ -248,8 +248,8 @@ class SwiGLU(nn.Module):
 class JointAttention(nn.Module):
     """vision Q 与 (vision K/V + language K/V) 做一次 attention。
 
-    v2 关键改动：DiT 的 (n_heads, head_dim) 直接 = Qwen 的 (num_key_value_heads, head_dim)
-    = (8, 128)，所以语言 K/V **无需任何线性投影**就能直接 concat。彻底删掉了 v1 的
+    当前共享架构的关键点：DiT 的 (n_heads, head_dim) 直接 = Qwen 的 (num_key_value_heads, head_dim)
+    = (8, 128)，所以语言 K/V **无需任何线性投影**就能直接 concat。彻底删掉了早期架构的
     `lang_k_proj` / `lang_v_proj` 两条 1024→hidden 跨维投影。
 
     vision Q/K 在投影后额外走一次 RMSNorm（q_norm / k_norm），与 Qwen3 / AutoMoT 的
@@ -290,7 +290,7 @@ class JointAttention(nn.Module):
 
         - lang_kv：``(K, V)``，形状 ``[B 或 1, n_heads=8, S, head_dim=128]``；
           与 DiT (n_heads, head_dim) 已经天然同形，无需投影。
-        - lang_kv_is_projected：v2 起这个参数**总是 True 语义**——language KV 永远
+        - lang_kv_is_projected：当前共享架构下这个参数**总是 True 语义**——language KV 永远
           在 DiT 自己的 (n_heads, head_dim) 子空间。保留这个参数名只是为了让外层
           DiTMoTBlock 接口最小变动；实际不再有 "is_projected vs not" 的分支。
 
@@ -300,7 +300,7 @@ class JointAttention(nn.Module):
         "对齐语言上下文"，更接近 AutoMoT 里"快慢 MoT"原始设计。
         """
 
-        # lang_kv_is_projected 形参保留向后兼容；v2 起 lang_kv 一定已经在 DiT 子空间。
+        # lang_kv_is_projected 形参保留向后兼容；当前 lang_kv 一定已经在 DiT 子空间。
         del lang_kv_is_projected
 
         b, n_v, _ = vision_tokens.shape
@@ -336,7 +336,7 @@ class JointAttention(nn.Module):
         if k_l.shape[1] != self.n_heads or k_l.shape[3] != self.head_dim:
             raise ValueError(
                 f"language K 形状 {tuple(k_l.shape)} 与 DiT (n_heads={self.n_heads}, "
-                f"head_dim={self.head_dim}) 不对齐；v2 起需要严格相同。检查 qwen_kv 输出。"
+                f"head_dim={self.head_dim}) 不对齐；当前共享架构需要严格相同。检查 qwen_kv 输出。"
             )
 
         # 沿 token 维拼接：[B, H, N_v, D] + [B, H, N_l, D] -> [B, H, N_v + N_l, D]。
@@ -390,7 +390,7 @@ class DiTMoTBlock(nn.Module):
         cond 由外部一次性算好（来自 timestep MLP），所有 block 共用同一个 cond，但每个
         block 内部的 AdaLN modulation 矩阵不共享 -> 每层有自己的 shift/scale/gate。
 
-        ``lang_kv_is_projected`` v2 起总是隐含 True，保留参数仅为兼容旧接口；底层
+        ``lang_kv_is_projected`` 当前总是隐含 True，保留参数仅为兼容旧接口；底层
         JointAttention 也不再依赖它分支。
         """
 
@@ -421,9 +421,9 @@ class DiTMoTBlock(nn.Module):
 class DiTMoTConfig:
     """DiT-MoT 默认配置；变更默认值时同时更新 PROJECT_CONTEXT.md §15。
 
-    v2 默认值（2026-06 切换）：
+    当前共享架构默认值（2026-06 切换后）：
     - hidden_dim=1024, n_heads=8, head_dim=128 -> 直接对齐 Qwen K/V (8, 128)
-    - patch_size=4：视觉 token 数缩到 v1 的 1/4
+    - patch_size=4：视觉 token 数相对早期 patch=2 架构缩到 1/4
     - MLP 走 SwiGLU、所有 norm 走 RMSNorm（不再有 language_kv_input_dim 字段）
     """
 
@@ -440,14 +440,14 @@ class DiTMoTConfig:
 
 
 class DiTMoT(nn.Module):
-    """完整 DiT-MoT 主干（v2 架构）。
+    """完整 DiT-MoT 主干（当前 v1/v2 共享架构）。
 
     forward 输入：
       - z_t   : [B, C, H, W]，含噪声的目标 latent
       - z_history : [B, F, C, H, W]，历史 VAE latent（旧 -> 新）
       - t     : [B]，flow matching 时间步 ∈ [0,1]
       - pooled_kv : 长度 = num_layers 的列表，元素为 (K_seg, V_seg)；每个张量形状
-                    [B, n_heads, S, head_dim] = [B, 8, S, 128]（v2 起必须严格匹配）
+                    [B, n_heads, S, head_dim] = [B, 8, S, 128]（当前共享架构必须严格匹配）
     输出：v_pred : [B, C, H, W]，velocity 预测，对应 z_t 的 patch grid。
     """
 
@@ -475,7 +475,7 @@ class DiTMoT(nn.Module):
         nn.init.normal_(self.frame_embed, mean=0.0, std=0.02)
 
         # CFG 训练用的 null language KV：每层独立，直接存于 DiT (n_heads, head_dim) 子空间，
-        # 跟 v1 一样、形状跟着新 (8, 128) 走。s_null=1：null 只贡献一个 token，
+        # 形状跟着当前共享架构 (8, 128) 走。s_null=1：null 只贡献一个 token，
         # attention softmax 里几乎免费；这是 SD3 / Flux 的标准实践。
         # 用"长度 S~2300 的 zero KV"代替会让 softmax 大量取平均，反而压低有效信号。
         # 零初始化：训练开始时 uncond 路径等价于"忽略语言"，配合 AdaLN-Zero gate=0，
@@ -560,8 +560,9 @@ class DiTMoT(nn.Module):
           ``patch.proj.weight / patch.proj.bias / unpatch.proj.weight / unpatch.proj.bias``，
           与本模块内 ``self.patch`` / ``self.unpatch`` 完全一致，直接 load_state_dict
           即可，无需 rename。
-        - **v2 注意**：v1 的 safetensors（hidden=768 / patch=2）与 v2（hidden=1024 / patch=4）
-          形状不兼容，无法直接加载；必须用 ``train_patch_unpatch.py`` 的新默认值重训。
+        - **架构兼容性注意**：早期 safetensors（hidden=768 / patch=2）与当前共享架构
+          （hidden=1024 / patch=4）形状不兼容，无法直接加载；必须用
+          ``train_patch_unpatch.py`` 的当前默认值重训。
         - ``freeze=True``（默认）：加载后把 patch / unpatch 切到 eval、关掉 grad；
           train 的 optimizer 只收 ``requires_grad=True`` 的参数，所以这条路径下
           它们不会被更新。
@@ -597,14 +598,14 @@ class DiTMoT(nn.Module):
 
         # 形状校验：用本模块当前的 state_dict 对比每个 key 的 shape；不一致说明
         # 训练 patch/unpatch 时的 hidden_dim / patch_size / latent_channels 与
-        # DiTMoTConfig 不匹配，必须立刻报错。v1→v2 切换时这里会精准命中。
+        # DiTMoTConfig 不匹配，必须立刻报错。早期架构权重会在这里精准命中。
         own_sd = self.state_dict()
         for k, v in pick.items():
             if own_sd[k].shape != v.shape:
                 raise ValueError(
                     f"patch/unpatch 权重 {k} shape 不匹配："
                     f"DiT 期望 {tuple(own_sd[k].shape)}，文件 {tuple(v.shape)}。"
-                    "v1 ckpt（hidden=768/patch=2）与 v2（hidden=1024/patch=4）不兼容，需重训。"
+                    "早期架构 ckpt（hidden=768/patch=2）与当前架构（hidden=1024/patch=4）不兼容，需重训。"
                 )
 
         # strict=False：本模块还有其它 key（blocks/null_lang_*/pos_embed_table 等）
@@ -643,7 +644,7 @@ class DiTMoT(nn.Module):
         - t：[B]，flow matching 时间步 ∈ [0,1]。
         - pooled_kv：长度必须 == num_layers；每段是 (K, V)，形状
           ``[B 或 1, n_heads=8, S, head_dim=128]``，dtype 通常和 DiT 自身一致。
-          **v2 要求严格 (n_heads, head_dim) 匹配**，否则在 JointAttention 内会抛错。
+          **当前共享架构要求严格 (n_heads, head_dim) 匹配**，否则在 JointAttention 内会抛错。
         - force_uncond：True 表示用 DiT 自身的 null_lang_k/v 代替 pooled_kv
           走 uncond 路径（CFG 训练 / 引导推理用）。pooled_kv 此时仍需传入，
           只是不被使用——保留位置以保持接口稳定。
@@ -661,14 +662,14 @@ class DiTMoT(nn.Module):
                 f"pooled_kv 段数 {len(pooled_kv)} 与 DiT 层数 {self.cfg.num_layers} 不一致"
             )
 
-        # v2 严格性校验：仅用 pooled_kv[0] 抽样检测，避免每层都查浪费 CPU。
+        # 当前共享架构严格性校验：仅用 pooled_kv[0] 抽样检测，避免每层都查浪费 CPU。
         # 不在 JointAttention 内做这步是为了在最早期就抓错，错误信息更直接。
         k0, _ = pooled_kv[0]
         if not force_uncond and (k0.shape[1] != self.cfg.n_heads or k0.shape[3] != (self.cfg.hidden_dim // self.cfg.n_heads)):
             raise ValueError(
                 f"pooled_kv[0] K 形状 {tuple(k0.shape)} 与 DiT (n_heads={self.cfg.n_heads}, "
                 f"head_dim={self.cfg.hidden_dim // self.cfg.n_heads}) 不匹配。"
-                "v2 要求严格相同；检查 qwen_kv 输出或换 Qwen 模型时的 num_key_value_heads。"
+                "当前共享架构要求严格相同；检查 qwen_kv 输出或换 Qwen 模型时的 num_key_value_heads。"
             )
 
         if z_history.ndim == 4:
@@ -686,7 +687,7 @@ class DiTMoT(nn.Module):
         # type_embed + frame_embed + timestep cond 负责区分 noisy / clean / 时序。
 
         tok_t, grid_t = self.patch(z_t)
-        # tok_t  torch.Size([1, 432, 1024])   <- v2 默认 patch=4 时网格 (12, 36)
+        # tok_t  torch.Size([1, 432, 1024])   <- 当前默认 patch=4 时网格 (12, 36)
         # grid_t (12, 36)
         gh, gw = grid_t
 
@@ -765,7 +766,7 @@ class DiTMoT(nn.Module):
                 vision_tokens,
                 lang_kv,
                 cond,
-                is_uncond,  # 对应 block.forward 的 lang_kv_is_projected 形参；语义已在 v2 中作废
+                is_uncond,  # 对应 block.forward 的 lang_kv_is_projected 形参；语义已作废
                 use_reentrant=False,
             )
         return block(vision_tokens, lang_kv, cond, lang_kv_is_projected=is_uncond)

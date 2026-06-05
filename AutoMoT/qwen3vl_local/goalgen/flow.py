@@ -1,14 +1,14 @@
 """Flow matching 训练目标 + Euler 推理积分 + EMA + CFG 引导采样。
 
-v2（与第一档改动一起上线）相比 v1 的差异：
+当前共享训练目标相对早期行为的差异：
 
-1. **z0 prior（image-to-image style）**：旧版 z0 ~ N(0, I)，相当于"从纯噪声生成
+1. **z0 prior（image-to-image style）**：早期行为 z0 ~ N(0, I)，相当于"从纯噪声生成
    未来帧"。子目标关键帧通常是当前帧的小幅演化（车继续前进、左转完成），完全
    无关的画面极少。新版允许传入 ``z_prior``（一般取 ``z_history[:, -1]`` 即当前
    帧 latent），按 ``z0 = alpha * z_prior + sigma * noise`` 构造起点。推理时
    ``z_init`` 也用同一份 z_prior 构造，保持训练 / 推理分布一致。
 
-2. **logit-normal t 采样**（SD3 论文配方）：旧版 ``t ~ Uniform[0,1]``，t≈0/1 区域
+2. **logit-normal t 采样**（SD3 论文配方）：早期行为 ``t ~ Uniform[0,1]``，t≈0/1 区域
    监督信号弱；logit-normal(0, 1) 把概率密度集中到 t=0.5 附近，实测能显著加快
    收敛。``--t-sampler uniform`` 保留旧行为做对照。
 
@@ -22,7 +22,7 @@ v2（与第一档改动一起上线）相比 v1 的差异：
 
 训练目标本身仍是最朴素的 rectified flow / OT-CFM：
 
-  z0 = alpha * z_prior + sigma * eps,  eps ~ N(0, I)   (或者 alpha=0, sigma=1 退回 v1)
+  z0 = alpha * z_prior + sigma * eps,  eps ~ N(0, I)   (或者 alpha=0, sigma=1 退回纯噪声起点)
   z1 = VAE(subgoal_keyframe)
   z_t = (1 - t) * z0 + t * z1
   v_target = z1 - z0

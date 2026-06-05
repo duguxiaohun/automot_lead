@@ -1,4 +1,4 @@
-"""从关键帧时间线构建 GoalGen v1 的 jsonl 数据集。
+"""从关键帧时间线构建 GoalGen v1/v2 的 jsonl 数据集。
 
 本脚本应在远端机器的 ``AutoMoT/`` 目录下运行，例如：
 
@@ -7,7 +7,7 @@ python qwen3vl_local/goalgen/build_dataset.py \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/goalgen_v1_data
 
-构建逻辑沿用 SFT v1 的事件时间线思路，但监督目标不同：
+构建逻辑沿用 SFT 的事件时间线思路，但监督目标不同：
 对每个锚点帧，STATUS 是该帧的真值状态，SUBGOAL 是场景事件链里的下一个事件；
 图像监督目标则是这个 SUBGOAL 开始发生时的未来关键帧。
 """

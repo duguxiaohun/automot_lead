@@ -11,6 +11,9 @@
 >   BEV encoder 整个 forward 也会跳过；适合做"语言模型是否够用"的消融。**注意切换
 >   `USE_BEV` 会让 `decoder.bev_projector` 子模块存在性变化，state_dict 不兼容**，
 >   不能跨 `USE_BEV` 用 `--init-from-ckpt`，必须从头训或单独 warm start。
+>   eval / probe / runner 会从 checkpoint 的 `decoder_config.use_bev` 自动恢复开关；
+>   runner 加载 decoder 权重使用 `strict=True`。`USE_BEV=1` 必须导入已有
+>   `bev_projector` 参数，`USE_BEV=0` 则完全不实例化 / 不 forward BEV，绝不混入随机 BEV。
 
 ## 1. 构建训练索引
 
@@ -101,7 +104,9 @@ DDP_GPU_COUNT=4 USE_BEV=0 bash qwen3vl_local/leadmot/train.sh ddp
 | 适用场景 | 主训练 | 消融对比"语言模型是否够用"，或限显存机器训练 |
 
 切换 `USE_BEV` 必须从头训或单独 warm start，eval / probe 时从 ckpt 里自动读
-`use_bev` 字段，与训练时一致即可，不需要重复指定 CLI。
+`use_bev` 字段；旧 ckpt 缺字段时按 `bev_projector.*` key 推断。与训练时一致即可，不需要重复指定 CLI。接入
+`mot_lead_offline_runner.py` 时也同理：先读 checkpoint 配置再实例化 decoder，并用
+`strict=True` 加载权重，避免 `USE_BEV=0` checkpoint 被错误装进带随机 `bev_projector` 的模型。
 
 ## 5. 默认训练参数
 

@@ -229,7 +229,7 @@ def _build_dit(
     2. CLI 显式覆盖（patch_size/hidden_dim/n_heads/mlp_ratio/cond_dim/max_history_frames）。
        不显式传时不覆盖。
     3. num_layers **永远**等于 len(pooled_kv) —— DiT 层数和 KV 段数必须强对齐。
-    4. v2 起 DiT (n_heads, head_dim) 必须严格等于 Qwen K/V (n_kv_heads, head_dim)；
+    4. 当前共享架构要求 DiT (n_heads, head_dim) 必须严格等于 Qwen K/V (n_kv_heads, head_dim)；
        本函数在 instantiate 之前做一次形状预检，不匹配直接抛 RuntimeError。
     """
 
@@ -298,7 +298,7 @@ def _build_dit(
     if saved_cfg_dict is not None:
         # 形状预检：ckpt 训练时 num_layers 与现在运行时不一致 → strict=True load 必然炸
         # attention 投影。提前断言给出双数字 + 原因，比 load_state_dict 的原始报错可读得多。
-        # v2 不再有 language_kv_input_dim 字段；K/V 形状一致性由 DiTMoT.forward 内部断言。
+        # 当前架构不再有 language_kv_input_dim 字段；K/V 形状一致性由 DiTMoT.forward 内部断言。
         saved_layers = saved_cfg_dict.get("num_layers")
         runtime_layers = cli_kwargs["num_layers"]
         if saved_layers is not None and saved_layers != runtime_layers:
@@ -310,7 +310,7 @@ def _build_dit(
 
         # ckpt 存的字段以它为准；CLI 没显式提到的就接受 saved 值。
         merged = dict(saved_cfg_dict)
-        # 兼容旧 v1 ckpt：v1 cfg 里有 language_kv_input_dim 字段，v2 DiTMoTConfig 已不接受 -> 弹掉。
+        # 兼容早期架构 ckpt：旧 cfg 里有 language_kv_input_dim 字段，DiTMoTConfig 已不接受 -> 弹掉。
         merged.pop("language_kv_input_dim", None)
         merged["num_layers"] = runtime_layers
         # ckpt 没存 latent_channels 时（旧 ckpt）保留 CLI 默认值。
@@ -324,7 +324,7 @@ def _build_dit(
             print(f"[dit] 警告：检查点里没有 dit_config，将退回命令行参数。"
                   f"如果训练时用了非默认几何配置，加载时可能形状不匹配。")
 
-    # v2 强校验：DiT (n_heads, head_dim) 必须严格 = Qwen pooled K/V 形状。
+    # 当前共享架构强校验：DiT (n_heads, head_dim) 必须严格 = Qwen pooled K/V 形状。
     if pooled_kv:
         k0, _ = pooled_kv[0]
         kv_n_heads = int(k0.shape[1])
@@ -333,13 +333,13 @@ def _build_dit(
             raise RuntimeError(
                 f"DiT cfg (n_heads={cfg.n_heads}, head_dim={cfg.hidden_dim // cfg.n_heads}) "
                 f"与运行时 Qwen K/V (n_kv_heads={kv_n_heads}, head_dim={kv_head_dim}) 不匹配；"
-                "v2 要求严格相同。请确认 Qwen 模型 / DiT cfg 一致（默认 8×128）。"
+                "当前共享架构要求严格相同。请确认 Qwen 模型 / DiT cfg 一致（默认 8×128）。"
             )
 
     model = DiTMoT(cfg).to(device=device, dtype=dtype)
 
     if payload is not None:
-        # v2: 默认走 EMA 权重（推理质量更稳）；ckpt 没存就回退裸 dit_state_dict。
+        # 当前推理默认走 EMA 权重（质量更稳）；ckpt 没存就回退裸 dit_state_dict。
         # 早期手工保存的裸 state_dict 没有 dict wrapper，走 else 分支。
         if isinstance(payload, dict) and args.use_ema and payload.get("ema_state_dict") is not None:
             state_dict = payload["ema_state_dict"]
@@ -487,7 +487,7 @@ def run_once(args: argparse.Namespace) -> None:
 
     # 4) DiT 构造 + 一次前向。
     # DiT 的 num_layers 由 KV 段数决定（与 args.num_layers 强一致）。
-    # v2 起 (n_heads, head_dim) 直接 = Qwen (8, 128)，_build_dit 内部会做形状强校验。
+    # 当前共享架构下 (n_heads, head_dim) 直接 = Qwen (8, 128)，_build_dit 内部会做形状强校验。
     dit_dtype_map = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}
     dit_dtype = dit_dtype_map.get(args.dit_dtype, torch.float32)
     dit = _build_dit(prefill.pooled_kv, args, device=engine.device, dtype=dit_dtype)
@@ -546,13 +546,13 @@ def run_once(args: argparse.Namespace) -> None:
             "segmented": summarize_pooled_kv(prefill.pooled_kv),
         },
         "dit_config": {
-            "hidden_dim": args.hidden_dim,
-            "n_heads": args.n_heads,
+            "hidden_dim": dit.cfg.hidden_dim,
+            "n_heads": dit.cfg.n_heads,
             "num_layers": len(prefill.pooled_kv),
-            "patch_size": args.patch_size,
-            "mlp_ratio": args.mlp_ratio,
-            "cond_dim": args.cond_dim,
-            "max_history_frames": args.max_history_frames,
+            "patch_size": dit.cfg.patch_size,
+            "mlp_ratio": dit.cfg.mlp_ratio,
+            "cond_dim": dit.cfg.cond_dim,
+            "max_history_frames": dit.cfg.max_history_frames,
             "checkpoint": args.dit_checkpoint,
         },
         "latent_shapes": {
@@ -611,7 +611,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # VAE
     p.add_argument("--vae-dtype", type=str, default="float32",
                    help="VAE 内部 dtype；vae_only.yaml 默认关闭自动混精，所以这里推荐 float32")
-    # DiT —— v2 默认值对齐 Qwen3-VL-4B-Instruct K/V (8, 128)
+    # DiT —— 当前共享默认值对齐 Qwen3-VL-4B-Instruct K/V (8, 128)
     p.add_argument("--patch-size", type=int, default=4)
     p.add_argument("--hidden-dim", type=int, default=1024)
     p.add_argument("--n-heads", type=int, default=8)

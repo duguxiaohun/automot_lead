@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GoalGen v1 训练启动脚本。请在 AutoMoT/ 目录下运行。
+# GoalGen v1/v2 共用训练启动脚本。请在 AutoMoT/ 目录下运行。
 #
 # 用法：
 #   bash qwen3vl_local/goalgen/train.sh check
@@ -24,7 +24,7 @@ if [[ "${VERSION}" == "v2" ]]; then
     TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/goalgen_v2_data/train.jsonl}"
     VAL_JSONL="${VAL_JSONL:-checkpoints/goalgen_v2_data/val.jsonl}"
     OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/goalgen_v2_dit}"
-    # v2 默认从 v1 训练产物里的 best.pt warm start：DiT 权重 + EMA shadow 都加载，
+    # VERSION=v2 模式默认从 v1 训练产物里的 best.pt warm start：DiT 权重 + EMA shadow 都加载，
     # 不接 optimizer / scheduler / step，等同于"换数据子集 + 继承架构权重"重新训练。
     # 想从 latest.pt warm start：INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest.pt
     # 想完全从零训 v2：INIT_FROM_CKPT=NONE（任何不存在的路径会被 train.py 报错，
@@ -34,12 +34,12 @@ if [[ "${VERSION}" == "v2" ]]; then
     # 老 schema（v1 训练时还没启用 run 子目录，best.pt 直接在 OUTPUT_DIR 顶层）：
     # 显式传 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/best.pt 即可。
     INIT_FROM_CKPT="${INIT_FROM_CKPT:-checkpoints/goalgen_v1_dit/latest/best.pt}"
-    # v2 默认走 **fine-tune 保守配方**（warm start 起点已是 v1 best.pt，初期 LR 过大
+    # VERSION=v2 模式默认走 **fine-tune 保守配方**（warm start 起点已是 v1 best.pt，初期 LR 过大
     # 会一步把 v1 学好的权重重新打散，得不偿失）：
     # - LR 减半（AdamW 1e-4 / Muon 1e-3）
     # - warmup 缩短到 0.02（权重已经合理，不需要长 warmup 平稳起步）
-    # - NUM_EPOCHS 保持 2：v2 数据量约 v1 50-70% + warm start，与 v1 同 epoch 数
-    #   实际 step 数大约只剩 v1 的 30-50%，足够 fine-tune 收敛
+    # - NUM_EPOCHS 保持 2：v2 真实 step 数以 goalgen_v2_data/stats.json 为准；
+    #   warm start + 降 LR 下先用 2 epoch 作为保守 fine-tune 默认值。
     # 想恢复 v1 from-scratch 风格（LR=2e-4 等），显式传 LR=2e-4 / MUON_LR=2e-3 即可。
     LR="${LR:-1e-4}"
     MUON_LR="${MUON_LR:-1e-3}"
@@ -71,12 +71,13 @@ IMAGE_LOG_EULER_STEPS="${IMAGE_LOG_EULER_STEPS:-32}"
 # val/loss 最小的一份额外拷贝为 best.pt（顶层独立保存，不受 keep 影响）。
 KEEP_RECENT_CHECKPOINTS="${KEEP_RECENT_CHECKPOINTS:-3}"
 
-# v2 默认架构（2026-06 切换）：patch=4 / hidden=1024 / n_heads=8 -> 直接对齐 Qwen K/V (8×128)
+# 当前共享架构（2026-06 切换）：patch=4 / hidden=1024 / n_heads=8 -> 直接对齐 Qwen K/V (8×128)
 PATCH_SIZE="${PATCH_SIZE:-4}"
 HIDDEN_DIM="${HIDDEN_DIM:-1024}"
 # 可选：把 AutoMoT/vae_standalone/train_patch_unpatch.py 训出来的权重塞回 DiT。
 # 留空 = 维持原行为（patch/unpatch 随机初始化跟 DiT 一起训练）。
-# v2 注意：必须用 hidden=1024 / patch=4 训出的 safetensors，旧版 hidden=768 不兼容。
+# 架构兼容性注意：必须用 hidden=1024 / patch=4 训出的 safetensors，
+# 早期 hidden=768 / patch=2 权重不兼容。
 PATCH_UNPATCH_WEIGHTS="${PATCH_UNPATCH_WEIGHTS:-}"
 # 默认加载即冻结；要联合微调 patch/unpatch 设 PATCH_UNPATCH_UNFREEZE=1。
 PATCH_UNPATCH_UNFREEZE="${PATCH_UNPATCH_UNFREEZE:-0}"
@@ -107,13 +108,13 @@ EMA_DECAY="${EMA_DECAY:-0.9999}"
 LATENT_STATS_PATH="${LATENT_STATS_PATH:-}"
 LATENT_STATS_MAX_SAMPLES="${LATENT_STATS_MAX_SAMPLES:-1000}"
 
-# v2 新增：Muon optimizer（专门接管 2D 权重矩阵），与 AdamW 双轨；AdamW 接管 1D / 4D
+# 当前共享配置：Muon optimizer（专门接管 2D 权重矩阵），与 AdamW 双轨；AdamW 接管 1D / 4D
 # 参数（norm weight、embedding、Conv2d patch.proj、null_lang_k/v）。Muon LR 通常
 # 比 AdamW 大 5-10×；momentum 0.95 是 Keller Jordan NanoGPT 实现默认。
 MUON_LR="${MUON_LR:-2e-3}"
 MUON_MOMENTUM="${MUON_MOMENTUM:-0.95}"
 
-# v2 默认开启 gradient checkpointing（patch=4 后 token 数本就不多，启用 ckpt
+# 当前默认开启 gradient checkpointing（patch=4 后 token 数本就不多，启用 ckpt
 # 几乎不影响速度但显存余量更宽）。GRAD_CKPT=0 关闭。
 GRAD_CKPT="${GRAD_CKPT:-1}"
 
@@ -147,7 +148,7 @@ if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
     ln -sfn "run_${RUN_TAG}" "${OUTPUT_DIR_BASE}/latest"
 fi
 
-# v2 默认开启 torch.compile(dit)：patch=4 后 token 数砍到 1/4，compile 的固定 overhead
+# 当前默认开启 torch.compile(dit)：patch=4 后 token 数砍到 1/4，compile 的固定 overhead
 # 比 v1 划算很多。COMPILE_DIT=0 关闭。注意：首次 step 编译耗时 30-90 秒，CHECK 模式
 # 会显得偏慢。
 COMPILE_DIT="${COMPILE_DIT:-1}"
@@ -270,7 +271,7 @@ if [[ "${PATCH_UNPATCH_UNFREEZE}" == "1" ]]; then
     COMMON_ARGS+=(--patch-unpatch-unfreeze)
 fi
 
-# v2 默认 torch.compile + grad-ckpt 都开；置 0 时显式追加 --no-compile / --no-grad-ckpt
+# 当前默认 torch.compile + grad-ckpt 都开；置 0 时显式追加 --no-compile / --no-grad-ckpt
 # 触发 argparse 的 store_false 分支。这种 0/1 → 显式追加 flag 的写法保持 sh 端简单
 # （COMPILE_DIT=0/1）同时与 argparse BooleanOptionalAction 兼容。
 if [[ "${COMPILE_DIT}" == "0" ]]; then

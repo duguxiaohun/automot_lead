@@ -1,4 +1,4 @@
-"""GoalGen v1 case-level probe — 随机选 N 个场景的样本，dump 输入+生成+真值+诊断。
+"""GoalGen v1/v2 case-level probe — 随机选 N 个场景的样本，dump 输入+生成+真值+诊断。
 
 eval.py 给的是聚合视角（mean/std/by_scenario）；probe 给的是单条样本视角：
 - 历史 RGB 全图（symlink）
@@ -332,7 +332,7 @@ def _resolve_default_dit_checkpoint(save_root_hint: Optional[str] = None) -> str
 
 @torch.no_grad()
 def main() -> None:
-    parser = argparse.ArgumentParser(description="GoalGen v1 case-level probe（随机场景 dump）")
+    parser = argparse.ArgumentParser(description="GoalGen v1/v2 case-level probe（随机场景 dump）")
     parser.add_argument("--val-jsonl", default="checkpoints/goalgen_v1_data/val.jsonl")
     parser.add_argument("--dit-checkpoint", default="",
                         help="DiT ckpt 路径。**留空时由 main() 根据 --save-root 自动推**："
@@ -362,7 +362,7 @@ def main() -> None:
     parser.add_argument("--z0-prior-alpha", type=float, default=1.0)
     parser.add_argument("--z0-prior-sigma", type=float, default=1.0)
     parser.add_argument("--use-ema", action=argparse.BooleanOptionalAction, default=True)
-    # v2 默认对齐 Qwen3-VL-4B-Instruct 的 (n_kv_heads=8, head_dim=128)
+    # 当前共享默认对齐 Qwen3-VL-4B-Instruct 的 (n_kv_heads=8, head_dim=128)
     parser.add_argument("--patch-size", type=int, default=4)
     parser.add_argument("--hidden-dim", type=int, default=1024)
     parser.add_argument("--n-heads", type=int, default=8)
