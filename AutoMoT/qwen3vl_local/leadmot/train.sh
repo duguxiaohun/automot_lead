@@ -15,6 +15,23 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/leadmot_v1_data/train.jsonl}"
 VAL_JSONL="${VAL_JSONL:-checkpoints/leadmot_v1_data/val.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/leadmot_v1_decoder}"
+
+# 防覆盖：每次启动自动建 run_<时间戳> 子目录，best.pt / latest.pt / tb / eval 产物
+# 全部写进子目录，顶层 OUTPUT_DIR_BASE/ 维护一个 latest symlink 指向当前 run。
+# - RUN_TAG=xxx：用 run_xxx/ 做子目录名（人类可读，便于消融对比）；
+# - 不设：用 run_$(date +%Y%m%d_%H%M%S)/，字典序 = 时间序；
+# - NO_RUN_SUBDIR=1：回退老的"顶层覆盖"行为（仅排查兼容性时用）。
+# bash 段只在主进程执行一次，torchrun 各 worker 共享同一个 OUTPUT_DIR，无竞态。
+OUTPUT_DIR_BASE="${OUTPUT_DIR}"
+RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
+if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
+  OUTPUT_DIR="${OUTPUT_DIR_BASE}/run_${RUN_TAG}"
+  mkdir -p "${OUTPUT_DIR}"
+  # ln -sfn：force + no-dereference，原子替换旧 symlink；相对目标，base 整个搬走仍有效。
+  ln -sfn "run_${RUN_TAG}" "${OUTPUT_DIR_BASE}/latest"
+  echo "[run] OUTPUT_DIR=${OUTPUT_DIR}  (latest -> run_${RUN_TAG})"
+fi
+
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 LEAD_BEV_CKPT="${LEAD_BEV_CKPT:-checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth}"
 RESUME="${RESUME:-}"

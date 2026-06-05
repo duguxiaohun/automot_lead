@@ -56,6 +56,18 @@ TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v1_data/train.jsonl}"
 VAL_JSONL="${VAL_JSONL:-checkpoints/sft_v1_data/val.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_v1_lora}"
 
+# 防覆盖：每次启动自动建 run_<时间戳> 子目录，LoRA adapter / checkpoint-XXX / tb
+# 产物全部写进子目录，顶层 OUTPUT_DIR_BASE/ 维护 latest symlink 指向当前 run。
+# - RUN_TAG=xxx：用 run_xxx/ 做子目录名；不设用 run_$(date +%Y%m%d_%H%M%S)/；
+# - NO_RUN_SUBDIR=1：回退老的"顶层覆盖"行为。
+# HF_HOME 故意钉在 OUTPUT_DIR_BASE 层（见下方），让所有 run 共享 tokenizer/model
+# cache，不必每个 run 重拉一份。symlink/mkdir 统一放到下方 HF_HOME 之后做。
+OUTPUT_DIR_BASE="${OUTPUT_DIR}"
+RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
+if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
+    OUTPUT_DIR="${OUTPUT_DIR_BASE}/run_${RUN_TAG}"
+fi
+
 # ---------------------------------------------------------------------------
 # 通用超参（DDP 与单卡共享）。
 #
@@ -108,10 +120,15 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 
-# 防止 swift 误读 ~/.cache。所有缓存指向 output_dir 内子目录。
-# 这样一次训练的 tokenizer/model cache 和 adapter 产物在同一个树下，迁移或清理更明确。
-export HF_HOME="${HF_HOME:-${OUTPUT_DIR}/.hf_cache}"
+# 防止 swift 误读 ~/.cache。HF_HOME 钉在 OUTPUT_DIR_BASE 层（不进 run 子目录），
+# 让所有 run 共享同一份 tokenizer/model cache，避免每个 run 重拉占盘。
+export HF_HOME="${HF_HOME:-${OUTPUT_DIR_BASE}/.hf_cache}"
 mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
+if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
+    # ln -sfn：force + no-dereference，原子替换旧 symlink；相对目标，base 搬走仍有效。
+    ln -sfn "run_${RUN_TAG}" "${OUTPUT_DIR_BASE}/latest"
+    echo "[run] OUTPUT_DIR=${OUTPUT_DIR}  (latest -> run_${RUN_TAG})"
+fi
 
 # ---------------------------------------------------------------------------
 # GPU 选择

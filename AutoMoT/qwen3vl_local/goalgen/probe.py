@@ -100,7 +100,9 @@ def _pick_idle_gpus(n: int = 1) -> str:
 
 
 def _maybe_set_idle_gpu_mask() -> None:
-    """probe 默认自动挑 1 张空闲 GPU；显式 --gpu / CUDA mask 时保持外部配置。"""
+    """probe 默认自动挑 1 张空闲 GPU；显式 --gpu N 时不覆盖 CUDA_VISIBLE_DEVICES。"""
+    if _cli_has("--gpu"):
+        return
     selected = _pick_idle_gpus(1)
     if selected:
         previous = os.environ.get("CUDA_VISIBLE_DEVICES")

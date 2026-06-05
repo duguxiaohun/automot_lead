@@ -207,6 +207,14 @@ GPU 运行入口统一规则：
 - 白名单内所有 GPU 运行入口都按用户要求彻底放弃手动 `CUDA_VISIBLE_DEVICES` 选择：单进程入口默认用 `nvidia-smi` 自动挑 1 张最空闲 GPU，并覆盖已有 mask；`torchrun --nproc_per_node=N` 入口默认自动挑 N 张最空闲 GPU，并覆盖已有 mask，再按 `LOCAL_RANK` pin 到对应可见卡。
 - 训练 launcher 的 `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡；具体卡号仍由脚本自动挑最空闲的 N 张，不提供“尊重外部 mask”的分支。
 
+训练 launcher 防覆盖目录约定（详见 PROJECT_CONTEXT.md §11）：
+
+- 所有白名单训练入口（GoalGen / LeadMoT / SFT v1 / SFT v2 / VAE patch-unpatch）在用户给的 `OUTPUT_DIR`（或 `--output-dir`）下再套 `run_<RUN_TAG>/` 子目录，base 层维护 `latest` symlink，连跑同名 OUTPUT_DIR 不互相覆盖。
+- `RUN_TAG` 默认 `$(date +%Y%m%d_%H%M%S)`，bash 段算一次再传给所有 worker；Python 入口用 rank0 strftime + `dist.broadcast_object_list` 同步。
+- `NO_RUN_SUBDIR=1` 回退到顶层覆盖式行为（vae 入口也接受同名 env，并兼容旧名 `PATCH_UNPATCH_NO_RUN_SUBDIR`），仅排查兼容性时用。
+- 共享缓存必须挂 base 层：`HF_HOME=${OUTPUT_DIR_BASE}/.hf_cache`、SFT v2 `runtime_teacher_data/`（由 manifest 严格校验复用）；不能跟着 run 子目录，否则会每次重物化。
+- 新增训练入口必须遵循同一范本。
+
 ---
 
 ## 7. 和用户协作偏好
