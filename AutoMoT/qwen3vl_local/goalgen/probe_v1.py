@@ -295,11 +295,50 @@ def render_overview_md(
 # 主流程
 # --------------------------------------------------------------------------- #
 
+def _resolve_default_dit_checkpoint(save_root_hint: Optional[str] = None) -> str:
+    """根据 --save-root 推 base 目录，再按"latest 子目录 > 老顶层"顺序找 ckpt。
+
+    与 eval_v1.py 同名函数保持完全一致的语义，**不 import 复用**以避免触发
+    eval_v1 的模块级副作用（GPU mask 检测、依赖加载等）。维护时两边同步改。
+
+    base 推导：
+    - save_root_hint=None → base = checkpoints/goalgen_v1_dit（老兼容）
+    - save_root_hint 末尾 "latest" 或 "run_XXX" → base = parent（用户绑定 symlink/具体 run）
+    - 其它 → base = save_root_hint（base 顶层）
+
+    探测顺序：<base>/latest/best.pt > <base>/latest/latest.pt >
+              <base>/best.pt > <base>/latest.pt；都缺时返回 (1) 让加载阶段抛错。
+    """
+
+    if save_root_hint:
+        hint = pathlib.Path(save_root_hint)
+        if hint.name == "latest" or hint.name.startswith("run_"):
+            base = hint.parent
+        else:
+            base = hint
+    else:
+        base = _AUTOMOT_ROOT / "checkpoints" / "goalgen_v1_dit"
+
+    for candidate in (
+        base / "latest" / "best.pt",
+        base / "latest" / "latest.pt",
+        base / "best.pt",
+        base / "latest.pt",
+    ):
+        if candidate.exists():
+            return str(candidate)
+    return str(base / "latest" / "best.pt")
+
+
 @torch.no_grad()
 def main() -> None:
     parser = argparse.ArgumentParser(description="GoalGen v1 case-level probe（随机场景 dump）")
     parser.add_argument("--val-jsonl", default="checkpoints/goalgen_v1_data/val.jsonl")
-    parser.add_argument("--dit-checkpoint", default="checkpoints/goalgen_v1_dit/latest.pt")
+    parser.add_argument("--dit-checkpoint", default="",
+                        help="DiT ckpt 路径。**留空时由 main() 根据 --save-root 自动推**："
+                             "<base>/latest/best.pt > <base>/latest/latest.pt > "
+                             "<base>/best.pt > <base>/latest.pt（v1/v2 自动跟随 save-root）。"
+                             "想绑定具体历史 run 直接传 <base>/run_YYYYmmdd_HHMMSS/best.pt。")
     parser.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
     parser.add_argument("--save-root", default="checkpoints/goalgen_v1_dit",
                         help="case dump 落到 <save-root>/eval_cases/<scenario>__<run>__<anchor>/")
@@ -335,6 +374,10 @@ def main() -> None:
                         choices=["concat_layers", "select_last", "mean"],
                         default="select_last")
     args = parser.parse_args()
+    # --dit-checkpoint 留空时根据 --save-root 自动推（v1/v2 自动跟随训练产物）。
+    if not args.dit_checkpoint:
+        args.dit_checkpoint = _resolve_default_dit_checkpoint(args.save_root)
+        print(f"[ckpt] --dit-checkpoint 未指定，自动解析 = {args.dit_checkpoint}")
 
     samples = load_jsonl(pathlib.Path(args.val_jsonl))
     scenarios_filter = [s.strip() for s in args.scenarios.split(",") if s.strip()] or None

@@ -82,15 +82,24 @@ DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train_v1.sh ddp
 
 ```bash
 # 一键 v2：自动把 TRAIN/VAL → goalgen_v2_data/、OUTPUT_DIR → goalgen_v2_dit/，
-# INIT_FROM_CKPT 默认指向 v1 训练产物 checkpoints/goalgen_v1_dit/best.pt
+# INIT_FROM_CKPT 默认指向 v1 训练产物 checkpoints/goalgen_v1_dit/latest/best.pt
+# （latest 是 v1 上一次训练时本脚本自动维护的 symlink，指向 v1 最新的 run_XXXXXX/）
 VERSION=v2 bash qwen3vl_local/goalgen/train_v1.sh ddp
 
 # 想从 v1 latest.pt（训练末尾）而不是 best.pt warm start：
-VERSION=v2 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest.pt \
+VERSION=v2 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/latest.pt \
+  bash qwen3vl_local/goalgen/train_v1.sh ddp
+
+# 想从 v1 某个具体的历史 run warm start（绑定时间戳，不受后续新 v1 run 影响）：
+VERSION=v2 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/run_20260605_1430/best.pt \
   bash qwen3vl_local/goalgen/train_v1.sh ddp
 
 # 想完全从零训 v2（不 warm start）：显式置空 INIT_FROM_CKPT
 VERSION=v2 INIT_FROM_CKPT="" bash qwen3vl_local/goalgen/train_v1.sh ddp
+
+# 给本次 v2 run 自命名（消融实验时方便对比，否则默认是时间戳 run_YYYYmmdd_HHMMSS）：
+VERSION=v2 RUN_TAG=lr3e3_muon \
+  bash qwen3vl_local/goalgen/train_v1.sh ddp
 ```
 
 行为说明：
@@ -107,6 +116,66 @@ VERSION=v2 INIT_FROM_CKPT="" bash qwen3vl_local/goalgen/train_v1.sh ddp
 - v1 产物里 `checkpoint-XXXXXX/` 和 `step-checkpoint-XXXXXX/` 含 optimizer state，
   **不能**直接用作 `--init-from-ckpt` 的目标（schema 不同）；只能用 `best.pt` /
   `latest.pt` 这种顶层轻量 ckpt。
+
+### 2.0.y 防覆盖：run 子目录 + latest symlink（v1/v2 通用）
+
+每次 `bash train_v1.sh ...` 启动，sh 会自动把产物写到一个 **run 子目录**里：
+
+```
+checkpoints/goalgen_v2_dit/                    ← OUTPUT_DIR_BASE
+├─ latest -> run_20260606_0915                 ← 本脚本维护的 symlink，永远指向最新 run
+├─ run_20260605_1430/                          ← 上一次训练的全部产物
+│   ├─ best.pt / latest.pt / best.json
+│   ├─ checkpoint-XXXXXX/ + step-checkpoint-XXXXXX/
+│   ├─ tb/                                     ← TensorBoard events 也在子目录里
+│   └─ eval/ + eval_tb/ + eval_cases/
+├─ run_20260606_0915/                          ← 本次训练，与上次完全独立
+└─ .hf_cache/                                  ← Qwen weights 按 base 共享，不会重复缓存
+```
+
+控制 env：
+
+| env | 默认 | 含义 |
+|---|---|---|
+| `RUN_TAG` | `$(date +%Y%m%d_%H%M%S)` | 子目录名后缀。传 `RUN_TAG=lr3e3` 时会建 `run_lr3e3/`，方便消融对比 |
+| `NO_RUN_SUBDIR` | 0 | 设 `1` 跳过子目录隔离，产物直接落 base 顶层（老行为，会覆盖旧 ckpt，仅排查兼容性时用） |
+| `OUTPUT_DIR` | `goalgen_v{1,2}_dit` | base 目录，不需要包含 run 名；脚本自动拼 run 子目录 |
+
+下游命令三种风格都可以，按"省心程度"排序：
+
+```bash
+# 1. 最省心：只传 --save-root，--dit-checkpoint 自动推
+#    eval/probe 会按 <base>/latest/best.pt > latest/latest.pt > 顶层 best.pt > latest.pt
+#    的顺序探测，自动跟最新 run；启动时打印 "[ckpt] --dit-checkpoint 未指定，自动解析 = ..."
+python qwen3vl_local/goalgen/eval_v1.py \
+  --save-root checkpoints/goalgen_v2_dit
+
+# 2. 显式指向 latest symlink（语义同上，但路径写得明）
+python qwen3vl_local/goalgen/eval_v1.py \
+  --dit-checkpoint checkpoints/goalgen_v2_dit/latest/best.pt \
+  --save-root checkpoints/goalgen_v2_dit/latest
+
+# 3. 绑定具体历史 run（消融对比、可复现，最严格）
+python qwen3vl_local/goalgen/eval_v1.py \
+  --dit-checkpoint checkpoints/goalgen_v2_dit/run_20260605_1430/best.pt \
+  --save-root checkpoints/goalgen_v2_dit/run_20260605_1430
+
+# TensorBoard 多 run 自动对比（指向 base 即可，TB 会把每个 run_XXXX/tb 摊开）
+bash tools/tb_serve.sh checkpoints/goalgen_v2_dit
+```
+
+eval / probe 默认 ckpt 探测的具体行为：
+
+- 用户**不传** `--dit-checkpoint` → resolver 从 `--save-root` 推 base：
+  - `save_root` 末尾是 `latest` 或 `run_XXX` → base = `parent`（用户绑了 symlink/具体 run）
+  - 否则 → base = `save_root` 本身（假设传的是 base 顶层）
+- 在 base 下按顺序找 `<base>/latest/best.pt` → `latest/latest.pt` → `best.pt` → `latest.pt`
+- 都缺时返回 `<base>/latest/best.pt`，让加载阶段抛 `FileNotFoundError`（明确报错而不是默默用错路径）
+- 用户**显式传** `--dit-checkpoint` → 直接尊重，resolver 不介入
+
+> 后面 §3 / §3.5 / §4 里命令样例还沿用旧的 `checkpoints/goalgen_v1_dit/latest.pt`
+> 这种顶层路径，**仍然是合法的**（如果你有老训练遗留的顶层 ckpt 文件）；要跟最新
+> run 把路径替换成 `.../latest/best.pt`，或者干脆不传 `--dit-checkpoint` 让 resolver 自动找。
 
 常用覆盖参数：
 
