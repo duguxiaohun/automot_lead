@@ -101,6 +101,81 @@ checkpoints/goalgen_v*_dit/latest -> run_<tag>
 
 `latest/best.pt` 是 eval/probe 默认首选；`latest/latest.pt` 是训练末尾权重。
 
+### 3.1 v2 详解（warm start / 启动方式 / 默认 pt）
+
+**启动命令**（GPU 选址、`RUN_TAG`、`latest` symlink 与 v1 共用同一套规则）：
+
+```bash
+# DDP，默认自动挑 8 张最空闲 GPU，从 v1 best.pt warm start
+VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
+
+# 改 DDP 卡数（卡号仍自动挑）
+VERSION=v2 DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
+
+# 单卡（smoke / 显存够时的小规模）
+VERSION=v2 bash qwen3vl_local/goalgen/train.sh single
+
+# 2 step sanity（端到端跑通，看初始 loss 与 warm start 是否对齐）
+VERSION=v2 bash qwen3vl_local/goalgen/train.sh check
+```
+
+**默认导入哪个 pt**：v2 启动时若不显式设 `INIT_FROM_CKPT`，会自动取：
+
+```text
+INIT_FROM_CKPT = checkpoints/goalgen_v1_dit/latest/best.pt
+```
+
+`latest` 是 v1 train.sh 维护的 symlink，永远指向最新一次 v1 run。`train.py` 加载时**只接 DiT 权重 + EMA shadow，不接 optimizer / scheduler / global_step**——等同于"继承 v1 学好的权重，换数据子集重新训"。文件不存在会硬报错，不会偷偷从零训。
+
+**怎么导入其它 pt**：
+
+```bash
+# 从 v1 最末权重（不是 best.pt）warm start
+VERSION=v2 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/latest.pt \
+    bash qwen3vl_local/goalgen/train.sh ddp
+
+# 锁定某个具体 v1 run（不跟 latest 漂）
+VERSION=v2 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/run_20260605_143000/best.pt \
+    bash qwen3vl_local/goalgen/train.sh ddp
+
+# 老 schema（v1 训练时还没启用 run 子目录，best.pt 落 base 顶层）
+VERSION=v2 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/best.pt \
+    bash qwen3vl_local/goalgen/train.sh ddp
+
+# 完全从零训 v2（不要 warm start；显式清空，不要写 NONE）
+VERSION=v2 INIT_FROM_CKPT="" \
+    bash qwen3vl_local/goalgen/train.sh ddp
+```
+
+**v2 默认超参（保守 fine-tune 配方）**：起点已经是 v1 best.pt，初期 LR 过大会一步把学好的权重打散。
+
+| 超参 | v1 默认 | v2 默认 | 说明 |
+|---|---:|---:|---|
+| `LR` (AdamW) | `2e-4` | `1e-4` | 减半 |
+| `MUON_LR` | `2e-3` | `1e-3` | 减半 |
+| `WARMUP_RATIO` | `0.05` | `0.02` | warmup 缩短 |
+| `NUM_EPOCHS` | `2` | `2` | 不变 |
+
+想恢复 v1 from-scratch 风格的 LR，显式覆盖即可（例如 `LR=2e-4 MUON_LR=2e-3 ...`）。
+
+**可选：接 SFT v1 LoRA**（让 Qwen prefill 走 SFT 微调后的语言编码）：
+
+```bash
+VERSION=v2 QWEN_ADAPTER_DIR=checkpoints/sft_v1_lora/latest \
+    bash qwen3vl_local/goalgen/train.sh ddp
+```
+
+注意传的是 LoRA adapter 目录，不是合并后的整模型目录。v1/v2 都支持这个开关。
+
+**v2 产物路径**：
+
+```text
+checkpoints/goalgen_v2_dit/run_<tag>/{best.pt, latest.pt, tb/, checkpoint-XXXXXX/, ...}
+checkpoints/goalgen_v2_dit/latest -> run_<tag>
+```
+
+eval / probe 默认指 `checkpoints/goalgen_v2_dit/latest/best.pt`，无需关心具体 `run_<tag>`。
+
 ## 4. TensorBoard
 
 ```bash
