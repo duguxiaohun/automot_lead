@@ -188,7 +188,7 @@ python qwen3vl_local/leadmot/probe.py \
 
 `eval.py` / `probe.py` 未显式传 `--checkpoint` 时，会在 `--save-root` 下依次尝试 `best.pt` -> `latest.pt` -> 最新 `step-checkpoint-*.pt` -> 最新 `checkpoint-epoch*.pt`；不传 `--save-root` 则使用默认 `checkpoints/leadmot_v1_decoder`。需要消融或指定中间 ckpt 时再显式传 `--checkpoint`。
 
-`--use-ema` 默认开（与训练侧 EMA on/off 无关，只判断 ckpt 里有没有 `ema_state_dict`）：有就用 EMA shadow，没有就回落 raw 并 print 警告。想强制对比 raw 加 `--no-use-ema`。`probe` 会在 `eval_cases/probe_meta.json` 记录本次跑的 `use_ema`，方便 raw vs ema 两次 probe 结果摆在一起比。
+`--use-ema` 默认开（与训练侧 EMA on/off 无关，只判断 ckpt 里有没有 `ema_state_dict`）：有就用 EMA shadow，没有就回落 raw 并 print 警告。训练侧当前保存的 EMA schema 是 `{"decay": ..., "shadow": {...}}`；`eval.py` / `probe.py` 会先 unwrap `shadow` 再 strict load。想强制对比 raw 加 `--no-use-ema`。`probe` 会在 `eval_cases/probe_meta.json` 记录本次跑的 `use_ema`，方便 raw vs ema 两次 probe 结果摆在一起比。
 
 每个 case 会写：
 

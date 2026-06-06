@@ -772,6 +772,14 @@ def save_checkpoint(
     # 兼容 DDP 包过的模型：DDP 会把真模型放在 .module 下；裸模型直接用自己。
     # 不解包就会 save 进 "module.xxx" 前缀的 state_dict，再加载到单卡时 key 对不上。
     module = model.module if hasattr(model, "module") else model
+    full_ckpt_path = target / "goalgen_v1.pt"
+    latest = output_dir / "latest.pt"
+    full_dit_config = asdict(module.cfg)
+    latest_dit_config = asdict(module.cfg)
+    if (full_dit_config.get("patch_unpatch_source") or "checkpoint") == "checkpoint":
+        full_dit_config["patch_unpatch_weights"] = str(full_ckpt_path.resolve())
+    if (latest_dit_config.get("patch_unpatch_source") or "checkpoint") == "checkpoint":
+        latest_dit_config["patch_unpatch_weights"] = str(latest.resolve())
     torch.save(
         {
             "step": step,
@@ -782,24 +790,25 @@ def save_checkpoint(
             "scheduler": scheduler.state_dict(),
             # dit_config 直接 dump 配置 dataclass：恢复时不依赖代码默认值漂移，
             # 例如以后改了默认 hidden_dim，旧 ckpt 仍能按存档的配置正确重建模型。
-            "dit_config": asdict(module.cfg),
+            "dit_config": full_dit_config,
+            "patch_unpatch": module.patch_unpatch_metadata(str(full_ckpt_path)),
             "ema_state_dict": ema.state_dict(),
             "ema_decay": ema.decay,
             "latent_stats": latent_stats,
             "args": vars(args),
         },
-        target / "goalgen_v1.pt",
+        full_ckpt_path,
     )
     # latest.pt 是"轻量版本"：只存权重 + 配置，不存优化器 / 调度器，
     # 给下游推理 / 评测用，避免每次都拖一份几百 MB 的 AdamW 状态。
-    latest = output_dir / "latest.pt"
     torch.save(
         {
             "step": step,
             "dit_state_dict": module.state_dict(),
             "ema_state_dict": ema.state_dict(),
             "ema_decay": ema.decay,
-            "dit_config": asdict(module.cfg),
+            "dit_config": latest_dit_config,
+            "patch_unpatch": module.patch_unpatch_metadata(str(latest)),
             "latent_stats": latent_stats,
             "args": vars(args),
         },
@@ -839,6 +848,57 @@ def _prune_old_checkpoints(
         shutil.rmtree(old, ignore_errors=True)
 
 
+def _rewrite_checkpoint_patch_unpatch_metadata(ckpt_path: pathlib.Path) -> None:
+    """Keep copied checkpoint-source patch/unpatch metadata pointing at the copy."""
+
+    payload = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    if not isinstance(payload, dict):
+        return
+    changed = False
+    resolved = str(ckpt_path.resolve())
+    cfg = payload.get("dit_config")
+    if isinstance(cfg, dict) and (cfg.get("patch_unpatch_source") or "checkpoint") == "checkpoint":
+        cfg["patch_unpatch_weights"] = resolved
+        changed = True
+    meta = payload.get("patch_unpatch")
+    if isinstance(meta, dict) and (meta.get("source") or "checkpoint") == "checkpoint":
+        meta["weights"] = resolved
+        changed = True
+    if changed:
+        torch.save(payload, ckpt_path)
+
+
+def _is_patch_unpatch_key(name: str) -> bool:
+    clean = name[7:] if name.startswith("module.") else name
+    return clean.startswith("patch.") or clean.startswith("unpatch.")
+
+
+def _load_ema_for_current_trainables(ema: DiTEMA, sd: Dict[str, torch.Tensor]) -> Dict[str, List[str]]:
+    """Load EMA while tolerating patch/unpatch trainability policy changes.
+
+    Frozen patch/unpatch modules are intentionally absent from DiTEMA.shadow
+    because EMA tracks only trainable parameters. When a run switches between
+    checkpoint-trained patch/unpatch and external frozen adapters, those four
+    keys can become missing/unexpected without indicating a real architecture
+    mismatch. All other key differences remain hard errors.
+    """
+
+    current = set(ema.shadow.keys())
+    saved = set(sd.keys())
+    missing = sorted(current - saved)
+    unexpected = sorted(saved - current)
+    hard_missing = [k for k in missing if not _is_patch_unpatch_key(k)]
+    hard_unexpected = [k for k in unexpected if not _is_patch_unpatch_key(k)]
+    if hard_missing or hard_unexpected:
+        raise RuntimeError(
+            f"EMA load_state_dict 不匹配：missing={hard_missing[:5]} "
+            f"unexpected={hard_unexpected[:5]}"
+        )
+    ema.load_state_dict({k: v for k, v in sd.items() if k in current}, strict=False)
+    return {"missing_patch_unpatch": [k for k in missing if _is_patch_unpatch_key(k)],
+            "unexpected_patch_unpatch": [k for k in unexpected if _is_patch_unpatch_key(k)]}
+
+
 def _update_best_checkpoint(
     output_dir: pathlib.Path,
     val_loss: float,
@@ -858,6 +918,7 @@ def _update_best_checkpoint(
         return best_loss, False
     dst = output_dir / "best.pt"
     shutil.copyfile(str(src), str(dst))
+    _rewrite_checkpoint_patch_unpatch_metadata(dst)
     meta = output_dir / "best.json"
     meta.write_text(
         json.dumps({"step": step, "val_loss": float(val_loss)}, indent=2),
@@ -1043,8 +1104,10 @@ def train(args: argparse.Namespace) -> None:
         )
         if is_rank0(rank):
             print(f"[patch_unpatch] 加载 {args.patch_unpatch_weights}: {info}")
-    elif is_rank0(rank):
-        print("[patch_unpatch] 未提供权重 -> patch/unpatch 跟随 DiT 随机初始化训练")
+    else:
+        dit.mark_patch_unpatch_checkpoint(frozen=False)
+        if is_rank0(rank):
+            print("[patch_unpatch] 未提供权重 -> patch/unpatch 跟随 DiT 随机初始化训练")
 
     # warm start：在 patch/unpatch 加载之后、EMA 实例化之前先把 ckpt 的 dit_state_dict
     # copy 进当前 dit。次序很重要——先 patch_unpatch、再 warm-start dit、再建 EMA，
@@ -1066,6 +1129,46 @@ def train(args: argparse.Namespace) -> None:
                 f"该路径应指向 latest.pt / best.pt 这种轻量 ckpt。"
             )
         dit.load_state_dict(warm_ckpt_payload["dit_state_dict"], strict=True)
+        warm_cfg = warm_ckpt_payload.get("dit_config", {}) if isinstance(warm_ckpt_payload, dict) else {}
+        if args.patch_unpatch_weights:
+            info = dit.load_patch_unpatch(
+                args.patch_unpatch_weights,
+                freeze=not args.patch_unpatch_unfreeze,
+            )
+            if is_rank0(rank):
+                print(f"[patch_unpatch] warm start 后重新覆盖外部权重: {info}")
+        elif (warm_cfg.get("patch_unpatch_source") or "checkpoint") == "external":
+            external_weights = warm_cfg.get("patch_unpatch_weights") or ""
+            external_path = pathlib.Path(external_weights).expanduser() if external_weights else None
+            if external_path is not None and external_path.exists():
+                info = dit.load_patch_unpatch(
+                    external_weights,
+                    freeze=bool(warm_cfg.get("patch_unpatch_frozen", True)),
+                )
+                if is_rank0(rank):
+                    print(f"[patch_unpatch] warm start 继承外部权重配置: {info}")
+            elif args.allow_patch_unpatch_ckpt_fallback:
+                frozen = bool(warm_cfg.get("patch_unpatch_frozen", True))
+                dit.mark_patch_unpatch_checkpoint(frozen=frozen)
+                if is_rank0(rank):
+                    print(
+                        "[patch_unpatch] WARN: warm ckpt 声明外部 patch/unpatch，"
+                        f"但文件不可用：{external_weights or '<empty>'}；"
+                        "已按显式 fallback 使用 ckpt 内自带权重继续训练，"
+                        f"frozen={frozen}"
+                    )
+            else:
+                raise FileNotFoundError(
+                    "warm ckpt 声明 dit_config.patch_unpatch_source='external'，"
+                    f"但 patch_unpatch_weights 不可用：{external_weights or '<empty>'}。"
+                    "请提供相同 safetensors，或显式加 "
+                    "--allow-patch-unpatch-ckpt-fallback / "
+                    "PATCH_UNPATCH_CKPT_FALLBACK=1 使用 ckpt 内自带权重。"
+                )
+        else:
+            dit.mark_patch_unpatch_checkpoint(
+                frozen=bool(warm_cfg.get("patch_unpatch_frozen", False))
+            )
         if is_rank0(rank):
             src_step = warm_ckpt_payload.get("step", "?")
             print(
@@ -1087,11 +1190,13 @@ def train(args: argparse.Namespace) -> None:
     # 不接 EMA 时（warm_ckpt_payload 没这个 key 或用户只想 warm-start DiT）跳过——
     # 此时 EMA shadow = 当前 dit 权重，与 patch_unpatch 老语义一致。
     if warm_ckpt_payload is not None and "ema_state_dict" in warm_ckpt_payload:
-        ema.load_state_dict(warm_ckpt_payload["ema_state_dict"], strict=True)
+        ema_info = _load_ema_for_current_trainables(ema, warm_ckpt_payload["ema_state_dict"])
         if is_rank0(rank):
             print(
-                f"[warm_start] EMA shadow 已从 {args.init_from_ckpt} 载入（strict=True）"
+                f"[warm_start] EMA shadow 已从 {args.init_from_ckpt} 载入（非 patch/unpatch key strict）"
             )
+            if ema_info["missing_patch_unpatch"] or ema_info["unexpected_patch_unpatch"]:
+                print(f"[warm_start] patch/unpatch EMA key 差异已按当前冻结策略处理: {ema_info}")
     # 释放 ckpt 引用，避免 DDP wrap / optimizer 构建期间多占一份 host 内存。
     del warm_ckpt_payload
     if world_size > 1:
@@ -1496,6 +1601,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         'DiTMoT.load_patch_unpatch 加载并冻结。需用当前架构 hidden=1024/patch=4 训出。')
     p.add_argument("--patch-unpatch-unfreeze", action="store_true", default=False,
                    help="加载 patch/unpatch 权重后仍允许联合更新（默认加载即冻结）。")
+    p.add_argument("--allow-patch-unpatch-ckpt-fallback", action="store_true", default=False,
+                   help="warm ckpt 记录外部 patch/unpatch 但 safetensors 不存在时，"
+                        "显式允许改用 ckpt 内自带 patch/unpatch 权重继续训练。默认关闭以避免实验语义漂移。")
     # warm start：从 latest.pt / best.pt schema 的轻量 ckpt 里读 dit_state_dict +
     # ema_state_dict，作为本次训练的初始权重 / EMA shadow。**不**加载 optimizer /
     # scheduler / global_step——这是 warm start（接近 fine-tune），不是 resume。

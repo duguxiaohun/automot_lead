@@ -85,6 +85,9 @@ VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
 | `RUN_TAG` | 时间戳 | 写到 `OUTPUT_DIR/run_<tag>` |
 | `NO_RUN_SUBDIR` | `0` | 置 `1` 回到旧式覆盖写法 |
 | `INIT_FROM_CKPT` | v1 空，v2 指向 v1 best | warm start |
+| `PATCH_UNPATCH_WEIGHTS` | 空 | 可选 `vae_standalone/train_patch_unpatch.py` 产出的 `patch_unpatch_*.safetensors`；非空时加载并默认冻结，路径会写入 GoalGen ckpt |
+| `PATCH_UNPATCH_UNFREEZE` | `0` | 设 `1` 时外部 patch/unpatch 只作初始化、继续联合训练 |
+| `PATCH_UNPATCH_CKPT_FALLBACK` | `0` | warm start 继承外部 patch/unpatch 但 safetensors 缺失时，显式允许使用 ckpt 内自带权重 |
 | `DDP_GPU_COUNT` | `8` | DDP 需要的 GPU 数 |
 | `COMPILE_DIT` | `1` | 只 compile DiT |
 | `GRAD_CKPT` | `1` | per-block gradient checkpointing |
@@ -100,6 +103,14 @@ checkpoints/goalgen_v*_dit/latest -> run_<tag>
 ```
 
 `latest/best.pt` 是 eval/probe 默认首选；`latest/latest.pt` 是训练末尾权重。
+
+patch/unpatch 保存约定：
+
+- 传 `PATCH_UNPATCH_WEIGHTS=/path/to/patch_unpatch_*.safetensors` 且保持默认冻结时，训练会加载这份权重并冻结，checkpoint 的 `dit_config.patch_unpatch_source=external`，`dit_config.patch_unpatch_weights` 记录该 safetensors 绝对路径。eval/probe/runner 加载 GoalGen ckpt 后会按这个路径再次覆盖 patch/unpatch 并恢复冻结语义，避免悄悄使用不匹配的随机 patch。
+- 若同时设 `PATCH_UNPATCH_UNFREEZE=1`，外部 patch/unpatch 只作为初始化，后续联合训练后的权重随 GoalGen ckpt 保存，source 记为 `checkpoint`。
+- 不传 `PATCH_UNPATCH_WEIGHTS` 时，patch/unpatch 随 DiT 随机初始化并联合训练，权重跟随 `dit_state_dict` / `ema_state_dict` 一起保存；checkpoint 记录 `patch_unpatch_source=checkpoint`，eval/probe/runner 直接使用 `--dit-checkpoint` 内自带的 patch/unpatch。
+- 使用 EMA 推理时，加载逻辑先以完整 `dit_state_dict` 打底，再用 `ema_state_dict` 覆盖可训练参数；因此外部冻结的 patch/unpatch 即使不在 EMA shadow 里，也不会在 strict load 时缺 key。
+- warm start 读到旧 ckpt 的 `patch_unpatch_source=external` 时，默认要求记录的 safetensors 路径仍存在；若跨机器迁移确实只有 ckpt，可显式设 `PATCH_UNPATCH_CKPT_FALLBACK=1`，此时使用 ckpt 内已保存的 patch/unpatch，并把新产物记为 `source=checkpoint`。
 
 ### 3.1 v2 多卡启动
 

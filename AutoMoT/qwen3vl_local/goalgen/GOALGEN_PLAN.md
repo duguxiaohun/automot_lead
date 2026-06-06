@@ -283,9 +283,10 @@ v1 显式**不做**的事情（写在这里防止未来 agent 擅自扩张范围
   memory`），train / eval / probe 入口不动；
 - `train.sh` 新增 `VERSION` env：`VERSION=v2` 时自动把数据切到 `goalgen_v2_data/`、
   产物落到 `goalgen_v2_dit/`、并把 `--init-from-ckpt` 默认指向 `goalgen_v1_dit/latest/best.pt`
-  （latest 是脚本自动维护的 symlink，下条），做 **DiT 权重 + EMA shadow 双 strict=True
-  warm start**（不接 optimizer / scheduler / step），实质等同于"换数据子集 + 继承架构
-  权重"重新训练。strict=True 在这条路径上是"防 env 漂移"的护栏；
+  （latest 是脚本自动维护的 symlink，下条），做 **DiT 权重 strict + EMA shadow 非
+  patch/unpatch key strict warm start**（不接 optimizer / scheduler / step），
+  patch/unpatch 的 EMA key 差异按当前冻结策略处理；实质等同于"换数据子集 + 继承架构
+  权重"重新训练。strict 校验在这条路径上是"防 env 漂移"的护栏；
 - `train.sh` 同时引入 **run 子目录隔离 + latest symlink**（v1/v2 通用）：每次启动
   把 OUTPUT_DIR 自动改写成 `${OUTPUT_DIR_BASE}/run_${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}/`，
   所有 ckpt / TB events / eval 产物都落在 run 子目录里；base 顶层维护一个相对路径的
