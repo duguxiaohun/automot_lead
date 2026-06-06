@@ -437,6 +437,9 @@ class DiTMoTConfig:
     max_grid_h: int = 32
     max_grid_w: int = 96
     max_history_frames: int = 8
+    patch_unpatch_source: str = "checkpoint"
+    patch_unpatch_weights: str = ""
+    patch_unpatch_frozen: bool = False
 
 
 class DiTMoT(nn.Module):
@@ -574,10 +577,11 @@ class DiTMoT(nn.Module):
 
         from safetensors.torch import load_file  # noqa: E402
 
-        p = pathlib.Path(path)
+        p = pathlib.Path(path).expanduser()
         if not p.exists():
             raise FileNotFoundError(f"patch/unpatch 权重不存在: {p}")
-        sd = load_file(str(p))
+        resolved_path = p.resolve()
+        sd = load_file(str(resolved_path))
 
         expected = {
             "patch.proj.weight",
@@ -613,18 +617,85 @@ class DiTMoT(nn.Module):
         self.load_state_dict(pick, strict=False)
 
         if freeze:
-            for pp in self.patch.parameters():
-                pp.requires_grad_(False)
-            for pp in self.unpatch.parameters():
-                pp.requires_grad_(False)
-            self.patch.eval()
-            self.unpatch.eval()
+            self.freeze_patch_unpatch()
+
+        if freeze:
+            self.cfg.patch_unpatch_source = "external"
+            self.cfg.patch_unpatch_weights = str(resolved_path)
+            self.cfg.patch_unpatch_frozen = True
+        else:
+            self.cfg.patch_unpatch_source = "checkpoint"
+            self.cfg.patch_unpatch_weights = ""
+            self.cfg.patch_unpatch_frozen = False
 
         return {
             "loaded_keys": sorted(pick.keys()),
             "missing": missing,
             "unexpected": unexpected,
             "frozen": freeze,
+            "source": self.cfg.patch_unpatch_source,
+            "weights": self.cfg.patch_unpatch_weights,
+            "init_weights": str(resolved_path),
+        }
+
+    def freeze_patch_unpatch(self) -> None:
+        """Freeze patch/unpatch modules after loading external or checkpoint weights."""
+
+        for pp in self.patch.parameters():
+            pp.requires_grad_(False)
+        for pp in self.unpatch.parameters():
+            pp.requires_grad_(False)
+        self.patch.eval()
+        self.unpatch.eval()
+        self.cfg.patch_unpatch_frozen = True
+
+    def mark_patch_unpatch_checkpoint(self, frozen: bool = False) -> None:
+        """Record that patch/unpatch weights live inside the DiT checkpoint."""
+
+        self.cfg.patch_unpatch_source = "checkpoint"
+        self.cfg.patch_unpatch_weights = ""
+        self.cfg.patch_unpatch_frozen = bool(frozen)
+        if frozen:
+            self.freeze_patch_unpatch()
+
+    def restore_patch_unpatch_from_config(self) -> dict:
+        """Apply the patch/unpatch policy stored in ``self.cfg`` after ckpt load.
+
+        External pretrained patch/unpatch weights are intentionally reloaded after
+        ``load_state_dict`` so inference cannot silently fall back to checkpoint
+        copies if the config says the source is an external frozen adapter.
+        """
+
+        source = (self.cfg.patch_unpatch_source or "checkpoint").lower()
+        frozen = bool(self.cfg.patch_unpatch_frozen)
+        weights = self.cfg.patch_unpatch_weights or ""
+
+        if source == "external":
+            if not weights:
+                raise ValueError("dit_config.patch_unpatch_source='external' but patch_unpatch_weights is empty")
+            return self.load_patch_unpatch(weights, freeze=frozen)
+        if frozen:
+            self.freeze_patch_unpatch()
+        return {
+            "loaded_keys": [],
+            "missing": [],
+            "unexpected": [],
+            "frozen": frozen,
+            "source": "checkpoint",
+            "weights": "",
+        }
+
+    def patch_unpatch_metadata(self, checkpoint_path: Optional[str] = None) -> dict:
+        """Return serializable provenance for patch/unpatch weights."""
+
+        source = (self.cfg.patch_unpatch_source or "checkpoint").lower()
+        weights = self.cfg.patch_unpatch_weights or ""
+        if source == "checkpoint" and checkpoint_path:
+            weights = str(pathlib.Path(checkpoint_path).resolve())
+        return {
+            "source": source,
+            "weights": weights,
+            "frozen": bool(self.cfg.patch_unpatch_frozen),
         }
 
     def forward(

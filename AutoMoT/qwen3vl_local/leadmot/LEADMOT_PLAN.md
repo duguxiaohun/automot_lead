@@ -85,7 +85,7 @@ Route / waypoint head 内部在 cumsum 时临时升到 fp32，再 cast 回原 dt
 - `ema.update(decoder_module)` 放在 `optimizer.step()` **之后**；放之前 shadow 拿未更新的旧参数会"慢一步"。
 - val 用 `with ema.apply_to(decoder): ...` 上下文跑一次，得到 `val_ema/*` 一组 scalar；EMA 关时只有 `val/*`。
 - `best.pt` 选 EMA val/loss 优先（更稳）；EMA 关时回退 raw val/loss。
-- ckpt 同时持久化 `decoder` 与 `ema_state_dict` + `ema_decay`，`eval.py` / `probe.py` 默认 `--use-ema=True`；旧 ckpt 无 EMA 字段时自动回退 raw + print 警告。
+- ckpt 同时持久化 `decoder` 与 `ema_state_dict`；当前 EMA schema 是 `{"decay": ..., "shadow": {...}}`，`eval.py` / `probe.py` 默认 `--use-ema=True` 并 unwrap `shadow` 后 strict load；旧 ckpt 无 EMA 字段时自动回退 raw + print 警告。
 - decay 选择：默认 0.999 适配 LeadMoT 默认短 schedule（warmup ~500 step）；长 schedule (≥10 epoch) 可调 0.9999，但 warmup 期前一段 EMA 会拖收敛速度。
 
 ## TB 图像 overlay 样例

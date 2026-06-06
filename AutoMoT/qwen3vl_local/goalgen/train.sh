@@ -81,6 +81,9 @@ HIDDEN_DIM="${HIDDEN_DIM:-1024}"
 PATCH_UNPATCH_WEIGHTS="${PATCH_UNPATCH_WEIGHTS:-}"
 # 默认加载即冻结；要联合微调 patch/unpatch 设 PATCH_UNPATCH_UNFREEZE=1。
 PATCH_UNPATCH_UNFREEZE="${PATCH_UNPATCH_UNFREEZE:-0}"
+# warm start 继承外部 patch/unpatch 时，默认要求原 safetensors 仍存在。
+# 跨机器迁移且确认 ckpt 内自带权重可用时，显式设 1 才回退到 ckpt 内权重。
+PATCH_UNPATCH_CKPT_FALLBACK="${PATCH_UNPATCH_CKPT_FALLBACK:-0}"
 N_HEADS="${N_HEADS:-8}"
 NUM_LAYERS="${NUM_LAYERS:-12}"
 COND_DIM="${COND_DIM:-256}"
@@ -283,6 +286,9 @@ COMMON_ARGS=(
 if [[ "${PATCH_UNPATCH_UNFREEZE}" == "1" ]]; then
     COMMON_ARGS+=(--patch-unpatch-unfreeze)
 fi
+if [[ "${PATCH_UNPATCH_CKPT_FALLBACK}" == "1" ]]; then
+    COMMON_ARGS+=(--allow-patch-unpatch-ckpt-fallback)
+fi
 
 # 当前默认 torch.compile + grad-ckpt 都开；置 0 时显式追加 --no-compile / --no-grad-ckpt
 # 触发 argparse 的 store_false 分支。这种 0/1 → 显式追加 flag 的写法保持 sh 端简单
@@ -303,7 +309,7 @@ else
     echo "[version] NO_RUN_SUBDIR=1（已禁用 run 子目录隔离，注意可能覆盖旧 ckpt）"
 fi
 if [[ -n "${INIT_FROM_CKPT}" ]]; then
-    echo "[version] INIT_FROM_CKPT=${INIT_FROM_CKPT}（warm start：DiT + EMA strict=True）"
+    echo "[version] INIT_FROM_CKPT=${INIT_FROM_CKPT}（warm start：DiT strict；EMA 非 patch/unpatch key strict）"
 else
     echo "[version] INIT_FROM_CKPT=<空>（DiT 从零随机初始化）"
 fi

@@ -30,6 +30,13 @@ DDP：不用提前设置 CUDA_VISIBLE_DEVICES。脚本会在每个 worker 触碰
         --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
         --output-dir checkpoints/patch_unpatch_v1
 
+TensorBoard：默认开启，rank0 会把 scalar 与重建对比图写到 ``OUTPUT_DIR/tb/``；
+训练启动后可另开一个终端查看。::
+
+    bash tools/tb_serve.sh checkpoints/patch_unpatch_v1
+
+只想关掉 TB 时加 ``--no-tb``。
+
 训练产物（顶层）::
 
     OUTPUT_DIR/

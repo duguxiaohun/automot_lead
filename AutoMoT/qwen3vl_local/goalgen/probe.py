@@ -524,6 +524,7 @@ def main() -> None:
             "anchor": anchor,
             "target_frame": sample.get("target_frame"),
             "dit_checkpoint": args.dit_checkpoint,
+            "patch_unpatch": dit.patch_unpatch_metadata(args.dit_checkpoint),
             "qwen_adapter_dir": args.qwen_adapter_dir,
             "qwen_adapter_merge": args.qwen_adapter_merge,
             "euler_steps": args.euler_steps,

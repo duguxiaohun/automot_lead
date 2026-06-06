@@ -342,14 +342,24 @@ def _build_dit(
         # 当前推理默认走 EMA 权重（质量更稳）；ckpt 没存就回退裸 dit_state_dict。
         # 早期手工保存的裸 state_dict 没有 dict wrapper，走 else 分支。
         if isinstance(payload, dict) and args.use_ema and payload.get("ema_state_dict") is not None:
-            state_dict = payload["ema_state_dict"]
-            print(f"[dit] 使用 EMA 权重 (decay={payload.get('ema_decay', 'unknown')})")
+            if payload.get("dit_state_dict") is not None:
+                # EMA shadows only include trainable parameters. Frozen external
+                # patch/unpatch adapters stay in the full DiT state dict, so keep
+                # that as the base and overlay EMA for the trainable subset.
+                state_dict = dict(payload["dit_state_dict"])
+                state_dict.update(payload["ema_state_dict"])
+                print(f"[dit] 使用 EMA 权重覆盖完整 DiT 底座 (decay={payload.get('ema_decay', 'unknown')})")
+            else:
+                state_dict = payload["ema_state_dict"]
+                print(f"[dit] 使用 EMA 权重 (decay={payload.get('ema_decay', 'unknown')})")
         else:
             state_dict = payload.get("dit_state_dict", payload) if isinstance(payload, dict) else payload
             if isinstance(payload, dict) and args.use_ema:
                 print("[dit] WARN: 检查点无 ema_state_dict；回退裸 DiT 权重")
         model.load_state_dict(state_dict, strict=True)
+        patch_info = model.restore_patch_unpatch_from_config()
         print(f"[dit] 已加载检查点：{pathlib.Path(args.dit_checkpoint).resolve()}")
+        print(f"[patch_unpatch] {patch_info}")
     else:
         print("[dit] 未提供 --dit-checkpoint；使用随机初始化的 DiT")
 
@@ -555,6 +565,7 @@ def run_once(args: argparse.Namespace) -> None:
             "max_history_frames": dit.cfg.max_history_frames,
             "checkpoint": args.dit_checkpoint,
         },
+        "patch_unpatch": dit.patch_unpatch_metadata(args.dit_checkpoint),
         "latent_shapes": {
             "z_history": list(z_history.shape),
             "z_t": list(batch.z_t.shape),

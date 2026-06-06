@@ -427,15 +427,25 @@ def build_dit_from_ckpt(
 
     model = DiTMoT(cfg).to(device=device, dtype=dtype)
     if isinstance(payload, dict) and args.use_ema and payload.get("ema_state_dict") is not None:
-        state_dict = payload["ema_state_dict"]
-        print(f"[dit] using EMA weights for eval (decay={payload.get('ema_decay', 'unknown')})")
+        if payload.get("dit_state_dict") is not None:
+            # EMA only tracks trainable parameters. Frozen external patch/unpatch
+            # weights therefore live only in dit_state_dict; use raw weights as
+            # the complete base, then overlay EMA shadows for trainable params.
+            state_dict = dict(payload["dit_state_dict"])
+            state_dict.update(payload["ema_state_dict"])
+            print(f"[dit] using EMA weights over full DiT base for eval (decay={payload.get('ema_decay', 'unknown')})")
+        else:
+            state_dict = payload["ema_state_dict"]
+            print(f"[dit] using EMA weights for eval (decay={payload.get('ema_decay', 'unknown')})")
     else:
         state_dict = payload.get("dit_state_dict", payload) if isinstance(payload, dict) else payload
         if isinstance(payload, dict) and args.use_ema:
             print("[dit] WARN: checkpoint has no ema_state_dict; using raw DiT weights")
     model.load_state_dict(state_dict, strict=True)
+    patch_info = model.restore_patch_unpatch_from_config()
     model.eval()
     print(f"[dit] 已加载检查点：{ckpt_path}")
+    print(f"[patch_unpatch] {patch_info}")
     print(
         f"[dit] hidden={cfg.hidden_dim} heads={cfg.n_heads} head_dim={cfg.hidden_dim // cfg.n_heads} "
         f"layers={cfg.num_layers} patch={cfg.patch_size}"
@@ -722,6 +732,7 @@ def dump_goalgen_case(
     rgb_pred: torch.Tensor,
     rgb_gt_vae: torch.Tensor,
     metrics: Dict[str, float],
+    patch_unpatch: Dict[str, Any],
     args: argparse.Namespace,
 ) -> None:
     """把一条样本完整 dump 到 <case_dir>/{inputs, outputs, metrics.json, step.json, summary.md}。
@@ -794,6 +805,7 @@ def dump_goalgen_case(
         "target_raw_local": "inputs/target_raw.jpg" if has_target_raw else None,
         "metrics": metrics,
         "dit_checkpoint": args.dit_checkpoint,
+        "patch_unpatch": patch_unpatch,
         "qwen_adapter_dir": args.qwen_adapter_dir or "",
         "qwen_adapter_merge": bool(args.qwen_adapter_merge),
         "euler_steps": args.euler_steps,
@@ -1088,6 +1100,7 @@ def eval_loop(args: argparse.Namespace) -> None:
                         rgb_pred=rgb_pred,
                         rgb_gt_vae=rgb_gt,
                         metrics=metrics_one,
+                        patch_unpatch=dit.patch_unpatch_metadata(args.dit_checkpoint),
                         args=args,
                     )
                     dump_count_local += 1
@@ -1177,6 +1190,7 @@ def eval_loop(args: argparse.Namespace) -> None:
     summary = {
         "_metric_doc": metric_doc,
         "config": vars(args),
+        "patch_unpatch": dit.patch_unpatch_metadata(args.dit_checkpoint),
         "overall": _agg(all_metrics),
         "by_scenario": {s: _agg(ms) for s, ms in sorted(by_scenario.items())},
         "world_size": world_size,

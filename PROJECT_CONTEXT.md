@@ -89,6 +89,8 @@ BEV 开关：
 - 默认 `USE_BEV=1` / `use_bev=True`。
 - `USE_BEV=0` 时 decoder 完全不实例化 / 不 forward BEV projector。
 - checkpoint 加载必须二选一：`use_bev=True` 就导入已有 BEV projector 参数；`use_bev=False` 就彻底不用 BEV。禁止随机初始化 BEV projector 混入推理。
+- LeadMoT `ema_state_dict` 当前 schema 是 `{"decay": ..., "shadow": {...}}`；`eval.py` /
+  `probe.py` 会 unwrap `shadow` 后再 strict load。
 
 ## 7. GoalGen
 
@@ -161,6 +163,24 @@ eval 端固定坑：
 训练目标：`image -> VAE.encode -> patch -> unpatch -> VAE.decode -> image`。
 VAE 冻结，只训练 patch/unpatch。产物 `patch_unpatch_*.safetensors` 可被
 `DiTMoT.load_patch_unpatch` 直接加载，key 与 `self.patch` / `self.unpatch` 对齐。
+
+GoalGen checkpoint 记录 patch/unpatch 来源：
+
+- `patch_unpatch_source=external`：训练由 `PATCH_UNPATCH_WEIGHTS` /
+  `--patch-unpatch-weights` 加载外部 `patch_unpatch_*.safetensors`，并保持默认冻结；
+  `dit_config.patch_unpatch_weights` 记录外部绝对路径。eval/probe/runner 在
+  strict load DiT 后会按该路径再次覆盖 patch/unpatch 并恢复冻结语义。
+- `patch_unpatch_source=checkpoint`：未提供外部权重时，patch/unpatch 随 DiT
+  随机初始化并联合训练，权重保存在 GoalGen `dit_state_dict` / `ema_state_dict`
+  内；若设置 `PATCH_UNPATCH_UNFREEZE=1`，外部权重也只作为初始化，后续同样随
+  GoalGen ckpt 保存。eval/probe/runner 直接使用 `--dit-checkpoint` 内自带的
+  patch/unpatch。
+- GoalGen eval/probe/runner 使用 EMA 时，先以完整 `dit_state_dict` 打底，再用
+  `ema_state_dict` 覆盖可训练参数；外部冻结 patch/unpatch 不在 EMA shadow 中也
+  不会缺 key。
+- warm start 继承 `patch_unpatch_source=external` 时默认要求原 safetensors 仍存在；
+  只有显式 `PATCH_UNPATCH_CKPT_FALLBACK=1` / `--allow-patch-unpatch-ckpt-fallback`
+  才使用 ckpt 内自带 patch/unpatch 继续训练，并把新产物记为 `source=checkpoint`。
 
 DDP 选卡：Python 内部 rank0 选卡，写临时文件，其它 rank 读取，避免每 worker
 各自 `nvidia-smi` 导致 GPU 子集 race。

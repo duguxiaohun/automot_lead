@@ -39,6 +39,17 @@ from qwen3vl_local.leadmot.train import (
 DEFAULT_OUTPUT_ROOT = Path("checkpoints/leadmot_v1_decoder")
 
 
+def _unwrap_ema_state_dict(ema_sd: Any) -> tuple[dict[str, Any] | None, Any]:
+    """Return decoder-shaped EMA weights from either old or current checkpoint schema."""
+
+    if not isinstance(ema_sd, dict):
+        return None, None
+    shadow = ema_sd.get("shadow")
+    if isinstance(shadow, dict):
+        return shadow, ema_sd.get("decay")
+    return ema_sd, None
+
+
 def _pick_idle_gpus(n: int = 1) -> str:
     """从 nvidia-smi 中选择占用最低的 GPU，失败则返回空字符串。"""
     try:
@@ -165,8 +176,9 @@ def _load_decoder(
         cfg_dict["num_waypoint_queries"] = cfg_dict.pop("waypoint_points")
 
     ema_sd = state.get("ema_state_dict") if isinstance(state, dict) else None
-    using_ema = bool(use_ema and ema_sd is not None)
-    state_dict = ema_sd if using_ema else state["decoder"]
+    ema_state_dict, ema_decay = _unwrap_ema_state_dict(ema_sd)
+    using_ema = bool(use_ema and ema_state_dict is not None)
+    state_dict = ema_state_dict if using_ema else state["decoder"]
     if "use_bev" not in cfg_dict:
         cfg_dict["use_bev"] = any(str(key).startswith("bev_projector.") for key in state_dict)
         print(
@@ -179,7 +191,8 @@ def _load_decoder(
 
     if using_ema:
         decoder.load_state_dict(state_dict, strict=True)
-        print(f"[leadmot] using EMA weights (decay={state.get('ema_decay', 'unknown')})")
+        decay = ema_decay if ema_decay is not None else state.get("ema_decay", "unknown")
+        print(f"[leadmot] using EMA weights (decay={decay})")
     else:
         if use_ema and ema_sd is None:
             print("[leadmot] WARN: --use-ema set but checkpoint has no ema_state_dict; using raw decoder weights")
