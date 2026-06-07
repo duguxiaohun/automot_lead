@@ -34,9 +34,20 @@ type embedding normal 初始化、EMA、logit-normal t 采样、CFG 训练/推�
 per-channel 标准化、z_current prior 起点，以及学习率 `2e-4` + warmup `0.05`。
 这批改动与旧 ckpt 不兼容，第二轮应从零重训。
 
-Qwen 和 VAE 全程冻结，**只有 DiT-MoT 参与训练**。这条边界非常重要：
-训练损失只能更新 DiT，不能让语言模型或 VAE 被反向传播污染，否则后续所有
+Qwen 和 VAE 全程冻结，**训练损失只更新 DiT-MoT 中仍可训练的主干参数**。
+patch/unpatch 默认从预训 best safetensors 导入并冻结；只有显式
+`PATCH_UNPATCH_UNFREEZE=1` 时才会跟随 DiT 联合更新。这条边界非常重要：
+训练不能让语言模型、VAE 或默认冻结的 patch/unpatch 被反向传播污染，否则后续所有
 缓存、评测和旧检查点都不可比。
+
+VAE 权重固定由 `qwen3vl_local.goalgen.vae.default_vae_paths()` 读取
+`vae_standalone/config/vae_only.yaml` 与 `vae_standalone/weights/vae_only.safetensors`。
+DiT 内的 patch/unpatch 默认不再随机初始化：`train.py` 会在
+`PATCH_UNPATCH_WEIGHTS` 为空时自动解析
+`checkpoints/patch_unpatch_v1/latest/weights/patch_unpatch_best.safetensors`
+（再兜底无 run_subdir 与最新 `run_*`），加载并冻结；三处都找不到时直接报错。
+这样 GoalGen v1/v2 默认共享同一份已经训好的 VAE patch/unpatch 映射，避免把
+patch/unpatch 重建误差混进 DiT 训练。
 
 ## 数据
 

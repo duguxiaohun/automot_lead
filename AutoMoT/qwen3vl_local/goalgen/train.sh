@@ -74,8 +74,12 @@ KEEP_RECENT_CHECKPOINTS="${KEEP_RECENT_CHECKPOINTS:-3}"
 # 当前共享架构（2026-06 切换）：patch=4 / hidden=1024 / n_heads=8 -> 直接对齐 Qwen K/V (8×128)
 PATCH_SIZE="${PATCH_SIZE:-4}"
 HIDDEN_DIM="${HIDDEN_DIM:-1024}"
-# 可选：把 AutoMoT/vae_standalone/train_patch_unpatch.py 训出来的权重塞回 DiT。
-# 留空 = 维持原行为（patch/unpatch 随机初始化跟 DiT 一起训练）。
+# patch/unpatch 权重来源。
+# 留空（默认）= 自动调 qwen3vl_local.goalgen.dit.default_patch_unpatch_weights()
+# 按 latest/ -> 无 run_subdir -> 最新 run_*/ 兜底找
+# `<AutoMoT>/checkpoints/patch_unpatch_v1/.../weights/patch_unpatch_best.safetensors`，
+# 找到就加载并默认冻结；找不到直接报错，避免正式训练混入随机 patch/unpatch。
+# 显式给路径时仍以该路径为准（用于消融对比不同 patch_unpatch 产物）。
 # 架构兼容性注意：必须用 hidden=1024 / patch=4 训出的 safetensors，
 # 早期 hidden=768 / patch=2 权重不兼容。
 PATCH_UNPATCH_WEIGHTS="${PATCH_UNPATCH_WEIGHTS:-}"

@@ -163,18 +163,23 @@ eval 端固定坑：
 训练目标：`image -> VAE.encode -> patch -> unpatch -> VAE.decode -> image`。
 VAE 冻结，只训练 patch/unpatch。产物 `patch_unpatch_*.safetensors` 可被
 `DiTMoT.load_patch_unpatch` 直接加载，key 与 `self.patch` / `self.unpatch` 对齐。
+默认产物路径为
+`AutoMoT/checkpoints/patch_unpatch_v1/<run_TS>/weights/patch_unpatch_best.safetensors`，
+base 层维护 `latest -> run_TS`；`vae_reconstruct.py` 与 GoalGen 训练共用
+latest / 无 run_subdir / 最新 run_* 的兜底解析顺序。
 
 GoalGen checkpoint 记录 patch/unpatch 来源：
 
 - `patch_unpatch_source=external`：训练由 `PATCH_UNPATCH_WEIGHTS` /
-  `--patch-unpatch-weights` 加载外部 `patch_unpatch_*.safetensors`，并保持默认冻结；
-  `dit_config.patch_unpatch_weights` 记录外部绝对路径。eval/probe/runner 在
-  strict load DiT 后会按该路径再次覆盖 patch/unpatch 并恢复冻结语义。
-- `patch_unpatch_source=checkpoint`：未提供外部权重时，patch/unpatch 随 DiT
-  随机初始化并联合训练，权重保存在 GoalGen `dit_state_dict` / `ema_state_dict`
-  内；若设置 `PATCH_UNPATCH_UNFREEZE=1`，外部权重也只作为初始化，后续同样随
-  GoalGen ckpt 保存。eval/probe/runner 直接使用 `--dit-checkpoint` 内自带的
-  patch/unpatch。
+  `--patch-unpatch-weights` 加载外部 `patch_unpatch_*.safetensors`；空参时
+  `goalgen/train.py` 自动解析默认 best。找到后默认冻结，并把绝对路径写入
+  `dit_config.patch_unpatch_weights`。eval/probe/runner 在 strict load DiT 后会按该
+  路径再次覆盖 patch/unpatch 并恢复冻结语义。三处默认路径都找不到时直接报错，
+  不再回退到随机初始化。
+- `patch_unpatch_source=checkpoint`：仅用于显式 `PATCH_UNPATCH_UNFREEZE=1`
+  将外部权重作为初始化并继续联合训练，或 warm start 时显式
+  `PATCH_UNPATCH_CKPT_FALLBACK=1` 使用 ckpt 内自带 patch/unpatch。eval/probe/runner
+  此时直接使用 `--dit-checkpoint` 内自带的 patch/unpatch。
 - GoalGen eval/probe/runner 使用 EMA 时，先以完整 `dit_state_dict` 打底，再用
   `ema_state_dict` 覆盖可训练参数；外部冻结 patch/unpatch 不在 EMA shadow 中也
   不会缺 key。
