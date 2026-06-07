@@ -112,7 +112,7 @@
 - `AutoMoT/qwen3vl_local/goalgen/train.sh`
 - `AutoMoT/qwen3vl_local/goalgen/eval.py`
 - `AutoMoT/qwen3vl_local/goalgen/probe.py`
-  （以上 7 个是子目标 latent 生成路线 v1/v2 共用数据/训练/eval/probe/文档，详见 PROJECT_CONTEXT.md §15；MD 与代码同位于 goalgen 子包内，不要再在 tools/ 下创建重复 MD）
+  （以上 7 个是子目标 latent 生成路线 v1/v2 共用数据/训练/eval/probe/文档，详见 PROJECT_CONTEXT.md §15；MD 与代码同位于 goalgen 子包内，不要再在 tools/ 下创建重复 MD。GoalGen 训练默认必须导入 `AutoMoT/checkpoints/patch_unpatch_v1/latest/weights/patch_unpatch_best.safetensors`（再兜底无 run_subdir 与最新 `run_*`）并冻结；找不到直接报错，不再随机初始化 patch/unpatch）
 - `AutoMoT/vae_standalone/train_patch_unpatch.py`
   （patch/unpatch 端到端图像重建训练脚本：image→VAE.encode→patch→unpatch→VAE.decode→image；VAE 冻结。产物 `patch_unpatch_*.safetensors` 可被 `DiTMoT.load_patch_unpatch` 直接加载，state_dict key 与 DiTMoT 内 `self.patch` / `self.unpatch` 一一对应。`AutoMoT/vae_standalone/` 下其它原始文件仍为只读参考，除非已单独列入白名单）
 - `AutoMoT/vae_standalone/vae_reconstruct.py`

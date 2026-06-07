@@ -18,7 +18,7 @@ import shutil
 import sys
 from contextlib import nullcontext
 from dataclasses import asdict
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.distributed as dist
@@ -41,6 +41,7 @@ from qwen3vl_local.engine import LocalQwen3VLInstructEngine  # noqa: E402
 from qwen3vl_local.goalgen.dit import (  # noqa: E402
     DiTMoT,
     DiTMoTConfig,
+    default_patch_unpatch_weights,
 )
 from qwen3vl_local.goalgen.flow import (  # noqa: E402
     DiTEMA,
@@ -1093,21 +1094,26 @@ def train(args: argparse.Namespace) -> None:
             f"head_dim={args.hidden_dim // args.n_heads} patch={args.patch_size} layers={args.num_layers}"
         )
 
-    # 可选：加载 vae_standalone/train_patch_unpatch.py 训出来的 patch/unpatch 权重。
-    # 默认 freeze=True，patch/unpatch 不再更新；optimizer 下面会按 requires_grad
-    # 过滤参数，所以冻结后既省 AdamW state 也省反传计算。不提供路径就保持现状
-    # （patch/unpatch 与 DiT 一起随机初始化联合训练）。
-    if args.patch_unpatch_weights:
-        info = dit.load_patch_unpatch(
-            args.patch_unpatch_weights,
-            freeze=not args.patch_unpatch_unfreeze,
-        )
-        if is_rank0(rank):
-            print(f"[patch_unpatch] 加载 {args.patch_unpatch_weights}: {info}")
+    # 默认导入 vae_standalone/train_patch_unpatch.py 训好的 best safetensors，并冻结。
+    # 解析顺序：
+    #   1) 用户显式 `--patch-unpatch-weights <path>` 走该路径；
+    #   2) 不传则调 `default_patch_unpatch_weights()`，按 latest/ -> 无 run_subdir
+    #      -> 最新 run_*/ 兜底找 `patch_unpatch_v1` 下的 best；找不到直接报错。
+    # freeze=True 时 optimizer 会按 requires_grad 过滤参数，AdamW state / 反传都省。
+    explicit_pu = bool(args.patch_unpatch_weights)
+    if explicit_pu:
+        resolved_pu_path = pathlib.Path(args.patch_unpatch_weights).expanduser()
     else:
-        dit.mark_patch_unpatch_checkpoint(frozen=False)
-        if is_rank0(rank):
-            print("[patch_unpatch] 未提供权重 -> patch/unpatch 跟随 DiT 随机初始化训练")
+        resolved_pu_path = default_patch_unpatch_weights()
+    info = dit.load_patch_unpatch(
+        str(resolved_pu_path),
+        freeze=not args.patch_unpatch_unfreeze,
+    )
+    # 解析成功后回填 args，让后续 warm-start / ckpt 落盘等代码统一拿到绝对路径。
+    args.patch_unpatch_weights = str(pathlib.Path(resolved_pu_path).resolve())
+    if is_rank0(rank):
+        origin = "显式 --patch-unpatch-weights" if explicit_pu else "默认 patch_unpatch_v1 best"
+        print(f"[patch_unpatch] {origin} 加载 {args.patch_unpatch_weights}: {info}")
 
     # warm start：在 patch/unpatch 加载之后、EMA 实例化之前先把 ckpt 的 dit_state_dict
     # copy 进当前 dit。次序很重要——先 patch_unpatch、再 warm-start dit、再建 EMA，
@@ -1592,13 +1598,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # 这样语言 K/V 直接接入 DiT attention，省掉 lang_k_proj/v_proj 跨维线性。
     p.add_argument("--patch-size", type=int, default=4)
     p.add_argument("--hidden-dim", type=int, default=1024)
-    # 可选 patch/unpatch 预训权重（来自 vae_standalone/train_patch_unpatch.py）。
-    # 给路径就加载并默认冻结；不给就维持原行为（随机初始化、跟 DiT 一起训练）。
+    # patch/unpatch 预训权重（来自 vae_standalone/train_patch_unpatch.py）。
+    # 给路径就加载并默认冻结；不给就自动解析默认 best，找不到直接报错。
     # 架构兼容性注意：必须用 hidden=1024 / patch=4 训出的 safetensors，
     # 早期 hidden=768 / patch=2 权重不兼容。
     p.add_argument("--patch-unpatch-weights", type=str, default="",
-                   help='可选 patch_unpatch_*.safetensors 路径；非空时调用 '
-                        'DiTMoT.load_patch_unpatch 加载并冻结。需用当前架构 hidden=1024/patch=4 训出。')
+                   help='patch_unpatch_*.safetensors 路径；为空时自动读取 '
+                        'checkpoints/patch_unpatch_v1/latest/weights/patch_unpatch_best.safetensors '
+                        '等默认 best，找不到直接报错。需用当前架构 hidden=1024/patch=4 训出。')
     p.add_argument("--patch-unpatch-unfreeze", action="store_true", default=False,
                    help="加载 patch/unpatch 权重后仍允许联合更新（默认加载即冻结）。")
     p.add_argument("--allow-patch-unpatch-ckpt-fallback", action="store_true", default=False,

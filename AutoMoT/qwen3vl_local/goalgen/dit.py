@@ -45,6 +45,72 @@ import torch.nn.functional as F
 
 
 # --------------------------------------------------------------------------- #
+# 默认 patch/unpatch 权重路径解析
+# --------------------------------------------------------------------------- #
+#
+# `AutoMoT/vae_standalone/train_patch_unpatch.py` 的产物默认落在
+#   <AutoMoT>/checkpoints/patch_unpatch_v1/run_<TS>/weights/patch_unpatch_best.safetensors
+# 并维护 base 层 `latest -> run_<TS>` 的 symlink；用 NO_RUN_SUBDIR=1 跑时直接落在
+# <AutoMoT>/checkpoints/patch_unpatch_v1/weights/patch_unpatch_best.safetensors。
+#
+# 这里集中维护一份默认解析逻辑，goalgen/train.py 在 `--patch-unpatch-weights` 为空时
+# 自动调用：找到 best safetensors 就加载并默认冻结，找不到直接报错，避免正式训练
+# 悄悄回退到随机 patch/unpatch。`vae_standalone/vae_reconstruct.py` 也维护了同样的兜底
+# 顺序（latest -> 无 run_subdir -> 最新 run_*），两边保持一致。
+
+_DIT_FILE = pathlib.Path(__file__).resolve()
+# qwen3vl_local/goalgen/dit.py -> qwen3vl_local -> AutoMoT
+_AUTOMOT_ROOT = _DIT_FILE.parents[2]
+DEFAULT_PATCH_UNPATCH_OUTPUT_ROOT = _AUTOMOT_ROOT / "checkpoints" / "patch_unpatch_v1"
+DEFAULT_PATCH_UNPATCH_BEST = (
+    DEFAULT_PATCH_UNPATCH_OUTPUT_ROOT / "latest" / "weights" / "patch_unpatch_best.safetensors"
+)
+DEFAULT_PATCH_UNPATCH_BEST_NO_RUN_SUBDIR = (
+    DEFAULT_PATCH_UNPATCH_OUTPUT_ROOT / "weights" / "patch_unpatch_best.safetensors"
+)
+
+
+def default_patch_unpatch_weights() -> pathlib.Path:
+    """返回训好的 patch/unpatch best safetensors 默认路径；找不到直接报错。
+
+    兜底顺序与 ``AutoMoT/vae_standalone/vae_reconstruct.py:resolve_default_patch_weights``
+    严格一致，避免两套约定漂移：
+
+    1. ``<AutoMoT>/checkpoints/patch_unpatch_v1/latest/weights/patch_unpatch_best.safetensors``
+       （正常 run_subdir + latest symlink 模式）
+    2. ``<AutoMoT>/checkpoints/patch_unpatch_v1/weights/patch_unpatch_best.safetensors``
+       （NO_RUN_SUBDIR=1 旧式覆盖模式）
+    3. ``<AutoMoT>/checkpoints/patch_unpatch_v1/run_*/weights/patch_unpatch_best.safetensors``
+       中 mtime 最新的一份（latest symlink 被手动删掉时的兜底）
+
+    都找不到时抛 ``FileNotFoundError``；GoalGen 正式训练不再允许静默随机初始化
+    patch/unpatch。
+    """
+
+    for candidate in (DEFAULT_PATCH_UNPATCH_BEST, DEFAULT_PATCH_UNPATCH_BEST_NO_RUN_SUBDIR):
+        if candidate.exists():
+            return candidate
+    run_candidates = [
+        p
+        for p in DEFAULT_PATCH_UNPATCH_OUTPUT_ROOT.glob("run_*/weights/patch_unpatch_best.safetensors")
+        if p.is_file()
+    ]
+    if run_candidates:
+        return max(run_candidates, key=lambda p: p.stat().st_mtime)
+    searched = [
+        str(DEFAULT_PATCH_UNPATCH_BEST),
+        str(DEFAULT_PATCH_UNPATCH_BEST_NO_RUN_SUBDIR),
+        str(DEFAULT_PATCH_UNPATCH_OUTPUT_ROOT / "run_*/weights/patch_unpatch_best.safetensors"),
+    ]
+    raise FileNotFoundError(
+        "找不到默认 patch/unpatch best 权重。请先运行 "
+        "AutoMoT/vae_standalone/train_patch_unpatch.py，或显式传 "
+        "--patch-unpatch-weights / PATCH_UNPATCH_WEIGHTS。\n"
+        "已搜索：\n- " + "\n- ".join(searched)
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
 
