@@ -79,10 +79,12 @@ class LeadMoTPlanningDecoder(nn.Module):
         speed: torch.Tensor,
         target_point: torch.Tensor,
         target_point_next: torch.Tensor,
+        final_goal: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """按 ``slice_layout`` 约定顺序打包 BEV/status/query token。
 
         use_bev=False 时 bev 参数被忽略（可传 None），gen 序列从 speed 段开始拼。
+        use_final_goal=True 时必须传 final_goal；False 时忽略。
         """
         if self.config.use_bev:
             if bev is None:
@@ -99,22 +101,36 @@ class LeadMoTPlanningDecoder(nn.Module):
             bev_tokens = None
 
         speed_tok = self.status_encoder.encode_speed(speed)
-        tp_tok, ntp_tok = self.status_encoder.encode_target_points(
-            target_point, target_point_next,
-        )
+        if self.config.use_final_goal:
+            if final_goal is None:
+                raise ValueError(
+                    "config.use_final_goal=True 但 forward final_goal=None；"
+                    "要禁用 final_goal 请把 config.use_final_goal 改为 False。"
+                )
+            tp_tok, ntp_tok, fg_tok = self.status_encoder.encode_target_points(
+                target_point, target_point_next, final_goal,
+            )
+        else:
+            tp_tok, ntp_tok, fg_tok = self.status_encoder.encode_target_points(
+                target_point, target_point_next,
+            )
         route_q = self.route_query_bank(batch_size, device=device, dtype=dtype)
         wp_q = self.waypoint_query_bank(batch_size, device=device, dtype=dtype)
-        # 布局：(BEV) | speed | target point | next target point | route Q | waypoint Q
+        # 布局：(BEV) | speed | tp | ntp | (final_goal) | route Q | waypoint Q
         # 注意 dtype 对齐到 BEV 通路一致（use_bev=False 时退回 speed dtype）。
         parts = []
         if bev_tokens is not None:
             parts.append(bev_tokens)
-        parts.extend([speed_tok, tp_tok, ntp_tok, route_q, wp_q])
+        parts.extend([speed_tok, tp_tok, ntp_tok])
+        if fg_tok is not None:
+            parts.append(fg_tok)
+        parts.extend([route_q, wp_q])
         gen_seq = torch.cat(parts, dim=1)
         if gen_seq.shape[1] != self.config.total_gen_tokens():
             raise RuntimeError(
                 f"gen seq length mismatch: got {gen_seq.shape[1]}, "
-                f"expect {self.config.total_gen_tokens()}（use_bev={self.config.use_bev}）"
+                f"expect {self.config.total_gen_tokens()}（use_bev={self.config.use_bev}, "
+                f"use_final_goal={self.config.use_final_goal}）"
             )
         return gen_seq
 
@@ -142,15 +158,20 @@ class LeadMoTPlanningDecoder(nn.Module):
         speed: torch.Tensor,
         target_point: torch.Tensor,
         target_point_next: torch.Tensor,
+        final_goal: Optional[torch.Tensor] = None,
         rope_position_offset: int | torch.Tensor | None = None,
     ) -> Dict[str, torch.Tensor]:
-        """返回 route 和 future-waypoint 预测。"""
+        """返回 route 和 future-waypoint 预测。
+
+        final_goal: (B, 2) ego-frame route 终点；config.use_final_goal=True 时必传。
+        """
         self._check_pooled_kv(pooled_kv)
         gen_seq = self._build_gen_sequence(
             bev=bev,
             speed=speed,
             target_point=target_point,
             target_point_next=target_point_next,
+            final_goal=final_goal,
         )
 
         # 第 i 个 block 使用 pooled_kv[i] 作为 language prefix K/V。
