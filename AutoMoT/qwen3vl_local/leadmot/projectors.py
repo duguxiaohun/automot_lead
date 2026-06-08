@@ -2,7 +2,7 @@
 
 这些模块刻意保持很小：
 - BEV feature 变成 120 个 generated token；
-- speed、target_point、next_target_point 变成 3 个 status token；
+- speed、target_point、next_target_point、final_goal 变成 4 个 status token（默认）；
 - 所有输出 token 宽度都对齐 ``config.hidden_size``。
 """
 
@@ -72,10 +72,10 @@ class WaypointInputAdaptor(nn.Module):
 
 
 class StatusTokenEncoder(nn.Module):
-    """把 speed、target_point、next_target_point 编码成三个 token。
+    """把 speed、target_point、next_target_point、final_goal 编码成 status tokens。
 
-    speed 保持 runner 中的原始 m/s 量纲；target point 和 next target point
-    共享同一个 MLP，让两者 embedding 落在同一坐标语义空间里。
+    speed 保持 runner 中的原始 m/s 量纲；target point、next target point
+    与 final_goal 共享同一个 MLP，让三者 embedding 落在同一坐标语义空间里。
     """
 
     def __init__(self, config: LeadMoTPlanningDecoderConfig):
@@ -121,7 +121,7 @@ class StatusTokenEncoder(nn.Module):
         ntp = target_point_next.to(device=param.device, dtype=param.dtype)
 
         if final_goal is None:
-            # 旧 schema：只编 tp/ntp。返回值第三个位置用 None 占位。
+            # 仅供 use_final_goal=False 的消融配置使用；主路线要求 final_goal token。
             target_points = torch.stack([tp, ntp], dim=1)
             encoded = self.target_point_encoder(target_points)
             return encoded[:, 0:1, :], encoded[:, 1:2, :], None

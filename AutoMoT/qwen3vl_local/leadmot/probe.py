@@ -111,6 +111,10 @@ def _load_decoder(
             "[leadmot] checkpoint has no decoder_config.use_bev; "
             f"inferred use_bev={cfg_dict['use_bev']} from state_dict keys"
         )
+    if "use_final_goal" not in cfg_dict:
+        raise ValueError(f"{path} 缺少 decoder_config.use_final_goal，拒绝加载旧 LeadMoT ckpt")
+    if not bool(cfg_dict["use_final_goal"]):
+        raise ValueError(f"{path} 的 decoder_config.use_final_goal=False；当前路线要求 final_goal=True")
 
     config = LeadMoTPlanningDecoderConfig(**{k: v for k, v in cfg_dict.items() if k in LeadMoTPlanningDecoderConfig.__dataclass_fields__})
     decoder = LeadMoTPlanningDecoder(config).to(device=device, dtype=dtype)
@@ -251,8 +255,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bev-frame-count", type=int, default=1)
     parser.add_argument("--bev-frame-step", type=int, default=1)
     parser.add_argument("--frame-interval-s", type=float, default=0.25)
-    parser.add_argument("--target-point-lookahead-s", type=float, default=1.5)
-    parser.add_argument("--next-target-point-lookahead-s", type=float, default=3.0)
+    parser.add_argument("--target-point-lookahead-s", type=float, default=1.0)
+    parser.add_argument("--next-target-point-lookahead-s", type=float, default=2.0)
+    parser.add_argument("--tp-mode", type=str, default="route_lookahead", choices=["route_lookahead", "future_truth"])
+    parser.add_argument("--tp-min-lookahead-m", type=float, default=5.0)
+    parser.add_argument("--use-final-goal", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--verbose-samples", action="store_true")
     # 默认用 EMA 权重做 probe；--no-use-ema 强制 raw decoder。
     # 旧 ckpt 缺 ema_state_dict 时自动回落 raw 并 print 提示。
@@ -292,11 +299,22 @@ def main() -> None:
 
             pred_route = outputs["pred_route"][0].detach().cpu().float()
             pred_wp = outputs["pred_future_waypoints"][0].detach().cpu().float()
+            input_status = outputs.get("input_status")
+            navigation_input = None
+            if input_status is not None:
+                status = input_status[0].detach().cpu().float().view(-1)
+                navigation_input = {
+                    "speed_mps": float(status[0].item()),
+                    "target_point": status[1:3].tolist(),
+                    "target_point_next": status[3:5].tolist(),
+                    "final_goal": status[5:7].tolist() if status.numel() >= 7 else None,
+                }
             gt_route_cpu = gt_route.cpu().float()
             gt_wp_cpu = gt_wp.cpu().float()
             _draw_plot(case_dir / "planning_overlay.png", pred_route, gt_route_cpu, pred_wp, gt_wp_cpu)
 
             pred = {
+                "navigation_input": navigation_input,
                 "pred_route": pred_route.tolist(),
                 "gt_route": gt_route_cpu.tolist(),
                 "pred_future_waypoints": pred_wp.tolist(),

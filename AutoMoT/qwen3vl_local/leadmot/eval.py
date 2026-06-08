@@ -185,6 +185,10 @@ def _load_decoder(
             "[leadmot] checkpoint has no decoder_config.use_bev; "
             f"inferred use_bev={cfg_dict['use_bev']} from state_dict keys"
         )
+    if "use_final_goal" not in cfg_dict:
+        raise ValueError(f"{path} 缺少 decoder_config.use_final_goal，拒绝加载旧 LeadMoT ckpt")
+    if not bool(cfg_dict["use_final_goal"]):
+        raise ValueError(f"{path} 的 decoder_config.use_final_goal=False；当前路线要求 final_goal=True")
 
     config = LeadMoTPlanningDecoderConfig(**{k: v for k, v in cfg_dict.items() if k in LeadMoTPlanningDecoderConfig.__dataclass_fields__})
     decoder = LeadMoTPlanningDecoder(config).to(device=device, dtype=dtype)
@@ -270,8 +274,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bev-frame-count", type=int, default=1)
     parser.add_argument("--bev-frame-step", type=int, default=1)
     parser.add_argument("--frame-interval-s", type=float, default=0.25)
-    parser.add_argument("--target-point-lookahead-s", type=float, default=1.5)
-    parser.add_argument("--next-target-point-lookahead-s", type=float, default=3.0)
+    parser.add_argument("--target-point-lookahead-s", type=float, default=1.0)
+    parser.add_argument("--next-target-point-lookahead-s", type=float, default=2.0)
+    parser.add_argument("--tp-mode", type=str, default="route_lookahead", choices=["route_lookahead", "future_truth"])
+    parser.add_argument("--tp-min-lookahead-m", type=float, default=5.0)
+    parser.add_argument("--use-final-goal", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--verbose-samples", action="store_true")
     # 默认用 EMA 权重做 eval；--no-use-ema 强制用 raw decoder。
     # 旧 ckpt（不带 ema_state_dict）下任一选项都会回落到 raw 权重，并 print 提示。

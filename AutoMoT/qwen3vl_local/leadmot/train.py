@@ -592,16 +592,28 @@ class LeadMoTTrainRuntime:
 
         status = target_point_speed.to(device=self.device, dtype=decoder_dtype)
         # runner 给出的 target_point_speed 布局：
-        # [speed, target_x, target_y, next_target_x, next_target_y]。
-        return decoder(
+        # [speed, target_x, target_y, next_target_x, next_target_y, final_goal_x, final_goal_y]。
+        final_goal = None
+        if decoder_config.use_final_goal:
+            if status.shape[-1] < 7:
+                raise ValueError(
+                    "decoder_config.use_final_goal=True 但 target_point_speed 缺少 final_goal；"
+                    f"当前 shape={tuple(status.shape)}。请确认 dataset row/use_final_goal 与 build_clip 同步。"
+                )
+            final_goal = status[:, 5:7]
+        outputs = decoder(
             pooled_kv=pooled_kv,
             bev=(bev_features.to(device=self.device, dtype=decoder_dtype)
                  if bev_features is not None else None),
             speed=status[:, 0],
             target_point=status[:, 1:3],
             target_point_next=status[:, 3:5],
+            final_goal=final_goal,
             rope_position_offset=rope_position_offset,
         )
+        # 供 eval/probe/debug dump 核对输入导航状态；loss 只读取 pred_* 键。
+        outputs["input_status"] = status.detach()
+        return outputs
 
 
 def _make_scheduler(optimizer: torch.optim.Optimizer, total_steps: int, warmup_ratio: float):
@@ -652,6 +664,17 @@ def _save_checkpoint(
     os.replace(tmp_path, path)
 
 
+def _require_final_goal_checkpoint(state: Any, path: Path) -> None:
+    """新路线舍弃旧 ckpt：checkpoint 必须显式记录 use_final_goal=True。"""
+    if not isinstance(state, dict):
+        raise ValueError(f"{path} 不是带 decoder_config 的 LeadMoT v2 checkpoint，拒绝加载旧 schema")
+    cfg = state.get("decoder_config")
+    if not isinstance(cfg, dict) or "use_final_goal" not in cfg:
+        raise ValueError(f"{path} 缺少 decoder_config.use_final_goal，拒绝加载旧 LeadMoT ckpt")
+    if not bool(cfg["use_final_goal"]):
+        raise ValueError(f"{path} 的 decoder_config.use_final_goal=False；当前路线要求 final_goal=True")
+
+
 def _write_best_meta(output_dir: Path, checkpoint: Path, val_loss: float, epoch: int, step: int) -> None:
     """原子写出 best.pt 对应的人类可读元信息。"""
     meta = {
@@ -686,6 +709,7 @@ def _load_checkpoint(
 ) -> tuple[int, int, float | None]:
     """恢复 decoder、optimizer、scheduler 和可选 EMA 状态。"""
     state = torch.load(path, map_location="cpu")
+    _require_final_goal_checkpoint(state, path)
     schema = int(state.get("schema_version", 0))
     if schema != 1:
         print(f"[resume] warning: checkpoint schema_version={schema} != 1, fields may have drifted: {path}")
@@ -707,6 +731,7 @@ def _load_checkpoint(
 def _load_decoder_only(path: Path, decoder: torch.nn.Module) -> None:
     """只加载 decoder 权重，不加载 optimizer/scheduler，用于 init-from-ckpt。"""
     state = torch.load(path, map_location="cpu")
+    _require_final_goal_checkpoint(state, path)
     state_dict = state["decoder"] if isinstance(state, dict) and "decoder" in state else state
     module = decoder.module if hasattr(decoder, "module") else decoder
     module.load_state_dict(state_dict, strict=True)
@@ -986,7 +1011,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bev-frame-count", type=int, default=1)
     parser.add_argument("--bev-frame-step", type=int, default=1)
     # use_bev：decoder 是否在 gen 序列里拼 BEV(120) token。默认 True（v1 全套行为）。
-    # --no-use-bev 时 gen 序列只剩 21 个 status/query token，decoder 完全靠 frozen
+    # --no-use-bev 时 gen 序列只剩 22 个 status/query token（4 status + 18 query），decoder 完全靠 frozen
     # Qwen prefix K/V + 自车状态做 planning。注意切换 use_bev 时 state_dict 不兼容，
     # 切档必须从头训或单独 warm start，不能直接 --init-from-ckpt 跨 use_bev 加载。
     parser.add_argument("--use-bev", action=argparse.BooleanOptionalAction, default=True)

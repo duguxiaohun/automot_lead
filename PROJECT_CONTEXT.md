@@ -118,22 +118,31 @@ BEV 开关：
     沿 RoutePlanner 剩余 route 前推；
   - **默认 tp=1.0s, ntp=2.0s**（与 wp 视野 8*0.25=2s 对齐，ntp 落 wp 末端），
     MIN_LOOKAHEAD=5m 让停车/红灯仍有方向；
-  - 终点近时（route 弧长 < target_dist）自动 fallback 到 route[-1] → tp/ntp/final_goal
-    自然挤到一起（与 AutoMoT RoutePlanner.run_step 终点 `len(route) <= 2` 停止 pop 行为对应）；
+  - 终点近时（route 弧长 < target_dist）tp/ntp 自动 fallback 到当前剩余 route 末端；
   - build_clip 加 `tp_mode={route_lookahead, future_truth}`（默认 route_lookahead）；
     future_truth 是 v1 兼容模式保留。
 - **final_goal token 新增**（LeadMoT decoder 第 4 个 status token）：
-  - 训练用 meta["route"][-1] (ego frame route 末端)；在线用 `_route_planner.route[-1]`
-    转 ego frame；
+  - 训练用 LEAD 采集器写入的 `meta["next_target_points"][-1]`，即
+    `_command_planner.route` 当前剩余 command route 的真实末端，world frame 转 ego frame；
+    不能再用 `meta["route"][-1]`，后者只是局部 dense route 监督片段；
+  - 在线 eval_carla 用 `scenario_picker.load_route_endpoint(route_id)` 读取
+    `lead/data/benchmark_routes/bench2drive220/<Scenario>/<route_id>.xml`
+    最后一个 waypoint，再按当前 ego pose 转 ego frame；找不到 XML 时才临时 fallback 到
+    RoutePlanner 剩余 route 末端；
   - `LeadMoTPlanningDecoderConfig.use_final_goal=True` 默认；与 tp/ntp 共享
     `WaypointInputAdaptor` MLP 让坐标语义同空间；
   - `_LEADMOT_QWEN_SYSTEM_PROMPT` + `build_cleaned_prompt_and_modes` prompt 加
-    `your final destination is (X, Y)`，长度 5→7 元自动兼容；
-  - **老 LeadMoT v1 ckpt 不兼容**（gen sequence 多 1 token）。新 ckpt 默认开。
+    `your final destination is (X, Y)`；当前路线要求 7 元 `[speed,tp,ntp,final_goal]`，
+    不再对 5 元旧输入做自动兼容；
+  - **老 LeadMoT v1 ckpt 不兼容**（gen sequence 多 1 token）。train/eval/probe
+    均要求 checkpoint 显式记录 `decoder_config.use_final_goal=True`。
 - BEV 模型的实时 LiDAR 使用最近 `STEP_STRIDE=5` 个 20Hz sweep（≈0.25s 窗），
   按 (dx, dy, dyaw) 对齐到当前 anchor ego frame 后 concat。
 - PID desired speed 用 `wp[1]` / `wp[3]`（0.5s 与 1.0s 两段距离平均），
   与 LEADMOT_PLAN.md §32 一致。
+- 旧 AutoMoT 原模型里仍有 `l2_3s` / 6 个 0.5s waypoint 的 legacy 轨迹 head 注释；
+  这是原 fast head 的内部监督/指标，不代表当前 tp/ntp prompt 又回到 1.5s/3s。
+  当前 prompt 决策语义固定为 `now/+1s/+2s`，LeadMoT waypoint 监督固定覆盖 2s。
 - `run_eval.sh` 必填 `--leadmot-ckpt`，支持 scenario / route_id / random / full；
   默认自动选 1 张空闲 GPU，`--num-gpus N` 或 `EVAL_GPU_COUNT=N` 会自动选 N 张空闲 GPU，
   每张卡一个 worker、独立端口槽，round-robin 分 route。launcher 只扫描空闲
