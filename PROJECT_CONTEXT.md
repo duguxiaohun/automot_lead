@@ -92,6 +92,30 @@ BEV 开关：
 - LeadMoT `ema_state_dict` 当前 schema 是 `{"decay": ..., "shadow": {...}}`；`eval.py` /
   `probe.py` 会 unwrap `shadow` 后再 strict load。
 
+### 6.1 LeadMoT CARLA 闭环评测（eval_carla）
+
+入口：`AutoMoT/qwen3vl_local/eval_carla/`，操作文档：
+`EVAL_CARLA_PLAN.md` / `EVAL_CARLA_RUN.md`。
+
+- `agent.py` 是 leaderboard 实时 agent，RGB 固定 LEAD 3cam：
+  3 路 384×384、FOV=60，横拼 1152×384。
+- LiDAR 由 checkpoint 的 `decoder_config.use_bev` 决定：
+  `use_bev=True` 才声明/读取 LEAD 双 LiDAR；`use_bev=False` 不产生未使用 LiDAR 输入，
+  只传空点云占位给统一 `lead_clip` 结构。
+- warmup 不复制首帧填历史；默认等真实 4 个 4Hz 采样点，历史跨度 0.75s。
+- target_point / next_target_point 在线由 AutoMoT/CARLA global route planner 做
+  1.5s / 3s lookahead，再用 `inverse_conversion_2d` 转 ego frame `(x_forward, y_left)`。
+  在线没有未来真值，这是对离线未来位置语义的 route-lookahead 近似。
+- BEV 模型的实时 LiDAR 使用最近 `STEP_STRIDE` 个 20Hz sweep，对齐到当前 anchor ego frame；
+  只做轻量 LEAD 风格过滤（去 ego box、BEV/z 范围、0.1m 量化），不在线加入 radar/RANSAC。
+- `run_eval.sh` 必填 `--leadmot-ckpt`，支持 scenario / route_id / random / full；
+  默认自动选 1 张空闲 GPU，`--num-gpus N` 或 `EVAL_GPU_COUNT=N` 会自动选 N 张空闲 GPU，
+  每张卡一个 worker、独立端口槽，round-robin 分 route。
+- 输出 signature 包含 ckpt 父目录、ckpt stem、`bev{0|1}`、`ema{0|1}`，避免不同模型/BEV/raw-EMA 覆盖。
+- 子包内 Python class/function 已补中文 docstring；shell / HTML / CSS 在关键逻辑块前有中文注释。
+  后续改传感器、坐标、warmup、GPU worker、输出 JSON 或 webapp API 时，同步更新代码注释和
+  `EVAL_CARLA_*` 文档。
+
 ## 7. GoalGen
 
 文件：
@@ -202,6 +226,8 @@ eval、probe、teacher / 推理入口。
 - 文档示例不要写 shell 手动 `CUDA_VISIBLE_DEVICES=...`。
 - 显式 `--device cpu` / `--device cuda:N` 的 Python 入口通常视为用户锁设备，不覆盖。
 - GoalGen eval/probe 的 `--gpu N` 只在单进程下锁进程内 GPU；默认保持 0。
+- `eval_carla/run_eval.sh` 用 `--num-gpus N` / `EVAL_GPU_COUNT=N` 表示闭环评测 worker 数；
+  具体 GPU id 仍按 `nvidia-smi` 空闲排序自动选，并给每张卡分配独立 CARLA 端口槽。
 
 ## 11. Run 目录防覆盖规则
 
@@ -237,4 +263,5 @@ eval、probe、teacher / 推理入口。
 | GoalGen 跑法 | `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md` |
 | LeadMoT 跑法 | `AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md` |
 | LeadMoT 架构 | `AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md` |
+| LeadMoT CARLA 闭环评测 | `AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md` |
 | 规则入口 | `AGENTS.md` / `CLAUDE.md` |
