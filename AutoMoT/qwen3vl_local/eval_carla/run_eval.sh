@@ -24,11 +24,10 @@
 #   --no-bev-debug             关掉 BEV 顶视 debug 视频
 #   --no-aggregate             跑完不自动聚合
 #
-# CARLA 启动（默认开启）：
-#   - 每个 worker 自动在自己 GPU 上启动一个独立 CARLA server（自动扫描空闲三端口块）
-#   - worker 结束 / Ctrl+C / 异常退出 时自动 kill 对应 CARLA
-#   - 已经手动起 CARLA 时加 `--no-auto-carla` 跳过自动启动（默认 `USE_AUTO_CARLA=1`）
-#   - 启动后等 CARLA RPC 端口 listen 最多 `CARLA_BOOT_TIMEOUT=90` 秒
+# CARLA 启动：
+#   - launcher 负责给每个 worker 扫描一个空闲端口起点
+#   - 真正的 CARLA server 由 leaderboard_evaluator.py 启动并在退出时清理
+#   - 这样避免 launcher / evaluator 双重启动 CARLA 抢端口
 #
 # 输出根：${EVAL_OUTPUT_BASE:-${PROJECT_ROOT}/outputs/closed_loop_eval}
 #   <ckpt_parent>__<ckpt_stem>__bev{0|1}__ema{0|1}/
@@ -81,8 +80,10 @@ while [ $# -gt 0 ]; do
         --no-bev-debug) RECORD_BEV_DEBUG="0"; shift ;;
         --no-aggregate) DO_AGGREGATE="0"; shift ;;
         --run-label) RUN_LABEL_OVERRIDE="$2"; shift 2 ;;
-        --no-auto-carla) USE_AUTO_CARLA="0"; shift ;;
-        --auto-carla) USE_AUTO_CARLA="1"; shift ;;
+        --no-auto-carla) PRESTART_CARLA="0"; shift ;;
+        --auto-carla)
+            echo "WARN: --auto-carla is deprecated; CARLA is started by leaderboard_evaluator.py"
+            PRESTART_CARLA="0"; shift ;;
         -h|--help) sed -n '1,45p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
@@ -200,7 +201,7 @@ PORT_BASE_START="${PORT_BASE_START:-5000}"
 PORT_STRIDE="${PORT_STRIDE:-20}"
 # 每个 worker 会启动一个 CARLA server。CARLA 除 RPC 端口外还会占用 streaming 等邻近端口，
 # 所以用 PORT_STRIDE 给不同 GPU 留出端口槽，降低并行时端口冲突概率。
-echo "Port scan: start=${PORT_BASE_START}, stride=${PORT_STRIDE}; each worker gets a free [rpc, streaming, tm] block"
+echo "Port scan: start=${PORT_BASE_START}, stride=${PORT_STRIDE}; each worker gets a free [rpc..rpc+3, tm] block"
 
 # -------------------- 输出目录 --------------------
 EVAL_OUTPUT_BASE="${EVAL_OUTPUT_BASE:-${AUTOMOT_ROOT}/outputs/closed_loop_eval}"
@@ -417,7 +418,7 @@ echo "Sensor profile  : ${SENSOR_PROFILE}"
 echo "Step stride     : ${STEP_STRIDE}"
 echo "GPU workers     : ${GPU_COUNT} (${GPU_IDS[*]})"
 echo "Use EMA weights : ${LEADMOT_USE_EMA:-1}"
-echo "Auto CARLA      : ${USE_AUTO_CARLA:-1} (each worker spawns CARLA on its own GPU)"
+echo "CARLA launch    : leaderboard_evaluator.py (launcher prestart disabled)"
 echo "CARLA_ROOT      : ${CARLA_ROOT:-<unset>}"
 echo "Record (i/d/bev/m/g): ${RECORD_INPUT}/${RECORD_DEBUG}/${RECORD_BEV_DEBUG}/${RECORD_DEMO}/${RECORD_GRID}"
 echo "=========================================="
@@ -426,20 +427,18 @@ WORK_LOG_DIR="${SIG_DIR}/worker_logs/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "${WORK_LOG_DIR}"
 
 # ============================================================
-# CARLA 启动/停止 helpers
+# CARLA 端口 helpers
 # ============================================================
-# 每个 worker 在自己 GPU 上启动一个独立 CARLA server。
-# 用 `CUDA_VISIBLE_DEVICES=$gpu_rank` 锁住 CARLA 看到的 GPU 列表，CARLA 自己只感知
-# `cuda:0`；run_evaluation.sh 里启动 leaderboard_evaluator.py 时同样设
+# 每个 worker 会通过 run_evaluation.sh 进入 leaderboard_evaluator.py，由 evaluator
+# 自己启动独立 CARLA server。run_eval.sh 这里只负责预先给 worker 分配端口起点。
+# run_evaluation.sh 里启动 leaderboard_evaluator.py 时会设
 # `CUDA_VISIBLE_DEVICES=$gpu_rank`，模型和 CARLA 落在同一张物理卡，避免 PCIe 抖动。
-# 端口：主进程从 PORT_BASE_START 开始扫描空闲三端口块，分配给每个 worker。
-# 启动后 worker 在该端口上跑 evaluation；worker 函数返回时清理对应 CARLA。
-# 脚本异常退出（Ctrl+C / kill）由 trap EXIT 兜底清理所有遗留 CARLA 进程。
+# 端口：主进程从 PORT_BASE_START 开始扫描空闲端口块，分配给每个 worker。
 
-# 已启动 CARLA 的 port 列表，用于 trap EXIT 时统一回收
+# launcher 预启动 CARLA 已禁用；列表保留为空，cleanup 函数只作为兼容兜底。
 LAUNCHED_CARLA_PORTS=()
-USE_AUTO_CARLA="${USE_AUTO_CARLA:-1}"      # 设 0 关闭自动启动（手动管理 CARLA 的场景）
-CARLA_BOOT_TIMEOUT="${CARLA_BOOT_TIMEOUT:-90}"   # 秒，等 RPC 端口 listen 的超时
+PRESTART_CARLA="${PRESTART_CARLA:-0}"
+CARLA_BOOT_TIMEOUT="${CARLA_BOOT_TIMEOUT:-90}"   # legacy, unused unless PRESTART_CARLA=1
 
 is_port_free() {
     # 三种探测方法兜底：lsof > ss > python socket bind。任一可用都行。
@@ -462,14 +461,18 @@ except OSError:
 }
 
 find_free_port_block() {
-    # 从 start 开始按 PORT_STRIDE 步进，找一个 [p, p+1, p+8000] 三端口都空闲的块。
-    # CARLA 需要 RPC(p) + Streaming(p+1) + TrafficManager(p+8000) 三个端口都可用。
+    # 从 start 开始按 PORT_STRIDE 步进，找一个 evaluator 不会再改写的空闲块。
+    # leaderboard_evaluator.py 会要求 [p, p+1, p+2, p+3] 都可用；TM 默认 p+8000。
     # 失败（扫了 2000 还没找到）返回 1。
     local start="$1"
     local p="${start}"
     local max=$((start + 2000))
     while [ "${p}" -lt "${max}" ]; do
-        if is_port_free "${p}" && is_port_free "$((p + 1))" && is_port_free "$((p + 8000))"; then
+        if is_port_free "${p}" \
+            && is_port_free "$((p + 1))" \
+            && is_port_free "$((p + 2))" \
+            && is_port_free "$((p + 3))" \
+            && is_port_free "$((p + 8000))"; then
             echo "${p}"
             return 0
         fi
@@ -484,8 +487,8 @@ start_carla_for_worker() {
     local gpu_rank="$2"
     local log_file="$3"
 
-    if [ "${USE_AUTO_CARLA}" != "1" ]; then
-        echo "[carla:gpu${gpu_rank}:port${port}] USE_AUTO_CARLA=0, skip start"
+    if [ "${PRESTART_CARLA}" != "1" ]; then
+        echo "[carla:gpu${gpu_rank}:port${port}] prestart disabled; evaluator will launch CARLA"
         return 0
     fi
 
@@ -551,7 +554,7 @@ start_carla_for_worker() {
 stop_carla_for_port() {
     # kill 指定端口的 CARLA 进程（按端口匹配命令行参数定位）。
     local port="$1"
-    if [ "${USE_AUTO_CARLA}" != "1" ]; then
+    if [ "${PRESTART_CARLA}" != "1" ]; then
         return 0
     fi
     local tm_port=$((port + 8000))
@@ -577,29 +580,23 @@ cleanup_all_carla() {
 }
 trap cleanup_all_carla EXIT INT TERM
 
-# 主进程串行扫描空闲端口，每个 worker 分配一个独立 3 端口块（RPC / Streaming / TM）。
+# 主进程串行扫描空闲端口，每个 worker 分配一个独立端口块（RPC..RPC+3 / TM）。
 # 串行分配避免并发竞态：两个 worker 同时探测同一个端口为空闲然后双双启动 CARLA 冲突。
-# 分配出来后立即加入 LAUNCHED_CARLA_PORTS，让 trap EXIT 兜底清理（应对 SIGKILL 场景）。
 WORKER_PORTS=()
-if [ "${USE_AUTO_CARLA}" = "1" ]; then
-    next_start="${PORT_BASE_START}"
-    for ((widx=0; widx<GPU_COUNT; widx++)); do
-        port=$(find_free_port_block "${next_start}") || {
-            echo "ERROR: cannot find free 3-port block from ${next_start}" >&2
-            exit 1
-        }
-        WORKER_PORTS+=("${port}")
+next_start="${PORT_BASE_START}"
+for ((widx=0; widx<GPU_COUNT; widx++)); do
+    port=$(find_free_port_block "${next_start}") || {
+        echo "ERROR: cannot find free CARLA port block from ${next_start}" >&2
+        exit 1
+    }
+    WORKER_PORTS+=("${port}")
+    if [ "${PRESTART_CARLA}" = "1" ]; then
         LAUNCHED_CARLA_PORTS+=("${port}")
-        # 下一个 worker 从 port + PORT_STRIDE 开始扫，避免相邻端口段冲突
-        next_start=$((port + PORT_STRIDE))
-        echo "[port-alloc] worker ${widx} (gpu=${GPU_IDS[widx]}) -> rpc=${port} streaming=$((port+1)) tm=$((port+8000))"
-    done
-else
-    # USE_AUTO_CARLA=0：沿用旧固定槽位策略，假设用户手动起 CARLA 在 GPU_id 对应槽位
-    for ((widx=0; widx<GPU_COUNT; widx++)); do
-        WORKER_PORTS+=("$((PORT_BASE_START + GPU_IDS[widx] * PORT_STRIDE))")
-    done
-fi
+    fi
+    # 下一个 worker 从 port + PORT_STRIDE 开始扫，避免相邻端口段冲突
+    next_start=$((port + PORT_STRIDE))
+    echo "[port-alloc] worker ${widx} (gpu=${GPU_IDS[widx]}) -> rpc=${port} reserve=${port}-$((port+3)) tm=$((port+8000))"
+done
 
 run_route_worker() {
     # 单个 GPU worker：拿 worker_idx/gpu_rank 后，只处理 route_idx % GPU_COUNT == worker_idx 的路线。
@@ -618,15 +615,15 @@ run_route_worker() {
 
     echo "[worker ${worker_idx}] gpu=${gpu_rank} port=${base_port} tm_port=${base_tm_port}"
 
-    # 启动该 worker 专属 CARLA。失败时本 worker 直接放弃，让其它 worker 继续跑。
-    # 注：subprocess 自身已经被主进程 trap EXIT 兜底；这里 worker 退出时也主动 stop。
+    # 默认不在 launcher 层预启动 CARLA，避免和 leaderboard_evaluator.py 双重启动。
+    # evaluator 会在该 worker 进程里用相同 CUDA_VISIBLE_DEVICES 启动 CARLA 并负责退出清理。
     if ! start_carla_for_worker "${base_port}" "${gpu_rank}" "${carla_log}"; then
         echo "[worker ${worker_idx}] FATAL: CARLA failed to start; skipping all routes for this worker"
         return 1
     fi
-    # worker subprocess 自己的 trap：正常返回 / kill / Ctrl+C 都清理 CARLA。
-    # 主脚本另有 trap EXIT 兜底，这里是双保险（防止主脚本 trap 没触发）。
-    trap "stop_carla_for_port ${base_port}" EXIT INT TERM
+    if [ "${PRESTART_CARLA}" = "1" ]; then
+        trap "stop_carla_for_port ${base_port}" EXIT INT TERM
+    fi
 
     for ((route_idx=worker_idx; route_idx<TOTAL; route_idx+=GPU_COUNT)); do
         # round-robin 分片比连续切段更适合断点续跑：如果某张卡提前失败，
