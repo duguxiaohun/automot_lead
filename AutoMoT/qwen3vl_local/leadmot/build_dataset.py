@@ -173,6 +173,9 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
                 "target_point_lookahead_s": args.target_point_lookahead_s,
                 "next_target_point_lookahead_s": args.next_target_point_lookahead_s,
                 "future_waypoint_indices": args.future_waypoint_indices,
+                "tp_mode": args.tp_mode,
+                "tp_min_lookahead_m": args.tp_min_lookahead_m,
+                "use_final_goal": bool(args.use_final_goal),
             }
             for anchor in anchors
         ]
@@ -232,8 +235,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rgb-frame-step", type=int, default=1)
     parser.add_argument("--bev-frame-count", type=int, default=1)
     parser.add_argument("--bev-frame-step", type=int, default=1)
-    parser.add_argument("--target-point-lookahead-s", type=float, default=1.5)
-    parser.add_argument("--next-target-point-lookahead-s", type=float, default=3.0)
+    # tp/ntp 时长默认 1.0/2.0s，对齐 LeadMoT v2:
+    # - wp 视野 8*0.25=2s, ntp=2.0s 与 wp 末端同时刻
+    # - tp_mode=route_lookahead 时与在线 agent _lookahead_world_point 完全同款公式
+    parser.add_argument("--target-point-lookahead-s", type=float, default=1.0)
+    parser.add_argument("--next-target-point-lookahead-s", type=float, default=2.0)
+    parser.add_argument(
+        "--tp-mode",
+        type=str,
+        default="route_lookahead",
+        choices=["route_lookahead", "future_truth"],
+        help="route_lookahead: 沿 meta['route'] 弧长前推 max(speed*lookahead, min_m); "
+             "future_truth: 用 anchor+offset 帧真值位置 (v1 行为).",
+    )
+    parser.add_argument(
+        "--tp-min-lookahead-m",
+        type=float,
+        default=5.0,
+        help="低速 fallback 最小前瞻距离 (米). 停车/红灯场景仍有方向信号.",
+    )
+    parser.add_argument(
+        "--use-final-goal",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="是否在 dataset row 标记 use_final_goal=True; "
+             "True 时 train/eval/probe 调 build_clip 会写 clip['final_goal'].",
+    )
     parser.add_argument(
         "--future-waypoint-indices",
         type=int,

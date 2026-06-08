@@ -105,11 +105,19 @@ USE_UKF = True
 _DEFAULT_STEP_STRIDE = int(os.environ.get("STEP_STRIDE", "5"))
 _DEFAULT_SENSOR_PROFILE = os.environ.get("SENSOR_PROFILE", "3cam").lower()
 
-# 在线 target_point / next_target_point 对齐 AutoMoT mot_b2d_agent.py：
-# RoutePlanner.run_step() 后取剩余 route[1] / route[2]，不使用当前速度外推。
-# 路点不足时沿 ego->target 方向延展 5m；route 为空时沿当前航向前推 50m。
-_ROUTE_NTP_EXTENSION_M = 5.0
+# 在线 target_point / next_target_point 与训练 `_extract_tp_route_lookahead` 完全同款：
+# dist = max(speed * lookahead_s, _MIN_LOOKAHEAD_M)，沿 RoutePlanner.route 弧长前推 dist 米。
+# 训练-推理同公式 → 消除 tp/ntp 分布 gap（用户确定路线：全 P1）。
+# 默认 tp=1.0s, ntp=2.0s 都落在 future_waypoints 视野（8*0.25=2s）内。
+# MIN_LOOKAHEAD=5m 让停车/红灯/缓行场景仍能给模型一个前方方向。
+_TP_LOOKAHEAD_S = float(os.environ.get("TP_LOOKAHEAD_S", "1.0"))
+_NTP_LOOKAHEAD_S = float(os.environ.get("NTP_LOOKAHEAD_S", "2.0"))
+_MIN_LOOKAHEAD_M = float(os.environ.get("MIN_LOOKAHEAD_M", "5.0"))
+# route 完全空时沿当前 compass 推一个远点占位（应该不会进这个分支）。
 _EMPTY_ROUTE_EXTENSION_M = 50.0
+# 是否给 LeadMoT decoder 喂 final_goal token；默认开（配合 use_final_goal=True 的新训练 ckpt）。
+# 用 v1 ckpt 评测时设 0 关闭以避免 shape 不匹配。
+_USE_FINAL_GOAL = os.environ.get("USE_FINAL_GOAL", "1") != "0"
 
 # RGB JPEG round-trip 模拟训练分布（B1 修复）：默认 85，与 LEAD ClosedLoopConfig 一致。
 # 设 0 或 >=100 关闭模拟（用 raw CARLA RGB）。
@@ -184,7 +192,7 @@ def _make_empty_lead_clip(clip_len: int) -> dict[str, Any]:
     即便 use_bev=False，runner 的输入准备阶段仍会看到 lidar_points 字段；这里用空点云
     占位，保证 no-BEV 模型不需要真实 LiDAR 也能走同一套数据结构。
     """
-    return {
+    clip = {
         "rgb": np.zeros((clip_len, _LEAD_3CAM_H, _LEAD_3CAM_W * 3, 3), dtype=np.uint8),
         "lidar_points": [np.zeros((0, 3), dtype=np.float32) for _ in range(clip_len)],
         "pos_global": np.zeros((clip_len, 2), dtype=np.float32),
@@ -193,6 +201,10 @@ def _make_empty_lead_clip(clip_len: int) -> dict[str, Any]:
         "target_point": np.zeros((clip_len, 2), dtype=np.float32),
         "target_point_next": np.zeros((clip_len, 2), dtype=np.float32),
     }
+    # final_goal token：route 终点 ego frame 坐标；与 LeadMoT decoder use_final_goal=True 一致。
+    if _USE_FINAL_GOAL:
+        clip["final_goal"] = np.zeros((clip_len, 2), dtype=np.float32)
+    return clip
 
 
 def _jpeg_round_trip(rgb: np.ndarray, quality: int) -> np.ndarray:
@@ -575,6 +587,8 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         self.clip_speed = deque(maxlen=self.clip_len)
         self.clip_tp = deque(maxlen=self.clip_len)
         self.clip_ntp = deque(maxlen=self.clip_len)
+        # final_goal 历史（用 final_goal token 时）；与 tp/ntp 同步入队保证 anchor 对齐。
+        self.clip_fg = deque(maxlen=self.clip_len)
         self.clip_steps = deque(maxlen=self.clip_len)
         # use_bev=True 时维护最近 step_stride 个 tick 的 ego-frame LiDAR 点
         self.lidar_sweep_buffer = deque(maxlen=self.step_stride) if self.need_lidar else deque(maxlen=0)
@@ -826,23 +840,29 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             speed_filt = speed_raw
 
         # 让 RoutePlanner 推进队列：route 内已访问的路点会被 popleft。
-        # target_point / next_target_point 对齐 AutoMoT mot_b2d_agent.py：
-        # 直接取剩余 route[1] / route[2]，不按当前 speed * seconds 外推。
-        wp_route = self._route_planner.run_step(np.append(gps_xy, gps_pos[2]))
-        tp_world, ntp_world, far_cmd = self._automot_route_target_points(
-            wp_route, gps_xy, compass_filt
+        # 注意：popleft 是副作用，必须调；返回值我们不直接用（用 _route_planner.route 自己跑弧长）。
+        self._route_planner.run_step(np.append(gps_xy, gps_pos[2]))
+
+        # tp / ntp / final_goal 全部走 P1 弧长 lookahead，与训练
+        # `_extract_tp_route_lookahead` / `_extract_final_goal_ego` 完全同款公式。
+        tp_world, far_cmd = self._lookahead_world_point(
+            speed_filt, _TP_LOOKAHEAD_S, gps_xy, compass_filt
         )
+        ntp_world, _ntp_cmd = self._lookahead_world_point(
+            speed_filt, _NTP_LOOKAHEAD_S, gps_xy, compass_filt
+        )
+        fg_world = self._compute_final_goal_world()
 
         if (np.asarray(tp_world[:2]) != np.asarray(self.target_point_prev[:2])).any():
             self.target_point_prev = tp_world
             self.commands.append(far_cmd.value)
         next_command = self.commands[-2]
 
-        # world -> ego frame；在线没有未来真值，只能用 route lookahead 近似离线 tp/ntp 语义。
-        # inverse_conversion_2d(world_xy, current_pos_xy, current_theta) -> ego_xy
-        # ego frame 约定 (x_forward, y_left)；与 LeadMoT 训练分布一致。
+        # world -> ego frame: inverse_conversion_2d(world_xy, current_pos_xy, current_theta)
+        # ego frame 约定 (x_forward, y_left)，与 LeadMoT 训练分布一致。
         ego_tp = t_u.inverse_conversion_2d(np.asarray(tp_world[:2]), gps_xy, compass_filt)
         ego_ntp = t_u.inverse_conversion_2d(np.asarray(ntp_world[:2]), gps_xy, compass_filt)
+        ego_fg = t_u.inverse_conversion_2d(np.asarray(fg_world[:2]), gps_xy, compass_filt)
 
         return {
             "rgb_stitched": rgb_stitched,
@@ -852,50 +872,67 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             "speed": speed_filt,
             "target_point_ego": ego_tp.astype(np.float32),
             "next_target_point_ego": ego_ntp.astype(np.float32),
+            "final_goal_ego": ego_fg.astype(np.float32),
             "next_command": int(next_command),
         }
 
-    def _automot_route_target_points(self, waypoint_route, gps_xy: np.ndarray, compass: float):
-        """按 AutoMoT mot_b2d_agent.py 规则生成在线 target_point。
+    def _lookahead_world_point(
+        self,
+        speed: float,
+        lookahead_s: float,
+        gps_xy: np.ndarray,
+        compass: float,
+    ):
+        """沿 RoutePlanner 剩余 route 弧长前推 max(speed*lookahead_s, MIN_LOOKAHEAD_M) 米。
 
-        `RoutePlanner.run_step()` 已按 min_distance 推进掉身后的路点；这里直接取
-        剩余 route 的第 1 / 第 2 个未来点作为 tp/ntp。这个策略不依赖当前速度，
-        因而静止起步时仍会给模型一个前方导航目标。
+        与训练侧 `_extract_tp_route_lookahead` 完全同款公式：从 ego 当前位置出发，
+        按 deque 顺序累加每对相邻路点之间的距离，达到 target_dist 时插值。
+        路径走完时 fallback 到最后一个路点（与 AutoMoT RoutePlanner.run_step
+        终点近时停止 pop 的行为对应；终点近 → tp/ntp/final_goal 自然挤到一起）。
         """
         from agents.navigation.local_planner import RoadOption
 
-        route = list(waypoint_route)
+        target_dist = max(float(speed) * float(lookahead_s), _MIN_LOOKAHEAD_M)
+        route = list(self._route_planner.route)
         ego_xy = np.asarray(gps_xy[:2], dtype=np.float64)
 
-        def extend_from_target(target_xy: np.ndarray) -> np.ndarray:
-            direction = np.asarray(target_xy[:2], dtype=np.float64) - ego_xy
-            dist = float(np.linalg.norm(direction))
-            if dist > 1e-3:
-                direction = direction / dist
-            else:
-                direction = np.array([math.cos(compass), math.sin(compass)], dtype=np.float64)
-            return np.asarray(target_xy[:2], dtype=np.float64) + direction * _ROUTE_NTP_EXTENSION_M
-
-        if len(route) > 2:
-            target_point, far_cmd = route[1]
-            next_target_point, _next_cmd = route[2]
-        elif len(route) > 1:
-            target_point, far_cmd = route[1]
-            next_target_point = extend_from_target(target_point)
-        elif len(route) > 0:
-            target_point, far_cmd = route[0]
-            next_target_point = extend_from_target(target_point)
-        else:
-            target_point = ego_xy
-            far_cmd = RoadOption.LANEFOLLOW
+        if len(route) == 0:
+            # route 完全空（应该只在 episode 末尾才发生）：沿当前 compass 推一个占位远点。
             direction = np.array([math.cos(compass), math.sin(compass)], dtype=np.float64)
-            next_target_point = ego_xy + direction * _EMPTY_ROUTE_EXTENSION_M
+            return (
+                (ego_xy + direction * _EMPTY_ROUTE_EXTENSION_M).astype(np.float32),
+                RoadOption.LANEFOLLOW,
+            )
 
-        return (
-            np.asarray(target_point[:2], dtype=np.float32),
-            np.asarray(next_target_point[:2], dtype=np.float32),
-            far_cmd,
-        )
+        prev = ego_xy
+        accum = 0.0
+        last_cmd = route[-1][1]
+        for pos, cmd in route:
+            pos_xy = np.asarray(pos[:2], dtype=np.float64)
+            seg = pos_xy - prev
+            seg_len = float(np.linalg.norm(seg))
+            if seg_len > 1e-6 and accum + seg_len >= target_dist:
+                t = (target_dist - accum) / seg_len
+                interp = prev + t * seg
+                return interp.astype(np.float32), cmd
+            accum += seg_len
+            prev = pos_xy
+            last_cmd = cmd
+        # 路径走完仍未达到 target_dist → fallback 最后一个路点
+        return np.asarray(route[-1][0][:2], dtype=np.float32), last_cmd
+
+    def _compute_final_goal_world(self) -> np.ndarray:
+        """RoutePlanner 剩余 route 最末一个路点的 world 坐标。
+
+        训练侧 `_extract_final_goal_ego` 直接用 meta["route"][-1]（已是 ego frame）；
+        在线侧拿 deque 最后一个 world 点，统一通过 inverse_conversion_2d 转 ego frame。
+        终点已过时 route 退化为 1-2 点，此处 fallback 到 deque[-1] 即可。
+        """
+        route = list(self._route_planner.route)
+        if len(route) == 0:
+            # 罕见情况；返回一个比 ntp 远的占位点（与上面 _EMPTY_ROUTE_EXTENSION_M 同量级）
+            return np.array([0.0, 0.0], dtype=np.float32)
+        return np.asarray(route[-1][0][:2], dtype=np.float32)
 
     # ============================================================
     # run_step
@@ -929,6 +966,7 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             self.clip_speed.append(np.float32(tick_data["speed"]))
             self.clip_tp.append(tick_data["target_point_ego"])
             self.clip_ntp.append(tick_data["next_target_point_ego"])
+            self.clip_fg.append(tick_data["final_goal_ego"])
             self.clip_steps.append(int(self.step))
 
         # LEAD 风格 warmup：不等历史，第一个 4Hz 采样点就推理；
@@ -1042,6 +1080,9 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             lead_clip["speed"][i] = self.clip_speed[src]
             lead_clip["target_point"][i] = self.clip_tp[src]
             lead_clip["target_point_next"][i] = self.clip_ntp[src]
+            # final_goal 仅在 _USE_FINAL_GOAL=True 时被 _make_empty_lead_clip 创建
+            if "final_goal" in lead_clip and len(self.clip_fg) > 0:
+                lead_clip["final_goal"][i] = self.clip_fg[src]
             lead_clip["lidar_points"][i] = (
                 anchor_lidar if i == self.clip_len - 1 else np.zeros((0, 3), dtype=np.float32)
             )

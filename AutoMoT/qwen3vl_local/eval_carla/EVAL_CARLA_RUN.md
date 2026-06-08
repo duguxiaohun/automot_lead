@@ -150,6 +150,10 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 | env `PORT_STRIDE` | 20 | 空闲端口块扫描步长 |
 | env `LEADMOT_USE_EMA` | 1 | checkpoint 里有 EMA shadow 时默认加载；设 0 用 raw decoder |
 | env `JPEG_QUALITY` | 85 | RGB 拼接后 JPEG round-trip quality；设 0 关闭模拟 |
+| env `TP_LOOKAHEAD_S` | 1.0 | target_point 未来时长（秒），落在 wp 视野 2s 内 |
+| env `NTP_LOOKAHEAD_S` | 2.0 | next_target_point 时长（秒），与 wp 末端同步 |
+| env `MIN_LOOKAHEAD_M` | 5.0 | 低速 fallback 最小前瞻：`dist = max(speed*lookahead, 5m)` |
+| env `USE_FINAL_GOAL` | 1 | 是否给 LeadMoT decoder 喂 final_goal token；旧 ckpt 设 0 兼容 |
 | env `LIDAR_REMOVE_GROUND` | 1 | 轻量去地面（z+LSQ）；设 0 关闭 |
 | env `LIDAR_GROUND_Z` | -1.4 | 地面 z 高度阈值（ego frame） |
 | env `USE_RADAR` | 1 | use_bev=True 时是否声明 4 个 radar 并拼到 LiDAR |

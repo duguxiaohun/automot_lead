@@ -110,12 +110,26 @@ BEV 开关：
     （`USE_RADAR=1`，与 LEAD `save_radar_pc_as_lidar`+`duplicate_radar_near_ego` 同源）。
 - warmup 改 LEAD 风格：第一个 4Hz 采样点（约 0.25s）就开始推理；
   历史不足时 left-pad 复制 frame 0（与 build_clip line 1808-1815 同款）。
-- target_point / next_target_point：离线训练标签仍是未来 1.5s / 3.0s 真值 ego-frame
-  位置；在线闭环已改为对齐 AutoMoT `mot_b2d_agent.py`，由 RoutePlanner.run_step()
-  推进 route 后取剩余 route[1] / route[2]，不足时沿 ego→tp 方向延展 5m 或 route
-  为空时沿当前航向前推 50m，再用 `inverse_conversion_2d` 转 ego frame
-  `(x_forward, y_left)`。在线不再按 `speed * lookahead_s` 外推，也不再低速 tp=ego，
-  避免静止起步时 tp/ntp≈0 造成 waypoint head 停车死锁。
+- **target_point / next_target_point — P1 全 lookahead 弧长（用户最终路线，
+  完全舍弃 P2 automot_route_index）**：
+  - 训练侧 `mot_lead_offline_runner._extract_tp_route_lookahead(meta, lookahead_s, min_m=5)`
+    沿 meta["route"] 弧长前推 `max(speed*lookahead_s, 5m)` 米取 ego-frame 点；
+  - 在线 `agent._lookahead_world_point(speed, lookahead_s, gps, compass)` 用同款公式
+    沿 RoutePlanner 剩余 route 前推；
+  - **默认 tp=1.0s, ntp=2.0s**（与 wp 视野 8*0.25=2s 对齐，ntp 落 wp 末端），
+    MIN_LOOKAHEAD=5m 让停车/红灯仍有方向；
+  - 终点近时（route 弧长 < target_dist）自动 fallback 到 route[-1] → tp/ntp/final_goal
+    自然挤到一起（与 AutoMoT RoutePlanner.run_step 终点 `len(route) <= 2` 停止 pop 行为对应）；
+  - build_clip 加 `tp_mode={route_lookahead, future_truth}`（默认 route_lookahead）；
+    future_truth 是 v1 兼容模式保留。
+- **final_goal token 新增**（LeadMoT decoder 第 4 个 status token）：
+  - 训练用 meta["route"][-1] (ego frame route 末端)；在线用 `_route_planner.route[-1]`
+    转 ego frame；
+  - `LeadMoTPlanningDecoderConfig.use_final_goal=True` 默认；与 tp/ntp 共享
+    `WaypointInputAdaptor` MLP 让坐标语义同空间；
+  - `_LEADMOT_QWEN_SYSTEM_PROMPT` + `build_cleaned_prompt_and_modes` prompt 加
+    `your final destination is (X, Y)`，长度 5→7 元自动兼容；
+  - **老 LeadMoT v1 ckpt 不兼容**（gen sequence 多 1 token）。新 ckpt 默认开。
 - BEV 模型的实时 LiDAR 使用最近 `STEP_STRIDE=5` 个 20Hz sweep（≈0.25s 窗），
   按 (dx, dy, dyaw) 对齐到当前 anchor ego frame 后 concat。
 - PID desired speed 用 `wp[1]` / `wp[3]`（0.5s 与 1.0s 两段距离平均），
