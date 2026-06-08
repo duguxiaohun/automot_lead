@@ -79,7 +79,7 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 查看所有 LEAD scenario 名（带每类 route 数）：
 
 ```bash
-python3 AutoMoT/qwen3vl_local/eval_carla/scenario_picker.py --list-scenarios
+python3 qwen3vl_local/eval_carla/scenario_picker.py --list-scenarios
 ```
 
 ### 1.3 随机 N 个
@@ -216,7 +216,7 @@ python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
 
 ```bash
 pip install flask
-python3 AutoMoT/qwen3vl_local/eval_carla/webapp/app.py \
+python3 qwen3vl_local/eval_carla/webapp/app.py \
     --eval-base outputs/closed_loop_eval --port 5050
 ```
 
