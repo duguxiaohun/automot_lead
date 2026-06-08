@@ -90,8 +90,10 @@ _QWEN_INSTRUCT_CHECKPOINT_DIR = _AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Ins
 # 注：所有进 LLM 的 prompt 必须英文（项目硬约定）。
 _LEADMOT_QWEN_SYSTEM_PROMPT = (
     "You are an autonomous driving model. You will be given a sequence of stitched "
-    "multi-view RGB images and a navigation hint with target points and current speed. A downstream "
-    "planning decoder consumes your hidden state to predict the ego-vehicle trajectory."
+    "multi-view RGB images and a navigation hint with target points, a final destination, "
+    "and current speed. All coordinates are in the ego frame "
+    "(x_forward, y_left) measured in meters. A downstream planning decoder consumes your "
+    "hidden state to predict the ego-vehicle trajectory."
 )
 # 注：BEV encoder 已切换为 LEAD TransfuserBackbone(见本文件底部 LeadBEVEncoder 类),
 # 不再依赖 AutoMoT 自带的 BEVEncoderBackboneExtractor。保留 bev_encoder_utils 因为
@@ -115,35 +117,50 @@ def inverse_conversion_2d(point: np.ndarray, translation: np.ndarray, yaw: float
 def build_cleaned_prompt_and_modes(target_point_speed: Any) -> tuple[str, bool, bool]:
     """构造 Qwen/规划分支使用的英文驾驶 prompt。
 
-    本地等价于 `automot_utils.build_cleaned_prompt_and_modes`，避免 LeadMoT-only
-    import 阶段被 `automot_utils -> carla` 依赖卡住。prompt 字面格式保持一致。
+    本地实现，避免 LeadMoT-only import 阶段被 `automot_utils -> carla` 依赖卡住。
+    向后兼容：
+    - 旧 5 元：[speed, cur_x, cur_y, next_x, next_y]  → prompt 不含 destination
+    - 新 7 元：[speed, cur_x, cur_y, next_x, next_y, fg_x, fg_y] → prompt 加 destination
+    顺序中 cur_/next_ = target_point/next_target_point (1.0s / 2.0s 弧长前推)，
+    fg_ = final_goal (route 终点 ego-frame 坐标)。
     """
     if isinstance(target_point_speed, torch.Tensor):
         tp = target_point_speed.detach().cpu().view(-1)
-        speed = float(tp[0].item())
-        cur_x, cur_y = float(tp[1].item()), float(tp[2].item())
-        next_x, next_y = float(tp[3].item()), float(tp[4].item())
+        vals = [float(v) for v in tp.tolist()]
     elif isinstance(target_point_speed, np.ndarray):
-        tp = target_point_speed.reshape(-1)
-        speed = float(tp[0])
-        cur_x, cur_y = float(tp[1]), float(tp[2])
-        next_x, next_y = float(tp[3]), float(tp[4])
+        vals = [float(v) for v in target_point_speed.reshape(-1).tolist()]
     elif isinstance(target_point_speed, (list, tuple)):
-        if len(target_point_speed) < 5:
-            raise ValueError(
-                f"Expected 5 elements [speed, cur_x, cur_y, next_x, next_y], got {len(target_point_speed)}"
-            )
-        speed = float(target_point_speed[0])
-        cur_x, cur_y = float(target_point_speed[1]), float(target_point_speed[2])
-        next_x, next_y = float(target_point_speed[3]), float(target_point_speed[4])
+        vals = [float(v) for v in target_point_speed]
     else:
         raise TypeError(f"Unsupported type for target_point_speed: {type(target_point_speed)}")
 
-    prompt = (
-        f"Your current and next target point is ({cur_x:.6f}, {cur_y:.6f}), "
-        f"({next_x:.6f}, {next_y:.6f}), and your current velocity is {speed:.2f} m/s. "
-        "Predict the driving actions ( now, +1s, +2s) and plan the trajectory for the next 3 seconds."
-    )
+    if len(vals) < 5:
+        raise ValueError(
+            f"Expected at least 5 elements [speed, cur_x, cur_y, next_x, next_y], got {len(vals)}"
+        )
+    speed = vals[0]
+    cur_x, cur_y = vals[1], vals[2]
+    next_x, next_y = vals[3], vals[4]
+    has_final_goal = len(vals) >= 7
+    fg_x = vals[5] if has_final_goal else 0.0
+    fg_y = vals[6] if has_final_goal else 0.0
+
+    # prompt 时长与 LeadMoT v2 默认 (tp=1.0s, ntp=2.0s, wp 视野=2s) 对齐。
+    # 旧 ckpt（5 元接口）走 v1 的 "+1s, +2s, 3 seconds" 文本，保证 prefill cache
+    # 不会因为 prompt 字面变了而失效。
+    if has_final_goal:
+        prompt = (
+            f"Your current and next target point is ({cur_x:.6f}, {cur_y:.6f}), "
+            f"({next_x:.6f}, {next_y:.6f}), your final destination is "
+            f"({fg_x:.6f}, {fg_y:.6f}), and your current velocity is {speed:.2f} m/s. "
+            "Predict the driving actions ( now, +1s, +2s) and plan the trajectory for the next 2 seconds."
+        )
+    else:
+        prompt = (
+            f"Your current and next target point is ({cur_x:.6f}, {cur_y:.6f}), "
+            f"({next_x:.6f}, {next_y:.6f}), and your current velocity is {speed:.2f} m/s. "
+            "Predict the driving actions ( now, +1s, +2s) and plan the trajectory for the next 3 seconds."
+        )
     return prompt, False, True
 
 
@@ -1424,11 +1441,19 @@ class LeadOfflineMoTRunner:
         # BEV/LiDAR 信息走下面的 LEAD BEV encoder。
 
         # 3) target_point_speed
+        # 5 元 (v1)：[speed, tp_x, tp_y, ntp_x, ntp_y]
+        # 7 元 (v2)：[speed, tp_x, tp_y, ntp_x, ntp_y, fg_x, fg_y]
+        # 由 clip 是否含 "final_goal" 决定。下游 prompt 函数自动识别长度。
         speed = float(np.asarray(speed_clip[t]).reshape(-1)[0])
         tp = np.asarray(tp_clip[t]).reshape(-1)
         ntp = np.asarray(ntp_clip[t]).reshape(-1)
+        tps_values = [speed, float(tp[0]), float(tp[1]), float(ntp[0]), float(ntp[1])]
+        if "final_goal" in lead_clip:
+            fg_clip = self._to_numpy(lead_clip["final_goal"])
+            fg = np.asarray(fg_clip[t]).reshape(-1)
+            tps_values.extend([float(fg[0]), float(fg[1])])
         target_point_speed = torch.tensor(
-            [[speed, float(tp[0]), float(tp[1]), float(ntp[0]), float(ntp[1])]],
+            [tps_values],
             dtype=torch.float32,
             device=self.device,
         )
@@ -1526,8 +1551,19 @@ class LeadOfflineMoTRunner:
             self.leadmot_config,
         )
 
-        # target_point_speed = [speed, tp_x, tp_y, ntp_x, ntp_y]，不做归一化
+        # target_point_speed:
+        #   v1 5 元 = [speed, tp_x, tp_y, ntp_x, ntp_y]
+        #   v2 7 元 = [speed, tp_x, tp_y, ntp_x, ntp_y, fg_x, fg_y]
+        # 不做归一化；leadmot_config.use_final_goal 决定是否传 final_goal。
         status = target_point_speed.to(self.device, dtype=self.leadmot_dtype)
+        final_goal_tensor: torch.Tensor | None = None
+        if self.leadmot_config.use_final_goal:
+            if status.shape[-1] < 7:
+                raise ValueError(
+                    f"leadmot_config.use_final_goal=True 但 target_point_speed 只有 "
+                    f"{status.shape[-1]} 元；clip 必须含 final_goal 字段。"
+                )
+            final_goal_tensor = status[:, 5:7]
 
         leadmot_out = self.leadmot_decoder(
             pooled_kv=pooled_kv,
@@ -1535,6 +1571,7 @@ class LeadOfflineMoTRunner:
             speed=status[:, 0],
             target_point=status[:, 1:3],
             target_point_next=status[:, 3:5],
+            final_goal=final_goal_tensor,
             rope_position_offset=leadmot_rope_position_offset,
         )
         leadmot_route = leadmot_out["pred_route"]
@@ -1715,6 +1752,53 @@ def _extract_tp_ntp_from_future_frames(
     return np.asarray(tp_ego, dtype=np.float32), np.asarray(ntp_ego, dtype=np.float32)
 
 
+def _extract_tp_route_lookahead(
+    meta: dict[str, Any],
+    lookahead_s: float,
+    min_lookahead_m: float = 5.0,
+) -> np.ndarray:
+    """沿 meta['route'] (ego frame) 弧长前推 max(speed*lookahead_s, min_lookahead_m) 米。
+
+    与在线 eval_carla.agent._lookahead_world_point 同款算法：
+    - 训练时 expert speed + expert route 当前剩余路径 → 弧长前推
+    - 在线时 ego speed + global plan 剩余路径 → 弧长前推
+    两侧用同一公式，消除 tp/ntp 训练-推理分布 gap。
+
+    route 是 (N, 2) ego-frame 累计点，从 (0,0) 出发沿路径累加距离前推。
+    路径走完时 fallback 到最后一个路点（与 AutoMoT RoutePlanner 终点近行为一致）。
+    """
+    route = np.asarray(meta.get("route", []), dtype=np.float32).reshape(-1, 2)
+    speed = float(meta.get("speed", 0.0))
+    target_dist = max(speed * float(lookahead_s), float(min_lookahead_m))
+
+    if len(route) == 0:
+        return np.zeros((2,), dtype=np.float32)
+
+    prev = np.zeros((2,), dtype=np.float32)
+    accum = 0.0
+    for i in range(len(route)):
+        pt = route[i]
+        seg = pt - prev
+        seg_len = float(np.linalg.norm(seg))
+        if seg_len > 1e-6 and accum + seg_len >= target_dist:
+            t = (target_dist - accum) / seg_len
+            return (prev + t * seg).astype(np.float32)
+        accum += seg_len
+        prev = pt
+    return route[-1].astype(np.float32)
+
+
+def _extract_final_goal_ego(meta: dict[str, Any]) -> np.ndarray:
+    """route 最后一个路点（ego-frame），即 expert 当前剩余 navigation 的终点。
+
+    在线侧用 `_route_planner.route[-1]` 转 ego frame 得到等价信号。
+    """
+    route = np.asarray(meta.get("route", []), dtype=np.float32).reshape(-1, 2)
+    if len(route) == 0:
+        return np.zeros((2,), dtype=np.float32)
+    return route[-1].astype(np.float32)
+
+
 def _extract_pose_from_meta(meta: dict[str, Any]) -> tuple[np.ndarray, float]:
     """从 LEAD meta 提取全局位置与航向，用于跨帧 LiDAR 对齐与 tp/ntp 转 ego。
 
@@ -1744,9 +1828,12 @@ def build_clip_from_real_lead_route(
     rgb_frame_count: int = 4,
     bev_frame_step: int = 1,
     bev_frame_count: int = 1,
-    tp_lookahead_s: float = 1.5,
-    ntp_lookahead_s: float = 3.0,
+    tp_lookahead_s: float = 1.0,
+    ntp_lookahead_s: float = 2.0,
     frame_interval_s: float = 0.25,
+    tp_mode: str = "route_lookahead",
+    tp_min_lookahead_m: float = 5.0,
+    use_final_goal: bool = True,
 ) -> dict[str, Any]:
     """
     从真实 LEAD route 目录构造 runner 所需 clip。
@@ -1758,7 +1845,12 @@ def build_clip_from_real_lead_route(
     - anchor: 待处理的 anchor 帧索引（route 内绝对索引）。
     - rgb_frame_step / rgb_frame_count: RGB 历史采样步长与帧数。
     - bev_frame_step / bev_frame_count: BEV/LiDAR 历史采样步长与帧数。
-    - tp_lookahead_s / ntp_lookahead_s / frame_interval_s: target_point 未来帧设置。
+    - tp_lookahead_s / ntp_lookahead_s / frame_interval_s: target_point 时长设置（默认 1.0/2.0s 对齐 wp 视野 2s）。
+    - tp_mode: "route_lookahead"（默认，与在线 agent 完全一致；沿 meta["route"] 弧长前推
+      max(speed*lookahead_s, tp_min_lookahead_m) 米）或 "future_truth"（v1 行为，
+      用未来真值 ego 位置）。
+    - tp_min_lookahead_m: 低速 fallback 最小前瞻距离（米）。
+    - use_final_goal: 是否在 clip 里加 final_goal 字段（route 终点 ego-frame）。
 
     行为：
     - 计算 max_history = max((rgb_count-1)*rgb_step, (bev_count-1)*bev_step)
@@ -1826,10 +1918,14 @@ def build_clip_from_real_lead_route(
     speed_list = []
     tp_list = []
     ntp_list = []
+    final_goal_list: list[np.ndarray] = []
     pos_global_list = []
     theta_list = []
     lidar_points_list = []
     meta_cache: dict[int, dict[str, Any]] = {}
+
+    if tp_mode not in ("route_lookahead", "future_truth"):
+        raise ValueError(f"tp_mode 必须是 route_lookahead 或 future_truth, got {tp_mode!r}")
 
     for i in range(actual_start, anchor + 1):
         stem = f"{i:04d}"
@@ -1852,23 +1948,31 @@ def build_clip_from_real_lead_route(
             meta = pickle.load(f)
         meta_cache[i] = meta
         speed = float(meta.get("speed", 0.0))
-        # 使用 route-time 模式：按未来帧真值位置生成目标点
-        tp, ntp = _extract_tp_ntp_from_future_frames(
-            current_meta=meta,
-            current_frame_idx=i,
-            total_frames=len(rgb_files),
-            meta_dir=meta_dir,
-            meta_cache=meta_cache,
-            tp_lookahead_s=tp_lookahead_s,
-            ntp_lookahead_s=ntp_lookahead_s,
-            frame_interval_s=frame_interval_s,
-        )
+        if tp_mode == "route_lookahead":
+            # 与在线 agent 完全同款：沿 meta["route"] (ego frame) 弧长前推。
+            # 训练-推理同一算法 → 消除 tp/ntp 分布 gap。
+            tp = _extract_tp_route_lookahead(meta, tp_lookahead_s, tp_min_lookahead_m)
+            ntp = _extract_tp_route_lookahead(meta, ntp_lookahead_s, tp_min_lookahead_m)
+        else:
+            # future_truth (v1 兼容)：从未来 anchor+offset 帧 meta.pos_global 算真值位置。
+            tp, ntp = _extract_tp_ntp_from_future_frames(
+                current_meta=meta,
+                current_frame_idx=i,
+                total_frames=len(rgb_files),
+                meta_dir=meta_dir,
+                meta_cache=meta_cache,
+                tp_lookahead_s=tp_lookahead_s,
+                ntp_lookahead_s=ntp_lookahead_s,
+                frame_interval_s=frame_interval_s,
+            )
         pos_xy, theta = _extract_pose_from_meta(meta)
         # pos_global=[7.713916e-02 8.248221e+01], theta=1.595
 
         speed_list.append(speed)
         tp_list.append(tp)
         ntp_list.append(ntp)
+        if use_final_goal:
+            final_goal_list.append(_extract_final_goal_ego(meta))
         pos_global_list.append(pos_xy)
         theta_list.append(theta)
 
@@ -1894,6 +1998,8 @@ def build_clip_from_real_lead_route(
         "target_point": np.stack(tp_list, axis=0).astype(np.float32),
         "target_point_next": np.stack(ntp_list, axis=0).astype(np.float32),
     }
+    if use_final_goal:
+        clip["final_goal"] = np.stack(final_goal_list, axis=0).astype(np.float32)
     return clip
 
 

@@ -105,8 +105,13 @@ class StatusTokenEncoder(nn.Module):
         self,
         target_point: torch.Tensor,
         target_point_next: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """把 TP/NTP 两个 ``(B,2)`` 张量编码成两个 ``(B,1,hidden)`` token。"""
+        final_goal: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        """把 TP/NTP/final_goal 编码成 (B,1,hidden) token；final_goal 可选。
+
+        三者共享 WaypointInputAdaptor MLP，让坐标语义落在同一空间——这样
+        decoder 不需要分别学三种坐标的几何含义。
+        """
         if target_point.ndim != 2 or target_point.shape[-1] != 2:
             raise ValueError(f"target_point must be (B,2), got {tuple(target_point.shape)}")
         if target_point_next.ndim != 2 or target_point_next.shape[-1] != 2:
@@ -114,7 +119,17 @@ class StatusTokenEncoder(nn.Module):
         param = next(self.target_point_encoder.parameters())
         tp = target_point.to(device=param.device, dtype=param.dtype)
         ntp = target_point_next.to(device=param.device, dtype=param.dtype)
-        # 先堆成 (B, 2, 2)，让两个点一次性通过共享 adaptor。
-        target_points = torch.stack([tp, ntp], dim=1)
+
+        if final_goal is None:
+            # 旧 schema：只编 tp/ntp。返回值第三个位置用 None 占位。
+            target_points = torch.stack([tp, ntp], dim=1)
+            encoded = self.target_point_encoder(target_points)
+            return encoded[:, 0:1, :], encoded[:, 1:2, :], None
+
+        if final_goal.ndim != 2 or final_goal.shape[-1] != 2:
+            raise ValueError(f"final_goal must be (B,2), got {tuple(final_goal.shape)}")
+        fg = final_goal.to(device=param.device, dtype=param.dtype)
+        # 三个点一次性过共享 adaptor，避免三次独立 forward 的开销。
+        target_points = torch.stack([tp, ntp, fg], dim=1)
         encoded = self.target_point_encoder(target_points)
-        return encoded[:, 0:1, :], encoded[:, 1:2, :]
+        return encoded[:, 0:1, :], encoded[:, 1:2, :], encoded[:, 2:3, :]

@@ -56,6 +56,13 @@ class LeadMoTPlanningDecoderConfig:
     #   一档不存在），切换时必须从头训或单独 warm start。
     use_bev: bool = True
 
+    # final_goal token：第 4 个 status token，喂 LeadMoT decoder（默认启用）。
+    # 与 tp/ntp 共享 WaypointInputAdaptor MLP，让坐标语义在同一空间。
+    # 训练侧用 meta["route"][-1] (ego-frame route 末端) 作为真值；
+    # 在线侧用 RoutePlanner.route[-1] 转 ego frame。
+    # **注意**：开启后 gen sequence 多 1 个 token，老 LeadMoT ckpt **不兼容**。
+    use_final_goal: bool = True
+
     # Query 数量对齐 LEAD planning 标签。
     num_route_queries: int = 10
     num_waypoint_queries: int = 8
@@ -73,12 +80,15 @@ class LeadMoTPlanningDecoderConfig:
     def total_gen_tokens(self) -> int:
         """返回 packed generated-token 序列长度。
 
-        use_bev=True：BEV(120) + speed(1) + target point(1) + next target point(1)
-                      + route queries(10) + waypoint queries(8) = 141
-        use_bev=False：跳过 BEV 那 120 个 token，gen 序列长度 = 21。
+        status_token 数：speed + tp + ntp (+ final_goal 若启用) = 3 或 4。
+        use_bev=True + use_final_goal=True：BEV(120) + 4 status + 10 route + 8 wp = 142
+        use_bev=True + use_final_goal=False（兼容老 ckpt）：BEV(120) + 3 status + 18 query = 141
+        use_bev=False + use_final_goal=True：4 status + 18 query = 22
+        use_bev=False + use_final_goal=False：3 status + 18 query = 21
         """
         bev_tokens = self.bev_grid[0] * self.bev_grid[1] if self.use_bev else 0
-        return bev_tokens + 3 + self.num_route_queries + self.num_waypoint_queries
+        status_tokens = 4 if self.use_final_goal else 3
+        return bev_tokens + status_tokens + self.num_route_queries + self.num_waypoint_queries
 
     def slice_layout(self):
         """返回 packed generated sequence 的 [start, end) 切片。
@@ -95,6 +105,10 @@ class LeadMoTPlanningDecoderConfig:
         layout["speed"] = (idx, idx + 1); idx += 1
         layout["tp"] = (idx, idx + 1); idx += 1
         layout["ntp"] = (idx, idx + 1); idx += 1
+        # final_goal 紧跟 ntp，与其它 status token 同段位置。
+        # 不启用时该 key 不存在，下游访问 layout["final_goal"] 应先判断 use_final_goal。
+        if self.use_final_goal:
+            layout["final_goal"] = (idx, idx + 1); idx += 1
         layout["route"] = (idx, idx + self.num_route_queries); idx += self.num_route_queries
         layout["waypoint"] = (idx, idx + self.num_waypoint_queries)
         return layout
