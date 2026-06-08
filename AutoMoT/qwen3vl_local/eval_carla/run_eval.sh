@@ -25,7 +25,7 @@
 #   --no-aggregate             跑完不自动聚合
 #
 # CARLA 启动（默认开启）：
-#   - 每个 worker 自动在自己 GPU 上启动一个独立 CARLA server（端口 = 5000 + gpu_id*20）
+#   - 每个 worker 自动在自己 GPU 上启动一个独立 CARLA server（自动扫描空闲三端口块）
 #   - worker 结束 / Ctrl+C / 异常退出 时自动 kill 对应 CARLA
 #   - 已经手动起 CARLA 时加 `--no-auto-carla` 跳过自动启动（默认 `USE_AUTO_CARLA=1`）
 #   - 启动后等 CARLA RPC 端口 listen 最多 `CARLA_BOOT_TIMEOUT=90` 秒
@@ -200,7 +200,7 @@ PORT_BASE_START="${PORT_BASE_START:-5000}"
 PORT_STRIDE="${PORT_STRIDE:-20}"
 # 每个 worker 会启动一个 CARLA server。CARLA 除 RPC 端口外还会占用 streaming 等邻近端口，
 # 所以用 PORT_STRIDE 给不同 GPU 留出端口槽，降低并行时端口冲突概率。
-echo "Port slots: start=${PORT_BASE_START}, stride=${PORT_STRIDE}; worker port = start + gpu_id * stride"
+echo "Port scan: start=${PORT_BASE_START}, stride=${PORT_STRIDE}; each worker gets a free [rpc, streaming, tm] block"
 
 # -------------------- 输出目录 --------------------
 EVAL_OUTPUT_BASE="${EVAL_OUTPUT_BASE:-${AUTOMOT_ROOT}/outputs/closed_loop_eval}"
@@ -432,7 +432,7 @@ mkdir -p "${WORK_LOG_DIR}"
 # 用 `CUDA_VISIBLE_DEVICES=$gpu_rank` 锁住 CARLA 看到的 GPU 列表，CARLA 自己只感知
 # `cuda:0`；run_evaluation.sh 里启动 leaderboard_evaluator.py 时同样设
 # `CUDA_VISIBLE_DEVICES=$gpu_rank`，模型和 CARLA 落在同一张物理卡，避免 PCIe 抖动。
-# 端口：每张卡走 PORT_BASE_START + gpu_rank*PORT_STRIDE 槽位（默认 5000 + N*20）。
+# 端口：主进程从 PORT_BASE_START 开始扫描空闲三端口块，分配给每个 worker。
 # 启动后 worker 在该端口上跑 evaluation；worker 函数返回时清理对应 CARLA。
 # 脚本异常退出（Ctrl+C / kill）由 trap EXIT 兜底清理所有遗留 CARLA 进程。
 
@@ -440,6 +440,43 @@ mkdir -p "${WORK_LOG_DIR}"
 LAUNCHED_CARLA_PORTS=()
 USE_AUTO_CARLA="${USE_AUTO_CARLA:-1}"      # 设 0 关闭自动启动（手动管理 CARLA 的场景）
 CARLA_BOOT_TIMEOUT="${CARLA_BOOT_TIMEOUT:-90}"   # 秒，等 RPC 端口 listen 的超时
+
+is_port_free() {
+    # 三种探测方法兜底：lsof > ss > python socket bind。任一可用都行。
+    local p="$1"
+    if command -v lsof >/dev/null 2>&1; then
+        ! lsof -i:"${p}" >/dev/null 2>&1
+    elif command -v ss >/dev/null 2>&1; then
+        ! ss -ltn "( sport = :${p} )" 2>/dev/null | tail -n +2 | grep -q .
+    else
+        python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.bind(('127.0.0.1', $p))
+    s.close()
+except OSError:
+    sys.exit(1)
+" 2>/dev/null
+    fi
+}
+
+find_free_port_block() {
+    # 从 start 开始按 PORT_STRIDE 步进，找一个 [p, p+1, p+8000] 三端口都空闲的块。
+    # CARLA 需要 RPC(p) + Streaming(p+1) + TrafficManager(p+8000) 三个端口都可用。
+    # 失败（扫了 2000 还没找到）返回 1。
+    local start="$1"
+    local p="${start}"
+    local max=$((start + 2000))
+    while [ "${p}" -lt "${max}" ]; do
+        if is_port_free "${p}" && is_port_free "$((p + 1))" && is_port_free "$((p + 8000))"; then
+            echo "${p}"
+            return 0
+        fi
+        p=$((p + PORT_STRIDE))
+    done
+    return 1
+}
 
 start_carla_for_worker() {
     # 启动绑定到指定 GPU 的 CARLA，并等 RPC 端口可连接。
@@ -460,18 +497,11 @@ start_carla_for_worker() {
     local streaming_port=$((port + 1))
     local tm_port=$((port + 8000))
 
-    # 先 kill 同端口的旧 CARLA，幂等。lsof 不一定有装；用 fuser 兜底。
-    if command -v lsof >/dev/null 2>&1; then
-        lsof -ti:${port} | xargs -r kill -9 2>/dev/null || true
-        lsof -ti:${tm_port} | xargs -r kill -9 2>/dev/null || true
-        lsof -ti:${streaming_port} | xargs -r kill -9 2>/dev/null || true
-    elif command -v fuser >/dev/null 2>&1; then
-        fuser -k -n tcp ${port} >/dev/null 2>&1 || true
-        fuser -k -n tcp ${tm_port} >/dev/null 2>&1 || true
-        fuser -k -n tcp ${streaming_port} >/dev/null 2>&1 || true
+    # 端口由主进程预先扫描为空闲；这里再做一次防竞态检查，避免误杀其它用户/任务的进程。
+    if ! is_port_free "${port}" || ! is_port_free "${streaming_port}" || ! is_port_free "${tm_port}"; then
+        echo "[carla:gpu${gpu_rank}:port${port}] ERROR: allocated port block is no longer free"
+        return 1
     fi
-    pkill -9 -f "CarlaUE4.*-carla-rpc-port=${port}" 2>/dev/null || true
-    sleep 1
 
     echo "[carla:gpu${gpu_rank}:port${port}] launching CARLA (log=${log_file})"
     # `-graphicsadapter=0` 配合 CUDA_VISIBLE_DEVICES 让 CARLA 用唯一可见的 GPU。
@@ -495,13 +525,11 @@ start_carla_for_worker() {
         if command -v lsof >/dev/null 2>&1; then
             if lsof -i:${port} >/dev/null 2>&1; then
                 echo "[carla:gpu${gpu_rank}:port${port}] ready after ${elapsed}s"
-                LAUNCHED_CARLA_PORTS+=("${port}")
                 return 0
             fi
         elif command -v ss >/dev/null 2>&1; then
             if ss -ltn "( sport = :${port} )" 2>/dev/null | grep -q LISTEN; then
                 echo "[carla:gpu${gpu_rank}:port${port}] ready after ${elapsed}s"
-                LAUNCHED_CARLA_PORTS+=("${port}")
                 return 0
             fi
         fi
@@ -549,13 +577,27 @@ cleanup_all_carla() {
 }
 trap cleanup_all_carla EXIT INT TERM
 
-# 主进程预先把每个 worker 计划用的端口加入清理列表：
-# - worker subprocess 修改 LAUNCHED_CARLA_PORTS 不会回传到主进程
-# - 如果 worker subprocess 被 SIGKILL，EXIT trap 不触发；主 trap 用预填列表 pkill 兜底
-# - stop_carla_for_port 对未启动端口幂等无害
+# 主进程串行扫描空闲端口，每个 worker 分配一个独立 3 端口块（RPC / Streaming / TM）。
+# 串行分配避免并发竞态：两个 worker 同时探测同一个端口为空闲然后双双启动 CARLA 冲突。
+# 分配出来后立即加入 LAUNCHED_CARLA_PORTS，让 trap EXIT 兜底清理（应对 SIGKILL 场景）。
+WORKER_PORTS=()
 if [ "${USE_AUTO_CARLA}" = "1" ]; then
+    next_start="${PORT_BASE_START}"
     for ((widx=0; widx<GPU_COUNT; widx++)); do
-        LAUNCHED_CARLA_PORTS+=("$((PORT_BASE_START + GPU_IDS[widx] * PORT_STRIDE))")
+        port=$(find_free_port_block "${next_start}") || {
+            echo "ERROR: cannot find free 3-port block from ${next_start}" >&2
+            exit 1
+        }
+        WORKER_PORTS+=("${port}")
+        LAUNCHED_CARLA_PORTS+=("${port}")
+        # 下一个 worker 从 port + PORT_STRIDE 开始扫，避免相邻端口段冲突
+        next_start=$((port + PORT_STRIDE))
+        echo "[port-alloc] worker ${widx} (gpu=${GPU_IDS[widx]}) -> rpc=${port} streaming=$((port+1)) tm=$((port+8000))"
+    done
+else
+    # USE_AUTO_CARLA=0：沿用旧固定槽位策略，假设用户手动起 CARLA 在 GPU_id 对应槽位
+    for ((widx=0; widx<GPU_COUNT; widx++)); do
+        WORKER_PORTS+=("$((PORT_BASE_START + GPU_IDS[widx] * PORT_STRIDE))")
     done
 fi
 
@@ -565,7 +607,8 @@ run_route_worker() {
     # 每个 worker 在本卡上自动起一个独立 CARLA server，结束 / trap 时回收。
     local worker_idx="$1"
     local gpu_rank="$2"
-    local base_port=$((PORT_BASE_START + gpu_rank * PORT_STRIDE))
+    # 端口由主进程串行扫描分配，避免与已有进程冲突；通过 WORKER_PORTS 数组下标查表。
+    local base_port="${WORKER_PORTS[$worker_idx]}"
     local base_tm_port=$((base_port + 8000))
     local fail_file="${WORK_LOG_DIR}/failed_worker${worker_idx}.txt"
     local attempted_file="${WORK_LOG_DIR}/attempted_worker${worker_idx}.txt"
@@ -636,9 +679,30 @@ run_route_worker() {
     done
 }
 
+# 先创建日志文件，再启动 worker / tail，避免 tail 准备阶段截断 worker 的早期输出。
+for ((worker_idx=0; worker_idx<GPU_COUNT; worker_idx++)); do
+    : > "${WORK_LOG_DIR}/worker${worker_idx}.log"
+done
+
+# 实时进度输出：fork 一个 tail -F 跟所有 worker log 行内容
+# - 单 worker：tail 仅一个文件，输出干净
+# - 多 worker：tail 多文件时会自动加 "==> path <==" 头方便区分。
+TAIL_PID=""
+if command -v tail >/dev/null 2>&1; then
+    if [ "${GPU_COUNT}" -gt 1 ]; then
+        tail -n 0 -F "${WORK_LOG_DIR}"/worker*.log 2>/dev/null &
+        TAIL_PID="$!"
+    else
+        # 单 worker 直接全量 follow，更干净
+        tail -n 0 -F "${WORK_LOG_DIR}/worker0.log" 2>/dev/null &
+        TAIL_PID="$!"
+    fi
+fi
+echo "[run_eval] tail PID=${TAIL_PID:-<none>}, streaming worker logs to stdout..."
+
 PIDS=()
 for ((worker_idx=0; worker_idx<GPU_COUNT; worker_idx++)); do
-    # 每个 worker 的 stdout/stderr 先写独立日志，全部结束后再 cat，避免并行输出互相穿插。
+    # 每个 worker 的 stdout/stderr 写独立日志；上面的 tail -F 实时回放到主进程 stdout。
     run_route_worker "${worker_idx}" "${GPU_IDS[$worker_idx]}" > "${WORK_LOG_DIR}/worker${worker_idx}.log" 2>&1 &
     PIDS+=("$!")
 done
@@ -650,7 +714,19 @@ for pid in "${PIDS[@]}"; do
     fi
 done
 
-cat "${WORK_LOG_DIR}"/worker*.log
+# 所有 worker 跑完后停掉 tail；最后再 cat 一次保证所有 buffer 都 flush
+if [ -n "${TAIL_PID}" ]; then
+    kill "${TAIL_PID}" 2>/dev/null || true
+    wait "${TAIL_PID}" 2>/dev/null || true
+fi
+echo ""
+echo "===== final worker log tails ====="
+for log in "${WORK_LOG_DIR}"/worker*.log; do
+    [ -f "${log}" ] || continue
+    echo ""
+    echo "--- $(basename "${log}") (last 30 lines) ---"
+    tail -n 30 "${log}"
+done
 
 # 聚合所有 worker 的失败 route，最终统一打印，方便下一轮按 --route-id 精确重跑。
 mapfile -t FAILED_ROUTES < <(cat "${WORK_LOG_DIR}"/failed_worker*.txt 2>/dev/null | sed '/^$/d' | sort -n | uniq)
