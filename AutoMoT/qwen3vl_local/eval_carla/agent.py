@@ -14,11 +14,10 @@
               触发 demo.mp4 / grid.mp4 写入
 
 target_point / next_target_point 语义
-- 离线训练用未来 1.5s / 3s 的真值 ego-frame 位置。
-- 在线闭环按 AutoMoT mot_b2d_agent.py 做法：RoutePlanner.run_step() 推进后
-  取剩余 route[1] / route[2]，不足时沿目标方向或当前航向延展。
-- 不再按当前 speed * lookahead_s 外推，也不再低速置零；RoutePlanner 的
-  min_distance=7.5m 本身提供起步时的非零导航目标。
+- 离线训练与在线闭环都用 speed × lookahead 弧长前推：
+  target_point=max(speed*1.0s, 5m)，next_target_point=max(speed*2.0s, 5m)。
+- final_goal 是 LEAD 采集/评测 route 的真实终点：
+  训练取 meta["next_target_points"][-1]，在线取 scenario_picker 对应 XML 的最后一个 waypoint。
 - ego frame 约定 (x_forward, y_left)；inverse_conversion_2d(world_xy, gps_xy, theta)
 
 安全兜底（SafetyMixin，对齐 mot_b2d_agent.py）
@@ -96,6 +95,7 @@ from qwen3vl_local.eval_carla.visualizer import (
     render_bev_debug,
 )
 from qwen3vl_local.eval_carla.safety import SafetyMixin
+from qwen3vl_local.eval_carla.scenario_picker import load_route_endpoint
 
 
 SAVE_PATH = os.environ.get("SAVE_PATH", None)
@@ -115,9 +115,8 @@ _NTP_LOOKAHEAD_S = float(os.environ.get("NTP_LOOKAHEAD_S", "2.0"))
 _MIN_LOOKAHEAD_M = float(os.environ.get("MIN_LOOKAHEAD_M", "5.0"))
 # route 完全空时沿当前 compass 推一个远点占位（应该不会进这个分支）。
 _EMPTY_ROUTE_EXTENSION_M = 50.0
-# 是否给 LeadMoT decoder 喂 final_goal token；默认开（配合 use_final_goal=True 的新训练 ckpt）。
-# 用 v1 ckpt 评测时设 0 关闭以避免 shape 不匹配。
-_USE_FINAL_GOAL = os.environ.get("USE_FINAL_GOAL", "1") != "0"
+# 当前路线舍弃旧 ckpt，LeadMoT decoder/prompt 固定使用 final_goal token。
+_USE_FINAL_GOAL = True
 
 # RGB JPEG round-trip 模拟训练分布（B1 修复）：默认 85，与 LEAD ClosedLoopConfig 一致。
 # 设 0 或 >=100 关闭模拟（用 raw CARLA RGB）。
@@ -201,7 +200,7 @@ def _make_empty_lead_clip(clip_len: int) -> dict[str, Any]:
         "target_point": np.zeros((clip_len, 2), dtype=np.float32),
         "target_point_next": np.zeros((clip_len, 2), dtype=np.float32),
     }
-    # final_goal token：route 终点 ego frame 坐标；与 LeadMoT decoder use_final_goal=True 一致。
+    # final_goal token：route 真实终点 ego frame 坐标；与 LeadMoT decoder use_final_goal=True 一致。
     if _USE_FINAL_GOAL:
         clip["final_goal"] = np.zeros((clip_len, 2), dtype=np.float32)
     return clip
@@ -460,6 +459,40 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
                 now.month, now.day, now.hour, now.minute, now.second
             ))
 
+        self.route_id: int | None = None
+        if self.save_name.startswith("route"):
+            try:
+                self.route_id = int(self.save_name[len("route"):])
+            except ValueError:
+                self.route_id = None
+        if self.route_id is None:
+            routes_subset = os.environ.get("ROUTES_SUBSET", "").strip()
+            if routes_subset:
+                first_route = routes_subset.split(",")[0].strip()
+                try:
+                    self.route_id = int(first_route)
+                    print(f"[MOTLeadAgent] route_id fallback from ROUTES_SUBSET={self.route_id}")
+                except ValueError:
+                    print(f"[MOTLeadAgent] WARN invalid ROUTES_SUBSET for route_id fallback: {routes_subset!r}")
+        self.final_goal_world: np.ndarray | None = None
+        self.final_goal_source = "unavailable"
+        endpoint_info = load_route_endpoint(self.route_id) if self.route_id is not None else None
+        if endpoint_info is not None:
+            self.final_goal_world = np.asarray(endpoint_info["endpoint"], dtype=np.float32)
+            self.final_goal_source = "lead_route_xml_endpoint"
+            self.final_goal_endpoint_info = endpoint_info
+            print(
+                "[MOTLeadAgent] final_goal endpoint from LEAD XML: "
+                f"route={self.route_id} scenario={endpoint_info.get('scenario')} "
+                f"town={endpoint_info.get('town')} endpoint={self.final_goal_world.tolist()}"
+            )
+        else:
+            self.final_goal_endpoint_info = None
+            print(
+                "[MOTLeadAgent] WARN final_goal XML endpoint not found; "
+                "will fallback to current RoutePlanner tail."
+            )
+
         self.step = -1
         self.wall_start = time.time()
         self.initialized = False
@@ -550,8 +583,16 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             "lidar_remove_ground": _LIDAR_REMOVE_GROUND,
             "lidar_ground_z": _LIDAR_GROUND_Z,
             "use_radar": getattr(self, "use_radar", False),
-            "target_point_policy": "automot_route_index",
-            "route_ntp_extension_m": _ROUTE_NTP_EXTENSION_M,
+            "target_point_policy": "route_speed_lookahead",
+            "target_point_lookahead_s": _TP_LOOKAHEAD_S,
+            "next_target_point_lookahead_s": _NTP_LOOKAHEAD_S,
+            "min_lookahead_m": _MIN_LOOKAHEAD_M,
+            "route_id": self.route_id,
+            "final_goal_policy": self.final_goal_source,
+            "final_goal_endpoint": (
+                self.final_goal_world.tolist() if self.final_goal_world is not None else None
+            ),
+            "final_goal_endpoint_info": self.final_goal_endpoint_info,
             "empty_route_extension_m": _EMPTY_ROUTE_EXTENSION_M,
             "warmup_policy": "lead_style_left_pad_clip",
         }
@@ -633,7 +674,7 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             f"[MOTLeadAgent] READY route={self.save_name} "
             f"sig={signature} use_bev={self.use_bev} use_radar={self.use_radar} "
             f"clip_len={self.clip_len} step_stride={self.step_stride} "
-            f"target_point_policy=automot_route_index "
+            f"target_point_policy=route_speed_lookahead "
             f"jpeg_q={_JPEG_QUALITY} ground_removal={_LIDAR_REMOVE_GROUND}",
             flush=True,
         )
@@ -843,15 +884,14 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         # 注意：popleft 是副作用，必须调；返回值我们不直接用（用 _route_planner.route 自己跑弧长）。
         self._route_planner.run_step(np.append(gps_xy, gps_pos[2]))
 
-        # tp / ntp / final_goal 全部走 P1 弧长 lookahead，与训练
-        # `_extract_tp_route_lookahead` / `_extract_final_goal_ego` 完全同款公式。
+        # tp / ntp 走 speed × lookahead；final_goal 用 LEAD route XML 真实终点。
         tp_world, far_cmd = self._lookahead_world_point(
             speed_filt, _TP_LOOKAHEAD_S, gps_xy, compass_filt
         )
         ntp_world, _ntp_cmd = self._lookahead_world_point(
             speed_filt, _NTP_LOOKAHEAD_S, gps_xy, compass_filt
         )
-        fg_world = self._compute_final_goal_world()
+        fg_world = self._compute_final_goal_world(gps_xy, compass_filt)
 
         if (np.asarray(tp_world[:2]) != np.asarray(self.target_point_prev[:2])).any():
             self.target_point_prev = tp_world
@@ -921,17 +961,21 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         # 路径走完仍未达到 target_dist → fallback 最后一个路点
         return np.asarray(route[-1][0][:2], dtype=np.float32), last_cmd
 
-    def _compute_final_goal_world(self) -> np.ndarray:
-        """RoutePlanner 剩余 route 最末一个路点的 world 坐标。
+    def _compute_final_goal_world(self, gps_xy: np.ndarray, compass: float) -> np.ndarray:
+        """LEAD route XML 的真实终点 world 坐标。
 
-        训练侧 `_extract_final_goal_ego` 直接用 meta["route"][-1]（已是 ego frame）；
-        在线侧拿 deque 最后一个 world 点，统一通过 inverse_conversion_2d 转 ego frame。
-        终点已过时 route 退化为 1-2 点，此处 fallback 到 deque[-1] 即可。
+        训练侧 final_goal 取自采集 meta["next_target_points"][-1] 后转 ego；
+        在线侧与之对齐，读取 scenario_picker 找到的 `<route_id>.xml` 最后一个
+        waypoint，再在 tick() 内统一转 ego frame。
         """
+        if self.final_goal_world is not None:
+            return np.asarray(self.final_goal_world[:2], dtype=np.float32)
+
+        # 没拿到 XML endpoint 时的兜底：不再前推固定 horizon，只退到当前剩余 route 末端。
         route = list(self._route_planner.route)
         if len(route) == 0:
-            # 罕见情况；返回一个比 ntp 远的占位点（与上面 _EMPTY_ROUTE_EXTENSION_M 同量级）
-            return np.array([0.0, 0.0], dtype=np.float32)
+            direction = np.array([math.cos(compass), math.sin(compass)], dtype=np.float64)
+            return (np.asarray(gps_xy[:2], dtype=np.float64) + direction * _EMPTY_ROUTE_EXTENSION_M).astype(np.float32)
         return np.asarray(route[-1][0][:2], dtype=np.float32)
 
     # ============================================================
@@ -942,7 +986,8 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         """leaderboard 每个 CARLA tick 调用的主循环。
 
         20Hz tick 中只有 `step % STEP_STRIDE == 0` 的采样点会进入模型历史；
-        其它 tick 复用最近一次模型输出做 PID。warmup 阶段等待真实历史帧，不复制首帧。
+        其它 tick 复用最近一次模型输出做 PID。warmup 阶段按 LEAD 数据集同款
+        left-pad 复制首个 4Hz 采样帧，不再等待完整历史。
         """
         if not self.initialized:
             self._init_first_frame()
@@ -1118,6 +1163,7 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
                     "speed": float(self.clip_speed[-1]),
                     "target_point": np.asarray(self.clip_tp[-1]).tolist(),
                     "target_point_next": np.asarray(self.clip_ntp[-1]).tolist(),
+                    "final_goal": np.asarray(self.clip_fg[-1]).tolist(),
                 },
                 "control_context": {
                     "prev_throttle": float(self.control.throttle),

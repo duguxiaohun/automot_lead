@@ -153,15 +153,16 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 | env `TP_LOOKAHEAD_S` | 1.0 | target_point 未来时长（秒），落在 wp 视野 2s 内 |
 | env `NTP_LOOKAHEAD_S` | 2.0 | next_target_point 时长（秒），与 wp 末端同步 |
 | env `MIN_LOOKAHEAD_M` | 5.0 | 低速 fallback 最小前瞻：`dist = max(speed*lookahead, 5m)` |
-| env `USE_FINAL_GOAL` | 1 | 是否给 LeadMoT decoder 喂 final_goal token；旧 ckpt 设 0 兼容 |
 | env `LIDAR_REMOVE_GROUND` | 1 | 轻量去地面（z+LSQ）；设 0 关闭 |
 | env `LIDAR_GROUND_Z` | -1.4 | 地面 z 高度阈值（ego frame） |
 | env `USE_RADAR` | 1 | use_bev=True 时是否声明 4 个 radar 并拼到 LiDAR |
 | env `RECORD_BEV_DEBUG` | 1 | 是否写 bev_debug.mp4 |
 
-在线 target_point / next_target_point 对齐 AutoMoT `mot_b2d_agent.py`：每 tick 调
-`RoutePlanner.run_step()` 推进 route 后取剩余 route[1] / route[2]，不足时按目标方向
-延展 5m 或按当前航向前推 50m；不再有速度 lookahead / 低速置零相关 env。
+在线 target_point / next_target_point 对齐训练侧 route lookahead：每 tick 调
+`RoutePlanner.run_step()` 推进 route 后，按 `max(speed*lookahead_s, MIN_LOOKAHEAD_M)`
+沿剩余 route 弧长插值；默认 tp=1.0s、ntp=2.0s。final_goal 来自
+`scenario_picker` 按 route_id 读取的 LEAD route XML 最后一个 waypoint，再转成
+当前 ego frame；这与训练侧 `meta["next_target_points"][-1]` 的剩余 route 终点语义一致。
 
 ---
 
@@ -174,7 +175,7 @@ ${EVAL_OUTPUT_BASE:-AutoMoT/outputs/closed_loop_eval}/
     eval_per_route/eval_<route_id>.json      ← leaderboard 原始结果（跨跑法共享）
     route<route_id>/                          ← route 级输出（跨跑法共享，断点续跑）
       input.mp4 debug.mp4 bev_debug.mp4 demo.mp4 grid.mp4
-      meta/<step>.json                        ← 每个推理 tick 的 pred + 耗时 + 输入统计
+      meta/<step>.json                        ← 每个推理 tick 的 pred + 耗时 + 输入统计（speed/tp/ntp/final_goal）
       logs/
     runs/<RUN_LABEL>/                          ← 本次启动的聚合结果（与其他批次隔离）
       scenarios/<Scenario>/summary.json
@@ -246,8 +247,7 @@ python3 qwen3vl_local/eval_carla/webapp/app.py \
 - **ffmpeg 不在 PATH**：视频不压缩，留原始 mp4v 编码 mp4，可播放但体积大。
 - **debug.mp4 在 warmup 阶段空白**：第一次 4Hz 采样点（默认第 5 个 tick）才有
   pred_waypoints；bev_debug.mp4 从 t=0 就有 ego box，更适合诊断 warmup。
-- **target_point 起步死锁**：在线已改为 AutoMoT route-index 规则，静止时也从
-  RoutePlanner 剩余 route[1]/route[2] 取前方目标；不会再因为 speed≈0 把 tp/ntp
-  置成 ego 当前点。
+- **target_point 起步死锁**：在线使用 `max(speed*lookahead_s, 5m)`，静止时 tp/ntp
+  都给出 5m 前方方向；这是有意设计，不会因为 speed≈0 把 tp/ntp 置成 ego 当前点。
 - **parking_escape 误触**：默认 1500 帧（125s）位移 < 5m 才触发，红灯等灯正常
   不会触发。如果场景普遍 lights 等待 > 2 分钟，在 `safety.py` 调大窗口。

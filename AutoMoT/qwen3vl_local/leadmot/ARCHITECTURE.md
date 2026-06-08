@@ -12,7 +12,7 @@
 - **输出语义对齐 LEAD PlanningDecoder**：head 先预测相邻 delta，再在 head 内 `cumsum` 得到累计点，loss 直接对累计/绝对点计算。
 - **frozen Qwen prefix K/V 不再过 Linear**：每层读取 `(K, V)`，形状约为 `(B or 1, 8, S, 128)`，保持 Qwen K/V 子空间。
 - **gen hidden = 1024 = 8 x 128**：与 Qwen `num_key_value_heads x head_dim` 对齐，方便直接 cross-attend 到 prefix K/V。
-- **BEV/status/query 统一成 gen token 序列**：BEV 120 个 token，status 3 个 token，route query 10 个 token，waypoint query 8 个 token。
+- **BEV/status/query 统一成 gen token 序列**：BEV 120 个 token，status 4 个 token（speed/tp/ntp/final_goal），route query 10 个 token，waypoint query 8 个 token。
 - **decoder-only 训练**：大模型和 BEV backbone 都不参与梯度，训练成本集中在新初始化的 planning decoder。
 
 ## 2. 与 AutoMoT 严格 MoT 的关系
@@ -68,7 +68,7 @@ input_ids.shape[-1] + outputs.rope_deltas
 ```text
 LeadMoTPlanningDecoder
 ├── LeadBEVProjector        BEV (B, 512, 10, 12) -> (B, 120, 1024)
-├── StatusTokenEncoder      speed/tp/ntp -> 3 x (B, 1, 1024)
+├── StatusTokenEncoder      speed/tp/ntp/final_goal -> 4 x (B, 1, 1024)
 ├── RouteQueryBank          learned queries -> (B, 10, 1024)
 ├── WaypointQueryBank       learned queries -> (B, 8, 1024)
 ├── MoTDecoderBlock x 12    prefix K/V attention + FFN
@@ -82,8 +82,8 @@ LeadMoTPlanningDecoder
 `config.slice_layout()` 是下面这张表的代码真值，`decoder._build_gen_sequence()` 的拼接顺序必须与它一致。
 
 ```text
-index    [0..120)   [120]   [121]   [122]   [123..133)   [133..141)
-content  BEV 120    speed   tp      ntp     route_q 10   waypoint_q 8
+index    [0..120)   [120]   [121]   [122]   [123]        [124..134)   [134..142)
+content  BEV 120    speed   tp      ntp     final_goal   route_q 10   waypoint_q 8
 ```
 
 forward 后只取 route query 与 waypoint query 对应位置送入各自 head，BEV/status token 不直接输出轨迹。
@@ -97,7 +97,7 @@ caller / runner:
   pooled_kv: list[(K, V)] x num_layers
 
 LeadMoT decoder:
-  BEV + speed + target_point + next_target_point
+  BEV + speed + target_point + next_target_point + final_goal
   -> BEV/status/query packed gen sequence
   -> MoTDecoderBlock x num_layers, each attends to pooled_kv[i]
   -> route slice + waypoint slice
@@ -110,6 +110,7 @@ LeadMoT decoder:
 - `speed`: `(B,)` 或 `(B, 1)`，单位 m/s，不额外归一化。
 - `target_point`: `(B, 2)`，当前 ego-frame target point。
 - `target_point_next`: `(B, 2)`，下一 lookahead target point。
+- `final_goal`: `(B, 2)`，LEAD route 的真实终点；训练来自 `meta["next_target_points"][-1]` 转 ego，在线来自 `scenario_picker` 读取的 route XML 最后一个 waypoint 转 ego。
 - `pooled_kv`: 长度必须等于 `config.num_layers`。
 
 ## 7. 不在本子包里做的事
@@ -148,6 +149,7 @@ with torch.no_grad():
         speed=speed,
         target_point=target_point,
         target_point_next=target_point_next,
+        final_goal=final_goal,
         rope_position_offset=rope_position_offset,
     )
 

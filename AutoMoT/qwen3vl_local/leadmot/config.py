@@ -49,8 +49,9 @@ class LeadMoTPlanningDecoderConfig:
     bev_grid: Tuple[int, int] = (10, 12)
 
     # 是否在 gen 序列里加入 BEV token（亦即"快推理是否融合 BEV 信息"）。
-    # - True（默认）：v1 行为，gen 序列 = BEV(120) + speed + tp + ntp + route + waypoint = 141 token；
-    # - False：消融配置，gen 序列只含 21 个 status/query token（speed + tp + ntp + route + wp），
+    # - True（默认）：gen 序列 = BEV(120) + speed + tp + ntp + final_goal + route + waypoint = 142 token；
+    # - False：消融配置，gen 序列只含 22 个 status/query token
+    #   （speed + tp + ntp + final_goal + route_q 10 + waypoint_q 8），
     #   decoder 完全靠 frozen Qwen prefix K/V + ego 状态做 planning，BEV encoder 仍可外部跑
     #   （只是 decoder 不接它的输出）。state_dict 在两档之间**不兼容**（bev_projector 一档存在
     #   一档不存在），切换时必须从头训或单独 warm start。
@@ -58,8 +59,8 @@ class LeadMoTPlanningDecoderConfig:
 
     # final_goal token：第 4 个 status token，喂 LeadMoT decoder（默认启用）。
     # 与 tp/ntp 共享 WaypointInputAdaptor MLP，让坐标语义在同一空间。
-    # 训练侧用 meta["route"][-1] (ego-frame route 末端) 作为真值；
-    # 在线侧用 RoutePlanner.route[-1] 转 ego frame。
+    # 训练侧用 meta["next_target_points"][-1]（LEAD 采集保存的剩余 route 终点）转 ego；
+    # 在线侧用 scenario_picker 对应 route XML 的最后一个 waypoint 转 ego。
     # **注意**：开启后 gen sequence 多 1 个 token，老 LeadMoT ckpt **不兼容**。
     use_final_goal: bool = True
 
@@ -82,9 +83,9 @@ class LeadMoTPlanningDecoderConfig:
 
         status_token 数：speed + tp + ntp (+ final_goal 若启用) = 3 或 4。
         use_bev=True + use_final_goal=True：BEV(120) + 4 status + 10 route + 8 wp = 142
-        use_bev=True + use_final_goal=False（兼容老 ckpt）：BEV(120) + 3 status + 18 query = 141
+        use_bev=True + use_final_goal=False：BEV(120) + 3 status + 18 query = 141（旧 ckpt 已舍弃）
         use_bev=False + use_final_goal=True：4 status + 18 query = 22
-        use_bev=False + use_final_goal=False：3 status + 18 query = 21
+        use_bev=False + use_final_goal=False：3 status + 18 query = 21（旧 ckpt 已舍弃）
         """
         bev_tokens = self.bev_grid[0] * self.bev_grid[1] if self.use_bev else 0
         status_tokens = 4 if self.use_final_goal else 3

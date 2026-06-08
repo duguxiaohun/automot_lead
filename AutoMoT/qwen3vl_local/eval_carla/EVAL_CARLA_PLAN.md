@@ -76,14 +76,15 @@ AutoMoT/qwen3vl_local/eval_carla/
 
 ### 2.6 target_point / next_target_point
 
-- 离线训练：未来 1.5s / 3.0s 真值位置（`_extract_tp_ntp_from_future_frames`）
+- 离线训练：默认 `route_lookahead`，沿 `meta["route"]` 弧长前推
+  `max(speed*lookahead_s, 5m)`；tp=1.0s，ntp=2.0s。
 - 在线推理：
-  - 对齐 AutoMoT `mot_b2d_agent.py`：`RoutePlanner.run_step()` 推进 route 后，
-    直接取剩余 route[1] / route[2] 作为 target_point / next_target_point
-  - route 点不足时按 AutoMoT 兜底：只有 tp 时沿 ego→tp 方向延展 5m 生成 ntp；
-    route 为空时沿当前航向前推 50m
-  - 不再使用 `speed * lookahead_s`，也不再低速 tp=ego；RoutePlanner 的
-    `min_distance=7.5m` 在静止起步时仍提供非零前方目标，避免 waypoint head 死锁
+  - `RoutePlanner.run_step()` 推进 route 后，沿剩余 route 使用同款
+    `max(speed*lookahead_s, 5m)` 弧长插值。
+  - 低速时 tp/ntp 都落到 5m 是有意设计，避免 speed≈0 时目标点贴在 ego 原点。
+  - final_goal 使用 route 真实终点：训练侧来自 LEAD meta 的
+    `next_target_points[-1]`，在线侧来自 `scenario_picker` 读取的 route XML
+    最后一个 waypoint；两侧都转成当前 ego frame。
 - world → ego：`inverse_conversion_2d(world_xy, gps_xy, theta)`
 - ego frame 约定 `(x_forward, y_left)`
 
@@ -116,7 +117,7 @@ ${EVAL_OUTPUT_BASE}/closed_loop_eval/
     eval_per_route/eval_<route_id>.json                  ← leaderboard 原始结果（共享）
     route<route_id>/                                      ← 单 route 输出（共享，断点续跑）
       {input,debug,bev_debug,demo,grid}.mp4
-      meta/<step>.json                                    ← 每 4Hz 推理 tick 的 pred + 输入统计
+      meta/<step>.json                                    ← 每 4Hz 推理 tick 的 pred + 输入统计（speed/tp/ntp/final_goal）
       logs/
     runs/<RUN_LABEL>/                                     ← 本次启动的聚合（按跑法隔离）
       scenarios/<Scenario>/summary.json

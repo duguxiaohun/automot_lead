@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 
 
@@ -58,6 +59,45 @@ def build_route_to_scenario(benchmark_root: pathlib.Path | None = None) -> dict[
                 continue
             mapping[rid].append(scen)
     return mapping
+
+
+def find_route_xml(route_id: int, benchmark_root: pathlib.Path | None = None) -> pathlib.Path | None:
+    """按 route_id 查 LEAD `<Scenario>/<route_id>.xml` 路线文件。"""
+    root = pathlib.Path(benchmark_root) if benchmark_root else _BENCHMARK_ROOT
+    if not root.is_dir():
+        print(f"[scenario_picker] benchmark root not found: {root}")
+        return None
+    matches = sorted(root.glob(f"*/{int(route_id)}.xml"))
+    return matches[0] if matches else None
+
+
+def load_route_endpoint(route_id: int, benchmark_root: pathlib.Path | None = None) -> dict[str, object] | None:
+    """读取 LEAD route XML 的最后一个 waypoint，作为在线 final destination。
+
+    返回的 endpoint 是 CARLA world frame 坐标；agent 会在每帧转成 ego frame，
+    与训练侧 `meta["next_target_points"][-1]` -> ego 的坐标系保持一致。
+    """
+    xml_path = find_route_xml(route_id, benchmark_root)
+    if xml_path is None:
+        return None
+    tree = ET.parse(xml_path)
+    route_elem = tree.find(".//route")
+    waypoint_elems = tree.findall(".//waypoints/position")
+    if route_elem is None or not waypoint_elems:
+        return None
+    last = waypoint_elems[-1]
+    endpoint = [
+        float(last.attrib["x"]),
+        float(last.attrib["y"]),
+        float(last.attrib.get("z", "0.0")),
+    ]
+    return {
+        "route_id": int(route_id),
+        "scenario": xml_path.parent.name,
+        "xml_path": str(xml_path),
+        "town": route_elem.attrib.get("town"),
+        "endpoint": endpoint,
+    }
 
 
 def pick_routes(

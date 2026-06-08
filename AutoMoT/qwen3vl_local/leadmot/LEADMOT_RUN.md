@@ -95,14 +95,14 @@ DDP_GPU_COUNT=4 USE_BEV=0 bash qwen3vl_local/leadmot/train.sh ddp
 
 | 维度 | `USE_BEV=1`（默认 / v1） | `USE_BEV=0`（消融） |
 |---|---|---|
-| gen 序列长度 | 141（BEV 120 + status 3 + queries 18） | 21（无 BEV，只 status + queries） |
+| gen 序列长度 | 142（BEV 120 + status 4 + queries 18） | 22（无 BEV，只 status + queries） |
 | BEV encoder forward | 跑（LEAD TransfuserBackbone 全套） | 完全跳过，省一份显存/时间 |
 | `decoder.bev_projector` | 实例化 | 不实例化（state_dict 少这一组 key） |
 | state_dict 互通 | ❌ 不兼容；**不能跨 USE_BEV 用 `--init-from-ckpt`** | 同左 |
 | 适用场景 | 主训练 | 消融对比"语言模型是否够用"，或限显存机器训练 |
 
 切换 `USE_BEV` 必须从头训或单独 warm start，eval / probe 时从 ckpt 里自动读
-`use_bev` 字段；旧 ckpt 缺字段时按 `bev_projector.*` key 推断。与训练时一致即可，不需要重复指定 CLI。接入
+`use_bev` 字段；`use_final_goal` 必须显式为 true，旧 LeadMoT ckpt 缺该字段会直接报错。与训练时一致即可，不需要重复指定 CLI。接入
 `mot_lead_offline_runner.py` 时也同理：先读 checkpoint 配置再实例化 decoder，并用
 `strict=True` 加载权重，避免 `USE_BEV=0` checkpoint 被错误装进带随机 `bev_projector` 的模型。
 
@@ -144,7 +144,7 @@ DDP 加载 Qwen 时默认按 `LOCAL_RANK * QWEN_LOAD_STAGGER_S` 错峰，降低�
 
 `IMAGE_LOG_EVERY` 步触发一次 rank0 渲染：从 val 抽 `IMAGE_LOG_SAMPLES` 条画 pred vs gt 拼图贴到 TB（`samples/planning_overlay_raw` 与开 EMA 时的 `samples/planning_overlay_ema`），便于训练过程肉眼看模型质量进化。设 `IMAGE_LOG_EVERY=0` 关闭，check 模式默认关闭。
 
-EMA：默认 `EMA=1` `EMA_DECAY=0.999`，关掉用 `EMA=0`。eval/probe 默认 `--use-ema`，旧 ckpt 不带 EMA 字段时自动回落到 raw 权重。
+EMA：默认 `EMA=1` `EMA_DECAY=0.999`，关掉用 `EMA=0`。eval/probe 默认 `--use-ema`，ckpt 不带 EMA 字段时自动回落到 raw 权重；但 ckpt 必须带 `decoder_config.use_final_goal=True`。
 
 ## 6. Eval
 
@@ -200,6 +200,10 @@ metrics.json
 sample.json
 overview.md
 ```
+
+其中 `predictions.json` 会额外写 `navigation_input`，包含本次实际喂给 Qwen/decoder
+的 `speed_mps`、`target_point`、`target_point_next`、`final_goal`，方便逐 case 核对
+tp/ntp/final_goal 是否和训练分布一致。
 
 ## 8. 断点与加载
 

@@ -118,11 +118,10 @@ def build_cleaned_prompt_and_modes(target_point_speed: Any) -> tuple[str, bool, 
     """构造 Qwen/规划分支使用的英文驾驶 prompt。
 
     本地实现，避免 LeadMoT-only import 阶段被 `automot_utils -> carla` 依赖卡住。
-    向后兼容：
-    - 旧 5 元：[speed, cur_x, cur_y, next_x, next_y]  → prompt 不含 destination
-    - 新 7 元：[speed, cur_x, cur_y, next_x, next_y, fg_x, fg_y] → prompt 加 destination
+    输入布局：
+    - 7 元：[speed, cur_x, cur_y, next_x, next_y, fg_x, fg_y] → prompt 加 destination
     顺序中 cur_/next_ = target_point/next_target_point (1.0s / 2.0s 弧长前推)，
-    fg_ = final_goal (route 终点 ego-frame 坐标)。
+    fg_ = final_goal (LEAD 采集保存的剩余 route 终点，ego-frame 坐标)。
     """
     if isinstance(target_point_speed, torch.Tensor):
         tp = target_point_speed.detach().cpu().view(-1)
@@ -134,33 +133,24 @@ def build_cleaned_prompt_and_modes(target_point_speed: Any) -> tuple[str, bool, 
     else:
         raise TypeError(f"Unsupported type for target_point_speed: {type(target_point_speed)}")
 
-    if len(vals) < 5:
+    if len(vals) < 7:
         raise ValueError(
-            f"Expected at least 5 elements [speed, cur_x, cur_y, next_x, next_y], got {len(vals)}"
+            "Expected 7 elements [speed, cur_x, cur_y, next_x, next_y, fg_x, fg_y], "
+            f"got {len(vals)}"
         )
     speed = vals[0]
     cur_x, cur_y = vals[1], vals[2]
     next_x, next_y = vals[3], vals[4]
-    has_final_goal = len(vals) >= 7
-    fg_x = vals[5] if has_final_goal else 0.0
-    fg_y = vals[6] if has_final_goal else 0.0
+    fg_x = vals[5]
+    fg_y = vals[6]
 
     # prompt 时长与 LeadMoT v2 默认 (tp=1.0s, ntp=2.0s, wp 视野=2s) 对齐。
-    # 旧 ckpt（5 元接口）走 v1 的 "+1s, +2s, 3 seconds" 文本，保证 prefill cache
-    # 不会因为 prompt 字面变了而失效。
-    if has_final_goal:
-        prompt = (
-            f"Your current and next target point is ({cur_x:.6f}, {cur_y:.6f}), "
-            f"({next_x:.6f}, {next_y:.6f}), your final destination is "
-            f"({fg_x:.6f}, {fg_y:.6f}), and your current velocity is {speed:.2f} m/s. "
-            "Predict the driving actions ( now, +1s, +2s) and plan the trajectory for the next 2 seconds."
-        )
-    else:
-        prompt = (
-            f"Your current and next target point is ({cur_x:.6f}, {cur_y:.6f}), "
-            f"({next_x:.6f}, {next_y:.6f}), and your current velocity is {speed:.2f} m/s. "
-            "Predict the driving actions ( now, +1s, +2s) and plan the trajectory for the next 3 seconds."
-        )
+    prompt = (
+        f"Your current and next target point is ({cur_x:.6f}, {cur_y:.6f}), "
+        f"({next_x:.6f}, {next_y:.6f}), your final destination is "
+        f"({fg_x:.6f}, {fg_y:.6f}), and your current velocity is {speed:.2f} m/s. "
+        "Predict the driving actions ( now, +1s, +2s) and plan the trajectory for the next 2 seconds."
+    )
     return prompt, False, True
 
 
@@ -1012,6 +1002,10 @@ class LeadOfflineMoTRunner:
                 "[LeadMoT] checkpoint has no decoder_config.use_bev; "
                 f"inferred use_bev={config.use_bev} from state_dict keys"
             )
+        if "use_final_goal" not in cfg_dict:
+            raise ValueError("LeadMoT checkpoint 缺少 decoder_config.use_final_goal；当前路线拒绝旧 ckpt")
+        if not bool(cfg_dict["use_final_goal"]):
+            raise ValueError("LeadMoT checkpoint decoder_config.use_final_goal=False；当前路线要求 True")
         return config
 
     def _ensure_leadmot_decoder(self) -> None:
@@ -1441,17 +1435,19 @@ class LeadOfflineMoTRunner:
         # BEV/LiDAR 信息走下面的 LEAD BEV encoder。
 
         # 3) target_point_speed
-        # 5 元 (v1)：[speed, tp_x, tp_y, ntp_x, ntp_y]
-        # 7 元 (v2)：[speed, tp_x, tp_y, ntp_x, ntp_y, fg_x, fg_y]
-        # 由 clip 是否含 "final_goal" 决定。下游 prompt 函数自动识别长度。
+        # 7 元：[speed, tp_x, tp_y, ntp_x, ntp_y, fg_x, fg_y]。
+        # 当前路线舍弃旧 5 元 ckpt / prompt，clip 必须含 "final_goal"。
         speed = float(np.asarray(speed_clip[t]).reshape(-1)[0])
         tp = np.asarray(tp_clip[t]).reshape(-1)
         ntp = np.asarray(ntp_clip[t]).reshape(-1)
-        tps_values = [speed, float(tp[0]), float(tp[1]), float(ntp[0]), float(ntp[1])]
-        if "final_goal" in lead_clip:
-            fg_clip = self._to_numpy(lead_clip["final_goal"])
-            fg = np.asarray(fg_clip[t]).reshape(-1)
-            tps_values.extend([float(fg[0]), float(fg[1])])
+        if "final_goal" not in lead_clip:
+            raise ValueError("lead_clip 缺少 final_goal；当前 LeadMoT prompt/decoder 必须使用 7 元状态输入")
+        fg_clip = self._to_numpy(lead_clip["final_goal"])
+        fg = np.asarray(fg_clip[t]).reshape(-1)
+        tps_values = [
+            speed, float(tp[0]), float(tp[1]), float(ntp[0]), float(ntp[1]),
+            float(fg[0]), float(fg[1]),
+        ]
         target_point_speed = torch.tensor(
             [tps_values],
             dtype=torch.float32,
@@ -1481,7 +1477,7 @@ class LeadOfflineMoTRunner:
         # [_prepare_inference_inputs Return Values Stats]
         # - rgb_pil_list: list[4], first image size=(1152, 384), mode=RGB
         # - lidar_pil_list: list[1], first image size=(384, 320), mode=RGB  (PIL.size = W×H)
-        # - target_point_speed: shape=(1, 5), dtype=float32, range≈[0, 25]
+        # - target_point_speed: shape=(1, 7), dtype=float32, range≈[0, 50]
         # - bev_rgb_tensor: torch.Size([1, 3, 384, 1152]), float32, range≈[0, 235]
         # - bev_lidar_tensor: torch.Size([1, 1, 320, 384]), float32, range=[0, 1]
         # - bev_indices_desc: [3]   # anchor=12, bev_count=1, 仅 anchor 单帧(clip 内 idx)
@@ -1789,14 +1785,22 @@ def _extract_tp_route_lookahead(
 
 
 def _extract_final_goal_ego(meta: dict[str, Any]) -> np.ndarray:
-    """route 最后一个路点（ego-frame），即 expert 当前剩余 navigation 的终点。
+    """LEAD 采集器 `_command_planner.route` 的末端，转成当前 ego-frame。
 
-    在线侧用 `_route_planner.route[-1]` 转 ego frame 得到等价信号。
+    事实来源：`lead/lead/expert/expert.py` 每帧把
+    `next_target_points = [tp[0].tolist() for tp in self._command_planner.route]`
+    写进 meta；该列表是 CARLA world frame 剩余 command route。final_goal 应取
+    `next_target_points[-1]`，而不是 `meta["route"][-1]`，后者只是 privileged
+    planner 保存的局部 dense route 监督片段。
     """
-    route = np.asarray(meta.get("route", []), dtype=np.float32).reshape(-1, 2)
-    if len(route) == 0:
-        return np.zeros((2,), dtype=np.float32)
-    return route[-1].astype(np.float32)
+    next_points = np.asarray(meta.get("next_target_points", []), dtype=np.float32)
+    if next_points.size == 0:
+        raise KeyError("meta 缺少 next_target_points；无法按 LEAD 采集终点生成 final_goal")
+    next_points = next_points.reshape(-1, next_points.shape[-1])
+    if next_points.shape[-1] < 2:
+        raise ValueError(f"next_target_points 最后一维不足 2: shape={next_points.shape}")
+    pos_xy, theta = _extract_pose_from_meta(meta)
+    return inverse_conversion_2d(next_points[-1, :2], pos_xy, theta).astype(np.float32)
 
 
 def _extract_pose_from_meta(meta: dict[str, Any]) -> tuple[np.ndarray, float]:
@@ -1850,7 +1854,7 @@ def build_clip_from_real_lead_route(
       max(speed*lookahead_s, tp_min_lookahead_m) 米）或 "future_truth"（v1 行为，
       用未来真值 ego 位置）。
     - tp_min_lookahead_m: 低速 fallback 最小前瞻距离（米）。
-    - use_final_goal: 是否在 clip 里加 final_goal 字段（route 终点 ego-frame）。
+    - use_final_goal: 是否在 clip 里加 final_goal 字段（LEAD 剩余 route 终点 ego-frame）。
 
     行为：
     - 计算 max_history = max((rgb_count-1)*rgb_step, (bev_count-1)*bev_step)
@@ -2116,14 +2120,14 @@ def main():
     parser.add_argument(
         "--tp-lookahead-s",
         type=float,
-        default=1.5,
-        help="target_point 预测时长（秒）。默认 1.5。将按未来真值帧位置计算。",
+        default=1.0,
+        help="target_point 预测时长（秒）。默认 1.0。默认按 route_lookahead 弧长计算。",
     )
     parser.add_argument(
         "--ntp-lookahead-s",
         type=float,
-        default=3.0,
-        help="target_point_next 预测时长（秒）。默认 3.0。将按未来真值帧位置计算。",
+        default=2.0,
+        help="target_point_next 预测时长（秒）。默认 2.0，与 8 个 0.25s waypoint 视野末端对齐。",
     )
     parser.add_argument(
         "--frame-interval-s",
