@@ -437,8 +437,8 @@ mkdir -p "${WORK_LOG_DIR}"
 
 # launcher 预启动 CARLA 已禁用；列表保留为空，cleanup 函数只作为兼容兜底。
 LAUNCHED_CARLA_PORTS=()
-PRESTART_CARLA="${PRESTART_CARLA:-0}"
-CARLA_BOOT_TIMEOUT="${CARLA_BOOT_TIMEOUT:-90}"   # legacy, unused unless PRESTART_CARLA=1
+PRESTART_CARLA="0"
+CARLA_BOOT_TIMEOUT="${CARLA_BOOT_TIMEOUT:-90}"   # legacy, launcher no longer waits for CARLA
 
 is_port_free() {
     # 三种探测方法兜底：lsof > ss > python socket bind。任一可用都行。
@@ -601,7 +601,7 @@ done
 run_route_worker() {
     # 单个 GPU worker：拿 worker_idx/gpu_rank 后，只处理 route_idx % GPU_COUNT == worker_idx 的路线。
     # 多卡时各 worker 互不通信，靠 eval_<route_id>.json 是否存在实现断点续跑。
-    # 每个 worker 在本卡上自动起一个独立 CARLA server，结束 / trap 时回收。
+    # 每个 worker 进入 leaderboard_evaluator.py 后在本卡上启动独立 CARLA server。
     local worker_idx="$1"
     local gpu_rank="$2"
     # 端口由主进程串行扫描分配，避免与已有进程冲突；通过 WORKER_PORTS 数组下标查表。

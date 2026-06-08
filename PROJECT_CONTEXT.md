@@ -120,7 +120,9 @@ BEV 开关：
   与 LEADMOT_PLAN.md §32 一致。
 - `run_eval.sh` 必填 `--leadmot-ckpt`，支持 scenario / route_id / random / full；
   默认自动选 1 张空闲 GPU，`--num-gpus N` 或 `EVAL_GPU_COUNT=N` 会自动选 N 张空闲 GPU，
-  每张卡一个 worker、独立端口槽，round-robin 分 route。
+  每张卡一个 worker、独立端口槽，round-robin 分 route。launcher 只扫描空闲
+  `[rpc..rpc+3, tm]` 端口块并实时 tail worker log；CARLA server 由
+  `leaderboard_evaluator.py` 在 worker 进程内启动并清理，避免双重启动抢端口。
 - **输出按跑法分目录**：
   - `<signature>/route<id>/` 视频与 `<signature>/eval_per_route/eval_<id>.json` 跨跑法共享
     （断点续跑）
