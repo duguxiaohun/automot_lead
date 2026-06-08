@@ -262,10 +262,17 @@ PER_ROUTE_DIR="${SIG_DIR}/eval_per_route"
 mkdir -p "${PER_ROUTE_DIR}"
 
 # -------------------- 决定要跑的 route_id 列表 --------------------
+# 注意：bash 空数组用 `"${a[@]:-}"` 展开会得到一个空字符串元素（不是真空），
+# 这会让 picker 收到 `--scenario ""` / `--route-id ""`，把所有 route 误过滤。
+# 必须先用 `${#a[@]}` 长度判断，再用纯 `"${a[@]}"` 展开。
 PICKER="${SCRIPT_DIR}/scenario_picker.py"
 PICKER_ARGS=()
-for s in "${SCENARIOS[@]:-}"; do PICKER_ARGS+=(--scenario "$s"); done
-for r in "${ROUTE_IDS_ARG[@]:-}"; do PICKER_ARGS+=(--route-id "$r"); done
+if [ ${#SCENARIOS[@]} -gt 0 ]; then
+    for s in "${SCENARIOS[@]}"; do PICKER_ARGS+=(--scenario "$s"); done
+fi
+if [ ${#ROUTE_IDS_ARG[@]} -gt 0 ]; then
+    for r in "${ROUTE_IDS_ARG[@]}"; do PICKER_ARGS+=(--route-id "$r"); done
+fi
 if [ -n "${RANDOM_N}" ]; then
     PICKER_ARGS+=(--random "${RANDOM_N}" --seed "${RANDOM_SEED}")
 fi
