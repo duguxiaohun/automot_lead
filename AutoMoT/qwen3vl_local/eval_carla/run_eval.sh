@@ -1,0 +1,396 @@
+#!/bin/bash
+# ============================================================
+# LeadMoT closed-loop evaluation on Bench2Drive 220 routes.
+#
+# 一键用法：
+#   bash AutoMoT/qwen3vl_local/eval_carla/run_eval.sh \
+#       --leadmot-ckpt /path/to/leadmot/best.pt
+#
+# 常用：
+#   --leadmot-ckpt FILE|DIR    [必填] LeadMoT decoder checkpoint or output dir
+#   --sensor-profile 3cam      默认 3cam（唯一支持的 LEAD 训练分布）
+#   --step-stride N            每多少 tick 调一次模型，默认 5（4Hz）
+#   --rope mrope|mhrope|none   默认 mrope
+#   --num-gpus N               默认 1；自动选择 N 张空闲 GPU 并行跑 route
+#   --single-test              只跑第一条 route 做烟雾
+#
+# 三种跑法（互相可叠加）：
+#   1. 按场景：--scenario <Name>     可重复；只跑指定 LEAD scenario 子集
+#   2. 随机 N：--random N            从筛后池里随机抽 N 条；--seed K 固定种子
+#   3. 全量： 什么都不传，跑 220 条
+#   附：--route-id <ID>              可重复；指定具体 route_id 跑
+#
+#   --no-input / --no-debug / --no-demo / --no-grid   关掉对应视频
+#   --no-aggregate             跑完不自动聚合
+#
+# 输出根：${EVAL_OUTPUT_BASE:-${PROJECT_ROOT}/outputs/closed_loop_eval}
+#   <ckpt_parent>__<ckpt_stem>__bev{0|1}__ema{0|1}/
+#       config.json
+#       eval_per_route/eval_<route_id>.json   leaderboard 评测原始 json
+#       route<route_id>/
+#           input.mp4 debug.mp4 demo.mp4 grid.mp4
+#           meta/<step>.json
+#           logs/
+#       scenarios/<Scenario>/summary.json    （聚合脚本写）
+#       summary_all.json
+# ============================================================
+
+set -u
+
+# -------------------- 参数解析 --------------------
+LEADMOT_CKPT=""
+SENSOR_PROFILE="3cam"
+STEP_STRIDE="5"
+LEADMOT_ROPE="mrope"
+SINGLE_TEST="0"
+GPU_COUNT="${EVAL_GPU_COUNT:-1}"
+# GPU_COUNT 只表示“需要几张卡”；具体卡号始终由下面的 nvidia-smi 空闲选择逻辑决定。
+# 这样与项目其它训练/eval 入口一致，不依赖用户手动设置 CUDA_VISIBLE_DEVICES。
+SCENARIOS=()
+ROUTE_IDS_ARG=()
+RANDOM_N=""
+RANDOM_SEED="0"
+RECORD_INPUT="1"; RECORD_DEBUG="1"; RECORD_DEMO="1"; RECORD_GRID="1"
+DO_AGGREGATE="1"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --leadmot-ckpt) LEADMOT_CKPT="$2"; shift 2 ;;
+        --sensor-profile) SENSOR_PROFILE="$2"; shift 2 ;;
+        --step-stride) STEP_STRIDE="$2"; shift 2 ;;
+        --rope) LEADMOT_ROPE="$2"; shift 2 ;;
+        --num-gpus|--gpus) GPU_COUNT="$2"; shift 2 ;;
+        --single-test) SINGLE_TEST="1"; shift ;;
+        --scenario) SCENARIOS+=("$2"); shift 2 ;;
+        --route-id) ROUTE_IDS_ARG+=("$2"); shift 2 ;;
+        --random) RANDOM_N="$2"; shift 2 ;;
+        --seed) RANDOM_SEED="$2"; shift 2 ;;
+        --no-input)   RECORD_INPUT="0"; shift ;;
+        --no-debug)   RECORD_DEBUG="0"; shift ;;
+        --no-demo)    RECORD_DEMO="0"; shift ;;
+        --no-grid)    RECORD_GRID="0"; shift ;;
+        --no-aggregate) DO_AGGREGATE="0"; shift ;;
+        -h|--help) sed -n '1,45p' "$0"; exit 0 ;;
+        *) echo "Unknown argument: $1"; exit 1 ;;
+    esac
+done
+
+if [ -z "${LEADMOT_CKPT}" ]; then
+    echo "ERROR: --leadmot-ckpt is required"
+    exit 1
+fi
+if [ "${SENSOR_PROFILE}" != "3cam" ]; then
+    echo "ERROR: LeadMoT CARLA eval only supports --sensor-profile 3cam (LEAD training distribution)"
+    exit 1
+fi
+if ! [[ "${GPU_COUNT}" =~ ^[0-9]+$ ]] || [ "${GPU_COUNT}" -lt 1 ]; then
+    echo "ERROR: --num-gpus must be a positive integer, got ${GPU_COUNT}"
+    exit 1
+fi
+
+LEADMOT_CKPT=$(LEADMOT_CKPT="${LEADMOT_CKPT}" python3 - <<'PY'
+import os
+import pathlib
+import sys
+
+root = pathlib.Path(os.environ["LEADMOT_CKPT"]).expanduser().resolve()
+if root.is_file():
+    print(root)
+    sys.exit(0)
+if not root.exists():
+    print(f"ERROR: --leadmot-ckpt path does not exist: {root}", file=sys.stderr)
+    sys.exit(1)
+if not root.is_dir():
+    print(f"ERROR: --leadmot-ckpt is neither file nor directory: {root}", file=sys.stderr)
+    sys.exit(1)
+
+candidates = [
+    root / "best.pt",
+    root / "latest.pt",
+    root / "latest" / "best.pt",
+    root / "latest" / "latest.pt",
+]
+for candidate in candidates:
+    if candidate.is_file():
+        print(candidate.resolve())
+        sys.exit(0)
+
+pools = []
+for pattern in ("step-checkpoint-*.pt", "checkpoint-epoch*.pt", "*.pt", "*.safetensors"):
+    pools.extend(p for p in root.glob(pattern) if p.is_file())
+    latest = root / "latest"
+    if latest.is_dir():
+        pools.extend(p for p in latest.glob(pattern) if p.is_file())
+if pools:
+    print(max(pools, key=lambda p: p.stat().st_mtime).resolve())
+    sys.exit(0)
+
+print(
+    f"ERROR: no LeadMoT checkpoint found under {root}; expected best.pt/latest.pt or checkpoint-*.pt",
+    file=sys.stderr,
+)
+sys.exit(1)
+PY
+) || exit 1
+echo "Resolved LeadMoT checkpoint: ${LEADMOT_CKPT}"
+
+# -------------------- 路径自动探测 --------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# AutoMoT/qwen3vl_local/eval_carla/ -> AutoMoT/qwen3vl_local/ -> AutoMoT/
+QWEN_LOCAL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+AUTOMOT_ROOT="$(cd "${QWEN_LOCAL_DIR}/.." && pwd)"
+PROJECT_ROOT="$(cd "${AUTOMOT_ROOT}/.." && pwd)"
+LEADERBOARD_DIR="${AUTOMOT_ROOT}/leaderboard"
+
+if [ -z "${CARLA_ROOT:-}" ]; then
+    if [ -d "$(dirname "${AUTOMOT_ROOT}")/carla" ]; then
+        export CARLA_ROOT="$(dirname "${AUTOMOT_ROOT}")/carla"
+    elif [ -d "${HOME}/carla" ]; then
+        export CARLA_ROOT="${HOME}/carla"
+    else
+        echo "ERROR: CARLA_ROOT not set"; exit 1
+    fi
+    echo "Auto-detected CARLA_ROOT=${CARLA_ROOT}"
+fi
+
+# -------------------- GPU 自动选址（项目统一规则） --------------------
+unset CUDA_VISIBLE_DEVICES
+GPU_IDS=()
+if command -v nvidia-smi >/dev/null 2>&1; then
+    # 按显存占用从低到高排序，取前 GPU_COUNT 张。这里取的是物理 GPU id，
+    # 后续 run_evaluation.sh 会把它同时用于 CUDA_VISIBLE_DEVICES 和 CARLA graphicsadapter。
+    mapfile -t GPU_IDS < <(
+        nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits \
+            | sort -t ',' -k2 -n \
+            | awk -F ',' -v n="${GPU_COUNT}" 'NR<=n {gsub(/ /, "", $1); print $1}'
+    )
+else
+    echo "WARN: nvidia-smi not found; falling back to GPU ids 0..$((GPU_COUNT - 1))"
+    for ((i=0; i<GPU_COUNT; i++)); do GPU_IDS+=("${i}"); done
+fi
+if [ "${#GPU_IDS[@]}" -eq 0 ]; then
+    GPU_IDS=("0")
+fi
+if [ "${#GPU_IDS[@]}" -lt "${GPU_COUNT}" ]; then
+    echo "WARN: requested ${GPU_COUNT} GPU(s), but only found ${#GPU_IDS[@]}; using ${#GPU_IDS[@]}"
+    GPU_COUNT="${#GPU_IDS[@]}"
+fi
+if [ "${SINGLE_TEST}" = "1" ] && [ "${GPU_COUNT}" -gt 1 ]; then
+    # single-test 是烟雾测试，固定只跑第一条 route；开多 worker 反而会浪费 CARLA 实例。
+    echo "single-test enabled; using one GPU worker"
+    GPU_COUNT="1"
+    GPU_IDS=("${GPU_IDS[0]}")
+fi
+echo "Auto-selected GPU ids: ${GPU_IDS[*]} (workers=${GPU_COUNT})"
+
+PORT_BASE_START="${PORT_BASE_START:-5000}"
+PORT_STRIDE="${PORT_STRIDE:-20}"
+# 每个 worker 会启动一个 CARLA server。CARLA 除 RPC 端口外还会占用 streaming 等邻近端口，
+# 所以用 PORT_STRIDE 给不同 GPU 留出端口槽，降低并行时端口冲突概率。
+echo "Port slots: start=${PORT_BASE_START}, stride=${PORT_STRIDE}; worker port = start + gpu_id * stride"
+
+# -------------------- 输出目录 --------------------
+EVAL_OUTPUT_BASE="${EVAL_OUTPUT_BASE:-${AUTOMOT_ROOT}/outputs/closed_loop_eval}"
+SAVE_PATH="${EVAL_OUTPUT_BASE}"
+CKPT_SIGNATURE=$(LEADMOT_CKPT="${LEADMOT_CKPT}" LEADMOT_USE_EMA="${LEADMOT_USE_EMA:-1}" python3 - <<'PY'
+import os
+import pathlib
+import sys
+
+ckpt = pathlib.Path(os.environ["LEADMOT_CKPT"]).resolve()
+use_ema = os.environ.get("LEADMOT_USE_EMA", "1") != "0"
+
+raw = {}
+try:
+    if ckpt.suffix.lower() == ".safetensors":
+        from safetensors.torch import load_file
+        raw = load_file(str(ckpt))
+    else:
+        import torch
+        raw = torch.load(str(ckpt), map_location="cpu")
+except Exception as exc:
+    print(f"[run_eval] ERROR: failed to inspect checkpoint for signature: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+def unwrap_ema(state):
+    # 兼容 LeadMoT train.py 存的 EMA shadow 格式；signature 只需要知道 raw/EMA 是否用于推理。
+    if isinstance(state, dict) and isinstance(state.get("shadow"), dict):
+        return state["shadow"]
+    return state if isinstance(state, dict) else None
+
+def strip_prefixes(sd):
+    # 不同保存方式可能带 module./model./decoder. 前缀；去掉后只检查真实 decoder key。
+    if not isinstance(sd, dict):
+        return {}
+    out = {}
+    for key, value in sd.items():
+        name = str(key)
+        for prefix in ("module.", "model.", "decoder."):
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+        out[name] = value
+    return out
+
+cfg = dict(raw.get("decoder_config", {})) if isinstance(raw, dict) else {}
+if "use_bev" in cfg:
+    use_bev = bool(cfg["use_bev"])
+else:
+    # 旧 checkpoint 如果没保存 decoder_config，就通过是否存在 bev_projector 参数推断 use_bev。
+    state = None
+    if isinstance(raw, dict):
+        if use_ema:
+            state = unwrap_ema(raw.get("ema_state_dict"))
+        if state is None:
+            for key in ("decoder", "state_dict", "model"):
+                if isinstance(raw.get(key), dict):
+                    state = raw[key]
+                    break
+        if state is None:
+            state = raw
+    state = strip_prefixes(state)
+    use_bev = any(str(key).startswith("bev_projector.") for key in state)
+
+print(f"{ckpt.parent.name}__{ckpt.stem}__bev{1 if use_bev else 0}__ema{1 if use_ema else 0}")
+PY
+)
+SIG_DIR="${SAVE_PATH}/${CKPT_SIGNATURE}"
+PER_ROUTE_DIR="${SIG_DIR}/eval_per_route"
+mkdir -p "${PER_ROUTE_DIR}"
+
+# -------------------- 决定要跑的 route_id 列表 --------------------
+PICKER="${SCRIPT_DIR}/scenario_picker.py"
+PICKER_ARGS=()
+for s in "${SCENARIOS[@]:-}"; do PICKER_ARGS+=(--scenario "$s"); done
+for r in "${ROUTE_IDS_ARG[@]:-}"; do PICKER_ARGS+=(--route-id "$r"); done
+if [ -n "${RANDOM_N}" ]; then
+    PICKER_ARGS+=(--random "${RANDOM_N}" --seed "${RANDOM_SEED}")
+fi
+
+mapfile -t ROUTE_IDS < <(python3 "${PICKER}" "${PICKER_ARGS[@]}")
+TOTAL=${#ROUTE_IDS[@]}
+if [ "${TOTAL}" -eq 0 ]; then
+    echo "No route IDs to evaluate (after filters). Exit."
+    exit 0
+fi
+
+# -------------------- TEAM_AGENT --------------------
+TEAM_AGENT="${SCRIPT_DIR}/agent.py"
+TEAM_CONFIG_PREFIX="${LEADMOT_CKPT}"
+ROUTES="${LEADERBOARD_DIR}/data/bench2drive220.xml"
+TM_SEED="${TM_SEED:-3407}"
+
+echo "=========================================="
+echo "Total routes    : ${TOTAL}"
+if [ ${#SCENARIOS[@]} -gt 0 ]; then echo "Filter scenario : ${SCENARIOS[*]}"; fi
+if [ ${#ROUTE_IDS_ARG[@]} -gt 0 ]; then echo "Filter route_id : ${ROUTE_IDS_ARG[*]}"; fi
+if [ -n "${RANDOM_N}" ]; then echo "Random sample   : ${RANDOM_N} (seed=${RANDOM_SEED})"; fi
+echo "Single test     : ${SINGLE_TEST}"
+echo "Save path       : ${SAVE_PATH}"
+echo "Signature       : ${CKPT_SIGNATURE}"
+echo "Leadmot ckpt    : ${LEADMOT_CKPT}"
+echo "Sensor profile  : ${SENSOR_PROFILE}"
+echo "Step stride     : ${STEP_STRIDE}"
+echo "GPU workers     : ${GPU_COUNT} (${GPU_IDS[*]})"
+echo "Use EMA weights : ${LEADMOT_USE_EMA:-1}"
+echo "Record (i/d/m/g): ${RECORD_INPUT}/${RECORD_DEBUG}/${RECORD_DEMO}/${RECORD_GRID}"
+echo "=========================================="
+
+WORK_LOG_DIR="${SIG_DIR}/worker_logs/$(date +%Y%m%d_%H%M%S)"
+mkdir -p "${WORK_LOG_DIR}"
+
+run_route_worker() {
+    # 单个 GPU worker：拿 worker_idx/gpu_rank 后，只处理 route_idx % GPU_COUNT == worker_idx 的路线。
+    # 多卡时各 worker 互不通信，靠 eval_<route_id>.json 是否存在实现断点续跑。
+    local worker_idx="$1"
+    local gpu_rank="$2"
+    local base_port=$((PORT_BASE_START + gpu_rank * PORT_STRIDE))
+    local base_tm_port=$((base_port + 8000))
+    local fail_file="${WORK_LOG_DIR}/failed_worker${worker_idx}.txt"
+    local attempted_file="${WORK_LOG_DIR}/attempted_worker${worker_idx}.txt"
+    : > "${fail_file}"
+    : > "${attempted_file}"
+
+    echo "[worker ${worker_idx}] gpu=${gpu_rank} port=${base_port} tm_port=${base_tm_port}"
+    for ((route_idx=worker_idx; route_idx<TOTAL; route_idx+=GPU_COUNT)); do
+        # round-robin 分片比连续切段更适合断点续跑：如果某张卡提前失败，
+        # 下次重跑仍会跳过其它 worker 已完成的 eval_<route_id>.json。
+        local route_id="${ROUTE_IDS[$route_idx]}"
+        local current=$((route_idx + 1))
+        local per_route_json="${PER_ROUTE_DIR}/eval_${route_id}.json"
+        if [ -f "${per_route_json}" ]; then
+            echo "[worker ${worker_idx}] [${current}/${TOTAL}] skip route ${route_id} (already evaluated)"
+            continue
+        fi
+
+        echo "[worker ${worker_idx}] [${current}/${TOTAL}] running route ${route_id}"
+        echo "${route_id}" >> "${attempted_file}"
+        local eval_latest="${PER_ROUTE_DIR}/eval_latest_${route_id}.json"
+        LEADMOT_CKPT="${LEADMOT_CKPT}" \
+        LEADMOT_USE_EMA="${LEADMOT_USE_EMA:-1}" \
+        LEADMOT_ROPE="${LEADMOT_ROPE}" \
+        SENSOR_PROFILE="${SENSOR_PROFILE}" \
+        STEP_STRIDE="${STEP_STRIDE}" \
+        RECORD_INPUT="${RECORD_INPUT}" \
+        RECORD_DEBUG="${RECORD_DEBUG}" \
+        RECORD_DEMO="${RECORD_DEMO}" \
+        RECORD_GRID="${RECORD_GRID}" \
+        bash "${LEADERBOARD_DIR}/scripts/run_evaluation.sh" \
+            "${base_port}" "${base_tm_port}" "True" \
+            "${ROUTES}" "${TEAM_AGENT}" "${TEAM_CONFIG_PREFIX}+route${route_id}" \
+            "${eval_latest}" "${SAVE_PATH}" "only_traj" "${gpu_rank}" \
+            "${route_id}" "${TM_SEED}"
+        local rc=$?
+        if [ ${rc} -ne 0 ]; then
+            echo "[worker ${worker_idx}] WARN: route ${route_id} failed (rc=${rc})"
+            echo "${route_id}" >> "${fail_file}"
+        fi
+        if [ -f "${eval_latest}" ]; then
+            cp "${eval_latest}" "${per_route_json}"
+            echo "[worker ${worker_idx}] saved: ${per_route_json}"
+        else
+            echo "[worker ${worker_idx}] WARN: ${eval_latest} not found"
+            if [ ${rc} -eq 0 ]; then
+                echo "${route_id}" >> "${fail_file}"
+            fi
+        fi
+
+        if [ "${SINGLE_TEST}" = "1" ]; then
+            echo "[worker ${worker_idx}] ===== SINGLE_TEST_BREAK ====="
+            break
+        fi
+    done
+}
+
+PIDS=()
+for ((worker_idx=0; worker_idx<GPU_COUNT; worker_idx++)); do
+    # 每个 worker 的 stdout/stderr 先写独立日志，全部结束后再 cat，避免并行输出互相穿插。
+    run_route_worker "${worker_idx}" "${GPU_IDS[$worker_idx]}" > "${WORK_LOG_DIR}/worker${worker_idx}.log" 2>&1 &
+    PIDS+=("$!")
+done
+
+WORKER_FAIL=0
+for pid in "${PIDS[@]}"; do
+    if ! wait "${pid}"; then
+        WORKER_FAIL=1
+    fi
+done
+
+cat "${WORK_LOG_DIR}"/worker*.log
+
+# 聚合所有 worker 的失败 route，最终统一打印，方便下一轮按 --route-id 精确重跑。
+mapfile -t FAILED_ROUTES < <(cat "${WORK_LOG_DIR}"/failed_worker*.txt 2>/dev/null | sed '/^$/d' | sort -n | uniq)
+ATTEMPTED_COUNT=$(cat "${WORK_LOG_DIR}"/attempted_worker*.txt 2>/dev/null | sed '/^$/d' | wc -l | tr -d ' ')
+
+echo ""
+echo "Done. attempted=${ATTEMPTED_COUNT}, failed=${#FAILED_ROUTES[@]}, worker_fail=${WORKER_FAIL}"
+if [ "${#FAILED_ROUTES[@]}" -gt 0 ]; then
+    echo "Failed routes: ${FAILED_ROUTES[*]}"
+fi
+if [ "${DO_AGGREGATE}" = "1" ] && [ "${SINGLE_TEST}" != "1" ]; then
+    echo "Running aggregation..."
+    cd "${AUTOMOT_ROOT}" && python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
+        --eval-base "${SAVE_PATH}" \
+        --leadmot-ckpt "${LEADMOT_CKPT}" \
+        || echo "WARN: aggregation failed"
+fi
+echo "=========================================="

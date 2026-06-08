@@ -1,0 +1,134 @@
+/* LeadMoT 闭环评测 webapp 样式。
+   设计目标是偏诊断工具：左侧密集 route 列表，右侧优先展示视频和 JSON 指标。 */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #1c1f24;
+  color: #e6e6e6;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+header {
+  background: #14171c;
+  border-bottom: 1px solid #2a2f3a;
+  padding: 10px 20px;
+}
+.header-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+h1 { margin: 0; font-size: 18px; font-weight: 600; color: #fff; }
+.sig-pick { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.sig-pick select {
+  background: #23272f; color: #e6e6e6;
+  border: 1px solid #3a4150;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.tabs { display: flex; gap: 4px; margin-left: auto; }
+.tab {
+  background: transparent; color: #aaa;
+  border: none; padding: 6px 14px; cursor: pointer;
+  border-radius: 4px; font-size: 13px;
+}
+.tab:hover { background: #23272f; color: #fff; }
+.tab.active { background: #2c5cb3; color: #fff; }
+.tab-panel { display: none; }
+.tab-panel.active { display: flex; }
+
+/* -------- Routes layout --------
+   左栏用于快速扫 route/scenario/score，右栏用于查看单条路线的视频与分数。 */
+#tab-routes {
+  height: calc(100vh - 60px);
+}
+.sidebar {
+  width: 280px;
+  border-right: 1px solid #2a2f3a;
+  overflow-y: auto;
+  padding: 8px 0;
+  background: #16191e;
+}
+.sidebar-summary { font-size: 11px; color: #888; padding: 4px 12px; }
+.group { margin-bottom: 4px; }
+.group-header {
+  /* scenario 标题 sticky，长列表滚动时仍能知道当前 route 属于哪个场景。 */
+  font-size: 11px; color: #6a8aff;
+  text-transform: uppercase; letter-spacing: .5px;
+  padding: 6px 12px;
+  background: #1a1d23;
+  position: sticky; top: 0;
+  border-bottom: 1px solid #2a2f3a;
+}
+.route-row {
+  display: flex; justify-content: space-between;
+  padding: 5px 12px;
+  font-size: 13px; cursor: pointer;
+}
+.route-row:hover { background: #23272f; }
+.rid { color: #ddd; }
+.score { color: #ffce6a; font-variant-numeric: tabular-nums; }
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px;
+}
+.placeholder { color: #666; padding: 30px; text-align: center; }
+.placeholder.error { color: #ff7e7e; }
+
+.route-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+.route-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.vtab {
+  background: #23272f; color: #aaa;
+  border: 1px solid #3a4150; padding: 4px 14px;
+  cursor: pointer; font-size: 12px; border-radius: 4px;
+}
+.vtab:disabled { color: #555; cursor: not-allowed; }
+.vtab.active { background: #2c5cb3; color: #fff; border-color: #2c5cb3; }
+.video-wrap {
+  /* 视频区保持黑底，缺帧/不同宽高的视频不会显得像页面布局坏了。 */
+  background: #000;
+  border-radius: 6px; overflow: hidden;
+  max-width: 100%;
+  margin-bottom: 16px;
+}
+video { width: 100%; display: block; max-height: 70vh; }
+.metrics, .infractions { margin-bottom: 16px; }
+.metrics h3, .infractions h3 {
+  font-size: 13px; color: #ccc;
+  margin: 0 0 6px 0; text-transform: uppercase; letter-spacing: .5px;
+}
+pre {
+  background: #14171c; border: 1px solid #2a2f3a;
+  border-radius: 4px;
+  padding: 10px 14px;
+  color: #d6d6d6;
+  font-size: 12px;
+  max-height: 320px; overflow: auto;
+}
+
+/* -------- Scenarios table --------
+   聚合表只展示均值；更详细的 count/min/max/std 保留在 summary_all.json 中。 */
+#tab-scenarios {
+  flex-direction: column;
+  padding: 16px 24px;
+}
+#scenarios-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+#scenarios-table th, #scenarios-table td {
+  border: 1px solid #2a2f3a;
+  padding: 8px 12px;
+  text-align: left;
+}
+#scenarios-table th {
+  background: #23272f;
+  color: #6a8aff;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: .5px;
+}
+#scenarios-table tbody tr:hover { background: #1f232a; }

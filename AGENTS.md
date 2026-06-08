@@ -70,7 +70,38 @@
 - `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
 - `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py`
 - `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`
-- `AutoMoT/qwen3vl_local/`（含 `goalgen/` 子包；详见 PROJECT_CONTEXT.md §15）
+- `AutoMoT/qwen3vl_local/eval_carla/`（LeadMoT 闭环评测子包，全部子文件白名单内）
+  - `__init__.py` / `EVAL_CARLA_PLAN.md` / `EVAL_CARLA_RUN.md`
+  - `agent.py`
+    （LEAD 风格 CARLA Bench2Drive 实时 agent：3 摄像头 1152×384 + IMU/GPS/Speedometer；
+    按 ckpt 的 `decoder_config.use_bev` 自动决定是否声明/读取 LEAD 双 LiDAR；no-BEV 模型不产生未使用 LiDAR 输入；
+    推理直接复用 `LeadOfflineMoTRunner`，按 ckpt 的 `decoder_config.use_bev` 自动决定 BEV 分支；
+    每 5 tick 调一次模型，中间 tick PID 跟踪。**target_point / next_target_point 是未来 1.5s / 3s
+    沿 global plan 弧长前瞻位置**（在线按 AutoMoT/CARLA route planner 做 route-lookahead 近似离线未来真值语义；ego frame
+    约定 (x_forward, y_left)；低速 fallback 5m）；warmup 等真实 4 个 4Hz 历史帧，不复制首帧；
+    UKF + route_planner + 基本 PID + SafetyMixin 兜底；Python class/function 已补中文 docstring，shell/HTML/CSS 关键逻辑块有中文注释）
+  - `safety.py`
+    （SafetyMixin：`stuck_helper` 累计 300 帧低速 → force_move 14 帧 creep / `parking_start`
+    前 200 帧位移 < 6m 禁用 force_move / `parking_escape` 1500 帧窗口位移 < 5m 触发 phase1
+    强转角 -0.65 + 油门 0.45 / 限速 35 km/h；与 mot_b2d_agent.py 行为完全一致）
+  - `video_recorder.py`
+    （input/debug/demo/grid 四路 mp4，ffmpeg crf=18/28；demo 在首帧通过
+    `CarlaDataProvider.get_world()` 找到 `role_name=hero` 后 spawn cinematic + BEV 临时 carla camera）
+  - `visualizer.py`（无依赖 pinhole 投影 + 三视角 overlay；从 LEAD common_utils.project_points_to_image 移植）
+  - `scenario_picker.py`
+    （LEAD `<Scenario>/<route_id>.xml` 反向映射；CLI 支持 `--scenario` / `--route-id` /
+    `--random N --seed K` 子集筛选与 `--list-scenarios`）
+  - `aggregate.py`
+    （按 scenario 聚合 leaderboard `eval_<route_id>.json` 写 `scenarios/<Scenario>/summary.json` + `summary_all.json`）
+  - `run_eval.sh`
+    （一键 launcher：必填 `--leadmot-ckpt`；自动空闲 GPU + 端口槽，支持 `--num-gpus N` / `EVAL_GPU_COUNT=N`
+    多卡 worker round-robin 分 route；三种跑法：
+    全量（无过滤）/ 按场景 `--scenario <Name>` / 随机 `--random N --seed K`，可叠加；
+    `--single-test` / `--route-id` / `--no-input|--no-debug|--no-demo|--no-grid`；跑完自动调 aggregate）
+  - `webapp/{__init__.py, app.py, templates/index.html, static/style.css}`
+    （Flask：signature 下拉切换 ckpt；Routes tab 按 scenario 分组列 route + 4 路视频切换 + leaderboard
+    scores + infractions；Scenarios tab 表格列每个 scenario 平均分）
+- `AutoMoT/qwen3vl_local/`（含 `goalgen/` 子包详见 PROJECT_CONTEXT.md §15；`eval_carla/` 子包详见上）
 - `AutoMoT/qwen3vl_local/leadmot/__init__.py`
 - `AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md`
 - `AutoMoT/qwen3vl_local/leadmot/LEADMOT_PLAN.md`
@@ -147,6 +178,7 @@ git add AGENTS.md CLAUDE.md PROJECT_CONTEXT.md
 git add AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py
 git add AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py
+git add AutoMoT/qwen3vl_local/eval_carla/__init__.py AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_PLAN.md AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md AutoMoT/qwen3vl_local/eval_carla/agent.py AutoMoT/qwen3vl_local/eval_carla/safety.py AutoMoT/qwen3vl_local/eval_carla/video_recorder.py AutoMoT/qwen3vl_local/eval_carla/visualizer.py AutoMoT/qwen3vl_local/eval_carla/scenario_picker.py AutoMoT/qwen3vl_local/eval_carla/aggregate.py AutoMoT/qwen3vl_local/eval_carla/run_eval.sh AutoMoT/qwen3vl_local/eval_carla/webapp/__init__.py AutoMoT/qwen3vl_local/eval_carla/webapp/app.py AutoMoT/qwen3vl_local/eval_carla/webapp/templates/index.html AutoMoT/qwen3vl_local/eval_carla/webapp/static/style.css
 git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/prompt_pipeline.py
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
@@ -208,6 +240,7 @@ GPU 运行入口统一规则：
 - 文档示例不要写 shell 手动设置 `CUDA_VISIBLE_DEVICES` 的选卡片段。
 - 白名单内所有 GPU 运行入口都按用户要求彻底放弃手动 `CUDA_VISIBLE_DEVICES` 选择：单进程入口默认用 `nvidia-smi` 自动挑 1 张最空闲 GPU，并覆盖已有 mask；`torchrun --nproc_per_node=N` 入口默认自动挑 N 张最空闲 GPU，并覆盖已有 mask，再按 `LOCAL_RANK` pin 到对应可见卡。
 - 训练 launcher 的 `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡；具体卡号仍由脚本自动挑最空闲的 N 张，不提供“尊重外部 mask”的分支。
+- `eval_carla/run_eval.sh` 的 `--num-gpus N` / `EVAL_GPU_COUNT=N` 只表示闭环评测 worker 数；具体 GPU id 仍由 `nvidia-smi` 自动挑空闲卡，并为每张卡分配独立 CARLA 端口槽。
 
 训练 launcher 防覆盖目录约定（详见 PROJECT_CONTEXT.md §11）：
 

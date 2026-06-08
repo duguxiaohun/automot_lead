@@ -63,7 +63,8 @@
 | `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py` | 范式 A 对照脚本，保留 automot/qwen 双 backend |
 | `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py` | standalone Qwen3-VL-4B-Instruct 范式 A 脚本 |
 | `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py` | 子目标 latent 生成新路线 runner（teacher-forced prefill → DiT-MoT → flow matching，详见 PROJECT_CONTEXT.md §15） |
-| `AutoMoT/qwen3vl_local/` | Qwen3-VL-Instruct 本地 helper 包；其中 `goalgen/` 子包是 §15 新路线全部模块（vae/prompt/qwen_kv/keyframes/dit/flow） |
+| `AutoMoT/qwen3vl_local/eval_carla/` | LeadMoT 闭环评测子包（全部白名单内）：实时 agent + 4 路视频 + 投影 overlay + scenario 反向映射 + 聚合 + Flask webapp。详见子包内 `EVAL_CARLA_PLAN.md` 与 `EVAL_CARLA_RUN.md`。文件：`__init__.py` / `EVAL_CARLA_PLAN.md` / `EVAL_CARLA_RUN.md` / `agent.py`（LEAD 3 摄像头 1152×384 + IMU/GPS/Speedometer；按 ckpt 的 `decoder_config.use_bev` 自动决定是否声明/读取 LEAD 双 LiDAR，no-BEV 模型不产生未使用 LiDAR 输入；推理直接复用 `LeadOfflineMoTRunner`；每 5 tick 调一次模型，中间 tick PID 跟踪；**target_point / next_target_point 是未来 1.5s / 3s 沿 global plan 弧长前瞻位置**，在线按 AutoMoT/CARLA route planner 做 route-lookahead 近似离线未来真值语义；warmup 等真实 4 个 4Hz 历史帧，不复制首帧；UKF + route_planner + 基本 PID + SafetyMixin 兜底；Python class/function 已补中文 docstring，shell/HTML/CSS 关键逻辑块有中文注释）/ `safety.py`（SafetyMixin：`stuck_helper` 累计 300 帧低速 → force_move 14 帧 creep / `parking_start` 前 200 帧位移 < 6m 禁用 force_move / `parking_escape` 1500 帧窗口位移 < 5m 触发 phase1 强转角 / 限速 35 km/h；与 mot_b2d_agent.py 行为完全一致）/ `video_recorder.py`（input/debug/demo/grid 四路 mp4，ffmpeg crf=18/28；demo 在首帧 spawn cinematic + BEV 临时 carla camera）/ `visualizer.py`（无依赖 pinhole 投影 + 三视角 overlay）/ `scenario_picker.py`（LEAD `<Scenario>/<route_id>.xml` 反向映射 + `--scenario` / `--route-id` / `--random N --seed K` 子集筛选 / `--list-scenarios`）/ `aggregate.py`（按 scenario 聚合 leaderboard json 写 `scenarios/<Scenario>/summary.json` + `summary_all.json`）/ `run_eval.sh`（一键 launcher 支持 scenario / random N / 全量三种跑法 + 录像开关 + 跑完自动聚合；自动空闲 GPU + 端口槽，支持 `--num-gpus N` / `EVAL_GPU_COUNT=N` 多卡 worker round-robin 分 route）/ `webapp/{app.py, templates/index.html, static/style.css}`（Flask：顶部 signature 下拉切换 ckpt，Routes/Scenarios 两 tab，左栏按 scenario 分组 route，右栏 4 路视频切换 + leaderboard scores + infractions） |
+| `AutoMoT/qwen3vl_local/` | Qwen3-VL-Instruct 本地 helper 包；其中 `goalgen/` 子包是 §15 新路线全部模块（vae/prompt/qwen_kv/keyframes/dit/flow），`eval_carla/` 子包是上述闭环评测子包 |
 | `AutoMoT/tools/SFT_V1_PLAN.md` / `SFT_V1_RUN.md` / `build_sft_dataset_v1.py` / `sft_v1_train.sh` / `sft_v1_loss_scale_plugin.py` / `eval_sft_v1.py` / `check_loss_mask.py` / `tb_serve.sh` / `probe_sft_v1.py` | LoRA SFT v1 微调相关脚本、计划与运行教程；`tb_serve.sh` 是通用 TensorBoard 启动器（GoalGen 也复用，自动选端口 + bind_all + 打印 ssh 隧道命令）；`probe_sft_v1.py` 是随机场景 case-level dump；以上 9 个白名单，`AutoMoT/tools/` 下其它原始脚本仍为只读参考；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`，v2 模式产 ANALYSIS 槽位空占位的 pending jsonl |
 | `AutoMoT/tools/SFT_V2_PLAN.md` / `SFT_V2_RUN.md` / `build_sft_dataset_v2_teacher.py` / `sft_v2_loss_scale_plugin.py` / `sft_v2_train.sh` / `check_loss_mask_v2.py` / `inspect_teacher_outputs.py` | SFT v2 升级：长期数据集只保留 `v2_pending` 占位 jsonl；冻结 base Qwen + PRIVILEGED prompt 的 ANALYSIS 真值由 `sft_v2_train.sh` 在**首次**训练启动时一次性物化到 runtime 目录并写 `manifest.json`，之后任意卡数启动通过 manifest（schema_version=2 + max_samples==0 + model_dir/seed/gen 参数 + pending/runtime 行数严格匹配）校验，校验通过才直接复用（GPU 数无关），无需任何额外参数；32 条 debug cache、半截 val、`--max-samples N` 跑出来的不写 manifest 不会被误复用；无 manifest 的 final/rank 残留默认清掉重物化，避免旧 teacher 分片被 fingerprint 去重误用；改 prompt / keyframes 后想强制重跑 → `RUNTIME_TEACHER_REFRESH=1` 或手动 `rm -rf runtime_teacher_data/`；`check` 模式例外，默认 REFRESH=1 + 独立 `runtime_teacher_check_data/` 目录。也可由 `inspect_teacher_outputs.py --live` 做训练前预览。student 全段都算 loss（ANALYSIS body 0.3 / 起手字面 `ANALYSIS:`、段切换字面 `\nSTATUS:` / `\nSUBGOAL:`、STATUS+SUBGOAL event_name、可能进入 context 的 tail/EOS 全部 1.0；v2.0 旧版字面 mask=0 是致命陷阱，详见 PROJECT_CONTEXT.md §18.5）；`build_sft_dataset_v2_teacher.py` 支持多卡分片；`check_loss_mask_v2.py` 用于已物化 v2 jsonl 的 token 级静态 sanity |
 | `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md` / `GOALGEN_RUN.md` | 子目标 latent 生成路线 v1/v2 共用设计与操作手册（与 goalgen 子包代码同目录） |
@@ -101,6 +102,20 @@
 - `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
 - `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py`
 - `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`
+- `AutoMoT/qwen3vl_local/eval_carla/__init__.py`
+- `AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_PLAN.md`
+- `AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md`
+- `AutoMoT/qwen3vl_local/eval_carla/agent.py`
+- `AutoMoT/qwen3vl_local/eval_carla/safety.py`
+- `AutoMoT/qwen3vl_local/eval_carla/video_recorder.py`
+- `AutoMoT/qwen3vl_local/eval_carla/visualizer.py`
+- `AutoMoT/qwen3vl_local/eval_carla/scenario_picker.py`
+- `AutoMoT/qwen3vl_local/eval_carla/aggregate.py`
+- `AutoMoT/qwen3vl_local/eval_carla/run_eval.sh`
+- `AutoMoT/qwen3vl_local/eval_carla/webapp/__init__.py`
+- `AutoMoT/qwen3vl_local/eval_carla/webapp/app.py`
+- `AutoMoT/qwen3vl_local/eval_carla/webapp/templates/index.html`
+- `AutoMoT/qwen3vl_local/eval_carla/webapp/static/style.css`
 - `AutoMoT/qwen3vl_local/__init__.py`
 - `AutoMoT/qwen3vl_local/cache_utils.py`
 - `AutoMoT/qwen3vl_local/engine.py`
@@ -224,6 +239,8 @@ git push
   单进程默认 `nvidia-smi` 自动挑 1 张空闲 GPU，并覆盖已有 mask；
   `torchrun --nproc_per_node=N` 默认自动挑 N 张最空闲 GPU，并覆盖已有 mask；
   `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡，具体卡号仍由脚本自动挑。
+- `eval_carla/run_eval.sh` 的 `--num-gpus N` / `EVAL_GPU_COUNT=N` 只表示闭环评测 worker 数；
+  具体 GPU id 仍由 `nvidia-smi` 自动挑空闲卡，并为每张卡分配独立 CARLA 端口槽。
 - 写或改训练 launcher 时，保持**防覆盖目录约定**一致（详见 PROJECT_CONTEXT.md §11）：
   在用户给的 `OUTPUT_DIR` 下再套 `run_<RUN_TAG>/` 子目录（`RUN_TAG` 默认时间戳，bash 段算一次），
   base 层维护 `latest` symlink，`NO_RUN_SUBDIR=1` 回退；共享缓存（`HF_HOME`、SFT v2

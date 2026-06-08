@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>LeadMoT Closed-Loop Eval</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<!--
+  前端是一个纯静态页面：Flask 只负责返回 index.html、JSON API 和 mp4 文件。
+  页面状态由 CURRENT_SIG 保存，切换 signature 后重新拉取 route/scenario 数据。
+-->
+<header>
+  <div class="header-row">
+    <h1>LeadMoT Closed-Loop Eval</h1>
+    <div class="sig-pick">
+      <label>signature:</label>
+      <select id="sig-select"></select>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="routes">Routes</button>
+      <button class="tab" data-tab="scenarios">Scenarios</button>
+    </nav>
+  </div>
+</header>
+
+<!-- ============= Routes tab ============= -->
+<main id="tab-routes" class="tab-panel active">
+  <aside class="sidebar">
+    <div class="sidebar-summary" id="routes-summary"></div>
+    <div id="routes-list"></div>
+  </aside>
+
+  <section class="content" id="route-detail">
+    <div class="placeholder">Pick a route from the left.</div>
+  </section>
+</main>
+
+<!-- ============= Scenarios tab ============= -->
+<main id="tab-scenarios" class="tab-panel">
+  <table id="scenarios-table">
+    <thead>
+      <tr>
+        <th>scenario</th>
+        <th>n routes</th>
+        <th>score_composed mean</th>
+        <th>score_route mean</th>
+        <th>score_penalty mean</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</main>
+
+<script>
+const API = {
+  // 所有数据都来自 Flask JSON API；视频本体走 /video/<signature>/routeX/*.mp4。
+  sigs:      () => fetch('/api/signatures').then(r => r.json()),
+  routes:    s  => fetch(`/api/routes?sig=${encodeURIComponent(s)}`).then(r => r.json()),
+  route:     (s, rid) => fetch(`/api/route?sig=${encodeURIComponent(s)}&route_id=${rid}`).then(r => r.json()),
+  scenarios: s  => fetch(`/api/scenarios?sig=${encodeURIComponent(s)}`).then(r => r.json()),
+};
+
+let CURRENT_SIG = '';
+
+// ---------------- 顶部 tab 切换 ----------------
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+    if (btn.dataset.tab === 'scenarios') loadScenarios();
+  });
+});
+
+// ---------------- signature 下拉 ----------------
+async function loadSigs() {
+  // signature 对应一个动作模型 ckpt + use_bev + ema/raw 的结果目录。
+  const data = await API.sigs();
+  const sel = document.getElementById('sig-select');
+  sel.innerHTML = '';
+  data.signatures.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = opt.textContent = s;
+    sel.appendChild(opt);
+  });
+  if (data.signatures.length) {
+    CURRENT_SIG = data.signatures[0];
+    sel.value = CURRENT_SIG;
+    loadRoutes();
+  }
+  sel.addEventListener('change', () => {
+    CURRENT_SIG = sel.value;
+    loadRoutes();
+    if (document.getElementById('tab-scenarios').classList.contains('active'))
+      loadScenarios();
+  });
+}
+
+// ---------------- routes 列表 ----------------
+async function loadRoutes() {
+  if (!CURRENT_SIG) return;
+  const data = await API.routes(CURRENT_SIG);
+  document.getElementById('routes-summary').textContent =
+    `${data.total_routes} routes`;
+  const list = document.getElementById('routes-list');
+  list.innerHTML = '';
+  Object.entries(data.groups).forEach(([scen, items]) => {
+    // 后端已经按 LEAD scenario 分好组；这里只负责渲染折叠前的平铺列表。
+    const grp = document.createElement('div');
+    grp.className = 'group';
+    const header = document.createElement('div');
+    header.className = 'group-header';
+    header.textContent = `${scen} (${items.length})`;
+    grp.appendChild(header);
+    items.forEach(it => {
+      const row = document.createElement('div');
+      row.className = 'route-row';
+      const score = (it.metrics && it.metrics.score_composed != null)
+        ? it.metrics.score_composed.toFixed(1) : '--';
+      row.innerHTML = `<span class="rid">${it.route_id}</span>` +
+                      `<span class="score">${score}</span>`;
+      row.addEventListener('click', () => loadRouteDetail(it.route_id));
+      grp.appendChild(row);
+    });
+    list.appendChild(grp);
+  });
+}
+
+// ---------------- 单 route 详情 ----------------
+async function loadRouteDetail(rid) {
+  if (!CURRENT_SIG) return;
+  const data = await API.route(CURRENT_SIG, rid);
+  const root = document.getElementById('route-detail');
+  if (data.error) {
+    root.innerHTML = `<div class="placeholder error">${data.error}</div>`;
+    return;
+  }
+  const videoTabs = ['input', 'debug', 'demo', 'grid'];
+  // 某些视频可能被 launcher --no-* 关掉，所以根据后端 videos 字段禁用 tab。
+  const available = videoTabs.filter(v => data.videos[v]);
+  const firstVideo = available[0] || null;
+
+  root.innerHTML = `
+    <div class="route-title">route ${data.route_id}</div>
+    <div class="route-tabs">
+      ${videoTabs.map(v =>
+        `<button class="vtab ${v === firstVideo ? 'active' : ''}"
+                 data-v="${v}"
+                 ${!data.videos[v] ? 'disabled' : ''}>${v}</button>`
+      ).join('')}
+    </div>
+    <div class="video-wrap">
+      ${firstVideo
+        ? `<video id="player" controls autoplay
+                   src="/video/${encodeURIComponent(CURRENT_SIG)}/route${data.route_id}/${firstVideo}.mp4"></video>`
+        : '<div class="placeholder">No videos for this route.</div>'}
+    </div>
+    <div class="metrics">
+      <h3>leaderboard scores</h3>
+      <pre>${JSON.stringify(data.metrics || {}, null, 2)}</pre>
+    </div>
+    <div class="infractions">
+      <h3>infractions (${(data.infractions || []).length})</h3>
+      <pre>${JSON.stringify(data.infractions || [], null, 2)}</pre>
+    </div>
+  `;
+
+  root.querySelectorAll('.vtab').forEach(b => {
+    b.addEventListener('click', () => {
+      if (b.hasAttribute('disabled')) return;
+      root.querySelectorAll('.vtab').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      const v = b.dataset.v;
+      document.getElementById('player').src =
+        `/video/${encodeURIComponent(CURRENT_SIG)}/route${data.route_id}/${v}.mp4`;
+    });
+  });
+}
+
+// ---------------- scenarios 聚合 ----------------
+async function loadScenarios() {
+  if (!CURRENT_SIG) return;
+  const data = await API.scenarios(CURRENT_SIG);
+  const tbody = document.querySelector('#scenarios-table tbody');
+  tbody.innerHTML = '';
+  const scenarios = data.scenarios || {};
+  Object.entries(scenarios).forEach(([scen, info]) => {
+    // summary_all.json 里每个 metric 都是 {count, mean, min, max, std}。
+    const m = info.metrics || {};
+    const cell = (k) => {
+      const v = m[k];
+      return (v && v.mean != null) ? v.mean.toFixed(2) : '--';
+    };
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${scen}</td><td>${info.n_routes}</td>` +
+                   `<td>${cell('score_composed')}</td>` +
+                   `<td>${cell('score_route')}</td>` +
+                   `<td>${cell('score_penalty')}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+loadSigs();
+</script>
+</body>
+</html>
