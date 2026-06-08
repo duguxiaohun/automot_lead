@@ -11,6 +11,16 @@ LeadMoT 闭环评测一键操作手册。架构与对齐细节见 [`EVAL_CARLA_P
 - LEAD benchmark_routes 就位：`lead/data/benchmark_routes/bench2drive220/<Scenario>/<route_id>.xml`
 - 安装 Flask（webapp 用）：`pip install flask`
 
+**CARLA 自带启动**（默认开启，无需手动 `start_carla.sh`）：
+
+- 每个 worker 在自己 GPU 上自动 spawn 一个 CARLA server
+- 端口 = `PORT_BASE_START(5000) + gpu_id * PORT_STRIDE(20)`（GPU 7 → 5140）
+- `CUDA_VISIBLE_DEVICES=$gpu_rank` 锁住 CARLA 看到的卡，CARLA 自身只见 `cuda:0`，
+  和 leaderboard_evaluator.py 落在同一张物理卡
+- worker 结束 / Ctrl+C / 异常退出 → 自动 kill 对应 CARLA（双重 trap 保险）
+- 已经手动起好 CARLA 时加 `--no-auto-carla` 跳过
+- 启动后最多等 `CARLA_BOOT_TIMEOUT=90` 秒 CARLA RPC 端口 listen
+
 ---
 
 ## 1. 三种跑法
@@ -122,6 +132,10 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 | `--num-gpus N` | 1 | 自动选 N 张空闲 GPU；也可用 `EVAL_GPU_COUNT=N` |
 | `--rope mrope` | mrope | mrope / mhrope / none |
 | `--sensor-profile 3cam` | 3cam | 仅支持 LEAD 三相机档 |
+| `--auto-carla` / `--no-auto-carla` | auto | 是否让 launcher 自动启动 CARLA（默认开） |
+| env `CARLA_BOOT_TIMEOUT` | 90 | 等 CARLA RPC 端口 listen 的最大秒数 |
+| env `PORT_BASE_START` | 5000 | worker CARLA 起始端口（每张卡 +PORT_STRIDE） |
+| env `PORT_STRIDE` | 20 | 端口槽间距 |
 | env `LEADMOT_USE_EMA` | 1 | checkpoint 里有 EMA shadow 时默认加载；设 0 用 raw decoder |
 | env `TP_LOOKAHEAD_S` | 1.5 | target_point 未来时长（秒） |
 | env `NTP_LOOKAHEAD_S` | 3.0 | next_target_point 未来时长（秒） |
@@ -210,6 +224,12 @@ python3 AutoMoT/qwen3vl_local/eval_carla/webapp/app.py \
 
 ## 7. 常见坑
 
+- **CARLA 启动超时**：launcher 默认等 90 秒 CARLA RPC listen，第一次加载 map 慢
+  时不够。把 `CARLA_BOOT_TIMEOUT=180` 设大重试。也可以查 worker_log
+  目录下 `carla_gpu<N>_port<P>.log` 看 CarlaUE4 真实日志。
+- **端口被占**：launcher 启动前会主动 `lsof -ti:<port> | xargs kill -9` 老进程，
+  但权限不够（非自己进程）会跳过。`USE_AUTO_CARLA=0 bash run_eval.sh ...` 跳过
+  自动启动，自己手动管理。
 - **首帧 demo 摄像头 spawn 失败**：通常是 ego vehicle 还没注册 `role_name=hero`。
   agent 打印 `hero vehicle not found; demo cameras skipped`，本路线 demo / grid
   会缺，input / debug / bev_debug 不受影响。
