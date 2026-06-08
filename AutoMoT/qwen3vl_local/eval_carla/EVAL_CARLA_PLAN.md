@@ -160,23 +160,24 @@ debug crf=28 preset=slower。路线结束时 `destroy()` 触发 release + 压缩
 
 ---
 
-## 5.x CARLA 自带启动
+## 5.x CARLA 启动与端口分配
 
-每个 worker 在自己 GPU 上自动 spawn 独立 CARLA server（默认行为，可 `--no-auto-carla` 关）：
+`run_eval.sh` 只负责选 GPU、筛 route、预分配端口起点和实时回放 worker log；
+真正的 CARLA server 由 `leaderboard_evaluator.py` 在 worker 进程内启动并在退出时清理。
+这样避免 launcher / evaluator 双重启动 CARLA 抢端口。
 
 | 项 | 实现 |
 |---|---|
-| 端口 | `PORT_BASE_START(5000) + gpu_id * PORT_STRIDE(20)` |
-| GPU 绑定 | `CUDA_VISIBLE_DEVICES=$gpu_rank` 启动 CARLA，CARLA 自见 `cuda:0` |
-| 等待 | 启动后轮询 `lsof -i:$port` listen，最多 `CARLA_BOOT_TIMEOUT=90` 秒 |
-| 旧进程清理 | 启动前 `lsof -ti:$port` + `pkill -9 -f "CarlaUE4.*-carla-rpc-port=$port"` 幂等 |
-| 退出回收 | 双层 trap：worker subprocess EXIT/INT/TERM + 主进程 EXIT/INT/TERM |
-| 失败兜底 | worker 启动 CARLA 失败时只放弃本 worker，其他 worker 仍跑 |
-| 命令行 | `--auto-carla` / `--no-auto-carla`；env `USE_AUTO_CARLA` |
-| 日志 | `<signature>/worker_logs/<ts>/carla_gpu<N>_port<P>.log` |
+| 端口 | launcher 从 `PORT_BASE_START=5000` 开始按 `PORT_STRIDE=20` 扫描；要求 `[p, p+1, p+2, p+3, p+8000]` 都空闲，避免 evaluator 再改端口 |
+| GPU 绑定 | `run_evaluation.sh` 以 `CUDA_VISIBLE_DEVICES=$gpu_rank` 启动 `leaderboard_evaluator.py`，evaluator 再启动 CARLA；模型和 CARLA 落在同一张物理卡 |
+| CARLA 启动 | `leaderboard_evaluator.py` 调 `CarlaUE4.sh -RenderOffScreen -nosound -carla-rpc-port=<p> -carla-streaming-port=<p+1>` |
+| TrafficManager | launcher 传入 `tm_port=p+8000`；evaluator 仍会做一次可用性检查 |
+| 退出回收 | `leaderboard_evaluator.py` 注册 `atexit` 清理自己启动的 CARLA 进程组 |
+| 命令行 | `--auto-carla` / `--no-auto-carla` 只兼容旧命令；launcher 默认不预启动 CARLA |
+| 日志 | `<signature>/worker_logs/<ts>/worker<N>.log` 实时包含 `Launch CARLA`、`load_world`、agent 进度和 traceback |
 
-leaderboard `run_evaluation.sh` 也用相同的 `CUDA_VISIBLE_DEVICES=$gpu_rank` 启动
-`leaderboard_evaluator.py`，**确保模型推理和 CARLA 在同一张物理卡**，避免 PCIe 抖动。
+主进程 fork `tail -F` 实时回放 worker log；agent 每 20 tick 打一行速度 / 控制 /
+target point / LiDAR 点数，每次模型推理打一行 `INFER step=... dt=...`。
 
 ## 6. 场景反向映射 + 聚合
 
