@@ -14,12 +14,23 @@ LeadMoT 闭环评测一键操作手册。架构与对齐细节见 [`EVAL_CARLA_P
 **CARLA 自带启动**（默认开启，无需手动 `start_carla.sh`）：
 
 - 每个 worker 在自己 GPU 上自动 spawn 一个 CARLA server
-- 端口 = `PORT_BASE_START(5000) + gpu_id * PORT_STRIDE(20)`（GPU 7 → 5140）
+- **端口扫描空闲**：主进程从 `PORT_BASE_START=5000` 开始按 `PORT_STRIDE=20` 步进，
+  扫到一个 `[port, port+1, port+8000]` 三端口都空闲的块就分配给当前 worker，
+  之后从 `port+stride` 继续扫给下一个 worker。被占用的槽自动跳过。
 - `CUDA_VISIBLE_DEVICES=$gpu_rank` 锁住 CARLA 看到的卡，CARLA 自身只见 `cuda:0`，
   和 leaderboard_evaluator.py 落在同一张物理卡
 - worker 结束 / Ctrl+C / 异常退出 → 自动 kill 对应 CARLA（双重 trap 保险）
-- 已经手动起好 CARLA 时加 `--no-auto-carla` 跳过
+- 已经手动起好 CARLA 时加 `--no-auto-carla` 跳过自动启动（且退回固定槽位算端口）
 - 启动后最多等 `CARLA_BOOT_TIMEOUT=90` 秒 CARLA RPC 端口 listen
+
+**实时输出**（默认）：
+
+- 每个 worker 写独立 log 到 `<signature>/worker_logs/<ts>/worker<N>.log`
+- 主进程 fork 一个 `tail -F` 把所有 worker log 行内容实时输出到终端
+- 单 worker 直接 follow worker0.log，多 worker 时 tail 自带 `==> path <==` 头便于区分
+- agent.py 每 20 tick (=1s) 打一行总览：`tick=N speed=X km/h ctrl=(thr,str,brk) tp=Xm wp_end=Ym lidar_pts=N`
+- 每个 4Hz 推理 tick 打一行：`INFER step=N dt=Xms |wp[0]|=Xm |wp[-1]|=Ym |rt[-1]|=Ym`
+- 所有 print 都 `flush=True` 保证不被 buffer 卡住
 
 ---
 
@@ -48,7 +59,8 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
     --num-gpus 4
 ```
 
-按显存占用最低自动选 GPU，端口 `PORT_BASE_START + gpu_id * PORT_STRIDE`。
+按显存占用最低自动选 GPU；CARLA 端口由 launcher 从 `PORT_BASE_START` 起按
+`PORT_STRIDE` 扫描空闲 `[rpc, streaming, tm]` 三端口块。
 
 ### 1.2 按 scenario 跑
 
@@ -134,8 +146,8 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 | `--sensor-profile 3cam` | 3cam | 仅支持 LEAD 三相机档 |
 | `--auto-carla` / `--no-auto-carla` | auto | 是否让 launcher 自动启动 CARLA（默认开） |
 | env `CARLA_BOOT_TIMEOUT` | 90 | 等 CARLA RPC 端口 listen 的最大秒数 |
-| env `PORT_BASE_START` | 5000 | worker CARLA 起始端口（每张卡 +PORT_STRIDE） |
-| env `PORT_STRIDE` | 20 | 端口槽间距 |
+| env `PORT_BASE_START` | 5000 | worker CARLA 空闲端口扫描起点 |
+| env `PORT_STRIDE` | 20 | 空闲端口块扫描步长 |
 | env `LEADMOT_USE_EMA` | 1 | checkpoint 里有 EMA shadow 时默认加载；设 0 用 raw decoder |
 | env `TP_LOOKAHEAD_S` | 1.5 | target_point 未来时长（秒） |
 | env `NTP_LOOKAHEAD_S` | 3.0 | next_target_point 未来时长（秒） |
@@ -227,9 +239,10 @@ python3 AutoMoT/qwen3vl_local/eval_carla/webapp/app.py \
 - **CARLA 启动超时**：launcher 默认等 90 秒 CARLA RPC listen，第一次加载 map 慢
   时不够。把 `CARLA_BOOT_TIMEOUT=180` 设大重试。也可以查 worker_log
   目录下 `carla_gpu<N>_port<P>.log` 看 CarlaUE4 真实日志。
-- **端口被占**：launcher 启动前会主动 `lsof -ti:<port> | xargs kill -9` 老进程，
-  但权限不够（非自己进程）会跳过。`USE_AUTO_CARLA=0 bash run_eval.sh ...` 跳过
-  自动启动，自己手动管理。
+- **端口被占**：launcher 会自动跳过被占用的 `[rpc, streaming, tm]` 三端口块；
+  若扫描范围内都找不到空闲块，会报 `cannot find free 3-port block`。可以调大
+  `PORT_BASE_START` 或 `PORT_STRIDE`，也可以用 `USE_AUTO_CARLA=0 bash run_eval.sh ...`
+  跳过自动启动，自己手动管理。
 - **首帧 demo 摄像头 spawn 失败**：通常是 ego vehicle 还没注册 `role_name=hero`。
   agent 打印 `hero vehicle not found; demo cameras skipped`，本路线 demo / grid
   会缺，input / debug / bev_debug 不受影响。

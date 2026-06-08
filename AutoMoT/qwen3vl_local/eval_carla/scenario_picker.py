@@ -128,11 +128,17 @@ def main():
 
     # 双层防御：把空字符串 / 纯空白过滤掉。launcher 应该已经避免传 `--scenario ""`
     # 这种空参数，但万一有调用方手误传了，picker 自己也不应该炸。
-    scenarios_clean = [s for s in (args.scenario or []) if s and s.strip()]
-    route_ids_raw = [s for s in (args.route_id or []) if s and s.strip()]
+    scenarios_clean = [s.strip() for s in (args.scenario or []) if s and s.strip()]
+    route_ids_raw = [s.strip() for s in (args.route_id or []) if s and s.strip()]
+    route_ids_clean: list[int] = []
+    for raw in route_ids_raw:
+        try:
+            route_ids_clean.append(int(raw))
+        except ValueError:
+            ap.error(f"--route-id must be an integer, got {raw!r}")
     route_ids = pick_routes(
         only_scenarios=scenarios_clean or None,
-        only_route_ids=[int(x) for x in route_ids_raw] if route_ids_raw else None,
+        only_route_ids=route_ids_clean or None,
         random_n=args.random,
         random_seed=args.seed,
         benchmark_root=pathlib.Path(args.benchmark_root) if args.benchmark_root else None,

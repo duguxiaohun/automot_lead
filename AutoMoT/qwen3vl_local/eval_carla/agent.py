@@ -617,6 +617,16 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         # 安全兜底（stuck_helper / parking_start / parking_escape / 限速 35km/h）
         self.init_safety_state()
 
+        # 启动 banner：远程 tail -F 时一眼能确认 agent 已就绪
+        print(
+            f"[MOTLeadAgent] READY route={self.save_name} "
+            f"sig={signature} use_bev={self.use_bev} use_radar={self.use_radar} "
+            f"clip_len={self.clip_len} step_stride={self.step_stride} "
+            f"tp_lookahead={_TP_LOOKAHEAD_S}s ntp_lookahead={_NTP_LOOKAHEAD_S}s "
+            f"jpeg_q={_JPEG_QUALITY} ground_removal={_LIDAR_REMOVE_GROUND}",
+            flush=True,
+        )
+
     # ============================================================
     # sensors
     # ============================================================
@@ -969,6 +979,37 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         ctrl = self._waypoints_to_control(tick_data)
         self.prev_control = ctrl
         self.control = ctrl
+
+        # 周期性进度总览（每 20 tick=1s 一行）。对齐 LEAD sensor_agent / AutoMoT mot_b2d_agent
+        # 的运行时输出风格，让远程 tail 时能直接看到速度 / 控制 / 推理状态。
+        if self.step % 20 == 0:
+            speed_kmh = float(tick_data["speed"]) * 3.6
+            tp_ego = tick_data["target_point_ego"]
+            tp_dist = float(np.linalg.norm(tp_ego))
+            wp_avg = (
+                float(np.linalg.norm(self.last_pred_waypoints[-1]))
+                if self.last_pred_waypoints is not None else 0.0
+            )
+            lidar_n = (
+                int(tick_data["lidar_ego"].shape[0]) if self.need_lidar else 0
+            )
+            flags = []
+            if self.parking_escape_active:
+                flags.append(f"escape@phase{self.parking_escape_phase}")
+            elif self.force_move > 0:
+                flags.append(f"force_move={self.force_move}")
+            if self.stuck_detector > 100:
+                flags.append(f"stuck={self.stuck_detector}")
+            flag_str = " " + " ".join(flags) if flags else ""
+            print(
+                f"[MOTLeadAgent] tick={self.step:5d} "
+                f"speed={speed_kmh:5.1f}km/h "
+                f"ctrl=(thr={ctrl.throttle:.2f},str={ctrl.steer:+.2f},brk={ctrl.brake:.2f}) "
+                f"tp={tp_dist:5.1f}m wp_end={wp_avg:5.1f}m "
+                f"lidar_pts={lidar_n}{flag_str}",
+                flush=True,   # 让 tail -F 立刻看到
+            )
+
         return ctrl
 
     # ----- 推理 -----
@@ -1067,8 +1108,14 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
                 "pred_future_waypoints": self.last_pred_waypoints.tolist(),
             }, f, indent=2)
         wp = self.last_pred_waypoints
-        print(f"[MOTLeadAgent] step={self.step} infer={dt*1000:.1f}ms "
-              f"|wp[0]|={np.linalg.norm(wp[0]):.2f}m |wp[-1]|={np.linalg.norm(wp[-1]):.2f}m")
+        rt = self.last_pred_route
+        print(
+            f"[MOTLeadAgent] INFER step={self.step:5d} dt={dt*1000:6.1f}ms "
+            f"|wp[0]|={np.linalg.norm(wp[0]):.2f}m "
+            f"|wp[-1]|={np.linalg.norm(wp[-1]):.2f}m "
+            f"|rt[-1]|={np.linalg.norm(rt[-1]):.2f}m",
+            flush=True,
+        )
 
     # ----- 录像 -----
     def _record_videos(self, stitched_rgb: np.ndarray, tick_data: dict | None) -> None:
