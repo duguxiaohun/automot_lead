@@ -534,6 +534,13 @@ class LeadMoTTrainRuntime:
                 sample.get("next_target_point_lookahead_s", self.args.next_target_point_lookahead_s)
             ),
             frame_interval_s=float(sample.get("frame_interval_s", self.args.frame_interval_s)),
+            tp_mode=str(sample.get("tp_mode", getattr(self.args, "tp_mode", "route_lookahead"))),
+            tp_min_lookahead_m=float(
+                sample.get("tp_min_lookahead_m", getattr(self.args, "tp_min_lookahead_m", 5.0))
+            ),
+            use_final_goal=bool(
+                sample.get("use_final_goal", getattr(self.args, "use_final_goal", True))
+            ),
         )
         if self.args.verbose_samples:
             return build_clip_from_real_lead_route(**kwargs)
@@ -984,8 +991,20 @@ def parse_args() -> argparse.Namespace:
     # 切档必须从头训或单独 warm start，不能直接 --init-from-ckpt 跨 use_bev 加载。
     parser.add_argument("--use-bev", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--frame-interval-s", type=float, default=0.25)
-    parser.add_argument("--target-point-lookahead-s", type=float, default=1.5)
-    parser.add_argument("--next-target-point-lookahead-s", type=float, default=3.0)
+    # 默认 1.0s / 2.0s 对齐 LeadMoT v2 (wp 视野 2s, ntp 落 wp 末端)。
+    # sample dict 里 target_point_lookahead_s 优先于 CLI；通过 build_dataset 写入。
+    parser.add_argument("--target-point-lookahead-s", type=float, default=1.0)
+    parser.add_argument("--next-target-point-lookahead-s", type=float, default=2.0)
+    parser.add_argument(
+        "--tp-mode", type=str, default="route_lookahead",
+        choices=["route_lookahead", "future_truth"],
+        help="route_lookahead 与在线 agent 完全同款; future_truth 是 v1 兼容选项."
+    )
+    parser.add_argument("--tp-min-lookahead-m", type=float, default=5.0)
+    parser.add_argument(
+        "--use-final-goal", action=argparse.BooleanOptionalAction, default=True,
+        help="是否传 final_goal token 给 decoder; 必须与 decoder use_final_goal 一致."
+    )
     parser.add_argument("--limit-train-samples", type=int, default=0)
     parser.add_argument("--limit-val-samples", type=int, default=0)
     parser.add_argument("--verbose-samples", action="store_true")
@@ -1050,6 +1069,7 @@ def main() -> None:
         rope_type=args.leadmot_rope_type,
         dropout=args.decoder_dropout,
         use_bev=args.use_bev,
+        use_final_goal=bool(args.use_final_goal),
     )
     decoder = LeadMoTPlanningDecoder(decoder_config).to(device=device, dtype=decoder_dtype)
     if args.init_from_ckpt:
