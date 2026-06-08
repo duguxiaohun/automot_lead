@@ -79,8 +79,8 @@
     LiDAR 轻量去地面 (z+LSQ, LIDAR_REMOVE_GROUND=1)、radar 4 路 → ego + 近车 duplicate (factor=5, radius=8m) 拼到 LiDAR、
     5 sweep 累积 0.25s 窗对齐 anchor frame。
     推理直接复用 `LeadOfflineMoTRunner`，每 5 tick 调一次模型，中间 tick PID 跟踪 (desired speed 用 wp[1]/wp[3] 即 0.5s/1.0s 两点平均)。
-    **target_point / next_target_point 是未来 1.5s / 3s 沿 global plan 弧长前瞻位置**；
-    speed<`LOW_SPEED_TP_M_PER_S` (默认 1.0 m/s) 时 tp=ego 对齐红灯训练样本；ego frame (x_forward, y_left)。
+    target_point / next_target_point：离线训练标签仍是未来 1.5s / 3s 真值 ego-frame 位置；在线闭环按 AutoMoT
+    `mot_b2d_agent.py` 取 RoutePlanner 剩余 route[1]/route[2]，不足时延展，避免静止起步 tp/ntp≈0 死锁；ego frame (x_forward, y_left)。
     warmup 改 **LEAD 风格 left-pad** 复制 frame 0 立即推理，不再等历史 (与 build_clip line 1808-1815 同款)；
     UKF + route_planner + 基本 PID + SafetyMixin 兜底；Python class/function 已补中文 docstring，shell/HTML/CSS 关键逻辑块有中文注释）
   - `safety.py`

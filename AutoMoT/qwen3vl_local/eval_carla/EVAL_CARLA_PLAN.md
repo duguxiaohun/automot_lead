@@ -78,8 +78,12 @@ AutoMoT/qwen3vl_local/eval_carla/
 
 - 离线训练：未来 1.5s / 3.0s 真值位置（`_extract_tp_ntp_from_future_frames`）
 - 在线推理：
-  - `speed < LOW_SPEED_TP_M_PER_S (1.0 m/s)` → tp = ego（红灯停车对齐训练分布）
-  - 否则沿 `_global_plan_world_coord` 弧长前推 `speed * lookahead_s` 米
+  - 对齐 AutoMoT `mot_b2d_agent.py`：`RoutePlanner.run_step()` 推进 route 后，
+    直接取剩余 route[1] / route[2] 作为 target_point / next_target_point
+  - route 点不足时按 AutoMoT 兜底：只有 tp 时沿 ego→tp 方向延展 5m 生成 ntp；
+    route 为空时沿当前航向前推 50m
+  - 不再使用 `speed * lookahead_s`，也不再低速 tp=ego；RoutePlanner 的
+    `min_distance=7.5m` 在静止起步时仍提供非零前方目标，避免 waypoint head 死锁
 - world → ego：`inverse_conversion_2d(world_xy, gps_xy, theta)`
 - ego frame 约定 `(x_forward, y_left)`
 

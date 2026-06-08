@@ -110,10 +110,12 @@ BEV 开关：
     （`USE_RADAR=1`，与 LEAD `save_radar_pc_as_lidar`+`duplicate_radar_near_ego` 同源）。
 - warmup 改 LEAD 风格：第一个 4Hz 采样点（约 0.25s）就开始推理；
   历史不足时 left-pad 复制 frame 0（与 build_clip line 1808-1815 同款）。
-- target_point / next_target_point 在线由 AutoMoT/CARLA global route planner 做
-  1.5s / 3s lookahead；`speed < LOW_SPEED_TP_M_PER_S (1.0 m/s)` 时 tp = ego 当前位置
-  （对齐训练时车在红灯前停的真值语义），再用 `inverse_conversion_2d` 转 ego frame
-  `(x_forward, y_left)`。
+- target_point / next_target_point：离线训练标签仍是未来 1.5s / 3.0s 真值 ego-frame
+  位置；在线闭环已改为对齐 AutoMoT `mot_b2d_agent.py`，由 RoutePlanner.run_step()
+  推进 route 后取剩余 route[1] / route[2]，不足时沿 ego→tp 方向延展 5m 或 route
+  为空时沿当前航向前推 50m，再用 `inverse_conversion_2d` 转 ego frame
+  `(x_forward, y_left)`。在线不再按 `speed * lookahead_s` 外推，也不再低速 tp=ego，
+  避免静止起步时 tp/ntp≈0 造成 waypoint head 停车死锁。
 - BEV 模型的实时 LiDAR 使用最近 `STEP_STRIDE=5` 个 20Hz sweep（≈0.25s 窗），
   按 (dx, dy, dyaw) 对齐到当前 anchor ego frame 后 concat。
 - PID desired speed 用 `wp[1]` / `wp[3]`（0.5s 与 1.0s 两段距离平均），

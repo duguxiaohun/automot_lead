@@ -13,11 +13,13 @@
               每 tick 同时把 stitched RGB 写 input.mp4、把 overlay 后写 debug.mp4、
               触发 demo.mp4 / grid.mp4 写入
 
-target_point / next_target_point 语义（与离线 build_clip 对齐）
-- 未来 1.5s / 3s 的位置，沿 global plan 弧长前瞻（按当前速度估算前瞻距离）
-- 离线训练用真值未来位置；在线没真值，按 expected 速度沿规划路径推
+target_point / next_target_point 语义
+- 离线训练用未来 1.5s / 3s 的真值 ego-frame 位置。
+- 在线闭环按 AutoMoT mot_b2d_agent.py 做法：RoutePlanner.run_step() 推进后
+  取剩余 route[1] / route[2]，不足时沿目标方向或当前航向延展。
+- 不再按当前 speed * lookahead_s 外推，也不再低速置零；RoutePlanner 的
+  min_distance=7.5m 本身提供起步时的非零导航目标。
 - ego frame 约定 (x_forward, y_left)；inverse_conversion_2d(world_xy, gps_xy, theta)
-- 低速 fallback：MIN_LOOKAHEAD_M=5m，避免静止时 tp 退化
 
 安全兜底（SafetyMixin，对齐 mot_b2d_agent.py）
 - stuck_detector → force_move creep-throttle
@@ -30,9 +32,6 @@ target_point / next_target_point 语义（与离线 build_clip 对齐）
     LEADMOT_ROPE      默认 mrope
     SENSOR_PROFILE    "3cam"（默认且唯一支持的 LEAD 传感器档）
     STEP_STRIDE       默认 5（即 4Hz 推理）
-    TP_LOOKAHEAD_S    默认 1.5
-    NTP_LOOKAHEAD_S   默认 3.0
-    MIN_LOOKAHEAD_M   默认 5.0（低速 fallback）
     RECORD_INPUT/RECORD_DEBUG/RECORD_DEMO/RECORD_GRID   "1"/"0"，默认 1
     SAVE_PATH         leaderboard 框架透传；agent 自己拼 <ckpt_signature>/<save_name>
 """
@@ -106,15 +105,11 @@ USE_UKF = True
 _DEFAULT_STEP_STRIDE = int(os.environ.get("STEP_STRIDE", "5"))
 _DEFAULT_SENSOR_PROFILE = os.environ.get("SENSOR_PROFILE", "3cam").lower()
 
-# target_point / next_target_point 与离线训练 build_clip 对齐：未来 1.5s / 3.0s
-# 沿 global plan 弧长的位置（按当前速度估算前瞻距离）。
-_TP_LOOKAHEAD_S = float(os.environ.get("TP_LOOKAHEAD_S", "1.5"))
-_NTP_LOOKAHEAD_S = float(os.environ.get("NTP_LOOKAHEAD_S", "3.0"))
-# 低速 fallback：speed 低于该阈值时 tp 直接取 ego 当前位置，与训练分布一致
-# （训练时车在红灯前停着，未来 1.5s 真值 ≈ 当前位置）。
-# `_MIN_LOOKAHEAD_M` 现已废弃，保留 env 兼容旧脚本但不再生效。
-_LOW_SPEED_TP_THRESHOLD = float(os.environ.get("LOW_SPEED_TP_M_PER_S", "1.0"))
-_MIN_LOOKAHEAD_M = float(os.environ.get("MIN_LOOKAHEAD_M", "0.0"))   # legacy, unused
+# 在线 target_point / next_target_point 对齐 AutoMoT mot_b2d_agent.py：
+# RoutePlanner.run_step() 后取剩余 route[1] / route[2]，不使用当前速度外推。
+# 路点不足时沿 ego->target 方向延展 5m；route 为空时沿当前航向前推 50m。
+_ROUTE_NTP_EXTENSION_M = 5.0
+_EMPTY_ROUTE_EXTENSION_M = 50.0
 
 # RGB JPEG round-trip 模拟训练分布（B1 修复）：默认 85，与 LEAD ClosedLoopConfig 一致。
 # 设 0 或 >=100 关闭模拟（用 raw CARLA RGB）。
@@ -543,7 +538,9 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             "lidar_remove_ground": _LIDAR_REMOVE_GROUND,
             "lidar_ground_z": _LIDAR_GROUND_Z,
             "use_radar": getattr(self, "use_radar", False),
-            "low_speed_tp_threshold_m_per_s": _LOW_SPEED_TP_THRESHOLD,
+            "target_point_policy": "automot_route_index",
+            "route_ntp_extension_m": _ROUTE_NTP_EXTENSION_M,
+            "empty_route_extension_m": _EMPTY_ROUTE_EXTENSION_M,
             "warmup_policy": "lead_style_left_pad_clip",
         }
         with open(self.signature_path / "config.json", "w", encoding="utf-8") as f:
@@ -622,7 +619,7 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             f"[MOTLeadAgent] READY route={self.save_name} "
             f"sig={signature} use_bev={self.use_bev} use_radar={self.use_radar} "
             f"clip_len={self.clip_len} step_stride={self.step_stride} "
-            f"tp_lookahead={_TP_LOOKAHEAD_S}s ntp_lookahead={_NTP_LOOKAHEAD_S}s "
+            f"target_point_policy=automot_route_index "
             f"jpeg_q={_JPEG_QUALITY} ground_removal={_LIDAR_REMOVE_GROUND}",
             flush=True,
         )
@@ -828,17 +825,12 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             compass_filt = compass
             speed_filt = speed_raw
 
-        # 让 RoutePlanner 推进队列：route 内已访问的路点会被 popleft
-        # 这里只用 run_step 副作用更新队列；tp/ntp 改走时间 lookahead
+        # 让 RoutePlanner 推进队列：route 内已访问的路点会被 popleft。
+        # target_point / next_target_point 对齐 AutoMoT mot_b2d_agent.py：
+        # 直接取剩余 route[1] / route[2]，不按当前 speed * seconds 外推。
         wp_route = self._route_planner.run_step(np.append(gps_xy, gps_pos[2]))
-
-        # tp/ntp 与离线训练 build_clip 对齐：未来 1.5s / 3s 沿剩余 route 弧长的位置
-        # 弧长距离 = max(speed * lookahead_s, MIN_LOOKAHEAD_M)，避免低速 tp 退化
-        tp_world, far_cmd = self._lookahead_world_point(
-            speed_filt, _TP_LOOKAHEAD_S, gps_xy, compass_filt
-        )
-        ntp_world, _ = self._lookahead_world_point(
-            speed_filt, _NTP_LOOKAHEAD_S, gps_xy, compass_filt
+        tp_world, ntp_world, far_cmd = self._automot_route_target_points(
+            wp_route, gps_xy, compass_filt
         )
 
         if (np.asarray(tp_world[:2]) != np.asarray(self.target_point_prev[:2])).any():
@@ -863,58 +855,47 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             "next_command": int(next_command),
         }
 
-    def _lookahead_world_point(self, speed: float, lookahead_s: float,
-                                gps_xy: np.ndarray, compass: float):
-        """沿剩余 global route 弧长找未来 lookahead_s 秒位置。
+    def _automot_route_target_points(self, waypoint_route, gps_xy: np.ndarray, compass: float):
+        """按 AutoMoT mot_b2d_agent.py 规则生成在线 target_point。
 
-        逻辑：
-        1. 低速 fallback：speed < `_LOW_SPEED_TP_THRESHOLD` 时直接返回 ego 当前
-           位置 → ego frame 下 tp ≈ (0, 0)。**与离线对齐**：训练时车在红灯前停着，
-           未来 1.5s 真值位置 ≈ 当前位置，tp 就是 ~0。如果在线退化成"沿弧长前推 5m"，
-           tp ≈ (5, 0) 会让模型误以为该往前走。
-        2. 否则目标弧长 = `speed * lookahead_s`（移除原来的 MIN_LOOKAHEAD_M=5 兜底）
-        3. 从 ego 当前位置开始，沿 self._route_planner.route deque 顺序累加每个
-           路点之间的距离，直到累加值 >= 目标弧长。
-        4. 在该段内按比例线性插值，返回 (world_xy, RoadOption)
-        5. route 走完时返回最后一个路点；route 为空时沿当前 compass 直推。
-
-        与离线 build_clip 用未来真值位置的语义近似一致：训练用真值未来 1.5s
-        位置；推理无真值，只能按 expected 速度沿规划路径推。这是闭环里
-        能拿到的最接近训练分布的 navigation hint。
+        `RoutePlanner.run_step()` 已按 min_distance 推进掉身后的路点；这里直接取
+        剩余 route 的第 1 / 第 2 个未来点作为 tp/ntp。这个策略不依赖当前速度，
+        因而静止起步时仍会给模型一个前方导航目标。
         """
         from agents.navigation.local_planner import RoadOption
 
-        # 低速 fallback：车基本不动时，tp = ego 当前位置（→ ego frame ≈ (0,0)）。
-        if speed < _LOW_SPEED_TP_THRESHOLD:
-            route_for_cmd = list(self._route_planner.route)
-            far_cmd = route_for_cmd[0][1] if route_for_cmd else RoadOption.LANEFOLLOW
-            return np.asarray(gps_xy, dtype=np.float32), far_cmd
+        route = list(waypoint_route)
+        ego_xy = np.asarray(gps_xy[:2], dtype=np.float64)
 
-        # 正常前推：直接 speed * lookahead，不再上 5m 兜底（兜底由上面 low-speed 分支接管）。
-        target_dist = float(speed * lookahead_s)
+        def extend_from_target(target_xy: np.ndarray) -> np.ndarray:
+            direction = np.asarray(target_xy[:2], dtype=np.float64) - ego_xy
+            dist = float(np.linalg.norm(direction))
+            if dist > 1e-3:
+                direction = direction / dist
+            else:
+                direction = np.array([math.cos(compass), math.sin(compass)], dtype=np.float64)
+            return np.asarray(target_xy[:2], dtype=np.float64) + direction * _ROUTE_NTP_EXTENSION_M
 
-        route = list(self._route_planner.route)  # deque -> snapshot list
-        if len(route) == 0:
-            unit = np.array([math.cos(compass), math.sin(compass)], dtype=np.float64)
-            return (np.asarray(gps_xy) + unit * target_dist).astype(np.float32), \
-                   RoadOption.LANEFOLLOW
+        if len(route) > 2:
+            target_point, far_cmd = route[1]
+            next_target_point, _next_cmd = route[2]
+        elif len(route) > 1:
+            target_point, far_cmd = route[1]
+            next_target_point = extend_from_target(target_point)
+        elif len(route) > 0:
+            target_point, far_cmd = route[0]
+            next_target_point = extend_from_target(target_point)
+        else:
+            target_point = ego_xy
+            far_cmd = RoadOption.LANEFOLLOW
+            direction = np.array([math.cos(compass), math.sin(compass)], dtype=np.float64)
+            next_target_point = ego_xy + direction * _EMPTY_ROUTE_EXTENSION_M
 
-        prev_xy = np.asarray(gps_xy, dtype=np.float64)
-        accum = 0.0
-        last_cmd = route[-1][1]
-        for pos, cmd in route:
-            pos_xy = np.asarray(pos[:2], dtype=np.float64)
-            seg = pos_xy - prev_xy
-            seg_len = float(np.linalg.norm(seg))
-            if seg_len > 1e-6 and accum + seg_len >= target_dist:
-                t = (target_dist - accum) / seg_len
-                interp = prev_xy + t * seg
-                return interp.astype(np.float32), cmd
-            accum += seg_len
-            prev_xy = pos_xy
-            last_cmd = cmd
-        # 路径走完仍未达到目标距离 → 返回最后一个路点
-        return np.asarray(route[-1][0][:2], dtype=np.float32), last_cmd
+        return (
+            np.asarray(target_point[:2], dtype=np.float32),
+            np.asarray(next_target_point[:2], dtype=np.float32),
+            far_cmd,
+        )
 
     # ============================================================
     # run_step

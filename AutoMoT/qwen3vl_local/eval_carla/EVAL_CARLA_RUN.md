@@ -149,21 +149,15 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 | env `PORT_BASE_START` | 5000 | worker CARLA 空闲端口扫描起点 |
 | env `PORT_STRIDE` | 20 | 空闲端口块扫描步长 |
 | env `LEADMOT_USE_EMA` | 1 | checkpoint 里有 EMA shadow 时默认加载；设 0 用 raw decoder |
-| env `TP_LOOKAHEAD_S` | 1.5 | target_point 未来时长（秒） |
-| env `NTP_LOOKAHEAD_S` | 3.0 | next_target_point 未来时长（秒） |
-| env `LOW_SPEED_TP_M_PER_S` | 1.0 | speed < 该值时 tp = ego 当前位置（红灯停车对齐训练分布） |
 | env `JPEG_QUALITY` | 85 | RGB 拼接后 JPEG round-trip quality；设 0 关闭模拟 |
 | env `LIDAR_REMOVE_GROUND` | 1 | 轻量去地面（z+LSQ）；设 0 关闭 |
 | env `LIDAR_GROUND_Z` | -1.4 | 地面 z 高度阈值（ego frame） |
 | env `USE_RADAR` | 1 | use_bev=True 时是否声明 4 个 radar 并拼到 LiDAR |
 | env `RECORD_BEV_DEBUG` | 1 | 是否写 bev_debug.mp4 |
 
-例：训练时若用 1.0s / 2.5s 的 tp lookahead，保持环境变量一致：
-
-```bash
-TP_LOOKAHEAD_S=1.0 NTP_LOOKAHEAD_S=2.5 \
-bash qwen3vl_local/eval_carla/run_eval.sh --leadmot-ckpt /path/best.pt
-```
+在线 target_point / next_target_point 对齐 AutoMoT `mot_b2d_agent.py`：每 tick 调
+`RoutePlanner.run_step()` 推进 route 后取剩余 route[1] / route[2]，不足时按目标方向
+延展 5m 或按当前航向前推 50m；不再有速度 lookahead / 低速置零相关 env。
 
 ---
 
@@ -248,8 +242,8 @@ python3 AutoMoT/qwen3vl_local/eval_carla/webapp/app.py \
 - **ffmpeg 不在 PATH**：视频不压缩，留原始 mp4v 编码 mp4，可播放但体积大。
 - **debug.mp4 在 warmup 阶段空白**：第一次 4Hz 采样点（默认第 5 个 tick）才有
   pred_waypoints；bev_debug.mp4 从 t=0 就有 ego box，更适合诊断 warmup。
-- **target_point 停车时**：speed < `LOW_SPEED_TP_M_PER_S=1.0` 时 tp = ego 当前位置
-  （→ ego frame ≈ (0,0)），对齐训练时车在红灯前停的真值语义。若想恢复"前推 5m"
-  老行为，设 `LOW_SPEED_TP_M_PER_S=0` 关闭此分支。
+- **target_point 起步死锁**：在线已改为 AutoMoT route-index 规则，静止时也从
+  RoutePlanner 剩余 route[1]/route[2] 取前方目标；不会再因为 speed≈0 把 tp/ntp
+  置成 ego 当前点。
 - **parking_escape 误触**：默认 1500 帧（125s）位移 < 5m 才触发，红灯等灯正常
   不会触发。如果场景普遍 lights 等待 > 2 分钟，在 `safety.py` 调大窗口。
