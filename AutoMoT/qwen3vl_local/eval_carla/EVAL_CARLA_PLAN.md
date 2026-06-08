@@ -160,6 +160,24 @@ debug crf=28 preset=slower。路线结束时 `destroy()` 触发 release + 压缩
 
 ---
 
+## 5.x CARLA 自带启动
+
+每个 worker 在自己 GPU 上自动 spawn 独立 CARLA server（默认行为，可 `--no-auto-carla` 关）：
+
+| 项 | 实现 |
+|---|---|
+| 端口 | `PORT_BASE_START(5000) + gpu_id * PORT_STRIDE(20)` |
+| GPU 绑定 | `CUDA_VISIBLE_DEVICES=$gpu_rank` 启动 CARLA，CARLA 自见 `cuda:0` |
+| 等待 | 启动后轮询 `lsof -i:$port` listen，最多 `CARLA_BOOT_TIMEOUT=90` 秒 |
+| 旧进程清理 | 启动前 `lsof -ti:$port` + `pkill -9 -f "CarlaUE4.*-carla-rpc-port=$port"` 幂等 |
+| 退出回收 | 双层 trap：worker subprocess EXIT/INT/TERM + 主进程 EXIT/INT/TERM |
+| 失败兜底 | worker 启动 CARLA 失败时只放弃本 worker，其他 worker 仍跑 |
+| 命令行 | `--auto-carla` / `--no-auto-carla`；env `USE_AUTO_CARLA` |
+| 日志 | `<signature>/worker_logs/<ts>/carla_gpu<N>_port<P>.log` |
+
+leaderboard `run_evaluation.sh` 也用相同的 `CUDA_VISIBLE_DEVICES=$gpu_rank` 启动
+`leaderboard_evaluator.py`，**确保模型推理和 CARLA 在同一张物理卡**，避免 PCIe 抖动。
+
 ## 6. 场景反向映射 + 聚合
 
 `scenario_picker.py` 扫 `lead/data/benchmark_routes/bench2drive220/` 建反向

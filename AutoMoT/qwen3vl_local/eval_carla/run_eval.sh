@@ -21,7 +21,14 @@
 #   附：--route-id <ID>              可重复；指定具体 route_id 跑
 #
 #   --no-input / --no-debug / --no-demo / --no-grid   关掉对应视频
+#   --no-bev-debug             关掉 BEV 顶视 debug 视频
 #   --no-aggregate             跑完不自动聚合
+#
+# CARLA 启动（默认开启）：
+#   - 每个 worker 自动在自己 GPU 上启动一个独立 CARLA server（端口 = 5000 + gpu_id*20）
+#   - worker 结束 / Ctrl+C / 异常退出 时自动 kill 对应 CARLA
+#   - 已经手动起 CARLA 时加 `--no-auto-carla` 跳过自动启动（默认 `USE_AUTO_CARLA=1`）
+#   - 启动后等 CARLA RPC 端口 listen 最多 `CARLA_BOOT_TIMEOUT=90` 秒
 #
 # 输出根：${EVAL_OUTPUT_BASE:-${PROJECT_ROOT}/outputs/closed_loop_eval}
 #   <ckpt_parent>__<ckpt_stem>__bev{0|1}__ema{0|1}/
@@ -74,6 +81,8 @@ while [ $# -gt 0 ]; do
         --no-bev-debug) RECORD_BEV_DEBUG="0"; shift ;;
         --no-aggregate) DO_AGGREGATE="0"; shift ;;
         --run-label) RUN_LABEL_OVERRIDE="$2"; shift 2 ;;
+        --no-auto-carla) USE_AUTO_CARLA="0"; shift ;;
+        --auto-carla) USE_AUTO_CARLA="1"; shift ;;
         -h|--help) sed -n '1,45p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
@@ -408,25 +417,174 @@ echo "Sensor profile  : ${SENSOR_PROFILE}"
 echo "Step stride     : ${STEP_STRIDE}"
 echo "GPU workers     : ${GPU_COUNT} (${GPU_IDS[*]})"
 echo "Use EMA weights : ${LEADMOT_USE_EMA:-1}"
+echo "Auto CARLA      : ${USE_AUTO_CARLA:-1} (each worker spawns CARLA on its own GPU)"
+echo "CARLA_ROOT      : ${CARLA_ROOT:-<unset>}"
 echo "Record (i/d/bev/m/g): ${RECORD_INPUT}/${RECORD_DEBUG}/${RECORD_BEV_DEBUG}/${RECORD_DEMO}/${RECORD_GRID}"
 echo "=========================================="
 
 WORK_LOG_DIR="${SIG_DIR}/worker_logs/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "${WORK_LOG_DIR}"
 
+# ============================================================
+# CARLA 启动/停止 helpers
+# ============================================================
+# 每个 worker 在自己 GPU 上启动一个独立 CARLA server。
+# 用 `CUDA_VISIBLE_DEVICES=$gpu_rank` 锁住 CARLA 看到的 GPU 列表，CARLA 自己只感知
+# `cuda:0`；run_evaluation.sh 里启动 leaderboard_evaluator.py 时同样设
+# `CUDA_VISIBLE_DEVICES=$gpu_rank`，模型和 CARLA 落在同一张物理卡，避免 PCIe 抖动。
+# 端口：每张卡走 PORT_BASE_START + gpu_rank*PORT_STRIDE 槽位（默认 5000 + N*20）。
+# 启动后 worker 在该端口上跑 evaluation；worker 函数返回时清理对应 CARLA。
+# 脚本异常退出（Ctrl+C / kill）由 trap EXIT 兜底清理所有遗留 CARLA 进程。
+
+# 已启动 CARLA 的 port 列表，用于 trap EXIT 时统一回收
+LAUNCHED_CARLA_PORTS=()
+USE_AUTO_CARLA="${USE_AUTO_CARLA:-1}"      # 设 0 关闭自动启动（手动管理 CARLA 的场景）
+CARLA_BOOT_TIMEOUT="${CARLA_BOOT_TIMEOUT:-90}"   # 秒，等 RPC 端口 listen 的超时
+
+start_carla_for_worker() {
+    # 启动绑定到指定 GPU 的 CARLA，并等 RPC 端口可连接。
+    local port="$1"
+    local gpu_rank="$2"
+    local log_file="$3"
+
+    if [ "${USE_AUTO_CARLA}" != "1" ]; then
+        echo "[carla:gpu${gpu_rank}:port${port}] USE_AUTO_CARLA=0, skip start"
+        return 0
+    fi
+
+    if [ -z "${CARLA_ROOT:-}" ] || [ ! -f "${CARLA_ROOT}/CarlaUE4.sh" ]; then
+        echo "[carla:gpu${gpu_rank}:port${port}] ERROR: CARLA_ROOT/CarlaUE4.sh not found (CARLA_ROOT='${CARLA_ROOT:-}')"
+        return 1
+    fi
+
+    local streaming_port=$((port + 1))
+    local tm_port=$((port + 8000))
+
+    # 先 kill 同端口的旧 CARLA，幂等。lsof 不一定有装；用 fuser 兜底。
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -ti:${port} | xargs -r kill -9 2>/dev/null || true
+        lsof -ti:${tm_port} | xargs -r kill -9 2>/dev/null || true
+        lsof -ti:${streaming_port} | xargs -r kill -9 2>/dev/null || true
+    elif command -v fuser >/dev/null 2>&1; then
+        fuser -k -n tcp ${port} >/dev/null 2>&1 || true
+        fuser -k -n tcp ${tm_port} >/dev/null 2>&1 || true
+        fuser -k -n tcp ${streaming_port} >/dev/null 2>&1 || true
+    fi
+    pkill -9 -f "CarlaUE4.*-carla-rpc-port=${port}" 2>/dev/null || true
+    sleep 1
+
+    echo "[carla:gpu${gpu_rank}:port${port}] launching CARLA (log=${log_file})"
+    # `-graphicsadapter=0` 配合 CUDA_VISIBLE_DEVICES 让 CARLA 用唯一可见的 GPU。
+    # 关 motion blur 等代价是 0（CARLA 自带 Low 已经够轻）。
+    CUDA_VISIBLE_DEVICES="${gpu_rank}" "${CARLA_ROOT}/CarlaUE4.sh" \
+        -RenderOffScreen \
+        -nosound \
+        -carla-rpc-port=${port} \
+        -traffic-manager-port=${tm_port} \
+        -carla-streaming-port=${streaming_port} \
+        -quality-level=Low \
+        -resx=800 -resy=600 \
+        -graphicsadapter=0 \
+        > "${log_file}" 2>&1 &
+    local carla_pid=$!
+    echo "[carla:gpu${gpu_rank}:port${port}] pid=${carla_pid}, waiting for RPC port..."
+
+    # 轮询 RPC 端口 listen 状态；CARLA 第一次加载 map 可能 30-60 秒。
+    local elapsed=0
+    while [ ${elapsed} -lt ${CARLA_BOOT_TIMEOUT} ]; do
+        if command -v lsof >/dev/null 2>&1; then
+            if lsof -i:${port} >/dev/null 2>&1; then
+                echo "[carla:gpu${gpu_rank}:port${port}] ready after ${elapsed}s"
+                LAUNCHED_CARLA_PORTS+=("${port}")
+                return 0
+            fi
+        elif command -v ss >/dev/null 2>&1; then
+            if ss -ltn "( sport = :${port} )" 2>/dev/null | grep -q LISTEN; then
+                echo "[carla:gpu${gpu_rank}:port${port}] ready after ${elapsed}s"
+                LAUNCHED_CARLA_PORTS+=("${port}")
+                return 0
+            fi
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+        # CARLA 进程已经退出（启动失败）→ 提前止损
+        if ! kill -0 "${carla_pid}" 2>/dev/null; then
+            echo "[carla:gpu${gpu_rank}:port${port}] ERROR: CARLA exited prematurely; see ${log_file}"
+            tail -n 30 "${log_file}" 2>/dev/null || true
+            return 1
+        fi
+    done
+
+    echo "[carla:gpu${gpu_rank}:port${port}] ERROR: RPC port not listening within ${CARLA_BOOT_TIMEOUT}s"
+    tail -n 30 "${log_file}" 2>/dev/null || true
+    return 1
+}
+
+stop_carla_for_port() {
+    # kill 指定端口的 CARLA 进程（按端口匹配命令行参数定位）。
+    local port="$1"
+    if [ "${USE_AUTO_CARLA}" != "1" ]; then
+        return 0
+    fi
+    local tm_port=$((port + 8000))
+    local streaming_port=$((port + 1))
+    pkill -9 -f "CarlaUE4.*-carla-rpc-port=${port}" 2>/dev/null || true
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -ti:${port} | xargs -r kill -9 2>/dev/null || true
+        lsof -ti:${tm_port} | xargs -r kill -9 2>/dev/null || true
+        lsof -ti:${streaming_port} | xargs -r kill -9 2>/dev/null || true
+    fi
+}
+
+cleanup_all_carla() {
+    # trap EXIT 兜底：清理 launcher 本次启动的所有 CARLA。
+    if [ ${#LAUNCHED_CARLA_PORTS[@]} -eq 0 ]; then
+        return 0
+    fi
+    echo ""
+    echo "[carla] cleanup: stopping ${#LAUNCHED_CARLA_PORTS[@]} CARLA process(es)"
+    for p in "${LAUNCHED_CARLA_PORTS[@]}"; do
+        stop_carla_for_port "${p}"
+    done
+}
+trap cleanup_all_carla EXIT INT TERM
+
+# 主进程预先把每个 worker 计划用的端口加入清理列表：
+# - worker subprocess 修改 LAUNCHED_CARLA_PORTS 不会回传到主进程
+# - 如果 worker subprocess 被 SIGKILL，EXIT trap 不触发；主 trap 用预填列表 pkill 兜底
+# - stop_carla_for_port 对未启动端口幂等无害
+if [ "${USE_AUTO_CARLA}" = "1" ]; then
+    for ((widx=0; widx<GPU_COUNT; widx++)); do
+        LAUNCHED_CARLA_PORTS+=("$((PORT_BASE_START + GPU_IDS[widx] * PORT_STRIDE))")
+    done
+fi
+
 run_route_worker() {
     # 单个 GPU worker：拿 worker_idx/gpu_rank 后，只处理 route_idx % GPU_COUNT == worker_idx 的路线。
     # 多卡时各 worker 互不通信，靠 eval_<route_id>.json 是否存在实现断点续跑。
+    # 每个 worker 在本卡上自动起一个独立 CARLA server，结束 / trap 时回收。
     local worker_idx="$1"
     local gpu_rank="$2"
     local base_port=$((PORT_BASE_START + gpu_rank * PORT_STRIDE))
     local base_tm_port=$((base_port + 8000))
     local fail_file="${WORK_LOG_DIR}/failed_worker${worker_idx}.txt"
     local attempted_file="${WORK_LOG_DIR}/attempted_worker${worker_idx}.txt"
+    local carla_log="${WORK_LOG_DIR}/carla_gpu${gpu_rank}_port${base_port}.log"
     : > "${fail_file}"
     : > "${attempted_file}"
 
     echo "[worker ${worker_idx}] gpu=${gpu_rank} port=${base_port} tm_port=${base_tm_port}"
+
+    # 启动该 worker 专属 CARLA。失败时本 worker 直接放弃，让其它 worker 继续跑。
+    # 注：subprocess 自身已经被主进程 trap EXIT 兜底；这里 worker 退出时也主动 stop。
+    if ! start_carla_for_worker "${base_port}" "${gpu_rank}" "${carla_log}"; then
+        echo "[worker ${worker_idx}] FATAL: CARLA failed to start; skipping all routes for this worker"
+        return 1
+    fi
+    # worker subprocess 自己的 trap：正常返回 / kill / Ctrl+C 都清理 CARLA。
+    # 主脚本另有 trap EXIT 兜底，这里是双保险（防止主脚本 trap 没触发）。
+    trap "stop_carla_for_port ${base_port}" EXIT INT TERM
+
     for ((route_idx=worker_idx; route_idx<TOTAL; route_idx+=GPU_COUNT)); do
         # round-robin 分片比连续切段更适合断点续跑：如果某张卡提前失败，
         # 下次重跑仍会跳过其它 worker 已完成的 eval_<route_id>.json。
