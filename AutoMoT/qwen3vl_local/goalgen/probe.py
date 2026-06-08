@@ -359,7 +359,8 @@ def main() -> None:
     parser.add_argument("--allow-qwen-adapter-mismatch", action="store_true", default=False)
     parser.add_argument("--euler-steps", type=int, default=32)
     parser.add_argument("--cfg-scale", type=float, default=2.0)
-    parser.add_argument("--z0-prior-alpha", type=float, default=1.0)
+    # 与 train 默认对齐：alpha=0.0 用纯噪声起点。设回 1.0 仅做 image-to-image ablation。
+    parser.add_argument("--z0-prior-alpha", type=float, default=0.0)
     parser.add_argument("--z0-prior-sigma", type=float, default=1.0)
     parser.add_argument("--use-ema", action=argparse.BooleanOptionalAction, default=True)
     # 当前共享默认对齐 Qwen3-VL-4B-Instruct 的 (n_kv_heads=8, head_dim=128)

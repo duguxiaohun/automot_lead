@@ -128,20 +128,81 @@ def _find_sig_dirs(eval_base: pathlib.Path,
     return matched or sigs
 
 
+def _load_run_manifest(run_dir: pathlib.Path) -> dict | None:
+    """读 run_eval.sh 写出的 run_manifest.json，拿到本批 route_id 列表。"""
+    mp = run_dir / "run_manifest.json"
+    if not mp.is_file():
+        return None
+    try:
+        with open(mp, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[aggregate] failed to load manifest {mp}: {e}", file=sys.stderr)
+        return None
+
+
+def list_runs(sig_dir: pathlib.Path) -> list[str]:
+    """列出某 signature 下所有已经跑过的 run_label。"""
+    runs_dir = sig_dir / "runs"
+    if not runs_dir.is_dir():
+        return []
+    return [p.name for p in sorted(runs_dir.iterdir()) if p.is_dir()]
+
+
 def aggregate_one(sig_dir: pathlib.Path,
-                  route_to_scenario: dict[int, list[str]]) -> dict:
-    """聚合单个模型 signature 下的所有 route 结果。
+                  route_to_scenario: dict[int, list[str]],
+                  run_label: str | None = None) -> dict:
+    """聚合单个 signature 下的 route 结果。
 
     输入目录：
-      sig_dir/eval_per_route/eval_<route_id>.json
+      sig_dir/eval_per_route/eval_<route_id>.json    （跨 run 共享）
+      sig_dir/runs/<run_label>/run_manifest.json     （本批次清单，可选）
 
     输出：
-      sig_dir/scenarios/<Scenario>/summary.json
-      sig_dir/summary_all.json
+      sig_dir/runs/<run_label>/scenarios/<Scenario>/summary.json
+      sig_dir/runs/<run_label>/summary_all.json
+      （兼容：也在 sig_dir/scenarios/ + summary_all.json 写一份跨批次总聚合）
 
-    一个 route 可能属于多个 LEAD scenario，因此这里按 route_to_scenario 展开到
-    多个 scenario bucket；未知映射统一放进 `__unknown__`，避免结果丢失。
+    run_label=None 时：枚举 sig_dir/runs/* 每个 label 各聚合一次；并额外写一份
+    跨批次总聚合到 sig_dir 根（含所有已评估 route）。
     """
+    if run_label is not None:
+        return _aggregate_for_label(sig_dir, route_to_scenario, run_label)
+
+    # 没传 run_label：跨批次总聚合（落根目录）+ 每个 run_label 各跑一次
+    overall = _aggregate_for_label(sig_dir, route_to_scenario, run_label=None,
+                                    out_dir=sig_dir, label_for_summary="__all__")
+    for label in list_runs(sig_dir):
+        try:
+            _aggregate_for_label(sig_dir, route_to_scenario, run_label=label)
+        except Exception as e:
+            print(f"[aggregate] run_label={label}: {e}", file=sys.stderr)
+    return overall
+
+
+def _aggregate_for_label(sig_dir: pathlib.Path,
+                          route_to_scenario: dict[int, list[str]],
+                          run_label: str | None,
+                          out_dir: pathlib.Path | None = None,
+                          label_for_summary: str | None = None) -> dict:
+    """实际聚合执行：可选 run_label 限定 route 子集，可选 out_dir 自定义输出位置。"""
+    # 决定输入 route 集合
+    allowed_route_ids: set[int] | None = None
+    manifest: dict | None = None
+    if run_label is not None:
+        run_dir = sig_dir / "runs" / run_label
+        manifest = _load_run_manifest(run_dir)
+        if manifest is None:
+            print(f"[aggregate] run_label={run_label} missing manifest, "
+                  f"will use all eval_per_route results", file=sys.stderr)
+        else:
+            allowed_route_ids = {int(r) for r in manifest.get("route_ids", [])}
+        if out_dir is None:
+            out_dir = run_dir
+    if out_dir is None:
+        out_dir = sig_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     scen_routes: dict[str, list[int]] = defaultdict(list)
     route_results: dict[int, dict] = {}
     per_route_dir = sig_dir / "eval_per_route"
@@ -152,6 +213,8 @@ def aggregate_one(sig_dir: pathlib.Path,
             if not m:
                 continue
             rid = int(m.group(1))
+            if allowed_route_ids is not None and rid not in allowed_route_ids:
+                continue
             data = _load_json(jp)
             if data is None:
                 continue
@@ -159,22 +222,28 @@ def aggregate_one(sig_dir: pathlib.Path,
             for scen in route_to_scenario.get(rid, ["__unknown__"]):
                 scen_routes[scen].append(rid)
 
-    scenarios_dir = sig_dir / "scenarios"
+    scenarios_dir = out_dir / "scenarios"
     scenarios_dir.mkdir(parents=True, exist_ok=True)
 
     summary = {
         "signature": sig_dir.name,
+        "run_label": run_label or label_for_summary or "__all__",
         "total_routes": len(route_results),
         "unique_scenarios": len(scen_routes),
+        "manifest_route_count": len(allowed_route_ids) if allowed_route_ids else None,
         "scenarios": {},
     }
+    if manifest is not None:
+        summary["manifest"] = {k: manifest[k] for k in ("started_at", "scenarios_filter",
+            "route_ids_filter", "random_n", "random_seed", "single_test")
+            if k in manifest}
+
     for scen, ids in sorted(scen_routes.items()):
         bucket: dict[str, list[float]] = defaultdict(list)
         for rid in ids:
             data = route_results.get(rid, {})
             for key, value in _extract_route_scores(data, rid).items():
                 bucket[key].append(value)
-        # scen_info 是最小自描述单元：webapp 的 Scenarios tab 直接读它。
         scen_info = {
             "scenario": scen,
             "n_routes": len(ids),
@@ -186,7 +255,7 @@ def aggregate_one(sig_dir: pathlib.Path,
         with open(scenarios_dir / scen / "summary.json", "w", encoding="utf-8") as f:
             json.dump(scen_info, f, ensure_ascii=False, indent=2)
 
-    with open(sig_dir / "summary_all.json", "w", encoding="utf-8") as f:
+    with open(out_dir / "summary_all.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     return summary
 
@@ -197,6 +266,8 @@ def main():
     ap.add_argument("--eval-base", type=str, required=True)
     ap.add_argument("--benchmark-root", type=str, default=None)
     ap.add_argument("--leadmot-ckpt", type=str, default=None)
+    ap.add_argument("--run-label", type=str, default=None,
+                    help="只聚合指定 run_label 批次；省略则聚合所有 runs + 跨批次总聚合")
     args = ap.parse_args()
 
     eval_base = pathlib.Path(args.eval_base).resolve()
@@ -212,8 +283,8 @@ def main():
         sys.exit(1)
 
     for sd in sig_dirs:
-        print(f"[aggregate] processing {sd.name}")
-        s = aggregate_one(sd, route_to_scenario)
+        print(f"[aggregate] processing {sd.name}, run_label={args.run_label or '<all>'}")
+        s = aggregate_one(sd, route_to_scenario, run_label=args.run_label)
         print(f"  -> total_routes={s['total_routes']}, scenarios={s['unique_scenarios']}")
 
 

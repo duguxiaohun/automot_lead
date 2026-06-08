@@ -86,12 +86,17 @@ from filterpy.kalman import UnscentedKalmanFilter as UKF
 # 推理引擎（含 Qwen prefill + LeadBEVEncoder + LeadMoT decoder）
 from team_code.mot_lead_offline_runner import LeadOfflineMoTRunner
 
-# 本子包内部：视频/可视化/安全兜底
-from AutoMoT.qwen3vl_local.eval_carla.video_recorder import VideoRecorder
-from AutoMoT.qwen3vl_local.eval_carla.visualizer import (
+# 本子包内部：视频/可视化/安全兜底。
+# leaderboard 通过 importlib.spec_from_file_location 把 agent.py 当成顶层 module
+# 加载，因此 relative import (`from .video_recorder ...`) 会失败。
+# 此处用 _AUTOMOT_ROOT/qwen3vl_local/... 的 plain import 路径，
+# _AUTOMOT_ROOT 已经在上面 sys.path.insert 进去了。
+from qwen3vl_local.eval_carla.video_recorder import VideoRecorder
+from qwen3vl_local.eval_carla.visualizer import (
     overlay_pred_on_stitched_three_cams,
+    render_bev_debug,
 )
-from AutoMoT.qwen3vl_local.eval_carla.safety import SafetyMixin
+from qwen3vl_local.eval_carla.safety import SafetyMixin
 
 
 SAVE_PATH = os.environ.get("SAVE_PATH", None)
@@ -105,14 +110,24 @@ _DEFAULT_SENSOR_PROFILE = os.environ.get("SENSOR_PROFILE", "3cam").lower()
 # 沿 global plan 弧长的位置（按当前速度估算前瞻距离）。
 _TP_LOOKAHEAD_S = float(os.environ.get("TP_LOOKAHEAD_S", "1.5"))
 _NTP_LOOKAHEAD_S = float(os.environ.get("NTP_LOOKAHEAD_S", "3.0"))
-# 低速 fallback：避免静止时 target_point 退化为当前位置导致模型迷茫
-_MIN_LOOKAHEAD_M = float(os.environ.get("MIN_LOOKAHEAD_M", "5.0"))
+# 低速 fallback：speed 低于该阈值时 tp 直接取 ego 当前位置，与训练分布一致
+# （训练时车在红灯前停着，未来 1.5s 真值 ≈ 当前位置）。
+# `_MIN_LOOKAHEAD_M` 现已废弃，保留 env 兼容旧脚本但不再生效。
+_LOW_SPEED_TP_THRESHOLD = float(os.environ.get("LOW_SPEED_TP_M_PER_S", "1.0"))
+_MIN_LOOKAHEAD_M = float(os.environ.get("MIN_LOOKAHEAD_M", "0.0"))   # legacy, unused
+
+# RGB JPEG round-trip 模拟训练分布（B1 修复）：默认 85，与 LEAD ClosedLoopConfig 一致。
+# 设 0 或 >=100 关闭模拟（用 raw CARLA RGB）。
+_JPEG_QUALITY = int(os.environ.get("JPEG_QUALITY", "85"))
 
 # 录像四开关
 _RECORD_INPUT = os.environ.get("RECORD_INPUT", "1") == "1"
 _RECORD_DEBUG = os.environ.get("RECORD_DEBUG", "1") == "1"
 _RECORD_DEMO  = os.environ.get("RECORD_DEMO",  "1") == "1"
 _RECORD_GRID  = os.environ.get("RECORD_GRID",  "1") == "1"
+# BEV 顶视 debug：信息密度最高的一路。只在 use_bev=True 时有 LiDAR 显示，
+# no-BEV 模型也仍写 ego/route/waypoints，但 LiDAR 散点会缺。
+_RECORD_BEV_DEBUG = os.environ.get("RECORD_BEV_DEBUG", "1") == "1"
 _LEADMOT_USE_EMA = os.environ.get("LEADMOT_USE_EMA", "1") != "0"
 
 
@@ -136,6 +151,23 @@ _LEAD_3CAM_FOV = 60
 _LEAD_LIDAR_POS = [0.0, 0.0, 2.5]
 _LEAD_LIDAR_YAW_1 = -90.0
 _LEAD_LIDAR_YAW_2 = -270.0
+
+# LEAD `config_base.py:270-295`：4 个 radar 传感器，front-left / front / front-right / rear。
+# `save_radar_pc_as_lidar=True` + `duplicate_radar_near_ego=True` 是训练默认配置，
+# 我们在线必须复现这俩，否则 BEV 输入分布偏离训练。
+_LEAD_RADAR_CALIBRATION = [
+    {"id": "RADAR1", "pos": [2.6, 0.0, 0.60], "rot": [0.0, 0.0, -45.0],
+     "horizontal_fov": 90, "vertical_fov": 0.1},
+    {"id": "RADAR2", "pos": [2.6, 0.0, 0.60], "rot": [0.0, 0.0,  45.0],
+     "horizontal_fov": 90, "vertical_fov": 0.1},
+    {"id": "RADAR3", "pos": [-2.6, 0.0, 0.60], "rot": [0.0, 0.0, 135.0],
+     "horizontal_fov": 90, "vertical_fov": 0.1},
+    {"id": "RADAR4", "pos": [-2.6, 0.0, 0.60], "rot": [0.0, 0.0, 225.0],
+     "horizontal_fov": 90, "vertical_fov": 0.1},
+]
+_LEAD_DUPLICATE_RADAR_RADIUS = 8.0     # LEAD 默认值
+_LEAD_DUPLICATE_RADAR_FACTOR = 5        # LEAD 默认值
+_USE_RADAR = os.environ.get("USE_RADAR", "1") != "0"
 
 _LEAD_EGO_EXTENT_X = 2.4508416652679443
 _LEAD_EGO_EXTENT_Y = 1.0641621351242065
@@ -168,15 +200,41 @@ def _make_empty_lead_clip(clip_len: int) -> dict[str, Any]:
     }
 
 
-def _stitch_three_cams(cam_left_bgra, cam_front_bgra, cam_right_bgra) -> np.ndarray:
-    """三 BGRA -> 1152×384 RGB uint8，顺序 [左前, 前, 右前]。"""
+def _jpeg_round_trip(rgb: np.ndarray, quality: int) -> np.ndarray:
+    """模拟 LEAD `.jpg` 训练数据的 JPEG 量化（与 sensor_agent.tick line 337-345 一致）。
+
+    LEAD 数据采集把 RGB 存成 .jpg，训练 dataloader 读 .jpg 已经走过 JPEG 解码；
+    在线 CARLA 给的是 raw BGRA，比训练分布锐利。这里 encode + decode 一轮，
+    把 RGB 拉到训练分布。quality 用 env `JPEG_QUALITY`（默认 85，与 LEAD 默认接近）。
+    quality<=0 或 >=100 时跳过，相当于关闭该模拟。
+    """
+    if quality <= 0 or quality >= 100:
+        return rgb
+    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    ok, buf = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), int(quality)])
+    if not ok:
+        return rgb
+    decoded = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+    return cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
+
+
+def _stitch_three_cams(cam_left_bgra, cam_front_bgra, cam_right_bgra,
+                       jpeg_quality: int = 0) -> np.ndarray:
+    """三 BGRA -> 1152×384 RGB uint8，顺序 [左前, 前, 右前]。
+
+    jpeg_quality > 0 时在拼接后做一轮 JPEG round-trip 模拟训练分布
+    （与 LEAD `sensor_agent.tick()` line 337-345 同源）。
+    """
     def _bgra_to_rgb(arr):
         """CARLA camera 输出 BGRA；模型和可视化约定用 RGB。"""
         return cv2.cvtColor(arr[:, :, :3], cv2.COLOR_BGR2RGB)
     rgb_l = _bgra_to_rgb(cam_left_bgra)
     rgb_f = _bgra_to_rgb(cam_front_bgra)
     rgb_r = _bgra_to_rgb(cam_right_bgra)
-    return cv2.hconcat([rgb_l, rgb_f, rgb_r])
+    stitched = cv2.hconcat([rgb_l, rgb_f, rgb_r])
+    if jpeg_quality > 0:
+        stitched = _jpeg_round_trip(stitched, jpeg_quality)
+    return stitched
 
 
 def _lidar_sensor_to_ego(points_sensor: np.ndarray, sensor_yaw_deg: float,
@@ -198,12 +256,103 @@ def _lidar_sensor_to_ego(points_sensor: np.ndarray, sensor_yaw_deg: float,
     return pts_ego
 
 
-def _preprocess_lidar_like_lead(points_ego: np.ndarray) -> np.ndarray:
-    """LEAD 风格的轻量 LiDAR 过滤。
+def _radar_points_to_ego(raw_radar: np.ndarray, sensor_pos: list[float],
+                          sensor_rot: list[float]) -> np.ndarray:
+    """CARLA radar (alt, azim, depth, vel) -> ego frame xyz。
 
-    这里只做确定性、在线成本很低的处理：去 ego box、裁 BEV 范围、裁 z 范围、
-    0.1m 量化。LEAD 数据生成里还有 radar 拼接和 RANSAC 去地面；闭环这里先不引入，
-    避免额外传感器和在线重依赖。
+    数学与 LEAD `common_utils.radar_points_to_ego` 完全一致。
+    CARLA radar raw 是球面坐标 (depth, azimuth, altitude, velocity)，先转笛卡尔，
+    再 R_se @ pts + translation，最后做和 LiDAR 同款的 z -= sensor_pos[2]/2 偏移。
+    """
+    arr = np.asarray(raw_radar, dtype=np.float32)
+    if arr.size == 0:
+        return np.zeros((0, 3), dtype=np.float32)
+    arr = arr.reshape(-1, arr.shape[-1])
+    # CARLA radar Detection: (velocity, azimuth, altitude, depth)，但 leaderboard
+    # 透传给 input_data 的格式是 (alt, azim, depth, vel)，与 LEAD radar_points_to_ego
+    # 拿到的 raw 一致：第 0 列=alt, 1=azim, 2=depth, 3=vel。
+    alt = arr[:, 0]
+    az = arr[:, 1]
+    r = arr[:, 2]
+    x = r * np.cos(az) * np.cos(alt)
+    y = r * np.sin(az) * np.cos(alt)
+    z = r * np.sin(alt)
+    pts = np.stack([x, y, z], axis=1).astype(np.float32)
+
+    # 与 LEAD 一致：用 euler Rz @ Ry @ Rx
+    roll_r = math.radians(sensor_rot[0])
+    pitch_r = math.radians(sensor_rot[1])
+    yaw_r = math.radians(sensor_rot[2])
+    cr, sr = math.cos(roll_r), math.sin(roll_r)
+    cp, sp = math.cos(pitch_r), math.sin(pitch_r)
+    cy, sy = math.cos(yaw_r), math.sin(yaw_r)
+    Rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]], dtype=np.float32)
+    Ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]], dtype=np.float32)
+    Rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]], dtype=np.float32)
+    R = Rz @ Ry @ Rx
+    pts_ego = (R @ pts.T).T + np.asarray(sensor_pos, dtype=np.float32).reshape(1, 3)
+    pts_ego[:, 2] -= float(sensor_pos[2]) / 2.0
+    return pts_ego.astype(np.float32, copy=False)
+
+
+def _remove_ground_lsq(points_ego: np.ndarray,
+                        z_floor: float = -1.4,
+                        plane_inlier_thresh: float = 0.2) -> np.ndarray:
+    """轻量去地面：z 硬阈值 + LSQ 单平面拟合移除残留地面 inliers。
+
+    LEAD 训练用 `ransac.remove_ground`（n_segments=8 + numba）做径向分段拟合；
+    那个实现依赖 numba 重依赖，按 PROJECT_CONTEXT.md §1 不引入。
+    这里用：
+    1. 先按 z 阈值过滤明显的地面点（ego frame 地面 z ≈ -1.5m，因为
+       `lidar_to_ego_coordinate` 末尾 `z -= pos.z/2 = -1.25` 让 ego 原点偏车顶）。
+    2. 再用 LSQ 拟一个 z = a*x + b*y + c 的平面（候选低点子集），
+       距离平面 < inlier_thresh 的点视为地面。
+    这是近似实现，与 LEAD RANSAC 在远距离斜坡上会有差异；不影响近场关键点。
+    """
+    if points_ego.shape[0] == 0:
+        return points_ego
+
+    # 1. z 阈值粗筛：z < z_floor - 0.2 的肯定是地面，删
+    z = points_ego[:, 2]
+    hard_ground = z < (z_floor - 0.2)
+    pts = points_ego[~hard_ground]
+    if pts.shape[0] < 50:
+        return pts
+
+    # 2. 取低层候选点（z 在 [z_floor-0.2, z_floor+0.4]）拟平面
+    cand_mask = (pts[:, 2] >= z_floor - 0.2) & (pts[:, 2] <= z_floor + 0.4)
+    cand = pts[cand_mask]
+    if cand.shape[0] < 50:
+        return pts
+    # LSQ: A @ [a,b,c] = z；A = [x, y, 1]
+    A = np.column_stack([cand[:, 0], cand[:, 1], np.ones(cand.shape[0], dtype=np.float32)])
+    try:
+        coef, *_ = np.linalg.lstsq(A, cand[:, 2], rcond=None)
+    except np.linalg.LinAlgError:
+        return pts
+    a, b, c = coef
+    # 距离 = |a*x + b*y + c - z| / sqrt(a^2 + b^2 + 1)
+    norm = float(math.sqrt(a * a + b * b + 1.0))
+    dist = np.abs(a * pts[:, 0] + b * pts[:, 1] + c - pts[:, 2]) / max(norm, 1e-6)
+    ground_mask = (dist < plane_inlier_thresh) & (pts[:, 2] < z_floor + 0.4)
+    return pts[~ground_mask]
+
+
+_LIDAR_REMOVE_GROUND = os.environ.get("LIDAR_REMOVE_GROUND", "1") != "0"
+_LIDAR_GROUND_Z = float(os.environ.get("LIDAR_GROUND_Z", "-1.4"))
+
+
+def _preprocess_lidar_like_lead(points_ego: np.ndarray) -> np.ndarray:
+    """LEAD 风格的 LiDAR 过滤。
+
+    流程对齐 `base_agent.tick()` line 134-227：
+    1. 去 ego box（abs(x)>extent_x AND abs(y)>extent_y）
+    2. BEV 范围裁切（XYZ in [min_*, max_*]）
+    3. 去地面：LEAD 用 ransac.remove_ground；我们用轻量 LSQ 平面拟合
+       （env `LIDAR_REMOVE_GROUND=0` 可关）
+    4. 0.1m XYZ 量化（与 LEAD `point_precision_*` 等价的简化版）
+
+    Radar 拼接见 `_tick_radar`；本函数只处理纯 LiDAR。
     """
     pts = np.asarray(points_ego, dtype=np.float32)
     if pts.size == 0:
@@ -223,6 +372,12 @@ def _preprocess_lidar_like_lead(points_ego: np.ndarray) -> np.ndarray:
     pts = pts[outside_ego & inside_bev]
     if pts.size == 0:
         return np.zeros((0, 3), dtype=np.float32)
+
+    if _LIDAR_REMOVE_GROUND:
+        pts = _remove_ground_lsq(pts, z_floor=_LIDAR_GROUND_Z)
+        if pts.size == 0:
+            return np.zeros((0, 3), dtype=np.float32)
+
     pts = np.round(pts / _LEAD_POINT_PRECISION_M) * _LEAD_POINT_PRECISION_M
     return pts.astype(np.float32, copy=False)
 
@@ -334,7 +489,11 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         # no-BEV 模型不声明、不读取 LiDAR；BEV 模型才请求 LEAD 双 LiDAR。
         # 注意 runner 内部可能仍构造 BEV encoder，但 forward 会由 decoder_config.use_bev 控制。
         self.need_lidar = self.use_bev
-        print(f"[MOTLeadAgent] decoder.use_bev = {self.use_bev}")
+        # 训练时 save_radar_pc_as_lidar=True 默认就把 radar 拼进 LiDAR；
+        # 只有 BEV 模型用 LiDAR，所以 use_radar 也只在 use_bev 时声明传感器。
+        # env `USE_RADAR=0` 可显式关闭做对照实验。
+        self.use_radar = bool(self.use_bev and _USE_RADAR)
+        print(f"[MOTLeadAgent] decoder.use_bev = {self.use_bev}, use_radar = {self.use_radar}")
         self.clip_len = 4
 
         # ---- 输出目录 <eval_base>/<signature>/route<route_id>/ ----
@@ -361,7 +520,6 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             "sensor_profile": self.sensor_profile,
             "step_stride": self.step_stride,
             "history_seconds": (self.clip_len - 1) * self.step_stride / 20.0,
-            "warmup_policy": "wait_for_real_4hz_history",
             "waypoint_dt_seconds": 0.25,
             "lidar_preprocess": {
                 "active": self.need_lidar,
@@ -379,7 +537,14 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             "record": {
                 "input": _RECORD_INPUT, "debug": _RECORD_DEBUG,
                 "demo": _RECORD_DEMO, "grid": _RECORD_GRID,
+                "bev_debug": _RECORD_BEV_DEBUG,
             },
+            "jpeg_quality": _JPEG_QUALITY,
+            "lidar_remove_ground": _LIDAR_REMOVE_GROUND,
+            "lidar_ground_z": _LIDAR_GROUND_Z,
+            "use_radar": getattr(self, "use_radar", False),
+            "low_speed_tp_threshold_m_per_s": _LOW_SPEED_TP_THRESHOLD,
+            "warmup_policy": "lead_style_left_pad_clip",
         }
         with open(self.signature_path / "config.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -393,6 +558,7 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             record_debug=_RECORD_DEBUG,
             record_demo=_RECORD_DEMO,
             record_grid=_RECORD_GRID,
+            record_bev_debug=_RECORD_BEV_DEBUG,
             produce_frame_frequency=1,   # 与 CARLA tick 同频；如需稀采可改
         )
 
@@ -482,6 +648,19 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
                 "x": _LEAD_LIDAR_POS[0], "y": _LEAD_LIDAR_POS[1], "z": _LEAD_LIDAR_POS[2],
                 "roll": 0.0, "pitch": 0.0, "yaw": _LEAD_LIDAR_YAW_2, "id": "LIDAR2",
             })
+            # 4 个 radar：LEAD 训练默认 `save_radar_pc_as_lidar=True` 把 radar 拼到 LiDAR。
+            # 不接 radar 会让 BEV 远距离/盲区点密度偏少 → 偏离训练分布。
+            if getattr(self, "use_radar", False):
+                for rcfg in _LEAD_RADAR_CALIBRATION:
+                    sensors.append({
+                        "type": "sensor.other.radar",
+                        "x": rcfg["pos"][0], "y": rcfg["pos"][1], "z": rcfg["pos"][2],
+                        "roll": rcfg["rot"][0], "pitch": rcfg["rot"][1],
+                        "yaw": rcfg["rot"][2],
+                        "horizontal_fov": rcfg["horizontal_fov"],
+                        "vertical_fov": rcfg["vertical_fov"],
+                        "id": rcfg["id"],
+                    })
         sensors.extend([
             {"type": "sensor.other.imu", "x": 0.0, "y": 0.0, "z": 0.0,
              "roll": 0.0, "pitch": 0.0, "yaw": 0.0, "sensor_tick": 0.05, "id": "IMU"},
@@ -563,7 +742,8 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             input_data["CAM_LEFT"][1],
             input_data["CAM_FRONT"][1],
             input_data["CAM_RIGHT"][1],
-        )   # (384, 1152, 3) RGB uint8
+            jpeg_quality=_JPEG_QUALITY,
+        )   # (384, 1152, 3) RGB uint8（已做 JPEG round-trip 对齐训练分布）
 
         if self.need_lidar:
             # 两个 LiDAR 的外参和 LEAD 数据采集保持一致；no-BEV 时不会访问这些 key。
@@ -577,6 +757,34 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
                 lidar_ego = np.concatenate([lidar_ego_1, lidar_ego_2], axis=0)
             else:
                 lidar_ego = lidar_ego_1
+
+            # 4 个 radar 转 ego 后拼到 LiDAR，与 LEAD `base_agent.tick()` line 177-193 同源。
+            # 拼完后做 near-ego duplicate（与 duplicate_radar_near_ego=True 一致）。
+            if self.use_radar:
+                radar_lists: list[np.ndarray] = []
+                for rcfg in _LEAD_RADAR_CALIBRATION:
+                    raw = input_data.get(rcfg["id"], None)
+                    if raw is None:
+                        continue
+                    pts = _radar_points_to_ego(raw[1], rcfg["pos"], rcfg["rot"])
+                    if pts.size > 0:
+                        radar_lists.append(pts)
+                if radar_lists:
+                    radar_all = np.concatenate(radar_lists, axis=0)
+                    # 近车 radar 复制 factor 次：放大近距离 radar 信号在 BEV 栅格里的权重，
+                    # 与 LEAD `base_agent.tick()` line 182-193 一致。
+                    near_mask = (
+                        np.linalg.norm(radar_all[:, :2], axis=1)
+                        < _LEAD_DUPLICATE_RADAR_RADIUS
+                    )
+                    radar_near = radar_all[near_mask]
+                    if radar_near.size > 0:
+                        radar_dup = np.concatenate(
+                            [radar_near] * _LEAD_DUPLICATE_RADAR_FACTOR, axis=0
+                        )
+                        radar_all = np.concatenate([radar_all, radar_dup], axis=0)
+                    lidar_ego = np.concatenate([lidar_ego, radar_all], axis=0)
+
             lidar_ego = _preprocess_lidar_like_lead(lidar_ego)
         else:
             lidar_ego = np.zeros((0, 3), dtype=np.float32)
@@ -650,18 +858,30 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         """沿剩余 global route 弧长找未来 lookahead_s 秒位置。
 
         逻辑：
-        1. 目标弧长 = max(speed * lookahead_s, MIN_LOOKAHEAD_M)
-        2. 从 ego 当前位置开始，沿 self._route_planner.route deque 顺序累加每个
+        1. 低速 fallback：speed < `_LOW_SPEED_TP_THRESHOLD` 时直接返回 ego 当前
+           位置 → ego frame 下 tp ≈ (0, 0)。**与离线对齐**：训练时车在红灯前停着，
+           未来 1.5s 真值位置 ≈ 当前位置，tp 就是 ~0。如果在线退化成"沿弧长前推 5m"，
+           tp ≈ (5, 0) 会让模型误以为该往前走。
+        2. 否则目标弧长 = `speed * lookahead_s`（移除原来的 MIN_LOOKAHEAD_M=5 兜底）
+        3. 从 ego 当前位置开始，沿 self._route_planner.route deque 顺序累加每个
            路点之间的距离，直到累加值 >= 目标弧长。
-        3. 在该段内按比例线性插值，返回 (world_xy, RoadOption)
-        4. route 走完时返回最后一个路点；route 为空时沿当前 compass 直推。
+        4. 在该段内按比例线性插值，返回 (world_xy, RoadOption)
+        5. route 走完时返回最后一个路点；route 为空时沿当前 compass 直推。
 
         与离线 build_clip 用未来真值位置的语义近似一致：训练用真值未来 1.5s
         位置；推理无真值，只能按 expected 速度沿规划路径推。这是闭环里
         能拿到的最接近训练分布的 navigation hint。
         """
         from agents.navigation.local_planner import RoadOption
-        target_dist = float(max(speed * lookahead_s, _MIN_LOOKAHEAD_M))
+
+        # 低速 fallback：车基本不动时，tp = ego 当前位置（→ ego frame ≈ (0,0)）。
+        if speed < _LOW_SPEED_TP_THRESHOLD:
+            route_for_cmd = list(self._route_planner.route)
+            far_cmd = route_for_cmd[0][1] if route_for_cmd else RoadOption.LANEFOLLOW
+            return np.asarray(gps_xy, dtype=np.float32), far_cmd
+
+        # 正常前推：直接 speed * lookahead，不再上 5m 兜底（兜底由上面 low-speed 分支接管）。
+        target_dist = float(speed * lookahead_s)
 
         route = list(self._route_planner.route)  # deque -> snapshot list
         if len(route) == 0:
@@ -720,17 +940,21 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             self.clip_ntp.append(tick_data["next_target_point_ego"])
             self.clip_steps.append(int(self.step))
 
-        warmup_done = len(self.clip_rgb) == self.clip_len
-        lidar_ready = (not self.use_bev) or (len(self.lidar_sweep_buffer) >= self.step_stride)
-        is_inference_tick = warmup_done and is_sample_tick and lidar_ready
+        # LEAD 风格 warmup：不等历史，第一个 4Hz 采样点就推理；
+        # 历史不足时复制 clip 首元素 left-pad 到 clip_len。LeadMoT dataset 的
+        # build_clip 在 anchor 历史不足时也是复制 frame 0（line 1808-1815），
+        # 模型分布上见过这种 pad 输入。
+        history_ready = len(self.clip_rgb) >= 1
+        lidar_ready = (not self.use_bev) or (len(self.lidar_sweep_buffer) >= 1)
+        is_inference_tick = history_ready and is_sample_tick and lidar_ready
 
         # 安全状态：stuck 计数、parking_start 检测、deadlock 检测
-        self.update_safety_state(tick_data, warmup_done)
+        self.update_safety_state(tick_data, history_ready)
 
-        if not warmup_done:
-            # warmup：等真实 4Hz 历史帧，同时低速 creep；debug 还没有预测可画。
+        if not history_ready:
+            # 还没拿到第一个 4Hz 采样点（即首帧前 5 个 tick 内）：LEAD 第一帧也是 brake=1。
             self._record_videos(tick_data["rgb_stitched"], None)
-            ctrl = carla.VehicleControl(throttle=0.2, steer=0.0, brake=0.0)
+            ctrl = carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0)
             ctrl = self.apply_safety_overrides(ctrl, tick_data)
             self.prev_control = ctrl
             self.control = ctrl
@@ -781,18 +1005,27 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             anchor_lidar = np.zeros((0, 3), dtype=np.float32)
 
         lead_clip = _make_empty_lead_clip(self.clip_len)
+        # LEAD 风格 left-pad：clip 历史不足时复制 frame 0（与 build_clip line 1808-1815 一致）
+        # 假设 deque 顺序：index 0 = 最早，index -1 = 最新（anchor）。
+        # 当 len(clip)<clip_len 时，前 (clip_len - len) 位补 clip[0]。
+        n_have = len(self.clip_rgb)
+        n_pad = max(0, self.clip_len - n_have)
         for i in range(self.clip_len):
+            src = max(0, i - n_pad)  # 前 n_pad 个都用 clip[0]
             # clip_rgb/pos/theta/... 都只在 4Hz sample tick 入队，因此这里的 4 帧就是训练时
             # 0.25s 间隔的历史，而不是 20Hz 连续帧。
-            lead_clip["rgb"][i] = self.clip_rgb[i]
-            lead_clip["pos_global"][i] = self.clip_pos[i]
-            lead_clip["theta"][i] = self.clip_theta[i]
-            lead_clip["speed"][i] = self.clip_speed[i]
-            lead_clip["target_point"][i] = self.clip_tp[i]
-            lead_clip["target_point_next"][i] = self.clip_ntp[i]
+            lead_clip["rgb"][i] = self.clip_rgb[src]
+            lead_clip["pos_global"][i] = self.clip_pos[src]
+            lead_clip["theta"][i] = self.clip_theta[src]
+            lead_clip["speed"][i] = self.clip_speed[src]
+            lead_clip["target_point"][i] = self.clip_tp[src]
+            lead_clip["target_point_next"][i] = self.clip_ntp[src]
             lead_clip["lidar_points"][i] = (
                 anchor_lidar if i == self.clip_len - 1 else np.zeros((0, 3), dtype=np.float32)
             )
+        if n_pad > 0:
+            print(f"[MOTLeadAgent] step={self.step} warmup-pad: copied frame 0 "
+                  f"x{n_pad} to fill clip (LEAD-style, dataset has seen this)")
 
         t0 = time.time()
         outs = self.runner.run_clip(
@@ -860,6 +1093,26 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             except Exception as e:
                 print(f"[MOTLeadAgent] debug overlay failed: {e}")
 
+        # BEV 顶视 debug：用最近一帧 LiDAR + 上一拍预测画一张 LEAD 风格 BEV pseudo-image。
+        # tick_data 为 None（warmup 阶段）时仍画一张含 ego box 的占位图。
+        if _RECORD_BEV_DEBUG:
+            try:
+                lidar_for_bev = tick_data["lidar_ego"] if tick_data is not None else None
+                tp_for_bev = tick_data["target_point_ego"] if tick_data is not None else None
+                ntp_for_bev = (
+                    tick_data["next_target_point_ego"] if tick_data is not None else None
+                )
+                bev_bgr = render_bev_debug(
+                    lidar_ego=lidar_for_bev,
+                    pred_waypoints_ego=self.last_pred_waypoints,
+                    pred_route_ego=self.last_pred_route,
+                    target_point_ego=tp_for_bev,
+                    next_target_point_ego=ntp_for_bev,
+                )
+                self.video.write_bev_debug_frame(bev_bgr)
+            except Exception as e:
+                print(f"[MOTLeadAgent] bev_debug render failed: {e}")
+
         # demo / grid 不依赖 stitched_bgr，但 grid 会复用 _last_input
         try:
             self.video.write_demo_frame()
@@ -880,12 +1133,18 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             return self.apply_safety_overrides(ctrl, tick_data)
         steer = float(self.turn_controller.step(route, tick_data["speed"]))
         steer = float(np.clip(steer, -1.0, 1.0))
-        # 8 个未来 waypoints @ 0.25s/帧，约 2s；取相邻两点估目标速度
-        if wps.shape[0] >= 2:
-            v0 = float(np.linalg.norm(wps[0]) / 0.25)
-            v1 = float(np.linalg.norm(wps[1] - wps[0]) / 0.25)
-            tgt_speed = 0.6 * v0 + 0.4 * v1
-        elif wps.shape[0] == 1:
+        # 8 个未来 waypoints @ 0.25s/帧（waypoint_dt=0.25），跨度约 2s。
+        # 按 LEADMOT_PLAN.md §32：闭环用 0.5s 与 1.0s 两个点估 desired speed，
+        # 而不是 wp[0]/wp[1] 这种相邻两点（后者对加速/减速过敏，噪声大）。
+        # 0.5s 处 = wp[1]，1.0s 处 = wp[3]；distance / 0.5s 即为期望平均速度。
+        n = wps.shape[0]
+        if n >= 4:
+            v_05 = float(np.linalg.norm(wps[1]) / 0.5)         # 0~0.5s 段
+            v_10 = float(np.linalg.norm(wps[3] - wps[1]) / 0.5)  # 0.5s~1.0s 段
+            tgt_speed = 0.5 * v_05 + 0.5 * v_10                 # 平均
+        elif n >= 2:
+            tgt_speed = float(np.linalg.norm(wps[1]) / 0.5)
+        elif n == 1:
             tgt_speed = float(np.linalg.norm(wps[0]) / 0.25)
         else:
             tgt_speed = 0.0

@@ -173,7 +173,13 @@ Optimizer 设置（当前共享训练配置，v2 会覆盖 LR / warmup 默认值
   - 学习率默认 `2e-4`，weight decay `0.01`，betas `(0.9, 0.95)`。
 - 两个 optimizer 共享同一份 cosine + warmup ratio `0.05` 的 LR 调度（`_DualScheduler` 同步驱动）。
 - `t_sampler=logit_normal`（SD3 配方，t 集中在 0.5 附近）。
-- `z0_prior_alpha=1.0, z0_prior_sigma=1.0`，起点为当前帧 latent + 噪声。
+- **`z0_prior_alpha=0.0, z0_prior_sigma=1.0`**：起点为纯噪声 `z0 ~ N(0, I)`。
+  **早期默认 alpha=1.0 把当前帧 latent 掺进 z0 → 低 t 区 z_t 由"当前帧+噪声"主导，
+  模型偷懒学还原当前帧而不是 subgoal**。已统一改回纯噪声起点，让模型必须从噪声
+  生成 subgoal。仅做 image-to-image ablation 时显式设回 `--z0-prior-alpha 1.0`
+  （此时推理 `z_init` 必须用同样的混合方式构造，分布才一致）。
+  此默认值在 v1 和 v2 共享同一份 `train.py / train.sh / eval.py / probe.py` 代码，
+  覆盖两个版本。
 - CFG：训练 `cfg_drop_prob=0.1`，推理 `cfg_scale=2.0`。
 - EMA：`ema_decay=0.9999`，val / image log / eval / probe / runner 默认使用 EMA 权重。
 - VAE latent stats：训练启动时在 `train.jsonl` 同目录缓存 `latent_stats.json`，encode 后标准化、decode 前反标准化。

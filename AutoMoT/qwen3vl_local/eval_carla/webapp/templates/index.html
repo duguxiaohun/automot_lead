@@ -17,6 +17,10 @@
       <label>signature:</label>
       <select id="sig-select"></select>
     </div>
+    <div class="sig-pick">
+      <label>run:</label>
+      <select id="run-select"></select>
+    </div>
     <nav class="tabs">
       <button class="tab active" data-tab="routes">Routes</button>
       <button class="tab" data-tab="scenarios">Scenarios</button>
@@ -56,12 +60,14 @@
 const API = {
   // 所有数据都来自 Flask JSON API；视频本体走 /video/<signature>/routeX/*.mp4。
   sigs:      () => fetch('/api/signatures').then(r => r.json()),
+  runs:      s  => fetch(`/api/runs?sig=${encodeURIComponent(s)}`).then(r => r.json()),
   routes:    s  => fetch(`/api/routes?sig=${encodeURIComponent(s)}`).then(r => r.json()),
   route:     (s, rid) => fetch(`/api/route?sig=${encodeURIComponent(s)}&route_id=${rid}`).then(r => r.json()),
-  scenarios: s  => fetch(`/api/scenarios?sig=${encodeURIComponent(s)}`).then(r => r.json()),
+  scenarios: (s, run) => fetch(`/api/scenarios?sig=${encodeURIComponent(s)}&run=${encodeURIComponent(run)}`).then(r => r.json()),
 };
 
 let CURRENT_SIG = '';
+let CURRENT_RUN = '__all__';
 
 // ---------------- 顶部 tab 切换 ----------------
 document.querySelectorAll('.tab').forEach(btn => {
@@ -88,14 +94,39 @@ async function loadSigs() {
   if (data.signatures.length) {
     CURRENT_SIG = data.signatures[0];
     sel.value = CURRENT_SIG;
+    await loadRuns();
     loadRoutes();
   }
-  sel.addEventListener('change', () => {
+  sel.addEventListener('change', async () => {
     CURRENT_SIG = sel.value;
+    await loadRuns();
     loadRoutes();
     if (document.getElementById('tab-scenarios').classList.contains('active'))
       loadScenarios();
   });
+}
+
+// ---------------- run_label 下拉 ----------------
+async function loadRuns() {
+  // 每个 signature 下可能有多次跑：full / scenario_X / random_N20_S42 / __all__。
+  // 选不同 run 时，Scenarios tab 显示对应批次的聚合；Routes tab 视频列表不受影响
+  // （视频和 leaderboard json 在 signature 根共享）。
+  const data = await API.runs(CURRENT_SIG);
+  const sel = document.getElementById('run-select');
+  sel.innerHTML = '';
+  const runs = (data.runs && data.runs.length) ? data.runs : ['__all__'];
+  runs.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = opt.textContent = r;
+    sel.appendChild(opt);
+  });
+  CURRENT_RUN = runs[0];
+  sel.value = CURRENT_RUN;
+  sel.onchange = () => {
+    CURRENT_RUN = sel.value;
+    if (document.getElementById('tab-scenarios').classList.contains('active'))
+      loadScenarios();
+  };
 }
 
 // ---------------- routes 列表 ----------------
@@ -137,7 +168,7 @@ async function loadRouteDetail(rid) {
     root.innerHTML = `<div class="placeholder error">${data.error}</div>`;
     return;
   }
-  const videoTabs = ['input', 'debug', 'demo', 'grid'];
+  const videoTabs = ['input', 'debug', 'bev_debug', 'demo', 'grid'];
   // 某些视频可能被 launcher --no-* 关掉，所以根据后端 videos 字段禁用 tab。
   const available = videoTabs.filter(v => data.videos[v]);
   const firstVideo = available[0] || null;
@@ -182,7 +213,7 @@ async function loadRouteDetail(rid) {
 // ---------------- scenarios 聚合 ----------------
 async function loadScenarios() {
   if (!CURRENT_SIG) return;
-  const data = await API.scenarios(CURRENT_SIG);
+  const data = await API.scenarios(CURRENT_SIG, CURRENT_RUN || '__all__');
   const tbody = document.querySelector('#scenarios-table tbody');
   tbody.innerHTML = '';
   const scenarios = data.scenarios || {};

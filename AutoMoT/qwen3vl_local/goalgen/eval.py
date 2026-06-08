@@ -535,7 +535,7 @@ def velocity_cosine_multi_t(
     z1: torch.Tensor,
     device: torch.device,
     dtype: torch.dtype,
-    z0_prior_alpha: float = 1.0,
+    z0_prior_alpha: float = 0.0,    # 默认纯噪声起点，与 train 默认对齐
     z0_prior_sigma: float = 1.0,
     t_grid: Tuple[float, ...] = (0.1, 0.3, 0.5, 0.7, 0.9),
 ) -> float:
@@ -1413,7 +1413,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--euler-steps", type=int, default=32,
                    help="生成 z1_pred 的 Euler 步数；rectified flow 下 32 通常足够。")
     p.add_argument("--cfg-scale", type=float, default=2.0)
-    p.add_argument("--z0-prior-alpha", type=float, default=1.0)
+    # 与 train 默认对齐：alpha=0.0 用纯噪声起点。设回 1.0 仅做 image-to-image ablation。
+    p.add_argument("--z0-prior-alpha", type=float, default=0.0)
     p.add_argument("--z0-prior-sigma", type=float, default=1.0)
     p.add_argument("--use-ema", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--image-dump-count", type=int, default=32,

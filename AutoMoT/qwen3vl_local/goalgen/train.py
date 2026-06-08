@@ -1674,7 +1674,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--t-sampler", choices=["uniform", "logit_normal"], default="logit_normal")
     p.add_argument("--t-logit-mean", type=float, default=0.0)
     p.add_argument("--t-logit-std", type=float, default=1.0)
-    p.add_argument("--z0-prior-alpha", type=float, default=1.0)
+    # **默认 alpha=0.0**：纯噪声起点 z0 ~ N(0,I)，强制模型学 subgoal 本身。
+    # 之前默认 alpha=1.0 把当前帧 latent 掺进 z0，低 t 区域 z_t 主要是"当前帧+噪声"，
+    # 模型可以靠还原当前帧拿到大部分 v_target 监督——这是捷径学习。
+    # 仅做 image-to-image style ablation 时再显式 --z0-prior-alpha 1.0。
+    p.add_argument("--z0-prior-alpha", type=float, default=0.0)
     p.add_argument("--z0-prior-sigma", type=float, default=1.0)
     p.add_argument("--cfg-drop-prob", type=float, default=0.1)
     p.add_argument("--cfg-scale", type=float, default=2.0)

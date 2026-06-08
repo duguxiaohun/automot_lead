@@ -107,7 +107,11 @@ QWEN_DTYPE="${QWEN_DTYPE:-bfloat16}"
 VAE_DTYPE="${VAE_DTYPE:-float32}"
 DIT_DTYPE="${DIT_DTYPE:-bfloat16}"
 T_SAMPLER="${T_SAMPLER:-logit_normal}"
-Z0_PRIOR_ALPHA="${Z0_PRIOR_ALPHA:-1.0}"
+# 默认 Z0_PRIOR_ALPHA=0.0：纯噪声起点 z0 ~ N(0,I)，模型只学 subgoal 本身。
+# 之前默认 1.0 把当前帧 latent 掺进 z0 → 低 t 区 z_t 是"当前帧+噪声"主导，
+# 模型靠还原当前帧拿大部分梯度，等于在捷径学习。
+# image-to-image ablation 才设回 1.0（同时也要保证推理 z_init 用同样混合方式）。
+Z0_PRIOR_ALPHA="${Z0_PRIOR_ALPHA:-0.0}"
 Z0_PRIOR_SIGMA="${Z0_PRIOR_SIGMA:-1.0}"
 CFG_DROP_PROB="${CFG_DROP_PROB:-0.1}"
 CFG_SCALE="${CFG_SCALE:-2.0}"
