@@ -51,7 +51,9 @@ ROUTE_IDS_ARG=()
 RANDOM_N=""
 RANDOM_SEED="0"
 RECORD_INPUT="1"; RECORD_DEBUG="1"; RECORD_DEMO="1"; RECORD_GRID="1"
+RECORD_BEV_DEBUG="1"
 DO_AGGREGATE="1"
+RUN_LABEL_OVERRIDE=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -69,7 +71,9 @@ while [ $# -gt 0 ]; do
         --no-debug)   RECORD_DEBUG="0"; shift ;;
         --no-demo)    RECORD_DEMO="0"; shift ;;
         --no-grid)    RECORD_GRID="0"; shift ;;
+        --no-bev-debug) RECORD_BEV_DEBUG="0"; shift ;;
         --no-aggregate) DO_AGGREGATE="0"; shift ;;
+        --run-label) RUN_LABEL_OVERRIDE="$2"; shift 2 ;;
         -h|--help) sed -n '1,45p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
@@ -273,6 +277,109 @@ if [ "${TOTAL}" -eq 0 ]; then
     exit 0
 fi
 
+# -------------------- 计算 RUN_LABEL --------------------
+# 按跑法语义自动生成本批次目录名，让 random/scenario/full 的聚合互不污染。
+# route 视频和 leaderboard json 仍写在 signature 根（共享、断点续跑）；
+# 仅 scenarios/ 和 summary_all.json 落到 runs/<RUN_LABEL>/ 下。
+if [ -n "${RUN_LABEL_OVERRIDE}" ]; then
+    RUN_LABEL="${RUN_LABEL_OVERRIDE}"
+elif [ "${SINGLE_TEST}" = "1" ]; then
+    RUN_LABEL="smoke_${ROUTE_IDS[0]}"
+else
+    parts=()
+    if [ ${#SCENARIOS[@]} -gt 0 ]; then
+        # 多个 scenario 用 '+' 连接；不做编码以保持可读性
+        IFS='+' joined="${SCENARIOS[*]}"; unset IFS
+        parts+=("scenario_${joined}")
+    fi
+    if [ -n "${RANDOM_N}" ]; then
+        parts+=("random_N${RANDOM_N}_S${RANDOM_SEED}")
+    fi
+    if [ ${#ROUTE_IDS_ARG[@]} -gt 0 ]; then
+        # 列前 3 个 route_id，避免文件名过长
+        head_ids="${ROUTE_IDS_ARG[*]:0:3}"
+        head_ids_compact="${head_ids// /+}"
+        if [ ${#ROUTE_IDS_ARG[@]} -gt 3 ]; then
+            head_ids_compact="${head_ids_compact}_etc${#ROUTE_IDS_ARG[@]}"
+        fi
+        parts+=("routes_${head_ids_compact}")
+    fi
+    if [ ${#parts[@]} -eq 0 ]; then
+        RUN_LABEL="full"
+    else
+        # 多个过滤器组合时用双下划线分隔
+        IFS='__' joined_parts="${parts[*]}"; unset IFS
+        RUN_LABEL="${joined_parts}"
+    fi
+fi
+# 清洗：把不能进文件名的字符替换成 _
+RUN_LABEL=$(echo "${RUN_LABEL}" | tr -c 'A-Za-z0-9._+-' '_' | sed 's/__*/_/g; s/^_//; s/_$//')
+RUN_DIR="${SIG_DIR}/runs/${RUN_LABEL}"
+mkdir -p "${RUN_DIR}"
+
+# 写 run_manifest.json：让后续 aggregate / webapp 能精确知道这次跑了哪些 route_id。
+# 用环境变量传递所有数组/字符串，避免 set -u 下空数组展开 unbound variable。
+SCENARIOS_STR="${SCENARIOS[*]:-}"
+ROUTE_IDS_ARG_STR="${ROUTE_IDS_ARG[*]:-}"
+ROUTE_IDS_STR="${ROUTE_IDS[*]:-}"
+GPU_IDS_STR="${GPU_IDS[*]:-}"
+RUN_LABEL="${RUN_LABEL}" \
+RUN_DIR="${RUN_DIR}" \
+CKPT_SIGNATURE="${CKPT_SIGNATURE}" \
+LEADMOT_CKPT="${LEADMOT_CKPT}" \
+LEADMOT_USE_EMA="${LEADMOT_USE_EMA:-1}" \
+SINGLE_TEST="${SINGLE_TEST}" \
+SCENARIOS_STR="${SCENARIOS_STR}" \
+ROUTE_IDS_ARG_STR="${ROUTE_IDS_ARG_STR}" \
+RANDOM_N="${RANDOM_N:-}" \
+RANDOM_SEED="${RANDOM_SEED}" \
+ROUTE_IDS_STR="${ROUTE_IDS_STR}" \
+TOTAL="${TOTAL}" \
+RECORD_INPUT="${RECORD_INPUT}" \
+RECORD_DEBUG="${RECORD_DEBUG}" \
+RECORD_BEV_DEBUG="${RECORD_BEV_DEBUG}" \
+RECORD_DEMO="${RECORD_DEMO}" \
+RECORD_GRID="${RECORD_GRID}" \
+SENSOR_PROFILE="${SENSOR_PROFILE}" \
+STEP_STRIDE="${STEP_STRIDE}" \
+GPU_COUNT="${GPU_COUNT}" \
+GPU_IDS_STR="${GPU_IDS_STR}" \
+python3 - <<'PY'
+import json, os, time, pathlib
+def _intlist(s: str) -> list[int]:
+    return [int(x) for x in s.split() if x]
+def _strlist(s: str) -> list[str]:
+    return [x for x in s.split() if x]
+manifest = {
+    "run_label": os.environ["RUN_LABEL"],
+    "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    "signature": os.environ["CKPT_SIGNATURE"],
+    "leadmot_ckpt": os.environ["LEADMOT_CKPT"],
+    "leadmot_use_ema": int(os.environ.get("LEADMOT_USE_EMA", "1") or "0"),
+    "single_test": int(os.environ.get("SINGLE_TEST", "0") or "0"),
+    "scenarios_filter": _strlist(os.environ.get("SCENARIOS_STR", "")),
+    "route_ids_filter": _strlist(os.environ.get("ROUTE_IDS_ARG_STR", "")),
+    "random_n": int(os.environ["RANDOM_N"]) if os.environ.get("RANDOM_N") else 0,
+    "random_seed": int(os.environ.get("RANDOM_SEED", "0") or "0"),
+    "route_ids": _intlist(os.environ.get("ROUTE_IDS_STR", "")),
+    "total_routes": int(os.environ.get("TOTAL", "0") or "0"),
+    "record": {
+        "input": bool(int(os.environ["RECORD_INPUT"])),
+        "debug": bool(int(os.environ["RECORD_DEBUG"])),
+        "bev_debug": bool(int(os.environ["RECORD_BEV_DEBUG"])),
+        "demo": bool(int(os.environ["RECORD_DEMO"])),
+        "grid": bool(int(os.environ["RECORD_GRID"])),
+    },
+    "sensor_profile": os.environ["SENSOR_PROFILE"],
+    "step_stride": int(os.environ["STEP_STRIDE"]),
+    "gpu_count": int(os.environ["GPU_COUNT"]),
+    "gpu_ids": _intlist(os.environ.get("GPU_IDS_STR", "")),
+}
+out = pathlib.Path(os.environ["RUN_DIR"]) / "run_manifest.json"
+out.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+print(f"[run_eval] wrote manifest: {out}")
+PY
+
 # -------------------- TEAM_AGENT --------------------
 TEAM_AGENT="${SCRIPT_DIR}/agent.py"
 TEAM_CONFIG_PREFIX="${LEADMOT_CKPT}"
@@ -287,12 +394,14 @@ if [ -n "${RANDOM_N}" ]; then echo "Random sample   : ${RANDOM_N} (seed=${RANDOM
 echo "Single test     : ${SINGLE_TEST}"
 echo "Save path       : ${SAVE_PATH}"
 echo "Signature       : ${CKPT_SIGNATURE}"
+echo "Run label       : ${RUN_LABEL}"
+echo "Run dir         : ${RUN_DIR}"
 echo "Leadmot ckpt    : ${LEADMOT_CKPT}"
 echo "Sensor profile  : ${SENSOR_PROFILE}"
 echo "Step stride     : ${STEP_STRIDE}"
 echo "GPU workers     : ${GPU_COUNT} (${GPU_IDS[*]})"
 echo "Use EMA weights : ${LEADMOT_USE_EMA:-1}"
-echo "Record (i/d/m/g): ${RECORD_INPUT}/${RECORD_DEBUG}/${RECORD_DEMO}/${RECORD_GRID}"
+echo "Record (i/d/bev/m/g): ${RECORD_INPUT}/${RECORD_DEBUG}/${RECORD_BEV_DEBUG}/${RECORD_DEMO}/${RECORD_GRID}"
 echo "=========================================="
 
 WORK_LOG_DIR="${SIG_DIR}/worker_logs/$(date +%Y%m%d_%H%M%S)"
@@ -334,6 +443,7 @@ run_route_worker() {
         RECORD_DEBUG="${RECORD_DEBUG}" \
         RECORD_DEMO="${RECORD_DEMO}" \
         RECORD_GRID="${RECORD_GRID}" \
+        RECORD_BEV_DEBUG="${RECORD_BEV_DEBUG}" \
         bash "${LEADERBOARD_DIR}/scripts/run_evaluation.sh" \
             "${base_port}" "${base_tm_port}" "True" \
             "${ROUTES}" "${TEAM_AGENT}" "${TEAM_CONFIG_PREFIX}+route${route_id}" \
@@ -387,10 +497,11 @@ if [ "${#FAILED_ROUTES[@]}" -gt 0 ]; then
     echo "Failed routes: ${FAILED_ROUTES[*]}"
 fi
 if [ "${DO_AGGREGATE}" = "1" ] && [ "${SINGLE_TEST}" != "1" ]; then
-    echo "Running aggregation..."
+    echo "Running aggregation for run_label=${RUN_LABEL}..."
     cd "${AUTOMOT_ROOT}" && python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
         --eval-base "${SAVE_PATH}" \
         --leadmot-ckpt "${LEADMOT_CKPT}" \
+        --run-label "${RUN_LABEL}" \
         || echo "WARN: aggregation failed"
 fi
 echo "=========================================="

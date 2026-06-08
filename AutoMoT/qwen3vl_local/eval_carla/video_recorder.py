@@ -60,10 +60,13 @@ DEMO_CAMERAS = [
 
 
 class VideoRecorder:
-    """input / debug / demo / grid 四路视频。
+    """input / debug / demo / grid / bev_debug 五路视频。
 
     所有路都按 video_fps 默认值（CARLA tick / produce_frame_frequency = 20 / 1）
     无差别采样。每路独立开关，方便从 launcher 控制。
+
+    bev_debug 是 LEAD 风格的顶视调试图：底图为黑，叠加最近一帧 LiDAR 散点 +
+    pred_route + pred_future_waypoints + tp/ntp + ego box。
     """
 
     def __init__(
@@ -73,10 +76,11 @@ class VideoRecorder:
         record_debug: bool = True,
         record_demo: bool = True,
         record_grid: bool = True,
+        record_bev_debug: bool = True,
         produce_frame_frequency: int = 1,
         compress: bool = True,
     ) -> None:
-        """初始化四路视频状态。
+        """初始化五路视频状态。
 
         这里只记录开关和路径，不立即创建 VideoWriter；每路第一帧到来时才知道真实尺寸，
         所以 writer 采用 `_ensure_writer` 懒创建。
@@ -87,6 +91,7 @@ class VideoRecorder:
         self.record_debug = record_debug
         self.record_demo = record_demo
         self.record_grid = record_grid
+        self.record_bev_debug = record_bev_debug
         self.produce_frame_frequency = max(1, int(produce_frame_frequency))
         self.video_fps = 20.0 / self.produce_frame_frequency
         self.compress = compress
@@ -96,6 +101,7 @@ class VideoRecorder:
         self._debug_writer: Optional[cv2.VideoWriter] = None
         self._demo_writer: Optional[cv2.VideoWriter] = None
         self._grid_writer: Optional[cv2.VideoWriter] = None
+        self._bev_debug_writer: Optional[cv2.VideoWriter] = None   # BEV 顶视 debug 视频
 
         self._last_demo: Optional[np.ndarray] = None
         self._last_input: Optional[np.ndarray] = None
@@ -220,6 +226,15 @@ class VideoRecorder:
         )
         self._debug_writer.write(debug_bgr)
 
+    def write_bev_debug_frame(self, bev_bgr: np.ndarray) -> None:
+        """写 BEV 顶视 debug 视频（LiDAR + pred_waypoints + tp/ntp + ego box）。"""
+        if not self.record_bev_debug or not self._gate():
+            return
+        self._bev_debug_writer = self._ensure_writer(
+            self._bev_debug_writer, self.save_dir / "bev_debug.mp4", bev_bgr
+        )
+        self._bev_debug_writer.write(bev_bgr)
+
     def write_demo_frame(self) -> None:
         """写 demo.mp4 与 grid.mp4。
 
@@ -302,6 +317,8 @@ class VideoRecorder:
             (self._debug_writer, self.save_dir / "debug.mp4", 28, "slower"),
             (self._demo_writer, self.save_dir / "demo.mp4", 18, "slow"),
             (self._grid_writer, self.save_dir / "grid.mp4", 18, "slow"),
+            # bev_debug 信息密度高、像素少，用 crf 22 取中等画质平衡可读性与体积
+            (self._bev_debug_writer, self.save_dir / "bev_debug.mp4", 22, "slow"),
         ]
         for writer, path, crf, preset in writers:
             if writer is not None:

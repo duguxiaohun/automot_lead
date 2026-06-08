@@ -1,29 +1,6 @@
 # EVAL_CARLA_RUN
 
-## 2026-06-08 完善说明
-
-- `--leadmot-ckpt` 可以传具体 checkpoint 文件，也可以传训练输出目录。目录解析顺序：
-  `best.pt` -> `latest.pt` -> `latest/best.pt` -> `latest/latest.pt` -> 最新的
-  `step-checkpoint-*.pt` / `checkpoint-epoch*.pt` / `*.pt` / `*.safetensors`。
-- `run_eval.sh` 默认自动选择 1 张显存占用最低的 GPU；传 `--num-gpus N` 或设置
-  `EVAL_GPU_COUNT=N` 时会自动选择 N 张空闲 GPU，每张卡一个 worker 并行跑 route。
-- 实时 CARLA 评测只支持 LEAD 训练分布的 `3cam`：三路 384x384、FOV=60、拼接为
-  1152x384。`1cam` 与动作模型输入尺寸不兼容，launcher 和 agent 都会拒绝。
-- 过去 4 帧 RGB 是 4Hz 采样，默认 `STEP_STRIDE=5`，所以历史跨度是
-  `(4-1)*5/20=0.75s`。动作头输出的 future waypoints 仍按 0.25s/点解释，8 点约 2s。
-- warmup 不再复制首帧填历史；agent 会等到真实 4 个 4Hz 采样点后首次推理，默认约
-  0.75s。使用 BEV 时同时要求最近 `STEP_STRIDE` 个 20Hz LiDAR sweep 已就绪，等待期间低速 creep。
-- LiDAR 只在 checkpoint 的 `decoder_config.use_bev=True` 时声明和读取；no-BEV 模型只产生
-  RGB / GPS / IMU / speedometer 等动作模型实际需要的输入。
-- BEV 模型的 LiDAR 实时输入会在 sensor->ego 后和 anchor-frame 融合后执行 LEAD 风格的确定性处理：
-  去 ego box、限制 BEV 范围、z in [-4, 10]、0.1m 量化。没有引入 RANSAC 去地面，避免在线重依赖。
-- 每个推理 `meta/<step>.json` 会记录 resolved checkpoint、历史跨度、waypoint dt、
-  LiDAR sweep 数、点数、target_point、预测轨迹和上一 tick 控制量，便于闭环诊断。
-- 新增代码已补中文注释：重点覆盖输入适配、坐标变换、warmup、GPU worker、视频/可视化、
-  scenario 聚合和 webapp API。以后改这些行为时要同步更新代码注释和本运行说明。
-- 当前 Python class/function 已全部补 docstring；shell / HTML / CSS 也在关键逻辑块前补了中文说明。
-
-LeadMoT 闭环评测一键操作手册。设计与边界见 [`EVAL_CARLA_PLAN.md`](EVAL_CARLA_PLAN.md)。
+LeadMoT 闭环评测一键操作手册。架构与对齐细节见 [`EVAL_CARLA_PLAN.md`](EVAL_CARLA_PLAN.md)。
 
 ---
 
@@ -38,8 +15,12 @@ LeadMoT 闭环评测一键操作手册。设计与边界见 [`EVAL_CARLA_PLAN.md
 
 ## 1. 三种跑法
 
-> launcher 共享一份代码 `run_eval.sh`，区别只在过滤器。所有模式都自动 ffmpeg 压缩
-> 四路视频、自动跑完后聚合到 `scenarios/`。
+> `--leadmot-ckpt` 可以传具体 checkpoint 文件，也可以传训练输出目录（自动解析
+> `best.pt` / `latest.pt` / `latest/best.pt` / `latest/latest.pt` / 最新滚动 ckpt）。
+>
+> launcher 共享同一份代码 `run_eval.sh`，三种跑法只是过滤器不同。每种跑法的
+> route 视频、leaderboard json 共享同一个 ckpt signature 目录（断点续跑），
+> 但本次的 scenario 聚合结果写到 `runs/<RUN_LABEL>/` 下，**互不污染**。
 
 ### 1.1 全量 220 路线（默认）
 
@@ -49,11 +30,7 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
     --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt
 ```
 
-已评估过的 route 自动跳过（对应 signature 下
-`eval_per_route/eval_<id>.json` 存在即视为已跑），可断点续跑。不同动作模型、
-不同 `use_bev`、raw-vs-EMA 会落到不同 signature，不会互相跳过或覆盖。
-
-多卡并行跑全量：
+多卡并行：
 
 ```bash
 bash qwen3vl_local/eval_carla/run_eval.sh \
@@ -61,14 +38,12 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
     --num-gpus 4
 ```
 
-脚本会用 `nvidia-smi` 按显存占用从低到高选择 4 张卡，并按 GPU id 分配端口槽：
-`PORT_BASE_START + gpu_id * PORT_STRIDE`；默认 `PORT_BASE_START=5000`、
-`PORT_STRIDE=20`。每张卡一个 worker，route 以 round-robin 分配。
+按显存占用最低自动选 GPU，端口 `PORT_BASE_START + gpu_id * PORT_STRIDE`。
 
-### 1.2 按场景跑（LEAD scenario 子集）
+### 1.2 按 scenario 跑
 
 ```bash
-# 只跑 PedestrianCrossing 这一类
+# 单类
 bash qwen3vl_local/eval_carla/run_eval.sh \
     --leadmot-ckpt /path/best.pt \
     --scenario PedestrianCrossing
@@ -85,7 +60,7 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 python3 AutoMoT/qwen3vl_local/eval_carla/scenario_picker.py --list-scenarios
 ```
 
-### 1.3 随机 N 个 route
+### 1.3 随机 N 个
 
 ```bash
 # 全量池里随机抽 20 条；seed 固定可复现
@@ -103,12 +78,12 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 ### 1.4 指定 route_id
 
 ```bash
-# 跑单条 + 烟雾（跑完不聚合）
+# 单条 + 烟雾测试（跑完不聚合）
 bash qwen3vl_local/eval_carla/run_eval.sh \
     --leadmot-ckpt /path/best.pt \
     --route-id 1711 --single-test
 
-# 多条指定
+# 多条
 bash qwen3vl_local/eval_carla/run_eval.sh \
     --leadmot-ckpt /path/best.pt \
     --route-id 1711 --route-id 1773
@@ -119,66 +94,105 @@ route_id 精确筛、最后在剩余里 `--random N` 抽样。
 
 ---
 
-## 2. 视频开关
+## 2. 视频开关（五路，默认全开）
 
-| 标志 | 效果 |
-|---|---|
-| `--no-input` | 不写 input.mp4 |
-| `--no-debug` | 不写 debug.mp4 |
-| `--no-demo`  | 不写 demo.mp4（同时跳过 cinematic / BEV 临时摄像头 spawn） |
-| `--no-grid`  | 不写 grid.mp4 |
+| 文件 | 内容 | 关闭方式 |
+|---|---|---|
+| `input.mp4` | 1152×384 三视角拼接 RGB（已 JPEG round-trip） | `--no-input` |
+| `debug.mp4` | input 上叠加 pred_waypoints + tp 相机投影 | `--no-debug` |
+| `bev_debug.mp4` | 顶视 BEV：LiDAR + pred_route + waypoints + tp/ntp + ego box | `--no-bev-debug` |
+| `demo.mp4` | spawn cinematic + BEV 临时 carla camera | `--no-demo` |
+| `grid.mp4` | demo 上、input 下，等宽拼接 | `--no-grid` |
 
-例：只录 input + debug 最省资源：
+任意跑法默认都录全 5 路视频。最省资源（只录 input + bev_debug）：
 
 ```bash
 bash qwen3vl_local/eval_carla/run_eval.sh \
-    --leadmot-ckpt /path/best.pt --no-demo --no-grid
+    --leadmot-ckpt /path/best.pt \
+    --no-debug --no-demo --no-grid
 ```
 
 ---
 
-## 3. 推理 / 传感器档 / target_point lookahead
+## 3. 推理 / 传感器 / target_point 配置
 
-| 标志 | 默认 | 说明 |
+| 标志 / env | 默认 | 说明 |
 |---|---|---|
-| `--step-stride 5` | 5 | 每多少 tick 调一次模型；4Hz 与训练分布完全一致 |
-| `--num-gpus N` | 1 | 自动选择 N 张空闲 GPU 并行跑 route；也可用 `EVAL_GPU_COUNT=N` |
+| `--step-stride 5` | 5 | 每多少 tick 调一次模型；4Hz 与训练分布一致 |
+| `--num-gpus N` | 1 | 自动选 N 张空闲 GPU；也可用 `EVAL_GPU_COUNT=N` |
 | `--rope mrope` | mrope | mrope / mhrope / none |
-| `--sensor-profile 3cam` | 3cam | 仅支持 LEAD 三相机档；非 3cam 会直接报错 |
-| env `LEADMOT_USE_EMA` | 1 | 默认加载 checkpoint 里的 EMA shadow；设 0 强制 raw decoder |
-| env `TP_LOOKAHEAD_S` | 1.5 | target_point 未来时长（秒），与离线 build_clip 一致 |
+| `--sensor-profile 3cam` | 3cam | 仅支持 LEAD 三相机档 |
+| env `LEADMOT_USE_EMA` | 1 | checkpoint 里有 EMA shadow 时默认加载；设 0 用 raw decoder |
+| env `TP_LOOKAHEAD_S` | 1.5 | target_point 未来时长（秒） |
 | env `NTP_LOOKAHEAD_S` | 3.0 | next_target_point 未来时长（秒） |
-| env `MIN_LOOKAHEAD_M` | 5.0 | 低速 fallback 最小前瞻距离（米） |
+| env `LOW_SPEED_TP_M_PER_S` | 1.0 | speed < 该值时 tp = ego 当前位置（红灯停车对齐训练分布） |
+| env `JPEG_QUALITY` | 85 | RGB 拼接后 JPEG round-trip quality；设 0 关闭模拟 |
+| env `LIDAR_REMOVE_GROUND` | 1 | 轻量去地面（z+LSQ）；设 0 关闭 |
+| env `LIDAR_GROUND_Z` | -1.4 | 地面 z 高度阈值（ego frame） |
+| env `USE_RADAR` | 1 | use_bev=True 时是否声明 4 个 radar 并拼到 LiDAR |
+| env `RECORD_BEV_DEBUG` | 1 | 是否写 bev_debug.mp4 |
 
-例：如果你训练时用了 1.0s / 2.5s 的 lookahead，请保持环境变量一致：
+例：训练时若用 1.0s / 2.5s 的 tp lookahead，保持环境变量一致：
 
 ```bash
 TP_LOOKAHEAD_S=1.0 NTP_LOOKAHEAD_S=2.5 \
 bash qwen3vl_local/eval_carla/run_eval.sh --leadmot-ckpt /path/best.pt
 ```
 
-target_point / next_target_point 实现：每个 tick 都按当前速度 v 沿
-`_global_plan_world_coord` 弧长前推 `max(v * lookahead_s, MIN_LOOKAHEAD_M)` 米，
-取出 world 坐标后用 `inverse_conversion_2d(world, gps, theta)` 转 ego frame
-(x_forward, y_left)。在线没有真实未来位置，这只是对离线 tp/ntp 语义的 route-lookahead 近似。
+---
+
+## 4. 输出目录
+
+```
+${EVAL_OUTPUT_BASE:-AutoMoT/outputs/closed_loop_eval}/
+  <ckpt_parent>__<ckpt_stem>__bev{0|1}__ema{0|1}/
+    config.json                              ← ckpt / use_bev / 传感器 / 录像 / env 设定
+    eval_per_route/eval_<route_id>.json      ← leaderboard 原始结果（跨跑法共享）
+    route<route_id>/                          ← route 级输出（跨跑法共享，断点续跑）
+      input.mp4 debug.mp4 bev_debug.mp4 demo.mp4 grid.mp4
+      meta/<step>.json                        ← 每个推理 tick 的 pred + 耗时 + 输入统计
+      logs/
+    runs/<RUN_LABEL>/                          ← 本次启动的聚合结果（与其他批次隔离）
+      scenarios/<Scenario>/summary.json
+      summary_all.json
+      run_manifest.json                        ← 本批次 route_id 列表 + 启动参数
+```
+
+`<RUN_LABEL>` 由跑法自动生成：
+
+| 跑法 | RUN_LABEL |
+|---|---|
+| 全量（无过滤） | `full` |
+| `--scenario PedestrianCrossing` | `scenario_PedestrianCrossing` |
+| `--scenario A --scenario B` | `scenario_A+B` |
+| `--random 20 --seed 42` | `random_N20_S42` |
+| 组合 | `scenario_A__random_N5_S0` |
+| `--route-id 1711 --route-id 1773` | `routes_1711+1773` |
+| `--single-test` | `smoke_<first_route_id>` |
+| 自定义 | `--run-label my_label` 覆盖 |
+
+`<ckpt_signature>` 由 ckpt 路径、use_bev、`LEADMOT_USE_EMA` 自动生成，不接受 CLI
+覆盖；不同 ckpt / 不同 use_bev / raw-vs-EMA 永不互相覆盖。
 
 ---
 
-## 4. 聚合脚本单独跑
+## 5. 聚合单独跑
 
 ```bash
 cd AutoMoT
+# 聚合 signature 下指定 run_label 批次
 python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
     --eval-base outputs/closed_loop_eval \
-    --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt
-```
+    --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt \
+    --run-label full
 
-`--leadmot-ckpt` 可省略，省略时聚合 `eval_base` 下所有
-`*__*__bev{0|1}__ema{0|1}` 签名目录（也兼容旧的 `*__*__bev{0|1}`）。
+# --leadmot-ckpt 可省略：聚合所有 signature 目录
+# --run-label 可省略：聚合该 signature 下所有 runs
+```
 
 ---
 
-## 5. Webapp 浏览器查看
+## 6. Webapp 浏览器查看
 
 ```bash
 pip install flask
@@ -187,33 +201,10 @@ python3 AutoMoT/qwen3vl_local/eval_carla/webapp/app.py \
 ```
 
 打开 `http://<远程ip>:5050`：
-- 顶部下拉切换 ckpt signature；tab 切 **Routes** / **Scenarios**
-- Routes：左栏按 scenario 分组列 route 与 score_composed，点开右栏切
-  input/debug/demo/grid 视频 + leaderboard scores + infractions
-- Scenarios：表格展示每个 scenario 平均分
-
-跨 ckpt 比较：直接把 `--eval-base` 指向 `closed_loop_eval`（含多个 signature 子目录）。
-
----
-
-## 6. 输出目录
-
-```
-${EVAL_OUTPUT_BASE}/closed_loop_eval/
-  <ckpt_parent>__<ckpt_stem>__bev{0|1}__ema{0|1}/
-    config.json                                 ← ckpt / use_bev / 传感器 / 录像开关
-    eval_per_route/eval_<route_id>.json         ← leaderboard 原始结果
-    route<route_id>/
-      input.mp4 debug.mp4 demo.mp4 grid.mp4
-      meta/<step>.json                          ← 每个推理触发帧的 pred + 耗时
-      logs/
-    scenarios/<Scenario>/summary.json           ← aggregate 写入
-    summary_all.json
-```
-
-`<ckpt_signature>` 由 ckpt 路径、use_bev（从 ckpt 读出来）和
-`LEADMOT_USE_EMA` 自动生成，不接受 CLI 覆盖；不同 ckpt / 不同 use_bev /
-raw-vs-EMA 永不互相覆盖。
+- 顶部下拉切换 ckpt signature 和 run_label
+- Routes：左栏按 scenario 分组列 route 与 score_composed，点开右栏切五路视频 +
+  leaderboard scores + infractions
+- Scenarios：表格展示本 run 下每个 scenario 的平均分
 
 ---
 
@@ -221,21 +212,12 @@ raw-vs-EMA 永不互相覆盖。
 
 - **首帧 demo 摄像头 spawn 失败**：通常是 ego vehicle 还没注册 `role_name=hero`。
   agent 打印 `hero vehicle not found; demo cameras skipped`，本路线 demo / grid
-  会缺，input / debug 不受影响。
-- **ffmpeg 不在 PATH**：视频不压缩，留原始 mp4v 编码 mp4，仍可播放但体积大。
-- **debug.mp4 在 warmup 阶段是空白**：默认前约 15 个 tick 还没有 pred_waypoints，
-  debug 那段不写帧。属于预期。
-- **target_point 静止时跳动**：低速时 `MIN_LOOKAHEAD_M=5m` 兜底，避免 tp 退化
-  为当前位置导致模型迷茫；如果你看到模型在停车场景里乱打方向，调大这个值。
-- **parking_escape 误触**：默认参数 1500 帧（125s）位移 < 5m 才触发，红灯等灯
-  正常不会触发。如果你的场景普遍 lights 等待 > 2 分钟，调大 `parking_deadlock_window`
-  或在 `safety.py` 里临时关掉。
-
-## 8. 维护注释约定
-
-- 改 `agent.py` 的传感器、坐标系、warmup、target_point 或 LiDAR 融合时，同步更新函数旁中文注释。
-- 改 `run_eval.sh` 的 GPU/端口/worker/断点续跑逻辑时，同步更新脚本注释和本文件的多卡说明。
-- 改输出 JSON、summary 或 webapp API 时，同步更新 `aggregate.py` / `webapp/app.py` 注释和
-  `EVAL_CARLA_PLAN.md` 的结构说明。
-- 新增 Python 函数或类时，至少写清楚输入来源、输出去向、与 LEAD/AutoMoT 兼容点；
-  新增 shell/前端逻辑时，在关键分支前写中文注释说明目的和边界。
+  会缺，input / debug / bev_debug 不受影响。
+- **ffmpeg 不在 PATH**：视频不压缩，留原始 mp4v 编码 mp4，可播放但体积大。
+- **debug.mp4 在 warmup 阶段空白**：第一次 4Hz 采样点（默认第 5 个 tick）才有
+  pred_waypoints；bev_debug.mp4 从 t=0 就有 ego box，更适合诊断 warmup。
+- **target_point 停车时**：speed < `LOW_SPEED_TP_M_PER_S=1.0` 时 tp = ego 当前位置
+  （→ ego frame ≈ (0,0)），对齐训练时车在红灯前停的真值语义。若想恢复"前推 5m"
+  老行为，设 `LOW_SPEED_TP_M_PER_S=0` 关闭此分支。
+- **parking_escape 误触**：默认 1500 帧（125s）位移 < 5m 才触发，红灯等灯正常
+  不会触发。如果场景普遍 lights 等待 > 2 分钟，在 `safety.py` 调大窗口。

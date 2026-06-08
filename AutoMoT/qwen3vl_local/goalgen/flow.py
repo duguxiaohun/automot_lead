@@ -2,11 +2,14 @@
 
 当前共享训练目标相对早期行为的差异：
 
-1. **z0 prior（image-to-image style）**：早期行为 z0 ~ N(0, I)，相当于"从纯噪声生成
-   未来帧"。子目标关键帧通常是当前帧的小幅演化（车继续前进、左转完成），完全
-   无关的画面极少。新版允许传入 ``z_prior``（一般取 ``z_history[:, -1]`` 即当前
-   帧 latent），按 ``z0 = alpha * z_prior + sigma * noise`` 构造起点。推理时
-   ``z_init`` 也用同一份 z_prior 构造，保持训练 / 推理分布一致。
+1. **z0 起点**：**默认走纯噪声起点 z0 ~ N(0, I)**——这样模型必须从噪声开始
+   一路演化到 subgoal latent，**学的就是"subgoal 长什么样"**。
+   早期一版本曾把"当前帧 latent + 噪声"作为起点（``z0 = alpha * z_prior + sigma * eps``，
+   alpha=sigma=1.0），结果模型会偷懒学"还原当前帧"——因为 z_t 在低 t 区域
+   主要是 z_prior + 噪声，预测 v_target = z1 - z0 时 z0 里的 z_prior 成分提供
+   了过强的捷径监督。
+   这条 image-to-image 路径作为 ablation 保留，但 **alpha 默认为 0.0**，sigma=1.0；
+   只在需要做对照实验时显式传 ``--z0-prior-alpha 1.0``。
 
 2. **logit-normal t 采样**（SD3 论文配方）：早期行为 ``t ~ Uniform[0,1]``，t≈0/1 区域
    监督信号弱；logit-normal(0, 1) 把概率密度集中到 t=0.5 附近，实测能显著加快
@@ -90,19 +93,19 @@ def sample_flow_batch(
 
     参数：
     - z_prior：可选起点 latent，形状与 z1 完全一致。一般取 ``z_history[:, -1]``
-      （当前帧 latent）。当 alpha > 0 时使用：``z0 = alpha * z_prior + sigma * eps``。
-      不传或 alpha=0 时退回纯噪声起点（v1 行为）。
-    - alpha / sigma：z_prior 与噪声的混合系数；默认 (0, 1) 退回 v1。
-      推荐 (1.0, 1.0)：起点完全锚定在当前帧 + 同等强度噪声，模型学的是"从当前帧到子目标"的纯 delta。
+      （当前帧 latent）。**当 alpha > 0 时才使用**：``z0 = alpha * z_prior + sigma * eps``。
+      不传或 alpha=0（默认）时直接退回纯噪声起点 ``z0 = randn_like(z1)``，
+      模型必须从噪声学到 subgoal——避免低 t 区域 z_t 含当前帧成分导致的捷径学习。
+    - alpha / sigma：z_prior 与噪声的混合系数；**默认 (0.0, 1.0)** 即纯噪声起点。
+      只有做 image-to-image 风格的 ablation 时才把 alpha 调到 1.0。
     - z0：直接指定起点张量（覆盖 alpha / sigma / z_prior）。仅用于复现 / 调试。
     - t：直接指定 t（覆盖 t_sampler）。仅用于复现 / 调试。
-    - t_sampler：``uniform``（v1 行为）或 ``logit_normal``（SD3 推荐）。
+    - t_sampler：``uniform`` 或 ``logit_normal``（SD3 推荐）。
 
     使用方式（训练 step）：
         batch = sample_flow_batch(
             z1=vae.encode(target_keyframe),
-            z_prior=z_history[:, -1],
-            alpha=1.0, sigma=1.0,
+            # 默认不传 z_prior / 让 alpha=0.0 即可走纯噪声起点。
             t_sampler="logit_normal",
         )
         v_pred = dit(batch.z_t, z_history, batch.t, pooled_kv)
@@ -118,8 +121,9 @@ def sample_flow_batch(
         # 复现路径：调用方自带 z0，直接采纳。
         pass
     elif z_prior is not None and alpha > 0.0:
-        # z_prior 接入：alpha=1.0, sigma=1.0 是推荐配方（起点锚定当前帧 + 同等噪声）。
-        # 这条路径让"子目标生成"任务退化成"从当前帧出发学习 delta"，对图像质量提升最大。
+        # 仅当显式开启 image-to-image ablation 时进入此分支：z0 含当前帧成分。
+        # 默认配置 alpha=0.0 不会走到这里——避免低 t 区域 z_t 主要由"当前帧+噪声"
+        # 主导，让模型偷懒学"还原当前帧"而不是真的预测 subgoal。
         if z_prior.shape != z1.shape:
             raise ValueError(
                 f"z_prior 形状 {tuple(z_prior.shape)} 必须等于 z1 形状 {tuple(z1.shape)}"
@@ -127,7 +131,7 @@ def sample_flow_batch(
         eps = torch.randn_like(z1)
         z0 = alpha * z_prior + sigma * eps
     else:
-        # v1 行为：纯随机起点。
+        # 默认路径：纯随机起点 z0 ~ N(0, I)。模型必须从噪声出发学到 subgoal。
         z0 = torch.randn_like(z1)
 
     # ---- 采样 t ----
@@ -182,9 +186,9 @@ def euler_sample(
     velocity_fn 必须是 (z_t, t) -> v_pred 的闭包，t 是 [B] 的 float 张量。条件
     （pooled_kv、z_history、CFG 开关）由调用方在闭包内捕获，避免本函数依赖具体 DiT 接口。
 
-    z_init：可选起点。不传时按 N(0, I) 随机采（v1 行为）；传入时直接当作 t=0 处的 z0。
-    若使用 z_prior 路径（z_init = alpha * z_current + sigma * noise），训练 / 推理保持
-    同样构造方式，分布才一致。
+    z_init：可选起点。不传时按 N(0, I) 随机采（**默认路径**）；传入时直接当作 t=0 处的 z0。
+    image-to-image ablation 时（训练 ``--z0-prior-alpha 1.0``），推理也得用同样的
+    ``z_init = alpha * z_current + sigma * noise`` 构造，分布才一致。
     """
 
     if z_init is None:

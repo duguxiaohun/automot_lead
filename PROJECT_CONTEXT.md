@@ -99,19 +99,38 @@ BEV 开关：
 
 - `agent.py` 是 leaderboard 实时 agent，RGB 固定 LEAD 3cam：
   3 路 384×384、FOV=60，横拼 1152×384。
-- LiDAR 由 checkpoint 的 `decoder_config.use_bev` 决定：
-  `use_bev=True` 才声明/读取 LEAD 双 LiDAR；`use_bev=False` 不产生未使用 LiDAR 输入，
+- LiDAR / radar 由 checkpoint 的 `decoder_config.use_bev` 决定：
+  `use_bev=True` 才声明/读取 LEAD 双 LiDAR + 4 radar；`use_bev=False` 不产生未使用输入，
   只传空点云占位给统一 `lead_clip` 结构。
-- warmup 不复制首帧填历史；默认等真实 4 个 4Hz 采样点，历史跨度 0.75s。
+- **LEAD 训练分布对齐 (v2)**：
+  - RGB：拼接后做 JPEG round-trip（`JPEG_QUALITY=85`），模拟 LEAD `.jpg` 训练数据。
+  - LiDAR：轻量去地面（z 阈值 + LSQ 平面拟合，`LIDAR_REMOVE_GROUND=1`）；LEAD 用 RANSAC，
+    我们因不引 numba 重依赖改用 LSQ 近似。
+  - Radar：4 路 → ego frame 后拼到 LiDAR，近车 <8m 的 radar 点 duplicate 5 次
+    （`USE_RADAR=1`，与 LEAD `save_radar_pc_as_lidar`+`duplicate_radar_near_ego` 同源）。
+- warmup 改 LEAD 风格：第一个 4Hz 采样点（约 0.25s）就开始推理；
+  历史不足时 left-pad 复制 frame 0（与 build_clip line 1808-1815 同款）。
 - target_point / next_target_point 在线由 AutoMoT/CARLA global route planner 做
-  1.5s / 3s lookahead，再用 `inverse_conversion_2d` 转 ego frame `(x_forward, y_left)`。
-  在线没有未来真值，这是对离线未来位置语义的 route-lookahead 近似。
-- BEV 模型的实时 LiDAR 使用最近 `STEP_STRIDE` 个 20Hz sweep，对齐到当前 anchor ego frame；
-  只做轻量 LEAD 风格过滤（去 ego box、BEV/z 范围、0.1m 量化），不在线加入 radar/RANSAC。
+  1.5s / 3s lookahead；`speed < LOW_SPEED_TP_M_PER_S (1.0 m/s)` 时 tp = ego 当前位置
+  （对齐训练时车在红灯前停的真值语义），再用 `inverse_conversion_2d` 转 ego frame
+  `(x_forward, y_left)`。
+- BEV 模型的实时 LiDAR 使用最近 `STEP_STRIDE=5` 个 20Hz sweep（≈0.25s 窗），
+  按 (dx, dy, dyaw) 对齐到当前 anchor ego frame 后 concat。
+- PID desired speed 用 `wp[1]` / `wp[3]`（0.5s 与 1.0s 两段距离平均），
+  与 LEADMOT_PLAN.md §32 一致。
 - `run_eval.sh` 必填 `--leadmot-ckpt`，支持 scenario / route_id / random / full；
   默认自动选 1 张空闲 GPU，`--num-gpus N` 或 `EVAL_GPU_COUNT=N` 会自动选 N 张空闲 GPU，
   每张卡一个 worker、独立端口槽，round-robin 分 route。
+- **输出按跑法分目录**：
+  - `<signature>/route<id>/` 视频与 `<signature>/eval_per_route/eval_<id>.json` 跨跑法共享
+    （断点续跑）
+  - `<signature>/runs/<RUN_LABEL>/{summary_all.json, scenarios/, run_manifest.json}`
+    本批次聚合，按 `full` / `scenario_X` / `random_NN_SK` / `routes_A+B` 等自动命名
+  - `<signature>/summary_all.json` 是跨批次总聚合（所有已评估 route）
 - 输出 signature 包含 ckpt 父目录、ckpt stem、`bev{0|1}`、`ema{0|1}`，避免不同模型/BEV/raw-EMA 覆盖。
+- 五路视频：`input` / `debug`（相机 overlay） / `bev_debug`（顶视 LiDAR+pred+tp+ego box，
+  LEAD `video_recorder` BEV pseudo-image 等价）/ `demo`（spawn cinematic + 顶视 carla camera）
+  / `grid`（demo+input 上下拼接）。
 - 子包内 Python class/function 已补中文 docstring；shell / HTML / CSS 在关键逻辑块前有中文注释。
   后续改传感器、坐标、warmup、GPU worker、输出 JSON 或 webapp API 时，同步更新代码注释和
   `EVAL_CARLA_*` 文档。
@@ -132,6 +151,13 @@ BEV 开关：
 - 目标：生成未来 subgoal keyframe latent。
 - 训练：rectified flow，`z_t=(1-t)z0+t z1`，预测 `v=z1-z0`。
 - 推理：Euler 从 t=0 到 t=1，decode 成 RGB。
+- **z0 默认为纯噪声 `z0 ~ N(0, I)`**（`z0_prior_alpha=0.0`）：
+  之前默认 `alpha=1.0, sigma=1.0` 把当前帧 latent 掺进 z0 → 低 t 区域 `z_t` 主要由
+  "当前帧 + 噪声"主导，`v_target = z1 - z0` 里 z0 含 z_current → 模型偷懒学
+  "还原当前帧"而不是 subgoal。**统一改回纯噪声起点**（flow.py / train.py / eval.py /
+  probe.py / train.sh / GOALGEN_PLAN.md 同步），让模型必须从噪声生成 subgoal。
+  image-to-image ablation 时显式 `--z0-prior-alpha 1.0`（此时推理 `z_init` 必须用同样
+  混合方式构造，分布才一致）。**v1 和 v2 共享同一份代码，默认值改动同时覆盖两者**。
 
 v1/v2：
 

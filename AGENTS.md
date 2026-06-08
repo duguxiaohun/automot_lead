@@ -73,19 +73,24 @@
 - `AutoMoT/qwen3vl_local/eval_carla/`（LeadMoT 闭环评测子包，全部子文件白名单内）
   - `__init__.py` / `EVAL_CARLA_PLAN.md` / `EVAL_CARLA_RUN.md`
   - `agent.py`
-    （LEAD 风格 CARLA Bench2Drive 实时 agent：3 摄像头 1152×384 + IMU/GPS/Speedometer；
-    按 ckpt 的 `decoder_config.use_bev` 自动决定是否声明/读取 LEAD 双 LiDAR；no-BEV 模型不产生未使用 LiDAR 输入；
-    推理直接复用 `LeadOfflineMoTRunner`，按 ckpt 的 `decoder_config.use_bev` 自动决定 BEV 分支；
-    每 5 tick 调一次模型，中间 tick PID 跟踪。**target_point / next_target_point 是未来 1.5s / 3s
-    沿 global plan 弧长前瞻位置**（在线按 AutoMoT/CARLA route planner 做 route-lookahead 近似离线未来真值语义；ego frame
-    约定 (x_forward, y_left)；低速 fallback 5m）；warmup 等真实 4 个 4Hz 历史帧，不复制首帧；
+    （LEAD 风格 CARLA Bench2Drive 实时 agent：3 摄像头 1152×384 + IMU/GPS/Speedometer +
+    可选双 LiDAR/4 radar（按 ckpt `decoder_config.use_bev` 决定）；no-BEV 模型不产生未使用 LiDAR/radar 输入。
+    **LEAD 训练分布对齐 (v2)**：RGB 拼接后 JPEG round-trip (JPEG_QUALITY=85)、
+    LiDAR 轻量去地面 (z+LSQ, LIDAR_REMOVE_GROUND=1)、radar 4 路 → ego + 近车 duplicate (factor=5, radius=8m) 拼到 LiDAR、
+    5 sweep 累积 0.25s 窗对齐 anchor frame。
+    推理直接复用 `LeadOfflineMoTRunner`，每 5 tick 调一次模型，中间 tick PID 跟踪 (desired speed 用 wp[1]/wp[3] 即 0.5s/1.0s 两点平均)。
+    **target_point / next_target_point 是未来 1.5s / 3s 沿 global plan 弧长前瞻位置**；
+    speed<`LOW_SPEED_TP_M_PER_S` (默认 1.0 m/s) 时 tp=ego 对齐红灯训练样本；ego frame (x_forward, y_left)。
+    warmup 改 **LEAD 风格 left-pad** 复制 frame 0 立即推理，不再等历史 (与 build_clip line 1808-1815 同款)；
     UKF + route_planner + 基本 PID + SafetyMixin 兜底；Python class/function 已补中文 docstring，shell/HTML/CSS 关键逻辑块有中文注释）
   - `safety.py`
     （SafetyMixin：`stuck_helper` 累计 300 帧低速 → force_move 14 帧 creep / `parking_start`
     前 200 帧位移 < 6m 禁用 force_move / `parking_escape` 1500 帧窗口位移 < 5m 触发 phase1
     强转角 -0.65 + 油门 0.45 / 限速 35 km/h；与 mot_b2d_agent.py 行为完全一致）
   - `video_recorder.py`
-    （input/debug/demo/grid 四路 mp4，ffmpeg crf=18/28；demo 在首帧通过
+    （input/debug/bev_debug/demo/grid **五路** mp4，ffmpeg crf=18/22/28；
+    bev_debug 是 LEAD 风格顶视 LiDAR 散点 + pred_route + pred_waypoints + tp/ntp + ego box，
+    与 LEAD `video_recorder.py` 的 BEV pseudo-image 等价；demo 在首帧通过
     `CarlaDataProvider.get_world()` 找到 `role_name=hero` 后 spawn cinematic + BEV 临时 carla camera）
   - `visualizer.py`（无依赖 pinhole 投影 + 三视角 overlay；从 LEAD common_utils.project_points_to_image 移植）
   - `scenario_picker.py`

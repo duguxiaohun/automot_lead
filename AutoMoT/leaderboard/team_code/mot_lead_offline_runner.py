@@ -860,6 +860,7 @@ class LeadOfflineMoTRunner:
         device: str = "cuda:0",
         leadmot_ckpt_path: str | pathlib.Path | None = None,
         leadmot_rope_type: str = "mrope",
+        leadmot_use_ema: bool = True,
     ):
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.leadmot_ckpt_path = pathlib.Path(leadmot_ckpt_path).resolve() if leadmot_ckpt_path else None
@@ -868,6 +869,8 @@ class LeadOfflineMoTRunner:
                 f"leadmot_rope_type 必须是 mrope/mhrope/none，got {leadmot_rope_type!r}"
             )
         self.leadmot_rope_type = leadmot_rope_type
+        self.leadmot_use_ema = bool(leadmot_use_ema)
+        self._leadmot_ema_reported = False
         self._setup_model()
 
     def _setup_model(self) -> None:
@@ -935,8 +938,29 @@ class LeadOfflineMoTRunner:
         """Infer whether a raw decoder state_dict contains BEV parameters."""
         return any(str(key).startswith("bev_projector.") for key in state_dict)
 
+    @staticmethod
+    def _unwrap_ema_state_dict(ema_sd: Any) -> tuple[dict[str, Any] | None, Any]:
+        """Return EMA shadow weights from the LeadMoT checkpoint schema."""
+        if not isinstance(ema_sd, dict):
+            return None, None
+        shadow = ema_sd.get("shadow")
+        if isinstance(shadow, dict):
+            return shadow, ema_sd.get("decay")
+        return ema_sd, None
+
     def _extract_leadmot_state_dict(self, raw: Any) -> dict[str, Any]:
         """Extract decoder weights from supported LeadMoT checkpoint schemas."""
+        if isinstance(raw, dict) and self.leadmot_use_ema:
+            ema_state, ema_decay = self._unwrap_ema_state_dict(raw.get("ema_state_dict"))
+            if ema_state is not None:
+                if not self._leadmot_ema_reported:
+                    print(f"[LeadMoT] using EMA decoder weights (decay={ema_decay})")
+                    self._leadmot_ema_reported = True
+                return self._strip_state_dict_prefixes(ema_state)
+            if raw.get("ema_state_dict") is None and not self._leadmot_ema_reported:
+                print("[LeadMoT] EMA requested but checkpoint has no ema_state_dict; using raw decoder weights")
+                self._leadmot_ema_reported = True
+
         state_dict = raw
         if isinstance(raw, dict):
             for key in ("state_dict", "model", "decoder", "leadmot_decoder"):

@@ -153,6 +153,7 @@ def list_routes_for_signature(sig: str) -> list[dict]:
             "debug": (rdir / "debug.mp4").is_file(),
             "demo":  (rdir / "demo.mp4").is_file(),
             "grid":  (rdir / "grid.mp4").is_file(),
+            "bev_debug": (rdir / "bev_debug.mp4").is_file(),
         }
         metrics = {}
         eval_json = per_route_dir / f"eval_{rid}.json"
@@ -168,19 +169,42 @@ def list_routes_for_signature(sig: str) -> list[dict]:
     return items
 
 
-def load_scenarios_summary(sig: str) -> dict:
+def list_runs_for_signature(sig: str) -> list[str]:
+    """列出 signature 下所有跑过的 run_label。
+
+    每个 run_label 在 `runs/<label>/run_manifest.json` 标识；未跑过聚合时返回空。
+    `__all__` 是跨批次总聚合的别名（写在 sig_dir 根的 summary_all.json）。
+    """
+    sig_dir = EVAL_BASE / sig
+    runs: list[str] = []
+    if (sig_dir / "summary_all.json").is_file():
+        runs.append("__all__")
+    runs_dir = sig_dir / "runs"
+    if runs_dir.is_dir():
+        for p in sorted(runs_dir.iterdir()):
+            if p.is_dir():
+                runs.append(p.name)
+    return runs
+
+
+def load_scenarios_summary(sig: str, run_label: str = "__all__") -> dict:
     """读取 aggregate.py 生成的 summary_all.json。
 
+    run_label=__all__ 时读 sig_dir 根的跨批次总聚合；否则读 runs/<label>/。
     没跑过聚合时返回空结构，让 Scenarios tab 仍能正常渲染。
     """
-    p = EVAL_BASE / sig / "summary_all.json"
+    sig_dir = EVAL_BASE / sig
+    if run_label == "__all__":
+        p = sig_dir / "summary_all.json"
+    else:
+        p = sig_dir / "runs" / run_label / "summary_all.json"
     if not p.is_file():
-        return {"signature": sig, "scenarios": {}, "total_routes": 0}
+        return {"signature": sig, "run_label": run_label, "scenarios": {}, "total_routes": 0}
     try:
         with open(p, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
-        return {"signature": sig, "scenarios": {}, "total_routes": 0}
+        return {"signature": sig, "run_label": run_label, "scenarios": {}, "total_routes": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +220,15 @@ def index():
 def api_signatures():
     """返回可选择的模型 signature 列表。"""
     return jsonify({"signatures": list_signatures()})
+
+
+@app.route("/api/runs")
+def api_runs():
+    """返回某 signature 下所有 run_label（含 __all__ 别名）。"""
+    sig = request.args.get("sig", "")
+    if not sig:
+        return jsonify({"error": "missing sig"}), 400
+    return jsonify({"signature": sig, "runs": list_runs_for_signature(sig)})
 
 
 @app.route("/api/routes")
@@ -234,7 +267,7 @@ def api_route():
     if not rdir.is_dir():
         return jsonify({"error": "route dir not found"}), 404
     info: dict = {"route_id": rid_int, "videos": {}, "metrics": {}, "infractions": []}
-    for v in ("input", "debug", "demo", "grid"):
+    for v in ("input", "debug", "demo", "grid", "bev_debug"):
         info["videos"][v] = (rdir / f"{v}.mp4").is_file()
     # config.json
     cfg = rdir.parent / "config.json"
@@ -255,11 +288,16 @@ def api_route():
 
 @app.route("/api/scenarios")
 def api_scenarios():
-    """返回 scenario 聚合结果，供 Scenarios tab 表格使用。"""
+    """返回 scenario 聚合结果，供 Scenarios tab 表格使用。
+
+    可选 query 参数 `run`：选择某次跑（来自 /api/runs），默认 `__all__`
+    （sig_dir 根的跨批次总聚合）。
+    """
     sig = request.args.get("sig", "")
+    run = request.args.get("run", "__all__")
     if not sig:
         return jsonify({"error": "missing sig"}), 400
-    return jsonify(load_scenarios_summary(sig))
+    return jsonify(load_scenarios_summary(sig, run))
 
 
 @app.route("/video/<path:rel>")

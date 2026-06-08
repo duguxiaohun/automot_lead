@@ -151,6 +151,105 @@ def draw_target_point_on_segment(
     return bgr_segment
 
 
+def render_bev_debug(
+    lidar_ego: np.ndarray | None,
+    pred_waypoints_ego: np.ndarray | None,
+    pred_route_ego: np.ndarray | None,
+    target_point_ego: np.ndarray | None,
+    next_target_point_ego: np.ndarray | None,
+    *,
+    bev_range_x: tuple[float, float] = (-32.0, 64.0),
+    bev_range_y: tuple[float, float] = (-40.0, 40.0),
+    pixels_per_meter: int = 6,
+) -> np.ndarray:
+    """BEV 顶视 debug 图：黑底，画 LiDAR 散点 + pred_route + pred_waypoints + tp/ntp + ego。
+
+    LEAD `video_recorder` 里有等价的 BEV pseudo-image 调试图。本函数无依赖、
+    输出一张 BGR 图，由 video_recorder 写入 `bev_debug.mp4` 第五路。
+
+    坐标约定：
+    - ego frame (x_forward, y_left) → 图像 (col, row)：
+      col = (-y - min_y) * ppm, row = (max_x - x) * ppm
+      → ego 正前方在图像上方，y_left 在左侧（与车头朝上视角一致）。
+    """
+    min_x, max_x = bev_range_x
+    min_y, max_y = bev_range_y
+    w = int((max_y - min_y) * pixels_per_meter)
+    h = int((max_x - min_x) * pixels_per_meter)
+    img = np.zeros((h, w, 3), dtype=np.uint8)
+
+    def _xy_to_pix(pts_xy: np.ndarray) -> np.ndarray:
+        x = pts_xy[:, 0]
+        y = pts_xy[:, 1]
+        col = ((-y - min_y) * pixels_per_meter).astype(np.int32)
+        row = ((max_x - x) * pixels_per_meter).astype(np.int32)
+        return np.column_stack([col, row])
+
+    # 1. LiDAR 点云（白）
+    if lidar_ego is not None and lidar_ego.shape[0] > 0:
+        pts = lidar_ego[:, :2]
+        in_box = (
+            (pts[:, 0] >= min_x) & (pts[:, 0] <= max_x)
+            & (pts[:, 1] >= min_y) & (pts[:, 1] <= max_y)
+        )
+        pix = _xy_to_pix(pts[in_box])
+        ok = (pix[:, 0] >= 0) & (pix[:, 0] < w) & (pix[:, 1] >= 0) & (pix[:, 1] < h)
+        pix = pix[ok]
+        img[pix[:, 1], pix[:, 0]] = (180, 180, 180)
+
+    # 2. ego box（黄）
+    ego_w_m, ego_h_m = 2.13, 4.90  # 车体长宽，仅可视化
+    box_pts = np.array([
+        [+ego_h_m / 2, +ego_w_m / 2],
+        [+ego_h_m / 2, -ego_w_m / 2],
+        [-ego_h_m / 2, -ego_w_m / 2],
+        [-ego_h_m / 2, +ego_w_m / 2],
+    ], dtype=np.float32)
+    box_pix = _xy_to_pix(box_pts)
+    cv2.polylines(img, [box_pix], isClosed=True, color=(0, 255, 255), thickness=2)
+    # 车头方向小三角
+    head_pts = np.array([
+        [+ego_h_m / 2 + 1.5, 0.0],
+        [+ego_h_m / 2 - 0.5, +0.8],
+        [+ego_h_m / 2 - 0.5, -0.8],
+    ], dtype=np.float32)
+    cv2.fillPoly(img, [_xy_to_pix(head_pts)], color=(0, 255, 255))
+
+    # 3. pred_route（红）
+    if pred_route_ego is not None and len(pred_route_ego) > 0:
+        rt = _xy_to_pix(np.asarray(pred_route_ego, dtype=np.float32))
+        for i in range(len(rt) - 1):
+            cv2.line(img, tuple(rt[i]), tuple(rt[i + 1]), (0, 0, 255), 2,
+                     lineType=cv2.LINE_AA)
+        for p in rt:
+            cv2.circle(img, tuple(p), 2, (0, 0, 255), -1, lineType=cv2.LINE_AA)
+
+    # 4. pred_future_waypoints（绿）
+    if pred_waypoints_ego is not None and len(pred_waypoints_ego) > 0:
+        wp = _xy_to_pix(np.asarray(pred_waypoints_ego, dtype=np.float32))
+        for i in range(len(wp) - 1):
+            cv2.line(img, tuple(wp[i]), tuple(wp[i + 1]), (0, 255, 0), 2,
+                     lineType=cv2.LINE_AA)
+        for p in wp:
+            cv2.circle(img, tuple(p), 3, (0, 255, 0), -1, lineType=cv2.LINE_AA)
+
+    # 5. tp（青）与 ntp（品红）
+    if target_point_ego is not None:
+        tp = _xy_to_pix(np.asarray(target_point_ego, dtype=np.float32).reshape(1, 2))[0]
+        if 0 <= tp[0] < w and 0 <= tp[1] < h:
+            cv2.circle(img, tuple(tp), 8, (255, 255, 255), -1, lineType=cv2.LINE_AA)
+            cv2.circle(img, tuple(tp), 6, (255, 255, 0), -1, lineType=cv2.LINE_AA)
+    if next_target_point_ego is not None:
+        nt = _xy_to_pix(np.asarray(next_target_point_ego, dtype=np.float32).reshape(1, 2))[0]
+        if 0 <= nt[0] < w and 0 <= nt[1] < h:
+            cv2.circle(img, tuple(nt), 6, (255, 0, 255), -1, lineType=cv2.LINE_AA)
+
+    # 6. 图例（左上）
+    cv2.putText(img, "lidar gray | route red | waypoints green | tp cyan | ntp magenta",
+                (8, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (200, 200, 200), 1, cv2.LINE_AA)
+    return img
+
+
 def overlay_pred_on_stitched_three_cams(
     stitched_bgr: np.ndarray,
     pred_waypoints_ego: np.ndarray | None,
