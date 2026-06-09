@@ -171,6 +171,12 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v2_lora
 
 脚本自动选空闲端口并打印访问地址。
 
+SFT v1/v2 的 loss_scale plugin 会保留 `tb/` 下的 TensorBoard event 写入，但会跳过
+ms-swift 训练结束后额外生成 `images/` loss PNG 的步骤。这个 PNG 导出依赖
+matplotlib；远程环境里若 numpy/matplotlib 版本不匹配，训练已经结束后仍可能在
+`plot_images(...)` 里崩掉。当前默认不生成这份 PNG，不需要修改 conda 包；直接用
+`tb_serve.sh` 看曲线即可。
+
 ## 7. 评估
 
 v1：
@@ -229,6 +235,7 @@ python qwen3vl_local/sft/probe_sft_v1.py \
 | `KeyError: sft_v1_analysis_mask` | 确认从 `AutoMoT/` 运行，且 `qwen3vl_local/sft/sft_v1_loss_scale_plugin.py` 存在 |
 | `dataset_version=v2_pending` 直接进 eval | 先让 `sft_v2_train.sh` 物化 runtime teacher 数据 |
 | runtime cache 被误复用 | `RUNTIME_TEACHER_REFRESH=1` 或删 `runtime_teacher_data/` |
+| 训练结束后在 `plot_images(...)` / `numpy.core.umath ERR_IGNORE` 崩掉 | 训练主体已完成；v1/v2 plugin 默认跳过 swift 的 matplotlib PNG 导出，保留 `tb/` events，不需要改 conda 包 |
 | `invalid device ordinal` | 不手写 CVD；DDP 用 `DDP_GPU_COUNT=N` |
 | 输出反复 `STATUS:` | 过训；按 checkpoint 曲线选 early_advance 最低且 advance 不退化的点 |
 | teacher 太短 / 套话 | 先看 `inspect_teacher_outputs.py --live`，必要时改 teacher prompt 后刷新 cache |

@@ -33,9 +33,26 @@ v1 的真正目标是"看到当前帧 RGB → 输出哪个事件名"，所以只
 from __future__ import annotations
 
 import re
+import sys
 from typing import List, Optional, Tuple
 
 from swift.plugin.loss_scale.loss_scale import LossScale, loss_scale_map
+
+
+def _disable_swift_matplotlib_image_export() -> None:
+    """保留 TensorBoard events，但跳过 ms-swift 结束阶段的 matplotlib 导图。"""
+
+    swift_sft = sys.modules.get("swift.llm.train.sft")
+    if swift_sft is None:
+        return
+
+    def _noop_swift_plot_images(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        print("[sft_v1_plugin] skip ms-swift matplotlib image export; TensorBoard events are kept.")
+
+    swift_sft.plot_images = _noop_swift_plot_images
+
+
+_disable_swift_matplotlib_image_export()
 
 
 # ---------------------------------------------------------------------------
