@@ -491,6 +491,7 @@ case "${MODE}" in
         # 最后一个 step ckpt ≈ 最后一个 epoch 末快照。
         SAVE_STRATEGY="steps"
         EVAL_STRATEGY="steps"
+        REPORT_ARGS=(--report_to tensorboard --logging_dir "${OUTPUT_DIR}/tb")
         EXTRA_LAUNCH=""
         ;;
     check)
@@ -505,6 +506,9 @@ case "${MODE}" in
         GRAD_ACC=1
         SAVE_STRATEGY="no"
         EVAL_STRATEGY="no"
+        # swift 在 report_to=tensorboard 时会在训练结束后调用 matplotlib 画 loss 图；
+        # check 模式不需要 TB，关掉可避免环境里的 numpy/matplotlib 兼容性问题影响 sanity。
+        REPORT_ARGS=(--report_to none)
         EXTRA_LAUNCH="--max_steps 2"
         ;;
     ddp)
@@ -526,6 +530,7 @@ case "${MODE}" in
         fi
         export NCCL_P2P_LEVEL=NVL
         export NCCL_DEBUG=WARN
+        REPORT_ARGS=(--report_to tensorboard --logging_dir "${OUTPUT_DIR}/tb")
         EXTRA_LAUNCH=""
         ;;
     *)
@@ -598,8 +603,7 @@ swift sft \
     --eval_steps "${SAVE_STEPS}" \
     --save_total_limit "${SAVE_TOTAL_LIMIT}" \
     --save_only_model true \
-    --report_to tensorboard \
-    --logging_dir "${OUTPUT_DIR}/tb" \
+    "${REPORT_ARGS[@]}" \
     --dataloader_num_workers 4 \
     --external_plugins "${LOSS_SCALE_PLUGIN}" \
     --loss_scale "${LOSS_SCALE}" \

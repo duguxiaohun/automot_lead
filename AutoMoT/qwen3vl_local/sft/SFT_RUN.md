@@ -128,6 +128,9 @@ GPU 规则：脚本用 `nvidia-smi` 自动挑空闲卡并覆盖旧 `CUDA_VISIBLE
 `MASTER_PORT`，并同步导出 PyTorch launcher 会读取的 `PET_MASTER_PORT`；只有显式同时设置
 `MASTER_PORT` 与 `SFT_RESPECT_MASTER_PORT=1` 时才严格使用指定端口。
 
+`check` 模式只用于 2 step loss_scale sanity，默认传 `--report_to none`，不写 TensorBoard，也不触发
+swift 训练结束后的 matplotlib loss 曲线绘图；正式 `single` / `ddp` 仍写 `tb/`。
+
 ### 5.1 H20 96GB 显存与 batch 调优
 
 2026-06 起经过**四轮调优**，把默认 batch 推到"无脑跑就尽量靠近 80% 显存，同时不贴 96GB 上限"的程度：

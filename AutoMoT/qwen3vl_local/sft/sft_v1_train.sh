@@ -255,6 +255,7 @@ case "${MODE}" in
         SAVE_STRATEGY="steps"
         EVAL_STRATEGY="steps"
         VAL_ARGS=(--val_dataset "${VAL_JSONL}")
+        REPORT_ARGS=(--report_to tensorboard --logging_dir "${OUTPUT_DIR}/tb")
         EXTRA_LAUNCH=""
         ;;
     check)
@@ -296,6 +297,9 @@ case "${MODE}" in
         EVAL_STRATEGY="no"
         # check 只验证 2 个训练 step 的 loss_scale，不传 val_dataset，避免加载/评估 val 的 ~800 条样本。
         VAL_ARGS=()
+        # swift 在 report_to=tensorboard 时会在训练结束后调用 matplotlib 画 loss 图；
+        # check 模式不需要 TB，关掉可避免环境里的 numpy/matplotlib 兼容性问题影响 sanity。
+        REPORT_ARGS=(--report_to none)
         EXTRA_LAUNCH="--max_steps 2"
         ;;
     ddp)
@@ -322,6 +326,7 @@ case "${MODE}" in
         export NCCL_P2P_LEVEL=NVL
         export NCCL_DEBUG=WARN
         VAL_ARGS=(--val_dataset "${VAL_JSONL}")
+        REPORT_ARGS=(--report_to tensorboard --logging_dir "${OUTPUT_DIR}/tb")
         EXTRA_LAUNCH=""
         ;;
     *)
@@ -399,8 +404,7 @@ swift sft \
     --eval_steps "${SAVE_STEPS}" \
     --save_total_limit "${SAVE_TOTAL_LIMIT}" \
     --save_only_model true \
-    --report_to tensorboard \
-    --logging_dir "${OUTPUT_DIR}/tb" \
+    "${REPORT_ARGS[@]}" \
     --dataloader_num_workers 4 \
     --external_plugins "${LOSS_SCALE_PLUGIN}" \
     --loss_scale "${LOSS_SCALE}" \
