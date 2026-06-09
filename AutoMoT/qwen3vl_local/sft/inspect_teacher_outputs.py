@@ -30,8 +30,8 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
-_AUTOMOT_ROOT = _THIS_FILE.parents[1]
-_PROJECT_ROOT = _THIS_FILE.parents[2]
+_AUTOMOT_ROOT = _THIS_FILE.parents[2]
+_PROJECT_ROOT = _THIS_FILE.parents[3]
 for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)

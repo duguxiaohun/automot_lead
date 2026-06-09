@@ -173,7 +173,7 @@ checkpoints/leadmot_v1_decoder/eval_tb/<ckpt>_<时间戳>/
 checkpoints/leadmot_v1_decoder/invocations/*.txt
 ```
 
-`eval_tb/` 每跑一次 eval 落一个独立 run，可用 `bash tools/tb_serve.sh checkpoints/leadmot_v1_decoder` 把训练曲线和多次 eval 标量叠在同一块 TensorBoard 上对比。
+`eval_tb/` 每跑一次 eval 落一个独立 run，可用 `bash qwen3vl_local/sft/tb_serve.sh checkpoints/leadmot_v1_decoder` 把训练曲线和多次 eval 标量叠在同一块 TensorBoard 上对比。
 
 ## 7. Probe
 

@@ -57,7 +57,7 @@ patch/unpatch 重建误差混进 DiT 训练。
 qwen3vl_local/goalgen/build_dataset.py
 ```
 
-它在结构上对齐 `tools/build_sft_dataset_v1.py`，但监督目标不同：SFT v1 监督
+它在结构上对齐 `qwen3vl_local/sft/build_sft_dataset_v1.py`，但监督目标不同：SFT v1 监督
 文本中的状态/子目标，GoalGen v1/v2 监督未来子目标关键帧的 VAE 潜变量。流程如下：
 
 1. 读取 `/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json`。

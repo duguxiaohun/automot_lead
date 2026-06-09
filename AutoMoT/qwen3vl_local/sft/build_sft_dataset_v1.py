@@ -1,6 +1,6 @@
 """SFT v1 / v2 数据集生成脚本 — 为 Qwen3-VL-4B-Instruct LoRA 微调准备样本。
 
-设计目标见 tools/SFT_V1_PLAN.md 与 tools/SFT_V2_PLAN.md。本脚本纯 CPU、不需要
+设计目标见 qwen3vl_local/sft/SFT_PLAN.md；运行命令见 qwen3vl_local/sft/SFT_RUN.md。本脚本纯 CPU、不需要
 GPU，可以在本地或远程跑。
 
 v1 / v2 共享所有采样 / split / image 路径逻辑，区别仅在 assistant 的 ANALYSIS 段：
@@ -24,19 +24,19 @@ teacher 推理用的 PRIVILEGED prompt 由 build_sft_dataset_v2_teacher.py 临�
 
 ```bash
 # v1：生成完整训练 / 验证 jsonl，ANALYSIS 段是占位
-python tools/build_sft_dataset_v1.py \
+python qwen3vl_local/sft/build_sft_dataset_v1.py \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/sft_v1_data
 
 # v2：生成 pending jsonl，ANALYSIS 段是 __TEACHER_PENDING__ 占位
-python tools/build_sft_dataset_v1.py --mode v2 \
+python qwen3vl_local/sft/build_sft_dataset_v1.py --mode v2 \
   --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/sft_v2_data_pending
 
 # 本地或远程快速检查：只取少量场景和 run，验证 jsonl schema 是否能生成
-python tools/build_sft_dataset_v1.py --dry-run --output-dir /tmp/sft_v1_dry
+python qwen3vl_local/sft/build_sft_dataset_v1.py --dry-run --output-dir /tmp/sft_v1_dry
 ```
 
 输出文件：
@@ -63,10 +63,10 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 # 把 AutoMoT 加入 sys.path，复用 prompt_pipeline 里的 system prompt / memory / 状态机。
-# 本文件位于 AutoMoT/tools/，parents[1]=AutoMoT/，parents[2]=automot_lead 仓库根。
+# 本文件位于 AutoMoT/qwen3vl_local/sft/，parents[2]=AutoMoT/，parents[3]=automot_lead 仓库根。
 _THIS_FILE = pathlib.Path(__file__).resolve()
-_AUTOMOT_ROOT = _THIS_FILE.parents[1]
-_PROJECT_ROOT = _THIS_FILE.parents[2]
+_AUTOMOT_ROOT = _THIS_FILE.parents[2]
+_PROJECT_ROOT = _THIS_FILE.parents[3]
 for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -562,7 +562,7 @@ def main():
     parser = argparse.ArgumentParser(description="SFT v1/v2 dataset builder")
     parser.add_argument("--mode", type=str, default="v1", choices=["v1", "v2"],
                         help="v1 写 Observations recorded. 占位；v2 写 __TEACHER_PENDING__ "
-                             "占位，由 tools/build_sft_dataset_v2_teacher.py 后续填真值。")
+                             "占位，由 qwen3vl_local/sft/build_sft_dataset_v2_teacher.py 后续填真值。")
     parser.add_argument("--keyframes", type=str,
                         default=str(_PROJECT_ROOT / "keyframes_all_scenarios.json"))
     parser.add_argument("--data-root", type=str,

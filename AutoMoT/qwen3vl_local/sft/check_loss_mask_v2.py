@@ -9,7 +9,7 @@
    检查 plugin 对 tail/EOS 的权重是否为 1.0。注意：synthetic tail 只验证
    plugin 行为，不证明 ms-swift runtime context 一定包含 EOS。
 
-并且会调用 tools/sft_v2_loss_scale_plugin.py 的真实插件类做一次切片校验，
+并且会调用 qwen3vl_local/sft/sft_v2_loss_scale_plugin.py 的真实插件类做一次切片校验，
 确保训练侧不会出现“本地正则看起来对，swift 实际走了 fallback”这种分歧。
 """
 
@@ -25,7 +25,7 @@ import sys
 from typing import Dict, List, Optional, Sequence, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
-_AUTOMOT_ROOT = _THIS_FILE.parents[1]
+_AUTOMOT_ROOT = _THIS_FILE.parents[2]
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
@@ -305,7 +305,7 @@ def main() -> None:
     sample = load_one_sample(jsonl_path, args.sample_idx)
     if sample.get("dataset_version") == "v2_pending":
         print("[err] check_loss_mask_v2.py 需要已物化 teacher ANALYSIS 的 v2 jsonl，不能直接检查 v2_pending 占位数据。", file=sys.stderr)
-        print("[hint] 先跑 bash tools/sft_v2_train.sh check，或手动运行 tools/build_sft_dataset_v2_teacher.py 生成 runtime jsonl。", file=sys.stderr)
+        print("[hint] 先跑 bash qwen3vl_local/sft/sft_v2_train.sh check，或手动运行 qwen3vl_local/sft/build_sft_dataset_v2_teacher.py 生成 runtime jsonl。", file=sys.stderr)
         sys.exit(2)
     assistant = sample["messages"][-1]["content"]
     print(f"[load] jsonl={jsonl_path} sample_idx={args.sample_idx}")

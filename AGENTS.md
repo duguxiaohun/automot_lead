@@ -144,24 +144,23 @@
 - `AutoMoT/qwen3vl_local/leadmot/mot_block.py`
 - `AutoMoT/qwen3vl_local/leadmot/decoder.py`
   （LEAD-MoT 快推理 decoder 子包及 v1 decoder-only 训练/eval/probe 入口：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8x128 对齐 Qwen K/V 子空间；gen Q/K 按 `input_len + rope_deltas` 加 1D RoPE，language K/V 已由 Qwen prefill 带 M-RoPE 不重复旋转。训练时冻结 Qwen3-VL-Instruct 与 LeadBEVEncoder，只训练 LeadMoT decoder；GT 包含 route / future_waypoints 两类 ego-frame 累计点，head 内 Linear+cumsum 后直接对绝对点算 loss；`eval.py` 汇总 loss/ADE/FDE，`probe.py` 随机 case-level dump 预测与 GT 对比图。runner 必须用 `LocalQwen3VLInstructEngine` 单独跑 frozen Qwen prefill，只接受同源 HF `past_key_values`；不复用 AutoMoT InterleaveInferencer 的 `gen_context`，也不保留 AutoMoT legacy slow/fast 接口；`--leadmot-ckpt` 显式加载 decoder 权重，先读 checkpoint 的 `decoder_config.use_bev` 再实例化 decoder，并 `strict=True` 加载：`use_bev=True` 必须导入已有 BEV projector 参数，`use_bev=False` 则完全不实例化 / 不 forward BEV，禁止混入随机 BEV；不传 ckpt 仅作为随机初始化链路调试。详见 `leadmot/ARCHITECTURE.md`、`leadmot/LEADMOT_PLAN.md` 与 `PROJECT_CONTEXT.md §11.6/§11.7`）
-- `AutoMoT/tools/SFT_V1_PLAN.md`
-- `AutoMoT/tools/build_sft_dataset_v1.py`
-- `AutoMoT/tools/sft_v1_train.sh`
-- `AutoMoT/tools/sft_v1_loss_scale_plugin.py`
-- `AutoMoT/tools/eval_sft_v1.py`
-- `AutoMoT/tools/check_loss_mask.py`
-- `AutoMoT/tools/SFT_V1_RUN.md`
-- `AutoMoT/tools/tb_serve.sh`
-- `AutoMoT/tools/probe_sft_v1.py`
-  （以上 9 个是 LoRA SFT v1 / TB / probe 相关；`tb_serve.sh` 是通用 TensorBoard 启动器，GoalGen 也复用；`probe_sft_v1.py` 是随机场景 case-level dump；`AutoMoT/tools/` 下其它原始脚本仍为只读参考）
-- `AutoMoT/tools/SFT_V2_PLAN.md`
-- `AutoMoT/tools/SFT_V2_RUN.md`
-- `AutoMoT/tools/build_sft_dataset_v2_teacher.py`
-- `AutoMoT/tools/sft_v2_loss_scale_plugin.py`
-- `AutoMoT/tools/sft_v2_train.sh`
-- `AutoMoT/tools/check_loss_mask_v2.py`
-- `AutoMoT/tools/inspect_teacher_outputs.py`
-  （以上 7 个是 SFT v2 升级：长期数据集只保留 `v2_pending` 占位 jsonl；冻结 base Qwen + PRIVILEGED prompt 的 ANALYSIS 真值由 `sft_v2_train.sh` 在**首次**训练启动时一次性物化到 runtime 目录并写 `manifest.json`，之后任意卡数启动通过 manifest（schema_version=2 + max_samples==0 + model_dir/seed/gen 参数 + pending/runtime 行数严格匹配）校验，校验通过才直接复用（GPU 数无关），无需任何额外参数；32 条 debug cache、半截 val、`--max-samples N` 跑出来的不写 manifest 不会被误复用；无 manifest 的 final/rank 残留默认清掉重物化，避免旧 teacher 分片被 fingerprint 去重误用；改 prompt / keyframes 后想强制重跑 → `RUNTIME_TEACHER_REFRESH=1` 或手动 `rm -rf runtime_teacher_data/`；`check` 模式例外，默认 REFRESH=1 + 独立 `runtime_teacher_check_data/` 目录。也可由 `inspect_teacher_outputs.py --live` 做训练前预览；student 全段都算 loss（ANALYSIS body 0.3 / 起手字面 `ANALYSIS:`、段切换字面 `\nSTATUS:` / `\nSUBGOAL:`、STATUS+SUBGOAL event_name、可能进入 context 的 tail/EOS 全部 1.0；v2.0 旧版字面 mask=0 是致命陷阱，详见 PROJECT_CONTEXT.md §18.5）；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；`eval_sft_v1.py` / `probe_sft_v1.py` 自动按 jsonl 字段检测 v1/v2；`check_loss_mask_v2.py` 用于已物化 v2 jsonl 的 token 级静态 sanity）
+- `AutoMoT/qwen3vl_local/sft/__init__.py`
+- `AutoMoT/qwen3vl_local/sft/SFT_PLAN.md`
+- `AutoMoT/qwen3vl_local/sft/SFT_RUN.md`
+- `AutoMoT/qwen3vl_local/sft/build_sft_dataset_v1.py`
+- `AutoMoT/qwen3vl_local/sft/sft_v1_train.sh`
+- `AutoMoT/qwen3vl_local/sft/sft_v1_loss_scale_plugin.py`
+- `AutoMoT/qwen3vl_local/sft/eval_sft_v1.py`
+- `AutoMoT/qwen3vl_local/sft/check_loss_mask.py`
+- `AutoMoT/qwen3vl_local/sft/tb_serve.sh`
+- `AutoMoT/qwen3vl_local/sft/probe_sft_v1.py`
+  （以上是合并后的 LoRA SFT v1 / TB / probe 子包入口；`tb_serve.sh` 是通用 TensorBoard 启动器，GoalGen 也复用；`probe_sft_v1.py` 是随机场景 case-level dump；`AutoMoT/tools/` 下其它原始脚本仍为只读参考）
+- `AutoMoT/qwen3vl_local/sft/build_sft_dataset_v2_teacher.py`
+- `AutoMoT/qwen3vl_local/sft/sft_v2_loss_scale_plugin.py`
+- `AutoMoT/qwen3vl_local/sft/sft_v2_train.sh`
+- `AutoMoT/qwen3vl_local/sft/check_loss_mask_v2.py`
+- `AutoMoT/qwen3vl_local/sft/inspect_teacher_outputs.py`
+  （以上这些是 SFT v2 升级相关入口：长期数据集只保留 `v2_pending` 占位 jsonl；冻结 base Qwen + PRIVILEGED prompt 的 ANALYSIS 真值由 `sft_v2_train.sh` 在**首次**训练启动时一次性物化到 runtime 目录并写 `manifest.json`，之后任意卡数启动通过 manifest（schema_version=2 + max_samples==0 + model_dir/seed/gen 参数 + pending/runtime 行数严格匹配）校验，校验通过才直接复用（GPU 数无关），无需任何额外参数；32 条 debug cache、半截 val、`--max-samples N` 跑出来的不写 manifest 不会被误复用；无 manifest 的 final/rank 残留默认清掉重物化，避免旧 teacher 分片被 fingerprint 去重误用；改 prompt / keyframes 后想强制重跑 → `RUNTIME_TEACHER_REFRESH=1` 或手动 `rm -rf runtime_teacher_data/`；`check` 模式例外，默认 REFRESH=1 + 独立 `runtime_teacher_check_data/` 目录。也可由 `inspect_teacher_outputs.py --live` 做训练前预览；student 全段都算 loss（ANALYSIS body 0.3 / 起手字面 `ANALYSIS:`、段切换字面 `\nSTATUS:` / `\nSUBGOAL:`、STATUS+SUBGOAL event_name、可能进入 context 的 tail/EOS 全部 1.0；v2.0 旧版字面 mask=0 是致命陷阱，详见 PROJECT_CONTEXT.md §18.5）；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；`eval_sft_v1.py` / `probe_sft_v1.py` 自动按 jsonl 字段检测 v1/v2；`check_loss_mask_v2.py` 用于已物化 v2 jsonl 的 token 级静态 sanity）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/build_dataset.py`
@@ -209,8 +208,7 @@ git add AutoMoT/qwen3vl_local/eval_carla/__init__.py AutoMoT/qwen3vl_local/eval_
 git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/prompt_pipeline.py
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
-git add AutoMoT/tools/SFT_V1_PLAN.md AutoMoT/tools/SFT_V1_RUN.md AutoMoT/tools/build_sft_dataset_v1.py AutoMoT/tools/sft_v1_train.sh AutoMoT/tools/sft_v1_loss_scale_plugin.py AutoMoT/tools/eval_sft_v1.py AutoMoT/tools/check_loss_mask.py AutoMoT/tools/tb_serve.sh AutoMoT/tools/probe_sft_v1.py
-git add AutoMoT/tools/SFT_V2_PLAN.md AutoMoT/tools/SFT_V2_RUN.md AutoMoT/tools/build_sft_dataset_v2_teacher.py AutoMoT/tools/sft_v2_loss_scale_plugin.py AutoMoT/tools/sft_v2_train.sh AutoMoT/tools/check_loss_mask_v2.py AutoMoT/tools/inspect_teacher_outputs.py
+git add AutoMoT/qwen3vl_local/sft/__init__.py AutoMoT/qwen3vl_local/sft/SFT_PLAN.md AutoMoT/qwen3vl_local/sft/SFT_RUN.md AutoMoT/qwen3vl_local/sft/build_sft_dataset_v1.py AutoMoT/qwen3vl_local/sft/sft_v1_train.sh AutoMoT/qwen3vl_local/sft/sft_v1_loss_scale_plugin.py AutoMoT/qwen3vl_local/sft/eval_sft_v1.py AutoMoT/qwen3vl_local/sft/check_loss_mask.py AutoMoT/qwen3vl_local/sft/tb_serve.sh AutoMoT/qwen3vl_local/sft/probe_sft_v1.py AutoMoT/qwen3vl_local/sft/build_sft_dataset_v2_teacher.py AutoMoT/qwen3vl_local/sft/sft_v2_loss_scale_plugin.py AutoMoT/qwen3vl_local/sft/sft_v2_train.sh AutoMoT/qwen3vl_local/sft/check_loss_mask_v2.py AutoMoT/qwen3vl_local/sft/inspect_teacher_outputs.py
 git add AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md AutoMoT/qwen3vl_local/goalgen/build_dataset.py AutoMoT/qwen3vl_local/goalgen/train.py AutoMoT/qwen3vl_local/goalgen/train.sh AutoMoT/qwen3vl_local/goalgen/eval.py AutoMoT/qwen3vl_local/goalgen/probe.py
 git add AutoMoT/qwen3vl_local/leadmot/__init__.py AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_PLAN.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md AutoMoT/qwen3vl_local/leadmot/build_dataset.py AutoMoT/qwen3vl_local/leadmot/train.py AutoMoT/qwen3vl_local/leadmot/train.sh AutoMoT/qwen3vl_local/leadmot/eval.py AutoMoT/qwen3vl_local/leadmot/probe.py AutoMoT/qwen3vl_local/leadmot/config.py AutoMoT/qwen3vl_local/leadmot/projectors.py AutoMoT/qwen3vl_local/leadmot/query_bank.py AutoMoT/qwen3vl_local/leadmot/heads.py AutoMoT/qwen3vl_local/leadmot/mot_block.py AutoMoT/qwen3vl_local/leadmot/decoder.py
 git add AutoMoT/vae_standalone/train_patch_unpatch.py AutoMoT/vae_standalone/vae_reconstruct.py

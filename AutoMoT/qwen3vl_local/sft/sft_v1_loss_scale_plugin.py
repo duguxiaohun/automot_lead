@@ -26,7 +26,7 @@ v1 的真正目标是"看到当前帧 RGB → 输出哪个事件名"，所以只
 在 AutoMoT/ 目录下的典型用法：
 
     swift sft ... \\
-        --external_plugins tools/sft_v1_loss_scale_plugin.py \\
+        --external_plugins qwen3vl_local/sft/sft_v1_loss_scale_plugin.py \\
         --loss_scale sft_v1_analysis_mask
 """
 
@@ -155,6 +155,6 @@ class SftV1AnalysisMaskLossScale(LossScale):
         return parts, scales
 
 
-# 这里注册的名字与 tools/sft_v1_train.sh 里 --loss_scale sft_v1_analysis_mask 对应。
-# 策略名沿用旧名，避免 sft_v1_train.sh / SFT_V1_RUN.md 里命令行不变。
+# 这里注册的名字与 qwen3vl_local/sft/sft_v1_train.sh 里 --loss_scale sft_v1_analysis_mask 对应。
+# 策略名沿用旧名，避免 sft_v1_train.sh / SFT_RUN.md 里命令行不变。
 loss_scale_map["sft_v1_analysis_mask"] = SftV1AnalysisMaskLossScale

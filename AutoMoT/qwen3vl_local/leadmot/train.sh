@@ -265,7 +265,7 @@ if [[ "${MODE}" != "check" ]]; then
   echo ""
   echo "============================================================"
   echo "[hint] TensorBoard:"
-  echo "  bash tools/tb_serve.sh ${OUTPUT_DIR}"
+  echo "  bash qwen3vl_local/sft/tb_serve.sh ${OUTPUT_DIR}"
   echo "[hint] offline eval:"
   echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval.py --save-root ${OUTPUT_DIR}"
   echo "[hint] case probe:"

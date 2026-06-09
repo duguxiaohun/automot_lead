@@ -5,23 +5,24 @@
 #   - --loss_scale 改用 sft_v2_analysis_supervised（v2 plugin，ANALYSIS body 权重 0.3）；
 #   - 默认读 sft_v2_data_pending/；首次启动若 runtime cache 不存在，自动调用
 #     build_sft_dataset_v2_teacher.py 全量物化 teacher ANALYSIS 到
-#     OUTPUT_DIR/runtime_teacher_data/，再进 swift sft；之后再启动（任意卡数）会
+#     OUTPUT_DIR_BASE/runtime_teacher_data/（如 checkpoints/sft_v2_lora/runtime_teacher_data/），
+#     再进 swift sft；之后再启动（任意卡数）会
 #     自动检测到完整 cache 直接复用、跳过物化。改 prompt / keyframes 后想强制重跑
 #     teacher，显式 RUNTIME_TEACHER_REFRESH=1 或直接 rm -rf runtime_teacher_data/；
-#   - LR 5e-5 → 3e-5（v2 监督 token 数 × 5，lr 同步下调避免过冲，详见 SFT_V2_PLAN.md §6）；
+#   - LR 5e-5 → 3e-5（v2 监督 token 数 × 5，lr 同步下调避免过冲，详见 SFT_PLAN.md §7）；
 #   - MAX_LENGTH 3072 → 3584（v2 ANALYSIS 段更长）。
 #
 # GPU / MASTER_PORT 自动选址逻辑与 v1 完全相同；GPU 始终自动挑空闲卡并覆盖旧 mask。
 #
 # 用法（**从 AutoMoT/ 目录运行**）：
-#   单卡：       bash tools/sft_v2_train.sh single
-#   DDP：        bash tools/sft_v2_train.sh ddp
-#   sanity 自检：bash tools/sft_v2_train.sh check
+#   单卡：       bash qwen3vl_local/sft/sft_v2_train.sh single
+#   DDP：        bash qwen3vl_local/sft/sft_v2_train.sh ddp
+#   sanity 自检：bash qwen3vl_local/sft/sft_v2_train.sh check
 #     （check 模式只跑 2 step、不保存 ckpt，用来确认 loss_scale 是否生效。
 #      v2 初始 loss 应在 3-8 区间，比 v1 偏高，因为多了 ANALYSIS 段约 30 个 token
-#      参与 loss；判读细节见 SFT_V2_RUN.md §4。）
+#      参与 loss；判读细节见 SFT_RUN.md §3。）
 #
-# 数据先用 tools/build_sft_dataset_v1.py --mode v2 生成 pending jsonl。
+# 数据先用 qwen3vl_local/sft/build_sft_dataset_v1.py --mode v2 生成 pending jsonl。
 # 训练脚本首次启动会调用冻结 teacher 一次性物化 ANALYSIS 真值到 runtime 目录，之后
 # 任意卡数启动都自动复用同一份 cache，不重复物化。pending 源数据不会被回写。
 #
@@ -31,11 +32,11 @@
 #   VAL_JSONL=/path/to/v2_val.jsonl \
 #   OUTPUT_DIR=/path/to/sft_v2_lora \
 #   DDP_GPU_COUNT=4 \
-#   bash tools/sft_v2_train.sh ddp
+#   bash qwen3vl_local/sft/sft_v2_train.sh ddp
 #
-# 调权重（不重启训练前 export 即可生效，详见 tools/sft_v2_loss_scale_plugin.py docstring）：
-#   SFT_V2_ANALYSIS_WEIGHT=0.5 bash tools/sft_v2_train.sh ddp     # ANALYSIS 还在漂移时
-#   SFT_V2_ANALYSIS_WEIGHT=0.1 bash tools/sft_v2_train.sh ddp     # ANALYSIS 过拟合 teacher 时
+# 调权重（不重启训练前 export 即可生效，详见 qwen3vl_local/sft/sft_v2_loss_scale_plugin.py docstring）：
+#   SFT_V2_ANALYSIS_WEIGHT=0.5 bash qwen3vl_local/sft/sft_v2_train.sh ddp     # ANALYSIS 还在漂移时
+#   SFT_V2_ANALYSIS_WEIGHT=0.1 bash qwen3vl_local/sft/sft_v2_train.sh ddp     # ANALYSIS 过拟合 teacher 时
 
 set -euo pipefail
 
@@ -88,7 +89,7 @@ if [[ "${MODE}" == "check" && "${RUNTIME_TEACHER_REFRESH_WAS_SET}" != "1" ]]; th
 fi
 
 # ---------------------------------------------------------------------------
-# 超参（v2 调整版，详见 SFT_V2_PLAN.md §6）
+# 超参（v2 调整版，详见 SFT_PLAN.md §7）
 # ---------------------------------------------------------------------------
 # v2 监督信号从 v1 的 ~6 token 升到 ~30 token（多了 ANALYSIS body），
 # 等效"有效梯度量"提高约 5 倍 → lr 同步下调一档（5e-5 → 3e-5）防过冲。
@@ -118,7 +119,7 @@ SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-3}"
 
 # v2 plugin：ANALYSIS body 权重 0.3、STATUS/SUBGOAL event_name 1.0、其它 0。
 LOSS_SCALE="sft_v2_analysis_supervised"
-LOSS_SCALE_PLUGIN="tools/sft_v2_loss_scale_plugin.py"
+LOSS_SCALE_PLUGIN="qwen3vl_local/sft/sft_v2_loss_scale_plugin.py"
 
 # HuggingFace 强制离线（与 v1 同）。
 export HF_HUB_OFFLINE=1
@@ -431,7 +432,7 @@ materialize_runtime_teacher_if_needed() {
         teacher_args+=(--max-samples "${RUNTIME_TEACHER_MAX_SAMPLES}")
         # 警告：sample-limited 跑不会写 manifest，下次 sft_v2_train.sh 启动会拒绝复用、
         # 重新跑 teacher。debug 场景请改用 build_sft_dataset_v2_teacher.py 直接调用 +
-        # --output-dir 指向独立的 debug 目录（详见 SFT_V2_RUN.md §2.2）。
+        # --output-dir 指向独立的 debug 目录（详见 SFT_RUN.md §4）。
         echo "[teacher][warn] RUNTIME_TEACHER_MAX_SAMPLES=${RUNTIME_TEACHER_MAX_SAMPLES} in ${MODE} mode" >&2
         echo "[teacher][warn]   - this run will NOT write manifest.json" >&2
         echo "[teacher][warn]   - the resulting cache in ${RUNTIME_TEACHER_DIR} is NOT reusable by next launch" >&2
@@ -442,10 +443,10 @@ materialize_runtime_teacher_if_needed() {
         torchrun --nproc_per_node="${NPROC_PER_NODE}" \
             --master_addr="${MASTER_ADDR}" \
             --master_port="${MASTER_PORT}" \
-            tools/build_sft_dataset_v2_teacher.py \
+            qwen3vl_local/sft/build_sft_dataset_v2_teacher.py \
             "${teacher_args[@]}"
     else
-        python tools/build_sft_dataset_v2_teacher.py "${teacher_args[@]}"
+        python qwen3vl_local/sft/build_sft_dataset_v2_teacher.py "${teacher_args[@]}"
     fi
 
     TRAIN_JSONL="${RUNTIME_TEACHER_DIR}/train.jsonl"
@@ -476,7 +477,7 @@ case "${MODE}" in
         # v2 健康初始 loss 区间：3-8。
         # 比 v1（6-10）偏低，因为 v2 ANALYSIS body 段加 0.3 权重后单 token loss 被稀释；
         # 但比 v1 mask=0 时多了 ~30 个 token 参与 loss，整体仍在可读量级。
-        # 判读细节见 SFT_V2_RUN.md §4。
+        # 判读细节见 SFT_RUN.md §3。
         export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
         export NPROC_PER_NODE=1
         PER_DEVICE_BS=1
@@ -586,13 +587,13 @@ echo "[done] v2 LoRA adapter saved under ${OUTPUT_DIR}"
 echo ""
 echo "============================================================"
 echo "[hint] 看 TensorBoard："
-echo "  bash tools/tb_serve.sh ${OUTPUT_DIR}"
+echo "  bash qwen3vl_local/sft/tb_serve.sh ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在 val 集上跑 eval（注意 v2 必须显式 --val-jsonl 指向 v2 数据）："
-echo "  python tools/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} \\"
+echo "  python qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} \\"
 echo "      --val-jsonl ${VAL_JSONL} --save-root ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在随机场景上 dump case："
-echo "  python tools/probe_sft_v1.py --lora-dir ${OUTPUT_DIR} \\"
+echo "  python qwen3vl_local/sft/probe_sft_v1.py --lora-dir ${OUTPUT_DIR} \\"
 echo "      --val-jsonl ${VAL_JSONL} --save-root ${OUTPUT_DIR} --num-per-scenario 4"
 echo "============================================================"

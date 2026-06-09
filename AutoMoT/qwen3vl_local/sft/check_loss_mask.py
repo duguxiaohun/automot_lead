@@ -12,7 +12,7 @@ v1 把 ``STATUS:`` / ``SUBGOAL:`` 字面也从 loss 里剔除——理由见
 强约束下已经会按三段格式输出，关键词字面不需要再训；保留它们反而会让"复读
 STATUS:"成为最廉价的降 loss 路径。
 
-随后会可选调用 `tools/sft_v1_loss_scale_plugin.py` 里的 ms-swift 插件本体，
+随后会可选调用 `qwen3vl_local/sft/sft_v1_loss_scale_plugin.py` 里的 ms-swift 插件本体，
 确认 STATUS / SUBGOAL 事件名确实位于插件返回的 loss 段。若当前环境没装
 ms-swift，这一步会打印 WARN；远程训练环境必须让这一步通过。
 
@@ -20,13 +20,13 @@ ms-swift，这一步会打印 WARN；远程训练环境必须让这一步通过�
 
 ```bash
 # 默认看 train.jsonl 第一条
-python tools/check_loss_mask.py
+python qwen3vl_local/sft/check_loss_mask.py
 
 # 看第 N 条
-python tools/check_loss_mask.py --sample-idx 7
+python qwen3vl_local/sft/check_loss_mask.py --sample-idx 7
 
 # 指定 tokenizer 目录
-python tools/check_loss_mask.py \\
+python qwen3vl_local/sft/check_loss_mask.py \\
     --tokenizer-dir checkpoints/Qwen3-VL-4B-Instruct
 ```
 
@@ -49,12 +49,12 @@ import re
 import sys
 from typing import Dict, List, Optional, Sequence, Tuple
 
-# 本文件位于 AutoMoT/tools/。parents[1]=AutoMoT/，parents[2]=automot_lead 仓库根。
+# 本文件位于 AutoMoT/qwen3vl_local/sft/。parents[2]=AutoMoT/，parents[3]=automot_lead 仓库根。
 # 这里推断路径不是为了 sys.path import 别的模块——本脚本不 import qwen3vl_local——
 # 而是为了让默认的 --jsonl / --tokenizer-dir 参数能"开箱即用"地指向本项目约定位置。
 _THIS_FILE = pathlib.Path(__file__).resolve()
-_AUTOMOT_ROOT = _THIS_FILE.parents[1]
-_PROJECT_ROOT = _THIS_FILE.parents[2]
+_AUTOMOT_ROOT = _THIS_FILE.parents[2]
+_PROJECT_ROOT = _THIS_FILE.parents[3]
 
 # HF 离线开关。tokenizer 也走本地缓存，避免在远程跑时因联网失败而崩。
 # setdefault 保证若用户事先 export 过同名变量，本脚本不会覆盖（典型场景：调试时
@@ -282,10 +282,10 @@ def print_plugin_loss_scale_check(text: str) -> None:
     """调用 ms-swift 插件本体，确认它把 STATUS / SUBGOAL 事件名留在 loss 段。
 
     这一步比上面的纯 regex/token 表更接近训练侧：swift 训练时会通过
-    `--external_plugins tools/sft_v1_loss_scale_plugin.py` 注册并调用同一个
+    `--external_plugins qwen3vl_local/sft/sft_v1_loss_scale_plugin.py` 注册并调用同一个
     ``SftV1AnalysisMaskLossScale.get_loss_scale()``。如果这里返回的 loss 段
     没有包含 STATUS / SUBGOAL 的事件名（或 STATUS: / SUBGOAL: 字面也跑到了
-    loss 段），那 `bash tools/sft_v1_train.sh check` 报的 loss 数值就不能再信。
+    loss 段），那 `bash qwen3vl_local/sft/sft_v1_train.sh check` 报的 loss 数值就不能再信。
 
     预期输出（健康）：
     - 多个 0 权重段（含 "ANALYSIS:..."、"STATUS: "、"\\nSUBGOAL: "、尾随空白）
@@ -337,7 +337,7 @@ def print_plugin_loss_scale_check(text: str) -> None:
             print(f"[WARN] {label} event_name 没有被正确保留为 loss token。")
 
     # 额外检查：STATUS:/SUBGOAL: 这些字面 token 必须落在 mask 段，不能进 loss。
-    # 这是 v1 升级后的硬约束（与 SFT_V1_PLAN.md §2 Loss 组成表对齐）。
+    # 这是 v1 升级后的硬约束（与 SFT_PLAN.md §5 Loss 设计对齐）。
     for literal in ("ANALYSIS:", "STATUS:", "SUBGOAL:"):
         if literal in text:
             in_loss = literal in loss_text
@@ -371,7 +371,7 @@ def main():
     """
     parser = argparse.ArgumentParser()
     # 默认 jsonl 是 build_sft_dataset_v1.py 的默认输出位置，
-    # 这样最常见命令 `python tools/check_loss_mask.py`（从 AutoMoT/ cwd）就能跑通。
+    # 这样最常见命令 `python qwen3vl_local/sft/check_loss_mask.py`（从 AutoMoT/ cwd）就能跑通。
     parser.add_argument("--jsonl", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v1_data" / "train.jsonl"))
     # 大多数时间看第 0 条就够；遇到特殊 scenario 想看时再调。
