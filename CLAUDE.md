@@ -63,9 +63,6 @@
 | `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py` | 范式 A 对照脚本，保留 automot/qwen 双 backend |
 | `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py` | standalone Qwen3-VL-4B-Instruct 范式 A 脚本 |
 | `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py` | 子目标 latent 生成新路线 runner（teacher-forced prefill → DiT-MoT → flow matching，详见 PROJECT_CONTEXT.md §15） |
-| `AutoMoT/leaderboard/team_code/automot_utils.py` | 按用户同意纳入白名单：AutoMoT legacy prompt helper；`build_cleaned_prompt_and_modes` 必须接收 7 元 `[speed,tp,ntp,final_goal]` 并在 prompt 写入 final destination |
-| `AutoMoT/leaderboard/team_code/mot_b2d_agent.py` | 按用户同意纳入白名单：legacy AutoMoT 在线 agent；涉及 wp/nwp prompt 时必须同步按 `max(speed*lookahead_s, 5m)` 弧长生成 tp/ntp，生成局部 final_goal 并传入 `automot_utils.build_cleaned_prompt_and_modes` |
-| `AutoMoT/leaderboard/team_code/display_interface.py` | 按用户同意纳入白名单：AutoMoT 显示层；decision 三元组只表示 now/+1s/+2s，不要再沿用旧 3s 命名 |
 | `AutoMoT/qwen3vl_local/eval_carla/` | LeadMoT 闭环评测子包（全部白名单内）：实时 agent + 5 路视频 + 投影 overlay + scenario 反向映射 + 聚合 + Flask webapp。`agent.py` 直接复用 `LeadOfflineMoTRunner`；target_point / next_target_point 与训练同走 `max(speed*lookahead_s, 5m)` route 弧长前推，默认 tp=1.0s / ntp=2.0s；final_goal 为 route 真实终点：训练取 LEAD 采集保存的 `meta["next_target_points"][-1]` 转 ego，在线 eval_carla 取 `scenario_picker.py` 对应 route XML 最后一个 waypoint 转 ego，不能再用 `meta["route"][-1]` 或固定局部 horizon；warmup 为 LEAD 风格 left-pad 复制 frame 0 立即推理；按 ckpt `decoder_config.use_bev` 决定是否声明/读取 LiDAR/radar；其余细节以 `EVAL_CARLA_PLAN.md` / `EVAL_CARLA_RUN.md` 为准。 |
 | `AutoMoT/qwen3vl_local/` | Qwen3-VL-Instruct 本地 helper 包；其中 `tb_serve.sh` 是 SFT / GoalGen / LeadMoT 复用的通用 TensorBoard 启动器，`goalgen/` 子包是 §15 新路线全部模块（vae/prompt/qwen_kv/keyframes/dit/flow），`eval_carla/` 子包是上述闭环评测子包 |
 | `AutoMoT/qwen3vl_local/sft/__init__.py` / `SFT_PLAN.md` / `SFT_RUN.md` / `build_sft_dataset_v1.py` / `sft_v1_train.sh` / `sft_v1_loss_scale_plugin.py` / `eval_sft_v1.py` / `check_loss_mask.py` / `probe_sft_v1.py` / `build_sft_dataset_v2_teacher.py` / `sft_v2_loss_scale_plugin.py` / `sft_v2_train.sh` / `check_loss_mask_v2.py` / `inspect_teacher_outputs.py` | 合并后的 LoRA SFT v1/v2 子包：`SFT_PLAN.md` / `SFT_RUN.md` 是统一设计与运行入口；通用 TensorBoard 启动器已移到 `AutoMoT/qwen3vl_local/tb_serve.sh`；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；v2 的 frozen Qwen teacher 由 `sft_v2_train.sh` 首次训练时物化到 base 层 `runtime_teacher_data/` 并用 manifest 严格复用，`check` 模式默认写独立 `runtime_teacher_check_data/`；student 全段 loss 规则、teacher cache 规则与 sanity 入口详见 `SFT_PLAN.md` / `SFT_RUN.md`；`AutoMoT/tools/` 下其它原始脚本仍为只读参考 |
@@ -104,9 +101,6 @@
 - `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
 - `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py`
 - `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`
-- `AutoMoT/leaderboard/team_code/automot_utils.py`
-- `AutoMoT/leaderboard/team_code/mot_b2d_agent.py`
-- `AutoMoT/leaderboard/team_code/display_interface.py`
 - `AutoMoT/qwen3vl_local/eval_carla/__init__.py`
 - `AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_PLAN.md`
 - `AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md`
