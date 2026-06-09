@@ -73,19 +73,11 @@
 - `AutoMoT/leaderboard/team_code/automot_utils.py`
   （按用户同意纳入白名单：AutoMoT legacy prompt helper；`build_cleaned_prompt_and_modes`
   必须接收 7 元 `[speed,tp,ntp,final_goal]` 并在 prompt 写入 final destination）
-- `AutoMoT/Automot/team_code/automot_utils.py`
-  （按用户同意纳入白名单：AutoMoT 原始副本 prompt helper；必须与
-  `AutoMoT/leaderboard/team_code/automot_utils.py` 的 7 元 final destination prompt 保持同步）
-- `AutoMoT/Automot/mot/evaluation/inference.py`
-- `AutoMoT/Automot/mot/modeling/automot/automot.py`
-  （按用户同意纳入白名单：AutoMoT 原始副本中的 prompt 示例注释；涉及 target_point /
-  next_target_point 的 prompt 示例必须包含 final destination，并与 2s 规划视野同步）
 - `AutoMoT/leaderboard/team_code/mot_b2d_agent.py`
   （按用户同意纳入白名单：legacy AutoMoT 在线 agent；涉及 wp/nwp prompt 时必须同步
   按 `max(speed*lookahead_s, 5m)` 弧长生成 tp/ntp，生成局部 final_goal 并传入
   `automot_utils.build_cleaned_prompt_and_modes`）
 - `AutoMoT/leaderboard/team_code/display_interface.py`
-- `AutoMoT/Automot/team_code/display_interface.py`
   （按用户同意纳入白名单：AutoMoT 显示层；decision 三元组只表示 now/+1s/+2s，
   不要再沿用旧 3s 命名）
 - `AutoMoT/qwen3vl_local/eval_carla/`（LeadMoT 闭环评测子包，全部子文件白名单内）
@@ -204,7 +196,7 @@ git add AGENTS.md CLAUDE.md PROJECT_CONTEXT.md
 git add AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py
 git add AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py
-git add AutoMoT/leaderboard/team_code/automot_utils.py AutoMoT/Automot/team_code/automot_utils.py AutoMoT/Automot/mot/evaluation/inference.py AutoMoT/Automot/mot/modeling/automot/automot.py AutoMoT/leaderboard/team_code/mot_b2d_agent.py AutoMoT/leaderboard/team_code/display_interface.py AutoMoT/Automot/team_code/display_interface.py
+git add AutoMoT/leaderboard/team_code/automot_utils.py AutoMoT/leaderboard/team_code/mot_b2d_agent.py AutoMoT/leaderboard/team_code/display_interface.py
 git add AutoMoT/qwen3vl_local/eval_carla/__init__.py AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_PLAN.md AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md AutoMoT/qwen3vl_local/eval_carla/agent.py AutoMoT/qwen3vl_local/eval_carla/safety.py AutoMoT/qwen3vl_local/eval_carla/video_recorder.py AutoMoT/qwen3vl_local/eval_carla/visualizer.py AutoMoT/qwen3vl_local/eval_carla/scenario_picker.py AutoMoT/qwen3vl_local/eval_carla/aggregate.py AutoMoT/qwen3vl_local/eval_carla/run_eval.sh AutoMoT/qwen3vl_local/eval_carla/webapp/__init__.py AutoMoT/qwen3vl_local/eval_carla/webapp/app.py AutoMoT/qwen3vl_local/eval_carla/webapp/templates/index.html AutoMoT/qwen3vl_local/eval_carla/webapp/static/style.css
 git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/prompt_pipeline.py AutoMoT/qwen3vl_local/tb_serve.sh
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
