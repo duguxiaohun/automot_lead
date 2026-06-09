@@ -526,6 +526,21 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         self.runner._ensure_leadmot_qwen_engine()
         self.runner._ensure_leadmot_decoder()
         self.use_bev = bool(self.runner.leadmot_config.use_bev)
+        # ===== subgoal 模式接口占位 =====
+        # ckpt decoder_config.use_subgoal 由 LeadOfflineMoTRunner 自动从 ckpt 读出来；
+        # CARLA 闭环评测当前**无法**在线获取 SUBGOAL keyframe RGB（需要预知未来），
+        # 因此 use_subgoal=True 的 ckpt 暂不支持闭环跑。
+        # TODO(subgoal): 引入子目标图像生成或代理输入（例如基于 keyframes_all_scenarios.json
+        # + 当前 scenario 状态机推断 + 一段时长后的真实摄像头帧），让 eval_carla 也能跑
+        # subgoal ckpt 闭环。届时把下面 raise 换成实际 SUBGOAL RGB 注入逻辑。
+        self.use_subgoal = bool(getattr(self.runner.leadmot_config, "use_subgoal", False))
+        if self.use_subgoal:
+            raise NotImplementedError(
+                "Loaded LeadMoT ckpt has decoder_config.use_subgoal=True, but eval_carla "
+                "does not yet provide SUBGOAL keyframe RGB for online closed-loop runs. "
+                "Use a use_subgoal=False ckpt for CARLA eval, or extend eval_carla/agent.py "
+                "to inject a SUBGOAL reference image (see TODO subgoal)."
+            )
         # no-BEV 模型不声明、不读取 LiDAR；BEV 模型才请求 LEAD 双 LiDAR。
         # 注意 runner 内部可能仍构造 BEV encoder，但 forward 会由 decoder_config.use_bev 控制。
         self.need_lidar = self.use_bev

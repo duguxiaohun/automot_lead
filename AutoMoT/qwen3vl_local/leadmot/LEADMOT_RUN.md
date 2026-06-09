@@ -14,6 +14,12 @@
 >   eval / probe / runner 会从 checkpoint 的 `decoder_config.use_bev` 自动恢复开关；
 >   runner 加载 decoder 权重使用 `strict=True`。`USE_BEV=1` 必须导入已有
 >   `bev_projector` 参数，`USE_BEV=0` 则完全不实例化 / 不 forward BEV，绝不混入随机 BEV。
+> - `USE_SUBGOAL=0/1`（env，默认 `0`）：是否让 frozen Qwen prefix 额外看到
+>   1 张 SUBGOAL keyframe RGB + STATUS/SUBGOAL 真值文本块。它与 `USE_BEV` 正交，
+>   不改变 decoder state_dict 形状，但 prefix KV 分布不兼容；resume/init-from-ckpt
+>   会按 checkpoint 的 `decoder_config.use_subgoal` 严格拒绝跨开关加载。
+>   eval / probe / offline runner 会从 checkpoint 自动恢复该开关；eval_carla 在线闭环
+>   暂不支持 `use_subgoal=True` ckpt，会在 agent 加载时直接报错并保留 TODO 接口。
 
 ## 1. 构建训练索引
 
@@ -22,6 +28,7 @@ cd AutoMoT
 python qwen3vl_local/leadmot/build_dataset.py \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/leadmot_v1_data \
+  --with-subgoal-fields \
   --samples-per-scenario 0
 ```
 
@@ -31,9 +38,23 @@ python qwen3vl_local/leadmot/build_dataset.py \
 python qwen3vl_local/leadmot/build_dataset.py \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/leadmot_v1_data_debug \
+  --with-subgoal-fields \
   --samples-per-scenario 50 \
   --stride 5
 ```
+
+`--with-subgoal-fields` 默认就是开启的，显式写出来只是提醒：构建器会读取
+`--keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json`，给每行写入
+`run_id/subgoal_lookup_ok/status/subgoal/subgoal_frame/subgoal_rgb_path/subgoal_skip_reason`。
+同一份 jsonl 可同时给 `USE_SUBGOAL=0` 和 `USE_SUBGOAL=1` 使用；前者忽略这些字段，
+后者只保留 `subgoal_lookup_ok=True` 的样本训练。只有 keyframes 文件不可用时才用
+`--no-with-subgoal-fields`，此时不能训练 `USE_SUBGOAL=1` 模型。
+反查 SUBGOAL 时只接受 keyframes run status 为 `Completed/Perfect` 的轨迹；失败或中断
+run 会写入 `run_status_not_accepted:*`，避免把不可达未来帧当成真值。
+
+注意：上面的 `--keyframes` 默认值是远端数据机路径。本机或其它机器重建 jsonl 时，
+如果没有这个文件，必须显式传 `--keyframes <有效 keyframes_all_scenarios.json>`；
+只是想构建普通 no-subgoal 训练索引时，可传 `--no-with-subgoal-fields` 跳过反查。
 
 `--samples-per-scenario 0` 与 GoalGen 一致，表示每个 scenario 保留所有合法 anchor；传正整数时按 route-balanced 方式抽样。构建器输出 `train.jsonl` / `val.jsonl` / `stats.json`，train/val 按 route 切分，避免同一路线相邻 anchor 同时进入训练和验证。
 
@@ -106,6 +127,37 @@ DDP_GPU_COUNT=4 USE_BEV=0 bash qwen3vl_local/leadmot/train.sh ddp
 `mot_lead_offline_runner.py` 时也同理：先读 checkpoint 配置再实例化 decoder，并用
 `strict=True` 加载权重，避免 `USE_BEV=0` checkpoint 被错误装进带随机 `bev_projector` 的模型。
 
+### 4.y USE_SUBGOAL 开关（离线专用）
+
+```bash
+# 默认 USE_SUBGOAL=0：普通 history/current RGB + navigation prompt
+DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+
+# USE_SUBGOAL=1：额外把 SUBGOAL keyframe RGB 和 STATUS/SUBGOAL 真值文本喂给 Qwen prefix
+DDP_GPU_COUNT=4 USE_SUBGOAL=1 bash qwen3vl_local/leadmot/train.sh ddp
+
+# 可与 USE_BEV=0 组合，做 no-BEV + subgoal prefix 消融
+DDP_GPU_COUNT=4 USE_BEV=0 USE_SUBGOAL=1 bash qwen3vl_local/leadmot/train.sh ddp
+```
+
+行为约定：
+
+| 维度 | `USE_SUBGOAL=0`（默认） | `USE_SUBGOAL=1` |
+|---|---|---|
+| Qwen 图像输入 | 历史/当前 stitched RGB | 历史/当前 stitched RGB + SUBGOAL stitched RGB |
+| Qwen 文本输入 | navigation prompt | `[GROUND_TRUTH_STATE]` + navigation prompt |
+| decoder state_dict | 不变 | 不变 |
+| prefix KV 分布 | 普通分布 | subgoal-aware 分布，不能与普通分布混用 |
+| 数据要求 | 普通 LeadMoT jsonl | jsonl 必须有 `subgoal_lookup_ok=True` 样本 |
+| 在线 eval_carla | 支持 | 暂不支持，agent 加载时报 `NotImplementedError` |
+
+训练入口会把 `USE_SUBGOAL=1` 透传成 `train.py --use-subgoal`，并在启动时过滤掉
+`subgoal_lookup_ok` 不是 `True` 的行；若过滤后没有训练样本会直接报错。checkpoint 会写入
+`decoder_config.use_subgoal`，后续 eval / probe / `mot_lead_offline_runner.py` 自动按 ckpt
+选择普通 prefill 或 subgoal prefill，不需要再手动指定。
+`eval.py --max-samples N` 会先按 ckpt 的 `use_subgoal` 过滤有效 subgoal 行，再截取前 N 条，
+因此快速评测不会被 jsonl 前缀中的无效兼容行污染。
+
 ## 5. 默认训练参数
 
 ```text
@@ -134,6 +186,8 @@ EMA_DECAY=0.999
 IMAGE_LOG_EVERY=1000
 IMAGE_LOG_SAMPLES=4
 IMAGE_LOG_SEED=20260101
+USE_BEV=1
+USE_SUBGOAL=0
 ```
 
 只有 LeadMoT decoder 更新参数；Qwen3-VL-Instruct 与 LeadBEVEncoder 都是 frozen eval。不传位置参数时 `bash qwen3vl_local/leadmot/train.sh` 默认走 `ddp`（与 GoalGen 一致）。保存逻辑对齐 GoalGen，共 4 类产物：`best.pt`/`best.json`（val 最优）、`latest.pt`（每 `SAVE_STEPS` 步覆盖 + epoch 末）、`checkpoint-epochNN.pt`（epoch 末池，保留最近 `KEEP_RECENT_CHECKPOINTS` 份）、`step-checkpoint-NNNNNN.pt`（每 `STEP_SAVE_EVERY` 步独立池，保留最近 `KEEP_RECENT_STEP_CHECKPOINTS` 份）。epoch 池与 step 池互不淘汰；`best.pt` / `latest.pt` 永远保留。

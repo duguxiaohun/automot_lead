@@ -92,6 +92,27 @@ BEV 开关：
 - LeadMoT `ema_state_dict` 当前 schema 是 `{"decay": ..., "shadow": {...}}`；`eval.py` /
   `probe.py` 会 unwrap `shadow` 后再 strict load。
 
+Subgoal 开关：
+
+- 默认 `USE_SUBGOAL=0` / `use_subgoal=False`。`USE_SUBGOAL=1` 会让 frozen Qwen prefix
+  额外接收 1 张 SUBGOAL stitched RGB + `[GROUND_TRUTH_STATE]` 文本块
+  （scenario/status/subgoal/event meanings），原 navigation prompt 仍保留。
+- `use_subgoal` 与 `use_bev` 正交；不改变 decoder state_dict 形状，但 prefix KV 分布
+  不兼容，`train.py` 的 resume/init-from-ckpt 会按 checkpoint
+  `decoder_config.use_subgoal` 拒绝跨开关加载。
+- `leadmot/build_dataset.py --with-subgoal-fields` 默认读取
+  `keyframes_all_scenarios.json`，写入
+  `run_id/subgoal_lookup_ok/status/subgoal/subgoal_frame/subgoal_rgb_path/subgoal_skip_reason`。
+  subgoal 反查只接受 keyframes run status 为 `Completed/Perfect` 的轨迹，失败 run 会写
+  `run_status_not_accepted:*` skip reason；`use_subgoal=True` 训练启动时只保留
+  `subgoal_lookup_ok=True` 的行，过滤后无样本直接报错。
+- eval / probe / `mot_lead_offline_runner.py` 从 ckpt 自动读取 `use_subgoal`。offline runner
+  对 subgoal ckpt 要求 `lead_clip` 带
+  `subgoal_rgb_path/subgoal_scenario/subgoal_status/subgoal_event`；CLI demo 可用
+  `--keyframes` 自动反查并注入。
+- `eval_carla` 在线闭环暂不支持 `use_subgoal=True`，因为在线拿不到未来 SUBGOAL keyframe RGB；
+  agent 加载该类 ckpt 时立即 `raise NotImplementedError`，保留后续图像生成/代理输入 TODO。
+
 ### 6.1 LeadMoT CARLA 闭环评测（eval_carla）
 
 入口：`AutoMoT/qwen3vl_local/eval_carla/`，操作文档：

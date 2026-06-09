@@ -5,8 +5,12 @@
 > 不带 _v1 后缀），未来要做 v2 时按 GoalGen 套路用 `--mode` / `VERSION` env 扩展
 > 而**不**新建 `train_v2.py` 之类文件。
 >
-> **v1 内部当前唯一可控的结构开关**：`use_bev`（config 字段，CLI `--use-bev` /
-> `--no-use-bev`，sh `USE_BEV=0/1`，默认 `True`）。开关含义见下面 §6 "use_bev"。
+> **v1 内部当前可控开关**：
+> - `use_bev`（config 字段，CLI `--use-bev` / `--no-use-bev`，sh `USE_BEV=0/1`，
+>   默认 `True`）：控制 decoder 是否接 BEV token。
+> - `use_subgoal`（config 字段，CLI `--use-subgoal` / `--no-use-subgoal`，
+>   sh `USE_SUBGOAL=0/1`，默认 `False`）：控制 frozen Qwen prefix 是否额外接收
+>   SUBGOAL keyframe RGB + STATUS/SUBGOAL 真值文本。它与 `use_bev` 正交。
 
 ## 目标
 
@@ -18,6 +22,7 @@
 - `_segment_qwen_cache_for_leadmot(...)` 得到的 12 层 prefix K/V
 - frozen `LeadBEVEncoder` 的 `(B,512,10,12)` BEV feature
 - speed / target_point / next_target_point / final_goal
+- 可选 SUBGOAL keyframe RGB + `[GROUND_TRUTH_STATE]` 文本块（仅 `use_subgoal=True`）
 
 输出：
 
@@ -43,6 +48,7 @@ LEAD 的 decoder head 是 `Linear(hidden,2) -> torch.cumsum(dim=1)`：模型内�
 python qwen3vl_local/leadmot/build_dataset.py \
   --data-root /datashare/IOL4SGH/data/data \
   --samples-per-scenario 0 \
+  --with-subgoal-fields \
   --output-dir checkpoints/leadmot_v1_data
 ```
 
@@ -54,6 +60,18 @@ python qwen3vl_local/leadmot/build_dataset.py \
 - anchor meta 的 `future_positions[[5,10,...,40]]`：监督 8 个未来 waypoint，LEAD 4Hz 下覆盖 2s。
 
 默认 `--samples-per-scenario 0` 与 GoalGen 一致，表示每个 scenario 保留所有合法 anchor；传正整数时按 route-balanced 方式抽样。默认 `--stride 5`，让相邻 anchor 大约间隔 1 秒，减少高度重叠的伪样本；如需全量密集 anchor，可显式 `--stride 1`。train/val 按 route 切分，避免同一路线相邻 anchor 同时进入训练和验证。构建器输出 `train.jsonl` / `val.jsonl` / `stats.json`。`--check-readable` 可选但默认**不推荐**：开了之后每个 anchor 要做 6 次 lzma + 12 次 file stat，几百 route 数据集会变成几小时；train 已经有 DDP-safe 占位 loss 兜底坏样本，不再需要在构建期预校验。
+
+`--with-subgoal-fields` 默认开启，会读取 `--keyframes` 指向的
+`keyframes_all_scenarios.json`，按 `(scenario, route_id, anchor)` 反查当前 STATUS、
+下一个 SUBGOAL 事件、SUBGOAL keyframe frame，并写入
+`run_id/subgoal_lookup_ok/status/subgoal/subgoal_frame/subgoal_rgb_path/subgoal_skip_reason`。
+这些字段让同一份 jsonl 兼容 `use_subgoal=False/True`：普通模型忽略它们；subgoal 模型
+训练时只保留 `subgoal_lookup_ok=True` 的行。只有 keyframes 不可用时才用
+`--no-with-subgoal-fields`，此时不能训练 `use_subgoal=True` 模型。
+SUBGOAL 反查与 GoalGen 一样只接受 `Completed/Perfect` 的 keyframes run；失败或中断
+run 的未来事件链不作为真值，统一记为 `run_status_not_accepted:*`。
+默认 `--keyframes` 是远端数据机路径；在本机或其它路径布局下重建 jsonl 时，必须显式传
+有效 `--keyframes`，或用 `--no-with-subgoal-fields` 构建 no-subgoal 索引。
 
 当前不做 Qwen pooled KV 离线缓存。原因是 prompt / RoPE / prefix 组织还在迭代期，prompt 一改缓存就失效；训练先保证范式正确，再考虑缓存工程。
 
@@ -162,3 +180,29 @@ CLI / env 接口：
 
 - `train.py --use-bev` / `--no-use-bev`（argparse `BooleanOptionalAction`）；
 - `train.sh USE_BEV=0/1`（env，默认 `1`，转 `--no-use-bev` / `--use-bev` 透传）。
+
+## use_subgoal 开关
+
+`LeadMoTPlanningDecoderConfig.use_subgoal`（默认 `False`）决定 frozen Qwen prefix 是否
+追加 SUBGOAL 信息。该开关不改变 decoder 模块形状，只改变 Qwen prefill 的图像列表与
+prompt：
+
+- `use_subgoal=False`：普通路径，历史/当前 RGB + navigation prompt；
+- `use_subgoal=True`：历史/当前 RGB 后追加一张 SUBGOAL stitched RGB，并在 user prompt
+  前部加入 `[GROUND_TRUTH_STATE]`，显式写入 scenario、STATUS、SUBGOAL 和事件解释；
+  navigation prompt 仍保留，用来维持 tp/ntp/final_goal 语义。
+
+工程约束：
+
+- 与 `use_bev` 正交，四种组合都允许；
+- state_dict 形状兼容，但 prefix KV 分布不兼容，`--resume` / `--init-from-ckpt`
+  会用 checkpoint 的 `decoder_config.use_subgoal` 拒绝跨开关加载；
+- `train.sh USE_SUBGOAL=1` 会透传 `train.py --use-subgoal`，训练启动时过滤掉
+  `subgoal_lookup_ok is not True` 的行，过滤后没有训练样本会直接报错；
+- eval / probe 从 ckpt 自动读取 `use_subgoal`，无需手动指定；eval 的 `--max-samples`
+  在 subgoal 有效行过滤后生效，避免快速评测截到无效兼容行；
+- `mot_lead_offline_runner.py` 加载 subgoal ckpt 后会要求 `lead_clip` 带
+  `subgoal_rgb_path/subgoal_scenario/subgoal_status/subgoal_event`，CLI demo 会通过
+  `--keyframes` 自动反查并注入；
+- `eval_carla` 在线闭环暂时无法获得 SUBGOAL keyframe RGB，加载 `use_subgoal=True`
+  ckpt 时会立刻 `raise NotImplementedError`，后续由图像生成/代理输入接口填补。

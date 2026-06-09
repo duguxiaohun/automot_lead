@@ -3,6 +3,16 @@
 
 JSONL 只保存 route 目录和 anchor 帧引用。RGB、LiDAR、BEV、Qwen prefill
 这些重工作都留给 train.py，因此这一步很快，也适合反复重建。
+
+字段命名约定（保留多种 alias 是历史包袱，下游不要再增加新名字）：
+
+- ``scenario``：场景名（如 ``Accident``、``ConstructionObstacle``）；对应 LEAD
+  数据目录 ``<data_root>/<scenario>/<run_id>/`` 的中间一级。
+- ``route_id`` / ``run_id``：**两者值完全相同**，都是 LEAD route 目录的末段。
+  ``route_id`` 是 leadmot 历史字段名（沿用 v1 schema 兼容下游 train/eval/probe），
+  ``run_id`` 是 goalgen 与 ``keyframes_all_scenarios.json`` 用的名字。
+  本脚本从 v2 schema 起会在每行同时写 ``route_id`` 与 ``run_id``，让 subgoal 反查
+  代码与 keyframes API 直接对得上，避免新人 review 时困惑。
 """
 
 from __future__ import annotations
@@ -11,9 +21,17 @@ import argparse
 import json
 import math
 import random
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
+
+
+# AutoMoT/ 加进 sys.path 让 ``--with-subgoal-fields`` 能 lazy import qwen3vl_local 工具。
+_THIS_FILE = Path(__file__).resolve()
+_AUTOMOT_ROOT = _THIS_FILE.parents[2]
+if str(_AUTOMOT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_AUTOMOT_ROOT))
 
 
 def _has_route_layout(path: Path) -> bool:
@@ -44,7 +62,7 @@ def _count_frames(route_dir: Path) -> int:
 
 
 def _route_name(data_root: Path, route_dir: Path) -> tuple[str, str]:
-    """为 JSONL 行生成稳定的 ``scenario`` 和 ``route_id`` 字段。"""
+    """为 JSONL 行生成稳定的 ``scenario`` 和 ``route_id/run_id`` 字段。"""
     try:
         parts = route_dir.relative_to(data_root).parts
     except ValueError:
@@ -126,6 +144,38 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
     if not data_root.exists():
         raise FileNotFoundError(f"data root not found: {data_root}")
 
+    # 默认就反查 keyframes 把 subgoal 字段写进 jsonl，让同一份 jsonl 同时兼容
+    # use_subgoal=True / False 两种训练配置：
+    # - True 路径：subgoal_lookup_ok=True 的行进入训练；False 的行在训练启动时过滤。
+    # - False 路径：直接忽略 subgoal_* 字段，照原 v2 行为训练。
+    # `--no-with-subgoal-fields` 才完全跳过 keyframes 反查（缺 keyframes 文件时的 escape hatch）。
+    with_subgoal_fields = bool(getattr(args, "with_subgoal_fields", True))
+    keyframe_index = None
+    next_event_in_sequence = None
+    SCENARIO_EVENT_SEQUENCES = None
+    subgoal_skip_reasons: Counter[str] = Counter()
+    candidate_subgoal_lookup_ok_count = 0
+    if with_subgoal_fields:
+        from qwen3vl_local.goalgen.build_dataset import (  # noqa: E402
+            ACCEPTED_RUN_STATUS as _ACCEPTED_RUN_STATUS,
+            next_event_in_sequence as _next_event_in_sequence,
+        )
+        from qwen3vl_local.goalgen.keyframes import KeyframeIndex  # noqa: E402
+        from qwen3vl_local.prompt_pipeline import (  # noqa: E402
+            SCENARIO_EVENT_SEQUENCES as _SCENARIO_EVENT_SEQUENCES,
+        )
+
+        next_event_in_sequence = _next_event_in_sequence
+        SCENARIO_EVENT_SEQUENCES = _SCENARIO_EVENT_SEQUENCES
+        keyframes_path = Path(args.keyframes).expanduser().resolve()
+        if not keyframes_path.exists():
+            raise FileNotFoundError(
+                f"keyframes JSON not found: {keyframes_path}. "
+                "Pass --no-with-subgoal-fields to skip subgoal lookup entirely."
+            )
+        keyframe_index = KeyframeIndex.load(keyframes_path)
+        print(f"[subgoal] loaded keyframes from {keyframes_path}")
+
     # 最早 anchor 必须留出足够历史帧，供 RGB 和 BEV history window 使用。
     history_margin = max(
         (args.rgb_frame_count - 1) * args.rgb_frame_step,
@@ -158,11 +208,23 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
         scenario_route_counts[scenario] += 1
         # 不再做 lzma/pickle 预校验：每 anchor 6 次解压在大数据集上让构建从分钟级
         # 变成几小时；train 已经有 DDP-safe 占位 loss 兜底坏样本，预校验不再必要。
-        route_candidates = [
-            {
-                "schema_version": 1,
+
+        # 预先把 SUBGOAL 反查所需的 run dict 缓存一次，避免每个 anchor 重复哈希查找。
+        run_dict = None
+        scenario_in_seq = True
+        if with_subgoal_fields:
+            if scenario not in SCENARIO_EVENT_SEQUENCES:
+                scenario_in_seq = False
+            else:
+                run_dict = keyframe_index.find_run(scenario, route_id)
+
+        route_candidates: list[dict] = []
+        for anchor in anchors:
+            row = {
+                "schema_version": 2,  # subgoal_lookup_ok 字段引入，老 reader 仍能忽略
                 "scenario": scenario,
                 "route_id": route_id,
+                "run_id": route_id,
                 "route_dir": str(route_dir),
                 "anchor": anchor,
                 "frame_interval_s": args.frame_interval_s,
@@ -177,8 +239,52 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
                 "tp_min_lookahead_m": args.tp_min_lookahead_m,
                 "use_final_goal": bool(args.use_final_goal),
             }
-            for anchor in anchors
-        ]
+            if with_subgoal_fields:
+                # 不论查得到与否都写 subgoal_lookup_ok 字段。
+                # use_subgoal=True 训练时按 subgoal_lookup_ok 决定是否走 subgoal 分支；
+                # use_subgoal=False 训练时完全无视。
+                row["subgoal_lookup_ok"] = False
+                reason = None
+                if not scenario_in_seq:
+                    reason = "scenario_not_in_sequence"
+                elif run_dict is None:
+                    reason = "run_not_in_keyframes"
+                elif run_dict.get("status") not in _ACCEPTED_RUN_STATUS:
+                    # 与 GoalGen/SFT 的 GT 约束保持一致：失败或中断的 run 里，事件链和未来
+                    # SUBGOAL keyframe 可能并不代表真实可达目标，不能作为 teacher-forced 真值。
+                    reason = f"run_status_not_accepted:{run_dict.get('status', 'Unknown')}"
+                else:
+                    status = keyframe_index.find_status_for_anchor(scenario, route_id, anchor)
+                    if status is None:
+                        reason = "status_not_found"
+                    else:
+                        subgoal = next_event_in_sequence(scenario, status)
+                        if subgoal is None:
+                            reason = "no_next_event_after_status"
+                        else:
+                            subgoal_frame = keyframe_index.find_frame_for_event(scenario, route_id, subgoal)
+                            if subgoal_frame is None:
+                                reason = "subgoal_frame_missing"
+                            elif subgoal_frame <= anchor:
+                                # anchor 落在或超过 SUBGOAL 关键帧 → 视觉上"任务已完成"。
+                                reason = "anchor_past_subgoal_frame"
+                            elif subgoal_frame >= frame_count:
+                                reason = "subgoal_frame_out_of_range"
+                            else:
+                                subgoal_rgb_path = route_dir / "rgb" / f"{int(subgoal_frame):04d}.jpg"
+                                if not subgoal_rgb_path.exists():
+                                    reason = "subgoal_rgb_missing"
+                                else:
+                                    row["status"] = status
+                                    row["subgoal"] = subgoal
+                                    row["subgoal_frame"] = int(subgoal_frame)
+                                    row["subgoal_rgb_path"] = str(subgoal_rgb_path)
+                                    row["subgoal_lookup_ok"] = True
+                                    candidate_subgoal_lookup_ok_count += 1
+                if reason is not None:
+                    row["subgoal_skip_reason"] = reason
+                    subgoal_skip_reasons[reason] += 1
+            route_candidates.append(row)
         candidates_by_scenario[scenario].extend(route_candidates)
 
     samples: list[dict] = []
@@ -193,6 +299,10 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
             "chosen": len(chosen),
             "chosen_by_route": dict(sorted(by_route.items())),
         }
+        if with_subgoal_fields:
+            scenario_stats[scenario]["chosen_subgoal_lookup_ok"] = int(
+                sum(1 for sample in chosen if sample.get("subgoal_lookup_ok") is True)
+            )
         print(
             f"[scenario] {scenario:42s} routes={scenario_route_counts[scenario]:4d} "
             f"candidates={len(candidates):7d} chosen={len(chosen):7d}"
@@ -207,6 +317,14 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
         "samples": len(samples),
         "scenario_stats": scenario_stats,
     }
+    if with_subgoal_fields:
+        # 把 subgoal 反查的统计落进 stats，便于 use_subgoal=True 训练前估计 effective 样本量。
+        stats["with_subgoal_fields"] = True
+        stats["subgoal_lookup_ok_count"] = int(sum(1 for row in samples if row.get("subgoal_lookup_ok") is True))
+        stats["candidate_subgoal_lookup_ok_count"] = int(candidate_subgoal_lookup_ok_count)
+        stats["subgoal_skip_reasons"] = dict(sorted(subgoal_skip_reasons.items()))
+    else:
+        stats["with_subgoal_fields"] = False
     print(json.dumps({k: v for k, v in stats.items() if k != "scenario_stats"}, ensure_ascii=False))
     return samples, stats
 
@@ -260,6 +378,23 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="是否在 dataset row 标记 use_final_goal=True; "
              "True 时 train/eval/probe 调 build_clip 会写 clip['final_goal'].",
+    )
+    parser.add_argument(
+        "--with-subgoal-fields",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="是否在 dataset row 写入 SUBGOAL 反查字段 (run_id/status/subgoal/"
+             "subgoal_frame/subgoal_rgb_path/subgoal_lookup_ok/subgoal_skip_reason). 默认 True，"
+             "让同一份 jsonl 同时兼容 decoder_config.use_subgoal True/False 两种 ckpt: "
+             "use_subgoal=True 时 runtime 只在 subgoal_lookup_ok=True 行走 subgoal prefill, "
+             "use_subgoal=False 时直接忽略这些字段. --no-with-subgoal-fields 仅在 keyframes "
+             "JSON 不可用时使用."
+    )
+    parser.add_argument(
+        "--keyframes",
+        type=str,
+        default="/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json",
+        help="LEAD keyframes_all_scenarios.json 路径，--with-subgoal-fields 时必读.",
     )
     parser.add_argument(
         "--future-waypoint-indices",

@@ -37,6 +37,18 @@ from qwen3vl_local.leadmot.train import (
 DEFAULT_OUTPUT_ROOT = Path("checkpoints/leadmot_v1_decoder")
 
 
+def _filter_subgoal_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """仅保留带有效 SUBGOAL keyframe 的样本，并返回过滤统计。"""
+
+    before = len(rows)
+    filtered = [row for row in rows if row.get("subgoal_lookup_ok") is True]
+    return filtered, {
+        "before": before,
+        "after": len(filtered),
+        "dropped": before - len(filtered),
+    }
+
+
 def _unwrap_ema_state_dict(ema_sd: Any) -> tuple[dict[str, Any] | None, Any]:
     """Return decoder-shaped EMA weights from either old or current checkpoint schema."""
 
@@ -115,6 +127,10 @@ def _load_decoder(
         raise ValueError(f"{path} 缺少 decoder_config.use_final_goal，拒绝加载旧 LeadMoT ckpt")
     if not bool(cfg_dict["use_final_goal"]):
         raise ValueError(f"{path} 的 decoder_config.use_final_goal=False；当前路线要求 final_goal=True")
+    # subgoal 模式与 BEV 正交，旧 ckpt 缺字段时按 False 兜底。
+    if "use_subgoal" not in cfg_dict:
+        cfg_dict["use_subgoal"] = False
+    print(f"[leadmot] ckpt use_subgoal={bool(cfg_dict['use_subgoal'])}")
 
     config = LeadMoTPlanningDecoderConfig(**{k: v for k, v in cfg_dict.items() if k in LeadMoTPlanningDecoderConfig.__dataclass_fields__})
     decoder = LeadMoTPlanningDecoder(config).to(device=device, dtype=dtype)
@@ -274,7 +290,6 @@ def main() -> None:
     _maybe_set_gpu(args.device)
     device = torch.device("cuda", 0) if torch.cuda.is_available() else torch.device("cpu")
     rows = _read_jsonl(Path(args.jsonl))
-    samples = _select_samples(rows, args.num_per_scenario, args.max_cases, args.seed)
     output_dir = _resolve_output_dir(args)
     output_dir.mkdir(parents=True, exist_ok=True)
     invocation_root = Path(args.save_root) if args.save_root else output_dir.parent
@@ -283,6 +298,19 @@ def main() -> None:
     decoder_dtype = _dtype(args.decoder_dtype)
     checkpoint_path = _resolve_checkpoint(args.checkpoint, args.save_root)
     decoder, decoder_config = _load_decoder(checkpoint_path, device, decoder_dtype, use_ema=args.use_ema)
+    subgoal_filter_stats: dict[str, int] | None = None
+    if bool(getattr(decoder_config, "use_subgoal", False)):
+        rows, subgoal_filter_stats = _filter_subgoal_rows(rows)
+        print(json.dumps({"subgoal_filter": subgoal_filter_stats}, ensure_ascii=False), flush=True)
+        if not rows:
+            raise ValueError(
+                "checkpoint decoder_config.use_subgoal=True but probe jsonl has no "
+                "subgoal_lookup_ok=True rows. Rebuild it with "
+                "leadmot/build_dataset.py --with-subgoal-fields and a valid --keyframes path."
+            )
+    samples = _select_samples(rows, args.num_per_scenario, args.max_cases, args.seed)
+    if not samples:
+        raise ValueError("probe selected no samples")
     runtime = LeadMoTTrainRuntime(args, device)
 
     index_rows = []
@@ -339,6 +367,8 @@ def main() -> None:
                 "checkpoint": str(checkpoint_path),
                 "jsonl": str(Path(args.jsonl)),
                 "use_ema": bool(args.use_ema),
+                "use_subgoal": bool(getattr(decoder_config, "use_subgoal", False)),
+                "subgoal_filter": subgoal_filter_stats,
                 "num_cases": len(index_rows),
             },
             ensure_ascii=False,

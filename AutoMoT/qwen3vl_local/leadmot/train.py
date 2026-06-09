@@ -548,6 +548,31 @@ class LeadMoTTrainRuntime:
         with open(os.devnull, "w", encoding="utf-8") as devnull, contextlib.redirect_stdout(devnull):
             return build_clip_from_real_lead_route(**kwargs)
 
+    def _run_subgoal_qwen_prefill(
+        self,
+        rgb_pil_list: list,
+        sample: dict[str, Any],
+        navigation_prompt: str,
+    ) -> tuple[Any, int | None]:
+        """LeadMoT subgoal 模式 Qwen prefill：薄包装，复用 runner 的同名实现。
+
+        训练 / 离线 runner 两边必须走完全同款 prefix prompt + 同款图像顺序，否则
+        prefix KV 分布不一致会导致 ckpt 在 runner 端 attention 错配。这里直接转发到
+        runner._run_leadmot_qwen_prefill_subgoal，避免出现两份各自维护的实现。
+        sample 字段由 build_dataset.py --with-subgoal-fields 写入；上游过滤 +
+        forward_sample 内 hard guard 共同保证 subgoal_lookup_ok=True，因此这里只读
+        scenario/status/subgoal/subgoal_rgb_path 四个字段。
+        """
+
+        return self.runner._run_leadmot_qwen_prefill_subgoal(
+            rgb_pil_list=rgb_pil_list,
+            navigation_prompt=navigation_prompt,
+            subgoal_rgb_path=str(sample["subgoal_rgb_path"]),
+            subgoal_scenario=str(sample["scenario"]),
+            subgoal_status=str(sample["status"]),
+            subgoal_event=str(sample["subgoal"]),
+        )
+
     def forward_sample(
         self,
         sample: dict[str, Any],
@@ -578,10 +603,30 @@ class LeadMoTTrainRuntime:
         with torch.no_grad():
             # Qwen 和 BEV 都 frozen；只有这个 block 后面的 decoder 调用参与 autograd。
             prompt_cleaned, _enable_thinking, _enable_mot_reasoning = build_cleaned_prompt_and_modes(target_point_speed)
-            past_key_values, rope_position_offset = self.runner._run_leadmot_qwen_prefill(
-                rgb_pil_list=rgb_pil_list,
-                user_prompt=prompt_cleaned,
-            )
+            if decoder_config.use_subgoal:
+                # subgoal 分支：追加 subgoal keyframe RGB + 新 system + STATUS/SUBGOAL 文本块。
+                # decoder 走的 prefix KV 与 use_subgoal=False 分布完全不同，跨开关的 ckpt 不兼容。
+                # 显式校验 subgoal_lookup_ok：use_subgoal=True 时只能消费
+                # build_dataset --with-subgoal-fields 成功反查到 SUBGOAL 的样本。
+                # 训练入口会预先过滤；这里保留硬校验，避免旧 jsonl 或手工 sample
+                # 静默走错 prefix 分布。
+                if sample.get("subgoal_lookup_ok") is not True:
+                    raise RuntimeError(
+                        "decoder_config.use_subgoal=True requires "
+                        "sample.subgoal_lookup_ok is True "
+                        f"(got {sample.get('subgoal_lookup_ok')!r}, "
+                        f"reason={sample.get('subgoal_skip_reason')})"
+                    )
+                past_key_values, rope_position_offset = self._run_subgoal_qwen_prefill(
+                    rgb_pil_list=rgb_pil_list,
+                    sample=sample,
+                    navigation_prompt=prompt_cleaned,
+                )
+            else:
+                past_key_values, rope_position_offset = self.runner._run_leadmot_qwen_prefill(
+                    rgb_pil_list=rgb_pil_list,
+                    user_prompt=prompt_cleaned,
+                )
             pooled_kv = _segment_qwen_cache_for_leadmot(past_key_values, decoder_config)
             # use_bev=False：跳过 BEV encoder 调用，省去整套 LEAD TransfuserBackbone
             # 的 forward 时间和显存；decoder 内部自然走 use_bev=False 分支不拼 BEV token。
@@ -675,6 +720,26 @@ def _require_final_goal_checkpoint(state: Any, path: Path) -> None:
         raise ValueError(f"{path} 的 decoder_config.use_final_goal=False；当前路线要求 final_goal=True")
 
 
+def _require_subgoal_match(state: Any, path: Path, requested_use_subgoal: bool) -> None:
+    """resume/init-from-ckpt 时 ckpt 的 use_subgoal 必须与本次训练设置完全一致。
+
+    use_subgoal 不改 state_dict 形状，但改 prefix KV 分布——cross-load 会让 attention
+    完全错配。旧 ckpt 缺字段时按 False 兜底（v1 / v2 prefix）。
+    """
+    if not isinstance(state, dict):
+        return
+    cfg = state.get("decoder_config")
+    if not isinstance(cfg, dict):
+        return
+    ckpt_use_subgoal = bool(cfg.get("use_subgoal", False))
+    if ckpt_use_subgoal != bool(requested_use_subgoal):
+        raise ValueError(
+            f"{path} 的 decoder_config.use_subgoal={ckpt_use_subgoal}, "
+            f"但当前训练设置 use_subgoal={bool(requested_use_subgoal)}; "
+            "subgoal prefix 与 non-subgoal prefix 不兼容，拒绝继续。"
+        )
+
+
 def _write_best_meta(output_dir: Path, checkpoint: Path, val_loss: float, epoch: int, step: int) -> None:
     """原子写出 best.pt 对应的人类可读元信息。"""
     meta = {
@@ -706,10 +771,12 @@ def _load_checkpoint(
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler.LRScheduler,
     ema: "_DecoderEMA | None" = None,
+    requested_use_subgoal: bool = False,
 ) -> tuple[int, int, float | None]:
     """恢复 decoder、optimizer、scheduler 和可选 EMA 状态。"""
     state = torch.load(path, map_location="cpu")
     _require_final_goal_checkpoint(state, path)
+    _require_subgoal_match(state, path, requested_use_subgoal)
     schema = int(state.get("schema_version", 0))
     if schema != 1:
         print(f"[resume] warning: checkpoint schema_version={schema} != 1, fields may have drifted: {path}")
@@ -728,10 +795,11 @@ def _load_checkpoint(
     return int(state.get("epoch", 0)), int(state.get("step", 0)), state.get("best_val")
 
 
-def _load_decoder_only(path: Path, decoder: torch.nn.Module) -> None:
+def _load_decoder_only(path: Path, decoder: torch.nn.Module, requested_use_subgoal: bool = False) -> None:
     """只加载 decoder 权重，不加载 optimizer/scheduler，用于 init-from-ckpt。"""
     state = torch.load(path, map_location="cpu")
     _require_final_goal_checkpoint(state, path)
+    _require_subgoal_match(state, path, requested_use_subgoal)
     state_dict = state["decoder"] if isinstance(state, dict) and "decoder" in state else state
     module = decoder.module if hasattr(decoder, "module") else decoder
     module.load_state_dict(state_dict, strict=True)
@@ -1030,6 +1098,15 @@ def parse_args() -> argparse.Namespace:
         "--use-final-goal", action=argparse.BooleanOptionalAction, default=True,
         help="是否传 final_goal token 给 decoder; 必须与 decoder use_final_goal 一致."
     )
+    # use_subgoal：仅离线 train/eval/probe 支持。开启后 prefix 多 1 张 subgoal
+    # keyframe RGB + STATUS/SUBGOAL 文本块；ckpt 的 decoder_config.use_subgoal 必须与之同步。
+    # 与 use_bev 正交，4 种组合都允许；cross-load 不兼容，由 _require_final_goal_checkpoint
+    # / _require_subgoal_match 校验拒绝。
+    parser.add_argument(
+        "--use-subgoal", action=argparse.BooleanOptionalAction, default=False,
+        help="离线 subgoal 模式: prefix 追加 subgoal keyframe RGB + STATUS/SUBGOAL 文本块. "
+             "需配套 build_dataset --with-subgoal-fields 生成的 jsonl 字段一起使用."
+    )
     parser.add_argument("--limit-train-samples", type=int, default=0)
     parser.add_argument("--limit-val-samples", type=int, default=0)
     parser.add_argument("--verbose-samples", action="store_true")
@@ -1074,11 +1151,36 @@ def main() -> None:
     torch.backends.cudnn.benchmark = os.environ.get("LEADMOT_CUDNN_BENCHMARK", "0") == "1"
     train_rows = _read_jsonl(Path(args.train_jsonl))
     val_rows = _read_jsonl(Path(args.val_jsonl)) if Path(args.val_jsonl).exists() else []
+    subgoal_filter_stats: dict[str, int] | None = None
+    if bool(args.use_subgoal):
+        # use_subgoal 是 prefix 分布开关，不是普通标签增强。开启后只允许
+        # build_dataset --with-subgoal-fields 成功反查到 STATUS/SUBGOAL/keyframe RGB
+        # 的样本进入训练；旧 jsonl 或 subgoal_lookup_ok=False 的行直接过滤掉。
+        train_before = len(train_rows)
+        val_before = len(val_rows)
+        train_rows = [row for row in train_rows if row.get("subgoal_lookup_ok") is True]
+        val_rows = [row for row in val_rows if row.get("subgoal_lookup_ok") is True]
+        subgoal_filter_stats = {
+            "train_before": train_before,
+            "train_after": len(train_rows),
+            "train_dropped": train_before - len(train_rows),
+            "val_before": val_before,
+            "val_after": len(val_rows),
+            "val_dropped": val_before - len(val_rows),
+        }
+        if rank == 0:
+            print(json.dumps({"subgoal_filter": subgoal_filter_stats}, ensure_ascii=False), flush=True)
     if args.limit_train_samples > 0:
         train_rows = train_rows[: args.limit_train_samples]
     if args.limit_val_samples > 0:
         val_rows = val_rows[: args.limit_val_samples]
     if not train_rows:
+        if bool(args.use_subgoal):
+            raise ValueError(
+                "no training samples with subgoal_lookup_ok=True found; "
+                "rebuild jsonl with leadmot/build_dataset.py --with-subgoal-fields "
+                "and a valid --keyframes path."
+            )
         raise ValueError("no training samples found")
 
     usable = (len(train_rows) // world_size) * world_size
@@ -1095,10 +1197,11 @@ def main() -> None:
         dropout=args.decoder_dropout,
         use_bev=args.use_bev,
         use_final_goal=bool(args.use_final_goal),
+        use_subgoal=bool(args.use_subgoal),
     )
     decoder = LeadMoTPlanningDecoder(decoder_config).to(device=device, dtype=decoder_dtype)
     if args.init_from_ckpt:
-        _load_decoder_only(Path(args.init_from_ckpt), decoder)
+        _load_decoder_only(Path(args.init_from_ckpt), decoder, requested_use_subgoal=bool(args.use_subgoal))
     optimizer = torch.optim.AdamW(
         _optimizer_param_groups(decoder, args.weight_decay),
         lr=args.learning_rate,
@@ -1120,7 +1223,8 @@ def main() -> None:
     best_val: float | None = None
     if args.resume:
         start_epoch, global_step, best_val = _load_checkpoint(
-            Path(args.resume), decoder, optimizer, scheduler, ema=ema
+            Path(args.resume), decoder, optimizer, scheduler, ema=ema,
+            requested_use_subgoal=bool(args.use_subgoal),
         )
 
     runtime = LeadMoTTrainRuntime(args, device)
@@ -1162,6 +1266,8 @@ def main() -> None:
             "ema": bool(args.ema),
             "ema_decay": float(args.ema_decay) if args.ema else None,
             "image_log_every": int(args.image_log_every),
+            "use_subgoal": bool(args.use_subgoal),
+            "subgoal_filter": subgoal_filter_stats,
             "label_semantics": "absolute ego-frame route/future_waypoints; decoder heads cumsum internal deltas",
             **_param_breakdown(decoder, runtime),
         }
