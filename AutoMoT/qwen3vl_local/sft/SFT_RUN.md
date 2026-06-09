@@ -118,8 +118,9 @@ DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 | `DDP_GPU_COUNT` | `8` | `8` | DDP 需要的 GPU 数 |
 | `RUNTIME_TEACHER_REFRESH` | - | `0` | v2 强制重跑 teacher |
 | `SFT_V2_ANALYSIS_WEIGHT` | - | `0.3` | v2 ANALYSIS body loss 权重 |
-| `PER_DEVICE_BS` | single=44 / ddp=30 | single=22 / ddp=15 | 每卡 micro-batch（H20 96GB 默认，靠近 80% 且留 OOM 余量） |
-| `GRAD_ACC` | single=1 / ddp=1 | single=2 / ddp=2 | 梯度累积步数；与 PER_DEVICE_BS 共同决定等效 batch |
+| `PER_DEVICE_BS` | single=22 / ddp=15 | single=11 / ddp=10 | 每卡 micro-batch；默认优先避开 Qwen3-VL full-logits fp32 loss 峰值 |
+| `GRAD_ACC` | single=2 / ddp=2 | single=4 / ddp=3 | 梯度累积步数；与 PER_DEVICE_BS 共同决定等效 batch |
+| `USE_LOGITS_TO_KEEP` | `true` | `true` | 传给 ms-swift 的 `--use_logits_to_keep`，只为 label 区间算 logits 以降低显存 |
 
 GPU 规则：脚本用 `nvidia-smi` 自动挑空闲卡并覆盖旧 `CUDA_VISIBLE_DEVICES`。
 不要在文档命令里手写卡号。
@@ -133,30 +134,32 @@ swift 训练结束后的 matplotlib loss 曲线绘图；正式 `single` / `ddp` 
 
 ### 5.1 H20 96GB 显存与 batch 调优
 
-2026-06 起经过**四轮调优**，把默认 batch 推到"无脑跑就尽量靠近 80% 显存，同时不贴 96GB 上限"的程度：
+2026-06 起先经过**四轮吞吐调优**，随后第五轮针对 Qwen3-VL loss 峰值做稳定性修正：
 
 - 第一轮（v1/v2 同步）：等效 global batch 从早期保守值翻 2x。
 - 第二轮：再翻 2x。两轮合计 4x，LR 总倍率 2x（v1 5e-5→1.0e-4，v2 3e-5→5.9e-5）。
 - 第三轮：默认再乘 1.5x，瞄准 H20 更高显存利用率（v1 1.0e-4→1.23e-4，v2 5.9e-5→7.2e-5）。
 - 第四轮：默认从 global 192 推到 240（v1 1.23e-4→1.37e-4，v2 7.2e-5→8.0e-5）；single 略降，避免峰值过近 96GB 上限。
+- 第五轮：显式启用 `--use_logits_to_keep true`，并把 micro-batch 拆小、用 `GRAD_ACC` 补回等效 batch，避免 `logits.float()` 在第一步额外申请数十 GB。
 
 最终默认 8 卡 ddp 等效 global batch = **240**；single 等效：v1 **44**，v2 **44**。
-H20 96GB 上预计显存占用：v1 ddp ~78-88GB/卡 / single ~72-86GB；v2 ddp ~78-88GB/卡 / single ~72-86GB。
+默认已打开 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，降低 allocator 碎片导致的峰值失败概率。
 
-**用户无需显式设置 batch size，直接 `bash sft_v1_train.sh ddp` 即可**。
+**用户无需显式设置 batch size，直接 `bash qwen3vl_local/sft/sft_v*_train.sh ddp` 即可**。
 
-若 `nvidia-smi` 看到训练时单卡显存仍低于 75GB（即仍有 20GB+ 余量），可继续在 shell 里覆盖（LR 按 sqrt 法则同步上调）：
+若 `nvidia-smi` 看到训练时单卡显存很宽松，可继续在 shell 里覆盖（LR 按 sqrt 法则同步上调）：
 
 ```bash
 # v1 ddp 再 +1.07x 等效 batch（global 256），LR 1.37e-4 × sqrt(256/240)=1.41e-4
-PER_DEVICE_BS=32 GRAD_ACC=1 LR=1.41e-4 bash qwen3vl_local/sft/sft_v1_train.sh ddp
+PER_DEVICE_BS=16 GRAD_ACC=2 LR=1.41e-4 bash qwen3vl_local/sft/sft_v1_train.sh ddp
 
 # v2 ddp 再 +1.07x 等效 batch（global 256），LR 8.0e-5 × sqrt(256/240)=8.3e-5
-PER_DEVICE_BS=16 GRAD_ACC=2 LR=8.3e-5 bash qwen3vl_local/sft/sft_v2_train.sh ddp
+PER_DEVICE_BS=8 GRAD_ACC=4 LR=8.3e-5 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 ```
 
 若 OOM，先 ÷2 PER_DEVICE_BS、×2 GRAD_ACC（等效 batch 不变，仅省 activation 显存），
-再视情况按 sqrt 法则反向降 LR。check 模式始终保持 `PER_DEVICE_BS=1 / GRAD_ACC=1`
+并确认日志里 `USE_LOGITS_TO_KEEP=true`。如果某个 ms-swift / Transformers 组合启用该参数后报错，
+可临时 `USE_LOGITS_TO_KEEP=false`，但需要继续降低 `PER_DEVICE_BS`。check 模式始终保持 `PER_DEVICE_BS=1 / GRAD_ACC=1`
 不动 —— 它只用来 2 步快速判读 loss_scale，不参与吞吐优化。
 
 历史回退：想跑回 2026-06 之前的"保守"路径，用 `PER_DEVICE_BS=2 GRAD_ACC=2 LR=5e-5`

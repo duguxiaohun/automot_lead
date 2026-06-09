@@ -340,13 +340,23 @@ class LocalQwen3VLInstructEngine:
 
         prefill 阶段会一次性处理所有文本 token 和 vision token，成本最高；返回的
         past_key_values 会在 decode 阶段复用，避免每生成一个 token 都重算整段图文上下文。
+        生成只需要最后一个位置的 logits，因此优先传 ``logits_to_keep=1``，避免
+        为整段 prompt 构造 [T,V] 级 vocab logits；旧 transformers 不支持时自动回退。
         """
 
-        return self.model(
-            **inputs,
-            use_cache=True,
-            return_dict=True,
-        )
+        try:
+            return self.model(
+                **inputs,
+                use_cache=True,
+                return_dict=True,
+                logits_to_keep=1,
+            )
+        except TypeError:
+            return self.model(
+                **inputs,
+                use_cache=True,
+                return_dict=True,
+            )
 
     def _get_system_prompt_cache(self, system_prompt: str) -> Dict[str, Any]:
         """获取或创建 system prompt 的 prefix KV cache。
@@ -426,6 +436,17 @@ class LocalQwen3VLInstructEngine:
         }
 
         try:
+            outputs = self.model(
+                input_ids=suffix_ids,
+                attention_mask=attention_mask,
+                past_key_values=_clone_cache(prefix_cache["past_key_values"]),
+                cache_position=cache_position,
+                use_cache=True,
+                return_dict=True,
+                logits_to_keep=1,
+                **model_kwargs,
+            )
+        except TypeError:
             outputs = self.model(
                 input_ids=suffix_ids,
                 attention_mask=attention_mask,

@@ -25,7 +25,8 @@
 - `mot_lead_offline_runner.py` 当前已知偏离训练分布的具体点（含 ⚠ 标记）
 - `vlm_paradigm_a_runner.py` 的本地 Qwen 文字生成规则：`qwen` backend 只读
   `AutoMoT/checkpoints/Qwen3-VL-4B`（`local_files_only=True`），并用 HF 标准
-  `past_key_values` 显式 prefill/decode；AutoMoT `InterleaveInferencer` /
+  `past_key_values` 显式 prefill/decode；prefill 默认 `logits_to_keep=1`，
+  只保留首 token logits；AutoMoT `InterleaveInferencer` /
   `qwen3vl_template_inference` 绑定自定义 MoT 架构，不要拿来直接跑
   standalone Qwen 完整自由文本生成
 - `qwen3vl_instruct_paradigm_a_runner.py` 是 standalone Qwen-only 范式 A runner，
@@ -35,7 +36,8 @@
   禁止下载；不 import `vlm_paradigm_a_runner.py`，不接 AutoMoT `InterleaveInferencer`
 - `AutoMoT/qwen3vl_local/` 保存 Qwen3-VL-Instruct 本地可魔改代码：
   `prompt_pipeline.py` 从 `vlm_paradigm_a_runner.py` 的迁移块同步完整提示词/状态机；
-  另含 LEAD RGB 读取、显式 prefill/decode、KV cache summary 与可选 `torch.save`
+  另含 LEAD RGB 读取、显式 prefill/decode、KV cache summary 与可选 `torch.save`；
+  `LocalQwen3VLInstructEngine.prefill` 默认 `logits_to_keep=1`，避免为整段 prompt 构造完整 vocab logits
 - `mot_lead_offline_runner.py` 只走
   `AutoMoT/qwen3vl_local.engine.LocalQwen3VLInstructEngine` 做 frozen Qwen prefill，
   再接 LeadMoT decoder；已移除 AutoMoT legacy `kv_cache_fixed_inference(...)`、
@@ -238,12 +240,14 @@ git push
   `torchrun --nproc_per_node=N` 默认自动挑 N 张最空闲 GPU，并覆盖已有 mask；
   `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡，具体卡号仍由脚本自动挑。
 - 写或改训练 launcher 时，DDP rendezvous 端口默认自动选择空闲 `MASTER_PORT`，并同步导出 PyTorch launcher 会读取的 `PET_MASTER_PORT`；已有端口残留且被占用时自动换端口。只有显式同时设置 `MASTER_PORT` 与对应 `*_RESPECT_MASTER_PORT=1` 时才严格使用指定端口。SFT `check` / `single` 也要在进入 `swift sft` 前设置端口，因为 ms-swift 即使单进程也会走 torch distributed launcher。
-- 训练入口默认已按 H20 96GB"尽量靠近 ~80% 显存"调好（PROJECT_CONTEXT.md §11.5 总表），
+- 训练入口默认已按 H20 96GB 吞吐与稳定性调好（PROJECT_CONTEXT.md §11.5 总表），
   用户**不需要**显式设 `PER_DEVICE_BS` / `MICRO_BS` / `BATCH_SIZE` / `GRAD_ACC`；
   默认就是 `bash sft_v*_train.sh / goalgen/train.sh / leadmot/train.sh` 直接跑。
+  SFT 默认显式 `USE_LOGITS_TO_KEEP=true` 并降低 micro-batch、提高 `GRAD_ACC`，
+  用于避开 Qwen3-VL `logits.float()` full-logits fp32 峰值 OOM。
   调 batch 时遵循 sqrt 法则：等效 global batch 翻 N×，LR 按 sqrt(N) 同步上调；保持
-  等效不变则 LR 不动。OOM 时先 ÷2 per-device、×2 grad_accum 保持等效不变。详见各
-  子包 RUN.md 的 H20 batched 训练章节。
+  等效不变则 LR 不动。OOM 时先确认 SFT 日志里的 `USE_LOGITS_TO_KEEP=true`，再 ÷2
+  per-device、×2 grad_accum 保持等效不变。详见各子包 RUN.md 的 H20 batched 训练章节。
   `BATCH_SIZE=1` / `MICRO_BS=1` 是**历史回退路径**（与 batched 之前的 per-sample 路径
   字节级等价），不再是默认值；出问题或想复现旧 ckpt 训练动力学时用。eval_carla 不
   存在 batch 概念，不在此规则范围。

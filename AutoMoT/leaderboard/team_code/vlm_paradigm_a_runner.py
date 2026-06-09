@@ -1057,14 +1057,24 @@ class BaselineQwen3VLRunner:
         generated_tokens: List[Any] = []
 
         # Prefill:完整多模态 prompt 只 forward 一次,拿到 KV cache 和首个 token logits。
-        outputs = self.model(
-            **inputs,
-            use_cache=True,
-            return_dict=True,
-        )
+        # 生成只需要最后一个位置的 logits；优先用 logits_to_keep=1 避免为整段 prompt
+        # 构造 [T,V] 级 vocab logits。旧 transformers 不支持时自动回退。
+        try:
+            outputs = self.model(
+                **inputs,
+                use_cache=True,
+                return_dict=True,
+                logits_to_keep=1,
+            )
+        except TypeError:
+            outputs = self.model(
+                **inputs,
+                use_cache=True,
+                return_dict=True,
+            )
 
         # keys: ['logits', 'past_key_values', 'rope_deltas']
-        # 'logits': torch.Size([1, 2316, 151936])
+        # 'logits': torch.Size([1, 1, 151936])  # logits_to_keep=1
         # 'past_key_values': <class 'transformers.cache_utils.DynamicCache'>, 
         # 'rope_deltas': torch.Size([1, 1])}
 

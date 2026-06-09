@@ -89,9 +89,9 @@ fi
 #      （single 16→32，ddp 8卡 64→128），LR 再 sqrt(2)=1.41x → 1.0e-4。
 #   ③ 第三轮（上一版 H20 默认靠近 70-80% 显存）：ddp per_device 16→24，
 #      single 32→48，等效 batch 再乘 1.5，LR 按 sqrt(1.5) → 1.23e-4。
-#   ④ 第四轮（按 H20 80% 附近且避免 OOM 微调默认）：ddp per_device 24→30，
-#      8 卡等效 batch 192→240，LR 按 sqrt(240/192) → 1.37e-4；single 48→44，
-#      给 eval / allocator 碎片 / 长样本峰值留出余量。
+#   ④ 第四轮（曾按 H20 80% 附近微调）：ddp per_device 24→30，8 卡等效 batch 192→240。
+#   ⑤ 第五轮（修复 full-logits fp32 loss 峰值 OOM）：显式启用 use_logits_to_keep；
+#      同时把 micro-batch 拆半、用 GRAD_ACC 补回等效 batch，避免 logits.float() 首步额外吃掉数十 GB。
 #   check 模式三段 PER_DEVICE_BS=1 / GRAD_ACC=1 不动以保留快速 sanity。
 NUM_EPOCHS="${NUM_EPOCHS:-2}"
 LR="${LR:-1.37e-4}"
@@ -102,6 +102,7 @@ LORA_RANK="${LORA_RANK:-16}"
 LORA_ALPHA="${LORA_ALPHA:-32}"
 LORA_DROPOUT="${LORA_DROPOUT:-0.1}"
 LOGGING_STEPS="${LOGGING_STEPS:-5}"
+USE_LOGITS_TO_KEEP="${USE_LOGITS_TO_KEEP:-true}"
 
 # ---------------------------------------------------------------------------
 # Step-based checkpoint 保存（用户场景：数据量上来后 epoch 周期太长）
@@ -131,6 +132,7 @@ LOSS_SCALE_PLUGIN="qwen3vl_local/sft/sft_v1_loss_scale_plugin.py"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 # 防止 swift 误读 ~/.cache。HF_HOME 钉在 OUTPUT_DIR_BASE 层（不进 run 子目录），
 # 让所有 run 共享同一份 tokenizer/model cache，避免每个 run 重拉占盘。
@@ -243,11 +245,11 @@ case "${MODE}" in
     single)
         echo "[mode] single-GPU"
         # 单卡模式用于 smoke test 或显存足够时的小规模训练。
-        # 等效 batch = PER_DEVICE_BS * GRAD_ACC = 44（single 接近 80% 显存，同时给峰值留余量）。
+        # 等效 batch = PER_DEVICE_BS * GRAD_ACC = 44；micro-batch 降到 22，给 full-logits fp32 loss 峰值留余量。
         export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
         export NPROC_PER_NODE=1
-        PER_DEVICE_BS="${PER_DEVICE_BS:-44}"
-        GRAD_ACC="${GRAD_ACC:-1}"
+        PER_DEVICE_BS="${PER_DEVICE_BS:-22}"
+        GRAD_ACC="${GRAD_ACC:-2}"
         # step 触发：每 SAVE_STEPS 步保存 + eval（默认 10000）；--save_total_limit
         # 控制保留最近 N 个 checkpoint-XXX/（默认 3，等效最近 30k 步）。--load_best_model_at_end
         # 仍按 eval/loss 把 best 装回 OUTPUT_DIR 顶层（adapter_model.*）；epoch 边界
@@ -305,11 +307,12 @@ case "${MODE}" in
     ddp)
         echo "[mode] DDP"
         # 多卡正式训练。swift 通常会读取 NPROC_PER_NODE 启动 torchrun/分布式。
-        # 默认等效 batch = 8 GPUs * PER_DEVICE_BS * GRAD_ACC = 240（H20 默认靠近 80% 且留 OOM 余量）；
+        # 默认等效 batch = 8 GPUs * PER_DEVICE_BS * GRAD_ACC = 240；micro-batch 降到 15，
+        # 通过 GRAD_ACC=2 补回吞吐，规避 logits.float() 的首步峰值 OOM。
         # 若用 DDP_GPU_COUNT 改卡数，等效 batch 会随卡数线性变化。
-        # OOM 时先 PER_DEVICE_BS=24 / GRAD_ACC=1 回到上一轮，LR 可保留 1.37e-4 或按 sqrt 回退到 1.23e-4。
-        PER_DEVICE_BS="${PER_DEVICE_BS:-30}"
-        GRAD_ACC="${GRAD_ACC:-1}"
+        # 显存仍不足时优先 PER_DEVICE_BS=8 / GRAD_ACC=4（等效 batch 近似不变，LR 通常不动）。
+        PER_DEVICE_BS="${PER_DEVICE_BS:-15}"
+        GRAD_ACC="${GRAD_ACC:-2}"
         # step 触发 + best 跟踪（含义见 single 分支注释）。SAVE_STEPS/SAVE_TOTAL_LIMIT
         # 是 env 可调；用户场景"数据量大、epoch 周期太长"时这是拿到中间产物的唯一路径。
         SAVE_STRATEGY="steps"
@@ -343,6 +346,7 @@ if [[ "${MODE}" == "ddp" ]]; then
     echo "[gpu] requested DDP_GPU_COUNT=${DDP_GPU_COUNT:-8}"
 fi
 echo "[port] MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT} PET_MASTER_PORT=${PET_MASTER_PORT}"
+echo "[mem] USE_LOGITS_TO_KEEP=${USE_LOGITS_TO_KEEP} PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF}"
 
 # ---------------------------------------------------------------------------
 # best ckpt 跟踪
@@ -395,6 +399,7 @@ swift sft \
     --lr_scheduler_type cosine \
     --bf16 true \
     --gradient_checkpointing true \
+    --use_logits_to_keep "${USE_LOGITS_TO_KEEP}" \
     --max_length "${MAX_LENGTH}" \
     --output_dir "${OUTPUT_DIR}" \
     --logging_steps "${LOGGING_STEPS}" \

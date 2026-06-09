@@ -265,8 +265,9 @@ def compute_token_loss(
       2. apply_chat_template(messages + assistant, add_generation_prompt=False) 得到
          整段聊天文本 full_text；
       3. processor 各编码一次，full_ids 长度 - prefix_ids 长度 = assistant token 数；
-      4. 用 full_ids 跑一次 model.forward(use_cache=False, return_dict=True) 拿 logits；
-      5. shift logits/labels 后对 assistant 区段算 cross entropy（不平均，留 per-token）；
+      4. 用 full_ids 跑一次 model.forward(use_cache=False, return_dict=True)，但优先
+         通过 logits_to_keep 只保留 assistant 预测窗口需要的尾部 logits；
+      5. 对 assistant 区段算 cross entropy（不平均，留 per-token）；
       6. 用 _FULL_PATTERN 在 gt_text 上找 STATUS / SUBGOAL 事件名两段 char span，
          反查在 assistant token 序列里对应的范围，仅这两段 token 标 mask=1，其它
          （ANALYSIS 占位 + STATUS: / SUBGOAL: 字面 + 空白）标 mask=0 — 与
@@ -320,25 +321,42 @@ def compute_token_loss(
             "full_len": full_len,
         }
 
-    # ---- 3) forward ----
-    outputs = model(
-        **full_inputs,
-        use_cache=False,
-        return_dict=True,
-    )
-    logits = outputs.logits  # [1, T, V]
-
-    # shift：位置 t 的 logits 预测位置 t+1 的 token
-    shift_logits = logits[:, :-1, :].float()
     labels = full_inputs["input_ids"]
-    shift_labels = labels[:, 1:]
 
     # assistant 区段在 shift 后的范围：[prefix_len - 1, full_len - 1)
     # （shift_logits[i] 预测 labels[i+1]，所以预测 labels[prefix_len] 的位置是 i=prefix_len-1）
     start = max(0, prefix_len - 1)
     end = full_len - 1
-    asst_logits = shift_logits[0, start:end, :]
-    asst_labels = shift_labels[0, start:end]
+    logits_to_keep = min(full_len, assistant_token_count + 1)
+    used_logits_to_keep = False
+
+    # ---- 3) forward ----
+    # Qwen3-VL 的 logits 是 [T,V] 级大张量；probe 只需要预测 assistant token 的
+    # prefix_len-1..full_len-2 这些位置。logits_to_keep=N+1 会让模型只算尾部
+    # [prefix_len-1..full_len-1]，最后一位丢弃即可，避免整段 prompt 的 vocab logits。
+    try:
+        outputs = model(
+            **full_inputs,
+            use_cache=False,
+            return_dict=True,
+            logits_to_keep=logits_to_keep,
+        )
+        used_logits_to_keep = True
+        logits = outputs.logits[:, :assistant_token_count, :]
+        asst_logits = logits[0].float()
+        asst_labels = labels[0, prefix_len:full_len]
+    except TypeError:
+        # 兼容旧 transformers：不支持 logits_to_keep 时退回旧的全量 logits 路径。
+        outputs = model(
+            **full_inputs,
+            use_cache=False,
+            return_dict=True,
+        )
+        logits = outputs.logits  # [1, T, V]
+        shift_logits = logits[:, :-1, :].float()
+        shift_labels = labels[:, 1:]
+        asst_logits = shift_logits[0, start:end, :]
+        asst_labels = shift_labels[0, start:end]
 
     # per-token CE，reduction='none' 保留每个 token 的 nll
     nll = F.cross_entropy(asst_logits, asst_labels, reduction="none").detach().float().cpu().tolist()
@@ -417,6 +435,7 @@ def compute_token_loss(
         "prefix_len": prefix_len,
         "full_len": full_len,
         "assistant_token_count": assistant_token_count,
+        "logits_to_keep": logits_to_keep if used_logits_to_keep else None,
         "mean_loss_raw": mean_raw,
         "mean_loss_status_subgoal_only": mean_masked,
         "mean_loss_masked_literals": mean_literals,
@@ -472,6 +491,7 @@ def render_overview_md(
         lines.append(f"- error: {token_loss['error']}")
     else:
         lines.append(f"- assistant_token_count: **{token_loss['assistant_token_count']}**")
+        lines.append(f"- logits_to_keep: {token_loss.get('logits_to_keep') or '<fallback full logits>'}")
         lines.append(f"- mean_loss_raw (所有 token): **{token_loss['mean_loss_raw']:.4f}**")
         lines.append(f"- mean_loss_status_subgoal_only (训练真正学的两段事件名): **{token_loss['mean_loss_status_subgoal_only']:.4f}**")
         lines.append(f"- mean_loss_masked_literals (训练时 mask=0 的字面 token: ANALYSIS + STATUS:/SUBGOAL: + 空白): {token_loss['mean_loss_masked_literals']:.4f}")

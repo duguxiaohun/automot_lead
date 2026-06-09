@@ -120,6 +120,7 @@ LEADMOT_ROPE_TYPE=mrope
 DECODER_DTYPE=bfloat16
 QWEN_DTYPE=bfloat16
 QWEN_LOAD_STAGGER_S=2.0
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 SAVE_STEPS=500
 KEEP_RECENT_CHECKPOINTS=3
 STEP_SAVE_EVERY=10000
@@ -140,6 +141,7 @@ IMAGE_LOG_SEED=20260101
 DDP 训练中的 validation 会按 `VAL_MAX_SAMPLES` 截断后在所有 rank 间分片，每张卡各跑自己的 Qwen/BEV/decoder forward，再 all-reduce 聚合 loss / ADE / FDE，避免 rank0 串行扫 val、其它 rank 空等。开 EMA 时 val 会跑两遍（raw + EMA），TB 上分别记到 `val/*` 和 `val_ema/*`，best.pt 选 EMA val/loss 作为指标。
 val 子集不是固定取 jsonl 头部，而是用 `VAL_SAMPLE_SEED` 从 val 全量中确定性抽样，减少场景分布偏置。
 DDP 加载 Qwen 时默认按 `LOCAL_RANK * QWEN_LOAD_STAGGER_S` 错峰，降低多 rank 同时读 4B checkpoint 对共享文件系统的压力。
+launcher 默认设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，降低 batched K/V padding 长跑时 allocator 碎片导致的偶发 OOM。
 
 `IMAGE_LOG_EVERY` 步触发一次 rank0 渲染：从 val 抽 `IMAGE_LOG_SAMPLES` 条画 pred vs gt 拼图贴到 TB（`samples/planning_overlay_raw` 与开 EMA 时的 `samples/planning_overlay_ema`），便于训练过程肉眼看模型质量进化。设 `IMAGE_LOG_EVERY=0` 关闭，check 模式默认关闭。
 

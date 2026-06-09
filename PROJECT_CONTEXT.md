@@ -40,6 +40,9 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 当前离线 runner 只走本地 `LocalQwen3VLInstructEngine` 做 frozen Qwen prefill，
 再接 LeadMoT 或 GoalGen。已经移除 / 禁用这些旧路径：
 
+`LocalQwen3VLInstructEngine.prefill` 默认用 `logits_to_keep=1`，因为后续 decode
+只需要最后一个位置的首 token logits；不再为整段 prompt 构造完整 vocab logits。
+
 - AutoMoT legacy `kv_cache_fixed_inference(...)`
 - `InterleaveInferencer` 直接复用
 - 原 fast head / `enable_fast_inference`
@@ -54,6 +57,8 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 - Qwen3-VL-Instruct standalone runner 只跑
   `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct`，不 import
   `vlm_paradigm_a_runner.py`。
+- 本地 Qwen 文本生成只需要最后一位 logits；`qwen3vl_local.engine` 和
+  `vlm_paradigm_a_runner.py` 的 qwen backend 都默认用 `logits_to_keep=1` 裁掉整段 prompt logits。
 - `prompt_pipeline.py` 是范式 A prompt / 状态机来源；改 prompt 后要同步影响 SFT v2 pending 数据。
 - AutoMoT `InterleaveInferencer` / `qwen3vl_template_inference` 绑定自定义 MoT 架构，不能支撑 standalone Qwen 自由文本生成。
 
@@ -305,19 +310,20 @@ eval、probe、teacher / 推理入口。
 - `HF_HOME` 挂在 base 层：`<OUTPUT_DIR_BASE>/.hf_cache`。
 - SFT v2 runtime teacher cache 挂在 base 层，靠 manifest 复用。
 
-## 11.5 Batched 训练规则（2026-06 新增 → H20 默认尽量靠近 ~80% 显存）
+## 11.5 Batched 训练规则（2026-06 新增 → H20 吞吐 + SFT logits 峰值稳定性）
 
 H20 96GB 单卡上早期 LeadMoT 4 卡 DDP 实测每卡仅 ~14GB 显存占用，
-为提高显存利用率与吞吐，`AutoMoT/qwen3vl_local/` 下的训练入口经过**三轮调优**，
-现在默认值都已经推到"无脑跑就尽量靠近 ~80% 显存"的程度，**用户不需要显式设
-任何 batch 相关 env**：
+为提高显存利用率与吞吐，`AutoMoT/qwen3vl_local/` 下的训练入口经过多轮调优。
+SFT v1/v2 在 2026-06 又追加一轮稳定性修正：显式 `--use_logits_to_keep true`，
+并把 micro-batch 拆小、用 `GRAD_ACC` 补回等效 batch，避免 Qwen3-VL loss 阶段
+`logits.float()` 首步额外申请数十 GB 导致 OOM。**用户不需要显式设任何 batch 相关 env**：
 
-| 子包 | env / CLI | 当前默认（2026-06 四轮调优后） | 等效 global batch | 单卡显存预期 | LR |
+| 子包 | env / CLI | 当前默认（2026-06 五轮调优后） | 等效 global batch | 单卡显存预期 | LR |
 |---|---|---|---|---|---|
-| SFT v1 single | `PER_DEVICE_BS` / `GRAD_ACC` | 44 / 1 | 44 | ~72-86GB | 1.37e-4 |
-| SFT v1 ddp 8卡 | 同上 | 30 / 1 | 240 | ~78-88GB | 1.37e-4 |
-| SFT v2 single | 同上 | 22 / 2 | 44 | ~72-86GB | 8.0e-5 |
-| SFT v2 ddp 8卡 | 同上 | 15 / 2 | 240 | ~78-88GB | 8.0e-5 |
+| SFT v1 single | `PER_DEVICE_BS` / `GRAD_ACC` / `USE_LOGITS_TO_KEEP` | 22 / 2 / true | 44 | 避开 full-logits fp32 峰值 | 1.37e-4 |
+| SFT v1 ddp 8卡 | 同上 | 15 / 2 / true | 240 | 避开 full-logits fp32 峰值 | 1.37e-4 |
+| SFT v2 single | 同上 | 11 / 4 / true | 44 | 避开 full-logits fp32 峰值 | 8.0e-5 |
+| SFT v2 ddp 8卡 | 同上 | 10 / 3 / true | 240 | 避开 full-logits fp32 峰值 | 8.0e-5 |
 | GoalGen ddp 8卡 | `MICRO_BS` / `GRAD_ACC` | 16 / 2 | 256 | ~75-88GB | 5.66e-4（v1；v2 warm start 默认 1e-4） |
 | LeadMoT ddp 8卡 | `BATCH_SIZE` / `GRAD_ACC` | 24 / 2 | 384 | ~70-85GB | 4.9e-4 |
 
@@ -328,6 +334,10 @@ H20 96GB 单卡上早期 LeadMoT 4 卡 DDP 实测每卡仅 ~14GB 显存占用，
 调优规则（详见各子包 RUN.md 的"H20 batched 训练"章节）：
 
 - **等效 global batch 翻 N×，LR 按 sqrt(N) 上调**；保持等效不变则 LR 不动。
+- SFT OOM 时先确认日志里 `USE_LOGITS_TO_KEEP=true`；若该参数在某个 ms-swift/Transformers 组合报错，
+  可临时设 `USE_LOGITS_TO_KEEP=false`，但必须继续降低 `PER_DEVICE_BS`。
+- SFT / GoalGen / LeadMoT launcher 默认设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，
+  用于缓解长跑中的 allocator fragmentation；VAE patch/unpatch 的 Python 入口会记录该 env。
 - OOM 时先 ÷2 per-device batch、×2 grad_accum 保持等效 batch 不变，再视情况按 sqrt 法则反向降 LR。
 - GoalGen `MICRO_BS=1` / LeadMoT `BATCH_SIZE=1` 时与 batched 之前的 per-sample 路径**字节级等价**（pad/prefix 工具退化为单条 stack，训练循环检测批内等长后传 `mask=None`，走无 mask SDPA），可作历史 ckpt 复现路径。
 - LeadMoT eval/probe 不动，仍走 `runtime.forward_sample`；只有训练循环 BATCH_SIZE>1 时切到 `runtime.forward_batch`。

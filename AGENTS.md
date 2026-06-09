@@ -52,9 +52,9 @@
   / 原 fast head 接口，不再保留 `--enable-automot-slow` 或 `enable_fast_inference`。
 - runner 已切换到 LEAD 风格的 `LeadTransfuserBackbone` / `LeadBEVEncoder`，其输出直接供 LeadMoT 使用；不能再接 AutoMoT 原快推理 decoder。
 - LEAD RGB 是三视角拼接 `(W=1152, H=384)`；当前本地 Qwen frozen prefill 直接喂整图，不切片、不 resize、不选前视。
-- `vlm_paradigm_a_runner.py` 的 `qwen` backend 必须只读本地 `AutoMoT/checkpoints/Qwen3-VL-4B`（`local_files_only=True`），并用 HF 标准 `past_key_values` 显式 prefill/decode 做文字输出；AutoMoT 现有 `InterleaveInferencer` / `qwen3vl_template_inference` 绑定 AutoMoT 自定义 MoT 架构，不要拿来直接支撑 standalone Qwen 的完整自由文本生成。
+- `vlm_paradigm_a_runner.py` 的 `qwen` backend 必须只读本地 `AutoMoT/checkpoints/Qwen3-VL-4B`（`local_files_only=True`），并用 HF 标准 `past_key_values` 显式 prefill/decode 做文字输出；prefill 默认 `logits_to_keep=1`，只保留首 token logits；AutoMoT 现有 `InterleaveInferencer` / `qwen3vl_template_inference` 绑定 AutoMoT 自定义 MoT 架构，不要拿来直接支撑 standalone Qwen 的完整自由文本生成。
 - `qwen3vl_instruct_paradigm_a_runner.py` 是 standalone Qwen-only 范式 A runner，只跑本地 `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct`；该目录对应 HuggingFace `repo_id=Qwen/Qwen3-VL-4B-Instruct`，用户远程环境已下载。必须 `local_files_only=True` 且设置 HF/Transformers offline 环境变量，禁止下载；不 import `vlm_paradigm_a_runner.py`，不接 AutoMoT `InterleaveInferencer`。
-- `AutoMoT/qwen3vl_local/` 保存 Qwen3-VL-Instruct 本地可魔改代码：`prompt_pipeline.py` 从 `vlm_paradigm_a_runner.py` 的迁移块同步完整提示词/状态机；另含 LEAD RGB 读取、显式 prefill/decode、KV cache summary 与可选 `torch.save`。
+- `AutoMoT/qwen3vl_local/` 保存 Qwen3-VL-Instruct 本地可魔改代码：`prompt_pipeline.py` 从 `vlm_paradigm_a_runner.py` 的迁移块同步完整提示词/状态机；另含 LEAD RGB 读取、显式 prefill/decode、KV cache summary 与可选 `torch.save`；`LocalQwen3VLInstructEngine.prefill` 默认 `logits_to_keep=1`，避免为整段 prompt 构造完整 vocab logits。
 - `0026.json` 是 LEAD meta.pkl 转 JSON 的固定参考样本，只读，绝对不要修改或入库。
 
 ---
@@ -249,7 +249,7 @@ GPU 运行入口统一规则：
 - 训练 launcher 的 `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡；具体卡号仍由脚本自动挑最空闲的 N 张，不提供“尊重外部 mask”的分支。
 - 训练 launcher 的 DDP rendezvous 端口默认自动选择空闲 `MASTER_PORT`，并同步导出 PyTorch launcher 会读取的 `PET_MASTER_PORT`；已有端口残留且被占用时自动换端口。只有显式同时设置 `MASTER_PORT` 与对应 `*_RESPECT_MASTER_PORT=1` 时才严格使用指定端口。SFT `check` / `single` 也要在进入 `swift sft` 前设置端口，因为 ms-swift 即使单进程也会走 torch distributed launcher。
 - `eval_carla/run_eval.sh` 的 `--num-gpus N` / `EVAL_GPU_COUNT=N` 只表示闭环评测 worker 数；具体 GPU id 仍由 `nvidia-smi` 自动挑空闲卡，并为每张卡分配独立 CARLA 端口槽。
-- **Batched 训练规则（2026-06 新增 → H20 默认尽量靠近 ~80% 显存）**：SFT v1/v2、GoalGen、LeadMoT 训练入口默认值都已按 H20 96GB 调好，**用户不需要显式设 `PER_DEVICE_BS` / `MICRO_BS` / `BATCH_SIZE` / `GRAD_ACC`**；直接 `bash sft_v*_train.sh / goalgen/train.sh / leadmot/train.sh` 跑即可（默认表见 PROJECT_CONTEXT.md §11.5）。调 batch 时遵循 sqrt 法则——等效 global batch 翻 N×，LR 按 sqrt(N) 同步上调；保持等效不变则 LR 不动。OOM 时先 ÷2 per-device、×2 grad_accum 保持等效不变；LeadMoT 若坏样本密集也优先回退 `BATCH_SIZE=16`。`BATCH_SIZE=1` / `MICRO_BS=1` 是历史回退路径（与 batched 之前的 per-sample 路径字节级等价），不再是默认值；出问题或想复现旧 ckpt 训练动力学时用。详见各子包 RUN.md 的 H20 batched 训练章节。eval_carla 不存在 batch 概念，不在此规则范围。
+- **Batched 训练规则（2026-06 新增 → H20 吞吐 + SFT logits 峰值稳定性）**：SFT v1/v2、GoalGen、LeadMoT 训练入口默认值都已按 H20 96GB 调好，**用户不需要显式设 `PER_DEVICE_BS` / `MICRO_BS` / `BATCH_SIZE` / `GRAD_ACC`**；直接 `bash sft_v*_train.sh / goalgen/train.sh / leadmot/train.sh` 跑即可（默认表见 PROJECT_CONTEXT.md §11.5）。SFT 默认显式 `USE_LOGITS_TO_KEEP=true` 并降低 micro-batch、提高 `GRAD_ACC`，用于避开 Qwen3-VL `logits.float()` full-logits fp32 峰值 OOM。调 batch 时遵循 sqrt 法则——等效 global batch 翻 N×，LR 按 sqrt(N) 同步上调；保持等效不变则 LR 不动。OOM 时先确认 SFT 日志里的 `USE_LOGITS_TO_KEEP=true`，再 ÷2 per-device、×2 grad_accum 保持等效不变；LeadMoT 若坏样本密集也优先回退 `BATCH_SIZE=16`。`BATCH_SIZE=1` / `MICRO_BS=1` 是历史回退路径（与 batched 之前的 per-sample 路径字节级等价），不再是默认值；出问题或想复现旧 ckpt 训练动力学时用。详见各子包 RUN.md 的 H20 batched 训练章节。eval_carla 不存在 batch 概念，不在此规则范围。
 
 训练 launcher 防覆盖目录约定（详见 PROJECT_CONTEXT.md §11）：
 
