@@ -145,13 +145,28 @@ def _init_distributed() -> tuple[int, int, int]:
         backend = "nccl" if torch.cuda.is_available() else "gloo"
         timeout = _dt.timedelta(minutes=int(os.environ.get("LEADMOT_NCCL_TIMEOUT_MIN", "10")))
         # 让 Qwen/BEV 加载卡死或坏 I/O 导致的 rank 停滞更早暴露。
-        dist.init_process_group(backend=backend, timeout=timeout)
+        init_kwargs: dict[str, Any] = {"backend": backend, "timeout": timeout}
+        if backend == "nccl":
+            init_kwargs["device_id"] = torch.device("cuda", local_rank)
+        try:
+            dist.init_process_group(**init_kwargs)
+        except TypeError:
+            # 兼容旧 PyTorch：老版本 init_process_group 没有 device_id 参数。
+            init_kwargs.pop("device_id", None)
+            dist.init_process_group(**init_kwargs)
     return rank, local_rank, world_size
 
 
 def _barrier() -> None:
     """只在 torch.distributed 已启用时同步各 rank。"""
     if dist.is_available() and dist.is_initialized():
+        if torch.cuda.is_available():
+            local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+            try:
+                dist.barrier(device_ids=[local_rank])
+                return
+            except TypeError:
+                pass
         dist.barrier()
 
 
