@@ -65,8 +65,8 @@ Decoder 从头训练，外部 Qwen/BEV 都冻结，所以默认值偏向稳定�
 - learning rate: `4.9e-4`（2026-06 batched 默认；vs 早期 batch=1 路径 LR=2e-4，等效 batch 6x，LR sqrt(6)=2.45x 上调）
 - weight decay: `0.01`
 - betas: `(0.9, 0.95)`
-- warmup ratio: `0.03`
-- epochs: `1`
+- warmup ratio: `0.20`（2026-06 三轮调优后等效 batch ×6、单 step ~4k；0.20 给 ~800 warmup step，避免 LR=4.9e-4 在短 warmup 末期 overshoot）
+- epochs: `10`（三轮调优后单 epoch optimizer step 从 ~26k 缩到 ~4k，10 epoch ≈ 40k step 弥补 step 损失；短 sanity 用 `NUM_EPOCHS=2`）
 - grad accumulation: `2`（与 batch size 24 一起把 8 卡等效 global batch 推到 384）
 - **batch size: `24`**（每进程 decoder 单步 forward 的 sample 数；H20 默认更靠近 80% 显存）
 - grad clip: `1.0`
@@ -136,7 +136,7 @@ Route / waypoint head 内部在 cumsum 时临时升到 fp32，再 cast 回原 dt
 - val 用 `with ema.apply_to(decoder): ...` 上下文跑一次，得到 `val_ema/*` 一组 scalar；EMA 关时只有 `val/*`。
 - `best.pt` 选 EMA val/loss 优先（更稳）；EMA 关时回退 raw val/loss。
 - ckpt 同时持久化 `decoder` 与 `ema_state_dict`；当前 EMA schema 是 `{"decay": ..., "shadow": {...}}`，`eval.py` / `probe.py` 默认 `--use-ema=True` 并 unwrap `shadow` 后 strict load；旧 ckpt 无 EMA 字段时自动回退 raw + print 警告。
-- decay 选择：默认 0.999 适配 LeadMoT 默认短 schedule（warmup ~500 step）；长 schedule (≥10 epoch) 可调 0.9999，但 warmup 期前一段 EMA 会拖收敛速度。
+- decay 选择：2026-06 三轮调优后默认 `EMA_DECAY=0.9999`，配合 `NUM_EPOCHS=10` (~40k step) 的长 schedule，平均窗 ~10k step 比早期 0.999 (~1000 step) 稳。短 sanity / 调试可显式回退 `EMA_DECAY=0.999`。
 
 ## TB 图像 overlay 样例
 

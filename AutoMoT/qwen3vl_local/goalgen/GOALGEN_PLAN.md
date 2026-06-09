@@ -171,7 +171,7 @@ Optimizer 设置（当前共享训练配置，v2 会覆盖 LR / warmup 默认值
   - weight decay `0.0`（2D 矩阵的 Muon 通常不挂 wd）。
 - **AdamW**（接管其它 = Conv2d patch.proj、norm 1D weight、embeddings、null_lang_k/v、t_mlp 等）：
   - 学习率默认 `2e-4`，weight decay `0.01`，betas `(0.9, 0.95)`。
-- 两个 optimizer 共享同一份 cosine + warmup ratio `0.05` 的 LR 调度（`_DualScheduler` 同步驱动）。
+- 两个 optimizer 共享同一份 cosine + warmup ratio `0.15` 的 LR 调度（`_DualScheduler` 同步驱动）。2026-06 三轮调优后等效 batch ×8，单 epoch step 从 ~26k 缩到 ~3.2k；旧 ratio=0.05 只剩 ~160 warmup step，配合激进 LR=5.66e-4 容易 overshoot，升到 0.15 给 ~480 warmup step 更稳。v2 fine-tune 分支保留 ratio=0.02（warm start 无需长 warmup）。
 - `t_sampler=logit_normal`（SD3 配方，t 集中在 0.5 附近）。
 - **`z0_prior_alpha=0.0, z0_prior_sigma=1.0`**：起点为纯噪声 `z0 ~ N(0, I)`。
   **早期默认 alpha=1.0 把当前帧 latent 掺进 z0 → 低 t 区 z_t 由"当前帧+噪声"主导，

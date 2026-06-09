@@ -1303,18 +1303,20 @@ def main() -> None:
     torch.backends.cudnn.benchmark = os.environ.get("LEADMOT_CUDNN_BENCHMARK", "0") == "1"
     train_rows = _read_jsonl(Path(args.train_jsonl))
     val_rows = _read_jsonl(Path(args.val_jsonl)) if Path(args.val_jsonl).exists() else []
+    # batched 训练前置 sanity：rgb_frame_count / bev_frame_count / frame_interval_s 等
+    # 必须跨 row 一致；否则 forward_batch 内部 cat BEV / status 会形状失配。单次
+    # build_dataset 跑出的 jsonl 必然一致；这条 check 只针对用户合并多次 build 的情况。
+    # **必须在 limit_*_samples 截断之前**：用户 limit=N 时只保留前 N 条，若 outlier 在
+    # 第 N+1 行之后就漏检，等训到 batched cat 时才挂 → debugging 困难。
+    _assert_frame_fields_consistent(train_rows, rank=rank, split_name="train")
+    if val_rows:
+        _assert_frame_fields_consistent(val_rows, rank=rank, split_name="val")
     if args.limit_train_samples > 0:
         train_rows = train_rows[: args.limit_train_samples]
     if args.limit_val_samples > 0:
         val_rows = val_rows[: args.limit_val_samples]
     if not train_rows:
         raise ValueError("no training samples found")
-    # batched 训练前置 sanity：rgb_frame_count / bev_frame_count / frame_interval_s 等
-    # 必须跨 row 一致；否则 forward_batch 内部 cat BEV / status 会形状失配。单次
-    # build_dataset 跑出的 jsonl 必然一致；这条 check 只针对用户合并多次 build 的情况。
-    _assert_frame_fields_consistent(train_rows, rank=rank, split_name="train")
-    if val_rows:
-        _assert_frame_fields_consistent(val_rows, rank=rank, split_name="val")
 
     usable = (len(train_rows) // world_size) * world_size
     if usable == 0:

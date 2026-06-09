@@ -42,8 +42,15 @@ INIT_FROM_CKPT="${INIT_FROM_CKPT:-}"
 
 LR="${LR:-4.9e-4}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
-WARMUP_RATIO="${WARMUP_RATIO:-0.05}"
-NUM_EPOCHS="${NUM_EPOCHS:-3}"
+# 2026-06 三轮调优后 8 卡等效 global batch=384（vs 旧 batch=1 路径的 64，6x）；
+# cosine schedule 总步数同比缩到 1/6（约 26k → 4k step），原 ratio=0.05 只剩 ~200
+# warmup step，配合 LR=4.9e-4 容易在 warmup 末期 overshoot；ratio 升到 0.20 给足
+# 预热（~800 warmup step）。
+WARMUP_RATIO="${WARMUP_RATIO:-0.20}"
+# NUM_EPOCHS 从 3 升到 10：等效 batch 翻 6x 后单 epoch optimizer step 砍到 1/6，
+# 想保持总 step 数与旧 batch=1 + 3 epoch 量级一致需要 18 epoch；折中取 10 epoch
+# （≈40k optimizer step）保证 decoder 从零训有足够梯度更新次数。
+NUM_EPOCHS="${NUM_EPOCHS:-10}"
 GRAD_ACC="${GRAD_ACC:-2}"
 # 2026-06 H20 batched 训练：decoder 单步 forward 处理的 sample 数。
 # =1 时走 runtime.forward_sample fast path（与历史 ckpt 字节级等价）；
@@ -71,9 +78,12 @@ DECODER_DTYPE="${DECODER_DTYPE:-bfloat16}"
 QWEN_DTYPE="${QWEN_DTYPE:-bfloat16}"
 QWEN_LOAD_STAGGER_S="${QWEN_LOAD_STAGGER_S:-2.0}"
 # EMA defaults on. Set EMA=0 to save raw-only checkpoints.
-# Longer schedules can try EMA_DECAY=0.9999; short runs should keep 0.999.
+# EMA decay：2026-06 三轮调优后 step 数从 ~26k 缩到 ~4k/epoch，等效 batch ×6 后单
+# step 推进权重的步幅更大；旧默认 0.999 → 等效平均窗仅 ~1000 step（之前 ~6000
+# step），EMA shadow 平滑不足。升到 0.9999 让平均窗回到 ~10k 量级，与 NUM_EPOCHS=10
+# 配合更稳。短 sanity / 调试可显式 EMA_DECAY=0.999。
 EMA="${EMA:-1}"
-EMA_DECAY="${EMA_DECAY:-0.999}"
+EMA_DECAY="${EMA_DECAY:-0.9999}"
 # TensorBoard planning overlays; set IMAGE_LOG_EVERY=0 to disable.
 IMAGE_LOG_EVERY="${IMAGE_LOG_EVERY:-1000}"
 IMAGE_LOG_SAMPLES="${IMAGE_LOG_SAMPLES:-4}"

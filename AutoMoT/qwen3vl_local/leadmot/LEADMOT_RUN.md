@@ -109,8 +109,10 @@ DDP_GPU_COUNT=4 USE_BEV=0 bash qwen3vl_local/leadmot/train.sh ddp
 ```text
 LR=4.9e-4         # 2026-06 batched 默认；vs 旧 batch=1 LR=2e-4，等效 batch 6x，LR sqrt(6)=2.45x
 WEIGHT_DECAY=0.01
-WARMUP_RATIO=0.05
-NUM_EPOCHS=3
+WARMUP_RATIO=0.20 # 三轮调优后单 epoch step 砍 1/6 → 旧 0.05 ratio 仅 ~200 warmup step，
+                  # 配合 LR=4.9e-4 在 warmup 末期容易 overshoot；升到 0.20 给 ~800 warmup step。
+NUM_EPOCHS=10     # 三轮调优后等效 batch ×6，单 epoch optimizer step 从 ~26k 缩到 ~4k；
+                  # 10 epoch ≈ 40k step 弥补 step 损失，与早期 batch=1 + 3 epoch 总量级一致。
 GRAD_ACC=2        # 默认与 BATCH_SIZE=24 组成等效 global batch=384（8 卡）
 BATCH_SIZE=24     # 2026-06 H20 batched 默认；=1 时走 forward_sample fast path
 ROUTE_LOSS_WEIGHT=0.5
@@ -130,7 +132,8 @@ VAL_MAX_SAMPLES=64
 VAL_SAMPLE_SEED=202607
 DECODER_DROPOUT=0.1
 EMA=1
-EMA_DECAY=0.999
+EMA_DECAY=0.9999  # 三轮调优后 step 数减少，0.999 平均窗仅 ~1000 step → shadow 噪声大；
+                  # 升到 0.9999 (~10k step 平均窗) 与 NUM_EPOCHS=10 长 schedule 配合更稳。
 IMAGE_LOG_EVERY=1000
 IMAGE_LOG_SAMPLES=4
 IMAGE_LOG_SEED=20260101
@@ -145,7 +148,7 @@ launcher 默认设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，降�
 
 `IMAGE_LOG_EVERY` 步触发一次 rank0 渲染：从 val 抽 `IMAGE_LOG_SAMPLES` 条画 pred vs gt 拼图贴到 TB（`samples/planning_overlay_raw` 与开 EMA 时的 `samples/planning_overlay_ema`），便于训练过程肉眼看模型质量进化。设 `IMAGE_LOG_EVERY=0` 关闭，check 模式默认关闭。
 
-EMA：默认 `EMA=1` `EMA_DECAY=0.999`，关掉用 `EMA=0`。eval/probe 默认 `--use-ema`，ckpt 不带 EMA 字段时自动回落到 raw 权重；但 ckpt 必须带 `decoder_config.use_final_goal=True`。
+EMA：默认 `EMA=1` `EMA_DECAY=0.9999`（2026-06 三轮调优后从 0.999 上调，配合 `NUM_EPOCHS=10` 的长 schedule，平均窗回到 ~10k step），关掉用 `EMA=0`。eval/probe 默认 `--use-ema`，ckpt 不带 EMA 字段时自动回落到 raw 权重；但 ckpt 必须带 `decoder_config.use_final_goal=True`。
 
 ### 5.1 H20 96GB batched 训练（2026-06 新增 → 默认无脑跑）
 

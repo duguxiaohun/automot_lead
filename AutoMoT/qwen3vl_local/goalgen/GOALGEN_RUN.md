@@ -91,6 +91,9 @@ VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
 | `MICRO_BS` | `16` | DiT 单步 forward 处理的 sample 数；=1 走旧 per-sample 路径（与早期 ckpt 字节级等价），>1 启用 pad_pooled_kv_batch + lang_key_padding_mask（详见 GOALGEN_PLAN.md 显存预算表与 §H20 batched 训练章节） |
 | `GRAD_ACC` | `2` | 梯度累积步数；等效 global batch = world_size × MICRO_BS × GRAD_ACC（默认 8卡 × 16 × 2 = 256） |
 | `LR` | `5.66e-4` | v1 已按默认等效 batch 256 调好（vs 早期 batch=1 路径的 32，8x，LR sqrt(8)=2.83x 从 2e-4 上调）。VERSION=v2 warm start 仍默认 LR=1e-4；再加大 MICRO_BS 时按 sqrt 法则继续调 |
+| `NUM_EPOCHS` | `8`（v1）/ `2`（v2 warm start） | v1 三轮调优后单 epoch step 缩到 1/8，8 epoch ≈ 26k optimizer step 与早期 batch=1 + 2 epoch 等量级；v2 warm start 短 epoch 足够 |
+| `WARMUP_RATIO` | `0.15`（v1）/ `0.02`（v2 warm start） | v1 三轮调优后 step 数减小，旧 0.05 仅 ~160 warmup step 配合 LR=5.66e-4 容易 overshoot，升到 0.15 给 ~480 warmup step；v2 warm start 权重已合理无需长 warmup |
+| `EMA_DECAY` | `0.9999` | val/image_log/eval/probe/runner 默认走 EMA 权重；长 schedule 配合 0.9999 平均窗 ~10k step |
 
 GPU 规则：launcher 用 `nvidia-smi` 自动挑空闲卡并覆盖旧
 `CUDA_VISIBLE_DEVICES`。不要手写卡号；用 `DDP_GPU_COUNT=N` 控制卡数。

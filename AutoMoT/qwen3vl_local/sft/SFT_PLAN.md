@@ -122,7 +122,7 @@ q_proj k_proj v_proj o_proj gate_proj up_proj down_proj
 | dropout | 0.1 | 0.1 |
 | learning rate | 1.37e-4 | 8.0e-5 |
 | max_length | 3072 | 3584 |
-| num_epochs | 2 | 2 |
+| num_epochs | 4 | 4 |
 | save/eval | steps | steps |
 | single PER_DEVICE_BS × GRAD_ACC | 22 × 2 = 44 | 11 × 4 = 44 |
 | ddp (8 卡) PER_DEVICE_BS × GRAD_ACC | 15 × 2 = 30/rank（global 240） | 10 × 3 = 30/rank（global 240） |
@@ -148,6 +148,14 @@ q_proj k_proj v_proj o_proj gate_proj up_proj down_proj
 > 显存仍宽松想再激进，v1 可试 `PER_DEVICE_BS=16 GRAD_ACC=2`，v2 可试
 > `PER_DEVICE_BS=8 GRAD_ACC=4`，并按 sqrt 法则继续上调 LR。
 > OOM 时先确认 `USE_LOGITS_TO_KEEP=true`，再 ÷2 PER_DEVICE_BS、×2 GRAD_ACC 保持等效不变。
+>
+> **NUM_EPOCHS 2 → 4 配套调整**：五轮调优后等效 global batch 从早期 32 升到 240
+> （7.5x），cosine schedule 单 epoch optimizer step 同比缩到 1/7.5（v1/v2 ddp 都从
+> ~52k → ~7k step/epoch）。`NUM_EPOCHS=2` 总步数仅 ~14k，相比早期 batch=1 + 2 epoch
+> 的 ~104k 训练步数严重欠拟合。升到 `NUM_EPOCHS=4` 总步数 ~28k，配合更大 batch
+> 的更稳梯度估计，实际收敛效果应优于早期。想精确控总步数显式 `NUM_EPOCHS=N`。
+> `WARMUP_RATIO` v1/v2 都保持 0.03（早就是低值，按比例算 4 epoch × 7k × 0.03 ≈ 840
+> warmup step，对 LoRA SFT 充足）。
 
 训练 launcher 默认在 `OUTPUT_DIR/run_<RUN_TAG>/` 写本次 run，base 层维护
 `latest` symlink；`HF_HOME` 和 v2 runtime teacher cache 固定在 base 层，避免每个 run

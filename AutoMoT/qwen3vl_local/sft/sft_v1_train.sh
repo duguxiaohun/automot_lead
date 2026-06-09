@@ -93,7 +93,10 @@ fi
 #   ⑤ 第五轮（修复 full-logits fp32 loss 峰值 OOM）：显式启用 use_logits_to_keep；
 #      同时把 micro-batch 拆半、用 GRAD_ACC 补回等效 batch，避免 logits.float() 首步额外吃掉数十 GB。
 #   check 模式三段 PER_DEVICE_BS=1 / GRAD_ACC=1 不动以保留快速 sanity。
-NUM_EPOCHS="${NUM_EPOCHS:-2}"
+# 2026-06 三轮调优后等效 global batch 从 32 升到 192（6x），cosine schedule 总步数
+# 同比缩到 1/6（v1 ddp 约 52k → 8.7k）；NUM_EPOCHS 从 2 升到 4 弥补 step 损失，让
+# 模型有足够更新次数收敛，避免欠拟合。想精确控总步数显式 NUM_EPOCHS=N。
+NUM_EPOCHS="${NUM_EPOCHS:-4}"
 LR="${LR:-1.37e-4}"
 WARMUP_RATIO="${WARMUP_RATIO:-0.03}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.05}"

@@ -318,14 +318,14 @@ SFT v1/v2 在 2026-06 又追加一轮稳定性修正：显式 `--use_logits_to_k
 并把 micro-batch 拆小、用 `GRAD_ACC` 补回等效 batch，避免 Qwen3-VL loss 阶段
 `logits.float()` 首步额外申请数十 GB 导致 OOM。**用户不需要显式设任何 batch 相关 env**：
 
-| 子包 | env / CLI | 当前默认（2026-06 五轮调优后） | 等效 global batch | 单卡显存预期 | LR |
-|---|---|---|---|---|---|
-| SFT v1 single | `PER_DEVICE_BS` / `GRAD_ACC` / `USE_LOGITS_TO_KEEP` | 22 / 2 / true | 44 | 避开 full-logits fp32 峰值 | 1.37e-4 |
-| SFT v1 ddp 8卡 | 同上 | 15 / 2 / true | 240 | 避开 full-logits fp32 峰值 | 1.37e-4 |
-| SFT v2 single | 同上 | 11 / 4 / true | 44 | 避开 full-logits fp32 峰值 | 8.0e-5 |
-| SFT v2 ddp 8卡 | 同上 | 10 / 3 / true | 240 | 避开 full-logits fp32 峰值 | 8.0e-5 |
-| GoalGen ddp 8卡 | `MICRO_BS` / `GRAD_ACC` | 16 / 2 | 256 | ~75-88GB | 5.66e-4（v1；v2 warm start 默认 1e-4） |
-| LeadMoT ddp 8卡 | `BATCH_SIZE` / `GRAD_ACC` | 24 / 2 | 384 | ~70-85GB | 4.9e-4 |
+| 子包 | env / CLI | 当前默认（2026-06 五轮调优后） | 等效 global batch | 单卡显存预期 | LR | NUM_EPOCHS / WARMUP_RATIO / EMA_DECAY |
+|---|---|---|---|---|---|---|
+| SFT v1 single | `PER_DEVICE_BS` / `GRAD_ACC` / `USE_LOGITS_TO_KEEP` | 22 / 2 / true | 44 | 避开 full-logits fp32 峰值 | 1.37e-4 | 4 / 0.03 / — |
+| SFT v1 ddp 8卡 | 同上 | 15 / 2 / true | 240 | 避开 full-logits fp32 峰值 | 1.37e-4 | 4 / 0.03 / — |
+| SFT v2 single | 同上 | 11 / 4 / true | 44 | 避开 full-logits fp32 峰值 | 8.0e-5 | 4 / 0.03 / — |
+| SFT v2 ddp 8卡 | 同上 | 10 / 3 / true | 240 | 避开 full-logits fp32 峰值 | 8.0e-5 | 4 / 0.03 / — |
+| GoalGen ddp 8卡 | `MICRO_BS` / `GRAD_ACC` | 16 / 2 | 256 | ~75-88GB | 5.66e-4（v1；v2 warm start 默认 1e-4） | 8（v1）/ 2（v2 warm）  /  0.15（v1）/ 0.02（v2）  /  0.9999 |
+| LeadMoT ddp 8卡 | `BATCH_SIZE` / `GRAD_ACC` | 24 / 2 | 384 | ~70-85GB | 4.9e-4 | 10 / 0.20 / 0.9999 |
 
 注：LeadMoT decoder 本身轻（hidden=1024、12 层），且 Qwen prefill frozen/no-grad/串行；
 默认 `BATCH_SIZE=24` 是更靠近 H20 80% 显存的吞吐点；若坏样本密集或 OOM，
@@ -334,6 +334,7 @@ SFT v1/v2 在 2026-06 又追加一轮稳定性修正：显式 `--use_logits_to_k
 调优规则（详见各子包 RUN.md 的"H20 batched 训练"章节）：
 
 - **等效 global batch 翻 N×，LR 按 sqrt(N) 上调**；保持等效不变则 LR 不动。
+- **等效 batch 翻 N× 时单 epoch optimizer step 同步缩 1/N**：必须按需要上调 `NUM_EPOCHS` 弥补总 step 损失，否则训练步数严重不足；同时 `WARMUP_RATIO` 按比例上调（旧 ratio × N 大致保持 warmup 绝对 step 数不变），避免 LR 上调后 warmup 期 overshoot。LeadMoT/GoalGen 还应同步把 `EMA_DECAY` 从 0.999 升到 0.9999，否则平均窗与 step 数一起被砍。
 - SFT OOM 时先确认日志里 `USE_LOGITS_TO_KEEP=true`；若该参数在某个 ms-swift/Transformers 组合报错，
   可临时设 `USE_LOGITS_TO_KEEP=false`，但必须继续降低 `PER_DEVICE_BS`。
 - SFT / GoalGen / LeadMoT launcher 默认设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，

@@ -102,7 +102,11 @@ QWEN_KV_SEGMENT_MODE="${QWEN_KV_SEGMENT_MODE:-select_last}"
 
 LR="${LR:-5.66e-4}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
-WARMUP_RATIO="${WARMUP_RATIO:-0.05}"
+# 2026-06 三轮调优后等效 global batch 从 32 升到 256（8x），cosine schedule 总步数
+# 同比缩到 1/8（ddp 约 26k → 3.2k）；warmup_ratio 从 0.05 升到 0.15 保证 LR=5.66e-4
+# 这种激进 LR 有足够预热（旧 ratio 在 3.2k step 上仅 160 warmup step，新 ratio = 480
+# 更稳）。v2 fine-tune 分支保留 ratio=0.02（warm start 不需要长 warmup）。
+WARMUP_RATIO="${WARMUP_RATIO:-0.15}"
 # 2026-06 H20 batched 训练：DiT 单步 forward 处理的 sample 数；=1 时与 per-sample 路径等价。
 # >1 时启用 pad_pooled_kv_batch + lang_key_padding_mask，等效 global batch =
 # world_size * MICRO_BS * GRAD_ACC（默认 8卡 * 16 * 2 = 256，约旧路径 8x，LR 按
@@ -359,12 +363,12 @@ case "${MODE}" in
         echo "[mode] single"
         export CUDA_VISIBLE_DEVICES="$(require_idle_gpus 1)"
         export NPROC_PER_NODE=1
-        # NUM_EPOCHS 默认 2：831k 样本 / MICRO_BS=16 / GRAD_ACC=2 ≈ 26k optimizer step / epoch
-        # （单卡），默认 batch 变大后 step 数显著下降；需要更长训练可显式 NUM_EPOCHS=3+。
-        # 2 epoch 配合 cosine decay 收尾。想再多就显式 NUM_EPOCHS=3 之类。
+        # NUM_EPOCHS 默认 8：831k 样本 / MICRO_BS=16 / GRAD_ACC=2 ≈ 26k optimizer step / epoch
+        # （单卡），默认 batch 变大后 step 数显著下降，8 epoch 给 cosine decay 足够空间
+        # 收敛（vs 旧 batch=1 + 2 epoch 总步数等效）。短 sanity / 调试可显式 NUM_EPOCHS=1。
         python qwen3vl_local/goalgen/train.py \
             "${COMMON_ARGS[@]}" \
-            --num-epochs "${NUM_EPOCHS:-2}" \
+            --num-epochs "${NUM_EPOCHS:-8}" \
             --grad-accum-steps "${GRAD_ACC:-2}" \
             --micro-batch-size "${MICRO_BS}" \
             --logging-steps "${LOGGING_STEPS:-10}"
@@ -382,14 +386,15 @@ case "${MODE}" in
         echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
         echo "[gpu] NPROC_PER_NODE=${NPROC_PER_NODE}"
         echo "[port] MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT} PET_MASTER_PORT=${PET_MASTER_PORT}"
-        # NUM_EPOCHS 默认 2：831k / 8 GPU / MICRO_BS=16 / GRAD_ACC=2 ≈ 3.2k optimizer step / epoch；
-        # 默认更偏吞吐和显存利用率。需要更多 optimizer step 就显式 NUM_EPOCHS=3+ 或调小 batch。
+        # NUM_EPOCHS 默认 8：831k / 8 GPU / MICRO_BS=16 / GRAD_ACC=2 ≈ 3.2k optimizer step / epoch；
+        # 默认更偏吞吐和显存利用率，8 epoch ≈ 26k optimizer step ≈ 旧 batch=1 + 2 epoch 的总步数，
+        # 保证 cosine schedule 有足够 decay 时间。短 sanity / 调试可显式 NUM_EPOCHS=1-2。
         torchrun --nproc_per_node="${NPROC_PER_NODE}" \
             --master_addr="${MASTER_ADDR}" \
             --master_port="${MASTER_PORT}" \
             qwen3vl_local/goalgen/train.py \
             "${COMMON_ARGS[@]}" \
-            --num-epochs "${NUM_EPOCHS:-2}" \
+            --num-epochs "${NUM_EPOCHS:-8}" \
             --grad-accum-steps "${GRAD_ACC:-2}" \
             --micro-batch-size "${MICRO_BS}" \
             --logging-steps "${LOGGING_STEPS:-10}"

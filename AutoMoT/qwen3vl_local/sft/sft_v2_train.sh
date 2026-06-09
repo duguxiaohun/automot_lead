@@ -96,7 +96,10 @@ fi
 # MAX_LENGTH 从 3072 抬到 3584：teacher ANALYSIS body 约 80-120 token，
 # 加上 system + user + 4 张图视觉 token，预留余量避免触发 truncation warning。
 # 其它超参（LORA_RANK / dropout / weight_decay / warmup）沿用 v1。
-NUM_EPOCHS="${NUM_EPOCHS:-2}"
+# 2026-06 三轮调优后等效 global batch 从 32 升到 192（6x），cosine schedule 总步数
+# 同比缩到 1/6（v2 ddp 约 52k → 8.7k）；NUM_EPOCHS 从 2 升到 4 弥补 step 损失，让
+# ANALYSIS 蒸馏有足够更新次数收敛。想精确控总步数显式 NUM_EPOCHS=N。
+NUM_EPOCHS="${NUM_EPOCHS:-4}"
 # 2026-06 显存优化（两轮）：
 #   ① 第一轮：v2 max_seq=3584 + frozen teacher 同驻显存比 v1 紧，PER_DEVICE_BS ×2
 #      GRAD_ACC 保持 2，等效 batch 翻 2x，LR 按 sqrt(2)=1.41x 上调 3e-5 → 4.2e-5。
