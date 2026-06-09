@@ -51,7 +51,7 @@
 - metrics_per_image.jsonl：每张图的 loss / 指标
 - loss_doc.json：每个 loss / metric 字段的含义
 - visual_cases/：小样本 eval 的逐 case PNG 对比，每个 case 含 compare.png
-- tb/：TensorBoard scalar/image；可用 ``bash tools/tb_serve.sh checkpoints/patch_unpatch_v1`` 查看
+- tb/：TensorBoard scalar/image；可用 ``bash qwen3vl_local/sft/tb_serve.sh checkpoints/patch_unpatch_v1`` 查看
 """
 
 from __future__ import annotations

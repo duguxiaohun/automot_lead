@@ -1,6 +1,6 @@
 """SFT v2 teacher 推理脚本 — 用冻结 base Qwen3-VL-4B-Instruct 产 ANALYSIS GT。
 
-设计目标见 tools/SFT_V2_PLAN.md §3-§4。本脚本读 build_sft_dataset_v1.py --mode v2
+设计目标见 qwen3vl_local/sft/SFT_PLAN.md §6。本脚本读 build_sft_dataset_v1.py --mode v2
 产出的 ``v2_pending`` jsonl，对每条样本拼 teacher prompt（含 PRIVILEGED 块）跑一次
 推理，把 ``__TEACHER_PENDING__`` 占位替换成真实 ANALYSIS 文本，写入 ``v2`` jsonl。
 
@@ -17,14 +17,14 @@
 
 ```bash
 # 8 卡分片跑全集（约 100 分钟）
-torchrun --standalone --nproc_per_node=8 tools/build_sft_dataset_v2_teacher.py \\
+torchrun --standalone --nproc_per_node=8 qwen3vl_local/sft/build_sft_dataset_v2_teacher.py \\
     --pending-dir checkpoints/sft_v2_data_pending \\
     --output-dir checkpoints/sft_v2_runtime_debug \\
     --model-dir checkpoints/Qwen3-VL-4B-Instruct \\
     --seed 20260601
 
 # 单卡调试，前 32 条（自动挑 1 张空闲 GPU）
-python tools/build_sft_dataset_v2_teacher.py \\
+python qwen3vl_local/sft/build_sft_dataset_v2_teacher.py \\
     --pending-dir checkpoints/sft_v2_data_pending \\
     --output-dir checkpoints/sft_v2_runtime_debug \\
     --max-samples 32
@@ -45,10 +45,10 @@ import time
 from typing import Dict, List, Set, Tuple
 
 # 与 build_sft_dataset_v1 相同的 sys.path 注入逻辑：
-# 本文件在 AutoMoT/tools/，parents[1]=AutoMoT/，parents[2]=automot_lead 仓库根。
+# 本文件在 AutoMoT/qwen3vl_local/sft/，parents[2]=AutoMoT/，parents[3]=automot_lead 仓库根。
 _THIS_FILE = pathlib.Path(__file__).resolve()
-_AUTOMOT_ROOT = _THIS_FILE.parents[1]
-_PROJECT_ROOT = _THIS_FILE.parents[2]
+_AUTOMOT_ROOT = _THIS_FILE.parents[2]
+_PROJECT_ROOT = _THIS_FILE.parents[3]
 for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -163,7 +163,7 @@ _FALLBACK_ANALYSIS = "Observations recorded."
 
 
 # ---------------------------------------------------------------------------
-# Teacher prompt 模板（与 SFT_V2_PLAN.md §3 完全一致）
+# Teacher prompt 模板（与 SFT_PLAN.md §6 的 teacher 物化目标一致）
 # ---------------------------------------------------------------------------
 
 _TEACHER_SYSTEM_PROMPT = """You are a vision-grounded annotation teacher for an autonomous driving status-tracking task.
@@ -277,7 +277,7 @@ def _truncate_at_sentence_boundary(t: str, hard_limit: int) -> str:
 def _postprocess(text: str) -> Tuple[str, bool]:
     """teacher 输出后处理，返回 ``(cleaned, fallback_used)``。
 
-    具体步骤（与 SFT_V2_PLAN.md §3.3 同口径，2026-06-02 收紧长度边界）：
+    具体步骤（与本脚本 teacher 输出约束同口径，2026-06-02 收紧长度边界）：
 
     1. strip 前后空白 + ``ANALYSIS:`` 前缀。
     2. 截断到第一个 ``STATUS:`` / ``SUBGOAL:`` / 双换行 / im_end 之前。

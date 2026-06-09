@@ -33,18 +33,18 @@ eval_sft_v1.py 是聚合视角：跑完整 val 出 keep_acc / early_advance / pe
 
 ```bash
 # 默认跑 base，抽 16 个场景样本（每场景 4 条）做人工 review
-python tools/probe_sft_v1.py \
+python qwen3vl_local/sft/probe_sft_v1.py \
   --save-root checkpoints/sft_v1_lora \
   --num-per-scenario 4 --seed 0
 
 # 只有明确要看 LoRA 时才传 adapter；同 seed 选中样本完全一致，方便并排比较
-python tools/probe_sft_v1.py \
+python qwen3vl_local/sft/probe_sft_v1.py \
   --lora-dir checkpoints/sft_v1_lora/checkpoint-900 \
   --save-root checkpoints/sft_v1_lora \
   --num-per-scenario 4 --seed 0 --case-suffix "_lora"
 
 # 只看 Accident / Construction 两个场景
-python tools/probe_sft_v1.py \
+python qwen3vl_local/sft/probe_sft_v1.py \
   --save-root checkpoints/sft_v1_lora \
   --scenarios Accident,Construction --num-per-scenario 6 --seed 7
 ```
@@ -75,8 +75,8 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
-_AUTOMOT_ROOT = _THIS_FILE.parents[1]
-_PROJECT_ROOT = _THIS_FILE.parents[2]
+_AUTOMOT_ROOT = _THIS_FILE.parents[2]
+_PROJECT_ROOT = _THIS_FILE.parents[3]
 for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -557,7 +557,7 @@ def main() -> None:
     print(f"[probe] dataset_version={ds_ver}")
     if ds_ver == "v2_pending":
         print("[probe][warn] dataset_version=v2_pending: gt.txt 里 ANALYSIS 段是 "
-              "__TEACHER_PENDING__ 占位；请先跑 tools/build_sft_dataset_v2_teacher.py 填真值")
+              "__TEACHER_PENDING__ 占位；请先跑 qwen3vl_local/sft/build_sft_dataset_v2_teacher.py 填真值")
     scenarios_filter = [s.strip() for s in args.scenarios.split(",") if s.strip()] or None
     picked = select_samples(samples, scenarios_filter, args.num_per_scenario, args.seed)
     print(f"[probe] selected {len(picked)} samples from {len(samples)} total "

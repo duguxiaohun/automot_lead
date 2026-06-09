@@ -4,7 +4,7 @@
 （因为 v1 ANALYSIS 是 ``Observations recorded.`` 占位、没监督价值）；v2 ANALYSIS
 段是冻结 base Qwen 蒸馏出来的真值，需要参与 loss 约束 LoRA 不漂移。
 
-权重表（与 SFT_V2_PLAN.md §5 完全一致）：
+权重表（与 SFT_PLAN.md §5 完全一致）：
 
 ==================  ======  =================================================
 段                  权重    理由
@@ -36,10 +36,10 @@ ANALYSIS body 末尾 token 的 next-token-prediction 没有任何梯度推它去
 weight 必须 ≥ 1.0，让模型学到"必须从 ANALYSIS 起手，并在 ANALYSIS body
 结束后 emit 段切换 token"。
 
-策略名 ``sft_v2_analysis_supervised`` 与 ``tools/sft_v2_train.sh`` 里
+策略名 ``sft_v2_analysis_supervised`` 与 ``qwen3vl_local/sft/sft_v2_train.sh`` 里
 ``--loss_scale`` 对应。
 
-注册路径：``swift sft --external_plugins tools/sft_v2_loss_scale_plugin.py``。
+注册路径：``swift sft --external_plugins qwen3vl_local/sft/sft_v2_loss_scale_plugin.py``。
 """
 
 from __future__ import annotations
@@ -227,5 +227,5 @@ class SftV2AnalysisSupervisedLossScale(LossScale):
         return parts, scales
 
 
-# 注册到 swift。策略名与 tools/sft_v2_train.sh 里 --loss_scale 对应。
+# 注册到 swift。策略名与 qwen3vl_local/sft/sft_v2_train.sh 里 --loss_scale 对应。
 loss_scale_map["sft_v2_analysis_supervised"] = SftV2AnalysisSupervisedLossScale

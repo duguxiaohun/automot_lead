@@ -19,7 +19,7 @@
   metrics.json 带 ``fallback_count`` / ``fallback_rate`` / ``fallback_success_count``，
   stdout 末尾会高亮一行 ``attempted=N/M``，0 即"LoRA 自己出完整三段，健康"。
 
-四个核心指标（与 tools/SFT_V1_PLAN.md §8 一致；含义见 metrics.json["_metric_doc"]）：
+四个核心指标（与 qwen3vl_local/sft/SFT_PLAN.md §8 一致；含义见 metrics.json["_metric_doc"]）：
   - keep_accuracy:      保持类样本 STATUS == GT 的比例（越大越好）
   - advance_accuracy:   推进类样本 STATUS == GT 的比例（越大越好）
   - early_advance_rate: 保持类样本 STATUS == next(GT) 的比例（越小越好，核心痛点）
@@ -55,20 +55,20 @@
 
 ```bash
 # 小样本验收 + 完整 dump（推荐：拿到本地人工 review）
-python tools/eval_sft_v1.py \
+python qwen3vl_local/sft/eval_sft_v1.py \
   --save-root checkpoints/sft_v1_lora \
   --max-samples 100
 
 # 全集跑指标（不 dump 详情）
-python tools/eval_sft_v1.py \
+python qwen3vl_local/sft/eval_sft_v1.py \
   --save-root checkpoints/sft_v1_lora
 
 # 多卡分片跑全集
-torchrun --standalone --nproc_per_node=4 tools/eval_sft_v1.py \
+torchrun --standalone --nproc_per_node=4 qwen3vl_local/sft/eval_sft_v1.py \
   --save-root checkpoints/sft_v1_lora
 
 # 显式评估某个 LoRA checkpoint 时再传 adapter
-python tools/eval_sft_v1.py \
+python qwen3vl_local/sft/eval_sft_v1.py \
   --lora-dir checkpoints/sft_v1_lora/checkpoint-900 \
   --save-root checkpoints/sft_v1_lora/checkpoint-900 \
   --max-samples 100
@@ -97,8 +97,8 @@ from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
-_AUTOMOT_ROOT = _THIS_FILE.parents[1]
-_PROJECT_ROOT = _THIS_FILE.parents[2]
+_AUTOMOT_ROOT = _THIS_FILE.parents[2]
+_PROJECT_ROOT = _THIS_FILE.parents[3]
 for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -1153,7 +1153,7 @@ def main():
         if ds_ver == "v2_pending":
             print("[eval][warn] dataset_version=v2_pending: ANALYSIS 段还是 __TEACHER_PENDING__ "
                   "占位，eval 解析 STATUS/SUBGOAL 不受影响但 case dump 里 GT ANALYSIS 会很难看；"
-                  "请先跑 tools/build_sft_dataset_v2_teacher.py 填真值")
+                  "请先跑 qwen3vl_local/sft/build_sft_dataset_v2_teacher.py 填真值")
 
     # 启动 engine + 可选挂 LoRA。
     #

@@ -12,8 +12,8 @@
 #   打印两条可直接复制的命令（ssh 隧道 + 浏览器 URL）。
 #
 # 用法（远端，在 AutoMoT/ 目录下）：
-#   bash tools/tb_serve.sh checkpoints/sft_v1_lora
-#   bash tools/tb_serve.sh checkpoints/goalgen_v1_dit
+#   bash qwen3vl_local/sft/tb_serve.sh checkpoints/sft_v1_lora
+#   bash qwen3vl_local/sft/tb_serve.sh checkpoints/goalgen_v1_dit
 #
 # 想同时看训练 + eval 两条 TB run，把 logdir 指到 OUTPUT_DIR 根目录即可——
 # TB 会把子目录里的 tb/ 与 eval_tb/ 自动列成两个 run，左侧 run 列表可勾选切换。
@@ -34,7 +34,7 @@ set -euo pipefail
 LOGDIR="${1:-}"
 if [[ -z "${LOGDIR}" ]]; then
     cat >&2 <<EOF
-用法: bash tools/tb_serve.sh <logdir>
+用法: bash qwen3vl_local/sft/tb_serve.sh <logdir>
 
 <logdir> 是 TensorBoard 的 --logdir，常用：
   checkpoints/sft_v1_lora        ← SFT v1：会同时看到 tb/ 和 eval_tb/ 两个 run

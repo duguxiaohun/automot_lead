@@ -2,16 +2,16 @@
 # SFT v1 训练入口 — ms-swift LoRA on Qwen3-VL-4B-Instruct.
 #
 # 用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
-#   单卡：       bash tools/sft_v1_train.sh single
-#   DDP：        bash tools/sft_v1_train.sh ddp
-#   sanity 自检：bash tools/sft_v1_train.sh check
+#   单卡：       bash qwen3vl_local/sft/sft_v1_train.sh single
+#   DDP：        bash qwen3vl_local/sft/sft_v1_train.sh ddp
+#   sanity 自检：bash qwen3vl_local/sft/sft_v1_train.sh check
 #     （check 模式只跑 2 step、不保存 ckpt，用来确认 loss_scale 是否生效。
 #      正常 mask 下初始 loss 应只来自 STATUS/SUBGOAL 段，数值在 ~6-10 量级；
 #      若初始 loss < 3 多半是 ANALYSIS 段也被算进去了，模型在抄占位句。
-#      跑前最好先 python tools/check_loss_mask.py 看 token 级 mask 是否对。）
+#      跑前最好先 python qwen3vl_local/sft/check_loss_mask.py 看 token 级 mask 是否对。）
 #
-# 数据先用 tools/build_sft_dataset_v1.py 生成。LoRA 只训 language model 的
-# attention + MLP projections，ViT 冻结，详见 tools/SFT_V1_PLAN.md。
+# 数据先用 qwen3vl_local/sft/build_sft_dataset_v1.py 生成。LoRA 只训 language model 的
+# attention + MLP projections，ViT 冻结，详见 qwen3vl_local/sft/SFT_PLAN.md。
 #
 # 常用 override：
 #   MODEL_DIR=/path/to/Qwen3-VL-4B-Instruct \
@@ -19,7 +19,7 @@
 #   VAL_JSONL=/path/to/val.jsonl \
 #   OUTPUT_DIR=/path/to/sft_v1_lora \
 #   DDP_GPU_COUNT=4 \
-#   bash tools/sft_v1_train.sh ddp
+#   bash qwen3vl_local/sft/sft_v1_train.sh ddp
 #
 # 训练产物：
 #   OUTPUT_DIR 下保存 LoRA adapter checkpoint。eval_sft_v1.py 的 --lora-dir
@@ -29,7 +29,7 @@
 #   1. 本脚本默认 HuggingFace 离线，只读本地 MODEL_DIR，不允许联网下载。
 #   2. v1 目标是 STATUS/SUBGOAL，不学 ANALYSIS；自定义 loss_scale 插件会把 ANALYSIS 段 loss 置 0。
 #   3. `--freeze_vit true` 冻结视觉塔，LoRA 只挂到语言 decoder 的投影层。
-#   4. 如果远程发现 loss_scale 没生效，先不要继续长训，检查 tools/sft_v1_loss_scale_plugin.py。
+#   4. 如果远程发现 loss_scale 没生效，先不要继续长训，检查 qwen3vl_local/sft/sft_v1_loss_scale_plugin.py。
 
 set -euo pipefail
 
@@ -49,7 +49,7 @@ fi
 # TRAIN_JSONL / VAL_JSONL 是 build_sft_dataset_v1.py 生成的 jsonl。
 # OUTPUT_DIR 是 LoRA adapter 输出目录，不建议放到源码目录外的临时位置，避免后续 eval 找不到。
 # 想用绝对路径覆盖时直接 export 同名变量：
-#   MODEL_DIR=/datashare/IOL4SGH/AutoMoT/models/Qwen3-VL-4B-Instruct bash tools/sft_v1_train.sh ddp
+#   MODEL_DIR=/datashare/IOL4SGH/AutoMoT/models/Qwen3-VL-4B-Instruct bash qwen3vl_local/sft/sft_v1_train.sh ddp
 # ---------------------------------------------------------------------------
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v1_data/train.jsonl}"
@@ -112,7 +112,7 @@ SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-3}"
 # - 插件里的 regex 只覆盖 "ANALYSIS:" 到 "\nSTATUS:" 之间的 token；
 # - STATUS/SUBGOAL 的字面前缀和 event_name 都保留 loss，用来强化固定输出格式。
 LOSS_SCALE="sft_v1_analysis_mask"
-LOSS_SCALE_PLUGIN="tools/sft_v1_loss_scale_plugin.py"
+LOSS_SCALE_PLUGIN="qwen3vl_local/sft/sft_v1_loss_scale_plugin.py"
 
 # HuggingFace 强制离线（与 runner 行为一致，禁止下载）。
 # 远程机器如果模型缺文件，应先由用户手动准备 checkpoint，不要让训练脚本隐式联网补齐。
@@ -347,7 +347,7 @@ fi
 # - --gradient_checkpointing 在 4B 模型上影响不大但能省 ~30% 激活显存。
 #
 # 训练前建议先跑：
-#   python tools/eval_sft_v1.py --lora-dir "" --max-samples 32 --skip-anchor12-sanity
+#   python qwen3vl_local/sft/eval_sft_v1.py --lora-dir "" --max-samples 32 --skip-anchor12-sanity
 # 得到 base baseline；训练后再跑同样 val 子集 + LoRA，看 keep/early_advance 是否改善。
 swift sft \
     --model "${MODEL_DIR}" \
@@ -402,18 +402,18 @@ echo "[done] LoRA adapter saved under ${OUTPUT_DIR}"
 #     └─ eval_cases/        probe_sft_v1.py 随机场景 case dump（input/output/loss）
 #
 # 看 TensorBoard：直接把 logdir 指到 OUTPUT_DIR 根目录，左侧 run 列表会同时显示
-# tb（训练）和 eval_tb（多个 ckpt 的 eval 结果）；用 tools/tb_serve.sh 一条命令
+# tb（训练）和 eval_tb（多个 ckpt 的 eval 结果）；用 qwen3vl_local/sft/tb_serve.sh 一条命令
 # 起服务，stdout 会打印本地浏览器要用的 ssh 隧道命令，本地点链接就能看。
 # ---------------------------------------------------------------------------
 echo ""
 echo "============================================================"
 echo "[hint] 看 TensorBoard："
-echo "  bash tools/tb_serve.sh ${OUTPUT_DIR}"
+echo "  bash qwen3vl_local/sft/tb_serve.sh ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在 val 集上跑 eval（指标 + TB 标量 + 预测 jsonl）："
-echo "  python tools/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
-echo "  # 多卡分片：torchrun --nproc_per_node=4 tools/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
+echo "  python qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
+echo "  # 多卡分片：torchrun --nproc_per_node=4 qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在随机场景上 dump case（输入 prompt+图像，输出文本，per-token loss）："
-echo "  python tools/probe_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR} --num-per-scenario 4"
+echo "  python qwen3vl_local/sft/probe_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR} --num-per-scenario 4"
 echo "============================================================"

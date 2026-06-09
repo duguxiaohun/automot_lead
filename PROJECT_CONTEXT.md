@@ -22,7 +22,7 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 | `lead/` | 数据采集、训练、闭环评测参考仓库。只读 |
 | `AutoMoT/` | 在线驾驶仓库；当前本地改造主要放这里 |
 | `AutoMoT/qwen3vl_local/` | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT |
-| `AutoMoT/tools/` | SFT v1/v2 数据、训练、eval、probe |
+| `AutoMoT/qwen3vl_local/sft/` | SFT v1/v2 数据、训练、eval、probe |
 | `AutoMoT/vae_standalone/train_patch_unpatch.py` | patch/unpatch 端到端重建训练 |
 | `0026.json` | LEAD meta 固定参考样本，只读，绝对不要入库 |
 | `keyframes_all_scenarios.json` | 远端数据参考，只读 |
@@ -205,23 +205,28 @@ v1/v2：
 
 ## 8. SFT v1 / v2
 
+统一文档入口：
+
+- `qwen3vl_local/sft/SFT_PLAN.md`
+- `qwen3vl_local/sft/SFT_RUN.md`
+
 SFT v1：
 
-- `tools/build_sft_dataset_v1.py`
-- `tools/sft_v1_train.sh`
-- `tools/eval_sft_v1.py`
-- `tools/probe_sft_v1.py`
-- `tools/SFT_V1_RUN.md`
+- `qwen3vl_local/sft/build_sft_dataset_v1.py`
+- `qwen3vl_local/sft/sft_v1_train.sh`
+- `qwen3vl_local/sft/eval_sft_v1.py`
+- `qwen3vl_local/sft/probe_sft_v1.py`
 
 v1 assistant 使用固定 `ANALYSIS: Observations recorded.`，主要训练
 STATUS/SUBGOAL 事件名。
 
 SFT v2：
 
-- `tools/build_sft_dataset_v1.py --mode v2` 生成 `v2_pending`。
-- `tools/build_sft_dataset_v2_teacher.py` 用 frozen Qwen + PRIVILEGED prompt 物化真实 ANALYSIS。
-- `tools/sft_v2_train.sh` 首次训练启动时物化 runtime teacher cache，后续按 manifest 复用。
-- `tools/SFT_V2_RUN.md` 是操作入口。
+- `qwen3vl_local/sft/build_sft_dataset_v1.py --mode v2` 生成 `v2_pending`。
+- `qwen3vl_local/sft/build_sft_dataset_v2_teacher.py` 用 frozen Qwen + PRIVILEGED prompt 物化真实 ANALYSIS。
+- `qwen3vl_local/sft/sft_v2_train.sh` 首次训练启动时物化 base 层
+  `runtime_teacher_data/`，后续按 manifest 复用；`check` 模式默认写独立
+  `runtime_teacher_check_data/`，不污染正式 cache。
 
 v2 loss 规则：ANALYSIS body 默认权重 0.3；`ANALYSIS:`、`\nSTATUS:`、
 `\nSUBGOAL:` 字面、事件名、EOS/tail 都参与 loss。旧版“结构字面 mask=0”
@@ -311,8 +316,7 @@ eval、probe、teacher / 推理入口。
 
 | 任务 | 文档 |
 |---|---|
-| SFT v1 跑法 | `AutoMoT/tools/SFT_V1_RUN.md` |
-| SFT v2 跑法 | `AutoMoT/tools/SFT_V2_RUN.md` |
+| SFT v1/v2 跑法 | `AutoMoT/qwen3vl_local/sft/SFT_RUN.md` |
 | GoalGen 跑法 | `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md` |
 | LeadMoT 跑法 | `AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md` |
 | LeadMoT 架构 | `AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md` |
