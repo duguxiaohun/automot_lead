@@ -206,3 +206,12 @@ prompt：
   `--keyframes` 自动反查并注入；
 - `eval_carla` 在线闭环暂时无法获得 SUBGOAL keyframe RGB，加载 `use_subgoal=True`
   ckpt 时会立刻 `raise NotImplementedError`，后续由图像生成/代理输入接口填补。
+
+## DataLoader worker
+
+LeadMoT train/eval 默认用 `num_workers=8` / rank 预取 CPU 侧 `build_clip`（JPG/lzma/LAZ
+解码），只提升 GPU util，不改变 B=1 训练语义，也不增加 GPU 显存占用。worker 默认
+`multiprocessing_context=spawn`，避免在 Qwen/CUDA 初始化后 fork。DDP train 仍保持每
+rank 等长无重复 shard；val/eval 手动 `rank::world_size` 分片，避免
+`DistributedSampler` padding 后重复计入样本。`probe.py` 只做少量 case-level dump，
+默认不接 DataLoader worker。
