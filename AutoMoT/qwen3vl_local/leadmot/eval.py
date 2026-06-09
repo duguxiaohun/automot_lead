@@ -166,7 +166,15 @@ def _init_dist() -> tuple[int, int, int]:
     if world_size > 1 and not dist.is_initialized():
         backend = "nccl" if torch.cuda.is_available() else "gloo"
         timeout = _dt.timedelta(minutes=int(os.environ.get("LEADMOT_NCCL_TIMEOUT_MIN", "10")))
-        dist.init_process_group(backend=backend, timeout=timeout)
+        init_kwargs: dict[str, Any] = {"backend": backend, "timeout": timeout}
+        if backend == "nccl":
+            init_kwargs["device_id"] = torch.device("cuda", local_rank)
+        try:
+            dist.init_process_group(**init_kwargs)
+        except TypeError:
+            # 兼容旧 PyTorch：老版本 init_process_group 没有 device_id 参数。
+            init_kwargs.pop("device_id", None)
+            dist.init_process_group(**init_kwargs)
     return rank, local_rank, world_size
 
 
