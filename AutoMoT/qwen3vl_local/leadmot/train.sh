@@ -224,6 +224,21 @@ if [[ "${USE_SUBGOAL}" == "1" ]]; then
 else
   common_args+=(--no-use-subgoal)
 fi
+# DataLoader 多 worker 预取：把 4 张 JPG + 4 个 lzma pickle + 4 个 LAZ 解压挪到子进程，
+# 主进程 GPU 不再因等 IO 而 idle。
+# 默认 NUM_WORKERS=8 / rank：经验值 ≈ (物理 CPU 核 / 每节点 rank 数)；
+# H20 节点（~96 物理核）上单卡 / 4 卡 / 8 卡 DDP 跑下来 8 都够把 GPU 喂饱。
+# CPU 内存代价：每 rank ~ NUM_WORKERS * PREFETCH_FACTOR * (一个 clip ~50MB) ≈ 800MB，可忽略。
+# 想再激进可临时 NUM_WORKERS=12 PREFETCH_FACTOR=4 bash ...；调小则 NUM_WORKERS=0 退回同步 IO。
+# !! 注意 !! 加 worker 只影响 GPU 计算利用率（util），**不影响 GPU 显存占用**——
+# 当前显存 ~14GB / 卡是 frozen Qwen3-VL 4B + LeadMoT decoder + B=1 单 sample 激活的固有占用，
+# 要把显存吃满需要真正的 batch_size > 1（PrefixKVAttention 还需加 lang_kv attention mask）。
+NUM_WORKERS="${NUM_WORKERS:-8}"
+common_args+=(--num-workers "${NUM_WORKERS}")
+PREFETCH_FACTOR="${PREFETCH_FACTOR:-2}"
+common_args+=(--prefetch-factor "${PREFETCH_FACTOR}")
+WORKER_MULTIPROCESSING_CONTEXT="${WORKER_MULTIPROCESSING_CONTEXT:-spawn}"
+common_args+=(--worker-multiprocessing-context "${WORKER_MULTIPROCESSING_CONTEXT}")
 
 case "${MODE}" in
   check)

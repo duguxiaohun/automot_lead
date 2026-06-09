@@ -113,6 +113,18 @@ Subgoal 开关：
 - `eval_carla` 在线闭环暂不支持 `use_subgoal=True`，因为在线拿不到未来 SUBGOAL keyframe RGB；
   agent 加载该类 ckpt 时立即 `raise NotImplementedError`，保留后续图像生成/代理输入 TODO。
 
+DataLoader worker：
+
+- LeadMoT `train.py` / `eval.py` 默认 `--num-workers 8 --prefetch-factor 2`
+  （train.sh: `NUM_WORKERS=8`），把 CPU 侧 JPG/lzma/LAZ 解码预取到 worker；
+  worker 默认 `multiprocessing_context=spawn`，避免 Qwen/CUDA 初始化后 fork。
+- worker 只提升 GPU util，不改变 B=1 训练语义，也不提升 GPU 显存占用；真正吃满显存
+  需要后续 batch>1 + prefix padding mask 改造。
+- DDP train 先截掉尾部不足 `world_size` 的样本，再每 rank 取无重复等长 shard；
+  val/eval 手动 `rank::world_size` 分片，避免 `DistributedSampler` padding 重复计数。
+- `eval.py` 同样默认 `--num-workers 8`；`probe.py` 是小规模 case-level dump（默认 24 case），
+  不接 DataLoader worker，避免为了少量样本引入额外启动开销。
+
 ### 6.1 LeadMoT CARLA 闭环评测（eval_carla）
 
 入口：`AutoMoT/qwen3vl_local/eval_carla/`，操作文档：

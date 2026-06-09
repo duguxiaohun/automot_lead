@@ -102,6 +102,46 @@ DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
 - 不设置 `DDP_GPU_COUNT` 时，默认尝试挑 8 张空闲 GPU。
 - `MASTER_PORT` 未设置时自动找空闲端口；已设置但端口被占用会直接报错。
 
+### 4.z DataLoader 多 worker 预取（GPU 利用率优化）
+
+LeadMoT 单 sample 的 IO 大头是 4 张 JPG 解码 + 4 个 lzma pickle 解压 + 4 个 LAZ 点云读取（可选 +1 张 SUBGOAL JPG），全是主进程 CPU/磁盘等待，GPU 在此期间 idle。
+
+**默认已开启 `NUM_WORKERS=8 / rank`，无需显式指定。** H20 节点上跑下来 `nvidia-smi` GPU util 稳定 90%+，4 卡之间差异控制在 ±10% 内。worker 启动方式默认 `WORKER_MULTIPROCESSING_CONTEXT=spawn`，避免在 Qwen/CUDA 初始化后 fork 子进程。
+
+```bash
+# 默认就有 worker 预取，跟原命令一字不变
+DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+
+# 想再激进（CPU 核数充裕时）
+NUM_WORKERS=12 PREFETCH_FACTOR=4 DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+
+# Linux 远端想试更低启动开销时，可显式改成 forkserver；确认稳定后再长期使用
+WORKER_MULTIPROCESSING_CONTEXT=forkserver DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+
+# 想退回同步 IO 做对照 / debug
+NUM_WORKERS=0 DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+```
+
+#### 经验值
+
+- 默认 `NUM_WORKERS=8` / rank：保守安全，H20 节点（~96 物理核）4 卡 / 8 卡 DDP 都顶得住。
+- `NUM_WORKERS ≈ 物理 CPU 核数 / 每节点 rank 数` 是上限；超过这个值 worker 之间会争 CPU 反而变慢。
+- CPU 内存代价：每 rank ~ `NUM_WORKERS × PREFETCH_FACTOR × clip_size (~50MB)` ≈ 800MB，相对 H20 节点 512GB+ RAM 可忽略。
+- `spawn` 是最稳的默认值；`fork` 不推荐，因为 train/eval 都会先初始化 Qwen/CUDA，再创建 DataLoader worker。
+- DDP train 会先截掉尾部不足 `world_size` 的样本，再每 rank 取无重复 shard，保证每张卡 backward 次数一致；val/eval 用 `rank::world_size` 手动分片，不用 `DistributedSampler` padding，因此不会重复计入样本。
+- `eval.py` 同款 `--num-workers` 默认也是 8；`probe.py` 因数据量极小（默认 24 case）未接 DataLoader。
+
+#### ⚠️ worker 不影响 GPU 显存
+
+`NUM_WORKERS` 是 **CPU 子进程数**，影响的是 GPU 计算利用率（util），**不影响 GPU 显存**：
+
+- 当前 ~14GB / 卡 = frozen Qwen3-VL 4B (~9GB bf16) + LeadBEVEncoder (~150MB) + LeadMoT decoder (~300MB) + B=1 单 sample 激活/KV cache (~4GB)。
+- 想吃满显存（>60GB / 卡）必须做真正的 batch_size > 1：
+  1. 改 `PrefixKVAttention` 接受 `lang_kv_attention_mask` 处理不同 prefix 长度的 padding；
+  2. 改 `forward_sample` 接受 batched samples；
+  3. 改 train loop + `grad_accum_steps` 语义。
+- 这是另一条 3–5 天的改造路线，与当前 worker 预取正交。当前路线只把 GPU util 拉到 90%+，吞吐受 B=1 上限约束。
+
 ### 4.x USE_BEV 开关（v1 内部消融）
 
 ```bash

@@ -30,6 +30,7 @@ from qwen3vl_local.leadmot.train import (
     _dump_invocation,
     _dtype,
     _extract_targets,
+    _make_loader,
     _planning_loss,
     _read_jsonl,
     _setup_offline_env,
@@ -296,6 +297,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tp-min-lookahead-m", type=float, default=5.0)
     parser.add_argument("--use-final-goal", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--verbose-samples", action="store_true")
+    # DataLoader 多 worker 预取：与 train.py 同款；默认 8 / rank，已能把 GPU 喂饱。
+    parser.add_argument("--num-workers", type=int, default=8)
+    parser.add_argument("--prefetch-factor", type=int, default=2)
+    parser.add_argument("--persistent-workers", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--worker-multiprocessing-context",
+        default="spawn",
+        choices=["spawn", "forkserver", "fork", "default"],
+        help="DataLoader worker 启动方式；默认 spawn，避免 CUDA/Qwen 初始化后 fork。"
+    )
     # 默认用 EMA 权重做 eval；--no-use-ema 强制用 raw decoder。
     # 旧 ckpt（不带 ema_state_dict）下任一选项都会回落到 raw 权重，并 print 提示。
     parser.add_argument("--use-ema", action=argparse.BooleanOptionalAction, default=True)
@@ -310,7 +321,7 @@ def main() -> None:
     rank, local_rank, world_size = _init_dist()
     device = torch.device("cuda", local_rank) if torch.cuda.is_available() else torch.device("cpu")
 
-    rows = _read_jsonl(Path(args.jsonl))
+    rows = [dict(row, _jsonl_index=i) for i, row in enumerate(_read_jsonl(Path(args.jsonl)))]
     output_dir = _resolve_output_dir(args)
     output_dir.mkdir(parents=True, exist_ok=True)
     invocation_root = Path(args.save_root) if args.save_root else output_dir.parent
@@ -334,8 +345,18 @@ def main() -> None:
         # use_subgoal=True 的 jsonl 会混有 subgoal_lookup_ok=False 的兼容行；先按 ckpt
         # 过滤有效 subgoal 样本，再截断 max_samples，避免快速 eval 误采到全无效前缀。
         rows = rows[: args.max_samples]
-    shard = rows[rank::world_size]
     runtime = LeadMoTTrainRuntime(args, device)
+
+    # eval 也走 DataLoader：先手动 rank::world_size 分片，再交给本 rank 的 worker。
+    # 不用 DistributedSampler(drop_last=False)，避免 padding/复制样本污染指标。
+    rank_rows = rows[rank::world_size]
+    eval_loader, eval_sampler = _make_loader(
+        rank_rows, args,
+        rank=0, world_size=1,
+        shuffle=False, epoch_seed=args.seed,
+    )
+    if eval_sampler is not None:
+        eval_sampler.set_epoch(0)
 
     # sums 的 key 直接对齐 train._compute_planning_metrics 返回的 `_m` 后缀键，
     # 这样 eval/* TB scalar 跟训练 train/* val/* val_ema/* 三组 scalar 完全同名，
@@ -353,14 +374,20 @@ def main() -> None:
     count = 0
     with perline_path.open("w", encoding="utf-8", newline="\n") as f:
         with torch.no_grad():
-            for idx, sample in enumerate(shard):
+            for idx, prepared in enumerate(eval_loader):
+                sample = prepared["sample"]
+                worker_error = prepared.get("_error")
                 try:
+                    if worker_error:
+                        raise RuntimeError(f"worker preprocess failed: {worker_error}")
                     # eval 只在循环结束后 all-reduce 一次。坏样本可以在各 rank
                     # 独立跳过，最后按全局有效样本数平均。
-                    outputs = runtime.forward_sample(sample, decoder, decoder_config, decoder_dtype)
-                    gt_route, gt_wp = _extract_targets(sample, args.route_points, args.waypoint_points, args.smooth_route)
-                    gt_route = gt_route.unsqueeze(0).to(device)
-                    gt_wp = gt_wp.unsqueeze(0).to(device)
+                    outputs = runtime.forward_sample(
+                        sample, decoder, decoder_config, decoder_dtype,
+                        clip=prepared["clip"],
+                    )
+                    gt_route = prepared["gt_route"].unsqueeze(0).to(device)
+                    gt_wp = prepared["gt_waypoints"].unsqueeze(0).to(device)
                     loss, route_loss, wp_loss = _planning_loss(outputs, gt_route, gt_wp, args.route_loss_weight, args.waypoint_loss_weight, args.loss_type)
                     metrics = _compute_planning_metrics(outputs, gt_route, gt_wp)
                 except Exception as exc:
@@ -370,7 +397,7 @@ def main() -> None:
                         flush=True,
                     )
                     continue
-                row = {"index": idx * world_size + rank, "route_dir": sample.get("route_dir"), "anchor": sample.get("anchor"), "loss": float(loss.item()), "route_loss": float(route_loss.item()), "waypoint_loss": float(wp_loss.item()), **metrics}
+                row = {"index": int(sample.get("_jsonl_index", idx * world_size + rank)), "route_dir": sample.get("route_dir"), "anchor": sample.get("anchor"), "loss": float(loss.item()), "route_loss": float(route_loss.item()), "waypoint_loss": float(wp_loss.item()), **metrics}
                 f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
                 for key in sums:
                     sums[key] += row[key]

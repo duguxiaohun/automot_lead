@@ -25,6 +25,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data import DataLoader, Dataset, Sampler
 
 
 AUTOMOT_ROOT = Path(__file__).resolve().parents[2]
@@ -579,9 +580,16 @@ class LeadMoTTrainRuntime:
         decoder: torch.nn.Module,
         decoder_config: LeadMoTPlanningDecoderConfig,
         decoder_dtype: torch.dtype,
+        clip: dict[str, Any] | None = None,
     ) -> dict[str, torch.Tensor]:
-        """先跑 frozen 预处理/prefill，再调用可训练 decoder。"""
-        clip = self._build_clip(sample)
+        """先跑 frozen 预处理/prefill，再调用可训练 decoder。
+
+        ``clip=None``（默认）：和老路径完全兼容，本方法自己调 ``_build_clip``。
+        ``clip != None``：复用 DataLoader worker 预取的 clip dict，主进程跳过
+        build_clip（最耗 IO 的 lzma/JPG/LAZ 读取）。两条路径数值完全等价。
+        """
+        if clip is None:
+            clip = self._build_clip(sample)
         clip_len = int(np.asarray(clip["rgb"]).shape[0])
         # build_clip_from_real_lead_route 返回的 clip 里 anchor 永远是最后一帧，
         # 因此 anchor_t = clip_len - 1。
@@ -659,6 +667,179 @@ class LeadMoTTrainRuntime:
         # 供 eval/probe/debug dump 核对输入导航状态；loss 只读取 pred_* 键。
         outputs["input_status"] = status.detach()
         return outputs
+
+
+# ============================================================
+# DataLoader 多 worker 预取支持（B=1，主要为了把 IO+解压搬出 GPU 关键路径）
+# ============================================================
+class LeadMoTSampleDataset(Dataset):
+    """worker 端只做 CPU 部分：build_clip + GT 提取。
+
+    设计意图：训练单 sample 流耗时大头是 4 张 JPG 解码 + 4 个 lzma pickle 解压 +
+    4 个 LAZ 点云读取，全是 CPU/磁盘 IO。把这些放进 DataLoader worker 子进程后，
+    主进程 GPU 算 Qwen prefill / decoder 时 worker 已经在后台把下一个 sample 备好，
+    主进程从 dataloader 取 batch 几乎不等待。
+
+    返回 dict 的字段：
+      - sample: 原 jsonl row（passthrough，给 forward_sample 看 use_final_goal 等）
+      - clip:   build_clip_from_real_lead_route 的产物（含 rgb numpy / lidar_points
+                list / target_point / final_goal 等）
+      - gt_route / gt_waypoints: torch.Tensor，CPU
+      - 失败时改返回 {"sample": row, "_error": "<msg>"}，主进程检测后走占位 loss，
+        保持 DDP collective 对齐
+    """
+
+    def __init__(self, rows: list[dict[str, Any]], args: argparse.Namespace) -> None:
+        self.rows = rows
+        self.args = args
+
+    def __len__(self) -> int:
+        return len(self.rows)
+
+    def __getitem__(self, idx: int) -> dict[str, Any]:
+        sample = self.rows[idx]
+        try:
+            kwargs = dict(
+                route_dir=Path(sample["route_dir"]),
+                anchor=int(sample["anchor"]),
+                rgb_frame_step=int(sample.get("rgb_frame_step", self.args.rgb_frame_step)),
+                rgb_frame_count=int(sample.get("rgb_frame_count", self.args.rgb_frame_count)),
+                bev_frame_step=int(sample.get("bev_frame_step", self.args.bev_frame_step)),
+                bev_frame_count=int(sample.get("bev_frame_count", self.args.bev_frame_count)),
+                tp_lookahead_s=float(sample.get("target_point_lookahead_s", self.args.target_point_lookahead_s)),
+                ntp_lookahead_s=float(
+                    sample.get("next_target_point_lookahead_s", self.args.next_target_point_lookahead_s)
+                ),
+                frame_interval_s=float(sample.get("frame_interval_s", self.args.frame_interval_s)),
+                tp_mode=str(sample.get("tp_mode", getattr(self.args, "tp_mode", "route_lookahead"))),
+                tp_min_lookahead_m=float(
+                    sample.get("tp_min_lookahead_m", getattr(self.args, "tp_min_lookahead_m", 5.0))
+                ),
+                use_final_goal=bool(
+                    sample.get("use_final_goal", getattr(self.args, "use_final_goal", True))
+                ),
+            )
+            # build_clip_from_real_lead_route 默认会逐 sample 打 debug 行；正常训练时静默
+            # 掉，避免大量 worker 的 stdout 互相打架且压住主进程日志。
+            with open(os.devnull, "w", encoding="utf-8") as devnull, contextlib.redirect_stdout(devnull):
+                clip = build_clip_from_real_lead_route(**kwargs)
+            gt_route, gt_waypoints = _extract_targets(
+                sample,
+                int(self.args.route_points),
+                int(self.args.waypoint_points),
+                bool(self.args.smooth_route),
+            )
+            return {
+                "sample": sample,
+                "clip": clip,
+                "gt_route": gt_route,
+                "gt_waypoints": gt_waypoints,
+            }
+        except Exception as exc:
+            # worker 不抛异常，避免 DataLoader 直接挂；把错误信息回主进程，
+            # 主进程走与原 try/except 同样的占位 loss 路径，DDP collective 对齐不破。
+            return {"sample": sample, "_error": f"{type(exc).__name__}: {exc}"}
+
+
+def _identity_collate(batch: list[dict[str, Any]]) -> dict[str, Any]:
+    """B=1 专用 collate：直接返回 worker 输出的 dict，不做 stack。
+
+    本路线不做 B>1 的批量化，只用多 worker 把 IO 移出 GPU 关键路径。要做 B>1 还
+    需要 PrefixKVAttention 加 lang_kv attention mask；那是后续工作。
+    """
+    assert len(batch) == 1, f"identity collate requires batch_size=1, got {len(batch)}"
+    return batch[0]
+
+
+class _NoPadDistributedSampler(Sampler[int]):
+    """DDP 分片 sampler：只做 rank::world_size，不 padding/复制样本。"""
+
+    def __init__(
+        self,
+        dataset: Dataset,
+        *,
+        num_replicas: int,
+        rank: int,
+        shuffle: bool,
+        seed: int,
+    ) -> None:
+        self.dataset = dataset
+        self.num_replicas = int(num_replicas)
+        self.rank = int(rank)
+        self.shuffle = bool(shuffle)
+        self.seed = int(seed)
+        self.epoch = 0
+        if not 0 <= self.rank < self.num_replicas:
+            raise ValueError(f"rank must be in [0, {self.num_replicas}), got {self.rank}")
+
+    def __iter__(self) -> Iterator[int]:
+        n = len(self.dataset)
+        if self.shuffle:
+            generator = torch.Generator()
+            generator.manual_seed(self.seed + self.epoch)
+            indices = torch.randperm(n, generator=generator).tolist()
+        else:
+            indices = list(range(n))
+        return iter(indices[self.rank::self.num_replicas])
+
+    def __len__(self) -> int:
+        n = len(self.dataset)
+        if self.rank >= n:
+            return 0
+        return (n - 1 - self.rank) // self.num_replicas + 1
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = int(epoch)
+
+
+def _make_loader(
+    rows: list[dict[str, Any]],
+    args: argparse.Namespace,
+    *,
+    rank: int,
+    world_size: int,
+    shuffle: bool,
+    epoch_seed: int,
+) -> tuple[DataLoader, Sampler[int] | None]:
+    """统一构造 train/val DataLoader 与 (可选) 无 padding DDP sampler。
+
+    设计点：
+    - B=1：见 _identity_collate 注释。
+    - DDP：调用方可先传入当前 rank 的无重复 shard；若传 world_size>1，本函数
+      也只做 rank::world_size 分片，不 padding/复制样本。
+    - persistent_workers：epoch 切换不重启 worker，省 lzma/laspy 等模块 import 开销。
+    - prefetch_factor：仅 num_workers>0 时生效；默认 2 已经够预热。
+    - multiprocessing_context：默认 spawn，避免在 Qwen/CUDA 初始化后 fork worker。
+    """
+
+    dataset = LeadMoTSampleDataset(rows, args)
+    sampler: Sampler[int] | None = None
+    if world_size > 1:
+        sampler = _NoPadDistributedSampler(
+            dataset,
+            num_replicas=world_size,
+            rank=rank,
+            shuffle=shuffle,
+            seed=epoch_seed,
+        )
+    num_workers = max(0, int(getattr(args, "num_workers", 0)))
+    loader_kwargs: dict[str, Any] = dict(
+        batch_size=1,
+        sampler=sampler,
+        # sampler 已经决定顺序时 shuffle 参数必须留空 / False。
+        shuffle=(sampler is None and shuffle),
+        num_workers=num_workers,
+        collate_fn=_identity_collate,
+        pin_memory=False,  # 我们返回的多半是 numpy + dict + Python obj，pin 不到位反而慢
+        drop_last=False,
+    )
+    if num_workers > 0:
+        loader_kwargs["persistent_workers"] = bool(getattr(args, "persistent_workers", True))
+        loader_kwargs["prefetch_factor"] = max(1, int(getattr(args, "prefetch_factor", 2)))
+        context_name = str(getattr(args, "worker_multiprocessing_context", "spawn"))
+        if context_name and context_name != "default":
+            loader_kwargs["multiprocessing_context"] = torch.multiprocessing.get_context(context_name)
+    return DataLoader(dataset, **loader_kwargs), sampler
 
 
 def _make_scheduler(optimizer: torch.optim.Optimizer, total_steps: int, warmup_ratio: float):
@@ -966,19 +1147,37 @@ def _validate(
     else:
         limited_samples = list(samples)
 
+    # val 也走 DataLoader：先手动 rank::world_size 分片，再交给本 rank 的 worker。
+    # 不用 DistributedSampler(drop_last=False)，避免它为了等分而 padding/复制样本，
+    # 导致验证指标重复计入少量 case。
+    val_rank_samples = limited_samples[rank::world_size]
+    val_loader, val_sampler = _make_loader(
+        val_rank_samples, args,
+        rank=0, world_size=1,
+        shuffle=False, epoch_seed=args.val_sample_seed,
+    )
+    if val_sampler is not None:
+        # eval 路径只跑一次，set_epoch 给个固定值即可，避免 sampler 内部用默认 0 时
+        # 在某些 PyTorch 版本里 emit warning。
+        val_sampler.set_epoch(0)
+
     def _run_pass() -> tuple[float, dict[str, float], int]:
         """运行当前 rank 的 validation shard，并返回本地累加量。"""
         total_loss = 0.0
         agg = {"route_ade_m": 0.0, "route_fde_m": 0.0, "waypoint_ade_m": 0.0, "waypoint_fde_m": 0.0}
         local_count = 0
-        for sample in limited_samples[rank::world_size]:
+        for prepared in val_loader:
+            sample = prepared["sample"]
+            worker_error = prepared.get("_error")
             try:
-                outputs = runtime.forward_sample(sample, decoder, decoder_config, decoder_dtype)
-                gt_route, gt_wp = _extract_targets(
-                    sample, args.route_points, args.waypoint_points, args.smooth_route
+                if worker_error:
+                    raise RuntimeError(f"worker preprocess failed: {worker_error}")
+                outputs = runtime.forward_sample(
+                    sample, decoder, decoder_config, decoder_dtype,
+                    clip=prepared["clip"],
                 )
-                gt_route = gt_route.unsqueeze(0).to(runtime.device)
-                gt_wp = gt_wp.unsqueeze(0).to(runtime.device)
+                gt_route = prepared["gt_route"].unsqueeze(0).to(runtime.device)
+                gt_wp = prepared["gt_waypoints"].unsqueeze(0).to(runtime.device)
                 loss, _route_loss, _wp_loss = _planning_loss(
                     outputs, gt_route, gt_wp,
                     args.route_loss_weight, args.waypoint_loss_weight, args.loss_type,
@@ -1111,6 +1310,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit-val-samples", type=int, default=0)
     parser.add_argument("--verbose-samples", action="store_true")
     parser.add_argument("--no-tb", action="store_true")
+    # ---- DataLoader 多 worker 预取 ----
+    # 默认 8 / rank：4 张 JPG + 4 个 lzma pickle + 4 个 LAZ 解压全在 worker 里并发，
+    # 主进程不再等 IO。H20 节点（~96 物理核）单卡 / 4 卡 / 8 卡 DDP 跑下来 8 足够把
+    # GPU util 推到 90%+。CPU 内存代价 ~800MB / rank，可忽略。
+    # 想退回同步 IO（debug 用）显式 --num-workers 0。
+    # 注意：worker 数只影响 GPU 计算利用率，**不影响 GPU 显存**；显存利用率高需要 B>1。
+    parser.add_argument("--num-workers", type=int, default=8,
+                        help="DataLoader worker 数；0 表示主进程同步 IO，>0 启用后台预取。默认 8。")
+    parser.add_argument("--prefetch-factor", type=int, default=2,
+                        help="每个 worker 预取的 batch 数（仅 num_workers>0 生效）。默认 2。")
+    parser.add_argument("--persistent-workers", action=argparse.BooleanOptionalAction, default=True,
+                        help="num_workers>0 时 epoch 切换不重启 worker，省 lzma/laspy 等模块 import 开销。")
+    parser.add_argument(
+        "--worker-multiprocessing-context",
+        default="spawn",
+        choices=["spawn", "forkserver", "fork", "default"],
+        help="DataLoader worker 启动方式；默认 spawn，避免 CUDA/Qwen 初始化后 fork。"
+    )
     # ---- EMA ----
     # 默认开 EMA，decay=0.999 适配 LeadMoT 默认 3 epoch 短 schedule（warmup ~500 step）；
     # 长 schedule（>= 10 epoch）可考虑 0.9999 但需相应延长 warmup。--no-ema 关闭。
@@ -1186,8 +1403,12 @@ def main() -> None:
     usable = (len(train_rows) // world_size) * world_size
     if usable == 0:
         raise ValueError(f"train samples ({len(train_rows)}) fewer than world_size ({world_size})")
+    train_rows_total = len(train_rows)
     train_rows = train_rows[:usable]
     rank_rows = train_rows[rank:usable:world_size]
+    # 每 rank 每 epoch 实际看到的样本数完全相同；尾部不足 world_size 的样本按旧逻辑截掉，
+    # 避免 DistributedSampler padding 复制样本造成重复训练/重复计数。
+    rank_samples_per_epoch = len(rank_rows)
 
     decoder_dtype = _dtype(args.decoder_dtype)
     decoder_config = LeadMoTPlanningDecoderConfig(
@@ -1207,7 +1428,7 @@ def main() -> None:
         lr=args.learning_rate,
         betas=(0.9, 0.95),
     )
-    updates_per_epoch = math.ceil(len(rank_rows) / max(1, args.grad_accum_steps))
+    updates_per_epoch = math.ceil(rank_samples_per_epoch / max(1, args.grad_accum_steps))
     total_steps = max(1, updates_per_epoch * args.num_epochs)
     if args.max_train_steps > 0:
         total_steps = min(total_steps, args.max_train_steps)
@@ -1253,8 +1474,13 @@ def main() -> None:
         module = decoder.module if hasattr(decoder, "module") else decoder
         startup_log = {
             "train_rows": len(train_rows),
-            "rank_rows": len(rank_rows),
+            "train_rows_total_before_ddp_trim": train_rows_total,
+            "train_rows_dropped_for_even_ddp": train_rows_total - len(train_rows),
+            "rank_samples_per_epoch": rank_samples_per_epoch,
             "val_rows": len(val_rows),
+            "num_workers": int(getattr(args, "num_workers", 0)),
+            "prefetch_factor": int(getattr(args, "prefetch_factor", 2)),
+            "persistent_workers": bool(getattr(args, "persistent_workers", True)),
             "world_size": world_size,
             "device": str(device),
             "lr": args.learning_rate,
@@ -1278,21 +1504,39 @@ def main() -> None:
     log_start = time.time()
     stop_training = False
 
+    # Train DataLoader 在 epoch 之间复用同一份（persistent_workers=True 时不重启 worker）。
+    # rank_rows 已经是当前 rank 的等长无重复 shard；shuffle=True 只在本 rank 内打乱，
+    # 不再让 DistributedSampler padding/复制样本。
+    train_loader, train_sampler = _make_loader(
+        rank_rows, args,
+        rank=0, world_size=1,
+        shuffle=True, epoch_seed=args.seed,
+    )
+
     for epoch in range(start_epoch, args.num_epochs):
-        epoch_rows = list(rank_rows)
-        random.Random(args.seed + epoch).shuffle(epoch_rows)
+        if train_sampler is not None:
+            train_sampler.set_epoch(epoch)
         decoder_module = decoder.module if hasattr(decoder, "module") else decoder
-        for micro_idx, sample in enumerate(epoch_rows):
-            is_update = (micro_idx + 1) % args.grad_accum_steps == 0 or (micro_idx + 1) == len(epoch_rows)
+        epoch_samples_len = len(train_loader)
+        for micro_idx, prepared in enumerate(train_loader):
+            is_update = (micro_idx + 1) % args.grad_accum_steps == 0 or (micro_idx + 1) == epoch_samples_len
             sync_ctx = decoder.no_sync() if world_size > 1 and not is_update else contextlib.nullcontext()
+            sample = prepared["sample"]
             with sync_ctx:
                 # 大规模离线数据里可能出现坏样本。失败样本也必须让每个 rank
                 # 走一次 backward，否则 DDP collective 可能错位。
+                # Worker 已经在 __getitem__ 里 try 一遍：失败时返回 _error 字段；
+                # 这里把它当与原 raise 一样处理，统一走占位 loss 路径。
+                worker_error = prepared.get("_error")
                 try:
-                    outputs = runtime.forward_sample(sample, decoder, decoder_config, decoder_dtype)
-                    gt_route, gt_wp = _extract_targets(sample, args.route_points, args.waypoint_points, args.smooth_route)
-                    gt_route = gt_route.unsqueeze(0).to(device)
-                    gt_wp = gt_wp.unsqueeze(0).to(device)
+                    if worker_error:
+                        raise RuntimeError(f"worker preprocess failed: {worker_error}")
+                    outputs = runtime.forward_sample(
+                        sample, decoder, decoder_config, decoder_dtype,
+                        clip=prepared["clip"],
+                    )
+                    gt_route = prepared["gt_route"].unsqueeze(0).to(device)
+                    gt_wp = prepared["gt_waypoints"].unsqueeze(0).to(device)
                     loss, route_loss, waypoint_loss = _planning_loss(
                         outputs, gt_route, gt_wp, args.route_loss_weight, args.waypoint_loss_weight, args.loss_type
                     )
