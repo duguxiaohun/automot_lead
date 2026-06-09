@@ -106,6 +106,12 @@ agent 不重写 Qwen prefill / BEV encoder / LeadMoT decoder。每帧只组装 `
 `--leadmot-ckpt` 可传文件或训练输出目录：自动解析 `best.pt → latest.pt →
 latest/best.pt → latest/latest.pt → 最新 step-checkpoint-*.pt`。
 
+**`decoder_config.use_subgoal=True` ckpt 当前不支持闭环**：CARLA 在线无法预知未来 SUBGOAL
+keyframe RGB，agent 在 `__init__` 探测到 `runner.leadmot_config.use_subgoal=True`
+会立刻 `raise NotImplementedError` 并提示用户改用 `use_subgoal=False` ckpt，或自行扩展
+`agent.py` 提供 SUBGOAL 参考图（接口已留 `TODO(subgoal)`，可接图像生成 / 代理输入）。
+`use_bev` 在 ckpt 自描述、与 `use_subgoal` 正交，两者不会相互影响。
+
 ---
 
 ## 4. 输出目录组织

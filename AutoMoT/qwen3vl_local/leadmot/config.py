@@ -64,6 +64,21 @@ class LeadMoTPlanningDecoderConfig:
     # **注意**：开启后 gen sequence 多 1 个 token，老 LeadMoT ckpt **不兼容**。
     use_final_goal: bool = True
 
+    # 是否在 frozen Qwen3-VL prefix 里追加一张 SUBGOAL 关键帧 RGB + 显式 STATUS/SUBGOAL
+    # 文本块。决定 prefix prompt 的语义，不改变 decoder 结构与 gen 序列长度，
+    # 因此 state_dict 在 use_subgoal=True/False 之间**形状兼容**——但 prefix KV 分布
+    # 差异巨大，cross-load 会让 attention 完全错配。
+    # - True：build_dataset --with-subgoal-fields 必须按 scenario/run_id/anchor
+    #   反查 keyframes，并写
+    #   scenario/run_id/status/subgoal/subgoal_frame/subgoal_rgb_path 字段；
+    #   train/eval/probe 走 LeadMoTTrainRuntime._run_subgoal_qwen_prefill 分支，
+    #   offline runner 走 LeadOfflineMoTRunner._run_leadmot_qwen_prefill_subgoal，
+    #   多喂 1 张 subgoal stitched RGB + 新的 system + STATUS/SUBGOAL 块。
+    # - False：等价于现行 v1/v2 prefix，runner._run_leadmot_qwen_prefill 路径不变。
+    # 与 use_bev **正交**：4 种组合都允许，但 prefix 不兼容需要分别训练。
+    # 只支持离线训练/eval/probe/offline runner；eval_carla 在线 agent 会显式拒绝。
+    use_subgoal: bool = False
+
     # Query 数量对齐 LEAD planning 标签。
     num_route_queries: int = 10
     num_waypoint_queries: int = 8

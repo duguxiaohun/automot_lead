@@ -39,6 +39,18 @@ from qwen3vl_local.leadmot.train import (
 DEFAULT_OUTPUT_ROOT = Path("checkpoints/leadmot_v1_decoder")
 
 
+def _filter_subgoal_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """仅保留带有效 SUBGOAL keyframe 的样本，并返回过滤统计。"""
+
+    before = len(rows)
+    filtered = [row for row in rows if row.get("subgoal_lookup_ok") is True]
+    return filtered, {
+        "before": before,
+        "after": len(filtered),
+        "dropped": before - len(filtered),
+    }
+
+
 def _unwrap_ema_state_dict(ema_sd: Any) -> tuple[dict[str, Any] | None, Any]:
     """Return decoder-shaped EMA weights from either old or current checkpoint schema."""
 
@@ -189,6 +201,10 @@ def _load_decoder(
         raise ValueError(f"{path} 缺少 decoder_config.use_final_goal，拒绝加载旧 LeadMoT ckpt")
     if not bool(cfg_dict["use_final_goal"]):
         raise ValueError(f"{path} 的 decoder_config.use_final_goal=False；当前路线要求 final_goal=True")
+    # use_subgoal 不在 state_dict 体现，只能靠 ckpt config 字段；缺字段按 False 兜底。
+    if "use_subgoal" not in cfg_dict:
+        cfg_dict["use_subgoal"] = False
+    print(f"[leadmot] ckpt use_subgoal={bool(cfg_dict['use_subgoal'])}")
 
     config = LeadMoTPlanningDecoderConfig(**{k: v for k, v in cfg_dict.items() if k in LeadMoTPlanningDecoderConfig.__dataclass_fields__})
     decoder = LeadMoTPlanningDecoder(config).to(device=device, dtype=dtype)
@@ -295,9 +311,6 @@ def main() -> None:
     device = torch.device("cuda", local_rank) if torch.cuda.is_available() else torch.device("cpu")
 
     rows = _read_jsonl(Path(args.jsonl))
-    if args.max_samples > 0:
-        rows = rows[: args.max_samples]
-    shard = rows[rank::world_size]
     output_dir = _resolve_output_dir(args)
     output_dir.mkdir(parents=True, exist_ok=True)
     invocation_root = Path(args.save_root) if args.save_root else output_dir.parent
@@ -306,6 +319,22 @@ def main() -> None:
     decoder_dtype = _dtype(args.decoder_dtype)
     checkpoint_path = _resolve_checkpoint(args.checkpoint, args.save_root)
     decoder, decoder_config = _load_decoder(checkpoint_path, device, decoder_dtype, use_ema=args.use_ema)
+    subgoal_filter_stats: dict[str, int] | None = None
+    if bool(getattr(decoder_config, "use_subgoal", False)):
+        rows, subgoal_filter_stats = _filter_subgoal_rows(rows)
+        if rank == 0:
+            print(json.dumps({"subgoal_filter": subgoal_filter_stats}, ensure_ascii=False), flush=True)
+        if not rows:
+            raise ValueError(
+                "checkpoint decoder_config.use_subgoal=True but eval jsonl has no "
+                "subgoal_lookup_ok=True rows. Rebuild it with "
+                "leadmot/build_dataset.py --with-subgoal-fields and a valid --keyframes path."
+            )
+    if args.max_samples > 0:
+        # use_subgoal=True 的 jsonl 会混有 subgoal_lookup_ok=False 的兼容行；先按 ckpt
+        # 过滤有效 subgoal 样本，再截断 max_samples，避免快速 eval 误采到全无效前缀。
+        rows = rows[: args.max_samples]
+    shard = rows[rank::world_size]
     runtime = LeadMoTTrainRuntime(args, device)
 
     # sums 的 key 直接对齐 train._compute_planning_metrics 返回的 `_m` 后缀键，
@@ -351,9 +380,23 @@ def main() -> None:
     if dist.is_available() and dist.is_initialized():
         dist.all_reduce(packed, op=dist.ReduceOp.SUM)
     keys = list(sums)
-    total_count = max(1, int(packed[-1].item()))
+    total_count = int(packed[-1].item())
+    if total_count <= 0:
+        raise RuntimeError(
+            "eval found no valid samples. If checkpoint decoder_config.use_subgoal=True, "
+            "make sure the jsonl was built with leadmot/build_dataset.py --with-subgoal-fields "
+            "and contains subgoal_lookup_ok=True rows."
+        )
     summary = {key: float(packed[i].item() / total_count) for i, key in enumerate(keys)}
-    summary.update({"count": total_count, "checkpoint": str(checkpoint_path), "jsonl": str(Path(args.jsonl)), "world_size": world_size, "use_ema": bool(args.use_ema)})
+    summary.update({
+        "count": total_count,
+        "checkpoint": str(checkpoint_path),
+        "jsonl": str(Path(args.jsonl)),
+        "world_size": world_size,
+        "use_ema": bool(args.use_ema),
+        "use_subgoal": bool(getattr(decoder_config, "use_subgoal", False)),
+        "subgoal_filter": subgoal_filter_stats,
+    })
 
     _barrier()
     if rank == 0:

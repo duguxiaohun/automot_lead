@@ -251,3 +251,9 @@ python3 qwen3vl_local/eval_carla/webapp/app.py \
   都给出 5m 前方方向；这是有意设计，不会因为 speed≈0 把 tp/ntp 置成 ego 当前点。
 - **parking_escape 误触**：默认 1500 帧（125s）位移 < 5m 才触发，红灯等灯正常
   不会触发。如果场景普遍 lights 等待 > 2 分钟，在 `safety.py` 调大窗口。
+- **use_subgoal=True ckpt 报 `NotImplementedError`**：闭环 agent 拿不到未来 SUBGOAL
+  keyframe RGB，所以 `decoder_config.use_subgoal=True` 的 ckpt **当前不支持闭环**，
+  agent 加载时直接抛错并提示。对应离线训练/eval/probe 走
+  `leadmot/train.py --use-subgoal` + `mot_lead_offline_runner.py`；闭环跑请改用
+  `USE_SUBGOAL=0` 训出来的 ckpt。后续若有 SUBGOAL 图像生成 / 代理输入，会在
+  `agent.py` 的 `TODO(subgoal)` 处接入。

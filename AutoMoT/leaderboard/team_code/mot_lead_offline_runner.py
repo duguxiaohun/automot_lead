@@ -88,12 +88,23 @@ _QWEN_INSTRUCT_CHECKPOINT_DIR = _AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Ins
 # LeadMoT decoder 当 prefix 用。文本输出本身不消费——leadmot 只读 prefill 阶段的
 # past_key_values。训练时也必须用同一个 system + user prompt 文本，cache 才同源。
 # 注：所有进 LLM 的 prompt 必须英文（项目硬约定）。
+#
+# !! 镜像同步约束 !!
+# 本字符串的措辞与 ``qwen3vl_local/leadmot/subgoal_prompt.py`` 里的
+# ``_LEADMOT_SUBGOAL_SYSTEM_PROMPT`` 必须保持完全同构：两者之间的 diff 只允许
+# 出现在 SUBGOAL 相关增量（多 1 张 SUBGOAL 参考图 + 文本 STATUS/SUBGOAL）。
+# 若改这里的"身份介绍 / 输入说明 / 下游 decoder 角色"等非 SUBGOAL 句子，
+# 必须同步改 subgoal_prompt.py，否则两条 prefix 路径会出现不必要的语义漂移，
+# 破坏"LeadMoT decoder use_subgoal 开关只影响 SUBGOAL 增量"的不变式。
 _LEADMOT_QWEN_SYSTEM_PROMPT = (
-    "You are an autonomous driving model. You will be given a sequence of stitched "
-    "multi-view RGB images and a navigation hint with target points, a final destination, "
-    "and current speed. All coordinates are in the ego frame "
-    "(x_forward, y_left) measured in meters. A downstream planning decoder consumes your "
-    "hidden state to predict the ego-vehicle trajectory."
+    "You are an autonomous driving model controlling an ego vehicle in real-world "
+    "urban traffic. Your job is to perceive the surrounding scene from multi-view "
+    "RGB and help plan a safe short-horizon trajectory under traffic rules. "
+    "You will be given a sequence of stitched multi-view RGB images and a "
+    "navigation hint with target points, a final destination, and current speed. "
+    "All coordinates are in the ego frame (x_forward, y_left) measured in meters. "
+    "A downstream planning decoder consumes your hidden state to predict the "
+    "ego-vehicle trajectory."
 )
 # 注：BEV encoder 已切换为 LEAD TransfuserBackbone(见本文件底部 LeadBEVEncoder 类),
 # 不再依赖 AutoMoT 自带的 BEVEncoderBackboneExtractor。保留 bev_encoder_utils 因为
@@ -1006,6 +1017,15 @@ class LeadOfflineMoTRunner:
             raise ValueError("LeadMoT checkpoint 缺少 decoder_config.use_final_goal；当前路线拒绝旧 ckpt")
         if not bool(cfg_dict["use_final_goal"]):
             raise ValueError("LeadMoT checkpoint decoder_config.use_final_goal=False；当前路线要求 True")
+        # use_subgoal 不会改变 state_dict 形状，只影响 prefix prompt 与图像数量，
+        # 因此旧 ckpt 缺字段时按 False 兜底（v1 / v2 prefix 行为），
+        # 新训出来的 subgoal ckpt 自带 use_subgoal=True 由 decoder_config 自描述。
+        if "use_subgoal" not in cfg_dict:
+            config.use_subgoal = False
+        print(
+            f"[LeadMoT] ckpt decoder_config: use_bev={config.use_bev}, "
+            f"use_final_goal={config.use_final_goal}, use_subgoal={config.use_subgoal}"
+        )
         return config
 
     def _ensure_leadmot_decoder(self) -> None:
@@ -1142,6 +1162,73 @@ class LeadOfflineMoTRunner:
         )
 
     @torch.no_grad()
+    def _run_leadmot_qwen_prefill_subgoal(
+        self,
+        rgb_pil_list: list,
+        navigation_prompt: str,
+        subgoal_rgb_path: str,
+        subgoal_scenario: str,
+        subgoal_status: str,
+        subgoal_event: str,
+    ) -> tuple[Any, int | None]:
+        """LeadMoT subgoal 模式 prefill：历史/当前 RGB + SUBGOAL keyframe RGB + STATUS/SUBGOAL 文本块.
+
+        仅在 ``leadmot_config.use_subgoal=True`` 时调用；train.LeadMoTTrainRuntime
+        与本方法走完全同款 prompt + 同款图像顺序，保证训练-推理 prefix KV 同源。
+
+        - system prompt 由 ``leadmot.subgoal_prompt.build_leadmot_subgoal_system_prompt``
+          提供，明确告知 Qwen "最后一张图是 subgoal 参考"。
+        - user prompt = ``describe_image_inputs`` + ``[GROUND_TRUTH_STATE]`` 块 +
+          原 navigation 文本（runner.build_cleaned_prompt_and_modes 的输出）。
+        - 图像列表 = ``rgb_pil_list + [subgoal_pil]``。
+        """
+
+        engine = self.leadmot_qwen_engine
+        if engine is None:
+            raise RuntimeError(
+                "leadmot_qwen_engine is None — call _ensure_leadmot_qwen_engine() first."
+            )
+
+        # lazy import：use_subgoal=False 路径不会触发，避免 PIL/cv2 在 import 时被强制加载。
+        from qwen3vl_local.leadmot.subgoal_prompt import (
+            build_leadmot_subgoal_system_prompt,
+            build_leadmot_subgoal_user_prompt,
+            build_memory_from_sample,
+            load_subgoal_rgb,
+        )
+
+        memory = build_memory_from_sample({
+            "scenario": subgoal_scenario,
+            "status": subgoal_status,
+            "subgoal": subgoal_event,
+        })
+        subgoal_rgb = load_subgoal_rgb({"subgoal_rgb_path": subgoal_rgb_path})
+        images = list(rgb_pil_list) + [subgoal_rgb]
+        user_prompt = build_leadmot_subgoal_user_prompt(
+            navigation_prompt=navigation_prompt,
+            memory=memory,
+            num_history_images=len(rgb_pil_list),
+        )
+        system_prompt = build_leadmot_subgoal_system_prompt()
+
+        messages = engine.build_messages(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            images=images,
+        )
+        chat_text = engine.apply_chat_template(messages)
+        inputs = engine.prepare_inputs(chat_text, images)
+        outputs = engine.prefill(inputs)
+
+        rope_position_offset: int | None = None
+        input_ids = inputs.get("input_ids", None) if hasattr(inputs, "get") else None
+        rope_deltas = getattr(outputs, "rope_deltas", None)
+        if input_ids is not None and rope_deltas is not None:
+            input_len = int(input_ids.shape[-1])
+            delta = int(rope_deltas.detach().cpu().reshape(-1)[0].item())
+            rope_position_offset = input_len + delta
+        return outputs.past_key_values, rope_position_offset
+
     def _run_leadmot_qwen_prefill(
         self,
         rgb_pil_list: list,
@@ -1534,12 +1621,34 @@ class LeadOfflineMoTRunner:
 
         # ========== LeadMoT 推理（standalone Qwen prefix K/V + LEAD BEV）==========
         # 唯一路径：lazy 构建 standalone Qwen engine + LeadMoT decoder（幂等）
-        # standalone Qwen prefill -> past_key_values（cache 同源关键步骤，
-        # 训练侧必须用同一个 engine + 同一对 system/user prompt 才能匹配）
-        leadmot_past_key_values, leadmot_rope_position_offset = self._run_leadmot_qwen_prefill(
-            rgb_pil_list=rgb_pil_list,
-            user_prompt=prompt_cleaned,
-        )
+        # 按 leadmot_config.use_subgoal 决定走 v1/v2 prefill 还是 subgoal prefill；
+        # use_subgoal=True 时 lead_clip 必须带 subgoal_rgb_path/status/event/scenario
+        # 四个字段（由 build_clip_from_real_lead_route(...subgoal_*=...) 注入），
+        # 缺任一字段直接 raise 而不静默回落到 v2 prefix，避免分布错配。
+        if self.leadmot_config.use_subgoal:
+            missing = [
+                key for key in ("subgoal_rgb_path", "subgoal_status", "subgoal_event", "subgoal_scenario")
+                if key not in lead_clip
+            ]
+            if missing:
+                raise RuntimeError(
+                    "leadmot_config.use_subgoal=True 但 lead_clip 缺少字段 "
+                    f"{missing}; 调用方必须通过 build_clip_from_real_lead_route 的 "
+                    "subgoal_* 参数提供 SUBGOAL keyframe RGB + 事件标签。"
+                )
+            leadmot_past_key_values, leadmot_rope_position_offset = self._run_leadmot_qwen_prefill_subgoal(
+                rgb_pil_list=rgb_pil_list,
+                navigation_prompt=prompt_cleaned,
+                subgoal_rgb_path=str(lead_clip["subgoal_rgb_path"]),
+                subgoal_scenario=str(lead_clip["subgoal_scenario"]),
+                subgoal_status=str(lead_clip["subgoal_status"]),
+                subgoal_event=str(lead_clip["subgoal_event"]),
+            )
+        else:
+            leadmot_past_key_values, leadmot_rope_position_offset = self._run_leadmot_qwen_prefill(
+                rgb_pil_list=rgb_pil_list,
+                user_prompt=prompt_cleaned,
+            )
 
         # 36 层 Qwen K/V -> 12 段 prefix K/V (select_last)
         pooled_kv = _segment_qwen_cache_for_leadmot(
@@ -1838,6 +1947,10 @@ def build_clip_from_real_lead_route(
     tp_mode: str = "route_lookahead",
     tp_min_lookahead_m: float = 5.0,
     use_final_goal: bool = True,
+    subgoal_rgb_path: str | None = None,
+    subgoal_status: str | None = None,
+    subgoal_event: str | None = None,
+    subgoal_scenario: str | None = None,
 ) -> dict[str, Any]:
     """
     从真实 LEAD route 目录构造 runner 所需 clip。
@@ -2002,6 +2115,29 @@ def build_clip_from_real_lead_route(
         "target_point": np.stack(tp_list, axis=0).astype(np.float32),
         "target_point_next": np.stack(ntp_list, axis=0).astype(np.float32),
     }
+    # subgoal 字段全部 optional：只在调用方提供完整四元组时塞进 clip，runner.run_step
+    # 会按 leadmot_config.use_subgoal 决定是否消费。只传半截信息直接报错，避免
+    # 到 prefill 阶段才暴露成分布错配。
+    subgoal_values = {
+        "subgoal_rgb_path": subgoal_rgb_path,
+        "subgoal_status": subgoal_status,
+        "subgoal_event": subgoal_event,
+        "subgoal_scenario": subgoal_scenario,
+    }
+    provided_subgoal_keys = [key for key, value in subgoal_values.items() if value]
+    if provided_subgoal_keys and len(provided_subgoal_keys) != len(subgoal_values):
+        missing = [key for key, value in subgoal_values.items() if not value]
+        raise ValueError(
+            f"incomplete subgoal fields: provided={provided_subgoal_keys}, missing={missing}"
+        )
+    if len(provided_subgoal_keys) == len(subgoal_values):
+        subgoal_rgb_p = pathlib.Path(subgoal_rgb_path)
+        if not subgoal_rgb_p.exists():
+            raise FileNotFoundError(f"subgoal_rgb_path not found: {subgoal_rgb_p}")
+        clip["subgoal_rgb_path"] = str(subgoal_rgb_p)
+        clip["subgoal_status"] = str(subgoal_status)
+        clip["subgoal_event"] = str(subgoal_event)
+        clip["subgoal_scenario"] = str(subgoal_scenario)
     if use_final_goal:
         clip["final_goal"] = np.stack(final_goal_list, axis=0).astype(np.float32)
     return clip
@@ -2135,15 +2271,112 @@ def main():
         default=0.25,
         help="数据帧时间间隔（秒）。用于把秒数换算成未来帧索引。默认 0.25。",
     )
+    parser.add_argument(
+        "--keyframes",
+        type=str,
+        default="/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json",
+        help="LEAD keyframes_all_scenarios.json 路径。仅在加载的 ckpt 是 "
+             "decoder_config.use_subgoal=True 时需要：runner 会自动按 "
+             "(scenario, route_id, anchor) 反查 STATUS/SUBGOAL/SUBGOAL keyframe RGB."
+    )
+    parser.add_argument(
+        "--scenario",
+        type=str,
+        default="",
+        help="route_dir 所属场景名（如 Accident）。--keyframes 反查时必填；"
+             "默认按 route_dir 父目录推断。",
+    )
+    parser.add_argument(
+        "--run-id",
+        type=str,
+        default="",
+        help="LEAD run_id；--keyframes 反查时必填；默认按 route_dir 末段推断。",
+    )
     args = parser.parse_args()
-    
+
     # 自动检测 GPU（如果指定了 'auto'）
     if args.device == "auto":
         args.device = _auto_select_gpu()
 
+    # 先构 runner、加载 ckpt，让 decoder_config.use_subgoal 决定要不要反查 subgoal 字段。
+    runner = LeadOfflineMoTRunner(
+        device=args.device,
+        leadmot_ckpt_path=args.leadmot_ckpt,
+        leadmot_rope_type=args.rope,
+    )
+    runner._ensure_leadmot_qwen_engine()
+    runner._ensure_leadmot_decoder()
+    need_subgoal = bool(runner.leadmot_config and runner.leadmot_config.use_subgoal)
+
+    anchor = max(0, args.anchor)
+    subgoal_kwargs: dict[str, Any] = {}
+    if need_subgoal:
+        # 自动按 route_dir 反推 scenario/run_id（LEAD 标准布局
+        # ``<data_root>/<scenario>/<run_id>/``）；用户显式 --scenario / --run-id 覆盖更稳。
+        route_path = pathlib.Path(args.route_dir).resolve()
+        scenario_source = "cli" if args.scenario else "route_dir.parent.name"
+        run_source = "cli" if args.run_id else "route_dir.name"
+        scenario = args.scenario or route_path.parent.name
+        run_id = args.run_id or route_path.name
+        # 推断结果直接 print 出来，让用户在反查失败前先看到自动推断的 (scenario, run_id)，
+        # 便于发现 route_dir 是相对路径、符号链接、或自定义层级导致的命名错配。
+        print(
+            f"[subgoal] route_dir={route_path}\n"
+            f"[subgoal] inferred scenario={scenario!r} (from {scenario_source}), "
+            f"run_id={run_id!r} (from {run_source})"
+        )
+        keyframes_path = pathlib.Path(args.keyframes).expanduser().resolve()
+        if not keyframes_path.exists():
+            raise FileNotFoundError(
+                f"ckpt use_subgoal=True 但 --keyframes 不存在: {keyframes_path}"
+            )
+        # lazy import：use_subgoal=False 路径不会触发。
+        from qwen3vl_local.goalgen.build_dataset import next_event_in_sequence  # noqa: E402
+        from qwen3vl_local.goalgen.keyframes import KeyframeIndex  # noqa: E402
+
+        keyframe_index = KeyframeIndex.load(keyframes_path)
+        # 先确认 (scenario, run_id) 在 keyframes 里能找到 run dict，给出比"status_not_found"
+        # 更直接的错误信息——大多数命名错配都发生在这一步。
+        if keyframe_index.find_run(scenario, run_id) is None:
+            raise RuntimeError(
+                f"keyframes 里找不到 run: scenario={scenario!r}, run_id={run_id!r}。"
+                f"检查项: (1) route_dir 末段是否就是 keyframes 里的 run_id; "
+                f"(2) route_dir 上一级目录名是否就是 scenario; "
+                f"(3) 否则用 --scenario / --run-id 显式覆盖."
+            )
+        status = keyframe_index.find_status_for_anchor(scenario, run_id, anchor)
+        if status is None:
+            raise RuntimeError(
+                f"keyframes 反查 STATUS 失败: scenario={scenario}, run_id={run_id}, "
+                f"anchor={anchor}。anchor 落在 initial 帧之前或区间结构异常时会发生。"
+            )
+        subgoal_event = next_event_in_sequence(scenario, status)
+        if subgoal_event is None:
+            raise RuntimeError(
+                f"STATUS={status} 已是 EVENT_SEQUENCE 末项，没有下一个 SUBGOAL；"
+                "请选更早 anchor 或换 route。"
+            )
+        subgoal_frame = keyframe_index.find_frame_for_event(scenario, run_id, subgoal_event)
+        if subgoal_frame is None or subgoal_frame <= anchor:
+            raise RuntimeError(
+                f"keyframes 反查 SUBGOAL 帧失败: subgoal={subgoal_event}, "
+                f"frame={subgoal_frame}, anchor={anchor}。"
+            )
+        subgoal_rgb_path = pathlib.Path(args.route_dir) / "rgb" / f"{int(subgoal_frame):04d}.jpg"
+        subgoal_kwargs = dict(
+            subgoal_rgb_path=str(subgoal_rgb_path),
+            subgoal_status=status,
+            subgoal_event=subgoal_event,
+            subgoal_scenario=scenario,
+        )
+        print(
+            f"[subgoal] scenario={scenario} run_id={run_id} anchor={anchor} "
+            f"status={status} subgoal={subgoal_event} subgoal_frame={subgoal_frame}"
+        )
+
     clip = build_clip_from_real_lead_route(
         route_dir=args.route_dir,
-        anchor=max(0, args.anchor),
+        anchor=anchor,
         rgb_frame_step=max(1, args.rgb_frame_step),
         rgb_frame_count=max(1, args.rgb_frame_count),
         bev_frame_step=max(1, args.bev_frame_step),
@@ -2151,6 +2384,7 @@ def main():
         tp_lookahead_s=float(args.tp_lookahead_s),
         ntp_lookahead_s=float(args.ntp_lookahead_s),
         frame_interval_s=float(args.frame_interval_s),
+        **subgoal_kwargs,
     )
     print(f"Using real route dir: {args.route_dir}")
     print(f"Anchor frame: {args.anchor}")
@@ -2167,11 +2401,6 @@ def main():
     #     - target_point: shape=(4, 2), dtype=float32, range=[0.000619971, 10.4444]
     #     - target_point_next: shape=(4, 2), dtype=float32, range=[0.00338461, 26.7549]
     
-    runner = LeadOfflineMoTRunner(
-        device=args.device,
-        leadmot_ckpt_path=args.leadmot_ckpt,
-        leadmot_rope_type=args.rope,
-    )
     outputs = runner.run_clip(
         clip,
         rgb_frame_step=max(1, args.rgb_frame_step),

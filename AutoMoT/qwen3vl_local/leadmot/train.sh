@@ -76,6 +76,12 @@ BEV_FRAME_STEP="${BEV_FRAME_STEP:-1}"
 # 注意切换 USE_BEV 会导致 state_dict 不兼容（decoder.bev_projector 子模块存在性变化），
 # 不能跨 USE_BEV 加载 --init-from-ckpt。
 USE_BEV="${USE_BEV:-1}"
+# USE_SUBGOAL=1：离线 subgoal prefix 模式，Qwen prefill 额外吃一张 SUBGOAL
+# keyframe RGB + STATUS/SUBGOAL 真值文本块。它不改变 decoder state_dict 形状，
+# 但 prefix KV 分布与 USE_SUBGOAL=0 不兼容，train.py 会拒绝跨开关 resume/init。
+# 训练 jsonl 必须由 build_dataset.py --with-subgoal-fields 生成，并保留
+# subgoal_lookup_ok=True 的有效样本。
+USE_SUBGOAL="${USE_SUBGOAL:-0}"
 FRAME_INTERVAL_S="${FRAME_INTERVAL_S:-0.25}"
 TP_LOOKAHEAD_S="${TP_LOOKAHEAD_S:-1.0}"
 NTP_LOOKAHEAD_S="${NTP_LOOKAHEAD_S:-2.0}"
@@ -210,6 +216,13 @@ if [[ "${USE_BEV}" == "0" ]]; then
   common_args+=(--no-use-bev)
 else
   common_args+=(--use-bev)
+fi
+# USE_SUBGOAL=1 时把 BooleanOptionalAction 的 --use-subgoal 透传过去，
+# 并把 ckpt decoder_config.use_subgoal 写成 True，供 eval/probe/runner 自动恢复。
+if [[ "${USE_SUBGOAL}" == "1" ]]; then
+  common_args+=(--use-subgoal)
+else
+  common_args+=(--no-use-subgoal)
 fi
 
 case "${MODE}" in

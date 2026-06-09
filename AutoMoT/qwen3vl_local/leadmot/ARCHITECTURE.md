@@ -14,6 +14,8 @@
 - **gen hidden = 1024 = 8 x 128**：与 Qwen `num_key_value_heads x head_dim` 对齐，方便直接 cross-attend 到 prefix K/V。
 - **BEV/status/query 统一成 gen token 序列**：BEV 120 个 token，status 4 个 token（speed/tp/ntp/final_goal），route query 10 个 token，waypoint query 8 个 token。
 - **decoder-only 训练**：大模型和 BEV backbone 都不参与梯度，训练成本集中在新初始化的 planning decoder。
+- **可选 subgoal prefix**：`use_subgoal=True` 时只改变 Qwen prefill 的输入（多 1 张
+  SUBGOAL keyframe RGB + STATUS/SUBGOAL 文本块），不改变 decoder token layout 或参数形状。
 
 ## 2. 与 AutoMoT 严格 MoT 的关系
 
@@ -93,6 +95,7 @@ forward 后只取 route query 与 waypoint query 对应位置送入各自 head�
 ```text
 caller / runner:
   RGB + prompt -> frozen Qwen3-VL-Instruct prefill
+  optional use_subgoal=True: RGB + SUBGOAL RGB + [GROUND_TRUTH_STATE] + prompt
   past_key_values -> segment_kv_for_dit(num_segments=decoder.num_layers)
   pooled_kv: list[(K, V)] x num_layers
 
@@ -113,19 +116,44 @@ LeadMoT decoder:
 - `final_goal`: `(B, 2)`，LEAD route 的真实终点；训练来自 `meta["next_target_points"][-1]` 转 ego，在线来自 `scenario_picker` 读取的 route XML 最后一个 waypoint 转 ego。
 - `pooled_kv`: 长度必须等于 `config.num_layers`。
 
-## 7. 不在本子包里做的事
+## 7. use_subgoal Prefix
+
+`LeadMoTPlanningDecoderConfig.use_subgoal` 是离线专用的 prefix 语义开关，与
+`use_bev` 正交：
+
+```text
+use_subgoal=False:
+  history/current stitched RGB + navigation prompt
+
+use_subgoal=True:
+  history/current stitched RGB + SUBGOAL stitched RGB
+  + [GROUND_TRUTH_STATE] scenario/status/subgoal/event meanings
+  + original navigation prompt
+```
+
+该开关不改变 `LeadMoTPlanningDecoder` 的模块、slice layout、query 数量或
+state_dict key，因此从纯 tensor 形状看两档可互载；但 Qwen prefix K/V 的语义分布完全不同，
+训练代码会用 checkpoint 中的 `decoder_config.use_subgoal` 拒绝跨开关 resume/init。
+
+数据来自 `leadmot/build_dataset.py --with-subgoal-fields` 写入的
+`run_id/subgoal_lookup_ok/status/subgoal/subgoal_frame/subgoal_rgb_path`。训练时只允许
+`subgoal_lookup_ok=True` 的样本进入 subgoal 模式；eval/probe/offline runner 按 ckpt
+自动选择对应 prefill。`eval_carla` 在线闭环目前无法获得未来 SUBGOAL keyframe RGB，
+加载 `use_subgoal=True` ckpt 时会显式报 `NotImplementedError`。
+
+## 8. 不在本子包里做的事
 
 - Qwen 图片/文本 prompt 构建与 prefill：由 runner/runtime 调用 `LocalQwen3VLInstructEngine` 完成。
 - LEAD route clip 构建、LiDAR/RGB/BEV 对齐：由 `mot_lead_offline_runner.py` 的离线路径完成。
 - 训练 loss、optimizer、EMA、checkpoint、eval/probe：由 `train.py`、`eval.py`、`probe.py` 完成；运行细节见 `LEADMOT_PLAN.md` 与 `LEADMOT_RUN.md`。
 
-## 8. 已知边界
+## 9. 已知边界
 
 - 当前训练/eval/probe 默认每卡单样本前向，prefix padding mask 暂不需要。如果未来 batch 内不同样本 prompt 长度不同，需要给 `PrefixKVAttention.forward()` 增加 `lang_key_padding_mask` 并透传到 attention。
 - `mhrope` 不是单改 LeadMoT 就能完整生效；Qwen prefill 侧必须同步 patch，否则 prefix K 与 gen Q 的旋转规则不严格匹配。
 - decoder 从头初始化，浅层结构比 Qwen 内部 strict MoT 更轻，收敛质量主要依赖足够的 LEAD 离线数据和稳定的 frozen prefill 分布。
 
-## 9. 最小调用模板
+## 10. 最小调用模板
 
 ```python
 import torch
