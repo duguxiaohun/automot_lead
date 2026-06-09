@@ -210,9 +210,13 @@ sock.close()
 configure_master_port() {
     export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 
-    if [[ "${SFT_RESPECT_MASTER_PORT:-0}" == "1" ]]; then
-        export MASTER_PORT="${MASTER_PORT:-29500}"
-        return 0
+    if [[ "${SFT_RESPECT_MASTER_PORT:-0}" == "1" && -n "${MASTER_PORT:-}" ]]; then
+        if is_port_free "${MASTER_PORT}"; then
+            export MASTER_PORT
+            return 0
+        fi
+        echo "[port][err] MASTER_PORT=${MASTER_PORT} is already in use and SFT_RESPECT_MASTER_PORT=1" >&2
+        exit 1
     fi
 
     if [[ -n "${MASTER_PORT:-}" ]]; then
@@ -220,10 +224,15 @@ configure_master_port() {
             export MASTER_PORT
             return 0
         fi
-        echo "[ddp][warn] MASTER_PORT=${MASTER_PORT} is already in use; selecting a free port"
+        echo "[port][warn] MASTER_PORT=${MASTER_PORT} is already in use; selecting a free port"
     fi
 
     export MASTER_PORT="$(find_free_master_port)"
+}
+
+export_torchrun_master_env() {
+    export PET_MASTER_ADDR="${MASTER_ADDR}"
+    export PET_MASTER_PORT="${MASTER_PORT}"
 }
 
 jsonl_dataset_version() {
@@ -515,7 +524,6 @@ case "${MODE}" in
         if [[ "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then
             echo "[gpu][warn] requested ${DDP_GPU_COUNT} GPUs but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
         fi
-        configure_master_port
         export NCCL_P2P_LEVEL=NVL
         export NCCL_DEBUG=WARN
         EXTRA_LAUNCH=""
@@ -525,14 +533,15 @@ case "${MODE}" in
         exit 1
         ;;
 esac
+configure_master_port
+export_torchrun_master_env
 
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC_PER_NODE=${NPROC_PER_NODE}"
 if [[ "${MODE}" == "ddp" ]]; then
     echo "[gpu] requested DDP_GPU_COUNT=${DDP_GPU_COUNT:-8}"
-    echo "[ddp] MASTER_ADDR=${MASTER_ADDR}"
-    echo "[ddp] MASTER_PORT=${MASTER_PORT}"
 fi
+echo "[port] MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT} PET_MASTER_PORT=${PET_MASTER_PORT}"
 
 materialize_runtime_teacher_if_needed
 

@@ -249,6 +249,7 @@ git push
   单进程默认 `nvidia-smi` 自动挑 1 张空闲 GPU，并覆盖已有 mask；
   `torchrun --nproc_per_node=N` 默认自动挑 N 张最空闲 GPU，并覆盖已有 mask；
   `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡，具体卡号仍由脚本自动挑。
+- 写或改训练 launcher 时，DDP rendezvous 端口默认自动选择空闲 `MASTER_PORT`，并同步导出 PyTorch launcher 会读取的 `PET_MASTER_PORT`；已有端口残留且被占用时自动换端口。只有显式同时设置 `MASTER_PORT` 与对应 `*_RESPECT_MASTER_PORT=1` 时才严格使用指定端口。SFT `check` / `single` 也要在进入 `swift sft` 前设置端口，因为 ms-swift 即使单进程也会走 torch distributed launcher。
 - 训练入口默认已按 H20 96GB"尽量靠近 ~80% 显存"调好（PROJECT_CONTEXT.md §11.5 总表），
   用户**不需要**显式设 `PER_DEVICE_BS` / `MICRO_BS` / `BATCH_SIZE` / `GRAD_ACC`；
   默认就是 `bash sft_v*_train.sh / goalgen/train.sh / leadmot/train.sh` 直接跑。

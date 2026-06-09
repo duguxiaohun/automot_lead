@@ -244,15 +244,27 @@ sock.close()
 
 configure_master_port() {
     export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
-    if [[ "${GOALGEN_RESPECT_MASTER_PORT:-0}" == "1" ]]; then
-        export MASTER_PORT="${MASTER_PORT:-29500}"
-        return 0
+    if [[ "${GOALGEN_RESPECT_MASTER_PORT:-0}" == "1" && -n "${MASTER_PORT:-}" ]]; then
+        if is_port_free "${MASTER_PORT}"; then
+            export MASTER_PORT
+            return 0
+        fi
+        echo "[port][err] MASTER_PORT=${MASTER_PORT} is already in use and GOALGEN_RESPECT_MASTER_PORT=1" >&2
+        exit 1
     fi
-    if [[ -n "${MASTER_PORT:-}" ]] && is_port_free "${MASTER_PORT}"; then
-        export MASTER_PORT
-        return 0
+    if [[ -n "${MASTER_PORT:-}" ]]; then
+        if is_port_free "${MASTER_PORT}"; then
+            export MASTER_PORT
+            return 0
+        fi
+        echo "[port][warn] MASTER_PORT=${MASTER_PORT} is already in use; selecting a free port"
     fi
     export MASTER_PORT="$(find_free_master_port)"
+}
+
+export_torchrun_master_env() {
+    export PET_MASTER_ADDR="${MASTER_ADDR}"
+    export PET_MASTER_PORT="${MASTER_PORT}"
 }
 
 COMMON_ARGS=(
@@ -364,11 +376,12 @@ case "${MODE}" in
         ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
         export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
         configure_master_port
+        export_torchrun_master_env
         export NCCL_P2P_LEVEL="${NCCL_P2P_LEVEL:-NVL}"
         export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
         echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
         echo "[gpu] NPROC_PER_NODE=${NPROC_PER_NODE}"
-        echo "[ddp] MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT}"
+        echo "[port] MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT} PET_MASTER_PORT=${PET_MASTER_PORT}"
         # NUM_EPOCHS 默认 2：831k / 8 GPU / MICRO_BS=16 / GRAD_ACC=2 ≈ 3.2k optimizer step / epoch；
         # 默认更偏吞吐和显存利用率。需要更多 optimizer step 就显式 NUM_EPOCHS=3+ 或调小 batch。
         torchrun --nproc_per_node="${NPROC_PER_NODE}" \

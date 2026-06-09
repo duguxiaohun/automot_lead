@@ -266,6 +266,7 @@ GPU 运行入口统一规则：
 - 文档示例不要写 shell 手动设置 `CUDA_VISIBLE_DEVICES` 的选卡片段。
 - 白名单内所有 GPU 运行入口都按用户要求彻底放弃手动 `CUDA_VISIBLE_DEVICES` 选择：单进程入口默认用 `nvidia-smi` 自动挑 1 张最空闲 GPU，并覆盖已有 mask；`torchrun --nproc_per_node=N` 入口默认自动挑 N 张最空闲 GPU，并覆盖已有 mask，再按 `LOCAL_RANK` pin 到对应可见卡。
 - 训练 launcher 的 `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡；具体卡号仍由脚本自动挑最空闲的 N 张，不提供“尊重外部 mask”的分支。
+- 训练 launcher 的 DDP rendezvous 端口默认自动选择空闲 `MASTER_PORT`，并同步导出 PyTorch launcher 会读取的 `PET_MASTER_PORT`；已有端口残留且被占用时自动换端口。只有显式同时设置 `MASTER_PORT` 与对应 `*_RESPECT_MASTER_PORT=1` 时才严格使用指定端口。SFT `check` / `single` 也要在进入 `swift sft` 前设置端口，因为 ms-swift 即使单进程也会走 torch distributed launcher。
 - `eval_carla/run_eval.sh` 的 `--num-gpus N` / `EVAL_GPU_COUNT=N` 只表示闭环评测 worker 数；具体 GPU id 仍由 `nvidia-smi` 自动挑空闲卡，并为每张卡分配独立 CARLA 端口槽。
 - **Batched 训练规则（2026-06 新增 → H20 默认尽量靠近 ~80% 显存）**：SFT v1/v2、GoalGen、LeadMoT 训练入口默认值都已按 H20 96GB 调好，**用户不需要显式设 `PER_DEVICE_BS` / `MICRO_BS` / `BATCH_SIZE` / `GRAD_ACC`**；直接 `bash sft_v*_train.sh / goalgen/train.sh / leadmot/train.sh` 跑即可（默认表见 PROJECT_CONTEXT.md §11.5）。调 batch 时遵循 sqrt 法则——等效 global batch 翻 N×，LR 按 sqrt(N) 同步上调；保持等效不变则 LR 不动。OOM 时先 ÷2 per-device、×2 grad_accum 保持等效不变；LeadMoT 若坏样本密集也优先回退 `BATCH_SIZE=16`。`BATCH_SIZE=1` / `MICRO_BS=1` 是历史回退路径（与 batched 之前的 per-sample 路径字节级等价），不再是默认值；出问题或想复现旧 ckpt 训练动力学时用。详见各子包 RUN.md 的 H20 batched 训练章节。eval_carla 不存在 batch 概念，不在此规则范围。
 

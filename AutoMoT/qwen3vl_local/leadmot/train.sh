@@ -137,28 +137,38 @@ PY
 }
 
 find_free_master_port() {
-  local start="${1:-29500}"
-  local port
-  for port in $(seq "${start}" "$((start + 200))"); do
-    if is_port_free "${port}"; then
-      echo "${port}"
-      return 0
-    fi
-  done
-  echo "No free port found near ${start}" >&2
-  return 1
+  python - <<'PY' 2>/dev/null || echo "$((20000 + RANDOM % 20000))"
+import socket
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.bind(("", 0))
+    print(sock.getsockname()[1])
+PY
 }
 
 configure_master_port() {
   export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
-  if [[ -z "${MASTER_PORT:-}" ]]; then
-    export MASTER_PORT="$(find_free_master_port 29500)"
-  elif [[ "${LEADMOT_RESPECT_MASTER_PORT:-1}" != "0" ]]; then
-    if ! is_port_free "${MASTER_PORT}"; then
-      echo "MASTER_PORT=${MASTER_PORT} is busy. Set MASTER_PORT or LEADMOT_RESPECT_MASTER_PORT=0." >&2
-      exit 1
+  if [[ "${LEADMOT_RESPECT_MASTER_PORT:-0}" == "1" && -n "${MASTER_PORT:-}" ]]; then
+    if is_port_free "${MASTER_PORT}"; then
+      export MASTER_PORT
+      return 0
     fi
+    echo "[port][err] MASTER_PORT=${MASTER_PORT} is already in use and LEADMOT_RESPECT_MASTER_PORT=1" >&2
+    exit 1
   fi
+  if [[ -n "${MASTER_PORT:-}" ]]; then
+    if is_port_free "${MASTER_PORT}"; then
+      export MASTER_PORT
+      return 0
+    fi
+    echo "[port][warn] MASTER_PORT=${MASTER_PORT} is already in use; selecting a free port"
+  fi
+  export MASTER_PORT="$(find_free_master_port)"
+}
+
+export_torchrun_master_env() {
+  export PET_MASTER_ADDR="${MASTER_ADDR}"
+  export PET_MASTER_PORT="${MASTER_PORT}"
 }
 
 common_args=(
@@ -244,11 +254,15 @@ case "${MODE}" in
     DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
     export CUDA_VISIBLE_DEVICES="$(require_idle_gpus "${DDP_GPU_COUNT}")"
     configure_master_port
+    export_torchrun_master_env
     NPROC_PER_NODE="$(count_visible_gpus)"
     if [[ "${NPROC_PER_NODE}" -lt 1 ]]; then
       echo "No GPU found for ddp mode." >&2
       exit 1
     fi
+    echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+    echo "[gpu] NPROC_PER_NODE=${NPROC_PER_NODE}"
+    echo "[port] MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT} PET_MASTER_PORT=${PET_MASTER_PORT}"
     torchrun \
       --nproc_per_node="${NPROC_PER_NODE}" \
       --master_addr="${MASTER_ADDR}" \

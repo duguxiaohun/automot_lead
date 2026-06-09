@@ -190,7 +190,7 @@ def _share_cvd_via_file_for_ddp(want_count: int) -> str:
 
     rank = int(os.environ.get("RANK", "0"))
     master_addr = os.environ.get("MASTER_ADDR", "localhost")
-    master_port = os.environ.get("MASTER_PORT", "29500")
+    master_port = os.environ.get("MASTER_PORT", "none")
     lock_dir = pathlib.Path(tempfile.gettempdir())
     lock_path = lock_dir / f"patch_unpatch_cvd_{master_addr}_{master_port}.txt"
     min_mtime = _SCRIPT_IMPORT_TIME - _DDP_CVD_STALE_TOLERANCE_S

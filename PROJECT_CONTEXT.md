@@ -281,6 +281,7 @@ eval、probe、teacher / 推理入口。
 - 单进程默认挑 1 张；进程内通常用 `cuda:0`。
 - `torchrun --nproc_per_node=N` 默认挑 N 张，并按 `LOCAL_RANK` pin。
 - `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡，具体卡号仍自动挑。
+- 训练 launcher 的 DDP rendezvous 端口默认自动选择空闲 `MASTER_PORT`，并同步导出 PyTorch launcher 会读取的 `PET_MASTER_PORT`；已有端口残留且被占用时自动换端口。只有显式同时设置 `MASTER_PORT` 与对应 `*_RESPECT_MASTER_PORT=1` 时才严格使用指定端口。SFT `check` / `single` 也要在进入 `swift sft` 前设置端口，因为 ms-swift 即使单进程也会走 torch distributed launcher。
 - 文档示例不要写 shell 手动 `CUDA_VISIBLE_DEVICES=...`。
 - 显式 `--device cpu` / `--device cuda:N` 的 Python 入口通常视为用户锁设备，不覆盖。
 - GoalGen eval/probe 的 `--gpu N` 只在单进程下锁进程内 GPU；默认保持 0。

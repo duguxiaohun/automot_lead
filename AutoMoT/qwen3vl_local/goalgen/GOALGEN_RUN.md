@@ -94,6 +94,8 @@ VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
 
 GPU 规则：launcher 用 `nvidia-smi` 自动挑空闲卡并覆盖旧
 `CUDA_VISIBLE_DEVICES`。不要手写卡号；用 `DDP_GPU_COUNT=N` 控制卡数。
+DDP 端口默认自动选择空闲 `MASTER_PORT`，并同步导出 `PET_MASTER_PORT`；只有显式同时设置
+`MASTER_PORT` 与 `GOALGEN_RESPECT_MASTER_PORT=1` 时才严格使用指定端口。
 
 ### 3.0.0 H20 96GB batched 训练示例
 

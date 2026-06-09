@@ -134,7 +134,7 @@ def _share_cvd_via_file_for_ddp(want_count: int) -> str:
     不同 run，非 rank0 用 mtime >= 本进程 import 时刻 - 容差 拒绝上一轮残留旧文件。"""
     rank = int(os.environ.get("RANK", "0"))
     master_addr = os.environ.get("MASTER_ADDR", "localhost")
-    master_port = os.environ.get("MASTER_PORT", "29500")
+    master_port = os.environ.get("MASTER_PORT", "none")
     lock_path = pathlib.Path(tempfile.gettempdir()) / f"{_GPU_PICK_LOCK_PREFIX}_{master_addr}_{master_port}.txt"
     min_mtime = _GPU_PICK_IMPORT_TIME - _GPU_PICK_STALE_TOLERANCE_S
     if rank == 0:

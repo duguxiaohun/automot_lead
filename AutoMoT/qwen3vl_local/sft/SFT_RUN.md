@@ -124,6 +124,10 @@ DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 GPU 规则：脚本用 `nvidia-smi` 自动挑空闲卡并覆盖旧 `CUDA_VISIBLE_DEVICES`。
 不要在文档命令里手写卡号。
 
+端口规则：SFT v1/v2 的 `check` / `single` / `ddp` 都会在进入 `swift sft` 前自动选择空闲
+`MASTER_PORT`，并同步导出 PyTorch launcher 会读取的 `PET_MASTER_PORT`；只有显式同时设置
+`MASTER_PORT` 与 `SFT_RESPECT_MASTER_PORT=1` 时才严格使用指定端口。
+
 ### 5.1 H20 96GB 显存与 batch 调优
 
 2026-06 起经过**四轮调优**，把默认 batch 推到"无脑跑就尽量靠近 80% 显存，同时不贴 96GB 上限"的程度：

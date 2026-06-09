@@ -76,7 +76,8 @@ DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
 
 - 设置 `DDP_GPU_COUNT=N` 时，脚本自动挑 N 张空闲 GPU，并覆盖 `CUDA_VISIBLE_DEVICES`。
 - 不设置 `DDP_GPU_COUNT` 时，默认尝试挑 8 张空闲 GPU。
-- `MASTER_PORT` 未设置时自动找空闲端口；已设置但端口被占用会直接报错。
+- `MASTER_PORT` 默认自动找空闲端口，并同步导出 `PET_MASTER_PORT`；已有端口残留且被占用时会自动换端口。
+- 只有显式同时设置 `MASTER_PORT` 与 `LEADMOT_RESPECT_MASTER_PORT=1` 时才严格使用指定端口。
 
 ### 4.x USE_BEV 开关（v1 内部消融）
 

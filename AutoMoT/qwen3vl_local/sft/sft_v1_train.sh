@@ -211,9 +211,13 @@ sock.close()
 configure_master_port() {
     export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 
-    if [[ "${SFT_RESPECT_MASTER_PORT:-0}" == "1" ]]; then
-        export MASTER_PORT="${MASTER_PORT:-29500}"
-        return 0
+    if [[ "${SFT_RESPECT_MASTER_PORT:-0}" == "1" && -n "${MASTER_PORT:-}" ]]; then
+        if is_port_free "${MASTER_PORT}"; then
+            export MASTER_PORT
+            return 0
+        fi
+        echo "[port][err] MASTER_PORT=${MASTER_PORT} is already in use and SFT_RESPECT_MASTER_PORT=1" >&2
+        exit 1
     fi
 
     if [[ -n "${MASTER_PORT:-}" ]]; then
@@ -221,10 +225,15 @@ configure_master_port() {
             export MASTER_PORT
             return 0
         fi
-        echo "[ddp][warn] MASTER_PORT=${MASTER_PORT} is already in use; selecting a free port"
+        echo "[port][warn] MASTER_PORT=${MASTER_PORT} is already in use; selecting a free port"
     fi
 
     export MASTER_PORT="$(find_free_master_port)"
+}
+
+export_torchrun_master_env() {
+    export PET_MASTER_ADDR="${MASTER_ADDR}"
+    export PET_MASTER_PORT="${MASTER_PORT}"
 }
 
 # ---------------------------------------------------------------------------
@@ -308,7 +317,6 @@ case "${MODE}" in
         if [[ "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then
             echo "[gpu][warn] requested ${DDP_GPU_COUNT} GPUs but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
         fi
-        configure_master_port
         # NCCL 调优：H20 NVLink 优先。若远程机器不是 NVLink 拓扑，出现 NCCL 卡住时
         # 可以临时 unset NCCL_P2P_LEVEL 或退到 single/少卡模式排查。
         export NCCL_P2P_LEVEL=NVL
@@ -321,14 +329,15 @@ case "${MODE}" in
         exit 1
         ;;
 esac
+configure_master_port
+export_torchrun_master_env
 
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC_PER_NODE=${NPROC_PER_NODE}"
 if [[ "${MODE}" == "ddp" ]]; then
     echo "[gpu] requested DDP_GPU_COUNT=${DDP_GPU_COUNT:-8}"
-    echo "[ddp] MASTER_ADDR=${MASTER_ADDR}"
-    echo "[ddp] MASTER_PORT=${MASTER_PORT}"
 fi
+echo "[port] MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT} PET_MASTER_PORT=${PET_MASTER_PORT}"
 
 # ---------------------------------------------------------------------------
 # best ckpt 跟踪
@@ -425,7 +434,7 @@ echo "  bash qwen3vl_local/tb_serve.sh ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在 val 集上跑 eval（指标 + TB 标量 + 预测 jsonl）："
 echo "  python qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
-echo "  # 多卡分片：torchrun --nproc_per_node=4 qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
+echo "  # 多卡分片：torchrun --standalone --nproc_per_node=4 qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在随机场景上 dump case（输入 prompt+图像，输出文本，per-token loss）："
 echo "  python qwen3vl_local/sft/probe_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR} --num-per-scenario 4"
