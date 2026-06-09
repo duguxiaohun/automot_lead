@@ -3,7 +3,7 @@
 # LeadMoT closed-loop evaluation on Bench2Drive 220 routes.
 #
 # 一键用法：
-#   bash AutoMoT/qwen3vl_local/eval_carla/run_eval.sh \
+#   bash qwen3vl_local/eval_carla/run_eval.sh \
 #       --leadmot-ckpt /path/to/leadmot/best.pt
 #
 # 常用：
@@ -150,7 +150,7 @@ echo "Resolved LeadMoT checkpoint: ${LEADMOT_CKPT}"
 
 # -------------------- 路径自动探测 --------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# AutoMoT/qwen3vl_local/eval_carla/ -> AutoMoT/qwen3vl_local/ -> AutoMoT/
+# qwen3vl_local/eval_carla/ -> qwen3vl_local/ -> AutoMoT/
 QWEN_LOCAL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 AUTOMOT_ROOT="$(cd "${QWEN_LOCAL_DIR}/.." && pwd)"
 PROJECT_ROOT="$(cd "${AUTOMOT_ROOT}/.." && pwd)"
@@ -736,7 +736,7 @@ if [ "${#FAILED_ROUTES[@]}" -gt 0 ]; then
 fi
 if [ "${DO_AGGREGATE}" = "1" ] && [ "${SINGLE_TEST}" != "1" ]; then
     echo "Running aggregation for run_label=${RUN_LABEL}..."
-    cd "${AUTOMOT_ROOT}" && python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
+    cd "${AUTOMOT_ROOT}" && python3 -m qwen3vl_local.eval_carla.aggregate \
         --eval-base "${SAVE_PATH}" \
         --leadmot-ckpt "${LEADMOT_CKPT}" \
         --run-label "${RUN_LABEL}" \

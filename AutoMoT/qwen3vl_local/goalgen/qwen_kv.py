@@ -209,3 +209,79 @@ def summarize_pooled_kv(pooled: List[Tuple[torch.Tensor, torch.Tensor]]) -> Dict
         "v_dtype": str(v0.dtype),
         "device": str(k0.device),
     }
+
+
+def pad_pooled_kv_batch(
+    prefills: List[PrefillResult],
+    *,
+    target_device: torch.device | None = None,
+    target_dtype: torch.dtype | None = None,
+) -> Tuple[List[Tuple[torch.Tensor, torch.Tensor]], torch.Tensor, List[int]]:
+    """把 B 条独立 PrefillResult 沿 batch 维拼成 batched K/V + key padding mask。
+
+    背景：每条样本独立跑 ``teacher_forced_prefill`` 拿到的 ``pooled_kv`` seq_len 不同
+    （prompt 长度 + 图像 token 数随样本变化）。batched DiT 训练时必须把它们 pad 到
+    本 batch 内最长 seq_len，并提供 padding mask 告诉 JointAttention 哪些 token 是
+    real / pad，否则 vision Q 在 SDPA 内部会无差别地 attend 到 padding 位置，等于
+    安静地把无意义的 zero K/V 引入 softmax 分母，**训练表现会缓慢劣化但不报错**。
+
+    输入：
+    - prefills：长度 B 的 PrefillResult 列表；要求所有元素的 ``len(pooled_kv)``、
+      ``n_kv_heads``、``head_dim`` 必须一致（否则属于 dataset 构建错误，立即抛错）。
+    - target_device / target_dtype：可选 cast 目标。一般传 DiT device + dit_dtype，
+      让 batched K/V 直接落到 DiT 用得到的位置，避免 train loop 里再 .to() 一次。
+
+    返回：
+    - batched_pooled_kv：长度 == num_segments 的列表，每段 ``(K, V)`` 形状
+      ``[B, n_kv_heads, S_max, head_dim]``；padding 位置填 0。
+    - lang_key_padding_mask：bool tensor ``[B, S_max]``，True 表示真实 token，
+      False 表示 padding。可直接传给 DiTMoT.forward 的 ``lang_key_padding_mask``。
+    - seq_lens：长度 B 的 int 列表，原始 prefill seq_len，用于日志统计 / sanity 检查。
+    """
+
+    if len(prefills) == 0:
+        raise ValueError("pad_pooled_kv_batch 收到空 prefills 列表")
+    num_segments = len(prefills[0].pooled_kv)
+    n_kv_heads = prefills[0].n_kv_heads
+    head_dim = prefills[0].head_dim
+    for i, pf in enumerate(prefills):
+        if len(pf.pooled_kv) != num_segments:
+            raise ValueError(
+                f"prefill[{i}] 段数 {len(pf.pooled_kv)} != prefill[0] 段数 {num_segments}"
+            )
+        if pf.n_kv_heads != n_kv_heads or pf.head_dim != head_dim:
+            raise ValueError(
+                f"prefill[{i}] (n_kv={pf.n_kv_heads}, head_dim={pf.head_dim}) "
+                f"与 prefill[0] (n_kv={n_kv_heads}, head_dim={head_dim}) 不一致"
+            )
+
+    seq_lens = [int(pf.seq_len) for pf in prefills]
+    s_max = max(seq_lens)
+    b = len(prefills)
+
+    # device / dtype：默认沿用首条 prefill 的 K 张量参数，调用方可显式 override。
+    ref_k = prefills[0].pooled_kv[0][0]
+    out_device = target_device if target_device is not None else ref_k.device
+    out_dtype = target_dtype if target_dtype is not None else ref_k.dtype
+
+    batched_pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]] = []
+    for seg_idx in range(num_segments):
+        # 每段独立 allocate：bf16 下 [B=8, 8, 2300, 128] 占 ~37MB，B=4 / 12 段总量在 ~1.7GB；
+        # 训练时 grad checkpoint 会把这部分作为 detach 输入，不进激活回传图，显存可控。
+        k_batch = torch.zeros(b, n_kv_heads, s_max, head_dim, device=out_device, dtype=out_dtype)
+        v_batch = torch.zeros_like(k_batch)
+        for sample_idx, pf in enumerate(prefills):
+            k_seg, v_seg = pf.pooled_kv[seg_idx]
+            # k_seg 原本是 [1, n_kv, S_i, head_dim]；按 sample_idx 写入 [B, n_kv, S_i, head_dim] 切片。
+            # .to() 显式对齐 dtype/device，避免后续 SDPA 内部混合精度路径触发错误。
+            s_i = k_seg.shape[2]
+            k_batch[sample_idx, :, :s_i, :] = k_seg[0].to(device=out_device, dtype=out_dtype)
+            v_batch[sample_idx, :, :s_i, :] = v_seg[0].to(device=out_device, dtype=out_dtype)
+        batched_pooled_kv.append((k_batch, v_batch))
+
+    # mask：True=有效，False=padding。调用方会在批内等长时改传 None，让 DiT 保持无 mask fast path。
+    mask = torch.zeros(b, s_max, dtype=torch.bool, device=out_device)
+    for sample_idx, s_i in enumerate(seq_lens):
+        mask[sample_idx, :s_i] = True
+
+    return batched_pooled_kv, mask, seq_lens

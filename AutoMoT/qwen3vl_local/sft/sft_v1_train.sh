@@ -81,15 +81,27 @@ fi
 # - LR 1e-4→5e-5：13 个有效 loss token 的薄监督，1e-4 容易把 LM 头冲过头。
 # - LORA_DROPOUT 0.05→0.1 / WEIGHT_DECAY 0.01→0.05：正则加倍，抑制对短目标过拟合。
 # - LORA_RANK/ALPHA 不动，保留容量；MAX_LENGTH 不动，覆盖 4 图 + memory。
-NUM_EPOCHS=2
-LR=5e-5
-WARMUP_RATIO=0.03
-WEIGHT_DECAY=0.05
-MAX_LENGTH=3072
-LORA_RANK=16
-LORA_ALPHA=32
-LORA_DROPOUT=0.1
-LOGGING_STEPS=5
+# - 2026-06 显存优化（两轮）：
+#   ① 第一轮：H20 96GB 单卡之前只用 ~14GB，PER_DEVICE_BS ×4 / GRAD_ACC ÷2，
+#      等效 batch 翻 2x（single 8→16，ddp 8卡 32→64），LR 按 sqrt(2)=1.41x 法则同步
+#      上调 5e-5 → 7.1e-5。
+#   ② 第二轮：再翻 per_device 2x，GRAD_ACC 不变，等效 batch 再翻 2x
+#      （single 16→32，ddp 8卡 64→128），LR 再 sqrt(2)=1.41x → 1.0e-4。
+#   ③ 第三轮（上一版 H20 默认靠近 70-80% 显存）：ddp per_device 16→24，
+#      single 32→48，等效 batch 再乘 1.5，LR 按 sqrt(1.5) → 1.23e-4。
+#   ④ 第四轮（按 H20 80% 附近且避免 OOM 微调默认）：ddp per_device 24→30，
+#      8 卡等效 batch 192→240，LR 按 sqrt(240/192) → 1.37e-4；single 48→44，
+#      给 eval / allocator 碎片 / 长样本峰值留出余量。
+#   check 模式三段 PER_DEVICE_BS=1 / GRAD_ACC=1 不动以保留快速 sanity。
+NUM_EPOCHS="${NUM_EPOCHS:-2}"
+LR="${LR:-1.37e-4}"
+WARMUP_RATIO="${WARMUP_RATIO:-0.03}"
+WEIGHT_DECAY="${WEIGHT_DECAY:-0.05}"
+MAX_LENGTH="${MAX_LENGTH:-3072}"
+LORA_RANK="${LORA_RANK:-16}"
+LORA_ALPHA="${LORA_ALPHA:-32}"
+LORA_DROPOUT="${LORA_DROPOUT:-0.1}"
+LOGGING_STEPS="${LOGGING_STEPS:-5}"
 
 # ---------------------------------------------------------------------------
 # Step-based checkpoint 保存（用户场景：数据量上来后 epoch 周期太长）
@@ -222,11 +234,11 @@ case "${MODE}" in
     single)
         echo "[mode] single-GPU"
         # 单卡模式用于 smoke test 或显存足够时的小规模训练。
-        # 等效 batch = PER_DEVICE_BS * GRAD_ACC = 8。
+        # 等效 batch = PER_DEVICE_BS * GRAD_ACC = 44（single 接近 80% 显存，同时给峰值留余量）。
         export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
         export NPROC_PER_NODE=1
-        PER_DEVICE_BS=4
-        GRAD_ACC=2
+        PER_DEVICE_BS="${PER_DEVICE_BS:-44}"
+        GRAD_ACC="${GRAD_ACC:-1}"
         # step 触发：每 SAVE_STEPS 步保存 + eval（默认 10000）；--save_total_limit
         # 控制保留最近 N 个 checkpoint-XXX/（默认 3，等效最近 30k 步）。--load_best_model_at_end
         # 仍按 eval/loss 把 best 装回 OUTPUT_DIR 顶层（adapter_model.*）；epoch 边界
@@ -280,10 +292,11 @@ case "${MODE}" in
     ddp)
         echo "[mode] DDP"
         # 多卡正式训练。swift 通常会读取 NPROC_PER_NODE 启动 torchrun/分布式。
-        # 默认等效 batch = 8 GPUs * PER_DEVICE_BS * GRAD_ACC = 32；
+        # 默认等效 batch = 8 GPUs * PER_DEVICE_BS * GRAD_ACC = 240（H20 默认靠近 80% 且留 OOM 余量）；
         # 若用 DDP_GPU_COUNT 改卡数，等效 batch 会随卡数线性变化。
-        PER_DEVICE_BS=2
-        GRAD_ACC=2
+        # OOM 时先 PER_DEVICE_BS=24 / GRAD_ACC=1 回到上一轮，LR 可保留 1.37e-4 或按 sqrt 回退到 1.23e-4。
+        PER_DEVICE_BS="${PER_DEVICE_BS:-30}"
+        GRAD_ACC="${GRAD_ACC:-1}"
         # step 触发 + best 跟踪（含义见 single 分支注释）。SAVE_STEPS/SAVE_TOTAL_LIMIT
         # 是 env 可调；用户场景"数据量大、epoch 周期太长"时这是拿到中间产物的唯一路径。
         SAVE_STRATEGY="steps"
@@ -402,13 +415,13 @@ echo "[done] LoRA adapter saved under ${OUTPUT_DIR}"
 #     └─ eval_cases/        probe_sft_v1.py 随机场景 case dump（input/output/loss）
 #
 # 看 TensorBoard：直接把 logdir 指到 OUTPUT_DIR 根目录，左侧 run 列表会同时显示
-# tb（训练）和 eval_tb（多个 ckpt 的 eval 结果）；用 qwen3vl_local/sft/tb_serve.sh 一条命令
+# tb（训练）和 eval_tb（多个 ckpt 的 eval 结果）；用 qwen3vl_local/tb_serve.sh 一条命令
 # 起服务，stdout 会打印本地浏览器要用的 ssh 隧道命令，本地点链接就能看。
 # ---------------------------------------------------------------------------
 echo ""
 echo "============================================================"
 echo "[hint] 看 TensorBoard："
-echo "  bash qwen3vl_local/sft/tb_serve.sh ${OUTPUT_DIR}"
+echo "  bash qwen3vl_local/tb_serve.sh ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在 val 集上跑 eval（指标 + TB 标量 + 预测 jsonl）："
 echo "  python qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"

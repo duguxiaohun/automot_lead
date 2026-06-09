@@ -120,10 +120,31 @@ q_proj k_proj v_proj o_proj gate_proj up_proj down_proj
 |---|---:|---:|
 | rank / alpha | 16 / 32 | 16 / 32 |
 | dropout | 0.1 | 0.1 |
-| learning rate | 5e-5 | 3e-5 |
+| learning rate | 1.37e-4 | 8.0e-5 |
 | max_length | 3072 | 3584 |
 | num_epochs | 2 | 2 |
 | save/eval | steps | steps |
+| single PER_DEVICE_BS × GRAD_ACC | 44 × 1 = 44 | 22 × 2 = 44 |
+| ddp (8 卡) PER_DEVICE_BS × GRAD_ACC | 30 × 1 = 30/rank（global 240） | 15 × 2 = 30/rank（global 240） |
+
+> **2026-06 H20 batch 调优（三轮叠加）**：
+>
+> - **第一轮**（v1 LR=5e-5→7.1e-5、ddp bs 2→8/ga 2→1；v2 LR=3e-5→4.2e-5、ddp bs 2→4/ga 不变）：
+>   等效 global batch 翻 2x，LR 按 sqrt(2)=1.414 法则上调。
+> - **第二轮**（v1 LR=7.1e-5→1.0e-4、bs single 16→32 / ddp 8→16；
+>   v2 LR=4.2e-5→5.9e-5、bs single 8→16 / ddp 4→8）：等效 batch 再翻 2x，LR 再 sqrt(2)。
+> - **第三轮**（上一版 H20 默认靠近 70-80% 显存，v1 LR=1.0e-4→1.23e-4、bs single 32→48 / ddp 16→24；
+>   v2 LR=5.9e-5→7.2e-5、bs single 16→24 / ddp 8→12）：等效 batch 再乘 1.5，LR 按 sqrt(1.5)。
+> - **第四轮**（H20 默认靠近 80% 且避免 OOM）：v1 LR=1.23e-4→1.37e-4、single 48→44 / ddp 24→30；
+>   v2 LR=7.2e-5→8.0e-5、single 24→22 / ddp 12→15。8 卡等效 global batch 192→240，LR 按 sqrt(240/192)。
+>
+> 四轮叠加后 ddp 等效 batch 7.5x（v1/v2 同步）。check 模式三段
+> PER_DEVICE_BS=1 / GRAD_ACC=1 不动以保留快速 sanity（2 步 loss 判读）。
+>
+> H20 96GB 单卡预期显存：v1/v2 ddp ~78-88GB；single ~72-86GB。显存仍宽松
+> （监控 < 75GB）想再激进，v1 可试 `PER_DEVICE_BS=32`，v2 可试 `PER_DEVICE_BS=16`，
+> 并按 sqrt 法则继续上调 LR。
+> OOM 时先 ÷2 PER_DEVICE_BS、×2 GRAD_ACC 保持等效不变，再视情况按 sqrt 法则反向降 LR。
 
 训练 launcher 默认在 `OUTPUT_DIR/run_<RUN_TAG>/` 写本次 run，base 层维护
 `latest` symlink；`HF_HOME` 和 v2 runtime teacher cache 固定在 base 层，避免每个 run
@@ -156,7 +177,7 @@ v2 的 `max_gen_tokens` 默认 256，避免只生成 ANALYSIS 就被截断。
 | `check_loss_mask.py` / `check_loss_mask_v2.py` | token 级 loss sanity |
 | `eval_sft_v1.py` / `probe_sft_v1.py` | 共享评估与 case dump |
 | `inspect_teacher_outputs.py` | v2 teacher 预览 |
-| `tb_serve.sh` | 通用 TensorBoard launcher |
+| `../tb_serve.sh` | 通用 TensorBoard launcher |
 
 ## 10. 风险
 

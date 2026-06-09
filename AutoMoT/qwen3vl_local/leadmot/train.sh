@@ -37,11 +37,20 @@ LEAD_BEV_CKPT="${LEAD_BEV_CKPT:-checkpoints/tfv6_resnet34/model_0030_0_backbone_
 RESUME="${RESUME:-}"
 INIT_FROM_CKPT="${INIT_FROM_CKPT:-}"
 
-LR="${LR:-2e-4}"
+LR="${LR:-4.9e-4}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
 WARMUP_RATIO="${WARMUP_RATIO:-0.05}"
 NUM_EPOCHS="${NUM_EPOCHS:-3}"
-GRAD_ACC="${GRAD_ACC:-8}"
+GRAD_ACC="${GRAD_ACC:-2}"
+# 2026-06 H20 batched 训练：decoder 单步 forward 处理的 sample 数。
+# =1 时走 runtime.forward_sample fast path（与历史 ckpt 字节级等价）；
+# >1 时启用 runtime.forward_batch + _pad_segmented_kv_batch + prefix_key_padding_mask。
+# 等效 global batch = world_size * BATCH_SIZE * GRAD_ACC（默认 8卡 * 24 * 2 = 384）。
+# 相比旧 batch=1 路径等效 batch 约 6x，LR 按 sqrt(6) 从 2e-4 上调到 4.9e-4。
+# LeadMoT 的 frozen Qwen prefill 仍是 no-grad 串行，显存不会像 SFT 那样线性吃满；
+# 默认 BATCH_SIZE=24 是 H20 上更接近 80% 显存的吞吐点。
+# OOM 时先 BATCH_SIZE÷2 / GRAD_ACC×2 保持等效不变；坏样本会污染整批，保守回退用 16。
+BATCH_SIZE="${BATCH_SIZE:-24}"
 LOGGING_STEPS="${LOGGING_STEPS:-20}"
 SAVE_STEPS="${SAVE_STEPS:-500}"
 KEEP_RECENT_CHECKPOINTS="${KEEP_RECENT_CHECKPOINTS:-3}"
@@ -163,6 +172,7 @@ common_args=(
   --warmup-ratio "${WARMUP_RATIO}"
   --num-epochs "${NUM_EPOCHS}"
   --grad-accum-steps "${GRAD_ACC}"
+  --batch-size "${BATCH_SIZE}"
   --logging-steps "${LOGGING_STEPS}"
   --save-steps "${SAVE_STEPS}"
   --keep-recent-checkpoints "${KEEP_RECENT_CHECKPOINTS}"
@@ -265,7 +275,7 @@ if [[ "${MODE}" != "check" ]]; then
   echo ""
   echo "============================================================"
   echo "[hint] TensorBoard:"
-  echo "  bash qwen3vl_local/sft/tb_serve.sh ${OUTPUT_DIR}"
+  echo "  bash qwen3vl_local/tb_serve.sh ${OUTPUT_DIR}"
   echo "[hint] offline eval:"
   echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval.py --save-root ${OUTPUT_DIR}"
   echo "[hint] case probe:"

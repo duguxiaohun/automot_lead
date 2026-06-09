@@ -18,7 +18,6 @@
 ## 1. 构建训练索引
 
 ```bash
-cd AutoMoT
 python qwen3vl_local/leadmot/build_dataset.py \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/leadmot_v1_data \
@@ -42,7 +41,6 @@ python qwen3vl_local/leadmot/build_dataset.py \
 ## 2. Sanity check
 
 ```bash
-cd AutoMoT
 TRAIN_JSONL=checkpoints/leadmot_v1_data/train.jsonl \
 VAL_JSONL=checkpoints/leadmot_v1_data/val.jsonl \
 bash qwen3vl_local/leadmot/train.sh check
@@ -53,7 +51,6 @@ bash qwen3vl_local/leadmot/train.sh check
 ## 3. 单卡训练
 
 ```bash
-cd AutoMoT
 bash qwen3vl_local/leadmot/train.sh single
 ```
 
@@ -62,16 +59,16 @@ bash qwen3vl_local/leadmot/train.sh single
 常用覆盖：
 
 ```bash
-LR=1e-4 \
-NUM_EPOCHS=4 \
-GRAD_ACC=8 \
-bash qwen3vl_local/leadmot/train.sh single
+# 当前默认已经按 H20 batch 调好；常用只改训练轮数或输出目录。
+NUM_EPOCHS=4 bash qwen3vl_local/leadmot/train.sh single
+
+# 单卡如遇 OOM，再保持等效 batch 回退。
+BATCH_SIZE=12 GRAD_ACC=4 LR=4.9e-4 bash qwen3vl_local/leadmot/train.sh single
 ```
 
 ## 4. 多卡 DDP
 
 ```bash
-cd AutoMoT
 DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
 ```
 
@@ -109,11 +106,12 @@ DDP_GPU_COUNT=4 USE_BEV=0 bash qwen3vl_local/leadmot/train.sh ddp
 ## 5. 默认训练参数
 
 ```text
-LR=2e-4
+LR=4.9e-4         # 2026-06 batched 默认；vs 旧 batch=1 LR=2e-4，等效 batch 6x，LR sqrt(6)=2.45x
 WEIGHT_DECAY=0.01
 WARMUP_RATIO=0.05
 NUM_EPOCHS=3
-GRAD_ACC=8
+GRAD_ACC=2        # 默认与 BATCH_SIZE=24 组成等效 global batch=384（8 卡）
+BATCH_SIZE=24     # 2026-06 H20 batched 默认；=1 时走 forward_sample fast path
 ROUTE_LOSS_WEIGHT=0.5
 WAYPOINT_LOSS_WEIGHT=1.0
 LOSS_TYPE=l1
@@ -146,10 +144,42 @@ DDP 加载 Qwen 时默认按 `LOCAL_RANK * QWEN_LOAD_STAGGER_S` 错峰，降低�
 
 EMA：默认 `EMA=1` `EMA_DECAY=0.999`，关掉用 `EMA=0`。eval/probe 默认 `--use-ema`，ckpt 不带 EMA 字段时自动回落到 raw 权重；但 ckpt 必须带 `decoder_config.use_final_goal=True`。
 
+### 5.1 H20 96GB batched 训练（2026-06 新增 → 默认无脑跑）
+
+**新默认**（无需设任何 env）：`BATCH_SIZE=24 / GRAD_ACC=2 / LR=4.9e-4`，
+8 卡 ddp 等效 global batch=384。它相比旧 batch=1 路径把等效 batch 提到 6x，
+单步 decoder forward 更饱满，更适合 H20；由于 Qwen prefill 仍是 frozen no-grad 串行，
+默认显存目标约 70-85GB/卡。
+
+```bash
+# 默认无脑跑（不需要设 BATCH_SIZE 等 env）
+bash qwen3vl_local/leadmot/train.sh ddp
+
+# 显存仍宽松想再 push（prefill 串行成本上升，注意吞吐 trade-off）
+BATCH_SIZE=32 GRAD_ACC=2 LR=5.66e-4 bash qwen3vl_local/leadmot/train.sh ddp # global 512，LR sqrt(512/384)
+BATCH_SIZE=24 GRAD_ACC=4 LR=6.93e-4 bash qwen3vl_local/leadmot/train.sh ddp # 等效翻 2x，LR sqrt(2)
+
+# 想稳定回退到 2026-06 之前的字节级等价路径（forward_sample fast path + 历史 LR）
+BATCH_SIZE=1 GRAD_ACC=8 LR=2e-4 bash qwen3vl_local/leadmot/train.sh ddp
+
+# 保持等效 batch 不变省显存（OOM 应急）：÷2 BATCH_SIZE / ×2 GRAD_ACC
+BATCH_SIZE=12 GRAD_ACC=4 LR=4.9e-4 bash qwen3vl_local/leadmot/train.sh ddp
+```
+
+显存预算见 [LEADMOT_PLAN.md](LEADMOT_PLAN.md#2026-06-h20-batched-训练) 估算表。
+OOM 时先 ÷2 `BATCH_SIZE`、×2 `GRAD_ACC` 保持等效 batch 不变；坏样本污染整批
+是 batched 路径的代价，脏样本密集时优先回退 `BATCH_SIZE=16`。
+
+实现细节：[mot_block.py](mot_block.py) `PrefixKVAttention` / `MoTDecoderBlock` 加
+可选 `prefix_key_padding_mask`；[decoder.py](decoder.py) `LeadMoTPlanningDecoder.forward`
+透传；[train.py](train.py) `_pad_segmented_kv_batch` 工具 + `runtime.forward_batch`
+方法。BATCH_SIZE=1 时整条 forward 路径退回旧 `runtime.forward_sample`，与历史
+ckpt 字节级等价。`rope_position_offset` 通过 [mot_block.py:134-141](mot_block.py#L134-L141)
+的 per-sample offset 路径传 [B] tensor。eval/probe 不动，仍 per-sample。
+
 ## 6. Eval
 
 ```bash
-cd AutoMoT
 python qwen3vl_local/leadmot/eval.py \
   --jsonl checkpoints/leadmot_v1_data/val.jsonl \
   --save-root checkpoints/leadmot_v1_decoder \
@@ -173,12 +203,11 @@ checkpoints/leadmot_v1_decoder/eval_tb/<ckpt>_<时间戳>/
 checkpoints/leadmot_v1_decoder/invocations/*.txt
 ```
 
-`eval_tb/` 每跑一次 eval 落一个独立 run，可用 `bash qwen3vl_local/sft/tb_serve.sh checkpoints/leadmot_v1_decoder` 把训练曲线和多次 eval 标量叠在同一块 TensorBoard 上对比。
+`eval_tb/` 每跑一次 eval 落一个独立 run，可用 `bash qwen3vl_local/tb_serve.sh checkpoints/leadmot_v1_decoder` 把训练曲线和多次 eval 标量叠在同一块 TensorBoard 上对比。
 
 ## 7. Probe
 
 ```bash
-cd AutoMoT
 python qwen3vl_local/leadmot/probe.py \
   --jsonl checkpoints/leadmot_v1_data/val.jsonl \
   --save-root checkpoints/leadmot_v1_decoder \

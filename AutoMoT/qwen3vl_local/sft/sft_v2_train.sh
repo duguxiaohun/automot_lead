@@ -96,15 +96,26 @@ fi
 # MAX_LENGTH 从 3072 抬到 3584：teacher ANALYSIS body 约 80-120 token，
 # 加上 system + user + 4 张图视觉 token，预留余量避免触发 truncation warning。
 # 其它超参（LORA_RANK / dropout / weight_decay / warmup）沿用 v1。
-NUM_EPOCHS=2
-LR=3e-5
-WARMUP_RATIO=0.03
-WEIGHT_DECAY=0.05
-MAX_LENGTH=3584
-LORA_RANK=16
-LORA_ALPHA=32
-LORA_DROPOUT=0.1
-LOGGING_STEPS=5
+NUM_EPOCHS="${NUM_EPOCHS:-2}"
+# 2026-06 显存优化（两轮）：
+#   ① 第一轮：v2 max_seq=3584 + frozen teacher 同驻显存比 v1 紧，PER_DEVICE_BS ×2
+#      GRAD_ACC 保持 2，等效 batch 翻 2x，LR 按 sqrt(2)=1.41x 上调 3e-5 → 4.2e-5。
+#   ② 第二轮：再翻 per_device 2x，GRAD_ACC 不变，等效 batch 再翻 2x
+#      （single 8→16，ddp 8卡 4→8），LR 再 sqrt(2)=1.41x → 5.9e-5。
+#   ③ 第三轮（上一版 H20 默认靠近 70-80% 显存）：ddp per_device 8→12，
+#      single 16→24，等效 batch 再乘 1.5，LR 按 sqrt(1.5) → 7.2e-5。
+#   ④ 第四轮（按 H20 80% 附近且避免 OOM 微调默认）：ddp per_device 12→15，
+#      8 卡等效 batch 192→240，LR 按 sqrt(240/192) → 8.0e-5；single 24→22，
+#      给 teacher/cache/eval 峰值留出余量。
+# check 模式 PER_DEVICE_BS=1 / GRAD_ACC=1 不动以保留快速 sanity。
+LR="${LR:-8.0e-5}"
+WARMUP_RATIO="${WARMUP_RATIO:-0.03}"
+WEIGHT_DECAY="${WEIGHT_DECAY:-0.05}"
+MAX_LENGTH="${MAX_LENGTH:-3584}"
+LORA_RANK="${LORA_RANK:-16}"
+LORA_ALPHA="${LORA_ALPHA:-32}"
+LORA_DROPOUT="${LORA_DROPOUT:-0.1}"
+LOGGING_STEPS="${LOGGING_STEPS:-5}"
 
 # ---------------------------------------------------------------------------
 # Step-based checkpoint 保存（与 v1 同口径）
@@ -463,8 +474,9 @@ case "${MODE}" in
         echo "[mode] single-GPU"
         export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
         export NPROC_PER_NODE=1
-        PER_DEVICE_BS=4
-        GRAD_ACC=2
+        # H20 调优第四轮：single 保持接近 80% 但给 max_seq=3584 峰值留余量。
+        PER_DEVICE_BS="${PER_DEVICE_BS:-22}"
+        GRAD_ACC="${GRAD_ACC:-2}"
         # step 触发：每 SAVE_STEPS 步保存 + eval；best 仍由 load_best_model_at_end 装回
         # OUTPUT_DIR 顶层 adapter_model.*。epoch 边界不再单独 save，但训练结束时
         # 最后一个 step ckpt ≈ 最后一个 epoch 末快照。
@@ -488,8 +500,11 @@ case "${MODE}" in
         ;;
     ddp)
         echo "[mode] DDP"
-        PER_DEVICE_BS=2
-        GRAD_ACC=2
+        # H20 调优第四轮：per_device 12→15 / grad_accum 2 不变，
+        # 8 卡等效 batch 192→240，默认靠近 H20 80% 且留 OOM 余量。
+        # OOM 时先 PER_DEVICE_BS=12 / GRAD_ACC=2 回到上一轮，LR 可保留 8.0e-5 或按 sqrt 回退到 7.2e-5。
+        PER_DEVICE_BS="${PER_DEVICE_BS:-15}"
+        GRAD_ACC="${GRAD_ACC:-2}"
         # step 触发 + best 跟踪（含义见 single 分支注释）。
         SAVE_STRATEGY="steps"
         EVAL_STRATEGY="steps"
@@ -587,7 +602,7 @@ echo "[done] v2 LoRA adapter saved under ${OUTPUT_DIR}"
 echo ""
 echo "============================================================"
 echo "[hint] 看 TensorBoard："
-echo "  bash qwen3vl_local/sft/tb_serve.sh ${OUTPUT_DIR}"
+echo "  bash qwen3vl_local/tb_serve.sh ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在 val 集上跑 eval（注意 v2 必须显式 --val-jsonl 指向 v2 数据）："
 echo "  python qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} \\"

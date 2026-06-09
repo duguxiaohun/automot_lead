@@ -160,10 +160,14 @@ class LeadMoTPlanningDecoder(nn.Module):
         target_point_next: torch.Tensor,
         final_goal: Optional[torch.Tensor] = None,
         rope_position_offset: int | torch.Tensor | None = None,
+        prefix_key_padding_mask: torch.Tensor | None = None,
     ) -> Dict[str, torch.Tensor]:
         """返回 route 和 future-waypoint 预测。
 
         final_goal: (B, 2) ego-frame route 终点；config.use_final_goal=True 时必传。
+        prefix_key_padding_mask: 可选 [B, S_lang] bool，True=有效 token，False=padding。
+        仅在 batched 训练（batch_size>1）且各 sample 的 Qwen prefill seq_len 不同时
+        需要传入；None 时旧 per-sample 路径行为完全不变。
         """
         self._check_pooled_kv(pooled_kv)
         gen_seq = self._build_gen_sequence(
@@ -180,6 +184,7 @@ class LeadMoTPlanningDecoder(nn.Module):
                 gen_seq=gen_seq,
                 lang_kv=lang_kv,
                 rope_position_offset=rope_position_offset,
+                prefix_key_padding_mask=prefix_key_padding_mask,
             )
         gen_seq = self.gen_final_norm(gen_seq)
 

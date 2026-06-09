@@ -56,6 +56,62 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _assert_frame_fields_consistent(
+    rows: list[dict[str, Any]],
+    *,
+    rank: int,
+    split_name: str,
+) -> dict[str, Any]:
+    """启动时扫一遍 jsonl，确认 batched 训练依赖的 frame 相关字段跨 row 一致。
+
+    batched 训练在 runtime.forward_batch 里会 cat 各 sample 的 BEV / status 张量；
+    跨 row 的 rgb_frame_count / bev_frame_count / frame_step / frame_interval_s /
+    tp_min_lookahead_m 不一致会让生成的 BEV 形状或 prompt 数值不齐，进而在
+    torch.cat(dim=0) 时报 shape mismatch、或语义错位。
+
+    单次 build_dataset 跑出的 jsonl 各 row 字段都取自同一组 args，必然一致；这条
+    sanity 只在用户跨多次 build_dataset 合并 jsonl / 手改 row 字段时才会触发。
+    返回观察到的一致字段值（rank0 打印用）。
+    """
+
+    if not rows:
+        return {}
+    keys = (
+        "rgb_frame_count",
+        "rgb_frame_step",
+        "bev_frame_count",
+        "bev_frame_step",
+        "frame_interval_s",
+        "tp_min_lookahead_m",
+    )
+    expected = {k: rows[0].get(k) for k in keys}
+    outliers: list[tuple[int, str, Any, Any]] = []
+    for i, row in enumerate(rows):
+        for k in keys:
+            v = row.get(k)
+            if v != expected[k]:
+                outliers.append((i, k, expected[k], v))
+                # 一行只记一条，避免一个坏 row 把 5 个槽位全占满
+                break
+        if len(outliers) >= 5:
+            break
+    if outliers:
+        raise RuntimeError(
+            f"[{split_name}] jsonl frame 字段跨 row 不一致：sample0={expected}, "
+            f"前 {len(outliers)} 个 outlier (jsonl_idx, key, sample0, this)={outliers}。"
+            "batched 训练会在 BEV / status cat 时抛 shape mismatch，或在 prompt 中"
+            "把不一致的 frame_interval_s / tp_min_lookahead_m 静默混进训练动力学。"
+            "建议拆分 jsonl 或重新用同一组 args build_dataset。"
+            "如果想跑回 BATCH_SIZE=1 fast path 的 per-sample 行为，设 BATCH_SIZE=1。"
+        )
+    if rank == 0:
+        print(
+            f"[sanity][{split_name}] frame 字段跨 row 一致：{expected} "
+            f"(扫了 {len(rows)} 条)"
+        )
+    return expected
+
+
 def _dump_invocation(output_dir: Path, rank: int = 0) -> None:
     """保存 argv/env/git 元信息，方便复现实验。"""
     if rank != 0:
@@ -287,6 +343,62 @@ def _load_meta_cached(route_dir: str, anchor: int) -> dict[str, Any]:
 def _load_meta(route_dir: Path, anchor: int) -> dict[str, Any]:
     """给缓存 meta loader 包一层 Path 友好的入口。"""
     return _load_meta_cached(str(route_dir), int(anchor))
+
+
+def _pad_segmented_kv_batch(
+    segmented_list: list[list[tuple[torch.Tensor, torch.Tensor]]],
+    *,
+    target_device: torch.device,
+    target_dtype: torch.dtype,
+) -> tuple[list[tuple[torch.Tensor, torch.Tensor]], torch.Tensor, list[int]]:
+    """把 B 条独立 segmented K/V 沿 batch 维 pad 拼接（与 goalgen.pad_pooled_kv_batch 等价）。
+
+    每条 sample 调用 ``_segment_qwen_cache_for_leadmot`` 后拿到 ``[(K, V), ...]``，
+    其中 K shape ``[1, n_kv_heads, S_i, head_dim]``；本函数把 B 条对齐到 batch 内
+    最长 S_max，padding 位置填 0，并返回 bool mask（True=有效，False=padding）。
+    LeadMoT 训练 batch_size>1 时必须传 mask 给 decoder.forward 的
+    ``prefix_key_padding_mask``，否则 SDPA 会无差别 attend 到 padding K/V。
+
+    batch_size=1 时退化为单条 stack + mask 全 True，与旧 forward_sample 路径等价。
+    """
+
+    if not segmented_list:
+        raise ValueError("_pad_segmented_kv_batch 收到空列表")
+    num_segments = len(segmented_list[0])
+    ref_k = segmented_list[0][0][0]
+    n_kv = int(ref_k.shape[1])
+    head_dim = int(ref_k.shape[3])
+    for i, seg in enumerate(segmented_list):
+        if len(seg) != num_segments:
+            raise ValueError(
+                f"sample {i} segments={len(seg)} != sample0 segments={num_segments}"
+            )
+        k0 = seg[0][0]
+        if k0.shape[1] != n_kv or k0.shape[3] != head_dim:
+            raise ValueError(
+                f"sample {i} (n_kv={k0.shape[1]}, head_dim={k0.shape[3]}) "
+                f"与 sample 0 (n_kv={n_kv}, head_dim={head_dim}) 不一致"
+            )
+
+    seq_lens = [int(seg[0][0].shape[2]) for seg in segmented_list]
+    s_max = max(seq_lens)
+    b = len(segmented_list)
+
+    batched: list[tuple[torch.Tensor, torch.Tensor]] = []
+    for seg_idx in range(num_segments):
+        k_buf = torch.zeros(b, n_kv, s_max, head_dim, device=target_device, dtype=target_dtype)
+        v_buf = torch.zeros_like(k_buf)
+        for sample_idx, seg in enumerate(segmented_list):
+            k_seg, v_seg = seg[seg_idx]
+            s_i = int(k_seg.shape[2])
+            k_buf[sample_idx, :, :s_i, :] = k_seg[0].to(device=target_device, dtype=target_dtype)
+            v_buf[sample_idx, :, :s_i, :] = v_seg[0].to(device=target_device, dtype=target_dtype)
+        batched.append((k_buf, v_buf))
+
+    mask = torch.zeros(b, s_max, dtype=torch.bool, device=target_device)
+    for sample_idx, s_i in enumerate(seq_lens):
+        mask[sample_idx, :s_i] = True
+    return batched, mask, seq_lens
 
 
 def _extract_targets(
@@ -613,6 +725,111 @@ class LeadMoTTrainRuntime:
         )
         # 供 eval/probe/debug dump 核对输入导航状态；loss 只读取 pred_* 键。
         outputs["input_status"] = status.detach()
+        return outputs
+
+    def forward_batch(
+        self,
+        samples: list[dict[str, Any]],
+        decoder: torch.nn.Module,
+        decoder_config: LeadMoTPlanningDecoderConfig,
+        decoder_dtype: torch.dtype,
+    ) -> dict[str, torch.Tensor]:
+        """batched 版 forward_sample：B 条独立 frozen 预处理/prefill，再一次性 decoder。
+
+        实现策略：Qwen prefill 接口 batch=1 only（HF DynamicCache + M-RoPE），
+        所以这里 B 条 Qwen prefill 仍然串行，但 BEV/RGB/status/target 在最后
+        cat 到 [B, ...] 一起喂 decoder，把 decoder 的 forward 真正 batched。
+        在 H20 上瓶颈本就在 decoder 的 attention（gen seq × prefix seq），
+        Qwen prefill 时间相对小，串行不会显著拖后腿。
+
+        batch_size=1 时调用方应优先用 forward_sample（fast path 与旧逻辑等价）；
+        本方法在 B=1 时仍正确，只是会额外走一次 _pad_segmented_kv_batch（mask 全 True
+        时 SDPA 仍可退回无 mask 路径，但 decoder.forward 会多收一个 mask 参数）。
+        """
+
+        b = len(samples)
+        if b == 0:
+            raise ValueError("forward_batch 收到空 samples 列表")
+
+        segmented_list: list[list[tuple[torch.Tensor, torch.Tensor]]] = []
+        rope_offsets: list[int] = []
+        bev_list: list[torch.Tensor] = []
+        status_list: list[torch.Tensor] = []
+        for sample in samples:
+            clip = self._build_clip(sample)
+            clip_len = int(np.asarray(clip["rgb"]).shape[0])
+            group = self.runner._build_group_indices(
+                clip_len=clip_len,
+                anchor_t=clip_len - 1,
+                rgb_frame_step=int(sample.get("rgb_frame_step", self.args.rgb_frame_step)),
+                rgb_frame_count=int(sample.get("rgb_frame_count", self.args.rgb_frame_count)),
+            )
+            (
+                rgb_pil_list,
+                _lidar_pil_list,
+                target_point_speed,
+                bev_rgb_tensor,
+                bev_lidar_tensor,
+                *_rest,
+            ) = self.runner._prepare_inference_inputs(clip, group)
+
+            with torch.no_grad():
+                prompt_cleaned, _en_t, _en_r = build_cleaned_prompt_and_modes(target_point_speed)
+                past_key_values, rope_position_offset = self.runner._run_leadmot_qwen_prefill(
+                    rgb_pil_list=rgb_pil_list,
+                    user_prompt=prompt_cleaned,
+                )
+                pooled_kv_single = _segment_qwen_cache_for_leadmot(past_key_values, decoder_config)
+                if decoder_config.use_bev:
+                    bev_features = self.runner.bev_encoder(rgb=bev_rgb_tensor, lidar_bev=bev_lidar_tensor)["bev_feature"]
+                else:
+                    bev_features = None
+
+            segmented_list.append(pooled_kv_single)
+            rope_offsets.append(int(rope_position_offset))
+            if bev_features is not None:
+                bev_list.append(bev_features.to(device=self.device, dtype=decoder_dtype))
+            status_list.append(target_point_speed.to(device=self.device, dtype=decoder_dtype))
+
+        # pad + stack 阶段：所有可 batched 的张量在这里统一形状。
+        pooled_kv, prefix_key_padding_mask, seq_lens = _pad_segmented_kv_batch(
+            segmented_list,
+            target_device=self.device,
+            target_dtype=decoder_dtype,
+        )
+        # 批内 prefill 等长时不需要 padding mask，保持旧 SDPA fast path。
+        if len(set(seq_lens)) <= 1:
+            prefix_key_padding_mask = None
+        rope_offset_tensor = torch.tensor(rope_offsets, device=self.device, dtype=torch.long)
+        # status: 各样本是 [1, 7]，cat 沿 dim=0 拿到 [B, 7]
+        status = torch.cat(status_list, dim=0)
+        bev = None
+        if decoder_config.use_bev:
+            # bev_features 各样本是 [1, C, H, W]（具体形状随 backbone 不同），cat 沿 dim=0。
+            bev = torch.cat(bev_list, dim=0)
+
+        final_goal = None
+        if decoder_config.use_final_goal:
+            if status.shape[-1] < 7:
+                raise ValueError(
+                    "decoder_config.use_final_goal=True 但 target_point_speed 缺少 final_goal；"
+                    f"当前 shape={tuple(status.shape)}。请确认 dataset row/use_final_goal 与 build_clip 同步。"
+                )
+            final_goal = status[:, 5:7]
+
+        outputs = decoder(
+            pooled_kv=pooled_kv,
+            bev=bev,
+            speed=status[:, 0],
+            target_point=status[:, 1:3],
+            target_point_next=status[:, 3:5],
+            final_goal=final_goal,
+            rope_position_offset=rope_offset_tensor,
+            prefix_key_padding_mask=prefix_key_padding_mask,
+        )
+        outputs["input_status"] = status.detach()
+        # 调用方一般不需要 seq_lens；如需诊断 KV 长度可读取 outputs["_lang_seq_lens"]。
+        outputs["_lang_seq_lens"] = torch.tensor(seq_lens, device=self.device, dtype=torch.long)
         return outputs
 
 
@@ -982,10 +1199,22 @@ def parse_args() -> argparse.Namespace:
     # decoder 从零初始化（约 150M），backbone 全冻结：多跑几个 epoch + 略高 LR 更易收敛。
     parser.add_argument("--num-epochs", type=int, default=3)
     parser.add_argument("--max-train-steps", type=int, default=0)
-    parser.add_argument("--learning-rate", type=float, default=2e-4)
+    parser.add_argument("--learning-rate", type=float, default=4.9e-4)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--warmup-ratio", type=float, default=0.05)
-    parser.add_argument("--grad-accum-steps", type=int, default=8)
+    parser.add_argument("--grad-accum-steps", type=int, default=2)
+    # 2026-06 H20 batched 训练：decoder 一次 forward 处理的 sample 数；=1 时与
+    # 早期 per-sample 路径完全等价（runtime.forward_sample fast path），>1 时
+    # 走 runtime.forward_batch + _pad_segmented_kv_batch + prefix_key_padding_mask。
+    # 等效 batch = world_size * batch_size * grad_accum_steps。
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=24,
+        help="decoder 单次 forward 的 sample 数（per-process micro-batch）；"
+             ">1 时启用 batched 路径（forward_batch / _pad_segmented_kv_batch / "
+             "prefix_key_padding_mask）。等效 batch = world_size * batch_size * grad_accum_steps。",
+    )
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--logging-steps", type=int, default=20)
     parser.add_argument("--save-steps", type=int, default=500)
@@ -1080,6 +1309,12 @@ def main() -> None:
         val_rows = val_rows[: args.limit_val_samples]
     if not train_rows:
         raise ValueError("no training samples found")
+    # batched 训练前置 sanity：rgb_frame_count / bev_frame_count / frame_interval_s 等
+    # 必须跨 row 一致；否则 forward_batch 内部 cat BEV / status 会形状失配。单次
+    # build_dataset 跑出的 jsonl 必然一致；这条 check 只针对用户合并多次 build 的情况。
+    _assert_frame_fields_consistent(train_rows, rank=rank, split_name="train")
+    if val_rows:
+        _assert_frame_fields_consistent(val_rows, rank=rank, split_name="val")
 
     usable = (len(train_rows) // world_size) * world_size
     if usable == 0:
@@ -1104,7 +1339,12 @@ def main() -> None:
         lr=args.learning_rate,
         betas=(0.9, 0.95),
     )
-    updates_per_epoch = math.ceil(len(rank_rows) / max(1, args.grad_accum_steps))
+    # 2026-06 batched 训练：epoch step 计数从"sample 数 / grad_accum"改为
+    # "ceil(sample 数 / batch_size) / grad_accum"。等效 global batch =
+    # world_size * batch_size * grad_accum_steps；batch_size=1 时与旧公式等价。
+    train_batch_size = max(1, int(args.batch_size))
+    micro_batches_per_rank = max(1, math.ceil(len(rank_rows) / train_batch_size))
+    updates_per_epoch = math.ceil(micro_batches_per_rank / max(1, args.grad_accum_steps))
     total_steps = max(1, updates_per_epoch * args.num_epochs)
     if args.max_train_steps > 0:
         total_steps = min(total_steps, args.max_train_steps)
@@ -1176,28 +1416,67 @@ def main() -> None:
         epoch_rows = list(rank_rows)
         random.Random(args.seed + epoch).shuffle(epoch_rows)
         decoder_module = decoder.module if hasattr(decoder, "module") else decoder
-        for micro_idx, sample in enumerate(epoch_rows):
-            is_update = (micro_idx + 1) % args.grad_accum_steps == 0 or (micro_idx + 1) == len(epoch_rows)
+        # 2026-06 batched 训练：把 rank 分片切成 micro-batch chunk 列表。batch_size=1 时
+        # 每个 chunk 退化为单 sample 列表，调用方应优先走 forward_sample fast path
+        # （batch_size=1 + forward_batch 也正确，只是会多算一次 mask 与 stack）。
+        num_micro_batches = math.ceil(len(epoch_rows) / train_batch_size)
+        for mb_idx in range(num_micro_batches):
+            mb_start = mb_idx * train_batch_size
+            mb_end = min(mb_start + train_batch_size, len(epoch_rows))
+            mb_samples = epoch_rows[mb_start:mb_end]
+            mb_b = len(mb_samples)
+            micro_pos = (mb_idx % args.grad_accum_steps) + 1
+            micro_start = mb_idx - (micro_pos - 1)
+            micro_end = min(micro_start + args.grad_accum_steps, num_micro_batches)
+            micro_group_size = max(1, micro_end - micro_start)
+            is_update = micro_pos == micro_group_size
             sync_ctx = decoder.no_sync() if world_size > 1 and not is_update else contextlib.nullcontext()
             with sync_ctx:
-                # 大规模离线数据里可能出现坏样本。失败样本也必须让每个 rank
-                # 走一次 backward，否则 DDP collective 可能错位。
+                # 大规模离线数据里可能出现坏样本：batched 路径要么整个 mini-batch 成功，
+                # 要么整批 fallback 占位 loss（让 DDP collective 不错位）。
+                # 这比"per-sample 重试"更稳，但代价是单条坏样本会污染整批；
+                # batch_size 不应设太大，否则坏样本会拖累更多 sample。
+                # batch_size=1 时本逻辑与旧 per-sample 路径完全一致。
                 try:
-                    outputs = runtime.forward_sample(sample, decoder, decoder_config, decoder_dtype)
-                    gt_route, gt_wp = _extract_targets(sample, args.route_points, args.waypoint_points, args.smooth_route)
-                    gt_route = gt_route.unsqueeze(0).to(device)
-                    gt_wp = gt_wp.unsqueeze(0).to(device)
+                    if train_batch_size == 1:
+                        # fast path：单 sample 直接走旧 forward_sample，与历史 ckpt 字节级等价。
+                        outputs = runtime.forward_sample(
+                            mb_samples[0], decoder, decoder_config, decoder_dtype,
+                        )
+                        gt_route_list = []
+                        gt_wp_list = []
+                        gr, gw = _extract_targets(
+                            mb_samples[0], args.route_points, args.waypoint_points, args.smooth_route,
+                        )
+                        gt_route_list.append(gr.unsqueeze(0))
+                        gt_wp_list.append(gw.unsqueeze(0))
+                    else:
+                        outputs = runtime.forward_batch(
+                            mb_samples, decoder, decoder_config, decoder_dtype,
+                        )
+                        gt_route_list = []
+                        gt_wp_list = []
+                        for s in mb_samples:
+                            gr, gw = _extract_targets(
+                                s, args.route_points, args.waypoint_points, args.smooth_route,
+                            )
+                            gt_route_list.append(gr.unsqueeze(0))
+                            gt_wp_list.append(gw.unsqueeze(0))
+                    gt_route = torch.cat(gt_route_list, dim=0).to(device)
+                    gt_wp = torch.cat(gt_wp_list, dim=0).to(device)
                     loss, route_loss, waypoint_loss = _planning_loss(
                         outputs, gt_route, gt_wp, args.route_loss_weight, args.waypoint_loss_weight, args.loss_type
                     )
                     # 米制指标和 loss 一起记，方便看曲线时做 sanity check。
                     train_metrics = _compute_planning_metrics(outputs, gt_route, gt_wp)
-                    micro_loss = loss / max(1, args.grad_accum_steps)
+                    micro_loss = loss / micro_group_size
                 except Exception as exc:
                     if rank == 0 or args.verbose_samples:
+                        # 整批 fallback 时只记录首个 sample 的 route_dir / anchor 帮助定位。
+                        head = mb_samples[0]
                         print(
-                            f"[skip] sample={sample.get('route_dir')}@{sample.get('anchor')}: "
-                            f"{type(exc).__name__}: {exc}",
+                            f"[skip] batch_head={head.get('route_dir')}@{head.get('anchor')} "
+                            f"size={mb_b}: {type(exc).__name__}: {exc}",
                             flush=True,
                         )
                     # 用 0 loss 触碰所有可训练参数。梯度仍是 0，

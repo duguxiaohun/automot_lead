@@ -19,9 +19,6 @@ eval/probe 没有版本概念，只看 `--save-root` / `--dit-checkpoint`。
 ## 1. 准备
 
 ```bash
-cd ~/automot_lead
-git pull
-cd AutoMoT
 ls checkpoints/Qwen3-VL-4B-Instruct/ | head -5
 ls vae_standalone/weights/vae_only.safetensors
 ls vae_standalone/config/vae_only.yaml
@@ -91,9 +88,43 @@ VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
 | `DDP_GPU_COUNT` | `8` | DDP 需要的 GPU 数 |
 | `COMPILE_DIT` | `1` | 只 compile DiT |
 | `GRAD_CKPT` | `1` | per-block gradient checkpointing |
+| `MICRO_BS` | `16` | DiT 单步 forward 处理的 sample 数；=1 走旧 per-sample 路径（与早期 ckpt 字节级等价），>1 启用 pad_pooled_kv_batch + lang_key_padding_mask（详见 GOALGEN_PLAN.md 显存预算表与 §H20 batched 训练章节） |
+| `GRAD_ACC` | `2` | 梯度累积步数；等效 global batch = world_size × MICRO_BS × GRAD_ACC（默认 8卡 × 16 × 2 = 256） |
+| `LR` | `5.66e-4` | v1 已按默认等效 batch 256 调好（vs 早期 batch=1 路径的 32，8x，LR sqrt(8)=2.83x 从 2e-4 上调）。VERSION=v2 warm start 仍默认 LR=1e-4；再加大 MICRO_BS 时按 sqrt 法则继续调 |
 
 GPU 规则：launcher 用 `nvidia-smi` 自动挑空闲卡并覆盖旧
 `CUDA_VISIBLE_DEVICES`。不要手写卡号；用 `DDP_GPU_COUNT=N` 控制卡数。
+
+### 3.0.0 H20 96GB batched 训练示例
+
+**2026-06 新默认**（H20 上尽量靠近 80% 显存）：`MICRO_BS=16 / GRAD_ACC=2 / LR=5.66e-4`，
+8 卡 ddp 等效 global batch=256，单卡显存预期 ~75-88GB。
+直接 `bash qwen3vl_local/goalgen/train.sh ddp` 不用设任何 env。
+
+显存还有余量想继续上调：
+
+```bash
+# 默认（无需 env）
+bash qwen3vl_local/goalgen/train.sh ddp
+
+# 再 +1.5x 等效 batch（global 384）：LR 5.66e-4 × sqrt(384/256)=6.93e-4，高 OOM 风险
+MICRO_BS=24 GRAD_ACC=2 LR=6.93e-4 bash qwen3vl_local/goalgen/train.sh ddp
+
+# 保持等效不变只省显存（用于稳定性回退）：MICRO_BS÷2 / GRAD_ACC×2
+MICRO_BS=8 GRAD_ACC=4 LR=5.66e-4 bash qwen3vl_local/goalgen/train.sh ddp
+
+# 保守回退到上一版默认（global 128）
+MICRO_BS=8 GRAD_ACC=2 LR=4e-4 bash qwen3vl_local/goalgen/train.sh ddp
+
+# 回到 2026-06 之前的 batch=1 路径（与历史 ckpt 字节级等价）
+MICRO_BS=1 GRAD_ACC=4 LR=2e-4 bash qwen3vl_local/goalgen/train.sh ddp
+```
+
+`MICRO_BS>1` 时单卡显存随 batch 约 45-90GB（详见 PLAN §显存预算表；默认 16 约 75-88GB）；OOM 时先 ÷2
+`MICRO_BS`、×2 `GRAD_ACC` 保持等效 batch 不变，再视情况按 sqrt 法则反向降 LR。
+若 `torch.compile(dit)` 触发频繁 recompile（首几步 log 出现 `recompile` 关键字），
+临时设 `COMPILE_DIT=0` 排查；compile 与 dynamic batch + dynamic seq_len 的
+交互在新版 PyTorch 上一般稳定，但跨版本可能差异较大。
 
 训练产物：
 
@@ -159,7 +190,7 @@ VERSION=v2 DDP_GPU_COUNT=4 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/late
 ## 4. TensorBoard
 
 ```bash
-bash qwen3vl_local/sft/tb_serve.sh checkpoints/goalgen_v1_dit
+bash qwen3vl_local/tb_serve.sh checkpoints/goalgen_v1_dit
 ```
 
 训练 TB 在每个 run 的 `tb/` 下；eval TB 在 `eval_tb/<run_tag>/` 下。

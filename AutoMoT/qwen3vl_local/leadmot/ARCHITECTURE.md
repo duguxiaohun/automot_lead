@@ -121,7 +121,19 @@ LeadMoT decoder:
 
 ## 8. 已知边界
 
-- 当前训练/eval/probe 默认每卡单样本前向，prefix padding mask 暂不需要。如果未来 batch 内不同样本 prompt 长度不同，需要给 `PrefixKVAttention.forward()` 增加 `lang_key_padding_mask` 并透传到 attention。
+- 2026-06 起训练支持 batched 前向（`runtime.forward_batch` + `--batch-size N`），
+  并把默认值推到 `BATCH_SIZE=24 / GRAD_ACC=2 / LR=4.9e-4`（8 卡等效 global batch=384；
+  LeadMoT 因 frozen Qwen prefill 串行，默认仍比 SFT/GoalGen 更保守，详见
+  LEADMOT_PLAN.md §"2026-06 H20 batched 训练"）。
+  `PrefixKVAttention.forward()` / `MoTDecoderBlock.forward()` / `LeadMoTPlanningDecoder.forward()`
+  都新增可选 `prefix_key_padding_mask`，由 `train.py` 内本地工具
+  `_pad_segmented_kv_batch` 把 B 条独立 Qwen prefill 的 12 段 K/V 沿 batch 维 pad
+  到 batch 内最长 seq_len 后构造。`BATCH_SIZE=1` 是**历史回退路径**（与 batched 之前
+  的 per-sample 路径字节级等价：整条 forward 退回旧 `runtime.forward_sample`），不再
+  是默认；eval/probe 不动，仍只调 forward_sample。`_build_gen_position_ids_3d`
+  原生支持 per-sample `rope_position_offset`（[mot_block.py:134-141](mot_block.py#L134-L141)），
+  forward_batch 会拼成 `[B]` long tensor 传给 decoder。坏样本会污染整个 mini-batch
+  （整批 fallback 占位 loss），如遇脏样本密集或 OOM，优先回退到 `BATCH_SIZE=16`。
 - `mhrope` 不是单改 LeadMoT 就能完整生效；Qwen prefill 侧必须同步 patch，否则 prefix K 与 gen Q 的旋转规则不严格匹配。
 - decoder 从头初始化，浅层结构比 Qwen 内部 strict MoT 更轻，收敛质量主要依赖足够的 LEAD 离线数据和稳定的 frozen prefill 分布。
 

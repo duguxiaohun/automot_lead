@@ -1,7 +1,7 @@
 """Flask 浏览器查看 LeadMoT 闭环评测结果。
 
 用法：
-    python AutoMoT/qwen3vl_local/eval_carla/webapp/app.py \
+    python qwen3vl_local/eval_carla/webapp/app.py \
         --eval-base outputs/closed_loop_eval --port 5050
 
 页面结构：

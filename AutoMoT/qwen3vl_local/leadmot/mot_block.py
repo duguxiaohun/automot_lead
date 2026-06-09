@@ -266,8 +266,14 @@ class PrefixKVAttention(nn.Module):
         gen_tokens: torch.Tensor,
         lang_kv: Tuple[torch.Tensor, torch.Tensor],
         rope_position_offset: int | torch.Tensor | None = None,
+        prefix_key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """在 generated token 与 frozen prefix K/V 拼接后的序列上跑 attention。"""
+        """在 generated token 与 frozen prefix K/V 拼接后的序列上跑 attention。
+
+        prefix_key_padding_mask：可选 [B, S_lang] bool，True=有效，False=padding。
+        仅在 batched 训练且各 sample 的 Qwen prefill seq_len 不同时需要传入。
+        None 时旧 per-sample 路径行为完全不变。
+        """
         b, n, _ = gen_tokens.shape
         q = self.q_proj(gen_tokens).view(b, n, self.num_heads, self.head_dim).transpose(1, 2)
         k_g = self.k_proj(gen_tokens).view(b, n, self.num_heads, self.head_dim).transpose(1, 2)
@@ -288,8 +294,33 @@ class PrefixKVAttention(nn.Module):
         k = torch.cat([k_g, k_l], dim=2)
         v = torch.cat([v_g, v_l], dim=2)
 
+        # SDPA 的 attn_mask（仅 batched + padding 真实存在时构造）。bool 语义：
+        # True=允许 attend；False=屏蔽。形状 [B, 1, 1, n_gen + S_lang]，SDPA 内部
+        # 广播到 [B, H, n_gen, n_gen + S_lang]。gen 段全 True（generated query 永远
+        # 可以看自己拼接进来的 gen K/V），lang 段按 padding mask。
+        attn_mask = None
+        if prefix_key_padding_mask is not None:
+            if prefix_key_padding_mask.shape[0] != b:
+                if prefix_key_padding_mask.shape[0] == 1:
+                    prefix_key_padding_mask = prefix_key_padding_mask.expand(b, -1)
+                else:
+                    raise ValueError(
+                        f"prefix_key_padding_mask batch {prefix_key_padding_mask.shape[0]} != gen batch {b}"
+                    )
+            if prefix_key_padding_mask.shape[1] != k_l.shape[2]:
+                raise ValueError(
+                    f"prefix_key_padding_mask seq_len {prefix_key_padding_mask.shape[1]} != language K seq_len {k_l.shape[2]}"
+                )
+            # 调用方会在批内无 padding 时传 None；这里不做 bool(mask.all())，避免
+            # 未来 decoder 编译/图捕获时出现 CUDA tensor -> Python bool 的数据依赖分支。
+            gen_mask = torch.ones((b, n), dtype=torch.bool, device=k.device)
+            full_key_mask = torch.cat(
+                [gen_mask, prefix_key_padding_mask.to(k.device)], dim=1
+            )
+            attn_mask = full_key_mask[:, None, None, :]
+
         dropout_p = self.dropout if self.training else 0.0
-        out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+        out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, dropout_p=dropout_p)
 
         out = out.transpose(1, 2).contiguous().view(b, n, self.hidden_size)
         return self.out_proj(out)
@@ -327,10 +358,22 @@ class MoTDecoderBlock(nn.Module):
         gen_seq: torch.Tensor,
         lang_kv: Tuple[torch.Tensor, torch.Tensor],
         rope_position_offset: int | torch.Tensor | None = None,
+        prefix_key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """执行 attention 与 feed-forward 两段 residual 更新。"""
+        """执行 attention 与 feed-forward 两段 residual 更新。
+
+        prefix_key_padding_mask 详见 PrefixKVAttention.forward；None 时 per-sample
+        行为不变。
+        """
         h = self.norm_attn(gen_seq)
-        gen_seq = gen_seq + self.dropout(self.attn(h, lang_kv, rope_position_offset=rope_position_offset))
+        gen_seq = gen_seq + self.dropout(
+            self.attn(
+                h,
+                lang_kv,
+                rope_position_offset=rope_position_offset,
+                prefix_key_padding_mask=prefix_key_padding_mask,
+            )
+        )
         h = self.norm_ffn(gen_seq)
         gen_seq = gen_seq + self.dropout(self.ffn(h))
         return gen_seq

@@ -62,17 +62,67 @@ python qwen3vl_local/leadmot/build_dataset.py \
 Decoder 从头训练，外部 Qwen/BEV 都冻结，所以默认值偏向稳定收敛：
 
 - optimizer: AdamW
-- learning rate: `1e-4`
+- learning rate: `4.9e-4`（2026-06 batched 默认；vs 早期 batch=1 路径 LR=2e-4，等效 batch 6x，LR sqrt(6)=2.45x 上调）
 - weight decay: `0.01`
 - betas: `(0.9, 0.95)`
 - warmup ratio: `0.03`
 - epochs: `1`
-- grad accumulation: `8`
+- grad accumulation: `2`（与 batch size 24 一起把 8 卡等效 global batch 推到 384）
+- **batch size: `24`**（每进程 decoder 单步 forward 的 sample 数；H20 默认更靠近 80% 显存）
 - grad clip: `1.0`
 - dtype: decoder/Qwen 均默认 `bfloat16`
 - training dropout: `0.1`，只在训练入口的 decoder config 使用；runner 推理仍默认 `0.0`
 - Qwen load stagger: DDP 默认每个 rank 按 `LOCAL_RANK * 2s` 错峰调用 runner `_ensure_leadmot_qwen_engine()`
 - loss: 默认 `1.0 * waypoint_L1 + 0.5 * (route_ADE_L1 + route_FDE_L1)`；需要更平滑早期梯度时可用 `--loss-type smooth_l1`
+
+### 2026-06 H20 batched 训练
+
+早期 LeadMoT 训练每进程 batch=1（runtime.forward_sample 串行 forward），在
+H20 96GB 上 4 卡 DDP 实测每卡仅占 ~14GB，余量 ~85GB 浪费。**2026-06 加入
+batched 路径并把默认值推到更适合 H20 的 `24×2`**（用户无需显式
+设 BATCH_SIZE，直接 `bash leadmot/train.sh ddp` 即可）：
+
+- 新默认：`BATCH_SIZE=24 / GRAD_ACC=2 / LR=4.9e-4`（8 卡 ddp 等效 global batch=384
+  vs 旧 batch=1 路径 = 64，翻 6x；LR 按 sqrt(6)=2.45x 从 2e-4 上调）。
+- LeadMoT decoder 自身较轻，frozen Qwen prefill 又是 no-grad 串行；`BATCH_SIZE=24`
+  是 H20 上更靠近 80% 显存的默认点，脏样本密集或 OOM 时回退 16。
+- 想再激进：`BATCH_SIZE=32 GRAD_ACC=2 LR=5.66e-4`（等效 512，需要 LR 再 sqrt(512/384)）
+  或 `BATCH_SIZE=24 GRAD_ACC=4 LR=6.93e-4`（等效 768，需要 LR 再 sqrt(2)，坏样本污染半径更大）。
+- 想稳定回退：`BATCH_SIZE=1 GRAD_ACC=8 LR=2e-4` 复现 2026-06 之前的训练动力学。
+
+
+- train.py 新增 `--batch-size` 命令行参数 + `LeadMoTTrainRuntime.forward_batch`
+  方法；=1 时走旧 forward_sample fast path（与历史 ckpt 字节级等价），>1 时按
+  micro-batch 收集 B 条 sample 的 Qwen prefill / BEV / status，用本地
+  `_pad_segmented_kv_batch` 工具把 12 段 K/V 沿 batch 维 pad 到 batch 内最长
+  seq_len，再传 `prefix_key_padding_mask` 给 decoder。
+- decoder 改造：[mot_block.py](mot_block.py) `PrefixKVAttention.forward` /
+  `MoTDecoderBlock.forward` 都加可选 `prefix_key_padding_mask`；[decoder.py](decoder.py)
+  `LeadMoTPlanningDecoder.forward` 透传给每个 block。SDPA 在 mask 全 True 时
+  自动退回无 mask 路径，等价旧 per-sample 行为。
+- 等效 global batch = `world_size * batch_size * grad_accum_steps`。
+- 异常处理：batched 路径下"坏样本"会污染整个 mini-batch（整批 fallback 占位 loss），
+  当前默认 `BATCH_SIZE=24` 用于提高 H20 显存利用率；若脏样本密集或 OOM，优先回退
+  `BATCH_SIZE=16` 控制爆炸半径。
+- rope_position_offset：`_build_gen_position_ids_3d` 已原生支持 per-sample offset
+  （[mot_block.py:134-141](mot_block.py#L134-L141)），forward_batch 直接把 B 个
+  prefill 的 offset 拼成 `[B]` tensor 传给 decoder。
+
+H20 96GB 显存预算（按 batch_size 估算，bfloat16 + grad ckpt 默认未启用）：
+
+| 阶段 | batch=1 | batch=8 | batch=16 | batch=24 |
+|---|---|---|---|---|
+| Qwen3-VL-4B-Instruct（bf16, frozen） | ~8GB | ~8GB | ~8GB | ~8GB |
+| LEAD BEV encoder（frozen） | ~0.5GB | ~0.5GB | ~0.5GB | ~0.5GB |
+| Qwen prefill（~2500 token，36 层 KV，串行 B 次） | ~3-4GB | ~3-4GB | ~3-4GB | ~3-4GB |
+| 分段后的 12 个 K/V（select_last，bf16，pad 到 batch 内 S_max） | ~1GB | ~8GB | ~16GB | ~24GB |
+| Decoder 权重 + AdamW state + EMA | ~2GB | ~2GB | ~2GB | ~2GB |
+| Decoder forward 激活（gen seq × prefix seq 主导） | ~1GB | ~8GB | ~16GB | ~24GB |
+| **单卡训练总计估算** | **~15-18GB** | **~30-45GB** | **~50-65GB** | **~70-85GB** |
+
+OOM 时先 ÷2 BATCH_SIZE、×2 GRAD_ACC 保持等效 batch 不变，再视情况按 sqrt 法则
+反向降 LR。CFG drop 概念在 LeadMoT 中不存在（路径决策非生成式），所以 batched
+路径只需要处理 K/V padding，不涉及 GoalGen 那种 per-mini-batch CFG drop。
 
 Waypoint 直接服务控制，权重更高；route 作为空间路线监督，也额外加末点 FDE 来稳定远端路线。
 

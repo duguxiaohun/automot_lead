@@ -7,7 +7,7 @@ LeadMoT 闭环评测一键操作手册。架构与对齐细节见 [`EVAL_CARLA_P
 ## 0. 前置
 
 - 远程已装 CARLA（`$CARLA_ROOT` 或 `~/carla` 自动探测）
-- LeadMoT decoder checkpoint 就位（`AutoMoT/qwen3vl_local/leadmot/train.py` 产物）
+- LeadMoT decoder checkpoint 就位（`qwen3vl_local/leadmot/train.py` 产物）
 - LEAD benchmark_routes 就位：`lead/data/benchmark_routes/bench2drive220/<Scenario>/<route_id>.xml`
 - 安装 Flask（webapp 用）：`pip install flask`
 
@@ -46,7 +46,6 @@ LeadMoT 闭环评测一键操作手册。架构与对齐细节见 [`EVAL_CARLA_P
 ### 1.1 全量 220 路线（默认）
 
 ```bash
-cd AutoMoT
 bash qwen3vl_local/eval_carla/run_eval.sh \
     --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt
 ```
@@ -169,7 +168,7 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 ## 4. 输出目录
 
 ```
-${EVAL_OUTPUT_BASE:-AutoMoT/outputs/closed_loop_eval}/
+${EVAL_OUTPUT_BASE:-outputs/closed_loop_eval}/
   <ckpt_parent>__<ckpt_stem>__bev{0|1}__ema{0|1}/
     config.json                              ← ckpt / use_bev / 传感器 / 录像 / env 设定
     eval_per_route/eval_<route_id>.json      ← leaderboard 原始结果（跨跑法共享）
@@ -204,9 +203,8 @@ ${EVAL_OUTPUT_BASE:-AutoMoT/outputs/closed_loop_eval}/
 ## 5. 聚合单独跑
 
 ```bash
-cd AutoMoT
 # 聚合 signature 下指定 run_label 批次
-python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
+python3 -m qwen3vl_local.eval_carla.aggregate \
     --eval-base outputs/closed_loop_eval \
     --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt \
     --run-label full

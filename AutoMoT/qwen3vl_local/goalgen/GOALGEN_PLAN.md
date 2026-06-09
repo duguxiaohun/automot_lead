@@ -222,19 +222,38 @@ Runtime 优化（当前默认全部开启，可通过 sh 环境变量关闭）�
 以及 MLP 从 GELU 2-Linear → SwiGLU 3-Linear（×1.5）。但 patch=4 后视觉 token 数砍到
 1/4，attention FLOPs 净下降约 4×，wall-clock 仍更快。
 
-## 显存预算（H20 96GB，batch=1，DiT 用 bfloat16）
+## 显存预算（H20 96GB，DiT 用 bfloat16）
 
-| 阶段 | 估算显存 |
-|---|---|
-| Qwen3-VL-4B-Instruct（bf16） | ~8GB |
-| VAE（fp32） | ~0.4GB |
-| Qwen prefill（~2300 token，36 层 KV） | ~3-4GB |
-| 分段后的 12 个 KV（select_last，bf16） | ~1GB |
-| DiT-MoT 权重（bf16） | ~0.25GB |
-| DiT EMA shadow（fp32） | ~0.5GB |
-| DiT 前向激活（默认 `select_last` 下：视觉 N=8640、语言 S~2300 / 每层） | 中等；若改用 `concat_layers`，语言 token 数会涨到约 6900，对应激活也线性放大 |
-| DiT 反传 + AdamW 状态 | ~2GB |
-| **单卡训练总计（batch=1）** | **~17-20GB** |
+| 阶段 | batch=1 | batch=8 | batch=16 | batch=24 |
+|---|---|---|---|---|
+| Qwen3-VL-4B-Instruct（bf16） | ~8GB | ~8GB | ~8GB | ~8GB |
+| VAE（fp32） | ~0.4GB | ~0.4GB | ~0.4GB | ~0.4GB |
+| Qwen prefill（~2300 token，36 层 KV，串行 B 次） | ~3-4GB | ~3-4GB | ~3-4GB | ~3-4GB |
+| 分段后的 12 个 KV（select_last，bf16，pad 到 batch 内 S_max） | ~1.1GB | ~9GB | ~18GB | ~27GB |
+| DiT-MoT 权重（bf16） | ~0.25GB | ~0.25GB | ~0.25GB | ~0.25GB |
+| DiT EMA shadow（fp32） | ~0.5GB | ~0.5GB | ~0.5GB | ~0.5GB |
+| DiT 前向激活（视觉 N=B×2160、语言 S~2300）+ grad ckpt 后 | 中等 | 中等线性 | 高线性 | 很高线性 |
+| DiT 反传 + AdamW + Muon 状态 | ~2GB | ~2GB | ~2GB | ~2GB |
+| **单卡训练总计估算** | **~17-20GB** | **~45-60GB** | **~75-88GB** | **~90GB+（高 OOM 风险）** |
+
+> **2026-06 batched 训练（H20 默认尽量靠近 ~80% 显存）**：train.py 加
+> `--micro-batch-size` 命令行参数，train.sh 加 `MICRO_BS` env。
+> **新默认**：`MICRO_BS=16` / `GRAD_ACC=2` / `LR=5.66e-4`（8 卡 ddp 等效 global batch=256
+> vs 早期 batch=1 路径的 32，翻 8x；LR 按 sqrt(8)=2.83x 从 2e-4 上调）。预期单卡显存
+> ~75-88GB（H20 96GB 约 80% 左右）。**用户无需显式设置 MICRO_BS**，直接
+> `bash qwen3vl_local/goalgen/train.sh ddp` 即可。
+>
+> `MICRO_BS=1` 路径仍保留作历史回退：pad_pooled_kv_batch 退化为 B=1 stack，
+> train loop 检测到批内等长后直接传 `lang_key_padding_mask=None`，走无 mask
+> SDPA，与早期 per-sample 路径字节级等价。>1 时启用 `qwen_kv.pad_pooled_kv_batch`
+> 把 B 条独立 prefill 的 12 段 K/V 沿 batch 维 pad 拼接，传给 [dit.py](dit.py)
+> `DiTMoTBlock.forward` 的新参数 `lang_key_padding_mask`，SDPA 内部按需要构造 attn_mask。
+>
+> 等效 global batch = `world_size * micro_batch_size * grad_accum_steps`；
+> LR 仍按 sqrt(等效 batch ratio) 法则调整。CFG drop 粒度从 per-sample 升到
+> per-micro-batch（同一 mb 内 B 条共享 force_uncond 状态），batch=16 为当前默认折中点；
+> 若收敛或显存异常，先回退到 `MICRO_BS=12 / GRAD_ACC=2 / LR=4.9e-4`，再回退
+> `MICRO_BS=8 / GRAD_ACC=2 / LR=4e-4`。
 
 注意：DDP 下每个进程各自加载 Qwen + VAE，8 卡情况下 Qwen 占用大约是单
 卡的 8 倍。这在 v1 里是浪费但可以接受；v2 必须把分段 KV、history latent、

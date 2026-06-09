@@ -371,7 +371,7 @@ def main():
     """
     parser = argparse.ArgumentParser()
     # 默认 jsonl 是 build_sft_dataset_v1.py 的默认输出位置，
-    # 这样最常见命令 `python qwen3vl_local/sft/check_loss_mask.py`（从 AutoMoT/ cwd）就能跑通。
+    # 这样最常见命令 `python qwen3vl_local/sft/check_loss_mask.py`（从默认运行目录）就能跑通。
     parser.add_argument("--jsonl", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v1_data" / "train.jsonl"))
     # 大多数时间看第 0 条就够；遇到特殊 scenario 想看时再调。

@@ -40,7 +40,7 @@ if [[ "${VERSION}" == "v2" ]]; then
     # - warmup 缩短到 0.02（权重已经合理，不需要长 warmup 平稳起步）
     # - NUM_EPOCHS 保持 2：v2 真实 step 数以 goalgen_v2_data/stats.json 为准；
     #   warm start + 降 LR 下先用 2 epoch 作为保守 fine-tune 默认值。
-    # 想恢复 v1 from-scratch 风格（LR=2e-4 等），显式传 LR=2e-4 / MUON_LR=2e-3 即可。
+    # 想恢复 v1 from-scratch 风格（当前 H20 默认 LR=5.66e-4），显式传 LR=5.66e-4 / MUON_LR=2e-3 即可。
     LR="${LR:-1e-4}"
     MUON_LR="${MUON_LR:-1e-3}"
     WARMUP_RATIO="${WARMUP_RATIO:-0.02}"
@@ -100,9 +100,15 @@ MLP_RATIO="${MLP_RATIO:-4.0}"
 MAX_HISTORY_FRAMES="${MAX_HISTORY_FRAMES:-8}"
 QWEN_KV_SEGMENT_MODE="${QWEN_KV_SEGMENT_MODE:-select_last}"
 
-LR="${LR:-2e-4}"
+LR="${LR:-5.66e-4}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
 WARMUP_RATIO="${WARMUP_RATIO:-0.05}"
+# 2026-06 H20 batched 训练：DiT 单步 forward 处理的 sample 数；=1 时与 per-sample 路径等价。
+# >1 时启用 pad_pooled_kv_batch + lang_key_padding_mask，等效 global batch =
+# world_size * MICRO_BS * GRAD_ACC（默认 8卡 * 16 * 2 = 256，约旧路径 8x，LR 按
+# sqrt(8)=2.83x 从 2e-4 上调到 5.66e-4）。
+# 显存预期接近 H20 96GB 的 80% 左右；OOM 时先 MICRO_BS÷2 / GRAD_ACC×2 保持等效不变。
+MICRO_BS="${MICRO_BS:-16}"
 QWEN_DTYPE="${QWEN_DTYPE:-bfloat16}"
 VAE_DTYPE="${VAE_DTYPE:-float32}"
 DIT_DTYPE="${DIT_DTYPE:-bfloat16}"
@@ -333,6 +339,7 @@ case "${MODE}" in
             "${COMMON_ARGS[@]}" \
             --num-epochs 1 \
             --grad-accum-steps 1 \
+            --micro-batch-size "${MICRO_BS}" \
             --logging-steps 1 \
             --max-train-steps 2
         ;;
@@ -340,13 +347,14 @@ case "${MODE}" in
         echo "[mode] single"
         export CUDA_VISIBLE_DEVICES="$(require_idle_gpus 1)"
         export NPROC_PER_NODE=1
-        # NUM_EPOCHS 默认 2：831k 样本 / GRAD_ACC=4 ≈ 207k optimizer step / epoch
-        # （单卡），DiT 从零训通常 100-200k step 才看到收敛趋势，1 epoch 偏少；
+        # NUM_EPOCHS 默认 2：831k 样本 / MICRO_BS=16 / GRAD_ACC=2 ≈ 26k optimizer step / epoch
+        # （单卡），默认 batch 变大后 step 数显著下降；需要更长训练可显式 NUM_EPOCHS=3+。
         # 2 epoch 配合 cosine decay 收尾。想再多就显式 NUM_EPOCHS=3 之类。
         python qwen3vl_local/goalgen/train.py \
             "${COMMON_ARGS[@]}" \
             --num-epochs "${NUM_EPOCHS:-2}" \
-            --grad-accum-steps "${GRAD_ACC:-4}" \
+            --grad-accum-steps "${GRAD_ACC:-2}" \
+            --micro-batch-size "${MICRO_BS}" \
             --logging-steps "${LOGGING_STEPS:-10}"
         ;;
     ddp)
@@ -361,16 +369,16 @@ case "${MODE}" in
         echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
         echo "[gpu] NPROC_PER_NODE=${NPROC_PER_NODE}"
         echo "[ddp] MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT}"
-        # NUM_EPOCHS 默认 2：831k / 4 GPU / GRAD_ACC=4 ≈ 52k optimizer step / epoch；
-        # DiT 从零训通常 100-200k step 才稳定收敛，1 epoch 偏少；2 epoch 给 cosine
-        # decay 留尾段精修。需要更多就显式 NUM_EPOCHS=3 之类。
+        # NUM_EPOCHS 默认 2：831k / 8 GPU / MICRO_BS=16 / GRAD_ACC=2 ≈ 3.2k optimizer step / epoch；
+        # 默认更偏吞吐和显存利用率。需要更多 optimizer step 就显式 NUM_EPOCHS=3+ 或调小 batch。
         torchrun --nproc_per_node="${NPROC_PER_NODE}" \
             --master_addr="${MASTER_ADDR}" \
             --master_port="${MASTER_PORT}" \
             qwen3vl_local/goalgen/train.py \
             "${COMMON_ARGS[@]}" \
             --num-epochs "${NUM_EPOCHS:-2}" \
-            --grad-accum-steps "${GRAD_ACC:-4}" \
+            --grad-accum-steps "${GRAD_ACC:-2}" \
+            --micro-batch-size "${MICRO_BS}" \
             --logging-steps "${LOGGING_STEPS:-10}"
         ;;
     *)
@@ -402,7 +410,7 @@ esac
 echo ""
 echo "============================================================"
 echo "[hint] 看 TensorBoard（多次 run 自动对比，base 目录下所有 run 都会展开）："
-echo "  bash qwen3vl_local/sft/tb_serve.sh ${OUTPUT_DIR_BASE}"
+echo "  bash qwen3vl_local/tb_serve.sh ${OUTPUT_DIR_BASE}"
 echo ""
 echo "[hint] eval 最新 run（latest symlink）："
 echo "  python qwen3vl_local/goalgen/eval.py \\"

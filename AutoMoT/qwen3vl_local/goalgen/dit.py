@@ -351,6 +351,7 @@ class JointAttention(nn.Module):
         vision_tokens: torch.Tensor,
         lang_kv: Tuple[torch.Tensor, torch.Tensor],
         lang_kv_is_projected: bool = False,
+        lang_key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Joint attention：vision Q 同时看 vision K/V 与 language K/V。
 
@@ -359,6 +360,10 @@ class JointAttention(nn.Module):
         - lang_kv_is_projected：当前共享架构下这个参数**总是 True 语义**——language KV 永远
           在 DiT 自己的 (n_heads, head_dim) 子空间。保留这个参数名只是为了让外层
           DiTMoTBlock 接口最小变动；实际不再有 "is_projected vs not" 的分支。
+        - lang_key_padding_mask：可选 [B, S_lang] bool tensor，**True 表示有效 token**，
+          False 表示 padding 位置。仅在 batched 训练 / 不等长 prefill 时需要传入
+          （micro_batch_size>1 且各 sample 的 Qwen prefill seq_len 不同）。None 时
+          等价于全 True（旧 per-sample 路径不需要传）。
 
         与普通 cross-attention 的核心区别：cross-attn 是两次 attention（一次
         self、一次 cross），joint-attn 是**一次** attention，K/V 沿 token 维拼起来。
@@ -411,9 +416,37 @@ class JointAttention(nn.Module):
         k_cat = torch.cat([k_v, k_l], dim=2)
         v_cat = torch.cat([v_v, v_l], dim=2)
 
+        # 构造 SDPA attn_mask：仅在 batched 训练有不同 sample 的 language seq_len 时需要。
+        # SDPA 的 bool mask 语义：True 允许 attend，False 屏蔽。形状要能广播到 [B, H, Lq, Lkv]，
+        # 这里用 [B, 1, 1, Lkv_total]：前 N_v 列对应 vision K（全 True 永远可见），
+        # 后 N_l 列对应 language K（按 padding_mask 决定）。
+        # 注意 mask 全 True 时 SDPA 会有额外开销，所以仅在 padding 真存在时才构造。
+        attn_mask = None
+        if lang_key_padding_mask is not None:
+            # 兼容：mask 的 batch=1 时 expand 到 b，与上面 k_l 的 expand 路径对齐。
+            if lang_key_padding_mask.shape[0] != b:
+                if lang_key_padding_mask.shape[0] == 1:
+                    lang_key_padding_mask = lang_key_padding_mask.expand(b, -1)
+                else:
+                    raise ValueError(
+                        f"lang_key_padding_mask batch {lang_key_padding_mask.shape[0]} 不等于 vision batch {b}"
+                    )
+            if lang_key_padding_mask.shape[1] != k_l.shape[2]:
+                raise ValueError(
+                    f"lang_key_padding_mask seq_len {lang_key_padding_mask.shape[1]} 不等于 language K seq_len {k_l.shape[2]}"
+                )
+            # 调用方会在"批内没有 padding"时直接传 None；这里避免 bool(mask.all())
+            # 这种 CUDA tensor -> Python bool 的数据依赖分支，否则 torch.compile 容易 graph break。
+            vision_mask = torch.ones(
+                (b, n_v), dtype=torch.bool, device=k_cat.device
+            )
+            full_key_mask = torch.cat([vision_mask, lang_key_padding_mask.to(k_cat.device)], dim=1)
+            # [B, Lkv] -> [B, 1, 1, Lkv]，SDPA 内部广播到 (B, H, Lq, Lkv)。
+            attn_mask = full_key_mask[:, None, None, :]
+
         # 用 PyTorch 内置 SDPA，性能更稳；在新版本会自动选 flash-attn / mem-efficient。
         # 显式偏好 flash 后端在 train.py 全局 sdpa_kernel 上下文里设置，本层只调标准接口。
-        attn = F.scaled_dot_product_attention(q, k_cat, v_cat, dropout_p=0.0)
+        attn = F.scaled_dot_product_attention(q, k_cat, v_cat, attn_mask=attn_mask, dropout_p=0.0)
         # 把 head 维合回去：[B, H, N_v, D] -> [B, N_v, H*D] -> Linear hidden。
         out = attn.transpose(1, 2).contiguous().view(b, n_v, self.n_heads * self.head_dim)
         return self.out_proj(out)
@@ -450,6 +483,7 @@ class DiTMoTBlock(nn.Module):
         lang_kv: Tuple[torch.Tensor, torch.Tensor],
         cond: torch.Tensor,
         lang_kv_is_projected: bool = False,
+        lang_key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """单 block forward：RMSNorm+AdaLN-Zero -> JointAttn -> RMSNorm+AdaLN-Zero -> SwiGLU。
 
@@ -458,6 +492,9 @@ class DiTMoTBlock(nn.Module):
 
         ``lang_kv_is_projected`` 当前总是隐含 True，保留参数仅为兼容旧接口；底层
         JointAttention 也不再依赖它分支。
+
+        ``lang_key_padding_mask`` 仅在 batched 训练且 prefill seq_len 跨 sample 不同时
+        需要；None 时旧 per-sample 路径行为完全一致。
         """
 
         # 一次 Linear 出 6 个调制向量（attn 3 + mlp 3）。
@@ -466,7 +503,12 @@ class DiTMoTBlock(nn.Module):
         # ---- attention 子层 ----
         # norm1 是无 affine 的 RMSNorm；shift/scale 由 cond 提供，相当于每层独立可学的 affine。
         h = self._apply_mod(self.norm1(vision_tokens), shift_a, scale_a)
-        h = self.attn(h, lang_kv, lang_kv_is_projected=lang_kv_is_projected)
+        h = self.attn(
+            h,
+            lang_kv,
+            lang_kv_is_projected=lang_kv_is_projected,
+            lang_key_padding_mask=lang_key_padding_mask,
+        )
         # gate_a 初始为 0（AdaLNModulation.zero_init），让 attention 在训练开始时不
         # 改变 vision_tokens；这是 DiT/MMDiT 标配，对 flow matching 非常友好。
         vision_tokens = vision_tokens + gate_a.unsqueeze(1) * h
@@ -771,6 +813,7 @@ class DiTMoT(nn.Module):
         t: torch.Tensor,
         pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]],
         force_uncond: bool = False,
+        lang_key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """单步前向。
 
@@ -785,6 +828,10 @@ class DiTMoT(nn.Module):
         - force_uncond：True 表示用 DiT 自身的 null_lang_k/v 代替 pooled_kv
           走 uncond 路径（CFG 训练 / 引导推理用）。pooled_kv 此时仍需传入，
           只是不被使用——保留位置以保持接口稳定。
+        - lang_key_padding_mask：可选 [B, S_lang] bool，**True 表示有效**。仅在
+          micro_batch_size>1 且 prefill seq_len 跨 sample 不同时需要传入。None 时
+          等价于旧 per-sample 路径（无 padding）；force_uncond=True 时忽略
+          （null_lang_k/v 是 DiT 自身参数，无 padding 概念）。
 
         输出：v_pred 与 z_t 同形状，对应 velocity 预测。
         """
@@ -854,16 +901,21 @@ class DiTMoT(nn.Module):
 
         # 逐层走 block。每层用 pooled_kv[i] 作为冻结语言 memory；
         # force_uncond=True 时改用 DiT 自带的 null_lang_k/v（CFG 路径）。
+        # null_lang_k/v 是 DiT 参数，所有 sample 共享同一段，无 padding 概念 -> 传 None mask。
         for i, (block, lang_kv) in enumerate(zip(self.blocks, pooled_kv)):
             if force_uncond:
                 null_kv = (
                     self.null_lang_k[i].to(dtype=vision_tokens.dtype),
                     self.null_lang_v[i].to(dtype=vision_tokens.dtype),
                 )
-                vision_tokens = self._maybe_checkpoint(block, vision_tokens, null_kv, cond, True)
+                vision_tokens = self._maybe_checkpoint(
+                    block, vision_tokens, null_kv, cond, True, None
+                )
             else:
                 # lang_kv[0]/[1] torch.Size([1, 8, ~2300, 128])
-                vision_tokens = self._maybe_checkpoint(block, vision_tokens, lang_kv, cond, False)
+                vision_tokens = self._maybe_checkpoint(
+                    block, vision_tokens, lang_kv, cond, False, lang_key_padding_mask
+                )
 
         # final AdaLN：DiT 标准结构，AdaLN 输出 6 个调制向量但 final 只用前 2 个
         # （shift/scale）。后 4 个忽略；保留同一个 AdaLNModulation 类是为了减少
@@ -884,6 +936,7 @@ class DiTMoT(nn.Module):
         lang_kv: Tuple[torch.Tensor, torch.Tensor],
         cond: torch.Tensor,
         is_uncond: bool,
+        lang_key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """统一 block forward 调用点：根据 self.gradient_checkpointing 决定是否包裹 checkpoint。
 
@@ -894,16 +947,27 @@ class DiTMoT(nn.Module):
 
         use_reentrant=False：新版 PyTorch 默认行为，对 DDP / torch.compile 友好；
         老接口的 reentrant=True 在 DDP 下需要 find_unused_parameters=True，开销大。
+
+        lang_key_padding_mask：见 DiTMoTBlock.forward 说明；None 时旧路径行为不变。
         """
 
         # gradient_checkpointing 只在训练且 requires_grad 的张量上启用；eval 模式下走纯前向。
         if self.gradient_checkpointing and self.training and vision_tokens.requires_grad:
+            # checkpoint 是 positional-only：block.forward 的位置参数顺序必须严格匹配；
+            # 这里把 lang_kv_is_projected / lang_key_padding_mask 都按位置传过去。
             return torch.utils.checkpoint.checkpoint(
                 block,
                 vision_tokens,
                 lang_kv,
                 cond,
                 is_uncond,  # 对应 block.forward 的 lang_kv_is_projected 形参；语义已作废
+                lang_key_padding_mask,
                 use_reentrant=False,
             )
-        return block(vision_tokens, lang_kv, cond, lang_kv_is_projected=is_uncond)
+        return block(
+            vision_tokens,
+            lang_kv,
+            cond,
+            lang_kv_is_projected=is_uncond,
+            lang_key_padding_mask=lang_key_padding_mask,
+        )

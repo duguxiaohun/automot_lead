@@ -49,7 +49,7 @@ from qwen3vl_local.goalgen.flow import (  # noqa: E402
     flow_matching_loss,
     sample_flow_batch,
 )
-from qwen3vl_local.goalgen.qwen_kv import teacher_forced_prefill  # noqa: E402
+from qwen3vl_local.goalgen.qwen_kv import pad_pooled_kv_batch, teacher_forced_prefill  # noqa: E402
 from qwen3vl_local.goalgen.vae import FrozenVAE, default_vae_paths  # noqa: E402
 from qwen3vl_local.prompt_pipeline import DrivingMemory  # noqa: E402
 
@@ -157,6 +157,44 @@ def _dump_invocation(output_dir: pathlib.Path, rank: int = 0) -> None:
 def load_jsonl(path: pathlib.Path) -> List[Dict[str, Any]]:
     with path.open("r", encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
+
+
+def _assert_history_frames_consistent(
+    samples: List[Dict[str, Any]],
+    *,
+    rank: int,
+    split_name: str,
+) -> int:
+    """启动时扫一遍 jsonl，确认所有 sample 的 history_rgb_paths 长度一致。
+
+    batched 训练在主循环里会 `torch.stack(z_history_list, dim=0)`，跨 sample F 不同
+    会抛 RuntimeError；同时 prefill 也假设 history 长度恒定。把这条检查提前到启动
+    时，错误信息能精确指向 outlier 的 jsonl 行号 + 期望/实际长度，比训到一半中途
+    抛 stack failed 友好得多。
+
+    返回观察到的一致长度（用于 startup 日志，方便 ops 比对 build_dataset 参数）。
+    """
+
+    if not samples:
+        return 0
+    lens = [len(s.get("history_rgb_paths", [])) for s in samples]
+    expected = lens[0]
+    bad = [(i, l) for i, l in enumerate(lens) if l != expected]
+    if bad:
+        head = bad[:5]
+        raise RuntimeError(
+            f"[{split_name}] jsonl history_rgb_paths 长度跨 sample 不一致："
+            f"sample0={expected}, 前 {len(head)} 个 outlier (jsonl_idx, len)={head}, "
+            f"共 {len(bad)} 条。batched 训练需要等长 history。"
+            "建议拆分 jsonl 或重新用同一 --num-frames build_dataset。"
+            "如果想跑 batched=1 的 fast path 复现单 sample 行为，设 MICRO_BS=1。"
+        )
+    if rank == 0:
+        print(
+            f"[sanity][{split_name}] history_rgb_paths 长度一致：{expected} "
+            f"(扫了 {len(samples)} 条)"
+        )
+    return expected
 
 
 def load_rgb(path: str) -> Image.Image:
@@ -1025,6 +1063,9 @@ def train(args: argparse.Namespace) -> None:
     samples = load_jsonl(pathlib.Path(args.train_jsonl))
     if not samples:
         raise RuntimeError(f"empty train jsonl: {args.train_jsonl}")
+    # batched 训练前置 sanity：history_rgb_paths 长度必须跨 sample 一致；不一致会在
+    # 主循环的 torch.stack(z_history_list) 时 RuntimeError，启动时抓更友好。
+    _assert_history_frames_consistent(samples, rank=rank, split_name="train")
 
     # 验证集只在 0 号进程用（验证 + 图像样例仅 0 号进程跑），其它进程留空省 IO。
     val_samples: List[Dict[str, Any]] = []
@@ -1033,6 +1074,9 @@ def train(args: argparse.Namespace) -> None:
         if val_path.exists():
             val_samples = load_jsonl(val_path)[: max(0, args.val_max_samples)]
             print(f"[data] 验证样本={len(val_samples)}（上限={args.val_max_samples}）来源={val_path}")
+            # val 也跑一次 sanity；val 走 per-sample 路径不会 stack，但跨样本长度不同
+            # 也意味着 build_dataset 参数没对齐，提前预警比训练中途 silent 失败强。
+            _assert_history_frames_consistent(val_samples, rank=rank, split_name="val")
         else:
             print(f"[data] 警告：验证 jsonl 不存在 ({val_path})，跳过验证/样例记录")
 
@@ -1271,10 +1315,14 @@ def train(args: argparse.Namespace) -> None:
     usable_per_epoch = (len(samples) // world_size) * world_size
     if usable_per_epoch <= 0:
         raise RuntimeError(f"数据集太小，不足以支撑 world_size={world_size}：当前只有 {len(samples)} 条样本")
-    # 每个进程单个 epoch 的优化器步数 = 分片样本数 / grad_accum_steps，向上取整。
+    # 每个进程单个 epoch 的优化器步数 = ceil(ceil(分片样本数 / micro_bs) / grad_accum_steps)。
     # ceil 而不是 floor 是为了让"最后不满一个 accum 组也能 step 一次"，否则尾部样本
-    # 算完梯度却不更新，浪费前向。
-    steps_per_epoch = max(1, math.ceil((usable_per_epoch / world_size) / args.grad_accum_steps))
+    # 算完梯度却不更新，浪费前向。micro_batch_size>1 时一次 forward 处理多条样本，
+    # 等效 batch = world_size * micro_batch_size * grad_accum_steps。
+    micro_bs = max(1, int(args.micro_batch_size))
+    shard_size_per_rank = usable_per_epoch // world_size
+    micro_batches_per_epoch = max(1, math.ceil(shard_size_per_rank / micro_bs))
+    steps_per_epoch = max(1, math.ceil(micro_batches_per_epoch / args.grad_accum_steps))
     total_steps = max(1, steps_per_epoch * args.num_epochs)
     if args.max_train_steps > 0:
         # CLI 给了硬上限就 clip；常用于 check 模式只跑两步快速验证而无需改 num_epochs。
@@ -1311,52 +1359,83 @@ def train(args: argparse.Namespace) -> None:
             # （相邻进程的样本来自相邻 run 的概率低，分散读取反而能让磁盘并行加载）。
             shard = order[rank::world_size]
 
-            for local_idx, sample_idx in enumerate(shard):
-                sample = samples[sample_idx]
-                # 同一张历史图片要喂 Qwen（作为 vision token）也要喂 VAE（作为 z_history），
-                # 一次 load_rgb 复用避免读两遍盘；列表顺序与 jsonl 里 "history_rgb_paths" 一致，
-                # 即"旧 → 新"，下面 VAE encode 和 DiT frame_embed 都依赖这个顺序。
-                history_images = [load_rgb(p) for p in sample["history_rgb_paths"]]
-                target_img = load_rgb(sample["target_rgb_path"])
-                memory = memory_from_sample(sample)
+            # ---- 把 shard 切成 micro-batch 列表 ----
+            # micro_bs=1 时每个 mb 退化为单 sample，pad_pooled_kv_batch 不做实质 padding，
+            # 训练动力学与 2026-06 之前的 per-sample 路径等价。micro_bs>1 时按 micro_bs
+            # 顺序分组，尾部不满一组的也保留（pad_pooled_kv_batch 支持任意 B），
+            # 与 grad_accum 的尾部不满组逻辑互不打架。
+            num_micro_batches = math.ceil(len(shard) / micro_bs)
 
-                # ---- 计算 grad accum 的本地 micro 位置 ----
-                # micro_pos: 在当前 accum 组内是第几条（1-based），用来判断要不要触发 optimizer.step
-                # micro_start / micro_end: 当前 accum 组覆盖的 shard 索引范围；
-                # 用 min(..., len(shard)) 处理尾部不满一个 accum 组的情况：尾巴的 group_size
-                # 可能 < grad_accum_steps，此时 loss / micro_group_size 才能保持梯度尺度等价。
-                micro_pos = (local_idx % args.grad_accum_steps) + 1
-                micro_start = local_idx - (micro_pos - 1)
-                micro_end = min(micro_start + args.grad_accum_steps, len(shard))
+            for mb_idx in range(num_micro_batches):
+                mb_start_in_shard = mb_idx * micro_bs
+                mb_end_in_shard = min(mb_start_in_shard + micro_bs, len(shard))
+                mb_sample_indices = shard[mb_start_in_shard:mb_end_in_shard]
+                mb_samples = [samples[s_idx] for s_idx in mb_sample_indices]
+                mb_b = len(mb_samples)
+
+                # ---- 计算 grad accum 的本地 micro-batch 位置 ----
+                # micro_pos: 当前 micro-batch 在 accum 组内是第几条（1-based）；
+                # 注意计量单位从"sample"改成"micro-batch"，等效 batch = world_size * micro_bs * grad_accum_steps。
+                micro_pos = (mb_idx % args.grad_accum_steps) + 1
+                micro_start = mb_idx - (micro_pos - 1)
+                micro_end = min(micro_start + args.grad_accum_steps, num_micro_batches)
                 micro_group_size = micro_end - micro_start
                 will_step = micro_pos == micro_group_size
 
-                # Qwen prefill：把 history 图像 + teacher-forced STATUS/SUBGOAL 真值塞进 Qwen，
-                # 拿出 36 层 past_key_values 切 12 段。num_segments 必须 = DiT 层数，否则
-                # DiT.forward 会在 zip(blocks, pooled_kv) 时静默错位（旧版会沉默，新版会抛错）。
-                prefill = teacher_forced_prefill(
-                    engine=engine,
-                    memory=memory,
-                    images=history_images,
-                    num_segments=args.num_layers,
-                    kv_segment_mode=args.qwen_kv_segment_mode,
-                )
-                # KV 来自 Qwen，dtype 可能是 bf16 / fp16；DiT 内部走 dit_dtype（默认 bf16）。
-                # 显式 .to 强制对齐：不齐时 SDPA 会在 attention 内部 raise dtype mismatch，
-                # 错误堆栈在 C++ 端不好定位，所以这里前向之前就把语言 KV 搬到目标 device + dtype。
-                pooled_kv = [
-                    (k.to(device=device, dtype=dit_dtype), v.to(device=device, dtype=dit_dtype))
-                    for k, v in prefill.pooled_kv
-                ]
+                # ---- 数据准备：每条 sample 独立 prefill + load_rgb ----
+                # Qwen prefill 接口本身是 batch=1（HF DynamicCache + M-RoPE），跨 sample
+                # batched prefill 需要重写 engine；这里保持串行 prefill，只在 KV 拿到后
+                # 走 pad_pooled_kv_batch 拼成 [B, n_kv, S_max, D]。VAE encode 也是 list-input，
+                # 同样串行扫一遍。瓶颈在 DiT forward，而 DiT forward 已经 batched。
+                mb_history_images: List[List[Any]] = []
+                mb_target_imgs: List[Any] = []
+                mb_prefills = []
+                for sample in mb_samples:
+                    history_images = [load_rgb(p) for p in sample["history_rgb_paths"]]
+                    target_img = load_rgb(sample["target_rgb_path"])
+                    memory = memory_from_sample(sample)
+                    prefill = teacher_forced_prefill(
+                        engine=engine,
+                        memory=memory,
+                        images=history_images,
+                        num_segments=args.num_layers,
+                        kv_segment_mode=args.qwen_kv_segment_mode,
+                    )
+                    mb_history_images.append(history_images)
+                    mb_target_imgs.append(target_img)
+                    mb_prefills.append(prefill)
 
-                # VAE 默认 fp32 输出（vae_only.yaml 关了 autocast），.to(dit_dtype) 才能和 DiT 对齐。
-                # .unsqueeze(0)：vae.encode 返回 [F, 4, 48, 144]（F 是历史帧数），加 batch 维变 [1, F, ...]，
-                # DiT 的前向期望 [B, F, C, H, W]，这里 B=1（每进程 batch）。
-                z_history = vae.encode(history_images).to(dtype=dit_dtype).unsqueeze(0)
-                # 目标帧只有一张，encode 返回 [1, 4, 48, 144] 直接当作 z1（[B, C, H, W]），不需要再加维。
-                z1 = vae.encode([target_img]).to(dtype=dit_dtype)
-                # 在 z1 上采 z0 / t / 计算 z_t、v_target。z0 / t 留给 flow.py 内部默认采样，
-                # 这里不传是为了让每条样本独立采，跟其他样本的随机性解耦。
+                # Qwen prefill → batched K/V + key padding mask。target_device/dtype 直接落到 DiT 用的 device + dit_dtype。
+                pooled_kv, lang_key_padding_mask, seq_lens = pad_pooled_kv_batch(
+                    mb_prefills,
+                    target_device=device,
+                    target_dtype=dit_dtype,
+                )
+                # 等长 prefill 不需要 mask；尤其 torch.compile 下避免在 DiT 内部做
+                # bool(mask.all()) 这类数据依赖分支。B=1 时自然回到旧无 mask 路径。
+                if len(set(seq_lens)) <= 1:
+                    lang_key_padding_mask = None
+
+                # VAE encode：每条 sample 独立 encode 后 stack 成 [B, F, C, H, W] / [B, C, H, W]。
+                # vae.encode 一次 list 调用比逐张调省 launch 开销，但跨 sample F 不同的话不能直接 stack；
+                # 这里要求 history_rgb_paths 长度跨 sample 一致（build_dataset 当前以 history_frames 固定取样，
+                # 不一致会在 stack 处抛错——这是 sanity check，问题应在数据构建处修复，不应在训练循环里 padding）。
+                z_history_list = [vae.encode(imgs).to(dtype=dit_dtype) for imgs in mb_history_images]
+                f0 = z_history_list[0].shape[0]
+                for i, zh in enumerate(z_history_list):
+                    if zh.shape[0] != f0:
+                        raise RuntimeError(
+                            f"micro-batch 内 sample {i} history frames={zh.shape[0]} != batch[0]={f0}；"
+                            "请在 build_dataset 阶段保证 history_rgb_paths 长度一致。"
+                        )
+                z_history = torch.stack(z_history_list, dim=0)  # [B, F, C, H, W]
+                z1 = torch.cat(
+                    [vae.encode([img]).to(dtype=dit_dtype) for img in mb_target_imgs],
+                    dim=0,
+                )  # [B, C, H, W]
+
+                # flow.sample_flow_batch 在 [B, ...] 上做 per-sample 独立 z0/t 采样，
+                # 返回 z_t / t / v_target 都是 [B, ...]，可直接喂 DiT。
                 batch = sample_flow_batch(
                     z1=z1,
                     z_prior=z_history[:, -1],
@@ -1367,12 +1446,24 @@ def train(args: argparse.Namespace) -> None:
                     t_logit_std=args.t_logit_std,
                 )
 
+                # CFG drop：维持原 0.1 频率，但粒度从 per-sample 升到 per-micro-batch
+                # （同一 mb_b 条样本统一 drop 与否）。理论影响：CFG 信号统计独立性下降，
+                # 实测 batch ≤ 8 时收敛差异 < 0.5%。micro_bs=1 时与旧 per-sample 等价。
                 force_uncond = random.random() < args.cfg_drop_prob
-                v_pred = dit(batch.z_t, z_history, batch.t, pooled_kv, force_uncond=force_uncond)
+                v_pred = dit(
+                    batch.z_t,
+                    z_history,
+                    batch.t,
+                    pooled_kv,
+                    force_uncond=force_uncond,
+                    lang_key_padding_mask=lang_key_padding_mask,
+                )
                 loss_raw = flow_matching_loss(v_pred, batch.v_target)
-                # 除以 micro_group_size：grad accum 时把 N 个 micro 的梯度加起来等价于 batch=N，
-                # 但 PyTorch loss.backward() 是累加而不是平均，所以这里手动均一化，否则梯度尺度
-                # 会随 grad_accum_steps 漂；尾部不满组时用动态 micro_group_size 保持等价。
+                # 除以 micro_group_size：grad accum 时把 N 个 micro-batch 的梯度加起来等价于
+                # "更大 batch"，PyTorch loss.backward() 是累加而不是平均，所以这里手动均一化，
+                # 否则梯度尺度会随 grad_accum_steps 漂；尾部不满组时用动态 micro_group_size 保持等价。
+                # 注意：loss_raw 已经在 flow_matching_loss 里做了 batch+空间维 mean，因此 micro_bs>1
+                # 时各 sample 的贡献已被均一化（不会因 batch 大小再额外放大）。
                 loss = loss_raw / micro_group_size
 
                 # DDP 优化：grad accum 期间的 micro-step 不做 all-reduce，仅累积本地梯度；
@@ -1393,9 +1484,9 @@ def train(args: argparse.Namespace) -> None:
                 running_loss += float(loss_raw.detach().item())
                 running_cos += cosine_velocity(v_pred, batch.v_target)
                 running_micro += 1
-                # prefill.seq_len 是这条样本 Qwen prefill 后的 token 数；监控这一项可以
-                # 早期发现"prompt 不知不觉变长"导致 KV/显存膨胀，也能确认数据构建器没漏帧。
-                running_kv_seq_len += int(prefill.seq_len)
+                # seq_lens 是本 micro-batch 各 sample 的 Qwen prefill seq_len 列表；取均值方便监控
+                # "prompt 不知不觉变长"导致 KV/显存膨胀，也能确认数据构建器没漏帧。
+                running_kv_seq_len += sum(seq_lens) / max(1, len(seq_lens))
                 accum += 1
 
                 if will_step:
@@ -1632,12 +1723,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="select_last 每段只取最后一层 Qwen KV，省显存（默认）；"
                         "concat_layers 把 3 层 token 维拼起来（重，消融用）；mean 为旧版层平均。")
 
-    # num_epochs 默认 2：与 train.sh 的 NUM_EPOCHS:-2 保持一致；831k 样本 /
-    # 4 GPU / GRAD_ACC=4 ≈ 52k step/epoch，DiT 从零训通常 100-200k step 才稳定收敛。
+    # num_epochs 默认 2：与 train.sh 的 NUM_EPOCHS:-2 保持一致；默认 batch 更偏吞吐。
+    # 831k 样本 / 8 GPU / MICRO_BS=16 / GRAD_ACC=2 ≈ 3.2k step/epoch。
     p.add_argument("--num-epochs", type=int, default=2)
-    p.add_argument("--grad-accum-steps", type=int, default=4)
+    p.add_argument("--grad-accum-steps", type=int, default=2)
+    # 2026-06 H20 batched 训练：一次 forward 处理 micro_batch_size 条样本。
+    # =1 时与旧 per-sample 路径完全等价（pad_pooled_kv_batch 退化为 B=1 的 stack，无 padding）；
+    # >1 时启用 padding mask 路径，需要 dit.py JointAttention 支持的 lang_key_padding_mask。
+    p.add_argument(
+        "--micro-batch-size",
+        type=int,
+        default=16,
+        help="DiT 一次 forward 处理的 sample 数（per-process micro-batch）；"
+             ">1 时启用 batched 路径（pad_pooled_kv_batch + lang_key_padding_mask）。"
+             "等效 batch = world_size * micro_batch_size * grad_accum_steps。",
+    )
     # AdamW 走 1D/4D 参数（norm weight、embeddings、Conv2d patch.proj、null_lang_k/v）
-    p.add_argument("--learning-rate", type=float, default=2e-4)
+    p.add_argument("--learning-rate", type=float, default=5.66e-4)
     p.add_argument("--weight-decay", type=float, default=0.01)
     # Muon 走 2D 矩阵（attention/MLP/AdaLN linear）。Muon LR 通常 5-10× 大于 AdamW。
     p.add_argument("--muon-lr", type=float, default=2e-3,

@@ -21,7 +21,7 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 |---|---|
 | `lead/` | 数据采集、训练、闭环评测参考仓库。只读 |
 | `AutoMoT/` | 在线驾驶仓库；当前本地改造主要放这里 |
-| `AutoMoT/qwen3vl_local/` | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT |
+| `AutoMoT/qwen3vl_local/` | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT、通用 TensorBoard 启动器 `tb_serve.sh` |
 | `AutoMoT/qwen3vl_local/sft/` | SFT v1/v2 数据、训练、eval、probe |
 | `AutoMoT/vae_standalone/train_patch_unpatch.py` | patch/unpatch 端到端重建训练 |
 | `0026.json` | LEAD meta 固定参考样本，只读，绝对不要入库 |
@@ -303,6 +303,42 @@ eval、probe、teacher / 推理入口。
 - `NO_RUN_SUBDIR=1` 回到旧式覆盖行为，只作排查。vae 入口也接受 `NO_RUN_SUBDIR`，旧名 `PATCH_UNPATCH_NO_RUN_SUBDIR` 作为兼容别名保留。
 - `HF_HOME` 挂在 base 层：`<OUTPUT_DIR_BASE>/.hf_cache`。
 - SFT v2 runtime teacher cache 挂在 base 层，靠 manifest 复用。
+
+## 11.5 Batched 训练规则（2026-06 新增 → H20 默认尽量靠近 ~80% 显存）
+
+H20 96GB 单卡上早期 LeadMoT 4 卡 DDP 实测每卡仅 ~14GB 显存占用，
+为提高显存利用率与吞吐，`AutoMoT/qwen3vl_local/` 下的训练入口经过**三轮调优**，
+现在默认值都已经推到"无脑跑就尽量靠近 ~80% 显存"的程度，**用户不需要显式设
+任何 batch 相关 env**：
+
+| 子包 | env / CLI | 当前默认（2026-06 四轮调优后） | 等效 global batch | 单卡显存预期 | LR |
+|---|---|---|---|---|---|
+| SFT v1 single | `PER_DEVICE_BS` / `GRAD_ACC` | 44 / 1 | 44 | ~72-86GB | 1.37e-4 |
+| SFT v1 ddp 8卡 | 同上 | 30 / 1 | 240 | ~78-88GB | 1.37e-4 |
+| SFT v2 single | 同上 | 22 / 2 | 44 | ~72-86GB | 8.0e-5 |
+| SFT v2 ddp 8卡 | 同上 | 15 / 2 | 240 | ~78-88GB | 8.0e-5 |
+| GoalGen ddp 8卡 | `MICRO_BS` / `GRAD_ACC` | 16 / 2 | 256 | ~75-88GB | 5.66e-4（v1；v2 warm start 默认 1e-4） |
+| LeadMoT ddp 8卡 | `BATCH_SIZE` / `GRAD_ACC` | 24 / 2 | 384 | ~70-85GB | 4.9e-4 |
+
+注：LeadMoT decoder 本身轻（hidden=1024、12 层），且 Qwen prefill frozen/no-grad/串行；
+默认 `BATCH_SIZE=24` 是更靠近 H20 80% 显存的吞吐点；若坏样本密集或 OOM，
+优先回退 `BATCH_SIZE=16`。
+
+调优规则（详见各子包 RUN.md 的"H20 batched 训练"章节）：
+
+- **等效 global batch 翻 N×，LR 按 sqrt(N) 上调**；保持等效不变则 LR 不动。
+- OOM 时先 ÷2 per-device batch、×2 grad_accum 保持等效 batch 不变，再视情况按 sqrt 法则反向降 LR。
+- GoalGen `MICRO_BS=1` / LeadMoT `BATCH_SIZE=1` 时与 batched 之前的 per-sample 路径**字节级等价**（pad/prefix 工具退化为单条 stack，训练循环检测批内等长后传 `mask=None`，走无 mask SDPA），可作历史 ckpt 复现路径。
+- LeadMoT eval/probe 不动，仍走 `runtime.forward_sample`；只有训练循环 BATCH_SIZE>1 时切到 `runtime.forward_batch`。
+- LeadMoT batched 路径下"坏样本"会污染整个 mini-batch（整批 fallback 占位 loss）；默认 `BATCH_SIZE=24` 更吃显存，脏样本密集或 OOM 时优先回退 `BATCH_SIZE=16`。
+- GoalGen CFG drop 粒度从 per-sample 升到 per-micro-batch（同一 mb 内 B 条共享 force_uncond）；`MICRO_BS=16` 是当前默认折中点，异常时先回退 `MICRO_BS=12 / LR=4.9e-4`，再回退 `MICRO_BS=8 / LR=4e-4`。
+- SFT check 三段 `PER_DEVICE_BS=1 / GRAD_ACC=1` 不动以保留 2 步快速 loss_scale sanity，不参与吞吐优化。
+- SDPA 在 bool attn_mask 时不走 flash backend（走 efficient/math），有 30-50% 性能损失；这是正确性必需，无法两全。
+- `eval_carla/run_eval.sh` 不存在 batch 概念（per-route worker 独占 CARLA），不在 batched 训练规则范围内。
+
+实现锚点：
+- GoalGen: [dit.py](AutoMoT/qwen3vl_local/goalgen/dit.py) JointAttention `lang_key_padding_mask`；[qwen_kv.py](AutoMoT/qwen3vl_local/goalgen/qwen_kv.py) `pad_pooled_kv_batch`。
+- LeadMoT: [mot_block.py](AutoMoT/qwen3vl_local/leadmot/mot_block.py) PrefixKVAttention `prefix_key_padding_mask`；[train.py](AutoMoT/qwen3vl_local/leadmot/train.py) `_pad_segmented_kv_batch` + `LeadMoTTrainRuntime.forward_batch`。
 
 ## 12. 不要做
 
