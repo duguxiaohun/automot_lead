@@ -871,6 +871,19 @@ def _make_scheduler(optimizer: torch.optim.Optimizer, total_steps: int, warmup_r
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
+def _epoch_step_progress(
+    global_step: int,
+    epoch: int,
+    updates_per_epoch: int,
+    total_steps: int,
+) -> tuple[int, int]:
+    """把全局 optimizer step 映射成当前 epoch 内的 1-based 进度。"""
+    epoch_start_step = int(epoch) * int(updates_per_epoch)
+    epoch_total_steps = max(1, min(int(updates_per_epoch), max(1, int(total_steps) - epoch_start_step)))
+    epoch_step = max(1, min(epoch_total_steps, int(global_step) - epoch_start_step))
+    return epoch_step, epoch_total_steps
+
+
 def _save_checkpoint(
     path: Path,
     decoder: torch.nn.Module,
@@ -1596,8 +1609,12 @@ def main() -> None:
                 if rank == 0 and global_step % args.logging_steps == 0:
                     elapsed = max(time.time() - log_start, 1e-6)
                     lr = optimizer.param_groups[0]["lr"]
+                    epoch_step, epoch_total_steps = _epoch_step_progress(
+                        global_step, epoch, updates_per_epoch, total_steps
+                    )
                     print(
-                        f"step={global_step} epoch={epoch + 1} loss={loss.item():.4f} "
+                        f"epoch={epoch} step={epoch_step}/{epoch_total_steps} "
+                        f"global_step={global_step}/{total_steps} loss={loss.item():.4f} "
                         f"route={route_loss.item():.4f} wp={waypoint_loss.item():.4f} "
                         f"route_fde={train_metrics['route_fde_m']:.2f}m "
                         f"wp_fde={train_metrics['waypoint_fde_m']:.2f}m "
@@ -1663,8 +1680,12 @@ def main() -> None:
                             rank, world_size, ema=ema,
                         )
                     if rank == 0:
+                        epoch_step, epoch_total_steps = _epoch_step_progress(
+                            global_step, epoch, updates_per_epoch, total_steps
+                        )
                         msg = (
-                            f"val step={global_step} loss={val_summary['loss']:.4f} "
+                            f"val epoch={epoch} step={epoch_step}/{epoch_total_steps} "
+                            f"global_step={global_step}/{total_steps} loss={val_summary['loss']:.4f} "
                             f"route_fde={val_summary['route_fde_m']:.2f}m "
                             f"wp_fde={val_summary['waypoint_fde_m']:.2f}m"
                         )
