@@ -551,6 +551,11 @@ def main() -> None:
                         help="不算 token-level loss（只 dump prompt/GT/pred + 图），加速 probe")
     args = parser.parse_args()
 
+    case_root = pathlib.Path(args.save_root) / "eval_cases"
+    case_root.mkdir(parents=True, exist_ok=True)
+    from qwen3vl_local.run_log import install_output_log
+    install_output_log(case_root)
+
     samples = read_jsonl(args.val_jsonl)
     # 显式打印数据集版本，避免误把 v1 LoRA 挂到 v2 数据集上跑 probe。
     ds_ver = samples[0].get("dataset_version", "v1") if samples else "unknown"
@@ -589,9 +594,6 @@ def main() -> None:
             engine.model.eval()
 
     from PIL import Image  # type: ignore
-
-    case_root = pathlib.Path(args.save_root) / "eval_cases"
-    case_root.mkdir(parents=True, exist_ok=True)
 
     summary_records: List[Dict[str, Any]] = []
     for sample_idx, sample in picked:

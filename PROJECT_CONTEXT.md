@@ -180,13 +180,21 @@ DataLoader worker：
   默认自动选 1 张空闲 GPU，`--num-gpus N` 或 `EVAL_GPU_COUNT=N` 会自动选 N 张空闲 GPU，
   每张卡一个 worker、独立端口槽，round-robin 分 route。launcher 只扫描空闲
   `[rpc..rpc+3, tm]` 端口块并实时 tail worker log；CARLA server 由
-  `leaderboard_evaluator.py` 在 worker 进程内启动并清理，避免双重启动抢端口。
+  `leaderboard_evaluator.py` 在 worker 进程内启动并清理，避免双重启动抢端口。worker log
+  只落 `/tmp/leadmot_eval_workers.*` 临时目录，退出后删除，不在结果目录持久保存。
 - **输出按跑法分目录**：
   - `<signature>/route<id>/` 视频与 `<signature>/eval_per_route/eval_<id>.json` 跨跑法共享
     （断点续跑）
-  - `<signature>/runs/<RUN_LABEL>/{summary_all.json, scenarios/, run_manifest.json}`
-    本批次聚合，按 `full` / `scenario_X` / `random_NN_SK` / `routes_A+B` 等自动命名
-  - `<signature>/summary_all.json` 是跨批次总聚合（所有已评估 route）
+  - `<signature>/runs/<RUN_LABEL>/` 本批次聚合，按 `full` / `scenario_X` /
+    `random_NN_SK` / `routes_A+B` / `smoke_<id>` 等自动命名；始终写
+    `summary_all.json`、`summary_report.md`、`scenario_table.csv`、
+    `route_results.csv`、`run_manifest.json` 与 `scenarios/<Scenario>/summary.json`
+    （`log.txt` 记录本批终端 stdout/stderr；`run_manifest.json` 含 started/finished 时间、attempted_count、failed_routes、worker_fail）
+  - `summary_report.md` 是人类可读实验总结，解释 planned/evaluated/coverage/success_rate/
+    perfect_rate/score/infractions；`scenario_table.csv` 是论文表格友好汇总，
+    `route_results.csv` 是每条 route 状态/分数/违规明细
+  - `<signature>/summary_all.json` 是跨批次总聚合（所有已评估 route）；有 manifest 的
+    run 聚合会把计划但缺失 eval JSON 的路线记为 `MISSING_EVAL_JSON` 并计入成功率分母
 - 输出 signature 包含 ckpt 父目录、ckpt stem、`bev{0|1}`、`ema{0|1}`，避免不同模型/BEV/raw-EMA 覆盖。
 - 五路视频：`input` / `debug`（相机 overlay） / `bev_debug`（顶视 LiDAR+pred+tp+ego box，
   LEAD `video_recorder` BEV pseudo-image 等价）/ `demo`（spawn cinematic + 顶视 carla camera）
@@ -335,6 +343,9 @@ eval、probe、teacher / 推理入口。
 - Python VAE 入口由 rank0 生成 run tag 后 broadcast 给其它 rank。
 - `NO_RUN_SUBDIR=1` 回到旧式覆盖行为，只作排查。vae 入口也接受 `NO_RUN_SUBDIR`，旧名 `PATCH_UNPATCH_NO_RUN_SUBDIR` 作为兼容别名保留。
 - `HF_HOME` 挂在 base 层：`<OUTPUT_DIR_BASE>/.hf_cache`。
+- `AutoMoT/qwen3vl_local` 下训练 / eval / probe / eval_carla launcher 默认会在本次产物同目录追加
+  `log.txt` 保存终端 stdout/stderr；外层 shell 已 tee 时用 `QWEN3VL_LOG_ACTIVE=1`
+  防止重复记录，可用 `QWEN3VL_LOG_TO_FILE=0` 临时关闭。
 - SFT v2 runtime teacher cache 挂在 base 层，靠 manifest 复用。
 
 ## 12. 不要做

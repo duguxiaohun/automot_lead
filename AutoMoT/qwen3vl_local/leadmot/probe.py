@@ -292,6 +292,8 @@ def main() -> None:
     rows = _read_jsonl(Path(args.jsonl))
     output_dir = _resolve_output_dir(args)
     output_dir.mkdir(parents=True, exist_ok=True)
+    from qwen3vl_local.run_log import install_output_log
+    install_output_log(output_dir)
     invocation_root = Path(args.save_root) if args.save_root else output_dir.parent
     _dump_invocation(invocation_root, rank=0)
 

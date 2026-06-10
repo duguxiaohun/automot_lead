@@ -1135,8 +1135,11 @@ def main():
     # ---- 分布式初始化（H）----
     # 单卡 = world_size=1，所有 if rank0 分支恒进，无任何行为差异。
     rank, local_rank, world_size = setup_distributed()
-    _dump_invocation(pathlib.Path(args.save_root), rank=rank)
     out_paths = _resolve_output_paths(args)
+    out_paths["eval_dir"].mkdir(parents=True, exist_ok=True)
+    from qwen3vl_local.run_log import install_output_log
+    install_output_log(out_paths["eval_dir"], rank=rank)
+    _dump_invocation(pathlib.Path(args.save_root), rank=rank)
 
     if is_rank0(rank):
         print(f"[eval] world_size={world_size} rank={rank} local_rank={local_rank}")

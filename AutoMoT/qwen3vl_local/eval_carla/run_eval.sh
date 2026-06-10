@@ -36,12 +36,29 @@
 #       route<route_id>/
 #           input.mp4 debug.mp4 demo.mp4 grid.mp4
 #           meta/<step>.json
-#           logs/
-#       scenarios/<Scenario>/summary.json    （聚合脚本写）
-#       summary_all.json
+#       runs/<RUN_LABEL>/log.txt             本次终端 stdout/stderr
+#       runs/<RUN_LABEL>/summary_all.json
+#       runs/<RUN_LABEL>/summary_report.md   人类可读实验总结
+#       runs/<RUN_LABEL>/scenario_table.csv  论文表格友好的 scenario 汇总
+#       runs/<RUN_LABEL>/route_results.csv   route 级明细
 # ============================================================
 
 set -u
+
+# -------------------- 早期输出缓存 --------------------
+# RUN_DIR 要等 ckpt 反查 + scenario picker + RUN_LABEL 拼好以后才知道，
+# 在这之前 echo 出去的状态行（ckpt 解析、CARLA_ROOT、GPU 自动选址、port 起点等）
+# 会落不到 log.txt。这里用一个 tempfile 把这些行存起来，等 RUN_DIR 创建后
+# 一次性 append 到 log.txt 头部，保证“终端看到什么 log.txt 就有什么”。
+# GNU mktemp 要求模板以 X 结尾，不能再加 .log 后缀；这里就用纯随机名做 buffer 文件。
+EARLY_LOG=$(mktemp "${TMPDIR:-/tmp}/leadmot_eval_early.XXXXXX") || EARLY_LOG=""
+say_early() {
+    # 终端实时打印 + 同步追加到 EARLY_LOG；RUN_DIR 已知后再批量 flush 到 log.txt。
+    printf "%s\n" "$*"
+    if [ -n "${EARLY_LOG}" ] && [ -f "${EARLY_LOG}" ]; then
+        printf "%s\n" "$*" >> "${EARLY_LOG}"
+    fi
+}
 
 # -------------------- 参数解析 --------------------
 LEADMOT_CKPT=""
@@ -146,7 +163,7 @@ print(
 sys.exit(1)
 PY
 ) || exit 1
-echo "Resolved LeadMoT checkpoint: ${LEADMOT_CKPT}"
+say_early "Resolved LeadMoT checkpoint: ${LEADMOT_CKPT}"
 
 # -------------------- 路径自动探测 --------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -164,7 +181,7 @@ if [ -z "${CARLA_ROOT:-}" ]; then
     else
         echo "ERROR: CARLA_ROOT not set"; exit 1
     fi
-    echo "Auto-detected CARLA_ROOT=${CARLA_ROOT}"
+    say_early "Auto-detected CARLA_ROOT=${CARLA_ROOT}"
 fi
 
 # -------------------- GPU 自动选址（项目统一规则） --------------------
@@ -179,29 +196,29 @@ if command -v nvidia-smi >/dev/null 2>&1; then
             | awk -F ',' -v n="${GPU_COUNT}" 'NR<=n {gsub(/ /, "", $1); print $1}'
     )
 else
-    echo "WARN: nvidia-smi not found; falling back to GPU ids 0..$((GPU_COUNT - 1))"
+    say_early "WARN: nvidia-smi not found; falling back to GPU ids 0..$((GPU_COUNT - 1))"
     for ((i=0; i<GPU_COUNT; i++)); do GPU_IDS+=("${i}"); done
 fi
 if [ "${#GPU_IDS[@]}" -eq 0 ]; then
     GPU_IDS=("0")
 fi
 if [ "${#GPU_IDS[@]}" -lt "${GPU_COUNT}" ]; then
-    echo "WARN: requested ${GPU_COUNT} GPU(s), but only found ${#GPU_IDS[@]}; using ${#GPU_IDS[@]}"
+    say_early "WARN: requested ${GPU_COUNT} GPU(s), but only found ${#GPU_IDS[@]}; using ${#GPU_IDS[@]}"
     GPU_COUNT="${#GPU_IDS[@]}"
 fi
 if [ "${SINGLE_TEST}" = "1" ] && [ "${GPU_COUNT}" -gt 1 ]; then
     # single-test 是烟雾测试，固定只跑第一条 route；开多 worker 反而会浪费 CARLA 实例。
-    echo "single-test enabled; using one GPU worker"
+    say_early "single-test enabled; using one GPU worker"
     GPU_COUNT="1"
     GPU_IDS=("${GPU_IDS[0]}")
 fi
-echo "Auto-selected GPU ids: ${GPU_IDS[*]} (workers=${GPU_COUNT})"
+say_early "Auto-selected GPU ids: ${GPU_IDS[*]} (workers=${GPU_COUNT})"
 
 PORT_BASE_START="${PORT_BASE_START:-5000}"
 PORT_STRIDE="${PORT_STRIDE:-20}"
 # 每个 worker 会启动一个 CARLA server。CARLA 除 RPC 端口外还会占用 streaming 等邻近端口，
 # 所以用 PORT_STRIDE 给不同 GPU 留出端口槽，降低并行时端口冲突概率。
-echo "Port scan: start=${PORT_BASE_START}, stride=${PORT_STRIDE}; each worker gets a free [rpc..rpc+3, tm] block"
+say_early "Port scan: start=${PORT_BASE_START}, stride=${PORT_STRIDE}; each worker gets a free [rpc..rpc+3, tm] block"
 
 # -------------------- 输出目录 --------------------
 EVAL_OUTPUT_BASE="${EVAL_OUTPUT_BASE:-${AUTOMOT_ROOT}/outputs/closed_loop_eval}"
@@ -290,6 +307,10 @@ fi
 mapfile -t ROUTE_IDS < <(python3 "${PICKER}" "${PICKER_ARGS[@]}")
 TOTAL=${#ROUTE_IDS[@]}
 if [ "${TOTAL}" -eq 0 ]; then
+    # 早退也清理 EARLY_LOG 临时文件，避免 /tmp 残留。
+    if [ -n "${EARLY_LOG}" ] && [ -f "${EARLY_LOG}" ]; then
+        rm -f "${EARLY_LOG}"
+    fi
     echo "No route IDs to evaluate (after filters). Exit."
     exit 0
 fi
@@ -297,7 +318,7 @@ fi
 # -------------------- 计算 RUN_LABEL --------------------
 # 按跑法语义自动生成本批次目录名，让 random/scenario/full 的聚合互不污染。
 # route 视频和 leaderboard json 仍写在 signature 根（共享、断点续跑）；
-# 仅 scenarios/ 和 summary_all.json 落到 runs/<RUN_LABEL>/ 下。
+# 聚合报告、manifest 和 log.txt 落到 runs/<RUN_LABEL>/ 下。
 if [ -n "${RUN_LABEL_OVERRIDE}" ]; then
     RUN_LABEL="${RUN_LABEL_OVERRIDE}"
 elif [ "${SINGLE_TEST}" = "1" ]; then
@@ -325,14 +346,31 @@ else
         RUN_LABEL="full"
     else
         # 多个过滤器组合时用双下划线分隔
-        IFS='__' joined_parts="${parts[*]}"; unset IFS
-        RUN_LABEL="${joined_parts}"
+        RUN_LABEL="${parts[0]}"
+        for ((i = 1; i < ${#parts[@]}; i++)); do
+            RUN_LABEL="${RUN_LABEL}__${parts[$i]}"
+        done
     fi
 fi
-# 清洗：把不能进文件名的字符替换成 _
-RUN_LABEL=$(echo "${RUN_LABEL}" | tr -c 'A-Za-z0-9._+-' '_' | sed 's/__*/_/g; s/^_//; s/_$//')
+# 清洗：把不能进文件名的字符替换成 _；保留 "__" 作为组合过滤器分隔符。
+RUN_LABEL=$(echo "${RUN_LABEL}" | tr -c 'A-Za-z0-9._+-' '_' | sed 's/^_//; s/_$//')
 RUN_DIR="${SIG_DIR}/runs/${RUN_LABEL}"
 mkdir -p "${RUN_DIR}"
+if [ "${QWEN3VL_LOG_TO_FILE:-1}" != "0" ] && [ -z "${QWEN3VL_LOG_ACTIVE:-}" ]; then
+    # 先把 RUN_DIR 已知之前的早期诊断（ckpt 路径、CARLA_ROOT、GPU 自动选址、Port 起点等）
+    # 直接 append 到 log.txt 头部，再开 tee 接管后续 stdout/stderr；
+    # 这样 log.txt 顺序与终端一致，没有“前面几行漏掉”的问题。
+    if [ -n "${EARLY_LOG}" ] && [ -f "${EARLY_LOG}" ]; then
+        cat "${EARLY_LOG}" >> "${RUN_DIR}/log.txt"
+    fi
+    export QWEN3VL_LOG_ACTIVE=1
+    exec > >(tee -a "${RUN_DIR}/log.txt") 2>&1
+    echo "[log] tee stdout/stderr to ${RUN_DIR}/log.txt (early diagnostics already prepended)"
+fi
+# EARLY_LOG 不再需要；cleanup_all_carla 中也会兜底清理。
+if [ -n "${EARLY_LOG}" ] && [ -f "${EARLY_LOG}" ]; then
+    rm -f "${EARLY_LOG}"
+fi
 
 # 写 run_manifest.json：让后续 aggregate / webapp 能精确知道这次跑了哪些 route_id。
 # 用环境变量传递所有数组/字符串，避免 set -u 下空数组展开 unbound variable。
@@ -423,8 +461,13 @@ echo "CARLA_ROOT      : ${CARLA_ROOT:-<unset>}"
 echo "Record (i/d/bev/m/g): ${RECORD_INPUT}/${RECORD_DEBUG}/${RECORD_BEV_DEBUG}/${RECORD_DEMO}/${RECORD_GRID}"
 echo "=========================================="
 
-WORK_LOG_DIR="${SIG_DIR}/worker_logs/$(date +%Y%m%d_%H%M%S)"
-mkdir -p "${WORK_LOG_DIR}"
+# worker stdout/stderr 只放临时目录，用于实时 tail 和统计 attempted/failed。
+# 跑完由 trap 删除，避免 closed_loop_eval 里长期堆过程日志。
+WORK_LOG_DIR=$(mktemp -d "${TMPDIR:-/tmp}/leadmot_eval_workers.XXXXXX") || {
+    echo "ERROR: failed to create temporary worker log dir" >&2
+    exit 1
+}
+echo "[run_eval] temporary worker logs: ${WORK_LOG_DIR} (will be removed on exit)"
 
 # ============================================================
 # CARLA 端口 helpers
@@ -570,13 +613,21 @@ stop_carla_for_port() {
 cleanup_all_carla() {
     # trap EXIT 兜底：清理 launcher 本次启动的所有 CARLA。
     if [ ${#LAUNCHED_CARLA_PORTS[@]} -eq 0 ]; then
-        return 0
+        :
+    else
+        echo ""
+        echo "[carla] cleanup: stopping ${#LAUNCHED_CARLA_PORTS[@]} CARLA process(es)"
+        for p in "${LAUNCHED_CARLA_PORTS[@]}"; do
+            stop_carla_for_port "${p}"
+        done
     fi
-    echo ""
-    echo "[carla] cleanup: stopping ${#LAUNCHED_CARLA_PORTS[@]} CARLA process(es)"
-    for p in "${LAUNCHED_CARLA_PORTS[@]}"; do
-        stop_carla_for_port "${p}"
-    done
+    if [ -n "${WORK_LOG_DIR:-}" ] && [ -d "${WORK_LOG_DIR}" ]; then
+        rm -rf "${WORK_LOG_DIR}"
+    fi
+    # 兜底：如果 RUN_DIR/log.txt flush 之前就崩了，把 EARLY_LOG 也一起清掉。
+    if [ -n "${EARLY_LOG:-}" ] && [ -f "${EARLY_LOG}" ]; then
+        rm -f "${EARLY_LOG}"
+    fi
 }
 trap cleanup_all_carla EXIT INT TERM
 
@@ -728,13 +779,39 @@ done
 # 聚合所有 worker 的失败 route，最终统一打印，方便下一轮按 --route-id 精确重跑。
 mapfile -t FAILED_ROUTES < <(cat "${WORK_LOG_DIR}"/failed_worker*.txt 2>/dev/null | sed '/^$/d' | sort -n | uniq)
 ATTEMPTED_COUNT=$(cat "${WORK_LOG_DIR}"/attempted_worker*.txt 2>/dev/null | sed '/^$/d' | wc -l | tr -d ' ')
+FAILED_ROUTES_STR="${FAILED_ROUTES[*]:-}"
+
+# 把过程状态固化到 run_manifest.json；不再长期保存 worker log。
+RUN_DIR="${RUN_DIR}" \
+ATTEMPTED_COUNT="${ATTEMPTED_COUNT}" \
+FAILED_ROUTES_STR="${FAILED_ROUTES_STR}" \
+WORKER_FAIL="${WORKER_FAIL}" \
+python3 - <<'PY'
+import json, os, pathlib, time
+
+manifest_path = pathlib.Path(os.environ["RUN_DIR"]) / "run_manifest.json"
+try:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+except Exception:
+    manifest = {}
+failed_routes = [int(x) for x in os.environ.get("FAILED_ROUTES_STR", "").split() if x]
+manifest.update({
+    "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    "attempted_count": int(os.environ.get("ATTEMPTED_COUNT", "0") or "0"),
+    "failed_route_count": len(failed_routes),
+    "failed_routes": failed_routes,
+    "worker_fail": int(os.environ.get("WORKER_FAIL", "0") or "0"),
+})
+manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+print(f"[run_eval] finalized manifest: {manifest_path}")
+PY
 
 echo ""
 echo "Done. attempted=${ATTEMPTED_COUNT}, failed=${#FAILED_ROUTES[@]}, worker_fail=${WORKER_FAIL}"
 if [ "${#FAILED_ROUTES[@]}" -gt 0 ]; then
     echo "Failed routes: ${FAILED_ROUTES[*]}"
 fi
-if [ "${DO_AGGREGATE}" = "1" ] && [ "${SINGLE_TEST}" != "1" ]; then
+if [ "${DO_AGGREGATE}" = "1" ]; then
     echo "Running aggregation for run_label=${RUN_LABEL}..."
     cd "${AUTOMOT_ROOT}" && python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
         --eval-base "${SAVE_PATH}" \

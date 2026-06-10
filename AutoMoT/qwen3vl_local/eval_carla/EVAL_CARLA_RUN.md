@@ -25,9 +25,12 @@ LeadMoT 闭环评测一键操作手册。架构与对齐细节见 [`EVAL_CARLA_P
 
 **实时输出**（默认）：
 
-- 每个 worker 写独立 log 到 `<signature>/worker_logs/<ts>/worker<N>.log`
-- 主进程 fork 一个 `tail -F` 把所有 worker log 行内容实时输出到终端
+- 每个 worker 的 stdout/stderr 只写到 `/tmp/leadmot_eval_workers.*` 临时目录
+- 主进程 fork 一个 `tail -F` 把 worker log 行内容实时输出到终端；退出时临时目录自动删除
 - 单 worker 直接 follow worker0.log，多 worker 时 tail 自带 `==> path <==` 头便于区分
+- 主进程终端输出会同步追加到 `runs/<RUN_LABEL>/log.txt`，方便跑完后回看完整 stdout/stderr
+- 有用的运行状态会写回 `runs/<RUN_LABEL>/run_manifest.json`：`finished_at`、
+  `attempted_count`、`failed_routes`、`worker_fail`
 - agent.py 每 20 tick (=1s) 打一行总览：`tick=N speed=X km/h ctrl=(thr,str,brk) tp=Xm wp_end=Ym lidar_pts=N`
 - 每个 4Hz 推理 tick 打一行：`INFER step=N dt=Xms |wp[0]|=Xm |wp[-1]|=Ym |rt[-1]|=Ym`
 - 所有 print 都 `flush=True` 保证不被 buffer 卡住
@@ -100,7 +103,7 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 ### 1.4 指定 route_id
 
 ```bash
-# 单条 + 烟雾测试（跑完不聚合）
+# 单条 + 烟雾测试（也会写 smoke_<route_id>/summary_report.md）
 bash qwen3vl_local/eval_carla/run_eval.sh \
     --leadmot-ckpt /path/best.pt \
     --route-id 1711 --single-test
@@ -176,11 +179,14 @@ ${EVAL_OUTPUT_BASE:-AutoMoT/outputs/closed_loop_eval}/
     route<route_id>/                          ← route 级输出（跨跑法共享，断点续跑）
       input.mp4 debug.mp4 bev_debug.mp4 demo.mp4 grid.mp4
       meta/<step>.json                        ← 每个推理 tick 的 pred + 耗时 + 输入统计（speed/tp/ntp/final_goal）
-      logs/
     runs/<RUN_LABEL>/                          ← 本次启动的聚合结果（与其他批次隔离）
+      log.txt                                  ← 本次终端 stdout/stderr 追加日志
       scenarios/<Scenario>/summary.json
-      summary_all.json
-      run_manifest.json                        ← 本批次 route_id 列表 + 启动参数
+      run_manifest.json                        ← 本批次 route_id 列表 + 启动/完成参数 + 失败 route
+      summary_all.json                         ← 完整机器可读结果（含 route/scenario 明细）
+      summary_report.md                        ← 人类可读总结：测试数、成功率、分数、指标解释
+      scenario_table.csv                       ← scenario 级论文表格友好汇总
+      route_results.csv                        ← route 级状态/分数/违规明细
 ```
 
 `<RUN_LABEL>` 由跑法自动生成：
@@ -215,6 +221,28 @@ python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
 # --run-label 可省略：聚合该 signature 下所有 runs
 ```
 
+聚合会在对应目录下同时写四类总结文件：
+
+| 文件 | 用途 |
+|---|---|
+| `summary_report.md` | 最适合直接读或贴到实验记录：包含本次计划测多少、实际生成多少、成功率、每个 scenario 表格和指标解释 |
+| `scenario_table.csv` | 每个 scenario 一行：planned/evaluated/coverage/success_rate/score/违规数，适合论文表格或 Excel |
+| `route_results.csv` | 每条 route 一行：status、score、违规类型计数，适合定位失败和低分路线 |
+| `summary_all.json` | 完整机器可读聚合，webapp 和后续脚本继续使用 |
+
+核心口径：
+
+| 指标 | 含义 |
+|---|---|
+| `planned_routes` | 本批计划评测路线数，来自 `run_manifest.json` |
+| `evaluated_routes` | 已生成并成功读取 `eval_<route_id>.json` 的路线数 |
+| `coverage` | `evaluated_routes / planned_routes`，表示本批实际完成落盘比例 |
+| `success_rate` | status 为 `Completed` 或 `Perfect` 的路线数 / `planned_routes`；缺失 JSON 的路线计为未成功 |
+| `perfect_rate` | status 为 `Perfect` 的路线数 / `planned_routes` |
+| `score_composed` | leaderboard 主分数，约等于路线完成度分数乘违规惩罚分数 |
+| `score_route` | 路线完成度分数 |
+| `score_penalty` | 违规惩罚分数，碰撞、闯灯、偏航等会降低它 |
+
 ---
 
 ## 6. Webapp 浏览器查看
@@ -235,9 +263,9 @@ python3 qwen3vl_local/eval_carla/webapp/app.py \
 
 ## 7. 常见坑
 
-- **CARLA 启动超时**：现在由 `leaderboard_evaluator.py` 启动并等待 CARLA。可以查
-  `<signature>/worker_logs/<ts>/worker<N>.log` 里的 `Launch CARLA`、`load_world failed`
-  和 evaluator traceback。
+- **CARLA 启动超时**：现在由 `leaderboard_evaluator.py` 启动并等待 CARLA。运行中看终端
+  tail 输出里的 `Launch CARLA`、`load_world failed` 和 evaluator traceback；跑完后只保留
+  `run_manifest.json` 里的失败 route 状态，不长期保存 worker log。
 - **端口被占**：launcher 会自动跳过被占用的 `[rpc..rpc+3, tm]` 端口块；
   若扫描范围内都找不到空闲块，会报 `cannot find free CARLA port block`。可以调大
   `PORT_BASE_START` 或 `PORT_STRIDE`。

@@ -26,7 +26,15 @@ OUTPUT_DIR_BASE="${OUTPUT_DIR}"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
 if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
   OUTPUT_DIR="${OUTPUT_DIR_BASE}/run_${RUN_TAG}"
-  mkdir -p "${OUTPUT_DIR}"
+fi
+mkdir -p "${OUTPUT_DIR}"
+# 先开 tee，再做 latest symlink + 打印 [run]，这样 "[run] OUTPUT_DIR=..." 也进 log.txt。
+if [[ "${QWEN3VL_LOG_TO_FILE:-1}" != "0" && -z "${QWEN3VL_LOG_ACTIVE:-}" ]]; then
+  export QWEN3VL_LOG_ACTIVE=1
+  exec > >(tee -a "${OUTPUT_DIR}/log.txt") 2>&1
+  echo "[log] tee stdout/stderr to ${OUTPUT_DIR}/log.txt"
+fi
+if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
   # ln -sfn：force + no-dereference，原子替换旧 symlink；相对目标，base 整个搬走仍有效。
   ln -sfn "run_${RUN_TAG}" "${OUTPUT_DIR_BASE}/latest"
   echo "[run] OUTPUT_DIR=${OUTPUT_DIR}  (latest -> run_${RUN_TAG})"

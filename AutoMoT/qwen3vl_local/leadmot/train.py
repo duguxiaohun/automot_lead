@@ -1382,6 +1382,9 @@ def main() -> None:
     rank, local_rank, world_size = _init_distributed()
     device = torch.device("cuda", local_rank) if torch.cuda.is_available() else torch.device("cpu")
     output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    from qwen3vl_local.run_log import install_output_log
+    install_output_log(output_dir, rank=rank)
     _dump_invocation(output_dir, rank)
 
     seed = args.seed + rank

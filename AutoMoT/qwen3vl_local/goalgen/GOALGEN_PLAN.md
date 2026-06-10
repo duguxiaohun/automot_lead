@@ -309,7 +309,9 @@ v1 显式**不做**的事情（写在这里防止未来 agent 擅自扩张范围
   所有 ckpt / TB events / eval 产物都落在 run 子目录里；base 顶层维护一个相对路径的
   `latest` symlink 指向最新 run。HF weights 缓存放 base 层共享。`NO_RUN_SUBDIR=1`
   退回老的"顶层覆盖"行为，仅用于排查脚本兼容性。这样反复跑同一 VERSION 的训练
-  不会再覆盖旧 ckpt，TB 也能天然多 run 对比。
+  不会再覆盖旧 ckpt，TB 也能天然多 run 对比。每个训练 run 目录追加 `log.txt`
+  保存本次终端 stdout/stderr；eval/probe 分别追加到 `<save-root>/eval/log.txt` 与
+  `<save-root>/eval_cases/log.txt`。
 
 后续如果要做离线缓存分段 KV / latent、多目标监督、新损失项等大改，应先明确新版本边界；
 默认仍优先沿用当前单一入口，用 `VERSION` / CLI 开关扩展。若确实需要新增文件，必须先按项目规则

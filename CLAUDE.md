@@ -132,6 +132,7 @@
 - `AutoMoT/qwen3vl_local/engine.py`
 - `AutoMoT/qwen3vl_local/image_io.py`
 - `AutoMoT/qwen3vl_local/prompt_pipeline.py`
+- `AutoMoT/qwen3vl_local/run_log.py`
 - `AutoMoT/qwen3vl_local/tb_serve.sh`
 - `AutoMoT/qwen3vl_local/goalgen/__init__.py`
 - `AutoMoT/qwen3vl_local/goalgen/vae.py`

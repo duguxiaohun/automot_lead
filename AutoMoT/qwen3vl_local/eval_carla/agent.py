@@ -561,7 +561,6 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         self.save_path = self.signature_path / self.save_name
         self.save_path.mkdir(parents=True, exist_ok=True)
         (self.save_path / "meta").mkdir(parents=True, exist_ok=True)
-        (self.save_path / "logs").mkdir(parents=True, exist_ok=True)
         print(f"[MOTLeadAgent] save_path = {self.save_path}")
 
         # 写一次 config.json，方便外部根据目录回溯模型 / 是否 BEV / 传感器档

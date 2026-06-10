@@ -121,7 +121,7 @@ def _extract_route_infractions(data: dict, route_id: int) -> dict | list:
 def list_signatures() -> list[str]:
     """列出所有模型结果目录。
 
-    只接受 ckpt signature 格式，避免把 worker_logs、临时目录或其它文件夹显示到 UI。
+    只接受 ckpt signature 格式，避免把临时目录或其它非结果文件夹显示到 UI。
     """
     if not EVAL_BASE.is_dir():
         return []

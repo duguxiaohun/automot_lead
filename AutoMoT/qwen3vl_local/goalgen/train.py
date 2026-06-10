@@ -1034,6 +1034,9 @@ def train(args: argparse.Namespace) -> None:
     torch.set_float32_matmul_precision("high")
 
     output_dir = pathlib.Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    from qwen3vl_local.run_log import install_output_log
+    install_output_log(output_dir, rank=rank)
     _dump_invocation(output_dir, rank=rank)
     samples = load_jsonl(pathlib.Path(args.train_jsonl))
     if not samples:

@@ -380,6 +380,11 @@ def main() -> None:
         args.dit_checkpoint = _resolve_default_dit_checkpoint(args.save_root)
         print(f"[ckpt] --dit-checkpoint 未指定，自动解析 = {args.dit_checkpoint}")
 
+    case_root = pathlib.Path(args.save_root) / "eval_cases"
+    case_root.mkdir(parents=True, exist_ok=True)
+    from qwen3vl_local.run_log import install_output_log
+    install_output_log(case_root)
+
     samples = load_jsonl(pathlib.Path(args.val_jsonl))
     scenarios_filter = [s.strip() for s in args.scenarios.split(",") if s.strip()] or None
     picked = select_samples(samples, scenarios_filter, args.num_per_scenario, args.seed)
@@ -422,8 +427,6 @@ def main() -> None:
         dtype=dit_dtype,
     )
 
-    case_root = pathlib.Path(args.save_root) / "eval_cases"
-    case_root.mkdir(parents=True, exist_ok=True)
     index_records: List[Dict[str, Any]] = []
 
     for sample_idx, sample in picked:

@@ -158,6 +158,11 @@ mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
 if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
     ln -sfn "run_${RUN_TAG}" "${OUTPUT_DIR_BASE}/latest"
 fi
+if [[ "${QWEN3VL_LOG_TO_FILE:-1}" != "0" && -z "${QWEN3VL_LOG_ACTIVE:-}" ]]; then
+    export QWEN3VL_LOG_ACTIVE=1
+    exec > >(tee -a "${OUTPUT_DIR}/log.txt") 2>&1
+    echo "[log] tee stdout/stderr to ${OUTPUT_DIR}/log.txt"
+fi
 
 # 当前默认开启 torch.compile(dit)：patch=4 后 token 数砍到 1/4，compile 的固定 overhead
 # 比 v1 划算很多。COMPILE_DIT=0 关闭。注意：首次 step 编译耗时 30-90 秒，CHECK 模式

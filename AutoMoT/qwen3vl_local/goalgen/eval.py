@@ -918,6 +918,11 @@ def _default_run_tag(args: argparse.Namespace) -> str:
 @torch.no_grad()
 def eval_loop(args: argparse.Namespace) -> None:
     rank, local_rank, world_size = setup_distributed()
+    paths = _resolve_eval_paths(args)
+    out_dir = paths["eval_dir"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    from qwen3vl_local.run_log import install_output_log
+    install_output_log(out_dir, rank=rank)
     _dump_invocation(pathlib.Path(args.save_root), rank=rank)
 
     # device：多卡时 pin 到 LOCAL_RANK；单卡走 --gpu。
@@ -928,11 +933,8 @@ def eval_loop(args: argparse.Namespace) -> None:
     if device.type != "cuda":
         raise RuntimeError("GoalGen eval 需要 CUDA；离线机器只能跑数据校验，不能跑 eval。")
 
-    paths = _resolve_eval_paths(args)
-    out_dir = paths["eval_dir"]
     samples_dir = paths["samples_dir"]
     if is_rank0(rank):
-        out_dir.mkdir(parents=True, exist_ok=True)
         run_tag = args.run_tag.strip() if args.run_tag else _default_run_tag(args)
         print(f"[eval] world_size={world_size} rank={rank} eval_dir={out_dir}")
         print(f"[eval] tb_dir={paths['tb_dir']} (run_tag={run_tag})")

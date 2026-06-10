@@ -127,7 +127,7 @@ q_proj k_proj v_proj o_proj gate_proj up_proj down_proj
 
 训练 launcher 默认在 `OUTPUT_DIR/run_<RUN_TAG>/` 写本次 run，base 层维护
 `latest` symlink；`HF_HOME` 和 v2 runtime teacher cache 固定在 base 层，避免每个 run
-重复物化或重复缓存。
+重复物化或重复缓存。每个训练 run 目录追加 `log.txt` 保存本次终端 stdout/stderr。
 
 ## 8. 评估
 
@@ -142,6 +142,8 @@ q_proj k_proj v_proj o_proj gate_proj up_proj down_proj
 
 Qwen3-VL 上 PEFT wrapper generation 可能错位，所以 eval/probe 默认 `merge_and_unload`。
 v2 的 `max_gen_tokens` 默认 256，避免只生成 ANALYSIS 就被截断。
+eval 终端输出追加到 `<save-root>/eval/log.txt`，probe 终端输出追加到
+`<save-root>/eval_cases/log.txt`。
 
 ## 9. 文件清单
 
