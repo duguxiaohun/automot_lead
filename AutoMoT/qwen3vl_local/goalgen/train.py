@@ -998,6 +998,19 @@ def make_scheduler(
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
+def _epoch_step_progress(
+    global_step: int,
+    epoch: int,
+    steps_per_epoch: int,
+    total_steps: int,
+) -> tuple[int, int]:
+    """把全局 optimizer step 映射成当前 epoch 内的 1-based 进度。"""
+    epoch_start_step = int(epoch) * int(steps_per_epoch)
+    epoch_total_steps = max(1, min(int(steps_per_epoch), max(1, int(total_steps) - epoch_start_step)))
+    epoch_step = max(1, min(epoch_total_steps, int(global_step) - epoch_start_step))
+    return epoch_step, epoch_total_steps
+
+
 def train(args: argparse.Namespace) -> None:
     rank, local_rank, world_size = setup_distributed()
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
@@ -1424,8 +1437,12 @@ def train(args: argparse.Namespace) -> None:
                         last_lrs = scheduler.get_last_lr()
                         muon_lr_now = last_lrs[0]
                         adamw_lr_now = last_lrs[-1]
+                        epoch_step, epoch_total_steps = _epoch_step_progress(
+                            global_step, epoch, steps_per_epoch, total_steps
+                        )
                         print(
-                            f"[train] epoch={epoch} step={global_step}/{total_steps} "
+                            f"[train] epoch={epoch} step={epoch_step}/{epoch_total_steps} "
+                            f"global_step={global_step}/{total_steps} "
                             f"loss={avg_loss:.6f} cos={avg_cos:.4f} "
                             f"grad_norm={last_grad_norm:.3f} kv_seq={avg_kv_seq:.0f} "
                             f"muon_lr={muon_lr_now:.3e} adamw_lr={adamw_lr_now:.3e}"
@@ -1461,8 +1478,12 @@ def train(args: argparse.Namespace) -> None:
                                 )
                             for tag, value in metrics.items():
                                 writer.add_scalar(tag, value, global_step)
+                            epoch_step, epoch_total_steps = _epoch_step_progress(
+                                global_step, epoch, steps_per_epoch, total_steps
+                            )
                             print(
-                                f"[val] step={global_step} loss={metrics['val/loss']:.6f} "
+                                f"[val] epoch={epoch} step={epoch_step}/{epoch_total_steps} "
+                                f"global_step={global_step}/{total_steps} loss={metrics['val/loss']:.6f} "
                                 f"cos={metrics['val/cos']:.4f}"
                             )
                         except Exception as e:
@@ -1538,11 +1559,11 @@ def train(args: argparse.Namespace) -> None:
                             for tag, value in metrics.items():
                                 writer.add_scalar(f"epoch_end/{tag}", value, epoch + 1)
                         print(
-                            f"[val][epoch={epoch+1}] loss={epoch_val_loss:.6f} "
+                            f"[val][epoch={epoch}] loss={epoch_val_loss:.6f} "
                             f"cos={metrics.get('val/cos', float('nan')):.4f}"
                         )
                     except Exception as e:
-                        print(f"[val] epoch={epoch+1} 验证失败，跳过 best 比较：{e}")
+                        print(f"[val] epoch={epoch} 验证失败，跳过 best 比较：{e}")
 
                 save_checkpoint(
                     output_dir, dit, optimizer, scheduler, ema, latent_stats,
