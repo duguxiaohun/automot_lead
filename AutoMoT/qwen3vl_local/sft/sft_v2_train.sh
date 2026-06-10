@@ -129,6 +129,12 @@ export HF_DATASETS_OFFLINE=1
 # 缓存指向 base 层，避免误读 ~/.cache，也让所有 run 共享 tokenizer/model cache。
 export HF_HOME="${HF_HOME:-${OUTPUT_DIR_BASE}/.hf_cache}"
 mkdir -p "${OUTPUT_DIR}" "${HF_HOME}"
+# 先开 tee，再做 latest symlink + 打印 [run]，这样 "[run] OUTPUT_DIR=..." 也进 log.txt。
+if [[ "${QWEN3VL_LOG_TO_FILE:-1}" != "0" && -z "${QWEN3VL_LOG_ACTIVE:-}" ]]; then
+    export QWEN3VL_LOG_ACTIVE=1
+    exec > >(tee -a "${OUTPUT_DIR}/log.txt") 2>&1
+    echo "[log] tee stdout/stderr to ${OUTPUT_DIR}/log.txt"
+fi
 if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
     # ln -sfn：force + no-dereference，原子替换旧 symlink；相对目标，base 搬走仍有效。
     ln -sfn "run_${RUN_TAG}" "${OUTPUT_DIR_BASE}/latest"

@@ -261,6 +261,7 @@ torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval.py \
 输出：
 
 ```text
+checkpoints/leadmot_v1_decoder/eval/log.txt
 checkpoints/leadmot_v1_decoder/eval/eval_v1_summary.json
 checkpoints/leadmot_v1_decoder/eval/eval_v1_perline.jsonl
 checkpoints/leadmot_v1_decoder/eval_tb/<ckpt>_<时间戳>/
@@ -287,6 +288,7 @@ python qwen3vl_local/leadmot/probe.py \
 每个 case 会写：
 
 ```text
+checkpoints/leadmot_v1_decoder/eval_cases/log.txt        ← 本次 probe 终端 stdout/stderr（每次 probe 一份，覆盖全部 case）
 checkpoints/leadmot_v1_decoder/eval_cases/<case>/
 planning_overlay.png
 predictions.json
@@ -324,4 +326,4 @@ python leaderboard/team_code/mot_lead_offline_runner.py \
 
 如果没有 val 集或还没有 `best.pt`，用 `latest.pt`。
 
-训练输出目录同样会包含 `invocations/`，记录每次 `train.py` 启动时的 argv、关键环境变量和 git commit，方便之后追溯 ckpt 来源。
+训练输出目录同样会包含 `log.txt` 和 `invocations/`：`log.txt` 是本次终端 stdout/stderr 追加日志，`invocations/` 记录每次 `train.py` 启动时的 argv、关键环境变量和 git commit，方便之后追溯 ckpt 来源。

@@ -125,6 +125,8 @@ DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 GPU 规则：脚本用 `nvidia-smi` 自动挑空闲卡并覆盖旧 `CUDA_VISIBLE_DEVICES`。
 不要在文档命令里手写卡号。
 
+每个训练 run 目录会追加 `log.txt` 保存本次终端 stdout/stderr。
+
 ## 6. TensorBoard
 
 ```bash
@@ -161,6 +163,7 @@ python qwen3vl_local/sft/eval_sft_v1.py \
 
 重点指标：`keep_accuracy` 越高越好，`advance_accuracy` 越高越好，
 `early_advance_rate` 越低越好，`anchor12_sanity=True` 必须保持。
+Eval 的终端输出会追加到 `<save-root>/eval/log.txt`。
 
 ## 8. Case Probe
 
@@ -183,7 +186,8 @@ python qwen3vl_local/sft/probe_sft_v1.py \
   --num-per-scenario 4 --seed 0 --case-suffix "_v2"
 ```
 
-产物在 `<save-root>/eval_cases/`，包含图像、prompt、GT、pred、token loss 和 overview。
+产物在 `<save-root>/eval_cases/`：每个 case 子目录里有图像、prompt、GT、pred、token loss 和 overview；
+`<save-root>/eval_cases/log.txt` 是本次 probe 的终端 stdout/stderr 汇总日志（不在每个 case 内）。
 
 ## 9. 常见问题
 

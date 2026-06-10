@@ -102,7 +102,7 @@ checkpoints/goalgen_v*_dit/run_<tag>/
 checkpoints/goalgen_v*_dit/latest -> run_<tag>
 ```
 
-`latest/best.pt` 是 eval/probe 默认首选；`latest/latest.pt` 是训练末尾权重。
+每个训练 run 目录会追加 `log.txt` 保存本次终端 stdout/stderr。`latest/best.pt` 是 eval/probe 默认首选；`latest/latest.pt` 是训练末尾权重。
 
 ### 3.0 patch/unpatch 默认导入约定
 
@@ -197,6 +197,7 @@ python qwen3vl_local/goalgen/eval.py \
 
 默认自动解析 checkpoint：`<save-root>/latest/best.pt` ->
 `latest/latest.pt` -> `best.pt` -> `latest.pt`。显式 `--dit-checkpoint` 时按用户路径。
+Eval 的终端输出会追加到 `<save-root>/eval/log.txt`。
 
 `--gpu` 语义：默认保持 `0`，脚本自动挑物理卡并映射为 `cuda:0`；单进程显式
 传 `--gpu N` 时不覆盖 `CUDA_VISIBLE_DEVICES`。DDP 下按 `LOCAL_RANK`。
@@ -225,7 +226,7 @@ python qwen3vl_local/goalgen/probe.py \
   --num-per-scenario 4 --seed 0 --case-suffix "_ckpt500"
 ```
 
-Probe 适合看单 case 的输入图、目标图、生成图、Euler trace 和指标。
+Probe 适合看单 case 的输入图、目标图、生成图、Euler trace 和指标；终端输出会追加到 `<save-root>/eval_cases/log.txt`。
 
 ## 8. 默认形状
 

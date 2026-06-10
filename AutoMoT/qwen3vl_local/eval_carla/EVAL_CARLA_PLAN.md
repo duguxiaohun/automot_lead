@@ -124,11 +124,14 @@ ${EVAL_OUTPUT_BASE}/closed_loop_eval/
     route<route_id>/                                      ← 单 route 输出（共享，断点续跑）
       {input,debug,bev_debug,demo,grid}.mp4
       meta/<step>.json                                    ← 每 4Hz 推理 tick 的 pred + 输入统计（speed/tp/ntp/final_goal）
-      logs/
     runs/<RUN_LABEL>/                                     ← 本次启动的聚合（按跑法隔离）
+      log.txt                                             ← 本次终端 stdout/stderr 追加日志
       scenarios/<Scenario>/summary.json
-      summary_all.json
-      run_manifest.json                                    ← 本批 route_id + 启动参数 + 时间戳
+      run_manifest.json                                    ← 本批 route_id + 启动/完成参数 + 失败 route
+      summary_all.json                                     ← 机器可读总聚合（含 route/scenario 明细）
+      summary_report.md                                    ← 人类可读实验总结 + 指标解释
+      scenario_table.csv                                   ← scenario 级论文表格友好汇总
+      route_results.csv                                    ← route 级状态/分数/违规明细
 ```
 
 ### 4.1 signature 命名规则
@@ -185,10 +188,12 @@ debug crf=28 preset=slower。路线结束时 `destroy()` 触发 release + 压缩
 | TrafficManager | launcher 传入 `tm_port=p+8000`；evaluator 仍会做一次可用性检查 |
 | 退出回收 | `leaderboard_evaluator.py` 注册 `atexit` 清理自己启动的 CARLA 进程组 |
 | 命令行 | `--auto-carla` / `--no-auto-carla` 只兼容旧命令；launcher 默认不预启动 CARLA |
-| 日志 | `<signature>/worker_logs/<ts>/worker<N>.log` 实时包含 `Launch CARLA`、`load_world`、agent 进度和 traceback |
+| 日志 | worker stdout/stderr 只落 `/tmp/leadmot_eval_workers.*` 临时目录，主进程 `tail -F` 实时回放；退出后删除，不在结果目录持久保存；主进程终端输出追加到 `runs/<RUN_LABEL>/log.txt` |
 
 主进程 fork `tail -F` 实时回放 worker log；agent 每 20 tick 打一行速度 / 控制 /
-target point / LiDAR 点数，每次模型推理打一行 `INFER step=... dt=...`。
+target point / LiDAR 点数，每次模型推理打一行 `INFER step=... dt=...`。有用的运行状态
+写入 `runs/<RUN_LABEL>/run_manifest.json`（`finished_at`、`attempted_count`、
+`failed_routes`、`worker_fail`），替代持久 worker log。
 
 ## 6. 场景反向映射 + 聚合
 
@@ -197,8 +202,11 @@ target point / LiDAR 点数，每次模型推理打一行 `INFER step=... dt=...
 `--list-scenarios`。
 
 `aggregate.py` 把 `eval_per_route/eval_<route_id>.json` 里的 leaderboard route record
-按 scenario 聚合，写到 `runs/<RUN_LABEL>/scenarios/<Scenario>/summary.json` +
-`runs/<RUN_LABEL>/summary_all.json`。
+按 scenario 聚合，写到 `runs/<RUN_LABEL>/scenarios/<Scenario>/summary.json`、
+`runs/<RUN_LABEL>/summary_all.json`、`summary_report.md`、`scenario_table.csv` 与
+`route_results.csv`。`run_manifest.json` 中计划跑但没有可读 eval JSON 的 route 会保留为
+`MISSING_EVAL_JSON`，计入 `coverage` / `success_rate` 分母；所以 single-test、随机 N、
+指定 route_id 或全量 220 都会有同一套“跑了多少、成了多少、各项分数是什么”的总结。
 
 多卡评测时 `run_eval.sh` 按 worker index round-robin 分 route，每个 worker 不同 GPU id
 + 端口槽，输出仍归档到同一个 signature 的 `eval_per_route/`。

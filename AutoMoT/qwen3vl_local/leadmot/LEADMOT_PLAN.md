@@ -146,6 +146,7 @@ checkpoints/leadmot_v1_decoder/
 - `checkpoint-epochXX.pt`（epoch 末池，保留最近 `KEEP_RECENT_CHECKPOINTS` 份）
 - `step-checkpoint-NNNNNN.pt`（每 `STEP_SAVE_EVERY` 步独立池，保留最近 `KEEP_RECENT_STEP_CHECKPOINTS` 份，与 epoch 池互不淘汰）
 - `tb/`（安装 TensorBoard 时）
+- `log.txt`（本次训练终端 stdout/stderr 追加日志）
 - `invocations/`（train/eval/probe argv + env + git_commit）
 
 runner 侧用 `--leadmot-ckpt checkpoints/leadmot_v1_decoder/best.pt` 或 `latest.pt` 加载。
@@ -154,8 +155,8 @@ checkpoint 写入使用 `torch.save(tmp)` + `os.replace(tmp, final)`，避免 NF
 
 ## Eval / Probe
 
-- `eval.py`：离线汇总 `loss / route ADE/FDE / waypoint ADE/FDE`，支持 torchrun 分片；每个 rank 跑自己的样本，rank0 合并 summary/perline。推荐传 `--save-root checkpoints/leadmot_v1_decoder`，产物落到 `<save-root>/eval/`。
-- `probe.py`：随机按 scenario 抽 case，落盘 `planning_overlay.png`、`predictions.json`、`metrics.json`、`overview.md`，用于肉眼检查预测和 GT 是否同向、同尺度、同坐标系。推荐传 `--save-root checkpoints/leadmot_v1_decoder`，case 落到 `<save-root>/eval_cases/`。
+- `eval.py`：离线汇总 `loss / route ADE/FDE / waypoint ADE/FDE`，支持 torchrun 分片；每个 rank 跑自己的样本，rank0 合并 summary/perline。推荐传 `--save-root checkpoints/leadmot_v1_decoder`，产物落到 `<save-root>/eval/`，终端输出追加到 `<save-root>/eval/log.txt`。
+- `probe.py`：随机按 scenario 抽 case，落盘 `planning_overlay.png`、`predictions.json`、`metrics.json`、`overview.md`，用于肉眼检查预测和 GT 是否同向、同尺度、同坐标系。推荐传 `--save-root checkpoints/leadmot_v1_decoder`，case 落到 `<save-root>/eval_cases/`，终端输出追加到 `<save-root>/eval_cases/log.txt`。
 
 ## use_bev 开关
 
