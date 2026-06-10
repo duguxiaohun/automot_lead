@@ -402,7 +402,7 @@ esac
 echo ""
 echo "============================================================"
 echo "[hint] 看 TensorBoard（多次 run 自动对比，base 目录下所有 run 都会展开）："
-echo "  bash qwen3vl_local/sft/tb_serve.sh ${OUTPUT_DIR_BASE}"
+echo "  bash qwen3vl_local/tb_serve.sh ${OUTPUT_DIR_BASE}"
 echo ""
 echo "[hint] eval 最新 run（latest symlink）："
 echo "  python qwen3vl_local/goalgen/eval.py \\"

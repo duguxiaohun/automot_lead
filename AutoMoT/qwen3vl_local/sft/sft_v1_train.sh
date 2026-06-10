@@ -402,13 +402,13 @@ echo "[done] LoRA adapter saved under ${OUTPUT_DIR}"
 #     └─ eval_cases/        probe_sft_v1.py 随机场景 case dump（input/output/loss）
 #
 # 看 TensorBoard：直接把 logdir 指到 OUTPUT_DIR 根目录，左侧 run 列表会同时显示
-# tb（训练）和 eval_tb（多个 ckpt 的 eval 结果）；用 qwen3vl_local/sft/tb_serve.sh 一条命令
+# tb（训练）和 eval_tb（多个 ckpt 的 eval 结果）；用 qwen3vl_local/tb_serve.sh 一条命令
 # 起服务，stdout 会打印本地浏览器要用的 ssh 隧道命令，本地点链接就能看。
 # ---------------------------------------------------------------------------
 echo ""
 echo "============================================================"
 echo "[hint] 看 TensorBoard："
-echo "  bash qwen3vl_local/sft/tb_serve.sh ${OUTPUT_DIR}"
+echo "  bash qwen3vl_local/tb_serve.sh ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在 val 集上跑 eval（指标 + TB 标量 + 预测 jsonl）："
 echo "  python qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"

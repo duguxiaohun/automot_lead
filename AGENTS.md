@@ -135,7 +135,10 @@
   - `webapp/{__init__.py, app.py, templates/index.html, static/style.css}`
     （Flask：signature 下拉切换 ckpt；Routes tab 按 scenario 分组列 route + 4 路视频切换 + leaderboard
     scores + infractions；Scenarios tab 表格列每个 scenario 平均分）
-- `AutoMoT/qwen3vl_local/`（含 `goalgen/` 子包详见 PROJECT_CONTEXT.md §15；`eval_carla/` 子包详见上）
+- `AutoMoT/qwen3vl_local/`（含 `tb_serve.sh` 通用 TensorBoard launcher；`goalgen/` 子包详见 PROJECT_CONTEXT.md §15；`eval_carla/` 子包详见上）
+- `AutoMoT/qwen3vl_local/tb_serve.sh`
+  （SFT / GoalGen / LeadMoT / VAE 共用 TensorBoard 启动器；从 `AutoMoT/` 目录下用
+  `bash qwen3vl_local/tb_serve.sh <logdir>` 启动）
 - `AutoMoT/qwen3vl_local/leadmot/__init__.py`
 - `AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md`
 - `AutoMoT/qwen3vl_local/leadmot/LEADMOT_PLAN.md`
@@ -161,9 +164,8 @@
 - `AutoMoT/qwen3vl_local/sft/sft_v1_loss_scale_plugin.py`
 - `AutoMoT/qwen3vl_local/sft/eval_sft_v1.py`
 - `AutoMoT/qwen3vl_local/sft/check_loss_mask.py`
-- `AutoMoT/qwen3vl_local/sft/tb_serve.sh`
 - `AutoMoT/qwen3vl_local/sft/probe_sft_v1.py`
-  （以上是合并后的 LoRA SFT v1 / TB / probe 子包入口；`tb_serve.sh` 是通用 TensorBoard 启动器，GoalGen 也复用；`probe_sft_v1.py` 是随机场景 case-level dump；`AutoMoT/tools/` 下其它原始脚本仍为只读参考）
+  （以上是合并后的 LoRA SFT v1 / probe 子包入口；`probe_sft_v1.py` 是随机场景 case-level dump；`AutoMoT/tools/` 下其它原始脚本仍为只读参考）
 - `AutoMoT/qwen3vl_local/sft/build_sft_dataset_v2_teacher.py`
 - `AutoMoT/qwen3vl_local/sft/sft_v2_loss_scale_plugin.py`
 - `AutoMoT/qwen3vl_local/sft/sft_v2_train.sh`
@@ -214,10 +216,10 @@ git add AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py
 git add AutoMoT/leaderboard/team_code/automot_utils.py AutoMoT/Automot/team_code/automot_utils.py AutoMoT/Automot/mot/evaluation/inference.py AutoMoT/Automot/mot/modeling/automot/automot.py AutoMoT/leaderboard/team_code/mot_b2d_agent.py AutoMoT/leaderboard/team_code/display_interface.py AutoMoT/Automot/team_code/display_interface.py
 git add AutoMoT/qwen3vl_local/eval_carla/__init__.py AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_PLAN.md AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md AutoMoT/qwen3vl_local/eval_carla/agent.py AutoMoT/qwen3vl_local/eval_carla/safety.py AutoMoT/qwen3vl_local/eval_carla/video_recorder.py AutoMoT/qwen3vl_local/eval_carla/visualizer.py AutoMoT/qwen3vl_local/eval_carla/scenario_picker.py AutoMoT/qwen3vl_local/eval_carla/aggregate.py AutoMoT/qwen3vl_local/eval_carla/run_eval.sh AutoMoT/qwen3vl_local/eval_carla/webapp/__init__.py AutoMoT/qwen3vl_local/eval_carla/webapp/app.py AutoMoT/qwen3vl_local/eval_carla/webapp/templates/index.html AutoMoT/qwen3vl_local/eval_carla/webapp/static/style.css
-git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/prompt_pipeline.py
+git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/prompt_pipeline.py AutoMoT/qwen3vl_local/tb_serve.sh
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
-git add AutoMoT/qwen3vl_local/sft/__init__.py AutoMoT/qwen3vl_local/sft/SFT_PLAN.md AutoMoT/qwen3vl_local/sft/SFT_RUN.md AutoMoT/qwen3vl_local/sft/build_sft_dataset_v1.py AutoMoT/qwen3vl_local/sft/sft_v1_train.sh AutoMoT/qwen3vl_local/sft/sft_v1_loss_scale_plugin.py AutoMoT/qwen3vl_local/sft/eval_sft_v1.py AutoMoT/qwen3vl_local/sft/check_loss_mask.py AutoMoT/qwen3vl_local/sft/tb_serve.sh AutoMoT/qwen3vl_local/sft/probe_sft_v1.py AutoMoT/qwen3vl_local/sft/build_sft_dataset_v2_teacher.py AutoMoT/qwen3vl_local/sft/sft_v2_loss_scale_plugin.py AutoMoT/qwen3vl_local/sft/sft_v2_train.sh AutoMoT/qwen3vl_local/sft/check_loss_mask_v2.py AutoMoT/qwen3vl_local/sft/inspect_teacher_outputs.py
+git add AutoMoT/qwen3vl_local/sft/__init__.py AutoMoT/qwen3vl_local/sft/SFT_PLAN.md AutoMoT/qwen3vl_local/sft/SFT_RUN.md AutoMoT/qwen3vl_local/sft/build_sft_dataset_v1.py AutoMoT/qwen3vl_local/sft/sft_v1_train.sh AutoMoT/qwen3vl_local/sft/sft_v1_loss_scale_plugin.py AutoMoT/qwen3vl_local/sft/eval_sft_v1.py AutoMoT/qwen3vl_local/sft/check_loss_mask.py AutoMoT/qwen3vl_local/sft/probe_sft_v1.py AutoMoT/qwen3vl_local/sft/build_sft_dataset_v2_teacher.py AutoMoT/qwen3vl_local/sft/sft_v2_loss_scale_plugin.py AutoMoT/qwen3vl_local/sft/sft_v2_train.sh AutoMoT/qwen3vl_local/sft/check_loss_mask_v2.py AutoMoT/qwen3vl_local/sft/inspect_teacher_outputs.py
 git add AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md AutoMoT/qwen3vl_local/goalgen/build_dataset.py AutoMoT/qwen3vl_local/goalgen/train.py AutoMoT/qwen3vl_local/goalgen/train.sh AutoMoT/qwen3vl_local/goalgen/eval.py AutoMoT/qwen3vl_local/goalgen/probe.py
 git add AutoMoT/qwen3vl_local/leadmot/__init__.py AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_PLAN.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md AutoMoT/qwen3vl_local/leadmot/build_dataset.py AutoMoT/qwen3vl_local/leadmot/train.py AutoMoT/qwen3vl_local/leadmot/train.sh AutoMoT/qwen3vl_local/leadmot/eval.py AutoMoT/qwen3vl_local/leadmot/probe.py AutoMoT/qwen3vl_local/leadmot/config.py AutoMoT/qwen3vl_local/leadmot/projectors.py AutoMoT/qwen3vl_local/leadmot/query_bank.py AutoMoT/qwen3vl_local/leadmot/heads.py AutoMoT/qwen3vl_local/leadmot/mot_block.py AutoMoT/qwen3vl_local/leadmot/decoder.py AutoMoT/qwen3vl_local/leadmot/subgoal_prompt.py
 git add AutoMoT/vae_standalone/train_patch_unpatch.py AutoMoT/vae_standalone/vae_reconstruct.py
