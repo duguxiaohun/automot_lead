@@ -21,7 +21,7 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 |---|---|
 | `lead/` | 数据采集、训练、闭环评测参考仓库。只读 |
 | `AutoMoT/` | 在线驾驶仓库；当前本地改造主要放这里 |
-| `AutoMoT/qwen3vl_local/` | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT |
+| `AutoMoT/qwen3vl_local/` | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT；`tb_serve.sh` 是通用 TensorBoard 启动器 |
 | `AutoMoT/qwen3vl_local/sft/` | SFT v1/v2 数据、训练、eval、probe |
 | `AutoMoT/vae_standalone/train_patch_unpatch.py` | patch/unpatch 端到端重建训练 |
 | `0026.json` | LEAD meta 固定参考样本，只读，绝对不要入库 |

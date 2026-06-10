@@ -128,8 +128,8 @@ GPU 规则：脚本用 `nvidia-smi` 自动挑空闲卡并覆盖旧 `CUDA_VISIBLE
 ## 6. TensorBoard
 
 ```bash
-bash qwen3vl_local/sft/tb_serve.sh checkpoints/sft_v1_lora
-bash qwen3vl_local/sft/tb_serve.sh checkpoints/sft_v2_lora
+bash qwen3vl_local/tb_serve.sh checkpoints/sft_v1_lora
+bash qwen3vl_local/tb_serve.sh checkpoints/sft_v2_lora
 ```
 
 脚本自动选空闲端口并打印访问地址。

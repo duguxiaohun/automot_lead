@@ -156,7 +156,7 @@ v2 的 `max_gen_tokens` 默认 256，避免只生成 ANALYSIS 就被截断。
 | `check_loss_mask.py` / `check_loss_mask_v2.py` | token 级 loss sanity |
 | `eval_sft_v1.py` / `probe_sft_v1.py` | 共享评估与 case dump |
 | `inspect_teacher_outputs.py` | v2 teacher 预览 |
-| `tb_serve.sh` | 通用 TensorBoard launcher |
+| `../tb_serve.sh` | 通用 TensorBoard launcher |
 
 ## 10. 风险
 

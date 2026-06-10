@@ -159,7 +159,7 @@ VERSION=v2 DDP_GPU_COUNT=4 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/late
 ## 4. TensorBoard
 
 ```bash
-bash qwen3vl_local/sft/tb_serve.sh checkpoints/goalgen_v1_dit
+bash qwen3vl_local/tb_serve.sh checkpoints/goalgen_v1_dit
 ```
 
 训练 TB 在每个 run 的 `tb/` 下；eval TB 在 `eval_tb/<run_tag>/` 下。
