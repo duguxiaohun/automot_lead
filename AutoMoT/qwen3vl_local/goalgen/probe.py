@@ -661,6 +661,36 @@ def _load_cell(path: pathlib.Path) -> Optional[Image.Image]:
     return Image.open(path).convert("RGB")
 
 
+_ASCII_FALLBACK = {
+    "↓": "v",      # ↓
+    "→": "->",     # →
+    "Δ": "d",      # Δ
+    "⚠": "!",      # ⚠
+    "≤": "<=",     # ≤
+    "≥": ">=",     # ≥
+    "±": "+-",     # ±
+}
+
+
+def _to_ascii_safe(text: str) -> str:
+    """PIL 默认 bitmap font 只支持 latin-1，遇到 Unicode 字符会抛
+    `UnicodeEncodeError` 并中断整个 grid 渲染（之前 cf_overview 只画到 truth
+    行的 bug 就是这么来的）。在 draw.text 前把已知特殊字符替换成 ASCII 同义符；
+    剩下的非 latin-1 字符统一用 ``?`` 占位，宁可丢字也不要丢图。"""
+
+    out_chars: List[str] = []
+    for ch in str(text):
+        if ch in _ASCII_FALLBACK:
+            out_chars.append(_ASCII_FALLBACK[ch])
+            continue
+        try:
+            ch.encode("latin-1")
+            out_chars.append(ch)
+        except UnicodeEncodeError:
+            out_chars.append("?")
+    return "".join(out_chars)
+
+
 def _draw_multiline(
     draw: Optional[ImageDraw.ImageDraw],
     xy: Tuple[int, int],
@@ -672,7 +702,11 @@ def _draw_multiline(
         return
     x, y = xy
     for i, line in enumerate(lines):
-        draw.text((x, y + i * line_h), line, fill=fill)
+        safe = _to_ascii_safe(line)
+        try:
+            draw.text((x, y + i * line_h), safe, fill=fill)
+        except Exception as exc:  # noqa: BLE001 — 兜底，绝不让画文字异常中断 grid
+            print(f"[probe][cf][warn] draw.text 失败，跳过该行：{exc}; line={safe!r}")
 
 
 def _compose_cf_overview(
@@ -751,7 +785,7 @@ def _compose_cf_overview(
     _draw_multiline(
         draw,
         (margin, col_header_y),
-        ["row label", "target ↓"],
+        ["row label", "target ->"],
         line_h=12,
     )
     # target 列
@@ -1489,7 +1523,7 @@ def main() -> None:
                     if record["scenario"] and record["scenario"] != memory.scenario:
                         label_lines.append(f"scenario={record['scenario']}")
                     if record["warning"]:
-                        label_lines.append(f"⚠ {record['warning'][:48]}")
+                        label_lines.append(f"! {record['warning'][:48]}")
                     cells: List[Dict[str, Any]] = []
                     cf_match = next(
                         (cf for cf in per_cf_summaries if cf["tag"] == tag),
@@ -1515,7 +1549,7 @@ def main() -> None:
                                 None,
                             )
                             if per_cfg and per_cfg["delta_pixel_l1_mean"] is not None:
-                                annot.append(f"Δpix={per_cfg['delta_pixel_l1_mean']:.3f}")
+                                annot.append(f"dpix={per_cfg['delta_pixel_l1_mean']:.3f}")
                                 if per_cfg["ratio_over_floor_pixel"] is not None:
                                     annot.append(f"r={per_cfg['ratio_over_floor_pixel']:.1f}x")
                                 annot.append(per_cfg["verdict"])
