@@ -319,7 +319,8 @@ GoalGen checkpoint 记录 patch/unpatch 来源：
   才使用 ckpt 内自带 patch/unpatch 继续训练，并把新产物记为 `source=checkpoint`。
 
 DDP 选卡：Python 内部 rank0 选卡，写临时文件，其它 rank 读取，避免每 worker
-各自 `nvidia-smi` 导致 GPU 子集 race。
+各自 `nvidia-smi` 导致 GPU 子集 race；前置 `GPU_IDS=0,1,2,3` 时跳过自动选卡，
+直接把这组卡写入 `CUDA_VISIBLE_DEVICES`。
 
 ## 10. GPU 选址统一规则
 
@@ -329,7 +330,11 @@ eval、probe、teacher / 推理入口。
 - 默认调用 `nvidia-smi` 自动挑空闲 GPU，并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`。
 - 单进程默认挑 1 张；进程内通常用 `cuda:0`。
 - `torchrun --nproc_per_node=N` 默认挑 N 张，并按 `LOCAL_RANK` pin。
-- `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡，具体卡号仍自动挑。
+- `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示默认自动选址时需要 N 张卡，具体卡号默认自动挑。
+- 训练脚本显式 pin 卡统一用 `GPU_IDS=0` / `GPU_IDS=0,1,2,3` 前置；非空时跳过
+  `nvidia-smi` 自动选址。SFT / GoalGen / LeadMoT bash launcher 的卡数从 `GPU_IDS`
+  逗号数推断，`DDP_GPU_COUNT` 被忽略；直接 `torchrun` 的 VAE 示例仍要让
+  `--nproc_per_node` 与 `GPU_IDS` 数量一致。
 - 文档示例不要写 shell 手动 `CUDA_VISIBLE_DEVICES=...`。
 - 显式 `--device cpu` / `--device cuda:N` 的 Python 入口通常视为用户锁设备，不覆盖。
 - GoalGen eval/probe 的 `--gpu N` 只在单进程下锁进程内 GPU；默认保持 0。

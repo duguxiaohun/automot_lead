@@ -4,7 +4,9 @@
 # 用法：
 #   bash qwen3vl_local/goalgen/train.sh check
 #   bash qwen3vl_local/goalgen/train.sh single
+#   GPU_IDS=0 bash qwen3vl_local/goalgen/train.sh single
 #   bash qwen3vl_local/goalgen/train.sh ddp
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
 set -euo pipefail
 
 MODE="${1:-ddp}"

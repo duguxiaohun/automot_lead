@@ -16,7 +16,9 @@
 #
 # 用法（**从 AutoMoT/ 目录运行**）：
 #   单卡：       bash qwen3vl_local/sft/sft_v2_train.sh single
+#               GPU_IDS=0 bash qwen3vl_local/sft/sft_v2_train.sh single
 #   DDP：        bash qwen3vl_local/sft/sft_v2_train.sh ddp
+#               GPU_IDS=0,1,2,3 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 #   sanity 自检：bash qwen3vl_local/sft/sft_v2_train.sh check
 #     （check 模式只跑 2 step、不保存 ckpt，用来确认 loss_scale 是否生效。
 #      v2 初始 loss 应在 3-8 区间，比 v1 偏高，因为多了 ANALYSIS 段约 30 个 token
@@ -33,6 +35,8 @@
 #   OUTPUT_DIR=/path/to/sft_v2_lora \
 #   DDP_GPU_COUNT=4 \
 #   bash qwen3vl_local/sft/sft_v2_train.sh ddp
+#
+# 想固定卡：在最前面再加 GPU_IDS=0,1,2,3（DDP_GPU_COUNT 此时被忽略，卡数从逗号数推断）
 #
 # 调权重（不重启训练前 export 即可生效，详见 qwen3vl_local/sft/sft_v2_loss_scale_plugin.py docstring）：
 #   SFT_V2_ANALYSIS_WEIGHT=0.5 bash qwen3vl_local/sft/sft_v2_train.sh ddp     # ANALYSIS 还在漂移时

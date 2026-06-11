@@ -10,13 +10,16 @@ GoalGen v1/v2 共用 `qwen3vl_local/goalgen/` 下同一套代码；版本只由 
 | 项 | v1 | v2 |
 |---|---|---|
 | 数据构建 | `--mode v1` | `--mode v2` |
-| 训练入口 | `bash train.sh ddp` | `VERSION=v2 bash train.sh ddp` |
+| 训练入口 | `bash qwen3vl_local/goalgen/train.sh ddp` | `VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp` |
 | 数据目录 | `checkpoints/goalgen_v1_data` | `checkpoints/goalgen_v2_data` |
 | 产物目录 | `checkpoints/goalgen_v1_dit` | `checkpoints/goalgen_v2_dit` |
 | 默认初始化 | 从零 | 从 `goalgen_v1_dit/latest/best.pt` warm start |
 | transition | 4 类，含 initial/final 两端 | 2 类，只保留 middle 之间 |
 
 eval/probe 没有版本概念，只看 `--save-root` / `--dit-checkpoint`。
+
+> 显式 pin 卡统一用 `GPU_IDS=...` 前置，例如 `GPU_IDS=0 bash qwen3vl_local/goalgen/train.sh single`、
+> `GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp`，详见 §3.2。
 
 ## 1. 准备
 
@@ -79,6 +82,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
 
 # v2：默认从 v1 latest/best.pt warm start
 VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
+VERSION=v2 GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
 ```
 
 常用 env：
@@ -145,7 +149,9 @@ checkpoints/goalgen_v*_dit/latest -> run_<tag>
     `PATCH_UNPATCH_CKPT_FALLBACK=1` 允许使用 ckpt 内已保存的 patch/unpatch，
     并把新产物记为 `source=checkpoint`。
 
-### 3.1 v2 多卡启动
+### 3.1 v2 多卡启动（自动选址）
+
+下面这一组示例都让脚本自动挑空闲卡。需要固定卡号见 §3.2。
 
 ```bash
 # 默认 8 卡 + 默认 best.pt（自动从 checkpoints/goalgen_v1_dit/latest/best.pt warm start）
@@ -160,6 +166,26 @@ VERSION=v2 DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
 
 # 指定 N 卡 + 指定 pt
 VERSION=v2 DDP_GPU_COUNT=4 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/latest.pt \
+    bash qwen3vl_local/goalgen/train.sh ddp
+```
+
+### 3.2 显式 pin 卡（GPU_IDS）
+
+`GPU_IDS` 非空时脚本跳过 nvidia-smi 自动选址，直接把指定卡号写进 `CUDA_VISIBLE_DEVICES`；
+DDP 卡数从 `GPU_IDS` 逗号数推断，`DDP_GPU_COUNT` 此时被忽略。
+
+```bash
+# 单卡 pin（默认 GPU 0）
+GPU_IDS=0 bash qwen3vl_local/goalgen/train.sh single
+GPU_IDS=0 bash qwen3vl_local/goalgen/train.sh check
+
+# 4 卡 DDP pin（默认 GPU 0,1,2,3），v1 / v2 同写法
+GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
+VERSION=v2 GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
+
+# 4 卡 DDP pin + 指定 pt（与 INIT_FROM_CKPT 等其它 env 自由叠加）
+VERSION=v2 GPU_IDS=0,1,2,3 \
+    INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/latest.pt \
     bash qwen3vl_local/goalgen/train.sh ddp
 ```
 
@@ -253,5 +279,5 @@ Probe 适合看单 case 的输入图、目标图、生成图、Euler trace 和�
 |---|---|
 | `target_frame must be in the future` | 目标帧不在 anchor 之后；重建数据或换 anchor |
 | patch/unpatch key 缺失 | 确认权重来自 `vae_standalone/train_patch_unpatch.py` |
-| `invalid device ordinal` | 默认不要传 `--gpu`；需要锁卡时先确保外部 CVD 可见对应编号 |
+| `invalid device ordinal` | 训练入口锁卡用 `GPU_IDS=0` / `GPU_IDS=0,1,2,3`；eval/probe 的 `--gpu N` 只锁进程内可见 GPU 编号 |
 | 生成图像像 VAE 重建上限差 | 先看 `target_vae_recon`，判断是 VAE 上限还是 DiT 失败 |

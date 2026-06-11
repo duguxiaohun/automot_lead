@@ -211,6 +211,6 @@ python qwen3vl_local/sft/probe_sft_v1.py \
 | `KeyError: sft_v1_analysis_mask` | 确认当前目录就是默认的 `AutoMoT/`，且 `qwen3vl_local/sft/sft_v1_loss_scale_plugin.py` 存在 |
 | `dataset_version=v2_pending` 直接进 eval | 先让 `sft_v2_train.sh` 物化 runtime teacher 数据 |
 | runtime cache 被误复用 | `RUNTIME_TEACHER_REFRESH=1` 或删 `runtime_teacher_data/` |
-| `invalid device ordinal` | 不手写 CVD；DDP 用 `DDP_GPU_COUNT=N` |
+| `invalid device ordinal` | 训练入口锁卡用 `GPU_IDS=0` / `GPU_IDS=0,1,2,3`；不要手写 CVD；DDP 卡数从 `GPU_IDS` 推断 |
 | 输出反复 `STATUS:` | 过训；按 checkpoint 曲线选 early_advance 最低且 advance 不退化的点 |
 | teacher 太短 / 套话 | 先看 `inspect_teacher_outputs.py --live`，必要时改 teacher prompt 后刷新 cache |
