@@ -791,21 +791,18 @@ def _draw_multiline(
 def _cf_overview_label_lines(record: Dict[str, Any], truth_scenario: str) -> List[str]:
     """生成 cf_overview 左侧标签。
 
-    overview PNG 使用 PIL 默认字体，中文会被降级成问号；图片里只放 ASCII 摘要，
-    完整 warning 仍保存在 cf_summary.json / cf_report.md。
+    overview PNG 主要用于快速看图，不塞调试元信息；候选来源、
+    prompt_consistency 和 warning 仍保存在 cf_summary.json / cf_report.md。
     """
 
-    label = ("truth" if record["is_truth"] else record["tag"]) + f": {record['subgoal']}"
-    lines = [label]
-    if record.get("request_source"):
-        lines.append(f"source={record['request_source']}")
+    if record["is_truth"]:
+        label = "truth"
+    else:
+        tag_short = str(record["tag"]).split("_", 2)[:2]
+        label = "_".join(tag_short)
+    lines = [label, f"subgoal={record['subgoal']}"]
     if record["scenario"] and record["scenario"] != truth_scenario:
         lines.append(f"scenario={record['scenario']}")
-    consistency = record.get("prompt_consistency")
-    if consistency and consistency != "consistent":
-        lines.append(f"prompt={consistency}")
-    if record.get("warning"):
-        lines.append("detail=cf_report.md")
     return lines
 
 
