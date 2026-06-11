@@ -464,7 +464,8 @@ counterfactual config 中`；要么把它加进 config，要么显式传 `--coun
 1. 打开 `cf_overview_<mode>.png`：
    - 第一行是 truth；下面每行是一个 CF variant；
    - 列数 = CFG sweep 个数（不开 sweep 时只有 1 列）；
-   - 每个 cell 上方两三行小字：`Δpix=0.087  r=7.3x  responsive`。
+   - 每个 cell 上方两三行小字：`dpix=0.087  r=7.3x  responsive`
+     （`dpix` 是 pred-vs-truth-pred 像素 L1；ASCII 写法是为了 PIL 默认字体兼容）。
 
 2. 打开 `cf_report.md`，看每个 mode 的表格：
 
