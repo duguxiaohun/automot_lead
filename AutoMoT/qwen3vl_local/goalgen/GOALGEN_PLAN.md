@@ -163,6 +163,9 @@ qwen3vl_local/goalgen/train.sh
 - `single`：单卡训练。
 - `ddp`：多卡 DDP。自动挑可用 GPU、自动选空闲端口。
 
+显式 pin 卡统一在训练命令前置 `GPU_IDS=0`（单卡）或 `GPU_IDS=0,1,2,3`（4 卡 DDP）；
+`GPU_IDS` 非空时跳过自动选址，DDP 卡数从逗号数推断。
+
 Optimizer 设置（当前共享训练配置，v2 会覆盖 LR / warmup 默认值做 fine-tune）：
 
 - **Muon**（接管 2D 权重矩阵 = attention/MLP/AdaLN 的所有 Linear）：

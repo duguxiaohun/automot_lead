@@ -129,6 +129,9 @@ q_proj k_proj v_proj o_proj gate_proj up_proj down_proj
 `latest` symlink；`HF_HOME` 和 v2 runtime teacher cache 固定在 base 层，避免每个 run
 重复物化或重复缓存。每个训练 run 目录追加 `log.txt` 保存本次终端 stdout/stderr。
 
+显式 pin 卡统一在训练命令前置 `GPU_IDS=0`（单卡）或 `GPU_IDS=0,1,2,3`（4 卡 DDP）；
+`GPU_IDS` 非空时跳过 nvidia-smi 自动选址，DDP 卡数从逗号数推断，`DDP_GPU_COUNT` 被忽略。
+
 ## 8. 评估
 
 `eval_sft_v1.py` 输出四个核心指标：

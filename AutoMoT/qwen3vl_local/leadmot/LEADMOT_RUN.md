@@ -96,6 +96,13 @@ LR=1e-4 \
 NUM_EPOCHS=4 \
 GRAD_ACC=8 \
 bash qwen3vl_local/leadmot/train.sh single
+
+# 想固定到某张卡（默认 GPU 0）
+GPU_IDS=0 \
+LR=1e-4 \
+NUM_EPOCHS=4 \
+GRAD_ACC=8 \
+bash qwen3vl_local/leadmot/train.sh single
 ```
 
 ## 4. 多卡 DDP
@@ -123,15 +130,19 @@ LeadMoT 单 sample 的 IO 大头是 4 张 JPG 解码 + 4 个 lzma pickle 解压 
 ```bash
 # 默认就有 worker 预取，跟原命令一字不变
 DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+GPU_IDS=0,1,2,3 bash qwen3vl_local/leadmot/train.sh ddp
 
 # 想再激进（CPU 核数充裕时）
 NUM_WORKERS=12 PREFETCH_FACTOR=4 DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+NUM_WORKERS=12 PREFETCH_FACTOR=4 GPU_IDS=0,1,2,3 bash qwen3vl_local/leadmot/train.sh ddp
 
 # Linux 远端想试更低启动开销时，可显式改成 forkserver；确认稳定后再长期使用
 WORKER_MULTIPROCESSING_CONTEXT=forkserver DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+WORKER_MULTIPROCESSING_CONTEXT=forkserver GPU_IDS=0,1,2,3 bash qwen3vl_local/leadmot/train.sh ddp
 
 # 想退回同步 IO 做对照 / debug
 NUM_WORKERS=0 DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+NUM_WORKERS=0 GPU_IDS=0,1,2,3 bash qwen3vl_local/leadmot/train.sh ddp
 ```
 
 #### 经验值
@@ -159,9 +170,11 @@ NUM_WORKERS=0 DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
 ```bash
 # 默认 USE_BEV=1：v1 完整行为，decoder 在 gen 序列里融合 BEV(120) token
 DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+GPU_IDS=0,1,2,3 bash qwen3vl_local/leadmot/train.sh ddp
 
 # USE_BEV=0：消融配置，decoder 不接 BEV 信息，纯靠 Qwen + 自车状态做 planning
 DDP_GPU_COUNT=4 USE_BEV=0 bash qwen3vl_local/leadmot/train.sh ddp
+GPU_IDS=0,1,2,3 USE_BEV=0 bash qwen3vl_local/leadmot/train.sh ddp
 ```
 
 行为差异：
@@ -184,12 +197,15 @@ DDP_GPU_COUNT=4 USE_BEV=0 bash qwen3vl_local/leadmot/train.sh ddp
 ```bash
 # 默认 USE_SUBGOAL=0：普通 history/current RGB + navigation prompt
 DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+GPU_IDS=0,1,2,3 bash qwen3vl_local/leadmot/train.sh ddp
 
 # USE_SUBGOAL=1：额外把 SUBGOAL keyframe RGB 和 STATUS/SUBGOAL 真值文本喂给 Qwen prefix
 DDP_GPU_COUNT=4 USE_SUBGOAL=1 bash qwen3vl_local/leadmot/train.sh ddp
+GPU_IDS=0,1,2,3 USE_SUBGOAL=1 bash qwen3vl_local/leadmot/train.sh ddp
 
 # 可与 USE_BEV=0 组合，做 no-BEV + subgoal prefix 消融
 DDP_GPU_COUNT=4 USE_BEV=0 USE_SUBGOAL=1 bash qwen3vl_local/leadmot/train.sh ddp
+GPU_IDS=0,1,2,3 USE_BEV=0 USE_SUBGOAL=1 bash qwen3vl_local/leadmot/train.sh ddp
 ```
 
 行为约定：
@@ -318,11 +334,19 @@ tp/ntp/final_goal 是否和训练分布一致。
 ```bash
 RESUME=checkpoints/leadmot_v1_decoder/latest.pt \
 bash qwen3vl_local/leadmot/train.sh single
+
+GPU_IDS=0 \
+RESUME=checkpoints/leadmot_v1_decoder/latest.pt \
+bash qwen3vl_local/leadmot/train.sh single
 ```
 
 只加载 decoder 权重、重置 optimizer/scheduler：
 
 ```bash
+INIT_FROM_CKPT=checkpoints/leadmot_v1_decoder/latest.pt \
+bash qwen3vl_local/leadmot/train.sh single
+
+GPU_IDS=0 \
 INIT_FROM_CKPT=checkpoints/leadmot_v1_decoder/latest.pt \
 bash qwen3vl_local/leadmot/train.sh single
 ```

@@ -90,6 +90,8 @@ Decoder 从头训练，外部 Qwen/BEV 都冻结，所以默认值偏向稳定�
 - dtype: decoder/Qwen 均默认 `bfloat16`
 - training dropout: `0.1`，只在训练入口的 decoder config 使用；runner 推理仍默认 `0.0`
 - Qwen load stagger: DDP 默认每个 rank 按 `LOCAL_RANK * 2s` 错峰调用 runner `_ensure_leadmot_qwen_engine()`
+- 显式 pin 卡统一在训练命令前置 `GPU_IDS=0`（单卡）或 `GPU_IDS=0,1,2,3`（4 卡 DDP）；
+  `GPU_IDS` 非空时跳过自动选址，DDP 卡数从逗号数推断。
 - loss: 默认 `1.0 * waypoint_L1 + 0.5 * (route_ADE_L1 + route_FDE_L1)`；需要更平滑早期梯度时可用 `--loss-type smooth_l1`
 
 Waypoint 直接服务控制，权重更高；route 作为空间路线监督，也额外加末点 FDE 来稳定远端路线。

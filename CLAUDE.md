@@ -238,8 +238,8 @@ git push
 - **不要在运行文档里直接写 `CUDA_VISIBLE_DEVICES=...` 这种裸 shell 选卡片段**。
   SFT v1/v2、GoalGen、LeadMoT、VAE patch/unpatch 以及白名单 runner 的训练、eval、probe、teacher / 推理
   入口默认都自动寻找空闲 GPU，并覆盖已有 mask。
-  唯一允许的 pin 写法：`GPU_IDS=0` / `GPU_IDS=0,1,2,3` 前置环境变量（脚本里的
-  `resolve_visible_gpus` 在 `GPU_IDS` 非空时跳过 nvidia-smi 自动选址，直接用给定卡号）。
+  唯一允许的 pin 写法：`GPU_IDS=0` / `GPU_IDS=0,1,2,3` 前置环境变量（白名单训练入口在
+  `GPU_IDS` 非空时跳过 nvidia-smi 自动选址，直接用给定卡号）。
   禁止在文档命令里手写 `export CUDA_VISIBLE_DEVICES=...`。
 
 ---
@@ -253,7 +253,10 @@ git push
 - 写或改 SFT / GoalGen / LeadMoT / VAE 运行命令时，保持 GPU 选址规则一致：
   单进程默认 `nvidia-smi` 自动挑 1 张空闲 GPU，并覆盖已有 mask；
   `torchrun --nproc_per_node=N` 默认自动挑 N 张最空闲 GPU，并覆盖已有 mask；
-  `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡，具体卡号仍由脚本自动挑。
+  `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示默认自动选址时需要 N 张卡，具体卡号默认由脚本自动挑；
+  显式 pin 卡只写 `GPU_IDS=0`（单卡示例）或 `GPU_IDS=0,1,2,3`（4 卡示例），并紧跟在
+  原单卡/多卡训练命令后作为 demo；直接 `torchrun` 的 VAE 示例仍要让 `--nproc_per_node` 与
+  `GPU_IDS` 数量一致。
 - `eval_carla/run_eval.sh` 的 `--num-gpus N` / `EVAL_GPU_COUNT=N` 只表示闭环评测 worker 数；
   具体 GPU id 仍由 `nvidia-smi` 自动挑空闲卡，并为每张卡分配独立 CARLA 端口槽。
 - 写或改训练 launcher 时，保持**防覆盖目录约定**一致（详见 PROJECT_CONTEXT.md §11）：

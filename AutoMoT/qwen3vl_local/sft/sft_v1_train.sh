@@ -3,7 +3,9 @@
 #
 # 用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
 #   单卡：       bash qwen3vl_local/sft/sft_v1_train.sh single
+#               GPU_IDS=0 bash qwen3vl_local/sft/sft_v1_train.sh single
 #   DDP：        bash qwen3vl_local/sft/sft_v1_train.sh ddp
+#               GPU_IDS=0,1,2,3 bash qwen3vl_local/sft/sft_v1_train.sh ddp
 #   sanity 自检：bash qwen3vl_local/sft/sft_v1_train.sh check
 #     （check 模式只跑 2 step、不保存 ckpt，用来确认 loss_scale 是否生效。
 #      正常 mask 下初始 loss 应只来自 STATUS/SUBGOAL 段，数值在 ~6-10 量级；
@@ -20,6 +22,8 @@
 #   OUTPUT_DIR=/path/to/sft_v1_lora \
 #   DDP_GPU_COUNT=4 \
 #   bash qwen3vl_local/sft/sft_v1_train.sh ddp
+#
+# 想固定卡：在最前面再加 GPU_IDS=0,1,2,3（DDP_GPU_COUNT 此时被忽略，卡数从逗号数推断）
 #
 # 训练产物：
 #   OUTPUT_DIR 下保存 LoRA adapter checkpoint。eval_sft_v1.py 的 --lora-dir
