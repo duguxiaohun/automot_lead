@@ -16,11 +16,6 @@
 
 运行（单卡）：脚本启动后自动挑 1 张最空闲 GPU，并覆盖已有的 CUDA_VISIBLE_DEVICES。::
 
-    python vae_standalone/train_patch_unpatch.py \
-        --train-jsonl checkpoints/goalgen_v1_data/train.jsonl \
-        --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
-        --output-dir checkpoints/patch_unpatch_v1
-
     GPU_IDS=0 python vae_standalone/train_patch_unpatch.py \
         --train-jsonl checkpoints/goalgen_v1_data/train.jsonl \
         --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
@@ -28,12 +23,6 @@
 
 DDP：不用提前设置 CUDA_VISIBLE_DEVICES。脚本会在每个 worker 触碰 CUDA 前，
 按 ``WORLD_SIZE`` 自动挑 N 张最空闲 GPU，并把同一组可见卡写入各 worker 环境。::
-
-    torchrun --standalone --nproc_per_node=4 \
-        vae_standalone/train_patch_unpatch.py \
-        --train-jsonl checkpoints/goalgen_v1_data/train.jsonl \
-        --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
-        --output-dir checkpoints/patch_unpatch_v1
 
     GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 \
         vae_standalone/train_patch_unpatch.py \
@@ -274,16 +263,11 @@ def auto_configure_cuda_visible_devices(want_count: int) -> str:
         os.environ["CUDA_VISIBLE_DEVICES"] = pinned
         picked = len([x for x in pinned.split(",") if x.strip()])
         if picked < want_count:
-            # torchrun rank>0 会按 LOCAL_RANK 调 set_device，少给的卡会立刻触发
-            # "invalid device ordinal" 崩溃；这里 stderr 打一行兜底警告，避免堆栈日志看着发懵。
-            sys.stderr.write(
-                f"[gpu][warn] GPU_IDS={pinned} 只给了 {picked} 张，但 want_count={want_count}"
-                f"（通常等于 --nproc_per_node）。rank>={picked} 的 worker 会因"
-                f" 'invalid device ordinal' 崩溃，请把 GPU_IDS 数量补到 {want_count}"
-                f"，或下调 --nproc_per_node 至 {picked}。\n"
+            raise RuntimeError(
+                f"GPU_IDS={pinned} only provides {picked} GPU(s), "
+                f"but want_count={want_count}; please provide at least {want_count} ids "
+                f"or reduce --nproc_per_node to {picked}."
             )
-            sys.stderr.flush()
-            return f"manual-partial:{pinned}"
         return f"manual:{pinned}"
 
     if want_count > 1:

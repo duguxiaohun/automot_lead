@@ -10,7 +10,7 @@ GoalGen v1/v2 共用 `qwen3vl_local/goalgen/` 下同一套代码；版本只由 
 | 项 | v1 | v2 |
 |---|---|---|
 | 数据构建 | `--mode v1` | `--mode v2` |
-| 训练入口 | `bash qwen3vl_local/goalgen/train.sh ddp` | `VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp` |
+| 训练入口 | `DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp` | `VERSION=v2 DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp` |
 | 数据目录 | `checkpoints/goalgen_v1_data` | `checkpoints/goalgen_v2_data` |
 | 产物目录 | `checkpoints/goalgen_v1_dit` | `checkpoints/goalgen_v2_dit` |
 | 默认初始化 | 从零 | 从 `goalgen_v1_dit/latest/best.pt` warm start |
@@ -64,13 +64,13 @@ checkpoints/goalgen_v2_data/{train,val}.jsonl + stats.json
 
 ```bash
 # check：2 个 optimizer step
-bash qwen3vl_local/goalgen/train.sh check
+GPU_IDS=0 bash qwen3vl_local/goalgen/train.sh check
 
 # 单卡
-bash qwen3vl_local/goalgen/train.sh single
+GPU_IDS=0 bash qwen3vl_local/goalgen/train.sh single
 
 # DDP 默认自动挑 8 张最空闲 GPU
-bash qwen3vl_local/goalgen/train.sh ddp
+DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
 
 # 指定需要几张卡，卡号仍自动挑
 DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
@@ -81,7 +81,7 @@ GPU_IDS=0 bash qwen3vl_local/goalgen/train.sh single
 GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
 
 # v2：默认从 v1 latest/best.pt warm start
-VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
+VERSION=v2 DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
 VERSION=v2 GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
 ```
 
@@ -155,18 +155,18 @@ checkpoints/goalgen_v*_dit/latest -> run_<tag>
 
 ```bash
 # 默认 8 卡 + 默认 best.pt（自动从 checkpoints/goalgen_v1_dit/latest/best.pt warm start）
-VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
+VERSION=v2 DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
 
 # 默认 8 卡 + 指定 pt
 VERSION=v2 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/latest.pt \
-    bash qwen3vl_local/goalgen/train.sh ddp
+    DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
 
 # 指定 N 卡 + 默认 best.pt（这里 N=4，卡号仍由脚本自动挑最空闲的）
 VERSION=v2 DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
 
 # 指定 N 卡 + 指定 pt
 VERSION=v2 DDP_GPU_COUNT=4 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/latest.pt \
-    bash qwen3vl_local/goalgen/train.sh ddp
+    DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
 ```
 
 ### 3.2 显式 pin 卡（GPU_IDS）
@@ -186,7 +186,7 @@ VERSION=v2 GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
 # 4 卡 DDP pin + 指定 pt（与 INIT_FROM_CKPT 等其它 env 自由叠加）
 VERSION=v2 GPU_IDS=0,1,2,3 \
     INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest/latest.pt \
-    bash qwen3vl_local/goalgen/train.sh ddp
+    GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
 ```
 
 ## 4. TensorBoard
@@ -200,7 +200,7 @@ bash qwen3vl_local/tb_serve.sh checkpoints/goalgen_v1_dit
 ## 5. 单条前向冒烟
 
 ```bash
-python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
+GPU_IDS=0 python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
   --route-dir /datashare/IOL4SGH/data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46 \
   --anchor 12 \
   --save-root eval_json/qwen3vl_dit_goalgen_smoke
@@ -213,16 +213,16 @@ python leaderboard/team_code/qwen3vl_dit_goalgen_runner.py \
 
 ```bash
 # 小样本，完整 dump compare.png
-python qwen3vl_local/goalgen/eval.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/eval.py \
   --save-root checkpoints/goalgen_v1_dit \
   --max-samples 100
 
 # 全量多卡分片
-torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval.py \
+GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval.py \
   --save-root checkpoints/goalgen_v1_dit
 
 # 绑定具体 ckpt
-python qwen3vl_local/goalgen/eval.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/eval.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/run_YYYYmmdd_HHMMSS/best.pt \
   --save-root checkpoints/goalgen_v1_dit/run_YYYYmmdd_HHMMSS \
   --max-samples 100
@@ -232,8 +232,16 @@ python qwen3vl_local/goalgen/eval.py \
 `latest/latest.pt` -> `best.pt` -> `latest.pt`。显式 `--dit-checkpoint` 时按用户路径。
 Eval 的终端输出会追加到 `<save-root>/eval/log.txt`。
 
-`--gpu` 语义：默认保持 `0`，脚本自动挑物理卡并映射为 `cuda:0`；单进程显式
-传 `--gpu N` 时不覆盖 `CUDA_VISIBLE_DEVICES`。DDP 下按 `LOCAL_RANK`。
+Eval / probe GPU 规则与训练入口一致：
+
+- 想指定用几张 GPU：多卡 eval 用 `torchrun --nproc_per_node=N`，脚本按 `WORLD_SIZE=N`
+  自动挑 N 张空闲物理卡。
+- 想指定用哪几张 GPU：前置 `GPU_IDS=0` 或 `GPU_IDS=0,1,2,3`；脚本跳过自动选址，
+  直接把这些物理卡写入 `CUDA_VISIBLE_DEVICES`，进程内从 `cuda:0` 开始编号。
+- 都不指定：单进程 eval/probe 自动挑 1 张最空闲物理卡，并覆盖外层残留的
+  `CUDA_VISIBLE_DEVICES`。
+- 文档命令只保留两种 GPU 写法：单进程显式 pin 用 `GPU_IDS=0`，DDP/torchrun
+  显式 pin 用 `GPU_IDS=0,1,2,3`，训练 launcher 指定卡数用 `DDP_GPU_COUNT=N`。
 
 关键指标：
 
@@ -249,11 +257,11 @@ Eval 的终端输出会追加到 `<save-root>/eval/log.txt`。
 ## 7. Probe
 
 ```bash
-python qwen3vl_local/goalgen/probe.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0
 
-python qwen3vl_local/goalgen/probe.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/checkpoint-000500/goalgen_v1.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0 --case-suffix "_ckpt500"
@@ -284,7 +292,7 @@ noop 与 truth 的 pred-vs-pred 差异应接近 0；`counterfactual_metrics_summ
 **Demo A：默认推荐，左转 case 做 prompt 自洽的 scenario_swap。**
 
 ```bash
-python qwen3vl_local/goalgen/probe.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --save-root checkpoints/goalgen_v1_dit \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --scenarios NonSignalizedJunctionLeftTurn,SignalizedJunctionLeftTurn \
@@ -300,7 +308,7 @@ python qwen3vl_local/goalgen/probe.py \
 **Demo B：最小干预 subgoal_only，用来测 SUBGOAL token 本身。**
 
 ```bash
-python qwen3vl_local/goalgen/probe.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --save-root checkpoints/goalgen_v1_dit \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --scenarios NonSignalizedJunctionLeftTurn,SignalizedJunctionLeftTurn \
@@ -318,7 +326,7 @@ python qwen3vl_local/goalgen/probe.py \
 **Demo C：同一 case 同时保存两种 mode。**
 
 ```bash
-python qwen3vl_local/goalgen/probe.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --save-root checkpoints/goalgen_v1_dit \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --scenarios NonSignalizedJunctionLeftTurn \
@@ -340,7 +348,7 @@ counterfactual_compare_subgoal_only.png
 **Demo D：标准跨场景实验，使用内置 per-scenario 配置。**
 
 ```bash
-python qwen3vl_local/goalgen/probe.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --save-root checkpoints/goalgen_v1_dit \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --scenarios NonSignalizedJunctionLeftTurn,SignalizedJunctionLeftTurn,NonSignalizedJunctionRightTurn,SignalizedJunctionRightTurn,PriorityAtJunction,EnterActorFlow,HazardAtSideLane,PedestrianCrossing,Accident \
@@ -372,7 +380,7 @@ python qwen3vl_local/goalgen/probe.py \
 **Demo E：CFG sweep 和 z_init seed replicates。**
 
 ```bash
-python qwen3vl_local/goalgen/probe.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --save-root checkpoints/goalgen_v1_dit \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --scenarios NonSignalizedJunctionLeftTurn,PriorityAtJunction,HazardAtSideLane \
@@ -434,5 +442,5 @@ ratio 和并排图像的语义方向。`chat_text.txt` 用来核对 Qwen 实际�
 |---|---|
 | `target_frame must be in the future` | 目标帧不在 anchor 之后；重建数据或换 anchor |
 | patch/unpatch key 缺失 | 确认权重来自 `vae_standalone/train_patch_unpatch.py` |
-| `invalid device ordinal` | 训练入口锁卡用 `GPU_IDS=0` / `GPU_IDS=0,1,2,3`；eval/probe 的 `--gpu N` 只锁进程内可见 GPU 编号 |
+| `invalid device ordinal` | 显式 pin 用 `GPU_IDS=0` / `GPU_IDS=0,1,2,3`；指定卡数用 `DDP_GPU_COUNT=N`；DDP 下让 `GPU_IDS` 数量与 `--nproc_per_node` 一致 |
 | 生成图像像 VAE 重建上限差 | 先看 `target_vae_recon`，判断是 VAE 上限还是 DiT 失败 |

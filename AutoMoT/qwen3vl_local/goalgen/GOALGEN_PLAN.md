@@ -165,6 +165,7 @@ qwen3vl_local/goalgen/train.sh
 
 显式 pin 卡统一在训练命令前置 `GPU_IDS=0`（单卡）或 `GPU_IDS=0,1,2,3`（4 卡 DDP）；
 `GPU_IDS` 非空时跳过自动选址，DDP 卡数从逗号数推断。
+如果只想指定卡数而不指定物理卡号，用 `DDP_GPU_COUNT=N`；launcher 会自动挑 N 张空闲卡并打印最终 `CUDA_VISIBLE_DEVICES`。
 
 Optimizer 设置（当前共享训练配置，v2 会覆盖 LR / warmup 默认值做 fine-tune）：
 

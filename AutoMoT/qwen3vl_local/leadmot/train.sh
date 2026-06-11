@@ -286,6 +286,10 @@ case "${MODE}" in
     export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus "${DDP_GPU_COUNT}")"
     configure_master_port
     NPROC_PER_NODE="$(count_visible_gpus)"
+    if [[ -z "${GPU_IDS:-}" && "${NPROC_PER_NODE}" -lt "${DDP_GPU_COUNT}" ]]; then
+      echo "[gpu][error] requested DDP_GPU_COUNT=${DDP_GPU_COUNT}, but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}" >&2
+      exit 1
+    fi
     if [[ "${NPROC_PER_NODE}" -lt 1 ]]; then
       echo "No GPU found for ddp mode." >&2
       exit 1
@@ -318,9 +322,9 @@ if [[ "${MODE}" != "check" ]]; then
   echo "[hint] TensorBoard:"
   echo "  bash qwen3vl_local/tb_serve.sh ${OUTPUT_DIR}"
   echo "[hint] offline eval:"
-  echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval.py --save-root ${OUTPUT_DIR}"
+  echo "  GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval.py --save-root ${OUTPUT_DIR}"
   echo "[hint] case probe:"
-  echo "  python qwen3vl_local/leadmot/probe.py --save-root ${OUTPUT_DIR}"
+  echo "  GPU_IDS=0 python qwen3vl_local/leadmot/probe.py --save-root ${OUTPUT_DIR}"
   echo "============================================================"
 fi
 

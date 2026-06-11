@@ -15,11 +15,10 @@
 # GPU / MASTER_PORT 自动选址逻辑与 v1 完全相同；GPU 始终自动挑空闲卡并覆盖旧 mask。
 #
 # 用法（**从 AutoMoT/ 目录运行**）：
-#   单卡：       bash qwen3vl_local/sft/sft_v2_train.sh single
-#               GPU_IDS=0 bash qwen3vl_local/sft/sft_v2_train.sh single
-#   DDP：        bash qwen3vl_local/sft/sft_v2_train.sh ddp
+#   单卡：       GPU_IDS=0 bash qwen3vl_local/sft/sft_v2_train.sh single
+#   DDP：        DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 #               GPU_IDS=0,1,2,3 bash qwen3vl_local/sft/sft_v2_train.sh ddp
-#   sanity 自检：bash qwen3vl_local/sft/sft_v2_train.sh check
+#   sanity 自检：GPU_IDS=0 bash qwen3vl_local/sft/sft_v2_train.sh check
 #     （check 模式只跑 2 step、不保存 ckpt，用来确认 loss_scale 是否生效。
 #      v2 初始 loss 应在 3-8 区间，比 v1 偏高，因为多了 ANALYSIS 段约 30 个 token
 #      参与 loss；判读细节见 SFT_RUN.md §3。）
@@ -34,13 +33,13 @@
 #   VAL_JSONL=/path/to/v2_val.jsonl \
 #   OUTPUT_DIR=/path/to/sft_v2_lora \
 #   DDP_GPU_COUNT=4 \
-#   bash qwen3vl_local/sft/sft_v2_train.sh ddp
+#   DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 #
 # 想固定卡：在最前面再加 GPU_IDS=0,1,2,3（DDP_GPU_COUNT 此时被忽略，卡数从逗号数推断）
 #
 # 调权重（不重启训练前 export 即可生效，详见 qwen3vl_local/sft/sft_v2_loss_scale_plugin.py docstring）：
-#   SFT_V2_ANALYSIS_WEIGHT=0.5 bash qwen3vl_local/sft/sft_v2_train.sh ddp     # ANALYSIS 还在漂移时
-#   SFT_V2_ANALYSIS_WEIGHT=0.1 bash qwen3vl_local/sft/sft_v2_train.sh ddp     # ANALYSIS 过拟合 teacher 时
+#   SFT_V2_ANALYSIS_WEIGHT=0.5 DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v2_train.sh ddp     # ANALYSIS 还在漂移时
+#   SFT_V2_ANALYSIS_WEIGHT=0.1 DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v2_train.sh ddp     # ANALYSIS 过拟合 teacher 时
 
 set -euo pipefail
 
@@ -522,8 +521,9 @@ case "${MODE}" in
         export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus "${DDP_GPU_COUNT}")"
         ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
         export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
-        if [[ "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then
-            echo "[gpu][warn] requested ${DDP_GPU_COUNT} GPUs but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+        if [[ -z "${GPU_IDS:-}" && "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then
+            echo "[gpu][error] requested DDP_GPU_COUNT=${DDP_GPU_COUNT}, but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}" >&2
+            exit 1
         fi
         configure_master_port
         export NCCL_P2P_LEVEL=NVL
@@ -615,10 +615,10 @@ echo "[hint] 看 TensorBoard："
 echo "  bash qwen3vl_local/tb_serve.sh ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在 val 集上跑 eval（注意 v2 必须显式 --val-jsonl 指向 v2 数据）："
-echo "  python qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} \\"
+echo "  GPU_IDS=0 python qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} \\"
 echo "      --val-jsonl ${VAL_JSONL} --save-root ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在随机场景上 dump case："
-echo "  python qwen3vl_local/sft/probe_sft_v1.py --lora-dir ${OUTPUT_DIR} \\"
+echo "  GPU_IDS=0 python qwen3vl_local/sft/probe_sft_v1.py --lora-dir ${OUTPUT_DIR} \\"
 echo "      --val-jsonl ${VAL_JSONL} --save-root ${OUTPUT_DIR} --num-per-scenario 4"
 echo "============================================================"

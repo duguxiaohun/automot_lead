@@ -33,18 +33,18 @@ eval_sft_v1.py 是聚合视角：跑完整 val 出 keep_acc / early_advance / pe
 
 ```bash
 # 默认跑 base，抽 16 个场景样本（每场景 4 条）做人工 review
-python qwen3vl_local/sft/probe_sft_v1.py \
+GPU_IDS=0 python qwen3vl_local/sft/probe_sft_v1.py \
   --save-root checkpoints/sft_v1_lora \
   --num-per-scenario 4 --seed 0
 
 # 只有明确要看 LoRA 时才传 adapter；同 seed 选中样本完全一致，方便并排比较
-python qwen3vl_local/sft/probe_sft_v1.py \
+GPU_IDS=0 python qwen3vl_local/sft/probe_sft_v1.py \
   --lora-dir checkpoints/sft_v1_lora/checkpoint-900 \
   --save-root checkpoints/sft_v1_lora \
   --num-per-scenario 4 --seed 0 --case-suffix "_lora"
 
 # 只看 Accident / Construction 两个场景
-python qwen3vl_local/sft/probe_sft_v1.py \
+GPU_IDS=0 python qwen3vl_local/sft/probe_sft_v1.py \
   --save-root checkpoints/sft_v1_lora \
   --scenarios Accident,Construction --num-per-scenario 6 --seed 7
 ```
@@ -123,10 +123,25 @@ def _pick_idle_gpus(n: int = 1) -> str:
     return ",".join(row[2] for row in rows[:n])
 
 
+def _normalize_gpu_ids(value: str) -> str:
+    ids = [part.strip() for part in str(value).split(",") if part.strip()]
+    return ",".join(ids)
+
+
 def _maybe_set_idle_gpu_mask() -> None:
     """probe 默认自动挑 1 张空闲 GPU；--device 显式传 cpu / cuda[:N] 时不覆盖 CVD。"""
     device_arg = _cli_value("--device")
     if device_arg and device_arg.strip().lower() not in ("", "auto"):
+        print(f"[gpu] using explicit --device {device_arg}; CUDA_VISIBLE_DEVICES is not modified")
+        return
+    pinned = _normalize_gpu_ids(os.environ.get("GPU_IDS", ""))
+    if pinned:
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = pinned
+        print(
+            f"[gpu] using explicit GPU_IDS={pinned}; "
+            f"process uses cuda:0/auto; previous={previous or '<unset>'}"
+        )
         return
     selected = _pick_idle_gpus(1)
     if selected:

@@ -8,24 +8,24 @@
 默认用法（运行目录建议为 AutoMoT/）：
 
     # 小样本 eval：默认完整 dump 每条样本的 compare.png。
-    python vae_standalone/vae_reconstruct.py \
+    GPU_IDS=0 python vae_standalone/vae_reconstruct.py \
         --version v1 \
         --save-root checkpoints/patch_unpatch_v1 \
         --max-samples 100
 
     # v2 小样本 eval：VAE + patch/unpatch，默认读取 best patch/unpatch 权重。
-    python vae_standalone/vae_reconstruct.py \
+    GPU_IDS=0 python vae_standalone/vae_reconstruct.py \
         --version v2 \
         --save-root checkpoints/patch_unpatch_v1 \
         --max-samples 100
 
     # 大样本 eval：--max-samples 0 表示全量候选图，默认不 dump 图像，主要看本地 JSON 和 TensorBoard。
-    python vae_standalone/vae_reconstruct.py \
+    GPU_IDS=0 python vae_standalone/vae_reconstruct.py \
         --version v2 \
         --save-root checkpoints/patch_unpatch_v1
 
     # 大样本 eval：最多随机抽 1000 张；如果候选图不足 1000 张，则自动使用全量候选图。
-    python vae_standalone/vae_reconstruct.py \
+    GPU_IDS=0 python vae_standalone/vae_reconstruct.py \
         --version v2 \
         --save-root checkpoints/patch_unpatch_v1 \
         --max-samples 1000
@@ -63,11 +63,81 @@ import math
 import os
 import pathlib
 import random
+import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from typing import Any, List, Sequence
 
 import numpy as np
+
+
+def _cli_value(name: str) -> str | None:
+    argv = sys.argv[1:]
+    for idx, item in enumerate(argv):
+        if item == name and idx + 1 < len(argv):
+            return argv[idx + 1]
+        if item.startswith(name + "="):
+            return item.split("=", 1)[1]
+    return None
+
+
+def _normalize_gpu_ids(value: str) -> str:
+    ids = [part.strip() for part in str(value).split(",") if part.strip()]
+    return ",".join(ids)
+
+
+def _pick_idle_gpus(n: int = 1) -> str:
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return ""
+    rows: list[tuple[int, int, str]] = []
+    for line in out.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            rows.append((int(parts[1]), int(parts[2]), parts[0]))
+        except ValueError:
+            continue
+    rows.sort(key=lambda x: (x[0], x[1], int(x[2]) if x[2].isdigit() else 9999))
+    return ",".join(row[2] for row in rows[:n])
+
+
+def _maybe_set_idle_gpu_mask() -> None:
+    device_arg = _cli_value("--device")
+    if device_arg and device_arg.strip().lower() not in ("", "auto"):
+        print(f"[gpu] using explicit --device {device_arg}; CUDA_VISIBLE_DEVICES is not modified")
+        return
+    pinned = _normalize_gpu_ids(os.environ.get("GPU_IDS", ""))
+    if pinned:
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = pinned
+        print(
+            f"[gpu] using explicit GPU_IDS={pinned}; "
+            f"process uses cuda:0/auto; previous={previous or '<unset>'}"
+        )
+        return
+    selected = _pick_idle_gpus(1)
+    if selected:
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        print(
+            f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; "
+            f"process uses cuda:0/auto; previous={previous or '<unset>'}"
+        )
+
+
+_maybe_set_idle_gpu_mask()
+
 import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw

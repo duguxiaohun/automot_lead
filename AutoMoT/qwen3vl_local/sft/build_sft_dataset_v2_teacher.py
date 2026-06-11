@@ -17,14 +17,14 @@
 
 ```bash
 # 8 卡分片跑全集（约 100 分钟）
-torchrun --standalone --nproc_per_node=8 qwen3vl_local/sft/build_sft_dataset_v2_teacher.py \\
+GPU_IDS=0,1,2,3,4,5,6,7 torchrun --standalone --nproc_per_node=8 qwen3vl_local/sft/build_sft_dataset_v2_teacher.py \\
     --pending-dir checkpoints/sft_v2_data_pending \\
     --output-dir checkpoints/sft_v2_runtime_debug \\
     --model-dir checkpoints/Qwen3-VL-4B-Instruct \\
     --seed 20260601
 
 # 单卡调试，前 32 条（自动挑 1 张空闲 GPU）
-python qwen3vl_local/sft/build_sft_dataset_v2_teacher.py \\
+GPU_IDS=0 python qwen3vl_local/sft/build_sft_dataset_v2_teacher.py \\
     --pending-dir checkpoints/sft_v2_data_pending \\
     --output-dir checkpoints/sft_v2_runtime_debug \\
     --max-samples 32
@@ -80,6 +80,18 @@ def _pick_idle_gpus(n: int = 1) -> str:
     return ",".join(row[2] for row in rows[:n])
 
 
+def _normalize_gpu_ids(value: str) -> str:
+    ids = [part.strip() for part in str(value).split(",") if part.strip()]
+    return ",".join(ids)
+
+
+def _count_gpu_ids(value: str) -> int:
+    normalized = _normalize_gpu_ids(value)
+    if not normalized:
+        return 0
+    return len(normalized.split(","))
+
+
 # DDP race 兜底：torchrun 多 worker 且外部未预设 CVD 时，只让 rank0 跑 nvidia-smi 挑卡
 # → atomic 写共享文件，其它 rank 阻塞读，避免每 worker 各自挑卡导致 set_device 撞同一张卡。
 _GPU_PICK_IMPORT_TIME = time.time()
@@ -132,6 +144,23 @@ def _maybe_set_idle_gpu_mask() -> None:
     nvidia-smi 重挑导致 set_device 撞卡）；单进程挑 1 张。
     """
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    pinned = _normalize_gpu_ids(os.environ.get("GPU_IDS", ""))
+    if pinned:
+        picked = _count_gpu_ids(pinned)
+        if world_size > 1 and picked < world_size:
+            raise RuntimeError(
+                f"GPU_IDS={pinned} only provides {picked} GPU(s), "
+                f"but torchrun WORLD_SIZE={world_size}; please provide at least {world_size} ids."
+            )
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = pinned
+        if rank == 0:
+            print(
+                f"[gpu] using explicit GPU_IDS={pinned}; world_size={world_size}; "
+                f"previous CUDA_VISIBLE_DEVICES={previous or '<unset>'}"
+            )
+        return
     if world_size > 1:
         selected = _share_cvd_via_file_for_ddp(world_size)
     else:
@@ -622,9 +651,14 @@ def main() -> None:
     # 加载冻结 base Qwen。teacher 永远不挂 LoRA。
     # cache_system_prompt=True 让所有样本 prefill 共享同一份 system prompt KV，
     # 实测能省 ~50% 推理时间（与 eval_sft_v1.py 的 anchor12_sanity 同套优化）。
+    engine_device = "auto"
+    if world_size > 1:
+        import torch
+        if torch.cuda.is_available():
+            engine_device = f"cuda:{local_rank}"
     engine = LocalQwen3VLInstructEngine(
         checkpoint_dir=pathlib.Path(args.model_dir),
-        device="auto",
+        device=engine_device,
         torch_dtype="bfloat16",
         max_gen_tokens=args.max_new_tokens,
         temperature=args.teacher_temperature,

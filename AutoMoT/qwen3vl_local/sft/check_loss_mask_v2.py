@@ -305,7 +305,7 @@ def main() -> None:
     sample = load_one_sample(jsonl_path, args.sample_idx)
     if sample.get("dataset_version") == "v2_pending":
         print("[err] check_loss_mask_v2.py 需要已物化 teacher ANALYSIS 的 v2 jsonl，不能直接检查 v2_pending 占位数据。", file=sys.stderr)
-        print("[hint] 先跑 bash qwen3vl_local/sft/sft_v2_train.sh check，或手动运行 qwen3vl_local/sft/build_sft_dataset_v2_teacher.py 生成 runtime jsonl。", file=sys.stderr)
+        print("[hint] 先跑 GPU_IDS=0 bash qwen3vl_local/sft/sft_v2_train.sh check，或手动运行 GPU_IDS=0 python qwen3vl_local/sft/build_sft_dataset_v2_teacher.py 生成 runtime jsonl。", file=sys.stderr)
         sys.exit(2)
     assistant = sample["messages"][-1]["content"]
     print(f"[load] jsonl={jsonl_path} sample_idx={args.sample_idx}")
