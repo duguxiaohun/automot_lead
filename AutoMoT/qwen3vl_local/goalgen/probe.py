@@ -662,13 +662,20 @@ def _load_cell(path: pathlib.Path) -> Optional[Image.Image]:
 
 
 _ASCII_FALLBACK = {
-    "↓": "v",      # ↓
+    "↓": "v",      # ↓ down arrow
+    "↑": "^",      # ↑ up arrow
     "→": "->",     # →
-    "Δ": "d",      # Δ
-    "⚠": "!",      # ⚠
+    "←": "<-",     # ←
+    "Δ": "d",      # Δ delta
+    "⚠": "!",      # ⚠ warning
     "≤": "<=",     # ≤
     "≥": ">=",     # ≥
     "±": "+-",     # ±
+    "—": "--",     # — em dash
+    "–": "-",      # – en dash
+    "·": ".",      # · middle dot
+    """: '"', """: '"',
+    "'": "'", "'": "'",
 }
 
 
@@ -728,7 +735,7 @@ def _compose_cf_overview(
     rows: 每项形如
       {"label": "truth: yield_and_turn",
        "annot_lines": ["truth", "scenario=..."],
-       "cells": [{"img_path": Path, "annot": ["Δpix=...", "ratio=..."]}, ...]}
+       "cells": [{"img_path": Path, "annot": ["dpix=...", "r=...x", "responsive"]}, ...]}
     col_headers: 每个 CFG 的列头文字（None 时不画列头行）
     """
 
@@ -922,8 +929,10 @@ def render_overview_md(
         lines.append(f"- modes:   {meta.get('cf_active_modes')}")
         lines.append(f"- cfg sweep: {meta.get('cf_cfg_sweep')}")
         lines.append(f"- seed replicates: {meta.get('cf_seed_replicates')}")
+        cf_max_ratio = meta.get("cf_max_ratio")
+        ratio_str = f"{cf_max_ratio:.2f}x" if isinstance(cf_max_ratio, (int, float)) else "n/a"
         lines.append(f"- max verdict (over all CF / mode / cfg): **{meta.get('cf_max_verdict')}** "
-                     f"@ tag=`{meta.get('cf_max_tag')}`, ratio={meta.get('cf_max_ratio')}")
+                     f"@ tag=`{meta.get('cf_max_tag') or 'n/a'}`, ratio={ratio_str}")
         lines.append("")
 
     if trace.get("t"):
@@ -1563,7 +1572,7 @@ def main() -> None:
                     case_dir / "target_raw.jpg",
                     rows_for_grid,
                     col_headers,
-                    case_header=f"{scenario} / {run_id} / anchor={anchor} — mode={mode}",
+                    case_header=f"{scenario} / {run_id} / anchor={anchor} -- mode={mode}",
                 )
 
             mode_payloads[mode] = {
