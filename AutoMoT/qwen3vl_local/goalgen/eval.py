@@ -44,19 +44,19 @@
 
 ```bash
 # 小样本完整 dump（推荐：可直接拿到本地人工 review pred.png vs target_raw.jpg）
-python qwen3vl_local/goalgen/eval.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/eval.py \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --max-samples 100
 
 # 全集跑指标 + TB（不 dump 详情）
-python qwen3vl_local/goalgen/eval.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/eval.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit
 
 # 多卡分片跑全集
-torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval.py \
+GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit
 ```
@@ -91,8 +91,16 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
 
-def _cli_has(name: str) -> bool:
-    return any(item == name or item.startswith(name + "=") for item in sys.argv[1:])
+def _normalize_gpu_ids(value: str) -> str:
+    ids = [part.strip() for part in str(value).split(",") if part.strip()]
+    return ",".join(ids)
+
+
+def _count_gpu_ids(value: str) -> int:
+    normalized = _normalize_gpu_ids(value)
+    if not normalized:
+        return 0
+    return len(normalized.split(","))
 
 
 def _pick_idle_gpus(n: int = 1) -> str:
@@ -167,12 +175,30 @@ def _share_cvd_via_file_for_ddp(want_count: int) -> str:
 
 
 def _maybe_set_idle_gpu_mask() -> None:
-    """默认自动挑空闲 GPU 并覆盖外层残留的 CUDA_VISIBLE_DEVICES；单进程挑 1 张，
-    torchrun 多 worker 由 rank0 挑 N 张后经文件 IPC 同步给各 rank（避免每 worker 各自
-    nvidia-smi 抖动撞卡）。单进程显式传 --gpu N 时视为用户锁定进程内设备，不覆盖 CVD。
+    """GoalGen eval 的 GPU 规则。
+
+    优先级：
+    1. ``GPU_IDS=...``：显式指定物理卡号；DDP 卡数从 GPU_IDS 数量推断/校验。
+    2. 都不指定：单进程自动挑 1 张空闲卡；DDP 按 WORLD_SIZE 自动挑 N 张空闲卡。
     """
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    if world_size <= 1 and _cli_has("--gpu"):
+    rank = int(os.environ.get("RANK", "0"))
+    pinned = _normalize_gpu_ids(os.environ.get("GPU_IDS", ""))
+    if pinned:
+        picked = _count_gpu_ids(pinned)
+        if world_size > 1 and picked < world_size:
+            raise RuntimeError(
+                f"GPU_IDS={pinned} 只给了 {picked} 张卡，但 torchrun WORLD_SIZE={world_size}。"
+                "请让 GPU_IDS 数量 >= nproc_per_node。"
+            )
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = pinned
+        os.environ["GOALGEN_LOCAL_CUDA_INDEX"] = "0"
+        if rank == 0:
+            print(
+                f"[gpu] using explicit GPU_IDS={pinned}; world_size={world_size}; "
+                f"previous CUDA_VISIBLE_DEVICES={previous or '<unset>'}"
+            )
         return
     if world_size > 1:
         selected = _share_cvd_via_file_for_ddp(world_size)
@@ -180,6 +206,7 @@ def _maybe_set_idle_gpu_mask() -> None:
         selected = _pick_idle_gpus(1)
     if selected:
         os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        os.environ["GOALGEN_LOCAL_CUDA_INDEX"] = "0"
         print(
             f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; "
             f"world_size={world_size}"
@@ -925,11 +952,13 @@ def eval_loop(args: argparse.Namespace) -> None:
     install_output_log(out_dir, rank=rank)
     _dump_invocation(pathlib.Path(args.save_root), rank=rank)
 
-    # device：多卡时 pin 到 LOCAL_RANK；单卡走 --gpu。
+    # device：多卡时 pin 到 LOCAL_RANK；单卡在 import 阶段已把 GPU_IDS/自动选卡
+    # 映射成进程内 cuda:0。
     if world_size > 1 and torch.cuda.is_available():
         device = torch.device(f"cuda:{local_rank}")
     else:
-        device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+        local_cuda_index = int(os.environ.get("GOALGEN_LOCAL_CUDA_INDEX", "0"))
+        device = torch.device(f"cuda:{local_cuda_index}" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
         raise RuntimeError("GoalGen eval 需要 CUDA；离线机器只能跑数据校验，不能跑 eval。")
 
@@ -1381,9 +1410,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="最多 dump 多少条样本（防止误开后铺满磁盘）。"
                         "0 = 不限（受 --max-samples 限制）。")
 
-    p.add_argument("--gpu", type=int, default=0,
-                   help="进程内 GPU 编号。默认保持 0 并自动挑空闲物理 GPU 映射为 cuda:0；"
-                        "单进程显式传 --gpu N 时不覆盖 CUDA_VISIBLE_DEVICES。")
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
     p.add_argument("--vae-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
     p.add_argument("--dit-dtype", choices=["float32", "float16", "bfloat16"], default="bfloat16")

@@ -56,7 +56,7 @@ v1：
 
 ```bash
 python qwen3vl_local/sft/check_loss_mask.py
-bash qwen3vl_local/sft/sft_v1_train.sh check
+GPU_IDS=0 bash qwen3vl_local/sft/sft_v1_train.sh check
 
 # 想固定到某张卡（默认 GPU 0）
 GPU_IDS=0 bash qwen3vl_local/sft/sft_v1_train.sh check
@@ -65,7 +65,7 @@ GPU_IDS=0 bash qwen3vl_local/sft/sft_v1_train.sh check
 v2：
 
 ```bash
-RUNTIME_TEACHER_REFRESH=1 bash qwen3vl_local/sft/sft_v2_train.sh check
+GPU_IDS=0 RUNTIME_TEACHER_REFRESH=1 bash qwen3vl_local/sft/sft_v2_train.sh check
 python qwen3vl_local/sft/check_loss_mask_v2.py \
   --jsonl checkpoints/sft_v2_lora/runtime_teacher_check_data/train.jsonl \
   --sample-idx 0
@@ -82,7 +82,7 @@ GPU_IDS=0 RUNTIME_TEACHER_REFRESH=1 bash qwen3vl_local/sft/sft_v2_train.sh check
 v2 可先看 teacher 输出：
 
 ```bash
-python qwen3vl_local/sft/inspect_teacher_outputs.py \
+GPU_IDS=0 python qwen3vl_local/sft/inspect_teacher_outputs.py \
   --jsonl checkpoints/sft_v2_data_pending/train.jsonl \
   --save-root checkpoints/sft_v2_teacher_preview_live \
   --num-per-scenario 1 --seed 42 \
@@ -104,8 +104,8 @@ python qwen3vl_local/sft/inspect_teacher_outputs.py \
 v1：
 
 ```bash
-bash qwen3vl_local/sft/sft_v1_train.sh single
-bash qwen3vl_local/sft/sft_v1_train.sh ddp
+GPU_IDS=0 bash qwen3vl_local/sft/sft_v1_train.sh single
+DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v1_train.sh ddp
 DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v1_train.sh ddp
 
 # 想固定到指定卡（单卡默认 GPU 0，多卡默认 GPU 0,1,2,3）
@@ -116,8 +116,8 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft/sft_v1_train.sh ddp
 v2：
 
 ```bash
-bash qwen3vl_local/sft/sft_v2_train.sh single
-bash qwen3vl_local/sft/sft_v2_train.sh ddp
+GPU_IDS=0 bash qwen3vl_local/sft/sft_v2_train.sh single
+DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 
 # 想固定到指定卡（单卡默认 GPU 0，多卡默认 GPU 0,1,2,3）
@@ -156,12 +156,12 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v2_lora
 v1：
 
 ```bash
-python qwen3vl_local/sft/eval_sft_v1.py \
+GPU_IDS=0 python qwen3vl_local/sft/eval_sft_v1.py \
   --lora-dir checkpoints/sft_v1_lora/latest \
   --save-root checkpoints/sft_v1_lora/latest \
   --max-samples 100
 
-torchrun --standalone --nproc_per_node=4 qwen3vl_local/sft/eval_sft_v1.py \
+GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 qwen3vl_local/sft/eval_sft_v1.py \
   --lora-dir checkpoints/sft_v1_lora/latest \
   --save-root checkpoints/sft_v1_lora/latest
 ```
@@ -169,7 +169,7 @@ torchrun --standalone --nproc_per_node=4 qwen3vl_local/sft/eval_sft_v1.py \
 v2：
 
 ```bash
-python qwen3vl_local/sft/eval_sft_v1.py \
+GPU_IDS=0 python qwen3vl_local/sft/eval_sft_v1.py \
   --lora-dir checkpoints/sft_v2_lora/latest \
   --val-jsonl checkpoints/sft_v2_lora/runtime_teacher_data/val.jsonl \
   --save-root checkpoints/sft_v2_lora/latest \
@@ -185,7 +185,7 @@ Eval 的终端输出会追加到 `<save-root>/eval/log.txt`。
 v1：
 
 ```bash
-python qwen3vl_local/sft/probe_sft_v1.py \
+GPU_IDS=0 python qwen3vl_local/sft/probe_sft_v1.py \
   --lora-dir checkpoints/sft_v1_lora/latest \
   --save-root checkpoints/sft_v1_lora/latest \
   --num-per-scenario 4 --seed 0 --case-suffix "_v1"
@@ -194,7 +194,7 @@ python qwen3vl_local/sft/probe_sft_v1.py \
 v2：
 
 ```bash
-python qwen3vl_local/sft/probe_sft_v1.py \
+GPU_IDS=0 python qwen3vl_local/sft/probe_sft_v1.py \
   --lora-dir checkpoints/sft_v2_lora/latest \
   --val-jsonl checkpoints/sft_v2_lora/runtime_teacher_data/val.jsonl \
   --save-root checkpoints/sft_v2_lora/latest \

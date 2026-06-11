@@ -29,13 +29,13 @@ eval.py 给的是聚合视角（mean/std/by_scenario）；probe 给的是单条�
 典型用法（**从 AutoMoT/ 目录运行**）：
 
 ```bash
-python qwen3vl_local/goalgen/probe.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/latest.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0
 
 # 同 seed 跑两个不同 ckpt + 不同 case-suffix，目录不互相覆盖，便于人工对比
-python qwen3vl_local/goalgen/probe.py \
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --dit-checkpoint checkpoints/goalgen_v1_dit/checkpoint-000500/goalgen_v1.pt \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0 --case-suffix "_ckpt500"
@@ -69,8 +69,9 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
 
-def _cli_has(name: str) -> bool:
-    return any(item == name or item.startswith(name + "=") for item in sys.argv[1:])
+def _normalize_gpu_ids(value: str) -> str:
+    ids = [part.strip() for part in str(value).split(",") if part.strip()]
+    return ",".join(ids)
 
 
 def _pick_idle_gpus(n: int = 1) -> str:
@@ -100,13 +101,27 @@ def _pick_idle_gpus(n: int = 1) -> str:
 
 
 def _maybe_set_idle_gpu_mask() -> None:
-    """probe 默认自动挑 1 张空闲 GPU；显式 --gpu N 时不覆盖 CUDA_VISIBLE_DEVICES。"""
-    if _cli_has("--gpu"):
+    """probe 单进程入口的 GPU 规则。
+
+    优先级：
+    1. ``GPU_IDS=...``：用户显式指定物理卡号，直接写入 CUDA_VISIBLE_DEVICES。
+    2. 都不指定：用 nvidia-smi 自动挑 1 张最空闲物理卡，并覆盖外层残留 CVD。
+    """
+    pinned = _normalize_gpu_ids(os.environ.get("GPU_IDS", ""))
+    if pinned:
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = pinned
+        os.environ["GOALGEN_LOCAL_CUDA_INDEX"] = "0"
+        print(
+            f"[gpu] using explicit GPU_IDS={pinned}; process uses cuda:0; "
+            f"previous CUDA_VISIBLE_DEVICES={previous or '<unset>'}"
+        )
         return
     selected = _pick_idle_gpus(1)
     if selected:
         previous = os.environ.get("CUDA_VISIBLE_DEVICES")
         os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        os.environ["GOALGEN_LOCAL_CUDA_INDEX"] = "0"
         print(
             f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}; "
             f"process uses cuda:0; previous={previous or '<unset>'}"
@@ -864,7 +879,6 @@ def main() -> None:
                         help="每个 (case, variant, cfg) 用多少个 z_init seed 重复采样；默认 1。")
     parser.add_argument("--num-per-scenario", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
     parser.add_argument("--vae-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
     parser.add_argument("--dit-dtype", choices=["float32", "float16", "bfloat16"], default="bfloat16")
@@ -925,7 +939,8 @@ def main() -> None:
             f"cfg_sweep={cfg_scale_values} seed_replicates={seed_replicates}"
         )
 
-    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+    local_cuda_index = int(os.environ.get("GOALGEN_LOCAL_CUDA_INDEX", "0"))
+    device = torch.device(f"cuda:{local_cuda_index}" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
         raise RuntimeError("GoalGen probe 需要 CUDA。")
 

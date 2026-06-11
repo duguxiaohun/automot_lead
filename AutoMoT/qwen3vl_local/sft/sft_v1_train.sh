@@ -2,11 +2,10 @@
 # SFT v1 训练入口 — ms-swift LoRA on Qwen3-VL-4B-Instruct.
 #
 # 用法（**从 AutoMoT/ 目录运行**，远程默认 cwd）：
-#   单卡：       bash qwen3vl_local/sft/sft_v1_train.sh single
-#               GPU_IDS=0 bash qwen3vl_local/sft/sft_v1_train.sh single
-#   DDP：        bash qwen3vl_local/sft/sft_v1_train.sh ddp
+#   单卡：       GPU_IDS=0 bash qwen3vl_local/sft/sft_v1_train.sh single
+#   DDP：        DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v1_train.sh ddp
 #               GPU_IDS=0,1,2,3 bash qwen3vl_local/sft/sft_v1_train.sh ddp
-#   sanity 自检：bash qwen3vl_local/sft/sft_v1_train.sh check
+#   sanity 自检：GPU_IDS=0 bash qwen3vl_local/sft/sft_v1_train.sh check
 #     （check 模式只跑 2 step、不保存 ckpt，用来确认 loss_scale 是否生效。
 #      正常 mask 下初始 loss 应只来自 STATUS/SUBGOAL 段，数值在 ~6-10 量级；
 #      若初始 loss < 3 多半是 ANALYSIS 段也被算进去了，模型在抄占位句。
@@ -21,7 +20,7 @@
 #   VAL_JSONL=/path/to/val.jsonl \
 #   OUTPUT_DIR=/path/to/sft_v1_lora \
 #   DDP_GPU_COUNT=4 \
-#   bash qwen3vl_local/sft/sft_v1_train.sh ddp
+#   DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v1_train.sh ddp
 #
 # 想固定卡：在最前面再加 GPU_IDS=0,1,2,3（DDP_GPU_COUNT 此时被忽略，卡数从逗号数推断）
 #
@@ -53,7 +52,7 @@ fi
 # TRAIN_JSONL / VAL_JSONL 是 build_sft_dataset_v1.py 生成的 jsonl。
 # OUTPUT_DIR 是 LoRA adapter 输出目录，不建议放到源码目录外的临时位置，避免后续 eval 找不到。
 # 想用绝对路径覆盖时直接 export 同名变量：
-#   MODEL_DIR=/datashare/IOL4SGH/AutoMoT/models/Qwen3-VL-4B-Instruct bash qwen3vl_local/sft/sft_v1_train.sh ddp
+#   MODEL_DIR=/datashare/IOL4SGH/AutoMoT/models/Qwen3-VL-4B-Instruct DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v1_train.sh ddp
 # ---------------------------------------------------------------------------
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v1_data/train.jsonl}"
@@ -317,8 +316,9 @@ case "${MODE}" in
         export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus "${DDP_GPU_COUNT}")"
         ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
         export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
-        if [[ "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then
-            echo "[gpu][warn] requested ${DDP_GPU_COUNT} GPUs but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+        if [[ -z "${GPU_IDS:-}" && "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then
+            echo "[gpu][error] requested DDP_GPU_COUNT=${DDP_GPU_COUNT}, but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}" >&2
+            exit 1
         fi
         configure_master_port
         # NCCL 调优：H20 NVLink 优先。若远程机器不是 NVLink 拓扑，出现 NCCL 卡住时
@@ -372,7 +372,7 @@ fi
 # - --gradient_checkpointing 在 4B 模型上影响不大但能省 ~30% 激活显存。
 #
 # 训练前建议先跑：
-#   python qwen3vl_local/sft/eval_sft_v1.py --lora-dir "" --max-samples 32 --skip-anchor12-sanity
+#   GPU_IDS=0 python qwen3vl_local/sft/eval_sft_v1.py --lora-dir "" --max-samples 32 --skip-anchor12-sanity
 # 得到 base baseline；训练后再跑同样 val 子集 + LoRA，看 keep/early_advance 是否改善。
 swift sft \
     --model "${MODEL_DIR}" \
@@ -436,9 +436,9 @@ echo "[hint] 看 TensorBoard："
 echo "  bash qwen3vl_local/tb_serve.sh ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在 val 集上跑 eval（指标 + TB 标量 + 预测 jsonl）："
-echo "  python qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
-echo "  # 多卡分片：torchrun --nproc_per_node=4 qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
+echo "  GPU_IDS=0 python qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
+echo "  # 多卡分片：GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 qwen3vl_local/sft/eval_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 在随机场景上 dump case（输入 prompt+图像，输出文本，per-token loss）："
-echo "  python qwen3vl_local/sft/probe_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR} --num-per-scenario 4"
+echo "  GPU_IDS=0 python qwen3vl_local/sft/probe_sft_v1.py --lora-dir ${OUTPUT_DIR} --save-root ${OUTPUT_DIR} --num-per-scenario 4"
 echo "============================================================"

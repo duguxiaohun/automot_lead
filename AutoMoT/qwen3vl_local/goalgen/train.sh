@@ -2,10 +2,9 @@
 # GoalGen v1/v2 共用训练启动脚本。请在 AutoMoT/ 目录下运行。
 #
 # 用法：
-#   bash qwen3vl_local/goalgen/train.sh check
-#   bash qwen3vl_local/goalgen/train.sh single
+#   GPU_IDS=0 bash qwen3vl_local/goalgen/train.sh check
 #   GPU_IDS=0 bash qwen3vl_local/goalgen/train.sh single
-#   bash qwen3vl_local/goalgen/train.sh ddp
+#   DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
 set -euo pipefail
 
@@ -376,6 +375,10 @@ case "${MODE}" in
         fi
         export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus "${DDP_GPU_COUNT}")"
         ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
+        if [[ -z "${GPU_IDS:-}" && "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then
+            echo "[gpu][error] requested DDP_GPU_COUNT=${DDP_GPU_COUNT}, but only selected CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}" >&2
+            exit 1
+        fi
         export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
         configure_master_port
         export NCCL_P2P_LEVEL="${NCCL_P2P_LEVEL:-NVL}"
@@ -427,23 +430,23 @@ echo "[hint] 看 TensorBoard（多次 run 自动对比，base 目录下所有 ru
 echo "  bash qwen3vl_local/tb_serve.sh ${OUTPUT_DIR_BASE}"
 echo ""
 echo "[hint] eval 最新 run（latest symlink）："
-echo "  python qwen3vl_local/goalgen/eval.py \\"
+echo "  GPU_IDS=0 python qwen3vl_local/goalgen/eval.py \\"
 echo "    --dit-checkpoint ${OUTPUT_DIR_BASE}/latest/best.pt \\"
 echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
 echo "    --save-root ${OUTPUT_DIR_BASE}/latest"
 echo ""
 echo "[hint] eval 当前 run（绑定本次 RUN_TAG，不受后续新 run 影响）："
-echo "  python qwen3vl_local/goalgen/eval.py \\"
+echo "  GPU_IDS=0 python qwen3vl_local/goalgen/eval.py \\"
 echo "    --dit-checkpoint ${OUTPUT_DIR}/best.pt \\"
 echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
 echo "    --save-root ${OUTPUT_DIR}"
 echo ""
 echo "[hint] 多卡 eval 分片："
-echo "  torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval.py \\"
+echo "  GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 qwen3vl_local/goalgen/eval.py \\"
 echo "    --dit-checkpoint ${OUTPUT_DIR_BASE}/latest/best.pt --save-root ${OUTPUT_DIR_BASE}/latest"
 echo ""
 echo "[hint] 随机场景 case dump（输入历史/预测/真值 PNG + memory + per-step v_cos）："
-echo "  python qwen3vl_local/goalgen/probe.py \\"
+echo "  GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \\"
 echo "    --dit-checkpoint ${OUTPUT_DIR_BASE}/latest/best.pt \\"
 echo "    --qwen-adapter-dir \"${QWEN_ADAPTER_DIR}\" \\"
 echo "    --save-root ${OUTPUT_DIR_BASE}/latest --num-per-scenario 4"

@@ -285,7 +285,7 @@ def print_plugin_loss_scale_check(text: str) -> None:
     `--external_plugins qwen3vl_local/sft/sft_v1_loss_scale_plugin.py` 注册并调用同一个
     ``SftV1AnalysisMaskLossScale.get_loss_scale()``。如果这里返回的 loss 段
     没有包含 STATUS / SUBGOAL 的事件名（或 STATUS: / SUBGOAL: 字面也跑到了
-    loss 段），那 `bash qwen3vl_local/sft/sft_v1_train.sh check` 报的 loss 数值就不能再信。
+    loss 段），那 `GPU_IDS=0 bash qwen3vl_local/sft/sft_v1_train.sh check` 报的 loss 数值就不能再信。
 
     预期输出（健康）：
     - 多个 0 权重段（含 "ANALYSIS:..."、"STATUS: "、"\\nSUBGOAL: "、尾随空白）

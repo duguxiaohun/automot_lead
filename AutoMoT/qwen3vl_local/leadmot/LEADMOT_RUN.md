@@ -67,13 +67,13 @@ run 会写入 `run_status_not_accepted:*`，避免把不可达未来帧当成真
 ```bash
 TRAIN_JSONL=checkpoints/leadmot_v1_data/train.jsonl \
 VAL_JSONL=checkpoints/leadmot_v1_data/val.jsonl \
-bash qwen3vl_local/leadmot/train.sh check
+GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh check
 
 # 想固定到某张卡（默认 GPU 0）
 GPU_IDS=0 \
 TRAIN_JSONL=checkpoints/leadmot_v1_data/train.jsonl \
 VAL_JSONL=checkpoints/leadmot_v1_data/val.jsonl \
-bash qwen3vl_local/leadmot/train.sh check
+GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh check
 ```
 
 `check` 默认只跑 2 个训练 step，不写 TensorBoard，不做验证，用来确认 Qwen prefill、BEV、decoder 和两类轨迹监督全部能接上。
@@ -81,7 +81,7 @@ bash qwen3vl_local/leadmot/train.sh check
 ## 3. 单卡训练
 
 ```bash
-bash qwen3vl_local/leadmot/train.sh single
+GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh single
 
 # 想固定到某张卡（默认 GPU 0）
 GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh single
@@ -95,14 +95,14 @@ GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh single
 LR=1e-4 \
 NUM_EPOCHS=4 \
 GRAD_ACC=8 \
-bash qwen3vl_local/leadmot/train.sh single
+GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh single
 
 # 想固定到某张卡（默认 GPU 0）
 GPU_IDS=0 \
 LR=1e-4 \
 NUM_EPOCHS=4 \
 GRAD_ACC=8 \
-bash qwen3vl_local/leadmot/train.sh single
+GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh single
 ```
 
 ## 4. 多卡 DDP
@@ -271,7 +271,7 @@ EMA：默认 `EMA=1` `EMA_DECAY=0.999`，关掉用 `EMA=0`。eval/probe 默认 `
 ## 6. Eval
 
 ```bash
-python qwen3vl_local/leadmot/eval.py \
+GPU_IDS=0 python qwen3vl_local/leadmot/eval.py \
   --jsonl checkpoints/leadmot_v1_data/val.jsonl \
   --save-root checkpoints/leadmot_v1_decoder \
   --max-samples 256
@@ -280,10 +280,14 @@ python qwen3vl_local/leadmot/eval.py \
 多卡分片：
 
 ```bash
-torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval.py \
+GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 qwen3vl_local/leadmot/eval.py \
   --jsonl checkpoints/leadmot_v1_data/val.jsonl \
   --save-root checkpoints/leadmot_v1_decoder
 ```
+
+GPU 规则：`torchrun --nproc_per_node=N` 表示需要 N 张 GPU，脚本会自动挑 N 张空闲物理卡；
+`GPU_IDS=0,1,2,3` 表示人为指定具体物理卡号，DDP 时数量必须覆盖 `nproc_per_node`。
+单进程 `eval.py` / `probe.py` 默认自动挑 1 张空闲卡；想固定卡号时统一前置 `GPU_IDS=0`。
 
 输出：
 
@@ -300,7 +304,7 @@ checkpoints/leadmot_v1_decoder/invocations/*.txt
 ## 7. Probe
 
 ```bash
-python qwen3vl_local/leadmot/probe.py \
+GPU_IDS=0 python qwen3vl_local/leadmot/probe.py \
   --jsonl checkpoints/leadmot_v1_data/val.jsonl \
   --save-root checkpoints/leadmot_v1_decoder \
   --num-per-scenario 2 \
@@ -333,28 +337,28 @@ tp/ntp/final_goal 是否和训练分布一致。
 
 ```bash
 RESUME=checkpoints/leadmot_v1_decoder/latest.pt \
-bash qwen3vl_local/leadmot/train.sh single
+GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh single
 
 GPU_IDS=0 \
 RESUME=checkpoints/leadmot_v1_decoder/latest.pt \
-bash qwen3vl_local/leadmot/train.sh single
+GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh single
 ```
 
 只加载 decoder 权重、重置 optimizer/scheduler：
 
 ```bash
 INIT_FROM_CKPT=checkpoints/leadmot_v1_decoder/latest.pt \
-bash qwen3vl_local/leadmot/train.sh single
+GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh single
 
 GPU_IDS=0 \
 INIT_FROM_CKPT=checkpoints/leadmot_v1_decoder/latest.pt \
-bash qwen3vl_local/leadmot/train.sh single
+GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh single
 ```
 
 推理 demo 加载：
 
 ```bash
-python leaderboard/team_code/mot_lead_offline_runner.py \
+GPU_IDS=0 python leaderboard/team_code/mot_lead_offline_runner.py \
   --leadmot-ckpt checkpoints/leadmot_v1_decoder/best.pt
 ```
 

@@ -55,20 +55,20 @@
 
 ```bash
 # 小样本验收 + 完整 dump（推荐：拿到本地人工 review）
-python qwen3vl_local/sft/eval_sft_v1.py \
+GPU_IDS=0 python qwen3vl_local/sft/eval_sft_v1.py \
   --save-root checkpoints/sft_v1_lora \
   --max-samples 100
 
 # 全集跑指标（不 dump 详情）
-python qwen3vl_local/sft/eval_sft_v1.py \
+GPU_IDS=0 python qwen3vl_local/sft/eval_sft_v1.py \
   --save-root checkpoints/sft_v1_lora
 
 # 多卡分片跑全集
-torchrun --standalone --nproc_per_node=4 qwen3vl_local/sft/eval_sft_v1.py \
+GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 qwen3vl_local/sft/eval_sft_v1.py \
   --save-root checkpoints/sft_v1_lora
 
 # 显式评估某个 LoRA checkpoint 时再传 adapter
-python qwen3vl_local/sft/eval_sft_v1.py \
+GPU_IDS=0 python qwen3vl_local/sft/eval_sft_v1.py \
   --lora-dir checkpoints/sft_v1_lora/checkpoint-900 \
   --save-root checkpoints/sft_v1_lora/checkpoint-900 \
   --max-samples 100
@@ -147,6 +147,18 @@ def _pick_idle_gpus(n: int = 1) -> str:
     return ",".join(row[2] for row in rows[:n])
 
 
+def _normalize_gpu_ids(value: str) -> str:
+    ids = [part.strip() for part in str(value).split(",") if part.strip()]
+    return ",".join(ids)
+
+
+def _count_gpu_ids(value: str) -> int:
+    normalized = _normalize_gpu_ids(value)
+    if not normalized:
+        return 0
+    return len(normalized.split(","))
+
+
 # DDP race 兜底：torchrun 多 worker 且外部未预设 CVD 时，只让 rank0 跑 nvidia-smi 挑卡
 # → atomic 写共享文件，其它 rank 阻塞读，避免每 worker 各自挑卡导致 set_device 撞同一张卡。
 _GPU_PICK_IMPORT_TIME = time.time()
@@ -201,8 +213,26 @@ def _maybe_set_idle_gpu_mask() -> None:
     """
     device_arg = _cli_value("--device")
     if device_arg and device_arg.strip().lower() not in ("", "auto"):
+        print(f"[gpu] using explicit --device {device_arg}; CUDA_VISIBLE_DEVICES is not modified")
         return
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    pinned = _normalize_gpu_ids(os.environ.get("GPU_IDS", ""))
+    if pinned:
+        picked = _count_gpu_ids(pinned)
+        if world_size > 1 and picked < world_size:
+            raise RuntimeError(
+                f"GPU_IDS={pinned} only provides {picked} GPU(s), "
+                f"but torchrun WORLD_SIZE={world_size}; please provide at least {world_size} ids."
+            )
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = pinned
+        if rank == 0:
+            print(
+                f"[gpu] using explicit GPU_IDS={pinned}; world_size={world_size}; "
+                f"previous CUDA_VISIBLE_DEVICES={previous or '<unset>'}"
+            )
+        return
     if world_size > 1:
         selected = _share_cvd_via_file_for_ddp(world_size)
     else:

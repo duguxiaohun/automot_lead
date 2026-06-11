@@ -85,6 +85,18 @@ def _pick_idle_gpus(n: int = 1) -> str:
     return ",".join(row[1] for row in rows[:n])
 
 
+def _normalize_gpu_ids(value: str) -> str:
+    ids = [part.strip() for part in str(value).split(",") if part.strip()]
+    return ",".join(ids)
+
+
+def _count_gpu_ids(value: str) -> int:
+    normalized = _normalize_gpu_ids(value)
+    if not normalized:
+        return 0
+    return len(normalized.split(","))
+
+
 # DDP race 兜底：torchrun 多 worker 且外部未预设 CVD 时，只让 rank0 跑 nvidia-smi 挑卡
 # → atomic 写共享文件，其它 rank 阻塞读，避免每 worker 各自挑卡导致 set_device 撞同一张卡。
 _GPU_PICK_IMPORT_TIME = time.time()
@@ -137,8 +149,26 @@ def _maybe_set_gpu(device: str) -> None:
     由 rank0 挑 N 张经文件 IPC 同步给各 rank（避免每 worker 各自 nvidia-smi 重挑撞卡）。
     """
     if device and device.strip().lower() not in ("", "auto"):
+        print(f"[gpu] using explicit --device {device}; CUDA_VISIBLE_DEVICES is not modified")
         return
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    pinned = _normalize_gpu_ids(os.environ.get("GPU_IDS", ""))
+    if pinned:
+        picked = _count_gpu_ids(pinned)
+        if world_size > 1 and picked < world_size:
+            raise RuntimeError(
+                f"GPU_IDS={pinned} only provides {picked} GPU(s), "
+                f"but torchrun WORLD_SIZE={world_size}; please provide at least {world_size} ids."
+            )
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = pinned
+        if rank == 0:
+            print(
+                f"[gpu] using explicit GPU_IDS={pinned}; world_size={world_size}; "
+                f"previous CUDA_VISIBLE_DEVICES={previous or '<unset>'}"
+            )
+        return
     if world_size > 1:
         selected = _share_cvd_via_file_for_ddp(world_size)
     else:
@@ -327,7 +357,11 @@ def main() -> None:
     _setup_offline_env()
     _maybe_set_gpu(args.device)
     rank, local_rank, world_size = _init_dist()
-    device = torch.device("cuda", local_rank) if torch.cuda.is_available() else torch.device("cpu")
+    device_arg = (args.device or "auto").strip().lower()
+    if world_size <= 1 and device_arg not in ("", "auto"):
+        device = torch.device(args.device)
+    else:
+        device = torch.device("cuda", local_rank) if torch.cuda.is_available() else torch.device("cpu")
 
     rows = [dict(row, _jsonl_index=i) for i, row in enumerate(_read_jsonl(Path(args.jsonl)))]
     output_dir = _resolve_output_dir(args)

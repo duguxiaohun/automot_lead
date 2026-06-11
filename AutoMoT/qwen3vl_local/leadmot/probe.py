@@ -82,12 +82,27 @@ def _pick_idle_gpus(n: int = 1) -> str:
     return ",".join(row[1] for row in rows[:n])
 
 
+def _normalize_gpu_ids(value: str) -> str:
+    ids = [part.strip() for part in str(value).split(",") if part.strip()]
+    return ",".join(ids)
+
+
 def _maybe_set_gpu(device: str) -> None:
     """自动选择空闲 GPU，并覆盖外层残留的 CUDA_VISIBLE_DEVICES。
 
     --device 显式传 cpu / cuda[:N] 时尊重用户锁卡，不覆盖 CVD；仅 auto / 空值走自动覆盖。
     """
     if device and device.strip().lower() not in ("", "auto"):
+        print(f"[gpu] using explicit --device {device}; CUDA_VISIBLE_DEVICES is not modified")
+        return
+    pinned = _normalize_gpu_ids(os.environ.get("GPU_IDS", ""))
+    if pinned:
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = pinned
+        print(
+            f"[gpu] using explicit GPU_IDS={pinned}; "
+            f"process uses cuda:0/auto; previous={previous or '<unset>'}"
+        )
         return
     selected = _pick_idle_gpus(1)
     if selected:
@@ -288,7 +303,11 @@ def main() -> None:
     args = parse_args()
     _setup_offline_env()
     _maybe_set_gpu(args.device)
-    device = torch.device("cuda", 0) if torch.cuda.is_available() else torch.device("cpu")
+    device_arg = (args.device or "auto").strip().lower()
+    if device_arg not in ("", "auto"):
+        device = torch.device(args.device)
+    else:
+        device = torch.device("cuda", 0) if torch.cuda.is_available() else torch.device("cpu")
     rows = _read_jsonl(Path(args.jsonl))
     output_dir = _resolve_output_dir(args)
     output_dir.mkdir(parents=True, exist_ok=True)
