@@ -357,8 +357,8 @@ GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
 `cf_summary.json.modes.subgoal_only.skipped`。如果默认 config 给出的候选全都不匹配当前
 STATUS（常见于随机抽到 `STATUS=initial` 的 case），probe 会再打印
 `[probe][cf][auto]`，并从当前 STATUS 的合法相邻转移里自动补候选，避免拼图只剩 truth 行。
-`cf_overview_*.png` 左侧行标签只显示 ASCII 摘要（例如 `source=...` / `prompt=...`），
-完整 warning 请看 `cf_report.md` 或 `cf_summary.json`。
+`cf_overview_*.png` 左侧行标签只保留 variant id 与 `subgoal=...`（scenario_swap 时额外显示 CF scenario）；
+候选来源、`prompt_consistency` 与完整 warning 请看 `cf_report.md` 或 `cf_summary.json`。
 
 **Demo C：同 case 下同时跑 scenario_swap 和 subgoal_only。**
 
