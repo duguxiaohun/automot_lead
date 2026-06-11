@@ -54,7 +54,7 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Dict, List, Optional, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
@@ -122,7 +122,13 @@ from PIL import Image  # noqa: E402
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine  # noqa: E402
 from qwen3vl_local.goalgen.qwen_kv import teacher_forced_prefill  # noqa: E402
 from qwen3vl_local.goalgen.vae import FrozenVAE, default_vae_paths  # noqa: E402
-from qwen3vl_local.prompt_pipeline import DrivingMemory  # noqa: E402
+from qwen3vl_local.prompt_pipeline import (  # noqa: E402
+    DrivingMemory,
+    EVENT_DESCRIPTIONS,
+    SCENARIO_EVENT_SEQUENCES,
+    SCENARIO_LABELS,
+    get_full_sequence,
+)
 
 # 直接复用 eval 里已经写好的 ckpt 反向构建 DiT、probe KV、score helper，
 # 不重复实现。
@@ -181,6 +187,485 @@ def link_or_copy(src: str, dst: pathlib.Path) -> None:
         os.symlink(src_path.resolve(), dst)
     except (OSError, NotImplementedError):
         shutil.copyfile(src_path, dst)
+
+
+def _parse_csv_tokens(text: str) -> List[str]:
+    """解析逗号分隔 token 列表，保持输入顺序并去重。"""
+
+    seen = set()
+    out: List[str] = []
+    for raw in text.split(","):
+        item = raw.strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def _safe_name(text: str) -> str:
+    """把事件名转成文件夹安全的短名字。"""
+
+    keep = []
+    for ch in str(text):
+        keep.append(ch if ch.isalnum() or ch in {"-", "_"} else "_")
+    return "".join(keep).strip("_") or "empty"
+
+
+DEFAULT_COUNTERFACTUAL_CONFIG: Dict[str, Dict[str, List[str]]] = {
+    "NonSignalizedJunctionLeftTurn": {
+        "swap_in_subgoals": ["assert_priority", "turn_on_green", "brake_at_light"],
+    },
+    "NonSignalizedJunctionRightTurn": {
+        "swap_in_subgoals": ["yield_and_turn", "brake_at_light", "assert_priority"],
+    },
+    "SignalizedJunctionLeftTurn": {
+        "swap_in_subgoals": ["assert_priority", "turn_on_green", "brake_at_light"],
+    },
+    "SignalizedJunctionRightTurn": {
+        "swap_in_subgoals": ["yield_and_turn", "brake_at_light", "assert_priority"],
+    },
+    "PriorityAtJunction": {
+        "swap_in_subgoals": ["brake_at_light", "yield_and_turn", "wait_or_turn_on_green"],
+    },
+    "EnterActorFlow": {
+        "swap_in_subgoals": ["yield_and_turn", "max_brake_or_min_gap", "passing_hazard"],
+    },
+    "HazardAtSideLane": {
+        "swap_in_subgoals": ["gap_accept_merge", "yield_and_turn", "max_brake_or_min_gap"],
+    },
+    "PedestrianCrossing": {
+        "swap_in_subgoals": ["assert_priority", "proceed_resume", "turn_on_green"],
+    },
+    "Accident": {
+        "swap_in_subgoals": ["assert_priority", "proceed_resume", "gap_accept_merge"],
+    },
+}
+
+
+@dataclass
+class CounterfactualRequest:
+    subgoal: str
+    target_scenario: str = ""
+    target_status: str = ""
+    source: str = "cli"
+
+
+@dataclass
+class CounterfactualVariant:
+    tag: str
+    memory: DrivingMemory
+    mode: str
+    requested_subgoal: str
+    is_truth: bool = False
+    is_noop: bool = False
+    prompt_consistency: str = "consistent"
+    warning: str = ""
+
+
+def _all_legal_pairs() -> Dict[Tuple[str, str], List[Tuple[str, int]]]:
+    pairs: Dict[Tuple[str, str], List[Tuple[str, int]]] = defaultdict(list)
+    for scenario in sorted(SCENARIO_EVENT_SEQUENCES):
+        seq = get_full_sequence(scenario)
+        for idx in range(len(seq) - 1):
+            pairs[(seq[idx], seq[idx + 1])].append((scenario, idx))
+    return pairs
+
+
+LEGAL_EVENT_PAIRS = _all_legal_pairs()
+
+
+def _load_counterfactual_config(path_or_default: str) -> Dict[str, Any]:
+    if not path_or_default:
+        return {}
+    if path_or_default.lower() == "default":
+        return DEFAULT_COUNTERFACTUAL_CONFIG
+    path = pathlib.Path(path_or_default)
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _requests_from_config_entry(entry: Any, source: str) -> List[CounterfactualRequest]:
+    if not entry:
+        return []
+    if isinstance(entry, list):
+        raw_items = entry
+    elif isinstance(entry, dict):
+        raw_items = entry.get("swap_in_subgoals", [])
+    else:
+        raise TypeError(f"不支持的 counterfactual config entry 类型：{type(entry)}")
+
+    out: List[CounterfactualRequest] = []
+    for item in raw_items:
+        if isinstance(item, str):
+            out.append(CounterfactualRequest(subgoal=item, source=source))
+        elif isinstance(item, dict):
+            subgoal = str(item.get("subgoal") or item.get("event") or "").strip()
+            if not subgoal:
+                raise ValueError(f"counterfactual config item 缺少 subgoal/event: {item}")
+            out.append(CounterfactualRequest(
+                subgoal=subgoal,
+                target_scenario=str(item.get("scenario", "") or ""),
+                target_status=str(item.get("status", "") or ""),
+                source=source,
+            ))
+        else:
+            raise TypeError(f"不支持的 counterfactual config item 类型：{type(item)}")
+    return out
+
+
+def _counterfactual_requests_for_sample(
+    scenario: str,
+    config: Dict[str, Any],
+    cli_subgoals: List[str],
+) -> Tuple[List[CounterfactualRequest], str]:
+    if config and scenario in config:
+        return _requests_from_config_entry(config[scenario], f"config:{scenario}"), "config"
+    return [CounterfactualRequest(subgoal=s, source="cli") for s in cli_subgoals], "cli"
+
+
+def _find_predecessor_for_subgoal(
+    request: CounterfactualRequest,
+    original_scenario: str,
+) -> Optional[Tuple[str, int]]:
+    """为 scenario_swap 找一个包含目标 SUBGOAL 的合法前驱。"""
+
+    candidates: List[Tuple[str, int]] = []
+    for (_status, subgoal), owners in LEGAL_EVENT_PAIRS.items():
+        if subgoal == request.subgoal:
+            candidates.extend(owners)
+    if not candidates:
+        return None
+    if request.target_scenario:
+        for scenario, idx in candidates:
+            if scenario == request.target_scenario:
+                return scenario, idx
+    if request.target_status:
+        for scenario, idx in candidates:
+            seq = get_full_sequence(scenario)
+            if seq[idx] == request.target_status:
+                return scenario, idx
+    for scenario, idx in candidates:
+        if scenario == original_scenario:
+            return scenario, idx
+    return sorted(candidates, key=lambda x: (x[0], x[1]))[0]
+
+
+def _build_scenario_swap_memory(
+    memory: DrivingMemory,
+    request: CounterfactualRequest,
+) -> Tuple[Optional[DrivingMemory], str]:
+    found = _find_predecessor_for_subgoal(request, memory.scenario)
+    if found is None:
+        return None, f"subgoal {request.subgoal!r} 不存在于任何场景状态机，跳过"
+    scenario, idx = found
+    seq = get_full_sequence(scenario)
+    if request.target_status and seq[idx] != request.target_status:
+        return None, (
+            f"subgoal {request.subgoal!r} 在 scenario={scenario!r} 的前驱是 "
+            f"{seq[idx]!r}，不等于指定 status={request.target_status!r}"
+        )
+    return DrivingMemory(
+        scenario=scenario,
+        scenario_label=SCENARIO_LABELS.get(scenario, scenario),
+        event_sequence=seq,
+        status=seq[idx],
+        subgoal=seq[idx + 1],
+        completed_events=list(seq[:idx + 1]),
+    ), ""
+
+
+def _build_subgoal_only_memory(
+    memory: DrivingMemory,
+    request: CounterfactualRequest,
+) -> Tuple[Optional[DrivingMemory], str, str]:
+    pair = (memory.status, request.subgoal)
+    legal_somewhere = pair in LEGAL_EVENT_PAIRS
+    if not legal_somewhere:
+        return None, "invalid_pair", (
+            f"(STATUS={memory.status!r}, SUBGOAL={request.subgoal!r}) "
+            "不是任何场景状态机里的合法相邻转移，subgoal_only 跳过"
+        )
+    consistency = "consistent" if request.subgoal in memory.event_sequence else "sequence_mismatch"
+    warning = ""
+    if consistency != "consistent":
+        owners = ",".join(s for s, _idx in LEGAL_EVENT_PAIRS[pair][:3])
+        warning = (
+            f"subgoal_only 保留原 scenario/event_sequence，但该 SUBGOAL 不在原序列中；"
+            f"同 STATUS 合法 pair 出现在: {owners}"
+        )
+    return replace(memory, subgoal=request.subgoal), consistency, warning
+
+
+def _make_counterfactual_variants(
+    memory: DrivingMemory,
+    requests: List[CounterfactualRequest],
+    mode: str,
+) -> Tuple[List[CounterfactualVariant], List[Dict[str, Any]]]:
+    """构造 truth/noop/CF variant；noop 永远保留，用来估计数值 floor。"""
+
+    variants: List[CounterfactualVariant] = [
+        CounterfactualVariant(
+            tag="truth",
+            memory=memory,
+            mode=mode,
+            requested_subgoal=memory.subgoal,
+            is_truth=True,
+        ),
+        CounterfactualVariant(
+            tag=f"noop_{_safe_name(memory.subgoal)}",
+            memory=replace(memory),
+            mode=mode,
+            requested_subgoal=memory.subgoal,
+            is_noop=True,
+        ),
+    ]
+    skipped: List[Dict[str, Any]] = []
+    seen = {("truth", memory.subgoal), ("noop", memory.subgoal)}
+    cf_idx = 1
+    for request in requests:
+        if request.subgoal == memory.subgoal:
+            skipped.append({
+                "subgoal": request.subgoal,
+                "mode": mode,
+                "reason": "same_as_truth_subgoal; covered by noop control",
+            })
+            continue
+        if request.subgoal not in EVENT_DESCRIPTIONS:
+            skipped.append({
+                "subgoal": request.subgoal,
+                "mode": mode,
+                "reason": "unknown_event_token",
+            })
+            continue
+        if ("cf", request.subgoal, request.target_scenario, request.target_status) in seen:
+            continue
+        if mode == "scenario_swap":
+            cf_memory, warning = _build_scenario_swap_memory(memory, request)
+            consistency = "consistent"
+        elif mode == "subgoal_only":
+            cf_memory, consistency, warning = _build_subgoal_only_memory(memory, request)
+        else:
+            raise ValueError(f"未知 counterfactual mode: {mode}")
+        if cf_memory is None:
+            skipped.append({
+                "subgoal": request.subgoal,
+                "mode": mode,
+                "reason": warning,
+            })
+            print(f"[probe][cf][skip] mode={mode} subgoal={request.subgoal}: {warning}")
+            continue
+        tag = f"cf_{cf_idx:02d}_{_safe_name(request.subgoal)}"
+        variants.append(CounterfactualVariant(
+            tag=tag,
+            memory=cf_memory,
+            mode=mode,
+            requested_subgoal=request.subgoal,
+            prompt_consistency=consistency,
+            warning=warning,
+        ))
+        seen.add(("cf", request.subgoal, request.target_scenario, request.target_status))
+        cf_idx += 1
+        if warning:
+            print(f"[probe][cf][warn] mode={mode} tag={tag}: {warning}")
+    return variants, skipped
+
+
+def _save_counterfactual_grid(
+    out: pathlib.Path,
+    items: List[Tuple[str, pathlib.Path]],
+) -> Optional[pathlib.Path]:
+    """把 target / truth / counterfactual pred 拼成一张横向 compare 图。"""
+
+    loaded: List[Tuple[str, Image.Image]] = []
+    for label, path in items:
+        if not path.exists():
+            continue
+        img = Image.open(path).convert("RGB")
+        loaded.append((label, img))
+    if not loaded:
+        return None
+
+    width = max(img.width for _, img in loaded)
+    height = max(img.height for _, img in loaded)
+    label_h = 34
+    grid = Image.new("RGB", (width * len(loaded), height + label_h), "white")
+    try:
+        from PIL import ImageDraw
+
+        draw = ImageDraw.Draw(grid)
+    except Exception:
+        draw = None
+    for idx, (label, img) in enumerate(loaded):
+        x = idx * width
+        grid.paste(img, (x, label_h))
+        if draw is not None:
+            draw.text((x + 8, 8), label[:48], fill=(0, 0, 0))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    grid.save(out)
+    return out
+
+
+def _counterfactual_experiment_doc(original_subgoal: str, requested_subgoals: List[str]) -> Dict[str, Any]:
+    """返回写入 meta/summary 的实验说明，方便离线翻记录时不丢语义。"""
+
+    return {
+        "name": "goalgen_counterfactual_subgoal",
+        "question": (
+            "Does GoalGen change the generated subgoal keyframe when the "
+            "teacher-forced SUBGOAL text is manually replaced?"
+        ),
+        "intervention": (
+            "Keep the same history RGB, scenario, STATUS, target image, Euler seed "
+            "and z_init; only replace the SUBGOAL token and its semantic description "
+            "inside the Qwen teacher-forced prompt."
+        ),
+        "baseline": f"truth SUBGOAL = {original_subgoal}",
+        "requested_counterfactual_subgoals": requested_subgoals,
+        "primary_artifact": "counterfactual_compare_<mode>.png",
+        "how_to_read": (
+            "The first column is the original target frame, the second column is "
+            "the prediction under the truth SUBGOAL, and the following columns are "
+            "predictions under manually injected counterfactual SUBGOALs. For "
+            "counterfactual branches, worse metrics against the original target are "
+            "expected and are not automatically failures; the key evidence is whether "
+            "the image changes in a semantically interpretable direction."
+        ),
+    }
+
+
+def _parse_float_csv(text: str, fallback: float) -> List[float]:
+    vals: List[float] = []
+    for raw in text.split(","):
+        item = raw.strip()
+        if not item:
+            continue
+        vals.append(float(item))
+    return vals or [float(fallback)]
+
+
+def _mean_std(values: List[float]) -> Dict[str, float]:
+    if not values:
+        return {"mean": 0.0, "std": 0.0, "count": 0}
+    mean = sum(values) / len(values)
+    var = sum((v - mean) ** 2 for v in values) / len(values)
+    return {"mean": mean, "std": var ** 0.5, "count": len(values)}
+
+
+def _variant_delta_summary(
+    variant_records: List[Dict[str, Any]],
+    eps: float = 1e-9,
+) -> Dict[str, Any]:
+    noop_runs: List[Dict[str, Any]] = []
+    for record in variant_records:
+        if record.get("is_noop"):
+            noop_runs.extend(record.get("runs", []))
+    noop_latents = [
+        float(run["delta_latent_mse_vs_truth_pred"])
+        for run in noop_runs
+        if run.get("delta_latent_mse_vs_truth_pred") is not None
+    ]
+    noop_pixels = [
+        float(run["delta_pixel_l1_vs_truth_pred"])
+        for run in noop_runs
+        if run.get("delta_pixel_l1_vs_truth_pred") is not None
+    ]
+    noop_floor = {
+        "latent_mse": _mean_std(noop_latents),
+        "pixel_l1": _mean_std(noop_pixels),
+    }
+    latent_floor = max(noop_floor["latent_mse"]["mean"], eps)
+    pixel_floor = max(noop_floor["pixel_l1"]["mean"], eps)
+
+    noop_by_cfg: Dict[float, Dict[str, Dict[str, float]]] = {}
+    cfg_values = sorted({
+        float(run["cfg_scale"])
+        for record in variant_records
+        for run in record.get("runs", [])
+        if "cfg_scale" in run
+    })
+    for cfg in cfg_values:
+        cfg_noop_latents = [
+            float(run["delta_latent_mse_vs_truth_pred"])
+            for run in noop_runs
+            if run.get("delta_latent_mse_vs_truth_pred") is not None
+            and float(run.get("cfg_scale", cfg)) == cfg
+        ]
+        cfg_noop_pixels = [
+            float(run["delta_pixel_l1_vs_truth_pred"])
+            for run in noop_runs
+            if run.get("delta_pixel_l1_vs_truth_pred") is not None
+            and float(run.get("cfg_scale", cfg)) == cfg
+        ]
+        noop_by_cfg[cfg] = {
+            "latent_mse": _mean_std(cfg_noop_latents),
+            "pixel_l1": _mean_std(cfg_noop_pixels),
+        }
+
+    per_cf: List[Dict[str, Any]] = []
+    for record in variant_records:
+        if record.get("is_truth") or record.get("is_noop"):
+            continue
+        latent_vals = [
+            float(run["delta_latent_mse_vs_truth_pred"])
+            for run in record.get("runs", [])
+            if run.get("delta_latent_mse_vs_truth_pred") is not None
+        ]
+        pixel_vals = [
+            float(run["delta_pixel_l1_vs_truth_pred"])
+            for run in record.get("runs", [])
+            if run.get("delta_pixel_l1_vs_truth_pred") is not None
+        ]
+        latent_stats = _mean_std(latent_vals)
+        pixel_stats = _mean_std(pixel_vals)
+        per_cfg: List[Dict[str, Any]] = []
+        for cfg in cfg_values:
+            cfg_runs = [run for run in record.get("runs", []) if float(run.get("cfg_scale", cfg)) == cfg]
+            cfg_latent_vals = [
+                float(run["delta_latent_mse_vs_truth_pred"])
+                for run in cfg_runs
+                if run.get("delta_latent_mse_vs_truth_pred") is not None
+            ]
+            cfg_pixel_vals = [
+                float(run["delta_pixel_l1_vs_truth_pred"])
+                for run in cfg_runs
+                if run.get("delta_pixel_l1_vs_truth_pred") is not None
+            ]
+            cfg_latent_stats = _mean_std(cfg_latent_vals)
+            cfg_pixel_stats = _mean_std(cfg_pixel_vals)
+            cfg_latent_floor = max(noop_by_cfg.get(cfg, {}).get("latent_mse", {}).get("mean", 0.0), eps)
+            cfg_pixel_floor = max(noop_by_cfg.get(cfg, {}).get("pixel_l1", {}).get("mean", 0.0), eps)
+            per_cfg.append({
+                "cfg_scale": cfg,
+                "delta_latent_mse_vs_truth_pred": cfg_latent_stats,
+                "delta_pixel_l1_vs_truth_pred": cfg_pixel_stats,
+                "ratio_over_noop_floor_latent": cfg_latent_stats["mean"] / cfg_latent_floor,
+                "ratio_over_noop_floor_pixel": cfg_pixel_stats["mean"] / cfg_pixel_floor,
+            })
+        per_cf.append({
+            "tag": record.get("tag"),
+            "subgoal": record.get("subgoal"),
+            "mode": record.get("mode"),
+            "prompt_consistency": record.get("prompt_consistency"),
+            "delta_latent_mse_vs_truth_pred": latent_stats,
+            "delta_pixel_l1_vs_truth_pred": pixel_stats,
+            "ratio_over_noop_floor_latent": latent_stats["mean"] / latent_floor,
+            "ratio_over_noop_floor_pixel": pixel_stats["mean"] / pixel_floor,
+            "per_cfg": per_cfg,
+        })
+
+    return {
+        "noop_floor": noop_floor,
+        "noop_floor_by_cfg": {
+            str(cfg): stats for cfg, stats in noop_by_cfg.items()
+        },
+        "per_cf": per_cf,
+        "verdict_hint": (
+            "ratio_over_noop_floor > 5 suggests the generated image is likely "
+            "sensitive to the injected SUBGOAL; inspect counterfactual_compare*.png "
+            "for semantic direction."
+        ),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -248,7 +733,19 @@ def render_overview_md(
     lines.append(f"- qwen_adapter_dir: `{meta.get('qwen_adapter_dir') or '<base>'}`")
     lines.append(f"- euler_steps: {meta.get('euler_steps')}, seed: {meta.get('seed')}")
     lines.append(f"- inference elapsed: {meta.get('elapsed_sec'):.3f}s")
+    if meta.get("counterfactual_compare"):
+        lines.append(f"- counterfactual_compare: `{meta.get('counterfactual_compare')}`")
     lines.append("")
+
+    experiment = meta.get("experiment")
+    if experiment:
+        lines.append("## Experiment")
+        lines.append(f"- name: `{experiment.get('name')}`")
+        lines.append(f"- question: {experiment.get('question')}")
+        lines.append(f"- intervention: {experiment.get('intervention')}")
+        lines.append(f"- baseline: {experiment.get('baseline')}")
+        lines.append(f"- how_to_read: {experiment.get('how_to_read')}")
+        lines.append("")
 
     lines.append("## Memory (driving state)")
     lines.append("```json")
@@ -264,6 +761,8 @@ def render_overview_md(
     lines.append("- `target_raw.jpg` ← `" + str(sample.get("target_rgb_path")) + "` (真值原图)")
     lines.append("- `target_vae_recon.png` (真值经 VAE encode→decode；做生成质量的天花板对比)")
     lines.append("- `pred.png` (DiT Euler 采样 + VAE 解码出的预测子目标)")
+    if meta.get("counterfactual_compare"):
+        lines.append("- `counterfactual_compare_<mode>.png` (同一 history / 同一组 z_init，按 mode 替换 prompt 语义的并排图)")
     lines.append("")
 
     lines.append("## Metrics")
@@ -346,6 +845,23 @@ def main() -> None:
                         help="给 case 目录名加后缀，便于多 ckpt 同 seed 并排对比。")
     parser.add_argument("--scenarios", default="",
                         help="逗号分隔过滤；空 = 全场景。")
+    parser.add_argument("--counterfactual-subgoals", default="",
+                        help="逗号分隔的人工 SUBGOAL token。非空时，同一 history / 同一 z_init "
+                             "会额外按这些 SUBGOAL 生成 counterfactual pred，输出到 "
+                             "case_dir/counterfactual/ 并生成 counterfactual_compare_<mode>.png。")
+    parser.add_argument("--counterfactual-mode",
+                        choices=["scenario_swap", "subgoal_only", "both"],
+                        default="scenario_swap",
+                        help="counterfactual prompt 构造方式：scenario_swap 会同时替换 "
+                             "scenario/status/event_sequence 保持 prompt 自洽；subgoal_only "
+                             "只替换 SUBGOAL；both 在同一 case 下保存两套结果。")
+    parser.add_argument("--counterfactual-config", default="",
+                        help="per-scenario 干预配置 JSON；传 default 使用内置标准实验表。"
+                             "若当前 scenario 命中配置，优先用配置；否则回退 --counterfactual-subgoals。")
+    parser.add_argument("--cfg-scale-sweep", default="",
+                        help="逗号分隔 CFG 扫描值，例如 0.0,1.0,2.0,4.0；空则只用 --cfg-scale。")
+    parser.add_argument("--counterfactual-seed-replicates", type=int, default=1,
+                        help="每个 (case, variant, cfg) 用多少个 z_init seed 重复采样；默认 1。")
     parser.add_argument("--num-per-scenario", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--gpu", type=int, default=0)
@@ -387,8 +903,27 @@ def main() -> None:
 
     samples = load_jsonl(pathlib.Path(args.val_jsonl))
     scenarios_filter = [s.strip() for s in args.scenarios.split(",") if s.strip()] or None
+    counterfactual_subgoals = _parse_csv_tokens(args.counterfactual_subgoals)
+    counterfactual_config = _load_counterfactual_config(args.counterfactual_config)
+    counterfactual_modes = (
+        ["scenario_swap", "subgoal_only"]
+        if args.counterfactual_mode == "both"
+        else [args.counterfactual_mode]
+    )
+    cfg_scale_values = _parse_float_csv(args.cfg_scale_sweep, args.cfg_scale)
+    seed_replicates = max(1, int(args.counterfactual_seed_replicates))
     picked = select_samples(samples, scenarios_filter, args.num_per_scenario, args.seed)
     print(f"[probe] selected {len(picked)} samples from {len(samples)} total")
+    if counterfactual_subgoals:
+        print(f"[probe] counterfactual SUBGOAL variants: {counterfactual_subgoals}")
+    if counterfactual_config:
+        src = "built-in default" if args.counterfactual_config.lower() == "default" else args.counterfactual_config
+        print(f"[probe] counterfactual config enabled: {src}")
+    if counterfactual_subgoals or counterfactual_config:
+        print(
+            f"[probe] counterfactual modes={counterfactual_modes} "
+            f"cfg_sweep={cfg_scale_values} seed_replicates={seed_replicates}"
+        )
 
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
@@ -448,72 +983,268 @@ def main() -> None:
         target_img = load_rgb(sample["target_rgb_path"])
         memory = memory_from_sample(sample)
 
-        t0 = time.time()
-        prefill = teacher_forced_prefill(
-            engine=engine,
-            memory=memory,
-            images=history_images,
-            num_segments=args.num_layers,
-            kv_segment_mode=args.qwen_kv_segment_mode,
-        )
-        pooled_kv = [
-            (k.to(device=device, dtype=dit_dtype), v.to(device=device, dtype=dit_dtype))
-            for k, v in prefill.pooled_kv
-        ]
         z_history = vae.encode(history_images).to(dtype=dit_dtype).unsqueeze(0)
         z1_gt = vae.encode([target_img]).to(dtype=dit_dtype)
-
-        gen = torch.Generator(device=device).manual_seed(args.seed + sample_idx)
-        z_init = _make_z_init_from_prior(
-            z_history=z_history,
-            shape=tuple(z1_gt.shape),
-            device=device,
-            dtype=dit_dtype,
-            alpha=args.z0_prior_alpha,
-            sigma=args.z0_prior_sigma,
-            generator=gen,
-        )
-        z1_pred, trace = euler_sample_with_trace(
-            dit,
-            z_history,
-            pooled_kv,
-            z1_gt,
-            z_init,
-            num_steps=args.euler_steps,
-            cfg_scale=args.cfg_scale,
-        )
-
-        m_mse = latent_mse(z1_pred, z1_gt)
-        m_cos = latent_cosine(z1_pred, z1_gt)
-        z1_pred_for_vae = z1_pred.to(device=vae.device, dtype=vae.dtype)
         z1_gt_for_vae = z1_gt.to(device=vae.device, dtype=vae.dtype)
-        rgb_pred = vae.decode(z1_pred_for_vae).clamp(-1.0, 1.0)
         rgb_gt = vae.decode(z1_gt_for_vae).clamp(-1.0, 1.0)
-        m_l1, m_psnr = pixel_l1_psnr(rgb_pred, rgb_gt)
-        m_vcos = velocity_cosine_multi_t(
-            dit,
-            z_history,
-            pooled_kv,
-            z1_gt,
-            device,
-            dit_dtype,
-            z0_prior_alpha=args.z0_prior_alpha,
-            z0_prior_sigma=args.z0_prior_sigma,
+
+        cf_requests, cf_request_source = _counterfactual_requests_for_sample(
+            scenario,
+            counterfactual_config,
+            counterfactual_subgoals,
         )
-        elapsed = time.time() - t0
+        dump_counterfactual = bool(cf_requests)
+        all_mode_summaries: Dict[str, Any] = {}
+        all_mode_metric_summaries: Dict[str, Any] = {}
+        skipped_variants: List[Dict[str, Any]] = []
+        truth_metrics: Optional[Dict[str, float]] = None
+        truth_trace: Optional[Dict[str, List[float]]] = None
+        truth_elapsed = 0.0
+        primary_compare = ""
+
+        z_inits: List[Tuple[int, torch.Tensor]] = []
+        for rep_idx in range(seed_replicates):
+            replicate_seed = int(args.seed + sample_idx * 1009 + rep_idx)
+            gen = torch.Generator(device=device).manual_seed(replicate_seed)
+            z_init = _make_z_init_from_prior(
+                z_history=z_history,
+                shape=tuple(z1_gt.shape),
+                device=device,
+                dtype=dit_dtype,
+                alpha=args.z0_prior_alpha,
+                sigma=args.z0_prior_sigma,
+                generator=gen,
+            )
+            z_inits.append((replicate_seed, z_init))
+
+        active_modes = counterfactual_modes if dump_counterfactual else ["scenario_swap"]
+        for mode in active_modes:
+            if dump_counterfactual:
+                variants, skipped = _make_counterfactual_variants(memory, cf_requests, mode)
+            else:
+                variants = [
+                    CounterfactualVariant(
+                        tag="truth",
+                        memory=memory,
+                        mode=mode,
+                        requested_subgoal=memory.subgoal,
+                        is_truth=True,
+                    )
+                ]
+                skipped = []
+            skipped_variants.extend(skipped)
+            variant_records: List[Dict[str, Any]] = []
+            truth_preds: Dict[Tuple[float, int], Tuple[torch.Tensor, torch.Tensor]] = {}
+
+            for variant in variants:
+                t0_prefill = time.time()
+                prefill = teacher_forced_prefill(
+                    engine=engine,
+                    memory=variant.memory,
+                    images=history_images,
+                    num_segments=args.num_layers,
+                    kv_segment_mode=args.qwen_kv_segment_mode,
+                )
+                pooled_kv = [
+                    (k.to(device=device, dtype=dit_dtype), v.to(device=device, dtype=dit_dtype))
+                    for k, v in prefill.pooled_kv
+                ]
+                prefill_elapsed = time.time() - t0_prefill
+                runs: List[Dict[str, Any]] = []
+
+                for cfg_scale_value in cfg_scale_values:
+                    for rep_idx, (replicate_seed, z_init) in enumerate(z_inits):
+                        t0 = time.time()
+                        z1_pred, trace = euler_sample_with_trace(
+                            dit,
+                            z_history,
+                            pooled_kv,
+                            z1_gt,
+                            z_init,
+                            num_steps=args.euler_steps,
+                            cfg_scale=cfg_scale_value,
+                        )
+
+                        m_mse = latent_mse(z1_pred, z1_gt)
+                        m_cos = latent_cosine(z1_pred, z1_gt)
+                        z1_pred_for_vae = z1_pred.to(device=vae.device, dtype=vae.dtype)
+                        rgb_pred = vae.decode(z1_pred_for_vae).clamp(-1.0, 1.0)
+                        m_l1, m_psnr = pixel_l1_psnr(rgb_pred, rgb_gt)
+                        m_vcos = velocity_cosine_multi_t(
+                            dit,
+                            z_history,
+                            pooled_kv,
+                            z1_gt,
+                            device,
+                            dit_dtype,
+                            z0_prior_alpha=args.z0_prior_alpha,
+                            z0_prior_sigma=args.z0_prior_sigma,
+                        )
+                        elapsed_variant = time.time() - t0
+                        variant_metrics = {
+                            "latent_mse": m_mse,
+                            "latent_cos": m_cos,
+                            "pixel_l1": m_l1,
+                            "psnr": m_psnr,
+                            "velocity_cos": m_vcos,
+                        }
+
+                        pred_delta_mse = None
+                        pred_delta_pixel_l1 = None
+                        pred_delta_psnr = None
+                        key = (float(cfg_scale_value), rep_idx)
+                        if variant.is_truth:
+                            truth_preds[key] = (z1_pred.detach().clone(), rgb_pred.detach().clone())
+                            if (
+                                mode == active_modes[0]
+                                and float(cfg_scale_value) == float(cfg_scale_values[0])
+                                and rep_idx == 0
+                            ):
+                                truth_metrics = variant_metrics
+                                truth_trace = trace
+                                truth_elapsed = elapsed_variant + prefill_elapsed
+                                _save_rgb_png(rgb_pred[0], case_dir / "pred.png")
+                        elif key in truth_preds:
+                            truth_z, truth_rgb = truth_preds[key]
+                            pred_delta_mse = float(F.mse_loss(z1_pred.float(), truth_z.float()).item())
+                            pred_delta_pixel_l1, pred_delta_psnr = pixel_l1_psnr(rgb_pred, truth_rgb)
+
+                        pred_path = ""
+                        if dump_counterfactual:
+                            cfg_tag = f"cfg_{str(cfg_scale_value).replace('.', 'p').replace('-', 'm')}"
+                            run_dir = (
+                                case_dir / "counterfactual" / mode / variant.tag /
+                                cfg_tag / f"seed_{rep_idx:02d}"
+                            )
+                            run_dir.mkdir(parents=True, exist_ok=True)
+                            pred_path = str(run_dir / "pred.png")
+                            _save_rgb_png(rgb_pred[0], run_dir / "pred.png")
+                            with (run_dir / "metrics_vs_original_target.json").open("w", encoding="utf-8") as f:
+                                json.dump(variant_metrics, f, ensure_ascii=False, indent=2)
+
+                        runs.append({
+                            "cfg_scale": float(cfg_scale_value),
+                            "replicate_idx": rep_idx,
+                            "seed": replicate_seed,
+                            "pred_path": pred_path,
+                            "metrics_vs_original_target": variant_metrics,
+                            "delta_latent_mse_vs_truth_pred": pred_delta_mse,
+                            "delta_pixel_l1_vs_truth_pred": pred_delta_pixel_l1,
+                            "delta_psnr_vs_truth_pred": pred_delta_psnr,
+                            "elapsed_sec": elapsed_variant,
+                        })
+
+                variant_dir = case_dir / "counterfactual" / mode / variant.tag
+                chat_text_path = ""
+                memory_path = ""
+                if dump_counterfactual:
+                    variant_dir.mkdir(parents=True, exist_ok=True)
+                    chat_text_path = str(variant_dir / "chat_text.txt")
+                    memory_path = str(variant_dir / "memory.json")
+                    (variant_dir / "chat_text.txt").write_text(prefill.chat_text, encoding="utf-8")
+                    with (variant_dir / "memory.json").open("w", encoding="utf-8") as f:
+                        json.dump(asdict(variant.memory), f, ensure_ascii=False, indent=2)
+
+                variant_records.append({
+                    "tag": variant.tag,
+                    "mode": mode,
+                    "subgoal": variant.memory.subgoal,
+                    "requested_subgoal": variant.requested_subgoal,
+                    "scenario": variant.memory.scenario,
+                    "status": variant.memory.status,
+                    "is_truth": variant.is_truth,
+                    "is_noop": variant.is_noop,
+                    "prompt_consistency": variant.prompt_consistency,
+                    "warning": variant.warning,
+                    "chat_text_path": chat_text_path,
+                    "memory_path": memory_path,
+                    "prefill_elapsed_sec": prefill_elapsed,
+                    "runs": runs,
+                })
+
+            if dump_counterfactual:
+                first_cfg = float(cfg_scale_values[0])
+                grid_items = [("target_raw", case_dir / "target_raw.jpg")]
+                for record in variant_records:
+                    first_run = next(
+                        (
+                            run for run in record.get("runs", [])
+                            if run["cfg_scale"] == first_cfg and run["replicate_idx"] == 0
+                        ),
+                        None,
+                    )
+                    if not first_run or not first_run.get("pred_path"):
+                        continue
+                    label = ("truth:" if record["is_truth"] else "noop:" if record["is_noop"] else "cf:")
+                    label += str(record["subgoal"])
+                    grid_items.append((label, pathlib.Path(first_run["pred_path"])))
+                mode_compare = case_dir / f"counterfactual_compare_{mode}.png"
+                grid_path = _save_counterfactual_grid(mode_compare, grid_items)
+                if mode == active_modes[0]:
+                    primary_compare = str(grid_path) if grid_path else ""
+                metric_summary = _variant_delta_summary(variant_records)
+                all_mode_metric_summaries[mode] = metric_summary
+                all_mode_summaries[mode] = {
+                    "compare_png": str(grid_path) if grid_path else "",
+                    "variants": variant_records,
+                    "metrics_summary": metric_summary,
+                }
+
+        if truth_metrics is None or truth_trace is None:
+            raise RuntimeError("内部错误：counterfactual variants 缺少 truth baseline")
+
+        metrics = truth_metrics
+        trace = truth_trace
+        elapsed = truth_elapsed
 
         # 3) PNG dump
-        _save_rgb_png(rgb_pred[0], case_dir / "pred.png")
         _save_rgb_png(rgb_gt[0], case_dir / "target_vae_recon.png")
 
+        experiment_doc = (
+            _counterfactual_experiment_doc(memory.subgoal, [r.subgoal for r in cf_requests])
+            if dump_counterfactual
+            else None
+        )
+        if experiment_doc:
+            experiment_doc.update({
+                "mode": args.counterfactual_mode,
+                "active_modes": active_modes,
+                "request_source": cf_request_source,
+                "cfg_scale_sweep": cfg_scale_values,
+                "seed_replicates": seed_replicates,
+            })
+        if dump_counterfactual:
+            cf_summary = {
+                "experiment": experiment_doc,
+                "note": (
+                    "All modes share the same history RGB, z_history, target RGB and "
+                    "replicate z_init seeds. scenario_swap keeps the prompt internally "
+                    "consistent by swapping scenario/status/event_sequence; subgoal_only "
+                    "keeps the original scenario/status and only edits SUBGOAL."
+                ),
+                "original_subgoal": memory.subgoal,
+                "request_source": cf_request_source,
+                "counterfactual_requests": [asdict(r) for r in cf_requests],
+                "skipped_variants": skipped_variants,
+                "cfg_scale_sweep": cfg_scale_values,
+                "seed_replicates": seed_replicates,
+                "primary_compare_png": primary_compare,
+                "modes": all_mode_summaries,
+            }
+            with (case_dir / "counterfactual_summary.json").open("w", encoding="utf-8") as f:
+                json.dump(cf_summary, f, ensure_ascii=False, indent=2)
+            metrics_summary_payload = {
+                "experiment": experiment_doc,
+                "modes": all_mode_metric_summaries,
+                "verdict_hint": (
+                    "ratio_over_noop_floor > 5 suggests SUBGOAL likely influences output. "
+                    "Use both latent and pixel ratios, then inspect images."
+                ),
+            }
+            with (case_dir / "counterfactual_metrics_summary.json").open("w", encoding="utf-8") as f:
+                json.dump(metrics_summary_payload, f, ensure_ascii=False, indent=2)
+
         # 4) 写 metrics / euler trace / memory / meta
-        metrics = {
-            "latent_mse": m_mse,
-            "latent_cos": m_cos,
-            "pixel_l1": m_l1,
-            "psnr": m_psnr,
-            "velocity_cos": m_vcos,
-        }
         with (case_dir / "metrics.json").open("w", encoding="utf-8") as f:
             json.dump(metrics, f, ensure_ascii=False, indent=2)
         with (case_dir / "euler_trace.json").open("w", encoding="utf-8") as f:
@@ -538,6 +1269,15 @@ def main() -> None:
             "use_ema": args.use_ema,
             "seed": args.seed,
             "case_suffix": args.case_suffix,
+            "counterfactual_subgoals": counterfactual_subgoals,
+            "counterfactual_mode": args.counterfactual_mode,
+            "counterfactual_config": args.counterfactual_config,
+            "cfg_scale_sweep": cfg_scale_values,
+            "counterfactual_seed_replicates": seed_replicates,
+            "counterfactual_summary": str(case_dir / "counterfactual_summary.json") if dump_counterfactual else "",
+            "counterfactual_metrics_summary": str(case_dir / "counterfactual_metrics_summary.json") if dump_counterfactual else "",
+            "counterfactual_compare": primary_compare,
+            "experiment": experiment_doc,
             "elapsed_sec": elapsed,
         }
         with (case_dir / "meta.json").open("w", encoding="utf-8") as f:
@@ -552,11 +1292,13 @@ def main() -> None:
             "scenario": scenario,
             "run_id": run_id,
             "anchor": anchor,
-            "latent_mse": m_mse,
-            "latent_cos": m_cos,
-            "pixel_l1": m_l1,
-            "psnr": m_psnr,
-            "velocity_cos": m_vcos,
+            "latent_mse": metrics["latent_mse"],
+            "latent_cos": metrics["latent_cos"],
+            "pixel_l1": metrics["pixel_l1"],
+            "psnr": metrics["psnr"],
+            "velocity_cos": metrics["velocity_cos"],
+            "counterfactual_compare": primary_compare,
+            "counterfactual_summary": str(case_dir / "counterfactual_summary.json") if dump_counterfactual else "",
             "elapsed_sec": elapsed,
         })
         with (case_root / f"_index{args.case_suffix}.jsonl").open("w", encoding="utf-8") as f:
@@ -564,7 +1306,7 @@ def main() -> None:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
         print(f"[probe] done {scenario}/{run_id}/anchor={anchor} → {case_dir}  "
-              f"v_cos={m_vcos:.3f} psnr={m_psnr:.2f}")
+              f"v_cos={metrics['velocity_cos']:.3f} psnr={metrics['psnr']:.2f}")
 
     print(f"\n[probe] all {len(index_records)} cases dumped under {case_root}")
 
