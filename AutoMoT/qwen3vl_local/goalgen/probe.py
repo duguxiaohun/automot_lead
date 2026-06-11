@@ -57,7 +57,7 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass, replace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
 _AUTOMOT_ROOT = _THIS_FILE.parents[2]
@@ -254,6 +254,7 @@ class CFVariant:
     memory: DrivingMemory
     mode: str
     requested_subgoal: str
+    request_source: str = ""
     is_truth: bool = False
     prompt_consistency: str = "consistent"
     warning: str = ""
@@ -354,6 +355,54 @@ def _all_legal_pairs() -> Dict[Tuple[str, str], List[Tuple[str, int]]]:
 
 
 LEGAL_EVENT_PAIRS = _all_legal_pairs()
+
+SUBGOAL_ONLY_AUTO_PRIORITY = [
+    # status=initial 时常见的跨语义入口，优先让自动候选覆盖不同场景簇。
+    "hazard_detect",
+    "pedestrian_detect",
+    "obstacle_detect",
+    "flow_approach",
+    "cutin_onset",
+    "junction_approach",
+    # status=junction_approach 等中间态常见动作。
+    "assert_priority",
+    "turn_on_green",
+    "brake_at_light",
+    "yield_and_turn",
+    "wait_or_turn_on_green",
+    "yield_and_enter_flow",
+]
+
+
+def _auto_subgoal_only_requests(
+    memory: DrivingMemory,
+    seen_subgoals: Set[str],
+    limit: int = 3,
+) -> List[CFRequest]:
+    """为 subgoal_only 兜底生成当前 STATUS 下的合法 SUBGOAL 候选。
+
+    默认 config 是按 scenario 设计的跨语义候选；当随机 case 还处在 initial
+    等早期 STATUS 时，那些候选可能全部不是合法相邻 pair。这里只在没有任何
+    有效 variant 时补齐，不改变用户显式传入且已命中的配置行为。
+    """
+
+    candidates: List[str] = []
+    for (status, subgoal), _owners in LEGAL_EVENT_PAIRS.items():
+        if status != memory.status:
+            continue
+        if subgoal in seen_subgoals or subgoal not in EVENT_DESCRIPTIONS:
+            continue
+        candidates.append(subgoal)
+
+    priority = {name: idx for idx, name in enumerate(SUBGOAL_ONLY_AUTO_PRIORITY)}
+    candidates = sorted(
+        set(candidates),
+        key=lambda name: (priority.get(name, 10_000), name),
+    )
+    return [
+        CFRequest(subgoal=subgoal, source=f"auto_subgoal_only:{memory.status}")
+        for subgoal in candidates[:limit]
+    ]
 
 
 # =========================================================================== #
@@ -538,23 +587,25 @@ def _make_counterfactual_variants(
     skipped: List[Dict[str, Any]] = []
     seen_subgoals = {memory.subgoal}
     cf_idx = 1
-    for request in requests:
+
+    def _try_add_request(request: CFRequest) -> bool:
+        nonlocal cf_idx
         if request.subgoal == memory.subgoal:
             skipped.append({
                 "subgoal": request.subgoal,
                 "mode": mode,
                 "reason": "same_as_truth_subgoal",
             })
-            continue
+            return False
         if request.subgoal not in EVENT_DESCRIPTIONS:
             skipped.append({
                 "subgoal": request.subgoal,
                 "mode": mode,
                 "reason": "unknown_event_token",
             })
-            continue
+            return False
         if request.subgoal in seen_subgoals:
-            continue
+            return False
 
         if mode == "scenario_swap":
             cf_memory, warning = _build_scenario_swap_memory(memory, request)
@@ -570,7 +621,7 @@ def _make_counterfactual_variants(
                 "reason": warning,
             })
             print(f"[probe][cf][skip] mode={mode} subgoal={request.subgoal}: {warning}")
-            continue
+            return False
 
         tag = f"cf_{cf_idx:02d}_{_safe_name(request.subgoal)}"
         variants.append(CFVariant(
@@ -578,6 +629,7 @@ def _make_counterfactual_variants(
             memory=cf_memory,
             mode=mode,
             requested_subgoal=request.subgoal,
+            request_source=request.source,
             prompt_consistency=consistency,
             warning=warning,
         ))
@@ -585,6 +637,26 @@ def _make_counterfactual_variants(
         cf_idx += 1
         if warning:
             print(f"[probe][cf][warn] mode={mode} tag={tag}: {warning}")
+        return True
+
+    for request in requests:
+        _try_add_request(request)
+
+    if mode == "subgoal_only" and len(variants) == 1:
+        auto_requests = _auto_subgoal_only_requests(memory, seen_subgoals, limit=3)
+        if auto_requests:
+            print(
+                f"[probe][cf][auto] mode=subgoal_only status={memory.status!r}: "
+                f"原请求没有有效 variant，自动补合法 SUBGOAL="
+                f"{[r.subgoal for r in auto_requests]}"
+            )
+            for request in auto_requests:
+                _try_add_request(request)
+        else:
+            print(
+                f"[probe][cf][auto] mode=subgoal_only status={memory.status!r}: "
+                "没有可用的其它合法 SUBGOAL，仍只保留 truth"
+            )
     return variants, skipped
 
 
@@ -1017,15 +1089,16 @@ def _render_cf_report_md(
             lines.append("_no CF variants (config 未命中且 CLI 为空，或全部被 skip)_")
             lines.append("")
             continue
-        lines.append("| tag | subgoal | scenario(CF) | Δpixel_l1 | Δlatent_mse | ratio_pix | verdict |")
-        lines.append("|---|---|---|---|---|---|---|")
+        lines.append("| tag | subgoal | source | scenario(CF) | Δpixel_l1 | Δlatent_mse | ratio_pix | verdict |")
+        lines.append("|---|---|---|---|---|---|---|---|")
         for cf in per_cf:
             ratio_pix = cf.get("ratio_over_floor_pixel")
             ratio_str = f"{ratio_pix:.2f}x" if ratio_pix is not None else "n/a"
             lines.append(
-                "| `{tag}` | `{sub}` | `{sc}` | {dp:.4f} | {dl:.6f} | {r} | **{v}** |".format(
+                "| `{tag}` | `{sub}` | `{src}` | `{sc}` | {dp:.4f} | {dl:.6f} | {r} | **{v}** |".format(
                     tag=cf.get("tag"),
                     sub=cf.get("subgoal"),
+                    src=cf.get("request_source") or "",
                     sc=cf.get("scenario") or "(unchanged)",
                     dp=cf.get("delta_pixel_l1_mean", 0.0),
                     dl=cf.get("delta_latent_mse_mean", 0.0),
@@ -1412,6 +1485,7 @@ def main() -> None:
                     "mode": mode,
                     "subgoal": variant.memory.subgoal,
                     "requested_subgoal": variant.requested_subgoal,
+                    "request_source": variant.request_source,
                     "scenario": variant.memory.scenario,
                     "status": variant.memory.status,
                     "is_truth": variant.is_truth,
@@ -1505,6 +1579,7 @@ def main() -> None:
                     "tag": tag,
                     "subgoal": record["subgoal"],
                     "requested_subgoal": record["requested_subgoal"],
+                    "request_source": record["request_source"],
                     "scenario": record["scenario"] if record["scenario"] != memory.scenario else "",
                     "status": record["status"],
                     "prompt_consistency": record["prompt_consistency"],
@@ -1587,6 +1662,8 @@ def main() -> None:
                         "tag": rec["tag"],
                         "is_truth": rec["is_truth"],
                         "subgoal": rec["subgoal"],
+                        "requested_subgoal": rec["requested_subgoal"],
+                        "request_source": rec["request_source"],
                         "scenario": rec["scenario"],
                         "status": rec["status"],
                         "warning": rec["warning"],
