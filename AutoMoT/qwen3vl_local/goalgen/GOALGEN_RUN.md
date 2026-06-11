@@ -282,7 +282,7 @@ GoalGen 解出的子目标图像会不会跟着语义变化？
 | mode | 做法 | 适合回答 |
 |---|---|---|
 | `scenario_swap`（默认） | 同时换 `scenario/event_sequence/status/subgoal/completed_events`，prompt 内部自洽 | 反事实场景语义是否能驱动图像变化 |
-| `subgoal_only` | 保留原 scenario / STATUS，只换 SUBGOAL；`(STATUS, SUBGOAL)` 不构成任何场景的合法相邻 pair 时直接跳过；合法但不在原 EVENT_SEQUENCE 里时打 `prompt_consistency=sequence_mismatch` 警告 | DiT 是否直接读 SUBGOAL token |
+| `subgoal_only` | 保留原 scenario / STATUS，只换 SUBGOAL；`(STATUS, SUBGOAL)` 不构成任何场景的合法相邻 pair 时直接跳过；如果本轮候选全被跳过，会按当前 STATUS 自动补最多 3 个合法 SUBGOAL；合法但不在原 EVENT_SEQUENCE 里时打 `prompt_consistency=sequence_mismatch` 警告 | DiT 是否直接读 SUBGOAL token |
 | `both` | 同 case 下同时保存两套 | 对照两种干预强度 |
 
 **Floor 概念（v2 修订）**：不再用 `noop` 控制分支（那玩意儿 bit-identical，floor 永远 0）。
@@ -354,7 +354,9 @@ GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
 ```
 
 非法 `(STATUS, SUBGOAL)` pair 会在 stdout 打 `[probe][cf][skip]` 并记进
-`cf_summary.json.modes.subgoal_only.skipped`。
+`cf_summary.json.modes.subgoal_only.skipped`。如果默认 config 给出的候选全都不匹配当前
+STATUS（常见于随机抽到 `STATUS=initial` 的 case），probe 会再打印
+`[probe][cf][auto]`，并从当前 STATUS 的合法相邻转移里自动补候选，避免拼图只剩 truth 行。
 
 **Demo C：同 case 下同时跑 scenario_swap 和 subgoal_only。**
 
