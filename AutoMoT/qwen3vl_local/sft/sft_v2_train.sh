@@ -179,6 +179,18 @@ count_visible_gpus() {
     fi
 }
 
+# 用户显式 pin GPU：前置 GPU_IDS="0" / GPU_IDS="0,1,2,3" 时跳过 nvidia-smi 自动选址，
+# 直接用给定卡号当 CUDA_VISIBLE_DEVICES。多卡情况下卡数从 GPU_IDS 逗号数推断，
+# DDP_GPU_COUNT 在 GPU_IDS 非空时不再起作用（避免要求 N 卡却只给了 M 个 ID 这种矛盾）。
+resolve_visible_gpus() {
+    local want_count="$1"
+    if [[ -n "${GPU_IDS:-}" ]]; then
+        echo "${GPU_IDS}"
+    else
+        pick_idle_gpus "${want_count}"
+    fi
+}
+
 is_port_free() {
     local port="$1"
     python -c 'import socket, sys
@@ -467,7 +479,7 @@ materialize_runtime_teacher_if_needed() {
 case "${MODE}" in
     single)
         echo "[mode] single-GPU"
-        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
+        export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
         export NPROC_PER_NODE=1
         PER_DEVICE_BS=4
         GRAD_ACC=2
@@ -484,7 +496,7 @@ case "${MODE}" in
         # 比 v1（6-10）偏低，因为 v2 ANALYSIS body 段加 0.3 权重后单 token loss 被稀释；
         # 但比 v1 mask=0 时多了 ~30 个 token 参与 loss，整体仍在可读量级。
         # 判读细节见 SFT_RUN.md §3。
-        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
+        export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
         export NPROC_PER_NODE=1
         PER_DEVICE_BS=1
         GRAD_ACC=1
@@ -500,7 +512,10 @@ case "${MODE}" in
         SAVE_STRATEGY="steps"
         EVAL_STRATEGY="steps"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
-        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
+        if [[ -n "${GPU_IDS:-}" ]]; then
+            echo "[gpu] GPU_IDS=${GPU_IDS} takes precedence; DDP_GPU_COUNT=${DDP_GPU_COUNT} ignored"
+        fi
+        export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus "${DDP_GPU_COUNT}")"
         ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
         export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
         if [[ "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then

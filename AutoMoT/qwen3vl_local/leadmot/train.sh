@@ -118,6 +118,18 @@ require_idle_gpus() {
   echo "${picked}"
 }
 
+# 用户显式 pin GPU：前置 GPU_IDS="0" / GPU_IDS="0,1,2,3" 时跳过 nvidia-smi 自动选址，
+# 直接用给定卡号当 CUDA_VISIBLE_DEVICES。多卡情况下卡数从 GPU_IDS 逗号数推断，
+# DDP_GPU_COUNT 在 GPU_IDS 非空时不再起作用（避免要求 N 卡却只给了 M 个 ID 这种矛盾）。
+resolve_visible_gpus() {
+  local want_count="$1"
+  if [[ -n "${GPU_IDS:-}" ]]; then
+    echo "${GPU_IDS}"
+  else
+    require_idle_gpus "${want_count}"
+  fi
+}
+
 count_visible_gpus() {
   if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
     awk -F, '{print NF}' <<< "${CUDA_VISIBLE_DEVICES}"
@@ -250,7 +262,7 @@ common_args+=(--worker-multiprocessing-context "${WORKER_MULTIPROCESSING_CONTEXT
 
 case "${MODE}" in
   check)
-    export CUDA_VISIBLE_DEVICES="$(require_idle_gpus 1)"
+    export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
     python qwen3vl_local/leadmot/train.py \
       "${common_args[@]}" \
       --limit-train-samples "${LIMIT_TRAIN_SAMPLES:-2}" \
@@ -263,12 +275,15 @@ case "${MODE}" in
       ${EXTRA_ARGS}
     ;;
   single)
-    export CUDA_VISIBLE_DEVICES="$(require_idle_gpus 1)"
+    export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
     python qwen3vl_local/leadmot/train.py "${common_args[@]}" ${EXTRA_ARGS}
     ;;
   ddp)
     DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
-    export CUDA_VISIBLE_DEVICES="$(require_idle_gpus "${DDP_GPU_COUNT}")"
+    if [[ -n "${GPU_IDS:-}" ]]; then
+      echo "[gpu] GPU_IDS=${GPU_IDS} takes precedence; DDP_GPU_COUNT=${DDP_GPU_COUNT} ignored"
+    fi
+    export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus "${DDP_GPU_COUNT}")"
     configure_master_port
     NPROC_PER_NODE="$(count_visible_gpus)"
     if [[ "${NPROC_PER_NODE}" -lt 1 ]]; then

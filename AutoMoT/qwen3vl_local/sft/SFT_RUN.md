@@ -1,14 +1,14 @@
 # SFT Runbook
 
-所有命令默认在远端 `AutoMoT/` 目录执行。SFT v1/v2 共享数据构建、评估、
-probe 和 TensorBoard 工具；差异主要在 ANALYSIS 段监督方式。
+本手册默认当前目录就是远端 `AutoMoT/`。下面命令都写相对 `AutoMoT/` 的路径，
+例如 `bash qwen3vl_local/sft/sft_v1_train.sh`，不再额外写切目录步骤。
+SFT v1/v2 共享数据构建、评估、probe 和 TensorBoard 工具；差异主要在
+ANALYSIS 段监督方式。
 
 ## 0. 准备
 
 ```bash
-cd ~/automot_lead
 git pull
-cd AutoMoT
 ls checkpoints/Qwen3-VL-4B-Instruct/ | head -5
 ```
 
@@ -57,6 +57,9 @@ v1：
 ```bash
 python qwen3vl_local/sft/check_loss_mask.py
 bash qwen3vl_local/sft/sft_v1_train.sh check
+
+# 想固定到某张卡（默认 GPU 0）
+GPU_IDS=0 bash qwen3vl_local/sft/sft_v1_train.sh check
 ```
 
 v2：
@@ -66,6 +69,9 @@ RUNTIME_TEACHER_REFRESH=1 bash qwen3vl_local/sft/sft_v2_train.sh check
 python qwen3vl_local/sft/check_loss_mask_v2.py \
   --jsonl checkpoints/sft_v2_lora/runtime_teacher_check_data/train.jsonl \
   --sample-idx 0
+
+# 想固定到某张卡（默认 GPU 0）
+GPU_IDS=0 RUNTIME_TEACHER_REFRESH=1 bash qwen3vl_local/sft/sft_v2_train.sh check
 ```
 
 通过条件：check 模式 2 step 正常前后向，无 NaN/OOM；v1 只有 STATUS/SUBGOAL
@@ -101,6 +107,10 @@ v1：
 bash qwen3vl_local/sft/sft_v1_train.sh single
 bash qwen3vl_local/sft/sft_v1_train.sh ddp
 DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v1_train.sh ddp
+
+# 想固定到指定卡（单卡默认 GPU 0，多卡默认 GPU 0,1,2,3）
+GPU_IDS=0 bash qwen3vl_local/sft/sft_v1_train.sh single
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft/sft_v1_train.sh ddp
 ```
 
 v2：
@@ -109,6 +119,10 @@ v2：
 bash qwen3vl_local/sft/sft_v2_train.sh single
 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v2_train.sh ddp
+
+# 想固定到指定卡（单卡默认 GPU 0，多卡默认 GPU 0,1,2,3）
+GPU_IDS=0 bash qwen3vl_local/sft/sft_v2_train.sh single
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 ```
 
 关键 env：
@@ -118,12 +132,13 @@ DDP_GPU_COUNT=4 bash qwen3vl_local/sft/sft_v2_train.sh ddp
 | `OUTPUT_DIR` | `checkpoints/sft_v1_lora` | `checkpoints/sft_v2_lora` | base 输出目录 |
 | `RUN_TAG` | 时间戳 | 时间戳 | 写到 `OUTPUT_DIR/run_<tag>` |
 | `NO_RUN_SUBDIR` | `0` | `0` | 置 `1` 回到顶层覆盖写法 |
-| `DDP_GPU_COUNT` | `8` | `8` | DDP 需要的 GPU 数 |
+| `DDP_GPU_COUNT` | `8` | `8` | DDP 需要的 GPU 数；`GPU_IDS` 非空时忽略 |
+| `GPU_IDS` | 空 | 空 | 显式 pin 卡号；空 = nvidia-smi 自动选址；`GPU_IDS=0` / `GPU_IDS=0,1,2,3` |
 | `RUNTIME_TEACHER_REFRESH` | - | `0` | v2 强制重跑 teacher |
 | `SFT_V2_ANALYSIS_WEIGHT` | - | `0.3` | v2 ANALYSIS body loss 权重 |
 
-GPU 规则：脚本用 `nvidia-smi` 自动挑空闲卡并覆盖旧 `CUDA_VISIBLE_DEVICES`。
-不要在文档命令里手写卡号。
+GPU 规则：脚本默认用 `nvidia-smi` 自动挑空闲卡并覆盖旧 `CUDA_VISIBLE_DEVICES`。
+显式 pin 时前置 `GPU_IDS=<id1,id2,...>`，跳过自动选址；卡数从 `GPU_IDS` 逗号数推断。
 
 每个训练 run 目录会追加 `log.txt` 保存本次终端 stdout/stderr。
 
@@ -193,7 +208,7 @@ python qwen3vl_local/sft/probe_sft_v1.py \
 
 | 现象 | 处理 |
 |---|---|
-| `KeyError: sft_v1_analysis_mask` | 确认从 `AutoMoT/` 运行，且 `qwen3vl_local/sft/sft_v1_loss_scale_plugin.py` 存在 |
+| `KeyError: sft_v1_analysis_mask` | 确认当前目录就是默认的 `AutoMoT/`，且 `qwen3vl_local/sft/sft_v1_loss_scale_plugin.py` 存在 |
 | `dataset_version=v2_pending` 直接进 eval | 先让 `sft_v2_train.sh` 物化 runtime teacher 数据 |
 | runtime cache 被误复用 | `RUNTIME_TEACHER_REFRESH=1` 或删 `runtime_teacher_data/` |
 | `invalid device ordinal` | 不手写 CVD；DDP 用 `DDP_GPU_COUNT=N` |

@@ -8,7 +8,7 @@ LeadMoT 在 CARLA Bench2Drive 上的闭环评测全套设施的**架构与对齐
 ## 1. 子包结构
 
 ```
-AutoMoT/qwen3vl_local/eval_carla/
+qwen3vl_local/eval_carla/
 ├── __init__.py
 ├── EVAL_CARLA_PLAN.md      ← 本文（架构）
 ├── EVAL_CARLA_RUN.md       ← 操作手册
@@ -197,7 +197,8 @@ target point / LiDAR 点数，每次模型推理打一行 `INFER step=... dt=...
 
 ## 6. 场景反向映射 + 聚合
 
-`scenario_picker.py` 扫 `lead/data/benchmark_routes/bench2drive220/` 建反向
+`scenario_picker.py` 从 `AutoMoT/` 当前目录扫
+`../lead/data/benchmark_routes/bench2drive220/` 建反向
 `route_id → [scenario, ...]` 映射；CLI `--scenario` / `--route-id` / `--random N --seed K` /
 `--list-scenarios`。
 

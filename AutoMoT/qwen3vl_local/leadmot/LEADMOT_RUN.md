@@ -1,5 +1,8 @@
 # LeadMoT 训练运行说明
 
+本手册默认当前目录就是远端 `AutoMoT/`。下面命令都写相对 `AutoMoT/` 的路径，
+例如 `bash qwen3vl_local/leadmot/train.sh`，不再额外写切目录步骤。
+
 > **版本说明**：本子包目前**只有 v1**（一套完整的 frozen Qwen prefix K/V + LEAD BEV
 > + planning decoder 训练栈），与 GoalGen 不同，**没有 v2 数据分布裁剪**。命名风格
 > 与 GoalGen 对齐：`build_dataset.py` / `train.py` / `train.sh` / `eval.py` / `probe.py`，
@@ -24,7 +27,6 @@
 ## 1. 构建训练索引
 
 ```bash
-cd AutoMoT
 python qwen3vl_local/leadmot/build_dataset.py \
   --data-root /datashare/IOL4SGH/data/data \
   --output-dir checkpoints/leadmot_v1_data \
@@ -63,7 +65,12 @@ run 会写入 `run_status_not_accepted:*`，避免把不可达未来帧当成真
 ## 2. Sanity check
 
 ```bash
-cd AutoMoT
+TRAIN_JSONL=checkpoints/leadmot_v1_data/train.jsonl \
+VAL_JSONL=checkpoints/leadmot_v1_data/val.jsonl \
+bash qwen3vl_local/leadmot/train.sh check
+
+# 想固定到某张卡（默认 GPU 0）
+GPU_IDS=0 \
 TRAIN_JSONL=checkpoints/leadmot_v1_data/train.jsonl \
 VAL_JSONL=checkpoints/leadmot_v1_data/val.jsonl \
 bash qwen3vl_local/leadmot/train.sh check
@@ -74,11 +81,13 @@ bash qwen3vl_local/leadmot/train.sh check
 ## 3. 单卡训练
 
 ```bash
-cd AutoMoT
 bash qwen3vl_local/leadmot/train.sh single
+
+# 想固定到某张卡（默认 GPU 0）
+GPU_IDS=0 bash qwen3vl_local/leadmot/train.sh single
 ```
 
-脚本会自动用 `nvidia-smi` 选择显存占用最低的一张卡，并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`。
+脚本会自动用 `nvidia-smi` 选择显存占用最低的一张卡，并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`。前置 `GPU_IDS=<id>` 时跳过自动选址，直接用指定卡。
 
 常用覆盖：
 
@@ -92,14 +101,17 @@ bash qwen3vl_local/leadmot/train.sh single
 ## 4. 多卡 DDP
 
 ```bash
-cd AutoMoT
 DDP_GPU_COUNT=4 bash qwen3vl_local/leadmot/train.sh ddp
+
+# 想固定到指定 4 张卡（默认 GPU 0,1,2,3）
+GPU_IDS=0,1,2,3 bash qwen3vl_local/leadmot/train.sh ddp
 ```
 
 规则：
 
 - 设置 `DDP_GPU_COUNT=N` 时，脚本自动挑 N 张空闲 GPU，并覆盖 `CUDA_VISIBLE_DEVICES`。
 - 不设置 `DDP_GPU_COUNT` 时，默认尝试挑 8 张空闲 GPU。
+- 前置 `GPU_IDS=0,1,2,3` 时跳过 nvidia-smi 自动选址，直接用指定卡号；`DDP_GPU_COUNT` 此时被忽略，卡数从 `GPU_IDS` 逗号数推断。
 - `MASTER_PORT` 未设置时自动找空闲端口；已设置但端口被占用会直接报错。
 
 ### 4.z DataLoader 多 worker 预取（GPU 利用率优化）
@@ -243,7 +255,6 @@ EMA：默认 `EMA=1` `EMA_DECAY=0.999`，关掉用 `EMA=0`。eval/probe 默认 `
 ## 6. Eval
 
 ```bash
-cd AutoMoT
 python qwen3vl_local/leadmot/eval.py \
   --jsonl checkpoints/leadmot_v1_data/val.jsonl \
   --save-root checkpoints/leadmot_v1_decoder \
@@ -273,7 +284,6 @@ checkpoints/leadmot_v1_decoder/invocations/*.txt
 ## 7. Probe
 
 ```bash
-cd AutoMoT
 python qwen3vl_local/leadmot/probe.py \
   --jsonl checkpoints/leadmot_v1_data/val.jsonl \
   --save-root checkpoints/leadmot_v1_decoder \
