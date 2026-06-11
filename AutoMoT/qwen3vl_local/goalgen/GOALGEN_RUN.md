@@ -271,113 +271,59 @@ Probe 适合看单 case 的输入图、目标图、生成图、Euler trace 和�
 
 ### 7.1 Counterfactual SUBGOAL 干预实验
 
-这个实验回答一个问题：**GoalGen 生成的未来 subgoal 图像是否真的会跟随
-teacher-forced prompt 里的 SUBGOAL 改变？** 每个 case 固定同一段 history RGB、
-同一份 target RGB、同一组 `z_init` seed，只改 Qwen prefill prompt 里的任务语义。
+**问题**：把 Qwen teacher-forced prompt 里的 SUBGOAL 换成别的 token 后，
+GoalGen 解出的子目标图像会不会跟着语义变化？
 
-有两个 mode：
+**核心控制变量**：同一段 history RGB、同一份 target、同一组 `z_init` seed；
+只改 Qwen prefill 里的任务语义。
+
+两个 mode：
 
 | mode | 做法 | 适合回答 |
 |---|---|---|
-| `scenario_swap`（默认） | 同时替换 `scenario/scenario_label/event_sequence/status/subgoal/completed_events`，保证 prompt 内部自洽 | 反事实场景语义是否能驱动图像变化 |
-| `subgoal_only` | 保留原 scenario / STATUS，只替换 SUBGOAL；若 `(STATUS, SUBGOAL)` 不是任何场景里的合法相邻 pair 会跳过 | DiT 是否直接读 SUBGOAL token；注意 prompt 可能出现 sequence mismatch |
-| `both` | 同一 case 下同时保存两套目录 | 对照两种干预强度 |
+| `scenario_swap`（默认） | 同时换 `scenario/event_sequence/status/subgoal/completed_events`，prompt 内部自洽 | 反事实场景语义是否能驱动图像变化 |
+| `subgoal_only` | 保留原 scenario / STATUS，只换 SUBGOAL；`(STATUS, SUBGOAL)` 不构成任何场景的合法相邻 pair 时直接跳过；合法但不在原 EVENT_SEQUENCE 里时打 `prompt_consistency=sequence_mismatch` 警告 | DiT 是否直接读 SUBGOAL token |
+| `both` | 同 case 下同时保存两套 | 对照两种干预强度 |
 
-每个启用 counterfactual 的 case 都会自动加入 `noop_<truth_subgoal>` 控制实验：
-noop 使用和 truth 完全一样的 SUBGOAL，但仍完整跑一次 Qwen prefill + DiT。理论上
-noop 与 truth 的 pred-vs-pred 差异应接近 0；`counterfactual_metrics_summary.json`
-会把这个数写成 `noop_floor`，后续 CF 的 delta 会给出 `ratio_over_noop_floor_*`。
-经验上 ratio > 5 才值得说“SUBGOAL 可能显著影响输出”，最后仍以并排图为准。
+**Floor 概念（v2 修订）**：不再用 `noop` 控制分支（那玩意儿 bit-identical，floor 永远 0）。
+改用 truth 自身**跨 `z_init` seed 的两两 pairwise 差异**作为采样噪声 floor：
+等价于「换 seed 跑同 prompt 会变多少」。所以 `--counterfactual-seed-replicates 2`
+（或更大）才有 floor / ratio；默认 1 时只画图、ratio 字段为 null。
 
-**Demo A：默认推荐，左转 case 做 prompt 自洽的 scenario_swap。**
+**Verdict 阈值（基于 ratio = ΔCF / floor）**：
 
-```bash
-GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
-  --save-root checkpoints/goalgen_v1_dit \
-  --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
-  --scenarios NonSignalizedJunctionLeftTurn,SignalizedJunctionLeftTurn \
-  --num-per-scenario 1 --seed 7 \
-  --case-suffix "_demo_leftturn_swap" \
-  --counterfactual-mode scenario_swap \
-  --counterfactual-subgoals assert_priority,turn_on_green,brake_at_light,proceed_resume
-```
+| ratio | verdict | 含义 |
+|---|---|---|
+| `< 2`  | `near_floor`         | 基本是采样噪声 |
+| `[2,5)` | `weak_response`     | 模型有反应但弱 |
+| `[5,15)` | `responsive`       | 明显跟 SUBGOAL 走 |
+| `≥ 15` | `highly_responsive` | 强 SUBGOAL 条件化 |
+| n/a    | `insufficient_seeds` | seed_replicates < 2 |
 
-这里会把左转 clip “假装成”能合法到达 `assert_priority` / `turn_on_green`
-等 SUBGOAL 的场景状态机，prompt 不自相矛盾。
-
-**Demo B：最小干预 subgoal_only，用来测 SUBGOAL token 本身。**
-
-```bash
-GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
-  --save-root checkpoints/goalgen_v1_dit \
-  --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
-  --scenarios NonSignalizedJunctionLeftTurn,SignalizedJunctionLeftTurn \
-  --num-per-scenario 1 --seed 7 \
-  --case-suffix "_demo_leftturn_subgoal_only" \
-  --counterfactual-mode subgoal_only \
-  --counterfactual-subgoals assert_priority,turn_on_green,brake_at_light,proceed_resume
-```
-
-`subgoal_only` 会跳过所有与当前 STATUS 不构成合法 pair 的 CF，并把跳过原因写入
-`counterfactual_summary.json/skipped_variants`。若 SUBGOAL 不在原始
-`EVENT_SEQUENCE` 里，但 `(STATUS, SUBGOAL)` 在别的场景中合法，会保留并标记
-`prompt_consistency=sequence_mismatch`。
-
-**Demo C：同一 case 同时保存两种 mode。**
-
-```bash
-GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
-  --save-root checkpoints/goalgen_v1_dit \
-  --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
-  --scenarios NonSignalizedJunctionLeftTurn \
-  --num-per-scenario 1 --seed 7 \
-  --case-suffix "_demo_both_modes" \
-  --counterfactual-mode both \
-  --counterfactual-subgoals assert_priority,turn_on_green,brake_at_light
-```
-
-输出中会同时有：
+**每个 case 默认只产生 3 个 CF 产物**（精简模式）：
 
 ```text
-counterfactual/scenario_swap/...
-counterfactual/subgoal_only/...
-counterfactual_compare_scenario_swap.png
-counterfactual_compare_subgoal_only.png
+<case_dir>/
+  cf_overview_<mode>.png   一张拼图：行=variant，列=CFG sweep；标注 Δpix 和 ratio
+  cf_summary.json          含 noise_floor / per_cf delta / ratio / verdict
+  cf_report.md             人类可读 markdown，可直接拷给别人看
 ```
 
-**Demo D：标准跨场景实验，使用内置 per-scenario 配置。**
+case_root 还会写 `_cf_index<suffix>.jsonl`，每个 case 一行 max_ratio / max_verdict，
+方便后续 `jq` 筛 "responsive" 的 case。
 
-```bash
-GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
-  --save-root checkpoints/goalgen_v1_dit \
-  --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
-  --scenarios NonSignalizedJunctionLeftTurn,SignalizedJunctionLeftTurn,NonSignalizedJunctionRightTurn,SignalizedJunctionRightTurn,PriorityAtJunction,EnterActorFlow,HazardAtSideLane,PedestrianCrossing,Accident \
-  --num-per-scenario 2 --seed 7 \
-  --case-suffix "_cf_default" \
-  --counterfactual-mode scenario_swap \
-  --counterfactual-config default
+加 `--cf-verbose-artifacts` 时才落子目录细产物：
+
+```text
+counterfactual/<mode>/<tag>/chat_text.txt
+counterfactual/<mode>/<tag>/memory.json
+counterfactual/<mode>/<tag>/cfg_<x>/seed_<NN>/pred.png
+counterfactual/<mode>/<tag>/cfg_<x>/seed_<NN>/metrics.json
 ```
 
-内置配置等价于：
+---
 
-```json
-{
-  "NonSignalizedJunctionLeftTurn": {"swap_in_subgoals": ["assert_priority", "turn_on_green", "brake_at_light"]},
-  "NonSignalizedJunctionRightTurn": {"swap_in_subgoals": ["yield_and_turn", "brake_at_light", "assert_priority"]},
-  "SignalizedJunctionLeftTurn": {"swap_in_subgoals": ["assert_priority", "turn_on_green", "brake_at_light"]},
-  "SignalizedJunctionRightTurn": {"swap_in_subgoals": ["yield_and_turn", "brake_at_light", "assert_priority"]},
-  "PriorityAtJunction": {"swap_in_subgoals": ["brake_at_light", "yield_and_turn", "wait_or_turn_on_green"]},
-  "EnterActorFlow": {"swap_in_subgoals": ["yield_and_turn", "max_brake_or_min_gap", "passing_hazard"]},
-  "HazardAtSideLane": {"swap_in_subgoals": ["gap_accept_merge", "yield_and_turn", "max_brake_or_min_gap"]},
-  "PedestrianCrossing": {"swap_in_subgoals": ["assert_priority", "proceed_resume", "turn_on_green"]},
-  "Accident": {"swap_in_subgoals": ["assert_priority", "proceed_resume", "gap_accept_merge"]}
-}
-```
-
-也可以把同结构 JSON 存成文件，然后传 `--counterfactual-config path/to/cf.json`。
-若当前 scenario 命中 config，优先用 config；否则回退到 `--counterfactual-subgoals`。
-
-**Demo E：CFG sweep 和 z_init seed replicates。**
+**Demo A：默认推荐，scenario_swap + 内置 config + 3 seed floor。**
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
@@ -385,44 +331,161 @@ GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --val-jsonl checkpoints/goalgen_v1_data/val.jsonl \
   --scenarios NonSignalizedJunctionLeftTurn,PriorityAtJunction,HazardAtSideLane \
   --num-per-scenario 1 --seed 7 \
-  --case-suffix "_cf_sweep_rep3" \
+  --case-suffix "_cf_default" \
   --counterfactual-mode scenario_swap \
   --counterfactual-config default \
-  --cfg-scale-sweep 0.0,1.0,2.0,4.0 \
   --counterfactual-seed-replicates 3
 ```
 
-如果 CFG=0 时 CF 基本无效，而 CFG=2/4 时 pred-vs-truth-pred delta 明显变大，
-说明 DiT 的 conditional branch 确实在使用 SUBGOAL 相关 KV。seed replicates 用来确认
-这种变化不是单个 `z_init` 的偶然采样。
+跑完看 `cf_report.md` 一页结论 + `cf_overview_scenario_swap.png` 一张图就够。
+ratio ≥ 5 时认为模型对 SUBGOAL 有显著响应。
 
-每个 case 的关键输出：
+**Demo B：最小干预 `subgoal_only`，只换 SUBGOAL token。**
 
-```text
-<save-root>/eval_cases/<case>/
-  counterfactual_compare_<mode>.png
-  counterfactual_summary.json
-  counterfactual_metrics_summary.json
-  counterfactual/<mode>/<truth|noop|cf_XX_event>/chat_text.txt
-  counterfactual/<mode>/<truth|noop|cf_XX_event>/memory.json
-  counterfactual/<mode>/<truth|noop|cf_XX_event>/cfg_<scale>/seed_<NN>/pred.png
-  counterfactual/<mode>/<truth|noop|cf_XX_event>/cfg_<scale>/seed_<NN>/metrics_vs_original_target.json
-  meta.json
-  overview.md
+```bash
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
+  --save-root checkpoints/goalgen_v1_dit \
+  --scenarios NonSignalizedJunctionLeftTurn,SignalizedJunctionLeftTurn \
+  --num-per-scenario 1 --seed 7 \
+  --case-suffix "_cf_subgoal_only" \
+  --counterfactual-mode subgoal_only \
+  --counterfactual-config default \
+  --counterfactual-seed-replicates 3
 ```
 
-读图优先看 `counterfactual_compare_<mode>.png`：第一列是真值目标帧，第二列是
-truth SUBGOAL 生成图，第三列是 noop，后面是人工 CF。数值优先看
-`counterfactual_metrics_summary.json`：
+非法 `(STATUS, SUBGOAL)` pair 会在 stdout 打 `[probe][cf][skip]` 并记进
+`cf_summary.json.modes.subgoal_only.skipped`。
 
-- `noop_floor.latent_mse/pixel_l1`：数值/采样地板。
-- `per_cf[].delta_*_vs_truth_pred`：CF pred 相对 truth pred 的变化。
-- `ratio_over_noop_floor_latent/pixel`：变化量相对 noop floor 的倍数。
-- `per_cf[].per_cfg`：CFG sweep 曲线；每个 CFG 单独统计 delta 和 noop floor ratio。
+**Demo C：同 case 下同时跑 scenario_swap 和 subgoal_only。**
 
-注意：CF 分支的 `metrics_vs_original_target.json` 仍然是相对原始 truth target 计算；
-故意换目标时它变差不代表模型错。真正判断“听不听 SUBGOAL”看 pred-vs-pred delta、
-ratio 和并排图像的语义方向。`chat_text.txt` 用来核对 Qwen 实际收到的 prompt。
+```bash
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
+  --save-root checkpoints/goalgen_v1_dit \
+  --scenarios NonSignalizedJunctionLeftTurn \
+  --num-per-scenario 1 --seed 7 \
+  --case-suffix "_cf_both" \
+  --counterfactual-mode both \
+  --counterfactual-config default \
+  --counterfactual-seed-replicates 3
+```
+
+每个 case 会同时产出两张 png：
+
+```text
+cf_overview_scenario_swap.png
+cf_overview_subgoal_only.png
+```
+
+`cf_report.md` 会包含两个 mode 的对照表；`cf_summary.json.modes` 也会有两条 key。
+
+**Demo D：CFG sweep — 用来证明 DiT 真的在用 SUBGOAL KV。**
+
+```bash
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
+  --save-root checkpoints/goalgen_v1_dit \
+  --scenarios NonSignalizedJunctionLeftTurn,PriorityAtJunction,HazardAtSideLane \
+  --num-per-scenario 1 --seed 7 \
+  --case-suffix "_cf_cfg_sweep" \
+  --counterfactual-mode scenario_swap \
+  --counterfactual-config default \
+  --counterfactual-seed-replicates 3 \
+  --cfg-scale-sweep 0.0,1.0,2.0,4.0
+```
+
+`cf_overview_scenario_swap.png` 的列数会变成 4，对应 CFG=0/1/2/4。
+预期：CFG=0 时 CF 与 truth 几乎一样（near_floor），CFG≥2 时 ratio 显著上升。
+
+**Demo E：用 CLI fallback 而非 config（quick demo）。**
+
+```bash
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
+  --save-root checkpoints/goalgen_v1_dit \
+  --scenarios NonSignalizedJunctionLeftTurn \
+  --num-per-scenario 1 --seed 7 \
+  --case-suffix "_cf_cli" \
+  --counterfactual-mode scenario_swap \
+  --counterfactual-subgoals assert_priority,turn_on_green,brake_at_light \
+  --counterfactual-seed-replicates 3
+```
+
+不传 `--counterfactual-config` 时全场景都用 `--counterfactual-subgoals` 这一组 CF。
+适合临时跑一个 case 看看，但不适合做跨场景大批量实验。
+
+**Demo F：保留细产物用于深度排查（性能差但材料全）。**
+
+```bash
+GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
+  --save-root checkpoints/goalgen_v1_dit \
+  --scenarios NonSignalizedJunctionLeftTurn \
+  --num-per-scenario 1 --seed 7 \
+  --case-suffix "_cf_verbose" \
+  --counterfactual-mode scenario_swap \
+  --counterfactual-config default \
+  --counterfactual-seed-replicates 3 \
+  --cfg-scale-sweep 0.0,2.0 \
+  --cf-verbose-artifacts
+```
+
+加 `--cf-verbose-artifacts` 后会额外落每个 (mode, variant, cfg, seed) 的 `pred.png`、
+`metrics.json`、以及 per-variant 的 `chat_text.txt` / `memory.json`。
+平时不用——`cf_overview_<mode>.png` + `cf_report.md` 已经够看；
+只有需要逐张图核对 prompt / 排查异常 case 时才开。
+
+---
+
+**内置 per-scenario config 概览**（`--counterfactual-config default`）：
+
+```text
+左转  NonSignalizedJunctionLeftTurn / SignalizedJunctionLeftTurn / *EnterFlow
+右转  NonSignalizedJunctionRightTurn / SignalizedJunctionRightTurn
+路口  PriorityAtJunction / CrossJunctionDefectTrafficLight / T_Junction
+汇入  EnterActorFlow / EnterActorFlowV2 / InterurbanActorFlow / InterurbanAdvancedActorFlow
+      MergerIntoSlowTraffic / MergerIntoSlowTrafficV2
+避障  HazardAtSideLane(TwoWays) / ConstructionObstacle(TwoWays) / ParkedObstacle(TwoWays)
+      BlockedIntersection / InvadingTurn / VehicleOpensDoorTwoWays
+行人  PedestrianCrossing / DynamicObjectCrossing / ParkingCrossingPedestrian
+      CrossingBicycleFlow / VehicleTurningRoute / VehicleTurningRoutePedestrian
+事故  Accident(TwoWays) / OppositeVehicleRunningRedLight / OppositeVehicleTakingPriority
+高速  HardBreakRoute / HighwayCutIn / HighwayExit / StaticCutIn / ParkingCutIn
+红灯  RedLightWithoutLeadVehicle
+其它  ControlLoss / ParkingExit
+```
+
+每个 scenario 自动配 3 个跨语义簇的 CF subgoal（让行/通行/避让混搭）。
+完整内容见 `qwen3vl_local/goalgen/probe.py` 顶部 `DEFAULT_COUNTERFACTUAL_CONFIG`。
+
+未列入的 scenario 命中失败时 stdout 会打 `[probe][cf][warn] scenario=... 不在
+counterfactual config 中`；要么把它加进 config，要么显式传 `--counterfactual-subgoals`。
+
+---
+
+**怎么读结果（一分钟看完）**：
+
+1. 打开 `cf_overview_<mode>.png`：
+   - 第一行是 truth；下面每行是一个 CF variant；
+   - 列数 = CFG sweep 个数（不开 sweep 时只有 1 列）；
+   - 每个 cell 上方两三行小字：`Δpix=0.087  r=7.3x  responsive`。
+
+2. 打开 `cf_report.md`，看每个 mode 的表格：
+
+   ```text
+   | tag           | subgoal         | scenario(CF)        | Δpixel_l1 | Δlatent_mse | ratio_pix | verdict |
+   | cf_01_assert_priority | assert_priority | PriorityAtJunction | 0.087 | 0.0034 | 7.3x | responsive |
+   ```
+
+3. 想筛 case：
+
+   ```bash
+   jq 'select(.max_verdict=="responsive" or .max_verdict=="highly_responsive")' \
+     checkpoints/goalgen_v1_dit/eval_cases/_cf_index*.jsonl
+   ```
+
+4. ratio 字段 = null 时：加大 `--counterfactual-seed-replicates`（≥2）才能算 floor。
+   `cf_report.md` 顶部 Setup 段会显示当前 baseline cfg / cfg sweep / seed_replicates，
+   读 report 时不用回过头查命令行。
+
+5. CF 列对原始 target 的传统 `metrics_vs_gt` 变差是预期的——目标已经被你换了。
+   听不听 SUBGOAL 看 ratio + 并排图像的语义方向，**不看原始 target 距离**。
 
 ## 8. 默认形状
 
