@@ -14,7 +14,7 @@
 
 ## 目标
 
-训练 `AutoMoT/qwen3vl_local/leadmot/` 里的 planning decoder。训练时只更新 decoder 参数；Qwen3-VL-Instruct 与 `LeadBEVEncoder` 都保持 frozen eval。
+训练 `qwen3vl_local/leadmot/` 里的 planning decoder。训练时只更新 decoder 参数；Qwen3-VL-Instruct 与 `LeadBEVEncoder` 都保持 frozen eval。
 
 输入与快慢推理 demo 完全对齐：
 

@@ -2,13 +2,16 @@
 
 LeadMoT 闭环评测一键操作手册。架构与对齐细节见 [`EVAL_CARLA_PLAN.md`](EVAL_CARLA_PLAN.md)。
 
+本手册默认当前目录就是远端 `AutoMoT/`。下面命令都写相对 `AutoMoT/` 的路径，
+例如 `bash qwen3vl_local/eval_carla/run_eval.sh`，不再额外写切目录步骤。
+
 ---
 
 ## 0. 前置
 
 - 远程已装 CARLA（`$CARLA_ROOT` 或 `~/carla` 自动探测）
-- LeadMoT decoder checkpoint 就位（`AutoMoT/qwen3vl_local/leadmot/train.py` 产物）
-- LEAD benchmark_routes 就位：`lead/data/benchmark_routes/bench2drive220/<Scenario>/<route_id>.xml`
+- LeadMoT decoder checkpoint 就位（`qwen3vl_local/leadmot/train.py` 产物）
+- LEAD benchmark_routes 就位：`../lead/data/benchmark_routes/bench2drive220/<Scenario>/<route_id>.xml`
 - 安装 Flask（webapp 用）：`pip install flask`
 
 **CARLA 自带启动**（无需手动 `start_carla.sh`）：
@@ -49,7 +52,6 @@ LeadMoT 闭环评测一键操作手册。架构与对齐细节见 [`EVAL_CARLA_P
 ### 1.1 全量 220 路线（默认）
 
 ```bash
-cd AutoMoT
 bash qwen3vl_local/eval_carla/run_eval.sh \
     --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt
 ```
@@ -172,7 +174,7 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 ## 4. 输出目录
 
 ```
-${EVAL_OUTPUT_BASE:-AutoMoT/outputs/closed_loop_eval}/
+${EVAL_OUTPUT_BASE:-outputs/closed_loop_eval}/
   <ckpt_parent>__<ckpt_stem>__bev{0|1}__ema{0|1}/
     config.json                              ← ckpt / use_bev / 传感器 / 录像 / env 设定
     eval_per_route/eval_<route_id>.json      ← leaderboard 原始结果（跨跑法共享）
@@ -221,7 +223,6 @@ leaderboard 原始 JSON，不碰 CARLA、不重跑 route**，所以跑完 eval �
 ### 5.1 先确认原始结果在不在
 
 ```bash
-cd AutoMoT
 # 找到 ckpt 对应的 signature 目录
 ls outputs/closed_loop_eval/
 # 应该有形如 leadmot_v1_decoder__best__bev0__ema1/ 的子目录
@@ -237,17 +238,15 @@ ls outputs/closed_loop_eval/<signature>/eval_per_route/
 ### 5.2 三种补救调用
 
 ```bash
-cd AutoMoT
-
 # (a) 补某一批：只聚合 runs/<RUN_LABEL>/run_manifest.json 列出的 route
-python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
+python3 -m qwen3vl_local.eval_carla.aggregate \
     --eval-base outputs/closed_loop_eval \
     --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt \
     --benchmark-root ../lead/data/benchmark_routes/bench2drive220 \
     --run-label full
 
 # (b) 补该 signature 下所有批：枚举 runs/* 各聚合一次 + 跨批次总聚合
-python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
+python3 -m qwen3vl_local.eval_carla.aggregate \
     --eval-base outputs/closed_loop_eval \
     --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt \
     --benchmark-root ../lead/data/benchmark_routes/bench2drive220
@@ -255,14 +254,15 @@ python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
 # eval_per_route/*.json，coverage 恒为 1.0，markdown 头部会写明这一点
 
 # (c) 没指定 ckpt：聚合 EVAL_OUTPUT_BASE 下所有 signature 目录
-python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
+python3 -m qwen3vl_local.eval_carla.aggregate \
     --eval-base outputs/closed_loop_eval \
     --benchmark-root ../lead/data/benchmark_routes/bench2drive220
 ```
 
 ⚠ `--benchmark-root` 不传也能跑，但每条 route 的 `scenarios` 字段会塌成
 `__unknown__`，`scenario_table.csv` 只会剩一行，论文表格基本没法用。**补救
-聚合时强烈建议传**，路径就是 `lead/data/benchmark_routes/bench2drive220`。
+聚合时强烈建议传**，从 `AutoMoT/` 当前目录看路径就是
+`../lead/data/benchmark_routes/bench2drive220`。
 
 ⚠ `--leadmot-ckpt` 支持文件或目录，目录会按 `best.pt` / `latest/best.pt` 等
 顺序自动解析，和 `run_eval.sh` 完全一致。

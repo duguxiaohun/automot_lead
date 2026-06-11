@@ -1,7 +1,9 @@
 # GoalGen Runbook
 
-所有命令默认在远端 `AutoMoT/` 目录执行。GoalGen v1/v2 共用
-`qwen3vl_local/goalgen/` 下同一套代码；版本只由 `--mode` 或 `VERSION` env 决定。
+本手册默认当前目录就是远端 `AutoMoT/`。下面命令都写相对 `AutoMoT/` 的路径，
+例如 `bash qwen3vl_local/goalgen/train.sh`，不再额外写切目录步骤。
+GoalGen v1/v2 共用 `qwen3vl_local/goalgen/` 下同一套代码；版本只由 `--mode`
+或 `VERSION` env 决定。
 
 ## 0. 版本速查
 
@@ -19,9 +21,7 @@ eval/probe 没有版本概念，只看 `--save-root` / `--dit-checkpoint`。
 ## 1. 准备
 
 ```bash
-cd ~/automot_lead
 git pull
-cd AutoMoT
 ls checkpoints/Qwen3-VL-4B-Instruct/ | head -5
 ls vae_standalone/weights/vae_only.safetensors
 ls vae_standalone/config/vae_only.yaml
@@ -72,6 +72,11 @@ bash qwen3vl_local/goalgen/train.sh ddp
 # 指定需要几张卡，卡号仍自动挑
 DDP_GPU_COUNT=4 bash qwen3vl_local/goalgen/train.sh ddp
 
+# 想固定到指定卡（单卡默认 GPU 0，多卡默认 GPU 0,1,2,3）
+GPU_IDS=0 bash qwen3vl_local/goalgen/train.sh check
+GPU_IDS=0 bash qwen3vl_local/goalgen/train.sh single
+GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
+
 # v2：默认从 v1 latest/best.pt warm start
 VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
 ```
@@ -88,12 +93,14 @@ VERSION=v2 bash qwen3vl_local/goalgen/train.sh ddp
 | `PATCH_UNPATCH_WEIGHTS` | 空 → 默认 best | 留空时自动取 `checkpoints/patch_unpatch_v1/{latest,run_*}/weights/patch_unpatch_best.safetensors`（详见 §3.0），加载并默认冻结；找不到直接报错；显式传路径则覆盖默认 |
 | `PATCH_UNPATCH_UNFREEZE` | `0` | 设 `1` 时外部 patch/unpatch 只作初始化、继续联合训练 |
 | `PATCH_UNPATCH_CKPT_FALLBACK` | `0` | warm start 继承外部 patch/unpatch 但 safetensors 缺失时，显式允许使用 ckpt 内自带权重 |
-| `DDP_GPU_COUNT` | `8` | DDP 需要的 GPU 数 |
+| `DDP_GPU_COUNT` | `8` | DDP 需要的 GPU 数；`GPU_IDS` 非空时忽略 |
+| `GPU_IDS` | 空 | 显式 pin 卡号；空 = nvidia-smi 自动选址；`GPU_IDS=0` / `GPU_IDS=0,1,2,3` |
 | `COMPILE_DIT` | `1` | 只 compile DiT |
 | `GRAD_CKPT` | `1` | per-block gradient checkpointing |
 
-GPU 规则：launcher 用 `nvidia-smi` 自动挑空闲卡并覆盖旧
-`CUDA_VISIBLE_DEVICES`。不要手写卡号；用 `DDP_GPU_COUNT=N` 控制卡数。
+GPU 规则：launcher 默认用 `nvidia-smi` 自动挑空闲卡并覆盖旧 `CUDA_VISIBLE_DEVICES`，
+卡数用 `DDP_GPU_COUNT=N` 控制。想固定卡号时前置 `GPU_IDS=0,1,2,3`，跳过自动选址，
+卡数从 `GPU_IDS` 逗号数推断（`DDP_GPU_COUNT` 此时不起作用）。
 
 训练产物：
 

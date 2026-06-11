@@ -179,6 +179,18 @@ count_visible_gpus() {
     fi
 }
 
+# 用户显式 pin GPU：前置 GPU_IDS="0" / GPU_IDS="0,1,2,3" 时跳过 nvidia-smi 自动选址，
+# 直接用给定卡号当 CUDA_VISIBLE_DEVICES。多卡情况下卡数从 GPU_IDS 逗号数推断，
+# DDP_GPU_COUNT 在 GPU_IDS 非空时不再起作用（避免要求 N 卡却只给了 M 个 ID 这种矛盾）。
+resolve_visible_gpus() {
+    local want_count="$1"
+    if [[ -n "${GPU_IDS:-}" ]]; then
+        echo "${GPU_IDS}"
+    else
+        pick_idle_gpus "${want_count}"
+    fi
+}
+
 is_port_free() {
     local port="$1"
     python -c 'import socket, sys
@@ -229,7 +241,7 @@ case "${MODE}" in
         echo "[mode] single-GPU"
         # 单卡模式用于 smoke test 或显存足够时的小规模训练。
         # 等效 batch = PER_DEVICE_BS * GRAD_ACC = 8。
-        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
+        export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
         export NPROC_PER_NODE=1
         PER_DEVICE_BS=4
         GRAD_ACC=2
@@ -271,7 +283,7 @@ case "${MODE}" in
         # ---- 不进 DDP 的原因 ----
         # 8 卡 DDP 启动 NCCL handshake 通常要 10-30 秒，会把"短训观察 loss"的
         # 信号淹没在启动日志里。check 模式默认走单卡 / 单进程，让 stdout 干净。
-        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus 1)"
+        export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
         export NPROC_PER_NODE=1
         PER_DEVICE_BS=1
         GRAD_ACC=1
@@ -295,7 +307,10 @@ case "${MODE}" in
         SAVE_STRATEGY="steps"
         EVAL_STRATEGY="steps"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
-        export CUDA_VISIBLE_DEVICES="$(pick_idle_gpus "${DDP_GPU_COUNT}")"
+        if [[ -n "${GPU_IDS:-}" ]]; then
+            echo "[gpu] GPU_IDS=${GPU_IDS} takes precedence; DDP_GPU_COUNT=${DDP_GPU_COUNT} ignored"
+        fi
+        export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus "${DDP_GPU_COUNT}")"
         ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
         export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
         if [[ "${ACTUAL_GPU_COUNT}" -lt "${DDP_GPU_COUNT}" ]]; then

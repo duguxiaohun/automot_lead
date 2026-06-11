@@ -13,7 +13,7 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 - `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py`
 - `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
 - `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`
-- `AutoMoT/qwen3vl_local/`
+- `qwen3vl_local/`（从 `AutoMoT/` 当前目录看）
 
 ## 1. 目录角色
 
@@ -21,11 +21,19 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 |---|---|
 | `lead/` | 数据采集、训练、闭环评测参考仓库。只读 |
 | `AutoMoT/` | 在线驾驶仓库；当前本地改造主要放这里 |
-| `AutoMoT/qwen3vl_local/` | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT；`tb_serve.sh` 是通用 TensorBoard 启动器 |
-| `AutoMoT/qwen3vl_local/sft/` | SFT v1/v2 数据、训练、eval、probe |
+| `qwen3vl_local/`（`AutoMoT/` 主目录内） | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT；`tb_serve.sh` 是通用 TensorBoard 启动器 |
+| `qwen3vl_local/sft/` | SFT v1/v2 数据、训练、eval、probe |
 | `AutoMoT/vae_standalone/train_patch_unpatch.py` | patch/unpatch 端到端重建训练 |
 | `0026.json` | LEAD meta 固定参考样本，只读，绝对不要入库 |
 | `keyframes_all_scenarios.json` | 远端数据参考，只读 |
+
+## 1.1 运行命令目录约定
+
+运行手册默认当前目录就是远端 `AutoMoT/`。命令示例统一写相对 `AutoMoT/`
+的路径，例如 `bash qwen3vl_local/...`、`python qwen3vl_local/...`、
+`leaderboard/...`、`checkpoints/...`；不要额外写切目录步骤，也不要给
+`qwen3vl_local/...` 命令加 `AutoMoT/` 前缀。只有仓库根视角的文件白名单、git add 路径、
+或明确说明 repo root 路径时，才保留 `AutoMoT/` 前缀。
 
 ## 2. 时间与输入约定
 
@@ -127,7 +135,7 @@ DataLoader worker：
 
 ### 6.1 LeadMoT CARLA 闭环评测（eval_carla）
 
-入口：`AutoMoT/qwen3vl_local/eval_carla/`，操作文档：
+入口从 `AutoMoT/` 当前目录看是 `qwen3vl_local/eval_carla/`，操作文档：
 `EVAL_CARLA_PLAN.md` / `EVAL_CARLA_RUN.md`。
 
 - `agent.py` 是 leaderboard 实时 agent，RGB 固定 LEAD 3cam：
@@ -159,7 +167,7 @@ DataLoader worker：
     `_command_planner.route` 当前剩余 command route 的真实末端，world frame 转 ego frame；
     不能再用 `meta["route"][-1]`，后者只是局部 dense route 监督片段；
   - 在线 eval_carla 用 `scenario_picker.load_route_endpoint(route_id)` 读取
-    `lead/data/benchmark_routes/bench2drive220/<Scenario>/<route_id>.xml`
+    `../lead/data/benchmark_routes/bench2drive220/<Scenario>/<route_id>.xml`
     最后一个 waypoint，再按当前 ego pose 转 ego frame；找不到 XML 时才临时 fallback 到
     RoutePlanner 剩余 route 末端；
   - `LeadMoTPlanningDecoderConfig.use_final_goal=True` 默认；与 tp/ntp 共享
@@ -343,7 +351,7 @@ eval、probe、teacher / 推理入口。
 - Python VAE 入口由 rank0 生成 run tag 后 broadcast 给其它 rank。
 - `NO_RUN_SUBDIR=1` 回到旧式覆盖行为，只作排查。vae 入口也接受 `NO_RUN_SUBDIR`，旧名 `PATCH_UNPATCH_NO_RUN_SUBDIR` 作为兼容别名保留。
 - `HF_HOME` 挂在 base 层：`<OUTPUT_DIR_BASE>/.hf_cache`。
-- `AutoMoT/qwen3vl_local` 下训练 / eval / probe / eval_carla launcher 默认会在本次产物同目录追加
+- `qwen3vl_local` 下训练 / eval / probe / eval_carla launcher 默认会在本次产物同目录追加
   `log.txt` 保存终端 stdout/stderr；外层 shell 已 tee 时用 `QWEN3VL_LOG_ACTIVE=1`
   防止重复记录，可用 `QWEN3VL_LOG_TO_FILE=0` 临时关闭。
 - SFT v2 runtime teacher cache 挂在 base 层，靠 manifest 复用。
@@ -360,9 +368,9 @@ eval、probe、teacher / 推理入口。
 
 | 任务 | 文档 |
 |---|---|
-| SFT v1/v2 跑法 | `AutoMoT/qwen3vl_local/sft/SFT_RUN.md` |
-| GoalGen 跑法 | `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md` |
-| LeadMoT 跑法 | `AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md` |
-| LeadMoT 架构 | `AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md` |
-| LeadMoT CARLA 闭环评测 | `AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md` |
+| SFT v1/v2 跑法 | `qwen3vl_local/sft/SFT_RUN.md` |
+| GoalGen 跑法 | `qwen3vl_local/goalgen/GOALGEN_RUN.md` |
+| LeadMoT 跑法 | `qwen3vl_local/leadmot/LEADMOT_RUN.md` |
+| LeadMoT 架构 | `qwen3vl_local/leadmot/ARCHITECTURE.md` |
+| LeadMoT CARLA 闭环评测 | `qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md` |
 | 规则入口 | `AGENTS.md` / `CLAUDE.md` |

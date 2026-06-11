@@ -273,9 +273,9 @@ push 前也问用户，不要替用户决定是否 push 到 main。
 GPU 运行入口统一规则：
 
 - SFT v1/v2、GoalGen、LeadMoT、VAE patch/unpatch 以及白名单 runner 的训练、eval、probe、teacher / 推理入口默认都要自动寻找空闲 GPU。
-- 文档示例不要写 shell 手动设置 `CUDA_VISIBLE_DEVICES` 的选卡片段。
-- 白名单内所有 GPU 运行入口都按用户要求彻底放弃手动 `CUDA_VISIBLE_DEVICES` 选择：单进程入口默认用 `nvidia-smi` 自动挑 1 张最空闲 GPU，并覆盖已有 mask；`torchrun --nproc_per_node=N` 入口默认自动挑 N 张最空闲 GPU，并覆盖已有 mask，再按 `LOCAL_RANK` pin 到对应可见卡。
-- 训练 launcher 的 `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡；具体卡号仍由脚本自动挑最空闲的 N 张，不提供“尊重外部 mask”的分支。
+- 文档示例不要写裸的 `export CUDA_VISIBLE_DEVICES=...` 选卡片段。**唯一允许的 pin 写法**：前置 `GPU_IDS=0` / `GPU_IDS=0,1,2,3`（白名单训练脚本里的 `resolve_visible_gpus` 在 `GPU_IDS` 非空时跳过 nvidia-smi 选址，直接当 `CUDA_VISIBLE_DEVICES` 用）。
+- 白名单内所有 GPU 运行入口默认自动选址：单进程入口默认用 `nvidia-smi` 自动挑 1 张最空闲 GPU，并覆盖已有 mask；`torchrun --nproc_per_node=N` 入口默认自动挑 N 张最空闲 GPU，并覆盖已有 mask，再按 `LOCAL_RANK` pin 到对应可见卡。`GPU_IDS` 显式 pin 时覆盖以上自动选址，卡数从 `GPU_IDS` 逗号数推断。
+- 训练 launcher 的 `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示需要 N 张卡；具体卡号默认由脚本自动挑最空闲的 N 张；`GPU_IDS` 非空时这俩被忽略，卡数从 `GPU_IDS` 推断。
 - `eval_carla/run_eval.sh` 的 `--num-gpus N` / `EVAL_GPU_COUNT=N` 只表示闭环评测 worker 数；具体 GPU id 仍由 `nvidia-smi` 自动挑空闲卡，并为每张卡分配独立 CARLA 端口槽。
 
 训练 launcher 防覆盖目录约定（详见 PROJECT_CONTEXT.md §11）：
@@ -285,6 +285,15 @@ GPU 运行入口统一规则：
 - `NO_RUN_SUBDIR=1` 回退到顶层覆盖式行为（vae 入口也接受同名 env，并兼容旧名 `PATCH_UNPATCH_NO_RUN_SUBDIR`），仅排查兼容性时用。
 - 共享缓存必须挂 base 层：`HF_HOME=${OUTPUT_DIR_BASE}/.hf_cache`、SFT v2 `runtime_teacher_data/`（由 manifest 严格校验复用）；不能跟着 run 子目录，否则会每次重物化。
 - 新增训练入口必须遵循同一范本。
+
+运行文档路径口径：
+
+- 运行手册默认当前目录就是远端 `AutoMoT/`。
+- 命令示例统一写相对 `AutoMoT/` 的路径，例如 `bash qwen3vl_local/...`、
+  `python qwen3vl_local/...`、`leaderboard/...`、`checkpoints/...`。
+- 不要在文档里额外写切目录步骤，也不要给 `qwen3vl_local/...` 命令加 `AutoMoT/` 前缀。
+- 只有仓库根视角的文件白名单、git add 路径、或明确说明 repo root 路径时，才保留
+  `AutoMoT/` 前缀。
 
 ---
 

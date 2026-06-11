@@ -213,6 +213,18 @@ require_idle_gpus() {
     echo "${picked}"
 }
 
+# 用户显式 pin GPU：前置 GPU_IDS="0" / GPU_IDS="0,1,2,3" 时跳过 nvidia-smi 自动选址，
+# 直接用给定卡号当 CUDA_VISIBLE_DEVICES。多卡情况下卡数从 GPU_IDS 逗号数推断，
+# DDP_GPU_COUNT 在 GPU_IDS 非空时不再起作用（避免要求 N 卡却只给了 M 个 ID 这种矛盾）。
+resolve_visible_gpus() {
+    local want_count="$1"
+    if [[ -n "${GPU_IDS:-}" ]]; then
+        echo "${GPU_IDS}"
+    else
+        require_idle_gpus "${want_count}"
+    fi
+}
+
 count_visible_gpus() {
     local visible="$1"
     if [[ -z "${visible}" ]]; then echo "0"; else awk -F',' '{print NF}' <<< "${visible}"; fi
@@ -330,7 +342,7 @@ fi
 case "${MODE}" in
     check)
         echo "[mode] check"
-        export CUDA_VISIBLE_DEVICES="$(require_idle_gpus 1)"
+        export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
         export NPROC_PER_NODE=1
         # check 模式跑 2 个优化器 step 就退出（--max-train-steps 2）；epoch 末 save 分支
         # 不会被触发，循环外的 fallback 会写一份 ckpt 兜底。
@@ -343,7 +355,7 @@ case "${MODE}" in
         ;;
     single)
         echo "[mode] single"
-        export CUDA_VISIBLE_DEVICES="$(require_idle_gpus 1)"
+        export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
         export NPROC_PER_NODE=1
         # NUM_EPOCHS 默认 2：831k 样本 / GRAD_ACC=4 ≈ 207k optimizer step / epoch
         # （单卡），DiT 从零训通常 100-200k step 才看到收敛趋势，1 epoch 偏少；
@@ -357,7 +369,10 @@ case "${MODE}" in
     ddp)
         echo "[mode] ddp"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
-        export CUDA_VISIBLE_DEVICES="$(require_idle_gpus "${DDP_GPU_COUNT}")"
+        if [[ -n "${GPU_IDS:-}" ]]; then
+            echo "[gpu] GPU_IDS=${GPU_IDS} takes precedence; DDP_GPU_COUNT=${DDP_GPU_COUNT} ignored"
+        fi
+        export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus "${DDP_GPU_COUNT}")"
         ACTUAL_GPU_COUNT="$(count_visible_gpus "${CUDA_VISIBLE_DEVICES}")"
         export NPROC_PER_NODE="${ACTUAL_GPU_COUNT}"
         configure_master_port

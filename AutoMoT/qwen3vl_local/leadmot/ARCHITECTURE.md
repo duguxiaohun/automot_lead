@@ -1,6 +1,6 @@
 # LeadMoTPlanningDecoder 架构说明
 
-`AutoMoT/qwen3vl_local/leadmot/` 是 LeadMoT 快推理 planning decoder 子包。它的职责是接收 frozen Qwen3-VL-Instruct prefill 得到的 prefix K/V、LeadBEVEncoder 的 BEV feature、ego 状态 token，并输出两类 LEAD 风格轨迹：
+`qwen3vl_local/leadmot/` 是 LeadMoT 快推理 planning decoder 子包。它的职责是接收 frozen Qwen3-VL-Instruct prefill 得到的 prefix K/V、LeadBEVEncoder 的 BEV feature、ego 状态 token，并输出两类 LEAD 风格轨迹：
 
 - `pred_route (B, 10, 2)`：对齐 LEAD `route`，ego-frame 累计/绝对点。
 - `pred_future_waypoints (B, 8, 2)`：对齐 LEAD `future_waypoints`，ego-frame 累计/绝对点。

@@ -235,9 +235,12 @@ git push
   （`[path:line](path#Lxxx)`），不是源码副本
 - **不要替用户决定是否 push**——commit 可以自己做，push 之前问一下
   （push 一旦发到 main，外部可见，难撤回）
-- **不要在运行文档里写 shell 手动设置 `CUDA_VISIBLE_DEVICES` 的选卡片段**。
+- **不要在运行文档里直接写 `CUDA_VISIBLE_DEVICES=...` 这种裸 shell 选卡片段**。
   SFT v1/v2、GoalGen、LeadMoT、VAE patch/unpatch 以及白名单 runner 的训练、eval、probe、teacher / 推理
-  入口都应自动寻找空闲 GPU，并覆盖已有 mask。
+  入口默认都自动寻找空闲 GPU，并覆盖已有 mask。
+  唯一允许的 pin 写法：`GPU_IDS=0` / `GPU_IDS=0,1,2,3` 前置环境变量（脚本里的
+  `resolve_visible_gpus` 在 `GPU_IDS` 非空时跳过 nvidia-smi 自动选址，直接用给定卡号）。
+  禁止在文档命令里手写 `export CUDA_VISIBLE_DEVICES=...`。
 
 ---
 
@@ -257,5 +260,10 @@ git push
   在用户给的 `OUTPUT_DIR` 下再套 `run_<RUN_TAG>/` 子目录（`RUN_TAG` 默认时间戳，bash 段算一次），
   base 层维护 `latest` symlink，`NO_RUN_SUBDIR=1` 回退；共享缓存（`HF_HOME`、SFT v2
   `runtime_teacher_data/`）必须钉在 base 层、不进 run 子目录，避免每次重物化。
+- 写或改运行文档时，默认当前目录就是远端 `AutoMoT/`。命令示例统一写相对
+  `AutoMoT/` 的路径，例如 `bash qwen3vl_local/...`、`python qwen3vl_local/...`、
+  `leaderboard/...`、`checkpoints/...`；不要额外写切目录步骤，也不要给
+  `qwen3vl_local/...` 命令加 `AutoMoT/` 前缀。只有仓库根视角的文件白名单、git add 路径、
+  或明确说明 repo root 路径时，才保留 `AutoMoT/` 前缀。
 - 用户偏好：先解释思路 → 列方案优缺点 → 等用户选 → 才开始改代码。不要"先斩后奏"
 - 用户用简体中文交流，代码注释也用简体中文，变量名 / 函数名保持英文
