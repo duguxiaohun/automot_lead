@@ -207,19 +207,67 @@ ${EVAL_OUTPUT_BASE:-AutoMoT/outputs/closed_loop_eval}/
 
 ---
 
-## 5. 聚合单独跑
+## 5. 聚合单独跑 / 跑完没看到 summary 的补救
+
+`aggregate.py` 是独立 CLI：**只读 `eval_per_route/eval_<route_id>.json` 这堆
+leaderboard 原始 JSON，不碰 CARLA、不重跑 route**，所以跑完 eval 后任何时刻
+都能离线补一份 summary。常见触发场景：
+
+- 之前传了 `--no-aggregate`，`runs/<RUN_LABEL>/` 里只有 `run_manifest.json` + `log.txt`
+- 聚合阶段失败（例如 benchmark_routes 路径不对），4 件套没生成
+- 想跨多次启动合并出一张总表（`__all__` 跨批次聚合）
+- 想换一份 `--benchmark-root` 重算 scenario 反查
+
+### 5.1 先确认原始结果在不在
 
 ```bash
 cd AutoMoT
-# 聚合 signature 下指定 run_label 批次
+# 找到 ckpt 对应的 signature 目录
+ls outputs/closed_loop_eval/
+# 应该有形如 leadmot_v1_decoder__best__bev0__ema1/ 的子目录
+
+# 看里面是否有 leaderboard 原始 JSON
+ls outputs/closed_loop_eval/<signature>/eval_per_route/
+# 应有 eval_<route_id>.json；只要这堆在，summary 一定能补
+```
+
+如果 `eval_per_route/` 里一条 JSON 都没有，说明 route 根本没跑通，需要重跑
+`run_eval.sh`，不是聚合的问题。
+
+### 5.2 三种补救调用
+
+```bash
+cd AutoMoT
+
+# (a) 补某一批：只聚合 runs/<RUN_LABEL>/run_manifest.json 列出的 route
 python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
     --eval-base outputs/closed_loop_eval \
     --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt \
+    --benchmark-root ../lead/data/benchmark_routes/bench2drive220 \
     --run-label full
 
-# --leadmot-ckpt 可省略：聚合所有 signature 目录
-# --run-label 可省略：聚合该 signature 下所有 runs
+# (b) 补该 signature 下所有批：枚举 runs/* 各聚合一次 + 跨批次总聚合
+python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
+    --eval-base outputs/closed_loop_eval \
+    --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt \
+    --benchmark-root ../lead/data/benchmark_routes/bench2drive220
+# 跨批次总聚合落在 signature 根目录（run_label=__all__），合并所有
+# eval_per_route/*.json，coverage 恒为 1.0，markdown 头部会写明这一点
+
+# (c) 没指定 ckpt：聚合 EVAL_OUTPUT_BASE 下所有 signature 目录
+python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
+    --eval-base outputs/closed_loop_eval \
+    --benchmark-root ../lead/data/benchmark_routes/bench2drive220
 ```
+
+⚠ `--benchmark-root` 不传也能跑，但每条 route 的 `scenarios` 字段会塌成
+`__unknown__`，`scenario_table.csv` 只会剩一行，论文表格基本没法用。**补救
+聚合时强烈建议传**，路径就是 `lead/data/benchmark_routes/bench2drive220`。
+
+⚠ `--leadmot-ckpt` 支持文件或目录，目录会按 `best.pt` / `latest/best.pt` 等
+顺序自动解析，和 `run_eval.sh` 完全一致。
+
+### 5.3 输出文件
 
 聚合会在对应目录下同时写四类总结文件：
 
