@@ -755,7 +755,7 @@ def _to_ascii_safe(text: str) -> str:
     """PIL 默认 bitmap font 只支持 latin-1，遇到 Unicode 字符会抛
     `UnicodeEncodeError` 并中断整个 grid 渲染（之前 cf_overview 只画到 truth
     行的 bug 就是这么来的）。在 draw.text 前把已知特殊字符替换成 ASCII 同义符；
-    剩下的非 latin-1 字符统一用 ``?`` 占位，宁可丢字也不要丢图。"""
+    剩下的非 latin-1 字符统一用 ``_`` 占位，宁可丢字也不要丢图。"""
 
     out_chars: List[str] = []
     for ch in str(text):
@@ -766,7 +766,7 @@ def _to_ascii_safe(text: str) -> str:
             ch.encode("latin-1")
             out_chars.append(ch)
         except UnicodeEncodeError:
-            out_chars.append("?")
+            out_chars.append("_")
     return "".join(out_chars)
 
 
@@ -786,6 +786,27 @@ def _draw_multiline(
             draw.text((x, y + i * line_h), safe, fill=fill)
         except Exception as exc:  # noqa: BLE001 — 兜底，绝不让画文字异常中断 grid
             print(f"[probe][cf][warn] draw.text 失败，跳过该行：{exc}; line={safe!r}")
+
+
+def _cf_overview_label_lines(record: Dict[str, Any], truth_scenario: str) -> List[str]:
+    """生成 cf_overview 左侧标签。
+
+    overview PNG 使用 PIL 默认字体，中文会被降级成问号；图片里只放 ASCII 摘要，
+    完整 warning 仍保存在 cf_summary.json / cf_report.md。
+    """
+
+    label = ("truth" if record["is_truth"] else record["tag"]) + f": {record['subgoal']}"
+    lines = [label]
+    if record.get("request_source"):
+        lines.append(f"source={record['request_source']}")
+    if record["scenario"] and record["scenario"] != truth_scenario:
+        lines.append(f"scenario={record['scenario']}")
+    consistency = record.get("prompt_consistency")
+    if consistency and consistency != "consistent":
+        lines.append(f"prompt={consistency}")
+    if record.get("warning"):
+        lines.append("detail=cf_report.md")
+    return lines
 
 
 def _compose_cf_overview(
@@ -1601,13 +1622,7 @@ def main() -> None:
                 col_headers = [f"CFG={c:g}" for c in cfg_scale_values]
                 rows_for_grid: List[Dict[str, Any]] = []
                 for tag, record in variant_records.items():
-                    label_lines = [
-                        ("truth" if record["is_truth"] else tag) + f": {record['subgoal']}",
-                    ]
-                    if record["scenario"] and record["scenario"] != memory.scenario:
-                        label_lines.append(f"scenario={record['scenario']}")
-                    if record["warning"]:
-                        label_lines.append(f"! {record['warning'][:48]}")
+                    label_lines = _cf_overview_label_lines(record, memory.scenario)
                     cells: List[Dict[str, Any]] = []
                     cf_match = next(
                         (cf for cf in per_cf_summaries if cf["tag"] == tag),
