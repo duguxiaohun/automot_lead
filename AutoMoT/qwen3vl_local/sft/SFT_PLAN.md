@@ -1,8 +1,7 @@
 # SFT Plan
 
 SFT 子包负责 Qwen3-VL-4B-Instruct 的 LoRA 微调，让范式 A 文本 runner 更稳定地输出
-`ANALYSIS / STATUS / SUBGOAL`。v1/v2 共用采样、训练 launcher 风格、评估和 probe；
-区别集中在 ANALYSIS 段是否参与监督。
+`ANALYSIS / STATUS / SUBGOAL`。
 
 ## 1. 目标
 
@@ -12,23 +11,22 @@ SFT 子包负责 Qwen3-VL-4B-Instruct 的 LoRA 微调，让范式 A 文本 runne
 核心痛点是 anchor 早期帧过早推进：模型在 GT 转换点之前“反向编理由”，把
 `STATUS` 提前切到下一阶段。
 
-## 2. v1 / v2 差异
+## 2. 当前文件职责
 
-| 项 | v1 | v2 |
-|---|---|---|
-| 数据模式 | `build_sft_dataset_v1.py` 默认 | `build_sft_dataset_v1.py --mode v2` |
-| `dataset_version` | 不写，视作 v1 | `v2_pending` 先占位，teacher 后改为 `v2` |
-| ANALYSIS | 固定 `Observations recorded.` | frozen Qwen + PRIVILEGED prompt 生成真实分析 |
-| loss | 只训 STATUS/SUBGOAL 事件名 | ANALYSIS body 0.3，结构字面和事件名 1.0 |
-| 训练脚本 | `sft_v1_train.sh` | `sft_v2_train.sh` |
-| 评估/probe | `eval_sft_v1.py` / `probe_sft_v1.py` | 同一套，显式传 runtime teacher val |
+本子包只保留统一 LoRA SFT 路线，不再维护双轨命名与 ms-swift 训练入口：
 
-v1 是稳定 STATUS/SUBGOAL 的保守基线；v2 在 v1 目标上增加视觉分析蒸馏，目标是让
-keep 样本的 `early_advance_rate` 进一步下降。
+- `build_dataset.py`：生成 `dataset_version="pending"` 的 train/val jsonl。
+- `train.sh` / `train.py`：用 torch DDP + PEFT 直接注入 LoRA，并在 batch 内现场跑 teacher。
+- `build_teacher.py`：可选离线 dump teacher ANALYSIS，仅用于 review / 统计，不参与默认训练。
+- `eval.py` / `probe.py`：加载 base 或 LoRA 后做指标评估与 case-level dump。
+- `check_loss_mask.py` / `inspect_teacher_outputs.py`：静态检查 loss 权重与 teacher 输出质量。
+
+训练不再保留 teacher cache + manifest 复用机制：每次启动训练，frozen base Qwen
+在 train batch 内现场跑 ANALYSIS teacher，不写盘。
 
 ## 3. 数据 schema
 
-每条 jsonl 样本包含：
+每条 jsonl 样本：
 
 ```json
 {
@@ -40,22 +38,29 @@ keep 样本的 `early_advance_rate` 进一步下降。
   "messages": [
     {"role": "system", "content": "<system prompt>"},
     {"role": "user", "content": "<image><image><image><image>\n<user prompt with MEMORY>"},
-    {"role": "assistant", "content": "ANALYSIS: ...\nSTATUS: initial\nSUBGOAL: hazard_detect"}
+    {"role": "assistant", "content": "ANALYSIS: __TEACHER_PENDING__\nSTATUS: initial\nSUBGOAL: hazard_detect"}
   ],
-  "is_transition_sample": false
+  "is_transition_sample": false,
+  "dataset_version": "pending",
+  "teacher_meta_input": {
+    "target_status": "initial",
+    "target_subgoal": "hazard_detect",
+    "memory_in_status": "initial",
+    "transition": "keep"
+  }
 }
 ```
 
-关键约束：
+约束：
 
 - `messages[0]` 来自 `prompt_pipeline.build_system_prompt()`。
-- user `[MEMORY]` 中的 `STATUS` 是 `prev_anchor` 的 GT，防止泄漏当前帧标签。
-- assistant `STATUS` 是当前 `anchor` 的 GT。
+- user `[MEMORY]` 中的 `STATUS` 是 `prev_anchor` 的 GT，防泄漏当前帧标签。
+- assistant `STATUS` 是当前 `anchor` 的 GT；`ANALYSIS` 是 `__TEACHER_PENDING__` 占位。
 - `images` 长度固定为 4，按 oldest -> newest 排序。
+- `teacher_meta_input` 给 `train.py` / `build_teacher.py` 拼 PRIVILEGED prompt 用，
+  让 frozen base 在“看到 GT”的前提下输出更高质量 ANALYSIS。
 
-## 4. 数据生成
-
-`build_sft_dataset_v1.py` 同时承载 v1/v2：
+## 4. 数据生成（`build_dataset.py`）
 
 1. 读 `keyframes_all_scenarios.json`，只保留 run status 为 `Completed` / `Perfect` 的样本。
 2. 根据 initial / middle / final 帧号构造闭区间状态时间轴。
@@ -63,79 +68,90 @@ keep 样本的 `early_advance_rate` 进一步下降。
    - 保持类避开转换帧前的 buffer 帧；
    - 推进类保留 GT 转换帧后 `K` 帧窗口内的跨段样本；
    - 默认推进类目标占比 35%。
-4. 按 run_id 划分 train / val，避免同一路线相邻帧跨集合泄漏。
-5. v1 写固定 ANALYSIS；v2 写 `__TEACHER_PENDING__`，等待 teacher 物化。
+4. 按 run_id 划分 train / val，避免同一 route 的相邻帧跨集合泄漏。
+5. assistant ANALYSIS 段写 `__TEACHER_PENDING__`。
 
-## 5. Loss 设计
+## 5. 训练 loop（`train.py`）
 
-v1 assistant：
+LoRA 注入方式：
 
-```text
-ANALYSIS: Observations recorded.
-STATUS: <event_name>
-SUBGOAL: <event_name>
+```python
+from peft import LoraConfig, get_peft_model
+lora_cfg = LoraConfig(
+    r=16, lora_alpha=32, lora_dropout=0.1, bias="none",
+    task_type="CAUSAL_LM",
+    target_modules=["q_proj","k_proj","v_proj","o_proj",
+                    "gate_proj","up_proj","down_proj"],
+)
+model = get_peft_model(base_model, lora_cfg)
 ```
 
-v1 的 `sft_v1_analysis_mask` 只保留两个事件名 token 段，其他权重为 0。
+每个 train batch（per_device_batch_size=1，逐样本处理）：
 
-v2 assistant：
+1. **Phase A — teacher**：
+   ```python
+   peft_model = unwrap_ddp(model)
+   base_model = peft_model.get_base_model()
+   with peft_model.disable_adapter():
+       out = base_model.generate(prompt_with_PRIVILEGED, images, max_new_tokens=256)
+   analysis_text, fallback = postprocess_teacher(out)
+   ```
+   注意：adapter 开关由 PEFT 管，但 generate 调底层 Qwen，避免
+   `PeftModel.generate` 在 Qwen3-VL M-RoPE / `prepare_inputs_for_generation`
+   路径上的错位问题。
+2. **Phase B — student**：
+   - 拼完整 assistant 文本：
+     `"ANALYSIS: {analysis_text}\nSTATUS: {gt_status}\nSUBGOAL: {gt_subgoal}<|im_end|>\n"`
+   - tokenize 后拼接到 prompt token 序列；labels 上 prompt 段 = -100，assistant 段 = self
+   - 算 per-token weight：
+     - prompt 段 = 0
+     - ANALYSIS body = `SFT_ANALYSIS_WEIGHT`（默认 0.3）
+     - 起手 `ANALYSIS:` 字面、段切换 `\nSTATUS:` / `\nSUBGOAL:` 字面、STATUS event_name、SUBGOAL event_name、tail / EOS 全部 = 1.0
+   - `loss = sum(F.cross_entropy(reduction='none') * weight) / sum(weight)`
+3. 反向 + grad clip + AdamW step + cosine LR。
 
-```text
-ANALYSIS: <teacher visual analysis>
-STATUS: <event_name>
-SUBGOAL: <event_name>
-```
+DDP：用 `torch.distributed` + `DistributedDataParallel(find_unused_parameters=True)`，
+每 rank 处理 `DistributedSampler` 切到自己的 batch；teacher generate / student forward
+都在各 rank 自己显存里跑。
 
-v2 的 `sft_v2_analysis_supervised`：
+## 6. 关键超参（默认）
 
-- ANALYSIS body 默认权重 0.3，可用 `SFT_V2_ANALYSIS_WEIGHT` 调整。
-- `ANALYSIS:`、`\nSTATUS:`、`\nSUBGOAL:` 字面和 STATUS/SUBGOAL 事件名权重 1.0。
-- tail/EOS 参与 loss，避免三段输出被截断后无终止信号。
-
-旧版 v2 “结构字面 mask=0” 是已知陷阱，不要恢复。
-
-## 6. Teacher 物化
-
-v2 pending 不直接训练。`sft_v2_train.sh` 在进入 swift 前检查 runtime teacher cache：
-
-- 完整 cache + manifest 匹配：复用。
-- manifest 缺失、行数不匹配、model_dir / seed / 生成参数不匹配：清理后重物化。
-- debug 的 `--max-samples N` 不写正式 manifest，避免半截 cache 被误复用。
-- `check` 模式默认写独立 `runtime_teacher_check_data/`，不污染正式
-  `runtime_teacher_data/`。
-
-teacher prompt 带 PRIVILEGED 信息，仅用于生成 ANALYSIS 真值，不写回 pending 源数据。
-
-## 7. LoRA 与训练
-
-两版都只训 language decoder 的 LoRA：
-
-```text
-q_proj k_proj v_proj o_proj gate_proj up_proj down_proj
-```
-
-冻结视觉塔、embedding、lm_head 和所有非 LoRA 参数。默认配置：
-
-| 项 | v1 | v2 |
-|---|---:|---:|
-| rank / alpha | 16 / 32 | 16 / 32 |
-| dropout | 0.1 | 0.1 |
-| learning rate | 5e-5 | 3e-5 |
-| max_length | 3072 | 3584 |
-| num_epochs | 2 | 2 |
-| save/eval | steps | steps |
+| 项 | 默认 | 说明 |
+|---|---:|---|
+| rank / alpha | 16 / 32 | 当前默认 LoRA 容量 |
+| lora_dropout | 0.1 | |
+| learning rate | 3e-5 | 与当前 per-token 监督量匹配 |
+| max_length | 3584 | teacher ANALYSIS 80-150 token + system + user + 视觉 token |
+| num_epochs | 2 | |
+| per_device_batch_size | 1 | batch 内 teacher 串行；DDP 用样本并行 |
+| grad_accum | 2 | 等效 batch size = 2 * world_size |
+| save_steps / eval_steps | 10000 | |
+| save_total_limit | 3 | |
+| SFT_ANALYSIS_WEIGHT | 0.3 | env override |
+| SFT_TEACHER_MAX_NEW_TOKENS | 256 | env override |
+| SFT_TEACHER_TEMPERATURE | 0.0 (greedy) | env override |
 
 训练 launcher 默认在 `OUTPUT_DIR/run_<RUN_TAG>/` 写本次 run，base 层维护
-`latest` symlink；`HF_HOME` 和 v2 runtime teacher cache 固定在 base 层，避免每个 run
-重复物化或重复缓存。每个训练 run 目录追加 `log.txt` 保存本次终端 stdout/stderr。
+`latest` symlink；`HF_HOME` 固定在 base 层。每个训练 run 目录追加 `log.txt`
+保存本次终端 stdout/stderr。
 
 显式 pin 卡统一在训练命令前置 `GPU_IDS=0`（单卡）或 `GPU_IDS=0,1,2,3`（4 卡 DDP）；
 `GPU_IDS` 非空时跳过 nvidia-smi 自动选址，DDP 卡数从逗号数推断，`DDP_GPU_COUNT` 被忽略。
-如果只想指定卡数而不指定物理卡号，用 `DDP_GPU_COUNT=N`；launcher 会自动挑 N 张空闲卡并打印最终 `CUDA_VISIBLE_DEVICES`。
+
+## 7. Teacher 节奏成本
+
+每个 train step 都要跑一次 frozen base 4B greedy generate（ANALYSIS body 通常 80-150 token），
+等效训练时间相比 LoRA-only ≈ 3-4 倍：
+
+- 5k samples × 2 epoch × 2 卡 ≈ 8-10h
+- 想跳过现场 teacher 调试，可以离线跑 `build_teacher.py` 得 materialized jsonl，
+  再把 `TRAIN_JSONL` / `VAL_JSONL` 指向 materialized 目录（train.py 检测到 ANALYSIS
+  不是 `__TEACHER_PENDING__` 时也会工作，但每 step 仍会再跑 teacher 覆盖，因为
+  PEFT 显存里 base 同驻；纯 student 训练目前不内置开关，需手动改 `train.py`）。
 
 ## 8. 评估
 
-`eval_sft_v1.py` 输出四个核心指标：
+`eval.py` 输出四个核心指标：
 
 | 指标 | 计算 | 目标 |
 |---|---|---|
@@ -144,8 +160,9 @@ q_proj k_proj v_proj o_proj gate_proj up_proj down_proj
 | `early_advance_rate` | keep 样本 STATUS == next(GT) | 越低越好 |
 | `anchor12_sanity` | 典型早推进 fail case 是否回到 initial | 必须通过 |
 
-Qwen3-VL 上 PEFT wrapper generation 可能错位，所以 eval/probe 默认 `merge_and_unload`。
-v2 的 `max_gen_tokens` 默认 256，避免只生成 ANALYSIS 就被截断。
+加载 LoRA 默认 `merge_and_unload`，避免 PeftModel wrapper 在 Qwen3-VL 上
+generation 第二步起出乱码（M-RoPE + `prepare_inputs_for_generation` 不兼容）。
+`--max-gen-tokens` 默认 256，保证 ANALYSIS 段不挤掉 STATUS / SUBGOAL。
 eval 终端输出追加到 `<save-root>/eval/log.txt`，probe 终端输出追加到
 `<save-root>/eval_cases/log.txt`。
 
@@ -154,22 +171,21 @@ eval 终端输出追加到 `<save-root>/eval/log.txt`，probe 终端输出追加
 | 文件 | 用途 |
 |---|---|
 | `SFT_PLAN.md` | 本设计文档 |
-| `SFT_RUN.md` | v1/v2 合并运行手册 |
-| `build_sft_dataset_v1.py` | v1/v2 数据生成 |
-| `build_sft_dataset_v2_teacher.py` | v2 teacher ANALYSIS 物化 |
-| `sft_v1_train.sh` / `sft_v2_train.sh` | v1/v2 训练入口 |
-| `sft_v1_loss_scale_plugin.py` / `sft_v2_loss_scale_plugin.py` | ms-swift loss 策略 |
-| `check_loss_mask.py` / `check_loss_mask_v2.py` | token 级 loss sanity |
-| `eval_sft_v1.py` / `probe_sft_v1.py` | 共享评估与 case dump |
-| `inspect_teacher_outputs.py` | v2 teacher 预览 |
+| `SFT_RUN.md` | 运行手册 |
+| `build_dataset.py` | pending jsonl 生成 |
+| `build_teacher.py` | 可选离线 teacher 物化（manifest 复用机制已去除） |
+| `train.py` | torch DDP + PEFT + 内置加权 loss |
+| `train.sh` | bash launcher（GPU 选址 / run 子目录 / log tee） |
+| `eval.py` / `probe.py` | 共享评估与 case dump |
+| `check_loss_mask.py` | token 级 loss sanity（验 train.py 内置 mask） |
+| `inspect_teacher_outputs.py` | teacher 输出抽检（支持 `--live` 现场重跑） |
 | `../tb_serve.sh` | 通用 TensorBoard launcher |
 
 ## 10. 风险
 
 | 风险 | 处理 |
 |---|---|
-| ms-swift loss_scale 插件未注册 | 先跑对应 `check_loss_mask*.py`，确认插件路径从 `AutoMoT/` cwd 可访问 |
-| swift chat template 与 runner structured image 不一致 | 对同一 val sample 比较训练 collator input_ids 和 runner prefill input_ids |
-| v1 输出循环复读 `STATUS:` | 降 lr / 选更早 checkpoint / 看 early_advance 与 advance 曲线 |
-| v2 teacher 套话或太短 | 用 `inspect_teacher_outputs.py --live` 看样本，改 prompt 后刷新 cache |
-| runtime teacher cache 旧配置残留 | `RUNTIME_TEACHER_REFRESH=1` 或删除 `runtime_teacher_data/` |
+| PEFT + Qwen3-VL generate 不兼容 | train teacher 调底层 Qwen generate；eval / probe / runner 默认 `merge_and_unload` |
+| teacher 套话或太短 | 用 `inspect_teacher_outputs.py --live` 看样本，必要时改 teacher prompt |
+| 训练时间 ~3x base LoRA | 用 `--check` 模式快速验链路，全量训练前先在小集 spot-check |
+| DDP teacher generate 卡死 | 所有 rank 都进 adapter-disabled teacher 路径；不在 rank0 内做单独 generate |

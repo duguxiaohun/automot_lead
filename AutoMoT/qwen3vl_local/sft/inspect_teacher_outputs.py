@@ -1,12 +1,30 @@
-"""可视化检查 v2 teacher 产物。
+"""可视化检查 SFT teacher 产物。
 
-默认模式 A：只读已经生成好的 v2 jsonl，按场景均匀抽样，落盘 case 目录。
+默认模式 A：只读已经生成好的 jsonl（pending 或 materialized 都支持），按场景均匀
+抽样，落盘 case 目录。pending 输入下抽出来的 ANALYSIS 是 `__TEACHER_PENDING__`
+占位，必须加 --live 现场重跑 teacher 才有意义。
 可选模式 B：加 --live，现场重跑 teacher 推理，额外保存 teacher_raw 与后处理信息。
 加 --serve --port 0 会自动选空闲端口启动预览网页；live 结果只写 inspect 目录，
 不会回写训练 jsonl。
 
 目标：让你快速判断 teacher ANALYSIS 是否符合预期（看图 -> 变化 -> 结论），
 并确认 student 看到的三段 GT 与 teacher 文本一致。
+
+典型用法（从 AutoMoT/ 目录运行）：
+
+```bash
+# 只读 pending/materialized jsonl，抽样生成静态复查目录
+python qwen3vl_local/sft/inspect_teacher_outputs.py \
+  --jsonl checkpoints/sft_data_pending/train.jsonl \
+  --output-dir checkpoints/sft_teacher_inspect \
+  --num-per-scenario 2
+
+# 现场重跑 teacher，并自动启动本地预览页
+GPU_IDS=0 python qwen3vl_local/sft/inspect_teacher_outputs.py \
+  --jsonl checkpoints/sft_data_pending/train.jsonl \
+  --output-dir checkpoints/sft_teacher_inspect_live \
+  --num-per-scenario 1 --live --serve --port 0
+```
 """
 
 from __future__ import annotations
@@ -43,6 +61,8 @@ os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
 
 def _cli_value(name: str) -> Optional[str]:
+    """在 argparse/import torch 前轻量读取命令行值，便于 live 模式先设 CUDA mask。"""
+
     prefix = name + "="
     for i, item in enumerate(sys.argv[1:]):
         if item == name and i + 2 <= len(sys.argv[1:]):
@@ -53,6 +73,8 @@ def _cli_value(name: str) -> Optional[str]:
 
 
 def _pick_idle_gpus(n: int = 1) -> str:
+    """用 nvidia-smi 按显存占用和利用率挑 n 张空闲 GPU；失败时返回空串。"""
+
     try:
         out = subprocess.check_output(
             [
@@ -79,6 +101,8 @@ def _pick_idle_gpus(n: int = 1) -> str:
 
 
 def _normalize_gpu_ids(value: str) -> str:
+    """规范化 GPU id 列表字符串，去掉空白和空项。"""
+
     ids = [part.strip() for part in str(value).split(",") if part.strip()]
     return ",".join(ids)
 
@@ -147,6 +171,8 @@ _STOP_MARKERS = ("\nSTATUS:", "\nSUBGOAL:", "\n\n", "<|im_end|>")
 
 
 def read_jsonl(path: pathlib.Path) -> List[Dict[str, Any]]:
+    """读取 jsonl 为 dict 列表，自动跳过空行。"""
+
     out: List[Dict[str, Any]] = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -157,6 +183,8 @@ def read_jsonl(path: pathlib.Path) -> List[Dict[str, Any]]:
 
 
 def strip_image_placeholders(user_content: str) -> str:
+    """去掉 user 文本开头的 <image> 占位，复查页只显示真实文字 prompt。"""
+
     s = user_content.lstrip()
     while s.startswith("<image>"):
         s = s[len("<image>"):]
@@ -164,6 +192,8 @@ def strip_image_placeholders(user_content: str) -> str:
 
 
 def parse_student_assistant(text: str) -> Dict[str, Optional[str]]:
+    """从 student assistant GT 中解析 analysis/status/subgoal 三段。"""
+
     a = re.search(r"^ANALYSIS:\s*(.*)$", text, flags=re.MULTILINE)
     s = re.search(r"^STATUS:\s*(.+)$", text, flags=re.MULTILINE)
     g = re.search(r"^SUBGOAL:\s*(.+)$", text, flags=re.MULTILINE)
@@ -175,6 +205,8 @@ def parse_student_assistant(text: str) -> Dict[str, Optional[str]]:
 
 
 def build_teacher_user_prompt(student_user_no_image: str, meta: Dict[str, Any]) -> str:
+    """把 PRIVILEGED GT 块插入 user prompt，构造 teacher 专用输入。"""
+
     target_status = meta.get("target_status") or "unknown"
     transition = meta.get("transition") or "UNKNOWN"
     prev_status = meta.get("memory_in_status") or "unknown"
@@ -195,14 +227,14 @@ def build_teacher_user_prompt(student_user_no_image: str, meta: Dict[str, Any]) 
     return student_user_no_image.rstrip() + privileged
 
 
-# 与 build_sft_dataset_v2_teacher.py::_postprocess 同口径（2026-06-02 收紧）：
+# 与 build_teacher.py::_postprocess 同口径（2026-06-02 收紧）：
 # 上限 480→420（约 70 词），下限 20→80（约 12 词），长截改成在句号边界优雅截。
 _MAX_ANALYSIS_CHARS = 420
 _MIN_ANALYSIS_CHARS = 80
 
 
 def _truncate_at_sentence_boundary(t: str, hard_limit: int) -> str:
-    """与 build_sft_dataset_v2_teacher.py 同实现：句号 > 词边界 > 硬截。"""
+    """与 build_teacher.py 同实现：句号 > 词边界 > 硬截。"""
     if len(t) <= hard_limit:
         return t
     window = t[:hard_limit]
@@ -218,6 +250,8 @@ def _truncate_at_sentence_boundary(t: str, hard_limit: int) -> str:
 
 
 def postprocess_teacher(raw_text: str) -> Dict[str, Any]:
+    """清理 live teacher 输出，并返回每个后处理动作的审计信息。"""
+
     if raw_text is None:
         raw_text = ""
 
@@ -226,7 +260,7 @@ def postprocess_teacher(raw_text: str) -> Dict[str, Any]:
         "removed_prefix": False,
         "stop_marker": None,
         "newline_collapsed": False,
-        "truncated_sentence": False,  # v2 修订：长截改在句号边界做了，原 truncated_480 字段名换掉
+        "truncated_sentence": False,  # 长截改在句号边界做，保留字段方便 inspect 审计。
         "fallback": False,
     }
 
@@ -272,6 +306,8 @@ def sample_balanced_by_scenario(
     seed: int,
     scenarios: Optional[Sequence[str]],
 ) -> List[Tuple[int, Dict[str, Any]]]:
+    """按场景均匀抽样，返回 (jsonl 行号, sample) 方便回查原始数据。"""
+
     by_scenario: Dict[str, List[Tuple[int, Dict[str, Any]]]] = defaultdict(list)
     allow = set(scenarios) if scenarios else None
 
@@ -294,6 +330,8 @@ def sample_balanced_by_scenario(
 
 
 def copy_images(image_paths: Sequence[str], out_dir: pathlib.Path) -> List[str]:
+    """把 case 用到的 RGB 图片复制到输出目录，返回相对文件名列表。"""
+
     out_dir.mkdir(parents=True, exist_ok=True)
     copied: List[str] = []
     for i, src in enumerate(image_paths):
@@ -319,6 +357,8 @@ def render_overview(
     live_raw: Optional[str],
     live_post: Optional[Dict[str, Any]],
 ) -> str:
+    """渲染单个 case 的 markdown 总览，集中展示图像、prompt、GT 和 live 输出。"""
+
     parsed = parse_student_assistant(student_assistant)
     lines: List[str] = []
     lines.append(f"# Teacher Inspect Case: {row.get('scenario')}/{row.get('run_id')} anchor={row.get('anchor')}")
@@ -391,6 +431,8 @@ def render_overview(
 
 
 def write_html_index(save_root: pathlib.Path, index_rows: Sequence[Dict[str, Any]]) -> pathlib.Path:
+    """为所有 case 写一个轻量 HTML 索引，便于浏览器快速跳转。"""
+
     rows: List[str] = []
     for r in index_rows:
         case_dir = pathlib.Path(str(r["case_dir"]))
@@ -418,7 +460,7 @@ def write_html_index(save_root: pathlib.Path, index_rows: Sequence[Dict[str, Any
 <html>
 <head>
   <meta charset="utf-8">
-  <title>SFT v2 Teacher Inspect</title>
+  <title>SFT Teacher Inspect</title>
   <style>
     body {{ font-family: system-ui, sans-serif; margin: 24px; line-height: 1.4; }}
     table {{ border-collapse: collapse; width: 100%; }}
@@ -428,7 +470,7 @@ def write_html_index(save_root: pathlib.Path, index_rows: Sequence[Dict[str, Any
   </style>
 </head>
 <body>
-  <h1>SFT v2 Teacher Inspect</h1>
+  <h1>SFT Teacher Inspect</h1>
   <p>Live 模式只把 teacher 输出写到 inspect 目录，不回写训练 jsonl。</p>
   <table>
     <thead>
@@ -447,12 +489,16 @@ def write_html_index(save_root: pathlib.Path, index_rows: Sequence[Dict[str, Any
 
 
 def find_free_port(host: str) -> int:
+    """让系统分配一个空闲端口，供 --serve --port 0 使用。"""
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((host, 0))
         return int(sock.getsockname()[1])
 
 
 def serve_directory(root: pathlib.Path, host: str, port: int) -> None:
+    """用 Python 内置 HTTP server 预览 inspect 输出目录。"""
+
     if port <= 0:
         port = find_free_port(host)
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(root))
@@ -475,6 +521,8 @@ def run_live_teacher(
     device: str,
     torch_dtype: str,
 ) -> Tuple[str, Dict[str, Any]]:
+    """现场加载冻结的 base Qwen 跑 teacher prompt，返回原始输出和后处理信息。"""
+
     from PIL import Image  # type: ignore
     from qwen3vl_local.engine import LocalQwen3VLInstructEngine  # type: ignore
 
@@ -502,16 +550,20 @@ def run_live_teacher(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="inspect teacher outputs for sft v2")
+    """inspect 主入口：抽样、复制图片、可选 live teacher，并写 markdown/html。"""
+
+    parser = argparse.ArgumentParser(description="inspect teacher outputs for sft pending / materialized jsonl")
     parser.add_argument(
         "--jsonl",
         type=str,
-        default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v2_lora" / "runtime_teacher_data" / "train.jsonl"),
+        default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_data_pending" / "train.jsonl"),
+        help="可以指向 build_dataset 的 pending jsonl（需加 --live 现场跑 teacher）"
+             "或 build_teacher 的 materialized jsonl（可只读抽检）。",
     )
     parser.add_argument(
         "--save-root",
         type=str,
-        default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_v2_teacher_inspect"),
+        default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_teacher_inspect"),
     )
     parser.add_argument("--num-per-scenario", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
@@ -541,8 +593,8 @@ def main() -> None:
         sys.exit(2)
 
     rows = read_jsonl(jsonl_path)
-    if rows and rows[0].get("dataset_version") == "v2_pending" and not args.live:
-        print("[warn] 输入是 v2_pending，占位 ANALYSIS 不适合只读抽检；建议加 --live 现场重跑 teacher。")
+    if rows and rows[0].get("dataset_version") == "pending" and not args.live:
+        print("[warn] 输入是 pending jsonl，占位 ANALYSIS 不适合只读抽检；建议加 --live 现场重跑 teacher。")
     scenarios = [x.strip() for x in args.scenarios.split(",") if x.strip()] or None
     picked = sample_balanced_by_scenario(rows, args.num_per_scenario, args.seed, scenarios)
 
@@ -585,7 +637,7 @@ def main() -> None:
         teacher_analysis = parsed.get("analysis") or ""
 
         student_user = strip_image_placeholders(row["messages"][1]["content"])
-        teacher_meta_input = row.get("v2_teacher_meta_input", {})
+        teacher_meta_input = row.get("teacher_meta_input") or {}
         teacher_user = build_teacher_user_prompt(student_user, teacher_meta_input)
 
         copied_images = copy_images(row.get("images", []), case_dir / "input_images")

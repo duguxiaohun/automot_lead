@@ -22,7 +22,7 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 | `lead/` | 数据采集、训练、闭环评测参考仓库。只读 |
 | `AutoMoT/` | 在线驾驶仓库；当前本地改造主要放这里 |
 | `qwen3vl_local/`（`AutoMoT/` 主目录内） | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT；`tb_serve.sh` 是通用 TensorBoard 启动器 |
-| `qwen3vl_local/sft/` | SFT v1/v2 数据、训练、eval、probe |
+| `qwen3vl_local/sft/` | SFT 数据、训练、eval、probe（统一一套，已废弃 v1/v2 双轨与 ms-swift） |
 | `AutoMoT/vae_standalone/train_patch_unpatch.py` | patch/unpatch 端到端重建训练 |
 | `0026.json` | LEAD meta 固定参考样本，只读，绝对不要入库 |
 | `keyframes_all_scenarios.json` | 远端数据参考，只读 |
@@ -252,40 +252,41 @@ v1/v2：
 - DiT layers `12`
 - Qwen 36 层切 12 段，head_dim=128
 
-## 8. SFT v1 / v2
+## 8. SFT
 
 统一文档入口：
 
 - `qwen3vl_local/sft/SFT_PLAN.md`
 - `qwen3vl_local/sft/SFT_RUN.md`
 
-SFT v1：
+**v1 / v2 双轨已废弃**（含 ms-swift 入口、loss_scale plugin、runtime_teacher_data
+manifest 复用机制）。现在只有一套统一 SFT：
 
-- `qwen3vl_local/sft/build_sft_dataset_v1.py`
-- `qwen3vl_local/sft/sft_v1_train.sh`
-- `qwen3vl_local/sft/eval_sft_v1.py`
-- `qwen3vl_local/sft/probe_sft_v1.py`
-
-v1 assistant 使用固定 `ANALYSIS: Observations recorded.`，主要训练
-STATUS/SUBGOAL 事件名。
-
-SFT v2：
-
-- `qwen3vl_local/sft/build_sft_dataset_v1.py --mode v2` 生成 `v2_pending`。
-- `qwen3vl_local/sft/build_sft_dataset_v2_teacher.py` 用 frozen Qwen + PRIVILEGED prompt 物化真实 ANALYSIS。
-- `qwen3vl_local/sft/sft_v2_train.sh` 首次训练启动时物化 base 层
-  `runtime_teacher_data/`，后续按 manifest 复用；`check` 模式默认写独立
-  `runtime_teacher_check_data/`，不污染正式 cache。
-
-v2 loss 规则：ANALYSIS body 默认权重 0.3；`ANALYSIS:`、`\nSTATUS:`、
-`\nSUBGOAL:` 字面、事件名、EOS/tail 都参与 loss。旧版“结构字面 mask=0”
-是致命陷阱，不要恢复。
+- `qwen3vl_local/sft/build_dataset.py` 产 `pending` jsonl，assistant 段 ANALYSIS
+  为 `__TEACHER_PENDING__` 占位。
+- `qwen3vl_local/sft/train.sh` → `train.py`：torch DDP + 手写 train loop +
+  `peft.LoraConfig` / `get_peft_model` 直接把 LoRA 注入 base，不再走 swift。
+- 每个 train batch 内部禁用 adapter，并调用底层 Qwen base model 现场 greedy
+  生成 ANALYSIS 真值，立即喂进 student forward；这样避开 `PeftModel.generate`
+  在 Qwen3-VL 上的生成错位问题。**不再离线物化 teacher、不再写 manifest、
+  不再有 runtime_teacher_data 复用**。代价：训练时间约为 base LoRA 的 3-4 倍
+  （每 step 多一次 4B 生成）。
+- loss 在 `train.py` 内显式按 char-range 切段加权：ANALYSIS body 权重
+  `SFT_ANALYSIS_WEIGHT`（默认 0.3）；`ANALYSIS:` / `\nSTATUS:` / `\nSUBGOAL:`
+  字面、STATUS / SUBGOAL event_name、tail / EOS 全部 1.0；user / system prompt 段 0。
+  旧版 v2 "结构字面 mask=0" 是已确认致命陷阱，新 mask 不留这个坑。
+- `qwen3vl_local/sft/build_teacher.py` 仅保留作可选离线工具（手动 dump teacher
+  输出供 review / inspect）；不再被训练入口自动调用，也不再写 manifest。
 
 eval 端固定坑：
 
-- Qwen3-VL 上 PEFT wrapper forward 可能错位；默认 `merge_and_unload`。
-- v2 `max_gen_tokens` 需要 256；96 会截到只剩 ANALYSIS。
+- Qwen3-VL 上 PEFT wrapper forward 可能错位；`eval.py` / `probe.py` 默认
+  `merge_and_unload` 把 LoRA 合并进 base 再推理。
+- `--max-gen-tokens` 默认 256（teacher ANALYSIS 80-150 token + STATUS/SUBGOAL 段，
+  必须 ≥ 200，否则解析不到 STATUS）。
 - partial-continue fallback 是永久兜底，不代表模型健康。
+- `dataset_version="pending"` 时 GT ANALYSIS 段是占位，STATUS/SUBGOAL 评测不受
+  影响；想做 ANALYSIS 内容对照，跑 `build_teacher.py` 物化 val 后再传 `--val-jsonl`。
 
 ## 9. VAE Patch/Unpatch
 
@@ -324,7 +325,7 @@ DDP 选卡：Python 内部 rank0 选卡，写临时文件，其它 rank 读取�
 
 ## 10. GPU 选址统一规则
 
-适用：SFT v1/v2、GoalGen、LeadMoT、VAE patch/unpatch、白名单 runner 的训练、
+适用：SFT、GoalGen、LeadMoT、VAE patch/unpatch、白名单 runner 的训练、
 eval、probe、teacher / 推理入口。
 
 - 默认调用 `nvidia-smi` 自动挑空闲 GPU，并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`。
@@ -359,7 +360,7 @@ eval、probe、teacher / 推理入口。
 - `qwen3vl_local` 下训练 / eval / probe / eval_carla launcher 默认会在本次产物同目录追加
   `log.txt` 保存终端 stdout/stderr；外层 shell 已 tee 时用 `QWEN3VL_LOG_ACTIVE=1`
   防止重复记录，可用 `QWEN3VL_LOG_TO_FILE=0` 临时关闭。
-- SFT v2 runtime teacher cache 挂在 base 层，靠 manifest 复用。
+- SFT 不再保留 runtime teacher cache；teacher 在 train batch 内现场生成且不写盘。
 
 ## 12. 不要做
 
@@ -373,7 +374,7 @@ eval、probe、teacher / 推理入口。
 
 | 任务 | 文档 |
 |---|---|
-| SFT v1/v2 跑法 | `qwen3vl_local/sft/SFT_RUN.md` |
+| SFT 跑法 | `qwen3vl_local/sft/SFT_RUN.md` |
 | GoalGen 跑法 | `qwen3vl_local/goalgen/GOALGEN_RUN.md` |
 | LeadMoT 跑法 | `qwen3vl_local/leadmot/LEADMOT_RUN.md` |
 | LeadMoT 架构 | `qwen3vl_local/leadmot/ARCHITECTURE.md` |

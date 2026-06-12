@@ -159,19 +159,15 @@
 - `AutoMoT/qwen3vl_local/sft/__init__.py`
 - `AutoMoT/qwen3vl_local/sft/SFT_PLAN.md`
 - `AutoMoT/qwen3vl_local/sft/SFT_RUN.md`
-- `AutoMoT/qwen3vl_local/sft/build_sft_dataset_v1.py`
-- `AutoMoT/qwen3vl_local/sft/sft_v1_train.sh`
-- `AutoMoT/qwen3vl_local/sft/sft_v1_loss_scale_plugin.py`
-- `AutoMoT/qwen3vl_local/sft/eval_sft_v1.py`
+- `AutoMoT/qwen3vl_local/sft/build_dataset.py`
+- `AutoMoT/qwen3vl_local/sft/build_teacher.py`
+- `AutoMoT/qwen3vl_local/sft/train.py`
+- `AutoMoT/qwen3vl_local/sft/train.sh`
+- `AutoMoT/qwen3vl_local/sft/eval.py`
+- `AutoMoT/qwen3vl_local/sft/probe.py`
 - `AutoMoT/qwen3vl_local/sft/check_loss_mask.py`
-- `AutoMoT/qwen3vl_local/sft/probe_sft_v1.py`
-  （以上是合并后的 LoRA SFT v1 / probe 子包入口；`probe_sft_v1.py` 是随机场景 case-level dump；`AutoMoT/tools/` 下其它原始脚本仍为只读参考）
-- `AutoMoT/qwen3vl_local/sft/build_sft_dataset_v2_teacher.py`
-- `AutoMoT/qwen3vl_local/sft/sft_v2_loss_scale_plugin.py`
-- `AutoMoT/qwen3vl_local/sft/sft_v2_train.sh`
-- `AutoMoT/qwen3vl_local/sft/check_loss_mask_v2.py`
 - `AutoMoT/qwen3vl_local/sft/inspect_teacher_outputs.py`
-  （以上这些是 SFT v2 升级相关入口：长期数据集只保留 `v2_pending` 占位 jsonl；冻结 base Qwen + PRIVILEGED prompt 的 ANALYSIS 真值由 `sft_v2_train.sh` 在**首次**训练启动时一次性物化到 runtime 目录并写 `manifest.json`，之后任意卡数启动通过 manifest（schema_version=2 + max_samples==0 + model_dir/seed/gen 参数 + pending/runtime 行数严格匹配）校验，校验通过才直接复用（GPU 数无关），无需任何额外参数；32 条 debug cache、半截 val、`--max-samples N` 跑出来的不写 manifest 不会被误复用；无 manifest 的 final/rank 残留默认清掉重物化，避免旧 teacher 分片被 fingerprint 去重误用；改 prompt / keyframes 后想强制重跑 → `RUNTIME_TEACHER_REFRESH=1` 或手动 `rm -rf runtime_teacher_data/`；`check` 模式例外，默认 REFRESH=1 + 独立 `runtime_teacher_check_data/` 目录。也可由 `inspect_teacher_outputs.py --live` 做训练前预览；student 全段都算 loss（ANALYSIS body 0.3 / 起手字面 `ANALYSIS:`、段切换字面 `\nSTATUS:` / `\nSUBGOAL:`、STATUS+SUBGOAL event_name、可能进入 context 的 tail/EOS 全部 1.0；v2.0 旧版字面 mask=0 是致命陷阱，详见 PROJECT_CONTEXT.md §18.5）；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；`eval_sft_v1.py` / `probe_sft_v1.py` 自动按 jsonl 字段检测 v1/v2；`check_loss_mask_v2.py` 用于已物化 v2 jsonl 的 token 级静态 sanity）
+  （以上是统一 LoRA SFT 子包，已废弃 v1/v2 双轨与 ms-swift。`build_dataset.py` 只产 `dataset_version="pending"` jsonl（assistant 含 `__TEACHER_PENDING__` 占位）；`train.sh` → `train.py` 用 `peft.LoraConfig` + `get_peft_model` 直接把 LoRA 注入 base，torch DDP + 手写 train loop；每个 train batch 内部禁用 adapter，并调用底层 Qwen base model 现场 greedy 生成 ANALYSIS（避开 `PeftModel.generate` 的 Qwen3-VL 生成错位问题），再启用 adapter 跑 student forward + 内置 per-token 加权 loss（ANALYSIS body `SFT_ANALYSIS_WEIGHT`/默认 0.3，其余 assistant 段 1.0，prompt 段 0；旧 v2 "结构字面 mask=0" 致命陷阱不再保留）。**不再离线物化 teacher / 不再写 manifest / 不再有 runtime_teacher_data 复用**；`build_teacher.py` 仅作为可选离线 dump 工具。`eval.py` / `probe.py` 默认 `merge_and_unload`；`probe.py` 的 token loss 使用训练同款权重汇总；`check_loss_mask.py` 静态验证 train.py 内置 mask；`inspect_teacher_outputs.py` 支持 `--live` 现场重跑 teacher 抽检。详见 `SFT_PLAN.md` / `SFT_RUN.md`）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/build_dataset.py`
@@ -219,7 +215,7 @@ git add AutoMoT/qwen3vl_local/eval_carla/__init__.py AutoMoT/qwen3vl_local/eval_
 git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/prompt_pipeline.py AutoMoT/qwen3vl_local/run_log.py AutoMoT/qwen3vl_local/tb_serve.sh
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
-git add AutoMoT/qwen3vl_local/sft/__init__.py AutoMoT/qwen3vl_local/sft/SFT_PLAN.md AutoMoT/qwen3vl_local/sft/SFT_RUN.md AutoMoT/qwen3vl_local/sft/build_sft_dataset_v1.py AutoMoT/qwen3vl_local/sft/sft_v1_train.sh AutoMoT/qwen3vl_local/sft/sft_v1_loss_scale_plugin.py AutoMoT/qwen3vl_local/sft/eval_sft_v1.py AutoMoT/qwen3vl_local/sft/check_loss_mask.py AutoMoT/qwen3vl_local/sft/probe_sft_v1.py AutoMoT/qwen3vl_local/sft/build_sft_dataset_v2_teacher.py AutoMoT/qwen3vl_local/sft/sft_v2_loss_scale_plugin.py AutoMoT/qwen3vl_local/sft/sft_v2_train.sh AutoMoT/qwen3vl_local/sft/check_loss_mask_v2.py AutoMoT/qwen3vl_local/sft/inspect_teacher_outputs.py
+git add AutoMoT/qwen3vl_local/sft/__init__.py AutoMoT/qwen3vl_local/sft/SFT_PLAN.md AutoMoT/qwen3vl_local/sft/SFT_RUN.md AutoMoT/qwen3vl_local/sft/build_dataset.py AutoMoT/qwen3vl_local/sft/build_teacher.py AutoMoT/qwen3vl_local/sft/train.py AutoMoT/qwen3vl_local/sft/train.sh AutoMoT/qwen3vl_local/sft/eval.py AutoMoT/qwen3vl_local/sft/probe.py AutoMoT/qwen3vl_local/sft/check_loss_mask.py AutoMoT/qwen3vl_local/sft/inspect_teacher_outputs.py
 git add AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md AutoMoT/qwen3vl_local/goalgen/build_dataset.py AutoMoT/qwen3vl_local/goalgen/train.py AutoMoT/qwen3vl_local/goalgen/train.sh AutoMoT/qwen3vl_local/goalgen/eval.py AutoMoT/qwen3vl_local/goalgen/probe.py
 git add AutoMoT/qwen3vl_local/leadmot/__init__.py AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_PLAN.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md AutoMoT/qwen3vl_local/leadmot/build_dataset.py AutoMoT/qwen3vl_local/leadmot/train.py AutoMoT/qwen3vl_local/leadmot/train.sh AutoMoT/qwen3vl_local/leadmot/eval.py AutoMoT/qwen3vl_local/leadmot/probe.py AutoMoT/qwen3vl_local/leadmot/config.py AutoMoT/qwen3vl_local/leadmot/projectors.py AutoMoT/qwen3vl_local/leadmot/query_bank.py AutoMoT/qwen3vl_local/leadmot/heads.py AutoMoT/qwen3vl_local/leadmot/mot_block.py AutoMoT/qwen3vl_local/leadmot/decoder.py AutoMoT/qwen3vl_local/leadmot/subgoal_prompt.py
 git add AutoMoT/vae_standalone/train_patch_unpatch.py AutoMoT/vae_standalone/vae_reconstruct.py
@@ -272,7 +268,7 @@ push 前也问用户，不要替用户决定是否 push 到 main。
 
 GPU 运行入口统一规则：
 
-- SFT v1/v2、GoalGen、LeadMoT、VAE patch/unpatch 以及白名单 runner 的训练、eval、probe、teacher / 推理入口默认都要自动寻找空闲 GPU。
+- SFT、GoalGen、LeadMoT、VAE patch/unpatch 以及白名单 runner 的训练、eval、probe、teacher / 推理入口默认都要自动寻找空闲 GPU。
 - 文档示例不要写裸的 `export CUDA_VISIBLE_DEVICES=...` 选卡片段。**唯一允许的 pin 写法**：前置 `GPU_IDS=0` / `GPU_IDS=0,1,2,3`（白名单训练入口在 `GPU_IDS` 非空时跳过 nvidia-smi 选址，直接当 `CUDA_VISIBLE_DEVICES` 用）。
 - 白名单内所有 GPU 运行入口默认自动选址：单进程入口默认用 `nvidia-smi` 自动挑 1 张最空闲 GPU，并覆盖已有 mask；`torchrun --nproc_per_node=N` 入口默认自动挑 N 张最空闲 GPU，并覆盖已有 mask，再按 `LOCAL_RANK` pin 到对应可见卡。`GPU_IDS` 显式 pin 时覆盖以上自动选址，卡数从 `GPU_IDS` 逗号数推断。
 - 训练 launcher 的 `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示默认自动选址时需要 N 张卡；具体卡号默认由脚本自动挑最空闲的 N 张。`GPU_IDS` 非空时，SFT / GoalGen / LeadMoT 这类 bash launcher 的卡数从 `GPU_IDS` 推断并忽略 `DDP_GPU_COUNT`；直接 `torchrun` 的 VAE 示例仍要让 `--nproc_per_node` 与 `GPU_IDS` 数量一致。
@@ -282,10 +278,10 @@ GPU 运行入口统一规则：
 
 训练 launcher 防覆盖目录约定（详见 PROJECT_CONTEXT.md §11）：
 
-- 所有白名单训练入口（GoalGen / LeadMoT / SFT v1 / SFT v2 / VAE patch-unpatch）在用户给的 `OUTPUT_DIR`（或 `--output-dir`）下再套 `run_<RUN_TAG>/` 子目录，base 层维护 `latest` symlink，连跑同名 OUTPUT_DIR 不互相覆盖。
+- 所有白名单训练入口（GoalGen / LeadMoT / SFT / VAE patch-unpatch）在用户给的 `OUTPUT_DIR`（或 `--output-dir`）下再套 `run_<RUN_TAG>/` 子目录，base 层维护 `latest` symlink，连跑同名 OUTPUT_DIR 不互相覆盖。
 - `RUN_TAG` 默认 `$(date +%Y%m%d_%H%M%S)`，bash 段算一次再传给所有 worker；Python 入口用 rank0 strftime + `dist.broadcast_object_list` 同步。
 - `NO_RUN_SUBDIR=1` 回退到顶层覆盖式行为（vae 入口也接受同名 env，并兼容旧名 `PATCH_UNPATCH_NO_RUN_SUBDIR`），仅排查兼容性时用。
-- 共享缓存必须挂 base 层：`HF_HOME=${OUTPUT_DIR_BASE}/.hf_cache`、SFT v2 `runtime_teacher_data/`（由 manifest 严格校验复用）；不能跟着 run 子目录，否则会每次重物化。
+- 共享缓存必须挂 base 层：`HF_HOME=${OUTPUT_DIR_BASE}/.hf_cache`；不能跟着 run 子目录，否则会每次重新下载。SFT 已不再保留 `runtime_teacher_data/` 共享 cache（teacher 在 train batch 内现场跑、不写盘）。
 - 新增训练入口必须遵循同一范本。
 
 运行文档路径口径：

@@ -70,7 +70,7 @@
 | `AutoMoT/leaderboard/team_code/display_interface.py` / `AutoMoT/Automot/team_code/display_interface.py` | 按用户同意纳入白名单：AutoMoT 显示层；decision 三元组只表示 now/+1s/+2s，不要再沿用旧 3s 命名 |
 | `AutoMoT/qwen3vl_local/eval_carla/` | LeadMoT 闭环评测子包（全部白名单内）：实时 agent + 5 路视频 + 投影 overlay + scenario 反向映射 + 聚合 + Flask webapp。`agent.py` 直接复用 `LeadOfflineMoTRunner`；target_point / next_target_point 与训练同走 `max(speed*lookahead_s, 5m)` route 弧长前推，默认 tp=1.0s / ntp=2.0s；final_goal 为 route 真实终点：训练取 LEAD 采集保存的 `meta["next_target_points"][-1]` 转 ego，在线 eval_carla 取 `scenario_picker.py` 对应 route XML 最后一个 waypoint 转 ego，不能再用 `meta["route"][-1]` 或固定局部 horizon；warmup 为 LEAD 风格 left-pad 复制 frame 0 立即推理；按 ckpt `decoder_config.use_bev` 决定是否声明/读取 LiDAR/radar；ckpt `decoder_config.use_subgoal=True` 当前不支持闭环，agent.py 加载时立即 `raise NotImplementedError` 并留 `TODO(subgoal)` 接口；其余细节以 `EVAL_CARLA_PLAN.md` / `EVAL_CARLA_RUN.md` 为准。 |
 | `AutoMoT/qwen3vl_local/` | Qwen3-VL-Instruct 本地 helper 包；其中 `tb_serve.sh` 是通用 TensorBoard 启动器（SFT / GoalGen / LeadMoT / VAE 共用），`goalgen/` 子包是 §15 新路线全部模块（vae/prompt/qwen_kv/keyframes/dit/flow），`eval_carla/` 子包是上述闭环评测子包 |
-| `AutoMoT/qwen3vl_local/sft/__init__.py` / `SFT_PLAN.md` / `SFT_RUN.md` / `build_sft_dataset_v1.py` / `sft_v1_train.sh` / `sft_v1_loss_scale_plugin.py` / `eval_sft_v1.py` / `check_loss_mask.py` / `probe_sft_v1.py` / `build_sft_dataset_v2_teacher.py` / `sft_v2_loss_scale_plugin.py` / `sft_v2_train.sh` / `check_loss_mask_v2.py` / `inspect_teacher_outputs.py` | 合并后的 LoRA SFT v1/v2 子包：`SFT_PLAN.md` / `SFT_RUN.md` 是统一设计与运行入口；`build_sft_dataset_v1.py` 同时承载 v1/v2 两个 `--mode`；v2 的 frozen Qwen teacher 由 `sft_v2_train.sh` 首次训练时物化到 base 层 `runtime_teacher_data/` 并用 manifest 严格复用，`check` 模式默认写独立 `runtime_teacher_check_data/`；student 全段 loss 规则、teacher cache 规则与 sanity 入口详见 `SFT_PLAN.md` / `SFT_RUN.md`；`AutoMoT/tools/` 下其它原始脚本仍为只读参考 |
+| `AutoMoT/qwen3vl_local/sft/__init__.py` / `SFT_PLAN.md` / `SFT_RUN.md` / `build_dataset.py` / `build_teacher.py` / `train.py` / `train.sh` / `eval.py` / `probe.py` / `check_loss_mask.py` / `inspect_teacher_outputs.py` | 统一 LoRA SFT 子包（已废弃 v1/v2 双轨与 ms-swift）：`SFT_PLAN.md` / `SFT_RUN.md` 是设计与运行入口；`build_dataset.py` 只产 `dataset_version="pending"` jsonl（assistant 含 `__TEACHER_PENDING__` 占位）；`train.sh` → `train.py` 用 `peft.LoraConfig` + `get_peft_model` 直接把 LoRA 注入 base，torch DDP + 手写 train loop，每个 train batch 内禁用 adapter，并调用底层 Qwen base model 现场 greedy 生成 ANALYSIS 真值（避开 `PeftModel.generate` 的 Qwen3-VL 生成错位问题），再启用 adapter 跑 student forward + per-token 加权 loss（ANALYSIS body `SFT_ANALYSIS_WEIGHT`/默认 0.3，其余 assistant 段 1.0，prompt 段 0）。**不再离线物化 teacher、不再写 manifest、不再有 runtime_teacher_data 复用机制**；`build_teacher.py` 仅作为可选离线 dump 工具，不被训练入口自动调用。`eval.py` / `probe.py` 默认 `merge_and_unload` 加载 LoRA；`probe.py` 的 token loss 使用训练同款权重汇总；`check_loss_mask.py` 验 train.py 内置 mask；`inspect_teacher_outputs.py` 支持 `--live` 现场重跑 teacher 抽检 |
 | `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md` / `GOALGEN_RUN.md` | 子目标 latent 生成路线 v1/v2 共用设计与操作手册（与 goalgen 子包代码同目录） |
 | `AutoMoT/qwen3vl_local/goalgen/build_dataset.py` / `train.py` / `train.sh` / `eval.py` / `probe.py` | GoalGen v1/v2 共用数据集构建 + 训练入口（DDP / 单卡 / check 三模式）+ 离线 eval（latent / pixel / velocity + PNG + TB scalar/image，支持 torchrun 分片）+ `probe.py` 随机场景 case-level dump；训练默认必须导入 `AutoMoT/checkpoints/patch_unpatch_v1/latest/weights/patch_unpatch_best.safetensors`（再兜底无 run_subdir 与最新 `run_*`）并冻结，找不到直接报错，不再随机初始化 patch/unpatch |
 | `AutoMoT/qwen3vl_local/leadmot/` 子包（含 v1 训练/eval/probe 文件 + `subgoal_prompt.py`） | LEAD-MoT 快推理 decoder：route(B,10,2) + waypoint(B,8,2)，Linear+cumsum head；gen 路独立 12 层 + frozen Qwen prefix K/V attention（不过 Linear）；hidden=1024=8×128 对齐 Qwen K/V 子空间；status 按 AutoMoT velocity MLP + 共享 WaypointInputAdaptor；block 用 Qwen3 风格 RMSNorm + q/k_norm + SwiGLU；gen Q/K 按 `input_len + rope_deltas` 加 1D RoPE，language K/V 已由 Qwen prefill 带 M-RoPE 不重复旋转。v1 训练入口只训练 decoder，冻结 Qwen3-VL-Instruct 与 LeadBEVEncoder；GT 包含 route / future_waypoints 两类 ego-frame 累计点，head 内 Linear+cumsum 后直接对绝对点算 loss；`eval.py` 汇总 loss/ADE/FDE，`probe.py` 随机 case-level dump 预测与 GT 对比图。runner 必须用 `LocalQwen3VLInstructEngine` 单独跑 frozen Qwen prefill，只接受同源 HF `past_key_values`；**不能复用 AutoMoT InterleaveInferencer 的 `gen_context`**，也不保留 AutoMoT legacy slow/fast 接口；`--leadmot-ckpt` 显式加载 decoder 权重，先读 checkpoint 的 `decoder_config.use_bev` 再实例化 decoder，并 `strict=True` 加载：`use_bev=True` 必须导入已有 BEV projector 参数，`use_bev=False` 则完全不实例化 / 不 forward BEV，禁止混入随机 BEV；不传 ckpt 仅作为随机初始化链路调试。**`use_subgoal`（离线专用）**：与 `use_bev` 正交的 prefix-only 开关，开启时 build_dataset `--with-subgoal-fields` 反查 `keyframes_all_scenarios.json` 写入 scenario/run_id/status/subgoal/subgoal_frame/subgoal_rgb_path/subgoal_lookup_ok 字段；训练/eval/probe 通过 `LeadMoTTrainRuntime._run_subgoal_qwen_prefill` 在 prefix 多喂 1 张 SUBGOAL stitched RGB + `[GROUND_TRUTH_STATE]` 文本块（system/user prompt 由 `leadmot/subgoal_prompt.py` 提供），prompt 内仍保留原 navigation 文本以维持 tp/ntp/final_goal 对齐；ckpt 里 `decoder_config.use_subgoal` 与训练 args 必须严格一致，cross-load 由 `_require_subgoal_match` 拒绝；state_dict 形状不受影响（subgoal 不引入新模块），但 prefix KV 分布不兼容；`mot_lead_offline_runner.py` 会按 ckpt 自动走 subgoal prefill 并要求 clip 注入 subgoal 字段，CLI demo 可通过 `--keyframes` 自动反查；eval_carla 在线 agent 暂不支持该开关，加载 use_subgoal=True ckpt 时立即 `raise NotImplementedError`。详见 `leadmot/ARCHITECTURE.md`、`leadmot/LEADMOT_PLAN.md` 与 `PROJECT_CONTEXT.md` |
@@ -169,16 +169,13 @@
 - `AutoMoT/qwen3vl_local/sft/__init__.py`
 - `AutoMoT/qwen3vl_local/sft/SFT_PLAN.md`
 - `AutoMoT/qwen3vl_local/sft/SFT_RUN.md`
-- `AutoMoT/qwen3vl_local/sft/build_sft_dataset_v1.py`
-- `AutoMoT/qwen3vl_local/sft/sft_v1_train.sh`
-- `AutoMoT/qwen3vl_local/sft/sft_v1_loss_scale_plugin.py`
-- `AutoMoT/qwen3vl_local/sft/eval_sft_v1.py`
-- `AutoMoT/qwen3vl_local/sft/probe_sft_v1.py`
+- `AutoMoT/qwen3vl_local/sft/build_dataset.py`
+- `AutoMoT/qwen3vl_local/sft/build_teacher.py`
+- `AutoMoT/qwen3vl_local/sft/train.py`
+- `AutoMoT/qwen3vl_local/sft/train.sh`
+- `AutoMoT/qwen3vl_local/sft/eval.py`
+- `AutoMoT/qwen3vl_local/sft/probe.py`
 - `AutoMoT/qwen3vl_local/sft/check_loss_mask.py`
-- `AutoMoT/qwen3vl_local/sft/build_sft_dataset_v2_teacher.py`
-- `AutoMoT/qwen3vl_local/sft/sft_v2_loss_scale_plugin.py`
-- `AutoMoT/qwen3vl_local/sft/sft_v2_train.sh`
-- `AutoMoT/qwen3vl_local/sft/check_loss_mask_v2.py`
 - `AutoMoT/qwen3vl_local/sft/inspect_teacher_outputs.py`
 
 ### 硬性规则
@@ -236,7 +233,7 @@ git push
 - **不要替用户决定是否 push**——commit 可以自己做，push 之前问一下
   （push 一旦发到 main，外部可见，难撤回）
 - **不要在运行文档里直接写 `CUDA_VISIBLE_DEVICES=...` 这种裸 shell 选卡片段**。
-  SFT v1/v2、GoalGen、LeadMoT、VAE patch/unpatch 以及白名单 runner 的训练、eval、probe、teacher / 推理
+  SFT、GoalGen、LeadMoT、VAE patch/unpatch 以及白名单 runner 的训练、eval、probe、teacher / 推理
   入口默认都自动寻找空闲 GPU，并覆盖已有 mask。
   唯一允许的 pin 写法：`GPU_IDS=0` / `GPU_IDS=0,1,2,3` 前置环境变量（白名单训练入口在
   `GPU_IDS` 非空时跳过 nvidia-smi 自动选址，直接用给定卡号）。
@@ -261,8 +258,9 @@ git push
   具体 GPU id 仍由 `nvidia-smi` 自动挑空闲卡，并为每张卡分配独立 CARLA 端口槽。
 - 写或改训练 launcher 时，保持**防覆盖目录约定**一致（详见 PROJECT_CONTEXT.md §11）：
   在用户给的 `OUTPUT_DIR` 下再套 `run_<RUN_TAG>/` 子目录（`RUN_TAG` 默认时间戳，bash 段算一次），
-  base 层维护 `latest` symlink，`NO_RUN_SUBDIR=1` 回退；共享缓存（`HF_HOME`、SFT v2
-  `runtime_teacher_data/`）必须钉在 base 层、不进 run 子目录，避免每次重物化。
+  base 层维护 `latest` symlink，`NO_RUN_SUBDIR=1` 回退；共享缓存（`HF_HOME`）必须钉在 base 层、
+  不进 run 子目录，避免每次重新下载。SFT 不再有 runtime_teacher_data 共享 cache（teacher 在
+  train batch 内现场跑、不写盘）。
 - 写或改运行文档时，默认当前目录就是远端 `AutoMoT/`。命令示例统一写相对
   `AutoMoT/` 的路径，例如 `bash qwen3vl_local/...`、`python qwen3vl_local/...`、
   `leaderboard/...`、`checkpoints/...`；不要额外写切目录步骤，也不要给
