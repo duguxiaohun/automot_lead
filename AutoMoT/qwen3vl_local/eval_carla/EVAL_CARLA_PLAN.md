@@ -120,19 +120,48 @@ keyframe RGB，agent 在 `__init__` 探测到 `runner.leadmot_config.use_subgoal
 ${EVAL_OUTPUT_BASE}/closed_loop_eval/
   <ckpt_parent>__<ckpt_stem>__bev{0|1}__ema{0|1}/       ← signature，由 ckpt 自动命名
     config.json                                          ← 模型 + 传感器 + env 设定
-    eval_per_route/eval_<route_id>.json                  ← leaderboard 原始结果（共享）
+    eval_per_route/eval_<route_id>.json                  ← leaderboard 原始结果（共享，断点续跑判据来源）
     route<route_id>/                                      ← 单 route 输出（共享，断点续跑）
       {input,debug,bev_debug,demo,grid}.mp4
       meta/<step>.json                                    ← 每 4Hz 推理 tick 的 pred + 输入统计（speed/tp/ntp/final_goal）
     runs/<RUN_LABEL>/                                     ← 本次启动的聚合（按跑法隔离）
       log.txt                                             ← 本次终端 stdout/stderr 追加日志
       scenarios/<Scenario>/summary.json
-      run_manifest.json                                    ← 本批 route_id + 启动/完成参数 + 失败 route
+      run_manifest.json                                    ← 本批 route_id（picker 全集）+ resume_done/cleaned/to_run 拆分 + 启动/完成参数 + 失败 route
       summary_all.json                                     ← 机器可读总聚合（含 route/scenario 明细）
       summary_report.md                                    ← 人类可读实验总结 + 指标解释
       scenario_table.csv                                   ← scenario 级论文表格友好汇总
       route_results.csv                                    ← route 级状态/分数/违规明细
 ```
+
+### 4.x 断点续跑（默认开启）
+
+`run_eval.sh` 在 picker 出待跑 route 列表后、worker 启动前，**串行扫一次
+`eval_per_route/`**，按"中判据"判定每条 route 是否已完成：
+
+| 判据 | 行为 |
+|---|---|
+| `eval_<id>.json` 解析成功 + record.status ∈ {Completed, Perfect, Failed - ...} + scores.score_composed 是数字 | 视为已完成，跳过，不下发给 worker |
+| 文件存在但解析失败 / 缺 status / 缺 score | **删 `eval_<id>.json` + `eval_latest_<id>.json` + 整个 `route<id>/`**（视频 + meta 一起清掉），加入待跑队列 |
+| 文件不存在 | 加入待跑队列；若发现 `eval_latest_<id>.json` 或 `route<id>/` 残留，也一并清掉 |
+
+leaderboard `Failed - Agent crashed` / `Failed - Simulation crashed` 等 `Failed`
+前缀也算"已给出结论"，不重跑。半截 JSON 通常缺 `status` 或 `scores`，会被强制重跑。
+
+启动 banner 打印 `Picker routes / already done / partial cleaned / to run` 四行
+数字；worker 每完成一条本次下发的 route，主进程通过 `WORK_LOG_DIR` 下 mkdir 锁原子
+自增 counter，输出 `[done k/Y] route_id=... status=...`，其中 `Y=to_run`。
+
+`run_manifest.json` 字段：
+
+- `route_ids` / `total_routes` — picker 全集（planned 语义，aggregate coverage 用）
+- `resume_enabled` / `resume_done_count` / `resume_done_routes` / `resume_cleaned_count` / `resume_cleaned_routes`
+- `to_run_count` / `to_run_routes` — 本次实际下发给 worker 的待跑子集
+- `attempted_count` / `failed_routes` — worker 跑完写回，与原行为一致
+
+`--no-resume` 关掉跳过逻辑，并先清掉 picker 范围内已有的
+`eval_<id>.json` / `eval_latest_<id>.json` / `route<id>/`，再把整张 picker 列表
+强制下发给 worker 重跑。启动 banner 中 `forced cleaned` 会显示被清理过旧产物的 route 数。
 
 ### 4.1 signature 命名规则
 
@@ -172,6 +201,11 @@ route 视频 + leaderboard json 仍共享 signature 根，**只有聚合结果�
 ffmpeg 压缩：input/demo/grid crf=18 preset=slow；bev_debug crf=22 preset=slow；
 debug crf=28 preset=slower。路线结束时 `destroy()` 触发 release + 压缩。
 
+`--minimal-videos` 等价 `--no-debug --no-demo --no-grid`，只保留 `input.mp4` 和
+`bev_debug.mp4`；跑 220 路全量时强烈推荐，可省下 demo carla camera spawn、grid
+拼接和 debug 投影 overlay 的开销，磁盘占用也明显降低。`--no-input` / `--no-bev-debug`
+仍可单独传，与 `--minimal-videos` 叠加可只录其一。
+
 ---
 
 ## 5.x CARLA 启动与端口分配
@@ -183,6 +217,7 @@ debug crf=28 preset=slower。路线结束时 `destroy()` 触发 release + 压缩
 | 项 | 实现 |
 |---|---|
 | 端口 | launcher 从 `PORT_BASE_START=5000` 开始按 `PORT_STRIDE=20` 扫描；要求 `[p, p+1, p+2, p+3, p+8000]` 都空闲，避免 evaluator 再改端口 |
+| GPU 选址 | 默认 `nvidia-smi` 按显存占用从低到高挑 `--num-gpus` / `EVAL_GPU_COUNT` 张空闲卡；`GPU_IDS=0,1,2,3` env 非空时跳过自动选址直接 pin，`GPU_COUNT` 强制取 `GPU_IDS` 数量（与项目 SFT / GoalGen / LeadMoT / VAE 训练入口规则一致） |
 | GPU 绑定 | `run_evaluation.sh` 以 `CUDA_VISIBLE_DEVICES=$gpu_rank` 启动 `leaderboard_evaluator.py`，evaluator 再启动 CARLA；模型和 CARLA 落在同一张物理卡 |
 | CARLA 启动 | `leaderboard_evaluator.py` 调 `CarlaUE4.sh -RenderOffScreen -nosound -carla-rpc-port=<p> -carla-streaming-port=<p+1>` |
 | TrafficManager | launcher 传入 `tm_port=p+8000`；evaluator 仍会做一次可用性检查 |

@@ -22,7 +22,15 @@
 #
 #   --no-input / --no-debug / --no-demo / --no-grid   关掉对应视频
 #   --no-bev-debug             关掉 BEV 顶视 debug 视频
+#   --minimal-videos           等价 --no-debug --no-demo --no-grid（只保留 input + bev_debug）
 #   --no-aggregate             跑完不自动聚合
+#
+# 断点续跑（默认开启）：
+#   - 开跑前扫描 eval_per_route/eval_<id>.json：status + score_composed 完整 → 跳过
+#   - 半截 / 解析失败 / 无 status / 无 score → 删 eval/eval_latest + route<id>/ 重跑
+#   - banner 打印 done / partial_cleaned / to_run 三个计数
+#   - 每条 route 完成后用 mkdir-lock 原子自增计数，输出 [done k/Y] 进度
+#   --no-resume                关闭断点续跑：清掉 picker 范围旧结果，整张列表强制重跑
 #
 # CARLA 启动：
 #   - launcher 负责给每个 worker 扫描一个空闲端口起点
@@ -77,6 +85,9 @@ RECORD_INPUT="1"; RECORD_DEBUG="1"; RECORD_DEMO="1"; RECORD_GRID="1"
 RECORD_BEV_DEBUG="1"
 DO_AGGREGATE="1"
 RUN_LABEL_OVERRIDE=""
+# 默认开启断点续跑：扫已有 eval_<id>.json 的 status/score 完整性，
+# 完整的 skip、半截的删 + 重跑。--no-resume 清掉 picker 范围旧结果后强制全跑。
+DO_RESUME="1"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -95,6 +106,10 @@ while [ $# -gt 0 ]; do
         --no-demo)    RECORD_DEMO="0"; shift ;;
         --no-grid)    RECORD_GRID="0"; shift ;;
         --no-bev-debug) RECORD_BEV_DEBUG="0"; shift ;;
+        --minimal-videos)
+            # 全量跑场景默认推荐：只保留 input + bev_debug，省 ffmpeg / 磁盘
+            RECORD_DEBUG="0"; RECORD_DEMO="0"; RECORD_GRID="0"; shift ;;
+        --no-resume) DO_RESUME="0"; shift ;;
         --no-aggregate) DO_AGGREGATE="0"; shift ;;
         --run-label) RUN_LABEL_OVERRIDE="$2"; shift 2 ;;
         --no-auto-carla) PRESTART_CARLA="0"; shift ;;
@@ -184,10 +199,33 @@ if [ -z "${CARLA_ROOT:-}" ]; then
     say_early "Auto-detected CARLA_ROOT=${CARLA_ROOT}"
 fi
 
-# -------------------- GPU 自动选址（项目统一规则） --------------------
+# -------------------- GPU 选址（项目统一规则） --------------------
+# 默认走 nvidia-smi 按显存占用从低到高自动挑 GPU_COUNT 张空闲卡。
+# 用户显式 pin 卡的方式（与 SFT / GoalGen / LeadMoT / VAE 训练入口一致）：
+#   GPU_IDS=0 bash run_eval.sh ...                 单卡
+#   GPU_IDS=0,1,2,3 bash run_eval.sh ...           4 卡指定
+#   GPU_IDS=2,5 EVAL_GPU_COUNT=2 bash run_eval.sh  显式 2 个 worker 用卡 2 和 5
+# GPU_IDS 非空时跳过 nvidia-smi 自动选址；GPU_COUNT 强制取 GPU_IDS 数量
+# （与 --num-gpus / EVAL_GPU_COUNT 不一致会 warn 后以 GPU_IDS 为准）。
+GPU_IDS_ENV="${GPU_IDS:-}"
 unset CUDA_VISIBLE_DEVICES
 GPU_IDS=()
-if command -v nvidia-smi >/dev/null 2>&1; then
+if [ -n "${GPU_IDS_ENV}" ]; then
+    # 接受逗号或空格分隔的 GPU id 序列：'0,1,2,3' / '0 1 2 3' 都行
+    IFS=', ' read -r -a GPU_IDS <<< "${GPU_IDS_ENV}"
+    for gid in "${GPU_IDS[@]}"; do
+        if ! [[ "${gid}" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: GPU_IDS contains invalid token '${gid}'; expected comma-separated GPU indices like 0,1,2,3"
+            exit 1
+        fi
+    done
+    if [ "${#GPU_IDS[@]}" -ne "${GPU_COUNT}" ]; then
+        # 不一致时尊重显式给出的 GPU_IDS（用户更可能改 GPU_IDS 来选卡，--num-gpus 留旧值）
+        say_early "Note: --num-gpus=${GPU_COUNT} overridden by GPU_IDS=${GPU_IDS_ENV} (count=${#GPU_IDS[@]})"
+        GPU_COUNT="${#GPU_IDS[@]}"
+    fi
+    say_early "GPU pinned by user: GPU_IDS=${GPU_IDS[*]} (workers=${GPU_COUNT})"
+elif command -v nvidia-smi >/dev/null 2>&1; then
     # 按显存占用从低到高排序，取前 GPU_COUNT 张。这里取的是物理 GPU id，
     # 后续 run_evaluation.sh 会把它同时用于 CUDA_VISIBLE_DEVICES 和 CARLA graphicsadapter。
     mapfile -t GPU_IDS < <(
@@ -195,6 +233,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
             | sort -t ',' -k2 -n \
             | awk -F ',' -v n="${GPU_COUNT}" 'NR<=n {gsub(/ /, "", $1); print $1}'
     )
+    say_early "Auto-selected GPU ids: ${GPU_IDS[*]} (workers=${GPU_COUNT})"
 else
     say_early "WARN: nvidia-smi not found; falling back to GPU ids 0..$((GPU_COUNT - 1))"
     for ((i=0; i<GPU_COUNT; i++)); do GPU_IDS+=("${i}"); done
@@ -212,7 +251,6 @@ if [ "${SINGLE_TEST}" = "1" ] && [ "${GPU_COUNT}" -gt 1 ]; then
     GPU_COUNT="1"
     GPU_IDS=("${GPU_IDS[0]}")
 fi
-say_early "Auto-selected GPU ids: ${GPU_IDS[*]} (workers=${GPU_COUNT})"
 
 PORT_BASE_START="${PORT_BASE_START:-5000}"
 PORT_STRIDE="${PORT_STRIDE:-20}"
@@ -304,9 +342,9 @@ if [ -n "${RANDOM_N}" ]; then
     PICKER_ARGS+=(--random "${RANDOM_N}" --seed "${RANDOM_SEED}")
 fi
 
-mapfile -t ROUTE_IDS < <(python3 "${PICKER}" "${PICKER_ARGS[@]}")
-TOTAL=${#ROUTE_IDS[@]}
-if [ "${TOTAL}" -eq 0 ]; then
+mapfile -t ROUTE_IDS_FULL < <(python3 "${PICKER}" "${PICKER_ARGS[@]}")
+PICKER_TOTAL=${#ROUTE_IDS_FULL[@]}
+if [ "${PICKER_TOTAL}" -eq 0 ]; then
     # 早退也清理 EARLY_LOG 临时文件，避免 /tmp 残留。
     if [ -n "${EARLY_LOG}" ] && [ -f "${EARLY_LOG}" ]; then
         rm -f "${EARLY_LOG}"
@@ -314,6 +352,188 @@ if [ "${TOTAL}" -eq 0 ]; then
     echo "No route IDs to evaluate (after filters). Exit."
     exit 0
 fi
+if [ "${SINGLE_TEST}" = "1" ] && [ "${PICKER_TOTAL}" -gt 1 ]; then
+    # 烟雾测试语义固定为 picker 第一条 route；resume 也只围绕这一条判断，不滚到第二条。
+    ROUTE_IDS_FULL=("${ROUTE_IDS_FULL[0]}")
+    PICKER_TOTAL=1
+fi
+
+# -------------------- 断点续跑扫描 --------------------
+# 扫 PER_ROUTE_DIR/eval_<id>.json：
+#   - status 是 leaderboard 终态(Completed/Perfect/Failed-...) + score_composed 非空 → 完整，跳过
+#   - 文件存在但不完整(半截 / 解析失败 / 缺字段) → 删 eval/eval_latest + 整个 route<id>/ 目录，加入待跑
+#   - 文件不存在 → 加入待跑；若 route<id>/ 或 eval_latest 残留，也清掉避免混旧视频/旧 checkpoint
+# 把 ROUTE_IDS 替换为 to-run 子集；ROUTE_IDS_FULL 保留 picker 全集供 manifest 落 planned。
+RESUME_DONE_COUNT=0
+RESUME_CLEANED_COUNT=0
+RESUME_CLEANED_IDS_STR=""
+RESUME_DONE_IDS_STR=""
+if [ "${DO_RESUME}" = "1" ]; then
+    RESUME_OUT=$(
+        PER_ROUTE_DIR="${PER_ROUTE_DIR}" \
+        SIG_DIR="${SIG_DIR}" \
+        ROUTE_IDS_STR="${ROUTE_IDS_FULL[*]}" \
+        python3 - <<'PY'
+import json, os, pathlib, re, shutil, sys
+
+per_route_dir = pathlib.Path(os.environ["PER_ROUTE_DIR"])
+sig_dir = pathlib.Path(os.environ["SIG_DIR"])
+all_ids = [int(x) for x in os.environ.get("ROUTE_IDS_STR", "").split() if x]
+
+
+def _route_id_from_record(record):
+    """leaderboard record 里的 route_id 可能是 int 或 'RouteScenario_1711' 这种字符串。"""
+    v = record.get("route_id")
+    if isinstance(v, int):
+        return v
+    if isinstance(v, str):
+        m = re.search(r"\d+", v)
+        if m:
+            return int(m.group(0))
+    return None
+
+
+def is_complete(json_path: pathlib.Path, route_id: int) -> bool:
+    """中判据：JSON 可解析 + 找到 route 对应 record + status 是终态 + score_composed 非空。
+
+    leaderboard 半途崩溃留下的半截文件通常缺少 status 或 scores 字段，会被这里判为
+    不完整、强制重跑。Status 白名单允许 'Failed - ...'：模型本身就是跑挂的场景
+    （撞车 / 卡死）也是 leaderboard 正式给出的结论，不重跑。
+    """
+    if not json_path.is_file():
+        return False
+    try:
+        data = json.loads(json_path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return False
+    records = data.get("_checkpoint", {}).get("records", [])
+    rec = None
+    if isinstance(records, list):
+        for r in records:
+            if isinstance(r, dict) and _route_id_from_record(r) == route_id:
+                rec = r
+                break
+        if rec is None and len(records) == 1 and isinstance(records[0], dict):
+            rec = records[0]
+    if not isinstance(rec, dict):
+        return False
+    status = rec.get("status")
+    if not (isinstance(status, str) and status.strip()):
+        return False
+    if not (status in ("Completed", "Perfect") or status.startswith("Failed")):
+        return False
+    scores = rec.get("scores", {})
+    if not isinstance(scores, dict):
+        return False
+    sc = scores.get("score_composed")
+    if not isinstance(sc, (int, float)):
+        return False
+    return True
+
+
+done_ids, cleaned_ids, todo_ids = [], [], []
+for rid in all_ids:
+    jp = per_route_dir / f"eval_{rid}.json"
+    latest = per_route_dir / f"eval_latest_{rid}.json"
+    route_dir = sig_dir / f"route{rid}"
+    if is_complete(jp, rid):
+        done_ids.append(rid)
+        continue
+
+    # 待跑 route 先清干净：坏 eval、旧 eval_latest、半截视频/meta 都不能混进新结果。
+    cleaned = False
+    if jp.is_file():
+        try:
+            jp.unlink()
+            cleaned = True
+        except Exception as e:
+            print(f"[resume] WARN: failed to remove {jp}: {e}", file=sys.stderr)
+    if latest.is_file():
+        try:
+            latest.unlink()
+            cleaned = True
+        except Exception as e:
+            print(f"[resume] WARN: failed to remove {latest}: {e}", file=sys.stderr)
+    if route_dir.is_dir():
+        try:
+            shutil.rmtree(route_dir)
+            cleaned = True
+        except Exception as e:
+            print(f"[resume] WARN: failed to rmtree {route_dir}: {e}", file=sys.stderr)
+    if cleaned:
+        cleaned_ids.append(rid)
+    todo_ids.append(rid)
+
+print(f"DONE={len(done_ids)}")
+print(f"CLEANED={len(cleaned_ids)}")
+print(f"TO_RUN={len(todo_ids)}")
+print("IDS=" + " ".join(str(x) for x in todo_ids))
+print("DONE_IDS=" + " ".join(str(x) for x in done_ids))
+print("CLEANED_IDS=" + " ".join(str(x) for x in cleaned_ids))
+PY
+    ) || { echo "ERROR: resume scan failed" >&2; exit 1; }
+
+    RESUME_DONE_COUNT=$(printf "%s\n" "${RESUME_OUT}" | sed -n 's/^DONE=//p')
+    RESUME_CLEANED_COUNT=$(printf "%s\n" "${RESUME_OUT}" | sed -n 's/^CLEANED=//p')
+    RESUME_TO_RUN_COUNT=$(printf "%s\n" "${RESUME_OUT}" | sed -n 's/^TO_RUN=//p')
+    TODO_IDS_STR=$(printf "%s\n" "${RESUME_OUT}" | sed -n 's/^IDS=//p')
+    RESUME_DONE_IDS_STR=$(printf "%s\n" "${RESUME_OUT}" | sed -n 's/^DONE_IDS=//p')
+    RESUME_CLEANED_IDS_STR=$(printf "%s\n" "${RESUME_OUT}" | sed -n 's/^CLEANED_IDS=//p')
+
+    say_early "Resume scan: picker=${PICKER_TOTAL} | done=${RESUME_DONE_COUNT} | partial_cleaned=${RESUME_CLEANED_COUNT} | to_run=${RESUME_TO_RUN_COUNT}"
+    if [ -n "${RESUME_CLEANED_IDS_STR}" ]; then
+        say_early "Resume scan: cleaned route ids: ${RESUME_CLEANED_IDS_STR}"
+    fi
+
+    if [ -z "${TODO_IDS_STR}" ]; then
+        ROUTE_IDS=()
+    else
+        # 用 read -a 把空格分隔的 id 串拆成数组
+        IFS=' ' read -r -a ROUTE_IDS <<< "${TODO_IDS_STR}"
+    fi
+else
+    # 关闭断点续跑：picker 全集旧结果先清掉，再直接当 to-run，保证是真正强制重跑。
+    CLEAN_OUT=$(
+        PER_ROUTE_DIR="${PER_ROUTE_DIR}" \
+        SIG_DIR="${SIG_DIR}" \
+        ROUTE_IDS_STR="${ROUTE_IDS_FULL[*]}" \
+        python3 - <<'PY'
+import os, pathlib, shutil, sys
+
+per_route_dir = pathlib.Path(os.environ["PER_ROUTE_DIR"])
+sig_dir = pathlib.Path(os.environ["SIG_DIR"])
+all_ids = [int(x) for x in os.environ.get("ROUTE_IDS_STR", "").split() if x]
+cleaned_ids = []
+
+for rid in all_ids:
+    cleaned = False
+    for path in (per_route_dir / f"eval_{rid}.json", per_route_dir / f"eval_latest_{rid}.json"):
+        if path.is_file():
+            try:
+                path.unlink()
+                cleaned = True
+            except Exception as e:
+                print(f"[no-resume] WARN: failed to remove {path}: {e}", file=sys.stderr)
+    route_dir = sig_dir / f"route{rid}"
+    if route_dir.is_dir():
+        try:
+            shutil.rmtree(route_dir)
+            cleaned = True
+        except Exception as e:
+            print(f"[no-resume] WARN: failed to rmtree {route_dir}: {e}", file=sys.stderr)
+    if cleaned:
+        cleaned_ids.append(rid)
+
+print(f"CLEANED={len(cleaned_ids)}")
+print("CLEANED_IDS=" + " ".join(str(x) for x in cleaned_ids))
+PY
+    ) || { echo "ERROR: --no-resume cleanup failed" >&2; exit 1; }
+    RESUME_CLEANED_COUNT=$(printf "%s\n" "${CLEAN_OUT}" | sed -n 's/^CLEANED=//p')
+    RESUME_CLEANED_IDS_STR=$(printf "%s\n" "${CLEAN_OUT}" | sed -n 's/^CLEANED_IDS=//p')
+    ROUTE_IDS=("${ROUTE_IDS_FULL[@]}")
+    say_early "Resume scan disabled (--no-resume); cleaned=${RESUME_CLEANED_COUNT}; will (re)run all ${PICKER_TOTAL} routes"
+fi
+TOTAL=${#ROUTE_IDS[@]}
 
 # -------------------- 计算 RUN_LABEL --------------------
 # 按跑法语义自动生成本批次目录名，让 random/scenario/full 的聚合互不污染。
@@ -322,7 +542,8 @@ fi
 if [ -n "${RUN_LABEL_OVERRIDE}" ]; then
     RUN_LABEL="${RUN_LABEL_OVERRIDE}"
 elif [ "${SINGLE_TEST}" = "1" ]; then
-    RUN_LABEL="smoke_${ROUTE_IDS[0]}"
+    # resume 可能把 to-run 清空；run label 仍按 picker 第一条命名，避免 set -u 空数组崩溃。
+    RUN_LABEL="smoke_${ROUTE_IDS_FULL[0]}"
 else
     parts=()
     if [ ${#SCENARIOS[@]} -gt 0 ]; then
@@ -374,9 +595,12 @@ fi
 
 # 写 run_manifest.json：让后续 aggregate / webapp 能精确知道这次跑了哪些 route_id。
 # 用环境变量传递所有数组/字符串，避免 set -u 下空数组展开 unbound variable。
+# manifest.route_ids / total_routes 用 picker 全集（planned 语义），to_run_count 单列
+# 表示本次实际下发给 worker 跑的数量；这样 aggregate 的 coverage 仍按全量计算。
 SCENARIOS_STR="${SCENARIOS[*]:-}"
 ROUTE_IDS_ARG_STR="${ROUTE_IDS_ARG[*]:-}"
-ROUTE_IDS_STR="${ROUTE_IDS[*]:-}"
+ROUTE_IDS_STR="${ROUTE_IDS_FULL[*]:-}"
+TO_RUN_IDS_STR="${ROUTE_IDS[*]:-}"
 GPU_IDS_STR="${GPU_IDS[*]:-}"
 RUN_LABEL="${RUN_LABEL}" \
 RUN_DIR="${RUN_DIR}" \
@@ -389,7 +613,14 @@ ROUTE_IDS_ARG_STR="${ROUTE_IDS_ARG_STR}" \
 RANDOM_N="${RANDOM_N:-}" \
 RANDOM_SEED="${RANDOM_SEED}" \
 ROUTE_IDS_STR="${ROUTE_IDS_STR}" \
+TO_RUN_IDS_STR="${TO_RUN_IDS_STR}" \
+PICKER_TOTAL="${PICKER_TOTAL}" \
 TOTAL="${TOTAL}" \
+DO_RESUME="${DO_RESUME}" \
+RESUME_DONE_COUNT="${RESUME_DONE_COUNT}" \
+RESUME_CLEANED_COUNT="${RESUME_CLEANED_COUNT}" \
+RESUME_DONE_IDS_STR="${RESUME_DONE_IDS_STR}" \
+RESUME_CLEANED_IDS_STR="${RESUME_CLEANED_IDS_STR}" \
 RECORD_INPUT="${RECORD_INPUT}" \
 RECORD_DEBUG="${RECORD_DEBUG}" \
 RECORD_BEV_DEBUG="${RECORD_BEV_DEBUG}" \
@@ -416,8 +647,16 @@ manifest = {
     "route_ids_filter": _strlist(os.environ.get("ROUTE_IDS_ARG_STR", "")),
     "random_n": int(os.environ["RANDOM_N"]) if os.environ.get("RANDOM_N") else 0,
     "random_seed": int(os.environ.get("RANDOM_SEED", "0") or "0"),
+    # route_ids / total_routes 是 picker 全集（planned）；resume 字段记录拆分情况
     "route_ids": _intlist(os.environ.get("ROUTE_IDS_STR", "")),
-    "total_routes": int(os.environ.get("TOTAL", "0") or "0"),
+    "total_routes": int(os.environ.get("PICKER_TOTAL", "0") or "0"),
+    "resume_enabled": int(os.environ.get("DO_RESUME", "1") or "0"),
+    "resume_done_count": int(os.environ.get("RESUME_DONE_COUNT", "0") or "0"),
+    "resume_done_routes": _intlist(os.environ.get("RESUME_DONE_IDS_STR", "")),
+    "resume_cleaned_count": int(os.environ.get("RESUME_CLEANED_COUNT", "0") or "0"),
+    "resume_cleaned_routes": _intlist(os.environ.get("RESUME_CLEANED_IDS_STR", "")),
+    "to_run_count": int(os.environ.get("TOTAL", "0") or "0"),
+    "to_run_routes": _intlist(os.environ.get("TO_RUN_IDS_STR", "")),
     "record": {
         "input": bool(int(os.environ["RECORD_INPUT"])),
         "debug": bool(int(os.environ["RECORD_DEBUG"])),
@@ -442,7 +681,17 @@ ROUTES="${LEADERBOARD_DIR}/data/bench2drive220.xml"
 TM_SEED="${TM_SEED:-3407}"
 
 echo "=========================================="
-echo "Total routes    : ${TOTAL}"
+echo "Picker routes   : ${PICKER_TOTAL}"
+if [ "${DO_RESUME}" = "1" ]; then
+    echo "Resume          : enabled"
+    echo "  already done  : ${RESUME_DONE_COUNT}"
+    echo "  partial cleaned: ${RESUME_CLEANED_COUNT}"
+    echo "  to run        : ${TOTAL}"
+else
+    echo "Resume          : disabled (--no-resume)"
+    echo "  forced cleaned: ${RESUME_CLEANED_COUNT}"
+    echo "  to run        : ${TOTAL}"
+fi
 if [ ${#SCENARIOS[@]} -gt 0 ]; then echo "Filter scenario : ${SCENARIOS[*]}"; fi
 if [ ${#ROUTE_IDS_ARG[@]} -gt 0 ]; then echo "Filter route_id : ${ROUTE_IDS_ARG[*]}"; fi
 if [ -n "${RANDOM_N}" ]; then echo "Random sample   : ${RANDOM_N} (seed=${RANDOM_SEED})"; fi
@@ -461,6 +710,20 @@ echo "CARLA_ROOT      : ${CARLA_ROOT:-<unset>}"
 echo "Record (i/d/bev/m/g): ${RECORD_INPUT}/${RECORD_DEBUG}/${RECORD_BEV_DEBUG}/${RECORD_DEMO}/${RECORD_GRID}"
 echo "=========================================="
 
+# to_run=0 早退：所有 route 都已完成，跳过 CARLA / worker 启动，直接走聚合
+if [ "${TOTAL}" -eq 0 ]; then
+    echo "[run_eval] All ${PICKER_TOTAL} planned routes already complete; nothing to run."
+    if [ "${DO_AGGREGATE}" = "1" ]; then
+        echo "[run_eval] Running aggregation for run_label=${RUN_LABEL}..."
+        cd "${AUTOMOT_ROOT}" && python3 -m AutoMoT.qwen3vl_local.eval_carla.aggregate \
+            --eval-base "${SAVE_PATH}" \
+            --leadmot-ckpt "${LEADMOT_CKPT}" \
+            --run-label "${RUN_LABEL}" \
+            || echo "WARN: aggregation failed"
+    fi
+    exit 0
+fi
+
 # worker stdout/stderr 只放临时目录，用于实时 tail 和统计 attempted/failed。
 # 跑完由 trap 删除，避免 closed_loop_eval 里长期堆过程日志。
 WORK_LOG_DIR=$(mktemp -d "${TMPDIR:-/tmp}/leadmot_eval_workers.XXXXXX") || {
@@ -468,6 +731,63 @@ WORK_LOG_DIR=$(mktemp -d "${TMPDIR:-/tmp}/leadmot_eval_workers.XXXXXX") || {
     exit 1
 }
 echo "[run_eval] temporary worker logs: ${WORK_LOG_DIR} (will be removed on exit)"
+
+# ============================================================
+# 全局完成进度 counter（mkdir 锁，POSIX 原子）
+# ============================================================
+# 每个 worker 成功落 eval_<id>.json 后调 inc_done_counter，输出
+#   [done k/TOTAL] route_id=... status=...
+# 给主进程 tail 转发到终端。k 是跨 worker 累计完成数。
+DONE_COUNTER_FILE="${WORK_LOG_DIR}/done_counter.txt"
+DONE_COUNTER_LOCK="${WORK_LOG_DIR}/.done_counter.lock"
+echo 0 > "${DONE_COUNTER_FILE}"
+
+inc_done_counter() {
+    local route_id="$1"
+    local status="$2"
+    # mkdir 作为 POSIX 原子锁：多个 worker 并发自增不会丢更新
+    while ! mkdir "${DONE_COUNTER_LOCK}" 2>/dev/null; do sleep 0.05; done
+    local cur
+    cur=$(cat "${DONE_COUNTER_FILE}" 2>/dev/null || echo 0)
+    cur=$((cur + 1))
+    echo "${cur}" > "${DONE_COUNTER_FILE}"
+    rmdir "${DONE_COUNTER_LOCK}"
+    echo "[done ${cur}/${TOTAL}] route_id=${route_id} status=${status}"
+}
+
+read_route_status() {
+    # 从落盘的 eval_<id>.json 抽 leaderboard status，给进度行显示。
+    # 解析失败统一返回 '?'，不阻塞主流程。
+    local eval_json="$1"
+    local route_id="$2"
+    EVAL_JSON="${eval_json}" ROUTE_ID="${route_id}" python3 - <<'PY' 2>/dev/null || echo '?'
+import json, os, re, sys
+try:
+    p = os.environ["EVAL_JSON"]
+    rid = int(os.environ["ROUTE_ID"])
+    d = json.loads(open(p, encoding="utf-8-sig").read())
+    recs = d.get("_checkpoint", {}).get("records", [])
+    rec = None
+    for r in recs:
+        if isinstance(r, dict):
+            v = r.get("route_id")
+            if isinstance(v, int) and v == rid:
+                rec = r; break
+            if isinstance(v, str):
+                m = re.search(r"\d+", v)
+                if m and int(m.group(0)) == rid:
+                    rec = r; break
+    if rec is None and len(recs) == 1 and isinstance(recs[0], dict):
+        rec = recs[0]
+    if isinstance(rec, dict):
+        s = rec.get("status")
+        print(s if isinstance(s, str) and s.strip() else "?")
+    else:
+        print("?")
+except Exception:
+    print("?")
+PY
+}
 
 # ============================================================
 # CARLA 端口 helpers
@@ -682,14 +1002,18 @@ run_route_worker() {
         local route_id="${ROUTE_IDS[$route_idx]}"
         local current=$((route_idx + 1))
         local per_route_json="${PER_ROUTE_DIR}/eval_${route_id}.json"
-        if [ -f "${per_route_json}" ]; then
+        local eval_latest="${PER_ROUTE_DIR}/eval_latest_${route_id}.json"
+        if [ "${DO_RESUME}" = "1" ] && [ -f "${per_route_json}" ]; then
             echo "[worker ${worker_idx}] [${current}/${TOTAL}] skip route ${route_id} (already evaluated)"
+            # 让全局进度计数仍然推进，避免多 worker race 时 TOTAL 对不上。
+            inc_done_counter "${route_id}" "skipped"
             continue
         fi
 
         echo "[worker ${worker_idx}] [${current}/${TOTAL}] running route ${route_id}"
         echo "${route_id}" >> "${attempted_file}"
-        local eval_latest="${PER_ROUTE_DIR}/eval_latest_${route_id}.json"
+        # evaluator 没产出新 checkpoint 时，绝不能把旧 eval_latest 复制回 eval_<id>.json。
+        rm -f "${eval_latest}"
         LEADMOT_CKPT="${LEADMOT_CKPT}" \
         LEADMOT_USE_EMA="${LEADMOT_USE_EMA:-1}" \
         LEADMOT_ROPE="${LEADMOT_ROPE}" \
@@ -713,6 +1037,9 @@ run_route_worker() {
         if [ -f "${eval_latest}" ]; then
             cp "${eval_latest}" "${per_route_json}"
             echo "[worker ${worker_idx}] saved: ${per_route_json}"
+            # 抽 status 给全局进度行用；解析失败用 '?'
+            route_status=$(read_route_status "${per_route_json}" "${route_id}")
+            inc_done_counter "${route_id}" "${route_status}"
         else
             echo "[worker ${worker_idx}] WARN: ${eval_latest} not found"
             if [ ${rc} -eq 0 ]; then

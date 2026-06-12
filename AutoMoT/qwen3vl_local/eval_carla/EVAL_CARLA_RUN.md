@@ -51,21 +51,76 @@ LeadMoT 闭环评测一键操作手册。架构与对齐细节见 [`EVAL_CARLA_P
 
 ### 1.1 全量 220 路线（默认）
 
-```bash
-bash qwen3vl_local/eval_carla/run_eval.sh \
-    --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt
-```
-
-多卡并行：
+推荐写法（全量 + 只录 input/bev_debug + 默认开断点续跑）：
 
 ```bash
 bash qwen3vl_local/eval_carla/run_eval.sh \
     --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt \
-    --num-gpus 4
+    --minimal-videos
 ```
 
-按显存占用最低自动选 GPU；CARLA 端口由 launcher 从 `PORT_BASE_START` 起按
-`PORT_STRIDE` 扫描空闲 `[rpc..rpc+3, tm]` 端口块。
+多卡并行（默认按显存占用最低自动选 GPU）：
+
+```bash
+bash qwen3vl_local/eval_carla/run_eval.sh \
+    --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt \
+    --minimal-videos --num-gpus 4
+```
+
+显式指定哪几张 GPU（与项目 SFT / GoalGen / LeadMoT / VAE 训练入口规则一致：
+`GPU_IDS` env 非空时跳过 `nvidia-smi` 自动选址）：
+
+```bash
+# 单卡 pin 到 GPU 0
+GPU_IDS=0 bash qwen3vl_local/eval_carla/run_eval.sh \
+    --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt \
+    --minimal-videos
+
+# 4 卡 pin 到 GPU 0,1,2,3
+GPU_IDS=0,1,2,3 bash qwen3vl_local/eval_carla/run_eval.sh \
+    --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt \
+    --minimal-videos
+
+# 2 卡 pin 到 GPU 2,5（worker 数自动跟 GPU_IDS 长度走；--num-gpus 可省）
+GPU_IDS=2,5 bash qwen3vl_local/eval_carla/run_eval.sh \
+    --leadmot-ckpt checkpoints/leadmot_v1_decoder/latest/best.pt \
+    --minimal-videos
+```
+
+`GPU_IDS` 支持逗号或空格分隔；若同时传 `--num-gpus N` 且 `N` 与 `GPU_IDS` 数量不同，
+以 `GPU_IDS` 数量为准并打印 `Note: --num-gpus=N overridden by GPU_IDS=...`。
+CARLA 端口由 launcher 从 `PORT_BASE_START` 起按 `PORT_STRIDE` 扫描空闲
+`[rpc..rpc+3, tm]` 端口块。
+
+**断点续跑（默认开启）**：每次启动会先扫 `eval_per_route/eval_<id>.json`：
+
+- `status` 是 leaderboard 终态(Completed / Perfect / Failed - ...) **且** `score_composed` 非空 → 该 route 视为已完成，跳过
+- 文件存在但解析失败 / 无 status / 无 score → **删 `eval_<id>.json` + `eval_latest_<id>.json` + 整个 `route<id>/` 目录**，加入本次待跑队列
+- 文件不存在 → 加入本次待跑队列；如果残留了 `eval_latest_<id>.json` 或 `route<id>/`，也会先清掉再跑
+
+启动 banner 会打印：
+
+```
+Picker routes   : 220
+Resume          : enabled
+  already done  : 152
+  partial cleaned: 3
+  to run        : 68
+```
+
+跑的过程中每条 route 完成后主进程打印一行：
+
+```
+[done 17/68] route_id=1773 status=Completed
+```
+
+`k` 是本次启动跨 worker 累计完成数，`Y` 是本次实际下发给 worker 的 `to run` 数；
+默认 resume 跳过的已完成 route 不进入这个计数。不想续跑（整张表强制重跑）传
+`--no-resume`；这种情况下会先清理 picker 范围内旧的 `eval_<id>.json`、
+`eval_latest_<id>.json` 和 `route<id>/`，然后 `to run = Picker routes`。
+
+`--minimal-videos` 等价 `--no-debug --no-demo --no-grid`，只保留 `input.mp4` 和
+`bev_debug.mp4`，跑全量时强烈推荐（省 ffmpeg / 磁盘 / 录像 spawn 开销）。
 
 ### 1.2 按 scenario 跑
 
@@ -136,7 +191,8 @@ route_id 精确筛、最后在剩余里 `--random N` 抽样。
 ```bash
 bash qwen3vl_local/eval_carla/run_eval.sh \
     --leadmot-ckpt /path/best.pt \
-    --no-debug --no-demo --no-grid
+    --minimal-videos
+# 等价于 --no-debug --no-demo --no-grid
 ```
 
 ---
@@ -147,6 +203,7 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 |---|---|---|
 | `--step-stride 5` | 5 | 每多少 tick 调一次模型；4Hz 与训练分布一致 |
 | `--num-gpus N` | 1 | 自动选 N 张空闲 GPU；也可用 `EVAL_GPU_COUNT=N` |
+| env `GPU_IDS` | unset | 显式指定 GPU 卡号（逗号或空格分隔，如 `0,1,2,3`）；非空时跳过 nvidia-smi 自动选址，`GPU_COUNT` 强制取 `GPU_IDS` 数量 |
 | `--rope mrope` | mrope | mrope / mhrope / none |
 | `--sensor-profile 3cam` | 3cam | 仅支持 LEAD 三相机档 |
 | `--auto-carla` / `--no-auto-carla` | 兼容旧命令 | launcher 不预启动 CARLA；实际由 leaderboard_evaluator.py 启动 |
@@ -162,6 +219,8 @@ bash qwen3vl_local/eval_carla/run_eval.sh \
 | env `LIDAR_GROUND_Z` | -1.4 | 地面 z 高度阈值（ego frame） |
 | env `USE_RADAR` | 1 | use_bev=True 时是否声明 4 个 radar 并拼到 LiDAR |
 | env `RECORD_BEV_DEBUG` | 1 | 是否写 bev_debug.mp4 |
+| `--minimal-videos` | off | 等价 `--no-debug --no-demo --no-grid`，只录 input + bev_debug |
+| `--no-resume` | off | 关闭断点续跑：清掉 picker 范围旧 eval/video 产物，整张 picker 列表强制重跑 |
 
 在线 target_point / next_target_point 对齐训练侧 route lookahead：每 tick 调
 `RoutePlanner.run_step()` 推进 route 后，按 `max(speed*lookahead_s, MIN_LOOKAHEAD_M)`
@@ -184,7 +243,7 @@ ${EVAL_OUTPUT_BASE:-outputs/closed_loop_eval}/
     runs/<RUN_LABEL>/                          ← 本次启动的聚合结果（与其他批次隔离）
       log.txt                                  ← 本次终端 stdout/stderr 追加日志
       scenarios/<Scenario>/summary.json
-      run_manifest.json                        ← 本批次 route_id 列表 + 启动/完成参数 + 失败 route
+      run_manifest.json                        ← 本批次 route_id 列表 + 启动/完成参数 + 失败 route + resume 拆分（done/cleaned/to_run）
       summary_all.json                         ← 完整机器可读结果（含 route/scenario 明细）
       summary_report.md                        ← 人类可读总结：测试数、成功率、分数、指标解释
       scenario_table.csv                       ← scenario 级论文表格友好汇总
