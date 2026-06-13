@@ -114,6 +114,24 @@ DDP：用 `torch.distributed` + `DistributedDataParallel(find_unused_parameters=
 每 rank 处理 `DistributedSampler` 切到自己的 batch；teacher generate / student forward
 都在各 rank 自己显存里跑。
 
+DDP 健壮性补丁（v2 → 当前路线）：
+
+- **同进同退**：`_ddp_all_ranks_valid` 用 `all_reduce(MIN)` 让所有 rank 对"本样本是否
+  进入 backward" 达成一致。单条坏图 / assistant 超长不再让多卡训练整体 raise，
+  只丢这一个 micro-batch 继续训。
+- **no_sync()**：前 `(grad_accum - 1)` 个 micro-step 包在 `bundle.model.no_sync()`
+  里，只在最后一个 micro-step / 尾批 `finish_optimizer_step` 触发一次 all-reduce(AVG)，
+  把每个 optimizer step 的 all-reduce 次数从 grad_accum 次降到 1 次。
+- **`use_reentrant=False`**：`gradient_checkpointing_enable` 强制非 reentrant，
+  规避老 transformers + `find_unused_parameters=True` 反传图错位坑（loss=NaN /
+  反传卡死）。
+- **尾批不放大梯度**：epoch 末尾 `accum_count < grad_accum` 的尾批不再做
+  `expected_total / n_total` 放大，rescale ≡ 1.0，避免 cosine 末段尾批 step 比
+  正常 step 强 `grad_accum / accum_count` 倍。
+- **tokenize 边界 sanity**：进程第一条样本走 `build_student_inputs` 时跑一次
+  `tokenize(prompt) ⊕ tokenize(assistant) == tokenize(prompt + assistant)` 验证，
+  防止 Qwen BPE 在边界 merge 让训练 ≠ 推理。通过即 silent，无每 batch 开销。
+
 ## 6. 关键超参（默认）
 
 | 项 | 默认 | 说明 |
@@ -144,10 +162,11 @@ DDP：用 `torch.distributed` + `DistributedDataParallel(find_unused_parameters=
 等效训练时间相比 LoRA-only ≈ 3-4 倍：
 
 - 5k samples × 2 epoch × 2 卡 ≈ 8-10h
-- 想跳过现场 teacher 调试，可以离线跑 `build_teacher.py` 得 materialized jsonl，
-  再把 `TRAIN_JSONL` / `VAL_JSONL` 指向 materialized 目录（train.py 检测到 ANALYSIS
-  不是 `__TEACHER_PENDING__` 时也会工作，但每 step 仍会再跑 teacher 覆盖，因为
-  PEFT 显存里 base 同驻；纯 student 训练目前不内置开关，需手动改 `train.py`）。
+- 想跳过现场 teacher 做链路 sanity：直接 `--skip-teacher`（或 train.sh sanity 模式 /
+  `SKIP_TEACHER=1`），ANALYSIS 全部替换成固定 fallback。**注意：用这条路径训出
+  的 LoRA 不可用于生产**，仅用来排查 student forward / DDP / 优化器是否正常。
+- 想要离线物化 teacher 输出做样本审计，可以跑 `build_teacher.py` 得 materialized
+  jsonl（不参与训练，仅用于 review）。
 
 ## 8. 评估
 

@@ -38,6 +38,19 @@ GPU_IDS=0 python qwen3vl_local/sft/train.py \
 - `SFT_ANALYSIS_WEIGHT`：ANALYSIS body 权重，默认 0.3。
 - `SFT_TEACHER_MAX_NEW_TOKENS`：teacher generate 上限，默认 256。
 - `SFT_TEACHER_TEMPERATURE`：teacher 采样温度，默认 0.0（greedy）。
+
+DDP / 性能相关行为（v2 → 当前路线的健壮性补丁）：
+- 单条坏样本不再让多卡训练整体 raise；改成"同进同退" all-reduce(MIN)，所有
+  rank 一起 skip 这条样本继续训。详见 `_ddp_all_ranks_valid`。
+- 梯度累积前 (grad_accum-1) 个 micro-step 包在 ``DDP.no_sync()`` 里，只在
+  最后一个 micro-step / 尾批 finish_optimizer_step 触发一次 all-reduce(AVG)，
+  把每个 optimizer step 的 all-reduce 次数从 grad_accum 次降到 1 次。
+- 尾批不再人为放大梯度幅度（rescale ≡ 1.0），避免 cosine 末段尾批 step 比
+  正常 step 强 ``grad_accum / accum_count`` 倍。
+- LoRA 注入时 `gradient_checkpointing_enable` 强制 `use_reentrant=False`，
+  避免老 transformers + find_unused_parameters=True 的反传图错位坑。
+- `--skip-teacher`：跳过 teacher.generate，ANALYSIS 全部走固定 fallback；
+  用于 sanity 链路调试，不可用于产线训练。
 """
 
 from __future__ import annotations
@@ -51,6 +64,7 @@ import random
 import re
 import sys
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -85,6 +99,12 @@ from PIL import Image
 
 PENDING_PLACEHOLDER = "__TEACHER_PENDING__"
 FALLBACK_ANALYSIS = "Observations recorded."
+
+# tokenize 边界 sanity 只在每个进程第一次走 build_student_inputs 时跑一次：
+# 验证 (chat_prompt) tokenize ⊕ (assistant) tokenize 的拼接结果，与一次性
+# tokenize(chat_prompt + assistant) 完全一致；避免 BPE 在边界合并 token 导致
+# 训练时看到的 token 序列与推理时不同。通过一次即可 silent，无需每个 batch 跑。
+_TOKENIZE_BOUNDARY_CHECKED = False
 
 # teacher 输出后处理：与 build_teacher.py 完全同口径。
 _TEACHER_PREFIX_RE = re.compile(r"^\s*ANALYSIS\s*:\s*", re.IGNORECASE)
@@ -349,9 +369,18 @@ def load_model_with_lora(
         p.requires_grad = False
 
     # 让 LoRA 走 transformers 的 gradient_checkpointing 路径。
+    # use_reentrant=False 是关键：老 transformers 默认 True，和 DDP
+    # find_unused_parameters=True 搭配会触发反传图错位（部分 step loss=NaN /
+    # 反传卡死）。这里强制走非 reentrant 路径，规避老坑。
     if gradient_checkpointing:
         if hasattr(model, "gradient_checkpointing_enable"):
-            model.gradient_checkpointing_enable()
+            try:
+                model.gradient_checkpointing_enable(
+                    gradient_checkpointing_kwargs={"use_reentrant": False},
+                )
+            except TypeError:
+                # 极老 transformers 不支持 kwargs 入参，退到默认调用。
+                model.gradient_checkpointing_enable()
         if hasattr(model, "enable_input_require_grads"):
             # 必要：gradient_checkpointing 下 input embeddings 需要 require_grad。
             model.enable_input_require_grads()
@@ -439,7 +468,12 @@ def run_teacher_one_sample(
             out = base_model.generate(**inputs, **gen_kwargs)
     finally:
         if gc_was_enabled and hasattr(base_model, "gradient_checkpointing_enable"):
-            base_model.gradient_checkpointing_enable()
+            try:
+                base_model.gradient_checkpointing_enable(
+                    gradient_checkpointing_kwargs={"use_reentrant": False},
+                )
+            except TypeError:
+                base_model.gradient_checkpointing_enable()
 
     prompt_len = inputs["input_ids"].shape[1]
     gen_ids = out[0, prompt_len:]
@@ -497,6 +531,38 @@ def build_student_inputs(
     L_prompt = int(prompt_ids.shape[0])
 
     eos_token = bundle.tokenizer.eos_token or "<|im_end|>"
+
+    # ---- 一次性 tokenize 边界 sanity ----
+    # 训练时把 prompt 与 assistant 分两次 tokenize 再拼接；如果 Qwen 的 BPE 在
+    # 边界处会跨段 merge，拼出来的 token 序列就和一次性 tokenize 的不一致，
+    # 模型推理时看到的边界 token 与训练时不同，会让生成质量下降。
+    # 这里只在每个进程第一次走该函数时做一次完整对比，通过后默认 silent。
+    global _TOKENIZE_BOUNDARY_CHECKED
+    if not _TOKENIZE_BOUNDARY_CHECKED:
+        _TOKENIZE_BOUNDARY_CHECKED = True
+        # 注意：apply_chat_template 走 processor 路径，含视觉 token；这里只比
+        # 文本侧的边界，所以用 tokenizer 走纯文本 tokenize 验证。
+        text_prompt = bundle.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True,
+        )
+        # processor(text=...) 与 tokenizer(text) 对纯文本应当一致；但 processor
+        # 在多模态路径上可能注入视觉占位符，所以单独用 tokenizer 跑一次纯文本。
+        text_only_prompt_ids = bundle.tokenizer(
+            text_prompt, add_special_tokens=False,
+        )["input_ids"]
+        sample_assist = "ANALYSIS: probe analysis body.\nSTATUS: probe_status\nSUBGOAL: probe_subgoal"
+        sample_full_text = text_prompt + sample_assist + eos_token + "\n"
+        merged = bundle.tokenizer(
+            sample_full_text, add_special_tokens=False,
+        )["input_ids"]
+        split_assist = bundle.tokenizer(
+            sample_assist + eos_token + "\n", add_special_tokens=False,
+        )["input_ids"]
+        concat = list(text_only_prompt_ids) + list(split_assist)
+        if concat != list(merged):
+            # 不直接 raise，避免训练崩；只在 rank0 打 warn 并附上 diff 长度。
+            print(f"[tokenize-boundary][warn] split={len(concat)} merged={len(merged)} "
+                  f"BPE 在 prompt↔assistant 边界 merge 了 token；考虑改成一次性 tokenize。")
     # 对齐 Qwen chat 模板 assistant 段 `<|im_start|>assistant\n{content}<|im_end|>\n`：
     # 末尾 EOS 后再补一个 `\n`，让训练分布与 in-context 推理一致。
     assistant_text = (
@@ -669,28 +735,25 @@ class StepStats:
     n_skipped: int = 0
 
 
-def _ddp_require_same_sample_validity(sample: Dict[str, Any], local_valid: bool, reason: str) -> None:
-    """DDP 训练时要求每个 rank 对同一 batch 位置都进入或都不进入反传。
+def _ddp_all_ranks_valid(local_valid: bool) -> bool:
+    """DDP 训练时让所有 rank 对"当前样本是否进入 backward"达成一致。
 
     本训练循环是逐样本反传。若某个 rank 因图片缺失 / assistant 过长跳过，
     其它 rank 却进入 DDP 反传，collective 顺序会不一致，表现为训练卡死。
-    因此在反传前先 all-reduce 有效标记；只要各 rank 不一致，就在所有 rank
-    上明确报错，优先暴露数据问题。
+
+    实现策略："同进同退"——all-reduce MIN，只要任一 rank 报 invalid，所有 rank
+    都视为 invalid 一起跳过；这样单条坏样本只丢一个 micro-batch，不会让多卡
+    长跑训练在一张坏 jpg 上整体崩。
+
+    单卡训练直接透传 local_valid。
     """
 
     if not (torch.distributed.is_available() and torch.distributed.is_initialized()):
-        return
-    flag = torch.tensor([1.0 if local_valid else 0.0], device=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-    torch.distributed.all_reduce(flag, op=torch.distributed.ReduceOp.SUM)
-    world = torch.distributed.get_world_size()
-    total = int(flag.item())
-    if total not in (0, world):
-        raise RuntimeError(
-            "DDP ranks disagree on SFT sample validity before backward; "
-            "aborting to avoid collective hang. "
-            f"local_valid={local_valid} reason={reason} "
-            f"scenario={sample.get('scenario')} run={sample.get('run_id')} anchor={sample.get('anchor')}"
-        )
+        return local_valid
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    flag = torch.tensor([1.0 if local_valid else 0.0], device=device, dtype=torch.float32)
+    torch.distributed.all_reduce(flag, op=torch.distributed.ReduceOp.MIN)
+    return bool(flag.item() > 0.5)
 
 
 def run_step_on_batch(
@@ -702,6 +765,8 @@ def run_step_on_batch(
     teacher_temperature: float,
     max_length: int,
     loss_scale: float = 1.0,
+    sync_grads: bool = True,
+    skip_teacher: bool = False,
 ) -> Tuple[torch.Tensor, StepStats]:
     """对 batch 内每条样本依次跑 teacher → student，每条样本立即反传。
 
@@ -709,56 +774,83 @@ def run_step_on_batch(
     ``loss_scale`` 再反传，让 grad_accum 次累积后的梯度与"等效 batch_size
     = micro_batch_size * grad_accum"且 reduction='mean' 的 loss 算法对齐，避免
     lr 实际被放大 grad_accum 倍。
+
+    ``sync_grads`` 控制 DDP 是否在本 micro-step 同步梯度：
+    - False：本次 backward 包在 ``DDP.no_sync()`` 里，只在本 rank 累加本地梯度，
+      不触发 all-reduce；
+    - True：正常 backward，触发一次 all-reduce 把跨 rank 累积的梯度求平均。
+    grad_accum > 1 时，前 (grad_accum - 1) 个 micro-step 应传 False，最后一个传
+    True，避免每个 micro-step 都 all-reduce 浪费带宽。
+
+    ``skip_teacher`` 为 True 时跳过 teacher.generate，用固定 fallback 文本替代
+    ANALYSIS。专门用来做 student/优化器/DDP 链路 sanity，不依赖 teacher 现场跑。
     """
 
     stats = StepStats()
     total_loss = torch.zeros((), device=bundle.device, dtype=torch.float32)
 
-    for sample in batch:
-        # 读 RGB clip。
-        try:
-            images_pil = [Image.open(p).convert("RGB") for p in sample["image_paths"]]
-        except (FileNotFoundError, OSError) as e:
-            _ddp_require_same_sample_validity(sample, False, f"image_load_fail:{e}")
-            print(f"[step][warn] image load fail scenario={sample['scenario']} "
-                  f"run={sample['run_id']} anchor={sample['anchor']}: {e}")
-            stats.n_skipped += 1
-            continue
+    # DDP no_sync ctx 在 DDP 包装下才存在；单卡时退化为 nullcontext。
+    if (not sync_grads) and hasattr(bundle.model, "no_sync"):
+        sync_ctx = bundle.model.no_sync()
+    else:
+        sync_ctx = nullcontext()
 
-        # 阶段 A：teacher 现场生成 ANALYSIS
-        analysis_text, fb = run_teacher_one_sample(
-            bundle, sample, images_pil,
-            max_new_tokens=teacher_max_new_tokens,
-            temperature=teacher_temperature,
-        )
-        if fb:
-            stats.n_teacher_fallback += 1
+    with sync_ctx:
+        for sample in batch:
+            # 读 RGB clip。
+            try:
+                images_pil = [Image.open(p).convert("RGB") for p in sample["image_paths"]]
+                local_load_ok = True
+            except (FileNotFoundError, OSError) as e:
+                print(f"[step][warn] image load fail scenario={sample['scenario']} "
+                      f"run={sample['run_id']} anchor={sample['anchor']}: {e}")
+                images_pil = []
+                local_load_ok = False
 
-        # 阶段 B：student 前向并反传
-        packed = build_student_inputs(
-            bundle, sample, images_pil, analysis_text,
-            analysis_weight=analysis_weight,
-            max_length=max_length,
-        )
-        if packed is None:
-            _ddp_require_same_sample_validity(sample, False, "assistant_too_long")
-            stats.n_skipped += 1
-            continue
+            # "同进同退"：任一 rank 读图失败，所有 rank 跳过本样本，避免
+            # collective 顺序错位（teacher.generate 内部也走 forward，必须各 rank 一致）。
+            if not _ddp_all_ranks_valid(local_load_ok):
+                stats.n_skipped += 1
+                continue
 
-        _ddp_require_same_sample_validity(sample, True, "ok")
+            # 阶段 A：teacher 现场生成 ANALYSIS（或走 skip_teacher 兜底）
+            if skip_teacher:
+                analysis_text = FALLBACK_ANALYSIS
+                fb = True
+            else:
+                analysis_text, fb = run_teacher_one_sample(
+                    bundle, sample, images_pil,
+                    max_new_tokens=teacher_max_new_tokens,
+                    temperature=teacher_temperature,
+                )
+            if fb:
+                stats.n_teacher_fallback += 1
 
-        # student 训练前确保模型处于 train 模式（teacher 阶段调过 eval()）。
-        bundle.model.train()
-        loss = student_loss_one_sample(bundle, packed)
-        # 立即反传释放显存：单样本反传；外层负责 optimizer.step()。
-        # 先除以 loss_scale 再反传，使 grad_accum 累积梯度等效于
-        # reduction='mean' 的 batch loss。
-        scaled_loss = loss / max(loss_scale, 1.0)
-        scaled_loss.backward()
-        total_loss = total_loss.detach() + loss.detach()
+            # 阶段 B：student 前向并反传
+            packed = build_student_inputs(
+                bundle, sample, images_pil, analysis_text,
+                analysis_weight=analysis_weight,
+                max_length=max_length,
+            )
+            packed_ok = packed is not None
+            # 再做一次"同进同退"：assistant 超长在不同 rank 上是确定性的（同一份
+            # tokenizer + 同一份样本），但保险起见仍跨 rank 对齐，避免极端边界 case。
+            if not _ddp_all_ranks_valid(packed_ok):
+                stats.n_skipped += 1
+                continue
 
-        stats.loss_sum += float(loss.detach().item())
-        stats.n_samples += 1
+            # student 训练前确保模型处于 train 模式（teacher 阶段调过 eval()）。
+            bundle.model.train()
+            loss = student_loss_one_sample(bundle, packed)
+            # 立即反传释放显存：单样本反传；外层负责 optimizer.step()。
+            # 先除以 loss_scale 再反传，使 grad_accum 累积梯度等效于
+            # reduction='mean' 的 batch loss。
+            scaled_loss = loss / max(loss_scale, 1.0)
+            scaled_loss.backward()
+            total_loss = total_loss.detach() + loss.detach()
+
+            stats.loss_sum += float(loss.detach().item())
+            stats.n_samples += 1
 
     return total_loss, stats
 
@@ -896,6 +988,10 @@ def parse_args() -> argparse.Namespace:
                    help="0 表示按 num_epochs 跑全集；>0 用作 check 模式 / 小规模 sanity。")
     p.add_argument("--check", action="store_true",
                    help="check 模式：max_steps=2、不保存、ckpt-only sanity。")
+    p.add_argument("--skip-teacher", action="store_true",
+                   help="跳过 teacher.generate，ANALYSIS 全部用固定 fallback。"
+                        "用于做 student / 优化器 / DDP 链路 sanity，把 teacher 现场"
+                        "生成的不确定性排除掉。注意：训练出来的 LoRA 不可用于生产。")
     p.add_argument("--seed", type=int, default=20260601)
     return p.parse_args()
 
@@ -992,8 +1088,10 @@ def main() -> None:
     ) if val_ds else None
 
     if args.check:
+        # check 模式只跑 2 step 做链路 sanity，不保存 ckpt 也不进 eval。
+        # （之前这里还设 max_eval_samples=8，但下游 eval 触发条件本身就排除了
+        # check 模式，那个设置永远不会生效；现在删掉避免误读。）
         args.max_steps = 2 if args.max_steps == 0 else min(args.max_steps, 2)
-        args.max_eval_samples = max(args.max_eval_samples, 8) if args.max_eval_samples else 8
         if is_rank0(rank):
             print("[check] max_steps=2, no save, eval skipped")
 
@@ -1021,21 +1119,20 @@ def main() -> None:
         reason: str,
         loss_sum: float,
         n_samples: int,
-        expected_samples: int,
     ) -> None:
         """完成一次 optimizer step，并集中处理日志、eval、checkpoint。
 
-        梯度累积的正常整批和 epoch 末尾不足 grad_accum 的尾批都会走这里；
-        `expected_samples` 用来把尾批梯度放回“实际样本均值”的尺度。
+        梯度累积的正常整批和 epoch 末尾不足 grad_accum 的尾批都会走这里。
+
+        与历史版本不同：不再为尾批做 ``expected_total / n_total`` 放大。
+        放大策略会让尾批 (实际样本数 < grad_accum) 的更新强度比正常 step 大
+        ``grad_accum / accum_count`` 倍，cosine LR 末段叠加这一下噪声很大。
+        改为按实际样本数取均值（rescale ≡ 1.0），尾批就是一次轻量 step。
         """
 
         nonlocal global_step, saved_ckpts
 
-        # DDP 下各 rank 的 n_samples 可能不一致（有 rank 跳过了更多图片读盘失败 /
-        # max_length 截断丢样本），需要先把 n_samples 跨 rank 求和，再用
-        # (期望总样本数) / (实际总样本数) 算缩放系数，保证所有 rank 用同一个
-        # 缩放值；DDP 的 all_reduce(mean) 后梯度尺度才与 reduction='mean' 的等效
-        # batch loss 对齐，避免各 rank scale 不一样导致梯度被平均失真。
+        # 仅用于日志：跨 rank 汇总有效样本数。不再参与梯度 rescale。
         if world_size > 1 and torch.distributed.is_initialized():
             n_buf = torch.tensor([float(n_samples)], device=bundle.device, dtype=torch.float32)
             torch.distributed.all_reduce(n_buf, op=torch.distributed.ReduceOp.SUM)
@@ -1047,14 +1144,22 @@ def main() -> None:
             optimizer.zero_grad(set_to_none=True)
             return
 
-        expected_total = float(max(expected_samples, 1)) * float(max(world_size, 1))
-        grad_rescale = expected_total / max(n_total, 1.0)
-        if abs(grad_rescale - 1.0) > 1e-6:
-            for p in bundle.unwrap().parameters():
-                if p.requires_grad and p.grad is not None:
-                    p.grad.mul_(grad_rescale)
-
         trainable_params = [p for p in bundle.unwrap().parameters() if p.requires_grad]
+
+        # 尾批 fallback：epoch 末尾的不足 grad_accum 的 micro-step 是用 no_sync()
+        # 反传的，DDP 没自动 all-reduce 梯度；这里手动 all-reduce(AVG) 一次让
+        # 各 rank 梯度对齐，再做 optimizer.step()。
+        # "grad_accum" reason 的 step 在最后一个 micro-step 已经 sync 过了，跳过。
+        if reason == "tail" and world_size > 1 and torch.distributed.is_initialized():
+            avg_op = getattr(torch.distributed.ReduceOp, "AVG",
+                             torch.distributed.ReduceOp.SUM)
+            do_divide = (avg_op == torch.distributed.ReduceOp.SUM)
+            for p in trainable_params:
+                if p.grad is None:
+                    continue
+                torch.distributed.all_reduce(p.grad, op=avg_op)
+                if do_divide:
+                    p.grad.div_(float(world_size))
         torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
         optimizer.step()
         scheduler.step()
@@ -1113,6 +1218,12 @@ def main() -> None:
             # batch_size=1 时 batch 就是 [sample]。
             # loss_scale = grad_accum * per_device_batch_size：跨 micro-step 累积梯度后
             # 等效 reduction='mean' 的 batch loss，避免 lr 实际被放大。
+            #
+            # sync_grads：只有"本 micro-step 之后立刻 optimizer.step()"时才让 DDP 同步。
+            # 前 (grad_accum-1) 个 micro-step 用 no_sync()，减少 all-reduce 频次。
+            # batch 是 DataLoader 输出 (per_device_bs 条样本)；外层 accum_count 计的
+            # 是 micro-step 次数（不是样本数）。
+            is_last_micro = (accum_count + 1 >= args.grad_accum)
             _, stats = run_step_on_batch(
                 bundle, batch,
                 analysis_weight=args.analysis_weight,
@@ -1120,6 +1231,8 @@ def main() -> None:
                 teacher_temperature=args.teacher_temperature,
                 max_length=args.max_length,
                 loss_scale=float(max(args.grad_accum, 1) * max(args.per_device_batch_size, 1)),
+                sync_grads=(world_size <= 1) or is_last_micro,
+                skip_teacher=args.skip_teacher,
             )
             accum_loss += stats.loss_sum
             accum_samples += stats.n_samples
@@ -1128,8 +1241,7 @@ def main() -> None:
             accum_count += 1
 
             if accum_count >= args.grad_accum:
-                expected_samples = int(max(args.grad_accum, 1) * max(args.per_device_batch_size, 1))
-                finish_optimizer_step(epoch, "grad_accum", accum_loss, accum_samples, expected_samples)
+                finish_optimizer_step(epoch, "grad_accum", accum_loss, accum_samples)
                 accum_loss = 0.0
                 accum_samples = 0
                 accum_count = 0
@@ -1138,8 +1250,10 @@ def main() -> None:
                     stop_training = True
                     break
         if accum_count > 0 and not stop_training:
-            expected_samples = int(max(args.grad_accum, 1) * max(args.per_device_batch_size, 1))
-            finish_optimizer_step(epoch, "tail", accum_loss, accum_samples, expected_samples)
+            # 尾批：必同步（is_last_micro=True 那批可能没遇到，这里再做一次
+            # 兜底 all-reduce 让梯度跨 rank 求平均）。注意 finish_optimizer_step 已
+            # 改成不再放大尾批梯度幅度。
+            finish_optimizer_step(epoch, "tail", accum_loss, accum_samples)
             accum_loss = 0.0
             accum_samples = 0
             accum_count = 0
@@ -1152,6 +1266,12 @@ def main() -> None:
     if is_rank0(rank) and not args.check:
         final_dir = output_dir / "final"
         bundle.unwrap().save_pretrained(str(final_dir))
+        # 同时存一份 processor 配置，避免下游 eval/probe 误用别处 tokenizer
+        # 而 silent 漂移（保存量很小，几十 KB）。
+        try:
+            bundle.processor.save_pretrained(str(final_dir))
+        except Exception as e:
+            print(f"[done][warn] save processor fail (skip): {e}")
         print(f"[done] final adapter → {final_dir}")
     if is_rank0(rank) and tb_writer is not None:
         tb_writer.flush()

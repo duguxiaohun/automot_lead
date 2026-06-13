@@ -69,11 +69,14 @@ MAX_EVAL_SAMPLES="${MAX_EVAL_SAMPLES:-0}"
 GRAD_ACCUM="${GRAD_ACCUM:-2}"
 PER_DEVICE_BS="${PER_DEVICE_BS:-1}"
 
-# teacher 现场生成参数（也可在 python 端 SFT_TEACHER_* env 直接覆盖）。
+# teacher 现场生成参数。
+# train.sh 走单一通道：bash 变量 → 下方 CLI flag，不再 export 给 python 进程
+# （以前同时 export + 传 CLI 既冗余又容易让人迷惑谁覆盖谁；CLI 是唯一权威）。
+# 如果你想 bypass shell 直接 python 调，train.py 仍然支持 SFT_* env 作为 argparse default。
 SFT_TEACHER_MAX_NEW_TOKENS="${SFT_TEACHER_MAX_NEW_TOKENS:-256}"
 SFT_TEACHER_TEMPERATURE="${SFT_TEACHER_TEMPERATURE:-0.0}"
 SFT_ANALYSIS_WEIGHT="${SFT_ANALYSIS_WEIGHT:-0.3}"
-export SFT_TEACHER_MAX_NEW_TOKENS SFT_TEACHER_TEMPERATURE SFT_ANALYSIS_WEIGHT
+SKIP_TEACHER="${SKIP_TEACHER:-0}"
 
 # HuggingFace 强制离线
 export HF_HUB_OFFLINE=1
@@ -169,6 +172,14 @@ case "${MODE}" in
         GRAD_ACCUM=1
         EXTRA_ARGS+=("--check")
         ;;
+    sanity)
+        echo "[mode] sanity (2 steps, skip teacher generate — student/DDP 链路自检)"
+        export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
+        NPROC=1
+        PER_DEVICE_BS=1
+        GRAD_ACCUM=1
+        EXTRA_ARGS+=("--check" "--skip-teacher")
+        ;;
     ddp)
         echo "[mode] DDP"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
@@ -187,10 +198,16 @@ case "${MODE}" in
         export NCCL_DEBUG=WARN
         ;;
     *)
-        echo "Unknown mode: ${MODE}. Use 'single' / 'ddp' / 'check'." >&2
+        echo "Unknown mode: ${MODE}. Use 'single' / 'ddp' / 'check' / 'sanity'." >&2
         exit 1
         ;;
 esac
+
+# 通用 skip-teacher 入口：任何 mode 都可以前置 SKIP_TEACHER=1 强制跳过 teacher.generate。
+if [[ "${SKIP_TEACHER}" == "1" ]]; then
+    echo "[skip-teacher] teacher.generate 全部走 fallback；训练出的 LoRA 不可用于生产。"
+    EXTRA_ARGS+=("--skip-teacher")
+fi
 
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
