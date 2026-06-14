@@ -28,7 +28,7 @@
 
 ```bash
 python qwen3vl_local/leadmot/build_dataset.py \
-  --data-root /datashare/IOL4SGH/data/data \
+  --data-root lead_data \
   --output-dir checkpoints/leadmot_v1_data \
   --with-subgoal-fields \
   --samples-per-scenario 0
@@ -38,7 +38,7 @@ python qwen3vl_local/leadmot/build_dataset.py \
 
 ```bash
 python qwen3vl_local/leadmot/build_dataset.py \
-  --data-root /datashare/IOL4SGH/data/data \
+  --data-root lead_data \
   --output-dir checkpoints/leadmot_v1_data_debug \
   --with-subgoal-fields \
   --samples-per-scenario 50 \
@@ -46,7 +46,7 @@ python qwen3vl_local/leadmot/build_dataset.py \
 ```
 
 `--with-subgoal-fields` 默认就是开启的，显式写出来只是提醒：构建器会读取
-`--keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json`，给每行写入
+`--keyframes lead_data/keyframes_all_scenarios.json`，给每行写入
 `run_id/subgoal_lookup_ok/status/subgoal/subgoal_frame/subgoal_rgb_path/subgoal_skip_reason`。
 同一份 jsonl 可同时给 `USE_SUBGOAL=0` 和 `USE_SUBGOAL=1` 使用；前者忽略这些字段，
 后者只保留 `subgoal_lookup_ok=True` 的样本训练。只有 keyframes 文件不可用时才用
@@ -54,8 +54,9 @@ python qwen3vl_local/leadmot/build_dataset.py \
 反查 SUBGOAL 时只接受 keyframes run status 为 `Completed/Perfect` 的轨迹；失败或中断
 run 会写入 `run_status_not_accepted:*`，避免把不可达未来帧当成真值。
 
-注意：上面的 `--keyframes` 默认值是远端数据机路径。本机或其它机器重建 jsonl 时，
-如果没有这个文件，必须显式传 `--keyframes <有效 keyframes_all_scenarios.json>`；
+注意：上面的 `--data-root lead_data` 假设当前目录是 `AutoMoT/`，且 `lead_data/`
+已经软链接到远端 LEAD 数据内容；输出仍保存在 `checkpoints/...`。本机或其它机器重建
+jsonl 时，如果没有这个 keyframes 文件，必须显式传 `--keyframes <有效 keyframes_all_scenarios.json>`；
 只是想构建普通 no-subgoal 训练索引时，可传 `--no-with-subgoal-fields` 跳过反查。
 
 `--samples-per-scenario 0` 与 GoalGen 一致，表示每个 scenario 保留所有合法 anchor；传正整数时按 route-balanced 方式抽样。构建器输出 `train.jsonl` / `val.jsonl` / `stats.json`，train/val 按 route 切分，避免同一路线相邻 anchor 同时进入训练和验证。

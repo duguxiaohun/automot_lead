@@ -114,6 +114,7 @@ def _dump_invocation(output_dir: pathlib.Path, rank: int = 0) -> None:
         out_path = inv_dir / f"{ts}_{host}_pid{os.getpid()}.txt"
 
         env_keys = (
+            "VERSION", "TRAIN_JSONL", "VAL_JSONL", "OUTPUT_DIR", "INIT_FROM_CKPT",
             "CUDA_VISIBLE_DEVICES", "WORLD_SIZE", "RANK", "LOCAL_RANK",
             "MASTER_ADDR", "MASTER_PORT", "NCCL_DEBUG", "NCCL_P2P_LEVEL",
             "PYTORCH_CUDA_ALLOC_CONF",
@@ -179,6 +180,47 @@ def memory_from_sample(sample: Dict[str, Any]) -> DrivingMemory:
         subgoal=memory["subgoal"],
         completed_events=list(memory.get("completed_events", [])),
     )
+
+
+def _is_middle_transition_sample(sample: Dict[str, Any]) -> bool:
+    memory = sample.get("memory") or {}
+    sequence = list(memory.get("event_sequence") or [])
+    status = memory.get("status")
+    subgoal = memory.get("subgoal")
+    return any(
+        idx + 1 < len(sequence) and status == sequence[idx] and subgoal == sequence[idx + 1]
+        for idx in (1, 2)
+    )
+
+
+def _validate_v2_training_inputs(
+    args: argparse.Namespace,
+    samples: List[Dict[str, Any]],
+    label: str,
+) -> None:
+    if args.artifact_version != "v2":
+        return
+    bad = [
+        (
+            idx,
+            (sample.get("memory") or {}).get("scenario", sample.get("scenario")),
+            (sample.get("memory") or {}).get("status"),
+            (sample.get("memory") or {}).get("subgoal"),
+        )
+        for idx, sample in enumerate(samples)
+        if not _is_middle_transition_sample(sample)
+    ]
+    if bad:
+        preview = ", ".join(
+            f"idx={idx}:{scenario}:{status}->{subgoal}"
+            for idx, scenario, status, subgoal in bad[:5]
+        )
+        raise RuntimeError(
+            f"VERSION=v2 train 只允许 middle 子目标之间的转换样本，{label} 含 "
+            f"initial/final 两端或非法 pair：{preview}。"
+            "请确认 TRAIN_JSONL/VAL_JSONL 指向 checkpoints/goalgen_v2_data，"
+            "或显式改用 VERSION=v1。"
+        )
 
 
 def dtype_from_name(name: str) -> torch.dtype:
@@ -773,7 +815,10 @@ def save_checkpoint(
     # 兼容 DDP 包过的模型：DDP 会把真模型放在 .module 下；裸模型直接用自己。
     # 不解包就会 save 进 "module.xxx" 前缀的 state_dict，再加载到单卡时 key 对不上。
     module = model.module if hasattr(model, "module") else model
-    full_ckpt_path = target / "goalgen_v1.pt"
+    artifact_version = str(getattr(args, "artifact_version", "v1") or "v1").strip().lower()
+    if artifact_version not in {"v1", "v2"}:
+        artifact_version = "v1"
+    full_ckpt_path = target / f"goalgen_{artifact_version}.pt"
     latest = output_dir / "latest.pt"
     full_dit_config = asdict(module.cfg)
     latest_dit_config = asdict(module.cfg)
@@ -1013,6 +1058,9 @@ def _epoch_step_progress(
 
 def train(args: argparse.Namespace) -> None:
     rank, local_rank, world_size = setup_distributed()
+    args.artifact_version = str(getattr(args, "artifact_version", "v1") or "v1").strip().lower()
+    if args.artifact_version not in {"v1", "v2"}:
+        raise RuntimeError(f"--artifact-version 只能是 v1/v2，当前是 {args.artifact_version!r}")
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
         raise RuntimeError("GoalGen 训练需要 CUDA；本地只适合跑数据构建，训练请放到远端机器。")
@@ -1038,9 +1086,22 @@ def train(args: argparse.Namespace) -> None:
     from qwen3vl_local.run_log import install_output_log
     install_output_log(output_dir, rank=rank)
     _dump_invocation(output_dir, rank=rank)
+    if args.artifact_version == "v2":
+        for label, value in (
+            ("--train-jsonl", args.train_jsonl),
+            ("--val-jsonl", args.val_jsonl),
+            ("--output-dir", args.output_dir),
+        ):
+            if value and "goalgen_v1" in str(value).lower():
+                raise RuntimeError(
+                    f"VERSION=v2 train 不能使用明显的 v1 路径：{label}={value}。"
+                    "请改用 checkpoints/goalgen_v2_data / checkpoints/goalgen_v2_dit，"
+                    "或显式改用 VERSION=v1。"
+                )
     samples = load_jsonl(pathlib.Path(args.train_jsonl))
     if not samples:
         raise RuntimeError(f"empty train jsonl: {args.train_jsonl}")
+    _validate_v2_training_inputs(args, samples, "train_jsonl")
 
     # 验证集只在 0 号进程用（验证 + 图像样例仅 0 号进程跑），其它进程留空省 IO。
     val_samples: List[Dict[str, Any]] = []
@@ -1048,12 +1109,16 @@ def train(args: argparse.Namespace) -> None:
         val_path = pathlib.Path(args.val_jsonl)
         if val_path.exists():
             val_samples = load_jsonl(val_path)[: max(0, args.val_max_samples)]
+            _validate_v2_training_inputs(args, val_samples, "val_jsonl")
             print(f"[data] 验证样本={len(val_samples)}（上限={args.val_max_samples}）来源={val_path}")
         else:
             print(f"[data] 警告：验证 jsonl 不存在 ({val_path})，跳过验证/样例记录")
 
     if is_rank0(rank):
-        print(f"[data] 训练样本={len(samples)} world_size={world_size}")
+        print(
+            f"[data] version={args.artifact_version} 训练样本={len(samples)} "
+            f"world_size={world_size} 来源={args.train_jsonl}"
+        )
 
     # TensorBoard：只在 0 号进程起 writer，避免多进程写同一目录冲突。
     # 写到 output_dir/tb（与 ckpt 同根，按用户 5.1 选项）。
@@ -1603,6 +1668,8 @@ def train(args: argparse.Namespace) -> None:
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="训练 GoalGen v1/v2 共用 DiT-MoT")
     p.add_argument("--train-jsonl", default="checkpoints/goalgen_v1_data/train.jsonl")
+    p.add_argument("--artifact-version", choices=["v1", "v2"], default=os.environ.get("VERSION", "v1"),
+                   help="Version label used for full checkpoint filenames: goalgen_v1.pt / goalgen_v2.pt.")
     p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
     p.add_argument("--output-dir", default="checkpoints/goalgen_v1_dit")
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32", "auto"], default="bfloat16")

@@ -393,7 +393,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--keyframes",
         type=str,
-        default="/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json",
+        default="lead_data/keyframes_all_scenarios.json",
         help="LEAD keyframes_all_scenarios.json 路径，--with-subgoal-fields 时必读.",
     )
     parser.add_argument(

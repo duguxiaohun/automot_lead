@@ -1143,7 +1143,7 @@ def main():
     parser.add_argument("--skip-anchor12-sanity", action="store_true",
                         help="跳过原始 anchor=12 fail case 单例检查。")
     parser.add_argument("--anchor12-route-dir", type=str,
-                        default="/datashare/IOL4SGH/data/data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46")
+                        default="lead_data/Accident/Town03_Rep0_route_001783_route0_01_11_02_37_46")
     parser.add_argument("--anchor12-scenario", type=str, default="Accident")
     parser.add_argument("--anchor12-anchor", type=int, default=12)
     parser.add_argument("--anchor12-expected-status", type=str, default="initial")

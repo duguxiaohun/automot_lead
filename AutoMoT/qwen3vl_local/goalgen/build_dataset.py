@@ -3,8 +3,8 @@
 本脚本应在远端机器的 ``AutoMoT/`` 目录下运行，例如：
 
 python qwen3vl_local/goalgen/build_dataset.py \
-  --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
-  --data-root /datashare/IOL4SGH/data/data \
+  --keyframes lead_data/keyframes_all_scenarios.json \
+  --data-root lead_data \
   --output-dir checkpoints/goalgen_v1_data
 
 构建逻辑沿用 SFT 的事件时间线思路，但监督目标不同：
@@ -39,8 +39,8 @@ from qwen3vl_local.prompt_pipeline import (  # noqa: E402
 
 
 ACCEPTED_RUN_STATUS = {"Completed", "Perfect"}
-DEFAULT_KEYFRAMES = "/datashare/IOL4SGH/data/data/keyframes_all_scenarios.json"
-DEFAULT_DATA_ROOT = "/datashare/IOL4SGH/data/data"
+DEFAULT_KEYFRAMES = "lead_data/keyframes_all_scenarios.json"
+DEFAULT_DATA_ROOT = "lead_data"
 RGB_FRAME_COUNT = 4
 RGB_FRAME_STEP = 1
 
@@ -77,6 +77,16 @@ def next_event_in_sequence(scenario: str, status: str) -> Optional[str]:
     if idx + 1 >= len(seq):
         return None
     return seq[idx + 1]
+
+
+def is_middle_transition_pair(scenario: str, status: str, subgoal: str) -> bool:
+    """v2 只允许 full sequence 里的 middle[0]->middle[1] 与 middle[1]->middle[2]。"""
+
+    seq = get_full_sequence(scenario)
+    return any(
+        idx + 1 < len(seq) and status == seq[idx] and subgoal == seq[idx + 1]
+        for idx in (1, 2)
+    )
 
 
 def build_run_timeline(run: dict) -> Optional[RunTimeline]:
@@ -495,6 +505,31 @@ def main() -> None:
         )
 
     train, val = split_train_val(samples_by_run, args.val_ratio, rng)
+    if args.mode == "v2":
+        invalid = [
+            (
+                sample.get("scenario", ""),
+                sample.get("status", ""),
+                sample.get("subgoal", ""),
+                sample.get("run_id", ""),
+                sample.get("anchor", ""),
+            )
+            for sample in (train + val)
+            if not is_middle_transition_pair(
+                sample.get("scenario", ""),
+                sample.get("status", ""),
+                sample.get("subgoal", ""),
+            )
+        ]
+        if invalid:
+            preview = ", ".join(
+                f"{scenario}:{status}->{subgoal}@{run_id}:{anchor}"
+                for scenario, status, subgoal, run_id, anchor in invalid[:5]
+            )
+            raise RuntimeError(
+                "GoalGen v2 数据只能包含 middle 子目标之间的转换，"
+                f"但构建结果含 initial/final 或非法 pair：{preview}"
+            )
     train_path = output_dir / "train.jsonl"
     val_path = output_dir / "val.jsonl"
     stats_path = output_dir / "stats.json"

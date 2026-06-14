@@ -21,8 +21,8 @@ teacher 推理用的 PRIVILEGED prompt 由 train.py / build_teacher.py 临时拼
 
 ```bash
 python qwen3vl_local/sft/build_dataset.py \
-  --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
-  --data-root /datashare/IOL4SGH/data/data \
+  --keyframes lead_data/keyframes_all_scenarios.json \
+  --data-root lead_data \
   --output-dir checkpoints/sft_data_pending
 
 # 本地或远程快速检查：只取少量场景和 run，验证 jsonl schema 是否能生成
@@ -535,9 +535,9 @@ def main():
 
     parser = argparse.ArgumentParser(description="SFT pending dataset builder")
     parser.add_argument("--keyframes", type=str,
-                        default=str(_PROJECT_ROOT / "keyframes_all_scenarios.json"))
+                        default="lead_data/keyframes_all_scenarios.json")
     parser.add_argument("--data-root", type=str,
-                        default="/datashare/IOL4SGH/data/data",
+                        default="lead_data",
                         help="LEAD 数据根目录。每个 scenario 是子目录。")
     parser.add_argument("--output-dir", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_data_pending"))

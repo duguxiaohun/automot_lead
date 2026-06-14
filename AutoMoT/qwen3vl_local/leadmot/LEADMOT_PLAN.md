@@ -46,7 +46,7 @@ LEAD 的 decoder head 是 `Linear(hidden,2) -> torch.cumsum(dim=1)`：模型内�
 
 ```bash
 python qwen3vl_local/leadmot/build_dataset.py \
-  --data-root /datashare/IOL4SGH/data/data \
+  --data-root lead_data \
   --samples-per-scenario 0 \
   --with-subgoal-fields \
   --output-dir checkpoints/leadmot_v1_data
@@ -70,8 +70,9 @@ python qwen3vl_local/leadmot/build_dataset.py \
 `--no-with-subgoal-fields`，此时不能训练 `use_subgoal=True` 模型。
 SUBGOAL 反查与 GoalGen 一样只接受 `Completed/Perfect` 的 keyframes run；失败或中断
 run 的未来事件链不作为真值，统一记为 `run_status_not_accepted:*`。
-默认 `--keyframes` 是远端数据机路径；在本机或其它路径布局下重建 jsonl 时，必须显式传
-有效 `--keyframes`，或用 `--no-with-subgoal-fields` 构建 no-subgoal 索引。
+默认 `--keyframes` 是 `lead_data/keyframes_all_scenarios.json`，运行时假设当前目录为
+`AutoMoT/` 且 `lead_data/` 已软链接到远端 LEAD 数据内容；在其它路径布局下重建 jsonl
+时，必须显式传有效 `--keyframes`，或用 `--no-with-subgoal-fields` 构建 no-subgoal 索引。
 
 当前不做 Qwen pooled KV 离线缓存。原因是 prompt / RoPE / prefix 组织还在迭代期，prompt 一改缓存就失效；训练先保证范式正确，再考虑缓存工程。
 

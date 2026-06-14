@@ -34,8 +34,8 @@ teacher ANALYSIS 不再离线物化、不再写持久 cache。train.py 在每个
 
 ```bash
 python qwen3vl_local/sft/build_dataset.py \
-  --keyframes /datashare/IOL4SGH/data/data/keyframes_all_scenarios.json \
-  --data-root /datashare/IOL4SGH/data/data \
+  --keyframes lead_data/keyframes_all_scenarios.json \
+  --data-root lead_data \
   --samples-per-scenario 800 \
   --output-dir checkpoints/sft_data_pending
 ```
