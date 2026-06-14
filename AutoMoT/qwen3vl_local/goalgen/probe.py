@@ -32,9 +32,8 @@ GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --save-root checkpoints/goalgen_v1_dit \
   --num-per-scenario 4 --seed 0
 
-# 默认推荐 counterfactual：scenario_swap + 内置 per-scenario config + 3 seed floor
-GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
-  --save-root checkpoints/goalgen_v1_dit \
+# v2 counterfactual：只在 middle 子目标之间做 scenario_swap + 3 seed floor
+VERSION=v2 GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --scenarios NonSignalizedJunctionLeftTurn,PriorityAtJunction,HazardAtSideLane \
   --num-per-scenario 1 --seed 7 \
   --counterfactual-mode scenario_swap \
@@ -231,6 +230,31 @@ DEFAULT_COUNTERFACTUAL_CONFIG: Dict[str, Dict[str, List[str]]] = {
 }
 
 
+def _build_v2_middle_counterfactual_config() -> Dict[str, Dict[str, List[str]]]:
+    """v2 专用默认干预表：每个场景只给 middle 子目标之间的候选。
+
+    full sequence = initial, middle0, middle1, middle2, final。v2 训练和干预只看
+    middle0→middle1 / middle1→middle2，因此默认 CF 候选只能是 middle1 或
+    middle2。这里不放 initial、middle0 或 final，避免候选设计层面把两端样本带回来。
+    """
+
+    out: Dict[str, Dict[str, List[str]]] = {}
+    for scenario in sorted(SCENARIO_EVENT_SEQUENCES):
+        seq = get_full_sequence(scenario)
+        out[scenario] = {"swap_in_subgoals": [seq[2], seq[3]]}
+    return out
+
+
+DEFAULT_COUNTERFACTUAL_CONFIG_V2 = _build_v2_middle_counterfactual_config()
+
+
+def _default_version_arg() -> str:
+    """从环境变量给 probe 一个轻量版本开关，和 train.sh 的 VERSION 对齐。"""
+
+    env_version = os.environ.get("VERSION", "").strip().lower()
+    return env_version if env_version in {"v1", "v2"} else "auto"
+
+
 # =========================================================================== #
 # 2. dataclass：CF 请求 / 单 variant 描述
 # =========================================================================== #
@@ -356,8 +380,28 @@ def _all_legal_pairs() -> Dict[Tuple[str, str], List[Tuple[str, int]]]:
 
 LEGAL_EVENT_PAIRS = _all_legal_pairs()
 
+
+def _all_middle_transition_pairs() -> Dict[Tuple[str, str], List[Tuple[str, int]]]:
+    """只收集三个 middle 子目标之间的两段转换。
+
+    full sequence = initial, middle0, middle1, middle2, final，所以 v2 只允许
+    idx=1/2，即 middle0→middle1 和 middle1→middle2。这里显式排除
+    initial→middle0 与 middle2→final，避免 v2 干预实验又把两端样本设计回来。
+    """
+
+    pairs: Dict[Tuple[str, str], List[Tuple[str, int]]] = defaultdict(list)
+    for scenario in sorted(SCENARIO_EVENT_SEQUENCES):
+        seq = get_full_sequence(scenario)
+        for idx in (1, 2):
+            pairs[(seq[idx], seq[idx + 1])].append((scenario, idx))
+    return pairs
+
+
+LEGAL_MIDDLE_EVENT_PAIRS = _all_middle_transition_pairs()
+
 SUBGOAL_ONLY_AUTO_PRIORITY = [
-    # status=initial 时常见的跨语义入口，优先让自动候选覆盖不同场景簇。
+    # v1/full-scope 下 status=initial 时常见的跨语义入口；v2 middle_only 会先用
+    # LEGAL_MIDDLE_EVENT_PAIRS 过滤掉 initial/final 两端，这里只影响排序。
     "hazard_detect",
     "pedestrian_detect",
     "obstacle_detect",
@@ -378,16 +422,19 @@ def _auto_subgoal_only_requests(
     memory: DrivingMemory,
     seen_subgoals: Set[str],
     limit: int = 3,
+    middle_only: bool = False,
 ) -> List[CFRequest]:
     """为 subgoal_only 兜底生成当前 STATUS 下的合法 SUBGOAL 候选。
 
-    默认 config 是按 scenario 设计的跨语义候选；当随机 case 还处在 initial
-    等早期 STATUS 时，那些候选可能全部不是合法相邻 pair。这里只在没有任何
-    有效 variant 时补齐，不改变用户显式传入且已命中的配置行为。
+    默认 config 是按 scenario 设计的跨语义候选。v1/full-scope 下如果随机 case
+    还处在 initial 等早期 STATUS，候选可能全部不是合法相邻 pair；这里只在没有
+    任何有效 variant 时补齐。v2 会先用 LEGAL_MIDDLE_EVENT_PAIRS 过滤，因此不会
+    自动补 initial/final 两端候选。
     """
 
     candidates: List[str] = []
-    for (status, subgoal), _owners in LEGAL_EVENT_PAIRS.items():
+    pair_index = LEGAL_MIDDLE_EVENT_PAIRS if middle_only else LEGAL_EVENT_PAIRS
+    for (status, subgoal), _owners in pair_index.items():
         if status != memory.status:
             continue
         if subgoal in seen_subgoals or subgoal not in EVENT_DESCRIPTIONS:
@@ -410,11 +457,11 @@ def _auto_subgoal_only_requests(
 # =========================================================================== #
 
 
-def _load_counterfactual_config(path_or_default: str) -> Dict[str, Any]:
+def _load_counterfactual_config(path_or_default: str, version: str = "v1") -> Dict[str, Any]:
     if not path_or_default:
         return {}
     if path_or_default.lower() == "default":
-        return DEFAULT_COUNTERFACTUAL_CONFIG
+        return DEFAULT_COUNTERFACTUAL_CONFIG_V2 if version == "v2" else DEFAULT_COUNTERFACTUAL_CONFIG
     path = pathlib.Path(path_or_default)
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
@@ -492,11 +539,13 @@ def _counterfactual_requests_for_sample(
 def _find_predecessor_for_subgoal(
     request: CFRequest,
     original_scenario: str,
+    middle_only: bool = False,
 ) -> Optional[Tuple[str, int]]:
     """为 scenario_swap 找一个包含目标 SUBGOAL 的合法前驱 (scenario, idx)。"""
 
     candidates: List[Tuple[str, int]] = []
-    for (_status, subgoal), owners in LEGAL_EVENT_PAIRS.items():
+    pair_index = LEGAL_MIDDLE_EVENT_PAIRS if middle_only else LEGAL_EVENT_PAIRS
+    for (_status, subgoal), owners in pair_index.items():
         if subgoal == request.subgoal:
             candidates.extend(owners)
     if not candidates:
@@ -519,10 +568,12 @@ def _find_predecessor_for_subgoal(
 def _build_scenario_swap_memory(
     memory: DrivingMemory,
     request: CFRequest,
+    middle_only: bool = False,
 ) -> Tuple[Optional[DrivingMemory], str]:
-    found = _find_predecessor_for_subgoal(request, memory.scenario)
+    found = _find_predecessor_for_subgoal(request, memory.scenario, middle_only=middle_only)
     if found is None:
-        return None, f"subgoal {request.subgoal!r} 不存在于任何场景状态机"
+        scope_text = "v2 middle-transition 状态机" if middle_only else "任何场景状态机"
+        return None, f"subgoal {request.subgoal!r} 不存在于{scope_text}"
     scenario, idx = found
     seq = get_full_sequence(scenario)
     if request.target_status and seq[idx] != request.target_status:
@@ -543,6 +594,7 @@ def _build_scenario_swap_memory(
 def _build_subgoal_only_memory(
     memory: DrivingMemory,
     request: CFRequest,
+    middle_only: bool = False,
 ) -> Tuple[Optional[DrivingMemory], str, str]:
     """subgoal_only：保留原 scenario/STATUS，只换 SUBGOAL。
 
@@ -551,16 +603,18 @@ def _build_subgoal_only_memory(
     """
 
     pair = (memory.status, request.subgoal)
-    legal_somewhere = pair in LEGAL_EVENT_PAIRS
+    pair_index = LEGAL_MIDDLE_EVENT_PAIRS if middle_only else LEGAL_EVENT_PAIRS
+    legal_somewhere = pair in pair_index
     if not legal_somewhere:
+        scope_text = "v2 middle 子目标转换" if middle_only else "任何场景状态机里的合法相邻转移"
         return None, "invalid_pair", (
             f"(STATUS={memory.status!r}, SUBGOAL={request.subgoal!r}) "
-            "不是任何场景状态机里的合法相邻转移"
+            f"不是{scope_text}"
         )
     consistency = "consistent" if request.subgoal in memory.event_sequence else "sequence_mismatch"
     warning = ""
     if consistency != "consistent":
-        owners = ",".join(s for s, _idx in LEGAL_EVENT_PAIRS[pair][:3])
+        owners = ",".join(s for s, _idx in pair_index[pair][:3])
         warning = (
             f"subgoal_only 保留原 scenario/event_sequence，但该 SUBGOAL 不在原序列中；"
             f"同 STATUS 合法 pair 出现在: {owners}"
@@ -572,6 +626,7 @@ def _make_counterfactual_variants(
     memory: DrivingMemory,
     requests: List[CFRequest],
     mode: str,
+    middle_only: bool = False,
 ) -> Tuple[List[CFVariant], List[Dict[str, Any]]]:
     """构造 truth + CF variant；不再含 noop，floor 改由 truth 跨 seed pairwise。"""
 
@@ -608,10 +663,14 @@ def _make_counterfactual_variants(
             return False
 
         if mode == "scenario_swap":
-            cf_memory, warning = _build_scenario_swap_memory(memory, request)
+            cf_memory, warning = _build_scenario_swap_memory(
+                memory, request, middle_only=middle_only,
+            )
             consistency = "consistent"
         elif mode == "subgoal_only":
-            cf_memory, consistency, warning = _build_subgoal_only_memory(memory, request)
+            cf_memory, consistency, warning = _build_subgoal_only_memory(
+                memory, request, middle_only=middle_only,
+            )
         else:
             raise ValueError(f"未知 counterfactual mode: {mode}")
         if cf_memory is None:
@@ -643,7 +702,12 @@ def _make_counterfactual_variants(
         _try_add_request(request)
 
     if mode == "subgoal_only" and len(variants) == 1:
-        auto_requests = _auto_subgoal_only_requests(memory, seen_subgoals, limit=3)
+        auto_requests = _auto_subgoal_only_requests(
+            memory,
+            seen_subgoals,
+            limit=3,
+            middle_only=middle_only,
+        )
         if auto_requests:
             print(
                 f"[probe][cf][auto] mode=subgoal_only status={memory.status!r}: "
@@ -1058,8 +1122,10 @@ def _render_cf_report_md(
     lines.append(f"# Counterfactual report — {case_header}")
     lines.append("")
     lines.append("## Setup")
+    lines.append(f"- version:        `{case_meta.get('version')}`")
     lines.append(f"- truth_subgoal: `{case_meta.get('truth_subgoal')}`")
     lines.append(f"- modes:           `{case_meta.get('active_modes')}`")
+    lines.append(f"- CF scope:        `{case_meta.get('counterfactual_scope')}`")
     lines.append(f"- cfg sweep:       `{case_meta.get('cfg_scale_sweep')}`  (baseline = first value)")
     lines.append(f"- seed replicates: `{case_meta.get('seed_replicates')}`")
     lines.append(f"- request source:  `{case_meta.get('request_source')}`")
@@ -1177,9 +1243,62 @@ def _resolve_default_dit_checkpoint(save_root_hint: Optional[str] = None) -> str
     return str(base / "latest" / "best.pt")
 
 
+def _cli_flag_supplied(flag: str) -> bool:
+    """检查用户是否显式传了某个 flag，用于 VERSION=v2 时安全替换默认路径。"""
+
+    return any(arg == flag or arg.startswith(flag + "=") for arg in sys.argv[1:])
+
+
+def _infer_goalgen_version(args: argparse.Namespace) -> str:
+    if args.version in {"v1", "v2"}:
+        return args.version
+    text = " ".join(
+        str(x)
+        for x in (args.val_jsonl, args.save_root, args.dit_checkpoint)
+        if x
+    ).lower()
+    return "v2" if "goalgen_v2" in text else "v1"
+
+
+def _is_middle_transition_sample(sample: Dict[str, Any]) -> bool:
+    memory = sample.get("memory") or {}
+    status = memory.get("status")
+    subgoal = memory.get("subgoal")
+    return (status, subgoal) in LEGAL_MIDDLE_EVENT_PAIRS
+
+
+def _apply_version_defaults(args: argparse.Namespace) -> str:
+    """应用 v1/v2 默认路径，并返回实际版本。
+
+    v2 的 probe/eval 代码是复用 v1 入口，但默认路径不能继续指向 v1 数据；
+    这里只在用户没显式传路径时替换，避免覆盖手工指定的历史 run。
+    """
+
+    version_hint = " ".join(
+        str(x)
+        for x in (args.val_jsonl, args.save_root, args.dit_checkpoint)
+        if x
+    ).lower()
+    wants_v2_defaults = args.version == "v2" or (
+        args.version == "auto" and "goalgen_v2" in version_hint
+    )
+    if wants_v2_defaults:
+        if not _cli_flag_supplied("--val-jsonl"):
+            args.val_jsonl = "checkpoints/goalgen_v2_data/val.jsonl"
+        if not _cli_flag_supplied("--save-root"):
+            args.save_root = "checkpoints/goalgen_v2_dit"
+    return _infer_goalgen_version(args)
+
+
 @torch.no_grad()
 def main() -> None:
     parser = argparse.ArgumentParser(description="GoalGen v1/v2 case-level probe（随机场景 dump）")
+    parser.add_argument("--version",
+                        choices=["auto", "v1", "v2"],
+                        default=_default_version_arg(),
+                        help="auto/v1/v2；v2 会在未显式传路径时默认使用 goalgen_v2_data/goalgen_v2_dit，"
+                             "并让 counterfactual scope 默认限制在 middle 子目标转换。"
+                             "也可用 VERSION=v2 环境变量设置。")
     parser.add_argument("--val-jsonl", default="checkpoints/goalgen_v1_data/val.jsonl")
     parser.add_argument("--dit-checkpoint", default="",
                         help="DiT ckpt 路径；空 = 按 --save-root 自动解析 latest/best.pt。")
@@ -1198,6 +1317,11 @@ def main() -> None:
                         default="scenario_swap",
                         help="scenario_swap 同时换 scenario/status/event_sequence 保持 prompt 自洽（推荐）；"
                              "subgoal_only 只换 SUBGOAL；both 同 case 下保存两套。")
+    parser.add_argument("--counterfactual-scope",
+                        choices=["auto", "all", "middle_transitions"],
+                        default="auto",
+                        help="auto：v1 用全状态机，v2 只允许 middle0→middle1 / middle1→middle2；"
+                             "all 仅允许 v1 使用；middle_transitions 可强制排除 initial/final 两端。")
     parser.add_argument("--counterfactual-config", default="",
                         help="per-scenario CF 配置；传 default 用内置；传路径加载 JSON。")
     parser.add_argument("--cfg-scale-sweep", default="",
@@ -1234,9 +1358,33 @@ def main() -> None:
                         default="select_last")
     args = parser.parse_args()
 
+    effective_version = _apply_version_defaults(args)
+    if effective_version == "v2" and args.counterfactual_scope == "all":
+        raise RuntimeError(
+            "v2 counterfactual 必须只针对三个 middle 子目标之间的转换，"
+            "不能使用 --counterfactual-scope all 设计 initial/final 两端干预。"
+            "请去掉该参数或改用 --counterfactual-scope middle_transitions。"
+        )
+    middle_only_cf = (
+        args.counterfactual_scope == "middle_transitions"
+        or (args.counterfactual_scope == "auto" and effective_version == "v2")
+    )
+
     if not args.dit_checkpoint:
         args.dit_checkpoint = _resolve_default_dit_checkpoint(args.save_root)
         print(f"[ckpt] --dit-checkpoint 未指定，自动解析 = {args.dit_checkpoint}")
+    if effective_version == "v2":
+        for label, value in (
+            ("--val-jsonl", args.val_jsonl),
+            ("--save-root", args.save_root),
+            ("--dit-checkpoint", args.dit_checkpoint),
+        ):
+            if "goalgen_v1" in str(value).lower():
+                raise RuntimeError(
+                    f"VERSION=v2 probe 不能使用明显的 v1 路径：{label}={value}。"
+                    "请改用 checkpoints/goalgen_v2_data / checkpoints/goalgen_v2_dit，"
+                    "或显式改用 --version v1。"
+                )
 
     case_root = pathlib.Path(args.save_root) / "eval_cases"
     case_root.mkdir(parents=True, exist_ok=True)
@@ -1246,9 +1394,9 @@ def main() -> None:
     samples = load_jsonl(pathlib.Path(args.val_jsonl))
     scenarios_filter = [s.strip() for s in args.scenarios.split(",") if s.strip()] or None
     cli_subgoals = _parse_csv_tokens(args.counterfactual_subgoals)
-    cf_config = _load_counterfactual_config(args.counterfactual_config)
+    cf_config = _load_counterfactual_config(args.counterfactual_config, version=effective_version)
     config_source_label = (
-        "built-in default"
+        ("built-in default v2 middle-only" if effective_version == "v2" else "built-in default v1/full")
         if args.counterfactual_config.lower() == "default"
         else (args.counterfactual_config or "<empty>")
     )
@@ -1260,12 +1408,39 @@ def main() -> None:
     cfg_scale_values = _parse_float_csv(args.cfg_scale_sweep, args.cfg_scale)
     seed_replicates = max(1, int(args.counterfactual_seed_replicates))
     picked = select_samples(samples, scenarios_filter, args.num_per_scenario, args.seed)
+    if effective_version == "v2":
+        bad = [
+            (
+                idx,
+                (sample.get("memory") or {}).get("scenario", sample.get("scenario")),
+                (sample.get("memory") or {}).get("status"),
+                (sample.get("memory") or {}).get("subgoal"),
+            )
+            for idx, sample in picked
+            if not _is_middle_transition_sample(sample)
+        ]
+        if bad:
+            preview = ", ".join(
+                f"idx={idx}:{status}->{subgoal}" for idx, _sc, status, subgoal in bad[:5]
+            )
+            raise RuntimeError(
+                "VERSION=v2 probe 只允许 middle 子目标之间的转换样本。"
+                f"当前选中的样本含 initial/final 两端或非法 pair：{preview}。"
+                "请确认 --val-jsonl 指向 checkpoints/goalgen_v2_data/val.jsonl，"
+                "或显式改用 --version v1。"
+            )
     print(f"[probe] selected {len(picked)} samples from {len(samples)} total")
+    print(
+        f"[probe] version={effective_version} val_jsonl={args.val_jsonl} "
+        f"save_root={args.save_root} cf_scope="
+        f"{'middle_transitions' if middle_only_cf else 'all'}"
+    )
     cf_enabled = bool(cli_subgoals or cf_config)
     if cf_enabled:
         print(f"[probe] counterfactual modes={cf_modes} cfg_sweep={cfg_scale_values} "
               f"seed_replicates={seed_replicates} config={config_source_label} "
-              f"cli_fallback={cli_subgoals or '<empty>'}")
+              f"cli_fallback={cli_subgoals or '<empty>'} "
+              f"scope={'middle_transitions' if middle_only_cf else 'all'}")
         if seed_replicates < 2:
             print("[probe][cf] seed_replicates<2: 不计算 floor / ratio；"
                   "想要量化结论请加 --counterfactual-seed-replicates 2 或以上。")
@@ -1378,7 +1553,12 @@ def main() -> None:
 
         for mode in active_modes:
             if dump_cf:
-                variants, skipped = _make_counterfactual_variants(memory, cf_requests, mode)
+                variants, skipped = _make_counterfactual_variants(
+                    memory,
+                    cf_requests,
+                    mode,
+                    middle_only=middle_only_cf,
+                )
             else:
                 variants = [CFVariant(tag="truth", memory=memory, mode=mode,
                                        requested_subgoal=memory.subgoal, is_truth=True)]
@@ -1665,6 +1845,7 @@ def main() -> None:
             mode_payloads[mode] = {
                 "overview_png": str(overview_png) if overview_png else "",
                 "extra_overview_pngs": extra_overview,
+                "counterfactual_scope": "middle_transitions" if middle_only_cf else "all",
                 "noise_floor": baseline_floor,
                 "noise_floor_by_cfg": {str(k): v for k, v in floor_by_cfg.items()},
                 "per_cf": per_cf_summaries,
@@ -1729,6 +1910,8 @@ def main() -> None:
             cf_summary = {
                 "experiment": {
                     "name": "goalgen_counterfactual_subgoal",
+                    "version": effective_version,
+                    "counterfactual_scope": "middle_transitions" if middle_only_cf else "all",
                     "truth_subgoal": memory.subgoal,
                     "scenario": memory.scenario,
                     "modes": active_modes,
@@ -1759,6 +1942,8 @@ def main() -> None:
                     mode_summaries=mode_payloads,
                     case_meta={
                         "truth_subgoal":   memory.subgoal,
+                        "version":         effective_version,
+                        "counterfactual_scope": "middle_transitions" if middle_only_cf else "all",
                         "active_modes":    active_modes,
                         "cfg_scale_sweep": cfg_scale_values,
                         "seed_replicates": seed_replicates,
@@ -1785,6 +1970,8 @@ def main() -> None:
             "z0_prior_alpha": args.z0_prior_alpha,
             "z0_prior_sigma": args.z0_prior_sigma,
             "use_ema": args.use_ema,
+            "version": effective_version,
+            "counterfactual_scope": "middle_transitions" if middle_only_cf else "all",
             "seed": args.seed,
             "case_suffix": args.case_suffix,
             "cf_overview": primary_overview,
@@ -1835,6 +2022,8 @@ def main() -> None:
                 "run_id": run_id,
                 "anchor": anchor,
                 "truth_subgoal": memory.subgoal,
+                "version": effective_version,
+                "counterfactual_scope": "middle_transitions" if middle_only_cf else "all",
                 "modes": active_modes,
                 "max_ratio_over_floor_pixel": case_max_ratio,
                 "max_ratio_tag": case_max_ratio_tag,

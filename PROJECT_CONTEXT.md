@@ -21,6 +21,7 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 |---|---|
 | `lead/` | 数据采集、训练、闭环评测参考仓库。只读 |
 | `AutoMoT/` | 在线驾驶仓库；当前本地改造主要放这里 |
+| `AutoMoT/lead_data` | 远端 LEAD 数据软链接入口，等价于用户在 `AutoMoT/` 下执行 `ln -s /datashare/IOL4SGH/data/data/* lead_data/` 后的目录；运行命令里用相对路径 `lead_data` / `lead_data/keyframes_all_scenarios.json` |
 | `qwen3vl_local/`（`AutoMoT/` 主目录内） | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT；`tb_serve.sh` 是通用 TensorBoard 启动器 |
 | `qwen3vl_local/sft/` | SFT 数据、训练、eval、probe（统一一套，已废弃 v1/v2 双轨与 ms-swift） |
 | `AutoMoT/vae_standalone/train_patch_unpatch.py` | patch/unpatch 端到端重建训练 |
@@ -34,6 +35,11 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 `leaderboard/...`、`checkpoints/...`；不要额外写切目录步骤，也不要给
 `qwen3vl_local/...` 命令加 `AutoMoT/` 前缀。只有仓库根视角的文件白名单、git add 路径、
 或明确说明 repo root 路径时，才保留 `AutoMoT/` 前缀。
+
+LEAD 数据根目录统一假设在 `AutoMoT/lead_data`，即远端原始 LEAD 数据软链接后的目录。
+运行文档、脚本默认值和示例命令不要再写原始 datashare 绝对路径；数据根写
+`--data-root lead_data`，keyframes 写 `--keyframes lead_data/keyframes_all_scenarios.json`。
+训练、eval、probe 产物仍写 `checkpoints/...`。
 
 ## 2. 时间与输入约定
 
@@ -220,6 +226,8 @@ DataLoader worker：
 - `qwen3vl_local/goalgen/eval.py`
 - `qwen3vl_local/goalgen/probe.py`
 - `qwen3vl_local/goalgen/GOALGEN_RUN.md`
+- `qwen3vl_local/goalgen/GOALGEN_V1.md`
+- `qwen3vl_local/goalgen/GOALGEN_V2.md`
 
 语义：
 
@@ -231,7 +239,7 @@ DataLoader worker：
   之前默认 `alpha=1.0, sigma=1.0` 把当前帧 latent 掺进 z0 → 低 t 区域 `z_t` 主要由
   "当前帧 + 噪声"主导，`v_target = z1 - z0` 里 z0 含 z_current → 模型偷懒学
   "还原当前帧"而不是 subgoal。**统一改回纯噪声起点**（flow.py / train.py / eval.py /
-  probe.py / train.sh / GOALGEN_PLAN.md 同步），让模型必须从噪声生成 subgoal。
+  probe.py / train.sh / GOALGEN_V1.md / GOALGEN_V2.md 同步），让模型必须从噪声生成 subgoal。
   image-to-image ablation 时显式 `--z0-prior-alpha 1.0`（此时推理 `z_init` 必须用同样
   混合方式构造，分布才一致）。**v1 和 v2 共享同一份代码，默认值改动同时覆盖两者**。
 
@@ -243,6 +251,20 @@ v1/v2：
 | transition | 4 类，含 initial/final 两端 | 2 类，只保留 middle 之间 |
 | 默认训练 | 从零 | 从 v1 `latest/best.pt` warm start |
 | 代码 | 同一套 | 同一套 |
+
+v2 train/eval/probe 仍复用 `goalgen/train.py` / `goalgen/eval.py` / `goalgen/probe.py`；
+通过 `--val-jsonl checkpoints/goalgen_v2_data/val.jsonl`、`--save-root
+checkpoints/goalgen_v2_dit` 或 `VERSION=v2` 切换。v2 train/eval/probe 都会校验样本
+只能是 middle 子目标之间的转换，并拒绝明显的 `goalgen_v1_*` train/val/save/ckpt 路径
+（但 v2 train 的 `INIT_FROM_CKPT=goalgen_v1_dit/...` warm start 是允许的）；误传 v1
+数据时不再静默混跑 initial/final 两端样本。v2 的 counterfactual 干预默认
+`counterfactual_scope=middle_transitions`：
+只允许 `middle[0]→middle[1]` / `middle[1]→middle[2]`，显式排除
+`initial→middle[0]` 与 `middle[2]→final`；若 v2 probe 选中两端样本会直接报错。
+v2 下 `--counterfactual-scope all` 会被拒绝，内置 `--counterfactual-config default`
+只生成 middle-only 候选，不复用 v1/full-scope 候选表。
+GoalGen 文档已拆分：`GOALGEN_PLAN.md` / `GOALGEN_RUN.md` 只保留索引；
+版本细节分别看 `GOALGEN_V1.md` 与 `GOALGEN_V2.md`。
 
 当前共享架构，不属于某个 dataset mode：
 
@@ -375,7 +397,7 @@ eval、probe、teacher / 推理入口。
 | 任务 | 文档 |
 |---|---|
 | SFT 跑法 | `qwen3vl_local/sft/SFT_RUN.md` |
-| GoalGen 跑法 | `qwen3vl_local/goalgen/GOALGEN_RUN.md` |
+| GoalGen 跑法 | `qwen3vl_local/goalgen/GOALGEN_RUN.md` 索引；版本细节看 `GOALGEN_V1.md` / `GOALGEN_V2.md` |
 | LeadMoT 跑法 | `qwen3vl_local/leadmot/LEADMOT_RUN.md` |
 | LeadMoT 架构 | `qwen3vl_local/leadmot/ARCHITECTURE.md` |
 | LeadMoT CARLA 闭环评测 | `qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md` |

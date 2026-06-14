@@ -17,8 +17,10 @@
   (e) velocity_cos: 5 个固定 t 上 v_pred vs v_target cosine 平均 —— 越接近 1 越好
 
 输出布局（必填 --save-root，与 train.sh 同根）：
-  <save_root>/eval/eval_v1_summary.json     聚合指标 + _metric_doc 说明
-  <save_root>/eval/eval_v1_perline.jsonl    每条样本一行（含 5 指标 + png 路径）
+  <save_root>/eval/eval_v1_summary.json     v1 聚合指标 + _metric_doc 说明
+  <save_root>/eval/eval_v1_perline.jsonl    v1 每条样本一行（含 5 指标 + png 路径）
+  <save_root>/eval/eval_v2_summary.json     v2 聚合指标（只允许 middle 子目标转换样本）
+  <save_root>/eval/eval_v2_perline.jsonl    v2 每条样本一行
   <save_root>/eval/cases/<NNNNN>__<scenario>__<run>__anchor<N>/   小样本完整 dump
       inputs/system_prompt.txt              teacher-forced system prompt 全文
       inputs/user_prompt.txt                teacher-forced user prompt 全文
@@ -272,6 +274,7 @@ def _dump_invocation(output_dir: pathlib.Path, rank: int = 0) -> None:
         out_path = inv_dir / f"{ts}_{host}_pid{os.getpid()}.txt"
 
         env_keys = (
+            "VERSION",
             "CUDA_VISIBLE_DEVICES", "WORLD_SIZE", "RANK", "LOCAL_RANK",
             "MASTER_ADDR", "MASTER_PORT", "NCCL_DEBUG", "NCCL_P2P_LEVEL",
             "PYTORCH_CUDA_ALLOC_CONF",
@@ -337,6 +340,52 @@ def memory_from_sample(sample: Dict[str, Any]) -> DrivingMemory:
         subgoal=memory["subgoal"],
         completed_events=list(memory.get("completed_events", [])),
     )
+
+
+def _default_version_arg() -> str:
+    env_version = os.environ.get("VERSION", "").strip().lower()
+    return env_version if env_version in {"v1", "v2"} else "auto"
+
+
+def _cli_flag_supplied(flag: str) -> bool:
+    return flag in sys.argv[1:] or any(arg.startswith(flag + "=") for arg in sys.argv[1:])
+
+
+def _infer_goalgen_version(args: argparse.Namespace) -> str:
+    if args.version in {"v1", "v2"}:
+        return args.version
+    text = " ".join([
+        str(getattr(args, "val_jsonl", "")),
+        str(getattr(args, "save_root", "")),
+        str(getattr(args, "dit_checkpoint", "")),
+    ]).lower()
+    return "v2" if "goalgen_v2" in text else "v1"
+
+
+def _apply_version_defaults(args: argparse.Namespace) -> str:
+    version_hint = " ".join([
+        str(getattr(args, "save_root", "")),
+        str(getattr(args, "dit_checkpoint", "")),
+    ]).lower()
+    wants_v2_defaults = args.version == "v2" or (
+        args.version == "auto" and "goalgen_v2" in version_hint
+    )
+    if wants_v2_defaults and not _cli_flag_supplied("--val-jsonl"):
+        args.val_jsonl = "checkpoints/goalgen_v2_data/val.jsonl"
+    effective_version = _infer_goalgen_version(args)
+    args.version = effective_version
+    return effective_version
+
+
+def _is_middle_transition_sample(sample: Dict[str, Any]) -> bool:
+    memory = sample.get("memory") or {}
+    sequence = list(memory.get("event_sequence") or [])
+    status = memory.get("status")
+    subgoal = memory.get("subgoal")
+    for idx in (1, 2):
+        if idx + 1 < len(sequence) and status == sequence[idx] and subgoal == sequence[idx + 1]:
+            return True
+    return False
 
 
 def dtype_from_name(name: str) -> torch.dtype:
@@ -906,14 +955,15 @@ def _resolve_eval_paths(args: argparse.Namespace) -> Dict[str, pathlib.Path]:
     """
     root = pathlib.Path(args.save_root)
     run_tag = (args.run_tag or "").strip() or _default_run_tag(args)
+    version = getattr(args, "version", "v1")
     eval_dir = root / "eval"
     return {
         "eval_dir": eval_dir,
         "tb_dir": root / "eval_tb" / run_tag,
         "samples_dir": eval_dir / "samples",
         "cases_dir": eval_dir / "cases",
-        "perline_jsonl": eval_dir / "eval_v1_perline.jsonl",
-        "summary_json": eval_dir / "eval_v1_summary.json",
+        "perline_jsonl": eval_dir / f"eval_{version}_perline.jsonl",
+        "summary_json": eval_dir / f"eval_{version}_summary.json",
     }
 
 
@@ -973,8 +1023,26 @@ def eval_loop(args: argparse.Namespace) -> None:
         raise RuntimeError(f"验证 jsonl 为空：{args.val_jsonl}")
     if args.max_samples > 0:
         samples = samples[: args.max_samples]
+    if args.version == "v2":
+        bad = [
+            (
+                idx,
+                (sample.get("memory") or {}).get("status"),
+                (sample.get("memory") or {}).get("subgoal"),
+            )
+            for idx, sample in enumerate(samples)
+            if not _is_middle_transition_sample(sample)
+        ]
+        if bad:
+            preview = ", ".join(f"idx={idx}:{status}->{subgoal}" for idx, status, subgoal in bad[:5])
+            raise RuntimeError(
+                "VERSION=v2 eval 只允许 middle 子目标之间的转换样本，"
+                f"当前 val_jsonl 含 initial/final 两端或非法 pair：{preview}。"
+                "请确认 --val-jsonl 指向 checkpoints/goalgen_v2_data/val.jsonl，"
+                "或显式改用 --version v1。"
+            )
     if is_rank0(rank):
-        print(f"[data] 验证样本={len(samples)} 来源={args.val_jsonl}")
+        print(f"[data] version={args.version} 验证样本={len(samples)} 来源={args.val_jsonl}")
 
     # ---- 完整 dump 模式判定（与 SFT eval_sft_v1 同口径）----
     # 默认：--max-samples > 0 → 开；跑全集 → 关。
@@ -1220,6 +1288,7 @@ def eval_loop(args: argparse.Namespace) -> None:
     }
     summary = {
         "_metric_doc": metric_doc,
+        "version": args.version,
         "config": vars(args),
         "patch_unpatch": dit.patch_unpatch_metadata(args.dit_checkpoint),
         "overall": _agg(all_metrics),
@@ -1384,6 +1453,11 @@ def _resolve_default_dit_checkpoint(save_root_hint: Optional[str] = None) -> str
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="在 val.jsonl 上评测 GoalGen v1/v2 共用 DiT")
+    p.add_argument("--version",
+                   choices=["auto", "v1", "v2"],
+                   default=_default_version_arg(),
+                   help="auto/v1/v2; v2 defaults to goalgen_v2_data/val.jsonl when --val-jsonl is omitted "
+                        "and validates middle-transition-only samples.")
     p.add_argument("--val-jsonl", default="checkpoints/goalgen_v1_data/val.jsonl")
     p.add_argument("--dit-checkpoint", default="",
                    help="DiT ckpt 路径。**留空时由 main() 根据 --save-root 自动推**："
@@ -1454,11 +1528,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_arg_parser().parse_args()
+    effective_version = _apply_version_defaults(args)
     # --dit-checkpoint 留空时由 resolver 推：基于 --save-root 找到对应 base
     # 下的 latest/best.pt（v1/v2 自动跟随训练产物，无需用户两处同步路径）。
     if not args.dit_checkpoint:
         args.dit_checkpoint = _resolve_default_dit_checkpoint(args.save_root)
         print(f"[ckpt] --dit-checkpoint 未指定，自动解析 = {args.dit_checkpoint}")
+    if effective_version == "v2":
+        for label, value in (
+            ("--val-jsonl", args.val_jsonl),
+            ("--save-root", args.save_root),
+            ("--dit-checkpoint", args.dit_checkpoint),
+        ):
+            if "goalgen_v1" in str(value).lower():
+                raise RuntimeError(
+                    f"VERSION=v2 eval 不能使用明显的 v1 路径：{label}={value}。"
+                    "请改用 checkpoints/goalgen_v2_data / checkpoints/goalgen_v2_dit，"
+                    "或显式改用 --version v1。"
+                )
+    print(
+        f"[eval] version={effective_version} val_jsonl={args.val_jsonl} "
+        f"save_root={args.save_root}"
+    )
     eval_loop(args)
 
 

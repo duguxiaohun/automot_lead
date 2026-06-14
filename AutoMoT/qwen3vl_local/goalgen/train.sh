@@ -28,13 +28,15 @@ if [[ "${VERSION}" == "v2" ]]; then
     # VERSION=v2 模式默认从 v1 训练产物里的 best.pt warm start：DiT 权重 + EMA shadow 都加载，
     # 不接 optimizer / scheduler / step，等同于"换数据子集 + 继承架构权重"重新训练。
     # 想从 latest.pt warm start：INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/latest.pt
-    # 想完全从零训 v2：INIT_FROM_CKPT=NONE（任何不存在的路径会被 train.py 报错，
-    # 真要从零就显式 INIT_FROM_CKPT="" 把默认覆盖掉）。
+    # 想完全从零训 v2：显式传空字符串 INIT_FROM_CKPT=；不要写 NONE，
+    # 任何非空且不存在的路径都会被 train.py 报错。
     # 默认指向 v1 顶层 symlink：checkpoints/goalgen_v1_dit/latest/best.pt
     # （latest 是本脚本维护的 symlink，永远指向最新 v1 run_XXXXXX/）。
     # 老 schema（v1 训练时还没启用 run 子目录，best.pt 直接在 OUTPUT_DIR 顶层）：
     # 显式传 INIT_FROM_CKPT=checkpoints/goalgen_v1_dit/best.pt 即可。
-    INIT_FROM_CKPT="${INIT_FROM_CKPT:-checkpoints/goalgen_v1_dit/latest/best.pt}"
+    if [[ -z "${INIT_FROM_CKPT+x}" ]]; then
+        INIT_FROM_CKPT="checkpoints/goalgen_v1_dit/latest/best.pt"
+    fi
     # VERSION=v2 模式默认走 **fine-tune 保守配方**（warm start 起点已是 v1 best.pt，初期 LR 过大
     # 会一步把 v1 学好的权重重新打散，得不偿失）：
     # - LR 减半（AdamW 1e-4 / Muon 1e-3）
@@ -269,6 +271,7 @@ configure_master_port() {
 
 COMMON_ARGS=(
     --train-jsonl "${TRAIN_JSONL}"
+    --artifact-version "${VERSION}"
     --val-jsonl "${VAL_JSONL}"
     --checkpoint-dir "${MODEL_DIR}"
     --qwen-adapter-dir "${QWEN_ADAPTER_DIR}"
@@ -328,6 +331,7 @@ fi
 
 echo "[version] VERSION=${VERSION}"
 echo "[version] TRAIN_JSONL=${TRAIN_JSONL}"
+echo "[version] VAL_JSONL=${VAL_JSONL}"
 echo "[version] OUTPUT_DIR=${OUTPUT_DIR}"
 if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
     echo "[version] OUTPUT_DIR_BASE=${OUTPUT_DIR_BASE} (latest symlink -> run_${RUN_TAG})"
