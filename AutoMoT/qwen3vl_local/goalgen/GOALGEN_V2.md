@@ -178,7 +178,18 @@ v2 干预实验必须围绕三个 middle 子目标之间的转换设计，不能
 禁止：middle[2] -> final
 ```
 
-默认推荐：
+默认推荐（先做基线，再做默认 CF）：
+
+先跑同设置基线（不加 counterfactual 参数）：
+
+```bash
+VERSION=v2 GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
+  --scenarios NonSignalizedJunctionLeftTurn,PriorityAtJunction,HazardAtSideLane \
+  --num-per-scenario 1 --seed 7 \
+  --case-suffix "_v2_baseline"
+```
+
+再跑默认 CF 主配置（`scenario_swap + default`）：
 
 ```bash
 VERSION=v2 GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
@@ -190,7 +201,20 @@ VERSION=v2 GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --counterfactual-seed-replicates 3
 ```
 
-最小干预：
+两次命令保持相同 `scenarios/seed/num-per-scenario`，即可把默认 CF 与无干预基线直接对比。
+
+最小干预（建议配同设置基线）：
+
+先跑同设置基线：
+
+```bash
+VERSION=v2 GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
+  --scenarios NonSignalizedJunctionLeftTurn,SignalizedJunctionLeftTurn \
+  --num-per-scenario 1 --seed 7 \
+  --case-suffix "_v2_minimal_baseline"
+```
+
+再跑最小干预（只改 SUBGOAL）：
 
 ```bash
 VERSION=v2 GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
@@ -202,17 +226,36 @@ VERSION=v2 GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --counterfactual-seed-replicates 3
 ```
 
+两次命令保持相同 `scenarios/seed/num-per-scenario`，即可衡量最小干预相对基线的增量影响。
+
 同 case 对照两种干预强度：
+
+先跑较弱干预（只改 SUBGOAL，不改 STATUS）：
 
 ```bash
 VERSION=v2 GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
   --scenarios NonSignalizedJunctionLeftTurn \
   --num-per-scenario 1 --seed 7 \
-  --case-suffix "_v2_cf_both" \
+  --case-suffix "_v2_cf_compare_subgoal_only" \
+  --counterfactual-mode subgoal_only \
+  --counterfactual-config default \
+  --counterfactual-seed-replicates 3
+```
+
+再跑较强干预（同时改 STATUS + SUBGOAL）：
+
+```bash
+VERSION=v2 GPU_IDS=0 python qwen3vl_local/goalgen/probe.py \
+  --scenarios NonSignalizedJunctionLeftTurn \
+  --num-per-scenario 1 --seed 7 \
+  --case-suffix "_v2_cf_compare_both" \
   --counterfactual-mode both \
   --counterfactual-config default \
   --counterfactual-seed-replicates 3
 ```
+
+两次命令保持相同 `scenario/seed/num-per-scenario`，只改变 `counterfactual-mode`，
+即可在同一 case 上直接比较两种干预强度。
 
 输出中的 `cf_summary.json` / `cf_report.md` 会写明：
 
