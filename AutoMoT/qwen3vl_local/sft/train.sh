@@ -27,9 +27,9 @@
 #
 # 想固定卡：在最前面再加 GPU_IDS=0,1,2,3（DDP_GPU_COUNT 被忽略，卡数从逗号数推断）。
 #
-# 调权重（不重启 shell，前置 export 即可生效）：
-#   SFT_ANALYSIS_WEIGHT=0.5 bash qwen3vl_local/sft/train.sh ddp     # ANALYSIS 漂移
-#   SFT_ANALYSIS_WEIGHT=0.1 bash qwen3vl_local/sft/train.sh ddp     # ANALYSIS 过拟合 teacher
+# 调权重（不重启 shell，前置 env 即可生效）：
+#   SFT_ANALYSIS_WEIGHT=0.3 bash qwen3vl_local/sft/train.sh ddp     # 更弱语言监督消融
+#   SFT_ANALYSIS_WEIGHT=1.0 bash qwen3vl_local/sft/train.sh ddp     # 逐 token 学 teacher 文风的强监督
 
 set -euo pipefail
 
@@ -75,7 +75,7 @@ PER_DEVICE_BS="${PER_DEVICE_BS:-1}"
 # 如果你想 bypass shell 直接 python 调，train.py 仍然支持 SFT_* env 作为 argparse default。
 SFT_TEACHER_MAX_NEW_TOKENS="${SFT_TEACHER_MAX_NEW_TOKENS:-256}"
 SFT_TEACHER_TEMPERATURE="${SFT_TEACHER_TEMPERATURE:-0.0}"
-SFT_ANALYSIS_WEIGHT="${SFT_ANALYSIS_WEIGHT:-0.3}"
+SFT_ANALYSIS_WEIGHT="${SFT_ANALYSIS_WEIGHT:-0.5}"
 SKIP_TEACHER="${SKIP_TEACHER:-0}"
 
 # HuggingFace 强制离线

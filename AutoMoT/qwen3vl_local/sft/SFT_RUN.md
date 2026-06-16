@@ -61,7 +61,7 @@ GPU_IDS=0 bash qwen3vl_local/sft/train.sh check
 ```
 
 通过条件：check 模式 2 step 正常前后向，无 NaN/OOM；初始 loss 在 3-8 区间；
-`check_loss_mask.py` 输出里 ANALYSIS body token 权重为 0.3，其余 assistant
+`check_loss_mask.py` 输出里 ANALYSIS body token 权重为 0.5，其余 assistant
 token 权重 1.0。
 
 ## 4. Teacher 预览（可选）
@@ -110,10 +110,14 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft/train.sh ddp
 | `NO_RUN_SUBDIR` | `0` | 置 `1` 回到顶层覆盖写法 |
 | `DDP_GPU_COUNT` | `8` | DDP 需要的 GPU 数；`GPU_IDS` 非空时忽略 |
 | `GPU_IDS` | 空 | 显式 pin 卡号；空 = nvidia-smi 自动选址 |
-| `SFT_ANALYSIS_WEIGHT` | `0.3` | ANALYSIS body loss 权重 |
+| `SFT_ANALYSIS_WEIGHT` | `0.5` | ANALYSIS body loss 权重；默认中等强度学习语言推理 |
 | `SFT_TEACHER_MAX_NEW_TOKENS` | `256` | teacher 单次生成上限 |
 | `SFT_TEACHER_TEMPERATURE` | `0.0` | teacher 采样温度（0 = greedy） |
 | `NUM_EPOCHS` / `LR` / `MAX_LENGTH` / `LORA_RANK` 等 | 见 train.sh | 都可以直接 env override |
+
+`SFT_ANALYSIS_WEIGHT=0.5` 是折中口径：让 LoRA 学 ANALYSIS 的大致语言推理套路，
+但不把 teacher 的逐字措辞压成主任务。若需要更多 paraphrase 式语言多样性，可在训练命令前
+显式加 `SFT_TEACHER_TEMPERATURE=0.2` 或 `0.3`；默认仍保持 greedy，优先保证稳定复现。
 
 GPU 规则：脚本默认用 `nvidia-smi` 自动挑空闲卡并覆盖旧 `CUDA_VISIBLE_DEVICES`。
 显式 pin 时前置 `GPU_IDS=<id1,id2,...>`，跳过自动选址；卡数从 `GPU_IDS` 逗号数推断。
@@ -145,6 +149,9 @@ GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 qwen3vl_local/sft/eval.
 重点指标：`keep_accuracy` 越高越好，`advance_accuracy` 越高越好，
 `early_advance_rate` 越低越好，`anchor12_sanity=True` 必须保持。
 Eval 的终端输出会追加到 `<save-root>/eval/log.txt`。
+当 `--max-samples > 0` 或显式 `--full-dump` 时，`<save-root>/eval/cases/` 里每个
+case 也会保存 `outputs/expert_analysis.txt` 与 `outputs/language_compare.json`，
+用于对比专家语言和模型自己的 ANALYSIS。
 
 如果想跑 base 模型对照（不挂 LoRA）：传 `--lora-dir ''`。
 
@@ -157,7 +164,8 @@ GPU_IDS=0 python qwen3vl_local/sft/probe.py \
   --num-per-scenario 4 --seed 0 --case-suffix "_final"
 ```
 
-产物在 `<save-root>/eval_cases/`：每个 case 子目录里有图像、prompt、GT、pred、token loss 和 overview；
+产物在 `<save-root>/eval_cases/`：每个 case 子目录里有图像、prompt、GT、pred、`expert_analysis.txt`、`language_compare.json`、token loss 和 overview；
+`expert_analysis.txt` 是 base teacher 在带 PRIVILEGED 的专家 prompt 下生成的 ANALYSIS，`language_compare.json` 把专家语言、模型自己的 ANALYSIS、物化 GT ANALYSIS（若有）并排保存。
 `<save-root>/eval_cases/log.txt` 是本次 probe 的终端 stdout/stderr 汇总日志（不在每个 case 内）。
 `token_loss.json` 里的 `mean_loss_weighted_train` 按训练真实权重汇总：
 ANALYSIS body=`SFT_ANALYSIS_WEIGHT`，结构字面 / STATUS / SUBGOAL / tail 全部为 1.0。

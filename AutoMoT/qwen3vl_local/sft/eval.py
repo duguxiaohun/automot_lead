@@ -1,7 +1,7 @@
 """SFT 离线评估：跑 val.jsonl，输出指标 + 小样本完整结果 dump。
 
 复用 AutoMoT/qwen3vl_local/engine.py 的 LocalQwen3VLInstructEngine 做推理；
-默认只跑 base model；只有显式传 --lora-dir 时才导入 peft 并加载 LoRA adapter。
+默认评估 train.sh 写出的 latest/final LoRA；传 ``--lora-dir ''`` 时评 base model。
 
 LoRA 加载方式：默认 ``--merge-lora`` True，即通过 engine attach 后立刻 ``merge_and_unload``
 把 LoRA delta 合并进 base 矩阵，避免 PeftModel wrapper 在 Qwen3-VL 上的 M-RoPE +
@@ -17,9 +17,10 @@ engine.attach_lora_adapter(..., merge=False)，不再保留本地第二套 attac
   ``ANALYSIS:<clean>\\nSTATUS:`` 喂回 engine 续解段（详见 PROJECT_CONTEXT.md §18.7）。
   健康 LoRA 上不会触发、无开销；不健康 LoRA 上每个失败样本会多跑 2 次 forward。
   ``--no-fallback`` 关掉看 first-pass 真实表现，与 anchor12 sanity 视角一致。
-- ``--teacher-compare`` 默认在 --max-samples > 0 时开：每条 dump 出来的 case
+- ``--teacher-compare`` 默认跟随 full-dump：每条 dump 出来的 case
   额外用 frozen base Qwen（disable_adapter 等价：还没挂 LoRA 时直接调）跑一遍
-  teacher prompt（含 PRIVILEGED 块）出对照 ANALYSIS，写到 outputs/teacher.txt。
+  teacher prompt（含 PRIVILEGED 块）出对照 ANALYSIS，写到 outputs/expert_analysis.txt
+  和 outputs/language_compare.json。
   全集 eval 默认关掉，避免推理时间翻倍。
 
 四个核心指标（与 qwen3vl_local/sft/SFT_PLAN.md §8 一致；含义见 metrics.json["_metric_doc"]）：
@@ -36,6 +37,8 @@ engine.attach_lora_adapter(..., merge=False)，不再保留本地第二套 attac
       inputs/system_prompt.txt           system prompt 原文
       inputs/user_prompt.txt             user prompt 原文（去 <image> 占位）
       inputs/image_00.jpg ... image_03.jpg  history RGB，**复制**到本地（不 symlink）
+      outputs/expert_analysis.txt        base teacher + PRIVILEGED 生成的专家 ANALYSIS
+      outputs/language_compare.json      专家语言 / 模型语言 / 物化 GT 语言对比
       outputs/raw_text.txt               模型 raw 输出
       outputs/parsed.json                解析后的 status/subgoal/analysis
       step.json                          单 case 完整元信息
@@ -276,6 +279,11 @@ from qwen3vl_local.prompt_pipeline import (  # noqa: E402
     get_full_sequence,
     parse_vlm_output,
 )
+from qwen3vl_local.sft.train import (  # noqa: E402
+    _TEACHER_SYSTEM_PROMPT,
+    build_teacher_user_prompt,
+    postprocess_teacher,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +450,62 @@ def reconstruct_prompts(sample: Dict) -> Dict[str, str]:
         user = user[len("<image>"):]
     user = user.lstrip("\n")
     return {"system": system, "user": user, "images": sample["images"]}
+
+
+def _teacher_meta_for_eval(sample: Dict[str, Any], gt_status: Optional[str]) -> Dict[str, str]:
+    """还原 teacher prompt 需要的 PRIVILEGED 元信息。
+
+    新数据由 build_dataset.py 写入 teacher_meta_input；这里保留 fallback，方便旧 jsonl
+    也能生成专家语言对照。
+    """
+
+    meta = sample.get("teacher_meta_input")
+    if isinstance(meta, dict):
+        return {
+            "target_status": str(meta.get("target_status") or gt_status or "unknown"),
+            "transition": str(meta.get("transition") or ("advance" if sample.get("is_transition_sample") else "keep")),
+            "memory_in_status": str(meta.get("memory_in_status") or "unknown"),
+        }
+    return {
+        "target_status": str(gt_status or "unknown"),
+        "transition": "advance" if sample.get("is_transition_sample") else "keep",
+        "memory_in_status": "unknown",
+    }
+
+
+def generate_expert_analysis(
+    engine: LocalQwen3VLInstructEngine,
+    sample: Dict[str, Any],
+    images_loader,
+) -> Dict[str, Any]:
+    """用训练同款 base teacher prompt 生成专家 ANALYSIS，供测试时和模型语言对比。"""
+
+    pieces = reconstruct_prompts(sample)
+    gt = extract_assistant_target(sample)
+    meta = _teacher_meta_for_eval(sample, gt.get("status"))
+    try:
+        raw_text, _ = engine.generate(
+            system_prompt=_TEACHER_SYSTEM_PROMPT,
+            user_prompt=build_teacher_user_prompt(pieces["user"], meta),
+            images=images_loader(pieces["images"]),
+            cache_dir=None,
+        )
+        analysis, fallback = postprocess_teacher(raw_text)
+        return {
+            "analysis": analysis,
+            "raw_text": raw_text,
+            "fallback": fallback,
+            "error": None,
+            "teacher_meta_input": meta,
+        }
+    except Exception as exc:
+        return {
+            "analysis": None,
+            "raw_text": "",
+            "fallback": True,
+            "error": str(exc),
+            "teacher_meta_input": meta,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -725,6 +789,16 @@ def _format_status_subgoal_comparison_md(
     )
 
 
+def _md_cell(value: Any, max_chars: int = 600) -> str:
+    """把任意文本压成 Markdown 表格单元，避免 ANALYSIS 里的管道/换行撑坏表格。"""
+
+    text = "" if value is None else str(value)
+    text = text.replace("|", "\\|").replace("\r", " ").replace("\n", "<br>")
+    if len(text) > max_chars:
+        text = text[:max_chars].rstrip() + "..."
+    return text
+
+
 def _render_case_summary_md(
     sample: Dict[str, Any],
     sample_idx: int,
@@ -740,6 +814,7 @@ def _render_case_summary_md(
     error_msg: Optional[str],
     saved_images: List[str],
     args: argparse.Namespace,
+    expert_info: Optional[Dict[str, Any]] = None,
     fallback_info: Optional[Dict[str, Any]] = None,
 ) -> str:
     """一页 markdown：顶部 SUBGOAL/STATUS 对比表 → 输入图引用 → 完整 prompt → GT vs Pred 原文。
@@ -793,6 +868,21 @@ def _render_case_summary_md(
     lines.append(gt_raw)
     lines.append("```")
     lines.append("")
+    pred_analysis = parse_vlm_output(pred_raw or "").get("analysis")
+    if expert_info is not None:
+        lines.append("## Expert vs Model Analysis")
+        if expert_info.get("error"):
+            lines.append(f"- expert generation error: `{expert_info.get('error')}`")
+        lines.append("| source | analysis |")
+        lines.append("|---|---|")
+        expert_analysis = str(expert_info.get("analysis") or "")
+        model_analysis = str(pred_analysis or "")
+        gt_analysis = str(parse_vlm_output(gt_raw).get("analysis") or "")
+        lines.append(f"| expert teacher | {_md_cell(expert_analysis)} |")
+        lines.append(f"| model output | {_md_cell(model_analysis)} |")
+        if gt_analysis and gt_analysis != "__TEACHER_PENDING__":
+            lines.append(f"| materialized GT | {_md_cell(gt_analysis)} |")
+        lines.append("")
     lines.append("## Pred (model raw output)")
     lines.append("```")
     lines.append(pred_raw or "<inference error>")
@@ -815,6 +905,7 @@ def dump_case(
     error_kind: str,
     error_msg: Optional[str],
     args: argparse.Namespace,
+    expert_info: Optional[Dict[str, Any]] = None,
     fallback_info: Optional[Dict[str, Any]] = None,
 ) -> None:
     """把一条样本完整 dump 到 <case_dir>/{inputs, outputs, step.json, summary.md}。
@@ -847,11 +938,35 @@ def dump_case(
             str(fallback_info.get("first_pass_raw_text")),
             encoding="utf-8",
         )
+    pred_analysis = parse_vlm_output(pred_raw or "").get("analysis")
+    gt_analysis = parse_vlm_output(gt_raw).get("analysis")
+    if expert_info is not None:
+        (outputs_dir / "expert_analysis.txt").write_text(
+            str(expert_info.get("analysis") or "<expert generation error>"),
+            encoding="utf-8",
+        )
+        language_compare = {
+            "expert_analysis": expert_info.get("analysis"),
+            "model_analysis": pred_analysis,
+            "gt_analysis": gt_analysis,
+            "gt_analysis_is_pending": gt_analysis == "__TEACHER_PENDING__",
+            "expert_error": expert_info.get("error"),
+            "expert_fallback": expert_info.get("fallback"),
+            "teacher_meta_input": expert_info.get("teacher_meta_input"),
+            "note": "expert_analysis is generated by the base teacher prompt with PRIVILEGED; model_analysis is the LoRA/base model's own free output.",
+        }
+        (outputs_dir / "language_compare.json").write_text(
+            json.dumps(language_compare, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     parsed_obj = {
         "pred_status": pred_status,
         "pred_subgoal": pred_subgoal,
+        "pred_analysis": pred_analysis,
         "gt_status": gt_status,
         "gt_subgoal": gt_subgoal,
+        "gt_analysis": gt_analysis,
+        "expert_analysis": expert_info.get("analysis") if expert_info else None,
         "status_match": gt_status == pred_status,
         "subgoal_match": gt_subgoal == pred_subgoal,
         "error_kind": error_kind,
@@ -873,7 +988,13 @@ def dump_case(
         "image_paths_src": sample.get("images", []),
         "image_files_local": saved_image_names,
         "gt": {"status": gt_status, "subgoal": gt_subgoal, "raw": gt_raw},
-        "pred": {"status": pred_status, "subgoal": pred_subgoal, "raw": pred_raw},
+        "pred": {"status": pred_status, "subgoal": pred_subgoal, "analysis": pred_analysis, "raw": pred_raw},
+        "language_compare": {
+            "expert_analysis": expert_info.get("analysis") if expert_info else None,
+            "gt_analysis": gt_analysis,
+            "gt_analysis_is_pending": gt_analysis == "__TEACHER_PENDING__",
+            "expert_error": expert_info.get("error") if expert_info else None,
+        },
         "error_kind": error_kind,
         "error_msg": error_msg,
         "fallback": fallback_info or {"attempted": False, "succeeded": False, "used": False, "stages": []},
@@ -890,6 +1011,7 @@ def dump_case(
         gt_status, gt_subgoal, gt_raw,
         pred_status, pred_subgoal, pred_raw,
         error_kind, error_msg, saved_image_names, args,
+        expert_info=expert_info,
         fallback_info=fallback_info,
     )
     (case_dir / "summary.md").write_text(md, encoding="utf-8")
@@ -1140,6 +1262,10 @@ def main():
     parser.add_argument("--full-dump-limit", type=int, default=0,
                         help="最多 dump 多少条样本（防止误开后铺满磁盘）。"
                              "0 = 不限（受 --max-samples 限制）。")
+    parser.add_argument("--teacher-compare",
+                        action=argparse.BooleanOptionalAction, default=None,
+                        help="是否为完整 dump 样本额外生成专家 ANALYSIS 并与模型 ANALYSIS 对比。"
+                             "默认跟随 full-dump：小样本 eval 开，全集 eval 关。")
     parser.add_argument("--skip-anchor12-sanity", action="store_true",
                         help="跳过原始 anchor=12 fail case 单例检查。")
     parser.add_argument("--anchor12-route-dir", type=str,
@@ -1174,6 +1300,28 @@ def main():
                   "STATUS/SUBGOAL 评测不受影响；case dump 里 GT ANALYSIS 会写成占位文本。"
                   "需要真实 teacher 输出做对照，跑 build_teacher.py 离线物化 val。")
 
+    # ---- 完整 dump 模式判定（用户最关心的"小样本完整保存"路径）----
+    # 默认行为：传 --max-samples > 0 时开（小样本 spot-check），跑全集时关。
+    # 显式 --full-dump / --no-full-dump 覆盖默认。
+    if args.full_dump is None:
+        full_dump_enabled = args.max_samples > 0
+    else:
+        full_dump_enabled = bool(args.full_dump)
+    # dump 数量上限：先看 --full-dump-limit，再回退到全部样本。
+    dump_limit = args.full_dump_limit if args.full_dump_limit > 0 else len(samples)
+    teacher_compare_enabled = full_dump_enabled if args.teacher_compare is None else bool(args.teacher_compare)
+
+    # eval 时 jsonl 已经给了绝对路径，直接 PIL 打开就够。
+    # 与 runner load_lead_rgb_clip 一样保留 RGB 原图，不做额外 resize/crop；
+    # Qwen processor 会自己处理动态分辨率。
+    from PIL import Image  # type: ignore
+
+    def images_loader(paths: List[str]):
+        """延迟打开 RGB 图片；失败时交给外层记录 bad sample。"""
+
+        # 每次打开后立刻 convert("RGB")，避免 PIL 延迟读取导致文件句柄在生成期间才报错。
+        return [Image.open(p).convert("RGB") for p in paths]
+
     # 启动 engine + 可选挂 LoRA。
     #
     # 注意：engine 构造函数只保存配置，不加载权重。这里显式 engine.load()，
@@ -1196,21 +1344,24 @@ def main():
         cache_system_prompt=args.cache_system_prompt,
     )
     engine.load()
+    # 专家语言对照必须在 LoRA merge 之前跑：默认 eval 会 merge_and_unload，
+    # merge 后无法再临时 disable adapter。只为本 rank 会 dump 的样本生成，避免全集评估变慢。
+    expert_compare_by_idx: Dict[int, Dict[str, Any]] = {}
+    if teacher_compare_enabled:
+        if is_rank0(rank):
+            print("[teacher-compare] enabled: generating expert ANALYSIS before attaching LoRA")
+        local_dump_count = 0
+        for j, teacher_sample in enumerate(samples):
+            if world_size > 1 and (j % world_size) != rank:
+                continue
+            if local_dump_count >= dump_limit:
+                break
+            expert_compare_by_idx[j] = generate_expert_analysis(engine, teacher_sample, images_loader)
+            local_dump_count += 1
     if args.lora_dir:
         # 统一走 engine 的 LoRA attach 入口；merge=True 是默认推荐路径，merge=False
         # 仅用于诊断 PEFT wrapper 行为，不再维护 eval.py 本地第二套 attach 逻辑。
         engine.attach_lora_adapter(args.lora_dir, merge=args.merge_lora)
-
-    # eval 时 jsonl 已经给了绝对路径，直接 PIL 打开就够。
-    # 与 runner load_lead_rgb_clip 一样保留 RGB 原图，不做额外 resize/crop；
-    # Qwen processor 会自己处理动态分辨率。
-    from PIL import Image  # type: ignore
-
-    def images_loader(paths: List[str]):
-        """延迟打开 RGB 图片；失败时交给外层记录 bad sample。"""
-
-        # 每次打开后立刻 convert("RGB")，避免 PIL 延迟读取导致文件句柄在生成期间才报错。
-        return [Image.open(p).convert("RGB") for p in paths]
 
     # 先跑固定 fail case，方便日志最前面就看见“这次 LoRA 是否解决了原问题”。
     # 如果该 route 不存在，可用 --skip-anchor12-sanity 跳过。
@@ -1233,15 +1384,6 @@ def main():
     # 逐条预测缓存：始终启用，便于 rank 间 all_gather 后由 rank0 重算指标。
     predictions_records: List[Dict[str, Any]] = []
 
-    # ---- 完整 dump 模式判定（用户最关心的"小样本完整保存"路径）----
-    # 默认行为：传 --max-samples > 0 时开（小样本 spot-check），跑全集时关。
-    # 显式 --full-dump / --no-full-dump 覆盖默认。
-    if args.full_dump is None:
-        full_dump_enabled = args.max_samples > 0
-    else:
-        full_dump_enabled = bool(args.full_dump)
-    # dump 数量上限：先看 --full-dump-limit，再回退到全部样本。
-    dump_limit = args.full_dump_limit if args.full_dump_limit > 0 else len(samples)
     cases_dir = out_paths["cases_dir"]
     if full_dump_enabled and is_rank0(rank):
         cases_dir.mkdir(parents=True, exist_ok=True)
@@ -1332,6 +1474,9 @@ def main():
             "gt_subgoal": gt_subgoal,
             "pred_status": pred,
             "pred_subgoal": pred_subgoal,
+            "pred_analysis": parse_vlm_output(raw_text or "").get("analysis"),
+            "expert_analysis": (expert_compare_by_idx.get(i) or {}).get("analysis"),
+            "expert_error": (expert_compare_by_idx.get(i) or {}).get("error"),
             "raw_text": raw_text,
             "error_kind": error_kind,
             "error": err,
@@ -1366,6 +1511,7 @@ def main():
                     error_kind=error_kind,
                     error_msg=err,
                     args=args,
+                    expert_info=expert_compare_by_idx.get(i),
                     fallback_info=fallback_info,
                 )
                 dump_count_local += 1
