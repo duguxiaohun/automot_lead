@@ -294,9 +294,13 @@ manifest 复用机制）。现在只有一套统一 SFT：
   不再有 runtime_teacher_data 复用**。代价：训练时间约为 base LoRA 的 3-4 倍
   （每 step 多一次 4B 生成）。
 - loss 在 `train.py` 内显式按 char-range 切段加权：ANALYSIS body 权重
-  `SFT_ANALYSIS_WEIGHT`（默认 0.3）；`ANALYSIS:` / `\nSTATUS:` / `\nSUBGOAL:`
+  `SFT_ANALYSIS_WEIGHT`（默认 0.5，学习大致语言推理但不逐字压过状态监督）；
+  `ANALYSIS:` / `\nSTATUS:` / `\nSUBGOAL:`
   字面、STATUS / SUBGOAL event_name、tail / EOS 全部 1.0；user / system prompt 段 0。
   旧版 v2 "结构字面 mask=0" 是已确认致命陷阱，新 mask 不留这个坑。
+- ANALYSIS 语言学习仍走 token-level teacher 蒸馏，不引入 embedding / 偏好式
+  semantic loss；如果需要减少固定措辞，训练时显式设
+  `SFT_TEACHER_TEMPERATURE=0.2~0.3` 让现场 teacher 轻微改写。
 - `qwen3vl_local/sft/build_teacher.py` 仅保留作可选离线工具（手动 dump teacher
   输出供 review / inspect）；不再被训练入口自动调用，也不再写 manifest。
 
@@ -309,6 +313,10 @@ eval 端固定坑：
 - partial-continue fallback 是永久兜底，不代表模型健康。
 - `dataset_version="pending"` 时 GT ANALYSIS 段是占位，STATUS/SUBGOAL 评测不受
   影响；想做 ANALYSIS 内容对照，跑 `build_teacher.py` 物化 val 后再传 `--val-jsonl`。
+- `eval.py` 小样本 full dump 与 `probe.py` 默认保存专家语言对照：
+  `expert_analysis.txt` / `language_compare.json`。expert 来自 base teacher prompt +
+  PRIVILEGED，model 来自 LoRA 自己生成的 ANALYSIS；用于检查是否学到大致语言推理，
+  而不只看 STATUS/SUBGOAL。
 
 ## 9. VAE Patch/Unpatch
 

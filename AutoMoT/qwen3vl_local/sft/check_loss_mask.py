@@ -2,7 +2,7 @@
 
 可视化 train.py 内置 per-token 权重切法是否符合预期：
 
-1) ANALYSIS body token 权重应为 SFT_ANALYSIS_WEIGHT（默认 0.3）
+1) ANALYSIS body token 权重应为 SFT_ANALYSIS_WEIGHT（默认 0.5）
 2) STATUS / SUBGOAL 事件名 token 权重应为 1.0
 3) 起手 "ANALYSIS:" 字面、段切换 "\\nSTATUS:" / "\\nSUBGOAL:" 字面、末尾 tail / EOS
    全部权重 1.0（与 train.py 同口径，避免段切换无监督导致循环复读）
@@ -18,7 +18,7 @@ python qwen3vl_local/sft/check_loss_mask.py \
   --jsonl checkpoints/sft_data_pending/train.jsonl \
   --sample-idx 0
 
-SFT_ANALYSIS_WEIGHT=0.5 python qwen3vl_local/sft/check_loss_mask.py \
+SFT_ANALYSIS_WEIGHT=0.3 python qwen3vl_local/sft/check_loss_mask.py \
   --jsonl checkpoints/sft_data_pending/train.jsonl \
   --sample-idx 12
 ```
@@ -42,7 +42,7 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
 
-ANALYSIS_WEIGHT = float(os.environ.get("SFT_ANALYSIS_WEIGHT", "0.3"))
+ANALYSIS_WEIGHT = float(os.environ.get("SFT_ANALYSIS_WEIGHT", "0.5"))
 
 # 与 train.py::_FULL_ASSIST_RE 严格保持一致。
 FULL_PATTERN = re.compile(

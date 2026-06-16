@@ -10,9 +10,10 @@ eval.py 是聚合视角：跑完整 val 出 keep_acc / early_advance / per_scena
     * 完整 system / user prompt 文本（去 <image> 占位，还原训练时模型实际看到的文字）；
     * GT assistant 全文（ANALYSIS + STATUS + SUBGOAL 三行）；
     * 模型预测 raw 文本（与 eval.py 同一推理路径）；
+    * expert_analysis.txt / language_compare.json：base teacher 专家语言 vs 模型自己的 ANALYSIS；
     * **token-level loss**：teacher-forced 给 assistant 一遍，逐 token 给出 NLL；
       额外用与 train.py 内置 mask 同款 regex 算"weighted loss"，直接看到
-      ANALYSIS body 0.3 / 结构字面 1.0 / 事件名 1.0 真正用于训练的损失分布；
+      ANALYSIS body 0.5 / 结构字面 1.0 / 事件名 1.0 真正用于训练的损失分布；
     * meta.json：lora_dir / model_dir / scenario / run_id / anchor / 推理耗时；
     * overview.md：把上面所有内容合并到一页，单文件即可人工复查。
 
@@ -24,6 +25,8 @@ eval.py 是聚合视角：跑完整 val 出 keep_acc / early_advance / per_scena
       user_prompt.txt
       gt.txt
       pred.txt
+      expert_analysis.txt
+      language_compare.json
       token_loss.json
       meta.json
       overview.md
@@ -165,10 +168,15 @@ import torch.nn.functional as F  # noqa: E402
 
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine  # noqa: E402
 from qwen3vl_local.prompt_pipeline import parse_vlm_output  # noqa: E402
+from qwen3vl_local.sft.train import (  # noqa: E402
+    _TEACHER_SYSTEM_PROMPT,
+    build_teacher_user_prompt,
+    postprocess_teacher,
+)
 
-# 与 train.py 内置权重 / check_loss_mask.py 同款 regex：ANALYSIS body 单独降权，
+# 与 train.py 内置权重 / check_loss_mask.py 同款 regex：ANALYSIS body 可通过 env 调权，
 # 其它 assistant token（结构字面、事件名、tail/EOS）权重为 1。
-ANALYSIS_WEIGHT = float(os.environ.get("SFT_ANALYSIS_WEIGHT", "0.3"))
+ANALYSIS_WEIGHT = float(os.environ.get("SFT_ANALYSIS_WEIGHT", "0.5"))
 _FULL_PATTERN = re.compile(
     r"ANALYSIS:[ \t]*"
     r"(?P<analysis>[^\n]*?)"
@@ -212,6 +220,58 @@ def reconstruct_prompts(sample: Dict[str, Any]) -> Dict[str, Any]:
 def extract_assistant_target(sample: Dict[str, Any]) -> str:
     """assistant 段完整 GT 文本（包含 ANALYSIS + STATUS + SUBGOAL）。"""
     return sample["messages"][-1]["content"]
+
+
+def _teacher_meta_for_probe(sample: Dict[str, Any]) -> Dict[str, str]:
+    """还原训练同款 teacher prompt 的 PRIVILEGED 元信息。"""
+
+    gt_parsed = parse_vlm_output(extract_assistant_target(sample))
+    meta = sample.get("teacher_meta_input")
+    if isinstance(meta, dict):
+        return {
+            "target_status": str(meta.get("target_status") or gt_parsed.get("status") or "unknown"),
+            "transition": str(meta.get("transition") or ("advance" if sample.get("is_transition_sample") else "keep")),
+            "memory_in_status": str(meta.get("memory_in_status") or "unknown"),
+        }
+    return {
+        "target_status": str(gt_parsed.get("status") or "unknown"),
+        "transition": "advance" if sample.get("is_transition_sample") else "keep",
+        "memory_in_status": "unknown",
+    }
+
+
+def generate_expert_analysis(
+    engine: LocalQwen3VLInstructEngine,
+    sample: Dict[str, Any],
+    pieces: Dict[str, Any],
+    pil_images: List[Any],
+) -> Dict[str, Any]:
+    """用 base teacher prompt 生成专家 ANALYSIS，和模型自己的 ANALYSIS 做人工对照。"""
+
+    meta = _teacher_meta_for_probe(sample)
+    try:
+        raw_text, _ = engine.generate(
+            system_prompt=_TEACHER_SYSTEM_PROMPT,
+            user_prompt=build_teacher_user_prompt(pieces["user"], meta),
+            images=pil_images,
+            cache_dir=None,
+        )
+        analysis, fallback = postprocess_teacher(raw_text)
+        return {
+            "analysis": analysis,
+            "raw_text": raw_text,
+            "fallback": fallback,
+            "error": None,
+            "teacher_meta_input": meta,
+        }
+    except Exception as exc:
+        return {
+            "analysis": None,
+            "raw_text": "",
+            "fallback": True,
+            "error": str(exc),
+            "teacher_meta_input": meta,
+        }
 
 
 # --------------------------------------------------------------------------- #
@@ -466,6 +526,16 @@ def compute_token_loss(
 # 总览 markdown 渲染
 # --------------------------------------------------------------------------- #
 
+def _md_cell(value: Any, max_chars: int = 600) -> str:
+    """把任意文本压成 Markdown 表格单元，避免 ANALYSIS 里的管道/换行撑坏表格。"""
+
+    text = "" if value is None else str(value)
+    text = text.replace("|", "\\|").replace("\r", " ").replace("\n", "<br>")
+    if len(text) > max_chars:
+        text = text[:max_chars].rstrip() + "..."
+    return text
+
+
 def render_overview_md(
     case_dir: pathlib.Path,
     sample: Dict[str, Any],
@@ -476,6 +546,7 @@ def render_overview_md(
     token_loss: Dict[str, Any],
     elapsed: float,
     meta: Dict[str, Any],
+    expert_info: Optional[Dict[str, Any]] = None,
 ) -> str:
     """生成一页 markdown，让人单文件即可复查这条 case。
 
@@ -504,6 +575,19 @@ def render_overview_md(
     lines.append(f"| subgoal | `{gt_parsed.get('subgoal')}` | `{pred_parsed.get('subgoal')}` |")
     lines.append(f"| analysis (片段) | {(gt_parsed.get('analysis') or '')[:80]} | {(pred_parsed.get('analysis') or '')[:80]} |")
     lines.append("")
+
+    if expert_info is not None:
+        lines.append("## Expert vs Model Analysis")
+        if expert_info.get("error"):
+            lines.append(f"- expert generation error: `{expert_info.get('error')}`")
+        lines.append("| source | analysis |")
+        lines.append("|---|---|")
+        lines.append(f"| expert teacher | {_md_cell(expert_info.get('analysis'))} |")
+        lines.append(f"| model output | {_md_cell(pred_parsed.get('analysis'))} |")
+        gt_analysis = gt_parsed.get("analysis") or ""
+        if gt_analysis and gt_analysis != "__TEACHER_PENDING__":
+            lines.append(f"| materialized GT | {_md_cell(gt_analysis)} |")
+        lines.append("")
 
     lines.append("## Token-level loss summary")
     if "error" in token_loss:
@@ -594,6 +678,9 @@ def main() -> None:
                         help="自回归生成 token 数上限。默认 256；建议 ≥ 200。")
     parser.add_argument("--skip-token-loss", action="store_true",
                         help="不算 token-level loss（只 dump prompt/GT/pred + 图），加速 probe")
+    parser.add_argument("--expert-compare",
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help="是否生成专家 ANALYSIS 并与模型自己的 ANALYSIS 对比。默认开启。")
     args = parser.parse_args()
 
     case_root = pathlib.Path(args.save_root) / "eval_cases"
@@ -631,12 +718,23 @@ def main() -> None:
             "probe token-level loss needs a Fast tokenizer (PreTrainedTokenizerFast); "
             "current tokenizer is not Fast, so return_offsets_mapping is unavailable."
         )
+    from PIL import Image  # type: ignore
+
+    # 专家语言对照必须在 attach/merge LoRA 之前跑，保证 expert 是 base teacher prompt。
+    expert_compare_by_idx: Dict[int, Dict[str, Any]] = {}
+    if args.expert_compare:
+        print("[probe] expert_compare enabled: generating base-teacher ANALYSIS before attaching LoRA")
+        for sample_idx, sample in picked:
+            pieces_for_teacher = reconstruct_prompts(sample)
+            pil_images_for_teacher = [Image.open(p).convert("RGB") for p in pieces_for_teacher["images"]]
+            expert_compare_by_idx[sample_idx] = generate_expert_analysis(
+                engine, sample, pieces_for_teacher, pil_images_for_teacher
+            )
+
     if args.lora_dir:
         # 与 eval.py 统一走 engine 的 LoRA attach 入口。merge=True 是推荐路径；
         # merge=False 仅用于诊断 PEFT wrapper 行为。
         engine.attach_lora_adapter(args.lora_dir, merge=args.merge_lora)
-
-    from PIL import Image  # type: ignore
 
     summary_records: List[Dict[str, Any]] = []
     for sample_idx, sample in picked:
@@ -655,6 +753,7 @@ def main() -> None:
         pieces = reconstruct_prompts(sample)
         pil_images = [Image.open(p).convert("RGB") for p in pieces["images"]]
         gt_text = extract_assistant_target(sample)
+        expert_info = expert_compare_by_idx.get(sample_idx)
 
         t0 = time.time()
         try:
@@ -688,6 +787,22 @@ def main() -> None:
         (case_dir / "user_prompt.txt").write_text(pieces["user"], encoding="utf-8")
         (case_dir / "gt.txt").write_text(gt_text, encoding="utf-8")
         (case_dir / "pred.txt").write_text(raw_text or "<inference error>", encoding="utf-8")
+        if expert_info is not None:
+            (case_dir / "expert_analysis.txt").write_text(
+                str(expert_info.get("analysis") or "<expert generation error>"),
+                encoding="utf-8",
+            )
+            language_compare = {
+                "expert_analysis": expert_info.get("analysis"),
+                "model_analysis": pred_parsed.get("analysis"),
+                "gt_analysis": parse_vlm_output(gt_text).get("analysis"),
+                "gt_analysis_is_pending": parse_vlm_output(gt_text).get("analysis") == "__TEACHER_PENDING__",
+                "expert_error": expert_info.get("error"),
+                "expert_fallback": expert_info.get("fallback"),
+                "teacher_meta_input": expert_info.get("teacher_meta_input"),
+            }
+            with (case_dir / "language_compare.json").open("w", encoding="utf-8") as f:
+                json.dump(language_compare, f, ensure_ascii=False, indent=2)
         with (case_dir / "token_loss.json").open("w", encoding="utf-8") as f:
             json.dump(token_loss, f, ensure_ascii=False, indent=2)
 
@@ -710,7 +825,7 @@ def main() -> None:
 
         overview = render_overview_md(
             case_dir, sample, pieces, gt_text, raw_text, pred_parsed,
-            token_loss, elapsed, meta,
+            token_loss, elapsed, meta, expert_info=expert_info,
         )
         (case_dir / "overview.md").write_text(overview, encoding="utf-8")
 
@@ -724,6 +839,8 @@ def main() -> None:
             "is_transition_sample": sample.get("is_transition_sample", False),
             "gt_status": parse_vlm_output(gt_text).get("status"),
             "pred_status": pred_parsed.get("status"),
+            "expert_analysis": expert_info.get("analysis") if expert_info else None,
+            "pred_analysis": pred_parsed.get("analysis"),
             "mean_loss_raw": token_loss.get("mean_loss_raw"),
             "mean_loss_weighted_train": token_loss.get("mean_loss_weighted_train"),
             "mean_loss_status_subgoal_only": token_loss.get("mean_loss_status_subgoal_only"),

@@ -18,7 +18,8 @@ SFT 子包负责 Qwen3-VL-4B-Instruct 的 LoRA 微调，让范式 A 文本 runne
 - `build_dataset.py`：生成 `dataset_version="pending"` 的 train/val jsonl。
 - `train.sh` / `train.py`：用 torch DDP + PEFT 直接注入 LoRA，并在 batch 内现场跑 teacher。
 - `build_teacher.py`：可选离线 dump teacher ANALYSIS，仅用于 review / 统计，不参与默认训练。
-- `eval.py` / `probe.py`：加载 base 或 LoRA 后做指标评估与 case-level dump。
+- `eval.py` / `probe.py`：加载 base 或 LoRA 后做指标评估与 case-level dump；case dump
+  保存 expert/base-teacher ANALYSIS 与模型自己的 ANALYSIS 对比。
 - `check_loss_mask.py` / `inspect_teacher_outputs.py`：静态检查 loss 权重与 teacher 输出质量。
 
 训练不再保留 teacher cache + manifest 复用机制：每次启动训练，frozen base Qwen
@@ -105,10 +106,15 @@ model = get_peft_model(base_model, lora_cfg)
    - tokenize 后拼接到 prompt token 序列；labels 上 prompt 段 = -100，assistant 段 = self
    - 算 per-token weight：
      - prompt 段 = 0
-     - ANALYSIS body = `SFT_ANALYSIS_WEIGHT`（默认 0.3）
+     - ANALYSIS body = `SFT_ANALYSIS_WEIGHT`（默认 0.5，学习大致语言推理但不逐字压过状态监督）
      - 起手 `ANALYSIS:` 字面、段切换 `\nSTATUS:` / `\nSUBGOAL:` 字面、STATUS event_name、SUBGOAL event_name、tail / EOS 全部 = 1.0
    - `loss = sum(F.cross_entropy(reduction='none') * weight) / sum(weight)`
 3. 反向 + grad clip + AdamW step + cosine LR。
+
+这里的语言学习仍是 token-level 蒸馏，只是把 ANALYSIS 正文降到中等权重，目标是学到
+"先看图、描述变化、再判断 keep/advance" 的大致表达模式，而不是逐字复刻 teacher。
+如果要进一步减少固定措辞，可以显式设置 `SFT_TEACHER_TEMPERATURE=0.2~0.3`，让现场
+teacher 在同一语义下给出轻微改写；真正的 embedding/偏好式语义 loss 暂不引入。
 
 DDP：用 `torch.distributed` + `DistributedDataParallel(find_unused_parameters=True)`，
 每 rank 处理 `DistributedSampler` 切到自己的 batch；teacher generate / student forward
@@ -145,7 +151,7 @@ DDP 健壮性补丁（v2 → 当前路线）：
 | grad_accum | 2 | 等效 batch size = 2 * world_size |
 | save_steps / eval_steps | 10000 | |
 | save_total_limit | 3 | |
-| SFT_ANALYSIS_WEIGHT | 0.3 | env override |
+| SFT_ANALYSIS_WEIGHT | 0.5 | env override；默认中等强度学习 ANALYSIS 语言推理 |
 | SFT_TEACHER_MAX_NEW_TOKENS | 256 | env override |
 | SFT_TEACHER_TEMPERATURE | 0.0 (greedy) | env override |
 

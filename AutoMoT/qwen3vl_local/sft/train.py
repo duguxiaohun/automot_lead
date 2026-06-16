@@ -12,7 +12,7 @@
   loss = sum(F.cross_entropy * weight) / sum(weight)。当前内置权重表：
     * user / system prompt 段 = 0
     * ANALYSIS 起手字面 "ANALYSIS: " = 1.0
-    * ANALYSIS body（teacher 输出文本） = ANALYSIS_WEIGHT（默认 0.3）
+    * ANALYSIS body（teacher 输出文本） = ANALYSIS_WEIGHT（默认 0.5）
     * 段切换字面 "\nSTATUS: " / "\nSUBGOAL: " = 1.0
     * STATUS event_name / SUBGOAL event_name = 1.0
     * tail / EOS = 1.0
@@ -35,7 +35,7 @@ GPU_IDS=0 python qwen3vl_local/sft/train.py \
 ```
 
 环境变量入口（与 train.sh 解耦，方便 python 直接调）：
-- `SFT_ANALYSIS_WEIGHT`：ANALYSIS body 权重，默认 0.3。
+- `SFT_ANALYSIS_WEIGHT`：ANALYSIS body 权重，默认 0.5。
 - `SFT_TEACHER_MAX_NEW_TOKENS`：teacher generate 上限，默认 256。
 - `SFT_TEACHER_TEMPERATURE`：teacher 采样温度，默认 0.0（greedy）。
 
@@ -979,7 +979,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-eval-samples", type=int, default=0,
                    help="eval 截到前 N；0 表示全量。check 模式自动设 8。")
     p.add_argument("--analysis-weight", type=float,
-                   default=float(os.environ.get("SFT_ANALYSIS_WEIGHT", "0.3")))
+                   default=float(os.environ.get("SFT_ANALYSIS_WEIGHT", "0.5")))
     p.add_argument("--teacher-max-new-tokens", type=int,
                    default=int(os.environ.get("SFT_TEACHER_MAX_NEW_TOKENS", "256")))
     p.add_argument("--teacher-temperature", type=float,
