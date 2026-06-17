@@ -192,6 +192,7 @@ class LocalQwen3VLInstructEngine:
         self.model = None
         self.processor = None
         self._system_prompt_cache: Optional[Dict[str, Any]] = None
+        self._last_decode_state: Optional[Dict[str, Any]] = None
 
     def load(self) -> None:
         """加载本地 model 和 processor，不允许联网补文件。"""
@@ -485,10 +486,16 @@ class LocalQwen3VLInstructEngine:
 
         import torch
 
+        # 入口先清空，避免上一次 decode 失败后 stage-2 / 后续调用拿到陈旧状态。
+        self._last_decode_state = None
+
         eos_ids = self._eos_ids()
         attention_mask = inputs.get("attention_mask", None)
         decoded_input_ids = inputs["input_ids"]
+        cached_input_ids = decoded_input_ids
+        cached_attention_mask = attention_mask
         past_key_values = prefill_outputs.past_key_values
+        rope_deltas = getattr(prefill_outputs, "rope_deltas", None)
         next_logits = prefill_outputs.logits[:, -1, :]
         # 'shape': [1, 151936]
 
@@ -559,9 +566,20 @@ class LocalQwen3VLInstructEngine:
 
 
             past_key_values = outputs.past_key_values
+            cached_input_ids = decoded_input_ids
+            cached_attention_mask = attention_mask
+            rope_deltas = getattr(outputs, "rope_deltas", rope_deltas)
             next_logits = outputs.logits[:, -1, :]
 
         trace.final_cache_summary = summarize_kv_cache(past_key_values)
+        self._last_decode_state = {
+            "decoded_input_ids": decoded_input_ids.detach(),
+            "cache_input_ids": cached_input_ids.detach(),
+            "attention_mask": cached_attention_mask.detach() if cached_attention_mask is not None else None,
+            "past_key_values": past_key_values,
+            "rope_deltas": rope_deltas.detach() if hasattr(rope_deltas, "detach") else rope_deltas,
+            "next_logits": next_logits.detach(),
+        }
         if self.save_cache and cache_dir is not None:
             trace.final_cache_file = save_kv_cache(
                 past_key_values, pathlib.Path(cache_dir) / "final_past_key_values.pt"
