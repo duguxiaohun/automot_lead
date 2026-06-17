@@ -1,12 +1,14 @@
-"""Build SFT v2 serial-choice jsonl data.
+"""构建 SFT v2 串行选择题 jsonl 数据。
 
-The dataset uses the same LEAD keyframe timelines as qwen3vl_local/sft, but the
-supervision is split into two serial stages:
+本脚本复用旧 ``qwen3vl_local/sft`` 的 LEAD keyframe 时间线、keep/advance
+候选采样逻辑，但把监督拆成两个显式阶段：
 
-1. images + scene prompt -> SCENE
-2. images + selected-scene prompt -> STATUS/SUBGOAL
+1. ``images + scene prompt -> SCENE``
+2. ``selected-scene prompt -> STATUS/SUBGOAL``
 
-No ANALYSIS, teacher cache, or pending placeholder is produced.
+注意这里完全不再生成 ANALYSIS、teacher cache 或 pending placeholder。每一行数据
+都保存 ``stage_messages.scene`` 和 ``stage_messages.status``，训练时再拼成一条
+multi-turn 对话并只对值 token 计算 loss。
 """
 
 from __future__ import annotations
@@ -44,14 +46,22 @@ from qwen3vl_local.sft_v2.prompts import (  # noqa: E402
     build_status_user_prompt,
     format_scene_assistant,
     format_status_assistant,
+    get_full_sequence,
     next_event,
 )
 
 
 def build_messages(sample, image_paths: List[str]) -> Dict:
-    """Convert an old SFT SampleRecord into a v2 serial-choice row."""
+    """把旧 SFT 的 SampleRecord 转成 SFT v2 两阶段 row。
 
+    第一阶段携带图像占位符和场景选择 prompt；第二阶段作为后续 text-only user turn，
+    默认使用真实场景的 EVENT_SEQUENCE。wrong-scene 增强会在 split 之后只改 train row
+    的第二阶段 prompt/target。
+    """
+
+    # previous hint 来自 anchor-K 的状态，用来维持“不要无证据提前推进状态”的记忆语义。
     previous_subgoal = next_event(sample.scenario, sample.memory_in_status)
+    # target_subgoal 是当前 GT status 在同一状态机中的下一阶段。
     target_subgoal = next_event(sample.scenario, sample.target_status)
     scene_user_text = build_scene_user_prompt(
         image_count=len(image_paths),
@@ -62,6 +72,7 @@ def build_messages(sample, image_paths: List[str]) -> Dict:
         previous_status=sample.memory_in_status,
         previous_subgoal=previous_subgoal,
     )
+    # jsonl 里的 <image> 只是便于肉眼检查；训练/eval 会把 PIL 图片结构化传给 processor。
     image_prefix = "".join("<image>" for _ in image_paths) + "\n"
     scene_assistant = format_scene_assistant(sample.scenario)
     status_assistant = format_status_assistant(sample.target_status, target_subgoal)
@@ -72,7 +83,7 @@ def build_messages(sample, image_paths: List[str]) -> Dict:
         "prev_anchor": sample.prev_anchor,
         "images": image_paths,
         # `messages` mirrors the first stage for lightweight inspection.
-        # Training/eval consume the explicit two-stage messages below.
+        # 训练和 eval 使用下面显式的两阶段 messages；messages 字段只保留第一阶段便于检查。
         "messages": [
             {"role": "system", "content": SCENE_SYSTEM_PROMPT},
             {"role": "user", "content": image_prefix + scene_user_text},
@@ -110,7 +121,11 @@ def split_train_val(
     val_ratio: float,
     rng: random.Random,
 ) -> Tuple[List[Dict], List[Dict]]:
-    """Split by run_id to avoid adjacent-frame leakage."""
+    """按 run_id 划分 train/val，避免相邻帧泄漏。
+
+    同一条 CARLA run 内的样本通常时间上高度相邻，如果随机按帧切分，val 会看到和 train
+    几乎连续的图像。这里按 run 粒度切分更接近真实泛化评估。
+    """
 
     run_ids = sorted(samples_by_run.keys())
     rng.shuffle(run_ids)
@@ -125,7 +140,15 @@ def split_train_val(
 
 
 def apply_wrong_scene_augmentation(rows: List[Dict], ratio: float, rng: random.Random) -> int:
-    """Replace the stage-2 selected scene for a subset of train rows."""
+    """对 train row 做 wrong-scene 第二阶段增强。
+
+    增强目标是模拟 eval 中“第一阶段预测了一个合法但错误的 scene，第二阶段仍要沿该
+    predicted scene 继续判断”的情况。关键点：
+
+    - 只改第二阶段 selected scene，不改第一阶段 GT SCENE 监督。
+    - previous hint 和 STATUS/SUBGOAL target 都按“状态机相位”映射到 selected scene。
+    - 因此第二阶段 prompt 和 label 始终内部一致，不会训练模型输出非法 event。
+    """
 
     if ratio <= 0:
         return 0
@@ -140,22 +163,55 @@ def apply_wrong_scene_augmentation(rows: List[Dict], ratio: float, rng: random.R
             continue
         selected_scene = rng.choice(choices)
         meta = row["choice_meta"]
+
+        # 用真实场景中的 target_status 找到当前处于 initial/middle/final 的哪个相位，
+        # 再投影到 wrong selected scene 的同一相位。这样模型学到的是“按已选场景状态机
+        # 继续判断”，而不是背真实场景的 event 名。
+        source_seq = list(get_full_sequence(target_scene))
+        target_seq = list(get_full_sequence(selected_scene))
+        try:
+            phase_idx = source_seq.index(meta["target_status"])
+        except ValueError:
+            phase_idx = 0
+        phase_idx = min(max(phase_idx, 0), len(target_seq) - 1)
+        selected_status = target_seq[phase_idx]
+        selected_subgoal = next_event(selected_scene, selected_status)
+
+        # previous hint 也必须做同相位映射，否则 prompt 中的 hint 会引用真实场景的
+        # event，和 selected scene EVENT_SEQUENCE 冲突。
+        try:
+            memory_phase_idx = source_seq.index(meta["memory_in_status"])
+        except ValueError:
+            memory_phase_idx = phase_idx
+        memory_phase_idx = min(max(memory_phase_idx, 0), len(target_seq) - 1)
+        selected_memory_status = target_seq[memory_phase_idx]
+        selected_memory_subgoal = next_event(selected_scene, selected_memory_status)
+
+        # 重写第二阶段 user prompt 和 assistant target。第一阶段 scene target 保持 GT，
+        # 因为增强只用来训练第二阶段在“给定某个 selected scene”后的选择行为。
         status_user_text = build_status_user_prompt(
             image_count=len(row.get("images", [])),
             selected_scene=selected_scene,
-            previous_status=meta["memory_in_status"],
-            previous_subgoal=meta["memory_in_subgoal"],
+            previous_status=selected_memory_status,
+            previous_subgoal=selected_memory_subgoal,
         )
         row["stage_messages"]["status"][1]["content"] = status_user_text
+        row["stage_messages"]["status"][2]["content"] = format_status_assistant(selected_status, selected_subgoal)
         meta["selected_scene"] = selected_scene
         meta["status_scene_matches_target"] = False
+        meta["selected_scene_phase_index"] = phase_idx
+        meta["selected_scene_status_target"] = selected_status
+        meta["selected_scene_subgoal_target"] = selected_subgoal
+        meta["selected_scene_memory_phase_index"] = memory_phase_idx
+        meta["selected_scene_memory_status"] = selected_memory_status
+        meta["selected_scene_memory_subgoal"] = selected_memory_subgoal
         meta["wrong_scene_augmented"] = True
         n_aug += 1
     return n_aug
 
 
 def main() -> None:
-    """Build train/val jsonl files for SFT v2."""
+    """命令行入口：读取 keyframes，采样候选，写出 train/val jsonl。"""
 
     parser = argparse.ArgumentParser(description="Build SFT v2 serial-choice data")
     parser.add_argument("--keyframes", type=str, default="lead_data/keyframes_all_scenarios.json")
@@ -193,6 +249,7 @@ def main() -> None:
     for run in runs:
         timeline = build_run_timeline(run)
         if timeline is None:
+            # 只保留可解析且状态合法的 run；跳过原因按原 run status 统计，方便检查数据质量。
             skipped[run.get("status", "Unknown")] += 1
             continue
         timelines_by_scenario[timeline.scenario].append(timeline)
@@ -210,6 +267,8 @@ def main() -> None:
     for scenario, timelines in sorted(timelines_by_scenario.items()):
         keeps, advances = [], []
         for timeline in timelines:
+            # collect_candidates 复用旧 SFT 逻辑：keep 样本表示状态保持，advance 样本表示
+            # 靠近状态边界并进入下一阶段。
             k, a = collect_candidates(timeline, args.k_frames, args.boundary_buffer)
             keeps.extend(k)
             advances.extend(a)
@@ -222,6 +281,7 @@ def main() -> None:
                 rng=rng,
             )
         elif args.samples_per_scenario <= 0:
+            # 用户当前默认希望全量采样；<=0 表示不做 per-scenario 下采样。
             chosen = list(advances) + list(keeps)
             rng.shuffle(chosen)
         else:
@@ -247,6 +307,7 @@ def main() -> None:
         print(f"[sample] {scenario:42s} keep={len(keeps):5d} adv={len(advances):4d} -> chosen={len(chosen)}")
 
     train_rows, val_rows = split_train_val(samples_by_run, args.val_ratio, rng)
+    # wrong-scene 增强只施加到 train，val 保持真实串行评估分布。
     wrong_scene_augmented = apply_wrong_scene_augmentation(train_rows, args.wrong_scene_ratio, rng)
     if wrong_scene_augmented:
         print(f"[augment] wrong_scene train rows={wrong_scene_augmented}/{len(train_rows)}")

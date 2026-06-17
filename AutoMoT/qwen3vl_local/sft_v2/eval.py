@@ -1,4 +1,15 @@
-"""Evaluate SFT v2 LoRA by free-generating SCENE/STATUS/SUBGOAL."""
+"""SFT v2 自由生成评估脚本。
+
+评估严格按真实串行协议执行：
+
+1. 用图像和第一阶段 prompt 生成 ``SCENE``。
+2. 如果 scene 不合法，样本立即中断并计入 invalid_scene。
+3. 如果 scene 合法，即使 scene 错了，也按该预测 scene 构造第二阶段 prompt，并尽量
+   复用第一阶段生成后的 KV cache 继续生成 ``STATUS/SUBGOAL``。
+
+最终 serial accuracy 要求 scene 也正确；raw accuracy 仅用于诊断 status/subgoal 文本
+是否碰巧等于 GT。
+"""
 
 from __future__ import annotations
 
@@ -11,7 +22,7 @@ import subprocess
 import sys
 import time
 from collections import Counter, defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
 _AUTOMOT_ROOT = _THIS_FILE.parents[2]
@@ -25,12 +36,15 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
 from PIL import Image
+import torch
 
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine
 from qwen3vl_local.sft_v2.prompts import (
     STATUS_SYSTEM_PROMPT,
     build_status_user_prompt,
     extract_gt,
+    get_full_sequence,
+    next_event,
     parse_output,
     validate_choice,
 )
@@ -38,6 +52,8 @@ from qwen3vl_local.sft_v2.train import strip_image_placeholders
 
 
 def _cli_value(name: str) -> Optional[str]:
+    """从命令行参数里读取某个选项的值，用于 import 早期 GPU 选择。"""
+
     prefix = name + "="
     for i, item in enumerate(sys.argv[1:]):
         if item == name and i + 2 <= len(sys.argv[1:]):
@@ -48,6 +64,8 @@ def _cli_value(name: str) -> Optional[str]:
 
 
 def _pick_idle_gpus(n: int = 1) -> str:
+    """用 nvidia-smi 选择显存/利用率最低的 GPU。"""
+
     try:
         out = subprocess.check_output(
             ["nvidia-smi", "--query-gpu=index,memory.used,utilization.gpu", "--format=csv,noheader,nounits"],
@@ -69,10 +87,17 @@ def _pick_idle_gpus(n: int = 1) -> str:
 
 
 def _normalize_gpu_ids(value: str) -> str:
+    """规范化 GPU_IDS 字符串，去掉空片段和多余空格。"""
+
     return ",".join(part.strip() for part in value.split(",") if part.strip())
 
 
 def _maybe_set_idle_gpu_mask() -> None:
+    """在 torch/transformers 初始化前设置 CUDA_VISIBLE_DEVICES。
+
+    如果用户显式传入 ``--device`` 或 ``GPU_IDS``，尊重用户设置；否则自动挑一张空闲卡。
+    """
+
     device = _cli_value("--device")
     if device and device.lower() not in ("", "auto"):
         return
@@ -91,6 +116,8 @@ _maybe_set_idle_gpu_mask()
 
 
 def load_rows(path: pathlib.Path) -> List[Dict[str, Any]]:
+    """读取 eval jsonl，并整理成串行评估所需字段。"""
+
     rows = []
     with open(path, "r", encoding="utf-8") as f:
         for idx, line in enumerate(f):
@@ -129,11 +156,34 @@ def load_rows(path: pathlib.Path) -> List[Dict[str, Any]]:
 
 
 def load_images(paths: List[str]) -> List[Image.Image]:
+    """读取一个 eval 样本的 RGB 历史帧。"""
+
     return [Image.open(p).convert("RGB") for p in paths]
 
 
 def _text_from_ids(engine: LocalQwen3VLInstructEngine, token_ids: Any) -> str:
+    """把新生成 token 解码成文本，并去掉开头空白。"""
+
     return engine.processor.batch_decode(token_ids, skip_special_tokens=True)[0].lstrip("\n ")
+
+
+def remap_status_hint(source_scene: str, source_status: str, selected_scene: str) -> Tuple[str, str, int]:
+    """把 previous-status hint 映射到 selected scene 的同一状态机相位。
+
+    eval 第二阶段使用模型预测的 scene。若预测 scene 合法但错误，原始 previous hint 仍
+    属于 GT scene，直接塞进 prompt 会和 selected scene 的 EVENT_SEQUENCE 冲突。这里
+    用相位索引把 hint 转成 predicted scene 内部合法的 status/subgoal。
+    """
+
+    source_seq = list(get_full_sequence(source_scene))
+    target_seq = list(get_full_sequence(selected_scene))
+    try:
+        phase_idx = source_seq.index(source_status)
+    except ValueError:
+        phase_idx = 0
+    phase_idx = min(max(phase_idx, 0), len(target_seq) - 1)
+    status = target_seq[phase_idx]
+    return status, next_event(selected_scene, status), phase_idx
 
 
 def _generate_full_multiturn(
@@ -143,8 +193,13 @@ def _generate_full_multiturn(
     raw_scene: str,
     status_user_prompt: str,
 ) -> str:
-    """Fallback: regenerate status from the full two-turn context."""
+    """KV 续接失败时的兜底：重建完整 multi-turn 上下文再生成。
 
+    这个路径会重新编码图片，不符合“第二阶段复用第一阶段 KV”的理想口径。因此调用方
+    会把它计入 ``status_kv_fallback``，便于检查评估结果是否被 fallback 污染。
+    """
+
+    # 重新渲染：system + 第一阶段 user/images + 第一阶段 assistant(raw_scene) + 第二阶段 user。
     messages = engine.build_messages(row["scene_system_prompt"], row["scene_user_prompt"], images)
     messages.extend([
         {"role": "assistant", "content": raw_scene.strip()},
@@ -173,7 +228,7 @@ def _generate_full_multiturn(
 
 
 def _render_status_suffix(engine: LocalQwen3VLInstructEngine, status_user_prompt: str) -> str:
-    """Render the follow-up user turn and assistant generation prompt."""
+    """只渲染第二阶段追加的 user turn 和 assistant generation prompt。"""
 
     return engine.processor.apply_chat_template(
         [{"role": "user", "content": status_user_prompt}],
@@ -188,15 +243,21 @@ def generate_status_with_scene_kv(
     images: List[Image.Image],
     raw_scene: str,
     status_user_prompt: str,
-) -> str:
-    """Continue from the scene-generation KV cache and decode STATUS/SUBGOAL."""
+) -> Tuple[str, bool]:
+    """从第一阶段生成后的 KV cache 继续解码第二阶段。
+
+    返回 ``(raw_text, kv_reused)``。如果拿不到 ``engine._last_decode_state``，说明第一
+    阶段没有留下可复用状态，此时退回 full-multiturn 兜底并返回 ``kv_reused=False``。
+    """
 
     import torch
 
     state = getattr(engine, "_last_decode_state", None)
     if not state:
-        return _generate_full_multiturn(engine, row, images, raw_scene, status_user_prompt)
+        return _generate_full_multiturn(engine, row, images, raw_scene, status_user_prompt), False
 
+    # cache_input_ids 表示 past_key_values 已经覆盖到的序列；decoded_input_ids 可能额外
+    # 包含最后一个 EOS token 或尚未进入 cache 的 token。
     prefix_ids = state.get("cache_input_ids", state["decoded_input_ids"])
     prefix_len = int(prefix_ids.shape[1])
     decoded_ids = state["decoded_input_ids"].to(prefix_ids.device)
@@ -215,9 +276,10 @@ def generate_status_with_scene_kv(
         return_tensors="pt",
     )["input_ids"].to(prefix_ids.device)
     if pending_generated_ids.shape[1] > 0:
+        # 如果第一阶段最后生成的 token 还没有进入 cache，先把它补进 suffix，再接第二阶段 prompt。
         suffix_ids = torch.cat([pending_generated_ids, suffix_ids], dim=1)
     if suffix_ids.shape[1] == 0:
-        return ""
+        return "", True
     old_attention = state["attention_mask"]
     if old_attention is None:
         old_attention = torch.ones_like(prefix_ids, device=prefix_ids.device)
@@ -227,6 +289,7 @@ def generate_status_with_scene_kv(
         dim=1,
     )
     decoded_input_ids = torch.cat([prefix_ids, suffix_ids], dim=1)
+    # cache_position 从已有 KV 的末尾继续编号，保证 RoPE/cache 位置和完整序列一致。
     cache_position = torch.arange(
         prefix_len,
         prefix_len + suffix_ids.shape[1],
@@ -240,6 +303,7 @@ def generate_status_with_scene_kv(
         use_cache=True,
     )
     if state.get("rope_deltas") is not None and "rope_deltas" not in model_inputs:
+        # Qwen3-VL 的 M-RoPE 可能依赖 rope_deltas；prepare_inputs_for_generation 没带时补回。
         model_inputs["rope_deltas"] = state["rope_deltas"]
     outputs = engine.model(**model_inputs, return_dict=True)
     trace = type("_Trace", (), {
@@ -255,10 +319,12 @@ def generate_status_with_scene_kv(
     })()
     inputs = {"input_ids": decoded_input_ids, "attention_mask": attention_mask}
     new_ids = engine.decode(inputs, outputs, trace)
-    return _text_from_ids(engine, new_ids)
+    return _text_from_ids(engine, new_ids), True
 
 
 def dump_case(root: pathlib.Path, row: Dict[str, Any], raw: str, parsed: Dict[str, Optional[str]], valid: Dict[str, bool]) -> None:
+    """保存单个错误/诊断 case 的 prompt、图片、原始输出和解析结果。"""
+
     case_dir = root / f"{row['scenario']}__{row['run_id']}__{row['anchor']}"
     inputs_dir = case_dir / "inputs"
     outputs_dir = case_dir / "outputs"
@@ -287,6 +353,8 @@ def dump_case(root: pathlib.Path, row: Dict[str, Any], raw: str, parsed: Dict[st
 
 
 def parse_args() -> argparse.Namespace:
+    """解析 eval 命令行参数。"""
+
     p = argparse.ArgumentParser(description="Evaluate SFT v2 serial choice LoRA")
     p.add_argument("--jsonl", type=str, default="checkpoints/sft_v2_data/val.jsonl")
     p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
@@ -303,6 +371,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """评估入口：加载 LoRA，逐样本串行生成并汇总指标。"""
+
     args = parse_args()
     rows = load_rows(pathlib.Path(args.jsonl))
     if args.max_samples > 0:
@@ -332,9 +402,12 @@ def main() -> None:
         status_user_prompt = None
         raw_scene = ""
         raw_status = ""
+        status_kv_reused = False
         try:
             images = load_images(row["images"])
-            raw_scene, _trace = engine.generate(row["scene_system_prompt"], row["scene_user_prompt"], images)
+            with torch.no_grad():
+                # 第一阶段只生成 SCENE，engine.generate 会在内部留下 _last_decode_state。
+                raw_scene, _trace = engine.generate(row["scene_system_prompt"], row["scene_user_prompt"], images)
         except Exception as exc:
             parsed = {"scene": None, "status": None, "subgoal": None}
             valid = validate_choice(None, None, None)
@@ -354,14 +427,21 @@ def main() -> None:
         pred_scene = scene_parsed.get("scene")
         scene_valid = validate_choice(pred_scene, None, None)["scene_valid"]
         if scene_valid:
+            previous_status, previous_subgoal, _previous_phase_idx = remap_status_hint(
+                row["gt"]["scene"],
+                row["memory_in_status"],
+                str(pred_scene),
+            )
             status_user_prompt = build_status_user_prompt(
                 image_count=len(row["images"]),
                 selected_scene=str(pred_scene),
-                previous_status=row["memory_in_status"],
-                previous_subgoal=row["memory_in_subgoal"],
+                previous_status=previous_status,
+                previous_subgoal=previous_subgoal,
             )
             try:
-                raw_status = generate_status_with_scene_kv(engine, row, images, raw_scene, status_user_prompt)
+                with torch.no_grad():
+                    # 第二阶段优先沿第一阶段 KV 续接；是否成功复用会写入指标。
+                    raw_status, status_kv_reused = generate_status_with_scene_kv(engine, row, images, raw_scene, status_user_prompt)
                 status_parsed = parse_output(raw_status)
             except Exception as exc:
                 status_parsed = {"scene": None, "status": None, "subgoal": None}
@@ -380,7 +460,7 @@ def main() -> None:
         scene_ok = parsed.get("scene") == gt["scene"]
         status_raw_ok = parsed.get("status") == gt["status"]
         subgoal_raw_ok = parsed.get("subgoal") == gt["subgoal"]
-        # Serial metrics require the predicted scene to be correct.
+        # 串行指标要求 scene 也正确；raw 指标只看 STATUS/SUBGOAL 文本本身是否等于 GT。
         status_ok = scene_ok and status_raw_ok
         subgoal_ok = scene_ok and subgoal_raw_ok
         all_ok = scene_ok and status_raw_ok and subgoal_raw_ok
@@ -393,13 +473,15 @@ def main() -> None:
         counters["subgoal_raw_ok"] += int(subgoal_raw_ok)
         counters["all_ok"] += int(all_ok)
         # 在 scene 合法（不论是否等于 GT）的样本里看 status/subgoal 文本是否对得上 GT，
-        # 用来诊断"scene 错了但 status/subgoal 文本碰巧也对"的情况，与 serial 口径分离。
+        # 用来诊断“scene 错了但 status/subgoal 文本碰巧也对”的情况，与 serial 口径分离。
         counters["status_raw_ok_valid_scene"] += int(scene_valid and status_raw_ok)
         counters["subgoal_raw_ok_valid_scene"] += int(scene_valid and subgoal_raw_ok)
         counters["invalid_scene"] += int(not valid["scene_valid"])
         counters["invalid_status_for_pred_scene"] += int(valid["scene_valid"] and not valid["status_valid_for_scene"])
         counters["invalid_subgoal_for_pred_scene"] += int(valid["scene_valid"] and not valid["subgoal_valid_for_scene"])
         counters["subgoal_not_next"] += int(valid["scene_valid"] and valid["status_valid_for_scene"] and not valid["subgoal_matches_status"])
+        counters["status_kv_reused"] += int(scene_valid and status_kv_reused)
+        counters["status_kv_fallback"] += int(scene_valid and not status_kv_reused)
         key = row["scenario"]
         per_scenario[key]["total"] += 1
         per_scenario[key]["valid_scene"] += int(scene_valid)
@@ -422,6 +504,7 @@ def main() -> None:
             "parsed": parsed,
             "valid": valid,
             "gt": gt,
+            "status_kv_reused": status_kv_reused,
             "correct": {
                 "scene": scene_ok,
                 "status": status_ok,
@@ -459,6 +542,8 @@ def main() -> None:
         "all_accuracy_valid_scene": counters["all_ok"] / valid_total,
         "status_raw_accuracy_valid_scene": counters["status_raw_ok_valid_scene"] / valid_total,
         "subgoal_raw_accuracy_valid_scene": counters["subgoal_raw_ok_valid_scene"] / valid_total,
+        "status_kv_reuse_rate": counters["status_kv_reused"] / valid_total,
+        "status_kv_fallback_rate": counters["status_kv_fallback"] / valid_total,
         "elapsed_sec": time.time() - t0,
         "_metric_doc": {
             "status_accuracy": "Serial accuracy: scene must be correct and STATUS must exactly match GT.",

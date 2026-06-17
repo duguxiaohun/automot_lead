@@ -1,4 +1,9 @@
-"""Static sanity check for SFT v2 target-token loss spans."""
+"""SFT v2 loss mask 静态检查脚本。
+
+训练只应该监督选择值本身，而不是 ``SCENE:`` / ``STATUS:`` / ``SUBGOAL:`` 这些格式
+token。本脚本先用字符 span 检查值区间是否正确；如果本地 tokenizer 存在，再进一步
+验证 tokenizer offset 映射后的 0/1 value-token mask。
+"""
 
 from __future__ import annotations
 
@@ -19,12 +24,18 @@ from qwen3vl_local.sft_v2.train import _assistant_token_mask
 
 
 class _TokenizerBundle:
+    """给 train._assistant_token_mask 复用的最小 tokenizer 容器。"""
+
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
 
 
 def _check_token_weights(model_dir: pathlib.Path, scene_text: str, status_text: str) -> dict:
-    """Optionally verify tokenizer-level value masks when local tokenizer exists."""
+    """在本地模型目录存在时，验证 tokenizer 级别的 value mask。
+
+    如果当前机器没有 Qwen3-VL-Instruct checkpoint，则只跳过 tokenizer 检查，不影响
+    字符 span 检查。
+    """
 
     if not model_dir.exists():
         return {"skipped": True, "reason": f"model_dir not found: {model_dir}"}
@@ -38,6 +49,7 @@ def _check_token_weights(model_dir: pathlib.Path, scene_text: str, status_text: 
     bundle = _TokenizerBundle(processor.tokenizer)
     checks = {}
     for name, text in (("scene", scene_text), ("status", status_text)):
+        # 复用训练时的 mask 函数，确保检查逻辑和真实训练完全一致。
         token_ids, value_mask = _assistant_token_mask(bundle, text)
         checks[name] = {
             "tokens": len(token_ids),
@@ -57,6 +69,8 @@ def _check_token_weights(model_dir: pathlib.Path, scene_text: str, status_text: 
 
 
 def main() -> None:
+    """命令行入口：打印 JSON 检查结果，失败时返回非零退出码。"""
+
     parser = argparse.ArgumentParser(description="Check SFT v2 loss mask spans")
     parser.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
     args = parser.parse_args()

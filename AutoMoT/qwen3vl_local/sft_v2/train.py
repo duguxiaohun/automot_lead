@@ -1,4 +1,9 @@
-"""Train SFT v2 LoRA for serial SCENE -> STATUS/SUBGOAL choice supervision."""
+"""训练 SFT v2 LoRA：串行 ``SCENE -> STATUS/SUBGOAL`` 选择题监督。
+
+训练目标很窄：冻结 Qwen3-VL-Instruct base，只训练 LoRA adapter，让模型学会在两段
+对话中复制合法选择值。loss 只打在 ``SCENE``、``STATUS``、``SUBGOAL`` 的值 token
+上，prompt、字段名、冒号、换行和图像 token 全部不参与监督。
+"""
 
 from __future__ import annotations
 
@@ -40,7 +45,11 @@ from qwen3vl_local.sft_v2.prompts import extract_gt, target_spans
 
 
 def strip_image_placeholders(text: str) -> str:
-    """Remove jsonl <image> placeholders; images are passed structurally."""
+    """移除 jsonl 中给人看的 ``<image>`` 占位符。
+
+    训练时图片不是靠字符串占位传入，而是通过 processor 的 structured image message
+    生成 vision token；因此这里要把文本里的占位符剥掉。
+    """
 
     s = text.lstrip()
     while s.startswith("<image>"):
@@ -49,7 +58,12 @@ def strip_image_placeholders(text: str) -> str:
 
 
 class SerialChoiceDataset(Dataset):
-    """Load SFT v2 jsonl rows."""
+    """加载 SFT v2 jsonl，并整理成训练需要的扁平字段。
+
+    每条 row 必须包含 ``stage_messages.scene`` 和 ``stage_messages.status``。dataset
+    只做轻量解析，不读图片；图片在训练 loop 里按需加载，避免 DataLoader 初始化阶段
+    持有大量 PIL 对象。
+    """
 
     def __init__(self, path: pathlib.Path):
         self.path = pathlib.Path(path)
@@ -63,6 +77,7 @@ class SerialChoiceDataset(Dataset):
                     row = json.loads(line)
                     parsed_gt = extract_gt(row["messages"][2]["content"])
                     choice_meta = row.get("choice_meta") or {}
+                    # choice_meta 是新格式的权威标签来源；parsed_gt 只是兼容旧 row 的兜底。
                     gt = {
                         "scene": choice_meta.get("target_scene") or parsed_gt["scene"],
                         "status": choice_meta.get("target_status") or parsed_gt["status"],
@@ -89,9 +104,8 @@ class SerialChoiceDataset(Dataset):
                         "gt_status": gt["status"],
                         "gt_subgoal": gt["subgoal"],
                         "is_transition_sample": bool(row.get("is_transition_sample", False)),
-                        # wrong_scene_augmented: stage-2 prompt 写的是错的 scene；
-                        # 为了不教模型违反 prompt 的"只从 selected scene 选 event"约束，
-                        # 训练时跳过 status_assistant 的 loss，只监督 stage-1 SCENE。
+                        # wrong_scene_augmented: 第二阶段 prompt/assistant 已经按 selected
+                        # scene 的同相位事件重写，因此仍然可以正常监督 STATUS/SUBGOAL。
                         "wrong_scene_augmented": bool(choice_meta.get("wrong_scene_augmented", False)),
                     })
 
@@ -103,17 +117,26 @@ class SerialChoiceDataset(Dataset):
 
 
 def collate_passthrough(batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """DataLoader collate：保持 list[dict] 原样返回。
+
+    当前 batch 内每个样本的图像数量、token 长度和 vision tensor 形状都可能不同，直接
+    padding 成大 batch 反而容易引入 mask 错位；这里逐样本 forward/backward。
+    """
     return batch
 
 
 @dataclass
 class ModelBundle:
+    """训练中一起传递的模型、processor、tokenizer 与设备信息。"""
+
     model: Any
     processor: Any
     tokenizer: Any
     device: torch.device
 
     def unwrap(self):
+        """如果外层套了 DDP，则取回真实 PEFT/Qwen 模型对象。"""
+
         return getattr(self.model, "module", self.model)
 
 
@@ -126,7 +149,11 @@ def load_model_with_lora(
     lora_dropout: float,
     gradient_checkpointing: bool,
 ) -> ModelBundle:
-    """Load local Qwen3-VL-Instruct and inject PEFT LoRA adapters."""
+    """加载本地 Qwen3-VL-Instruct，并注入 PEFT LoRA。
+
+    base model 全部冻结，只让 LoRA 参数更新。这里要求 fast tokenizer，是因为后续需要
+    offset_mapping 把字符级 value span 映射到 token 级 loss mask。
+    """
 
     from transformers import AutoProcessor
 
@@ -155,6 +182,7 @@ def load_model_with_lora(
         raise RuntimeError("SFT v2 needs a fast tokenizer for offset_mapping.")
 
     for p in model.parameters():
+        # 先冻结 base，再通过 get_peft_model 注入可训练 LoRA 参数。
         p.requires_grad = False
 
     if gradient_checkpointing:
@@ -184,17 +212,23 @@ def load_model_with_lora(
 
 
 def load_images(paths: List[str]) -> List[Image.Image]:
-    """Read RGB images for one sample."""
+    """读取一个样本的 RGB 历史帧。"""
 
     return [Image.open(p).convert("RGB") for p in paths]
 
 
 def _overlap(off: Tuple[int, int], lo: int, hi: int) -> bool:
+    """判断 tokenizer token 的字符区间是否与监督值区间重叠。"""
+
     return off[0] < hi and off[1] > lo
 
 
 def _assistant_token_mask(bundle: ModelBundle, assistant_text: str) -> Tuple[List[int], List[bool]]:
-    """Tokenize one assistant turn and mark SCENE/STATUS/SUBGOAL value tokens."""
+    """对单个 assistant turn 生成 token 级 value mask。
+
+    ``target_spans`` 返回字符区间；fast tokenizer 返回每个 token 对应的字符 offset。
+    两者相交的 token 才会被标为 True，后续 loss 权重为 ``label_weight``。
+    """
 
     enc = bundle.tokenizer(
         assistant_text,
@@ -212,7 +246,11 @@ def _assistant_token_mask(bundle: ModelBundle, assistant_text: str) -> Tuple[Lis
 
 
 def _find_subsequence(haystack: List[int], needle: List[int], start: int, *, last: bool = False) -> int:
-    """Find `needle` in `haystack` at or after `start`; raise on failure."""
+    """在完整 input_ids 中查找某个 assistant target 的 token 子序列。
+
+    第二阶段的 STATUS/SUBGOAL 可能和 user prompt 里的 PREVIOUS_STATUS_HINT 完全相同，
+    所以 turn_idx=1 时会从后往前找，避免误把 prompt 侧文本当成监督目标。
+    """
 
     if not needle:
         raise ValueError("empty assistant token sequence")
@@ -230,7 +268,7 @@ def _assert_inside_assistant_turn(
     asst_header_ids: List[int],
     turn_idx: int,
 ) -> None:
-    """Sanity check: matched assistant subsequence must follow ``<|im_start|>assistant\\n``.
+    """确认匹配到的监督子串确实位于 assistant turn 内。
 
     防止将来 prompt 文本里出现和 assistant target 完全一样的 token 子串时静默错配
     （比如示例里写 "SCENE: Accident"），把 prompt 段当成监督目标。
@@ -253,7 +291,16 @@ def build_student_inputs(
     max_length: int,
     label_weight: float,
 ) -> Optional[Dict[str, Any]]:
-    """Build one multi-turn sequence and per-token weights for value tokens."""
+    """构造单样本 multi-turn 输入和 token 级 loss 权重。
+
+    训练样本被渲染为一条完整对话：
+
+    ``system -> user(images+scene prompt) -> assistant(scene) -> user(status prompt) -> assistant(status/subgoal)``
+
+    其中只有两个 assistant turn 里的值 token 有 loss。wrong-scene 增强样本的第二阶段
+    prompt 和 target 已经在 build_dataset.py 中映射到 selected scene，因此这里统一打
+    STATUS/SUBGOAL loss。
+    """
 
     messages = [
         {"role": "system", "content": sample["scene_system_prompt"]},
@@ -281,9 +328,11 @@ def build_student_inputs(
     )
     input_ids = prompt_inputs["input_ids"][0]
     if int(input_ids.shape[0]) > max_length:
+        # 超长样本直接跳过；DDP 下 run_batch 会同步所有 rank 的跳过决策。
         return None
 
     labels = input_ids.clone()
+    # weights 初始全 0，只有 assistant value token 会被置为 label_weight。
     weights = torch.zeros_like(input_ids, dtype=torch.float32)
     expanded_ids = [int(x) for x in input_ids.tolist()]
     asst_header_ids = list(bundle.tokenizer(
@@ -291,21 +340,15 @@ def build_student_inputs(
         add_special_tokens=False,
     )["input_ids"])
     cursor = 0
-    # wrong_scene_augmented: stage-2 prompt 写的是错的 scene；status_assistant 仍是 GT
-    # 事件，但它不在 prompt 列出的 EVENT_SEQUENCE 里。如果照常监督，等于在教模型违反
-    # prompt 的硬约束。这里只对 stage-1 SCENE 算 loss，stage-2 token 保持权重 0。
-    skip_status_loss = bool(sample.get("wrong_scene_augmented", False))
     for turn_idx, assistant_text in enumerate((sample["scene_assistant"], sample["status_assistant"])):
-        if turn_idx == 1 and skip_status_loss:
-            continue
         assistant_ids, value_mask = _assistant_token_mask(bundle, assistant_text)
-        # The status target can be text-identical to PREVIOUS_STATUS_HINT in
-        # the user prompt for keep samples, so the second assistant turn must
-        # be matched from the end of the rendered sequence.
+        # keep 样本里，第二阶段 target 可能和 user prompt 的 PREVIOUS_STATUS_HINT 完全一致。
+        # 因此第二个 assistant turn 从渲染后序列末尾反向匹配，避免误选 prompt 侧文本。
         pos = _find_subsequence(expanded_ids, assistant_ids, cursor, last=(turn_idx == 1))
         _assert_inside_assistant_turn(expanded_ids, pos, asst_header_ids, turn_idx)
         for j, is_value in enumerate(value_mask):
             if is_value:
+                # 权重写在原始 token 位置；真正算 CE 时会整体右移一位对齐 next-token label。
                 weights[pos + j] = label_weight
         cursor = pos + len(assistant_ids)
 
@@ -321,7 +364,11 @@ def build_student_inputs(
 
 
 def loss_parts_one_sample(bundle: ModelBundle, packed: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Forward one sample and return weighted loss numerator/denominator."""
+    """单样本前向，返回加权 loss 的分子和分母。
+
+    返回分子/分母而不是直接平均，是为了将来扩展 batch 汇总时仍能按 token 权重精确
+    归一化。
+    """
 
     kwargs: Dict[str, Any] = {
         "input_ids": packed["input_ids"].unsqueeze(0).to(bundle.device),
@@ -334,11 +381,13 @@ def loss_parts_one_sample(bundle: ModelBundle, packed: Dict[str, Any]) -> Tuple[
 
     out = bundle.model(**kwargs, use_cache=False, return_dict=True)
     logits = out.logits
+    # causal LM 标准右移：第 t 个 logits 预测第 t+1 个 token。
     shift_logits = logits[:, :-1, :].contiguous()
     shift_labels = labels[:, 1:].contiguous()
     shift_weights = weights[:, 1:].contiguous()
     active = shift_labels.ne(-100) & shift_weights.gt(0)
     if not bool(active.any()):
+        # 极端情况下如果没有任何监督 token，返回可反传的 0，避免图断掉。
         zero = shift_logits.sum() * 0.0
         return zero, zero.detach()
     per_tok = F.cross_entropy(shift_logits[active], shift_labels[active], reduction="none")
@@ -347,7 +396,7 @@ def loss_parts_one_sample(bundle: ModelBundle, packed: Dict[str, Any]) -> Tuple[
 
 
 def loss_one_sample(bundle: ModelBundle, packed: Dict[str, Any]) -> torch.Tensor:
-    """Compute one scalar value-token loss for the multi-turn sample."""
+    """计算单样本标量 loss。"""
 
     num, den = loss_parts_one_sample(bundle, packed)
     return num / den.clamp_min(1e-6)
@@ -355,12 +404,20 @@ def loss_one_sample(bundle: ModelBundle, packed: Dict[str, Any]) -> torch.Tensor
 
 @dataclass
 class StepStats:
+    """一个 micro-batch 的训练统计。"""
+
     loss_sum: float = 0.0
     n_samples: int = 0
     n_skipped: int = 0
 
 
 def _ddp_all_ranks_valid(local_valid: bool, device: torch.device) -> bool:
+    """DDP 下同步“当前样本是否可用”的布尔结果。
+
+    如果某个 rank 图片缺失或样本超长，所有 rank 都跳过本轮，避免 collective 操作数量
+    不一致导致训练挂起。
+    """
+
     if not (torch.distributed.is_available() and torch.distributed.is_initialized()):
         return local_valid
     flag = torch.tensor([1.0 if local_valid else 0.0], device=device)
@@ -377,7 +434,12 @@ def run_batch(
     loss_scale: float,
     sync_grads: bool,
 ) -> StepStats:
-    """Run a micro-batch sequentially and backward per sample."""
+    """逐样本跑一个 micro-batch，并累积梯度。
+
+    由于每个样本的图文 token 长度不同，这里不做张量级 batch padding，而是在同一个
+    DataLoader batch 内顺序 forward/backward。``sync_grads=False`` 时使用 DDP no_sync
+    实现梯度累积。
+    """
 
     from contextlib import nullcontext
 
@@ -393,6 +455,7 @@ def run_batch(
                 images = []
                 local_ok = False
             if not _ddp_all_ranks_valid(local_ok, bundle.device):
+                # 任意 rank 图片读取失败时，全体跳过该样本。
                 stats.n_skipped += 1
                 continue
             packed = build_student_inputs(
@@ -403,6 +466,7 @@ def run_batch(
                 label_weight=label_weight,
             )
             if not _ddp_all_ranks_valid(packed is not None, bundle.device):
+                # 任意 rank 因 max_length 等原因无法构造输入时，全体跳过。
                 stats.n_skipped += 1
                 continue
             bundle.model.train()
@@ -422,7 +486,7 @@ def evaluate_loss(
     label_weight: float,
     max_samples: int,
 ) -> Dict[str, float]:
-    """Teacher-forced validation loss (DDP-aware)."""
+    """计算 teacher-forced validation loss，支持 DDP 汇总。"""
 
     bundle.model.eval()
     losses: List[float] = []
@@ -465,6 +529,8 @@ def evaluate_loss(
 
 
 def setup_distributed() -> Tuple[int, int, int]:
+    """初始化 torch.distributed，并返回 rank/world/local_rank。"""
+
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -476,15 +542,21 @@ def setup_distributed() -> Tuple[int, int, int]:
 
 
 def cleanup_distributed() -> None:
+    """清理 DDP process group。"""
+
     if torch.distributed.is_available() and torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
 
 
 def is_rank0(rank: int) -> bool:
+    """判断是否为主进程。"""
+
     return rank == 0
 
 
 def make_scheduler(optimizer, total_steps: int, warmup_steps: int):
+    """创建 warmup + cosine decay 学习率调度器。"""
+
     def lr_lambda(step: int) -> float:
         if step < warmup_steps:
             return step / max(1, warmup_steps)
@@ -494,6 +566,8 @@ def make_scheduler(optimizer, total_steps: int, warmup_steps: int):
 
 
 def parse_args() -> argparse.Namespace:
+    """解析训练命令行参数。"""
+
     p = argparse.ArgumentParser(description="Train SFT v2 serial-choice LoRA")
     p.add_argument("--train-jsonl", type=str, required=True)
     p.add_argument("--val-jsonl", type=str, default=None)
@@ -523,6 +597,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """训练入口：加载数据、模型、LoRA，执行训练/验证/保存。"""
+
     args = parse_args()
     rank, world_size, local_rank = setup_distributed()
     device = torch.device(f"cuda:{local_rank}") if torch.cuda.is_available() else torch.device("cpu")
@@ -557,6 +633,8 @@ def main() -> None:
     val_ds = SerialChoiceDataset(pathlib.Path(args.val_jsonl)) if args.val_jsonl else None
     if world_size > 1:
         from torch.utils.data.distributed import DistributedSampler
+        # DistributedSampler 会 padding 到 world_size 整除；当前训练能接受这点。
+        # val loss 后面会 all_reduce 汇总各 rank 看到的样本。
         train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True, seed=args.seed)
         val_sampler = DistributedSampler(val_ds, num_replicas=world_size, rank=rank, shuffle=False) if val_ds else None
         shuffle = False
@@ -587,8 +665,10 @@ def main() -> None:
         if is_rank0(rank):
             print("[check] max_steps=2, no final save")
 
+    # 只把 LoRA 参数交给优化器；base Qwen 参数在 load_model_with_lora 里已经冻结。
     params = [p for p in bundle.model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(params, lr=args.learning_rate, betas=(0.9, 0.95), weight_decay=args.weight_decay)
+    # len(train_loader) 已经是当前 rank 看到的 micro-batch 数；再除以 grad_accum 得到 optimizer step 数。
     steps_per_epoch = max(1, math.ceil(len(train_loader) / max(args.grad_accum, 1)))
     total_steps = args.max_steps if args.max_steps > 0 else steps_per_epoch * args.num_epochs
     scheduler = make_scheduler(optimizer, total_steps, int(total_steps * args.warmup_ratio))
@@ -601,6 +681,12 @@ def main() -> None:
     stop = False
 
     def finish_step(epoch: int, loss_sum: float, n_samples: int, reason: str) -> None:
+        """完成一次 optimizer step，并按需 eval/save。
+
+        tail step 在 DDP no_sync 累积未满时需要手动 all_reduce 梯度，保证最后一小段
+        样本不会只更新各自 rank 的局部梯度。
+        """
+
         nonlocal global_step, saved
         if n_samples <= 0:
             optimizer.zero_grad(set_to_none=True)
@@ -648,11 +734,14 @@ def main() -> None:
 
     for epoch in range(args.num_epochs):
         if train_sampler is not None:
+            # 每个 epoch 更新 sampler seed，保证 DDP shuffle 可复现但不固定同一顺序。
             train_sampler.set_epoch(epoch)
         accum_loss = 0.0
         accum_samples = 0
         accum_count = 0
         for batch in train_loader:
+            # 只有梯度累积的最后一个 micro-batch 才触发 DDP 梯度同步；前面的 micro-batch 用 no_sync
+            # 减少通信开销。单卡时 sync_grads 恒为 True。
             is_last_micro = accum_count + 1 >= args.grad_accum
             stats = run_batch(
                 bundle,
@@ -668,6 +757,7 @@ def main() -> None:
             accum_samples += stats.n_samples
             accum_count += 1
             if accum_count >= args.grad_accum:
+                # 满一个梯度累积窗口后执行一次 optimizer step。
                 finish_step(epoch, accum_loss, accum_samples, "grad_accum")
                 accum_loss = 0.0
                 accum_samples = 0
@@ -676,6 +766,8 @@ def main() -> None:
                     stop = True
                     break
         if accum_count > 0 and not stop:
+            # epoch 末尾不足 grad_accum 的残余 micro-batch 也要更新一次；DDP 下 finish_step 会手动
+            # all_reduce 这段 tail 梯度，保证所有 rank 参数仍然一致。
             finish_step(epoch, accum_loss, accum_samples, "tail")
             if args.max_steps > 0 and global_step >= args.max_steps:
                 stop = True
@@ -683,6 +775,7 @@ def main() -> None:
             break
 
     if is_rank0(rank) and not args.check:
+        # 训练完成后只保存 adapter/processor 到 final；base 模型仍然从本地 MODEL_DIR 读取。
         final_dir = output_dir / "final"
         bundle.unwrap().save_pretrained(str(final_dir))
         try:
