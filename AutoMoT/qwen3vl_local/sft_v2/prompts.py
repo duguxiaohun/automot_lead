@@ -1,9 +1,15 @@
-"""Prompt helpers for SFT v2 serial scene/status/subgoal supervision.
+"""SFT v2 串行选择题 prompt 工具。
 
-This version removes ANALYSIS entirely. The model first predicts SCENE from
-images and scene choices. A second follow-up prompt then asks for STATUS and
-SUBGOAL using the predicted scene's event sequence while reusing the scene-step
-context/KV.
+本文件是 SFT v2 的唯一 prompt 来源，负责把原来的自由文本 ANALYSIS 路线拆成
+两个严格的选择题阶段：
+
+1. 第一阶段只看 RGB 历史帧和全部场景候选，输出一行 ``SCENE: ...``。
+2. 第二阶段在同一条对话后追加一个 user turn，只给定“已选场景”的事件序列，
+   输出两行 ``STATUS`` / ``SUBGOAL``。
+
+这样做的目的不是让模型自由解释，而是把任务约束成可解析、可验证、可精确打
+loss 的离散状态机判断。eval 时第二阶段会使用模型自己预测的 scene；如果 scene
+合法但错误，也会继续沿该 scene 的 EVENT_SEQUENCE 推理。
 """
 
 from __future__ import annotations
@@ -69,28 +75,38 @@ Rules:
   not advance STATUS without a clear visual transition."""
 
 
-# Backward-compatible alias for older callers.
+# 兼容旧 caller 的别名；新 SFT v2 主流程直接使用 SCENE_SYSTEM_PROMPT。
 SYSTEM_PROMPT = SCENE_SYSTEM_PROMPT
 
 
 def scenario_choices_block() -> str:
-    """Return all scenario names with descriptions for the prompt."""
+    """生成第一阶段可选场景列表。
+
+    返回内容会直接塞进 user prompt。场景名是模型必须复制的合法 token，后面的
+    人类可读说明只提供语义提示，不参与合法性校验。
+    """
 
     lines = ["[SCENE_CHOICES]"]
     for name in sorted(SCENARIO_LABELS):
+        # 固定排序让 dataset / eval prompt 可复现，避免同一数据多次构建时 prompt 抖动。
         lines.append(f"- {name}: {SCENARIO_LABELS[name]}")
     lines.append("[/SCENE_CHOICES]")
     return "\n".join(lines)
 
 
 def event_choices_block() -> str:
-    """Return every scenario's allowed sequence and event descriptions."""
+    """生成兼容旧单阶段调用的全量事件表。
+
+    SFT v2 主流程第二阶段只会展示一个 selected scene 的事件序列；这个函数保留给
+    旧的 one-stage caller 或临时诊断使用。
+    """
 
     lines = ["[SCENE_EVENT_CHOICES]"]
     for scenario in sorted(SCENARIO_EVENT_SEQUENCES):
         seq = get_full_sequence(scenario)
         lines.append(f"- {scenario}: {' -> '.join(seq)}")
         for event in seq:
+            # EVENT_DESCRIPTIONS 只是自然语言解释，真正的可选值仍然是 seq 中的 event token。
             lines.append(f"  * {event}: {EVENT_DESCRIPTIONS.get(event, event)}")
     lines.append("[/SCENE_EVENT_CHOICES]")
     return "\n".join(lines)
@@ -100,7 +116,11 @@ def build_scene_user_prompt(
     *,
     image_count: int,
 ) -> str:
-    """Build the first-stage scene-choice user prompt."""
+    """构造第一阶段 user prompt。
+
+    这个 prompt 只要求输出 SCENE，不暴露 STATUS/SUBGOAL 事件序列，避免模型在
+    第一阶段被状态判断细节干扰。
+    """
 
     return (
         f"The {image_count} images above are ordered oldest to newest; "
@@ -112,7 +132,11 @@ def build_scene_user_prompt(
 
 
 def selected_event_block(scene: str) -> str:
-    """Return the selected scene's event sequence and descriptions."""
+    """构造第二阶段的 selected scene 事件块。
+
+    第二阶段必须只从这里列出的 EVENT_SEQUENCE 里复制 STATUS/SUBGOAL。训练和 eval
+    都依赖这个约束来判断模型是否遵守“按预测场景继续推理”的串行协议。
+    """
 
     seq = get_full_sequence(scene)
     lines = [
@@ -137,7 +161,12 @@ def build_status_user_prompt(
     previous_status: str,
     previous_subgoal: str,
 ) -> str:
-    """Build the second-stage status/subgoal prompt for one selected scene."""
+    """构造第二阶段 user prompt。
+
+    参数 ``selected_scene`` 可以是真实场景，也可以是 eval 中模型预测出的合法但错误
+    场景。调用方必须保证 previous_status / previous_subgoal 已经映射到 selected
+    scene 的事件空间，否则 prompt 内部会自相矛盾。
+    """
 
     return (
         f"The {image_count} images above are ordered oldest to newest; "
@@ -165,7 +194,11 @@ def build_user_prompt(
     previous_status: str,
     previous_subgoal: str,
 ) -> str:
-    """Build the legacy single-prompt text for older one-stage callers."""
+    """构造旧版单阶段 prompt。
+
+    新训练/eval 不走这个函数；它只作为兼容入口保留，方便和旧 SFT 或早期诊断脚本
+    对比。
+    """
 
     return (
         f"{build_scene_user_prompt(image_count=image_count)}\n\n"
@@ -179,7 +212,11 @@ def build_user_prompt(
 
 
 def next_event(scenario: str, status: str) -> str:
-    """Return the immediate next event for scenario/status; final is self."""
+    """返回某个场景下 STATUS 的下一阶段事件。
+
+    状态机完整序列是 ``initial -> middle[0..2] -> final``。如果当前 status 已经是
+    final，就保持 final；如果传入非法 status，则保守返回 final，避免构建数据时崩溃。
+    """
 
     seq = get_full_sequence(scenario)
     try:
@@ -190,7 +227,11 @@ def next_event(scenario: str, status: str) -> str:
 
 
 def format_assistant(scene: str, status: str, subgoal: Optional[str] = None) -> str:
-    """Format the supervised assistant target."""
+    """格式化旧单阶段监督文本。
+
+    SFT v2 主流程更常用 ``format_scene_assistant`` 和 ``format_status_assistant``，
+    这个函数保留给旧接口。
+    """
 
     if subgoal is None:
         subgoal = next_event(scene, status)
@@ -198,13 +239,13 @@ def format_assistant(scene: str, status: str, subgoal: Optional[str] = None) -> 
 
 
 def format_scene_assistant(scene: str) -> str:
-    """Format the supervised first-stage target."""
+    """格式化第一阶段 assistant 监督文本，只包含 SCENE 值。"""
 
     return f"SCENE: {scene}"
 
 
 def format_status_assistant(status: str, subgoal: str) -> str:
-    """Format the supervised second-stage target."""
+    """格式化第二阶段 assistant 监督文本，只包含 STATUS/SUBGOAL。"""
 
     return f"STATUS: {status}\nSUBGOAL: {subgoal}"
 
@@ -215,7 +256,11 @@ _SUBGOAL_RE = re.compile(r"^\s*SUBGOAL\s*:\s*(\S+)", re.MULTILINE | re.IGNORECAS
 
 
 def parse_output(text: str) -> Dict[str, Optional[str]]:
-    """Parse model output into scene/status/subgoal fields."""
+    """解析模型输出中的 SCENE / STATUS / SUBGOAL。
+
+    解析逻辑刻意宽松，只取每行冒号后的第一个非空 token。这样模型多输出解释时，
+    指标仍能抓到关键选择值；格式是否干净由 raw dump 另行诊断。
+    """
 
     scene_m = _SCENE_RE.search(text or "")
     status_m = _STATUS_RE.search(text or "")
@@ -228,7 +273,11 @@ def parse_output(text: str) -> Dict[str, Optional[str]]:
 
 
 def validate_choice(scene: Optional[str], status: Optional[str], subgoal: Optional[str]) -> Dict[str, bool]:
-    """Check whether parsed choices obey the serial-choice constraints."""
+    """校验解析结果是否满足串行选择题约束。
+
+    这里不判断是否等于 GT，只判断“模型输出是否在预测 scene 的合法事件序列里”以及
+    subgoal 是否正好是 status 的下一阶段。真正的准确率在 eval.py 里计算。
+    """
 
     scene_ok = bool(scene in SCENARIO_EVENT_SEQUENCES)
     if not scene_ok:
@@ -251,7 +300,11 @@ def validate_choice(scene: Optional[str], status: Optional[str], subgoal: Option
 
 
 def extract_gt(assistant_text: str) -> Dict[str, str]:
-    """Extract supervised labels from an assistant target."""
+    """从 assistant 监督文本里提取标签字段。
+
+    数据加载阶段用它兼容旧 row 结构；如果 choice_meta 里有显式 target，会优先使用
+    choice_meta。
+    """
 
     parsed = parse_output(assistant_text)
     return {
@@ -262,7 +315,11 @@ def extract_gt(assistant_text: str) -> Dict[str, str]:
 
 
 def target_spans(assistant_text: str) -> Dict[str, Tuple[int, int]]:
-    """Return char spans for SCENE/STATUS/SUBGOAL values."""
+    """返回监督文本中各个“值 token”的字符区间。
+
+    train.py 会把这些字符区间映射到 tokenizer offset，只给值 token 打 loss；冒号、
+    字段名和换行等格式 token 权重保持 0。
+    """
 
     spans: Dict[str, Tuple[int, int]] = {}
     for key, regex in (("scene", _SCENE_RE), ("status", _STATUS_RE), ("subgoal", _SUBGOAL_RE)):

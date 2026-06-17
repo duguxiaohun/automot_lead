@@ -24,6 +24,7 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 | `AutoMoT/lead_data` | 远端 LEAD 数据软链接入口，等价于用户在 `AutoMoT/` 下执行 `ln -s /datashare/IOL4SGH/data/data/* lead_data/` 后的目录；运行命令里用相对路径 `lead_data` / `lead_data/keyframes_all_scenarios.json` |
 | `qwen3vl_local/`（`AutoMoT/` 主目录内） | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT；`tb_serve.sh` 是通用 TensorBoard 启动器 |
 | `qwen3vl_local/sft/` | SFT 数据、训练、eval、probe（统一一套，已废弃 v1/v2 双轨与 ms-swift） |
+| `qwen3vl_local/sft_v2/` | 新版 SFT v2 串行选择题路线：SCENE → STATUS/SUBGOAL，无 ANALYSIS teacher |
 | `AutoMoT/vae_standalone/train_patch_unpatch.py` | patch/unpatch 端到端重建训练 |
 | `0026.json` | LEAD meta 固定参考样本，只读，绝对不要入库 |
 | `keyframes_all_scenarios.json` | 远端数据参考，只读 |
@@ -280,6 +281,8 @@ GoalGen 文档已拆分：`GOALGEN_PLAN.md` / `GOALGEN_RUN.md` 只保留索引�
 
 - `qwen3vl_local/sft/SFT_PLAN.md`
 - `qwen3vl_local/sft/SFT_RUN.md`
+- `qwen3vl_local/sft_v2/SFT_V2_PLAN.md`
+- `qwen3vl_local/sft_v2/SFT_V2_RUN.md`
 
 **v1 / v2 双轨已废弃**（含 ms-swift 入口、loss_scale plugin、runtime_teacher_data
 manifest 复用机制）。现在只有一套统一 SFT：
@@ -317,6 +320,35 @@ eval 端固定坑：
   `expert_analysis.txt` / `language_compare.json`。expert 来自 base teacher prompt +
   PRIVILEGED，model 来自 LoRA 自己生成的 ANALYSIS；用于检查是否学到大致语言推理，
   而不只看 STATUS/SUBGOAL。
+
+### 8.1 SFT v2 串行选择题路线
+
+`qwen3vl_local/sft_v2/` 是用户明确要求新增的独立路线，不替换旧 `sft/`：
+
+- `prompts.py` 是唯一 prompt 来源。prompt 先列出全部 `SCENE_CHOICES` 及自然语言描述，
+  stage-1 只要求模型输出 `SCENE`；stage-2 作为同一条对话里的后续 user prompt，
+  只列出预测 scene 的 `EVENT_SEQUENCE` 和事件描述，再要求输出 `STATUS/SUBGOAL`。
+  推理时 stage-2 要复用 stage-1 已经吃过图像和场景 prompt 的 KV cache。
+- assistant 目标拆成两段：stage-1 `SCENE:`，stage-2 `STATUS:` / `SUBGOAL:`。没有
+  ANALYSIS，没有 `__TEACHER_PENDING__`，训练时不跑 teacher.generate。
+- `build_dataset.py` 复用旧 SFT 的 keyframe timeline 与 keep/advance 采样，输入仍是
+  4 张 LEAD stitched RGB；`SCENE` 监督来自 scenario，`STATUS` 来自 anchor 所在 GT
+  interval，`SUBGOAL` 由 `prompt_pipeline.get_full_sequence()` 推导；默认
+  `--samples-per-scenario 0` 表示每个场景保留全部合法候选，正数才启用下采样；
+  默认 `--wrong-scene-ratio 0.15` 只增强 train rows，把一部分 stage-2 selected scene
+  替换成错误场景但仍监督真实 `STATUS/SUBGOAL`，val rows 保持 GT 分支。
+- `train.py` 直接 LoRA 注入本地 Qwen3-VL-4B-Instruct；prompt token 权重为 0，
+  只监督 scene/status/subgoal 值 token；`SCENE:` / `STATUS:` / 换行等格式 token
+  为 0 loss。每条样本是一条多轮 teacher-forced chat：图像只在第一轮 user，
+  第二轮 status prompt 作为文本 follow-up 接在 scene assistant 后，单次 forward
+  里同时计算三个值 token 的 loss。
+- `eval.py` 先自由生成 `SCENE`；若 scene 不在白名单，样本立即中断并计 invalid；
+  若 scene 合法，即使 scene 错，也按预测 scene 的 event sequence 构造 stage-2 prompt，
+  接到 stage-1 KV cache 后继续生成 `STATUS/SUBGOAL`。统计 `scene_accuracy/status_accuracy/subgoal_accuracy/all_accuracy`；
+  其中 status/subgoal 主指标是串行口径，scene 错时后续即使 event token 偶然同名也算错。
+  同时记录 raw exact 与 `invalid_scene_rate`、`invalid_status_for_pred_scene_rate`、
+  `subgoal_not_next_rate`，用于观察串行错误传播；另记录 `valid_total` 与
+  `*_valid_scene` 指标，用合法 scene 子集作分母。
 
 ## 9. VAE Patch/Unpatch
 
@@ -405,6 +437,7 @@ eval、probe、teacher / 推理入口。
 | 任务 | 文档 |
 |---|---|
 | SFT 跑法 | `qwen3vl_local/sft/SFT_RUN.md` |
+| SFT v2 串行选择题跑法 | `qwen3vl_local/sft_v2/SFT_V2_RUN.md` |
 | GoalGen 跑法 | `qwen3vl_local/goalgen/GOALGEN_RUN.md` 索引；版本细节看 `GOALGEN_V1.md` / `GOALGEN_V2.md` |
 | LeadMoT 跑法 | `qwen3vl_local/leadmot/LEADMOT_RUN.md` |
 | LeadMoT 架构 | `qwen3vl_local/leadmot/ARCHITECTURE.md` |

@@ -31,8 +31,10 @@ sampling logic:
 - By default, `--samples-per-scenario 0` keeps all valid candidates. Positive
   values enable the old per-scenario downsampling path.
 - Train rows use `--wrong-scene-ratio` augmentation by default. A subset of
-  stage-2 prompts intentionally lists a wrong selected scene while keeping the
-  true `STATUS/SUBGOAL` target, so the model sees the eval-time mismatch case.
+  stage-2 prompts intentionally lists a wrong selected scene. The previous hint
+  and supervised `STATUS/SUBGOAL` are phase-mapped into that selected scene's
+  own `EVENT_SEQUENCE`, so the model sees the eval-time mismatch case without
+  violating the second-stage choice constraints.
   Validation rows are not augmented.
 
 Each jsonl row stores `stage_messages.scene` and `stage_messages.status`.
@@ -61,6 +63,8 @@ PEFT LoRA, and runs one multi-turn teacher-forced forward per sample:
 - second assistant turn: supervise only the `STATUS` and `SUBGOAL` value token spans.
 - prompt/image/system tokens have zero loss.
 - format tokens such as `SCENE:` / `STATUS:` / newlines have zero loss.
+- wrong-scene augmented rows still supervise the second assistant turn, but the
+  supervised values are legal events from the selected scene.
 - there is no teacher, no ANALYSIS, no pending placeholder, and no offline
   teacher cache.
 
@@ -76,6 +80,8 @@ same context while still masking loss to value tokens only.
 - If scene is valid, append stage-2 prompt from the predicted scene, not GT, and
   continue decoding from the scene-step KV cache.
 - Generate `STATUS/SUBGOAL`.
+- The previous-status hint is phase-mapped into the predicted scene before
+  stage 2, so the follow-up prompt always remains internally consistent.
 
 Main metrics:
 
@@ -87,6 +93,7 @@ Main metrics:
 - `invalid_scene_rate`
 - `invalid_status_for_pred_scene_rate`
 - `subgoal_not_next_rate`
+- `status_kv_reuse_rate` / `status_kv_fallback_rate`
 - `valid_total` plus `*_valid_scene` metrics, where invalid-scene rows are
   excluded from the denominator.
 

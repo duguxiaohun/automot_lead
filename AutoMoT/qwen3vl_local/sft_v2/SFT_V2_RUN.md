@@ -14,8 +14,9 @@ python qwen3vl_local/sft_v2/build_dataset.py \
 ```
 
 By default, train rows apply `--wrong-scene-ratio 0.15`: a subset of stage-2
-prompts lists a wrong selected scene while preserving the true status/subgoal
-target. Set `--wrong-scene-ratio 0` to disable it.
+prompts lists a wrong selected scene. The previous hint and supervised
+status/subgoal are phase-mapped into that selected scene's own event sequence.
+Set `--wrong-scene-ratio 0` to disable it.
 
 Optional downsampled build:
 
@@ -105,7 +106,11 @@ Common env:
 Training runs one multi-turn forward per sample:
 
 1. image + scene prompt -> supervise `SCENE` value token only.
-2. append status prompt with GT scene -> supervise `STATUS/SUBGOAL` value tokens only.
+2. append status prompt with selected scene -> supervise `STATUS/SUBGOAL` value tokens only.
+
+For wrong-scene augmented rows, the selected scene is intentionally not the GT
+scene, and the supervised status/subgoal are legal same-phase events from that
+selected scene.
 
 ## 4. Eval
 
@@ -133,6 +138,8 @@ Eval uses the true two-stage protocol:
 3. If `SCENE` is valid, append a new prompt from the predicted scene's event
    sequence and continue from the scene-step KV cache to generate
    `STATUS/SUBGOAL`.
+   The previous-status hint is phase-mapped into the predicted scene so the
+   prompt stays internally consistent even when the predicted scene is wrong.
 
 Outputs under `checkpoints/sft_v2_lora/latest/eval_v2/`:
 
@@ -145,7 +152,8 @@ Outputs under `checkpoints/sft_v2_lora/latest/eval_v2/`:
 `status_accuracy` / `subgoal_accuracy` are serial metrics: scene must also be
 correct. `status_raw_accuracy` / `subgoal_raw_accuracy` are diagnostics only.
 `valid_total` and `*_valid_scene` metrics report the same task after excluding
-invalid-scene rows from the denominator.
+invalid-scene rows from the denominator. `status_kv_reuse_rate` should stay near
+1.0; fallback means the second stage had to rebuild the full multi-turn context.
 
 Base comparison:
 
