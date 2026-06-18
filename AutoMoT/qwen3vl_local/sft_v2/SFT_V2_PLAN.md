@@ -49,7 +49,8 @@ SFT v2 是一条独立的 LoRA 串行选择题监督路线，不替代
 ## Loss
 
 `train.py` 加载本地 `Qwen3-VL-4B-Instruct`，冻结 base model，注入 PEFT LoRA，并对每个
-样本跑一次多轮 teacher-forced forward：
+样本跑一次多轮 teacher-forced forward。默认 LoRA 只注入语言侧 Linear；需要让视觉侧也
+参与 LoRA 微调时，训练入口显式加 `--lora-vision`（或 launcher 设 `LORA_VISION=1`）：
 
 - 第一段 assistant turn：只监督 `SCENE` 的值 token。
 - 第二段 assistant turn：只监督 `STATUS` 和 `SUBGOAL` 的值 token。
