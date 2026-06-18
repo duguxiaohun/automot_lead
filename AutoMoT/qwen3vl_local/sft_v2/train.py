@@ -104,8 +104,8 @@ class SerialChoiceDataset(Dataset):
                         "gt_status": gt["status"],
                         "gt_subgoal": gt["subgoal"],
                         "is_transition_sample": bool(row.get("is_transition_sample", False)),
-                        # wrong_scene_augmented: 第二阶段 prompt/assistant 已经按 selected
-                        # scene 的同相位事件重写，因此仍然可以正常监督 STATUS/SUBGOAL。
+                        # wrong_scene_augmented 表示第二阶段 prompt/assistant 已经按所选
+                        # 场景的同相位事件重写，因此仍然可以正常监督 STATUS/SUBGOAL。
                         "wrong_scene_augmented": bool(choice_meta.get("wrong_scene_augmented", False)),
                     })
 
@@ -332,7 +332,7 @@ def build_student_inputs(
         return None
 
     labels = input_ids.clone()
-    # weights 初始全 0，只有 assistant value token 会被置为 label_weight。
+    # 权重初始全 0，只有 assistant 的值 token 会被置为 label_weight。
     weights = torch.zeros_like(input_ids, dtype=torch.float32)
     expanded_ids = [int(x) for x in input_ids.tolist()]
     asst_header_ids = list(bundle.tokenizer(
@@ -486,7 +486,7 @@ def evaluate_loss(
     label_weight: float,
     max_samples: int,
 ) -> Dict[str, float]:
-    """计算 teacher-forced validation loss，支持 DDP 汇总。"""
+    """计算强制喂入真实答案的验证 loss，支持 DDP 汇总。"""
 
     bundle.model.eval()
     losses: List[float] = []
@@ -668,7 +668,7 @@ def main() -> None:
     # 只把 LoRA 参数交给优化器；base Qwen 参数在 load_model_with_lora 里已经冻结。
     params = [p for p in bundle.model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(params, lr=args.learning_rate, betas=(0.9, 0.95), weight_decay=args.weight_decay)
-    # len(train_loader) 已经是当前 rank 看到的 micro-batch 数；再除以 grad_accum 得到 optimizer step 数。
+    # len(train_loader) 已经是当前 rank 看到的 micro-batch 数；再除以 grad_accum 得到优化步数。
     steps_per_epoch = max(1, math.ceil(len(train_loader) / max(args.grad_accum, 1)))
     total_steps = args.max_steps if args.max_steps > 0 else steps_per_epoch * args.num_epochs
     scheduler = make_scheduler(optimizer, total_steps, int(total_steps * args.warmup_ratio))

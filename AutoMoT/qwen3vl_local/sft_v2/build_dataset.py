@@ -59,7 +59,7 @@ def build_messages(sample, image_paths: List[str]) -> Dict:
     的第二阶段 prompt/target。
     """
 
-    # previous hint 来自 anchor-K 的状态，用来维持“不要无证据提前推进状态”的记忆语义。
+    # 前序提示来自 anchor-K 的状态，用来维持“不要无证据提前推进状态”的记忆语义。
     previous_subgoal = next_event(sample.scenario, sample.memory_in_status)
     # target_subgoal 是当前 GT status 在同一状态机中的下一阶段。
     target_subgoal = next_event(sample.scenario, sample.target_status)
@@ -82,8 +82,8 @@ def build_messages(sample, image_paths: List[str]) -> Dict:
         "anchor": sample.anchor,
         "prev_anchor": sample.prev_anchor,
         "images": image_paths,
-        # `messages` mirrors the first stage for lightweight inspection.
-        # 训练和 eval 使用下面显式的两阶段 messages；messages 字段只保留第一阶段便于检查。
+        # `messages` 是第一阶段的镜像，只用于轻量检查。
+        # 训练和 eval 使用下面显式的两阶段 messages；messages 字段只保留第一阶段。
         "messages": [
             {"role": "system", "content": SCENE_SYSTEM_PROMPT},
             {"role": "user", "content": image_prefix + scene_user_text},
@@ -164,9 +164,9 @@ def apply_wrong_scene_augmentation(rows: List[Dict], ratio: float, rng: random.R
         selected_scene = rng.choice(choices)
         meta = row["choice_meta"]
 
-        # 用真实场景中的 target_status 找到当前处于 initial/middle/final 的哪个相位，
-        # 再投影到 wrong selected scene 的同一相位。这样模型学到的是“按已选场景状态机
-        # 继续判断”，而不是背真实场景的 event 名。
+        # 用真实场景中的目标状态找到当前处于 initial/middle/final 的哪个相位，
+        # 再投影到错误所选场景的同一相位。这样模型学到的是“按已选场景状态机
+        # 继续判断”，而不是背真实场景的事件名。
         source_seq = list(get_full_sequence(target_scene))
         target_seq = list(get_full_sequence(selected_scene))
         try:
@@ -177,8 +177,8 @@ def apply_wrong_scene_augmentation(rows: List[Dict], ratio: float, rng: random.R
         selected_status = target_seq[phase_idx]
         selected_subgoal = next_event(selected_scene, selected_status)
 
-        # previous hint 也必须做同相位映射，否则 prompt 中的 hint 会引用真实场景的
-        # event，和 selected scene EVENT_SEQUENCE 冲突。
+        # 前序提示也必须做同相位映射，否则 prompt 中的提示会引用真实场景的
+        # 事件名，和所选场景的 EVENT_SEQUENCE 冲突。
         try:
             memory_phase_idx = source_seq.index(meta["memory_in_status"])
         except ValueError:
@@ -188,7 +188,7 @@ def apply_wrong_scene_augmentation(rows: List[Dict], ratio: float, rng: random.R
         selected_memory_subgoal = next_event(selected_scene, selected_memory_status)
 
         # 重写第二阶段 user prompt 和 assistant target。第一阶段 scene target 保持 GT，
-        # 因为增强只用来训练第二阶段在“给定某个 selected scene”后的选择行为。
+        # 因为增强只用来训练第二阶段在“给定某个所选场景”后的选择行为。
         status_user_text = build_status_user_prompt(
             image_count=len(row.get("images", [])),
             selected_scene=selected_scene,
@@ -281,7 +281,7 @@ def main() -> None:
                 rng=rng,
             )
         elif args.samples_per_scenario <= 0:
-            # 用户当前默认希望全量采样；<=0 表示不做 per-scenario 下采样。
+            # 用户当前默认希望全量采样；<=0 表示不做按场景下采样。
             chosen = list(advances) + list(keeps)
             rng.shuffle(chosen)
         else:
