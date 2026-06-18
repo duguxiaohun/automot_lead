@@ -13,6 +13,7 @@ import math
 import os
 import pathlib
 import random
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -46,20 +47,10 @@ from qwen3vl_local.sft_v2.prompts import extract_gt, target_spans
 
 
 _LANGUAGE_LORA_SUFFIXES = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
-_VISION_LORA_SUFFIXES = (
-    "qkv",
-    "q_proj",
-    "k_proj",
-    "v_proj",
-    "proj",
-    "out_proj",
-    "fc1",
-    "fc2",
-    "gate_proj",
-    "up_proj",
-    "down_proj",
-)
 _VISION_NAME_MARKERS = ("visual", "vision", "vision_tower", "vision_model", "vit", "merger", "patch_embed")
+_VISION_BRIDGE_MARKERS = ("merger", "patch_embed")
+_VISION_SCOPE_CHOICES = ("off", "merger", "last4", "all")
+_VISION_BLOCK_RE = re.compile(r"\b(?:blocks|layers|encoder\.layers)\.(\d+)\.")
 
 
 def _is_vision_module_name(name: str) -> bool:
@@ -69,13 +60,77 @@ def _is_vision_module_name(name: str) -> bool:
     return any(marker in lname for marker in _VISION_NAME_MARKERS)
 
 
-def _lora_target_modules(model: Any, *, include_vision: bool) -> List[str]:
-    """枚举 LoRA 注入目标，默认只覆盖语言侧 Linear。
+def _vision_block_index(name: str) -> Optional[int]:
+    """从模块路径解析视觉 transformer block 序号。
 
-    PEFT 对 ``target_modules`` 的短名字使用后缀匹配；多模态模型里视觉侧也可能有
-    ``gate_proj`` / ``up_proj`` 这类同名层。这里传入完整模块名，避免默认配置意外训练
-    vision tower；打开 ``--lora-vision`` 时，再显式加入视觉侧常见 attention/MLP 线性层。
+    不同 transformers / remote-code 版本的视觉塔命名可能略有差异，常见形式包括
+    ``visual.blocks.<i>.attn.q_proj``、``visual.layers.<i>...`` 或
+    ``vision_model.encoder.layers.<i>...``。merger / patch_embed 这类不在 transformer
+    block 里的桥接层返回 None。
     """
+
+    m = _VISION_BLOCK_RE.search(name)
+    return int(m.group(1)) if m else None
+
+
+def _is_vision_bridge_module_name(name: str) -> bool:
+    """判断视觉侧模块是否属于安全的桥接层范围。
+
+    ``merger`` / ``patch_embed`` 通常位于视觉塔输入/输出桥接处，适合做最小分布适配。
+    不把任意无编号的 ``visual.*`` 都当桥接层，是为了防止 remote-code 命名漂移时误训
+    整座 vision tower。
+    """
+
+    lname = name.lower()
+    return any(marker in lname for marker in _VISION_BRIDGE_MARKERS)
+
+
+def _lora_target_modules(model: Any, *, vision_scope: str, strict_vision_scope: bool) -> List[str]:
+    """枚举 LoRA 注入目标，按 ``vision_scope`` 控制视觉侧覆盖范围。
+
+    - ``off``：完全不挂视觉侧 LoRA（默认）；
+    - ``merger``：只挂 vision merger / patch_embed 等非 transformer block 的桥接 Linear，
+      用于让视觉表征向 LEAD stitched RGB 分布做最小适配；
+    - ``last4``：``merger`` 的范围 + vision transformer 最后 4 个 block，适配范围更大但仍
+      保留底层视觉特征；
+    - ``all``：视觉侧所有 ``nn.Linear`` 全部挂 LoRA，激进选项，默认不建议。
+
+    PEFT 对 ``target_modules`` 短名做后缀匹配；多模态模型里视觉侧也存在同名 ``gate_proj``
+    等层，所以这里直接传完整模块路径，避免默认配置误打到 vision tower。无论选哪档，base
+    Qwen 权重都保持冻结，训练/保存的只有 adapter delta。
+    """
+
+    scope = (vision_scope or "off").lower()
+    if scope not in _VISION_SCOPE_CHOICES:
+        raise ValueError(
+            f"unknown vision_scope={vision_scope!r}; expected one of {_VISION_SCOPE_CHOICES}"
+        )
+
+    # merger/last4 都依赖“能把视觉 transformer block 和桥接层区分开”。
+    # 先扫一遍视觉侧 Linear，找出最大 block 序号；若真实模型命名漂移导致一个 block
+    # 都解析不到，后面会退化为只挂非 block 桥接层，并打印 warning，避免误把整座
+    # vision tower 当成 merger 训练。
+    max_block_idx = -1
+    if scope in ("merger", "last4"):
+        for name, module in model.named_modules():
+            if not isinstance(module, nn.Linear):
+                continue
+            if not _is_vision_module_name(name):
+                continue
+            idx = _vision_block_index(name)
+            if idx is not None and idx > max_block_idx:
+                max_block_idx = idx
+    if scope in ("merger", "last4") and max_block_idx < 0:
+        msg = (
+            "vision scope "
+            f"{scope!r} did not find numbered vision transformer blocks; "
+            "only non-block bridge Linear modules (e.g. merger/patch_embed) can be selected. "
+            "Inspect model.named_modules() and update _VISION_BLOCK_RE if naming changed."
+        )
+        if strict_vision_scope:
+            raise RuntimeError("[lora][error] " + msg)
+        print("[lora][warn] " + msg)
+    last4_threshold = max(0, max_block_idx - 3)
 
     targets: List[str] = []
     for name, module in model.named_modules():
@@ -84,7 +139,20 @@ def _lora_target_modules(model: Any, *, include_vision: bool) -> List[str]:
         leaf = name.rsplit(".", 1)[-1]
         is_vision = _is_vision_module_name(name)
         if is_vision:
-            if include_vision and leaf in _VISION_LORA_SUFFIXES:
+            if scope == "off":
+                continue
+            if scope == "all":
+                targets.append(name)
+                continue
+            block_idx = _vision_block_index(name)
+            if block_idx is None:
+                # merger / patch_embed 这类非 transformer block 桥接层：merger 和 last4 都保留。
+                # 若命名无法识别 block，只有这些显式桥接层会进入 LoRA，避免误训整座视觉塔。
+                if _is_vision_bridge_module_name(name):
+                    targets.append(name)
+                continue
+            # merger 模式不包含任何 transformer block；last4 仅保留尾部若干 block。
+            if scope == "last4" and last4_threshold >= 0 and block_idx >= last4_threshold:
                 targets.append(name)
             continue
         if leaf in _LANGUAGE_LORA_SUFFIXES:
@@ -92,7 +160,7 @@ def _lora_target_modules(model: Any, *, include_vision: bool) -> List[str]:
     if not targets:
         raise RuntimeError(
             "No LoRA target modules found. Check Qwen3-VL module names or update "
-            "_LANGUAGE_LORA_SUFFIXES/_VISION_LORA_SUFFIXES."
+            "_LANGUAGE_LORA_SUFFIXES/_VISION_NAME_MARKERS."
         )
     return targets
 
@@ -119,6 +187,8 @@ class SerialChoiceDataset(Dataset):
     """
 
     def __init__(self, path: pathlib.Path):
+        """读取 jsonl 到内存，并提取两阶段训练所需字段。"""
+
         self.path = pathlib.Path(path)
         if not self.path.exists():
             raise FileNotFoundError(f"jsonl not found: {self.path}")
@@ -163,9 +233,13 @@ class SerialChoiceDataset(Dataset):
                     })
 
     def __len__(self) -> int:
+        """返回可训练样本数量。"""
+
         return len(self.rows)
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """返回单条样本；图片仍然延迟到训练 step 内读取。"""
+
         return self.rows[idx]
 
 
@@ -186,6 +260,14 @@ class ModelBundle:
     processor: Any
     tokenizer: Any
     device: torch.device
+    lora_target_modules: List[str]
+    lora_vision_scope: str
+
+    @property
+    def lora_vision(self) -> bool:
+        """兼容旧字段：是否启用了视觉侧 LoRA。"""
+
+        return any(_is_vision_module_name(name) for name in self.lora_target_modules)
 
     def unwrap(self):
         """如果外层套了 DDP，则取回真实 PEFT/Qwen 模型对象。"""
@@ -200,7 +282,8 @@ def load_model_with_lora(
     lora_rank: int,
     lora_alpha: int,
     lora_dropout: float,
-    lora_vision: bool,
+    lora_vision_scope: str,
+    strict_vision_scope: bool,
     gradient_checkpointing: bool,
 ) -> ModelBundle:
     """加载本地 Qwen3-VL-Instruct，并注入 PEFT LoRA。
@@ -252,13 +335,25 @@ def load_model_with_lora(
 
     from peft import LoraConfig, get_peft_model
 
-    target_modules = _lora_target_modules(model, include_vision=lora_vision)
+    scope = (lora_vision_scope or "off").lower()
+    target_modules = _lora_target_modules(
+        model,
+        vision_scope=scope,
+        strict_vision_scope=bool(strict_vision_scope),
+    )
     language_targets = [name for name in target_modules if not _is_vision_module_name(name)]
     vision_targets = [name for name in target_modules if _is_vision_module_name(name)]
+    if scope != "off" and not vision_targets:
+        raise RuntimeError(
+            f"vision LoRA scope {scope!r} was requested, but no vision-side Linear modules "
+            "were selected. This usually means Qwen3-VL module names changed or the requested "
+            "bridge modules are not nn.Linear. Refusing to train an adapter whose metadata "
+            "claims vision LoRA but whose weights contain no vision keys."
+        )
     print(
         "[lora] target modules: "
         f"language={len(language_targets)} vision={len(vision_targets)} "
-        f"include_vision={int(lora_vision)}"
+        f"vision_scope={scope}"
     )
     if vision_targets:
         print(f"[lora] first vision targets: {vision_targets[:8]}")
@@ -273,7 +368,14 @@ def load_model_with_lora(
     )
     model = get_peft_model(model, lora_cfg)
     model.print_trainable_parameters()
-    return ModelBundle(model=model, processor=processor, tokenizer=tokenizer, device=device)
+    return ModelBundle(
+        model=model,
+        processor=processor,
+        tokenizer=tokenizer,
+        device=device,
+        lora_target_modules=target_modules,
+        lora_vision_scope=scope,
+    )
 
 
 def load_images(paths: List[str]) -> List[Image.Image]:
@@ -623,11 +725,54 @@ def make_scheduler(optimizer, total_steps: int, warmup_steps: int):
     """创建 warmup + cosine decay 学习率调度器。"""
 
     def lr_lambda(step: int) -> float:
+        """给 LambdaLR 使用的 step -> lr multiplier 映射。"""
+
         if step < warmup_steps:
             return step / max(1, warmup_steps)
         progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
         return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
+def save_sft_v2_adapter_config(path: pathlib.Path, bundle: ModelBundle, args: argparse.Namespace) -> None:
+    """写入 SFT v2 自描述配置，供 eval/probe/下游按 adapter 类型显式校验。
+
+    PEFT 自带的 ``adapter_config.json`` 会保存 ``target_modules``，这里再补一份人类和
+    下游都容易读的元数据：是否包含视觉侧 LoRA、base 模型路径和训练超参。base Qwen
+    权重不会写入 adapter 目录，后续仍从 ``--model-dir`` 指向的本地 checkpoint 读取。
+    """
+
+    target_modules = list(bundle.lora_target_modules)
+    vision_targets = [name for name in target_modules if _is_vision_module_name(name)]
+    language_targets = [name for name in target_modules if not _is_vision_module_name(name)]
+    payload = {
+        "schema_version": 1,
+        "route": "sft_v2_serial_choice",
+        "base_model_dir": str(args.model_dir),
+        "base_model_mutated": False,
+        "lora_vision": bool(bundle.lora_vision),
+        "lora_vision_scope": bundle.lora_vision_scope,
+        "strict_vision_scope": bool(getattr(args, "strict_vision_scope", True)),
+        "language_target_count": len(language_targets),
+        "vision_target_count": len(vision_targets),
+        "target_modules": target_modules,
+        "lora_rank": int(args.lora_rank),
+        "lora_alpha": int(args.lora_alpha),
+        "lora_dropout": float(args.lora_dropout),
+        "vision_lr_scale": float(getattr(args, "vision_lr_scale", 1.0)),
+        "max_vision_lr_scale": float(getattr(args, "max_vision_lr_scale", 0.25)),
+        "vision_clip_norm": float(getattr(args, "vision_clip_norm", 1.0)),
+        "language_clip_norm": float(getattr(args, "language_clip_norm", 1.0)),
+        "vision_guard_enabled": bool(getattr(args, "vision_guard_enabled", True)),
+        "vision_guard_grad_norm_max": float(getattr(args, "vision_guard_grad_norm_max", 10.0)),
+        "vision_guard_param_norm_max": float(getattr(args, "vision_guard_param_norm_max", 200.0)),
+        "vision_guard_patience": int(getattr(args, "vision_guard_patience", 3)),
+    }
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "sft_v2_adapter_config.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -649,9 +794,81 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lora-alpha", type=int, default=32)
     p.add_argument("--lora-dropout", type=float, default=0.1)
     p.add_argument(
+        "--lora-vision-scope",
+        type=str,
+        default="off",
+        choices=list(_VISION_SCOPE_CHOICES),
+        help=(
+            "vision-side LoRA scope: off (default, language only) / "
+            "merger (only vision merger / patch_embed) / "
+            "last4 (merger + last 4 vision transformer blocks) / "
+            "all (every vision Linear; aggressive)"
+        ),
+    )
+    p.add_argument(
         "--lora-vision",
         action="store_true",
-        help="also inject LoRA into vision-side Linear layers; default is language-only",
+        help=(
+            "legacy alias for --lora-vision-scope=all; ignored when --lora-vision-scope is "
+            "explicitly set to a non-off value"
+        ),
+    )
+    p.add_argument(
+        "--vision-lr-scale",
+        type=float,
+        default=0.1,
+        help="multiplier applied to --learning-rate for the vision LoRA param group",
+    )
+    p.add_argument(
+        "--max-vision-lr-scale",
+        type=float,
+        default=0.25,
+        help="upper safety bound for --vision-lr-scale when visual LoRA is enabled",
+    )
+    p.add_argument(
+        "--strict-vision-scope",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "when true, merger/last4 requires numbered vision blocks; "
+            "naming drift will fail fast instead of silently degrading to bridge-only"
+        ),
+    )
+    p.add_argument(
+        "--language-clip-norm",
+        type=float,
+        default=1.0,
+        help="grad clip norm for the language LoRA param group",
+    )
+    p.add_argument(
+        "--vision-clip-norm",
+        type=float,
+        default=0.3,
+        help="grad clip norm for the vision LoRA param group (tighter to avoid vision drift)",
+    )
+    p.add_argument(
+        "--vision-guard-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="enable runtime fuse guard on vision LoRA grad/param norms",
+    )
+    p.add_argument(
+        "--vision-guard-grad-norm-max",
+        type=float,
+        default=10.0,
+        help="trip fuse if clipped vision grad norm exceeds this threshold",
+    )
+    p.add_argument(
+        "--vision-guard-param-norm-max",
+        type=float,
+        default=200.0,
+        help="trip fuse if vision LoRA param norm exceeds this threshold",
+    )
+    p.add_argument(
+        "--vision-guard-patience",
+        type=int,
+        default=3,
+        help="consecutive abnormal steps before emergency stop",
     )
     p.add_argument("--label-weight", type=float, default=1.0)
     p.add_argument("--logging-steps", type=int, default=5)
@@ -664,6 +881,35 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no-grad-checkpoint", action="store_true")
     p.add_argument("--seed", type=int, default=20260617)
     return p.parse_args()
+
+
+def validate_safety_args(args: argparse.Namespace) -> None:
+    """在加载模型前校验视觉 LoRA 保险参数。"""
+
+    if float(args.vision_lr_scale) < 0.0:
+        raise ValueError("--vision-lr-scale must be >= 0")
+    if float(args.max_vision_lr_scale) <= 0.0:
+        raise ValueError("--max-vision-lr-scale must be > 0")
+    if float(args.language_clip_norm) <= 0.0:
+        raise ValueError("--language-clip-norm must be > 0")
+    if float(args.vision_clip_norm) <= 0.0:
+        raise ValueError("--vision-clip-norm must be > 0")
+    if float(args.vision_guard_grad_norm_max) <= 0.0:
+        raise ValueError("--vision-guard-grad-norm-max must be > 0")
+    if float(args.vision_guard_param_norm_max) <= 0.0:
+        raise ValueError("--vision-guard-param-norm-max must be > 0")
+    if int(args.vision_guard_patience) <= 0:
+        raise ValueError("--vision-guard-patience must be > 0")
+    if (args.lora_vision_scope or "off").lower() != "off" and float(args.vision_lr_scale) == 0.0:
+        raise ValueError(
+            "--vision-lr-scale=0 with visual LoRA enabled would create frozen visual "
+            "adapter parameters. Use --lora-vision-scope=off or a positive scale."
+        )
+    if (args.lora_vision_scope or "off").lower() != "off" and float(args.vision_lr_scale) > float(args.max_vision_lr_scale):
+        raise ValueError(
+            "--vision-lr-scale exceeds --max-vision-lr-scale under visual LoRA. "
+            "Lower vision lr scale or explicitly raise max-vision-lr-scale."
+        )
 
 
 def main() -> None:
@@ -683,13 +929,29 @@ def main() -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
         print(f"[init] output_dir={output_dir} rank={rank} world={world_size} device={device}")
 
+    # 兼容旧 launcher：`--lora-vision`（或 LORA_VISION=1）等价于 scope=all，但只有
+    # `--lora-vision-scope` 仍为默认 off 时才生效，避免显式 scope 设置被静默覆盖。
+    resolved_scope = (args.lora_vision_scope or "off").lower()
+    if args.lora_vision and resolved_scope == "off":
+        resolved_scope = "all"
+    args.lora_vision_scope = resolved_scope
+    validate_safety_args(args)
+    if is_rank0(rank):
+        print(
+            f"[lora] vision_scope={resolved_scope} vision_lr_scale={args.vision_lr_scale} "
+            f"clip(lang={args.language_clip_norm}, vis={args.vision_clip_norm}) "
+            f"strict_scope={int(bool(args.strict_vision_scope))} "
+            f"guard={int(bool(args.vision_guard_enabled))}"
+        )
+
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
         device=device,
         lora_rank=args.lora_rank,
         lora_alpha=args.lora_alpha,
         lora_dropout=args.lora_dropout,
-        lora_vision=args.lora_vision,
+        lora_vision_scope=resolved_scope,
+        strict_vision_scope=bool(args.strict_vision_scope),
         gradient_checkpointing=not args.no_grad_checkpoint,
     )
     if world_size > 1:
@@ -736,9 +998,40 @@ def main() -> None:
         if is_rank0(rank):
             print("[check] max_steps=2, no final save")
 
-    # 只把 LoRA 参数交给优化器；base Qwen 参数在 load_model_with_lora 里已经冻结。
-    params = [p for p in bundle.model.parameters() if p.requires_grad]
-    optimizer = torch.optim.AdamW(params, lr=args.learning_rate, betas=(0.9, 0.95), weight_decay=args.weight_decay)
+    # 把 LoRA 参数按视觉/语言拆成两个 optimizer 组：视觉组 LR 乘 vision_lr_scale，
+    # 这是视觉过度调整保险中最关键的一条。base Qwen 已在 load_model_with_lora 里冻结。
+    language_params: List[nn.Parameter] = []
+    vision_params: List[nn.Parameter] = []
+    for name, p in bundle.unwrap().named_parameters():
+        if not p.requires_grad:
+            continue
+        if _is_vision_module_name(name):
+            vision_params.append(p)
+        else:
+            language_params.append(p)
+    param_groups: List[Dict[str, Any]] = []
+    if language_params:
+        param_groups.append({
+            "params": language_params,
+            "lr": args.learning_rate,
+            "name": "language",
+        })
+    if vision_params:
+        param_groups.append({
+            "params": vision_params,
+            "lr": args.learning_rate * float(args.vision_lr_scale),
+            "name": "vision",
+        })
+    if not param_groups:
+        raise RuntimeError("no trainable params found; check LoRA injection")
+    if is_rank0(rank):
+        print(
+            f"[opt] groups: language={len(language_params)} (lr={args.learning_rate:.2e}) "
+            f"vision={len(vision_params)} "
+            f"(lr={args.learning_rate * float(args.vision_lr_scale):.2e}, "
+            f"scale={args.vision_lr_scale})"
+        )
+    optimizer = torch.optim.AdamW(param_groups, betas=(0.9, 0.95), weight_decay=args.weight_decay)
     # len(train_loader) 已经是当前 rank 看到的 micro-batch 数；再除以 grad_accum 得到优化步数。
     steps_per_epoch = max(1, math.ceil(len(train_loader) / max(args.grad_accum, 1)))
     total_steps = args.max_steps if args.max_steps > 0 else steps_per_epoch * args.num_epochs
@@ -750,6 +1043,8 @@ def main() -> None:
     t0 = time.time()
     saved: List[pathlib.Path] = []
     stop = False
+    fuse_stopped = False
+    guard_bad_steps = 0
 
     def finish_step(epoch: int, loss_sum: float, n_samples: int, reason: str) -> None:
         """完成一次 optimizer step，并按需 eval/save。
@@ -758,28 +1053,130 @@ def main() -> None:
         样本不会只更新各自 rank 的局部梯度。
         """
 
-        nonlocal global_step, saved
+        nonlocal global_step, saved, stop, fuse_stopped, guard_bad_steps
         if n_samples <= 0:
             optimizer.zero_grad(set_to_none=True)
             return
-        trainable = [p for p in bundle.unwrap().parameters() if p.requires_grad]
+        # 重新分一遍语言/视觉两组，逻辑要和 optimizer 建组时保持一致；DDP 下 tail 残余批次
+        # 之前累计在各 rank 私有 grad 里，需要先 all_reduce 再裁剪。
+        lang_params_local: List[nn.Parameter] = []
+        vis_params_local: List[nn.Parameter] = []
+        for pname, p in bundle.unwrap().named_parameters():
+            if not p.requires_grad:
+                continue
+            if _is_vision_module_name(pname):
+                vis_params_local.append(p)
+            else:
+                lang_params_local.append(p)
         if reason == "tail" and world_size > 1 and torch.distributed.is_initialized():
-            for p in trainable:
+            for p in lang_params_local + vis_params_local:
                 if p.grad is not None:
                     torch.distributed.all_reduce(p.grad, op=torch.distributed.ReduceOp.SUM)
                     p.grad.div_(float(world_size))
-        torch.nn.utils.clip_grad_norm_(trainable, 1.0)
+        # 分组裁剪：视觉组用更小的 clip 阈值，挡住单 batch 图像信号异常把视觉 adapter 拉飞。
+        if lang_params_local:
+            lang_grad_norm = torch.nn.utils.clip_grad_norm_(
+                lang_params_local, float(args.language_clip_norm)
+            )
+        else:
+            lang_grad_norm = torch.tensor(0.0)
+        if vis_params_local:
+            vis_grad_norm = torch.nn.utils.clip_grad_norm_(
+                vis_params_local, float(args.vision_clip_norm)
+            )
+        else:
+            vis_grad_norm = torch.tensor(0.0)
+
+        vis_grad_norm_value = float(vis_grad_norm)
+        vis_param_norm_value = 0.0
+        if vis_params_local:
+            with torch.no_grad():
+                vis_param_norm_value = math.sqrt(
+                    sum(float(p.detach().float().norm().item()) ** 2 for p in vis_params_local)
+                )
+        if world_size > 1 and torch.distributed.is_initialized():
+            sync_vals = torch.tensor(
+                [vis_grad_norm_value, vis_param_norm_value],
+                device=bundle.device,
+                dtype=torch.float32,
+            )
+            torch.distributed.all_reduce(sync_vals, op=torch.distributed.ReduceOp.MAX)
+            vis_grad_norm_value = float(sync_vals[0].item())
+            vis_param_norm_value = float(sync_vals[1].item())
+
+        guard_triggered = False
+        guard_reason = ""
+        if bool(args.vision_guard_enabled) and vis_params_local:
+            bad_grad = (not math.isfinite(vis_grad_norm_value)) or (
+                vis_grad_norm_value > float(args.vision_guard_grad_norm_max)
+            )
+            bad_param = (not math.isfinite(vis_param_norm_value)) or (
+                vis_param_norm_value > float(args.vision_guard_param_norm_max)
+            )
+            if bad_grad or bad_param:
+                guard_bad_steps += 1
+            else:
+                guard_bad_steps = 0
+            if guard_bad_steps >= int(args.vision_guard_patience):
+                guard_triggered = True
+                guard_reason = (
+                    "vision fuse triggered: "
+                    f"grad_norm={vis_grad_norm_value:.4f} "
+                    f"(max={float(args.vision_guard_grad_norm_max):.4f}), "
+                    f"param_norm={vis_param_norm_value:.4f} "
+                    f"(max={float(args.vision_guard_param_norm_max):.4f}), "
+                    f"bad_steps={guard_bad_steps}"
+                )
+
+        if guard_triggered:
+            optimizer.zero_grad(set_to_none=True)
+            stop = True
+            fuse_stopped = True
+            if is_rank0(rank):
+                emergency_dir = output_dir / f"fuse_stop_step_{global_step + 1}"
+                emergency_dir.mkdir(parents=True, exist_ok=True)
+                bundle.unwrap().save_pretrained(str(emergency_dir))
+                save_sft_v2_adapter_config(emergency_dir, bundle, args)
+                try:
+                    bundle.processor.save_pretrained(str(emergency_dir))
+                except Exception as exc:
+                    print(f"[warn] save processor skipped for fuse checkpoint: {exc}")
+                (emergency_dir / "fuse_reason.txt").write_text(guard_reason + "\n", encoding="utf-8")
+                print(f"[fuse-stop] {guard_reason}")
+                print(f"[fuse-stop] emergency adapter -> {emergency_dir}")
+            return
+
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad(set_to_none=True)
         global_step += 1
         loss = loss_sum / max(n_samples, 1)
         if is_rank0(rank) and (global_step == 1 or global_step % args.logging_steps == 0 or reason == "tail"):
-            lr = scheduler.get_last_lr()[0]
-            print(f"[train] epoch={epoch} step={global_step}/{total_steps} loss={loss:.4f} lr={lr:.2e} samples={n_samples} elapsed={(time.time()-t0)/60:.1f}m")
+            lrs = scheduler.get_last_lr()
+            lr_lang = float(lrs[0]) if lrs else 0.0
+            lr_vis = float(lrs[1]) if len(lrs) > 1 else 0.0
+            print(
+                f"[train] epoch={epoch} step={global_step}/{total_steps} loss={loss:.4f} "
+                f"lr_lang={lr_lang:.2e} lr_vis={lr_vis:.2e} "
+                f"|g|_lang={float(lang_grad_norm):.3f} |g|_vis={float(vis_grad_norm):.3f} "
+                f"|w|_vis={vis_param_norm_value:.3f} guard_bad_steps={guard_bad_steps} "
+                f"samples={n_samples} elapsed={(time.time()-t0)/60:.1f}m"
+            )
             if tb:
                 tb.add_scalar("train/loss", loss, global_step)
-                tb.add_scalar("train/lr", lr, global_step)
+                tb.add_scalar("train/lr", lr_lang, global_step)
+                if len(lrs) > 1:
+                    tb.add_scalar("train/lr_vision", lr_vis, global_step)
+                tb.add_scalar("train/grad_norm/language", float(lang_grad_norm), global_step)
+                if vis_params_local:
+                    tb.add_scalar("train/grad_norm/vision", vis_grad_norm_value, global_step)
+                    tb.add_scalar("train/param_norm/lora_vision", vis_param_norm_value, global_step)
+                    tb.add_scalar("train/vision_guard_bad_steps", float(guard_bad_steps), global_step)
+                # 参数范数：观测两组 LoRA 强度是否异常放大，纯观测量，不参与训练决策。
+                with torch.no_grad():
+                    if lang_params_local:
+                        ln_sq = sum(float(p.detach().float().norm().item()) ** 2 for p in lang_params_local)
+                        tb.add_scalar("train/param_norm/lora_language", math.sqrt(ln_sq), global_step)
         if (not args.check) and val_loader is not None and args.eval_steps > 0 and global_step % args.eval_steps == 0:
             metrics = evaluate_loss(
                 bundle,
@@ -796,6 +1193,7 @@ def main() -> None:
         if (not args.check) and args.save_steps > 0 and global_step % args.save_steps == 0 and is_rank0(rank):
             ckpt = output_dir / f"checkpoint-{global_step}"
             bundle.unwrap().save_pretrained(str(ckpt))
+            save_sft_v2_adapter_config(ckpt, bundle, args)
             saved.append(ckpt)
             if args.save_total_limit > 0 and len(saved) > args.save_total_limit:
                 old = saved.pop(0)
@@ -830,6 +1228,8 @@ def main() -> None:
             if accum_count >= args.grad_accum:
                 # 满一个梯度累积窗口后执行一次 optimizer step。
                 finish_step(epoch, accum_loss, accum_samples, "grad_accum")
+                if stop:
+                    break
                 accum_loss = 0.0
                 accum_samples = 0
                 accum_count = 0
@@ -840,20 +1240,25 @@ def main() -> None:
             # epoch 末尾不足 grad_accum 的残余 micro-batch 也要更新一次；DDP 下 finish_step 会手动
             # all_reduce 这段 tail 梯度，保证所有 rank 参数仍然一致。
             finish_step(epoch, accum_loss, accum_samples, "tail")
+            if stop:
+                break
             if args.max_steps > 0 and global_step >= args.max_steps:
                 stop = True
         if stop:
             break
 
-    if is_rank0(rank) and not args.check:
+    if is_rank0(rank) and not args.check and not fuse_stopped:
         # 训练完成后只保存 adapter/processor 到 final；base 模型仍然从本地 MODEL_DIR 读取。
         final_dir = output_dir / "final"
         bundle.unwrap().save_pretrained(str(final_dir))
+        save_sft_v2_adapter_config(final_dir, bundle, args)
         try:
             bundle.processor.save_pretrained(str(final_dir))
         except Exception as exc:
             print(f"[warn] save processor skipped: {exc}")
         print(f"[done] final adapter -> {final_dir}")
+    elif is_rank0(rank) and fuse_stopped:
+        print("[done] skipped final adapter because vision fuse guard stopped training early")
     if tb:
         tb.flush()
         tb.close()

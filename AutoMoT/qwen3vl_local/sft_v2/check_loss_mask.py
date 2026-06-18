@@ -27,6 +27,8 @@ class _TokenizerBundle:
     """给 train._assistant_token_mask 复用的最小 tokenizer 容器。"""
 
     def __init__(self, tokenizer):
+        """保存 tokenizer，模拟 train.ModelBundle 的最小接口。"""
+
         self.tokenizer = tokenizer
 
 
