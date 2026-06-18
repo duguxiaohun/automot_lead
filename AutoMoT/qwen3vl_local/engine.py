@@ -134,6 +134,122 @@ def _outputs_summary(outputs: Any) -> Dict[str, Any]:
     return out
 
 
+_VISION_LORA_NAME_MARKERS = ("visual", "vision", "vision_tower", "vision_model", "vit", "merger", "patch_embed")
+
+
+def _name_has_vision_marker(name: str) -> bool:
+    """判断 PEFT target/state key 是否指向视觉侧模块。"""
+
+    lname = str(name).lower()
+    return any(marker in lname for marker in _VISION_LORA_NAME_MARKERS)
+
+
+def _as_list(value: Any) -> List[str]:
+    """把 adapter_config.json 里的 target_modules 统一成 list[str]。"""
+
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple, set)):
+        return [str(x) for x in value]
+    return [str(value)]
+
+
+def _adapter_state_keys(adapter_path: pathlib.Path) -> List[str]:
+    """读取 adapter 权重 key，用于校验视觉 LoRA 是否和配置一致。"""
+
+    safetensors_path = adapter_path / "adapter_model.safetensors"
+    bin_path = adapter_path / "adapter_model.bin"
+    if safetensors_path.exists():
+        from safetensors import safe_open
+
+        with safe_open(str(safetensors_path), framework="pt", device="cpu") as f:
+            return list(f.keys())
+    if bin_path.exists():
+        import torch
+
+        state = torch.load(str(bin_path), map_location="cpu")
+        if isinstance(state, dict):
+            return list(state.keys())
+    raise FileNotFoundError(
+        f"adapter weights not found under {adapter_path}: expected adapter_model.safetensors or adapter_model.bin"
+    )
+
+
+def _inspect_lora_adapter(adapter_path: pathlib.Path) -> Dict[str, Any]:
+    """像 LeadMoT 读 decoder_config 一样，先读取 LoRA adapter 自描述配置。
+
+    PEFT 的 ``adapter_config.json`` 决定实际实例化哪些 LoRA 分支；SFT v2 训练还会额外
+    写 ``sft_v2_adapter_config.json``，显式记录 ``lora_vision``。这里加载前先校验
+    config 与权重 key 是否一致，避免普通 LoRA / 视觉 LoRA 混用时出现静默忽略。
+    """
+
+    peft_config_path = adapter_path / "adapter_config.json"
+    if not peft_config_path.exists():
+        raise FileNotFoundError(f"adapter_config.json not found under {adapter_path}")
+    peft_config = json.loads(peft_config_path.read_text(encoding="utf-8"))
+    target_modules = _as_list(peft_config.get("target_modules"))
+    target_has_vision = any(_name_has_vision_marker(name) for name in target_modules)
+
+    state_keys = _adapter_state_keys(adapter_path)
+    state_has_vision = any(_name_has_vision_marker(key) for key in state_keys)
+
+    sft_config_path = adapter_path / "sft_v2_adapter_config.json"
+    sft_config: Dict[str, Any] = {}
+    if sft_config_path.exists():
+        sft_config = json.loads(sft_config_path.read_text(encoding="utf-8"))
+    sft_has_vision = sft_config.get("lora_vision", None)
+    sft_targets = _as_list(sft_config.get("target_modules")) if sft_config else []
+    if sft_targets and set(sft_targets) != set(target_modules):
+        missing_from_peft = sorted(set(sft_targets) - set(target_modules))[:8]
+        extra_in_peft = sorted(set(target_modules) - set(sft_targets))[:8]
+        raise ValueError(
+            f"{sft_config_path} target_modules do not match {peft_config_path}. "
+            f"missing_from_peft={missing_from_peft} extra_in_peft={extra_in_peft}"
+        )
+
+    if sft_has_vision is not None and bool(sft_has_vision) != state_has_vision:
+        raise ValueError(
+            f"{sft_config_path} says lora_vision={bool(sft_has_vision)}, "
+            f"but adapter weight keys imply vision_lora={state_has_vision}"
+        )
+    if sft_has_vision is not None and bool(sft_has_vision) != target_has_vision:
+        raise ValueError(
+            f"{sft_config_path} says lora_vision={bool(sft_has_vision)}, "
+            f"but {peft_config_path} target_modules imply vision_lora={target_has_vision}"
+        )
+    if sft_config:
+        scope = str(sft_config.get("lora_vision_scope", "off")).lower()
+        if scope == "off" and target_has_vision:
+            raise ValueError(
+                f"{sft_config_path} says lora_vision_scope=off, but adapter_config.json "
+                "contains vision-side target_modules"
+            )
+        if scope != "off" and not target_has_vision:
+            raise ValueError(
+                f"{sft_config_path} says lora_vision_scope={scope!r}, but adapter_config.json "
+                "contains no vision-side target_modules"
+            )
+    if state_has_vision and not target_has_vision:
+        raise ValueError(
+            f"{peft_config_path} target_modules do not include vision-side module names, "
+            "but adapter weights contain vision LoRA keys. Refusing to silently ignore them."
+        )
+    if target_has_vision and not state_has_vision:
+        raise ValueError(
+            f"{peft_config_path} target_modules include vision-side module names, "
+            "but adapter weights contain no vision LoRA keys."
+        )
+
+    return {
+        "target_modules": target_modules,
+        "state_key_count": len(state_keys),
+        "lora_vision": bool(state_has_vision),
+        "sft_v2_config": sft_config,
+    }
+
+
 def _clone_cache(cache: Any) -> Any:
     """复制一份可传回模型的 KV cache。
 
@@ -250,8 +366,12 @@ class LocalQwen3VLInstructEngine:
         必须先 self.load()：PeftModel.from_pretrained 需要一个已经加载到设备上的 base
         model 才能包；忘记 load 会把 None 传给 PEFT 直接崩。
 
-        merge=True 时调用 model.merge_and_unload()：把 LoRA 权重合并进 base 矩阵后返回
-        一个纯 Transformer（不再有 LoRA 分支）。好处：
+        加载前会先读取 adapter_config.json / sft_v2_adapter_config.json，确认普通语言
+        LoRA 与视觉+语言 LoRA 的配置和权重 key 一致。PEFT 随后按配置实例化 adapter；
+        原始 checkpoint 目录里的 Qwen base 权重始终不写回、不覆盖。
+
+        merge=True 时调用 model.merge_and_unload()：把 LoRA 权重合并进当前内存中的
+        base 矩阵后返回一个纯 Transformer（不再有 LoRA 分支）。好处：
         - forward 时不再走"base + adapter delta"两路相加，省 ~5–10% 推理时间；
         - 后续逻辑（包括 prefill / KV 提取 / 段切分）完全等价于训练后的"merged Qwen"，
           GoalGen 这条路下游对 LoRA 的存在无感知。
@@ -271,7 +391,13 @@ class LocalQwen3VLInstructEngine:
         if not adapter_path.exists():
             raise FileNotFoundError(f"adapter dir not found: {adapter_path}")
 
-        print(f"[qwen3vl-local] attaching LoRA adapter: {adapter_path}")
+        adapter_info = _inspect_lora_adapter(adapter_path)
+        print(
+            f"[qwen3vl-local] attaching LoRA adapter: {adapter_path} "
+            f"(vision_lora={int(adapter_info['lora_vision'])}, "
+            f"targets={len(adapter_info['target_modules'])}, "
+            f"state_keys={adapter_info['state_key_count']})"
+        )
         self.model = PeftModel.from_pretrained(
             self.model,
             str(adapter_path),

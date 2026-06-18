@@ -28,7 +28,17 @@ MAX_LENGTH="${MAX_LENGTH:-8192}"
 LORA_RANK="${LORA_RANK:-16}"
 LORA_ALPHA="${LORA_ALPHA:-32}"
 LORA_DROPOUT="${LORA_DROPOUT:-0.1}"
-LORA_VISION="${LORA_VISION:-0}"
+LORA_VISION_SCOPE="${LORA_VISION_SCOPE:-off}"  # off / merger / last4 / all
+LORA_VISION="${LORA_VISION:-0}"                # legacy 别名，1 等价于 scope=all
+VISION_LR_SCALE="${VISION_LR_SCALE:-0.1}"
+MAX_VISION_LR_SCALE="${MAX_VISION_LR_SCALE:-0.25}"
+VISION_CLIP_NORM="${VISION_CLIP_NORM:-0.3}"
+LANGUAGE_CLIP_NORM="${LANGUAGE_CLIP_NORM:-1.0}"
+STRICT_VISION_SCOPE="${STRICT_VISION_SCOPE:-1}"
+VISION_GUARD_ENABLED="${VISION_GUARD_ENABLED:-1}"
+VISION_GUARD_GRAD_NORM_MAX="${VISION_GUARD_GRAD_NORM_MAX:-10.0}"
+VISION_GUARD_PARAM_NORM_MAX="${VISION_GUARD_PARAM_NORM_MAX:-200.0}"
+VISION_GUARD_PATIENCE="${VISION_GUARD_PATIENCE:-3}"
 LABEL_WEIGHT="${LABEL_WEIGHT:-1.0}"
 LOGGING_STEPS="${LOGGING_STEPS:-5}"
 SAVE_STEPS="${SAVE_STEPS:-10000}"
@@ -129,6 +139,18 @@ case "${MODE}" in
         ;;
 esac
 
+if [[ "${STRICT_VISION_SCOPE}" == "1" ]]; then
+    EXTRA_ARGS+=("--strict-vision-scope")
+else
+    EXTRA_ARGS+=("--no-strict-vision-scope")
+fi
+
+if [[ "${VISION_GUARD_ENABLED}" == "1" ]]; then
+    EXTRA_ARGS+=("--vision-guard-enabled")
+else
+    EXTRA_ARGS+=("--no-vision-guard-enabled")
+fi
+
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
 
@@ -147,6 +169,14 @@ PY_ARGS=(
     --lora-rank "${LORA_RANK}"
     --lora-alpha "${LORA_ALPHA}"
     --lora-dropout "${LORA_DROPOUT}"
+    --lora-vision-scope "${LORA_VISION_SCOPE}"
+    --vision-lr-scale "${VISION_LR_SCALE}"
+    --max-vision-lr-scale "${MAX_VISION_LR_SCALE}"
+    --language-clip-norm "${LANGUAGE_CLIP_NORM}"
+    --vision-clip-norm "${VISION_CLIP_NORM}"
+    --vision-guard-grad-norm-max "${VISION_GUARD_GRAD_NORM_MAX}"
+    --vision-guard-param-norm-max "${VISION_GUARD_PARAM_NORM_MAX}"
+    --vision-guard-patience "${VISION_GUARD_PATIENCE}"
     --label-weight "${LABEL_WEIGHT}"
     --logging-steps "${LOGGING_STEPS}"
     --save-steps "${SAVE_STEPS}"
@@ -157,6 +187,7 @@ PY_ARGS=(
 )
 
 if [[ "${LORA_VISION}" == "1" ]]; then
+    # legacy 兼容：当 LORA_VISION_SCOPE 仍为默认 off 时，--lora-vision 会被 train.py 映射成 scope=all。
     PY_ARGS+=("--lora-vision")
 fi
 
@@ -170,4 +201,5 @@ else
 fi
 
 echo "[done] adapter under ${OUTPUT_DIR}"
-echo "[hint] GPU_IDS=0 python qwen3vl_local/sft_v2/eval.py --lora-dir ${OUTPUT_DIR}/final --save-root ${OUTPUT_DIR}"
+echo "[hint] normal run: GPU_IDS=0 python qwen3vl_local/sft_v2/eval.py --lora-dir ${OUTPUT_DIR}/final --save-root ${OUTPUT_DIR}"
+echo "[hint] if vision fuse stopped, inspect ${OUTPUT_DIR}/fuse_stop_step_*/fuse_reason.txt before evaluating that emergency adapter"

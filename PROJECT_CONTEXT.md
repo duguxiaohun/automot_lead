@@ -337,9 +337,23 @@ eval 端固定坑：
   `--samples-per-scenario 0` 表示每个场景保留全部合法候选，正数才启用下采样；
   默认 `--wrong-scene-ratio 0.15` 只增强 train rows，把一部分 stage-2 selected scene
   替换成错误场景但仍监督真实 `STATUS/SUBGOAL`，val rows 保持 GT 分支。
-- `train.py` 直接 LoRA 注入本地 Qwen3-VL-4B-Instruct；默认只注入语言侧 Linear，
-  显式 `--lora-vision` / launcher `LORA_VISION=1` 时才把视觉 encoder 的 Linear 层
-  也纳入 LoRA 微调。prompt token 权重为 0，只监督 scene/status/subgoal 值 token；
+- `train.py` 直接 LoRA 注入本地 Qwen3-VL-4B-Instruct；默认只注入语言侧 Linear。
+  视觉侧通过 `--lora-vision-scope` / launcher `LORA_VISION_SCOPE` 选择
+  `off` / `merger` / `last4` / `all` 四档；`--lora-vision` / `LORA_VISION=1`
+  仅作为 `all` 的 legacy 别名保留。开启视觉 LoRA 时默认带视觉组低 LR
+  (`--vision-lr-scale=0.1`，受 `--max-vision-lr-scale=0.25` 上限约束)、
+  语言/视觉分组梯度裁剪 (`--language-clip-norm=1.0` / `--vision-clip-norm=0.3`)
+  与 TensorBoard 梯度/参数范数观测；`merger/last4` 会解析视觉 block 编号，
+  默认 `--strict-vision-scope`，解析不到 block 编号时直接报错，只有显式
+  `--no-strict-vision-scope` 才退化为只训 merger/patch_embed 并 warning。
+  `--vision-guard-enabled` 默认开启，连续视觉 grad/param norm 异常达到
+  `--vision-guard-patience` 会停训并写 `fuse_stop_step_<N>/` + `fuse_reason.txt`，
+  同时跳过正常 `final/` 保存，避免把熔断产物误当完整训练结果。
+  base Qwen checkpoint 始终只读，训练产物只保存 adapter delta；adapter 目录同时写
+  PEFT `adapter_config.json` 和 `sft_v2_adapter_config.json`（含 scope 与保险参数），
+  eval/probe 加载前按配置判断普通 LoRA / 视觉 LoRA 并校验权重 key，不一致直接拒绝。
+  prompt token 权重为 0，
+  只监督 scene/status/subgoal 值 token；
   `SCENE:` / `STATUS:` / 换行等格式 token 为 0 loss。每条样本是一条多轮 teacher-forced chat：图像只在第一轮 user，
   第二轮 status prompt 作为文本 follow-up 接在 scene assistant 后，单次 forward
   里同时计算三个值 token 的 loss。

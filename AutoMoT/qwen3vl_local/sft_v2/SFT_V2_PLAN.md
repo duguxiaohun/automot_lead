@@ -50,7 +50,41 @@ SFT v2 是一条独立的 LoRA 串行选择题监督路线，不替代
 
 `train.py` 加载本地 `Qwen3-VL-4B-Instruct`，冻结 base model，注入 PEFT LoRA，并对每个
 样本跑一次多轮 teacher-forced forward。默认 LoRA 只注入语言侧 Linear；需要让视觉侧也
-参与 LoRA 微调时，训练入口显式加 `--lora-vision`（或 launcher 设 `LORA_VISION=1`）：
+参与 LoRA 微调时，训练入口通过 `--lora-vision-scope` 或 launcher 的 `LORA_VISION_SCOPE`
+选择覆盖范围：
+
+- `off`（默认）：完全不挂视觉侧 LoRA。
+- `merger`：只挂 vision merger / patch_embed 等桥接 Linear，最小适配 LEAD stitched RGB
+  分布，风险最低。
+- `last4`：`merger` 范围 + vision transformer 最后 4 个 block。
+- `all`：视觉侧所有 `nn.Linear`，最激进。`--lora-vision` / `LORA_VISION=1` 仍作为该档
+  的 legacy 别名保留。
+
+`merger` / `last4` 会通过视觉模块名中的 `blocks.N`、`layers.N` 或
+`encoder.layers.N` 解析 vision transformer block 编号。默认
+`--strict-vision-scope` 开启；如果真实模型命名漂移导致无法识别任何编号，训练入口会
+直接报错，避免误以为在训 `last4` 实际只训 bridge。只有显式
+`--no-strict-vision-scope` 时，才退化为只保留 merger / patch_embed 这类非 block 桥接
+Linear 并打印 warning。
+
+为了防止视觉表征被冲坏，训练入口默认对视觉组施加三重保险：
+
+- 视觉组 LR = 主 LR × `--vision-lr-scale`（默认 `0.1`），且开启视觉 LoRA 时受
+  `--max-vision-lr-scale`（默认 `0.25`）硬上限约束；
+- 语言组与视觉组分别 `clip_grad_norm_`，阈值由 `--language-clip-norm`（默认 `1.0`）和
+  `--vision-clip-norm`（默认 `0.3`）控制；
+- TensorBoard 记录 `train/grad_norm/{language,vision}`、`train/lr_vision`、
+  `train/param_norm/lora_{language,vision}` 与 `train/vision_guard_bad_steps`，便于观察
+  视觉侧是否异常放大；
+- 运行时视觉熔断默认开启：`--vision-guard-enabled` 会监控视觉 LoRA 的梯度范数和
+  参数范数，连续异常达到 `--vision-guard-patience` 时停止训练，保存
+  `fuse_stop_step_<N>/` 应急 adapter 和 `fuse_reason.txt`，并跳过正常 `final/` 保存，
+  避免把异常停训产物误当成完整训练结果。
+
+无论选哪档 scope，原始 Qwen checkpoint 权重仍然只读，不会被覆盖；训练产物只保存
+adapter delta，并额外写 `sft_v2_adapter_config.json` 记录 `lora_vision_scope`、
+`lora_vision`（bool）、target modules 与保险参数。eval/probe 通过 adapter 配置
+自动判断普通 LoRA 还是视觉+语言 LoRA，配置与权重 key 不一致时直接拒绝加载。
 
 - 第一段 assistant turn：只监督 `SCENE` 的值 token。
 - 第二段 assistant turn：只监督 `STATUS` 和 `SUBGOAL` 的值 token。
