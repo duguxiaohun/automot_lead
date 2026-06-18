@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# SFT v2 launcher: serial SCENE -> STATUS/SUBGOAL LoRA training.
+# SFT v2 启动器：串行 SCENE -> STATUS/SUBGOAL LoRA 训练。
 #
-# Run from AutoMoT/:
+# 在 AutoMoT/ 目录下运行：
 #   GPU_IDS=0 bash qwen3vl_local/sft_v2/train.sh single
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v2/train.sh ddp
 

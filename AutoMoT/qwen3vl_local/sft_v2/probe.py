@@ -98,8 +98,8 @@ def main() -> None:
         raw_status = ""
         status_kv_reused = False
         if validate_choice(pred_scene, None, None)["scene_valid"]:
-            # 第二阶段 prompt 必须和 predicted scene 自洽，因此把 previous hint 映射到
-            # predicted scene 的同相位事件。
+            # 第二阶段 prompt 必须和预测场景自洽，因此把前序提示映射到
+            # 预测场景的同相位事件。
             previous_status, previous_subgoal, _previous_phase_idx = remap_status_hint(
                 row["gt"]["scene"],
                 row["memory_in_status"],

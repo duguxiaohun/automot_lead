@@ -75,7 +75,7 @@ Rules:
   not advance STATUS without a clear visual transition."""
 
 
-# 兼容旧 caller 的别名；新 SFT v2 主流程直接使用 SCENE_SYSTEM_PROMPT。
+# 兼容旧调用方的别名；新 SFT v2 主流程直接使用 SCENE_SYSTEM_PROMPT。
 SYSTEM_PROMPT = SCENE_SYSTEM_PROMPT
 
 
@@ -88,7 +88,7 @@ def scenario_choices_block() -> str:
 
     lines = ["[SCENE_CHOICES]"]
     for name in sorted(SCENARIO_LABELS):
-        # 固定排序让 dataset / eval prompt 可复现，避免同一数据多次构建时 prompt 抖动。
+        # 固定排序让数据集和评估 prompt 可复现，避免同一数据多次构建时 prompt 抖动。
         lines.append(f"- {name}: {SCENARIO_LABELS[name]}")
     lines.append("[/SCENE_CHOICES]")
     return "\n".join(lines)
@@ -106,7 +106,7 @@ def event_choices_block() -> str:
         seq = get_full_sequence(scenario)
         lines.append(f"- {scenario}: {' -> '.join(seq)}")
         for event in seq:
-            # EVENT_DESCRIPTIONS 只是自然语言解释，真正的可选值仍然是 seq 中的 event token。
+            # EVENT_DESCRIPTIONS 只是自然语言解释，真正的可选值仍然是序列里的事件 token。
             lines.append(f"  * {event}: {EVENT_DESCRIPTIONS.get(event, event)}")
     lines.append("[/SCENE_EVENT_CHOICES]")
     return "\n".join(lines)

@@ -1,10 +1,10 @@
-# SFT v2 Runbook
+# SFT v2 运行手册
 
-Run commands from the remote `AutoMoT/` directory.
+以下命令默认在远端 `AutoMoT/` 目录下执行。
 
-## 1. Build Data
+## 1. 构建数据
 
-Default build keeps all valid candidates per scenario:
+默认构建会保留每个 scenario 的全部合法候选：
 
 ```bash
 python qwen3vl_local/sft_v2/build_dataset.py \
@@ -13,12 +13,11 @@ python qwen3vl_local/sft_v2/build_dataset.py \
   --output-dir checkpoints/sft_v2_data
 ```
 
-By default, train rows apply `--wrong-scene-ratio 0.15`: a subset of stage-2
-prompts lists a wrong selected scene. The previous hint and supervised
-status/subgoal are phase-mapped into that selected scene's own event sequence.
-Set `--wrong-scene-ratio 0` to disable it.
+默认 `--wrong-scene-ratio 0.15`：一部分 train row 的第二阶段 prompt 会故意写入一个
+错误但合法的 selected scene；previous hint 和监督的 status/subgoal 会按相位映射到
+该 selected scene 自己的事件序列。若要关闭增强，设为 `--wrong-scene-ratio 0`。
 
-Optional downsampled build:
+可选的下采样构建：
 
 ```bash
 python qwen3vl_local/sft_v2/build_dataset.py \
@@ -28,7 +27,7 @@ python qwen3vl_local/sft_v2/build_dataset.py \
   --output-dir checkpoints/sft_v2_data_800
 ```
 
-Quick check:
+快速 dry-run：
 
 ```bash
 python qwen3vl_local/sft_v2/build_dataset.py \
@@ -38,81 +37,122 @@ python qwen3vl_local/sft_v2/build_dataset.py \
   --output-dir checkpoints/sft_v2_data_dry
 ```
 
-Artifacts:
+输出文件：
 
 - `train.jsonl`
 - `val.jsonl`
 - `stats.json`
 
-Each row stores two serial stages under `stage_messages`:
+每条 row 的两阶段消息保存在 `stage_messages` 下：
 
 ```text
-stage_messages.scene   -> image turn + SCENE
-stage_messages.status  -> text follow-up turn + STATUS / SUBGOAL
+stage_messages.scene   -> 图像 turn + SCENE
+stage_messages.status  -> 文本 follow-up turn + STATUS / SUBGOAL
 ```
 
-## 2. Loss Mask Check
+## 2. 检查 Loss Mask
 
 ```bash
 python qwen3vl_local/sft_v2/check_loss_mask.py
 ```
 
-Expected: `ok: true`. This means the value spans for `SCENE`, `STATUS`, and
-`SUBGOAL` are located correctly. If `--model-dir` exists locally, the script
-also verifies tokenizer-level 0/1 value-token masks. Format tokens are not
-trained.
+预期输出里 `ok: true`。这表示 `SCENE`、`STATUS`、`SUBGOAL` 的值区间定位正确。若本地
+存在 `--model-dir`，脚本还会检查 tokenizer 级别的 0/1 value-token mask；格式 token
+不会参与训练。
 
-## 3. Train
+## 3. 训练
 
-Single GPU:
+单卡训练：
 
 ```bash
 GPU_IDS=0 bash qwen3vl_local/sft_v2/train.sh single
 ```
 
-4-GPU DDP with auto GPU selection:
+4 卡 DDP，自动选择空闲 GPU：
 
 ```bash
 DDP_GPU_COUNT=4 bash qwen3vl_local/sft_v2/train.sh ddp
 ```
 
-Explicit 4-GPU pin:
+4 卡 DDP，显式指定 GPU：
 
 ```bash
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v2/train.sh ddp
 ```
 
-Sanity check:
+轻量链路检查：
 
 ```bash
 GPU_IDS=0 bash qwen3vl_local/sft_v2/train.sh check
 ```
 
-Common env:
+常用环境变量：
 
-| env | default | note |
+| 环境变量 | 默认值 | 说明 |
 |---|---:|---|
-| `MODEL_DIR` | `checkpoints/Qwen3-VL-4B-Instruct` | local model dir |
-| `TRAIN_JSONL` | `checkpoints/sft_v2_data/train.jsonl` | train jsonl |
-| `VAL_JSONL` | `checkpoints/sft_v2_data/val.jsonl` | val jsonl |
-| `OUTPUT_DIR` | `checkpoints/sft_v2_lora` | base output dir |
-| `MAX_LENGTH` | `8192` | prompt contains all scenes or one event sequence |
-| `RUN_TAG` | timestamp | writes to `OUTPUT_DIR/run_<tag>` |
-| `NO_RUN_SUBDIR` | `0` | set `1` for old overwrite behavior |
-| `GPU_IDS` | empty | explicit GPU pin |
-| `DDP_GPU_COUNT` | `8` | GPU count for auto DDP selection |
-| `LABEL_WEIGHT` | `1.0` | value-token loss weight |
+| `MODEL_DIR` | `checkpoints/Qwen3-VL-4B-Instruct` | 本地模型目录 |
+| `TRAIN_JSONL` | `checkpoints/sft_v2_data/train.jsonl` | 训练 jsonl |
+| `VAL_JSONL` | `checkpoints/sft_v2_data/val.jsonl` | 验证 jsonl |
+| `OUTPUT_DIR` | `checkpoints/sft_v2_lora` | 输出根目录 |
+| `MAX_LENGTH` | `8192` | prompt 会包含全部 scene 或单个事件序列 |
+| `RUN_TAG` | 时间戳 | 写入 `OUTPUT_DIR/run_<tag>` |
+| `NO_RUN_SUBDIR` | `0` | 设为 `1` 时回退到旧的顶层覆盖行为 |
+| `GPU_IDS` | 空 | 显式指定 GPU |
+| `DDP_GPU_COUNT` | `8` | 自动 DDP 选卡时需要的 GPU 数 |
+| `LABEL_WEIGHT` | `1.0` | 值 token loss 权重 |
 
-Training runs one multi-turn forward per sample:
+训练对每个样本跑一次多轮 forward：
 
-1. image + scene prompt -> supervise `SCENE` value token only.
-2. append status prompt with selected scene -> supervise `STATUS/SUBGOAL` value tokens only.
+1. 图像 + scene prompt，只监督 `SCENE` 值 token。
+2. 追加 selected scene 的 status prompt，只监督 `STATUS/SUBGOAL` 值 token。
 
-For wrong-scene augmented rows, the selected scene is intentionally not the GT
-scene, and the supervised status/subgoal are legal same-phase events from that
-selected scene.
+wrong-scene 增强 row 的 selected scene 会故意不同于 GT scene；监督的 status/subgoal
+已经映射为该 selected scene 内合法的同相位事件。
 
-## 4. Eval
+## 4. TensorBoard
+
+训练会在当前 run 下写入 `tb/`，例如：
+
+```text
+checkpoints/sft_v2_lora/run_<RUN_TAG>/tb
+checkpoints/sft_v2_lora/latest/tb
+```
+
+查看最新一次训练：
+
+```bash
+bash qwen3vl_local/tb_serve.sh checkpoints/sft_v2_lora/latest/tb
+```
+
+查看某个固定 run：
+
+```bash
+bash qwen3vl_local/tb_serve.sh checkpoints/sft_v2_lora/run_<RUN_TAG>/tb
+```
+
+也可以把 logdir 指到 run 根目录，让 TensorBoard 自动扫描子目录：
+
+```bash
+bash qwen3vl_local/tb_serve.sh checkpoints/sft_v2_lora/latest
+```
+
+`tb_serve.sh` 会自动选择空闲端口并打印浏览器 URL。常用曲线：
+
+- `train/loss`
+- `train/lr`
+- `val/loss`
+- `val/samples`
+- `val/skipped`
+
+若端口需要手动固定：
+
+```bash
+TB_PORT=6007 bash qwen3vl_local/tb_serve.sh checkpoints/sft_v2_lora/latest/tb
+```
+
+## 5. Eval
+
+快速验证：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v2/eval.py \
@@ -122,7 +162,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v2/eval.py \
   --max-samples 100
 ```
 
-Full val:
+完整 val：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v2/eval.py \
@@ -131,17 +171,15 @@ GPU_IDS=0 python qwen3vl_local/sft_v2/eval.py \
   --save-root checkpoints/sft_v2_lora/latest
 ```
 
-Eval uses the true two-stage protocol:
+eval 使用真实两阶段协议：
 
-1. Generate `SCENE`.
-2. If `SCENE` is invalid, stop the sample.
-3. If `SCENE` is valid, append a new prompt from the predicted scene's event
-   sequence and continue from the scene-step KV cache to generate
-   `STATUS/SUBGOAL`.
-   The previous-status hint is phase-mapped into the predicted scene so the
-   prompt stays internally consistent even when the predicted scene is wrong.
+1. 生成 `SCENE`。
+2. 如果 `SCENE` 非法，终止该样本。
+3. 如果 `SCENE` 合法，用预测 scene 的事件序列追加第二阶段 prompt，并从 scene-step
+   KV cache 继续生成 `STATUS/SUBGOAL`。previous-status hint 会映射到预测 scene 的同相位
+   事件，保证 prompt 即使在预测 scene 错误时也内部一致。
 
-Outputs under `checkpoints/sft_v2_lora/latest/eval_v2/`:
+输出目录：`checkpoints/sft_v2_lora/latest/eval_v2/`
 
 - `metrics.json`
 - `scenario_metrics.json`
@@ -149,13 +187,12 @@ Outputs under `checkpoints/sft_v2_lora/latest/eval_v2/`:
 - `predictions_diff.jsonl`
 - `cases/`
 
-`status_accuracy` / `subgoal_accuracy` are serial metrics: scene must also be
-correct. `status_raw_accuracy` / `subgoal_raw_accuracy` are diagnostics only.
-`valid_total` and `*_valid_scene` metrics report the same task after excluding
-invalid-scene rows from the denominator. `status_kv_reuse_rate` should stay near
-1.0; fallback means the second stage had to rebuild the full multi-turn context.
+`status_accuracy` / `subgoal_accuracy` 是串行指标：scene 也必须正确。
+`status_raw_accuracy` / `subgoal_raw_accuracy` 只用于诊断。`valid_total` 和
+`*_valid_scene` 指标会排除 invalid-scene row。`status_kv_reuse_rate` 应接近 1.0；
+fallback 表示第二阶段不得不重建完整 multi-turn 上下文。
 
-Base comparison:
+base 对照：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v2/eval.py \
@@ -164,7 +201,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v2/eval.py \
   --max-samples 100
 ```
 
-## 5. Case Probe
+## 6. Case Probe
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v2/probe.py \
@@ -173,7 +210,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v2/probe.py \
   --num-per-scenario 4 --seed 0
 ```
 
-Specific scenarios:
+指定场景：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v2/probe.py \
@@ -183,4 +220,4 @@ GPU_IDS=0 python qwen3vl_local/sft_v2/probe.py \
   --num-per-scenario 6 --seed 7
 ```
 
-Outputs under `checkpoints/sft_v2_lora/latest/eval_cases_v2/`.
+输出目录：`checkpoints/sft_v2_lora/latest/eval_cases_v2/`。
