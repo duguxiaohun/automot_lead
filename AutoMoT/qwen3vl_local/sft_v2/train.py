@@ -31,6 +31,7 @@ os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
 import torch
 import torch.nn.functional as F
+from torch import nn
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
@@ -42,6 +43,58 @@ except Exception:
     _TB_AVAILABLE = False
 
 from qwen3vl_local.sft_v2.prompts import extract_gt, target_spans
+
+
+_LANGUAGE_LORA_SUFFIXES = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
+_VISION_LORA_SUFFIXES = (
+    "qkv",
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "proj",
+    "out_proj",
+    "fc1",
+    "fc2",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
+)
+_VISION_NAME_MARKERS = ("visual", "vision", "vision_tower", "vision_model", "vit", "merger", "patch_embed")
+
+
+def _is_vision_module_name(name: str) -> bool:
+    """按模块路径判断是否属于视觉侧。"""
+
+    lname = name.lower()
+    return any(marker in lname for marker in _VISION_NAME_MARKERS)
+
+
+def _lora_target_modules(model: Any, *, include_vision: bool) -> List[str]:
+    """枚举 LoRA 注入目标，默认只覆盖语言侧 Linear。
+
+    PEFT 对 ``target_modules`` 的短名字使用后缀匹配；多模态模型里视觉侧也可能有
+    ``gate_proj`` / ``up_proj`` 这类同名层。这里传入完整模块名，避免默认配置意外训练
+    vision tower；打开 ``--lora-vision`` 时，再显式加入视觉侧常见 attention/MLP 线性层。
+    """
+
+    targets: List[str] = []
+    for name, module in model.named_modules():
+        if not isinstance(module, nn.Linear):
+            continue
+        leaf = name.rsplit(".", 1)[-1]
+        is_vision = _is_vision_module_name(name)
+        if is_vision:
+            if include_vision and leaf in _VISION_LORA_SUFFIXES:
+                targets.append(name)
+            continue
+        if leaf in _LANGUAGE_LORA_SUFFIXES:
+            targets.append(name)
+    if not targets:
+        raise RuntimeError(
+            "No LoRA target modules found. Check Qwen3-VL module names or update "
+            "_LANGUAGE_LORA_SUFFIXES/_VISION_LORA_SUFFIXES."
+        )
+    return targets
 
 
 def strip_image_placeholders(text: str) -> str:
@@ -147,6 +200,7 @@ def load_model_with_lora(
     lora_rank: int,
     lora_alpha: int,
     lora_dropout: float,
+    lora_vision: bool,
     gradient_checkpointing: bool,
 ) -> ModelBundle:
     """加载本地 Qwen3-VL-Instruct，并注入 PEFT LoRA。
@@ -198,13 +252,24 @@ def load_model_with_lora(
 
     from peft import LoraConfig, get_peft_model
 
+    target_modules = _lora_target_modules(model, include_vision=lora_vision)
+    language_targets = [name for name in target_modules if not _is_vision_module_name(name)]
+    vision_targets = [name for name in target_modules if _is_vision_module_name(name)]
+    print(
+        "[lora] target modules: "
+        f"language={len(language_targets)} vision={len(vision_targets)} "
+        f"include_vision={int(lora_vision)}"
+    )
+    if vision_targets:
+        print(f"[lora] first vision targets: {vision_targets[:8]}")
+
     lora_cfg = LoraConfig(
         r=lora_rank,
         lora_alpha=lora_alpha,
         lora_dropout=lora_dropout,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        target_modules=target_modules,
     )
     model = get_peft_model(model, lora_cfg)
     model.print_trainable_parameters()
@@ -583,6 +648,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lora-rank", type=int, default=16)
     p.add_argument("--lora-alpha", type=int, default=32)
     p.add_argument("--lora-dropout", type=float, default=0.1)
+    p.add_argument(
+        "--lora-vision",
+        action="store_true",
+        help="also inject LoRA into vision-side Linear layers; default is language-only",
+    )
     p.add_argument("--label-weight", type=float, default=1.0)
     p.add_argument("--logging-steps", type=int, default=5)
     p.add_argument("--save-steps", type=int, default=10000)
@@ -619,6 +689,7 @@ def main() -> None:
         lora_rank=args.lora_rank,
         lora_alpha=args.lora_alpha,
         lora_dropout=args.lora_dropout,
+        lora_vision=args.lora_vision,
         gradient_checkpointing=not args.no_grad_checkpoint,
     )
     if world_size > 1:

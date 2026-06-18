@@ -337,9 +337,10 @@ eval 端固定坑：
   `--samples-per-scenario 0` 表示每个场景保留全部合法候选，正数才启用下采样；
   默认 `--wrong-scene-ratio 0.15` 只增强 train rows，把一部分 stage-2 selected scene
   替换成错误场景但仍监督真实 `STATUS/SUBGOAL`，val rows 保持 GT 分支。
-- `train.py` 直接 LoRA 注入本地 Qwen3-VL-4B-Instruct；prompt token 权重为 0，
-  只监督 scene/status/subgoal 值 token；`SCENE:` / `STATUS:` / 换行等格式 token
-  为 0 loss。每条样本是一条多轮 teacher-forced chat：图像只在第一轮 user，
+- `train.py` 直接 LoRA 注入本地 Qwen3-VL-4B-Instruct；默认只注入语言侧 Linear，
+  显式 `--lora-vision` / launcher `LORA_VISION=1` 时才把视觉 encoder 的 Linear 层
+  也纳入 LoRA 微调。prompt token 权重为 0，只监督 scene/status/subgoal 值 token；
+  `SCENE:` / `STATUS:` / 换行等格式 token 为 0 loss。每条样本是一条多轮 teacher-forced chat：图像只在第一轮 user，
   第二轮 status prompt 作为文本 follow-up 接在 scene assistant 后，单次 forward
   里同时计算三个值 token 的 loss。
 - `eval.py` 先自由生成 `SCENE`；若 scene 不在白名单，样本立即中断并计 invalid；

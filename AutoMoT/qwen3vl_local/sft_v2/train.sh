@@ -28,6 +28,7 @@ MAX_LENGTH="${MAX_LENGTH:-8192}"
 LORA_RANK="${LORA_RANK:-16}"
 LORA_ALPHA="${LORA_ALPHA:-32}"
 LORA_DROPOUT="${LORA_DROPOUT:-0.1}"
+LORA_VISION="${LORA_VISION:-0}"
 LABEL_WEIGHT="${LABEL_WEIGHT:-1.0}"
 LOGGING_STEPS="${LOGGING_STEPS:-5}"
 SAVE_STEPS="${SAVE_STEPS:-10000}"
@@ -154,6 +155,10 @@ PY_ARGS=(
     --max-eval-samples "${MAX_EVAL_SAMPLES}"
     "${EXTRA_ARGS[@]}"
 )
+
+if [[ "${LORA_VISION}" == "1" ]]; then
+    PY_ARGS+=("--lora-vision")
+fi
 
 if [[ "${NPROC}" -gt 1 ]]; then
     torchrun --nproc_per_node="${NPROC}" \

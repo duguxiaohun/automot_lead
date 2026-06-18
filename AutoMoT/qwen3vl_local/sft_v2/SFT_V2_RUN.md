@@ -86,6 +86,12 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v2/train.sh ddp
 GPU_IDS=0 bash qwen3vl_local/sft_v2/train.sh check
 ```
 
+开启视觉侧 LoRA 微调：
+
+```bash
+LORA_VISION=1 GPU_IDS=0 bash qwen3vl_local/sft_v2/train.sh single
+```
+
 常用环境变量：
 
 | 环境变量 | 默认值 | 说明 |
@@ -99,6 +105,7 @@ GPU_IDS=0 bash qwen3vl_local/sft_v2/train.sh check
 | `NO_RUN_SUBDIR` | `0` | 设为 `1` 时回退到旧的顶层覆盖行为 |
 | `GPU_IDS` | 空 | 显式指定 GPU |
 | `DDP_GPU_COUNT` | `8` | 自动 DDP 选卡时需要的 GPU 数 |
+| `LORA_VISION` | `0` | 设为 `1` 时把视觉 encoder 的 Linear 层也纳入 LoRA；默认只训语言侧 |
 | `LABEL_WEIGHT` | `1.0` | 值 token loss 权重 |
 
 训练对每个样本跑一次多轮 forward：
