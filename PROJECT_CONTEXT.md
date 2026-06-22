@@ -25,6 +25,7 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 | `qwen3vl_local/`（`AutoMoT/` 主目录内） | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT；`tb_serve.sh` 是通用 TensorBoard 启动器 |
 | `qwen3vl_local/sft/` | SFT 数据、训练、eval、probe（统一一套，已废弃 v1/v2 双轨与 ms-swift） |
 | `qwen3vl_local/sft_v2/` | 新版 SFT v2 串行选择题路线：SCENE → STATUS/SUBGOAL，无 ANALYSIS teacher |
+| `qwen3vl_local/sft_v3/` | SFT v3 sequence-memory OPD 路线：学生自维护 memory + teacher hindsight 分析蒸馏；δ 允许 0 且只封顶 10，`EGO_TO_GOAL_XY` 严格来自 meta `next_target_points[-1]`，帧末预取下一帧 goal，step3 触发统一走 `should_trigger_step3`；运行看 `SFT_V3_RUN.md` |
 | `AutoMoT/vae_standalone/train_patch_unpatch.py` | patch/unpatch 端到端重建训练 |
 | `0026.json` | LEAD meta 固定参考样本，只读，绝对不要入库 |
 | `keyframes_all_scenarios.json` | 远端数据参考，只读 |
@@ -418,6 +419,8 @@ eval、probe、teacher / 推理入口。
 - GoalGen eval/probe 的 `--gpu N` 只在单进程下锁进程内 GPU；默认保持 0。
 - `eval_carla/run_eval.sh` 用 `--num-gpus N` / `EVAL_GPU_COUNT=N` 表示闭环评测 worker 数；
   具体 GPU id 仍按 `nvidia-smi` 空闲排序自动选，并给每张卡分配独立 CARLA 端口槽。
+- 白名单 bash launcher 开头统一执行 `ulimit -S -c 0 2>/dev/null || true`，禁用 core dump，
+  避免工具进程异常时生成 `core.*`；新增运行入口也要加，若工作区已有 `core.*`，不要入库，先问用户是否清理。
 
 ## 11. Run 目录防覆盖规则
 
@@ -453,6 +456,7 @@ eval、probe、teacher / 推理入口。
 |---|---|
 | SFT 跑法 | `qwen3vl_local/sft/SFT_RUN.md` |
 | SFT v2 串行选择题跑法 | `qwen3vl_local/sft_v2/SFT_V2_RUN.md` |
+| SFT v3 sequence-memory OPD 跑法 | `qwen3vl_local/sft_v3/SFT_V3_RUN.md` |
 | GoalGen 跑法 | `qwen3vl_local/goalgen/GOALGEN_RUN.md` 索引；版本细节看 `GOALGEN_V1.md` / `GOALGEN_V2.md` |
 | LeadMoT 跑法 | `qwen3vl_local/leadmot/LEADMOT_RUN.md` |
 | LeadMoT 架构 | `qwen3vl_local/leadmot/ARCHITECTURE.md` |

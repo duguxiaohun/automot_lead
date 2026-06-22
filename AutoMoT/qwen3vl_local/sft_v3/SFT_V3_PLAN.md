@@ -1,0 +1,660 @@
+# SFT v3 方案说明
+
+> 本文件是 SFT v3 的设计冻结版。当前代码已落地到同目录
+> `prompts.py` / `build_dataset.py` / `train.py` / `train.sh` / `eval.py` /
+> `probe.py` / `SFT_V3_RUN.md` 以及配套 test 脚本。
+>
+> v3 **不替代** v2，v2 仍保留作为单帧串行选择题基线。
+
+---
+
+## 1. v3 与 v2 的本质区别
+
+| 维度 | v2 | v3 |
+|---|---|---|
+| 训练单元 | 单帧 anchor 的串行选择题 | **一个 sub-scenario 的时间序列**（外循环按时间步推进） |
+| Memory | 无；只有 `PREVIOUS_STATUS_HINT` 字段 | **学生自维护的纯文本 Memory**，每帧外循环之间链接 |
+| Teacher | 无 | **Frozen Qwen3-VL-4B-Instruct teacher**（与 student 共享 base，通过 `disable_adapter` 切换），喂特权 GT，产出"以学生口吻"的纠错分析 |
+| 分析监督 | 无（已废弃 ANALYSIS 路线） | **Hindsight Oracle / OPD 范式**：teacher 即时生成的分析就是 GT answer，student token-CE 对齐 |
+| 离散监督 | scene / status / subgoal 值 token CE | 同 v2，**权重显著大于分析 loss** |
+| Wrong-scene 增强 | jsonl 里 `--wrong-scene-ratio` 注入错场景 | 错场景**来自学生自身 memory 漂移**，天然产生；phase B 反向用 GT scene 注入 |
+| 数据持久化 | jsonl 训练样本 | **不写训练样本**，只写 `episode_index.jsonl` |
+
+整体精神：用 teacher 的自然语言纠错把"错记忆 → 正记忆"这个动作蒸馏进 student，
+让 student 既学单帧分类，又学"看到证据就推翻 memory"的连续推理。
+
+---
+
+## 1.1 代码地图与中文注释约定
+
+当前子包代码已按“下个维护者先读注释再读实现”的口径补齐中文说明：
+
+| 文件 | 主要职责 | 先读位置 |
+|---|---|---|
+| `prompts.py` | Memory 文本格式、状态机更新、三步 prompt、输出解析、GT 泄露检测 | module docstring、`Memory`、`update_memory_after_step2/3` |
+| `build_dataset.py` | 从 `keyframes_all_scenarios.json` 构建 episode index，只写元数据不写 per-frame 样本 | 文件头、`build_episode`、`load_keyframe_runs` |
+| `train.py` | LoRA 训练主入口；每帧 step1/2/3 OPD 内循环；KV 追加；teacher-forced loss | 文件头、`KVState`、`_append_token_ids`、`iter_episode_loss_packs` |
+| `eval.py` | 自由生成评估；不做 Phase B GT 注入；可选 teacher BLEU | 文件头、`_generate_next_with_kv`、`main` |
+| `probe.py` | case-level dump；可选 teacher privileged prompt/text | 文件头、`main` |
+| `check_loss_mask.py` / `test_*.py` | 静态 mask、memory 状态机、KV 复用、GT 泄露过滤测试 | 各自 `main` docstring |
+| `train.sh` | 训练 launcher、GPU 自动选址、run 子目录、防 core dump | 脚本顶部和 mode 分支注释 |
+
+注释原则：
+
+- 函数 docstring 写“为什么这样做”和“与 v3 思路的关系”，避免只复述函数名。
+- 关键代码块注释写状态机边界，例如 Phase B 强制覆盖、scene 错误时跳过 step3、
+  teacher 自由生成与 student teacher-forced loss 的区别。
+- 不在注释里复制大段 prompt 或源码；prompt 真实文本仍以 `prompts.py` 为准。
+
+---
+
+## 2. 时间轴与训练窗口
+
+### 2.1 Anchor 定义（每个 sub-scenario 固定 5 个时间点）
+
+```
+anchor[0] = sub-scenario 起始（init 时刻）
+anchor[1] = subgoal 1 时刻
+anchor[2] = subgoal 2 时刻
+anchor[3] = subgoal 3 时刻
+anchor[4] = sub-scenario 结束
+```
+
+每个 sub-scenario **固定 3 个 subgoal**，因此 anchor 列表长度恒为 5。
+若数据里出现 ≠ 3 subgoal 的 sub-scenario，`build_dataset.py` 直接过滤掉并打 warning。
+
+### 2.2 δ 公式（per episode）
+
+```python
+raw_delta = min(anchor[1] - anchor[0], anchor[2] - anchor[1]) // 2
+delta = min(raw_delta, 10)   # 允许 δ=0，只封顶 10
+```
+
+每条 episode 算一次，写进 episode index；保证 `[anchor[1] - δ, anchor[1] + δ]`
+不会越过 anchor[0] 或越过 anchor[2] 的中点。
+
+**允许 δ=0（C1 修正）**：δ = 0 会让 Phase A 退化为单帧 `[f1, f1]`，但这是
+公式本身表达的数据事实，不能静默改成 1 后越过 anchor[1]。代码只在
+`raw_delta == 0` 时打 warning，提示用户该 episode 的 Phase A 已退化为单帧；长期可考虑
+直接过滤掉，目前只做诊断。
+
+### 2.3 训练窗口与 Phase 划分
+
+```
+帧索引:          ... anchor0 -- anchor1 -- anchor2 -- anchor3 -- anchor4 ...
+意义:                init        sub1       sub2       sub3        end
+窗口:           [    不训练    ][← Phase A →][————— Phase B ——————][ 不训练 ]
+                              f1-δ        f1+δ                   f3
+```
+
+- **Phase A**：`t ∈ [anchor[1] - δ, anchor[1] + δ]`
+  - memory 由学生**自更新**（含场景翻转）。
+  - 三步全训：分析 + scene + status + subgoal。
+- **Phase B**：`t ∈ (anchor[1] + δ, anchor[3]]`
+  - **每帧外循环开始时**对 `memory.scene` 做**弱纠偏**（D2 拍板）：
+    - 若 `memory.scene == gt_scene` → 全 no-op，**status / subgoal 跨帧保留**；
+    - 若 `memory.scene != gt_scene` → 走与 step2 翻转完全相同的"scene change →
+      status = canonical init event、subgoal = EVENT_SEQUENCE[gt_scene][1]"重置路径。
+  - 这样 Phase B 的语义是"假设场景认知已经被矫正，让你专心练 status/subgoal
+    顺着真实事件链一步步推"，sub2/sub3 附近的 e2/e3 才能拿到密集监督；如果每帧
+    都把 status 拉回 init，e2/e3 的监督密度被人为压扁，丢失链式推理（D2 推翻
+    了"无条件 reset 三件套"的旧口径）。
+  - 然后正常跑三步内循环：仍训 scene / status / subgoal，student 输出的 SCENE
+    名字 == GT scene 时即天然"keep"；模型输出永远是场景名，不是 "keep" 字样。
+  - 这是反向的 wrong-scene 增强：教模型"已经对的就别瞎改"，与 Phase A 的
+    "错了要敢于改"对称。
+
+> Phase B 也是按帧推进、step 3 也照样训，所以 sub2 / sub3 附近的 status /
+> subgoal 监督密度很高；anchor[3] 之后到 anchor[4] 不训。
+
+### 2.4 外循环步长
+
+**默认每帧前进一次**（`--outer-stride 1`）。每条 episode 长度 ≈ `(anchor[3] - anchor[1] + δ + 1)` 帧。
+
+代码内保留 `--outer-stride K` 参数（K > 1 时均匀降采样），但默认 1，符合
+"step by step 都要学到"的要求。
+
+### 2.5 Episode 构造
+
+- 一条 episode = 一个 run/sub-scenario；当前数据约定为**一个 run 就是一条
+  3-middle episode**。`build_dataset.py` 对可用 run 执行严格契约检查：必须是
+  `initial + middle[3] + final`，anchors 严格递增，事件序列与
+  `prompt_pipeline.get_full_sequence` 完全一致；否则直接报错退出，不静默过滤。
+- `build_dataset.py` 只产 **episode index**（不产 per-frame 训练样本）。输入兼容
+  `keyframes_all_scenarios.json` 当前的顶层对象 schema（从 `runs` 列表取 run），也兼容
+  早期顶层直接是 run list 的临时 dump。每条 row：
+  ```json
+  {
+    "run_id": "...",
+    "scenario": "...",
+    "anchors": [f0, f1, f2, f3, f4],
+    "delta": 7,
+    "frame_range": [f1 - delta, f3],
+    "gt_scene": "...",
+    "gt_event_sequence": ["initial", "...", "...", "...", "final"],
+    "ego_to_goal_xy_per_frame": "<lazy: 训练时即时算>",
+    "split": "train" | "val"
+  }
+  ```
+- 训练入口的 DataLoader 每次吐一条 episode；DataLoader workers 只做轻量元数据
+  和路径解析，**不做图像预读**（图像在 train loop 内按外循环帧号现读）。
+
+---
+
+## 3. Memory 结构
+
+### 3.1 文本格式（每帧重写，塞进 prompt）
+
+```
+[MEMORY]
+BELIEVED_SCENE: <scene_name>
+  Description: <SCENARIO_LABELS[scene]>
+  EventSequence: e0 -> e1 -> e2 -> e3 -> e4
+BELIEVED_STATUS: <event_name>
+  Description: <EVENT_DESCRIPTIONS[event]>
+BELIEVED_SUBGOAL: <event_name>
+  Description: <EVENT_DESCRIPTIONS[event]>
+EGO_TO_GOAL_XY: x=+12.3 m, y=-4.5 m
+[/MEMORY]
+```
+
+- 描述字段直接复用 [prompt_pipeline.py](../prompt_pipeline.py) 的 `SCENARIO_LABELS` /
+  `EVENT_DESCRIPTIONS`，保持与 v2 prompt 风格一致。
+- `EventSequence` 一并列出，让模型在 step3 之前就看到该 scene 的完整事件链，
+  step3 prompt 不必再重复。
+- `EGO_TO_GOAL_XY` 精度 `+.1f` 米。**必须保留**：十字路口左/右转场景靠这条信息
+  消歧（"目的地在车体左前 → 大概率左转场景"）。
+- Memory **不**携带上一帧的学生分析文本，避免 prompt 滚动膨胀。
+
+### 3.2 初始化（在 t = anchor[1] - δ）
+
+- `believed_scene` ← 从 `SCENARIO_LABELS \ {gt_scene}` 均匀随机；
+  `seed = hash((run_id, sub_scenario_id))` 保证可复现。
+- **强制排除 GT（D3 拍板）**：Phase A 的稀缺信号是"看到证据 → 推翻错误 memory"，
+  这是 v3 的核心动机。混入"初始就对"的 episode 与 Phase B 的反向监督完全重叠，
+  纯浪费 Phase A 的样本预算；所以初始化时直接排除 GT，让 Phase A 100% 都是"修改"
+  监督、Phase B 100% 都是"保持"监督，分工互补。eval/部署时初始恰好等于 GT 的
+  情形由 Phase B 训练样本覆盖（Phase B 每帧 step2 都看到 memory.scene = GT），
+  prompt 从模型视角看 phase-agnostic，所以不存在 OOD。
+- `believed_status` ← canonical init event token（当前 `prompt_pipeline.get_full_sequence`
+  里是 `"initial"`；下文口语里的 init 都指这个状态机首 token）。
+- `believed_subgoal` ← `EVENT_SEQUENCE[believed_scene][1]`（init 的下一项）。
+- `ego_to_goal_xy` ← 当前帧 ego 系下的 final destination 坐标。
+  与 leadmot final_goal 同源：`meta["next_target_points"][-1]` 转 ego（见
+  `PROJECT_CONTEXT.md`）。**meta 缺失或解析失败时 `train.py` 直接抛 RuntimeError**，
+  禁止静默 fallback 到 measurements / (0, 0)——污染过的 ego_to_goal 会让"目的地
+  在车体左前 → 大概率左转场景"这条核心消歧信号失效。
+
+### 3.3 更新规则（每帧外循环末尾）
+
+按 Phase 分支：
+
+**Phase A**：
+1. **step 2 结束后立即更新 scene**：
+   - 学生 step2 输出 SCENE ≠ memory.scene → memory.scene 改写为新 scene，
+    同时强制 `memory.status ← canonical init event`、
+     `memory.subgoal ← EVENT_SEQUENCE[new_scene][1]`。
+   - 否则 keep。
+2. **step 3 触发条件**（关键，且与 step2 是否改动**无关**）：
+   ```
+   if memory.scene_after_step2 == gt_scene:
+       run step 3
+   else:
+       skip step 3
+   ```
+   所以四种组合：
+   | 初始 memory.scene | step2 输出 | scene 翻转? | scene 是否正确 | step 3 |
+   |---|---|---|---|---|
+   | 正确 | 同 GT | 否 | ✓ | **跑** |
+   | 正确 | 改成别的 | 是 | ✗ | 跳过 |
+   | 错误 | 同 memory（仍错） | 否 | ✗ | 跳过 |
+   | 错误 | 改成 GT | 是 | ✓ | **跑** |
+3. **step 3 跑了的话**：
+   - `memory.status ← student_step3_pred_status`
+   - `memory.subgoal ← student_step3_pred_subgoal`
+4. 帧末为下一帧预取 `ego_to_goal_xy`，写入 memory。
+   （C3 修正：当前帧 prompt 使用进入本帧前已经写入 memory 的坐标；本帧结束后
+   再读取下一帧 meta，字面上与“进入下一帧前重算”一致。）
+
+`should_trigger_step3(memory_scene_after_step2, gt_scene)` 这条规则被抽成
+`prompts.py` 的 helper（C4 拍板），训练入口和 `test_memory_update.py` 共用同一
+个真值函数，避免状态机有第二处隐式实现。
+
+**Phase B**（D2 拍板：弱纠偏 + 跨帧推进）：
+1. **帧外循环开始前**调用 `force_memory_to_gt_scene(memory, gt_scene=gt_scene)`：
+   ```
+   if memory.scene == gt_scene:
+       # 完全 no-op：上一帧 step3 推进过的 status/subgoal 跨帧保留
+   else:
+       memory.scene = gt_scene
+       memory.status = canonical init event
+       memory.subgoal = EVENT_SEQUENCE[gt_scene][1]
+   ```
+   这条规则与 step2 翻转的 reset 路径完全同款，避免状态机重复实现。
+2. 正常跑 step1/step2/step3（step3 触发条件依然走"step2 之后 memory.scene
+   == gt_scene"，由于 step2 开始时 memory 已是 GT，多数情况 step3 会触发）。
+3. 帧末更新 status / subgoal 同 Phase A 第 3 步——所以 sub2 / sub3 附近的
+   status / subgoal 会**跨帧累积推进**到 e2 / e3，监督密度起得来。
+4. Phase B 内 memory.scene 跨帧也保持等于 GT（step2 之后只可能 keep 或 flip，
+   flip 会被下一帧的弱纠偏拉回；但只要 student 不在 Phase B 内还在 flip，
+   弱纠偏永远 no-op）。
+
+> Phase A 与 Phase B 的 prompt **完全一致**，唯一差别只在"帧开头是否被强制
+> 改 memory"。这意味着 student 看不出自己在哪个 phase，自然学到 phase-agnostic
+> 的修正/保持能力。
+
+---
+
+## 4. 内循环（每帧 3 步，Hindsight Oracle / OPD 范式）
+
+### 4.1 共享 KV cache 结构
+
+每帧外循环开始时，prefill 一段公共前缀：
+
+```
+<system_v3>           ← "你是自动驾驶 agent" + 三步协议/输出格式，每帧只出现一次
+<4 stitched RGB>      ← 历史四帧，从旧到新
+                        （图像 token 占绝大多数 prefix 长度）
+```
+
+> 注意：memory 文本**不放在公共前缀**，而是作为 step 2 的 user turn 注入。
+> 这是用户确认后的固定口径：step 1 只根据图像分析周围环境和近期运动，不使用
+> memory；step 2/3 才从 memory 读取学生当前认知，并判断是否保持或更正。
+> 这样 step 1 的"无 memory 分析"才能成立，且 step 1 的 KV 可被 step 2 / 3 复用。
+> step 2 / step 3 的 user turn 只追加本步新增信息（memory、候选表、teacher-only GT
+> 和极短 step 指令），不再重复 agent 身份、图像说明、全局输出规则；这些已经在
+> system prompt 和前序 KV cache 里。
+
+三步在前缀基础上依次 append user turn → assistant turn，KV cache 链式延伸：
+
+```
+prefix → [step1 user] → [step1 assistant analysis]
+       → [step2 user (with memory)] → [step2 assistant analysis + SCENE]
+       → [step3 user (with selected scene)] → [step3 assistant analysis + STATUS + SUBGOAL]
+```
+
+每个 step 的 user turn 都从上一步的 KV cache 继续，不重 prefill。
+
+> **"prefill 一次" 的精确含义（D1 拍板）**：指的是**在同一个模型（teacher 或
+> student）内部**、`step1/step2/step3` 三步共享 prefix KV cache 链式 append；
+> **不** 指 teacher 和 student 共用同一份 prefix。因为 student 开启 LoRA、
+> teacher 关闭 LoRA 时 K/V 数值不同，物理上无法跨 adapter 共享；强行共用会让
+> teacher 被 LoRA 污染，OPD 退化为自蒸馏，分析监督失去意义。所以代码实现是
+> teacher 1 次 prefill + student 1 次 prefill，两条链各自在内部链式复用，
+> 每帧总共 2 次大图像 prefill，比"每个 step 都重新 prefill"省约 3 倍图像编码
+> 算力——这已经覆盖了"prefill 一次"的真实优化目标。
+
+### 4.2 Teacher 模型
+
+- **Teacher = student 共享同一份 base 权重**，通过 PEFT 的
+  `with student.disable_adapter():` 关掉 LoRA，再 `model.eval()` +
+  `torch.no_grad()` 跑 generate。generate 结束后恢复 `model.train()`。
+- 不实例化第二份模型，零额外显存。
+- 每帧 teacher 一共 generate 三次（step1 / step2 / step3，step3 仅在触发时）。
+- 切换 adapter on/off 会让 cuDNN benchmark 有少量抖动，可以忍受；并且这种切换
+  与 v2 `train.py` 现有"禁用 adapter 跑 teacher、再启用 adapter 跑 student
+  forward"的代码路径同构，可直接复用。
+
+### 4.3 Step 1：纯感知分析（OPD，无特权信息）
+
+**Teacher prompt**（在共享前缀上 append）：
+```
+<step1_user>:
+  [STEP1]
+  4 images are ordered oldest to newest; the last image is now.
+  Describe visible surroundings and recent motion. Do not use memory.
+```
+
+- Teacher generate → `analysis_1_teacher`，`max_new_tokens=80`、`do_sample=False`、
+  `repetition_penalty=1.05`。
+- **Student** teacher-forced：把 `analysis_1_teacher` 作为 assistant target，
+  对其每个 token 算 CE → **L_A1**。
+- 这一步 teacher 也没有特权信息（不喂 GT），是普通自蒸馏；目的是把 student 的
+  视觉描述风格 / 词汇基线对齐 teacher，避免后两步分析跑偏。
+
+### 4.4 Step 2：场景判断（OPD，teacher 吃 GT scene）
+
+**Teacher prompt**（接续 step 1 KV cache）：
+```
+<step2_user>:
+  [MEMORY] ...                 ← 当前学生 memory（带描述）
+  [SCENE_CHOICES] ...          ← 全集（同 v2 sft_v2/prompts.py 的 scenario_choices_block）
+  [GROUND_TRUTH] SCENE: <gt_scene>      ← ⚠ 只 teacher 看到，student prompt 没这块
+  [STEP2_TEACHER]
+  Use privileged GT for the label, but explain only cached visual evidence in
+  the student's voice.
+  SCENE: <gt_scene>
+```
+
+- Teacher generate → `analysis_2_teacher + "\nSCENE: <gt_scene>"`，
+  `max_new_tokens=60`。
+- **GT 泄露双保险**：
+  1. Prompt 已经硬约束 teacher 不准复述 gt_scene 字面；
+  2. 后处理正则：对 `analysis_2_teacher` 做 `re.search` 匹配 `gt_scene` 的
+     大小写 / 下划线 / 空格变体；命中则 **`L_A2` 这一帧跳过**（计 0），
+     **`L_S2` 仍计**。TB 记 `train/gt_leak_skip_rate/step2`。
+
+**Student prompt**：与 teacher 完全相同，**只是去掉 `[GROUND_TRUTH]` 那一块**。
+- Teacher-forced target = `analysis_2_teacher + "\nSCENE: <gt_scene>"`。
+- **L_A2**：分析文本段 token CE。
+- **L_S2**：`SCENE:` 后那一个值 token 的 CE，与 v2 口径一致
+  （从 [sft_v2/prompts.py:317-329](../sft_v2/prompts.py#L317-L329) `target_spans` 思路迁移）。
+
+### 4.5 Step 3：状态 / 子目标判断（OPD，teacher 吃 GT status/subgoal）
+
+**触发条件（重申）**：`memory.scene_after_step2 == gt_scene`。否则整步跳过，
+本帧也不更新 status / subgoal。
+
+**Teacher prompt**（接续 step 2 KV cache）：
+```
+<step3_user>:
+  [MEMORY] ...                                  ← step2 后更新过的学生 memory
+  [EVENT_OPTIONS] ...                           ← 该 scene 的事件序列及描述
+  [GROUND_TRUTH] STATUS: <gt_status>            ← ⚠ 只 teacher 看到
+  [GROUND_TRUTH] SUBGOAL: <gt_subgoal>
+  [STEP3_TEACHER]
+  Use privileged GT for the labels, but explain only cached visual evidence in
+  the student's voice.
+  STATUS: <gt_status>
+  SUBGOAL: <gt_subgoal>
+```
+
+- Teacher generate → `analysis_3_teacher + "\nSTATUS: <gt_status>\nSUBGOAL: <gt_subgoal>"`，
+  `max_new_tokens=60`。
+- GT 泄露双保险同 step 2：泄露则跳 **L_A3**，仍保 **L_S3_status / L_S3_subgoal**。
+  TB 记 `train/gt_leak_skip_rate/step3`。
+
+**Student prompt**：相同，**去掉 `[GROUND_TRUTH]` 两行**。
+- Teacher-forced target = teacher 全文（含 STATUS / SUBGOAL 值 token）。
+- **L_A3** + **L_S3_status** + **L_S3_subgoal**。
+
+---
+
+## 5. 损失与权重
+
+### 5.1 单帧 loss
+
+| 名称 | 含义 | 默认权重 | 备注 |
+|---|---|---|---|
+| L_A1 | step1 分析 token CE / 监督 token 数 | 0.2 | 已 per-token normalize |
+| L_A2 | step2 分析 token CE / 监督 token 数 | 0.2 | 同上 |
+| L_A3 | step3 分析 token CE / 监督 token 数 | 0.2 | 同上 |
+| L_S2 | step2 SCENE 值 token CE | **1.0** | 主信号 |
+| L_S3_status | step3 STATUS 值 token CE | **1.0** | 主信号 |
+| L_S3_subgoal | step3 SUBGOAL 值 token CE | **1.0** | 主信号 |
+
+```
+L_frame = w_A1 * L_A1
+        + w_A2 * L_A2 + w_S2 * L_S2
+        + 1{step3_triggered} * (w_A3 * L_A3 + w_S3_status * L_S3_status + w_S3_subgoal * L_S3_subgoal)
+```
+
+- **Per-token normalize**：每个分析 loss = `sum_CE / num_supervised_tokens`，
+  防止 step1 一长串分析淹没 1-token 的 SCENE。
+- 若 step2 / step3 因 GT 泄露被跳过，对应 `L_A*` 取 0、其余照常。
+- 若 step3 未触发，整段 step3 系数为 0。
+
+### 5.2 梯度累积粒度
+
+- 每帧外循环结束做 **一次** backward + optimizer step（grad accumulate = 1
+  episode-frame）。
+- Episode 内默认**每帧 backward + optimizer step**（`grad_accum=1`），避免显存随
+  episode 长度爆炸，并与 OPD memory 在线更新口径一致。
+- DDP 下强制 `grad_accum=1`，每张卡默认 batch=1；梯度同步由 DDP 完成。
+
+### 5.3 TensorBoard 记录
+
+最低必须有的标量：
+
+```
+train/loss_total
+train/loss/{a1, a2, a3, s2, s3_status, s3_subgoal}
+train/loss_weight/{a1, a2, a3, s2, s3_status, s3_subgoal}    ← 静态权重，可视化用
+train/step3_trigger_rate                                       ← 每帧粒度
+train/scene_flip_rate                                          ← step2 改 scene 的比例
+train/gt_leak_skip_rate/{step2, step3}
+train/phase_a_frame_frac                                       ← 每 step batch 内 Phase A 帧占比
+train/lr
+train/grad_norm/{language, vision}                             ← 与 v2 同
+train/param_norm/lora_{language, vision}                       ← 与 v2 同
+train/vision_guard_bad_steps                                   ← 与 v2 同
+val/scene_acc_per_step
+val/scene_recovery_steps
+val/status_acc_given_correct_scene
+val/subgoal_acc_given_correct_scene
+val/all_acc_per_step
+val/analysis_bleu_vs_teacher (eval.py --with-teacher-ref 时输出)
+```
+
+---
+
+## 6. 模型 / Teacher / LoRA 设置
+
+- **Base**：`AutoMoT/checkpoints/Qwen3-VL-4B-Instruct`，`local_files_only=True`，
+  与 v2 同源。
+- **Student**：base + PEFT LoRA，与 v2 完全相同的视觉 LoRA 接口：
+  - `--lora-vision-scope` ∈ `{off, merger, last4, all}`，默认 `off`；
+  - 视觉 LR 缩放 `--vision-lr-scale=0.1`、上限 `--max-vision-lr-scale=0.25`；
+  - 语言 / 视觉分组梯度裁剪 `--language-clip-norm=1.0` / `--vision-clip-norm=0.3`；
+  - `STRICT_VISION_SCOPE=1` 命名漂移硬拒绝；
+  - `VISION_GUARD_ENABLED=1` 运行时视觉熔断；
+  - 熔断时写 `fuse_stop_step_<N>/`、`fuse_reason.txt`，跳过 `final/`。
+- **Teacher**：复用 student base，**不创建第二份模型**。每次 teacher generate
+  时：
+  ```python
+  with model.disable_adapter():
+      with torch.no_grad():
+          model.eval()
+          out = model.generate(...)
+          model.train()
+  ```
+  恢复时间常数 < 1ms 量级。
+- Adapter 保存与 v2 同：base 只读，只存 adapter delta + `sft_v3_adapter_config.json`
+  （记录 LoRA scope、视觉保险参数、训练窗口参数 δ / phase 配置）。
+
+### 6.1 Teacher generate 超参
+
+| Step | max_new_tokens | do_sample | repetition_penalty | 备注 |
+|---|---|---|---|---|
+| 1 | 80 | False | 1.05 | prompt 约束 ≤60 tokens，generate 留 20 token 余量 |
+| 2 | 60 | False | 1.05 | prompt 约束 ≤40 tokens + "SCENE: …"，generate 留余量 |
+| 3 | 60 | False | 1.05 | prompt 约束 ≤40 tokens + "STATUS:"/"SUBGOAL:"，generate 留余量 |
+
+prompt 内的 token 上限故意比 `max_new_tokens` 更保守，预留格式行、分词误差和
+少量冗余；如发现 99 分位 token 数贴近生成上限，调高 max_new_tokens 10~20，
+并同步评估是否需要放宽 prompt 内的保守上限，不要静默放宽。
+
+实现层面，`train.py` 的 `_kv_generate_text` 已经把 `repetition_penalty=1.05`
+落实成 HF 风格的 logits 后处理：每步生成前对 `state.decoded_input_ids ∪ 已生成
+token` 的并集施加 penalty（正分除以 1.05、负分乘以 1.05），等价 transformers
+`RepetitionPenaltyLogitsProcessor` 在 greedy decode 下的行为。max 80 token 的开销
+可忽略，主要避免 step1 出现"I see I see ..."之类复读污染 L_A1 目标分布（B1 拍板）。
+
+---
+
+## 7. 数据 / IO 层
+
+- **不写 jsonl 训练样本**。`build_dataset.py` 只产 `episode_index.jsonl`，
+  字段见 §2.5。
+- 训练时图像懒加载：DataLoader workers 只解析路径，train loop 内按外循环帧号
+  现读 4 张 stitched RGB（与 v2 / leadmot 同一套 image_io）。
+- `ego_to_goal_xy_per_frame` 在 train/eval/probe loop 内按帧末预取方式即时算；
+  来源必须是 meta 内 `next_target_points[-1]`。
+- val episode 数量在 `build_dataset.py` 阶段固定切分，不在每 step 重采样。
+
+---
+
+## 8. Eval 框架
+
+### 8.1 E1 离线 eval（对应 v2 `eval.py`）
+
+- **不挂 teacher**，只跑 student；**不做 Phase B 强制覆盖**；memory 全程由
+  student 自更新。
+- 默认评测区间 = 训练区间 `[anchor[1] - δ, anchor[3]]`；
+  `--full-range` 时扩到 `[anchor[0], anchor[4]]`（做 OOD 诊断，结果只看不进
+  主指标）。
+- 主指标：
+  - `scene_acc_per_step`：每帧 step2 输出 SCENE == GT scene 的比例。
+  - `scene_recovery_steps`：从随机错初始化到首次预测对 SCENE 的帧数（蒸馏要解决
+    的核心问题）。
+  - `scene_stick_rate`：scene 已对的下一帧是否保持对。
+  - `scene_flip_rate`：step2 改 scene 的比例（高 = 不稳定）。
+  - `step3_trigger_rate`。
+  - `status_acc_given_correct_scene` / `subgoal_acc_given_correct_scene`（口径与
+    v2 `*_valid_scene` 一致）。
+  - `all_acc_per_step`（串行：scene + status + subgoal 全对）。
+  - `phase_breakdown`：Phase A 区间 vs Phase B 区间分别统计同上指标。
+  - `invalid_scene_rate`、`invalid_status_for_pred_scene_rate`：与 v2 同。
+- 可选指标：`analysis_bleu_vs_teacher`。`eval.py --with-teacher-ref` 会额外加载
+  一份 base Qwen teacher，按 step1/2/3 的分析文本计算轻量 BLEU；默认关闭，
+  避免普通 eval 双倍显存/耗时。`analysis_token_ce_vs_teacher` 仍为后续扩展项。
+
+### 8.2 E2 case probe（对应 v2 `probe.py`）
+
+随机抽 N 条 episode，逐帧 dump 到 `case_<idx>/frame_<t>/`：
+
+```
+case_0/frame_42/
+  rgb_oldest.png … rgb_newest.png       ← 4 张拼接 RGB
+  step1_prompt.txt   step1_teacher.txt   step1_student.txt
+  step2_prompt.txt   step2_teacher.txt   step2_student.txt
+  step3_prompt.txt   step3_teacher.txt   step3_student.txt   (若触发)
+  memory_before.json memory_after.json
+  flags.json          ← step3_triggered / gt_leak_skip / scene_flip / phase
+case_0/timeline.png   ← scene-flip 与 step3 触发的时间线
+case_0/episode_meta.json
+```
+
+`probe.py --with-teacher` 会额外加载一份 base Qwen teacher，逐帧写出
+`step*_teacher.txt`、`step2_teacher_user.txt`、`step3_teacher_user.txt`，并在
+`flags.json` 记录 step1/2/3 的 `analysis_bleu_vs_teacher`；默认不加载 teacher，
+避免普通 case dump 双倍占显存。
+
+### 8.3 E3 训练时 in-loop val
+
+单卡时每 `EVAL_STEPS` 抽少量 val episode 跑 teacher-forced quick loss。DDP 下
+不做 in-loop eval；若 `WORLD_SIZE>1` 且 `--eval-steps > 0`，`train.py` 直接报错，
+要求训练后单独运行 `eval.py`，避免用户误以为多卡训练中已经跑了评估。
+
+### 8.4 E4 单元 / 烟雾测试
+
+- `check_loss_mask.py`：实际覆盖 6 路 loss（L_A1 / L_A2 / L_S2 / L_A3 /
+  L_S3_status / L_S3_subgoal）的 token mask 正确性：分析段 token 集 / 值 token 集
+  互不重叠，per-token normalize 分母对得上 train.py 里 `_append_token_ids` 的
+  位置切分逻辑。
+- `test_memory_update.py`：纯 Python 模拟外循环，覆盖：
+  - `init_memory` 排除 GT scene（D3 拍板）；
+  - Phase A `update_memory_after_step2` 的 4 种翻转组合；
+  - Phase B 弱纠偏（D2 拍板）：scene == GT 时 noop、status/subgoal 跨帧保留；
+    scene != GT 时走 scene-change reset；
+  - scene 翻转 → status = canonical init event、subgoal 重置；
+  - step3 触发条件正确（直接调用 `should_trigger_step3` helper，与翻转无关、
+    只看 `memory.scene_after_step2 == gt_scene`）。
+- `test_kv_reuse.py`：构造一条 mini episode，对比"step1/2/3 复用 KV vs 全量
+  重 prefill"的 student logits 数值一致（误差 < 1e-5）。
+- `test_gt_leak_filter.py`：构造泄露 / 不泄露样例，验证正则后处理正确跳过
+  L_A2 / L_A3 而保留 L_S2 / L_S3，并正确累计 `gt_leak_skip_rate`。
+
+---
+
+## 9. 关键工程约束
+
+### 9.1 DDP 切分
+
+- 当前 `train.py` 支持 DDP；`train.sh` 默认模式为 `ddp`。
+- DataLoader 前按 episode 做无重复分片：`rows[rank::world_size]`，不使用会
+  padding/复制样本的 `DistributedSampler`。
+- 每张卡默认 `PER_DEVICE_BS=1`；DDP 下强制 `--grad-accum 1`，保证所有未 join
+  rank 每帧同步、每帧 step，避免不同 episode 长度导致 optimizer step 不对齐。
+- 训练循环用 `torch.distributed.algorithms.join.Join` 包住 DDP module，rank 间
+  episode 数或帧数不齐时，先跑完的 rank 进入 Join shadow，避免 NCCL hang。
+- rank0 负责 TensorBoard、checkpoint/final adapter 保存和主日志；非 rank 0
+  只训练。
+- DDP 下禁用 in-loop eval（`--eval-steps` 会提示跳过），避免不同 rank 因 episode
+  长度不同而在不同 local step 进入 eval；训练后单独跑 `eval.py`。
+
+### 9.2 防覆盖目录约定
+
+与 v2 一致：用户给 `OUTPUT_DIR` 后，`train.sh` 在下层套 `run_<RUN_TAG>/`
+子目录，`RUN_TAG` 默认时间戳；base 层维护 `latest` symlink；
+`NO_RUN_SUBDIR=1` 回退；`HF_HOME` 钉在 base 层。
+
+### 9.3 GPU 选址
+
+与项目通用规则一致：
+
+- 单卡：`nvidia-smi` 自动挑 1 张空闲 GPU，覆盖已有 mask。
+- `torchrun --nproc_per_node=N`：自动挑 N 张最空闲。
+- `GPU_IDS=0` / `GPU_IDS=0,1,2,3` 是唯一允许的显式 pin 写法。
+- 禁止在 RUN.md 里手写 `export CUDA_VISIBLE_DEVICES=...`。
+
+### 9.4 路径约定
+
+- LEAD 数据根：`AutoMoT/lead_data`；keyframes：`AutoMoT/lead_data/keyframes_all_scenarios.json`。
+- 保存路径：`AutoMoT/checkpoints/sft_v3_lora/...`。
+- 训练命令以 `AutoMoT/` 为 cwd，不写 `AutoMoT/` 前缀。
+
+---
+
+## 10. 已确认的设计决定（讨论闭环）
+
+下面是在 v3 设计讨论里已经定案、不再回滚的决定，留作未来重读时的参照：
+
+1. **训练单元**：一个 sub-scenario = 一条 episode；外循环按 1 帧前进。
+2. **anchor 数**：固定 5 个（含 3 个 subgoal），非 3-subgoal 数据过滤。
+3. **δ 公式**：`min(Δf_{0→1}, Δf_{1→2}) // 2`，允许 δ=0（C1 修正），只封顶 10；
+   原始 δ < 4 时 `build_dataset.py` 打 warning，提示 anchor 间距过窄。
+4. **训练区间**：`[f1-δ, f3]`，其中 `[f1-δ, f1+δ]` 为 Phase A，
+   `(f1+δ, f3]` 为 Phase B。anchor[3] 之后到 anchor[4] 不训。
+5. **Phase B 行为（D2 拍板，覆盖旧口径）**：每帧开头做**弱纠偏**——只在
+   `memory.scene != gt_scene` 时把 scene 拉回 GT 并走 scene-change reset；
+   `memory.scene == gt_scene` 时全 no-op，让 step3 推进过的 status/subgoal
+   跨帧累积。这样 e2/e3 的状态/子目标监督密度才能起来。step2 仍训 SCENE
+   （输出场景名，与 memory.scene 同名即"keep"），让模型同时学会"对的别改"。
+   旧口径"每帧无条件 reset 三件套到 init"已废弃。
+6. **Memory 内容**：BELIEVED_SCENE / STATUS / SUBGOAL（含描述）+
+   `EGO_TO_GOAL_XY`（含十字路口左右转消歧）；**不**带上一帧分析文本；
+   不带 KV cache 跨帧。`ego_to_goal_xy` 必须来自 `meta["next_target_points"][-1]`
+   转 ego；meta 缺失 / 解析失败一律 `raise RuntimeError`，不允许静默 fallback。
+   实现按帧末预取下一帧坐标（C3 修正），不再用“帧首重算”描述。
+7. **Memory 初始化（D3 拍板，覆盖旧口径）**：从 `SCENARIO_LABELS \ {gt_scene}`
+   均匀随机抽 scene，**强制排除 GT**；status=canonical init event；subgoal=该
+   scene 的第一个事件。理由：Phase A 的稀缺信号是"看到证据 → 推翻错误 memory"，
+   混入"初始就对"的样本会与 Phase B 的"保持"监督完全重叠，浪费样本预算；让
+   Phase A 100% 是"修改"监督、Phase B 100% 是"保持"监督，分工互补。旧口径
+   "不刻意排除 GT"已废弃。
+8. **Step 3 触发条件**：`should_trigger_step3(memory_scene_after_step2, gt_scene)`
+   helper（C4 拍板抽出），仅看 step2 后 memory.scene 是否等于 GT，与是否翻转
+   过无关。train.py 与 `test_memory_update.py` 共享同一真值函数，禁止有第二份
+   隐式实现。
+9. **Hindsight Oracle / OPD 蒸馏**：teacher = frozen base + disable_adapter，
+   实时 generate 分析 + 离散答案；student token-CE 对齐。
+10. **GT 泄露双保险**：prompt 硬约束 + 字面正则后处理，命中则跳分析 loss 但
+    保留离散 loss。
+11. **Teacher 长度**：step1 ≤3 句（max_new=80），step2/3 ≤2 句（max_new=60）。
+    `repetition_penalty=1.05`（B1 拍板）已在 `_kv_generate_text` 内按 HF 风格
+    施加 logits 后处理，与 `do_sample=False` 配合避免短文本复读。
+12. **Loss 权重**：分析 0.2 × 3、离散 1.0 × 3，分析 per-token normalize；
+    分项 TB 记录。
+13. **LoRA 接口**：与 v2 完全同构（`--lora-vision-scope` + 全套保险），
+    默认 `off`。
+14. **DDP**：已实现，按 episode rank 分片 + DDP Join；多卡强制 `grad_accum=1`。
+15. **数据持久化**：只写 episode index，不写训练样本。
+16. **KV cache 共享语义（D1 拍板）**：所谓"prefix 只 prefill 一次"指的是同一个
+    模型内部 step1 → step2 → step3 链式复用 KV；teacher / student 各自 prefill
+    一次，不互相共享 KV。理由：LoRA on/off 的 K/V 数值不同，强行共用会让
+    teacher 被 LoRA 污染，OPD 退化为自蒸馏。当前实现已经覆盖图像 prefill 的算力
+    优化目标。
+
+---
+
+## 11. 与现有子包 / 文档的关系
+
+- **不替换 v2**：v2 子包保留作为单帧串行选择题基线；v3 是连续推理的进化版。
+- **与 leadmot 关系**：v3 输出仍是离散场景 / 状态 / 子目标，不直接影响 leadmot
+  的 route / waypoint head；但训练后的 student 可作为 leadmot prefix 的 Qwen
+  backbone（merge_and_unload 后冻结），需要时再补 leadmot 侧的接入文档。
+- **与 eval_carla 关系**：v3 student 训出来如果想做闭环，仍走 eval_carla 子包；
+  闭环时 memory 用类似 §3 的方式实时维护（初始 memory 用启动时刻的 keyframe
+  反查，或仍用随机初始 + 让模型自纠错）。这部分细节落到 eval_carla 侧未来的
+  扩展文档，不在本 PLAN 范围内。
