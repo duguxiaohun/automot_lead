@@ -1048,9 +1048,16 @@ def main() -> None:
     )
 
     if world_size > 1:
+        # broadcast_buffers=False：Qwen3-VL 的 RoPE inv_freq 等 buffer 由 config 确定性
+        # 算出，每个 rank 完全一致，不需要 DDP 同步。新版 torch 的 _sync_buffers 在
+        # find_unused_parameters=True + 没有真正 unused param 时会让 _find_common_rank
+        # 返回非法 authoritative_rank，进 _broadcast_coalesced 时直接 TypeError。
+        # find_unused_parameters=False：LoRA 训练下 trainable 参数都进计算图，关掉省去
+        # 多余的 autograd 图遍历。
         bundle.model = torch.nn.parallel.DistributedDataParallel(
             bundle.model, device_ids=[local_rank], output_device=local_rank,
-            find_unused_parameters=True,  # LoRA 只训练部分模块，视觉塔或部分层可能没有梯度。
+            find_unused_parameters=False,
+            broadcast_buffers=False,
         )
 
     # ---- 数据 ----
