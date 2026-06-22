@@ -1200,6 +1200,14 @@ def main() -> None:
     _barrier()
     device = torch.device(f"cuda:{local_rank}") if torch.cuda.is_available() else torch.device("cpu")
 
+    # SFT v3 的 loss forward 依赖 prefill 出来的 past_key_values（prepare_inputs_for_generation
+    # 会把 input_ids 切成 suffix-only），而 HF 在 training=True + gradient_checkpointing=True
+    # 时会强行把 use_cache 改 False、past_key_values 改 None。如果让 grad_checkpointing 打开，
+    # loss forward 拿到的是没有 prefix 上下文的 suffix-only 序列，loss 静默错位、训练学不到东西。
+    # test_kv_reuse.py 验证 KV 复用时也强制要求 gradient_checkpointing=False。
+    # 因此这里硬关：`--no-grad-checkpoint` 保留只是兼容 CLI，不再实际控制行为。
+    if not args.no_grad_checkpoint and is_rank0(rank):
+        print("[warn] sft_v3 forces gradient_checkpointing=False (incompatible with KV-reuse loss design)")
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
         device=device,
@@ -1208,7 +1216,7 @@ def main() -> None:
         lora_dropout=args.lora_dropout,
         lora_vision_scope=args.lora_vision_scope,
         strict_vision_scope=bool(args.strict_vision_scope),
-        gradient_checkpointing=not args.no_grad_checkpoint,
+        gradient_checkpointing=False,
     )
     if world_size > 1:
         # broadcast_buffers=False：Qwen3-VL 的 RoPE inv_freq 等 buffer 由 config 确定性
