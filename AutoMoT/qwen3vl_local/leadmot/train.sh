@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 禁用 core dump，避免工具进程异常时生成 core.*。
+ulimit -S -c 0 2>/dev/null || true
+
 MODE="${1:-ddp}"  # check | single | ddp
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

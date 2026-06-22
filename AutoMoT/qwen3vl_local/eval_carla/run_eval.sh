@@ -53,6 +53,9 @@
 
 set -u
 
+# 禁用 core dump，避免工具进程异常时生成 core.*。
+ulimit -S -c 0 2>/dev/null || true
+
 # -------------------- 早期输出缓存 --------------------
 # RUN_DIR 要等 ckpt 反查 + scenario picker + RUN_LABEL 拼好以后才知道，
 # 在这之前 echo 出去的状态行（ckpt 解析、CARLA_ROOT、GPU 自动选址、port 起点等）
