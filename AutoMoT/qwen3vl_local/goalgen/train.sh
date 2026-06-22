@@ -8,6 +8,9 @@
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/goalgen/train.sh ddp
 set -euo pipefail
 
+# 禁用 core dump，避免工具进程异常时生成 core.*。
+ulimit -S -c 0 2>/dev/null || true
+
 MODE="${1:-ddp}"
 DDP_GPU_COUNT_WAS_SET=0
 if [[ -n "${DDP_GPU_COUNT+x}" ]]; then

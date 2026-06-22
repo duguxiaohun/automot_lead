@@ -7,6 +7,9 @@
 
 set -euo pipefail
 
+# 禁用 core dump，避免工具进程异常时生成 core.*。
+ulimit -S -c 0 2>/dev/null || true
+
 MODE="${1:-ddp}"
 
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
