@@ -179,6 +179,20 @@
 - `AutoMoT/qwen3vl_local/sft_v2/probe.py`
 - `AutoMoT/qwen3vl_local/sft_v2/check_loss_mask.py`
   （按用户同意新增到白名单：SFT v2 两段式串行选择题子包。输入仍为 LEAD stitched RGB + 语言 prompt；stage-1 只列 `SCENE_CHOICES` 并输出 `SCENE`，stage-2 作为同一条对话的后续 user prompt，按预测 scene 的 `EVENT_SEQUENCE` 输出 `STATUS/SUBGOAL`，推理时必须复用 stage-1 已吃图像和场景 prompt 后的 KV cache；默认 `--samples-per-scenario 0` 全量保留合法候选，默认 `--wrong-scene-ratio 0.15` 只增强 train rows；不再有 ANALYSIS / teacher / pending cache；训练 loss 只监督 scene/status/subgoal 值 token，格式 token 为 0 loss；LoRA 默认只注入语言侧 Linear，视觉侧通过 `--lora-vision-scope` / `LORA_VISION_SCOPE` 选择 `off` / `merger` / `last4` / `all` 四档（`--lora-vision` / `LORA_VISION=1` 作为 `all` 的 legacy 别名保留）；开启视觉 LoRA 时默认带"视觉组单独 LR 倍率 `--vision-lr-scale=0.1`（受 `--max-vision-lr-scale=0.25` 上限约束）+ 分组梯度裁剪 `--language-clip-norm=1.0` / `--vision-clip-norm=0.3` + TB 观测 `grad_norm/{language,vision}` / `param_norm/lora_{language,vision}` / `vision_guard_bad_steps` + `STRICT_VISION_SCOPE=1` 命名漂移硬拒绝 + `VISION_GUARD_ENABLED=1` 运行时熔断"保险；熔断时写 `fuse_stop_step_<N>/` 与 `fuse_reason.txt`，并跳过正常 `final/` 保存，防止视觉表征被冲坏且避免误用异常产物；base Qwen checkpoint 始终只读，训练只保存 adapter delta，并写 `sft_v2_adapter_config.json`（含 `lora_vision_scope` 与保险参数）；eval/probe 加载前按 adapter 配置判断普通 LoRA / 视觉 LoRA 并校验权重 key，不一致直接拒绝。自由生成评估中 scene 不在白名单则中断，scene 合法但错误时仍按预测 scene 进入 stage-2 并用串行口径计错，同时输出 `valid_total` / `*_valid_scene` 指标。运行文档见 `SFT_V2_RUN.md`）
+- `AutoMoT/qwen3vl_local/sft_v3/__init__.py`
+- `AutoMoT/qwen3vl_local/sft_v3/SFT_V3_PLAN.md`
+- `AutoMoT/qwen3vl_local/sft_v3/SFT_V3_RUN.md`
+- `AutoMoT/qwen3vl_local/sft_v3/prompts.py`
+- `AutoMoT/qwen3vl_local/sft_v3/build_dataset.py`
+- `AutoMoT/qwen3vl_local/sft_v3/train.py`
+- `AutoMoT/qwen3vl_local/sft_v3/train.sh`
+- `AutoMoT/qwen3vl_local/sft_v3/eval.py`
+- `AutoMoT/qwen3vl_local/sft_v3/probe.py`
+- `AutoMoT/qwen3vl_local/sft_v3/check_loss_mask.py`
+- `AutoMoT/qwen3vl_local/sft_v3/test_memory_update.py`
+- `AutoMoT/qwen3vl_local/sft_v3/test_kv_reuse.py`
+- `AutoMoT/qwen3vl_local/sft_v3/test_gt_leak_filter.py`
+  （按用户同意新增到白名单：SFT v3 代码已落地，采用 sub-scenario 时间序列训练 + 学生自维护 memory + 三步内循环 teacher/student 蒸馏；Phase A 学生自更新 memory，Phase B 每帧弱纠偏 scene=GT 反向学习“对的别改”；δ 允许 0 且只封顶 10，`EGO_TO_GOAL_XY` 严格来自 meta `next_target_points[-1]` 并在帧末预取下一帧，step3 触发统一走 `should_trigger_step3`；loss 为分析与离散值 token 混合监督，LoRA 视觉接口与 v2 同构并默认关闭；`train.sh` 默认 `ddp`，每卡默认 batch=1，`train.py` 按 episode rank 分片 + DDP Join，多卡强制 `grad_accum=1`。详见 `SFT_V3_PLAN.md` / `SFT_V3_RUN.md` 与同目录脚本。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md`
@@ -230,6 +244,7 @@ git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/
 git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
 git add AutoMoT/qwen3vl_local/sft/__init__.py AutoMoT/qwen3vl_local/sft/SFT_PLAN.md AutoMoT/qwen3vl_local/sft/SFT_RUN.md AutoMoT/qwen3vl_local/sft/build_dataset.py AutoMoT/qwen3vl_local/sft/build_teacher.py AutoMoT/qwen3vl_local/sft/train.py AutoMoT/qwen3vl_local/sft/train.sh AutoMoT/qwen3vl_local/sft/eval.py AutoMoT/qwen3vl_local/sft/probe.py AutoMoT/qwen3vl_local/sft/check_loss_mask.py AutoMoT/qwen3vl_local/sft/inspect_teacher_outputs.py
 git add AutoMoT/qwen3vl_local/sft_v2/__init__.py AutoMoT/qwen3vl_local/sft_v2/SFT_V2_PLAN.md AutoMoT/qwen3vl_local/sft_v2/SFT_V2_RUN.md AutoMoT/qwen3vl_local/sft_v2/prompts.py AutoMoT/qwen3vl_local/sft_v2/build_dataset.py AutoMoT/qwen3vl_local/sft_v2/train.py AutoMoT/qwen3vl_local/sft_v2/train.sh AutoMoT/qwen3vl_local/sft_v2/eval.py AutoMoT/qwen3vl_local/sft_v2/probe.py AutoMoT/qwen3vl_local/sft_v2/check_loss_mask.py
+git add AutoMoT/qwen3vl_local/sft_v3/__init__.py AutoMoT/qwen3vl_local/sft_v3/SFT_V3_PLAN.md AutoMoT/qwen3vl_local/sft_v3/SFT_V3_RUN.md AutoMoT/qwen3vl_local/sft_v3/prompts.py AutoMoT/qwen3vl_local/sft_v3/build_dataset.py AutoMoT/qwen3vl_local/sft_v3/train.py AutoMoT/qwen3vl_local/sft_v3/train.sh AutoMoT/qwen3vl_local/sft_v3/eval.py AutoMoT/qwen3vl_local/sft_v3/probe.py AutoMoT/qwen3vl_local/sft_v3/check_loss_mask.py AutoMoT/qwen3vl_local/sft_v3/test_memory_update.py AutoMoT/qwen3vl_local/sft_v3/test_kv_reuse.py AutoMoT/qwen3vl_local/sft_v3/test_gt_leak_filter.py
 git add AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V2.md AutoMoT/qwen3vl_local/goalgen/build_dataset.py AutoMoT/qwen3vl_local/goalgen/train.py AutoMoT/qwen3vl_local/goalgen/train.sh AutoMoT/qwen3vl_local/goalgen/eval.py AutoMoT/qwen3vl_local/goalgen/probe.py
 git add AutoMoT/qwen3vl_local/leadmot/__init__.py AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_PLAN.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md AutoMoT/qwen3vl_local/leadmot/build_dataset.py AutoMoT/qwen3vl_local/leadmot/train.py AutoMoT/qwen3vl_local/leadmot/train.sh AutoMoT/qwen3vl_local/leadmot/eval.py AutoMoT/qwen3vl_local/leadmot/probe.py AutoMoT/qwen3vl_local/leadmot/config.py AutoMoT/qwen3vl_local/leadmot/projectors.py AutoMoT/qwen3vl_local/leadmot/query_bank.py AutoMoT/qwen3vl_local/leadmot/heads.py AutoMoT/qwen3vl_local/leadmot/mot_block.py AutoMoT/qwen3vl_local/leadmot/decoder.py AutoMoT/qwen3vl_local/leadmot/subgoal_prompt.py
 git add AutoMoT/vae_standalone/train_patch_unpatch.py AutoMoT/vae_standalone/vae_reconstruct.py
@@ -289,6 +304,7 @@ GPU 运行入口统一规则：
 - 运行文档里每个单卡/多卡训练示例后面都要补显式 pin demo：单卡用 `GPU_IDS=0`，
   4 卡多卡用 `GPU_IDS=0,1,2,3`，照原命令保留其它 env。
 - `eval_carla/run_eval.sh` 的 `--num-gpus N` / `EVAL_GPU_COUNT=N` 只表示闭环评测 worker 数；具体 GPU id 仍由 `nvidia-smi` 自动挑空闲卡，并为每张卡分配独立 CARLA 端口槽。
+- 白名单内 bash launcher 开头必须保留 `ulimit -S -c 0 2>/dev/null || true`，禁用 core dump，避免工具进程异常时生成 `core.*`；新增运行入口也要继承该约定，若工作区已有 `core.*`，不要入库，先问用户是否清理。
 
 训练 launcher 防覆盖目录约定（详见 PROJECT_CONTEXT.md §11）：
 
