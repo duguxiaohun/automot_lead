@@ -66,7 +66,7 @@ bash qwen3vl_local/sft_v3/train.sh single
 GPU_IDS=0 bash qwen3vl_local/sft_v3/train.sh single
 ```
 
-### 多卡 DDP
+### 多卡 work-stealing local-SGD
 
 ```bash
 DDP_GPU_COUNT=4 bash qwen3vl_local/sft_v3/train.sh ddp
@@ -78,8 +78,27 @@ DDP_GPU_COUNT=4 bash qwen3vl_local/sft_v3/train.sh ddp
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v3/train.sh ddp
 ```
 
-DDP 下 `grad_accum` 固定要求为 1。DDP 不跑 in-loop eval；如果设置
-`EVAL_STEPS>0`，`train.py` 会直接报错，训练后单独跑 `eval.py`。
+多卡模式不再包 DDP，也不做静态 rank 分片：所有 rank 从同一个 TCPStore counter
+抢 episode，谁空闲谁抢，全部 episode 都会被训练，不截断尾部。`SYNC_EVERY_EPISODES`
+表示每个 rank 目标处理多少个 episode 后同步一次；实际每轮最多开放
+`SYNC_EVERY_EPISODES * world_size` 条全局 episode。默认 16；设为 `1` 时每个 rank
+通常至多跑 1 条 episode 后同步，最接近同步 SGD；设为 `0` 仅 epoch 末同步。
+
+local-SGD 启动后会先广播 rank0 的 LoRA 初始权重；`checkpoint-*` 和 `final/`
+都在参数平均后由 rank0 保存。参数平均按本轮各 rank 的 optimizer step 数加权，
+空闲 rank 不贡献旧参数，只接收平均后的 adapter。`PER_DEVICE_BS` 固定为 1。
+保存的 `sft_v3_adapter_config.json` 会记录 `distributed_train` 口径，便于后续
+eval/probe 或审计确认 adapter 来自 work-stealing local-SGD。
+
+`MAX_STEPS>0` 会在 episode 内截断，只允许烟雾/调试使用：`check` 模式自动允许；
+普通训练若确实要截断，必须显式设置 `ALLOW_MAX_STEPS_TRUNCATION=1`。
+
+如果视觉 LoRA 熔断在任意 rank 触发，sync 后由 rank0 写
+`fuse_stop_step_<N>/fuse_reason.txt`，其中包含触发 rank、梯度/参数 norm 与
+all-rank step，避免非 rank0 触发时丢诊断文件。
+
+多卡不跑 in-loop eval；如果设置 `EVAL_STEPS>0`，`train.py` 会直接报错，训练后
+单独跑 `eval.py`。
 
 ### 烟雾检查
 
@@ -95,6 +114,7 @@ RUN_TAG=debug_v3 \
 NUM_EPOCHS=1 \
 LR=3e-5 \
 OUTER_STRIDE=1 \
+SYNC_EVERY_EPISODES=16 \
 W_A1=0.2 W_A2=0.2 W_A3=0.2 \
 W_S2=1.0 W_S3_STATUS=1.0 W_S3_SUBGOAL=1.0 \
 GPU_IDS=0 \

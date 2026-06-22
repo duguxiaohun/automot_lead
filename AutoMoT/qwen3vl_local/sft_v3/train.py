@@ -27,7 +27,6 @@ import re
 import shutil
 import sys
 import time
-from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -48,7 +47,6 @@ import torch.nn.functional as F
 import numpy as np
 from PIL import Image
 from torch import nn
-from torch.distributed.algorithms.join import Join
 from torch.utils.data import DataLoader, Dataset
 
 try:
@@ -951,6 +949,12 @@ def _save_adapter_config(path: pathlib.Path, bundle: Any, args: argparse.Namespa
         "route": "sft_v3_sequence",
         "base_model_dir": str(args.model_dir),
         "base_model_mutated": False,
+        "distributed_train": {
+            "mode": "work_stealing_local_sgd",
+            "sync_every_episodes_per_rank": int(args.sync_every_episodes),
+            "weighted_average_by_optimizer_steps": True,
+            "allow_max_steps_truncation": bool(args.allow_max_steps_truncation),
+        },
         "lora_vision_scope": bundle.lora_vision_scope,
         "lora_vision": bool(vision_targets),
         "target_modules": targets,
@@ -1067,29 +1071,50 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20260622)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--no-grad-checkpoint", action="store_true")
+    # work-stealing + local-SGD：每 rank 目标处理 N 个 episode 后全 rank 到 barrier，
+    # 按本轮 optimizer step 数加权平均 LoRA 参数，并同步停止标志 / 汇总 all-rank step；
+    # 0 = 仅 epoch 末同步。
+    parser.add_argument("--sync-every-episodes", type=int, default=16)
+    parser.add_argument(
+        "--allow-max-steps-truncation",
+        action="store_true",
+        help="Allow --max-steps to stop inside an episode. Intended only for smoke/debug runs.",
+    )
     return parser.parse_args()
 
 
 def validate_args(args: argparse.Namespace) -> None:
     """训练参数一致性检查。
 
-    DDP + eval_steps>0 会直接报错，避免用户以为多卡训练中已经跑了 in-loop eval。
+    多 rank + eval_steps>0 会直接报错，避免用户以为分布式训练中已经跑了 in-loop eval。
     """
 
     if args.outer_stride <= 0:
         raise ValueError("--outer-stride must be > 0")
     if args.grad_accum <= 0:
         raise ValueError("--grad-accum must be > 0")
+    if args.per_device_batch_size != 1:
+        raise ValueError(
+            "SFT v3 work-stealing trains one episode per worker pull; "
+            "--per-device-batch-size must stay 1."
+        )
     if args.vision_lr_scale < 0:
         raise ValueError("--vision-lr-scale must be >= 0")
     if args.vision_lr_scale > args.max_vision_lr_scale:
         raise ValueError("--vision-lr-scale exceeds --max-vision-lr-scale")
     if args.vision_guard_patience <= 0:
         raise ValueError("--vision-guard-patience must be > 0")
+    if args.sync_every_episodes < 0:
+        raise ValueError("--sync-every-episodes must be >= 0 (0 = epoch-end only)")
+    if args.max_steps > 0 and not (args.check or args.allow_max_steps_truncation):
+        raise ValueError(
+            "--max-steps can stop inside an episode and is disabled for normal training. "
+            "Use --check for smoke tests or pass --allow-max-steps-truncation explicitly."
+        )
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     if world_size > 1 and args.eval_steps > 0:
         raise ValueError(
-            "SFT v3 does not run in-loop eval under DDP. Set --eval-steps 0 and run "
+            "SFT v3 does not run in-loop eval under multi-rank. Set --eval-steps 0 and run "
             "qwen3vl_local/sft_v3/eval.py after training."
         )
 
@@ -1129,30 +1154,10 @@ def is_rank0(rank: int) -> bool:
 
 
 def _barrier() -> None:
-    """DDP barrier；单进程时为空操作。"""
+    """分布式 barrier；单进程时为空操作。"""
 
     if dist.is_available() and dist.is_initialized():
         dist.barrier()
-
-
-def _all_reduce_sum(values: List[float], device: torch.device) -> List[float]:
-    """对一组 float 做 DDP sum all-reduce。"""
-
-    if not (dist.is_available() and dist.is_initialized()):
-        return values
-    tensor = torch.tensor(values, dtype=torch.float64, device=device)
-    dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-    return [float(x) for x in tensor.detach().cpu().tolist()]
-
-
-def _all_reduce_max_int(value: int, device: torch.device) -> int:
-    """对整数做 DDP max all-reduce，用于同步 schedule 步数。"""
-
-    if not (dist.is_available() and dist.is_initialized()):
-        return int(value)
-    tensor = torch.tensor([int(value)], dtype=torch.long, device=device)
-    dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
-    return int(tensor.item())
 
 
 def _sync_bool_or(value: bool, device: torch.device) -> bool:
@@ -1165,11 +1170,131 @@ def _sync_bool_or(value: bool, device: torch.device) -> bool:
     return bool(int(tensor.item()))
 
 
-def _shard_episode_dataset(ds: EpisodeDataset, *, rank: int, world_size: int) -> None:
-    """按 episode 做 rank 分片，避免 DistributedSampler padding 复制 episode。"""
+def _sync_int_sum(value: int, device: torch.device) -> int:
+    """跨 rank 汇总整数计数；单进程直接返回本地值。"""
 
-    if world_size > 1:
-        ds.rows = ds.rows[rank::world_size]
+    if not (dist.is_available() and dist.is_initialized()):
+        return int(value)
+    tensor = torch.tensor([int(value)], dtype=torch.int64, device=device)
+    dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+    return int(tensor.item())
+
+
+def _get_default_store() -> Optional[Any]:
+    """拿到 init_process_group 创建的默认 TCPStore；单进程时返回 None。"""
+
+    if not (dist.is_available() and dist.is_initialized()):
+        return None
+    # PyTorch 没有给默认 Store 暴露很漂亮的顶层 public API；distributed_c10d 里的
+    # helper 是 torchrun 场景最直接的入口。这里显式包一层报错，避免版本差异时
+    # 变成难排查的 AttributeError。
+    try:
+        return dist.distributed_c10d._get_default_store()
+    except AttributeError as exc:
+        raise RuntimeError(
+            "torch.distributed default store is unavailable; SFT v3 work-stealing requires "
+            "a PyTorch build exposing distributed_c10d._get_default_store()."
+        ) from exc
+
+
+def _weighted_average_lora_params_inplace(
+    params: List[nn.Parameter],
+    *,
+    local_weight: float,
+    device: torch.device,
+) -> float:
+    """按本轮本地训练量加权平均 LoRA 参数，并返回全 rank 权重和。
+
+    work-stealing 下每个 rank 抢到的 episode / frame 数不一定相同；如果简单
+    ``sum/world_size``，最后一轮或慢 rank 没抢到任务时，未更新参数也会等权参与平均，
+    把真正训练过的 rank 更新稀释掉。因此这里按本轮 optimizer.step 数加权；权重为 0 的
+    rank 只接收平均后的参数，不贡献旧参数。
+    """
+
+    if not (dist.is_available() and dist.is_initialized()) or not params:
+        return float(local_weight)
+    weight = torch.tensor([float(local_weight)], dtype=torch.float32, device=device)
+    dist.all_reduce(weight, op=dist.ReduceOp.SUM)
+    total_weight = float(weight.item())
+    if total_weight <= 0.0:
+        return total_weight
+    with torch.no_grad():
+        for p in params:
+            averaged = p.detach().float().mul(float(local_weight))
+            dist.all_reduce(averaged, op=dist.ReduceOp.SUM)
+            averaged.div_(total_weight)
+            p.data.copy_(averaged.to(dtype=p.dtype))
+    return total_weight
+
+
+def _sync_fuse_info(
+    *,
+    triggered: bool,
+    rank: int,
+    grad_norm: float,
+    param_norm: float,
+    bad_steps: int,
+    device: torch.device,
+) -> Tuple[int, float, float, int]:
+    """汇总视觉熔断诊断信息，保证非 rank0 触发时 rank0 也能写 reason 文件。"""
+
+    local_rank = rank if triggered else -1
+    local_grad = float(grad_norm) if triggered and math.isfinite(float(grad_norm)) else -1.0
+    local_param = float(param_norm) if triggered and math.isfinite(float(param_norm)) else -1.0
+    local_bad = int(bad_steps) if triggered else 0
+    if not (dist.is_available() and dist.is_initialized()):
+        return local_rank, local_grad, local_param, local_bad
+    payload = torch.tensor(
+        [float(local_rank), local_grad, local_param, float(local_bad)],
+        dtype=torch.float64,
+        device=device,
+    )
+    dist.all_reduce(payload, op=dist.ReduceOp.MAX)
+    return int(payload[0].item()), float(payload[1].item()), float(payload[2].item()), int(payload[3].item())
+
+
+def _broadcast_lora_params_from_rank0(params: List[nn.Parameter], world_size: int) -> None:
+    """把 rank0 的 LoRA 初始权重广播到所有 rank。
+
+    local-SGD 不包 DDP，因此模型构建后不会自动同步初始参数。LoRA 初始化通常带随机性，
+    如果不广播，各 rank 会从不同 adapter 起点出发，第一轮参数平均会混入初始化差异。
+    """
+
+    if world_size <= 1 or not params:
+        return
+    with torch.no_grad():
+        for p in params:
+            dist.broadcast(p.data, src=0)
+
+
+def _scale_pending_grads(params: List[nn.Parameter], scale: float) -> None:
+    """按比例缩放尚未 step 的梯度，用于 grad_accum 尾部 flush。"""
+
+    if abs(scale - 1.0) < 1e-12:
+        return
+    for p in params:
+        if p.grad is not None:
+            p.grad.mul_(float(scale))
+
+
+def _sync_scheduler_to_step(scheduler: Any, optimizer: torch.optim.Optimizer, step: int) -> None:
+    """把 LambdaLR 对齐到给定全局 step，并直接刷新 optimizer 当前 lr。
+
+    work-stealing 下每个 rank 在一个 sync round 内做的本地 step 数可能不同；轮末用
+    all-rank step 总数对齐 scheduler，避免快慢 rank 在参数平均后继续沿不同 LR 曲线走。
+    这里不调用 ``scheduler.step(step)``，因为某些 rank 可能本轮没有 optimizer.step，
+    直接调 scheduler.step 会触发 PyTorch 的 step-order warning。
+    """
+
+    if not hasattr(scheduler, "lr_lambdas") or not hasattr(scheduler, "base_lrs"):
+        return
+    scheduler.last_epoch = int(step)
+    lrs: List[float] = []
+    for group, base_lr, lr_lambda in zip(optimizer.param_groups, scheduler.base_lrs, scheduler.lr_lambdas):
+        lr = float(base_lr) * float(lr_lambda(int(step)))
+        group["lr"] = lr
+        lrs.append(lr)
+    scheduler._last_lr = lrs
 
 
 def main() -> None:
@@ -1183,8 +1308,7 @@ def main() -> None:
     args = parse_args()
     validate_args(args)
     rank, world_size, local_rank = setup_distributed()
-    if world_size > 1 and args.grad_accum != 1:
-        raise ValueError("SFT v3 DDP requires --grad-accum 1 so all ranks step once per frame.")
+    # 注：work-stealing + local-SGD 下不再强制 grad_accum=1。每 rank 独立 step，无锁步。
     random.seed(args.seed + rank)
     torch.manual_seed(args.seed + rank)
     if torch.cuda.is_available():
@@ -1218,37 +1342,21 @@ def main() -> None:
         strict_vision_scope=bool(args.strict_vision_scope),
         gradient_checkpointing=False,
     )
-    if world_size > 1:
-        # broadcast_buffers=False：Qwen3-VL 的 RoPE inv_freq 等 buffer 由 config 确定性
-        # 算出，每个 rank 完全一致，不需要 DDP 同步。新版 torch 的 _sync_buffers 在
-        # find_unused_parameters=True + 没有真正 unused param 时会让 _find_common_rank
-        # 返回非法 authoritative_rank，进 _broadcast_coalesced 时直接 TypeError。
-        # find_unused_parameters=False：LoRA 训练下 trainable 参数都进计算图，警告也
-        # 明示"did not find any unused parameters"，关掉省去多余的 autograd 图遍历。
-        bundle.model = torch.nn.parallel.DistributedDataParallel(
-            bundle.model,
-            device_ids=[local_rank] if torch.cuda.is_available() else None,
-            output_device=local_rank if torch.cuda.is_available() else None,
-            find_unused_parameters=False,
-            broadcast_buffers=False,
-        )
-
+    # work-stealing + local-SGD：不再用 DDP wrap，也不再静态分片数据集。
+    # 多 rank 通过 TCPStore 原子 counter 抢同一份 train_ds.rows，每轮最多开放
+    # K*world_size 个全局 episode，并在 barrier 处按本轮训练量加权平均 LoRA 参数，
+    # 避免 DDP per-step 锁步死锁。
     train_ds = EpisodeDataset(pathlib.Path(args.train_jsonl))
     val_ds = EpisodeDataset(pathlib.Path(args.val_jsonl)) if args.val_jsonl else None
     train_total = len(train_ds.rows)
     val_total = len(val_ds.rows) if val_ds is not None else 0
-    _shard_episode_dataset(train_ds, rank=rank, world_size=world_size)
-    if val_ds is not None:
-        _shard_episode_dataset(val_ds, rank=rank, world_size=world_size)
+    if train_total <= 0:
+        raise ValueError(f"empty train dataset: {args.train_jsonl}")
     if is_rank0(rank):
-        print(f"[data] train_episodes={train_total} val_episodes={val_total} per_rank_batch={args.per_device_batch_size}")
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=args.per_device_batch_size,
-        shuffle=True,
-        num_workers=0,
-        collate_fn=collate_episode,
-    )
+        print(
+            f"[data] train_episodes={train_total} val_episodes={val_total} "
+            f"world_size={world_size} sync_every_episodes={args.sync_every_episodes}"
+        )
     val_loader = (
         DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0, collate_fn=collate_episode)
         if val_ds is not None
@@ -1283,22 +1391,31 @@ def main() -> None:
             f"[opt] language_params={len(language_params)} vision_params={len(vision_params)} "
             f"grad_accum={args.grad_accum}"
         )
+    _broadcast_lora_params_from_rank0(language_params + vision_params, world_size)
+    _barrier()
 
     optimizer = torch.optim.AdamW(groups, betas=(0.9, 0.95), weight_decay=args.weight_decay)
-    # schedule 用“每帧一个优化单位”估算；DDP 下取各 rank 最大帧数，避免某些 rank
-    # 先耗尽数据后 scheduler 步数不一致。
-    estimated_frames = sum(
+    # schedule 按 all-rank optimizer.step 总数估算；每个 sync round 末用 allreduce 得到
+    # 全局步数并把所有 rank 的 scheduler 对齐到同一位置。grad_accum>1 时，round 尾部
+    # 会 flush 不足 grad_accum 的梯度，真实 step 数可能高于 ceil(total_frames/grad_accum)；
+    # 因此用“每 episode 自己 ceil 后求和”的上界，避免 LR 在最后几轮过早降为 0。
+    episode_frame_counts = [
         len(range(ep.frame_start, ep.frame_end + 1, max(1, args.outer_stride))) for ep in train_ds.rows
+    ]
+    steps_per_epoch = max(
+        1,
+        sum(math.ceil(frame_count / max(1, args.grad_accum)) for frame_count in episode_frame_counts),
     )
-    estimated_frames_for_schedule = _all_reduce_max_int(estimated_frames, device)
-    steps_per_epoch = max(1, math.ceil(estimated_frames_for_schedule / max(1, args.grad_accum)))
     total_steps = args.max_steps if args.max_steps > 0 else steps_per_epoch * max(1, args.num_epochs)
     if args.check:
         total_steps = min(total_steps, 2)
         args.max_steps = total_steps
     scheduler = make_scheduler(optimizer, total_steps, int(total_steps * args.warmup_ratio))
     tb = SummaryWriter(log_dir=str(output_dir / "tb")) if (is_rank0(rank) and _TB_AVAILABLE) else None
+    # global_step 是当前 rank 自己的 optimizer.step 计数；rank0 负责日志/保存。
+    # 轮末会 allreduce 得到 all_rank_steps，用来观察全局实际训练量。
     global_step = 0
+    synced_all_rank_steps = 0
     accum_steps = 0
     accum_loss = 0.0
     stats = {
@@ -1317,224 +1434,363 @@ def main() -> None:
     }
     guard_bad_steps = 0
     fuse_stopped = False
+    fuse_stop_saved = False
+    last_fuse_grad = -1.0
+    last_fuse_param_norm = -1.0
+    last_fuse_bad_steps = 0
     saved: List[pathlib.Path] = []
+    last_saved_step = 0
+    round_local_steps = 0
     optimizer.zero_grad(set_to_none=True)
     start_time = time.time()
 
-    join_context = Join([bundle.model]) if world_size > 1 else nullcontext()
-    with join_context:
-        for epoch in range(args.num_epochs):
-            for batch in train_loader:
-                for ep in batch:
-                    if fuse_stopped or (args.max_steps > 0 and global_step >= args.max_steps):
+    # ---- work-stealing + local-SGD 主循环 ----
+    # 每个 epoch 先按同一 seed 得到 epoch_order，再切成若干个 sync round。
+    # sync_K 表示“每 rank 目标处理 K 个 episode”，所以每轮最多开放 K*world_size 个
+    # 全局 episode。K=1 时每个 rank 通常至多拿到一条 episode，更接近同步 SGD；
+    # K=0 表示整轮 epoch 末才同步。
+    # 每轮 rank0 把 TCPStore counter 初始化到 round_start；各 rank 只允许抢
+    # [round_start, round_end) 内的 idx。这样即使多个 rank 同时空闲，也不会越过同步边界
+    # 先多训下一轮 episode；轮末统一 flush 梯度、barrier、LoRA 参数平均。
+    sync_K = int(args.sync_every_episodes)
+    round_size = train_total if sync_K <= 0 else max(1, sync_K * max(1, world_size))
+    if world_size > 1 and args.max_steps > 0:
+        # max_steps/check 是 debug 口径；缩小同步轮可避免多卡 smoke 一次跑完整个 K-episode round。
+        round_size = 1
+    rounds_per_epoch = max(1, math.ceil(train_total / max(1, round_size)))
+    if is_rank0(rank):
+        print(
+            f"[sync] rounds_per_epoch={rounds_per_epoch} sync_K={sync_K} "
+            f"round_size={round_size}"
+        )
+
+    store = _get_default_store()
+    all_lora_params: List[nn.Parameter] = language_params + vision_params
+    stop_requested = False
+
+    def should_stop_local() -> bool:
+        """本 rank 达到 max_steps 后先停止抓任务；全局停止在 sync 后广播。"""
+
+        return args.max_steps > 0 and global_step >= args.max_steps
+
+    def flush_partial_optimizer_step(reason: str) -> None:
+        """在 sync 前把未满 grad_accum 的梯度落一次 step，避免跨平均边界残留梯度。"""
+
+        nonlocal accum_steps, accum_loss, global_step, guard_bad_steps, fuse_stopped, synced_all_rank_steps
+        nonlocal round_local_steps, last_fuse_grad, last_fuse_param_norm, last_fuse_bad_steps
+        if accum_steps <= 0:
+            return
+        if accum_steps < args.grad_accum:
+            # 训练时每帧反传 loss / grad_accum；sync/epoch 尾部不足 grad_accum 时，
+            # 这里把梯度恢复成当前 tail 帧的平均值，避免尾部 step 被系统性压小。
+            _scale_pending_grads(language_params + vision_params, float(args.grad_accum) / float(accum_steps))
+        lang_norm = (
+            torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm))
+            if language_params
+            else torch.tensor(0.0, device=device)
+        )
+        vis_norm = (
+            torch.nn.utils.clip_grad_norm_(vision_params, float(args.vision_clip_norm))
+            if vision_params
+            else torch.tensor(0.0, device=device)
+        )
+        vis_grad = float(vis_norm)
+        vis_param_norm = _param_norm(vision_params) if vision_params else 0.0
+        if args.vision_guard_enabled and vision_params:
+            bad = (
+                (not math.isfinite(vis_grad))
+                or vis_grad > float(args.vision_guard_grad_norm_max)
+                or (not math.isfinite(vis_param_norm))
+                or vis_param_norm > float(args.vision_guard_param_norm_max)
+            )
+            guard_bad_steps = guard_bad_steps + 1 if bad else 0
+            fuse_stopped = fuse_stopped or (guard_bad_steps >= args.vision_guard_patience)
+            if fuse_stopped:
+                last_fuse_grad = vis_grad
+                last_fuse_param_norm = vis_param_norm
+                last_fuse_bad_steps = guard_bad_steps
+        if not fuse_stopped:
+            optimizer.step()
+            scheduler.step()
+            global_step += 1
+            round_local_steps += 1
+        optimizer.zero_grad(set_to_none=True)
+        if is_rank0(rank):
+            print(
+                f"[flush] reason={reason} local_step={global_step}/{total_steps} "
+                f"accum_frames={accum_steps} |g|_lang={float(lang_norm):.3f} "
+                f"|g|_vis={float(vis_norm):.3f} all_rank_steps={synced_all_rank_steps}"
+            )
+        accum_steps = 0
+        accum_loss = 0.0
+        for key in stats:
+            stats[key] = 0
+
+    def do_sync_round() -> None:
+        """flush + barrier + LoRA 参数平均 + 跨 rank 同步停止标志。"""
+
+        nonlocal fuse_stopped, stop_requested, synced_all_rank_steps, last_saved_step
+        nonlocal round_local_steps, fuse_stop_saved
+        flush_partial_optimizer_step("sync")
+        _barrier()
+        round_weight = _weighted_average_lora_params_inplace(
+            all_lora_params,
+            local_weight=float(round_local_steps),
+            device=device,
+        )
+        local_fuse_triggered = bool(fuse_stopped)
+        fuse_stopped = _sync_bool_or(fuse_stopped, device)
+        synced_all_rank_steps = _sync_int_sum(global_step, device)
+        _sync_scheduler_to_step(scheduler, optimizer, synced_all_rank_steps)
+        fuse_rank, fuse_grad, fuse_param, fuse_bad = _sync_fuse_info(
+            triggered=local_fuse_triggered,
+            rank=rank,
+            grad_norm=last_fuse_grad,
+            param_norm=last_fuse_param_norm,
+            bad_steps=last_fuse_bad_steps,
+            device=device,
+        )
+        stop_requested = _sync_bool_or(
+            stop_requested
+            or fuse_stopped
+            or should_stop_local()
+            or (world_size > 1 and args.max_steps > 0 and synced_all_rank_steps >= args.max_steps),
+            device,
+        )
+        if is_rank0(rank):
+            print(
+                f"[sync] all_rank_steps={synced_all_rank_steps} "
+                f"round_weight={round_weight:.1f} rank0_step={global_step}/{total_steps} "
+                f"stop={int(stop_requested)}"
+            )
+            if fuse_stopped and not fuse_stop_saved:
+                emergency = output_dir / f"fuse_stop_step_{max(synced_all_rank_steps, global_step)}"
+                emergency.mkdir(parents=True, exist_ok=True)
+                bundle.unwrap().save_pretrained(str(emergency))
+                _save_adapter_config(emergency, bundle, args)
+                (emergency / "fuse_reason.txt").write_text(
+                    (
+                        "vision fuse triggered\n"
+                        f"trigger_rank={fuse_rank}\n"
+                        f"grad={fuse_grad:.4f}\n"
+                        f"param={fuse_param:.4f}\n"
+                        f"bad_steps={fuse_bad}\n"
+                        f"all_rank_steps={synced_all_rank_steps}\n"
+                    ),
+                    encoding="utf-8",
+                )
+                fuse_stop_saved = True
+                print(f"[fuse] diagnostic adapter -> {emergency}")
+            if (
+                (not args.check)
+                and (not fuse_stopped)
+                and args.save_steps > 0
+                and synced_all_rank_steps > 0
+                and synced_all_rank_steps // args.save_steps > last_saved_step // args.save_steps
+            ):
+                ckpt = output_dir / f"checkpoint-{synced_all_rank_steps}"
+                bundle.unwrap().save_pretrained(str(ckpt))
+                _save_adapter_config(ckpt, bundle, args)
+                saved.append(ckpt)
+                last_saved_step = synced_all_rank_steps
+                print(f"[save] averaged checkpoint -> {ckpt}")
+                if args.save_total_limit > 0 and len(saved) > args.save_total_limit:
+                    old = saved.pop(0)
+                    shutil.rmtree(old, ignore_errors=True)
+        round_local_steps = 0
+
+    for epoch in range(args.num_epochs):
+        if is_rank0(rank):
+            print(f"[epoch {epoch}] starting train_total={train_total}")
+        # 所有 rank 用同一 seed 重排 epoch_order，保证拿到同一份 idx -> ep 映射
+        epoch_rng = random.Random(args.seed * 131 + epoch * 17)
+        epoch_order = list(range(train_total))
+        epoch_rng.shuffle(epoch_order)
+
+        for round_idx in range(rounds_per_epoch):
+            if stop_requested:
+                break
+            round_start = round_idx * round_size
+            round_end = min(train_total, round_start + round_size)
+            counter_key = f"sft_v3_epoch_{epoch}_round_{round_idx}_counter"
+            local_counter = [round_start]
+            if store is not None and is_rank0(rank):
+                store.set(counter_key, str(round_start))
+            _barrier()  # 确保本轮 counter 已写入，再允许各 rank 开抢
+
+            while True:
+                if stop_requested or fuse_stopped or should_stop_local():
+                    stop_requested = True
+                    break
+
+                if store is not None:
+                    new_count = int(store.add(counter_key, 1))
+                    idx = new_count - 1
+                else:
+                    idx = local_counter[0]
+                    local_counter[0] += 1
+
+                if idx >= round_end:
+                    break
+
+                ep = train_ds.rows[epoch_order[idx]]
+                for pack in iter_episode_loss_packs(
+                    bundle,
+                    ep,
+                    max_length=args.max_length,
+                    outer_stride=args.outer_stride,
+                ):
+                    if stop_requested or fuse_stopped or should_stop_local():
+                        stop_requested = True
                         break
-                    for pack in iter_episode_loss_packs(
-                        bundle,
-                        ep,
-                        max_length=args.max_length,
-                        outer_stride=args.outer_stride,
-                    ):
-                        if fuse_stopped or (args.max_steps > 0 and global_step >= args.max_steps):
-                            break
-                        loss = (
-                            args.w_a1 * pack.a1
-                            + args.w_a2 * pack.a2
-                            + args.w_s2 * pack.s2
-                            + args.w_a3 * pack.a3
-                            + args.w_s3_status * pack.s3_status
-                            + args.w_s3_subgoal * pack.s3_subgoal
-                        )
-                        # 每帧结束就反传；这正对应“memory 已经被本帧学生输出更新，
-                        # 下一帧继续用新 memory”的在线递推训练口径。
-                        (loss / args.grad_accum).backward()
-                        accum_loss += _to_float(loss)
-                        accum_steps += 1
-                        stats["frames"] += 1
-                        stats["step3"] += int(pack.step3_ran)
-                        stats["flip"] += int(pack.scene_flip)
-                        stats["leak2"] += int(pack.leak2)
-                        stats["leak3"] += int(pack.leak3)
-                        stats["phase_a"] += int(pack.phase_a)
-                        stats["loss_a1"] += _to_float(pack.a1)
-                        stats["loss_a2"] += _to_float(pack.a2)
-                        stats["loss_a3"] += _to_float(pack.a3)
-                        stats["loss_s2"] += _to_float(pack.s2)
-                        stats["loss_s3_status"] += _to_float(pack.s3_status)
-                        stats["loss_s3_subgoal"] += _to_float(pack.s3_subgoal)
+                    loss = (
+                        args.w_a1 * pack.a1
+                        + args.w_a2 * pack.a2
+                        + args.w_s2 * pack.s2
+                        + args.w_a3 * pack.a3
+                        + args.w_s3_status * pack.s3_status
+                        + args.w_s3_subgoal * pack.s3_subgoal
+                    )
+                    (loss / args.grad_accum).backward()
+                    accum_loss += _to_float(loss)
+                    accum_steps += 1
+                    stats["frames"] += 1
+                    stats["step3"] += int(pack.step3_ran)
+                    stats["flip"] += int(pack.scene_flip)
+                    stats["leak2"] += int(pack.leak2)
+                    stats["leak3"] += int(pack.leak3)
+                    stats["phase_a"] += int(pack.phase_a)
+                    stats["loss_a1"] += _to_float(pack.a1)
+                    stats["loss_a2"] += _to_float(pack.a2)
+                    stats["loss_a3"] += _to_float(pack.a3)
+                    stats["loss_s2"] += _to_float(pack.s2)
+                    stats["loss_s3_status"] += _to_float(pack.s3_status)
+                    stats["loss_s3_subgoal"] += _to_float(pack.s3_subgoal)
 
-                        if accum_steps < args.grad_accum:
-                            continue
+                    if accum_steps < args.grad_accum:
+                        continue
 
-                        lang_norm = (
-                            torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm))
-                            if language_params
-                            else torch.tensor(0.0, device=device)
+                    lang_norm = (
+                        torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm))
+                        if language_params
+                        else torch.tensor(0.0, device=device)
+                    )
+                    vis_norm = (
+                        torch.nn.utils.clip_grad_norm_(vision_params, float(args.vision_clip_norm))
+                        if vision_params
+                        else torch.tensor(0.0, device=device)
+                    )
+                    vis_grad = float(vis_norm)
+                    vis_param_norm = _param_norm(vision_params) if vision_params else 0.0
+                    local_fuse = False
+                    if args.vision_guard_enabled and vision_params:
+                        bad = (
+                            (not math.isfinite(vis_grad))
+                            or vis_grad > float(args.vision_guard_grad_norm_max)
+                            or (not math.isfinite(vis_param_norm))
+                            or vis_param_norm > float(args.vision_guard_param_norm_max)
                         )
-                        vis_norm = (
-                            torch.nn.utils.clip_grad_norm_(vision_params, float(args.vision_clip_norm))
-                            if vision_params
-                            else torch.tensor(0.0, device=device)
+                        guard_bad_steps = guard_bad_steps + 1 if bad else 0
+                        local_fuse = guard_bad_steps >= args.vision_guard_patience
+                    if local_fuse:
+                        # 仅本地标记；fuse_stopped 真正生效要等 sync barrier allreduce。
+                        # 诊断文件统一在 sync 后由 rank0 写，确保非 rank0 触发也有记录。
+                        fuse_stopped = True
+                        last_fuse_grad = vis_grad
+                        last_fuse_param_norm = vis_param_norm
+                        last_fuse_bad_steps = guard_bad_steps
+                        break
+
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad(set_to_none=True)
+                    global_step += 1
+                    round_local_steps += 1
+
+                    if is_rank0(rank) and (global_step == 1 or global_step % max(1, args.logging_steps) == 0):
+                        frames = max(stats["frames"], 1)
+                        loss_scalar = accum_loss / max(accum_steps, 1)
+                        lrs = scheduler.get_last_lr()
+                        print(
+                            f"[train] epoch={epoch} round={round_idx + 1}/{rounds_per_epoch} "
+                            f"step={global_step}/{total_steps} loss={loss_scalar:.4f} "
+                            f"lr={float(lrs[0]) if lrs else 0.0:.2e} "
+                            f"step3={_safe_ratio(stats['step3'], frames):.3f} "
+                            f"flip={_safe_ratio(stats['flip'], frames):.3f} "
+                            f"leak2={_safe_ratio(stats['leak2'], frames):.3f} "
+                            f"leak3={_safe_ratio(stats['leak3'], max(stats['step3'], 1)):.3f} "
+                            f"phase_a={_safe_ratio(stats['phase_a'], frames):.3f} "
+                            f"all_rank_steps={synced_all_rank_steps} "
+                            f"elapsed={(time.time() - start_time) / 60.0:.1f}m"
                         )
-                        vis_grad = float(vis_norm)
-                        vis_param_norm = _param_norm(vision_params) if vision_params else 0.0
-                        local_fuse = False
-                        if args.vision_guard_enabled and vision_params:
-                            bad = (
-                                (not math.isfinite(vis_grad))
-                                or vis_grad > float(args.vision_guard_grad_norm_max)
-                                or (not math.isfinite(vis_param_norm))
-                                or vis_param_norm > float(args.vision_guard_param_norm_max)
+                        if tb is not None:
+                            language_param_norm = _param_norm(language_params) if language_params else 0.0
+                            tb.add_scalar("train/loss_total", loss_scalar, global_step)
+                            tb.add_scalar("train/loss/a1", stats["loss_a1"] / frames, global_step)
+                            tb.add_scalar("train/loss/a2", stats["loss_a2"] / frames, global_step)
+                            tb.add_scalar("train/loss/a3", stats["loss_a3"] / frames, global_step)
+                            tb.add_scalar("train/loss/s2", stats["loss_s2"] / frames, global_step)
+                            tb.add_scalar("train/loss/s3_status", stats["loss_s3_status"] / frames, global_step)
+                            tb.add_scalar("train/loss/s3_subgoal", stats["loss_s3_subgoal"] / frames, global_step)
+                            tb.add_scalar("train/loss_weight/a1", float(args.w_a1), global_step)
+                            tb.add_scalar("train/loss_weight/a2", float(args.w_a2), global_step)
+                            tb.add_scalar("train/loss_weight/a3", float(args.w_a3), global_step)
+                            tb.add_scalar("train/loss_weight/s2", float(args.w_s2), global_step)
+                            tb.add_scalar("train/loss_weight/s3_status", float(args.w_s3_status), global_step)
+                            tb.add_scalar("train/loss_weight/s3_subgoal", float(args.w_s3_subgoal), global_step)
+                            tb.add_scalar("train/lr", float(lrs[0]) if lrs else 0.0, global_step)
+                            if len(lrs) > 1:
+                                tb.add_scalar("train/lr_vision", float(lrs[1]), global_step)
+                            tb.add_scalar("train/step3_trigger_rate", _safe_ratio(stats["step3"], frames), global_step)
+                            tb.add_scalar("train/scene_flip_rate", _safe_ratio(stats["flip"], frames), global_step)
+                            tb.add_scalar("train/phase_a_frame_frac", _safe_ratio(stats["phase_a"], frames), global_step)
+                            tb.add_scalar("train/gt_leak_skip_rate/step2", _safe_ratio(stats["leak2"], frames), global_step)
+                            tb.add_scalar(
+                                "train/gt_leak_skip_rate/step3",
+                                _safe_ratio(stats["leak3"], max(stats["step3"], 1)),
+                                global_step,
                             )
-                            guard_bad_steps = guard_bad_steps + 1 if bad else 0
-                            local_fuse = guard_bad_steps >= args.vision_guard_patience
-                        if local_fuse:
-                            fuse_stopped = True
-                            if is_rank0(rank):
-                                emergency = output_dir / f"fuse_stop_step_{global_step + 1}"
-                                emergency.mkdir(parents=True, exist_ok=True)
-                                bundle.unwrap().save_pretrained(str(emergency))
-                                _save_adapter_config(emergency, bundle, args)
-                                (emergency / "fuse_reason.txt").write_text(
-                                    (
-                                        "vision fuse triggered\n"
-                                        f"grad={vis_grad:.4f}\n"
-                                        f"param={vis_param_norm:.4f}\n"
-                                        f"bad_steps={guard_bad_steps}\n"
-                                    ),
-                                    encoding="utf-8",
-                                )
-                            break
+                            tb.add_scalar("train/grad_norm/language", float(lang_norm), global_step)
+                            tb.add_scalar("train/grad_norm/vision", float(vis_norm), global_step)
+                            tb.add_scalar("train/param_norm/lora_language", language_param_norm, global_step)
+                            tb.add_scalar("train/param_norm/lora_vision", vis_param_norm, global_step)
+                            tb.add_scalar("train/vision_guard_bad_steps", float(guard_bad_steps), global_step)
+                            tb.add_scalar("train/all_rank_steps_at_last_sync", float(synced_all_rank_steps), global_step)
 
-                        optimizer.step()
-                        scheduler.step()
-                        optimizer.zero_grad(set_to_none=True)
-                        global_step += 1
+                    accum_steps = 0
+                    accum_loss = 0.0
+                    for key in stats:
+                        stats[key] = 0
 
-                        if is_rank0(rank) and (global_step == 1 or global_step % max(1, args.logging_steps) == 0):
-                            frames = max(stats["frames"], 1)
-                            loss_scalar = accum_loss / max(accum_steps, 1)
-                            lrs = scheduler.get_last_lr()
-                            print(
-                                f"[train] epoch={epoch} step={global_step}/{total_steps} "
-                                f"loss={loss_scalar:.4f} "
-                                f"lr={float(lrs[0]) if lrs else 0.0:.2e} "
-                                f"step3={_safe_ratio(stats['step3'], frames):.3f} "
-                                f"flip={_safe_ratio(stats['flip'], frames):.3f} "
-                                f"leak2={_safe_ratio(stats['leak2'], frames):.3f} "
-                                f"leak3={_safe_ratio(stats['leak3'], max(stats['step3'], 1)):.3f} "
-                                f"phase_a={_safe_ratio(stats['phase_a'], frames):.3f} "
-                                f"elapsed={(time.time() - start_time) / 60.0:.1f}m"
-                            )
-                            if tb is not None:
-                                language_param_norm = _param_norm(language_params) if language_params else 0.0
-                                tb.add_scalar("train/loss_total", loss_scalar, global_step)
-                                tb.add_scalar("train/loss/a1", stats["loss_a1"] / frames, global_step)
-                                tb.add_scalar("train/loss/a2", stats["loss_a2"] / frames, global_step)
-                                tb.add_scalar("train/loss/a3", stats["loss_a3"] / frames, global_step)
-                                tb.add_scalar("train/loss/s2", stats["loss_s2"] / frames, global_step)
-                                tb.add_scalar("train/loss/s3_status", stats["loss_s3_status"] / frames, global_step)
-                                tb.add_scalar("train/loss/s3_subgoal", stats["loss_s3_subgoal"] / frames, global_step)
-                                tb.add_scalar("train/loss_weight/a1", float(args.w_a1), global_step)
-                                tb.add_scalar("train/loss_weight/a2", float(args.w_a2), global_step)
-                                tb.add_scalar("train/loss_weight/a3", float(args.w_a3), global_step)
-                                tb.add_scalar("train/loss_weight/s2", float(args.w_s2), global_step)
-                                tb.add_scalar("train/loss_weight/s3_status", float(args.w_s3_status), global_step)
-                                tb.add_scalar("train/loss_weight/s3_subgoal", float(args.w_s3_subgoal), global_step)
-                                tb.add_scalar("train/lr", float(lrs[0]) if lrs else 0.0, global_step)
-                                if len(lrs) > 1:
-                                    tb.add_scalar("train/lr_vision", float(lrs[1]), global_step)
-                                tb.add_scalar("train/step3_trigger_rate", _safe_ratio(stats["step3"], frames), global_step)
-                                tb.add_scalar("train/scene_flip_rate", _safe_ratio(stats["flip"], frames), global_step)
-                                tb.add_scalar("train/phase_a_frame_frac", _safe_ratio(stats["phase_a"], frames), global_step)
-                                tb.add_scalar("train/gt_leak_skip_rate/step2", _safe_ratio(stats["leak2"], frames), global_step)
-                                tb.add_scalar(
-                                    "train/gt_leak_skip_rate/step3",
-                                    _safe_ratio(stats["leak3"], max(stats["step3"], 1)),
-                                    global_step,
-                                )
-                                tb.add_scalar("train/grad_norm/language", float(lang_norm), global_step)
-                                tb.add_scalar("train/grad_norm/vision", float(vis_norm), global_step)
-                                tb.add_scalar("train/param_norm/lora_language", language_param_norm, global_step)
-                                tb.add_scalar("train/param_norm/lora_vision", vis_param_norm, global_step)
-                                tb.add_scalar("train/vision_guard_bad_steps", float(guard_bad_steps), global_step)
-
-                        accum_steps = 0
-                        accum_loss = 0.0
-                        for key in stats:
-                            stats[key] = 0
-
-                        if (
-                            world_size <= 1
-                            and args.eval_steps > 0
-                            and val_loader is not None
-                            and global_step % args.eval_steps == 0
-                        ):
-                            metrics = evaluate_quick(bundle, val_loader, args)
-                            if is_rank0(rank):
-                                print(f"[eval@{global_step}] {metrics}")
-                                if tb is not None:
-                                    for key, value in metrics.items():
-                                        tb.add_scalar(f"val/{key}", float(value), global_step)
-
-                        if (
-                            (not args.check)
-                            and args.save_steps > 0
-                            and global_step % args.save_steps == 0
-                            and is_rank0(rank)
-                        ):
-                            ckpt = output_dir / f"checkpoint-{global_step}"
-                            bundle.unwrap().save_pretrained(str(ckpt))
-                            _save_adapter_config(ckpt, bundle, args)
-                            saved.append(ckpt)
-                            if args.save_total_limit > 0 and len(saved) > args.save_total_limit:
-                                old = saved.pop(0)
-                                shutil.rmtree(old, ignore_errors=True)
-
-                    # 单卡时 episode 尾部不足 grad_accum 的帧也更新一次。DDP 下不能在
-                    # episode 边界做不对齐的 tail step；默认 grad_accum=1，每帧同步更新。
+                    # in-loop eval 仅单进程：多 rank 下各 rank 参数还未平均，eval 没意义
                     if (
                         world_size <= 1
-                        and accum_steps > 0
-                        and not fuse_stopped
-                        and not (args.max_steps > 0 and global_step >= args.max_steps)
+                        and args.eval_steps > 0
+                        and val_loader is not None
+                        and global_step % args.eval_steps == 0
                     ):
-                        lang_norm = (
-                            torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm))
-                            if language_params
-                            else torch.tensor(0.0, device=device)
-                        )
-                        vis_norm = (
-                            torch.nn.utils.clip_grad_norm_(vision_params, float(args.vision_clip_norm))
-                            if vision_params
-                            else torch.tensor(0.0, device=device)
-                        )
-                        optimizer.step()
-                        scheduler.step()
-                        optimizer.zero_grad(set_to_none=True)
-                        global_step += 1
-                        if is_rank0(rank) and (global_step == 1 or global_step % max(1, args.logging_steps) == 0):
-                            print(
-                                f"[train] epoch={epoch} step={global_step}/{total_steps} "
-                                f"loss={accum_loss / max(accum_steps, 1):.4f} tail=1 "
-                                f"|g|_lang={float(lang_norm):.3f} |g|_vis={float(vis_norm):.3f} "
-                                f"elapsed={(time.time() - start_time) / 60.0:.1f}m"
-                            )
-                        accum_steps = 0
-                        accum_loss = 0.0
-                        for key in stats:
-                            stats[key] = 0
+                        metrics = evaluate_quick(bundle, val_loader, args)
+                        if is_rank0(rank):
+                            print(f"[eval@{global_step}] {metrics}")
+                            if tb is not None:
+                                for key, value in metrics.items():
+                                    tb.add_scalar(f"val/{key}", float(value), global_step)
 
-                    if fuse_stopped or (args.max_steps > 0 and global_step >= args.max_steps):
-                        break
-                if fuse_stopped or (args.max_steps > 0 and global_step >= args.max_steps):
-                    break
-            if fuse_stopped or (args.max_steps > 0 and global_step >= args.max_steps):
+                # episode 处理完，继续在当前 round 抢下一个。
+
+            do_sync_round()
+            if stop_requested:
                 break
+
+        if stop_requested:
+            break
 
     if tb is not None:
         tb.flush()
         tb.close()
 
+    # 训练结束时 rank0 保存最终 adapter。do_sync_round 已经把各 rank LoRA 参数
+    # allreduce 平均回同一份，rank0 保存的就是 averaged adapter。
     if is_rank0(rank) and not args.check and not fuse_stopped:
         final_dir = output_dir / "final"
         bundle.unwrap().save_pretrained(str(final_dir))

@@ -400,7 +400,12 @@ L_frame = w_A1 * L_A1
   episode-frame）。
 - Episode 内默认**每帧 backward + optimizer step**（`grad_accum=1`），避免显存随
   episode 长度爆炸，并与 OPD memory 在线更新口径一致。
-- DDP 下强制 `grad_accum=1`，每张卡默认 batch=1；梯度同步由 DDP 完成。
+- 多 rank 下不再强制 `grad_accum=1`（work-stealing + local-SGD 不依赖 rank 间
+  per-step 锁步），但默认仍 1；尾部不足 `grad_accum` 的梯度会在 sync/epoch
+  边界按实际帧数补尺度后再 step，避免 tail step 被系统性压小。梯度同步从
+  per-step 切到每 rank 目标 K 个 episode 后做参数平均，详见 9.1。
+- `per_device_batch_size` 在 v3 work-stealing 口径下固定为 1：每个 worker pull
+  一条 episode，episode 内逐帧推进 memory。
 
 ### 5.3 TensorBoard 记录
 
@@ -532,9 +537,10 @@ case_0/episode_meta.json
 
 ### 8.3 E3 训练时 in-loop val
 
-单卡时每 `EVAL_STEPS` 抽少量 val episode 跑 teacher-forced quick loss。DDP 下
-不做 in-loop eval；若 `WORLD_SIZE>1` 且 `--eval-steps > 0`，`train.py` 直接报错，
-要求训练后单独运行 `eval.py`，避免用户误以为多卡训练中已经跑了评估。
+单卡时每 `EVAL_STEPS` 抽少量 val episode 跑 teacher-forced quick loss。多 rank 下
+不做 in-loop eval（参数还未平均时各 rank 模型不同，eval 没意义）；若
+`WORLD_SIZE>1` 且 `--eval-steps > 0`，`train.py` 直接报错，要求训练后单独运行
+`eval.py`。
 
 ### 8.4 E4 单元 / 烟雾测试
 
@@ -559,19 +565,50 @@ case_0/episode_meta.json
 
 ## 9. 关键工程约束
 
-### 9.1 DDP 切分
+### 9.1 多卡分布式：work-stealing + local-SGD（已替换原 DDP+Join 方案）
 
-- 当前 `train.py` 支持 DDP；`train.sh` 默认模式为 `ddp`。
-- DataLoader 前按 episode 做无重复分片：`rows[rank::world_size]`，不使用会
-  padding/复制样本的 `DistributedSampler`。
-- 每张卡默认 `PER_DEVICE_BS=1`；DDP 下强制 `--grad-accum 1`，保证所有未 join
-  rank 每帧同步、每帧 step，避免不同 episode 长度导致 optimizer step 不对齐。
-- 训练循环用 `torch.distributed.algorithms.join.Join` 包住 DDP module，rank 间
-  episode 数或帧数不齐时，先跑完的 rank 进入 Join shadow，避免 NCCL hang。
-- rank0 负责 TensorBoard、checkpoint/final adapter 保存和主日志；非 rank 0
-  只训练。
-- DDP 下禁用 in-loop eval（`--eval-steps` 会提示跳过），避免不同 rank 因 episode
-  长度不同而在不同 local step 进入 eval；训练后单独跑 `eval.py`。
+- 历史教训：v3 的"每帧 ~330 次 DDP forward + 1 次 backward"训练循环跟标准
+  DDP+Join 不兼容——episode 帧数差异让各 rank collective 序列严重不一致
+  （同一 SeqNum 上有 rank 发 33M-elt grad allreduce、有 rank 发 1-elt Join 探测），
+  NCCL 直接 watchdog 超时。因此 v3 不再用 DDP wrap。
+- **work-stealing 调度**：所有 rank 加载同一份 `train_ds.rows`，每个 epoch 用同
+  seed 重排得到 `epoch_order`；rank0 在 init_process_group 自带的 TCPStore 上重置
+  `sft_v3_epoch_<n>_counter=0`，barrier 后各 rank 通过 `store.add(key, 1)`
+  原子递增抢下一个 `idx`。**谁空闲谁抢，全部 episode 都被训，没有截断**。
+- **初始化同步**：local-SGD 不包 DDP，因此模型创建后会先把 rank0 的 trainable
+  LoRA 参数广播到所有 rank，保证所有 worker 从同一个 adapter 起点出发。
+- **独立 forward/backward/optimizer.step**：每个 rank 各自维护 PEFT 模型副本
+  （不包 DDP），各自做 forward + backward + clip + step + scheduler.step。
+  无 per-step allreduce，per-rank 速度差异不再造成死锁。
+- **周期 LoRA 参数平均（local-SGD）**：参数 `--sync-every-episodes K`
+  （默认 16）。K 表示每个 rank 目标处理的 episode 数；每个 epoch 被切成若干个
+  `K * world_size` 全局 episode 的 sync round（`K=0` 时整 epoch 一轮）。每轮
+  counter 只允许抢 `[round_start, round_end)`，不会越过同步边界提前训练下一轮。
+  轮末先 flush 未满 `grad_accum` 的梯度，再对所有 trainable LoRA 参数做按本轮
+  optimizer step 数加权的参数平均；空闲 rank 权重为 0，只接收平均后的 adapter，
+  不再用旧参数稀释真正训练过的 rank。同步 `fuse_stopped` / `max_steps` 停止标志，
+  并用 allreduce 汇总出的 `all_rank_steps` 把各 rank scheduler 对齐到同一 LR
+  曲线位置。Adam 的 m/v 不平均，各 rank 自留——标准 local-SGD 做法。
+- **checkpoint 只保存平均后参数**：多 rank 下 `checkpoint-*` 与 `final/` 都只在
+  sync round 结束、LoRA 参数平均完成后由 rank0 保存；checkpoint 名中的 step 使用
+  all-rank optimizer step 汇总值。
+- **`max_steps/check` 是 debug 口径**：`max_steps>0` 会在 episode 内截断，普通训练
+  默认直接拒绝；只有 `--check` 或显式 `--allow-max-steps-truncation` 才允许。多
+  rank debug 时会把 sync round 缩到 1 个 episode，并允许本 rank 达到本地步数后
+  提前等待 barrier；全局停止仍在 sync 后广播。完整训练默认 `MAX_STEPS=0`，不会截断
+  episode。
+- **barrier 数量守恒**：每 epoch 每个 rank 做相同数量的 sync round，
+  = `ceil(train_total/(K * world_size))`（`K=0` 时为 1 个 epoch-end round），否则 NCCL
+  collective 数对不上还是会死锁。轮级 counter 天然保证所有 rank 在同一轮结束
+  后一起参数平均，不再需要旧版 catch-up 循环。
+- **K 的取舍**：K=1 时每个 rank 通常至多跑 1 条 episode 后同步，最接近同步 SGD
+  （慢但严格）；K=16 默认在收敛与吞吐间取平衡；K=0 仅 epoch 末同步（最快但参数
+  漂移最大，不推荐除非 epoch 很短）。
+- **rank0** 负责 TensorBoard、checkpoint/final adapter 保存和主日志；非 rank0
+  只训练。日志里的 `step` 是 rank0 自己的 optimizer.step 计数；sync 日志里的
+  `all_rank_steps` 是 allreduce 汇总后的全 rank 实际 optimizer step 数。
+- **多 rank 下禁用 in-loop eval**：参数还未平均时各 rank 模型不同，eval 没有
+  意义；训练后用 `eval.py` 跑完整指标。
 
 ### 9.2 防覆盖目录约定
 
@@ -638,7 +675,9 @@ case_0/episode_meta.json
     分项 TB 记录。
 13. **LoRA 接口**：与 v2 完全同构（`--lora-vision-scope` + 全套保险），
     默认 `off`。
-14. **DDP**：已实现，按 episode rank 分片 + DDP Join；多卡强制 `grad_accum=1`。
+14. **多卡训练**：已改为 work-stealing + local-SGD；不包 DDP、不静态分片、不截断
+    episode 尾部；启动后广播 rank0 LoRA 初始权重，按本轮 optimizer step 数加权
+    平均 LoRA 参数，sync 后保存 averaged checkpoint，`grad_accum` 不再被多卡强制改为 1。
 15. **数据持久化**：只写 episode index，不写训练样本。
 16. **KV cache 共享语义（D1 拍板）**：所谓"prefix 只 prefill 一次"指的是同一个
     模型内部 step1 → step2 → step3 链式复用 KV；teacher / student 各自 prefill

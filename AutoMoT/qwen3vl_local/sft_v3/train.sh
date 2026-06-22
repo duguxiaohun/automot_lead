@@ -54,10 +54,13 @@ W_S3_STATUS="${W_S3_STATUS:-1.0}"
 W_S3_SUBGOAL="${W_S3_SUBGOAL:-1.0}"
 LOGGING_STEPS="${LOGGING_STEPS:-1}"
 SAVE_STEPS="${SAVE_STEPS:-1000}"
-# DDP 下 train.py 会拒绝 EVAL_STEPS>0；完整自由生成评估请训练后单独跑 eval.py。
+# 多卡 work-stealing 下 train.py 会拒绝 EVAL_STEPS>0；完整自由生成评估请训练后单独跑 eval.py。
 EVAL_STEPS="${EVAL_STEPS:-0}"
 SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-3}"
 MAX_EVAL_EPISODES="${MAX_EVAL_EPISODES:-8}"
+MAX_STEPS="${MAX_STEPS:-0}"
+ALLOW_MAX_STEPS_TRUNCATION="${ALLOW_MAX_STEPS_TRUNCATION:-0}"
+SYNC_EVERY_EPISODES="${SYNC_EVERY_EPISODES:-16}"
 GRAD_ACCUM="${GRAD_ACCUM:-1}"
 PER_DEVICE_BS="${PER_DEVICE_BS:-1}"
 
@@ -133,7 +136,7 @@ case "${MODE}" in
         NPROC=1
         ;;
     ddp)
-        # DDP_GPU_COUNT 只表示需要几张空闲卡；具体卡号默认自动挑选。
+        # DDP_GPU_COUNT 是历史变量名；这里只表示需要几张空闲卡，具体卡号默认自动挑选。
         echo "[mode] ddp"
         DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
         if [[ -n "${GPU_IDS:-}" ]]; then
@@ -170,6 +173,10 @@ fi
 
 if [[ "${LORA_VISION}" == "1" ]]; then
     EXTRA_ARGS+=("--lora-vision")
+fi
+
+if [[ "${ALLOW_MAX_STEPS_TRUNCATION}" == "1" ]]; then
+    EXTRA_ARGS+=("--allow-max-steps-truncation")
 fi
 
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
@@ -210,6 +217,8 @@ PY_ARGS=(
     --eval-steps "${EVAL_STEPS}" \
     --save-total-limit "${SAVE_TOTAL_LIMIT}" \
     --max-eval-episodes "${MAX_EVAL_EPISODES}" \
+    --max-steps "${MAX_STEPS}" \
+    --sync-every-episodes "${SYNC_EVERY_EPISODES}" \
     "${EXTRA_ARGS[@]}"
 )
 
