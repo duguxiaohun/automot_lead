@@ -180,9 +180,9 @@ def _adapter_state_keys(adapter_path: pathlib.Path) -> List[str]:
 def _inspect_lora_adapter(adapter_path: pathlib.Path) -> Dict[str, Any]:
     """像 LeadMoT 读 decoder_config 一样，先读取 LoRA adapter 自描述配置。
 
-    PEFT 的 ``adapter_config.json`` 决定实际实例化哪些 LoRA 分支；SFT v2 训练还会额外
-    写 ``sft_v2_adapter_config.json``，显式记录 ``lora_vision``。这里加载前先校验
-    config 与权重 key 是否一致，避免普通 LoRA / 视觉 LoRA 混用时出现静默忽略。
+    PEFT 的 ``adapter_config.json`` 决定实际实例化哪些 LoRA 分支；SFT v2 / v3 训练
+    还会额外写 ``sft_v*_adapter_config.json``，显式记录 ``lora_vision``。这里加载前
+    先校验 config 与权重 key 是否一致，避免普通 LoRA / 视觉 LoRA 混用时出现静默忽略。
     """
 
     peft_config_path = adapter_path / "adapter_config.json"
@@ -196,6 +196,11 @@ def _inspect_lora_adapter(adapter_path: pathlib.Path) -> Dict[str, Any]:
     state_has_vision = any(_name_has_vision_marker(key) for key in state_keys)
 
     sft_config_path = adapter_path / "sft_v2_adapter_config.json"
+    for candidate in ("sft_v3_adapter_config.json", "sft_v2_adapter_config.json"):
+        candidate_path = adapter_path / candidate
+        if candidate_path.exists():
+            sft_config_path = candidate_path
+            break
     sft_config: Dict[str, Any] = {}
     if sft_config_path.exists():
         sft_config = json.loads(sft_config_path.read_text(encoding="utf-8"))
@@ -246,7 +251,8 @@ def _inspect_lora_adapter(adapter_path: pathlib.Path) -> Dict[str, Any]:
         "target_modules": target_modules,
         "state_key_count": len(state_keys),
         "lora_vision": bool(state_has_vision),
-        "sft_v2_config": sft_config,
+        "sft_config_path": str(sft_config_path) if sft_config else "",
+        "sft_config": sft_config,
     }
 
 
@@ -255,17 +261,38 @@ def _clone_cache(cache: Any) -> Any:
 
     transformers 的 DynamicCache 在增量推理时可能被原地 append。如果直接复用
     system prompt 的同一个 cache 对象，第一次 user suffix prefill 就可能污染缓存。
-    因此这里把 cache 转成 legacy tuple，并 clone 其中 tensor；这样每次调用都拿到
-    一份干净的 system-prefix cache。
+    因此这里把 cache 转成 legacy tuple、clone 其中 tensor，再尝试用原 Cache 类的
+    ``from_legacy_cache`` 装回去：新版 transformers 的 Qwen3-VL forward 要求
+    ``past_key_values`` 是 Cache 对象（会调 ``get_seq_length()``），直接传 tuple 会
+    `AttributeError`。装不回去时（极少见的非标准 Cache 实现）才退回 legacy tuple，
+    保持与旧版 transformers 兼容。
     """
 
+    if cache is None:
+        return None
+
+    cache_cls: Any = None
     if hasattr(cache, "to_legacy_cache"):
+        cache_cls = type(cache)
         cache = cache.to_legacy_cache()
 
+    cloned = _clone_legacy_cache(cache)
+
+    if cache_cls is not None and hasattr(cache_cls, "from_legacy_cache"):
+        try:
+            return cache_cls.from_legacy_cache(cloned)
+        except Exception:
+            return cloned
+    return cloned
+
+
+def _clone_legacy_cache(cache: Any) -> Any:
+    """深拷贝 legacy tuple/list 结构的 KV cache（保持结构、tensor 一律 detach+clone）。"""
+
     if isinstance(cache, tuple):
-        return tuple(_clone_cache(x) for x in cache)
+        return tuple(_clone_legacy_cache(x) for x in cache)
     if isinstance(cache, list):
-        return [_clone_cache(x) for x in cache]
+        return [_clone_legacy_cache(x) for x in cache]
     if hasattr(cache, "detach") and hasattr(cache, "clone"):
         return cache.detach().clone()
     return cache
@@ -366,7 +393,7 @@ class LocalQwen3VLInstructEngine:
         必须先 self.load()：PeftModel.from_pretrained 需要一个已经加载到设备上的 base
         model 才能包；忘记 load 会把 None 传给 PEFT 直接崩。
 
-        加载前会先读取 adapter_config.json / sft_v2_adapter_config.json，确认普通语言
+        加载前会先读取 adapter_config.json / sft_v2 或 sft_v3 adapter config，确认普通语言
         LoRA 与视觉+语言 LoRA 的配置和权重 key 一致。PEFT 随后按配置实例化 adapter；
         原始 checkpoint 目录里的 Qwen base 权重始终不写回、不覆盖。
 
