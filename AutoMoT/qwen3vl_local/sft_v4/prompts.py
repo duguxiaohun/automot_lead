@@ -152,15 +152,21 @@ def init_memory(
     注入，让多 collector 对同一 episode 能产生可复现但不同的初始扰动。
     """
 
+    # 防止命令行传入越界值：小于 0 当 0，大于 1 当 1。这样 collector 的 env 调参
+    # 不会因为拼错概率导致随机分支异常。
     p = min(1.0, max(0.0, float(p_init_correct)))
+    # seed 只由数据身份 + collector/policy salt 决定，不使用全局 random 状态。
+    # 好处是：同一配置重跑可复现；不同 collector / snapshot 版本又能产生不同扰动。
     seed_src = f"{run_id}::{sub_scenario_id}::{seed_salt}".encode("utf-8")
     seed = int(hashlib.sha256(seed_src).hexdigest(), 16) % (2**31)
     rng = random.Random(seed)
     candidates = sorted(SCENARIO_LABELS.keys())
     if gt_scene is not None and gt_scene in SCENARIO_LABELS and rng.random() < p:
+        # 初始正确样本：训练学生在 Phase A 学会“memory 已经对时不要乱改”。
         scene = gt_scene
     else:
         if gt_scene is not None and gt_scene in SCENARIO_LABELS and len(candidates) > 1:
+            # 初始错误样本：排除 GT 后随机抽，让学生学习“看到证据后翻转 scene”。
             candidates = [s for s in candidates if s != gt_scene]
         scene = rng.choice(candidates)
     return Memory(

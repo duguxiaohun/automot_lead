@@ -23,6 +23,21 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
 5. `learn.py`：理解 learner-only DDP、teacher-forced loss 和 snapshot 发布。
 6. `eval.py` / `probe.py`：理解自由生成评估和 case dump。
 
+源码注释索引：
+
+- `replay.py`：看 `ensure_replay_dirs` 理解目录语义；看 `directory_lock` /
+  `claim_episode_index` 理解多 collector 抢任务；看 `write_trajectory` 理解
+  `pending -> ready` 原子切换；看 `sample_ready_file` 理解为什么 learner 允许重抽。
+- `collect.py`：看 `_load_adapter_state_if_present` / `_maybe_refresh_snapshot` 理解
+  LoRA snapshot 加载；看 `_inject_phase_b_noise` 理解 Phase B 噪声；看
+  `collect_episode` 里的 teacher/student 分支和 step3 触发注释，理解一条 trajectory
+  如何生成。
+- `learn.py`：看 `_sync_bool` 理解 replay 空时为什么不会发 NCCL collective；看
+  `trajectory_loss` 理解 learner 如何用 student raw output 复现 KV 上下文但不 generate；
+  看 `publish_snapshot` / `save_checkpoint` 理解 snapshot 与 checkpoint 的区别。
+- `launch_offpolicy.sh`：脚本顶部写了进程布局；路径/env/选卡/STOP 收尾块都有中文注释，
+  改部署比例时优先看这里。
+
 当前关键边界：
 
 - `delta = min(anchor[1]-anchor[0], anchor[2]-anchor[1]) // 2`，只封顶 10，允许
@@ -74,12 +89,6 @@ bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 
 ```bash
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v4/launch_offpolicy.sh
-```
-
-显式指定 learner / collector 卡：
-
-```bash
-LEARNER_GPU_IDS=0,1 COLLECTOR_GPU_IDS=2,3 bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 ```
 
 launcher 会做这些事：
@@ -145,6 +154,23 @@ bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 - `STOP`：正常停止哨兵，collector 会在 episode 结束后观察并退出。
 
 ### 兼容入口
+
+从最近 checkpoint 恢复：
+
+```bash
+RESUME_FROM_CHECKPOINT=latest GPU_IDS=0,1,2,3 \
+bash qwen3vl_local/sft_v4/launch_offpolicy.sh
+```
+
+也可以指定明确目录：
+
+```bash
+RESUME_FROM_CHECKPOINT=checkpoints/sft_v4_lora/latest/checkpoint-5000 GPU_IDS=0,1,2,3 \
+bash qwen3vl_local/sft_v4/launch_offpolicy.sh
+```
+
+恢复后 learner 会加载 adapter/optimizer/scheduler，并从恢复 step 重新发布
+`latest_lora/v_<step>/` 给 collectors。
 
 `train.sh` / `train.py` 仍可用于单卡或历史 on-policy debug，但它会回到
 work-stealing + local-SGD 口径，不是 v4 off-policy 生产训练路径：

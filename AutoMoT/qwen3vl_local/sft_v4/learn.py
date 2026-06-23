@@ -4,13 +4,25 @@ learner 是唯一进入 DDP 的角色：两个 rank 从 replay 随机抽 traject
 teacher-forced loss + backward，不再现场 generate。collector 慢时 learner 只 sleep
 等 ready 文件，不发起 NCCL collective；一旦两个 rank 都拿到有效 trajectory，每步
 都执行一次同构 backward，DDP 梯度同步保持 lockstep。
+
+运行方式：
+
+``launch_offpolicy.sh`` 用 ``torchrun --nproc_per_node=2`` 启动本脚本。每个 rank
+各自随机抽一条 trajectory，构成 effective batch=2；rank0 负责 TensorBoard、checkpoint
+和给 collector 使用的 LoRA snapshot。
+
+训练语义：
+
+- collector 已经完成 teacher/student generate，learner 绝不调用 generate；
+- learner 重新读取图像做 prefill，但只对 assistant target token 计算 CE；
+- student raw output 只用来复现 collector 当时的 KV 对话上下文；
+- 两个 DDP rank 每个 step 都只 backward 一次，因此 collective 顺序固定。
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import pathlib
 import random
@@ -63,7 +75,6 @@ from qwen3vl_local.sft_v4.train import (
     _build_messages_with_images,
     _clone_kv_state,
     _load_images,
-    _param_norm,
     _safe_ratio,
     _student_start_state,
     _to_float,
@@ -71,7 +82,11 @@ from qwen3vl_local.sft_v4.train import (
 
 
 def setup_distributed() -> Tuple[int, int, int]:
-    """初始化 learner-only DDP process group。"""
+    """初始化 learner-only DDP process group。
+
+    collector 完全不调用这个函数。若用户单进程调试 ``learn.py``，环境里没有 ``RANK``，
+    则退化为 rank0/world_size=1，不创建 process group。
+    """
 
     if "RANK" not in os.environ:
         return 0, 1, 0
@@ -86,7 +101,10 @@ def setup_distributed() -> Tuple[int, int, int]:
 
 
 def cleanup_distributed() -> None:
-    """关闭 DDP process group。"""
+    """关闭 DDP process group。
+
+    只在 learner 进程里调用；collector 没有 process group，也就没有清理动作。
+    """
 
     if dist.is_available() and dist.is_initialized():
         dist.destroy_process_group()
@@ -99,7 +117,12 @@ def is_rank0(rank: int) -> bool:
 
 
 def _sync_bool(value: bool, device: torch.device, *, op: Any = None) -> bool:
-    """跨 learner ranks 同步 bool；默认 MIN 语义用于“所有 rank 都 ready”。"""
+    """跨 learner ranks 同步 bool；默认 MIN 语义用于“所有 rank 都 ready”。
+
+    replay 为空时不能让某个 rank 先 backward、另一个 rank sleep，否则 DDP collective
+    数会不匹配。这里用一个 1 元素 tensor 做 CPU/GPU 侧的轻量 allreduce，只有所有 rank
+    都拿到有效 trajectory 才进入真正的 loss/backward。
+    """
 
     if not (dist.is_available() and dist.is_initialized()):
         return bool(value)
@@ -109,7 +132,11 @@ def _sync_bool(value: bool, device: torch.device, *, op: Any = None) -> bool:
 
 
 def _memory_from_record(payload: Dict[str, Any]) -> Any:
-    """把 trajectory 中的 memory dict 还原成 prompts.Memory。"""
+    """把 trajectory 中的 memory dict 还原成 prompts.Memory。
+
+    collector 写盘时把 dataclass 展平成普通 dict；learner 在构造 step2/step3 prompt 前
+    需要还原成 ``Memory``，这样可以继续复用 prompts.py 里的格式化逻辑。
+    """
 
     from qwen3vl_local.sft_v4.prompts import Memory
 
@@ -123,8 +150,42 @@ def _memory_from_record(payload: Dict[str, Any]) -> Any:
     )
 
 
+def _frame_teacher_targets(frame: Dict[str, Any]) -> Dict[str, str]:
+    """统一读取 trajectory 里的 teacher target，兼容 PLAN 平铺字段和旧 nested 字段。"""
+
+    nested = frame.get("teacher_targets") or {}
+    return {
+        "step1": str(nested.get("step1") or frame.get("teacher_step1_text") or ""),
+        "step2": str(nested.get("step2") or frame.get("teacher_step2_raw") or ""),
+        "step3": str(nested.get("step3") or frame.get("teacher_step3_raw") or ""),
+    }
+
+
+def _frame_student_outputs(frame: Dict[str, Any]) -> Dict[str, str]:
+    """统一读取 collector 存下的 student raw 输出，兼容新旧 trajectory 字段。"""
+
+    nested = frame.get("student_outputs") or {}
+    return {
+        "step1": str(nested.get("step1") or frame.get("student_step1_raw") or ""),
+        "step2": str(nested.get("step2") or frame.get("student_step2_raw") or ""),
+        "step3": str(nested.get("step3") or frame.get("student_step3_raw") or ""),
+    }
+
+
+def _frame_step3_fired(frame: Dict[str, Any]) -> bool:
+    """统一读取 step3 触发标志。"""
+
+    flags = frame.get("flags") or {}
+    return bool(frame.get("step3_fired", frame.get("step3_ran", flags.get("step3_ran", False))))
+
+
 def _append_student_raw(bundle: Any, state: Any, text: str) -> Any:
-    """把 collector 当时的 student raw 输出写入 KV，用于复现后续 user turn。"""
+    """把 collector 当时的 student raw 输出写入 KV，用于复现后续 user turn。
+
+    learner 不关心这段 student raw 的 loss；它只是对话历史的一部分。举例：
+    step3 prompt 必须接在 collector 当时的 student step2 输出后面，否则 KV 上下文就和
+    trajectory 采集时不一致。
+    """
 
     raw = text.strip() if text else ""
     if not raw:
@@ -141,6 +202,7 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
     ``student_outputs`` 复现，梯度只来自 teacher target 的 token CE。
     """
 
+    # total 保持为 Tensor，确保最后 loss.backward() 能追到 LoRA 参数。
     total: Optional[torch.Tensor] = None
     stats: Dict[str, float] = {
         "frames": 0.0,
@@ -158,29 +220,38 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
     }
     zero_ref: Optional[torch.Tensor] = None
     for frame in replay.iter_frame_records(records):
+        # 图像不存入 replay，按路径重读。prefill 在 train.py helper 内默认 no_grad，
+        # 训练梯度只来自后续 assistant target 的 token CE。
         images = _load_images([str(p) for p in frame["image_paths"]])
-        memory_before = _memory_from_record(frame["memory_before"])
-        targets = frame["teacher_targets"]
-        student_outputs = frame.get("student_outputs") or {}
+        memory_payload = frame.get("memory_before") or frame.get("memory_before_frame")
+        if not memory_payload:
+            raise ValueError("trajectory frame missing memory_before/memory_before_frame")
+        memory_before = _memory_from_record(memory_payload)
+        targets = _frame_teacher_targets(frame)
+        student_outputs = _frame_student_outputs(frame)
         flags = frame.get("flags") or {}
 
         step1_user = build_step1_user_prompt(len(images))
         messages = _build_messages_with_images(user_text=step1_user, images=images)
         step1_prompt_state = _student_start_state(bundle, messages)
+        # step1 只有分析文本，没有离散标签；lambda 返回空 span 表，loss 只走 analysis。
         step1_parts = _assistant_loss_from_state(
             bundle,
             _clone_kv_state(step1_prompt_state),
-            str(targets["step1"]),
+            targets["step1"],
             lambda _text: {},
             analysis_enabled=True,
         )
         zero_ref = step1_parts["analysis"] * 0.0
 
+        # 用 collector 存下来的 student step1 原文推进 KV，再追加 step2 user prompt。
+        # 这样 step2 teacher-forced target 的前文与采集时的 student 对话一致。
         student_step1_state = _append_student_raw(bundle, _clone_kv_state(step1_prompt_state), str(student_outputs.get("step1", "")))
         step2_prompt_state = _append_user_turn(bundle, student_step1_state, build_step2_student_prompt(memory_before))
-        target2 = str(targets["step2"])
+        target2 = targets["step2"]
         analysis2 = _analysis_before_labels(target2)
         leak2 = bool(flags.get("leak2", check_gt_leak_scene(analysis2, str((frame.get("gt") or {}).get("scene", "")))))
+        # 如果 teacher 分析文本字面泄露 GT scene，就跳过分析 loss，但仍监督 SCENE 值 token。
         step2_parts = _assistant_loss_from_state(
             bundle,
             _clone_kv_state(step2_prompt_state),
@@ -193,7 +264,9 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
         s3_status = zero_ref
         s3_subgoal = zero_ref
         leak3 = bool(flags.get("leak3", False))
-        if bool(frame.get("step3_ran", flags.get("step3_ran", False))):
+        if _frame_step3_fired(frame):
+            # step3 的 prompt 必须接在 collector 当时的 student step2 输出之后；再用
+            # trajectory 里记录的 memory_after_step2 格式化 user prompt。
             student_step2_state = _append_student_raw(
                 bundle,
                 _clone_kv_state(step2_prompt_state),
@@ -201,10 +274,11 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
             )
             memory_after_step2 = _memory_from_record(frame["memory_after_step2"])
             step3_prompt_state = _append_user_turn(bundle, student_step2_state, build_step3_student_prompt(memory_after_step2))
-            target3 = str(targets.get("step3", ""))
+            target3 = targets.get("step3", "")
             gt = frame.get("gt") or {}
             analysis3 = _analysis_before_labels(target3)
             leak3 = bool(flags.get("leak3", check_gt_leak_status_subgoal(analysis3, str(gt.get("status", "")), str(gt.get("subgoal", "")))))
+            # step3 同理：泄露时只跳过分析段，保留 status/subgoal 值 token 监督。
             step3_parts = _assistant_loss_from_state(
                 bundle,
                 _clone_kv_state(step3_prompt_state),
@@ -216,6 +290,7 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
             s3_status = step3_parts["status"]
             s3_subgoal = step3_parts["subgoal"]
 
+        # 分项权重与 on-policy v4 保持同口径：分析 token 是辅助监督，离散值 token 权重大。
         loss = (
             float(args.w_a1) * step1_parts["analysis"]
             + float(args.w_a2) * step2_parts["analysis"]
@@ -226,7 +301,7 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
         )
         total = loss if total is None else total + loss
         stats["frames"] += 1.0
-        stats["step3"] += float(bool(frame.get("step3_ran", flags.get("step3_ran", False))))
+        stats["step3"] += float(_frame_step3_fired(frame))
         stats["phase_a"] += float(bool(flags.get("phase_a", frame.get("phase") == "A")))
         stats["noise"] += float(bool(flags.get("noise_injected", False)))
         stats["leak2"] += float(leak2)
@@ -244,7 +319,11 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
 
 
 def sample_valid_trajectory(replay_dir: pathlib.Path, rng: random.Random, attempts: int = 8) -> Tuple[Optional[pathlib.Path], Optional[List[Dict[str, Any]]]]:
-    """随机抽一条可读 trajectory；坏文件会移到 failed 并继续尝试。"""
+    """随机抽一条可读 trajectory；坏文件会移到 failed 并继续尝试。
+
+    文件可能在 learner 列表后被 FIFO 驱逐，或由旧版本 collector 写坏。这里把异常吞掉
+    并重抽，避免一个坏样本打断整个 DDP 训练。
+    """
 
     for _ in range(max(1, attempts)):
         path = replay.sample_ready_file(replay_dir, rng)
@@ -264,7 +343,11 @@ def sample_valid_trajectory(replay_dir: pathlib.Path, rng: random.Random, attemp
 
 
 def _trainable_groups(bundle: Any, args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[nn.Parameter], List[nn.Parameter]]:
-    """按语言/视觉 LoRA 参数分组，复用 v2/v3 的 LR 和裁剪策略。"""
+    """按语言/视觉 LoRA 参数分组，复用 v2/v3 的 LR 和裁剪策略。
+
+    默认视觉 LoRA 关闭；如果用户显式开启，视觉参数会单独使用较小 LR 和 clip norm。
+    v4 learner 的图像 prefill 默认 no_grad，因此视觉 LoRA 主要是兼容接口，不建议生产打开。
+    """
 
     language_params: List[nn.Parameter] = []
     vision_params: List[nn.Parameter] = []
@@ -286,7 +369,11 @@ def _trainable_groups(bundle: Any, args: argparse.Namespace) -> Tuple[List[Dict[
 
 
 def _write_adapter_metadata(path: pathlib.Path, bundle: Any, args: argparse.Namespace, *, step: int, kind: str) -> None:
-    """写 v4 off-policy adapter 自描述配置。"""
+    """写 v4 off-policy adapter 自描述配置。
+
+    这个 JSON 是后续 eval/probe/审计判断 adapter 来源的依据：能看出它来自 off-policy
+    actor-learner、learner world_size、collector 数、snapshot 频率和 loss 权重。
+    """
 
     targets = list(bundle.lora_target_modules)
     payload = {
@@ -319,7 +406,12 @@ def _write_adapter_metadata(path: pathlib.Path, bundle: Any, args: argparse.Name
 
 
 def publish_snapshot(bundle: Any, args: argparse.Namespace, *, step: int) -> pathlib.Path:
-    """rank0 发布给 collectors 使用的 LoRA snapshot，并原子更新 current_version.txt。"""
+    """rank0 发布给 collectors 使用的 LoRA snapshot，并原子更新 current_version.txt。
+
+    snapshot 只给 collector 做采集策略，不包含 optimizer/scheduler。发布顺序是：
+    先写临时目录 -> rename 成 ``v_<step>`` -> 最后更新 pointer。collector 只看 pointer，
+    因此不会加载半写入目录。
+    """
 
     latest = pathlib.Path(args.output_dir) / "latest_lora"
     latest.mkdir(parents=True, exist_ok=True)
@@ -332,6 +424,7 @@ def publish_snapshot(bundle: Any, args: argparse.Namespace, *, step: int) -> pat
     if target.exists():
         shutil.rmtree(target, ignore_errors=True)
     tmp.rename(target)
+    # pointer 最后写，且同样用 tmp+replace，保证 collector 要么看到旧版本，要么看到新版本。
     pointer = latest / "current_version.txt"
     pointer_tmp = latest / "current_version.txt.tmp"
     pointer_tmp.write_text(str(int(step)), encoding="utf-8")
@@ -346,8 +439,68 @@ def publish_snapshot(bundle: Any, args: argparse.Namespace, *, step: int) -> pat
     return target
 
 
+def _load_adapter_state(bundle: Any, adapter_dir: pathlib.Path) -> None:
+    """把 PEFT adapter 权重加载到当前 bundle，供 resume checkpoint 使用。"""
+
+    adapter_dir = pathlib.Path(adapter_dir)
+    safetensors_path = adapter_dir / "adapter_model.safetensors"
+    bin_path = adapter_dir / "adapter_model.bin"
+    if safetensors_path.exists():
+        from safetensors.torch import load_file
+
+        state = load_file(str(safetensors_path), device=str(bundle.device))
+    elif bin_path.exists():
+        state = torch.load(str(bin_path), map_location=bundle.device)
+    else:
+        raise FileNotFoundError(f"adapter weights not found under {adapter_dir}")
+    from peft import set_peft_model_state_dict
+
+    set_peft_model_state_dict(bundle.unwrap(), state)
+
+
+def load_checkpoint_if_requested(
+    bundle: Any,
+    optimizer: torch.optim.Optimizer,
+    scheduler: Any,
+    args: argparse.Namespace,
+) -> int:
+    """恢复 learner checkpoint，返回起始 global_step。
+
+    checkpoint 目录由 ``save_checkpoint`` 生成，包含 PEFT adapter 权重和
+    ``trainer_state.pt``。恢复后 rank0 会用同一个 step 重新发布 LoRA snapshot，
+    collector 后续就能从恢复点继续采样。
+    """
+
+    ckpt_arg = str(getattr(args, "resume_from_checkpoint", "") or "").strip()
+    if not ckpt_arg:
+        return 0
+    ckpt = pathlib.Path(ckpt_arg)
+    if ckpt.name == "latest":
+        candidates = sorted(
+            [p for p in pathlib.Path(args.output_dir).glob("checkpoint-*") if p.is_dir()],
+            key=lambda p: int(p.name.split("-")[-1]) if p.name.split("-")[-1].isdigit() else -1,
+        )
+        if not candidates:
+            raise FileNotFoundError(f"no checkpoint-* dirs under {args.output_dir}")
+        ckpt = candidates[-1]
+    if not ckpt.exists():
+        raise FileNotFoundError(f"resume checkpoint not found: {ckpt}")
+    _load_adapter_state(bundle, ckpt)
+    state_path = ckpt / "trainer_state.pt"
+    if not state_path.exists():
+        raise FileNotFoundError(f"trainer_state.pt missing in checkpoint: {ckpt}")
+    state = torch.load(str(state_path), map_location=bundle.device)
+    optimizer.load_state_dict(state["optimizer"])
+    scheduler.load_state_dict(state["scheduler"])
+    return int(state.get("step", 0))
+
+
 def save_checkpoint(bundle: Any, optimizer: torch.optim.Optimizer, scheduler: Any, args: argparse.Namespace, *, step: int) -> pathlib.Path:
-    """rank0 保存可恢复训练 checkpoint。"""
+    """rank0 保存可恢复训练 checkpoint。
+
+    checkpoint 与 snapshot 分开：checkpoint 给恢复训练用，额外包含 optimizer/scheduler；
+    snapshot 给 collector 用，只要求能加载 LoRA adapter。
+    """
 
     ckpt = pathlib.Path(args.output_dir) / f"checkpoint-{int(step)}"
     tmp = pathlib.Path(args.output_dir) / f".tmp_checkpoint_{int(step)}_{os.getpid()}"
@@ -370,7 +523,11 @@ def save_checkpoint(bundle: Any, optimizer: torch.optim.Optimizer, scheduler: An
 
 
 def parse_args() -> argparse.Namespace:
-    """解析 learner 参数。"""
+    """解析 learner 参数。
+
+    通常不要手写这些参数，直接通过 ``launch_offpolicy.sh`` 的环境变量间接传入。手工调试
+    时必须保证 ``--output-dir``、``--replay-dir`` 与 collectors 使用的是同一组目录。
+    """
 
     p = argparse.ArgumentParser(description="Train SFT v4 learner from off-policy replay")
     p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
@@ -404,11 +561,22 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--check", action="store_true")
     p.add_argument("--learner-world-size", type=int, default=2)
     p.add_argument("--collector-processes", type=int, default=6)
+    p.add_argument(
+        "--resume-from-checkpoint",
+        type=str,
+        default="",
+        help="Path to checkpoint-N dir, or 'latest' to use the newest checkpoint under output-dir.",
+    )
     return p.parse_args()
 
 
 def main() -> None:
-    """learner DDP 主入口。"""
+    """learner DDP 主入口。
+
+    主循环只做一件事：等所有 learner rank 都抽到 trajectory，然后各自算一条 trajectory
+    的 loss 并 backward。rank0 周期保存 snapshot/checkpoint；训练结束写 STOP，让 collector
+    在 episode 边界优雅退出。
+    """
 
     args = parse_args()
     if int(args.max_steps) <= 0:
@@ -425,6 +593,7 @@ def main() -> None:
     if is_rank0(rank):
         output_dir.mkdir(parents=True, exist_ok=True)
         replay.ensure_replay_dirs(replay_dir)
+    # 确保 rank0 已经创建目录，其余 rank 再开始加载/发布，避免远端文件系统 race。
     if dist.is_available() and dist.is_initialized():
         dist.barrier()
 
@@ -447,6 +616,7 @@ def main() -> None:
             flush=True,
         )
     if dist.is_available() and dist.is_initialized():
+        # DDP 包装前先同步 LoRA 初始权重，避免各 rank 随机初始化不同。
         for p in language_params + vision_params:
             dist.broadcast(p.data, src=0)
         bundle.model = DDP(
@@ -457,19 +627,26 @@ def main() -> None:
         )
     optimizer = torch.optim.AdamW(groups, betas=(0.9, 0.95), weight_decay=float(args.weight_decay))
     scheduler = make_scheduler(optimizer, int(args.max_steps), int(int(args.max_steps) * float(args.warmup_ratio)))
+    start_step = load_checkpoint_if_requested(bundle, optimizer, scheduler, args)
     tb = SummaryWriter(log_dir=str(output_dir / "tb")) if (is_rank0(rank) and _TB_AVAILABLE) else None
     rng = random.Random(int(args.seed) + rank * 9973)
     if is_rank0(rank):
-        publish_snapshot(bundle, args, step=0)
-        print(f"[learn] output={output_dir} replay={replay_dir} world_size={world_size}", flush=True)
+        # 初始 snapshot 是 collector 的启动门闩；resume 时直接发布恢复 step 的策略。
+        publish_snapshot(bundle, args, step=start_step)
+        print(
+            f"[learn] output={output_dir} replay={replay_dir} world_size={world_size} "
+            f"start_step={start_step}",
+            flush=True,
+        )
 
-    global_step = 0
+    global_step = int(start_step)
     start = time.time()
     while global_step < int(args.max_steps):
         path, records = sample_valid_trajectory(replay_dir, rng)
         local_ready = records is not None
         all_ready = _sync_bool(local_ready, device, op=dist.ReduceOp.MIN if dist.is_available() and dist.is_initialized() else None)
         if not all_ready:
+            # replay 为空时只 sleep，不做 forward/backward，所以不会有 NCCL watchdog 空等。
             if is_rank0(rank):
                 st = replay.replay_stats(replay_dir)
                 print(f"[learn] waiting replay ready={st.ready_count} pending={st.pending_count}", flush=True)
@@ -479,6 +656,7 @@ def main() -> None:
         bundle.model.train()
         optimizer.zero_grad(set_to_none=True)
         loss, stats = trajectory_loss(bundle, records, args)
+        # 这里触发 DDP gradient allreduce；每个 rank 每轮只 backward 一次，collective 顺序固定。
         loss.backward()
         lang_norm = torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm)) if language_params else torch.tensor(0.0, device=device)
         vis_norm = torch.nn.utils.clip_grad_norm_(vision_params, float(args.vision_clip_norm)) if vision_params else torch.tensor(0.0, device=device)

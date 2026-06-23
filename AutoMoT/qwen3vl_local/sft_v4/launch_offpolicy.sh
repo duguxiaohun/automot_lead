@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SFT v4 off-policy launcher: 2 learner DDP ranks + 6 async collectors.
+# SFT v4 off-policy launcher: 2 learner DDP ranks + async collectors.
 #
 # Run from AutoMoT/:
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v4/launch_offpolicy.sh
@@ -25,11 +25,14 @@ LR="${LR:-3e-5}"
 WARMUP_RATIO="${WARMUP_RATIO:-0.03}"
 SNAPSHOT_EVERY_STEPS="${SNAPSHOT_EVERY_STEPS:-1000}"
 SAVE_STEPS="${SAVE_STEPS:-5000}"
+RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-}"
+
 REPLAY_CAPACITY="${REPLAY_CAPACITY:-256}"
 COLLECTORS_PER_GPU="${COLLECTORS_PER_GPU:-3}"
 P_INIT_CORRECT="${P_INIT_CORRECT:-0.5}"
 PHASE_B_NOISE_PROB="${PHASE_B_NOISE_PROB:-0.15}"
 OUTER_STRIDE="${OUTER_STRIDE:-1}"
+
 LORA_RANK="${LORA_RANK:-16}"
 LORA_ALPHA="${LORA_ALPHA:-32}"
 LORA_DROPOUT="${LORA_DROPOUT:-0.1}"
@@ -40,6 +43,18 @@ export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export HF_HOME="${HF_HOME:-${OUTPUT_DIR_BASE}/.hf_cache}"
 mkdir -p "${OUTPUT_DIR}" "${REPLAY_DIR}" "${HF_HOME}"
+if [[ "${RESUME_FROM_CHECKPOINT}" == "latest" ]]; then
+    prev_latest="${OUTPUT_DIR_BASE}/latest"
+    latest_ckpt=""
+    if [[ -d "${prev_latest}" || -L "${prev_latest}" ]]; then
+        latest_ckpt="$(find "${prev_latest}" -maxdepth 1 -type d -name 'checkpoint-*' 2>/dev/null | sort -V | tail -n 1 || true)"
+    fi
+    if [[ -z "${latest_ckpt}" ]]; then
+        echo "[error] RESUME_FROM_CHECKPOINT=latest but no checkpoint-* found under ${prev_latest}" >&2
+        exit 1
+    fi
+    RESUME_FROM_CHECKPOINT="${latest_ckpt}"
+fi
 if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
     ln -sfn "run_${RUN_TAG}" "${OUTPUT_DIR_BASE}/latest"
 fi
@@ -81,19 +96,14 @@ find_free_master_port() {
 s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()' 2>/dev/null || echo "$((20000 + RANDOM % 20000))"
 }
 
-if [[ -n "${LEARNER_GPU_IDS:-}" && -n "${COLLECTOR_GPU_IDS:-}" ]]; then
-    learner_gpus="${LEARNER_GPU_IDS}"
-    collector_gpus="${COLLECTOR_GPU_IDS}"
-else
-    visible="${GPU_IDS:-$(pick_idle_gpus 4)}"
-    gpu_count="$(awk -F',' '{print NF}' <<< "${visible}")"
-    if [[ "${gpu_count}" -lt 4 ]]; then
-        echo "[error] need 4 GPUs or set LEARNER_GPU_IDS and COLLECTOR_GPU_IDS explicitly; got ${visible}" >&2
-        exit 1
-    fi
-    learner_gpus="$(split_csv "${visible}" 1),$(split_csv "${visible}" 2)"
-    collector_gpus="$(split_csv "${visible}" 3),$(split_csv "${visible}" 4)"
+visible="${GPU_IDS:-$(pick_idle_gpus 4)}"
+gpu_count="$(awk -F',' '{print NF}' <<< "${visible}")"
+if [[ "${gpu_count}" -lt 4 ]]; then
+    echo "[error] need 4 GPUs via GPU_IDS or auto selection; got ${visible}" >&2
+    exit 1
 fi
+learner_gpus="$(split_csv "${visible}" 1),$(split_csv "${visible}" 2)"
+collector_gpus="$(split_csv "${visible}" 3),$(split_csv "${visible}" 4)"
 
 IFS=',' read -r -a collector_gpu_array <<< "${collector_gpus}"
 collector_processes=$(( ${#collector_gpu_array[@]} * COLLECTORS_PER_GPU ))
@@ -106,6 +116,11 @@ export NCCL_P2P_LEVEL="${NCCL_P2P_LEVEL:-NVL}"
 echo "[run] OUTPUT_DIR=${OUTPUT_DIR}"
 echo "[gpu] learner=${learner_gpus} collector=${collector_gpus} collectors_per_gpu=${COLLECTORS_PER_GPU}"
 echo "[cfg] max_steps=${MAX_STEPS} replay_capacity=${REPLAY_CAPACITY} p_init=${P_INIT_CORRECT} phase_b_noise=${PHASE_B_NOISE_PROB}"
+
+resume_args=()
+if [[ -n "${RESUME_FROM_CHECKPOINT}" ]]; then
+    resume_args=(--resume-from-checkpoint "${RESUME_FROM_CHECKPOINT}")
+fi
 
 rm -f "${OUTPUT_DIR}/STOP"
 
@@ -131,6 +146,7 @@ CUDA_VISIBLE_DEVICES="${learner_gpus}" torchrun --nproc_per_node=2 \
     --warmup-ratio "${WARMUP_RATIO}" \
     --snapshot-every-steps "${SNAPSHOT_EVERY_STEPS}" \
     --save-steps "${SAVE_STEPS}" \
+    "${resume_args[@]}" \
     --lora-rank "${LORA_RANK}" \
     --lora-alpha "${LORA_ALPHA}" \
     --lora-dropout "${LORA_DROPOUT}" \
