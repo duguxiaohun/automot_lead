@@ -573,16 +573,22 @@ DDP rank 间步进抖动；因此 GPU0/GPU1 只训练，GPU2/GPU3 只采集。
 
 ## 1.1 代码地图与中文注释约定
 
-当前子包代码已按“下个维护者先读注释再读实现”的口径补齐中文说明：
+当前子包代码已按“下个维护者先读注释再读实现”的口径补齐中文说明。新增的
+off-policy 文件现在都有三层注释：
+
+1. module docstring：说明这个进程/文件在 actor-learner 里的角色。
+2. function docstring：说明函数输入输出、并发边界、为什么这么做。
+3. 关键代码块注释：解释原子写、DDP 同步、snapshot 发布、Phase B 噪声、memory 推进等
+   容易误读的实现点。
 
 | 文件 | 主要职责 | 先读位置 | 状态 |
 |---|---|---|---|
 | `prompts.py` | Memory 文本格式、状态机更新（含 `p_init_correct` 50% 正确初始化）、三步 prompt、输出解析、GT 泄露检测 | module docstring、`Memory`、`init_memory`、`update_memory_after_step2/3` | 已实现 |
 | `build_dataset.py` | 从 `keyframes_all_scenarios.json` 构建 episode index，只写元数据 | 文件头、`build_episode`、`load_keyframe_runs` | 保持不变（off-policy 仍以 episode 为采集单位） |
-| `replay.py` | trajectory schema、原子写、FIFO 驱逐、读取、文件锁 counter | 文件头、`write_trajectory`、`evict_old`、`claim_episode_index` | 已实现 |
-| `collect.py` | collector 入口：抢 episode、rollout、写 replay、加载 LoRA snapshot | 文件头、`collect_episode`、`main` | 已实现 |
-| `learn.py` | learner DDP 入口：从 replay 抽 traj、teacher-forced loss + backward、发布 snapshot | 文件头、`trajectory_loss`、`main` | 已实现 |
-| `launch_offpolicy.sh` | 一键启动 collectors + learners 编排脚本 | 脚本顶部、`LEARNER_GPU_IDS` / `COLLECTOR_GPU_IDS` | 已实现 |
+| `replay.py` | trajectory schema、原子写、FIFO 驱逐、读取、文件锁 counter | 文件头、`ensure_replay_dirs`、`directory_lock`、`claim_episode_index`、`write_trajectory`、`evict_old` | 已补详细中文注释 |
+| `collect.py` | collector 入口：抢 episode、rollout、写 replay、加载 LoRA snapshot | 文件头、`_load_adapter_state_if_present`、`_inject_phase_b_noise`、`collect_episode`、`main` | 已补详细中文注释 |
+| `learn.py` | learner DDP 入口：从 replay 抽 traj、teacher-forced loss + backward、发布 snapshot | 文件头、`setup_distributed`、`_sync_bool`、`trajectory_loss`、`publish_snapshot`、`main` | 已补详细中文注释 |
+| `launch_offpolicy.sh` | 一键启动 collectors + learners 编排脚本 | 脚本顶部、路径/超参/env 块、`pick_idle_gpus`、learner/collector 启动块、STOP 收尾块 | 已补详细中文注释 |
 | `train.py` / `train.sh` | on-policy 兼容入口，仍按 work-stealing+local-SGD 跑；只用于 debug / baseline 对照 | `main` 入口 warning | **v4 生产不走这条路径** |
 | `eval.py` | 自由生成评估；不做 Phase B GT 注入；可选 teacher BLEU | 文件头、`_generate_next_with_kv`、`main` | 保持不变 |
 | `probe.py` | case-level dump；可选 teacher privileged prompt/text | 文件头、`main` | 保持不变 |
@@ -593,6 +599,8 @@ DDP rank 间步进抖动；因此 GPU0/GPU1 只训练，GPU2/GPU3 只采集。
 - 函数 docstring 写“为什么这样做”和“与 v4 思路的关系”，避免只复述函数名。
 - 关键代码块注释写状态机边界，例如 Phase B 强制覆盖、scene 错误时跳过 step3、
   teacher 自由生成与 student teacher-forced loss 的区别。
+- 并发相关注释必须写清楚谁会调用、是否进入 DDP/NCCL、是否需要文件锁、是否可重试。
+- 磁盘协议相关注释必须写清楚 pending/ready/current_version.txt 的原子切换顺序。
 - 不在注释里复制大段 prompt 或源码；prompt 真实文本仍以 `prompts.py` 为准。
 
 ---
