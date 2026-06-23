@@ -57,6 +57,7 @@ from qwen3vl_local.sft_v4.prompts import (
     update_memory_after_step3,
     validate_event,
 )
+from qwen3vl_local.sft_v2.eval import _maybe_set_idle_gpu_mask
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,6 +72,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--num-episodes", type=int, default=4)
     p.add_argument("--max-gen-tokens", type=int, default=80)
+    p.add_argument("--repetition-penalty", type=float, default=1.05)
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--with-teacher", action="store_true",
                    help="额外加载一份 base Qwen teacher，dump privileged prompts/text 和 analysis BLEU")
@@ -117,6 +119,7 @@ def main() -> None:
     看到的 privileged prompt 也写出，便于确认 teacher 分析是否真的在纠正学生 memory。
     """
 
+    _maybe_set_idle_gpu_mask()
     args = parse_args()
     ds = EpisodeDataset(pathlib.Path(args.jsonl))
     rows = list(ds.rows)
@@ -133,6 +136,7 @@ def main() -> None:
         max_gen_tokens=args.max_gen_tokens,
         temperature=0.0,
         do_sample=False,
+        repetition_penalty=args.repetition_penalty,
     )
     engine.load()
     if args.lora_dir:
@@ -147,6 +151,7 @@ def main() -> None:
             max_gen_tokens=args.max_gen_tokens,
             temperature=0.0,
             do_sample=False,
+            repetition_penalty=args.repetition_penalty,
         )
         teacher_engine.load()
 
@@ -165,12 +170,27 @@ def main() -> None:
             ego_to_goal_y=gy,
             gt_scene=ep.gt_scene,
         )
+        episode_meta = {
+            "run_id": ep.run_id,
+            "scenario": ep.scenario,
+            "anchors": [int(x) for x in ep.anchors],
+            "delta": int(ep.delta),
+            "frame_range": [int(ep.frame_start), int(ep.frame_end)],
+            "gt_scene": ep.gt_scene,
+            "gt_event_sequence": list(ep.gt_event_sequence),
+            "run_dir": ep.run_dir,
+        }
+        (ep_dir / "episode_meta.json").write_text(
+            json.dumps(episode_meta, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
         frame_logs: List[Dict[str, Any]] = []
 
         for frame in range(ep.frame_start, ep.frame_end + 1):
             frame_dir = ep_dir / f"frame_{frame:04d}"
             frame_dir.mkdir(parents=True, exist_ok=True)
+            phase = "phase_a" if ep.anchors[1] - ep.delta <= frame <= ep.anchors[1] + ep.delta else "phase_b"
 
             image_paths = _build_rgb_paths(run_dir, frame)
             try:
@@ -272,19 +292,23 @@ def main() -> None:
             }
 
             (frame_dir / "step1_user.txt").write_text(step1_user, encoding="utf-8")
+            (frame_dir / "step1_prompt.txt").write_text(step1_user, encoding="utf-8")
             (frame_dir / "step1_student.txt").write_text(step1_text, encoding="utf-8")
             (frame_dir / "step1_teacher.txt").write_text(step1_teacher_text, encoding="utf-8")
             (frame_dir / "step2_user.txt").write_text(step2_user, encoding="utf-8")
+            (frame_dir / "step2_prompt.txt").write_text(step2_user, encoding="utf-8")
             (frame_dir / "step2_teacher_user.txt").write_text(step2_teacher_user, encoding="utf-8")
             (frame_dir / "step2_student.txt").write_text(step2_text, encoding="utf-8")
             (frame_dir / "step2_teacher.txt").write_text(step2_teacher_text, encoding="utf-8")
             (frame_dir / "step3_user.txt").write_text(step3_user, encoding="utf-8")
+            (frame_dir / "step3_prompt.txt").write_text(step3_user, encoding="utf-8")
             (frame_dir / "step3_teacher_user.txt").write_text(step3_teacher_user, encoding="utf-8")
             (frame_dir / "step3_student.txt").write_text(step3_text, encoding="utf-8")
             (frame_dir / "step3_teacher.txt").write_text(step3_teacher_text, encoding="utf-8")
 
             frame_log = {
                 "frame": frame,
+                "phase": phase,
                 "gt_scene": ep.gt_scene,
                 "gt_status": gt_status,
                 "gt_subgoal": gt_subgoal,

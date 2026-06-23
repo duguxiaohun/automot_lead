@@ -220,6 +220,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--device", type=str, default="auto")
     p.add_argument("--max-episodes", type=int, default=0)
     p.add_argument("--max-gen-tokens", type=int, default=80)
+    p.add_argument("--repetition-penalty", type=float, default=1.05)
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--full-range", action="store_true",
                    help="诊断模式：评估 [anchor0, anchor4]，默认只评估训练窗口 [anchor1-delta, anchor3]")
@@ -253,6 +254,7 @@ def main() -> None:
         max_gen_tokens=args.max_gen_tokens,
         temperature=0.0,
         do_sample=False,
+        repetition_penalty=args.repetition_penalty,
     )
     engine.load()
     if args.lora_dir:
@@ -267,6 +269,7 @@ def main() -> None:
             max_gen_tokens=args.max_gen_tokens,
             temperature=0.0,
             do_sample=False,
+            repetition_penalty=args.repetition_penalty,
         )
         teacher_engine.load()
 

@@ -180,7 +180,7 @@ def _adapter_state_keys(adapter_path: pathlib.Path) -> List[str]:
 def _inspect_lora_adapter(adapter_path: pathlib.Path) -> Dict[str, Any]:
     """像 LeadMoT 读 decoder_config 一样，先读取 LoRA adapter 自描述配置。
 
-    PEFT 的 ``adapter_config.json`` 决定实际实例化哪些 LoRA 分支；SFT v2 / v3 训练
+    PEFT 的 ``adapter_config.json`` 决定实际实例化哪些 LoRA 分支；SFT v2 / v3 / v4 训练
     还会额外写 ``sft_v*_adapter_config.json``，显式记录 ``lora_vision``。这里加载前
     先校验 config 与权重 key 是否一致，避免普通 LoRA / 视觉 LoRA 混用时出现静默忽略。
     """
@@ -196,7 +196,7 @@ def _inspect_lora_adapter(adapter_path: pathlib.Path) -> Dict[str, Any]:
     state_has_vision = any(_name_has_vision_marker(key) for key in state_keys)
 
     sft_config_path = adapter_path / "sft_v2_adapter_config.json"
-    for candidate in ("sft_v3_adapter_config.json", "sft_v2_adapter_config.json"):
+    for candidate in ("sft_v4_adapter_config.json", "sft_v3_adapter_config.json", "sft_v2_adapter_config.json"):
         candidate_path = adapter_path / candidate
         if candidate_path.exists():
             sft_config_path = candidate_path
@@ -205,6 +205,8 @@ def _inspect_lora_adapter(adapter_path: pathlib.Path) -> Dict[str, Any]:
     if sft_config_path.exists():
         sft_config = json.loads(sft_config_path.read_text(encoding="utf-8"))
     sft_has_vision = sft_config.get("lora_vision", None)
+    if sft_has_vision is None and "lora_vision_scope" in sft_config:
+        sft_has_vision = str(sft_config.get("lora_vision_scope", "off")).lower() != "off"
     sft_targets = _as_list(sft_config.get("target_modules")) if sft_config else []
     if sft_targets and set(sft_targets) != set(target_modules):
         missing_from_peft = sorted(set(sft_targets) - set(target_modules))[:8]
@@ -313,6 +315,7 @@ class LocalQwen3VLInstructEngine:
         max_gen_tokens: int = 256,
         temperature: float = 0.0,
         do_sample: bool = False,
+        repetition_penalty: float = 1.0,
         save_cache: bool = False,
         cache_system_prompt: bool = False,
     ):
@@ -328,6 +331,7 @@ class LocalQwen3VLInstructEngine:
         self.max_gen_tokens = max_gen_tokens
         self.temperature = temperature
         self.do_sample = do_sample
+        self.repetition_penalty = float(repetition_penalty)
         self.save_cache = save_cache
         self.cache_system_prompt = cache_system_prompt
 
@@ -609,11 +613,28 @@ class LocalQwen3VLInstructEngine:
             return {int(x) for x in eos}
         return {int(eos)}
 
-    def _select_next_token(self, next_logits: Any) -> Any:
+    def _apply_repetition_penalty(self, next_logits: Any, seen_ids: Any) -> Any:
+        """Apply HF-style repetition penalty to logits for already-seen tokens."""
+
+        if self.repetition_penalty <= 1.0 or seen_ids is None or seen_ids.numel() == 0:
+            return next_logits
+        logits = next_logits.clone()
+        selected = logits.index_select(dim=-1, index=seen_ids)
+        penalized = selected.where(selected < 0, selected / self.repetition_penalty)
+        penalized = penalized.where(selected >= 0, selected * self.repetition_penalty)
+        logits.scatter_(
+            dim=-1,
+            index=seen_ids.unsqueeze(0).expand(logits.shape[0], -1),
+            src=penalized,
+        )
+        return logits
+
+    def _select_next_token(self, next_logits: Any, seen_ids: Any = None) -> Any:
         """从最后一个位置的 logits 里选出下一 token。"""
 
         import torch
 
+        next_logits = self._apply_repetition_penalty(next_logits, seen_ids)
         if self.do_sample:
             # 采样模式用于探索多样输出；temperature 越高越随机。
             logits = next_logits / max(self.temperature, 1e-5)
@@ -653,6 +674,7 @@ class LocalQwen3VLInstructEngine:
         # 'shape': [1, 151936]
 
         generated_tokens: List[Any] = []
+        seen_unique = torch.unique(decoded_input_ids.reshape(-1).to(decoded_input_ids.device))
 
         # inputs summary: {
             # 'input_ids': {'shape': [1, 2332], 'dtype': 'torch.int64', 'device': 'cuda:0'}, 
@@ -675,7 +697,7 @@ class LocalQwen3VLInstructEngine:
             )
 
         for step in range(self.max_gen_tokens):
-            next_token = self._select_next_token(next_logits)
+            next_token = self._select_next_token(next_logits, seen_unique)
             generated_tokens.append(next_token)
             decoded_input_ids = torch.cat([decoded_input_ids, next_token], dim=1)
 
@@ -686,6 +708,7 @@ class LocalQwen3VLInstructEngine:
             trace.decode_steps.append(DecodeStep(step, token_id, token_text, is_eos))
             if is_eos:
                 break
+            seen_unique = torch.unique(torch.cat([seen_unique, next_token.reshape(-1).to(seen_unique.device)]))
 
             if attention_mask is not None:
                 attention_mask = torch.cat(
