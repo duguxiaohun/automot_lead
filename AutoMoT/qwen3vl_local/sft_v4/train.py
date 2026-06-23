@@ -1643,7 +1643,9 @@ def main() -> None:
                 tb.add_scalar("train/sync/episodes_total", float(total_episodes_processed), synced_all_rank_steps)
                 tb.add_scalar("train/sync/all_rank_steps", float(synced_all_rank_steps), synced_all_rank_steps)
             if fuse_stopped and not fuse_stop_saved:
-                emergency = output_dir / f"fuse_stop_step_{max(synced_all_rank_steps, global_step)}"
+                emergency_step = max(synced_all_rank_steps, global_step)
+                # 这里保存的是熔断前最后一次已同步的安全权重；after_step 表示坏 step 未写入。
+                emergency = output_dir / f"fuse_stop_after_step_{emergency_step}"
                 emergency.mkdir(parents=True, exist_ok=True)
                 bundle.unwrap().save_pretrained(str(emergency))
                 _save_adapter_config(emergency, bundle, args)

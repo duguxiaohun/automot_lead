@@ -197,6 +197,23 @@ def force_memory_to_gt_scene(memory: Memory, *, gt_scene: str) -> Memory:
     return mem
 
 
+def inject_phase_b_noise(memory: Memory, *, gt_scene: str, rng: random.Random, prob: float) -> Tuple[Memory, bool]:
+    """Phase B weak-correction noise: optionally switch to a random non-GT scene."""
+
+    p = min(1.0, max(0.0, float(prob)))
+    if p <= 0.0 or rng.random() >= p:
+        return memory.copy(), False
+    candidates = [s for s in sorted(SCENARIO_LABELS) if s != gt_scene]
+    if not candidates:
+        return memory.copy(), False
+    scene = rng.choice(candidates)
+    mem = memory.copy()
+    mem.scene = scene
+    mem.status = initial_event(scene)
+    mem.subgoal = first_subgoal(scene)
+    return mem, True
+
+
 def should_trigger_step3(*, memory_scene_after_step2: str, gt_scene: str) -> bool:
     """step3 触发判定：与 step2 是否翻转无关，只看 step2 后 memory.scene 是否 = GT。
 

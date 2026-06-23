@@ -166,6 +166,8 @@ def build_episode(
 
     # 训练窗口必须能容纳至少 1 帧
     delta = compute_delta(anchors, run_id=run_id, scenario=scenario)
+    # 这里不要把 frame_start clamp 到 RGB_FRAME_COUNT-1：
+    # train/collect/eval 统一调用 _build_rgb_paths()，早期历史帧由那里 left-pad 到 0。
     frame_start = anchors[1] - delta
     frame_end = anchors[3]
     if frame_start > frame_end:
@@ -173,11 +175,6 @@ def build_episode(
             f"run {run_id} / scenario {scenario} invalid training frame range: "
             f"start={frame_start}, end={frame_end}, anchors={anchors}, delta={delta}"
         )
-
-    # 起始帧要留出历史 RGB 窗口
-    min_start = RGB_FRAME_COUNT - 1
-    if frame_start < min_start:
-        frame_start = min_start
 
     run_dir = pathlib.Path(run_dir_base.format(scenario=scenario, run_id=run_id))
 

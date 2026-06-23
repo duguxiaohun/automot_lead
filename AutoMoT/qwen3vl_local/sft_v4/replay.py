@@ -4,7 +4,7 @@ collector 和 learner 只通过这个模块约定磁盘数据交换协议：
 
 - collector 写 ``pending/*.tmp``，完成校验后原子 rename 到 ``ready/*.jsonl``；
 - learner 从 ``ready`` 中独立 ``random.choice`` 抽 trajectory；
-- FIFO 驱逐按 ready 文件 mtime 删除最旧项；
+- FIFO 驱逐按 trajectory header 里的 ``created_at`` 删除最旧项；
 - collector 抢 episode 使用 ``mkdir`` 实现的跨进程文件锁，不依赖 DDP / NCCL。
 
 使用方式：
@@ -85,6 +85,29 @@ def ready_files(replay_dir: pathlib.Path) -> List[pathlib.Path]:
     return sorted(p for p in dirs["ready"].glob("*.jsonl") if p.is_file())
 
 
+def _trajectory_created_at(path: pathlib.Path) -> float:
+    """读取 trajectory 写入时刻，供 staleness 统计与 FIFO 驱逐共用。
+
+    ``created_at`` 写在 header 第一行，比文件 mtime 更接近真实采样时间；如果遇到旧文件
+    或损坏文件，才回退到 mtime，避免监控/驱逐因为单个坏样本中断。
+    """
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            first = f.readline().strip()
+        if first:
+            payload = json.loads(first)
+            created_at = payload.get("created_at")
+            if created_at is not None:
+                return float(created_at)
+    except Exception:
+        pass
+    try:
+        return path.stat().st_mtime
+    except FileNotFoundError:
+        return time.time()
+
+
 def replay_stats(replay_dir: pathlib.Path) -> ReplayStats:
     """统计 ready/pending/failed 数量和 ready 文件平均年龄。
 
@@ -95,7 +118,7 @@ def replay_stats(replay_dir: pathlib.Path) -> ReplayStats:
     dirs = ensure_replay_dirs(replay_dir)
     now = time.time()
     ready = ready_files(replay_dir)
-    ages = [max(0.0, now - p.stat().st_mtime) / 60.0 for p in ready]
+    ages = [max(0.0, now - _trajectory_created_at(p)) / 60.0 for p in ready]
     pending_count = len(list(dirs["pending"].glob("*")))
     failed_count = len(list(dirs["failed"].glob("*")))
     return ReplayStats(
@@ -199,11 +222,11 @@ def validate_trajectory(records: List[Dict[str, Any]]) -> None:
             raise ValueError(f"frame {i} missing memory_before/memory_before_frame")
         targets = frame.get("teacher_targets") or {}
         step1_target = targets.get("step1") or frame.get("teacher_step1_text")
-        step2_target = targets.get("step2") or frame.get("teacher_step2_raw")
+        step2_target = targets.get("step2") or frame.get("teacher_step2_target") or frame.get("teacher_step2_raw")
         if not step1_target or not step2_target:
             raise ValueError(f"frame {i} missing teacher step1/step2 targets")
         step3_flag = bool(frame.get("step3_ran", frame.get("step3_fired", False)))
-        step3_target = targets.get("step3") or frame.get("teacher_step3_raw")
+        step3_target = targets.get("step3") or frame.get("teacher_step3_target") or frame.get("teacher_step3_raw")
         if step3_flag and not step3_target:
             raise ValueError(f"frame {i} step3_ran but missing step3 target")
 
@@ -288,10 +311,12 @@ def sample_ready_file(replay_dir: pathlib.Path, rng: random.Random) -> Optional[
 
 
 def evict_old(replay_dir: pathlib.Path, *, capacity: int) -> None:
-    """按 mtime FIFO 驱逐超出容量的 ready 文件。
+    """按 header ``created_at`` FIFO 驱逐超出容量的 ready 文件。
 
     驱逐只删 ``ready`` 中最旧的完整文件，不碰 ``pending``。多个 collector 同时写完会
     同时触发驱逐，因此这里也用短文件锁保护，避免两个进程同时删除同一批文件造成噪声。
+    这里与 ``replay_stats`` 使用同一个时间口径，保证 TensorBoard 上看到的 staleness
+    和实际被驱逐的 FIFO 顺序一致。
     """
 
     if capacity <= 0:
@@ -302,7 +327,8 @@ def evict_old(replay_dir: pathlib.Path, *, capacity: int) -> None:
         overflow = len(files) - int(capacity)
         if overflow <= 0:
             return
-        victims = sorted(files, key=lambda p: p.stat().st_mtime)[:overflow]
+        # 与 replay_stats 保持同一年龄口径：优先使用 trajectory header created_at。
+        victims = sorted(files, key=_trajectory_created_at)[:overflow]
         for path in victims:
             try:
                 path.unlink()

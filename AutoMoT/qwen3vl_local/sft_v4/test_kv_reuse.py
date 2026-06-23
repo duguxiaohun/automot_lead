@@ -21,7 +21,14 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 
 from PIL import Image
 
-from qwen3vl_local.sft_v4.prompts import SYSTEM_PROMPT_V4, build_step1_user_prompt, init_memory, build_step2_student_prompt
+from qwen3vl_local.sft_v4.prompts import (
+    SYSTEM_PROMPT_V4,
+    build_step1_user_prompt,
+    build_step2_student_prompt,
+    build_step3_student_prompt,
+    init_memory,
+    update_memory_after_step2,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,11 +85,16 @@ def main() -> None:
     assistant1 = "I see a road scene from the camera sequence."
     memory = init_memory(run_id="run_a", sub_scenario_id="sub_0", ego_to_goal_x=1.0, ego_to_goal_y=-2.0)
     step2_user = build_step2_student_prompt(memory)
+    assistant2 = "The current scene is consistent with a traffic accident.\nSCENE: Accident"
+    memory_after_step2 = update_memory_after_step2(memory, student_scene="Accident")
+    step3_user = build_step3_student_prompt(memory_after_step2)
 
     start_msgs = _build_messages_with_images(user_text=step1_user, images=imgs)
     full_msgs = list(start_msgs) + [
         {"role": "assistant", "content": assistant1},
         {"role": "user", "content": step2_user},
+        {"role": "assistant", "content": assistant2},
+        {"role": "user", "content": step3_user},
     ]
     txt_full = bundle.processor.apply_chat_template(full_msgs, tokenize=False, add_generation_prompt=True)
     in_full = bundle.processor(text=[txt_full], images=imgs, return_tensors="pt", padding=True)
@@ -92,7 +104,9 @@ def main() -> None:
         full = bundle.model(**in_full, use_cache=True, return_dict=True)
         start_state = _kv_start_state(bundle, start_msgs)
         after_assistant, _ = _append_text(bundle, _clone_kv_state(start_state), assistant1)
-        after_user = _append_user_turn(bundle, after_assistant, step2_user)
+        after_step2_user = _append_user_turn(bundle, after_assistant, step2_user)
+        after_step2_assistant, _ = _append_text(bundle, after_step2_user, assistant2)
+        after_user = _append_user_turn(bundle, after_step2_assistant, step3_user)
 
     diff = (full.logits[:, -1, :] - after_user.next_logits).abs().max().item()
     ok = diff < 1e-5

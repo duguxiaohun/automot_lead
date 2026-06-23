@@ -130,6 +130,8 @@ def _check_route(
         for k in spans
     }
     no_overlap = all(len(v) == 0 for v in overlap.values())
+    if not no_overlap:
+        raise AssertionError(f"{route}: analysis/value token masks overlap: {overlap}")
     analysis_ok = (not expect_analysis) or (analysis_count > 0)
     value_ok = all(v > 0 for v in value_counts.values())
     ok = char_ok and analysis_ok and value_ok and no_overlap

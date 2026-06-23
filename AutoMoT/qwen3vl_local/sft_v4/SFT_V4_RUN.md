@@ -100,6 +100,10 @@ launcher 会做这些事：
   不调用 DDP，只读 LoRA snapshot、写 replay。
 - learner rank0 先发布 `latest_lora/v_0/`，collector 等到初始 snapshot 后开始采集。
 - learner 到 `MAX_STEPS` 后保存 `final/`、写 `STOP`，collector 完成当前 episode 后退出。
+- 如果启动后一直没有 collector 写出第一条 `replay/ready/*.jsonl`，learner 会在
+  `REPLAY_STARTUP_TIMEOUT_SEC` 后写 `STOP` 并报错退出，避免数据路径或 collector
+  加载错误时无限等待。这个 timeout 会先在两个 learner rank 间同步，再 barrier/cleanup，
+  因此不会留下半退出的 NCCL 进程。
 
 ### 常用环境变量
 
@@ -110,6 +114,7 @@ MAX_STEPS=10000 \
 LR=3e-5 \
 SNAPSHOT_EVERY_STEPS=1000 \
 SAVE_STEPS=5000 \
+REPLAY_STARTUP_TIMEOUT_SEC=600 \
 REPLAY_CAPACITY=256 \
 COLLECTORS_PER_GPU=1 \
 GPU_MAX_USED_MB=0 \
@@ -143,8 +148,9 @@ LORA_VISION_SCOPE=merger GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v4/launch_offpol
 注意：off-policy learner 为了控制显存，图像 prefill 默认在 `no_grad` 下执行；显式开启
 视觉 LoRA 时 DDP 会自动使用 `find_unused_parameters=True`，视觉侧梯度可能为 0。生产训练
 默认建议保持 `LORA_VISION_SCOPE=off`。如果视觉 LoRA 的梯度/参数范数连续异常，
-learner 会写 `fuse_stop_step_<N>/` 和 `fuse_reason.txt`，同时跳过正常 `final/`
-保存，避免误用异常 adapter。
+learner 会写 `fuse_stop_after_step_<N>/` 和 `fuse_reason.txt`，同时跳过正常 `final/`
+保存，避免误用异常 adapter。这里的 `N` 表示最后一个已经完成的 optimizer step；
+触发熔断的当前坏 step 会先 `zero_grad`，不会写入 emergency adapter。
 
 ### 烟雾检查
 
@@ -169,8 +175,8 @@ bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 - `latest_lora/v_<step>/` 与 `latest_lora/current_version.txt`：给 collector 用的策略快照。
 - `checkpoint-<step>/`：可恢复训练状态，含 adapter + optimizer + scheduler。
 - `final/`：最终 adapter，供 eval/probe 使用。
-- `fuse_stop_step_<N>/`：视觉 LoRA guard 触发时的 emergency adapter；此时不会写正常
-  `final/`。
+- `fuse_stop_after_step_<N>/`：视觉 LoRA guard 触发时的 emergency adapter；`N` 是最后
+  一个已完成 step，此时不会写正常 `final/`。
 - `STOP`：正常停止哨兵，collector 会在 episode 结束后观察并退出。
 
 ### 兼容入口
@@ -215,8 +221,11 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v4_lora/latest/tb
 - `train/scene_flip_rate`
 - `train/gt_leak_skip_rate/{step2,step3}`
 - `train/phase_a_frame_frac`
-- `grad_norm/{language,vision}`
-- `param_norm/lora_{language,vision}`
+- `train/grad_norm/language`
+- `train/grad_norm/vision`
+- `train/param_norm/lora_language`
+- `train/param_norm/lora_vision`
+- `train/vision_guard_bad_steps`
 
 ---
 

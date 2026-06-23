@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import pathlib
 import random
@@ -93,10 +94,19 @@ def setup_distributed() -> Tuple[int, int, int]:
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    device_id = None
     if torch.cuda.is_available():
         torch.cuda.set_device(local_rank)
+        device_id = torch.device(f"cuda:{local_rank}")
     backend = "nccl" if torch.cuda.is_available() else "gloo"
-    dist.init_process_group(backend=backend, timeout=timedelta(hours=2))
+    init_kwargs: Dict[str, Any] = {"backend": backend, "timeout": timedelta(hours=2)}
+    if device_id is not None:
+        init_kwargs["device_id"] = device_id
+    try:
+        dist.init_process_group(**init_kwargs)
+    except TypeError:
+        init_kwargs.pop("device_id", None)
+        dist.init_process_group(**init_kwargs)
     return rank, world_size, local_rank
 
 
@@ -156,8 +166,8 @@ def _frame_teacher_targets(frame: Dict[str, Any]) -> Dict[str, str]:
     nested = frame.get("teacher_targets") or {}
     return {
         "step1": str(nested.get("step1") or frame.get("teacher_step1_text") or ""),
-        "step2": str(nested.get("step2") or frame.get("teacher_step2_raw") or ""),
-        "step3": str(nested.get("step3") or frame.get("teacher_step3_raw") or ""),
+        "step2": str(nested.get("step2") or frame.get("teacher_step2_target") or frame.get("teacher_step2_raw") or ""),
+        "step3": str(nested.get("step3") or frame.get("teacher_step3_target") or frame.get("teacher_step3_raw") or ""),
     }
 
 
@@ -209,6 +219,7 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
         "step3": 0.0,
         "phase_a": 0.0,
         "noise": 0.0,
+        "scene_flip": 0.0,
         "leak2": 0.0,
         "leak3": 0.0,
         "loss_a1": 0.0,
@@ -304,6 +315,7 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
         stats["step3"] += float(_frame_step3_fired(frame))
         stats["phase_a"] += float(bool(flags.get("phase_a", frame.get("phase") == "A")))
         stats["noise"] += float(bool(flags.get("noise_injected", False)))
+        stats["scene_flip"] += float(bool(flags.get("scene_flip", frame.get("scene_flip", False))))
         stats["leak2"] += float(leak2)
         stats["leak3"] += float(leak3)
         stats["loss_a1"] += _to_float(step1_parts["analysis"])
@@ -368,6 +380,54 @@ def _trainable_groups(bundle: Any, args: argparse.Namespace) -> Tuple[List[Dict[
     return groups, language_params, vision_params
 
 
+def _param_norm(params: List[nn.Parameter]) -> float:
+    """计算一组参数的 L2 范数，用于 TensorBoard 和视觉 LoRA 熔断。"""
+
+    if not params:
+        return 0.0
+    with torch.no_grad():
+        return math.sqrt(sum(float(p.detach().float().norm().item()) ** 2 for p in params))
+
+
+def _sync_max_float(value: float, device: torch.device) -> float:
+    """跨 learner ranks 取最大值；单进程时直接返回。"""
+
+    if not (dist.is_available() and dist.is_initialized()):
+        return float(value)
+    tensor = torch.tensor([float(value)], dtype=torch.float32, device=device)
+    dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
+    return float(tensor.item())
+
+
+def _validate_args(args: argparse.Namespace) -> None:
+    """校验视觉 LoRA 保险参数，保持与 v2 的安全边界一致。"""
+
+    if float(args.vision_lr_scale) < 0.0:
+        raise ValueError("--vision-lr-scale must be >= 0")
+    if float(args.max_vision_lr_scale) <= 0.0:
+        raise ValueError("--max-vision-lr-scale must be > 0")
+    if float(args.language_clip_norm) <= 0.0:
+        raise ValueError("--language-clip-norm must be > 0")
+    if float(args.vision_clip_norm) <= 0.0:
+        raise ValueError("--vision-clip-norm must be > 0")
+    if float(args.vision_guard_grad_norm_max) <= 0.0:
+        raise ValueError("--vision-guard-grad-norm-max must be > 0")
+    if float(args.vision_guard_param_norm_max) <= 0.0:
+        raise ValueError("--vision-guard-param-norm-max must be > 0")
+    if int(args.vision_guard_patience) <= 0:
+        raise ValueError("--vision-guard-patience must be > 0")
+    if float(args.startup_replay_timeout_sec) < 0.0:
+        raise ValueError("--startup-replay-timeout-sec must be >= 0")
+    scope = (args.lora_vision_scope or "off").lower()
+    if scope != "off" and float(args.vision_lr_scale) == 0.0:
+        raise ValueError("--vision-lr-scale=0 with visual LoRA enabled would freeze visual adapters")
+    if scope != "off" and float(args.vision_lr_scale) > float(args.max_vision_lr_scale):
+        raise ValueError(
+            "--vision-lr-scale exceeds --max-vision-lr-scale under visual LoRA. "
+            "Lower vision LR scale or explicitly raise the guard limit."
+        )
+
+
 def _write_adapter_metadata(path: pathlib.Path, bundle: Any, args: argparse.Namespace, *, step: int, kind: str) -> None:
     """写 v4 off-policy adapter 自描述配置。
 
@@ -392,6 +452,15 @@ def _write_adapter_metadata(path: pathlib.Path, bundle: Any, args: argparse.Name
         },
         "lora_vision_scope": bundle.lora_vision_scope,
         "target_modules": targets,
+        "strict_vision_scope": bool(args.strict_vision_scope),
+        "vision_lr_scale": float(args.vision_lr_scale),
+        "max_vision_lr_scale": float(args.max_vision_lr_scale),
+        "vision_clip_norm": float(args.vision_clip_norm),
+        "language_clip_norm": float(args.language_clip_norm),
+        "vision_guard_enabled": bool(args.vision_guard_enabled),
+        "vision_guard_grad_norm_max": float(args.vision_guard_grad_norm_max),
+        "vision_guard_param_norm_max": float(args.vision_guard_param_norm_max),
+        "vision_guard_patience": int(args.vision_guard_patience),
         "loss_weights": {
             "a1": float(args.w_a1),
             "a2": float(args.w_a2),
@@ -429,12 +498,17 @@ def publish_snapshot(bundle: Any, args: argparse.Namespace, *, step: int) -> pat
     pointer_tmp = latest / "current_version.txt.tmp"
     pointer_tmp.write_text(str(int(step)), encoding="utf-8")
     os.replace(pointer_tmp, pointer)
+    protected_versions = {int(step), max(0, int(step) - 1)}
     versions = sorted(
         [p for p in latest.glob("v_*") if p.is_dir() and p.name[2:].isdigit()],
         key=lambda p: int(p.name[2:]),
     )
     keep = max(3, int(args.keep_snapshots))
-    for old in versions[:-keep]:
+    keep_tail = set(versions[-keep:])
+    for old in versions:
+        version = int(old.name[2:])
+        if old in keep_tail or version in protected_versions or version >= int(step) - 1:
+            continue
         shutil.rmtree(old, ignore_errors=True)
     return target
 
@@ -544,8 +618,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lora-vision-scope", type=str, default="off")
     p.add_argument("--strict-vision-scope", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--vision-lr-scale", type=float, default=0.1)
+    p.add_argument("--max-vision-lr-scale", type=float, default=0.25)
     p.add_argument("--language-clip-norm", type=float, default=1.0)
     p.add_argument("--vision-clip-norm", type=float, default=0.3)
+    p.add_argument("--vision-guard-enabled", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--vision-guard-grad-norm-max", type=float, default=10.0)
+    p.add_argument("--vision-guard-param-norm-max", type=float, default=200.0)
+    p.add_argument("--vision-guard-patience", type=int, default=3)
     p.add_argument("--w-a1", type=float, default=0.2)
     p.add_argument("--w-a2", type=float, default=0.2)
     p.add_argument("--w-a3", type=float, default=0.2)
@@ -553,6 +632,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--w-s3-status", type=float, default=1.0)
     p.add_argument("--w-s3-subgoal", type=float, default=1.0)
     p.add_argument("--logging-steps", type=int, default=1)
+    p.add_argument(
+        "--startup-replay-timeout-sec",
+        type=float,
+        default=600.0,
+        help="Maximum seconds to wait for the first replay trajectory before failing; <=0 disables.",
+    )
     p.add_argument("--snapshot-every-steps", type=int, default=1000)
     p.add_argument("--save-steps", type=int, default=5000)
     p.add_argument("--save-total-limit", type=int, default=3)
@@ -560,7 +645,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=20260623)
     p.add_argument("--check", action="store_true")
     p.add_argument("--learner-world-size", type=int, default=2)
-    p.add_argument("--collector-processes", type=int, default=6)
+    p.add_argument("--collector-processes", type=int, default=2)
     p.add_argument(
         "--resume-from-checkpoint",
         type=str,
@@ -579,6 +664,7 @@ def main() -> None:
     """
 
     args = parse_args()
+    _validate_args(args)
     if int(args.max_steps) <= 0:
         raise ValueError("--max-steps must be positive for off-policy learner")
     rank, world_size, local_rank = setup_distributed()
@@ -640,13 +726,65 @@ def main() -> None:
         )
 
     global_step = int(start_step)
+    fuse_stopped = False
+    startup_timed_out = False
+    startup_timeout_reason = ""
+    guard_bad_steps = 0
+    stop_file = output_dir / "STOP"
     start = time.time()
+    first_replay_wait_start: Optional[float] = None
     while global_step < int(args.max_steps):
+        stop_requested = _sync_bool(
+            stop_file.exists(),
+            device,
+            op=dist.ReduceOp.MAX if dist.is_available() and dist.is_initialized() else None,
+        )
+        if stop_requested:
+            if is_rank0(rank):
+                print(f"[learn] observed external stop file: {stop_file}", flush=True)
+            break
         path, records = sample_valid_trajectory(replay_dir, rng)
         local_ready = records is not None
         all_ready = _sync_bool(local_ready, device, op=dist.ReduceOp.MIN if dist.is_available() and dist.is_initialized() else None)
         if not all_ready:
             # replay 为空时只 sleep，不做 forward/backward，所以不会有 NCCL watchdog 空等。
+            now = time.time()
+            waited = 0.0
+            local_startup_timeout = False
+            if global_step == start_step:
+                if first_replay_wait_start is None:
+                    first_replay_wait_start = now
+                waited = now - first_replay_wait_start
+                local_startup_timeout = (
+                    float(args.startup_replay_timeout_sec) > 0
+                    and waited >= float(args.startup_replay_timeout_sec)
+                )
+            startup_timeout_now = _sync_bool(
+                local_startup_timeout,
+                device,
+                op=dist.ReduceOp.MAX if dist.is_available() and dist.is_initialized() else None,
+            )
+            # timeout 判定本身也要先 allreduce：否则某个 rank 先进入 barrier，
+            # 另一个 rank 还在下一轮 _sync_bool，会造成 collective 顺序错位。
+            waited = _sync_max_float(waited, device)
+            if startup_timeout_now:
+                startup_timed_out = True
+                startup_timeout_reason = (
+                    f"no replay trajectory after {waited:.1f}s under {replay_dir}; "
+                    "check collector logs and replay/failed"
+                )
+                if is_rank0(rank):
+                    st = replay.replay_stats(replay_dir)
+                    (output_dir / "STOP").write_text("startup_replay_timeout\n", encoding="utf-8")
+                    print(
+                        f"[learn][error] no replay trajectory after {waited:.1f}s "
+                        f"(ready={st.ready_count} pending={st.pending_count} failed={st.failed_count}); "
+                        "collectors likely failed or data paths are wrong.",
+                        flush=True,
+                    )
+                if dist.is_available() and dist.is_initialized():
+                    dist.barrier()
+                break
             if is_rank0(rank):
                 st = replay.replay_stats(replay_dir)
                 print(f"[learn] waiting replay ready={st.ready_count} pending={st.pending_count}", flush=True)
@@ -660,6 +798,48 @@ def main() -> None:
         loss.backward()
         lang_norm = torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm)) if language_params else torch.tensor(0.0, device=device)
         vis_norm = torch.nn.utils.clip_grad_norm_(vision_params, float(args.vision_clip_norm)) if vision_params else torch.tensor(0.0, device=device)
+        lang_norm_value = _sync_max_float(float(lang_norm), device)
+        vis_norm_value = _sync_max_float(float(vis_norm), device)
+        lang_param_norm_value = _sync_max_float(_param_norm(language_params), device)
+        vis_param_norm_value = _sync_max_float(_param_norm(vision_params), device)
+
+        guard_bad = False
+        if bool(args.vision_guard_enabled) and vision_params:
+            bad_grad = (not math.isfinite(vis_norm_value)) or vis_norm_value > float(args.vision_guard_grad_norm_max)
+            bad_param = (not math.isfinite(vis_param_norm_value)) or vis_param_norm_value > float(args.vision_guard_param_norm_max)
+            guard_bad = bool(bad_grad or bad_param)
+            guard_bad_steps = guard_bad_steps + 1 if guard_bad else 0
+        fuse_now = _sync_bool(
+            guard_bad_steps >= int(args.vision_guard_patience),
+            device,
+            op=dist.ReduceOp.MAX if dist.is_available() and dist.is_initialized() else None,
+        )
+        if fuse_now:
+            # 这里保存的是 optimizer.step() 之前的权重，也就是上一已完成 step 的安全权重；
+            # 目录名用 after_step_<global_step> 避免误解成当前坏 step 已经写入 adapter。
+            optimizer.zero_grad(set_to_none=True)
+            fuse_stopped = True
+            if is_rank0(rank):
+                reason = (
+                    "vision fuse triggered: "
+                    f"grad_norm={vis_norm_value:.4f} "
+                    f"(max={float(args.vision_guard_grad_norm_max):.4f}), "
+                    f"param_norm={vis_param_norm_value:.4f} "
+                    f"(max={float(args.vision_guard_param_norm_max):.4f}), "
+                    f"bad_steps={guard_bad_steps}"
+                )
+                emergency = output_dir / f"fuse_stop_after_step_{global_step}"
+                if emergency.exists():
+                    shutil.rmtree(emergency, ignore_errors=True)
+                bundle.unwrap().save_pretrained(str(emergency))
+                _write_adapter_metadata(emergency, bundle, args, step=global_step, kind="fuse_stop")
+                (emergency / "fuse_reason.txt").write_text(reason + "\n", encoding="utf-8")
+                (output_dir / "STOP").write_text("vision_fuse\n", encoding="utf-8")
+                print(f"[fuse-stop] {reason}", flush=True)
+                print(f"[fuse-stop] emergency adapter -> {emergency}", flush=True)
+            if dist.is_available() and dist.is_initialized():
+                dist.barrier()
+            break
         optimizer.step()
         scheduler.step()
         global_step += 1
@@ -672,18 +852,36 @@ def main() -> None:
                 f"[learn] step={global_step}/{args.max_steps} loss={_to_float(loss):.4f} "
                 f"frames={int(frames)} step3={_safe_ratio(stats['step3'], frames):.3f} "
                 f"noise={_safe_ratio(stats['noise'], frames):.3f} replay={st.ready_count} "
+                f"|g|_lang={lang_norm_value:.3f} |g|_vis={vis_norm_value:.3f} "
+                f"|w|_vis={vis_param_norm_value:.3f} guard_bad_steps={guard_bad_steps} "
                 f"age={st.avg_age_minutes:.1f}m lr={lr:.2e} elapsed={(time.time() - start) / 60.0:.1f}m",
                 flush=True,
             )
             if tb is not None:
                 tb.add_scalar("train/loss_total", _to_float(loss), global_step)
                 tb.add_scalar("train/lr", float(lr), global_step)
-                tb.add_scalar("train/grad_norm/language", float(lang_norm), global_step)
-                tb.add_scalar("train/grad_norm/vision", float(vis_norm), global_step)
+                tb.add_scalar("train/grad_norm/language", lang_norm_value, global_step)
+                tb.add_scalar("train/grad_norm/vision", vis_norm_value, global_step)
+                tb.add_scalar("train/param_norm/lora_language", lang_param_norm_value, global_step)
+                tb.add_scalar("train/param_norm/lora_vision", vis_param_norm_value, global_step)
+                tb.add_scalar("train/vision_guard_bad_steps", float(guard_bad_steps), global_step)
                 tb.add_scalar("train/replay/size", float(st.ready_count), global_step)
                 tb.add_scalar("train/replay/avg_age_minutes", float(st.avg_age_minutes), global_step)
                 tb.add_scalar("train/step3_trigger_rate", _safe_ratio(stats["step3"], frames), global_step)
                 tb.add_scalar("train/phase_b_noise_rate", _safe_ratio(stats["noise"], frames), global_step)
+                tb.add_scalar("train/scene_flip_rate", _safe_ratio(stats["scene_flip"], frames), global_step)
+                tb.add_scalar("train/gt_leak_skip_rate/step2", _safe_ratio(stats["leak2"], frames), global_step)
+                tb.add_scalar("train/gt_leak_skip_rate/step3", _safe_ratio(stats["leak3"], frames), global_step)
+                tb.add_scalar("train/phase_a_frame_frac", _safe_ratio(stats["phase_a"], frames), global_step)
+                for key, value in {
+                    "a1": args.w_a1,
+                    "a2": args.w_a2,
+                    "a3": args.w_a3,
+                    "s2": args.w_s2,
+                    "s3_status": args.w_s3_status,
+                    "s3_subgoal": args.w_s3_subgoal,
+                }.items():
+                    tb.add_scalar(f"train/loss_weight/{key}", float(value), global_step)
                 for key in ("a1", "a2", "a3", "s2", "s3_status", "s3_subgoal"):
                     tb.add_scalar(f"train/loss/{key}", stats[f"loss_{key}"] / frames, global_step)
 
@@ -696,7 +894,7 @@ def main() -> None:
             ckpt = save_checkpoint(bundle, optimizer, scheduler, args, step=global_step)
             print(f"[checkpoint] {ckpt}", flush=True)
 
-    if is_rank0(rank):
+    if is_rank0(rank) and not fuse_stopped and not startup_timed_out:
         final_dir = output_dir / "final"
         if final_dir.exists():
             shutil.rmtree(final_dir, ignore_errors=True)
@@ -708,9 +906,19 @@ def main() -> None:
             tb.flush()
             tb.close()
         print(f"[done] final={final_dir} stop={output_dir / 'STOP'}", flush=True)
+    elif is_rank0(rank):
+        if tb is not None:
+            tb.flush()
+            tb.close()
+        if fuse_stopped:
+            print("[done] skipped final adapter because vision fuse guard stopped training early", flush=True)
+        else:
+            print("[done] skipped final adapter because startup replay timed out", flush=True)
     if dist.is_available() and dist.is_initialized():
         dist.barrier()
     cleanup_distributed()
+    if startup_timed_out:
+        raise TimeoutError(startup_timeout_reason)
 
 
 if __name__ == "__main__":

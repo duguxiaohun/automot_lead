@@ -22,8 +22,8 @@ memory 自更新），把整条 episode 固化成 trajectory 文件写入磁盘 
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │ Collector 组（独立 Python 进程，无 DDP）                       │
-│   GPU 2 [coll0  coll1  coll2]                                  │
-│   GPU 3 [coll3  coll4  coll5]                                  │
+│   GPU 2 [coll0]                                                 │
+│   GPU 3 [coll1]                                                 │
 │                                                                │
 │   每个 collector loop:                                         │
 │     抢 episode (TCPStore counter, 或本地随机)                  │
@@ -66,7 +66,7 @@ memory 自更新），把整条 episode 固化成 trajectory 文件写入磁盘 
                             ▲ 读 (collector 周期 reload)
 ```
 
-### 0.2 4 × H20 96GB 部署方案（已锁定）
+### 0.2 4 × H20 96GB 部署方案（默认保守）
 
 **显存预算（单进程实测/估算）**
 
@@ -85,17 +85,18 @@ memory 自更新），把整条 episode 固化成 trajectory 文件写入磁盘 
 实测 v3 单进程稳态占用 ~32 GB（learner）/ ~22 GB（collector 估算），都不到 H20 96GB
 的 1/3，多进程的瓶颈不在显存，**真正瓶颈是 SM 算力**——下面会展开。
 
-**最终部署表**
+**默认部署表**
 
 | GPU | 角色 | 进程数 | 单进程显存 | 卡内合计 | 卡剩余 | 备注 |
 |---|---|---|---|---|---|---|
 | 0 | learner DDP rank0 | 1 | ~32 GB | 32 GB | 64 GB | TB / checkpoint / LoRA snapshot 在 rank0 |
 | 1 | learner DDP rank1 | 1 | ~32 GB | 32 GB | 64 GB | DDP 副 rank |
-| 2 | collector × 3 | 3 | ~22 GB | 66 GB | 30 GB | no_grad inference |
-| 3 | collector × 3 | 3 | ~22 GB | 66 GB | 30 GB | no_grad inference |
+| 2 | collector × 1 | 1 | ~22 GB | 22 GB | 74 GB | no_grad inference |
+| 3 | collector × 1 | 1 | ~22 GB | 22 GB | 74 GB | no_grad inference |
 
-合计 8 个 model 副本（2 learner + 6 collector），全部跑在 4 张 H20 上，显存占用率
-~30-70%，每张卡都有 ≥30 GB buffer 应对碎片和临时分配。
+合计 4 个 model 副本（2 learner + 2 collector），全部跑在 4 张 H20 上。默认先保证
+CUDA context、显存碎片和服务器 compute mode 都稳定；确认单卡允许多进程且 replay
+长期不足时，再手动把 `COLLECTORS_PER_GPU` 调到 2 或 3。
 
 ### 0.3 GPU 资源配置深度分析（这是你让我重点考虑的部分）
 
@@ -114,9 +115,12 @@ collector 的 80-step decode 是连续 80 次 forward；如果跟 trainer backwa
 backward 还会因为两 rank 步进时间不一致暴露问题（虽然 2h timeout 兜底，但训练吞吐
 直接腰斩）。结论：**learner 卡绝不混部 collector**。
 
-#### 0.3.2 为什么 collector 一张卡 3 个进程是甜点（不是 2 也不是 6）
+#### 0.3.2 为什么默认 collector 一张卡 1 个进程
 
-H20 96GB / 22GB ≈ 4 个理论上限。实际有效进程数取决于 SM 并发度：
+H20 96GB / 22GB ≈ 4 个理论上限，但实际有效进程数还取决于服务器 compute mode、
+CUDA context 限制、PyTorch allocator 碎片和启动期并发加载。部分机器在同一卡同时起
+多个 4B 模型进程时会报 `CUDA-capable device(s) is/are busy or unavailable`，因此
+生产脚本默认先用 1 个 collector / 卡，跑稳后再调高。
 
 **单卡多 collector 吞吐实测预估**（按 SM 抢占模型估）：
 
@@ -129,14 +133,14 @@ H20 96GB / 22GB ≈ 4 个理论上限。实际有效进程数取决于 SM 并发
 | 5 | ~65% | 1.75× | 1.75× | 2.5× |
 | 6 | ~70% | 1.8× | 1.8× | 2.5× |
 
-**3 个/卡** 是"边际收益开始急剧下降"的拐点：从 2→3 卡内吞吐涨 18%（1.4 → 1.65），
+**3 个/卡** 仍可作为手动吞吐优化档：从 2→3 卡内吞吐涨 18%（1.4 → 1.65），
 从 3→4 只涨 2%（1.65 → 1.68），但增加 1 个 CUDA context (~500MB)、增加内核调度
 overhead、增加 OS 进程切换。继续往上加纯亏。
 
 **MPS 是后续优化项，不是默认**：
 - MPS daemon 启动后可以让 3 个/卡的吞吐倍数从 1.65× 提升到 2.2×（**约 33% 增益**）
 - 但 MPS 增加了一个 system-level 依赖；某个 collector 内部崩溃可能拖累其他进程
-- 推荐：**第一阶段不开 MPS**，跑稳后用 `nvidia-smi dmon` 看 GPU-Util，如果 collector
+- 推荐：**第一阶段不开 MPS 且 1 个 collector/卡**，跑稳后用 `nvidia-smi dmon` 看 GPU-Util，如果 collector
   卡持续 < 70% util、replay 长期空，再考虑开 MPS
 
 #### 0.3.3 吞吐量平衡核对
@@ -154,12 +158,14 @@ overhead、增加 OS 进程切换。继续往上加纯亏。
 
 | 资源 | solo speed | × 进程数 | 多进程因子 | 实际 traj/min |
 |---|---|---|---|---|
-| 6 collectors (3/卡 × 2 卡) | 1.07 traj/min | 6 | 0.55 | **3.5** |
+| 2 collectors (1/卡 × 2 卡, 默认) | 1.07 traj/min | 2 | 1.0 | **2.14** |
+| 6 collectors (3/卡 × 2 卡, 手动扩容) | 1.07 traj/min | 6 | 0.55 | **3.5** |
 | 2 learners (1/卡 × 2 卡) | 1.33 traj/min | 2 | 1.0 (无竞争) | **2.66** |
 
-production 3.5 / consumption 2.66 ≈ **1.32×**，buffer 缓慢充满但 learner 不饿死。
-开 MPS 后 production 可达 ~4.5 traj/min（**1.7×** 消费），buffer 充得更快但
-staleness 上升——MPS 是吞吐优化但代价是更老的样本。
+默认 production 2.14 / consumption 2.66 ≈ **0.80×**，优先保证启动稳定；若
+`train/replay/size` 长期偏低，再把 collector 手动调到 2/卡或 3/卡。3/卡时
+production 3.5 / consumption 2.66 ≈ **1.32×**，buffer 会缓慢充满。开 MPS 后
+production 可继续提升，但 staleness 上升——MPS 是吞吐优化但代价是更老的样本。
 
 #### 0.3.4 监控指标与扩容触发条件
 
@@ -167,8 +173,8 @@ staleness 上升——MPS 是吞吐优化但代价是更老的样本。
 
 | 现象 | 含义 | 怎么调 |
 |---|---|---|
-| `train/replay/size` 长期 < 30 | collector 跟不上 | 把 collector 加到 4/卡，或开 MPS |
-| `train/replay/size` 长期 ≥ CAPACITY | learner 跟不上 | 把 collector 减到 2/卡，或加 grad_accum |
+| `train/replay/size` 长期 < 30 | collector 跟不上 | 先把 collector 加到 2/卡，再试 3/卡或 MPS |
+| `train/replay/size` 长期 ≥ CAPACITY | learner 跟不上 | 把 collector 减到 1/卡，或加 grad_accum |
 | `train/replay/avg_age_minutes` > 90 | staleness 过大 | 减 REPLAY_CAPACITY 到 128 |
 | `train/replay/avg_age_minutes` < 10 | 接近 on-policy 没好处 | 加 REPLAY_CAPACITY 或减 collector |
 | collector GPU-Util < 60% | SM 没占满 | 加 collector 进程或开 MPS |
@@ -227,11 +233,17 @@ collector 进程在 OS 层完全独立。同机器跑 collector 和 learner 不�
  "init_scene_was_correct":true,   // Phase A 首帧才有意义；其他帧 null
  "noise_injected":false,           // Phase B 帧首是否触发噪声扰动
  "teacher_step1_text":"...",
- "teacher_step2_raw":"...",        // 含 analysis + SCENE 行原文
- "teacher_step3_raw":"...",        // 仅 step3_fired=true 时有；否则 null
- "student_step2_raw":"...",        // 仅用来复现 step3 触发判断
+ "teacher_step2_raw":"...",        // base teacher 原始输出，供审计
+ "teacher_step2_target":"...",     // 规范化后的 ANALYSIS + SCENE 训练 target
+ "teacher_step3_raw":"...",        // base teacher 原始输出，仅 step3_fired=true 时有；否则 null
+ "teacher_step3_target":"...",     // 规范化后的 ANALYSIS + STATUS/SUBGOAL target；否则 null
+ "student_step1_raw":"...",        // 用来复现 step2 前的 student 对话上下文
+ "student_step2_raw":"...",        // 用来复现 step3 触发判断和 step3 前上下文
  "student_step3_raw":"...",        // 仅用来复现 memory 帧末更新；否则 null
  "step3_fired":true,
+ "teacher_targets":{"step1":"...","step2":"...","step3":"..."},
+ "teacher_raw_outputs":{"step1":"...","step2":"...","step3":"..."},
+ "student_outputs":{"step1":"...","step2":"...","step3":"..."},
  "gt":{"status":"...","subgoal":"..."}}
 {"kind":"frame","frame_idx":124,...}
 ...
@@ -291,14 +303,18 @@ while not exists(stop_sentinel):
         images = load_images(ep, frame)
         teacher_step1 = teacher_generate(images, ...)
         teacher_step2_raw = teacher_generate(images, memory, gt=ep.gt_scene)
+        teacher_step2_target = canonicalize_teacher_step2(teacher_step2_raw, gt_scene)
+        student_step1_raw = student_generate_step1(images)
         student_step2_raw = student_generate(images, memory)
 
         step3_fired = should_trigger_step3(parse_scene(student_step2_raw), ep.gt_scene)
         if step3_fired:
             teacher_step3_raw = teacher_generate(images, memory, gt_status, gt_subgoal)
+            teacher_step3_target = canonicalize_teacher_step3(teacher_step3_raw, gt_status, gt_subgoal)
             student_step3_raw = student_generate(images, memory)
         else:
             teacher_step3_raw = None
+            teacher_step3_target = None
             student_step3_raw = None
 
         traj.append(frame_record(...))
@@ -362,12 +378,14 @@ while step < max_steps and not exists(stop_sentinel):
         prompt_state = kv_prefill(system + images + step1_user(memory))
         a1 = teacher_forced_ce(prompt_state, target=frame["teacher_step1_text"],
                                 analysis_enabled=True)
+        prompt_state = append_assistant(prompt_state, frame["student_step1_raw"])
         prompt_state2 = append_user(prompt_state, step2_user(memory))
-        a2, s2 = teacher_forced_ce_step2(prompt_state2, frame["teacher_step2_raw"])
+        a2, s2 = teacher_forced_ce_step2(prompt_state2, frame["teacher_step2_target"])
         if frame["step3_fired"]:
+            prompt_state2 = append_assistant(prompt_state2, frame["student_step2_raw"])
             prompt_state3 = append_user(prompt_state2, step3_user(memory))
             a3, s3_status, s3_subgoal = teacher_forced_ce_step3(
-                prompt_state3, frame["teacher_step3_raw"])
+                prompt_state3, frame["teacher_step3_target"])
         else:
             a3 = s3_status = s3_subgoal = 0
         total_loss += W_A1*a1 + W_A2*a2 + W_S2*s2 + W_A3*a3 + W_S3*s3_status + W_S3*s3_subgoal
@@ -441,7 +459,7 @@ $OUTPUT_DIR/replay/
 
 **驱逐**：每个 collector 每写完 N 条（默认 N=8）执行一次驱逐：
 ```python
-files = sorted(ready_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+files = sorted(ready_dir.glob("*.jsonl"), key=trajectory_header_created_at)
 while len(files) > REPLAY_CAPACITY:
     try:
         files[0].unlink()
@@ -449,6 +467,9 @@ while len(files) > REPLAY_CAPACITY:
     except FileNotFoundError:   # 别的 collector 已经删了
         files.pop(0)
 ```
+`trajectory_header_created_at` 读取 jsonl 第一行 header 的 `created_at`，与
+`train/replay/avg_age_minutes` 的统计口径完全一致；只有旧文件或坏文件才回退到
+文件 mtime。
 
 **staleness 控制**：
 - `REPLAY_CAPACITY` 小（64-128）→ 更新鲜，但 collector 喘息时间短，buffer 容易空、
@@ -490,18 +511,23 @@ v3 的"Phase A 100% 非 GT 初始 + Phase B 100% 修回 GT"对 student 来说太
 1. learner rank0 先单独跑起来，`build_dataset` 检查通过后立刻 dump `v_0/`
 2. learner rank0 写 `current_version.txt = "0"`
 3. learner rank1 通过 torchrun join，DDP world_size=2 建立完成
-4. learner 等 `ready/` 非空（设 `EARLY_WAIT_SECONDS=60` 兜底，超过则报错退出）
+4. learner 等 `ready/` 非空（设 `REPLAY_STARTUP_TIMEOUT_SEC=600` 兜底；timeout
+   判定先在 learner ranks 间 allreduce，rank0 写 `STOP`，所有 rank barrier 后 cleanup，
+   最后抛 `TimeoutError`，避免启动期 collective 顺序错位）
 5. collectors 以独立 Python 进程批量启动（任意顺序），各自读 `current_version.txt`
    加载 v_0，开始 rollout 写 `ready/`
 6. trainer 开始消费
 
 退出协议：
 
-1. learner 到 `max_steps` 或 `--check` 退出条件，写 `STOP` 哨兵到 `$OUTPUT_DIR/`
+1. learner 到 `max_steps` / `--check` 退出条件时，保存 `final/` 并写 `STOP` 哨兵到 `$OUTPUT_DIR/`
 2. learner rank0 dump `final/` LoRA
 3. 各 collector 每个 episode 结束查 `STOP`，存在则正常退出（不强 kill，让正在写
    `pending/` 的 traj 完成）
 4. `launch_offpolicy.sh` 监控所有 collector 进程退出后收尾日志
+5. 如果用户或 launcher 预先写入 `$OUTPUT_DIR/STOP`，learner 所有 rank 会先用一个
+   轻量 allreduce 同步该停止请求，然后在下一个 step 边界退出；非视觉熔断场景下仍保存
+   当前 adapter 到 `final/`，便于手动早停后继续 eval/probe。
 
 ### 0.12 当前 v4 子包训练入口状态
 
@@ -511,7 +537,7 @@ v4 off-policy 已经落地为四个新入口：
 - `collect.py`：collector 入口，独立进程、无 DDP，负责 rollout 并写 `replay/ready/`。
 - `learn.py`：learner DDP 入口，world_size=2，只读 replay 做 teacher-forced loss +
   backward，并周期发布 LoRA snapshot。
-- `launch_offpolicy.sh`：一键编排 2 learner + 6 collector，处理 GPU 切分、run 子目录、
+- `launch_offpolicy.sh`：一键编排 2 learner + 默认 2 collector，处理 GPU 切分、run 子目录、
   STOP 哨兵和日志。
 
 `sft_v4/train.py` / `train.sh` 保留为 on-policy 兼容调试入口，启动时会打印 warning；
@@ -530,7 +556,7 @@ v4 off-policy 已经落地为四个新入口：
 | 4 | learner DDP | `learn.py` | 已实现 learner-only DDP；所有 rank 每步一次同构 backward |
 | 5 | 多 collector 并发 | `replay.py` / `collect.py` | 已实现文件锁 counter，collector 不进 NCCL |
 | 6 | snapshot 切换 | `learn.py` / `collect.py` | 已实现 `latest_lora/v_<step>/` 原子发布与 collector reload |
-| 7 | launcher 编排 | `launch_offpolicy.sh` | 已实现 2 learner + 6 collector、STOP 哨兵、run 子目录与日志 |
+| 7 | launcher 编排 | `launch_offpolicy.sh` | 已实现 2 learner + 默认 2 collector、STOP 哨兵、run 子目录与日志 |
 
 ### 0.14 已锁定参数 / 不再待拍板
 
@@ -541,7 +567,7 @@ v4 off-policy 已经落地为四个新入口：
 | Phase A 初始正确率 | `P_INIT_CORRECT=0.5` | 50% GT scene、50% 随机非 GT scene；D3v4 覆盖 v3 的 100% 非 GT 设定 |
 | Phase B 噪声率 | `PHASE_B_NOISE_PROB=0.15` | 弱纠偏到 GT 后，15% 概率再注入随机非 GT scene；可调范围保留 `[0.0, 0.3]` |
 | learner DDP world size | `2` | GPU0/GPU1 各 1 个 learner rank；只 learner 进入 NCCL process group |
-| collector 并发 | `6` | GPU2/GPU3 各 3 个 collector；collector 不进 DDP，只异步写 replay |
+| collector 并发 | 默认 `2` | GPU2/GPU3 各 1 个 collector；确认单卡多 CUDA 进程稳定后可手动设 `COLLECTORS_PER_GPU=2/3` |
 | learner batch | 每 rank `1` 条 trajectory | effective batch = 2；不做 per-frame batch 拼接，降低 mask/padding 风险 |
 | snapshot 频率 | `SNAPSHOT_EVERY_STEPS=1000` | rank0 每 1000 learner step 发布一版 `latest_lora/v_{step}/` |
 | LR schedule | `--max-steps` + cosine + `warmup_ratio=0.03` | off-policy 没有 epoch 概念，用总 step 定义 scheduler |
@@ -991,8 +1017,8 @@ train/scene_flip_rate                                          ← step2 改 sce
 train/gt_leak_skip_rate/{step2, step3}
 train/phase_a_frame_frac                                       ← 每 step batch 内 Phase A 帧占比
 train/lr
-train/grad_norm/{language, vision}                             ← 与 v2 同
-train/param_norm/lora_{language, vision}                       ← 与 v2 同
+train/grad_norm/{language, vision}                             ← 兼容口径；off-policy 实现写 train/grad_norm/language 与 train/grad_norm/vision
+train/param_norm/lora_{language, vision}                       ← 兼容口径；off-policy 实现写 train/param_norm/lora_language 与 train/param_norm/lora_vision
 train/vision_guard_bad_steps                                   ← 与 v2 同
 val/scene_acc_per_step
 val/scene_recovery_steps
@@ -1014,7 +1040,8 @@ val/analysis_bleu_vs_teacher (eval.py --with-teacher-ref 时输出)
   - 语言 / 视觉分组梯度裁剪 `--language-clip-norm=1.0` / `--vision-clip-norm=0.3`；
   - `STRICT_VISION_SCOPE=1` 命名漂移硬拒绝；
   - `VISION_GUARD_ENABLED=1` 运行时视觉熔断；
-  - 熔断时写 `fuse_stop_step_<N>/`、`fuse_reason.txt`，跳过 `final/`。
+  - 熔断时写 `fuse_stop_after_step_<N>/`、`fuse_reason.txt`，跳过 `final/`；
+    `N` 是最后一个已完成 optimizer step，当前异常 step 的梯度会先 `zero_grad`，不会写入 adapter。
 - **Teacher**：复用 student base，**不创建第二份模型**。每次 teacher generate
   时：
   ```python
@@ -1045,6 +1072,8 @@ prompt 内的 token 上限故意比 `max_new_tokens` 更保守，预留格式行
 token` 的并集施加 penalty（正分除以 1.05、负分乘以 1.05），等价 transformers
 `RepetitionPenaltyLogitsProcessor` 在 greedy decode 下的行为。max 80 token 的开销
 可忽略，主要避免 step1 出现"I see I see ..."之类复读污染 L_A1 目标分布（B1 拍板）。
+`eval.py` / `probe.py` 通过 `LocalQwen3VLInstructEngine(repetition_penalty=1.05)`
+走同一类 logits 后处理，避免训练、评测自由生成口径漂移。
 
 ---
 
@@ -1108,10 +1137,10 @@ case_0/episode_meta.json
 
 ### 8.3 E3 训练时 in-loop val
 
-单卡时每 `EVAL_STEPS` 抽少量 val episode 跑 teacher-forced quick loss。多 rank 下
-不做 in-loop eval（参数还未平均时各 rank 模型不同，eval 没意义）；若
-`WORLD_SIZE>1` 且 `--eval-steps > 0`，`train.py` 直接报错，要求训练后单独运行
-`eval.py`。
+off-policy `learn.py` 不做 in-loop eval：learner 主循环只消费 replay 做
+teacher-forced loss + backward，避免在 DDP 主循环里插入额外生成或 val 逻辑。训练后
+单独运行 `eval.py` / `probe.py`。历史 on-policy `train.py` 仍保留自己的 quick eval
+调试入口，但它不是 v4 生产路径。
 
 ### 8.4 E4 单元 / 烟雾测试
 
@@ -1120,7 +1149,7 @@ case_0/episode_meta.json
   互不重叠，per-token normalize 分母对得上 train.py 里 `_append_token_ids` 的
   位置切分逻辑。
 - `test_memory_update.py`：纯 Python 模拟外循环，覆盖：
-  - `init_memory` 排除 GT scene（D3 拍板）；
+  - `init_memory` 的 `P_INIT_CORRECT` 概率初始化（默认 0.5，同时覆盖 `0.0` / `1.0` 边界）；
   - Phase A `update_memory_after_step2` 的 4 种翻转组合；
   - Phase B 弱纠偏（D2 拍板）：scene == GT 时 noop、status/subgoal 跨帧保留；
     scene != GT 时走 scene-change reset；
@@ -1309,7 +1338,8 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 13. **LoRA 接口**：与 v2 完全同构（`--lora-vision-scope` + 全套保险），
     默认 `off`。
 14. **多卡训练（D14v4 拍板，覆盖 v3 work-stealing+local-SGD）**：v4 采用 off-policy
-    actor-learner——collector 组（默认 6 个进程，分布在 GPU2/3 × 3）异步 rollout 写
+    actor-learner——collector 组（默认 2 个进程，分布在 GPU2/GPU3 × 1；稳定后可手动调
+    `COLLECTORS_PER_GPU=2/3`）异步 rollout 写
     replay；learner 组（默认 2 个进程，DDP world_size=2，分别在 GPU0/GPU1）从 replay
     随机抽 traj 做 teacher-forced loss + backward + DDP allreduce。`grad_accum` 仍是
     1（每 traj 一次 backward），但不再需要 v3 的周期 `_weighted_average_lora_params_inplace`。
@@ -1333,7 +1363,7 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
     `REFRESH_EVERY_SEC`（默认 60）秒检查 pointer，加载新版本。**保留最近 3 个版本**，
     rank0 不删 ≥ pointer-1 的目录避免 collector 加载竞态。
 19. **Replay FIFO 容量（D19v4 新增）**：默认 `REPLAY_CAPACITY=256`，约 750MB 磁盘。
-    抽样 `random.choice`，驱逐按 `mtime` 取最旧。`REPLAY_CAPACITY=64` 接近 on-policy，
+    抽样 `random.choice`，驱逐按 trajectory header `created_at` 取最旧。`REPLAY_CAPACITY=64` 接近 on-policy，
     `REPLAY_CAPACITY=1024` 接近高 staleness off-policy，默认值在 staleness ~1 小时、
     LoRA 漂移 ~200 step 量级，对 r=16 LoRA + LR=3e-5 cosine 来说很温和。
 20. **终止协议（D20v4 新增）**：learner 跑到 `--max-steps` 后写 `$OUTPUT_DIR/STOP`

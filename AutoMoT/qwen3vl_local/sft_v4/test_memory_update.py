@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import random
 import sys
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
@@ -31,6 +32,7 @@ from qwen3vl_local.sft_v4.prompts import (
     first_subgoal,
     force_memory_to_gt_scene,
     get_full_sequence,
+    inject_phase_b_noise,
     initial_event,
     init_memory,
     should_trigger_step3,
@@ -182,6 +184,35 @@ def _check_phase_b_force_helper() -> None:
     assert forced_bad.subgoal == first_subgoal(gt)
 
 
+def _check_phase_b_noise_helper() -> None:
+    """D17v4：Phase B 噪声可关闭；命中时改成非 GT scene 并重置 event。"""
+
+    gt = "Accident"
+    if len(SCENARIO_LABELS) <= 1:
+        return
+    base = Memory(
+        scene=gt,
+        status=initial_event(gt),
+        subgoal=first_subgoal(gt),
+        ego_to_goal_x=3.0,
+        ego_to_goal_y=-2.0,
+    )
+
+    no_noise, injected = inject_phase_b_noise(base, gt_scene=gt, rng=random.Random(0), prob=0.0)
+    assert injected is False
+    assert no_noise.scene == base.scene
+    assert no_noise.status == base.status
+    assert no_noise.subgoal == base.subgoal
+
+    noisy, injected = inject_phase_b_noise(base, gt_scene=gt, rng=random.Random(0), prob=1.0)
+    assert injected is True
+    assert noisy.scene != gt
+    assert noisy.status == initial_event(noisy.scene)
+    assert noisy.subgoal == first_subgoal(noisy.scene)
+    assert noisy.ego_to_goal_x == base.ego_to_goal_x
+    assert noisy.ego_to_goal_y == base.ego_to_goal_y
+
+
 def _check_should_trigger_step3() -> None:
     """C4：step3 触发判定与 step2 是否翻转无关，只看 scene_after_step2 == gt_scene。"""
 
@@ -209,6 +240,7 @@ def main() -> None:
     _check_scene_flip_branches()
     _check_step3_update()
     _check_phase_b_force_helper()
+    _check_phase_b_noise_helper()
     _check_should_trigger_step3()
 
     print(json.dumps({"ok": True}, ensure_ascii=False, indent=2))

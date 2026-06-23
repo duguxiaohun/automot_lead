@@ -31,6 +31,7 @@ WARMUP_RATIO="${WARMUP_RATIO:-0.03}"
 SNAPSHOT_EVERY_STEPS="${SNAPSHOT_EVERY_STEPS:-1000}"
 SAVE_STEPS="${SAVE_STEPS:-5000}"
 RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-}"
+REPLAY_STARTUP_TIMEOUT_SEC="${REPLAY_STARTUP_TIMEOUT_SEC:-600}"
 
 REPLAY_CAPACITY="${REPLAY_CAPACITY:-256}"
 COLLECTORS_PER_GPU="${COLLECTORS_PER_GPU:-1}"
@@ -193,7 +194,7 @@ export NCCL_P2P_LEVEL="${NCCL_P2P_LEVEL:-NVL}"
 
 echo "[run] OUTPUT_DIR=${OUTPUT_DIR}"
 echo "[gpu] learner=${learner_gpus} collector=${collector_gpus} collectors_per_gpu=${COLLECTORS_PER_GPU}"
-echo "[cfg] max_steps=${MAX_STEPS} replay_capacity=${REPLAY_CAPACITY} p_init=${P_INIT_CORRECT} phase_b_noise=${PHASE_B_NOISE_PROB}"
+echo "[cfg] max_steps=${MAX_STEPS} replay_capacity=${REPLAY_CAPACITY} startup_replay_timeout=${REPLAY_STARTUP_TIMEOUT_SEC}s p_init=${P_INIT_CORRECT} phase_b_noise=${PHASE_B_NOISE_PROB}"
 
 resume_args=()
 if [[ -n "${RESUME_FROM_CHECKPOINT}" ]]; then
@@ -229,6 +230,7 @@ CUDA_VISIBLE_DEVICES="${learner_gpus}" torchrun --nproc_per_node=2 \
     --max-steps "${MAX_STEPS}" \
     --learning-rate "${LR}" \
     --warmup-ratio "${WARMUP_RATIO}" \
+    --startup-replay-timeout-sec "${REPLAY_STARTUP_TIMEOUT_SEC}" \
     --snapshot-every-steps "${SNAPSHOT_EVERY_STEPS}" \
     --save-steps "${SAVE_STEPS}" \
     "${resume_args[@]}" \
@@ -249,7 +251,16 @@ CUDA_VISIBLE_DEVICES="${learner_gpus}" torchrun --nproc_per_node=2 \
 pids+=("$!")
 learner_pid="${pids[0]}"
 
-sleep 5
+sleep "${LEARNER_STARTUP_GRACE_SEC:-5}"
+if ! jobs -pr | grep -qx "${learner_pid}"; then
+    set +e
+    wait "${learner_pid}"
+    learner_status="$?"
+    set -e
+    echo "stop" > "${OUTPUT_DIR}/STOP"
+    echo "[launcher][error] learner exited before collectors started with ${learner_status}" >&2
+    exit "${learner_status}"
+fi
 
 collector_idx=0
 for gpu in "${collector_gpu_array[@]}"; do

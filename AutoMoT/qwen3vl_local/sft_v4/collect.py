@@ -43,7 +43,6 @@ import torch
 
 from qwen3vl_local.sft_v4 import replay
 from qwen3vl_local.sft_v4.prompts import (
-    SCENARIO_LABELS,
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
@@ -56,10 +55,9 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step3_teacher_target,
     check_gt_leak_scene,
     check_gt_leak_status_subgoal,
-    first_subgoal,
     force_memory_to_gt_scene,
     init_memory,
-    initial_event,
+    inject_phase_b_noise,
     parse_output,
     should_trigger_step3,
     update_memory_after_step2,
@@ -172,18 +170,7 @@ def _inject_phase_b_noise(memory: Any, *, gt_scene: str, rng: random.Random, pro
     重置，保持 memory 内部一致。
     """
 
-    p = min(1.0, max(0.0, float(prob)))
-    if p <= 0.0 or rng.random() >= p:
-        return memory, False
-    candidates = [s for s in sorted(SCENARIO_LABELS) if s != gt_scene]
-    if not candidates:
-        return memory, False
-    scene = rng.choice(candidates)
-    mem = memory.copy()
-    mem.scene = scene
-    mem.status = initial_event(scene)
-    mem.subgoal = first_subgoal(scene)
-    return mem, True
+    return inject_phase_b_noise(memory, gt_scene=gt_scene, rng=rng, prob=prob)
 
 
 def collect_episode(
@@ -232,6 +219,7 @@ def collect_episode(
             "kind": "header",
             "collector_id": collector_id,
             "policy_version": int(policy_version),
+            # replay_stats / FIFO 驱逐都用这个时间，而不是 ready 文件 mtime。
             "created_at": time.time(),
             "frame_count": 0,
             "episode": {
@@ -350,7 +338,8 @@ def collect_episode(
                 student_subgoal=pred_subgoal,
             )
 
-        teacher_step3_value: Optional[str] = target3 if step3_ran else None
+        teacher_step3_raw_value: Optional[str] = raw_teacher_step3 if step3_ran else None
+        teacher_step3_target_value: Optional[str] = target3 if step3_ran else None
         student_step3_value: Optional[str] = raw_student_step3 if step3_ran else None
         frame_record = {
             "kind": "frame",
@@ -363,8 +352,11 @@ def collect_episode(
             "init_scene_was_correct": (memory_before.scene == ep.gt_scene) if first_frame else None,
             "noise_injected": bool(noise_injected),
             "teacher_step1_text": teacher_step1,
-            "teacher_step2_raw": target2,
-            "teacher_step3_raw": teacher_step3_value,
+            "teacher_step2_raw": raw_teacher_step2,
+            "teacher_step2_target": target2,
+            "teacher_step3_raw": teacher_step3_raw_value,
+            "teacher_step3_target": teacher_step3_target_value,
+            "student_step1_raw": student_step1,
             "student_step2_raw": raw_student_step2,
             "student_step3_raw": student_step3_value,
             "step3_fired": bool(step3_ran),
@@ -385,6 +377,11 @@ def collect_episode(
                 "step1": teacher_step1,
                 "step2": target2,
                 "step3": target3,
+            },
+            "teacher_raw_outputs": {
+                "step1": teacher_step1,
+                "step2": raw_teacher_step2,
+                "step3": raw_teacher_step3,
             },
             "flags": {
                 # flags 全部是训练审计字段：learner 不依赖它们决定 prompt 文本，但会用来
