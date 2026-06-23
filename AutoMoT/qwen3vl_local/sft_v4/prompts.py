@@ -141,23 +141,28 @@ def init_memory(
     ego_to_goal_x: float,
     ego_to_goal_y: float,
     gt_scene: str | None = None,
+    p_init_correct: float = 0.5,
+    seed_salt: str = "",
 ) -> Memory:
     """在 ``t = anchor[1] - delta`` 初始化学生 memory。
 
-    初始 scene 从 ``SCENARIO_LABELS \\ {gt_scene}`` 均匀随机抽取，用 run/sub-scenario
-    id 固定随机种子保证可复现。排除 GT 的理由（D3 拍板）：Phase A 的稀缺信号是
-    “看到证据 → 推翻错误 memory”，混入“初始就对”的 episode 与 Phase B 的反向监督
-    重复，浪费样本预算。eval/部署时初始恰好等于 GT 的情形由 Phase B 训练样本覆盖，
-    不存在 OOD 风险。
+    D3v4 拍板：默认 50% 直接给 GT scene，50% 从非 GT scene 均匀随机抽取。这样
+    Phase A 同时覆盖“对的别改”和“错的要翻”两类监督；如需退回 v3 的 100% 错场景，
+    设置 ``p_init_correct=0.0`` 即可。``seed_salt`` 用于 collector id / policy version
+    注入，让多 collector 对同一 episode 能产生可复现但不同的初始扰动。
     """
 
-    seed_src = f"{run_id}::{sub_scenario_id}".encode("utf-8")
+    p = min(1.0, max(0.0, float(p_init_correct)))
+    seed_src = f"{run_id}::{sub_scenario_id}::{seed_salt}".encode("utf-8")
     seed = int(hashlib.sha256(seed_src).hexdigest(), 16) % (2**31)
     rng = random.Random(seed)
     candidates = sorted(SCENARIO_LABELS.keys())
-    if gt_scene is not None and gt_scene in SCENARIO_LABELS and len(candidates) > 1:
-        candidates = [s for s in candidates if s != gt_scene]
-    scene = rng.choice(candidates)
+    if gt_scene is not None and gt_scene in SCENARIO_LABELS and rng.random() < p:
+        scene = gt_scene
+    else:
+        if gt_scene is not None and gt_scene in SCENARIO_LABELS and len(candidates) > 1:
+            candidates = [s for s in candidates if s != gt_scene]
+        scene = rng.choice(candidates)
     return Memory(
         scene=scene,
         status=initial_event(scene),

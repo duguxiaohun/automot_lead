@@ -2,7 +2,7 @@
 
 覆盖：
 
-- ``init_memory`` 排除 GT scene（D3）；
+- ``init_memory`` 默认 50% 初始正确，并可用 ``p_init_correct=0`` 退回 v3 必错口径；
 - ``update_memory_after_step2`` 的 4 种翻转组合；
 - ``update_memory_after_step3`` 的合法/非法 event 过滤；
 - ``force_memory_to_gt_scene`` 的弱纠偏语义（D2）：scene == GT 时全 noop，
@@ -39,21 +39,44 @@ from qwen3vl_local.sft_v4.prompts import (
 )
 
 
-def _check_init_excludes_gt() -> None:
-    """D3：init_memory 在多次 seed 下都不应抽中 GT scene。"""
+def _check_init_probability_modes() -> None:
+    """D3v4：init_memory 支持 50% 正确，也能显式退回 0% / 100% 两端。"""
 
     if len(SCENARIO_LABELS) <= 1:
         return  # 单场景退化，无法排除
     gt = "Accident"
-    for i in range(64):
-        mem = init_memory(
+    always_ok = init_memory(
+        run_id="run_ok",
+        sub_scenario_id="sub_ok",
+        ego_to_goal_x=0.0,
+        ego_to_goal_y=0.0,
+        gt_scene=gt,
+        p_init_correct=1.0,
+    )
+    assert always_ok.scene == gt
+    for i in range(16):
+        always_wrong = init_memory(
             run_id=f"run_{i}",
             sub_scenario_id=f"sub_{i}",
             ego_to_goal_x=0.0,
             ego_to_goal_y=0.0,
             gt_scene=gt,
+            p_init_correct=0.0,
         )
-        assert mem.scene != gt, f"init_memory 在 i={i} 抽中了 GT scene={gt}"
+        assert always_wrong.scene != gt, f"p_init_correct=0 在 i={i} 抽中了 GT scene={gt}"
+    seen = {
+        init_memory(
+            run_id=f"mix_{i}",
+            sub_scenario_id=f"sub_{i}",
+            ego_to_goal_x=0.0,
+            ego_to_goal_y=0.0,
+            gt_scene=gt,
+            p_init_correct=0.5,
+        ).scene
+        for i in range(64)
+    }
+    assert gt in seen, "p_init_correct=0.5 没有覆盖初始正确样本"
+    assert any(scene != gt for scene in seen), "p_init_correct=0.5 没有覆盖初始错误样本"
 
 
 def _check_delta_formula_allows_zero() -> None:
@@ -181,7 +204,7 @@ def _check_should_trigger_step3() -> None:
 def main() -> None:
     """跑全部状态机断言，全部通过则打印 ok=True。"""
 
-    _check_init_excludes_gt()
+    _check_init_probability_modes()
     _check_delta_formula_allows_zero()
     _check_scene_flip_branches()
     _check_step3_update()
