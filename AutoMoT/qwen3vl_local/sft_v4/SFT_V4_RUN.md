@@ -7,8 +7,8 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
 本文默认当前目录是远端 `AutoMoT/`。
 
 当前状态：off-policy actor-learner 代码已经落地。生产训练入口是
-`launch_offpolicy.sh`，它会启动 2 个 learner DDP rank + 6 个异步 collector：
-默认 GPU0/GPU1 各 1 个 learner，GPU2/GPU3 各 3 个 collector。Phase A 初始正确率
+`launch_offpolicy.sh`，它会启动 2 个 learner DDP rank + 2 个异步 collector：
+默认 GPU0/GPU1 各 1 个 learner，GPU2/GPU3 各 1 个 collector。Phase A 初始正确率
 `P_INIT_CORRECT=0.5`，Phase B 噪声率 `PHASE_B_NOISE_PROB=0.15`，learner rank0
 每 1000 step 发布一次 LoRA snapshot 给 collectors。
 
@@ -96,7 +96,7 @@ launcher 会做这些事：
 - 建立 `${OUTPUT_DIR}/run_<RUN_TAG>/`，并维护 `${OUTPUT_DIR}/latest` symlink。
 - 启动 `torchrun --nproc_per_node=2 qwen3vl_local/sft_v4/learn.py`，只让 learner 进入
   DDP / NCCL。
-- 在 collector GPU 上启动 `COLLECTORS_PER_GPU=3` 个 `collect.py` 进程；collector
+- 在 collector GPU 上启动 `COLLECTORS_PER_GPU=1` 个 `collect.py` 进程；collector
   不调用 DDP，只读 LoRA snapshot、写 replay。
 - learner rank0 先发布 `latest_lora/v_0/`，collector 等到初始 snapshot 后开始采集。
 - learner 到 `MAX_STEPS` 后保存 `final/`、写 `STOP`，collector 完成当前 episode 后退出。
@@ -111,12 +111,28 @@ LR=3e-5 \
 SNAPSHOT_EVERY_STEPS=1000 \
 SAVE_STEPS=5000 \
 REPLAY_CAPACITY=256 \
-COLLECTORS_PER_GPU=3 \
+COLLECTORS_PER_GPU=1 \
+GPU_MAX_USED_MB=0 \
+ALLOW_BUSY_GPUS=0 \
 P_INIT_CORRECT=0.5 \
 PHASE_B_NOISE_PROB=0.15 \
+VISION_LR_SCALE=0.1 \
+MAX_VISION_LR_SCALE=0.25 \
+LANGUAGE_CLIP_NORM=1.0 \
+VISION_CLIP_NORM=0.3 \
+VISION_GUARD_ENABLED=1 \
 GPU_IDS=0,1,2,3 \
 bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 ```
+
+`GPU_IDS` 未显式给定时，launcher 只会自动选择 `memory.used <= GPU_MAX_USED_MB`
+的 GPU。默认阈值为 0 MiB，避免把已有进程的忙卡分配给 learner 或 collector。
+`ALLOW_BUSY_GPUS=1` 只用于你确认要覆盖该检查的调试场景。
+
+`COLLECTORS_PER_GPU` 默认保守设为 1，避免服务器处于 CUDA `Exclusive_Process`
+模式时，同一张 GPU 被多个 CUDA 进程同时占用并触发
+`CUDA-capable device(s) is/are busy or unavailable`。确认 `nvidia-smi -q -d COMPUTE`
+显示允许多进程、且单卡显存/吞吐稳定后，再试 `COLLECTORS_PER_GPU=2` 或 `3`。
 
 视觉 LoRA 默认关闭。需要打开时：
 
@@ -126,7 +142,9 @@ LORA_VISION_SCOPE=merger GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v4/launch_offpol
 
 注意：off-policy learner 为了控制显存，图像 prefill 默认在 `no_grad` 下执行；显式开启
 视觉 LoRA 时 DDP 会自动使用 `find_unused_parameters=True`，视觉侧梯度可能为 0。生产训练
-默认建议保持 `LORA_VISION_SCOPE=off`。
+默认建议保持 `LORA_VISION_SCOPE=off`。如果视觉 LoRA 的梯度/参数范数连续异常，
+learner 会写 `fuse_stop_step_<N>/` 和 `fuse_reason.txt`，同时跳过正常 `final/`
+保存，避免误用异常 adapter。
 
 ### 烟雾检查
 
@@ -151,6 +169,8 @@ bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 - `latest_lora/v_<step>/` 与 `latest_lora/current_version.txt`：给 collector 用的策略快照。
 - `checkpoint-<step>/`：可恢复训练状态，含 adapter + optimizer + scheduler。
 - `final/`：最终 adapter，供 eval/probe 使用。
+- `fuse_stop_step_<N>/`：视觉 LoRA guard 触发时的 emergency adapter；此时不会写正常
+  `final/`。
 - `STOP`：正常停止哨兵，collector 会在 episode 结束后观察并退出。
 
 ### 兼容入口
@@ -248,6 +268,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/eval.py \
 ## 5. Probe
 
 随机抽 episode，逐帧 dump 三步 prompt、输出、memory 和 flags。
+`probe.py` 与 `eval.py` 一样会默认自动选择空闲 GPU；需要固定卡时使用 `GPU_IDS=0`。
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v4/probe.py \
