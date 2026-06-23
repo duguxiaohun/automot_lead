@@ -51,8 +51,8 @@ memory 自更新），把整条 episode 固化成 trajectory 文件写入磁盘 
 │     pick traj                                                  │
 │     for frame in traj:                                         │
 │       teacher-forced CE (无 generate, 用存好的 teacher 文本)   │
-│       accumulate loss                                          │
-│     backward + DDP allreduce (2 rank lockstep, 1 次 / traj)    │
+│       per-frame micro-backward                                 │
+│     manual LoRA grad allreduce once / traj                     │
 │     optimizer.step                                             │
 │     rank0 周期写 latest_lora/v_{step}/ + current_version.txt   │
 └────────────────────────────────────────────────────────────────┘
@@ -368,32 +368,31 @@ while step < max_steps and not exists(stop_sentinel):
     except (FileNotFoundError, JSONDecodeError):  # 被 collector 驱逐 / 写一半被读
         continue
 
-    # 3. 复现 teacher-forced loss
+    # 3. 复现 teacher-forced loss；每帧立刻 backward，避免整条 traj 计算图堆到显存里
     optimizer.zero_grad(set_to_none=True)
-    total_loss = 0
-    frame_count = 0
-    for frame in traj["frames"]:
-        images = load_images(frame["image_paths"])
-        memory = frame["memory_before_frame"]
-        prompt_state = kv_prefill(system + images + step1_user(memory))
-        a1 = teacher_forced_ce(prompt_state, target=frame["teacher_step1_text"],
-                                analysis_enabled=True)
-        prompt_state = append_assistant(prompt_state, frame["student_step1_raw"])
-        prompt_state2 = append_user(prompt_state, step2_user(memory))
-        a2, s2 = teacher_forced_ce_step2(prompt_state2, frame["teacher_step2_target"])
-        if frame["step3_fired"]:
-            prompt_state2 = append_assistant(prompt_state2, frame["student_step2_raw"])
-            prompt_state3 = append_user(prompt_state2, step3_user(memory))
-            a3, s3_status, s3_subgoal = teacher_forced_ce_step3(
-                prompt_state3, frame["teacher_step3_target"])
-        else:
-            a3 = s3_status = s3_subgoal = 0
-        total_loss += W_A1*a1 + W_A2*a2 + W_S2*s2 + W_A3*a3 + W_S3*s3_status + W_S3*s3_subgoal
-        frame_count += 1
-    total_loss = total_loss / max(frame_count, 1)
+    frame_count = len(traj["frames"])
+    with ddp_model.no_sync():
+        for frame in traj["frames"]:
+            images = load_images(frame["image_paths"])
+            memory = frame["memory_before_frame"]
+            prompt_state = kv_prefill(system + images + step1_user(memory))
+            a1 = teacher_forced_ce(prompt_state, target=frame["teacher_step1_text"],
+                                    analysis_enabled=True)
+            prompt_state = append_assistant(prompt_state, frame["student_step1_raw"])
+            prompt_state2 = append_user(prompt_state, step2_user(memory))
+            a2, s2 = teacher_forced_ce_step2(prompt_state2, frame["teacher_step2_target"])
+            if frame["step3_fired"]:
+                prompt_state2 = append_assistant(prompt_state2, frame["student_step2_raw"])
+                prompt_state3 = append_user(prompt_state2, step3_user(memory))
+                a3, s3_status, s3_subgoal = teacher_forced_ce_step3(
+                    prompt_state3, frame["teacher_step3_target"])
+            else:
+                a3 = s3_status = s3_subgoal = 0
+            frame_loss = W_A1*a1 + W_A2*a2 + W_S2*s2 + W_A3*a3 + W_S3*s3_status + W_S3*s3_subgoal
+            (frame_loss / max(frame_count, 1)).backward()
+    manual_allreduce_mean_lora_grads()
 
-    # 4. backward (DDP allreduce per backward, 自动 lockstep)
-    total_loss.backward()
+    # 4. clip/step；optimizer 仍然是一条 trajectory 一步
     clip_grad_norm_(lora_params, MAX_NORM)
     optimizer.step()
     scheduler.step()
@@ -409,9 +408,10 @@ while step < max_steps and not exists(stop_sentinel):
         save_full_checkpoint(step)
 ```
 
-DDP allreduce 在 `total_loss.backward()` 里隐含触发，对 2 rank 都是每 step 一次，**天然
-lockstep**——即使两个 rank 抽到不同 traj，backward 次数仍然 1:1 匹配，不会出现 v3 那种
-collective 数对不上的死锁。
+frame loop 内使用 DDP `no_sync()`，所以不同 rank 抽到不同长度 trajectory 时不会产生
+不同数量的 DDP gradient collective。每个 rank 本地累完一条 trajectory 后，再按 LoRA
+参数的固定顺序手动 `all_reduce(SUM) / world_size` 一次。这样既不会把整条 episode
+的计算图攒到显存里，也不会出现 collective 数对不上的死锁。
 
 ### 0.8 LoRA snapshot 原子切换协议
 
@@ -553,7 +553,7 @@ v4 off-policy 已经落地为四个新入口：
 | 1 | replay 抽象 | `replay.py` | 已实现 schema 校验、原子写、文件锁 counter、FIFO 驱逐 |
 | 2 | collector 单进程 | `collect.py` | 已实现 snapshot 等待/刷新、rollout、Phase B 噪声、trajectory 写盘 |
 | 3 | learner 单卡 | `learn.py` | 已实现单进程读取 replay、teacher-forced loss、optimizer/scheduler |
-| 4 | learner DDP | `learn.py` | 已实现 learner-only DDP；所有 rank 每步一次同构 backward |
+| 4 | learner DDP | `learn.py` | 已实现 learner-only DDP；按帧 micro-backward，frame loop `no_sync()`，每 traj 固定顺序手动平均 LoRA grad |
 | 5 | 多 collector 并发 | `replay.py` / `collect.py` | 已实现文件锁 counter，collector 不进 NCCL |
 | 6 | snapshot 切换 | `learn.py` / `collect.py` | 已实现 `latest_lora/v_<step>/` 原子发布与 collector reload |
 | 7 | launcher 编排 | `launch_offpolicy.sh` | 已实现 2 learner + 默认 2 collector、STOP 哨兵、run 子目录与日志 |
@@ -993,16 +993,15 @@ L_frame = w_A1 * L_A1
 
 ### 5.2 梯度累积粒度
 
-- 每帧外循环结束做 **一次** backward + optimizer step（grad accumulate = 1
-  episode-frame）。
-- Episode 内默认**每帧 backward + optimizer step**（`grad_accum=1`），避免显存随
-  episode 长度爆炸，并与 OPD memory 在线更新口径一致。
-- 多 rank 下不再强制 `grad_accum=1`（work-stealing + local-SGD 不依赖 rank 间
-  per-step 锁步），但默认仍 1；尾部不足 `grad_accum` 的梯度会在 sync/epoch
-  边界按实际帧数补尺度后再 step，避免 tail step 被系统性压小。梯度同步从
-  per-step 切到每 rank 目标 K 个 episode 后做参数平均，详见 9.1。
-- `per_device_batch_size` 在 v4 work-stealing 口径下固定为 1：每个 worker pull
-  一条 episode，episode 内逐帧推进 memory。
+- 每个 learner rank 每个 optimizer step 随机抽 **一条 trajectory**。
+- trajectory 内按帧 micro-backward：第 `i` 帧 loss 乘 `1 / frame_count` 后立即
+  `backward()`，释放该帧 KV/activation 图，避免显存随 episode 长度线性堆积。
+- optimizer / scheduler 仍然每条 trajectory step 一次，因此 effective batch 仍是
+  `world_size` 条 trajectory。
+- DDP 下两个 rank 的 trajectory 长度可能不同；frame loop 放在 DDP `no_sync()` 中，
+  本地累完后再按固定参数顺序手动 mean-reduce LoRA grad，保证 collective 序列完全一致。
+- `per_device_batch_size` 固定为 1：每个 rank pull 一条 episode，episode 内逐帧推进
+  memory 并累积到同一个 optimizer step。
 
 ### 5.3 TensorBoard 记录
 
@@ -1174,9 +1173,10 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
   起 NCCL 进程组，默认包 `DistributedDataParallel(find_unused_parameters=False,
   broadcast_buffers=False)`。若显式开启视觉 LoRA，learner 会切到
   `find_unused_parameters=True` 并打印 warning，因为 v4 的图像 prefill 默认 no_grad，
-  视觉侧 LoRA 可能没有梯度；生产默认仍是 `LORA_VISION_SCOPE=off`。每个 step = 1 次
-  backward = 1 次 grad allreduce，两个 rank 天然 lockstep（即使抽到不同 traj，backward
-  次数仍 1:1 匹配），不会出现 v3 那种 collective 数对不上的死锁。
+  视觉侧 LoRA 可能没有梯度；生产默认仍是 `LORA_VISION_SCOPE=off`。每个 optimizer step
+  仍是每 rank 一条 traj，但 backward 按帧 micro-step 执行；frame loop 使用
+  `no_sync()`，随后手动按固定参数顺序 mean-reduce LoRA grad，因此不同帧数也不会打乱
+  collective 序列。
 - **collector 完全不进 DDP**：collector 进程**不调** `dist.init_process_group(NCCL)`。
   collector 之间用**独立 TCPStore 服务或纯文件锁**做 episode 抢任务计数，不复用 learner
   DDP 的默认 store，避免把采集生命周期绑到 learner process group 上。某个 collector
@@ -1208,8 +1208,9 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
   s3_subgoal}`、`train/lr`、`train/grad_norm`、`train/replay/size`、
   `train/replay/avg_age_minutes`、`train/lora_snapshot/version` 等；collector 不写 TB，
   但每条 traj 写一行 `[collect]` log 到 stderr。
-- **v3 work-stealing+local-SGD 已彻底废弃**：v4 单条 backward 开销小、replay 解耦了
-  rank 间不均衡，DDP 标准用法就够稳，不需要再周期 `_weighted_average_lora_params_inplace`。
+- **v3 work-stealing+local-SGD 已彻底废弃**：v4 off-policy replay 解耦了采集与训练，
+  learner 只需标准 DDP + frame-count padding，不需要再周期
+  `_weighted_average_lora_params_inplace`。
   下面 §9.1.legacy 仅作为历史口径参考，**v4 实现路径不要走那条**。
 
 ### 9.1.legacy 历史口径：work-stealing + local-SGD（仅作 v3 兼容入口的参考，不是 v4 的训练路径）
@@ -1217,10 +1218,11 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 > `sft_v4/train.py` 是 on-policy 兼容入口，仍按这套历史口径跑。**v4 off-policy 生产
 > 训练请用 `launch_offpolicy.sh`，不要继续维护 `train.py` 的多卡逻辑。**
 
-- 历史教训：v4 的"每帧 ~330 次 DDP forward + 1 次 backward"训练循环跟标准
+- 历史教训：旧 on-policy 的"每帧 ~330 次 DDP forward + 1 次 backward"训练循环跟标准
   DDP+Join 不兼容——episode 帧数差异让各 rank collective 序列严重不一致
   （同一 SeqNum 上有 rank 发 33M-elt grad allreduce、有 rank 发 1-elt Join 探测），
-  NCCL 直接 watchdog 超时。因此 v4 不再用 DDP wrap。
+  NCCL 直接 watchdog 超时。因此旧 on-policy 入口才保留 local-SGD 历史口径；off-policy
+  `learn.py` 不走这条路径。
 - **work-stealing 调度**：所有 rank 加载同一份 `train_ds.rows`，每个 epoch 用同
   seed 重排得到 `epoch_order`；rank0 在 init_process_group 自带的 TCPStore 上重置
   `sft_v4_epoch_<n>_counter=0`，各 rank 通过 `store.wait([counter_key])`
@@ -1341,8 +1343,9 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
     actor-learner——collector 组（默认 2 个进程，分布在 GPU2/GPU3 × 1；稳定后可手动调
     `COLLECTORS_PER_GPU=2/3`）异步 rollout 写
     replay；learner 组（默认 2 个进程，DDP world_size=2，分别在 GPU0/GPU1）从 replay
-    随机抽 traj 做 teacher-forced loss + backward + DDP allreduce。`grad_accum` 仍是
-    1（每 traj 一次 backward），但不再需要 v3 的周期 `_weighted_average_lora_params_inplace`。
+    随机抽 traj 做 teacher-forced loss + DDP allreduce。optimizer 仍是每 traj 一步；
+    backward 按帧 micro-step 执行，并在每条 traj 后手动平均 LoRA grad，不再需要 v3 的
+    周期 `_weighted_average_lora_params_inplace`。
     详见 §0 / §9.1。`sft_v4/train.py` 保留为 on-policy 兼容入口，**生产路径用
     `launch_offpolicy.sh`**。
 15. **数据持久化（D15v4 拍板）**：v4 必须写训练 trajectory。`build_dataset.py` 仍只产
