@@ -6,19 +6,22 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
 
 本文默认当前目录是远端 `AutoMoT/`。
 
-当前状态：本子包已经完成 v4 命名、路径、adapter config 与文档自洽；`train.sh`
-仍是 sequence-memory 兼容训练入口。off-policy actor-learner 版的 `replay.py` /
-`collect.py` / `learn.py` / `launch_offpolicy.sh` 按 `SFT_V4_PLAN.md` 分阶段实现。
-生产路径默认配置已锁定为 GPU0/GPU1 各 1 个 learner DDP rank、GPU2/GPU3 各 3 个
-collector；Phase A 初始正确率 `P_INIT_CORRECT=0.5`，Phase B 噪声率
-`PHASE_B_NOISE_PROB=0.15`，snapshot 每 1000 learner step 发布一次。
+当前状态：off-policy actor-learner 代码已经落地。生产训练入口是
+`launch_offpolicy.sh`，它会启动 2 个 learner DDP rank + 6 个异步 collector：
+默认 GPU0/GPU1 各 1 个 learner，GPU2/GPU3 各 3 个 collector。Phase A 初始正确率
+`P_INIT_CORRECT=0.5`，Phase B 噪声率 `PHASE_B_NOISE_PROB=0.15`，learner rank0
+每 1000 step 发布一次 LoRA snapshot 给 collectors。
+
+`train.sh` / `train.py` 只保留为 on-policy 兼容调试入口，不是 v4 生产路径。
 
 代码已补中文 module docstring、函数说明和关键逻辑块注释。需要读实现时建议顺序：
 
 1. `prompts.py`：先理解 memory 格式、状态机更新和三步 prompt。
 2. `build_dataset.py`：理解 episode index 的数据契约。
-3. `train.py`：重点看 `KVState`、`_append_token_ids`、`iter_episode_loss_packs`。
-4. `eval.py` / `probe.py`：理解自由生成评估和 case dump。
+3. `replay.py`：理解 trajectory schema、原子写入、FIFO 和文件锁。
+4. `collect.py`：理解 rollout、snapshot reload、Phase B 噪声和 trajectory 写盘。
+5. `learn.py`：理解 learner-only DDP、teacher-forced loss 和 snapshot 发布。
+6. `eval.py` / `probe.py`：理解自由生成评估和 case dump。
 
 当前关键边界：
 
@@ -59,96 +62,96 @@ python qwen3vl_local/sft_v4/build_dataset.py \
 
 ---
 
-## 2. 训练
+## 2. Off-Policy 训练
 
-### 单卡
-
-```bash
-bash qwen3vl_local/sft_v4/train.sh single
-```
-
-显式 pin 单卡：
+### 生产入口
 
 ```bash
-GPU_IDS=0 bash qwen3vl_local/sft_v4/train.sh single
-```
-
-### 多卡 work-stealing local-SGD
-
-```bash
-DDP_GPU_COUNT=4 bash qwen3vl_local/sft_v4/train.sh ddp
+bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 ```
 
 显式 pin 4 卡：
 
 ```bash
-GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v4/train.sh ddp
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 ```
 
-多卡模式不再包 DDP，也不做静态 rank 分片：所有 rank 从同一个 TCPStore counter
-抢 episode，谁空闲谁抢，全部 episode 都会被训练，不截断尾部。`SYNC_EVERY_EPISODES`
-表示每个 rank 目标处理多少个 episode 后同步一次；实际每轮最多开放
-`SYNC_EVERY_EPISODES * world_size` 条全局 episode。默认 16；设为 `1` 时每个 rank
-通常至多跑 1 条 episode 后同步，最接近同步 SGD；设为 `0` 仅 epoch 末同步。
-
-local-SGD 启动后会先广播 rank0 的 LoRA 初始权重；`checkpoint-*` 和 `final/`
-都在参数平均后由 rank0 保存。参数平均按本轮各 rank 的 optimizer step 数加权，
-空闲 rank 不贡献旧参数，只接收平均后的 adapter。`PER_DEVICE_BS` 固定为 1。
-保存的 `sft_v4_adapter_config.json` 会记录 `distributed_train` 口径，便于后续
-eval/probe 或审计确认 adapter 来自 work-stealing local-SGD。
-
-注意：这里的“异步”指 episode 分配异步，参数仍会周期同步。快 rank 到达同步点后
-会先在 TCPStore 上等慢 rank，所有 rank 到齐后才进入 NCCL allreduce / broadcast；
-这样等待慢 episode 时不会占着 NCCL collective 超过 watchdog timeout。
-
-sync 日志里：
-
-- `step` 是 rank0 本地 optimizer step，不代表多卡总训练步数。
-- `all_rank_steps` 是所有 rank 的 optimizer step 汇总，用作 checkpoint step、
-  scheduler 对齐与 TensorBoard sync 横轴。
-- `round_eps` 是本轮所有 rank 实际完成的 episode 数；`total_eps` 是累计已完成
-  episode 数，用来确认 work-stealing 是否完整消费数据。
-- TensorBoard 同步标量写在 `train/sync/{round_weight,episodes_this_round,episodes_total,all_rank_steps}`。
-
-`MAX_STEPS>0` 会在 episode 内截断，只允许烟雾/调试使用：`check` 模式自动允许；
-普通训练若确实要截断，必须显式设置 `ALLOW_MAX_STEPS_TRUNCATION=1`。
-
-如果视觉 LoRA 熔断在任意 rank 触发，sync 后由 rank0 写
-`fuse_stop_step_<N>/fuse_reason.txt`，其中包含触发 rank、梯度/参数 norm 与
-all-rank step，避免非 rank0 触发时丢诊断文件。
-
-多卡不跑 in-loop eval；如果设置 `EVAL_STEPS>0`，`train.py` 会直接报错，训练后
-单独跑 `eval.py`。
-
-### 烟雾检查
+显式指定 learner / collector 卡：
 
 ```bash
-GPU_IDS=0 bash qwen3vl_local/sft_v4/train.sh check
+LEARNER_GPU_IDS=0,1 COLLECTOR_GPU_IDS=2,3 bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 ```
+
+launcher 会做这些事：
+
+- 建立 `${OUTPUT_DIR}/run_<RUN_TAG>/`，并维护 `${OUTPUT_DIR}/latest` symlink。
+- 启动 `torchrun --nproc_per_node=2 qwen3vl_local/sft_v4/learn.py`，只让 learner 进入
+  DDP / NCCL。
+- 在 collector GPU 上启动 `COLLECTORS_PER_GPU=3` 个 `collect.py` 进程；collector
+  不调用 DDP，只读 LoRA snapshot、写 replay。
+- learner rank0 先发布 `latest_lora/v_0/`，collector 等到初始 snapshot 后开始采集。
+- learner 到 `MAX_STEPS` 后保存 `final/`、写 `STOP`，collector 完成当前 episode 后退出。
 
 ### 常用环境变量
 
 ```bash
 OUTPUT_DIR=checkpoints/sft_v4_lora \
 RUN_TAG=debug_v4 \
-NUM_EPOCHS=1 \
+MAX_STEPS=10000 \
 LR=3e-5 \
-OUTER_STRIDE=1 \
-SYNC_EVERY_EPISODES=16 \
-W_A1=0.2 W_A2=0.2 W_A3=0.2 \
-W_S2=1.0 W_S3_STATUS=1.0 W_S3_SUBGOAL=1.0 \
-GPU_IDS=0 \
-bash qwen3vl_local/sft_v4/train.sh single
+SNAPSHOT_EVERY_STEPS=1000 \
+SAVE_STEPS=5000 \
+REPLAY_CAPACITY=256 \
+COLLECTORS_PER_GPU=3 \
+P_INIT_CORRECT=0.5 \
+PHASE_B_NOISE_PROB=0.15 \
+GPU_IDS=0,1,2,3 \
+bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 ```
 
 视觉 LoRA 默认关闭。需要打开时：
 
 ```bash
-LORA_VISION_SCOPE=merger GPU_IDS=0 bash qwen3vl_local/sft_v4/train.sh single
+LORA_VISION_SCOPE=merger GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 ```
+
+注意：off-policy learner 为了控制显存，图像 prefill 默认在 `no_grad` 下执行；显式开启
+视觉 LoRA 时 DDP 会自动使用 `find_unused_parameters=True`，视觉侧梯度可能为 0。生产训练
+默认建议保持 `LORA_VISION_SCOPE=off`。
+
+### 烟雾检查
+
+轻量烟雾建议把 step 和 collector 数压低：
+
+```bash
+MAX_STEPS=2 COLLECTORS_PER_GPU=1 REPLAY_CAPACITY=8 GPU_IDS=0,1,2,3 \
+bash qwen3vl_local/sft_v4/launch_offpolicy.sh
+```
+
+这仍会加载模型，不适合在没有本地 Qwen 权重的机器上跑；本地只做静态检查时看第 6 节。
+
+### 输出结构
 
 `OUTPUT_DIR` 下会自动套 `run_<RUN_TAG>/` 子目录，并维护 `latest` symlink。
 `HF_HOME` 默认固定在 `${OUTPUT_DIR}/.hf_cache`，不会跟着 run 子目录重复下载。
+
+主要产物：
+
+- `offpolicy.log`：launcher、learner、collector 的合并日志。
+- `replay/ready/*.jsonl`：collector 写出的 trajectory FIFO。
+- `latest_lora/v_<step>/` 与 `latest_lora/current_version.txt`：给 collector 用的策略快照。
+- `checkpoint-<step>/`：可恢复训练状态，含 adapter + optimizer + scheduler。
+- `final/`：最终 adapter，供 eval/probe 使用。
+- `STOP`：正常停止哨兵，collector 会在 episode 结束后观察并退出。
+
+### 兼容入口
+
+`train.sh` / `train.py` 仍可用于单卡或历史 on-policy debug，但它会回到
+work-stealing + local-SGD 口径，不是 v4 off-policy 生产训练路径：
+
+```bash
+GPU_IDS=0 bash qwen3vl_local/sft_v4/train.sh check
+```
 
 ---
 

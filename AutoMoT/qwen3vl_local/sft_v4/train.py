@@ -1351,6 +1351,12 @@ def main() -> None:
     validate_args(args)
     rank, world_size, local_rank = setup_distributed()
     store = _get_default_store()
+    if is_rank0(rank):
+        print(
+            "[warn] sft_v4/train.py is the on-policy compatibility entry. "
+            "Use qwen3vl_local/sft_v4/launch_offpolicy.sh for v4 off-policy production training.",
+            flush=True,
+        )
     # 注：work-stealing + local-SGD 下不再强制 grad_accum=1。每 rank 独立 step，无锁步。
     random.seed(args.seed + rank)
     torch.manual_seed(args.seed + rank)

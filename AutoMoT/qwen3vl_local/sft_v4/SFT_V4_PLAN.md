@@ -1,8 +1,9 @@
 ﻿# SFT v4 方案说明
 
 > 本文件是 SFT v4 的设计冻结版。当前代码已落地到同目录
-> `prompts.py` / `build_dataset.py` / `train.py` / `train.sh` / `eval.py` /
-> `probe.py` / `SFT_V4_RUN.md` 以及配套 test 脚本。
+> `prompts.py` / `build_dataset.py` / `replay.py` / `collect.py` /
+> `learn.py` / `launch_offpolicy.sh` / `eval.py` / `probe.py` /
+> `SFT_V4_RUN.md` 以及配套 test 脚本。
 >
 > v4 **不替代** v2，v2 仍保留作为单帧串行选择题基线。
 
@@ -502,32 +503,34 @@ v3 的"Phase A 100% 非 GT 初始 + Phase B 100% 修回 GT"对 student 来说太
    `pending/` 的 traj 完成）
 4. `launch_offpolicy.sh` 监控所有 collector 进程退出后收尾日志
 
-### 0.12 当前 v4 子包 train.py 的状态
+### 0.12 当前 v4 子包训练入口状态
 
-目前 `sft_v4/train.py` / `train.sh` / `eval.py` / `probe.py` / `build_dataset.py` 全部是
-v3 的直拷（只是改了 import 路径），**仍按 on-policy + work-stealing+local-SGD 训练**。
-v4 off-policy 落地时**不要原地改 train.py**：
+v4 off-policy 已经落地为四个新入口：
 
-- 新增 `collect.py` 作为 collector 入口（独立进程，无 DDP）
-- 新增 `learn.py` 作为 learner DDP 入口（精简到只读 replay + teacher-forced loss）
-- 新增 `replay.py` 提供 FIFO 工具函数（schema、原子写、驱逐、读取）
-- 新增 `launch_offpolicy.sh` 协调启动 collectors + learners
-- 现有 `train.py` 保留作为"v3-等价的兼容入口" + 对照基线；建议在文件头打 warning
-  引导用户用 `learn.py + collect.py`
+- `replay.py`：trajectory schema、原子写入、文件锁 counter、FIFO 驱逐与读取。
+- `collect.py`：collector 入口，独立进程、无 DDP，负责 rollout 并写 `replay/ready/`。
+- `learn.py`：learner DDP 入口，world_size=2，只读 replay 做 teacher-forced loss +
+  backward，并周期发布 LoRA snapshot。
+- `launch_offpolicy.sh`：一键编排 2 learner + 6 collector，处理 GPU 切分、run 子目录、
+  STOP 哨兵和日志。
 
-### 0.13 分阶段落地路径
+`sft_v4/train.py` / `train.sh` 保留为 on-policy 兼容调试入口，启动时会打印 warning；
+生产训练只走 `launch_offpolicy.sh`。`eval.py` / `probe.py` 仍用于最终 adapter 的自由生成
+评估和 case dump。
 
-避免一口气改成难 debug 的大球，建议按以下顺序落地：
+### 0.13 已实现落地清单
 
-| 阶段 | 目标 | 新增文件 | 验收 |
+本节记录实现闭环，方便后续 review：
+
+| 序号 | 目标 | 文件 | 验收 |
 |---|---|---|---|
-| 1 | replay 抽象 | `replay.py` | 单测：schema 往返、原子写、驱逐 race 安全 |
-| 2 | collector 单进程 | `collect.py` | 1 GPU 1 collector 跑通，产 ready/*.jsonl |
-| 3 | learner 单卡 | `learn.py` | 1 GPU 单进程从 ready/ 抽 traj 训练，无 DDP |
-| 4 | learner DDP | (无新文件) | `torchrun --nproc=2` 跑稳，allreduce 不超时 |
-| 5 | 多 collector 并发 | (无新文件) | TCPStore counter + 多进程抢 episode 不重复 |
-| 6 | snapshot 切换 | (在 learn.py / collect.py 内) | collector 能在不卡顿的前提下加载新 LoRA |
-| 7 | launcher 编排 | `launch_offpolicy.sh` | 一键启动 8 个进程，停止信号传播 OK |
+| 1 | replay 抽象 | `replay.py` | 已实现 schema 校验、原子写、文件锁 counter、FIFO 驱逐 |
+| 2 | collector 单进程 | `collect.py` | 已实现 snapshot 等待/刷新、rollout、Phase B 噪声、trajectory 写盘 |
+| 3 | learner 单卡 | `learn.py` | 已实现单进程读取 replay、teacher-forced loss、optimizer/scheduler |
+| 4 | learner DDP | `learn.py` | 已实现 learner-only DDP；所有 rank 每步一次同构 backward |
+| 5 | 多 collector 并发 | `replay.py` / `collect.py` | 已实现文件锁 counter，collector 不进 NCCL |
+| 6 | snapshot 切换 | `learn.py` / `collect.py` | 已实现 `latest_lora/v_<step>/` 原子发布与 collector reload |
+| 7 | launcher 编排 | `launch_offpolicy.sh` | 已实现 2 learner + 6 collector、STOP 哨兵、run 子目录与日志 |
 
 ### 0.14 已锁定参数 / 不再待拍板
 
@@ -574,13 +577,13 @@ DDP rank 间步进抖动；因此 GPU0/GPU1 只训练，GPU2/GPU3 只采集。
 
 | 文件 | 主要职责 | 先读位置 | 状态 |
 |---|---|---|---|
-| `prompts.py` | Memory 文本格式、状态机更新（含 v4 `init_memory_with_phase_a_correct_prob` / `inject_phase_b_noise`）、三步 prompt、输出解析、GT 泄露检测 | module docstring、`Memory`、`update_memory_after_step2/3` | v3 → v4 需要新增两个 helper |
+| `prompts.py` | Memory 文本格式、状态机更新（含 `p_init_correct` 50% 正确初始化）、三步 prompt、输出解析、GT 泄露检测 | module docstring、`Memory`、`init_memory`、`update_memory_after_step2/3` | 已实现 |
 | `build_dataset.py` | 从 `keyframes_all_scenarios.json` 构建 episode index，只写元数据 | 文件头、`build_episode`、`load_keyframe_runs` | 保持不变（off-policy 仍以 episode 为采集单位） |
-| `replay.py` | **(新增)** trajectory schema、原子写、FIFO 驱逐、读取 | 文件头、`write_trajectory`、`evict_old`、`sample_random` | **v4 落地阶段 1** |
-| `collect.py` | **(新增)** collector 入口：抢 episode、rollout、写 replay | 文件头、`run_collector` | **v4 落地阶段 2** |
-| `learn.py` | **(新增)** learner DDP 入口：从 replay 抽 traj、teacher-forced loss + backward | 文件头、`teacher_forced_episode_loss`、`main` | **v4 落地阶段 3-4** |
-| `launch_offpolicy.sh` | **(新增)** 一键启动 collectors + learners 编排脚本 | 脚本顶部、`LEARNER_GPU_IDS` / `COLLECTOR_GPU_IDS` | **v4 落地阶段 7** |
-| `train.py` / `train.sh` | **v3 兼容入口**，仍按 v3 work-stealing+local-SGD on-policy 跑；不要继续维护 | 文件头建议加 deprecation warning | **v4 不走这条路径** |
+| `replay.py` | trajectory schema、原子写、FIFO 驱逐、读取、文件锁 counter | 文件头、`write_trajectory`、`evict_old`、`claim_episode_index` | 已实现 |
+| `collect.py` | collector 入口：抢 episode、rollout、写 replay、加载 LoRA snapshot | 文件头、`collect_episode`、`main` | 已实现 |
+| `learn.py` | learner DDP 入口：从 replay 抽 traj、teacher-forced loss + backward、发布 snapshot | 文件头、`trajectory_loss`、`main` | 已实现 |
+| `launch_offpolicy.sh` | 一键启动 collectors + learners 编排脚本 | 脚本顶部、`LEARNER_GPU_IDS` / `COLLECTOR_GPU_IDS` | 已实现 |
+| `train.py` / `train.sh` | on-policy 兼容入口，仍按 work-stealing+local-SGD 跑；只用于 debug / baseline 对照 | `main` 入口 warning | **v4 生产不走这条路径** |
 | `eval.py` | 自由生成评估；不做 Phase B GT 注入；可选 teacher BLEU | 文件头、`_generate_next_with_kv`、`main` | 保持不变 |
 | `probe.py` | case-level dump；可选 teacher privileged prompt/text | 文件头、`main` | 保持不变 |
 | `check_loss_mask.py` / `test_*.py` | 静态 mask、memory 状态机、KV 复用、GT 泄露过滤测试 | 各自 `main` docstring | 保持不变 |
@@ -1131,10 +1134,12 @@ v4 把 rollout 拆出 trainer 后，trainer 每步只做 teacher-forced loss + b
 DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底。
 
 - **learner DDP world_size=2**：两个 trainer 进程通过 `torchrun --nproc_per_node=2`
-  起 NCCL 进程组，包 `DistributedDataParallel(find_unused_parameters=False,
-  broadcast_buffers=False)`。每个 step = 1 次 backward = 1 次 grad allreduce，两个 rank
-  天然 lockstep（即使抽到不同 traj，backward 次数仍 1:1 匹配），不会出现 v3 那种
-  collective 数对不上的死锁。
+  起 NCCL 进程组，默认包 `DistributedDataParallel(find_unused_parameters=False,
+  broadcast_buffers=False)`。若显式开启视觉 LoRA，learner 会切到
+  `find_unused_parameters=True` 并打印 warning，因为 v4 的图像 prefill 默认 no_grad，
+  视觉侧 LoRA 可能没有梯度；生产默认仍是 `LORA_VISION_SCOPE=off`。每个 step = 1 次
+  backward = 1 次 grad allreduce，两个 rank 天然 lockstep（即使抽到不同 traj，backward
+  次数仍 1:1 匹配），不会出现 v3 那种 collective 数对不上的死锁。
 - **collector 完全不进 DDP**：collector 进程**不调** `dist.init_process_group(NCCL)`。
   collector 之间用**独立 TCPStore 服务或纯文件锁**做 episode 抢任务计数，不复用 learner
   DDP 的默认 store，避免把采集生命周期绑到 learner process group 上。某个 collector
@@ -1172,8 +1177,8 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 
 ### 9.1.legacy 历史口径：work-stealing + local-SGD（仅作 v3 兼容入口的参考，不是 v4 的训练路径）
 
-> 当前 `sft_v4/train.py` 是 v3 train.py 的直拷，仍按这套口径跑。**v4 off-policy 落地
-> 后，请用 `learn.py + collect.py`，不要继续维护 `train.py` 的多卡逻辑。**
+> `sft_v4/train.py` 是 on-policy 兼容入口，仍按这套历史口径跑。**v4 off-policy 生产
+> 训练请用 `launch_offpolicy.sh`，不要继续维护 `train.py` 的多卡逻辑。**
 
 - 历史教训：v4 的"每帧 ~330 次 DDP forward + 1 次 backward"训练循环跟标准
   DDP+Join 不兼容——episode 帧数差异让各 rank collective 序列严重不一致
@@ -1300,8 +1305,8 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
     replay；learner 组（默认 2 个进程，DDP world_size=2，分别在 GPU0/GPU1）从 replay
     随机抽 traj 做 teacher-forced loss + backward + DDP allreduce。`grad_accum` 仍是
     1（每 traj 一次 backward），但不再需要 v3 的周期 `_weighted_average_lora_params_inplace`。
-    详见 §0 / §9.1。`sft_v4/train.py` 暂保留作为 v3-等价兼容入口，**生产路径用
-    `learn.py + collect.py`**。
+    详见 §0 / §9.1。`sft_v4/train.py` 保留为 on-policy 兼容入口，**生产路径用
+    `launch_offpolicy.sh`**。
 15. **数据持久化（D15v4 拍板）**：v4 必须写训练 trajectory。`build_dataset.py` 仍只产
     episode index；`collect.py` 产 trajectory 文件到 `replay/ready/`，FIFO 容量默认 256。
     Trajectory schema 见 §0.5；图像本身不入库，按路径实时读。trainer 不再现场 generate。
