@@ -589,6 +589,10 @@ case_0/episode_meta.json
   不再用旧参数稀释真正训练过的 rank。同步 `fuse_stopped` / `max_steps` 停止标志，
   并用 allreduce 汇总出的 `all_rank_steps` 把各 rank scheduler 对齐到同一 LR
   曲线位置。Adam 的 m/v 不平均，各 rank 自留——标准 local-SGD 做法。
+- **NCCL watchdog 规避**：work-stealing 只让任务分配异步，参数平均仍是周期同步点。
+  快 rank 可能比慢 rank 早很多跑完 round；因此进入任何 NCCL allreduce / broadcast
+  前，先用 TCPStore `add/wait/set` 做 CPU 侧 rendezvous，所有 rank 到齐后再发 NCCL
+  collective，避免快 rank 在 NCCL work 上空等超过 watchdog timeout。
 - **checkpoint 只保存平均后参数**：多 rank 下 `checkpoint-*` 与 `final/` 都只在
   sync round 结束、LoRA 参数平均完成后由 rank0 保存；checkpoint 名中的 step 使用
   all-rank optimizer step 汇总值。

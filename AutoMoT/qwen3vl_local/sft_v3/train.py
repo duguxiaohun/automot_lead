@@ -1197,6 +1197,29 @@ def _get_default_store() -> Optional[Any]:
         ) from exc
 
 
+def _store_rendezvous(store: Optional[Any], key: str, *, rank: int, world_size: int) -> None:
+    """用 TCPStore 做长等待 rendezvous，避免快 rank 提前进入 NCCL collective 超时。
+
+    work-stealing 下 episode 时长差异很大：快 rank 可能先跑完整个 sync round，而慢 rank
+    还在 teacher/student 内循环里。若快 rank 直接调用 ``dist.barrier`` 或 ``all_reduce``，
+    NCCL watchdog 会在其他 rank 尚未进入 collective 时超时。这里先用 CPU 侧 store 等齐；
+    等所有 rank 都到达后，再让后续 NCCL allreduce 快速完成。
+    """
+
+    if world_size <= 1 or store is None:
+        return
+    arrived_key = f"{key}:arrived"
+    done_key = f"{key}:done"
+    if rank == 0:
+        store.set(arrived_key, "0")
+    store.wait([arrived_key])
+    arrived = int(store.add(arrived_key, 1))
+    if arrived >= world_size:
+        store.set(done_key, "1")
+    else:
+        store.wait([done_key])
+
+
 def _weighted_average_lora_params_inplace(
     params: List[nn.Parameter],
     *,
@@ -1308,6 +1331,7 @@ def main() -> None:
     args = parse_args()
     validate_args(args)
     rank, world_size, local_rank = setup_distributed()
+    store = _get_default_store()
     # 注：work-stealing + local-SGD 下不再强制 grad_accum=1。每 rank 独立 step，无锁步。
     random.seed(args.seed + rank)
     torch.manual_seed(args.seed + rank)
@@ -1321,7 +1345,7 @@ def main() -> None:
     if is_rank0(rank):
         output_dir.mkdir(parents=True, exist_ok=True)
         print(f"[init] output_dir={output_dir} rank={rank} world_size={world_size} local_rank={local_rank}")
-    _barrier()
+    _store_rendezvous(store, "sft_v3_output_dir_ready", rank=rank, world_size=world_size)
     device = torch.device(f"cuda:{local_rank}") if torch.cuda.is_available() else torch.device("cpu")
 
     # SFT v3 的 loss forward 依赖 prefill 出来的 past_key_values（prepare_inputs_for_generation
@@ -1391,8 +1415,8 @@ def main() -> None:
             f"[opt] language_params={len(language_params)} vision_params={len(vision_params)} "
             f"grad_accum={args.grad_accum}"
         )
+    _store_rendezvous(store, "sft_v3_lora_params_ready", rank=rank, world_size=world_size)
     _broadcast_lora_params_from_rank0(language_params + vision_params, world_size)
-    _barrier()
 
     optimizer = torch.optim.AdamW(groups, betas=(0.9, 0.95), weight_decay=args.weight_decay)
     # schedule 按 all-rank optimizer.step 总数估算；每个 sync round 末用 allreduce 得到
@@ -1451,7 +1475,7 @@ def main() -> None:
     # K=0 表示整轮 epoch 末才同步。
     # 每轮 rank0 把 TCPStore counter 初始化到 round_start；各 rank 只允许抢
     # [round_start, round_end) 内的 idx。这样即使多个 rank 同时空闲，也不会越过同步边界
-    # 先多训下一轮 episode；轮末统一 flush 梯度、barrier、LoRA 参数平均。
+    # 先多训下一轮 episode；轮末统一 flush 梯度、TCPStore rendezvous、LoRA 参数平均。
     sync_K = int(args.sync_every_episodes)
     round_size = train_total if sync_K <= 0 else max(1, sync_K * max(1, world_size))
     if world_size > 1 and args.max_steps > 0:
@@ -1464,7 +1488,6 @@ def main() -> None:
             f"round_size={round_size}"
         )
 
-    store = _get_default_store()
     all_lora_params: List[nn.Parameter] = language_params + vision_params
     stop_requested = False
 
@@ -1526,13 +1549,13 @@ def main() -> None:
         for key in stats:
             stats[key] = 0
 
-    def do_sync_round() -> None:
-        """flush + barrier + LoRA 参数平均 + 跨 rank 同步停止标志。"""
+    def do_sync_round(sync_key: str) -> None:
+        """flush + TCPStore rendezvous + LoRA 参数平均 + 跨 rank 同步停止标志。"""
 
         nonlocal fuse_stopped, stop_requested, synced_all_rank_steps, last_saved_step
         nonlocal round_local_steps, fuse_stop_saved
         flush_partial_optimizer_step("sync")
-        _barrier()
+        _store_rendezvous(store, sync_key, rank=rank, world_size=world_size)
         round_weight = _weighted_average_lora_params_inplace(
             all_lora_params,
             local_weight=float(round_local_steps),
@@ -1616,7 +1639,10 @@ def main() -> None:
             local_counter = [round_start]
             if store is not None and is_rank0(rank):
                 store.set(counter_key, str(round_start))
-            _barrier()  # 确保本轮 counter 已写入，再允许各 rank 开抢
+            if store is not None:
+                store.wait([counter_key])  # 确保本轮 counter 已写入，再允许各 rank 开抢
+            else:
+                _barrier()
 
             while True:
                 if stop_requested or fuse_stopped or should_stop_local():
@@ -1778,7 +1804,7 @@ def main() -> None:
 
                 # episode 处理完，继续在当前 round 抢下一个。
 
-            do_sync_round()
+            do_sync_round(f"sft_v3_epoch_{epoch}_round_{round_idx}_sync")
             if stop_requested:
                 break
 
@@ -1802,7 +1828,7 @@ def main() -> None:
         print(f"[done] final adapter -> {final_dir}")
     elif is_rank0(rank) and fuse_stopped:
         print("[done] stopped by vision fuse guard; final save skipped")
-    _barrier()
+    _store_rendezvous(store, "sft_v3_final_save_done", rank=rank, world_size=world_size)
     cleanup_distributed()
 
 

@@ -90,6 +90,10 @@ local-SGD 启动后会先广播 rank0 的 LoRA 初始权重；`checkpoint-*` 和
 保存的 `sft_v3_adapter_config.json` 会记录 `distributed_train` 口径，便于后续
 eval/probe 或审计确认 adapter 来自 work-stealing local-SGD。
 
+注意：这里的“异步”指 episode 分配异步，参数仍会周期同步。快 rank 到达同步点后
+会先在 TCPStore 上等慢 rank，所有 rank 到齐后才进入 NCCL allreduce / broadcast；
+这样等待慢 episode 时不会占着 NCCL collective 超过 watchdog timeout。
+
 `MAX_STEPS>0` 会在 episode 内截断，只允许烟雾/调试使用：`check` 模式自动允许；
 普通训练若确实要截断，必须显式设置 `ALLOW_MAX_STEPS_TRUNCATION=1`。
 

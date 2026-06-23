@@ -192,7 +192,7 @@
 - `AutoMoT/qwen3vl_local/sft_v3/test_memory_update.py`
 - `AutoMoT/qwen3vl_local/sft_v3/test_kv_reuse.py`
 - `AutoMoT/qwen3vl_local/sft_v3/test_gt_leak_filter.py`
-  （按用户同意新增到白名单：SFT v3 代码已落地，采用 sub-scenario 时间序列训练 + 学生自维护 memory + 三步内循环 teacher/student 蒸馏；Phase A 学生自更新 memory，Phase B 每帧弱纠偏 scene=GT 反向学习“对的别改”；δ 允许 0 且只封顶 10，`EGO_TO_GOAL_XY` 严格来自 meta `next_target_points[-1]` 并在帧末预取下一帧，step3 触发统一走 `should_trigger_step3`；loss 为分析与离散值 token 混合监督，LoRA 视觉接口与 v2 同构并默认关闭；`train.sh` 默认 `ddp`（历史模式名），每卡默认 batch=1；多卡训练采用 work-stealing + local-SGD：不包 DDP、不静态分片、不截断尾部，通过 TCPStore 抢 episode，先广播 rank0 LoRA 初始权重，按本轮 optimizer step 数加权平均 LoRA 参数，并且 `checkpoint-*` / `final/` 都在参数平均后保存。详见 `SFT_V3_PLAN.md` / `SFT_V3_RUN.md` 与同目录脚本。）
+  （按用户同意新增到白名单：SFT v3 代码已落地，采用 sub-scenario 时间序列训练 + 学生自维护 memory + 三步内循环 teacher/student 蒸馏；Phase A 学生自更新 memory，Phase B 每帧弱纠偏 scene=GT 反向学习“对的别改”；δ 允许 0 且只封顶 10，`EGO_TO_GOAL_XY` 严格来自 meta `next_target_points[-1]` 并在帧末预取下一帧，step3 触发统一走 `should_trigger_step3`；loss 为分析与离散值 token 混合监督，LoRA 视觉接口与 v2 同构并默认关闭；`train.sh` 默认 `ddp`（历史模式名），每卡默认 batch=1；多卡训练采用 work-stealing + local-SGD：不包 DDP、不静态分片、不截断尾部，通过 TCPStore 抢 episode，NCCL collective 前先 TCPStore rendezvous，先广播 rank0 LoRA 初始权重，按本轮 optimizer step 数加权平均 LoRA 参数，并且 `checkpoint-*` / `final/` 都在参数平均后保存。详见 `SFT_V3_PLAN.md` / `SFT_V3_RUN.md` 与同目录脚本。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md`
