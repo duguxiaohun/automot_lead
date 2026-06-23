@@ -28,6 +28,7 @@ import shutil
 import sys
 import time
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
@@ -1071,10 +1072,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20260622)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--no-grad-checkpoint", action="store_true")
-    # work-stealing + local-SGD：每 rank 目标处理 N 个 episode 后全 rank 到 barrier，
-    # 按本轮 optimizer step 数加权平均 LoRA 参数，并同步停止标志 / 汇总 all-rank step；
-    # 0 = 仅 epoch 末同步。
-    parser.add_argument("--sync-every-episodes", type=int, default=16)
+    # work-stealing + local-SGD：每 rank 目标处理 N 个 episode 后进入一个 sync round。
+    # sync round 先用 TCPStore 做 CPU 侧等齐，再做 NCCL 参数平均；0 = 仅 epoch 末同步。
+    # 默认 4：sft_v3 每 episode ~85 秒（14 帧 × 6 sec/帧），K=4 时每 rank 每轮约
+    # 5.6 分钟，对 work-stealing 不均衡有余量；想要更松（少同步、参数漂移更大）可
+    # 显式调大，比如 16；K=1 最接近同步 SGD。
+    parser.add_argument("--sync-every-episodes", type=int, default=4)
     parser.add_argument(
         "--allow-max-steps-truncation",
         action="store_true",
@@ -1127,14 +1130,21 @@ def _param_norm(params: List[nn.Parameter]) -> float:
 
 
 def setup_distributed() -> Tuple[int, int, int]:
-    """初始化 torch.distributed，返回 rank/world_size/local_rank。"""
+    """初始化 torch.distributed，返回 rank/world_size/local_rank。
+
+    NCCL watchdog 默认 10 分钟，对 sft_v3 work-stealing 完全不够——每帧 teacher/student
+    各 ~80 step decode，每 episode ~14 帧 × 6 sec ≈ 90 sec；一轮 K=16 时即便完美均衡
+    单 rank 也要 22 分钟，更别提慢 rank 触发的延迟。这里显式把超时设到 2 小时，给
+    work-stealing 留足 sync 等待时间。注意 init_process_group 的 timeout 同时也是默认
+    Store 的 wait/get 超时，所以 _store_rendezvous 里的 store.wait 也跟着被放宽。
+    """
 
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     if world_size > 1 and not dist.is_initialized():
         backend = "nccl" if torch.cuda.is_available() else "gloo"
-        dist.init_process_group(backend=backend)
+        dist.init_process_group(backend=backend, timeout=timedelta(hours=2))
         if torch.cuda.is_available():
             torch.cuda.set_device(local_rank)
     return rank, world_size, local_rank
@@ -1204,6 +1214,9 @@ def _store_rendezvous(store: Optional[Any], key: str, *, rank: int, world_size: 
     还在 teacher/student 内循环里。若快 rank 直接调用 ``dist.barrier`` 或 ``all_reduce``，
     NCCL watchdog 会在其他 rank 尚未进入 collective 时超时。这里先用 CPU 侧 store 等齐；
     等所有 rank 都到达后，再让后续 NCCL allreduce 快速完成。
+
+    ``key`` 必须是单调唯一的同步点名称，例如包含 epoch/round；TCPStore key 不回收，
+    复用同一个 key 会把上一轮的 arrived/done 状态带进来。
     """
 
     if world_size <= 1 or store is None:
@@ -1307,11 +1320,17 @@ def _sync_scheduler_to_step(scheduler: Any, optimizer: torch.optim.Optimizer, st
     all-rank step 总数对齐 scheduler，避免快慢 rank 在参数平均后继续沿不同 LR 曲线走。
     这里不调用 ``scheduler.step(step)``，因为某些 rank 可能本轮没有 optimizer.step，
     直接调 scheduler.step 会触发 PyTorch 的 step-order warning。
+
+    同时把 ``_step_count`` 也对齐到 step+1（与正常 scheduler.step() 累计次数语义一致），
+    这样后续训练里 scheduler.step() 不会因为内部"opt._step_count vs sched._step_count"
+    比较异常而在边界条件下打 UserWarning。
     """
 
     if not hasattr(scheduler, "lr_lambdas") or not hasattr(scheduler, "base_lrs"):
         return
     scheduler.last_epoch = int(step)
+    if hasattr(scheduler, "_step_count"):
+        scheduler._step_count = int(step) + 1
     lrs: List[float] = []
     for group, base_lr, lr_lambda in zip(optimizer.param_groups, scheduler.base_lrs, scheduler.lr_lambdas):
         lr = float(base_lr) * float(lr_lambda(int(step)))
@@ -1437,7 +1456,8 @@ def main() -> None:
     scheduler = make_scheduler(optimizer, total_steps, int(total_steps * args.warmup_ratio))
     tb = SummaryWriter(log_dir=str(output_dir / "tb")) if (is_rank0(rank) and _TB_AVAILABLE) else None
     # global_step 是当前 rank 自己的 optimizer.step 计数；rank0 负责日志/保存。
-    # 轮末会 allreduce 得到 all_rank_steps，用来观察全局实际训练量。
+    # 轮末会 allreduce 得到 all_rank_steps，用来观察全局实际训练量；不要把 rank0 的
+    # step 当成多卡总步数。
     global_step = 0
     synced_all_rank_steps = 0
     accum_steps = 0
@@ -1465,6 +1485,11 @@ def main() -> None:
     saved: List[pathlib.Path] = []
     last_saved_step = 0
     round_local_steps = 0
+    # 本 rank 在当前 sync round 内实际完成的 episode 数。它只用于日志/TB 观测负载均衡，
+    # 参数平均仍按 optimizer.step 数加权，因为不同 episode 帧数差异很大。
+    round_local_episodes = 0
+    # 全局累计已完成 episode 数；每轮 sync 后由 round_local_episodes allreduce-sum 累加。
+    total_episodes_processed = 0
     optimizer.zero_grad(set_to_none=True)
     start_time = time.time()
 
@@ -1550,10 +1575,25 @@ def main() -> None:
             stats[key] = 0
 
     def do_sync_round(sync_key: str) -> None:
-        """flush + TCPStore rendezvous + LoRA 参数平均 + 跨 rank 同步停止标志。"""
+        """完成一个 local-SGD 同步轮。
+
+        顺序很重要：先 flush 本 rank 的尾部梯度，再在 TCPStore 上等所有 rank 到齐；
+        到齐后才允许进入 NCCL allreduce/broadcast 类 collective。这样慢 episode 只会
+        让快 rank 等在 CPU store 上，不会占用 NCCL work 直到 watchdog timeout。
+        """
 
         nonlocal fuse_stopped, stop_requested, synced_all_rank_steps, last_saved_step
-        nonlocal round_local_steps, fuse_stop_saved
+        nonlocal round_local_steps, fuse_stop_saved, round_local_episodes, total_episodes_processed
+        # 每个 rank 进入 sync round 时都打一条日志（含 local_steps / local_episodes / elapsed），
+        # work-stealing 出问题时一眼就能看出哪个 rank 落后。打印走 stderr，避免被 [train]
+        # 大量 stdout 行掩盖。
+        enter_msg = (
+            f"[sync-enter] key={sync_key} rank={rank}/{world_size} "
+            f"local_steps={round_local_steps} local_eps={round_local_episodes} "
+            f"global_step={global_step}/{total_steps} "
+            f"elapsed={(time.time() - start_time) / 60.0:.1f}m"
+        )
+        print(enter_msg, file=sys.stderr, flush=True)
         flush_partial_optimizer_step("sync")
         _store_rendezvous(store, sync_key, rank=rank, world_size=world_size)
         round_weight = _weighted_average_lora_params_inplace(
@@ -1564,6 +1604,10 @@ def main() -> None:
         local_fuse_triggered = bool(fuse_stopped)
         fuse_stopped = _sync_bool_or(fuse_stopped, device)
         synced_all_rank_steps = _sync_int_sum(global_step, device)
+        # episode 计数只是诊断信号：用来确认 work-stealing 是否真的把整轮数据消耗完，
+        # 以及各轮负载是否符合预期；不要用它做参数平均权重。
+        round_episodes_sum = _sync_int_sum(round_local_episodes, device)
+        total_episodes_processed += round_episodes_sum
         _sync_scheduler_to_step(scheduler, optimizer, synced_all_rank_steps)
         fuse_rank, fuse_grad, fuse_param, fuse_bad = _sync_fuse_info(
             triggered=local_fuse_triggered,
@@ -1583,9 +1627,15 @@ def main() -> None:
         if is_rank0(rank):
             print(
                 f"[sync] all_rank_steps={synced_all_rank_steps} "
-                f"round_weight={round_weight:.1f} rank0_step={global_step}/{total_steps} "
-                f"stop={int(stop_requested)}"
+                f"round_weight={round_weight:.1f} round_eps={round_episodes_sum} "
+                f"total_eps={total_episodes_processed} "
+                f"rank0_step={global_step}/{total_steps} stop={int(stop_requested)}"
             )
+            if tb is not None:
+                tb.add_scalar("train/sync/round_weight", float(round_weight), synced_all_rank_steps)
+                tb.add_scalar("train/sync/episodes_this_round", float(round_episodes_sum), synced_all_rank_steps)
+                tb.add_scalar("train/sync/episodes_total", float(total_episodes_processed), synced_all_rank_steps)
+                tb.add_scalar("train/sync/all_rank_steps", float(synced_all_rank_steps), synced_all_rank_steps)
             if fuse_stopped and not fuse_stop_saved:
                 emergency = output_dir / f"fuse_stop_step_{max(synced_all_rank_steps, global_step)}"
                 emergency.mkdir(parents=True, exist_ok=True)
@@ -1621,6 +1671,7 @@ def main() -> None:
                     old = saved.pop(0)
                     shutil.rmtree(old, ignore_errors=True)
         round_local_steps = 0
+        round_local_episodes = 0
 
     for epoch in range(args.num_epochs):
         if is_rank0(rank):
@@ -1660,6 +1711,18 @@ def main() -> None:
                     break
 
                 ep = train_ds.rows[epoch_order[idx]]
+                round_local_episodes += 1
+                # 限频 [claim] 日志：每轮第 1 条 + 每 8 条打一次（rate-limit），用 stderr
+                # 避开 [train] 的高频 stdout。让 work-stealing 实际怎么分配任务变得可见——
+                # 比如某 rank 一轮内连续抢到 16 条说明它在独吃，其他 rank 大概率被卡住了。
+                if round_local_episodes == 1 or round_local_episodes % 8 == 0:
+                    print(
+                        f"[claim] rank={rank}/{world_size} round={round_idx + 1}/{rounds_per_epoch} "
+                        f"idx={idx} round_eps={round_local_episodes} "
+                        f"elapsed={(time.time() - start_time) / 60.0:.1f}m",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                 for pack in iter_episode_loss_packs(
                     bundle,
                     ep,

@@ -81,8 +81,13 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v3/train.sh ddp
 多卡模式不再包 DDP，也不做静态 rank 分片：所有 rank 从同一个 TCPStore counter
 抢 episode，谁空闲谁抢，全部 episode 都会被训练，不截断尾部。`SYNC_EVERY_EPISODES`
 表示每个 rank 目标处理多少个 episode 后同步一次；实际每轮最多开放
-`SYNC_EVERY_EPISODES * world_size` 条全局 episode。默认 16；设为 `1` 时每个 rank
-通常至多跑 1 条 episode 后同步，最接近同步 SGD；设为 `0` 仅 epoch 末同步。
+`SYNC_EVERY_EPISODES * world_size` 条全局 episode。**默认 4**：sft_v3 每帧需要
+teacher/student 各 ~80 step 自由生成（≈ 6 sec/帧、14 帧/episode ≈ 85 sec/episode），
+K=4 时每个 rank 一轮约 5.6 分钟，给 work-stealing 不均衡留出余量；想要更松的同步
+（少同步、参数漂移更大）可显式调大如 16；设为 `1` 最接近同步 SGD；`0` 仅 epoch 末同步。
+
+NCCL watchdog 默认 10 分钟太短，`setup_distributed` 已经把超时放宽到 **2 小时**
+（同时影响 TCPStore.wait），所以即便某 rank 在 episode 里卡几分钟也不会触发死锁。
 
 local-SGD 启动后会先广播 rank0 的 LoRA 初始权重；`checkpoint-*` 和 `final/`
 都在参数平均后由 rank0 保存。参数平均按本轮各 rank 的 optimizer step 数加权，
@@ -93,6 +98,15 @@ eval/probe 或审计确认 adapter 来自 work-stealing local-SGD。
 注意：这里的“异步”指 episode 分配异步，参数仍会周期同步。快 rank 到达同步点后
 会先在 TCPStore 上等慢 rank，所有 rank 到齐后才进入 NCCL allreduce / broadcast；
 这样等待慢 episode 时不会占着 NCCL collective 超过 watchdog timeout。
+
+sync 日志里：
+
+- `step` 是 rank0 本地 optimizer step，不代表多卡总训练步数。
+- `all_rank_steps` 是所有 rank 的 optimizer step 汇总，用作 checkpoint step、
+  scheduler 对齐与 TensorBoard sync 横轴。
+- `round_eps` 是本轮所有 rank 实际完成的 episode 数；`total_eps` 是累计已完成
+  episode 数，用来确认 work-stealing 是否完整消费数据。
+- TensorBoard 同步标量写在 `train/sync/{round_weight,episodes_this_round,episodes_total,all_rank_steps}`。
 
 `MAX_STEPS>0` 会在 episode 内截断，只允许烟雾/调试使用：`check` 模式自动允许；
 普通训练若确实要截断，必须显式设置 `ALLOW_MAX_STEPS_TRUNCATION=1`。
@@ -118,7 +132,7 @@ RUN_TAG=debug_v3 \
 NUM_EPOCHS=1 \
 LR=3e-5 \
 OUTER_STRIDE=1 \
-SYNC_EVERY_EPISODES=16 \
+SYNC_EVERY_EPISODES=4 \
 W_A1=0.2 W_A2=0.2 W_A3=0.2 \
 W_S2=1.0 W_S3_STATUS=1.0 W_S3_SUBGOAL=1.0 \
 GPU_IDS=0 \
