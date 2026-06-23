@@ -573,7 +573,8 @@ case_0/episode_meta.json
   NCCL 直接 watchdog 超时。因此 v3 不再用 DDP wrap。
 - **work-stealing 调度**：所有 rank 加载同一份 `train_ds.rows`，每个 epoch 用同
   seed 重排得到 `epoch_order`；rank0 在 init_process_group 自带的 TCPStore 上重置
-  `sft_v3_epoch_<n>_counter=0`，barrier 后各 rank 通过 `store.add(key, 1)`
+  `sft_v3_epoch_<n>_counter=0`，各 rank 通过 `store.wait([counter_key])`
+  确认本轮 counter 已写入后，再用 `store.add(key, 1)`
   原子递增抢下一个 `idx`。**谁空闲谁抢，全部 episode 都被训，没有截断**。
 - **初始化同步**：local-SGD 不包 DDP，因此模型创建后会先把 rank0 的 trainable
   LoRA 参数广播到所有 rank，保证所有 worker 从同一个 adapter 起点出发。
@@ -581,7 +582,7 @@ case_0/episode_meta.json
   （不包 DDP），各自做 forward + backward + clip + step + scheduler.step。
   无 per-step allreduce，per-rank 速度差异不再造成死锁。
 - **周期 LoRA 参数平均（local-SGD）**：参数 `--sync-every-episodes K`
-  （默认 16）。K 表示每个 rank 目标处理的 episode 数；每个 epoch 被切成若干个
+  （**默认 4**）。K 表示每个 rank 目标处理的 episode 数；每个 epoch 被切成若干个
   `K * world_size` 全局 episode 的 sync round（`K=0` 时整 epoch 一轮）。每轮
   counter 只允许抢 `[round_start, round_end)`，不会越过同步边界提前训练下一轮。
   轮末先 flush 未满 `grad_accum` 的梯度，再对所有 trainable LoRA 参数做按本轮
@@ -592,7 +593,22 @@ case_0/episode_meta.json
 - **NCCL watchdog 规避**：work-stealing 只让任务分配异步，参数平均仍是周期同步点。
   快 rank 可能比慢 rank 早很多跑完 round；因此进入任何 NCCL allreduce / broadcast
   前，先用 TCPStore `add/wait/set` 做 CPU 侧 rendezvous，所有 rank 到齐后再发 NCCL
-  collective，避免快 rank 在 NCCL work 上空等超过 watchdog timeout。
+  collective，避免快 rank 在 NCCL work 上空等超过 watchdog timeout。此外
+  `setup_distributed` 把 `init_process_group(timeout=...)` 显式设到 **2 小时**
+  （同时影响默认 TCPStore.wait/get），给 sft_v3 这种 teacher/student 各 ~80 step
+  自由生成的高成本内循环留出充足同步窗口；NCCL 默认 10 分钟对一轮 5~20 min
+  完全不够。
+- **同步诊断 stderr 日志**：进入 `do_sync_round` 每个 rank 都会打一条
+  `[sync-enter] key=... rank=R local_steps=... local_eps=...`；每个 rank 抢到
+  episode 也会限频打 `[claim]`（每轮第 1 条 + 每 8 条一条）。这两路都走 stderr，
+  方便从 `[train]` 高频 stdout 行里筛出来诊断 work-stealing 是否真的负载均衡，
+  以及死锁时哪个 rank 落后。
+- **同步诊断日志**：rank0 普通训练日志中的 `step` 是 rank0 本地 optimizer step；
+  sync 日志中的 `all_rank_steps` 才是所有 rank 的 optimizer step 汇总，并用于
+  checkpoint step 与 scheduler 对齐。`round_eps` / `total_eps` 只用于确认
+  work-stealing 完整消费 episode 与观察负载，不参与参数平均；参数平均仍只按
+  本轮 optimizer step 数加权。TensorBoard 写入
+  `train/sync/{round_weight,episodes_this_round,episodes_total,all_rank_steps}`。
 - **checkpoint 只保存平均后参数**：多 rank 下 `checkpoint-*` 与 `final/` 都只在
   sync round 结束、LoRA 参数平均完成后由 rank0 保存；checkpoint 名中的 step 使用
   all-rank optimizer step 汇总值。
@@ -601,7 +617,7 @@ case_0/episode_meta.json
   rank debug 时会把 sync round 缩到 1 个 episode，并允许本 rank 达到本地步数后
   提前等待 barrier；全局停止仍在 sync 后广播。完整训练默认 `MAX_STEPS=0`，不会截断
   episode。
-- **barrier 数量守恒**：每 epoch 每个 rank 做相同数量的 sync round，
+- **sync round 数量守恒**：每 epoch 每个 rank 做相同数量的 sync round，
   = `ceil(train_total/(K * world_size))`（`K=0` 时为 1 个 epoch-end round），否则 NCCL
   collective 数对不上还是会死锁。轮级 counter 天然保证所有 rank 在同一轮结束
   后一起参数平均，不再需要旧版 catch-up 循环。
