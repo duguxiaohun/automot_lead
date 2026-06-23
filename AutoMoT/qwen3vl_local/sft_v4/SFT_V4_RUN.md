@@ -33,8 +33,9 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
   `collect_episode` 里的 teacher/student 分支和 step3 触发注释，理解一条 trajectory
   如何生成。
 - `learn.py`：看 `_sync_bool` 理解 replay 空时为什么不会发 NCCL collective；看
-  `trajectory_loss` 理解 learner 如何用 student raw output 复现 KV 上下文但不 generate；
-  看 `publish_snapshot` / `save_checkpoint` 理解 snapshot 与 checkpoint 的区别。
+  `trajectory_backward` / `trajectory_loss` 理解 learner 如何用 student raw output 复现
+  KV 上下文但不 generate，并用逐帧 micro-backward 控制显存；看
+  `publish_snapshot` / `save_checkpoint` 理解 snapshot 与 checkpoint 的区别。
 - `launch_offpolicy.sh`：脚本顶部写了进程布局；路径/env/选卡/STOP 收尾块都有中文注释，
   改部署比例时优先看这里。
 
@@ -99,6 +100,10 @@ launcher 会做这些事：
 - 在 collector GPU 上启动 `COLLECTORS_PER_GPU=1` 个 `collect.py` 进程；collector
   不调用 DDP，只读 LoRA snapshot、写 replay。
 - learner rank0 先发布 `latest_lora/v_0/`，collector 等到初始 snapshot 后开始采集。
+- learner 每个 optimizer step 仍随机消费一条 trajectory；但不会把整条 trajectory 的
+  计算图攒到最后，而是逐帧 `backward()` 并释放图。frame loop 放在 DDP `no_sync()`
+  下，本地累完一条 trajectory 后再按固定参数顺序手动 mean-reduce LoRA grad，避免不同
+  帧数导致 NCCL collective 序列不一致。
 - learner 到 `MAX_STEPS` 后保存 `final/`、写 `STOP`，collector 完成当前 episode 后退出。
 - 如果启动后一直没有 collector 写出第一条 `replay/ready/*.jsonl`，learner 会在
   `REPLAY_STARTUP_TIMEOUT_SEC` 后写 `STOP` 并报错退出，避免数据路径或 collector

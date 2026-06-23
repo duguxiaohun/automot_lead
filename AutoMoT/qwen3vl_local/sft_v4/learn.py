@@ -30,6 +30,7 @@ import random
 import shutil
 import sys
 import time
+from contextlib import nullcontext
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -206,13 +207,14 @@ def _append_student_raw(bundle: Any, state: Any, text: str) -> Any:
 
 
 def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.Namespace) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """对一条 off-policy trajectory 计算 teacher-forced loss。
+    """Compute teacher-forced loss for a small off-policy record list.
 
-    这里完全跳过 generate：step2/step3 的 prompt state 通过 collector 写入的
-    ``student_outputs`` 复现，梯度只来自 teacher target 的 token CE。
+    生产 learner 通过 ``trajectory_backward`` 每次只喂一帧并立刻 backward，避免整条
+    episode 的计算图一直挂在显存里。这里完全跳过 generate：step2/step3 的 prompt state
+    通过 collector 写入的 ``student_outputs`` 复现，梯度只来自 teacher target 的 token CE。
     """
 
-    # total 保持为 Tensor，确保最后 loss.backward() 能追到 LoRA 参数。
+    # Keep total as a Tensor so the caller can backprop to LoRA params.
     total: Optional[torch.Tensor] = None
     stats: Dict[str, float] = {
         "frames": 0.0,
@@ -328,6 +330,74 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
     if total is None or zero_ref is None or stats["frames"] <= 0:
         raise ValueError("trajectory produced no trainable frames")
     return total / max(stats["frames"], 1.0), stats
+
+
+def _average_trainable_grads(params: List[nn.Parameter]) -> None:
+    """Mean-reduce LoRA gradients once per learner step.
+
+    Frame counts can differ across ranks. Per-frame backward therefore runs
+    under DDP ``no_sync()``, and this fixed-order pass is the only gradient
+    collective in the step.
+    """
+
+    if not (dist.is_available() and dist.is_initialized()):
+        return
+    world_size = float(dist.get_world_size())
+    for param in params:
+        if not param.requires_grad:
+            continue
+        has_grad = torch.tensor([1 if param.grad is not None else 0], dtype=torch.int32, device=param.device)
+        dist.all_reduce(has_grad, op=dist.ReduceOp.MAX)
+        if int(has_grad.item()) == 0:
+            continue
+        if param.grad is None:
+            param.grad = torch.zeros_like(param, memory_format=torch.preserve_format)
+        dist.all_reduce(param.grad, op=dist.ReduceOp.SUM)
+        param.grad.div_(world_size)
+
+
+def _merge_stats(dst: Dict[str, float], src: Dict[str, float]) -> None:
+    """Accumulate scalar frame stats in-place."""
+
+    for key, value in src.items():
+        dst[key] = float(dst.get(key, 0.0)) + float(value)
+
+
+def trajectory_backward(
+    bundle: Any,
+    records: List[Dict[str, Any]],
+    args: argparse.Namespace,
+    *,
+    trainable_params: List[nn.Parameter],
+) -> Tuple[float, Dict[str, float]]:
+    """Backprop one trajectory with per-frame micro-backward.
+
+    The old path accumulated all frame graphs and called backward once at the
+    trajectory end, which can OOM on long episodes. This keeps the optimizer
+    step at one trajectory per rank, but frees each frame graph immediately.
+    DDP ranks may sample trajectories with different frame counts, so automatic
+    DDP gradient sync is disabled for the frame loop and LoRA grads are reduced
+    once afterward in a fixed parameter order.
+    """
+
+    frames = list(replay.iter_frame_records(records))
+    local_frames = len(frames)
+    if local_frames <= 0:
+        raise ValueError("trajectory produced no trainable frames")
+
+    stats: Dict[str, float] = {}
+    loss_total = 0.0
+    denom = float(max(local_frames, 1))
+    sync_context = bundle.model.no_sync() if dist.is_available() and dist.is_initialized() and hasattr(bundle.model, "no_sync") else nullcontext()
+    with sync_context:
+        for frame in frames:
+            frame_loss, frame_stats = trajectory_loss(bundle, [frame], args)
+            (frame_loss / denom).backward()
+            loss_total += _to_float(frame_loss)
+            _merge_stats(stats, frame_stats)
+            del frame_loss
+    _average_trainable_grads(trainable_params)
+    return loss_total / denom, stats
 
 
 def sample_valid_trajectory(replay_dir: pathlib.Path, rng: random.Random, attempts: int = 8) -> Tuple[Optional[pathlib.Path], Optional[List[Dict[str, Any]]]]:
@@ -694,6 +764,7 @@ def main() -> None:
         gradient_checkpointing=False,
     )
     groups, language_params, vision_params = _trainable_groups(bundle, args)
+    trainable_params = language_params + vision_params
     has_vision_lora = bool(vision_params)
     if has_vision_lora and is_rank0(rank):
         print(
@@ -793,9 +864,12 @@ def main() -> None:
         assert records is not None
         bundle.model.train()
         optimizer.zero_grad(set_to_none=True)
-        loss, stats = trajectory_loss(bundle, records, args)
-        # 这里触发 DDP gradient allreduce；每个 rank 每轮只 backward 一次，collective 顺序固定。
-        loss.backward()
+        loss_value, stats = trajectory_backward(
+            bundle,
+            records,
+            args,
+            trainable_params=trainable_params,
+        )
         lang_norm = torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm)) if language_params else torch.tensor(0.0, device=device)
         vis_norm = torch.nn.utils.clip_grad_norm_(vision_params, float(args.vision_clip_norm)) if vision_params else torch.tensor(0.0, device=device)
         lang_norm_value = _sync_max_float(float(lang_norm), device)
@@ -849,7 +923,7 @@ def main() -> None:
             st = replay.replay_stats(replay_dir)
             lr = scheduler.get_last_lr()[0] if scheduler.get_last_lr() else 0.0
             print(
-                f"[learn] step={global_step}/{args.max_steps} loss={_to_float(loss):.4f} "
+                f"[learn] step={global_step}/{args.max_steps} loss={loss_value:.4f} "
                 f"frames={int(frames)} step3={_safe_ratio(stats['step3'], frames):.3f} "
                 f"noise={_safe_ratio(stats['noise'], frames):.3f} replay={st.ready_count} "
                 f"|g|_lang={lang_norm_value:.3f} |g|_vis={vis_norm_value:.3f} "
@@ -858,7 +932,7 @@ def main() -> None:
                 flush=True,
             )
             if tb is not None:
-                tb.add_scalar("train/loss_total", _to_float(loss), global_step)
+                tb.add_scalar("train/loss_total", loss_value, global_step)
                 tb.add_scalar("train/lr", float(lr), global_step)
                 tb.add_scalar("train/grad_norm/language", lang_norm_value, global_step)
                 tb.add_scalar("train/grad_norm/vision", vis_norm_value, global_step)
