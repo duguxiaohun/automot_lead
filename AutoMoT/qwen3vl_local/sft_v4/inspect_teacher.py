@@ -130,6 +130,15 @@ VERDICT_SOURCE_NOTE = (
     "memory-vs-GT comparison for this inspect mode; they are not parsed from "
     "the teacher raw text."
 )
+INSPECT_MODE_ORDER: Tuple[str, ...] = (
+    "all_keep",
+    "rs_change",
+    "scene_change_same_rs",
+    "event_change",
+    "scene_change_cross_rs",
+)
+INSPECT_MODE_RANK = {name: idx for idx, name in enumerate(INSPECT_MODE_ORDER)}
+INSPECT_MODE_SET = set(INSPECT_MODE_ORDER)
 
 
 def _assert_prompt_contracts() -> None:
@@ -381,6 +390,7 @@ def _run_teacher_for_frame(
         "frame_idx": int(frame),
         "phase": "A" if _is_phase_a(ep, frame) else "B",
         "mode": mode_name,
+        "mode_order_index": int(INSPECT_MODE_RANK.get(mode_name, len(INSPECT_MODE_ORDER))),
         "image_paths": list(image_paths),
         "memory": {
             "road_structure": memory.road_structure,
@@ -499,9 +509,19 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
         f"\nNote: {VERDICT_SOURCE_NOTE} Step 1 intentionally includes a [MEMORY] block; "
         "the teacher is asked not to mention the word 'memory' in its prose.\n"
     )
+    lines.append(
+        "Mode sections are ordered by the state-machine path: "
+        f"{', '.join(INSPECT_MODE_ORDER)}.\n"
+    )
 
     for run_id, rows in by_episode.items():
-        rows.sort(key=lambda r: (r["frame_idx"], r["mode"]))
+        rows.sort(
+            key=lambda r: (
+                r["frame_idx"],
+                int(r.get("mode_order_index", INSPECT_MODE_RANK.get(r["mode"], len(INSPECT_MODE_ORDER)))),
+                r["mode"],
+            )
+        )
         first = rows[0]
         lines.append(f"\n# Episode `{run_id}`\n")
         lines.append(
@@ -630,7 +650,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--modes",
         type=str,
-        default="all_keep,rs_change,scene_change_same_rs,event_change,scene_change_cross_rs",
+        default=",".join(INSPECT_MODE_ORDER),
         help="逗号分隔的 memory 模式列表；默认 5 种全跑",
     )
     p.add_argument("--seed", type=int, default=20260624)
@@ -682,16 +702,11 @@ def main() -> None:
         raise ValueError(f"empty train jsonl: {args.train_jsonl}")
 
     selected_modes = [m.strip() for m in args.modes.split(",") if m.strip()]
-    valid_modes = {
-        "all_keep",
-        "rs_change",
-        "scene_change_same_rs",
-        "event_change",
-        "scene_change_cross_rs",
-    }
-    bad = [m for m in selected_modes if m not in valid_modes]
+    if not selected_modes:
+        raise ValueError("--modes produced an empty mode list")
+    bad = [m for m in selected_modes if m not in INSPECT_MODE_SET]
     if bad:
-        raise ValueError(f"unknown --modes entries: {bad}; valid={sorted(valid_modes)}")
+        raise ValueError(f"unknown --modes entries: {bad}; valid={list(INSPECT_MODE_ORDER)}")
 
     device = _resolve_device(args.device)
     print(f"[inspect] loading model from {args.model_dir} on {device}", flush=True)
