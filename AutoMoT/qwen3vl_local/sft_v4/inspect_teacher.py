@@ -9,13 +9,15 @@
 Qwen3-VL-4B-Instruct，再叠加 ``torch.no_grad()`` 与 train.py 同款 KV cache 生成路径
 （含 ``min_new_tokens`` 反早停）。
 
-每帧默认覆盖 3 种 memory 起点，分别触发 prompt 状态机的 4 条路径：
+每帧默认覆盖 5 种 memory 起点，分别触发分层 prompt 状态机的关键路径：
 
-| 模式                | memory.scene | memory.status/subgoal | step2 verdict | step3 verdict     |
-|---------------------|--------------|------------------------|---------------|--------------------|
-| ``all_keep``        | = GT         | = GT                   | KEEP          | KEEP               |
-| ``event_change``    | = GT         | 故意错位的合法 event      | KEEP          | CHANGE             |
-| ``scene_change``    | 随机非 GT     | 该错场景的 init events  | CHANGE        | (skipped: scene≠GT)|
+| 模式                      | memory.road_structure | memory.scene | step1 | step2 | step3 |
+|---------------------------|-----------------------|--------------|-------|-------|-------|
+| ``all_keep``              | = GT                  | = GT         | KEEP  | KEEP  | KEEP  |
+| ``rs_change``             | 非 GT 桶              | 错桶首个 scene | CHANGE| SKIP  | SKIP  |
+| ``scene_change_same_rs``  | = GT                  | 同桶非 GT     | KEEP  | CHANGE| SKIP  |
+| ``event_change``          | = GT                  | = GT         | KEEP  | KEEP  | CHANGE|
+| ``scene_change_cross_rs`` | = GT                  | 跨桶非 GT     | KEEP  | CHANGE| SKIP  |
 
 产物写到 ``--out-dir``：
 
@@ -81,6 +83,8 @@ import torch  # noqa: E402
 from qwen3vl_local.prompt_pipeline import SCENARIO_LABELS, get_full_sequence  # noqa: E402
 from qwen3vl_local.sft_v2.train import load_model_with_lora  # noqa: E402
 from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
+    ROAD_STRUCTURE_TO_SCENES,
+    SCENE_TO_ROAD_STRUCTURE,
     SYSTEM_PROMPT_V4,
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
@@ -89,15 +93,20 @@ from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     TEACHER_MIN_NEW_TOKENS_STEP2,
     TEACHER_MIN_NEW_TOKENS_STEP3,
     Memory,
-    build_step1_user_prompt,
+    build_step1_teacher_prompt,
+    build_step1_teacher_target,
     build_step2_teacher_prompt,
     build_step2_teacher_target,
     build_step3_teacher_prompt,
     build_step3_teacher_target,
+    check_gt_leak_road_structure,
     check_gt_leak_scene,
     check_gt_leak_status_subgoal,
     first_subgoal,
+    first_scene_in_bucket,
+    get_road_structure,
     initial_event,
+    should_trigger_step2,
     should_trigger_step3,
 )
 from qwen3vl_local.sft_v4.train import (  # noqa: E402
@@ -114,6 +123,46 @@ from qwen3vl_local.sft_v4.train import (  # noqa: E402
     _teacher_generate_kv,
     _teacher_start_state,
 )
+
+
+VERDICT_SOURCE_NOTE = (
+    "The verdict fields are scripted expectations inferred from the fixed "
+    "memory-vs-GT comparison for this inspect mode; they are not parsed from "
+    "the teacher raw text."
+)
+
+
+def _assert_prompt_contracts() -> None:
+    """启动前验证 inspect_teacher 依赖的 v4 prompt / trigger 契约。
+
+    这不是训练测试，只是防止后续改 prompt 时把抽检脚本的含义悄悄改掉：
+    step1 teacher prompt 必须读 MEMORY，因为它判断的是 BELIEVED_ROAD_STRUCTURE；
+    step2/step3 trigger 必须分别等价于 layer-1 / layer-2 命中 GT。
+    """
+
+    gt_scene = sorted(SCENARIO_LABELS)[0]
+    gt_rs = get_road_structure(gt_scene)
+    wrong_rs = next(rs for rs in sorted(ROAD_STRUCTURE_TO_SCENES) if rs != gt_rs)
+    mem = Memory(
+        road_structure=gt_rs,
+        scene=gt_scene,
+        status=initial_event(gt_scene),
+        subgoal=first_subgoal(gt_scene),
+        ego_to_goal_x=0.0,
+        ego_to_goal_y=0.0,
+    )
+    step1_prompt = build_step1_teacher_prompt(mem, gt_rs)
+    if "[MEMORY]" not in step1_prompt or "[ROAD_STRUCTURE_CHOICES]" not in step1_prompt:
+        raise AssertionError("step1 teacher prompt must include MEMORY and ROAD_STRUCTURE_CHOICES")
+    if not should_trigger_step2(memory_road_structure_after_step1=gt_rs, gt_road_structure=gt_rs):
+        raise AssertionError("should_trigger_step2 must fire when layer-1 matches GT")
+    if should_trigger_step2(memory_road_structure_after_step1=wrong_rs, gt_road_structure=gt_rs):
+        raise AssertionError("should_trigger_step2 must skip when layer-1 differs from GT")
+    if not should_trigger_step3(memory_scene_after_step2=gt_scene, gt_scene=gt_scene):
+        raise AssertionError("should_trigger_step3 must fire when layer-2 matches GT")
+    other_scene = next(scene for scene in sorted(SCENARIO_LABELS) if scene != gt_scene)
+    if should_trigger_step3(memory_scene_after_step2=other_scene, gt_scene=gt_scene):
+        raise AssertionError("should_trigger_step3 must skip when layer-2 differs from GT")
 
 
 # --------------------------- memory 构造 ---------------------------
@@ -139,19 +188,44 @@ def _build_inspect_memories(
     goal_x: float,
     goal_y: float,
 ) -> List[Tuple[str, Memory]]:
-    """对单帧构造 3 种 memory 起点，对应 3 条状态机分支。
+    """对单帧构造 5 种 memory 起点，对应分层状态机分支。
 
     返回 ``(mode_name, Memory)`` 列表。``mode_name`` 用于报告里标注当前帧测的是哪条
     分支，方便用户筛选阅读。
     """
 
     gt_scene = ep.gt_scene
+    gt_rs = get_road_structure(gt_scene)
     gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
 
     mem_all_keep = Memory(
+        road_structure=gt_rs,
         scene=gt_scene,
         status=gt_status,
         subgoal=gt_subgoal,
+        ego_to_goal_x=goal_x,
+        ego_to_goal_y=goal_y,
+    )
+
+    wrong_rs_candidates = [rs for rs in sorted(ROAD_STRUCTURE_TO_SCENES) if rs != gt_rs]
+    wrong_rs = rng.choice(wrong_rs_candidates) if wrong_rs_candidates else gt_rs
+    wrong_rs_scene = first_scene_in_bucket(wrong_rs)
+    mem_rs_change = Memory(
+        road_structure=wrong_rs,
+        scene=wrong_rs_scene,
+        status=initial_event(wrong_rs_scene),
+        subgoal=first_subgoal(wrong_rs_scene),
+        ego_to_goal_x=goal_x,
+        ego_to_goal_y=goal_y,
+    )
+
+    same_bucket_scenes = [s for s in ROAD_STRUCTURE_TO_SCENES.get(gt_rs, []) if s != gt_scene]
+    same_rs_scene = rng.choice(same_bucket_scenes) if same_bucket_scenes else gt_scene
+    mem_scene_change_same_rs = Memory(
+        road_structure=gt_rs,
+        scene=same_rs_scene,
+        status=initial_event(same_rs_scene),
+        subgoal=first_subgoal(same_rs_scene),
         ego_to_goal_x=goal_x,
         ego_to_goal_y=goal_y,
     )
@@ -164,6 +238,7 @@ def _build_inspect_memories(
         wrong_status = initial_event(gt_scene)
         wrong_subgoal = first_subgoal(gt_scene)
     mem_event_change = Memory(
+        road_structure=gt_rs,
         scene=gt_scene,
         status=wrong_status,
         subgoal=wrong_subgoal,
@@ -171,23 +246,26 @@ def _build_inspect_memories(
         ego_to_goal_y=goal_y,
     )
 
-    other_scenes = [s for s in sorted(SCENARIO_LABELS) if s != gt_scene]
-    if other_scenes:
-        wrong_scene = rng.choice(other_scenes)
-    else:
-        wrong_scene = gt_scene
-    mem_scene_change = Memory(
-        scene=wrong_scene,
-        status=initial_event(wrong_scene),
-        subgoal=first_subgoal(wrong_scene),
+    cross_bucket_scenes = [
+        s for s in sorted(SCENARIO_LABELS)
+        if s != gt_scene and SCENE_TO_ROAD_STRUCTURE.get(s) != gt_rs
+    ]
+    cross_rs_scene = rng.choice(cross_bucket_scenes) if cross_bucket_scenes else same_rs_scene
+    mem_scene_change_cross_rs = Memory(
+        road_structure=gt_rs,
+        scene=cross_rs_scene,
+        status=initial_event(cross_rs_scene),
+        subgoal=first_subgoal(cross_rs_scene),
         ego_to_goal_x=goal_x,
         ego_to_goal_y=goal_y,
     )
 
     return [
         ("all_keep", mem_all_keep),
+        ("rs_change", mem_rs_change),
+        ("scene_change_same_rs", mem_scene_change_same_rs),
         ("event_change", mem_event_change),
-        ("scene_change", mem_scene_change),
+        ("scene_change_cross_rs", mem_scene_change_cross_rs),
     ]
 
 
@@ -220,10 +298,11 @@ def _run_teacher_for_frame(
     """
 
     images = _load_images(image_paths)
+    gt_road_structure = get_road_structure(ep.gt_scene)
     gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
 
-    step1_user = build_step1_user_prompt(len(images))
-    step2_teacher_user = build_step2_teacher_prompt(memory, ep.gt_scene)
+    step1_user = build_step1_teacher_prompt(memory, gt_road_structure)
+    step2_teacher_user = ""
 
     step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
     teacher_model = bundle.unwrap()
@@ -232,13 +311,14 @@ def _run_teacher_for_frame(
     raw_step2 = ""
     raw_step3 = ""
     step3_user_prompt = ""
+    step2_fired = False
     step3_fired = False
 
     teacher_was_training = bool(teacher_model.training)
     teacher_model.eval()
     try:
         with teacher_model.disable_adapter():
-            # ---- step1：纯视觉描述，吃图 ----
+            # ---- step1：ROAD_STRUCTURE KEEP/CHANGE 推理，吃图 ----
             step1_state = _teacher_start_state(bundle, step1_msgs)
             raw_step1, step1_state_after = _teacher_generate_kv(
                 bundle,
@@ -248,36 +328,48 @@ def _run_teacher_for_frame(
             )
 
             # ---- step2：场景 KEEP/CHANGE 推理 ----
-            step2_state = _append_user_turn(bundle, step1_state_after, step2_teacher_user)
-            raw_step2, step2_state_after = _teacher_generate_kv(
-                bundle,
-                _clone_kv_state(step2_state),
-                TEACHER_MAX_NEW_TOKENS_STEP2,
-                min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP2,
+            # inspect_teacher 是固定初始 memory 的分支探针：这里故意不 parse teacher
+            # 输出、也不调用 update_memory_after_step1。step2/3 是否触发只由当前
+            # mode 构造出的 memory-vs-GT 关系决定，便于稳定观察 5 条状态机路径。
+            step2_fired = should_trigger_step2(
+                memory_road_structure_after_step1=memory.road_structure,
+                gt_road_structure=gt_road_structure,
             )
-
-            # ---- step3：触发口径与训练一致（memory.scene == gt_scene） ----
-            step3_fired = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
-            if step3_fired:
-                step3_user_prompt = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
-                step3_state = _append_user_turn(bundle, step2_state_after, step3_user_prompt)
-                raw_step3, _ = _teacher_generate_kv(
+            if step2_fired:
+                step2_teacher_user = build_step2_teacher_prompt(memory, ep.gt_scene)
+                step2_state = _append_user_turn(bundle, step1_state_after, step2_teacher_user)
+                raw_step2, step2_state_after = _teacher_generate_kv(
                     bundle,
-                    _clone_kv_state(step3_state),
-                    TEACHER_MAX_NEW_TOKENS_STEP3,
-                    min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP3,
+                    _clone_kv_state(step2_state),
+                    TEACHER_MAX_NEW_TOKENS_STEP2,
+                    min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP2,
                 )
+
+                # ---- step3：触发口径与训练一致（step2 已跑且 memory.scene == gt_scene） ----
+                step3_fired = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
+                if step3_fired:
+                    step3_user_prompt = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
+                    step3_state = _append_user_turn(bundle, step2_state_after, step3_user_prompt)
+                    raw_step3, _ = _teacher_generate_kv(
+                        bundle,
+                        _clone_kv_state(step3_state),
+                        TEACHER_MAX_NEW_TOKENS_STEP3,
+                        min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP3,
+                    )
     finally:
         if teacher_was_training:
             teacher_model.train()
 
-    target2 = build_step2_teacher_target(raw_step2, ep.gt_scene)
+    target1 = build_step1_teacher_target(raw_step1, gt_road_structure)
+    target2 = build_step2_teacher_target(raw_step2, ep.gt_scene) if step2_fired else ""
     target3 = build_step3_teacher_target(raw_step3, gt_status, gt_subgoal) if step3_fired else ""
 
-    leak2 = check_gt_leak_scene(raw_step2, ep.gt_scene)
+    leak1 = check_gt_leak_road_structure(raw_step1, gt_road_structure)
+    leak2 = check_gt_leak_scene(raw_step2, ep.gt_scene) if step2_fired else False
     leak3 = check_gt_leak_status_subgoal(raw_step3, gt_status, gt_subgoal) if step3_fired else False
 
-    verdict_step2 = "KEEP" if memory.scene == ep.gt_scene else "CHANGE"
+    verdict_step1 = "KEEP" if memory.road_structure == gt_road_structure else "CHANGE"
+    verdict_step2 = "SKIPPED" if not step2_fired else ("KEEP" if memory.scene == ep.gt_scene else "CHANGE")
     if step3_fired:
         verdict_step3 = "KEEP" if (memory.status == gt_status and memory.subgoal == gt_subgoal) else "CHANGE"
     else:
@@ -291,24 +383,35 @@ def _run_teacher_for_frame(
         "mode": mode_name,
         "image_paths": list(image_paths),
         "memory": {
+            "road_structure": memory.road_structure,
             "scene": memory.scene,
             "status": memory.status,
             "subgoal": memory.subgoal,
             "ego_to_goal_xy": [float(memory.ego_to_goal_x), float(memory.ego_to_goal_y)],
         },
         "gt": {
+            "road_structure": gt_road_structure,
             "scene": ep.gt_scene,
             "status": gt_status,
             "subgoal": gt_subgoal,
         },
         "step1": {
+            "verdict": verdict_step1,
+            "verdict_source": "scripted_memory_vs_gt",
+            "verdict_note": VERDICT_SOURCE_NOTE,
+            "uses_memory_block": "[MEMORY]" in step1_user,
             "system_prompt": SYSTEM_PROMPT_V4,
             "user_prompt": step1_user,
             "teacher_raw": raw_step1,
             "token_count": _count_tokens(bundle, raw_step1),
+            "supervised_target": target1,
+            "leak_detected": bool(leak1),
         },
         "step2": {
+            "fired": bool(step2_fired),
             "verdict": verdict_step2,
+            "verdict_source": "scripted_memory_vs_gt",
+            "verdict_note": VERDICT_SOURCE_NOTE,
             "user_prompt": step2_teacher_user,
             "teacher_raw": raw_step2,
             "token_count": _count_tokens(bundle, raw_step2),
@@ -318,6 +421,8 @@ def _run_teacher_for_frame(
         "step3": {
             "fired": bool(step3_fired),
             "verdict": verdict_step3,
+            "verdict_source": "scripted_memory_vs_gt",
+            "verdict_note": VERDICT_SOURCE_NOTE,
             "user_prompt": step3_user_prompt,
             "teacher_raw": raw_step3,
             "token_count": _count_tokens(bundle, raw_step3),
@@ -386,9 +491,13 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
     lines.append("# SFT v4 Teacher Inspection Report\n")
     lines.append(f"_Generated at {time.strftime('%Y-%m-%d %H:%M:%S')}._\n")
     lines.append(
-        "Each frame is replayed under 3 memory configurations to exercise the "
-        "KEEP / CHANGE branches in the teacher prompt state machine. Token counts "
+        "Each frame is replayed under 5 memory configurations to exercise the "
+        "ROAD_STRUCTURE / SCENE / EVENT KEEP and CHANGE branches. Token counts "
         "below come from the same tokenizer the trainer uses.\n"
+    )
+    lines.append(
+        f"\nNote: {VERDICT_SOURCE_NOTE} Step 1 intentionally includes a [MEMORY] block; "
+        "the teacher is asked not to mention the word 'memory' in its prose.\n"
     )
 
     for run_id, rows in by_episode.items():
@@ -397,6 +506,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
         lines.append(f"\n# Episode `{run_id}`\n")
         lines.append(
             f"- scenario: `{first['scenario']}`\n"
+            f"- gt_road_structure: `{first['gt']['road_structure']}`\n"
             f"- gt_scene: `{first['gt']['scene']}`\n"
         )
 
@@ -409,7 +519,8 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                 for p in row["image_paths"]:
                     lines.append(f"- `{p}`\n")
                 lines.append(
-                    f"\nGT for this frame: scene=`{row['gt']['scene']}`, "
+                    f"\nGT for this frame: road_structure=`{row['gt']['road_structure']}`, "
+                    f"scene=`{row['gt']['scene']}`, "
                     f"status=`{row['gt']['status']}`, subgoal=`{row['gt']['subgoal']}`.\n"
                 )
                 last_frame = frame_idx
@@ -417,7 +528,8 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
             lines.append(f"\n### Mode `{row['mode']}`\n")
             mem = row["memory"]
             lines.append(
-                f"Memory fed into teacher: scene=`{mem['scene']}`, "
+                f"Memory fed into teacher: road_structure=`{mem['road_structure']}`, "
+                f"scene=`{mem['scene']}`, "
                 f"status=`{mem['status']}`, subgoal=`{mem['subgoal']}`, "
                 f"ego_to_goal_xy=`{mem['ego_to_goal_xy']}`.\n"
             )
@@ -425,33 +537,50 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
             # ---- step1 ----
             s1 = row["step1"]
             lines.append(
-                f"\n#### Step 1 — visual description (teacher tokens generated: {s1['token_count']})\n"
+                f"\n#### Step 1 — road-structure verdict `{s1['verdict']}` "
+                f"(source={s1.get('verdict_source', 'scripted_memory_vs_gt')}, "
+                f"uses_memory={s1.get('uses_memory_block', False)}, "
+                f"teacher tokens: {s1['token_count']}, leak={s1['leak_detected']})\n"
             )
             lines.append(_format_md_block("system", s1["system_prompt"]))
             lines.append(_format_md_block("user (with 4 stitched RGB images attached)", s1["user_prompt"]))
             lines.append(_format_md_block("assistant — teacher raw output", s1["teacher_raw"]))
-
-            # ---- step2 ----
-            s2 = row["step2"]
-            lines.append(
-                f"\n#### Step 2 — scene verdict `{s2['verdict']}` "
-                f"(teacher tokens: {s2['token_count']}, leak={s2['leak_detected']})\n"
-            )
-            lines.append(_format_md_block("user (new turn, reuses cached KV; no new image)", s2["user_prompt"]))
-            lines.append(_format_md_block("assistant — teacher raw output", s2["teacher_raw"]))
             lines.append(
                 _format_md_block(
                     "scripted target (this is what the student is supervised on)",
-                    s2["supervised_target"],
+                    s1["supervised_target"],
                 )
             )
+
+            # ---- step2 ----
+            s2 = row["step2"]
+            if s2.get("fired", True):
+                lines.append(
+                    f"\n#### Step 2 — scene verdict `{s2['verdict']}` "
+                    f"(source={s2.get('verdict_source', 'scripted_memory_vs_gt')}, "
+                    f"teacher tokens: {s2['token_count']}, leak={s2['leak_detected']})\n"
+                )
+                lines.append(_format_md_block("user (new turn, reuses cached KV; no new image)", s2["user_prompt"]))
+                lines.append(_format_md_block("assistant — teacher raw output", s2["teacher_raw"]))
+                lines.append(
+                    _format_md_block(
+                        "scripted target (this is what the student is supervised on)",
+                        s2["supervised_target"],
+                    )
+                )
+            else:
+                lines.append(
+                    "\n#### Step 2 — skipped (memory.road_structure != gt_road_structure, "
+                    "so the trainer would not fire step2 here).\n"
+                )
 
             # ---- step3 ----
             s3 = row["step3"]
             if s3["fired"]:
                 lines.append(
                     f"\n#### Step 3 — status/subgoal verdict `{s3['verdict']}` "
-                    f"(teacher tokens: {s3['token_count']}, leak={s3['leak_detected']})\n"
+                    f"(source={s3.get('verdict_source', 'scripted_memory_vs_gt')}, "
+                    f"teacher tokens: {s3['token_count']}, leak={s3['leak_detected']})\n"
                 )
                 lines.append(_format_md_block("user (new turn, reuses cached KV)", s3["user_prompt"]))
                 lines.append(_format_md_block("assistant — teacher raw output", s3["teacher_raw"]))
@@ -463,7 +592,8 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                 )
             else:
                 lines.append(
-                    "\n#### Step 3 — skipped (memory.scene ≠ gt_scene, so the trainer would not fire step3 here).\n"
+                    "\n#### Step 3 — skipped (step2 did not fire or memory.scene != gt_scene, "
+                    "so the trainer would not fire step3 here).\n"
                 )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -500,8 +630,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--modes",
         type=str,
-        default="all_keep,event_change,scene_change",
-        help="逗号分隔的 memory 模式列表；默认 3 种全跑",
+        default="all_keep,rs_change,scene_change_same_rs,event_change,scene_change_cross_rs",
+        help="逗号分隔的 memory 模式列表；默认 5 种全跑",
     )
     p.add_argument("--seed", type=int, default=20260624)
     p.add_argument("--device", type=str, default="auto", help="cuda:0 / cpu / auto；auto 时由 _maybe_set_idle_gpu_mask 选址")
@@ -543,6 +673,7 @@ def main() -> None:
     """
 
     args = parse_args()
+    _assert_prompt_contracts()
     rng = random.Random(args.seed)
 
     print(f"[inspect] loading episodes from {args.train_jsonl}", flush=True)
@@ -551,7 +682,13 @@ def main() -> None:
         raise ValueError(f"empty train jsonl: {args.train_jsonl}")
 
     selected_modes = [m.strip() for m in args.modes.split(",") if m.strip()]
-    valid_modes = {"all_keep", "event_change", "scene_change"}
+    valid_modes = {
+        "all_keep",
+        "rs_change",
+        "scene_change_same_rs",
+        "event_change",
+        "scene_change_cross_rs",
+    }
     bad = [m for m in selected_modes if m not in valid_modes]
     if bad:
         raise ValueError(f"unknown --modes entries: {bad}; valid={sorted(valid_modes)}")

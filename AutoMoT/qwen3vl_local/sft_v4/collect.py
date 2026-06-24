@@ -49,6 +49,8 @@ from qwen3vl_local.sft_v4.prompts import (
     TEACHER_MIN_NEW_TOKENS_STEP1,
     TEACHER_MIN_NEW_TOKENS_STEP2,
     TEACHER_MIN_NEW_TOKENS_STEP3,
+    build_step1_teacher_prompt,
+    build_step1_teacher_target,
     build_step1_user_prompt,
     build_step2_student_prompt,
     build_step2_teacher_prompt,
@@ -56,13 +58,17 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step3_student_prompt,
     build_step3_teacher_prompt,
     build_step3_teacher_target,
+    check_gt_leak_road_structure,
     check_gt_leak_scene,
     check_gt_leak_status_subgoal,
-    force_memory_to_gt_scene,
+    force_memory_to_gt_chain,
+    get_road_structure,
     init_memory,
     inject_phase_b_noise,
     parse_output,
+    should_trigger_step2,
     should_trigger_step3,
+    update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
     validate_event,
@@ -92,9 +98,13 @@ def _memory_to_dict(memory: Any) -> Dict[str, Any]:
 
     trajectory 是跨进程/跨版本交换格式，不能直接 pickle dataclass；显式展开字段后，
     learner 可以在完全独立的 Python 进程里用 ``_memory_from_record`` 还原。
+
+    v4 schema_v2：增加 ``road_structure``（layer-1）字段；旧 v1 trajectory 不带，
+    learner 加载时按 ``replay.SCHEMA`` 校验，v1 traj 会被 reject 而不是默认填值。
     """
 
     return {
+        "road_structure": str(getattr(memory, "road_structure", "JUNCTION")),
         "scene": str(memory.scene),
         "status": str(memory.status),
         "subgoal": str(memory.subgoal),
@@ -195,7 +205,7 @@ def collect_episode(
     参数说明：
 
     - ``policy_version``：当前 collector 使用的 LoRA snapshot 版本，写入 header 供审计；
-    - ``p_init_correct``：Phase A 初始 scene 等于 GT 的概率，默认 0.5；
+    - ``p_init_correct``：Phase A 初始 road_structure 命中 GT 桶的概率，默认 0.7；
     - ``phase_b_noise_prob``：Phase B 弱纠偏后注入随机非 GT scene 的概率；
     - ``outer_stride``：调试用跳帧，生产默认 1，不改变 episode index 本身。
     """
@@ -238,14 +248,17 @@ def collect_episode(
         }
     ]
 
+    gt_road_structure = get_road_structure(ep.gt_scene)
     first_frame = True
     for frame in range(ep.frame_start, ep.frame_end + 1, stride):
         phase_a = _is_phase_a(ep, frame)
         noise_injected = False
         if not phase_a:
-            # Phase B 帧首先做弱纠偏，让“场景已经认对”成为主分布；再按小概率加噪声，
-            # 让后半段仍保留自纠错样本。
-            memory = force_memory_to_gt_scene(memory, gt_scene=ep.gt_scene)
+            # Phase B 帧首三层弱纠偏（D23 + D27 配套）：先 layer-1 回 GT 桶，
+            # 再 scene 回 GT；noise 只在 scene 这一层按 PHASE_B_NOISE_PROB 注入。
+            memory = force_memory_to_gt_chain(
+                memory, gt_road_structure=gt_road_structure, gt_scene=ep.gt_scene
+            )
             memory, noise_injected = _inject_phase_b_noise(
                 memory,
                 gt_scene=ep.gt_scene,
@@ -257,66 +270,114 @@ def collect_episode(
         images = _load_images(image_paths)
         gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
 
-        step1_user = build_step1_user_prompt(len(images))
-        step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
-        step2_teacher_user = build_step2_teacher_prompt(memory_before, ep.gt_scene)
-        step2_student_user = build_step2_student_prompt(memory_before)
+        # ============ Step 1：视觉描述 + ROAD_STRUCTURE 判定 ============
+        step1_student_user = build_step1_user_prompt(len(images), memory=memory_before)
+        step1_teacher_user_text = build_step1_teacher_prompt(memory_before, gt_road_structure)
+        step1_msgs_student = _build_messages_with_images(user_text=step1_student_user, images=images)
+        step1_msgs_teacher = _build_messages_with_images(user_text=step1_teacher_user_text, images=images)
 
-        # Teacher 分支：同一个 PEFT 模型临时 disable_adapter，即 base Qwen。
-        # teacher 看到 GT scene/status/subgoal hint，负责生成可监督的 hindsight 分析。
+        # Teacher 分支：disable_adapter = 纯 frozen base Qwen + no_repeat_ngram + 软 min。
         model = bundle.unwrap()
         was_training = bool(model.training)
         model.eval()
         with model.disable_adapter():
-            teacher_step1_prompt_state = _teacher_start_state(bundle, step1_msgs)
-            teacher_step1, teacher_step1_state = _teacher_generate_kv(
+            teacher_step1_prompt_state = _teacher_start_state(bundle, step1_msgs_teacher)
+            raw_teacher_step1, teacher_step1_state = _teacher_generate_kv(
                 bundle,
                 teacher_step1_prompt_state,
                 TEACHER_MAX_NEW_TOKENS_STEP1,
                 min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP1,
             )
-            teacher_step1 = teacher_step1 or "I observe the current driving scene from the images."
-            teacher_step2_prompt_state = _append_user_turn(bundle, teacher_step1_state, step2_teacher_user)
-            raw_teacher_step2, teacher_step2_state = _teacher_generate_kv(
-                bundle,
-                teacher_step2_prompt_state,
-                TEACHER_MAX_NEW_TOKENS_STEP2,
-                min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP2,
-            )
+            raw_teacher_step1 = raw_teacher_step1 or "I look at the road layout in the latest camera frames."
         if was_training:
             model.train()
 
-        # Student 分支：使用当前 LoRA snapshot 自由生成，输出只用于 off-policy rollout
-        # 和 learner 复现 prompt，不在 collector 内做 loss/backward。
+        # Student 分支：当前 LoRA snapshot 自由生成，用于 memory 推进 + learner 重放。
         bundle.model.eval()
-        student_step1_prompt_state = _student_start_state(bundle, step1_msgs)
+        student_step1_prompt_state = _student_start_state(bundle, step1_msgs_student)
         student_step1, student_step1_state = _student_generate_kv(
             bundle, student_step1_prompt_state, TEACHER_MAX_NEW_TOKENS_STEP1
         )
-        student_step1 = student_step1 or teacher_step1
-        student_step2_prompt_state = _append_user_turn(bundle, student_step1_state, step2_student_user)
-        raw_student_step2, student_step2_state = _student_generate_kv(
-            bundle, student_step2_prompt_state, TEACHER_MAX_NEW_TOKENS_STEP2
+        student_step1 = student_step1 or raw_teacher_step1
+
+        # ============ Step 1 后处理：更新 memory.road_structure ============
+        analysis1 = _analysis_before_labels(raw_teacher_step1)
+        leak1 = check_gt_leak_road_structure(analysis1, gt_road_structure)
+        target1 = build_step1_teacher_target(analysis1, gt_road_structure)
+        pred1 = parse_output(student_step1)
+        old_rs = memory.road_structure
+        memory = update_memory_after_step1(memory, student_road_structure=pred1.get("road_structure"))
+        rs_flip = memory.road_structure != old_rs
+        memory_after_step1 = memory.copy()
+
+        # ============ 触发门 1：step1 命中 GT 桶才进 step2 ============
+        step2_ran = should_trigger_step2(
+            memory_road_structure_after_step1=memory.road_structure,
+            gt_road_structure=gt_road_structure,
         )
-
-        analysis2 = _analysis_before_labels(raw_teacher_step2)
-        leak2 = check_gt_leak_scene(analysis2, ep.gt_scene)
-        target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
-        pred2 = parse_output(raw_student_step2)
-        old_scene = memory.scene
-        # step2 只更新 scene；如果 student 预测非法/空 scene，helper 会保持原 scene。
-        memory = update_memory_after_step2(memory, student_scene=pred2.get("scene"))
-        scene_flip = memory.scene != old_scene
+        analysis2 = ""
+        leak2 = False
+        target2 = ""
+        scene_flip = False
         memory_after_step2 = memory.copy()
+        raw_teacher_step2 = ""
+        raw_student_step2 = ""
+        teacher_step2_state = None
+        student_step2_state = None
+        if step2_ran:
+            # Step 2 的时序是 v4 最重要的不变量之一：
+            #
+            # 1. 先让 student step1 自由生成 ROAD_STRUCTURE；
+            # 2. 用这个输出更新 memory.road_structure，并在翻桶时 reset 下游 scene/status/subgoal；
+            # 3. 只有更新后的 road_structure 命中 GT 桶，才构造 step2 prompt。
+            #
+            # 不能把 step2_teacher_user / step2_student_user 提前放到 step1 前面构造。
+            # 否则会出现“step1 已经把桶从旧值纠正到 GT，但 step2 仍列旧桶
+            # SCENE_CHOICES”的隐性错配；trajectory 看起来合法，learner 却会学到
+            # target 不在候选表里的坏样本。
+            step2_teacher_user = build_step2_teacher_prompt(memory, ep.gt_scene)
+            step2_student_user = build_step2_student_prompt(memory)
 
-        # step3 只有在 step2 后的 memory.scene 等于 GT scene 时触发；这和 v3/v4 的训练
-        # 语义一致：场景没认对时，不监督 status/subgoal，避免把错误分支事件链混进去。
-        step3_ran = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
+            was_training = bool(model.training)
+            model.eval()
+            with model.disable_adapter():
+                teacher_step2_prompt_state = _append_user_turn(bundle, teacher_step1_state, step2_teacher_user)
+                raw_teacher_step2, teacher_step2_state = _teacher_generate_kv(
+                    bundle,
+                    teacher_step2_prompt_state,
+                    TEACHER_MAX_NEW_TOKENS_STEP2,
+                    min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP2,
+                )
+            if was_training:
+                model.train()
+
+            bundle.model.eval()
+            student_step2_prompt_state = _append_user_turn(bundle, student_step1_state, step2_student_user)
+            raw_student_step2, student_step2_state = _student_generate_kv(
+                bundle, student_step2_prompt_state, TEACHER_MAX_NEW_TOKENS_STEP2
+            )
+
+            analysis2 = _analysis_before_labels(raw_teacher_step2)
+            leak2 = check_gt_leak_scene(analysis2, ep.gt_scene)
+            target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
+            pred2 = parse_output(raw_student_step2)
+            old_scene = memory.scene
+            memory = update_memory_after_step2(memory, student_scene=pred2.get("scene"))
+            scene_flip = memory.scene != old_scene
+            memory_after_step2 = memory.copy()
+
+        # ============ 触发门 2：step2 后 scene 命中 GT 才进 step3 ============
+        step3_ran = (
+            step2_ran
+            and should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
+        )
         raw_teacher_step3 = ""
         raw_student_step3 = ""
         target3 = ""
         leak3 = False
         if step3_ran:
+            assert teacher_step2_state is not None
+            assert student_step2_state is not None
             step3_teacher_user = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
             was_training = bool(model.training)
             model.eval()
@@ -350,6 +411,9 @@ def collect_episode(
                 student_subgoal=pred_subgoal,
             )
 
+        teacher_step2_raw_value: Optional[str] = raw_teacher_step2 if step2_ran else None
+        teacher_step2_target_value: Optional[str] = target2 if step2_ran else None
+        student_step2_value: Optional[str] = raw_student_step2 if step2_ran else None
         teacher_step3_raw_value: Optional[str] = raw_teacher_step3 if step3_ran else None
         teacher_step3_target_value: Optional[str] = target3 if step3_ran else None
         student_step3_value: Optional[str] = raw_student_step3 if step3_ran else None
@@ -358,54 +422,69 @@ def collect_episode(
             "frame_idx": int(frame),
             "phase": "A" if phase_a else "B",
             "image_paths": image_paths,
-            # PLAN §0.5 的显式字段：保持 trajectory 可以被人类直接 grep/debug。
-            # nested 字段继续保留，供当前 learner 兼容读取。
+            # PLAN §0.5：trajectory schema_v2 显式字段（v1 → v2 bump 后旧 trajectory
+            # 会被 replay 校验拒收）。所有 memory 快照都含 road_structure。
             "memory_before_frame": _memory_to_dict(memory_before),
-            "init_scene_was_correct": (memory_before.scene == ep.gt_scene) if first_frame else None,
+            # learner 重放 step2 时必须使用这份快照，而不是 frame 初始 memory。
+            # 这份快照记录了 student step1 之后的真实 bucket，是 v2 schema 相比 v1
+            # 新增的关键字段。
+            "memory_after_step1": _memory_to_dict(memory_after_step1),
+            "init_was_correct": (
+                memory_before.scene == ep.gt_scene
+                and memory_before.road_structure == gt_road_structure
+            ) if first_frame else None,
             "noise_injected": bool(noise_injected),
-            "teacher_step1_text": teacher_step1,
-            "teacher_step2_raw": raw_teacher_step2,
-            "teacher_step2_target": target2,
+            # 三步老师/学生文本：未触发的步骤填 None 而非空串，方便 learner 区分。
+            "teacher_step1_text": raw_teacher_step1,
+            "teacher_step1_target": target1,
+            "teacher_step2_raw": teacher_step2_raw_value,
+            "teacher_step2_target": teacher_step2_target_value,
             "teacher_step3_raw": teacher_step3_raw_value,
             "teacher_step3_target": teacher_step3_target_value,
             "student_step1_raw": student_step1,
-            "student_step2_raw": raw_student_step2,
+            "student_step2_raw": student_step2_value,
             "student_step3_raw": student_step3_value,
+            "step2_fired": bool(step2_ran),
             "step3_fired": bool(step3_ran),
             "memory_before": _memory_to_dict(memory_before),
             "memory_after_step2": _memory_to_dict(memory_after_step2),
             "memory_after_frame": _memory_to_dict(memory),
             "gt": {
+                "road_structure": gt_road_structure,
                 "scene": ep.gt_scene,
                 "status": gt_status,
                 "subgoal": gt_subgoal,
             },
             "student_outputs": {
                 "step1": student_step1,
-                "step2": raw_student_step2,
-                "step3": raw_student_step3,
+                "step2": raw_student_step2 if step2_ran else None,
+                "step3": raw_student_step3 if step3_ran else None,
             },
             "teacher_targets": {
-                "step1": teacher_step1,
-                "step2": target2,
-                "step3": target3,
+                "step1": target1,
+                "step2": target2 if step2_ran else None,
+                "step3": target3 if step3_ran else None,
             },
             "teacher_raw_outputs": {
-                "step1": teacher_step1,
-                "step2": raw_teacher_step2,
-                "step3": raw_teacher_step3,
+                "step1": raw_teacher_step1,
+                "step2": raw_teacher_step2 if step2_ran else None,
+                "step3": raw_teacher_step3 if step3_ran else None,
             },
             "flags": {
                 # flags 全部是训练审计字段：learner 不依赖它们决定 prompt 文本，但会用来
-                # 统计 step3/noise/leak 等比率，定位 collector 行为是否偏离预期。
+                # 统计 step1/step2/step3 触发率、翻转率、leak 率，定位行为偏移。
+                "step2_ran": bool(step2_ran),
                 "step3_ran": bool(step3_ran),
+                "rs_flip": bool(rs_flip),
                 "scene_flip": bool(scene_flip),
+                "leak1": bool(leak1),
                 "leak2": bool(leak2),
                 "leak3": bool(leak3),
                 "phase_a": bool(phase_a),
                 "noise_injected": bool(noise_injected),
             },
         }
+        frame_record["step2_ran"] = bool(step2_ran)
         frame_record["step3_ran"] = bool(step3_ran)
         records.append(frame_record)
         first_frame = False
@@ -434,7 +513,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-episodes", type=int, default=0)
     p.add_argument("--outer-stride", type=int, default=1)
     p.add_argument("--replay-capacity", type=int, default=256)
-    p.add_argument("--p-init-correct", type=float, default=0.5)
+    p.add_argument("--p-init-correct", type=float, default=0.7)
     p.add_argument("--phase-b-noise-prob", type=float, default=0.15)
     p.add_argument("--refresh-every-eps", type=int, default=4)
     p.add_argument("--refresh-every-sec", type=float, default=60.0)
