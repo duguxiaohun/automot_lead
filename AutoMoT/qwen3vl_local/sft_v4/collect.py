@@ -46,6 +46,9 @@ from qwen3vl_local.sft_v4.prompts import (
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
+    TEACHER_MIN_NEW_TOKENS_STEP1,
+    TEACHER_MIN_NEW_TOKENS_STEP2,
+    TEACHER_MIN_NEW_TOKENS_STEP3,
     build_step1_user_prompt,
     build_step2_student_prompt,
     build_step2_teacher_prompt,
@@ -267,12 +270,18 @@ def collect_episode(
         with model.disable_adapter():
             teacher_step1_prompt_state = _teacher_start_state(bundle, step1_msgs)
             teacher_step1, teacher_step1_state = _teacher_generate_kv(
-                bundle, teacher_step1_prompt_state, TEACHER_MAX_NEW_TOKENS_STEP1
+                bundle,
+                teacher_step1_prompt_state,
+                TEACHER_MAX_NEW_TOKENS_STEP1,
+                min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP1,
             )
             teacher_step1 = teacher_step1 or "I observe the current driving scene from the images."
             teacher_step2_prompt_state = _append_user_turn(bundle, teacher_step1_state, step2_teacher_user)
             raw_teacher_step2, teacher_step2_state = _teacher_generate_kv(
-                bundle, teacher_step2_prompt_state, TEACHER_MAX_NEW_TOKENS_STEP2
+                bundle,
+                teacher_step2_prompt_state,
+                TEACHER_MAX_NEW_TOKENS_STEP2,
+                min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP2,
             )
         if was_training:
             model.train()
@@ -314,7 +323,10 @@ def collect_episode(
             with model.disable_adapter():
                 teacher_step3_prompt_state = _append_user_turn(bundle, teacher_step2_state, step3_teacher_user)
                 raw_teacher_step3, _ = _teacher_generate_kv(
-                    bundle, teacher_step3_prompt_state, TEACHER_MAX_NEW_TOKENS_STEP3
+                    bundle,
+                    teacher_step3_prompt_state,
+                    TEACHER_MAX_NEW_TOKENS_STEP3,
+                    min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP3,
                 )
             if was_training:
                 model.train()

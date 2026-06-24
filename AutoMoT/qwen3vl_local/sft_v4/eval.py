@@ -40,6 +40,9 @@ from qwen3vl_local.sft_v4.train import (
     _prefetch_goal_xy_for_next_frame,
 )
 from qwen3vl_local.sft_v4.prompts import (
+    TEACHER_MAX_NEW_TOKENS_STEP1,
+    TEACHER_MAX_NEW_TOKENS_STEP2,
+    TEACHER_MAX_NEW_TOKENS_STEP3,
     build_step1_user_prompt,
     build_step2_student_prompt,
     build_step2_teacher_prompt,
@@ -324,8 +327,8 @@ def main() -> None:
             step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
             teacher_step1_text = ""
             if teacher_engine is not None:
-                teacher_step1_text = _generate(teacher_engine, step1_msgs, images, max_new_tokens=80)
-            step1_text = _generate(engine, step1_msgs, images, max_new_tokens=80)
+                teacher_step1_text = _generate(teacher_engine, step1_msgs, images, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP1)
+            step1_text = _generate(engine, step1_msgs, images, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP1)
             if teacher_engine is not None:
                 metrics["analysis_bleu_sum"] += _simple_bleu(
                     _analysis_before_labels(step1_text),
@@ -336,9 +339,9 @@ def main() -> None:
             teacher_step2_text = ""
             if teacher_engine is not None:
                 teacher_step2_user = build_step2_teacher_prompt(memory, ep.gt_scene)
-                teacher_step2_text = _generate_next_with_kv(teacher_engine, teacher_step2_user, max_new_tokens=60)
+                teacher_step2_text = _generate_next_with_kv(teacher_engine, teacher_step2_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2)
             step2_user = build_step2_student_prompt(memory)
-            step2_text = _generate_next_with_kv(engine, step2_user, max_new_tokens=60)
+            step2_text = _generate_next_with_kv(engine, step2_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2)
             if teacher_engine is not None:
                 metrics["analysis_bleu_sum"] += _simple_bleu(
                     _analysis_before_labels(step2_text),
@@ -379,9 +382,9 @@ def main() -> None:
                 teacher_step3_text = ""
                 if teacher_engine is not None:
                     teacher_step3_user = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
-                    teacher_step3_text = _generate_next_with_kv(teacher_engine, teacher_step3_user, max_new_tokens=60)
+                    teacher_step3_text = _generate_next_with_kv(teacher_engine, teacher_step3_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3)
                 step3_user = build_step3_student_prompt(memory)
-                step3_text = _generate_next_with_kv(engine, step3_user, max_new_tokens=60)
+                step3_text = _generate_next_with_kv(engine, step3_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3)
                 if teacher_engine is not None:
                     metrics["analysis_bleu_sum"] += _simple_bleu(
                         _analysis_before_labels(step3_text),

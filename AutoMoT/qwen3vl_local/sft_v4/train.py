@@ -74,6 +74,9 @@ from qwen3vl_local.sft_v4.prompts import (
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
+    TEACHER_MIN_NEW_TOKENS_STEP1,
+    TEACHER_MIN_NEW_TOKENS_STEP2,
+    TEACHER_MIN_NEW_TOKENS_STEP3,
     build_step1_user_prompt,
     build_step2_student_prompt,
     build_step2_teacher_prompt,
@@ -625,12 +628,17 @@ def _kv_generate_text(
     max_new_tokens: int,
     *,
     repetition_penalty: float = _REPETITION_PENALTY,
+    min_new_tokens: int = 0,
 ) -> Tuple[str, KVState]:
     """从已有 KVState 贪心生成一段 assistant 文本，并返回生成后的状态。
 
     框架明确要求 ``do_sample=False`` + ``repetition_penalty=1.05``；这里 argmax 已等价
     于 do_sample=False，再额外按 repetition_penalty 对前文 token 做惩罚。前文范围
     取 ``state.decoded_input_ids`` ∪ 已生成 token，与 HF generate 默认行为一致。
+
+    ``min_new_tokens`` 为防早停闸门：在生成数量未达到该下限时，将 EOS / ``<|im_end|>``
+    的 logit 抑制到 ``-inf``，强迫 base Qwen 把完整推理写完。仅用于老师分支，学生
+    自由生成保持 ``min_new_tokens=0`` 不影响。
     """
 
     generated: List[torch.Tensor] = []
@@ -638,8 +646,16 @@ def _kv_generate_text(
     cur = state
     device = cur.next_logits.device
     seen_unique = torch.unique(cur.decoded_input_ids.reshape(-1).to(device))
-    for _ in range(max_new_tokens):
+    min_new = max(0, int(min_new_tokens))
+    eos_id_tensor: Optional[torch.Tensor] = None
+    if min_new > 0 and eos_ids:
+        eos_id_tensor = torch.tensor(sorted(eos_ids), device=device, dtype=torch.long)
+    for step in range(max_new_tokens):
         logits = _apply_repetition_penalty(cur.next_logits, seen_unique, repetition_penalty)
+        if eos_id_tensor is not None and step < min_new:
+            # 没到 min_new 前不允许吐 EOS，避免 base Qwen 早停成 "I am." 这种 3~4 token 输出。
+            logits = logits.clone()
+            logits.index_fill_(-1, eos_id_tensor, float("-inf"))
         next_token = torch.argmax(logits, dim=-1, keepdim=True)
         generated.append(next_token)
         token_id = int(next_token.reshape(-1)[0].item())
@@ -689,15 +705,30 @@ def _student_start_state(bundle: Any, messages: List[Dict[str, Any]]) -> KVState
         return _kv_start_state(bundle, messages)
 
 
-def _teacher_generate_kv(bundle: Any, state: KVState, max_new_tokens: int) -> Tuple[str, KVState]:
-    """teacher 贪心生成包装：关闭梯度。"""
+def _teacher_generate_kv(
+    bundle: Any,
+    state: KVState,
+    max_new_tokens: int,
+    *,
+    min_new_tokens: int = 0,
+) -> Tuple[str, KVState]:
+    """teacher 贪心生成包装：关闭梯度并支持 min_new_tokens 反早停。"""
 
     with torch.no_grad():
-        return _kv_generate_text(bundle, state, max_new_tokens)
+        return _kv_generate_text(
+            bundle,
+            state,
+            max_new_tokens,
+            min_new_tokens=min_new_tokens,
+        )
 
 
 def _student_generate_kv(bundle: Any, state: KVState, max_new_tokens: int) -> Tuple[str, KVState]:
-    """student 自由生成包装：关闭梯度，只用于更新 memory。"""
+    """student 自由生成包装：关闭梯度，只用于更新 memory。
+
+    学生这里**不**强制 min_new_tokens：让 student 自由停（包括早停），方便 memory
+    更新逻辑识别是否输出了合法 SCENE/STATUS/SUBGOAL。
+    """
 
     with torch.no_grad():
         return _kv_generate_text(bundle, state, max_new_tokens)
@@ -778,13 +809,19 @@ def iter_episode_loss_packs(
         with teacher_model.disable_adapter():
             teacher_step1_prompt_state = _teacher_start_state(bundle, step1_msgs)
             teacher_step1, teacher_step1_state = _teacher_generate_kv(
-                bundle, _clone_kv_state(teacher_step1_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP1
+                bundle,
+                _clone_kv_state(teacher_step1_prompt_state),
+                TEACHER_MAX_NEW_TOKENS_STEP1,
+                min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP1,
             )
             teacher_step1 = teacher_step1 or "I observe the current driving scene from the images."
             with torch.no_grad():
                 teacher_step2_prompt_state = _append_user_turn(bundle, teacher_step1_state, step2_teacher_user)
             raw_teacher_step2, teacher_step2_state = _teacher_generate_kv(
-                bundle, _clone_kv_state(teacher_step2_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP2
+                bundle,
+                _clone_kv_state(teacher_step2_prompt_state),
+                TEACHER_MAX_NEW_TOKENS_STEP2,
+                min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP2,
             )
         if teacher_was_training:
             teacher_model.train()
@@ -844,7 +881,10 @@ def iter_episode_loss_packs(
                 with torch.no_grad():
                     teacher_step3_prompt_state = _append_user_turn(bundle, teacher_step2_state, step3_teacher_user)
                 raw_teacher_step3, _teacher_step3_state = _teacher_generate_kv(
-                    bundle, _clone_kv_state(teacher_step3_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP3
+                    bundle,
+                    _clone_kv_state(teacher_step3_prompt_state),
+                    TEACHER_MAX_NEW_TOKENS_STEP3,
+                    min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP3,
                 )
             if teacher_was_training:
                 teacher_model.train()

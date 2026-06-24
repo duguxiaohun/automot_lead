@@ -210,7 +210,8 @@
 - `AutoMoT/qwen3vl_local/sft_v4/collect.py`
 - `AutoMoT/qwen3vl_local/sft_v4/learn.py`
 - `AutoMoT/qwen3vl_local/sft_v4/launch_offpolicy.sh`
-  （按用户同意新增到白名单：SFT v4 是 sequence-memory OPD 的 off-policy actor-learner 路线；生产入口为 `launch_offpolicy.sh`，默认 4×H20 部署为 GPU0/GPU1 各 1 个 learner DDP rank、GPU2/GPU3 各 3 个 collector。collector 不进 DDP/NCCL，只异步用 LoRA snapshot rollout 并写 `replay/ready/*.jsonl`；learner 才进 DDP，同步随机读取 replay 做 teacher-forced loss + gradient allreduce，并周期发布 `latest_lora/v_<step>/`。`replay.py` 负责 trajectory schema、原子写、文件锁 counter、FIFO 驱逐；`collect.py` 负责 Phase A 50% 正确初始化、Phase B 0.15 噪声扰动、teacher/student generate 和 trajectory 写盘；`learn.py` 负责 replay 采样、无 generate 的 loss/backward、checkpoint/final/snapshot；`train.py` / `train.sh` 仅保留为 on-policy 兼容调试入口，生产训练不要走它。）
+- `AutoMoT/qwen3vl_local/sft_v4/inspect_teacher.py`
+  （按用户同意新增到白名单：SFT v4 是 sequence-memory OPD 的 off-policy actor-learner 路线；生产入口为 `launch_offpolicy.sh`，默认 4×H20 保守部署为 GPU0/GPU1 各 1 个 learner DDP rank、GPU2/GPU3 各 1 个 collector；确认服务器允许单卡多 CUDA 进程后，可手动调 `COLLECTORS_PER_GPU=2/3`。collector 不进 DDP/NCCL，只异步用 LoRA snapshot rollout 并写 `replay/ready/*.jsonl`；learner 才进 DDP，同步随机读取 replay 做 teacher-forced loss + gradient allreduce，并周期发布 `latest_lora/v_<step>/`。`replay.py` 负责 trajectory schema、原子写、文件锁 counter、FIFO 驱逐；`collect.py` 负责 Phase A 50% 正确初始化、Phase B 0.15 噪声扰动、teacher/student generate 和 trajectory 写盘；`learn.py` 负责 replay 采样、无 generate 的 loss/backward、checkpoint/final/snapshot；`train.py` / `train.sh` 仅保留为 on-policy 兼容调试入口，生产训练不要走它。`inspect_teacher.py` 是离线老师抽检脚本：随机采样 episode × 帧 × 3 种 memory 模式（all_keep / event_change / scene_change），全程 `disable_adapter` 走 frozen base Qwen，逐 step 记录 system / user / teacher-assistant 三类 role 的 prompt 与 token 统计，产物为 `teacher_report.md` + `teacher_report.jsonl`，供人工评估老师推理质量并指导 prompt 迭代。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md`

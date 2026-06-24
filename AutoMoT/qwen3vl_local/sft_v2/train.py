@@ -303,12 +303,23 @@ def load_model_with_lora(
             from transformers import AutoModelForVision2Seq as ModelClass
 
     print(f"[load] base model from {model_dir}")
-    model = ModelClass.from_pretrained(
-        str(model_dir),
-        torch_dtype=torch.bfloat16,
-        local_files_only=True,
-        trust_remote_code=True,
-    ).to(device)
+    model_kwargs = {
+        "local_files_only": True,
+        "trust_remote_code": True,
+    }
+    try:
+        model = ModelClass.from_pretrained(
+            str(model_dir),
+            dtype=torch.bfloat16,
+            **model_kwargs,
+        )
+    except TypeError:
+        model = ModelClass.from_pretrained(
+            str(model_dir),
+            torch_dtype=torch.bfloat16,
+            **model_kwargs,
+        )
+    model = model.to(device)
     processor = AutoProcessor.from_pretrained(
         str(model_dir),
         local_files_only=True,
