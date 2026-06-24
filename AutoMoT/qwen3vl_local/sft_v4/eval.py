@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
+import subprocess
 import sys
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
@@ -23,6 +25,78 @@ _PROJECT_ROOT = _THIS_FILE.parents[3]
 for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+
+def _cli_value(name: str) -> Optional[str]:
+    """在 import torch 前读取命令行参数，用于早期 GPU 选址。"""
+
+    prefix = name + "="
+    args = sys.argv[1:]
+    for i, item in enumerate(args):
+        if item == name and i + 1 < len(args):
+            return args[i + 1]
+        if item.startswith(prefix):
+            return item[len(prefix):]
+    return None
+
+
+def _normalize_gpu_ids(value: str) -> str:
+    """规范化逗号分隔的 GPU id 列表。"""
+
+    return ",".join(part.strip() for part in value.split(",") if part.strip())
+
+
+def _pick_idle_gpus(n: int = 1) -> str:
+    """用 nvidia-smi 选择最空闲 GPU；CPU 机器或 nvidia-smi 不可用时返回空串。"""
+
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return ""
+    rows = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            rows.append((int(parts[1]), int(parts[2]), parts[0]))
+        except ValueError:
+            continue
+    rows.sort(key=lambda x: (x[0], x[1], int(x[2]) if str(x[2]).isdigit() else 9999))
+    return ",".join(row[2] for row in rows[:n])
+
+
+def _maybe_set_idle_gpu_mask() -> None:
+    """在 torch/transformers 初始化 CUDA 前设置 CUDA_VISIBLE_DEVICES。"""
+
+    device = _cli_value("--device")
+    if device and device.lower() not in ("", "auto"):
+        return
+    pinned = _normalize_gpu_ids(os.environ.get("GPU_IDS", ""))
+    if pinned:
+        os.environ["CUDA_VISIBLE_DEVICES"] = pinned
+        print(f"[gpu] using GPU_IDS={pinned}")
+        return
+    selected = _pick_idle_gpus(1)
+    if selected:
+        os.environ["CUDA_VISIBLE_DEVICES"] = selected
+        print(f"[gpu] auto CUDA_VISIBLE_DEVICES={selected}")
+
+
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+# 必须在 import torch / engine / train 前选卡：CUDA 可见列表一旦被 torch 初始化，
+# 后续再改 CUDA_VISIBLE_DEVICES 就不能可靠覆盖继承来的 mask。
+_maybe_set_idle_gpu_mask()
 
 from PIL import Image
 import torch
@@ -61,7 +135,6 @@ from qwen3vl_local.sft_v4.prompts import (
     validate_road_structure,
     validate_scene,
 )
-from qwen3vl_local.sft_v2.eval import _maybe_set_idle_gpu_mask
 
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine
 
@@ -245,7 +318,6 @@ def main() -> None:
     step2/step3 trigger。
     """
 
-    _maybe_set_idle_gpu_mask()
     args = parse_args()
 
     ds = EpisodeDataset(pathlib.Path(args.jsonl))
