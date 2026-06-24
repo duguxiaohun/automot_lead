@@ -332,3 +332,148 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_reuse.py \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct
 ```
 
+---
+
+## 7. Teacher 输出抽检（`inspect_teacher.py`）
+
+用途：在不跑训练的前提下，**离线评估当前 prompt 设计下老师真实生成内容是否合理**。
+该脚本是诊断老师 prompt 迭代的主入口，跑完直接看 Markdown 报告即可决定是否需要再
+调 prompt / `min_new_tokens` / `max_new_tokens`。
+
+### 7.1 它做了什么
+
+- 从 `--train-jsonl` 中**随机抽 N 条 episode × 每条 M 帧**；
+- 对每帧分别构造 **3 种 memory 起点**，覆盖老师 prompt 状态机的所有分支：
+
+  | 模式 | `memory.scene` | `memory.status / subgoal` | step2 verdict | step3 |
+  |---|---|---|---|---|
+  | `all_keep` | = GT | = GT | KEEP | KEEP |
+  | `event_change` | = GT | 故意错位的合法 event | KEEP | CHANGE |
+  | `scene_change` | 随机非 GT | 该错场景的 init events | CHANGE | 跳过 |
+
+- 老师路径与 `collect.py` 100% 一致：`load_model_with_lora` →
+  `model.disable_adapter()` → `_teacher_generate_kv`（含 `min_new_tokens` 反早停）
+  → 全程 `torch.no_grad()`，等价于 frozen base Qwen3-VL-4B-Instruct；
+- 逐帧记录 system / user (含图像路径) / teacher-assistant 三类 role 的 prompt 与
+  生成内容，加上 token 数和 GT leak 检测。
+
+### 7.2 GPU 选址（与训练入口一致）
+
+> 项目硬性规则：禁止在命令里手写 `export CUDA_VISIBLE_DEVICES=...`。
+> 详见 CLAUDE.md / AGENTS.md §5。
+
+`inspect_teacher.py` 在 import torch 前调用 `_maybe_set_idle_gpu_mask`：
+
+- **默认**（自动选址）：`python qwen3vl_local/sft_v4/inspect_teacher.py ...` ——
+  脚本自动 `nvidia-smi` 找最空闲 1 张 GPU，并覆盖继承下来的 `CUDA_VISIBLE_DEVICES`；
+- **显式 pin**：在命令前加 `GPU_IDS=2`（或 `GPU_IDS=0`）——脚本跳过自动选址，
+  直接用给定的物理卡号；
+- **CPU 调试**：`--device cpu`——绕过 GPU 选址逻辑（auto 才会触发自动挑卡），仅
+  用于代码冒烟，正式跑老师必须 GPU。
+
+不进 torchrun、不进 DDP；单进程单卡。
+
+### 7.3 默认命令（自动选址）
+
+```bash
+python qwen3vl_local/sft_v4/inspect_teacher.py \
+  --train-jsonl checkpoints/sft_v4_data/train.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --out-dir checkpoints/sft_v4_inspect/run_$(date +%Y%m%d_%H%M%S) \
+  --num-episodes 3 \
+  --frames-per-episode 4
+```
+
+### 7.4 指定 GPU 跑（显式 pin 单卡）
+
+```bash
+GPU_IDS=2 python qwen3vl_local/sft_v4/inspect_teacher.py \
+  --train-jsonl checkpoints/sft_v4_data/train.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --out-dir checkpoints/sft_v4_inspect/run_$(date +%Y%m%d_%H%M%S) \
+  --num-episodes 3 \
+  --frames-per-episode 4
+```
+
+### 7.5 只跑某个 memory 模式（局部调试）
+
+`--modes` 接逗号分隔列表，三档：`all_keep` / `event_change` / `scene_change`。
+默认全跑；只想验某条分支时用：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
+  --train-jsonl checkpoints/sft_v4_data/train.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --out-dir checkpoints/sft_v4_inspect/quick \
+  --num-episodes 2 --frames-per-episode 2 \
+  --modes scene_change
+```
+
+### 7.6 常用参数速查
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `--train-jsonl` | `checkpoints/sft_v4_data/train.jsonl` | episode 索引 |
+| `--model-dir` | `checkpoints/Qwen3-VL-4B-Instruct` | base Qwen 权重目录 |
+| `--out-dir` | `checkpoints/sft_v4_inspect/latest` | 报告产物目录 |
+| `--num-episodes` | 3 | 随机抽样的 episode 条数 |
+| `--frames-per-episode` | 4 | 每条 episode 抽样的帧数（等步长 + 小抖动） |
+| `--modes` | `all_keep,event_change,scene_change` | 启用的 memory 模式 |
+| `--seed` | 20260624 | 抽样与随机 wrong-scene 选择的随机种子 |
+| `--device` | `auto` | `auto` / `cuda:0` / `cpu` |
+| `--lora-*` | 与训练默认对齐 | 仅为加载 PEFT bundle，全程 disable_adapter |
+
+### 7.7 产物
+
+输出目录下两份文件：
+
+- `teacher_report.md`：人类可读 Markdown。结构：
+
+  ```
+  # SFT v4 Teacher Inspection Report
+  # Episode <run_id>
+  ## Frame <idx> (phase A/B)
+      [4 张 stitched RGB 路径]
+  ### Mode <all_keep|event_change|scene_change>
+      [当前 memory 字段]
+  #### Step 1 — visual description (tokens: N)
+      [ROLE = system]      ... system prompt 全文
+      [ROLE = user (with 4 stitched RGB images attached)] ... step1 user prompt
+      [ROLE = assistant — teacher raw output]             ... 老师真实输出
+  #### Step 2 — scene verdict <KEEP|CHANGE> (tokens: N, leak=False)
+      [ROLE = user (new turn, reuses cached KV; no new image)]
+      [ROLE = assistant — teacher raw output]
+      [ROLE = scripted target (this is what the student is supervised on)]
+  #### Step 3 — status/subgoal verdict <KEEP|CHANGE> (tokens: N, leak=False)
+      （或 "Step 3 — skipped (memory.scene ≠ gt_scene)"）
+  ```
+
+  其中 **`scripted target`** 是 `build_step{2,3}_teacher_target` 拼出的实际监督
+  字符串——直接对比"老师推理"和"脚本兜底标签"可以一眼看出 prompt 设计是否在让老师
+  做有价值的推理（而不是只输出垃圾被脚本兜底）。
+
+- `teacher_report.jsonl`：同份内容机器可读，每行一帧 + 一种模式，方便后续聚合
+  统计（比如平均 token 数、leak 比率、step3 触发占比）。
+
+### 7.8 评估老师输出的关键检查点
+
+跑完 `teacher_report.md` 后，按顺序检查：
+
+1. **token_count 是否 ≥ `TEACHER_MIN_NEW_TOKENS_STEP{1,2,3}`**
+   （prompts.py 默认 32 / 48 / 48）。如果还出现 5~10 token 的老师输出，
+   说明 min_new_tokens 闸门没生效或者 EOS id 集合不全。
+2. **leak_detected 是否全 False**。如果 step2 / step3 经常 True，说明老师 prompt
+   里描述 GT 用的自然语言被老师反引用了 token；需要在 prompt 里加更严的"用自然语言
+   描述，不能复制 SCENE_CHOICES / EVENT_OPTIONS 里的 token"约束。
+3. **`all_keep` 模式下老师是否真的论证 KEEP**（不要去翻案）；
+   **`scene_change` 模式下老师是否描述"实际场景看起来像 X"而不是简单复述 memory
+   scene**；**`event_change` 模式下老师是否解释"虽然 scene 对，但 status/subgoal
+   应该推进"**。
+4. **step3 老师是否真的引用视觉证据**（车在刹车/前方有行人/正在转向中等），
+   而不是套话"I observe the current driving phase"。
+
+如果第 3、4 条不达标，回头修 `build_step{2,3}_teacher_prompt` 里的 `focus_line`
+（强制要求"必须命中以下证据类别至少一项"）。
+
+---
+

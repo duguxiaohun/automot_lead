@@ -26,11 +26,17 @@ from qwen3vl_local.prompt_pipeline import (
 
 DATASET_VERSION = "sft_v4_sequence"
 
-# Teacher 生成上限比 prompt 中要求的 token 数略宽松：
-# prompt 用保守上限约束风格，generate 上限给格式行和分词误差留余量。
-TEACHER_MAX_NEW_TOKENS_STEP1 = 80
-TEACHER_MAX_NEW_TOKENS_STEP2 = 60
-TEACHER_MAX_NEW_TOKENS_STEP3 = 60
+# Teacher 生成上下限：
+# - max 给完整分析（2~4 句 + 视觉细节）留余量；
+# - min 兜底防止 base Qwen 早停成 "I am." 这种 3~4 token 输出。
+# 新版老师 prompt 强制写完整推理且不输出任何标签，所以 max 可以放宽。
+TEACHER_MAX_NEW_TOKENS_STEP1 = 128
+TEACHER_MAX_NEW_TOKENS_STEP2 = 160
+TEACHER_MAX_NEW_TOKENS_STEP3 = 160
+
+TEACHER_MIN_NEW_TOKENS_STEP1 = 32
+TEACHER_MIN_NEW_TOKENS_STEP2 = 48
+TEACHER_MIN_NEW_TOKENS_STEP3 = 48
 
 DEFAULT_W_ANALYSIS = 0.2
 DEFAULT_W_SCENE = 1.0
@@ -47,16 +53,26 @@ Do not invent scenario names or event names.
 
 This frame is handled as a KV-cache conversation:
 1. Step 1 describes only the current visual evidence, without using memory.
-2. Step 2 receives MEMORY and SCENE_CHOICES, then writes at most 2 short
+2. Step 2 (student) receives MEMORY and SCENE_CHOICES, then writes 2 to 4
    first-person evidence sentences and exactly one line "SCENE: <name>".
-3. Step 3 receives MEMORY and EVENT_OPTIONS for the selected scene, then writes
-   at most 2 short first-person evidence sentences and exactly two lines
+3. Step 3 (student) receives MEMORY and EVENT_OPTIONS for the chosen scene,
+   then writes 2 to 4 first-person evidence sentences and exactly two lines
    "STATUS: <event>" and "SUBGOAL: <event>".
 Later user turns are incremental. Reuse the visual context and prior assistant
 turns already present in KV cache; do not expect the image instructions or
-global rules to be repeated. Teacher-only GROUND_TRUTH blocks are privileged:
-use them to choose the final labels, but never mention literal ground-truth
-tokens in analysis text."""
+global rules to be repeated.
+
+When you are acting as the privileged teacher (steps marked TEACHER):
+- A VERDICT is provided that tells you whether the student's memory entry is
+  already correct (KEEP) or wrong (CHANGE).
+- Your sole job is to write 3 to 4 first-person evidence sentences in the
+  student's voice that justify the VERDICT, using only visible cues and the
+  memory text. Mention concrete elements (road geometry, agents, signals,
+  vehicle motion, weather) that drive the conclusion.
+- You MUST NOT output any "SCENE:", "STATUS:" or "SUBGOAL:" line. The final
+  labels are appended automatically and are not part of your reply.
+- You MUST NOT name any scenario/event token verbatim. Describe the situation
+  in plain language instead. Never say "the ground truth is" or similar."""
 
 
 def initial_event(scene: str) -> str:
@@ -316,29 +332,68 @@ def build_step2_student_prompt(memory: Memory) -> str:
 def build_step2_teacher_prompt(memory: Memory, gt_scene: str) -> str:
     """构造 teacher step2 prompt。
 
-    Teacher 额外看到 ``[GROUND_TRUTH] SCENE``，但分析文本必须以学生口吻解释证据，
-    不能直接复述 GT token；最终标签行固定输出 GT scene。
+    设计要点：
+    - 老师不再看到 GT scene 的字面 token；只看到 VERDICT (KEEP / CHANGE) 与对 GT 场景
+      的自然语言描述，避免老师直接复述 GT 名词。
+    - 老师**禁止输出** ``SCENE:`` 标签行；标签由 ``build_step2_teacher_target`` 拼回去。
+    - 老师必须写 3~4 句以学生口吻陈述的视觉证据，解释为什么 memory 该保持或该改写，
+      并落到具体的可视线索（道路几何、其它车辆、行人、信号、天气、运动状态）。
     """
+
+    verdict = "KEEP" if memory.scene == gt_scene else "CHANGE"
+    memory_scene_desc = SCENARIO_LABELS.get(memory.scene, memory.scene)
+    gt_scene_desc = SCENARIO_LABELS.get(gt_scene, gt_scene)
+
+    if verdict == "KEEP":
+        verdict_line = (
+            "VERDICT: KEEP — BELIEVED_SCENE is already consistent with what the camera shows. "
+            "Argue why the visible cues support the current memory entry."
+        )
+        focus_line = (
+            f"Reference the memory's own description ({memory_scene_desc}) in plain language and "
+            "list which visible features in the latest frames make it the correct interpretation."
+        )
+    else:
+        verdict_line = (
+            "VERDICT: CHANGE — BELIEVED_SCENE does not match what the camera shows. "
+            "Argue why the visible cues contradict the current memory entry and what the scene "
+            "actually looks like, without naming any scenario class verbatim."
+        )
+        focus_line = (
+            f"Contrast the memory's own description ({memory_scene_desc}) with the visible cues, "
+            f"and describe the actual situation in plain language (it resembles: {gt_scene_desc}). "
+            "Do not write the scenario class token; describe it in free words."
+        )
 
     return (
         f"{memory.format_text()}\n\n"
         f"{scenario_choices_block()}\n\n"
-        "[GROUND_TRUTH]\n"
-        f"SCENE: {gt_scene}\n"
-        "[/GROUND_TRUTH]\n\n"
         "[STEP2_TEACHER]\n"
-        "Use privileged GT only for the final label. First write at most 2 first-person evidence "
-        "sentences in the student's voice, based only on visual evidence and MEMORY. Never mention "
-        "the literal ground-truth scenario name or say that ground truth was provided. Then output "
-        "exactly this final label line:\n"
-        f"SCENE: {gt_scene}"
+        f"{verdict_line}\n"
+        f"{focus_line}\n"
+        "Write 3 to 4 first-person evidence sentences (roughly 60-120 tokens). Cover at least one of:\n"
+        "  - road geometry (junction / straight / merge / curve)\n"
+        "  - other agents (vehicles, pedestrians, cyclists, their motion)\n"
+        "  - signals or signs (traffic lights, stop signs, markings)\n"
+        "  - ego motion and recent change between the 4 frames\n"
+        "  - weather / lighting / occlusion cues\n"
+        "Do not output any line starting with 'SCENE:', 'STATUS:' or 'SUBGOAL:'. "
+        "Do not mention 'ground truth' or 'verdict'. Do not copy any scenario or event token "
+        "from the option lists verbatim. Plain prose only."
     )
 
 
 def build_step2_teacher_target(analysis: str, gt_scene: str) -> str:
-    """把 teacher step2 分析与 GT scene 拼成 student 的 teacher-forced target。"""
+    """把 teacher step2 分析与 GT scene 拼成 student 的 teacher-forced target。
 
-    return f"{analysis.strip()}\nSCENE: {gt_scene}".strip()
+    新口径下老师不再输出 SCENE 标签，``analysis`` 应该就是纯分析文本；
+    但为了兼容旧 trajectory 与万一老师漏写违规输出标签，依然先 strip 标签行再 append。
+    """
+
+    cleaned = _strip_label_lines(analysis).strip()
+    if not cleaned:
+        cleaned = "I observe the current driving scene from the camera frames."
+    return f"{cleaned}\nSCENE: {gt_scene}".strip()
 
 
 def build_step3_student_prompt(memory: Memory) -> str:
@@ -364,36 +419,93 @@ def build_step3_student_prompt(memory: Memory) -> str:
 def build_step3_teacher_prompt(memory: Memory, gt_status: str, gt_subgoal: str) -> str:
     """构造 teacher step3 prompt。
 
-    Teacher 看到 GT status/subgoal，用它们决定最终两行标签；分析仍然必须围绕学生
-    memory 和视觉证据，避免泄露 GT 字面 token。
+    设计要点同 step2：
+    - 老师不再看到 GT status / subgoal 的字面 event token；只看到 KEEP / CHANGE
+      裁定与目标 event 的自然语言描述；
+    - 老师禁止输出任何 ``STATUS:`` / ``SUBGOAL:`` 标签行；
+    - 老师必须写 3~4 句以学生口吻陈述的视觉证据，覆盖 ego 动作、前方阻挡、对手行为
+      与下一步合理意图等可视线索。
     """
+
+    status_keep = memory.status == gt_status
+    subgoal_keep = memory.subgoal == gt_subgoal
+    if status_keep and subgoal_keep:
+        verdict = "KEEP"
+        verdict_line = (
+            "VERDICT: KEEP — BELIEVED_STATUS and BELIEVED_SUBGOAL are both consistent with the "
+            "latest observations. Argue why the visible cues support keeping both."
+        )
+    else:
+        verdict = "CHANGE"
+        verdict_line = (
+            "VERDICT: CHANGE — at least one of BELIEVED_STATUS / BELIEVED_SUBGOAL is no longer "
+            "consistent with what the camera shows. Argue what the ego currently does and what "
+            "the next reasonable intent is, based on visible cues."
+        )
+
+    memory_status_desc = EVENT_DESCRIPTIONS.get(memory.status, memory.status)
+    memory_subgoal_desc = EVENT_DESCRIPTIONS.get(memory.subgoal, memory.subgoal)
+    gt_status_desc = EVENT_DESCRIPTIONS.get(gt_status, gt_status)
+    gt_subgoal_desc = EVENT_DESCRIPTIONS.get(gt_subgoal, gt_subgoal)
+
+    if verdict == "KEEP":
+        focus_line = (
+            f"Reference the believed current event ({memory_status_desc}) and the believed next "
+            f"sub-goal ({memory_subgoal_desc}) in plain language. Explain which visible elements "
+            "make the current sub-goal still pending and the next step still appropriate."
+        )
+    else:
+        focus_line = (
+            f"Contrast the believed current event ({memory_status_desc}) and believed next sub-goal "
+            f"({memory_subgoal_desc}) with the observed driving phase, which actually looks like: "
+            f"current event = {gt_status_desc}; next sub-goal = {gt_subgoal_desc}. "
+            "Describe these phases in free words; do not copy any event token from the option list."
+        )
 
     return (
         f"{memory.format_text()}\n\n"
         f"[EVENT_OPTIONS]\n{_event_sequence_block(memory.scene)}\n[/EVENT_OPTIONS]\n\n"
-        "[GROUND_TRUTH]\n"
-        f"STATUS: {gt_status}\n"
-        f"SUBGOAL: {gt_subgoal}\n"
-        "[/GROUND_TRUTH]\n\n"
         "[STEP3_TEACHER]\n"
-        "Use privileged GT only for the final labels. First write at most 2 first-person evidence "
-        "sentences in the student's voice, based only on visual evidence, MEMORY, and EVENT_OPTIONS. "
-        "Never mention literal ground-truth status/subgoal names or say that ground truth was provided. "
-        "Then output exactly these final label lines:\n"
-        f"STATUS: {gt_status}\n"
-        f"SUBGOAL: {gt_subgoal}"
+        f"{verdict_line}\n"
+        f"{focus_line}\n"
+        "Write 3 to 4 first-person evidence sentences (roughly 60-120 tokens). Cover at least one of:\n"
+        "  - ego speed / braking / steering trend across the 4 frames\n"
+        "  - immediate hazard (oncoming vehicle, pedestrian, parked obstacle, leading car)\n"
+        "  - whether the ego is still approaching, yielding, holding or already resuming\n"
+        "  - what cue the ego should wait for before transitioning to the next sub-goal\n"
+        "Do not output any line starting with 'SCENE:', 'STATUS:' or 'SUBGOAL:'. "
+        "Do not mention 'ground truth' or 'verdict'. Do not copy any scenario or event token "
+        "from the option lists verbatim. Plain prose only."
     )
 
 
 def build_step3_teacher_target(analysis: str, gt_status: str, gt_subgoal: str) -> str:
-    """把 teacher step3 分析与 GT status/subgoal 拼成监督 target。"""
+    """把 teacher step3 分析与 GT status/subgoal 拼成监督 target。
 
-    return f"{analysis.strip()}\nSTATUS: {gt_status}\nSUBGOAL: {gt_subgoal}".strip()
+    新口径下老师不再输出 STATUS/SUBGOAL 标签，``analysis`` 应该就是纯分析文本；
+    依然 strip 标签行兜底兼容。
+    """
+
+    cleaned = _strip_label_lines(analysis).strip()
+    if not cleaned:
+        cleaned = "I observe the current driving phase from the camera frames."
+    return f"{cleaned}\nSTATUS: {gt_status}\nSUBGOAL: {gt_subgoal}".strip()
 
 
 _SCENE_RE = re.compile(r"^\s*SCENE\s*:\s*([^\s]+)", re.IGNORECASE | re.MULTILINE)
 _STATUS_RE = re.compile(r"^\s*STATUS\s*:\s*([^\s]+)", re.IGNORECASE | re.MULTILINE)
 _SUBGOAL_RE = re.compile(r"^\s*SUBGOAL\s*:\s*([^\s]+)", re.IGNORECASE | re.MULTILINE)
+
+# 用来把老师万一漏写的整行标签从分析文本里剥掉，避免污染监督 target。
+_LABEL_LINE_RE = re.compile(r"^\s*(?:SCENE|STATUS|SUBGOAL)\s*:.*$", re.IGNORECASE | re.MULTILINE)
+
+
+def _strip_label_lines(text: str) -> str:
+    """删除分析文本中的所有 ``SCENE:`` / ``STATUS:`` / ``SUBGOAL:`` 行。"""
+
+    if not text:
+        return ""
+    return _LABEL_LINE_RE.sub("", text).strip()
 
 
 def parse_output(text: str) -> Dict[str, Optional[str]]:
