@@ -597,6 +597,7 @@ def _write_adapter_metadata(path: pathlib.Path, bundle: Any, args: argparse.Name
         "vision_guard_patience": int(args.vision_guard_patience),
         "loss_weights": {
             "a1": float(args.w_a1),
+            "rs1": float(args.w_rs1),
             "a2": float(args.w_a2),
             "a3": float(args.w_a3),
             "s2": float(args.w_s2),

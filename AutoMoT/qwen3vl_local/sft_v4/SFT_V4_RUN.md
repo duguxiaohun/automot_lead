@@ -36,6 +36,8 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
   `trajectory_backward` / `trajectory_loss` 理解 learner 如何用 student raw output 复现
   KV 上下文但不 generate，并用逐帧 micro-backward 控制显存；看
   `publish_snapshot` / `save_checkpoint` 理解 snapshot 与 checkpoint 的区别。
+- `eval.py`：模块顶部先执行 GPU 自动选址和 HF offline 环境变量设置，再 import
+  `torch` / `engine` / `train`；`probe.py` 先导入 `eval.py`，复用同一套 import 前选卡逻辑。
 - `launch_offpolicy.sh`：脚本顶部写了进程布局；路径/env/选卡/STOP 收尾块都有中文注释，
   改部署比例时优先看这里。
 
@@ -186,6 +188,9 @@ bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 - `latest_lora/v_<step>/` 与 `latest_lora/current_version.txt`：给 collector 用的策略快照。
 - `checkpoint-<step>/`：可恢复训练状态，含 adapter + optimizer + scheduler。
 - `final/`：最终 adapter，供 eval/probe 使用。
+- `sft_v4_adapter_config.json`：随 snapshot / checkpoint / final 一起写出，记录
+  `route="sft_v4_offpolicy"`、learner/collector 配置、视觉 LoRA guard 参数和完整
+  loss 权重；其中 `loss_weights.rs1` 对应 `L_RS1` 的 ROAD_STRUCTURE 值 token CE。
 - `fuse_stop_after_step_<N>/`：视觉 LoRA guard 触发时的 emergency adapter；`N` 是最后
   一个已完成 step，此时不会写正常 `final/`。
 - `STOP`：正常停止哨兵，collector 会在 episode 结束后观察并退出。
@@ -248,6 +253,8 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v4_lora/latest/tb
 ## 4. Eval
 
 默认只跑学生，不加载 teacher，不做 Phase B GT 注入，memory 全程由学生自更新。
+`eval.py` 会在 import torch 前自动选空闲 GPU；显式 pin 仍统一使用 `GPU_IDS=0`，
+`--device cpu` / `--device cuda:N` 会跳过自动选址并尊重用户指定。
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v4/eval.py \
@@ -296,7 +303,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/eval.py \
 ## 5. Probe
 
 随机抽 episode，逐帧 dump 三步 prompt、输出、三层 memory 和 flags。
-`probe.py` 与 `eval.py` 一样会默认自动选择空闲 GPU；需要固定卡时使用 `GPU_IDS=0`。
+`probe.py` 与 `eval.py` 共用同一套 import 前 GPU 选址逻辑：默认自动选择空闲 GPU；
+需要固定卡时使用 `GPU_IDS=0`，CPU 冒烟时可传 `--device cpu`。
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v4/probe.py \
@@ -384,7 +392,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_reuse.py \
 > 项目硬性规则：禁止在命令里手写 `export CUDA_VISIBLE_DEVICES=...`。
 > 详见 CLAUDE.md / AGENTS.md §5。
 
-`inspect_teacher.py` 在 import torch 前调用 `_maybe_set_idle_gpu_mask`：
+`inspect_teacher.py` 与 `eval.py` / `probe.py` 一样，会在 import torch 前完成 GPU 选址：
 
 - **默认**（自动选址）：`python qwen3vl_local/sft_v4/inspect_teacher.py ...` ——
   脚本自动 `nvidia-smi` 找最空闲 1 张 GPU，并覆盖继承下来的 `CUDA_VISIBLE_DEVICES`；

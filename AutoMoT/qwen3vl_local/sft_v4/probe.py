@@ -28,8 +28,9 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from qwen3vl_local.engine import LocalQwen3VLInstructEngine
+# 先导入 eval：它的模块顶部会在 torch/engine/train 导入前完成 GPU 选址。
 from qwen3vl_local.sft_v4.eval import _generate, _generate_next_with_kv, _simple_bleu
+from qwen3vl_local.engine import LocalQwen3VLInstructEngine
 from qwen3vl_local.sft_v4.train import (
     EpisodeDataset,
     _analysis_before_labels,
@@ -66,7 +67,6 @@ from qwen3vl_local.sft_v4.prompts import (
     update_memory_after_step3,
     validate_event,
 )
-from qwen3vl_local.sft_v2.eval import _maybe_set_idle_gpu_mask
 
 
 def parse_args() -> argparse.Namespace:
@@ -131,7 +131,6 @@ def main() -> None:
     看到的 privileged prompt 也写出，便于确认 teacher 分析是否真的在纠正学生 memory。
     """
 
-    _maybe_set_idle_gpu_mask()
     args = parse_args()
     ds = EpisodeDataset(pathlib.Path(args.jsonl))
     rows = list(ds.rows)
