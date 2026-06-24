@@ -30,7 +30,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
-SCHEMA = "sft_v4_rollout_v1"
+# SCHEMA bump 历史：
+#  - v1: 初代 trajectory（无 road_structure，单层 scene + status + subgoal）。
+#  - v2: 加入 ROAD_STRUCTURE layer-1（PLAN §12）。memory 结构、step1 字段、
+#        触发链字段（step2_ran / rs_flip / leak1 / memory_after_step1 等）都变更。
+#  v1 与 v2 不二进制兼容：learner 加载 v1 traj 会被 ``validate_trajectory`` 拒收，
+#  collector 重新攒一波 v2 trajectory 即可。SCHEMA_LEGACY 保留作识别旧文件用。
+SCHEMA = "sft_v4_rollout_v2"
+SCHEMA_LEGACY = ("sft_v4_rollout_v1",)
 
 
 @dataclass
@@ -207,8 +214,20 @@ def validate_trajectory(records: List[Dict[str, Any]]) -> None:
     if not records:
         raise ValueError("empty trajectory")
     header = records[0]
-    if header.get("schema") != SCHEMA or header.get("kind") != "header":
-        raise ValueError(f"invalid trajectory header: {header}")
+    schema = header.get("schema")
+    if header.get("kind") != "header":
+        raise ValueError(f"invalid trajectory header (kind): {header}")
+    if schema != SCHEMA:
+        # 旧 v1 trajectory 与 v2 字段不兼容（无 road_structure / memory_after_step1 等）。
+        # 报错信息显式区分 "legacy 已知格式" vs "完全未知字段"，方便排查。
+        if schema in SCHEMA_LEGACY:
+            raise ValueError(
+                f"trajectory schema {schema!r} is a deprecated legacy version; "
+                f"expected {SCHEMA!r}. Re-collect with the current collector."
+            )
+        raise ValueError(
+            f"trajectory schema {schema!r} is unknown; expected {SCHEMA!r}."
+        )
     frame_count = int(header.get("frame_count", 0))
     frames = [r for r in records[1:] if r.get("kind") == "frame"]
     if frame_count != len(frames):
@@ -220,11 +239,24 @@ def validate_trajectory(records: List[Dict[str, Any]]) -> None:
             raise ValueError(f"frame {i} missing image_paths")
         if "memory_before" not in frame and "memory_before_frame" not in frame:
             raise ValueError(f"frame {i} missing memory_before/memory_before_frame")
+        mem_before = frame.get("memory_before") or frame.get("memory_before_frame") or {}
+        if "road_structure" not in mem_before:
+            # v2 schema 的核心变化就是三层 memory。这里宁可硬拒旧文件，也不要
+            # 默认填 JUNCTION：默认值会让 learner 构造出“看似能跑、实则错桶”的
+            # step2 prompt，问题会被延迟到训练指标里才暴露。
+            raise ValueError(f"frame {i} memory_before missing road_structure")
         targets = frame.get("teacher_targets") or {}
-        step1_target = targets.get("step1") or frame.get("teacher_step1_text")
+        step1_target = targets.get("step1") or frame.get("teacher_step1_target") or frame.get("teacher_step1_text")
+        if not step1_target:
+            raise ValueError(f"frame {i} missing teacher step1 target")
+        step2_flag = bool(frame.get("step2_ran", frame.get("step2_fired", False)))
         step2_target = targets.get("step2") or frame.get("teacher_step2_target") or frame.get("teacher_step2_raw")
-        if not step1_target or not step2_target:
-            raise ValueError(f"frame {i} missing teacher step1/step2 targets")
+        if step2_flag and not step2_target:
+            raise ValueError(f"frame {i} step2_ran but missing step2 target")
+        if step2_flag and "memory_after_step1" not in frame:
+            # step2_fired=True 时必须能复现 collector 当时的候选表；候选表唯一来源
+            # 是 step1 更新后的 memory_after_step1。
+            raise ValueError(f"frame {i} step2_ran but missing memory_after_step1")
         step3_flag = bool(frame.get("step3_ran", frame.get("step3_fired", False)))
         step3_target = targets.get("step3") or frame.get("teacher_step3_target") or frame.get("teacher_step3_raw")
         if step3_flag and not step3_target:

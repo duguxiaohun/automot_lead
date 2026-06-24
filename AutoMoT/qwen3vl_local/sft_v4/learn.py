@@ -64,8 +64,10 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step1_user_prompt,
     build_step2_student_prompt,
     build_step3_student_prompt,
+    check_gt_leak_road_structure,
     check_gt_leak_scene,
     check_gt_leak_status_subgoal,
+    target_spans_road_structure,
     target_spans_scene,
     target_spans_status,
 )
@@ -145,8 +147,12 @@ def _sync_bool(value: bool, device: torch.device, *, op: Any = None) -> bool:
 def _memory_from_record(payload: Dict[str, Any]) -> Any:
     """把 trajectory 中的 memory dict 还原成 prompts.Memory。
 
-    collector 写盘时把 dataclass 展平成普通 dict；learner 在构造 step2/step3 prompt 前
+    collector 写盘时把 dataclass 展平成普通 dict；learner 在构造 step1/2/3 prompt 前
     需要还原成 ``Memory``，这样可以继续复用 prompts.py 里的格式化逻辑。
+
+    v2 schema 强制要求 ``road_structure`` 字段——v1 旧 trajectory 已被
+    ``replay.validate_trajectory`` 拒收，所以这里直接当 KeyError 处理而不是兜底默认值，
+    避免静默吃掉格式错误。
     """
 
     from qwen3vl_local.sft_v4.prompts import Memory
@@ -158,17 +164,23 @@ def _memory_from_record(payload: Dict[str, Any]) -> Any:
         subgoal=str(payload["subgoal"]),
         ego_to_goal_x=float(xy[0]),
         ego_to_goal_y=float(xy[1]),
+        road_structure=str(payload["road_structure"]),
     )
 
 
 def _frame_teacher_targets(frame: Dict[str, Any]) -> Dict[str, str]:
-    """统一读取 trajectory 里的 teacher target，兼容 PLAN 平铺字段和旧 nested 字段。"""
+    """统一读取 trajectory 里的 teacher target（v2 schema）。
+
+    v2 trajectory：``teacher_step1_target`` 永远存在；``teacher_step2_target`` /
+    ``teacher_step3_target`` 在对应触发位为 False 时为 None。这里把 None 转空串以便
+    下游分支判断。
+    """
 
     nested = frame.get("teacher_targets") or {}
     return {
-        "step1": str(nested.get("step1") or frame.get("teacher_step1_text") or ""),
-        "step2": str(nested.get("step2") or frame.get("teacher_step2_target") or frame.get("teacher_step2_raw") or ""),
-        "step3": str(nested.get("step3") or frame.get("teacher_step3_target") or frame.get("teacher_step3_raw") or ""),
+        "step1": str(nested.get("step1") or frame.get("teacher_step1_target") or frame.get("teacher_step1_text") or ""),
+        "step2": str(nested.get("step2") or frame.get("teacher_step2_target") or ""),
+        "step3": str(nested.get("step3") or frame.get("teacher_step3_target") or ""),
     }
 
 
@@ -188,6 +200,17 @@ def _frame_step3_fired(frame: Dict[str, Any]) -> bool:
 
     flags = frame.get("flags") or {}
     return bool(frame.get("step3_fired", frame.get("step3_ran", flags.get("step3_ran", False))))
+
+
+def _frame_step2_fired(frame: Dict[str, Any]) -> bool:
+    """统一读取 step2 触发标志（v2 新增）。
+
+    v2 trajectory：step1 命中 layer-1 才会触发 step2；未触发时所有 step2 字段为 None。
+    旧 trajectory 无此字段——但旧 traj 已经被 replay 拒收，这里默认 True 仅作防御。
+    """
+
+    flags = frame.get("flags") or {}
+    return bool(frame.get("step2_fired", frame.get("step2_ran", flags.get("step2_ran", True))))
 
 
 def _append_student_raw(bundle: Any, state: Any, text: str) -> Any:
@@ -218,13 +241,17 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
     total: Optional[torch.Tensor] = None
     stats: Dict[str, float] = {
         "frames": 0.0,
+        "step2": 0.0,
         "step3": 0.0,
         "phase_a": 0.0,
         "noise": 0.0,
+        "rs_flip": 0.0,
         "scene_flip": 0.0,
+        "leak1": 0.0,
         "leak2": 0.0,
         "leak3": 0.0,
         "loss_a1": 0.0,
+        "loss_rs1": 0.0,
         "loss_a2": 0.0,
         "loss_a3": 0.0,
         "loss_s2": 0.0,
@@ -243,55 +270,86 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
         targets = _frame_teacher_targets(frame)
         student_outputs = _frame_student_outputs(frame)
         flags = frame.get("flags") or {}
+        gt = frame.get("gt") or {}
+        gt_road_structure = str(gt.get("road_structure", ""))
 
-        step1_user = build_step1_user_prompt(len(images))
+        # ============ Step 1：分析 + ROAD_STRUCTURE 标签（每帧都跑）============
+        step1_user = build_step1_user_prompt(len(images), memory=memory_before)
         messages = _build_messages_with_images(user_text=step1_user, images=images)
         step1_prompt_state = _student_start_state(bundle, messages)
-        # step1 只有分析文本，没有离散标签；lambda 返回空 span 表，loss 只走 analysis。
+        target1 = targets["step1"]
+        analysis1 = _analysis_before_labels(target1)
+        leak1 = bool(flags.get("leak1", check_gt_leak_road_structure(analysis1, gt_road_structure)))
+        # step1 现在有 ROAD_STRUCTURE 标签 → target_spans_road_structure 给标签段独立 mask。
         step1_parts = _assistant_loss_from_state(
             bundle,
             _clone_kv_state(step1_prompt_state),
-            targets["step1"],
-            lambda _text: {},
-            analysis_enabled=True,
+            target1,
+            target_spans_road_structure,
+            analysis_enabled=not leak1,
         )
         zero_ref = step1_parts["analysis"] * 0.0
 
-        # 用 collector 存下来的 student step1 原文推进 KV，再追加 step2 user prompt。
-        # 这样 step2 teacher-forced target 的前文与采集时的 student 对话一致。
-        student_step1_state = _append_student_raw(bundle, _clone_kv_state(step1_prompt_state), str(student_outputs.get("step1", "")))
-        step2_prompt_state = _append_user_turn(bundle, student_step1_state, build_step2_student_prompt(memory_before))
-        target2 = targets["step2"]
-        analysis2 = _analysis_before_labels(target2)
-        leak2 = bool(flags.get("leak2", check_gt_leak_scene(analysis2, str((frame.get("gt") or {}).get("scene", "")))))
-        # 如果 teacher 分析文本字面泄露 GT scene，就跳过分析 loss，但仍监督 SCENE 值 token。
-        step2_parts = _assistant_loss_from_state(
-            bundle,
-            _clone_kv_state(step2_prompt_state),
-            target2,
-            target_spans_scene,
-            analysis_enabled=not leak2,
-        )
+        # ============ 触发门 1：step2_fired=False 时跳过 step2 + step3 ============
+        a2 = zero_ref
+        s2 = zero_ref
+        leak2 = False
+        step2_fired = _frame_step2_fired(frame)
+        if step2_fired:
+            # 用 collector 当时的 student step1 原文推 KV，再追加 step2 user prompt，
+            # 保证 step2 teacher-forced target 的前文与采集时一致。step2 的候选表
+            # 必须来自 collector 在 step1 后写入的 memory_after_step1，而不是帧首
+            # memory_before；否则 learner 会重放出与 collector 不同的 SCENE_CHOICES。
+            #
+            # 注意：learner 这里绝不重新 parse student_step1_raw 来“现算”memory。
+            # collector 才是 rollout 真相来源；learner 只做 teacher-forced loss。
+            # 这样即便 parse 规则以后调整，已经采集好的 trajectory 也不会在重放时
+            # 悄悄改变状态机语义。
+            student_step1_state = _append_student_raw(
+                bundle, _clone_kv_state(step1_prompt_state), str(student_outputs.get("step1", ""))
+            )
+            memory_after_step1_payload = frame.get("memory_after_step1")
+            if not memory_after_step1_payload:
+                raise ValueError("v2 trajectory frame missing memory_after_step1 for step2 replay")
+            memory_after_step1 = _memory_from_record(memory_after_step1_payload)
+            step2_prompt_state = _append_user_turn(
+                bundle, student_step1_state, build_step2_student_prompt(memory_after_step1)
+            )
+            target2 = targets["step2"]
+            analysis2 = _analysis_before_labels(target2)
+            leak2 = bool(flags.get("leak2", check_gt_leak_scene(analysis2, str(gt.get("scene", "")))))
+            step2_parts = _assistant_loss_from_state(
+                bundle,
+                _clone_kv_state(step2_prompt_state),
+                target2,
+                target_spans_scene,
+                analysis_enabled=not leak2,
+            )
+            a2 = step2_parts["analysis"]
+            s2 = step2_parts["scene"]
+        else:
+            step2_prompt_state = None  # step3 也不会触发，这里不需要构造
 
+        # ============ 触发门 2：step3 ============
         a3 = zero_ref
         s3_status = zero_ref
         s3_subgoal = zero_ref
         leak3 = bool(flags.get("leak3", False))
-        if _frame_step3_fired(frame):
-            # step3 的 prompt 必须接在 collector 当时的 student step2 输出之后；再用
-            # trajectory 里记录的 memory_after_step2 格式化 user prompt。
+        if step2_fired and _frame_step3_fired(frame):
+            # step3 的 prompt 必须接在 collector 当时的 student step2 输出之后；
+            # 再用 trajectory 里记录的 memory_after_step2 格式化 user prompt。
             student_step2_state = _append_student_raw(
                 bundle,
                 _clone_kv_state(step2_prompt_state),
                 str(student_outputs.get("step2", "")),
             )
             memory_after_step2 = _memory_from_record(frame["memory_after_step2"])
-            step3_prompt_state = _append_user_turn(bundle, student_step2_state, build_step3_student_prompt(memory_after_step2))
+            step3_prompt_state = _append_user_turn(
+                bundle, student_step2_state, build_step3_student_prompt(memory_after_step2)
+            )
             target3 = targets.get("step3", "")
-            gt = frame.get("gt") or {}
             analysis3 = _analysis_before_labels(target3)
             leak3 = bool(flags.get("leak3", check_gt_leak_status_subgoal(analysis3, str(gt.get("status", "")), str(gt.get("subgoal", "")))))
-            # step3 同理：泄露时只跳过分析段，保留 status/subgoal 值 token 监督。
             step3_parts = _assistant_loss_from_state(
                 bundle,
                 _clone_kv_state(step3_prompt_state),
@@ -303,27 +361,33 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
             s3_status = step3_parts["status"]
             s3_subgoal = step3_parts["subgoal"]
 
-        # 分项权重与 on-policy v4 保持同口径：分析 token 是辅助监督，离散值 token 权重大。
+        # 7 项加权（PLAN §12.5）；L_RS1 与 L_A1 每帧都计，L_A2/L_SC 在 step2_fired 时计，
+        # L_A3/L_ST/L_SG 在 step3_fired 时计。未触发的项保持 zero_ref，不会污染梯度。
         loss = (
             float(args.w_a1) * step1_parts["analysis"]
-            + float(args.w_a2) * step2_parts["analysis"]
-            + float(args.w_s2) * step2_parts["scene"]
+            + float(args.w_rs1) * step1_parts["road_structure"]
+            + float(args.w_a2) * a2
+            + float(args.w_s2) * s2
             + float(args.w_a3) * a3
             + float(args.w_s3_status) * s3_status
             + float(args.w_s3_subgoal) * s3_subgoal
         )
         total = loss if total is None else total + loss
         stats["frames"] += 1.0
+        stats["step2"] += float(step2_fired)
         stats["step3"] += float(_frame_step3_fired(frame))
         stats["phase_a"] += float(bool(flags.get("phase_a", frame.get("phase") == "A")))
         stats["noise"] += float(bool(flags.get("noise_injected", False)))
+        stats["rs_flip"] += float(bool(flags.get("rs_flip", False)))
         stats["scene_flip"] += float(bool(flags.get("scene_flip", frame.get("scene_flip", False))))
+        stats["leak1"] += float(leak1)
         stats["leak2"] += float(leak2)
         stats["leak3"] += float(leak3)
         stats["loss_a1"] += _to_float(step1_parts["analysis"])
-        stats["loss_a2"] += _to_float(step2_parts["analysis"])
+        stats["loss_rs1"] += _to_float(step1_parts["road_structure"])
+        stats["loss_a2"] += _to_float(a2)
         stats["loss_a3"] += _to_float(a3)
-        stats["loss_s2"] += _to_float(step2_parts["scene"])
+        stats["loss_s2"] += _to_float(s2)
         stats["loss_s3_status"] += _to_float(s3_status)
         stats["loss_s3_subgoal"] += _to_float(s3_subgoal)
 
@@ -544,18 +608,38 @@ def _write_adapter_metadata(path: pathlib.Path, bundle: Any, args: argparse.Name
     (path / "sft_v4_adapter_config.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _read_snapshot_pointer(pointer: pathlib.Path) -> int | None:
+    """读取当前已发布 snapshot 版本；不可读或非法时返回 None。"""
+
+    try:
+        text = pointer.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
 def publish_snapshot(bundle: Any, args: argparse.Namespace, *, step: int) -> pathlib.Path:
     """rank0 发布给 collectors 使用的 LoRA snapshot，并原子更新 current_version.txt。
 
     snapshot 只给 collector 做采集策略，不包含 optimizer/scheduler。发布顺序是：
     先写临时目录 -> rename 成 ``v_<step>`` -> 最后更新 pointer。collector 只看 pointer，
-    因此不会加载半写入目录。
+    因此不会加载半写入目录。若 pointer 已经指向同一个 ``v_<step>``，直接复用已发布目录，
+    避免 final/resume 同 step 重发时短暂删除 collector 正在读取的版本。
     """
 
+    step_int = int(step)
     latest = pathlib.Path(args.output_dir) / "latest_lora"
     latest.mkdir(parents=True, exist_ok=True)
-    target = latest / f"v_{int(step)}"
-    tmp = latest / f".tmp_v_{int(step)}_{os.getpid()}"
+    target = latest / f"v_{step_int}"
+    pointer = latest / "current_version.txt"
+    if target.exists() and _read_snapshot_pointer(pointer) == step_int:
+        return target
+    tmp = latest / f".tmp_v_{step_int}_{os.getpid()}"
     if tmp.exists():
         shutil.rmtree(tmp, ignore_errors=True)
     bundle.unwrap().save_pretrained(str(tmp))
@@ -564,11 +648,10 @@ def publish_snapshot(bundle: Any, args: argparse.Namespace, *, step: int) -> pat
         shutil.rmtree(target, ignore_errors=True)
     tmp.rename(target)
     # pointer 最后写，且同样用 tmp+replace，保证 collector 要么看到旧版本，要么看到新版本。
-    pointer = latest / "current_version.txt"
-    pointer_tmp = latest / "current_version.txt.tmp"
-    pointer_tmp.write_text(str(int(step)), encoding="utf-8")
+    pointer_tmp = latest / f"current_version.txt.tmp.{os.getpid()}"
+    pointer_tmp.write_text(str(step_int), encoding="utf-8")
     os.replace(pointer_tmp, pointer)
-    protected_versions = {int(step), max(0, int(step) - 1)}
+    protected_versions = {step_int, max(0, step_int - 1)}
     versions = sorted(
         [p for p in latest.glob("v_*") if p.is_dir() and p.name[2:].isdigit()],
         key=lambda p: int(p.name[2:]),
@@ -577,7 +660,7 @@ def publish_snapshot(bundle: Any, args: argparse.Namespace, *, step: int) -> pat
     keep_tail = set(versions[-keep:])
     for old in versions:
         version = int(old.name[2:])
-        if old in keep_tail or version in protected_versions or version >= int(step) - 1:
+        if old in keep_tail or version in protected_versions or version >= step_int - 1:
             continue
         shutil.rmtree(old, ignore_errors=True)
     return target
@@ -696,6 +779,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--vision-guard-param-norm-max", type=float, default=200.0)
     p.add_argument("--vision-guard-patience", type=int, default=3)
     p.add_argument("--w-a1", type=float, default=0.2)
+    p.add_argument("--w-rs1", type=float, default=1.0,
+                   help="L_RS1 weight: step1 ROAD_STRUCTURE label CE (D25 = 1.0).")
     p.add_argument("--w-a2", type=float, default=0.2)
     p.add_argument("--w-a3", type=float, default=0.2)
     p.add_argument("--w-s2", type=float, default=1.0)
@@ -924,7 +1009,9 @@ def main() -> None:
             lr = scheduler.get_last_lr()[0] if scheduler.get_last_lr() else 0.0
             print(
                 f"[learn] step={global_step}/{args.max_steps} loss={loss_value:.4f} "
-                f"frames={int(frames)} step3={_safe_ratio(stats['step3'], frames):.3f} "
+                f"frames={int(frames)} step2={_safe_ratio(stats['step2'], frames):.3f} "
+                f"step3={_safe_ratio(stats['step3'], frames):.3f} "
+                f"rs_flip={_safe_ratio(stats['rs_flip'], frames):.3f} "
                 f"noise={_safe_ratio(stats['noise'], frames):.3f} replay={st.ready_count} "
                 f"|g|_lang={lang_norm_value:.3f} |g|_vis={vis_norm_value:.3f} "
                 f"|w|_vis={vis_param_norm_value:.3f} guard_bad_steps={guard_bad_steps} "
@@ -941,14 +1028,21 @@ def main() -> None:
                 tb.add_scalar("train/vision_guard_bad_steps", float(guard_bad_steps), global_step)
                 tb.add_scalar("train/replay/size", float(st.ready_count), global_step)
                 tb.add_scalar("train/replay/avg_age_minutes", float(st.avg_age_minutes), global_step)
+                tb.add_scalar("train/step2_trigger_rate", _safe_ratio(stats["step2"], frames), global_step)
                 tb.add_scalar("train/step3_trigger_rate", _safe_ratio(stats["step3"], frames), global_step)
+                tb.add_scalar("train/fire_rate/step2", _safe_ratio(stats["step2"], frames), global_step)
+                tb.add_scalar("train/fire_rate/step3", _safe_ratio(stats["step3"], frames), global_step)
+                tb.add_scalar("train/accuracy/road_structure", _safe_ratio(stats["step2"], frames), global_step)
                 tb.add_scalar("train/phase_b_noise_rate", _safe_ratio(stats["noise"], frames), global_step)
+                tb.add_scalar("train/rs_flip_rate", _safe_ratio(stats["rs_flip"], frames), global_step)
                 tb.add_scalar("train/scene_flip_rate", _safe_ratio(stats["scene_flip"], frames), global_step)
+                tb.add_scalar("train/gt_leak_skip_rate/step1", _safe_ratio(stats["leak1"], frames), global_step)
                 tb.add_scalar("train/gt_leak_skip_rate/step2", _safe_ratio(stats["leak2"], frames), global_step)
                 tb.add_scalar("train/gt_leak_skip_rate/step3", _safe_ratio(stats["leak3"], frames), global_step)
                 tb.add_scalar("train/phase_a_frame_frac", _safe_ratio(stats["phase_a"], frames), global_step)
                 for key, value in {
                     "a1": args.w_a1,
+                    "rs1": args.w_rs1,
                     "a2": args.w_a2,
                     "a3": args.w_a3,
                     "s2": args.w_s2,
@@ -956,8 +1050,15 @@ def main() -> None:
                     "s3_subgoal": args.w_s3_subgoal,
                 }.items():
                     tb.add_scalar(f"train/loss_weight/{key}", float(value), global_step)
-                for key in ("a1", "a2", "a3", "s2", "s3_status", "s3_subgoal"):
+                for key in ("a1", "rs1", "a2", "a3", "s2", "s3_status", "s3_subgoal"):
                     tb.add_scalar(f"train/loss/{key}", stats[f"loss_{key}"] / frames, global_step)
+                tb.add_scalar("train/loss/L_A1", stats["loss_a1"] / frames, global_step)
+                tb.add_scalar("train/loss/L_RS1", stats["loss_rs1"] / frames, global_step)
+                tb.add_scalar("train/loss/L_A2", stats["loss_a2"] / frames, global_step)
+                tb.add_scalar("train/loss/L_SC", stats["loss_s2"] / frames, global_step)
+                tb.add_scalar("train/loss/L_A3", stats["loss_a3"] / frames, global_step)
+                tb.add_scalar("train/loss/L_ST", stats["loss_s3_status"] / frames, global_step)
+                tb.add_scalar("train/loss/L_SG", stats["loss_s3_subgoal"] / frames, global_step)
 
         if is_rank0(rank) and int(args.snapshot_every_steps) > 0 and global_step % int(args.snapshot_every_steps) == 0:
             snap = publish_snapshot(bundle, args, step=global_step)

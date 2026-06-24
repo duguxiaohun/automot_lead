@@ -4,8 +4,8 @@
 1. 只跑学生模型，不使用 teacher。
 2. 不做 Phase B GT 强制注入，memory 全程由学生自更新。
 3. 默认评测区间与训练一致：[f1-delta, f3]。
-4. 输出关键指标：scene_acc、scene_recovery_steps、scene_stick_rate、scene_flip_rate、
-   step3_trigger_rate、status/subgoal 条件准确率、all_acc。
+4. 输出关键指标：road_structure_acc、step2_fire_rate、scene_acc、scene_recovery_steps、
+   scene_stick_rate、scene_flip_rate、step3_trigger_rate、status/subgoal 条件准确率、all_acc。
 """
 
 from __future__ import annotations
@@ -43,17 +43,22 @@ from qwen3vl_local.sft_v4.prompts import (
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
+    build_step1_teacher_prompt,
     build_step1_user_prompt,
     build_step2_student_prompt,
     build_step2_teacher_prompt,
     build_step3_student_prompt,
     build_step3_teacher_prompt,
+    get_road_structure,
     init_memory,
     parse_output,
+    should_trigger_step2,
     should_trigger_step3,
+    update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
     validate_event,
+    validate_road_structure,
     validate_scene,
 )
 from qwen3vl_local.sft_v2.eval import _maybe_set_idle_gpu_mask
@@ -236,7 +241,8 @@ def main() -> None:
     """SFT v4 离线自由生成评估入口。
 
     与训练不同，eval 默认不做 Phase B 的 GT scene 强制覆盖，memory 全程由学生自由
-    输出更新；这样才能真实观察 scene recovery、stick、flip 和 step3 trigger。
+    输出更新；这样才能真实观察 road_structure / scene recovery、stick、flip 和
+    step2/step3 trigger。
     """
 
     _maybe_set_idle_gpu_mask()
@@ -285,6 +291,7 @@ def main() -> None:
         eval_start = int(ep.anchors[0]) if args.full_range else int(ep.frame_start)
         eval_end = int(ep.anchors[4]) if args.full_range else int(ep.frame_end)
         gx, gy = _load_goal_xy(run_dir, eval_start)
+        gt_road_structure = get_road_structure(ep.gt_scene)
         memory = init_memory(
             run_id=ep.run_id,
             sub_scenario_id=f"{ep.run_id}:{ep.anchors[1]}",
@@ -294,14 +301,18 @@ def main() -> None:
         )
 
         frame_total = 0
+        road_structure_correct = 0
+        step2_total = 0
         scene_correct = 0
         step3_total = 0
         status_correct = 0
         subgoal_correct = 0
         all_correct = 0
+        rs_flip = 0
         scene_flip = 0
         scene_stick_ok = 0
         scene_stick_total = 0
+        invalid_road_structure = 0
         invalid_scene = 0
         invalid_status = 0
         invalid_subgoal = 0
@@ -323,11 +334,18 @@ def main() -> None:
 
             gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
 
-            step1_user = build_step1_user_prompt(len(images))
+            step1_user = build_step1_user_prompt(len(images), memory=memory)
             step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
             teacher_step1_text = ""
             if teacher_engine is not None:
-                teacher_step1_text = _generate(teacher_engine, step1_msgs, images, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP1)
+                teacher_step1_user = build_step1_teacher_prompt(memory, gt_road_structure)
+                teacher_step1_msgs = _build_messages_with_images(user_text=teacher_step1_user, images=images)
+                teacher_step1_text = _generate(
+                    teacher_engine,
+                    teacher_step1_msgs,
+                    images,
+                    max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP1,
+                )
             step1_text = _generate(engine, step1_msgs, images, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP1)
             if teacher_engine is not None:
                 metrics["analysis_bleu_sum"] += _simple_bleu(
@@ -335,29 +353,53 @@ def main() -> None:
                     _analysis_before_labels(teacher_step1_text),
                 )
                 metrics["analysis_bleu_count"] += 1
+            p1 = parse_output(step1_text)
+            if not validate_road_structure(p1.get("road_structure")):
+                invalid_road_structure += 1
+
+            old_rs = memory.road_structure
+            memory = update_memory_after_step1(memory, student_road_structure=p1.get("road_structure"))
+            if memory.road_structure != old_rs:
+                rs_flip += 1
+            rs_ok = memory.road_structure == gt_road_structure
+            if rs_ok:
+                road_structure_correct += 1
+
+            step2_fire = should_trigger_step2(
+                memory_road_structure_after_step1=memory.road_structure,
+                gt_road_structure=gt_road_structure,
+            )
 
             teacher_step2_text = ""
-            if teacher_engine is not None:
-                teacher_step2_user = build_step2_teacher_prompt(memory, ep.gt_scene)
-                teacher_step2_text = _generate_next_with_kv(teacher_engine, teacher_step2_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2)
-            step2_user = build_step2_student_prompt(memory)
-            step2_text = _generate_next_with_kv(engine, step2_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2)
-            if teacher_engine is not None:
-                metrics["analysis_bleu_sum"] += _simple_bleu(
-                    _analysis_before_labels(step2_text),
-                    _analysis_before_labels(teacher_step2_text),
-                )
-                metrics["analysis_bleu_count"] += 1
-            p2 = parse_output(step2_text)
-            if not validate_scene(p2.get("scene")):
-                invalid_scene += 1
+            step2_text = ""
+            scene_ok = False
+            if step2_fire:
+                step2_total += 1
+                if teacher_engine is not None:
+                    teacher_step2_user = build_step2_teacher_prompt(memory, ep.gt_scene)
+                    teacher_step2_text = _generate_next_with_kv(
+                        teacher_engine,
+                        teacher_step2_user,
+                        max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2,
+                    )
+                step2_user = build_step2_student_prompt(memory)
+                step2_text = _generate_next_with_kv(engine, step2_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2)
+                if teacher_engine is not None:
+                    metrics["analysis_bleu_sum"] += _simple_bleu(
+                        _analysis_before_labels(step2_text),
+                        _analysis_before_labels(teacher_step2_text),
+                    )
+                    metrics["analysis_bleu_count"] += 1
+                p2 = parse_output(step2_text)
+                if not validate_scene(p2.get("scene")):
+                    invalid_scene += 1
 
-            old_scene = memory.scene
-            memory = update_memory_after_step2(memory, student_scene=p2.get("scene"))
-            if memory.scene != old_scene:
-                scene_flip += 1
+                old_scene = memory.scene
+                memory = update_memory_after_step2(memory, student_scene=p2.get("scene"))
+                if memory.scene != old_scene:
+                    scene_flip += 1
 
-            scene_ok = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
+                scene_ok = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
             if scene_ok:
                 scene_correct += 1
                 if first_recover is None:
@@ -413,6 +455,8 @@ def main() -> None:
             prev_scene_ok = scene_ok
 
             metrics[f"{phase}/frames"] += 1
+            metrics[f"{phase}/road_structure_correct"] += 1 if rs_ok else 0
+            metrics[f"{phase}/step2_total"] += 1 if step2_fire else 0
             metrics[f"{phase}/scene_correct"] += 1 if scene_ok else 0
             metrics[f"{phase}/step3_total"] += 1 if scene_ok else 0
             metrics[f"{phase}/status_correct"] += 1 if status_ok else 0
@@ -424,14 +468,18 @@ def main() -> None:
             "run_id": ep.run_id,
             "scenario": ep.scenario,
             "frames": frame_total,
+            "road_structure_acc": road_structure_correct / max(frame_total, 1),
+            "step2_fire_rate": step2_total / max(frame_total, 1),
             "scene_acc": scene_correct / max(frame_total, 1),
             "scene_recovery_steps": first_recover if first_recover is not None else -1,
             "scene_stick_rate": scene_stick_ok / max(scene_stick_total, 1),
+            "road_structure_flip_rate": rs_flip / max(frame_total, 1),
             "scene_flip_rate": scene_flip / max(frame_total, 1),
             "step3_trigger_rate": step3_total / max(frame_total, 1),
             "status_acc_given_correct_scene": status_correct / max(step3_total, 1),
             "subgoal_acc_given_correct_scene": subgoal_correct / max(step3_total, 1),
             "all_acc": all_correct / max(frame_total, 1),
+            "invalid_road_structure_rate": invalid_road_structure / max(frame_total, 1),
             "invalid_scene_rate": invalid_scene / max(frame_total, 1),
             "invalid_status_for_pred_scene_rate": invalid_status / max(step3_total, 1),
             "invalid_subgoal_for_pred_scene_rate": invalid_subgoal / max(step3_total, 1),
@@ -440,13 +488,17 @@ def main() -> None:
 
         metrics["episodes"] += 1
         metrics["frames"] += frame_total
+        metrics["road_structure_acc_sum"] += epi["road_structure_acc"]
+        metrics["step2_sum"] += epi["step2_fire_rate"]
         metrics["scene_acc_sum"] += epi["scene_acc"]
         metrics["scene_stick_sum"] += epi["scene_stick_rate"]
+        metrics["road_structure_flip_sum"] += epi["road_structure_flip_rate"]
         metrics["scene_flip_sum"] += epi["scene_flip_rate"]
         metrics["step3_sum"] += epi["step3_trigger_rate"]
         metrics["status_sum"] += epi["status_acc_given_correct_scene"]
         metrics["subgoal_sum"] += epi["subgoal_acc_given_correct_scene"]
         metrics["all_sum"] += epi["all_acc"]
+        metrics["invalid_road_structure_sum"] += epi["invalid_road_structure_rate"]
         metrics["invalid_scene_sum"] += epi["invalid_scene_rate"]
         metrics["invalid_status_sum"] += epi["invalid_status_for_pred_scene_rate"]
         metrics["invalid_subgoal_sum"] += epi["invalid_subgoal_for_pred_scene_rate"]
@@ -463,13 +515,17 @@ def main() -> None:
     summary = {
         "episodes": int(metrics["episodes"]),
         "frames": int(metrics["frames"]),
+        "road_structure_acc": metrics["road_structure_acc_sum"] / n_epi,
+        "step2_fire_rate": metrics["step2_sum"] / n_epi,
         "scene_acc_per_step": metrics["scene_acc_sum"] / n_epi,
         "scene_stick_rate": metrics["scene_stick_sum"] / n_epi,
+        "road_structure_flip_rate": metrics["road_structure_flip_sum"] / n_epi,
         "scene_flip_rate": metrics["scene_flip_sum"] / n_epi,
         "step3_trigger_rate": metrics["step3_sum"] / n_epi,
         "status_acc_given_correct_scene": metrics["status_sum"] / n_epi,
         "subgoal_acc_given_correct_scene": metrics["subgoal_sum"] / n_epi,
         "all_acc_per_step": metrics["all_sum"] / n_epi,
+        "invalid_road_structure_rate": metrics["invalid_road_structure_sum"] / n_epi,
         "invalid_scene_rate": metrics["invalid_scene_sum"] / n_epi,
         "invalid_status_for_pred_scene_rate": metrics["invalid_status_sum"] / n_epi,
         "invalid_subgoal_for_pred_scene_rate": metrics["invalid_subgoal_sum"] / n_epi,
@@ -483,6 +539,8 @@ def main() -> None:
     for pk in phase_keys:
         f = max(metrics[f"{pk}/frames"], 1)
         s3 = max(metrics[f"{pk}/step3_total"], 1)
+        summary[f"{pk}_road_structure_acc"] = metrics[f"{pk}/road_structure_correct"] / f
+        summary[f"{pk}_step2_fire_rate"] = metrics[f"{pk}/step2_total"] / f
         summary[f"{pk}_scene_acc_per_step"] = metrics[f"{pk}/scene_correct"] / f
         summary[f"{pk}_step3_trigger_rate"] = metrics[f"{pk}/step3_total"] / f
         summary[f"{pk}_status_acc_given_correct_scene"] = metrics[f"{pk}/status_correct"] / s3
@@ -508,4 +566,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

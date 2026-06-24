@@ -29,7 +29,7 @@ memory 自更新），把整条 episode 固化成 trajectory 文件写入磁盘 
 │     抢 episode (TCPStore counter, 或本地随机)                  │
 │     周期 reload latest_lora                                    │
 │     no_grad rollout: teacher generate + student generate +     │
-│       memory 自更新（含 Phase A 50% 正确 init / Phase B 噪声） │
+│       memory 自更新（含 Phase A 70% layer-1 正确 init / Phase B 噪声） │
 │     atomic write ready/<traj>.jsonl                            │
 └────────────────────────────────────────────────────────────────┘
                             │ 写 (rename)
@@ -219,32 +219,40 @@ collector 进程在 OS 层完全独立。同机器跑 collector 和 learner 不�
 后续每行 1 帧）：
 
 ```json
-{"schema":"sft_v4_rollout_v1","kind":"header",
+{"schema":"sft_v4_rollout_v2","kind":"header",
  "collector_id":"coll0",
  "policy_version":12000,
+ "created_at":1719200000.0,
+ "frame_count":14,
  "episode":{"run_id":"...","scenario":"...",
             "anchors":[f0,f1,f2,f3,f4],"delta":7,
             "gt_scene":"...",
             "gt_event_sequence":["initial","e1","e2","e3","final"]}}
 {"kind":"frame","frame_idx":123,"phase":"A",
  "image_paths":["oldest.jpg","...","newest.jpg"],
- "memory_before_frame":{"scene":"...","status":"...","subgoal":"...",
+ "memory_before_frame":{"road_structure":"JUNCTION","scene":"...","status":"...","subgoal":"...",
                         "ego_to_goal_xy":[12.3,-1.4]},
- "init_scene_was_correct":true,   // Phase A 首帧才有意义；其他帧 null
+ "memory_after_step1":{"road_structure":"JUNCTION","scene":"...","status":"...","subgoal":"...",
+                       "ego_to_goal_xy":[12.3,-1.4]},
+ "init_was_correct":true,         // Phase A 首帧才有意义；同时要求 road_structure 和 scene 正确
  "noise_injected":false,           // Phase B 帧首是否触发噪声扰动
- "teacher_step1_text":"...",
- "teacher_step2_raw":"...",        // base teacher 原始输出，供审计
- "teacher_step2_target":"...",     // 规范化后的 ANALYSIS + SCENE 训练 target
+ "teacher_step1_text":"...",       // base teacher step1 原始分析
+ "teacher_step1_target":"...",     // 规范化后的 ANALYSIS + ROAD_STRUCTURE 训练 target
+ "teacher_step2_raw":"...",        // 仅 step2_fired=true 时有；否则 null
+ "teacher_step2_target":"...",     // 仅 step2_fired=true 时有；否则 null
  "teacher_step3_raw":"...",        // base teacher 原始输出，仅 step3_fired=true 时有；否则 null
  "teacher_step3_target":"...",     // 规范化后的 ANALYSIS + STATUS/SUBGOAL target；否则 null
  "student_step1_raw":"...",        // 用来复现 step2 前的 student 对话上下文
- "student_step2_raw":"...",        // 用来复现 step3 触发判断和 step3 前上下文
+ "student_step2_raw":"...",        // 仅 step2_fired=true 时有；用于复现 step3 前上下文
  "student_step3_raw":"...",        // 仅用来复现 memory 帧末更新；否则 null
+ "step2_fired":true,
  "step3_fired":true,
  "teacher_targets":{"step1":"...","step2":"...","step3":"..."},
  "teacher_raw_outputs":{"step1":"...","step2":"...","step3":"..."},
  "student_outputs":{"step1":"...","step2":"...","step3":"..."},
- "gt":{"status":"...","subgoal":"..."}}
+ "gt":{"road_structure":"JUNCTION","scene":"...","status":"...","subgoal":"..."},
+ "flags":{"step2_ran":true,"step3_ran":true,"rs_flip":false,"scene_flip":false,
+          "leak1":false,"leak2":false,"leak3":false}}
 {"kind":"frame","frame_idx":124,...}
 ...
 ```
@@ -256,9 +264,14 @@ lead_data 本来就常驻盘，trainer 按路径实时读 + LRU cache 即可。
 而且 KV 与 LoRA 版本强绑定，跨版本反序列化等同灾难。trainer 直接重 prefill，单帧 ~2 秒，
 按 traj 算 ~30 秒，远不是瓶颈。
 
+**为什么 memory_after_step1 也要存**：step2 的 `SCENE_CHOICES` 必须来自
+step1 更新后的 `memory.road_structure`。collector 如果在 step1 后把桶从 A 改成 B，
+learner 重放时也必须用 B 桶构造 step2 prompt；否则 teacher target 虽然是 GT scene，
+学生看到的候选表却可能来自旧桶，训练信号会错配。
+
 **为什么 student_step2_raw / student_step3_raw 也要存**：trainer 不再现场生成，但需要
-"假装 collector 当时生成了这些"才能正确推进 memory（决定 step3 是否触发、frame
-末尾 memory 怎么更新）。trainer 直接从 trajectory 拿这些，跳过任何 generate。
+"假装 collector 当时生成了这些"才能正确推进 KV 对话上下文和 memory。trainer 直接从
+trajectory 拿这些，跳过任何 generate。
 
 ### 0.6 Collector loop
 
@@ -290,28 +303,44 @@ while not exists(stop_sentinel):
 
     # 3. roll out
     traj = []
-    memory = init_memory_v4(ep, phase_a_correct_prob=0.5)   # 50% Phase A 初始 scene = GT
+    memory = init_memory_v4(ep, phase_a_correct_prob=0.7)   # 70% Phase A 初始 road_structure = GT
     for frame in range(ep.frame_start, ep.frame_end + 1):
         phase = "A" if (f1 - delta) <= frame <= (f1 + delta) else "B"
         noise = False
         if phase == "B":
-            memory = force_to_gt_scene(memory)             # 弱纠偏
+            memory = force_memory_to_gt_chain(memory)      # 分层弱纠偏
             if random() < PHASE_B_NOISE_PROB:              # 默认 0.15
-                memory.scene = random_non_gt_scene(memory)
+                memory.scene = random_non_gt_scene_in_bucket(memory)
                 noise = True
 
         images = load_images(ep, frame)
-        teacher_step1 = teacher_generate(images, ...)
-        teacher_step2_raw = teacher_generate(images, memory, gt=ep.gt_scene)
-        teacher_step2_target = canonicalize_teacher_step2(teacher_step2_raw, gt_scene)
-        student_step1_raw = student_generate_step1(images)
-        student_step2_raw = student_generate(images, memory)
 
-        step3_fired = should_trigger_step3(parse_scene(student_step2_raw), ep.gt_scene)
+        # Step 1：teacher/student 都基于帧首 memory 做 road_structure 判断。
+        teacher_step1_raw = teacher_generate_step1(images, memory, gt_road_structure)
+        teacher_step1_target = canonicalize_teacher_step1(teacher_step1_raw, gt_road_structure)
+        student_step1_raw = student_generate_step1(images, memory)
+        memory = update_memory_after_step1(memory, parse_road_structure(student_step1_raw))
+        memory_after_step1 = memory.copy()
+
+        # Step 2：只有 layer-1 命中时才跑；prompt 的 SCENE_CHOICES 来自 memory_after_step1。
+        step2_fired = should_trigger_step2(memory.road_structure, gt_road_structure)
+        if step2_fired:
+            teacher_step2_raw = teacher_generate_step2(images, memory, gt_scene)
+            teacher_step2_target = canonicalize_teacher_step2(teacher_step2_raw, gt_scene)
+            student_step2_raw = student_generate_step2(images, memory)
+            memory = update_memory_after_step2(memory, parse_scene(student_step2_raw))
+            memory_after_step2 = memory.copy()
+        else:
+            teacher_step2_raw = teacher_step2_target = student_step2_raw = None
+            memory_after_step2 = memory.copy()
+
+        # Step 3：只有 layer-2 scene 命中时才跑；未触发时不监督 status/subgoal。
+        step3_fired = step2_fired and should_trigger_step3(memory.scene, ep.gt_scene)
         if step3_fired:
             teacher_step3_raw = teacher_generate(images, memory, gt_status, gt_subgoal)
             teacher_step3_target = canonicalize_teacher_step3(teacher_step3_raw, gt_status, gt_subgoal)
             student_step3_raw = student_generate(images, memory)
+            memory = update_memory_after_step3(memory, parse_status_subgoal(student_step3_raw))
         else:
             teacher_step3_raw = None
             teacher_step3_target = None
@@ -319,10 +348,7 @@ while not exists(stop_sentinel):
 
         traj.append(frame_record(...))
 
-        # 帧末 memory 更新（与 v3 完全相同）
-        memory = update_memory_after_step2(memory, parse_scene(student_step2_raw))
-        if step3_fired:
-            memory = update_memory_after_step3(memory, parse_status_subgoal(student_step3_raw))
+        # 帧末只预取下一帧 goal；三层 memory 已在 step1/2/3 各自结束时更新。
         memory = prefetch_next_frame_goal_xy(memory, ep, frame + 1)
 
     # 4. atomic write
@@ -374,21 +400,27 @@ while step < max_steps and not exists(stop_sentinel):
     with ddp_model.no_sync():
         for frame in traj["frames"]:
             images = load_images(frame["image_paths"])
-            memory = frame["memory_before_frame"]
-            prompt_state = kv_prefill(system + images + step1_user(memory))
-            a1 = teacher_forced_ce(prompt_state, target=frame["teacher_step1_text"],
-                                    analysis_enabled=True)
+            memory_before = frame["memory_before_frame"]
+            prompt_state = kv_prefill(system + images + step1_user(memory_before))
+            a1, rs1 = teacher_forced_ce_step1(prompt_state, frame["teacher_step1_target"])
             prompt_state = append_assistant(prompt_state, frame["student_step1_raw"])
-            prompt_state2 = append_user(prompt_state, step2_user(memory))
-            a2, s2 = teacher_forced_ce_step2(prompt_state2, frame["teacher_step2_target"])
-            if frame["step3_fired"]:
+
+            if frame["step2_fired"]:
+                # 这里必须使用 collector 写下的 memory_after_step1，不能使用 memory_before。
+                memory_after_step1 = frame["memory_after_step1"]
+                prompt_state2 = append_user(prompt_state, step2_user(memory_after_step1))
+                a2, sc = teacher_forced_ce_step2(prompt_state2, frame["teacher_step2_target"])
                 prompt_state2 = append_assistant(prompt_state2, frame["student_step2_raw"])
-                prompt_state3 = append_user(prompt_state2, step3_user(memory))
-                a3, s3_status, s3_subgoal = teacher_forced_ce_step3(
-                    prompt_state3, frame["teacher_step3_target"])
             else:
-                a3 = s3_status = s3_subgoal = 0
-            frame_loss = W_A1*a1 + W_A2*a2 + W_S2*s2 + W_A3*a3 + W_S3*s3_status + W_S3*s3_subgoal
+                a2 = sc = 0
+
+            if frame["step3_fired"]:
+                memory_after_step2 = frame["memory_after_step2"]
+                prompt_state3 = append_user(prompt_state2, step3_user(memory_after_step2))
+                a3, st, sg = teacher_forced_ce_step3(prompt_state3, frame["teacher_step3_target"])
+            else:
+                a3 = st = sg = 0
+            frame_loss = W_A1*a1 + W_RS1*rs1 + W_A2*a2 + W_SC*sc + W_A3*a3 + W_ST*st + W_SG*sg
             (frame_loss / max(frame_count, 1)).backward()
     manual_allreduce_mean_lora_grads()
 
@@ -485,24 +517,25 @@ v3 的"Phase A 100% 非 GT 初始 + Phase B 100% 修回 GT"对 student 来说太
 
 | 时间点 | v4 规则 | 与 v3 对比 |
 |---|---|---|
-| **Phase A 初始**（frame=f1-δ） | `random() < P_INIT_CORRECT (默认 0.5)` 时 scene 设为 GT；否则从非 GT 均匀随机 | v3 D3：100% 非 GT |
+| **Phase A 初始**（frame=f1-δ） | `random() < P_INIT_CORRECT (默认 0.7)` 时 road_structure 设为 GT 桶，scene 在 GT 桶内联合采样；否则从非 GT 桶联合采样 | v3 D3：100% 非 GT |
 | Phase A 帧末 memory 更新 | 同 v3：学生 step2/step3 输出自更新 | 不变 |
-| Phase B 帧首默认 | 同 v3：`force_to_gt_scene`（弱纠偏） | 不变 |
-| **Phase B 帧首扰动** | `random() < PHASE_B_NOISE_PROB (默认 0.15)` 时把 scene 改为随机非 GT | v3 无此规则 |
-| step3 触发条件 | 仍然 `student_step2_scene == gt_scene` 才触发（与 v3 D2 / C4 完全一致） | 不变 |
+| Phase B 帧首默认 | `force_memory_to_gt_chain`：road_structure / scene 分层弱纠偏，scene 变更时重置 status/subgoal | 扩展 v3 弱纠偏 |
+| **Phase B 帧首扰动** | `random() < PHASE_B_NOISE_PROB (默认 0.15)` 时只在当前 road_structure 桶内把 scene 改为非 GT | v3 无此规则 |
+| step2/step3 触发条件 | step1 后 `memory.road_structure == gt_road_structure` 才跑 step2；step2 后 `memory.scene == gt_scene` 才跑 step3 | v4 新增 layer-1 门控 |
 
 设计意图：
 
-- **50% Phase A 初始正确**：让 Phase A 同时包含"对的别改"和"错了要改"两种监督。
+- **70% Phase A 初始 layer-1 正确**：让 Phase A 同时包含"对的别改"和"错了要改"两种监督。
   v3 把这两件事分给 Phase A / Phase B 完全分离的设计被实际训练数据打脸——很多 epoch
   跑下来 Phase A 的 status/subgoal CE 一直比 Phase B 高，因为 student 在错初始下
-  连 step1 都很难学到位。混合反而更平滑。
+  连 step1 都很难学到位。0.7 默认值让 layer-1 门控更早有密集监督，同时 scene 仍在
+  GT 桶内保留 50% 错率用于同桶纠偏。
 - **Phase B 15% 噪声**：v3 Phase B 几乎所有帧 scene=GT、step3 必触发。如果模型在
   Phase A 没学会"看证据推翻"，Phase B 这条信号永远训练不到。15% 噪声让 Phase B 偶尔
   暴露这个监督，但 85% 帧仍然 step3 主导，**status/subgoal 监督密度不会丢**。
-- **step3 触发条件不动**：噪声帧里 student 仍大概率预测 GT scene（图像证据强），
-  step3 仍触发；少数被噪声带偏的帧 step3 跳过，但 step1/step2 的 analysis + scene
-  监督还在——不浪费样本。
+- **触发链对称**：step1 错桶时跳过 step2/3，只计 L_A1/L_RS1；step1 正确后才在收窄
+  的 bucket 内训练 scene；scene 正确后才训练 status/subgoal。这样 teacher target 永远
+  出现在学生实际看到的候选表里，不会发生跨桶监督错配。
 
 ### 0.11 启动 / 退出协议
 
@@ -564,8 +597,8 @@ v4 off-policy 已经落地为四个新入口：
 
 | 项 | 已锁定默认值 | 说明 |
 |---|---|---|
-| Phase A 初始正确率 | `P_INIT_CORRECT=0.5` | 50% GT scene、50% 随机非 GT scene；D3v4 覆盖 v3 的 100% 非 GT 设定 |
-| Phase B 噪声率 | `PHASE_B_NOISE_PROB=0.15` | 弱纠偏到 GT 后，15% 概率再注入随机非 GT scene；可调范围保留 `[0.0, 0.3]` |
+| Phase A 初始正确率 | `P_INIT_CORRECT=0.7` | 70% GT road_structure；scene 在对应桶内联合采样；D27 覆盖早期 0.5 设定 |
+| Phase B 噪声率 | `PHASE_B_NOISE_PROB=0.15` | 弱纠偏到 GT 后，15% 概率再注入同桶非 GT scene；可调范围保留 `[0.0, 0.3]` |
 | learner DDP world size | `2` | GPU0/GPU1 各 1 个 learner rank；只 learner 进入 NCCL process group |
 | collector 并发 | 默认 `2` | GPU2/GPU3 各 1 个 collector；确认单卡多 CUDA 进程稳定后可手动设 `COLLECTORS_PER_GPU=2/3` |
 | learner batch | 每 rank `1` 条 trajectory | effective batch = 2；不做 per-frame batch 拼接，降低 mask/padding 风险 |
@@ -609,7 +642,7 @@ off-policy 文件现在都有三层注释：
 
 | 文件 | 主要职责 | 先读位置 | 状态 |
 |---|---|---|---|
-| `prompts.py` | Memory 文本格式、状态机更新（含 `p_init_correct` 50% 正确初始化）、三步 prompt、输出解析、GT 泄露检测 | module docstring、`Memory`、`init_memory`、`update_memory_after_step2/3` | 已实现 |
+| `prompts.py` | Memory 文本格式、状态机更新（含 `p_init_correct=0.7` 联合初始化）、三步 prompt、输出解析、GT 泄露检测 | module docstring、`Memory`、`init_memory`、`update_memory_after_step1/2/3` | 已实现 |
 | `build_dataset.py` | 从 `keyframes_all_scenarios.json` 构建 episode index，只写元数据 | 文件头、`build_episode`、`load_keyframe_runs` | 保持不变（off-policy 仍以 episode 为采集单位） |
 | `replay.py` | trajectory schema、原子写、FIFO 驱逐、读取、文件锁 counter | 文件头、`ensure_replay_dirs`、`directory_lock`、`claim_episode_index`、`write_trajectory`、`evict_old` | 已补详细中文注释 |
 | `collect.py` | collector 入口：抢 episode、rollout、写 replay、加载 LoRA snapshot | 文件头、`_load_adapter_state_if_present`、`_inject_phase_b_noise`、`collect_episode`、`main` | 已补详细中文注释 |
@@ -751,17 +784,19 @@ EGO_TO_GOAL_XY: x=+12.3 m, y=-4.5 m
 
 ### 3.2 初始化（在 t = anchor[1] - δ）
 
-- **`believed_scene` 由概率 `P_INIT_CORRECT` 决定**（默认 0.5，v4 改写 v3 D3 决议）：
-  - `random() < P_INIT_CORRECT` → `believed_scene = gt_scene`（**初始正确**，让模型练
-    "对的别改"）
-  - 否则从 `SCENARIO_LABELS \ {gt_scene}` 均匀随机抽（**初始错误**，让模型练"看证据
-    翻 memory"）
+- **`believed_road_structure` 由概率 `P_INIT_CORRECT` 决定**（默认 0.7，D27 覆盖早期 0.5）：
+  - `random() < P_INIT_CORRECT` → `believed_road_structure = gt_road_structure`，
+    `believed_scene` 在 GT 桶内按 50% 正确率采样（**初始结构正确**，让模型练
+    "对的别改"与同桶 scene 纠偏）
+  - 否则从非 GT road_structure 桶均匀随机抽，并从该错桶内抽 scene（**初始结构错误**，
+    让模型练"看证据翻 memory"）
   - `seed = hash((run_id, sub_scenario_id, collector_id))` 保证 collector 端可复现；
     trainer 端 traj 里已经存好 `memory_before_frame`，不再二次采样。
 - **覆盖 v3 D3 决议**：v3 D3 强制 100% 非 GT 初始，理由是"Phase A 的稀缺信号是
   翻转，混入 50% 已对的样本会浪费 Phase A 监督预算"。实测发现该论点的代价是 student
-  在 Phase A 一开始就被怼到最难的任务，收敛慢；50/50 让 Phase A 同时承担"翻转"和
-  "保持"两种监督，更平滑。如果你想退回 v3 行为，把 `P_INIT_CORRECT=0.0` 即可。
+  在 Phase A 一开始就被怼到最难的任务，收敛慢；0.7 默认让 Phase A 同时承担"翻转"和
+  "保持"两种监督，并补偿 layer-1 门控触发率。如果你想退回 v3 行为，把
+  `P_INIT_CORRECT=0.0` 即可。
 - `believed_status` ← canonical init event token（当前 `prompt_pipeline.get_full_sequence`
   里是 `"initial"`；下文口语里的 init 都指这个状态机首 token）。
 - `believed_subgoal` ← `EVENT_SEQUENCE[believed_scene][1]`（init 的下一项）。
@@ -776,14 +811,19 @@ EGO_TO_GOAL_XY: x=+12.3 m, y=-4.5 m
 按 Phase 分支：
 
 **Phase A**：
-1. **step 2 结束后立即更新 scene**：
+1. **step 1 结束后立即更新 road_structure**：
+   - 学生 step1 输出合法 `ROAD_STRUCTURE` 且不同于 memory → 改写 `memory.road_structure`。
+   - 只要 layer-1 翻转，就把 `memory.scene` reset 到新桶第一个 scene，并把
+     `memory.status/subgoal` reset 到该 scene 的 canonical init / first subgoal。
+   - 若 `memory.road_structure_after_step1 != gt_road_structure`，直接跳过 step2/step3。
+2. **step 2 结束后立即更新 scene**（仅 step1 命中 GT road_structure 时执行）：
    - 学生 step2 输出 SCENE ≠ memory.scene → memory.scene 改写为新 scene，
     同时强制 `memory.status ← canonical init event`、
      `memory.subgoal ← EVENT_SEQUENCE[new_scene][1]`。
    - 否则 keep。
-2. **step 3 触发条件**（关键，且与 step2 是否改动**无关**）：
+3. **step 3 触发条件**（关键，且与 step2 是否改动**无关**）：
    ```
-   if memory.scene_after_step2 == gt_scene:
+   if step2_fired and memory.scene_after_step2 == gt_scene:
        run step 3
    else:
        skip step 3
@@ -795,29 +835,28 @@ EGO_TO_GOAL_XY: x=+12.3 m, y=-4.5 m
    | 正确 | 改成别的 | 是 | ✗ | 跳过 |
    | 错误 | 同 memory（仍错） | 否 | ✗ | 跳过 |
    | 错误 | 改成 GT | 是 | ✓ | **跑** |
-3. **step 3 跑了的话**：
+4. **step 3 跑了的话**：
    - `memory.status ← student_step3_pred_status`
    - `memory.subgoal ← student_step3_pred_subgoal`
-4. 帧末为下一帧预取 `ego_to_goal_xy`，写入 memory。
+5. 帧末为下一帧预取 `ego_to_goal_xy`，写入 memory。
    （C3 修正：当前帧 prompt 使用进入本帧前已经写入 memory 的坐标；本帧结束后
    再读取下一帧 meta，字面上与“进入下一帧前重算”一致。）
 
-`should_trigger_step3(memory_scene_after_step2, gt_scene)` 这条规则被抽成
-`prompts.py` 的 helper（C4 拍板），训练入口和 `test_memory_update.py` 共用同一
-个真值函数，避免状态机有第二处隐式实现。
+`should_trigger_step2(memory_road_structure_after_step1, gt_road_structure)` 与
+`should_trigger_step3(memory_scene_after_step2, gt_scene)` 都被抽成 `prompts.py`
+helper，训练、collector、learner 重放、eval/probe 和测试共用同一真值函数，避免状态机
+有第二处隐式实现。
 
 **Phase B**（D2 弱纠偏 + 跨帧推进，加上 v4 的概率噪声）：
 1. **帧外循环开始前两步串联**：先弱纠偏，再以概率注入噪声：
    ```python
-   # 步 1: 弱纠偏 (与 v3 完全一致)
-   memory = force_to_gt_scene(memory, gt_scene)
-       # if memory.scene == gt_scene: noop, 跨帧保留 status/subgoal
-       # else: memory.scene = gt_scene, memory.status = init event,
-       #       memory.subgoal = EVENT_SEQUENCE[gt_scene][1]
+   # 步 1: 分层弱纠偏
+   memory = force_memory_to_gt_chain(memory, gt_road_structure, gt_scene)
+       # 已等于 GT 的字段 noop；错 road_structure / scene 时连带 reset 下游字段。
 
    # 步 2: 概率噪声 (v4 新增；默认 PHASE_B_NOISE_PROB = 0.15)
    if random() < PHASE_B_NOISE_PROB:
-       memory.scene = random_choice(SCENARIO_LABELS \ {gt_scene})
+       memory.scene = random_choice(current_road_structure_bucket \ {gt_scene})
        memory.status = canonical init event
        memory.subgoal = EVENT_SEQUENCE[memory.scene][1]
        noise_injected = True
@@ -1009,11 +1048,16 @@ L_frame = w_A1 * L_A1
 
 ```
 train/loss_total
-train/loss/{a1, a2, a3, s2, s3_status, s3_subgoal}
-train/loss_weight/{a1, a2, a3, s2, s3_status, s3_subgoal}    ← 静态权重，可视化用
+train/loss/{a1, rs1, a2, a3, s2, s3_status, s3_subgoal}
+train/loss/{L_A1, L_RS1, L_A2, L_SC, L_A3, L_ST, L_SG}          ← PLAN 口径别名
+train/loss_weight/{a1, rs1, a2, a3, s2, s3_status, s3_subgoal}  ← 静态权重，可视化用
+train/step2_trigger_rate                                       ← 每帧粒度，等价 layer-1 命中率
 train/step3_trigger_rate                                       ← 每帧粒度
+train/fire_rate/{step2, step3}                                 ← PLAN 口径别名
+train/accuracy/road_structure                                  ← PLAN 口径，当前等价 step2 fire rate
+train/rs_flip_rate                                             ← step1 改 road_structure 的比例
 train/scene_flip_rate                                          ← step2 改 scene 的比例
-train/gt_leak_skip_rate/{step2, step3}
+train/gt_leak_skip_rate/{step1, step2, step3}
 train/phase_a_frame_frac                                       ← 每 step batch 内 Phase A 帧占比
 train/lr
 train/grad_norm/{language, vision}                             ← 兼容口径；off-policy 实现写 train/grad_norm/language 与 train/grad_norm/vision
@@ -1056,21 +1100,21 @@ val/analysis_bleu_vs_teacher (eval.py --with-teacher-ref 时输出)
 
 ### 6.1 Teacher generate 超参
 
-| Step | max_new_tokens | do_sample | repetition_penalty | 备注 |
-|---|---|---|---|---|
-| 1 | 80 | False | 1.05 | prompt 约束 ≤60 tokens，generate 留 20 token 余量 |
-| 2 | 60 | False | 1.05 | prompt 约束 ≤40 tokens + "SCENE: …"，generate 留余量 |
-| 3 | 60 | False | 1.05 | prompt 约束 ≤40 tokens + "STATUS:"/"SUBGOAL:"，generate 留余量 |
+| Step | max_new_tokens | min_new_tokens | do_sample | repetition_penalty | no_repeat_ngram_size | 备注 |
+|---|---:|---:|---|---:|---:|---|
+| 1 | 96 | 24 | False | 1.05 | 3 | 2 句视觉 + 1 句 layer-1 verdict；标签由脚本拼回 |
+| 2 | 128 | 24 | False | 1.05 | 3 | 收窄桶内 scene 纠偏；标签由脚本拼回 |
+| 3 | 128 | 24 | False | 1.05 | 3 | status/subgoal 纠偏；标签由脚本拼回 |
 
 prompt 内的 token 上限故意比 `max_new_tokens` 更保守，预留格式行、分词误差和
 少量冗余；如发现 99 分位 token 数贴近生成上限，调高 max_new_tokens 10~20，
 并同步评估是否需要放宽 prompt 内的保守上限，不要静默放宽。
 
 实现层面，`train.py` 的 `_kv_generate_text` 已经把 `repetition_penalty=1.05`
-落实成 HF 风格的 logits 后处理：每步生成前对 `state.decoded_input_ids ∪ 已生成
-token` 的并集施加 penalty（正分除以 1.05、负分乘以 1.05），等价 transformers
-`RepetitionPenaltyLogitsProcessor` 在 greedy decode 下的行为。max 80 token 的开销
-可忽略，主要避免 step1 出现"I see I see ..."之类复读污染 L_A1 目标分布（B1 拍板）。
+落实成 HF 风格的 logits 后处理；同时加入 soft `min_new_tokens` 闸门与
+`no_repeat_ngram_size=3`。soft min 的规则是：未达到 MIN 之前抑制 EOS；达到 MIN 后，
+只要本轮生成里已经出现句末符号就允许 EOS，不再硬拖到复读。`no_repeat_ngram_size`
+只统计本轮生成 token，不把 prefix 算进去，避免把 prompt 里的选择表误当成重复历史。
 `eval.py` / `probe.py` 通过 `LocalQwen3VLInstructEngine(repetition_penalty=1.05)`
 走同一类 logits 后处理，避免训练、评测自由生成口径漂移。
 
@@ -1143,18 +1187,18 @@ teacher-forced loss + backward，避免在 DDP 主循环里插入额外生成或
 
 ### 8.4 E4 单元 / 烟雾测试
 
-- `check_loss_mask.py`：实际覆盖 6 路 loss（L_A1 / L_A2 / L_S2 / L_A3 /
+- `check_loss_mask.py`：实际覆盖 7 路 loss（L_A1 / L_RS1 / L_A2 / L_S2 / L_A3 /
   L_S3_status / L_S3_subgoal）的 token mask 正确性：分析段 token 集 / 值 token 集
   互不重叠，per-token normalize 分母对得上 train.py 里 `_append_token_ids` 的
   位置切分逻辑。
 - `test_memory_update.py`：纯 Python 模拟外循环，覆盖：
-  - `init_memory` 的 `P_INIT_CORRECT` 概率初始化（默认 0.5，同时覆盖 `0.0` / `1.0` 边界）；
+  - `init_memory` 的 `P_INIT_CORRECT` 联合概率初始化（默认 0.7，同时覆盖 `0.0` / `1.0` 边界）；
   - Phase A `update_memory_after_step2` 的 4 种翻转组合；
-  - Phase B 弱纠偏（D2 拍板）：scene == GT 时 noop、status/subgoal 跨帧保留；
-    scene != GT 时走 scene-change reset；
+  - Phase B 弱纠偏（D2 / D22 / D27 拍板）：road_structure / scene / status /
+    subgoal 分层拉回 GT chain；已等于 GT 的字段保持 noop；
   - scene 翻转 → status = canonical init event、subgoal 重置；
-  - step3 触发条件正确（直接调用 `should_trigger_step3` helper，与翻转无关、
-    只看 `memory.scene_after_step2 == gt_scene`）。
+  - step2 / step3 触发条件正确（直接调用 `should_trigger_step2` /
+    `should_trigger_step3` helper，与翻转无关，只看更新后的 memory 是否命中 GT）。
 - `test_kv_reuse.py`：构造一条 mini episode，对比"step1/2/3 复用 KV vs 全量
   重 prefill"的 student logits 数值一致（误差 < 1e-5）。
 - `test_gt_leak_filter.py`：构造泄露 / 不泄露样例，验证正则后处理正确跳过
@@ -1317,11 +1361,12 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
    不带 KV cache 跨帧。`ego_to_goal_xy` 必须来自 `meta["next_target_points"][-1]`
    转 ego；meta 缺失 / 解析失败一律 `raise RuntimeError`，不允许静默 fallback。
    实现按帧末预取下一帧坐标（C3 修正），不再用“帧首重算”描述。
-7. **Memory 初始化（D3v4 拍板，覆盖 v3 D3）**：Phase A 初始 scene 按概率
-   `P_INIT_CORRECT`（默认 0.5）等于 GT，否则从 `SCENARIO_LABELS \ {gt_scene}` 均匀
-   随机；status=canonical init event；subgoal=该 scene 的第一个事件。理由见
+7. **Memory 初始化（D3v4 / D22 / D27 拍板，覆盖 v3 D3）**：Phase A 初始
+   road_structure 按概率 `P_INIT_CORRECT`（默认 0.7）等于 GT 桶；scene 在对应桶内
+   联合采样；status=canonical init event；subgoal=该 scene 的第一个事件。理由见
    §3.2：v3 D3 强制 100% 非 GT 让 student 在 Phase A 第一帧就被怼到最难的"翻转"任务，
-   收敛慢；50/50 让 Phase A 同时承担"翻转"和"保持"监督，更平滑。`P_INIT_CORRECT=0.0`
+   收敛慢；0.7 默认让 Phase A 同时承担"翻转"和"保持"监督，并补偿 layer-1 门控触发率。
+   `P_INIT_CORRECT=0.0`
    可以退回 v3 行为。**v3 D3 决议作废**，旧的"Phase A 100% 翻转监督、Phase B 100%
    保持监督"分工不再适用。
 8. **Step 3 触发条件**：`should_trigger_step3(memory_scene_after_step2, gt_scene)`
@@ -1356,10 +1401,11 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
     一次，不互相共享 KV。理由：LoRA on/off 的 K/V 数值不同，强行共用会让
     teacher 被 LoRA 污染，OPD 退化为自蒸馏。collector 内部仍保留 v3 这套 KV 复用
     路径；trainer 重 prefill 一遍（单帧 ~2 秒，远不是瓶颈）。
-17. **Phase B 噪声扰动（D17v4 新增）**：Phase B 帧首在 `force_to_gt_scene` 后，以
-    概率 `PHASE_B_NOISE_PROB`（默认 0.15）将 scene 改为随机非 GT、status/subgoal 跟着
-    重置。详见 §3.3。`noise_injected` 标志写入 trajectory 供事后审计。`PHASE_B_NOISE_PROB=0`
-    可退回 v3 行为。
+17. **Phase B 噪声扰动（D17v4 / D23 扩展）**：Phase B 帧首在
+    `force_memory_to_gt_chain` 后，以概率 `PHASE_B_NOISE_PROB`（默认 0.15）将 scene
+    改为当前 road_structure 桶内的随机非 GT，status/subgoal 跟着重置。详见 §3.3。
+    `noise_injected` 标志写入 trajectory 供事后审计。`PHASE_B_NOISE_PROB=0`
+    可退回无扰动行为。
 18. **LoRA snapshot 与 collector 同步（D18v4 新增）**：trainer rank0 每
     `SNAPSHOT_EVERY_STEPS`（默认 1000）写一份 `latest_lora/v_{step}/` + 更新
     `current_version.txt`；collector 每 `REFRESH_EVERY_EPS`（默认 4）条 episode 或
@@ -1372,6 +1418,27 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 20. **终止协议（D20v4 新增）**：learner 跑到 `--max-steps` 后写 `$OUTPUT_DIR/STOP`
     哨兵，collectors 每条 episode 结束查哨兵存在则退出（不强 kill 让 pending 写完），
     `launch_offpolicy.sh` 监控全部 collector 退出后收尾。
+21. **SCENE_CHOICES 分层（D21）**：42 个 scene 按视觉道路结构分成 6 桶
+    （JUNCTION / HIGHWAY_MERGE / ROADSIDE_HAZARD / PARKING_AREA / VRU_CROSSING /
+    OPEN_ROAD_DYNAMICS）。`ROAD_STRUCTURE_LABELS` 与 `SCENE_TO_ROAD_STRUCTURE`
+    放在 `sft_v4/prompts.py`（不动 `prompt_pipeline.py`）。详见 §12.1。
+22. **联合 memory 初始化（D22）**：road_structure 与 scene 不解耦——init memory
+    必然内部自洽，错 road_structure 时 scene 强制从该错桶选。详见 §12.2。
+23. **Phase B 噪声仅扰 scene（D23）**：layer-1 始终保持 = GT（叠加 D27 的 Phase B
+    弱纠偏强制拉回）。详见 §12.2 末段。
+24. **三步触发链对称（D24）**：`should_trigger_step2 = memory.road_structure(after
+    step1) == gt_road_structure`，`should_trigger_step3` 维持原义。step2 的
+    SCENE_CHOICES 来自触发后的 `memory.road_structure`；因触发前已要求它等于 GT 桶，
+    teacher-forced target 与学生候选表保持一致。详见 §12.4。
+25. **L_RS1 权重 = 1.0（D25）**：与 L_SC / L_ST / L_SG 平权，layer-1 是后续触发
+    的门。如训练后期 layer-1 已 saturate 而 scene 学不动，再下调到 0.5。
+26. **Step 1 输出结构（D26）**：保留 2 句"不引用 memory 的纯视觉描述"前缀 + 1 句
+    KEEP/CHANGE 论证 + 一行 `ROAD_STRUCTURE: <name>`；loss 三段独立 mask 与
+    加权。详见 §12.3 / §12.5。
+27. **p_init_correct 默认 0.7（D27）**：联合初始化下补偿 step3 触发率被 layer-1
+    拖累的腰斩问题。配套 Phase B 帧首 `force_memory_to_gt_chain` 先拉回 layer-1=GT，
+    使 Phase B 阶段 step3 触发率回到与现有 v4 持平。`p_init_correct=0.0`
+    保留为退回 v3 行为的对照实验入口。
 
 ---
 
@@ -1385,3 +1452,285 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
   闭环时 memory 用类似 §3 的方式实时维护（初始 memory 用启动时刻的 keyframe
   反查，或仍用随机初始 + 让模型自纠错）。这部分细节落到 eval_carla 侧未来的
   扩展文档，不在本 PLAN 范围内。
+
+---
+
+## 12. 设计（已落地）：SCENE_CHOICES 分层 + Step 1 ROAD_STRUCTURE 选择
+
+> **状态：D21~D27 已拍板并实现。** §12.6 第 5 点的生成端兜底
+> （min_new_tokens 软闸门 + no_repeat_ngram_size + repetition_penalty 范围）
+> 已与分层重构同步落地。
+
+### 12.0 动机
+
+通过 [`inspect_teacher.py`](inspect_teacher.py) 的实测报告（详见
+[SFT_V4_RUN.md §7](SFT_V4_RUN.md)），定位到三类问题：
+
+1. **老师 step2/3 输出 degenerate 成 "The left. The right." 循环**——根因是
+   完整 42 行 SCENE_CHOICES 把 prompt 推到 ~1500 token，base Qwen3-VL-4B-Instruct
+   注意力被稀释，加上 `min_new_tokens` 闸门强行延长生成 → 贪心 argmax 进入复读。
+2. **学生 step2 必须在 42 个 scene 里精挑** → 一上来错的概率远大于对的，前期
+   `should_trigger_step3` 几乎不命中，status/subgoal 监督密度过低。
+3. **小模型一次性吞下 "完整 42 选 1"** 不符合人类决策路径——人类先看"是十字
+   路口还是高速合流"，再在那个大类里挑。
+
+### 12.1 分层结构（6 桶定稿）
+
+把 42 个 scene 按**视觉道路结构**分成 6 桶。判定依据：4 张 stitched RGB 里能直接
+看到的道路几何 / 交通形态。
+
+| Layer-1 token | 描述（写进 prompt 用） | 包含的 Layer-2 scene |
+|---|---|---|
+| `JUNCTION` | Intersection / crossroads / T-shape; turn or yield at a meeting of multiple road directions, with or without traffic signal. | BlockedIntersection, CrossJunctionDefectTrafficLight, NonSignalizedJunctionLeftTurn, NonSignalizedJunctionLeftTurnEnterFlow, NonSignalizedJunctionRightTurn, OppositeVehicleRunningRedLight, OppositeVehicleTakingPriority, PriorityAtJunction, RedLightWithoutLeadVehicle, SignalizedJunctionLeftTurn, SignalizedJunctionLeftTurnEnterFlow, SignalizedJunctionRightTurn, T_Junction, VehicleTurningRoute, VehicleTurningRoutePedestrian (15) |
+| `HIGHWAY_MERGE` | Multi-lane highway or interurban road; merging into / exiting from a fast lane, or reacting to a cut-in vehicle. | EnterActorFlow, EnterActorFlowV2, HighwayCutIn, HighwayExit, InterurbanActorFlow, InterurbanAdvancedActorFlow, MergerIntoSlowTraffic, MergerIntoSlowTrafficV2, StaticCutIn (9) |
+| `ROADSIDE_HAZARD` | Otherwise normal straight / curved road, but a static or quasi-static hazard (accident, construction, parked vehicle, side-lane object) sits adjacent to the lane. | Accident, AccidentTwoWays, ConstructionObstacle, ConstructionObstacleTwoWays, HazardAtSideLane, HazardAtSideLaneTwoWays, ParkedObstacle, ParkedObstacleTwoWays (8) |
+| `PARKING_AREA` | Parking lot / parking-area environment; vehicle entering, exiting, or interacting with parked traffic and pedestrians around parked cars. | ParkingCrossingPedestrian, ParkingCutIn, ParkingExit, VehicleOpensDoorTwoWays (4) |
+| `VRU_CROSSING` | Pedestrian, cyclist or other dynamic object crossing the lane on a normal road segment. | CrossingBicycleFlow, DynamicObjectCrossing, PedestrianCrossing (3) |
+| `OPEN_ROAD_DYNAMICS` | Open road, no special structure; ego stability or lead-vehicle behavior is the dominant cue. | ControlLoss, HardBreakRoute, InvadingTurn (3) |
+
+合计 15 + 9 + 8 + 4 + 3 + 3 = 42 ✓。最大桶 15 项（JUNCTION），prompt 收窄到原来
+~36%；最小桶 3 项，prompt 收窄到 ~7%；平均 7 项/桶。
+
+> **D21 拍板：6 桶**。5 桶丢失 ControlLoss / HardBreakRoute / InvadingTurn 与
+> 路边异物视觉特征的区分；7 桶在 signalized vs non-signalized 上加复杂度收益不大。
+
+新增两份只读字典，放在 `sft_v4/prompts.py`（不动 `prompt_pipeline.py`，把 v4 专属
+分层隔离开）：
+
+```python
+ROAD_STRUCTURE_LABELS: Dict[str, str] = {
+    "JUNCTION": "Intersection or crossroads with traffic from multiple directions",
+    "HIGHWAY_MERGE": "Multi-lane / highway flow, merge or exit",
+    "ROADSIDE_HAZARD": "Roadside obstacle, accident or construction on a normal road",
+    "PARKING_AREA": "Parking lot or parking-related vehicle interaction",
+    "VRU_CROSSING": "Pedestrian, cyclist or dynamic object crossing the lane",
+    "OPEN_ROAD_DYNAMICS": "Open road; ego stability or lead-vehicle behavior",
+}
+
+SCENE_TO_ROAD_STRUCTURE: Dict[str, str] = {
+    "BlockedIntersection": "JUNCTION",
+    ...  # 42 entries, derived from the table above
+}
+```
+
+`scene_choices_block_for(structure)` 渲染只列该桶 layer-2 的 SCENE_CHOICES。
+
+### 12.2 Memory 字段扩展
+
+`Memory` dataclass 新增 `road_structure: str` 字段；`format_text()` 在
+`BELIEVED_SCENE` 上方插一行：
+
+```
+[MEMORY]
+BELIEVED_ROAD_STRUCTURE: JUNCTION
+  Description: Intersection or crossroads with traffic from multiple directions
+BELIEVED_SCENE: SignalizedJunctionLeftTurn
+  Description: Left turn at signalized junction
+  EventSequence: ...
+...
+```
+
+`init_memory(p_init_correct=0.7)` 用同一概率联合采样：
+- 概率 p：road_structure = GT 桶，scene 在该 GT 桶内按 50% 正确率挑（GT scene 或
+  其它同桶 scene 之一）；
+- 概率 1-p：road_structure 从其它 5 桶里均匀随机；scene 必须从该错桶内的
+  layer-2 candidates 里均匀挑（**memory 内部自洽**——不会出现 "JUNCTION + Accident"
+  这种矛盾配置）。
+
+status/subgoal 始终按 scene 的 canonical init + first subgoal 初始化。
+
+> **D22 拍板：联合初始化**。Memory 始终内部自洽，更接近真实推理路径（人不会同时
+> 相信"是路口"和"是事故"）。
+>
+> **D27 拍板：p_init_correct 默认提到 0.7**。配套缓解 step3 触发率被腰斩的问题：
+> Phase A 内三层联合命中率从 0.5×0.5=0.25 抬到 0.7×0.5=0.35（layer-1 单独 0.7，
+> scene 在 GT 桶内仍是 0.5 错率）；Phase B 弱纠偏后 layer-1 始终 = GT，scene
+> 命中率回到当前水平，step3 触发率不再被 layer-1 拖累。`p_init_correct=0.0`
+> 仍可退回 v3 行为做对照实验。
+
+`update_memory_after_step1(memory, student_road_structure)`：与
+`update_memory_after_step2` 同构。若 layer-1 翻转，连带把 `scene` reset 成
+**新桶的第一个 layer-2 候选**（与 scene-change reset 的语义一致），并把
+status/subgoal 重置成新 scene 的 init + first subgoal。
+
+`force_memory_to_gt_scene`（Phase B 弱纠偏）改名 / 扩展为
+`force_memory_to_gt_chain`，依次拉回 road_structure / scene / status / subgoal，
+保留"== GT 时全 noop"语义。
+
+`inject_phase_b_noise` 维持只扰 `scene`，不扰 `road_structure`。噪声候选限定在当前
+`memory.road_structure` 桶内的非 GT scene，保证 Phase B 弱纠偏后的 memory 仍内部
+自洽；layer-1 由 `force_memory_to_gt_chain` 保持为 GT 桶，scene 错误留给 step2 纠偏。
+
+> **D23 拍板：Phase B 噪声只扰 scene**。layer-1 监督密度由 Phase A 初始
+> `p_init_correct=0.7` + Phase B 帧首"force layer-1=GT"机制保证（参见 D27），
+> 不靠噪声补。
+
+### 12.3 三步内循环改造
+
+| Step | 旧任务 | v4 定稿任务 |
+|---|---|---|
+| 1 | 仅描述视觉，禁 memory / 禁标签；输出 ≤3 句 | 描述视觉 + 选 ROAD_STRUCTURE；**允许读 memory**；输出 = 2 句视觉 + 1 句对 layer-1 KEEP/CHANGE 论证 + 一行 `ROAD_STRUCTURE: <name>` |
+| 2 | 读 memory + 完整 42 行 SCENE_CHOICES → 输出 SCENE | 读 memory + **只列预测桶下的 layer-2** → 输出 SCENE |
+| 3 | 不变 | 不变 |
+
+**Step 1 prompt（学生 / 老师）**：
+
+学生 prompt 结构如下（真实文本以 `prompts.py` 为准）：
+
+```
+{memory.format_text()}
+
+[ROAD_STRUCTURE_CHOICES]
+- JUNCTION: ...
+- HIGHWAY_MERGE: ...
+- ROADSIDE_HAZARD: ...
+- PARKING_AREA: ...
+- VRU_CROSSING: ...
+- OPEN_ROAD_DYNAMICS: ...
+[/ROAD_STRUCTURE_CHOICES]
+
+[STEP1]
+4 images are ordered oldest to newest; the last image is now.
+Write 2 short first-person sentences (≤40 tokens) describing visible road
+geometry / agents / lighting. Then write 1 sentence judging whether
+BELIEVED_ROAD_STRUCTURE matches what you see. Finally output exactly one
+line by copying one option name verbatim:
+ROAD_STRUCTURE: <name>
+```
+
+老师 prompt 同 step2/3 的 KEEP/CHANGE 设计：传 verdict + 该桶的自然语言描述，
+禁止输出标签行、禁止字面 token，要求 2 句视觉 + 1 句 verdict 论证（共 ~50-80
+token，比当前 step2/3 收紧）。
+
+**Step 2 prompt 收窄**：
+
+```
+[SCENE_CHOICES] under BELIEVED_ROAD_STRUCTURE = {memory.road_structure}
+- {scene_a}: ...
+- {scene_b}: ...
+... (该桶 layer-2，平均 7 项)
+[/SCENE_CHOICES]
+```
+
+由于 SCENE_CHOICES 从 42 行降到平均 7 行，老师 step2 prompt 应从 ~1500 token 收到
+~600-700 token，degenerate 风险大幅下降。
+
+### 12.4 触发链：step1 错 → 跳 step2/3
+
+仿照现有 `should_trigger_step3`：
+
+- `should_trigger_step2(memory_road_structure_after_step1, gt_road_structure) → bool`
+  只有 step1 后 `memory.road_structure == gt_road_structure` 才进 step2。
+- `should_trigger_step3` 维持原义，但前提是 step2 已经跑过。
+- 若 step1 layer-1 翻车 → step2 / step3 全跳过，loss 仍计 step1 的两段
+  （ROAD_STRUCTURE 离散 + 分析）。
+
+> **D24 拍板：A**。step2 SCENE_CHOICES 来自触发后的 `memory.road_structure`；由于
+> step2 只在 layer-1 命中 GT 桶时触发，teacher-forced target 里的 `SCENE: <gt>`
+> 一定在学生看到的候选表里，监督信号始终一致。错 layer-1 直接跳 step2/step3，
+> loss 只计 step1 两段（L_A1 + L_RS1）。
+
+### 12.5 损失结构
+
+| Loss 项 | 内容 | 权重 | 备注 |
+|---|---|---|---|
+| `L_A1` | step1 老师分析 token CE（per-token mean） | 0.2 | 与现有相同 |
+| `L_RS1` | step1 `ROAD_STRUCTURE: <name>` value token CE | 1.0 | **新增**，与 L_SC 同权重 |
+| `L_A2` | step2 老师分析 token CE | 0.2 | 与现有相同 |
+| `L_SC` | step2 `SCENE: <name>` value token CE | 1.0 | 与现有相同 |
+| `L_A3` | step3 老师分析 token CE（触发时）| 0.2 | 与现有相同 |
+| `L_ST` | step3 `STATUS:` value token CE（触发时）| 1.0 | 与现有相同 |
+| `L_SG` | step3 `SUBGOAL:` value token CE（触发时）| 1.0 | 与现有相同 |
+
+总和 = 0.2 × 3 + 1.0 × 4 = 4.6。TB 必须分项记录 `loss/L_RS1` 与
+`fire_rate/step2` / `fire_rate/step3` 以便监控 layer-1 命中率与 layer-2 触发率。
+
+> **D25 拍板：1.0**。与 L_SC / L_ST / L_SG 平权。layer-1 是后续触发的门，必须优先
+> 学好；如果训练后期 TB 上 `loss/L_RS1` 一直贴地、而 `loss/L_SC` 不下，再考虑
+> 降到 0.5 释放权重给 scene 学习。
+
+### 12.6 prompt 简化总原则（针对 degenerate 问题）
+
+无论 D21~D25 怎么定，**所有老师 / 学生 prompt 都按以下原则重写**：
+
+1. **削冗余指令**：删掉重复出现的 "Do not mention 'ground truth' / 'verdict'"——
+   塞进 SYSTEM_PROMPT 一次即可，每 step 不再复述。
+2. **缩证据清单**：把"5 类视觉证据 + 5 条禁令"压成 2 行短列表。
+3. **降长度要求**：从 "3 to 4 sentences (60-120 tokens)" 调到
+   "2 to 3 short sentences (40-80 tokens)"，与 4B Qwen 实际可写出连贯文本的
+   长度匹配。
+4. **拆 user turn**：原本 step2 / step3 各自 1 个 user turn 含 [MEMORY] +
+   [CHOICES] + [INSTRUCTIONS]，太长。考虑把 [MEMORY] 留在 turn 头、[CHOICES] +
+   [INSTRUCTIONS] 压在 turn 尾，中间留一行空，让模型注意力更易锚定指令。
+5. **生成端兜底**（与 prompt 改动**正交**，必须同步动手）：
+   - `min_new_tokens` 从 32/48/48 降到 24/24/24，且改为软闸门——只在生成长度
+     ≥ MIN 且生成内容里**还没出现一个句号**时继续抑制 EOS；
+   - 加 `no_repeat_ngram_size=3`，阻断 "The left. The right." 这种 3-gram 循环；
+   - `repetition_penalty` 的 `seen_unique` 只算**本轮生成**的 token，不算 prefix。
+
+§12.6 第 5 点是 [SFT_V4_RUN.md §7.8](SFT_V4_RUN.md) 抽检结论里早就识别出的修法，
+现在与分层重构一并写入 PLAN，避免遗漏。
+
+### 12.7 与现有约定的交互
+
+- §3.2 Memory 初始化：默认 `p_init_correct=0.7`，并扩到三层联合采样（D22 / D27）。
+- §3.3 Phase B 弱纠偏：扩成"先拉回 layer-1，再 scene，再 event"，对仍 = GT 的
+  字段 no-op（与现有 D2 决议一致）。
+- §4.5 Step 3 触发：维持现状，但前提是 step2 已经跑（D24）。
+- §5 损失权重：扩到 7 项（§12.5）。
+- §6.1 Teacher 超参：降 min_new_tokens、加 no_repeat_ngram_size、调
+  repetition_penalty 范围（§12.6.5）。
+- §7 数据 / IO：`build_dataset.py` 不需要改 jsonl schema——`gt_road_structure`
+  在训练时从 `SCENE_TO_ROAD_STRUCTURE[ep.gt_scene]` 现算即可，不必落盘。
+- §10 已确认决策：D21~D27 已并入当前实现，不回滚任何既有决策；与 D8（step3
+  触发条件）完全对称扩展。
+
+### 12.8 决策速查表（D21~D27 全部锁定）
+
+| 决策点 | 内容 | 锁定值 |
+|---|---|---|
+| D21 | 分桶数（5 / 6 / 7） | **6** |
+| D22 | road_structure 与 scene 是否联合初始化 | **联合**（自洽 memory）|
+| D23 | Phase B 噪声是否扰 road_structure | **不扰**（仅扰 scene）|
+| D24 | step2 触发条件 | **A**：layer-1 命中才触发，SCENE_CHOICES 来自触发后的 memory road_structure（此时等于 GT 桶） |
+| D25 | L_RS1 权重 | **1.0**（训后视情况下调）|
+| D26 | Step 1 是否保留纯视觉描述前缀 | **保留**：2 句视觉 + 1 句 verdict 论证 + 标签，loss 三段独立计 |
+| D27 | step3 触发率腰斩对策 | **p_init_correct 默认 0.7**（联合初始化下三层联合命中 0.7×0.5=0.35，Phase B 弱纠偏后回升）|
+
+### 12.9 实施清单（D21~D27 已落地）
+
+1. `[x] sft_v4/prompts.py`：
+   - 新增 `ROAD_STRUCTURE_LABELS`（6 项）+ `SCENE_TO_ROAD_STRUCTURE`（42 项 1:1 映射）；
+   - 新增 `road_structure_choices_block()` 与 `scene_choices_block_for(structure)`；
+   - `Memory` 加 `road_structure` 字段、`format_text()` 多渲染一行；
+   - 新增 `build_step1_user_prompt`（学生）/ `build_step1_teacher_prompt` /
+     `build_step1_teacher_target` 三件套；
+   - 改 `build_step2_*` 用 `scene_choices_block_for(memory.road_structure)`；
+   - 新增 `should_trigger_step2`；扩 `update_memory_after_step1` /
+     `force_memory_to_gt_chain`；
+   - `init_memory` 改成联合采样，默认 `p_init_correct=0.7`；
+   - `_kv_generate_text` 加 `no_repeat_ngram_size=3` 选项与软 min_new_tokens 闸门
+     （达到 MIN 且生成里出现至少 1 个句号即允许 EOS），`seen_unique` 只算本轮
+     生成 token。
+2. `[x] sft_v4/train.py` / `sft_v4/collect.py`：
+   - 三步循环 → 仍是三步，但 step1 多生成 ROAD_STRUCTURE 标签 + memory 更新；
+   - `should_trigger_step2` / `should_trigger_step3` 链式判断；
+   - loss 加 `L_A1` / `L_RS1`（step1 分析 + 标签），其余 L_A2/L_SC/L_A3/L_ST/L_SG
+     维持，但 `L_A2`/`L_SC` 仅在 step2 触发时计，`L_A3`/`L_ST`/`L_SG` 仅在 step3
+     触发时计；
+   - TB scalars 增加 `loss/L_A1` / `loss/L_RS1`、`fire_rate/step2` /
+     `fire_rate/step3`、`accuracy/road_structure` 等监控项。
+3. `[x] sft_v4/replay.py`：trajectory schema bump 到 `sft_v4_rollout_v2`，旧
+   `sft_v4_rollout_v1` 文件会被 `validate_trajectory` 拒收，并由 learner 移到
+   `failed/`。
+4. `[x] sft_v4/eval.py` / `sft_v4/probe.py`：三步同步加 ROAD_STRUCTURE 解析与统计；
+   eval 报告增加 `road_structure_acc` / `step2_fire_rate` / `step3_fire_rate`。
+5. `[x] sft_v4/inspect_teacher.py`：3 种 memory 模式扩成 5 种
+   （`all_keep` / `rs_change` / `scene_change_same_rs` / `event_change` /
+   `scene_change_cross_rs`），覆盖完整状态机分支。
+6. `[x] sft_v4/test_memory_update.py` / `test_gt_leak_filter.py` / `check_loss_mask.py`：新增
+   road_structure 字段测试 + 联合初始化测试；`test_memory_update.py` 额外覆盖
+   replay schema v2 的 step2 门控契约（step2-skip 合法、step2-fired 必须带
+   `memory_after_step1`）。
+7. `[x] SFT_V4_RUN.md` §1 / §3 / §7 同步更新 memory 字段渲染示例、
+   `--p-init-correct` 默认值与 inspect_teacher 5 模式文档。

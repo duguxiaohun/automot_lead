@@ -2,13 +2,13 @@
 
 覆盖：
 
-- ``init_memory`` 默认 50% 初始正确，并可用 ``p_init_correct=0`` 退回 v3 必错口径；
-- ``update_memory_after_step2`` 的 4 种翻转组合；
+- ``init_memory`` 默认 0.7 layer-1 正确率，且 road_structure / scene 联合自洽；
+- ``update_memory_after_step1`` 的 layer-1 翻转与整链 reset；
+- ``update_memory_after_step2`` 的同桶翻转、跨桶拒绝与非法过滤；
 - ``update_memory_after_step3`` 的合法/非法 event 过滤；
-- ``force_memory_to_gt_scene`` 的弱纠偏语义（D2）：scene == GT 时全 noop，
+- ``force_memory_to_gt_chain`` 的弱纠偏语义：road_structure / scene == GT 时全 noop，
   status/subgoal 必须跨帧保留；scene != GT 时走 scene-change reset；
-- ``should_trigger_step3`` 的触发条件（C4）：只看 step2 后 memory.scene 是否 = GT，
-  与是否发生过翻转无关。
+- ``should_trigger_step2`` / ``should_trigger_step3`` 的分层触发条件。
 """
 
 from __future__ import annotations
@@ -27,26 +27,34 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 
 from qwen3vl_local.prompt_pipeline import SCENARIO_LABELS
 from qwen3vl_local.sft_v4.build_dataset import compute_delta
+from qwen3vl_local.sft_v4 import replay
 from qwen3vl_local.sft_v4.prompts import (
     Memory,
+    ROAD_STRUCTURE_TO_SCENES,
+    SCENE_TO_ROAD_STRUCTURE,
     first_subgoal,
+    force_memory_to_gt_chain,
     force_memory_to_gt_scene,
+    get_road_structure,
     get_full_sequence,
     inject_phase_b_noise,
     initial_event,
     init_memory,
+    should_trigger_step2,
     should_trigger_step3,
+    update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
 )
 
 
 def _check_init_probability_modes() -> None:
-    """D3v4：init_memory 支持 50% 正确，也能显式退回 0% / 100% 两端。"""
+    """D22/D27：init_memory 联合采样，内部始终自洽，默认 p=0.7。"""
 
     if len(SCENARIO_LABELS) <= 1:
         return  # 单场景退化，无法排除
     gt = "Accident"
+    gt_rs = get_road_structure(gt)
     always_ok = init_memory(
         run_id="run_ok",
         sub_scenario_id="sub_ok",
@@ -55,7 +63,8 @@ def _check_init_probability_modes() -> None:
         gt_scene=gt,
         p_init_correct=1.0,
     )
-    assert always_ok.scene == gt
+    assert always_ok.road_structure == gt_rs
+    assert SCENE_TO_ROAD_STRUCTURE[always_ok.scene] == always_ok.road_structure
     for i in range(16):
         always_wrong = init_memory(
             run_id=f"run_{i}",
@@ -65,7 +74,8 @@ def _check_init_probability_modes() -> None:
             gt_scene=gt,
             p_init_correct=0.0,
         )
-        assert always_wrong.scene != gt, f"p_init_correct=0 在 i={i} 抽中了 GT scene={gt}"
+        assert always_wrong.road_structure != gt_rs, f"p_init_correct=0 在 i={i} 抽中了 GT road_structure={gt_rs}"
+        assert SCENE_TO_ROAD_STRUCTURE[always_wrong.scene] == always_wrong.road_structure
     seen = {
         init_memory(
             run_id=f"mix_{i}",
@@ -74,11 +84,43 @@ def _check_init_probability_modes() -> None:
             ego_to_goal_y=0.0,
             gt_scene=gt,
             p_init_correct=0.5,
-        ).scene
+        ).road_structure
         for i in range(64)
     }
-    assert gt in seen, "p_init_correct=0.5 没有覆盖初始正确样本"
-    assert any(scene != gt for scene in seen), "p_init_correct=0.5 没有覆盖初始错误样本"
+    assert gt_rs in seen, "p_init_correct=0.5 没有覆盖 layer-1 初始正确样本"
+    assert any(rs != gt_rs for rs in seen), "p_init_correct=0.5 没有覆盖 layer-1 初始错误样本"
+
+
+def _check_step1_update_and_trigger() -> None:
+    """D24：step1 更新 ROAD_STRUCTURE，翻转时 reset scene/status/subgoal。"""
+
+    gt = "Accident"
+    gt_rs = get_road_structure(gt)
+    other_rs = next(rs for rs in ROAD_STRUCTURE_TO_SCENES if rs != gt_rs)
+    base = Memory(
+        road_structure=gt_rs,
+        scene=gt,
+        status=initial_event(gt),
+        subgoal=first_subgoal(gt),
+        ego_to_goal_x=0.0,
+        ego_to_goal_y=0.0,
+    )
+
+    keep = update_memory_after_step1(base, student_road_structure=gt_rs)
+    assert keep.road_structure == gt_rs
+    assert keep.scene == gt
+    assert should_trigger_step2(memory_road_structure_after_step1=keep.road_structure, gt_road_structure=gt_rs)
+
+    flipped = update_memory_after_step1(base, student_road_structure=other_rs)
+    assert flipped.road_structure == other_rs
+    assert flipped.scene == ROAD_STRUCTURE_TO_SCENES[other_rs][0]
+    assert flipped.status == initial_event(flipped.scene)
+    assert flipped.subgoal == first_subgoal(flipped.scene)
+    assert not should_trigger_step2(memory_road_structure_after_step1=flipped.road_structure, gt_road_structure=gt_rs)
+
+    ignored = update_memory_after_step1(base, student_road_structure="NOT_A_BUCKET")
+    assert ignored.road_structure == base.road_structure
+    assert ignored.scene == base.scene
 
 
 def _check_delta_formula_allows_zero() -> None:
@@ -93,6 +135,7 @@ def _check_scene_flip_branches() -> None:
     """update_memory_after_step2 的 4 种 (合法/非法) × (翻转/保持) 分支。"""
 
     base = Memory(
+        road_structure=get_road_structure("Accident"),
         scene="Accident",
         status=initial_event("Accident"),
         subgoal=first_subgoal("Accident"),
@@ -107,11 +150,17 @@ def _check_scene_flip_branches() -> None:
     assert m1.subgoal == base.subgoal
 
     # 2) 输出合法的不同 scene → 翻转，status/subgoal 重置
-    other = next(s for s in SCENARIO_LABELS if s != "Accident")
+    other = next(s for s in ROAD_STRUCTURE_TO_SCENES[base.road_structure] if s != "Accident")
     m2 = update_memory_after_step2(base, student_scene=other)
     assert m2.scene == other
     assert m2.status == initial_event(other)
     assert m2.subgoal == first_subgoal(other)
+
+    # 2b) 输出跨桶 scene → 忽略，保持内部自洽
+    cross_bucket = next(s for s in SCENARIO_LABELS if SCENE_TO_ROAD_STRUCTURE[s] != base.road_structure)
+    m2b = update_memory_after_step2(base, student_scene=cross_bucket)
+    assert m2b.scene == base.scene
+    assert m2b.road_structure == base.road_structure
 
     # 3) 非法 scene → 忽略
     m3 = update_memory_after_step2(base, student_scene="NotExistsScene")
@@ -129,6 +178,7 @@ def _check_step3_update() -> None:
     scene = "Accident"
     seq = get_full_sequence(scene)
     base = Memory(
+        road_structure=get_road_structure(scene),
         scene=scene,
         status=initial_event(scene),
         subgoal=first_subgoal(scene),
@@ -149,36 +199,46 @@ def _check_step3_update() -> None:
 
 
 def _check_phase_b_force_helper() -> None:
-    """D2：Phase B 弱纠偏。scene == GT 全 noop；scene != GT 才 reset。"""
+    """D23/D27：Phase B 弱纠偏。road_structure/scene == GT 全 noop；错层才 reset。"""
 
     gt = "Accident"
-    other = next(s for s in SCENARIO_LABELS if s != gt)
+    gt_rs = get_road_structure(gt)
+    other_rs = next(rs for rs in ROAD_STRUCTURE_TO_SCENES if rs != gt_rs)
+    other = ROAD_STRUCTURE_TO_SCENES[other_rs][0]
 
     # (a) scene 已等于 GT，status/subgoal 已经被 step3 推进过 → 必须保留
     seq = get_full_sequence(gt)
     advanced_status = seq[1] if len(seq) > 1 else seq[0]
     advanced_subgoal = seq[2] if len(seq) > 2 else seq[-1]
     mem_ok = Memory(
+        road_structure=gt_rs,
         scene=gt,
         status=advanced_status,
         subgoal=advanced_subgoal,
         ego_to_goal_x=5.0,
         ego_to_goal_y=-1.0,
     )
-    forced_ok = force_memory_to_gt_scene(mem_ok, gt_scene=gt)
+    forced_ok = force_memory_to_gt_chain(mem_ok, gt_road_structure=gt_rs, gt_scene=gt)
     assert forced_ok.scene == gt
+    assert forced_ok.road_structure == gt_rs
     assert forced_ok.status == advanced_status, "Phase B 在 scene==GT 时不应重置 status"
     assert forced_ok.subgoal == advanced_subgoal, "Phase B 在 scene==GT 时不应重置 subgoal"
 
-    # (b) scene 与 GT 不一致 → 走 scene-change reset
+    # 兼容旧 API 仍委托给三层 helper
+    forced_ok_legacy = force_memory_to_gt_scene(mem_ok, gt_scene=gt)
+    assert forced_ok_legacy.road_structure == gt_rs
+
+    # (b) road_structure 与 GT 不一致 → 先拉回 layer-1，再走 scene-change reset
     mem_bad = Memory(
+        road_structure=other_rs,
         scene=other,
         status=initial_event(other),
         subgoal=first_subgoal(other),
         ego_to_goal_x=0.0,
         ego_to_goal_y=0.0,
     )
-    forced_bad = force_memory_to_gt_scene(mem_bad, gt_scene=gt)
+    forced_bad = force_memory_to_gt_chain(mem_bad, gt_road_structure=gt_rs, gt_scene=gt)
+    assert forced_bad.road_structure == gt_rs
     assert forced_bad.scene == gt
     assert forced_bad.status == initial_event(gt)
     assert forced_bad.subgoal == first_subgoal(gt)
@@ -188,9 +248,11 @@ def _check_phase_b_noise_helper() -> None:
     """D17v4：Phase B 噪声可关闭；命中时改成非 GT scene 并重置 event。"""
 
     gt = "Accident"
+    gt_rs = get_road_structure(gt)
     if len(SCENARIO_LABELS) <= 1:
         return
     base = Memory(
+        road_structure=gt_rs,
         scene=gt,
         status=initial_event(gt),
         subgoal=first_subgoal(gt),
@@ -207,6 +269,8 @@ def _check_phase_b_noise_helper() -> None:
     noisy, injected = inject_phase_b_noise(base, gt_scene=gt, rng=random.Random(0), prob=1.0)
     assert injected is True
     assert noisy.scene != gt
+    assert noisy.road_structure == gt_rs
+    assert SCENE_TO_ROAD_STRUCTURE[noisy.scene] == gt_rs
     assert noisy.status == initial_event(noisy.scene)
     assert noisy.subgoal == first_subgoal(noisy.scene)
     assert noisy.ego_to_goal_x == base.ego_to_goal_x
@@ -232,16 +296,86 @@ def _check_should_trigger_step3() -> None:
     assert should_trigger_step3(memory_scene_after_step2=gt, gt_scene=gt) is True
 
 
+def _frame_record_for_replay(*, step2_fired: bool, include_memory_after_step1: bool = True) -> dict:
+    """构造最小 v2 trajectory frame，用于 replay schema 回归测试。
+
+    这里故意不读图片、不加载 tokenizer，只验证 jsonl schema 的硬契约：
+    - v2 memory 必须显式带 road_structure；
+    - step2 未触发时允许没有 step2 target；
+    - step2 触发时必须带 memory_after_step1，保证 learner 能复现收窄后的
+      SCENE_CHOICES，而不是偷偷回到帧首 memory。
+    """
+
+    memory = {
+        "road_structure": "ROADSIDE_HAZARD",
+        "scene": "Accident",
+        "status": initial_event("Accident"),
+        "subgoal": first_subgoal("Accident"),
+        "ego_to_goal_xy": [0.0, 0.0],
+    }
+    frame = {
+        "kind": "frame",
+        "frame_idx": 0,
+        "phase": "A",
+        "image_paths": ["dummy.jpg"],
+        "memory_before": memory,
+        "memory_before_frame": memory,
+        "teacher_targets": {
+            "step1": "I see a roadside hazard.\nROAD_STRUCTURE: ROADSIDE_HAZARD",
+            "step2": "The lane is blocked.\nSCENE: Accident" if step2_fired else None,
+            "step3": None,
+        },
+        "student_outputs": {
+            "step1": "I see a roadside hazard.\nROAD_STRUCTURE: ROADSIDE_HAZARD",
+            "step2": "The lane is blocked.\nSCENE: Accident" if step2_fired else None,
+            "step3": None,
+        },
+        "step2_fired": step2_fired,
+        "step3_fired": False,
+        "gt": {
+            "road_structure": "ROADSIDE_HAZARD",
+            "scene": "Accident",
+            "status": initial_event("Accident"),
+            "subgoal": first_subgoal("Accident"),
+        },
+    }
+    if include_memory_after_step1:
+        frame["memory_after_step1"] = memory
+    return frame
+
+
+def _check_replay_schema_v2_step2_gate() -> None:
+    """replay schema v2：step2 跳过是合法样本，step2 触发缺状态则必须拒收。"""
+
+    header = {"schema": replay.SCHEMA, "kind": "header", "frame_count": 1}
+
+    # step1 失败时 step2/step3 都跳过，此时没有 step2 target 是合法的。
+    replay.validate_trajectory([header, _frame_record_for_replay(step2_fired=False)])
+
+    # step2 触发时，learner 必须用 collector 写下来的 memory_after_step1 重放候选表。
+    replay.validate_trajectory([header, _frame_record_for_replay(step2_fired=True)])
+
+    bad = _frame_record_for_replay(step2_fired=True, include_memory_after_step1=False)
+    try:
+        replay.validate_trajectory([header, bad])
+    except ValueError as exc:
+        assert "memory_after_step1" in str(exc)
+    else:
+        raise AssertionError("step2_fired=True but missing memory_after_step1 should be rejected")
+
+
 def main() -> None:
     """跑全部状态机断言，全部通过则打印 ok=True。"""
 
     _check_init_probability_modes()
     _check_delta_formula_allows_zero()
+    _check_step1_update_and_trigger()
     _check_scene_flip_branches()
     _check_step3_update()
     _check_phase_b_force_helper()
     _check_phase_b_noise_helper()
     _check_should_trigger_step3()
+    _check_replay_schema_v2_step2_gate()
 
     print(json.dumps({"ok": True}, ensure_ascii=False, indent=2))
 

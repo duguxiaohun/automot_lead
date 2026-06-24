@@ -66,10 +66,13 @@ from qwen3vl_local.sft_v2.train import (
 )
 from qwen3vl_local.engine import _clone_cache
 from qwen3vl_local.sft_v4.prompts import (
+    DEFAULT_P_INIT_CORRECT,
     DEFAULT_W_ANALYSIS,
+    DEFAULT_W_ROAD_STRUCTURE,
     DEFAULT_W_SCENE,
     DEFAULT_W_STATUS,
     DEFAULT_W_SUBGOAL,
+    SCENE_TO_ROAD_STRUCTURE,
     SYSTEM_PROMPT_V4,
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
@@ -77,6 +80,8 @@ from qwen3vl_local.sft_v4.prompts import (
     TEACHER_MIN_NEW_TOKENS_STEP1,
     TEACHER_MIN_NEW_TOKENS_STEP2,
     TEACHER_MIN_NEW_TOKENS_STEP3,
+    build_step1_teacher_prompt,
+    build_step1_teacher_target,
     build_step1_user_prompt,
     build_step2_student_prompt,
     build_step2_teacher_prompt,
@@ -84,14 +89,19 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step3_student_prompt,
     build_step3_teacher_prompt,
     build_step3_teacher_target,
+    check_gt_leak_road_structure,
     check_gt_leak_scene,
     check_gt_leak_status_subgoal,
-    force_memory_to_gt_scene,
-    should_trigger_step3,
+    force_memory_to_gt_chain,
+    get_road_structure,
     init_memory,
     parse_output,
+    should_trigger_step2,
+    should_trigger_step3,
+    target_spans_road_structure,
     target_spans_scene,
     target_spans_status,
+    update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
     validate_event,
@@ -362,11 +372,11 @@ def _collect_images_from_messages(messages: List[Dict[str, Any]]) -> Optional[Li
     return images or None
 
 
-_LABEL_LINE_RE = re.compile(r"^\s*(SCENE|STATUS|SUBGOAL)\s*:", re.MULTILINE | re.IGNORECASE)
+_LABEL_LINE_RE = re.compile(r"^\s*(ROAD_STRUCTURE|SCENE|STATUS|SUBGOAL)\s*:", re.MULTILINE | re.IGNORECASE)
 
 
 def _analysis_char_end(text: str) -> int:
-    """返回分析段结束位置，即第一条 `SCENE/STATUS/SUBGOAL:` 标签行之前。"""
+    """返回分析段结束位置，即第一条结构化标签行之前。"""
 
     match = _LABEL_LINE_RE.search(text)
     return match.start() if match else len(text)
@@ -468,7 +478,7 @@ def _append_token_ids(
     pending_ids = decoded_ids[:, prefix_ids.shape[1] :]
     feed_ids = torch.cat([pending_ids, suffix_ids], dim=1) if pending_ids.numel() else suffix_ids
     zero = state.next_logits.sum() * 0.0
-    parts = {"analysis": zero, "scene": zero, "status": zero, "subgoal": zero}
+    parts = {"analysis": zero, "road_structure": zero, "scene": zero, "status": zero, "subgoal": zero}
     if feed_ids.shape[1] == 0:
         return state, parts
 
@@ -629,46 +639,96 @@ def _kv_generate_text(
     *,
     repetition_penalty: float = _REPETITION_PENALTY,
     min_new_tokens: int = 0,
+    no_repeat_ngram_size: int = 0,
 ) -> Tuple[str, KVState]:
     """从已有 KVState 贪心生成一段 assistant 文本，并返回生成后的状态。
 
-    框架明确要求 ``do_sample=False`` + ``repetition_penalty=1.05``；这里 argmax 已等价
-    于 do_sample=False，再额外按 repetition_penalty 对前文 token 做惩罚。前文范围
-    取 ``state.decoded_input_ids`` ∪ 已生成 token，与 HF generate 默认行为一致。
+    生成端三重兜底（PLAN §12.6.5）：
 
-    ``min_new_tokens`` 为防早停闸门：在生成数量未达到该下限时，将 EOS / ``<|im_end|>``
-    的 logit 抑制到 ``-inf``，强迫 base Qwen 把完整推理写完。仅用于老师分支，学生
-    自由生成保持 ``min_new_tokens=0`` 不影响。
+    1. **repetition_penalty**（默认 1.05）：HF 风格 logits 后处理。这里**只把本轮生成
+       的 token** 加入 ``seen_unique``——不再混入 prefix 的 system/SCENE_CHOICES 等
+       几千 token，否则惩罚被稀释到等同无效。这样新生成的复读 token 才会被真正压低。
+    2. **min_new_tokens 软闸门**：未达到 MIN 之前抑制 EOS；达到 MIN 后如果生成内容里
+       已经至少出现 1 个句号（`.`/`!`/`?`），就允许 EOS。换句话说：让老师写完整句再停，
+       但不强行喂垃圾凑长度。
+    3. **no_repeat_ngram_size**（默认 0 = 关闭，老师默认开 3）：阻断已经出现过的
+       (n-1)-gram 跟同样的下一 token，让 "The left. The right. The left." 这种
+       3-gram 循环必然在第 4 次时被换 token。
+
+    学生自由生成默认保持 ``min_new_tokens=0`` + ``no_repeat_ngram_size=0``，不影响
+    它自然停的能力——脚本会根据它输出是否含合法标签判断是否更新 memory。
     """
 
     generated: List[torch.Tensor] = []
+    generated_ids: List[int] = []  # 仅用于 no_repeat_ngram 检测，O(N) 内存
     eos_ids = _eos_token_ids(bundle)
     cur = state
     device = cur.next_logits.device
-    seen_unique = torch.unique(cur.decoded_input_ids.reshape(-1).to(device))
+    # PLAN §12.6.5 第 3 点：seen_unique 只算"本轮生成"的 token；prefix 那几千 token
+    # 不再混入，让 repetition_penalty 对真正的复读有效。
+    seen_unique = torch.empty((0,), device=device, dtype=torch.long)
     min_new = max(0, int(min_new_tokens))
+    no_repeat = max(0, int(no_repeat_ngram_size))
     eos_id_tensor: Optional[torch.Tensor] = None
     if min_new > 0 and eos_ids:
         eos_id_tensor = torch.tensor(sorted(eos_ids), device=device, dtype=torch.long)
+    # 句末 token 集合：用于"软 min_new_tokens"——MIN 后看到句号 token 才允许 EOS。
+    period_token_ids: set[int] = set()
+    for piece in (".", "?", "!", ".\n", "!\n", "?\n"):
+        try:
+            ids = bundle.tokenizer(piece, add_special_tokens=False)["input_ids"]
+        except Exception:
+            ids = []
+        if ids:
+            period_token_ids.add(int(ids[-1]))
+    has_period = False
+
     for step in range(max_new_tokens):
         logits = _apply_repetition_penalty(cur.next_logits, seen_unique, repetition_penalty)
-        if eos_id_tensor is not None and step < min_new:
-            # 没到 min_new 前不允许吐 EOS，避免 base Qwen 早停成 "I am." 这种 3~4 token 输出。
+        # 软 min_new_tokens：未达 MIN，或达 MIN 但还没出现句末符号，都禁止 EOS。
+        if eos_id_tensor is not None and (step < min_new or not has_period):
             logits = logits.clone()
             logits.index_fill_(-1, eos_id_tensor, float("-inf"))
+        # no_repeat_ngram：禁止任何与已生成 (n-1)-gram 同前缀的下一 token 出现重复。
+        if no_repeat >= 2 and len(generated_ids) >= no_repeat - 1:
+            banned = _collect_banned_ngram_tokens(generated_ids, no_repeat)
+            if banned:
+                logits = logits.clone() if logits.data_ptr() == cur.next_logits.data_ptr() else logits
+                banned_tensor = torch.tensor(sorted(banned), device=device, dtype=torch.long)
+                logits.index_fill_(-1, banned_tensor, float("-inf"))
         next_token = torch.argmax(logits, dim=-1, keepdim=True)
-        generated.append(next_token)
         token_id = int(next_token.reshape(-1)[0].item())
+        generated.append(next_token)
+        generated_ids.append(token_id)
+        if token_id in period_token_ids:
+            has_period = True
         if token_id in eos_ids:
             break
         cur, _ = _append_token_ids(bundle, cur, next_token)
-        # 把新 token 也纳入 repetition 集合；torch.unique 在已排序集合上插入仍是 O(N)
         seen_unique = torch.unique(torch.cat([seen_unique, next_token.reshape(-1).to(device)], dim=0))
     if not generated:
         return "", cur
     ids = torch.cat(generated, dim=1)
     text = bundle.processor.batch_decode(ids, skip_special_tokens=True)[0].strip()
     return text, cur
+
+
+def _collect_banned_ngram_tokens(generated_ids: List[int], n: int) -> set[int]:
+    """对照已生成 ids 与最后 (n-1) 个 token，返回此刻必须禁止的下一 token 集合。
+
+    例如 generated_ids=[A,B,C,A,B]、n=3：最后 2 个是 (A,B)，历史中 (A,B) 后面跟过 C，
+    所以禁止 C。这是 HF NoRepeatNGramLogitsProcessor 的等价实现。
+    """
+
+    if n < 2 or len(generated_ids) < n - 1:
+        return set()
+    prefix = tuple(generated_ids[-(n - 1):])
+    banned: set[int] = set()
+    # 在过去的全部 n-gram 中扫描：起点 i 到 i+n-1，前 n-1 个与 prefix 匹配则禁第 n 个。
+    for i in range(len(generated_ids) - n + 1):
+        if tuple(generated_ids[i:i + n - 1]) == prefix:
+            banned.add(int(generated_ids[i + n - 1]))
+    return banned
 
 
 def _assistant_loss_from_state(
@@ -711,8 +771,14 @@ def _teacher_generate_kv(
     max_new_tokens: int,
     *,
     min_new_tokens: int = 0,
+    no_repeat_ngram_size: int = 3,
 ) -> Tuple[str, KVState]:
-    """teacher 贪心生成包装：关闭梯度并支持 min_new_tokens 反早停。"""
+    """teacher 贪心生成包装：关闭梯度并启用 §12.6.5 全部三重兜底。
+
+    默认 ``no_repeat_ngram_size=3``——老师贪心 + 强制 min_new_tokens 容易陷入
+    "The left. The right." 这种 3-gram 循环，必须靠 ngram 闸门断开。
+    学生生成保持开关默认关，由 _student_generate_kv 显式不开。
+    """
 
     with torch.no_grad():
         return _kv_generate_text(
@@ -720,6 +786,7 @@ def _teacher_generate_kv(
             state,
             max_new_tokens,
             min_new_tokens=min_new_tokens,
+            no_repeat_ngram_size=no_repeat_ngram_size,
         )
 
 
@@ -736,16 +803,32 @@ def _student_generate_kv(bundle: Any, state: KVState, max_new_tokens: int) -> Tu
 
 @dataclass
 class FrameLossPack:
-    """单帧三步内循环产生的 loss 与诊断标志。"""
+    """单帧三步内循环产生的 7 项 loss 与诊断标志（v4 分层版）。
+
+    7 项 loss（PLAN §12.5）：
+    - ``a1``  : L_A1，step1 老师分析 token CE（权重 0.2）；
+    - ``rs1`` : L_RS1，step1 ROAD_STRUCTURE 标签值 token CE（权重 1.0，D25）；
+    - ``a2``  : L_A2，step2 分析（仅 ``step2_ran=True`` 时非零）；
+    - ``s2``  : L_SC，step2 SCENE 标签（仅 ``step2_ran=True`` 时非零）；
+    - ``a3``  : L_A3，step3 分析（仅 ``step3_ran=True`` 时非零）；
+    - ``s3_status``  / ``s3_subgoal`` : step3 STATUS/SUBGOAL 标签。
+
+    诊断标志：``step2_ran`` / ``step3_ran`` 触发位、``rs_flip`` /``scene_flip``
+    翻转位、各步 GT 泄露位、``phase_a`` 区段位。
+    """
 
     a1: torch.Tensor
+    rs1: torch.Tensor
     a2: torch.Tensor
     s2: torch.Tensor
     a3: torch.Tensor
     s3_status: torch.Tensor
     s3_subgoal: torch.Tensor
+    step2_ran: bool
     step3_ran: bool
+    rs_flip: bool
     scene_flip: bool
+    leak1: bool
     leak2: bool
     leak3: bool
     phase_a: bool
@@ -773,20 +856,27 @@ def iter_episode_loss_packs(
     del max_length  # processor truncation is intentionally not enabled for Qwen image chats.
     run_dir = pathlib.Path(ep.run_dir)
     gx, gy = _load_goal_xy(run_dir, ep.frame_start)
+    gt_road_structure = get_road_structure(ep.gt_scene)
+    p_init = float(getattr(_iter_args(), "p_init_correct", DEFAULT_P_INIT_CORRECT))
     memory = init_memory(
         run_id=ep.run_id,
         sub_scenario_id=f"{ep.run_id}:{ep.anchors[1]}",
         ego_to_goal_x=gx,
         ego_to_goal_y=gy,
         gt_scene=ep.gt_scene,
+        p_init_correct=p_init,
     )
 
     stride = max(1, outer_stride)
     for frame in range(ep.frame_start, ep.frame_end + 1, stride):
         phase_a = _is_phase_a(ep, frame)
         if not phase_a:
-            # Phase B：每帧开始先把 scene 修回 GT，再学习“对的别改”。
-            memory = force_memory_to_gt_scene(memory, gt_scene=ep.gt_scene)
+            # Phase B：每帧开始三层弱纠偏（D23 + D27 配套）。
+            # 先拉回 layer-1=GT 桶（保证 step1 必然命中、step2/step3 触发率不被腰斩），
+            # 再拉回 scene=GT。status/subgoal 没换 scene 时跨帧延续。
+            memory = force_memory_to_gt_chain(
+                memory, gt_road_structure=gt_road_structure, gt_scene=ep.gt_scene
+            )
 
         image_paths = _build_rgb_paths(run_dir, frame)
         try:
@@ -796,147 +886,233 @@ def iter_episode_loss_packs(
             continue
 
         gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
+        memory_before_step1 = memory.copy()
 
-        step1_user = build_step1_user_prompt(len(images))
-        step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
-        step2_teacher_user = build_step2_teacher_prompt(memory, ep.gt_scene)
-        step2_student_user = build_step2_student_prompt(memory)
+        # ============ Step 1：视觉描述 + ROAD_STRUCTURE 判定 ============
+        # 学生 step1 现在吃 memory（D26：2 句视觉 + 1 句 verdict + 标签）；老师同步。
+        step1_student_user = build_step1_user_prompt(len(images), memory=memory_before_step1)
+        step1_teacher_user_text = build_step1_teacher_prompt(memory_before_step1, gt_road_structure)
+        step1_msgs_student = _build_messages_with_images(user_text=step1_student_user, images=images)
+        step1_msgs_teacher = _build_messages_with_images(user_text=step1_teacher_user_text, images=images)
 
-        # Teacher 分支：关闭 LoRA，用 base Qwen 生成 hindsight 分析。
+        # Teacher 分支：全程 disable_adapter（= frozen base Qwen），含 no_repeat_ngram + 软 min。
         teacher_model = bundle.unwrap()
         teacher_was_training = bool(teacher_model.training)
         teacher_model.eval()
         with teacher_model.disable_adapter():
-            teacher_step1_prompt_state = _teacher_start_state(bundle, step1_msgs)
-            teacher_step1, teacher_step1_state = _teacher_generate_kv(
+            # ---- Teacher step1：用 teacher prompt（含 verdict）prefill + 生成分析 ----
+            teacher_step1_prompt_state = _teacher_start_state(bundle, step1_msgs_teacher)
+            raw_teacher_step1, teacher_step1_state = _teacher_generate_kv(
                 bundle,
                 _clone_kv_state(teacher_step1_prompt_state),
                 TEACHER_MAX_NEW_TOKENS_STEP1,
                 min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP1,
             )
-            teacher_step1 = teacher_step1 or "I observe the current driving scene from the images."
-            with torch.no_grad():
-                teacher_step2_prompt_state = _append_user_turn(bundle, teacher_step1_state, step2_teacher_user)
-            raw_teacher_step2, teacher_step2_state = _teacher_generate_kv(
-                bundle,
-                _clone_kv_state(teacher_step2_prompt_state),
-                TEACHER_MAX_NEW_TOKENS_STEP2,
-                min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP2,
-            )
+            raw_teacher_step1 = raw_teacher_step1 or "I look at the road layout in the latest camera frames."
         if teacher_was_training:
             teacher_model.train()
 
-        # Student 自由生成分支：只用于更新 memory，不直接反传。
+        # Student 自由生成：只用于推进 memory，不参与反传。
         student_was_training = bool(bundle.model.training)
         bundle.model.eval()
-        student_step1_prompt_state = _student_start_state(bundle, step1_msgs)
+        student_step1_prompt_state = _student_start_state(bundle, step1_msgs_student)
         student_step1, student_step1_state = _student_generate_kv(
             bundle, _clone_kv_state(student_step1_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP1
         )
-        student_step1 = student_step1 or teacher_step1
-        with torch.no_grad():
-            student_step2_prompt_state = _append_user_turn(bundle, student_step1_state, step2_student_user)
-        raw_student_step2, student_step2_state = _student_generate_kv(
-            bundle, _clone_kv_state(student_step2_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP2
-        )
+        student_step1 = student_step1 or raw_teacher_step1
         if student_was_training:
             bundle.model.train()
 
-        # 真正的 step1 梯度：student prompt state + teacher 文本 target。
+        # ============ Step 1 梯度：L_A1 (analysis) + L_RS1 (ROAD_STRUCTURE label) ============
+        analysis1 = _analysis_before_labels(raw_teacher_step1)
+        leak1 = check_gt_leak_road_structure(analysis1, gt_road_structure)
+        target1 = build_step1_teacher_target(analysis1, gt_road_structure)
         step1_parts = _assistant_loss_from_state(
             bundle,
             _clone_kv_state(student_step1_prompt_state),
-            teacher_step1,
-            lambda _text: {},
-            analysis_enabled=True,
+            target1,
+            target_spans_road_structure,
+            analysis_enabled=not leak1,
         )
-        analysis2 = _analysis_before_labels(raw_teacher_step2)
-        leak2 = check_gt_leak_scene(analysis2, ep.gt_scene)
-        target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
-        step2_parts = _assistant_loss_from_state(
-            bundle,
-            _clone_kv_state(student_step2_prompt_state),
-            target2,
-            target_spans_scene,
-            analysis_enabled=not leak2,
-        )
-        pred2 = parse_output(raw_student_step2)
-        old_scene = memory.scene
-        memory = update_memory_after_step2(memory, student_scene=pred2.get("scene"))
-        scene_flip = memory.scene != old_scene
+        # 把学生 step1 输出送回 memory；layer-1 翻转 → scene/status/subgoal 整链 reset。
+        pred1 = parse_output(student_step1)
+        old_rs = memory.road_structure
+        memory = update_memory_after_step1(memory, student_road_structure=pred1.get("road_structure"))
+        rs_flip = memory.road_structure != old_rs
 
+        # ============ 触发链门 1：step1 layer-1 必须命中 GT 桶才进 step2/3 ============
+        step2_ran = should_trigger_step2(
+            memory_road_structure_after_step1=memory.road_structure,
+            gt_road_structure=gt_road_structure,
+        )
         zero = step1_parts["analysis"] * 0.0
-        a3 = zero
-        s3_status = zero
-        s3_subgoal = zero
+        a2_loss = zero
+        s2_loss = zero
+        a3_loss = zero
+        s3_status_loss = zero
+        s3_subgoal_loss = zero
+        leak2 = False
         leak3 = False
-        step3_ran = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
+        scene_flip = False
+        step3_ran = False
 
-        if step3_ran:
-            # 只有场景已经正确时才训 status/subgoal；错误场景下 event 字典不同，跳过。
-            step3_teacher_user = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
-            teacher_was_training = bool(teacher_model.training)
+        if step2_ran:
+            # Step 2 必须在 step1 更新 memory 后构造 prompt：SCENE_CHOICES 来自
+            # memory_after_step1.road_structure。提前用 memory_before 构造会让“step1
+            # 纠正了桶，但 step2 仍看旧桶”的样本污染训练。
+            #
+            # on-policy debug 路径虽然不是生产入口，但它必须和 collector 保持同一条
+            # 状态机，否则用 train.py 做小实验得到的 loss / fire_rate 会和 off-policy
+            # 正式训练不可比。
+            step2_teacher_user = build_step2_teacher_prompt(memory, ep.gt_scene)
+            step2_student_user = build_step2_student_prompt(memory)
+
+            teacher_was_training2 = bool(teacher_model.training)
             teacher_model.eval()
             with teacher_model.disable_adapter():
                 with torch.no_grad():
-                    teacher_step3_prompt_state = _append_user_turn(bundle, teacher_step2_state, step3_teacher_user)
-                raw_teacher_step3, _teacher_step3_state = _teacher_generate_kv(
+                    teacher_step2_prompt_state = _append_user_turn(
+                        bundle, teacher_step1_state, step2_teacher_user
+                    )
+                raw_teacher_step2, teacher_step2_state = _teacher_generate_kv(
                     bundle,
-                    _clone_kv_state(teacher_step3_prompt_state),
-                    TEACHER_MAX_NEW_TOKENS_STEP3,
-                    min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP3,
+                    _clone_kv_state(teacher_step2_prompt_state),
+                    TEACHER_MAX_NEW_TOKENS_STEP2,
+                    min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP2,
                 )
-            if teacher_was_training:
+            if teacher_was_training2:
                 teacher_model.train()
-            analysis3 = _analysis_before_labels(raw_teacher_step3)
-            leak3 = check_gt_leak_status_subgoal(analysis3, gt_status, gt_subgoal)
-            target3 = build_step3_teacher_target(analysis3, gt_status, gt_subgoal)
 
-            step3_student_user = build_step3_student_prompt(memory)
-            student_was_training = bool(bundle.model.training)
+            student_was_training2 = bool(bundle.model.training)
             bundle.model.eval()
             with torch.no_grad():
-                student_step3_prompt_state = _append_user_turn(bundle, student_step2_state, step3_student_user)
-            raw_student_step3, _student_step3_state = _student_generate_kv(
-                bundle, _clone_kv_state(student_step3_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP3
+                student_step2_prompt_state = _append_user_turn(
+                    bundle, student_step1_state, step2_student_user
+                )
+            raw_student_step2, student_step2_state = _student_generate_kv(
+                bundle, _clone_kv_state(student_step2_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP2
             )
-            if student_was_training:
+            if student_was_training2:
                 bundle.model.train()
-            step3_parts = _assistant_loss_from_state(
-                bundle,
-                _clone_kv_state(student_step3_prompt_state),
-                target3,
-                target_spans_status,
-                analysis_enabled=not leak3,
-            )
-            a3 = step3_parts["analysis"]
-            s3_status = step3_parts["status"]
-            s3_subgoal = step3_parts["subgoal"]
 
-            pred3 = parse_output(raw_student_step3)
-            pred_status = pred3.get("status") if validate_event(memory.scene, pred3.get("status")) else None
-            pred_subgoal = pred3.get("subgoal") if validate_event(memory.scene, pred3.get("subgoal")) else None
-            memory = update_memory_after_step3(
-                memory,
-                student_status=pred_status,
-                student_subgoal=pred_subgoal,
+            # Step 2 梯度（仅在 layer-1 命中 GT 桶时计算）。
+            analysis2 = _analysis_before_labels(raw_teacher_step2)
+            leak2 = check_gt_leak_scene(analysis2, ep.gt_scene)
+            target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
+            step2_parts = _assistant_loss_from_state(
+                bundle,
+                _clone_kv_state(student_step2_prompt_state),
+                target2,
+                target_spans_scene,
+                analysis_enabled=not leak2,
             )
+            a2_loss = step2_parts["analysis"]
+            s2_loss = step2_parts["scene"]
+
+            pred2 = parse_output(raw_student_step2)
+            old_scene = memory.scene
+            memory = update_memory_after_step2(memory, student_scene=pred2.get("scene"))
+            scene_flip = memory.scene != old_scene
+
+            # ============ 触发链门 2：step2 后 scene 必须 = GT 才进 step3 ============
+            step3_ran = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
+            if step3_ran:
+                # Step 3 梯度（仅在 scene 命中 GT 时计算）。
+                step3_teacher_user = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
+                teacher_was_training2 = bool(teacher_model.training)
+                teacher_model.eval()
+                with teacher_model.disable_adapter():
+                    with torch.no_grad():
+                        teacher_step3_prompt_state = _append_user_turn(
+                            bundle, teacher_step2_state, step3_teacher_user
+                        )
+                    raw_teacher_step3, _teacher_step3_state = _teacher_generate_kv(
+                        bundle,
+                        _clone_kv_state(teacher_step3_prompt_state),
+                        TEACHER_MAX_NEW_TOKENS_STEP3,
+                        min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP3,
+                    )
+                if teacher_was_training2:
+                    teacher_model.train()
+                analysis3 = _analysis_before_labels(raw_teacher_step3)
+                leak3 = check_gt_leak_status_subgoal(analysis3, gt_status, gt_subgoal)
+                target3 = build_step3_teacher_target(analysis3, gt_status, gt_subgoal)
+
+                step3_student_user = build_step3_student_prompt(memory)
+                student_was_training2 = bool(bundle.model.training)
+                bundle.model.eval()
+                with torch.no_grad():
+                    student_step3_prompt_state = _append_user_turn(
+                        bundle, student_step2_state, step3_student_user
+                    )
+                raw_student_step3, _student_step3_state = _student_generate_kv(
+                    bundle, _clone_kv_state(student_step3_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP3
+                )
+                if student_was_training2:
+                    bundle.model.train()
+                step3_parts = _assistant_loss_from_state(
+                    bundle,
+                    _clone_kv_state(student_step3_prompt_state),
+                    target3,
+                    target_spans_status,
+                    analysis_enabled=not leak3,
+                )
+                a3_loss = step3_parts["analysis"]
+                s3_status_loss = step3_parts["status"]
+                s3_subgoal_loss = step3_parts["subgoal"]
+
+                pred3 = parse_output(raw_student_step3)
+                pred_status = pred3.get("status") if validate_event(memory.scene, pred3.get("status")) else None
+                pred_subgoal = pred3.get("subgoal") if validate_event(memory.scene, pred3.get("subgoal")) else None
+                memory = update_memory_after_step3(
+                    memory,
+                    student_status=pred_status,
+                    student_subgoal=pred_subgoal,
+                )
 
         pack = FrameLossPack(
             a1=step1_parts["analysis"],
-            a2=step2_parts["analysis"],
-            s2=step2_parts["scene"],
-            a3=a3,
-            s3_status=s3_status,
-            s3_subgoal=s3_subgoal,
+            rs1=step1_parts["road_structure"],
+            a2=a2_loss,
+            s2=s2_loss,
+            a3=a3_loss,
+            s3_status=s3_status_loss,
+            s3_subgoal=s3_subgoal_loss,
+            step2_ran=step2_ran,
             step3_ran=step3_ran,
+            rs_flip=rs_flip,
             scene_flip=scene_flip,
+            leak1=leak1,
             leak2=leak2,
             leak3=leak3,
             phase_a=phase_a,
         )
         _prefetch_goal_xy_for_next_frame(memory, run_dir, frame + stride, ep.frame_end)
         yield pack
+
+
+# --- p_init_correct 参数透传 -------------------------------------------------
+# iter_episode_loss_packs 在被外层 compute_episode_losses / DataLoader 调用时
+# 没有直接拿到 argparse Namespace；为了不破坏现有签名，用模块级单例容器透传。
+# trainer / collector 在 main() 开头调 _set_iter_args(args)，循环内部读 _iter_args()。
+_ITER_ARGS_HOLDER: Dict[str, Any] = {"args": None}
+
+
+def _set_iter_args(args: Any) -> None:
+    """trainer 入口在主流程开头调用，让 iter_episode_loss_packs 能读到 --p-init-correct 等。"""
+
+    _ITER_ARGS_HOLDER["args"] = args
+
+
+def _iter_args() -> Any:
+    """iter_episode_loss_packs 内部读默认参数容器；未设置时返回 SimpleNamespace 让默认值兜底。"""
+
+    from types import SimpleNamespace
+
+    args = _ITER_ARGS_HOLDER.get("args")
+    if args is None:
+        return SimpleNamespace(p_init_correct=DEFAULT_P_INIT_CORRECT)
+    return args
 
 
 def compute_episode_losses(
@@ -1002,14 +1178,17 @@ def _save_adapter_config(path: pathlib.Path, bundle: Any, args: argparse.Namespa
         "strict_vision_scope": bool(args.strict_vision_scope),
         "loss_weights": {
             "a1": float(args.w_a1),
+            "rs1": float(args.w_rs1),
             "a2": float(args.w_a2),
             "a3": float(args.w_a3),
             "s2": float(args.w_s2),
             "s3_status": float(args.w_s3_status),
             "s3_subgoal": float(args.w_s3_subgoal),
         },
+        "p_init_correct": float(args.p_init_correct),
         "outer_stride": int(args.outer_stride),
-        "phase_b_force_gt_scene": True,
+        "phase_b_force_gt_chain": True,
+        "hierarchy": "road_structure_x_scene_x_event",
     }
     path.mkdir(parents=True, exist_ok=True)
     (path / "sft_v4_adapter_config.json").write_text(
@@ -1045,6 +1224,7 @@ def evaluate_quick(bundle: Any, loader: DataLoader, args: argparse.Namespace) ->
             for pack in packs:
                 loss = (
                     args.w_a1 * pack.a1
+                    + args.w_rs1 * pack.rs1
                     + args.w_a2 * pack.a2
                     + args.w_s2 * pack.s2
                     + args.w_a3 * pack.a3
@@ -1098,11 +1278,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vision-guard-param-norm-max", type=float, default=200.0)
     parser.add_argument("--vision-guard-patience", type=int, default=3)
     parser.add_argument("--w-a1", type=float, default=DEFAULT_W_ANALYSIS)
+    parser.add_argument("--w-rs1", type=float, default=DEFAULT_W_ROAD_STRUCTURE,
+                        help="L_RS1 weight: step1 ROAD_STRUCTURE label CE (D25 = 1.0).")
     parser.add_argument("--w-a2", type=float, default=DEFAULT_W_ANALYSIS)
     parser.add_argument("--w-a3", type=float, default=DEFAULT_W_ANALYSIS)
     parser.add_argument("--w-s2", type=float, default=DEFAULT_W_SCENE)
     parser.add_argument("--w-s3-status", type=float, default=DEFAULT_W_STATUS)
     parser.add_argument("--w-s3-subgoal", type=float, default=DEFAULT_W_SUBGOAL)
+    parser.add_argument("--p-init-correct", type=float, default=DEFAULT_P_INIT_CORRECT,
+                        help="Probability of initializing memory with correct layer-1 / scene "
+                             "(D27, default 0.7). Set to 0.0 to recover v3 always-wrong behavior.")
     parser.add_argument("--logging-steps", type=int, default=1)
     parser.add_argument("--eval-steps", type=int, default=0)
     parser.add_argument("--save-steps", type=int, default=1000)
@@ -1389,6 +1574,8 @@ def main() -> None:
 
     args = parse_args()
     validate_args(args)
+    # 让 iter_episode_loss_packs 能读到 --p-init-correct 等不在签名里的参数。
+    _set_iter_args(args)
     rank, world_size, local_rank = setup_distributed()
     store = _get_default_store()
     if is_rank0(rank):
@@ -1510,12 +1697,16 @@ def main() -> None:
     accum_loss = 0.0
     stats = {
         "frames": 0,
+        "step2": 0,
         "step3": 0,
+        "rs_flip": 0,
         "flip": 0,
+        "leak1": 0,
         "leak2": 0,
         "leak3": 0,
         "phase_a": 0,
         "loss_a1": 0.0,
+        "loss_rs1": 0.0,
         "loss_a2": 0.0,
         "loss_a3": 0.0,
         "loss_s2": 0.0,
@@ -1771,6 +1962,7 @@ def main() -> None:
                         break
                     loss = (
                         args.w_a1 * pack.a1
+                        + args.w_rs1 * pack.rs1
                         + args.w_a2 * pack.a2
                         + args.w_s2 * pack.s2
                         + args.w_a3 * pack.a3
@@ -1781,12 +1973,16 @@ def main() -> None:
                     accum_loss += _to_float(loss)
                     accum_steps += 1
                     stats["frames"] += 1
+                    stats["step2"] += int(pack.step2_ran)
                     stats["step3"] += int(pack.step3_ran)
+                    stats["rs_flip"] += int(pack.rs_flip)
                     stats["flip"] += int(pack.scene_flip)
+                    stats["leak1"] += int(pack.leak1)
                     stats["leak2"] += int(pack.leak2)
                     stats["leak3"] += int(pack.leak3)
                     stats["phase_a"] += int(pack.phase_a)
                     stats["loss_a1"] += _to_float(pack.a1)
+                    stats["loss_rs1"] += _to_float(pack.rs1)
                     stats["loss_a2"] += _to_float(pack.a2)
                     stats["loss_a3"] += _to_float(pack.a3)
                     stats["loss_s2"] += _to_float(pack.s2)
@@ -1841,9 +2037,12 @@ def main() -> None:
                             f"[train] epoch={epoch} round={round_idx + 1}/{rounds_per_epoch} "
                             f"step={global_step}/{total_steps} loss={loss_scalar:.4f} "
                             f"lr={float(lrs[0]) if lrs else 0.0:.2e} "
+                            f"step2={_safe_ratio(stats['step2'], frames):.3f} "
                             f"step3={_safe_ratio(stats['step3'], frames):.3f} "
+                            f"rs_flip={_safe_ratio(stats['rs_flip'], frames):.3f} "
                             f"flip={_safe_ratio(stats['flip'], frames):.3f} "
-                            f"leak2={_safe_ratio(stats['leak2'], frames):.3f} "
+                            f"leak1={_safe_ratio(stats['leak1'], frames):.3f} "
+                            f"leak2={_safe_ratio(stats['leak2'], max(stats['step2'], 1)):.3f} "
                             f"leak3={_safe_ratio(stats['leak3'], max(stats['step3'], 1)):.3f} "
                             f"phase_a={_safe_ratio(stats['phase_a'], frames):.3f} "
                             f"all_rank_steps={synced_all_rank_steps} "
@@ -1853,12 +2052,21 @@ def main() -> None:
                             language_param_norm = _param_norm(language_params) if language_params else 0.0
                             tb.add_scalar("train/loss_total", loss_scalar, global_step)
                             tb.add_scalar("train/loss/a1", stats["loss_a1"] / frames, global_step)
+                            tb.add_scalar("train/loss/rs1", stats["loss_rs1"] / frames, global_step)
                             tb.add_scalar("train/loss/a2", stats["loss_a2"] / frames, global_step)
                             tb.add_scalar("train/loss/a3", stats["loss_a3"] / frames, global_step)
                             tb.add_scalar("train/loss/s2", stats["loss_s2"] / frames, global_step)
                             tb.add_scalar("train/loss/s3_status", stats["loss_s3_status"] / frames, global_step)
                             tb.add_scalar("train/loss/s3_subgoal", stats["loss_s3_subgoal"] / frames, global_step)
+                            tb.add_scalar("train/loss/L_A1", stats["loss_a1"] / frames, global_step)
+                            tb.add_scalar("train/loss/L_RS1", stats["loss_rs1"] / frames, global_step)
+                            tb.add_scalar("train/loss/L_A2", stats["loss_a2"] / frames, global_step)
+                            tb.add_scalar("train/loss/L_SC", stats["loss_s2"] / frames, global_step)
+                            tb.add_scalar("train/loss/L_A3", stats["loss_a3"] / frames, global_step)
+                            tb.add_scalar("train/loss/L_ST", stats["loss_s3_status"] / frames, global_step)
+                            tb.add_scalar("train/loss/L_SG", stats["loss_s3_subgoal"] / frames, global_step)
                             tb.add_scalar("train/loss_weight/a1", float(args.w_a1), global_step)
+                            tb.add_scalar("train/loss_weight/rs1", float(args.w_rs1), global_step)
                             tb.add_scalar("train/loss_weight/a2", float(args.w_a2), global_step)
                             tb.add_scalar("train/loss_weight/a3", float(args.w_a3), global_step)
                             tb.add_scalar("train/loss_weight/s2", float(args.w_s2), global_step)
@@ -1867,10 +2075,20 @@ def main() -> None:
                             tb.add_scalar("train/lr", float(lrs[0]) if lrs else 0.0, global_step)
                             if len(lrs) > 1:
                                 tb.add_scalar("train/lr_vision", float(lrs[1]), global_step)
+                            tb.add_scalar("train/step2_trigger_rate", _safe_ratio(stats["step2"], frames), global_step)
                             tb.add_scalar("train/step3_trigger_rate", _safe_ratio(stats["step3"], frames), global_step)
+                            tb.add_scalar("train/fire_rate/step2", _safe_ratio(stats["step2"], frames), global_step)
+                            tb.add_scalar("train/fire_rate/step3", _safe_ratio(stats["step3"], frames), global_step)
+                            tb.add_scalar("train/accuracy/road_structure", _safe_ratio(stats["step2"], frames), global_step)
+                            tb.add_scalar("train/rs_flip_rate", _safe_ratio(stats["rs_flip"], frames), global_step)
                             tb.add_scalar("train/scene_flip_rate", _safe_ratio(stats["flip"], frames), global_step)
                             tb.add_scalar("train/phase_a_frame_frac", _safe_ratio(stats["phase_a"], frames), global_step)
-                            tb.add_scalar("train/gt_leak_skip_rate/step2", _safe_ratio(stats["leak2"], frames), global_step)
+                            tb.add_scalar("train/gt_leak_skip_rate/step1", _safe_ratio(stats["leak1"], frames), global_step)
+                            tb.add_scalar(
+                                "train/gt_leak_skip_rate/step2",
+                                _safe_ratio(stats["leak2"], max(stats["step2"], 1)),
+                                global_step,
+                            )
                             tb.add_scalar(
                                 "train/gt_leak_skip_rate/step3",
                                 _safe_ratio(stats["leak3"], max(stats["step3"], 1)),
@@ -1934,4 +2152,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

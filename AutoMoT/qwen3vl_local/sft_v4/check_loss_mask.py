@@ -1,8 +1,8 @@
-﻿"""SFT v4 loss mask 静态检查（6 路）。
+﻿"""SFT v4 loss mask 静态检查（7 项）。
 
-v4 训练入口实际监督 6 路 loss：
+v4 训练入口实际监督 7 项 loss：
 
-  L_A1            step1 analysis（无 value label，整段都是分析）
+  L_A1 / L_RS1    step1 analysis + ROAD_STRUCTURE 值 token
   L_A2 / L_S2     step2 analysis + SCENE 值 token
   L_A3 / L_S3_status / L_S3_subgoal   step3 analysis + STATUS + SUBGOAL 值 token
 
@@ -34,14 +34,19 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _p)
 
 from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
+    build_step1_teacher_target,
     build_step2_teacher_target,
     build_step3_teacher_target,
+    target_spans_road_structure,
     target_spans_scene,
     target_spans_status,
 )
 
 # train.py 内的 _analysis_char_end 用同一条正则
-_LABEL_LINE_RE = re.compile(r"^\s*(SCENE|STATUS|SUBGOAL)\s*:", re.MULTILINE | re.IGNORECASE)
+_LABEL_LINE_RE = re.compile(
+    r"^\s*(ROAD_STRUCTURE|SCENE|STATUS|SUBGOAL)\s*:",
+    re.MULTILINE | re.IGNORECASE,
+)
 
 
 def _analysis_char_end(text: str) -> int:
@@ -150,17 +155,18 @@ def _check_route(
 
 
 def main() -> None:
-    """枚举 6 路 loss 的 mask 检查并返回结构化报告。"""
+    """枚举 7 项 loss 的 mask 检查并返回结构化报告。"""
 
-    parser = argparse.ArgumentParser(description="Check SFT v4 loss mask (6 routes)")
+    parser = argparse.ArgumentParser(description="Check SFT v4 loss mask (7 loss terms)")
     parser.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
     args = parser.parse_args()
 
     tok = _load_tokenizer(pathlib.Path(args.model_dir))
 
-    # step1：纯分析文本，没有 value label。监督集 = 全部非空 token，应等于 analysis 集。
-    step1_text = (
-        "I observe dense traffic ahead and the ego vehicle is decelerating."
+    # step1：分析 + ROAD_STRUCTURE 值
+    step1_text = build_step1_teacher_target(
+        "I observe an intersection with several lanes and crossing traffic.",
+        "JUNCTION",
     )
 
     # step2：分析 + SCENE 值
@@ -176,18 +182,18 @@ def main() -> None:
         "max_brake_or_min_gap",
     )
 
-    spans1: Dict[str, Tuple[int, int]] = {}
+    spans1 = target_spans_road_structure(step1_text)
     spans2 = target_spans_scene(step2_text)
     spans3 = target_spans_status(step3_text)
 
     reports = [
         _check_route(
-            "L_A1",
+            "L_A1 / L_RS1",
             tok,
             step1_text,
             spans1,
             expect_analysis=True,
-            expect_values={},
+            expect_values={"road_structure": "JUNCTION"},
         ),
         _check_route(
             "L_A2 / L_S2",

@@ -2,14 +2,14 @@
 
 SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario 时间序列，
 学生用上一帧输出维护文本 memory，teacher 用 base Qwen + GT hindsight 生成分析文本，
-学生同时学习分析 token 和 `SCENE/STATUS/SUBGOAL` 值 token。
+学生同时学习分析 token 和 `ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 值 token。
 
 本文默认当前目录是远端 `AutoMoT/`。
 
 当前状态：off-policy actor-learner 代码已经落地。生产训练入口是
 `launch_offpolicy.sh`，它会启动 2 个 learner DDP rank + 2 个异步 collector：
 默认 GPU0/GPU1 各 1 个 learner，GPU2/GPU3 各 1 个 collector。Phase A 初始正确率
-`P_INIT_CORRECT=0.5`，Phase B 噪声率 `PHASE_B_NOISE_PROB=0.15`，learner rank0
+`P_INIT_CORRECT=0.7`，Phase B 噪声率 `PHASE_B_NOISE_PROB=0.15`，learner rank0
 每 1000 step 发布一次 LoRA snapshot 给 collectors。
 
 `train.sh` / `train.py` 只保留为 on-policy 兼容调试入口，不是 v4 生产路径。
@@ -45,7 +45,10 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
   `delta=0`；窄间距 episode 只 warning，不静默改大。
 - `EGO_TO_GOAL_XY` 必须来自 `meta["next_target_points"][-1]` 转 ego，缺 meta 或字段
   解析失败会直接报错，不 fallback 到 measurements 或 `(0,0)`。
-- memory 的 goal 坐标在帧末为下一帧预取；step3 触发统一走
+- memory 含 `BELIEVED_ROAD_STRUCTURE / BELIEVED_SCENE / BELIEVED_STATUS /
+  BELIEVED_SUBGOAL / EGO_TO_GOAL_XY`；goal 坐标在帧末为下一帧预取。
+- 触发链固定为：step1 后 `should_trigger_step2(memory_road_structure_after_step1,
+  gt_road_structure)`；只有 layer-1 命中才跑 step2；step2 后再走
   `should_trigger_step3(memory_scene_after_step2, gt_scene)`。
 
 ---
@@ -124,7 +127,7 @@ REPLAY_CAPACITY=256 \
 COLLECTORS_PER_GPU=1 \
 GPU_MAX_USED_MB=0 \
 ALLOW_BUSY_GPUS=0 \
-P_INIT_CORRECT=0.5 \
+P_INIT_CORRECT=0.7 \
 PHASE_B_NOISE_PROB=0.15 \
 VISION_LR_SCALE=0.1 \
 MAX_VISION_LR_SCALE=0.25 \
@@ -176,7 +179,10 @@ bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 主要产物：
 
 - `offpolicy.log`：launcher、learner、collector 的合并日志。
-- `replay/ready/*.jsonl`：collector 写出的 trajectory FIFO。
+- `replay/ready/*.jsonl`：collector 写出的 `sft_v4_rollout_v2` trajectory FIFO；
+  v2 schema 显式保存 `memory_before_frame`、`memory_after_step1`、
+  `memory_after_step2` 和三步触发标志。旧 `sft_v4_rollout_v1` 会被 learner 拒收并
+  移到 `replay/failed/`。
 - `latest_lora/v_<step>/` 与 `latest_lora/current_version.txt`：给 collector 用的策略快照。
 - `checkpoint-<step>/`：可恢复训练状态，含 adapter + optimizer + scheduler。
 - `final/`：最终 adapter，供 eval/probe 使用。
@@ -221,10 +227,15 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v4_lora/latest/tb
 重点看：
 
 - `train/loss_total`
-- `train/loss/{a1,a2,a3,s2,s3_status,s3_subgoal}`
+- `train/loss/{a1,rs1,a2,a3,s2,s3_status,s3_subgoal}`
+- `train/loss/{L_A1,L_RS1,L_A2,L_SC,L_A3,L_ST,L_SG}`（PLAN 口径别名）
+- `train/step2_trigger_rate`
 - `train/step3_trigger_rate`
+- `train/fire_rate/{step2,step3}`（PLAN 口径别名）
+- `train/accuracy/road_structure`（当前等价于 step2 fire rate）
+- `train/rs_flip_rate`
 - `train/scene_flip_rate`
-- `train/gt_leak_skip_rate/{step2,step3}`
+- `train/gt_leak_skip_rate/{step1,step2,step3}`
 - `train/phase_a_frame_frac`
 - `train/grad_norm/language`
 - `train/grad_norm/vision`
@@ -253,11 +264,14 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/eval.py \
 
 核心指标：
 
+- `road_structure_acc`
+- `step2_fire_rate`
 - `scene_acc_per_step`
 - `scene_recovery_steps`
 - `phase_a_scene_recovery_steps`
 - `phase_b_scene_recovery_steps`
 - `scene_stick_rate`
+- `road_structure_flip_rate`
 - `scene_flip_rate`
 - `step3_trigger_rate`
 - `status_acc_given_correct_scene`
@@ -281,7 +295,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/eval.py \
 
 ## 5. Probe
 
-随机抽 episode，逐帧 dump 三步 prompt、输出、memory 和 flags。
+随机抽 episode，逐帧 dump 三步 prompt、输出、三层 memory 和 flags。
 `probe.py` 与 `eval.py` 一样会默认自动选择空闲 GPU；需要固定卡时使用 `GPU_IDS=0`。
 
 ```bash
@@ -308,12 +322,14 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/probe.py \
 
 `--with-teacher` 会额外写：
 
+- `step1_teacher_user.txt`
 - `step1_teacher.txt`
 - `step2_teacher_user.txt`
 - `step2_teacher.txt`
 - `step3_teacher_user.txt`
 - `step3_teacher.txt`
-- `flags.json` 里的 `analysis_bleu_vs_teacher`
+- `flags.json` 里的 `road_structure_ok` / `step2_trigger` /
+  `analysis_bleu_vs_teacher`
 
 ---
 
@@ -324,6 +340,10 @@ python qwen3vl_local/sft_v4/test_memory_update.py
 python qwen3vl_local/sft_v4/test_gt_leak_filter.py
 python qwen3vl_local/sft_v4/check_loss_mask.py
 ```
+
+`test_memory_update.py` 现在同时覆盖三层 memory 状态机和 replay schema v2 的关键门控：
+step2 未触发时允许没有 step2 target；step2 已触发时必须保存 `memory_after_step1`，
+否则 learner 无法按 collector 当时的 `ROAD_STRUCTURE` 桶重放收窄后的 `SCENE_CHOICES`。
 
 KV 复用测试会加载本地 Qwen 权重；有模型时再跑：
 
@@ -343,13 +363,15 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_reuse.py \
 ### 7.1 它做了什么
 
 - 从 `--train-jsonl` 中**随机抽 N 条 episode × 每条 M 帧**；
-- 对每帧分别构造 **3 种 memory 起点**，覆盖老师 prompt 状态机的所有分支：
+- 对每帧分别构造 **5 种 memory 起点**，覆盖三层 prompt 状态机的关键分支：
 
-  | 模式 | `memory.scene` | `memory.status / subgoal` | step2 verdict | step3 |
-  |---|---|---|---|---|
-  | `all_keep` | = GT | = GT | KEEP | KEEP |
-  | `event_change` | = GT | 故意错位的合法 event | KEEP | CHANGE |
-  | `scene_change` | 随机非 GT | 该错场景的 init events | CHANGE | 跳过 |
+  | 模式 | `memory.road_structure` | `memory.scene` | step1 | step2 | step3 |
+  |---|---|---|---|---|---|
+  | `all_keep` | = GT | = GT | KEEP | KEEP | KEEP |
+  | `rs_change` | 非 GT 桶 | 错桶首个 scene | CHANGE | 跳过 | 跳过 |
+  | `scene_change_same_rs` | = GT | 同桶非 GT | KEEP | CHANGE | 跳过 |
+  | `event_change` | = GT | = GT | KEEP | KEEP | CHANGE |
+  | `scene_change_cross_rs` | = GT | 跨桶非 GT | KEEP | CHANGE | 跳过 |
 
 - 老师路径与 `collect.py` 100% 一致：`load_model_with_lora` →
   `model.disable_adapter()` → `_teacher_generate_kv`（含 `min_new_tokens` 反早停）
@@ -397,7 +419,8 @@ GPU_IDS=2 python qwen3vl_local/sft_v4/inspect_teacher.py \
 
 ### 7.5 只跑某个 memory 模式（局部调试）
 
-`--modes` 接逗号分隔列表，三档：`all_keep` / `event_change` / `scene_change`。
+`--modes` 接逗号分隔列表，五档：`all_keep` / `rs_change` /
+`scene_change_same_rs` / `event_change` / `scene_change_cross_rs`。
 默认全跑；只想验某条分支时用：
 
 ```bash
@@ -406,7 +429,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --out-dir checkpoints/sft_v4_inspect/quick \
   --num-episodes 2 --frames-per-episode 2 \
-  --modes scene_change
+  --modes rs_change,scene_change_same_rs
 ```
 
 ### 7.6 常用参数速查
@@ -418,7 +441,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 | `--out-dir` | `checkpoints/sft_v4_inspect/latest` | 报告产物目录 |
 | `--num-episodes` | 3 | 随机抽样的 episode 条数 |
 | `--frames-per-episode` | 4 | 每条 episode 抽样的帧数（等步长 + 小抖动） |
-| `--modes` | `all_keep,event_change,scene_change` | 启用的 memory 模式 |
+| `--modes` | `all_keep,rs_change,scene_change_same_rs,event_change,scene_change_cross_rs` | 启用的 memory 模式 |
 | `--seed` | 20260624 | 抽样与随机 wrong-scene 选择的随机种子 |
 | `--device` | `auto` | `auto` / `cuda:0` / `cpu` |
 | `--lora-*` | 与训练默认对齐 | 仅为加载 PEFT bundle，全程 disable_adapter |
@@ -434,21 +457,23 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
   # Episode <run_id>
   ## Frame <idx> (phase A/B)
       [4 张 stitched RGB 路径]
-  ### Mode <all_keep|event_change|scene_change>
+  ### Mode <all_keep|rs_change|scene_change_same_rs|event_change|scene_change_cross_rs>
       [当前 memory 字段]
-  #### Step 1 — visual description (tokens: N)
+  #### Step 1 — road-structure verdict <KEEP|CHANGE> (tokens: N, leak=False)
       [ROLE = system]      ... system prompt 全文
       [ROLE = user (with 4 stitched RGB images attached)] ... step1 user prompt
       [ROLE = assistant — teacher raw output]             ... 老师真实输出
+      [ROLE = scripted target (this is what the student is supervised on)]
   #### Step 2 — scene verdict <KEEP|CHANGE> (tokens: N, leak=False)
+      （或 "Step 2 — skipped (memory.road_structure != gt_road_structure)"）
       [ROLE = user (new turn, reuses cached KV; no new image)]
       [ROLE = assistant — teacher raw output]
       [ROLE = scripted target (this is what the student is supervised on)]
   #### Step 3 — status/subgoal verdict <KEEP|CHANGE> (tokens: N, leak=False)
-      （或 "Step 3 — skipped (memory.scene ≠ gt_scene)"）
+      （或 "Step 3 — skipped (step2 did not fire or memory.scene != gt_scene)"）
   ```
 
-  其中 **`scripted target`** 是 `build_step{2,3}_teacher_target` 拼出的实际监督
+  其中 **`scripted target`** 是 `build_step{1,2,3}_teacher_target` 拼出的实际监督
   字符串——直接对比"老师推理"和"脚本兜底标签"可以一眼看出 prompt 设计是否在让老师
   做有价值的推理（而不是只输出垃圾被脚本兜底）。
 
@@ -460,15 +485,17 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 跑完 `teacher_report.md` 后，按顺序检查：
 
 1. **token_count 是否 ≥ `TEACHER_MIN_NEW_TOKENS_STEP{1,2,3}`**
-   （prompts.py 默认 32 / 48 / 48）。如果还出现 5~10 token 的老师输出，
+   （prompts.py 默认 24 / 24 / 24）。如果还出现 5~10 token 的老师输出，
    说明 min_new_tokens 闸门没生效或者 EOS id 集合不全。
-2. **leak_detected 是否全 False**。如果 step2 / step3 经常 True，说明老师 prompt
-   里描述 GT 用的自然语言被老师反引用了 token；需要在 prompt 里加更严的"用自然语言
-   描述，不能复制 SCENE_CHOICES / EVENT_OPTIONS 里的 token"约束。
+2. **leak_detected 是否全 False**。如果 step1 / step2 / step3 经常 True，说明老师
+   prompt 里描述 GT 用的自然语言被老师反引用了 token；需要在 prompt 里加更严的
+   "用自然语言描述，不能复制 ROAD_STRUCTURE_CHOICES / SCENE_CHOICES / EVENT_OPTIONS
+   里的 token"约束。
 3. **`all_keep` 模式下老师是否真的论证 KEEP**（不要去翻案）；
-   **`scene_change` 模式下老师是否描述"实际场景看起来像 X"而不是简单复述 memory
-   scene**；**`event_change` 模式下老师是否解释"虽然 scene 对，但 status/subgoal
-   应该推进"**。
+   **`rs_change` 模式下老师是否先纠正道路结构**；**`scene_change_same_rs` /
+   `scene_change_cross_rs` 模式下老师是否描述"实际场景看起来像 X"而不是简单复述
+   memory scene**；**`event_change` 模式下老师是否解释"虽然 scene 对，但
+   status/subgoal 应该推进"**。
 4. **step3 老师是否真的引用视觉证据**（车在刹车/前方有行人/正在转向中等），
    而不是套话"I observe the current driving phase"。
 
@@ -476,4 +503,3 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 （强制要求"必须命中以下证据类别至少一项"）。
 
 ---
-

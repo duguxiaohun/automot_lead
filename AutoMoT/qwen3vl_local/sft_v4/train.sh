@@ -47,11 +47,13 @@ VISION_GUARD_GRAD_NORM_MAX="${VISION_GUARD_GRAD_NORM_MAX:-10.0}"
 VISION_GUARD_PARAM_NORM_MAX="${VISION_GUARD_PARAM_NORM_MAX:-200.0}"
 VISION_GUARD_PATIENCE="${VISION_GUARD_PATIENCE:-3}"
 W_A1="${W_A1:-0.2}"
+W_RS1="${W_RS1:-1.0}"
 W_A2="${W_A2:-0.2}"
 W_A3="${W_A3:-0.2}"
 W_S2="${W_S2:-1.0}"
 W_S3_STATUS="${W_S3_STATUS:-1.0}"
 W_S3_SUBGOAL="${W_S3_SUBGOAL:-1.0}"
+P_INIT_CORRECT="${P_INIT_CORRECT:-0.7}"
 LOGGING_STEPS="${LOGGING_STEPS:-1}"
 SAVE_STEPS="${SAVE_STEPS:-1000}"
 # 多卡 work-stealing 下 train.py 会拒绝 EVAL_STEPS>0；完整自由生成评估请训练后单独跑 eval.py。
@@ -207,11 +209,13 @@ PY_ARGS=(
     --vision-guard-param-norm-max "${VISION_GUARD_PARAM_NORM_MAX}" \
     --vision-guard-patience "${VISION_GUARD_PATIENCE}" \
     --w-a1 "${W_A1}" \
+    --w-rs1 "${W_RS1}" \
     --w-a2 "${W_A2}" \
     --w-a3 "${W_A3}" \
     --w-s2 "${W_S2}" \
     --w-s3-status "${W_S3_STATUS}" \
     --w-s3-subgoal "${W_S3_SUBGOAL}" \
+    --p-init-correct "${P_INIT_CORRECT}" \
     --logging-steps "${LOGGING_STEPS}" \
     --save-steps "${SAVE_STEPS}" \
     --eval-steps "${EVAL_STEPS}" \
