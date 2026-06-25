@@ -9,8 +9,10 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
 当前状态：off-policy actor-learner 代码已经落地。生产训练入口是
 `launch_offpolicy.sh`，它会启动 2 个 learner DDP rank + 2 个异步 collector：
 默认 GPU0/GPU1 各 1 个 learner，GPU2/GPU3 各 1 个 collector。Phase A 初始正确率
-`P_INIT_CORRECT=0.7`，Phase B 噪声率 `PHASE_B_NOISE_PROB=0.15`，learner rank0
-每 1000 step 发布一次 LoRA snapshot 给 collectors。
+`P_INIT_CORRECT=0.7`，Phase B 噪声率 `PHASE_B_NOISE_PROB=0.15`。如果某帧 step1
+未过导致 step2/3 跳过，下一帧帧首会触发一次 skip 纠偏：`BELIEVED_SCENE` 大概率回真实
+scene，按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STATUS/SUBGOAL`
+回 init。learner rank0 每 1000 step 发布一次 LoRA snapshot 给 collectors。
 
 `train.sh` / `train.py` 只保留为 on-policy 兼容调试入口，不是 v4 生产路径。
 
@@ -30,6 +32,7 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
   `pending -> ready` 原子切换；看 `sample_ready_file` 理解为什么 learner 允许重抽。
 - `collect.py`：看 `_load_adapter_state_if_present` / `_maybe_refresh_snapshot` 理解
   LoRA snapshot 加载；看 `_inject_phase_b_noise` 理解 Phase B 噪声；看
+  `correct_memory_after_step1_skip` / `need_skip_correction` 理解 step1 skip 后的下一帧纠偏；看
   `collect_episode` 里的 teacher/student 分支和 step3 触发注释，理解一条 trajectory
   如何生成。
 - `learn.py`：看 `_sync_bool` 理解 replay 空时为什么不会发 NCCL collective；看
@@ -52,6 +55,8 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
 - 触发链固定为：step1 后 `should_trigger_step2(memory_road_structure_after_step1,
   gt_road_structure)`；只有 layer-1 命中才跑 step2；step2 后再走
   `should_trigger_step3(memory_scene_after_step2, gt_scene)`。
+- skip 纠偏不是每帧强制改 memory；只有上一帧 step1 未过并跳过 step2/3 后，下一帧
+  进入内循环前才触发一次。纠偏后的 scene 与 status/subgoal 始终来自同一个 bucket。
 
 ---
 
@@ -131,6 +136,7 @@ GPU_MAX_USED_MB=0 \
 ALLOW_BUSY_GPUS=0 \
 P_INIT_CORRECT=0.7 \
 PHASE_B_NOISE_PROB=0.15 \
+SKIP_CORRECTION_SCENE_NOISE_PROB=0.15 \
 VISION_LR_SCALE=0.1 \
 MAX_VISION_LR_SCALE=0.25 \
 LANGUAGE_CLIP_NORM=1.0 \
@@ -183,7 +189,7 @@ bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 - `offpolicy.log`：launcher、learner、collector 的合并日志。
 - `replay/ready/*.jsonl`：collector 写出的 `sft_v4_rollout_v2` trajectory FIFO；
   v2 schema 显式保存 `memory_before_frame`、`memory_after_step1`、
-  `memory_after_step2` 和三步触发标志。旧 `sft_v4_rollout_v1` 会被 learner 拒收并
+  `memory_after_step2`、三步触发标志和 skip 纠偏标志。旧 `sft_v4_rollout_v1` 会被 learner 拒收并
   移到 `replay/failed/`。
 - `latest_lora/v_<step>/` 与 `latest_lora/current_version.txt`：给 collector 用的策略快照。
 - `checkpoint-<step>/`：可恢复训练状态，含 adapter + optimizer + scheduler。
@@ -242,6 +248,8 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v4_lora/latest/tb
 - `train/scene_flip_rate`
 - `train/gt_leak_skip_rate/{step1,step2,step3}`
 - `train/phase_a_frame_frac`
+- `train/skip_correction_rate`
+- `train/skip_correction_scene_noise_rate`
 - `train/grad_norm/language`
 - `train/grad_norm/vision`
 - `train/param_norm/lora_language`
@@ -352,6 +360,8 @@ python qwen3vl_local/sft_v4/check_loss_mask.py
 `test_memory_update.py` 现在同时覆盖三层 memory 状态机和 replay schema v2 的关键门控：
 step2 未触发时允许没有 step2 target；step2 已触发时必须保存 `memory_after_step1`，
 否则 learner 无法按 collector 当时的 `ROAD_STRUCTURE` 桶重放收窄后的 `SCENE_CHOICES`。
+它也覆盖 skip 后下一帧纠偏：scene 只能回 GT 或同桶小扰动，status/subgoal 必须跟随
+所选 scene 回 init。
 
 KV 复用测试会加载本地 Qwen 权重；有模型时再跑：
 

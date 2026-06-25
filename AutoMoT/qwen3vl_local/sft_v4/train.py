@@ -67,6 +67,7 @@ from qwen3vl_local.sft_v2.train import (
 from qwen3vl_local.engine import _clone_cache
 from qwen3vl_local.sft_v4.prompts import (
     DEFAULT_P_INIT_CORRECT,
+    DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
     DEFAULT_W_ANALYSIS,
     DEFAULT_W_ROAD_STRUCTURE,
     DEFAULT_W_SCENE,
@@ -92,6 +93,7 @@ from qwen3vl_local.sft_v4.prompts import (
     check_gt_leak_road_structure,
     check_gt_leak_scene,
     check_gt_leak_status_subgoal,
+    correct_memory_after_step1_skip,
     force_memory_to_gt_chain,
     get_road_structure,
     init_memory,
@@ -832,6 +834,8 @@ class FrameLossPack:
     leak2: bool
     leak3: bool
     phase_a: bool
+    skip_correction: bool
+    skip_correction_noise: bool
 
 
 def iter_episode_loss_packs(
@@ -857,7 +861,16 @@ def iter_episode_loss_packs(
     run_dir = pathlib.Path(ep.run_dir)
     gx, gy = _load_goal_xy(run_dir, ep.frame_start)
     gt_road_structure = get_road_structure(ep.gt_scene)
-    p_init = float(getattr(_iter_args(), "p_init_correct", DEFAULT_P_INIT_CORRECT))
+    iter_args = _iter_args()
+    p_init = float(getattr(iter_args, "p_init_correct", DEFAULT_P_INIT_CORRECT))
+    skip_noise_prob = float(
+        getattr(
+            iter_args,
+            "skip_correction_scene_noise_prob",
+            DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
+        )
+    )
+    skip_rng = random.Random(f"skip:{ep.run_id}:{ep.anchors[1]}")
     memory = init_memory(
         run_id=ep.run_id,
         sub_scenario_id=f"{ep.run_id}:{ep.anchors[1]}",
@@ -868,8 +881,11 @@ def iter_episode_loss_packs(
     )
 
     stride = max(1, outer_stride)
+    need_skip_correction = False
     for frame in range(ep.frame_start, ep.frame_end + 1, stride):
         phase_a = _is_phase_a(ep, frame)
+        skip_correction_applied = False
+        skip_correction_scene_noisy = False
         if not phase_a:
             # Phase B：每帧开始三层弱纠偏（D23 + D27 配套）。
             # 先拉回 layer-1=GT 桶（保证 step1 必然命中、step2/step3 触发率不被腰斩），
@@ -877,6 +893,18 @@ def iter_episode_loss_packs(
             memory = force_memory_to_gt_chain(
                 memory, gt_road_structure=gt_road_structure, gt_scene=ep.gt_scene
             )
+        if need_skip_correction:
+            # Previous frame failed layer-1 and skipped step2/3. Repair once
+            # before this frame's inner loop while preserving the prefetched
+            # EGO_TO_GOAL_XY for the current frame.
+            memory, skip_correction_scene_noisy = correct_memory_after_step1_skip(
+                memory,
+                gt_scene=ep.gt_scene,
+                rng=skip_rng,
+                scene_noise_prob=skip_noise_prob,
+            )
+            skip_correction_applied = True
+            need_skip_correction = False
 
         image_paths = _build_rgb_paths(run_dir, frame)
         try:
@@ -1086,7 +1114,10 @@ def iter_episode_loss_packs(
             leak2=leak2,
             leak3=leak3,
             phase_a=phase_a,
+            skip_correction=skip_correction_applied,
+            skip_correction_noise=skip_correction_scene_noisy,
         )
+        need_skip_correction = not bool(step2_ran)
         _prefetch_goal_xy_for_next_frame(memory, run_dir, frame + stride, ep.frame_end)
         yield pack
 
@@ -1111,7 +1142,10 @@ def _iter_args() -> Any:
 
     args = _ITER_ARGS_HOLDER.get("args")
     if args is None:
-        return SimpleNamespace(p_init_correct=DEFAULT_P_INIT_CORRECT)
+        return SimpleNamespace(
+            p_init_correct=DEFAULT_P_INIT_CORRECT,
+            skip_correction_scene_noise_prob=DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
+        )
     return args
 
 
@@ -1186,6 +1220,7 @@ def _save_adapter_config(path: pathlib.Path, bundle: Any, args: argparse.Namespa
             "s3_subgoal": float(args.w_s3_subgoal),
         },
         "p_init_correct": float(args.p_init_correct),
+        "skip_correction_scene_noise_prob": float(args.skip_correction_scene_noise_prob),
         "outer_stride": int(args.outer_stride),
         "phase_b_force_gt_chain": True,
         "hierarchy": "road_structure_x_scene_x_event",
@@ -1288,6 +1323,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--p-init-correct", type=float, default=DEFAULT_P_INIT_CORRECT,
                         help="Probability of initializing memory with correct layer-1 / scene "
                              "(D27, default 0.7). Set to 0.0 to recover v3 always-wrong behavior.")
+    parser.add_argument(
+        "--skip-correction-scene-noise-prob",
+        type=float,
+        default=DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
+        help="After a frame skips step2/3 from layer-1 miss, next-frame pre-loop "
+             "correction sets scene=GT except this probability of same-bucket noise.",
+    )
     parser.add_argument("--logging-steps", type=int, default=1)
     parser.add_argument("--eval-steps", type=int, default=0)
     parser.add_argument("--save-steps", type=int, default=1000)
@@ -1328,6 +1370,8 @@ def validate_args(args: argparse.Namespace) -> None:
         )
     if args.vision_lr_scale < 0:
         raise ValueError("--vision-lr-scale must be >= 0")
+    if not (0.0 <= float(args.skip_correction_scene_noise_prob) <= 1.0):
+        raise ValueError("--skip-correction-scene-noise-prob must be in [0, 1]")
     if args.vision_lr_scale > args.max_vision_lr_scale:
         raise ValueError("--vision-lr-scale exceeds --max-vision-lr-scale")
     if args.vision_guard_patience <= 0:
@@ -1705,6 +1749,8 @@ def main() -> None:
         "leak2": 0,
         "leak3": 0,
         "phase_a": 0,
+        "skip_correction": 0,
+        "skip_correction_noise": 0,
         "loss_a1": 0.0,
         "loss_rs1": 0.0,
         "loss_a2": 0.0,
@@ -1981,6 +2027,8 @@ def main() -> None:
                     stats["leak2"] += int(pack.leak2)
                     stats["leak3"] += int(pack.leak3)
                     stats["phase_a"] += int(pack.phase_a)
+                    stats["skip_correction"] += int(pack.skip_correction)
+                    stats["skip_correction_noise"] += int(pack.skip_correction_noise)
                     stats["loss_a1"] += _to_float(pack.a1)
                     stats["loss_rs1"] += _to_float(pack.rs1)
                     stats["loss_a2"] += _to_float(pack.a2)
@@ -2045,6 +2093,7 @@ def main() -> None:
                             f"leak2={_safe_ratio(stats['leak2'], max(stats['step2'], 1)):.3f} "
                             f"leak3={_safe_ratio(stats['leak3'], max(stats['step3'], 1)):.3f} "
                             f"phase_a={_safe_ratio(stats['phase_a'], frames):.3f} "
+                            f"skip_corr={_safe_ratio(stats['skip_correction'], frames):.3f} "
                             f"all_rank_steps={synced_all_rank_steps} "
                             f"elapsed={(time.time() - start_time) / 60.0:.1f}m"
                         )
@@ -2083,6 +2132,12 @@ def main() -> None:
                             tb.add_scalar("train/rs_flip_rate", _safe_ratio(stats["rs_flip"], frames), global_step)
                             tb.add_scalar("train/scene_flip_rate", _safe_ratio(stats["flip"], frames), global_step)
                             tb.add_scalar("train/phase_a_frame_frac", _safe_ratio(stats["phase_a"], frames), global_step)
+                            tb.add_scalar("train/skip_correction_rate", _safe_ratio(stats["skip_correction"], frames), global_step)
+                            tb.add_scalar(
+                                "train/skip_correction_scene_noise_rate",
+                                _safe_ratio(stats["skip_correction_noise"], max(stats["skip_correction"], 1)),
+                                global_step,
+                            )
                             tb.add_scalar("train/gt_leak_skip_rate/step1", _safe_ratio(stats["leak1"], frames), global_step)
                             tb.add_scalar(
                                 "train/gt_leak_skip_rate/step2",

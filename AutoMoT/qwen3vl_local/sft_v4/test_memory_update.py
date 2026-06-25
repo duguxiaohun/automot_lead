@@ -33,6 +33,7 @@ from qwen3vl_local.sft_v4.prompts import (
     ROAD_STRUCTURE_TO_SCENES,
     SCENE_TO_ROAD_STRUCTURE,
     first_subgoal,
+    correct_memory_after_step1_skip,
     force_memory_to_gt_chain,
     force_memory_to_gt_scene,
     get_road_structure,
@@ -277,6 +278,52 @@ def _check_phase_b_noise_helper() -> None:
     assert noisy.ego_to_goal_y == base.ego_to_goal_y
 
 
+def _check_skip_correction_after_step1_skip_helper() -> None:
+    """Next-frame skip correction: GT bucket, init status, same-bucket noise only."""
+
+    gt = "Accident"
+    gt_rs = get_road_structure(gt)
+    wrong_rs = next(rs for rs in ROAD_STRUCTURE_TO_SCENES if rs != gt_rs)
+    wrong_scene = ROAD_STRUCTURE_TO_SCENES[wrong_rs][0]
+    base = Memory(
+        road_structure=wrong_rs,
+        scene=wrong_scene,
+        status=initial_event(wrong_scene),
+        subgoal=first_subgoal(wrong_scene),
+        ego_to_goal_x=7.5,
+        ego_to_goal_y=-3.25,
+    )
+
+    corrected, noisy = correct_memory_after_step1_skip(
+        base,
+        gt_scene=gt,
+        rng=random.Random(0),
+        scene_noise_prob=0.0,
+    )
+    assert noisy is False
+    assert corrected.road_structure == gt_rs
+    assert corrected.scene == gt
+    assert corrected.status == initial_event(gt)
+    assert corrected.subgoal == first_subgoal(gt)
+    assert corrected.ego_to_goal_x == base.ego_to_goal_x
+    assert corrected.ego_to_goal_y == base.ego_to_goal_y
+
+    noisy_mem, noisy = correct_memory_after_step1_skip(
+        base,
+        gt_scene=gt,
+        rng=random.Random(0),
+        scene_noise_prob=1.0,
+    )
+    assert noisy is True
+    assert noisy_mem.scene != gt
+    assert noisy_mem.road_structure == gt_rs
+    assert SCENE_TO_ROAD_STRUCTURE[noisy_mem.scene] == gt_rs
+    assert noisy_mem.status == initial_event(noisy_mem.scene)
+    assert noisy_mem.subgoal == first_subgoal(noisy_mem.scene)
+    assert noisy_mem.ego_to_goal_x == base.ego_to_goal_x
+    assert noisy_mem.ego_to_goal_y == base.ego_to_goal_y
+
+
 def _check_should_trigger_step3() -> None:
     """C4：step3 触发判定与 step2 是否翻转无关，只看 scene_after_step2 == gt_scene。"""
 
@@ -374,6 +421,7 @@ def main() -> None:
     _check_step3_update()
     _check_phase_b_force_helper()
     _check_phase_b_noise_helper()
+    _check_skip_correction_after_step1_skip_helper()
     _check_should_trigger_step3()
     _check_replay_schema_v2_step2_gate()
 

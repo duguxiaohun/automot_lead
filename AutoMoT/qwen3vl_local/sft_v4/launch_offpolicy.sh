@@ -39,6 +39,7 @@ GPU_MAX_USED_MB="${GPU_MAX_USED_MB:-0}"
 ALLOW_BUSY_GPUS="${ALLOW_BUSY_GPUS:-0}"
 P_INIT_CORRECT="${P_INIT_CORRECT:-0.7}"
 PHASE_B_NOISE_PROB="${PHASE_B_NOISE_PROB:-0.15}"
+SKIP_CORRECTION_SCENE_NOISE_PROB="${SKIP_CORRECTION_SCENE_NOISE_PROB:-0.15}"
 OUTER_STRIDE="${OUTER_STRIDE:-1}"
 
 LORA_RANK="${LORA_RANK:-16}"
@@ -194,7 +195,7 @@ export NCCL_P2P_LEVEL="${NCCL_P2P_LEVEL:-NVL}"
 
 echo "[run] OUTPUT_DIR=${OUTPUT_DIR}"
 echo "[gpu] learner=${learner_gpus} collector=${collector_gpus} collectors_per_gpu=${COLLECTORS_PER_GPU}"
-echo "[cfg] max_steps=${MAX_STEPS} replay_capacity=${REPLAY_CAPACITY} startup_replay_timeout=${REPLAY_STARTUP_TIMEOUT_SEC}s p_init=${P_INIT_CORRECT} phase_b_noise=${PHASE_B_NOISE_PROB}"
+echo "[cfg] max_steps=${MAX_STEPS} replay_capacity=${REPLAY_CAPACITY} startup_replay_timeout=${REPLAY_STARTUP_TIMEOUT_SEC}s p_init=${P_INIT_CORRECT} phase_b_noise=${PHASE_B_NOISE_PROB} skip_corr_noise=${SKIP_CORRECTION_SCENE_NOISE_PROB}"
 
 resume_args=()
 if [[ -n "${RESUME_FROM_CHECKPOINT}" ]]; then
@@ -246,6 +247,7 @@ CUDA_VISIBLE_DEVICES="${learner_gpus}" torchrun --nproc_per_node=2 \
     --vision-guard-grad-norm-max "${VISION_GUARD_GRAD_NORM_MAX}" \
     --vision-guard-param-norm-max "${VISION_GUARD_PARAM_NORM_MAX}" \
     --vision-guard-patience "${VISION_GUARD_PATIENCE}" \
+    --skip-correction-scene-noise-prob "${SKIP_CORRECTION_SCENE_NOISE_PROB}" \
     --learner-world-size 2 \
     --collector-processes "${collector_processes}" &
 pids+=("$!")
@@ -276,6 +278,7 @@ for gpu in "${collector_gpu_array[@]}"; do
             --replay-capacity "${REPLAY_CAPACITY}" \
             --p-init-correct "${P_INIT_CORRECT}" \
             --phase-b-noise-prob "${PHASE_B_NOISE_PROB}" \
+            --skip-correction-scene-noise-prob "${SKIP_CORRECTION_SCENE_NOISE_PROB}" \
             --outer-stride "${OUTER_STRIDE}" \
             --lora-rank "${LORA_RANK}" \
             --lora-alpha "${LORA_ALPHA}" \
