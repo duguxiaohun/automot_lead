@@ -53,6 +53,7 @@ DEFAULT_W_SUBGOAL = 1.0
 
 # D27 拍板：默认初始正确率从 0.5 提到 0.7，缓解 step3 触发率被 layer-1 拖累。
 DEFAULT_P_INIT_CORRECT = 0.7
+DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB = 0.15
 
 SYSTEM_PROMPT_V4 = """\
 You are an autonomous driving agent analyzing a sequence of camera frames.
@@ -416,6 +417,40 @@ def inject_phase_b_noise(
     mem.status = initial_event(scene)
     mem.subgoal = first_subgoal(scene)
     return mem, True
+
+
+def correct_memory_after_step1_skip(
+    memory: Memory,
+    *,
+    gt_scene: str,
+    rng: random.Random,
+    scene_noise_prob: float = DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
+) -> Tuple[Memory, bool]:
+    """Repair memory before the next inner loop after a step1 skip.
+
+    Callers set the trigger only when the previous frame failed layer-1 and
+    skipped step2/step3. The repair pulls ROAD_STRUCTURE back to the GT bucket,
+    sets SCENE to GT with high probability, optionally perturbs SCENE to a
+    non-GT candidate inside the same bucket, and resets STATUS/SUBGOAL to that
+    chosen scene's init chain. EGO_TO_GOAL_XY is preserved because frame-end
+    prefetch has already updated it for the current frame.
+    """
+
+    gt_rs = get_road_structure(gt_scene)
+    p = min(1.0, max(0.0, float(scene_noise_prob)))
+    bucket = ROAD_STRUCTURE_TO_SCENES.get(gt_rs, [])
+    candidates = [s for s in bucket if s != gt_scene]
+    scene = gt_scene
+    noisy = False
+    if candidates and p > 0.0 and rng.random() < p:
+        scene = rng.choice(candidates)
+        noisy = True
+    mem = memory.copy()
+    mem.road_structure = gt_rs
+    mem.scene = scene
+    mem.status = initial_event(scene)
+    mem.subgoal = first_subgoal(scene)
+    return mem, noisy
 
 
 # ---------------------------------------------------------------------------

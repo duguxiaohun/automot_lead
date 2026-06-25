@@ -54,6 +54,7 @@ W_S2="${W_S2:-1.0}"
 W_S3_STATUS="${W_S3_STATUS:-1.0}"
 W_S3_SUBGOAL="${W_S3_SUBGOAL:-1.0}"
 P_INIT_CORRECT="${P_INIT_CORRECT:-0.7}"
+SKIP_CORRECTION_SCENE_NOISE_PROB="${SKIP_CORRECTION_SCENE_NOISE_PROB:-0.15}"
 LOGGING_STEPS="${LOGGING_STEPS:-1}"
 SAVE_STEPS="${SAVE_STEPS:-1000}"
 # 多卡 work-stealing 下 train.py 会拒绝 EVAL_STEPS>0；完整自由生成评估请训练后单独跑 eval.py。
@@ -216,6 +217,7 @@ PY_ARGS=(
     --w-s3-status "${W_S3_STATUS}" \
     --w-s3-subgoal "${W_S3_SUBGOAL}" \
     --p-init-correct "${P_INIT_CORRECT}" \
+    --skip-correction-scene-noise-prob "${SKIP_CORRECTION_SCENE_NOISE_PROB}" \
     --logging-steps "${LOGGING_STEPS}" \
     --save-steps "${SAVE_STEPS}" \
     --eval-steps "${EVAL_STEPS}" \

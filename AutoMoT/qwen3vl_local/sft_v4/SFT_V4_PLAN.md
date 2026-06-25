@@ -29,7 +29,7 @@ memory 自更新），把整条 episode 固化成 trajectory 文件写入磁盘 
 │     抢 episode (TCPStore counter, 或本地随机)                  │
 │     周期 reload latest_lora                                    │
 │     no_grad rollout: teacher generate + student generate +     │
-│       memory 自更新（含 Phase A 70% layer-1 正确 init / Phase B 噪声） │
+│       memory 自更新（含 Phase A 70% init / Phase B 噪声 / skip 纠偏） │
 │     atomic write ready/<traj>.jsonl                            │
 └────────────────────────────────────────────────────────────────┘
                             │ 写 (rename)
@@ -236,6 +236,8 @@ collector 进程在 OS 层完全独立。同机器跑 collector 和 learner 不�
                        "ego_to_goal_xy":[12.3,-1.4]},
  "init_was_correct":true,         // Phase A 首帧才有意义；同时要求 road_structure 和 scene 正确
  "noise_injected":false,           // Phase B 帧首是否触发噪声扰动
+ "skip_correction_applied":false,  // 上一帧 step1 未过导致跳过 step2/3 后，下一帧帧首是否纠偏
+ "skip_correction_scene_noisy":false, // skip 纠偏时 scene 是否用了同桶非 GT 小扰动
  "teacher_step1_text":"...",       // base teacher step1 原始分析
  "teacher_step1_target":"...",     // 规范化后的 ANALYSIS + ROAD_STRUCTURE 训练 target
  "teacher_step2_raw":"...",        // 仅 step2_fired=true 时有；否则 null
@@ -252,7 +254,8 @@ collector 进程在 OS 层完全独立。同机器跑 collector 和 learner 不�
  "student_outputs":{"step1":"...","step2":"...","step3":"..."},
  "gt":{"road_structure":"JUNCTION","scene":"...","status":"...","subgoal":"..."},
  "flags":{"step2_ran":true,"step3_ran":true,"rs_flip":false,"scene_flip":false,
-          "leak1":false,"leak2":false,"leak3":false}}
+          "leak1":false,"leak2":false,"leak3":false,
+          "skip_correction_applied":false,"skip_correction_scene_noisy":false}}
 {"kind":"frame","frame_idx":124,...}
 ...
 ```
@@ -304,14 +307,20 @@ while not exists(stop_sentinel):
     # 3. roll out
     traj = []
     memory = init_memory_v4(ep, phase_a_correct_prob=0.7)   # 70% Phase A 初始 road_structure = GT
+    need_skip_correction = False
     for frame in range(ep.frame_start, ep.frame_end + 1):
         phase = "A" if (f1 - delta) <= frame <= (f1 + delta) else "B"
         noise = False
+        skip_correction = False
         if phase == "B":
             memory = force_memory_to_gt_chain(memory)      # 分层弱纠偏
             if random() < PHASE_B_NOISE_PROB:              # 默认 0.15
                 memory.scene = random_non_gt_scene_in_bucket(memory)
                 noise = True
+        if need_skip_correction:
+            memory = correct_memory_after_step1_skip(memory, gt_scene)
+            skip_correction = True
+            need_skip_correction = False
 
         images = load_images(ep, frame)
 
@@ -333,6 +342,7 @@ while not exists(stop_sentinel):
         else:
             teacher_step2_raw = teacher_step2_target = student_step2_raw = None
             memory_after_step2 = memory.copy()
+        need_skip_correction = not step2_fired
 
         # Step 3：只有 layer-2 scene 命中时才跑；未触发时不监督 status/subgoal。
         step3_fired = step2_fired and should_trigger_step3(memory.scene, ep.gt_scene)
@@ -521,6 +531,7 @@ v3 的"Phase A 100% 非 GT 初始 + Phase B 100% 修回 GT"对 student 来说太
 | Phase A 帧末 memory 更新 | 同 v3：学生 step2/step3 输出自更新 | 不变 |
 | Phase B 帧首默认 | `force_memory_to_gt_chain`：road_structure / scene 分层弱纠偏，scene 变更时重置 status/subgoal | 扩展 v3 弱纠偏 |
 | **Phase B 帧首扰动** | `random() < PHASE_B_NOISE_PROB (默认 0.15)` 时只在当前 road_structure 桶内把 scene 改为非 GT | v3 无此规则 |
+| **skip 后下一帧帧首纠偏** | 仅上一帧 `step2_fired=False` 时触发一次；road_structure 强制 GT 桶，scene 大概率 GT / 小概率同桶非 GT，status/subgoal 重置为所选 scene 的 init | 新增 D28，防止 step1 连错导致长期没有 step2/3 样本 |
 | step2/step3 触发条件 | step1 后 `memory.road_structure == gt_road_structure` 才跑 step2；step2 后 `memory.scene == gt_scene` 才跑 step3 | v4 新增 layer-1 门控 |
 
 设计意图：
@@ -536,6 +547,10 @@ v3 的"Phase A 100% 非 GT 初始 + Phase B 100% 修回 GT"对 student 来说太
 - **触发链对称**：step1 错桶时跳过 step2/3，只计 L_A1/L_RS1；step1 正确后才在收窄
   的 bucket 内训练 scene；scene 正确后才训练 status/subgoal。这样 teacher target 永远
   出现在学生实际看到的候选表里，不会发生跨桶监督错配。
+- **skip 后纠偏不常态化**：只有已经发生一次 step2/3 跳过后，下一帧进入内循环前才调用
+  `correct_memory_after_step1_skip`。纠偏后的 `BELIEVED_SCENE` 默认是真实 scene，
+  `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 时可同桶小扰动；`STATUS/SUBGOAL` 始终重置为
+  该 scene 的 init/first subgoal，保证后续 `SCENE_CHOICES` 与 memory 下游内容同源。
 
 ### 0.11 启动 / 退出协议
 
@@ -599,6 +614,7 @@ v4 off-policy 已经落地为四个新入口：
 |---|---|---|
 | Phase A 初始正确率 | `P_INIT_CORRECT=0.7` | 70% GT road_structure；scene 在对应桶内联合采样；D27 覆盖早期 0.5 设定 |
 | Phase B 噪声率 | `PHASE_B_NOISE_PROB=0.15` | 弱纠偏到 GT 后，15% 概率再注入同桶非 GT scene；可调范围保留 `[0.0, 0.3]` |
+| skip 后纠偏 scene 扰动率 | `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` | 仅上一帧 step1 未过并跳过 step2/3 后，下一帧帧首触发一次；scene 大概率 GT，小概率同桶非 GT |
 | learner DDP world size | `2` | GPU0/GPU1 各 1 个 learner rank；只 learner 进入 NCCL process group |
 | collector 并发 | 默认 `2` | GPU2/GPU3 各 1 个 collector；确认单卡多 CUDA 进程稳定后可手动设 `COLLECTORS_PER_GPU=2/3` |
 | learner batch | 每 rank `1` 条 trajectory | effective batch = 2；不做 per-frame batch 拼接，降低 mask/padding 风险 |
@@ -1439,6 +1455,10 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
     拖累的腰斩问题。配套 Phase B 帧首 `force_memory_to_gt_chain` 先拉回 layer-1=GT，
     使 Phase B 阶段 step3 触发率回到与现有 v4 持平。`p_init_correct=0.0`
     保留为退回 v3 行为的对照实验入口。
+28. **step1 skip 后下一帧纠偏（D28）**：仅上一帧 `step2_fired=False` 时置位，下一帧
+    进入内循环前触发一次。`BELIEVED_ROAD_STRUCTURE` 拉回 GT 桶，`BELIEVED_SCENE`
+    默认 GT、按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，
+    `STATUS/SUBGOAL` 重置为所选 scene 的 init/first subgoal。
 
 ---
 
@@ -1457,7 +1477,7 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 
 ## 12. 设计（已落地）：SCENE_CHOICES 分层 + Step 1 ROAD_STRUCTURE 选择
 
-> **状态：D21~D27 已拍板并实现。** §12.6 第 5 点的生成端兜底
+> **状态：D21~D28 已拍板并实现。** §12.6 第 5 点的生成端兜底
 > （min_new_tokens 软闸门 + no_repeat_ngram_size + repetition_penalty 范围）
 > 已与分层重构同步落地。
 
@@ -1682,10 +1702,10 @@ token，比当前 step2/3 收紧）。
   repetition_penalty 范围（§12.6.5）。
 - §7 数据 / IO：`build_dataset.py` 不需要改 jsonl schema——`gt_road_structure`
   在训练时从 `SCENE_TO_ROAD_STRUCTURE[ep.gt_scene]` 现算即可，不必落盘。
-- §10 已确认决策：D21~D27 已并入当前实现，不回滚任何既有决策；与 D8（step3
+- §10 已确认决策：D21~D28 已并入当前实现，不回滚任何既有决策；与 D8（step3
   触发条件）完全对称扩展。
 
-### 12.8 决策速查表（D21~D27 全部锁定）
+### 12.8 决策速查表（D21~D28 全部锁定）
 
 | 决策点 | 内容 | 锁定值 |
 |---|---|---|
@@ -1696,8 +1716,9 @@ token，比当前 step2/3 收紧）。
 | D25 | L_RS1 权重 | **1.0**（训后视情况下调）|
 | D26 | Step 1 是否保留纯视觉描述前缀 | **保留**：2 句视觉 + 1 句 verdict 论证 + 标签，loss 三段独立计 |
 | D27 | step3 触发率腰斩对策 | **p_init_correct 默认 0.7**（联合初始化下三层联合命中 0.7×0.5=0.35，Phase B 弱纠偏后回升）|
+| D28 | step1 失败后下一帧是否强制纠偏 | **只在上一帧 step2/3 已跳过时触发一次**；road_structure=GT 桶，scene 大概率 GT / 0.15 同桶扰动，status/subgoal 回 init |
 
-### 12.9 实施清单（D21~D27 已落地）
+### 12.9 实施清单（D21~D28 已落地）
 
 1. `[x] sft_v4/prompts.py`：
    - 新增 `ROAD_STRUCTURE_LABELS`（6 项）+ `SCENE_TO_ROAD_STRUCTURE`（42 项 1:1 映射）；
@@ -1709,6 +1730,7 @@ token，比当前 step2/3 收紧）。
    - 新增 `should_trigger_step2`；扩 `update_memory_after_step1` /
      `force_memory_to_gt_chain`；
    - `init_memory` 改成联合采样，默认 `p_init_correct=0.7`；
+   - 新增 `correct_memory_after_step1_skip`，用于上一帧 step1 未过后下一帧帧首纠偏；
    - `_kv_generate_text` 加 `no_repeat_ngram_size=3` 选项与软 min_new_tokens 闸门
      （达到 MIN 且生成里出现至少 1 个句号即允许 EOS），`seen_unique` 只算本轮
      生成 token。
@@ -1719,7 +1741,7 @@ token，比当前 step2/3 收紧）。
      维持，但 `L_A2`/`L_SC` 仅在 step2 触发时计，`L_A3`/`L_ST`/`L_SG` 仅在 step3
      触发时计；
    - TB scalars 增加 `loss/L_A1` / `loss/L_RS1`、`fire_rate/step2` /
-     `fire_rate/step3`、`accuracy/road_structure` 等监控项。
+     `fire_rate/step3`、`accuracy/road_structure`、`skip_correction_rate` 等监控项。
 3. `[x] sft_v4/replay.py`：trajectory schema bump 到 `sft_v4_rollout_v2`，旧
    `sft_v4_rollout_v1` 文件会被 `validate_trajectory` 拒收，并由 learner 移到
    `failed/`。

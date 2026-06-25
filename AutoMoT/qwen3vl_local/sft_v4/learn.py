@@ -61,6 +61,7 @@ except Exception:
 from qwen3vl_local.sft_v2.train import _is_vision_module_name, load_model_with_lora, make_scheduler
 from qwen3vl_local.sft_v4 import replay
 from qwen3vl_local.sft_v4.prompts import (
+    DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
     build_step1_user_prompt,
     build_step2_student_prompt,
     build_step3_student_prompt,
@@ -245,6 +246,8 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
         "step3": 0.0,
         "phase_a": 0.0,
         "noise": 0.0,
+        "skip_correction": 0.0,
+        "skip_correction_noise": 0.0,
         "rs_flip": 0.0,
         "scene_flip": 0.0,
         "leak1": 0.0,
@@ -378,6 +381,8 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
         stats["step3"] += float(_frame_step3_fired(frame))
         stats["phase_a"] += float(bool(flags.get("phase_a", frame.get("phase") == "A")))
         stats["noise"] += float(bool(flags.get("noise_injected", False)))
+        stats["skip_correction"] += float(bool(flags.get("skip_correction_applied", frame.get("skip_correction_applied", False))))
+        stats["skip_correction_noise"] += float(bool(flags.get("skip_correction_scene_noisy", frame.get("skip_correction_scene_noisy", False))))
         stats["rs_flip"] += float(bool(flags.get("rs_flip", False)))
         stats["scene_flip"] += float(bool(flags.get("scene_flip", frame.get("scene_flip", False))))
         stats["leak1"] += float(leak1)
@@ -552,6 +557,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--vision-guard-patience must be > 0")
     if float(args.startup_replay_timeout_sec) < 0.0:
         raise ValueError("--startup-replay-timeout-sec must be >= 0")
+    if not (0.0 <= float(args.skip_correction_scene_noise_prob) <= 1.0):
+        raise ValueError("--skip-correction-scene-noise-prob must be in [0, 1]")
     scope = (args.lora_vision_scope or "off").lower()
     if scope != "off" and float(args.vision_lr_scale) == 0.0:
         raise ValueError("--vision-lr-scale=0 with visual LoRA enabled would freeze visual adapters")
@@ -604,6 +611,7 @@ def _write_adapter_metadata(path: pathlib.Path, bundle: Any, args: argparse.Name
             "s3_status": float(args.w_s3_status),
             "s3_subgoal": float(args.w_s3_subgoal),
         },
+        "skip_correction_scene_noise_prob": float(args.skip_correction_scene_noise_prob),
     }
     path.mkdir(parents=True, exist_ok=True)
     (path / "sft_v4_adapter_config.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -787,6 +795,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--w-s2", type=float, default=1.0)
     p.add_argument("--w-s3-status", type=float, default=1.0)
     p.add_argument("--w-s3-subgoal", type=float, default=1.0)
+    p.add_argument(
+        "--skip-correction-scene-noise-prob",
+        type=float,
+        default=DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
+        help="Metadata copy of the collector-side next-frame skip correction scene noise probability.",
+    )
     p.add_argument("--logging-steps", type=int, default=1)
     p.add_argument(
         "--startup-replay-timeout-sec",
@@ -1013,6 +1027,7 @@ def main() -> None:
                 f"frames={int(frames)} step2={_safe_ratio(stats['step2'], frames):.3f} "
                 f"step3={_safe_ratio(stats['step3'], frames):.3f} "
                 f"rs_flip={_safe_ratio(stats['rs_flip'], frames):.3f} "
+                f"skip_corr={_safe_ratio(stats['skip_correction'], frames):.3f} "
                 f"noise={_safe_ratio(stats['noise'], frames):.3f} replay={st.ready_count} "
                 f"|g|_lang={lang_norm_value:.3f} |g|_vis={vis_norm_value:.3f} "
                 f"|w|_vis={vis_param_norm_value:.3f} guard_bad_steps={guard_bad_steps} "
@@ -1035,6 +1050,12 @@ def main() -> None:
                 tb.add_scalar("train/fire_rate/step3", _safe_ratio(stats["step3"], frames), global_step)
                 tb.add_scalar("train/accuracy/road_structure", _safe_ratio(stats["step2"], frames), global_step)
                 tb.add_scalar("train/phase_b_noise_rate", _safe_ratio(stats["noise"], frames), global_step)
+                tb.add_scalar("train/skip_correction_rate", _safe_ratio(stats["skip_correction"], frames), global_step)
+                tb.add_scalar(
+                    "train/skip_correction_scene_noise_rate",
+                    _safe_ratio(stats["skip_correction_noise"], max(stats["skip_correction"], 1.0)),
+                    global_step,
+                )
                 tb.add_scalar("train/rs_flip_rate", _safe_ratio(stats["rs_flip"], frames), global_step)
                 tb.add_scalar("train/scene_flip_rate", _safe_ratio(stats["scene_flip"], frames), global_step)
                 tb.add_scalar("train/gt_leak_skip_rate/step1", _safe_ratio(stats["leak1"], frames), global_step)

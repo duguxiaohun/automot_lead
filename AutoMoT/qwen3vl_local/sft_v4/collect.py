@@ -43,6 +43,7 @@ import torch
 
 from qwen3vl_local.sft_v4 import replay
 from qwen3vl_local.sft_v4.prompts import (
+    DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
@@ -61,6 +62,7 @@ from qwen3vl_local.sft_v4.prompts import (
     check_gt_leak_road_structure,
     check_gt_leak_scene,
     check_gt_leak_status_subgoal,
+    correct_memory_after_step1_skip,
     force_memory_to_gt_chain,
     get_road_structure,
     init_memory,
@@ -194,6 +196,7 @@ def collect_episode(
     policy_version: int,
     p_init_correct: float,
     phase_b_noise_prob: float,
+    skip_correction_scene_noise_prob: float,
     outer_stride: int,
     seed: int,
 ) -> List[Dict[str, Any]]:
@@ -207,6 +210,8 @@ def collect_episode(
     - ``policy_version``：当前 collector 使用的 LoRA snapshot 版本，写入 header 供审计；
     - ``p_init_correct``：Phase A 初始 road_structure 命中 GT 桶的概率，默认 0.7；
     - ``phase_b_noise_prob``：Phase B 弱纠偏后注入随机非 GT scene 的概率；
+    - ``skip_correction_scene_noise_prob``：上一帧跳过 step2/3 后，下一帧帧首纠偏时
+      同桶非 GT scene 小扰动概率；
     - ``outer_stride``：调试用跳帧，生产默认 1，不改变 episode index 本身。
     """
 
@@ -250,9 +255,12 @@ def collect_episode(
 
     gt_road_structure = get_road_structure(ep.gt_scene)
     first_frame = True
+    need_skip_correction = False
     for frame in range(ep.frame_start, ep.frame_end + 1, stride):
         phase_a = _is_phase_a(ep, frame)
         noise_injected = False
+        skip_correction_applied = False
+        skip_correction_scene_noisy = False
         if not phase_a:
             # Phase B 帧首三层弱纠偏（D23 + D27 配套）：先 layer-1 回 GT 桶，
             # 再 scene 回 GT；noise 只在 scene 这一层按 PHASE_B_NOISE_PROB 注入。
@@ -265,6 +273,18 @@ def collect_episode(
                 rng=rng,
                 prob=phase_b_noise_prob,
             )
+        if need_skip_correction:
+            # Previous frame failed layer-1 and skipped step2/3. Repair once
+            # before this frame's inner loop so downstream choices are fetched
+            # from the corrected bucket; STATUS/SUBGOAL restart at init.
+            memory, skip_correction_scene_noisy = correct_memory_after_step1_skip(
+                memory,
+                gt_scene=ep.gt_scene,
+                rng=rng,
+                scene_noise_prob=skip_correction_scene_noise_prob,
+            )
+            skip_correction_applied = True
+            need_skip_correction = False
         memory_before = memory.copy()
         image_paths = _build_rgb_paths(run_dir, frame)
         images = _load_images(image_paths)
@@ -434,6 +454,8 @@ def collect_episode(
                 and memory_before.road_structure == gt_road_structure
             ) if first_frame else None,
             "noise_injected": bool(noise_injected),
+            "skip_correction_applied": bool(skip_correction_applied),
+            "skip_correction_scene_noisy": bool(skip_correction_scene_noisy),
             # 三步老师/学生文本：未触发的步骤填 None 而非空串，方便 learner 区分。
             "teacher_step1_text": raw_teacher_step1,
             "teacher_step1_target": target1,
@@ -482,11 +504,14 @@ def collect_episode(
                 "leak3": bool(leak3),
                 "phase_a": bool(phase_a),
                 "noise_injected": bool(noise_injected),
+                "skip_correction_applied": bool(skip_correction_applied),
+                "skip_correction_scene_noisy": bool(skip_correction_scene_noisy),
             },
         }
         frame_record["step2_ran"] = bool(step2_ran)
         frame_record["step3_ran"] = bool(step3_ran)
         records.append(frame_record)
+        need_skip_correction = not bool(step2_ran)
         first_frame = False
         # 帧末预取下一帧 goal 坐标，保证下一轮 memory_before 已经是下一帧视角。
         _prefetch_goal_xy_for_next_frame(memory, run_dir, frame + stride, ep.frame_end)
@@ -515,6 +540,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--replay-capacity", type=int, default=256)
     p.add_argument("--p-init-correct", type=float, default=0.7)
     p.add_argument("--phase-b-noise-prob", type=float, default=0.15)
+    p.add_argument(
+        "--skip-correction-scene-noise-prob",
+        type=float,
+        default=DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
+    )
     p.add_argument("--refresh-every-eps", type=int, default=4)
     p.add_argument("--refresh-every-sec", type=float, default=60.0)
     p.add_argument("--allow-random-policy", action="store_true")
@@ -618,6 +648,7 @@ def main() -> None:
                 policy_version=max(loaded_version, 0),
                 p_init_correct=args.p_init_correct,
                 phase_b_noise_prob=args.phase_b_noise_prob,
+                skip_correction_scene_noise_prob=args.skip_correction_scene_noise_prob,
                 outer_stride=args.outer_stride,
                 seed=args.seed,
             )
