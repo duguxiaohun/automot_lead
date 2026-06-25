@@ -36,13 +36,13 @@ DATASET_VERSION = "sft_v4_sequence"
 # - max 给完整推理（2~3 句视觉证据 + 1 句 verdict）留余量；
 # - min 兜底防止 base Qwen 早停成 "I am." 之类 3~4 token 残片；
 # - max 比上一版（128/160/160）下调，因为 prompt 简化后老师无需输出 100+ token。
-TEACHER_MAX_NEW_TOKENS_STEP1 = 96
-TEACHER_MAX_NEW_TOKENS_STEP2 = 128
-TEACHER_MAX_NEW_TOKENS_STEP3 = 128
+TEACHER_MAX_NEW_TOKENS_STEP1 = 64
+TEACHER_MAX_NEW_TOKENS_STEP2 = 64
+TEACHER_MAX_NEW_TOKENS_STEP3 = 64
 
-TEACHER_MIN_NEW_TOKENS_STEP1 = 24
-TEACHER_MIN_NEW_TOKENS_STEP2 = 24
-TEACHER_MIN_NEW_TOKENS_STEP3 = 24
+TEACHER_MIN_NEW_TOKENS_STEP1 = 12
+TEACHER_MIN_NEW_TOKENS_STEP2 = 12
+TEACHER_MIN_NEW_TOKENS_STEP3 = 12
 
 # 7 项 loss 默认权重（§12.5）：分析段共 0.2 × 3 = 0.6，离散标签共 1.0 × 4 = 4.0。
 DEFAULT_W_ANALYSIS = 0.2
@@ -56,35 +56,14 @@ DEFAULT_P_INIT_CORRECT = 0.7
 DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB = 0.15
 
 SYSTEM_PROMPT_V4 = """\
-You are an autonomous driving agent analyzing a sequence of camera frames.
-You receive 4 stitched RGB frames ordered oldest to newest. Each stitched
-frame contains left, front and right camera views.
+You are an autonomous driving agent.
+Use the 4 stitched RGB frames as visual context: oldest to newest, left/front/right views.
+Keep a small memory chain: ROAD_STRUCTURE -> SCENE -> STATUS/SUBGOAL.
 
-You maintain a 3-level plain-text memory:
-  ROAD_STRUCTURE (layer-1) -> SCENE (layer-2) -> STATUS / SUBGOAL (layer-3).
-Each higher layer constrains the lower ones: only scenes inside the current
-road-structure bucket are valid; only events inside the current scene are valid.
-
-This frame is handled as a KV-cache conversation:
-1. Step 1 (student): describe what you see and decide whether
-   BELIEVED_ROAD_STRUCTURE matches; output exactly one line "ROAD_STRUCTURE: <name>".
-2. Step 2 (student, only if layer-1 was correct): receive MEMORY + SCENE_CHOICES
-   under the current ROAD_STRUCTURE; output exactly one line "SCENE: <name>".
-3. Step 3 (student, only if layer-2 was correct): receive MEMORY + EVENT_OPTIONS
-   for the current scene; output exactly two lines "STATUS: <event>" and
-   "SUBGOAL: <event>".
-
-Later user turns are incremental. Reuse the visual context and prior assistant
-turns already present in KV cache; do not expect global rules to be repeated.
-
-When acting as the privileged teacher (steps marked TEACHER):
-- A VERDICT (KEEP or CHANGE) tells you whether the current memory entry is right.
-- Write 2-3 short first-person sentences in the student's voice that justify the
-  VERDICT, using only visible cues and the memory text.
-- Never output any "ROAD_STRUCTURE:", "SCENE:", "STATUS:" or "SUBGOAL:" line --
-  the final labels are appended automatically.
-- Never copy a road-structure / scenario / event token verbatim. Describe the
-  situation in plain language. Never say "the ground truth is" or similar."""
+For student turns: give a very short reason, then copy exactly one valid option line.
+For TEACHER turns: follow the given VERDICT. Write only 1-2 short first-person
+sentences that help the student keep or correct the current memory. Do not output
+ROAD_STRUCTURE:, SCENE:, STATUS:, or SUBGOAL: lines; labels are appended later."""
 
 
 # ---------------------------------------------------------------------------
@@ -92,12 +71,12 @@ When acting as the privileged teacher (steps marked TEACHER):
 # ---------------------------------------------------------------------------
 
 ROAD_STRUCTURE_LABELS: Dict[str, str] = {
-    "JUNCTION": "Intersection or crossroads with traffic from multiple directions",
-    "HIGHWAY_MERGE": "Multi-lane / highway flow, merge or exit",
-    "ROADSIDE_HAZARD": "Roadside obstacle, accident or construction on a normal road",
-    "PARKING_AREA": "Parking lot or parking-related vehicle interaction",
-    "VRU_CROSSING": "Pedestrian, cyclist or dynamic object crossing the lane",
-    "OPEN_ROAD_DYNAMICS": "Open road; ego stability or lead-vehicle behavior",
+    "JUNCTION": "Intersection, crossroad, turn, or traffic-light junction",
+    "HIGHWAY_MERGE": "High-speed or multi-lane road with merge, exit, or cut-in flow",
+    "ROADSIDE_HAZARD": "Normal road with blocked lane, accident, construction, or parked obstacle",
+    "PARKING_AREA": "Parking lot, parking exit, door opening, or low-speed parking interaction",
+    "VRU_CROSSING": "Pedestrian, cyclist, or small moving actor crossing ego path",
+    "OPEN_ROAD_DYNAMICS": "Open road with lead vehicle, braking, control loss, or invading turn",
 }
 
 # 42 个 scene 到 layer-1 桶的 1:1 映射（D21 桶分配）。
@@ -255,23 +234,17 @@ class Memory:
         "我现在相信的道路结构 / 场景 / 状态 / 子目标"对应什么交通语义。
         """
 
-        seq = get_full_sequence(self.scene)
         rs_desc = ROAD_STRUCTURE_LABELS.get(self.road_structure, self.road_structure)
         scene_desc = SCENARIO_LABELS.get(self.scene, self.scene)
         status_desc = EVENT_DESCRIPTIONS.get(self.status, self.status)
         subgoal_desc = EVENT_DESCRIPTIONS.get(self.subgoal, self.subgoal)
         return (
             "[MEMORY]\n"
-            f"BELIEVED_ROAD_STRUCTURE: {self.road_structure}\n"
-            f"  Description: {rs_desc}\n"
-            f"BELIEVED_SCENE: {self.scene}\n"
-            f"  Description: {scene_desc}\n"
-            f"  EventSequence: {' -> '.join(seq)}\n"
-            f"BELIEVED_STATUS: {self.status}\n"
-            f"  Description: {status_desc}\n"
-            f"BELIEVED_SUBGOAL: {self.subgoal}\n"
-            f"  Description: {subgoal_desc}\n"
-            f"EGO_TO_GOAL_XY: x={self.ego_to_goal_x:+.1f} m, y={self.ego_to_goal_y:+.1f} m\n"
+            f"BELIEVED_ROAD_STRUCTURE={self.road_structure} ({rs_desc})\n"
+            f"BELIEVED_SCENE={self.scene} ({scene_desc})\n"
+            f"BELIEVED_STATUS={self.status} ({status_desc})\n"
+            f"BELIEVED_SUBGOAL={self.subgoal} ({subgoal_desc})\n"
+            f"EGO_TO_GOAL_XY=({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m\n"
             "[/MEMORY]"
         )
 
@@ -639,18 +612,16 @@ def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -
     if memory is None:
         return (
             f"[STEP1]\n{image_count} images are ordered oldest to newest; the last image is now.\n"
-            "Describe visible surroundings and recent motion in 2 short sentences "
-            "(no more than 40 tokens). Do not output any label line."
+            "Describe the road layout and nearby actors in 1 short sentence. Do not output labels."
         )
     return (
         f"{memory.format_text()}\n\n"
         f"{road_structure_choices_block()}\n\n"
         f"[STEP1]\n"
         f"{image_count} images are ordered oldest to newest; the last image is now.\n"
-        "First write 2 short first-person sentences (<=40 tokens) describing visible road "
-        "geometry, agents, signals or lighting -- do NOT reference MEMORY here. "
-        "Then write 1 short sentence judging whether BELIEVED_ROAD_STRUCTURE should be "
-        "kept or corrected. Finally output exactly one line by copying one option name verbatim:\n"
+        "Write 1 short sentence about visible road layout / actors / signals. "
+        "Write 1 short sentence saying whether the believed road structure fits or should change. "
+        "Then copy exactly one option name:\n"
         "ROAD_STRUCTURE: <name>"
     )
 
@@ -670,24 +641,11 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
     gt_rs_desc = ROAD_STRUCTURE_LABELS.get(gt_road_structure, gt_road_structure)
 
     if verdict == "KEEP":
-        verdict_line = (
-            "VERDICT: KEEP -- BELIEVED_ROAD_STRUCTURE is consistent with what the camera shows. "
-            "Argue why the visible road geometry / lane layout supports the current memory entry."
-        )
-        focus_line = (
-            f"Reference the memory's own description ({memory_rs_desc}) in plain language and "
-            "list which visible features make it the correct interpretation."
-        )
+        verdict_line = "VERDICT: KEEP -- the believed road structure is correct."
+        focus_line = f"Use road layout evidence to support: {memory_rs_desc}."
     else:
-        verdict_line = (
-            "VERDICT: CHANGE -- BELIEVED_ROAD_STRUCTURE does not match what the camera shows. "
-            "Argue what the road layout actually looks like, without naming the road category verbatim."
-        )
-        focus_line = (
-            f"Contrast the memory's own description ({memory_rs_desc}) with the visible cues, "
-            f"and describe the actual road layout in plain language (it resembles: {gt_rs_desc}). "
-            "Do not write the category token; describe it in free words."
-        )
+        verdict_line = "VERDICT: CHANGE -- the believed road structure is wrong."
+        focus_line = f"Contrast it with visible road layout; guide toward: {gt_rs_desc}."
 
     return (
         f"{memory.format_text()}\n\n"
@@ -695,11 +653,8 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
         "[STEP1_TEACHER]\n"
         f"{verdict_line}\n"
         f"{focus_line}\n"
-        "Write 2 short first-person visual sentences without saying the word 'memory', followed by 1 short "
-        "verdict sentence (about 50-80 tokens total). Cover road geometry / lane layout / signals. "
-        "Do not output any line starting with 'ROAD_STRUCTURE:', 'SCENE:', 'STATUS:' or "
-        "'SUBGOAL:'. Do not copy any road-structure / scenario / event token from the option "
-        "lists. Plain prose only."
+        "Write 1 short first-person visual sentence, then 1 short judgement sentence. "
+        "No label lines. Plain prose only."
     )
 
 
@@ -731,9 +686,8 @@ def build_step2_student_prompt(memory: Memory) -> str:
         f"{memory.format_text()}\n\n"
         f"{scene_choices_block_for(memory.road_structure)}\n\n"
         "[STEP2]\n"
-        "Using the cached visual context and MEMORY, write at most 2 short first-person "
-        "evidence sentences explaining whether BELIEVED_SCENE should be kept or corrected. "
-        "Then output exactly one final line by copying one option name verbatim:\n"
+        "Use the narrowed choices. Write 1 short sentence explaining keep/correct for BELIEVED_SCENE. "
+        "Then copy exactly one option name:\n"
         "SCENE: <scenario_name>"
     )
 
@@ -750,25 +704,11 @@ def build_step2_teacher_prompt(memory: Memory, gt_scene: str) -> str:
     gt_scene_desc = SCENARIO_LABELS.get(gt_scene, gt_scene)
 
     if verdict == "KEEP":
-        verdict_line = (
-            "VERDICT: KEEP -- BELIEVED_SCENE is already consistent with what the camera shows. "
-            "Argue why the visible cues support the current memory entry."
-        )
-        focus_line = (
-            f"Reference the memory's own description ({memory_scene_desc}) in plain language and "
-            "list which visible features in the latest frames make it the correct interpretation."
-        )
+        verdict_line = "VERDICT: KEEP -- the believed scene is correct."
+        focus_line = f"Briefly support this scene meaning: {memory_scene_desc}."
     else:
-        verdict_line = (
-            "VERDICT: CHANGE -- BELIEVED_SCENE does not match what the camera shows. "
-            "Argue why the visible cues contradict the current memory entry and what the scene "
-            "actually looks like, without naming any scenario class verbatim."
-        )
-        focus_line = (
-            f"Contrast the memory's own description ({memory_scene_desc}) with the visible cues, "
-            f"and describe the actual situation in plain language (it resembles: {gt_scene_desc}). "
-            "Do not write the scenario class token; describe it in free words."
-        )
+        verdict_line = "VERDICT: CHANGE -- the believed scene is wrong."
+        focus_line = f"Briefly reject '{memory_scene_desc}' and guide toward: {gt_scene_desc}."
 
     return (
         f"{memory.format_text()}\n\n"
@@ -776,13 +716,7 @@ def build_step2_teacher_prompt(memory: Memory, gt_scene: str) -> str:
         "[STEP2_TEACHER]\n"
         f"{verdict_line}\n"
         f"{focus_line}\n"
-        "Write 2 to 3 short first-person evidence sentences (about 40-80 tokens). Cover at least one of:\n"
-        "  - road geometry within this layer-1 category\n"
-        "  - other agents (vehicles, pedestrians, cyclists, their motion)\n"
-        "  - signals or signs (traffic lights, stop signs, markings)\n"
-        "  - ego motion and recent change between the 4 frames\n"
-        "Do not output any line starting with 'ROAD_STRUCTURE:', 'SCENE:', 'STATUS:' or "
-        "'SUBGOAL:'. Plain prose only."
+        "Write 1-2 short first-person sentences. No label lines. Plain prose only."
     )
 
 
@@ -807,10 +741,8 @@ def build_step3_student_prompt(memory: Memory) -> str:
         f"{memory.format_text()}\n\n"
         f"[EVENT_OPTIONS]\n{_event_sequence_block(memory.scene)}\n[/EVENT_OPTIONS]\n\n"
         "[STEP3]\n"
-        "Using the cached visual context and MEMORY, write at most 2 short first-person "
-        "evidence sentences explaining whether BELIEVED_STATUS and BELIEVED_SUBGOAL should "
-        "be kept or corrected. Then output exactly these two final lines by copying event "
-        "names verbatim:\n"
+        "Use the event options. Write 1 short sentence explaining keep/correct for current phase. "
+        "Then copy exactly two event names:\n"
         "STATUS: <event_name>\n"
         "SUBGOAL: <event_name>"
     )
@@ -823,17 +755,10 @@ def build_step3_teacher_prompt(memory: Memory, gt_status: str, gt_subgoal: str) 
     subgoal_keep = memory.subgoal == gt_subgoal
     if status_keep and subgoal_keep:
         verdict = "KEEP"
-        verdict_line = (
-            "VERDICT: KEEP -- BELIEVED_STATUS and BELIEVED_SUBGOAL are both consistent with the "
-            "latest observations. Argue why the visible cues support keeping both."
-        )
+        verdict_line = "VERDICT: KEEP -- believed status and subgoal are correct."
     else:
         verdict = "CHANGE"
-        verdict_line = (
-            "VERDICT: CHANGE -- at least one of BELIEVED_STATUS / BELIEVED_SUBGOAL is no longer "
-            "consistent with what the camera shows. Argue what the ego currently does and what "
-            "the next reasonable intent is, based on visible cues."
-        )
+        verdict_line = "VERDICT: CHANGE -- believed status/subgoal should be corrected."
 
     memory_status_desc = EVENT_DESCRIPTIONS.get(memory.status, memory.status)
     memory_subgoal_desc = EVENT_DESCRIPTIONS.get(memory.subgoal, memory.subgoal)
@@ -842,16 +767,12 @@ def build_step3_teacher_prompt(memory: Memory, gt_status: str, gt_subgoal: str) 
 
     if verdict == "KEEP":
         focus_line = (
-            f"Reference the believed current event ({memory_status_desc}) and the believed next "
-            f"sub-goal ({memory_subgoal_desc}) in plain language. Explain which visible elements "
-            "make the current sub-goal still pending and the next step still appropriate."
+            f"Support current phase '{memory_status_desc}' and next intent '{memory_subgoal_desc}'."
         )
     else:
         focus_line = (
-            f"Contrast the believed current event ({memory_status_desc}) and believed next sub-goal "
-            f"({memory_subgoal_desc}) with the observed driving phase, which actually looks like: "
-            f"current event = {gt_status_desc}; next sub-goal = {gt_subgoal_desc}. "
-            "Describe these phases in free words; do not copy any event token from the option list."
+            f"Reject current '{memory_status_desc}' / next '{memory_subgoal_desc}'. "
+            f"Guide toward current '{gt_status_desc}' and next '{gt_subgoal_desc}'."
         )
 
     return (
@@ -860,13 +781,7 @@ def build_step3_teacher_prompt(memory: Memory, gt_status: str, gt_subgoal: str) 
         "[STEP3_TEACHER]\n"
         f"{verdict_line}\n"
         f"{focus_line}\n"
-        "Write 2 to 3 short first-person evidence sentences (about 40-80 tokens). Cover at least one of:\n"
-        "  - ego speed / braking / steering trend across the 4 frames\n"
-        "  - immediate hazard (oncoming vehicle, pedestrian, parked obstacle, leading car)\n"
-        "  - whether the ego is still approaching, yielding, holding or already resuming\n"
-        "  - what cue the ego should wait for before transitioning to the next sub-goal\n"
-        "Do not output any line starting with 'ROAD_STRUCTURE:', 'SCENE:', 'STATUS:' or "
-        "'SUBGOAL:'. Plain prose only."
+        "Write 1-2 short first-person sentences. No label lines. Plain prose only."
     )
 
 
