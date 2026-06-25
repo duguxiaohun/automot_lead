@@ -14,6 +14,10 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
 scene，按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STATUS/SUBGOAL`
 回 init。learner rank0 每 1000 step 发布一次 LoRA snapshot 给 collectors。
 
+当前 prompt 已压缩：system prompt 只保留三层 memory 与输出协议；`[MEMORY]` 每层一行；
+Step1 保留“视觉环境 + ROAD_STRUCTURE 判断”，Step2/Step3 只做候选内 keep/correct
+短分析。teacher 默认生成上限为 `64/64/64`，软最小长度为 `12/12/12`。
+
 `train.sh` / `train.py` 只保留为 on-policy 兼容调试入口，不是 v4 生产路径。
 
 代码已补中文 module docstring、函数说明和关键逻辑块注释。需要读实现时建议顺序：
@@ -503,7 +507,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 跑完 `teacher_report.md` 后，按顺序检查：
 
 1. **token_count 是否 ≥ `TEACHER_MIN_NEW_TOKENS_STEP{1,2,3}`**
-   （prompts.py 默认 24 / 24 / 24）。如果还出现 5~10 token 的老师输出，
+   （prompts.py 默认 12 / 12 / 12）。如果还出现 5~10 token 的老师输出，
    说明 min_new_tokens 闸门没生效或者 EOS id 集合不全。
 2. **leak_detected 是否全 False**。如果 step1 / step2 / step3 经常 True，说明老师
    prompt 里描述 GT 用的自然语言被老师反引用了 token；需要在 prompt 里加更严的
@@ -514,10 +518,10 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
    `scene_change_cross_rs` 模式下老师是否描述"实际场景看起来像 X"而不是简单复述
    memory scene**；**`event_change` 模式下老师是否解释"虽然 scene 对，但
    status/subgoal 应该推进"**。
-4. **step3 老师是否真的引用视觉证据**（车在刹车/前方有行人/正在转向中等），
-   而不是套话"I observe the current driving phase"。
+4. **step3 老师是否能围绕 EVENT_OPTIONS 做有效 keep/correct 引导**，不要只输出
+   "I observe the current driving phase" 这类空话。
 
-如果第 3、4 条不达标，回头修 `build_step{2,3}_teacher_prompt` 里的 `focus_line`
-（强制要求"必须命中以下证据类别至少一项"）。
+如果第 3、4 条不达标，回头修 `build_step{2,3}_teacher_prompt` 里的 `focus_line`；
+优先保持短 prompt，只在必要时给 1 个最关键的证据锚点，不要恢复长证据清单。
 
 ---

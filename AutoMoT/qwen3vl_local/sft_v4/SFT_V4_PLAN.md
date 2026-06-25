@@ -779,21 +779,18 @@ delta = min(raw_delta, 10)   # 允许 δ=0，只封顶 10
 
 ```
 [MEMORY]
-BELIEVED_SCENE: <scene_name>
-  Description: <SCENARIO_LABELS[scene]>
-  EventSequence: e0 -> e1 -> e2 -> e3 -> e4
-BELIEVED_STATUS: <event_name>
-  Description: <EVENT_DESCRIPTIONS[event]>
-BELIEVED_SUBGOAL: <event_name>
-  Description: <EVENT_DESCRIPTIONS[event]>
-EGO_TO_GOAL_XY: x=+12.3 m, y=-4.5 m
+BELIEVED_ROAD_STRUCTURE=<road_structure> (<ROAD_STRUCTURE_LABELS[value]>)
+BELIEVED_SCENE=<scene_name> (<SCENARIO_LABELS[scene]>)
+BELIEVED_STATUS=<event_name> (<EVENT_DESCRIPTIONS[event]>)
+BELIEVED_SUBGOAL=<event_name> (<EVENT_DESCRIPTIONS[event]>)
+EGO_TO_GOAL_XY=(+12.3, -4.5) m
 [/MEMORY]
 ```
 
 - 描述字段直接复用 [prompt_pipeline.py](../prompt_pipeline.py) 的 `SCENARIO_LABELS` /
   `EVENT_DESCRIPTIONS`，保持与 v2 prompt 风格一致。
-- `EventSequence` 一并列出，让模型在 step3 之前就看到该 scene 的完整事件链，
-  step3 prompt 不必再重复。
+- `EventSequence` 不再放进 memory；step3 的 `[EVENT_OPTIONS]` 单独列出当前 scene
+  事件链，避免每个 step 重复长文本。
 - `EGO_TO_GOAL_XY` 精度 `+.1f` 米。**必须保留**：十字路口左/右转场景靠这条信息
   消歧（"目的地在车体左前 → 大概率左转场景"）。
 - Memory **不**携带上一帧的学生分析文本，避免 prompt 滚动膨胀。
@@ -1118,9 +1115,9 @@ val/analysis_bleu_vs_teacher (eval.py --with-teacher-ref 时输出)
 
 | Step | max_new_tokens | min_new_tokens | do_sample | repetition_penalty | no_repeat_ngram_size | 备注 |
 |---|---:|---:|---|---:|---:|---|
-| 1 | 96 | 24 | False | 1.05 | 3 | 2 句视觉 + 1 句 layer-1 verdict；标签由脚本拼回 |
-| 2 | 128 | 24 | False | 1.05 | 3 | 收窄桶内 scene 纠偏；标签由脚本拼回 |
-| 3 | 128 | 24 | False | 1.05 | 3 | status/subgoal 纠偏；标签由脚本拼回 |
+| 1 | 64 | 12 | False | 1.05 | 3 | 视觉环境 + layer-1 判断短分析；标签由脚本拼回 |
+| 2 | 64 | 12 | False | 1.05 | 3 | 收窄桶内 scene keep/correct 短分析；标签由脚本拼回 |
+| 3 | 64 | 12 | False | 1.05 | 3 | status/subgoal keep/correct 短分析；标签由脚本拼回 |
 
 prompt 内的 token 上限故意比 `max_new_tokens` 更保守，预留格式行、分词误差和
 少量冗余；如发现 99 分位 token 数贴近生成上限，调高 max_new_tokens 10~20，
@@ -1393,7 +1390,7 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
    实时 generate 分析 + 离散答案；student token-CE 对齐。
 10. **GT 泄露双保险**：prompt 硬约束 + 字面正则后处理，命中则跳分析 loss 但
     保留离散 loss。
-11. **Teacher 长度**：step1 ≤3 句（max_new=80），step2/3 ≤2 句（max_new=60）。
+11. **Teacher 长度**：三步均为 1-2 句短分析（max_new=64，soft min=12）。
     `repetition_penalty=1.05`（B1 拍板）已在 `_kv_generate_text` 内按 HF 风格
     施加 logits 后处理，与 `do_sample=False` 配合避免短文本复读。
 12. **Loss 权重**：分析 0.2 × 3、离散 1.0 × 3，分析 per-token normalize；
@@ -1519,12 +1516,12 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 
 ```python
 ROAD_STRUCTURE_LABELS: Dict[str, str] = {
-    "JUNCTION": "Intersection or crossroads with traffic from multiple directions",
-    "HIGHWAY_MERGE": "Multi-lane / highway flow, merge or exit",
-    "ROADSIDE_HAZARD": "Roadside obstacle, accident or construction on a normal road",
-    "PARKING_AREA": "Parking lot or parking-related vehicle interaction",
-    "VRU_CROSSING": "Pedestrian, cyclist or dynamic object crossing the lane",
-    "OPEN_ROAD_DYNAMICS": "Open road; ego stability or lead-vehicle behavior",
+    "JUNCTION": "Intersection, crossroad, turn, or traffic-light junction",
+    "HIGHWAY_MERGE": "High-speed or multi-lane road with merge, exit, or cut-in flow",
+    "ROADSIDE_HAZARD": "Normal road with blocked lane, accident, construction, or parked obstacle",
+    "PARKING_AREA": "Parking lot, parking exit, door opening, or low-speed parking interaction",
+    "VRU_CROSSING": "Pedestrian, cyclist, or small moving actor crossing ego path",
+    "OPEN_ROAD_DYNAMICS": "Open road with lead vehicle, braking, control loss, or invading turn",
 }
 
 SCENE_TO_ROAD_STRUCTURE: Dict[str, str] = {
@@ -1538,16 +1535,16 @@ SCENE_TO_ROAD_STRUCTURE: Dict[str, str] = {
 ### 12.2 Memory 字段扩展
 
 `Memory` dataclass 新增 `road_structure: str` 字段；`format_text()` 在
-`BELIEVED_SCENE` 上方插一行：
+压缩 prompt 后按每层一行渲染：
 
 ```
 [MEMORY]
-BELIEVED_ROAD_STRUCTURE: JUNCTION
-  Description: Intersection or crossroads with traffic from multiple directions
-BELIEVED_SCENE: SignalizedJunctionLeftTurn
-  Description: Left turn at signalized junction
-  EventSequence: ...
-...
+BELIEVED_ROAD_STRUCTURE=JUNCTION (Intersection, crossroad, turn, or traffic-light junction)
+BELIEVED_SCENE=SignalizedJunctionLeftTurn (Left turn at signalized junction)
+BELIEVED_STATUS=initial (Scenario has started; vehicle is approaching the challenge zone.)
+BELIEVED_SUBGOAL=junction_approach (Ego vehicle is approaching a junction or intersection.)
+EGO_TO_GOAL_XY=(+12.3, -4.5) m
+[/MEMORY]
 ```
 
 `init_memory(p_init_correct=0.7)` 用同一概率联合采样：
@@ -1589,7 +1586,7 @@ status/subgoal 重置成新 scene 的 init + first subgoal。
 
 | Step | 旧任务 | v4 定稿任务 |
 |---|---|---|
-| 1 | 仅描述视觉，禁 memory / 禁标签；输出 ≤3 句 | 描述视觉 + 选 ROAD_STRUCTURE；**允许读 memory**；输出 = 2 句视觉 + 1 句对 layer-1 KEEP/CHANGE 论证 + 一行 `ROAD_STRUCTURE: <name>` |
+| 1 | 仅描述视觉，禁 memory / 禁标签；输出 ≤3 句 | 描述视觉 + 选 ROAD_STRUCTURE；**允许读 memory**；输出 = 1 句视觉环境 + 1 句 layer-1 KEEP/CHANGE 判断 + 一行 `ROAD_STRUCTURE: <name>` |
 | 2 | 读 memory + 完整 42 行 SCENE_CHOICES → 输出 SCENE | 读 memory + **只列预测桶下的 layer-2** → 输出 SCENE |
 | 3 | 不变 | 不变 |
 
@@ -1619,8 +1616,7 @@ ROAD_STRUCTURE: <name>
 ```
 
 老师 prompt 同 step2/3 的 KEEP/CHANGE 设计：传 verdict + 该桶的自然语言描述，
-禁止输出标签行、禁止字面 token，要求 2 句视觉 + 1 句 verdict 论证（共 ~50-80
-token，比当前 step2/3 收紧）。
+禁止输出标签行，要求 1 句视觉证据 + 1 句 keep/correct 判断。
 
 **Step 2 prompt 收窄**：
 
@@ -1675,15 +1671,15 @@ token，比当前 step2/3 收紧）。
 
 1. **削冗余指令**：删掉重复出现的 "Do not mention 'ground truth' / 'verdict'"——
    塞进 SYSTEM_PROMPT 一次即可，每 step 不再复述。
-2. **缩证据清单**：把"5 类视觉证据 + 5 条禁令"压成 2 行短列表。
-3. **降长度要求**：从 "3 to 4 sentences (60-120 tokens)" 调到
-   "2 to 3 short sentences (40-80 tokens)"，与 4B Qwen 实际可写出连贯文本的
-   长度匹配。
+2. **缩证据清单**：Step1 保留道路结构 / 周围 actor / 信号灯等视觉锚点；
+   Step2/Step3 不再重复环境分析，只做候选内 keep/correct 引导。
+3. **降长度要求**：统一压到 1-2 short sentences，与 4B Qwen 实际可写出连贯文本的
+   长度匹配，避免被迫长输出后碎句。
 4. **拆 user turn**：原本 step2 / step3 各自 1 个 user turn 含 [MEMORY] +
    [CHOICES] + [INSTRUCTIONS]，太长。考虑把 [MEMORY] 留在 turn 头、[CHOICES] +
    [INSTRUCTIONS] 压在 turn 尾，中间留一行空，让模型注意力更易锚定指令。
 5. **生成端兜底**（与 prompt 改动**正交**，必须同步动手）：
-   - `min_new_tokens` 从 32/48/48 降到 24/24/24，且改为软闸门——只在生成长度
+   - `min_new_tokens` 从 24/24/24 继续降到 12/12/12，且保持软闸门——只在生成长度
      ≥ MIN 且生成内容里**还没出现一个句号**时继续抑制 EOS；
    - 加 `no_repeat_ngram_size=3`，阻断 "The left. The right." 这种 3-gram 循环；
    - `repetition_penalty` 的 `seen_unique` 只算**本轮生成**的 token，不算 prefix。
@@ -1714,7 +1710,7 @@ token，比当前 step2/3 收紧）。
 | D23 | Phase B 噪声是否扰 road_structure | **不扰**（仅扰 scene）|
 | D24 | step2 触发条件 | **A**：layer-1 命中才触发，SCENE_CHOICES 来自触发后的 memory road_structure（此时等于 GT 桶） |
 | D25 | L_RS1 权重 | **1.0**（训后视情况下调）|
-| D26 | Step 1 是否保留纯视觉描述前缀 | **保留**：2 句视觉 + 1 句 verdict 论证 + 标签，loss 三段独立计 |
+| D26 | Step 1 是否保留纯视觉描述前缀 | **保留**：1 句视觉环境 + 1 句 verdict 判断 + 标签，loss 三段独立计 |
 | D27 | step3 触发率腰斩对策 | **p_init_correct 默认 0.7**（联合初始化下三层联合命中 0.7×0.5=0.35，Phase B 弱纠偏后回升）|
 | D28 | step1 失败后下一帧是否强制纠偏 | **只在上一帧 step2/3 已跳过时触发一次**；road_structure=GT 桶，scene 大概率 GT / 0.15 同桶扰动，status/subgoal 回 init |
 
