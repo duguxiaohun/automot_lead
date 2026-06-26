@@ -448,10 +448,12 @@ def main() -> None:
             if step2_fire:
                 step2_total += 1
                 if teacher_engine is not None:
-                    teacher_step2_user = build_step2_teacher_prompt(memory, ep.gt_scene)
-                    teacher_step2_text = _generate_next_with_kv(
+                    teacher_step2_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
+                    teacher_step2_msgs = _build_messages_with_images(user_text=teacher_step2_user, images=images)
+                    teacher_step2_text = _generate(
                         teacher_engine,
-                        teacher_step2_user,
+                        teacher_step2_msgs,
+                        images,
                         max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2,
                     )
                 step2_user = build_step2_student_prompt(memory)
@@ -495,8 +497,20 @@ def main() -> None:
                 step3_total += 1
                 teacher_step3_text = ""
                 if teacher_engine is not None:
-                    teacher_step3_user = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
-                    teacher_step3_text = _generate_next_with_kv(teacher_engine, teacher_step3_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3)
+                    teacher_step3_user = build_step3_teacher_prompt(
+                        memory,
+                        gt_road_structure,
+                        ep.gt_scene,
+                        gt_status,
+                        gt_subgoal,
+                    )
+                    teacher_step3_msgs = _build_messages_with_images(user_text=teacher_step3_user, images=images)
+                    teacher_step3_text = _generate(
+                        teacher_engine,
+                        teacher_step3_msgs,
+                        images,
+                        max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3,
+                    )
                 step3_user = build_step3_student_prompt(memory)
                 step3_text = _generate_next_with_kv(engine, step3_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3)
                 if teacher_engine is not None:

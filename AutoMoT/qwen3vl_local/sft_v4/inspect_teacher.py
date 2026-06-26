@@ -301,9 +301,9 @@ def _run_teacher_for_frame(
 ) -> Dict[str, Any]:
     """在单帧、单 memory 配置下跑老师完整三步，返回结构化结果。
 
-    复用 ``train.py`` 的 KV cache 生成路径与新版老师 prompt（含 ``min_new_tokens``）。
-    每次调用都新建独立的 KV 状态——脚本只关心老师"如果此刻进入这个 memory 状态会怎么
-    说"，不需要跨帧延续 KV cache。
+    复用 ``train.py`` 的 KV cache 生成函数与新版老师 prompt（含 ``min_new_tokens``）。
+    每个 step 都新建独立的 teacher 对话并重新吃图——脚本只关心老师"如果此刻进入这个
+    memory 状态会怎么说"，不让 step1 的生成污染 step2/step3。
     """
 
     images = _load_images(image_paths)
@@ -329,7 +329,7 @@ def _run_teacher_for_frame(
         with teacher_model.disable_adapter():
             # ---- step1：ROAD_STRUCTURE KEEP/CHANGE 推理，吃图 ----
             step1_state = _teacher_start_state(bundle, step1_msgs)
-            raw_step1, step1_state_after = _teacher_generate_kv(
+            raw_step1, _step1_state_after = _teacher_generate_kv(
                 bundle,
                 _clone_kv_state(step1_state),
                 TEACHER_MAX_NEW_TOKENS_STEP1,
@@ -345,9 +345,10 @@ def _run_teacher_for_frame(
                 gt_road_structure=gt_road_structure,
             )
             if step2_fired:
-                step2_teacher_user = build_step2_teacher_prompt(memory, ep.gt_scene)
-                step2_state = _append_user_turn(bundle, step1_state_after, step2_teacher_user)
-                raw_step2, step2_state_after = _teacher_generate_kv(
+                step2_teacher_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
+                step2_msgs = _build_messages_with_images(user_text=step2_teacher_user, images=images)
+                step2_state = _teacher_start_state(bundle, step2_msgs)
+                raw_step2, _step2_state_after = _teacher_generate_kv(
                     bundle,
                     _clone_kv_state(step2_state),
                     TEACHER_MAX_NEW_TOKENS_STEP2,
@@ -357,8 +358,15 @@ def _run_teacher_for_frame(
                 # ---- step3：触发口径与训练一致（step2 已跑且 memory.scene == gt_scene） ----
                 step3_fired = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
                 if step3_fired:
-                    step3_user_prompt = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
-                    step3_state = _append_user_turn(bundle, step2_state_after, step3_user_prompt)
+                    step3_user_prompt = build_step3_teacher_prompt(
+                        memory,
+                        gt_road_structure,
+                        ep.gt_scene,
+                        gt_status,
+                        gt_subgoal,
+                    )
+                    step3_msgs = _build_messages_with_images(user_text=step3_user_prompt, images=images)
+                    step3_state = _teacher_start_state(bundle, step3_msgs)
                     raw_step3, _ = _teacher_generate_kv(
                         bundle,
                         _clone_kv_state(step3_state),
@@ -506,8 +514,8 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
         "below come from the same tokenizer the trainer uses.\n"
     )
     lines.append(
-        f"\nNote: {VERDICT_SOURCE_NOTE} Step 1 intentionally includes a [MEMORY] block; "
-        "the teacher is asked not to mention the word 'memory' in its prose.\n"
+        f"\nNote: {VERDICT_SOURCE_NOTE} Step 1 teacher turns use a road-only "
+        "[STEP1_ROAD_CONTEXT] block instead of the full [MEMORY] block.\n"
     )
     lines.append(
         "Mode sections are ordered by the state-machine path: "
@@ -580,7 +588,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                     f"(source={s2.get('verdict_source', 'scripted_memory_vs_gt')}, "
                     f"teacher tokens: {s2['token_count']}, leak={s2['leak_detected']})\n"
                 )
-                lines.append(_format_md_block("user (new turn, reuses cached KV; no new image)", s2["user_prompt"]))
+                lines.append(_format_md_block("user (fresh teacher dialog with 4 images)", s2["user_prompt"]))
                 lines.append(_format_md_block("assistant — teacher raw output", s2["teacher_raw"]))
                 lines.append(
                     _format_md_block(
@@ -602,7 +610,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                     f"(source={s3.get('verdict_source', 'scripted_memory_vs_gt')}, "
                     f"teacher tokens: {s3['token_count']}, leak={s3['leak_detected']})\n"
                 )
-                lines.append(_format_md_block("user (new turn, reuses cached KV)", s3["user_prompt"]))
+                lines.append(_format_md_block("user (fresh teacher dialog with 4 images)", s3["user_prompt"]))
                 lines.append(_format_md_block("assistant — teacher raw output", s3["teacher_raw"]))
                 lines.append(
                     _format_md_block(

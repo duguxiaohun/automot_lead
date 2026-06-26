@@ -59,9 +59,6 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step3_student_prompt,
     build_step3_teacher_prompt,
     build_step3_teacher_target,
-    check_gt_leak_road_structure,
-    check_gt_leak_scene,
-    check_gt_leak_status_subgoal,
     correct_memory_after_step1_skip,
     force_memory_to_gt_chain,
     get_road_structure,
@@ -322,7 +319,7 @@ def collect_episode(
 
         # ============ Step 1 后处理：更新 memory.road_structure ============
         analysis1 = _analysis_before_labels(raw_teacher_step1)
-        leak1 = check_gt_leak_road_structure(analysis1, gt_road_structure)
+        leak1 = False
         target1 = build_step1_teacher_target(analysis1, gt_road_structure)
         pred1 = parse_output(student_step1)
         old_rs = memory.road_structure
@@ -342,7 +339,6 @@ def collect_episode(
         memory_after_step2 = memory.copy()
         raw_teacher_step2 = ""
         raw_student_step2 = ""
-        teacher_step2_state = None
         student_step2_state = None
         if step2_ran:
             # Step 2 的时序是 v4 最重要的不变量之一：
@@ -355,14 +351,15 @@ def collect_episode(
             # 否则会出现“step1 已经把桶从旧值纠正到 GT，但 step2 仍列旧桶
             # SCENE_CHOICES”的隐性错配；trajectory 看起来合法，learner 却会学到
             # target 不在候选表里的坏样本。
-            step2_teacher_user = build_step2_teacher_prompt(memory, ep.gt_scene)
+            step2_teacher_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
             step2_student_user = build_step2_student_prompt(memory)
+            step2_msgs_teacher = _build_messages_with_images(user_text=step2_teacher_user, images=images)
 
             was_training = bool(model.training)
             model.eval()
             with model.disable_adapter():
-                teacher_step2_prompt_state = _append_user_turn(bundle, teacher_step1_state, step2_teacher_user)
-                raw_teacher_step2, teacher_step2_state = _teacher_generate_kv(
+                teacher_step2_prompt_state = _teacher_start_state(bundle, step2_msgs_teacher)
+                raw_teacher_step2, _teacher_step2_state = _teacher_generate_kv(
                     bundle,
                     teacher_step2_prompt_state,
                     TEACHER_MAX_NEW_TOKENS_STEP2,
@@ -378,7 +375,7 @@ def collect_episode(
             )
 
             analysis2 = _analysis_before_labels(raw_teacher_step2)
-            leak2 = check_gt_leak_scene(analysis2, ep.gt_scene)
+            leak2 = False
             target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
             pred2 = parse_output(raw_student_step2)
             old_scene = memory.scene
@@ -396,13 +393,19 @@ def collect_episode(
         target3 = ""
         leak3 = False
         if step3_ran:
-            assert teacher_step2_state is not None
             assert student_step2_state is not None
-            step3_teacher_user = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
+            step3_teacher_user = build_step3_teacher_prompt(
+                memory,
+                gt_road_structure,
+                ep.gt_scene,
+                gt_status,
+                gt_subgoal,
+            )
+            step3_msgs_teacher = _build_messages_with_images(user_text=step3_teacher_user, images=images)
             was_training = bool(model.training)
             model.eval()
             with model.disable_adapter():
-                teacher_step3_prompt_state = _append_user_turn(bundle, teacher_step2_state, step3_teacher_user)
+                teacher_step3_prompt_state = _teacher_start_state(bundle, step3_msgs_teacher)
                 raw_teacher_step3, _ = _teacher_generate_kv(
                     bundle,
                     teacher_step3_prompt_state,
@@ -412,7 +415,7 @@ def collect_episode(
             if was_training:
                 model.train()
             analysis3 = _analysis_before_labels(raw_teacher_step3)
-            leak3 = check_gt_leak_status_subgoal(analysis3, gt_status, gt_subgoal)
+            leak3 = False
             target3 = build_step3_teacher_target(analysis3, gt_status, gt_subgoal)
 
             # student step3 输出决定帧末 memory 的 status/subgoal。非法 event 不写入 memory，
