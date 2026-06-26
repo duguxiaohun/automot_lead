@@ -621,6 +621,7 @@ v4 off-policy 已经落地为四个新入口：
 | LR schedule | `--max-steps` + cosine + `warmup_ratio=0.03` | off-policy 没有 epoch 概念，用总 step 定义 scheduler |
 | in-loop eval | 默认关闭 | 训练后用 `eval.py`；需要快检时从 replay subsample 做 quick eval，不能阻塞 DDP 主循环 |
 | replay 抽样 | 各 learner rank 独立 `random.choice` | 不用 `DistributedSampler`；off-policy replay 允许重抽，两个 rank 抽到不同 traj 即形成 batch 多样性 |
+| teacher analysis 清洗 | 只剥 label 行 + prompt marker | D29 拍板放弃严格 4-heading 校验，scripted target = raw 全文；分 step 监督下 analysis 含 GT/选项名不污染 L_RS1/L_SC/L_ST/L_SG |
 
 资源部署也已锁定：**learner 卡不混部 collector**。虽然 H20 96GB 显存能塞下
 1 learner + 1 collector，但 collector 长 decode 会抢 SM，让 learner backward 变慢并放大
@@ -1454,6 +1455,22 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
     进入内循环前触发一次。`BELIEVED_ROAD_STRUCTURE` 拉回 GT 桶，`BELIEVED_SCENE`
     默认 GT、按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，
     `STATUS/SUBGOAL` 重置为所选 scene 的 init/first subgoal。
+29. **放弃严格 4-heading 清洗，老师自由发挥（D29，覆盖 D10 旧"严格四行 fallback"口径）**：
+    v4 是分 step 监督学习——L_RS1 / L_SC / L_ST / L_SG 各自只盯一个离散值 token，
+    所以 teacher analysis 里出现 GT / chosen label / event name 都不会泄露监督信号。
+    `_teacher_structured_analysis_instructions` 不再用 `<...>` 占位词、不再写
+    "do not copy these placeholder words" 反向警告，只列 4 行 heading 顺序 + 一句禁
+    markdown；`build_step{1,2,3}_teacher_prompt` 不再附 `Keep the analysis about XXX
+    only.`；`_clean_teacher_analysis` 简化为只剥两类危险行——`ROAD_STRUCTURE:` /
+    `SCENE:` / `STATUS:` / `SUBGOAL:` 整行（防 parser 取错）和
+    `[STEPx]` / `[MEMORY]` 等 prompt marker——其余文字（含 markdown / bullets /
+    半截选项名 / 单 heading 噪声）原样进 target。`_fallback_teacher_analysis` 保留，
+    但只在剥完后真为空字符串时触发。teacher_report 实测显示：本地 Qwen3-VL-4B base
+    在该 prompt 下 raw 经常是"单 `Scene Description:` heading + 大段半句子噪声"或纯
+    repetition loop；旧严格 4-heading 校验下这些 case 100% 会落 fallback，导致学生学
+    不到 base 真实的视觉线索。新口径下 scripted target = raw 全文，监督负担转给
+    L_RS1/L_SC/L_ST/L_SG 离散权重，分析段权重 0.2 × 3 维持不变。后续若发现学生被
+    噪声带偏，优先调 `DEFAULT_W_ANALYSIS` 而不是回退到严格清洗。
 
 ---
 
@@ -1472,7 +1489,7 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 
 ## 12. 设计（已落地）：SCENE_CHOICES 分层 + Step 1 ROAD_STRUCTURE 选择
 
-> **状态：D21~D28 已拍板并实现。** §12.6 第 5 点的生成端兜底
+> **状态：D21~D29 已拍板并实现。** §12.6 第 5 点的生成端兜底
 > （取消强制最少生成 + no_repeat_ngram_size + repetition_penalty 范围）
 > 已与分层重构同步落地。
 
@@ -1737,10 +1754,10 @@ CHANGE 时老师解释当前 believed status-subgoal 为什么不对，以及 GT
   repetition_penalty 范围（§12.6.5）。
 - §7 数据 / IO：`build_dataset.py` 不需要改 jsonl schema——`gt_road_structure`
   在训练时从 `SCENE_TO_ROAD_STRUCTURE[ep.gt_scene]` 现算即可，不必落盘。
-- §10 已确认决策：D21~D28 已并入当前实现，不回滚任何既有决策；与 D8（step3
+- §10 已确认决策：D21~D29 已并入当前实现，不回滚任何既有决策；与 D8（step3
   触发条件）完全对称扩展。
 
-### 12.8 决策速查表（D21~D28 全部锁定）
+### 12.8 决策速查表（D21~D29 全部锁定）
 
 | 决策点 | 内容 | 锁定值 |
 |---|---|---|
@@ -1752,8 +1769,9 @@ CHANGE 时老师解释当前 believed status-subgoal 为什么不对，以及 GT
 | D26 | Step 1 是否保留纯视觉描述前缀 | **保留**：视觉环境描述 + verdict 判断 + 标签，不限制描述字数，loss 三段独立计 |
 | D27 | step3 触发率腰斩对策 | **p_init_correct 默认 0.7**（联合初始化下三层联合命中 0.7×0.5=0.35，Phase B 弱纠偏后回升）|
 | D28 | step1 失败后下一帧是否强制纠偏 | **只在上一帧 step2/3 已跳过时触发一次**；road_structure=GT 桶，scene 大概率 GT / 0.15 同桶扰动，status/subgoal 回 init |
+| D29 | teacher analysis 清洗强度 | **只剥 label 行 + prompt marker**；放弃严格 4-heading 校验，scripted target = raw 全文；分 step 监督下 analysis 含 GT/选项名不污染 L_RS1/L_SC/L_ST/L_SG |
 
-### 12.9 实施清单（D21~D28 已落地）
+### 12.9 实施清单（D21~D29 已落地）
 
 1. `[x] sft_v4/prompts.py`：
    - 新增 `ROAD_STRUCTURE_LABELS`（6 项）+ `SCENE_TO_ROAD_STRUCTURE`（42 项 1:1 映射）；
