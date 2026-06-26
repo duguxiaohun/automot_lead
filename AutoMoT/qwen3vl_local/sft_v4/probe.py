@@ -4,7 +4,7 @@
 - 三步 prompt 与 student 输出；
 - 可选 teacher privileged prompt / teacher 输出；
 - memory 前后状态；
-- 关键标志（road-structure / scene flip、step2/step3 trigger、GT 泄露过滤、teacher BLEU）；
+- 关键标志（road-structure / scene flip、step2/step3 trigger、teacher BLEU）；
 - 4 帧输入图片。
 
 probe 不是评估主指标入口，而是 case-level 调试工具。它保留完整文本，方便人工检查
@@ -54,9 +54,6 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step3_student_prompt,
     build_step3_teacher_prompt,
     build_step3_teacher_target,
-    check_gt_leak_road_structure,
-    check_gt_leak_scene,
-    check_gt_leak_status_subgoal,
     get_road_structure,
     init_memory,
     parse_output,
@@ -235,7 +232,6 @@ def main() -> None:
             step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
             step1_teacher_text = ""
             step1_teacher_user = ""
-            step1_leak = False
             if teacher_engine is not None:
                 step1_teacher_user = build_step1_teacher_prompt(memory, gt_road_structure)
                 step1_teacher_msgs = _build_messages_with_images(user_text=step1_teacher_user, images=images)
@@ -246,13 +242,11 @@ def main() -> None:
                     max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP1,
                 )
                 analysis_t1 = _analysis_before_labels(raw_t1)
-                step1_leak = check_gt_leak_road_structure(analysis_t1, gt_road_structure)
                 step1_teacher_text = build_step1_teacher_target(analysis_t1, gt_road_structure)
             step1_text = _generate(engine, step1_msgs, images, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP1)
 
             step2_teacher_text = ""
             step2_teacher_user = ""
-            step2_leak = False
             step1_bleu = None
             step2_bleu = None
             step3_bleu = None
@@ -287,7 +281,6 @@ def main() -> None:
                         max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2,
                     )
                     analysis_t2 = _analysis_before_labels(raw_t2)
-                    step2_leak = check_gt_leak_scene(analysis_t2, ep.gt_scene)
                     step2_teacher_text = build_step2_teacher_target(analysis_t2, ep.gt_scene)
 
                 step2_user = build_step2_student_prompt(memory)
@@ -311,7 +304,6 @@ def main() -> None:
             step3_text = ""
             step3_teacher_text = ""
             step3_teacher_user = ""
-            step3_leak = False
             if step3_trigger:
                 if teacher_engine is not None:
                     # teacher step3 是独立专家问答：重新吃图 + road/scene/status/subgoal 真值上下文。
@@ -330,7 +322,6 @@ def main() -> None:
                         max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3,
                     )
                     analysis_t3 = _analysis_before_labels(raw_t3)
-                    step3_leak = check_gt_leak_status_subgoal(analysis_t3, gt_status, gt_subgoal)
                     step3_teacher_text = build_step3_teacher_target(analysis_t3, gt_status, gt_subgoal)
                 step3_user = build_step3_student_prompt(memory)
                 step3_text = _generate_next_with_kv(engine, step3_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3)
@@ -383,9 +374,6 @@ def main() -> None:
                 "step2_trigger": step2_trigger,
                 "scene_flip": scene_flip,
                 "step3_trigger": step3_trigger,
-                "gt_leak_skip_step1": step1_leak,
-                "gt_leak_skip_step2": step2_leak,
-                "gt_leak_skip_step3": step3_leak,
                 "analysis_bleu_vs_teacher": {
                     "step1": step1_bleu,
                     "step2": step2_bleu,

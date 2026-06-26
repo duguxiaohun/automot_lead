@@ -47,9 +47,6 @@ from qwen3vl_local.sft_v4.prompts import (
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
-    TEACHER_MIN_NEW_TOKENS_STEP1,
-    TEACHER_MIN_NEW_TOKENS_STEP2,
-    TEACHER_MIN_NEW_TOKENS_STEP3,
     build_step1_teacher_prompt,
     build_step1_teacher_target,
     build_step1_user_prompt,
@@ -304,7 +301,6 @@ def collect_episode(
                 bundle,
                 teacher_step1_prompt_state,
                 TEACHER_MAX_NEW_TOKENS_STEP1,
-                min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP1,
             )
             raw_teacher_step1 = raw_teacher_step1 or _fallback_teacher_analysis("road_structure")
         if was_training:
@@ -320,7 +316,6 @@ def collect_episode(
 
         # ============ Step 1 后处理：更新 memory.road_structure ============
         analysis1 = _analysis_before_labels(raw_teacher_step1)
-        leak1 = False
         target1 = build_step1_teacher_target(analysis1, gt_road_structure)
         pred1 = parse_output(student_step1)
         old_rs = memory.road_structure
@@ -334,7 +329,6 @@ def collect_episode(
             gt_road_structure=gt_road_structure,
         )
         analysis2 = ""
-        leak2 = False
         target2 = ""
         scene_flip = False
         memory_after_step2 = memory.copy()
@@ -364,7 +358,6 @@ def collect_episode(
                     bundle,
                     teacher_step2_prompt_state,
                     TEACHER_MAX_NEW_TOKENS_STEP2,
-                    min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP2,
                 )
             if was_training:
                 model.train()
@@ -376,7 +369,6 @@ def collect_episode(
             )
 
             analysis2 = _analysis_before_labels(raw_teacher_step2)
-            leak2 = False
             target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
             pred2 = parse_output(raw_student_step2)
             old_scene = memory.scene
@@ -392,7 +384,6 @@ def collect_episode(
         raw_teacher_step3 = ""
         raw_student_step3 = ""
         target3 = ""
-        leak3 = False
         if step3_ran:
             assert student_step2_state is not None
             step3_teacher_user = build_step3_teacher_prompt(
@@ -411,12 +402,10 @@ def collect_episode(
                     bundle,
                     teacher_step3_prompt_state,
                     TEACHER_MAX_NEW_TOKENS_STEP3,
-                    min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP3,
                 )
             if was_training:
                 model.train()
             analysis3 = _analysis_before_labels(raw_teacher_step3)
-            leak3 = False
             target3 = build_step3_teacher_target(analysis3, gt_status, gt_subgoal)
 
             # student step3 输出决定帧末 memory 的 status/subgoal。非法 event 不写入 memory，
@@ -498,14 +487,11 @@ def collect_episode(
             },
             "flags": {
                 # flags 全部是训练审计字段：learner 不依赖它们决定 prompt 文本，但会用来
-                # 统计 step1/step2/step3 触发率、翻转率、leak 率，定位行为偏移。
+                # 统计 step1/step2/step3 触发率、翻转率，定位行为偏移。
                 "step2_ran": bool(step2_ran),
                 "step3_ran": bool(step3_ran),
                 "rs_flip": bool(rs_flip),
                 "scene_flip": bool(scene_flip),
-                "leak1": bool(leak1),
-                "leak2": bool(leak2),
-                "leak3": bool(leak3),
                 "phase_a": bool(phase_a),
                 "noise_injected": bool(noise_injected),
                 "skip_correction_applied": bool(skip_correction_applied),

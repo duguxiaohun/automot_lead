@@ -65,15 +65,11 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step1_user_prompt,
     build_step2_student_prompt,
     build_step3_student_prompt,
-    check_gt_leak_road_structure,
-    check_gt_leak_scene,
-    check_gt_leak_status_subgoal,
     target_spans_road_structure,
     target_spans_scene,
     target_spans_status,
 )
 from qwen3vl_local.sft_v4.train import (
-    _analysis_before_labels,
     _append_text,
     _append_user_turn,
     _assistant_loss_from_state,
@@ -250,9 +246,6 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
         "skip_correction_noise": 0.0,
         "rs_flip": 0.0,
         "scene_flip": 0.0,
-        "leak1": 0.0,
-        "leak2": 0.0,
-        "leak3": 0.0,
         "loss_a1": 0.0,
         "loss_rs1": 0.0,
         "loss_a2": 0.0,
@@ -281,22 +274,19 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
         messages = _build_messages_with_images(user_text=step1_user, images=images)
         step1_prompt_state = _student_start_state(bundle, messages)
         target1 = targets["step1"]
-        analysis1 = _analysis_before_labels(target1)
-        leak1 = bool(flags.get("leak1", check_gt_leak_road_structure(analysis1, gt_road_structure)))
         # step1 现在有 ROAD_STRUCTURE 标签 → target_spans_road_structure 给标签段独立 mask。
         step1_parts = _assistant_loss_from_state(
             bundle,
             _clone_kv_state(step1_prompt_state),
             target1,
             target_spans_road_structure,
-            analysis_enabled=not leak1,
+            analysis_enabled=True,
         )
         zero_ref = step1_parts["analysis"] * 0.0
 
         # ============ 触发门 1：step2_fired=False 时跳过 step2 + step3 ============
         a2 = zero_ref
         s2 = zero_ref
-        leak2 = False
         step2_fired = _frame_step2_fired(frame)
         if step2_fired:
             # 用 collector 当时的 student step1 原文推 KV，再追加 step2 user prompt，
@@ -319,14 +309,12 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
                 bundle, student_step1_state, build_step2_student_prompt(memory_after_step1)
             )
             target2 = targets["step2"]
-            analysis2 = _analysis_before_labels(target2)
-            leak2 = bool(flags.get("leak2", check_gt_leak_scene(analysis2, str(gt.get("scene", "")))))
             step2_parts = _assistant_loss_from_state(
                 bundle,
                 _clone_kv_state(step2_prompt_state),
                 target2,
                 target_spans_scene,
-                analysis_enabled=not leak2,
+                analysis_enabled=True,
             )
             a2 = step2_parts["analysis"]
             s2 = step2_parts["scene"]
@@ -337,7 +325,6 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
         a3 = zero_ref
         s3_status = zero_ref
         s3_subgoal = zero_ref
-        leak3 = bool(flags.get("leak3", False))
         if step2_fired and _frame_step3_fired(frame):
             # step3 的 prompt 必须接在 collector 当时的 student step2 输出之后；
             # 再用 trajectory 里记录的 memory_after_step2 格式化 user prompt。
@@ -351,14 +338,12 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
                 bundle, student_step2_state, build_step3_student_prompt(memory_after_step2)
             )
             target3 = targets.get("step3", "")
-            analysis3 = _analysis_before_labels(target3)
-            leak3 = bool(flags.get("leak3", check_gt_leak_status_subgoal(analysis3, str(gt.get("status", "")), str(gt.get("subgoal", "")))))
             step3_parts = _assistant_loss_from_state(
                 bundle,
                 _clone_kv_state(step3_prompt_state),
                 target3,
                 target_spans_status,
-                analysis_enabled=not leak3,
+                analysis_enabled=True,
             )
             a3 = step3_parts["analysis"]
             s3_status = step3_parts["status"]
@@ -385,9 +370,6 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
         stats["skip_correction_noise"] += float(bool(flags.get("skip_correction_scene_noisy", frame.get("skip_correction_scene_noisy", False))))
         stats["rs_flip"] += float(bool(flags.get("rs_flip", False)))
         stats["scene_flip"] += float(bool(flags.get("scene_flip", frame.get("scene_flip", False))))
-        stats["leak1"] += float(leak1)
-        stats["leak2"] += float(leak2)
-        stats["leak3"] += float(leak3)
         stats["loss_a1"] += _to_float(step1_parts["analysis"])
         stats["loss_rs1"] += _to_float(step1_parts["road_structure"])
         stats["loss_a2"] += _to_float(a2)
@@ -1058,9 +1040,6 @@ def main() -> None:
                 )
                 tb.add_scalar("train/rs_flip_rate", _safe_ratio(stats["rs_flip"], frames), global_step)
                 tb.add_scalar("train/scene_flip_rate", _safe_ratio(stats["scene_flip"], frames), global_step)
-                tb.add_scalar("train/gt_leak_skip_rate/step1", _safe_ratio(stats["leak1"], frames), global_step)
-                tb.add_scalar("train/gt_leak_skip_rate/step2", _safe_ratio(stats["leak2"], frames), global_step)
-                tb.add_scalar("train/gt_leak_skip_rate/step3", _safe_ratio(stats["leak3"], frames), global_step)
                 tb.add_scalar("train/phase_a_frame_frac", _safe_ratio(stats["phase_a"], frames), global_step)
                 for key, value in {
                     "a1": args.w_a1,
