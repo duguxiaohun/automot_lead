@@ -532,4 +532,34 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 如果语义不达标，回头修 `build_step{1,2,3}_teacher_prompt` 里的 `focus_line`；
 优先保持 prompt 清晰，只在必要时补关键证据锚点，不要加入输出字数限制或四行硬约束。
 
+#### 7.8.1 当前老师 raw 实测形态（防止后续 agent 误判为 bug）
+
+**本地 Qwen3-VL-4B base + disable_adapter 在 v4 prompt 下的真实输出特征**（2026-06-26
+`teacher_report.md` 抽样）：
+
+- step1 / step2 **经常**只生成 `Scene Description:` 一个 heading，后接半句子噪声、
+  关键词碎片（`red, white, left, right, traffic`）、单字母（`E`）、bullet 残留
+  （`---`、`-1`）、数字流（`20, 3, 1`）；**Critical Object / Reasoning on Intent /
+  Memory Judgment 三个 heading 经常缺失**。
+- step3 raw 通常短得多（20~60 token），偶尔退化成完整一句话（如 `The ego vehicle is
+  approaching a signalized junction with red light, and must wait for left turn.`）。
+- 偶发 repetition loop（如 `Scene, no... no, no, no...`），`repetition_penalty=1.05`
+  + `no_repeat_ngram_size=3` 已经压制大多数；剩余 case 让 `_kv_generate_text` 自然
+  EOS 终止。
+- scripted target 几乎总是等于 raw 全文 + 末尾脚本追加 `ROAD_STRUCTURE:` /
+  `SCENE:` / `STATUS:` / `SUBGOAL:`。**这是 D29 拍板的预期行为，不是回归**。
+
+**不要做的事**：
+
+- 不要因为 raw 噪声大就回退到旧严格 4-heading 校验（D10 → D29 已覆盖）。分 step
+  监督下 L_RS1/L_SC/L_ST/L_SG 各自只盯一个离散 token，noisy analysis 至多影响
+  `loss/L_A*` 这 3 项 0.2 权重的分析段，调 `DEFAULT_W_ANALYSIS` 即可。
+- 不要在 prompt 里加 "do not copy these placeholder words" / "Replace each <...>"
+  这种反向警告，base Qwen 很容易因此复读占位词或额外 echo prompt 文本。
+- 不要给 instruction 段加 `<...>` 占位词示例，会被 base 直接抄进答案。
+
+**真要改时**：先改 `build_step{1,2,3}_teacher_prompt` 的 `focus_line` 文本（喂更具体的
+证据锚点），其次调老师生成参数（`TEACHER_MAX_NEW_TOKENS_STEP*` /
+`repetition_penalty` / `no_repeat_ngram_size`），最后才动 `_clean_teacher_analysis`。
+
 ---
