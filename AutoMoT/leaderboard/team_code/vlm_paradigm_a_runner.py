@@ -563,6 +563,8 @@ for _p in (str(_AUTOMOT_ROOT), str(_AUTOMOT_PROJECT_ROOT), str(_MOT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from qwen3vl_local.mrope_utils import qwen3vl_incremental_forward
+
 
 def _lazy_setup_automot_paths() -> None:
     """在第一次创建 ParadigmARunner 时才触发(避免 import 该模块就强制加载
@@ -1069,6 +1071,7 @@ class BaselineQwen3VLRunner:
         # 'rope_deltas': torch.Size([1, 1])}
 
         past_key_values = outputs.past_key_values
+        rope_deltas = getattr(outputs, "rope_deltas", None)
         # outputs.logits 形状为 (batch_size, seq_len, vocab_size)
         # 取最后一个时间步 logits (index -1) 的原因:
         # 在自回归/生成场景中，模型会对输入序列中每个位置预测下一个 token 的分布。
@@ -1100,39 +1103,25 @@ class BaselineQwen3VLRunner:
                     dim=1,
                 )
 
-
             # Decode:后续每步只喂刚生成的 token + 上一步 KV cache。
-            if hasattr(self.model, "prepare_inputs_for_generation"):
-                cache_position = torch.arange(
-                    decoded_input_ids.shape[1] - 1,
-                    decoded_input_ids.shape[1],
-                    device=decoded_input_ids.device,
-                )
-                model_inputs = self.model.prepare_inputs_for_generation(
-                    decoded_input_ids,
-                    past_key_values=past_key_values,
-                    attention_mask=attention_mask,
-                    cache_position=cache_position,
-                    use_cache=True,
-                )
-                # keys: ['cache_position', 'past_key_values', 'input_ids', 'inputs_embeds', 'position_ids', 'attention_mask', 'pixel_values', 'pixel_values_videos', 'image_grid_thw', 'video_grid_thw', 'use_cache']
-                # model_inputs input_ids shape: torch.Size([1, 1])
-            else:
-                model_inputs = {
-                    "input_ids": next_token,
-                    "past_key_values": past_key_values,
-                    "use_cache": True,
-                }
-                if attention_mask is not None:
-                    model_inputs["attention_mask"] = attention_mask
-
-            outputs = self.model(**model_inputs, return_dict=True)
+            # 统一使用本地 M-RoPE 增量 forward，避免 prepare_inputs_for_generation
+            # 在 PEFT / 版本差异下丢 cache_position；图像 token 已经在 cache 中，不重传。
+            prefix_len = int(decoded_input_ids.shape[1] - 1)
+            outputs = qwen3vl_incremental_forward(
+                self.model,
+                feed_ids=next_token,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+                prefix_len=prefix_len,
+                rope_deltas=rope_deltas,
+            )
             #  {'logits': torch.Size([1, 1, 151936]), 
             # 'past_key_values': <class 'transformers.cache_utils.DynamicCache'>, 
             # 'rope_deltas': torch.Size([1, 1])}
 
 
             past_key_values = outputs.past_key_values
+            rope_deltas = getattr(outputs, "rope_deltas", rope_deltas)
             # 同样道理：每次 decode 步骤模型返回的 logits 形状仍为
             # (batch_size, seq_len, vocab_size)。当我们只喂入最新生成的 token
             # 并带上 past_key_values 时，最后一个位置的 logits 对应下一步要选的 token。

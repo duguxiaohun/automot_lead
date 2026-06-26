@@ -137,6 +137,7 @@ from qwen3vl_local.sft_v4.prompts import (
 )
 
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine
+from qwen3vl_local.mrope_utils import qwen3vl_incremental_forward
 
 
 def _simple_bleu(candidate: str, reference: str, max_n: int = 2) -> float:
@@ -248,21 +249,17 @@ def _generate_next_with_kv(
         dim=1,
     )
     decoded_input_ids = torch.cat([prefix_ids, suffix_ids], dim=1)
-    cache_position = torch.arange(
-        prefix_len,
-        prefix_len + suffix_ids.shape[1],
-        device=prefix_ids.device,
-    )
-    model_inputs = engine.model.prepare_inputs_for_generation(
-        decoded_input_ids,
-        past_key_values=state["past_key_values"],
+    # 与 sft_v4/train 同一处修复：不走 prepare_inputs_for_generation（PEFT 会裁掉
+    # cache_position 导致 mrope 位置塌成 0），改用本地 qwen3vl_incremental_forward，
+    # 用本条 KV 状态自带的 rope_deltas 复算 mrope position_ids 后再 forward。
+    outputs = qwen3vl_incremental_forward(
+        engine.model,
+        feed_ids=suffix_ids,
         attention_mask=attention_mask,
-        cache_position=cache_position,
-        use_cache=True,
+        past_key_values=state["past_key_values"],
+        prefix_len=prefix_len,
+        rope_deltas=state.get("rope_deltas"),
     )
-    if state.get("rope_deltas") is not None and "rope_deltas" not in model_inputs:
-        model_inputs["rope_deltas"] = state["rope_deltas"]
-    outputs = engine.model(**model_inputs, return_dict=True)
 
     trace = type("_Trace", (), {
         "prefill_cache_summary": {},

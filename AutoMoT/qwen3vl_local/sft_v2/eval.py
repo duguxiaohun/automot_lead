@@ -39,6 +39,7 @@ from PIL import Image
 import torch
 
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine
+from qwen3vl_local.mrope_utils import qwen3vl_incremental_forward
 from qwen3vl_local.sft_v2.prompts import (
     STATUS_SYSTEM_PROMPT,
     build_status_user_prompt,
@@ -288,24 +289,17 @@ def generate_status_with_scene_kv(
         [old_attention, torch.ones_like(suffix_ids, device=old_attention.device)],
         dim=1,
     )
-    decoded_input_ids = torch.cat([prefix_ids, suffix_ids], dim=1)
-    # cache_position 从已有 KV 的末尾继续编号，保证 RoPE/cache 位置和完整序列一致。
-    cache_position = torch.arange(
-        prefix_len,
-        prefix_len + suffix_ids.shape[1],
-        device=prefix_ids.device,
-    )
-    model_inputs = engine.model.prepare_inputs_for_generation(
-        decoded_input_ids,
-        past_key_values=state["past_key_values"],
+    # cache_position / M-RoPE 位置由本地 helper 复算，避免 PEFT 的
+    # prepare_inputs_for_generation 裁掉 cache_position 后把 decode token 当成位置 0。
+    outputs = qwen3vl_incremental_forward(
+        engine.model,
+        feed_ids=suffix_ids,
         attention_mask=attention_mask,
-        cache_position=cache_position,
-        use_cache=True,
+        past_key_values=state["past_key_values"],
+        prefix_len=prefix_len,
+        rope_deltas=state.get("rope_deltas"),
     )
-    if state.get("rope_deltas") is not None and "rope_deltas" not in model_inputs:
-        # Qwen3-VL 的 M-RoPE 可能依赖 rope_deltas；prepare_inputs_for_generation 没带时补回。
-        model_inputs["rope_deltas"] = state["rope_deltas"]
-    outputs = engine.model(**model_inputs, return_dict=True)
+    decoded_input_ids = torch.cat([prefix_ids, suffix_ids], dim=1)
     trace = type("_Trace", (), {
         "prefill_cache_summary": {},
         "final_cache_summary": {},

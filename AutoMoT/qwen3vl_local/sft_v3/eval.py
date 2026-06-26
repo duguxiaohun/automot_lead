@@ -56,6 +56,7 @@ from qwen3vl_local.sft_v3.prompts import (
 from qwen3vl_local.sft_v2.eval import _maybe_set_idle_gpu_mask
 
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine
+from qwen3vl_local.mrope_utils import qwen3vl_incremental_forward
 
 
 def _simple_bleu(candidate: str, reference: str, max_n: int = 2) -> float:
@@ -166,22 +167,18 @@ def _generate_next_with_kv(
         [old_attention, torch.ones_like(suffix_ids, device=old_attention.device)],
         dim=1,
     )
-    decoded_input_ids = torch.cat([prefix_ids, suffix_ids], dim=1)
-    cache_position = torch.arange(
-        prefix_len,
-        prefix_len + suffix_ids.shape[1],
-        device=prefix_ids.device,
-    )
-    model_inputs = engine.model.prepare_inputs_for_generation(
-        decoded_input_ids,
-        past_key_values=state["past_key_values"],
+    # 不走 prepare_inputs_for_generation：PEFT wrapper 会丢 cache_position，使
+    # Qwen3-VL 的 M-RoPE decode 位置塌成 0。这里用 state 里保存的 rope_deltas
+    # 本地复算 position_ids，只追加文本 token，不重传图像。
+    outputs = qwen3vl_incremental_forward(
+        engine.model,
+        feed_ids=suffix_ids,
         attention_mask=attention_mask,
-        cache_position=cache_position,
-        use_cache=True,
+        past_key_values=state["past_key_values"],
+        prefix_len=prefix_len,
+        rope_deltas=state.get("rope_deltas"),
     )
-    if state.get("rope_deltas") is not None and "rope_deltas" not in model_inputs:
-        model_inputs["rope_deltas"] = state["rope_deltas"]
-    outputs = engine.model(**model_inputs, return_dict=True)
+    decoded_input_ids = torch.cat([prefix_ids, suffix_ids], dim=1)
 
     trace = type("_Trace", (), {
         "prefill_cache_summary": {},

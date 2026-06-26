@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .cache_utils import save_kv_cache, summarize_kv_cache
+from .mrope_utils import qwen3vl_incremental_forward
 
 
 # 这组三个环境变量是“只读本地 checkpoint”的第一道保险。
@@ -530,6 +531,11 @@ class LocalQwen3VLInstructEngine:
             "input_ids": prefix_inputs["input_ids"].detach().clone(),
             "attention_mask": prefix_inputs.get("attention_mask", None),
             "past_key_values": _clone_cache(prefix_outputs.past_key_values),
+            "rope_deltas": (
+                prefix_outputs.rope_deltas.detach().clone()
+                if hasattr(getattr(prefix_outputs, "rope_deltas", None), "detach")
+                else getattr(prefix_outputs, "rope_deltas", None)
+            ),
             "summary": {
                 "prefix_input_summary": _inputs_summary(prefix_inputs),
                 "prefix_cache_summary": summarize_kv_cache(prefix_outputs.past_key_values),
@@ -575,23 +581,25 @@ class LocalQwen3VLInstructEngine:
             trace.system_prompt_cache_note = "fallback: full input_ids do not start with system prefix"
             return self.prefill(full_inputs)
 
+        multimodal_keys = ("pixel_values", "image_grid_thw", "pixel_values_videos", "video_grid_thw")
+        if any(key in full_inputs for key in multimodal_keys):
+            trace.system_prompt_cache_note = (
+                "fallback: multimodal suffix needs full Qwen3-VL M-RoPE prefill; "
+                "system-prefix cache is text-only"
+            )
+            return self.prefill(full_inputs)
+
         suffix_ids = full_ids[:, prefix_len:]
         attention_mask = full_inputs.get("attention_mask", None)
-        cache_position = torch.arange(prefix_len, full_len, device=full_ids.device)
-        model_kwargs = {
-            k: v for k, v in full_inputs.items()
-            if k not in ("input_ids", "attention_mask")
-        }
 
         try:
-            outputs = self.model(
-                input_ids=suffix_ids,
+            outputs = qwen3vl_incremental_forward(
+                self.model,
+                feed_ids=suffix_ids,
                 attention_mask=attention_mask,
                 past_key_values=_clone_cache(prefix_cache["past_key_values"]),
-                cache_position=cache_position,
-                use_cache=True,
-                return_dict=True,
-                **model_kwargs,
+                prefix_len=prefix_len,
+                rope_deltas=prefix_cache.get("rope_deltas"),
             )
         except Exception as e:
             trace.system_prompt_cache_note = f"fallback: suffix prefill failed: {repr(e)}"
@@ -654,8 +662,8 @@ class LocalQwen3VLInstructEngine:
         """基于 prefill cache 自回归生成新 token。
 
         每一轮只把“已经生成的最后一个 token + 旧 past_key_values”喂回模型。
-        prepare_inputs_for_generation 会根据当前 decoded_input_ids、attention_mask
-        和 cache_position 组装增量推理需要的输入。
+        增量步统一走 qwen3vl_incremental_forward，用 prefill 捕获的 rope_deltas
+        显式复算 M-RoPE position_ids，避免 PEFT/Transformers wrapper 裁掉 cache_position。
         """
 
         import torch
@@ -716,30 +724,19 @@ class LocalQwen3VLInstructEngine:
                     dim=1,
                 )
 
-            # cache_position 指向本轮新增 token 在完整序列中的位置。
-            cache_position = torch.arange(
-                decoded_input_ids.shape[1] - 1,
-                decoded_input_ids.shape[1],
-                device=decoded_input_ids.device,
-            )
-            model_inputs = self.model.prepare_inputs_for_generation(
-                decoded_input_ids,
-                past_key_values=past_key_values,
+            # 增量 forward 改用本地 qwen3vl_incremental_forward（绕开 prepare_inputs_for_generation）。
+            # 原本 self.model.prepare_inputs_for_generation 在 self.model 被 peft 包一层时会把
+            # cache_position 裁掉，使 Qwen3-VL 把每个续写 token 的 mrope 位置算成 0、RoPE 崩坏；
+            # 这里用本轮捕获的 rope_deltas 复算 position_ids 显式喂入，base / PEFT 两种 model 都正确。
+            prefix_len = int(decoded_input_ids.shape[1] - 1)
+            outputs = qwen3vl_incremental_forward(
+                self.model,
+                feed_ids=next_token,
                 attention_mask=attention_mask,
-                cache_position=cache_position,
-                use_cache=True,
+                past_key_values=past_key_values,
+                prefix_len=prefix_len,
+                rope_deltas=rope_deltas,
             )
-            # model_inputs summary: {'cache_position': {'shape': [1], 'dtype': 'torch.int64', 'device': 'cuda:0'}, 
-            # 'input_ids': {'shape': [1, 1], 'dtype': 'torch.int64', 'device': 'cuda:0'}, 
-            # 'attention_mask': {'shape': [1, 2333+step], 'dtype': 'torch.int64', 'device': 'cuda:0'}, 
-
-
-            outputs = self.model(**model_inputs, return_dict=True)
-            
-            # outputs summary: {'keys': ['logits', 'past_key_values', 'rope_deltas'], 
-            # 'logits': {'shape': [1, 1, 151936], 'dtype': 'torch.bfloat16', 'device': 'cuda:0'}, 
-            # 'past_key_values' ...'legacy_type': 'tuple', 'num_layers': 36}}
-
 
             past_key_values = outputs.past_key_values
             cached_input_ids = decoded_input_ids

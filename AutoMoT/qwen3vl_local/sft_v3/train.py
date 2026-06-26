@@ -65,6 +65,7 @@ from qwen3vl_local.sft_v2.train import (
     make_scheduler,
 )
 from qwen3vl_local.engine import _clone_cache
+from qwen3vl_local.mrope_utils import qwen3vl_incremental_forward
 from qwen3vl_local.sft_v3.prompts import (
     DEFAULT_W_ANALYSIS,
     DEFAULT_W_SCENE,
@@ -474,19 +475,19 @@ def _append_token_ids(
         [old_attention, torch.ones_like(feed_ids, device=old_attention.device)],
         dim=1,
     )
-    decoded_input_ids = torch.cat([prefix_ids, feed_ids], dim=1)
     prefix_len = int(prefix_ids.shape[1])
-    cache_position = torch.arange(prefix_len, prefix_len + feed_ids.shape[1], device=prefix_ids.device)
-    model_inputs = bundle.unwrap().prepare_inputs_for_generation(
-        decoded_input_ids,
-        past_key_values=state.past_key_values,
+    # 与 sft_v4 同款修复：不要经过 PeftModelForCausalLM.prepare_inputs_for_generation。
+    # PEFT wrapper 会裁掉 cache_position，导致 Qwen3-VL decode 阶段 M-RoPE 位置退化为 0；
+    # 本地 helper 用本条 KVState 的 rope_deltas 显式复算 position_ids，再直接 forward。
+    outputs = qwen3vl_incremental_forward(
+        bundle.model,
+        feed_ids=feed_ids,
         attention_mask=attention_mask,
-        cache_position=cache_position,
-        use_cache=True,
+        past_key_values=state.past_key_values,
+        prefix_len=prefix_len,
+        rope_deltas=state.rope_deltas,
     )
-    if state.rope_deltas is not None and "rope_deltas" not in model_inputs:
-        model_inputs["rope_deltas"] = state.rope_deltas
-    outputs = bundle.model(**model_inputs, return_dict=True)
+    decoded_input_ids = torch.cat([prefix_ids, feed_ids], dim=1)
 
     pred_logits = torch.cat([state.next_logits.unsqueeze(1), outputs.logits[:, :-1, :]], dim=1)
     pending_len = int(pending_ids.shape[1])
@@ -1367,8 +1368,8 @@ def main() -> None:
     _store_rendezvous(store, "sft_v3_output_dir_ready", rank=rank, world_size=world_size)
     device = torch.device(f"cuda:{local_rank}") if torch.cuda.is_available() else torch.device("cpu")
 
-    # SFT v3 的 loss forward 依赖 prefill 出来的 past_key_values（prepare_inputs_for_generation
-    # 会把 input_ids 切成 suffix-only），而 HF 在 training=True + gradient_checkpointing=True
+    # SFT v3 的 loss forward 依赖 prefill 出来的 past_key_values；后续 target token
+    # 只以 suffix-only 形式追加到 cache 后计算 CE。HF 在 training=True + gradient_checkpointing=True
     # 时会强行把 use_cache 改 False、past_key_values 改 None。如果让 grad_checkpointing 打开，
     # loss forward 拿到的是没有 prefix 上下文的 suffix-only 序列，loss 静默错位、训练学不到东西。
     # test_kv_reuse.py 验证 KV 复用时也强制要求 gradient_checkpointing=False。

@@ -28,6 +28,24 @@ Step3 老师喂 true road、true scene、believed/GT status-subgoal。老师只�
 teacher 默认生成上限为 `384/384/384`（仅作异常生成的技术护栏，不限制每行词数）；
 teacher 调用不再传强制最少生成参数，让模型自然停止。
 
+KV 修复状态：之前 v4 的自定义 KV 增量 decode 依赖
+`prepare_inputs_for_generation`，在 base Qwen 被 PEFT 包装后会丢 `cache_position`，导致
+Qwen3-VL decode token 的 M-RoPE 位置退化为 0，表现为老师/学生生成复读、逐 token
+logits 与全量重前向从第 1 个续写 token 起大幅漂移，并污染 teacher-forced loss。
+现在 Qwen3-VL 文本增量 decode 统一走 `qwen3vl_local/mrope_utils.py`：
+`qwen3vl_incremental_forward` 用每条 KV state 保存的 `rope_deltas` 显式复算
+`position_ids`，直接 forward，不再经过 PEFT/Transformers 的 prepare 黑盒，也不在
+decode 阶段重传图像。受旧 bug 影响训练出的 v4 checkpoint 不建议继续评估或续训；
+修复后应先重跑 `inspect_teacher.py` 抽检报告，再重新训练。
+
+同类路径筛查结论：代码里不再保留真实的 `prepare_inputs_for_generation` 调用；
+`sft_v2/eval.py`、`sft_v3/train.py`、`sft_v3/eval.py`、`sft_v4/train.py`、
+`sft_v4/eval.py`、`engine.py` 和 `vlm_paradigm_a_runner.py` 的文本续写都走同一份
+`qwen3vl_incremental_forward`。额外收口了 `engine.py` 的 `cache_system_prompt`
+分支：system-prefix cache 只允许纯文本 suffix 复用；一旦 full input 含
+`pixel_values` / `image_grid_thw` 等多模态字段，直接回退完整 prefill，避免把
+Qwen3-VL 图文 M-RoPE 拆成半截 cache 后错位。
+
 `train.sh` / `train.py` 只保留为 on-policy 兼容调试入口，不是 v4 生产路径。
 
 代码已补中文 module docstring、函数说明和关键逻辑块注释。需要读实现时建议顺序：
@@ -381,7 +399,15 @@ KV 复用测试会加载本地 Qwen 权重；有模型时再跑：
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_reuse.py \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct
+
+GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_vs_native.py
 ```
+
+`test_kv_vs_native.py` 是 M-RoPE 增量解码的强回归：逐 token 对比本地
+`qwen3vl_incremental_forward` 与全量无 cache 前向，要求 40 步 argmax 0 翻车、
+`max_abs_logit_diff < 1.5`；同时对比 `LocalQwen3VLInstructEngine` 手写 KV decode 与
+原生 `model.generate` 的贪心输出。`test_kv_reuse.py` 的阈值也按 bf16 cache 噪声改为
+`1.5`，不再使用 fp32 口径的 `1e-5`。
 
 ---
 
@@ -531,35 +557,5 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 
 如果语义不达标，回头修 `build_step{1,2,3}_teacher_prompt` 里的 `focus_line`；
 优先保持 prompt 清晰，只在必要时补关键证据锚点，不要加入输出字数限制或四行硬约束。
-
-#### 7.8.1 当前老师 raw 实测形态（防止后续 agent 误判为 bug）
-
-**本地 Qwen3-VL-4B base + disable_adapter 在 v4 prompt 下的真实输出特征**（2026-06-26
-`teacher_report.md` 抽样）：
-
-- step1 / step2 **经常**只生成 `Scene Description:` 一个 heading，后接半句子噪声、
-  关键词碎片（`red, white, left, right, traffic`）、单字母（`E`）、bullet 残留
-  （`---`、`-1`）、数字流（`20, 3, 1`）；**Critical Object / Reasoning on Intent /
-  Memory Judgment 三个 heading 经常缺失**。
-- step3 raw 通常短得多（20~60 token），偶尔退化成完整一句话（如 `The ego vehicle is
-  approaching a signalized junction with red light, and must wait for left turn.`）。
-- 偶发 repetition loop（如 `Scene, no... no, no, no...`），`repetition_penalty=1.05`
-  + `no_repeat_ngram_size=3` 已经压制大多数；剩余 case 让 `_kv_generate_text` 自然
-  EOS 终止。
-- scripted target 几乎总是等于 raw 全文 + 末尾脚本追加 `ROAD_STRUCTURE:` /
-  `SCENE:` / `STATUS:` / `SUBGOAL:`。**这是 D29 拍板的预期行为，不是回归**。
-
-**不要做的事**：
-
-- 不要因为 raw 噪声大就回退到旧严格 4-heading 校验（D10 → D29 已覆盖）。分 step
-  监督下 L_RS1/L_SC/L_ST/L_SG 各自只盯一个离散 token，noisy analysis 至多影响
-  `loss/L_A*` 这 3 项 0.2 权重的分析段，调 `DEFAULT_W_ANALYSIS` 即可。
-- 不要在 prompt 里加 "do not copy these placeholder words" / "Replace each <...>"
-  这种反向警告，base Qwen 很容易因此复读占位词或额外 echo prompt 文本。
-- 不要给 instruction 段加 `<...>` 占位词示例，会被 base 直接抄进答案。
-
-**真要改时**：先改 `build_step{1,2,3}_teacher_prompt` 的 `focus_line` 文本（喂更具体的
-证据锚点），其次调老师生成参数（`TEACHER_MAX_NEW_TOKENS_STEP*` /
-`repetition_penalty` / `no_repeat_ngram_size`），最后才动 `_clean_teacher_analysis`。
 
 ---
