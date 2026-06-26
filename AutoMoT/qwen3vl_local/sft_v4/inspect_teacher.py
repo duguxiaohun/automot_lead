@@ -9,7 +9,7 @@
 Qwen3-VL-4B-Instruct，再叠加 ``torch.no_grad()`` 与 train.py 同款 KV cache 生成路径
 不启用强制最少生成长度。
 
-每帧默认覆盖 5 种 memory 起点，分别触发分层 prompt 状态机的关键路径：
+每帧默认覆盖 4 种常规 memory 起点；``scene_change_cross_rs`` 保留为显式 stress 模式：
 
 | 模式                      | memory.road_structure | memory.scene | step1 | step2 | step3 |
 |---------------------------|-----------------------|--------------|-------|-------|-------|
@@ -90,10 +90,13 @@ from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
     Memory,
+    build_step1_user_prompt,
     build_step1_teacher_prompt,
     build_step1_teacher_target,
+    build_step2_student_prompt,
     build_step2_teacher_prompt,
     build_step2_teacher_target,
+    build_step3_student_prompt,
     build_step3_teacher_prompt,
     build_step3_teacher_target,
     first_subgoal,
@@ -102,6 +105,9 @@ from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     initial_event,
     should_trigger_step2,
     should_trigger_step3,
+    update_memory_after_step1,
+    update_memory_after_step2,
+    update_memory_after_step3,
 )
 from qwen3vl_local.sft_v4.train import (  # noqa: E402
     EpisodeDataset,
@@ -130,6 +136,12 @@ INSPECT_MODE_ORDER: Tuple[str, ...] = (
     "scene_change_same_rs",
     "event_change",
     "scene_change_cross_rs",
+)
+DEFAULT_INSPECT_MODE_ORDER: Tuple[str, ...] = (
+    "all_keep",
+    "rs_change",
+    "scene_change_same_rs",
+    "event_change",
 )
 INSPECT_MODE_RANK = {name: idx for idx, name in enumerate(INSPECT_MODE_ORDER)}
 INSPECT_MODE_SET = set(INSPECT_MODE_ORDER)
@@ -191,7 +203,7 @@ def _build_inspect_memories(
     goal_x: float,
     goal_y: float,
 ) -> List[Tuple[str, Memory]]:
-    """对单帧构造 5 种 memory 起点，对应分层状态机分支。
+    """对单帧构造全部可选 memory 起点，对应分层状态机分支。
 
     返回 ``(mode_name, Memory)`` 列表。``mode_name`` 用于报告里标注当前帧测的是哪条
     分支，方便用户筛选阅读。
@@ -284,6 +296,18 @@ def _count_tokens(bundle: Any, text: str) -> int:
     return int(len(ids))
 
 
+def _memory_as_dict(memory: Memory) -> Dict[str, Any]:
+    """Render Memory as a compact JSON-friendly dict for reports."""
+
+    return {
+        "road_structure": memory.road_structure,
+        "scene": memory.scene,
+        "status": memory.status,
+        "subgoal": memory.subgoal,
+        "ego_to_goal_xy": [float(memory.ego_to_goal_x), float(memory.ego_to_goal_y)],
+    }
+
+
 def _run_teacher_for_frame(
     *,
     bundle: Any,
@@ -372,6 +396,24 @@ def _run_teacher_for_frame(
     target2 = build_step2_teacher_target(raw_step2, ep.gt_scene) if step2_fired else ""
     target3 = build_step3_teacher_target(raw_step3, gt_status, gt_subgoal) if step3_fired else ""
 
+    step1_student_prompt = build_step1_user_prompt(len(images), memory)
+    step1_after_target = update_memory_after_step1(
+        memory,
+        student_road_structure=gt_road_structure,
+    )
+    step2_student_prompt = build_step2_student_prompt(memory) if step2_fired else ""
+    step2_after_target = (
+        update_memory_after_step2(memory, student_scene=ep.gt_scene)
+        if step2_fired
+        else memory.copy()
+    )
+    step3_student_prompt = build_step3_student_prompt(memory) if step3_fired else ""
+    step3_after_target = (
+        update_memory_after_step3(memory, student_status=gt_status, student_subgoal=gt_subgoal)
+        if step3_fired
+        else memory.copy()
+    )
+
     verdict_step1 = "KEEP" if memory.road_structure == gt_road_structure else "CHANGE"
     verdict_step2 = "SKIPPED" if not step2_fired else ("KEEP" if memory.scene == ep.gt_scene else "CHANGE")
     if step3_fired:
@@ -387,13 +429,7 @@ def _run_teacher_for_frame(
         "mode": mode_name,
         "mode_order_index": int(INSPECT_MODE_RANK.get(mode_name, len(INSPECT_MODE_ORDER))),
         "image_paths": list(image_paths),
-        "memory": {
-            "road_structure": memory.road_structure,
-            "scene": memory.scene,
-            "status": memory.status,
-            "subgoal": memory.subgoal,
-            "ego_to_goal_xy": [float(memory.ego_to_goal_x), float(memory.ego_to_goal_y)],
-        },
+        "memory": _memory_as_dict(memory),
         "gt": {
             "road_structure": gt_road_structure,
             "scene": ep.gt_scene,
@@ -410,6 +446,13 @@ def _run_teacher_for_frame(
             "teacher_raw": raw_step1,
             "token_count": _count_tokens(bundle, raw_step1),
             "supervised_target": target1,
+            "student_prompt": step1_student_prompt,
+            "student_memory_before": _memory_as_dict(memory),
+            "student_memory_after_supervised_label": _memory_as_dict(step1_after_target),
+            "student_update_note": (
+                "If the student emits the supervised ROAD_STRUCTURE label, "
+                "a changed road bucket resets scene/status/subgoal to the first scene in that bucket."
+            ),
         },
         "step2": {
             "fired": bool(step2_fired),
@@ -420,6 +463,13 @@ def _run_teacher_for_frame(
             "teacher_raw": raw_step2,
             "token_count": _count_tokens(bundle, raw_step2),
             "supervised_target": target2,
+            "student_prompt": step2_student_prompt,
+            "student_memory_before": _memory_as_dict(memory),
+            "student_memory_after_supervised_label": _memory_as_dict(step2_after_target),
+            "student_update_note": (
+                "If the student emits the supervised SCENE label inside the current bucket, "
+                "status/subgoal reset to that scene's init chain."
+            ) if step2_fired else "Step2 is not part of this fixed inspect branch.",
         },
         "step3": {
             "fired": bool(step3_fired),
@@ -430,6 +480,13 @@ def _run_teacher_for_frame(
             "teacher_raw": raw_step3,
             "token_count": _count_tokens(bundle, raw_step3),
             "supervised_target": target3,
+            "student_prompt": step3_student_prompt,
+            "student_memory_before": _memory_as_dict(memory),
+            "student_memory_after_supervised_label": _memory_as_dict(step3_after_target),
+            "student_update_note": (
+                "If the student emits valid STATUS/SUBGOAL events for the current scene, "
+                "only those event fields are updated."
+            ) if step3_fired else "Step3 is not part of this fixed inspect branch.",
         },
     }
 
@@ -477,6 +534,28 @@ def _format_md_block(role: str, body: str) -> str:
     return f"**[ROLE = {role}]**\n{fence}\n{body.rstrip()}\n{fence}\n"
 
 
+def _format_student_view(step: Dict[str, Any]) -> str:
+    """Render the student-facing prompt/target and supervised memory transition."""
+
+    if not step.get("student_prompt"):
+        return ""
+    before = json.dumps(step.get("student_memory_before", {}), ensure_ascii=False)
+    after = json.dumps(step.get("student_memory_after_supervised_label", {}), ensure_ascii=False)
+    transition = (
+        f"memory_before={before}\n"
+        f"memory_after_if_supervised_label={after}\n"
+        f"note={step.get('student_update_note', '')}"
+    )
+    return (
+        _format_md_block("student-facing user prompt", step["student_prompt"])
+        + _format_md_block(
+            "student supervised target (cleaned analysis + scripted label)",
+            step.get("supervised_target", ""),
+        )
+        + _format_md_block("student memory transition if supervised label is emitted", transition)
+    )
+
+
 def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -> None:
     """把所有帧 × 模式的老师输出写成易读的 Markdown。
 
@@ -493,7 +572,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
     lines.append("# SFT v4 Teacher Inspection Report\n")
     lines.append(f"_Generated at {time.strftime('%Y-%m-%d %H:%M:%S')}._\n")
     lines.append(
-        "Each frame is replayed under 5 memory configurations to exercise the "
+        "Each frame is replayed under selected memory configurations to exercise the "
         "ROAD_STRUCTURE / SCENE / EVENT KEEP and CHANGE branches. Token counts "
         "below come from the same tokenizer the trainer uses.\n"
     )
@@ -502,8 +581,8 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
         "[STEP1_ROAD_CONTEXT] block instead of the full [MEMORY] block.\n"
     )
     lines.append(
-        "Mode sections are ordered by the state-machine path: "
-        f"{', '.join(INSPECT_MODE_ORDER)}.\n"
+        "Mode sections are ordered by the state-machine path. Default modes are "
+        f"{', '.join(DEFAULT_INSPECT_MODE_ORDER)}; scene_change_cross_rs is stress-only.\n"
     )
 
     for run_id, rows in by_episode.items():
@@ -557,12 +636,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
             lines.append(_format_md_block("system", s1["system_prompt"]))
             lines.append(_format_md_block("user (with 4 stitched RGB images attached)", s1["user_prompt"]))
             lines.append(_format_md_block("assistant — teacher raw output", s1["teacher_raw"]))
-            lines.append(
-                _format_md_block(
-                    "scripted target (this is what the student is supervised on)",
-                    s1["supervised_target"],
-                )
-            )
+            lines.append(_format_student_view(s1))
 
             # ---- step2 ----
             s2 = row["step2"]
@@ -574,12 +648,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                 )
                 lines.append(_format_md_block("user (fresh teacher dialog with 4 images)", s2["user_prompt"]))
                 lines.append(_format_md_block("assistant — teacher raw output", s2["teacher_raw"]))
-                lines.append(
-                    _format_md_block(
-                        "scripted target (this is what the student is supervised on)",
-                        s2["supervised_target"],
-                    )
-                )
+                lines.append(_format_student_view(s2))
             else:
                 lines.append(
                     "\n#### Step 2 — skipped (memory.road_structure != gt_road_structure, "
@@ -596,12 +665,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                 )
                 lines.append(_format_md_block("user (fresh teacher dialog with 4 images)", s3["user_prompt"]))
                 lines.append(_format_md_block("assistant — teacher raw output", s3["teacher_raw"]))
-                lines.append(
-                    _format_md_block(
-                        "scripted target (this is what the student is supervised on)",
-                        s3["supervised_target"],
-                    )
-                )
+                lines.append(_format_student_view(s3))
             else:
                 lines.append(
                     "\n#### Step 3 — skipped (step2 did not fire or memory.scene != gt_scene, "
@@ -642,8 +706,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--modes",
         type=str,
-        default=",".join(INSPECT_MODE_ORDER),
-        help="逗号分隔的 memory 模式列表；默认 5 种全跑",
+        default=",".join(DEFAULT_INSPECT_MODE_ORDER),
+        help="逗号分隔的 memory 模式列表；默认常规 4 种，scene_change_cross_rs 需显式指定",
     )
     p.add_argument("--seed", type=int, default=20260624)
     p.add_argument("--device", type=str, default="auto", help="cuda:0 / cpu / auto；auto 时由 _maybe_set_idle_gpu_mask 选址")

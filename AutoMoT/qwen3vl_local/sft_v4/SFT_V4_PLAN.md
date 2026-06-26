@@ -927,7 +927,7 @@ step2/step3 老师分析。teacher 与 student 也不共享 KV，因为 LoRA on/
   [STEP1_ROAD_CONTEXT]
   BELIEVED_ROAD_STRUCTURE=<memory road>
   EGO_TO_GOAL_XY=(x, y) m
-  GROUND_TRUTH_ROAD_STRUCTURE=<gt road>
+  ANSWER_ROAD_STRUCTURE=<answer road>
   [/STEP1_ROAD_CONTEXT]
 
   [ROAD_STRUCTURE_CHOICES]
@@ -940,19 +940,19 @@ step2/step3 老师分析。teacher 与 student 也不共享 KV，因为 LoRA on/
   Critical Object Description: ...
   Reasoning on Intent: ...
   Memory Judgment: ...
-  Judge whether the believed road structure should be kept or changed toward the ground truth.
+  Explain from the student perspective whether the believed road structure should be kept or changed.
 ```
 
 - Teacher generate → `analysis_1_teacher`（鼓励按
   `Scene Description:` / `Critical Object Description:` /
-  `Reasoning on Intent:` / `Memory Judgment:` 四行 plain-text 顺序写，但
-  不再做严格清洗：监督按 step 分开训练，analysis 里出现 GT / 选项名都不污染监督），
+  `Reasoning on Intent:` / `Memory Judgment:` 四行 plain-text 顺序写；analysis 必须是
+  student-facing 口径，不应出现 `GROUND_TRUTH_*` / `ANSWER_*` / `REFERENCE_*` 等私有字段名），
   脚本拼接 `"\nROAD_STRUCTURE: <gt_road_structure>"`，
   `max_new_tokens=384`、`do_sample=False`、
   `repetition_penalty=1.05`。
 - **Student** teacher-forced：把 `analysis_1_teacher` 作为 assistant target，
   对其每个 token 算 CE → **L_A1**。
-- 这一步 teacher 看到 `BELIEVED_ROAD_STRUCTURE` 与 `GROUND_TRUTH_ROAD_STRUCTURE`，
+- 这一步 teacher 看到 `BELIEVED_ROAD_STRUCTURE` 与 `ANSWER_ROAD_STRUCTURE`，
   负责解释当前 road memory 是否应 KEEP/CHANGE。
 
 ### 4.4 Step 2：场景判断（OPD，teacher 吃 GT scene）
@@ -961,24 +961,25 @@ step2/step3 老师分析。teacher 与 student 也不共享 KV，因为 LoRA on/
 ```
 <step2_user>:
   [STEP2_SCENE_CONTEXT]
-  GROUND_TRUTH_ROAD_STRUCTURE=<gt_road_structure>
+  ANSWER_ROAD_STRUCTURE=<answer_road_structure> (desc)
   BELIEVED_SCENE=<memory.scene>
-  GROUND_TRUTH_SCENE=<gt_scene>
+  ANSWER_SCENE=<answer_scene>
   [/STEP2_SCENE_CONTEXT]
-  [SCENE_CHOICES] under GROUND_TRUTH_ROAD_STRUCTURE = <gt_road_structure>
+  [SCENE_CHOICES] under ANSWER_ROAD_STRUCTURE = <answer_road_structure>
   [STEP2_TEACHER]
-  Output exactly the same four-line analysis format as step1.
+  Output the same four-line student-facing analysis format as step1.
 ```
 
 - Teacher generate → `analysis_2_teacher`，脚本拼接 `"\nSCENE: <gt_scene>"`，
   `max_new_tokens=384`。
-- **Teacher analysis 清洗**：三步共用极简清洗器，只剥两类危险行——
+- **Teacher analysis 清洗**：三步共用清洗器，剥两类危险行——
   `ROAD_STRUCTURE:` / `SCENE:` / `STATUS:` / `SUBGOAL:` 整行（避免脚本追加的 GT
-  被 parser 取错）和 `[STEPx]` / `[MEMORY]` 等 prompt marker。其余文本原样进
-  target；只有剥完后真为空字符串才退回四行 fallback，然后由脚本追加
-  `SCENE: <gt_scene>`。
+  被 parser 取错）和 `[STEPx]` / `[MEMORY]` 等 prompt marker；同时把残留
+  `GROUND_TRUTH_*` / `ANSWER_*` / `REFERENCE_*` 改成 `the corrected ...` 口径，
+  `BELIEF_SUBGOAL` 规范为 `BELIEVED_SUBGOAL`。只有剥完后真为空字符串才退回
+  四行 fallback，然后由脚本追加 `SCENE: <gt_scene>`。
 
-**Student prompt**：与 teacher 完全相同，**只是去掉 `[GROUND_TRUTH]` 那一块**。
+**Student prompt**：只读 `[MEMORY]` 与当前 bucket 的 `SCENE_CHOICES`，不含 answer 字段。
 - Teacher-forced target = `analysis_2_teacher + "\nSCENE: <gt_scene>"`。
 - **L_A2**：分析文本段 token CE。
 - **L_S2**：`SCENE:` 后那一个值 token 的 CE，与 v2 口径一致
@@ -993,24 +994,24 @@ step2/step3 老师分析。teacher 与 student 也不共享 KV，因为 LoRA on/
 ```
 <step3_user>:
   [STEP3_EVENT_CONTEXT]
-  GROUND_TRUTH_ROAD_STRUCTURE=<gt_road_structure>
-  GROUND_TRUTH_SCENE=<gt_scene>
+  ANSWER_ROAD_STRUCTURE=<answer_road_structure> (desc)
+  ANSWER_SCENE=<answer_scene> (desc)
   BELIEVED_STATUS=<memory.status>
   BELIEVED_SUBGOAL=<memory.subgoal>
-  GROUND_TRUTH_STATUS=<gt_status>
-  GROUND_TRUTH_SUBGOAL=<gt_subgoal>
+  ANSWER_STATUS=<answer_status>
+  ANSWER_SUBGOAL=<answer_subgoal>
   [/STEP3_EVENT_CONTEXT]
   [EVENT_OPTIONS] ...                           ← GT scene 的事件序列及描述
   [STEP3_TEACHER]
-  Output exactly the same four-line analysis format as step1.
+  Output the same four-line student-facing analysis format as step1.
 ```
 
 - Teacher generate → `analysis_3_teacher`，脚本拼接
   `"\nSTATUS: <gt_status>\nSUBGOAL: <gt_subgoal>"`，`max_new_tokens=384`。
-- Teacher analysis 清洗同 step 2：只剥 GT 标签行和 prompt marker，其余原样进
+- Teacher analysis 清洗同 step 2：私有 answer 字段不会原样进入 student-facing
   target；仅在剥完后真为空时退回四行 fallback，然后脚本再追加 `STATUS/SUBGOAL`。
 
-**Student prompt**：相同，**去掉 `[GROUND_TRUTH]` 两行**。
+**Student prompt**：只读 `[MEMORY]` 与当前 scene 的 `EVENT_OPTIONS`，不含 answer 字段。
 - Teacher-forced target = teacher 全文（含 STATUS / SUBGOAL 值 token）。
 - **L_A3** + **L_S3_status** + **L_S3_subgoal**。
 
@@ -1389,11 +1390,12 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
    隐式实现。
 9. **Hindsight Oracle / OPD 蒸馏**：teacher = frozen base + disable_adapter，
    实时 generate 分析 + 离散答案；student token-CE 对齐。
-10. **Teacher analysis 清洗**：v4 是分 step 监督学习，analysis 里出现 GT / 选项名 /
-    事件名都不影响监督。因此 `build_step{1,2,3}_teacher_target` 只做最小清洗——
-    剥掉 `ROAD_STRUCTURE:` / `SCENE:` / `STATUS:` / `SUBGOAL:` 整行（避免脚本追加的
-    GT 被 parser 取错）和 `[STEPx]` / `[MEMORY]` 等 prompt marker——其余文字原样
-    进 target。prompt 鼓励按 `Scene Description:` / `Critical Object Description:` /
+10. **Teacher analysis 清洗**：teacher 可以看 answer 字段，但 analysis target 必须是
+    student-facing 口径。`build_step{1,2,3}_teacher_target` 会剥掉
+    `ROAD_STRUCTURE:` / `SCENE:` / `STATUS:` / `SUBGOAL:` 整行（避免脚本追加的 GT 被
+    parser 取错）和 `[STEPx]` / `[MEMORY]` 等 prompt marker，并把残留
+    `GROUND_TRUTH_*` / `ANSWER_*` / `REFERENCE_*` 改写为 `the corrected ...`。
+    prompt 鼓励按 `Scene Description:` / `Critical Object Description:` /
     `Reasoning on Intent:` / `Memory Judgment:` 四行 plain-text 顺序写，但不强制；
     只有剥完后真为空字符串才退回四行 fallback，结构化标签仍由脚本追加。
 11. **Teacher 长度**：三步均允许完整分析（max_new=384 仅作异常生成护栏，min_new=0）。
@@ -1592,9 +1594,9 @@ status/subgoal 重置成新 scene 的 init + first subgoal。
 
 | Step | 旧任务 | v4 定稿任务 |
 |---|---|---|
-| 1 | 仅描述视觉，禁 memory / 禁标签 | 学生读完整 memory，描述视觉 + 选 ROAD_STRUCTURE；老师开启 fresh dialog，只读 road-only context（`BELIEVED_ROAD_STRUCTURE` / `EGO_TO_GOAL_XY` / `GROUND_TRUTH_ROAD_STRUCTURE`）并输出 4 行结构分析；脚本追加 `ROAD_STRUCTURE: <name>` |
-| 2 | 读 memory + 完整 42 行 SCENE_CHOICES → 输出 SCENE | 学生读 memory + 预测 road 桶下 layer-2 候选；老师开启 fresh dialog，读 `GROUND_TRUTH_ROAD_STRUCTURE`、`BELIEVED_SCENE`、`GROUND_TRUTH_SCENE` 并分析 scene keep/change；脚本追加 `SCENE: <gt>` |
-| 3 | 不变 | 学生串行读 memory + event options；老师开启 fresh dialog，读 `GROUND_TRUTH_ROAD_STRUCTURE`、`GROUND_TRUTH_SCENE`、believed/GT status-subgoal 并分析 event keep/change；脚本追加 `STATUS/SUBGOAL` |
+| 1 | 仅描述视觉，禁 memory / 禁标签 | 学生读完整 memory，描述视觉 + 选 ROAD_STRUCTURE；老师开启 fresh dialog，只读 road-only answer context（`BELIEVED_ROAD_STRUCTURE` / `EGO_TO_GOAL_XY` / `ANSWER_ROAD_STRUCTURE`）并输出学生视角 4 行结构分析；脚本追加 `ROAD_STRUCTURE: <name>` |
+| 2 | 读 memory + 完整 42 行 SCENE_CHOICES → 输出 SCENE | 学生读 memory + 预测 road 桶下 layer-2 候选；老师开启 fresh dialog，读 `ANSWER_ROAD_STRUCTURE`、`BELIEVED_SCENE`、`ANSWER_SCENE` 并分析 scene keep/change；脚本追加 `SCENE: <gt>` |
+| 3 | 不变 | 学生串行读 memory + event options；老师开启 fresh dialog，读 answer road/scene、believed/answer status-subgoal 并分析 event keep/change；脚本追加 `STATUS/SUBGOAL` |
 
 **Step 1 prompt（学生 / 老师）**：
 
@@ -1622,9 +1624,10 @@ ROAD_STRUCTURE: <name>
 
 老师 step1 prompt 与学生 prompt 分离：不再喂完整 `[MEMORY]`，只喂
 `[STEP1_ROAD_CONTEXT]`，其中包含 `BELIEVED_ROAD_STRUCTURE`、`EGO_TO_GOAL_XY`
-和 `GROUND_TRUTH_ROAD_STRUCTURE`，再列出 6 个 road structure 选项。KEEP 时要求
+和 `ANSWER_ROAD_STRUCTURE`，再列出 6 个 road structure 选项。context 中 road label
+已由 `ROAD_STRUCTURE_CHOICES` 解释，因此只写 token，不重复括号解释。KEEP 时要求
 分析哪些道路布局证据支持当前 believed road；CHANGE 时要求先说明 believed road
-哪里不符合，再说明真值 road structure 与视觉证据如何吻合。老师只输出严格四行 plain-text 分析：
+哪里不符合，再说明 corrected road structure 与视觉证据如何吻合。老师输出学生视角四行 plain-text 分析：
 `Scene Description:`、`Critical Object Description:`、
 `Reasoning on Intent:`、`Memory Judgment:`；
 标签由 `build_step1_teacher_target` 追加。
@@ -1646,16 +1649,18 @@ ROAD_STRUCTURE: <name>
 
 ```
 [STEP2_SCENE_CONTEXT]
-GROUND_TRUTH_ROAD_STRUCTURE=<gt_road_structure> (...)
-BELIEVED_SCENE=<memory.scene> (...)
-GROUND_TRUTH_SCENE=<gt_scene> (...)
+ANSWER_ROAD_STRUCTURE=<answer_road_structure> (...)
+BELIEVED_SCENE=<memory.scene>
+ANSWER_SCENE=<answer_scene>
 EGO_TO_GOAL_XY=(..., ...) m
 [/STEP2_SCENE_CONTEXT]
 ```
 
 KEEP 时老师分析当前交通场景为何符合 believed scene；CHANGE 时老师先描述当前情况，
-再解释 believed scene 哪里不符合、GT scene 哪里符合。输出仍是同一套严格四行 plain-text 结构，
-最后一行 `Memory Judgment` 专门判断 scene memory。
+再解释 believed scene 哪里不符合、corrected scene 哪里符合。`BELIEVED_SCENE` /
+`ANSWER_SCENE` 若已在 `SCENE_CHOICES` 中出现，则 context 只写 token；跨桶 stress case
+才补括号解释。输出仍是同一套四行 student-facing 结构，最后一行 `Memory Judgment`
+专门判断 scene memory。
 
 **Step 3 prompt（学生 / 老师）**：
 
@@ -1664,19 +1669,20 @@ KEEP 时老师分析当前交通场景为何符合 believed scene；CHANGE 时�
 
 ```
 [STEP3_EVENT_CONTEXT]
-GROUND_TRUTH_ROAD_STRUCTURE=<gt_road_structure> (...)
-GROUND_TRUTH_SCENE=<gt_scene> (...)
-BELIEVED_STATUS=<memory.status> (...)
-BELIEVED_SUBGOAL=<memory.subgoal> (...)
-GROUND_TRUTH_STATUS=<gt_status> (...)
-GROUND_TRUTH_SUBGOAL=<gt_subgoal> (...)
+ANSWER_ROAD_STRUCTURE=<answer_road_structure> (...)
+ANSWER_SCENE=<answer_scene> (...)
+BELIEVED_STATUS=<memory.status>
+BELIEVED_SUBGOAL=<memory.subgoal>
+ANSWER_STATUS=<answer_status>
+ANSWER_SUBGOAL=<answer_subgoal>
 EGO_TO_GOAL_XY=(..., ...) m
 [/STEP3_EVENT_CONTEXT]
 ```
 
 KEEP 时老师分析当前 actor flow / ego progress / risk 为什么支持 believed status-subgoal；
-CHANGE 时老师解释当前 believed status-subgoal 为什么不对，以及 GT event 为什么符合。
-输出仍是同一套严格四行 plain-text 结构，最后一行 `Memory Judgment` 专门判断 status/subgoal memory。
+CHANGE 时老师解释当前 believed status-subgoal 为什么不对，以及 corrected event 为什么符合。
+事件 label 若已在 `EVENT_OPTIONS` 中解释，则 context 只写 token。输出仍是同一套四行
+student-facing 结构，最后一行 `Memory Judgment` 专门判断 status/subgoal memory。
 
 ### 12.4 触发链：step1 错 → 跳 step2/3
 
@@ -1790,13 +1796,14 @@ CHANGE 时老师解释当前 believed status-subgoal 为什么不对，以及 GT
    `failed/`。
 4. `[x] sft_v4/eval.py` / `sft_v4/probe.py`：三步同步加 ROAD_STRUCTURE 解析与统计；
    eval 报告增加 `road_structure_acc` / `step2_fire_rate` / `step3_fire_rate`。
-5. `[x] sft_v4/inspect_teacher.py`：已覆盖 5 种 memory 模式
-   （`all_keep` / `rs_change` / `scene_change_same_rs` / `event_change` /
-   `scene_change_cross_rs`），覆盖完整状态机分支。
+5. `[x] sft_v4/inspect_teacher.py`：默认覆盖 4 种常规 memory 模式
+   （`all_keep` / `rs_change` / `scene_change_same_rs` / `event_change`），并保留
+   `scene_change_cross_rs` 作为显式 stress-only 模式；报告同时写 teacher-private
+   raw 与 student-facing prompt/target/memory transition。
 6. `[x] sft_v4/test_memory_update.py` / `test_gt_leak_filter.py` / `check_loss_mask.py`：新增
    road_structure 字段测试 + 联合初始化测试；`test_gt_leak_filter.py` 仅作为 legacy no-op 兼容测试；
    `test_memory_update.py` 额外覆盖
    replay schema v2 的 step2 门控契约（step2-skip 合法、step2-fired 必须带
    `memory_after_step1`）。
 7. `[x] SFT_V4_RUN.md` §1 / §3 / §7 同步更新 memory 字段渲染示例、
-   `--p-init-correct` 默认值与 inspect_teacher 5 模式文档。
+   `--p-init-correct` 默认值与 inspect_teacher 报告/模式文档。
