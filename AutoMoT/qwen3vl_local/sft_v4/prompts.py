@@ -58,12 +58,8 @@ DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB = 0.15
 SYSTEM_PROMPT_V4 = """\
 You are an autonomous driving agent.
 Use the 4 stitched RGB frames as visual context: oldest to newest, left/front/right views.
-Keep a small memory chain: ROAD_STRUCTURE -> SCENE -> STATUS/SUBGOAL.
-
-For student turns: give a very short reason, then copy exactly one valid option line.
-For TEACHER turns: follow the given VERDICT and write the requested analysis only.
-Do not output ROAD_STRUCTURE:, SCENE:, STATUS:, or SUBGOAL: lines; labels are
-appended later."""
+Focus on traffic lights and signs, nearby vehicles, pedestrians, obstacles,
+lane markings, road structure, and the key factors affecting ego's decision."""
 
 
 # ---------------------------------------------------------------------------
@@ -656,11 +652,12 @@ def _teacher_structured_analysis_instructions(memory_judgment: str) -> str:
     """Shared concise visual-analysis skeleton for all teacher steps."""
 
     return (
-        "Write concise structured analysis using exactly these 4 headings, one short sentence each:\n"
-        "Scene Description: describe traffic lights/signs, lane and road structure, and overall traffic flow.\n"
-        "Critical Object Description: identify key vehicles, pedestrians, cyclists, obstacles, or say none.\n"
-        "Reasoning on Intent: explain how those key factors affect ego's near-term intent.\n"
-        f"Memory Judgment: {memory_judgment}"
+        "Output exactly 4 non-empty lines, with one short sentence after each heading:\n"
+        "### Scene Description: describe traffic lights/signs, lane markings, road structure, and traffic flow.\n"
+        "### Critical Object Description: identify key vehicles, pedestrians, cyclists, obstacles, or say none.\n"
+        "### Reasoning on Intent: explain how the key factors affect ego's near-term driving intent.\n"
+        f"### Memory Judgment: {memory_judgment}\n"
+        "Do not use bullets, JSON, code blocks, or extra lines."
     )
 
 
@@ -724,7 +721,7 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
         f"{verdict_line}\n"
         f"{focus_line}\n"
         f"{task_line}\n"
-        "Do not mention scene/status/subgoal. Do not output label lines."
+        "Keep the analysis about road structure only."
     )
 
 
@@ -737,7 +734,7 @@ def build_step1_teacher_target(analysis: str, gt_road_structure: str) -> str:
 
     cleaned = _clean_teacher_analysis(analysis)
     if not cleaned:
-        cleaned = "I look at the road layout in the latest camera frames."
+        cleaned = _fallback_teacher_analysis("road_structure")
     return f"{cleaned}\nROAD_STRUCTURE: {gt_road_structure}".strip()
 
 
@@ -793,7 +790,7 @@ def build_step2_teacher_prompt(memory: Memory, gt_road_structure: str, gt_scene:
         f"{verdict_line}\n"
         f"{focus_line}\n"
         f"{task_line}\n"
-        "Do not mention status/subgoal. Do not output label lines."
+        "Keep the analysis about the scene choice only."
     )
 
 
@@ -802,7 +799,7 @@ def build_step2_teacher_target(analysis: str, gt_scene: str) -> str:
 
     cleaned = _clean_teacher_analysis(analysis)
     if not cleaned:
-        cleaned = "I observe the current driving scene from the camera frames."
+        cleaned = _fallback_teacher_analysis("scene")
     return f"{cleaned}\nSCENE: {gt_scene}".strip()
 
 
@@ -870,8 +867,7 @@ def build_step3_teacher_prompt(
         "[STEP3_TEACHER]\n"
         f"{verdict_line}\n"
         f"{focus_line}\n"
-        f"{task_line}\n"
-        "Do not output label lines."
+        f"{task_line}"
     )
 
 
@@ -880,7 +876,7 @@ def build_step3_teacher_target(analysis: str, gt_status: str, gt_subgoal: str) -
 
     cleaned = _clean_teacher_analysis(analysis)
     if not cleaned:
-        cleaned = "I observe the current driving phase from the camera frames."
+        cleaned = _fallback_teacher_analysis("event")
     return f"{cleaned}\nSTATUS: {gt_status}\nSUBGOAL: {gt_subgoal}".strip()
 
 
@@ -912,29 +908,91 @@ _PROMPT_MARKER_LINE_RE = re.compile(
     r"(?im)^\s*\[/?(?:STEP\d(?:_TEACHER)?|MEMORY|STEP1_ROAD_CONTEXT|ROAD_STRUCTURE_CHOICES|SCENE_CHOICES|EVENT_OPTIONS)[^\n]*\n?"
 )
 _OPTION_FRAGMENT_LINE_RE = re.compile(r"^\s*[A-Z][A-Z0-9_]{2,}\s*$")
+_TEACHER_ANALYSIS_HEADINGS = (
+    "Scene Description",
+    "Critical Object Description",
+    "Reasoning on Intent",
+    "Memory Judgment",
+)
+_TEACHER_HEADING_RE = re.compile(
+    r"^\s*(?:#{1,6}\s*)?"
+    r"(Scene Description|Critical Object Description|Reasoning on Intent|Memory Judgment)"
+    r"\s*:\s*(.+?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _canonical_heading(name: str) -> str:
+    """Return the canonical teacher-analysis heading spelling."""
+
+    normalized = re.sub(r"\s+", " ", name.strip()).lower()
+    for heading in _TEACHER_ANALYSIS_HEADINGS:
+        if normalized == heading.lower():
+            return heading
+    return name.strip()
+
+
+def _trim_short_sentence(text: str) -> str:
+    """Keep one compact sentence for a strict four-line teacher analysis."""
+
+    cleaned = re.sub(r"\s+", " ", text.strip())
+    ends = [idx for idx in (cleaned.find("."), cleaned.find("!"), cleaned.find("?")) if idx >= 0]
+    if ends:
+        cleaned = cleaned[: min(ends) + 1].strip()
+    return cleaned
+
+
+def _fallback_teacher_analysis(kind: str) -> str:
+    """Build a strict four-line fallback when teacher raw text is unusable."""
+
+    memory_line = {
+        "road_structure": "Use road-layout evidence to judge whether the believed road structure should change.",
+        "scene": "Use the road bucket and visual evidence to judge whether the believed scene should change.",
+        "event": "Use the event sequence and visual evidence to judge whether the believed status or subgoal should change.",
+    }.get(kind, "Use the visual evidence to judge whether the remembered state should change.")
+    return "\n".join(
+        [
+            "### Scene Description: The latest frames show the current road layout and traffic context.",
+            "### Critical Object Description: No reliable critical object is described by the teacher.",
+            "### Reasoning on Intent: Ego should use nearby actors, signals, and lane structure to choose a safe intent.",
+            f"### Memory Judgment: {memory_line}",
+        ]
+    )
 
 
 def _clean_teacher_analysis(text: str) -> str:
     """Normalize teacher analysis before appending scripted labels.
 
-    Base Qwen can continue with prompt markers, bullet fragments, or a partial
-    uppercase option token when ``max_new_tokens`` cuts generation. Keep those
-    fragments visible in raw reports, but do not train the student on them.
+    Teacher supervision uses a strict four-line format shared by step1/2/3.
+    If base Qwen emits prompt markers, bullets, JSON, code fences, option
+    fragments, or a partial answer, keep it in raw reports but do not train the
+    student on it.
     """
 
     cleaned = _strip_label_lines(text or "")
     cleaned = _PROMPT_MARKER_LINE_RE.sub("", cleaned)
-    kept_lines: List[str] = []
+    seen: Dict[str, str] = {}
     for line in cleaned.splitlines():
         s = line.strip()
-        if not s or s.startswith("-") or _OPTION_FRAGMENT_LINE_RE.match(s):
+        if (
+            not s
+            or s.startswith("-")
+            or s.startswith("```")
+            or s in {"{", "}", "[", "]"}
+            or _OPTION_FRAGMENT_LINE_RE.match(s)
+        ):
             continue
-        kept_lines.append(s)
-    cleaned = re.sub(r"\s+", " ", " ".join(kept_lines)).strip()
-    last_sentence = max(cleaned.rfind("."), cleaned.rfind("!"), cleaned.rfind("?"))
-    if last_sentence >= 0:
-        cleaned = cleaned[: last_sentence + 1].strip()
-    return cleaned
+        match = _TEACHER_HEADING_RE.match(s)
+        if not match:
+            continue
+        heading = _canonical_heading(match.group(1))
+        body = _trim_short_sentence(match.group(2))
+        if not body:
+            continue
+        seen.setdefault(heading, f"### {heading}: {body}")
+    if not all(heading in seen for heading in _TEACHER_ANALYSIS_HEADINGS):
+        return ""
+    return "\n".join(seen[heading] for heading in _TEACHER_ANALYSIS_HEADINGS)
 
 
 def parse_output(text: str) -> Dict[str, Optional[str]]:

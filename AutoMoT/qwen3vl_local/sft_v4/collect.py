@@ -71,6 +71,7 @@ from qwen3vl_local.sft_v4.prompts import (
     update_memory_after_step2,
     update_memory_after_step3,
     validate_event,
+    _fallback_teacher_analysis,
 )
 from qwen3vl_local.sft_v4.train import (
     EpisodeDataset,
@@ -305,7 +306,7 @@ def collect_episode(
                 TEACHER_MAX_NEW_TOKENS_STEP1,
                 min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP1,
             )
-            raw_teacher_step1 = raw_teacher_step1 or "I look at the road layout in the latest camera frames."
+            raw_teacher_step1 = raw_teacher_step1 or _fallback_teacher_analysis("road_structure")
         if was_training:
             model.train()
 

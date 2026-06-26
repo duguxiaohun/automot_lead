@@ -92,6 +92,7 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step3_teacher_target,
     correct_memory_after_step1_skip,
     force_memory_to_gt_chain,
+    _fallback_teacher_analysis,
     get_road_structure,
     init_memory,
     parse_output,
@@ -933,7 +934,7 @@ def iter_episode_loss_packs(
                 TEACHER_MAX_NEW_TOKENS_STEP1,
                 min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP1,
             )
-            raw_teacher_step1 = raw_teacher_step1 or "I look at the road layout in the latest camera frames."
+            raw_teacher_step1 = raw_teacher_step1 or _fallback_teacher_analysis("road_structure")
         if teacher_was_training:
             teacher_model.train()
 
