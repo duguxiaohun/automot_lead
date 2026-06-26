@@ -7,7 +7,7 @@
 老师路径与 collector 完全一致：``load_model_with_lora`` 拿到 PEFT bundle 后，全程
 ``model.disable_adapter()`` 绕开 LoRA delta，等价于纯 frozen base
 Qwen3-VL-4B-Instruct，再叠加 ``torch.no_grad()`` 与 train.py 同款 KV cache 生成路径
-（含 ``min_new_tokens`` 反早停）。
+不启用强制最少生成长度。
 
 每帧默认覆盖 5 种 memory 起点，分别触发分层 prompt 状态机的关键路径：
 
@@ -89,9 +89,6 @@ from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
-    TEACHER_MIN_NEW_TOKENS_STEP1,
-    TEACHER_MIN_NEW_TOKENS_STEP2,
-    TEACHER_MIN_NEW_TOKENS_STEP3,
     Memory,
     build_step1_teacher_prompt,
     build_step1_teacher_target,
@@ -99,9 +96,6 @@ from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     build_step2_teacher_target,
     build_step3_teacher_prompt,
     build_step3_teacher_target,
-    check_gt_leak_road_structure,
-    check_gt_leak_scene,
-    check_gt_leak_status_subgoal,
     first_subgoal,
     first_scene_in_bucket,
     get_road_structure,
@@ -301,7 +295,7 @@ def _run_teacher_for_frame(
 ) -> Dict[str, Any]:
     """在单帧、单 memory 配置下跑老师完整三步，返回结构化结果。
 
-    复用 ``train.py`` 的 KV cache 生成函数与新版老师 prompt（含 ``min_new_tokens``）。
+    复用 ``train.py`` 的 KV cache 生成函数与新版老师 prompt，不启用强制最少生成长度。
     每个 step 都新建独立的 teacher 对话并重新吃图——脚本只关心老师"如果此刻进入这个
     memory 状态会怎么说"，不让 step1 的生成污染 step2/step3。
     """
@@ -333,7 +327,6 @@ def _run_teacher_for_frame(
                 bundle,
                 _clone_kv_state(step1_state),
                 TEACHER_MAX_NEW_TOKENS_STEP1,
-                min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP1,
             )
 
             # ---- step2：场景 KEEP/CHANGE 推理 ----
@@ -352,7 +345,6 @@ def _run_teacher_for_frame(
                     bundle,
                     _clone_kv_state(step2_state),
                     TEACHER_MAX_NEW_TOKENS_STEP2,
-                    min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP2,
                 )
 
                 # ---- step3：触发口径与训练一致（step2 已跑且 memory.scene == gt_scene） ----
@@ -371,7 +363,6 @@ def _run_teacher_for_frame(
                         bundle,
                         _clone_kv_state(step3_state),
                         TEACHER_MAX_NEW_TOKENS_STEP3,
-                        min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP3,
                     )
     finally:
         if teacher_was_training:
@@ -380,10 +371,6 @@ def _run_teacher_for_frame(
     target1 = build_step1_teacher_target(raw_step1, gt_road_structure)
     target2 = build_step2_teacher_target(raw_step2, ep.gt_scene) if step2_fired else ""
     target3 = build_step3_teacher_target(raw_step3, gt_status, gt_subgoal) if step3_fired else ""
-
-    leak1 = check_gt_leak_road_structure(raw_step1, gt_road_structure)
-    leak2 = check_gt_leak_scene(raw_step2, ep.gt_scene) if step2_fired else False
-    leak3 = check_gt_leak_status_subgoal(raw_step3, gt_status, gt_subgoal) if step3_fired else False
 
     verdict_step1 = "KEEP" if memory.road_structure == gt_road_structure else "CHANGE"
     verdict_step2 = "SKIPPED" if not step2_fired else ("KEEP" if memory.scene == ep.gt_scene else "CHANGE")
@@ -423,7 +410,6 @@ def _run_teacher_for_frame(
             "teacher_raw": raw_step1,
             "token_count": _count_tokens(bundle, raw_step1),
             "supervised_target": target1,
-            "leak_detected": bool(leak1),
         },
         "step2": {
             "fired": bool(step2_fired),
@@ -434,7 +420,6 @@ def _run_teacher_for_frame(
             "teacher_raw": raw_step2,
             "token_count": _count_tokens(bundle, raw_step2),
             "supervised_target": target2,
-            "leak_detected": bool(leak2),
         },
         "step3": {
             "fired": bool(step3_fired),
@@ -445,7 +430,6 @@ def _run_teacher_for_frame(
             "teacher_raw": raw_step3,
             "token_count": _count_tokens(bundle, raw_step3),
             "supervised_target": target3,
-            "leak_detected": bool(leak3),
         },
     }
 
@@ -568,7 +552,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                 f"\n#### Step 1 — road-structure verdict `{s1['verdict']}` "
                 f"(source={s1.get('verdict_source', 'scripted_memory_vs_gt')}, "
                 f"uses_memory={s1.get('uses_memory_block', False)}, "
-                f"teacher tokens: {s1['token_count']}, leak={s1['leak_detected']})\n"
+                f"teacher tokens: {s1['token_count']})\n"
             )
             lines.append(_format_md_block("system", s1["system_prompt"]))
             lines.append(_format_md_block("user (with 4 stitched RGB images attached)", s1["user_prompt"]))
@@ -586,7 +570,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                 lines.append(
                     f"\n#### Step 2 — scene verdict `{s2['verdict']}` "
                     f"(source={s2.get('verdict_source', 'scripted_memory_vs_gt')}, "
-                    f"teacher tokens: {s2['token_count']}, leak={s2['leak_detected']})\n"
+                    f"teacher tokens: {s2['token_count']})\n"
                 )
                 lines.append(_format_md_block("user (fresh teacher dialog with 4 images)", s2["user_prompt"]))
                 lines.append(_format_md_block("assistant — teacher raw output", s2["teacher_raw"]))
@@ -608,7 +592,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                 lines.append(
                     f"\n#### Step 3 — status/subgoal verdict `{s3['verdict']}` "
                     f"(source={s3.get('verdict_source', 'scripted_memory_vs_gt')}, "
-                    f"teacher tokens: {s3['token_count']}, leak={s3['leak_detected']})\n"
+                    f"teacher tokens: {s3['token_count']})\n"
                 )
                 lines.append(_format_md_block("user (fresh teacher dialog with 4 images)", s3["user_prompt"]))
                 lines.append(_format_md_block("assistant — teacher raw output", s3["teacher_raw"]))

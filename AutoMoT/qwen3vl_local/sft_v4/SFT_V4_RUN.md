@@ -19,10 +19,14 @@ scene，按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STA
 Step1 老师只喂 `BELIEVED_ROAD_STRUCTURE / EGO_TO_GOAL_XY / GROUND_TRUTH_ROAD_STRUCTURE`；
 Step2 老师喂 `GROUND_TRUTH_ROAD_STRUCTURE / BELIEVED_SCENE / GROUND_TRUTH_SCENE`；
 Step3 老师喂 true road、true scene、believed/GT status-subgoal。老师只输出分析，
-且三步统一严格输出 4 个非空行：`### Scene Description:`、
-`### Critical Object Description:`、`### Reasoning on Intent:`、
-`### Memory Judgment:`；结构化标签由脚本追加。teacher 默认生成上限为
-`192/192/192`，软最小长度为 `12/12/12`。
+三步统一鼓励按 `Scene Description:`、`Critical Object Description:`、
+`Reasoning on Intent:`、`Memory Judgment:` 四行 plain-text 顺序写，但**不再做严格清洗**：
+监督学习按 step 分开训练，analysis 里出现 GT / 选项名 / 事件名都不污染目标，因此
+`_clean_teacher_analysis` 只剥两类危险行——`ROAD_STRUCTURE:` / `SCENE:` /
+`STATUS:` / `SUBGOAL:` 整行（避免脚本追加的 GT 标签被 parser 取错）和
+`[STEPx]` / `[MEMORY]` 等 prompt marker——剩下原样进 target。结构化标签由脚本追加。
+teacher 默认生成上限为 `384/384/384`（仅作异常生成的技术护栏，不限制每行词数）；
+teacher 调用不再传强制最少生成参数，让模型自然停止。
 
 `train.sh` / `train.py` 只保留为 on-policy 兼容调试入口，不是 v4 生产路径。
 
@@ -256,7 +260,6 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v4_lora/latest/tb
 - `train/accuracy/road_structure`（当前等价于 step2 fire rate）
 - `train/rs_flip_rate`
 - `train/scene_flip_rate`
-- `train/gt_leak_skip_rate/{step1,step2,step3}`（新 teacher prompt 下通常为 0；旧诊断指标保留）
 - `train/phase_a_frame_frac`
 - `train/skip_correction_rate`
 - `train/skip_correction_scene_noise_rate`
@@ -386,7 +389,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_reuse.py \
 
 用途：在不跑训练的前提下，**离线评估当前 prompt 设计下老师真实生成内容是否合理**。
 该脚本是诊断老师 prompt 迭代的主入口，跑完直接看 Markdown 报告即可决定是否需要再
-调 prompt / `min_new_tokens` / `max_new_tokens`。
+调 prompt / 重复抑制 / 异常生成护栏。
 
 ### 7.1 它做了什么
 
@@ -402,7 +405,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_reuse.py \
   | `scene_change_cross_rs` | = GT | 跨桶非 GT | KEEP | CHANGE | 跳过 |
 
 - 老师路径与 `collect.py` 100% 一致：`load_model_with_lora` →
-  `model.disable_adapter()` → `_teacher_generate_kv`（含 `min_new_tokens` 反早停）
+  `model.disable_adapter()` → `_teacher_generate_kv`（不强制最少生成长度）
   → 全程 `torch.no_grad()`，等价于 frozen base Qwen3-VL-4B-Instruct；
 - 逐帧记录 system / user (含图像路径) / teacher-assistant 三类 role 的 prompt 与
   生成内容，加上 token 数和 legacy GT-token 诊断。
@@ -487,17 +490,17 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
       [4 张 stitched RGB 路径]
   ### Mode <all_keep|rs_change|scene_change_same_rs|event_change|scene_change_cross_rs>
       [当前 memory 字段]
-  #### Step 1 — road-structure verdict <KEEP|CHANGE> (tokens: N, leak=False)
+  #### Step 1 — road-structure verdict <KEEP|CHANGE> (tokens: N)
       [ROLE = system]      ... system prompt 全文
       [ROLE = user (with 4 stitched RGB images attached)] ... step1 user prompt
       [ROLE = assistant — teacher raw output]             ... 老师真实输出
       [ROLE = scripted target (this is what the student is supervised on)]
-  #### Step 2 — scene verdict <KEEP|CHANGE> (tokens: N, leak=False)
+  #### Step 2 — scene verdict <KEEP|CHANGE> (tokens: N)
       （或 "Step 2 — skipped (memory.road_structure != gt_road_structure)"）
       [ROLE = user (fresh teacher dialog with 4 images)]
       [ROLE = assistant — teacher raw output]
       [ROLE = scripted target (this is what the student is supervised on)]
-  #### Step 3 — status/subgoal verdict <KEEP|CHANGE> (tokens: N, leak=False)
+  #### Step 3 — status/subgoal verdict <KEEP|CHANGE> (tokens: N)
       （或 "Step 3 — skipped (step2 did not fire or memory.scene != gt_scene)"）
   ```
 
@@ -506,32 +509,27 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
   做有价值的推理（而不是只输出垃圾被脚本兜底）。
 
 - `teacher_report.jsonl`：同份内容机器可读，每行一帧 + 一种模式，方便后续聚合
-  统计（比如平均 token 数、leak 比率、step3 触发占比）。
+  统计（比如平均 token 数、step3 触发占比）。
 
 ### 7.8 评估老师输出的关键检查点
 
 跑完 `teacher_report.md` 后，按顺序检查：
 
-1. **token_count 是否 ≥ `TEACHER_MIN_NEW_TOKENS_STEP{1,2,3}`**
-   （prompts.py 默认 12 / 12 / 12）。如果还出现 5~10 token 的老师输出，
-   说明 min_new_tokens 闸门没生效或者 EOS id 集合不全。
-2. **leak_detected 仅作诊断**。新口径下 step2/step3 prompt 会显式给 GT token，
-   所以该字段不再决定训练是否跳过分析 loss；真正要看的是 raw analysis 是否有
-   prompt marker、半截选项名或结构化标签泄漏到 scripted target。
-3. **teacher raw output 是否严格为 4 个非空行**，且每行分别以
-   `### Scene Description:`、`### Critical Object Description:`、
-   `### Reasoning on Intent:`、`### Memory Judgment:` 开头；不要出现 bullet、
-   JSON、代码块或额外行。若 raw 不达标，`scripted target` 会退回四行 fallback，
-   这说明该 case 的分析监督价值不足。
-4. **`all_keep` 模式下老师是否真的论证 KEEP**（不要去翻案）；
+1. **先看 raw analysis 是否像人在解释**：重点查空泛复读、是否真的针对当前 step 的
+   privileged context 做论证。监督路径已不再强制四行格式，所以 raw 里偶尔出现
+   markdown、bullets、半截选项名都会照原样进 target——只要内容像分析就行。
+2. **scripted target 是否仅在 raw 完全空时退回四行 fallback**。如果发现大量
+   case 都被 fallback 兜底，说明 teacher 在该模式下根本没生成有效文本，回头
+   修 prompt 或老师生成参数。
+3. **`all_keep` 模式下老师是否真的论证 KEEP**（不要去翻案）；
    **`rs_change` 模式下老师是否先纠正道路结构**；**`scene_change_same_rs` /
    `scene_change_cross_rs` 模式下老师是否描述"实际场景看起来像 X"而不是简单复述
    memory scene**；**`event_change` 模式下老师是否解释"虽然 scene 对，但
    status/subgoal 应该推进"**。
-5. **step3 老师是否能围绕 EVENT_OPTIONS 做有效 keep/correct 引导**，不要只输出
+4. **step3 老师是否能围绕 EVENT_OPTIONS 做有效 keep/correct 引导**，不要只输出
    "I observe the current driving phase" 这类空话。
 
-如果第 3-5 条不达标，回头修 `build_step{1,2,3}_teacher_prompt` 里的 `focus_line`；
-优先保持短 prompt，只在必要时给 1 个最关键的证据锚点，不要恢复长证据清单。
+如果语义不达标，回头修 `build_step{1,2,3}_teacher_prompt` 里的 `focus_line`；
+优先保持 prompt 清晰，只在必要时补关键证据锚点，不要加入输出字数限制或四行硬约束。
 
 ---

@@ -78,9 +78,6 @@ from qwen3vl_local.sft_v4.prompts import (
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
-    TEACHER_MIN_NEW_TOKENS_STEP1,
-    TEACHER_MIN_NEW_TOKENS_STEP2,
-    TEACHER_MIN_NEW_TOKENS_STEP3,
     build_step1_teacher_prompt,
     build_step1_teacher_target,
     build_step1_user_prompt,
@@ -466,8 +463,7 @@ def _append_token_ids(
     关键点：
     1. ``state.next_logits`` 对应第一个追加 token 的预测；
     2. 后续 token 的预测来自本次 forward 的 ``outputs.logits[:, :-1]``；
-    3. ``analysis_enabled=False`` 时分析 token loss 置 0，但 scene/status/subgoal 值
-       token loss 仍照算，用于 GT 泄露过滤。
+    3. ``analysis_enabled=False`` 仅作为兼容开关；当前 v4 默认训练完整分析段。
     """
 
     if suffix_ids.ndim == 1:
@@ -648,15 +644,14 @@ def _kv_generate_text(
     1. **repetition_penalty**（默认 1.05）：HF 风格 logits 后处理。这里**只把本轮生成
        的 token** 加入 ``seen_unique``——不再混入 prefix 的 system/SCENE_CHOICES 等
        几千 token，否则惩罚被稀释到等同无效。这样新生成的复读 token 才会被真正压低。
-    2. **min_new_tokens 软闸门**：未达到 MIN 之前抑制 EOS；达到 MIN 后如果生成内容里
-       已经至少出现 1 个句号（`.`/`!`/`?`），就允许 EOS。换句话说：让老师写完整句再停，
-       但不强行喂垃圾凑长度。
+    2. **自然停止**：teacher/student 默认 ``min_new_tokens=0``，不强制最少生成长度。
+       ``max_new_tokens`` 只作为异常 runaway 护栏，不是输出字数要求。
     3. **no_repeat_ngram_size**（默认 0 = 关闭，老师默认开 3）：阻断已经出现过的
        (n-1)-gram 跟同样的下一 token，让 "The left. The right. The left." 这种
        3-gram 循环必然在第 4 次时被换 token。
 
-    学生自由生成默认保持 ``min_new_tokens=0`` + ``no_repeat_ngram_size=0``，不影响
-    它自然停的能力——脚本会根据它输出是否含合法标签判断是否更新 memory。
+    学生自由生成默认保持 ``min_new_tokens=0`` + ``no_repeat_ngram_size=0``，teacher
+    也不强制最少生成长度；脚本会根据输出是否含合法标签判断是否更新 memory。
     """
 
     generated: List[torch.Tensor] = []
@@ -672,21 +667,10 @@ def _kv_generate_text(
     eos_id_tensor: Optional[torch.Tensor] = None
     if min_new > 0 and eos_ids:
         eos_id_tensor = torch.tensor(sorted(eos_ids), device=device, dtype=torch.long)
-    # 句末 token 集合：用于"软 min_new_tokens"——MIN 后看到句号 token 才允许 EOS。
-    period_token_ids: set[int] = set()
-    for piece in (".", "?", "!", ".\n", "!\n", "?\n"):
-        try:
-            ids = bundle.tokenizer(piece, add_special_tokens=False)["input_ids"]
-        except Exception:
-            ids = []
-        if ids:
-            period_token_ids.add(int(ids[-1]))
-    has_period = False
-
     for step in range(max_new_tokens):
         logits = _apply_repetition_penalty(cur.next_logits, seen_unique, repetition_penalty)
-        # 软 min_new_tokens：未达 MIN，或达 MIN 但还没出现句末符号，都禁止 EOS。
-        if eos_id_tensor is not None and (step < min_new or not has_period):
+        # min_new_tokens 默认不启用；若调用方显式设置，才在未达 MIN 前禁止 EOS。
+        if eos_id_tensor is not None and step < min_new:
             logits = logits.clone()
             logits.index_fill_(-1, eos_id_tensor, float("-inf"))
         # no_repeat_ngram：禁止任何与已生成 (n-1)-gram 同前缀的下一 token 出现重复。
@@ -700,8 +684,6 @@ def _kv_generate_text(
         token_id = int(next_token.reshape(-1)[0].item())
         generated.append(next_token)
         generated_ids.append(token_id)
-        if token_id in period_token_ids:
-            has_period = True
         if token_id in eos_ids:
             break
         cur, _ = _append_token_ids(bundle, cur, next_token)
@@ -773,10 +755,10 @@ def _teacher_generate_kv(
     min_new_tokens: int = 0,
     no_repeat_ngram_size: int = 3,
 ) -> Tuple[str, KVState]:
-    """teacher 贪心生成包装：关闭梯度并启用 §12.6.5 全部三重兜底。
+    """teacher 贪心生成包装：关闭梯度并启用重复抑制。
 
-    默认 ``no_repeat_ngram_size=3``——老师贪心 + 强制 min_new_tokens 容易陷入
-    "The left. The right." 这种 3-gram 循环，必须靠 ngram 闸门断开。
+    默认 ``no_repeat_ngram_size=3``——老师贪心生成仍可能陷入
+    "The left. The right." 这种 3-gram 循环，靠 ngram 闸门断开。
     学生生成保持开关默认关，由 _student_generate_kv 显式不开。
     """
 
@@ -814,7 +796,7 @@ class FrameLossPack:
     - ``s3_status``  / ``s3_subgoal`` : step3 STATUS/SUBGOAL 标签。
 
     诊断标志：``step2_ran`` / ``step3_ran`` 触发位、``rs_flip`` /``scene_flip``
-    翻转位、各步 GT 泄露位、``phase_a`` 区段位。
+    翻转位、``phase_a`` 区段位。
     """
 
     a1: torch.Tensor
@@ -828,9 +810,6 @@ class FrameLossPack:
     step3_ran: bool
     rs_flip: bool
     scene_flip: bool
-    leak1: bool
-    leak2: bool
-    leak3: bool
     phase_a: bool
     skip_correction: bool
     skip_correction_noise: bool
@@ -915,13 +894,13 @@ def iter_episode_loss_packs(
         memory_before_step1 = memory.copy()
 
         # ============ Step 1：视觉描述 + ROAD_STRUCTURE 判定 ============
-        # 学生 step1 现在吃 memory（D26：2 句视觉 + 1 句 verdict + 标签）；老师同步。
+        # 学生 step1 现在吃 memory（D26：视觉描述 + verdict 论证 + 标签）；老师同步。
         step1_student_user = build_step1_user_prompt(len(images), memory=memory_before_step1)
         step1_teacher_user_text = build_step1_teacher_prompt(memory_before_step1, gt_road_structure)
         step1_msgs_student = _build_messages_with_images(user_text=step1_student_user, images=images)
         step1_msgs_teacher = _build_messages_with_images(user_text=step1_teacher_user_text, images=images)
 
-        # Teacher 分支：全程 disable_adapter（= frozen base Qwen），含 no_repeat_ngram + 软 min。
+        # Teacher 分支：全程 disable_adapter（= frozen base Qwen），含 no_repeat_ngram 抑制复读。
         teacher_model = bundle.unwrap()
         teacher_was_training = bool(teacher_model.training)
         teacher_model.eval()
@@ -932,7 +911,6 @@ def iter_episode_loss_packs(
                 bundle,
                 _clone_kv_state(teacher_step1_prompt_state),
                 TEACHER_MAX_NEW_TOKENS_STEP1,
-                min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP1,
             )
             raw_teacher_step1 = raw_teacher_step1 or _fallback_teacher_analysis("road_structure")
         if teacher_was_training:
@@ -951,14 +929,13 @@ def iter_episode_loss_packs(
 
         # ============ Step 1 梯度：L_A1 (analysis) + L_RS1 (ROAD_STRUCTURE label) ============
         analysis1 = _analysis_before_labels(raw_teacher_step1)
-        leak1 = False
         target1 = build_step1_teacher_target(analysis1, gt_road_structure)
         step1_parts = _assistant_loss_from_state(
             bundle,
             _clone_kv_state(student_step1_prompt_state),
             target1,
             target_spans_road_structure,
-            analysis_enabled=not leak1,
+            analysis_enabled=True,
         )
         # 把学生 step1 输出送回 memory；layer-1 翻转 → scene/status/subgoal 整链 reset。
         pred1 = parse_output(student_step1)
@@ -977,8 +954,6 @@ def iter_episode_loss_packs(
         a3_loss = zero
         s3_status_loss = zero
         s3_subgoal_loss = zero
-        leak2 = False
-        leak3 = False
         scene_flip = False
         step3_ran = False
 
@@ -1003,7 +978,6 @@ def iter_episode_loss_packs(
                     bundle,
                     _clone_kv_state(teacher_step2_prompt_state),
                     TEACHER_MAX_NEW_TOKENS_STEP2,
-                    min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP2,
                 )
             if teacher_was_training2:
                 teacher_model.train()
@@ -1022,14 +996,13 @@ def iter_episode_loss_packs(
 
             # Step 2 梯度（仅在 layer-1 命中 GT 桶时计算）。
             analysis2 = _analysis_before_labels(raw_teacher_step2)
-            leak2 = False
             target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
             step2_parts = _assistant_loss_from_state(
                 bundle,
                 _clone_kv_state(student_step2_prompt_state),
                 target2,
                 target_spans_scene,
-                analysis_enabled=not leak2,
+                analysis_enabled=True,
             )
             a2_loss = step2_parts["analysis"]
             s2_loss = step2_parts["scene"]
@@ -1060,12 +1033,10 @@ def iter_episode_loss_packs(
                         bundle,
                         _clone_kv_state(teacher_step3_prompt_state),
                         TEACHER_MAX_NEW_TOKENS_STEP3,
-                        min_new_tokens=TEACHER_MIN_NEW_TOKENS_STEP3,
                     )
                 if teacher_was_training2:
                     teacher_model.train()
                 analysis3 = _analysis_before_labels(raw_teacher_step3)
-                leak3 = False
                 target3 = build_step3_teacher_target(analysis3, gt_status, gt_subgoal)
 
                 step3_student_user = build_step3_student_prompt(memory)
@@ -1085,7 +1056,7 @@ def iter_episode_loss_packs(
                     _clone_kv_state(student_step3_prompt_state),
                     target3,
                     target_spans_status,
-                    analysis_enabled=not leak3,
+                    analysis_enabled=True,
                 )
                 a3_loss = step3_parts["analysis"]
                 s3_status_loss = step3_parts["status"]
@@ -1112,9 +1083,6 @@ def iter_episode_loss_packs(
             step3_ran=step3_ran,
             rs_flip=rs_flip,
             scene_flip=scene_flip,
-            leak1=leak1,
-            leak2=leak2,
-            leak3=leak3,
             phase_a=phase_a,
             skip_correction=skip_correction_applied,
             skip_correction_noise=skip_correction_scene_noisy,
@@ -1747,9 +1715,6 @@ def main() -> None:
         "step3": 0,
         "rs_flip": 0,
         "flip": 0,
-        "leak1": 0,
-        "leak2": 0,
-        "leak3": 0,
         "phase_a": 0,
         "skip_correction": 0,
         "skip_correction_noise": 0,
@@ -2025,9 +1990,6 @@ def main() -> None:
                     stats["step3"] += int(pack.step3_ran)
                     stats["rs_flip"] += int(pack.rs_flip)
                     stats["flip"] += int(pack.scene_flip)
-                    stats["leak1"] += int(pack.leak1)
-                    stats["leak2"] += int(pack.leak2)
-                    stats["leak3"] += int(pack.leak3)
                     stats["phase_a"] += int(pack.phase_a)
                     stats["skip_correction"] += int(pack.skip_correction)
                     stats["skip_correction_noise"] += int(pack.skip_correction_noise)
@@ -2091,9 +2053,6 @@ def main() -> None:
                             f"step3={_safe_ratio(stats['step3'], frames):.3f} "
                             f"rs_flip={_safe_ratio(stats['rs_flip'], frames):.3f} "
                             f"flip={_safe_ratio(stats['flip'], frames):.3f} "
-                            f"leak1={_safe_ratio(stats['leak1'], frames):.3f} "
-                            f"leak2={_safe_ratio(stats['leak2'], max(stats['step2'], 1)):.3f} "
-                            f"leak3={_safe_ratio(stats['leak3'], max(stats['step3'], 1)):.3f} "
                             f"phase_a={_safe_ratio(stats['phase_a'], frames):.3f} "
                             f"skip_corr={_safe_ratio(stats['skip_correction'], frames):.3f} "
                             f"all_rank_steps={synced_all_rank_steps} "
@@ -2138,17 +2097,6 @@ def main() -> None:
                             tb.add_scalar(
                                 "train/skip_correction_scene_noise_rate",
                                 _safe_ratio(stats["skip_correction_noise"], max(stats["skip_correction"], 1)),
-                                global_step,
-                            )
-                            tb.add_scalar("train/gt_leak_skip_rate/step1", _safe_ratio(stats["leak1"], frames), global_step)
-                            tb.add_scalar(
-                                "train/gt_leak_skip_rate/step2",
-                                _safe_ratio(stats["leak2"], max(stats["step2"], 1)),
-                                global_step,
-                            )
-                            tb.add_scalar(
-                                "train/gt_leak_skip_rate/step3",
-                                _safe_ratio(stats["leak3"], max(stats["step3"], 1)),
                                 global_step,
                             )
                             tb.add_scalar("train/grad_norm/language", float(lang_norm), global_step)

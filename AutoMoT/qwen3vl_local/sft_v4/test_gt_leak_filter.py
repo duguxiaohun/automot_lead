@@ -1,4 +1,4 @@
-﻿"""SFT v4 GT 泄露过滤测试。"""
+"""SFT v4 legacy answer-token compatibility test."""
 
 from __future__ import annotations
 
@@ -21,42 +21,24 @@ from qwen3vl_local.sft_v4.prompts import (
 
 
 def main() -> None:
-    """验证 teacher 分析文本的 GT 字面泄露检测。
+    """Answer tokens in teacher analysis are valid supervision, not a skip signal."""
 
-    泄露检测只影响分析 loss：如果 teacher 分析直接说出 GT road_structure /
-    scene/status/subgoal token，对应 L_A1/L_A2/L_A3 会跳过，但离散值 token loss 仍保留。
-    """
-
-    rs_ok = "The latest view looks like a multi-direction intersection."
-    rs_bad = "The correct road structure is JUNCTION."
-
-    a_ok = "I see blocked lane and hazard lights ahead."
-    a_bad = "This clearly indicates Accident scene."
-
-    b_ok = "I should keep braking and maintain gap."
-    b_bad = "Current status is hazard_detect and subgoal max_brake_or_min_gap."
-
-    r = {
-        "road_structure_no_leak": check_gt_leak_road_structure(rs_ok, "JUNCTION"),
-        "road_structure_leak": check_gt_leak_road_structure(rs_bad, "JUNCTION"),
-        "scene_no_leak": check_gt_leak_scene(a_ok, "Accident"),
-        "scene_leak": check_gt_leak_scene(a_bad, "Accident"),
-        "status_no_leak": check_gt_leak_status_subgoal(b_ok, "hazard_detect", "max_brake_or_min_gap"),
-        "status_leak": check_gt_leak_status_subgoal(b_bad, "hazard_detect", "max_brake_or_min_gap"),
+    results = {
+        "road_structure": check_gt_leak_road_structure(
+            "The correct road structure is JUNCTION.", "JUNCTION"
+        ),
+        "scene": check_gt_leak_scene("This clearly indicates Accident scene.", "Accident"),
+        "status_subgoal": check_gt_leak_status_subgoal(
+            "Current status is hazard_detect and subgoal max_brake_or_min_gap.",
+            "hazard_detect",
+            "max_brake_or_min_gap",
+        ),
     }
-    ok = (
-        r["road_structure_no_leak"] is False
-        and r["road_structure_leak"] is True
-        and r["scene_no_leak"] is False
-        and r["scene_leak"] is True
-        and r["status_no_leak"] is False
-        and r["status_leak"] is True
-    )
-    print(json.dumps({"ok": ok, "results": r}, ensure_ascii=False, indent=2))
+    ok = all(value is False for value in results.values())
+    print(json.dumps({"ok": ok, "results": results}, ensure_ascii=False, indent=2))
     if not ok:
         raise SystemExit(1)
 
 
 if __name__ == "__main__":
     main()
-

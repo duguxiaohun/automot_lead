@@ -1,4 +1,4 @@
-"""SFT v4 的 prompt、Memory 状态机与输出解析工具。
+﻿"""SFT v4 的 prompt、Memory 状态机与输出解析工具。
 
 v4 把 v2 / v3 的"42 选 1"场景题改成**三层级联选择题**：
 
@@ -32,17 +32,12 @@ from qwen3vl_local.prompt_pipeline import (
 
 DATASET_VERSION = "sft_v4_sequence"
 
-# Teacher 生成上下限（D17v4 + §12.6.5 调优后）：
-# - max 给每个独立 teacher step 的完整视觉/真值分析留余量；
-# - min 兜底防止 base Qwen 早停成 "I am." 之类 3~4 token 残片；
-# - teacher 三步互不复用 KV，各自重新吃图和完整上下文，因此不再用 64 token 限死分析。
-TEACHER_MAX_NEW_TOKENS_STEP1 = 192
-TEACHER_MAX_NEW_TOKENS_STEP2 = 192
-TEACHER_MAX_NEW_TOKENS_STEP3 = 192
-
-TEACHER_MIN_NEW_TOKENS_STEP1 = 12
-TEACHER_MIN_NEW_TOKENS_STEP2 = 12
-TEACHER_MIN_NEW_TOKENS_STEP3 = 12
+# Teacher generation guard:
+# - max only prevents runaway generation; it is not a word/sentence limit.
+# - teacher steps use fresh dialogs and full context, so analysis is not capped to a tiny answer.
+TEACHER_MAX_NEW_TOKENS_STEP1 = 384
+TEACHER_MAX_NEW_TOKENS_STEP2 = 384
+TEACHER_MAX_NEW_TOKENS_STEP3 = 384
 
 # 7 项 loss 默认权重（§12.5）：分析段共 0.2 × 3 = 0.6，离散标签共 1.0 × 4 = 4.0。
 DEFAULT_W_ANALYSIS = 0.2
@@ -649,15 +644,20 @@ def _event_sequence_block(scene: str) -> str:
 
 
 def _teacher_structured_analysis_instructions(memory_judgment: str) -> str:
-    """Shared concise visual-analysis skeleton for all teacher steps."""
+    """Shared concise visual-analysis skeleton for all teacher steps.
+
+    口径：监督学习按 step 分开训练，analysis 文本里出现 GT / 选项名 / 事件名都不影响
+    监督；不再用占位词或反向警告引导，让 teacher 自由发挥。只保留 4 行 heading 顺序、
+    禁止 markdown / bullets / JSON 这种格式硬约束。
+    """
 
     return (
-        "Output exactly 4 non-empty lines, with one short sentence after each heading:\n"
-        "### Scene Description: describe traffic lights/signs, lane markings, road structure, and traffic flow.\n"
-        "### Critical Object Description: identify key vehicles, pedestrians, cyclists, obstacles, or say none.\n"
-        "### Reasoning on Intent: explain how the key factors affect ego's near-term driving intent.\n"
-        f"### Memory Judgment: {memory_judgment}\n"
-        "Do not use bullets, JSON, code blocks, or extra lines."
+        "Write the analysis in this order, one heading per line, each line non-empty:\n"
+        "Scene Description: ...\n"
+        "Critical Object Description: ...\n"
+        "Reasoning on Intent: ...\n"
+        f"Memory Judgment: {memory_judgment}\n"
+        "Plain text only -- no markdown headings, bullets, numbered lists, JSON, or code blocks."
     )
 
 
@@ -676,15 +676,15 @@ def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -
     if memory is None:
         return (
             f"[STEP1]\n{image_count} images are ordered oldest to newest; the last image is now.\n"
-            "Describe the road layout and nearby actors in 1 short sentence. Do not output labels."
+            "Describe the road layout and nearby actors."
         )
     return (
         f"{memory.format_text()}\n\n"
         f"{road_structure_choices_block()}\n\n"
         f"[STEP1]\n"
         f"{image_count} images are ordered oldest to newest; the last image is now.\n"
-        "Write 1 short sentence about visible road layout / actors / signals. "
-        "Write 1 short sentence saying whether the believed road structure fits or should change. "
+        "Describe the visible road layout / actors / signals. "
+        "Explain whether the believed road structure fits or should change. "
         "Then copy exactly one option name:\n"
         "ROAD_STRUCTURE: <name>"
     )
@@ -720,17 +720,12 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
         "[STEP1_TEACHER]\n"
         f"{verdict_line}\n"
         f"{focus_line}\n"
-        f"{task_line}\n"
-        "Keep the analysis about road structure only."
+        f"{task_line}"
     )
 
 
 def build_step1_teacher_target(analysis: str, gt_road_structure: str) -> str:
-    """把 teacher step1 分析与 GT road_structure 拼成监督 target。
-
-    新口径下老师不再输出 ROAD_STRUCTURE 标签，``analysis`` 应为纯分析文本；
-    依然 strip 标签行兜底兼容老师万一漏写。
-    """
+    """Build the supervised step1 target from teacher analysis plus the GT label."""
 
     cleaned = _clean_teacher_analysis(analysis)
     if not cleaned:
@@ -753,7 +748,7 @@ def build_step2_student_prompt(memory: Memory) -> str:
         f"{memory.format_text()}\n\n"
         f"{scene_choices_block_for(memory.road_structure)}\n\n"
         "[STEP2]\n"
-        "Use the narrowed choices. Write 1 short sentence explaining keep/correct for BELIEVED_SCENE. "
+        "Use the narrowed choices. Explain keep/correct for BELIEVED_SCENE. "
         "Then copy exactly one option name:\n"
         "SCENE: <scenario_name>"
     )
@@ -789,8 +784,7 @@ def build_step2_teacher_prompt(memory: Memory, gt_road_structure: str, gt_scene:
         "[STEP2_TEACHER]\n"
         f"{verdict_line}\n"
         f"{focus_line}\n"
-        f"{task_line}\n"
-        "Keep the analysis about the scene choice only."
+        f"{task_line}"
     )
 
 
@@ -815,7 +809,7 @@ def build_step3_student_prompt(memory: Memory) -> str:
         f"{memory.format_text()}\n\n"
         f"[EVENT_OPTIONS]\n{_event_sequence_block(memory.scene)}\n[/EVENT_OPTIONS]\n\n"
         "[STEP3]\n"
-        "Use the event options. Write 1 short sentence explaining keep/correct for current phase. "
+        "Use the event options. Explain keep/correct for current phase. "
         "Then copy exactly two event names:\n"
         "STATUS: <event_name>\n"
         "SUBGOAL: <event_name>"
@@ -881,7 +875,7 @@ def build_step3_teacher_target(analysis: str, gt_status: str, gt_subgoal: str) -
 
 
 # ---------------------------------------------------------------------------
-# 输出解析 / 校验 / 泄露检测
+# 输出解析 / 校验
 # ---------------------------------------------------------------------------
 
 _ROAD_STRUCTURE_RE = re.compile(r"^\s*ROAD_STRUCTURE\s*:\s*([^\s]+)", re.IGNORECASE | re.MULTILINE)
@@ -907,43 +901,10 @@ def _strip_label_lines(text: str) -> str:
 _PROMPT_MARKER_LINE_RE = re.compile(
     r"(?im)^\s*\[/?(?:STEP\d(?:_TEACHER)?|MEMORY|STEP1_ROAD_CONTEXT|ROAD_STRUCTURE_CHOICES|SCENE_CHOICES|EVENT_OPTIONS)[^\n]*\n?"
 )
-_OPTION_FRAGMENT_LINE_RE = re.compile(r"^\s*[A-Z][A-Z0-9_]{2,}\s*$")
-_TEACHER_ANALYSIS_HEADINGS = (
-    "Scene Description",
-    "Critical Object Description",
-    "Reasoning on Intent",
-    "Memory Judgment",
-)
-_TEACHER_HEADING_RE = re.compile(
-    r"^\s*(?:#{1,6}\s*)?"
-    r"(Scene Description|Critical Object Description|Reasoning on Intent|Memory Judgment)"
-    r"\s*:\s*(.+?)\s*$",
-    re.IGNORECASE,
-)
-
-
-def _canonical_heading(name: str) -> str:
-    """Return the canonical teacher-analysis heading spelling."""
-
-    normalized = re.sub(r"\s+", " ", name.strip()).lower()
-    for heading in _TEACHER_ANALYSIS_HEADINGS:
-        if normalized == heading.lower():
-            return heading
-    return name.strip()
-
-
-def _trim_short_sentence(text: str) -> str:
-    """Keep one compact sentence for a strict four-line teacher analysis."""
-
-    cleaned = re.sub(r"\s+", " ", text.strip())
-    ends = [idx for idx in (cleaned.find("."), cleaned.find("!"), cleaned.find("?")) if idx >= 0]
-    if ends:
-        cleaned = cleaned[: min(ends) + 1].strip()
-    return cleaned
 
 
 def _fallback_teacher_analysis(kind: str) -> str:
-    """Build a strict four-line fallback when teacher raw text is unusable."""
+    """Build a minimal four-line fallback when teacher raw text is empty."""
 
     memory_line = {
         "road_structure": "Use road-layout evidence to judge whether the believed road structure should change.",
@@ -952,47 +913,33 @@ def _fallback_teacher_analysis(kind: str) -> str:
     }.get(kind, "Use the visual evidence to judge whether the remembered state should change.")
     return "\n".join(
         [
-            "### Scene Description: The latest frames show the current road layout and traffic context.",
-            "### Critical Object Description: No reliable critical object is described by the teacher.",
-            "### Reasoning on Intent: Ego should use nearby actors, signals, and lane structure to choose a safe intent.",
-            f"### Memory Judgment: {memory_line}",
+            "Scene Description: The latest frames show the current road layout and traffic context.",
+            "Critical Object Description: No reliable critical object is described by the teacher.",
+            "Reasoning on Intent: Ego should use nearby actors, signals, and lane structure to choose a safe intent.",
+            f"Memory Judgment: {memory_line}",
         ]
     )
 
 
 def _clean_teacher_analysis(text: str) -> str:
-    """Normalize teacher analysis before appending scripted labels.
+    """Light cleanup before appending scripted labels.
 
-    Teacher supervision uses a strict four-line format shared by step1/2/3.
-    If base Qwen emits prompt markers, bullets, JSON, code fences, option
-    fragments, or a partial answer, keep it in raw reports but do not train the
-    student on it.
+    v4 是分 step 监督学习，analysis 文本里出现 GT / 选项名 / 事件名都不会污染监督，
+    所以这里**不再做四行严格命中**——只保留两条安全规则：
+
+    1. 剥掉所有 ``ROAD_STRUCTURE:`` / ``SCENE:`` / ``STATUS:`` / ``SUBGOAL:`` 整行，
+       防止脚本在末尾追加的 GT 标签被 parser 取错（parser 是 ``re.search`` 取第一个）；
+    2. 剥掉 ``[STEPx]`` / ``[MEMORY]`` 等 prompt marker 行，避免老师把 prompt 模板抄进 target。
+
+    其余文字（哪怕含 markdown / bullets / 半截选项名）原样保留，让监督自己学。
+    剥完后空字符串才上调 ``_fallback_teacher_analysis``。
     """
 
-    cleaned = _strip_label_lines(text or "")
-    cleaned = _PROMPT_MARKER_LINE_RE.sub("", cleaned)
-    seen: Dict[str, str] = {}
-    for line in cleaned.splitlines():
-        s = line.strip()
-        if (
-            not s
-            or s.startswith("-")
-            or s.startswith("```")
-            or s in {"{", "}", "[", "]"}
-            or _OPTION_FRAGMENT_LINE_RE.match(s)
-        ):
-            continue
-        match = _TEACHER_HEADING_RE.match(s)
-        if not match:
-            continue
-        heading = _canonical_heading(match.group(1))
-        body = _trim_short_sentence(match.group(2))
-        if not body:
-            continue
-        seen.setdefault(heading, f"### {heading}: {body}")
-    if not all(heading in seen for heading in _TEACHER_ANALYSIS_HEADINGS):
+    if not text:
         return ""
-    return "\n".join(seen[heading] for heading in _TEACHER_ANALYSIS_HEADINGS)
+    cleaned = _strip_label_lines(text)
+    cleaned = _PROMPT_MARKER_LINE_RE.sub("", cleaned)
+    return cleaned.strip()
 
 
 def parse_output(text: str) -> Dict[str, Optional[str]]:
@@ -1057,31 +1004,28 @@ def target_spans_status(assistant_text: str) -> Dict[str, Tuple[int, int]]:
 
 
 def _variants(name: str) -> List[str]:
-    """生成 GT token 的泄露检测变体：原名、空格版、去下划线版。"""
+    """Legacy helper kept for old imports."""
 
     vals = {name, name.replace("_", " "), name.replace("_", "")}
     return [x.lower() for x in vals if x]
 
 
 def check_gt_leak_road_structure(analysis_text: str, gt_road_structure: str) -> bool:
-    """检测 step1 分析是否泄露 GT road_structure 字面 token。"""
+    """Legacy no-op."""
 
-    lower = analysis_text.lower()
-    return any(v in lower for v in _variants(gt_road_structure))
+    return False
 
 
 def check_gt_leak_scene(analysis_text: str, gt_scene: str) -> bool:
-    """检测 step2 分析是否泄露 GT scene 字面 token。"""
+    """Legacy no-op."""
 
-    lower = analysis_text.lower()
-    return any(v in lower for v in _variants(gt_scene))
+    return False
 
 
 def check_gt_leak_status_subgoal(analysis_text: str, gt_status: str, gt_subgoal: str) -> bool:
-    """检测 step3 分析是否泄露 GT status/subgoal 字面 token。"""
+    """Legacy no-op."""
 
-    lower = analysis_text.lower()
-    return any(v in lower for name in (gt_status, gt_subgoal) for v in _variants(name))
+    return False
 
 
 def validate_road_structure(rs: Optional[str]) -> bool:

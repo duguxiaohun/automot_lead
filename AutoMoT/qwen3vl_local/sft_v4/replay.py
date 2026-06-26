@@ -33,7 +33,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional
 # SCHEMA bump 历史：
 #  - v1: 初代 trajectory（无 road_structure，单层 scene + status + subgoal）。
 #  - v2: 加入 ROAD_STRUCTURE layer-1（PLAN §12）。memory 结构、step1 字段、
-#        触发链字段（step2_ran / rs_flip / leak1 / memory_after_step1 等）都变更。
+#        触发链字段（step2_ran / rs_flip / memory_after_step1 等）都变更。
 #  v1 与 v2 不二进制兼容：learner 加载 v1 traj 会被 ``validate_trajectory`` 拒收，
 #  collector 重新攒一波 v2 trajectory 即可。SCHEMA_LEGACY 保留作识别旧文件用。
 SCHEMA = "sft_v4_rollout_v2"
