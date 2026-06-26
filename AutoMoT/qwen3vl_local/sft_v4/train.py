@@ -90,9 +90,6 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step3_student_prompt,
     build_step3_teacher_prompt,
     build_step3_teacher_target,
-    check_gt_leak_road_structure,
-    check_gt_leak_scene,
-    check_gt_leak_status_subgoal,
     correct_memory_after_step1_skip,
     force_memory_to_gt_chain,
     get_road_structure,
@@ -953,7 +950,7 @@ def iter_episode_loss_packs(
 
         # ============ Step 1 梯度：L_A1 (analysis) + L_RS1 (ROAD_STRUCTURE label) ============
         analysis1 = _analysis_before_labels(raw_teacher_step1)
-        leak1 = check_gt_leak_road_structure(analysis1, gt_road_structure)
+        leak1 = False
         target1 = build_step1_teacher_target(analysis1, gt_road_structure)
         step1_parts = _assistant_loss_from_state(
             bundle,
@@ -992,17 +989,16 @@ def iter_episode_loss_packs(
             # on-policy debug 路径虽然不是生产入口，但它必须和 collector 保持同一条
             # 状态机，否则用 train.py 做小实验得到的 loss / fire_rate 会和 off-policy
             # 正式训练不可比。
-            step2_teacher_user = build_step2_teacher_prompt(memory, ep.gt_scene)
+            step2_teacher_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
             step2_student_user = build_step2_student_prompt(memory)
+            step2_msgs_teacher = _build_messages_with_images(user_text=step2_teacher_user, images=images)
 
             teacher_was_training2 = bool(teacher_model.training)
             teacher_model.eval()
             with teacher_model.disable_adapter():
                 with torch.no_grad():
-                    teacher_step2_prompt_state = _append_user_turn(
-                        bundle, teacher_step1_state, step2_teacher_user
-                    )
-                raw_teacher_step2, teacher_step2_state = _teacher_generate_kv(
+                    teacher_step2_prompt_state = _teacher_start_state(bundle, step2_msgs_teacher)
+                raw_teacher_step2, _teacher_step2_state = _teacher_generate_kv(
                     bundle,
                     _clone_kv_state(teacher_step2_prompt_state),
                     TEACHER_MAX_NEW_TOKENS_STEP2,
@@ -1025,7 +1021,7 @@ def iter_episode_loss_packs(
 
             # Step 2 梯度（仅在 layer-1 命中 GT 桶时计算）。
             analysis2 = _analysis_before_labels(raw_teacher_step2)
-            leak2 = check_gt_leak_scene(analysis2, ep.gt_scene)
+            leak2 = False
             target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
             step2_parts = _assistant_loss_from_state(
                 bundle,
@@ -1046,14 +1042,19 @@ def iter_episode_loss_packs(
             step3_ran = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
             if step3_ran:
                 # Step 3 梯度（仅在 scene 命中 GT 时计算）。
-                step3_teacher_user = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
+                step3_teacher_user = build_step3_teacher_prompt(
+                    memory,
+                    gt_road_structure,
+                    ep.gt_scene,
+                    gt_status,
+                    gt_subgoal,
+                )
+                step3_msgs_teacher = _build_messages_with_images(user_text=step3_teacher_user, images=images)
                 teacher_was_training2 = bool(teacher_model.training)
                 teacher_model.eval()
                 with teacher_model.disable_adapter():
                     with torch.no_grad():
-                        teacher_step3_prompt_state = _append_user_turn(
-                            bundle, teacher_step2_state, step3_teacher_user
-                        )
+                        teacher_step3_prompt_state = _teacher_start_state(bundle, step3_msgs_teacher)
                     raw_teacher_step3, _teacher_step3_state = _teacher_generate_kv(
                         bundle,
                         _clone_kv_state(teacher_step3_prompt_state),
@@ -1063,7 +1064,7 @@ def iter_episode_loss_packs(
                 if teacher_was_training2:
                     teacher_model.train()
                 analysis3 = _analysis_before_labels(raw_teacher_step3)
-                leak3 = check_gt_leak_status_subgoal(analysis3, gt_status, gt_subgoal)
+                leak3 = False
                 target3 = build_step3_teacher_target(analysis3, gt_status, gt_subgoal)
 
                 step3_student_user = build_step3_student_prompt(memory)

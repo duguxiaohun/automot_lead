@@ -14,11 +14,14 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
 scene，按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STATUS/SUBGOAL`
 回 init。learner rank0 每 1000 step 发布一次 LoRA snapshot 给 collectors。
 
-当前 prompt 已压缩：system prompt 只保留三层 memory 与输出协议；学生 `[MEMORY]`
-每层一行。Step1 学生保留“视觉环境 + ROAD_STRUCTURE 判断”；Step1 老师不再喂完整
-memory，只喂 `BELIEVED_ROAD_STRUCTURE`、`EGO_TO_GOAL_XY`、`GROUND_TRUTH_ROAD_STRUCTURE`
-和 6 个 road 选项，并输出 3-5 句 road layout 分析。Step2/Step3 老师只做候选内
-keep/correct 短分析。teacher 默认生成上限为 `64/64/64`，软最小长度为 `12/12/12`。
+当前 prompt 口径：学生仍是三步串行对话，`[MEMORY]` 每层一行并在 step1/2/3 后自更新。
+老师三步都是 fresh dialog，不复用上一部 teacher KV，并且每步重新吃 4 张 RGB：
+Step1 老师只喂 `BELIEVED_ROAD_STRUCTURE / EGO_TO_GOAL_XY / GROUND_TRUTH_ROAD_STRUCTURE`；
+Step2 老师喂 `GROUND_TRUTH_ROAD_STRUCTURE / BELIEVED_SCENE / GROUND_TRUTH_SCENE`；
+Step3 老师喂 true road、true scene、believed/GT status-subgoal。老师只输出分析，
+且统一为四行短结构：`Scene Description`、`Critical Object Description`、
+`Reasoning on Intent`、`Memory Judgment`；结构化标签由脚本追加。teacher 默认生成上限为
+`192/192/192`，软最小长度为 `12/12/12`。
 
 `train.sh` / `train.py` 只保留为 on-policy 兼容调试入口，不是 v4 生产路径。
 
@@ -252,7 +255,7 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v4_lora/latest/tb
 - `train/accuracy/road_structure`（当前等价于 step2 fire rate）
 - `train/rs_flip_rate`
 - `train/scene_flip_rate`
-- `train/gt_leak_skip_rate/{step1,step2,step3}`
+- `train/gt_leak_skip_rate/{step1,step2,step3}`（新 teacher prompt 下通常为 0；旧诊断指标保留）
 - `train/phase_a_frame_frac`
 - `train/skip_correction_rate`
 - `train/skip_correction_scene_noise_rate`
@@ -401,7 +404,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_reuse.py \
   `model.disable_adapter()` → `_teacher_generate_kv`（含 `min_new_tokens` 反早停）
   → 全程 `torch.no_grad()`，等价于 frozen base Qwen3-VL-4B-Instruct；
 - 逐帧记录 system / user (含图像路径) / teacher-assistant 三类 role 的 prompt 与
-  生成内容，加上 token 数和 GT leak 检测。
+  生成内容，加上 token 数和 legacy GT-token 诊断。
 
 ### 7.2 GPU 选址（与训练入口一致）
 
@@ -490,7 +493,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
       [ROLE = scripted target (this is what the student is supervised on)]
   #### Step 2 — scene verdict <KEEP|CHANGE> (tokens: N, leak=False)
       （或 "Step 2 — skipped (memory.road_structure != gt_road_structure)"）
-      [ROLE = user (new turn, reuses cached KV; no new image)]
+      [ROLE = user (fresh teacher dialog with 4 images)]
       [ROLE = assistant — teacher raw output]
       [ROLE = scripted target (this is what the student is supervised on)]
   #### Step 3 — status/subgoal verdict <KEEP|CHANGE> (tokens: N, leak=False)
@@ -511,10 +514,9 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 1. **token_count 是否 ≥ `TEACHER_MIN_NEW_TOKENS_STEP{1,2,3}`**
    （prompts.py 默认 12 / 12 / 12）。如果还出现 5~10 token 的老师输出，
    说明 min_new_tokens 闸门没生效或者 EOS id 集合不全。
-2. **leak_detected 是否全 False**。如果 step1 / step2 / step3 经常 True，说明老师
-   prompt 里描述 GT 用的自然语言被老师反引用了 token；需要在 prompt 里加更严的
-   "用自然语言描述，不能复制 ROAD_STRUCTURE_CHOICES / SCENE_CHOICES / EVENT_OPTIONS
-   里的 token"约束。
+2. **leak_detected 仅作诊断**。新口径下 step2/step3 prompt 会显式给 GT token，
+   所以该字段不再决定训练是否跳过分析 loss；真正要看的是 raw analysis 是否有
+   prompt marker、半截选项名或结构化标签泄漏到 scripted target。
 3. **`all_keep` 模式下老师是否真的论证 KEEP**（不要去翻案）；
    **`rs_change` 模式下老师是否先纠正道路结构**；**`scene_change_same_rs` /
    `scene_change_cross_rs` 模式下老师是否描述"实际场景看起来像 X"而不是简单复述

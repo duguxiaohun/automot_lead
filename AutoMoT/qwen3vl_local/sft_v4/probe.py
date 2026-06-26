@@ -277,11 +277,13 @@ def main() -> None:
             scene_flip = False
             if step2_trigger:
                 if teacher_engine is not None:
-                    # teacher step2 收到 KEEP/CHANGE 裁定 + scene 描述，但严禁输出 SCENE 标签。
-                    step2_teacher_user = build_step2_teacher_prompt(memory, ep.gt_scene)
-                    raw_t2 = _generate_next_with_kv(
+                    # teacher step2 是独立专家问答：重新吃图 + road/scene 真值上下文。
+                    step2_teacher_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
+                    step2_teacher_msgs = _build_messages_with_images(user_text=step2_teacher_user, images=images)
+                    raw_t2 = _generate(
                         teacher_engine,
-                        step2_teacher_user,
+                        step2_teacher_msgs,
+                        images,
                         max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2,
                     )
                     analysis_t2 = _analysis_before_labels(raw_t2)
@@ -312,9 +314,21 @@ def main() -> None:
             step3_leak = False
             if step3_trigger:
                 if teacher_engine is not None:
-                    # teacher step3 只在 scene 正确时运行，口径与训练/eval 一致。
-                    step3_teacher_user = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
-                    raw_t3 = _generate_next_with_kv(teacher_engine, step3_teacher_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3)
+                    # teacher step3 是独立专家问答：重新吃图 + road/scene/status/subgoal 真值上下文。
+                    step3_teacher_user = build_step3_teacher_prompt(
+                        memory,
+                        gt_road_structure,
+                        ep.gt_scene,
+                        gt_status,
+                        gt_subgoal,
+                    )
+                    step3_teacher_msgs = _build_messages_with_images(user_text=step3_teacher_user, images=images)
+                    raw_t3 = _generate(
+                        teacher_engine,
+                        step3_teacher_msgs,
+                        images,
+                        max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3,
+                    )
                     analysis_t3 = _analysis_before_labels(raw_t3)
                     step3_leak = check_gt_leak_status_subgoal(analysis_t3, gt_status, gt_subgoal)
                     step3_teacher_text = build_step3_teacher_target(analysis_t3, gt_status, gt_subgoal)
