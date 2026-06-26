@@ -19,8 +19,9 @@ scene，按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STA
 Step1 老师只喂 `BELIEVED_ROAD_STRUCTURE / EGO_TO_GOAL_XY / GROUND_TRUTH_ROAD_STRUCTURE`；
 Step2 老师喂 `GROUND_TRUTH_ROAD_STRUCTURE / BELIEVED_SCENE / GROUND_TRUTH_SCENE`；
 Step3 老师喂 true road、true scene、believed/GT status-subgoal。老师只输出分析，
-且统一为四行短结构：`Scene Description`、`Critical Object Description`、
-`Reasoning on Intent`、`Memory Judgment`；结构化标签由脚本追加。teacher 默认生成上限为
+且三步统一严格输出 4 个非空行：`### Scene Description:`、
+`### Critical Object Description:`、`### Reasoning on Intent:`、
+`### Memory Judgment:`；结构化标签由脚本追加。teacher 默认生成上限为
 `192/192/192`，软最小长度为 `12/12/12`。
 
 `train.sh` / `train.py` 只保留为 on-policy 兼容调试入口，不是 v4 生产路径。
@@ -517,15 +518,20 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 2. **leak_detected 仅作诊断**。新口径下 step2/step3 prompt 会显式给 GT token，
    所以该字段不再决定训练是否跳过分析 loss；真正要看的是 raw analysis 是否有
    prompt marker、半截选项名或结构化标签泄漏到 scripted target。
-3. **`all_keep` 模式下老师是否真的论证 KEEP**（不要去翻案）；
+3. **teacher raw output 是否严格为 4 个非空行**，且每行分别以
+   `### Scene Description:`、`### Critical Object Description:`、
+   `### Reasoning on Intent:`、`### Memory Judgment:` 开头；不要出现 bullet、
+   JSON、代码块或额外行。若 raw 不达标，`scripted target` 会退回四行 fallback，
+   这说明该 case 的分析监督价值不足。
+4. **`all_keep` 模式下老师是否真的论证 KEEP**（不要去翻案）；
    **`rs_change` 模式下老师是否先纠正道路结构**；**`scene_change_same_rs` /
    `scene_change_cross_rs` 模式下老师是否描述"实际场景看起来像 X"而不是简单复述
    memory scene**；**`event_change` 模式下老师是否解释"虽然 scene 对，但
    status/subgoal 应该推进"**。
-4. **step3 老师是否能围绕 EVENT_OPTIONS 做有效 keep/correct 引导**，不要只输出
+5. **step3 老师是否能围绕 EVENT_OPTIONS 做有效 keep/correct 引导**，不要只输出
    "I observe the current driving phase" 这类空话。
 
-如果第 3、4 条不达标，回头修 `build_step{2,3}_teacher_prompt` 里的 `focus_line`；
+如果第 3-5 条不达标，回头修 `build_step{1,2,3}_teacher_prompt` 里的 `focus_line`；
 优先保持短 prompt，只在必要时给 1 个最关键的证据锚点，不要恢复长证据清单。
 
 ---

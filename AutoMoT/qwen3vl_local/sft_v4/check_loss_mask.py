@@ -165,19 +165,40 @@ def main() -> None:
 
     # step1：分析 + ROAD_STRUCTURE 值
     step1_text = build_step1_teacher_target(
-        "I observe an intersection with several lanes and crossing traffic.",
+        "\n".join(
+            [
+                "### Scene Description: The frames show an intersection with visible lane structure.",
+                "### Critical Object Description: No pedestrian or blocking vehicle is dominant.",
+                "### Reasoning on Intent: Ego should slow and prepare for junction negotiation.",
+                "### Memory Judgment: The remembered road structure matches the intersection layout.",
+            ]
+        ),
         "JUNCTION",
     )
 
     # step2：分析 + SCENE 值
     step2_text = build_step2_teacher_target(
-        "I observe dense traffic and a blocked lane in front of the ego vehicle.",
+        "\n".join(
+            [
+                "### Scene Description: The frames show a blocked lane in front of ego.",
+                "### Critical Object Description: The obstacle ahead is the main critical object.",
+                "### Reasoning on Intent: Ego should prepare to avoid or yield around the hazard.",
+                "### Memory Judgment: The remembered scene should be corrected to the obstacle scenario.",
+            ]
+        ),
         "Accident",
     )
 
     # step3：分析 + STATUS + SUBGOAL 值
     step3_text = build_step3_teacher_target(
-        "I should keep caution and continue braking to avoid collision.",
+        "\n".join(
+            [
+                "### Scene Description: Ego is approaching the hazard with limited free space.",
+                "### Critical Object Description: The obstacle ahead controls the near-term maneuver.",
+                "### Reasoning on Intent: Ego should brake and preserve a safe gap.",
+                "### Memory Judgment: The remembered event should move toward braking for the hazard.",
+            ]
+        ),
         "hazard_detect",
         "max_brake_or_min_gap",
     )
