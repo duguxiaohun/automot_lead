@@ -1586,7 +1586,7 @@ status/subgoal 重置成新 scene 的 init + first subgoal。
 
 | Step | 旧任务 | v4 定稿任务 |
 |---|---|---|
-| 1 | 仅描述视觉，禁 memory / 禁标签；输出 ≤3 句 | 描述视觉 + 选 ROAD_STRUCTURE；**允许读 memory**；输出 = 1 句视觉环境 + 1 句 layer-1 KEEP/CHANGE 判断 + 一行 `ROAD_STRUCTURE: <name>` |
+| 1 | 仅描述视觉，禁 memory / 禁标签；输出 ≤3 句 | 学生读完整 memory，描述视觉 + 选 ROAD_STRUCTURE；老师只读 road-only context（`BELIEVED_ROAD_STRUCTURE` / `EGO_TO_GOAL_XY` / `GROUND_TRUTH_ROAD_STRUCTURE`）并输出 3-5 句分析；脚本追加 `ROAD_STRUCTURE: <name>` |
 | 2 | 读 memory + 完整 42 行 SCENE_CHOICES → 输出 SCENE | 读 memory + **只列预测桶下的 layer-2** → 输出 SCENE |
 | 3 | 不变 | 不变 |
 
@@ -1615,8 +1615,12 @@ line by copying one option name verbatim:
 ROAD_STRUCTURE: <name>
 ```
 
-老师 prompt 同 step2/3 的 KEEP/CHANGE 设计：传 verdict + 该桶的自然语言描述，
-禁止输出标签行，要求 1 句视觉证据 + 1 句 keep/correct 判断。
+老师 step1 prompt 与学生 prompt 分离：不再喂完整 `[MEMORY]`，只喂
+`[STEP1_ROAD_CONTEXT]`，其中包含 `BELIEVED_ROAD_STRUCTURE`、`EGO_TO_GOAL_XY`
+和 `GROUND_TRUTH_ROAD_STRUCTURE`，再列出 6 个 road structure 选项。KEEP 时要求
+分析哪些道路布局证据支持当前 believed road；CHANGE 时要求先说明 believed road
+哪里不符合，再说明真值 road structure 与视觉证据如何吻合。老师只输出 3-5 句纯分析，
+不输出 `ROAD_STRUCTURE:` 标签行，标签仍由 `build_step1_teacher_target` 追加。
 
 **Step 2 prompt 收窄**：
 
@@ -1673,8 +1677,9 @@ ROAD_STRUCTURE: <name>
    塞进 SYSTEM_PROMPT 一次即可，每 step 不再复述。
 2. **缩证据清单**：Step1 保留道路结构 / 周围 actor / 信号灯等视觉锚点；
    Step2/Step3 不再重复环境分析，只做候选内 keep/correct 引导。
-3. **降长度要求**：统一压到 1-2 short sentences，与 4B Qwen 实际可写出连贯文本的
-   长度匹配，避免被迫长输出后碎句。
+3. **分层长度要求**：Step2/Step3 老师仍压到 1-2 short sentences；Step1 老师允许
+   3-5 句 road layout 分析，因为它承担完整道路结构判断，需要先描述周围布局/actor，
+   再解释 KEEP 或 CHANGE。
 4. **拆 user turn**：原本 step2 / step3 各自 1 个 user turn 含 [MEMORY] +
    [CHOICES] + [INSTRUCTIONS]，太长。考虑把 [MEMORY] 留在 turn 头、[CHOICES] +
    [INSTRUCTIONS] 压在 turn 尾，中间留一行空，让模型注意力更易锚定指令。

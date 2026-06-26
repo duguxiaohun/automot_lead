@@ -257,7 +257,7 @@ class Memory:
             "[STEP1_ROAD_CONTEXT]\n"
             f"BELIEVED_ROAD_STRUCTURE={self.road_structure} ({memory_rs_desc})\n"
             f"EGO_TO_GOAL_XY=({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m\n"
-            f"GROUND_TRUTH_ROAD_STRUCTURE_MEANING={gt_rs_desc}\n"
+            f"GROUND_TRUTH_ROAD_STRUCTURE={gt_road_structure} ({gt_rs_desc})\n"
             "[/STEP1_ROAD_CONTEXT]"
         )
 
