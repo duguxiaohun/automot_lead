@@ -145,7 +145,7 @@ def _assert_prompt_contracts() -> None:
     """启动前验证 inspect_teacher 依赖的 v4 prompt / trigger 契约。
 
     这不是训练测试，只是防止后续改 prompt 时把抽检脚本的含义悄悄改掉：
-    step1 teacher prompt 必须读 MEMORY，因为它判断的是 BELIEVED_ROAD_STRUCTURE；
+    step1 teacher prompt 只读 road-only context，不再喂完整 MEMORY；
     step2/step3 trigger 必须分别等价于 layer-1 / layer-2 命中 GT。
     """
 
@@ -161,8 +161,8 @@ def _assert_prompt_contracts() -> None:
         ego_to_goal_y=0.0,
     )
     step1_prompt = build_step1_teacher_prompt(mem, gt_rs)
-    if "[MEMORY]" not in step1_prompt or "[ROAD_STRUCTURE_CHOICES]" not in step1_prompt:
-        raise AssertionError("step1 teacher prompt must include MEMORY and ROAD_STRUCTURE_CHOICES")
+    if "[STEP1_ROAD_CONTEXT]" not in step1_prompt or "[ROAD_STRUCTURE_CHOICES]" not in step1_prompt:
+        raise AssertionError("step1 teacher prompt must include STEP1_ROAD_CONTEXT and ROAD_STRUCTURE_CHOICES")
     if not should_trigger_step2(memory_road_structure_after_step1=gt_rs, gt_road_structure=gt_rs):
         raise AssertionError("should_trigger_step2 must fire when layer-1 matches GT")
     if should_trigger_step2(memory_road_structure_after_step1=wrong_rs, gt_road_structure=gt_rs):

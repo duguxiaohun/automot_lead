@@ -14,9 +14,11 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
 scene，按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STATUS/SUBGOAL`
 回 init。learner rank0 每 1000 step 发布一次 LoRA snapshot 给 collectors。
 
-当前 prompt 已压缩：system prompt 只保留三层 memory 与输出协议；`[MEMORY]` 每层一行；
-Step1 保留“视觉环境 + ROAD_STRUCTURE 判断”，Step2/Step3 只做候选内 keep/correct
-短分析。teacher 默认生成上限为 `64/64/64`，软最小长度为 `12/12/12`。
+当前 prompt 已压缩：system prompt 只保留三层 memory 与输出协议；学生 `[MEMORY]`
+每层一行。Step1 学生保留“视觉环境 + ROAD_STRUCTURE 判断”；Step1 老师不再喂完整
+memory，只喂 `BELIEVED_ROAD_STRUCTURE`、`EGO_TO_GOAL_XY`、`GROUND_TRUTH_ROAD_STRUCTURE`
+和 6 个 road 选项，并输出 3-5 句 road layout 分析。Step2/Step3 老师只做候选内
+keep/correct 短分析。teacher 默认生成上限为 `64/64/64`，软最小长度为 `12/12/12`。
 
 `train.sh` / `train.py` 只保留为 on-policy 兼容调试入口，不是 v4 生产路径。
 
