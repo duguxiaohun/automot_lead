@@ -1,4 +1,4 @@
-"""SFT v4 legacy answer-token compatibility test."""
+"""SFT v4 answer-token and private-field cleanup test."""
 
 from __future__ import annotations
 
@@ -14,6 +14,9 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _p)
 
 from qwen3vl_local.sft_v4.prompts import (
+    build_step1_teacher_target,
+    build_step2_teacher_target,
+    build_step3_teacher_target,
     check_gt_leak_road_structure,
     check_gt_leak_scene,
     check_gt_leak_status_subgoal,
@@ -21,7 +24,7 @@ from qwen3vl_local.sft_v4.prompts import (
 
 
 def main() -> None:
-    """Answer tokens in teacher analysis are valid supervision, not a skip signal."""
+    """Answer tokens are valid supervision, but private field names must be cleaned."""
 
     results = {
         "road_structure": check_gt_leak_road_structure(
@@ -34,9 +37,31 @@ def main() -> None:
             "max_brake_or_min_gap",
         ),
     }
+    cleaned_targets = {
+        "step1": build_step1_teacher_target(
+            "Memory Judgment: Evidence supports GROUND_TRUTH_ROAD_STRUCTURE.", "JUNCTION"
+        ),
+        "step2": build_step2_teacher_target(
+            "Memory Judgment: Evidence supports GROUND_TRUTH_SCENE rather than the believed scene.",
+            "Accident",
+        ),
+        "step3": build_step3_teacher_target(
+            "Memory Judgment: BELIEF_SUBGOAL should change to GROUND_TRUTH_SUBGOAL.",
+            "hazard_detect",
+            "max_brake_or_min_gap",
+        ),
+    }
+    forbidden = ("GROUND_TRUTH_", "ANSWER_", "REFERENCE_", "BELIEF_", "BELIEVED_")
+    clean_ok = all(not any(token in value for token in forbidden) for value in cleaned_targets.values())
     ok = all(value is False for value in results.values())
-    print(json.dumps({"ok": ok, "results": results}, ensure_ascii=False, indent=2))
-    if not ok:
+    print(
+        json.dumps(
+            {"ok": ok and clean_ok, "results": results, "cleaned_targets": cleaned_targets},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    if not (ok and clean_ok):
         raise SystemExit(1)
 
 

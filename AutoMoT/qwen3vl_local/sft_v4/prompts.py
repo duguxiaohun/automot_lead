@@ -185,6 +185,15 @@ def first_subgoal(scene: str) -> str:
     return seq[1] if len(seq) > 1 else seq[0]
 
 
+def _label_with_optional_desc(name: str, descriptions: Dict[str, str], covered_names: set[str]) -> str:
+    """Render ``name`` alone when a nearby choices block already explains it."""
+
+    if name in covered_names:
+        return name
+    desc = descriptions.get(name)
+    return f"{name} ({desc})" if desc else name
+
+
 # ---------------------------------------------------------------------------
 # Memory dataclass（三层文本状态机）
 # ---------------------------------------------------------------------------
@@ -242,13 +251,11 @@ class Memory:
     def format_step1_road_text(self, gt_road_structure: str) -> str:
         """Render the road-only context used by the step1 teacher prompt."""
 
-        memory_rs_desc = ROAD_STRUCTURE_LABELS.get(self.road_structure, self.road_structure)
-        gt_rs_desc = ROAD_STRUCTURE_LABELS.get(gt_road_structure, gt_road_structure)
         return (
             "[STEP1_ROAD_CONTEXT]\n"
-            f"BELIEVED_ROAD_STRUCTURE={self.road_structure} ({memory_rs_desc})\n"
+            f"BELIEVED_ROAD_STRUCTURE={self.road_structure}\n"
             f"EGO_TO_GOAL_XY=({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m\n"
-            f"GROUND_TRUTH_ROAD_STRUCTURE={gt_road_structure} ({gt_rs_desc})\n"
+            f"ANSWER_ROAD_STRUCTURE={gt_road_structure}\n"
             "[/STEP1_ROAD_CONTEXT]"
         )
 
@@ -256,13 +263,12 @@ class Memory:
         """Render the independent scene context used by the step2 teacher prompt."""
 
         gt_rs_desc = ROAD_STRUCTURE_LABELS.get(gt_road_structure, gt_road_structure)
-        memory_scene_desc = SCENARIO_LABELS.get(self.scene, self.scene)
-        gt_scene_desc = SCENARIO_LABELS.get(gt_scene, gt_scene)
+        scene_choices = set(ROAD_STRUCTURE_TO_SCENES.get(gt_road_structure, []))
         return (
             "[STEP2_SCENE_CONTEXT]\n"
-            f"GROUND_TRUTH_ROAD_STRUCTURE={gt_road_structure} ({gt_rs_desc})\n"
-            f"BELIEVED_SCENE={self.scene} ({memory_scene_desc})\n"
-            f"GROUND_TRUTH_SCENE={gt_scene} ({gt_scene_desc})\n"
+            f"ANSWER_ROAD_STRUCTURE={gt_road_structure} ({gt_rs_desc})\n"
+            f"BELIEVED_SCENE={_label_with_optional_desc(self.scene, SCENARIO_LABELS, scene_choices)}\n"
+            f"ANSWER_SCENE={_label_with_optional_desc(gt_scene, SCENARIO_LABELS, scene_choices)}\n"
             f"EGO_TO_GOAL_XY=({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m\n"
             "[/STEP2_SCENE_CONTEXT]"
         )
@@ -278,18 +284,15 @@ class Memory:
 
         gt_rs_desc = ROAD_STRUCTURE_LABELS.get(gt_road_structure, gt_road_structure)
         gt_scene_desc = SCENARIO_LABELS.get(gt_scene, gt_scene)
-        memory_status_desc = EVENT_DESCRIPTIONS.get(self.status, self.status)
-        memory_subgoal_desc = EVENT_DESCRIPTIONS.get(self.subgoal, self.subgoal)
-        gt_status_desc = EVENT_DESCRIPTIONS.get(gt_status, gt_status)
-        gt_subgoal_desc = EVENT_DESCRIPTIONS.get(gt_subgoal, gt_subgoal)
+        event_choices = set(get_full_sequence(gt_scene))
         return (
             "[STEP3_EVENT_CONTEXT]\n"
-            f"GROUND_TRUTH_ROAD_STRUCTURE={gt_road_structure} ({gt_rs_desc})\n"
-            f"GROUND_TRUTH_SCENE={gt_scene} ({gt_scene_desc})\n"
-            f"BELIEVED_STATUS={self.status} ({memory_status_desc})\n"
-            f"BELIEVED_SUBGOAL={self.subgoal} ({memory_subgoal_desc})\n"
-            f"GROUND_TRUTH_STATUS={gt_status} ({gt_status_desc})\n"
-            f"GROUND_TRUTH_SUBGOAL={gt_subgoal} ({gt_subgoal_desc})\n"
+            f"ANSWER_ROAD_STRUCTURE={gt_road_structure} ({gt_rs_desc})\n"
+            f"ANSWER_SCENE={gt_scene} ({gt_scene_desc})\n"
+            f"BELIEVED_STATUS={_label_with_optional_desc(self.status, EVENT_DESCRIPTIONS, event_choices)}\n"
+            f"BELIEVED_SUBGOAL={_label_with_optional_desc(self.subgoal, EVENT_DESCRIPTIONS, event_choices)}\n"
+            f"ANSWER_STATUS={_label_with_optional_desc(gt_status, EVENT_DESCRIPTIONS, event_choices)}\n"
+            f"ANSWER_SUBGOAL={_label_with_optional_desc(gt_subgoal, EVENT_DESCRIPTIONS, event_choices)}\n"
             f"EGO_TO_GOAL_XY=({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m\n"
             "[/STEP3_EVENT_CONTEXT]"
         )
@@ -646,12 +649,14 @@ def _event_sequence_block(scene: str) -> str:
 def _teacher_structured_analysis_instructions(memory_judgment: str) -> str:
     """Shared concise visual-analysis skeleton for all teacher steps.
 
-    口径：监督学习按 step 分开训练，analysis 文本里出现 GT / 选项名 / 事件名都不影响
-    监督；不再用占位词或反向警告引导，让 teacher 自由发挥。只保留 4 行 heading 顺序、
-    禁止 markdown / bullets / JSON 这种格式硬约束。
+    Teacher can see the answer fields, but the supervised analysis must read
+    like a student-facing explanation rather than a private answer key.
     """
 
     return (
+        "Write for the student perspective: use 'believed ...' and 'corrected ...' phrasing.\n"
+        "Do not mention answer, ground truth, reference labels, or private field names.\n"
+        "Use visible cues; if cues are unclear, note uncertainty briefly and do not invent unseen actors.\n"
         "Write the analysis in this order, one heading per line, each line non-empty:\n"
         "Scene Description: ...\n"
         "Critical Object Description: ...\n"
@@ -666,7 +671,7 @@ def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -
 
     新口径（生产路径，``memory`` 必传）：
       - 2 句"不引用 memory"的视觉描述（保留 v3 纯视觉接地任务）；
-      - 1 句对 ``BELIEVED_ROAD_STRUCTURE`` 的 KEEP/CHANGE 论证；
+      - 1 句对 believed road structure 的 KEEP/CHANGE 论证；
       - 一行 ``ROAD_STRUCTURE: <name>``。
 
     兼容兜底：``memory=None`` 时退回 v3 形态（仅视觉描述、不读 memory、不出标签）。
@@ -694,24 +699,21 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
     """老师 step1 prompt：road-only KEEP/CHANGE analysis for layer-1."""
 
     verdict = "KEEP" if memory.road_structure == gt_road_structure else "CHANGE"
-    memory_rs_desc = ROAD_STRUCTURE_LABELS.get(memory.road_structure, memory.road_structure)
     gt_rs_desc = ROAD_STRUCTURE_LABELS.get(gt_road_structure, gt_road_structure)
 
     if verdict == "KEEP":
         verdict_line = "VERDICT: KEEP -- the believed road structure is correct."
-        focus_line = (
-            f"Explain which visible road-layout cues match the believed meaning: {memory_rs_desc}."
-        )
+        focus_line = "Explain which visible road-layout cues make the believed road structure fit."
         task_line = _teacher_structured_analysis_instructions(
-            "explain why BELIEVED_ROAD_STRUCTURE is correct and which road-layout cues support it."
+            "explain why the believed road structure fits and which road-layout cues support it."
         )
     else:
         verdict_line = "VERDICT: CHANGE -- the believed road structure is wrong."
         focus_line = (
-            f"Contrast the believed meaning ({memory_rs_desc}) with the ground-truth meaning: {gt_rs_desc}."
+            f"Explain why the believed road structure does not fit, then guide toward {gt_road_structure}: {gt_rs_desc}."
         )
         task_line = _teacher_structured_analysis_instructions(
-            "explain what does not fit BELIEVED_ROAD_STRUCTURE and what evidence supports GROUND_TRUTH_ROAD_STRUCTURE."
+            "explain what does not fit the believed road structure and what visible cues support the correction."
         )
 
     return (
@@ -748,7 +750,7 @@ def build_step2_student_prompt(memory: Memory) -> str:
         f"{memory.format_text()}\n\n"
         f"{scene_choices_block_for(memory.road_structure)}\n\n"
         "[STEP2]\n"
-        "Use the narrowed choices. Explain keep/correct for BELIEVED_SCENE. "
+        "Use the narrowed choices. Explain keep/correct for the believed scene. "
         "Then copy exactly one option name:\n"
         "SCENE: <scenario_name>"
     )
@@ -758,29 +760,26 @@ def build_step2_teacher_prompt(memory: Memory, gt_road_structure: str, gt_scene:
     """老师 step2 prompt：independent KEEP/CHANGE scene analysis."""
 
     verdict = "KEEP" if memory.scene == gt_scene else "CHANGE"
-    memory_scene_desc = SCENARIO_LABELS.get(memory.scene, memory.scene)
     gt_scene_desc = SCENARIO_LABELS.get(gt_scene, gt_scene)
 
     if verdict == "KEEP":
         verdict_line = "VERDICT: KEEP -- the believed scene is correct."
-        focus_line = (
-            f"Explain why the current situation matches the believed scene meaning: {memory_scene_desc}."
-        )
+        focus_line = "Explain why the current situation matches the believed scene."
         task_line = _teacher_structured_analysis_instructions(
-            "explain why BELIEVED_SCENE is correct under the true road structure."
+            "explain why the believed scene fits under the current road structure."
         )
     else:
         verdict_line = "VERDICT: CHANGE -- the believed scene is wrong."
         focus_line = (
-            f"Contrast the believed scene meaning ({memory_scene_desc}) with the ground-truth scene meaning: {gt_scene_desc}."
+            f"Explain why the believed scene does not fit, then guide toward {gt_scene}: {gt_scene_desc}."
         )
         task_line = _teacher_structured_analysis_instructions(
-            "explain what does not fit BELIEVED_SCENE and what evidence supports GROUND_TRUTH_SCENE."
+            "explain what does not fit the believed scene and what visible cues support the correction."
         )
 
     return (
         f"{memory.format_step2_scene_text(gt_road_structure, gt_scene)}\n\n"
-        f"{scene_choices_block_for(gt_road_structure, heading='GROUND_TRUTH_ROAD_STRUCTURE')}\n\n"
+        f"{scene_choices_block_for(gt_road_structure, heading='ANSWER_ROAD_STRUCTURE')}\n\n"
         "[STEP2_TEACHER]\n"
         f"{verdict_line}\n"
         f"{focus_line}\n"
@@ -844,7 +843,7 @@ def build_step3_teacher_prompt(
             f"Explain why the current phase '{memory_status_desc}' and next intent '{memory_subgoal_desc}' fit."
         )
         task_line = _teacher_structured_analysis_instructions(
-            "explain why BELIEVED_STATUS and BELIEVED_SUBGOAL fit under the true road and scene."
+            "explain why the believed status and believed subgoal fit under the current road and scene."
         )
     else:
         focus_line = (
@@ -852,7 +851,7 @@ def build_step3_teacher_prompt(
             f"and guide toward current '{gt_status_desc}' / next '{gt_subgoal_desc}'."
         )
         task_line = _teacher_structured_analysis_instructions(
-            "explain why BELIEVED_STATUS/BELIEVED_SUBGOAL are wrong and why the ground truth fits."
+            "explain why the believed status/subgoal are wrong and what visible cues support the correction."
         )
 
     return (
@@ -902,6 +901,38 @@ _PROMPT_MARKER_LINE_RE = re.compile(
     r"(?im)^\s*\[/?(?:STEP\d(?:_TEACHER)?|MEMORY|STEP1_ROAD_CONTEXT|ROAD_STRUCTURE_CHOICES|SCENE_CHOICES|EVENT_OPTIONS)[^\n]*\n?"
 )
 
+_PRIVATE_FIELD_REPLACEMENTS: Tuple[Tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bGROUND_TRUTH_ROAD_STRUCTURE\b", re.IGNORECASE), "the corrected road structure"),
+    (re.compile(r"\bGROUND_TRUTH_SCENE\b", re.IGNORECASE), "the corrected scene"),
+    (re.compile(r"\bGROUND_TRUTH_STATUS\b", re.IGNORECASE), "the corrected status"),
+    (re.compile(r"\bGROUND_TRUTH_SUBGOAL\b", re.IGNORECASE), "the corrected subgoal"),
+    (re.compile(r"\bANSWER_ROAD_STRUCTURE\b", re.IGNORECASE), "the corrected road structure"),
+    (re.compile(r"\bANSWER_SCENE\b", re.IGNORECASE), "the corrected scene"),
+    (re.compile(r"\bANSWER_STATUS\b", re.IGNORECASE), "the corrected status"),
+    (re.compile(r"\bANSWER_SUBGOAL\b", re.IGNORECASE), "the corrected subgoal"),
+    (re.compile(r"\bREFERENCE_ROAD_STRUCTURE\b", re.IGNORECASE), "the corrected road structure"),
+    (re.compile(r"\bREFERENCE_SCENE\b", re.IGNORECASE), "the corrected scene"),
+    (re.compile(r"\bREFERENCE_STATUS\b", re.IGNORECASE), "the corrected status"),
+    (re.compile(r"\bREFERENCE_SUBGOAL\b", re.IGNORECASE), "the corrected subgoal"),
+    (re.compile(r"\bground\s*truth\b", re.IGNORECASE), "corrected label"),
+    (re.compile(r"\breference\s+label\b", re.IGNORECASE), "corrected label"),
+    (re.compile(r"\banswer\s+label\b", re.IGNORECASE), "corrected label"),
+    (re.compile(r"\bBELIEVED_ROAD_STRUCTURE\b", re.IGNORECASE), "the believed road structure"),
+    (re.compile(r"\bBELIEVED_SCENE\b", re.IGNORECASE), "the believed scene"),
+    (re.compile(r"\bBELIEVED_STATUS\b", re.IGNORECASE), "the believed status"),
+    (re.compile(r"\bBELIEVED_SUBGOAL\b", re.IGNORECASE), "the believed subgoal"),
+    (re.compile(r"\bBELIEF_SUBGOAL\b", re.IGNORECASE), "the believed subgoal"),
+)
+
+
+def _clean_private_field_names(text: str) -> str:
+    """Remove teacher-private answer-field wording from student-facing analysis."""
+
+    cleaned = text
+    for pattern, replacement in _PRIVATE_FIELD_REPLACEMENTS:
+        cleaned = pattern.sub(replacement, cleaned)
+    return cleaned
+
 
 def _fallback_teacher_analysis(kind: str) -> str:
     """Build a minimal four-line fallback when teacher raw text is empty."""
@@ -924,21 +955,24 @@ def _fallback_teacher_analysis(kind: str) -> str:
 def _clean_teacher_analysis(text: str) -> str:
     """Light cleanup before appending scripted labels.
 
-    v4 是分 step 监督学习，analysis 文本里出现 GT / 选项名 / 事件名都不会污染监督，
-    所以这里**不再做四行严格命中**——只保留两条安全规则：
+    v4 是分 step 监督学习，最终结构化标签仍由脚本追加；analysis 文本必须保持学生
+    可学视角，不能把老师私有 answer / ground-truth 字段逐字带进 target。
 
     1. 剥掉所有 ``ROAD_STRUCTURE:`` / ``SCENE:`` / ``STATUS:`` / ``SUBGOAL:`` 整行，
        防止脚本在末尾追加的 GT 标签被 parser 取错（parser 是 ``re.search`` 取第一个）；
     2. 剥掉 ``[STEPx]`` / ``[MEMORY]`` 等 prompt marker 行，避免老师把 prompt 模板抄进 target。
+    3. 把 ``GROUND_TRUTH_*`` / ``ANSWER_*`` / ``REFERENCE_*`` 这类私有字段名改成
+       ``the corrected ...`` 口径；把 ``BELIEVED_*`` / ``BELIEF_SUBGOAL`` 字段名改成
+       自然语言 believed 口径。
 
-    其余文字（哪怕含 markdown / bullets / 半截选项名）原样保留，让监督自己学。
-    剥完后空字符串才上调 ``_fallback_teacher_analysis``。
+    其余文字原样保留；剥完后空字符串才上调 ``_fallback_teacher_analysis``。
     """
 
     if not text:
         return ""
     cleaned = _strip_label_lines(text)
     cleaned = _PROMPT_MARKER_LINE_RE.sub("", cleaned)
+    cleaned = _clean_private_field_names(cleaned)
     return cleaned.strip()
 
 

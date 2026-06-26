@@ -15,16 +15,19 @@ scene，按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STA
 回 init。learner rank0 每 1000 step 发布一次 LoRA snapshot 给 collectors。
 
 当前 prompt 口径：学生仍是三步串行对话，`[MEMORY]` 每层一行并在 step1/2/3 后自更新。
-老师三步都是 fresh dialog，不复用上一部 teacher KV，并且每步重新吃 4 张 RGB：
-Step1 老师只喂 `BELIEVED_ROAD_STRUCTURE / EGO_TO_GOAL_XY / GROUND_TRUTH_ROAD_STRUCTURE`；
-Step2 老师喂 `GROUND_TRUTH_ROAD_STRUCTURE / BELIEVED_SCENE / GROUND_TRUTH_SCENE`；
-Step3 老师喂 true road、true scene、believed/GT status-subgoal。老师只输出分析，
+老师三步都是 fresh dialog，不复用上一部 teacher KV，并且每步重新吃 4 张 RGB。老师可以看
+answer 字段来生成 hindsight 分析，但 **student-facing analysis 必须写成学生视角**：只说
+believed memory 为什么 fit / should change、哪些可见线索支持 corrected label，不允许把
+`GROUND_TRUTH_*` / `ANSWER_*` / `REFERENCE_*` 这类私有字段名逐字写进监督文本。
+Step1 老师只喂 road-only context（believed road / ego goal / answer road）+ 6 项
+`ROAD_STRUCTURE_CHOICES`；Step2 老师喂 answer road、believed scene、answer scene，并列出
+该 road bucket 下的 `SCENE_CHOICES`；Step3 老师喂 answer road/scene、believed/answer
+status-subgoal，并列出该 scene 的 `EVENT_OPTIONS`。context 中如果 label 已被紧邻的
+choices/options 解释，就只写 token，不重复括号解释；只有 choices 没覆盖的 label 才补自然语言解释。
 三步统一鼓励按 `Scene Description:`、`Critical Object Description:`、
-`Reasoning on Intent:`、`Memory Judgment:` 四行 plain-text 顺序写，但**不再做严格清洗**：
-监督学习按 step 分开训练，analysis 里出现 GT / 选项名 / 事件名都不污染目标，因此
-`_clean_teacher_analysis` 只剥两类危险行——`ROAD_STRUCTURE:` / `SCENE:` /
-`STATUS:` / `SUBGOAL:` 整行（避免脚本追加的 GT 标签被 parser 取错）和
-`[STEPx]` / `[MEMORY]` 等 prompt marker——剩下原样进 target。结构化标签由脚本追加。
+`Reasoning on Intent:`、`Memory Judgment:` 四行 plain-text 顺序写。`_clean_teacher_analysis`
+会剥掉结构化标签行、prompt marker，并把残留私有字段名改成 `the corrected ...` 口径；
+结构化 `ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 标签仍由脚本追加。
 teacher 默认生成上限为 `384/384/384`（仅作异常生成的技术护栏，不限制每行词数）；
 teacher 调用不再传强制最少生成参数，让模型自然停止。
 
@@ -420,7 +423,9 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_vs_native.py
 ### 7.1 它做了什么
 
 - 从 `--train-jsonl` 中**随机抽 N 条 episode × 每条 M 帧**；
-- 对每帧分别构造 **5 种 memory 起点**，覆盖三层 prompt 状态机的关键分支：
+- 对每帧默认构造 **4 种常规 memory 起点**，覆盖三层 prompt 状态机的关键分支；
+  `scene_change_cross_rs` 保留为显式开启的 stress-only 模式，用来检查不自洽 memory
+  的鲁棒性，不混入默认老师质量判断：
 
   | 模式 | `memory.road_structure` | `memory.scene` | step1 | step2 | step3 |
   |---|---|---|---|---|---|
@@ -428,13 +433,13 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_vs_native.py
   | `rs_change` | 非 GT 桶 | 错桶首个 scene | CHANGE | 跳过 | 跳过 |
   | `scene_change_same_rs` | = GT | 同桶非 GT | KEEP | CHANGE | 跳过 |
   | `event_change` | = GT | = GT | KEEP | KEEP | CHANGE |
-  | `scene_change_cross_rs` | = GT | 跨桶非 GT | KEEP | CHANGE | 跳过 |
+  | `scene_change_cross_rs` | = GT | 跨桶非 GT | KEEP | CHANGE | 跳过（stress-only） |
 
 - 老师路径与 `collect.py` 100% 一致：`load_model_with_lora` →
   `model.disable_adapter()` → `_teacher_generate_kv`（不强制最少生成长度）
   → 全程 `torch.no_grad()`，等价于 frozen base Qwen3-VL-4B-Instruct；
-- 逐帧记录 system / user (含图像路径) / teacher-assistant 三类 role 的 prompt 与
-  生成内容，加上 token 数和 legacy GT-token 诊断。
+- 逐帧记录 teacher-private prompt/raw output，同时一对一写出 student-facing prompt、
+  cleaned supervised target，以及“如果学生输出该监督标签，memory 会如何更新”的 before/after。
 
 ### 7.2 GPU 选址（与训练入口一致）
 
@@ -478,7 +483,8 @@ GPU_IDS=2 python qwen3vl_local/sft_v4/inspect_teacher.py \
 
 `--modes` 接逗号分隔列表，五档：`all_keep` / `rs_change` /
 `scene_change_same_rs` / `event_change` / `scene_change_cross_rs`。
-默认全跑；只想验某条分支时用：
+默认只跑前四档；`scene_change_cross_rs` 是不自洽 memory 压力测试，需要显式指定。
+只想验某条分支时用：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
@@ -498,7 +504,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 | `--out-dir` | `checkpoints/sft_v4_inspect/latest` | 报告产物目录 |
 | `--num-episodes` | 3 | 随机抽样的 episode 条数 |
 | `--frames-per-episode` | 4 | 每条 episode 抽样的帧数（等步长 + 小抖动） |
-| `--modes` | `all_keep,rs_change,scene_change_same_rs,event_change,scene_change_cross_rs` | 启用的 memory 模式 |
+| `--modes` | `all_keep,rs_change,scene_change_same_rs,event_change` | 启用的 memory 模式；`scene_change_cross_rs` 需显式追加 |
 | `--seed` | 20260624 | 抽样与随机 wrong-scene 选择的随机种子 |
 | `--device` | `auto` | `auto` / `cuda:0` / `cpu` |
 | `--lora-*` | 与训练默认对齐 | 仅为加载 PEFT bundle，全程 disable_adapter |
@@ -520,19 +526,24 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
       [ROLE = system]      ... system prompt 全文
       [ROLE = user (with 4 stitched RGB images attached)] ... step1 user prompt
       [ROLE = assistant — teacher raw output]             ... 老师真实输出
-      [ROLE = scripted target (this is what the student is supervised on)]
+      [ROLE = student-facing user prompt]                 ... 学生真实 prompt
+      [ROLE = student supervised target (...)]            ... 清洗后的 analysis + 脚本标签
+      [ROLE = student memory transition ...]              ... 监督标签命中时的 memory before/after
   #### Step 2 — scene verdict <KEEP|CHANGE> (tokens: N)
       （或 "Step 2 — skipped (memory.road_structure != gt_road_structure)"）
       [ROLE = user (fresh teacher dialog with 4 images)]
       [ROLE = assistant — teacher raw output]
-      [ROLE = scripted target (this is what the student is supervised on)]
+      [ROLE = student-facing user prompt]
+      [ROLE = student supervised target (...)]
+      [ROLE = student memory transition ...]
   #### Step 3 — status/subgoal verdict <KEEP|CHANGE> (tokens: N)
       （或 "Step 3 — skipped (step2 did not fire or memory.scene != gt_scene)"）
   ```
 
-  其中 **`scripted target`** 是 `build_step{1,2,3}_teacher_target` 拼出的实际监督
-  字符串——直接对比"老师推理"和"脚本兜底标签"可以一眼看出 prompt 设计是否在让老师
-  做有价值的推理（而不是只输出垃圾被脚本兜底）。
+  其中 **`student supervised target`** 是 `build_step{1,2,3}_teacher_target`
+  拼出的实际监督字符串。它必须保持学生视角，不应出现 `GROUND_TRUTH_*` /
+  `ANSWER_*` / `REFERENCE_*` 等老师私有字段名；直接对比 teacher-private raw 和
+  student-facing target，可以一眼看出清洗是否有效、prompt 是否让老师做有价值的推理。
 
 - `teacher_report.jsonl`：同份内容机器可读，每行一帧 + 一种模式，方便后续聚合
   统计（比如平均 token 数、step3 触发占比）。
@@ -541,18 +552,21 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 
 跑完 `teacher_report.md` 后，按顺序检查：
 
-1. **先看 raw analysis 是否像人在解释**：重点查空泛复读、是否真的针对当前 step 的
-   privileged context 做论证。监督路径已不再强制四行格式，所以 raw 里偶尔出现
-   markdown、bullets、半截选项名都会照原样进 target——只要内容像分析就行。
-2. **scripted target 是否仅在 raw 完全空时退回四行 fallback**。如果发现大量
+1. **先看 student supervised target 是否是学生视角**：不应出现 `GROUND_TRUTH_*` /
+   `ANSWER_*` / `REFERENCE_*`；如果老师 raw 里有这些词，target 中应被清成
+   `the corrected ...` 口径。
+2. **再看 raw analysis 是否像人在解释**：重点查空泛复读、是否真的针对当前 step 的
+   privileged context 做论证。允许老师知道答案，但不能把答案先验伪装成视觉事实；
+   看不清时可以简短承认不确定，不要编造未看见的 actor 或未来事件。
+3. **scripted target 是否仅在 raw 完全空时退回四行 fallback**。如果发现大量
    case 都被 fallback 兜底，说明 teacher 在该模式下根本没生成有效文本，回头
    修 prompt 或老师生成参数。
-3. **`all_keep` 模式下老师是否真的论证 KEEP**（不要去翻案）；
+4. **`all_keep` 模式下老师是否真的论证 KEEP**（不要去翻案）；
    **`rs_change` 模式下老师是否先纠正道路结构**；**`scene_change_same_rs` /
-   `scene_change_cross_rs` 模式下老师是否描述"实际场景看起来像 X"而不是简单复述
-   memory scene**；**`event_change` 模式下老师是否解释"虽然 scene 对，但
+   `scene_change_cross_rs` 模式下老师是否描述"believed scene 为什么不 fit，corrected
+   scene 的可见依据是什么"而不是简单复述 memory scene**；**`event_change` 模式下老师是否解释"虽然 scene 对，但
    status/subgoal 应该推进"**。
-4. **step3 老师是否能围绕 EVENT_OPTIONS 做有效 keep/correct 引导**，不要只输出
+5. **step3 老师是否能围绕 EVENT_OPTIONS 做有效 keep/correct 引导**，不要只输出
    "I observe the current driving phase" 这类空话。
 
 如果语义不达标，回头修 `build_step{1,2,3}_teacher_prompt` 里的 `focus_line`；
