@@ -61,9 +61,9 @@ Use the 4 stitched RGB frames as visual context: oldest to newest, left/front/ri
 Keep a small memory chain: ROAD_STRUCTURE -> SCENE -> STATUS/SUBGOAL.
 
 For student turns: give a very short reason, then copy exactly one valid option line.
-For TEACHER turns: follow the given VERDICT. Write only 1-2 short first-person
-sentences that help the student keep or correct the current memory. Do not output
-ROAD_STRUCTURE:, SCENE:, STATUS:, or SUBGOAL: lines; labels are appended later."""
+For TEACHER turns: follow the given VERDICT and write the requested analysis only.
+Do not output ROAD_STRUCTURE:, SCENE:, STATUS:, or SUBGOAL: lines; labels are
+appended later."""
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +246,19 @@ class Memory:
             f"BELIEVED_SUBGOAL={self.subgoal} ({subgoal_desc})\n"
             f"EGO_TO_GOAL_XY=({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m\n"
             "[/MEMORY]"
+        )
+
+    def format_step1_road_text(self, gt_road_structure: str) -> str:
+        """Render the road-only context used by the step1 teacher prompt."""
+
+        memory_rs_desc = ROAD_STRUCTURE_LABELS.get(self.road_structure, self.road_structure)
+        gt_rs_desc = ROAD_STRUCTURE_LABELS.get(gt_road_structure, gt_road_structure)
+        return (
+            "[STEP1_ROAD_CONTEXT]\n"
+            f"BELIEVED_ROAD_STRUCTURE={self.road_structure} ({memory_rs_desc})\n"
+            f"EGO_TO_GOAL_XY=({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m\n"
+            f"GROUND_TRUTH_ROAD_STRUCTURE_MEANING={gt_rs_desc}\n"
+            "[/STEP1_ROAD_CONTEXT]"
         )
 
 
@@ -627,14 +640,7 @@ def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -
 
 
 def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
-    """老师 step1 prompt：KEEP/CHANGE verdict for layer-1，禁标签 / 禁字面 token。
-
-    与 step2/step3 teacher prompt 同构：传 verdict + 自然语言描述，禁止老师输出
-    标签行（脚本拼回去），禁止复述 ROAD_STRUCTURE / SCENE / EVENT 任何 token。
-    注意 step1 仍然显式接收 ``[MEMORY]``，因为任务是判断
-    ``BELIEVED_ROAD_STRUCTURE`` 是否应保留；下面的 "no MEMORY reference" 只约束
-    老师输出不要写“memory”这个词，不表示 prompt 不喂 memory。
-    """
+    """老师 step1 prompt：road-only KEEP/CHANGE analysis for layer-1."""
 
     verdict = "KEEP" if memory.road_structure == gt_road_structure else "CHANGE"
     memory_rs_desc = ROAD_STRUCTURE_LABELS.get(memory.road_structure, memory.road_structure)
@@ -642,19 +648,31 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
 
     if verdict == "KEEP":
         verdict_line = "VERDICT: KEEP -- the believed road structure is correct."
-        focus_line = f"Use road layout evidence to support: {memory_rs_desc}."
+        focus_line = (
+            f"Explain which visible road-layout cues match the believed meaning: {memory_rs_desc}."
+        )
+        task_line = (
+            "Write 3-5 plain prose sentences: first describe the current road layout and nearby actors, "
+            "then explain why the believed road structure fits the image evidence."
+        )
     else:
         verdict_line = "VERDICT: CHANGE -- the believed road structure is wrong."
-        focus_line = f"Contrast it with visible road layout; guide toward: {gt_rs_desc}."
+        focus_line = (
+            f"Contrast the believed meaning ({memory_rs_desc}) with the ground-truth meaning: {gt_rs_desc}."
+        )
+        task_line = (
+            "Write 3-5 plain prose sentences: first describe the current road layout and nearby actors, "
+            "then explain what does not fit the believed road structure and what visual evidence fits the ground truth."
+        )
 
     return (
-        f"{memory.format_text()}\n\n"
+        f"{memory.format_step1_road_text(gt_road_structure)}\n\n"
         f"{road_structure_choices_block()}\n\n"
         "[STEP1_TEACHER]\n"
         f"{verdict_line}\n"
         f"{focus_line}\n"
-        "Write 1 short first-person visual sentence, then 1 short judgement sentence. "
-        "No label lines. Plain prose only."
+        f"{task_line}\n"
+        "Do not mention scene/status/subgoal. Do not output label lines. Plain prose only."
     )
 
 
