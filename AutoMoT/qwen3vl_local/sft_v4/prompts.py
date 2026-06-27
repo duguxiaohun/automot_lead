@@ -712,14 +712,12 @@ def _teacher_structured_analysis_instructions(memory_judgment: str, label_instru
 
 _STEP1_ROAD_EVIDENCE_RULES = (
     "Use visible road-layout cues and memory continuity.\n"
-    "Evidence priority: CHANGE because contradicted > KEEP because directly supported > KEEP because not contradicted.\n"
-    "Correct the believed label only when clear visible road-bucket cues contradict it.\n"
-    "Say 'directly supported' only when category-specific cues are visible, such as merge lanes, ramps, exits, junctions, crosswalks, parking layout, blocked lanes, work zones, parked obstacles, or a clear crossing actor.\n"
-    "If category-specific cues are weak or unclear but no contradictory cue is visible, keep the belief because it is not contradicted.\n"
-    "Do not infer braking, stopping, merging, lane-changing, or yielding unless clearly visible.\n"
-    "Do not treat a distant lead vehicle alone as highway-merge evidence.\n"
-    "If visibility is limited, say the visual evidence is weak or uncertain.\n"
-    "Keep the analysis under 120 words before the label."
+    "KEEP means memory continuity, not necessarily strong visual confirmation.\n"
+    "Decision rule: CHANGE only if clear contradictory road-layout cues are visible; DIRECTLY SUPPORTED only if category-specific cues are visible, such as merge lanes, ramps, exits, junctions, crosswalks, parking layout, blocked lanes, or crossing actors; NOT CONTRADICTED if cues are weak or unclear but no other road bucket is clearly visible.\n"
+    "Avoid inferring hidden maneuvers or hidden layout cues, including braking, stopping, merging, lane-changing, or yielding, unless clearly visible; a distant lead vehicle alone is not highway-merge evidence.\n"
+    "If visibility is limited, state that evidence is weak or uncertain.\n"
+    "For NOT CONTRADICTED, mention both the weak evidence and the missing road-layout cue for changing away from the believed label.\n"
+    "Write 80-160 words before the label."
 )
 
 
@@ -730,7 +728,6 @@ def _step1_student_output_instructions() -> str:
         "Write for the student perspective: use 'believed ...' phrasing; use 'corrected ...' only if the believed label should change.\n"
         "Do not mention answer, ground truth, reference labels, or private field names.\n"
         f"{_STEP1_ROAD_EVIDENCE_RULES}\n"
-        "For CHANGE verdicts, state the clearest visible contradictory cue; if the cue is weak, say the correction is weakly grounded and do not invent a contradiction.\n"
         "Write exactly these analysis lines in this order, one non-empty line per heading:\n"
         "Scene Description: ...\n"
         "Critical Object Description: ...\n"
@@ -751,6 +748,7 @@ def _step1_teacher_output_instructions() -> str:
         "Write for the student perspective: use 'believed ...' phrasing; use 'corrected ...' only if the believed label should change.\n"
         "Do not mention answer, ground truth, reference labels, or private field names.\n"
         f"{_STEP1_ROAD_EVIDENCE_RULES}\n"
+        "For CHANGE verdicts, state the clearest visible contradictory cue; if the cue is weak, say the correction is weakly grounded and do not invent a contradiction.\n"
         "Write exactly these analysis lines in this order, one non-empty line per heading:\n"
         "Scene Description: ...\n"
         "Critical Object Description: ...\n"

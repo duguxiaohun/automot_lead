@@ -177,15 +177,15 @@ def _assert_prompt_contracts() -> None:
     step1_student = build_step1_user_prompt(4, mem)
     if "[STEP1_ROAD_MEMORY]" not in step1_student:
         raise AssertionError("step1 student prompt must include STEP1_ROAD_MEMORY")
-    evidence_contract = (
-        "CHANGE because contradicted > KEEP because directly supported > KEEP because not contradicted"
-    )
+    evidence_contract = "Decision rule: CHANGE only if clear contradictory road-layout cues are visible"
     if evidence_contract not in step1_prompt or evidence_contract not in step1_student:
         raise AssertionError("step1 prompts must include the road-structure evidence priority contract")
     if "The verdict controls memory update only" not in step1_prompt:
         raise AssertionError("step1 KEEP teacher prompt must clarify that KEEP is not strong confirmation")
-    if "distant lead vehicle alone" not in step1_student:
+    if "distant lead vehicle alone is not highway-merge evidence" not in step1_student:
         raise AssertionError("step1 student prompt must reject distant lead vehicles as standalone merge evidence")
+    if "Write 80-160 words before the label" not in step1_student:
+        raise AssertionError("step1 student prompt must request a bounded but non-tiny analysis")
     forbidden_step1_fields = ("BELIEVED_SCENE", "BELIEVED_STATUS", "BELIEVED_SUBGOAL", "ANSWER_")
     if any(token in step1_student for token in forbidden_step1_fields):
         raise AssertionError("step1 student prompt must be road-only and must not contain private answer fields")
@@ -686,10 +686,11 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
         "[STEP1_ROAD_CONTEXT] block instead of the full [MEMORY] block.\n"
     )
     lines.append(
-        "Step 1 road-structure evidence rule: CHANGE because contradicted > "
-        "KEEP because directly supported > KEEP because not contradicted. KEEP means "
-        "the memory is not updated; it does not imply strong visual confirmation, and a "
-        "distant lead vehicle alone is not highway-merge evidence.\n"
+        "Step 1 road-structure evidence rule: CHANGE only for clear contradictory "
+        "road-layout cues; DIRECTLY SUPPORTED requires category-specific cues; otherwise "
+        "KEEP as NOT CONTRADICTED when evidence is weak but no other road bucket is clearly "
+        "visible. KEEP does not imply strong confirmation, and a distant lead vehicle alone "
+        "is not highway-merge evidence.\n"
     )
     lines.append(
         "Mode sections are ordered by the state-machine path. Default modes are "
