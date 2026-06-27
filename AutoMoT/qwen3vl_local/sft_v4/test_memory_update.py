@@ -162,6 +162,9 @@ def _check_student_prompt_contracts() -> None:
     assert all(h in step1 for h in shared_headings)
     assert "ROAD_STRUCTURE: <name>" in step1
     assert "Then write the label line(s) yourself" in step1
+    assert "CHANGE because contradicted > KEEP because directly supported > KEEP because not contradicted" in step1
+    assert "not contradicted" in step1
+    assert "Do not treat a distant lead vehicle alone as highway-merge evidence" in step1
     assert "BELIEVED_SCENE" not in step1
     assert "BELIEVED_STATUS" not in step1
     assert "BELIEVED_SUBGOAL" not in step1
@@ -171,6 +174,8 @@ def _check_student_prompt_contracts() -> None:
     assert all(h in step1_teacher for h in shared_headings)
     assert "ROAD_STRUCTURE: <name>" in step1_teacher
     assert "Do not write label line(s)" in step1_teacher
+    assert "The verdict controls memory update only" in step1_teacher
+    assert "not contradicted" in step1_teacher
     assert "Then write the label line(s) yourself" not in step1_teacher
 
     step2 = build_step2_student_prompt(memory)

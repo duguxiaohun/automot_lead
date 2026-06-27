@@ -710,6 +710,60 @@ def _teacher_structured_analysis_instructions(memory_judgment: str, label_instru
     )
 
 
+_STEP1_ROAD_EVIDENCE_RULES = (
+    "Use visible road-layout cues and memory continuity.\n"
+    "Evidence priority: CHANGE because contradicted > KEEP because directly supported > KEEP because not contradicted.\n"
+    "Correct the believed label only when clear visible road-bucket cues contradict it.\n"
+    "Say 'directly supported' only when category-specific cues are visible, such as merge lanes, ramps, exits, junctions, crosswalks, parking layout, blocked lanes, work zones, parked obstacles, or a clear crossing actor.\n"
+    "If category-specific cues are weak or unclear but no contradictory cue is visible, keep the belief because it is not contradicted.\n"
+    "Do not infer braking, stopping, merging, lane-changing, or yielding unless clearly visible.\n"
+    "Do not treat a distant lead vehicle alone as highway-merge evidence.\n"
+    "If visibility is limited, say the visual evidence is weak or uncertain.\n"
+    "Keep the analysis under 120 words before the label."
+)
+
+
+def _step1_student_output_instructions() -> str:
+    """Road-structure-specific public contract for student prompts."""
+
+    return (
+        "Write for the student perspective: use 'believed ...' phrasing; use 'corrected ...' only if the believed label should change.\n"
+        "Do not mention answer, ground truth, reference labels, or private field names.\n"
+        f"{_STEP1_ROAD_EVIDENCE_RULES}\n"
+        "For CHANGE verdicts, state the clearest visible contradictory cue; if the cue is weak, say the correction is weakly grounded and do not invent a contradiction.\n"
+        "Write exactly these analysis lines in this order, one non-empty line per heading:\n"
+        "Scene Description: ...\n"
+        "Critical Object Description: ...\n"
+        "Reasoning on Intent: ...\n"
+        "Memory Judgment: start with one of these phrases: "
+        "'The believed road structure is directly supported because ...' / "
+        "'The believed road structure is kept because it is not contradicted; ...' / "
+        "'The believed road structure should be corrected because ...'\n"
+        "Then write the label line(s) yourself: ROAD_STRUCTURE: <name>\n"
+        "Plain text only -- no markdown headings, bullets, numbered lists, JSON, or code blocks."
+    )
+
+
+def _step1_teacher_output_instructions() -> str:
+    """Road-structure-specific teacher contract; labels are appended by code."""
+
+    return (
+        "Write for the student perspective: use 'believed ...' phrasing; use 'corrected ...' only if the believed label should change.\n"
+        "Do not mention answer, ground truth, reference labels, or private field names.\n"
+        f"{_STEP1_ROAD_EVIDENCE_RULES}\n"
+        "Write exactly these analysis lines in this order, one non-empty line per heading:\n"
+        "Scene Description: ...\n"
+        "Critical Object Description: ...\n"
+        "Reasoning on Intent: ...\n"
+        "Memory Judgment: start with one of these phrases: "
+        "'The believed road structure is directly supported because ...' / "
+        "'The believed road structure is kept because it is not contradicted; ...' / "
+        "'The believed road structure should be corrected because ...'\n"
+        "Do not write label line(s); the script appends them after your analysis: ROAD_STRUCTURE: <name>\n"
+        "Plain text only -- no markdown headings, bullets, numbered lists, JSON, or code blocks."
+    )
+
+
 def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -> str:
     """学生 step1 prompt（D26）。
 
@@ -733,10 +787,7 @@ def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -
         f"{road_structure_choices_block()}\n\n"
         f"[STEP1]\n"
         f"{image_count} images are ordered oldest to newest; the last image is now.\n"
-        + _student_output_instructions(
-            "explain why the believed road structure fits or should change, using visible road-layout cues.",
-            "ROAD_STRUCTURE: <name>",
-        )
+        + _step1_student_output_instructions()
     )
 
 
@@ -747,20 +798,16 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
     gt_rs_desc = ROAD_STRUCTURE_LABELS.get(gt_road_structure, gt_road_structure)
 
     if verdict == "KEEP":
-        verdict_line = "VERDICT: KEEP -- the believed road structure is correct."
-        focus_line = "Explain which visible road-layout cues make the believed road structure fit."
-        task_line = _teacher_structured_analysis_instructions(
-            "explain why the believed road structure fits and which road-layout cues support it.",
-            "ROAD_STRUCTURE: <name>",
+        verdict_line = (
+            "VERDICT: KEEP -- keep the believed road structure unless clear visual cues contradict it."
+        )
+        focus_line = (
+            "The verdict controls memory update only; it does not imply strong visual confirmation."
         )
     else:
         verdict_line = "VERDICT: CHANGE -- the believed road structure is wrong."
         focus_line = (
             f"Explain why the believed road structure does not fit, then guide toward {gt_road_structure}: {gt_rs_desc}."
-        )
-        task_line = _teacher_structured_analysis_instructions(
-            "explain what does not fit the believed road structure and what visible cues support the correction.",
-            "ROAD_STRUCTURE: <name>",
         )
 
     return (
@@ -769,7 +816,7 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
         "[STEP1_TEACHER]\n"
         f"{verdict_line}\n"
         f"{focus_line}\n"
-        f"{task_line}"
+        f"{_step1_teacher_output_instructions()}"
     )
 
 
