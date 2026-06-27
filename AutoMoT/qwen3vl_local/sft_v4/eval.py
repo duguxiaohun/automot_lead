@@ -555,6 +555,8 @@ def main() -> None:
         epi = {
             "run_id": ep.run_id,
             "scenario": ep.scenario,
+            "raw_gt_scene": ep.raw_gt_scene,
+            "gt_scene": ep.gt_scene,
             "frames": frame_total,
             "road_structure_acc": road_structure_correct / max(frame_total, 1),
             "step2_fire_rate": step2_total / max(frame_total, 1),

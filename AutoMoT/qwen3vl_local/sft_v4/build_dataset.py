@@ -5,11 +5,12 @@
 
   {
     "run_id": "...",
-    "scenario": "...",
+    "scenario": "...",          # raw CARLA scenario, used for run_dir
+    "raw_gt_scene": "...",      # raw CARLA scenario label
     "anchors": [f0, f1, f2, f3, f4],  # [init, sub1, sub2, sub3, end]
     "delta": 7,
     "frame_range": [f1 - delta, f3],
-    "gt_scene": "...",
+    "gt_scene": "...",          # v4 canonical scene label; V2 aliases are folded
     "gt_event_sequence": ["initial", "e1", "e2", "e3", "final"],
     "run_dir": "/abs/path/to/run",
     "split": "train" | "val"
@@ -20,6 +21,8 @@
 数据契约：
   - run.status 不在 {"Completed", "Perfect"} 时跳过
   - scenario 不在 SCENARIO_LABELS 中时跳过
+  - EnterActorFlowV2 / MergerIntoSlowTrafficV2 这类不可视觉区分的版本 alias
+    会折叠为 canonical gt_scene，但 scenario/raw_gt_scene 保留原始 CARLA 名称
   - 其余可用 run 必须严格是一条 3-middle episode：
     initial + middle[3] + final，anchors 严格递增，事件序列与
     prompt_pipeline.get_full_sequence 完全一致；否则直接报错退出
@@ -50,8 +53,11 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _p)
 
 from qwen3vl_local.prompt_pipeline import (  # noqa: E402
-    SCENARIO_EVENT_SEQUENCES,
     SCENARIO_LABELS,
+)
+from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
+    SCENE_CANONICAL_ALIASES,
+    canonicalize_scene,
     get_full_sequence,
 )
 from qwen3vl_local.sft.build_dataset import (  # noqa: E402
@@ -137,8 +143,10 @@ def build_episode(
     if total_frames is None:
         raise ValueError(f"run {run_id} / scenario {scenario} missing diagnostics.total_frames")
 
-    # 事件序列一致性检查
-    expected_seq = tuple(get_full_sequence(scenario))
+    canonical_scene = str(canonicalize_scene(scenario))
+
+    # 事件序列一致性检查：V2 alias 与 canonical scene 序列相同时折叠到 canonical label。
+    expected_seq = tuple(get_full_sequence(canonical_scene))
     actual_seq = (
         initial["event"],
         middle[0]["event"], middle[1]["event"], middle[2]["event"],
@@ -181,10 +189,11 @@ def build_episode(
     return {
         "run_id": run_id,
         "scenario": scenario,
+        "raw_gt_scene": scenario,
         "anchors": anchors,
         "delta": delta,
         "frame_range": [frame_start, frame_end],
-        "gt_scene": scenario,
+        "gt_scene": canonical_scene,
         "gt_event_sequence": list(expected_seq),
         "run_dir": str(run_dir),
         "total_frames": int(total_frames),
@@ -302,6 +311,7 @@ def main() -> None:
 
     episodes: List[dict] = []
     counters: Counter = Counter()
+    canonical_counters: Counter = Counter()
     skip_reasons: Counter = Counter()
 
     for run in all_runs:
@@ -316,11 +326,15 @@ def main() -> None:
             continue
         episodes.append(ep)
         counters[ep["scenario"]] += 1
+        canonical_counters[ep["gt_scene"]] += 1
 
     print(f"[build_dataset] 有效 episode 总数: {len(episodes)}")
     print(f"[build_dataset] 跳过: {dict(skip_reasons)}")
     print("[build_dataset] 按场景分布:")
     for sc, cnt in sorted(counters.items()):
+        print(f"  {sc}: {cnt}")
+    print("[build_dataset] 按 canonical gt_scene 分布:")
+    for sc, cnt in sorted(canonical_counters.items()):
         print(f"  {sc}: {cnt}")
 
     if args.dry_run:
@@ -355,6 +369,8 @@ def main() -> None:
         "train": len(train_eps),
         "val": len(val_eps),
         "by_scenario": dict(counters),
+        "by_gt_scene": dict(canonical_counters),
+        "scene_canonical_aliases": dict(SCENE_CANONICAL_ALIASES),
         "skip_reasons": dict(skip_reasons),
         "delta_cap": DELTA_CAP,
         "rgb_frame_count": RGB_FRAME_COUNT,
@@ -367,4 +383,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

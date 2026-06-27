@@ -25,10 +25,10 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from qwen3vl_local.prompt_pipeline import SCENARIO_LABELS
 from qwen3vl_local.sft_v4.build_dataset import compute_delta
 from qwen3vl_local.sft_v4 import replay
 from qwen3vl_local.sft_v4.prompts import (
+    CANONICAL_SCENARIO_LABELS,
     Memory,
     ROAD_STRUCTURE_TO_SCENES,
     SCENE_TO_ROAD_STRUCTURE,
@@ -38,6 +38,7 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step2_teacher_prompt,
     build_step3_student_prompt,
     build_step3_teacher_prompt,
+    canonicalize_scene,
     first_scene_in_bucket,
     first_subgoal,
     correct_memory_after_step1_skip,
@@ -53,13 +54,14 @@ from qwen3vl_local.sft_v4.prompts import (
     update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
+    validate_scene,
 )
 
 
 def _check_init_probability_modes() -> None:
     """D22/D27：init_memory 联合采样，内部始终自洽，默认 p=0.7。"""
 
-    if len(SCENARIO_LABELS) <= 1:
+    if len(CANONICAL_SCENARIO_LABELS) <= 1:
         return  # 单场景退化，无法排除
     gt = "Accident"
     gt_rs = get_road_structure(gt)
@@ -284,7 +286,7 @@ def _check_scene_flip_branches() -> None:
     assert m2.subgoal == first_subgoal(other)
 
     # 2b) 输出跨桶 scene → 忽略，保持内部自洽
-    cross_bucket = next(s for s in SCENARIO_LABELS if SCENE_TO_ROAD_STRUCTURE[s] != base.road_structure)
+    cross_bucket = next(s for s in CANONICAL_SCENARIO_LABELS if SCENE_TO_ROAD_STRUCTURE[s] != base.road_structure)
     m2b = update_memory_after_step2(base, student_scene=cross_bucket)
     assert m2b.scene == base.scene
     assert m2b.road_structure == base.road_structure
@@ -297,6 +299,33 @@ def _check_scene_flip_branches() -> None:
     # 4) None → 忽略
     m4 = update_memory_after_step2(base, student_scene=None)
     assert m4.scene == base.scene
+
+
+def _check_scene_alias_canonicalization() -> None:
+    """V2 aliases are accepted as input but not exposed as v4 prediction targets."""
+
+    assert canonicalize_scene("EnterActorFlowV2") == "EnterActorFlow"
+    assert canonicalize_scene("MergerIntoSlowTrafficV2") == "MergerIntoSlowTraffic"
+    assert validate_scene("EnterActorFlowV2")
+    assert "EnterActorFlowV2" not in ROAD_STRUCTURE_TO_SCENES["HIGHWAY_MERGE"]
+
+    base = Memory(
+        road_structure=get_road_structure("EnterActorFlowV2"),
+        scene="EnterActorFlowV2",
+        status=initial_event("EnterActorFlowV2"),
+        subgoal=first_subgoal("EnterActorFlowV2"),
+        ego_to_goal_x=0.0,
+        ego_to_goal_y=0.0,
+    )
+    assert base.scene == "EnterActorFlow"
+
+    kept = update_memory_after_step2(base, student_scene="EnterActorFlowV2")
+    assert kept.scene == "EnterActorFlow"
+    assert kept.status == base.status
+
+    step2 = build_step2_student_prompt(base)
+    assert "- EnterActorFlow:" in step2
+    assert "EnterActorFlowV2" not in step2
 
 
 def _check_step3_update() -> None:
@@ -376,7 +405,7 @@ def _check_phase_b_noise_helper() -> None:
 
     gt = "Accident"
     gt_rs = get_road_structure(gt)
-    if len(SCENARIO_LABELS) <= 1:
+    if len(CANONICAL_SCENARIO_LABELS) <= 1:
         return
     base = Memory(
         road_structure=gt_rs,
@@ -454,7 +483,7 @@ def _check_should_trigger_step3() -> None:
     """C4：step3 只在 scene 前后都已稳定为 GT 时触发。"""
 
     gt = "Accident"
-    other = next(s for s in SCENARIO_LABELS if s != gt)
+    other = next(s for s in CANONICAL_SCENARIO_LABELS if s != gt)
 
     # 4 种组合（step2 前 memory.scene、step2 后 memory.scene）：
     # | before | after | 期望触发 |
@@ -551,6 +580,7 @@ def main() -> None:
     _check_delta_formula_allows_zero()
     _check_step1_update_and_trigger()
     _check_scene_flip_branches()
+    _check_scene_alias_canonicalization()
     _check_step3_update()
     _check_phase_b_force_helper()
     _check_phase_b_noise_helper()

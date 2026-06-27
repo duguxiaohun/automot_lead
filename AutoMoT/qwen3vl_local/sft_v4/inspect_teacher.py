@@ -80,9 +80,9 @@ _maybe_set_idle_gpu_mask()
 
 import torch  # noqa: E402
 
-from qwen3vl_local.prompt_pipeline import SCENARIO_LABELS, get_full_sequence  # noqa: E402
 from qwen3vl_local.sft_v2.train import load_model_with_lora  # noqa: E402
 from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
+    CANONICAL_SCENARIO_LABELS,
     ROAD_STRUCTURE_TO_SCENES,
     SCENE_TO_ROAD_STRUCTURE,
     SYSTEM_PROMPT_V4,
@@ -102,6 +102,7 @@ from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     first_subgoal,
     first_scene_in_bucket,
     get_road_structure,
+    get_full_sequence,
     initial_event,
     should_trigger_step2,
     should_trigger_step3,
@@ -160,7 +161,7 @@ def _assert_prompt_contracts() -> None:
     step2/step3 trigger 必须分别等价于 layer-1 / layer-2 在本帧前后都稳定命中 GT。
     """
 
-    gt_scene = sorted(SCENARIO_LABELS)[0]
+    gt_scene = sorted(CANONICAL_SCENARIO_LABELS)[0]
     gt_rs = get_road_structure(gt_scene)
     wrong_rs = next(rs for rs in sorted(ROAD_STRUCTURE_TO_SCENES) if rs != gt_rs)
     mem = Memory(
@@ -224,7 +225,7 @@ def _assert_prompt_contracts() -> None:
         gt_scene=gt_scene,
     ):
         raise AssertionError("should_trigger_step3 must fire when layer-2 is stably GT")
-    other_scene = next(scene for scene in sorted(SCENARIO_LABELS) if scene != gt_scene)
+    other_scene = next(scene for scene in sorted(CANONICAL_SCENARIO_LABELS) if scene != gt_scene)
     if should_trigger_step3(
         memory_scene_before_step2=other_scene,
         memory_scene_after_step2=gt_scene,
@@ -321,7 +322,7 @@ def _build_inspect_memories(
     )
 
     cross_bucket_scenes = [
-        s for s in sorted(SCENARIO_LABELS)
+        s for s in sorted(CANONICAL_SCENARIO_LABELS)
         if s != gt_scene and SCENE_TO_ROAD_STRUCTURE.get(s) != gt_rs
     ]
     cross_rs_scene = rng.choice(cross_bucket_scenes) if cross_bucket_scenes else same_rs_scene

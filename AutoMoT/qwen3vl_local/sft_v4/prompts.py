@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Tuple
 from qwen3vl_local.prompt_pipeline import (
     EVENT_DESCRIPTIONS,
     SCENARIO_LABELS,
-    get_full_sequence,
+    get_full_sequence as _raw_get_full_sequence,
 )
 
 
@@ -70,7 +70,34 @@ ROAD_STRUCTURE_LABELS: Dict[str, str] = {
     "OPEN_ROAD_DYNAMICS": "Open road with lead vehicle, braking, control loss, or invading turn",
 }
 
-# 42 个 scene 到 layer-1 桶的 1:1 映射（D21 桶分配）。
+# Scene alias 规则（D28）：部分 CARLA scenario 的 V2 后缀只表示 benchmark
+# 版本差异，视觉语义与事件序列完全相同。v4 的学生任务只监督可见/可推理的
+# canonical scene，不要求区分这种不可视觉验证的版本名。
+SCENE_CANONICAL_ALIASES: Dict[str, str] = {
+    "EnterActorFlowV2": "EnterActorFlow",
+    "MergerIntoSlowTrafficV2": "MergerIntoSlowTraffic",
+}
+
+
+def canonicalize_scene(scene: Optional[str]) -> Optional[str]:
+    """Return the v4 canonical scene label, preserving unknown/None inputs."""
+
+    if not scene:
+        return scene
+    return SCENE_CANONICAL_ALIASES.get(str(scene), str(scene))
+
+
+def get_full_sequence(scene: str) -> Tuple[str, ...]:
+    """Return the event sequence for the canonical scene label."""
+
+    canonical = canonicalize_scene(scene)
+    if canonical is None:
+        raise KeyError("scene is None")
+    return tuple(_raw_get_full_sequence(canonical))
+
+
+# 42 个 raw scene 到 layer-1 桶的映射（D21 桶分配）。其中 V2 alias 会在
+# layer-2 候选表和监督 label 中折叠到 canonical scene。
 # 桶规模：JUNCTION=15, HIGHWAY_MERGE=9, ROADSIDE_HAZARD=8, PARKING_AREA=4,
 #         VRU_CROSSING=3, OPEN_ROAD_DYNAMICS=3 → 总 42。
 SCENE_TO_ROAD_STRUCTURE: Dict[str, str] = {
@@ -134,9 +161,28 @@ if _missing_scenes:
         "update prompts.py SCENE_TO_ROAD_STRUCTURE when adding scenarios to SCENARIO_LABELS."
     )
 
-# 反向索引：每个桶下的 layer-2 候选列表（排序，便于 SCENE_CHOICES 渲染稳定）。
+for _alias, _canonical in SCENE_CANONICAL_ALIASES.items():
+    if _alias not in SCENARIO_LABELS:
+        raise RuntimeError(f"SCENE_CANONICAL_ALIASES alias {_alias!r} is not in SCENARIO_LABELS")
+    if _canonical not in SCENARIO_LABELS:
+        raise RuntimeError(f"SCENE_CANONICAL_ALIASES target {_canonical!r} is not in SCENARIO_LABELS")
+    if SCENE_TO_ROAD_STRUCTURE.get(_alias) != SCENE_TO_ROAD_STRUCTURE.get(_canonical):
+        raise RuntimeError(f"scene alias {_alias!r}->{_canonical!r} crosses road-structure buckets")
+    if tuple(_raw_get_full_sequence(_alias)) != tuple(_raw_get_full_sequence(_canonical)):
+        raise RuntimeError(f"scene alias {_alias!r}->{_canonical!r} has a different event sequence")
+
+CANONICAL_SCENARIO_LABELS: Dict[str, str] = {
+    name: desc
+    for name, desc in SCENARIO_LABELS.items()
+    if canonicalize_scene(name) == name
+}
+
+# 反向索引：每个桶下的 layer-2 canonical 候选列表（排序，便于 SCENE_CHOICES 渲染稳定）。
 ROAD_STRUCTURE_TO_SCENES: Dict[str, List[str]] = {}
 for _scene, _rs in SCENE_TO_ROAD_STRUCTURE.items():
+    _canonical_scene = canonicalize_scene(_scene)
+    if _canonical_scene != _scene:
+        continue
     ROAD_STRUCTURE_TO_SCENES.setdefault(_rs, []).append(_scene)
 for _rs in ROAD_STRUCTURE_TO_SCENES:
     ROAD_STRUCTURE_TO_SCENES[_rs].sort()
@@ -145,12 +191,13 @@ for _rs in ROAD_STRUCTURE_TO_SCENES:
 def get_road_structure(scene: str) -> str:
     """返回某 scene 对应的 layer-1 道路结构 token，缺失时直接 raise。"""
 
-    if scene not in SCENE_TO_ROAD_STRUCTURE:
+    canonical = canonicalize_scene(scene)
+    if canonical not in SCENE_TO_ROAD_STRUCTURE:
         raise KeyError(
             f"scene {scene!r} has no road-structure mapping; "
             "update SCENE_TO_ROAD_STRUCTURE in prompts.py."
         )
-    return SCENE_TO_ROAD_STRUCTURE[scene]
+    return SCENE_TO_ROAD_STRUCTURE[canonical]
 
 
 def first_scene_in_bucket(road_structure: str) -> str:
@@ -215,6 +262,13 @@ class Memory:
     ego_to_goal_y: float
     road_structure: str = "JUNCTION"  # 默认值仅用于错误恢复，正常路径必须显式传
 
+    def __post_init__(self) -> None:
+        """Normalize v4 scene aliases whenever memory enters the state machine."""
+
+        canonical = canonicalize_scene(self.scene)
+        if canonical in SCENE_TO_ROAD_STRUCTURE:
+            self.scene = str(canonical)
+
     def copy(self) -> "Memory":
         """深拷贝 memory（dataclass 全是不可变标量，等价于浅拷贝即可）。"""
 
@@ -235,7 +289,7 @@ class Memory:
         """
 
         rs_desc = ROAD_STRUCTURE_LABELS.get(self.road_structure, self.road_structure)
-        scene_desc = SCENARIO_LABELS.get(self.scene, self.scene)
+        scene_desc = CANONICAL_SCENARIO_LABELS.get(self.scene, self.scene)
         status_desc = EVENT_DESCRIPTIONS.get(self.status, self.status)
         subgoal_desc = EVENT_DESCRIPTIONS.get(self.subgoal, self.subgoal)
         return (
@@ -278,13 +332,15 @@ class Memory:
     def format_step2_scene_text(self, gt_road_structure: str, gt_scene: str) -> str:
         """Render the independent scene context used by the step2 teacher prompt."""
 
+        gt_scene = str(canonicalize_scene(gt_scene))
+        believed_scene = str(canonicalize_scene(self.scene))
         gt_rs_desc = ROAD_STRUCTURE_LABELS.get(gt_road_structure, gt_road_structure)
         scene_choices = set(ROAD_STRUCTURE_TO_SCENES.get(gt_road_structure, []))
         return (
             "[STEP2_SCENE_CONTEXT]\n"
             f"ANSWER_ROAD_STRUCTURE={gt_road_structure} ({gt_rs_desc})\n"
-            f"BELIEVED_SCENE={_label_with_optional_desc(self.scene, SCENARIO_LABELS, scene_choices)}\n"
-            f"ANSWER_SCENE={_label_with_optional_desc(gt_scene, SCENARIO_LABELS, scene_choices)}\n"
+            f"BELIEVED_SCENE={_label_with_optional_desc(believed_scene, CANONICAL_SCENARIO_LABELS, scene_choices)}\n"
+            f"ANSWER_SCENE={_label_with_optional_desc(gt_scene, CANONICAL_SCENARIO_LABELS, scene_choices)}\n"
             f"EGO_TO_GOAL_XY=({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m\n"
             "[/STEP2_SCENE_CONTEXT]"
         )
@@ -298,8 +354,9 @@ class Memory:
     ) -> str:
         """Render the independent status/subgoal context used by the step3 teacher prompt."""
 
+        gt_scene = str(canonicalize_scene(gt_scene))
         gt_rs_desc = ROAD_STRUCTURE_LABELS.get(gt_road_structure, gt_road_structure)
-        gt_scene_desc = SCENARIO_LABELS.get(gt_scene, gt_scene)
+        gt_scene_desc = CANONICAL_SCENARIO_LABELS.get(gt_scene, gt_scene)
         event_choices = set(get_full_sequence(gt_scene))
         return (
             "[STEP3_EVENT_CONTEXT]\n"
@@ -342,6 +399,7 @@ def init_memory(
     （但 layer-1 一定错时 scene 仍在该错桶内随机），可作对照实验入口。
     """
 
+    gt_scene = canonicalize_scene(gt_scene)
     p = min(1.0, max(0.0, float(p_init_correct)))
     # seed 只由数据身份 + collector/policy salt 决定，与全局 random 状态无关。
     # 同一配置重跑结果可复现；不同 collector / snapshot 版本能产生不同扰动。
@@ -400,6 +458,7 @@ def force_memory_to_gt_chain(
     reset 的 status/subgoal 立刻进入 step3。
     """
 
+    gt_scene = str(canonicalize_scene(gt_scene))
     mem = memory.copy()
     # Layer-1：道路结构层。错就先 reset 整条链，因为 scene 跨桶后必须刷新。
     if mem.road_structure != gt_road_structure:
@@ -422,6 +481,7 @@ def force_memory_to_gt_scene(memory: Memory, *, gt_scene: str) -> Memory:
     不至于立刻报 ImportError；新代码应直接调 ``force_memory_to_gt_chain``。
     """
 
+    gt_scene = str(canonicalize_scene(gt_scene))
     gt_rs = SCENE_TO_ROAD_STRUCTURE.get(gt_scene)
     if gt_rs is None:
         return memory.copy()
@@ -442,6 +502,7 @@ def inject_phase_b_noise(
     gt_scene，no-op 返回。
     """
 
+    gt_scene = str(canonicalize_scene(gt_scene))
     p = min(1.0, max(0.0, float(prob)))
     if p <= 0.0 or rng.random() >= p:
         return memory.copy(), False
@@ -474,6 +535,7 @@ def correct_memory_after_step1_skip(
     prefetch has already updated it for the current frame.
     """
 
+    gt_scene = str(canonicalize_scene(gt_scene))
     gt_rs = get_road_structure(gt_scene)
     p = min(1.0, max(0.0, float(scene_noise_prob)))
     bucket = ROAD_STRUCTURE_TO_SCENES.get(gt_rs, [])
@@ -531,6 +593,9 @@ def should_trigger_step3(
     init，本帧不继续训练 step3，避免把刚 reset 的下层状态立刻拿去对齐当前帧事件。
     """
 
+    memory_scene_before_step2 = str(canonicalize_scene(memory_scene_before_step2))
+    memory_scene_after_step2 = str(canonicalize_scene(memory_scene_after_step2))
+    gt_scene = str(canonicalize_scene(gt_scene))
     return (
         not scene_reset_this_frame
         and memory_scene_before_step2 == gt_scene
@@ -583,6 +648,7 @@ def update_memory_after_step2(
     """
 
     mem = memory.copy()
+    student_scene = canonicalize_scene(student_scene)
     if not validate_scene(student_scene):
         return mem
     assert student_scene is not None
@@ -643,20 +709,20 @@ def scene_choices_block_for(road_structure: str, *, heading: str = "BELIEVED_ROA
     未知 road_structure 时退回全量 SCENARIO_LABELS（防御性，正常路径不会触发）。
     """
 
-    scenes = ROAD_STRUCTURE_TO_SCENES.get(road_structure, sorted(SCENARIO_LABELS))
+    scenes = ROAD_STRUCTURE_TO_SCENES.get(road_structure, sorted(CANONICAL_SCENARIO_LABELS))
     lines = [f"[SCENE_CHOICES] under {heading} = {road_structure}"]
     for name in scenes:
-        lines.append(f"- {name}: {SCENARIO_LABELS[name]}")
+        lines.append(f"- {name}: {CANONICAL_SCENARIO_LABELS[name]}")
     lines.append("[/SCENE_CHOICES]")
     return "\n".join(lines)
 
 
 def scenario_choices_block() -> str:
-    """渲染全量 42 项 SCENE_CHOICES（保留作 v2/v3 兼容 / 调试用，v4 不调用）。"""
+    """渲染全量 canonical SCENE_CHOICES（保留作 v2/v3 兼容 / 调试用，v4 不调用）。"""
 
     lines = ["[SCENE_CHOICES]"]
-    for name in sorted(SCENARIO_LABELS):
-        lines.append(f"- {name}: {SCENARIO_LABELS[name]}")
+    for name in sorted(CANONICAL_SCENARIO_LABELS):
+        lines.append(f"- {name}: {CANONICAL_SCENARIO_LABELS[name]}")
     lines.append("[/SCENE_CHOICES]")
     return "\n".join(lines)
 
@@ -875,8 +941,9 @@ def build_step2_student_prompt(memory: Memory) -> str:
 def build_step2_teacher_prompt(memory: Memory, gt_road_structure: str, gt_scene: str) -> str:
     """老师 step2 prompt：independent KEEP/CHANGE scene analysis."""
 
+    gt_scene = str(canonicalize_scene(gt_scene))
     verdict = "KEEP" if memory.scene == gt_scene else "CHANGE"
-    gt_scene_desc = SCENARIO_LABELS.get(gt_scene, gt_scene)
+    gt_scene_desc = CANONICAL_SCENARIO_LABELS.get(gt_scene, gt_scene)
 
     if verdict == "KEEP":
         verdict_line = (
@@ -907,6 +974,7 @@ def build_step2_teacher_prompt(memory: Memory, gt_road_structure: str, gt_scene:
 def build_step2_teacher_target(analysis: str, gt_scene: str) -> str:
     """把 teacher step2 分析与 GT scene 拼成 student 的 teacher-forced target。"""
 
+    gt_scene = str(canonicalize_scene(gt_scene))
     cleaned = _clean_teacher_analysis(analysis)
     if not cleaned:
         cleaned = _fallback_teacher_analysis("scene")
@@ -939,6 +1007,7 @@ def build_step3_teacher_prompt(
 ) -> str:
     """老师 step3 prompt：independent KEEP/CHANGE status/subgoal analysis."""
 
+    gt_scene = str(canonicalize_scene(gt_scene))
     status_keep = memory.status == gt_status
     subgoal_keep = memory.subgoal == gt_subgoal
     if status_keep and subgoal_keep:
@@ -1189,9 +1258,10 @@ def validate_road_structure(rs: Optional[str]) -> bool:
 
 
 def validate_scene(scene: Optional[str]) -> bool:
-    """检查 scene 是否来自全局场景白名单。"""
+    """检查 scene 是否来自 v4 canonical 场景白名单或可折叠 alias。"""
 
-    return bool(scene and scene in SCENARIO_LABELS)
+    canonical = canonicalize_scene(scene)
+    return bool(canonical and canonical in CANONICAL_SCENARIO_LABELS)
 
 
 def validate_event(scene: str, event: Optional[str]) -> bool:
@@ -1200,7 +1270,7 @@ def validate_event(scene: str, event: Optional[str]) -> bool:
     if not event:
         return False
     try:
-        return event in get_full_sequence(scene)
+        return event in get_full_sequence(str(canonicalize_scene(scene)))
     except Exception:
         return False
 
@@ -1208,7 +1278,7 @@ def validate_event(scene: str, event: Optional[str]) -> bool:
 def next_event(scene: str, status: str) -> str:
     """返回某个 status 后面的下一事件；非法 status 时回退到第一子目标。"""
 
-    seq = get_full_sequence(scene)
+    seq = get_full_sequence(str(canonicalize_scene(scene)))
     try:
         idx = seq.index(status)
     except ValueError:

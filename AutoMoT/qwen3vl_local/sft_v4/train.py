@@ -88,6 +88,7 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step3_student_prompt,
     build_step3_teacher_prompt,
     build_step3_teacher_target,
+    canonicalize_scene,
     correct_memory_after_step1_skip,
     force_memory_to_gt_chain,
     _fallback_teacher_analysis,
@@ -119,6 +120,7 @@ class EpisodeRow:
 
     run_id: str
     scenario: str
+    raw_gt_scene: str
     anchors: List[int]
     delta: int
     frame_start: int
@@ -150,15 +152,18 @@ class EpisodeDataset(Dataset):
                     continue
                 obj = json.loads(line)
                 frame_range = obj.get("frame_range") or [0, -1]
+                raw_gt_scene = str(obj.get("raw_gt_scene", obj.get("scenario", "")))
+                gt_scene = str(canonicalize_scene(obj.get("gt_scene", raw_gt_scene)))
                 self.rows.append(
                     EpisodeRow(
                         run_id=str(obj["run_id"]),
                         scenario=str(obj["scenario"]),
+                        raw_gt_scene=raw_gt_scene,
                         anchors=[int(x) for x in obj["anchors"]],
                         delta=int(obj["delta"]),
                         frame_start=int(frame_range[0]),
                         frame_end=int(frame_range[1]),
-                        gt_scene=str(obj.get("gt_scene", obj["scenario"])),
+                        gt_scene=gt_scene,
                         gt_event_sequence=[str(x) for x in obj.get("gt_event_sequence", [])],
                         run_dir=str(obj["run_dir"]),
                         split=str(obj.get("split", "train")),

@@ -182,6 +182,7 @@ def main() -> None:
         episode_meta = {
             "run_id": ep.run_id,
             "scenario": ep.scenario,
+            "raw_gt_scene": ep.raw_gt_scene,
             "anchors": [int(x) for x in ep.anchors],
             "delta": int(ep.delta),
             "frame_range": [int(ep.frame_start), int(ep.frame_end)],
@@ -370,6 +371,7 @@ def main() -> None:
                 "phase": phase,
                 "gt_road_structure": gt_road_structure,
                 "gt_scene": ep.gt_scene,
+                "raw_gt_scene": ep.raw_gt_scene,
                 "gt_status": gt_status,
                 "gt_subgoal": gt_subgoal,
                 "memory_before": memory_before,
