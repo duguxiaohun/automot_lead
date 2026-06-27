@@ -468,7 +468,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_vs_native.py
 > 项目硬性规则：禁止在命令里手写 `export CUDA_VISIBLE_DEVICES=...`。
 > 详见 CLAUDE.md / AGENTS.md §5。
 
-`inspect_teacher.py` 与 `eval.py` / `probe.py` 一样，会在 import torch 前完成 GPU 选址：
+`inspect_teacher.py` 会先运行 prompt contract 自检，再懒加载 runtime 依赖；真正加载模型时
+仍会在 import torch 前完成 GPU 选址：
 
 - **默认**（自动选址）：`python qwen3vl_local/sft_v4/inspect_teacher.py ...` ——
   脚本自动 `nvidia-smi` 找最空闲 1 张 GPU，并覆盖继承下来的 `CUDA_VISIBLE_DEVICES`；
