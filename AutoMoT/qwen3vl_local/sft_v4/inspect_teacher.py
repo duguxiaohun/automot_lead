@@ -185,7 +185,7 @@ def _assert_prompt_contracts() -> None:
         raise AssertionError("step1 KEEP teacher prompt must clarify that KEEP is not strong confirmation")
     if "A lead vehicle alone does not prove HIGHWAY_MERGE" not in step1_student:
         raise AssertionError("step1 student prompt must reject lead vehicles as standalone merge evidence")
-    if "Keep the analysis 60-120 words before the label" not in step1_student:
+    if "Keep the analysis 60-120 words" not in step1_student:
         raise AssertionError("step1 student prompt must request a bounded but non-tiny analysis")
     for heading in ("Relevant Visible Cues:", "Evidence Assessment:"):
         if heading not in step1_student:

@@ -986,8 +986,8 @@ step2/step3 老师分析。teacher 与 student 也不共享 KV，因为 LoRA on/
   [/STEP2_SCENE_CONTEXT]
   [SCENE_CHOICES] under ANSWER_ROAD_STRUCTURE = <answer_road_structure>
   [STEP2_TEACHER]
-  Use the same shared public response contract as step1.
-  Do not write the label line; the script appends SCENE.
+  Use the shared four-line analysis contract from step1.
+  Do not write any label lines; the script appends SCENE.
 ```
 
 - Teacher generate → `analysis_2_teacher`，脚本拼接 `"\nSCENE: <gt_scene>"`，
@@ -1025,8 +1025,8 @@ step2/step3 老师分析。teacher 与 student 也不共享 KV，因为 LoRA on/
   [/STEP3_EVENT_CONTEXT]
   [EVENT_OPTIONS] ...                           ← GT scene 的事件序列及描述
   [STEP3_TEACHER]
-  Use the same shared public response contract as step1.
-  Do not write label lines; the script appends STATUS and SUBGOAL.
+  Use the shared four-line analysis contract from step1.
+  Do not write any label lines; the script appends STATUS and SUBGOAL.
 ```
 
 - Teacher generate → `analysis_3_teacher`，脚本拼接
@@ -1425,7 +1425,7 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
     `GROUND_TRUTH_*` / `ANSWER_*` / `REFERENCE_*` 改写为 `the corrected ...`。
     prompt 要求按 `Scene Description:` / `Relevant Visible Cues:` /
     `Evidence Assessment:` / `Memory Judgment:` 四个公开 heading 顺序写，analysis 控制在
-    label 前约 60-120 words；
+    约 60-120 words；
     只有剥完后真为空字符串才退回四行 fallback，结构化标签仍由脚本追加。
 11. **Teacher 长度**：三步均允许完整分析（max_new=384 仅作异常生成护栏，min_new=0）。
     `repetition_penalty=1.05`（B1 拍板）已在 `_kv_generate_text` 内按 HF 风格
@@ -1684,10 +1684,9 @@ road-layout cues 时触发；雾、遮挡或远车导致证据弱但没有看见
 `Kept because ... not contradicted`，不要把弱证据写成强确认。
 远处 lead vehicle 本身不能当作 highway merge 证据，也不能凭空推断 braking/stopping/
 merging/lane-changing/yielding。CHANGE 时要求说明最清晰的矛盾 road-bucket cue；如果矛盾
-证据弱，应承认 correction weakly grounded，不能编造反证。analysis 统一控制在 label 前约
-60-120 words；所有 label 必须单独成行。
-老师和学生共用同一个
-public response contract：都输出学生视角四行 plain-text analysis：
+证据弱，应承认 correction weakly grounded，不能编造反证。analysis 统一控制在约
+60-120 words；所有学生输出/脚本追加的 label 必须单独成行。
+老师和学生共用同一个四行 analysis contract：
 `Scene Description:`、`Relevant Visible Cues:`、
 `Evidence Assessment:`、`Memory Judgment:`；区别只是学生 prompt 要求自己写
 `ROAD_STRUCTURE: <name>`，老师 prompt 要求不要写标签，标签由 `build_step1_teacher_target` 追加。

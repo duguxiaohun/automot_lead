@@ -190,10 +190,11 @@ def _check_student_prompt_contracts() -> None:
     assert "ROAD_STRUCTURE: <name>" in step1
     assert "Then write the label line(s) yourself" in step1
     assert "[STEP1_TASK]" in step1
-    assert "Change a believed label only when clear visible evidence contradicts it" in step1
+    assert "change or advance a label only when clear visible evidence supports the update" in step1
     assert "not contradicted" in step1
     assert "A lead vehicle alone does not prove HIGHWAY_MERGE" in step1
-    assert "Keep the analysis 60-120 words before the label" in step1
+    assert "Keep the analysis 60-120 words" in step1
+    assert "Final label line" not in step1
     assert "BELIEVED_SCENE" not in step1
     assert "BELIEVED_STATUS" not in step1
     assert "BELIEVED_SUBGOAL" not in step1
@@ -201,8 +202,8 @@ def _check_student_prompt_contracts() -> None:
     assert "GROUND_TRUTH_" not in step1
     assert "REFERENCE_" not in step1
     assert all(h in step1_teacher for h in shared_headings)
-    assert "ROAD_STRUCTURE: <name>" in step1_teacher
-    assert "Do not write label line(s)" in step1_teacher
+    assert "ROAD_STRUCTURE: <name>" not in step1_teacher
+    assert "Do not write any label lines" in step1_teacher
     assert "The verdict controls memory update only" in step1_teacher
     assert "not contradicted" in step1_teacher
     assert "correction is weakly grounded" in step1_teacher
@@ -221,9 +222,10 @@ def _check_student_prompt_contracts() -> None:
     assert "GROUND_TRUTH_" not in step2
     assert "REFERENCE_" not in step2
     assert all(h in step2_teacher for h in shared_headings)
-    assert "SCENE: <scenario_name>" in step2_teacher
-    assert "Do not write label line(s)" in step2_teacher
+    assert "SCENE: <scenario_name>" not in step2_teacher
+    assert "Do not write any label lines" in step2_teacher
     assert "Then write the label line(s) yourself" not in step2_teacher
+    assert "stationary or slow-moving" in step2_teacher
 
     step3 = build_step3_student_prompt(memory)
     step3_teacher = build_step3_teacher_prompt(
@@ -246,10 +248,11 @@ def _check_student_prompt_contracts() -> None:
     assert "GROUND_TRUTH_" not in step3
     assert "REFERENCE_" not in step3
     assert all(h in step3_teacher for h in shared_headings)
-    assert "STATUS: <event_name>" in step3_teacher
-    assert "SUBGOAL: <event_name>" in step3_teacher
-    assert "Do not write label line(s)" in step3_teacher
+    assert "STATUS: <event_name>" not in step3_teacher
+    assert "SUBGOAL: <event_name>" not in step3_teacher
+    assert "Do not write any label lines" in step3_teacher
     assert "Then write the label line(s) yourself" not in step3_teacher
+    assert "retained next objective" in step3_teacher
 
 
 def _check_delta_formula_allows_zero() -> None:
