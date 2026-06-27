@@ -1,8 +1,8 @@
 """SFT v4 老师输出抽检脚本。
 
-目的：随机采样若干条 episode 的若干帧，把"喂给老师的 prompt + 图像"和"老师生成
-的内容"按 ``system`` / ``user`` / ``assistant`` 角色完整打印出来，便于用户人工评估
-老师推理是否合理，再针对性迭代 prompt 设计。
+目的：随机采样若干条 episode 的若干帧，把"喂给老师的私有 prompt + 图像"、
+"学生真实可见 prompt"、"adapter-enabled 学生初始自由输出"和"老师生成的监督目标"
+分块打印出来，便于用户人工评估老师推理、学生 prompt 暴露面和初始策略行为是否合理。
 
 老师路径与 collector 完全一致：``load_model_with_lora`` 拿到 PEFT bundle 后，全程
 ``model.disable_adapter()`` 绕开 LoRA delta，等价于纯 frozen base
@@ -108,6 +108,7 @@ from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
+    parse_output,
 )
 from qwen3vl_local.sft_v4.train import (  # noqa: E402
     EpisodeDataset,
@@ -120,6 +121,8 @@ from qwen3vl_local.sft_v4.train import (  # noqa: E402
     _is_phase_a,
     _load_goal_xy,
     _load_images,
+    _student_generate_kv,
+    _student_start_state,
     _teacher_generate_kv,
     _teacher_start_state,
 )
@@ -169,6 +172,20 @@ def _assert_prompt_contracts() -> None:
     step1_prompt = build_step1_teacher_prompt(mem, gt_rs)
     if "[STEP1_ROAD_CONTEXT]" not in step1_prompt or "[ROAD_STRUCTURE_CHOICES]" not in step1_prompt:
         raise AssertionError("step1 teacher prompt must include STEP1_ROAD_CONTEXT and ROAD_STRUCTURE_CHOICES")
+    step1_student = build_step1_user_prompt(4, mem)
+    if "[STEP1_ROAD_MEMORY]" not in step1_student:
+        raise AssertionError("step1 student prompt must include STEP1_ROAD_MEMORY")
+    forbidden_step1_fields = ("BELIEVED_SCENE", "BELIEVED_STATUS", "BELIEVED_SUBGOAL", "ANSWER_")
+    if any(token in step1_student for token in forbidden_step1_fields):
+        raise AssertionError("step1 student prompt must be road-only and must not contain private answer fields")
+    for student_prompt in (
+        step1_student,
+        build_step2_student_prompt(mem),
+        build_step3_student_prompt(mem),
+    ):
+        forbidden_private = ("ANSWER_", "GROUND_TRUTH_", "REFERENCE_")
+        if any(token in student_prompt for token in forbidden_private):
+            raise AssertionError("student-facing prompts must not contain teacher-private answer fields")
     if not should_trigger_step2(memory_road_structure_after_step1=gt_rs, gt_road_structure=gt_rs):
         raise AssertionError("should_trigger_step2 must fire when layer-1 matches GT")
     if should_trigger_step2(memory_road_structure_after_step1=wrong_rs, gt_road_structure=gt_rs):
@@ -308,6 +325,32 @@ def _memory_as_dict(memory: Memory) -> Dict[str, Any]:
     }
 
 
+def _student_output_record(bundle: Any, text: str) -> Dict[str, Any]:
+    """Build a compact report record for a student free-generation output."""
+
+    parsed = parse_output(text or "")
+    return {
+        "raw": text or "",
+        "token_count": _count_tokens(bundle, text or ""),
+        "parsed": parsed,
+        "note": (
+            "Adapter-enabled student free generation from the displayed student-facing prompt; "
+            "this text is diagnostic only and is not the supervised target."
+        ),
+    }
+
+
+def _empty_student_output() -> Dict[str, Any]:
+    """Return the report shape used when student free generation is disabled/skipped."""
+
+    return {
+        "raw": "",
+        "token_count": 0,
+        "parsed": {"road_structure": None, "scene": None, "status": None, "subgoal": None},
+        "note": "Student free generation was skipped for this step.",
+    }
+
+
 def _run_teacher_for_frame(
     *,
     bundle: Any,
@@ -316,6 +359,7 @@ def _run_teacher_for_frame(
     memory: Memory,
     mode_name: str,
     image_paths: List[str],
+    generate_student_output: bool,
 ) -> Dict[str, Any]:
     """在单帧、单 memory 配置下跑老师完整三步，返回结构化结果。
 
@@ -414,6 +458,44 @@ def _run_teacher_for_frame(
         else memory.copy()
     )
 
+    student_step1 = _empty_student_output()
+    student_step2 = _empty_student_output()
+    student_step3 = _empty_student_output()
+    if generate_student_output:
+        student_was_training = bool(teacher_model.training)
+        teacher_model.eval()
+        try:
+            # The student branch intentionally keeps the adapter enabled. This mirrors the
+            # collector's policy rollout path, but does not parse/update memory for this
+            # fixed-branch teacher inspection report.
+            step1_student_msgs = _build_messages_with_images(user_text=step1_student_prompt, images=images)
+            student_step1_state = _student_start_state(bundle, step1_student_msgs)
+            raw_student_step1, student_step1_state = _student_generate_kv(
+                bundle,
+                student_step1_state,
+                TEACHER_MAX_NEW_TOKENS_STEP1,
+            )
+            student_step1 = _student_output_record(bundle, raw_student_step1)
+            if step2_fired and step2_student_prompt:
+                student_step2_state = _append_user_turn(bundle, student_step1_state, step2_student_prompt)
+                raw_student_step2, student_step2_state = _student_generate_kv(
+                    bundle,
+                    student_step2_state,
+                    TEACHER_MAX_NEW_TOKENS_STEP2,
+                )
+                student_step2 = _student_output_record(bundle, raw_student_step2)
+                if step3_fired and step3_student_prompt:
+                    student_step3_state = _append_user_turn(bundle, student_step2_state, step3_student_prompt)
+                    raw_student_step3, _ = _student_generate_kv(
+                        bundle,
+                        student_step3_state,
+                        TEACHER_MAX_NEW_TOKENS_STEP3,
+                    )
+                    student_step3 = _student_output_record(bundle, raw_student_step3)
+        finally:
+            if student_was_training:
+                teacher_model.train()
+
     verdict_step1 = "KEEP" if memory.road_structure == gt_road_structure else "CHANGE"
     verdict_step2 = "SKIPPED" if not step2_fired else ("KEEP" if memory.scene == ep.gt_scene else "CHANGE")
     if step3_fired:
@@ -447,6 +529,7 @@ def _run_teacher_for_frame(
             "token_count": _count_tokens(bundle, raw_step1),
             "supervised_target": target1,
             "student_prompt": step1_student_prompt,
+            "student_initial_output": student_step1,
             "student_memory_before": _memory_as_dict(memory),
             "student_memory_after_supervised_label": _memory_as_dict(step1_after_target),
             "student_update_note": (
@@ -464,6 +547,7 @@ def _run_teacher_for_frame(
             "token_count": _count_tokens(bundle, raw_step2),
             "supervised_target": target2,
             "student_prompt": step2_student_prompt,
+            "student_initial_output": student_step2,
             "student_memory_before": _memory_as_dict(memory),
             "student_memory_after_supervised_label": _memory_as_dict(step2_after_target),
             "student_update_note": (
@@ -481,6 +565,7 @@ def _run_teacher_for_frame(
             "token_count": _count_tokens(bundle, raw_step3),
             "supervised_target": target3,
             "student_prompt": step3_student_prompt,
+            "student_initial_output": student_step3,
             "student_memory_before": _memory_as_dict(memory),
             "student_memory_after_supervised_label": _memory_as_dict(step3_after_target),
             "student_update_note": (
@@ -541,18 +626,27 @@ def _format_student_view(step: Dict[str, Any]) -> str:
         return ""
     before = json.dumps(step.get("student_memory_before", {}), ensure_ascii=False)
     after = json.dumps(step.get("student_memory_after_supervised_label", {}), ensure_ascii=False)
+    student_initial = step.get("student_initial_output") or _empty_student_output()
+    parsed = json.dumps(student_initial.get("parsed", {}), ensure_ascii=False)
+    student_raw = (
+        f"token_count={student_initial.get('token_count', 0)}\n"
+        f"parsed={parsed}\n"
+        f"note={student_initial.get('note', '')}\n\n"
+        f"{student_initial.get('raw', '').rstrip()}"
+    ).rstrip()
     transition = (
         f"memory_before={before}\n"
         f"memory_after_if_supervised_label={after}\n"
         f"note={step.get('student_update_note', '')}"
     )
     return (
-        _format_md_block("student-facing user prompt", step["student_prompt"])
+        _format_md_block("STUDENT-FACING user prompt (no teacher-private answer fields)", step["student_prompt"])
+        + _format_md_block("STUDENT INITIAL OUTPUT (adapter enabled, diagnostic only)", student_raw)
         + _format_md_block(
-            "student supervised target (cleaned analysis + scripted label)",
+            "STUDENT SUPERVISED TARGET (teacher analysis cleaned + scripted label)",
             step.get("supervised_target", ""),
         )
-        + _format_md_block("student memory transition if supervised label is emitted", transition)
+        + _format_md_block("STUDENT MEMORY TRANSITION if supervised label is emitted", transition)
     )
 
 
@@ -583,6 +677,12 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
     lines.append(
         "Mode sections are ordered by the state-machine path. Default modes are "
         f"{', '.join(DEFAULT_INSPECT_MODE_ORDER)}; scene_change_cross_rs is stress-only.\n"
+    )
+    lines.append(
+        "Block naming convention: TEACHER-PRIVATE prompts may contain ANSWER_* fields "
+        "and are never shown to the student; STUDENT-FACING prompts are the actual "
+        "adapter-enabled policy prompts and should contain no private answer fields. "
+        "STUDENT INITIAL OUTPUT is free generation for diagnosis, not the supervised target.\n"
     )
 
     for run_id, rows in by_episode.items():
@@ -633,9 +733,9 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                 f"uses_memory={s1.get('uses_memory_block', False)}, "
                 f"teacher tokens: {s1['token_count']})\n"
             )
-            lines.append(_format_md_block("system", s1["system_prompt"]))
-            lines.append(_format_md_block("user (with 4 stitched RGB images attached)", s1["user_prompt"]))
-            lines.append(_format_md_block("assistant — teacher raw output", s1["teacher_raw"]))
+            lines.append(_format_md_block("TEACHER-PRIVATE system prompt", s1["system_prompt"]))
+            lines.append(_format_md_block("TEACHER-PRIVATE user prompt (with 4 stitched RGB images attached)", s1["user_prompt"]))
+            lines.append(_format_md_block("TEACHER-PRIVATE assistant raw output", s1["teacher_raw"]))
             lines.append(_format_student_view(s1))
 
             # ---- step2 ----
@@ -646,8 +746,8 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                     f"(source={s2.get('verdict_source', 'scripted_memory_vs_gt')}, "
                     f"teacher tokens: {s2['token_count']})\n"
                 )
-                lines.append(_format_md_block("user (fresh teacher dialog with 4 images)", s2["user_prompt"]))
-                lines.append(_format_md_block("assistant — teacher raw output", s2["teacher_raw"]))
+                lines.append(_format_md_block("TEACHER-PRIVATE user prompt (fresh dialog with 4 images)", s2["user_prompt"]))
+                lines.append(_format_md_block("TEACHER-PRIVATE assistant raw output", s2["teacher_raw"]))
                 lines.append(_format_student_view(s2))
             else:
                 lines.append(
@@ -663,8 +763,8 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                     f"(source={s3.get('verdict_source', 'scripted_memory_vs_gt')}, "
                     f"teacher tokens: {s3['token_count']})\n"
                 )
-                lines.append(_format_md_block("user (fresh teacher dialog with 4 images)", s3["user_prompt"]))
-                lines.append(_format_md_block("assistant — teacher raw output", s3["teacher_raw"]))
+                lines.append(_format_md_block("TEACHER-PRIVATE user prompt (fresh dialog with 4 images)", s3["user_prompt"]))
+                lines.append(_format_md_block("TEACHER-PRIVATE assistant raw output", s3["teacher_raw"]))
                 lines.append(_format_student_view(s3))
             else:
                 lines.append(
@@ -711,6 +811,12 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--seed", type=int, default=20260624)
     p.add_argument("--device", type=str, default="auto", help="cuda:0 / cpu / auto；auto 时由 _maybe_set_idle_gpu_mask 选址")
+    p.add_argument(
+        "--student-output",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="是否在报告中额外跑 adapter-enabled student free generation；默认开启，可用 --no-student-output 加速",
+    )
     p.add_argument("--lora-rank", type=int, default=16)
     p.add_argument("--lora-alpha", type=int, default=32)
     p.add_argument("--lora-dropout", type=float, default=0.1)
@@ -822,6 +928,7 @@ def main() -> None:
                         memory=memory,
                         mode_name=mode_name,
                         image_paths=image_paths,
+                        generate_student_output=bool(args.student_output),
                     )
                 except Exception as exc:
                     print(

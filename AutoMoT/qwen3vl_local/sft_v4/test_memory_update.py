@@ -32,6 +32,9 @@ from qwen3vl_local.sft_v4.prompts import (
     Memory,
     ROAD_STRUCTURE_TO_SCENES,
     SCENE_TO_ROAD_STRUCTURE,
+    build_step1_user_prompt,
+    build_step2_student_prompt,
+    build_step3_student_prompt,
     first_subgoal,
     correct_memory_after_step1_skip,
     force_memory_to_gt_chain,
@@ -122,6 +125,55 @@ def _check_step1_update_and_trigger() -> None:
     ignored = update_memory_after_step1(base, student_road_structure="NOT_A_BUCKET")
     assert ignored.road_structure == base.road_structure
     assert ignored.scene == base.scene
+
+
+def _check_student_prompt_contracts() -> None:
+    """Student-facing prompt contract shared by train/collect/eval/probe/learn.
+
+    All runtime paths import the same builders from prompts.py, so this pure-Python
+    check is the guardrail for prompt drift: step1 is road-only; step2/3 carry full
+    memory; no student prompt exposes teacher-private answer fields.
+    """
+
+    scene = "Accident"
+    memory = Memory(
+        road_structure=get_road_structure(scene),
+        scene=scene,
+        status=initial_event(scene),
+        subgoal=first_subgoal(scene),
+        ego_to_goal_x=12.5,
+        ego_to_goal_y=-3.0,
+    )
+
+    step1 = build_step1_user_prompt(4, memory=memory)
+    assert "[STEP1_ROAD_MEMORY]" in step1
+    assert "BELIEVED_ROAD_STRUCTURE" in step1
+    assert "EGO_TO_GOAL_XY" in step1
+    assert "BELIEVED_SCENE" not in step1
+    assert "BELIEVED_STATUS" not in step1
+    assert "BELIEVED_SUBGOAL" not in step1
+    assert "ANSWER_" not in step1
+    assert "GROUND_TRUTH_" not in step1
+    assert "REFERENCE_" not in step1
+
+    step2 = build_step2_student_prompt(memory)
+    assert "[MEMORY]" in step2
+    assert "BELIEVED_SCENE" in step2
+    assert "BELIEVED_STATUS" in step2
+    assert "BELIEVED_SUBGOAL" in step2
+    assert "ANSWER_" not in step2
+    assert "GROUND_TRUTH_" not in step2
+    assert "REFERENCE_" not in step2
+
+    step3 = build_step3_student_prompt(memory)
+    assert "[MEMORY]" in step3
+    assert "BELIEVED_SCENE" in step3
+    assert "BELIEVED_STATUS" in step3
+    assert "BELIEVED_SUBGOAL" in step3
+    assert "[EVENT_OPTIONS]" in step3
+    assert "ANSWER_" not in step3
+    assert "GROUND_TRUTH_" not in step3
+    assert "REFERENCE_" not in step3
 
 
 def _check_delta_formula_allows_zero() -> None:
@@ -415,6 +467,7 @@ def main() -> None:
     """跑全部状态机断言，全部通过则打印 ok=True。"""
 
     _check_init_probability_modes()
+    _check_student_prompt_contracts()
     _check_delta_formula_allows_zero()
     _check_step1_update_and_trigger()
     _check_scene_flip_branches()
@@ -430,4 +483,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

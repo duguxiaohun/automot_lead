@@ -14,7 +14,9 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
 scene，按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STATUS/SUBGOAL`
 回 init。learner rank0 每 1000 step 发布一次 LoRA snapshot 给 collectors。
 
-当前 prompt 口径：学生仍是三步串行对话，`[MEMORY]` 每层一行并在 step1/2/3 后自更新。
+当前 prompt 口径：学生仍是三步串行对话，但 step1 只读 road-only
+`[STEP1_ROAD_MEMORY]`（`BELIEVED_ROAD_STRUCTURE` + `EGO_TO_GOAL_XY`），不提前暴露
+`BELIEVED_SCENE/STATUS/SUBGOAL`；step2/step3 才读完整 `[MEMORY]`，并在每步后自更新。
 老师三步都是 fresh dialog，不复用上一部 teacher KV，并且每步重新吃 4 张 RGB。老师可以看
 answer 字段来生成 hindsight 分析，但 **student-facing analysis 必须写成学生视角**：只说
 believed memory 为什么 fit / should change、哪些可见线索支持 corrected label，不允许把
@@ -391,11 +393,13 @@ python qwen3vl_local/sft_v4/test_gt_leak_filter.py
 python qwen3vl_local/sft_v4/check_loss_mask.py
 ```
 
-`test_memory_update.py` 现在同时覆盖三层 memory 状态机和 replay schema v2 的关键门控：
-step2 未触发时允许没有 step2 target；step2 已触发时必须保存 `memory_after_step1`，
-否则 learner 无法按 collector 当时的 `ROAD_STRUCTURE` 桶重放收窄后的 `SCENE_CHOICES`。
-它也覆盖 skip 后下一帧纠偏：scene 只能回 GT 或同桶小扰动，status/subgoal 必须跟随
-所选 scene 回 init。
+`test_memory_update.py` 现在同时覆盖三层 memory 状态机、student-facing prompt 契约和
+replay schema v2 的关键门控：step1 prompt 必须是 road-only
+`[STEP1_ROAD_MEMORY]`，不得含 `BELIEVED_SCENE/STATUS/SUBGOAL` 或任何 `ANSWER_*`
+私有字段；step2/3 prompt 才读完整 `[MEMORY]`。step2 未触发时允许没有 step2 target；
+step2 已触发时必须保存 `memory_after_step1`，否则 learner 无法按 collector 当时的
+`ROAD_STRUCTURE` 桶重放收窄后的 `SCENE_CHOICES`。它也覆盖 skip 后下一帧纠偏：
+scene 只能回 GT 或同桶小扰动，status/subgoal 必须跟随所选 scene 回 init。
 
 KV 复用测试会加载本地 Qwen 权重；有模型时再跑：
 
@@ -439,7 +443,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/test_kv_vs_native.py
   `model.disable_adapter()` → `_teacher_generate_kv`（不强制最少生成长度）
   → 全程 `torch.no_grad()`，等价于 frozen base Qwen3-VL-4B-Instruct；
 - 逐帧记录 teacher-private prompt/raw output，同时一对一写出 student-facing prompt、
-  cleaned supervised target，以及“如果学生输出该监督标签，memory 会如何更新”的 before/after。
+  adapter-enabled student 初始自由输出、cleaned supervised target，以及“如果学生输出该监督标签，
+  memory 会如何更新”的 before/after。
 
 ### 7.2 GPU 选址（与训练入口一致）
 
@@ -507,6 +512,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 | `--modes` | `all_keep,rs_change,scene_change_same_rs,event_change` | 启用的 memory 模式；`scene_change_cross_rs` 需显式追加 |
 | `--seed` | 20260624 | 抽样与随机 wrong-scene 选择的随机种子 |
 | `--device` | `auto` | `auto` / `cuda:0` / `cpu` |
+| `--student-output` | 开启 | 报告中额外跑 adapter-enabled student free generation；可用 `--no-student-output` 加速 |
 | `--lora-*` | 与训练默认对齐 | 仅为加载 PEFT bundle，全程 disable_adapter |
 
 ### 7.7 产物
@@ -523,19 +529,16 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
   ### Mode <all_keep|rs_change|scene_change_same_rs|event_change|scene_change_cross_rs>
       [当前 memory 字段]
   #### Step 1 — road-structure verdict <KEEP|CHANGE> (tokens: N)
-      [ROLE = system]      ... system prompt 全文
-      [ROLE = user (with 4 stitched RGB images attached)] ... step1 user prompt
-      [ROLE = assistant — teacher raw output]             ... 老师真实输出
-      [ROLE = student-facing user prompt]                 ... 学生真实 prompt
-      [ROLE = student supervised target (...)]            ... 清洗后的 analysis + 脚本标签
-      [ROLE = student memory transition ...]              ... 监督标签命中时的 memory before/after
+      [ROLE = TEACHER-PRIVATE system prompt]              ... system prompt 全文
+      [ROLE = TEACHER-PRIVATE user prompt (...)]          ... 老师私有 prompt（可含 ANSWER_*）
+      [ROLE = TEACHER-PRIVATE assistant raw output]       ... 老师真实输出
+      [ROLE = STUDENT-FACING user prompt (...)]           ... 学生真实 prompt（不含 ANSWER_*）
+      [ROLE = STUDENT INITIAL OUTPUT (...)]               ... 学生当前自由生成，仅诊断
+      [ROLE = STUDENT SUPERVISED TARGET (...)]            ... 清洗后的 analysis + 脚本标签
+      [ROLE = STUDENT MEMORY TRANSITION ...]              ... 监督标签命中时的 memory before/after
   #### Step 2 — scene verdict <KEEP|CHANGE> (tokens: N)
       （或 "Step 2 — skipped (memory.road_structure != gt_road_structure)"）
-      [ROLE = user (fresh teacher dialog with 4 images)]
-      [ROLE = assistant — teacher raw output]
-      [ROLE = student-facing user prompt]
-      [ROLE = student supervised target (...)]
-      [ROLE = student memory transition ...]
+      [同样分 TEACHER-PRIVATE / STUDENT-FACING / STUDENT INITIAL OUTPUT / SUPERVISED TARGET]
   #### Step 3 — status/subgoal verdict <KEEP|CHANGE> (tokens: N)
       （或 "Step 3 — skipped (step2 did not fire or memory.scene != gt_scene)"）
   ```

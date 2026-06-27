@@ -81,9 +81,9 @@ def main() -> None:
 
     # 构造纯色占位图像
     imgs = [Image.new("RGB", (1152, 384), color=(20, 20, 20)) for _ in range(4)]
-    step1_user = build_step1_user_prompt(4)
-    assistant1 = "I see a road scene from the camera sequence."
     memory = init_memory(run_id="run_a", sub_scenario_id="sub_0", ego_to_goal_x=1.0, ego_to_goal_y=-2.0)
+    step1_user = build_step1_user_prompt(4, memory=memory)
+    assistant1 = f"I see a road scene from the camera sequence.\nROAD_STRUCTURE: {memory.road_structure}"
     step2_user = build_step2_student_prompt(memory)
     assistant2 = "The current scene is consistent with a traffic accident.\nSCENE: Accident"
     memory_after_step2 = update_memory_after_step2(memory, student_scene="Accident")
@@ -120,4 +120,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
