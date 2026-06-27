@@ -248,6 +248,22 @@ class Memory:
             "[/MEMORY]"
         )
 
+    def format_step1_student_text(self) -> str:
+        """Render the student-visible road-only memory for step1.
+
+        Step1 should decide only the layer-1 road structure. Keeping scene/status/subgoal
+        out of this prompt prevents lower-layer guesses from acting as accidental hints
+        before step2/step3 have earned their trigger gates.
+        """
+
+        rs_desc = ROAD_STRUCTURE_LABELS.get(self.road_structure, self.road_structure)
+        return (
+            "[STEP1_ROAD_MEMORY]\n"
+            f"BELIEVED_ROAD_STRUCTURE={self.road_structure} ({rs_desc})\n"
+            f"EGO_TO_GOAL_XY=({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m\n"
+            "[/STEP1_ROAD_MEMORY]"
+        )
+
     def format_step1_road_text(self, gt_road_structure: str) -> str:
         """Render the road-only context used by the step1 teacher prompt."""
 
@@ -670,7 +686,8 @@ def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -
     """学生 step1 prompt（D26）。
 
     新口径（生产路径，``memory`` 必传）：
-      - 2 句"不引用 memory"的视觉描述（保留 v3 纯视觉接地任务）；
+      - 只读 layer-1 road-only memory，不提前暴露 scene/status/subgoal；
+      - 2 句视觉描述（保留 v3 纯视觉接地任务）；
       - 1 句对 believed road structure 的 KEEP/CHANGE 论证；
       - 一行 ``ROAD_STRUCTURE: <name>``。
 
@@ -684,7 +701,7 @@ def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -
             "Describe the road layout and nearby actors."
         )
     return (
-        f"{memory.format_text()}\n\n"
+        f"{memory.format_step1_student_text()}\n\n"
         f"{road_structure_choices_block()}\n\n"
         f"[STEP1]\n"
         f"{image_count} images are ordered oldest to newest; the last image is now.\n"

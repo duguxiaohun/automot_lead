@@ -1201,6 +1201,8 @@ teacher-forced loss + backward，避免在 DDP 主循环里插入额外生成或
   位置切分逻辑。
 - `test_memory_update.py`：纯 Python 模拟外循环，覆盖：
   - `init_memory` 的 `P_INIT_CORRECT` 联合概率初始化（默认 0.7，同时覆盖 `0.0` / `1.0` 边界）；
+  - student-facing prompt 契约：step1 只读 road-only `[STEP1_ROAD_MEMORY]`，不暴露
+    `BELIEVED_SCENE/STATUS/SUBGOAL` 或 `ANSWER_*`；step2/3 才读完整 `[MEMORY]`；
   - Phase A `update_memory_after_step2` 的 4 种翻转组合；
   - Phase B 弱纠偏（D2 / D22 / D27 拍板）：road_structure / scene / status /
     subgoal 分层拉回 GT chain；已等于 GT 的字段保持 noop；
@@ -1594,7 +1596,7 @@ status/subgoal 重置成新 scene 的 init + first subgoal。
 
 | Step | 旧任务 | v4 定稿任务 |
 |---|---|---|
-| 1 | 仅描述视觉，禁 memory / 禁标签 | 学生读完整 memory，描述视觉 + 选 ROAD_STRUCTURE；老师开启 fresh dialog，只读 road-only answer context（`BELIEVED_ROAD_STRUCTURE` / `EGO_TO_GOAL_XY` / `ANSWER_ROAD_STRUCTURE`）并输出学生视角 4 行结构分析；脚本追加 `ROAD_STRUCTURE: <name>` |
+| 1 | 仅描述视觉，禁 memory / 禁标签 | 学生只读 road-only memory（`BELIEVED_ROAD_STRUCTURE` / `EGO_TO_GOAL_XY`），描述视觉 + 选 ROAD_STRUCTURE；老师开启 fresh dialog，只读 road-only answer context（`BELIEVED_ROAD_STRUCTURE` / `EGO_TO_GOAL_XY` / `ANSWER_ROAD_STRUCTURE`）并输出学生视角 4 行结构分析；脚本追加 `ROAD_STRUCTURE: <name>` |
 | 2 | 读 memory + 完整 42 行 SCENE_CHOICES → 输出 SCENE | 学生读 memory + 预测 road 桶下 layer-2 候选；老师开启 fresh dialog，读 `ANSWER_ROAD_STRUCTURE`、`BELIEVED_SCENE`、`ANSWER_SCENE` 并分析 scene keep/change；脚本追加 `SCENE: <gt>` |
 | 3 | 不变 | 学生串行读 memory + event options；老师开启 fresh dialog，读 answer road/scene、believed/answer status-subgoal 并分析 event keep/change；脚本追加 `STATUS/SUBGOAL` |
 
@@ -1603,7 +1605,10 @@ status/subgoal 重置成新 scene 的 init + first subgoal。
 学生 prompt 结构如下（真实文本以 `prompts.py` 为准）：
 
 ```
-{memory.format_text()}
+[STEP1_ROAD_MEMORY]
+BELIEVED_ROAD_STRUCTURE=<memory.road_structure> (...)
+EGO_TO_GOAL_XY=(..., ...) m
+[/STEP1_ROAD_MEMORY]
 
 [ROAD_STRUCTURE_CHOICES]
 - JUNCTION: ...
@@ -1622,7 +1627,7 @@ label line by copying one option name verbatim:
 ROAD_STRUCTURE: <name>
 ```
 
-老师 step1 prompt 与学生 prompt 分离：不再喂完整 `[MEMORY]`，只喂
+老师 step1 prompt 与学生 prompt 分离：老师也不喂完整 `[MEMORY]`，只喂
 `[STEP1_ROAD_CONTEXT]`，其中包含 `BELIEVED_ROAD_STRUCTURE`、`EGO_TO_GOAL_XY`
 和 `ANSWER_ROAD_STRUCTURE`，再列出 6 个 road structure 选项。context 中 road label
 已由 `ROAD_STRUCTURE_CHOICES` 解释，因此只写 token，不重复括号解释。KEEP 时要求
@@ -1799,10 +1804,10 @@ student-facing 结构，最后一行 `Memory Judgment` 专门判断 status/subgo
 5. `[x] sft_v4/inspect_teacher.py`：默认覆盖 4 种常规 memory 模式
    （`all_keep` / `rs_change` / `scene_change_same_rs` / `event_change`），并保留
    `scene_change_cross_rs` 作为显式 stress-only 模式；报告同时写 teacher-private
-   raw 与 student-facing prompt/target/memory transition。
+   raw、student-facing prompt、adapter-enabled student 初始输出、target/memory transition。
 6. `[x] sft_v4/test_memory_update.py` / `test_gt_leak_filter.py` / `check_loss_mask.py`：新增
    road_structure 字段测试 + 联合初始化测试；`test_gt_leak_filter.py` 仅作为 legacy no-op 兼容测试；
-   `test_memory_update.py` 额外覆盖
+   `test_memory_update.py` 额外覆盖 student-facing prompt 契约与
    replay schema v2 的 step2 门控契约（step2-skip 合法、step2-fired 必须带
    `memory_after_step1`）。
 7. `[x] SFT_V4_RUN.md` §1 / §3 / §7 同步更新 memory 字段渲染示例、

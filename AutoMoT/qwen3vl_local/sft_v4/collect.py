@@ -286,6 +286,8 @@ def collect_episode(
         gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
 
         # ============ Step 1：视觉描述 + ROAD_STRUCTURE 判定 ============
+        # 与 train/eval/probe/learner 共用 prompts.py：step1 学生只读 road-only
+        # memory，step2/3 才读完整 [MEMORY]。
         step1_student_user = build_step1_user_prompt(len(images), memory=memory_before)
         step1_teacher_user_text = build_step1_teacher_prompt(memory_before, gt_road_structure)
         step1_msgs_student = _build_messages_with_images(user_text=step1_student_user, images=images)

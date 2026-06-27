@@ -897,7 +897,8 @@ def iter_episode_loss_packs(
         memory_before_step1 = memory.copy()
 
         # ============ Step 1：视觉描述 + ROAD_STRUCTURE 判定 ============
-        # 学生 step1 现在吃 memory（D26：视觉描述 + verdict 论证 + 标签）；老师同步。
+        # 学生 step1 只吃 road-only memory（BELIEVED_ROAD_STRUCTURE + goal），不提前暴露
+        # scene/status/subgoal；完整 [MEMORY] 从 step2/3 才进入。
         step1_student_user = build_step1_user_prompt(len(images), memory=memory_before_step1)
         step1_teacher_user_text = build_step1_teacher_prompt(memory_before_step1, gt_road_structure)
         step1_msgs_student = _build_messages_with_images(user_text=step1_student_user, images=images)
