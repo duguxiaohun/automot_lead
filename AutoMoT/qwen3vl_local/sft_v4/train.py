@@ -866,12 +866,24 @@ def iter_episode_loss_packs(
         phase_a = _is_phase_a(ep, frame)
         skip_correction_applied = False
         skip_correction_scene_noisy = False
+        road_structure_reset_this_frame = False
+        scene_reset_this_frame = False
         if not phase_a:
             # Phase B：每帧开始三层弱纠偏（D23 + D27 配套）。
-            # 先拉回 layer-1=GT 桶（保证 step1 必然命中、step2/step3 触发率不被腰斩），
-            # 再拉回 scene=GT。status/subgoal 没换 scene 时跨帧延续。
+            # 先拉回 layer-1=GT 桶，再拉回 scene=GT。status/subgoal 没换 scene 时跨帧
+            # 延续；若本帧真的发生 reset，则只修上层，不继续下钻到刚 reset 的下层任务。
+            before_force_rs = memory.road_structure
+            before_force_scene = memory.scene
             memory = force_memory_to_gt_chain(
                 memory, gt_road_structure=gt_road_structure, gt_scene=ep.gt_scene
+            )
+            road_structure_reset_this_frame = (
+                road_structure_reset_this_frame
+                or memory.road_structure != before_force_rs
+            )
+            scene_reset_this_frame = (
+                scene_reset_this_frame
+                or memory.scene != before_force_scene
             )
         if need_skip_correction:
             # Previous frame failed layer-1 and skipped step2/3. Repair once
@@ -883,6 +895,8 @@ def iter_episode_loss_packs(
                 rng=skip_rng,
                 scene_noise_prob=skip_noise_prob,
             )
+            road_structure_reset_this_frame = True
+            scene_reset_this_frame = True
             skip_correction_applied = True
             need_skip_correction = False
 
@@ -947,10 +961,12 @@ def iter_episode_loss_packs(
         memory = update_memory_after_step1(memory, student_road_structure=pred1.get("road_structure"))
         rs_flip = memory.road_structure != old_rs
 
-        # ============ 触发链门 1：step1 layer-1 必须命中 GT 桶才进 step2/3 ============
+        # ============ 触发链门 1：layer-1 前后都稳定为 GT 才进 step2 ============
         step2_ran = should_trigger_step2(
+            memory_road_structure_before_step1=old_rs,
             memory_road_structure_after_step1=memory.road_structure,
             gt_road_structure=gt_road_structure,
+            road_structure_reset_this_frame=road_structure_reset_this_frame,
         )
         zero = step1_parts["analysis"] * 0.0
         a2_loss = zero
@@ -998,7 +1014,7 @@ def iter_episode_loss_packs(
             if student_was_training2:
                 bundle.model.train()
 
-            # Step 2 梯度（仅在 layer-1 命中 GT 桶时计算）。
+            # Step 2 梯度（仅在 layer-1 已稳定命中 GT 桶时计算）。
             analysis2 = _analysis_before_labels(raw_teacher_step2)
             target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
             step2_parts = _assistant_loss_from_state(
@@ -1016,10 +1032,15 @@ def iter_episode_loss_packs(
             memory = update_memory_after_step2(memory, student_scene=pred2.get("scene"))
             scene_flip = memory.scene != old_scene
 
-            # ============ 触发链门 2：step2 后 scene 必须 = GT 才进 step3 ============
-            step3_ran = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
+            # ============ 触发链门 2：scene 前后都稳定为 GT 才进 step3 ============
+            step3_ran = should_trigger_step3(
+                memory_scene_before_step2=old_scene,
+                memory_scene_after_step2=memory.scene,
+                gt_scene=ep.gt_scene,
+                scene_reset_this_frame=scene_reset_this_frame,
+            )
             if step3_ran:
-                # Step 3 梯度（仅在 scene 命中 GT 时计算）。
+                # Step 3 梯度（仅在 scene 已稳定命中 GT 时计算）。
                 step3_teacher_user = build_step3_teacher_prompt(
                     memory,
                     gt_road_structure,
@@ -1091,7 +1112,7 @@ def iter_episode_loss_packs(
             skip_correction=skip_correction_applied,
             skip_correction_noise=skip_correction_scene_noisy,
         )
-        need_skip_correction = not bool(step2_ran)
+        need_skip_correction = memory.road_structure != gt_road_structure
         _prefetch_goal_xy_for_next_frame(memory, run_dir, frame + stride, ep.frame_end)
         yield pack
 

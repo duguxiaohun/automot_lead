@@ -435,6 +435,7 @@ def main() -> None:
                 road_structure_correct += 1
 
             step2_fire = should_trigger_step2(
+                memory_road_structure_before_step1=old_rs,
                 memory_road_structure_after_step1=memory.road_structure,
                 gt_road_structure=gt_road_structure,
             )
@@ -470,7 +471,11 @@ def main() -> None:
                 if memory.scene != old_scene:
                     scene_flip += 1
 
-                scene_ok = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
+                scene_ok = should_trigger_step3(
+                    memory_scene_before_step2=old_scene,
+                    memory_scene_after_step2=memory.scene,
+                    gt_scene=ep.gt_scene,
+                )
             if scene_ok:
                 scene_correct += 1
                 if first_recover is None:

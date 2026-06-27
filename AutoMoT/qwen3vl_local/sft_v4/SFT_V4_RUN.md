@@ -9,10 +9,12 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
 当前状态：off-policy actor-learner 代码已经落地。生产训练入口是
 `launch_offpolicy.sh`，它会启动 2 个 learner DDP rank + 2 个异步 collector：
 默认 GPU0/GPU1 各 1 个 learner，GPU2/GPU3 各 1 个 collector。Phase A 初始正确率
-`P_INIT_CORRECT=0.7`，Phase B 噪声率 `PHASE_B_NOISE_PROB=0.15`。如果某帧 step1
-未过导致 step2/3 跳过，下一帧帧首会触发一次 skip 纠偏：`BELIEVED_SCENE` 大概率回真实
-scene，按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STATUS/SUBGOAL`
-回 init。learner rank0 每 1000 step 发布一次 LoRA snapshot 给 collectors。
+`P_INIT_CORRECT=0.7`，Phase B 噪声率 `PHASE_B_NOISE_PROB=0.15`。触发链采用
+stair-step 门控：road_structure 本帧刚被纠正时不继续跑 step2；scene 本帧刚被纠正时
+不继续跑 step3，等下一帧稳定后再下钻。如果某帧 step1 后 road_structure 仍未命中 GT，
+下一帧帧首会触发一次 skip 纠偏：`BELIEVED_SCENE` 大概率回真实 scene，按
+`SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STATUS/SUBGOAL` 回 init。
+learner rank0 每 1000 step 发布一次 LoRA snapshot 给 collectors。
 
 当前 prompt 口径：学生仍是三步串行对话，但 step1 只读 road-only
 `[STEP1_ROAD_MEMORY]`（`BELIEVED_ROAD_STRUCTURE` + `EGO_TO_GOAL_XY`），不提前暴露
@@ -27,18 +29,17 @@ Step1 老师只喂 road-only context（believed road / ego goal / answer road）
 status-subgoal，并列出该 scene 的 `EVENT_OPTIONS`。context 中如果 label 已被紧邻的
 choices/options 解释，就只写 token，不重复括号解释；只有 choices 没覆盖的 label 才补自然语言解释。
 三步 student prompt 和 teacher prompt 共用同一个 public response contract：都要求先写
-`Scene Description:`、`Critical Object Description:`、`Reasoning on Intent:`、
+`Scene Description:`、`Relevant Visible Cues:`、`Evidence Assessment:`、
 `Memory Judgment:` 四行 plain-text analysis；区别只是 student 要自己在最后写结构化
 `ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 标签，teacher 不写标签，由
 `build_step*_teacher_target` 脚本追加。`_clean_teacher_analysis` 会剥掉误写的结构化标签行、
 prompt marker，并把残留私有字段名改成 `the corrected ...` 口径。
-Step1 道路结构层有单独的更严格证据契约：`KEEP` 只表示 memory continuity，不等于图像强确认。
-`CHANGE` 只在看见明确矛盾 road-layout cues 时触发；`DIRECTLY SUPPORTED` 只在看见类别特异线索
-（merge lane/ramp/exit、junction、crosswalk、parking layout、blocked lane 或 crossing actor 等）
-时使用；如果线索弱或不清楚但没有看见其它 road bucket，就写 `kept because it is not contradicted`。
-远处 lead vehicle 本身不能当作 highway merge 证据，也不能凭空推断 braking/stopping/merging/
-lane-changing/yielding。Step1 要求 label 前约 80-160 words；NOT CONTRADICTED 时要同时说明
-证据弱以及缺少支持改掉 believed label 的 road-layout cue。
+公共证据契约：默认使用 believed memory；只有清晰可见证据矛盾时才改；能见度弱或证据暧昧时
+写成 not contradicted，而不是强确认；不编造视觉线索，不凭远处单车推断 braking / merging /
+cut-in / active flow。Step1 只看 road-layout cues；Step2 是当前 road bucket 内的
+fine-grained scene verification，不能强行把弱视觉证据写成 active flow；Step3 明确区分
+`STATUS` 当前观察阶段与 `SUBGOAL` 下一即时目标，不能在没有清晰 phase transition 时提前推进
+STATUS。analysis 控制在 label 前约 60-120 words，所有 label 必须单独成行。
 teacher 默认生成上限为 `384/384/384`（仅作异常生成的技术护栏，不限制每行词数）；
 teacher 调用不再传强制最少生成参数，让模型自然停止。
 
@@ -98,10 +99,11 @@ Qwen3-VL 图文 M-RoPE 拆成半截 cache 后错位。
   解析失败会直接报错，不 fallback 到 measurements 或 `(0,0)`。
 - memory 含 `BELIEVED_ROAD_STRUCTURE / BELIEVED_SCENE / BELIEVED_STATUS /
   BELIEVED_SUBGOAL / EGO_TO_GOAL_XY`；goal 坐标在帧末为下一帧预取。
-- 触发链固定为：step1 后 `should_trigger_step2(memory_road_structure_after_step1,
-  gt_road_structure)`；只有 layer-1 命中才跑 step2；step2 后再走
-  `should_trigger_step3(memory_scene_after_step2, gt_scene)`。
-- skip 纠偏不是每帧强制改 memory；只有上一帧 step1 未过并跳过 step2/3 后，下一帧
+- 触发链固定为：`should_trigger_step2(before_rs, after_rs, gt_rs, road_reset)`；
+  只有 layer-1 在 step1 前后都稳定命中 GT 且本帧没有 road reset 才跑 step2。
+  step2 后再走 `should_trigger_step3(before_scene, after_scene, gt_scene, scene_reset)`；
+  只有 layer-2 在 step2 前后都稳定命中 GT 且本帧没有 scene/status reset 才跑 step3。
+- skip 纠偏不是每帧强制改 memory；只有上一帧 step1 后 road_structure 仍错，下一帧
   进入内循环前才触发一次。纠偏后的 scene 与 status/subgoal 始终来自同一个 bucket。
 
 ---
@@ -547,10 +549,10 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
       [ROLE = STUDENT SUPERVISED TARGET (...)]            ... 清洗后的 analysis + 脚本标签
       [ROLE = STUDENT MEMORY TRANSITION ...]              ... 监督标签命中时的 memory before/after
   #### Step 2 — scene verdict <KEEP|CHANGE> (tokens: N)
-      （或 "Step 2 — skipped (memory.road_structure != gt_road_structure)"）
+      （或 "Step 2 — skipped (road_structure was not stably GT before/after step1)"）
       [同样分 TEACHER-PRIVATE / STUDENT-FACING / STUDENT INITIAL OUTPUT / SUPERVISED TARGET]
   #### Step 3 — status/subgoal verdict <KEEP|CHANGE> (tokens: N)
-      （或 "Step 3 — skipped (step2 did not fire or memory.scene != gt_scene)"）
+      （或 "Step 3 — skipped (step2 did not fire or scene was not stably GT before/after step2)"）
   ```
 
   其中 **`student supervised target`** 是 `build_step{1,2,3}_teacher_target`
@@ -570,7 +572,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
    `the corrected ...` 口径。
 2. **再看 STUDENT-FACING prompt 与 STUDENT SUPERVISED TARGET 是否同构**：
    step1/2/3 都应使用同一套四行 heading（`Scene Description` /
-   `Critical Object Description` / `Reasoning on Intent` / `Memory Judgment`），
+   `Relevant Visible Cues` / `Evidence Assessment` / `Memory Judgment`），
    差别只应是 student 自己写 label，而 teacher target 的 label 由脚本追加。
 3. **再看 raw analysis 是否像人在解释**：重点查空泛复读、是否真的针对当前 step 的
    privileged context 做论证。允许老师知道答案，但不能把答案先验伪装成视觉事实；

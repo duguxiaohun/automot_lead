@@ -168,9 +168,9 @@ def main() -> None:
         "\n".join(
             [
                 "Scene Description: The frames show an intersection with visible lane structure.",
-                "Critical Object Description: No pedestrian or blocking vehicle is dominant.",
-                "Reasoning on Intent: Ego should slow and prepare for junction negotiation.",
-                "Memory Judgment: The remembered road structure matches the intersection layout.",
+                "Relevant Visible Cues: No pedestrian or blocking vehicle is dominant.",
+                "Evidence Assessment: The visible junction layout directly supports keeping the believed road structure.",
+                "Memory Judgment: Kept because the believed road structure matches the intersection layout.",
             ]
         ),
         "JUNCTION",
@@ -181,9 +181,9 @@ def main() -> None:
         "\n".join(
             [
                 "Scene Description: The frames show a blocked lane in front of ego.",
-                "Critical Object Description: The obstacle ahead is the main critical object.",
-                "Reasoning on Intent: Ego should prepare to avoid or yield around the hazard.",
-                "Memory Judgment: The remembered scene should be corrected to the obstacle scenario.",
+                "Relevant Visible Cues: The obstacle ahead is the main critical object.",
+                "Evidence Assessment: The visible blockage contradicts the believed scene and supports the obstacle scenario.",
+                "Memory Judgment: Corrected because the believed scene does not match the blocked-lane evidence.",
             ]
         ),
         "Accident",
@@ -194,9 +194,9 @@ def main() -> None:
         "\n".join(
             [
                 "Scene Description: Ego is approaching the hazard with limited free space.",
-                "Critical Object Description: The obstacle ahead controls the near-term maneuver.",
-                "Reasoning on Intent: Ego should brake and preserve a safe gap.",
-                "Memory Judgment: The remembered event should move toward braking for the hazard.",
+                "Relevant Visible Cues: The obstacle ahead controls the near-term maneuver.",
+                "Evidence Assessment: The visible hazard supports advancing the event memory toward braking.",
+                "Memory Judgment: Advanced because the current phase should move toward braking for the hazard.",
             ]
         ),
         "hazard_detect",
@@ -245,4 +245,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
