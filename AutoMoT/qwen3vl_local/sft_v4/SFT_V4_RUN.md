@@ -32,6 +32,13 @@ choices/options 解释，就只写 token，不重复括号解释；只有 choice
 `ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 标签，teacher 不写标签，由
 `build_step*_teacher_target` 脚本追加。`_clean_teacher_analysis` 会剥掉误写的结构化标签行、
 prompt marker，并把残留私有字段名改成 `the corrected ...` 口径。
+Step1 道路结构层有单独的更严格证据契约：`KEEP` 只表示 memory 不更新，不等于图像强确认；
+判断优先级固定为 `CHANGE because contradicted > KEEP because directly supported >
+KEEP because not contradicted`。只有看到 merge lane/ramp/exit、junction、crosswalk、
+parking layout、blocked lane/work zone/parked obstacle 或清晰 crossing actor 等类别特异线索时，
+才允许写 `directly supported`；雾、遮挡或远车导致证据弱但没有反证时，应写
+`kept because it is not contradicted`。远处 lead vehicle 本身不能当作 highway merge 证据，
+也不能凭空推断 braking/stopping/merging/lane-changing/yielding。
 teacher 默认生成上限为 `384/384/384`（仅作异常生成的技术护栏，不限制每行词数）；
 teacher 调用不再传强制最少生成参数，让模型自然停止。
 

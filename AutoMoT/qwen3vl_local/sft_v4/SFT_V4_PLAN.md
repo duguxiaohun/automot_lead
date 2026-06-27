@@ -1632,20 +1632,30 @@ EGO_TO_GOAL_XY=(..., ...) m
 
 [STEP1]
 4 images are ordered oldest to newest; the last image is now.
+Evidence priority: CHANGE because contradicted > KEEP because directly supported > KEEP because not contradicted.
+Say directly supported only when category-specific road-layout cues are visible.
+If cues are weak but no contradictory cue is visible, keep the belief because it is not contradicted.
 Write exactly these analysis lines in this order, one non-empty line per heading:
 Scene Description: ...
 Critical Object Description: ...
 Reasoning on Intent: ...
-Memory Judgment: explain why the believed road structure fits or should change, using visible road-layout cues.
+Memory Judgment: start with directly supported / not contradicted / should be corrected wording.
 Then write the label line(s) yourself: ROAD_STRUCTURE: <name>
 ```
 
 老师 step1 prompt 与学生 prompt 分离：老师也不喂完整 `[MEMORY]`，只喂
 `[STEP1_ROAD_CONTEXT]`，其中包含 `BELIEVED_ROAD_STRUCTURE`、`EGO_TO_GOAL_XY`
 和 `ANSWER_ROAD_STRUCTURE`，再列出 6 个 road structure 选项。context 中 road label
-已由 `ROAD_STRUCTURE_CHOICES` 解释，因此只写 token，不重复括号解释。KEEP 时要求
-分析哪些道路布局证据支持当前 believed road；CHANGE 时要求先说明 believed road
-哪里不符合，再说明 corrected road structure 与视觉证据如何吻合。老师和学生共用同一个
+已由 `ROAD_STRUCTURE_CHOICES` 解释，因此只写 token，不重复括号解释。Step1 不再把
+KEEP 解释成"图像强确认"：KEEP 只表示 memory 不更新；证据优先级固定为
+`CHANGE because contradicted > KEEP because directly supported > KEEP because not contradicted`。
+只有看到 merge lane/ramp/exit、junction、crosswalk、parking layout、blocked lane/work zone/
+parked obstacle 或清晰 crossing actor 等类别特异 road-layout cues 时，才允许写
+`directly supported`；雾、遮挡或远车导致证据弱但没有反证时，应写
+`kept because it is not contradicted`。远处 lead vehicle 本身不能当作 highway merge 证据，
+也不能凭空推断 braking/stopping/merging/lane-changing/yielding。CHANGE 时要求说明最清晰的
+矛盾 road-bucket cue；如果矛盾证据弱，应承认 correction weakly grounded，不能编造反证。
+老师和学生共用同一个
 public response contract：都输出学生视角四行 plain-text analysis：
 `Scene Description:`、`Critical Object Description:`、
 `Reasoning on Intent:`、`Memory Judgment:`；区别只是学生 prompt 要求自己写
