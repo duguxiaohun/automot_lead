@@ -37,6 +37,11 @@ variants keep their original `scenario/raw_gt_scene` metadata, but student
 `SCENE` choices, memory, teacher targets, and eval comparisons use the canonical
 scene label because the paired variants share the same visible semantics and
 event sequence.
+SFT v4 prompt contract: teacher prompts generate only the four analysis lines
+(`Scene Description`, `Relevant Visible Cues`, `Evidence Assessment`,
+`Memory Judgment`) and never include label placeholders; `build_step*_teacher_target`
+appends supervised labels, while student prompts ask the adapter to write labels
+on separate lines.
 
 ## 1.1 运行命令目录约定
 

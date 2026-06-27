@@ -33,7 +33,7 @@ Step2 的 `SCENE_CHOICES` 只列 v4 canonical scene：`EnterActorFlowV2` 折叠�
 raw CARLA scenario 的描述和 event sequence 完全一致，`V2` 不是学生需要从视觉里区分的目标。
 `build_dataset.py` 保留 `scenario/raw_gt_scene` 作为原始 CARLA 名称，`gt_scene` 写 canonical
 label；旧 episode index 若仍含 V2，`EpisodeDataset` 读取时也会自动 canonicalize。
-三步 student prompt 和 teacher prompt 共用同一个 public response contract：都要求先写
+三步 student prompt 和 teacher prompt 共用同一个四行 analysis contract：都要求先写
 `Scene Description:`、`Relevant Visible Cues:`、`Evidence Assessment:`、
 `Memory Judgment:` 四行 plain-text analysis；区别只是 student 要自己在最后写结构化
 `ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 标签，teacher 不写标签，由
@@ -44,7 +44,7 @@ prompt marker，并把残留私有字段名改成 `the corrected ...` 口径。
 cut-in / active flow。Step1 只看 road-layout cues；Step2 是当前 road bucket 内的
 fine-grained scene verification，不能强行把弱视觉证据写成 active flow；Step3 明确区分
 `STATUS` 当前观察阶段与 `SUBGOAL` 下一即时目标，不能在没有清晰 phase transition 时提前推进
-STATUS。analysis 控制在 label 前约 60-120 words，所有 label 必须单独成行。
+STATUS；当 `STATUS=initial` 且 `SUBGOAL=flow_approach` 时，应写成当前阶段仍为 initial、flow_approach 是保留的下一目标。analysis 控制在约 60-120 words，所有 label 必须单独成行。
 teacher 默认生成上限为 `384/384/384`（仅作异常生成的技术护栏，不限制每行词数）；
 teacher 调用不再传强制最少生成参数，让模型自然停止。
 
