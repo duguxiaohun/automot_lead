@@ -662,23 +662,51 @@ def _event_sequence_block(scene: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _teacher_structured_analysis_instructions(memory_judgment: str) -> str:
-    """Shared concise visual-analysis skeleton for all teacher steps.
+def _student_response_contract(
+    *,
+    memory_judgment: str,
+    label_instruction: str,
+    label_written_by: str,
+) -> str:
+    """Shared public response contract for student prompts and teacher targets.
 
-    Teacher can see the answer fields, but the supervised analysis must read
-    like a student-facing explanation rather than a private answer key.
+    Teacher-private prompts may include answer fields, but the supervised text should
+    look like the same response the student is asked to produce. Keeping this contract
+    shared avoids training the adapter on an analysis format that differs from the
+    student-facing prompt.
     """
 
     return (
         "Write for the student perspective: use 'believed ...' and 'corrected ...' phrasing.\n"
         "Do not mention answer, ground truth, reference labels, or private field names.\n"
         "Use visible cues; if cues are unclear, note uncertainty briefly and do not invent unseen actors.\n"
-        "Write the analysis in this order, one heading per line, each line non-empty:\n"
+        "Write exactly these analysis lines in this order, one non-empty line per heading:\n"
         "Scene Description: ...\n"
         "Critical Object Description: ...\n"
         "Reasoning on Intent: ...\n"
         f"Memory Judgment: {memory_judgment}\n"
+        f"{label_written_by}: {label_instruction}\n"
         "Plain text only -- no markdown headings, bullets, numbered lists, JSON, or code blocks."
+    )
+
+
+def _student_output_instructions(memory_judgment: str, label_instruction: str) -> str:
+    """Instructions shown to the student policy."""
+
+    return _student_response_contract(
+        memory_judgment=memory_judgment,
+        label_instruction=label_instruction,
+        label_written_by="Then write the label line(s) yourself",
+    )
+
+
+def _teacher_structured_analysis_instructions(memory_judgment: str, label_instruction: str) -> str:
+    """Teacher-side version of the same public response contract."""
+
+    return _student_response_contract(
+        memory_judgment=memory_judgment,
+        label_instruction=label_instruction,
+        label_written_by="Do not write label line(s); the script appends them after your analysis",
     )
 
 
@@ -705,10 +733,10 @@ def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -
         f"{road_structure_choices_block()}\n\n"
         f"[STEP1]\n"
         f"{image_count} images are ordered oldest to newest; the last image is now.\n"
-        "Describe the visible road layout / actors / signals. "
-        "Explain whether the believed road structure fits or should change. "
-        "Then copy exactly one option name:\n"
-        "ROAD_STRUCTURE: <name>"
+        + _student_output_instructions(
+            "explain why the believed road structure fits or should change, using visible road-layout cues.",
+            "ROAD_STRUCTURE: <name>",
+        )
     )
 
 
@@ -722,7 +750,8 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
         verdict_line = "VERDICT: KEEP -- the believed road structure is correct."
         focus_line = "Explain which visible road-layout cues make the believed road structure fit."
         task_line = _teacher_structured_analysis_instructions(
-            "explain why the believed road structure fits and which road-layout cues support it."
+            "explain why the believed road structure fits and which road-layout cues support it.",
+            "ROAD_STRUCTURE: <name>",
         )
     else:
         verdict_line = "VERDICT: CHANGE -- the believed road structure is wrong."
@@ -730,7 +759,8 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
             f"Explain why the believed road structure does not fit, then guide toward {gt_road_structure}: {gt_rs_desc}."
         )
         task_line = _teacher_structured_analysis_instructions(
-            "explain what does not fit the believed road structure and what visible cues support the correction."
+            "explain what does not fit the believed road structure and what visible cues support the correction.",
+            "ROAD_STRUCTURE: <name>",
         )
 
     return (
@@ -767,9 +797,10 @@ def build_step2_student_prompt(memory: Memory) -> str:
         f"{memory.format_text()}\n\n"
         f"{scene_choices_block_for(memory.road_structure)}\n\n"
         "[STEP2]\n"
-        "Use the narrowed choices. Explain keep/correct for the believed scene. "
-        "Then copy exactly one option name:\n"
-        "SCENE: <scenario_name>"
+        + _student_output_instructions(
+            "explain why the believed scene fits or should change under the current road structure.",
+            "SCENE: <scenario_name>",
+        )
     )
 
 
@@ -783,7 +814,8 @@ def build_step2_teacher_prompt(memory: Memory, gt_road_structure: str, gt_scene:
         verdict_line = "VERDICT: KEEP -- the believed scene is correct."
         focus_line = "Explain why the current situation matches the believed scene."
         task_line = _teacher_structured_analysis_instructions(
-            "explain why the believed scene fits under the current road structure."
+            "explain why the believed scene fits under the current road structure.",
+            "SCENE: <scenario_name>",
         )
     else:
         verdict_line = "VERDICT: CHANGE -- the believed scene is wrong."
@@ -791,7 +823,8 @@ def build_step2_teacher_prompt(memory: Memory, gt_road_structure: str, gt_scene:
             f"Explain why the believed scene does not fit, then guide toward {gt_scene}: {gt_scene_desc}."
         )
         task_line = _teacher_structured_analysis_instructions(
-            "explain what does not fit the believed scene and what visible cues support the correction."
+            "explain what does not fit the believed scene and what visible cues support the correction.",
+            "SCENE: <scenario_name>",
         )
 
     return (
@@ -825,10 +858,10 @@ def build_step3_student_prompt(memory: Memory) -> str:
         f"{memory.format_text()}\n\n"
         f"[EVENT_OPTIONS]\n{_event_sequence_block(memory.scene)}\n[/EVENT_OPTIONS]\n\n"
         "[STEP3]\n"
-        "Use the event options. Explain keep/correct for current phase. "
-        "Then copy exactly two event names:\n"
-        "STATUS: <event_name>\n"
-        "SUBGOAL: <event_name>"
+        + _student_output_instructions(
+            "explain why the believed status/subgoal fit or should change under the current road and scene.",
+            "STATUS: <event_name>\nSUBGOAL: <event_name>",
+        )
     )
 
 
@@ -860,7 +893,8 @@ def build_step3_teacher_prompt(
             f"Explain why the current phase '{memory_status_desc}' and next intent '{memory_subgoal_desc}' fit."
         )
         task_line = _teacher_structured_analysis_instructions(
-            "explain why the believed status and believed subgoal fit under the current road and scene."
+            "explain why the believed status and believed subgoal fit under the current road and scene.",
+            "STATUS: <event_name>\nSUBGOAL: <event_name>",
         )
     else:
         focus_line = (
@@ -868,7 +902,8 @@ def build_step3_teacher_prompt(
             f"and guide toward current '{gt_status_desc}' / next '{gt_subgoal_desc}'."
         )
         task_line = _teacher_structured_analysis_instructions(
-            "explain why the believed status/subgoal are wrong and what visible cues support the correction."
+            "explain why the believed status/subgoal are wrong and what visible cues support the correction.",
+            "STATUS: <event_name>\nSUBGOAL: <event_name>",
         )
 
     return (
@@ -915,7 +950,12 @@ def _strip_label_lines(text: str) -> str:
 
 
 _PROMPT_MARKER_LINE_RE = re.compile(
-    r"(?im)^\s*\[/?(?:STEP\d(?:_TEACHER)?|MEMORY|STEP1_ROAD_CONTEXT|ROAD_STRUCTURE_CHOICES|SCENE_CHOICES|EVENT_OPTIONS)[^\n]*\n?"
+    r"(?im)^\s*\[/?(?:STEP\d(?:_TEACHER)?|MEMORY|STEP1_ROAD_MEMORY|STEP1_ROAD_CONTEXT|STEP2_SCENE_CONTEXT|STEP3_EVENT_CONTEXT|ROAD_STRUCTURE_CHOICES|SCENE_CHOICES|EVENT_OPTIONS)[^\n]*\n?"
+)
+_PROMPT_BLOCK_RE = re.compile(
+    r"(?ims)^\s*\[(?:MEMORY|STEP1_ROAD_MEMORY|STEP1_ROAD_CONTEXT|STEP2_SCENE_CONTEXT|STEP3_EVENT_CONTEXT|ROAD_STRUCTURE_CHOICES|SCENE_CHOICES|EVENT_OPTIONS)[^\n]*\n"
+    r".*?"
+    r"^\s*\[/(?:MEMORY|STEP1_ROAD_MEMORY|STEP1_ROAD_CONTEXT|STEP2_SCENE_CONTEXT|STEP3_EVENT_CONTEXT|ROAD_STRUCTURE_CHOICES|SCENE_CHOICES|EVENT_OPTIONS)\]\s*\n?"
 )
 
 _PRIVATE_FIELD_REPLACEMENTS: Tuple[Tuple[re.Pattern[str], str], ...] = (
@@ -977,7 +1017,8 @@ def _clean_teacher_analysis(text: str) -> str:
 
     1. 剥掉所有 ``ROAD_STRUCTURE:`` / ``SCENE:`` / ``STATUS:`` / ``SUBGOAL:`` 整行，
        防止脚本在末尾追加的 GT 标签被 parser 取错（parser 是 ``re.search`` 取第一个）；
-    2. 剥掉 ``[STEPx]`` / ``[MEMORY]`` 等 prompt marker 行，避免老师把 prompt 模板抄进 target。
+    2. 先剥掉完整 ``[MEMORY]`` / ``[STEP*_CONTEXT]`` / choice/options 块，再剥
+       ``[STEPx]`` 等残留 prompt marker 行，避免老师把 prompt 模板抄进 target。
     3. 把 ``GROUND_TRUTH_*`` / ``ANSWER_*`` / ``REFERENCE_*`` 这类私有字段名改成
        ``the corrected ...`` 口径；把 ``BELIEVED_*`` / ``BELIEF_SUBGOAL`` 字段名改成
        自然语言 believed 口径。
@@ -988,6 +1029,7 @@ def _clean_teacher_analysis(text: str) -> str:
     if not text:
         return ""
     cleaned = _strip_label_lines(text)
+    cleaned = _PROMPT_BLOCK_RE.sub("", cleaned)
     cleaned = _PROMPT_MARKER_LINE_RE.sub("", cleaned)
     cleaned = _clean_private_field_names(cleaned)
     return cleaned.strip()

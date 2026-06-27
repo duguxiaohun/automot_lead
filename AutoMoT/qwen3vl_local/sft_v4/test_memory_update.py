@@ -33,8 +33,11 @@ from qwen3vl_local.sft_v4.prompts import (
     ROAD_STRUCTURE_TO_SCENES,
     SCENE_TO_ROAD_STRUCTURE,
     build_step1_user_prompt,
+    build_step1_teacher_prompt,
     build_step2_student_prompt,
+    build_step2_teacher_prompt,
     build_step3_student_prompt,
+    build_step3_teacher_prompt,
     first_subgoal,
     correct_memory_after_step1_skip,
     force_memory_to_gt_chain,
@@ -146,34 +149,72 @@ def _check_student_prompt_contracts() -> None:
     )
 
     step1 = build_step1_user_prompt(4, memory=memory)
+    step1_teacher = build_step1_teacher_prompt(memory, memory.road_structure)
+    shared_headings = (
+        "Scene Description:",
+        "Critical Object Description:",
+        "Reasoning on Intent:",
+        "Memory Judgment:",
+    )
     assert "[STEP1_ROAD_MEMORY]" in step1
     assert "BELIEVED_ROAD_STRUCTURE" in step1
     assert "EGO_TO_GOAL_XY" in step1
+    assert all(h in step1 for h in shared_headings)
+    assert "ROAD_STRUCTURE: <name>" in step1
+    assert "Then write the label line(s) yourself" in step1
     assert "BELIEVED_SCENE" not in step1
     assert "BELIEVED_STATUS" not in step1
     assert "BELIEVED_SUBGOAL" not in step1
     assert "ANSWER_" not in step1
     assert "GROUND_TRUTH_" not in step1
     assert "REFERENCE_" not in step1
+    assert all(h in step1_teacher for h in shared_headings)
+    assert "ROAD_STRUCTURE: <name>" in step1_teacher
+    assert "Do not write label line(s)" in step1_teacher
+    assert "Then write the label line(s) yourself" not in step1_teacher
 
     step2 = build_step2_student_prompt(memory)
+    step2_teacher = build_step2_teacher_prompt(memory, memory.road_structure, scene)
     assert "[MEMORY]" in step2
     assert "BELIEVED_SCENE" in step2
     assert "BELIEVED_STATUS" in step2
     assert "BELIEVED_SUBGOAL" in step2
+    assert all(h in step2 for h in shared_headings)
+    assert "SCENE: <scenario_name>" in step2
+    assert "Then write the label line(s) yourself" in step2
     assert "ANSWER_" not in step2
     assert "GROUND_TRUTH_" not in step2
     assert "REFERENCE_" not in step2
+    assert all(h in step2_teacher for h in shared_headings)
+    assert "SCENE: <scenario_name>" in step2_teacher
+    assert "Do not write label line(s)" in step2_teacher
+    assert "Then write the label line(s) yourself" not in step2_teacher
 
     step3 = build_step3_student_prompt(memory)
+    step3_teacher = build_step3_teacher_prompt(
+        memory,
+        memory.road_structure,
+        scene,
+        memory.status,
+        memory.subgoal,
+    )
     assert "[MEMORY]" in step3
     assert "BELIEVED_SCENE" in step3
     assert "BELIEVED_STATUS" in step3
     assert "BELIEVED_SUBGOAL" in step3
     assert "[EVENT_OPTIONS]" in step3
+    assert all(h in step3 for h in shared_headings)
+    assert "STATUS: <event_name>" in step3
+    assert "SUBGOAL: <event_name>" in step3
+    assert "Then write the label line(s) yourself" in step3
     assert "ANSWER_" not in step3
     assert "GROUND_TRUTH_" not in step3
     assert "REFERENCE_" not in step3
+    assert all(h in step3_teacher for h in shared_headings)
+    assert "STATUS: <event_name>" in step3_teacher
+    assert "SUBGOAL: <event_name>" in step3_teacher
+    assert "Do not write label line(s)" in step3_teacher
+    assert "Then write the label line(s) yourself" not in step3_teacher
 
 
 def _check_delta_formula_allows_zero() -> None:
