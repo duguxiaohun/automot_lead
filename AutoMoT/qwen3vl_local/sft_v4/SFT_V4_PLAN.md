@@ -1632,9 +1632,10 @@ EGO_TO_GOAL_XY=(..., ...) m
 
 [STEP1]
 4 images are ordered oldest to newest; the last image is now.
-Evidence priority: CHANGE because contradicted > KEEP because directly supported > KEEP because not contradicted.
-Say directly supported only when category-specific road-layout cues are visible.
-If cues are weak but no contradictory cue is visible, keep the belief because it is not contradicted.
+Decision rule: CHANGE only if clear contradictory road-layout cues are visible.
+DIRECTLY SUPPORTED requires category-specific road-layout cues.
+NOT CONTRADICTED applies when cues are weak but no other road bucket is clearly visible.
+Write 80-160 words before the label.
 Write exactly these analysis lines in this order, one non-empty line per heading:
 Scene Description: ...
 Critical Object Description: ...
@@ -1647,14 +1648,15 @@ Then write the label line(s) yourself: ROAD_STRUCTURE: <name>
 `[STEP1_ROAD_CONTEXT]`，其中包含 `BELIEVED_ROAD_STRUCTURE`、`EGO_TO_GOAL_XY`
 和 `ANSWER_ROAD_STRUCTURE`，再列出 6 个 road structure 选项。context 中 road label
 已由 `ROAD_STRUCTURE_CHOICES` 解释，因此只写 token，不重复括号解释。Step1 不再把
-KEEP 解释成"图像强确认"：KEEP 只表示 memory 不更新；证据优先级固定为
-`CHANGE because contradicted > KEEP because directly supported > KEEP because not contradicted`。
-只有看到 merge lane/ramp/exit、junction、crosswalk、parking layout、blocked lane/work zone/
-parked obstacle 或清晰 crossing actor 等类别特异 road-layout cues 时，才允许写
-`directly supported`；雾、遮挡或远车导致证据弱但没有反证时，应写
-`kept because it is not contradicted`。远处 lead vehicle 本身不能当作 highway merge 证据，
-也不能凭空推断 braking/stopping/merging/lane-changing/yielding。CHANGE 时要求说明最清晰的
-矛盾 road-bucket cue；如果矛盾证据弱，应承认 correction weakly grounded，不能编造反证。
+KEEP 解释成"图像强确认"：KEEP 只表示 memory continuity。`CHANGE` 只在看见明确矛盾
+road-layout cues 时触发；`DIRECTLY SUPPORTED` 只在看见类别特异线索（merge lane/ramp/exit、
+junction、crosswalk、parking layout、blocked lane 或 crossing actor 等）时使用；雾、遮挡或远车
+导致证据弱但没有看见其它 road bucket 时，应写 `kept because it is not contradicted`。
+远处 lead vehicle 本身不能当作 highway merge 证据，也不能凭空推断 braking/stopping/
+merging/lane-changing/yielding。CHANGE 时要求说明最清晰的矛盾 road-bucket cue；如果矛盾
+证据弱，应承认 correction weakly grounded，不能编造反证。Step1 不再用 `under 120 words`
+压短，而是要求 label 前约 80-160 words；NOT CONTRADICTED 时要同时说明证据弱以及缺少
+支持改掉 believed label 的 road-layout cue。
 老师和学生共用同一个
 public response contract：都输出学生视角四行 plain-text analysis：
 `Scene Description:`、`Critical Object Description:`、
