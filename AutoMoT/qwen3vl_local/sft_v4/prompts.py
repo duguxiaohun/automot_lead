@@ -51,10 +51,10 @@ DEFAULT_P_INIT_CORRECT = 0.7
 DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB = 0.15
 
 SYSTEM_PROMPT_V4 = """\
-You are an autonomous driving agent.
-Use the 4 stitched RGB frames as visual context: oldest to newest, left/front/right views.
-Focus on traffic lights and signs, nearby vehicles, pedestrians, obstacles,
-lane markings, road structure, and the key factors affecting ego's decision."""
+You are an autonomous driving scene-memory update agent.
+Use the 4 stitched RGB frames as visual context. The frames are ordered from oldest to newest,
+and the newest frame is the current frame. Each stitched frame contains left, front, and right views.
+Your task is to update structured driving memory using visible evidence and memory continuity."""
 
 
 # ---------------------------------------------------------------------------
@@ -395,9 +395,9 @@ def force_memory_to_gt_chain(
     顺序：先拉回 ``road_structure``，再拉回 ``scene``；status/subgoal 在没换 scene
     时保留（与 v3 D2 决议同步）。每层 = GT 时全 no-op，保持上一帧推进过的状态。
 
-    机制目的：Phase B 期间保证 ``memory.road_structure`` 始终 = GT 桶 → step1
-    永远命中 → step2/step3 触发率回到与 v3 / 现有 v4 持平，弥补 step1 加入触发
-    链后 step3 触发率被腰斩的问题。
+    机制目的：Phase B 期间把上层 memory 拉回稳定链路；若本帧确实发生
+    road/scene reset，调用方会只训练被纠正的上层，下一帧再继续下钻，避免刚
+    reset 的 status/subgoal 立刻进入 step3。
     """
 
     mem = memory.copy()
@@ -498,30 +498,44 @@ def correct_memory_after_step1_skip(
 
 def should_trigger_step2(
     *,
+    memory_road_structure_before_step1: str,
     memory_road_structure_after_step1: str,
     gt_road_structure: str,
+    road_structure_reset_this_frame: bool = False,
 ) -> bool:
-    """step2 触发条件（D24 选项 A）。
+    """step2 触发条件：layer-1 已稳定正确，而不是刚被纠正。
 
-    只有 step1 后 ``memory.road_structure == gt_road_structure`` 才进 step2。
-    错 layer-1 → 跳 step2 + step3，仅监督 step1（L_A1 + L_RS1）。
+    只有 step1 前后 ``memory.road_structure`` 都等于 GT 桶，且本帧没有脚本层
+    road reset，才进 step2。若 layer-1 在本帧刚被纠正，则本帧只监督 step1，
+    下一帧再在稳定的正确 bucket 上训练 scene。
     """
 
-    return memory_road_structure_after_step1 == gt_road_structure
+    return (
+        not road_structure_reset_this_frame
+        and memory_road_structure_before_step1 == gt_road_structure
+        and memory_road_structure_after_step1 == gt_road_structure
+    )
 
 
 def should_trigger_step3(
     *,
+    memory_scene_before_step2: str,
     memory_scene_after_step2: str,
     gt_scene: str,
+    scene_reset_this_frame: bool = False,
 ) -> bool:
-    """step3 触发条件（与 v3 D8 / v4 现有口径一致）。
+    """step3 触发条件：layer-2 已稳定正确，而不是刚被纠正。
 
-    只有 step2 后 ``memory.scene == gt_scene`` 才进 step3。前提是 step2 已跑过
-    （由调用方保证）；本 helper 只判 scene 层。
+    只有 step2 前后 ``memory.scene`` 都等于 GT scene，且本帧没有脚本层 scene/event
+    reset，才进 step3。若 scene 在本帧刚被纠正，status/subgoal 会随 scene 重置到
+    init，本帧不继续训练 step3，避免把刚 reset 的下层状态立刻拿去对齐当前帧事件。
     """
 
-    return memory_scene_after_step2 == gt_scene
+    return (
+        not scene_reset_this_frame
+        and memory_scene_before_step2 == gt_scene
+        and memory_scene_after_step2 == gt_scene
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -663,8 +677,6 @@ def _event_sequence_block(scene: str) -> str:
 
 
 def _student_response_contract(
-    *,
-    memory_judgment: str,
     label_instruction: str,
     label_written_by: str,
 ) -> str:
@@ -677,47 +689,81 @@ def _student_response_contract(
     """
 
     return (
-        "Write for the student perspective: use 'believed ...' and 'corrected ...' phrasing.\n"
-        "Do not mention answer, ground truth, reference labels, or private field names.\n"
-        "Use visible cues; if cues are unclear, note uncertainty briefly and do not invent unseen actors.\n"
-        "Write exactly these analysis lines in this order, one non-empty line per heading:\n"
+        "General memory-update rules:\n"
+        "Use the believed memory by default.\n"
+        "Change a believed label only when clear visible evidence contradicts it.\n"
+        "If visibility is weak or evidence is ambiguous, keep the believed label and state that it is not contradicted, not directly confirmed.\n"
+        "Do not fabricate visual cues to justify a label.\n"
+        "Do not infer hidden braking, merging, yielding, lane-changing, turning, or stopping unless the visual evidence clearly supports it.\n"
+        "A single distant lead vehicle alone is not enough to prove merging, cut-in, braking, or active flow.\n"
+        "Do not mention answer, ground truth, reference labels, private fields, teacher decisions, or reference annotations.\n"
+        "Write for the student perspective using 'believed' phrasing; use 'corrected' only if the believed label should change.\n"
+        "Write exactly four analysis lines, each one concise sentence, followed by the required label line or label lines:\n"
         "Scene Description: ...\n"
-        "Critical Object Description: ...\n"
-        "Reasoning on Intent: ...\n"
-        f"Memory Judgment: {memory_judgment}\n"
+        "Relevant Visible Cues: ...\n"
+        "Evidence Assessment: ...\n"
+        "Memory Judgment: start with exactly one of 'Kept because' / 'Corrected because' / 'Advanced because'.\n"
         f"{label_written_by}: {label_instruction}\n"
+        "Put every label on its own separate line; do not put a label on the same line as an analysis sentence.\n"
+        "Keep the analysis 60-120 words before the label.\n"
         "Plain text only -- no markdown headings, bullets, numbered lists, JSON, or code blocks."
     )
 
 
-def _student_output_instructions(memory_judgment: str, label_instruction: str) -> str:
+def _student_output_instructions(label_instruction: str) -> str:
     """Instructions shown to the student policy."""
 
     return _student_response_contract(
-        memory_judgment=memory_judgment,
         label_instruction=label_instruction,
         label_written_by="Then write the label line(s) yourself",
     )
 
 
-def _teacher_structured_analysis_instructions(memory_judgment: str, label_instruction: str) -> str:
+def _teacher_structured_analysis_instructions(label_instruction: str) -> str:
     """Teacher-side version of the same public response contract."""
 
     return _student_response_contract(
-        memory_judgment=memory_judgment,
         label_instruction=label_instruction,
         label_written_by="Do not write label line(s); the script appends them after your analysis",
     )
 
 
-_STEP1_ROAD_EVIDENCE_RULES = (
-    "Use visible road-layout cues and memory continuity.\n"
-    "KEEP means memory continuity, not necessarily strong visual confirmation.\n"
-    "Decision rule: CHANGE only if clear contradictory road-layout cues are visible; DIRECTLY SUPPORTED only if category-specific cues are visible, such as merge lanes, ramps, exits, junctions, crosswalks, parking layout, blocked lanes, or crossing actors; NOT CONTRADICTED if cues are weak or unclear but no other road bucket is clearly visible.\n"
-    "Avoid inferring hidden maneuvers or hidden layout cues, including braking, stopping, merging, lane-changing, or yielding, unless clearly visible; a distant lead vehicle alone is not highway-merge evidence.\n"
-    "If visibility is limited, state that evidence is weak or uncertain.\n"
-    "For NOT CONTRADICTED, mention both the weak evidence and the missing road-layout cue for changing away from the believed label.\n"
-    "Write 80-160 words before the label."
+_STEP1_TASK_RULES = (
+    "[STEP1_TASK]\n"
+    "Update ROAD_STRUCTURE only.\n"
+    "Focus on visible road-layout cues: lane geometry, merge lanes, ramps, exits, junctions, crosswalks, parking layout, blocked lanes, construction, roadside obstacles, and crossing actors.\n"
+    "Do not use vehicle intent alone to decide road structure.\n"
+    "A lead vehicle alone does not prove HIGHWAY_MERGE.\n"
+    "If the believed road structure is not visually confirmed but no other road-structure category is clearly visible, keep it as not contradicted.\n"
+    "Final label line: ROAD_STRUCTURE: <one ROAD_STRUCTURE_CHOICES label>\n"
+    "[/STEP1_TASK]"
+)
+
+_STEP2_TASK_RULES = (
+    "[STEP2_TASK]\n"
+    "Update SCENE only within the current road-structure bucket.\n"
+    "Focus on visible interaction-pattern cues: merging flow, exit behavior, cut-in vehicle, slow traffic, static cut-in, active actor flow, or lack of such evidence.\n"
+    "Because scene labels can be fine-grained, do not force direct visual confirmation when evidence is weak.\n"
+    "Keep the believed scene if it is not contradicted by visible cues.\n"
+    "Correct the scene only when another listed scene is clearly supported by visible interaction cues.\n"
+    "Do not claim active merging, cut-in, braking, or lane adjustment unless it is clearly visible across the frames.\n"
+    "Final label line: SCENE: <one SCENE_CHOICES label>\n"
+    "[/STEP2_TASK]"
+)
+
+_STEP3_TASK_RULES = (
+    "[STEP3_TASK]\n"
+    "Update STATUS and SUBGOAL only.\n"
+    "STATUS describes the current observed phase.\n"
+    "SUBGOAL describes the next immediate objective or intended phase.\n"
+    "Do not advance STATUS unless the current visual evidence clearly shows that the phase has already changed.\n"
+    "SUBGOAL may be ahead of STATUS when the ego is preparing for the next phase.\n"
+    "Use the event sequence to avoid impossible jumps.\n"
+    "If there is no clear evidence of phase transition, keep STATUS and SUBGOAL.\n"
+    "If the ego is still approaching the challenge zone, keep STATUS as initial even if the next objective is flow_approach.\n"
+    "Do not output any event name outside EVENT_OPTIONS.\n"
+    "Final label lines: STATUS: <one EVENT_OPTIONS label>; SUBGOAL: <one EVENT_OPTIONS label>\n"
+    "[/STEP3_TASK]"
 )
 
 
@@ -725,19 +771,8 @@ def _step1_student_output_instructions() -> str:
     """Road-structure-specific public contract for student prompts."""
 
     return (
-        "Write for the student perspective: use 'believed ...' phrasing; use 'corrected ...' only if the believed label should change.\n"
-        "Do not mention answer, ground truth, reference labels, or private field names.\n"
-        f"{_STEP1_ROAD_EVIDENCE_RULES}\n"
-        "Write exactly these analysis lines in this order, one non-empty line per heading:\n"
-        "Scene Description: ...\n"
-        "Critical Object Description: ...\n"
-        "Reasoning on Intent: ...\n"
-        "Memory Judgment: start with one of these phrases: "
-        "'The believed road structure is directly supported because ...' / "
-        "'The believed road structure is kept because it is not contradicted; ...' / "
-        "'The believed road structure should be corrected because ...'\n"
-        "Then write the label line(s) yourself: ROAD_STRUCTURE: <name>\n"
-        "Plain text only -- no markdown headings, bullets, numbered lists, JSON, or code blocks."
+        f"{_STEP1_TASK_RULES}\n"
+        + _student_output_instructions("ROAD_STRUCTURE: <name>")
     )
 
 
@@ -745,20 +780,10 @@ def _step1_teacher_output_instructions() -> str:
     """Road-structure-specific teacher contract; labels are appended by code."""
 
     return (
-        "Write for the student perspective: use 'believed ...' phrasing; use 'corrected ...' only if the believed label should change.\n"
-        "Do not mention answer, ground truth, reference labels, or private field names.\n"
-        f"{_STEP1_ROAD_EVIDENCE_RULES}\n"
-        "For CHANGE verdicts, state the clearest visible contradictory cue; if the cue is weak, say the correction is weakly grounded and do not invent a contradiction.\n"
-        "Write exactly these analysis lines in this order, one non-empty line per heading:\n"
-        "Scene Description: ...\n"
-        "Critical Object Description: ...\n"
-        "Reasoning on Intent: ...\n"
-        "Memory Judgment: start with one of these phrases: "
-        "'The believed road structure is directly supported because ...' / "
-        "'The believed road structure is kept because it is not contradicted; ...' / "
-        "'The believed road structure should be corrected because ...'\n"
-        "Do not write label line(s); the script appends them after your analysis: ROAD_STRUCTURE: <name>\n"
-        "Plain text only -- no markdown headings, bullets, numbered lists, JSON, or code blocks."
+        "The target label is provided for supervision, but you must not invent visual evidence for it.\n"
+        "For CHANGE verdicts, state the clearest visible contradictory road-layout cue; if the cue is weak, say the correction is weakly grounded.\n"
+        f"{_STEP1_TASK_RULES}\n"
+        + _teacher_structured_analysis_instructions("ROAD_STRUCTURE: <name>")
     )
 
 
@@ -767,8 +792,8 @@ def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -
 
     新口径（生产路径，``memory`` 必传）：
       - 只读 layer-1 road-only memory，不提前暴露 scene/status/subgoal；
-      - 2 句视觉描述（保留 v3 纯视觉接地任务）；
-      - 1 句对 believed road structure 的 KEEP/CHANGE 论证；
+      - 四行共享 analysis contract：scene / cues / evidence / memory judgment；
+      - road-structure 只看道路布局证据，弱证据默认 not contradicted；
       - 一行 ``ROAD_STRUCTURE: <name>``。
 
     兼容兜底：``memory=None`` 时退回 v3 形态（仅视觉描述、不读 memory、不出标签）。
@@ -800,12 +825,12 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
             "VERDICT: KEEP -- keep the believed road structure unless clear visual cues contradict it."
         )
         focus_line = (
-            "The verdict controls memory update only; it does not imply strong visual confirmation."
+            "The verdict controls memory update only; explain whether the believed road structure is directly supported or merely not contradicted."
         )
     else:
         verdict_line = "VERDICT: CHANGE -- the believed road structure is wrong."
         focus_line = (
-            f"Explain why the believed road structure does not fit, then guide toward {gt_road_structure}: {gt_rs_desc}."
+            f"Explain the visible contradictory road-layout cue, then guide toward {gt_road_structure}: {gt_rs_desc} without inventing unseen cues."
         )
 
     return (
@@ -842,10 +867,8 @@ def build_step2_student_prompt(memory: Memory) -> str:
         f"{memory.format_text()}\n\n"
         f"{scene_choices_block_for(memory.road_structure)}\n\n"
         "[STEP2]\n"
-        + _student_output_instructions(
-            "explain why the believed scene fits or should change under the current road structure.",
-            "SCENE: <scenario_name>",
-        )
+        f"{_STEP2_TASK_RULES}\n"
+        + _student_output_instructions("SCENE: <scenario_name>")
     )
 
 
@@ -856,21 +879,19 @@ def build_step2_teacher_prompt(memory: Memory, gt_road_structure: str, gt_scene:
     gt_scene_desc = SCENARIO_LABELS.get(gt_scene, gt_scene)
 
     if verdict == "KEEP":
-        verdict_line = "VERDICT: KEEP -- the believed scene is correct."
-        focus_line = "Explain why the current situation matches the believed scene."
-        task_line = _teacher_structured_analysis_instructions(
-            "explain why the believed scene fits under the current road structure.",
-            "SCENE: <scenario_name>",
+        verdict_line = (
+            "VERDICT: KEEP -- keep the believed scene unless clear visible interaction cues contradict it."
         )
+        focus_line = (
+            "The target scene is provided for supervision, but you must not invent visual evidence for it; explain whether the believed scene is directly supported or merely not contradicted."
+        )
+        task_line = _teacher_structured_analysis_instructions("SCENE: <scenario_name>")
     else:
         verdict_line = "VERDICT: CHANGE -- the believed scene is wrong."
         focus_line = (
-            f"Explain why the believed scene does not fit, then guide toward {gt_scene}: {gt_scene_desc}."
+            f"Explain the visible interaction cue that contradicts the believed scene, then guide toward {gt_scene}: {gt_scene_desc} without inventing unseen cues."
         )
-        task_line = _teacher_structured_analysis_instructions(
-            "explain what does not fit the believed scene and what visible cues support the correction.",
-            "SCENE: <scenario_name>",
-        )
+        task_line = _teacher_structured_analysis_instructions("SCENE: <scenario_name>")
 
     return (
         f"{memory.format_step2_scene_text(gt_road_structure, gt_scene)}\n\n"
@@ -878,6 +899,7 @@ def build_step2_teacher_prompt(memory: Memory, gt_road_structure: str, gt_scene:
         "[STEP2_TEACHER]\n"
         f"{verdict_line}\n"
         f"{focus_line}\n"
+        f"{_STEP2_TASK_RULES}\n"
         f"{task_line}"
     )
 
@@ -903,10 +925,8 @@ def build_step3_student_prompt(memory: Memory) -> str:
         f"{memory.format_text()}\n\n"
         f"[EVENT_OPTIONS]\n{_event_sequence_block(memory.scene)}\n[/EVENT_OPTIONS]\n\n"
         "[STEP3]\n"
-        + _student_output_instructions(
-            "explain why the believed status/subgoal fit or should change under the current road and scene.",
-            "STATUS: <event_name>\nSUBGOAL: <event_name>",
-        )
+        f"{_STEP3_TASK_RULES}\n"
+        + _student_output_instructions("STATUS: <event_name>\nSUBGOAL: <event_name>")
     )
 
 
@@ -935,21 +955,15 @@ def build_step3_teacher_prompt(
 
     if verdict == "KEEP":
         focus_line = (
-            f"Explain why the current phase '{memory_status_desc}' and next intent '{memory_subgoal_desc}' fit."
+            f"Explain why current phase '{memory_status_desc}' and next objective '{memory_subgoal_desc}' can both be kept without advancing STATUS prematurely."
         )
-        task_line = _teacher_structured_analysis_instructions(
-            "explain why the believed status and believed subgoal fit under the current road and scene.",
-            "STATUS: <event_name>\nSUBGOAL: <event_name>",
-        )
+        task_line = _teacher_structured_analysis_instructions("STATUS: <event_name>\nSUBGOAL: <event_name>")
     else:
         focus_line = (
             f"Reject current '{memory_status_desc}' / next '{memory_subgoal_desc}', "
-            f"and guide toward current '{gt_status_desc}' / next '{gt_subgoal_desc}'."
+            f"and guide toward current '{gt_status_desc}' / next '{gt_subgoal_desc}' using visible temporal-progress cues."
         )
-        task_line = _teacher_structured_analysis_instructions(
-            "explain why the believed status/subgoal are wrong and what visible cues support the correction.",
-            "STATUS: <event_name>\nSUBGOAL: <event_name>",
-        )
+        task_line = _teacher_structured_analysis_instructions("STATUS: <event_name>\nSUBGOAL: <event_name>")
 
     return (
         f"{memory.format_step3_event_text(gt_road_structure, gt_scene, gt_status, gt_subgoal)}\n\n"
@@ -957,6 +971,8 @@ def build_step3_teacher_prompt(
         "[STEP3_TEACHER]\n"
         f"{verdict_line}\n"
         f"{focus_line}\n"
+        "The target status/subgoal are provided for supervision, but you must not invent visual evidence for them.\n"
+        f"{_STEP3_TASK_RULES}\n"
         f"{task_line}"
     )
 
@@ -1040,15 +1056,15 @@ def _fallback_teacher_analysis(kind: str) -> str:
     """Build a minimal four-line fallback when teacher raw text is empty."""
 
     memory_line = {
-        "road_structure": "Use road-layout evidence to judge whether the believed road structure should change.",
-        "scene": "Use the road bucket and visual evidence to judge whether the believed scene should change.",
-        "event": "Use the event sequence and visual evidence to judge whether the believed status or subgoal should change.",
-    }.get(kind, "Use the visual evidence to judge whether the remembered state should change.")
+        "road_structure": "Kept because no reliable teacher analysis was available to justify changing the believed road structure.",
+        "scene": "Kept because no reliable teacher analysis was available to justify changing the believed scene.",
+        "event": "Kept because no reliable teacher analysis was available to justify changing the believed status or subgoal.",
+    }.get(kind, "Kept because no reliable teacher analysis was available to justify changing the remembered state.")
     return "\n".join(
         [
             "Scene Description: The latest frames show the current road layout and traffic context.",
-            "Critical Object Description: No reliable critical object is described by the teacher.",
-            "Reasoning on Intent: Ego should use nearby actors, signals, and lane structure to choose a safe intent.",
+            "Relevant Visible Cues: No reliable specific cue is described by the teacher.",
+            "Evidence Assessment: The visual evidence is treated conservatively and does not justify inventing missing cues.",
             f"Memory Judgment: {memory_line}",
         ]
     )

@@ -262,6 +262,7 @@ def main() -> None:
             road_structure_flip = memory.road_structure != old_rs
             road_structure_ok = memory.road_structure == gt_road_structure
             step2_trigger = should_trigger_step2(
+                memory_road_structure_before_step1=old_rs,
                 memory_road_structure_after_step1=memory.road_structure,
                 gt_road_structure=gt_road_structure,
             )
@@ -297,7 +298,11 @@ def main() -> None:
                 scene_flip = memory.scene != old_scene
             step3_trigger = (
                 step2_trigger
-                and should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
+                and should_trigger_step3(
+                    memory_scene_before_step2=old_scene,
+                    memory_scene_after_step2=memory.scene,
+                    gt_scene=ep.gt_scene,
+                )
             )
 
             step3_user = ""

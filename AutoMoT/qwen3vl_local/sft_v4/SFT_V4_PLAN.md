@@ -236,7 +236,7 @@ collector 进程在 OS 层完全独立。同机器跑 collector 和 learner 不�
                        "ego_to_goal_xy":[12.3,-1.4]},
  "init_was_correct":true,         // Phase A 首帧才有意义；同时要求 road_structure 和 scene 正确
  "noise_injected":false,           // Phase B 帧首是否触发噪声扰动
- "skip_correction_applied":false,  // 上一帧 step1 未过导致跳过 step2/3 后，下一帧帧首是否纠偏
+ "skip_correction_applied":false,  // 上一帧 step1 后 road_structure 仍错时，下一帧帧首是否纠偏
  "skip_correction_scene_noisy":false, // skip 纠偏时 scene 是否用了同桶非 GT 小扰动
  "teacher_step1_text":"...",       // base teacher step1 原始分析
  "teacher_step1_target":"...",     // 规范化后的 ANALYSIS + ROAD_STRUCTURE 训练 target
@@ -311,14 +311,18 @@ while not exists(stop_sentinel):
         phase = "A" if (f1 - delta) <= frame <= (f1 + delta) else "B"
         noise = False
         skip_correction = False
+        road_reset = False
+        scene_reset = False
         if phase == "B":
-            memory = force_memory_to_gt_chain(memory)      # 分层弱纠偏
+            memory, road_reset, scene_reset = force_memory_to_gt_chain(memory)  # 分层弱纠偏
             if random() < PHASE_B_NOISE_PROB:              # 默认 0.15
                 memory.scene = random_non_gt_scene_in_bucket(memory)
+                scene_reset = True
                 noise = True
         if need_skip_correction:
             memory = correct_memory_after_step1_skip(memory, gt_scene)
             skip_correction = True
+            road_reset = scene_reset = True
             need_skip_correction = False
 
         images = load_images(ep, frame)
@@ -327,24 +331,32 @@ while not exists(stop_sentinel):
         teacher_step1_raw = teacher_generate_step1(images, memory, gt_road_structure)
         teacher_step1_target = canonicalize_teacher_step1(teacher_step1_raw, gt_road_structure)
         student_step1_raw = student_generate_step1(images, memory)
+        road_before_step1 = memory.road_structure
         memory = update_memory_after_step1(memory, parse_road_structure(student_step1_raw))
         memory_after_step1 = memory.copy()
 
-        # Step 2：只有 layer-1 命中时才跑；prompt 的 SCENE_CHOICES 来自 memory_after_step1。
-        step2_fired = should_trigger_step2(memory.road_structure, gt_road_structure)
+        # Step 2：只有 layer-1 前后都稳定命中 GT 且本帧没有 road reset 才跑；
+        # prompt 的 SCENE_CHOICES 来自 memory_after_step1。若本帧刚纠正 road，
+        # 则只更新 memory，下一帧再训练 scene。
+        step2_fired = should_trigger_step2(road_before_step1, memory.road_structure, gt_road_structure, road_reset)
         if step2_fired:
             teacher_step2_raw = teacher_generate_step2(images, memory, gt_scene)
             teacher_step2_target = canonicalize_teacher_step2(teacher_step2_raw, gt_scene)
             student_step2_raw = student_generate_step2(images, memory)
+            scene_before_step2 = memory.scene
             memory = update_memory_after_step2(memory, parse_scene(student_step2_raw))
             memory_after_step2 = memory.copy()
         else:
+            scene_before_step2 = memory.scene
             teacher_step2_raw = teacher_step2_target = student_step2_raw = None
             memory_after_step2 = memory.copy()
-        need_skip_correction = not step2_fired
+        need_skip_correction = memory.road_structure != gt_road_structure
 
-        # Step 3：只有 layer-2 scene 命中时才跑；未触发时不监督 status/subgoal。
-        step3_fired = step2_fired and should_trigger_step3(memory.scene, ep.gt_scene)
+        # Step 3：只有 layer-2 scene 前后都稳定命中 GT 且本帧没有 scene/status reset
+        # 才跑；刚纠正 scene 的帧只更新 memory，不监督 status/subgoal。
+        step3_fired = step2_fired and should_trigger_step3(
+            scene_before_step2, memory.scene, ep.gt_scene, scene_reset
+        )
         if step3_fired:
             teacher_step3_raw = teacher_generate(images, memory, gt_status, gt_subgoal)
             teacher_step3_target = canonicalize_teacher_step3(teacher_step3_raw, gt_status, gt_subgoal)
@@ -530,8 +542,8 @@ v3 的"Phase A 100% 非 GT 初始 + Phase B 100% 修回 GT"对 student 来说太
 | Phase A 帧末 memory 更新 | 同 v3：学生 step2/step3 输出自更新 | 不变 |
 | Phase B 帧首默认 | `force_memory_to_gt_chain`：road_structure / scene 分层弱纠偏，scene 变更时重置 status/subgoal | 扩展 v3 弱纠偏 |
 | **Phase B 帧首扰动** | `random() < PHASE_B_NOISE_PROB (默认 0.15)` 时只在当前 road_structure 桶内把 scene 改为非 GT | v3 无此规则 |
-| **skip 后下一帧帧首纠偏** | 仅上一帧 `step2_fired=False` 时触发一次；road_structure 强制 GT 桶，scene 大概率 GT / 小概率同桶非 GT，status/subgoal 重置为所选 scene 的 init | 新增 D28，防止 step1 连错导致长期没有 step2/3 样本 |
-| step2/step3 触发条件 | step1 后 `memory.road_structure == gt_road_structure` 才跑 step2；step2 后 `memory.scene == gt_scene` 才跑 step3 | v4 新增 layer-1 门控 |
+| **skip 后下一帧帧首纠偏** | 仅上一帧 step1 后 `memory.road_structure != gt_road_structure` 时触发一次；road_structure 强制 GT 桶，scene 大概率 GT / 小概率同桶非 GT，status/subgoal 重置为所选 scene 的 init | 新增 D28，防止 step1 连错导致长期没有 step2/3 样本 |
+| step2/step3 触发条件 | step1 前后 `memory.road_structure` 都等于 GT 且本帧无 road reset 才跑 step2；step2 前后 `memory.scene` 都等于 GT 且本帧无 scene/status reset 才跑 step3 | v4 stair-step 门控：刚纠正上层的帧不继续下钻 |
 
 设计意图：
 
@@ -540,13 +552,15 @@ v3 的"Phase A 100% 非 GT 初始 + Phase B 100% 修回 GT"对 student 来说太
   跑下来 Phase A 的 status/subgoal CE 一直比 Phase B 高，因为 student 在错初始下
   连 step1 都很难学到位。0.7 默认值让 layer-1 门控更早有密集监督，同时 scene 仍在
   GT 桶内保留 50% 错率用于同桶纠偏。
-- **Phase B 15% 噪声**：v3 Phase B 几乎所有帧 scene=GT、step3 必触发。如果模型在
+- **Phase B 15% 噪声**：v3 Phase B 几乎所有帧 scene=GT、step3 高频触发。如果模型在
   Phase A 没学会"看证据推翻"，Phase B 这条信号永远训练不到。15% 噪声让 Phase B 偶尔
-  暴露这个监督，但 85% 帧仍然 step3 主导，**status/subgoal 监督密度不会丢**。
-- **触发链对称**：step1 错桶时跳过 step2/3，只计 L_A1/L_RS1；step1 正确后才在收窄
-  的 bucket 内训练 scene；scene 正确后才训练 status/subgoal。这样 teacher target 永远
-  出现在学生实际看到的候选表里，不会发生跨桶监督错配。
-- **skip 后纠偏不常态化**：只有已经发生一次 step2/3 跳过后，下一帧进入内循环前才调用
+  暴露这个监督；噪声帧若 scene 被纠回 GT，也会停在 step2，下一帧再训练 status/subgoal。
+- **触发链对称**：step1 错桶时只监督 step1；如果本帧把 road_structure 纠回 GT，也不立刻
+  跑 step2，而是下一帧再在稳定 bucket 内训练 scene。同理，scene 本帧刚纠回 GT 时
+  status/subgoal 会重置到 init，但本帧不跑 step3，避免刚 reset 的下层 memory 直接对齐
+  当前帧事件。这样 teacher target 永远出现在学生实际看到的候选表里，也不会制造跨层
+  一帧连跳的困难样本。
+- **skip 后纠偏不常态化**：只有上一帧 step1 后 road_structure 仍未命中 GT，下一帧进入内循环前才调用
   `correct_memory_after_step1_skip`。纠偏后的 `BELIEVED_SCENE` 默认是真实 scene，
   `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 时可同桶小扰动；`STATUS/SUBGOAL` 始终重置为
   该 scene 的 init/first subgoal，保证后续 `SCENE_CHOICES` 与 memory 下游内容同源。
@@ -613,7 +627,7 @@ v4 off-policy 已经落地为四个新入口：
 |---|---|---|
 | Phase A 初始正确率 | `P_INIT_CORRECT=0.7` | 70% GT road_structure；scene 在对应桶内联合采样；D27 覆盖早期 0.5 设定 |
 | Phase B 噪声率 | `PHASE_B_NOISE_PROB=0.15` | 弱纠偏到 GT 后，15% 概率再注入同桶非 GT scene；可调范围保留 `[0.0, 0.3]` |
-| skip 后纠偏 scene 扰动率 | `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` | 仅上一帧 step1 未过并跳过 step2/3 后，下一帧帧首触发一次；scene 大概率 GT，小概率同桶非 GT |
+| skip 后纠偏 scene 扰动率 | `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` | 仅上一帧 step1 后 road_structure 仍错，下一帧帧首触发一次；scene 大概率 GT，小概率同桶非 GT |
 | learner DDP world size | `2` | GPU0/GPU1 各 1 个 learner rank；只 learner 进入 NCCL process group |
 | collector 并发 | 默认 `2` | GPU2/GPU3 各 1 个 collector；确认单卡多 CUDA 进程稳定后可手动设 `COLLECTORS_PER_GPU=2/3` |
 | learner batch | 每 rank `1` 条 trajectory | effective batch = 2；不做 per-frame batch 拼接，降低 mask/padding 风险 |
@@ -720,23 +734,22 @@ delta = min(raw_delta, 10)   # 允许 δ=0，只封顶 10
 
 - **Phase A**：`t ∈ [anchor[1] - δ, anchor[1] + δ]`
   - memory 由学生**自更新**（含场景翻转）。
-  - 三步全训：分析 + scene + status + subgoal。
+  - 三步按 stair-step 门控训练：road 本帧刚纠正时不跑 step2；scene 本帧刚纠正时不跑 step3。
 - **Phase B**：`t ∈ (anchor[1] + δ, anchor[3]]`
   - **每帧外循环开始时**对 `memory.scene` 做**弱纠偏**（D2 拍板）：
     - 若 `memory.scene == gt_scene` → 全 no-op，**status / subgoal 跨帧保留**；
     - 若 `memory.scene != gt_scene` → 走与 step2 翻转完全相同的"scene change →
       status = canonical init event、subgoal = EVENT_SEQUENCE[gt_scene][1]"重置路径。
-  - 这样 Phase B 的语义是"假设场景认知已经被矫正，让你专心练 status/subgoal
-    顺着真实事件链一步步推"，sub2/sub3 附近的 e2/e3 才能拿到密集监督；如果每帧
-    都把 status 拉回 init，e2/e3 的监督密度被人为压扁，丢失链式推理（D2 推翻
-    了"无条件 reset 三件套"的旧口径）。
-  - 然后正常跑三步内循环：仍训 scene / status / subgoal，student 输出的 SCENE
-    名字 == GT scene 时即天然"keep"；模型输出永远是场景名，不是 "keep" 字样。
+  - 若帧首弱纠偏真的改了 scene，status/subgoal 会回 init，但该帧不跑 step3；
+    下一帧 scene 稳定后再训练 status/subgoal。这样避免"刚 reset 就追当前帧事件"的
+    硬样本，同时保留 Phase B 的事件链监督密度。
+  - 然后正常跑三步内循环：仍训 scene / status / subgoal，但下钻条件必须满足
+    before/after 都稳定正确；模型输出永远是场景名，不是 "keep" 字样。
   - 这是反向的 wrong-scene 增强：教模型"已经对的就别瞎改"，与 Phase A 的
     "错了要敢于改"对称。
 
-> Phase B 也是按帧推进、step 3 也照样训，所以 sub2 / sub3 附近的 status /
-> subgoal 监督密度很高；anchor[3] 之后到 anchor[4] 不训。
+> Phase B 也是按帧推进；稳定 scene 帧继续提供密集 step3 监督，刚发生 scene
+> reset/noise correction 的帧只训到 step2；anchor[3] 之后到 anchor[4] 不训。
 
 ### 2.4 外循环步长
 
@@ -827,15 +840,16 @@ EGO_TO_GOAL_XY=(+12.3, -4.5) m
    - 学生 step1 输出合法 `ROAD_STRUCTURE` 且不同于 memory → 改写 `memory.road_structure`。
    - 只要 layer-1 翻转，就把 `memory.scene` reset 到新桶第一个 scene，并把
      `memory.status/subgoal` reset 到该 scene 的 canonical init / first subgoal。
-   - 若 `memory.road_structure_after_step1 != gt_road_structure`，直接跳过 step2/step3。
-2. **step 2 结束后立即更新 scene**（仅 step1 命中 GT road_structure 时执行）：
+   - 若 step1 前后不是都稳定命中 GT road_structure，直接跳过 step2/step3；若本帧刚把
+     road_structure 纠回 GT，也只更新 memory，下一帧再训练 step2。
+2. **step 2 结束后立即更新 scene**（仅 layer-1 稳定命中 GT road_structure 时执行）：
    - 学生 step2 输出 SCENE ≠ memory.scene → memory.scene 改写为新 scene，
     同时强制 `memory.status ← canonical init event`、
      `memory.subgoal ← EVENT_SEQUENCE[new_scene][1]`。
    - 否则 keep。
-3. **step 3 触发条件**（关键，且与 step2 是否改动**无关**）：
+3. **step 3 触发条件**（关键：scene 本帧刚纠正时不继续下钻）：
    ```
-   if step2_fired and memory.scene_after_step2 == gt_scene:
+   if step2_fired and scene_before_step2 == gt_scene and memory.scene_after_step2 == gt_scene:
        run step 3
    else:
        skip step 3
@@ -846,7 +860,7 @@ EGO_TO_GOAL_XY=(+12.3, -4.5) m
    | 正确 | 同 GT | 否 | ✓ | **跑** |
    | 正确 | 改成别的 | 是 | ✗ | 跳过 |
    | 错误 | 同 memory（仍错） | 否 | ✗ | 跳过 |
-   | 错误 | 改成 GT | 是 | ✓ | **跑** |
+   | 错误 | 改成 GT | 是 | ✓ | 跳过（刚纠正 scene，下帧再训 step3） |
 4. **step 3 跑了的话**：
    - `memory.status ← student_step3_pred_status`
    - `memory.subgoal ← student_step3_pred_subgoal`
@@ -854,10 +868,10 @@ EGO_TO_GOAL_XY=(+12.3, -4.5) m
    （C3 修正：当前帧 prompt 使用进入本帧前已经写入 memory 的坐标；本帧结束后
    再读取下一帧 meta，字面上与“进入下一帧前重算”一致。）
 
-`should_trigger_step2(memory_road_structure_after_step1, gt_road_structure)` 与
-`should_trigger_step3(memory_scene_after_step2, gt_scene)` 都被抽成 `prompts.py`
-helper，训练、collector、learner 重放、eval/probe 和测试共用同一真值函数，避免状态机
-有第二处隐式实现。
+`should_trigger_step2(before_rs, after_rs, gt_road_structure, road_reset)` 与
+`should_trigger_step3(before_scene, after_scene, gt_scene, scene_reset)` 都被抽成
+`prompts.py` helper，训练、collector、eval/probe 和测试共用同一真值函数，避免状态机
+有第二处隐式实现；learner 直接消费 collector 写入的 `step2_fired/step3_fired`。
 
 **Phase B**（D2 弱纠偏 + 跨帧推进，加上 v4 的概率噪声）：
 1. **帧外循环开始前两步串联**：先弱纠偏，再以概率注入噪声：
@@ -876,15 +890,16 @@ helper，训练、collector、learner 重放、eval/probe 和测试共用同一�
        noise_injected = False
    ```
    `noise_injected` 标志写进 trajectory，方便事后审计噪声帧的 loss 占比。
-2. 正常跑 step1/step2/step3，step3 触发条件依然是 `should_trigger_step3(...)`：
-   - 默认帧（85%）：memory 进入时已 = GT，student 大概率预测 GT → step3 必触发。
+2. 正常跑 step1/step2/step3，但 step3 触发条件要求 scene 前后稳定正确：
+   - 默认帧（85%）：memory 进入时已 = GT，student 大概率预测 GT → step3 高频触发。
    - 噪声帧（15%）：memory.scene = wrong，student 看图像 → 大概率仍预测 GT scene →
-     step3 仍触发；少数被噪声带偏的帧 step3 跳过，但 step1 analysis + step2 SCENE
-     的"看证据翻 memory"监督被加强。
+     本帧停在 step2，不继续跑 step3；少数被噪声带偏的帧也跳过 step3，但 step1
+     analysis + step2 SCENE 的"看证据翻 memory"监督被加强。
 3. 帧末更新 status / subgoal 同 Phase A 第 3 步——sub2 / sub3 附近的 status / subgoal
    会**跨帧累积推进**到 e2 / e3，监督密度起得来。
 4. 噪声帧不打破 Phase B 的整体"假设 scene 已纠正"语义：85% 帧仍 scene=GT，跨帧推进
-   status/subgoal 不受影响；15% 噪声帧只是把当前帧的 step1/step2 拉回 Phase A 式监督。
+   status/subgoal 不受影响；15% 噪声帧只把当前帧拉回 step2 纠 scene 监督，下一帧再恢复
+   step3 事件推进。
 
 > Phase A 与 Phase B 的 prompt **完全一致**，唯一差别只在"帧开头是否被强制
 > 改 memory + 是否注入噪声"。student 看不出自己在哪个 phase，自然学到 phase-agnostic
@@ -937,22 +952,22 @@ step2/step3 老师分析。teacher 与 student 也不共享 KV，因为 LoRA on/
   4 images are ordered oldest to newest; the last image is now.
   Use the shared public response contract:
   Scene Description: ...
-  Critical Object Description: ...
-  Reasoning on Intent: ...
+  Relevant Visible Cues: ...
+  Evidence Assessment: ...
   Memory Judgment: ...
   Explain from the student perspective whether the believed road structure should be kept or changed.
   Do not write the label line; the script appends ROAD_STRUCTURE.
 ```
 
 - Teacher generate → `analysis_1_teacher`（鼓励按
-  `Scene Description:` / `Critical Object Description:` /
-  `Reasoning on Intent:` / `Memory Judgment:` 四行 plain-text 顺序写；analysis 必须是
+  `Scene Description:` / `Relevant Visible Cues:` /
+  `Evidence Assessment:` / `Memory Judgment:` 四行 plain-text 顺序写；analysis 必须是
   student-facing 口径，不应出现 `GROUND_TRUTH_*` / `ANSWER_*` / `REFERENCE_*` 等私有字段名），
   脚本拼接 `"\nROAD_STRUCTURE: <gt_road_structure>"`，
   `max_new_tokens=384`、`do_sample=False`、
   `repetition_penalty=1.05`。
 - **Student prompt / target contract**：student 也被要求按同一套四行
-  `Scene Description` / `Critical Object Description` / `Reasoning on Intent` /
+  `Scene Description` / `Relevant Visible Cues` / `Evidence Assessment` /
   `Memory Judgment` 输出，然后自己写 `ROAD_STRUCTURE: <name>`；teacher 不写标签，
   脚本追加 GT 标签后作为 assistant target。四行 analysis token 算 **L_A1**，
   `ROAD_STRUCTURE` 值 token 算 **L_RS1**。
@@ -1397,10 +1412,10 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
    `P_INIT_CORRECT=0.0`
    可以退回 v3 行为。**v3 D3 决议作废**，旧的"Phase A 100% 翻转监督、Phase B 100%
    保持监督"分工不再适用。
-8. **Step 3 触发条件**：`should_trigger_step3(memory_scene_after_step2, gt_scene)`
-   helper（C4 拍板抽出），仅看 step2 后 memory.scene 是否等于 GT，与是否翻转
-   过无关。train.py 与 `test_memory_update.py` 共享同一真值函数，禁止有第二份
-   隐式实现。
+8. **Step 3 触发条件**：`should_trigger_step3(before_scene, after_scene, gt_scene, scene_reset)`
+   helper（C4 后续修正），要求 step2 前后 scene 都等于 GT，且本帧没有 scene/status
+   reset；刚纠正 scene 的帧不继续跑 step3。train.py 与 `test_memory_update.py`
+   共享同一真值函数，禁止有第二份隐式实现。
 9. **Hindsight Oracle / OPD 蒸馏**：teacher = frozen base + disable_adapter，
    实时 generate 分析 + 离散答案；student token-CE 对齐。
 10. **Teacher analysis 清洗**：teacher 可以看 answer 字段，但 analysis target 必须是
@@ -1408,8 +1423,9 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
     `ROAD_STRUCTURE:` / `SCENE:` / `STATUS:` / `SUBGOAL:` 整行（避免脚本追加的 GT 被
     parser 取错）和 `[STEPx]` / `[MEMORY]` 等 prompt marker，并把残留
     `GROUND_TRUTH_*` / `ANSWER_*` / `REFERENCE_*` 改写为 `the corrected ...`。
-    prompt 要求按 `Scene Description:` / `Critical Object Description:` /
-    `Reasoning on Intent:` / `Memory Judgment:` 四个公开 heading 顺序写，内容不设字数限制；
+    prompt 要求按 `Scene Description:` / `Relevant Visible Cues:` /
+    `Evidence Assessment:` / `Memory Judgment:` 四个公开 heading 顺序写，analysis 控制在
+    label 前约 60-120 words；
     只有剥完后真为空字符串才退回四行 fallback，结构化标签仍由脚本追加。
 11. **Teacher 长度**：三步均允许完整分析（max_new=384 仅作异常生成护栏，min_new=0）。
     `repetition_penalty=1.05`（B1 拍板）已在 `_kv_generate_text` 内按 HF 风格
@@ -1469,14 +1485,15 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 26. **Step 1 输出结构（D26）**：保留视觉描述前缀 + KEEP/CHANGE 论证 +
     一行 `ROAD_STRUCTURE: <name>`；不限制描述字数；loss 三段独立 mask 与
     加权。详见 §12.3 / §12.5。
-27. **p_init_correct 默认 0.7（D27）**：联合初始化下补偿 step3 触发率被 layer-1
-    拖累的腰斩问题。配套 Phase B 帧首 `force_memory_to_gt_chain` 先拉回 layer-1=GT，
-    使 Phase B 阶段 step3 触发率回到与现有 v4 持平。`p_init_correct=0.0`
-    保留为退回 v3 行为的对照实验入口。
-28. **step1 skip 后下一帧纠偏（D28）**：仅上一帧 `step2_fired=False` 时置位，下一帧
-    进入内循环前触发一次。`BELIEVED_ROAD_STRUCTURE` 拉回 GT 桶，`BELIEVED_SCENE`
-    默认 GT、按 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，
-    `STATUS/SUBGOAL` 重置为所选 scene 的 init/first subgoal。
+27. **p_init_correct 默认 0.7（D27）**：联合初始化下补偿上层触发率被 layer-1
+    拖累的问题。配套 Phase B 帧首 `force_memory_to_gt_chain` 先拉回 layer-1=GT；
+    若本帧确实发生 road/scene reset，则按 stair-step 门控停在被纠正层，下一帧再下钻。
+    `p_init_correct=0.0` 保留为退回 v3 行为的对照实验入口。
+28. **step1 skip 后下一帧纠偏（D28）**：仅上一帧 step1 后
+    `memory.road_structure != gt_road_structure` 时置位，下一帧进入内循环前触发一次。
+    `BELIEVED_ROAD_STRUCTURE` 拉回 GT 桶，`BELIEVED_SCENE` 默认 GT、按
+    `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STATUS/SUBGOAL`
+    重置为所选 scene 的 init/first subgoal。
 
 ---
 
@@ -1631,16 +1648,17 @@ EGO_TO_GOAL_XY=(..., ...) m
 [/ROAD_STRUCTURE_CHOICES]
 
 [STEP1]
-4 images are ordered oldest to newest; the last image is now.
-Decision rule: CHANGE only if clear contradictory road-layout cues are visible.
-DIRECTLY SUPPORTED requires category-specific road-layout cues.
-NOT CONTRADICTED applies when cues are weak but no other road bucket is clearly visible.
-Write 80-160 words before the label.
-Write exactly these analysis lines in this order, one non-empty line per heading:
+[STEP1_TASK]
+Update ROAD_STRUCTURE only.
+Focus on visible road-layout cues.
+Do not use vehicle intent alone to decide road structure.
+If the believed road structure is not visually confirmed but no other road-structure category is clearly visible, keep it as not contradicted.
+[/STEP1_TASK]
+Use the shared public response contract and write exactly these four analysis lines:
 Scene Description: ...
-Critical Object Description: ...
-Reasoning on Intent: ...
-Memory Judgment: start with directly supported / not contradicted / should be corrected wording.
+Relevant Visible Cues: ...
+Evidence Assessment: ...
+Memory Judgment: start with Kept because / Corrected because / Advanced because.
 Then write the label line(s) yourself: ROAD_STRUCTURE: <name>
 ```
 
@@ -1649,18 +1667,16 @@ Then write the label line(s) yourself: ROAD_STRUCTURE: <name>
 和 `ANSWER_ROAD_STRUCTURE`，再列出 6 个 road structure 选项。context 中 road label
 已由 `ROAD_STRUCTURE_CHOICES` 解释，因此只写 token，不重复括号解释。Step1 不再把
 KEEP 解释成"图像强确认"：KEEP 只表示 memory continuity。`CHANGE` 只在看见明确矛盾
-road-layout cues 时触发；`DIRECTLY SUPPORTED` 只在看见类别特异线索（merge lane/ramp/exit、
-junction、crosswalk、parking layout、blocked lane 或 crossing actor 等）时使用；雾、遮挡或远车
-导致证据弱但没有看见其它 road bucket 时，应写 `kept because it is not contradicted`。
+road-layout cues 时触发；雾、遮挡或远车导致证据弱但没有看见其它 road bucket 时，应写
+`Kept because ... not contradicted`，不要把弱证据写成强确认。
 远处 lead vehicle 本身不能当作 highway merge 证据，也不能凭空推断 braking/stopping/
 merging/lane-changing/yielding。CHANGE 时要求说明最清晰的矛盾 road-bucket cue；如果矛盾
-证据弱，应承认 correction weakly grounded，不能编造反证。Step1 不再用 `under 120 words`
-压短，而是要求 label 前约 80-160 words；NOT CONTRADICTED 时要同时说明证据弱以及缺少
-支持改掉 believed label 的 road-layout cue。
+证据弱，应承认 correction weakly grounded，不能编造反证。analysis 统一控制在 label 前约
+60-120 words；所有 label 必须单独成行。
 老师和学生共用同一个
 public response contract：都输出学生视角四行 plain-text analysis：
-`Scene Description:`、`Critical Object Description:`、
-`Reasoning on Intent:`、`Memory Judgment:`；区别只是学生 prompt 要求自己写
+`Scene Description:`、`Relevant Visible Cues:`、
+`Evidence Assessment:`、`Memory Judgment:`；区别只是学生 prompt 要求自己写
 `ROAD_STRUCTURE: <name>`，老师 prompt 要求不要写标签，标签由 `build_step1_teacher_target` 追加。
 
 **Step 2 prompt（学生 / 老师）**：
@@ -1715,15 +1731,18 @@ CHANGE 时老师解释当前 believed status-subgoal 为什么不对，以及 co
 事件 label 若已在 `EVENT_OPTIONS` 中解释，则 context 只写 token。输出仍是同一套四行
 student-facing 结构，最后一行 `Memory Judgment` 专门判断 status/subgoal memory。
 
-### 12.4 触发链：step1 错 → 跳 step2/3
+### 12.4 触发链：上层刚纠正 → 本帧不继续下钻
 
-仿照现有 `should_trigger_step3`：
+公共触发 helper 采用 stair-step 口径：
 
-- `should_trigger_step2(memory_road_structure_after_step1, gt_road_structure) → bool`
-  只有 step1 后 `memory.road_structure == gt_road_structure` 才进 step2。
-- `should_trigger_step3` 维持原义，但前提是 step2 已经跑过。
-- 若 step1 layer-1 翻车 → step2 / step3 全跳过，loss 仍计 step1 的两段
-  （ROAD_STRUCTURE 离散 + 分析）。
+- `should_trigger_step2(before_rs, after_rs, gt_road_structure, road_reset=False) → bool`
+  只有 step1 前后 `memory.road_structure` 都等于 GT，且本帧没有脚本层 road reset，
+  才进 step2。
+- `should_trigger_step3(before_scene, after_scene, gt_scene, scene_reset=False) → bool`
+  只有 step2 前后 `memory.scene` 都等于 GT，且本帧没有 scene/status reset，才进 step3。
+- 若 step1 layer-1 仍错 → step2 / step3 全跳过，loss 仍计 step1 的两段
+  （ROAD_STRUCTURE 离散 + 分析）；若 step1 本帧刚把 layer-1 纠回 GT，也只更新 memory，
+  下一帧再跑 step2。scene 同理。
 
 > **D24 拍板：A**。step2 SCENE_CHOICES 来自触发后的 `memory.road_structure`；由于
 > step2 只在 layer-1 命中 GT 桶时触发，teacher-forced target 里的 `SCENE: <gt>`
@@ -1810,7 +1829,7 @@ student-facing 结构，最后一行 `Memory Judgment` 专门判断 status/subgo
    - 新增 `should_trigger_step2`；扩 `update_memory_after_step1` /
      `force_memory_to_gt_chain`；
    - `init_memory` 改成联合采样，默认 `p_init_correct=0.7`；
-   - 新增 `correct_memory_after_step1_skip`，用于上一帧 step1 未过后下一帧帧首纠偏；
+   - 新增 `correct_memory_after_step1_skip`，用于上一帧 step1 后 road_structure 仍错时下一帧帧首纠偏；
    - `_kv_generate_text` 加 `no_repeat_ngram_size=3` 选项，teacher 不传强制最少生成参数，
      `seen_unique` 只算本轮
      生成 token。

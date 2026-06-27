@@ -157,7 +157,7 @@ def _assert_prompt_contracts() -> None:
     step1 teacher prompt 只读 road-only context，不再喂完整 MEMORY；
     step1 KEEP 只表示 memory 不更新，并用 supported / not contradicted / corrected
     三段证据规则约束 road-structure 分析；
-    step2/step3 trigger 必须分别等价于 layer-1 / layer-2 命中 GT。
+    step2/step3 trigger 必须分别等价于 layer-1 / layer-2 在本帧前后都稳定命中 GT。
     """
 
     gt_scene = sorted(SCENARIO_LABELS)[0]
@@ -177,15 +177,18 @@ def _assert_prompt_contracts() -> None:
     step1_student = build_step1_user_prompt(4, mem)
     if "[STEP1_ROAD_MEMORY]" not in step1_student:
         raise AssertionError("step1 student prompt must include STEP1_ROAD_MEMORY")
-    evidence_contract = "Decision rule: CHANGE only if clear contradictory road-layout cues are visible"
+    evidence_contract = "Change a believed label only when clear visible evidence contradicts it"
     if evidence_contract not in step1_prompt or evidence_contract not in step1_student:
-        raise AssertionError("step1 prompts must include the road-structure evidence priority contract")
+        raise AssertionError("step1 prompts must include the common memory-update evidence contract")
     if "The verdict controls memory update only" not in step1_prompt:
         raise AssertionError("step1 KEEP teacher prompt must clarify that KEEP is not strong confirmation")
-    if "distant lead vehicle alone is not highway-merge evidence" not in step1_student:
-        raise AssertionError("step1 student prompt must reject distant lead vehicles as standalone merge evidence")
-    if "Write 80-160 words before the label" not in step1_student:
+    if "A lead vehicle alone does not prove HIGHWAY_MERGE" not in step1_student:
+        raise AssertionError("step1 student prompt must reject lead vehicles as standalone merge evidence")
+    if "Keep the analysis 60-120 words before the label" not in step1_student:
         raise AssertionError("step1 student prompt must request a bounded but non-tiny analysis")
+    for heading in ("Relevant Visible Cues:", "Evidence Assessment:"):
+        if heading not in step1_student:
+            raise AssertionError(f"step1 student prompt missing shared heading: {heading}")
     forbidden_step1_fields = ("BELIEVED_SCENE", "BELIEVED_STATUS", "BELIEVED_SUBGOAL", "ANSWER_")
     if any(token in step1_student for token in forbidden_step1_fields):
         raise AssertionError("step1 student prompt must be road-only and must not contain private answer fields")
@@ -197,14 +200,42 @@ def _assert_prompt_contracts() -> None:
         forbidden_private = ("ANSWER_", "GROUND_TRUTH_", "REFERENCE_")
         if any(token in student_prompt for token in forbidden_private):
             raise AssertionError("student-facing prompts must not contain teacher-private answer fields")
-    if not should_trigger_step2(memory_road_structure_after_step1=gt_rs, gt_road_structure=gt_rs):
-        raise AssertionError("should_trigger_step2 must fire when layer-1 matches GT")
-    if should_trigger_step2(memory_road_structure_after_step1=wrong_rs, gt_road_structure=gt_rs):
+    if not should_trigger_step2(
+        memory_road_structure_before_step1=gt_rs,
+        memory_road_structure_after_step1=gt_rs,
+        gt_road_structure=gt_rs,
+    ):
+        raise AssertionError("should_trigger_step2 must fire when layer-1 is stably GT")
+    if should_trigger_step2(
+        memory_road_structure_before_step1=wrong_rs,
+        memory_road_structure_after_step1=gt_rs,
+        gt_road_structure=gt_rs,
+    ):
+        raise AssertionError("should_trigger_step2 must skip when layer-1 was just corrected")
+    if should_trigger_step2(
+        memory_road_structure_before_step1=wrong_rs,
+        memory_road_structure_after_step1=wrong_rs,
+        gt_road_structure=gt_rs,
+    ):
         raise AssertionError("should_trigger_step2 must skip when layer-1 differs from GT")
-    if not should_trigger_step3(memory_scene_after_step2=gt_scene, gt_scene=gt_scene):
-        raise AssertionError("should_trigger_step3 must fire when layer-2 matches GT")
+    if not should_trigger_step3(
+        memory_scene_before_step2=gt_scene,
+        memory_scene_after_step2=gt_scene,
+        gt_scene=gt_scene,
+    ):
+        raise AssertionError("should_trigger_step3 must fire when layer-2 is stably GT")
     other_scene = next(scene for scene in sorted(SCENARIO_LABELS) if scene != gt_scene)
-    if should_trigger_step3(memory_scene_after_step2=other_scene, gt_scene=gt_scene):
+    if should_trigger_step3(
+        memory_scene_before_step2=other_scene,
+        memory_scene_after_step2=gt_scene,
+        gt_scene=gt_scene,
+    ):
+        raise AssertionError("should_trigger_step3 must skip when layer-2 was just corrected")
+    if should_trigger_step3(
+        memory_scene_before_step2=other_scene,
+        memory_scene_after_step2=other_scene,
+        gt_scene=gt_scene,
+    ):
         raise AssertionError("should_trigger_step3 must skip when layer-2 differs from GT")
 
 
@@ -395,6 +426,12 @@ def _run_teacher_for_frame(
     step3_user_prompt = ""
     step2_fired = False
     step3_fired = False
+    step1_after_target = update_memory_after_step1(
+        memory,
+        student_road_structure=gt_road_structure,
+    )
+    step2_after_target = step1_after_target.copy()
+    step3_after_target = step2_after_target.copy()
 
     teacher_was_training = bool(teacher_model.training)
     teacher_model.eval()
@@ -413,11 +450,12 @@ def _run_teacher_for_frame(
             # 输出、也不调用 update_memory_after_step1。step2/3 是否触发只由当前
             # mode 构造出的 memory-vs-GT 关系决定，便于稳定观察 5 条状态机路径。
             step2_fired = should_trigger_step2(
-                memory_road_structure_after_step1=memory.road_structure,
+                memory_road_structure_before_step1=memory.road_structure,
+                memory_road_structure_after_step1=step1_after_target.road_structure,
                 gt_road_structure=gt_road_structure,
             )
             if step2_fired:
-                step2_teacher_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
+                step2_teacher_user = build_step2_teacher_prompt(step1_after_target, gt_road_structure, ep.gt_scene)
                 step2_msgs = _build_messages_with_images(user_text=step2_teacher_user, images=images)
                 step2_state = _teacher_start_state(bundle, step2_msgs)
                 raw_step2, _step2_state_after = _teacher_generate_kv(
@@ -426,11 +464,16 @@ def _run_teacher_for_frame(
                     TEACHER_MAX_NEW_TOKENS_STEP2,
                 )
 
-                # ---- step3：触发口径与训练一致（step2 已跑且 memory.scene == gt_scene） ----
-                step3_fired = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
+                # ---- step3：触发口径与训练一致（step2 前后 scene 都稳定为 GT） ----
+                step2_after_target = update_memory_after_step2(step1_after_target, student_scene=ep.gt_scene)
+                step3_fired = should_trigger_step3(
+                    memory_scene_before_step2=step1_after_target.scene,
+                    memory_scene_after_step2=step2_after_target.scene,
+                    gt_scene=ep.gt_scene,
+                )
                 if step3_fired:
                     step3_user_prompt = build_step3_teacher_prompt(
-                        memory,
+                        step2_after_target,
                         gt_road_structure,
                         ep.gt_scene,
                         gt_status,
@@ -452,21 +495,14 @@ def _run_teacher_for_frame(
     target3 = build_step3_teacher_target(raw_step3, gt_status, gt_subgoal) if step3_fired else ""
 
     step1_student_prompt = build_step1_user_prompt(len(images), memory)
-    step1_after_target = update_memory_after_step1(
-        memory,
-        student_road_structure=gt_road_structure,
-    )
-    step2_student_prompt = build_step2_student_prompt(memory) if step2_fired else ""
-    step2_after_target = (
-        update_memory_after_step2(memory, student_scene=ep.gt_scene)
-        if step2_fired
-        else memory.copy()
-    )
-    step3_student_prompt = build_step3_student_prompt(memory) if step3_fired else ""
+    step2_student_prompt = build_step2_student_prompt(step1_after_target) if step2_fired else ""
+    if not step2_fired:
+        step2_after_target = step1_after_target.copy()
+    step3_student_prompt = build_step3_student_prompt(step2_after_target) if step3_fired else ""
     step3_after_target = (
-        update_memory_after_step3(memory, student_status=gt_status, student_subgoal=gt_subgoal)
+        update_memory_after_step3(step2_after_target, student_status=gt_status, student_subgoal=gt_subgoal)
         if step3_fired
-        else memory.copy()
+        else step2_after_target.copy()
     )
 
     student_step1 = _empty_student_output()
@@ -686,11 +722,11 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
         "[STEP1_ROAD_CONTEXT] block instead of the full [MEMORY] block.\n"
     )
     lines.append(
-        "Step 1 road-structure evidence rule: CHANGE only for clear contradictory "
-        "road-layout cues; DIRECTLY SUPPORTED requires category-specific cues; otherwise "
-        "KEEP as NOT CONTRADICTED when evidence is weak but no other road bucket is clearly "
-        "visible. KEEP does not imply strong confirmation, and a distant lead vehicle alone "
-        "is not highway-merge evidence.\n"
+        "Shared evidence rule: keep believed memory by default, change only when clear "
+        "visible evidence contradicts it, and describe weak evidence as not contradicted rather "
+        "than directly confirmed. The public target uses four lines: Scene Description, "
+        "Relevant Visible Cues, Evidence Assessment, and Memory Judgment. A single distant "
+        "lead vehicle alone is not enough to prove merging, cut-in, braking, or active flow.\n"
     )
     lines.append(
         "Mode sections are ordered by the state-machine path. Default modes are "
@@ -769,7 +805,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                 lines.append(_format_student_view(s2))
             else:
                 lines.append(
-                    "\n#### Step 2 — skipped (memory.road_structure != gt_road_structure, "
+                    "\n#### Step 2 — skipped (road_structure was not stably GT before/after step1, "
                     "so the trainer would not fire step2 here).\n"
                 )
 
@@ -786,7 +822,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
                 lines.append(_format_student_view(s3))
             else:
                 lines.append(
-                    "\n#### Step 3 — skipped (step2 did not fire or memory.scene != gt_scene, "
+                    "\n#### Step 3 — skipped (step2 did not fire or scene was not stably GT before/after step2, "
                     "so the trainer would not fire step3 here).\n"
                 )
 

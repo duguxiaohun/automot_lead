@@ -256,11 +256,23 @@ def collect_episode(
         noise_injected = False
         skip_correction_applied = False
         skip_correction_scene_noisy = False
+        road_structure_reset_this_frame = False
+        scene_reset_this_frame = False
         if not phase_a:
             # Phase B 帧首三层弱纠偏（D23 + D27 配套）：先 layer-1 回 GT 桶，
             # 再 scene 回 GT；noise 只在 scene 这一层按 PHASE_B_NOISE_PROB 注入。
+            before_force_rs = memory.road_structure
+            before_force_scene = memory.scene
             memory = force_memory_to_gt_chain(
                 memory, gt_road_structure=gt_road_structure, gt_scene=ep.gt_scene
+            )
+            road_structure_reset_this_frame = (
+                road_structure_reset_this_frame
+                or memory.road_structure != before_force_rs
+            )
+            scene_reset_this_frame = (
+                scene_reset_this_frame
+                or memory.scene != before_force_scene
             )
             memory, noise_injected = _inject_phase_b_noise(
                 memory,
@@ -268,6 +280,7 @@ def collect_episode(
                 rng=rng,
                 prob=phase_b_noise_prob,
             )
+            scene_reset_this_frame = scene_reset_this_frame or bool(noise_injected)
         if need_skip_correction:
             # Previous frame failed layer-1 and skipped step2/3. Repair once
             # before this frame's inner loop so downstream choices are fetched
@@ -278,6 +291,8 @@ def collect_episode(
                 rng=rng,
                 scene_noise_prob=skip_correction_scene_noise_prob,
             )
+            road_structure_reset_this_frame = True
+            scene_reset_this_frame = True
             skip_correction_applied = True
             need_skip_correction = False
         memory_before = memory.copy()
@@ -325,10 +340,12 @@ def collect_episode(
         rs_flip = memory.road_structure != old_rs
         memory_after_step1 = memory.copy()
 
-        # ============ 触发门 1：step1 命中 GT 桶才进 step2 ============
+        # ============ 触发门 1：road bucket 前后都稳定为 GT 才进 step2 ============
         step2_ran = should_trigger_step2(
+            memory_road_structure_before_step1=old_rs,
             memory_road_structure_after_step1=memory.road_structure,
             gt_road_structure=gt_road_structure,
+            road_structure_reset_this_frame=road_structure_reset_this_frame,
         )
         analysis2 = ""
         target2 = ""
@@ -342,7 +359,8 @@ def collect_episode(
             #
             # 1. 先让 student step1 自由生成 ROAD_STRUCTURE；
             # 2. 用这个输出更新 memory.road_structure，并在翻桶时 reset 下游 scene/status/subgoal；
-            # 3. 只有更新后的 road_structure 命中 GT 桶，才构造 step2 prompt。
+            # 3. 只有 step1 前后 road_structure 都已稳定命中 GT 桶，才构造 step2 prompt；
+            #    若本帧刚纠正 layer-1，则下一帧再训练 scene。
             #
             # 不能把 step2_teacher_user / step2_student_user 提前放到 step1 前面构造。
             # 否则会出现“step1 已经把桶从旧值纠正到 GT，但 step2 仍列旧桶
@@ -378,10 +396,15 @@ def collect_episode(
             scene_flip = memory.scene != old_scene
             memory_after_step2 = memory.copy()
 
-        # ============ 触发门 2：step2 后 scene 命中 GT 才进 step3 ============
+        # ============ 触发门 2：scene 前后都稳定为 GT 才进 step3 ============
         step3_ran = (
             step2_ran
-            and should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
+            and should_trigger_step3(
+                memory_scene_before_step2=old_scene,
+                memory_scene_after_step2=memory.scene,
+                gt_scene=ep.gt_scene,
+                scene_reset_this_frame=scene_reset_this_frame,
+            )
         )
         raw_teacher_step3 = ""
         raw_student_step3 = ""
@@ -503,7 +526,7 @@ def collect_episode(
         frame_record["step2_ran"] = bool(step2_ran)
         frame_record["step3_ran"] = bool(step3_ran)
         records.append(frame_record)
-        need_skip_correction = not bool(step2_ran)
+        need_skip_correction = memory.road_structure != gt_road_structure
         first_frame = False
         # 帧末预取下一帧 goal 坐标，保证下一轮 memory_before 已经是下一帧视角。
         _prefetch_goal_xy_for_next_frame(memory, run_dir, frame + stride, ep.frame_end)

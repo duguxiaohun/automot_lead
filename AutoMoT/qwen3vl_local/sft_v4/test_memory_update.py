@@ -38,6 +38,7 @@ from qwen3vl_local.sft_v4.prompts import (
     build_step2_teacher_prompt,
     build_step3_student_prompt,
     build_step3_teacher_prompt,
+    first_scene_in_bucket,
     first_subgoal,
     correct_memory_after_step1_skip,
     force_memory_to_gt_chain,
@@ -116,14 +117,38 @@ def _check_step1_update_and_trigger() -> None:
     keep = update_memory_after_step1(base, student_road_structure=gt_rs)
     assert keep.road_structure == gt_rs
     assert keep.scene == gt
-    assert should_trigger_step2(memory_road_structure_after_step1=keep.road_structure, gt_road_structure=gt_rs)
+    assert should_trigger_step2(
+        memory_road_structure_before_step1=base.road_structure,
+        memory_road_structure_after_step1=keep.road_structure,
+        gt_road_structure=gt_rs,
+    )
 
     flipped = update_memory_after_step1(base, student_road_structure=other_rs)
     assert flipped.road_structure == other_rs
     assert flipped.scene == ROAD_STRUCTURE_TO_SCENES[other_rs][0]
     assert flipped.status == initial_event(flipped.scene)
     assert flipped.subgoal == first_subgoal(flipped.scene)
-    assert not should_trigger_step2(memory_road_structure_after_step1=flipped.road_structure, gt_road_structure=gt_rs)
+    assert not should_trigger_step2(
+        memory_road_structure_before_step1=base.road_structure,
+        memory_road_structure_after_step1=flipped.road_structure,
+        gt_road_structure=gt_rs,
+    )
+
+    wrong_base = Memory(
+        road_structure=other_rs,
+        scene=first_scene_in_bucket(other_rs),
+        status=initial_event(first_scene_in_bucket(other_rs)),
+        subgoal=first_subgoal(first_scene_in_bucket(other_rs)),
+        ego_to_goal_x=0.0,
+        ego_to_goal_y=0.0,
+    )
+    corrected = update_memory_after_step1(wrong_base, student_road_structure=gt_rs)
+    assert corrected.road_structure == gt_rs
+    assert not should_trigger_step2(
+        memory_road_structure_before_step1=wrong_base.road_structure,
+        memory_road_structure_after_step1=corrected.road_structure,
+        gt_road_structure=gt_rs,
+    ), "刚纠正 layer-1 的帧不应继续跑 step2"
 
     ignored = update_memory_after_step1(base, student_road_structure="NOT_A_BUCKET")
     assert ignored.road_structure == base.road_structure
@@ -152,8 +177,8 @@ def _check_student_prompt_contracts() -> None:
     step1_teacher = build_step1_teacher_prompt(memory, memory.road_structure)
     shared_headings = (
         "Scene Description:",
-        "Critical Object Description:",
-        "Reasoning on Intent:",
+        "Relevant Visible Cues:",
+        "Evidence Assessment:",
         "Memory Judgment:",
     )
     assert "[STEP1_ROAD_MEMORY]" in step1
@@ -162,10 +187,11 @@ def _check_student_prompt_contracts() -> None:
     assert all(h in step1 for h in shared_headings)
     assert "ROAD_STRUCTURE: <name>" in step1
     assert "Then write the label line(s) yourself" in step1
-    assert "Decision rule: CHANGE only if clear contradictory road-layout cues are visible" in step1
+    assert "[STEP1_TASK]" in step1
+    assert "Change a believed label only when clear visible evidence contradicts it" in step1
     assert "not contradicted" in step1
-    assert "distant lead vehicle alone is not highway-merge evidence" in step1
-    assert "Write 80-160 words before the label" in step1
+    assert "A lead vehicle alone does not prove HIGHWAY_MERGE" in step1
+    assert "Keep the analysis 60-120 words before the label" in step1
     assert "BELIEVED_SCENE" not in step1
     assert "BELIEVED_STATUS" not in step1
     assert "BELIEVED_SUBGOAL" not in step1
@@ -425,22 +451,28 @@ def _check_skip_correction_after_step1_skip_helper() -> None:
 
 
 def _check_should_trigger_step3() -> None:
-    """C4：step3 触发判定与 step2 是否翻转无关，只看 scene_after_step2 == gt_scene。"""
+    """C4：step3 只在 scene 前后都已稳定为 GT 时触发。"""
 
     gt = "Accident"
     other = next(s for s in SCENARIO_LABELS if s != gt)
 
-    # 4 种组合（初始 memory.scene、step2 输出）：
-    # | 初始 | step2 输出 | 翻转 | scene_after_step2 | 期望触发 |
-    # |------|-----------|------|-------------------|---------|
-    # | GT   | GT        | 否   | GT                | 是       |
-    # | GT   | other     | 是   | other             | 否       |
-    # | other| other     | 否   | other             | 否       |
-    # | other| GT        | 是   | GT                | 是       |
-    assert should_trigger_step3(memory_scene_after_step2=gt, gt_scene=gt) is True
-    assert should_trigger_step3(memory_scene_after_step2=other, gt_scene=gt) is False
-    assert should_trigger_step3(memory_scene_after_step2=other, gt_scene=gt) is False
-    assert should_trigger_step3(memory_scene_after_step2=gt, gt_scene=gt) is True
+    # 4 种组合（step2 前 memory.scene、step2 后 memory.scene）：
+    # | before | after | 期望触发 |
+    # |--------|-------|---------|
+    # | GT     | GT    | 是       |
+    # | GT     | other | 否       |
+    # | other  | other | 否       |
+    # | other  | GT    | 否，刚纠正 scene 的帧不继续跑 step3 |
+    assert should_trigger_step3(memory_scene_before_step2=gt, memory_scene_after_step2=gt, gt_scene=gt) is True
+    assert should_trigger_step3(memory_scene_before_step2=gt, memory_scene_after_step2=other, gt_scene=gt) is False
+    assert should_trigger_step3(memory_scene_before_step2=other, memory_scene_after_step2=other, gt_scene=gt) is False
+    assert should_trigger_step3(memory_scene_before_step2=other, memory_scene_after_step2=gt, gt_scene=gt) is False
+    assert should_trigger_step3(
+        memory_scene_before_step2=gt,
+        memory_scene_after_step2=gt,
+        gt_scene=gt,
+        scene_reset_this_frame=True,
+    ) is False
 
 
 def _frame_record_for_replay(*, step2_fired: bool, include_memory_after_step1: bool = True) -> dict:
