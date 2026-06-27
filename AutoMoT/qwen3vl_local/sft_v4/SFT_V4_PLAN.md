@@ -1468,7 +1468,10 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 20. **终止协议（D20v4 新增）**：learner 跑到 `--max-steps` 后写 `$OUTPUT_DIR/STOP`
     哨兵，collectors 每条 episode 结束查哨兵存在则退出（不强 kill 让 pending 写完），
     `launch_offpolicy.sh` 监控全部 collector 退出后收尾。
-21. **SCENE_CHOICES 分层（D21）**：42 个 scene 按视觉道路结构分成 6 桶
+21. **SCENE_CHOICES 分层（D21）**：42 个原始 CARLA scenario 按视觉道路结构分成 6 桶，
+    但 v4 的学生预测目标只保留 canonical scene；不可视觉区分的 `EnterActorFlowV2`
+    / `MergerIntoSlowTrafficV2` 折叠到 `EnterActorFlow` / `MergerIntoSlowTraffic`
+    （D28）
     （JUNCTION / HIGHWAY_MERGE / ROADSIDE_HAZARD / PARKING_AREA / VRU_CROSSING /
     OPEN_ROAD_DYNAMICS）。`ROAD_STRUCTURE_LABELS` 与 `SCENE_TO_ROAD_STRUCTURE`
     放在 `sft_v4/prompts.py`（不动 `prompt_pipeline.py`）。详见 §12.1。
@@ -1512,7 +1515,7 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 
 ## 12. 设计（已落地）：SCENE_CHOICES 分层 + Step 1 ROAD_STRUCTURE 选择
 
-> **状态：D21~D28 已拍板并实现。** §12.6 第 5 点的生成端兜底
+> **状态：D21~D29 已拍板并实现。** §12.6 第 5 点的生成端兜底
 > （取消强制最少生成 + no_repeat_ngram_size + repetition_penalty 范围）
 > 已与分层重构同步落地。
 
@@ -1522,29 +1525,31 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 [SFT_V4_RUN.md §7](SFT_V4_RUN.md)），定位到三类问题：
 
 1. **老师 step2/3 输出 degenerate 成 "The left. The right." 循环**——根因是
-   完整 42 行 SCENE_CHOICES 把 prompt 推到 ~1500 token，base Qwen3-VL-4B-Instruct
+   完整原始 42 行 SCENE_CHOICES 把 prompt 推到 ~1500 token，base Qwen3-VL-4B-Instruct
    注意力被稀释；旧版强制最少生成又延长了坏轨迹 → 贪心 argmax 更容易进入复读。
-2. **学生 step2 必须在 42 个 scene 里精挑** → 一上来错的概率远大于对的，前期
+2. **学生 step2 必须在原始 42 个 scene 里精挑** → 一上来错的概率远大于对的，前期
    `should_trigger_step3` 几乎不命中，status/subgoal 监督密度过低。
-3. **小模型一次性吞下 "完整 42 选 1"** 不符合人类决策路径——人类先看"是十字
+3. **小模型一次性吞下 "完整原始 42 选 1"** 不符合人类决策路径——人类先看"是十字
    路口还是高速合流"，再在那个大类里挑。
 
 ### 12.1 分层结构（6 桶定稿）
 
-把 42 个 scene 按**视觉道路结构**分成 6 桶。判定依据：4 张 stitched RGB 里能直接
-看到的道路几何 / 交通形态。
+把 42 个原始 CARLA scenario 按**视觉道路结构**分成 6 桶。判定依据：4 张 stitched RGB
+里能直接看到的道路几何 / 交通形态。v4 的 layer-2 监督使用 canonical scene：`V2`
+仅表示 CARLA benchmark 版本差异且事件序列相同的场景不作为学生预测目标。
 
 | Layer-1 token | 描述（写进 prompt 用） | 包含的 Layer-2 scene |
 |---|---|---|
 | `JUNCTION` | Intersection / crossroads / T-shape; turn or yield at a meeting of multiple road directions, with or without traffic signal. | BlockedIntersection, CrossJunctionDefectTrafficLight, NonSignalizedJunctionLeftTurn, NonSignalizedJunctionLeftTurnEnterFlow, NonSignalizedJunctionRightTurn, OppositeVehicleRunningRedLight, OppositeVehicleTakingPriority, PriorityAtJunction, RedLightWithoutLeadVehicle, SignalizedJunctionLeftTurn, SignalizedJunctionLeftTurnEnterFlow, SignalizedJunctionRightTurn, T_Junction, VehicleTurningRoute, VehicleTurningRoutePedestrian (15) |
-| `HIGHWAY_MERGE` | Multi-lane highway or interurban road; merging into / exiting from a fast lane, or reacting to a cut-in vehicle. | EnterActorFlow, EnterActorFlowV2, HighwayCutIn, HighwayExit, InterurbanActorFlow, InterurbanAdvancedActorFlow, MergerIntoSlowTraffic, MergerIntoSlowTrafficV2, StaticCutIn (9) |
+| `HIGHWAY_MERGE` | Multi-lane highway or interurban road; merging into / exiting from a fast lane, or reacting to a cut-in vehicle. | EnterActorFlow, HighwayCutIn, HighwayExit, InterurbanActorFlow, InterurbanAdvancedActorFlow, MergerIntoSlowTraffic, StaticCutIn (7 canonical; raw aliases EnterActorFlowV2→EnterActorFlow, MergerIntoSlowTrafficV2→MergerIntoSlowTraffic) |
 | `ROADSIDE_HAZARD` | Otherwise normal straight / curved road, but a static or quasi-static hazard (accident, construction, parked vehicle, side-lane object) sits adjacent to the lane. | Accident, AccidentTwoWays, ConstructionObstacle, ConstructionObstacleTwoWays, HazardAtSideLane, HazardAtSideLaneTwoWays, ParkedObstacle, ParkedObstacleTwoWays (8) |
 | `PARKING_AREA` | Parking lot / parking-area environment; vehicle entering, exiting, or interacting with parked traffic and pedestrians around parked cars. | ParkingCrossingPedestrian, ParkingCutIn, ParkingExit, VehicleOpensDoorTwoWays (4) |
 | `VRU_CROSSING` | Pedestrian, cyclist or other dynamic object crossing the lane on a normal road segment. | CrossingBicycleFlow, DynamicObjectCrossing, PedestrianCrossing (3) |
 | `OPEN_ROAD_DYNAMICS` | Open road, no special structure; ego stability or lead-vehicle behavior is the dominant cue. | ControlLoss, HardBreakRoute, InvadingTurn (3) |
 
-合计 15 + 9 + 8 + 4 + 3 + 3 = 42 ✓。最大桶 15 项（JUNCTION），prompt 收窄到原来
-~36%；最小桶 3 项，prompt 收窄到 ~7%；平均 7 项/桶。
+原始 scenario 合计 15 + 9 + 8 + 4 + 3 + 3 = 42；canonical 训练标签合计
+15 + 7 + 8 + 4 + 3 + 3 = 40。最大桶 15 项（JUNCTION），最小桶 3 项；HIGHWAY_MERGE
+去掉两个不可视觉区分 alias 后为 7 项。
 
 > **D21 拍板：6 桶**。5 桶丢失 ControlLoss / HardBreakRoute / InvadingTurn 与
 > 路边异物视觉特征的区分；7 桶在 signalized vs non-signalized 上加复杂度收益不大。
@@ -1562,13 +1567,21 @@ ROAD_STRUCTURE_LABELS: Dict[str, str] = {
     "OPEN_ROAD_DYNAMICS": "Open road with lead vehicle, braking, control loss, or invading turn",
 }
 
+SCENE_CANONICAL_ALIASES = {
+    "EnterActorFlowV2": "EnterActorFlow",
+    "MergerIntoSlowTrafficV2": "MergerIntoSlowTraffic",
+}
+
 SCENE_TO_ROAD_STRUCTURE: Dict[str, str] = {
     "BlockedIntersection": "JUNCTION",
     ...  # 42 entries, derived from the table above
 }
 ```
 
-`scene_choices_block_for(structure)` 渲染只列该桶 layer-2 的 SCENE_CHOICES。
+`scene_choices_block_for(structure)` 渲染只列该桶 layer-2 canonical `SCENE_CHOICES`。
+`validate_scene` 接受 alias 输入，但 `update_memory_after_step2`、teacher target 和
+`Memory.scene` 都会折叠到 canonical label。`build_dataset.py` 保留 `scenario/raw_gt_scene`
+作为原始 CARLA 名称，`gt_scene` 写 canonical label。
 
 ### 12.2 Memory 字段扩展
 
@@ -1625,7 +1638,7 @@ status/subgoal 重置成新 scene 的 init + first subgoal。
 | Step | 旧任务 | v4 定稿任务 |
 |---|---|---|
 | 1 | 仅描述视觉，禁 memory / 禁标签 | 学生只读 road-only memory（`BELIEVED_ROAD_STRUCTURE` / `EGO_TO_GOAL_XY`），描述视觉 + 选 ROAD_STRUCTURE；老师开启 fresh dialog，只读 road-only answer context（`BELIEVED_ROAD_STRUCTURE` / `EGO_TO_GOAL_XY` / `ANSWER_ROAD_STRUCTURE`）并输出学生视角 4 行结构分析；脚本追加 `ROAD_STRUCTURE: <name>` |
-| 2 | 读 memory + 完整 42 行 SCENE_CHOICES → 输出 SCENE | 学生读 memory + 预测 road 桶下 layer-2 候选；老师开启 fresh dialog，读 `ANSWER_ROAD_STRUCTURE`、`BELIEVED_SCENE`、`ANSWER_SCENE` 并分析 scene keep/change；脚本追加 `SCENE: <gt>` |
+| 2 | 读 memory + 当前桶 canonical SCENE_CHOICES → 输出 SCENE | 学生读 memory + 预测 road 桶下 layer-2 canonical 候选；老师开启 fresh dialog，读 `ANSWER_ROAD_STRUCTURE`、`BELIEVED_SCENE`、`ANSWER_SCENE` 并分析 scene keep/change；脚本追加 `SCENE: <canonical gt>` |
 | 3 | 不变 | 学生串行读 memory + event options；老师开启 fresh dialog，读 answer road/scene、believed/answer status-subgoal 并分析 event keep/change；脚本追加 `STATUS/SUBGOAL` |
 
 **Step 1 prompt（学生 / 老师）**：
@@ -1799,12 +1812,12 @@ student-facing 结构，最后一行 `Memory Judgment` 专门判断 status/subgo
 - §5 损失权重：扩到 7 项（§12.5）。
 - §6.1 Teacher 超参：取消强制最少输出长度、加 no_repeat_ngram_size、调
   repetition_penalty 范围（§12.6.5）。
-- §7 数据 / IO：`build_dataset.py` 不需要改 jsonl schema——`gt_road_structure`
-  在训练时从 `SCENE_TO_ROAD_STRUCTURE[ep.gt_scene]` 现算即可，不必落盘。
-- §10 已确认决策：D21~D28 已并入当前实现，不回滚任何既有决策；与 D8（step3
+- §7 数据 / IO：`build_dataset.py` 写 `scenario/raw_gt_scene` 保留原始 CARLA 名称，
+  `gt_scene` 写 v4 canonical label；`gt_road_structure` 仍在训练时从 canonical scene 现算。
+- §10 已确认决策：D21~D29 已并入当前实现，不回滚任何既有决策；与 D8（step3
   触发条件）完全对称扩展。
 
-### 12.8 决策速查表（D21~D28 全部锁定）
+### 12.8 决策速查表（D21~D29 全部锁定）
 
 | 决策点 | 内容 | 锁定值 |
 |---|---|---|
@@ -1816,12 +1829,14 @@ student-facing 结构，最后一行 `Memory Judgment` 专门判断 status/subgo
 | D26 | Step 1 是否保留纯视觉描述前缀 | **保留**：视觉环境描述 + verdict 判断 + 标签，不限制描述字数，loss 三段独立计 |
 | D27 | step3 触发率腰斩对策 | **p_init_correct 默认 0.7**（联合初始化下三层联合命中 0.7×0.5=0.35，Phase B 弱纠偏后回升）|
 | D28 | step1 失败后下一帧是否强制纠偏 | **只在上一帧 step2/3 已跳过时触发一次**；road_structure=GT 桶，scene 大概率 GT / 0.15 同桶扰动，status/subgoal 回 init |
+| D29 | V2/variant scene 是否作为学生预测目标 | **不作为独立目标**；`EnterActorFlowV2→EnterActorFlow`、`MergerIntoSlowTrafficV2→MergerIntoSlowTraffic`，raw scenario 只保留 metadata |
 
-### 12.9 实施清单（D21~D28 已落地）
+### 12.9 实施清单（D21~D29 已落地）
 
 1. `[x] sft_v4/prompts.py`：
-   - 新增 `ROAD_STRUCTURE_LABELS`（6 项）+ `SCENE_TO_ROAD_STRUCTURE`（42 项 1:1 映射）；
-   - 新增 `road_structure_choices_block()` 与 `scene_choices_block_for(structure)`；
+   - 新增 `ROAD_STRUCTURE_LABELS`（6 项）+ `SCENE_TO_ROAD_STRUCTURE`（42 项 raw 映射）；
+   - 新增 `SCENE_CANONICAL_ALIASES` / `CANONICAL_SCENARIO_LABELS`，把不可视觉区分的 V2 scene 折叠到 canonical label；
+   - 新增 `road_structure_choices_block()` 与 `scene_choices_block_for(structure)`，后者只列 canonical scene；
    - `Memory` 加 `road_structure` 字段、`format_text()` 多渲染一行；
    - 新增 `build_step1_user_prompt`（学生）/ `build_step1_teacher_prompt` /
      `build_step1_teacher_target` 三件套；

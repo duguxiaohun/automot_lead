@@ -31,6 +31,13 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 | `0026.json` | LEAD meta 固定参考样本，只读，绝对不要入库 |
 | `keyframes_all_scenarios.json` | 远端数据参考，只读 |
 
+SFT v4 scene canonicalization rule: `EnterActorFlowV2 -> EnterActorFlow` and
+`MergerIntoSlowTrafficV2 -> MergerIntoSlowTraffic`. These raw CARLA scenario
+variants keep their original `scenario/raw_gt_scene` metadata, but student
+`SCENE` choices, memory, teacher targets, and eval comparisons use the canonical
+scene label because the paired variants share the same visible semantics and
+event sequence.
+
 ## 1.1 运行命令目录约定
 
 运行手册默认当前目录就是远端 `AutoMoT/`。命令示例统一写相对 `AutoMoT/`

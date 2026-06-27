@@ -238,6 +238,7 @@ def collect_episode(
             "episode": {
                 "run_id": ep.run_id,
                 "scenario": ep.scenario,
+                "raw_gt_scene": ep.raw_gt_scene,
                 "anchors": [int(x) for x in ep.anchors],
                 "delta": int(ep.delta),
                 "frame_range": [int(ep.frame_start), int(ep.frame_end)],
@@ -492,6 +493,7 @@ def collect_episode(
             "gt": {
                 "road_structure": gt_road_structure,
                 "scene": ep.gt_scene,
+                "raw_scene": ep.raw_gt_scene,
                 "status": gt_status,
                 "subgoal": gt_subgoal,
             },
