@@ -74,13 +74,6 @@ os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 #   2. 否则如果环境变量带了 ``GPU_IDS=0`` / ``GPU_IDS=0,1``，按 GPU_IDS pin；
 #   3. 否则用 ``nvidia-smi`` 找出最空闲 GPU 数 1 张，写入 CUDA_VISIBLE_DEVICES。
 # 这与训练/eval/probe 入口完全同步，保证抽检脚本不会和其它进程抢同一张卡。
-from qwen3vl_local.sft_v2.eval import _maybe_set_idle_gpu_mask  # noqa: E402
-
-_maybe_set_idle_gpu_mask()
-
-import torch  # noqa: E402
-
-from qwen3vl_local.sft_v2.train import load_model_with_lora  # noqa: E402
 from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     CANONICAL_SCENARIO_LABELS,
     ROAD_STRUCTURE_TO_SCENES,
@@ -111,22 +104,7 @@ from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     update_memory_after_step3,
     parse_output,
 )
-from qwen3vl_local.sft_v4.train import (  # noqa: E402
-    EpisodeDataset,
-    EpisodeRow,
-    _append_user_turn,
-    _build_messages_with_images,
-    _build_rgb_paths,
-    _clone_kv_state,
-    _gt_status_subgoal,
-    _is_phase_a,
-    _load_goal_xy,
-    _load_images,
-    _student_generate_kv,
-    _student_start_state,
-    _teacher_generate_kv,
-    _teacher_start_state,
-)
+torch = None  # type: ignore[assignment]
 
 
 VERDICT_SOURCE_NOTE = (
@@ -149,6 +127,64 @@ DEFAULT_INSPECT_MODE_ORDER: Tuple[str, ...] = (
 )
 INSPECT_MODE_RANK = {name: idx for idx, name in enumerate(INSPECT_MODE_ORDER)}
 INSPECT_MODE_SET = set(INSPECT_MODE_ORDER)
+
+
+def _load_runtime_dependencies(device_arg: str) -> None:
+    """Load torch/model helpers after prompt-only self-checks.
+
+    GPU selection must still happen before importing torch. Keeping this as a
+    lazy step prevents prompt contract checks from failing on machines where
+    torch cannot initialize, while preserving the remote inspect runtime order.
+    """
+
+    global torch
+    global load_model_with_lora
+    global EpisodeDataset, EpisodeRow
+    global _append_user_turn, _build_messages_with_images, _build_rgb_paths
+    global _clone_kv_state, _gt_status_subgoal, _is_phase_a, _load_goal_xy
+    global _load_images, _student_generate_kv, _student_start_state
+    global _teacher_generate_kv, _teacher_start_state
+
+    from qwen3vl_local.sft_v2.eval import _maybe_set_idle_gpu_mask  # noqa: WPS433
+
+    if device_arg != "cpu":
+        _maybe_set_idle_gpu_mask()
+
+    import torch as _torch  # noqa: WPS433
+    from qwen3vl_local.sft_v2.train import load_model_with_lora as _load_model_with_lora  # noqa: WPS433
+    from qwen3vl_local.sft_v4.train import (  # noqa: WPS433
+        EpisodeDataset as _EpisodeDataset,
+        EpisodeRow as _EpisodeRow,
+        _append_user_turn as _runtime_append_user_turn,
+        _build_messages_with_images as _runtime_build_messages_with_images,
+        _build_rgb_paths as _runtime_build_rgb_paths,
+        _clone_kv_state as _runtime_clone_kv_state,
+        _gt_status_subgoal as _runtime_gt_status_subgoal,
+        _is_phase_a as _runtime_is_phase_a,
+        _load_goal_xy as _runtime_load_goal_xy,
+        _load_images as _runtime_load_images,
+        _student_generate_kv as _runtime_student_generate_kv,
+        _student_start_state as _runtime_student_start_state,
+        _teacher_generate_kv as _runtime_teacher_generate_kv,
+        _teacher_start_state as _runtime_teacher_start_state,
+    )
+
+    torch = _torch
+    load_model_with_lora = _load_model_with_lora
+    EpisodeDataset = _EpisodeDataset
+    EpisodeRow = _EpisodeRow
+    _append_user_turn = _runtime_append_user_turn
+    _build_messages_with_images = _runtime_build_messages_with_images
+    _build_rgb_paths = _runtime_build_rgb_paths
+    _clone_kv_state = _runtime_clone_kv_state
+    _gt_status_subgoal = _runtime_gt_status_subgoal
+    _is_phase_a = _runtime_is_phase_a
+    _load_goal_xy = _runtime_load_goal_xy
+    _load_images = _runtime_load_images
+    _student_generate_kv = _runtime_student_generate_kv
+    _student_start_state = _runtime_student_start_state
+    _teacher_generate_kv = _runtime_teacher_generate_kv
+    _teacher_start_state = _runtime_teacher_start_state
 
 
 def _assert_prompt_contracts() -> None:
@@ -178,9 +214,15 @@ def _assert_prompt_contracts() -> None:
     step1_student = build_step1_user_prompt(4, mem)
     if "[STEP1_ROAD_MEMORY]" not in step1_student:
         raise AssertionError("step1 student prompt must include STEP1_ROAD_MEMORY")
-    evidence_contract = "Change a believed label only when clear visible evidence contradicts it"
-    if evidence_contract not in step1_prompt or evidence_contract not in step1_student:
-        raise AssertionError("step1 prompts must include the common memory-update evidence contract")
+    common_contract_markers = (
+        "Update structured driving memory using visible evidence and memory continuity",
+        "change or advance a label only when clear visible evidence supports the update",
+        "keep the believed label and state that it is not contradicted rather than directly confirmed",
+        "Do not fabricate visual cues to justify a label",
+    )
+    for marker in common_contract_markers:
+        if marker not in step1_prompt or marker not in step1_student:
+            raise AssertionError(f"step1 prompts must include the current common evidence contract: {marker}")
     if "The verdict controls memory update only" not in step1_prompt:
         raise AssertionError("step1 KEEP teacher prompt must clarify that KEEP is not strong confirmation")
     if "A lead vehicle alone does not prove HIGHWAY_MERGE" not in step1_student:
@@ -193,14 +235,46 @@ def _assert_prompt_contracts() -> None:
     forbidden_step1_fields = ("BELIEVED_SCENE", "BELIEVED_STATUS", "BELIEVED_SUBGOAL", "ANSWER_")
     if any(token in step1_student for token in forbidden_step1_fields):
         raise AssertionError("step1 student prompt must be road-only and must not contain private answer fields")
-    for student_prompt in (
-        step1_student,
-        build_step2_student_prompt(mem),
-        build_step3_student_prompt(mem),
-    ):
+    step2_student = build_step2_student_prompt(mem)
+    step3_student = build_step3_student_prompt(mem)
+    step2_teacher = build_step2_teacher_prompt(mem, gt_rs, gt_scene)
+    step3_teacher = build_step3_teacher_prompt(mem, gt_rs, gt_scene, mem.status, mem.subgoal)
+    for student_prompt in (step1_student, step2_student, step3_student):
         forbidden_private = ("ANSWER_", "GROUND_TRUTH_", "REFERENCE_")
         if any(token in student_prompt for token in forbidden_private):
             raise AssertionError("student-facing prompts must not contain teacher-private answer fields")
+        if "Then write the label line(s) yourself" not in student_prompt:
+            raise AssertionError("student-facing prompts must include the student label-writing contract")
+    expected_student_labels = {
+        "step1": (step1_student, ("ROAD_STRUCTURE: <name>",)),
+        "step2": (step2_student, ("SCENE: <scenario_name>",)),
+        "step3": (step3_student, ("STATUS: <event_name>", "SUBGOAL: <event_name>")),
+    }
+    for name, (prompt, labels) in expected_student_labels.items():
+        for label in labels:
+            if label not in prompt:
+                raise AssertionError(f"{name} student prompt missing label placeholder: {label}")
+    for teacher_name, teacher_prompt in (
+        ("step1", step1_prompt),
+        ("step2", step2_teacher),
+        ("step3", step3_teacher),
+    ):
+        if "Then write the label line(s) yourself" in teacher_prompt:
+            raise AssertionError(f"{teacher_name} teacher prompt must not ask the teacher to write labels")
+        if "Do not write any label lines" not in teacher_prompt:
+            raise AssertionError(f"{teacher_name} teacher prompt must explicitly forbid teacher label lines")
+        forbidden_label_placeholders = (
+            "ROAD_STRUCTURE: <name>",
+            "SCENE: <scenario_name>",
+            "STATUS: <event_name>",
+            "SUBGOAL: <event_name>",
+        )
+        if any(label in teacher_prompt for label in forbidden_label_placeholders):
+            raise AssertionError(f"{teacher_name} teacher prompt must not include label placeholders")
+    if "stationary or slow-moving" not in step2_teacher:
+        raise AssertionError("step2 teacher prompt must reject weak speed-state inference")
+    if "retained next objective" not in step3_teacher:
+        raise AssertionError("step3 teacher prompt must distinguish STATUS from SUBGOAL")
     if not should_trigger_step2(
         memory_road_structure_before_step1=gt_rs,
         memory_road_structure_after_step1=gt_rs,
@@ -911,6 +985,7 @@ def main() -> None:
 
     args = parse_args()
     _assert_prompt_contracts()
+    _load_runtime_dependencies(args.device)
     rng = random.Random(args.seed)
 
     print(f"[inspect] loading episodes from {args.train_jsonl}", flush=True)

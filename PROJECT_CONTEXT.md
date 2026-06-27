@@ -42,6 +42,9 @@ SFT v4 prompt contract: teacher prompts generate only the four analysis lines
 `Memory Judgment`) and never include label placeholders; `build_step*_teacher_target`
 appends supervised labels, while student prompts ask the adapter to write labels
 on separate lines.
+`inspect_teacher.py` runs prompt-contract self-checks before lazy-loading torch
+and model helpers; keep this order so prompt-only regressions are caught before
+runtime dependency failures.
 
 ## 1.1 运行命令目录约定
 

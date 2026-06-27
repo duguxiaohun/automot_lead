@@ -1863,7 +1863,9 @@ student-facing 结构，最后一行 `Memory Judgment` 专门判断 status/subgo
 5. `[x] sft_v4/inspect_teacher.py`：默认覆盖 4 种常规 memory 模式
    （`all_keep` / `rs_change` / `scene_change_same_rs` / `event_change`），并保留
    `scene_change_cross_rs` 作为显式 stress-only 模式；报告同时写 teacher-private
-   raw、student-facing prompt、adapter-enabled student 初始输出、target/memory transition。
+   raw、student-facing prompt、adapter-enabled student 初始输出、target/memory transition；
+   prompt contract 自检先于 torch/model runtime import，避免旧 prompt 断言或本地 torch
+   环境问题掩盖 teacher/student 契约漂移。
 6. `[x] sft_v4/test_memory_update.py` / `test_gt_leak_filter.py` / `check_loss_mask.py`：新增
    road_structure 字段测试 + 联合初始化测试；`test_gt_leak_filter.py` 仅作为 legacy no-op 兼容测试；
    `test_memory_update.py` 额外覆盖 student-facing prompt 契约（含四行 analysis heading 与标签提示）与
