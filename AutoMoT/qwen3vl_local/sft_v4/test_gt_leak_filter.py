@@ -50,9 +50,22 @@ def main() -> None:
             "hazard_detect",
             "max_brake_or_min_gap",
         ),
+        "context_marker_strip": build_step2_teacher_target(
+            "[STEP2_SCENE_CONTEXT]\n"
+            "ANSWER_SCENE=Accident\n"
+            "[/STEP2_SCENE_CONTEXT]\n"
+            "Scene Description: The scene description remains.\n"
+            "Memory Judgment: ANSWER_SCENE should become student-facing wording.",
+            "Accident",
+        ),
     }
     forbidden = ("GROUND_TRUTH_", "ANSWER_", "REFERENCE_", "BELIEF_", "BELIEVED_")
-    clean_ok = all(not any(token in value for token in forbidden) for value in cleaned_targets.values())
+    forbidden_markers = ("[STEP1_ROAD_CONTEXT]", "[STEP2_SCENE_CONTEXT]", "[STEP3_EVENT_CONTEXT]")
+    clean_ok = all(
+        not any(token in value for token in forbidden)
+        and not any(marker in value for marker in forbidden_markers)
+        for value in cleaned_targets.values()
+    )
     ok = all(value is False for value in results.values())
     print(
         json.dumps(

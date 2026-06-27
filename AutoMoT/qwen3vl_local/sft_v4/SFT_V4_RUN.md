@@ -26,10 +26,12 @@ Step1 老师只喂 road-only context（believed road / ego goal / answer road）
 该 road bucket 下的 `SCENE_CHOICES`；Step3 老师喂 answer road/scene、believed/answer
 status-subgoal，并列出该 scene 的 `EVENT_OPTIONS`。context 中如果 label 已被紧邻的
 choices/options 解释，就只写 token，不重复括号解释；只有 choices 没覆盖的 label 才补自然语言解释。
-三步统一鼓励按 `Scene Description:`、`Critical Object Description:`、
-`Reasoning on Intent:`、`Memory Judgment:` 四行 plain-text 顺序写。`_clean_teacher_analysis`
-会剥掉结构化标签行、prompt marker，并把残留私有字段名改成 `the corrected ...` 口径；
-结构化 `ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 标签仍由脚本追加。
+三步 student prompt 和 teacher prompt 共用同一个 public response contract：都要求先写
+`Scene Description:`、`Critical Object Description:`、`Reasoning on Intent:`、
+`Memory Judgment:` 四行 plain-text analysis；区别只是 student 要自己在最后写结构化
+`ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 标签，teacher 不写标签，由
+`build_step*_teacher_target` 脚本追加。`_clean_teacher_analysis` 会剥掉误写的结构化标签行、
+prompt marker，并把残留私有字段名改成 `the corrected ...` 口径。
 teacher 默认生成上限为 `384/384/384`（仅作异常生成的技术护栏，不限制每行词数）；
 teacher 调用不再传强制最少生成参数，让模型自然停止。
 
@@ -396,7 +398,8 @@ python qwen3vl_local/sft_v4/check_loss_mask.py
 `test_memory_update.py` 现在同时覆盖三层 memory 状态机、student-facing prompt 契约和
 replay schema v2 的关键门控：step1 prompt 必须是 road-only
 `[STEP1_ROAD_MEMORY]`，不得含 `BELIEVED_SCENE/STATUS/SUBGOAL` 或任何 `ANSWER_*`
-私有字段；step2/3 prompt 才读完整 `[MEMORY]`。step2 未触发时允许没有 step2 target；
+私有字段；step1/2/3 student prompt 都必须带同一套四行 analysis heading 和标签行提示；
+step2/3 prompt 才读完整 `[MEMORY]`。step2 未触发时允许没有 step2 target；
 step2 已触发时必须保存 `memory_after_step1`，否则 learner 无法按 collector 当时的
 `ROAD_STRUCTURE` 桶重放收窄后的 `SCENE_CHOICES`。它也覆盖 skip 后下一帧纠偏：
 scene 只能回 GT 或同桶小扰动，status/subgoal 必须跟随所选 scene 回 init。
@@ -558,21 +561,26 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
 1. **先看 student supervised target 是否是学生视角**：不应出现 `GROUND_TRUTH_*` /
    `ANSWER_*` / `REFERENCE_*`；如果老师 raw 里有这些词，target 中应被清成
    `the corrected ...` 口径。
-2. **再看 raw analysis 是否像人在解释**：重点查空泛复读、是否真的针对当前 step 的
+2. **再看 STUDENT-FACING prompt 与 STUDENT SUPERVISED TARGET 是否同构**：
+   step1/2/3 都应使用同一套四行 heading（`Scene Description` /
+   `Critical Object Description` / `Reasoning on Intent` / `Memory Judgment`），
+   差别只应是 student 自己写 label，而 teacher target 的 label 由脚本追加。
+3. **再看 raw analysis 是否像人在解释**：重点查空泛复读、是否真的针对当前 step 的
    privileged context 做论证。允许老师知道答案，但不能把答案先验伪装成视觉事实；
    看不清时可以简短承认不确定，不要编造未看见的 actor 或未来事件。
-3. **scripted target 是否仅在 raw 完全空时退回四行 fallback**。如果发现大量
+4. **scripted target 是否仅在 raw 完全空时退回四行 fallback**。如果发现大量
    case 都被 fallback 兜底，说明 teacher 在该模式下根本没生成有效文本，回头
    修 prompt 或老师生成参数。
-4. **`all_keep` 模式下老师是否真的论证 KEEP**（不要去翻案）；
+5. **`all_keep` 模式下老师是否真的论证 KEEP**（不要去翻案）；
    **`rs_change` 模式下老师是否先纠正道路结构**；**`scene_change_same_rs` /
    `scene_change_cross_rs` 模式下老师是否描述"believed scene 为什么不 fit，corrected
    scene 的可见依据是什么"而不是简单复述 memory scene**；**`event_change` 模式下老师是否解释"虽然 scene 对，但
    status/subgoal 应该推进"**。
-5. **step3 老师是否能围绕 EVENT_OPTIONS 做有效 keep/correct 引导**，不要只输出
+6. **step3 老师是否能围绕 EVENT_OPTIONS 做有效 keep/correct 引导**，不要只输出
    "I observe the current driving phase" 这类空话。
 
 如果语义不达标，回头修 `build_step{1,2,3}_teacher_prompt` 里的 `focus_line`；
-优先保持 prompt 清晰，只在必要时补关键证据锚点，不要加入输出字数限制或四行硬约束。
+优先保持 prompt 清晰，只在必要时补关键证据锚点；每行内容不设字数限制，
+但四个公开 heading 是 teacher target 与 student prompt 共享的固定结构契约。
 
 ---
