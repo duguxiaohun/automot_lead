@@ -183,16 +183,17 @@ def _check_student_prompt_contracts() -> None:
         "Reasoning on Intent:",
         "Memory Judgment:",
     )
-    # 4 行分析格式 + evidence policy 已下沉 SYSTEM_PROMPT_V4；step 块只留
-    # Task / Constraint / Label 三段，不再重复 heading 与 "先分析再写 label"。
+    # 4 行分析格式 + 通用 evidence 原则在 SYSTEM_PROMPT_V4；step 块只留
+    # Task / Constraint（含各 step 专属证据规则）/ Then write 三段。
     assert "[STEP1_ROAD_MEMORY]" in step1
     assert "BELIEVED_ROAD_STRUCTURE" in step1
     assert "EGO_TO_GOAL_XY" in step1
     assert "[STEP1]" in step1
     assert "Task: Decide ROAD_STRUCTURE from ROAD_STRUCTURE_CHOICES." in step1
     assert "Constraint:" in step1
-    assert "\nLabel: ROAD_STRUCTURE: <name>" in step1
+    assert "do not infer merging, braking, cut-in, or active flow from a single lead vehicle" in step1
     assert "a single lead vehicle alone never proves HIGHWAY_MERGE" in step1
+    assert "\nThen write: ROAD_STRUCTURE: <name>" in step1
     assert "Then write the label line(s) yourself" not in step1
     assert "Relevant Visible Cues" not in step1
     assert "Evidence Assessment" not in step1
@@ -210,6 +211,11 @@ def _check_student_prompt_contracts() -> None:
     assert "a single lead vehicle alone never proves HIGHWAY_MERGE" in step1_teacher
     assert "ROAD_STRUCTURE: <name>" not in step1_teacher
     assert "Then write the label line(s) yourself" not in step1_teacher
+    # CHANGE verdict 时 gt_hint 应允许弱证据诚实表述
+    step1_change_teacher = build_step1_teacher_prompt(memory, "JUNCTION")
+    assert "VERDICT: CHANGE" in step1_change_teacher
+    assert "plausible alternative" in step1_change_teacher
+    assert "not strongly supported" in step1_change_teacher
 
     step2 = build_step2_student_prompt(memory)
     step2_teacher = build_step2_teacher_prompt(memory, memory.road_structure, scene)
@@ -219,7 +225,8 @@ def _check_student_prompt_contracts() -> None:
     assert "BELIEVED_SUBGOAL" in step2
     assert "[STEP2]" in step2
     assert "Task: Decide SCENE from SCENE_CHOICES." in step2
-    assert "\nLabel: SCENE: <scenario_name>" in step2
+    assert "do not infer hidden merging, yielding, lane change" in step2
+    assert "\nThen write: SCENE: <scenario_name>" in step2
     assert "ANSWER_" not in step2
     assert "GROUND_TRUTH_" not in step2
     assert "REFERENCE_" not in step2
@@ -229,6 +236,11 @@ def _check_student_prompt_contracts() -> None:
     assert "stationary or slow-moving" in step2_teacher
     assert "SCENE: <scenario_name>" not in step2_teacher
     assert "Then write the label line(s) yourself" not in step2_teacher
+    # CHANGE verdict 时 gt_hint 应允许弱证据诚实表述
+    step2_change_teacher = build_step2_teacher_prompt(memory, memory.road_structure, "HazardAtSideLane")
+    assert "VERDICT: CHANGE" in step2_change_teacher
+    assert "plausible alternative" in step2_change_teacher
+    assert "not strongly supported" in step2_change_teacher
 
     step3 = build_step3_student_prompt(memory)
     step3_teacher = build_step3_teacher_prompt(
@@ -245,7 +257,7 @@ def _check_student_prompt_contracts() -> None:
     assert "[EVENT_OPTIONS]" in step3
     assert "[STEP3]" in step3
     assert "Task: Decide STATUS and SUBGOAL from EVENT_OPTIONS." in step3
-    assert "\nLabel: STATUS: <event_name>" in step3
+    assert "\nThen write: STATUS: <event_name>" in step3
     assert "ANSWER_" not in step3
     assert "GROUND_TRUTH_" not in step3
     assert "REFERENCE_" not in step3

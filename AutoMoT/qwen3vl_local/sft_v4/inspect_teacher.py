@@ -223,16 +223,14 @@ def _assert_prompt_contracts() -> None:
         "Keep the believed label by default",
         "change or advance it only when clear visible evidence supports it",
         "not contradicted",
-        "Do not infer hidden braking, merging, yielding, lane change, turn, stop, cut-in, or active flow",
-        "a single lead vehicle alone never proves merging, braking, cut-in, or active flow",
         "Scene Description:",
         "Critical Object Description:",
         "Reasoning on Intent:",
         "Memory Judgment:",
-        'must start with exactly one of "Kept because" / "Corrected because" / "Advanced because"',
-        "(student steps only) the label line(s) named by the step",
+        'start with exactly one of "Kept because" / "Corrected because" / "Advanced because"',
+        "(student steps only) the label line(s) shown in the step",
         "Teacher-analysis steps write no label lines",
-        "keep the four analysis lines together within 60-120 words",
+        "keep the four analysis lines together within 80-150 words",
     )
     for marker in common_system_markers:
         if marker not in SYSTEM_PROMPT_V4:
@@ -258,8 +256,8 @@ def _assert_prompt_contracts() -> None:
         forbidden_private = ("ANSWER_", "GROUND_TRUTH_", "REFERENCE_")
         if any(token in student_prompt for token in forbidden_private):
             raise AssertionError("student-facing prompts must not contain teacher-private answer fields")
-        if "\nLabel: " not in student_prompt:
-            raise AssertionError("student-facing prompts must include a Label: line for the step")
+        if "\nThen write: " not in student_prompt:
+            raise AssertionError("student-facing prompts must include a 'Then write:' line for the step")
     expected_student_labels = {
         "step1": (step1_student, ("ROAD_STRUCTURE: <name>",)),
         "step2": (step2_student, ("SCENE: <scenario_name>",)),
@@ -286,6 +284,8 @@ def _assert_prompt_contracts() -> None:
         )
         if any(label in teacher_prompt for label in forbidden_label_placeholders):
             raise AssertionError(f"{teacher_name} teacher prompt must not include label placeholders")
+    if "do not infer hidden merging, yielding, lane change" not in step2_student:
+        raise AssertionError("step2 student prompt must contain the anti-hallucination constraint for scene judgment")
     if "stationary or slow-moving" not in step2_teacher:
         raise AssertionError("step2 teacher prompt must reject weak speed-state inference")
     if "retained next objective" not in step3_teacher:

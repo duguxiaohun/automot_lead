@@ -53,13 +53,13 @@ DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB = 0.15
 SYSTEM_PROMPT_V4 = """\
 You are an autonomous driving agent. Use the 4 stitched RGB frames as visual context: oldest to newest, left/front/right views. Focus on traffic lights and signs, nearby vehicles, pedestrians, obstacles, lane markings, road structure, and the key factors affecting ego's decision.
 
-At each step you update one slot of driving memory: ROAD_STRUCTURE (step1), SCENE (step2), or STATUS/SUBGOAL (step3). Keep the believed label by default; change or advance it only when clear visible evidence supports it. Treat weak, distant, foggy, or occluded cues as "not contradicted" rather than "confirmed". Do not infer hidden braking, merging, yielding, lane change, turn, stop, cut-in, or active flow unless visible across frames; a single lead vehicle alone never proves merging, braking, cut-in, or active flow. Never mention answers, ground truth, reference labels, or teacher fields.
+Keep the believed label by default; change or advance it only when clear visible evidence supports it. If the evidence is weak, distant, foggy, or occluded, describe it as "not contradicted" rather than "confirmed". Never mention answers, ground truth, reference labels, or teacher fields.
 
-Output, in order: the four analysis lines, then (student steps only) the label line(s) named by the step. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; keep the four analysis lines together within 60-120 words, each one concise sentence:
+Output, in order: the four analysis lines, then (student steps only) the label line(s) shown in the step. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; keep the four analysis lines together within 80-150 words, each one concise sentence:
 Scene Description: overall scene and road context.
 Critical Object Description: the lights/signs/vehicles/VRUs/obstacles/lane cues that matter most for this step.
 Reasoning on Intent: how those objects and ego's situation justify keeping, correcting, or advancing the label.
-Memory Judgment: must start with exactly one of "Kept because" / "Corrected because" / "Advanced because", matching the label you emit.
+Memory Judgment: start with exactly one of "Kept because" / "Corrected because" / "Advanced because", matching the label you emit.
 Use the "believed" voice; use "corrected" only when the believed label actually changes. Teacher-analysis steps write no label lines."""
 
 
@@ -863,13 +863,13 @@ def _enforce_memory_judgment_opener(text: str, opener: str) -> str:
 _STEP_SPEC: Dict[str, Tuple[str, str, str, str]] = {
     "STEP1": (
         "Decide ROAD_STRUCTURE from ROAD_STRUCTURE_CHOICES.",
-        "Judge by visible road layout only; a single lead vehicle alone never proves HIGHWAY_MERGE",
+        "Judge by visible road layout only; do not infer merging, braking, cut-in, or active flow from a single lead vehicle; a single lead vehicle alone never proves HIGHWAY_MERGE",
         "ROAD_STRUCTURE",
         "ROAD_STRUCTURE_CHOICES",
     ),
     "STEP2": (
         "Decide SCENE from SCENE_CHOICES.",
-        "Rely on visible interaction cues; do not infer a distant vehicle is stationary or slow-moving without motion evidence",
+        "Rely on visible interaction cues; do not infer hidden merging, yielding, lane change, turn, stop, cut-in, or active flow unless visible across frames; do not infer a distant vehicle is stationary or slow-moving without motion evidence",
         "SCENE",
         "SCENE_CHOICES",
     ),
@@ -901,10 +901,12 @@ def _step_constraint_sentence(step_tag: str) -> str:
 
 
 def _render_student_block(*, step_tag: str, label_instruction: str) -> str:
-    """Compose the student turn body for one step: Task / Constraint / Label.
+    """Compose the student turn body for one step: Task / Constraint / Then write.
 
     4 行分析格式与 "先分析再写 label" 的顺序由 SYSTEM_PROMPT_V4 兜底，
-    step 块不再重复，只声明本 step 决定哪个槽位、约束焦点、要写的 label。
+    step 块只声明本 step 的任务、约束焦点、以及要写的 label 行格式。
+    "Then write:" 用动作词明确要求模型在分析之后输出 label 行，
+    避免模型把 "Label:" 当成字段描述而跳过不写。
     """
 
     task, _, _, _ = _STEP_SPEC[step_tag]
@@ -912,7 +914,7 @@ def _render_student_block(*, step_tag: str, label_instruction: str) -> str:
         f"[{step_tag}]\n"
         f"Task: {task}\n"
         f"Constraint: {_step_constraint_sentence(step_tag)}\n"
-        f"Label: {label_instruction}"
+        f"Then write: {label_instruction}"
     )
 
 
@@ -978,8 +980,11 @@ def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
         )
     else:
         gt_hint = (
-            f"Name the visible contradictory road-layout cue, then guide toward "
-            f"{gt_road_structure}: {gt_rs_desc} without inventing unseen cues."
+            "If visible road-layout evidence contradicts the believed structure, name the "
+            "clearest contradictory cue; otherwise note that the believed label is not "
+            f"strongly supported and the correction to {gt_road_structure}: {gt_rs_desc} "
+            "is a plausible alternative without strong visual confirmation. "
+            "Do not invent unseen cues."
         )
 
     return (
@@ -1038,8 +1043,10 @@ def build_step2_teacher_prompt(memory: Memory, gt_road_structure: str, gt_scene:
         )
     else:
         gt_hint = (
-            f"Name the visible interaction cue that contradicts the believed scene, then guide "
-            f"toward {gt_scene}: {gt_scene_desc} without inventing unseen cues."
+            "If visible interaction cues contradict the believed scene, name the clearest one; "
+            "otherwise note that the believed scene is not strongly supported and the correction "
+            f"to {gt_scene}: {gt_scene_desc} is a plausible alternative without strong visual "
+            "confirmation. Do not invent unseen cues."
         )
 
     return (
@@ -1108,14 +1115,19 @@ def build_step3_teacher_prompt(
         )
     elif verdict == "ADVANCE":
         gt_hint = (
-            f"Explain the visible temporal-progress cue for advancing from current "
+            "If visible temporal-progress cues support advancing, name them; "
+            "otherwise note that the advance from current "
             f"'{memory_status_desc}' / next '{memory_subgoal_desc}' toward current "
-            f"'{gt_status_desc}' / next '{gt_subgoal_desc}', without inventing hidden intent."
+            f"'{gt_status_desc}' / next '{gt_subgoal_desc}' is not strongly confirmed "
+            "by visible evidence. Do not invent hidden intent."
         )
     else:
         gt_hint = (
-            f"Reject current '{memory_status_desc}' / next '{memory_subgoal_desc}', and guide toward "
-            f"current '{gt_status_desc}' / next '{gt_subgoal_desc}' using visible temporal-progress cues."
+            "If visible temporal-progress cues contradict current "
+            f"'{memory_status_desc}' / next '{memory_subgoal_desc}', name the clearest one; "
+            "otherwise note that the current phase is not strongly supported and the correction "
+            f"to current '{gt_status_desc}' / next '{gt_subgoal_desc}' is a plausible "
+            "alternative without strong visual confirmation. Do not invent hidden intent."
         )
 
     return (
