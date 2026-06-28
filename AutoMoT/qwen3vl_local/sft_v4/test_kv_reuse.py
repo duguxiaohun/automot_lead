@@ -21,8 +21,8 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 
 from PIL import Image
 
-get_step_system_prompt,
-
+from qwen3vl_local.sft_v4.prompts import (
+    get_step_system_prompt,
     SYSTEM_PROMPT_V4,
     build_step1_user_prompt,
     build_step2_student_prompt,

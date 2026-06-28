@@ -61,8 +61,8 @@ def main() -> None:
     import torch
 
     from qwen3vl_local.sft_v2.train import load_model_with_lora
-    get_step_system_prompt,
-
+    from qwen3vl_local.sft_v4.prompts import (
+        get_step_system_prompt,
         Memory,
         build_step1_teacher_prompt,
         get_road_structure,

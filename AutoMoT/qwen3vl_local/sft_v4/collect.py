@@ -42,8 +42,8 @@ os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 import torch
 
 from qwen3vl_local.sft_v4 import replay
-get_step_system_prompt,
-
+from qwen3vl_local.sft_v4.prompts import (
+    get_step_system_prompt,
     DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,

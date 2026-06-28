@@ -1,8 +1,8 @@
-"""SFT v3 loss/mask check.
+"""SFT v3 loss/mask 检查入口。
 
-v3 uses the same prompt and supervised span contract as v4.  Keep this wrapper
-thin so ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL mask changes are made once in the
-v4 checker and immediately apply to v3 as well.
+v3 与 v4 共用 prompt 和 supervised span 契约。本文件故意只做很薄的一层 wrapper：
+真正的 ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL mask 检查在 v4 checker 中维护。这样
+target span 一旦变动，只需要改一处测试实现，v3 运行本入口就能同步覆盖。
 """
 
 from __future__ import annotations

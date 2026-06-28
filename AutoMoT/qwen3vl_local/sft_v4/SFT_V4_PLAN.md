@@ -17,8 +17,9 @@ target-span 实现。`qwen3vl_local/sft_v3/prompts.py` 只 re-export 本文件�
 trigger helper 或 teacher target 清洗规则，就必须同步验证 v3 offline OPSD 与 v4
 off-policy actor-learner 两条路线；不要在 v3 里复制第二份 prompt。
 
-两者差异只在训练数据流：v3 现场 student rollout + privileged teacher logits 做 OPSD
-KL/JSD；v4 collector 写 replay，learner 对 replay 做 off-policy teacher-forced 训练。
+两者差异只在训练数据流：v3 现场 student rollout + `disable_adapter()` privileged
+teacher full-vocabulary logits 做 forward-KL OPSD；v4 collector 写 replay，learner
+对 replay 做 off-policy teacher-forced 训练。
 
 ## 1. v4 off-policy 总体方案
 
@@ -32,9 +33,10 @@ memory 自更新），把整条 episode 固化成 trajectory 文件写入磁盘 
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│ Collector 组（独立 Python 进程，无 DDP）                       │
-│   GPU 2 [coll0]                                                 │
-│   GPU 3 [coll1]                                                 │
+│ Collector 组（独立 Python 进程，无 DDP / NCCL）                 │
+│   GPU 1 [coll0]                                                 │
+│   GPU 2 [coll1]                                                 │
+│   GPU 3 [coll2]                                                 │
 │                                                                │
 │   每个 collector loop:                                         │
 │     抢 episode (TCPStore counter, 或本地随机)                  │
@@ -54,18 +56,16 @@ memory 自更新），把整条 episode 固化成 trajectory 文件写入磁盘 
                             │ 读 (random.choice)
                             ▼
 ┌────────────────────────────────────────────────────────────────┐
-│ Learner 组（DDP world_size=2）                                 │
-│   GPU 0 [trainer rank0]                                        │
-│   GPU 1 [trainer rank1]                                        │
+│ Learner（单进程，无 DDP / NCCL）                               │
+│   GPU 0 [trainer]                                              │
 │                                                                │
 │   每个 trainer loop:                                           │
 │     pick traj                                                  │
 │     for frame in traj:                                         │
 │       teacher-forced CE (无 generate, 用存好的 teacher 文本)   │
 │       per-frame micro-backward                                 │
-│     manual LoRA grad allreduce once / traj                     │
 │     optimizer.step                                             │
-│     rank0 周期写 latest_lora/v_{step}/ + current_version.txt   │
+│     周期写 latest_lora/v_{step}/ + current_version.txt         │
 └────────────────────────────────────────────────────────────────┘
                             │ 写
                             ▼
@@ -100,12 +100,12 @@ memory 自更新），把整条 episode 固化成 trajectory 文件写入磁盘 
 
 | GPU | 角色 | 进程数 | 单进程显存 | 卡内合计 | 卡剩余 | 备注 |
 |---|---|---|---|---|---|---|
-| 0 | learner DDP rank0 | 1 | ~32 GB | 32 GB | 64 GB | TB / checkpoint / LoRA snapshot 在 rank0 |
-| 1 | learner DDP rank1 | 1 | ~32 GB | 32 GB | 64 GB | DDP 副 rank |
-| 2 | collector × 1 | 1 | ~22 GB | 22 GB | 74 GB | no_grad inference |
-| 3 | collector × 1 | 1 | ~22 GB | 22 GB | 74 GB | no_grad inference |
+| 0 | learner | 1 | ~32 GB | 32 GB | 64 GB | TB / checkpoint / LoRA snapshot |
+| 1 | collector × 1 | 1 | ~22 GB | 22 GB | 74 GB | no_grad rollout |
+| 2 | collector × 1 | 1 | ~22 GB | 22 GB | 74 GB | no_grad rollout |
+| 3 | collector × 1 | 1 | ~22 GB | 22 GB | 74 GB | no_grad rollout |
 
-合计 4 个 model 副本（2 learner + 2 collector），全部跑在 4 张 H20 上。默认先保证
+合计 4 个 model 副本（1 learner + 3 collector），全部跑在 4 张 H20 上。默认先保证
 CUDA context、显存碎片和服务器 compute mode 都稳定；确认单卡允许多进程且 replay
 长期不足时，再手动把 `COLLECTORS_PER_GPU` 调到 2 或 3。
 
@@ -122,9 +122,9 @@ collector 的 80-step decode 是连续 80 次 forward；如果跟 trainer backwa
 - 开 MPS：kernel 可以并发但仍抢同样 132 SM，每个进程实际拿到 ~50% 算力；trainer
   从 30 秒涨到 ~60 秒
 
-无论开不开 MPS，**混部都把 learner 拖慢到无法接受**。learner DDP allreduce per
-backward 还会因为两 rank 步进时间不一致暴露问题（虽然 2h timeout 兜底，但训练吞吐
-直接腰斩）。结论：**learner 卡绝不混部 collector**。
+无论开不开 MPS，**混部都把 learner 拖慢到无法接受**。当前生产口径已经把 learner
+简化成单进程；这里仍然保留“learner 卡绝不混部 collector”的约束，因为瓶颈来自
+SM 竞争而不是 DDP。结论：**GPU0 只训练，GPU1/GPU2/GPU3 只采集**。
 
 #### 0.3.2 为什么默认 collector 一张卡 1 个进程
 
@@ -169,14 +169,14 @@ overhead、增加 OS 进程切换。继续往上加纯亏。
 
 | 资源 | solo speed | × 进程数 | 多进程因子 | 实际 traj/min |
 |---|---|---|---|---|
-| 2 collectors (1/卡 × 2 卡, 默认) | 1.07 traj/min | 2 | 1.0 | **2.14** |
-| 6 collectors (3/卡 × 2 卡, 手动扩容) | 1.07 traj/min | 6 | 0.55 | **3.5** |
-| 2 learners (1/卡 × 2 卡) | 1.33 traj/min | 2 | 1.0 (无竞争) | **2.66** |
+| 3 collectors (1/卡 × 3 卡, 默认) | 1.07 traj/min | 3 | 1.0 | **3.21** |
+| 9 collectors (3/卡 × 3 卡, 手动扩容) | 1.07 traj/min | 9 | 0.55 | **5.30** |
+| 1 learner (GPU0 单进程) | 1.33 traj/min | 1 | 1.0 (无竞争) | **1.33** |
 
-默认 production 2.14 / consumption 2.66 ≈ **0.80×**，优先保证启动稳定；若
-`train/replay/size` 长期偏低，再把 collector 手动调到 2/卡或 3/卡。3/卡时
-production 3.5 / consumption 2.66 ≈ **1.32×**，buffer 会缓慢充满。开 MPS 后
-production 可继续提升，但 staleness 上升——MPS 是吞吐优化但代价是更老的样本。
+默认 production 3.21 / consumption 1.33 ≈ **2.4×**，更适合你现在“采集比学习慢”
+的四卡约束：先让 replay 快速填起来，再用 `learn.py` 的 `wait_events/wait_total`
+确认 learner 是否仍在等数据。若 replay 长期为空，再把 collector 手动调到 2/卡或
+3/卡；若 replay 长期满且样本年龄过大，则减少 collector 或降低 `REPLAY_CAPACITY`。
 
 #### 0.3.4 监控指标与扩容触发条件
 
@@ -208,13 +208,12 @@ production 可继续提升，但 staleness 上升——MPS 是吞吐优化但代
 | 关系 | 同步性 | 协调机制 |
 |---|---|---|
 | collector ↔ collector | 完全异步 | 独立 TCPStore 或文件锁抢 episode；文件 rename 原子写入 |
-| learner ↔ learner | 同步（DDP） | NCCL allreduce per backward, world_size=2 lockstep |
+| learner ↔ learner | 不存在 | 生产口径只有 1 个 learner 进程 |
 | collector ↔ learner | 异步 | 磁盘 replay + LoRA snapshot 版本号 |
 
-**DDP 不报错的关键**：collector 进程**不调用 `dist.init_process_group`**。learner 的
-DDP process group 只包含 learner ranks（rank0 在 GPU0、rank1 在 GPU1），与
-collector 进程在 OS 层完全独立。同机器跑 collector 和 learner 不会让 DDP 出错——
-它们是不同进程，不在同一个 process group 里。
+**不会再触发 DDP/NCCL 问题的关键**：生产 `learn.py` 是单进程，collector 也**不调用
+`dist.init_process_group`**。同机器跑多个 collector 和一个 learner 只共享磁盘 replay
+与 LoRA snapshot，不共享 process group。
 
 **"一张卡多进程是否安全"**：CUDA 多进程在 H20 上稳定（驱动 570.211.01 支持），但
 要避免：
@@ -396,30 +395,24 @@ while not exists(stop_sentinel):
     ep_count += 1
 ```
 
-### 0.7 Learner loop（DDP world_size = 2）
+### 0.7 Learner loop（单进程）
 
 ```python
 # qwen3vl_local/sft_v4/learn.py 伪代码
-dist.init_process_group("nccl", timeout=timedelta(hours=2))
 load_base_qwen()                    # frozen
 peft_model = inject_lora()
-broadcast_lora_from_rank0()         # 复用 v3 helper
-ddp_model = DDP(peft_model,
-                find_unused_parameters=False,
-                broadcast_buffers=False)
 optimizer = AdamW(lora_params, ...)
 scheduler = LambdaLR(...)
 
-# rank0 先把 v_0 dump 出去，让 collector 有起点
-if is_rank0:
-    save_lora_snapshot(version=0)
+# 先把 v_0 dump 出去，让 collector 有起点
+save_lora_snapshot(version=0)
 
 while step < max_steps and not exists(stop_sentinel):
     # 1. 等 replay 有数据
     while count_ready_files() == 0:
         time.sleep(2)
 
-    # 2. 各 rank 独立 random.choice 一条 traj（数据多样性 = batch=2 等效）
+    # 2. 单 learner random.choice 一条 traj
     traj_path = random.choice(list_ready_files())
     try:
         traj = read_jsonl(traj_path)
@@ -429,32 +422,30 @@ while step < max_steps and not exists(stop_sentinel):
     # 3. 复现 teacher-forced loss；每帧立刻 backward，避免整条 traj 计算图堆到显存里
     optimizer.zero_grad(set_to_none=True)
     frame_count = len(traj["frames"])
-    with ddp_model.no_sync():
-        for frame in traj["frames"]:
-            images = load_images(frame["image_paths"])
-            memory_before = frame["memory_before_frame"]
-            prompt_state = kv_prefill(system + images + step1_user(memory_before))
-            a1, rs1 = teacher_forced_ce_step1(prompt_state, frame["teacher_step1_target"])
-            prompt_state = append_assistant(prompt_state, frame["student_step1_raw"])
+    for frame in traj["frames"]:
+        images = load_images(frame["image_paths"])
+        memory_before = frame["memory_before_frame"]
+        prompt_state = kv_prefill(system + images + step1_user(memory_before))
+        a1, rs1 = teacher_forced_ce_step1(prompt_state, frame["teacher_step1_target"])
+        prompt_state = append_assistant(prompt_state, frame["student_step1_raw"])
 
-            if frame["step2_fired"]:
-                # 这里必须使用 collector 写下的 memory_after_step1，不能使用 memory_before。
-                memory_after_step1 = frame["memory_after_step1"]
-                prompt_state2 = append_user(prompt_state, step2_user(memory_after_step1))
-                a2, sc = teacher_forced_ce_step2(prompt_state2, frame["teacher_step2_target"])
-                prompt_state2 = append_assistant(prompt_state2, frame["student_step2_raw"])
-            else:
-                a2 = sc = 0
+        if frame["step2_fired"]:
+            # 这里必须使用 collector 写下的 memory_after_step1，不能使用 memory_before。
+            memory_after_step1 = frame["memory_after_step1"]
+            prompt_state2 = append_user(prompt_state, step2_user(memory_after_step1))
+            a2, sc = teacher_forced_ce_step2(prompt_state2, frame["teacher_step2_target"])
+            prompt_state2 = append_assistant(prompt_state2, frame["student_step2_raw"])
+        else:
+            a2 = sc = 0
 
-            if frame["step3_fired"]:
-                memory_after_step2 = frame["memory_after_step2"]
-                prompt_state3 = append_user(prompt_state2, step3_user(memory_after_step2))
-                a3, st, sg = teacher_forced_ce_step3(prompt_state3, frame["teacher_step3_target"])
-            else:
-                a3 = st = sg = 0
-            frame_loss = W_A1*a1 + W_RS1*rs1 + W_A2*a2 + W_SC*sc + W_A3*a3 + W_ST*st + W_SG*sg
-            (frame_loss / max(frame_count, 1)).backward()
-    manual_allreduce_mean_lora_grads()
+        if frame["step3_fired"]:
+            memory_after_step2 = frame["memory_after_step2"]
+            prompt_state3 = append_user(prompt_state2, step3_user(memory_after_step2))
+            a3, st, sg = teacher_forced_ce_step3(prompt_state3, frame["teacher_step3_target"])
+        else:
+            a3 = st = sg = 0
+        frame_loss = W_A1*a1 + W_RS1*rs1 + W_A2*a2 + W_SC*sc + W_A3*a3 + W_ST*st + W_SG*sg
+        (frame_loss / max(frame_count, 1)).backward()
 
     # 4. clip/step；optimizer 仍然是一条 trajectory 一步
     clip_grad_norm_(lora_params, MAX_NORM)
@@ -462,20 +453,18 @@ while step < max_steps and not exists(stop_sentinel):
     scheduler.step()
     step += 1
 
-    # 5. rank0 周期保存 LoRA snapshot
-    if is_rank0 and step % SNAPSHOT_EVERY_STEPS == 0:
+    # 5. 周期保存 LoRA snapshot
+    if step % SNAPSHOT_EVERY_STEPS == 0:
         save_lora_snapshot(version=step)
         cleanup_old_versions(keep=3)
 
-    # 6. rank0 周期保存训练 checkpoint (含 optimizer state)
-    if is_rank0 and step % CHECKPOINT_EVERY_STEPS == 0:
+    # 6. 周期保存训练 checkpoint (含 optimizer state)
+    if step % CHECKPOINT_EVERY_STEPS == 0:
         save_full_checkpoint(step)
 ```
 
-frame loop 内使用 DDP `no_sync()`，所以不同 rank 抽到不同长度 trajectory 时不会产生
-不同数量的 DDP gradient collective。每个 rank 本地累完一条 trajectory 后，再按 LoRA
-参数的固定顺序手动 `all_reduce(SUM) / world_size` 一次。这样既不会把整条 episode
-的计算图攒到显存里，也不会出现 collective 数对不上的死锁。
+frame loop 逐帧 backward，不把整条 episode 的计算图攒到显存里。生产路径没有
+DDP collective，因此不同 trajectory 长度不会再造成同步死锁。
 
 ### 0.8 LoRA snapshot 原子切换协议
 
@@ -489,7 +478,7 @@ $OUTPUT_DIR/latest_lora/
   current_version.txt        <- 内容是版本号字符串，例如 "2000"
 ```
 
-**rank0 写入流程**：
+**learner 写入流程**：
 
 1. `peft_model.save_pretrained(latest_lora_dir / f"v_{step}_writing")`
 2. `os.rename(v_{step}_writing, v_{step})` ← 原子
@@ -504,7 +493,7 @@ $OUTPUT_DIR/latest_lora/
 3. `model.load_adapter(latest_lora_dir / f"v_{pointer}", adapter_name="default")`
 4. `self.current_lora_version = pointer`
 
-**竞态保险**：rank0 不删 ≥ pointer-1 的版本；collector 读 pointer 后立刻加载，最坏只
+**竞态保险**：learner 不删 ≥ pointer-1 的版本；collector 读 pointer 后立刻加载，最坏只
 会撞上"pointer-1 被删但 pointer 还在"，加载新版本仍然成功。
 
 ### 0.9 Replay FIFO 设计与驱逐
@@ -580,26 +569,23 @@ v3 的"Phase A 100% 非 GT 初始 + Phase B 100% 修回 GT"对 student 来说太
 
 启动顺序（由 `launch_offpolicy.sh` 编排）：
 
-1. learner rank0 先单独跑起来，`build_dataset` 检查通过后立刻 dump `v_0/`
-2. learner rank0 写 `current_version.txt = "0"`
-3. learner rank1 通过 torchrun join，DDP world_size=2 建立完成
-4. learner 等 `ready/` 非空（设 `REPLAY_STARTUP_TIMEOUT_SEC=600` 兜底；timeout
-   判定先在 learner ranks 间 allreduce，rank0 写 `STOP`，所有 rank barrier 后 cleanup，
-   最后抛 `TimeoutError`，避免启动期 collective 顺序错位）
-5. collectors 以独立 Python 进程批量启动（任意顺序），各自读 `current_version.txt`
+1. learner 单进程先跑起来，`build_dataset` 检查通过后立刻 dump `v_0/`
+2. learner 写 `current_version.txt = "0"`
+3. learner 等 `ready/` 非空（设 `REPLAY_STARTUP_TIMEOUT_SEC=600` 兜底；timeout
+   时写 `STOP` 并抛 `TimeoutError`）
+4. collectors 以独立 Python 进程批量启动（任意顺序），各自读 `current_version.txt`
    加载 v_0，开始 rollout 写 `ready/`
-6. trainer 开始消费
+5. trainer 开始消费
 
 退出协议：
 
 1. learner 到 `max_steps` / `--check` 退出条件时，保存 `final/` 并写 `STOP` 哨兵到 `$OUTPUT_DIR/`
-2. learner rank0 dump `final/` LoRA
+2. learner dump `final/` LoRA
 3. 各 collector 每个 episode 结束查 `STOP`，存在则正常退出（不强 kill，让正在写
    `pending/` 的 traj 完成）
 4. `launch_offpolicy.sh` 监控所有 collector 进程退出后收尾日志
-5. 如果用户或 launcher 预先写入 `$OUTPUT_DIR/STOP`，learner 所有 rank 会先用一个
-   轻量 allreduce 同步该停止请求，然后在下一个 step 边界退出；非视觉熔断场景下仍保存
-   当前 adapter 到 `final/`，便于手动早停后继续 eval/probe。
+5. 如果用户或 launcher 预先写入 `$OUTPUT_DIR/STOP`，learner 在下一个 step 边界退出；
+   非视觉熔断场景下仍保存当前 adapter 到 `final/`，便于手动早停后继续 eval/probe。
 
 ### 0.12 当前 v4 子包训练入口状态
 
@@ -607,9 +593,9 @@ v4 off-policy 已经落地为四个新入口：
 
 - `replay.py`：trajectory schema、原子写入、文件锁 counter、FIFO 驱逐与读取。
 - `collect.py`：collector 入口，独立进程、无 DDP，负责 rollout 并写 `replay/ready/`。
-- `learn.py`：learner DDP 入口，world_size=2，只读 replay 做 teacher-forced loss +
-  backward，并周期发布 LoRA snapshot。
-- `launch_offpolicy.sh`：一键编排 2 learner + 默认 2 collector，处理 GPU 切分、run 子目录、
+- `learn.py`：单进程 learner 入口，只读 replay 做 teacher-forced loss + backward，
+  并周期发布 LoRA snapshot。
+- `launch_offpolicy.sh`：一键编排 1 learner + 默认 3 collector，处理 GPU 切分、run 子目录、
   STOP 哨兵和日志。
 
 `sft_v4/train.py` / `train.sh` 保留为 on-policy 兼容调试入口，启动时会打印 warning；
@@ -625,10 +611,10 @@ v4 off-policy 已经落地为四个新入口：
 | 1 | replay 抽象 | `replay.py` | 已实现 schema 校验、原子写、文件锁 counter、FIFO 驱逐 |
 | 2 | collector 单进程 | `collect.py` | 已实现 snapshot 等待/刷新、rollout、Phase B 噪声、trajectory 写盘 |
 | 3 | learner 单卡 | `learn.py` | 已实现单进程读取 replay、teacher-forced loss、optimizer/scheduler |
-| 4 | learner DDP | `learn.py` | 已实现 learner-only DDP；按帧 micro-backward，frame loop `no_sync()`，每 traj 固定顺序手动平均 LoRA grad |
+| 4 | 单进程 learner | `learn.py` | 已实现单进程训练；按 trajectory 做 teacher-forced loss/backward，不进 DDP/NCCL |
 | 5 | 多 collector 并发 | `replay.py` / `collect.py` | 已实现文件锁 counter，collector 不进 NCCL |
 | 6 | snapshot 切换 | `learn.py` / `collect.py` | 已实现 `latest_lora/v_<step>/` 原子发布与 collector reload |
-| 7 | launcher 编排 | `launch_offpolicy.sh` | 已实现 2 learner + 默认 2 collector、STOP 哨兵、run 子目录与日志 |
+| 7 | launcher 编排 | `launch_offpolicy.sh` | 已实现 1 learner + 默认 3 collector、STOP 哨兵、run 子目录与日志 |
 
 ### 0.14 已锁定参数 / 不再待拍板
 
@@ -639,17 +625,17 @@ v4 off-policy 已经落地为四个新入口：
 | Phase A 初始正确率 | `P_INIT_CORRECT=0.7` | 70% GT road_structure；scene 在对应桶内联合采样；D27 覆盖早期 0.5 设定 |
 | Phase B 噪声率 | `PHASE_B_NOISE_PROB=0.15` | 弱纠偏到 GT 后，15% 概率再注入同桶非 GT scene；可调范围保留 `[0.0, 0.3]` |
 | skip 后纠偏 scene 扰动率 | `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` | 仅上一帧 step1 后 road_structure 仍错，下一帧帧首触发一次；scene 大概率 GT，小概率同桶非 GT |
-| learner DDP world size | `2` | GPU0/GPU1 各 1 个 learner rank；只 learner 进入 NCCL process group |
-| collector 并发 | 默认 `2` | GPU2/GPU3 各 1 个 collector；确认单卡多 CUDA 进程稳定后可手动设 `COLLECTORS_PER_GPU=2/3` |
-| learner batch | 每 rank `1` 条 trajectory | effective batch = 2；不做 per-frame batch 拼接，降低 mask/padding 风险 |
-| snapshot 频率 | `SNAPSHOT_EVERY_STEPS=1000` | rank0 每 1000 learner step 发布一版 `latest_lora/v_{step}/` |
+| learner 进程数 | `1` | GPU0 单进程训练；不进 DDP/NCCL |
+| collector 并发 | 默认 `3` | GPU1/GPU2/GPU3 各 1 个 collector；确认单卡多 CUDA 进程稳定后可手动设 `COLLECTORS_PER_GPU=2/3` |
+| learner batch | `1` 条 trajectory | 不做 per-frame batch 拼接，降低 mask/padding 风险 |
+| snapshot 频率 | `SNAPSHOT_EVERY_STEPS=1000` | learner 每 1000 step 发布一版 `latest_lora/v_{step}/` |
 | LR schedule | `--max-steps` + cosine + `warmup_ratio=0.03` | off-policy 没有 epoch 概念，用总 step 定义 scheduler |
 | in-loop eval | 默认关闭 | 训练后用 `eval.py`；需要快检时从 replay subsample 做 quick eval，不能阻塞 DDP 主循环 |
-| replay 抽样 | 各 learner rank 独立 `random.choice` | 不用 `DistributedSampler`；off-policy replay 允许重抽，两个 rank 抽到不同 traj 即形成 batch 多样性 |
+| replay 抽样 | learner 单进程 `random.choice` | 不用 `DistributedSampler`；off-policy replay 允许重抽 |
 
 资源部署也已锁定：**learner 卡不混部 collector**。虽然 H20 96GB 显存能塞下
-1 learner + 1 collector，但 collector 长 decode 会抢 SM，让 learner backward 变慢并放大
-DDP rank 间步进抖动；因此 GPU0/GPU1 只训练，GPU2/GPU3 只采集。
+1 learner + 1 collector，但 collector 长 decode 会抢 SM，让 learner backward 变慢；因此
+GPU0 只训练，GPU1/GPU2/GPU3 只采集。
 
 ---
 
@@ -686,7 +672,7 @@ off-policy 文件现在都有三层注释：
 | `build_dataset.py` | 从 `keyframes_all_scenarios.json` 构建 episode index，只写元数据 | 文件头、`build_episode`、`load_keyframe_runs` | 保持不变（off-policy 仍以 episode 为采集单位） |
 | `replay.py` | trajectory schema、原子写、FIFO 驱逐、读取、文件锁 counter | 文件头、`ensure_replay_dirs`、`directory_lock`、`claim_episode_index`、`write_trajectory`、`evict_old` | 已补详细中文注释 |
 | `collect.py` | collector 入口：抢 episode、rollout、写 replay、加载 LoRA snapshot | 文件头、`_load_adapter_state_if_present`、`_inject_phase_b_noise`、`collect_episode`、`main` | 已补详细中文注释 |
-| `learn.py` | learner DDP 入口：从 replay 抽 traj、teacher-forced loss + backward、发布 snapshot | 文件头、`setup_distributed`、`_sync_bool`、`trajectory_loss`、`publish_snapshot`、`main` | 已补详细中文注释 |
+| `learn.py` | 单进程 learner 入口：从 replay 抽 traj、teacher-forced loss + backward、发布 snapshot | 文件头、`trajectory_loss`、`publish_snapshot`、`main` | 已补详细中文注释 |
 | `launch_offpolicy.sh` | 一键启动 collectors + learners 编排脚本 | 脚本顶部、路径/超参/env 块、`pick_idle_gpus`、learner/collector 启动块、STOP 收尾块 | 已补详细中文注释 |
 | `train.py` / `train.sh` | on-policy 兼容入口，仍按 work-stealing+local-SGD 跑；只用于 debug / baseline 对照 | `main` 入口 warning | **v4 生产不走这条路径** |
 | `eval.py` | 自由生成评估；不做 Phase B GT 注入；可选 teacher BLEU | 文件头、`_generate_next_with_kv`、`main` | 保持不变 |
@@ -1262,36 +1248,28 @@ teacher-forced loss + backward，避免在 DDP 主循环里插入额外生成或
 
 ## 9. 关键工程约束
 
-### 9.1 多卡分布式：off-policy actor-learner（v4 范式，废弃 v3 的 work-stealing+local-SGD）
+### 9.1 多卡训练：off-policy actor-learner（v4 生产范式，无 DDP/NCCL）
 
-v4 把 rollout 拆出 trainer 后，trainer 每步只做 teacher-forced loss + backward，标准
-DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底。
+v4 把 rollout 拆出 trainer 后，四卡默认不再让两个 learner 同步训练，而是把吞吐优先给
+collector：GPU0 单进程 learner 消费 replay，GPU1/GPU2/GPU3 各 1 个 collector 生产
+trajectory。这样避开 DDP 长 step / 不均匀 episode 的同步风险，也更符合当前瓶颈在
+teacher/student generate 采集侧的事实。
 
-- **learner DDP world_size=2**：两个 trainer 进程通过 `torchrun --nproc_per_node=2`
-  起 NCCL 进程组，默认包 `DistributedDataParallel(find_unused_parameters=False,
-  broadcast_buffers=False)`。若显式开启视觉 LoRA，learner 会切到
-  `find_unused_parameters=True` 并打印 warning，因为 v4 的图像 prefill 默认 no_grad，
-  视觉侧 LoRA 可能没有梯度；生产默认仍是 `LORA_VISION_SCOPE=off`。每个 optimizer step
-  仍是每 rank 一条 traj，但 backward 按帧 micro-step 执行；frame loop 使用
-  `no_sync()`，随后手动按固定参数顺序 mean-reduce LoRA grad，因此不同帧数也不会打乱
-  collective 序列。
+- **learner 单进程**：`learn.py` 只启动 1 个 trainer 进程，不调用
+  `dist.init_process_group`，不包 `DistributedDataParallel`，也没有 grad allreduce。
+  每个 optimizer step 读取 1 条 trajectory，按帧 teacher-forced loss/backward，
+  step 后保存 checkpoint，并周期发布 `latest_lora/v_<step>/` 给 collectors。
 - **collector 完全不进 DDP**：collector 进程**不调** `dist.init_process_group(NCCL)`。
   collector 之间用**独立 TCPStore 服务或纯文件锁**做 episode 抢任务计数，不复用 learner
-  DDP 的默认 store，避免把采集生命周期绑到 learner process group 上。某个 collector
+  的训练状态，避免把采集生命周期绑到 learner 上。某个 collector
   卡死或挂掉只减少一个生产者，learner 和其他 collector 继续跑。
-- **NCCL timeout 2 小时**：learner `init_process_group(timeout=timedelta(hours=2))`，沿用
-  v3 修复后的口径。teacher-forced loss step 一般 30-40 秒/traj，DDP allreduce 永远撞不上
-  超时。collector 慢不会让 learner 发起 collective——learner 在 replay 空时是 sleep
-  重试，没有 NCCL 操作。
-- **同卡多进程互操作**：DDP 进程组按 PID 区分，跟同一张卡上跑几个进程无关；只要每个
-  进程独立调 `init_process_group`（learner）或完全不调（collector），互不干扰。
-  H20 96GB 单卡跑 1 learner + 1 collector 在显存上能站住，但**实际不推荐**混部——
+- **没有 NCCL timeout 风险**：collector 慢时 learner 只是在 replay 空时 sleep 重试；
+  learner 慢时 replay FIFO 缓慢填满。两边都不会发起 NCCL collective。
+- **同卡多进程互操作**：H20 96GB 单卡跑 1 learner + 1 collector 在显存上能站住，
+  但**实际不推荐**混部——
   collector 长 decode 会跟 learner backward 抢 SM，learner 步进会从 ~30 秒涨到 100+ 秒。
-- **梯度同步语义**：DDP 自动 mean-reduce 跨 rank 梯度；effective batch = 2（每 rank
-  1 条 traj）。两个 rank 抽到不同 traj 反而提高 batch 多样性，不需要 `DistributedSampler`
-  做严格不重抽样——off-policy replay 本来就允许重抽。
-- **初始权重一致**：rank0 在 build_dataset 通过后立刻把 LoRA 参数广播给 rank1（复用 v3
-  `_broadcast_lora_params_from_rank0`），DDP 包装前后都对。
+- **梯度语义**：effective batch = 1 trajectory/step；off-policy 多样性来自 replay
+  随机抽样和多个 collector 的 policy snapshot 滞后，而不是 learner rank 间 batch。
 - **采集队列**：collector 可复用 v3 work-stealing 的原子 counter 思路，但 store 必须是
   collector 自己的独立协调通道，或退化成文件锁。counter 跨 epoch 自动 wrap
   （`idx % train_total`）——off-policy 没有 epoch 边界，collector 永远循环抢任务。
@@ -1302,13 +1280,12 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
     每 5000 trainer step），保留最近 3 份。
 - **`max_steps` / `--check`**：off-policy 没有 epoch 概念，`--max-steps N` 是唯一终止
   判据（trainer 走 N 步退）。`--check` 跑 2 步退出，用于烟雾测试。
-- **TB 标量**：learner rank0 写 `train/loss_total`、`train/loss/{a1,a2,s2,a3,s3_status,
+- **TB 标量**：learner 写 `train/loss_total`、`train/loss/{a1,a2,s2,a3,s3_status,
   s3_subgoal}`、`train/lr`、`train/grad_norm`、`train/replay/size`、
   `train/replay/avg_age_minutes`、`train/lora_snapshot/version` 等；collector 不写 TB，
   但每条 traj 写一行 `[collect]` log 到 stderr。
 - **v3 work-stealing+local-SGD 已彻底废弃**：v4 off-policy replay 解耦了采集与训练，
-  learner 只需标准 DDP + frame-count padding，不需要再周期
-  `_weighted_average_lora_params_inplace`。
+  learner 单进程即可稳定训练，不需要再周期 `_weighted_average_lora_params_inplace`。
   下面 §9.1.legacy 仅作为历史口径参考，**v4 实现路径不要走那条**。
 
 ### 9.1.legacy 历史口径：work-stealing + local-SGD（仅作 v3 兼容入口的参考，不是 v4 的训练路径）
@@ -1446,12 +1423,11 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
 13. **LoRA 接口**：与 v2 完全同构（`--lora-vision-scope` + 全套保险），
     默认 `off`。
 14. **多卡训练（D14v4 拍板，覆盖 v3 work-stealing+local-SGD）**：v4 采用 off-policy
-    actor-learner——collector 组（默认 2 个进程，分布在 GPU2/GPU3 × 1；稳定后可手动调
-    `COLLECTORS_PER_GPU=2/3`）异步 rollout 写
-    replay；learner 组（默认 2 个进程，DDP world_size=2，分别在 GPU0/GPU1）从 replay
-    随机抽 traj 做 teacher-forced loss + DDP allreduce。optimizer 仍是每 traj 一步；
-    backward 按帧 micro-step 执行，并在每条 traj 后手动平均 LoRA grad，不再需要 v3 的
-    周期 `_weighted_average_lora_params_inplace`。
+    actor-learner——collector 组（默认 3 个进程，分布在 GPU1/GPU2/GPU3 × 1；稳定后可手动调
+    `COLLECTORS_PER_GPU=2/3`）异步 rollout 写 replay；learner（默认 1 个进程，在 GPU0）
+    从 replay 随机抽 traj 做 teacher-forced loss/backward，不进 DDP/NCCL。optimizer
+    仍是每 traj 一步；backward 按帧 micro-step 执行，不再需要 v3 的周期
+    `_weighted_average_lora_params_inplace`。
     详见 §0 / §9.1。`sft_v4/train.py` 保留为 on-policy 兼容入口，**生产路径用
     `launch_offpolicy.sh`**。
 15. **数据持久化（D15v4 拍板）**：v4 必须写训练 trajectory。`build_dataset.py` 仍只产
@@ -1467,11 +1443,11 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
     改为当前 road_structure 桶内的随机非 GT，status/subgoal 跟着重置。详见 §3.3。
     `noise_injected` 标志写入 trajectory 供事后审计。`PHASE_B_NOISE_PROB=0`
     可退回无扰动行为。
-18. **LoRA snapshot 与 collector 同步（D18v4 新增）**：trainer rank0 每
+18. **LoRA snapshot 与 collector 同步（D18v4 新增）**：learner 每
     `SNAPSHOT_EVERY_STEPS`（默认 1000）写一份 `latest_lora/v_{step}/` + 更新
     `current_version.txt`；collector 每 `REFRESH_EVERY_EPS`（默认 4）条 episode 或
     `REFRESH_EVERY_SEC`（默认 60）秒检查 pointer，加载新版本。**保留最近 3 个版本**，
-    rank0 不删 ≥ pointer-1 的目录避免 collector 加载竞态。
+    learner 不删 ≥ pointer-1 的目录避免 collector 加载竞态。
 19. **Replay FIFO 容量（D19v4 新增）**：默认 `REPLAY_CAPACITY=256`，约 750MB 磁盘。
     抽样 `random.choice`，驱逐按 trajectory header `created_at` 取最旧。`REPLAY_CAPACITY=64` 接近 on-policy，
     `REPLAY_CAPACITY=1024` 接近高 staleness off-policy，默认值在 staleness ~1 小时、

@@ -40,12 +40,16 @@ from qwen3vl_local.sft_v3.train import (
     _prefetch_goal_xy_for_next_frame,
 )
 from qwen3vl_local.sft_v3.prompts import (
+    TEACHER_MAX_NEW_TOKENS_STEP1,
+    TEACHER_MAX_NEW_TOKENS_STEP2,
+    TEACHER_MAX_NEW_TOKENS_STEP3,
     build_step1_user_prompt,
     build_step1_teacher_prompt,
     build_step2_student_prompt,
     build_step2_teacher_prompt,
     build_step3_student_prompt,
     build_step3_teacher_prompt,
+    get_step_system_prompt,
     get_road_structure,
     init_memory,
     parse_output,
@@ -96,7 +100,7 @@ def _generate(engine: LocalQwen3VLInstructEngine, messages: List[Dict[str, Any]]
     """生成 step1 文本，并在 engine._last_decode_state 中留下 KV cache。
 
     eval/probe 走 `LocalQwen3VLInstructEngine` 的真实自由生成路径；后续 step2/step3
-    会从这个 cache 继续追加 user turn，模拟训练时的三步 OPD 对话。
+    会从这个 cache 继续追加 user turn，模拟训练时的三步 OPSD student rollout 对话。
     """
 
     system = messages[0]["content"]
@@ -321,15 +325,25 @@ def main() -> None:
             gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
 
             step1_user = build_step1_user_prompt(len(images), memory=memory)
-            step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
+            step1_msgs = _build_messages_with_images(
+                user_text=step1_user,
+                images=images,
+                system_prompt=get_step_system_prompt("STEP1"),
+            )
             teacher_step1_text = ""
             if teacher_engine is not None:
                 teacher_step1_msgs = _build_messages_with_images(
                     user_text=build_step1_teacher_prompt(memory, gt_road_structure),
                     images=images,
+                    system_prompt=get_step_system_prompt("STEP1"),
                 )
-                teacher_step1_text = _generate(teacher_engine, teacher_step1_msgs, images, max_new_tokens=80)
-            step1_text = _generate(engine, step1_msgs, images, max_new_tokens=80)
+                teacher_step1_text = _generate(
+                    teacher_engine,
+                    teacher_step1_msgs,
+                    images,
+                    max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP1,
+                )
+            step1_text = _generate(engine, step1_msgs, images, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP1)
             if teacher_engine is not None:
                 metrics["analysis_bleu_sum"] += _simple_bleu(
                     _analysis_before_labels(step1_text),
@@ -353,9 +367,21 @@ def main() -> None:
                 teacher_step2_text = ""
                 if teacher_engine is not None:
                     teacher_step2_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
-                    teacher_step2_text = _generate_next_with_kv(teacher_engine, teacher_step2_user, max_new_tokens=60)
+                    teacher_step2_msgs = _build_messages_with_images(
+                        user_text=teacher_step2_user,
+                        images=images,
+                        system_prompt=get_step_system_prompt("STEP2"),
+                    )
+                    # teacher reference 必须是独立专家问答：重新吃图与 STEP2 system prompt。
+                    # student 仍沿用 step1 KV 续写，保持 OPSD rollout 口径。
+                    teacher_step2_text = _generate(
+                        teacher_engine,
+                        teacher_step2_msgs,
+                        images,
+                        max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2,
+                    )
                 step2_user = build_step2_student_prompt(memory)
-                step2_text = _generate_next_with_kv(engine, step2_user, max_new_tokens=60)
+                step2_text = _generate_next_with_kv(engine, step2_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2)
                 if teacher_engine is not None:
                     metrics["analysis_bleu_sum"] += _simple_bleu(
                         _analysis_before_labels(step2_text),
@@ -399,9 +425,20 @@ def main() -> None:
                 teacher_step3_text = ""
                 if teacher_engine is not None:
                     teacher_step3_user = build_step3_teacher_prompt(memory, gt_road_structure, ep.gt_scene, gt_status, gt_subgoal)
-                    teacher_step3_text = _generate_next_with_kv(teacher_engine, teacher_step3_user, max_new_tokens=60)
+                    teacher_step3_msgs = _build_messages_with_images(
+                        user_text=teacher_step3_user,
+                        images=images,
+                        system_prompt=get_step_system_prompt("STEP3"),
+                    )
+                    # teacher step3 同样独立重建上下文，避免被前一步 teacher KV 污染。
+                    teacher_step3_text = _generate(
+                        teacher_engine,
+                        teacher_step3_msgs,
+                        images,
+                        max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3,
+                    )
                 step3_user = build_step3_student_prompt(memory)
-                step3_text = _generate_next_with_kv(engine, step3_user, max_new_tokens=60)
+                step3_text = _generate_next_with_kv(engine, step3_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3)
                 if teacher_engine is not None:
                     metrics["analysis_bleu_sum"] += _simple_bleu(
                         _analysis_before_labels(step3_text),

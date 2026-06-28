@@ -1,4 +1,10 @@
-"""SFT v3 GT 泄露过滤测试。"""
+"""SFT v3 GT 泄露 hook 同步测试。
+
+v3 的 prompt 实现直接 re-export v4。当前 v4 已把 ``check_gt_leak_*`` 变成
+legacy no-op：teacher target 清洗和学生视角 prompt 约束负责处理私有字段泄露，
+训练不再靠字面正则跳 analysis loss。这个测试用于锁住该同步关系，避免 v3 悄悄恢复
+旧的 hard-target 泄露过滤逻辑。
+"""
 
 from __future__ import annotations
 
@@ -17,10 +23,9 @@ from qwen3vl_local.sft_v3.prompts import check_gt_leak_scene, check_gt_leak_stat
 
 
 def main() -> None:
-    """验证 teacher 分析文本的 GT 字面泄露检测。
+    """验证 v3 与 v4 一样：泄露检测 hook 当前始终返回 False。
 
-    泄露检测只影响分析 loss：如果 teacher 分析直接说出 GT scene/status/subgoal token，
-    对应 L_A2/L_A3 会跳过，但离散值 token loss 仍保留。
+    这里仍构造“明显含答案字面”的文本，是为了确认 v3 没有维护第二套正则。
     """
 
     a_ok = "I see blocked lane and hazard lights ahead."
@@ -35,7 +40,7 @@ def main() -> None:
         "status_no_leak": check_gt_leak_status_subgoal(b_ok, "hazard_detect", "max_brake_or_min_gap"),
         "status_leak": check_gt_leak_status_subgoal(b_bad, "hazard_detect", "max_brake_or_min_gap"),
     }
-    ok = (r["scene_no_leak"] is False and r["scene_leak"] is True and r["status_no_leak"] is False and r["status_leak"] is True)
+    ok = all(value is False for value in r.values())
     print(json.dumps({"ok": ok, "results": r}, ensure_ascii=False, indent=2))
     if not ok:
         raise SystemExit(1)

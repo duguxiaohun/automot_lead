@@ -1,22 +1,21 @@
 """SFT v4 off-policy learner。
 
-learner 是唯一进入 DDP 的角色：两个 rank 从 replay 随机抽 trajectory，只做
+learner 是唯一做参数更新的角色：单进程从 replay 随机抽 trajectory，只做
 teacher-forced loss + backward，不再现场 generate。collector 慢时 learner 只 sleep
-等 ready 文件，不发起 NCCL collective；一旦两个 rank 都拿到有效 trajectory，每步
-都执行一次同构 backward，DDP 梯度同步保持 lockstep。
+等 ready 文件；launcher 默认把另外 3 张卡留给 collector 产 replay。
 
 运行方式：
 
-``launch_offpolicy.sh`` 用 ``torchrun --nproc_per_node=2`` 启动本脚本。每个 rank
-各自随机抽一条 trajectory，构成 effective batch=2；rank0 负责 TensorBoard、checkpoint
-和给 collector 使用的 LoRA snapshot。
+``launch_offpolicy.sh`` 在 learner GPU 上单进程启动本脚本；rank0 语义保留只是为了
+复用保存 / TensorBoard / snapshot 代码。collector 进程完全独立，不进 DDP/NCCL。
 
 训练语义：
 
 - collector 已经完成 teacher/student generate，learner 绝不调用 generate；
 - learner 重新读取图像做 prefill，但只对 assistant target token 计算 CE；
 - student raw output 只用来复现 collector 当时的 KV 对话上下文；
-- 两个 DDP rank 每个 step 都只 backward 一次，因此 collective 顺序固定。
+- learner 每个 step 随机消费一条 ready trajectory；如果 ready 长期为 0，说明
+  collector 仍是吞吐瓶颈，应优先增加 collector 或降低采集成本。
 """
 
 from __future__ import annotations
@@ -375,10 +374,9 @@ def trajectory_backward(
 
     The old path accumulated all frame graphs and called backward once at the
     trajectory end, which can OOM on long episodes. This keeps the optimizer
-    step at one trajectory per rank, but frees each frame graph immediately.
-    DDP ranks may sample trajectories with different frame counts, so automatic
-    DDP gradient sync is disabled for the frame loop and LoRA grads are reduced
-    once afterward in a fixed parameter order.
+    step at one trajectory, but frees each frame graph immediately. The no_sync
+    branch is kept only for compatibility with the old DDP learner path; current
+    production launcher runs a single learner process.
     """
 
     frames = list(replay.iter_frame_records(records))
@@ -754,11 +752,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """learner DDP 主入口。
+    """单进程 learner 主入口。
 
-    主循环只做一件事：等所有 learner rank 都抽到 trajectory，然后各自算一条 trajectory
-    的 loss 并 backward。rank0 周期保存 snapshot/checkpoint；训练结束写 STOP，让 collector
-    在 episode 边界优雅退出。
+    主循环只做一件事：从 replay 抽 trajectory，重放 collector 保存的 student
+    对话轨迹并计算 teacher-forced loss。collector 慢时这里显式记录等待次数/等待时长，
+    训练结束写 STOP，让 collector 在 episode 边界优雅退出。
     """
 
     args = parse_args()
@@ -810,6 +808,8 @@ def main() -> None:
     stop_file = output_dir / "STOP"
     start = time.time()
     first_replay_wait_start: Optional[float] = None
+    replay_wait_events = 0
+    replay_wait_seconds = 0.0
     while global_step < int(args.max_steps):
         if stop_file.exists():
             print(f"[learn] observed external stop file: {stop_file}", flush=True)
@@ -844,8 +844,16 @@ def main() -> None:
                 )
                 break
             st = replay.replay_stats(replay_dir)
-            print(f"[learn] waiting replay ready={st.ready_count} pending={st.pending_count}", flush=True)
-            time.sleep(float(args.wait_replay_sec))
+            wait_s = float(args.wait_replay_sec)
+            replay_wait_events += 1
+            replay_wait_seconds += max(0.0, wait_s)
+            print(
+                f"[learn] waiting replay ready={st.ready_count} pending={st.pending_count} "
+                f"failed={st.failed_count} wait_events={replay_wait_events} "
+                f"wait_total={replay_wait_seconds:.1f}s",
+                flush=True,
+            )
+            time.sleep(wait_s)
             continue
         assert records is not None
         bundle.model.train()
@@ -904,7 +912,9 @@ def main() -> None:
                 f"step3={_safe_ratio(stats['step3'], frames):.3f} "
                 f"rs_flip={_safe_ratio(stats['rs_flip'], frames):.3f} "
                 f"skip_corr={_safe_ratio(stats['skip_correction'], frames):.3f} "
-                f"noise={_safe_ratio(stats['noise'], frames):.3f} replay={st.ready_count} "
+                f"noise={_safe_ratio(stats['noise'], frames):.3f} "
+                f"replay_ready={st.ready_count} replay_pending={st.pending_count} replay_failed={st.failed_count} "
+                f"wait_events={replay_wait_events} wait_total={replay_wait_seconds:.1f}s "
                 f"|g|_lang={lang_norm_value:.3f} |g|_vis={vis_norm_value:.3f} "
                 f"|w|_vis={vis_param_norm_value:.3f} guard_bad_steps={guard_bad_steps} "
                 f"age={st.avg_age_minutes:.1f}m lr={lr:.2e} elapsed={(time.time() - start) / 60.0:.1f}m",
@@ -919,7 +929,12 @@ def main() -> None:
                 tb.add_scalar("train/param_norm/lora_vision", vis_param_norm_value, global_step)
                 tb.add_scalar("train/vision_guard_bad_steps", float(guard_bad_steps), global_step)
                 tb.add_scalar("train/replay/size", float(st.ready_count), global_step)
+                tb.add_scalar("train/replay/ready_count", float(st.ready_count), global_step)
+                tb.add_scalar("train/replay/pending_count", float(st.pending_count), global_step)
+                tb.add_scalar("train/replay/failed_count", float(st.failed_count), global_step)
                 tb.add_scalar("train/replay/avg_age_minutes", float(st.avg_age_minutes), global_step)
+                tb.add_scalar("train/replay/wait_events", float(replay_wait_events), global_step)
+                tb.add_scalar("train/replay/wait_seconds", float(replay_wait_seconds), global_step)
                 tb.add_scalar("train/step2_trigger_rate", _safe_ratio(stats["step2"], frames), global_step)
                 tb.add_scalar("train/step3_trigger_rate", _safe_ratio(stats["step3"], frames), global_step)
                 tb.add_scalar("train/fire_rate/step2", _safe_ratio(stats["step2"], frames), global_step)

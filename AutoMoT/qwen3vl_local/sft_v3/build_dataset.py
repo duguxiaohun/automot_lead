@@ -5,11 +5,12 @@
 
   {
     "run_id": "...",
-    "scenario": "...",
+    "scenario": "...",          # 原始 CARLA scenario 名称，用于定位 run_dir
+    "raw_gt_scene": "...",      # 原始标签审计字段；训练不直接监督它
     "anchors": [f0, f1, f2, f3, f4],  # [init, sub1, sub2, sub3, end]
     "delta": 7,
     "frame_range": [f1 - delta, f3],
-    "gt_scene": "...",
+    "gt_scene": "...",          # v4 canonical scene；V2 alias 会折叠
     "gt_event_sequence": ["initial", "e1", "e2", "e3", "final"],
     "run_dir": "/abs/path/to/run",
     "split": "train" | "val"
@@ -22,7 +23,7 @@
   - scenario 不在 SCENARIO_LABELS 中时跳过
   - 其余可用 run 必须严格是一条 3-middle episode：
     initial + middle[3] + final，anchors 严格递增，事件序列与
-    prompt_pipeline.get_full_sequence 完全一致；否则直接报错退出
+    v4 canonical get_full_sequence 完全一致；否则直接报错退出
 
 典型用法（从 AutoMoT/ 目录运行）：
   python qwen3vl_local/sft_v3/build_dataset.py \\
@@ -52,8 +53,8 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 from qwen3vl_local.prompt_pipeline import (  # noqa: E402
     SCENARIO_EVENT_SEQUENCES,
     SCENARIO_LABELS,
-    get_full_sequence,
 )
+from qwen3vl_local.sft_v4.prompts import canonicalize_scene, get_full_sequence  # noqa: E402
 from qwen3vl_local.sft.build_dataset import (  # noqa: E402
     ACCEPTED_RUN_STATUS,
     RGB_FRAME_COUNT,
@@ -110,7 +111,10 @@ def build_episode(
 ) -> Optional[dict]:
     """从 keyframes_all_scenarios.json 的一条 run 构造 episode 字典。
 
-    返回 None 表示该 run 不可用。
+    返回 None 表示该 run 不可用。这里同时写入 ``scenario/raw_gt_scene`` 和
+    ``gt_scene``：前者保留原始 CARLA 名称，方便回查磁盘路径与审计；后者是 v4
+    canonical label，真正进入 v3/v4 prompt、Memory 和 loss。这样 v3 数据契约和 v4
+    replay 数据契约一致，不会出现 V2 alias 在两个训练路线里监督成不同类别的问题。
     """
 
     if run.get("status") not in ACCEPTED_RUN_STATUS:
@@ -137,8 +141,13 @@ def build_episode(
     if total_frames is None:
         raise ValueError(f"run {run_id} / scenario {scenario} missing diagnostics.total_frames")
 
-    # 事件序列一致性检查
-    expected_seq = tuple(get_full_sequence(scenario))
+    # v3 的 prompt/state-machine 来自 v4，所以数据侧也必须先 canonicalize。否则
+    # EnterActorFlowV2 这类不可由视觉区分的 alias 会绕过 v4 的候选表与 target span。
+    canonical_scene = str(canonicalize_scene(scenario))
+
+    # 事件序列一致性检查：v3 复用 v4 prompt/label 口径，因此 V2 alias 在训练
+    # label 里折叠为 canonical scene，但 run_dir 仍保留原始 scenario。
+    expected_seq = tuple(get_full_sequence(canonical_scene))
     actual_seq = (
         initial["event"],
         middle[0]["event"], middle[1]["event"], middle[2]["event"],
@@ -174,20 +183,21 @@ def build_episode(
             f"start={frame_start}, end={frame_end}, anchors={anchors}, delta={delta}"
         )
 
-    # 起始帧要留出历史 RGB 窗口
-    min_start = RGB_FRAME_COUNT - 1
-    if frame_start < min_start:
-        frame_start = min_start
+    # 不 clamp 到 RGB_FRAME_COUNT-1：训练/eval 的 _build_rgb_paths 会按 v4
+    # 口径 left-pad 到 0。早期帧虽然历史 RGB 不足，但正是 memory 刚初始化、最容易
+    # 发生 on-policy 纠偏的阶段；静默丢掉会改变 OPSD 看到的时间分布。
 
     run_dir = pathlib.Path(run_dir_base.format(scenario=scenario, run_id=run_id))
 
     return {
         "run_id": run_id,
         "scenario": scenario,
+        # raw_gt_scene 仅用于审计/路径回查；训练比较、候选表和 Memory 统一看 gt_scene。
+        "raw_gt_scene": scenario,
         "anchors": anchors,
         "delta": delta,
         "frame_range": [frame_start, frame_end],
-        "gt_scene": scenario,
+        "gt_scene": canonical_scene,
         "gt_event_sequence": list(expected_seq),
         "run_dir": str(run_dir),
         "total_frames": int(total_frames),
@@ -195,11 +205,11 @@ def build_episode(
 
 
 def load_keyframe_runs(path: pathlib.Path) -> List[dict]:
-    """Load keyframe runs from either the current metadata dict or legacy list.
+    """读取 keyframes run 列表，兼容当前 schema 与早期临时 dump。
 
-    The checked-in/reference ``keyframes_all_scenarios.json`` has a top-level
-    object with a ``runs`` list. Older intermediate dumps were already a list,
-    so keep that form as a compatibility fallback.
+    当前固定参考文件的顶层是对象，真正的 episode 列表在 ``runs`` 字段里；早期中间产物
+    曾经直接把顶层写成 list。这里保留两种读取方式，只是为了让旧 dry-run 产物还能被
+    审计，不表示允许写第三种 schema。
     """
 
     with open(path, "r", encoding="utf-8") as f:

@@ -10,16 +10,19 @@ Prompt 同步规则：`qwen3vl_local/sft_v4/prompts.py` 是 v3/v4 的唯一 prom
 Memory、状态机与 target span 实现。`sft_v3/prompts.py` 只 re-export v4。
 改 prompt 时必须同时验证 v3 offline OPSD 和 v4 off-policy actor-learner；不要在 v3
 维护第二份文本协议。两条路线只允许训练数据流不同。
+具体说：v3 可以改 `train.py` 里的 OPSD loss / teacher logits / on-policy rollout，
+但不能改出一套 v3 专属 heading、Memory schema、scene canonicalization 或 trigger
+逻辑；这些必须继续从本目录 `prompts.py` 统一输出。
 
 当前状态：off-policy actor-learner 代码已经落地。生产训练入口是
-`launch_offpolicy.sh`，它会启动 2 个 learner DDP rank + 2 个异步 collector：
-默认 GPU0/GPU1 各 1 个 learner，GPU2/GPU3 各 1 个 collector。Phase A 初始正确率
+`launch_offpolicy.sh`，默认在 4 张卡上启动 1 个 learner + 3 个异步 collector：
+GPU0 跑单进程 learner，GPU1/GPU2/GPU3 各跑 1 个 collector。Phase A 初始正确率
 `P_INIT_CORRECT=0.7`，Phase B 噪声率 `PHASE_B_NOISE_PROB=0.15`。触发链采用
 stair-step 门控：road_structure 本帧刚被纠正时不继续跑 step2；scene 本帧刚被纠正时
 不继续跑 step3，等下一帧稳定后再下钻。如果某帧 step1 后 road_structure 仍未命中 GT，
 下一帧帧首会触发一次 skip 纠偏：`BELIEVED_SCENE` 大概率回真实 scene，按
 `SKIP_CORRECTION_SCENE_NOISE_PROB=0.15` 小概率同桶扰动，`STATUS/SUBGOAL` 回 init。
-learner rank0 每 1000 step 发布一次 LoRA snapshot 给 collectors。
+learner 每 1000 step 发布一次 LoRA snapshot 给 collectors。
 
 当前 prompt 口径：学生仍是三步串行对话，但 step1 只读 road-only
 `[STEP1_ROAD_MEMORY]`（`BELIEVED_ROAD_STRUCTURE` + `EGO_TO_GOAL_XY`），不提前暴露
@@ -97,10 +100,11 @@ Qwen3-VL 图文 M-RoPE 拆成半截 cache 后错位。
   `correct_memory_after_step1_skip` / `need_skip_correction` 理解 step1 skip 后的下一帧纠偏；看
   `collect_episode` 里的 teacher/student 分支和 step3 触发注释，理解一条 trajectory
   如何生成。
-- `learn.py`：看 `_sync_bool` 理解 replay 空时为什么不会发 NCCL collective；看
+- `learn.py`：看主循环理解 replay 空时为什么只 sleep 等 collector；看
   `trajectory_backward` / `trajectory_loss` 理解 learner 如何用 student raw output 复现
   KV 上下文但不 generate，并用逐帧 micro-backward 控制显存；看
-  `publish_snapshot` / `save_checkpoint` 理解 snapshot 与 checkpoint 的区别。
+  `publish_snapshot` / `save_checkpoint` 理解 snapshot 与 checkpoint 的区别；看
+  `train/replay/*` TensorBoard 指标判断 collector 与 learner 谁是吞吐瓶颈。
 - `eval.py`：模块顶部先执行 GPU 自动选址和 HF offline 环境变量设置，再 import
   `torch` / `engine` / `train`；`probe.py` 先导入 `eval.py`，复用同一套 import 前选卡逻辑。
 - `launch_offpolicy.sh`：脚本顶部写了进程布局；路径/env/选卡/STOP 收尾块都有中文注释，
@@ -168,20 +172,27 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 launcher 会做这些事：
 
 - 建立 `${OUTPUT_DIR}/run_<RUN_TAG>/`，并维护 `${OUTPUT_DIR}/latest` symlink。
-- 启动 `torchrun --nproc_per_node=2 qwen3vl_local/sft_v4/learn.py`，只让 learner 进入
-  DDP / NCCL。
-- 在 collector GPU 上启动 `COLLECTORS_PER_GPU=1` 个 `collect.py` 进程；collector
-  不调用 DDP，只读 LoRA snapshot、写 replay。
-- learner rank0 先发布 `latest_lora/v_0/`，collector 等到初始 snapshot 后开始采集。
+- 在第 1 张 GPU 上启动单进程 `learn.py`；learner 不进 DDP / NCCL。
+- 在剩余 3 张 collector GPU 上启动 `COLLECTORS_PER_GPU=1` 个 `collect.py` 进程；
+  collector 不调用 DDP，只读 LoRA snapshot、写 replay。
+- learner 先发布 `latest_lora/v_0/`，collector 等到初始 snapshot 后开始采集。
 - learner 每个 optimizer step 仍随机消费一条 trajectory；但不会把整条 trajectory 的
-  计算图攒到最后，而是逐帧 `backward()` 并释放图。frame loop 放在 DDP `no_sync()`
-  下，本地累完一条 trajectory 后再按固定参数顺序手动 mean-reduce LoRA grad，避免不同
-  帧数导致 NCCL collective 序列不一致。
+  计算图攒到最后，而是逐帧 `backward()` 并释放图。
 - learner 到 `MAX_STEPS` 后保存 `final/`、写 `STOP`，collector 完成当前 episode 后退出。
 - 如果启动后一直没有 collector 写出第一条 `replay/ready/*.jsonl`，learner 会在
   `REPLAY_STARTUP_TIMEOUT_SEC` 后写 `STOP` 并报错退出，避免数据路径或 collector
-  加载错误时无限等待。这个 timeout 会先在两个 learner rank 间同步，再 barrier/cleanup，
-  因此不会留下半退出的 NCCL 进程。
+  加载错误时无限等待。
+
+吞吐判断看 learner 日志和 TensorBoard：
+
+- `replay_ready` / `train/replay/ready_count` 长期接近 0，且 `wait_events` /
+  `train/replay/wait_seconds` 持续增长：collector 仍是瓶颈，优先增加 collector 进程
+  或降低采集成本。
+- `replay_ready` 持续接近 `REPLAY_CAPACITY`，`avg_age_minutes` 持续升高：
+  learner 消费慢或 replay 太大，继续加 collector 没意义。
+- `pending_count` 长期不为 0：collector 正在写入或有进程卡在单条 trajectory；
+  结合 collector 日志里的 `elapsed=` 定位慢 episode。
+- `failed_count` 增长：先看 `replay/failed/`，通常是数据路径、schema 或生成异常。
 
 ### 常用环境变量
 
@@ -250,6 +261,8 @@ bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 主要产物：
 
 - `offpolicy.log`：launcher、learner、collector 的合并日志。
+- learner 日志中的 `replay_ready/replay_pending/replay_failed/wait_events/wait_total`
+  是判断数据生产是否跟得上训练的第一入口。
 - `replay/ready/*.jsonl`：collector 写出的 `sft_v4_rollout_v2` trajectory FIFO；
   v2 schema 显式保存 `memory_before_frame`、`memory_after_step1`、
   `memory_after_step2`、三步触发标志和 skip 纠偏标志。旧 `sft_v4_rollout_v1` 会被 learner 拒收并
