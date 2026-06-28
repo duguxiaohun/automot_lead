@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# SFT v3 launcher: sequence-memory OPD training.
+# SFT v3 启动脚本：sequence-memory offline OPSD 训练。
 #
-# Run from AutoMoT/:
+# 从 AutoMoT/ 目录运行：
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v3/train.sh ddp
 #   GPU_IDS=0 bash qwen3vl_local/sft_v3/train.sh single
 #   GPU_IDS=0 bash qwen3vl_local/sft_v3/train.sh check
 
 set -euo pipefail
 
-# Disable core dumps so failed tool processes do not leave core.* files.
+# 禁用 core dump，避免失败的训练/工具进程在仓库里留下 core.* 大文件。
 ulimit -S -c 0 2>/dev/null || true
 
 MODE="${1:-ddp}"
@@ -139,7 +139,7 @@ case "${MODE}" in
     ddp)
         # DDP_GPU_COUNT 是历史变量名；这里只表示需要几张空闲卡，具体卡号默认自动挑选。
         echo "[mode] ddp"
-        DDP_GPU_COUNT="${DDP_GPU_COUNT:-8}"
+        DDP_GPU_COUNT="${DDP_GPU_COUNT:-4}"
         if [[ -n "${GPU_IDS:-}" ]]; then
             echo "[gpu] GPU_IDS=${GPU_IDS} takes precedence; DDP_GPU_COUNT=${DDP_GPU_COUNT} ignored"
         fi

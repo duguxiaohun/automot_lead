@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# SFT v4 off-policy launcher: 2 learner DDP ranks + async collectors.
-# 关键约定：learner 才进 DDP/NCCL；collector 只读 LoRA snapshot、写 replay。
+# SFT v4 off-policy launcher: 1 learner + 3 async collectors.
+# Learner 单进程（无 DDP/NCCL），只做 teacher-forced CE + backward。
+# Collector 只读 LoRA snapshot、写 replay。
 #
 # Run from AutoMoT/:
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 #
-# Exclusive_Process 机器上每张 GPU 只能承载一个 CUDA 进程，因此本脚本默认使用
-# 2 张卡跑 learner DDP、2 张卡各跑 1 个 collector。若需要覆盖忙卡检查，可显式
-# 设置 ALLOW_BUSY_GPUS=1。
+# GPU 排布：GPU0=learner，GPU1/2/3=collector（每卡 1 进程）。
+# 若需要覆盖忙卡检查，可显式设置 ALLOW_BUSY_GPUS=1。
 
 set -euo pipefail
 
@@ -182,19 +182,14 @@ if [[ "${gpu_count}" -lt 4 ]]; then
     exit 1
 fi
 assert_gpu_plan_safe "${visible}" "${COLLECTORS_PER_GPU}"
-learner_gpus="$(split_csv "${visible}" 1),$(split_csv "${visible}" 2)"
-collector_gpus="$(split_csv "${visible}" 3),$(split_csv "${visible}" 4)"
+learner_gpu="$(split_csv "${visible}" 1)"
+collector_gpus="$(split_csv "${visible}" 2),$(split_csv "${visible}" 3),$(split_csv "${visible}" 4)"
 
 IFS=',' read -r -a collector_gpu_array <<< "${collector_gpus}"
 collector_processes=$(( ${#collector_gpu_array[@]} * COLLECTORS_PER_GPU ))
-master_port="${MASTER_PORT:-$(find_free_master_port)}"
-export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
-export MASTER_PORT="${master_port}"
-export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
-export NCCL_P2P_LEVEL="${NCCL_P2P_LEVEL:-NVL}"
 
 echo "[run] OUTPUT_DIR=${OUTPUT_DIR}"
-echo "[gpu] learner=${learner_gpus} collector=${collector_gpus} collectors_per_gpu=${COLLECTORS_PER_GPU}"
+echo "[gpu] learner=${learner_gpu} collector=${collector_gpus} collectors_per_gpu=${COLLECTORS_PER_GPU}"
 echo "[cfg] max_steps=${MAX_STEPS} replay_capacity=${REPLAY_CAPACITY} startup_replay_timeout=${REPLAY_STARTUP_TIMEOUT_SEC}s p_init=${P_INIT_CORRECT} phase_b_noise=${PHASE_B_NOISE_PROB} skip_corr_noise=${SKIP_CORRECTION_SCENE_NOISE_PROB}"
 
 resume_args=()
@@ -220,11 +215,8 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-# learner 独占前两张卡并进入 DDP；视觉 LoRA guard 参数只影响 learner。
-CUDA_VISIBLE_DEVICES="${learner_gpus}" torchrun --nproc_per_node=2 \
-    --master_addr="${MASTER_ADDR}" \
-    --master_port="${MASTER_PORT}" \
-    qwen3vl_local/sft_v4/learn.py \
+# learner 单进程在 GPU0 上做 teacher-forced CE + backward（无 DDP/NCCL）。
+CUDA_VISIBLE_DEVICES="${learner_gpu}" python qwen3vl_local/sft_v4/learn.py \
     --model-dir "${MODEL_DIR}" \
     --replay-dir "${REPLAY_DIR}" \
     --output-dir "${OUTPUT_DIR}" \
@@ -248,7 +240,7 @@ CUDA_VISIBLE_DEVICES="${learner_gpus}" torchrun --nproc_per_node=2 \
     --vision-guard-param-norm-max "${VISION_GUARD_PARAM_NORM_MAX}" \
     --vision-guard-patience "${VISION_GUARD_PATIENCE}" \
     --skip-correction-scene-noise-prob "${SKIP_CORRECTION_SCENE_NOISE_PROB}" \
-    --learner-world-size 2 \
+    --learner-world-size 1 \
     --collector-processes "${collector_processes}" &
 pids+=("$!")
 learner_pid="${pids[0]}"

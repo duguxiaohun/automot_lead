@@ -60,8 +60,8 @@ except Exception:
 
 from qwen3vl_local.sft_v2.train import _is_vision_module_name, load_model_with_lora, make_scheduler
 from qwen3vl_local.sft_v4 import replay
-get_step_system_prompt,
-
+from qwen3vl_local.sft_v4.prompts import (
+    get_step_system_prompt,
     DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
     build_step1_user_prompt,
     build_step2_student_prompt,
@@ -84,62 +84,31 @@ from qwen3vl_local.sft_v4.train import (
 
 
 def setup_distributed() -> Tuple[int, int, int]:
-    """初始化 learner-only DDP process group。
+    """Single-process learner: always returns rank0/world_size=1.
 
-    collector 完全不调用这个函数。若用户单进程调试 ``learn.py``，环境里没有 ``RANK``，
-    则退化为 rank0/world_size=1，不创建 process group。
+    No DDP wrapper or NCCL collective. Layout is 1 learner + N collectors;
+    learner only does teacher-forced CE + backward, no parameter allreduce.
     """
 
-    if "RANK" not in os.environ:
-        return 0, 1, 0
-    rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
-    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    device_id = None
-    if torch.cuda.is_available():
-        torch.cuda.set_device(local_rank)
-        device_id = torch.device(f"cuda:{local_rank}")
-    backend = "nccl" if torch.cuda.is_available() else "gloo"
-    init_kwargs: Dict[str, Any] = {"backend": backend, "timeout": timedelta(hours=2)}
-    if device_id is not None:
-        init_kwargs["device_id"] = device_id
-    try:
-        dist.init_process_group(**init_kwargs)
-    except TypeError:
-        init_kwargs.pop("device_id", None)
-        dist.init_process_group(**init_kwargs)
-    return rank, world_size, local_rank
+    return 0, 1, 0
 
 
 def cleanup_distributed() -> None:
-    """关闭 DDP process group。
+    """单进程 learner 无 process group 需清理。"""
 
-    只在 learner 进程里调用；collector 没有 process group，也就没有清理动作。
-    """
-
-    if dist.is_available() and dist.is_initialized():
-        dist.destroy_process_group()
+    pass
 
 
 def is_rank0(rank: int) -> bool:
-    """rank0 负责日志、TB、snapshot 和 checkpoint。"""
+    """单进程时始终为 True。"""
 
     return rank == 0
 
 
 def _sync_bool(value: bool, device: torch.device, *, op: Any = None) -> bool:
-    """跨 learner ranks 同步 bool；默认 MIN 语义用于“所有 rank 都 ready”。
+    """单进程 learner 无需跨 rank 同步，直接返回原值。"""
 
-    replay 为空时不能让某个 rank 先 backward、另一个 rank sleep，否则 DDP collective
-    数会不匹配。这里用一个 1 元素 tensor 做 CPU/GPU 侧的轻量 allreduce，只有所有 rank
-    都拿到有效 trajectory 才进入真正的 loss/backward。
-    """
-
-    if not (dist.is_available() and dist.is_initialized()):
-        return bool(value)
-    tensor = torch.tensor([1 if value else 0], dtype=torch.int32, device=device)
-    dist.all_reduce(tensor, op=op or dist.ReduceOp.MIN)
-    return bool(int(tensor.item()))
+    return bool(value)
 
 
 def _memory_from_record(payload: Dict[str, Any]) -> Any:
@@ -295,7 +264,7 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
             # 必须来自 collector 在 step1 后写入的 memory_after_step1，而不是帧首
             # memory_before；否则 learner 会重放出与 collector 不同的 SCENE_CHOICES。
             #
-            # 注意：learner 这里绝不重新 parse student_step1_raw 来“现算”memory。
+            # 注意：learner 这里绝不重新 parse student_step1_raw 来"现算"memory。
             # collector 才是 rollout 真相来源；learner 只做 teacher-forced loss。
             # 这样即便 parse 规则以后调整，已经采集好的 trajectory 也不会在重放时
             # 悄悄改变状态机语义。
@@ -385,27 +354,7 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
 
 
 def _average_trainable_grads(params: List[nn.Parameter]) -> None:
-    """Mean-reduce LoRA gradients once per learner step.
-
-    Frame counts can differ across ranks. Per-frame backward therefore runs
-    under DDP ``no_sync()``, and this fixed-order pass is the only gradient
-    collective in the step.
-    """
-
-    if not (dist.is_available() and dist.is_initialized()):
-        return
-    world_size = float(dist.get_world_size())
-    for param in params:
-        if not param.requires_grad:
-            continue
-        has_grad = torch.tensor([1 if param.grad is not None else 0], dtype=torch.int32, device=param.device)
-        dist.all_reduce(has_grad, op=dist.ReduceOp.MAX)
-        if int(has_grad.item()) == 0:
-            continue
-        if param.grad is None:
-            param.grad = torch.zeros_like(param, memory_format=torch.preserve_format)
-        dist.all_reduce(param.grad, op=dist.ReduceOp.SUM)
-        param.grad.div_(world_size)
+    """单进程 learner 无需梯度 allreduce（参数签名保留，调用方不改）。"""
 
 
 def _merge_stats(dst: Dict[str, float], src: Dict[str, float]) -> None:
@@ -512,13 +461,9 @@ def _param_norm(params: List[nn.Parameter]) -> float:
 
 
 def _sync_max_float(value: float, device: torch.device) -> float:
-    """跨 learner ranks 取最大值；单进程时直接返回。"""
+    """单进程 learner：直接返回原值（签名保留，调用方不改）。"""
 
-    if not (dist.is_available() and dist.is_initialized()):
-        return float(value)
-    tensor = torch.tensor([float(value)], dtype=torch.float32, device=device)
-    dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
-    return float(tensor.item())
+    return float(value)
 
 
 def _validate_args(args: argparse.Namespace) -> None:
@@ -797,8 +742,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--keep-snapshots", type=int, default=3)
     p.add_argument("--seed", type=int, default=20260623)
     p.add_argument("--check", action="store_true")
-    p.add_argument("--learner-world-size", type=int, default=2)
-    p.add_argument("--collector-processes", type=int, default=2)
+    p.add_argument("--learner-world-size", type=int, default=1)
+    p.add_argument("--collector-processes", type=int, default=3)
     p.add_argument(
         "--resume-from-checkpoint",
         type=str,
@@ -825,16 +770,10 @@ def main() -> None:
         args.max_steps = min(int(args.max_steps), 2)
         args.snapshot_every_steps = 1
     device = torch.device(f"cuda:{local_rank}") if torch.cuda.is_available() else torch.device("cpu")
-    if world_size != int(args.learner_world_size) and is_rank0(rank):
-        print(f"[learn][warn] actual world_size={world_size}, configured learner_world_size={args.learner_world_size}", flush=True)
     output_dir = pathlib.Path(args.output_dir)
     replay_dir = pathlib.Path(args.replay_dir)
-    if is_rank0(rank):
-        output_dir.mkdir(parents=True, exist_ok=True)
-        replay.ensure_replay_dirs(replay_dir)
-    # 确保 rank0 已经创建目录，其余 rank 再开始加载/发布，避免远端文件系统 race。
-    if dist.is_available() and dist.is_initialized():
-        dist.barrier()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    replay.ensure_replay_dirs(replay_dir)
 
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
@@ -849,22 +788,6 @@ def main() -> None:
     groups, language_params, vision_params = _trainable_groups(bundle, args)
     trainable_params = language_params + vision_params
     has_vision_lora = bool(vision_params)
-    if has_vision_lora and is_rank0(rank):
-        print(
-            "[learn][warn] vision LoRA is enabled, but v4 off-policy learner keeps image prefill under no_grad; "
-            "DDP will use find_unused_parameters=True and visual gradients may stay zero.",
-            flush=True,
-        )
-    if dist.is_available() and dist.is_initialized():
-        # DDP 包装前先同步 LoRA 初始权重，避免各 rank 随机初始化不同。
-        for p in language_params + vision_params:
-            dist.broadcast(p.data, src=0)
-        bundle.model = DDP(
-            bundle.model,
-            device_ids=[local_rank] if torch.cuda.is_available() else None,
-            find_unused_parameters=has_vision_lora,
-            broadcast_buffers=False,
-        )
     optimizer = torch.optim.AdamW(groups, betas=(0.9, 0.95), weight_decay=float(args.weight_decay))
     scheduler = make_scheduler(optimizer, int(args.max_steps), int(int(args.max_steps) * float(args.warmup_ratio)))
     start_step = load_checkpoint_if_requested(bundle, optimizer, scheduler, args)
@@ -888,20 +811,12 @@ def main() -> None:
     start = time.time()
     first_replay_wait_start: Optional[float] = None
     while global_step < int(args.max_steps):
-        stop_requested = _sync_bool(
-            stop_file.exists(),
-            device,
-            op=dist.ReduceOp.MAX if dist.is_available() and dist.is_initialized() else None,
-        )
-        if stop_requested:
-            if is_rank0(rank):
-                print(f"[learn] observed external stop file: {stop_file}", flush=True)
+        if stop_file.exists():
+            print(f"[learn] observed external stop file: {stop_file}", flush=True)
             break
         path, records = sample_valid_trajectory(replay_dir, rng)
-        local_ready = records is not None
-        all_ready = _sync_bool(local_ready, device, op=dist.ReduceOp.MIN if dist.is_available() and dist.is_initialized() else None)
-        if not all_ready:
-            # replay 为空时只 sleep，不做 forward/backward，所以不会有 NCCL watchdog 空等。
+        if records is None:
+            # replay 为空时只 sleep，不做 forward/backward。
             now = time.time()
             waited = 0.0
             local_startup_timeout = False
@@ -913,35 +828,23 @@ def main() -> None:
                     float(args.startup_replay_timeout_sec) > 0
                     and waited >= float(args.startup_replay_timeout_sec)
                 )
-            startup_timeout_now = _sync_bool(
-                local_startup_timeout,
-                device,
-                op=dist.ReduceOp.MAX if dist.is_available() and dist.is_initialized() else None,
-            )
-            # timeout 判定本身也要先 allreduce：否则某个 rank 先进入 barrier，
-            # 另一个 rank 还在下一轮 _sync_bool，会造成 collective 顺序错位。
-            waited = _sync_max_float(waited, device)
-            if startup_timeout_now:
+            if local_startup_timeout:
                 startup_timed_out = True
                 startup_timeout_reason = (
                     f"no replay trajectory after {waited:.1f}s under {replay_dir}; "
                     "check collector logs and replay/failed"
                 )
-                if is_rank0(rank):
-                    st = replay.replay_stats(replay_dir)
-                    (output_dir / "STOP").write_text("startup_replay_timeout\n", encoding="utf-8")
-                    print(
-                        f"[learn][error] no replay trajectory after {waited:.1f}s "
-                        f"(ready={st.ready_count} pending={st.pending_count} failed={st.failed_count}); "
-                        "collectors likely failed or data paths are wrong.",
-                        flush=True,
-                    )
-                if dist.is_available() and dist.is_initialized():
-                    dist.barrier()
-                break
-            if is_rank0(rank):
                 st = replay.replay_stats(replay_dir)
-                print(f"[learn] waiting replay ready={st.ready_count} pending={st.pending_count}", flush=True)
+                (output_dir / "STOP").write_text("startup_replay_timeout\n", encoding="utf-8")
+                print(
+                    f"[learn][error] no replay trajectory after {waited:.1f}s "
+                    f"(ready={st.ready_count} pending={st.pending_count} failed={st.failed_count}); "
+                    "collectors likely failed or data paths are wrong.",
+                    flush=True,
+                )
+                break
+            st = replay.replay_stats(replay_dir)
+            print(f"[learn] waiting replay ready={st.ready_count} pending={st.pending_count}", flush=True)
             time.sleep(float(args.wait_replay_sec))
             continue
         assert records is not None
@@ -966,36 +869,26 @@ def main() -> None:
             bad_param = (not math.isfinite(vis_param_norm_value)) or vis_param_norm_value > float(args.vision_guard_param_norm_max)
             guard_bad = bool(bad_grad or bad_param)
             guard_bad_steps = guard_bad_steps + 1 if guard_bad else 0
-        fuse_now = _sync_bool(
-            guard_bad_steps >= int(args.vision_guard_patience),
-            device,
-            op=dist.ReduceOp.MAX if dist.is_available() and dist.is_initialized() else None,
-        )
-        if fuse_now:
-            # 这里保存的是 optimizer.step() 之前的权重，也就是上一已完成 step 的安全权重；
-            # 目录名用 after_step_<global_step> 避免误解成当前坏 step 已经写入 adapter。
+        if guard_bad_steps >= int(args.vision_guard_patience):
             optimizer.zero_grad(set_to_none=True)
             fuse_stopped = True
-            if is_rank0(rank):
-                reason = (
-                    "vision fuse triggered: "
-                    f"grad_norm={vis_norm_value:.4f} "
-                    f"(max={float(args.vision_guard_grad_norm_max):.4f}), "
-                    f"param_norm={vis_param_norm_value:.4f} "
-                    f"(max={float(args.vision_guard_param_norm_max):.4f}), "
-                    f"bad_steps={guard_bad_steps}"
-                )
-                emergency = output_dir / f"fuse_stop_after_step_{global_step}"
-                if emergency.exists():
-                    shutil.rmtree(emergency, ignore_errors=True)
-                bundle.unwrap().save_pretrained(str(emergency))
-                _write_adapter_metadata(emergency, bundle, args, step=global_step, kind="fuse_stop")
-                (emergency / "fuse_reason.txt").write_text(reason + "\n", encoding="utf-8")
-                (output_dir / "STOP").write_text("vision_fuse\n", encoding="utf-8")
-                print(f"[fuse-stop] {reason}", flush=True)
-                print(f"[fuse-stop] emergency adapter -> {emergency}", flush=True)
-            if dist.is_available() and dist.is_initialized():
-                dist.barrier()
+            reason = (
+                "vision fuse triggered: "
+                f"grad_norm={vis_norm_value:.4f} "
+                f"(max={float(args.vision_guard_grad_norm_max):.4f}), "
+                f"param_norm={vis_param_norm_value:.4f} "
+                f"(max={float(args.vision_guard_param_norm_max):.4f}), "
+                f"bad_steps={guard_bad_steps}"
+            )
+            emergency = output_dir / f"fuse_stop_after_step_{global_step}"
+            if emergency.exists():
+                shutil.rmtree(emergency, ignore_errors=True)
+            bundle.unwrap().save_pretrained(str(emergency))
+            _write_adapter_metadata(emergency, bundle, args, step=global_step, kind="fuse_stop")
+            (emergency / "fuse_reason.txt").write_text(reason + "\n", encoding="utf-8")
+            (output_dir / "STOP").write_text("vision_fuse\n", encoding="utf-8")
+            print(f"[fuse-stop] {reason}", flush=True)
+            print(f"[fuse-stop] emergency adapter -> {emergency}", flush=True)
             break
         optimizer.step()
         scheduler.step()
@@ -1071,7 +964,7 @@ def main() -> None:
             ckpt = save_checkpoint(bundle, optimizer, scheduler, args, step=global_step)
             print(f"[checkpoint] {ckpt}", flush=True)
 
-    if is_rank0(rank) and not fuse_stopped and not startup_timed_out:
+    if not fuse_stopped and not startup_timed_out:
         final_dir = output_dir / "final"
         if final_dir.exists():
             shutil.rmtree(final_dir, ignore_errors=True)
@@ -1083,7 +976,7 @@ def main() -> None:
             tb.flush()
             tb.close()
         print(f"[done] final={final_dir} stop={output_dir / 'STOP'}", flush=True)
-    elif is_rank0(rank):
+    else:
         if tb is not None:
             tb.flush()
             tb.close()
@@ -1091,8 +984,6 @@ def main() -> None:
             print("[done] skipped final adapter because vision fuse guard stopped training early", flush=True)
         else:
             print("[done] skipped final adapter because startup replay timed out", flush=True)
-    if dist.is_available() and dist.is_initialized():
-        dist.barrier()
     cleanup_distributed()
     if startup_timed_out:
         raise TimeoutError(startup_timeout_reason)
