@@ -78,6 +78,7 @@ from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     CANONICAL_SCENARIO_LABELS,
     ROAD_STRUCTURE_TO_SCENES,
     SCENE_TO_ROAD_STRUCTURE,
+    SYSTEM_PROMPT_V4,
     SYSTEM_PROMPT_STEP1,
     SYSTEM_PROMPT_STEP2,
     SYSTEM_PROMPT_STEP3,
@@ -220,53 +221,41 @@ def _assert_prompt_contracts() -> None:
     step1_student = build_step1_user_prompt(4, mem)
     if "[STEP1_ROAD_MEMORY]" not in step1_student:
         raise AssertionError("step1 student prompt must include STEP1_ROAD_MEMORY")
-    # 三个 step 的 system prompt 通用契约（必须全部满足）。
-    _common_markers = (
+    # 统一 system prompt 契约：只含角色 + 通用证据原则，不含任何 step 专属域、
+    # 输出格式或词数目标（全部下沉 user prompt）。三步共用同一段。
+    _sys_required = (
         "You are an autonomous driving agent",
         "Use the 4 stitched RGB frames as visual context",
         "Keep the believed label by default",
         "not contradicted",
-        "Scene Description:",
-        "Critical Object Description:",
-        "Reasoning on Intent:",
-        "Memory Judgment:",
-        "aim for 100-150 words for the four analysis lines",
     )
-    for _sys_prompt, _tag in ((SYSTEM_PROMPT_STEP1, "STEP1"), (SYSTEM_PROMPT_STEP2, "STEP2"), (SYSTEM_PROMPT_STEP3, "STEP3")):
-        for _marker in _common_markers:
-            if _marker not in _sys_prompt:
-                raise AssertionError(f"SYSTEM_PROMPT_{_tag} must encode the shared contract: {_marker}")
-        if "Then write the label line" in _sys_prompt:
-            raise AssertionError(f"SYSTEM_PROMPT_{_tag} must leave label-writing to step-specific prompts")
-        if "ANSWER_" in _sys_prompt or "GROUND_TRUTH_" in _sys_prompt or "REFERENCE_" in _sys_prompt:
-            raise AssertionError(f"SYSTEM_PROMPT_{_tag} must not contain teacher-private answer field names")
-    # STEP1 专属：road-structure focus，不含 SCENE/STATUS/SUBGOAL/Advanced because。
-    if "ROAD_STRUCTURE" not in SYSTEM_PROMPT_STEP1:
-        raise AssertionError("SYSTEM_PROMPT_STEP1 must mention ROAD_STRUCTURE as its task")
-    if "SCENE" in SYSTEM_PROMPT_STEP1.replace("Scene Description", "") or "STATUS" in SYSTEM_PROMPT_STEP1.replace("Scene Description", "") or "SUBGOAL" in SYSTEM_PROMPT_STEP1:
-        raise AssertionError("SYSTEM_PROMPT_STEP1 must not mention SCENE task or STATUS/SUBGOAL")
-    if 'Advanced because' in SYSTEM_PROMPT_STEP1:
-        raise AssertionError("SYSTEM_PROMPT_STEP1 must not include Advanced because (only Kept/Corrected)")
-    if "interaction cue" in SYSTEM_PROMPT_STEP1.lower() or "temporal-progress" in SYSTEM_PROMPT_STEP1.lower():
-        raise AssertionError("SYSTEM_PROMPT_STEP1 must not mention interaction cues or temporal-progress (STEP2/STEP3 domain)")
-    # STEP2 专属：scene/interaction focus，不含 ROAD_STRUCTURE 任务/STATUS/SUBGOAL/Advanced。
-    if "SCENE" not in SYSTEM_PROMPT_STEP2:
-        raise AssertionError("SYSTEM_PROMPT_STEP2 must mention SCENE as its task")
-    if "ROAD_STRUCTURE" in SYSTEM_PROMPT_STEP2 or "STATUS" in SYSTEM_PROMPT_STEP2.replace("Scene Description", ""):
-        raise AssertionError("SYSTEM_PROMPT_STEP2 must not mention ROAD_STRUCTURE task or STATUS")
-    if 'Advanced because' in SYSTEM_PROMPT_STEP2:
-        raise AssertionError("SYSTEM_PROMPT_STEP2 must not include Advanced because (only Kept/Corrected)")
-    if "road-layout" in SYSTEM_PROMPT_STEP2.lower() or "temporal-progress" in SYSTEM_PROMPT_STEP2.lower():
-        raise AssertionError("SYSTEM_PROMPT_STEP2 must not mention road-layout or temporal-progress (STEP1/STEP3 domain)")
-    # STEP3 专属：status/subgoal focus，含 Advanced because，不含 ROAD_STRUCTURE/SCENE 任务。
-    if "STATUS" not in SYSTEM_PROMPT_STEP3 or "SUBGOAL" not in SYSTEM_PROMPT_STEP3:
-        raise AssertionError("SYSTEM_PROMPT_STEP3 must mention STATUS and SUBGOAL as its task")
-    if "ROAD_STRUCTURE" in SYSTEM_PROMPT_STEP3 or "SCENE" in SYSTEM_PROMPT_STEP3.replace("Scene Description", ""):
-        raise AssertionError("SYSTEM_PROMPT_STEP3 must not mention ROAD_STRUCTURE task or SCENE task")
-    if 'Advanced because' not in SYSTEM_PROMPT_STEP3:
-        raise AssertionError("SYSTEM_PROMPT_STEP3 must include Advanced because")
-    if "road-layout" in SYSTEM_PROMPT_STEP3.lower() or "interaction cue" in SYSTEM_PROMPT_STEP3.lower():
-        raise AssertionError("SYSTEM_PROMPT_STEP3 must not mention road-layout or interaction cues (STEP1/STEP2 domain)")
+    for _marker in _sys_required:
+        if _marker not in SYSTEM_PROMPT_V4:
+            raise AssertionError(f"SYSTEM_PROMPT_V4 must encode the shared contract: {_marker}")
+    # 系统提示词必须干净：不含 task 声明、输出格式、词数目标、label 指令。
+    _sys_forbidden = (
+        "Your task is",
+        "Output the four analysis lines",
+        "Scene Description:",
+        "aim for 100-150 words",
+        "Then write",
+        "ROAD_STRUCTURE",
+        "SCENE",
+        "STATUS",
+        "SUBGOAL",
+        "road-layout",
+        "interaction cue",
+        "temporal-progress",
+        "ANSWER_",
+        "GROUND_TRUTH_",
+        "REFERENCE_",
+    )
+    for _token in _sys_forbidden:
+        if _token in SYSTEM_PROMPT_V4.replace("Scene Description", ""):
+            raise AssertionError(f"SYSTEM_PROMPT_V4 must not leak step-specific domain or format: found {_token!r}")
+    # 三个别名必须指向同一段（向后兼容）。
+    if SYSTEM_PROMPT_STEP1 is not SYSTEM_PROMPT_V4 or SYSTEM_PROMPT_STEP2 is not SYSTEM_PROMPT_V4 or SYSTEM_PROMPT_STEP3 is not SYSTEM_PROMPT_V4:
+        raise AssertionError("SYSTEM_PROMPT_STEP1/2/3 must be aliases of SYSTEM_PROMPT_V4")
     if "VERDICT:" not in step1_prompt or 'Memory Judgment line MUST start with' not in step1_prompt:
         raise AssertionError("step1 teacher prompt must include the VERDICT + opener directive")
     if "Your reasoning must be consistent with this verdict" not in step1_prompt:
@@ -286,8 +275,8 @@ def _assert_prompt_contracts() -> None:
         forbidden_private = ("ANSWER_", "GROUND_TRUTH_", "REFERENCE_")
         if any(token in student_prompt for token in forbidden_private):
             raise AssertionError("student-facing prompts must not contain teacher-private answer fields")
-        if "\nThen write: " not in student_prompt:
-            raise AssertionError("student-facing prompts must include a 'Then write:' line for the step")
+        if "Write four analysis lines (Scene Description" not in student_prompt:
+            raise AssertionError("student-facing prompts must include the Write four analysis lines format instruction")
     expected_student_labels = {
         "step1": (step1_student, ("ROAD_STRUCTURE: <name>",)),
         "step2": (step2_student, ("SCENE: <scenario_name>",)),

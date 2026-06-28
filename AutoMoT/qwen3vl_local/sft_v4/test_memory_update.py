@@ -183,8 +183,8 @@ def _check_student_prompt_contracts() -> None:
         "Reasoning on Intent:",
         "Memory Judgment:",
     )
-    # 4 行分析格式 + 通用 evidence 原则在 SYSTEM_PROMPT_V4；step 块只留
-    # Task / Constraint（含各 step 专属证据规则）/ Then write 三段。
+    # System prompt 只定角色 + 通用原则；4 行格式 + 词数目标已合入 user prompt
+    # 的 Write 指令行。Step 块：Task / Constraint / Write。
     assert "[STEP1_ROAD_MEMORY]" in step1
     assert "BELIEVED_ROAD_STRUCTURE" in step1
     assert "EGO_TO_GOAL_XY" in step1
@@ -193,7 +193,8 @@ def _check_student_prompt_contracts() -> None:
     assert "Constraint:" in step1
     assert "do not infer merging, braking, cut-in, or active flow from a single lead vehicle" in step1
     assert "a single lead vehicle alone never proves HIGHWAY_MERGE" in step1
-    assert "\nThen write: ROAD_STRUCTURE: <name>" in step1
+    assert "Write four analysis lines (Scene Description" in step1
+    assert "then write: ROAD_STRUCTURE: <name>" in step1
     assert "Then write the label line(s) yourself" not in step1
     assert "Relevant Visible Cues" not in step1
     assert "Evidence Assessment" not in step1
@@ -207,6 +208,7 @@ def _check_student_prompt_contracts() -> None:
     assert "VERDICT:" in step1_teacher
     assert "Your reasoning must be consistent with this verdict" in step1_teacher
     assert 'Memory Judgment line MUST start with' in step1_teacher
+    assert "Write only the four analysis lines (Scene Description" in step1_teacher
     assert "do not write any label lines" in step1_teacher
     assert "a single lead vehicle alone never proves HIGHWAY_MERGE" in step1_teacher
     assert "ROAD_STRUCTURE: <name>" not in step1_teacher
@@ -226,12 +228,14 @@ def _check_student_prompt_contracts() -> None:
     assert "[STEP2]" in step2
     assert "Task: Decide SCENE from SCENE_CHOICES." in step2
     assert "do not infer hidden merging, yielding, lane change" in step2
-    assert "\nThen write: SCENE: <scenario_name>" in step2
+    assert "Write four analysis lines (Scene Description" in step2
+    assert "then write: SCENE: <scenario_name>" in step2
     assert "ANSWER_" not in step2
     assert "GROUND_TRUTH_" not in step2
     assert "REFERENCE_" not in step2
     assert "[STEP2_TEACHER]" in step2_teacher
     assert "VERDICT:" in step2_teacher
+    assert "Write only the four analysis lines (Scene Description" in step2_teacher
     assert "do not write any label lines" in step2_teacher
     assert "stationary or slow-moving" in step2_teacher
     assert "SCENE: <scenario_name>" not in step2_teacher
@@ -257,7 +261,8 @@ def _check_student_prompt_contracts() -> None:
     assert "[EVENT_OPTIONS]" in step3
     assert "[STEP3]" in step3
     assert "Task: Decide STATUS and SUBGOAL from EVENT_OPTIONS." in step3
-    assert "\nThen write: STATUS: <event_name>" in step3
+    assert "Write four analysis lines (Scene Description" in step3
+    assert "then write: STATUS: <event_name>" in step3
     assert "ANSWER_" not in step3
     assert "GROUND_TRUTH_" not in step3
     assert "REFERENCE_" not in step3
