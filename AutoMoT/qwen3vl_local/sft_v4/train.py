@@ -75,7 +75,7 @@ from qwen3vl_local.sft_v4.prompts import (
     DEFAULT_W_STATUS,
     DEFAULT_W_SUBGOAL,
     SCENE_TO_ROAD_STRUCTURE,
-    SYSTEM_PROMPT_V4,
+    get_step_system_prompt,
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
@@ -346,15 +346,16 @@ def _build_messages_with_images(
     *,
     user_text: str,
     images: List[Image.Image],
+    system_prompt: str,
     prev_turns: Optional[List[Dict[str, str]]] = None,
 ) -> List[Dict[str, Any]]:
     """构造 Qwen chat messages：system + 首个带 4 张图的 user turn。
 
-    step1 是唯一带图的 user turn；step2/step3 后续只通过 KV cache 追加文本 user turn，
-    不重复传图，避免重 prefill。
+    每个 step 独立对话，各自传入自己的 system prompt（通过
+    ``get_step_system_prompt(step_tag)`` 获取），不交叉注入无关层次信息。
     """
 
-    messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT_V4}]
+    messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     content: List[Dict[str, Any]] = [{"type": "image", "image": img} for img in images]
     content.append({"type": "text", "text": user_text})
     messages.append({"role": "user", "content": content})
@@ -923,8 +924,8 @@ def iter_episode_loss_packs(
         # scene/status/subgoal；完整 [MEMORY] 从 step2/3 才进入。
         step1_student_user = build_step1_user_prompt(len(images), memory=memory_before_step1)
         step1_teacher_user_text = build_step1_teacher_prompt(memory_before_step1, gt_road_structure)
-        step1_msgs_student = _build_messages_with_images(user_text=step1_student_user, images=images)
-        step1_msgs_teacher = _build_messages_with_images(user_text=step1_teacher_user_text, images=images)
+        step1_msgs_student = _build_messages_with_images(user_text=step1_student_user, images=images, system_prompt=get_step_system_prompt("STEP1"))
+        step1_msgs_teacher = _build_messages_with_images(user_text=step1_teacher_user_text, images=images, system_prompt=get_step_system_prompt("STEP1"))
 
         # Teacher 分支：全程 disable_adapter（= frozen base Qwen），含 no_repeat_ngram 抑制复读。
         teacher_model = bundle.unwrap()
@@ -1000,7 +1001,7 @@ def iter_episode_loss_packs(
             # 正式训练不可比。
             step2_teacher_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
             step2_student_user = build_step2_student_prompt(memory)
-            step2_msgs_teacher = _build_messages_with_images(user_text=step2_teacher_user, images=images)
+            step2_msgs_teacher = _build_messages_with_images(user_text=step2_teacher_user, images=images, system_prompt=get_step_system_prompt("STEP2"))
 
             teacher_was_training2 = bool(teacher_model.training)
             teacher_model.eval()
@@ -1066,7 +1067,7 @@ def iter_episode_loss_packs(
                     gt_status,
                     gt_subgoal,
                 )
-                step3_msgs_teacher = _build_messages_with_images(user_text=step3_teacher_user, images=images)
+                step3_msgs_teacher = _build_messages_with_images(user_text=step3_teacher_user, images=images, system_prompt=get_step_system_prompt("STEP3"))
                 teacher_was_training2 = bool(teacher_model.training)
                 teacher_model.eval()
                 with teacher_model.disable_adapter():
