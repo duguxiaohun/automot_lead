@@ -60,7 +60,8 @@ except Exception:
 
 from qwen3vl_local.sft_v2.train import _is_vision_module_name, load_model_with_lora, make_scheduler
 from qwen3vl_local.sft_v4 import replay
-from qwen3vl_local.sft_v4.prompts import (
+get_step_system_prompt,
+
     DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
     build_step1_user_prompt,
     build_step2_student_prompt,
@@ -271,7 +272,7 @@ def trajectory_loss(bundle: Any, records: List[Dict[str, Any]], args: argparse.N
 
         # ============ Step 1：分析 + ROAD_STRUCTURE 标签（每帧都跑）============
         step1_user = build_step1_user_prompt(len(images), memory=memory_before)
-        messages = _build_messages_with_images(user_text=step1_user, images=images)
+        messages = _build_messages_with_images(user_text=step1_user, images=images, system_prompt=get_step_system_prompt("STEP1"))
         step1_prompt_state = _student_start_state(bundle, messages)
         target1 = targets["step1"]
         # step1 现在有 ROAD_STRUCTURE 标签 → target_spans_road_structure 给标签段独立 mask。

@@ -42,7 +42,8 @@ os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 import torch
 
 from qwen3vl_local.sft_v4 import replay
-from qwen3vl_local.sft_v4.prompts import (
+get_step_system_prompt,
+
     DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB,
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
@@ -309,8 +310,8 @@ def collect_episode(
         # memory，step2/3 才读完整 [MEMORY]。
         step1_student_user = build_step1_user_prompt(len(images), memory=memory_before)
         step1_teacher_user_text = build_step1_teacher_prompt(memory_before, gt_road_structure)
-        step1_msgs_student = _build_messages_with_images(user_text=step1_student_user, images=images)
-        step1_msgs_teacher = _build_messages_with_images(user_text=step1_teacher_user_text, images=images)
+        step1_msgs_student = _build_messages_with_images(user_text=step1_student_user, images=images, system_prompt=get_step_system_prompt("STEP1"))
+        step1_msgs_teacher = _build_messages_with_images(user_text=step1_teacher_user_text, images=images, system_prompt=get_step_system_prompt("STEP1"))
 
         # Teacher 分支：disable_adapter = 纯 frozen base Qwen + no_repeat_ngram + 软 min。
         model = bundle.unwrap()
@@ -377,7 +378,7 @@ def collect_episode(
             # target 不在候选表里的坏样本。
             step2_teacher_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
             step2_student_user = build_step2_student_prompt(memory)
-            step2_msgs_teacher = _build_messages_with_images(user_text=step2_teacher_user, images=images)
+            step2_msgs_teacher = _build_messages_with_images(user_text=step2_teacher_user, images=images, system_prompt=get_step_system_prompt("STEP2"))
 
             was_training = bool(model.training)
             model.eval()
@@ -432,7 +433,7 @@ def collect_episode(
                 gt_status,
                 gt_subgoal,
             )
-            step3_msgs_teacher = _build_messages_with_images(user_text=step3_teacher_user, images=images)
+            step3_msgs_teacher = _build_messages_with_images(user_text=step3_teacher_user, images=images, system_prompt=get_step_system_prompt("STEP3"))
             was_training = bool(model.training)
             model.eval()
             with model.disable_adapter():

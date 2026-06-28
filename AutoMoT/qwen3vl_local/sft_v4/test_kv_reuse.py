@@ -21,7 +21,8 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 
 from PIL import Image
 
-from qwen3vl_local.sft_v4.prompts import (
+get_step_system_prompt,
+
     SYSTEM_PROMPT_V4,
     build_step1_user_prompt,
     build_step2_student_prompt,
@@ -89,7 +90,7 @@ def main() -> None:
     memory_after_step2 = update_memory_after_step2(memory, student_scene="Accident")
     step3_user = build_step3_student_prompt(memory_after_step2)
 
-    start_msgs = _build_messages_with_images(user_text=step1_user, images=imgs)
+    start_msgs = _build_messages_with_images(user_text=step1_user, images=imgs, system_prompt=get_step_system_prompt("STEP1"))
     full_msgs = list(start_msgs) + [
         {"role": "assistant", "content": assistant1},
         {"role": "user", "content": step2_user},

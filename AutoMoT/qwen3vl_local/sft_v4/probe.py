@@ -41,7 +41,8 @@ from qwen3vl_local.sft_v4.train import (
     _load_images,
     _prefetch_goal_xy_for_next_frame,
 )
-from qwen3vl_local.sft_v4.prompts import (
+get_step_system_prompt,
+
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
@@ -233,12 +234,12 @@ def main() -> None:
             }
 
             step1_user = build_step1_user_prompt(len(images), memory=memory)
-            step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
+            step1_msgs = _build_messages_with_images(user_text=step1_user, images=images, system_prompt=get_step_system_prompt("STEP1"))
             step1_teacher_text = ""
             step1_teacher_user = ""
             if teacher_engine is not None:
                 step1_teacher_user = build_step1_teacher_prompt(memory, gt_road_structure)
-                step1_teacher_msgs = _build_messages_with_images(user_text=step1_teacher_user, images=images)
+                step1_teacher_msgs = _build_messages_with_images(user_text=step1_teacher_user, images=images, system_prompt=get_step_system_prompt("STEP1"))
                 raw_t1 = _generate(
                     teacher_engine,
                     step1_teacher_msgs,
@@ -283,7 +284,7 @@ def main() -> None:
                 if teacher_engine is not None:
                     # teacher step2 是独立专家问答：重新吃图 + road/scene 真值上下文。
                     step2_teacher_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
-                    step2_teacher_msgs = _build_messages_with_images(user_text=step2_teacher_user, images=images)
+                    step2_teacher_msgs = _build_messages_with_images(user_text=step2_teacher_user, images=images, system_prompt=get_step_system_prompt("STEP2"))
                     raw_t2 = _generate(
                         teacher_engine,
                         step2_teacher_msgs,
@@ -333,7 +334,7 @@ def main() -> None:
                         gt_status,
                         gt_subgoal,
                     )
-                    step3_teacher_msgs = _build_messages_with_images(user_text=step3_teacher_user, images=images)
+                    step3_teacher_msgs = _build_messages_with_images(user_text=step3_teacher_user, images=images, system_prompt=get_step_system_prompt("STEP3"))
                     raw_t3 = _generate(
                         teacher_engine,
                         step3_teacher_msgs,
