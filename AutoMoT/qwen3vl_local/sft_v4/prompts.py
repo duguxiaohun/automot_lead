@@ -919,9 +919,12 @@ _WEAK_EVIDENCE_PATTERNS: Tuple[re.Pattern[str], ...] = (
     re.compile(r"\bno\s+(?:visible\s+)?evidence\s+(?:supports?|confirms?)\b", re.IGNORECASE),
     re.compile(r"\bnot\s+(?:strongly\s+)?supported\b", re.IGNORECASE),
     re.compile(r"\bdoes\s+not\s+support\b", re.IGNORECASE),
+    re.compile(r"\bdo\s+not\s+support\b", re.IGNORECASE),                # 漏检: "... cues do not support ..."
+    re.compile(r"\bunsupported\b", re.IGNORECASE),                       # 漏检: "... making X unsupported ..."
     re.compile(r"\bnot\s+contradicted\b", re.IGNORECASE),
-    re.compile(r"\bno\s+(?:visible\s+)?(?:temporal-progress\s+)?cue", re.IGNORECASE),
+    re.compile(r"\bno\s+(?:\w+\s+){0,2}cues?\b", re.IGNORECASE),         # 漏检: "no visual cues", "no interaction cues"
     re.compile(r"\bno\s+(?:clear\s+)?(?:visual\s+)?evidence\b", re.IGNORECASE),
+    re.compile(r"\blacks?\s+(?:any|clear|visible|definitive)\s+(?:evidence|indicator|cue)\b", re.IGNORECASE),  # 漏检: "lacks any indicator"
 )
 
 
@@ -948,8 +951,11 @@ def _honest_weak_evidence_judgment(text: str, *, verdict: str, slot: str) -> str
         body = m.group("body").strip()
         # 先剥掉 opener 词组，只检查 body 实质内容
         body_content = _OPENER_PREFIX_RE.sub("", body).strip()
-        if not any(p.search(body_content) for p in _WEAK_EVIDENCE_PATTERNS):
-            # body 不含弱证据信号，保持原样
+        # 检测 _enforce 的通用 fallback "remains consistent"——它对 CHANGE/ADVANCE
+        # 是语义矛盾的（"Corrected because ... remains consistent"），需要改写。
+        weak_detected = any(p.search(body_content) for p in _WEAK_EVIDENCE_PATTERNS)
+        if not weak_detected and "remains consistent" not in body_content.lower():
+            # body 不含弱证据信号，也不含矛盾 fallback，保持原样
             return text
         # 检测到弱证据矛盾 → 改写 body
         if verdict_upper == "CHANGE":
@@ -1290,13 +1296,22 @@ _LABEL_LINE_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+# 教师在 raw 输出里偶尔写 "Corrected because: ..." 或 "Kept because: ..."
+# 这种不带 "Memory Judgment:" 前缀的 orphaned opener 行。它们不应进入
+# student target——脚本在后面会重新构建正确的 Memory Judgment 行。
+_ORPHANED_OPENER_LINE_RE = re.compile(
+    r"^\s*(?:Kept|Corrected|Advanced)\s+because:.*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 
 def _strip_label_lines(text: str) -> str:
-    """删除分析文本中的所有 ``ROAD_STRUCTURE:`` / ``SCENE:`` / ``STATUS:`` / ``SUBGOAL:`` 行。"""
+    """删除分析文本中的 label 行和 orphaned opener 行。"""
 
     if not text:
         return ""
-    return _LABEL_LINE_RE.sub("", text).strip()
+    cleaned = _ORPHANED_OPENER_LINE_RE.sub("", text)
+    return _LABEL_LINE_RE.sub("", cleaned).strip()
 
 
 _PROMPT_MARKER_LINE_RE = re.compile(
