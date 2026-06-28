@@ -986,7 +986,9 @@ def parse_args() -> argparse.Namespace:
         default=",".join(DEFAULT_INSPECT_MODE_ORDER),
         help="逗号分隔的 memory 模式列表；默认常规 4 种，scene_change_cross_rs 需显式指定",
     )
-    p.add_argument("--seed", type=int, default=20260624)
+    p.add_argument("--seed", type=int, default=20260624, help="基础随机种子；--num-shards>1 时每 shard 加 shard_id")
+    p.add_argument("--shard-id", type=int, default=0, help="多卡分片并行时的分片编号 (0-based)")
+    p.add_argument("--num-shards", type=int, default=1, help="总分片数；大于 1 时每 shard 写独立报告文件")
     p.add_argument("--device", type=str, default="auto", help="cuda:0 / cpu / auto；auto 时由 _maybe_set_idle_gpu_mask 选址")
     p.add_argument(
         "--student-output",
@@ -1032,9 +1034,13 @@ def main() -> None:
     """
 
     args = parse_args()
+    shard_id = max(0, int(args.shard_id))
+    num_shards = max(1, int(args.num_shards))
+    if num_shards > 1:
+        print(f"[inspect] shard {shard_id}/{num_shards}", flush=True)
     _assert_prompt_contracts()
     _load_runtime_dependencies(args.device)
-    rng = random.Random(args.seed)
+    rng = random.Random(args.seed + shard_id * 31337)
 
     print(f"[inspect] loading episodes from {args.train_jsonl}", flush=True)
     ds = EpisodeDataset(pathlib.Path(args.train_jsonl))
@@ -1131,8 +1137,12 @@ def main() -> None:
         return
 
     out_dir = pathlib.Path(args.out_dir)
-    md_path = out_dir / "teacher_report.md"
-    jsonl_path = out_dir / "teacher_report.jsonl"
+    if num_shards > 1:
+        md_path = out_dir / f"teacher_report_shard_{shard_id}.md"
+        jsonl_path = out_dir / f"teacher_report_shard_{shard_id}.jsonl"
+    else:
+        md_path = out_dir / "teacher_report.md"
+        jsonl_path = out_dir / "teacher_report.jsonl"
     _write_markdown(report_rows, md_path)
     _write_jsonl(report_rows, jsonl_path)
     print(f"[inspect] wrote {md_path}", flush=True)
