@@ -99,6 +99,9 @@ from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     initial_event,
     should_trigger_step2,
     should_trigger_step3,
+    step1_teacher_verdict,
+    step2_teacher_verdict,
+    step3_teacher_verdict,
     update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
@@ -214,24 +217,36 @@ def _assert_prompt_contracts() -> None:
     step1_student = build_step1_user_prompt(4, mem)
     if "[STEP1_ROAD_MEMORY]" not in step1_student:
         raise AssertionError("step1 student prompt must include STEP1_ROAD_MEMORY")
-    common_contract_markers = (
-        "Update structured driving memory using visible evidence and memory continuity",
-        "change or advance a label only when clear visible evidence supports the update",
-        "keep the believed label and state that it is not contradicted rather than directly confirmed",
-        "Do not fabricate visual cues to justify a label",
+    common_system_markers = (
+        "You are an autonomous driving agent",
+        "Use the 4 stitched RGB frames as visual context",
+        "Keep the believed label by default",
+        "change or advance it only when clear visible evidence supports it",
+        "not contradicted",
+        "Do not infer hidden braking, merging, yielding, lane change, turn, stop, cut-in, or active flow",
+        "a single lead vehicle alone never proves merging, braking, cut-in, or active flow",
+        "Scene Description:",
+        "Critical Object Description:",
+        "Reasoning on Intent:",
+        "Memory Judgment:",
+        'must start with exactly one of "Kept because" / "Corrected because" / "Advanced because"',
+        "(student steps only) the label line(s) named by the step",
+        "Teacher-analysis steps write no label lines",
+        "keep the four analysis lines together within 60-120 words",
     )
-    for marker in common_contract_markers:
-        if marker not in step1_prompt or marker not in step1_student:
-            raise AssertionError(f"step1 prompts must include the current common evidence contract: {marker}")
-    if "The verdict controls memory update only" not in step1_prompt:
-        raise AssertionError("step1 KEEP teacher prompt must clarify that KEEP is not strong confirmation")
-    if "A lead vehicle alone does not prove HIGHWAY_MERGE" not in step1_student:
+    for marker in common_system_markers:
+        if marker not in SYSTEM_PROMPT_V4:
+            raise AssertionError(f"SYSTEM_PROMPT_V4 must encode the shared contract: {marker}")
+    if "Then write the label line(s)" in SYSTEM_PROMPT_V4:
+        raise AssertionError("SYSTEM_PROMPT_V4 must leave label-writing to step-specific prompts")
+    if "VERDICT:" not in step1_prompt or 'Memory Judgment line MUST start with' not in step1_prompt:
+        raise AssertionError("step1 teacher prompt must include the VERDICT + opener directive")
+    if "Your reasoning must be consistent with this verdict" not in step1_prompt:
+        raise AssertionError("step1 teacher prompt must enforce verdict-consistent reasoning")
+    if "a single lead vehicle alone never proves HIGHWAY_MERGE" not in step1_student:
         raise AssertionError("step1 student prompt must reject lead vehicles as standalone merge evidence")
-    if "Keep the analysis 60-120 words" not in step1_student:
-        raise AssertionError("step1 student prompt must request a bounded but non-tiny analysis")
-    for heading in ("Relevant Visible Cues:", "Evidence Assessment:"):
-        if heading not in step1_student:
-            raise AssertionError(f"step1 student prompt missing shared heading: {heading}")
+    if "a single lead vehicle alone never proves HIGHWAY_MERGE" not in step1_prompt:
+        raise AssertionError("step1 teacher prompt must reject lead vehicles as standalone merge evidence")
     forbidden_step1_fields = ("BELIEVED_SCENE", "BELIEVED_STATUS", "BELIEVED_SUBGOAL", "ANSWER_")
     if any(token in step1_student for token in forbidden_step1_fields):
         raise AssertionError("step1 student prompt must be road-only and must not contain private answer fields")
@@ -243,8 +258,8 @@ def _assert_prompt_contracts() -> None:
         forbidden_private = ("ANSWER_", "GROUND_TRUTH_", "REFERENCE_")
         if any(token in student_prompt for token in forbidden_private):
             raise AssertionError("student-facing prompts must not contain teacher-private answer fields")
-        if "Then write the label line(s) yourself" not in student_prompt:
-            raise AssertionError("student-facing prompts must include the student label-writing contract")
+        if "\nLabel: " not in student_prompt:
+            raise AssertionError("student-facing prompts must include a Label: line for the step")
     expected_student_labels = {
         "step1": (step1_student, ("ROAD_STRUCTURE: <name>",)),
         "step2": (step2_student, ("SCENE: <scenario_name>",)),
@@ -261,7 +276,7 @@ def _assert_prompt_contracts() -> None:
     ):
         if "Then write the label line(s) yourself" in teacher_prompt:
             raise AssertionError(f"{teacher_name} teacher prompt must not ask the teacher to write labels")
-        if "Do not write any label lines" not in teacher_prompt:
+        if "do not write any label lines" not in teacher_prompt:
             raise AssertionError(f"{teacher_name} teacher prompt must explicitly forbid teacher label lines")
         forbidden_label_placeholders = (
             "ROAD_STRUCTURE: <name>",
@@ -565,9 +580,24 @@ def _run_teacher_for_frame(
         if teacher_was_training:
             teacher_model.train()
 
-    target1 = build_step1_teacher_target(raw_step1, gt_road_structure)
-    target2 = build_step2_teacher_target(raw_step2, ep.gt_scene) if step2_fired else ""
-    target3 = build_step3_teacher_target(raw_step3, gt_status, gt_subgoal) if step3_fired else ""
+    step1_verdict = step1_teacher_verdict(memory, gt_road_structure)
+    step2_verdict = step2_teacher_verdict(step1_after_target, ep.gt_scene) if step2_fired else "SKIPPED"
+    step3_verdict = (
+        step3_teacher_verdict(step2_after_target, ep.gt_scene, gt_status, gt_subgoal)
+        if step3_fired
+        else "SKIPPED"
+    )
+    target1 = build_step1_teacher_target(raw_step1, gt_road_structure, verdict=step1_verdict)
+    target2 = (
+        build_step2_teacher_target(raw_step2, ep.gt_scene, verdict=step2_verdict)
+        if step2_fired
+        else ""
+    )
+    target3 = (
+        build_step3_teacher_target(raw_step3, gt_status, gt_subgoal, verdict=step3_verdict)
+        if step3_fired
+        else ""
+    )
 
     step1_student_prompt = build_step1_user_prompt(len(images), memory)
     step2_student_prompt = build_step2_student_prompt(step1_after_target) if step2_fired else ""
@@ -618,12 +648,9 @@ def _run_teacher_for_frame(
             if student_was_training:
                 teacher_model.train()
 
-    verdict_step1 = "KEEP" if memory.road_structure == gt_road_structure else "CHANGE"
-    verdict_step2 = "SKIPPED" if not step2_fired else ("KEEP" if memory.scene == ep.gt_scene else "CHANGE")
-    if step3_fired:
-        verdict_step3 = "KEEP" if (memory.status == gt_status and memory.subgoal == gt_subgoal) else "CHANGE"
-    else:
-        verdict_step3 = "SKIPPED"
+    verdict_step1 = step1_verdict
+    verdict_step2 = step2_verdict
+    verdict_step3 = step3_verdict
 
     return {
         "run_id": ep.run_id,
@@ -800,7 +827,7 @@ def _write_markdown(report_rows: List[Dict[str, Any]], out_path: pathlib.Path) -
         "Shared evidence rule: keep believed memory by default, change only when clear "
         "visible evidence contradicts it, and describe weak evidence as not contradicted rather "
         "than directly confirmed. The public target uses four lines: Scene Description, "
-        "Relevant Visible Cues, Evidence Assessment, and Memory Judgment. A single distant "
+        "Critical Object Description, Reasoning on Intent, and Memory Judgment. A single distant "
         "lead vehicle alone is not enough to prove merging, cut-in, braking, or active flow.\n"
     )
     lines.append(

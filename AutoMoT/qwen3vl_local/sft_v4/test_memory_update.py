@@ -179,34 +179,36 @@ def _check_student_prompt_contracts() -> None:
     step1_teacher = build_step1_teacher_prompt(memory, memory.road_structure)
     shared_headings = (
         "Scene Description:",
-        "Relevant Visible Cues:",
-        "Evidence Assessment:",
+        "Critical Object Description:",
+        "Reasoning on Intent:",
         "Memory Judgment:",
     )
+    # 4 行分析格式 + evidence policy 已下沉 SYSTEM_PROMPT_V4；step 块只留
+    # Task / Constraint / Label 三段，不再重复 heading 与 "先分析再写 label"。
     assert "[STEP1_ROAD_MEMORY]" in step1
     assert "BELIEVED_ROAD_STRUCTURE" in step1
     assert "EGO_TO_GOAL_XY" in step1
-    assert all(h in step1 for h in shared_headings)
-    assert "ROAD_STRUCTURE: <name>" in step1
-    assert "Then write the label line(s) yourself" in step1
-    assert "[STEP1_TASK]" in step1
-    assert "change or advance a label only when clear visible evidence supports the update" in step1
-    assert "not contradicted" in step1
-    assert "A lead vehicle alone does not prove HIGHWAY_MERGE" in step1
-    assert "Keep the analysis 60-120 words" in step1
-    assert "Final label line" not in step1
+    assert "[STEP1]" in step1
+    assert "Task: Decide ROAD_STRUCTURE from ROAD_STRUCTURE_CHOICES." in step1
+    assert "Constraint:" in step1
+    assert "\nLabel: ROAD_STRUCTURE: <name>" in step1
+    assert "a single lead vehicle alone never proves HIGHWAY_MERGE" in step1
+    assert "Then write the label line(s) yourself" not in step1
+    assert "Relevant Visible Cues" not in step1
+    assert "Evidence Assessment" not in step1
     assert "BELIEVED_SCENE" not in step1
     assert "BELIEVED_STATUS" not in step1
     assert "BELIEVED_SUBGOAL" not in step1
     assert "ANSWER_" not in step1
     assert "GROUND_TRUTH_" not in step1
     assert "REFERENCE_" not in step1
-    assert all(h in step1_teacher for h in shared_headings)
+    assert "[STEP1_TEACHER]" in step1_teacher
+    assert "VERDICT:" in step1_teacher
+    assert "Your reasoning must be consistent with this verdict" in step1_teacher
+    assert 'Memory Judgment line MUST start with' in step1_teacher
+    assert "do not write any label lines" in step1_teacher
+    assert "a single lead vehicle alone never proves HIGHWAY_MERGE" in step1_teacher
     assert "ROAD_STRUCTURE: <name>" not in step1_teacher
-    assert "Do not write any label lines" in step1_teacher
-    assert "The verdict controls memory update only" in step1_teacher
-    assert "not contradicted" in step1_teacher
-    assert "correction is weakly grounded" in step1_teacher
     assert "Then write the label line(s) yourself" not in step1_teacher
 
     step2 = build_step2_student_prompt(memory)
@@ -215,17 +217,18 @@ def _check_student_prompt_contracts() -> None:
     assert "BELIEVED_SCENE" in step2
     assert "BELIEVED_STATUS" in step2
     assert "BELIEVED_SUBGOAL" in step2
-    assert all(h in step2 for h in shared_headings)
-    assert "SCENE: <scenario_name>" in step2
-    assert "Then write the label line(s) yourself" in step2
+    assert "[STEP2]" in step2
+    assert "Task: Decide SCENE from SCENE_CHOICES." in step2
+    assert "\nLabel: SCENE: <scenario_name>" in step2
     assert "ANSWER_" not in step2
     assert "GROUND_TRUTH_" not in step2
     assert "REFERENCE_" not in step2
-    assert all(h in step2_teacher for h in shared_headings)
-    assert "SCENE: <scenario_name>" not in step2_teacher
-    assert "Do not write any label lines" in step2_teacher
-    assert "Then write the label line(s) yourself" not in step2_teacher
+    assert "[STEP2_TEACHER]" in step2_teacher
+    assert "VERDICT:" in step2_teacher
+    assert "do not write any label lines" in step2_teacher
     assert "stationary or slow-moving" in step2_teacher
+    assert "SCENE: <scenario_name>" not in step2_teacher
+    assert "Then write the label line(s) yourself" not in step2_teacher
 
     step3 = build_step3_student_prompt(memory)
     step3_teacher = build_step3_teacher_prompt(
@@ -240,19 +243,19 @@ def _check_student_prompt_contracts() -> None:
     assert "BELIEVED_STATUS" in step3
     assert "BELIEVED_SUBGOAL" in step3
     assert "[EVENT_OPTIONS]" in step3
-    assert all(h in step3 for h in shared_headings)
-    assert "STATUS: <event_name>" in step3
-    assert "SUBGOAL: <event_name>" in step3
-    assert "Then write the label line(s) yourself" in step3
+    assert "[STEP3]" in step3
+    assert "Task: Decide STATUS and SUBGOAL from EVENT_OPTIONS." in step3
+    assert "\nLabel: STATUS: <event_name>" in step3
     assert "ANSWER_" not in step3
     assert "GROUND_TRUTH_" not in step3
     assert "REFERENCE_" not in step3
-    assert all(h in step3_teacher for h in shared_headings)
+    assert "[STEP3_TEACHER]" in step3_teacher
+    assert "VERDICT:" in step3_teacher
+    assert "do not write any label lines" in step3_teacher
+    assert "retained next objective" in step3_teacher
     assert "STATUS: <event_name>" not in step3_teacher
     assert "SUBGOAL: <event_name>" not in step3_teacher
-    assert "Do not write any label lines" in step3_teacher
     assert "Then write the label line(s) yourself" not in step3_teacher
-    assert "retained next objective" in step3_teacher
 
 
 def _check_delta_formula_allows_zero() -> None:

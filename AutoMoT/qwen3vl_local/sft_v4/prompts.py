@@ -51,10 +51,16 @@ DEFAULT_P_INIT_CORRECT = 0.7
 DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB = 0.15
 
 SYSTEM_PROMPT_V4 = """\
-You are an autonomous driving scene-memory update agent.
-Use the 4 stitched RGB frames as visual context. The frames are ordered from oldest to newest,
-and the newest frame is the current frame. Each stitched frame contains left, front, and right views.
-Your task is to update structured driving memory using visible evidence and memory continuity."""
+You are an autonomous driving agent. Use the 4 stitched RGB frames as visual context: oldest to newest, left/front/right views. Focus on traffic lights and signs, nearby vehicles, pedestrians, obstacles, lane markings, road structure, and the key factors affecting ego's decision.
+
+At each step you update one slot of driving memory: ROAD_STRUCTURE (step1), SCENE (step2), or STATUS/SUBGOAL (step3). Keep the believed label by default; change or advance it only when clear visible evidence supports it. Treat weak, distant, foggy, or occluded cues as "not contradicted" rather than "confirmed". Do not infer hidden braking, merging, yielding, lane change, turn, stop, cut-in, or active flow unless visible across frames; a single lead vehicle alone never proves merging, braking, cut-in, or active flow. Never mention answers, ground truth, reference labels, or teacher fields.
+
+Output, in order: the four analysis lines, then (student steps only) the label line(s) named by the step. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; keep the four analysis lines together within 60-120 words, each one concise sentence:
+Scene Description: overall scene and road context.
+Critical Object Description: the lights/signs/vehicles/VRUs/obstacles/lane cues that matter most for this step.
+Reasoning on Intent: how those objects and ego's situation justify keeping, correcting, or advancing the label.
+Memory Judgment: must start with exactly one of "Kept because" / "Corrected because" / "Advanced because", matching the label you emit.
+Use the "believed" voice; use "corrected" only when the believed label actually changes. Teacher-analysis steps write no label lines."""
 
 
 # ---------------------------------------------------------------------------
@@ -738,122 +744,211 @@ def _event_sequence_block(scene: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 1：纯视觉描述 + ROAD_STRUCTURE 选择
+# Prompt protocol layer (system contract is fully paid in SYSTEM_PROMPT_V4)
 # ---------------------------------------------------------------------------
+#
+# 设计要点：
+# - SYSTEM_PROMPT_V4 已经承担「身份 + 视觉输入 + 4 帧结构 + evidence policy +
+#   4 行 analysis 格式（Scene Description / Critical Object Description /
+#   Reasoning on Intent / Memory Judgment）+ opener 三选一 + 60-120 词 + 学生
+#   believed 口径」全部通用契约。user message 不再重复这些段落，只保留 step
+#   级的 Task / Constraint 一两句和 label / verdict 收尾。
+# - Memory Judgment 行的 opener 与 verdict 必须严格一致：KEEP→"Kept because"，
+#   CHANGE→"Corrected because"，ADVANCE→"Advanced because"。教师 raw 输出会
+#   经 `_enforce_memory_judgment_opener` 再次校正，避免训练时出现 "Kept because
+#   …" 但 label 已变成另一个 scene 的 token-level 矛盾。
+
+_VERDICT_OPENERS: Dict[str, str] = {
+    "KEEP": "Kept because",
+    "CHANGE": "Corrected because",
+    "ADVANCE": "Advanced because",
+}
 
 
-_COMMON_MEMORY_UPDATE_RULES = (
-    "You are an autonomous driving scene-memory update agent. Use the 4 stitched RGB frames as visual context; frames are ordered from oldest to newest, and the newest frame is the current frame. Each stitched frame contains left, front, and right views.\n"
-    "Update structured driving memory using visible evidence and memory continuity. Keep the believed memory by default, and change or advance a label only when clear visible evidence supports the update. If visibility is weak, distant, foggy, occluded, or ambiguous, keep the believed label and state that it is not contradicted rather than directly confirmed.\n"
-    "Do not fabricate visual cues to justify a label. Do not infer hidden braking, merging, yielding, lane-changing, turning, stopping, cut-in, or active flow unless clearly visible across the frames. A single distant lead vehicle alone is not enough to prove merging, braking, cut-in, or active traffic flow. Do not mention answer, ground truth, reference labels, private fields, teacher decisions, or reference annotations."
+def _memory_judgment_opener_for(verdict: str) -> str:
+    """Return the canonical Memory Judgment opener for a teacher verdict.
+
+    未知 verdict 默认按 KEEP 处理，保持向后兼容；正常路径 caller 会传
+    "KEEP" / "CHANGE" / "ADVANCE" 三者之一。
+    """
+
+    key = (verdict or "").strip().upper()
+    return _VERDICT_OPENERS.get(key, _VERDICT_OPENERS["KEEP"])
+
+
+def step1_teacher_verdict(memory: Memory, gt_road_structure: str) -> str:
+    """Return the scripted teacher verdict for ROAD_STRUCTURE supervision."""
+
+    return "KEEP" if memory.road_structure == gt_road_structure else "CHANGE"
+
+
+def step2_teacher_verdict(memory: Memory, gt_scene: str) -> str:
+    """Return the scripted teacher verdict for SCENE supervision."""
+
+    gt_scene = str(canonicalize_scene(gt_scene))
+    return "KEEP" if memory.scene == gt_scene else "CHANGE"
+
+
+def step3_teacher_verdict(memory: Memory, gt_scene: str, gt_status: str, gt_subgoal: str) -> str:
+    """Return KEEP / ADVANCE / CHANGE for STATUS+SUBGOAL supervision.
+
+    ``ADVANCE`` is reserved for normal forward progress inside the scene event
+    sequence. ``CHANGE`` is used for off-sequence or backward corrections.
+    """
+
+    if memory.status == gt_status and memory.subgoal == gt_subgoal:
+        return "KEEP"
+    seq = list(get_full_sequence(str(canonicalize_scene(gt_scene))))
+    try:
+        mem_status_i = seq.index(memory.status)
+        mem_subgoal_i = seq.index(memory.subgoal)
+        gt_status_i = seq.index(gt_status)
+        gt_subgoal_i = seq.index(gt_subgoal)
+    except ValueError:
+        return "CHANGE"
+    moves = (gt_status_i - mem_status_i, gt_subgoal_i - mem_subgoal_i)
+    if all(delta >= 0 for delta in moves) and any(delta > 0 for delta in moves):
+        return "ADVANCE"
+    return "CHANGE"
+
+
+_MEMORY_JUDGMENT_LINE_RE = re.compile(
+    r"^(?P<prefix>\s*Memory\s+Judgment\s*:\s*)(?P<body>.*)$",
+    re.IGNORECASE,
+)
+_OPENER_PREFIX_RE = re.compile(
+    r"^(?:Kept|Corrected|Advanced)\s+because\b[\s,.:;\-]*",
+    re.IGNORECASE,
 )
 
 
-_ANALYSIS_FORMAT_RULES = (
-    "Write for the student perspective using 'believed' phrasing; use 'corrected' only if the believed label should change.\n"
-    "Write exactly four analysis lines, each one concise sentence:\n"
-    "Scene Description: ...\n"
-    "Relevant Visible Cues: ...\n"
-    "Evidence Assessment: ...\n"
-    "Memory Judgment: start with exactly one of 'Kept because' / 'Corrected because' / 'Advanced because'.\n"
-    "Keep the analysis 60-120 words.\n"
-    "Plain text only -- no markdown headings, bullets, numbered lists, JSON, or code blocks."
-)
+def _enforce_memory_judgment_opener(text: str, opener: str) -> str:
+    """Rewrite the Memory Judgment line so it begins with the expected opener.
+
+    教师 raw 文本偶尔会写 "Kept because …" 而后面追加的 label 实际改变了
+    （CHANGE verdict）。此 sanitizer 只调整 opener 词组，保留教师写的理由，
+    保证最终 supervised target 内 "opener 词 + label" token-level 自洽。
+
+    - 找到第一行 "Memory Judgment:" → 把开头三选一替换为期望 opener。
+    - 找不到则在末尾补一行最小 fallback，避免 4 行结构缺失。
+    """
+
+    if not text:
+        return f"Memory Judgment: {opener} the believed memory remains consistent with the visible evidence."
+    lines = text.splitlines()
+    for idx, raw in enumerate(lines):
+        m = _MEMORY_JUDGMENT_LINE_RE.match(raw)
+        if not m:
+            continue
+        body = _OPENER_PREFIX_RE.sub("", m.group("body").strip()).strip()
+        if body:
+            # 避免 "Kept because The vehicle …" 这种重复大写；把首字母下放为小写。
+            body = body[0].lower() + body[1:] if body[0].isalpha() else body
+            rewritten = f"{m.group('prefix')}{opener} {body}"
+        else:
+            rewritten = f"{m.group('prefix')}{opener} the believed memory remains consistent with the visible evidence."
+        if not rewritten.rstrip().endswith((".", "!", "?")):
+            rewritten = rewritten.rstrip() + "."
+        lines[idx] = rewritten
+        return "\n".join(lines)
+    # 没有 Memory Judgment 行：补一行（保持 4 行结构最低限度可用）。
+    appended = f"Memory Judgment: {opener} the believed memory remains consistent with the visible evidence."
+    return ("\n".join(lines) + "\n" + appended).strip()
 
 
-def _analysis_response_contract() -> str:
-    """Shared analysis contract used by both student and teacher prompts."""
+# Per-step spec: (task, focus, slot_phrase, options_name)。
+# 学生 / 教师 step 块共用同一 Task / Constraint 骨架，step2/3 同模板只差槽位；
+# 4 行分析格式 + label 顺序 + evidence policy 已下沉 SYSTEM_PROMPT_V4，这里只留
+# step 级 Task / Constraint(focus + 通用兜底句) / Label，避免 prompt 比分析还长。
+_STEP_SPEC: Dict[str, Tuple[str, str, str, str]] = {
+    "STEP1": (
+        "Decide ROAD_STRUCTURE from ROAD_STRUCTURE_CHOICES.",
+        "Judge by visible road layout only; a single lead vehicle alone never proves HIGHWAY_MERGE",
+        "ROAD_STRUCTURE",
+        "ROAD_STRUCTURE_CHOICES",
+    ),
+    "STEP2": (
+        "Decide SCENE from SCENE_CHOICES.",
+        "Rely on visible interaction cues; do not infer a distant vehicle is stationary or slow-moving without motion evidence",
+        "SCENE",
+        "SCENE_CHOICES",
+    ),
+    "STEP3": (
+        "Decide STATUS and SUBGOAL from EVENT_OPTIONS.",
+        "Advance STATUS only on a visible phase change; SUBGOAL may lead STATUS, and when STATUS is kept but SUBGOAL is ahead, describe SUBGOAL as the retained next objective",
+        "STATUS/SUBGOAL",
+        "EVENT_OPTIONS",
+    ),
+}
 
-    return f"{_COMMON_MEMORY_UPDATE_RULES}\n{_ANALYSIS_FORMAT_RULES}"
+# VERDICT → 推理方向动词。强制教师分析正文与脚本 verdict 同向，避免
+# "正文替旧 label 说话、opener 却被改成 Corrected" 这类轻微矛盾。
+_VERDICT_VERB: Dict[str, str] = {
+    "KEEP": "keep",
+    "ADVANCE": "advance",
+    "CHANGE": "replace",
+}
 
 
-def _student_output_instructions(label_instruction: str) -> str:
-    """Instructions shown to the student policy."""
+def _step_constraint_sentence(step_tag: str) -> str:
+    """Render the shared Constraint line: step-specific focus + 通用兜底句。"""
 
+    _, focus, slot, options = _STEP_SPEC[step_tag]
     return (
-        f"{_analysis_response_contract()}\n"
-        f"Then write the label line(s) yourself:\n{label_instruction}\n"
-        "Put every label on its own separate line; do not put a label on the same line as an analysis sentence."
+        f"{focus}. Keep the believed {slot} if no listed option is clearly supported, "
+        f"and never emit an option outside {options}."
     )
 
 
-def _teacher_structured_analysis_instructions() -> str:
-    """Teacher-side response contract; labels are appended by code."""
+def _render_student_block(*, step_tag: str, label_instruction: str) -> str:
+    """Compose the student turn body for one step: Task / Constraint / Label.
 
+    4 行分析格式与 "先分析再写 label" 的顺序由 SYSTEM_PROMPT_V4 兜底，
+    step 块不再重复，只声明本 step 决定哪个槽位、约束焦点、要写的 label。
+    """
+
+    task, _, _, _ = _STEP_SPEC[step_tag]
     return (
-        f"{_analysis_response_contract()}\n"
-        "Do not write any label lines. The script will append the supervised labels."
+        f"[{step_tag}]\n"
+        f"Task: {task}\n"
+        f"Constraint: {_step_constraint_sentence(step_tag)}\n"
+        f"Label: {label_instruction}"
     )
 
 
-_STEP1_TASK_RULES = (
-    "[STEP1_TASK]\n"
-    "Update ROAD_STRUCTURE only.\n"
-    "Focus on visible road-layout cues: lane geometry, merge lanes, ramps, exits, junctions, crosswalks, parking layout, blocked lanes, construction, roadside obstacles, and crossing actors.\n"
-    "Do not use vehicle intent alone to decide road structure.\n"
-    "A lead vehicle alone does not prove HIGHWAY_MERGE.\n"
-    "If the believed road structure is not visually confirmed but no other road-structure category is clearly visible, keep it as not contradicted.\n"
-    "[/STEP1_TASK]"
-)
+def _render_teacher_block(*, step_tag: str, verdict: str, gt_hint: str) -> str:
+    """Compose the privileged teacher turn body for one step.
 
-_STEP2_TASK_RULES = (
-    "[STEP2_TASK]\n"
-    "Update SCENE only within the current road-structure bucket.\n"
-    "Focus on visible interaction-pattern cues: merging flow, exit behavior, cut-in vehicle, slow traffic, static cut-in, active actor flow, or lack of such evidence.\n"
-    "Because scene labels can be fine-grained, do not force direct visual confirmation when evidence is weak.\n"
-    "Keep the believed scene if it is not contradicted by visible cues.\n"
-    "Correct the scene only when another listed scene is clearly supported by visible interaction cues.\n"
-    "Do not claim active merging, cut-in, braking, or lane adjustment unless it is clearly visible across the frames.\n"
-    "Do not describe a distant vehicle as stationary or slow-moving unless motion evidence is clear; describe visible interaction cues instead.\n"
-    "[/STEP2_TASK]"
-)
+    与学生同骨架（同 Task / Constraint），仅多 verdict / 推理方向一致性指令 /
+    opener 强制 / GT-aware hint，并显式禁止写 label 行——脚本会在 teacher
+    target 末尾追加结构化 label。
+    """
 
-_STEP3_TASK_RULES = (
-    "[STEP3_TASK]\n"
-    "Update STATUS and SUBGOAL only.\n"
-    "STATUS describes the current observed phase.\n"
-    "SUBGOAL describes the next immediate objective or intended phase.\n"
-    "Do not advance STATUS unless the current visual evidence clearly shows that the phase has already changed.\n"
-    "SUBGOAL may be ahead of STATUS when the ego is preparing for the next phase.\n"
-    "Use the event sequence to avoid impossible jumps.\n"
-    "If there is no clear evidence of phase transition, keep STATUS and SUBGOAL.\n"
-    "If the ego is still approaching the challenge zone, keep STATUS as initial even if the next objective is flow_approach.\n"
-    "When STATUS is kept but SUBGOAL is ahead, describe SUBGOAL as the retained next objective, not as an unsupported STATUS advance.\n"
-    "Do not output any event name outside EVENT_OPTIONS.\n"
-    "[/STEP3_TASK]"
-)
-
-
-def _step1_student_output_instructions() -> str:
-    """Road-structure-specific public contract for student prompts."""
-
+    task, _, slot, _ = _STEP_SPEC[step_tag]
+    opener = _memory_judgment_opener_for(verdict)
+    verb = _VERDICT_VERB.get((verdict or "").strip().upper(), "keep")
     return (
-        f"{_STEP1_TASK_RULES}\n"
-        + _student_output_instructions("ROAD_STRUCTURE: <name>")
-    )
-
-
-def _step1_teacher_output_instructions() -> str:
-    """Road-structure-specific teacher contract; labels are appended by code."""
-
-    return (
-        "The target label is provided for supervision, but you must not invent visual evidence for it.\n"
-        "For CHANGE verdicts, state the clearest visible contradictory road-layout cue; if the cue is weak, say the correction is weakly grounded.\n"
-        f"{_STEP1_TASK_RULES}\n"
-        + _teacher_structured_analysis_instructions()
+        f"[{step_tag}_TEACHER]\n"
+        f"VERDICT: {verdict}\n"
+        f"Your reasoning must be consistent with this verdict: argue to {verb} the believed {slot}. "
+        f'The Memory Judgment line MUST start with "{opener}".\n'
+        f"{gt_hint}\n"
+        f"Task: {task}\n"
+        f"Constraint: {_step_constraint_sentence(step_tag)}\n"
+        "Write only the four analysis lines; do not write any label lines."
     )
 
 
 def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -> str:
-    """学生 step1 prompt（D26）。
+    """学生 step1 prompt（road-only memory + 6 桶 ROAD_STRUCTURE 选择）。
 
     新口径（生产路径，``memory`` 必传）：
       - 只读 layer-1 road-only memory，不提前暴露 scene/status/subgoal；
-      - 四行共享 analysis contract：scene / cues / evidence / memory judgment；
-      - road-structure 只看道路布局证据，弱证据默认 not contradicted；
+      - user 仅包含 memory + ROAD_STRUCTURE_CHOICES + [STEP1] task/constraint
+        + label 行；通用 evidence policy / 4 行格式由 SYSTEM_PROMPT_V4 兜底；
       - 一行 ``ROAD_STRUCTURE: <name>``。
 
-    兼容兜底：``memory=None`` 时退回 v3 形态（仅视觉描述、不读 memory、不出标签）。
+    兼容兜底：``memory=None`` 时退回最小形态（仅视觉描述、不读 memory、不出标签），
     仅供 test_kv_reuse 等单元入口使用，生产路径必须传 memory。
     """
 
@@ -865,47 +960,52 @@ def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -
     return (
         f"{memory.format_step1_student_text()}\n\n"
         f"{road_structure_choices_block()}\n\n"
-        f"[STEP1]\n"
-        f"{image_count} images are ordered oldest to newest; the last image is now.\n"
-        + _step1_student_output_instructions()
+        f"({image_count} stitched frames are ordered oldest to newest; the last frame is now.)\n\n"
+        f"{_render_student_block(step_tag='STEP1', label_instruction='ROAD_STRUCTURE: <name>')}"
     )
 
 
 def build_step1_teacher_prompt(memory: Memory, gt_road_structure: str) -> str:
     """老师 step1 prompt：road-only KEEP/CHANGE analysis for layer-1."""
 
-    verdict = "KEEP" if memory.road_structure == gt_road_structure else "CHANGE"
+    verdict = step1_teacher_verdict(memory, gt_road_structure)
     gt_rs_desc = ROAD_STRUCTURE_LABELS.get(gt_road_structure, gt_road_structure)
 
     if verdict == "KEEP":
-        verdict_line = (
-            "VERDICT: KEEP -- keep the believed road structure unless clear visual cues contradict it."
-        )
-        focus_line = (
-            "The verdict controls memory update only; explain whether the believed road structure is directly supported or merely not contradicted."
+        gt_hint = (
+            "Explain whether the believed road structure is directly supported or merely "
+            "not contradicted; do not invent unseen cues for the label."
         )
     else:
-        verdict_line = "VERDICT: CHANGE -- the believed road structure is wrong."
-        focus_line = (
-            f"Explain the visible contradictory road-layout cue, then guide toward {gt_road_structure}: {gt_rs_desc} without inventing unseen cues."
+        gt_hint = (
+            f"Name the visible contradictory road-layout cue, then guide toward "
+            f"{gt_road_structure}: {gt_rs_desc} without inventing unseen cues."
         )
 
     return (
         f"{memory.format_step1_road_text(gt_road_structure)}\n\n"
         f"{road_structure_choices_block()}\n\n"
-        "[STEP1_TEACHER]\n"
-        f"{verdict_line}\n"
-        f"{focus_line}\n"
-        f"{_step1_teacher_output_instructions()}"
+        f"{_render_teacher_block(step_tag='STEP1', verdict=verdict, gt_hint=gt_hint)}"
     )
 
 
-def build_step1_teacher_target(analysis: str, gt_road_structure: str) -> str:
-    """Build the supervised step1 target from teacher analysis plus the GT label."""
+def build_step1_teacher_target(
+    analysis: str,
+    gt_road_structure: str,
+    *,
+    verdict: str = "KEEP",
+) -> str:
+    """Build the supervised step1 target from teacher analysis plus the GT label.
 
+    ``verdict`` 控制 Memory Judgment 行 opener 与监督 label 的一致性。caller 应
+    显式传 "KEEP" 或 "CHANGE"；省略时按 KEEP 兜底（向后兼容旧测试桩）。
+    """
+
+    opener = _memory_judgment_opener_for(verdict)
     cleaned = _clean_teacher_analysis(analysis)
     if not cleaned:
-        cleaned = _fallback_teacher_analysis("road_structure")
+        cleaned = _fallback_teacher_analysis("road_structure", verdict=verdict)
+    cleaned = _enforce_memory_judgment_opener(cleaned, opener)
     return f"{cleaned}\nROAD_STRUCTURE: {gt_road_structure}".strip()
 
 
@@ -915,17 +1015,12 @@ def build_step1_teacher_target(analysis: str, gt_road_structure: str) -> str:
 
 
 def build_step2_student_prompt(memory: Memory) -> str:
-    """学生 step2 prompt。
-
-    SCENE_CHOICES 收窄到 ``memory.road_structure`` 这一桶（D21 + D24）。
-    """
+    """学生 step2 prompt（SCENE_CHOICES 收窄到 ``memory.road_structure`` 桶）。"""
 
     return (
         f"{memory.format_text()}\n\n"
         f"{scene_choices_block_for(memory.road_structure)}\n\n"
-        "[STEP2]\n"
-        f"{_STEP2_TASK_RULES}\n"
-        + _student_output_instructions("SCENE: <scenario_name>")
+        f"{_render_student_block(step_tag='STEP2', label_instruction='SCENE: <scenario_name>')}"
     )
 
 
@@ -933,42 +1028,41 @@ def build_step2_teacher_prompt(memory: Memory, gt_road_structure: str, gt_scene:
     """老师 step2 prompt：independent KEEP/CHANGE scene analysis."""
 
     gt_scene = str(canonicalize_scene(gt_scene))
-    verdict = "KEEP" if memory.scene == gt_scene else "CHANGE"
+    verdict = step2_teacher_verdict(memory, gt_scene)
     gt_scene_desc = CANONICAL_SCENARIO_LABELS.get(gt_scene, gt_scene)
 
     if verdict == "KEEP":
-        verdict_line = (
-            "VERDICT: KEEP -- keep the believed scene unless clear visible interaction cues contradict it."
+        gt_hint = (
+            "Explain whether the believed scene is directly supported or merely not contradicted; "
+            "do not invent unseen cues for the label."
         )
-        focus_line = (
-            "The target scene is provided for supervision, but you must not invent visual evidence for it; explain whether the believed scene is directly supported or merely not contradicted."
-        )
-        task_line = _teacher_structured_analysis_instructions()
     else:
-        verdict_line = "VERDICT: CHANGE -- the believed scene is wrong."
-        focus_line = (
-            f"Explain the visible interaction cue that contradicts the believed scene, then guide toward {gt_scene}: {gt_scene_desc} without inventing unseen cues."
+        gt_hint = (
+            f"Name the visible interaction cue that contradicts the believed scene, then guide "
+            f"toward {gt_scene}: {gt_scene_desc} without inventing unseen cues."
         )
-        task_line = _teacher_structured_analysis_instructions()
 
     return (
         f"{memory.format_step2_scene_text(gt_road_structure, gt_scene)}\n\n"
         f"{scene_choices_block_for(gt_road_structure, heading='ANSWER_ROAD_STRUCTURE')}\n\n"
-        "[STEP2_TEACHER]\n"
-        f"{verdict_line}\n"
-        f"{focus_line}\n"
-        f"{_STEP2_TASK_RULES}\n"
-        f"{task_line}"
+        f"{_render_teacher_block(step_tag='STEP2', verdict=verdict, gt_hint=gt_hint)}"
     )
 
 
-def build_step2_teacher_target(analysis: str, gt_scene: str) -> str:
+def build_step2_teacher_target(
+    analysis: str,
+    gt_scene: str,
+    *,
+    verdict: str = "KEEP",
+) -> str:
     """把 teacher step2 分析与 GT scene 拼成 student 的 teacher-forced target。"""
 
     gt_scene = str(canonicalize_scene(gt_scene))
+    opener = _memory_judgment_opener_for(verdict)
     cleaned = _clean_teacher_analysis(analysis)
     if not cleaned:
-        cleaned = _fallback_teacher_analysis("scene")
+        cleaned = _fallback_teacher_analysis("scene", verdict=verdict)
+    cleaned = _enforce_memory_judgment_opener(cleaned, opener)
     return f"{cleaned}\nSCENE: {gt_scene}".strip()
 
 
@@ -978,14 +1072,15 @@ def build_step2_teacher_target(analysis: str, gt_scene: str) -> str:
 
 
 def build_step3_student_prompt(memory: Memory) -> str:
-    """学生 step3 prompt（除 layout 不再用 60-token 表述外，与 v3/v4 旧版同义）。"""
+    """学生 step3 prompt：EVENT_OPTIONS 按 memory.scene 事件序列裁剪。"""
 
+    # label_instruction 含真实换行，必须先放普通字符串字面量再传入 f-string，
+    # 不能塞进 f-string 表达式（Python<3.12 禁止表达式内出现反斜杠）。
+    label_instruction = "STATUS: <event_name>\nSUBGOAL: <event_name>"
     return (
         f"{memory.format_text()}\n\n"
         f"[EVENT_OPTIONS]\n{_event_sequence_block(memory.scene)}\n[/EVENT_OPTIONS]\n\n"
-        "[STEP3]\n"
-        f"{_STEP3_TASK_RULES}\n"
-        + _student_output_instructions("STATUS: <event_name>\nSUBGOAL: <event_name>")
+        f"{_render_student_block(step_tag='STEP3', label_instruction=label_instruction)}"
     )
 
 
@@ -999,14 +1094,7 @@ def build_step3_teacher_prompt(
     """老师 step3 prompt：independent KEEP/CHANGE status/subgoal analysis."""
 
     gt_scene = str(canonicalize_scene(gt_scene))
-    status_keep = memory.status == gt_status
-    subgoal_keep = memory.subgoal == gt_subgoal
-    if status_keep and subgoal_keep:
-        verdict = "KEEP"
-        verdict_line = "VERDICT: KEEP -- believed status and subgoal are correct."
-    else:
-        verdict = "CHANGE"
-        verdict_line = "VERDICT: CHANGE -- believed status/subgoal should be corrected."
+    verdict = step3_teacher_verdict(memory, gt_scene, gt_status, gt_subgoal)
 
     memory_status_desc = EVENT_DESCRIPTIONS.get(memory.status, memory.status)
     memory_subgoal_desc = EVENT_DESCRIPTIONS.get(memory.subgoal, memory.subgoal)
@@ -1014,35 +1102,43 @@ def build_step3_teacher_prompt(
     gt_subgoal_desc = EVENT_DESCRIPTIONS.get(gt_subgoal, gt_subgoal)
 
     if verdict == "KEEP":
-        focus_line = (
-            f"Explain why current phase '{memory_status_desc}' and next objective '{memory_subgoal_desc}' can both be kept without advancing STATUS prematurely."
+        gt_hint = (
+            f"Explain why current phase '{memory_status_desc}' and next objective "
+            f"'{memory_subgoal_desc}' can both be kept without advancing STATUS prematurely."
         )
-        task_line = _teacher_structured_analysis_instructions()
+    elif verdict == "ADVANCE":
+        gt_hint = (
+            f"Explain the visible temporal-progress cue for advancing from current "
+            f"'{memory_status_desc}' / next '{memory_subgoal_desc}' toward current "
+            f"'{gt_status_desc}' / next '{gt_subgoal_desc}', without inventing hidden intent."
+        )
     else:
-        focus_line = (
-            f"Reject current '{memory_status_desc}' / next '{memory_subgoal_desc}', "
-            f"and guide toward current '{gt_status_desc}' / next '{gt_subgoal_desc}' using visible temporal-progress cues."
+        gt_hint = (
+            f"Reject current '{memory_status_desc}' / next '{memory_subgoal_desc}', and guide toward "
+            f"current '{gt_status_desc}' / next '{gt_subgoal_desc}' using visible temporal-progress cues."
         )
-        task_line = _teacher_structured_analysis_instructions()
 
     return (
         f"{memory.format_step3_event_text(gt_road_structure, gt_scene, gt_status, gt_subgoal)}\n\n"
         f"[EVENT_OPTIONS]\n{_event_sequence_block(gt_scene)}\n[/EVENT_OPTIONS]\n\n"
-        "[STEP3_TEACHER]\n"
-        f"{verdict_line}\n"
-        f"{focus_line}\n"
-        "The target status/subgoal are provided for supervision, but you must not invent visual evidence for them.\n"
-        f"{_STEP3_TASK_RULES}\n"
-        f"{task_line}"
+        f"{_render_teacher_block(step_tag='STEP3', verdict=verdict, gt_hint=gt_hint)}"
     )
 
 
-def build_step3_teacher_target(analysis: str, gt_status: str, gt_subgoal: str) -> str:
+def build_step3_teacher_target(
+    analysis: str,
+    gt_status: str,
+    gt_subgoal: str,
+    *,
+    verdict: str = "KEEP",
+) -> str:
     """把 teacher step3 分析与 GT status/subgoal 拼成监督 target。"""
 
+    opener = _memory_judgment_opener_for(verdict)
     cleaned = _clean_teacher_analysis(analysis)
     if not cleaned:
-        cleaned = _fallback_teacher_analysis("event")
+        cleaned = _fallback_teacher_analysis("event", verdict=verdict)
+    cleaned = _enforce_memory_judgment_opener(cleaned, opener)
     return f"{cleaned}\nSTATUS: {gt_status}\nSUBGOAL: {gt_subgoal}".strip()
 
 
@@ -1112,20 +1208,39 @@ def _clean_private_field_names(text: str) -> str:
     return cleaned
 
 
-def _fallback_teacher_analysis(kind: str) -> str:
-    """Build a minimal four-line fallback when teacher raw text is empty."""
+def _fallback_teacher_analysis(kind: str, *, verdict: str = "KEEP") -> str:
+    """Build a minimal four-line fallback when teacher raw text is empty.
 
-    memory_line = {
-        "road_structure": "Kept because no reliable teacher analysis was available to justify changing the believed road structure.",
-        "scene": "Kept because no reliable teacher analysis was available to justify changing the believed scene.",
-        "event": "Kept because no reliable teacher analysis was available to justify changing the believed status or subgoal.",
-    }.get(kind, "Kept because no reliable teacher analysis was available to justify changing the remembered state.")
+    新 4 行 heading：Scene Description / Critical Object Description /
+    Reasoning on Intent / Memory Judgment。``verdict`` 决定 Memory Judgment
+    opener，使后续脚本追加的 GT label 与 opener 自洽。
+    """
+
+    opener = _memory_judgment_opener_for(verdict)
+    if verdict.upper() == "CHANGE":
+        memory_line = {
+            "road_structure": "the believed road structure no longer matches the visible road-layout cues.",
+            "scene": "another listed scene is more consistent with the visible interaction cues.",
+            "event": "the visible temporal-progress cues no longer match the believed status or subgoal.",
+        }.get(kind, "the visible cues no longer match the believed memory state.")
+    elif verdict.upper() == "ADVANCE":
+        memory_line = {
+            "road_structure": "the road-layout cues now support moving to the listed road structure.",
+            "scene": "the visible interaction cues now support moving to the listed scene.",
+            "event": "the visible temporal-progress cues now support moving to the listed event.",
+        }.get(kind, "the visible cues now support advancing the memory state.")
+    else:
+        memory_line = {
+            "road_structure": "no reliable teacher analysis was available to justify changing the believed road structure.",
+            "scene": "no reliable teacher analysis was available to justify changing the believed scene.",
+            "event": "no reliable teacher analysis was available to justify changing the believed status or subgoal.",
+        }.get(kind, "no reliable teacher analysis was available to justify changing the remembered state.")
     return "\n".join(
         [
             "Scene Description: The latest frames show the current road layout and traffic context.",
-            "Relevant Visible Cues: No reliable specific cue is described by the teacher.",
-            "Evidence Assessment: The visual evidence is treated conservatively and does not justify inventing missing cues.",
-            f"Memory Judgment: {memory_line}",
+            "Critical Object Description: No reliable specific critical object can be confirmed from the available cues.",
+            "Reasoning on Intent: The ego decision is treated conservatively given the limited visible evidence.",
+            f"Memory Judgment: {opener} {memory_line}",
         ]
     )
 

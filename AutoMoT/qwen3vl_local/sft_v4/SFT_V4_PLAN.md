@@ -9,7 +9,18 @@
 
 ---
 
-## 0. v4 off-policy 总体方案
+## 0. Prompt 同步边界
+
+`qwen3vl_local/sft_v4/prompts.py` 是 v3/v4 共用的唯一 prompt、Memory、状态机和
+target-span 实现。`qwen3vl_local/sft_v3/prompts.py` 只 re-export 本文件并保留 v3
+历史兼容别名。以后只要修改 v4 prompt、ROAD_STRUCTURE/SCENE 候选、Memory 字段、
+trigger helper 或 teacher target 清洗规则，就必须同步验证 v3 offline OPSD 与 v4
+off-policy actor-learner 两条路线；不要在 v3 里复制第二份 prompt。
+
+两者差异只在训练数据流：v3 现场 student rollout + privileged teacher logits 做 OPSD
+KL/JSD；v4 collector 写 replay，learner 对 replay 做 off-policy teacher-forced 训练。
+
+## 1. v4 off-policy 总体方案
 
 v4 把 v3 的"每帧 teacher generate + student generate + loss 串行"on-policy 流程拆成
 **actor-learner 异步流水线**：collector 进程负责 rollout（teacher / student 自由生成 +
@@ -1661,35 +1672,33 @@ EGO_TO_GOAL_XY=(..., ...) m
 [/ROAD_STRUCTURE_CHOICES]
 
 [STEP1]
-[STEP1_TASK]
-Update ROAD_STRUCTURE only.
-Focus on visible road-layout cues.
-Do not use vehicle intent alone to decide road structure.
-If the believed road structure is not visually confirmed but no other road-structure category is clearly visible, keep it as not contradicted.
-[/STEP1_TASK]
-Use the shared public response contract and write exactly these four analysis lines:
-Scene Description: ...
-Relevant Visible Cues: ...
-Evidence Assessment: ...
-Memory Judgment: start with Kept because / Corrected because / Advanced because.
-Then write the label line(s) yourself: ROAD_STRUCTURE: <name>
+Task: Decide ROAD_STRUCTURE from ROAD_STRUCTURE_CHOICES.
+Constraint: Judge by visible road layout only; a single lead vehicle alone never proves HIGHWAY_MERGE. Keep the believed ROAD_STRUCTURE if no listed option is clearly supported, and never emit an option outside ROAD_STRUCTURE_CHOICES.
+Label: ROAD_STRUCTURE: <name>
 ```
+
+4 行分析格式（`Scene Description` / `Critical Object Description` /
+`Reasoning on Intent` / `Memory Judgment`）、"先 4 行分析再写 label" 的顺序、
+evidence policy（弱证据 = not contradicted、远车不证明 merge/braking/cut-in、
+不提 answer/ground truth）已全部下沉 `SYSTEM_PROMPT_V4`，step 块只保留
+`Task / Constraint / Label` 三段，step2/3 共用同一模板只差槽位。
 
 老师 step1 prompt 与学生 prompt 分离：老师也不喂完整 `[MEMORY]`，只喂
 `[STEP1_ROAD_CONTEXT]`，其中包含 `BELIEVED_ROAD_STRUCTURE`、`EGO_TO_GOAL_XY`
 和 `ANSWER_ROAD_STRUCTURE`，再列出 6 个 road structure 选项。context 中 road label
-已由 `ROAD_STRUCTURE_CHOICES` 解释，因此只写 token，不重复括号解释。Step1 不再把
-KEEP 解释成"图像强确认"：KEEP 只表示 memory continuity。`CHANGE` 只在看见明确矛盾
-road-layout cues 时触发；雾、遮挡或远车导致证据弱但没有看见其它 road bucket 时，应写
-`Kept because ... not contradicted`，不要把弱证据写成强确认。
-远处 lead vehicle 本身不能当作 highway merge 证据，也不能凭空推断 braking/stopping/
-merging/lane-changing/yielding。CHANGE 时要求说明最清晰的矛盾 road-bucket cue；如果矛盾
-证据弱，应承认 correction weakly grounded，不能编造反证。analysis 统一控制在约
-60-120 words；所有学生输出/脚本追加的 label 必须单独成行。
-老师和学生共用同一个四行 analysis contract：
-`Scene Description:`、`Relevant Visible Cues:`、
-`Evidence Assessment:`、`Memory Judgment:`；区别只是学生 prompt 要求自己写
-`ROAD_STRUCTURE: <name>`，老师 prompt 要求不要写标签，标签由 `build_step1_teacher_target` 追加。
+已由 `ROAD_STRUCTURE_CHOICES` 解释，因此只写 token，不重复括号解释。老师 block
+与学生同骨架（同 `Task / Constraint`），仅多 `VERDICT` / 推理方向一致性指令
+（`argue to keep/advance/replace the believed {slot}`，强制正文与 verdict 同向，
+避免正文替旧 label 说话而 opener 被改成 Corrected 的轻微矛盾）/ opener 强制 /
+GT-aware hint，并禁止写 label。Step1 不再把 KEEP 解释成"图像强确认"：KEEP 只表示
+memory continuity。`CHANGE` 只在看见明确矛盾 road-layout cues 时触发；雾、遮挡或
+远车导致证据弱但没有看见其它 road bucket 时，应写 `Kept because ... not
+contradicted`，不要把弱证据写成强确认。analysis 统一控制在约 60-120 words；所有
+学生输出/脚本追加的 label 必须单独成行。老师和学生共用同一个四行 analysis
+contract：`Scene Description:`、`Critical Object Description:`、
+`Reasoning on Intent:`、`Memory Judgment:`；区别只是学生 prompt 要求自己写
+`ROAD_STRUCTURE: <name>`，老师 prompt 要求不要写标签，标签由
+`build_step1_teacher_target` 追加。
 
 **Step 2 prompt（学生 / 老师）**：
 
