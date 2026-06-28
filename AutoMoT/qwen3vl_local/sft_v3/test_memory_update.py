@@ -1,8 +1,8 @@
-"""SFT v3 memory-state test wrapper.
+"""SFT v3 memory 状态机测试入口。
 
-SFT v3 imports the v4 prompt/state-machine implementation directly.  Running
-the v4 test here is intentional: it enforces the shared ROAD_STRUCTURE -> SCENE
--> STATUS/SUBGOAL contract for both routes.
+SFT v3 直接 import v4 的 prompt / Memory / 状态机实现。因此这里故意复用 v4 测试：
+只要 v4 的 ROAD_STRUCTURE -> SCENE -> STATUS/SUBGOAL 契约发生变化，v3 也必须在
+同一个测试入口下通过，不能悄悄维护第二份状态机。
 """
 
 from __future__ import annotations

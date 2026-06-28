@@ -10,7 +10,7 @@
 
 本文件里最容易读错的是 KV cache 处理：训练时 student 先“自由生成”得到 on-policy
 rollout 并更新 memory；privileged teacher 只提供同一批 student token 上的 full-vocab
-logit distribution。OPSD loss 是 KL/JSD 风格的分布匹配，不再把 teacher 文本当硬标签 CE。
+logit distribution。OPSD loss 当前是 forward-KL 分布匹配，不再把 teacher 文本当硬标签 CE。
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ import re
 import shutil
 import sys
 import time
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -76,18 +77,17 @@ from qwen3vl_local.sft_v3.prompts import (
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
+    canonicalize_scene,
     build_step1_teacher_prompt,
-    build_step1_teacher_target,
     build_step1_user_prompt,
     build_step2_student_prompt,
     build_step2_teacher_prompt,
-    build_step2_teacher_target,
     build_step3_student_prompt,
     build_step3_teacher_prompt,
-    build_step3_teacher_target,
     check_gt_leak_scene,
     check_gt_leak_status_subgoal,
     force_memory_to_gt_chain,
+    get_step_system_prompt,
     get_road_structure,
     should_trigger_step3,
     should_trigger_step2,
@@ -117,6 +117,7 @@ class EpisodeRow:
 
     run_id: str
     scenario: str
+    raw_gt_scene: str
     anchors: List[int]
     delta: int
     frame_start: int
@@ -148,15 +149,18 @@ class EpisodeDataset(Dataset):
                     continue
                 obj = json.loads(line)
                 frame_range = obj.get("frame_range") or [0, -1]
+                raw_gt_scene = str(obj.get("raw_gt_scene", obj.get("scenario", "")))
+                gt_scene = str(canonicalize_scene(obj.get("gt_scene", raw_gt_scene)))
                 self.rows.append(
                     EpisodeRow(
                         run_id=str(obj["run_id"]),
                         scenario=str(obj["scenario"]),
+                        raw_gt_scene=raw_gt_scene,
                         anchors=[int(x) for x in obj["anchors"]],
                         delta=int(obj["delta"]),
                         frame_start=int(frame_range[0]),
                         frame_end=int(frame_range[1]),
-                        gt_scene=str(obj.get("gt_scene", obj["scenario"])),
+                        gt_scene=gt_scene,
                         gt_event_sequence=[str(x) for x in obj.get("gt_event_sequence", [])],
                         run_dir=str(obj["run_dir"]),
                         split=str(obj.get("split", "train")),
@@ -336,15 +340,19 @@ def _build_messages_with_images(
     *,
     user_text: str,
     images: List[Image.Image],
+    system_prompt: str = SYSTEM_PROMPT_V3,
     prev_turns: Optional[List[Dict[str, str]]] = None,
 ) -> List[Dict[str, Any]]:
     """构造 Qwen chat messages：system + 首个带 4 张图的 user turn。
 
-    step1 是唯一带图的 user turn；step2/step3 后续只通过 KV cache 追加文本 user turn，
-    不重复传图，避免重 prefill。
+    v3 不维护自己的 prompt 文本；调用方按 v4 的 step 语义传入
+    ``get_step_system_prompt("STEPx")``。student 的 step2/3 仍从 step1
+    KV 追加文本 user turn，以保持 on-policy rollout；privileged teacher
+    每个 step 用对应的 v4 system prompt 独立 prefill 后，在同一段 student
+    step 输出 token 上给 forward-KL 分布监督。
     """
 
-    messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT_V3}]
+    messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     content: List[Dict[str, Any]] = [{"type": "image", "image": img} for img in images]
     content.append({"type": "text", "text": user_text})
     messages.append({"role": "user", "content": content})
@@ -392,7 +400,7 @@ class KVState:
 
     - ``decoded_input_ids``：当前完整 token 序列；
     - ``cache_input_ids``：已经进入 past_key_values 的前缀；
-    - ``next_logits``：预测下一个 token 的 logits，用来计算第一个 append token 的 CE；
+    - ``next_logits``：预测下一个 token 的 logits；OPSD 路径用它对齐第一个 append token 的分布；
     - ``rope_deltas``：Qwen3-VL remote-code 需要的多模态 RoPE 偏移。
     """
 
@@ -415,6 +423,39 @@ def _clone_kv_state(state: KVState) -> KVState:
         rope_deltas=state.rope_deltas.detach().clone() if hasattr(state.rope_deltas, "detach") else state.rope_deltas,
         next_logits=state.next_logits.detach().clone(),
     )
+
+
+def _disable_adapter_context(bundle: Any) -> Any:
+    """返回关闭 LoRA adapter 的上下文。
+
+    OPSD 的 teacher 必须是 privileged frozen/base Qwen，而不是带 LoRA 的当前
+    student。PEFT 模型提供 ``disable_adapter()``；没有该方法时退化为 no-op，
+    便于无 LoRA 的轻量测试继续运行。
+    """
+
+    model = bundle.unwrap() if hasattr(bundle, "unwrap") else bundle.model
+    return model.disable_adapter() if hasattr(model, "disable_adapter") else nullcontext()
+
+
+@contextmanager
+def _teacher_eval_context(bundle: Any) -> Iterable[None]:
+    """teacher 侧统一上下文：关闭 LoRA、切 eval、禁止梯度。
+
+    OPSD 的 teacher distribution 必须是稳定的 privileged base 分布。如果只用
+    ``torch.no_grad()`` 而不切 ``eval()``，训练态 dropout 仍会随机扰动 teacher logits；
+    如果只切 ``eval()`` 而不 ``disable_adapter()``，teacher 又会被当前 LoRA student
+    污染。这里把三件事绑在一起，避免不同 step 手写上下文时漏掉其中一项。
+    """
+
+    model = bundle.model
+    was_training = bool(model.training)
+    model.eval()
+    with torch.no_grad(), _disable_adapter_context(bundle):
+        try:
+            yield
+        finally:
+            if was_training:
+                model.train()
 
 
 def _kv_start_state(bundle: Any, messages: List[Dict[str, Any]]) -> KVState:
@@ -463,7 +504,8 @@ def _append_token_ids(
     1. ``state.next_logits`` 对应第一个追加 token 的预测；
     2. 后续 token 的预测来自本次 forward 的 ``outputs.logits[:, :-1]``；
     3. ``analysis_enabled=False`` 时分析 token loss 置 0，但 scene/status/subgoal 值
-       token loss 仍照算，用于 GT 泄露过滤。
+       token loss 仍照算。当前 v4 的 GT leak hook 是 legacy no-op，这个开关只作为
+       兼容旧实验和未来重新启用过滤时的安全阀。
     """
 
     if suffix_ids.ndim == 1:
@@ -501,7 +543,7 @@ def _append_token_ids(
     pending_len = int(pending_ids.shape[1])
 
     def token_loss(feed_positions: List[int]) -> torch.Tensor:
-        """对 feed_ids 中指定位置计算平均 CE。"""
+        """旧 CE 计算器，仅供 append_user/兼容路径复用；OPSD 主损失不调用它。"""
 
         if not feed_positions:
             return zero
@@ -568,11 +610,13 @@ def _append_token_ids_with_logits(
     state: KVState,
     suffix_ids: torch.Tensor,
 ) -> Tuple[KVState, torch.Tensor, torch.Tensor]:
-    """Append tokens and return next-token logits for the appended positions.
+    """追加一段 token，并返回这些追加 token 对应的 next-token logits。
 
-    OPSD does not use teacher text as hard CE labels.  It appends the exact
-    same student rollout tokens to a student state and a privileged teacher
-    state, then matches the resulting full-vocabulary next-token distributions.
+    OPSD 不再把 teacher 生成文本当 hard CE 标签。训练时先让 student 自由生成一段
+    rollout 文本，然后把**同一段 token**分别追加到 student prompt state 和 privileged
+    teacher prompt state 上，比较两边对这些 token 的 full-vocabulary next-token
+    distribution。返回的 ``pred_logits[:, j, :]`` 对应 ``feed_ids[:, j]`` 这个 token
+    被预测时的分布，后续会按 target span 只抽 analysis / label 值 token 位置算 forward-KL。
     """
 
     if suffix_ids.ndim == 1:
@@ -581,6 +625,9 @@ def _append_token_ids_with_logits(
     prefix_ids = state.cache_input_ids
     decoded_ids = state.decoded_input_ids.to(prefix_ids.device)
     pending_ids = decoded_ids[:, prefix_ids.shape[1] :]
+    # decoded_input_ids 可能已经包含“已解码但尚未写入 cache”的 pending token。
+    # 增量 forward 必须先补齐 pending，再追加本次 suffix；否则 cache_input_ids、
+    # attention_mask 和 M-RoPE 位置会错位，teacher/student logits 会比较在不同上下文上。
     feed_ids = torch.cat([pending_ids, suffix_ids], dim=1) if pending_ids.numel() else suffix_ids
     if feed_ids.shape[1] == 0:
         empty = state.next_logits.new_zeros((1, 0, state.next_logits.shape[-1]))
@@ -600,6 +647,8 @@ def _append_token_ids_with_logits(
         prefix_len=prefix_len,
         rope_deltas=state.rope_deltas,
     )
+    # 第一个追加 token 的预测分布来自旧 state.next_logits；后续 token 的预测分布来自
+    # 本次 forward 的 logits 前 T-1 位。这个拼接保证 pred_logits 与 feed_ids 逐位对齐。
     pred_logits = torch.cat([state.next_logits.unsqueeze(1), outputs.logits[:, :-1, :]], dim=1)
     decoded_input_ids = torch.cat([prefix_ids, feed_ids], dim=1)
     new_state = KVState(
@@ -614,7 +663,7 @@ def _append_token_ids_with_logits(
 
 
 def _append_text_with_logits(bundle: Any, state: KVState, text: str) -> Tuple[KVState, torch.Tensor, torch.Tensor]:
-    """Tokenize text, append it to a KV state, and expose appended-token logits."""
+    """把文本转成 token 后追加到 KV，并暴露每个追加 token 的预测分布。"""
 
     enc = bundle.tokenizer(text, add_special_tokens=False, return_tensors="pt")
     return _append_token_ids_with_logits(bundle, state, enc["input_ids"])
@@ -628,7 +677,12 @@ def _loss_positions_for_text(
     analysis_enabled: bool,
     include_keys: Iterable[str],
 ) -> Dict[str, List[int]]:
-    """Map analysis/label character spans to token positions for OPSD KL."""
+    """把 analysis/label 的字符 span 映射到 token 下标，供 OPSD forward-KL 选择位置。
+
+    prompt 模块负责告诉我们 ``SCENE: xxx`` 这类值 token 的字符区间；这里再用 tokenizer
+    offset mapping 转成 token 下标。analysis 部分只取 label 行之前的非空 token，避免格式
+    token、换行和 prompt 侧重复字符串参与监督。
+    """
 
     enc = bundle.tokenizer(assistant_text, return_offsets_mapping=True, add_special_tokens=False)
     offsets = [(int(a), int(b)) for a, b in enc["offset_mapping"]]
@@ -654,7 +708,7 @@ def _loss_positions_for_text(
 
 
 def _zero_from_state(state: KVState) -> torch.Tensor:
-    """Create a differentiable scalar zero on the model device."""
+    """在模型设备上构造可反传的 0，便于跳过某个 loss 分量时保持图结构一致。"""
 
     return state.next_logits.sum() * 0.0
 
@@ -666,7 +720,11 @@ def _kl_for_positions(
     *,
     temperature: float = 1.0,
 ) -> torch.Tensor:
-    """Full-vocabulary OPSD KL over selected appended-token positions."""
+    """在选中的追加 token 位置上计算 full-vocabulary OPSD forward-KL。
+
+    teacher logits 会 detach，只作为 privileged 分布目标；student logits 保持梯度。
+    temperature 按蒸馏常规乘回 ``T^2``，避免调高温度后梯度尺度突然变小。
+    """
 
     if not positions:
         return student_logits.sum() * 0.0
@@ -691,17 +749,51 @@ def _opsd_loss_from_states(
     analysis_enabled: bool,
     include_keys: Iterable[str],
     temperature: float = 1.0,
+    rollout_token_ids: Optional[torch.Tensor] = None,
 ) -> Dict[str, torch.Tensor]:
-    """Match teacher/student logits on the same on-policy student rollout."""
+    """在同一段 on-policy student rollout 上匹配 teacher/student logits。
+
+    这是 v3 OPSD 的核心：student 文本先生成并用于推进 Memory；teacher 不生成 hard
+    target，而是在 ``disable_adapter()`` 的 base Qwen 上读 privileged prompt，对这段
+    student 文本逐 token 打分。当前实现使用单向 forward-KL
+    ``KL(teacher || student)``：teacher 分布 detach，梯度只回到 student LoRA。这样
+    loss 优化的是“student 在自己真实输出轨迹上应更像 privileged teacher 的分布偏好”，
+    不是离线老师文本的逐字模仿；如果以后要改成 JSD，必须显式加 loss type 开关并同步
+    v3/v4 文档。
+    """
 
     zero = _zero_from_state(student_state)
     parts = {"analysis": zero, "road_structure": zero, "scene": zero, "status": zero, "subgoal": zero}
-    text = (student_rollout or "").strip()
-    if not text:
+    # 保留 student rollout 的原始文本，不做 strip。文本只用于解析/定位 target span；
+    # 真正送入 teacher/student 打分的优先是自由生成时已经进入 KV 的 token ids。
+    # 这样 OPSD 监督的是“推动 memory 和后续 KV 的同一批 token”，而不是 batch_decode
+    # 后再 tokenizer 一次得到的近似 tokenization。
+    text = student_rollout or ""
+    token_ids = rollout_token_ids
+    if token_ids is not None:
+        if token_ids.ndim == 1:
+            token_ids = token_ids.unsqueeze(0)
+        if token_ids.shape[1] == 0:
+            token_ids = None
+    if token_ids is None and not text.strip():
         return parts
-    with torch.no_grad():
-        _, teacher_logits, _ = _append_text_with_logits(bundle, _clone_kv_state(teacher_state), text)
-    _, student_logits, _ = _append_text_with_logits(bundle, _clone_kv_state(student_state), text)
+    # teacher 分支必须在 no_grad + disable_adapter 下运行，否则 LoRA student 会给自己当
+    # teacher，OPSD 退化成自蒸馏；这里用 clone 避免 scoring 过程污染外层 KVState。
+    with _teacher_eval_context(bundle):
+        if token_ids is not None:
+            _, teacher_logits, _ = _append_token_ids_with_logits(
+                bundle, _clone_kv_state(teacher_state), token_ids
+            )
+        else:
+            _, teacher_logits, _ = _append_text_with_logits(bundle, _clone_kv_state(teacher_state), text)
+    # student 分支保留梯度，但同样只在 clone 上 append；外层 state 继续代表 prompt state，
+    # 便于后续 step2/step3 自己按 rollout 链式推进。
+    if token_ids is not None:
+        _, student_logits, _ = _append_token_ids_with_logits(
+            bundle, _clone_kv_state(student_state), token_ids
+        )
+    else:
+        _, student_logits, _ = _append_text_with_logits(bundle, _clone_kv_state(student_state), text)
     positions = _loss_positions_for_text(
         bundle,
         text,
@@ -711,7 +803,8 @@ def _opsd_loss_from_states(
     )
     for key, pos in positions.items():
         if key in parts:
-            parts[key] = _kl_for_positions(student_logits, teacher_logits, pos, temperature=temperature)
+            valid_pos = [p for p in pos if p < student_logits.shape[1]]
+            parts[key] = _kl_for_positions(student_logits, teacher_logits, valid_pos, temperature=temperature)
     return parts
 
 
@@ -786,7 +879,7 @@ def _kv_generate_text(
     max_new_tokens: int,
     *,
     repetition_penalty: float = _REPETITION_PENALTY,
-) -> Tuple[str, KVState]:
+) -> Tuple[str, KVState, torch.Tensor]:
     """从已有 KVState 贪心生成一段 assistant 文本，并返回生成后的状态。
 
     框架明确要求 ``do_sample=False`` + ``repetition_penalty=1.05``；这里 argmax 已等价
@@ -794,7 +887,7 @@ def _kv_generate_text(
     取 ``state.decoded_input_ids`` ∪ 已生成 token，与 HF generate 默认行为一致。
     """
 
-    generated: List[torch.Tensor] = []
+    cached_generated: List[torch.Tensor] = []
     eos_ids = _eos_token_ids(bundle)
     cur = state
     device = cur.next_logits.device
@@ -802,44 +895,26 @@ def _kv_generate_text(
     for _ in range(max_new_tokens):
         logits = _apply_repetition_penalty(cur.next_logits, seen_unique, repetition_penalty)
         next_token = torch.argmax(logits, dim=-1, keepdim=True)
-        generated.append(next_token)
         token_id = int(next_token.reshape(-1)[0].item())
         if token_id in eos_ids:
             break
+        cached_generated.append(next_token)
         cur, _ = _append_token_ids(bundle, cur, next_token)
         # 把新 token 也纳入 repetition 集合；torch.unique 在已排序集合上插入仍是 O(N)
         seen_unique = torch.unique(torch.cat([seen_unique, next_token.reshape(-1).to(device)], dim=0))
-    if not generated:
-        return "", cur
-    ids = torch.cat(generated, dim=1)
-    text = bundle.processor.batch_decode(ids, skip_special_tokens=True)[0].strip()
-    return text, cur
-
-
-def _assistant_loss_from_state(
-    bundle: Any,
-    state: KVState,
-    assistant_target: str,
-    span_fn: Any,
-    *,
-    analysis_enabled: bool,
-) -> Dict[str, torch.Tensor]:
-    """从某个 prompt state 出发，对 assistant target 做 teacher-forced loss。"""
-
-    _, parts = _append_text(
-        bundle,
-        state,
-        assistant_target,
-        span_fn=span_fn,
-        analysis_enabled=analysis_enabled,
-    )
-    return parts
+    if not cached_generated:
+        empty = cur.decoded_input_ids.new_zeros((1, 0))
+        return "", cur, empty
+    ids = torch.cat(cached_generated, dim=1)
+    # 不 strip：外层 OPSD loss 需要尽量保留生成文本的 token 边界。
+    text = bundle.processor.batch_decode(ids, skip_special_tokens=True)[0]
+    return text, cur, ids
 
 
 def _teacher_start_state(bundle: Any, messages: List[Dict[str, Any]]) -> KVState:
-    """teacher prefill 包装：只读 no_grad。"""
+    """teacher prefill 包装：关闭 LoRA，只读 base Qwen。"""
 
-    with torch.no_grad():
+    with _teacher_eval_context(bundle):
         return _kv_start_state(bundle, messages)
 
 
@@ -850,15 +925,20 @@ def _student_start_state(bundle: Any, messages: List[Dict[str, Any]]) -> KVState
         return _kv_start_state(bundle, messages)
 
 
-def _teacher_generate_kv(bundle: Any, state: KVState, max_new_tokens: int) -> Tuple[str, KVState]:
-    """teacher 贪心生成包装：关闭梯度。"""
+def _teacher_generate_kv(bundle: Any, state: KVState, max_new_tokens: int) -> Tuple[str, KVState, torch.Tensor]:
+    """teacher 贪心生成包装：关闭 LoRA 与梯度。"""
 
-    with torch.no_grad():
+    with _teacher_eval_context(bundle):
         return _kv_generate_text(bundle, state, max_new_tokens)
 
 
-def _student_generate_kv(bundle: Any, state: KVState, max_new_tokens: int) -> Tuple[str, KVState]:
-    """student 自由生成包装：关闭梯度，只用于更新 memory。"""
+def _student_generate_kv(bundle: Any, state: KVState, max_new_tokens: int) -> Tuple[str, KVState, torch.Tensor]:
+    """student 自由生成包装：返回文本、KV 和真实进入 KV 的 token ids。
+
+    OPSD 的“on-policy”要求 teacher/student 在同一批 student rollout token 上打分。
+    文本解析仍用于更新 Memory，但 loss 侧优先使用这里返回的 token ids，避免
+    ``batch_decode -> tokenizer`` 往返造成 token 边界漂移。
+    """
 
     with torch.no_grad():
         return _kv_generate_text(bundle, state, max_new_tokens)
@@ -885,185 +965,6 @@ class FrameLossPack:
     phase_a: bool
 
 
-def _legacy_iter_episode_loss_packs_unused(
-    bundle: Any,
-    ep: EpisodeRow,
-    *,
-    max_length: int = 8192,
-    outer_stride: int = 1,
-) -> Iterable[FrameLossPack]:
-    """Legacy hard-target OPD implementation kept only for archaeology.
-
-    这是 v3 训练的核心状态机：
-    1. 帧开头根据 Phase 决定是否强制 memory.scene=GT；
-    2. step1 只看图，student 对齐 teacher 的视觉分析；
-    3. step2 用学生当前 memory 判断场景，学生自由生成结果更新 memory；
-    4. 若 step2 后 memory.scene==GT scene，才进入 step3 训练 status/subgoal；
-    5. 自由生成决定 memory 走向，teacher-forced target 决定梯度。
-
-    The public ``iter_episode_loss_packs`` below is the active OPSD version.
-    """
-
-    del max_length  # processor truncation is intentionally not enabled for Qwen image chats.
-    run_dir = pathlib.Path(ep.run_dir)
-    gx, gy = _load_goal_xy(run_dir, ep.frame_start)
-    memory = init_memory(
-        run_id=ep.run_id,
-        sub_scenario_id=f"{ep.run_id}:{ep.anchors[1]}",
-        ego_to_goal_x=gx,
-        ego_to_goal_y=gy,
-        gt_scene=ep.gt_scene,
-    )
-
-    stride = max(1, outer_stride)
-    for frame in range(ep.frame_start, ep.frame_end + 1, stride):
-        phase_a = _is_phase_a(ep, frame)
-        if not phase_a:
-            # Phase B：每帧开始先把 scene 修回 GT，再学习“对的别改”。
-            memory = force_memory_to_gt_scene(memory, gt_scene=ep.gt_scene)
-
-        image_paths = _build_rgb_paths(run_dir, frame)
-        try:
-            images = _load_images(image_paths)
-        except Exception:
-            _prefetch_goal_xy_for_next_frame(memory, run_dir, frame + stride, ep.frame_end)
-            continue
-
-        gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
-
-        step1_user = build_step1_user_prompt(len(images))
-        step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
-        step2_teacher_user = build_step2_teacher_prompt(memory, ep.gt_scene)
-        step2_student_user = build_step2_student_prompt(memory)
-
-        # Teacher 分支：关闭 LoRA，用 base Qwen 生成 hindsight 分析。
-        teacher_model = bundle.unwrap()
-        teacher_was_training = bool(teacher_model.training)
-        teacher_model.eval()
-        with teacher_model.disable_adapter():
-            teacher_step1_prompt_state = _teacher_start_state(bundle, step1_msgs)
-            teacher_step1, teacher_step1_state = _teacher_generate_kv(
-                bundle, _clone_kv_state(teacher_step1_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP1
-            )
-            teacher_step1 = teacher_step1 or "I observe the current driving scene from the images."
-            with torch.no_grad():
-                teacher_step2_prompt_state = _append_user_turn(bundle, teacher_step1_state, step2_teacher_user)
-            raw_teacher_step2, teacher_step2_state = _teacher_generate_kv(
-                bundle, _clone_kv_state(teacher_step2_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP2
-            )
-        if teacher_was_training:
-            teacher_model.train()
-
-        # Student 自由生成分支：只用于更新 memory，不直接反传。
-        student_was_training = bool(bundle.model.training)
-        bundle.model.eval()
-        student_step1_prompt_state = _student_start_state(bundle, step1_msgs)
-        student_step1, student_step1_state = _student_generate_kv(
-            bundle, _clone_kv_state(student_step1_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP1
-        )
-        student_step1 = student_step1 or teacher_step1
-        with torch.no_grad():
-            student_step2_prompt_state = _append_user_turn(bundle, student_step1_state, step2_student_user)
-        raw_student_step2, student_step2_state = _student_generate_kv(
-            bundle, _clone_kv_state(student_step2_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP2
-        )
-        if student_was_training:
-            bundle.model.train()
-
-        # 真正的 step1 梯度：student prompt state + teacher 文本 target。
-        step1_parts = _assistant_loss_from_state(
-            bundle,
-            _clone_kv_state(student_step1_prompt_state),
-            teacher_step1,
-            lambda _text: {},
-            analysis_enabled=True,
-        )
-        analysis2 = _analysis_before_labels(raw_teacher_step2)
-        leak2 = check_gt_leak_scene(analysis2, ep.gt_scene)
-        target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
-        step2_parts = _assistant_loss_from_state(
-            bundle,
-            _clone_kv_state(student_step2_prompt_state),
-            target2,
-            target_spans_scene,
-            analysis_enabled=not leak2,
-        )
-        pred2 = parse_output(raw_student_step2)
-        old_scene = memory.scene
-        memory = update_memory_after_step2(memory, student_scene=pred2.get("scene"))
-        scene_flip = memory.scene != old_scene
-
-        zero = step1_parts["analysis"] * 0.0
-        a3 = zero
-        s3_status = zero
-        s3_subgoal = zero
-        leak3 = False
-        step3_ran = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
-
-        if step3_ran:
-            # 只有场景已经正确时才训 status/subgoal；错误场景下 event 字典不同，跳过。
-            step3_teacher_user = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
-            teacher_was_training = bool(teacher_model.training)
-            teacher_model.eval()
-            with teacher_model.disable_adapter():
-                with torch.no_grad():
-                    teacher_step3_prompt_state = _append_user_turn(bundle, teacher_step2_state, step3_teacher_user)
-                raw_teacher_step3, _teacher_step3_state = _teacher_generate_kv(
-                    bundle, _clone_kv_state(teacher_step3_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP3
-                )
-            if teacher_was_training:
-                teacher_model.train()
-            analysis3 = _analysis_before_labels(raw_teacher_step3)
-            leak3 = check_gt_leak_status_subgoal(analysis3, gt_status, gt_subgoal)
-            target3 = build_step3_teacher_target(analysis3, gt_status, gt_subgoal)
-
-            step3_student_user = build_step3_student_prompt(memory)
-            student_was_training = bool(bundle.model.training)
-            bundle.model.eval()
-            with torch.no_grad():
-                student_step3_prompt_state = _append_user_turn(bundle, student_step2_state, step3_student_user)
-            raw_student_step3, _student_step3_state = _student_generate_kv(
-                bundle, _clone_kv_state(student_step3_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP3
-            )
-            if student_was_training:
-                bundle.model.train()
-            step3_parts = _assistant_loss_from_state(
-                bundle,
-                _clone_kv_state(student_step3_prompt_state),
-                target3,
-                target_spans_status,
-                analysis_enabled=not leak3,
-            )
-            a3 = step3_parts["analysis"]
-            s3_status = step3_parts["status"]
-            s3_subgoal = step3_parts["subgoal"]
-
-            pred3 = parse_output(raw_student_step3)
-            pred_status = pred3.get("status") if validate_event(memory.scene, pred3.get("status")) else None
-            pred_subgoal = pred3.get("subgoal") if validate_event(memory.scene, pred3.get("subgoal")) else None
-            memory = update_memory_after_step3(
-                memory,
-                student_status=pred_status,
-                student_subgoal=pred_subgoal,
-            )
-
-        pack = FrameLossPack(
-            a1=step1_parts["analysis"],
-            a2=step2_parts["analysis"],
-            s2=step2_parts["scene"],
-            a3=a3,
-            s3_status=s3_status,
-            s3_subgoal=s3_subgoal,
-            step3_ran=step3_ran,
-            scene_flip=scene_flip,
-            leak2=leak2,
-            leak3=leak3,
-            phase_a=phase_a,
-        )
-        _prefetch_goal_xy_for_next_frame(memory, run_dir, frame + stride, ep.frame_end)
-        yield pack
-
-
 def iter_episode_loss_packs(
     bundle: Any,
     ep: EpisodeRow,
@@ -1071,11 +972,13 @@ def iter_episode_loss_packs(
     max_length: int = 8192,
     outer_stride: int = 1,
 ) -> Iterable[FrameLossPack]:
-    """Run one episode with v4-synchronized prompts and OPSD KL.
+    """用 v4 同步 prompt 跑一条 episode，并产出每帧 OPSD loss 分量。
 
-    Student free generation is the rollout; the privileged teacher uses the
-    same current LoRA parameters under ``no_grad`` and supervises the exact
-    same student tokens with full-vocabulary KL.
+    关键顺序是“student 先自由生成，再由 teacher 给这段 student token 打分”：
+    1. student 的 step1/2/3 KV 串行追加，完全模拟在线 rollout；
+    2. Memory 只由 student 解析结果推进，错了也按错 memory 继续；
+    3. teacher 每个 step 用 v4 对应 system prompt + privileged user prompt 独立 prefill；
+    4. loss 只比较 teacher/student 对同一批 student step token 的 full-vocab forward-KL。
     """
 
     del max_length
@@ -1096,6 +999,9 @@ def iter_episode_loss_packs(
         road_structure_reset_this_frame = False
         scene_reset_this_frame = False
         if not phase_a:
+            # Phase B 是弱纠偏阶段：帧首把上层 memory 拉回 GT 链，让模型学习
+            # “已经正确时不要乱改”。reset 标志会参与 trigger gate，避免同一帧刚纠正
+            # road/scene 后立刻继续下钻，造成 teacher 用稳定上下文而 student 刚被外力改写。
             before_rs = memory.road_structure
             before_scene = memory.scene
             memory = force_memory_to_gt_chain(
@@ -1114,21 +1020,36 @@ def iter_episode_loss_packs(
         gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
         zero_seed: Optional[torch.Tensor] = None
 
+        # Step1：student 只读 road-only memory + 图像，先自由生成 ROAD_STRUCTURE。
+        # teacher 也用 STEP1 system prompt，但 user prompt 含 privileged answer road；
+        # 两边 prompt 不同，不能共享 KV，只能比较同一段 student 输出上的 logits。
         step1_student_user = build_step1_user_prompt(len(images), memory=memory)
         step1_teacher_user = build_step1_teacher_prompt(memory, gt_road_structure)
-        step1_msgs_student = _build_messages_with_images(user_text=step1_student_user, images=images)
-        step1_msgs_teacher = _build_messages_with_images(user_text=step1_teacher_user, images=images)
+        step1_msgs_student = _build_messages_with_images(
+            user_text=step1_student_user,
+            images=images,
+            system_prompt=get_step_system_prompt("STEP1"),
+        )
+        step1_msgs_teacher = _build_messages_with_images(
+            user_text=step1_teacher_user,
+            images=images,
+            system_prompt=get_step_system_prompt("STEP1"),
+        )
 
         student_was_training = bool(bundle.model.training)
         bundle.model.eval()
         student_step1_prompt_state = _student_start_state(bundle, step1_msgs_student)
-        raw_student_step1, student_step1_state = _student_generate_kv(
+        raw_student_step1, student_step1_state, student_step1_ids = _student_generate_kv(
             bundle, _clone_kv_state(student_step1_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP1
         )
         if student_was_training:
             bundle.model.train()
         if not raw_student_step1:
-            raw_student_step1 = build_step1_teacher_target("No reliable student output was generated.", gt_road_structure)
+            # 空输出通常表示模型立刻给 EOS。它没有可用于 OPSD 的 student rollout
+            # token，不能用带 GT 的 teacher target 兜底，否则会把 v3 悄悄退化成
+            # hard-label imitation。这里跳过该帧，并在帧末正常推进 goal 坐标。
+            _prefetch_goal_xy_for_next_frame(memory, run_dir, frame + stride, ep.frame_end)
+            continue
 
         teacher_was_training = bool(bundle.model.training)
         bundle.model.eval()
@@ -1144,9 +1065,12 @@ def iter_episode_loss_packs(
             target_spans_road_structure,
             analysis_enabled=True,
             include_keys=("road_structure",),
+            rollout_token_ids=student_step1_ids,
         )
         zero_seed = step1_parts["analysis"] * 0.0
 
+        # Memory 的推进只看 student 自己的解析结果，而不是 teacher target。
+        # 这正是 on-policy：如果 student 把 road 判断错，后续 step2 会在错误 bucket 里继续。
         pred1 = parse_output(raw_student_step1)
         old_rs = memory.road_structure
         memory = update_memory_after_step1(memory, student_road_structure=pred1.get("road_structure"))
@@ -1171,26 +1095,28 @@ def iter_episode_loss_packs(
             road_structure_reset_this_frame=road_structure_reset_this_frame,
         )
         if step2_ran:
+            # Step2：沿用 student step1 之后的 KV 追加 user turn，不重新喂图。
+            # teacher 则打开 fresh STEP2 dialog，直接看到 GT road/scene，用来给
+            # student 的 step2 rollout 分布打分。
             step2_student_user = build_step2_student_prompt(memory)
             with torch.no_grad():
                 student_step2_prompt_state = _append_user_turn(bundle, student_step1_state, step2_student_user)
             student_was_training = bool(bundle.model.training)
             bundle.model.eval()
-            raw_student_step2, student_step2_state = _student_generate_kv(
+            raw_student_step2, student_step2_state, student_step2_ids = _student_generate_kv(
                 bundle, _clone_kv_state(student_step2_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP2
             )
             if student_was_training:
                 bundle.model.train()
 
-            with torch.no_grad():
-                teacher_step1_state_for_rollout, _, _ = _append_text_with_logits(
-                    bundle, _clone_kv_state(teacher_step1_prompt_state), raw_student_step1
-                )
-                teacher_step2_prompt_state = _append_user_turn(
-                    bundle,
-                    teacher_step1_state_for_rollout,
-                    build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene),
-                )
+            step2_msgs_teacher = _build_messages_with_images(
+                user_text=build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene),
+                images=images,
+                system_prompt=get_step_system_prompt("STEP2"),
+            )
+            teacher_step2_prompt_state = _teacher_start_state(bundle, step2_msgs_teacher)
+            # v4 当前把 GT leak 检查保留为 legacy no-op，因此这里通常为 False。
+            # 保留调用是为了让 v3/v4 prompt contract 将来若重新启用过滤时仍只改一处。
             leak2 = check_gt_leak_scene(_analysis_before_labels(raw_student_step2), ep.gt_scene)
             step2_parts = _opsd_loss_from_states(
                 bundle,
@@ -1200,9 +1126,12 @@ def iter_episode_loss_packs(
                 target_spans_scene,
                 analysis_enabled=not leak2,
                 include_keys=("scene",),
+                rollout_token_ids=student_step2_ids,
             )
             a2 = step2_parts["analysis"]
             s2 = step2_parts["scene"]
+            # step2 的输出决定 memory.scene。后续 step3 是否运行只看学生 memory 是否稳定
+            # 命中 GT，而不是 teacher 知道答案这件事。
             pred2 = parse_output(raw_student_step2)
             old_scene = memory.scene
             memory = update_memory_after_step2(memory, student_scene=pred2.get("scene"))
@@ -1219,34 +1148,26 @@ def iter_episode_loss_packs(
         )
         if step3_ran:
             assert student_step2_state is not None
+            # Step3 只在 scene 已经稳定正确时运行；否则 STATUS/SUBGOAL 候选表会属于错误
+            # scene，继续监督反而会把不同事件序列混在一起。
             step3_student_user = build_step3_student_prompt(memory)
             with torch.no_grad():
                 student_step3_prompt_state = _append_user_turn(bundle, student_step2_state, step3_student_user)
             student_was_training = bool(bundle.model.training)
             bundle.model.eval()
-            raw_student_step3, _student_step3_state = _student_generate_kv(
+            raw_student_step3, _student_step3_state, student_step3_ids = _student_generate_kv(
                 bundle, _clone_kv_state(student_step3_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP3
             )
             if student_was_training:
                 bundle.model.train()
 
-            with torch.no_grad():
-                teacher_step1_state_for_rollout, _, _ = _append_text_with_logits(
-                    bundle, _clone_kv_state(teacher_step1_prompt_state), raw_student_step1
-                )
-                teacher_step2_prompt_state = _append_user_turn(
-                    bundle,
-                    teacher_step1_state_for_rollout,
-                    build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene),
-                )
-                teacher_step2_state_for_rollout, _, _ = _append_text_with_logits(
-                    bundle, teacher_step2_prompt_state, raw_student_step2
-                )
-                teacher_step3_prompt_state = _append_user_turn(
-                    bundle,
-                    teacher_step2_state_for_rollout,
-                    build_step3_teacher_prompt(memory, gt_road_structure, ep.gt_scene, gt_status, gt_subgoal),
-                )
+            step3_msgs_teacher = _build_messages_with_images(
+                user_text=build_step3_teacher_prompt(memory, gt_road_structure, ep.gt_scene, gt_status, gt_subgoal),
+                images=images,
+                system_prompt=get_step_system_prompt("STEP3"),
+            )
+            teacher_step3_prompt_state = _teacher_start_state(bundle, step3_msgs_teacher)
+            # 与 step2 一样，这是跟随 v4 的 legacy no-op hook；当前不会跳 analysis KL。
             leak3 = check_gt_leak_status_subgoal(_analysis_before_labels(raw_student_step3), gt_status, gt_subgoal)
             step3_parts = _opsd_loss_from_states(
                 bundle,
@@ -1256,11 +1177,14 @@ def iter_episode_loss_packs(
                 target_spans_status,
                 analysis_enabled=not leak3,
                 include_keys=("status", "subgoal"),
+                rollout_token_ids=student_step3_ids,
             )
             a3 = step3_parts["analysis"]
             s3_status = step3_parts["status"]
             s3_subgoal = step3_parts["subgoal"]
 
+            # 只接受当前 canonical scene 事件序列里的 status/subgoal，防止自由生成把别的
+            # scene 事件写进 memory。
             pred3 = parse_output(raw_student_step3)
             pred_status = pred3.get("status") if validate_event(memory.scene, pred3.get("status")) else None
             pred_subgoal = pred3.get("subgoal") if validate_event(memory.scene, pred3.get("subgoal")) else None
@@ -1287,6 +1211,8 @@ def iter_episode_loss_packs(
             leak3=leak3,
             phase_a=phase_a,
         )
+        # 帧末预取下一帧 goal，保证下一轮 prompt 里的 EGO_TO_GOAL_XY 与即将读取的 RGB
+        # 时间对齐，而不是滞后一帧。
         _prefetch_goal_xy_for_next_frame(memory, run_dir, frame + stride, ep.frame_end)
 
 
@@ -1338,9 +1264,16 @@ def _save_adapter_config(path: pathlib.Path, bundle: Any, args: argparse.Namespa
     vision_targets = [x for x in targets if _is_vision_module_name(x)]
     payload = {
         "schema_version": 1,
-        "route": "sft_v3_sequence",
+        "route": "sft_v3_sequence_opsd",
         "base_model_dir": str(args.model_dir),
         "base_model_mutated": False,
+        "opsd": {
+            "teacher": "shared_base_disable_adapter",
+            "rollout_source": "student_free_generation",
+            "loss_type": "forward_kl_teacher_to_student",
+            "teacher_logits_detached": True,
+            "hard_teacher_text_ce": False,
+        },
         "distributed_train": {
             "mode": "work_stealing_local_sgd",
             "sync_every_episodes_per_rank": int(args.sync_every_episodes),
@@ -1762,7 +1695,7 @@ def main() -> None:
     device = torch.device(f"cuda:{local_rank}") if torch.cuda.is_available() else torch.device("cpu")
 
     # SFT v3 的 loss forward 依赖 prefill 出来的 past_key_values；后续 target token
-    # 只以 suffix-only 形式追加到 cache 后计算 CE。HF 在 training=True + gradient_checkpointing=True
+    # 只以 suffix-only 形式追加到 cache 后计算 student logits。HF 在 training=True + gradient_checkpointing=True
     # 时会强行把 use_cache 改 False、past_key_values 改 None。如果让 grad_checkpointing 打开，
     # loss forward 拿到的是没有 prefix 上下文的 suffix-only 序列，loss 静默错位、训练学不到东西。
     # test_kv_reuse.py 验证 KV 复用时也强制要求 gradient_checkpointing=False。

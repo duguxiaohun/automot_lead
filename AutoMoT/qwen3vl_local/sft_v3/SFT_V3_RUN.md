@@ -1,18 +1,27 @@
 # SFT v3 Runbook
 
 SFT v3 当前是 offline OPSD 路线：student 自由生成的文本就是 on-policy rollout；
-privileged teacher 不再提供 hard teacher text CE，而是在同一批 student token 上给出
-full-vocabulary logits，训练用 KL/JSD 风格分布匹配监督 analysis 与
-`ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 值 token。
+privileged teacher 不再提供 hard teacher text CE，而是在同一批未裁剪的 student step token
+上给出 full-vocabulary logits，当前训练用 forward-KL 分布匹配监督 analysis 与
+`ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 值 token；如果后续要改成 JSD，需要显式新增
+loss type 开关，并同步 v3/v4 prompt/文档验证。
 
 Prompt 同步规则：v3 与 v4 的 prompt、Memory、状态机和 target span 严格同步，唯一实现源是
 `qwen3vl_local/sft_v4/prompts.py`；`qwen3vl_local/sft_v3/prompts.py` 只 re-export
 v4 并保留少量 v3 兼容别名。改 prompt 时必须同时检查 v3/v4，训练方式差异仅是：
 v3 offline on-policy OPSD；v4 off-policy actor-learner replay。
+因此任何 heading、label、Memory 字段、trigger helper、target span 或 canonical scene
+规则的改动，都要同时静态编译 `sft_v3/*.py` 与 `sft_v4/*.py`，并至少跑对应的
+memory / mask / KV smoke test；不要只验证 v4 collector/learner。
 
 一条 episode 仍是一个 sub-scenario 时间序列，学生用上一帧输出维护文本 memory；
 但监督信号来自 OPSD 的 privileged-teacher logit distribution，而不是离线物化 teacher 文本。
 学生同时学习 analysis token 和 `ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 值 token。
+teacher 端始终通过 `eval() + no_grad + disable_adapter()` 走 frozen/base Qwen，并分别使用
+v4 的 `SYSTEM_PROMPT_STEP1/2/3`；student 端按 v4 collector 的 on-policy 对话顺序自由生成。
+OPSD scoring 使用 student 自由生成时真实进入 KV 的 token ids；原始文本只用于解析标签和值
+span，且不先 `.strip()`，避免 batch_decode 后重分词造成 loss token 与实际 memory/KV 轨迹漂移。
+`build_dataset.py` 与 v4 一样保留 `raw_gt_scene`，训练/eval 标签使用 canonical `gt_scene`。
 
 本文默认当前目录是远端 `AutoMoT/`。
 
@@ -20,7 +29,8 @@ v3 offline on-policy OPSD；v4 off-policy actor-learner replay。
 
 1. `prompts.py`：先理解 memory 格式、状态机更新和三步 prompt。
 2. `build_dataset.py`：理解 episode index 的数据契约。
-3. `train.py`：重点看 `KVState`、`_append_token_ids`、`iter_episode_loss_packs`。
+3. `train.py`：重点看 `KVState`、`_append_token_ids_with_logits`、
+   `_opsd_loss_from_states`、`iter_episode_loss_packs`。
 4. `eval.py` / `probe.py`：理解自由生成评估和 case dump。
 
 当前关键边界：
@@ -29,8 +39,8 @@ v3 offline on-policy OPSD；v4 off-policy actor-learner replay。
   `delta=0`；窄间距 episode 只 warning，不静默改大。
 - `EGO_TO_GOAL_XY` 必须来自 `meta["next_target_points"][-1]` 转 ego，缺 meta 或字段
   解析失败会直接报错，不 fallback 到 measurements 或 `(0,0)`。
-- memory 的 goal 坐标在帧末为下一帧预取；step3 触发统一走
-  `should_trigger_step3(memory_scene_after_step2, gt_scene)`。
+- memory 的 goal 坐标在帧末为下一帧预取；step2/step3 触发统一走 v4 的
+  `should_trigger_step2/3(before, after, gt, reset_this_frame)` 稳定门。
 
 ---
 
@@ -174,7 +184,7 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v3_lora/latest/tb
 - `train/step3_trigger_rate`
 - `train/road_structure_flip_rate`
 - `train/scene_flip_rate`
-- `train/gt_leak_skip_rate/{step2,step3}`
+- `train/gt_leak_skip_rate/{step2,step3}`：legacy hook 兼容项；当前 v4 no-op 下应为 0
 - `train/phase_a_frame_frac`
 - `grad_norm/{language,vision}`
 - `param_norm/lora_{language,vision}`
@@ -270,6 +280,9 @@ python qwen3vl_local/sft_v3/test_memory_update.py
 python qwen3vl_local/sft_v3/test_gt_leak_filter.py
 python qwen3vl_local/sft_v3/check_loss_mask.py
 ```
+
+`test_gt_leak_filter.py` 现在检查的是 v3/v4 hook 同步：当前 v4 的
+`check_gt_leak_*` 是 legacy no-op，v3 不应维护第二套字面正则。
 
 KV 复用测试会加载本地 Qwen 权重；有模型时再跑：
 

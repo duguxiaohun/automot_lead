@@ -41,8 +41,8 @@ from qwen3vl_local.sft_v4.train import (
     _load_images,
     _prefetch_goal_xy_for_next_frame,
 )
-get_step_system_prompt,
-
+from qwen3vl_local.sft_v4.prompts import (
+    get_step_system_prompt,
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
