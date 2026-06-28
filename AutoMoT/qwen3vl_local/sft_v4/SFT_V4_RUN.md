@@ -38,18 +38,23 @@ Step2 的 `SCENE_CHOICES` 只列 v4 canonical scene：`EnterActorFlowV2` 折叠�
 raw CARLA scenario 的描述和 event sequence 完全一致，`V2` 不是学生需要从视觉里区分的目标。
 `build_dataset.py` 保留 `scenario/raw_gt_scene` 作为原始 CARLA 名称，`gt_scene` 写 canonical
 label；旧 episode index 若仍含 V2，`EpisodeDataset` 读取时也会自动 canonicalize。
-三步 student prompt 和 teacher prompt 共用同一个四行 analysis contract：都要求先写
-`Scene Description:`、`Relevant Visible Cues:`、`Evidence Assessment:`、
-`Memory Judgment:` 四行 plain-text analysis；区别只是 student 要自己在最后写结构化
-`ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 标签，teacher 不写标签，由
-`build_step*_teacher_target` 脚本追加。`_clean_teacher_analysis` 会剥掉误写的结构化标签行、
+三步 student/teacher 共用四行 analysis contract：`Scene Description:` / `Critical Object Description:` /
+`Reasoning on Intent:` / `Memory Judgment:` 四行 plain-text analysis。三个 step 各有
+专有 system prompt（`SYSTEM_PROMPT_STEP1/2/3`，通过 `get_step_system_prompt()` 分发），
+各自只写该 step 的关注点和证据规则，不交叉注入其他层次信息。Step1 只看 road-layout cues；
+Step2 是当前 road bucket 内的 fine-grained scene verification；Step3 明确区分 `STATUS`
+当前观察阶段与 `SUBGOAL` 下一即时目标。student 在 step 块看到 `Then write:` 指令后在分析
+末尾写结构化 `ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 标签；teacher 不写标签，由
+`build_step*_teacher_target` 脚本追加，追加前经过 `_enforce_memory_judgment_opener`
+（对齐 opener 词与 verdict）+ `_honest_weak_evidence_judgment`（检测弱证据矛盾并诚实改写）
+两层后处理。`_clean_teacher_analysis` 会剥掉误写的结构化标签行、orphaned opener 行
+（不带 `Memory Judgment:` 前缀的 `Corrected because:` / `Kept because:` 孤行）、
 prompt marker，并把残留私有字段名改成 `the corrected ...` 口径。
 公共证据契约：默认使用 believed memory；只有清晰可见证据矛盾时才改；能见度弱或证据暧昧时
-写成 not contradicted，而不是强确认；不编造视觉线索，不凭远处单车推断 braking / merging /
-cut-in / active flow。Step1 只看 road-layout cues；Step2 是当前 road bucket 内的
-fine-grained scene verification，不能强行把弱视觉证据写成 active flow；Step3 明确区分
-`STATUS` 当前观察阶段与 `SUBGOAL` 下一即时目标，不能在没有清晰 phase transition 时提前推进
-STATUS；当 `STATUS=initial` 且 `SUBGOAL=flow_approach` 时，应写成当前阶段仍为 initial、flow_approach 是保留的下一目标。analysis 控制在约 60-120 words，所有 label 必须单独成行。
+写成 not contradicted，而不是强确认。教师 CHANGE/ADVANCE 的 GT_HINT 允许弱证据诚实表述：
+若有可见矛盾则点名，若无则承认"not strongly supported, correction is a plausible
+alternative without strong visual confirmation"。不编造视觉线索。analysis 控制在
+100-150 words (aim for)，所有 label 必须单独成行。
 teacher 默认生成上限为 `384/384/384`（仅作异常生成的技术护栏，不限制每行词数）；
 teacher 调用不再传强制最少生成参数，让模型自然停止。
 
@@ -583,7 +588,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v4/inspect_teacher.py \
    `the corrected ...` 口径。
 2. **再看 STUDENT-FACING prompt 与 STUDENT SUPERVISED TARGET 是否同构**：
    step1/2/3 都应使用同一套四行 heading（`Scene Description` /
-   `Relevant Visible Cues` / `Evidence Assessment` / `Memory Judgment`），
+   `Critical Object Description` / `Reasoning on Intent` / `Memory Judgment`），
    差别只应是 student 自己写 label，而 teacher target 的 label 由脚本追加。
 3. **再看 raw analysis 是否像人在解释**：重点查空泛复读、是否真的针对当前 step 的
    privileged context 做论证。允许老师知道答案，但不能把答案先验伪装成视觉事实；
