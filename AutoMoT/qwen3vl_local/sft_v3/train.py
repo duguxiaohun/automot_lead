@@ -1,4 +1,4 @@
-"""SFT v3 训练入口：sequence memory + 三步 OPD 蒸馏。
+"""SFT v3 训练入口：sequence memory + 三步 OPSD 蒸馏。
 
 实现对应 ``SFT_V3_PLAN.md``：
 
@@ -8,9 +8,9 @@
 - teacher 与 student 共享同一份 base Qwen，teacher 通过 ``disable_adapter`` 关闭 LoRA；
 - 训练只保存 LoRA adapter delta，base checkpoint 始终只读。
 
-本文件里最容易读错的是 KV cache 处理：训练时 student 会先“自由生成”用于更新
-memory，然后再把 teacher 生成的 target 用 teacher-forced 方式 append 到同一个
-prompt state 上计算 CE。自由生成决定下一帧 memory；teacher-forced target 决定梯度。
+本文件里最容易读错的是 KV cache 处理：训练时 student 先“自由生成”得到 on-policy
+rollout 并更新 memory；privileged teacher 只提供同一批 student token 上的 full-vocab
+logit distribution。OPSD loss 是 KL/JSD 风格的分布匹配，不再把 teacher 文本当硬标签 CE。
 """
 
 from __future__ import annotations
@@ -68,6 +68,7 @@ from qwen3vl_local.engine import _clone_cache
 from qwen3vl_local.mrope_utils import qwen3vl_incremental_forward
 from qwen3vl_local.sft_v3.prompts import (
     DEFAULT_W_ANALYSIS,
+    DEFAULT_W_ROAD_STRUCTURE,
     DEFAULT_W_SCENE,
     DEFAULT_W_STATUS,
     DEFAULT_W_SUBGOAL,
@@ -75,6 +76,8 @@ from qwen3vl_local.sft_v3.prompts import (
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
+    build_step1_teacher_prompt,
+    build_step1_teacher_target,
     build_step1_user_prompt,
     build_step2_student_prompt,
     build_step2_teacher_prompt,
@@ -84,14 +87,19 @@ from qwen3vl_local.sft_v3.prompts import (
     build_step3_teacher_target,
     check_gt_leak_scene,
     check_gt_leak_status_subgoal,
-    force_memory_to_gt_scene,
+    force_memory_to_gt_chain,
+    get_road_structure,
     should_trigger_step3,
+    should_trigger_step2,
     init_memory,
     parse_output,
+    target_spans_road_structure,
     target_spans_scene,
     target_spans_status,
+    update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
+    validate_road_structure,
     validate_event,
 )
 
@@ -466,7 +474,7 @@ def _append_token_ids(
     pending_ids = decoded_ids[:, prefix_ids.shape[1] :]
     feed_ids = torch.cat([pending_ids, suffix_ids], dim=1) if pending_ids.numel() else suffix_ids
     zero = state.next_logits.sum() * 0.0
-    parts = {"analysis": zero, "scene": zero, "status": zero, "subgoal": zero}
+    parts = {"analysis": zero, "road_structure": zero, "scene": zero, "status": zero, "subgoal": zero}
     if feed_ids.shape[1] == 0:
         return state, parts
 
@@ -553,6 +561,158 @@ def _append_text(
         span_fn=span_fn,
         analysis_enabled=analysis_enabled,
     )
+
+
+def _append_token_ids_with_logits(
+    bundle: Any,
+    state: KVState,
+    suffix_ids: torch.Tensor,
+) -> Tuple[KVState, torch.Tensor, torch.Tensor]:
+    """Append tokens and return next-token logits for the appended positions.
+
+    OPSD does not use teacher text as hard CE labels.  It appends the exact
+    same student rollout tokens to a student state and a privileged teacher
+    state, then matches the resulting full-vocabulary next-token distributions.
+    """
+
+    if suffix_ids.ndim == 1:
+        suffix_ids = suffix_ids.unsqueeze(0)
+    suffix_ids = suffix_ids.to(state.cache_input_ids.device)
+    prefix_ids = state.cache_input_ids
+    decoded_ids = state.decoded_input_ids.to(prefix_ids.device)
+    pending_ids = decoded_ids[:, prefix_ids.shape[1] :]
+    feed_ids = torch.cat([pending_ids, suffix_ids], dim=1) if pending_ids.numel() else suffix_ids
+    if feed_ids.shape[1] == 0:
+        empty = state.next_logits.new_zeros((1, 0, state.next_logits.shape[-1]))
+        return state, empty, feed_ids
+
+    old_attention = state.attention_mask.to(prefix_ids.device)
+    attention_mask = torch.cat(
+        [old_attention, torch.ones_like(feed_ids, device=old_attention.device)],
+        dim=1,
+    )
+    prefix_len = int(prefix_ids.shape[1])
+    outputs = qwen3vl_incremental_forward(
+        bundle.model,
+        feed_ids=feed_ids,
+        attention_mask=attention_mask,
+        past_key_values=state.past_key_values,
+        prefix_len=prefix_len,
+        rope_deltas=state.rope_deltas,
+    )
+    pred_logits = torch.cat([state.next_logits.unsqueeze(1), outputs.logits[:, :-1, :]], dim=1)
+    decoded_input_ids = torch.cat([prefix_ids, feed_ids], dim=1)
+    new_state = KVState(
+        decoded_input_ids=decoded_input_ids,
+        cache_input_ids=decoded_input_ids,
+        attention_mask=attention_mask,
+        past_key_values=outputs.past_key_values,
+        rope_deltas=getattr(outputs, "rope_deltas", state.rope_deltas),
+        next_logits=outputs.logits[:, -1, :],
+    )
+    return new_state, pred_logits, feed_ids
+
+
+def _append_text_with_logits(bundle: Any, state: KVState, text: str) -> Tuple[KVState, torch.Tensor, torch.Tensor]:
+    """Tokenize text, append it to a KV state, and expose appended-token logits."""
+
+    enc = bundle.tokenizer(text, add_special_tokens=False, return_tensors="pt")
+    return _append_token_ids_with_logits(bundle, state, enc["input_ids"])
+
+
+def _loss_positions_for_text(
+    bundle: Any,
+    assistant_text: str,
+    span_fn: Any | None,
+    *,
+    analysis_enabled: bool,
+    include_keys: Iterable[str],
+) -> Dict[str, List[int]]:
+    """Map analysis/label character spans to token positions for OPSD KL."""
+
+    enc = bundle.tokenizer(assistant_text, return_offsets_mapping=True, add_special_tokens=False)
+    offsets = [(int(a), int(b)) for a, b in enc["offset_mapping"]]
+    out: Dict[str, List[int]] = {"analysis": []}
+    for key in include_keys:
+        out.setdefault(str(key), [])
+    if analysis_enabled:
+        analysis_end = _analysis_char_end(assistant_text)
+        out["analysis"] = [
+            j for j, (lo, hi) in enumerate(offsets)
+            if hi > 0 and lo < analysis_end and assistant_text[lo:hi].strip()
+        ]
+    if span_fn is not None:
+        spans = span_fn(assistant_text)
+        for key, (span_lo, span_hi) in spans.items():
+            if key not in out:
+                continue
+            out[key] = [
+                j for j, (lo, hi) in enumerate(offsets)
+                if lo < span_hi and hi > span_lo
+            ]
+    return out
+
+
+def _zero_from_state(state: KVState) -> torch.Tensor:
+    """Create a differentiable scalar zero on the model device."""
+
+    return state.next_logits.sum() * 0.0
+
+
+def _kl_for_positions(
+    student_logits: torch.Tensor,
+    teacher_logits: torch.Tensor,
+    positions: List[int],
+    *,
+    temperature: float = 1.0,
+) -> torch.Tensor:
+    """Full-vocabulary OPSD KL over selected appended-token positions."""
+
+    if not positions:
+        return student_logits.sum() * 0.0
+    idx = torch.tensor(positions, device=student_logits.device, dtype=torch.long)
+    s = student_logits[:, idx, :].reshape(-1, student_logits.shape[-1])
+    t = teacher_logits[:, idx, :].reshape(-1, teacher_logits.shape[-1]).detach()
+    temp = max(float(temperature), 1e-6)
+    return F.kl_div(
+        F.log_softmax(s / temp, dim=-1),
+        F.softmax(t / temp, dim=-1),
+        reduction="batchmean",
+    ) * (temp * temp)
+
+
+def _opsd_loss_from_states(
+    bundle: Any,
+    student_state: KVState,
+    teacher_state: KVState,
+    student_rollout: str,
+    span_fn: Any | None,
+    *,
+    analysis_enabled: bool,
+    include_keys: Iterable[str],
+    temperature: float = 1.0,
+) -> Dict[str, torch.Tensor]:
+    """Match teacher/student logits on the same on-policy student rollout."""
+
+    zero = _zero_from_state(student_state)
+    parts = {"analysis": zero, "road_structure": zero, "scene": zero, "status": zero, "subgoal": zero}
+    text = (student_rollout or "").strip()
+    if not text:
+        return parts
+    with torch.no_grad():
+        _, teacher_logits, _ = _append_text_with_logits(bundle, _clone_kv_state(teacher_state), text)
+    _, student_logits, _ = _append_text_with_logits(bundle, _clone_kv_state(student_state), text)
+    positions = _loss_positions_for_text(
+        bundle,
+        text,
+        span_fn,
+        analysis_enabled=analysis_enabled,
+        include_keys=include_keys,
+    )
+    for key, pos in positions.items():
+        if key in parts:
+            parts[key] = _kl_for_positions(student_logits, teacher_logits, pos, temperature=temperature)
+    return parts
 
 
 def _render_user_suffix(bundle: Any, user_text: str) -> str:
@@ -709,26 +869,30 @@ class FrameLossPack:
     """单帧三步内循环产生的 loss 与诊断标志。"""
 
     a1: torch.Tensor
+    rs1: torch.Tensor
     a2: torch.Tensor
     s2: torch.Tensor
     a3: torch.Tensor
     s3_status: torch.Tensor
     s3_subgoal: torch.Tensor
+    step2_ran: bool
     step3_ran: bool
+    rs_flip: bool
     scene_flip: bool
+    leak1: bool
     leak2: bool
     leak3: bool
     phase_a: bool
 
 
-def iter_episode_loss_packs(
+def _legacy_iter_episode_loss_packs_unused(
     bundle: Any,
     ep: EpisodeRow,
     *,
     max_length: int = 8192,
     outer_stride: int = 1,
 ) -> Iterable[FrameLossPack]:
-    """逐帧执行一条 episode，并 yield 每帧 loss pack。
+    """Legacy hard-target OPD implementation kept only for archaeology.
 
     这是 v3 训练的核心状态机：
     1. 帧开头根据 Phase 决定是否强制 memory.scene=GT；
@@ -737,7 +901,7 @@ def iter_episode_loss_packs(
     4. 若 step2 后 memory.scene==GT scene，才进入 step3 训练 status/subgoal；
     5. 自由生成决定 memory 走向，teacher-forced target 决定梯度。
 
-    KV cache 只在单帧三步内复用，不跨帧；跨帧连续性只来自纯文本 memory。
+    The public ``iter_episode_loss_packs`` below is the active OPSD version.
     """
 
     del max_length  # processor truncation is intentionally not enabled for Qwen image chats.
@@ -900,6 +1064,232 @@ def iter_episode_loss_packs(
         yield pack
 
 
+def iter_episode_loss_packs(
+    bundle: Any,
+    ep: EpisodeRow,
+    *,
+    max_length: int = 8192,
+    outer_stride: int = 1,
+) -> Iterable[FrameLossPack]:
+    """Run one episode with v4-synchronized prompts and OPSD KL.
+
+    Student free generation is the rollout; the privileged teacher uses the
+    same current LoRA parameters under ``no_grad`` and supervises the exact
+    same student tokens with full-vocabulary KL.
+    """
+
+    del max_length
+    run_dir = pathlib.Path(ep.run_dir)
+    gx, gy = _load_goal_xy(run_dir, ep.frame_start)
+    memory = init_memory(
+        run_id=ep.run_id,
+        sub_scenario_id=f"{ep.run_id}:{ep.anchors[1]}",
+        ego_to_goal_x=gx,
+        ego_to_goal_y=gy,
+        gt_scene=ep.gt_scene,
+    )
+
+    gt_road_structure = get_road_structure(ep.gt_scene)
+    stride = max(1, outer_stride)
+    for frame in range(ep.frame_start, ep.frame_end + 1, stride):
+        phase_a = _is_phase_a(ep, frame)
+        road_structure_reset_this_frame = False
+        scene_reset_this_frame = False
+        if not phase_a:
+            before_rs = memory.road_structure
+            before_scene = memory.scene
+            memory = force_memory_to_gt_chain(
+                memory, gt_road_structure=gt_road_structure, gt_scene=ep.gt_scene
+            )
+            road_structure_reset_this_frame = memory.road_structure != before_rs
+            scene_reset_this_frame = memory.scene != before_scene
+
+        image_paths = _build_rgb_paths(run_dir, frame)
+        try:
+            images = _load_images(image_paths)
+        except Exception:
+            _prefetch_goal_xy_for_next_frame(memory, run_dir, frame + stride, ep.frame_end)
+            continue
+
+        gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
+        zero_seed: Optional[torch.Tensor] = None
+
+        step1_student_user = build_step1_user_prompt(len(images), memory=memory)
+        step1_teacher_user = build_step1_teacher_prompt(memory, gt_road_structure)
+        step1_msgs_student = _build_messages_with_images(user_text=step1_student_user, images=images)
+        step1_msgs_teacher = _build_messages_with_images(user_text=step1_teacher_user, images=images)
+
+        student_was_training = bool(bundle.model.training)
+        bundle.model.eval()
+        student_step1_prompt_state = _student_start_state(bundle, step1_msgs_student)
+        raw_student_step1, student_step1_state = _student_generate_kv(
+            bundle, _clone_kv_state(student_step1_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP1
+        )
+        if student_was_training:
+            bundle.model.train()
+        if not raw_student_step1:
+            raw_student_step1 = build_step1_teacher_target("No reliable student output was generated.", gt_road_structure)
+
+        teacher_was_training = bool(bundle.model.training)
+        bundle.model.eval()
+        teacher_step1_prompt_state = _teacher_start_state(bundle, step1_msgs_teacher)
+        if teacher_was_training:
+            bundle.model.train()
+        leak1 = False
+        step1_parts = _opsd_loss_from_states(
+            bundle,
+            _clone_kv_state(student_step1_prompt_state),
+            _clone_kv_state(teacher_step1_prompt_state),
+            raw_student_step1,
+            target_spans_road_structure,
+            analysis_enabled=True,
+            include_keys=("road_structure",),
+        )
+        zero_seed = step1_parts["analysis"] * 0.0
+
+        pred1 = parse_output(raw_student_step1)
+        old_rs = memory.road_structure
+        memory = update_memory_after_step1(memory, student_road_structure=pred1.get("road_structure"))
+        rs_flip = memory.road_structure != old_rs
+
+        a2 = zero_seed
+        s2 = zero_seed
+        a3 = zero_seed
+        s3_status = zero_seed
+        s3_subgoal = zero_seed
+        leak2 = False
+        leak3 = False
+        scene_flip = False
+        old_scene = memory.scene
+        student_step2_state: Optional[KVState] = None
+        raw_student_step2 = ""
+
+        step2_ran = should_trigger_step2(
+            memory_road_structure_before_step1=old_rs,
+            memory_road_structure_after_step1=memory.road_structure,
+            gt_road_structure=gt_road_structure,
+            road_structure_reset_this_frame=road_structure_reset_this_frame,
+        )
+        if step2_ran:
+            step2_student_user = build_step2_student_prompt(memory)
+            with torch.no_grad():
+                student_step2_prompt_state = _append_user_turn(bundle, student_step1_state, step2_student_user)
+            student_was_training = bool(bundle.model.training)
+            bundle.model.eval()
+            raw_student_step2, student_step2_state = _student_generate_kv(
+                bundle, _clone_kv_state(student_step2_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP2
+            )
+            if student_was_training:
+                bundle.model.train()
+
+            with torch.no_grad():
+                teacher_step1_state_for_rollout, _, _ = _append_text_with_logits(
+                    bundle, _clone_kv_state(teacher_step1_prompt_state), raw_student_step1
+                )
+                teacher_step2_prompt_state = _append_user_turn(
+                    bundle,
+                    teacher_step1_state_for_rollout,
+                    build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene),
+                )
+            leak2 = check_gt_leak_scene(_analysis_before_labels(raw_student_step2), ep.gt_scene)
+            step2_parts = _opsd_loss_from_states(
+                bundle,
+                _clone_kv_state(student_step2_prompt_state),
+                _clone_kv_state(teacher_step2_prompt_state),
+                raw_student_step2,
+                target_spans_scene,
+                analysis_enabled=not leak2,
+                include_keys=("scene",),
+            )
+            a2 = step2_parts["analysis"]
+            s2 = step2_parts["scene"]
+            pred2 = parse_output(raw_student_step2)
+            old_scene = memory.scene
+            memory = update_memory_after_step2(memory, student_scene=pred2.get("scene"))
+            scene_flip = memory.scene != old_scene
+
+        step3_ran = (
+            step2_ran
+            and should_trigger_step3(
+                memory_scene_before_step2=old_scene,
+                memory_scene_after_step2=memory.scene,
+                gt_scene=ep.gt_scene,
+                scene_reset_this_frame=scene_reset_this_frame,
+            )
+        )
+        if step3_ran:
+            assert student_step2_state is not None
+            step3_student_user = build_step3_student_prompt(memory)
+            with torch.no_grad():
+                student_step3_prompt_state = _append_user_turn(bundle, student_step2_state, step3_student_user)
+            student_was_training = bool(bundle.model.training)
+            bundle.model.eval()
+            raw_student_step3, _student_step3_state = _student_generate_kv(
+                bundle, _clone_kv_state(student_step3_prompt_state), TEACHER_MAX_NEW_TOKENS_STEP3
+            )
+            if student_was_training:
+                bundle.model.train()
+
+            with torch.no_grad():
+                teacher_step1_state_for_rollout, _, _ = _append_text_with_logits(
+                    bundle, _clone_kv_state(teacher_step1_prompt_state), raw_student_step1
+                )
+                teacher_step2_prompt_state = _append_user_turn(
+                    bundle,
+                    teacher_step1_state_for_rollout,
+                    build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene),
+                )
+                teacher_step2_state_for_rollout, _, _ = _append_text_with_logits(
+                    bundle, teacher_step2_prompt_state, raw_student_step2
+                )
+                teacher_step3_prompt_state = _append_user_turn(
+                    bundle,
+                    teacher_step2_state_for_rollout,
+                    build_step3_teacher_prompt(memory, gt_road_structure, ep.gt_scene, gt_status, gt_subgoal),
+                )
+            leak3 = check_gt_leak_status_subgoal(_analysis_before_labels(raw_student_step3), gt_status, gt_subgoal)
+            step3_parts = _opsd_loss_from_states(
+                bundle,
+                _clone_kv_state(student_step3_prompt_state),
+                _clone_kv_state(teacher_step3_prompt_state),
+                raw_student_step3,
+                target_spans_status,
+                analysis_enabled=not leak3,
+                include_keys=("status", "subgoal"),
+            )
+            a3 = step3_parts["analysis"]
+            s3_status = step3_parts["status"]
+            s3_subgoal = step3_parts["subgoal"]
+
+            pred3 = parse_output(raw_student_step3)
+            pred_status = pred3.get("status") if validate_event(memory.scene, pred3.get("status")) else None
+            pred_subgoal = pred3.get("subgoal") if validate_event(memory.scene, pred3.get("subgoal")) else None
+            memory = update_memory_after_step3(
+                memory,
+                student_status=pred_status,
+                student_subgoal=pred_subgoal,
+            )
+
+        yield FrameLossPack(
+            a1=step1_parts["analysis"],
+            rs1=step1_parts["road_structure"],
+            a2=a2,
+            s2=s2,
+            a3=a3,
+            s3_status=s3_status,
+            s3_subgoal=s3_subgoal,
+            step2_ran=step2_ran,
+            step3_ran=step3_ran,
+            rs_flip=rs_flip,
+            scene_flip=scene_flip,
+            leak1=leak1,
+            leak2=leak2,
+            leak3=leak3,
+            phase_a=phase_a,
+        )
+        _prefetch_goal_xy_for_next_frame(memory, run_dir, frame + stride, ep.frame_end)
+
+
 def compute_episode_losses(
     bundle: Any,
     ep: EpisodeRow,
@@ -963,6 +1353,7 @@ def _save_adapter_config(path: pathlib.Path, bundle: Any, args: argparse.Namespa
         "strict_vision_scope": bool(args.strict_vision_scope),
         "loss_weights": {
             "a1": float(args.w_a1),
+            "rs1": float(args.w_rs1),
             "a2": float(args.w_a2),
             "a3": float(args.w_a3),
             "s2": float(args.w_s2),
@@ -984,7 +1375,7 @@ save_sft_v3_adapter_config = _save_adapter_config
 
 @torch.no_grad()
 def evaluate_quick(bundle: Any, loader: DataLoader, args: argparse.Namespace) -> Dict[str, float]:
-    """训练中的轻量 validation，只算 teacher-forced quick loss。
+    """训练中的轻量 validation，只算 offline OPSD quick loss。
 
     它不是完整自由生成 eval，不报告 scene recovery 等 memory 指标；完整指标请训练后
     单独运行 `eval.py`。DDP 下该路径被禁用。
@@ -1006,6 +1397,7 @@ def evaluate_quick(bundle: Any, loader: DataLoader, args: argparse.Namespace) ->
             for pack in packs:
                 loss = (
                     args.w_a1 * pack.a1
+                    + args.w_rs1 * pack.rs1
                     + args.w_a2 * pack.a2
                     + args.w_s2 * pack.s2
                     + args.w_a3 * pack.a3
@@ -1059,6 +1451,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vision-guard-param-norm-max", type=float, default=200.0)
     parser.add_argument("--vision-guard-patience", type=int, default=3)
     parser.add_argument("--w-a1", type=float, default=DEFAULT_W_ANALYSIS)
+    parser.add_argument("--w-rs1", type=float, default=DEFAULT_W_ROAD_STRUCTURE)
     parser.add_argument("--w-a2", type=float, default=DEFAULT_W_ANALYSIS)
     parser.add_argument("--w-a3", type=float, default=DEFAULT_W_ANALYSIS)
     parser.add_argument("--w-s2", type=float, default=DEFAULT_W_SCENE)
@@ -1465,12 +1858,16 @@ def main() -> None:
     accum_loss = 0.0
     stats = {
         "frames": 0,
+        "step2": 0,
         "step3": 0,
+        "rs_flip": 0,
         "flip": 0,
+        "leak1": 0,
         "leak2": 0,
         "leak3": 0,
         "phase_a": 0,
         "loss_a1": 0.0,
+        "loss_rs1": 0.0,
         "loss_a2": 0.0,
         "loss_a3": 0.0,
         "loss_s2": 0.0,
@@ -1735,6 +2132,7 @@ def main() -> None:
                         break
                     loss = (
                         args.w_a1 * pack.a1
+                        + args.w_rs1 * pack.rs1
                         + args.w_a2 * pack.a2
                         + args.w_s2 * pack.s2
                         + args.w_a3 * pack.a3
@@ -1745,12 +2143,16 @@ def main() -> None:
                     accum_loss += _to_float(loss)
                     accum_steps += 1
                     stats["frames"] += 1
+                    stats["step2"] += int(pack.step2_ran)
                     stats["step3"] += int(pack.step3_ran)
+                    stats["rs_flip"] += int(pack.rs_flip)
                     stats["flip"] += int(pack.scene_flip)
+                    stats["leak1"] += int(pack.leak1)
                     stats["leak2"] += int(pack.leak2)
                     stats["leak3"] += int(pack.leak3)
                     stats["phase_a"] += int(pack.phase_a)
                     stats["loss_a1"] += _to_float(pack.a1)
+                    stats["loss_rs1"] += _to_float(pack.rs1)
                     stats["loss_a2"] += _to_float(pack.a2)
                     stats["loss_a3"] += _to_float(pack.a3)
                     stats["loss_s2"] += _to_float(pack.s2)
@@ -1805,8 +2207,11 @@ def main() -> None:
                             f"[train] epoch={epoch} round={round_idx + 1}/{rounds_per_epoch} "
                             f"step={global_step}/{total_steps} loss={loss_scalar:.4f} "
                             f"lr={float(lrs[0]) if lrs else 0.0:.2e} "
+                            f"step2={_safe_ratio(stats['step2'], frames):.3f} "
                             f"step3={_safe_ratio(stats['step3'], frames):.3f} "
+                            f"rs_flip={_safe_ratio(stats['rs_flip'], frames):.3f} "
                             f"flip={_safe_ratio(stats['flip'], frames):.3f} "
+                            f"leak1={_safe_ratio(stats['leak1'], frames):.3f} "
                             f"leak2={_safe_ratio(stats['leak2'], frames):.3f} "
                             f"leak3={_safe_ratio(stats['leak3'], max(stats['step3'], 1)):.3f} "
                             f"phase_a={_safe_ratio(stats['phase_a'], frames):.3f} "
@@ -1817,12 +2222,14 @@ def main() -> None:
                             language_param_norm = _param_norm(language_params) if language_params else 0.0
                             tb.add_scalar("train/loss_total", loss_scalar, global_step)
                             tb.add_scalar("train/loss/a1", stats["loss_a1"] / frames, global_step)
+                            tb.add_scalar("train/loss/rs1", stats["loss_rs1"] / frames, global_step)
                             tb.add_scalar("train/loss/a2", stats["loss_a2"] / frames, global_step)
                             tb.add_scalar("train/loss/a3", stats["loss_a3"] / frames, global_step)
                             tb.add_scalar("train/loss/s2", stats["loss_s2"] / frames, global_step)
                             tb.add_scalar("train/loss/s3_status", stats["loss_s3_status"] / frames, global_step)
                             tb.add_scalar("train/loss/s3_subgoal", stats["loss_s3_subgoal"] / frames, global_step)
                             tb.add_scalar("train/loss_weight/a1", float(args.w_a1), global_step)
+                            tb.add_scalar("train/loss_weight/rs1", float(args.w_rs1), global_step)
                             tb.add_scalar("train/loss_weight/a2", float(args.w_a2), global_step)
                             tb.add_scalar("train/loss_weight/a3", float(args.w_a3), global_step)
                             tb.add_scalar("train/loss_weight/s2", float(args.w_s2), global_step)
@@ -1831,7 +2238,9 @@ def main() -> None:
                             tb.add_scalar("train/lr", float(lrs[0]) if lrs else 0.0, global_step)
                             if len(lrs) > 1:
                                 tb.add_scalar("train/lr_vision", float(lrs[1]), global_step)
+                            tb.add_scalar("train/step2_trigger_rate", _safe_ratio(stats["step2"], frames), global_step)
                             tb.add_scalar("train/step3_trigger_rate", _safe_ratio(stats["step3"], frames), global_step)
+                            tb.add_scalar("train/road_structure_flip_rate", _safe_ratio(stats["rs_flip"], frames), global_step)
                             tb.add_scalar("train/scene_flip_rate", _safe_ratio(stats["flip"], frames), global_step)
                             tb.add_scalar("train/phase_a_frame_frac", _safe_ratio(stats["phase_a"], frames), global_step)
                             tb.add_scalar("train/gt_leak_skip_rate/step2", _safe_ratio(stats["leak2"], frames), global_step)

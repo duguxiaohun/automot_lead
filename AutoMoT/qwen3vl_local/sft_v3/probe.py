@@ -42,6 +42,7 @@ from qwen3vl_local.sft_v3.train import (
 )
 from qwen3vl_local.sft_v3.prompts import (
     build_step1_user_prompt,
+    build_step1_teacher_prompt,
     build_step2_student_prompt,
     build_step2_teacher_prompt,
     build_step2_teacher_target,
@@ -50,11 +51,15 @@ from qwen3vl_local.sft_v3.prompts import (
     build_step3_teacher_target,
     check_gt_leak_scene,
     check_gt_leak_status_subgoal,
+    get_road_structure,
     init_memory,
     parse_output,
+    should_trigger_step2,
     should_trigger_step3,
+    update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
+    validate_road_structure,
     validate_event,
 )
 
@@ -165,6 +170,7 @@ def main() -> None:
             ego_to_goal_y=gy,
             gt_scene=ep.gt_scene,
         )
+        gt_road_structure = get_road_structure(ep.gt_scene)
 
         frame_logs: List[Dict[str, Any]] = []
 
@@ -190,6 +196,7 @@ def main() -> None:
             gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
 
             memory_before = {
+                "road_structure": memory.road_structure,
                 "scene": memory.scene,
                 "status": memory.status,
                 "subgoal": memory.subgoal,
@@ -197,13 +204,27 @@ def main() -> None:
                 "goal_y": memory.ego_to_goal_y,
             }
 
-            step1_user = build_step1_user_prompt(len(images))
+            step1_user = build_step1_user_prompt(len(images), memory=memory)
             step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
             step1_teacher_text = ""
             if teacher_engine is not None:
-                # teacher step1 不吃 GT，只作为视觉分析风格参照。
-                step1_teacher_text = _generate(teacher_engine, step1_msgs, images, max_new_tokens=80)
+                step1_teacher_msgs = _build_messages_with_images(
+                    user_text=build_step1_teacher_prompt(memory, gt_road_structure),
+                    images=images,
+                )
+                step1_teacher_text = _generate(teacher_engine, step1_teacher_msgs, images, max_new_tokens=80)
             step1_text = _generate(engine, step1_msgs, images, max_new_tokens=80)
+            p1 = parse_output(step1_text)
+            old_rs = memory.road_structure
+            memory = update_memory_after_step1(
+                memory,
+                student_road_structure=p1.get("road_structure") if validate_road_structure(p1.get("road_structure")) else None,
+            )
+            step2_trigger = should_trigger_step2(
+                memory_road_structure_before_step1=old_rs,
+                memory_road_structure_after_step1=memory.road_structure,
+                gt_road_structure=gt_road_structure,
+            )
 
             step2_teacher_text = ""
             step2_teacher_user = ""
@@ -216,27 +237,36 @@ def main() -> None:
                     _analysis_before_labels(step1_text),
                     _analysis_before_labels(step1_teacher_text),
                 )
-            if teacher_engine is not None:
-                # teacher step2 额外吃 GT scene，但分析文本仍应以学生口吻写证据。
-                step2_teacher_user = build_step2_teacher_prompt(memory, ep.gt_scene)
-                raw_t2 = _generate_next_with_kv(teacher_engine, step2_teacher_user, max_new_tokens=60)
-                analysis_t2 = _analysis_before_labels(raw_t2)
-                step2_leak = check_gt_leak_scene(analysis_t2, ep.gt_scene)
-                step2_teacher_text = build_step2_teacher_target(analysis_t2, ep.gt_scene)
+            step2_user = ""
+            step2_text = ""
+            scene_flip = False
+            step3_trigger = False
+            if step2_trigger:
+                if teacher_engine is not None:
+                    # teacher step2 额外吃 GT scene，但分析文本仍应以学生口吻写证据。
+                    step2_teacher_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
+                    raw_t2 = _generate_next_with_kv(teacher_engine, step2_teacher_user, max_new_tokens=60)
+                    analysis_t2 = _analysis_before_labels(raw_t2)
+                    step2_leak = check_gt_leak_scene(analysis_t2, ep.gt_scene)
+                    step2_teacher_text = build_step2_teacher_target(analysis_t2, ep.gt_scene)
 
-            step2_user = build_step2_student_prompt(memory)
-            step2_text = _generate_next_with_kv(engine, step2_user, max_new_tokens=60)
-            p2 = parse_output(step2_text)
-            if teacher_engine is not None:
-                step2_bleu = _simple_bleu(
-                    _analysis_before_labels(step2_text),
-                    _analysis_before_labels(step2_teacher_text),
+                step2_user = build_step2_student_prompt(memory)
+                step2_text = _generate_next_with_kv(engine, step2_user, max_new_tokens=60)
+                p2 = parse_output(step2_text)
+                if teacher_engine is not None:
+                    step2_bleu = _simple_bleu(
+                        _analysis_before_labels(step2_text),
+                        _analysis_before_labels(step2_teacher_text),
+                    )
+
+                old_scene = memory.scene
+                memory = update_memory_after_step2(memory, student_scene=p2.get("scene"))
+                scene_flip = memory.scene != old_scene
+                step3_trigger = should_trigger_step3(
+                    memory_scene_before_step2=old_scene,
+                    memory_scene_after_step2=memory.scene,
+                    gt_scene=ep.gt_scene,
                 )
-
-            old_scene = memory.scene
-            memory = update_memory_after_step2(memory, student_scene=p2.get("scene"))
-            scene_flip = memory.scene != old_scene
-            step3_trigger = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
 
             step3_user = ""
             step3_text = ""
@@ -246,7 +276,9 @@ def main() -> None:
             if step3_trigger:
                 if teacher_engine is not None:
                     # teacher step3 只在 scene 正确时运行，口径与训练/eval 一致。
-                    step3_teacher_user = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
+                    step3_teacher_user = build_step3_teacher_prompt(
+                        memory, gt_road_structure, ep.gt_scene, gt_status, gt_subgoal
+                    )
                     raw_t3 = _generate_next_with_kv(teacher_engine, step3_teacher_user, max_new_tokens=60)
                     analysis_t3 = _analysis_before_labels(raw_t3)
                     step3_leak = check_gt_leak_status_subgoal(analysis_t3, gt_status, gt_subgoal)
@@ -264,6 +296,7 @@ def main() -> None:
                 memory = update_memory_after_step3(memory, student_status=pred_status, student_subgoal=pred_subgoal)
 
             memory_after = {
+                "road_structure": memory.road_structure,
                 "scene": memory.scene,
                 "status": memory.status,
                 "subgoal": memory.subgoal,
@@ -290,6 +323,7 @@ def main() -> None:
                 "gt_subgoal": gt_subgoal,
                 "memory_before": memory_before,
                 "memory_after": memory_after,
+                "step2_trigger": step2_trigger,
                 "scene_flip": scene_flip,
                 "step3_trigger": step3_trigger,
                 "gt_leak_skip_step2": step2_leak,

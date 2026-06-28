@@ -38,10 +38,18 @@ variants keep their original `scenario/raw_gt_scene` metadata, but student
 scene label because the paired variants share the same visible semantics and
 event sequence.
 SFT v4 prompt contract: teacher prompts generate only the four analysis lines
-(`Scene Description`, `Relevant Visible Cues`, `Evidence Assessment`,
+(`Scene Description`, `Critical Object Description`, `Reasoning on Intent`,
 `Memory Judgment`) and never include label placeholders; `build_step*_teacher_target`
-appends supervised labels, while student prompts ask the adapter to write labels
-on separate lines.
+appends supervised labels and enforces the scripted KEEP/CHANGE/ADVANCE opener,
+while student prompts ask the adapter to write labels on separate lines.
+
+SFT v3/v4 prompt-sync rule: `qwen3vl_local/sft_v4/prompts.py` is the single
+canonical prompt, Memory state machine, trigger helper, and target-span source.
+`qwen3vl_local/sft_v3/prompts.py` re-exports it and only keeps v3 compatibility
+aliases. v3 is the offline on-policy OPSD route: student rollout tokens update
+memory, and privileged teacher logits supervise those same tokens with KL/JSD
+rather than hard teacher-text CE. v4 keeps the off-policy actor-learner/replay
+route. Any prompt or state-machine edit must be validated on both v3 and v4.
 `inspect_teacher.py` runs prompt-contract self-checks before lazy-loading torch
 and model helpers; keep this order so prompt-only regressions are caught before
 runtime dependency failures.

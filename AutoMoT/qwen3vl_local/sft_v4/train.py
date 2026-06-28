@@ -97,6 +97,9 @@ from qwen3vl_local.sft_v4.prompts import (
     parse_output,
     should_trigger_step2,
     should_trigger_step3,
+    step1_teacher_verdict,
+    step2_teacher_verdict,
+    step3_teacher_verdict,
     target_spans_road_structure,
     target_spans_scene,
     target_spans_status,
@@ -952,7 +955,12 @@ def iter_episode_loss_packs(
 
         # ============ Step 1 梯度：L_A1 (analysis) + L_RS1 (ROAD_STRUCTURE label) ============
         analysis1 = _analysis_before_labels(raw_teacher_step1)
-        target1 = build_step1_teacher_target(analysis1, gt_road_structure)
+        step1_verdict = step1_teacher_verdict(memory_before_step1, gt_road_structure)
+        target1 = build_step1_teacher_target(
+            analysis1,
+            gt_road_structure,
+            verdict=step1_verdict,
+        )
         step1_parts = _assistant_loss_from_state(
             bundle,
             _clone_kv_state(student_step1_prompt_state),
@@ -1021,7 +1029,12 @@ def iter_episode_loss_packs(
 
             # Step 2 梯度（仅在 layer-1 已稳定命中 GT 桶时计算）。
             analysis2 = _analysis_before_labels(raw_teacher_step2)
-            target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
+            step2_verdict = step2_teacher_verdict(memory, ep.gt_scene)
+            target2 = build_step2_teacher_target(
+                analysis2,
+                ep.gt_scene,
+                verdict=step2_verdict,
+            )
             step2_parts = _assistant_loss_from_state(
                 bundle,
                 _clone_kv_state(student_step2_prompt_state),
@@ -1067,7 +1080,13 @@ def iter_episode_loss_packs(
                 if teacher_was_training2:
                     teacher_model.train()
                 analysis3 = _analysis_before_labels(raw_teacher_step3)
-                target3 = build_step3_teacher_target(analysis3, gt_status, gt_subgoal)
+                step3_verdict = step3_teacher_verdict(memory, ep.gt_scene, gt_status, gt_subgoal)
+                target3 = build_step3_teacher_target(
+                    analysis3,
+                    gt_status,
+                    gt_subgoal,
+                    verdict=step3_verdict,
+                )
 
                 step3_student_user = build_step3_student_prompt(memory)
                 student_was_training2 = bool(bundle.model.training)

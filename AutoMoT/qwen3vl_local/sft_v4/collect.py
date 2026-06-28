@@ -64,6 +64,9 @@ from qwen3vl_local.sft_v4.prompts import (
     parse_output,
     should_trigger_step2,
     should_trigger_step3,
+    step1_teacher_verdict,
+    step2_teacher_verdict,
+    step3_teacher_verdict,
     update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
@@ -334,7 +337,12 @@ def collect_episode(
 
         # ============ Step 1 后处理：更新 memory.road_structure ============
         analysis1 = _analysis_before_labels(raw_teacher_step1)
-        target1 = build_step1_teacher_target(analysis1, gt_road_structure)
+        step1_verdict = step1_teacher_verdict(memory_before, gt_road_structure)
+        target1 = build_step1_teacher_target(
+            analysis1,
+            gt_road_structure,
+            verdict=step1_verdict,
+        )
         pred1 = parse_output(student_step1)
         old_rs = memory.road_structure
         memory = update_memory_after_step1(memory, student_road_structure=pred1.get("road_structure"))
@@ -390,7 +398,12 @@ def collect_episode(
             )
 
             analysis2 = _analysis_before_labels(raw_teacher_step2)
-            target2 = build_step2_teacher_target(analysis2, ep.gt_scene)
+            step2_verdict = step2_teacher_verdict(memory, ep.gt_scene)
+            target2 = build_step2_teacher_target(
+                analysis2,
+                ep.gt_scene,
+                verdict=step2_verdict,
+            )
             pred2 = parse_output(raw_student_step2)
             old_scene = memory.scene
             memory = update_memory_after_step2(memory, student_scene=pred2.get("scene"))
@@ -432,7 +445,13 @@ def collect_episode(
             if was_training:
                 model.train()
             analysis3 = _analysis_before_labels(raw_teacher_step3)
-            target3 = build_step3_teacher_target(analysis3, gt_status, gt_subgoal)
+            step3_verdict = step3_teacher_verdict(memory, ep.gt_scene, gt_status, gt_subgoal)
+            target3 = build_step3_teacher_target(
+                analysis3,
+                gt_status,
+                gt_subgoal,
+                verdict=step3_verdict,
+            )
 
             # student step3 输出决定帧末 memory 的 status/subgoal。非法 event 不写入 memory，
             # 这样 learner 看到的下一帧 memory 与 collector 真实 rollout 完全一致。

@@ -59,6 +59,9 @@ from qwen3vl_local.sft_v4.prompts import (
     parse_output,
     should_trigger_step2,
     should_trigger_step3,
+    step1_teacher_verdict,
+    step2_teacher_verdict,
+    step3_teacher_verdict,
     update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
@@ -243,7 +246,12 @@ def main() -> None:
                     max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP1,
                 )
                 analysis_t1 = _analysis_before_labels(raw_t1)
-                step1_teacher_text = build_step1_teacher_target(analysis_t1, gt_road_structure)
+                step1_verdict = step1_teacher_verdict(memory, gt_road_structure)
+                step1_teacher_text = build_step1_teacher_target(
+                    analysis_t1,
+                    gt_road_structure,
+                    verdict=step1_verdict,
+                )
             step1_text = _generate(engine, step1_msgs, images, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP1)
 
             step2_teacher_text = ""
@@ -283,7 +291,12 @@ def main() -> None:
                         max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2,
                     )
                     analysis_t2 = _analysis_before_labels(raw_t2)
-                    step2_teacher_text = build_step2_teacher_target(analysis_t2, ep.gt_scene)
+                    step2_verdict = step2_teacher_verdict(memory, ep.gt_scene)
+                    step2_teacher_text = build_step2_teacher_target(
+                        analysis_t2,
+                        ep.gt_scene,
+                        verdict=step2_verdict,
+                    )
 
                 step2_user = build_step2_student_prompt(memory)
                 step2_text = _generate_next_with_kv(engine, step2_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP2)
@@ -328,7 +341,13 @@ def main() -> None:
                         max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3,
                     )
                     analysis_t3 = _analysis_before_labels(raw_t3)
-                    step3_teacher_text = build_step3_teacher_target(analysis_t3, gt_status, gt_subgoal)
+                    step3_verdict = step3_teacher_verdict(memory, ep.gt_scene, gt_status, gt_subgoal)
+                    step3_teacher_text = build_step3_teacher_target(
+                        analysis_t3,
+                        gt_status,
+                        gt_subgoal,
+                        verdict=step3_verdict,
+                    )
                 step3_user = build_step3_student_prompt(memory)
                 step3_text = _generate_next_with_kv(engine, step3_user, max_new_tokens=TEACHER_MAX_NEW_TOKENS_STEP3)
                 if teacher_engine is not None:
