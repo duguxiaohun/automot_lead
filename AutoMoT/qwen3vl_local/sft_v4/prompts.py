@@ -963,7 +963,7 @@ _STEP_SPEC: Dict[str, Tuple[str, str, str, str]] = {
     ),
     "STEP3": (
         "Decide STATUS and SUBGOAL from EVENT_OPTIONS.",
-        "Advance STATUS only on a visible phase change; SUBGOAL may lead STATUS, and when STATUS is kept but SUBGOAL is ahead, describe SUBGOAL as the retained next objective",
+        "Prefer keeping STATUS; advance only on a clear visible phase change; SUBGOAL may lead STATUS, and when STATUS is kept but SUBGOAL is ahead, describe SUBGOAL as the retained next objective",
         "STATUS/SUBGOAL",
         "EVENT_OPTIONS",
     ),
