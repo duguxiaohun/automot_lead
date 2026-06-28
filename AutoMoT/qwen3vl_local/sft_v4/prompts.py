@@ -62,7 +62,7 @@ You are an autonomous driving agent. Use the 4 stitched RGB frames as visual con
 
 Your task is to decide the ROAD_STRUCTURE. Keep the believed label by default; change it only when clear visible road-layout evidence supports it. If the evidence is weak, distant, foggy, or occluded, describe it as "not contradicted" rather than "confirmed". Do not infer merging, braking, cut-in, or active flow from a single lead vehicle; a single lead vehicle alone never proves HIGHWAY_MERGE. Never mention answers, ground truth, or reference labels.
 
-Output the four analysis lines, then the label line. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; keep the four analysis lines within 80-150 words, each one concise sentence:
+Output the four analysis lines, then the label line. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; aim for 100-150 words for the four analysis lines, each one concise sentence:
 Scene Description: overall road layout and scene context.
 Critical Object Description: the lane markings, signs, junctions, barriers, and road-structure cues that matter most.
 Reasoning on Intent: how the visible road layout justifies keeping or correcting the believed ROAD_STRUCTURE.
@@ -74,7 +74,7 @@ You are an autonomous driving agent. Use the 4 stitched RGB frames as visual con
 
 Your task is to decide the SCENE from the listed candidates within the current road-structure bucket. Keep the believed label by default; change it only when clear visible interaction evidence supports it. If the evidence is weak, distant, foggy, or occluded, describe it as "not contradicted" rather than "confirmed". Do not infer hidden merging, yielding, lane change, turn, stop, cut-in, or active flow unless visible across frames; do not infer a distant vehicle is stationary or slow-moving without motion evidence. Never mention answers, ground truth, or reference labels.
 
-Output the four analysis lines, then the label line. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; keep the four analysis lines within 80-150 words, each one concise sentence:
+Output the four analysis lines, then the label line. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; aim for 100-150 words for the four analysis lines, each one concise sentence:
 Scene Description: overall scene and interaction context.
 Critical Object Description: the vehicles, VRUs, obstacles, and interaction cues that matter most for the scene decision.
 Reasoning on Intent: how the visible interaction cues justify keeping or correcting the believed SCENE.
@@ -86,7 +86,7 @@ You are an autonomous driving agent. Use the 4 stitched RGB frames as visual con
 
 Your task is to decide the STATUS and SUBGOAL from the EVENT_OPTIONS of the current scene. Keep the believed label by default; advance or change it only when clear visible temporal-progress evidence supports it. If the evidence is weak, distant, foggy, or occluded, describe it as "not contradicted" rather than "confirmed". Advance STATUS only on a visible phase change; SUBGOAL may lead STATUS. Never mention answers, ground truth, or reference labels.
 
-Output the four analysis lines, then the label lines. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; keep the four analysis lines within 80-150 words, each one concise sentence:
+Output the four analysis lines, then the label lines. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; aim for 100-150 words for the four analysis lines, each one concise sentence:
 Scene Description: overall scene and ego's current phase context.
 Critical Object Description: the actors, events, and temporal cues that matter most for the phase decision.
 Reasoning on Intent: how the visible temporal-progress cues justify keeping, advancing, or correcting the believed STATUS or SUBGOAL.
@@ -910,6 +910,70 @@ def _enforce_memory_judgment_opener(text: str, opener: str) -> str:
     return ("\n".join(lines) + "\n" + appended).strip()
 
 
+# 弱证据检测：当 Memory Judgment 行的 body 包含否定信号（"no evidence supports"、
+# "not contradicted"、"not supported" 等）但 opener 是 Corrected/Advanced 时，
+# 说明教师模型认为证据不足但被 verdict 强行推向 GT。这种情况下正文与 opener 语义
+# 矛盾（"Corrected because no evidence supports X"），需要将 body 改写为
+# 诚实的弱证据表述，让学生学到"修正可以是弱依据的合理猜测"而不是"编造证据"。
+_WEAK_EVIDENCE_PATTERNS: Tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bno\s+(?:visible\s+)?evidence\s+(?:supports?|confirms?)\b", re.IGNORECASE),
+    re.compile(r"\bnot\s+(?:strongly\s+)?supported\b", re.IGNORECASE),
+    re.compile(r"\bdoes\s+not\s+support\b", re.IGNORECASE),
+    re.compile(r"\bnot\s+contradicted\b", re.IGNORECASE),
+    re.compile(r"\bno\s+(?:visible\s+)?(?:temporal-progress\s+)?cue", re.IGNORECASE),
+    re.compile(r"\bno\s+(?:clear\s+)?(?:visual\s+)?evidence\b", re.IGNORECASE),
+)
+
+
+def _honest_weak_evidence_judgment(text: str, *, verdict: str, slot: str) -> str:
+    """Rewrite Memory Judgment body when it contains weak-evidence signals.
+
+    仅对 CHANGE / ADVANCE verdict 生效。当 Memory Judgment 行的 body 包含
+    否定性证据信号（如 "no evidence supports"、"not contradicted"）时，将
+    body 替换为诚实的弱证据表述，避免 "Corrected because no evidence supports X"
+    这种语义矛盾。KEEP verdict 的 body 通常是自洽的，无需改写。
+    """
+
+    verdict_upper = (verdict or "").strip().upper()
+    if verdict_upper not in ("CHANGE", "ADVANCE"):
+        return text
+    if not text:
+        return text
+
+    lines = text.splitlines()
+    for idx, raw in enumerate(lines):
+        m = _MEMORY_JUDGMENT_LINE_RE.match(raw)
+        if not m:
+            continue
+        body = m.group("body").strip()
+        # 先剥掉 opener 词组，只检查 body 实质内容
+        body_content = _OPENER_PREFIX_RE.sub("", body).strip()
+        if not any(p.search(body_content) for p in _WEAK_EVIDENCE_PATTERNS):
+            # body 不含弱证据信号，保持原样
+            return text
+        # 检测到弱证据矛盾 → 改写 body
+        if verdict_upper == "CHANGE":
+            new_body = (
+                f"the believed {slot} is not strongly supported "
+                "and the correction is a plausible alternative without strong visual confirmation."
+            )
+        else:  # ADVANCE
+            new_body = (
+                "the advance is not strongly confirmed by visible evidence "
+                "but is a plausible next step without clear contradiction."
+            )
+        prefix = m.group("prefix")
+        opener = _memory_judgment_opener_for(verdict)
+        rewritten = f"{prefix}{opener} {new_body}"
+        if not rewritten.rstrip().endswith((".", "!", "?")):
+            rewritten = rewritten.rstrip() + "."
+        lines[idx] = rewritten
+        return "\n".join(lines)
+
+    # 没有 Memory Judgment 行，不做额外处理（_enforce 已补 fallback）
+    return text
+
+
 # Per-step spec: (task, focus, slot_phrase, options_name)。
 # 学生 / 教师 step 块共用同一 Task / Constraint 骨架，step2/3 同模板只差槽位；
 # 4 行分析格式 + label 顺序 + evidence policy 已下沉各 step 的 system prompt，
@@ -1065,6 +1129,7 @@ def build_step1_teacher_target(
     if not cleaned:
         cleaned = _fallback_teacher_analysis("road_structure", verdict=verdict)
     cleaned = _enforce_memory_judgment_opener(cleaned, opener)
+    cleaned = _honest_weak_evidence_judgment(cleaned, verdict=verdict, slot="ROAD_STRUCTURE")
     return f"{cleaned}\nROAD_STRUCTURE: {gt_road_structure}".strip()
 
 
@@ -1124,6 +1189,7 @@ def build_step2_teacher_target(
     if not cleaned:
         cleaned = _fallback_teacher_analysis("scene", verdict=verdict)
     cleaned = _enforce_memory_judgment_opener(cleaned, opener)
+    cleaned = _honest_weak_evidence_judgment(cleaned, verdict=verdict, slot="SCENE")
     return f"{cleaned}\nSCENE: {gt_scene}".strip()
 
 
@@ -1205,6 +1271,7 @@ def build_step3_teacher_target(
     if not cleaned:
         cleaned = _fallback_teacher_analysis("event", verdict=verdict)
     cleaned = _enforce_memory_judgment_opener(cleaned, opener)
+    cleaned = _honest_weak_evidence_judgment(cleaned, verdict=verdict, slot="STATUS/SUBGOAL")
     return f"{cleaned}\nSTATUS: {gt_status}\nSUBGOAL: {gt_subgoal}".strip()
 
 
@@ -1285,16 +1352,16 @@ def _fallback_teacher_analysis(kind: str, *, verdict: str = "KEEP") -> str:
     opener = _memory_judgment_opener_for(verdict)
     if verdict.upper() == "CHANGE":
         memory_line = {
-            "road_structure": "the believed road structure no longer matches the visible road-layout cues.",
-            "scene": "another listed scene is more consistent with the visible interaction cues.",
-            "event": "the visible temporal-progress cues no longer match the believed status or subgoal.",
-        }.get(kind, "the visible cues no longer match the believed memory state.")
+            "road_structure": "the believed road structure is not strongly supported and the correction is a plausible alternative without strong visual confirmation.",
+            "scene": "the believed scene is not strongly supported and the correction is a plausible alternative without strong visual confirmation.",
+            "event": "the believed status or subgoal is not strongly supported and the correction is a plausible alternative without strong visual confirmation.",
+        }.get(kind, "the believed label is not strongly supported and the correction is a plausible alternative without strong visual confirmation.")
     elif verdict.upper() == "ADVANCE":
         memory_line = {
-            "road_structure": "the road-layout cues now support moving to the listed road structure.",
-            "scene": "the visible interaction cues now support moving to the listed scene.",
-            "event": "the visible temporal-progress cues now support moving to the listed event.",
-        }.get(kind, "the visible cues now support advancing the memory state.")
+            "road_structure": "the advance is not strongly confirmed by visible evidence but is a plausible next step without clear contradiction.",
+            "scene": "the advance is not strongly confirmed by visible evidence but is a plausible next step without clear contradiction.",
+            "event": "the advance is not strongly confirmed by visible evidence but is a plausible next step without clear contradiction.",
+        }.get(kind, "the advance is not strongly confirmed by visible evidence but is a plausible next step without clear contradiction.")
     else:
         memory_line = {
             "road_structure": "no reliable teacher analysis was available to justify changing the believed road structure.",

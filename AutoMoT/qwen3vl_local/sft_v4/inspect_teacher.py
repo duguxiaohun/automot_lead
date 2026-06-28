@@ -230,7 +230,7 @@ def _assert_prompt_contracts() -> None:
         "Critical Object Description:",
         "Reasoning on Intent:",
         "Memory Judgment:",
-        "keep the four analysis lines within 80-150 words",
+        "aim for 100-150 words for the four analysis lines",
     )
     for _sys_prompt, _tag in ((SYSTEM_PROMPT_STEP1, "STEP1"), (SYSTEM_PROMPT_STEP2, "STEP2"), (SYSTEM_PROMPT_STEP3, "STEP3")):
         for _marker in _common_markers:
