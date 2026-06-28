@@ -47,6 +47,7 @@ VISION_GUARD_GRAD_NORM_MAX="${VISION_GUARD_GRAD_NORM_MAX:-10.0}"
 VISION_GUARD_PARAM_NORM_MAX="${VISION_GUARD_PARAM_NORM_MAX:-200.0}"
 VISION_GUARD_PATIENCE="${VISION_GUARD_PATIENCE:-3}"
 W_A1="${W_A1:-0.2}"
+W_RS1="${W_RS1:-1.0}"
 W_A2="${W_A2:-0.2}"
 W_A3="${W_A3:-0.2}"
 W_S2="${W_S2:-1.0}"
@@ -207,6 +208,7 @@ PY_ARGS=(
     --vision-guard-param-norm-max "${VISION_GUARD_PARAM_NORM_MAX}" \
     --vision-guard-patience "${VISION_GUARD_PATIENCE}" \
     --w-a1 "${W_A1}" \
+    --w-rs1 "${W_RS1}" \
     --w-a2 "${W_A2}" \
     --w-a3 "${W_A3}" \
     --w-s2 "${W_S2}" \

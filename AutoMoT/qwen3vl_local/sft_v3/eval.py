@@ -41,16 +41,21 @@ from qwen3vl_local.sft_v3.train import (
 )
 from qwen3vl_local.sft_v3.prompts import (
     build_step1_user_prompt,
+    build_step1_teacher_prompt,
     build_step2_student_prompt,
     build_step2_teacher_prompt,
     build_step3_student_prompt,
     build_step3_teacher_prompt,
+    get_road_structure,
     init_memory,
     parse_output,
+    should_trigger_step2,
     should_trigger_step3,
+    update_memory_after_step1,
     update_memory_after_step2,
     update_memory_after_step3,
     validate_event,
+    validate_road_structure,
     validate_scene,
 )
 from qwen3vl_local.sft_v2.eval import _maybe_set_idle_gpu_mask
@@ -283,6 +288,7 @@ def main() -> None:
             ego_to_goal_y=gy,
             gt_scene=ep.gt_scene,
         )
+        gt_road_structure = get_road_structure(ep.gt_scene)
 
         frame_total = 0
         scene_correct = 0
@@ -314,11 +320,15 @@ def main() -> None:
 
             gt_status, gt_subgoal = _gt_status_subgoal(ep, frame)
 
-            step1_user = build_step1_user_prompt(len(images))
+            step1_user = build_step1_user_prompt(len(images), memory=memory)
             step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
             teacher_step1_text = ""
             if teacher_engine is not None:
-                teacher_step1_text = _generate(teacher_engine, step1_msgs, images, max_new_tokens=80)
+                teacher_step1_msgs = _build_messages_with_images(
+                    user_text=build_step1_teacher_prompt(memory, gt_road_structure),
+                    images=images,
+                )
+                teacher_step1_text = _generate(teacher_engine, teacher_step1_msgs, images, max_new_tokens=80)
             step1_text = _generate(engine, step1_msgs, images, max_new_tokens=80)
             if teacher_engine is not None:
                 metrics["analysis_bleu_sum"] += _simple_bleu(
@@ -327,28 +337,44 @@ def main() -> None:
                 )
                 metrics["analysis_bleu_count"] += 1
 
-            teacher_step2_text = ""
-            if teacher_engine is not None:
-                teacher_step2_user = build_step2_teacher_prompt(memory, ep.gt_scene)
-                teacher_step2_text = _generate_next_with_kv(teacher_engine, teacher_step2_user, max_new_tokens=60)
-            step2_user = build_step2_student_prompt(memory)
-            step2_text = _generate_next_with_kv(engine, step2_user, max_new_tokens=60)
-            if teacher_engine is not None:
-                metrics["analysis_bleu_sum"] += _simple_bleu(
-                    _analysis_before_labels(step2_text),
-                    _analysis_before_labels(teacher_step2_text),
+            p1 = parse_output(step1_text)
+            old_rs = memory.road_structure
+            memory = update_memory_after_step1(
+                memory,
+                student_road_structure=p1.get("road_structure") if validate_road_structure(p1.get("road_structure")) else None,
+            )
+            step2_ok = should_trigger_step2(
+                memory_road_structure_before_step1=old_rs,
+                memory_road_structure_after_step1=memory.road_structure,
+                gt_road_structure=gt_road_structure,
+            )
+            scene_ok = False
+            if step2_ok:
+                teacher_step2_text = ""
+                if teacher_engine is not None:
+                    teacher_step2_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
+                    teacher_step2_text = _generate_next_with_kv(teacher_engine, teacher_step2_user, max_new_tokens=60)
+                step2_user = build_step2_student_prompt(memory)
+                step2_text = _generate_next_with_kv(engine, step2_user, max_new_tokens=60)
+                if teacher_engine is not None:
+                    metrics["analysis_bleu_sum"] += _simple_bleu(
+                        _analysis_before_labels(step2_text),
+                        _analysis_before_labels(teacher_step2_text),
+                    )
+                    metrics["analysis_bleu_count"] += 1
+                p2 = parse_output(step2_text)
+                if not validate_scene(p2.get("scene")):
+                    invalid_scene += 1
+
+                old_scene = memory.scene
+                memory = update_memory_after_step2(memory, student_scene=p2.get("scene"))
+                if memory.scene != old_scene:
+                    scene_flip += 1
+                scene_ok = should_trigger_step3(
+                    memory_scene_before_step2=old_scene,
+                    memory_scene_after_step2=memory.scene,
+                    gt_scene=ep.gt_scene,
                 )
-                metrics["analysis_bleu_count"] += 1
-            p2 = parse_output(step2_text)
-            if not validate_scene(p2.get("scene")):
-                invalid_scene += 1
-
-            old_scene = memory.scene
-            memory = update_memory_after_step2(memory, student_scene=p2.get("scene"))
-            if memory.scene != old_scene:
-                scene_flip += 1
-
-            scene_ok = should_trigger_step3(memory_scene_after_step2=memory.scene, gt_scene=ep.gt_scene)
             if scene_ok:
                 scene_correct += 1
                 if first_recover is None:
@@ -372,7 +398,7 @@ def main() -> None:
                 step3_total += 1
                 teacher_step3_text = ""
                 if teacher_engine is not None:
-                    teacher_step3_user = build_step3_teacher_prompt(memory, gt_status, gt_subgoal)
+                    teacher_step3_user = build_step3_teacher_prompt(memory, gt_road_structure, ep.gt_scene, gt_status, gt_subgoal)
                     teacher_step3_text = _generate_next_with_kv(teacher_engine, teacher_step3_user, max_new_tokens=60)
                 step3_user = build_step3_student_prompt(memory)
                 step3_text = _generate_next_with_kv(engine, step3_user, max_new_tokens=60)

@@ -168,8 +168,8 @@ def main() -> None:
         "\n".join(
             [
                 "Scene Description: The frames show an intersection with visible lane structure.",
-                "Relevant Visible Cues: No pedestrian or blocking vehicle is dominant.",
-                "Evidence Assessment: The visible junction layout directly supports keeping the believed road structure.",
+                "Critical Object Description: No pedestrian or blocking vehicle is dominant.",
+                "Reasoning on Intent: The visible junction layout directly supports keeping the believed road structure.",
                 "Memory Judgment: Kept because the believed road structure matches the intersection layout.",
             ]
         ),
@@ -181,8 +181,8 @@ def main() -> None:
         "\n".join(
             [
                 "Scene Description: The frames show a blocked lane in front of ego.",
-                "Relevant Visible Cues: The obstacle ahead is the main critical object.",
-                "Evidence Assessment: The visible blockage contradicts the believed scene and supports the obstacle scenario.",
+                "Critical Object Description: The obstacle ahead is the main critical object.",
+                "Reasoning on Intent: The visible blockage contradicts the believed scene and supports the obstacle scenario.",
                 "Memory Judgment: Corrected because the believed scene does not match the blocked-lane evidence.",
             ]
         ),
@@ -194,8 +194,8 @@ def main() -> None:
         "\n".join(
             [
                 "Scene Description: Ego is approaching the hazard with limited free space.",
-                "Relevant Visible Cues: The obstacle ahead controls the near-term maneuver.",
-                "Evidence Assessment: The visible hazard supports advancing the event memory toward braking.",
+                "Critical Object Description: The obstacle ahead controls the near-term maneuver.",
+                "Reasoning on Intent: The visible hazard supports advancing the event memory toward braking.",
                 "Memory Judgment: Advanced because the current phase should move toward braking for the hazard.",
             ]
         ),

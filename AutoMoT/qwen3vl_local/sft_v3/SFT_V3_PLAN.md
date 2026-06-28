@@ -1,5 +1,23 @@
 # SFT v3 方案说明
 
+## 0. OPSD 与 v4 prompt 同步规则
+
+SFT v3 现在是 **offline OPSD** 路线：每帧仍由 student 先自由生成，student rollout
+决定本帧和下一帧的 memory 走向；但训练梯度不再来自 teacher 文本的 hard CE。
+privileged teacher 使用同一份当前模型参数、在 `no_grad` 下读取 GT road/scene/status/subgoal
+上下文，并在**同一段 student rollout token** 上输出 full-vocabulary logits。v3 loss 对
+analysis 与 `ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` token 位置做 KL/JSD 风格分布匹配。
+
+SFT v3 和 SFT v4 的 prompt / Memory / 状态机必须严格同步。规范实现只放在
+`qwen3vl_local/sft_v4/prompts.py`；`sft_v3/prompts.py` 是 thin re-export + v3 兼容别名。
+因此：
+
+- 改 `sft_v4/prompts.py` 的 prompt、label、memory 字段、trigger helper、target span 时，
+  必须同时跑 v3/v4 相关 mask 和 memory 测试。
+- 不允许在 `sft_v3/prompts.py` 重新实现第二份 prompt 或状态机。
+- v3 与 v4 的差异只在训练数据流：v3 是离线 on-policy OPSD；v4 是 replay/collector/learner
+  off-policy actor-learner。
+
 > 本文件是 SFT v3 的设计冻结版。当前代码已落地到同目录
 > `prompts.py` / `build_dataset.py` / `train.py` / `train.sh` / `eval.py` /
 > `probe.py` / `SFT_V3_RUN.md` 以及配套 test 脚本。

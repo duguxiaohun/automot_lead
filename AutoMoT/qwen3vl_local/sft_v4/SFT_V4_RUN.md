@@ -6,6 +6,11 @@ SFT v4 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario �
 
 本文默认当前目录是远端 `AutoMoT/`。
 
+Prompt 同步规则：`qwen3vl_local/sft_v4/prompts.py` 是 v3/v4 的唯一 prompt、
+Memory、状态机与 target span 实现。`sft_v3/prompts.py` 只 re-export v4。
+改 prompt 时必须同时验证 v3 offline OPSD 和 v4 off-policy actor-learner；不要在 v3
+维护第二份文本协议。两条路线只允许训练数据流不同。
+
 当前状态：off-policy actor-learner 代码已经落地。生产训练入口是
 `launch_offpolicy.sh`，它会启动 2 个 learner DDP rank + 2 个异步 collector：
 默认 GPU0/GPU1 各 1 个 learner，GPU2/GPU3 各 1 个 collector。Phase A 初始正确率

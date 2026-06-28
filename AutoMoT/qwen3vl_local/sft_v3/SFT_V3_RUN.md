@@ -1,8 +1,18 @@
 # SFT v3 Runbook
 
-SFT v3 是 sequence-memory OPD 路线：一条 episode 是一个 sub-scenario 时间序列，
-学生用上一帧输出维护文本 memory，teacher 用 base Qwen + GT hindsight 生成分析文本，
-学生同时学习分析 token 和 `SCENE/STATUS/SUBGOAL` 值 token。
+SFT v3 当前是 offline OPSD 路线：student 自由生成的文本就是 on-policy rollout；
+privileged teacher 不再提供 hard teacher text CE，而是在同一批 student token 上给出
+full-vocabulary logits，训练用 KL/JSD 风格分布匹配监督 analysis 与
+`ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 值 token。
+
+Prompt 同步规则：v3 与 v4 的 prompt、Memory、状态机和 target span 严格同步，唯一实现源是
+`qwen3vl_local/sft_v4/prompts.py`；`qwen3vl_local/sft_v3/prompts.py` 只 re-export
+v4 并保留少量 v3 兼容别名。改 prompt 时必须同时检查 v3/v4，训练方式差异仅是：
+v3 offline on-policy OPSD；v4 off-policy actor-learner replay。
+
+一条 episode 仍是一个 sub-scenario 时间序列，学生用上一帧输出维护文本 memory；
+但监督信号来自 OPSD 的 privileged-teacher logit distribution，而不是离线物化 teacher 文本。
+学生同时学习 analysis token 和 `ROAD_STRUCTURE/SCENE/STATUS/SUBGOAL` 值 token。
 
 本文默认当前目录是远端 `AutoMoT/`。
 
@@ -134,7 +144,7 @@ LR=3e-5 \
 OUTER_STRIDE=1 \
 SYNC_EVERY_EPISODES=4 \
 W_A1=0.2 W_A2=0.2 W_A3=0.2 \
-W_S2=1.0 W_S3_STATUS=1.0 W_S3_SUBGOAL=1.0 \
+W_RS1=1.0 W_S2=1.0 W_S3_STATUS=1.0 W_S3_SUBGOAL=1.0 \
 GPU_IDS=0 \
 bash qwen3vl_local/sft_v3/train.sh single
 ```
@@ -159,8 +169,10 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v3_lora/latest/tb
 重点看：
 
 - `train/loss_total`
-- `train/loss/{a1,a2,a3,s2,s3_status,s3_subgoal}`
+- `train/loss/{a1,rs1,a2,a3,s2,s3_status,s3_subgoal}`
+- `train/step2_trigger_rate`
 - `train/step3_trigger_rate`
+- `train/road_structure_flip_rate`
 - `train/scene_flip_rate`
 - `train/gt_leak_skip_rate/{step2,step3}`
 - `train/phase_a_frame_frac`
