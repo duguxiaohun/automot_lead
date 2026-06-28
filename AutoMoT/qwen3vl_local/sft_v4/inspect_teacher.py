@@ -537,7 +537,7 @@ def _run_teacher_for_frame(
     step1_user = build_step1_teacher_prompt(memory, gt_road_structure)
     step2_teacher_user = ""
 
-    step1_msgs = _build_messages_with_images(user_text=step1_user, images=images)
+    step1_msgs = _build_messages_with_images(user_text=step1_user, images=images, system_prompt=get_step_system_prompt("STEP1"))
     teacher_model = bundle.unwrap()
 
     raw_step1 = ""
@@ -576,7 +576,7 @@ def _run_teacher_for_frame(
             )
             if step2_fired:
                 step2_teacher_user = build_step2_teacher_prompt(step1_after_target, gt_road_structure, ep.gt_scene)
-                step2_msgs = _build_messages_with_images(user_text=step2_teacher_user, images=images)
+                step2_msgs = _build_messages_with_images(user_text=step2_teacher_user, images=images, system_prompt=get_step_system_prompt("STEP2"))
                 step2_state = _teacher_start_state(bundle, step2_msgs)
                 raw_step2, _step2_state_after = _teacher_generate_kv(
                     bundle,
@@ -599,7 +599,7 @@ def _run_teacher_for_frame(
                         gt_status,
                         gt_subgoal,
                     )
-                    step3_msgs = _build_messages_with_images(user_text=step3_user_prompt, images=images)
+                    step3_msgs = _build_messages_with_images(user_text=step3_user_prompt, images=images, system_prompt=get_step_system_prompt("STEP3"))
                     step3_state = _teacher_start_state(bundle, step3_msgs)
                     raw_step3, _ = _teacher_generate_kv(
                         bundle,
@@ -650,7 +650,7 @@ def _run_teacher_for_frame(
             # The student branch intentionally keeps the adapter enabled. This mirrors the
             # collector's policy rollout path, but does not parse/update memory for this
             # fixed-branch teacher inspection report.
-            step1_student_msgs = _build_messages_with_images(user_text=step1_student_prompt, images=images)
+            step1_student_msgs = _build_messages_with_images(user_text=step1_student_prompt, images=images, system_prompt=get_step_system_prompt("STEP1"))
             student_step1_state = _student_start_state(bundle, step1_student_msgs)
             raw_student_step1, student_step1_state = _student_generate_kv(
                 bundle,

@@ -75,6 +75,7 @@ from qwen3vl_local.sft_v4.prompts import (
     DEFAULT_W_STATUS,
     DEFAULT_W_SUBGOAL,
     SCENE_TO_ROAD_STRUCTURE,
+    SYSTEM_PROMPT_V4,
     get_step_system_prompt,
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
@@ -346,13 +347,15 @@ def _build_messages_with_images(
     *,
     user_text: str,
     images: List[Image.Image],
-    system_prompt: str,
+    system_prompt: str = SYSTEM_PROMPT_V4,
     prev_turns: Optional[List[Dict[str, str]]] = None,
 ) -> List[Dict[str, Any]]:
     """构造 Qwen chat messages：system + 首个带 4 张图的 user turn。
 
-    每个 step 独立对话，各自传入自己的 system prompt（通过
-    ``get_step_system_prompt(step_tag)`` 获取），不交叉注入无关层次信息。
+    新调用方应显式传入 ``system_prompt=get_step_system_prompt(step_tag)``
+    以实现每个 step 独立对话。旧调用方（eval/probe/collect/learn/inspect）
+    省略时默认走 ``SYSTEM_PROMPT_V4``（= ``SYSTEM_PROMPT_STEP1``），保持
+    向后兼容。
     """
 
     messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
