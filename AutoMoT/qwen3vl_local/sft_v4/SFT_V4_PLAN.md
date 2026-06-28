@@ -963,22 +963,22 @@ step2/step3 老师分析。teacher 与 student 也不共享 KV，因为 LoRA on/
   4 images are ordered oldest to newest; the last image is now.
   Use the shared public response contract:
   Scene Description: ...
-  Relevant Visible Cues: ...
-  Evidence Assessment: ...
+  Critical Object Description: ...
+  Reasoning on Intent: ...
   Memory Judgment: ...
   Explain from the student perspective whether the believed road structure should be kept or changed.
   Do not write the label line; the script appends ROAD_STRUCTURE.
 ```
 
 - Teacher generate → `analysis_1_teacher`（鼓励按
-  `Scene Description:` / `Relevant Visible Cues:` /
-  `Evidence Assessment:` / `Memory Judgment:` 四行 plain-text 顺序写；analysis 必须是
+  `Scene Description:` / `Critical Object Description:` /
+  `Reasoning on Intent:` / `Memory Judgment:` 四行 plain-text 顺序写；analysis 必须是
   student-facing 口径，不应出现 `GROUND_TRUTH_*` / `ANSWER_*` / `REFERENCE_*` 等私有字段名），
   脚本拼接 `"\nROAD_STRUCTURE: <gt_road_structure>"`，
   `max_new_tokens=384`、`do_sample=False`、
   `repetition_penalty=1.05`。
 - **Student prompt / target contract**：student 也被要求按同一套四行
-  `Scene Description` / `Relevant Visible Cues` / `Evidence Assessment` /
+  `Scene Description` / `Critical Object Description` / `Reasoning on Intent` /
   `Memory Judgment` 输出，然后自己写 `ROAD_STRUCTURE: <name>`；teacher 不写标签，
   脚本追加 GT 标签后作为 assistant target。四行 analysis token 算 **L_A1**，
   `ROAD_STRUCTURE` 值 token 算 **L_RS1**。
@@ -1434,9 +1434,9 @@ DDP 就够 lockstep——不再需要 v3 那套 work-stealing + local-SGD 兜底
     `ROAD_STRUCTURE:` / `SCENE:` / `STATUS:` / `SUBGOAL:` 整行（避免脚本追加的 GT 被
     parser 取错）和 `[STEPx]` / `[MEMORY]` 等 prompt marker，并把残留
     `GROUND_TRUTH_*` / `ANSWER_*` / `REFERENCE_*` 改写为 `the corrected ...`。
-    prompt 要求按 `Scene Description:` / `Relevant Visible Cues:` /
-    `Evidence Assessment:` / `Memory Judgment:` 四个公开 heading 顺序写，analysis 控制在
-    约 60-120 words；
+    prompt 要求按 `Scene Description:` / `Critical Object Description:` /
+    `Reasoning on Intent:` / `Memory Judgment:` 四个公开 heading 顺序写，analysis 控制在
+    约 100-150 words (aim for)；
     只有剥完后真为空字符串才退回四行 fallback，结构化标签仍由脚本追加。
 11. **Teacher 长度**：三步均允许完整分析（max_new=384 仅作异常生成护栏，min_new=0）。
     `repetition_penalty=1.05`（B1 拍板）已在 `_kv_generate_text` 内按 HF 风格
@@ -1674,14 +1674,15 @@ EGO_TO_GOAL_XY=(..., ...) m
 [STEP1]
 Task: Decide ROAD_STRUCTURE from ROAD_STRUCTURE_CHOICES.
 Constraint: Judge by visible road layout only; a single lead vehicle alone never proves HIGHWAY_MERGE. Keep the believed ROAD_STRUCTURE if no listed option is clearly supported, and never emit an option outside ROAD_STRUCTURE_CHOICES.
-Label: ROAD_STRUCTURE: <name>
+Then write: ROAD_STRUCTURE: <name>
 ```
 
 4 行分析格式（`Scene Description` / `Critical Object Description` /
 `Reasoning on Intent` / `Memory Judgment`）、"先 4 行分析再写 label" 的顺序、
 evidence policy（弱证据 = not contradicted、远车不证明 merge/braking/cut-in、
-不提 answer/ground truth）已全部下沉 `SYSTEM_PROMPT_V4`，step 块只保留
-`Task / Constraint / Label` 三段，step2/3 共用同一模板只差槽位。
+不提 answer/ground truth）已全部下沉三个 step 专用的 `SYSTEM_PROMPT_STEP1/2/3`
+（通过 `get_step_system_prompt()` 分发，旧名 `SYSTEM_PROMPT_V4` 仅保留为 STEP1 别名），
+step 块只保留 `Task / Constraint / Then write` 三段，step2/3 共用同一模板只差槽位。
 
 老师 step1 prompt 与学生 prompt 分离：老师也不喂完整 `[MEMORY]`，只喂
 `[STEP1_ROAD_CONTEXT]`，其中包含 `BELIEVED_ROAD_STRUCTURE`、`EGO_TO_GOAL_XY`
@@ -1690,12 +1691,16 @@ evidence policy（弱证据 = not contradicted、远车不证明 merge/braking/c
 与学生同骨架（同 `Task / Constraint`），仅多 `VERDICT` / 推理方向一致性指令
 （`argue to keep/advance/replace the believed {slot}`，强制正文与 verdict 同向，
 避免正文替旧 label 说话而 opener 被改成 Corrected 的轻微矛盾）/ opener 强制 /
-GT-aware hint，并禁止写 label。Step1 不再把 KEEP 解释成"图像强确认"：KEEP 只表示
-memory continuity。`CHANGE` 只在看见明确矛盾 road-layout cues 时触发；雾、遮挡或
-远车导致证据弱但没有看见其它 road bucket 时，应写 `Kept because ... not
-contradicted`，不要把弱证据写成强确认。analysis 统一控制在约 60-120 words；所有
-学生输出/脚本追加的 label 必须单独成行。老师和学生共用同一个四行 analysis
-contract：`Scene Description:`、`Critical Object Description:`、
+GT-aware hint，并禁止写 label。GT_HINT 对 CHANGE/ADVANCE 采用弱证据诚实表述：
+若有可见矛盾证据则点明，若无则承认"not strongly supported, the correction is a
+plausible alternative without strong visual confirmation"，避免教师强行编造证据。
+此外 `build_step*_teacher_target` 在追加 GT 标签前会经过两层后处理：
+`_enforce_memory_judgment_opener`（对齐 opener 词与 verdict）+ `_honest_weak_evidence_judgment`
+（检测 Memory Judgment 正文中的弱证据否定信号如"no evidence supports"、"unsupported"、
+"not contradicted"等，将其改写为诚实的弱证据表述，避免"Corrected because no evidence
+supports X"这种语义矛盾）。analysis 控制在 100-150 words (aim for)；所有学生输出/
+脚本追加的 label 必须单独成行。老师和学生共用同一个四行 analysis contract：
+`Scene Description:`、`Critical Object Description:`、
 `Reasoning on Intent:`、`Memory Judgment:`；区别只是学生 prompt 要求自己写
 `ROAD_STRUCTURE: <name>`，老师 prompt 要求不要写标签，标签由
 `build_step1_teacher_target` 追加。
