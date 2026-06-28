@@ -50,17 +50,71 @@ DEFAULT_W_SUBGOAL = 1.0
 DEFAULT_P_INIT_CORRECT = 0.7
 DEFAULT_SKIP_CORRECTION_SCENE_NOISE_PROB = 0.15
 
-SYSTEM_PROMPT_V4 = """\
-You are an autonomous driving agent. Use the 4 stitched RGB frames as visual context: oldest to newest, left/front/right views. Focus on traffic lights and signs, nearby vehicles, pedestrians, obstacles, lane markings, road structure, and the key factors affecting ego's decision.
+# ---------------------------------------------------------------------------
+# 三个 step 各自独立的 system prompt（并行独立对话，每个 step 只看到自己
+# 层次的信息，不交叉注入 ROAD_STRUCTURE / SCENE / STATUS-SUBGOAL 噪音）。
+# 共同结构：角色 → step 专属关注点 → 任务 + 证据规则 → 4 行格式 → believed 口径。
+# 教师与学生共用同一套 system prompt；label 写不写由 user prompt 控制。
+# ---------------------------------------------------------------------------
 
-Keep the believed label by default; change or advance it only when clear visible evidence supports it. If the evidence is weak, distant, foggy, or occluded, describe it as "not contradicted" rather than "confirmed". Never mention answers, ground truth, reference labels, or teacher fields.
+SYSTEM_PROMPT_STEP1 = """\
+You are an autonomous driving agent. Use the 4 stitched RGB frames as visual context: oldest to newest, left/front/right views. Focus on visible road-layout cues: lane geometry, merge lanes, ramps, exits, junctions, crosswalks, parking layout, blocked lanes, construction, roadside obstacles, and crossing actors.
 
-Output, in order: the four analysis lines, then (student steps only) the label line(s) shown in the step. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; keep the four analysis lines together within 80-150 words, each one concise sentence:
-Scene Description: overall scene and road context.
-Critical Object Description: the lights/signs/vehicles/VRUs/obstacles/lane cues that matter most for this step.
-Reasoning on Intent: how those objects and ego's situation justify keeping, correcting, or advancing the label.
+Your task is to decide the ROAD_STRUCTURE. Keep the believed label by default; change it only when clear visible road-layout evidence supports it. If the evidence is weak, distant, foggy, or occluded, describe it as "not contradicted" rather than "confirmed". Do not infer merging, braking, cut-in, or active flow from a single lead vehicle; a single lead vehicle alone never proves HIGHWAY_MERGE. Never mention answers, ground truth, or reference labels.
+
+Output the four analysis lines, then the label line. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; keep the four analysis lines within 80-150 words, each one concise sentence:
+Scene Description: overall road layout and scene context.
+Critical Object Description: the lane markings, signs, junctions, barriers, and road-structure cues that matter most.
+Reasoning on Intent: how the visible road layout justifies keeping or correcting the believed ROAD_STRUCTURE.
+Memory Judgment: start with exactly one of "Kept because" / "Corrected because", matching the label you emit.
+Use the "believed" voice; use "corrected" only when the believed label actually changes."""
+
+SYSTEM_PROMPT_STEP2 = """\
+You are an autonomous driving agent. Use the 4 stitched RGB frames as visual context: oldest to newest, left/front/right views. Focus on visible interaction cues: merge, exit, cut-in, slow traffic, blocked lane, hazard, VRU, lead-vehicle behavior, and the key factors affecting which scenario ego is in.
+
+Your task is to decide the SCENE from the listed candidates within the current road-structure bucket. Keep the believed label by default; change it only when clear visible interaction evidence supports it. If the evidence is weak, distant, foggy, or occluded, describe it as "not contradicted" rather than "confirmed". Do not infer hidden merging, yielding, lane change, turn, stop, cut-in, or active flow unless visible across frames; do not infer a distant vehicle is stationary or slow-moving without motion evidence. Never mention answers, ground truth, or reference labels.
+
+Output the four analysis lines, then the label line. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; keep the four analysis lines within 80-150 words, each one concise sentence:
+Scene Description: overall scene and interaction context.
+Critical Object Description: the vehicles, VRUs, obstacles, and interaction cues that matter most for the scene decision.
+Reasoning on Intent: how the visible interaction cues justify keeping or correcting the believed SCENE.
+Memory Judgment: start with exactly one of "Kept because" / "Corrected because", matching the label you emit.
+Use the "believed" voice; use "corrected" only when the believed label actually changes."""
+
+SYSTEM_PROMPT_STEP3 = """\
+You are an autonomous driving agent. Use the 4 stitched RGB frames as visual context: oldest to newest, left/front/right views. Focus on temporal-progress cues: ego speed, distance to goal, actor behavior changes, phase transitions, and the key factors affecting whether ego should advance its STATUS or SUBGOAL.
+
+Your task is to decide the STATUS and SUBGOAL from the EVENT_OPTIONS of the current scene. Keep the believed label by default; advance or change it only when clear visible temporal-progress evidence supports it. If the evidence is weak, distant, foggy, or occluded, describe it as "not contradicted" rather than "confirmed". Advance STATUS only on a visible phase change; SUBGOAL may lead STATUS. Never mention answers, ground truth, or reference labels.
+
+Output the four analysis lines, then the label lines. Plain text only -- no markdown, bullets, numbered lists, JSON, or code blocks; keep the four analysis lines within 80-150 words, each one concise sentence:
+Scene Description: overall scene and ego's current phase context.
+Critical Object Description: the actors, events, and temporal cues that matter most for the phase decision.
+Reasoning on Intent: how the visible temporal-progress cues justify keeping, advancing, or correcting the believed STATUS or SUBGOAL.
 Memory Judgment: start with exactly one of "Kept because" / "Corrected because" / "Advanced because", matching the label you emit.
-Use the "believed" voice; use "corrected" only when the believed label actually changes. Teacher-analysis steps write no label lines."""
+Use the "believed" voice; use "corrected" only when the believed label actually changes."""
+
+# ---------------------------------------------------------------------------
+# Step system prompt getter + 向后兼容别名
+# ---------------------------------------------------------------------------
+
+_STEP_SYSTEM_PROMPTS: Dict[str, str] = {
+    "STEP1": SYSTEM_PROMPT_STEP1,
+    "STEP2": SYSTEM_PROMPT_STEP2,
+    "STEP3": SYSTEM_PROMPT_STEP3,
+}
+
+
+def get_step_system_prompt(step_tag: str) -> str:
+    """Return the system prompt for a given step (STEP1 / STEP2 / STEP3)."""
+
+    prompt = _STEP_SYSTEM_PROMPTS.get(step_tag)
+    if prompt is None:
+        raise KeyError(f"unknown step_tag {step_tag!r}; expected STEP1, STEP2, or STEP3")
+    return prompt
+
+
+# 向后兼容：旧代码 import SYSTEM_PROMPT_V4 仍可用（得到 step1 prompt）。
+SYSTEM_PROMPT_V4 = SYSTEM_PROMPT_STEP1
 
 
 # ---------------------------------------------------------------------------
@@ -744,15 +798,15 @@ def _event_sequence_block(scene: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Prompt protocol layer (system contract is fully paid in SYSTEM_PROMPT_V4)
+# Prompt protocol layer (system contract per step)
 # ---------------------------------------------------------------------------
 #
 # 设计要点：
-# - SYSTEM_PROMPT_V4 已经承担「身份 + 视觉输入 + 4 帧结构 + evidence policy +
-#   4 行 analysis 格式（Scene Description / Critical Object Description /
-#   Reasoning on Intent / Memory Judgment）+ opener 三选一 + 60-120 词 + 学生
-#   believed 口径」全部通用契约。user message 不再重复这些段落，只保留 step
-#   级的 Task / Constraint 一两句和 label / verdict 收尾。
+# - 三个 step 各有独立 system prompt（SYSTEM_PROMPT_STEP1/2/3），每个只暴露
+#   自己层次的关注点、任务描述、证据规则和 4 行分析格式，不交叉注入
+#   ROAD_STRUCTURE / SCENE / STATUS-SUBGOAL 噪音。
+# - user message 只保留 step 级的 Task / Constraint / Then write 或 teacher
+#   的 VERDICT / GT_HINT / 不写 label。
 # - Memory Judgment 行的 opener 与 verdict 必须严格一致：KEEP→"Kept because"，
 #   CHANGE→"Corrected because"，ADVANCE→"Advanced because"。教师 raw 输出会
 #   经 `_enforce_memory_judgment_opener` 再次校正，避免训练时出现 "Kept because
@@ -858,8 +912,8 @@ def _enforce_memory_judgment_opener(text: str, opener: str) -> str:
 
 # Per-step spec: (task, focus, slot_phrase, options_name)。
 # 学生 / 教师 step 块共用同一 Task / Constraint 骨架，step2/3 同模板只差槽位；
-# 4 行分析格式 + label 顺序 + evidence policy 已下沉 SYSTEM_PROMPT_V4，这里只留
-# step 级 Task / Constraint(focus + 通用兜底句) / Label，避免 prompt 比分析还长。
+# 4 行分析格式 + label 顺序 + evidence policy 已下沉各 step 的 system prompt，
+# 这里只留 step 级 Task / Constraint(focus + 通用兜底句) / Then write。
 _STEP_SPEC: Dict[str, Tuple[str, str, str, str]] = {
     "STEP1": (
         "Decide ROAD_STRUCTURE from ROAD_STRUCTURE_CHOICES.",
@@ -903,7 +957,7 @@ def _step_constraint_sentence(step_tag: str) -> str:
 def _render_student_block(*, step_tag: str, label_instruction: str) -> str:
     """Compose the student turn body for one step: Task / Constraint / Then write.
 
-    4 行分析格式与 "先分析再写 label" 的顺序由 SYSTEM_PROMPT_V4 兜底，
+    4 行分析格式与 "先分析再写 label" 的顺序由各 step system prompt 兜底，
     step 块只声明本 step 的任务、约束焦点、以及要写的 label 行格式。
     "Then write:" 用动作词明确要求模型在分析之后输出 label 行，
     避免模型把 "Label:" 当成字段描述而跳过不写。
@@ -947,7 +1001,7 @@ def build_step1_user_prompt(image_count: int, memory: Optional[Memory] = None) -
     新口径（生产路径，``memory`` 必传）：
       - 只读 layer-1 road-only memory，不提前暴露 scene/status/subgoal；
       - user 仅包含 memory + ROAD_STRUCTURE_CHOICES + [STEP1] task/constraint
-        + label 行；通用 evidence policy / 4 行格式由 SYSTEM_PROMPT_V4 兜底；
+        + label 行；通用 evidence policy / 4 行格式由各 step system prompt 兜底；
       - 一行 ``ROAD_STRUCTURE: <name>``。
 
     兼容兜底：``memory=None`` 时退回最小形态（仅视觉描述、不读 memory、不出标签），

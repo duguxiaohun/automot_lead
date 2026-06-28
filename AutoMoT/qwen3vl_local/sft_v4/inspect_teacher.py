@@ -78,7 +78,10 @@ from qwen3vl_local.sft_v4.prompts import (  # noqa: E402
     CANONICAL_SCENARIO_LABELS,
     ROAD_STRUCTURE_TO_SCENES,
     SCENE_TO_ROAD_STRUCTURE,
-    SYSTEM_PROMPT_V4,
+    SYSTEM_PROMPT_STEP1,
+    SYSTEM_PROMPT_STEP2,
+    SYSTEM_PROMPT_STEP3,
+    get_step_system_prompt,
     TEACHER_MAX_NEW_TOKENS_STEP1,
     TEACHER_MAX_NEW_TOKENS_STEP2,
     TEACHER_MAX_NEW_TOKENS_STEP3,
@@ -217,26 +220,53 @@ def _assert_prompt_contracts() -> None:
     step1_student = build_step1_user_prompt(4, mem)
     if "[STEP1_ROAD_MEMORY]" not in step1_student:
         raise AssertionError("step1 student prompt must include STEP1_ROAD_MEMORY")
-    common_system_markers = (
+    # 三个 step 的 system prompt 通用契约（必须全部满足）。
+    _common_markers = (
         "You are an autonomous driving agent",
         "Use the 4 stitched RGB frames as visual context",
         "Keep the believed label by default",
-        "change or advance it only when clear visible evidence supports it",
         "not contradicted",
         "Scene Description:",
         "Critical Object Description:",
         "Reasoning on Intent:",
         "Memory Judgment:",
-        'start with exactly one of "Kept because" / "Corrected because" / "Advanced because"',
-        "(student steps only) the label line(s) shown in the step",
-        "Teacher-analysis steps write no label lines",
-        "keep the four analysis lines together within 80-150 words",
+        "keep the four analysis lines within 80-150 words",
     )
-    for marker in common_system_markers:
-        if marker not in SYSTEM_PROMPT_V4:
-            raise AssertionError(f"SYSTEM_PROMPT_V4 must encode the shared contract: {marker}")
-    if "Then write the label line(s)" in SYSTEM_PROMPT_V4:
-        raise AssertionError("SYSTEM_PROMPT_V4 must leave label-writing to step-specific prompts")
+    for _sys_prompt, _tag in ((SYSTEM_PROMPT_STEP1, "STEP1"), (SYSTEM_PROMPT_STEP2, "STEP2"), (SYSTEM_PROMPT_STEP3, "STEP3")):
+        for _marker in _common_markers:
+            if _marker not in _sys_prompt:
+                raise AssertionError(f"SYSTEM_PROMPT_{_tag} must encode the shared contract: {_marker}")
+        if "Then write the label line" in _sys_prompt:
+            raise AssertionError(f"SYSTEM_PROMPT_{_tag} must leave label-writing to step-specific prompts")
+        if "ANSWER_" in _sys_prompt or "GROUND_TRUTH_" in _sys_prompt or "REFERENCE_" in _sys_prompt:
+            raise AssertionError(f"SYSTEM_PROMPT_{_tag} must not contain teacher-private answer field names")
+    # STEP1 专属：road-structure focus，不含 SCENE/STATUS/SUBGOAL/Advanced because。
+    if "ROAD_STRUCTURE" not in SYSTEM_PROMPT_STEP1:
+        raise AssertionError("SYSTEM_PROMPT_STEP1 must mention ROAD_STRUCTURE as its task")
+    if "SCENE" in SYSTEM_PROMPT_STEP1.replace("Scene Description", "") or "STATUS" in SYSTEM_PROMPT_STEP1.replace("Scene Description", "") or "SUBGOAL" in SYSTEM_PROMPT_STEP1:
+        raise AssertionError("SYSTEM_PROMPT_STEP1 must not mention SCENE task or STATUS/SUBGOAL")
+    if 'Advanced because' in SYSTEM_PROMPT_STEP1:
+        raise AssertionError("SYSTEM_PROMPT_STEP1 must not include Advanced because (only Kept/Corrected)")
+    if "interaction cue" in SYSTEM_PROMPT_STEP1.lower() or "temporal-progress" in SYSTEM_PROMPT_STEP1.lower():
+        raise AssertionError("SYSTEM_PROMPT_STEP1 must not mention interaction cues or temporal-progress (STEP2/STEP3 domain)")
+    # STEP2 专属：scene/interaction focus，不含 ROAD_STRUCTURE 任务/STATUS/SUBGOAL/Advanced。
+    if "SCENE" not in SYSTEM_PROMPT_STEP2:
+        raise AssertionError("SYSTEM_PROMPT_STEP2 must mention SCENE as its task")
+    if "ROAD_STRUCTURE" in SYSTEM_PROMPT_STEP2 or "STATUS" in SYSTEM_PROMPT_STEP2.replace("Scene Description", ""):
+        raise AssertionError("SYSTEM_PROMPT_STEP2 must not mention ROAD_STRUCTURE task or STATUS")
+    if 'Advanced because' in SYSTEM_PROMPT_STEP2:
+        raise AssertionError("SYSTEM_PROMPT_STEP2 must not include Advanced because (only Kept/Corrected)")
+    if "road-layout" in SYSTEM_PROMPT_STEP2.lower() or "temporal-progress" in SYSTEM_PROMPT_STEP2.lower():
+        raise AssertionError("SYSTEM_PROMPT_STEP2 must not mention road-layout or temporal-progress (STEP1/STEP3 domain)")
+    # STEP3 专属：status/subgoal focus，含 Advanced because，不含 ROAD_STRUCTURE/SCENE 任务。
+    if "STATUS" not in SYSTEM_PROMPT_STEP3 or "SUBGOAL" not in SYSTEM_PROMPT_STEP3:
+        raise AssertionError("SYSTEM_PROMPT_STEP3 must mention STATUS and SUBGOAL as its task")
+    if "ROAD_STRUCTURE" in SYSTEM_PROMPT_STEP3 or "SCENE" in SYSTEM_PROMPT_STEP3.replace("Scene Description", ""):
+        raise AssertionError("SYSTEM_PROMPT_STEP3 must not mention ROAD_STRUCTURE task or SCENE task")
+    if 'Advanced because' not in SYSTEM_PROMPT_STEP3:
+        raise AssertionError("SYSTEM_PROMPT_STEP3 must include Advanced because")
+    if "road-layout" in SYSTEM_PROMPT_STEP3.lower() or "interaction cue" in SYSTEM_PROMPT_STEP3.lower():
+        raise AssertionError("SYSTEM_PROMPT_STEP3 must not mention road-layout or interaction cues (STEP1/STEP2 domain)")
     if "VERDICT:" not in step1_prompt or 'Memory Judgment line MUST start with' not in step1_prompt:
         raise AssertionError("step1 teacher prompt must include the VERDICT + opener directive")
     if "Your reasoning must be consistent with this verdict" not in step1_prompt:
@@ -672,7 +702,7 @@ def _run_teacher_for_frame(
             "verdict_source": "scripted_memory_vs_gt",
             "verdict_note": VERDICT_SOURCE_NOTE,
             "uses_memory_block": "[MEMORY]" in step1_user,
-            "system_prompt": SYSTEM_PROMPT_V4,
+            "system_prompt": get_step_system_prompt("STEP1"),
             "user_prompt": step1_user,
             "teacher_raw": raw_step1,
             "token_count": _count_tokens(bundle, raw_step1),
@@ -691,6 +721,7 @@ def _run_teacher_for_frame(
             "verdict": verdict_step2,
             "verdict_source": "scripted_memory_vs_gt",
             "verdict_note": VERDICT_SOURCE_NOTE,
+            "system_prompt": get_step_system_prompt("STEP2"),
             "user_prompt": step2_teacher_user,
             "teacher_raw": raw_step2,
             "token_count": _count_tokens(bundle, raw_step2),
@@ -709,6 +740,7 @@ def _run_teacher_for_frame(
             "verdict": verdict_step3,
             "verdict_source": "scripted_memory_vs_gt",
             "verdict_note": VERDICT_SOURCE_NOTE,
+            "system_prompt": get_step_system_prompt("STEP3"),
             "user_prompt": step3_user_prompt,
             "teacher_raw": raw_step3,
             "token_count": _count_tokens(bundle, raw_step3),
