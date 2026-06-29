@@ -252,6 +252,102 @@ bash qwen3vl_local/sft_v4/launch_offpolicy.sh
 ```
 
 这仍会加载模型，不适合在没有本地 Qwen 权重的机器上跑；本地只做静态检查时看第 6 节。
+这条命令会保存 `final/` adapter，可以继续做训练后轻量验证。为了避免覆盖常规训练，
+建议固定一个 run tag：
+
+```bash
+RUN_TAG=quick_verify \
+MAX_STEPS=2 \
+SNAPSHOT_EVERY_STEPS=1 \
+SAVE_STEPS=999999 \
+REPLAY_CAPACITY=8 \
+COLLECTORS_PER_GPU=1 \
+GPU_IDS=0,1,2,3 \
+bash qwen3vl_local/sft_v4/launch_offpolicy.sh
+```
+
+跑完后立即做小样本 eval：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v4/eval.py \
+  --jsonl checkpoints/sft_v4_data/val.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --lora-dir checkpoints/sft_v4_lora/latest/final \
+  --save-root checkpoints/sft_v4_lora/latest \
+  --max-episodes 4
+```
+
+再跑 probe，把所有关键输入、输出和真值落盘：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v4/probe.py \
+  --jsonl checkpoints/sft_v4_data/val.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --lora-dir checkpoints/sft_v4_lora/latest/final \
+  --save-root checkpoints/sft_v4_lora/latest \
+  --num-episodes 2 \
+  --seed 0 \
+  --with-teacher
+```
+
+轻量验证产物：
+
+- `checkpoints/sft_v4_lora/latest/eval_v4/metrics.json`：小样本指标。
+- `checkpoints/sft_v4_lora/latest/eval_v4/episodes.json`：每条 episode 的逐帧预测、
+  memory 轨迹、GT road_structure/scene/status/subgoal、raw_gt_scene 与触发标志。
+- `checkpoints/sft_v4_lora/latest/probe_v4/`：case dump；每帧目录保存
+  `rgb_*.jpg`（实际输入图像副本）、`step{1,2,3}_prompt.txt` /
+  `step{1,2,3}_user.txt`（学生真实输入 prompt）、`step{1,2,3}_student.txt`
+  （学生输出）、`step{1,2,3}_teacher_user.txt` 与 `step{1,2,3}_teacher.txt`
+  （`--with-teacher` 时的 teacher 私有输入和监督目标）、`memory_before.json`、
+  `memory_after.json`、`flags.json`（含
+  `gt_road_structure/gt_scene/raw_gt_scene/gt_status/gt_subgoal`）、`timeline.json/png`、
+  `episode_meta.json` 和顶层 `manifest.json`。
+
+### 单卡轻量验证（非生产口径）
+
+如果只有单卡，用兼容 debug 入口做 tiny train，并立刻接 eval/probe。注意该入口不是
+v4 off-policy 生产训练路径，只用于确认单卡环境下 adapter 保存、加载和 case dump 链路：
+
+```bash
+RUN_TAG=quick_verify_single \
+MAX_STEPS=1 \
+ALLOW_MAX_STEPS_TRUNCATION=1 \
+SAVE_STEPS=999999 \
+GPU_IDS=0 \
+bash qwen3vl_local/sft_v4/train.sh single
+```
+
+单卡 tiny train 跑完后，`latest` 会指向
+`checkpoints/sft_v4_lora/run_quick_verify_single/`。继续跑小样本 eval：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v4/eval.py \
+  --jsonl checkpoints/sft_v4_data/val.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --lora-dir checkpoints/sft_v4_lora/latest/final \
+  --save-root checkpoints/sft_v4_lora/latest \
+  --max-episodes 4
+```
+
+再跑 probe 保存输入、输出和真值：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v4/probe.py \
+  --jsonl checkpoints/sft_v4_data/val.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --lora-dir checkpoints/sft_v4_lora/latest/final \
+  --save-root checkpoints/sft_v4_lora/latest \
+  --num-episodes 2 \
+  --seed 0 \
+  --with-teacher
+```
+
+产物仍写到：
+
+- `checkpoints/sft_v4_lora/latest/eval_v4/metrics.json`
+- `checkpoints/sft_v4_lora/latest/eval_v4/episodes.json`
+- `checkpoints/sft_v4_lora/latest/probe_v4/`
 
 ### 输出结构
 
