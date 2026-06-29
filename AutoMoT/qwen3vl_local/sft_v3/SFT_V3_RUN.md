@@ -144,6 +144,60 @@ all-rank step，避免非 rank0 触发时丢诊断文件。
 GPU_IDS=0 bash qwen3vl_local/sft_v3/train.sh check
 ```
 
+`check` 模式只确认数据 / 模型 / LoRA 链路能启动，**不会保存 `final/` adapter**。
+
+### 单卡轻量验证（训练后 eval/probe）
+
+如果要像 v2 一样快速验证“训练出来的模型能否被 eval/probe 加载”，用下面的单卡 tiny train：
+
+```bash
+RUN_TAG=quick_verify \
+MAX_STEPS=1 \
+ALLOW_MAX_STEPS_TRUNCATION=1 \
+SAVE_STEPS=999999 \
+GPU_IDS=0 \
+bash qwen3vl_local/sft_v3/train.sh single
+```
+
+这会在 `checkpoints/sft_v3_lora/run_quick_verify/final/` 保存一个极小步数 adapter，
+同时把 `latest` 指向该 run。它只用于闭环验收，不代表模型质量。
+
+训练后立即跑小样本 eval：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v3/eval.py \
+  --jsonl checkpoints/sft_v3_data/val.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --lora-dir checkpoints/sft_v3_lora/latest/final \
+  --save-root checkpoints/sft_v3_lora/latest \
+  --max-episodes 4
+```
+
+再跑 probe，把逐帧输入、学生输出、teacher 目标和真值全部落盘：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v3/probe.py \
+  --jsonl checkpoints/sft_v3_data/val.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --lora-dir checkpoints/sft_v3_lora/latest/final \
+  --save-root checkpoints/sft_v3_lora/latest \
+  --num-episodes 2 \
+  --seed 0 \
+  --with-teacher
+```
+
+轻量验证产物：
+
+- `checkpoints/sft_v3_lora/latest/eval_v3/metrics.json`：小样本指标。
+- `checkpoints/sft_v3_lora/latest/eval_v3/episodes.json`：每条 episode 的逐帧预测、
+  memory 轨迹、GT scene/status/subgoal 与触发标志。
+- `checkpoints/sft_v3_lora/latest/probe_v3/`：case dump；每帧目录保存
+  `rgb_*.jpg`（实际输入图像副本）、`step{1,2,3}_user.txt`（学生真实输入 prompt）、
+  `step{1,2,3}_student.txt`（学生输出）、`step{1,2,3}_teacher.txt` /
+  `step{2,3}_teacher_user.txt`（`--with-teacher` 时的监督目标和 teacher 私有输入）、
+  `memory_before.json`、`memory_after.json`、`flags.json`（含
+  `gt_scene/gt_status/gt_subgoal`）、`timeline.json/png` 和顶层 `manifest.json`。
+
 ### 常用环境变量
 
 ```bash
