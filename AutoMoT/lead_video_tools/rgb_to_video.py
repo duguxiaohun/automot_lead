@@ -33,6 +33,10 @@ DEFAULT_DATA_ROOT = pathlib.Path("/datashare/IOL4SGH/data/data")
 DEFAULT_OUTPUT_ROOT = pathlib.Path("/data/lead_video")
 # LEAD 采集时 CARLA 是 20Hz，每 5 tick 落盘 1 帧，因此离线 RGB 是 4Hz。
 DEFAULT_FPS = 4.0
+DEFAULT_PRESET = "veryfast"
+DEFAULT_AUTO_WORKER_CAP = 16
+DEFAULT_FFMPEG_THREADS = 1
+DEFAULT_DISCOVER_PROGRESS_INTERVAL = 10
 VIDEO_NAME = "input.mp4"
 
 # 当前离线 raw RGB 能可靠支持的视角：
@@ -173,6 +177,23 @@ def _natural_jpgs(rgb_dir: pathlib.Path) -> list[pathlib.Path]:
     return sorted(rgb_dir.glob("*.jpg"), key=_key)
 
 
+def _has_jpg(rgb_dir: pathlib.Path) -> bool:
+    """快速判断 rgb 目录里是否至少有一张 jpg。
+
+    discover 阶段只需要知道这是不是一条可候选 route，不需要统计全部帧。
+    用 iterdir 找到第一张 jpg 就返回，可以避免全量数据在 discover 时把每条
+    route 的所有图片都 glob+sort 一遍。
+    """
+
+    try:
+        for path in rgb_dir.iterdir():
+            if path.is_file() and path.suffix.lower() == ".jpg":
+                return True
+    except OSError:
+        return False
+    return False
+
+
 def _parse_frame_stems(rgb_files: Sequence[pathlib.Path]) -> list[int] | None:
     """把文件 stem 解析成帧号；任一文件非数字则返回 None。"""
 
@@ -257,15 +278,17 @@ def discover_routes(
     data_root: pathlib.Path,
     scenarios: set[str] | None = None,
     run_ids: set[str] | None = None,
-) -> list[tuple[str, str, pathlib.Path, pathlib.Path, int]]:
+) -> list[tuple[str, str, pathlib.Path, pathlib.Path]]:
     """发现数据根目录下所有含 rgb/*.jpg 的 route。
 
     data_root 的层级假设为 `<Scenario>/<run_id>/rgb/*.jpg`。
+    注意这里不统计帧数；帧数留到 scan/convert 阶段按需计算，避免 discover 慢到
+    还没打印进度就长时间无输出。
     """
 
     if not data_root.exists():
         raise FileNotFoundError(f"data root not found: {data_root}")
-    routes: list[tuple[str, str, pathlib.Path, pathlib.Path, int]] = []
+    routes: list[tuple[str, str, pathlib.Path, pathlib.Path]] = []
     for scenario_dir in sorted(p for p in data_root.iterdir() if p.is_dir()):
         scenario = scenario_dir.name
         if scenarios and scenario not in scenarios:
@@ -277,10 +300,9 @@ def discover_routes(
             rgb_dir = route_dir / "rgb"
             if not rgb_dir.is_dir():
                 continue
-            frame_count = len(_natural_jpgs(rgb_dir))
-            if frame_count <= 0:
+            if not _has_jpg(rgb_dir):
                 continue
-            routes.append((scenario, run_id, route_dir, rgb_dir, frame_count))
+            routes.append((scenario, run_id, route_dir, rgb_dir))
     return routes
 
 
@@ -289,11 +311,69 @@ def build_tasks(
     output_root: pathlib.Path,
     scenarios: set[str] | None = None,
     run_ids: set[str] | None = None,
+    *,
+    show_progress: bool = True,
+    progress_interval: int = DEFAULT_DISCOVER_PROGRESS_INTERVAL,
 ) -> list[RouteTask]:
     """把发现到的 route 转成带输出路径的任务列表。"""
 
     tasks: list[RouteTask] = []
-    for scenario, run_id, route_dir, rgb_dir, frame_count in discover_routes(data_root, scenarios, run_ids):
+    discover_start = time.time()
+    scenario_count = 0
+    if show_progress:
+        print(f"[discover] scanning data_root={data_root}", flush=True)
+    if not data_root.exists():
+        raise FileNotFoundError(f"data root not found: {data_root}")
+    for scenario_dir in sorted(p for p in data_root.iterdir() if p.is_dir()):
+        scenario = scenario_dir.name
+        if scenarios and scenario not in scenarios:
+            continue
+        scenario_count += 1
+        route_count_before = len(tasks)
+        for route_dir in sorted(p for p in scenario_dir.iterdir() if p.is_dir()):
+            run_id = route_dir.name
+            if run_ids and run_id not in run_ids:
+                continue
+            rgb_dir = route_dir / "rgb"
+            if not rgb_dir.is_dir() or not _has_jpg(rgb_dir):
+                continue
+            output_dir = output_root / scenario / run_id
+            tasks.append(
+                RouteTask(
+                    scenario=scenario,
+                    run_id=run_id,
+                    route_dir=str(route_dir),
+                    rgb_dir=str(rgb_dir),
+                    output_dir=str(output_dir),
+                    video_path=str(output_dir / VIDEO_NAME),
+                    # discover 阶段刻意不数帧，后续 scan/convert 才按需填真实帧数。
+                    frame_count=0,
+                )
+            )
+        if show_progress and (scenario_count == 1 or scenario_count % max(1, progress_interval) == 0):
+            elapsed = time.time() - discover_start
+            added = len(tasks) - route_count_before
+            print(
+                f"[discover] scenarios={scenario_count} routes={len(tasks)} "
+                f"last={scenario} added={added} elapsed={elapsed:.1f}s",
+                flush=True,
+            )
+    if show_progress:
+        elapsed = time.time() - discover_start
+        print(f"[discover] done scenarios={scenario_count} routes={len(tasks)} elapsed={elapsed:.1f}s", flush=True)
+    return tasks
+
+
+def _build_tasks_legacy(
+    data_root: pathlib.Path,
+    output_root: pathlib.Path,
+    scenarios: set[str] | None = None,
+    run_ids: set[str] | None = None,
+) -> list[RouteTask]:
+    """保留给外部 import 的轻量兼容入口；当前 CLI 不调用。"""
+
+    tasks: list[RouteTask] = []
+    for scenario, run_id, route_dir, rgb_dir in discover_routes(data_root, scenarios, run_ids):
         output_dir = output_root / scenario / run_id
         tasks.append(
             RouteTask(
@@ -303,7 +383,7 @@ def build_tasks(
                 rgb_dir=str(rgb_dir),
                 output_dir=str(output_dir),
                 video_path=str(output_dir / VIDEO_NAME),
-                frame_count=frame_count,
+                frame_count=0,
             )
         )
     return tasks
@@ -400,6 +480,21 @@ def is_video_complete(
     return True, "exists_unverified"
 
 
+def _manifest_frame_count(output_dir: pathlib.Path) -> int | None:
+    """从 video_meta.json 读取已知帧数。
+
+    断点重跑时，如果旧产物 manifest 完整，就可以先用 manifest 里的 frame_count
+    检查视频是否可跳过；这样 completed route 不需要再扫描 `/datashare` 原始 jpg。
+    """
+
+    manifest = _read_manifest(output_dir)
+    try:
+        frame_count = int(manifest.get("frame_count"))
+    except (TypeError, ValueError):
+        return None
+    return frame_count if frame_count > 0 else None
+
+
 def _task_video_paths(task: RouteTask, views: Sequence[str]) -> list[pathlib.Path]:
     """返回某条任务在指定 views 下应该产出的所有视频路径。"""
 
@@ -426,19 +521,35 @@ def inspect_task_for_resume(
     video_paths = _task_video_paths(task, views)
     outputs = [str(p) for p in video_paths]
     if not overwrite:
+        manifest_count = _manifest_frame_count(pathlib.Path(task.output_dir))
+        if manifest_count is not None:
+            # 快路径：已有 manifest 时，先尝试只 probe 输出视频；成功则完全不碰原始 jpg。
+            complete_reasons = [
+                is_video_complete(p, manifest_count, fps, expected_frame_index=draw_frame_index)
+                for p in video_paths
+            ]
+            if complete_reasons and all(ok for ok, _reason in complete_reasons):
+                return PlanItem(
+                    task=task,
+                    status="already_done",
+                    message="manifest_fast_skip:" + ";".join(reason for _ok, reason in complete_reasons),
+                    frame_count=manifest_count,
+                    outputs=outputs,
+                )
         # 所有目标视角都完整时，才认为这条 route 已完成；缺任意一路就进入 to_run。
-        complete_reasons = [
-            is_video_complete(p, task.frame_count, fps, expected_frame_index=draw_frame_index)
-            for p in video_paths
-        ]
-        if complete_reasons and all(ok for ok, _reason in complete_reasons):
-            return PlanItem(
-                task=task,
-                status="already_done",
-                message=";".join(reason for _ok, reason in complete_reasons),
-                frame_count=task.frame_count,
-                outputs=outputs,
-            )
+        if task.frame_count > 0:
+            complete_reasons = [
+                is_video_complete(p, task.frame_count, fps, expected_frame_index=draw_frame_index)
+                for p in video_paths
+            ]
+            if complete_reasons and all(ok for ok, _reason in complete_reasons):
+                return PlanItem(
+                    task=task,
+                    status="already_done",
+                    message=";".join(reason for _ok, reason in complete_reasons),
+                    frame_count=task.frame_count,
+                    outputs=outputs,
+                )
 
     ok, reason, rgb_files, dims = validate_rgb_sequence(
         pathlib.Path(task.rgb_dir),
@@ -473,12 +584,16 @@ def build_resume_plan(
     overwrite: bool,
     min_frames: int,
     allow_noncontiguous: bool,
+    show_progress: bool = True,
 ) -> tuple[list[PlanItem], PlanSummary]:
     """预扫描全部任务并返回逐条计划和聚合统计。"""
 
     items: list[PlanItem] = []
     summary = PlanSummary(total=len(tasks))
-    for task in tasks:
+    scan_start = time.time()
+    if show_progress and tasks:
+        print_progress(0, len(tasks), scan_start, prefix="scan", last="starting")
+    for idx, task in enumerate(tasks, start=1):
         item = inspect_task_for_resume(
             task,
             fps=fps,
@@ -495,6 +610,14 @@ def build_resume_plan(
             summary.excluded += 1
         elif item.status == "to_run":
             summary.to_run += 1
+        if show_progress and (idx == len(tasks) or idx % 20 == 0):
+            print_progress(
+                idx,
+                len(tasks),
+                scan_start,
+                prefix="scan",
+                last=f"{item.status} {task.scenario}/{task.run_id}",
+            )
     return items, summary
 
 
@@ -524,7 +647,14 @@ def _progress_bar(done: int, total: int, *, width: int = 28) -> str:
     return "[" + "#" * filled + "-" * (width - filled) + "]"
 
 
-def print_progress(done: int, total: int, start_time: float, *, last: str = "") -> None:
+def print_progress(
+    done: int,
+    total: int,
+    start_time: float,
+    *,
+    prefix: str = "progress",
+    last: str = "",
+) -> None:
     """打印 route 级实时进度。
 
     进度只统计 to_run，不把 already_done/excluded 混进分母，这样 eta 更贴近真实编码耗时。
@@ -536,7 +666,7 @@ def print_progress(done: int, total: int, start_time: float, *, last: str = "") 
     eta = remaining / rate if rate > 0 else 0.0
     pct = (100.0 * done / total) if total > 0 else 100.0
     print(
-        f"[progress] {_progress_bar(done, total)} {done}/{total} "
+        f"[{prefix}] {_progress_bar(done, total)} {done}/{total} "
         f"({pct:5.1f}%) elapsed={elapsed:.1f}s eta={eta:.1f}s {last}",
         flush=True,
     )
@@ -606,6 +736,8 @@ def _encode_one_view(
     view: str,
     fps: float,
     crf: int,
+    preset: str,
+    ffmpeg_threads: int,
     draw_frame_index: bool,
     allow_noncontiguous: bool,
 ) -> tuple[bool, str, pathlib.Path]:
@@ -665,8 +797,9 @@ def _encode_one_view(
     # yuv420p + faststart 确保浏览器/VLC/mpv 都容易播放和拖动进度条。
     cmd.extend([
         "-c:v", "libx264",
-        "-preset", "slow",
+        "-preset", preset,
         "-crf", str(crf),
+        "-threads", str(max(0, int(ffmpeg_threads))),
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         "-an",
@@ -706,6 +839,8 @@ def convert_route(
     fps: float,
     overwrite: bool = False,
     crf: int = 18,
+    preset: str = DEFAULT_PRESET,
+    ffmpeg_threads: int = DEFAULT_FFMPEG_THREADS,
     views: Sequence[str] = ("input",),
     draw_frame_index: bool = True,
     min_frames: int = 2,
@@ -717,21 +852,24 @@ def convert_route(
     output_dir = pathlib.Path(task.output_dir)
     video_paths = [output_dir / VIEW_TO_FILE[v] for v in views]
     # convert_route 自己也保留一次断点检查，防止预扫描之后外部进程刚好补齐产物。
-    complete_reasons = [
-        is_video_complete(p, task.frame_count, fps, expected_frame_index=draw_frame_index)
-        for p in video_paths
-    ]
-    if all(ok for ok, _reason in complete_reasons) and not overwrite:
-        return ConvertResult(
-            task.scenario,
-            task.run_id,
-            str(video_paths[0]),
-            "skipped",
-            task.frame_count,
-            ";".join(reason for _ok, reason in complete_reasons),
-            time.time() - start,
-            [str(p) for p in video_paths],
-        )
+    if not overwrite:
+        expected_frames = task.frame_count if task.frame_count > 0 else _manifest_frame_count(output_dir)
+        if expected_frames is not None:
+            complete_reasons = [
+                is_video_complete(p, expected_frames, fps, expected_frame_index=draw_frame_index)
+                for p in video_paths
+            ]
+            if all(ok for ok, _reason in complete_reasons):
+                return ConvertResult(
+                    task.scenario,
+                    task.run_id,
+                    str(video_paths[0]),
+                    "skipped",
+                    expected_frames,
+                    ";".join(reason for _ok, reason in complete_reasons),
+                    time.time() - start,
+                    [str(p) for p in video_paths],
+                )
 
     ffmpeg = _require_tool("ffmpeg")
     rgb_dir = pathlib.Path(task.rgb_dir)
@@ -780,6 +918,8 @@ def convert_route(
             view=view,
             fps=fps,
             crf=crf,
+            preset=preset,
+            ffmpeg_threads=ffmpeg_threads,
             draw_frame_index=draw_frame_index,
             allow_noncontiguous=allow_noncontiguous,
         )
@@ -816,6 +956,8 @@ def convert_route(
         "image_height": dims[1] if dims else None,
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "encoder": "ffmpeg libx264 yuv420p faststart",
+        "ffmpeg_preset": preset,
+        "ffmpeg_threads": int(ffmpeg_threads),
         "supported_offline_views": list(SUPPORTED_VIEWS),
         "unsupported_eval_carla_views": {
             "debug.mp4": "requires model predictions and camera projection",
@@ -889,6 +1031,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--overwrite", action="store_true", help="Regenerate even if input.mp4 already passes checks")
     parser.add_argument("--dry-run", action="store_true", help="Only print planned tasks")
     parser.add_argument("--crf", type=int, default=18, help="libx264 CRF; lower is higher quality/larger file")
+    parser.add_argument("--preset", type=str, default=DEFAULT_PRESET,
+                        help=f"libx264 preset; default {DEFAULT_PRESET} for faster browsing videos")
+    parser.add_argument("--ffmpeg-threads", type=int, default=DEFAULT_FFMPEG_THREADS,
+                        help="Threads per ffmpeg process; default 1 for route-level parallelism, 0 lets ffmpeg decide")
     parser.add_argument("--views", type=str, default="input",
                         help="Comma/space separated views: input,left,front,right. Default: input")
     parser.add_argument("--no-frame-index", action="store_true",
@@ -908,9 +1054,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.limit > 0:
         tasks = tasks[: args.limit]
     if args.workers == 0:
-        # 自动并行策略偏保守：CPU 一半、最多 8 个，避免把共享存储打满。
+        # 自动并行策略偏保守：CPU 一半、最多 DEFAULT_AUTO_WORKER_CAP 个，避免把共享存储打满。
         cpu_count = os.cpu_count() or 1
-        resolved_workers = min(max(1, cpu_count // 2), 8, max(1, len(tasks)))
+        resolved_workers = min(max(1, cpu_count // 2), DEFAULT_AUTO_WORKER_CAP, max(1, len(tasks)))
     else:
         resolved_workers = max(1, int(args.workers))
 
@@ -933,6 +1079,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         overwrite=args.overwrite,
         min_frames=args.min_frames,
         allow_noncontiguous=args.allow_noncontiguous,
+        show_progress=True,
     )
     print(
         "[plan] "
@@ -976,6 +1123,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.fps,
                 args.overwrite,
                 args.crf,
+                args.preset,
+                args.ffmpeg_threads,
                 views,
                 not args.no_frame_index,
                 args.min_frames,
@@ -1002,6 +1151,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     args.fps,
                     args.overwrite,
                     args.crf,
+                    args.preset,
+                    args.ffmpeg_threads,
                     views,
                     not args.no_frame_index,
                     args.min_frames,
