@@ -1129,6 +1129,11 @@ val/analysis_bleu_vs_teacher (eval.py --with-teacher-ref 时输出)
   恢复时间常数 < 1ms 量级。
 - Adapter 保存与 v2 同：base 只读，只存 adapter delta + `sft_v4_adapter_config.json`
   （记录 LoRA scope、视觉保险参数、训练窗口参数 δ / phase 配置）。
+- Eval/probe 的 LoRA 加载边界：PEFT 只负责读取 adapter，默认立刻
+  `merge_and_unload` 到 base；生成和 KV 续写必须继续走本地
+  `qwen3vl_incremental_forward`，不能回到 PEFT `prepare_inputs_for_generation`。
+  `sft_v4_adapter_config.json` 可记录完整 target module 路径，PEFT
+  `adapter_config.json` 可记录短名，加载端按后缀匹配语义判定兼容。
 
 ### 6.1 Teacher generate 超参
 

@@ -248,6 +248,15 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v3_lora/latest/tb
 ## 4. Eval
 
 默认只跑学生，不加载 teacher，不做 Phase B GT 注入，memory 全程由学生自更新。
+LoRA 加载只使用 PEFT 读取 adapter，然后默认 `merge_and_unload` 合并进 base；
+后续增量 decode 走 `qwen3vl_local/mrope_utils.py::qwen3vl_incremental_forward`，不会再走
+PEFT wrapper 的 `prepare_inputs_for_generation`，因此不会触发旧的 `cache_position`
+被裁掉问题。
+
+`sft_v3_adapter_config.json` 为了审计会保存完整 target module 路径；PEFT 的
+`adapter_config.json` 可能只保存 `q_proj/down_proj/...` 短名。加载端按 PEFT 后缀匹配
+语义校验二者兼容，同时仍检查视觉 LoRA scope 和 adapter 权重 key，避免普通/视觉 LoRA
+混用时静默漏挂。
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v3/eval.py \
