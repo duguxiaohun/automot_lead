@@ -29,7 +29,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _p)
 
 from qwen3vl_local.engine import LocalQwen3VLInstructEngine
-from qwen3vl_local.sft_v3.eval import _generate, _generate_next_with_kv, _simple_bleu
+from qwen3vl_local.sft_v3.eval import _generate, _generate_next_with_kv, _generate_teacher, _simple_bleu
 from qwen3vl_local.sft_v3.train import (
     EpisodeDataset,
     _analysis_before_labels,
@@ -226,7 +226,7 @@ def main() -> None:
                     images=images,
                     system_prompt=get_step_system_prompt("STEP1"),
                 )
-                raw_t1 = _generate(
+                raw_t1 = _generate_teacher(
                     teacher_engine,
                     step1_teacher_msgs,
                     images,
@@ -276,7 +276,7 @@ def main() -> None:
                         images=images,
                         system_prompt=get_step_system_prompt("STEP2"),
                     )
-                    raw_t2 = _generate(
+                    raw_t2 = _generate_teacher(
                         teacher_engine,
                         step2_teacher_msgs,
                         images,
@@ -329,7 +329,7 @@ def main() -> None:
                         images=images,
                         system_prompt=get_step_system_prompt("STEP3"),
                     )
-                    raw_t3 = _generate(
+                    raw_t3 = _generate_teacher(
                         teacher_engine,
                         step3_teacher_msgs,
                         images,

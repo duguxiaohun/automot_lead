@@ -127,6 +127,20 @@ def _generate(engine: LocalQwen3VLInstructEngine, messages: List[Dict[str, Any]]
     return txt.strip()
 
 
+def _generate_teacher(engine: LocalQwen3VLInstructEngine, messages: List[Dict[str, Any]], images: List[Image.Image], max_new_tokens: int) -> str:
+    """生成 teacher 文本并立即释放 teacher KV state。
+
+    Teacher step1/2/3 都是独立专家问答，不复用上一轮 KV；如果保留
+    ``_last_decode_state``，下一次 full prefill 会和上一轮 teacher KV 同时常驻显存，
+    `--with-teacher` 小样本 probe/eval 很容易 OOM。
+    """
+
+    try:
+        return _generate(engine, messages, images, max_new_tokens)
+    finally:
+        engine._last_decode_state = None
+
+
 def _render_user_suffix(engine: LocalQwen3VLInstructEngine, user_prompt: str) -> str:
     """把后续 user turn 渲染为 Qwen chat template 片段。"""
 
@@ -179,14 +193,15 @@ def _generate_next_with_kv(
     # 不走 prepare_inputs_for_generation：PEFT wrapper 会丢 cache_position，使
     # Qwen3-VL 的 M-RoPE decode 位置塌成 0。这里用 state 里保存的 rope_deltas
     # 本地复算 position_ids，只追加文本 token，不重传图像。
-    outputs = qwen3vl_incremental_forward(
-        engine.model,
-        feed_ids=suffix_ids,
-        attention_mask=attention_mask,
-        past_key_values=state["past_key_values"],
-        prefix_len=prefix_len,
-        rope_deltas=state.get("rope_deltas"),
-    )
+    with torch.inference_mode():
+        outputs = qwen3vl_incremental_forward(
+            engine.model,
+            feed_ids=suffix_ids,
+            attention_mask=attention_mask,
+            past_key_values=state["past_key_values"],
+            prefix_len=prefix_len,
+            rope_deltas=state.get("rope_deltas"),
+        )
     decoded_input_ids = torch.cat([prefix_ids, suffix_ids], dim=1)
 
     trace = type("_Trace", (), {
@@ -204,11 +219,12 @@ def _generate_next_with_kv(
     if old_max is not None:
         engine.max_gen_tokens = int(max_new_tokens)
     try:
-        new_ids = engine.decode(
-            {"input_ids": decoded_input_ids, "attention_mask": attention_mask},
-            outputs,
-            trace,
-        )
+        with torch.inference_mode():
+            new_ids = engine.decode(
+                {"input_ids": decoded_input_ids, "attention_mask": attention_mask},
+                outputs,
+                trace,
+            )
     finally:
         if old_max is not None:
             engine.max_gen_tokens = old_max
@@ -337,7 +353,7 @@ def main() -> None:
                     images=images,
                     system_prompt=get_step_system_prompt("STEP1"),
                 )
-                teacher_step1_text = _generate(
+                teacher_step1_text = _generate_teacher(
                     teacher_engine,
                     teacher_step1_msgs,
                     images,
@@ -374,7 +390,7 @@ def main() -> None:
                     )
                     # teacher reference 必须是独立专家问答：重新吃图与 STEP2 system prompt。
                     # student 仍沿用 step1 KV 续写，保持 OPSD rollout 口径。
-                    teacher_step2_text = _generate(
+                    teacher_step2_text = _generate_teacher(
                         teacher_engine,
                         teacher_step2_msgs,
                         images,
@@ -431,7 +447,7 @@ def main() -> None:
                         system_prompt=get_step_system_prompt("STEP3"),
                     )
                     # teacher step3 同样独立重建上下文，避免被前一步 teacher KV 污染。
-                    teacher_step3_text = _generate(
+                    teacher_step3_text = _generate_teacher(
                         teacher_engine,
                         teacher_step3_msgs,
                         images,

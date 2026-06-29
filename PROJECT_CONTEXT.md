@@ -120,6 +120,14 @@ LEAD 数据根目录统一假设在 `AutoMoT/lead_data`，即远端原始 LEAD �
   `sft_v*_adapter_config.json` 保存完整 target module 路径，而 PEFT
   `adapter_config.json` 保存 `q_proj/down_proj/...` 这类短名；二者按 PEFT 后缀匹配语义
   判定兼容，同时继续校验视觉 LoRA scope 与权重 key，避免静默漏挂视觉 adapter。
+- `LocalQwen3VLInstructEngine` 的 prefill/decode 必须在 `torch.inference_mode()` 下运行；
+  v3/v4 eval/probe 的 `_generate_next_with_kv` 也必须用 inference mode 包住 suffix forward
+  和 decode。否则 `--with-teacher` 的双模型诊断会在纯推理阶段构建 autograd graph，
+  4 张 LEAD RGB 多次 full prefill 很容易把 80-90GB 显存吃满。每次新的 full
+  `engine.generate()` 前必须先清旧 `_last_decode_state`；teacher step1/2/3 是独立专家问答，
+  生成后也必须立刻清 teacher `_last_decode_state`，避免上一轮 KV 和下一轮 prefill 同时常驻。
+  `--with-teacher` 本身仍会同卡常驻 student merged LoRA + base teacher 两份 Qwen，
+  只适合小样本诊断。
 
 ## 5. VLM 两种范式
 
