@@ -1030,6 +1030,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=0, help="Convert at most N routes after filtering")
     parser.add_argument("--overwrite", action="store_true", help="Regenerate even if input.mp4 already passes checks")
     parser.add_argument("--dry-run", action="store_true", help="Only print planned tasks")
+    parser.add_argument("--skip-scan", action="store_true",
+                        help="Skip global resume pre-scan and submit discovered routes directly to workers")
     parser.add_argument("--crf", type=int, default=18, help="libx264 CRF; lower is higher quality/larger file")
     parser.add_argument("--preset", type=str, default=DEFAULT_PRESET,
                         help=f"libx264 preset; default {DEFAULT_PRESET} for faster browsing videos")
@@ -1069,50 +1071,74 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("[done] no routes found")
         return 0
 
-    # 先要求 ffprobe 可用，因为预扫描就要用它判断已有视频和异常帧。
-    _require_tool("ffprobe")
-    plan_items, plan_summary = build_resume_plan(
-        tasks,
-        fps=args.fps,
-        views=views,
-        draw_frame_index=not args.no_frame_index,
-        overwrite=args.overwrite,
-        min_frames=args.min_frames,
-        allow_noncontiguous=args.allow_noncontiguous,
-        show_progress=True,
-    )
-    print(
-        "[plan] "
-        f"total={plan_summary.total} "
-        f"already_done={plan_summary.already_done} "
-        f"excluded={plan_summary.excluded} "
-        f"to_run={plan_summary.to_run}"
-    )
-    if args.dry_run:
-        # dry-run 打印逐条计划，但不创建输出目录、不启动 ffmpeg。
-        for item in plan_items:
-            print(
-                f"[plan:{item.status}] {item.task.scenario}/{item.task.run_id}: "
-                f"{item.frame_count} frames -> {item.outputs} ({item.message})"
-            )
-        return 0
+    if args.skip_scan:
+        # 快速路径：不做全局 scan，不提前统计 already_done/excluded/to_run。
+        # 每条 route 进入 convert_route 后仍会做单条断点检查和异常数据剔除。
+        print(
+            "[plan] "
+            f"total={len(tasks)} already_done=unknown excluded=unknown "
+            f"to_run={len(tasks)} scan=skipped"
+        )
+        if args.dry_run:
+            for task in tasks:
+                outputs = [str(p) for p in _task_video_paths(task, views)]
+                print(
+                    f"[plan:direct] {task.scenario}/{task.run_id}: "
+                    f"frames=unknown -> {outputs} (skip_scan)"
+                )
+            return 0
+        results: list[ConvertResult] = []
+        to_convert = list(tasks)
+        plan_already_done = 0
+        plan_excluded = 0
+    else:
+        # 先要求 ffprobe 可用，因为预扫描就要用它判断已有视频和异常帧。
+        _require_tool("ffprobe")
+        plan_items, plan_summary = build_resume_plan(
+            tasks,
+            fps=args.fps,
+            views=views,
+            draw_frame_index=not args.no_frame_index,
+            overwrite=args.overwrite,
+            min_frames=args.min_frames,
+            allow_noncontiguous=args.allow_noncontiguous,
+            show_progress=True,
+        )
+        print(
+            "[plan] "
+            f"total={plan_summary.total} "
+            f"already_done={plan_summary.already_done} "
+            f"excluded={plan_summary.excluded} "
+            f"to_run={plan_summary.to_run}"
+        )
+        if args.dry_run:
+            # dry-run 打印逐条计划，但不创建输出目录、不启动 ffmpeg。
+            for item in plan_items:
+                print(
+                    f"[plan:{item.status}] {item.task.scenario}/{item.task.run_id}: "
+                    f"{item.frame_count} frames -> {item.outputs} ({item.message})"
+                )
+            return 0
 
-    results: list[ConvertResult] = [
-        _result_from_plan_item(item)
-        for item in plan_items
-        if item.status in ("already_done", "excluded")
-    ]
-    to_convert = [item.task for item in plan_items if item.status == "to_run"]
+        results = [
+            _result_from_plan_item(item)
+            for item in plan_items
+            if item.status in ("already_done", "excluded")
+        ]
+        to_convert = [item.task for item in plan_items if item.status == "to_run"]
+        plan_already_done = plan_summary.already_done
+        plan_excluded = plan_summary.excluded
     if not to_convert:
         # 即使无需编码，也写 summary，方便用户确认本次扫描结果。
         _write_summary(args.output_root, results)
         print("[progress] no routes need conversion")
-        print(f"[summary] converted=0 skipped={plan_summary.already_done} excluded={plan_summary.excluded} failed=0")
+        print(f"[summary] converted=0 skipped={plan_already_done} excluded={plan_excluded} failed=0")
         print(f"[summary] wrote {args.output_root / 'lead_video_summary.json'}")
         return 0
 
     # 只有确实需要编码时才要求 ffmpeg，dry-run / 全部跳过不启动编码器。
     _require_tool("ffmpeg")
+    _require_tool("ffprobe")
     workers = min(resolved_workers, len(to_convert))
     progress_start = time.time()
     print_progress(0, len(to_convert), progress_start, last="starting")

@@ -78,6 +78,18 @@ python3 lead_video_tools/rgb_to_video.py \
     --workers 0
 ```
 
+如果你已经知道某个场景还没生成过，想跳过全量 `[scan]` 预检查、直接进入编码队列：
+
+```bash
+python3 lead_video_tools/rgb_to_video.py \
+    --scenario Accident \
+    --workers 0 \
+    --skip-scan
+```
+
+`--skip-scan` 仍会在每条 route 真正编码前做单条检查；它只是省掉开跑前那次全量
+already_done / excluded / to_run 统计。
+
 默认编码参数偏向“快速浏览”：`--preset veryfast --crf 18 --ffmpeg-threads 1`。如果你更在意速度、
 可以接受视频文件变大，可进一步用：
 
@@ -93,6 +105,23 @@ python3 lead_video_tools/rgb_to_video.py \
 python3 lead_video_tools/rgb_to_video.py \
     --scenario BlockedIntersection \
     --run-id Town06_Rep0_Town06_14_route0_01_08_14_51_15
+```
+
+指定场景 demo：
+
+```bash
+python3 lead_video_tools/rgb_to_video.py \
+    --scenario Accident \
+    --workers 0
+```
+
+指定场景 + 跳过 scan demo：
+
+```bash
+python3 lead_video_tools/rgb_to_video.py \
+    --scenario Accident \
+    --workers 0 \
+    --skip-scan
 ```
 
 全量转换：
@@ -190,6 +219,28 @@ python3 lead_video_tools/rgb_to_video.py --workers 4
 
 如果全量数据很多，先看到 `[discover]` 和 `[scan]` 是正常的，不是卡住。
 
+跳过全局 scan：
+
+```bash
+python3 lead_video_tools/rgb_to_video.py --scenario Accident --workers 0 --skip-scan
+```
+
+跳过后计划行会变成：
+
+```text
+[plan] total=220 already_done=unknown excluded=unknown to_run=220 scan=skipped
+```
+
+这表示脚本不再提前统计哪些已经完成、哪些异常，而是把 discover 到的 route 直接提交给
+worker。每条 route 进入 worker 后仍会执行：
+
+- 已有完整视频则 `skipped`；
+- RGB 异常则 `excluded`；
+- 缺视频或视频不完整则 `converted`。
+
+适合场景：第一次跑某个 scenario，或者你确认大部分 route 都需要生成。  
+不适合场景：大部分视频已经生成好了，此时默认 scan 可以更早跳过，反而更省 worker 调度。
+
 异常数据剔除：
 
 - 默认要求 `rgb` 帧文件名是连续数字序列：`0000.jpg ... 00NN.jpg`。
@@ -245,6 +296,7 @@ stitched RGB 裁出来的重复视角，需要时用 `--views input,left,front,r
 | `validate_rgb_sequence()` | 剔除缺帧、非连续编号、首尾不可读、尺寸不一致等异常数据 |
 | `is_video_complete()` | 用 `video_meta.json` + `ffprobe` 判断旧视频能否断点跳过 |
 | `build_resume_plan()` | 开跑前统计本次 total / already_done / excluded / to_run |
+| `--skip-scan` | 跳过 `build_resume_plan()` 的全局预扫描，直接把 discover 到的 route 交给 worker |
 | `_view_filter()` | 生成 input/left/front/right 的裁剪与 frame id overlay filter |
 | `_encode_one_view()` | 调 ffmpeg 编码单个 view，先写临时文件再原子替换 |
 | `convert_route()` | 转换一条 route 的多个 view，并写 `video_meta.json` |
