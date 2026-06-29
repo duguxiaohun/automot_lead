@@ -178,6 +178,31 @@ def _adapter_state_keys(adapter_path: pathlib.Path) -> List[str]:
     )
 
 
+def _target_modules_compatible(sft_targets: List[str], peft_targets: List[str]) -> bool:
+    """判断 SFT 自描述 target 与 PEFT target 是否等价。
+
+    训练时为了避免误打到视觉 tower，SFT 配置会记录完整模块路径；PEFT 的
+    ``adapter_config.json`` 可能把同一组语言侧 Linear 压缩成短名
+    ``q_proj`` / ``v_proj`` 等，并在加载时按后缀匹配。这里按 PEFT 语义做同样的
+    后缀兼容，而不是要求两份 JSON 字符串集合逐字相同。
+    """
+
+    if not sft_targets:
+        return True
+    if set(sft_targets) == set(peft_targets):
+        return True
+    peft_suffixes = {str(name) for name in peft_targets}
+    if not peft_suffixes:
+        return False
+    for target in sft_targets:
+        target = str(target)
+        if target in peft_suffixes:
+            continue
+        if not any(target.endswith(f".{suffix}") or target == suffix for suffix in peft_suffixes):
+            return False
+    return True
+
+
 def _inspect_lora_adapter(adapter_path: pathlib.Path) -> Dict[str, Any]:
     """像 LeadMoT 读 decoder_config 一样，先读取 LoRA adapter 自描述配置。
 
@@ -209,7 +234,7 @@ def _inspect_lora_adapter(adapter_path: pathlib.Path) -> Dict[str, Any]:
     if sft_has_vision is None and "lora_vision_scope" in sft_config:
         sft_has_vision = str(sft_config.get("lora_vision_scope", "off")).lower() != "off"
     sft_targets = _as_list(sft_config.get("target_modules")) if sft_config else []
-    if sft_targets and set(sft_targets) != set(target_modules):
+    if sft_targets and not _target_modules_compatible(sft_targets, target_modules):
         missing_from_peft = sorted(set(sft_targets) - set(target_modules))[:8]
         extra_in_peft = sorted(set(target_modules) - set(sft_targets))[:8]
         raise ValueError(

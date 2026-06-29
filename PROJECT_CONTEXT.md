@@ -113,6 +113,13 @@ LEAD 数据根目录统一假设在 `AutoMoT/lead_data`，即远端原始 LEAD �
   避免把 Qwen3-VL 的图文 M-RoPE 计算拆成半截 cache 后错位。受旧 bug 训练出的
   SFT v4 checkpoint 和旧 `teacher_report.md` 抽检结果需要作废，修复后先重跑
   `inspect_teacher.py`，再重新训练。
+- PEFT 仍可用于**加载 LoRA adapter 并立即 `merge_and_unload`**；禁止的是让 PEFT
+  wrapper 参与增量 decode / `generate` 的 `prepare_inputs_for_generation` 路径。
+  v3/v4 eval/probe 默认 `--merge-lora=True`，加载 adapter 后后续文本生成走 merged
+  base + `qwen3vl_incremental_forward`。`engine.py` 的 adapter 自检允许
+  `sft_v*_adapter_config.json` 保存完整 target module 路径，而 PEFT
+  `adapter_config.json` 保存 `q_proj/down_proj/...` 这类短名；二者按 PEFT 后缀匹配语义
+  判定兼容，同时继续校验视觉 LoRA scope 与权重 key，避免静默漏挂视觉 adapter。
 
 ## 5. VLM 两种范式
 
@@ -353,6 +360,9 @@ eval 端固定坑：
 
 - Qwen3-VL 上 PEFT wrapper forward 可能错位；`eval.py` / `probe.py` 默认
   `merge_and_unload` 把 LoRA 合并进 base 再推理。
+- SFT v2/v3/v4 的 `sft_v*_adapter_config.json` 会记录完整 target module 路径用于审计；
+  PEFT 自带 `adapter_config.json` 可能只保留短名 target modules。加载端按后缀兼容校验，
+  不要求两份 JSON 的字符串集合逐字相等。
 - `--max-gen-tokens` 默认 256（teacher ANALYSIS 80-150 token + STATUS/SUBGOAL 段，
   必须 ≥ 200，否则解析不到 STATUS）。
 - partial-continue fallback 是永久兜底，不代表模型健康。
