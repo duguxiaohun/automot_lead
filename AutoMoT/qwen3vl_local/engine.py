@@ -526,11 +526,14 @@ class LocalQwen3VLInstructEngine:
         past_key_values 会在 decode 阶段复用，避免每生成一个 token 都重算整段图文上下文。
         """
 
-        return self.model(
-            **inputs,
-            use_cache=True,
-            return_dict=True,
-        )
+        import torch
+
+        with torch.inference_mode():
+            return self.model(
+                **inputs,
+                use_cache=True,
+                return_dict=True,
+            )
 
     def _get_system_prompt_cache(self, system_prompt: str) -> Dict[str, Any]:
         """获取或创建 system prompt 的 prefix KV cache。
@@ -754,14 +757,15 @@ class LocalQwen3VLInstructEngine:
             # cache_position 裁掉，使 Qwen3-VL 把每个续写 token 的 mrope 位置算成 0、RoPE 崩坏；
             # 这里用本轮捕获的 rope_deltas 复算 position_ids 显式喂入，base / PEFT 两种 model 都正确。
             prefix_len = int(decoded_input_ids.shape[1] - 1)
-            outputs = qwen3vl_incremental_forward(
-                self.model,
-                feed_ids=next_token,
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-                prefix_len=prefix_len,
-                rope_deltas=rope_deltas,
-            )
+            with torch.inference_mode():
+                outputs = qwen3vl_incremental_forward(
+                    self.model,
+                    feed_ids=next_token,
+                    attention_mask=attention_mask,
+                    past_key_values=past_key_values,
+                    prefix_len=prefix_len,
+                    rope_deltas=rope_deltas,
+                )
 
             past_key_values = outputs.past_key_values
             cached_input_ids = decoded_input_ids
@@ -802,6 +806,9 @@ class LocalQwen3VLInstructEngine:
         """
 
         self.load()
+        # 新的一轮完整图文 prefill 不复用上一轮 decode state；先清掉旧 KV，
+        # 避免上一帧/上一问的 cache 在本轮 full prefill 期间继续占显存。
+        self._last_decode_state = None
 
         # 1) 结构化消息：图片仍是 PIL/list 对象，还没有转 token。
         messages = self.build_messages(system_prompt, user_prompt, images)

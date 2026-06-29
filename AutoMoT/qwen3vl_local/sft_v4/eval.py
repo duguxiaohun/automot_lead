@@ -200,6 +200,20 @@ def _generate(engine: LocalQwen3VLInstructEngine, messages: List[Dict[str, Any]]
     return txt.strip()
 
 
+def _generate_teacher(engine: LocalQwen3VLInstructEngine, messages: List[Dict[str, Any]], images: List[Image.Image], max_new_tokens: int) -> str:
+    """生成 teacher 文本并立即释放 teacher KV state。
+
+    Teacher step1/2/3 都是独立专家问答，不复用上一轮 KV；如果保留
+    ``_last_decode_state``，下一次 full prefill 会和上一轮 teacher KV 同时常驻显存，
+    `--with-teacher` 小样本 probe/eval 很容易 OOM。
+    """
+
+    try:
+        return _generate(engine, messages, images, max_new_tokens)
+    finally:
+        engine._last_decode_state = None
+
+
 def _render_user_suffix(engine: LocalQwen3VLInstructEngine, user_prompt: str) -> str:
     """把后续 user turn 渲染为 Qwen chat template 片段。"""
 
@@ -253,14 +267,15 @@ def _generate_next_with_kv(
     # 与 sft_v4/train 同一处修复：不走 prepare_inputs_for_generation（PEFT 会裁掉
     # cache_position 导致 mrope 位置塌成 0），改用本地 qwen3vl_incremental_forward，
     # 用本条 KV 状态自带的 rope_deltas 复算 mrope position_ids 后再 forward。
-    outputs = qwen3vl_incremental_forward(
-        engine.model,
-        feed_ids=suffix_ids,
-        attention_mask=attention_mask,
-        past_key_values=state["past_key_values"],
-        prefix_len=prefix_len,
-        rope_deltas=state.get("rope_deltas"),
-    )
+    with torch.inference_mode():
+        outputs = qwen3vl_incremental_forward(
+            engine.model,
+            feed_ids=suffix_ids,
+            attention_mask=attention_mask,
+            past_key_values=state["past_key_values"],
+            prefix_len=prefix_len,
+            rope_deltas=state.get("rope_deltas"),
+        )
 
     trace = type("_Trace", (), {
         "prefill_cache_summary": {},
@@ -277,11 +292,12 @@ def _generate_next_with_kv(
     if old_max is not None:
         engine.max_gen_tokens = int(max_new_tokens)
     try:
-        new_ids = engine.decode(
-            {"input_ids": decoded_input_ids, "attention_mask": attention_mask},
-            outputs,
-            trace,
-        )
+        with torch.inference_mode():
+            new_ids = engine.decode(
+                {"input_ids": decoded_input_ids, "attention_mask": attention_mask},
+                outputs,
+                trace,
+            )
     finally:
         if old_max is not None:
             engine.max_gen_tokens = old_max
@@ -410,7 +426,7 @@ def main() -> None:
             if teacher_engine is not None:
                 teacher_step1_user = build_step1_teacher_prompt(memory, gt_road_structure)
                 teacher_step1_msgs = _build_messages_with_images(user_text=teacher_step1_user, images=images, system_prompt=get_step_system_prompt("STEP1"))
-                teacher_step1_text = _generate(
+                teacher_step1_text = _generate_teacher(
                     teacher_engine,
                     teacher_step1_msgs,
                     images,
@@ -449,7 +465,7 @@ def main() -> None:
                 if teacher_engine is not None:
                     teacher_step2_user = build_step2_teacher_prompt(memory, gt_road_structure, ep.gt_scene)
                     teacher_step2_msgs = _build_messages_with_images(user_text=teacher_step2_user, images=images, system_prompt=get_step_system_prompt("STEP2"))
-                    teacher_step2_text = _generate(
+                    teacher_step2_text = _generate_teacher(
                         teacher_engine,
                         teacher_step2_msgs,
                         images,
@@ -508,7 +524,7 @@ def main() -> None:
                         gt_subgoal,
                     )
                     teacher_step3_msgs = _build_messages_with_images(user_text=teacher_step3_user, images=images, system_prompt=get_step_system_prompt("STEP3"))
-                    teacher_step3_text = _generate(
+                    teacher_step3_text = _generate_teacher(
                         teacher_engine,
                         teacher_step3_msgs,
                         images,

@@ -258,6 +258,12 @@ PEFT wrapper 的 `prepare_inputs_for_generation`，因此不会触发旧的 `cac
 语义校验二者兼容，同时仍检查视觉 LoRA scope 和 adapter 权重 key，避免普通/视觉 LoRA
 混用时静默漏挂。
 
+推理路径已用 `torch.inference_mode()` 包住 full prefill、decode 和 step2/3 KV 续写，
+不会在 eval/probe 中构建 autograd graph。`--with-teacher` 仍会同卡额外加载一份 base
+Qwen teacher，显存接近翻倍；teacher step1/2/3 生成后会立即释放自己的 KV cache，
+新的 full generate 也会先清上一轮 `_last_decode_state`。如果只看 student 指标，
+先不要加 `--with-teacher`。
+
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v3/eval.py \
   --jsonl checkpoints/sft_v3_data/val.jsonl \
@@ -324,6 +330,10 @@ GPU_IDS=0 python qwen3vl_local/sft_v3/probe.py \
   --num-episodes 2 \
   --with-teacher
 ```
+
+`--with-teacher` 是重诊断模式，会额外常驻一份 base Qwen 并对 teacher step 独立重喂
+4 张 RGB；建议只配合 `--num-episodes 1-2` 使用。OOM 时先去掉 `--with-teacher`，
+或换空闲大显存卡后再跑 teacher dump。
 
 `--with-teacher` 会额外写：
 

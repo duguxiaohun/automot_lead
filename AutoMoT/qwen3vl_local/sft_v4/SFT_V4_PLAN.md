@@ -1134,6 +1134,9 @@ val/analysis_bleu_vs_teacher (eval.py --with-teacher-ref 时输出)
   `qwen3vl_incremental_forward`，不能回到 PEFT `prepare_inputs_for_generation`。
   `sft_v4_adapter_config.json` 可记录完整 target module 路径，PEFT
   `adapter_config.json` 可记录短名，加载端按后缀匹配语义判定兼容。
+- Eval/probe 推理必须用 `torch.inference_mode()`，新 full generate 前先释放旧
+  `_last_decode_state`；teacher step 是独立问答，生成后必须清 teacher KV，不能把
+  teacher 上一步 cache 带进下一次 full prefill。
 
 ### 6.1 Teacher generate 超参
 
