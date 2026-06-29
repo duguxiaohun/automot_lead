@@ -1,16 +1,16 @@
-"""Convert LEAD stitched RGB frame folders into seekable MP4 videos.
+"""把 LEAD 离线 stitched RGB 帧批量转换成可拖动的 MP4 视频。
 
-The expected input layout is:
+输入目录遵循 LEAD 数据集结构：
 
     /datashare/IOL4SGH/data/data/<Scenario>/<run_id>/rgb/0000.jpg
 
-The output layout mirrors the scenario/run_id hierarchy:
+输出目录镜像 scenario/run_id 层级：
 
     /data/lead_video/<Scenario>/<run_id>/input.mp4
 
-Only RGB videos are generated. The online eval_carla debug/demo/grid videos need
-CARLA runtime state, predicted trajectories, or live camera actors, so raw LEAD
-offline data cannot fully reproduce them.
+本脚本只生成 raw RGB 可以可靠支持的视频：input 以及从 stitched RGB 裁出来的
+left/front/right。eval_carla 里的 debug/bev_debug/demo/grid 依赖在线 CARLA 状态、
+模型预测轨迹或 live camera actor，不能仅靠离线 RGB 完整复现。
 """
 
 from __future__ import annotations
@@ -31,8 +31,13 @@ from typing import Iterable, Sequence
 
 DEFAULT_DATA_ROOT = pathlib.Path("/datashare/IOL4SGH/data/data")
 DEFAULT_OUTPUT_ROOT = pathlib.Path("/data/lead_video")
-DEFAULT_FPS = 4.0  # LEAD logs one frame every 5 CARLA ticks at 20Hz => 0.25s/frame.
+# LEAD 采集时 CARLA 是 20Hz，每 5 tick 落盘 1 帧，因此离线 RGB 是 4Hz。
+DEFAULT_FPS = 4.0
 VIDEO_NAME = "input.mp4"
+
+# 当前离线 raw RGB 能可靠支持的视角：
+# - input: 原始 1152x384 三视角横拼图；
+# - left/front/right: 按宽度三等分裁出的 384x384 单视角。
 SUPPORTED_VIEWS = ("input", "left", "front", "right")
 VIEW_TO_FILE = {
     "input": "input.mp4",
@@ -50,7 +55,10 @@ FONT_CANDIDATES = (
 
 @dataclass(frozen=True)
 class RouteTask:
-    """One LEAD route RGB folder to convert."""
+    """一条 LEAD route 的转换任务。
+
+    这里刻意只保存字符串路径，方便 ProcessPoolExecutor 在多进程间 pickle。
+    """
 
     scenario: str
     run_id: str
@@ -63,7 +71,7 @@ class RouteTask:
 
 @dataclass
 class ConvertResult:
-    """Conversion status for one route."""
+    """一条 route 转换后的结果，用于终端汇总和 summary JSON。"""
 
     scenario: str
     run_id: str
@@ -75,7 +83,41 @@ class ConvertResult:
     outputs: list[str] | None = None
 
 
+@dataclass
+class PlanItem:
+    """正式编码前的预检查结果。
+
+    status 只取三类：
+    - already_done: 断点续跑检查通过，后续不再开 ffmpeg；
+    - excluded: RGB 序列异常，本次剔除；
+    - to_run: 需要真正编码。
+    """
+
+    task: RouteTask
+    status: str
+    message: str
+    frame_count: int
+    outputs: list[str]
+    dims: tuple[int, int] | None = None
+
+
+@dataclass
+class PlanSummary:
+    """正式转换前打印给用户看的计划统计。"""
+
+    total: int = 0
+    already_done: int = 0
+    excluded: int = 0
+    to_run: int = 0
+
+
 def _run_command(cmd: Sequence[str], timeout_s: int | None = None) -> subprocess.CompletedProcess:
+    """运行外部命令并捕获 stdout/stderr。
+
+    ffmpeg/ffprobe 失败时我们要把 stderr 写进 ConvertResult，而不是让异常直接
+    打断全量任务，所以这里统一 check=False。
+    """
+
     return subprocess.run(
         list(cmd),
         stdout=subprocess.PIPE,
@@ -87,6 +129,8 @@ def _run_command(cmd: Sequence[str], timeout_s: int | None = None) -> subprocess
 
 
 def _require_tool(name: str) -> str:
+    """确认外部工具在 PATH 中，并返回实际路径。"""
+
     path = shutil.which(name)
     if not path:
         raise RuntimeError(f"{name} not found in PATH")
@@ -94,6 +138,12 @@ def _require_tool(name: str) -> str:
 
 
 def _find_font_file() -> str | None:
+    """寻找 drawtext 可用字体文件。
+
+    Linux 远端通常有 DejaVu；Windows 本地烟雾测试用 Arial。显式传 fontfile
+    可以避免 ffmpeg drawtext 因 fontconfig 默认配置缺失而失败。
+    """
+
     for candidate in FONT_CANDIDATES:
         path = pathlib.Path(candidate)
         if path.exists():
@@ -102,10 +152,18 @@ def _find_font_file() -> str | None:
 
 
 def _escape_drawtext_path(path: str) -> str:
+    """转义 ffmpeg drawtext 的 fontfile 路径。"""
+
     return path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
 
 
 def _natural_jpgs(rgb_dir: pathlib.Path) -> list[pathlib.Path]:
+    """按帧号语义排序 jpg。
+
+    正常 LEAD 文件名是 0000.jpg、0001.jpg；若混入非数字文件名，则排到最后，
+    后续 validate_rgb_sequence 会把它识别为异常。
+    """
+
     def _key(path: pathlib.Path) -> tuple[int, str]:
         try:
             return int(path.stem), path.name
@@ -116,6 +174,8 @@ def _natural_jpgs(rgb_dir: pathlib.Path) -> list[pathlib.Path]:
 
 
 def _parse_frame_stems(rgb_files: Sequence[pathlib.Path]) -> list[int] | None:
+    """把文件 stem 解析成帧号；任一文件非数字则返回 None。"""
+
     try:
         return [int(p.stem) for p in rgb_files]
     except ValueError:
@@ -123,7 +183,10 @@ def _parse_frame_stems(rgb_files: Sequence[pathlib.Path]) -> list[int] | None:
 
 
 def _ffprobe_image(path: pathlib.Path) -> tuple[int, int] | None:
-    """Probe one image's width/height without decoding it in Python."""
+    """用 ffprobe 读取单张图片的宽高。
+
+    不在 Python 里引 PIL/cv2，避免远端轻量批处理脚本多一个 Python 图像依赖。
+    """
 
     if shutil.which("ffprobe") is None:
         return None
@@ -153,12 +216,19 @@ def validate_rgb_sequence(
     min_frames: int,
     allow_noncontiguous: bool,
 ) -> tuple[bool, str, list[pathlib.Path], tuple[int, int] | None]:
-    """Reject obviously broken LEAD RGB routes before spending ffmpeg time."""
+    """在编码前剔除明显异常的 RGB 序列。
+
+    这一步服务两个目标：
+    1. 避免缺帧 / 非连续命名导致 ffmpeg 静默截断；
+    2. 避免尺寸异常的 stitched RGB 被错误三等分。
+    """
 
     rgb_files = _natural_jpgs(rgb_dir)
     if len(rgb_files) < min_frames:
         return False, f"too_few_frames:{len(rgb_files)}<{min_frames}", rgb_files, None
 
+    # 默认严格要求 0000..N 连续。用户显式传 --allow-noncontiguous 时，后续会走
+    # concat fallback，但正常全量巡检建议保持严格，宁可剔除坏 route。
     stems = _parse_frame_stems(rgb_files)
     if stems is None:
         return False, "non_numeric_frame_name", rgb_files, None
@@ -167,6 +237,7 @@ def validate_rgb_sequence(
         missing = sorted(set(range(stems[0], stems[-1] + 1)) - set(stems))[:8]
         return False, f"noncontiguous_frames:first_missing={missing}", rgb_files, None
 
+    # 只 probe 首尾帧，成本低；若首尾尺寸一致，通常整条 route 尺寸也一致。
     first_meta = _ffprobe_image(rgb_files[0])
     last_meta = _ffprobe_image(rgb_files[-1])
     if first_meta is None:
@@ -187,7 +258,10 @@ def discover_routes(
     scenarios: set[str] | None = None,
     run_ids: set[str] | None = None,
 ) -> list[tuple[str, str, pathlib.Path, pathlib.Path, int]]:
-    """Find route folders with a non-empty rgb/*.jpg sequence."""
+    """发现数据根目录下所有含 rgb/*.jpg 的 route。
+
+    data_root 的层级假设为 `<Scenario>/<run_id>/rgb/*.jpg`。
+    """
 
     if not data_root.exists():
         raise FileNotFoundError(f"data root not found: {data_root}")
@@ -216,6 +290,8 @@ def build_tasks(
     scenarios: set[str] | None = None,
     run_ids: set[str] | None = None,
 ) -> list[RouteTask]:
+    """把发现到的 route 转成带输出路径的任务列表。"""
+
     tasks: list[RouteTask] = []
     for scenario, run_id, route_dir, rgb_dir, frame_count in discover_routes(data_root, scenarios, run_ids):
         output_dir = output_root / scenario / run_id
@@ -234,7 +310,10 @@ def build_tasks(
 
 
 def probe_video(video_path: pathlib.Path) -> dict:
-    """Return ffprobe metadata. Missing ffprobe is treated as no metadata."""
+    """读取已有 mp4 的 ffprobe 元数据。
+
+    返回空 dict 表示 probe 失败；调用方会据此决定不能断点跳过。
+    """
 
     if not video_path.exists() or shutil.which("ffprobe") is None:
         return {}
@@ -260,6 +339,8 @@ def probe_video(video_path: pathlib.Path) -> dict:
 
 
 def _read_manifest(output_dir: pathlib.Path) -> dict:
+    """读取 route 输出目录里的 video_meta.json。"""
+
     manifest_path = output_dir / "video_meta.json"
     if not manifest_path.exists():
         return {}
@@ -277,11 +358,16 @@ def is_video_complete(
     require_manifest: bool = True,
     expected_frame_index: bool = True,
 ) -> tuple[bool, str]:
-    """Check whether an existing video is good enough for resume skip."""
+    """判断已有视频是否可以在断点续跑时跳过。
+
+    除了检查视频本身的帧数/时长，还检查 video_meta.json 中的 views 与
+    draw_frame_index 配置，防止用户改了输出配置后旧视频被误认为可复用。
+    """
 
     if not video_path.exists() or video_path.stat().st_size <= 0:
         return False, "missing_or_empty"
     if require_manifest:
+        # manifest 是配置兼容性标记；没有 manifest 的旧产物一律重做。
         manifest = _read_manifest(video_path.parent)
         view = video_path.stem
         if not manifest:
@@ -314,8 +400,152 @@ def is_video_complete(
     return True, "exists_unverified"
 
 
+def _task_video_paths(task: RouteTask, views: Sequence[str]) -> list[pathlib.Path]:
+    """返回某条任务在指定 views 下应该产出的所有视频路径。"""
+
+    output_dir = pathlib.Path(task.output_dir)
+    return [output_dir / VIEW_TO_FILE[v] for v in views]
+
+
+def inspect_task_for_resume(
+    task: RouteTask,
+    *,
+    fps: float,
+    views: Sequence[str],
+    draw_frame_index: bool,
+    overwrite: bool,
+    min_frames: int,
+    allow_noncontiguous: bool,
+) -> PlanItem:
+    """预判一条 route 是跳过、剔除还是需要编码。
+
+    这个函数让正式开跑前就能打印 total/already_done/excluded/to_run，
+    用户不用等 ffmpeg 跑起来才知道还剩多少工作量。
+    """
+
+    video_paths = _task_video_paths(task, views)
+    outputs = [str(p) for p in video_paths]
+    if not overwrite:
+        # 所有目标视角都完整时，才认为这条 route 已完成；缺任意一路就进入 to_run。
+        complete_reasons = [
+            is_video_complete(p, task.frame_count, fps, expected_frame_index=draw_frame_index)
+            for p in video_paths
+        ]
+        if complete_reasons and all(ok for ok, _reason in complete_reasons):
+            return PlanItem(
+                task=task,
+                status="already_done",
+                message=";".join(reason for _ok, reason in complete_reasons),
+                frame_count=task.frame_count,
+                outputs=outputs,
+            )
+
+    ok, reason, rgb_files, dims = validate_rgb_sequence(
+        pathlib.Path(task.rgb_dir),
+        min_frames=min_frames,
+        allow_noncontiguous=allow_noncontiguous,
+    )
+    if not ok:
+        return PlanItem(
+            task=task,
+            status="excluded",
+            message=reason,
+            frame_count=len(rgb_files),
+            outputs=outputs,
+            dims=dims,
+        )
+    return PlanItem(
+        task=task,
+        status="to_run",
+        message="needs_conversion" if not overwrite else "overwrite",
+        frame_count=len(rgb_files),
+        outputs=outputs,
+        dims=dims,
+    )
+
+
+def build_resume_plan(
+    tasks: Sequence[RouteTask],
+    *,
+    fps: float,
+    views: Sequence[str],
+    draw_frame_index: bool,
+    overwrite: bool,
+    min_frames: int,
+    allow_noncontiguous: bool,
+) -> tuple[list[PlanItem], PlanSummary]:
+    """预扫描全部任务并返回逐条计划和聚合统计。"""
+
+    items: list[PlanItem] = []
+    summary = PlanSummary(total=len(tasks))
+    for task in tasks:
+        item = inspect_task_for_resume(
+            task,
+            fps=fps,
+            views=views,
+            draw_frame_index=draw_frame_index,
+            overwrite=overwrite,
+            min_frames=min_frames,
+            allow_noncontiguous=allow_noncontiguous,
+        )
+        items.append(item)
+        if item.status == "already_done":
+            summary.already_done += 1
+        elif item.status == "excluded":
+            summary.excluded += 1
+        elif item.status == "to_run":
+            summary.to_run += 1
+    return items, summary
+
+
+def _result_from_plan_item(item: PlanItem) -> ConvertResult:
+    """把无需编码的 plan item 转成最终结果，保证 summary JSON 仍记录它们。"""
+
+    status = "skipped" if item.status == "already_done" else item.status
+    return ConvertResult(
+        item.task.scenario,
+        item.task.run_id,
+        item.outputs[0] if item.outputs else item.task.video_path,
+        status,
+        item.frame_count,
+        item.message,
+        0.0,
+        item.outputs,
+    )
+
+
+def _progress_bar(done: int, total: int, *, width: int = 28) -> str:
+    """生成固定宽度的文本进度条。"""
+
+    if total <= 0:
+        return "[" + "-" * width + "]"
+    filled = int(round(width * done / total))
+    filled = max(0, min(width, filled))
+    return "[" + "#" * filled + "-" * (width - filled) + "]"
+
+
+def print_progress(done: int, total: int, start_time: float, *, last: str = "") -> None:
+    """打印 route 级实时进度。
+
+    进度只统计 to_run，不把 already_done/excluded 混进分母，这样 eta 更贴近真实编码耗时。
+    """
+
+    elapsed = max(0.0, time.time() - start_time)
+    rate = done / elapsed if elapsed > 0 else 0.0
+    remaining = max(0, total - done)
+    eta = remaining / rate if rate > 0 else 0.0
+    pct = (100.0 * done / total) if total > 0 else 100.0
+    print(
+        f"[progress] {_progress_bar(done, total)} {done}/{total} "
+        f"({pct:5.1f}%) elapsed={elapsed:.1f}s eta={eta:.1f}s {last}",
+        flush=True,
+    )
+
+
 def _drawtext_filter(view: str) -> str:
-    # n is zero-based and matches LEAD's 0000.jpg frame id for normal contiguous routes.
+    """生成 ffmpeg drawtext 滤镜，在左上角写 view 与帧号。"""
+
+    # n 是 ffmpeg 当前输出帧的 0-based 序号；正常连续 route 下正好对应 0000.jpg 的帧号。
     text = f"{view} frame %{{n}}"
     font_file = _find_font_file()
     parts = ["drawtext="]
@@ -330,6 +560,11 @@ def _drawtext_filter(view: str) -> str:
 
 
 def _view_filter(view: str, draw_frame_index: bool) -> str | None:
+    """生成单路视角对应的 ffmpeg -vf filter。
+
+    left/front/right 通过 crop 从 stitched RGB 中裁出；frame index 通过 drawtext 叠加。
+    """
+
     filters: list[str] = []
     if view == "left":
         filters.append("crop=iw/3:ih:0:0")
@@ -345,7 +580,11 @@ def _view_filter(view: str, draw_frame_index: bool) -> str | None:
 
 
 def _write_concat_list(rgb_files: Sequence[pathlib.Path], list_path: pathlib.Path, frame_duration: float) -> None:
-    """Write an ffmpeg concat-demuxer list for non-contiguous frame names."""
+    """为非连续帧写 ffmpeg concat demuxer 列表。
+
+    正常 LEAD route 走 `%04d.jpg` image sequence 更快更干净；这个函数只作为
+    `--allow-noncontiguous` 的兜底。
+    """
 
     with list_path.open("w", encoding="utf-8", newline="\n") as f:
         for path in rgb_files:
@@ -370,6 +609,11 @@ def _encode_one_view(
     draw_frame_index: bool,
     allow_noncontiguous: bool,
 ) -> tuple[bool, str, pathlib.Path]:
+    """编码某条 route 的单个 view。
+
+    返回 (是否成功, 诊断信息, 视频路径)。调用方会按 views 循环调用本函数。
+    """
+
     video_path = output_dir / VIEW_TO_FILE[view]
     tmp_video = output_dir / f".{VIEW_TO_FILE[view]}.tmp.mp4"
     list_path: pathlib.Path | None = None
@@ -379,6 +623,7 @@ def _encode_one_view(
     stems = _parse_frame_stems(rgb_files)
     contiguous = stems == list(range(len(rgb_files)))
     if contiguous:
+        # 标准 LEAD 命名路径：用 image sequence，保证输出帧数与输入帧数一一对应。
         input_pattern = str(rgb_dir / "%04d.jpg")
         cmd = [
             ffmpeg,
@@ -391,6 +636,7 @@ def _encode_one_view(
             "-frames:v", str(len(rgb_files)),
         ]
     elif allow_noncontiguous:
+        # 非标准路径：显式列出每张图，避免 ffmpeg 遇到缺号时提前停止。
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
@@ -416,6 +662,7 @@ def _encode_one_view(
 
     if view_filter:
         cmd.extend(["-vf", view_filter])
+    # yuv420p + faststart 确保浏览器/VLC/mpv 都容易播放和拖动进度条。
     cmd.extend([
         "-c:v", "libx264",
         "-preset", "slow",
@@ -430,6 +677,7 @@ def _encode_one_view(
         if proc.returncode != 0:
             msg = (proc.stderr or proc.stdout).strip()
             return False, msg, video_path
+        # 先写临时文件，成功后原子替换，避免中断时留下半截目标视频。
         os.replace(tmp_video, video_path)
         ok, reason = is_video_complete(
             video_path,
@@ -440,6 +688,7 @@ def _encode_one_view(
         )
         return ok, reason if ok else f"postcheck_failed:{reason}", video_path
     finally:
+        # 清理临时 concat list 与未完成视频，断点续跑时不会误判它们。
         if list_path is not None:
             try:
                 list_path.unlink()
@@ -462,11 +711,12 @@ def convert_route(
     min_frames: int = 2,
     allow_noncontiguous: bool = False,
 ) -> ConvertResult:
-    """Convert one route's stitched RGB frames to input.mp4."""
+    """转换一条 route 的一个或多个 view。"""
 
     start = time.time()
     output_dir = pathlib.Path(task.output_dir)
     video_paths = [output_dir / VIEW_TO_FILE[v] for v in views]
+    # convert_route 自己也保留一次断点检查，防止预扫描之后外部进程刚好补齐产物。
     complete_reasons = [
         is_video_complete(p, task.frame_count, fps, expected_frame_index=draw_frame_index)
         for p in video_paths
@@ -485,6 +735,7 @@ def convert_route(
 
     ffmpeg = _require_tool("ffmpeg")
     rgb_dir = pathlib.Path(task.rgb_dir)
+    # 再做一次异常检查，避免多进程场景下预扫描后数据被改动。
     ok, reason, rgb_files, dims = validate_rgb_sequence(
         rgb_dir,
         min_frames=min_frames,
@@ -510,6 +761,7 @@ def convert_route(
     for view in views:
         view_path = output_dir / VIEW_TO_FILE[view]
         if not overwrite:
+            # 单 view 级别断点：四路视角里已有的路不重做，只补缺失/失配的路。
             complete, skip_reason = is_video_complete(
                 view_path,
                 len(rgb_files),
@@ -547,6 +799,7 @@ def convert_route(
         messages.append(f"{view}:{view_msg}")
 
     status = "converted" if converted_any else "skipped"
+    # manifest 既是人工可读元信息，也是后续断点续跑的配置兼容性依据。
     manifest = {
         "scenario": task.scenario,
         "run_id": task.run_id,
@@ -588,6 +841,8 @@ def convert_route(
 
 
 def _parse_csv(values: Sequence[str] | None) -> set[str] | None:
+    """解析可重复传入、也可逗号/空格分隔的 CLI 参数。"""
+
     if not values:
         return None
     out: set[str] = set()
@@ -599,6 +854,8 @@ def _parse_csv(values: Sequence[str] | None) -> set[str] | None:
 
 
 def _parse_views(value: str) -> tuple[str, ...]:
+    """解析并校验 --views。"""
+
     views = tuple(part.strip() for part in value.replace(",", " ").split() if part.strip())
     if not views:
         raise ValueError("--views must contain at least one view")
@@ -609,6 +866,8 @@ def _parse_views(value: str) -> tuple[str, ...]:
 
 
 def _write_summary(output_root: pathlib.Path, results: Iterable[ConvertResult]) -> None:
+    """写全局 summary，记录 skipped/excluded/converted/failed 全部 route。"""
+
     rows = [asdict(r) for r in results]
     output_root.mkdir(parents=True, exist_ok=True)
     summary_path = output_root / "lead_video_summary.json"
@@ -616,6 +875,8 @@ def _write_summary(output_root: pathlib.Path, results: Iterable[ConvertResult]) 
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """CLI 入口。"""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=pathlib.Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--output-root", type=pathlib.Path, default=DEFAULT_OUTPUT_ROOT)
@@ -647,6 +908,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.limit > 0:
         tasks = tasks[: args.limit]
     if args.workers == 0:
+        # 自动并行策略偏保守：CPU 一半、最多 8 个，避免把共享存储打满。
         cpu_count = os.cpu_count() or 1
         resolved_workers = min(max(1, cpu_count // 2), 8, max(1, len(tasks)))
     else:
@@ -657,21 +919,58 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"[discover] routes={len(tasks)} fps={args.fps} workers={resolved_workers} "
         f"views={','.join(views)} frame_index={not args.no_frame_index}"
     )
-    if args.dry_run:
-        for task in tasks:
-            planned = [str(pathlib.Path(task.output_dir) / VIEW_TO_FILE[v]) for v in views]
-            print(f"[plan] {task.scenario}/{task.run_id}: {task.frame_count} frames -> {planned}")
-        return 0
     if not tasks:
         print("[done] no routes found")
         return 0
 
-    _require_tool("ffmpeg")
+    # 先要求 ffprobe 可用，因为预扫描就要用它判断已有视频和异常帧。
     _require_tool("ffprobe")
-    results: list[ConvertResult] = []
-    workers = resolved_workers
+    plan_items, plan_summary = build_resume_plan(
+        tasks,
+        fps=args.fps,
+        views=views,
+        draw_frame_index=not args.no_frame_index,
+        overwrite=args.overwrite,
+        min_frames=args.min_frames,
+        allow_noncontiguous=args.allow_noncontiguous,
+    )
+    print(
+        "[plan] "
+        f"total={plan_summary.total} "
+        f"already_done={plan_summary.already_done} "
+        f"excluded={plan_summary.excluded} "
+        f"to_run={plan_summary.to_run}"
+    )
+    if args.dry_run:
+        # dry-run 打印逐条计划，但不创建输出目录、不启动 ffmpeg。
+        for item in plan_items:
+            print(
+                f"[plan:{item.status}] {item.task.scenario}/{item.task.run_id}: "
+                f"{item.frame_count} frames -> {item.outputs} ({item.message})"
+            )
+        return 0
+
+    results: list[ConvertResult] = [
+        _result_from_plan_item(item)
+        for item in plan_items
+        if item.status in ("already_done", "excluded")
+    ]
+    to_convert = [item.task for item in plan_items if item.status == "to_run"]
+    if not to_convert:
+        # 即使无需编码，也写 summary，方便用户确认本次扫描结果。
+        _write_summary(args.output_root, results)
+        print("[progress] no routes need conversion")
+        print(f"[summary] converted=0 skipped={plan_summary.already_done} excluded={plan_summary.excluded} failed=0")
+        print(f"[summary] wrote {args.output_root / 'lead_video_summary.json'}")
+        return 0
+
+    # 只有确实需要编码时才要求 ffmpeg，dry-run / 全部跳过不启动编码器。
+    _require_tool("ffmpeg")
+    workers = min(resolved_workers, len(to_convert))
+    progress_start = time.time()
+    print_progress(0, len(to_convert), progress_start, last="starting")
     if workers == 1:
-        for idx, task in enumerate(tasks, start=1):
+        for idx, task in enumerate(to_convert, start=1):
             result = convert_route(
                 task,
                 args.fps,
@@ -683,8 +982,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.allow_noncontiguous,
             )
             results.append(result)
+            print_progress(
+                idx,
+                len(to_convert),
+                progress_start,
+                last=f"{result.status} {result.scenario}/{result.run_id}",
+            )
             print(
-                f"[{idx}/{len(tasks)}] {result.status} {result.scenario}/{result.run_id} "
+                f"[route {idx}/{len(to_convert)}] {result.status} {result.scenario}/{result.run_id} "
                 f"frames={result.frame_count} dt={result.elapsed_s:.1f}s {result.message}",
                 flush=True,
             )
@@ -702,13 +1007,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                     args.min_frames,
                     args.allow_noncontiguous,
                 )
-                for task in tasks
+                for task in to_convert
             ]
             for idx, fut in enumerate(concurrent.futures.as_completed(futures), start=1):
                 result = fut.result()
                 results.append(result)
+                print_progress(
+                    idx,
+                    len(to_convert),
+                    progress_start,
+                    last=f"{result.status} {result.scenario}/{result.run_id}",
+                )
                 print(
-                    f"[{idx}/{len(tasks)}] {result.status} {result.scenario}/{result.run_id} "
+                    f"[route {idx}/{len(to_convert)}] {result.status} {result.scenario}/{result.run_id} "
                     f"frames={result.frame_count} dt={result.elapsed_s:.1f}s {result.message}",
                     flush=True,
                 )
