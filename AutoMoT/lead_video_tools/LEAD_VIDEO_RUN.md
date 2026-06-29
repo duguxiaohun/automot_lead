@@ -48,6 +48,18 @@ LEAD 每 5 个 CARLA tick 落盘一帧，CARLA 为 20Hz，所以默认 `--fps 4.
 python3 lead_video_tools/rgb_to_video.py --dry-run --limit 5
 ```
 
+全量数据第一次进入脚本时会先打印 discover 进度：
+
+```text
+[discover] scanning data_root=/datashare/IOL4SGH/data/data
+[discover] scenarios=10 routes=...
+[discover] done scenarios=... routes=... elapsed=...
+```
+
+`discover` 只确认 `<Scenario>/<run_id>/rgb/` 里是否存在 jpg，不在这一步统计所有帧。
+帧数、连续性、首尾尺寸检查会进入后面的 `[scan]` 阶段再做，所以全量启动时不应该再长时间
+停在没有输出的状态。
+
 只看某个场景 / 某条 run：
 
 ```bash
@@ -59,12 +71,20 @@ python3 lead_video_tools/rgb_to_video.py \
 
 ## 3. 生成视频
 
-推荐远端全量跑法（自动 CPU 并行 + 四路 RGB 视角 + 断点续跑）：
+推荐远端全量跑法（默认只生成 `input.mp4`，自动 CPU 并行 + 断点续跑）：
 
 ```bash
 python3 lead_video_tools/rgb_to_video.py \
-    --views input,left,front,right \
     --workers 0
+```
+
+默认编码参数偏向“快速浏览”：`--preset veryfast --crf 18 --ffmpeg-threads 1`。如果你更在意速度、
+可以接受视频文件变大，可进一步用：
+
+```bash
+python3 lead_video_tools/rgb_to_video.py \
+    --workers 0 \
+    --preset ultrafast
 ```
 
 单条示例：
@@ -81,7 +101,7 @@ python3 lead_video_tools/rgb_to_video.py \
 python3 lead_video_tools/rgb_to_video.py
 ```
 
-生成三视角拆分视频：
+只有需要单独看左右/前视裁剪时，再生成三视角拆分视频：
 
 ```bash
 python3 lead_video_tools/rgb_to_video.py \
@@ -113,7 +133,7 @@ python3 lead_video_tools/rgb_to_video.py --scenario BlockedIntersection
 python3 lead_video_tools/rgb_to_video.py --workers 0
 ```
 
-`--workers 0` 会取 CPU 核数的一半、最多 8 个 worker，并且不超过待处理 route 数。
+`--workers 0` 会取 CPU 核数的一半、最多 16 个 worker，并且不超过待处理 route 数。
 这是比较稳的默认加速档。
 
 手动指定并行数：
@@ -122,8 +142,15 @@ python3 lead_video_tools/rgb_to_video.py --workers 0
 python3 lead_video_tools/rgb_to_video.py --workers 4
 ```
 
-如果同时生成四路视角，单条 route 会依次编码 `input/left/front/right`；route 之间仍由
-`--workers` 并行。
+默认只生成一路 `input.mp4`；如果显式 `--views input,left,front,right`，单条 route 会依次
+编码四路视角，route 之间仍由 `--workers` 并行。
+
+并行加速细节：
+
+- 默认 `--ffmpeg-threads 1`，每个 ffmpeg 只用 1 个线程，把 CPU 主要留给 route 级并行；
+- `--workers 0` 自动取 CPU 核数一半、最多 16 个 worker；
+- 如果只跑少量 route，想让单条 route 编码更快，可以试 `--ffmpeg-threads 0`，让 ffmpeg 自己开线程；
+- 如果共享盘 I/O 压力很大，手动降到 `--workers 4` 往往比盲目开大更稳。
 
 ## 5. 断点续跑与检查
 
@@ -153,6 +180,15 @@ python3 lead_video_tools/rgb_to_video.py --workers 4
 ```
 
 进度条只统计 `to_run`，不把已经跳过的 `already_done` 算进去。
+
+注意：脚本现在有两段进度：
+
+- `[discover]`：快速发现 route，只检查每个 `rgb` 目录是否至少有 jpg，不统计全量帧；
+- `[scan]`：断点续跑 / 异常数据预扫描进度；已有 `video_meta.json` 且视频完整的 route 会走
+  manifest 快速跳过，不再扫描原始 jpg；
+- `[progress]`：真正 ffmpeg 编码进度。
+
+如果全量数据很多，先看到 `[discover]` 和 `[scan]` 是正常的，不是卡住。
 
 异常数据剔除：
 
@@ -187,8 +223,9 @@ python3 lead_video_tools/rgb_to_video.py --no-frame-index
 | `demo.mp4` | 不支持 | 需要 CARLA 在线 spawn cinematic / BEV camera |
 | `grid.mp4` | 不支持 | 依赖 demo camera |
 
-所以这个工具支持 raw RGB 能可靠生成的 `input/left/front/right`。后续如果要加离线
-BEV/标注 overlay，应另接 `metas/*.pkl`、`lidar/*.laz` 和模型预测结果。
+所以这个工具默认只生成最有用、最省空间的 `input.mp4`。`left/front/right` 只是从同一张
+stitched RGB 裁出来的重复视角，需要时用 `--views input,left,front,right` 显式打开。
+后续如果要加离线 BEV/标注 overlay，应另接 `metas/*.pkl`、`lidar/*.laz` 和模型预测结果。
 
 ## 7. 播放
 
@@ -204,14 +241,14 @@ BEV/标注 overlay，应另接 `metas/*.pkl`、`lidar/*.laz` 和模型预测结�
 | `RouteTask` | 描述一条 route 的输入 RGB 目录与输出视频目录 |
 | `ConvertResult` | 记录一条 route 的最终状态，写入 `lead_video_summary.json` |
 | `PlanItem` / `PlanSummary` | 正式编码前的断点续跑计划：already_done / excluded / to_run |
-| `discover_routes()` / `build_tasks()` | 扫描 `<Scenario>/<run_id>/rgb/*.jpg` 并构造任务 |
+| `discover_routes()` / `build_tasks()` | 快速扫描 `<Scenario>/<run_id>/rgb/` 是否存在 jpg 并构造任务，不在 discover 阶段统计全量帧 |
 | `validate_rgb_sequence()` | 剔除缺帧、非连续编号、首尾不可读、尺寸不一致等异常数据 |
 | `is_video_complete()` | 用 `video_meta.json` + `ffprobe` 判断旧视频能否断点跳过 |
 | `build_resume_plan()` | 开跑前统计本次 total / already_done / excluded / to_run |
 | `_view_filter()` | 生成 input/left/front/right 的裁剪与 frame id overlay filter |
 | `_encode_one_view()` | 调 ffmpeg 编码单个 view，先写临时文件再原子替换 |
 | `convert_route()` | 转换一条 route 的多个 view，并写 `video_meta.json` |
-| `print_progress()` | 打印 route 级实时进度条、elapsed 与 ETA |
+| `print_progress()` | 打印 scan / encode 阶段的文本进度条、elapsed 与 ETA |
 
 维护原则：
 
