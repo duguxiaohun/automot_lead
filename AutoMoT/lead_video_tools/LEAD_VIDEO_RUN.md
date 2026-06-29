@@ -133,6 +133,27 @@ python3 lead_video_tools/rgb_to_video.py --workers 4
 - 如果视频缺失、为空、帧数/时长明显不对，重新生成。
 - 每条 route 写 `video_meta.json`，全局写 `lead_video_summary.json`。
 
+每次正式编码前都会先打印本次计划：
+
+```text
+[plan] total=220 already_done=152 excluded=3 to_run=65
+```
+
+含义：
+
+- `total`：本次筛选范围内的 route 总数；
+- `already_done`：断点续跑检查通过，本次直接跳过；
+- `excluded`：异常数据剔除，不生成视频；
+- `to_run`：本次还需要真正编码的视频 route 数。
+
+编码阶段会实时打印 route 级进度条：
+
+```text
+[progress] [#########-------------------] 21/65 ( 32.3%) elapsed=180.4s eta=378.0s converted Accident/...
+```
+
+进度条只统计 `to_run`，不把已经跳过的 `already_done` 算进去。
+
 异常数据剔除：
 
 - 默认要求 `rgb` 帧文件名是连续数字序列：`0000.jpg ... 00NN.jpg`。
@@ -173,3 +194,27 @@ BEV/标注 overlay，应另接 `metas/*.pkl`、`lidar/*.laz` 和模型预测结�
 
 输出为 H.264 `yuv420p` MP4，并带 `+faststart` 元数据。浏览器、VLC、mpv 都可以拖动进度条；
 倍速可以用播放器自带的 playback speed / playback rate 控件调节。
+
+## 8. 代码结构
+
+`rgb_to_video.py` 已补中文注释，主要函数分工如下：
+
+| 函数 / 数据结构 | 作用 |
+|---|---|
+| `RouteTask` | 描述一条 route 的输入 RGB 目录与输出视频目录 |
+| `ConvertResult` | 记录一条 route 的最终状态，写入 `lead_video_summary.json` |
+| `PlanItem` / `PlanSummary` | 正式编码前的断点续跑计划：already_done / excluded / to_run |
+| `discover_routes()` / `build_tasks()` | 扫描 `<Scenario>/<run_id>/rgb/*.jpg` 并构造任务 |
+| `validate_rgb_sequence()` | 剔除缺帧、非连续编号、首尾不可读、尺寸不一致等异常数据 |
+| `is_video_complete()` | 用 `video_meta.json` + `ffprobe` 判断旧视频能否断点跳过 |
+| `build_resume_plan()` | 开跑前统计本次 total / already_done / excluded / to_run |
+| `_view_filter()` | 生成 input/left/front/right 的裁剪与 frame id overlay filter |
+| `_encode_one_view()` | 调 ffmpeg 编码单个 view，先写临时文件再原子替换 |
+| `convert_route()` | 转换一条 route 的多个 view，并写 `video_meta.json` |
+| `print_progress()` | 打印 route 级实时进度条、elapsed 与 ETA |
+
+维护原则：
+
+- 不引入 OpenCV/PIL 作为运行依赖；图片尺寸检查用 `ffprobe`。
+- 断点续跑必须同时检查视频和 `video_meta.json`，防止换了 `--views` 或帧号 overlay 配置后误跳过。
+- 对 `/datashare` 和 `/data/lead_video` 都要温柔一点；全量跑优先用 `--workers 0`，不要盲目开很大。
