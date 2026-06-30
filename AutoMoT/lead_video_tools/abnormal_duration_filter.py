@@ -21,6 +21,7 @@ DEFAULT_FPS = 4.0
 DEFAULT_POSSIBLE_ABNORMAL_MIN_SECONDS = 90.0
 DEFAULT_CONFIRMED_ABNORMAL_MIN_SECONDS = 120.0
 DEFAULT_FILTER_DIR = pathlib.Path(__file__).resolve().parent / "abnormal_duration_filter"
+DEFAULT_PROGRESS_INTERVAL = 20
 ABNORMAL_POSSIBLE_FILE = "abnormal_possible_90s_to_120s.txt"
 ABNORMAL_CONFIRMED_FILE = "abnormal_confirmed_over_120s.txt"
 ABNORMAL_SUMMARY_FILE = "abnormal_duration_summary.json"
@@ -87,6 +88,63 @@ def _count_jpgs(rgb_dir: pathlib.Path) -> int:
         return 0
 
 
+def discover_rgb_routes(
+    data_root: pathlib.Path,
+    *,
+    scenarios: set[str] | None = None,
+    run_ids: set[str] | None = None,
+) -> list[tuple[str, str, pathlib.Path, pathlib.Path]]:
+    """发现含 `rgb/` 目录的 route；不统计 jpg，保持 discover 轻量。"""
+
+    if not data_root.exists():
+        raise FileNotFoundError(f"data root not found: {data_root}")
+    routes: list[tuple[str, str, pathlib.Path, pathlib.Path]] = []
+    for scenario_dir in sorted(p for p in data_root.iterdir() if p.is_dir()):
+        scenario = scenario_dir.name
+        if scenarios and scenario not in scenarios:
+            continue
+        for route_dir in sorted(p for p in scenario_dir.iterdir() if p.is_dir()):
+            run_id = route_dir.name
+            if run_ids and run_id not in run_ids:
+                continue
+            rgb_dir = route_dir / "rgb"
+            if rgb_dir.is_dir():
+                routes.append((scenario, run_id, route_dir, rgb_dir))
+    return routes
+
+
+def _progress_bar(done: int, total: int, *, width: int = 28) -> str:
+    """生成固定宽度的文本进度条。"""
+
+    if total <= 0:
+        return "[" + "-" * width + "]"
+    filled = int(round(width * done / total))
+    filled = max(0, min(width, filled))
+    return "[" + "#" * filled + "-" * (width - filled) + "]"
+
+
+def print_progress(
+    done: int,
+    total: int,
+    start_time: float,
+    *,
+    prefix: str = "filter",
+    last: str = "",
+) -> None:
+    """打印异常时长筛选的 route 级进度条。"""
+
+    elapsed = max(0.0, time.time() - start_time)
+    rate = done / elapsed if elapsed > 0 else 0.0
+    remaining = max(0, total - done)
+    eta = remaining / rate if rate > 0 else 0.0
+    pct = (100.0 * done / total) if total > 0 else 100.0
+    print(
+        f"[{prefix}] {_progress_bar(done, total)} {done}/{total} "
+        f"({pct:5.1f}%) elapsed={elapsed:.1f}s eta={eta:.1f}s {last}",
+        flush=True,
+    )
+
+
 def scan_abnormal_durations(
     data_root: pathlib.Path,
     output_root: pathlib.Path,
@@ -96,41 +154,40 @@ def scan_abnormal_durations(
     run_ids: set[str] | None = None,
     possible_min_seconds: float = DEFAULT_POSSIBLE_ABNORMAL_MIN_SECONDS,
     confirmed_min_seconds: float = DEFAULT_CONFIRMED_ABNORMAL_MIN_SECONDS,
-    progress_interval: int = 10,
+    progress_interval: int = DEFAULT_PROGRESS_INTERVAL,
 ) -> list[AbnormalDurationItem]:
     """扫描数据根目录，返回达到异常时长阈值的 route。"""
 
-    if not data_root.exists():
-        raise FileNotFoundError(f"data root not found: {data_root}")
-    items: list[AbnormalDurationItem] = []
+    discover_start = time.time()
+    print(f"[filter:discover] scanning data_root={data_root}", flush=True)
+    routes = discover_rgb_routes(data_root, scenarios=scenarios, run_ids=run_ids)
+    print(
+        f"[filter:discover] done routes={len(routes)} elapsed={time.time() - discover_start:.1f}s",
+        flush=True,
+    )
+
     start = time.time()
-    scenario_count = 0
-    route_count = 0
-    print(f"[filter] scanning data_root={data_root}", flush=True)
-    for scenario_dir in sorted(p for p in data_root.iterdir() if p.is_dir()):
-        scenario = scenario_dir.name
-        if scenarios and scenario not in scenarios:
+    items: list[AbnormalDurationItem] = []
+    if routes:
+        print_progress(0, len(routes), start, last="starting")
+    for idx, (scenario, run_id, _route_dir, rgb_dir) in enumerate(routes, start=1):
+        frame_count = _count_jpgs(rgb_dir)
+        if frame_count <= 0:
+            if idx == len(routes) or idx % max(1, progress_interval) == 0:
+                print_progress(
+                    idx,
+                    len(routes),
+                    start,
+                    last=f"candidates={len(items)} last={scenario}/{run_id} empty_rgb",
+                )
             continue
-        scenario_count += 1
-        for route_dir in sorted(p for p in scenario_dir.iterdir() if p.is_dir()):
-            run_id = route_dir.name
-            if run_ids and run_id not in run_ids:
-                continue
-            rgb_dir = route_dir / "rgb"
-            if not rgb_dir.is_dir():
-                continue
-            frame_count = _count_jpgs(rgb_dir)
-            if frame_count <= 0:
-                continue
-            route_count += 1
-            severity = classify_abnormal_duration(
-                frame_count,
-                fps=fps,
-                possible_min_seconds=possible_min_seconds,
-                confirmed_min_seconds=confirmed_min_seconds,
-            )
-            if severity is None:
-                continue
+        severity = classify_abnormal_duration(
+            frame_count,
+            fps=fps,
+            possible_min_seconds=possible_min_seconds,
+            confirmed_min_seconds=confirmed_min_seconds,
+        )
+        if severity is not None:
             video_dir = output_root / scenario / run_id
             items.append(
                 AbnormalDurationItem(
@@ -143,16 +200,16 @@ def scan_abnormal_durations(
                     video_dir=str(video_dir),
                 )
             )
-        if scenario_count == 1 or scenario_count % max(1, progress_interval) == 0:
-            elapsed = time.time() - start
-            print(
-                f"[filter] scenarios={scenario_count} routes={route_count} "
-                f"candidates={len(items)} last={scenario} elapsed={elapsed:.1f}s",
-                flush=True,
+        if idx == len(routes) or idx % max(1, progress_interval) == 0:
+            print_progress(
+                idx,
+                len(routes),
+                start,
+                last=f"candidates={len(items)} last={scenario}/{run_id}",
             )
     elapsed = time.time() - start
     print(
-        f"[filter] done scenarios={scenario_count} routes={route_count} "
+        f"[filter] done routes={len(routes)} "
         f"candidates={len(items)} elapsed={elapsed:.1f}s",
         flush=True,
     )
@@ -162,13 +219,7 @@ def scan_abnormal_durations(
 def _format_abnormal_duration_line(item: AbnormalDurationItem) -> str:
     """生成人工巡检友好的异常名单行。"""
 
-    return (
-        f"{item.scenario}/{item.run_id}\t"
-        f"frames={item.frame_count}\t"
-        f"duration_s={item.duration_s:.2f}\t"
-        f"rgb={item.source_rgb_dir}\t"
-        f"video_dir={item.video_dir}"
-    )
+    return f"{item.scenario}/{item.run_id}"
 
 
 def write_abnormal_duration_lists(
@@ -192,7 +243,8 @@ def write_abnormal_duration_lists(
         "# LEAD abnormal duration candidates\n"
         f"# fps={fps:.6f} possible=[{possible_min_seconds:.1f}s,{confirmed_min_seconds:.1f}s) "
         f"confirmed=>={confirmed_min_seconds:.1f}s\n"
-        "# format: Scenario/run_id\\tframes=N\\tduration_s=S\\trgb=...\\tvideo_dir=...\n"
+        "# format: Scenario/run_id\n"
+        "# details with frame_count/duration/rgb/video_dir are kept in abnormal_duration_summary.json\n"
     )
     possible_path.write_text(
         header + "".join(_format_abnormal_duration_line(item) + "\n" for item in possible),
@@ -288,6 +340,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run-id", action="append", help="Only scan selected run id(s); comma is supported")
     parser.add_argument("--possible-min-seconds", type=float, default=DEFAULT_POSSIBLE_ABNORMAL_MIN_SECONDS)
     parser.add_argument("--confirmed-min-seconds", type=float, default=DEFAULT_CONFIRMED_ABNORMAL_MIN_SECONDS)
+    parser.add_argument("--progress-interval", type=int, default=DEFAULT_PROGRESS_INTERVAL,
+                        help=f"Print route-level progress every N routes; default {DEFAULT_PROGRESS_INTERVAL}")
     args = parser.parse_args(argv)
 
     if args.fps <= 0:
@@ -302,6 +356,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_ids=run_ids,
         possible_min_seconds=args.possible_min_seconds,
         confirmed_min_seconds=args.confirmed_min_seconds,
+        progress_interval=args.progress_interval,
     )
     info = write_abnormal_duration_lists(
         args.filter_dir,

@@ -89,9 +89,14 @@ python3 lead_video_tools/abnormal_duration_filter.py
 `abnormal_possible_90s_to_120s.txt`，`frames >= 480`（2 分钟以上）写入
 `abnormal_confirmed_over_120s.txt`。`abnormal_duration_summary.json` 保留同一批名单的
 帧数、秒数、RGB 路径、视频输出目录和 scan 状态，方便后续脚本继续处理。
+两个 txt 名单只保留 `Scenario/run_id`，不写路径，便于人工复制和给
+`rgb_to_video.py --abnormal-route-list-dir` 复用。
 
 这个筛选脚本只统计 jpg 数量，不调用 `ffprobe`，也不检查已有视频，所以比
 `rgb_to_video.py` 的全局预扫描轻很多。普通 `rgb_to_video.py` 默认不会使用这些名单；筛完后，必须显式传 `--abnormal-route-list-dir` 才会只对筛选目录里的 route 生成视频：
+
+筛选时会先打印 `[filter:discover]` 统计 route 数，再打印 `[filter]` route 级进度条、
+elapsed / ETA 和当前候选数量；可用 `--progress-interval N` 调整每隔多少条 route 打印一次。
 
 ```bash
 python3 lead_video_tools/rgb_to_video.py \
