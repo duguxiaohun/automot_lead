@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Middle-Event Selection Flowchart</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f1117;
+      color: #e1e4e8;
+      min-height: 100vh;
+      padding: 32px 24px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: #c9d1d9;
+      margin-bottom: 8px;
+      letter-spacing: 0.02em;
+    }
+    p.subtitle {
+      text-align: center;
+      color: #8b949e;
+      font-size: 0.875rem;
+      margin-bottom: 32px;
+    }
+    .chart-wrapper {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 32px;
+      max-width: 1100px;
+      margin: 0 auto 40px auto;
+      overflow-x: auto;
+    }
+    .legend {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .legend-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 16px 20px;
+    }
+    .legend-card h3 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #8b949e;
+      margin-bottom: 10px;
+    }
+    .legend-card ul {
+      list-style: none;
+      font-size: 0.82rem;
+      line-height: 1.8;
+    }
+    .legend-card ul li::before {
+      content: "▸ ";
+      color: #58a6ff;
+    }
+    .tag {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+    .tag.bike  { background: #1f3b2f; color: #3fb950; }
+    .tag.cutin { background: #2d2039; color: #bc8cff; }
+    .tag.brake { background: #3b2020; color: #f78166; }
+    .tag.dist  { background: #1f2d3d; color: #58a6ff; }
+    .tag.rgb   { background: #2d2d1f; color: #e3b341; }
+  </style>
+</head>
+<body>
+
+<h1>Middle-Event Selection — Decision Flowchart</h1>
+<p class="subtitle">
+  Logic from <code>pick_middle_events()</code> in <code>rule_based_keyframe_filter.py</code>
+</p>
+
+<div class="chart-wrapper">
+  <div class="mermaid">
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor':'#1f6feb','primaryTextColor':'#e1e4e8','primaryBorderColor':'#388bfd','lineColor':'#8b949e','secondaryColor':'#161b22','tertiaryColor':'#21262d','edgeLabelBackground':'#1c2128','fontSize':'14px'}}}%%
+flowchart TD
+    START(["`**pick_middle_events(ctx, meta)**`"])
+
+    START --> Q1{"scenario ==\nCrossingBicycleFlow?"}
+
+    Q1 -->|Yes| B1["Load dist_to_biker\nfrom metas"]
+    B1 --> BS{"signal\npresent?"}
+    BS -->|No| BFALLBACK["Fallback: bicycle-like\ndistance from bboxes"]
+    BS -->|Yes| BRUN["_pick_bicycle_flow_events()\ndist · speed · accel · brake"]
+    BFALLBACK --> BS2{"signal\npresent?"}
+    BS2 -->|Yes| BRUN
+    BS2 -->|No| RGB
+    BRUN --> BOUT["**Events (metas / bboxes)**\n① wait_start\n② wait_peak\n③ proceed_resume"]
+
+    Q1 -->|No| Q2{"scenario in\nCUT-IN set?"}
+
+    Q2 -->|Yes| C1["Load dist_to_cutin_vehicle\nfrom metas"]
+    C1 --> CS{"signal\npresent?"}
+    CS -->|No| CFALLBACK["Fallback: nearest-vehicle\ndistance from bboxes"]
+    CS -->|Yes| CRUN["_pick_cutin_events()\ndist · speed"]
+    CFALLBACK --> CS2{"signal\npresent?"}
+    CS2 -->|Yes| CRUN
+    CS2 -->|No| RGB
+    CRUN --> COUT["**Events (metas / bboxes)**\n① cutin_onset *(or scenario variant)*\n② caution_peak\n③ stabilize_follow *(or variant)*"]
+
+    Q2 -->|No| Q3{"scenario in\nBRAKE_ACCEL_PRIMARY?"}
+
+    Q3 -->|Yes| PRUN["_pick_brake_accel_events()\nspeed · accel_x · brake\n*(no distance used)*"]
+    PRUN --> POUT["**Events (metas only)**\n① follow_normal / normal_driving\n② hard_brake_response / loss_of_control\n③ recover_speed / regain_control"]
+
+    Q3 -->|No| Q4{"scenario in\nSCENARIO_CONFIG?"}
+
+    Q4 -->|Yes| D1["Load dist_field from\nSCENARIO_CONFIG\n(accident / construction /\nparked / pedestrian /\njunction / door …)"]
+    D1 --> DS{"signal\npresent?"}
+    DS -->|No| DFALLBACK["Fallback: class-matched bbox\npedestrian / bicycle / vehicle"]
+    DS -->|Yes| DRUN["_pick_distance_events()\ndist · speed · accel · brake"]
+    DFALLBACK --> DS2{"signal\npresent?"}
+    DS2 -->|Yes| DRUN
+    DS2 -->|No| RGB
+    DRUN --> DOUT["**Events (metas / bboxes)**\n① event_A — approach/detect\n② event_B — peak/closest gap\n③ event_C — recover/resume\n*(names from SCENARIO_CONFIG)*"]
+
+    Q4 -->|No| RGB
+
+    RGB["rgb_motion_peak_indices()\nfile-size difference on RGB frames"]
+    RGB --> ROUT["**Events (rgb_fallback)**\n① event_1\n② event_2\n③ event_3\nconfidence = 0.5"]
+
+    BOUT & COUT & POUT & DOUT & ROUT --> END(["`**→ enforce_event_order()**\nreturn mids, signal_source`"])
+
+    style BOUT fill:#1f3b2f,stroke:#3fb950,color:#e1e4e8
+    style COUT fill:#2d2039,stroke:#bc8cff,color:#e1e4e8
+    style POUT fill:#3b2020,stroke:#f78166,color:#e1e4e8
+    style DOUT fill:#1f2d3d,stroke:#58a6ff,color:#e1e4e8
+    style ROUT fill:#2d2d1f,stroke:#e3b341,color:#e1e4e8
+    style END fill:#21262d,stroke:#8b949e,color:#c9d1d9
+    style START fill:#21262d,stroke:#58a6ff,color:#c9d1d9
+  </div>
+</div>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-card">
+    <h3>Bicycle Flow <span class="tag bike">bike</span></h3>
+    <ul>
+      <li>Scenario: CrossingBicycleFlow</li>
+      <li>Primary signal: dist_to_biker</li>
+      <li>Bbox fallback: bicycle-sized objects</li>
+      <li>Extractor: _pick_bicycle_flow_events()</li>
+    </ul>
+  </div>
+  <div class="legend-card">
+    <h3>Cut-In / Merge <span class="tag cutin">cut-in</span></h3>
+    <ul>
+      <li>HighwayCutIn · StaticCutIn · ParkingCutIn</li>
+      <li>MergerIntoSlowTraffic(V2) · InvadingTurn</li>
+      <li>Primary signal: dist_to_cutin_vehicle</li>
+      <li>Extractor: _pick_cutin_events()</li>
+    </ul>
+  </div>
+  <div class="legend-card">
+    <h3>Brake / Accel Primary <span class="tag brake">brake</span></h3>
+    <ul>
+      <li>HardBreakRoute · ControlLoss</li>
+      <li>No distance signal used</li>
+      <li>Signals: speed · accel_x · brake pedal</li>
+      <li>Extractor: _pick_brake_accel_events()</li>
+    </ul>
+  </div>
+  <div class="legend-card">
+    <h3>Generic Distance-Driven <span class="tag dist">dist</span></h3>
+    <ul>
+      <li>All remaining SCENARIO_CONFIG entries</li>
+      <li>Accident/Construction/Parked/Junction/Door/Pedestrian/…</li>
+      <li>Bbox fallback: class-matched (vehicle/pedestrian/bike)</li>
+      <li>Extractor: _pick_distance_events()</li>
+    </ul>
+  </div>
+  <div class="legend-card">
+    <h3>RGB Fallback <span class="tag rgb">rgb</span></h3>
+    <ul>
+      <li>Triggered when metas AND bboxes lack signal</li>
+      <li>Also used for unknown/unconfigured scenarios</li>
+      <li>Method: frame file-size diff peaks</li>
+      <li>Confidence: 0.5 (lowest tier)</li>
+    </ul>
+  </div>
+  <div class="legend-card">
+    <h3>Confidence Tiers</h3>
+    <ul>
+      <li>metas signal → 0.85 – 0.92</li>
+      <li>bboxes fallback → 0.68 – 0.72</li>
+      <li>rgb fallback → 0.50</li>
+      <li>All outputs → enforce_event_order()</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, securityLevel: 'loose' });
+</script>
+</body>
+</html>
