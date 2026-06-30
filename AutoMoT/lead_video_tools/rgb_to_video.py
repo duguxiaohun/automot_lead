@@ -28,6 +28,21 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Iterable, Sequence
 
+try:
+    from .abnormal_duration_filter import (
+        DEFAULT_FILTER_DIR,
+        load_abnormal_route_keys,
+        scan_abnormal_durations,
+        write_abnormal_duration_lists,
+    )
+except ImportError:
+    from abnormal_duration_filter import (
+        DEFAULT_FILTER_DIR,
+        load_abnormal_route_keys,
+        scan_abnormal_durations,
+        write_abnormal_duration_lists,
+    )
+
 
 DEFAULT_DATA_ROOT = pathlib.Path("/datashare/IOL4SGH/data/data")
 DEFAULT_OUTPUT_ROOT = pathlib.Path("/data/lead_video")
@@ -1045,14 +1060,54 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help="Exclude routes with fewer than this many RGB frames")
     parser.add_argument("--allow-noncontiguous", action="store_true",
                         help="Do not exclude routes with missing frame numbers; use concat fallback")
+    parser.add_argument("--abnormal-only", action="store_true",
+                        help="Only run the lightweight abnormal duration filter; do not encode videos")
+    parser.add_argument("--abnormal-list-dir", type=pathlib.Path, default=None,
+                        help=f"Directory for abnormal duration lists; default is {DEFAULT_FILTER_DIR}")
+    parser.add_argument("--abnormal-route-list-dir", type=pathlib.Path, default=None,
+                        help="Only convert routes listed in a precomputed abnormal duration filter directory")
+    parser.add_argument("--abnormal-route-kind", choices=("possible", "confirmed", "all"), default="all",
+                        help="Which abnormal route list to use with --abnormal-route-list-dir")
     args = parser.parse_args(argv)
 
     if args.fps <= 0:
         raise ValueError("--fps must be positive")
     scenarios = _parse_csv(args.scenario)
     run_ids = _parse_csv(args.run_id)
+    abnormal_list_dir = args.abnormal_list_dir or DEFAULT_FILTER_DIR
+    if args.abnormal_only:
+        items = scan_abnormal_durations(
+            args.data_root,
+            args.output_root,
+            fps=args.fps,
+            scenarios=scenarios,
+            run_ids=run_ids,
+        )
+        abnormal_info = write_abnormal_duration_lists(abnormal_list_dir, items, fps=args.fps)
+        print(
+            "[abnormal] "
+            f"possible={abnormal_info['possible_count']} "
+            f"(>={abnormal_info['possible_min_frames']} frames) "
+            f"confirmed={abnormal_info['confirmed_count']} "
+            f"(>={abnormal_info['confirmed_min_frames']} frames)"
+        )
+        print(f"[abnormal] wrote {abnormal_info['possible_file']}")
+        print(f"[abnormal] wrote {abnormal_info['confirmed_file']}")
+        print(f"[abnormal] wrote {abnormal_info['summary_file']}")
+        return 0
+
     views = _parse_views(args.views)
     tasks = build_tasks(args.data_root, args.output_root, scenarios, run_ids)
+    if args.abnormal_route_list_dir is not None:
+        route_keys = load_abnormal_route_keys(args.abnormal_route_list_dir, kind=args.abnormal_route_kind)
+        before = len(tasks)
+        tasks = [task for task in tasks if (task.scenario, task.run_id) in route_keys]
+        print(
+            "[filter] "
+            f"abnormal_route_list_dir={args.abnormal_route_list_dir} "
+            f"kind={args.abnormal_route_kind} keys={len(route_keys)} "
+            f"routes={len(tasks)}/{before}"
+        )
     if args.limit > 0:
         tasks = tasks[: args.limit]
     if args.workers == 0:

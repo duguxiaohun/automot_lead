@@ -9,6 +9,8 @@
 依赖：`ffmpeg` 和 `ffprobe` 需要在 PATH 中。脚本用 `ffmpeg` 编码，用 `ffprobe`
 做断点续跑完整性检查。
 
+注意：`rgb_to_video.py` 默认不做异常时长筛选，也不会自动读取异常名单；它只按当前筛选范围做普通视频转换与断点续跑检查。只有显式运行 `abnormal_duration_filter.py` / `rgb_to_video.py --abnormal-only`，才会生成异常名单；只有显式传 `--abnormal-route-list-dir`，才会只转异常名单里的 route。
+
 ## 1. 数据与输出
 
 默认输入：
@@ -26,6 +28,14 @@
 /data/lead_video/<Scenario>/<run_id>/right.mp4      # 仅 --views 包含 right 时生成
 /data/lead_video/<Scenario>/<run_id>/video_meta.json
 /data/lead_video/lead_video_summary.json
+```
+
+异常时长名单由 `abnormal_duration_filter.py` 单独生成，默认写在工具目录：
+
+```text
+lead_video_tools/abnormal_duration_filter/abnormal_possible_90s_to_120s.txt
+lead_video_tools/abnormal_duration_filter/abnormal_confirmed_over_120s.txt
+lead_video_tools/abnormal_duration_filter/abnormal_duration_summary.json
 ```
 
 例如：
@@ -68,6 +78,39 @@ python3 lead_video_tools/rgb_to_video.py \
     --run-id Town06_Rep0_Town06_14_route0_01_08_14_51_15 \
     --dry-run
 ```
+
+单独扫描异常采集时长名单、不转视频：
+
+```bash
+python3 lead_video_tools/abnormal_duration_filter.py
+```
+
+按默认 4Hz 换算，`360 <= frames < 480`（约 1 分半到 2 分钟）写入
+`abnormal_possible_90s_to_120s.txt`，`frames >= 480`（2 分钟以上）写入
+`abnormal_confirmed_over_120s.txt`。`abnormal_duration_summary.json` 保留同一批名单的
+帧数、秒数、RGB 路径、视频输出目录和 scan 状态，方便后续脚本继续处理。
+
+这个筛选脚本只统计 jpg 数量，不调用 `ffprobe`，也不检查已有视频，所以比
+`rgb_to_video.py` 的全局预扫描轻很多。普通 `rgb_to_video.py` 默认不会使用这些名单；筛完后，必须显式传 `--abnormal-route-list-dir` 才会只对筛选目录里的 route 生成视频：
+
+```bash
+python3 lead_video_tools/rgb_to_video.py \
+    --abnormal-route-list-dir lead_video_tools/abnormal_duration_filter \
+    --abnormal-route-kind all \
+    --workers 0
+```
+
+只跑“确定异常”（2 分钟以上）：
+
+```bash
+python3 lead_video_tools/rgb_to_video.py \
+    --abnormal-route-list-dir lead_video_tools/abnormal_duration_filter \
+    --abnormal-route-kind confirmed \
+    --workers 0
+```
+
+兼容入口：`rgb_to_video.py --abnormal-only` 也会调用同一套轻量筛选逻辑并退出，但推荐日常直接用
+`abnormal_duration_filter.py`，语义更清楚。
 
 ## 3. 生成视频
 
@@ -307,3 +350,4 @@ stitched RGB 裁出来的重复视角，需要时用 `--views input,left,front,r
 - 不引入 OpenCV/PIL 作为运行依赖；图片尺寸检查用 `ffprobe`。
 - 断点续跑必须同时检查视频和 `video_meta.json`，防止换了 `--views` 或帧号 overlay 配置后误跳过。
 - 对 `/datashare` 和 `/data/lead_video` 都要温柔一点；全量跑优先用 `--workers 0`，不要盲目开很大。
+
