@@ -33,8 +33,8 @@
 异常时长名单由 `abnormal_duration_filter.py` 单独生成，默认写在工具目录：
 
 ```text
-lead_video_tools/abnormal_duration_filter/abnormal_possible_90s_to_120s.txt
-lead_video_tools/abnormal_duration_filter/abnormal_confirmed_over_120s.txt
+lead_video_tools/abnormal_duration_filter/abnormal_possible_90s_to_100s.txt
+lead_video_tools/abnormal_duration_filter/abnormal_confirmed_over_100s.txt
 lead_video_tools/abnormal_duration_filter/abnormal_duration_summary.json
 ```
 
@@ -85,9 +85,10 @@ python3 lead_video_tools/rgb_to_video.py \
 python3 lead_video_tools/abnormal_duration_filter.py
 ```
 
-按默认 4Hz 换算，`360 <= frames < 480`（约 1 分半到 2 分钟）写入
-`abnormal_possible_90s_to_120s.txt`，`frames >= 480`（2 分钟以上）写入
-`abnormal_confirmed_over_120s.txt`。`abnormal_duration_summary.json` 保留同一批名单的
+按默认 4Hz 换算，`360 <= frames <= 400`（1 分 30 秒到 1 分 40 秒）写入
+`abnormal_possible_90s_to_100s.txt`，`frames >= 401`（大于 1 分 40 秒）写入
+`abnormal_confirmed_over_100s.txt`。`BlockedIntersection` 和 `ControlLoss` 是筛选白名单，
+即使超过阈值也不会写入异常/存疑名单。`abnormal_duration_summary.json` 保留同一批名单的
 帧数、秒数、RGB 路径、视频输出目录和 scan 状态，方便后续脚本继续处理。
 两个 txt 名单只保留 `Scenario/run_id`，不写路径，便于人工复制和给
 `rgb_to_video.py --abnormal-route-list-dir` 复用。
@@ -105,7 +106,7 @@ python3 lead_video_tools/rgb_to_video.py \
     --workers 0
 ```
 
-只跑“确定异常”（2 分钟以上）：
+只跑“确定异常”（大于 1 分 40 秒）：
 
 ```bash
 python3 lead_video_tools/rgb_to_video.py \

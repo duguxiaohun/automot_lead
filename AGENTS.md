@@ -142,7 +142,8 @@
   可选三视角裁剪），默认在左上角写 frame id，支持异常 route 剔除、断点续跑、
   ffprobe 完整性检查、运行文档和 `--workers` route 级 CPU 并行（`--workers 0`
   自动按 CPU 估计）；`rgb_to_video.py` 默认不做异常时长筛选；
-  `abnormal_duration_filter.py` 独立按帧数输出异常采集名单，筛选时打印 discover + route 级进度条，
+  `abnormal_duration_filter.py` 独立按 360-400 帧 / 401+ 帧输出存疑 / 确定异常采集名单，
+  `BlockedIntersection` 与 `ControlLoss` 是筛选白名单不写入名单，筛选时打印 discover + route 级进度条，
   两个 txt 名单只保留 `Scenario/run_id`，详情保留在 `abnormal_duration_summary.json`；
   只有显式传 `rgb_to_video.py --abnormal-route-list-dir` 才复用筛选目录只转名单 route）
 - `AutoMoT/qwen3vl_local/`（含 `tb_serve.sh` 通用 TensorBoard launcher；`goalgen/` 子包详见 PROJECT_CONTEXT.md §15；`eval_carla/` 子包详见上）
