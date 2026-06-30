@@ -88,7 +88,10 @@ python3 lead_video_tools/abnormal_duration_filter.py
 按默认 4Hz 换算，`360 <= frames <= 400`（1 分 30 秒到 1 分 40 秒）写入
 `abnormal_possible_90s_to_100s.txt`，`frames >= 401`（大于 1 分 40 秒）写入
 `abnormal_confirmed_over_100s.txt`。`BlockedIntersection` 和 `ControlLoss` 是筛选白名单，
-即使超过阈值也不会写入异常/存疑名单。`abnormal_duration_summary.json` 保留同一批名单的
+即使超过阈值也不会写入异常/存疑名单；`Accident` 只对白名单存疑段生效，
+即 360-400 帧不会写入存疑名单，但 401+ 帧仍会写入确定异常名单。场景名以
+`park` 或 `dynamic` 开头的数据也只在 360-400 帧存疑段白名单内，401+ 帧仍会写入确定异常名单。
+`abnormal_duration_summary.json` 保留同一批名单的
 帧数、秒数、RGB 路径、视频输出目录和 scan 状态，方便后续脚本继续处理。
 两个 txt 名单只保留 `Scenario/run_id`，不写路径，便于人工复制和给
 `rgb_to_video.py --abnormal-route-list-dir` 复用。

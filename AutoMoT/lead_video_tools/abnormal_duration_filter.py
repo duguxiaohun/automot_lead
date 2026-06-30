@@ -23,6 +23,8 @@ DEFAULT_CONFIRMED_ABNORMAL_MIN_SECONDS = 100.0
 DEFAULT_FILTER_DIR = pathlib.Path(__file__).resolve().parent / "abnormal_duration_filter"
 DEFAULT_PROGRESS_INTERVAL = 20
 DEFAULT_ABNORMAL_DURATION_SCENARIO_ALLOWLIST = frozenset({"BlockedIntersection", "ControlLoss"})
+DEFAULT_POSSIBLE_DURATION_SCENARIO_ALLOWLIST = frozenset({"Accident"})
+DEFAULT_POSSIBLE_DURATION_SCENARIO_PREFIX_ALLOWLIST = ("park", "dynamic")
 ABNORMAL_POSSIBLE_FILE = "abnormal_possible_90s_to_100s.txt"
 ABNORMAL_CONFIRMED_FILE = "abnormal_confirmed_over_100s.txt"
 LEGACY_ABNORMAL_POSSIBLE_FILES = ("abnormal_possible_90s_to_120s.txt",)
@@ -85,6 +87,20 @@ def classify_abnormal_duration(
     if duration_s >= possible_min_seconds:
         return "possible"
     return None
+
+
+def is_possible_duration_allowlisted(
+    scenario: str,
+    *,
+    scenario_allowlist: set[str] | frozenset[str] = DEFAULT_POSSIBLE_DURATION_SCENARIO_ALLOWLIST,
+    prefix_allowlist: Sequence[str] = DEFAULT_POSSIBLE_DURATION_SCENARIO_PREFIX_ALLOWLIST,
+) -> bool:
+    """判断场景是否只在存疑时长段白名单内。"""
+
+    if scenario in scenario_allowlist:
+        return True
+    scenario_lower = scenario.lower()
+    return any(scenario_lower.startswith(prefix.lower()) for prefix in prefix_allowlist)
 
 
 def _count_jpgs(rgb_dir: pathlib.Path) -> int:
@@ -164,6 +180,8 @@ def scan_abnormal_durations(
     confirmed_min_seconds: float = DEFAULT_CONFIRMED_ABNORMAL_MIN_SECONDS,
     progress_interval: int = DEFAULT_PROGRESS_INTERVAL,
     scenario_allowlist: set[str] | frozenset[str] = DEFAULT_ABNORMAL_DURATION_SCENARIO_ALLOWLIST,
+    possible_scenario_allowlist: set[str] | frozenset[str] = DEFAULT_POSSIBLE_DURATION_SCENARIO_ALLOWLIST,
+    possible_prefix_allowlist: Sequence[str] = DEFAULT_POSSIBLE_DURATION_SCENARIO_PREFIX_ALLOWLIST,
 ) -> list[AbnormalDurationItem]:
     """扫描数据根目录，返回达到异常时长阈值的 route。"""
 
@@ -178,6 +196,7 @@ def scan_abnormal_durations(
     start = time.time()
     items: list[AbnormalDurationItem] = []
     allowlisted_count = 0
+    possible_allowlisted_count = 0
     if routes:
         print_progress(0, len(routes), start, last="starting")
     for idx, (scenario, run_id, _route_dir, rgb_dir) in enumerate(routes, start=1):
@@ -207,6 +226,23 @@ def scan_abnormal_durations(
             possible_min_seconds=possible_min_seconds,
             confirmed_min_seconds=confirmed_min_seconds,
         )
+        if severity == "possible" and is_possible_duration_allowlisted(
+            scenario,
+            scenario_allowlist=possible_scenario_allowlist,
+            prefix_allowlist=possible_prefix_allowlist,
+        ):
+            possible_allowlisted_count += 1
+            if idx == len(routes) or idx % max(1, progress_interval) == 0:
+                print_progress(
+                    idx,
+                    len(routes),
+                    start,
+                    last=(
+                        f"candidates={len(items)} allowlisted={allowlisted_count} "
+                        f"possible_allowlisted={possible_allowlisted_count} last={scenario}/{run_id}"
+                    ),
+                )
+            continue
         if severity is not None:
             video_dir = output_root / scenario / run_id
             items.append(
@@ -230,7 +266,8 @@ def scan_abnormal_durations(
     elapsed = time.time() - start
     print(
         f"[filter] done routes={len(routes)} "
-        f"candidates={len(items)} allowlisted={allowlisted_count} elapsed={elapsed:.1f}s",
+        f"candidates={len(items)} allowlisted={allowlisted_count} "
+        f"possible_allowlisted={possible_allowlisted_count} elapsed={elapsed:.1f}s",
         flush=True,
     )
     return sorted(items, key=lambda x: (x.severity, x.scenario, x.run_id))
@@ -264,6 +301,8 @@ def write_abnormal_duration_lists(
         f"# fps={fps:.6f} possible=[{possible_min_seconds:.1f}s,{confirmed_min_seconds:.1f}s] "
         f"confirmed=>{confirmed_min_seconds:.1f}s\n"
         f"# scenario_allowlist={','.join(sorted(DEFAULT_ABNORMAL_DURATION_SCENARIO_ALLOWLIST))}\n"
+        f"# possible_scenario_allowlist={','.join(sorted(DEFAULT_POSSIBLE_DURATION_SCENARIO_ALLOWLIST))}\n"
+        f"# possible_scenario_prefix_allowlist={','.join(DEFAULT_POSSIBLE_DURATION_SCENARIO_PREFIX_ALLOWLIST)}\n"
         "# format: Scenario/run_id\n"
         "# details with frame_count/duration/rgb/video_dir are kept in abnormal_duration_summary.json\n"
     )
@@ -283,6 +322,8 @@ def write_abnormal_duration_lists(
         "confirmed_min_frames": duration_over_threshold_frames(fps, confirmed_min_seconds),
         "confirmed_threshold_mode": "strictly_greater_than_seconds",
         "scenario_allowlist": sorted(DEFAULT_ABNORMAL_DURATION_SCENARIO_ALLOWLIST),
+        "possible_scenario_allowlist": sorted(DEFAULT_POSSIBLE_DURATION_SCENARIO_ALLOWLIST),
+        "possible_scenario_prefix_allowlist": list(DEFAULT_POSSIBLE_DURATION_SCENARIO_PREFIX_ALLOWLIST),
         "possible_count": len(possible),
         "confirmed_count": len(confirmed),
         "possible_file": str(possible_path),
