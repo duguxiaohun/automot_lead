@@ -76,6 +76,7 @@
 | `AutoMoT/leaderboard/team_code/display_interface.py` / `AutoMoT/Automot/team_code/display_interface.py` | 按用户同意纳入白名单：AutoMoT 显示层；decision 三元组只表示 now/+1s/+2s，不要再沿用旧 3s 命名 |
 | `AutoMoT/qwen3vl_local/eval_carla/` | LeadMoT 闭环评测子包（全部白名单内）：实时 agent + 5 路视频 + 投影 overlay + scenario 反向映射 + 聚合 + Flask webapp。`agent.py` 直接复用 `LeadOfflineMoTRunner`；target_point / next_target_point 与训练同走 `max(speed*lookahead_s, 5m)` route 弧长前推，默认 tp=1.0s / ntp=2.0s；final_goal 为 route 真实终点：训练取 LEAD 采集保存的 `meta["next_target_points"][-1]` 转 ego，在线 eval_carla 取 `scenario_picker.py` 对应 route XML 最后一个 waypoint 转 ego，不能再用 `meta["route"][-1]` 或固定局部 horizon；warmup 为 LEAD 风格 left-pad 复制 frame 0 立即推理；按 ckpt `decoder_config.use_bev` 决定是否声明/读取 LiDAR/radar；ckpt `decoder_config.use_subgoal=True` 当前不支持闭环，agent.py 加载时立即 `raise NotImplementedError` 并留 `TODO(subgoal)` 接口；其余细节以 `EVAL_CARLA_PLAN.md` / `EVAL_CARLA_RUN.md` 为准。 |
 | `AutoMoT/lead_video_tools/` | 按用户同意新增到白名单：LEAD 离线 RGB 视频转换工具；只读 `/datashare/IOL4SGH/data/data/<Scenario>/<run_id>/rgb/*.jpg`，按 4Hz 生成 `/data/lead_video/<Scenario>/<run_id>/{input,left,front,right}.mp4`（默认 input，`--views` 可选三视角裁剪），默认在左上角写 frame id，支持异常 route 剔除、断点续跑、ffprobe 完整性检查、运行文档和 `--workers` route 级 CPU 并行（`--workers 0` 自动按 CPU 估计）；`rgb_to_video.py` 默认不做异常时长筛选；`abnormal_duration_filter.py` 独立按 360-400 帧 / 401+ 帧输出存疑 / 确定异常采集名单，`BlockedIntersection` 与 `ControlLoss` 是全异常筛选白名单不写入名单，`Accident` 以及场景名以 `park` / `dynamic` 开头的数据仅在 360-400 帧存疑段不写入名单且 401+ 仍进确定异常，筛选时打印 discover + route 级进度条，两个 txt 名单只保留 `Scenario/run_id`，详情保留在 `abnormal_duration_summary.json`；只有显式传 `rgb_to_video.py --abnormal-route-list-dir` 才复用筛选目录只转名单 route。 |
+| `AutoMoT/keyframe_filter/` | 按用户同意新增到白名单：旧版 LEAD 关键帧选择器与新 ROAD/EVENT 语义重标注方案目录。`rule_based_keyframe_filter.py` 旧逻辑按 scenario 固定抽 initial / 3 middle / final，主要依赖 meta 距离字段、speed/accel/brake，并 fallback 到 bbox / RGB motion；只作为突发事件 span 提议器和验证工具参考，不再视为最终帧级 STATUS/SUBGOAL 真值。`classifier_logic.txt` 是用户人工调研的道路结构与事件分类草案；`ROAD_EVENT_CLASSIFICATION_PLAN.md` 是新方案总结。目录内 `keyframes_all_scenarios.json` 是旧生成产物，默认不随手修改；只有用户明确要求重生成/修正旧 keyframe 索引时才更新。 |
 | `AutoMoT/qwen3vl_local/` | Qwen3-VL-Instruct 本地 helper 包；其中 `tb_serve.sh` 是通用 TensorBoard 启动器（SFT / GoalGen / LeadMoT / VAE 共用），`mrope_utils.py` 是 Qwen3-VL 增量 decode 的本地 M-RoPE position_ids 实现，`goalgen/` 子包是 §15 新路线全部模块（vae/prompt/qwen_kv/keyframes/dit/flow），`eval_carla/` 子包是上述闭环评测子包 |
 | `AutoMoT/qwen3vl_local/sft/__init__.py` / `SFT_PLAN.md` / `SFT_RUN.md` / `build_dataset.py` / `build_teacher.py` / `train.py` / `train.sh` / `eval.py` / `probe.py` / `check_loss_mask.py` / `inspect_teacher_outputs.py` | 统一 LoRA SFT 子包（已废弃 v1/v2 双轨与 ms-swift）：`SFT_PLAN.md` / `SFT_RUN.md` 是设计与运行入口；`build_dataset.py` 只产 `dataset_version="pending"` jsonl（assistant 含 `__TEACHER_PENDING__` 占位）；`train.sh` → `train.py` 用 `peft.LoraConfig` + `get_peft_model` 直接把 LoRA 注入 base，torch DDP + 手写 train loop，每个 train batch 内禁用 adapter，并调用底层 Qwen base model 现场 greedy 生成 ANALYSIS 真值（避开 `PeftModel.generate` 的 Qwen3-VL 生成错位问题），再启用 adapter 跑 student forward + per-token 加权 loss（ANALYSIS body `SFT_ANALYSIS_WEIGHT`/默认 0.5，学习大致语言推理但不逐字压过状态监督；其余 assistant 段 1.0，prompt 段 0）。**不再离线物化 teacher、不再写 manifest、不再有 runtime_teacher_data 复用机制**；`build_teacher.py` 仅作为可选离线 dump 工具，不被训练入口自动调用。`eval.py` / `probe.py` 默认 `merge_and_unload` 加载 LoRA，case dump 保存 `expert_analysis.txt` / `language_compare.json` 对比 base-teacher 专家语言与模型 ANALYSIS；`probe.py` 的 token loss 使用训练同款权重汇总；`check_loss_mask.py` 验 train.py 内置 mask；`inspect_teacher_outputs.py` 支持 `--live` 现场重跑 teacher 抽检 |
 | `AutoMoT/qwen3vl_local/sft_v2/__init__.py` / `SFT_V2_PLAN.md` / `SFT_V2_RUN.md` / `prompts.py` / `build_dataset.py` / `train.py` / `train.sh` / `eval.py` / `probe.py` / `check_loss_mask.py` | 按用户同意新增到白名单：SFT v2 两段式串行选择题子包。输入仍为 LEAD stitched RGB + 语言 prompt；stage-1 只列 `SCENE_CHOICES` 并输出 `SCENE`，stage-2 作为同一条对话的后续 user prompt，按预测 scene 的 `EVENT_SEQUENCE` 输出 `STATUS/SUBGOAL`，推理时必须复用 stage-1 已吃图像和场景 prompt 后的 KV cache；默认 `--samples-per-scenario 0` 全量保留合法候选，默认 `--wrong-scene-ratio 0.15` 只增强 train rows；不再有 ANALYSIS / teacher / pending cache；训练 loss 只监督 scene/status/subgoal 值 token，格式 token 为 0 loss；LoRA 默认只注入语言侧 Linear，视觉侧通过 `--lora-vision-scope` / `LORA_VISION_SCOPE` 选择 `off` / `merger` / `last4` / `all` 四档（`--lora-vision` / `LORA_VISION=1` 作为 `all` 的 legacy 别名保留）；开启视觉 LoRA 时默认带"视觉组单独 LR 倍率 `--vision-lr-scale=0.1`（受 `--max-vision-lr-scale=0.25` 上限约束）+ 分组梯度裁剪 `--language-clip-norm=1.0` / `--vision-clip-norm=0.3` + TB 观测 `grad_norm/{language,vision}` / `param_norm/lora_{language,vision}` / `vision_guard_bad_steps` + `STRICT_VISION_SCOPE=1` 命名漂移硬拒绝 + `VISION_GUARD_ENABLED=1` 运行时熔断"保险；熔断时写 `fuse_stop_step_<N>/` 与 `fuse_reason.txt`，并跳过正常 `final/` 保存，防止视觉表征被冲坏且避免误用异常产物；base Qwen checkpoint 始终只读，训练只保存 adapter delta，并写 `sft_v2_adapter_config.json`（含 `lora_vision_scope` 与保险参数）；eval/probe 加载前按 adapter 配置判断普通 LoRA / 视觉 LoRA 并校验权重 key，不一致直接拒绝。自由生成评估中 scene 不在白名单则中断，scene 合法但错误时仍按预测 scene 进入 stage-2 并用串行口径计错，同时输出 `valid_total` / `*_valid_scene` 指标。运行文档见 `SFT_V2_RUN.md` |
@@ -96,6 +97,10 @@
 特别提示：仓库根目录有 **`0026.json`**（用户提供的 LEAD meta.pkl 转 JSON 标准参考样本，
 详见 PROJECT_CONTEXT.md §2.3）——**绝对禁止修改其内容，绝对禁止 `git add 0026.json`**。
 它是固定参考"标尺"，修改或入库都会破坏历史推论的可追溯性。
+
+仓库根目录或 `AutoMoT/lead_data` 下的 **`keyframes_all_scenarios.json`** 是远端数据参考，
+默认只读且不要入库。`AutoMoT/keyframe_filter/keyframes_all_scenarios.json` 是旧 keyframe
+工具产物，只有用户明确要求重生成/修正旧索引时才更新。
 
 > 例外流程：如果确实有必要新建文件或在其他已有文件上打补丁（例如发现 utils 类
 > 缺函数、需要新建测试脚本等），**必须先用 AskUserQuestion 或直接在对话里
@@ -142,6 +147,14 @@
 - `AutoMoT/lead_video_tools/abnormal_duration_filter.py`
 - `AutoMoT/lead_video_tools/rgb_to_video.py`
 - `AutoMoT/lead_video_tools/LEAD_VIDEO_RUN.md`
+- `AutoMoT/keyframe_filter/classifier_logic.txt`
+- `AutoMoT/keyframe_filter/rule_based_keyframe_filter.py`
+- `AutoMoT/keyframe_filter/ROAD_EVENT_CLASSIFICATION_PLAN.md`
+- `AutoMoT/keyframe_filter/verification_tool/README.md`
+- `AutoMoT/keyframe_filter/verification_tool/app/main.py`
+- `AutoMoT/keyframe_filter/verification_tool/app/templates/index.html`
+- `AutoMoT/keyframe_filter/verification_tool/app/static/styles.css`
+- `AutoMoT/keyframe_filter/verification_tool/app/static/app.js`
 - `AutoMoT/qwen3vl_local/__init__.py`
 - `AutoMoT/qwen3vl_local/cache_utils.py`
 - `AutoMoT/qwen3vl_local/engine.py`
@@ -226,6 +239,8 @@
 - **禁止** `git add .` / `git add -A` / `git add *`，会污染仓库
 - **禁止** `git add lead/` / `git add AutoMoT/`（除了白名单里那一个具体路径）
 - **禁止** `git add 0026.json`——它是 LEAD meta 参考样本，永远只读、永远不入库
+- **禁止** `git add keyframes_all_scenarios.json` 或 `AutoMoT/lead_data/keyframes_all_scenarios.json`；
+  `AutoMoT/keyframe_filter/keyframes_all_scenarios.json` 只有用户明确要求重生成/修正时才精确 add
 - 每次 commit 前先 `git status` 确认改动只在白名单内；如果发现别的文件有改动 →
   停下来问用户，不要 commit
 - 不要执行 `git push --force` 之类的破坏性操作

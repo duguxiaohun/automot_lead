@@ -23,6 +23,7 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 | `AutoMoT/` | 在线驾驶仓库；当前本地改造主要放这里 |
 | `AutoMoT/lead_data` | 远端 LEAD 数据软链接入口，等价于用户在 `AutoMoT/` 下执行 `ln -s /datashare/IOL4SGH/data/data/* lead_data/` 后的目录；运行命令里用相对路径 `lead_data` / `lead_data/keyframes_all_scenarios.json` |
 | `AutoMoT/lead_video_tools/` | 按用户同意新增：LEAD 离线 RGB 视频转换工具。只读 `/datashare/IOL4SGH/data/data/<Scenario>/<run_id>/rgb/*.jpg`，按 4Hz 生成 `/data/lead_video/<Scenario>/<run_id>/{input,left,front,right}.mp4`（默认 input，`--views` 可选三视角裁剪），默认在左上角写 frame id，支持异常 route 剔除、断点续跑、ffprobe 完整性检查和 `--workers` route 级 CPU 并行（`--workers 0` 自动按 CPU 估计）；`rgb_to_video.py` 默认不做异常时长筛选；`abnormal_duration_filter.py` 独立按 360-400 帧 / 401+ 帧输出存疑 / 确定异常采集名单到 `lead_video_tools/abnormal_duration_filter/`，`BlockedIntersection` 与 `ControlLoss` 是全异常筛选白名单不写入名单，`Accident` 以及场景名以 `park` / `dynamic` 开头的数据仅在 360-400 帧存疑段不写入名单且 401+ 仍进确定异常，筛选时打印 discover + route 级进度条，两个 txt 名单只保留 `Scenario/run_id`，帧数/秒数/RGB 路径/视频目录保留在 `abnormal_duration_summary.json`；只有显式传 `rgb_to_video.py --abnormal-route-list-dir ...` 才只对筛选目录里的 route 生成视频，避免每次重复全量筛选 |
+| `AutoMoT/keyframe_filter/` | 按用户同意新增到白名单：旧版 LEAD 关键帧选择器与新 ROAD/EVENT 语义重标注方案目录。旧 `rule_based_keyframe_filter.py` 按 scenario 固定抽 initial / 3 middle / final，主要依赖 `metas/*.pkl` 的 `dist_to_*`、speed、accel、brake，缺失时 fallback 到 bbox / RGB motion；适合作为突发事件 span 提议器和验证工具输入，不再作为最终帧级 STATUS/SUBGOAL 真值来源。`classifier_logic.txt` 是用户逐场景调研得到的道路结构与事件分类草案；`ROAD_EVENT_CLASSIFICATION_PLAN.md` 总结新方案：先将 scenario 降为 ROAD_STRUCTURE 候选先验，再用 Qwen 选择当前道路结构，并用 R-E/U-E 事件空间替代旧 status，优先从 meta/bbox/速度提取突发事件 span。目录内 `keyframes_all_scenarios.json` 是旧生成产物，默认不随手改；只有用户明确要求重生成/修正旧 keyframe 索引时才更新。 |
 | `qwen3vl_local/`（`AutoMoT/` 主目录内） | 本地 Qwen3-VL-Instruct frozen prefill、prompt、GoalGen、LeadMoT；`tb_serve.sh` 是通用 TensorBoard 启动器 |
 | `qwen3vl_local/sft/` | SFT 数据、训练、eval、probe（统一一套，已废弃 v1/v2 双轨与 ms-swift） |
 | `qwen3vl_local/sft_v2/` | 新版 SFT v2 串行选择题路线：SCENE → STATUS/SUBGOAL，无 ANALYSIS teacher |
@@ -30,7 +31,7 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 | `qwen3vl_local/sft_v4/` | SFT v4 off-policy actor-learner 路线：`launch_offpolicy.sh` 默认四卡部署为 GPU0 单进程 learner + GPU1/GPU2/GPU3 各 1 个异步 collector；collector 不进 DDP/NCCL，只用 adapter snapshot 采集 sequence-memory rollout 并写 `replay/ready/*.jsonl`；learner 不进 DDP/NCCL，单进程随机读取 replay 做 teacher-forced loss/backward，并周期发布 `latest_lora/v_<step>/`。确认服务器允许单卡多 CUDA 进程后，可手动调 `COLLECTORS_PER_GPU=2/3`；`learn.py` 日志/TB 记录 `replay_ready/replay_pending/replay_failed/wait_events/wait_total` 与 `train/replay/*`，用于判断 collector 和 learner 谁是吞吐瓶颈。当前 v4 使用 ROAD_STRUCTURE→SCENE→STATUS/SUBGOAL 三层 memory：Phase A 初始 `P_INIT_CORRECT=0.7`（road_structure 命中 GT 桶后 scene 同桶 50% 正确）、Phase B 噪声率 0.15、上一帧 step1 后 road_structure 仍未命中 GT 时下一帧帧首触发一次 skip 纠偏（scene 大概率 GT / 0.15 同桶扰动，status/subgoal 回 init）、stair-step 触发门要求上层在本帧前后都稳定正确才继续下钻（road 刚纠正不跑 step2，scene 刚纠正不跑 step3）。step1 学生 prompt 只读 road-only `[STEP1_ROAD_MEMORY]`（believed road + goal），不提前暴露 scene/status/subgoal；公共证据规则默认 keep believed memory，只有清晰可见证据矛盾才改，弱证据写 not contradicted，不编造 braking/merging/cut-in/active-flow 等隐藏线索；Step1 只看 road-layout cues，Step2 是 road bucket 内 fine-grained scene verification，Step3 明确区分当前 `STATUS` 和下一目标 `SUBGOAL`。step2/3 才读完整 `[MEMORY]`。student prompt 与 teacher target 共用四行 analysis contract（Scene Description / Critical Object Description / Reasoning on Intent / Memory Judgment），区别只是 teacher prompt 可看 answer 字段且标签由脚本追加；`build_step*_teacher_target` 必须把 analysis 清成学生视角，禁止把 `GROUND_TRUTH_*` / `ANSWER_*` / `REFERENCE_*` 私有字段名写进监督文本。replay schema 为 `sft_v4_rollout_v2`，显式保存 `memory_after_step1`，learner 重放 step2 必须用该 memory 构造收窄后的 SCENE_CHOICES；旧 v1 trajectory 会被拒收。`inspect_teacher.py` 默认 4 种常规模式，`scene_change_cross_rs` 为显式 stress-only，并在报告中一对一展示 teacher-private prompt/raw、student-facing prompt、adapter-enabled student 初始输出、target/memory transition。`replay.py` / `collect.py` / `learn.py` / `launch_offpolicy.sh` 已实现；`train.py` / `train.sh` 仅为 on-policy 兼容调试入口。运行见 `SFT_V4_RUN.md` |
 | `AutoMoT/vae_standalone/train_patch_unpatch.py` | patch/unpatch 端到端重建训练 |
 | `0026.json` | LEAD meta 固定参考样本，只读，绝对不要入库 |
-| `keyframes_all_scenarios.json` | 远端数据参考，只读 |
+| `keyframes_all_scenarios.json` | 仓库根目录或 `AutoMoT/lead_data` 下的远端数据参考，只读；`AutoMoT/keyframe_filter/keyframes_all_scenarios.json` 是旧工具产物，只有用户明确要求重生成/修正时才更新 |
 
 SFT v4 scene canonicalization rule: `EnterActorFlowV2 -> EnterActorFlow` and
 `MergerIntoSlowTrafficV2 -> MergerIntoSlowTraffic`. These raw CARLA scenario
@@ -505,7 +506,7 @@ eval、probe、teacher / 推理入口。
 ## 12. 不要做
 
 - 不要改 `lead/`。
-- 不要把 `0026.json` 或 `keyframes_all_scenarios.json` 入库。
+- 不要把 `0026.json` 或仓库根目录 / `AutoMoT/lead_data` 下的 `keyframes_all_scenarios.json` 入库。
 - 不要运行 CARLA、`AutoMoT/test.sh`、`start_carla.sh`、大规模下载或安装命令。
 - 不要把 AutoMoT legacy slow/fast 接口重新接回本地 Qwen/LeadMoT 路线。
 - 不要把当前共享 GoalGen 架构描述成某个 dataset mode 专属架构。
@@ -522,5 +523,6 @@ eval、probe、teacher / 推理入口。
 | LeadMoT 架构 | `qwen3vl_local/leadmot/ARCHITECTURE.md` |
 | LeadMoT CARLA 闭环评测 | `qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md` |
 | LEAD RGB 批量转视频 | `lead_video_tools/LEAD_VIDEO_RUN.md` |
+| 关键帧 / ROAD-EVENT 重标注 | `keyframe_filter/ROAD_EVENT_CLASSIFICATION_PLAN.md` |
 | 规则入口 | `AGENTS.md` / `CLAUDE.md` |
 
