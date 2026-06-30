@@ -1,0 +1,108 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: #14213d;
+  background: radial-gradient(circle at 20% 0%, #fef3c7, #f8fafc 40%, #e2e8f0);
+}
+.topbar {
+  padding: 20px;
+  border-bottom: 1px solid #d1d5db;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(3px);
+}
+.topbar h1 { margin: 0 0 6px 0; }
+.muted { color: #475569; font-size: 0.9rem; word-break: break-all; }
+.controls {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  padding: 14px 20px;
+}
+label { display: flex; flex-direction: column; gap: 4px; font-size: 0.92rem; }
+select, input, button {
+  height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+}
+button {
+  cursor: pointer;
+  background: #0f766e;
+  color: #fff;
+  border: none;
+}
+button.secondary { background: #334155; }
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 20px 12px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+  padding: 0 20px 24px;
+}
+.card {
+  background: #fff;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(2, 6, 23, 0.08);
+}
+.card-title {
+  margin: 0;
+  padding: 10px 12px;
+  background: linear-gradient(90deg, #1d4ed8, #0ea5e9);
+  color: #fff;
+  font-size: 1rem;
+}
+.frame {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #e2e8f0;
+}
+.missing {
+  display: none;
+  padding: 8px 12px;
+  color: #b91c1c;
+  font-weight: 600;
+}
+.meta {
+  margin: 0;
+  padding: 10px 12px 14px;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  row-gap: 4px;
+  column-gap: 8px;
+  font-size: 0.9rem;
+}
+.meta dt { color: #334155; font-weight: 700; }
+.meta dd { margin: 0; color: #0f172a; word-break: break-word; }
+
+.raw-block {
+  border-top: 1px dashed #cbd5e1;
+  padding: 8px 12px 12px;
+}
+
+.raw-block summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #1e3a8a;
+}
+
+.raw-json {
+  margin: 8px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 0.8rem;
+  line-height: 1.25;
+}

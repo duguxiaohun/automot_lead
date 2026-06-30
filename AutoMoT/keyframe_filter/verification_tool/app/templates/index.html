@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Keyframe Verification Viewer</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Keyframe Verification Viewer</h1>
+      <p>
+        Runs: <strong>{{ total_runs }}</strong> | Events: <strong>{{ total_events }}</strong>
+      </p>
+      <p class="muted">JSON: {{ keyframe_json_path }}</p>
+    </header>
+
+    <section class="controls">
+      <label>
+        Scenario
+        <select id="scenario">
+          <option value="">All</option>
+          {% for s in scenario_options %}
+          <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        Event
+        <select id="event">
+          <option value="">All</option>
+          {% for e in event_options %}
+          <option value="{{ e }}">{{ e }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        Signal Source
+        <select id="signal_source">
+          <option value="">All</option>
+          {% for src in signal_source_options %}
+          <option value="{{ src }}">{{ src }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        Final Success
+        <select id="final_success">
+          <option value="">All</option>
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+      </label>
+
+      <label>
+        Run ID search
+        <input id="run_id_query" type="text" placeholder="Town12_Rep0_..." />
+      </label>
+
+      <label>
+        Sort
+        <select id="sort_by">
+          <option value="scenario_run">Scenario + Run + Frame</option>
+          <option value="time_asc">Timestamp Asc</option>
+          <option value="time_desc">Timestamp Desc</option>
+          <option value="confidence_desc">Confidence Desc</option>
+          <option value="confidence_asc">Confidence Asc</option>
+        </select>
+      </label>
+
+      <label>
+        Page Size
+        <select id="page_size">
+          <option>30</option>
+          <option selected>60</option>
+          <option>120</option>
+          <option>240</option>
+        </select>
+      </label>
+
+      <button id="apply">Apply</button>
+      <button id="reset" class="secondary">Reset</button>
+    </section>
+
+    <section class="pagination">
+      <button id="prev">Prev</button>
+      <span id="page_info">Page 1/1</span>
+      <button id="next">Next</button>
+      <span id="count_info"></span>
+    </section>
+
+    <main id="grid" class="grid"></main>
+
+    <template id="card-template">
+      <article class="card">
+        <h2 class="card-title"></h2>
+        <img class="frame" alt="key frame" loading="lazy" />
+        <div class="missing">Image file is missing.</div>
+        <dl class="meta"></dl>
+        <details class="raw-block">
+          <summary>Raw JSON</summary>
+          <pre class="raw-json"></pre>
+        </details>
+      </article>
+    </template>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
