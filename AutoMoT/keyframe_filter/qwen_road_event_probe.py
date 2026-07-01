@@ -79,28 +79,28 @@ os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
 
 ROAD_DEFINITION_FALLBACK: Dict[str, str] = {
-    "R1": "常规道路 / 同向可行驶道路：默认桶；普通直道、跟车、车道保持、同向变道、普通可行驶区域。",
-    "R2": "双向单车道 / 借对向车道道路：对向车道参与决策，可能借对向绕障或处理对向侵占。",
-    "R3": "高速 / 匝道 / 合流 / 驶出道路：主辅路、匝道、合流、并线、驶出、高速切入。",
-    "R4": "信号灯路口：红绿灯正常可用，红绿灯是主通行规则。",
-    "R5": "无信号灯 / 信号灯失效路口：无灯、灯失效，或主要按路权/安全间隙通行。",
-    "R6": "路边停车 / 停车占道道路：停车带、路边停车、停车位汇入、开门、停车遮挡主导决策。",
+    "R1": "Regular same-direction road: default bucket for ordinary lane keeping, car following, same-direction lane change, and normal drivable road.",
+    "R2": "Two-way single-lane / opposite-lane borrowing road: the opposite lane or oncoming traffic is part of the immediate decision.",
+    "R3": "Highway / ramp / merge / exit road: ramp, merge, split, highway cut-in, highway exit, or speed-matching with main traffic.",
+    "R4": "Signalized intersection: cross intersection, T-junction, or junction area where a normal traffic light is the main rule.",
+    "R5": "Unsignalized or signal-failure intersection: cross intersection, T-junction, or junction area where no usable traffic-light rule is available.",
+    "R6": "Roadside parking / parking-occupied road: parked cars, parking bay exit, door opening, roadside occlusion, or parking-dominated risk.",
 }
 
 EVENT_DEFINITION_FALLBACK: Dict[str, str] = {
-    "R-E1": "跟车 / 车道保持。",
-    "R-E2": "目标导向型变道，例如为了路线目标主动换道或从停车位汇入。",
-    "R-E3": "常规匝道合流 / 并线 / 驶出。",
-    "R-E4": "信号灯路口通行。",
-    "R-E5": "无信号灯路口通行。",
-    "U-E1": "前车急刹 / 突然减速。",
-    "U-E2": "静态障碍物占道，例如事故车、施工障碍、停放车辆。",
-    "U-E3": "动态车辆切入 / 动态占道。",
-    "U-E4": "行人 / 自行车横穿。",
-    "U-E5": "对向车辆异常侵占自车道。",
-    "U-E6": "违规车辆冲突，例如对方闯红灯。",
-    "U-E7": "信号灯故障 / 路口规则失效。",
-    "U-E8": "前方道路暂时阻塞 / 阻塞解除。",
+    "R-E1": "Car following / lane keeping.",
+    "R-E2": "Goal-directed lane change or lane correction required by the route.",
+    "R-E3": "Routine ramp merge, lane merge, or highway exit.",
+    "R-E4": "Following normal traffic-light rules at an intersection.",
+    "R-E5": "Passing an unsignalized intersection by right-of-way and safe gaps.",
+    "U-E1": "Lead vehicle hard braking or sudden deceleration.",
+    "U-E2": "Static obstacle blocking the ego path, such as crash vehicle, construction object, or parked vehicle.",
+    "U-E3": "Dynamic vehicle cut-in or dynamic occupation of the ego path.",
+    "U-E4": "Pedestrian or cyclist crossing the ego path.",
+    "U-E5": "Oncoming vehicle abnormally invading the ego lane.",
+    "U-E6": "Rule-violating vehicle conflict, such as another vehicle running a red light.",
+    "U-E7": "Traffic-light failure or intersection rule-source failure.",
+    "U-E8": "Temporary blockage ahead or blockage clearing.",
 }
 
 
@@ -228,12 +228,8 @@ def load_candidate_tables(mapping_md: pathlib.Path) -> CandidateTables:
     road_to_events: Dict[str, List[str]] = {}
     scenario_to_events: Dict[str, List[str]] = {}
 
-    for line in _section_lines(text, "## 2."):
-        if not line.strip().startswith("|") or "---" in line:
-            continue
-        cells = _split_md_row(line)
-        if len(cells) >= 3 and re.fullmatch(r"R[1-6]", cells[0]):
-            road_definitions[cells[0]] = f"{cells[1]}：{cells[2]}"
+    # 只从 Markdown 读取候选关系。给 Qwen 看的自然语言定义固定使用英文
+    # ROAD_DEFINITION_FALLBACK，避免把中文说明混进 prompt。
 
     for line in _section_lines(text, "## 3."):
         if not line.strip().startswith("|") or "---" in line:
@@ -437,7 +433,7 @@ def system_prompt() -> str:
     return (
         "You are an autonomous-driving visual annotator. "
         "Classify the ego vehicle's current road-structure and events from the provided driving images. "
-        "Return the answer only as valid JSON."
+        "Write a brief evidence-based analysis, then return valid JSON only."
     )
 
 
@@ -480,12 +476,19 @@ Input source:
 ROAD_STRUCTURE must be exactly one of these candidates:
 {_candidate_lines(roads, tables.road_definitions)}
 
+Look for only decision-relevant visible cues:
+- traffic lights and traffic signs;
+- nearby vehicles, pedestrians, cyclists, and obstacles;
+- lane markings and road structure;
+- key factors that affect the ego vehicle's next decision.
+
 Important distinction rules:
 - R1 is the default/other bucket. Choose R1 when there is no clear visual evidence for junction, ramp/merge/highway exit, two-way single-lane borrowing, or parking-dominated risk.
 - Choose R2 only when the opposite lane or oncoming traffic is part of the immediate decision.
 - Choose R3 only for ramp, merge, highway, split, or exit structures.
-- Choose R4 only when a normal traffic-light junction is the main rule.
-- Choose R5 only when the junction has no usable signal-light rule or depends mainly on right-of-way/gaps.
+- A junction can be recognized by road geometry, not only by traffic lights: cross intersection, T-junction, stop line, turning pocket, cross traffic, or intersection conflict area.
+- Choose R4 when junction geometry is present and a normal traffic light is visible or is the main rule.
+- Choose R5 when junction geometry is present but no usable traffic light is visible, or the decision mainly depends on right-of-way/gaps.
 - Choose R6 only when roadside parking, parking-space exit, parked cars, door opening, or parking occlusion dominates the decision.
 
 EVENTS may contain one or more labels, but only from the candidates compatible with the chosen ROAD_STRUCTURE and scenario:
@@ -496,6 +499,7 @@ Scenario-level event candidates:
 
 Return the answer only as this JSON object. Do not output markdown or extra explanation:
 {{
+  "ANALYSIS": "brief visible-evidence analysis in one or two short sentences",
   "ROAD_STRUCTURE": "R1",
   "EVENTS": ["R-E1"],
   "STATUS": "R-E1",
@@ -533,6 +537,7 @@ def parse_model_json(raw_text: str) -> Dict[str, Any]:
         "EVENTS": events,
         "STATUS": events[0] if events else None,
         "SUBGOAL": events[-1] if events else None,
+        "ANALYSIS": text[:500],
         "SPAN_CHANGE": None,
         "CONFIDENCE": None,
         "REASON": text[:500],
@@ -559,6 +564,7 @@ def normalize_label_record(parsed: Dict[str, Any], case: ProbeCase, raw_text: st
         "EVENTS": events,
         "STATUS": parsed.get("STATUS"),
         "SUBGOAL": parsed.get("SUBGOAL"),
+        "ANALYSIS": parsed.get("ANALYSIS", ""),
         "SPAN_CHANGE": parsed.get("SPAN_CHANGE"),
         "CONFIDENCE": parsed.get("CONFIDENCE"),
         "REASON": parsed.get("REASON", ""),
@@ -708,6 +714,7 @@ def run_qwen_case(
     if dry_run:
         raw_text = ""
         parsed = {
+            "ANALYSIS": "",
             "ROAD_STRUCTURE": None,
             "EVENTS": [],
             "STATUS": None,
