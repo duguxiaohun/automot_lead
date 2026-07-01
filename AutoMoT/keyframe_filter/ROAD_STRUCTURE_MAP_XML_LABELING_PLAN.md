@@ -13,6 +13,17 @@
 
 一句话：把 Qwen 从“主裁判”降级为“补充裁判”，先用地图与轨迹给出强规则主标签。
 
+**重要目标修正：** 本方案不追求“每一帧绝对无歧义”。CARLA/LEAD 场景里天然存在
+路口接近区、停车带与对向借道重叠、匝道拓扑节点被 `is_junction` 标记、信号灯来自相邻路口等情况。
+因此最终产物应是：
+
+- 一个用于训练主监督的 `primary_road_structure`；
+- 少量用于审计的 `secondary_road_structures`；
+- 每帧 `confidence_level` / `label_source` / `review_required`；
+- 对边界帧、证据冲突帧和低置信帧保留复核队列。
+
+也就是说，目标是“高一致性、可解释、可复核”的帧级主标签，而不是把所有过渡帧强行伪装成无歧义真值。
+
 ---
 
 ## 2. 输入数据源规范
@@ -90,8 +101,9 @@
 
 | 字段 | 类型 | 说明 | 用途 |
 |------|------|------|------|
-| `ego_matrix` | 4×4 numpy array | 世界坐标系→自车坐标系的变换矩阵 | `[0][3]=x, [1][3]=y, [2][3]=z`，即自车世界坐标 |
-| `theta` | float（弧度） | 自车航向角（偏航） | 辅助判断朝向 |
+| `pos_global` | array-like, len≥2 | 自车世界坐标真值 `[x,y,z]` | **主位姿来源**，与 LeadMoT runner 对齐 |
+| `theta` | float（弧度） | 自车航向角（偏航） | **主航向来源**，与 LeadMoT runner 对齐 |
+| `ego_matrix` | 4×4 numpy array | 自车 pose 矩阵；`[:3,3]` 与 `pos_global` 对齐 | 仅作校验/兜底，不作为首选 |
 | `speed` | float（m/s） | 自车速度 | 判断停车/缓行/急刹 |
 | `accel_x/y/z` | float | 自车加速度（m/s²） | 急刹检测（`accel_x` 为纵向） |
 | `steer` | float | 方向盘转角 | 辅助检测转弯/变道 |
@@ -272,10 +284,11 @@ Town05.xodr 实测：`junctions=21, signals=59, controllers=106`，通过 `contr
 
 对每帧：
 
-- `x = ego_matrix[0][3]`
-- `y = ego_matrix[1][3]`
-- `z = ego_matrix[2][3]`
-- `yaw = theta`
+- 首选 `pos_global[:2]` / `theta`，这是当前 LeadMoT runner 和训练数据默认使用的真值位姿口径；
+- `ego_matrix[:3,3]` 只用于交叉校验或 `pos_global` 缺失时的兜底；
+- 若 `pos_global[:2]` 与 `ego_matrix[:2,3]` 偏差超过 0.5m，应将该帧标为 `review_required=true`；
+- 不要把 `ego_matrix` 误当作“世界坐标系→自车坐标系”的逆矩阵直接用来转点。若要做 world→ego，
+  必须显式使用 `pos_global + theta` 或经过验证的 inverse transform。
 
 ## 4.2 route 进度 s（沿线弧长）
 
@@ -288,6 +301,11 @@ Town05.xodr 实测：`junctions=21, signals=59, controllers=106`，通过 `contr
 
 - 同一 run 内时序对齐稳定
 - 可把 trigger_point 投影成 `s_trigger`，构造“触发窗口”
+
+**重要限制：** XML waypoint 常常很稀疏，甚至存在 `ParkingExit` 这类只有 2 个点的 route。
+因此 XML polyline 只能作为 Phase A 粗召回。进入正式标注前，应基于 CARLA map 沿 road/lane
+把 route densify 到 1~2m 间隔，或至少用 `carla.Map.get_waypoint` 对帧级位置做路网吸附。
+若 `d_route > 3~5m`，该帧不得输出高置信 ROAD_STRUCTURE，应降级为低置信并进入复核队列。
 
 ## 4.3 地图拓扑特征（通过 carla.Map 离线查询）
 
@@ -315,19 +333,39 @@ Town05.xodr 实测：`junctions=21, signals=59, controllers=106`，通过 `contr
 
 ## 5.0 判定框架总览
 
-整体逻辑是"分层优先覆盖"，不是简单打分：
+整体逻辑是"候选召回 + 主标签仲裁"，不是简单打分，也不是大量多标签：
 
 ```
-每帧先判断是否进入路口决策区（R4/R5）
-  → 路口内：再判断有无信号灯（R4 vs R5）
-非路口直道段：
-  → 判断是否在 R3 事件窗口（仅限强相关 scenario）
-  → 判断是否在 R2 事件窗口（obstacle 距离门控）
-  → 判断是否在 R6 事件窗口（parking 距离门控）
-  → 以上均否：R1（默认直道）
+每帧先生成候选：
+  → R4/R5 候选：灯态 + junction 拓扑 + route 是否穿越路口
+  → R3 候选：高速/匝道/合流/驶出 scenario 先验 + ramp/merge/exit 拓扑
+  → R2 候选：TwoWays/InvadingTurn 先验 + 对向车道/窄路拓扑
+  → R6 候选：停车场景先验 + parking lane/路边停车/停车汇入拓扑
+  → R1 候选：默认常规道路
+
+再仲裁主标签 primary_road_structure：
+  → R4/R5 > R3 > R2/R6 > R1
+  → 只有真实重叠且对审计有价值时，保留少量 secondary_road_structures
+  → 绝大多数帧仍应只有一个 primary，secondary 不是训练主监督
 ```
 
-路口判定优先于 R2/R3/R6：**一旦满足 R4/R5 条件，R2/R3/R6 暂时让位。**
+路口判定优先于 R2/R3/R6：**一旦确认当前主决策由 R4/R5 支配，R2/R3/R6 暂时让位为
+secondary 或被压制。** 例如停车区附近的信号灯路口可以输出
+`primary=R4, secondary=[R6]`，但训练主标签仍用 R4，避免“到处都是多标签”。
+
+ROAD_STRUCTURE 与 EVENT 必须解耦：
+
+- ROAD_STRUCTURE 表示当前主要驾驶规则空间，由地图/route/拓扑/场景先验决定。
+- EVENT 表示当前可见或已发生的交通事件，由 `dist_to_*`、bbox、速度/刹车和时序门控决定。
+- `dist_to_* < T_visible` 只应控制 U-E2/U-E3/U-E4 等事件注入，不能单独决定 R2/R6 道路结构。
+
+建议同时保存两个内部概念，防止物理道路与决策空间混淆：
+
+- `physical_road_structure_hint`：地图/车道形态提示，例如双向单车道、停车带、junction；
+- `primary_road_structure`：当前帧训练用主规则空间，必须考虑 route、可见/可用规则、当前决策任务。
+
+例如 TwoWays 场景可能物理上长时间都是双向单车道，但只有当前对向车道参与决策或静态障碍窗口临近时，
+`primary_road_structure` 才应切到 R2；普通前置直行片段仍可为 R1。
 
 ---
 
@@ -364,32 +402,54 @@ Town05.xodr 实测：`junctions=21, signals=59, controllers=106`，通过 `contr
 | None    | False       | 58m       | 100m | 156m | — |
 
 结论：`traffic_light_state` 从 `None` 变为有效灯态时，自车距路口均 **≤ 50m**。
-这个 **50m** 是 RGB 里"可以看到红绿灯"的最远距离，作为 R4 注入的距离门控阈值。
+这个 **50m** 是 RGB 里"可以看到红绿灯"的最远距离，但只作为 R4/R5 **候选召回阈值**，
+不作为最终标签阈值。最终是否打 R4/R5，必须再看灯态确认、route 是否实际穿越该路口、
+CARLA junction/stopline 拓扑、以及短时序稳定性。
 
 ### R4 注入条件（与 RGB 对应）
 
-必须满足以下**至少一条可见确认**，才注入 R4 标签：
+必须满足以下强确认，才把 R4 作为 `primary_road_structure`：
 
-1. `traffic_light_state in {Red, Yellow, Green}` → 最强可见证据，直接确认 R4。
-2. `distance_to_next_junction < 50m` 且 scenario 属于 signalized 类 → 预期可见范围，允许 R4。
+1. `traffic_light_state in {Red, Yellow, Green}` 连续或经滞后确认 → 最强证据，但仍需做 route/junction 同源校验。
+2. `distance_to_next_junction < 50m` 且 scenario 属于 signalized 类 → 只召回 R4 候选；
+   还需满足 route 前方确实进入该 junction/stopline，或 xodr controller/signal 索引确认该路口受灯控。
+3. 当前帧离路口较近但灯态短暂缺失时，只允许通过上一段稳定 R4 状态维持少量帧，不允许从远处单帧跳 R4。
 
-两者同时不满足时，即使已在 `current_active_scenario_type` 激活范围，也不打 R4，维持 R1。
+以上强确认不满足时，即使已在 `current_active_scenario_type` 激活范围，也不打 primary R4；
+最多保留为低置信候选，主标签按 R1/R3/R2/R6 仲裁。
+
+**同源校验建议：**
+
+- 优先沿 route densified polyline 找“即将穿越的 junction/stopline”，不要只取空间最近 junction；
+- 若 meta 有 `light_hazard` / stopline 相关字段，可作为灯态属于当前 route 的增强证据；
+- 若有效灯态出现，但 route 前方并不穿越受控 junction，标为 `R4_candidate_low_confidence`，
+  不直接覆盖 R2/R3/R6；
+- non-signalized 场景里出现的 Green 可打 R4，但必须满足“当前 route 正经过有灯路口”。
 
 ### R5 注入条件
 
-1. 在路口区域内（`is_junction=True` 或 `distance_to_next_junction < 50m`）。
-2. 且 `traffic_light_state` 全程为 `None`（连续 ≥ 5 帧，排除短暂抖动）。
-3. 且 scenario 属于非信号/路权类，或为 CrossJunctionDefectTrafficLight。
+1. route 前方实际进入 junction/stopline 决策区；`distance_to_next_junction < 50m`
+   只召回候选，不能单独确认。
+2. `traffic_light_state` 全程为 `None`（连续 ≥ 5 帧，排除短暂抖动），或
+   scenario 为 CrossJunctionDefectTrafficLight 这类灯控失效场景。
+3. scenario 属于非信号/路权类，或 xodr/controller 索引未显示该 junction 有可用灯控。
 
 R5 只在路口区间内有效，直道上不触发。
+
+R5 的反例也要显式处理：若 xodr 显示该 route junction 受灯控，但当前短时间没有灯态，
+不要立即打 R5；应先维持上一段 R4 或输出低置信 `R4/R5_ambiguous`，直到连续缺灯足够长且
+scenario/defect 语义支持 R5。
 
 ### R4 vs R5 区分决策树
 
 ```
-进入路口区域（is_junction=True 或 distance_to_next_junction < 50m）？
+进入路口候选召回区（is_junction=True 或 distance_to_next_junction < 50m）？
   → 否：不走此分支
   → 是：
-      traffic_light_state != None（连续 >= 3 帧）？
+      route 是否实际穿越该 junction/stopline？
+        → 否：不打 R4/R5，继续看 R1/R2/R3/R6
+        → 是：
+      traffic_light_state != None（连续 >= 3 帧或滞后确认）？
         → 是：R4
         → 否：scenario 是 signalized 类但灯短暂未感知？
                → 用滞后逻辑维持 R4 最多 5 帧
@@ -411,12 +471,15 @@ R5 只在路口区间内有效，直道上不触发。
 
 实测 7 个 R3 场景均 tl%=0.0%，`is_junction` 可达 20~43% 但均为合流/匝道节点。
 
-**R3 触发条件（同时满足）：**
+**R3 候选条件（同时满足）：**
 
 1. `scenario` 属于强相关集合：
    `{HighwayExit, HighwayCutIn, EnterActorFlow, EnterActorFlowV2, MergerIntoSlowTraffic, MergerIntoSlowTrafficV2, InterurbanActorFlow}`
-2. 不在路口区域（`is_junction=False` 且 `distance_to_next_junction >= 50m`）
-3. `current_active_scenario_type` 激活，或 `s_frame` 在 trigger 窗口内
+2. 不被确认的 R4/R5 主导；注意 `distance_to_next_junction < 50m` 只是路口候选召回，
+   不能直接压掉 R3。
+3. `current_active_scenario_type` 激活，或 `s_frame` 在 trigger 窗口内。
+4. 若可用 CARLA map，优先补充 ramp/merge/exit 证据：road/lane 分流、合流、lane count 变化、
+   XML `road_id`、`start_actor_flow/end_actor_flow` 等。
 
 **不在以上 scenario 集合内的 run，不打 R3。**
 其他场景里偶尔出现的变道行为用 R-E2/R-E3 事件表达，不升级道路结构。
@@ -442,18 +505,34 @@ R5 只在路口区间内有效，直道上不触发。
 | VehicleOpensDoorTwoWays | 0.0% | 3.9% |
 | InvadingTurn | 3.6% | 36.6% |
 
-**R2 不是全程标签**，只在事件激活窗口内有效；其余片段按 R4/R5 或 R1。
+**R2 不是全程标签**，只在双向单车道/对向车道参与决策的结构窗口内有效；其余片段按
+R4/R5 或 R1。这里的结构窗口不等于障碍物已经可见，障碍物可见性应下放给 U-E2/U-E5。
 
-**R2 触发条件（同时满足）：**
+**R2 候选条件（同时满足）：**
 
 1. scenario 属于 `{AccidentTwoWays, ConstructionObstacleTwoWays, ParkedObstacleTwoWays, HazardAtSideLaneTwoWays, VehicleOpensDoorTwoWays, InvadingTurn}`
-2. 不在路口区域（当前帧不满足 R4/R5 条件）
-3. 相关障碍/风险距离字段进入阈值（`dist_to_*` < `T_r2_on`，参考 U-E2 可见门控 25m）
+2. 当前帧不被确认的 R4/R5 主导。
+3. 存在双向单车道/对向车道参与证据之一：
+   - CARLA lane topology 显示相邻 driving lane 存在 lane_id 符号反转，且自车可用同向车道数不足；
+   - XML / scenario 明确为 TwoWays 或 InvadingTurn，且当前在 trigger/active 的结构窗口附近；
+   - meta/bbox 显示对向车辆或障碍导致对向车道参与，但这只增强置信度，不作为唯一条件。
+4. `dist_to_accident_site` / `dist_to_construction_site` / `dist_to_parked_obstacle`
+   / `dist_to_vehicle_opens_door` 进入阈值时，只表示 U-E2 可见或 R2 置信度升高。
 
 **R2 窗口外：**
 
 - 进入路口 → R4/R5
-- 直道且事件距离不满足 → R1
+- 直道且没有双向单车道/对向车道参与证据 → R1
+
+**R2 主标签约束：**
+
+- `physical_road_structure_hint=two_way_single_lane` 不等于主标签必为 R2；
+- 只有“对向车道/对向来车已经参与当前决策”或“即将被迫借对向绕障”的结构窗口内才打 primary R2；
+- InvadingTurn 与主动借对向绕障共享 R2，但 EVENT 必须区分：InvadingTurn 对应 U-E5，
+  AccidentTwoWays/ConstructionObstacleTwoWays 等对应 U-E2；
+- 若同一帧同时有停车带开门风险与对向借道风险，按当前动作主因仲裁：
+  借对向/等待对向车为主 → primary R2，停车风险可进 secondary R6；
+  停车带车辆切入/开门为主且未涉及对向借道 → primary R6。
 
 ---
 
@@ -471,22 +550,36 @@ R5 只在路口区间内有效，直道上不触发。
 
 R6 绝对不能整段覆盖，否则把大量 R4 段误打为 R6。
 
-**R6 触发条件（三段式，同 U-E2 可见门控逻辑）：**
+**R6 候选条件（三段式，结构证据与事件可见性分离）：**
 
 1. scenario 属于 `{ParkingCutIn, ParkingExit, ParkingCrossingPedestrian, VehicleOpensDoorTwoWays（停车风险主导片段）, StaticCutIn（若确认在停车区）}`
-2. 不在路口区域（路口优先 R4/R5）
-3. 相关距离字段进入阈值：`dist_to_vehicle_opens_door` / `dist_to_cutin_vehicle` / `dist_to_parked_obstacle` < `T_r6_on`（推荐初始 25m）
+2. 当前帧不被确认的 R4/R5 主导；若停车区与信号灯路口重叠，输出 `primary=R4, secondary=[R6]`。
+3. 存在停车/路边占道结构证据之一：
+   - CARLA waypoint/lane 显示附近有 `Parking` lane、shoulder/parking shoulder，或 lane 宽/相邻 lane 形态符合停车带；
+   - scenario/XML 明确为 Parking*，且当前在停车汇入/停车风险结构窗口附近；
+   - bbox/meta 显示路边停放车辆密集或自车从停车侧汇入。
+4. `dist_to_vehicle_opens_door` / `dist_to_cutin_vehicle` / `dist_to_parked_obstacle`
+   < `T_visible_on` 时，只表示 U-E2/U-E3 可见或 R6 置信度升高，不单独决定 R6。
 
 **R6 活跃窗口之外：**
 
 - 进入路口 → R4/R5（ParkingCutIn 大量帧应为 R4）
-- 直道且距离不满足 → R1
+- 直道且没有停车/路边占道结构证据 → R1
+
+**R6 证据分级：**
+
+- 高置信：Parking* scenario + active/trigger 结构窗口 + 旁侧停车/parking lane/bbox 静态车列证据；
+- 中置信：Parking* scenario + active/trigger 窗口，但地图未能确认 parking/shoulder；
+- 低置信：只有 `dist_to_*` 或只有 scenario 名，缺少停车空间结构证据。
+
+CARLA `LaneType.Parking` 不一定覆盖所有路边停车场景，不能把它作为唯一入口；应允许 bbox 横向分布、
+停车车辆密度、scenario 参数和 route 位置共同投票。
 
 ---
 
 ## 5.6 R1（默认直道）适用范围
 
-不满足任何 R2/R3/R4/R5/R6 触发条件的帧，均回落到 R1。
+没有任何 R2/R3/R4/R5/R6 候选被确认并赢得主标签仲裁的帧，均回落到 R1。
 
 以下情况**强制 R1，不触发任何特殊结构**：
 
@@ -530,8 +623,10 @@ R6 绝对不能整段覆盖，否则把大量 R4 段误打为 R6。
 推荐策略：
 
 1. 由 `current_active_scenario_type == scenario_name` 形成原始激活掩码。
-2. 再与距离字段阈值交集，得到高置信触发窗口。
-3. 窗口内允许 R2/R3/R6 获得更高先验分；窗口外大幅衰减。
+2. 与 XML trigger 投影、route 进度、CARLA map 拓扑共同形成 ROAD_STRUCTURE 候选窗口。
+3. 与距离字段阈值交集，得到 EVENT 可见/可感知窗口。
+4. 结构窗口内允许 R2/R3/R6 获得更高先验分；事件窗口内只提升 U-E2/U-E3/U-E4
+   等突发事件置信度，不能反过来单独决定道路结构。
 
 这样可以抑制“某些场景名在视觉上像全程生效”的误判。
 
@@ -573,6 +668,8 @@ R6 绝对不能整段覆盖，否则把大量 R4 段误打为 R6。
 
 - ROAD_STRUCTURE 帧级标注本身不依赖“是否看见障碍”，它主要由道路规则空间决定。
 - 上述“可见性门控”主要作用于 EVENT 注入时机（尤其 U-E2/U-E3/U-E4）。
+- 若可见性门控命中，也只能作为 ROAD_STRUCTURE 置信度的辅助证据；例如 R6 必须仍有
+  停车 lane / 停车区 / Parking* 场景结构窗口等证据。
 
 也就是：
 
@@ -594,6 +691,13 @@ R6 绝对不能整段覆盖，否则把大量 R4 段误打为 R6。
 - 中代价：R1 <-> R2、R1 <-> R3
 - 高代价：R2 <-> R5、R3 <-> R5（通常不直接跳）
 
+实际实现更推荐 evidence-aware Viterbi，而不是无脑众数平滑：
+
+- 强证据帧不可被邻域多数票覆盖，例如连续有效灯态、明确 active R3 合流窗口、明确 R2 对向车占道；
+- 低置信孤立帧可以合并到左右同类标签；
+- R2/R6/R4/R5 的边界帧应保留 `transition_margin=true`，训练时可降权或排除；
+- 对 `review_required=true` 的帧，不要让平滑结果升级为高置信。
+
 ---
 
 ## 8. 产出格式建议
@@ -610,19 +714,44 @@ R6 绝对不能整段覆盖，否则把大量 R4 段误打为 R6。
   "timestamp_sec": 21.75,
   "ego": {"x": 210.74, "y": -11.27, "z": -0.02, "yaw": -1.58},
   "route_progress_m": 45.12,
-  "road_structure": "R6",
+  "primary_road_structure": "R4",
+  "secondary_road_structures": ["R6"],
+  "physical_road_structure_hint": ["signalized_junction", "parking_context"],
+  "confidence_level": "high",
+  "review_required": false,
+  "transition_margin": false,
+  "road_structure_candidates": {
+    "R1": 0.12,
+    "R4": 0.91,
+    "R6": 0.64
+  },
+  "arbitration_reason": "traffic_light_priority_over_parking_context",
   "confidence": 0.91,
   "evidence": {
     "is_junction": false,
-    "traffic_light_state": "None",
+    "traffic_light_state": "Green",
     "current_active_scenario_type": "ParkingCutIn",
     "dist_to_cutin_vehicle": 9.8,
-    "rules_fired": ["scenario_window", "r6_distance_trigger", "priority_override"]
+    "route_projection_error_m": 0.42,
+    "junction_id_decision": 17,
+    "label_source": ["traffic_light_state", "route_junction_match", "parking_context_secondary"],
+    "rules_fired": ["r4_tl_confirmed", "r6_parking_context_secondary", "priority_override"]
   }
 }
 ```
 
-注意保留 `evidence.rules_fired`，便于后续人工抽检和阈值调参。
+注意保留 `evidence.rules_fired`，便于后续人工抽检和阈值调参。训练主监督默认使用
+`primary_road_structure`；`secondary_road_structures` 只用于审计、可视化和少量重叠样本分析，
+不要把大批帧变成多标签监督。
+
+建议额外输出一个 run 级 `review_spans` 列表，集中收集以下情况：
+
+- XML 缺失、town/xodr 缺失、route projection error 过大；
+- 有效灯态存在但 route/junction 同源校验失败；
+- R2/R6/R4/R5 分数接近且主标签仲裁不稳定；
+- 平滑前后标签变化超过阈值；
+- `pos_global` 与 `ego_matrix[:3,3]` 明显不一致；
+- scenario 不在候选映射表内，或本地 XML 尚未覆盖该 scenario。
 
 ---
 
@@ -635,7 +764,7 @@ R6 绝对不能整段覆盖，否则把大量 R4 段误打为 R6。
 
 衔接方式：
 
-1. 本方案先生成每帧 `ROAD_STRUCTURE` 单标签。
+1. 本方案先生成每帧 `primary_road_structure`，必要时附带少量 `secondary_road_structures`。
 2. 再按映射表第 4/5 节，得到每帧 `EVENT` 候选集合。
 3. 最后再决定是否让 Qwen 只在“候选集合内”做细粒度判别。
 
@@ -650,15 +779,25 @@ R6 绝对不能整段覆盖，否则把大量 R4 段误打为 R6。
 输入：`metas + route_xml + candidate_mapping`
 
 - 完成 run->xml 对齐
-- 完成帧级 `R1~R6` 规则初版（主要依赖 meta 字段）
-- 输出每帧标签与证据
+- 完成帧级 `R1~R6` 候选召回与 primary 仲裁初版（主要依赖 meta 字段）
+- `distance_to_next_junction < 50m` 只召回 R4/R5 候选；最终标签仍需灯态、route 穿越路口、
+  scenario 先验与时序确认。
+- R2/R6 先用 scenario + active/trigger 窗口做弱结构候选，`dist_to_*` 只做事件可见门控。
+- 输出每帧 primary/secondary/candidates/evidence。
+- 所有缺少 XML、route projection error 大、R2/R6 只有 scenario 证据的帧，默认 `confidence_level=low/medium`，
+  不进入强监督集合。
 
 目标：先把 Qwen 的结构判断替换掉 70% 以上。
 
 ## Phase B（2~4 天）：引入 CARLA 地图拓扑增强
 
 - 用 `carla.Map.get_waypoint` / junction / lane topology 增强 R2/R3/R4/R5 边界
+- 对 XML route 做 1~2m densify，建立 frame -> route_s -> upcoming junction/stopline 的稳定索引
 - 增加 ramp/merge 检测与对向车道参与检测
+- 增加 parking lane / shoulder / 路边停车结构检测，减少 R6 与 R1/R4 的混淆。
+- 对 XML waypoint 很稀疏的 route（例如 ParkingExit 可能只有 2 个点），用 CARLA map
+  路网与 meta 位姿补足帧级边界，不让稀疏 polyline 单独决定标签切换。
+- 建立受控 junction/stopline 索引，用于校验 `traffic_light_state` 是否属于当前 route 决策路口。
 
 目标：减少 R2/R3 与 R4/R5 混淆。
 
@@ -674,9 +813,18 @@ R6 绝对不能整段覆盖，否则把大量 R4 段误打为 R6。
 
 1. `metas/*.pkl` 是 xz 压缩，读取必须 `lzma.open`。
 2. 很多距离字段会出现 `inf`，计算阈值前要先过滤。
-3. `current_active_scenario_type` 不是全程有效，常出现 `None`，必须与距离字段联合。
+3. `current_active_scenario_type` 不是全程有效，常出现 `None`，必须与 XML trigger、
+   route 进度、地图拓扑和距离字段分层联合。
 4. `traffic_light_state` 可能短时抖动，不可单帧硬判 R4/R5。
-5. 若拿不到 CARLA 地图，不影响第一版上线；先做 meta+xml 版即可。
+5. `distance_to_next_junction < 50m` 是候选召回，不是最终 R4/R5 标签阈值。
+6. 若拿不到 CARLA 地图，不影响第一版上线；先做 meta+xml 版即可，但 R2/R3/R6
+   边界要标低置信并进入抽检队列。
+7. `traffic_light_state` 有效不等于当前 route 正受该灯控制；必须结合 route upcoming junction/stopline
+   或 hazard/stopline 相关字段做同源校验。
+8. `ROAD_STRUCTURE` 是当前决策规则空间，不是纯物理道路分类；物理双向单车道或停车带可以作为 hint，
+   但不能独自决定训练主标签。
+9. 本地 `data/data_routes/lead` 可能只覆盖部分 scenario；未覆盖场景只能走 meta/map 降级路径，
+   并把 run 级原因写入 `review_spans`。
 
 ---
 
@@ -691,6 +839,11 @@ for run in all_runs:
     trigger_points = xml.scenarios.trigger_point
 
     frames = load_all_metas_lzma(run)
+    primary_labels = []
+    secondary_labels = []
+    candidate_scores = []
+    events = []
+    evidence = []
 
     for t, meta in enumerate(frames):
         ego = extract_ego_xyz_yaw(meta)
@@ -699,24 +852,32 @@ for run in all_runs:
         feat = build_features(meta, ego, s, d)
         # feat: is_junction, traffic_light_state, dist_to_*, active_scenario, ...
 
-        score = init_scores(R1..R6)
-        score += apply_r4_rules(feat, scenario)
-        score += apply_r5_rules(feat, scenario)
-        score += apply_r3_rules(feat, scenario, map_feat)
-        score += apply_r2_rules(feat, scenario, map_feat)
-        score += apply_r6_rules(feat, scenario)
-        score += apply_r1_default(feat)
+        candidates = init_candidate_scores(R1..R6)
+        # 50m 只召回 R4/R5 候选；最终确认还要看 route/junction/灯态/时序。
+        candidates += recall_r4_r5_candidates(feat, scenario, route_polyline, map_feat)
+        candidates += recall_r3_candidates(feat, scenario, map_feat)
+        candidates += recall_r2_candidates(feat, scenario, map_feat)
+        candidates += recall_r6_candidates(feat, scenario, map_feat)
+        candidates += apply_r1_default(feat)
 
-        label[t] = argmax_with_priority(score)
-        evidence[t] = collect_fired_rules()
+        primary, secondary = arbitrate_primary_road_structure(
+            candidates,
+            priority=[R4/R5, R3, R2/R6, R1],
+            keep_secondary_only_if_meaningful=True,
+        )
+        primary_labels.append(primary)
+        secondary_labels.append(secondary)
+        candidate_scores.append(candidates)
+        evidence.append(collect_fired_rules())
 
         # 事件注入要做“可见性门控”，不要把 xml trigger 直接当作 U-E2 起点
         event_gate = build_event_visibility_gate(feat, s, trigger_points)
-        events[t] = inject_events_with_hysteresis(label[t], feat, event_gate)
+        events.append(inject_events_with_hysteresis(primary, feat, event_gate))
 
-    label = temporal_smoothing(label)
-      events = temporal_smoothing_events(events)
-      dump_framewise_road_and_events(run, label, events, evidence)
+    primary = temporal_smoothing(primary_labels)
+    secondary = temporal_smoothing_secondary(secondary_labels)
+    events = temporal_smoothing_events(events)
+    dump_framewise_road_and_events(run, primary, secondary, candidate_scores, events, evidence)
 ```
 
 ---
@@ -727,9 +888,10 @@ for run in all_runs:
 
 最务实路径是：
 
-1. 先用 `meta + route xml` 做强规则帧级 ROAD_STRUCTURE；
-2. R6 做区间触发，不做全程标签；
-3. 后续再接 CARLA 地图拓扑增强边界；
-4. Qwen 只在候选空间内做细分，不再承担主结构判断。
+1. 先用 `meta + route xml` 做帧级 ROAD_STRUCTURE 候选与中高置信主标签；
+2. R2/R6 做决策窗口触发，不做全程标签；
+3. 后续接 CARLA 地图拓扑、route densify、受控 junction/stopline 同源校验来增强边界；
+4. 输出 `confidence_level`、`review_required`、`transition_margin`，低置信和过渡帧不直接当强监督；
+5. Qwen 只在候选空间内做细分，不再承担主结构判断。
 
 这条线可以显著提升一致性，也更容易解释和调参。
