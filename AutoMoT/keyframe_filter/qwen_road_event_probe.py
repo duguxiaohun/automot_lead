@@ -445,9 +445,39 @@ def _event_descriptions(labels: Iterable[str]) -> str:
     return "\n".join(f"- {label}: {EVENT_DEFINITION_FALLBACK.get(label, label)}" for label in labels)
 
 
+def expand_junction_candidates(
+    roads: Sequence[str],
+    scenario_events: Sequence[str],
+    tables: CandidateTables,
+) -> Tuple[List[str], List[str]]:
+    """If any junction is possible, expose both R4 and R5 to Qwen.
+
+    Some routes contain an unsignalized T-junction even when the scenario prior
+    only listed a generic signalized-junction candidate. Showing both R4 and R5
+    lets the model choose by visible geometry + signal evidence instead of
+    falling back to R1.
+    """
+
+    out_roads = list(dict.fromkeys(str(x) for x in roads))
+    has_junction = "R4" in out_roads or "R5" in out_roads
+    if has_junction:
+        for road in ("R4", "R5"):
+            if road not in out_roads:
+                out_roads.append(road)
+
+    out_events = list(dict.fromkeys(str(x) for x in scenario_events))
+    if has_junction:
+        event_set = set(out_events)
+        for road in ("R4", "R5"):
+            event_set.update(tables.road_to_events.get(road, []))
+        out_events = [event for event in sorted(event_set) if event in EVENT_DEFINITION_FALLBACK]
+    return out_roads, out_events
+
+
 def build_user_prompt(case: ProbeCase, tables: CandidateTables) -> str:
-    roads = tables.scenario_to_roads.get(case.scenario) or list(ROAD_DEFINITION_FALLBACK)
-    scenario_events = tables.scenario_to_events.get(case.scenario) or sorted(EVENT_DEFINITION_FALLBACK)
+    raw_roads = tables.scenario_to_roads.get(case.scenario) or list(ROAD_DEFINITION_FALLBACK)
+    raw_events = tables.scenario_to_events.get(case.scenario) or sorted(EVENT_DEFINITION_FALLBACK)
+    roads, scenario_events = expand_junction_candidates(raw_roads, raw_events, tables)
     per_road_event_lines = []
     for road in roads:
         road_events = tables.road_to_events.get(road, scenario_events)
@@ -486,7 +516,8 @@ Important distinction rules:
 - R1 is the default/other bucket. Choose R1 when there is no clear visual evidence for junction, ramp/merge/highway exit, two-way single-lane borrowing, or parking-dominated risk.
 - Choose R2 only when the opposite lane or oncoming traffic is part of the immediate decision.
 - Choose R3 only for ramp, merge, highway, split, or exit structures.
-- A junction can be recognized by road geometry, not only by traffic lights: cross intersection, T-junction, stop line, turning pocket, cross traffic, or intersection conflict area.
+- A junction can be recognized by road geometry, not only by traffic lights: side-road opening, T-shaped road, cross-shaped road, stop/yield line, turning pocket, cross traffic, or a wide conflict area.
+- If clear junction geometry is visible, do not choose R1 just because no traffic light is visible.
 - Choose R4 when junction geometry is present and a normal traffic light is visible or is the main rule.
 - Choose R5 when junction geometry is present but no usable traffic light is visible, or the decision mainly depends on right-of-way/gaps.
 - Choose R6 only when roadside parking, parking-space exit, parked cars, door opening, or parking occlusion dominates the decision.
