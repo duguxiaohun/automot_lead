@@ -7,21 +7,41 @@
 
 Demo（默认当前目录为远程 AutoMoT/）：
 
+GPU 规则：
+
+- 不指定 GPU 时，脚本自动用 nvidia-smi 选择当前最空闲的 dGPU，并把进程内设备视为 cuda:0/auto。
+- 需要显式指定 GPU 时，用 ``--gpu-ids 1``，或用环境变量 ``GPU_IDS=1``。
+
+保存布局：
+
+``eval_json/qwen_road_event_probe/run_<tag>/<Scenario>/<run_id>/<method>/<ROAD__EVENTS>/anchor_<frame>/``
+
+其中 ``method`` 区分单帧、短 RGB clip、整段 run、视频 clip、整段视频；
+``ROAD__EVENTS`` 按 Qwen 输出分组，便于比较不同处理方式和不同事件标签。
+
 1. 单帧 RGB：从默认 lead_data 读取 Accident route 的第 80 帧，只给当前帧。
 
    python keyframe_filter/qwen_road_event_probe.py --route-id Accident/<run_id> --anchor 80 --num-frames 1 --run-tag accident_single_80
+
+   python keyframe_filter/qwen_road_event_probe.py --gpu-ids 1 --route-id Accident/<run_id> --anchor 80 --num-frames 1 --run-tag accident_single_80
 
 2. 短 RGB clip：同一 route 从 anchor 往前取 4 帧 stitched RGB，按 oldest->newest 喂给 Qwen。
 
    python keyframe_filter/qwen_road_event_probe.py --route-id Accident/<run_id> --anchor 80 --num-frames 4 --frame-step 1 --run-tag accident_clip_80
 
+   python keyframe_filter/qwen_road_event_probe.py --gpu-ids 1 --route-id Accident/<run_id> --anchor 80 --num-frames 4 --frame-step 1 --run-tag accident_clip_80
+
 3. 整段 run_id：扫描完整 route，每隔 8 帧问一次 Qwen，并在 summary.json 合并连续同标签时间段。
 
    python keyframe_filter/qwen_road_event_probe.py --route-id Accident/<run_id> --whole-run --every 8 --num-frames 4 --run-tag accident_whole_run
 
+   python keyframe_filter/qwen_road_event_probe.py --gpu-ids 1 --route-id Accident/<run_id> --whole-run --every 8 --num-frames 4 --run-tag accident_whole_run
+
 4. 整段视频：扫描 lead_video 里的 input.mp4，每隔 8 帧问一次 Qwen。
 
    python keyframe_filter/qwen_road_event_probe.py --video-file lead_video/Accident/<run_id>/input.mp4 --scenario Accident --whole-video --every 8 --num-frames 4 --run-tag accident_whole_video
+
+   python keyframe_filter/qwen_road_event_probe.py --gpu-ids 1 --video-file lead_video/Accident/<run_id>/input.mp4 --scenario Accident --whole-video --every 8 --num-frames 4 --run-tag accident_whole_video
 
 默认只读本地 ``checkpoints/Qwen3-VL-4B-Instruct``，并通过
 ``qwen3vl_local.engine.LocalQwen3VLInstructEngine`` 做图文生成。
@@ -546,6 +566,43 @@ def normalize_label_record(parsed: Dict[str, Any], case: ProbeCase, raw_text: st
     }
 
 
+def safe_path_part(value: Any, fallback: str = "unknown") -> str:
+    """把 scenario/run_id/event/method 转成稳定目录名。"""
+
+    text = str(value or "").strip()
+    if not text:
+        text = fallback
+    text = text.replace("\\", "/").strip("/")
+    text = re.sub(r"[^A-Za-z0-9_.+=@-]+", "_", text)
+    return text or fallback
+
+
+def method_key(args: argparse.Namespace, *, source_kind: str, scan: bool) -> str:
+    """生成处理方法目录名，便于比较单帧、clip、整段和视频。"""
+
+    if source_kind == "route":
+        base = "whole_run" if scan else ("single_rgb" if args.num_frames <= 1 else "rgb_clip")
+    elif source_kind == "video":
+        base = "whole_video" if scan else ("single_video_frame" if args.num_frames <= 1 else "video_clip")
+    else:
+        base = "synthetic_timeline" if scan else "synthetic_single"
+    return safe_path_part(
+        f"{base}_frames{max(1, int(args.num_frames))}_step{max(1, int(args.frame_step))}_every{max(1, int(args.every)) if scan else 'na'}"
+    )
+
+
+def event_key(record: Dict[str, Any]) -> str:
+    """按模型输出的 ROAD_STRUCTURE + EVENTS 分组保存。"""
+
+    road = record.get("ROAD_STRUCTURE") or "NO_ROAD"
+    events = record.get("EVENTS") or []
+    if events:
+        event_text = "+".join(str(x) for x in events)
+    else:
+        event_text = "NO_EVENT"
+    return safe_path_part(f"{road}__{event_text}")
+
+
 def _label_key(record: Dict[str, Any]) -> Tuple[Any, Tuple[str, ...]]:
     return record.get("ROAD_STRUCTURE"), tuple(record.get("EVENTS") or [])
 
@@ -643,7 +700,7 @@ def run_qwen_case(
     engine: Optional[Any],
     case: ProbeCase,
     tables: CandidateTables,
-    out_dir: pathlib.Path,
+    method_dir: pathlib.Path,
     dry_run: bool,
 ) -> Dict[str, Any]:
     sys_prompt = system_prompt()
@@ -662,14 +719,19 @@ def run_qwen_case(
     else:
         assert engine is not None
         raw_text, trace = engine.generate(sys_prompt, user, case.images)
-        (out_dir / "trace").mkdir(parents=True, exist_ok=True)
-        (out_dir / "trace" / "generation_trace.json").write_text(
+        parsed = parse_model_json(raw_text)
+    record = normalize_label_record(parsed, case, raw_text)
+    case_dir = method_dir / event_key(record) / f"anchor_{case.anchor:04d}"
+    if not dry_run:
+        (case_dir / "trace").mkdir(parents=True, exist_ok=True)
+        (case_dir / "trace" / "generation_trace.json").write_text(
             json.dumps(trace.to_dict(), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        parsed = parse_model_json(raw_text)
-    record = normalize_label_record(parsed, case, raw_text)
-    save_case_io(case, out_dir, sys_prompt, user, raw_text, record)
+    save_case_io(case, case_dir, sys_prompt, user, raw_text, record)
+    record["save_dir"] = str(case_dir)
+    record["method_dir"] = str(method_dir)
+    record["event_dir"] = str(case_dir.parent)
     return record
 
 
@@ -729,48 +791,91 @@ def run(args: argparse.Namespace) -> None:
     records: List[Dict[str, Any]] = []
 
     if args.synthetic:
-        anchors = [args.anchor] if not should_scan_timeline(args, source_kind="synthetic") else build_timeline_anchors(
+        scan = should_scan_timeline(args, source_kind="synthetic")
+        anchors = [args.anchor] if not scan else build_timeline_anchors(
             max(args.end or args.anchor, args.anchor) + 1,
             args.every,
             args.start,
             args.end,
         )
+        scenario = args.scenario or "Accident"
+        run_id = "synthetic"
+        method_dir = (
+            out_root
+            / safe_path_part(scenario)
+            / safe_path_part(run_id)
+            / method_key(args, source_kind="synthetic", scan=scan)
+        )
         for anchor in anchors:
-            case = load_synthetic_case(args.scenario or "Accident", anchor, args.num_frames, args.frame_step)
-            case_dir = out_root / f"anchor_{case.anchor:04d}"
-            records.append(run_qwen_case(engine, case, tables, case_dir, args.dry_run))
+            case = load_synthetic_case(scenario, anchor, args.num_frames, args.frame_step)
+            records.append(run_qwen_case(engine, case, tables, method_dir, args.dry_run))
     elif args.video_file:
         video_file = _resolve_automot_path(args.video_file)
         total = _video_total_frames(video_file)
         scenario = args.scenario or _infer_scenario_from_path(video_file, tables)
+        scan = should_scan_timeline(args, source_kind="video")
         anchors = (
             [args.anchor]
-            if not should_scan_timeline(args, source_kind="video")
+            if not scan
             else build_timeline_anchors(total, args.every, args.start, args.end)
         )
         run_id = video_file.stem
+        method_dir = (
+            out_root
+            / safe_path_part(scenario)
+            / safe_path_part(run_id)
+            / method_key(args, source_kind="video", scan=scan)
+        )
         for anchor in anchors:
             case = load_video_case(video_file, scenario, anchor, args.num_frames, args.frame_step)
             case.run_id = run_id
-            case_dir = out_root / f"anchor_{case.anchor:04d}"
-            records.append(run_qwen_case(engine, case, tables, case_dir, args.dry_run))
+            records.append(run_qwen_case(engine, case, tables, method_dir, args.dry_run))
     else:
         route_dir, scenario, run_id = resolve_route_dir(args, tables)
         total = _route_total_frames(route_dir)
+        scan = should_scan_timeline(args, source_kind="route")
         anchors = (
             [args.anchor]
-            if not should_scan_timeline(args, source_kind="route")
+            if not scan
             else build_timeline_anchors(total, args.every, args.start, args.end)
+        )
+        method_dir = (
+            out_root
+            / safe_path_part(scenario)
+            / safe_path_part(run_id)
+            / method_key(args, source_kind="route", scan=scan)
         )
         for anchor in anchors:
             case = load_route_case(route_dir, scenario, run_id, anchor, args.num_frames, args.frame_step)
-            case_dir = out_root / f"anchor_{case.anchor:04d}"
-            records.append(run_qwen_case(engine, case, tables, case_dir, args.dry_run))
+            records.append(run_qwen_case(engine, case, tables, method_dir, args.dry_run))
 
-    jsonl_path = out_root / "labels.jsonl"
+    jsonl_path = out_root / "labels_all.jsonl"
     with jsonl_path.open("w", encoding="utf-8") as f:
         for record in records:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    method_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for record in records:
+        method_groups.setdefault(str(record.get("method_dir", out_root)), []).append(record)
+    for method_dir_text, method_records in method_groups.items():
+        method_path = pathlib.Path(method_dir_text)
+        method_path.mkdir(parents=True, exist_ok=True)
+        method_jsonl = method_path / "labels.jsonl"
+        with method_jsonl.open("w", encoding="utf-8") as f:
+            for record in method_records:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        method_summary = {
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "run_tag": run_tag,
+            "record_count": len(method_records),
+            "labels_jsonl": str(method_jsonl),
+            "event_groups": sorted({event_key(record) for record in method_records}),
+            "spans": merge_adjacent_spans(method_records),
+        }
+        (method_path / "summary.json").write_text(
+            json.dumps(method_summary, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     summary = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -778,6 +883,8 @@ def run(args: argparse.Namespace) -> None:
         "dry_run": args.dry_run,
         "record_count": len(records),
         "labels_jsonl": str(jsonl_path),
+        "layout": "<save-root>/run_<tag>/<scenario>/<run_id>/<method>/<ROAD__EVENTS>/anchor_<frame>/",
+        "method_dirs": sorted(method_groups),
         "spans": merge_adjacent_spans(records),
     }
     (out_root / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -795,20 +902,25 @@ def run(args: argparse.Namespace) -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     demo = """demo:
+  # GPU：不指定时自动选最空闲 dGPU；显式指定时用 --gpu-ids 1 或 GPU_IDS=1。
+
   # 1) 单帧 RGB：从默认 lead_data 读取 Accident route 的第 80 帧，只给当前帧。
   python keyframe_filter/qwen_road_event_probe.py --route-id Accident/<run_id> --anchor 80 --num-frames 1 --run-tag accident_single_80
+  python keyframe_filter/qwen_road_event_probe.py --gpu-ids 1 --route-id Accident/<run_id> --anchor 80 --num-frames 1 --run-tag accident_single_80
 
   # 2) 短 RGB clip：同一 route 从 anchor 往前取 4 帧 stitched RGB，按 oldest->newest 喂给 Qwen。
   python keyframe_filter/qwen_road_event_probe.py --route-id Accident/<run_id> --anchor 80 --num-frames 4 --frame-step 1 --run-tag accident_clip_80
+  python keyframe_filter/qwen_road_event_probe.py --gpu-ids 1 --route-id Accident/<run_id> --anchor 80 --num-frames 4 --frame-step 1 --run-tag accident_clip_80
 
   # 3) 整段 run_id：扫描完整 lead_data route，每隔 8 帧问一次 Qwen。
   python keyframe_filter/qwen_road_event_probe.py --route-id Accident/<run_id> --whole-run --every 8 --num-frames 4 --run-tag accident_whole_run
+  python keyframe_filter/qwen_road_event_probe.py --gpu-ids 1 --route-id Accident/<run_id> --whole-run --every 8 --num-frames 4 --run-tag accident_whole_run
 
   # 4) 整段视频：扫描完整 lead_video input.mp4，每隔 8 帧问一次 Qwen。
   python keyframe_filter/qwen_road_event_probe.py --video-file lead_video/Accident/<run_id>/input.mp4 --scenario Accident --whole-video --every 8 --num-frames 4 --run-tag accident_whole_video
+  python keyframe_filter/qwen_road_event_probe.py --gpu-ids 1 --video-file lead_video/Accident/<run_id>/input.mp4 --scenario Accident --whole-video --every 8 --num-frames 4 --run-tag accident_whole_video
 
-  # 指定 GPU：两种写法等价；脚本内部仍使用 cuda:0/auto。
-  python keyframe_filter/qwen_road_event_probe.py --gpu-ids 1 --route-id Accident/<run_id> --anchor 80 --num-frames 1
+  # 环境变量写法也可以。
   GPU_IDS=1 python keyframe_filter/qwen_road_event_probe.py --route-id Accident/<run_id> --anchor 80 --num-frames 1
 """
     p = argparse.ArgumentParser(
