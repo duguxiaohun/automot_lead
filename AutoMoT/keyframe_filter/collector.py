@@ -644,6 +644,98 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
 }
 
 
+def _diagnose_rs_decision(
+    scenario_name: str,
+    kind: str,
+    primary: RoadStructure,
+    scores: Dict[RoadStructure, float],
+    rules: List[str],
+    xml_info: Optional[RouteXmlInfo],
+    xodr: Dict[str, Any],
+    flags: Dict[str, Any],
+) -> Dict[str, Any]:
+    """给单帧 RS 决策生成可追责诊断，方便定位 XML/XODR/meta 哪侧没用好。"""
+    used_inputs = {
+        "scenario_prior": scenario_name in SCENARIO_TO_ROAD_STRUCTURE,
+        "xml_matched": xml_info is not None,
+        "xodr_runtime_available": bool(xodr.get("xodr_available", False)),
+        "meta_traffic_light_valid": bool(flags.get("has_tl")),
+        "meta_light_hazard": bool(flags.get("light_hazard")),
+        "meta_junction_hint": bool(flags.get("is_junction")) or bool(flags.get("dist_to_junction_near")),
+        "meta_active_scenario": bool(flags.get("scenario_active")),
+        "meta_stop_hint": bool(flags.get("stop_hazard")),
+    }
+
+    weak_or_missing = []
+    if not used_inputs["xml_matched"]:
+        weak_or_missing.append("xml_not_matched_to_route")
+    if not used_inputs["xodr_runtime_available"]:
+        weak_or_missing.append("xodr_runtime_probe_unavailable")
+    if flags.get("route_projection_error_high"):
+        weak_or_missing.append("xml_route_projection_error_high")
+    if kind in {"signalized_junction", "defect_junction"} and not (
+        used_inputs["meta_traffic_light_valid"] or used_inputs["meta_light_hazard"] or used_inputs["xodr_runtime_available"]
+    ):
+        weak_or_missing.append("signalized_policy_lacks_meta_light_and_xodr")
+    if kind in {"twoways_obstacle", "invading_turn", "vehicle_opens_door_twoways"} and not bool(xodr.get("has_opposite_driving_lane", False)):
+        weak_or_missing.append("r2_lacks_xodr_opposite_lane_confirmation")
+    if kind in {"parking", "parking_exit", "static_cutin", "vehicle_opens_door_twoways"} and not bool(xodr.get("has_parking_or_shoulder_nearby", False)):
+        weak_or_missing.append("r6_lacks_xodr_parking_or_shoulder_confirmation")
+    if kind in {"highway_merge", "interurban", "interurban_advanced", "static_cutin"} and not bool(xodr.get("ramp_merge_split_hint", False)):
+        weak_or_missing.append("r3_lacks_xodr_merge_split_confirmation")
+
+    if primary == RoadStructure.R4:
+        if "r4_tl_confirmed" in rules:
+            decision_source = "meta_traffic_light"
+        elif "r4_light_hazard" in rules:
+            decision_source = "meta_light_hazard"
+        else:
+            decision_source = "scenario_xml_or_junction_window"
+    elif primary == RoadStructure.R5:
+        decision_source = "defect_or_nonsignalized_junction_window"
+    elif primary == RoadStructure.R3:
+        decision_source = "merge_actor_flow_or_topology_window"
+    elif primary == RoadStructure.R2:
+        decision_source = "twoways_trigger_window"
+    elif primary == RoadStructure.R6:
+        decision_source = "parking_or_curbside_window"
+    else:
+        decision_source = "conservative_default_or_outside_special_window"
+
+    sorted_scores = sorted(((rs.value, score) for rs, score in scores.items()), key=lambda item: item[1], reverse=True)
+    score_gap = None
+    if len(sorted_scores) >= 2:
+        score_gap = round(sorted_scores[0][1] - sorted_scores[1][1], 3)
+
+    checks = []
+    if primary == RoadStructure.R1:
+        checks.extend(["检查 trigger_distance/route_progress 是否落在特殊窗口外", "检查 meta 灯态或 active_scenario 是否缺失"])
+    if primary in {RoadStructure.R4, RoadStructure.R5}:
+        checks.extend(["检查 meta traffic_light_state/light_hazard 是否可信", "检查 XODR junction/signal/controller 与 XML trigger 是否同源"])
+    if primary == RoadStructure.R2:
+        checks.extend(["检查 XODR 是否找到相邻对向 driving lane", "检查 same_dir_lanes 是否被地图误判为足够绕行"])
+    if primary == RoadStructure.R3:
+        checks.extend(["检查 XML actor-flow/other_actor_location 是否投影到正确窗口", "检查 XODR ramp_merge_split_hint 是否过弱"])
+    if primary == RoadStructure.R6:
+        checks.extend(["检查 XODR parking/shoulder 是否缺失", "检查 bbox/meta 是否有路边静态车证据但当前规则未接入"])
+
+    return {
+        "decision_source": decision_source,
+        "used_inputs": used_inputs,
+        "weak_or_missing_inputs": weak_or_missing,
+        "window_flags": {
+            "close_trigger": bool(flags.get("close_trigger")),
+            "near_junction": bool(flags.get("near_junction")),
+            "junction_window": bool(flags.get("junction_window")),
+            "two_way_window": bool(flags.get("two_way_window")),
+            "scenario_active": bool(flags.get("scenario_active")),
+        },
+        "score_ranking": sorted_scores,
+        "top_score_gap": score_gap,
+        "if_this_frame_is_wrong_check": checks,
+    }
+
+
 class RoadStructureRuleEngine:
     """按 ROAD_STRUCTURE_PER_SCENARIO_LABELING_DESIGN.md 生成帧级主 RS。"""
 
@@ -686,7 +778,8 @@ class RoadStructureRuleEngine:
         active = str(frame_data.get("current_active_scenario_type", "") or "")
         scenario_active = scenario_name in active or active in {scenario_name, scenario_name.replace("V2", "")}
         close_trigger = trigger_distance < float(cfg.get("trigger_close_m", 70.0))
-        near_junction = is_junction or map_is_junction or dist_to_junction < 55.0
+        dist_to_junction_near = dist_to_junction < 55.0
+        near_junction = is_junction or map_is_junction or dist_to_junction_near
         xml_distance = _xml_numeric(xml_info, "distance", default=50.0)
         two_way_pre = max(xml_distance, float(cfg.get("two_way_min_pre_m", 45.0)))
         two_way_post = two_way_pre + float(cfg.get("two_way_post_pad_m", 20.0))
@@ -862,6 +955,28 @@ class RoadStructureRuleEngine:
         }
         confidence = scores.get(primary, 0.35)
         reason = f"{scenario_name}: primary={primary.value}, rules={','.join(rules[:4])}"
+        diagnostic_attribution = _diagnose_rs_decision(
+            scenario_name=scenario_name,
+            kind=kind,
+            primary=primary,
+            scores=scores,
+            rules=rules,
+            xml_info=xml_info,
+            xodr=xodr,
+            flags={
+                "has_tl": has_tl,
+                "light_hazard": light_hazard,
+                "is_junction": is_junction,
+                "dist_to_junction_near": dist_to_junction_near,
+                "stop_hazard": stop_hazard,
+                "scenario_active": scenario_active,
+                "close_trigger": close_trigger,
+                "near_junction": near_junction,
+                "junction_window": junction_window,
+                "two_way_window": two_way_window,
+                "route_projection_error_high": route_error > 5.0 if math.isfinite(route_error) else False,
+            },
+        )
         evidence = {
             "rules_fired": rules,
             "rule_kind": kind,
@@ -873,6 +988,7 @@ class RoadStructureRuleEngine:
             "traffic_light_state": str(tl) if tl is not None else None,
             "current_active_scenario_type": active or None,
             "xodr": xodr,
+            "diagnostic_attribution": diagnostic_attribution,
             "review_required": confidence < 0.70 or (route_error > 5.0 if math.isfinite(route_error) else False),
         }
         return primary, secondary, {rs.value: round(score, 3) for rs, score in scores.items()}, evidence, confidence, reason

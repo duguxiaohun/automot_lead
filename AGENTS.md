@@ -154,8 +154,14 @@
   meta 距离字段、speed/accel/brake，并 fallback 到 bbox / RGB motion；只作为突发事件 span
   提议器和验证工具参考，不再视为最终帧级 STATUS/SUBGOAL 真值。`classifier_logic.txt`
   是用户人工调研的道路结构与事件分类草案；`ROAD_EVENT_CLASSIFICATION_PLAN.md`
-  是新方案总结。目录内 `keyframes_all_scenarios.json` 是旧生成产物，默认不随手修改；
-  只有用户明确要求重生成/修正旧 keyframe 索引时才更新）
+  是新方案总结。**按用户同意扩展整目录白名单**：目录内 Python / HTML / MD /
+  verification_tool 相关文件（`analyzer.py` / `collector.py` / `frame_annotation_logic.py` /
+  `quick_start.py` / `qwen_road_event_probe.py` / `web_app.py` / `README.md` /
+  `middle_event_flowchart.html` / `rgb_fallback_analysis.html` / `ROAD_EVENT_CANDIDATE_MAPPING.md` /
+  `ROAD_STRUCTURE_MAP_XML_LABELING_PLAN.md` / `ROAD_STRUCTURE_PER_SCENARIO_LABELING_DESIGN.md` /
+  `verification_tool/pyproject.toml` / `verification_tool/uv.lock`）全部纳入白名单，
+  `collection_output/` 与 `__pycache__/` 仍不入库。目录内 `keyframes_all_scenarios.json` 是旧生成产物，
+  默认不随手修改；只有用户明确要求重生成/修正旧 keyframe 索引时才更新）
 - `AutoMoT/qwen3vl_local/`（含 `tb_serve.sh` 通用 TensorBoard launcher；`goalgen/` 子包详见 PROJECT_CONTEXT.md §15；`eval_carla/` 子包详见上）
 - `AutoMoT/qwen3vl_local/tb_serve.sh`
   （SFT / GoalGen / LeadMoT / VAE 共用 TensorBoard 启动器；从 `AutoMoT/` 目录下用
@@ -285,7 +291,7 @@ git add AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py
 git add AutoMoT/leaderboard/team_code/automot_utils.py AutoMoT/Automot/team_code/automot_utils.py AutoMoT/Automot/mot/evaluation/inference.py AutoMoT/Automot/mot/modeling/automot/automot.py AutoMoT/leaderboard/team_code/mot_b2d_agent.py AutoMoT/leaderboard/team_code/display_interface.py AutoMoT/Automot/team_code/display_interface.py
 git add AutoMoT/qwen3vl_local/eval_carla/__init__.py AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_PLAN.md AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md AutoMoT/qwen3vl_local/eval_carla/agent.py AutoMoT/qwen3vl_local/eval_carla/safety.py AutoMoT/qwen3vl_local/eval_carla/video_recorder.py AutoMoT/qwen3vl_local/eval_carla/visualizer.py AutoMoT/qwen3vl_local/eval_carla/scenario_picker.py AutoMoT/qwen3vl_local/eval_carla/aggregate.py AutoMoT/qwen3vl_local/eval_carla/run_eval.sh AutoMoT/qwen3vl_local/eval_carla/webapp/__init__.py AutoMoT/qwen3vl_local/eval_carla/webapp/app.py AutoMoT/qwen3vl_local/eval_carla/webapp/templates/index.html AutoMoT/qwen3vl_local/eval_carla/webapp/static/style.css
 git add AutoMoT/lead_video_tools/__init__.py AutoMoT/lead_video_tools/abnormal_duration_filter.py AutoMoT/lead_video_tools/rgb_to_video.py AutoMoT/lead_video_tools/LEAD_VIDEO_RUN.md
-git add AutoMoT/keyframe_filter/classifier_logic.txt AutoMoT/keyframe_filter/rule_based_keyframe_filter.py AutoMoT/keyframe_filter/ROAD_EVENT_CLASSIFICATION_PLAN.md AutoMoT/keyframe_filter/verification_tool/README.md AutoMoT/keyframe_filter/verification_tool/app/main.py AutoMoT/keyframe_filter/verification_tool/app/templates/index.html AutoMoT/keyframe_filter/verification_tool/app/static/styles.css AutoMoT/keyframe_filter/verification_tool/app/static/app.js
+git add AutoMoT/keyframe_filter/classifier_logic.txt AutoMoT/keyframe_filter/rule_based_keyframe_filter.py AutoMoT/keyframe_filter/ROAD_EVENT_CLASSIFICATION_PLAN.md AutoMoT/keyframe_filter/analyzer.py AutoMoT/keyframe_filter/collector.py AutoMoT/keyframe_filter/frame_annotation_logic.py AutoMoT/keyframe_filter/quick_start.py AutoMoT/keyframe_filter/qwen_road_event_probe.py AutoMoT/keyframe_filter/web_app.py AutoMoT/keyframe_filter/README.md AutoMoT/keyframe_filter/middle_event_flowchart.html AutoMoT/keyframe_filter/rgb_fallback_analysis.html AutoMoT/keyframe_filter/ROAD_EVENT_CANDIDATE_MAPPING.md AutoMoT/keyframe_filter/ROAD_STRUCTURE_MAP_XML_LABELING_PLAN.md AutoMoT/keyframe_filter/ROAD_STRUCTURE_PER_SCENARIO_LABELING_DESIGN.md AutoMoT/keyframe_filter/verification_tool/README.md AutoMoT/keyframe_filter/verification_tool/pyproject.toml AutoMoT/keyframe_filter/verification_tool/uv.lock AutoMoT/keyframe_filter/verification_tool/app/main.py AutoMoT/keyframe_filter/verification_tool/app/templates/index.html AutoMoT/keyframe_filter/verification_tool/app/static/styles.css AutoMoT/keyframe_filter/verification_tool/app/static/app.js
 git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/mrope_utils.py AutoMoT/qwen3vl_local/prompt_pipeline.py AutoMoT/qwen3vl_local/run_log.py AutoMoT/qwen3vl_local/tb_serve.sh
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
