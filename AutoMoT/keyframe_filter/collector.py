@@ -14,6 +14,7 @@ import pickle
 import logging
 import lzma
 import math
+import os
 import re
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Set, Tuple, Optional
@@ -26,6 +27,8 @@ import numpy as np
 
 _KEYFRAME_DIR = Path(__file__).resolve().parent
 _AUTOMOT_ROOT = _KEYFRAME_DIR.parent
+_DEFAULT_LEAD_DATA_ROOT = _AUTOMOT_ROOT / "lead_data"
+_DEFAULT_OUTPUT_DIR = _KEYFRAME_DIR / "collection_output"
 _DEFAULT_XML_ROOT = _AUTOMOT_ROOT / "data" / "lead"
 _DEFAULT_CARLA_ROOT = _AUTOMOT_ROOT / "CARLA_0915"
 
@@ -923,12 +926,16 @@ class SimpleFrameAnalyzer:
 class ScenarioCollector:
     """灵活的采集器 - 支持4种采集模式"""
     
-    def __init__(self, lead_data_root: str = "/home/cruser1/lda/AutoMoT/lead_data",
-                 output_dir: str = "/home/cruser1/lda/AutoMoT/keyframe_filter/collection_output",
+    def __init__(self, lead_data_root: str = "",
+                 output_dir: str = "",
                  xml_root: str = "",
                  carla_root: str = ""):
-        self.lead_data_root = Path(lead_data_root)
-        self.output_dir = Path(output_dir)
+        self.lead_data_root = Path(
+            lead_data_root or os.environ.get("LEAD_DATA_ROOT", "") or _DEFAULT_LEAD_DATA_ROOT
+        )
+        self.output_dir = Path(
+            output_dir or os.environ.get("KEYFRAME_COLLECTION_OUTPUT", "") or _DEFAULT_OUTPUT_DIR
+        )
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.xml_index = RouteXmlIndex(Path(xml_root) if xml_root else _DEFAULT_XML_ROOT)
         self.xodr_probe = XodrTopologyProbe(Path(carla_root) if carla_root else _DEFAULT_CARLA_ROOT)
@@ -998,7 +1005,14 @@ class ScenarioCollector:
         
         scenario_dir = self.lead_data_root / scenario_name
         if not scenario_dir.exists():
-            return {"scenario": scenario_name, "status": "error", "routes": []}
+            return {
+                "scenario": scenario_name,
+                "status": "error",
+                "error": f"场景目录不存在: {scenario_dir}",
+                "lead_data_root": str(self.lead_data_root),
+                "routes": [],
+                "total_frames": 0,
+            }
         
         # 获取该场景的所有 routes
         all_route_dirs = sorted([d for d in scenario_dir.iterdir() if d.is_dir()])
