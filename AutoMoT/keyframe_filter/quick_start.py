@@ -79,12 +79,19 @@ def collect_one_scenario_all_ui():
     
     try:
         result = collector.collect_one_scenario_all(scenario)
+        if result.get("status") != "success":
+            print("\n❌ 采集失败")
+            print(f"  • 场景: {scenario}")
+            print(f"  • 状态: {result.get('status')}")
+            print(f"  • 错误: {result.get('error', '未知错误')}")
+            print(f"  • 数据根: {result.get('lead_data_root', collector.lead_data_root)}")
+            return
         
         print(f"\n✅ 采集完成!")
         print(f"  • 场景: {scenario}")
         print(f"  • 状态: {result['status']}")
         print(f"  • Routes数: {len(result['routes'])}")
-        print(f"  • 总帧数: {result['total_frames']}")
+        print(f"  • 总帧数: {result.get('total_frames', 0)}")
         print(f"  • 结果: collection_output/{scenario}_result.json")
     except Exception as e:
         print(f"\n❌ 采集失败: {e}")
@@ -120,12 +127,19 @@ def collect_one_scenario_limited_ui():
     
     try:
         result = collector.collect_one_scenario(scenario, max_routes=max_routes)
+        if result.get("status") != "success":
+            print("\n❌ 采集失败")
+            print(f"  • 场景: {scenario}")
+            print(f"  • 状态: {result.get('status')}")
+            print(f"  • 错误: {result.get('error', '未知错误')}")
+            print(f"  • 数据根: {result.get('lead_data_root', collector.lead_data_root)}")
+            return
         
         print(f"\n✅ 采集完成!")
         print(f"  • 场景: {scenario}")
         print(f"  • 状态: {result['status']}")
         print(f"  • Routes数: {len(result['routes'])}")
-        print(f"  • 总帧数: {result['total_frames']}")
+        print(f"  • 总帧数: {result.get('total_frames', 0)}")
         print(f"  • 结果: collection_output/{scenario}_result.json")
     except Exception as e:
         print(f"\n❌ 采集失败: {e}")
@@ -195,6 +209,15 @@ def collect_multiple_scenarios_ui():
         print(f"  • 成功场景数: {result.get('scenarios_collected', 0)}")
         print(f"  • 总场景数: {result.get('total_scenarios', 0)}")
         print(f"  • 总帧数: {result.get('total_frames', 0)}")
+        failed = [
+            (name, item.get("error", "未知错误"))
+            for name, item in result.get("results", {}).items()
+            if item.get("status") != "success"
+        ]
+        if failed:
+            print(f"  • 失败场景数: {len(failed)}")
+            for name, error in failed[:10]:
+                print(f"    - {name}: {error}")
         print(f"  • 结果: collection_output/multi_scenario_collection.json")
     except Exception as e:
         print(f"\n❌ 采集失败: {e}")
@@ -234,6 +257,15 @@ def collect_all_scenarios_ui():
         print(f"  • 成功场景数: {result.get('scenarios_collected', 0)}")
         print(f"  • 总场景数: {result.get('total_scenarios', 0)}")
         print(f"  • 总帧数: {result.get('total_frames', 0)}")
+        failed = [
+            (name, item.get("error", "未知错误"))
+            for name, item in result.get("results", {}).items()
+            if item.get("status") != "success"
+        ]
+        if failed:
+            print(f"  • 失败场景数: {len(failed)}")
+            for name, error in failed[:10]:
+                print(f"    - {name}: {error}")
         print(f"  • 结果: collection_output/multi_scenario_collection.json")
     except Exception as e:
         print(f"\n❌ 采集失败: {e}")
@@ -249,7 +281,7 @@ def run_analysis_ui():
     print("多角度结构分析".center(70))
     print("="*70)
     
-    output_dir = Path("/home/cruser1/lda/AutoMoT/keyframe_filter/collection_output")
+    output_dir = Path(__file__).resolve().parent / "collection_output"
     result_files = list(output_dir.glob("*_result.json"))
     
     if not result_files:
@@ -403,7 +435,7 @@ def _scenario_town_xml_audit(index: RouteXmlIndex, carla_root: Path, samples_per
         "samples_per_town": samples_per_town,
         "scenarios": {},
     }
-    xodr_cache: dict[str, dict] = {}
+    xodr_cache = {}
 
     for scenario in sorted(SCENARIO_TO_ROAD_STRUCTURE):
         infos = index.by_scenario.get(scenario, [])
