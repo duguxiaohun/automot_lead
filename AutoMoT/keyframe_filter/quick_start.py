@@ -11,7 +11,19 @@
 import sys
 from pathlib import Path
 import socket
-from collector import ScenarioCollector, SCENARIO_TO_ROAD_STRUCTURE, SCENARIO_TO_FINE_EVENTS
+import xml.etree.ElementTree as ET
+from collections import Counter, defaultdict
+from typing import Optional
+from collector import (
+    ScenarioCollector,
+    SCENARIO_TO_ROAD_STRUCTURE,
+    SCENARIO_TO_FINE_EVENTS,
+    SCENARIO_RULE_KIND,
+    SCENARIO_RULE_CONFIG,
+    RouteXmlIndex,
+    _DEFAULT_XML_ROOT,
+    _DEFAULT_CARLA_ROOT,
+)
 from analyzer import StructureAnalyzer, quick_analysis
 import json
 
@@ -32,7 +44,8 @@ def print_main_menu():
   5️⃣  多角度结构分析      - 分析已采集的数据
   6️⃣  启动Web应用        - 交互式可视化查看
   7️⃣  显示所有场景       - 列出所有支持的场景
-  8️⃣  退出
+  8️⃣  ROAD_STRUCTURE XML/XODR画像 - 按场景/town审计XML与地图输入
+  9️⃣  退出
     """)
     print("="*70)
 
@@ -347,6 +360,132 @@ def list_scenarios_ui():
     print("\n" + "="*70)
 
 
+def _find_xodr_file(town: str, carla_root: Path = _DEFAULT_CARLA_ROOT) -> Optional[Path]:
+    """按 CARLA 0.9.15 常规与 AdditionalMaps 路径查找 town 对应 XODR。"""
+    candidates = [
+        carla_root / "CarlaUE4" / "Content" / "Carla" / "Maps" / "OpenDrive" / f"{town}.xodr",
+        carla_root / "CarlaUE4" / "Content" / "Carla" / "Maps" / town / "OpenDrive" / f"{town}.xodr",
+        carla_root / "AdditionalMaps_0.9.15" / "CarlaUE4" / "Content" / "Carla" / "Maps" / "OpenDrive" / f"{town}.xodr",
+        carla_root / "AdditionalMaps_0.9.15" / "CarlaUE4" / "Content" / "Carla" / "Maps" / town / "OpenDrive" / f"{town}.xodr",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def _summarize_xodr(town: str, carla_root: Path = _DEFAULT_CARLA_ROOT) -> dict:
+    """轻量解析 XODR 顶层数量，不连接 CARLA。"""
+    path = _find_xodr_file(town, carla_root)
+    if path is None:
+        return {"available": False, "path": None}
+    summary = {"available": True, "path": str(path), "junctions": 0, "signals": 0, "controllers": 0, "stop_signals": 0}
+    try:
+        root = ET.parse(path).getroot()
+        summary["junctions"] = len(root.findall(".//junction"))
+        summary["signals"] = len(root.findall(".//signal"))
+        summary["controllers"] = len(root.findall(".//controller"))
+        stop_count = 0
+        for sig in root.findall(".//signal"):
+            if sig.get("type") == "206" or "stop" in str(sig.get("name", "")).lower():
+                stop_count += 1
+        summary["stop_signals"] = stop_count
+    except Exception as exc:
+        summary["parse_error"] = str(exc)
+    return summary
+
+
+def _scenario_town_xml_audit(index: RouteXmlIndex, carla_root: Path, samples_per_town: int = 3) -> dict:
+    """逐场景、逐 town 抽样 XML，并附上 XODR 粗画像。"""
+    report = {
+        "xml_root": str(index.xml_root),
+        "carla_root": str(carla_root),
+        "samples_per_town": samples_per_town,
+        "scenarios": {},
+    }
+    xodr_cache: dict[str, dict] = {}
+
+    for scenario in sorted(SCENARIO_TO_ROAD_STRUCTURE):
+        infos = index.by_scenario.get(scenario, [])
+        by_town = defaultdict(list)
+        for info in infos:
+            by_town[info.town or "UNKNOWN"].append(info)
+
+        scenario_entry = {
+            "rule_kind": SCENARIO_RULE_CONFIG.get(scenario, {}).get("kind", SCENARIO_RULE_KIND.get(scenario, "default_meta_map")),
+            "rule_config": SCENARIO_RULE_CONFIG.get(scenario, {}),
+            "road_candidates": [rs.value for rs in SCENARIO_TO_ROAD_STRUCTURE.get(scenario, [])],
+            "xml_count": len(infos),
+            "towns": {},
+        }
+
+        for town, town_infos in sorted(by_town.items()):
+            if town not in xodr_cache:
+                xodr_cache[town] = _summarize_xodr(town, carla_root)
+            sampled = town_infos[:samples_per_town]
+            wp_counts = [len(info.waypoints) for info in town_infos]
+            tag_counter = Counter()
+            samples = []
+            for info in sampled:
+                for tag in info.scenario_tags:
+                    for key in tag:
+                        if key not in {"name", "type"}:
+                            tag_counter[key] += 1
+                samples.append(
+                    {
+                        "xml": str(info.path),
+                        "route_id": info.route_id,
+                        "waypoint_count": len(info.waypoints),
+                        "scenario_tag_count": len(info.scenario_tags),
+                        "tag_keys": sorted({k for tag in info.scenario_tags for k in tag.keys() if k not in {"name", "type"}}),
+                        "first_waypoint": info.waypoints[0] if info.waypoints else None,
+                        "last_waypoint": info.waypoints[-1] if info.waypoints else None,
+                    }
+                )
+            scenario_entry["towns"][town] = {
+                "xml_count": len(town_infos),
+                "waypoint_count_min": min(wp_counts) if wp_counts else 0,
+                "waypoint_count_avg": round(sum(wp_counts) / len(wp_counts), 2) if wp_counts else 0,
+                "waypoint_count_max": max(wp_counts) if wp_counts else 0,
+                "xodr": xodr_cache[town],
+                "top_tag_keys": dict(tag_counter.most_common(12)),
+                "sampled_xml": samples,
+            }
+        report["scenarios"][scenario] = scenario_entry
+    return report
+
+
+def road_structure_xml_xodr_audit_ui():
+    """按 ROAD_STRUCTURE 设计文档审计 XML/XODR 输入覆盖。"""
+    print("\n" + "="*70)
+    print("ROAD_STRUCTURE XML/XODR画像".center(70))
+    print("="*70)
+
+    xml_root_text = input(f"XML根目录 (默认 {_DEFAULT_XML_ROOT}): ").strip()
+    carla_root_text = input(f"CARLA根目录 (默认 {_DEFAULT_CARLA_ROOT}): ").strip()
+    try:
+        samples_per_town = int(input("每个town抽样XML数量 (默认3): ") or "3")
+    except Exception:
+        samples_per_town = 3
+
+    xml_root = Path(xml_root_text) if xml_root_text else _DEFAULT_XML_ROOT
+    carla_root = Path(carla_root_text) if carla_root_text else _DEFAULT_CARLA_ROOT
+    index = RouteXmlIndex(xml_root)
+    report = _scenario_town_xml_audit(index, carla_root, samples_per_town=max(1, samples_per_town))
+
+    output_dir = Path(__file__).resolve().parent / "collection_output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / "road_structure_xml_xodr_audit.json"
+    with open(output_file, "w", encoding="utf-8") as handle:
+        json.dump(report, handle, ensure_ascii=False, indent=2, default=str)
+
+    print(f"\n✓ 已审计 {len(report['scenarios'])} 个场景")
+    for scenario, item in report["scenarios"].items():
+        towns = ",".join(item["towns"].keys()) or "NONE"
+        print(f"  - {scenario:<40} xml={item['xml_count']:<4} rule={item['rule_kind']:<28} towns={towns}")
+    print(f"\n完整画像已保存: {output_file}")
+
+
 # ============================================================================
 # 主程序
 # ============================================================================
@@ -355,7 +494,7 @@ def main():
     """主程序"""
     while True:
         print_main_menu()
-        choice = input("请选择 (1-8): ").strip()
+        choice = input("请选择 (1-9): ").strip()
         
         if choice == '1':
             collect_one_scenario_all_ui()
@@ -372,6 +511,8 @@ def main():
         elif choice == '7':
             list_scenarios_ui()
         elif choice == '8':
+            road_structure_xml_xodr_audit_ui()
+        elif choice == '9':
             print("\n👋 再见！\n")
             break
         else:

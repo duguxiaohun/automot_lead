@@ -7,7 +7,7 @@
 本方案目标是把 `ROAD_STRUCTURE` 的主判断从“视觉语义”切到“几何与规则语义”，即：
 
 1. 用每帧自车全局坐标（`metas/*.pkl`）确定自车在地图中的位置与拓扑关系。
-2. 用 `data/data_routes/lead/<Scenario>/route_xxxxxx.xml` 提供 route 先验和 scenario 触发信息。
+2. 用 `data/lead/<Scenario>/*.xml` 提供 route 先验和 scenario 触发信息。
 3. 用 meta 中的 scenario 距离字段与激活字段，提供“事件区间”证据（尤其是 R2/R6 这类局部触发结构）。
 4. 产出每帧 `ROAD_STRUCTURE`（R1~R6）和可解释的置信来源，作为后续 EVENT 标注与 Qwen 候选裁剪的上游输入。
 
@@ -34,7 +34,7 @@
 
 ### 2.1 Route XML（路线定义文件）
 
-**位置：** `data/data_routes/lead/<Scenario>/route_<六位编号>.xml`
+**位置：** `data/lead/<Scenario>/*.xml`
 
 **对应关系：** run 文件夹名包含 route 编号（如 `Town05_Rep0_route_001761_...`），可提取数字与 XML 文件名对应。
 
@@ -267,13 +267,19 @@ Town05.xodr 实测：`junctions=21, signals=59, controllers=106`，通过 `contr
 
 1. 从 run 文件夹名提取 route 编号：匹配 `route_(\d+)`。
 2. 结合 scenario 目录拼接 XML：
-   - `data/data_routes/lead/<scenario_name>/route_<route_num>.xml`
+   - `data/lead/<scenario_name>/*route_<route_num>.xml`
+   - `data/lead/<scenario_name>/Town*_route_<route_num>.xml`
+   - `data/lead/<scenario_name>/route_<route_num>.xml`
 3. 若存在多个候选（极少数命名异常），用 `results.json.route_id` 二次确认。
 4. 校验 `xml.route.town == meta.town`（抽样帧）防止错配。
 
 ## 3.3 对齐失败兜底
 
-- 若 XML 缺失：该 run 仅用 meta 做弱规则标注，置信度降级。
+- 若 XML 缺失：优先核对 `data/lead/cache_lead_recheck_summary.json`；该文件记录数据集有但
+  XML 未找到的路线。当前 summary 中 `cache_total=9294`、`lead_total=9254`、
+  `still_missing_after_full_research=40`，缺失集中在
+  `ConstructionObstacleTwoWays` 4 条与 `noScenarios` 36 条。这些 run 仅用
+  meta + XODR 做弱规则标注，置信度降级，并写入 review 队列。
 - 若 town 不一致：打硬错误并进入人工复核队列。
 
 ---
@@ -823,8 +829,9 @@ CARLA `LaneType.Parking` 不一定覆盖所有路边停车场景，不能把它�
    或 hazard/stopline 相关字段做同源校验。
 8. `ROAD_STRUCTURE` 是当前决策规则空间，不是纯物理道路分类；物理双向单车道或停车带可以作为 hint，
    但不能独自决定训练主标签。
-9. 本地 `data/data_routes/lead` 可能只覆盖部分 scenario；未覆盖场景只能走 meta/map 降级路径，
-   并把 run 级原因写入 `review_spans`。
+9. 本地 `data/lead` 覆盖 43 类 scenario；但 `cache_lead_recheck_summary.json`
+   记录了 40 条真实数据集中存在而 XML 未找到的 run。未命中 XML 时只能走
+   meta/map 降级路径，并把 run 级原因写入 `review_spans`。
 
 ---
 
