@@ -1195,17 +1195,50 @@ run 级额外输出：
 
 当前代码层先按“保守增强”落地，不删除旧的强行填充候选：
 
+边界先说清楚：当前不是“已经人工逐场景逐 town 看完所有样本并最终确认规则”，而是把这件事
+代码化成可重复审计流程。`quick_start.py` 负责按场景/town 抽样 XML 并结合 XODR 做规则假设审计；
+`collector.py` 负责在真实帧上根据 scenario/XML/XODR/meta 生成专一 `primary_road_structure`，
+并在 evidence 里写出可追责诊断。这样当后续指出某一帧错标时，可以回看该帧到底是
+XML 没匹配、XODR 没查到、meta 灯态/路口字段缺失、窗口阈值不对，还是仲裁优先级不对。
+
 - `collector.py` 的 `SCENARIO_TO_ROAD_STRUCTURE` 仍作为每帧 `road_structures` 候选全集输出；
 - 新增 `primary_road_structure` / `secondary_road_structures` / `road_structure_candidates` /
   `evidence`，用于承载本文规则生成的主标签、备选标签、分数和证据；
+- `collector.py` 的每帧 `evidence.diagnostic_attribution` 会记录：
+  `decision_source`（如 meta 灯态、XML/路口窗口、TwoWays trigger 窗口、parking 窗口等）、
+  `used_inputs`（scenario prior / XML / XODR / meta traffic_light / junction / active scenario）、
+  `weak_or_missing_inputs`、窗口命中情况、分数排序、以及“如果这一帧错了优先检查什么”。
 - `RouteXmlIndex` 从 `AutoMoT/data/lead/<Scenario>/*.xml` 建索引，支持 `route_001783`
   与 `Town*_Scenario*` 等命名；
 - `XodrTopologyProbe` 在远端环境有 `carla` Python API 时，直接用 XODR 构造 `carla.Map`
   查询 lane/junction/opposite/parking/merge 证据；本地缺 API 时自动降级，不影响 XML+meta 规则；
 - `quick_start.py` 新增 `ROAD_STRUCTURE XML/XODR画像` 菜单项：逐 scenario 遍历所有 town，
-  每个 town 至少抽 3 个 XML（若该 town 不足 3 个则全部抽取），同时记录 XODR 是否存在、
-  junction/signal/controller 粗统计、waypoint 数与 scenario tag，用于检查“每类场景在每个 town
-  实际面对的地图结构”。
+  每个 town 抽至少 3 条 route/id 的目的，是根据 XML route、trigger、scenario tag 与 XODR
+  轻量画像观察“这个场景在该 town 的真实数据形态”，从而检查当前 policy 思路是否合理；
+  这不是标签生成条件，也不是简单保证“3 个不同 id”。抽样按首/中/尾分散覆盖，避免只看连续
+  前三个；同时记录 XODR 是否存在、junction/signal/controller 粗统计、waypoint 数、route
+  长度/转角、trigger 与 scenario tag，用于检查“每类场景在每个 town 实际面对的地图结构”。
+  在没有 CARLA Python API 时，`quick_start.py` 还会直接解析 XODR `planView` / `signal` /
+  `junction connection`，对每个抽样 XML 的 trigger、首/中/尾 waypoint 做静态近邻探针：
+  估算最近 road、是否落在 junction road 附近、60m 内是否有 signal。该探针是审计证据，
+  用于验证 R4/R5/R3/R2/R6 policy 假设，不替代运行时 meta 灯态和 CARLA waypoint 查询。
+- `quick_start.py` 的画像报告现在还会为每个 scenario 生成
+  `generated_frame_label_logic`：该字段明确保留 `keeps_forced_candidate_fill=true`，
+  把 `SCENARIO_TO_ROAD_STRUCTURE` 写成 `candidate_pool_from_scenario`，并把当前帧专一标签
+  固定写入 `primary_road_structure`；同时记录 `implemented_by=RoadStructureRuleEngine.analyze`、
+  `rule_kind`、`rule_config`、按 town 抽样 XML 审计信息、`sampled_route_ids_by_town`、
+  XODR 可用 town、route 长度/转角画像、样本级 `xodr_spatial_probe`、
+  `logic_validation_from_samples`、`town_audit_summary`、runtime 需要读取的 meta 字段，以及逐
+  policy 的 frame primary 规则。`logic_validation_from_samples` 专门记录抽样 XML/XODR 是否支持
+  当前 R2/R3/R4/R5/R6 规则假设；`town_audit_summary` 会按 town 列出假设检查是否 supported、
+  是否需要 manual review，提醒哪些场景/城镇需要后续用真实 meta/bbox 做边界复核。
+- `quick_start.py` 的 1-4 采集入口在写出 `collection_output/*_result.json` 后，会额外在终端打印
+  `primary_road_structure` 分布，便于确认“候选全集 + 当前帧专一 RS 标签”同时生成。
+- 当前 per-scenario 代码组织不是 43 个重复函数，而是“43 个 scenario config + 15 类 policy 模板”：
+  这样每个场景都有自己的 `rule_kind/rule_config/candidate_pool`，但共享窗口、仲裁和证据字段，
+  避免不同场景各自发明阈值。逐场景差异由 `SCENARIO_RULE_CONFIG` 与
+  `quick_start.py::_POLICY_LOGIC_BY_KIND` 联合描述；真正帧级打分由 `collector.py`
+  的 `RoadStructureRuleEngine` 执行。
 
 后续如果有完整 LEAD meta，可继续把 hysteresis、transition_margin 和 review_spans 从设计稿补成
 跨帧后处理；当前第一版已经能在单帧 annotation 中保存足够的 route/XML/XODR/meta evidence。
