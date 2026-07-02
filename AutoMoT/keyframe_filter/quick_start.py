@@ -22,8 +22,11 @@ from collector import (
     SCENARIO_RULE_KIND,
     SCENARIO_RULE_CONFIG,
     RouteXmlIndex,
+    load_pickle_file,
     _DEFAULT_XML_ROOT,
     _DEFAULT_CARLA_ROOT,
+    _DEFAULT_LEAD_DATA_ROOT,
+    _extract_route_num,
 )
 from analyzer import StructureAnalyzer, quick_analysis
 import json
@@ -922,6 +925,125 @@ def _sample_xml_summary(info) -> Dict[str, Any]:
     }
 
 
+def _index_lead_routes_for_scenario(lead_data_root: Path, scenario: str) -> Dict[str, Path]:
+    """按 route 数字索引 LEAD 数据目录，缺数据时返回空索引。"""
+    scenario_dir = Path(lead_data_root) / scenario
+    if not scenario_dir.exists():
+        return {}
+    out = {}
+    for route_dir in sorted(p for p in scenario_dir.iterdir() if p.is_dir()):
+        route_num = _extract_route_num(route_dir.name)
+        if route_num:
+            out.setdefault(route_num, route_dir)
+    return out
+
+
+def _select_meta_samples(meta_files: List[Path], max_samples: int = 3) -> List[Path]:
+    """抽 first/mid/last meta，用于判断该 route 的运行时字段形态。"""
+    if not meta_files:
+        return []
+    if len(meta_files) <= max_samples:
+        return list(meta_files)
+    indexes = {
+        round(i * (len(meta_files) - 1) / (max_samples - 1))
+        for i in range(max_samples)
+    }
+    return [meta_files[i] for i in sorted(indexes)]
+
+
+def _meta_bool(value: Any) -> bool:
+    """稳妥压缩 meta bool-like 字段。"""
+    if hasattr(value, "reshape"):
+        try:
+            value = value.reshape(-1)[0]
+        except Exception:
+            return False
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return bool(value)
+
+
+def _meta_scalar(value: Any) -> Optional[float]:
+    """稳妥压缩 meta 数值字段。"""
+    if hasattr(value, "reshape"):
+        try:
+            value = value.reshape(-1)[0]
+        except Exception:
+            return None
+    try:
+        out = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(out):
+        return None
+    return out
+
+
+def _summarize_meta_probe(info, route_dir: Optional[Path]) -> Dict[str, Any]:
+    """读取可用 LEAD meta，摘要运行时 RS 相关字段。"""
+    if route_dir is None:
+        return {"available": False, "reason": "lead_route_not_matched"}
+    metas_dir = route_dir / "metas"
+    if not metas_dir.exists():
+        return {"available": False, "route_dir": str(route_dir), "reason": "metas_dir_missing"}
+    meta_files = sorted(metas_dir.glob("*.pkl"))
+    if not meta_files:
+        return {"available": False, "route_dir": str(route_dir), "reason": "meta_files_missing"}
+
+    sampled = _select_meta_samples(meta_files, max_samples=3)
+    fields_counter = Counter()
+    traffic_light_values = Counter()
+    active_values = Counter()
+    bool_counts = Counter()
+    finite_distances: Dict[str, List[float]] = defaultdict(list)
+    frame_ids = []
+    load_errors = []
+
+    for meta_path in sampled:
+        frame_ids.append(meta_path.stem)
+        try:
+            meta = load_pickle_file(meta_path)
+        except Exception as exc:
+            load_errors.append(f"{meta_path.name}:{exc}")
+            continue
+        if not isinstance(meta, dict):
+            load_errors.append(f"{meta_path.name}:not_dict")
+            continue
+        fields_counter.update(meta.keys())
+        traffic_light_values[str(meta.get("traffic_light_state", None))] += 1
+        active_values[str(meta.get("current_active_scenario_type", None))] += 1
+        for key in ("light_hazard", "stop_sign_hazard", "stop_sign_close", "is_junction", "is_intersection"):
+            if _meta_bool(meta.get(key, False)):
+                bool_counts[key] += 1
+        for key, value in meta.items():
+            if key.startswith("dist_to_") or key in {"dist_to_junction", "distance_to_next_junction"}:
+                scalar = _meta_scalar(value)
+                if scalar is not None:
+                    finite_distances[key].append(scalar)
+
+    distance_summary = {
+        key: {
+            "min": round(min(values), 3),
+            "max": round(max(values), 3),
+            "count": len(values),
+        }
+        for key, values in sorted(finite_distances.items())
+    }
+    return {
+        "available": not load_errors or len(load_errors) < len(sampled),
+        "route_dir": str(route_dir),
+        "meta_file_count": len(meta_files),
+        "sampled_meta_count": len(sampled),
+        "sampled_frame_ids": frame_ids,
+        "fields_present_top": dict(fields_counter.most_common(40)),
+        "traffic_light_values": dict(traffic_light_values),
+        "active_scenario_values": dict(active_values.most_common(12)),
+        "bool_true_counts": dict(bool_counts),
+        "finite_distance_fields": distance_summary,
+        "load_errors": load_errors[:5],
+    }
+
+
 def _select_diverse_xml_samples(town_infos: List[Any], samples_per_town: int) -> List[Any]:
     """每个 town 分散抽样 route，用于人工/规则审计数据形态。"""
     if not town_infos:
@@ -967,6 +1089,14 @@ def _logic_validation_notes(kind: str, towns: Dict[str, Any], tag_counter: Count
     ]
     near_signal_samples = sum(1 for item in sample_spatial if item.get("has_near_signal_60m"))
     near_junction_samples = sum(1 for item in sample_spatial if item.get("has_near_junction_road"))
+    meta_items = [
+        sample.get("lead_meta_probe", {})
+        for item in towns.values()
+        for sample in item.get("sampled_xml", [])
+    ]
+    meta_available_samples = sum(1 for item in meta_items if item.get("available"))
+    meta_light_samples = sum(1 for item in meta_items if item.get("traffic_light_values"))
+    meta_active_samples = sum(1 for item in meta_items if item.get("active_scenario_values"))
 
     if kind in {"highway_merge", "interurban", "interurban_advanced"}:
         if observed_tags & {"start_actor_flow", "end_actor_flow", "other_actor_location"}:
@@ -985,6 +1115,8 @@ def _logic_validation_notes(kind: str, towns: Dict[str, Any], tag_counter: Count
             notes.append("抽样 town 的 XODR 存在 signal/controller，信号灯/故障灯路口假设有地图侧支撑。")
         else:
             notes.append("抽样 town 的轻量 XODR 摘要未见 signal/controller，需依赖 meta 灯态确认 R4/R5。")
+        if meta_light_samples:
+            notes.append(f"抽样 LEAD meta 中有 {meta_light_samples} 个 route 样本含 traffic_light_state 分布，可用于运行时 R4/R5 复核。")
     if kind == "nonsignalized_junction":
         if near_junction_samples and not near_signal_samples:
             notes.append(f"抽样 XML trigger/route 附近有 {near_junction_samples} 个样本靠近 junction road 且未近邻 signal，R5 假设较一致。")
@@ -999,6 +1131,10 @@ def _logic_validation_notes(kind: str, towns: Dict[str, Any], tag_counter: Count
             notes.append("抽样 XML 停车侧线索有限，R6 high confidence 需要 XODR parking/shoulder 或 bbox/meta 支撑。")
     if not any_xodr:
         notes.append("本地未找到对应 XODR；当前画像只能验证 XML 形态，运行时规则会自动降级。")
+    if meta_available_samples:
+        notes.append(f"抽样 LEAD meta 可读 route 数={meta_available_samples}；active_scenario 可读 route 数={meta_active_samples}。")
+    else:
+        notes.append("当前环境未读到匹配 LEAD meta；完整调研状态会标记 meta 缺失，后续需在远端数据环境复跑画像。")
     return notes or ["抽样 XML/XODR 形态未触发特殊备注；按该场景 policy 保守生成 primary RS。"]
 
 
@@ -1009,6 +1145,8 @@ def _town_audit_summary(kind: str, town_entry: Dict[str, Any]) -> Dict[str, Any]
     near_signal = sum(1 for item in spatial_items if item.get("has_near_signal_60m"))
     near_junction = sum(1 for item in spatial_items if item.get("has_near_junction_road"))
     xodr_available = bool(town_entry.get("xodr", {}).get("available"))
+    meta_items = [sample.get("lead_meta_probe", {}) for sample in samples]
+    meta_available_count = sum(1 for item in meta_items if item.get("available"))
     tag_counter = Counter()
     for sample in samples:
         tag_counter.update(sample.get("tag_keys", []))
@@ -1052,14 +1190,26 @@ def _town_audit_summary(kind: str, town_entry: Dict[str, Any]) -> Dict[str, Any]
         })
 
     unsupported = [item for item in assumptions if not item["supported"]]
+    expected_samples = min(3, int(town_entry.get("xml_count", 0) or 0))
+    complete_inputs = {
+        "xml_sample_sufficient": len(samples) >= expected_samples,
+        "xodr_available": xodr_available,
+        "meta_sample_available": meta_available_count >= expected_samples if expected_samples else False,
+    }
+    incomplete_reasons = [key for key, ok in complete_inputs.items() if not ok]
     return {
         "xodr_available": xodr_available,
         "sample_count": len(samples),
+        "expected_min_sample_count": expected_samples,
+        "meta_available_sample_count": meta_available_count,
         "near_signal_sample_count": near_signal,
         "near_junction_sample_count": near_junction,
         "assumption_checks": assumptions,
-        "needs_manual_review": bool(unsupported) or not xodr_available,
-        "manual_review_reason": [item["name"] for item in unsupported] + ([] if xodr_available else ["xodr_missing"]),
+        "complete_investigation_inputs": complete_inputs,
+        "complete_investigation": not incomplete_reasons,
+        "incomplete_investigation_reasons": incomplete_reasons,
+        "needs_manual_review": bool(unsupported) or bool(incomplete_reasons),
+        "manual_review_reason": [item["name"] for item in unsupported] + incomplete_reasons,
     }
 
 
@@ -1093,6 +1243,12 @@ def _build_scenario_policy_plan(scenario: str, scenario_entry: Dict[str, Any]) -
         town: _town_audit_summary(kind, item)
         for town, item in towns.items()
     }
+    complete_towns = [town for town, item in town_audits.items() if item.get("complete_investigation")]
+    incomplete_towns = {
+        town: item.get("incomplete_investigation_reasons", [])
+        for town, item in town_audits.items()
+        if not item.get("complete_investigation")
+    }
 
     return {
         "keeps_forced_candidate_fill": True,
@@ -1124,6 +1280,12 @@ def _build_scenario_policy_plan(scenario: str, scenario_entry: Dict[str, Any]) -
         },
         "logic_validation_from_samples": _logic_validation_notes(kind, towns, tag_counter),
         "town_audit_summary": town_audits,
+        "complete_investigation_status": {
+            "is_complete": len(complete_towns) == len(towns) and bool(towns),
+            "complete_towns": sorted(complete_towns),
+            "incomplete_towns": incomplete_towns,
+            "definition": "每个有 XML 的 town 至少审计 min(3, xml_count) 条分散 route/id，并且这些样本同时有 XML、XODR 静态画像、可读 LEAD meta 摘要，才算该场景调研完整。",
+        },
         "frame_primary_rules": template["primary_rules"],
         "arbitration": [
             "CrossJunctionDefectTrafficLight 固定 R5 覆盖 R4",
@@ -1142,11 +1304,18 @@ def _build_scenario_policy_plan(scenario: str, scenario_entry: Dict[str, Any]) -
     }
 
 
-def _scenario_town_xml_audit(index: RouteXmlIndex, carla_root: Path, samples_per_town: int = 3) -> dict:
-    """逐场景、逐 town 抽样 XML，并附上 XODR 粗画像。"""
+def _scenario_town_xml_audit(
+    index: RouteXmlIndex,
+    carla_root: Path,
+    samples_per_town: int = 3,
+    lead_data_root: Path = _DEFAULT_LEAD_DATA_ROOT,
+) -> dict:
+    """逐场景、逐 town 抽样 XML，并附上 XODR/meta 粗画像。"""
     report = {
         "xml_root": str(index.xml_root),
         "carla_root": str(carla_root),
+        "lead_data_root": str(lead_data_root),
+        "lead_data_available": Path(lead_data_root).exists(),
         "samples_per_town": samples_per_town,
         "scenarios": {},
     }
@@ -1155,6 +1324,7 @@ def _scenario_town_xml_audit(index: RouteXmlIndex, carla_root: Path, samples_per
 
     for scenario in sorted(SCENARIO_TO_ROAD_STRUCTURE):
         infos = index.by_scenario.get(scenario, [])
+        lead_route_index = _index_lead_routes_for_scenario(Path(lead_data_root), scenario)
         by_town = defaultdict(list)
         for info in infos:
             by_town[info.town or "UNKNOWN"].append(info)
@@ -1184,6 +1354,9 @@ def _scenario_town_xml_audit(index: RouteXmlIndex, carla_root: Path, samples_per
                             tag_counter[key] += 1
                 sample_summary = _sample_xml_summary(info)
                 sample_summary["xodr_spatial_probe"] = _xodr_spatial_probe_for_xml(info, xodr_spatial_cache[town])
+                route_num = _extract_route_num(info.route_id or info.path.stem)
+                route_dir = lead_route_index.get(route_num) if route_num else None
+                sample_summary["lead_meta_probe"] = _summarize_meta_probe(info, route_dir)
                 samples.append(sample_summary)
             scenario_entry["towns"][town] = {
                 "xml_count": len(town_infos),
@@ -1207,6 +1380,7 @@ def road_structure_xml_xodr_audit_ui():
 
     xml_root_text = input(f"XML根目录 (默认 {_DEFAULT_XML_ROOT}): ").strip()
     carla_root_text = input(f"CARLA根目录 (默认 {_DEFAULT_CARLA_ROOT}): ").strip()
+    lead_root_text = input(f"LEAD数据根目录 (默认 {_DEFAULT_LEAD_DATA_ROOT}): ").strip()
     try:
         samples_per_town = int(input("每个town用于验证思路的route/id抽样数 (默认3): ") or "3")
     except Exception:
@@ -1214,8 +1388,14 @@ def road_structure_xml_xodr_audit_ui():
 
     xml_root = Path(xml_root_text) if xml_root_text else _DEFAULT_XML_ROOT
     carla_root = Path(carla_root_text) if carla_root_text else _DEFAULT_CARLA_ROOT
+    lead_data_root = Path(lead_root_text) if lead_root_text else _DEFAULT_LEAD_DATA_ROOT
     index = RouteXmlIndex(xml_root)
-    report = _scenario_town_xml_audit(index, carla_root, samples_per_town=max(1, samples_per_town))
+    report = _scenario_town_xml_audit(
+        index,
+        carla_root,
+        lead_data_root=lead_data_root,
+        samples_per_town=max(1, samples_per_town),
+    )
 
     output_dir = Path(__file__).resolve().parent / "collection_output"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1228,9 +1408,10 @@ def road_structure_xml_xodr_audit_ui():
         towns = ",".join(item["towns"].keys()) or "NONE"
         logic = item.get("generated_frame_label_logic", {})
         candidates = "/".join(logic.get("candidate_pool_from_scenario", []))
+        complete = logic.get("complete_investigation_status", {}).get("is_complete", False)
         print(
             f"  - {scenario:<40} xml={item['xml_count']:<4} "
-            f"rule={item['rule_kind']:<28} candidates={candidates:<11} towns={towns}"
+            f"rule={item['rule_kind']:<28} candidates={candidates:<11} complete={str(complete):<5} towns={towns}"
         )
     print(f"\n完整画像已保存: {output_file}")
     print("画像中 generated_frame_label_logic 字段即每个场景的帧级 primary RS 生成逻辑。")
