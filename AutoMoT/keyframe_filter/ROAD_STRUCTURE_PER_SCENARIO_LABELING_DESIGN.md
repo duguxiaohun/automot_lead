@@ -1195,11 +1195,20 @@ run 级额外输出：
 
 当前代码层先按“保守增强”落地，不删除旧的强行填充候选：
 
-边界先说清楚：当前不是“已经人工逐场景逐 town 看完所有样本并最终确认规则”，而是把这件事
-代码化成可重复审计流程。`quick_start.py` 负责按场景/town 抽样 XML 并结合 XODR 做规则假设审计；
-`collector.py` 负责在真实帧上根据 scenario/XML/XODR/meta 生成专一 `primary_road_structure`，
-并在 evidence 里写出可追责诊断。这样当后续指出某一帧错标时，可以回看该帧到底是
-XML 没匹配、XODR 没查到、meta 灯态/路口字段缺失、窗口阈值不对，还是仲裁优先级不对。
+完整调研的硬标准：对每个 scenario，必须遍历其 XML 覆盖的所有 town；每个 town 至少读取
+`min(3, xml_count)` 条分散 route/id（首/中/尾，不只看连续前三条）；对这些样本同时读取
+XML route/trigger/tag、XODR 静态几何/信号/路口近邻画像、以及可匹配 LEAD route 的
+`metas/*.pkl` first/mid/last 帧字段摘要。只有每个 town 都满足 XML + XODR + meta 三源可读，
+该 scenario 的 `complete_investigation_status.is_complete` 才能为 true。缺任何一源时不假装完成，
+而是在 `incomplete_towns` 里写明 `xml_sample_sufficient` / `xodr_available` /
+`meta_sample_available` 哪一项缺失。
+
+边界也要说清楚：当前不是“已经人工逐场景逐 town 看完所有样本并最终确认规则”，而是把这件事
+代码化成可重复审计流程。`quick_start.py` 负责按场景/town 读取 XML、XODR、可用 LEAD meta
+并生成规则假设审计；`collector.py` 负责在真实帧上根据 scenario/XML/XODR/meta 生成专一
+`primary_road_structure`，并在 evidence 里写出可追责诊断。这样当后续指出某一帧错标时，可以
+回看该帧到底是 XML 没匹配、XODR 没查到、meta 灯态/路口字段缺失、窗口阈值不对，还是仲裁
+优先级不对。
 
 - `collector.py` 的 `SCENARIO_TO_ROAD_STRUCTURE` 仍作为每帧 `road_structures` 候选全集输出；
 - 新增 `primary_road_structure` / `secondary_road_structures` / `road_structure_candidates` /
@@ -1222,16 +1231,26 @@ XML 没匹配、XODR 没查到、meta 灯态/路口字段缺失、窗口阈值�
   `junction connection`，对每个抽样 XML 的 trigger、首/中/尾 waypoint 做静态近邻探针：
   估算最近 road、是否落在 junction road 附近、60m 内是否有 signal。该探针是审计证据，
   用于验证 R4/R5/R3/R2/R6 policy 假设，不替代运行时 meta 灯态和 CARLA waypoint 查询。
+- `quick_start.py` 同一画像入口新增 LEAD meta 审计：按 XML route id 反查
+  `AutoMoT/lead_data/<Scenario>/<run_id>/metas/*.pkl`（或用户输入的 `LEAD数据根目录`），
+  对 first/mid/last meta 读取 `traffic_light_state/light_hazard`、
+  `is_junction/is_intersection/dist_to_junction/distance_to_next_junction`、
+  `current_active_scenario_type`、`stop_sign_*` 与所有 finite `dist_to_*` 字段。
+  本机没有 `lead_data` 时不会编造结论，而是在画像里标记 `lead_data_available=false`、
+  样本 `lead_meta_probe.reason=lead_route_not_matched/metas_dir_missing/...`，并使完整调研状态
+  降为 incomplete，要求远端数据环境复跑。
 - `quick_start.py` 的画像报告现在还会为每个 scenario 生成
   `generated_frame_label_logic`：该字段明确保留 `keeps_forced_candidate_fill=true`，
   把 `SCENARIO_TO_ROAD_STRUCTURE` 写成 `candidate_pool_from_scenario`，并把当前帧专一标签
   固定写入 `primary_road_structure`；同时记录 `implemented_by=RoadStructureRuleEngine.analyze`、
   `rule_kind`、`rule_config`、按 town 抽样 XML 审计信息、`sampled_route_ids_by_town`、
-  XODR 可用 town、route 长度/转角画像、样本级 `xodr_spatial_probe`、
-  `logic_validation_from_samples`、`town_audit_summary`、runtime 需要读取的 meta 字段，以及逐
-  policy 的 frame primary 规则。`logic_validation_from_samples` 专门记录抽样 XML/XODR 是否支持
-  当前 R2/R3/R4/R5/R6 规则假设；`town_audit_summary` 会按 town 列出假设检查是否 supported、
-  是否需要 manual review，提醒哪些场景/城镇需要后续用真实 meta/bbox 做边界复核。
+  XODR 可用 town、route 长度/转角画像、样本级 `xodr_spatial_probe`、样本级
+  `lead_meta_probe`、`logic_validation_from_samples`、`town_audit_summary`、
+  `complete_investigation_status`、runtime 需要读取的 meta 字段，以及逐 policy 的 frame primary
+  规则。`logic_validation_from_samples` 专门记录抽样 XML/XODR/meta 是否支持当前
+  R2/R3/R4/R5/R6 规则假设；`town_audit_summary` 会按 town 列出假设检查是否 supported、
+  是否需要 manual review；`complete_investigation_status` 则明确告诉你该 scenario 是否已经满足
+  “每 town XML+XODR+meta 三源调研完整”的硬标准。
 - `quick_start.py` 的 1-4 采集入口在写出 `collection_output/*_result.json` 后，会额外在终端打印
   `primary_road_structure` 分布，便于确认“候选全集 + 当前帧专一 RS 标签”同时生成。
 - 当前 per-scenario 代码组织不是 43 个重复函数，而是“43 个 scenario config + 15 类 policy 模板”：
