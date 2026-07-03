@@ -73,6 +73,8 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
+
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
@@ -870,6 +872,13 @@ def run(args: argparse.Namespace) -> None:
             records.append(run_qwen_case(engine, case, tables, method_dir, args.dry_run))
     else:
         route_dir, scenario, run_id = resolve_route_dir(args, tables)
+        should_exclude, abnormal_info = is_abnormal_lead_route(route_dir, scenario)
+        if should_exclude:
+            raise ValueError(
+                "abnormal LEAD route rejected before probe: "
+                f"{scenario}/{run_id} duration_s={abnormal_info['duration_s']:.2f} "
+                "(rule: duration_s > 90 unless scenario is BlockedIntersection or ControlLoss)"
+            )
         total = _route_total_frames(route_dir)
         scan = should_scan_timeline(args, source_kind="route")
         anchors = (

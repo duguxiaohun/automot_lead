@@ -16,6 +16,7 @@ import lzma
 import math
 import os
 import re
+import sys
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Set, Tuple, Optional
 from dataclasses import dataclass, field, asdict
@@ -27,10 +28,14 @@ import numpy as np
 
 _KEYFRAME_DIR = Path(__file__).resolve().parent
 _AUTOMOT_ROOT = _KEYFRAME_DIR.parent
+if str(_AUTOMOT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_AUTOMOT_ROOT))
 _DEFAULT_LEAD_DATA_ROOT = _AUTOMOT_ROOT / "lead_data"
 _DEFAULT_OUTPUT_DIR = _KEYFRAME_DIR / "collection_output"
 _DEFAULT_XML_ROOT = _AUTOMOT_ROOT / "data" / "lead"
 _DEFAULT_CARLA_ROOT = _AUTOMOT_ROOT / "CARLA_0915"
+
+from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
 
 # ============================================================================
 # 辅助函数
@@ -39,7 +44,7 @@ _DEFAULT_CARLA_ROOT = _AUTOMOT_ROOT / "CARLA_0915"
 def load_pickle_file(file_path: Path):
     """
     加载 pickle 文件，支持 XZ 压缩格式
-    
+
     某些 .pkl 文件实际上是 XZ 压缩的。此函数自动检测并处理。
     """
     try:
@@ -95,7 +100,7 @@ class FrameAnnotation:
     secondary_road_structures: Set[RoadStructure] = field(default_factory=set)
     candidate_scores: Dict[str, float] = field(default_factory=dict)
     evidence: Dict[str, Any] = field(default_factory=dict)
-    
+
     def to_dict(self):
         return {
             'frame_id': self.frame_id,
@@ -284,6 +289,28 @@ def _extract_route_num(text: str) -> Optional[str]:
     return None
 
 
+def _route_key_aliases(text: str) -> Set[str]:
+    name = Path(str(text)).stem
+    out = {name.lower()}
+    run_match = re.match(
+        r"^(?P<town>Town\d+(?:HD)?)_Rep\d+_(?P<key>.+)_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}$",
+        name,
+        re.IGNORECASE,
+    )
+    if run_match:
+        raw = run_match.group("key")
+        if raw.endswith("_route0"):
+            raw = raw[: -len("_route0")]
+        out.add(raw.lower())
+        out.add(f"{run_match.group('town')}_route_{raw}".lower())
+    xml_match = re.match(r"^(?P<town>Town\d+(?:HD)?)_route_(?P<key>.+)$", name, re.IGNORECASE)
+    if xml_match:
+        raw = xml_match.group("key")
+        out.add(raw.lower())
+        out.add(f"{xml_match.group('town')}_Rep0_{raw}".lower())
+    return out
+
+
 def _parse_position_node(node: ET.Element) -> Optional[Tuple[float, float]]:
     x = _safe_float(node.get("x"))
     y = _safe_float(node.get("y"))
@@ -362,18 +389,21 @@ class RouteXmlIndex:
                         self.by_route_num[(scenario, route_num)] = info
 
     def match(self, scenario: str, route_name: str) -> Optional[RouteXmlInfo]:
+        candidates = self.by_scenario.get(scenario, [])
+        for info in candidates:
+            if info.path.stem and info.path.stem in route_name:
+                return info
+            if _route_key_aliases(info.path.stem) & _route_key_aliases(route_name):
+                return info
         route_num = _extract_route_num(route_name)
         if route_num:
             hit = self.by_route_num.get((scenario, route_num))
             if hit is not None:
                 return hit
-        candidates = self.by_scenario.get(scenario, [])
         if not candidates:
             return None
         for info in candidates:
-            if info.route_id and info.route_id in route_name:
-                return info
-            if info.path.stem and info.path.stem in route_name:
+            if info.route_id and len(str(info.route_id)) >= 3 and str(info.route_id) in route_name:
                 return info
         return None
 
@@ -999,7 +1029,7 @@ class SimpleFrameAnalyzer:
     """帧分析器：保留候选全集，并根据 XML/XODR/meta 生成 primary RS。"""
 
     _engine = RoadStructureRuleEngine()
-    
+
     @staticmethod
     def configure_xodr_probe(xodr_probe: Optional[XodrTopologyProbe]) -> None:
         SimpleFrameAnalyzer._engine = RoadStructureRuleEngine(xodr_probe)
@@ -1021,11 +1051,11 @@ class SimpleFrameAnalyzer:
             frame_data=frame_data,
             xml_info=xml_info,
         )
-        
+
         # 基础逻辑：根据场景类型添加默认事件
         if not events:
             events.add(EventType.R_E1)  # 默认为正常行驶
-        
+
         return FrameAnnotation(
             frame_id=frame_id,
             road_structures=road_structures,
@@ -1041,7 +1071,7 @@ class SimpleFrameAnalyzer:
 
 class ScenarioCollector:
     """灵活的采集器 - 支持4种采集模式"""
-    
+
     def __init__(self, lead_data_root: str = "",
                  output_dir: str = "",
                  xml_root: str = "",
@@ -1056,29 +1086,29 @@ class ScenarioCollector:
         self.xml_index = RouteXmlIndex(Path(xml_root) if xml_root else _DEFAULT_XML_ROOT)
         self.xodr_probe = XodrTopologyProbe(Path(carla_root) if carla_root else _DEFAULT_CARLA_ROOT)
         SimpleFrameAnalyzer.configure_xodr_probe(self.xodr_probe)
-        
+
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
-    
+
     # ========================================================================
     # 4种采集模式
     # ========================================================================
-    
+
     def collect_one_scenario_all(self, scenario_name: str) -> Dict:
         """模式1: 单场景全部采集 - 采集该场景的所有routes"""
         return self._collect_scenario(scenario_name, max_routes=None)
-    
+
     def collect_one_scenario(self, scenario_name: str, max_routes: int = 5) -> Dict:
         """模式2: 单场景指定数目采集 - 采集该场景的前 max_routes 个routes"""
         return self._collect_scenario(scenario_name, max_routes=max_routes)
-    
+
     def collect_multiple_scenarios(self, scenario_names: List[str], max_routes_per_scenario: int = 5) -> Dict:
         """模式3: 多场景全部采集 - 采集多个指定场景"""
         self.logger.info(f"采集多场景: {scenario_names}")
-        
+
         all_results = {}
         total_frames = 0
-        
+
         for scenario in scenario_names:
             try:
                 result = self._collect_scenario(scenario, max_routes=max_routes_per_scenario)
@@ -1088,7 +1118,7 @@ class ScenarioCollector:
             except Exception as e:
                 self.logger.error(f"  ✗ {scenario}: {e}")
                 all_results[scenario] = {"status": "error", "error": str(e)}
-        
+
         # 保存综合结果
         summary = {
             "status": "success",
@@ -1097,28 +1127,28 @@ class ScenarioCollector:
             "total_frames": total_frames,
             "results": all_results
         }
-        
+
         output_file = self.output_dir / "multi_scenario_collection.json"
         with open(output_file, 'w') as f:
             json.dump(summary, f, indent=2, ensure_ascii=False, default=str)
-        
+
         return summary
-    
+
     def collect_all_scenarios(self, max_routes_per_scenario: int = 5) -> Dict:
         """模式4: 全部采集 - 采集所有47个场景"""
         all_scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
         self.logger.info(f"采集所有场景 ({len(all_scenarios)}个)")
-        
+
         return self.collect_multiple_scenarios(all_scenarios, max_routes_per_scenario)
-    
+
     # ========================================================================
     # 内部实现
     # ========================================================================
-    
+
     def _collect_scenario(self, scenario_name: str, max_routes: Optional[int] = None) -> Dict:
         """采集单个场景的内部实现"""
         self.logger.info(f"采集场景: {scenario_name}")
-        
+
         scenario_dir = self.lead_data_root / scenario_name
         if not scenario_dir.exists():
             return {
@@ -1129,10 +1159,18 @@ class ScenarioCollector:
                 "routes": [],
                 "total_frames": 0,
             }
-        
-        # 获取该场景的所有 routes
-        all_route_dirs = sorted([d for d in scenario_dir.iterdir() if d.is_dir()])
-        
+
+        # 获取该场景的所有 routes，并先剔除异常时长采集。
+        discovered_route_dirs = sorted([d for d in scenario_dir.iterdir() if d.is_dir()])
+        all_route_dirs = []
+        abnormal_skipped = []
+        for route_dir in discovered_route_dirs:
+            should_exclude, info = is_abnormal_lead_route(route_dir, scenario_name)
+            if should_exclude:
+                abnormal_skipped.append(info)
+                continue
+            all_route_dirs.append(route_dir)
+
         # 根据 max_routes 参数决定采集多少
         if max_routes is None:
             # None 表示采集所有
@@ -1140,55 +1178,60 @@ class ScenarioCollector:
         else:
             # 采集前 max_routes 个
             route_dirs = all_route_dirs[:max_routes]
-        
-        self.logger.info(f"  发现 {len(all_route_dirs)} 个routes, 将采集 {len(route_dirs)} 个")
-        
+
+        self.logger.info(
+            f"  发现 {len(discovered_route_dirs)} 个routes, "
+            f"异常时长剔除 {len(abnormal_skipped)} 个, 将采集 {len(route_dirs)} 个"
+        )
+
         routes = []
         for i, route_dir in enumerate(route_dirs, 1):
             self.logger.info(f"    [{i}/{len(route_dirs)}] 处理 {route_dir.name}")
             route_result = self._process_route(scenario_name, route_dir)
             routes.append(route_result)
-        
+
         result = {
             "scenario": scenario_name,
             "status": "success",
             "road_candidates": [rs.value for rs in SCENARIO_TO_ROAD_STRUCTURE.get(scenario_name, [])],
             "event_candidates": [ev.value for ev in SCENARIO_TO_FINE_EVENTS.get(scenario_name, [])],
+            "abnormal_duration_rule": "exclude duration_s > 90 unless scenario is BlockedIntersection or ControlLoss",
+            "abnormal_duration_skipped": abnormal_skipped,
             "routes": routes,
             "total_frames": sum(r.get('num_frames', 0) for r in routes)
         }
-        
+
         # 保存结果
         output_file = self.output_dir / f"{scenario_name}_result.json"
         with open(output_file, 'w') as f:
             json.dump(result, f, indent=2, ensure_ascii=False, default=str)
-        
+
         self.logger.info(f"  ✓ {scenario_name} 采集完成: {result['total_frames']} 帧")
-        
+
         return result
-    
+
     def _process_route(self, scenario_name: str, route_path: Path) -> Dict:
         """处理单个route"""
         metas_dir = route_path / "metas"
         if not metas_dir.exists():
             return {"route_id": route_path.name, "status": "skip", "num_frames": 0}
-        
+
         xml_info = self.xml_index.match(scenario_name, route_path.name)
         meta_files = sorted(metas_dir.glob("*.pkl"))
         annotations = []
-        
+
         for meta_file in meta_files:
             try:
                 frame_id = int(meta_file.stem)
                 # 使用支持 XZ 压缩的加载函数
                 frame_data = load_pickle_file(meta_file)
-                
+
                 ann = SimpleFrameAnalyzer.analyze(scenario_name, frame_id, frame_data, xml_info=xml_info)
                 annotations.append(ann.to_dict())
             except Exception as e:
                 self.logger.warning(f"处理 {meta_file} 出错: {e}")
                 continue
-        
+
         return {
             "route_id": route_path.name,
             "status": "success",

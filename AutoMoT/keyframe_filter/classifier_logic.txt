@@ -1,3 +1,14 @@
+XML命名规则
+AutoMoT/data/lead是lead_data对应的route XML根目录，查找时必须从lead_data/<Scenario>/<run_id>解析(Scenario,Town,route_key)，不能只取数字route。
+Scenario取run父目录；run_id先剥末尾MM_DD_HH_MM_SS时间戳，再只在存在时剥尾部_route0；剩下就是route_key。Town12_route15里的route15是key本体，不能剥，也不能要求它带_route0。
+XML文件名公式固定：route_key以route_开头时用<Town>_<route_key>.xml，否则用<Town>_route_<route_key>.xml。
+例子：
+Town03_Rep0_route_001783_route0_... -> data/lead/<Scenario>/Town03_route_001783.xml
+Town12_Rep0_1054_0_route0_... -> data/lead/<Scenario>/Town12_route_1054_0.xml
+Town06_Rep0_Town06_13_route0_... -> data/lead/<Scenario>/Town06_route_Town06_13.xml
+Town12_Rep0_Town12_route15_... -> data/lead/<Scenario>/Town12_route_Town12_route15.xml
+2026-07-03核对：lead_data 9715个run去重后9294个(Scenario,Town,route_key)，data/lead正好9294个XML，缺失0、冗余0、命名不规范0、XML解析失败0、内容结构异常0。40个XML的data_routes源在其它scenario目录，不是缺失；ParkedObstacle/Town12_route_Town12_route15.xml覆盖有效，不能当作xml_available=false。
+
 Accident
 左车道或者右车道被静止车辆占用导致自车需要换道到其他同向车道，注意寻找换道时机和防止后面的车碰撞，然后返回原来车道，如果没有可行道路或者红绿灯就停车等待
 AccidentTwoWays
@@ -113,41 +124,41 @@ R-E1. 跟车 / 车道保持
 核心含义：
 自车沿当前车道或可行驶区域前进，并根据前车状态保持安全距离。
 包括：
-●  普通车道保持； 
-●  普通跟车； 
-●  环岛内沿可行驶路径行驶； 
-●  非结构化道路中的正常前进； 
-●  路口、合流、障碍事件前后的背景驾驶状态。 
+●  普通车道保持；
+●  普通跟车；
+●  环岛内沿可行驶路径行驶；
+●  非结构化道路中的正常前进；
+●  路口、合流、障碍事件前后的背景驾驶状态。
 对应行为：
 KEEP_LANE
 FOLLOW_LEAD_VEHICLE
 MAINTAIN_SAFE_DISTANCE
 适用场景片段包括：
-●  ControlLoss； 
-●  noScenarios； 
-●  Accident / ConstructionObstacle / ParkedObstacle 中未遇到障碍之前和绕行结束之后； 
-●  HardBreakRoute 中前车急刹之前和恢复之后； 
-●  DynamicObjectCrossing 中大部分正常行驶片段。 
+●  ControlLoss；
+●  noScenarios；
+●  Accident / ConstructionObstacle / ParkedObstacle 中未遇到障碍之前和绕行结束之后；
+●  HardBreakRoute 中前车急刹之前和恢复之后；
+●  DynamicObjectCrossing 中大部分正常行驶片段。
 
 R-E2. 目标导向型变道
 核心含义：
 当前车道通常仍然可行，但自车为了完成路线目标，需要主动换到目标车道。
 触发原因是自车路线或导航目标，而不是外部障碍。
 包括：
-●  为了高速出口提前变到右侧车道； 
-●  为了左转提前变到左侧车道； 
-●  自车初始不在期望车道，需要修正到目标车道； 
-●  从停车位或停车侧汇入主行驶车道； 
-●  根据目的地选择目标车道。 
+●  为了高速出口提前变到右侧车道；
+●  为了左转提前变到左侧车道；
+●  自车初始不在期望车道，需要修正到目标车道；
+●  从停车位或停车侧汇入主行驶车道；
+●  根据目的地选择目标车道。
 对应行为：
 ROUTE_REQUIRED_LANE_CHANGE
 SELECT_TARGET_LANE
 CHANGE_LANE_WHEN_SAFE
 典型场景片段：
-●  HighwayExit； 
-●  ParkingExit； 
-●  InterurbanActorFlow； 
-●  StaticCutIn 开头“自车不在期望车道”的片段。 
+●  HighwayExit；
+●  ParkingExit；
+●  InterurbanActorFlow；
+●  StaticCutIn 开头“自车不在期望车道”的片段。
 这里一定要和“被迫变道”区分开。
 
 R-E3. 常规匝道合流 / 并线 / 驶出
@@ -155,10 +166,10 @@ R-E3. 常规匝道合流 / 并线 / 驶出
 道路结构本身要求自车完成合流、并线、汇入或驶出，这是正常驾驶任务。
 它虽然需要判断侧后方车流，但不是突发事件。
 包括：
-●  自车从匝道并入主路； 
-●  自车进入慢速车流； 
-●  自车在高速或匝道结构中完成合流； 
-●  自车驶出高速。 
+●  自车从匝道并入主路；
+●  自车进入慢速车流；
+●  自车在高速或匝道结构中完成合流；
+●  自车驶出高速。
 对应行为：
 MERGE_WHEN_SAFE
 MATCH_TRAFFIC_SPEED
@@ -166,9 +177,9 @@ CHECK_SIDE_REAR_GAP
 YIELD_IF_NEEDED
 EXIT_WHEN_SAFE
 典型场景片段：
-●  EnterActorFlow / EnterActorFlowV2； 
-●  MergerIntoSlowTraffic / MergerIntoSlowTrafficV2； 
-●  HighwayExit。 
+●  EnterActorFlow / EnterActorFlowV2；
+●  MergerIntoSlowTraffic / MergerIntoSlowTrafficV2；
+●  HighwayExit。
 注意：
 HighwayCutIn 不是自车主动合流，而是他车切入自车道，所以更适合归为突发事件。
 
@@ -176,12 +187,12 @@ R-E4. 信号灯路口通行
 核心含义：
 自车根据正常信号灯规则完成停车、等待、直行、左转或右转。
 包括：
-●  红灯停车； 
-●  绿灯直行； 
-●  绿灯左转； 
-●  绿灯右转； 
-●  有信号灯 T 字路口通行； 
-●  有信号灯路口的正常等待和启动。 
+●  红灯停车；
+●  绿灯直行；
+●  绿灯左转；
+●  绿灯右转；
+●  有信号灯 T 字路口通行；
+●  有信号灯路口的正常等待和启动。
 对应行为：
 STOP_AT_RED_LIGHT
 GO_AT_GREEN_LIGHT
@@ -189,12 +200,12 @@ TURN_LEFT_AT_SIGNAL
 TURN_RIGHT_AT_SIGNAL
 GO_STRAIGHT_AT_SIGNAL
 典型场景片段：
-●  RedLightWithoutLeadVehicle； 
-●  SignalizedJunctionLeftTurn； 
-●  SignalizedJunctionLeftTurnEnterFlow； 
-●  SignalizedJunctionRightTurn； 
-●  T_Junction，如果是信号灯控制； 
-●  BlockedIntersection 中“看灯”本身属于常规部分。 
+●  RedLightWithoutLeadVehicle；
+●  SignalizedJunctionLeftTurn；
+●  SignalizedJunctionLeftTurnEnterFlow；
+●  SignalizedJunctionRightTurn；
+●  T_Junction，如果是信号灯控制；
+●  BlockedIntersection 中“看灯”本身属于常规部分。
 注意：
 如果绿灯时出现对向车闯红灯，常规信号灯通行会被突发事件打断。
 
@@ -202,12 +213,12 @@ R-E5. 无信号灯路口通行
 核心含义：
 没有红绿灯，自车根据正常路权关系和安全间隙完成直行、左转或右转。
 包括：
-●  无信号灯左转； 
-●  无信号灯右转； 
-●  无信号灯直行； 
-●  等待横向车流； 
-●  等待对向优先车； 
-●  路权允许时通过。 
+●  无信号灯左转；
+●  无信号灯右转；
+●  无信号灯直行；
+●  等待横向车流；
+●  等待对向优先车；
+●  路权允许时通过。
 对应行为：
 NEGOTIATE_PRIORITY
 WAIT_FOR_SAFE_GAP
@@ -216,12 +227,12 @@ TURN_LEFT_WHEN_SAFE
 TURN_RIGHT_WHEN_SAFE
 GO_STRAIGHT_WHEN_SAFE
 典型场景片段：
-●  NonSignalizedJunctionLeftTurn； 
-●  NonSignalizedJunctionLeftTurnEnterFlow； 
-●  NonSignalizedJunctionRightTurn； 
-●  OppositeVehicleTakingPriority； 
-●  PriorityAtJunction； 
-●  PedestrianCrossing 中如果只是正常路口让行，也可以作为背景事件。 
+●  NonSignalizedJunctionLeftTurn；
+●  NonSignalizedJunctionLeftTurnEnterFlow；
+●  NonSignalizedJunctionRightTurn；
+●  OppositeVehicleTakingPriority；
+●  PriorityAtJunction；
+●  PedestrianCrossing 中如果只是正常路口让行，也可以作为背景事件。
 这里需要注意：
 正常路权判断本身不是突发事件。只有出现额外异常对象时，才切换到突发事件。
 
@@ -230,11 +241,11 @@ R-E6. 常规停车等待 / 恢复启动
 核心含义：
 自车因为正常交通规则或正常车流状态停车等待，条件满足后恢复行驶。
 包括：
-●  红灯等待； 
-●  无信号灯路口等待安全间隙； 
-●  前车正常排队等待； 
-●  合流等待间隙； 
-●  停车位汇入前等待主路空隙。 
+●  红灯等待；
+●  无信号灯路口等待安全间隙；
+●  前车正常排队等待；
+●  合流等待间隙；
+●  停车位汇入前等待主路空隙。
 对应行为：
 STOP_AND_WAIT_BY_RULE
 WAIT_FOR_GAP
@@ -248,15 +259,15 @@ U-E1. 前车急刹 / 突然减速
 核心含义：
 前车突然急刹或快速减速，自车原本的常规跟车被打断，必须紧急减速以避免追尾。
 触发来源：
-●  前车突然刹车； 
-●  前车速度快速下降； 
-●  TTC 快速变小。 
+●  前车突然刹车；
+●  前车速度快速下降；
+●  TTC 快速变小。
 对应响应：
 EMERGENCY_DECELERATION
 KEEP_TTC_SAFE
 AVOID_REAR_END_COLLISION
 典型场景：
-●  HardBreakRoute。 
+●  HardBreakRoute。
 事件片段：
 常规跟车 → 前车急刹 → 自车紧急减速 → 恢复跟车
 
@@ -264,12 +275,12 @@ U-E2. 静态障碍物占道
 核心含义：
 自车当前行驶路径被静态障碍物阻挡，原本的车道保持或跟车任务被打断。
 障碍物包括：
-●  事故车辆； 
-●  施工障碍； 
-●  停放车辆； 
-●  静止车辆； 
-●  路侧危险物； 
-●  开门车辆造成的占道风险。 
+●  事故车辆；
+●  施工障碍；
+●  停放车辆；
+●  静止车辆；
+●  路侧危险物；
+●  开门车辆造成的占道风险。
 对应响应：
 STOP_AND_WAIT
 FORCED_SAME_DIRECTION_LANE_CHANGE
@@ -285,15 +296,15 @@ RETURN_TO_ORIGINAL_LANE
 → 绕过障碍
 → 回归车道保持
 同向绕行场景：
-●  Accident； 
-●  ConstructionObstacle； 
-●  ParkedObstacle。 
+●  Accident；
+●  ConstructionObstacle；
+●  ParkedObstacle。
 借对向车道绕行场景：
-●  AccidentTwoWays； 
-●  ConstructionObstacleTwoWays； 
-●  ParkedObstacleTwoWays； 
-●  HazardAtSideLaneTwoWays； 
-●  VehicleOpensDoorTwoWays。 
+●  AccidentTwoWays；
+●  ConstructionObstacleTwoWays；
+●  ParkedObstacleTwoWays；
+●  HazardAtSideLaneTwoWays；
+●  VehicleOpensDoorTwoWays。
 HazardAtSideLane 需要稍微注意：
 如果是同向多车道内避让，则是同向被迫变道；
 如果是 TwoWays，则是借对向车道绕行。
@@ -302,21 +313,21 @@ U-E3. 动态车辆切入 / 动态占道
 核心含义：
 其他车辆突然进入或即将进入自车未来路径，自车原本的常规行为被动中断。
 包括：
-●  侧方车辆切入自车道； 
-●  匝道车辆切入主路自车道； 
-●  路边停车车辆突然启动； 
-●  停止车辆突然进入当前车道； 
-●  静止车辆变成动态障碍并侵入自车路径。 
+●  侧方车辆切入自车道；
+●  匝道车辆切入主路自车道；
+●  路边停车车辆突然启动；
+●  停止车辆突然进入当前车道；
+●  静止车辆变成动态障碍并侵入自车路径。
 对应响应：
 SLOW_DOWN
 YIELD_TO_CUT_IN_VEHICLE
 STOP_IF_NEEDED
 FOLLOW_AFTER_CUT_IN
 典型场景：
-●  HighwayCutIn； 
-●  ParkingCutIn； 
-●  StaticCutIn 后半段； 
-●  DynamicObjectCrossing 中存在动态对象干扰的片段。 
+●  HighwayCutIn；
+●  ParkingCutIn；
+●  StaticCutIn 后半段；
+●  DynamicObjectCrossing 中存在动态对象干扰的片段。
 需要区分：
 常规合流：
 自车主动并入车流。
@@ -328,23 +339,23 @@ U-E4. 行人 / 自行车横穿
 核心含义：
 行人或自行车突然进入自车预期路径，自车必须让行或停车。
 它可以发生在：
-●  普通直道； 
-●  路口； 
-●  转弯后； 
-●  停车车辆遮挡区域； 
-●  有信号灯路口； 
-●  无信号灯路口。 
+●  普通直道；
+●  路口；
+●  转弯后；
+●  停车车辆遮挡区域；
+●  有信号灯路口；
+●  无信号灯路口。
 对应响应：
 YIELD_TO_PEDESTRIAN_OR_BICYCLE
 SLOW_DOWN
 STOP_AND_WAIT
 PROCEED_AFTER_CLEAR
 典型场景：
-●  CrossingBicycleFlow； 
-●  PedestrianCrossing； 
-●  ParkingCrossingPedestrian； 
-●  VehicleTurningRoute； 
-●  VehicleTurningRoutePedestrian。 
+●  CrossingBicycleFlow；
+●  PedestrianCrossing；
+●  ParkingCrossingPedestrian；
+●  VehicleTurningRoute；
+●  VehicleTurningRoutePedestrian。
 事件片段：
 常规路口通行 / 常规跟车
 → 行人或自行车横穿
@@ -366,7 +377,7 @@ YIELD_TO_INVADING_ONCOMING_VEHICLE
 STOP_AND_WAIT
 RESUME_LANE_KEEPING
 典型场景：
-●  InvadingTurn。 
+●  InvadingTurn。
 事件片段：
 常规车道保持
 → 对向车侵入自车道
@@ -378,16 +389,16 @@ U-E6. 违规车辆冲突
 核心含义：
 自车本来按照规则可以通行，但其他车辆违反规则，导致自车必须避让。
 典型情况：
-●  自车绿灯左转或通行； 
-●  对向车闯红灯； 
-●  对方不按路权通过； 
-●  规则上自车可走，但实际路径被违规车辆占用。 
+●  自车绿灯左转或通行；
+●  对向车闯红灯；
+●  对方不按路权通过；
+●  规则上自车可走，但实际路径被违规车辆占用。
 对应响应：
 STOP_DESPITE_PRIORITY
 YIELD_TO_RULE_VIOLATING_VEHICLE
 PASS_AFTER_CONFLICT_CLEARS
 典型场景：
-●  OppositeVehicleRunningRedLight。 
+●  OppositeVehicleRunningRedLight。
 事件片段：
 绿灯正常通行
 → 对向车闯红灯
@@ -401,7 +412,7 @@ U-E7. 信号灯故障 / 路口规则失效
 核心含义：
 路口的正常灯控规则失效，自车不能再按照“红灯停绿灯行”的常规逻辑通过，而必须全程观察四个方向的车辆。
 典型场景：
-●  CrossJunctionDefectTrafficLight。 
+●  CrossJunctionDefectTrafficLight。
 它和其他突发事件不同：
 其他突发事件：
 常规事件中间插入一小段异常。
@@ -423,7 +434,7 @@ U-E8. 前方道路暂时阻塞 / 阻塞解除
 核心含义：
 自车原本可以继续行驶或通过路口，但前方道路暂时没有可通行空间，需要停止等待；之后阻塞突然解除，自车继续前进。
 典型场景：
-●  BlockedIntersection。 
+●  BlockedIntersection。
 它也比较特殊。它不是典型绕行，也不是简单让行，而是：
 常规跟车 / 看灯
 → 前方无路可走

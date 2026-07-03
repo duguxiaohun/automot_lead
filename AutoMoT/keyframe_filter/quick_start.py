@@ -31,6 +31,8 @@ from collector import (
 from analyzer import StructureAnalyzer, quick_analysis
 import json
 
+from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
+
 
 _POLICY_LOGIC_BY_KIND: Dict[str, Dict[str, Any]] = {
     "same_direction_obstacle": {
@@ -249,7 +251,7 @@ def collect_one_scenario_all_ui():
     print("\n" + "="*70)
     print("模式1: 单场景全部采集".center(70))
     print("="*70)
-    
+
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
     print(f"\n支持的场景 ({len(scenarios)}个):")
     for i, scenario in enumerate(scenarios, 1):
@@ -258,15 +260,15 @@ def collect_one_scenario_all_ui():
         else:
             print(f"{scenario:<40}", end="  ")
     print()
-    
+
     scenario = input("\n请输入场景名称: ").strip()
     if scenario not in SCENARIO_TO_ROAD_STRUCTURE:
         print("❌ 场景不存在")
         return
-    
+
     print(f"\n开始采集 {scenario} 的所有routes...")
     collector = ScenarioCollector()
-    
+
     try:
         result = collector.collect_one_scenario_all(scenario)
         if result.get("status") != "success":
@@ -276,7 +278,7 @@ def collect_one_scenario_all_ui():
             print(f"  • 错误: {result.get('error', '未知错误')}")
             print(f"  • 数据根: {result.get('lead_data_root', collector.lead_data_root)}")
             return
-        
+
         print(f"\n✅ 采集完成!")
         print(f"  • 场景: {scenario}")
         print(f"  • 状态: {result['status']}")
@@ -293,7 +295,7 @@ def collect_one_scenario_limited_ui():
     print("\n" + "="*70)
     print("模式2: 单场景指定数目采集".center(70))
     print("="*70)
-    
+
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
     print(f"\n支持的场景 ({len(scenarios)}个):")
     for i, scenario in enumerate(scenarios, 1):
@@ -302,20 +304,20 @@ def collect_one_scenario_limited_ui():
         else:
             print(f"{scenario:<40}", end="  ")
     print()
-    
+
     scenario = input("\n请输入场景名称: ").strip()
     if scenario not in SCENARIO_TO_ROAD_STRUCTURE:
         print("❌ 场景不存在")
         return
-    
+
     try:
         max_routes = int(input("请输入采集的routes数量 (默认5): ") or "5")
     except:
         max_routes = 5
-    
+
     print(f"\n开始采集 {scenario} 的前 {max_routes} 个routes...")
     collector = ScenarioCollector()
-    
+
     try:
         result = collector.collect_one_scenario(scenario, max_routes=max_routes)
         if result.get("status") != "success":
@@ -325,7 +327,7 @@ def collect_one_scenario_limited_ui():
             print(f"  • 错误: {result.get('error', '未知错误')}")
             print(f"  • 数据根: {result.get('lead_data_root', collector.lead_data_root)}")
             return
-        
+
         print(f"\n✅ 采集完成!")
         print(f"  • 场景: {scenario}")
         print(f"  • 状态: {result['status']}")
@@ -342,22 +344,22 @@ def collect_multiple_scenarios_ui():
     print("\n" + "="*70)
     print("模式3: 多场景采集".center(70))
     print("="*70)
-    
+
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
-    
+
     # 推荐场景
     recommended = [
         "Accident",
-        "AccidentTwoWays", 
+        "AccidentTwoWays",
         "BlockedIntersection",
         "PedestrianCrossing",
         "HighwayCutIn"
     ]
-    
+
     print(f"\n推荐场景:")
     for i, scenario in enumerate(recommended, 1):
         print(f"  {i}. {scenario}")
-    
+
     print(f"\n所有场景 ({len(scenarios)}个):")
     for i, scenario in enumerate(scenarios, 1):
         if i % 2 == 0:
@@ -365,38 +367,38 @@ def collect_multiple_scenarios_ui():
         else:
             print(f"{scenario:<40}", end="  ")
     print()
-    
+
     print("\n请输入要采集的场景 (逗号分隔, 例如: Accident,AccidentTwoWays,BlockedIntersection):")
     scenario_input = input("> ").strip()
-    
+
     selected_scenarios = [s.strip() for s in scenario_input.split(",")]
-    
+
     # 验证场景名称
     invalid = [s for s in selected_scenarios if s not in SCENARIO_TO_ROAD_STRUCTURE]
     if invalid:
         print(f"❌ 以下场景不存在: {invalid}")
         return
-    
+
     try:
         max_routes = int(input("请输入每个场景采集的routes数量 (默认3): ") or "3")
     except:
         max_routes = 3
-    
+
     print(f"\n将采集 {len(selected_scenarios)} 个场景, 每个采集 {max_routes} 个routes")
     print("场景列表:")
     for i, scenario in enumerate(selected_scenarios, 1):
         print(f"  {i}. {scenario}")
-    
+
     confirm = input("\n是否继续? (y/n): ").strip().lower()
     if confirm != 'y':
         print("⏭️  已取消")
         return
-    
+
     collector = ScenarioCollector()
-    
+
     try:
         result = collector.collect_multiple_scenarios(selected_scenarios, max_routes)
-        
+
         print(f"\n✅ 采集完成!")
         print(f"  • 成功场景数: {result.get('scenarios_collected', 0)}")
         print(f"  • 总场景数: {result.get('total_scenarios', 0)}")
@@ -423,31 +425,31 @@ def collect_all_scenarios_ui():
     print("\n" + "="*70)
     print("模式4: 全部采集".center(70))
     print("="*70)
-    
+
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
-    
+
     print(f"\n⚠️  警告: 这将采集所有 {len(scenarios)} 个场景")
     print("这可能需要很长时间和大量磁盘空间！")
-    
+
     try:
         max_routes = int(input("请输入每个场景采集的routes数量 (默认2): ") or "2")
     except:
         max_routes = 2
-    
+
     print(f"\n预计采集 {len(scenarios)} × {max_routes} = {len(scenarios) * max_routes} 个routes")
-    
+
     confirm = input("确实要继续? (yes/no): ").strip().lower()
     if confirm != 'yes':
         print("⏭️  已取消")
         return
-    
+
     collector = ScenarioCollector()
-    
+
     print(f"\n开始采集所有 {len(scenarios)} 个场景...")
-    
+
     try:
         result = collector.collect_all_scenarios(max_routes)
-        
+
         print(f"\n✅ 采集完成!")
         print(f"  • 成功场景数: {result.get('scenarios_collected', 0)}")
         print(f"  • 总场景数: {result.get('total_scenarios', 0)}")
@@ -478,17 +480,17 @@ def run_analysis_ui():
     print("\n" + "="*70)
     print("多角度结构分析".center(70))
     print("="*70)
-    
+
     output_dir = Path(__file__).resolve().parent / "collection_output"
     result_files = list(output_dir.glob("*_result.json"))
-    
+
     if not result_files:
         print("\n❌ 没有找到采集结果文件")
         print("请先运行采集操作")
         return
-    
+
     print(f"\n找到 {len(result_files)} 个采集结果文件")
-    
+
     all_results = {}
     for result_file in result_files:
         try:
@@ -499,16 +501,16 @@ def run_analysis_ui():
                     all_results[scenario] = result
         except:
             pass
-    
+
     if not all_results:
         print("❌ 没有有效的采集结果")
         return
-    
+
     print(f"\n分析 {len(all_results)} 个场景的采集结果...\n")
-    
+
     analyzer = StructureAnalyzer(all_results)
     analyzer.print_summary()
-    
+
     report_file = output_dir / "structure_analysis_report.json"
     analyzer.generate_report(str(report_file))
     print(f"\n✓ 完整报告已保存: {report_file}")
@@ -561,7 +563,7 @@ Web应用功能:
         print(f"访问地址: http://localhost:{port}")
 
     print("="*70 + "\n")
-    
+
     try:
         from web_app import app
         # 在交互式菜单中关闭 reloader，避免子进程重启后主菜单再次出现
@@ -577,16 +579,16 @@ def list_scenarios_ui():
     print("\n" + "="*70)
     print("支持的场景列表".center(70))
     print("="*70)
-    
+
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
     print(f"\n总共 {len(scenarios)} 个场景:\n")
-    
+
     for i, scenario in enumerate(scenarios, 1):
         roads = SCENARIO_TO_ROAD_STRUCTURE[scenario]
         events = SCENARIO_TO_FINE_EVENTS.get(scenario, [])
-        
+
         print(f"{i:2d}. {scenario:40s} | 道路: {len(roads)} | 事件: {len(events)}")
-    
+
     print("\n" + "="*70)
 
 
@@ -932,6 +934,9 @@ def _index_lead_routes_for_scenario(lead_data_root: Path, scenario: str) -> Dict
         return {}
     out = {}
     for route_dir in sorted(p for p in scenario_dir.iterdir() if p.is_dir()):
+        should_exclude, _abnormal_info = is_abnormal_lead_route(route_dir, scenario)
+        if should_exclude:
+            continue
         route_num = _extract_route_num(route_dir.name)
         if route_num:
             out.setdefault(route_num, route_dir)
@@ -1190,7 +1195,10 @@ def _town_audit_summary(kind: str, town_entry: Dict[str, Any]) -> Dict[str, Any]
         })
 
     unsupported = [item for item in assumptions if not item["supported"]]
-    expected_samples = min(3, int(town_entry.get("xml_count", 0) or 0))
+    readable_lead_runs = int(town_entry.get("readable_lead_run_count", 0) or 0)
+    expected_samples = min(5, int(town_entry.get("xml_count", 0) or 0))
+    if readable_lead_runs > 0:
+        expected_samples = min(expected_samples, readable_lead_runs)
     complete_inputs = {
         "xml_sample_sufficient": len(samples) >= expected_samples,
         "xodr_available": xodr_available,
@@ -1265,7 +1273,7 @@ def _build_scenario_policy_plan(scenario: str, scenario_entry: Dict[str, Any]) -
             "per_town_audit_sample_requested": scenario_entry.get("samples_per_town", 3),
             "sampled_xml_total": sampled_xml_count,
             "sampled_route_ids_by_town": town_sampled_route_ids,
-            "note": "每个 town 抽至少 3 条 route/id 是为了观察该场景在这个 town 的数据形态、检查规则假设是否站得住；不是把“3 个不同 id”当成标签生成条件。",
+            "note": "每个 town 抽至少 5 条 route/id 是为了观察该场景在这个 town 的数据形态、检查规则假设是否站得住；不是把“5 个不同 id”当成标签生成条件。",
         },
         "xodr_contract": {
             "towns_with_xodr": sorted(xodr_available_towns),
@@ -1284,7 +1292,7 @@ def _build_scenario_policy_plan(scenario: str, scenario_entry: Dict[str, Any]) -
             "is_complete": len(complete_towns) == len(towns) and bool(towns),
             "complete_towns": sorted(complete_towns),
             "incomplete_towns": incomplete_towns,
-            "definition": "每个有 XML 的 town 至少审计 min(3, xml_count) 条分散 route/id，并且这些样本同时有 XML、XODR 静态画像、可读 LEAD meta 摘要，才算该场景调研完整。",
+            "definition": "每个有 XML 的 town 至少审计 min(5, xml_count, readable_lead_run_count if >0) 条分散 route/id，并且这些样本同时有 XML、XODR 静态画像、可读 LEAD meta 摘要，才算该场景调研完整。",
         },
         "frame_primary_rules": template["primary_rules"],
         "arbitration": [
@@ -1426,7 +1434,7 @@ def main():
     while True:
         print_main_menu()
         choice = input("请选择 (1-9): ").strip()
-        
+
         if choice == '1':
             collect_one_scenario_all_ui()
         elif choice == '2':
@@ -1448,7 +1456,7 @@ def main():
             break
         else:
             print("❌ 无效选择")
-        
+
         if choice not in ['6']:  # Web应用特殊处理
             input("\n按 Enter 继续...")
 

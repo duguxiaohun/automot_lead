@@ -33,6 +33,8 @@ _AUTOMOT_ROOT = _THIS_FILE.parents[2]
 if str(_AUTOMOT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AUTOMOT_ROOT))
 
+from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
+
 
 def _has_route_layout(path: Path) -> bool:
     """判断 ``path`` 本身是否是 LEAD route 目录。"""
@@ -192,9 +194,16 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
     scenario_route_counts: Counter[str] = Counter()
     route_count = 0
     skipped_routes = 0
+    skipped_abnormal_routes = 0
 
     for route_dir in _iter_route_dirs(data_root):
         route_count += 1
+        scenario, route_id = _route_name(data_root, route_dir)
+        should_exclude, _abnormal_info = is_abnormal_lead_route(route_dir, scenario)
+        if should_exclude:
+            skipped_routes += 1
+            skipped_abnormal_routes += 1
+            continue
         frame_count = _count_frames(route_dir)
         first_anchor = max(history_margin, args.min_anchor)
         last_anchor_exclusive = frame_count - future_frame_margin
@@ -204,7 +213,6 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
 
         # LEAD 数据是 4Hz，``stride=5`` 大约表示相邻 anchor 间隔 1 秒。
         anchors = list(range(first_anchor, last_anchor_exclusive, max(1, args.stride)))
-        scenario, route_id = _route_name(data_root, route_dir)
         scenario_route_counts[scenario] += 1
         # 不再做 lzma/pickle 预校验：每 anchor 6 次解压在大数据集上让构建从分钟级
         # 变成几小时；train 已经有 DDP-safe 占位 loss 兜底坏样本，预校验不再必要。
@@ -314,6 +322,8 @@ def _build_samples(args: argparse.Namespace) -> tuple[list[dict], dict]:
         "data_root": str(data_root),
         "route_count": route_count,
         "skipped_routes": skipped_routes,
+        "skipped_abnormal_duration_routes": skipped_abnormal_routes,
+        "abnormal_duration_rule": "exclude duration_s > 90 unless scenario is BlockedIntersection or ControlLoss",
         "samples": len(samples),
         "scenario_stats": scenario_stats,
     }

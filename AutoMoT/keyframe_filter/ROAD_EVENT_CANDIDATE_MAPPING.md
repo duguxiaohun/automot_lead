@@ -12,6 +12,31 @@
 `ROAD_STRUCTURE` 表示驾驶决策规则空间，不是纯物理几何。它的作用是先限定当前帧应使用哪套通行规则，
 再在这套规则下选择事件。
 
+XML / 数据命名必须沿用本项目 `lead_data` 到 `data/lead` 的固定映射，不能只提取数字 route：
+
+```text
+lead_data/<Scenario>/<run_id>
+  -> parse (Scenario, Town, route_key)
+  -> data/lead/<Scenario>/<Town>_<route_key>.xml
+```
+
+解析 `run_id` 时，`Scenario` 必须取父目录；先剥末尾 `MM_DD_HH_MM_SS` 时间戳，再只在存在时剥尾部采集后缀
+`_route0`，剩余部分就是 `route_key`。`Town12_route15` 里的 `route15` 是 key 本体，不能剥，也不能要求它带
+`_route0`。文件名公式固定为：`route_key` 以 `route_` 开头时用 `<Town>_<route_key>.xml`，否则用
+`<Town>_route_<route_key>.xml`。示例：
+
+```text
+Town03_Rep0_route_001783_route0_... -> data/lead/<Scenario>/Town03_route_001783.xml
+Town12_Rep0_1054_0_route0_...       -> data/lead/<Scenario>/Town12_route_1054_0.xml
+Town06_Rep0_Town06_13_route0_...    -> data/lead/<Scenario>/Town06_route_Town06_13.xml
+Town12_Rep0_Town12_route15_...      -> data/lead/<Scenario>/Town12_route_Town12_route15.xml
+```
+
+2026-07-03 全量核对结果：`lead_data` 9715 个 run 去重后 9294 个 `(Scenario,Town,route_key)`，
+`data/lead` 正好 9294 个 XML，缺失 0、冗余 0、命名不规范 0、XML 解析失败 0、内容结构异常 0。
+40 个 XML 的 `data_routes` 源在其它 scenario 目录，不是缺失；现有
+`ParkedObstacle/Town12_route_Town12_route15.xml` 覆盖有效，不能当作 `xml_available=false`。
+
 `EVENTS` 允许多选。常规事件表示背景驾驶任务，突发事件表示安全关键打断。例如：
 
 ```text
@@ -192,6 +217,18 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 1. 读取 scenario，查第 3 节得到 ROAD_STRUCTURE 候选。
 2. Qwen step1 从 ROAD_STRUCTURE 候选中选当前帧规则空间。
 3. 根据第 4 节取该 ROAD_STRUCTURE 的事件候选，再与第 5 节的 scenario 精细事件候选求交集。
+
+本轮 ROAD_STRUCTURE 5-id/town 调研后，EVENT 候选还必须遵守以下依赖：
+
+- EVENT 不反推 RS。`HardBreakRoute`、`ControlLoss`、`DynamicObjectCrossing`、
+  `BlockedIntersection`、`OppositeVehicleRunningRedLight` 的异常只进入 EVENT/span，
+  primary RS 仍由 XML/XODR/meta 的道路结构证据决定。
+- `TwoWays` 只让候选池包含 R2/U-E2，不代表全程 R2；只有 RS 输出为 R2 时才开放对向绕行相关事件。
+- `Parking*` 只让候选池包含 R6/停车区事件，不代表全程 R6；灯控路口段仍优先 R4。
+- `EnterFlow` 名称不等于 R3；只有 `highway_merge/interurban` 规则族且 XODR merge/highway 证据成立时，
+  EVENT 才按 R3 的高速/合流规则空间收窄。
+- `CrossJunctionDefectTrafficLight` 的 RS 由 defect 机制强制 R5；EVENT 选择 U-E7/R-E5 时不要再被
+  XODR signal 存在性拉回 R4。
 
 伪代码：
 

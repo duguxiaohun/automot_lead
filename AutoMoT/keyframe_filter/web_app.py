@@ -46,14 +46,14 @@ def get_scenario_info(scenario):
     """获取场景信息"""
     if scenario not in SCENARIO_TO_ROAD_STRUCTURE:
         return jsonify({"error": "Scenario not found"}), 404
-    
+
     # 尝试加载采集结果
     result_file = COLLECTION_OUTPUT / f"{scenario}_result.json"
     result = None
     if result_file.exists():
         with open(result_file, 'r') as f:
             result = json.load(f)
-    
+
     return jsonify({
         "scenario": scenario,
         "road_structures": [rs.value for rs in SCENARIO_TO_ROAD_STRUCTURE[scenario]],
@@ -70,7 +70,7 @@ def get_scenario_routes(scenario):
     scenario_dir = LEAD_DATA_ROOT / scenario
     if not scenario_dir.exists():
         return jsonify({"error": "Scenario directory not found"}), 404
-    
+
     routes = sorted([d.name for d in scenario_dir.iterdir() if d.is_dir()])
     return jsonify({"scenario": scenario, "routes": routes})
 
@@ -82,19 +82,19 @@ def get_route_frames(scenario, route_id):
     result_file = COLLECTION_OUTPUT / f"{scenario}_result.json"
     if not result_file.exists():
         return jsonify({"error": "No collection result"}), 404
-    
+
     with open(result_file, 'r') as f:
         result = json.load(f)
-    
+
     route_data = None
     for route in result.get('routes', []):
         if route.get('route_id') == route_id:
             route_data = route
             break
-    
+
     if not route_data:
         return jsonify({"error": "Route not found"}), 404
-    
+
     frames = route_data.get('annotations', [])
     return jsonify({
         "scenario": scenario,
@@ -181,7 +181,7 @@ def get_frame_data(scenario, route_id, frame_id):
             img.save(buffer, format='JPEG')
             img_base64 = base64.b64encode(buffer.getvalue()).decode()
             mime = "jpeg"
-        
+
         # 获取标注
         result_file = COLLECTION_OUTPUT / f"{scenario}_result.json"
         annotation = None
@@ -194,13 +194,13 @@ def get_frame_data(scenario, route_id, frame_id):
                         if ann['frame_id'] == frame_id:
                             annotation = ann
                             break
-        
+
         return jsonify({
             "frame_id": frame_id,
             "image_base64": f"data:image/{mime};base64,{img_base64}",
             "annotation": annotation,
         })
-    
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -286,22 +286,22 @@ HTML_TEMPLATE = """
         }
         h1 { font-size: 28px; margin-bottom: 5px; }
         .subtitle { font-size: 14px; opacity: 0.9; }
-        
+
         .layout {
             display: grid;
             grid-template-columns: 300px 1fr;
             gap: 20px;
         }
-        
+
         .panel {
             background: white;
             border-radius: 8px;
             padding: 15px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
-        
+
         .control-panel h2 { font-size: 18px; margin-bottom: 15px; color: #333; }
-        
+
         .control-group {
             margin-bottom: 20px;
         }
@@ -324,7 +324,7 @@ HTML_TEMPLATE = """
             border-color: #667eea;
             box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
         }
-        
+
         .btn {
             width: 100%;
             padding: 10px;
@@ -338,13 +338,13 @@ HTML_TEMPLATE = """
             transition: 0.3s;
         }
         .btn:hover { background: #764ba2; }
-        
+
         .content-panel {
             display: grid;
             grid-template-rows: auto 1fr auto;
             gap: 15px;
         }
-        
+
         .tabs {
             display: flex;
             gap: 10px;
@@ -363,7 +363,7 @@ HTML_TEMPLATE = """
             color: #667eea;
         }
         .tab:hover { color: #667eea; }
-        
+
         .tab-content {
             display: none;
             height: 600px;
@@ -376,7 +376,7 @@ HTML_TEMPLATE = """
             grid-template-rows: auto auto;
             gap: 12px;
         }
-        
+
         .image-container {
             text-align: center;
             background: #f9f9f9;
@@ -393,7 +393,7 @@ HTML_TEMPLATE = """
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         }
-        
+
         .info-panel {
             background: #f9f9f9;
             padding: 15px;
@@ -409,7 +409,7 @@ HTML_TEMPLATE = """
         .info-row:last-child { border-bottom: none; }
         .info-label { font-weight: bold; color: #666; }
         .info-value { color: #333; }
-        
+
         .tag {
             display: inline-block;
             background: #667eea;
@@ -420,7 +420,7 @@ HTML_TEMPLATE = """
             font-size: 11px;
         }
         .tag.event { background: #f093fb; }
-        
+
         .video-container {
             background: #000;
             border-radius: 8px;
@@ -430,7 +430,7 @@ HTML_TEMPLATE = """
             width: 100%;
             height: auto;
         }
-        
+
         .status { text-align: center; color: #666; font-size: 12px; padding: 10px; }
         .status.loading { color: #667eea; }
         .status.error { color: #e74c3c; }
@@ -443,40 +443,40 @@ HTML_TEMPLATE = """
             <h1>🎬 场景事件采集可视化系统</h1>
             <p class="subtitle">选择场景、路线、帧号查看RGB图像和分类标签 | 支持视频播放</p>
         </header>
-        
+
         <div class="layout">
             <div class="panel control-panel">
                 <h2>控制面板</h2>
-                
+
                 <div class="control-group">
                     <label>场景选择</label>
                     <select id="scenarioSelect" onchange="onScenarioChange()">
                         <option value="">-- 选择场景 --</option>
                     </select>
                 </div>
-                
+
                 <div class="control-group">
                     <label>路线ID</label>
                     <select id="routeSelect" onchange="onRouteChange()">
                         <option value="">-- 选择路线 --</option>
                     </select>
                 </div>
-                
+
                 <div class="control-group">
                     <label>帧号</label>
                     <select id="frameSelect" onchange="onFrameChange()">
                         <option value="">-- 选择帧 --</option>
                     </select>
                 </div>
-                
+
                 <div class="control-group">
                     <label>帧号（数字输入）</label>
                     <input type="number" id="frameInput" min="0" onchange="onFrameInputChange()" placeholder="直接输入帧号">
                 </div>
-                
+
                 <button class="btn" onclick="loadFrame()">加载帧数据</button>
                 <button class="btn" onclick="loadVideo()" style="background: #f093fb; margin-top: 10px;">加载视频</button>
-                
+
                 <div style="margin-top: 30px; padding: 15px; background: #f0f4ff; border-radius: 8px;">
                     <h3 style="font-size: 14px; margin-bottom: 10px;">ℹ️ 场景信息</h3>
                     <div id="scenarioInfo" style="font-size: 12px; line-height: 1.6;">
@@ -484,7 +484,7 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
             </div>
-            
+
             <div class="panel content-panel">
                 <div class="tabs">
                     <div class="tab active" onclick="switchTab('image', event)">📷 RGB图像</div>
@@ -543,12 +543,12 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="status" id="status"></div>
             </div>
         </div>
     </div>
-    
+
     <script>
         let routeFrames = [];
         let routeAnnotationsByFrame = {};
@@ -556,7 +556,7 @@ HTML_TEMPLATE = """
         // 初始化
         loadScenarios();
         bindVideoEvents();
-        
+
         function loadScenarios() {
             fetch('/api/scenarios')
                 .then(r => r.json())
@@ -570,11 +570,11 @@ HTML_TEMPLATE = """
                     });
                 });
         }
-        
+
         function onScenarioChange() {
             const scenario = document.getElementById('scenarioSelect').value;
             if (!scenario) return;
-            
+
             // 更新场景信息
             fetch(`/api/scenario/${scenario}/info`)
                 .then(r => r.json())
@@ -588,7 +588,7 @@ HTML_TEMPLATE = """
                         <p><strong>Route数:</strong> ${data.num_routes}</p>
                     `;
                 });
-            
+
             // 加载routes
             fetch(`/api/scenario/${scenario}/routes`)
                 .then(r => r.json())
@@ -603,7 +603,7 @@ HTML_TEMPLATE = """
                     });
                 });
         }
-        
+
         function onRouteChange() {
             const scenario = document.getElementById('scenarioSelect').value;
             const route = document.getElementById('routeSelect').value;
@@ -650,13 +650,13 @@ HTML_TEMPLATE = """
                 })
                 .catch(e => setStatus('错误: ' + e.message, 'error'));
         }
-        
+
         function onFrameChange() {
             const frame = document.getElementById('frameSelect').value;
             document.getElementById('frameInput').value = frame;
             updateAnnotationFromCurrentFrame('手动选择帧');
         }
-        
+
         function onFrameInputChange() {
             const frame = document.getElementById('frameInput').value;
             if (frame !== '') {
@@ -664,19 +664,19 @@ HTML_TEMPLATE = """
             }
             updateAnnotationFromCurrentFrame('手动输入帧号');
         }
-        
+
         function loadFrame() {
             const scenario = document.getElementById('scenarioSelect').value;
             const route = document.getElementById('routeSelect').value;
             const frameSelectValue = document.getElementById('frameSelect').value;
             const frameInputValue = document.getElementById('frameInput').value;
             const frame = frameInputValue !== '' ? frameInputValue : frameSelectValue;
-            
+
             if (!scenario || !route || frame === '') {
                 setStatus('请选择场景、路线和帧', 'error');
                 return;
             }
-            
+
             setStatus('加载中...', 'loading');
             fetch(`/api/frame/${scenario}/${route}/${frame}`)
                 .then(r => r.json().then(data => ({ ok: r.ok, data })))
@@ -690,7 +690,7 @@ HTML_TEMPLATE = """
                     img.src = data.image_base64;
                     img.style.display = 'block';
                     document.getElementById('imagePlaceholder').style.display = 'none';
-                    
+
                     // 显示标注
                     const ann = data.annotation;
                     renderAnnotation(scenario, route, frame, ann, '图像帧加载');
@@ -698,21 +698,21 @@ HTML_TEMPLATE = """
                     if (ann) {
                         routeAnnotationsByFrame[String(frame)] = ann;
                     }
-                    
+
                     setStatus('✓ 加载成功', 'success');
                 })
                 .catch(e => setStatus('错误: ' + e.message, 'error'));
         }
-        
+
         function loadVideo() {
             const scenario = document.getElementById('scenarioSelect').value;
             const route = document.getElementById('routeSelect').value;
-            
+
             if (!scenario || !route) {
                 setStatus('请选择场景和路线', 'error');
                 return;
             }
-            
+
             setStatus('加载视频中...', 'loading');
             fetch(`/api/video/${scenario}/${route}`)
                 .then(r => r.json().then(data => ({ ok: r.ok, data })))
@@ -804,7 +804,7 @@ HTML_TEMPLATE = """
                 document.getElementById('infoReason').textContent = '该帧未找到标注';
             }
         }
-        
+
         function switchTab(tab, eventObj) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -822,7 +822,7 @@ HTML_TEMPLATE = """
 
             document.getElementById(tab + 'Tab').classList.add('active');
         }
-        
+
         function setStatus(msg, type) {
             const status = document.getElementById('status');
             status.textContent = msg;
@@ -855,5 +855,5 @@ if __name__ == '__main__':
     print("  3. 分类标签展示")
     print("  4. 视频播放（支持进度条）")
     print("\n" + "="*60 + "\n")
-    
+
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -67,6 +67,7 @@ from qwen3vl_local.prompt_pipeline import (  # noqa: E402
     build_user_prompt,
     get_full_sequence,
 )
+from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -568,10 +569,15 @@ def main():
     # 按 scenario 分桶并构造时间轴。
     timelines_by_scenario: Dict[str, List[RunTimeline]] = defaultdict(list)
     n_skipped = Counter()
+    data_root = pathlib.Path(args.data_root)
     for run in runs:
         tl = build_run_timeline(run)
         if tl is None:
             n_skipped[run.get("status", "Unknown")] += 1
+            continue
+        should_exclude, _abnormal_info = is_abnormal_lead_route(data_root / tl.scenario / tl.run_id, tl.scenario)
+        if should_exclude:
+            n_skipped["abnormal_duration_over_90s"] += 1
             continue
         timelines_by_scenario[tl.scenario].append(tl)
     print(f"[filter] kept {sum(len(v) for v in timelines_by_scenario.values())} runs; "
@@ -647,6 +653,8 @@ def main():
     with open(stats_path, "w", encoding="utf-8") as f:
         json.dump({
             "config": vars(args),
+            "abnormal_duration_rule": "exclude duration_s > 90 unless scenario is BlockedIntersection or ControlLoss",
+            "skipped_runs": dict(n_skipped),
             "scenario_stats": scenario_stats,
             "train_size": len(train_samples),
             "val_size": len(val_samples),

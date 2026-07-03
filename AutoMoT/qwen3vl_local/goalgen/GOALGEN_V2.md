@@ -61,6 +61,10 @@ Qwen、VAE 默认冻结。patch/unpatch 默认从
 
 ## 构建数据
 
+构建前会自动剔除异常时长 LEAD route：4Hz 下 `rgb/*.jpg >= 361`
+（严格大于 90s）且不在 `BlockedIntersection/ControlLoss` 白名单内的 run
+不会进入 train/val；统计写入 `stats.json.skipped_runs`。
+
 ```bash
 python qwen3vl_local/goalgen/build_dataset.py \
   --mode v2 \

@@ -2,7 +2,7 @@
 
 逻辑：
 - 扫 `<eval_base>/<signature>/eval_per_route/eval_<route_id>.json`（launcher 落盘的逐 route 结果）
-- 根据 `lead/data/benchmark_routes/bench2drive220/<Scenario>/<route_id>.xml` 建反向映射
+- 根据 `data/lead/<Scenario>/<Town>_<route_key>.xml` 建反向映射
 - 按 scenario 聚合 leaderboard 给的 score_composed / score_route / score_penalty
 - 输出 summary_all.json、summary_report.md、scenario_table.csv、route_results.csv
   与 scenarios/<Scenario>/summary.json

@@ -233,9 +233,19 @@ target point / LiDAR 点数，每次模型推理打一行 `INFER step=... dt=...
 ## 6. 场景反向映射 + 聚合
 
 `scenario_picker.py` 从 `AutoMoT/` 当前目录扫
-`../lead/data/benchmark_routes/bench2drive220/` 建反向
-`route_id → [scenario, ...]` 映射；CLI `--scenario` / `--route-id` / `--random N --seed K` /
-`--list-scenarios`。
+`data/lead/` 建反向
+`route_id → [scenario, ...]` 映射；本地 XML 命名规范固定为
+`data/lead/<Scenario>/<Town>_<route_key>.xml`，旧数字 route 用
+`Town03_route_001783.xml`，新版子编号用 `Town12_route_1054_0.xml`，命名本身带
+Town 的 legacy key 用 `Town06_route_Town06_13.xml`，legacy key 内部带 route 编号时
+保留完整 key，如 `Town12_route_Town12_route15.xml`。从 run 目录解析 route_key 时
+只剥采集尾缀 `_route0`，不能剥 `Town12_route15` 本体里的 `route15`。CLI
+`--scenario` / `--route-id` / `--random N --seed K` / `--list-scenarios`。
+2026-07-03 全量核对确认 `lead_data` 去重后的 9294 个 `(Scenario,Town,route_key)`
+均有对应 XML，缺失 0、冗余 0、命名不规范 0、XML 解析失败 0、内容结构异常 0。
+40 个 XML 的 `data_routes` 源在其它 scenario 目录，不是缺失；现有
+`ParkedObstacle/Town12_route_Town12_route15.xml` 虽未找到直接 `data_routes` 源，
+但覆盖有效，不能当作 `xml_available=false`。
 
 `aggregate.py` 把 `eval_per_route/eval_<route_id>.json` 里的 leaderboard route record
 按 scenario 聚合，写到 `runs/<RUN_LABEL>/scenarios/<Scenario>/summary.json`、

@@ -11,10 +11,60 @@
 - XML 的 `trigger_point` 是 scenario 机制锚点，不是事件可见起点，也不是结构标签的唯一依据。
 - XODR 给“道路拓扑是否支持该结构”；meta 给“当前帧是否处在该结构/灯态/活跃窗口”；XML 给“该 run 的场景先验和地理窗口”。
 - 每帧输出一个训练主标签 `primary_road_structure`，可附带少量 `secondary_road_structures` 用于审计。
+- 逐场景规则必须遵守 `ROAD_STRUCTURE_SCENARIO_RESEARCH_PROTOCOL.md`：每个 scenario 单独建调研文件夹，
+  覆盖其全部 town，每个 town 至少读 5 条分散 run，并把 XML、XODR、LEAD meta/RGB、自车历史轨迹
+  在地图上对齐后，才能把该 scenario 的规则标为 complete。
+- 每个 scenario 的阈值都必须能回指到调研产物：`maps/*route_trigger_ego_trace.png`、
+  `rgb/*sample_contact_sheet.jpg`、`meta/*__frame_features.jsonl`、`xml/*__xml_summary.json`
+  和 `xodr/*__xodr_summary.json`。没有这些证据的阈值只能是临时默认值，不能作为最终规则。
 
 ---
 
 ## 0. 可用输入与实现边界
+
+### 0.0 逐场景调研先于代码
+
+后续任何 RS 分支都按下面顺序推进：
+
+```text
+lead_data 异常时长过滤
+  -> data/lead/CARLA_0915 三源采样
+  -> 为该 scenario 写机制假设: approach/core/exit 阶段可能的 RS
+  -> 每场景每 town 至少 5 条 run 或全量可读 run
+  -> XML route/trigger + ego trace + XODR topology 地图对齐
+  -> RGB contact sheet / boundary frames 人工核验
+  -> thresholds.json + confidence_policy.json + failure_modes.md
+  -> collector.py / quick_start.py / frame_annotation_logic.py 规则实现
+  -> sampled runs 回放验证
+```
+
+异常时长过滤是硬前置：4Hz 下 `rgb/*.jpg >= 361`（严格大于 90s）且不在
+`BlockedIntersection/ControlLoss` 白名单内的 run 必须剔除。某个 town 若没有任何可读 meta run，
+可以记录缺口并跳过；其它有可读 meta 的 town 仍必须满足 5 个分散 id 或全量可读 run。
+
+如果某个 scenario 还没有完成上述闭环，运行时代码必须把输出标成临时状态：
+
+```text
+complete_investigation_status.is_complete=false
+review_required=true for boundary-sensitive frames
+threshold_source=temporary_default
+```
+
+规则实现不得只因为 scenario 名含 `TwoWays` / `Parking` / `Junction` 就全程输出 R2/R6/R4/R5。
+scenario 名只提供候选池和先验，帧级 primary 必须由 XML 窗口、XODR 拓扑、meta 状态和 RGB 审计共同约束。
+
+每个 scenario 的规则设计必须先能解释“为什么这一帧从 R1 进入目标 RS、为什么这一帧又退出目标 RS”。
+推荐把每个 scenario 写成四段式：
+
+```text
+approach: 还没有足够 XML/XODR/meta 证据时，通常保持 R1 或 route 拓扑本身的 RS
+pre-trigger: 接近 XML trigger，但需要 XODR 局部拓扑确认
+core: active scenario、finite dist_to_*、灯态/junction/merge/parking 等强证据成立
+exit: 离开 trigger/junction/merge/parking 窗口或 active scenario 清空后的恢复段
+```
+
+如果同一 scenario 在不同 town 呈现不同拓扑，必须在 scenario config 中记录 town-specific
+rule notes；不能用 Town12/Town13 的高速/大图经验覆盖 Town03/Town05 的紧凑路口，也不能反过来。
 
 ### 0.1 XML
 
@@ -24,13 +74,38 @@ XML 根目录：
 AutoMoT/data/lead/<Scenario>/*.xml
 ```
 
-本地 XML 覆盖 43 类 scenario。文件命名不完全统一，必须建多键索引：
+本地 XML 覆盖 43 类 scenario。命名规范固定为
+`AutoMoT/data/lead/<Scenario>/<Town>_<route_key>.xml`：
 
 ```text
-by_route_num: route_001783 / 001783
-by_route_id_raw: Town01_Scenario7_0 / Town01_route_Town01_Scenario7_0
-by_town_and_id: (Town, id)
+旧数字 route: Town03_route_001783.xml     -> route_key=route_001783
+新版子编号:   Town12_route_1054_0.xml     -> route_key=1054_0
+legacy key:    Town06_route_Town06_13.xml  -> route_key=Town06_13
+legacy routeN: Town12_route_Town12_route15.xml -> route_key=Town12_route15
 ```
+
+从 `lead_data/<Scenario>/<run_id>` 查 XML 时，`Scenario` 必须直接取 run 的父目录。
+解析 run_id 时，先剥末尾 `MM_DD_HH_MM_SS` 时间戳，再只在存在时剥尾部采集后缀
+`_route0`，剩余部分就是 route_key；`Town12_route15` 这类 legacy key 本体里的
+`route15` 不能剥，也不能要求它带 `_route0`。XML 文件名公式是：`route_key`
+以 `route_` 开头时用 `<Town>_<route_key>.xml`，否则用
+`<Town>_route_<route_key>.xml`。
+
+实现仍建议建多键索引，至少支持 `(scenario, town, route_key)`、旧数字 route 的
+`001783` / `route_001783` 互查，以及从 run 目录名直接提取的 raw route key。
+
+2026-07-03 全量核对结果：`lead_data` 9715 个 run 去重后得到 9294 个
+`(Scenario,Town,route_key)`；`AutoMoT/data/lead` 正好 9294 个 XML，缺失 0、冗余 0、
+命名不规范 0、XML 解析失败 0、内容结构异常 0。XML 内 `<weathis_juncer>`
+拼写已统一修正为 `<weather>`。
+
+反查 `AutoMoT/data/data_routes` 时，40 个 XML 的源文件位于不同 scenario 目录
+（36 个 `noScenarios`，4 个 `ConstructionObstacleTwoWays`），但都能按
+`(town, route_key)` 找到源 XML，不属于无法使用的 XML 缺失。标注与代码逻辑以
+`lead_data` / `data/lead` 的 scenario 目录为准。
+另有 `ParkedObstacle/Town12_route_Town12_route15.xml` 覆盖有效并与
+`lead_data/ParkedObstacle/Town12_Rep0_Town12_route15_*` 对应，但未在
+`AutoMoT/data/data_routes` 找到直接源文件；代码不能把它当作 XML 缺失。
 
 XML 统计显示很多 scenario 的 `waypoints` 极短：
 
@@ -40,21 +115,21 @@ XML 统计显示很多 scenario 的 `waypoints` 极短：
 
 所以 XML waypoint 只能做 route 粗投影；正式边界要优先用 meta 位姿 + XODR 吸附 + trigger 窗口。
 
-### 0.2 XML 缺失清单
+### 0.2 XML 缺失兜底
 
-`AutoMoT/data/lead/cache_lead_recheck_summary.json` 记录真实数据有但 XML 缺失的 run：
-
-- `ConstructionObstacleTwoWays`: 4 条，Town12，route id `001439/001485/001542/001554`。
-- `noScenarios`: 36 条，Town04/Town05/Town06/Town07/Town10HD。
-
-这些 run 走 `meta + XODR` 降级规则：
+当前全量核对没有发现真实数据有但 XML 缺失的 run。如果后续换数据版本或新增 run
+导致 XML 查不到，才走 `meta + XODR` 降级规则：
 
 ```text
 xml_available=false
-xml_missing_reason=listed_in_cache_lead_recheck_summary
+xml_missing_reason=not_found_in_AutoMoT_data_lead
 confidence_level<=medium
 review_required=true for R2/R3/R5/R6 and boundary-sensitive frames
 ```
+
+任何 XML 缺失都必须先从 `AutoMoT/data/data_routes` 按 `(town, route_key)` 全局搜索唯一源。
+不能因为源 XML 所在的 scenario 目录与目标 scenario 目录不同就判定不可补齐；当前本地已出现
+`noScenarios` 与 `ConstructionObstacleTwoWays` 从其它源目录补 XML 的情况。
 
 ### 0.3 XODR
 
@@ -148,6 +223,51 @@ R4/R5 > R3 > R2/R6 > R1
 - `CrossJunctionDefectTrafficLight`：R5 覆盖 R4，写 `defect_signal_overrides_R4`。
 - `VehicleOpensDoorTwoWays`：R2/R6 都可能成立，按“是否必须占用/等待对向车道”决定 primary。
 - `noScenarios`：没有 scenario 先验时，禁止单靠 XODR hint 升级 R2/R3/R5/R6；只允许高置信 R4，否则 R1。
+
+### 1.1 阈值来源结构
+
+每个 scenario 的 `rules/thresholds.json` 不允许只写数值，必须写成可追溯结构：
+
+```json
+{
+  "trigger_pre_m": {
+    "value": 35.0,
+    "unit": "m",
+    "source": "route_s_trigger_window",
+    "supporting_runs": ["Town12_Rep0_...", "Town13_Rep0_..."],
+    "reviewed_artifacts": [
+      "maps/Town12/...__route_trigger_ego_trace.png",
+      "rgb/Town12/...__sample_contact_sheet.jpg"
+    ],
+    "reason": "boundary frames show target RS starts after the approach bend, not at route start"
+  }
+}
+```
+
+运行时代码可以把这些值加载到 scenario config，但不能在分支里散落匿名 `35.0/60.0/80.0`
+这类 magic number。确实需要兜底时，变量名和 evidence 都要写 `temporary_default`。
+
+### 1.2 地图/RGB 对齐门槛
+
+用于调阈值的 sampled run 必须满足：
+
+- route projection median error <= 3.0m。
+- route projection p90 error <= 5.0m。
+- XML trigger 到 ego trace 最近距离 <= 20.0m。
+- XODR road/lane/junction 吸附在 ego trace 上连续，lane sign 跳变需要人工解释。
+- `maps/*route_trigger_ego_trace.png` 与 `rgb/*sample_contact_sheet.jpg` 已人工检查，
+  `README.md` 写 `map_rgb_alignment_status=checked_aligned` 或列明冲突。
+
+不满足门槛的 run 可以保留为失败模式或低置信复核样本，不能用来提升 high confidence。
+
+地图/RGB 对齐是阈值拟合前置条件，不是文档装饰。调阈值前必须至少检查：
+
+- `maps/*route_trigger_ego_trace.png`：XML route、trigger、自车轨迹、边界帧是否在同一地理结构上。
+- `rgb/*sample_contact_sheet.jpg`：每个抽样 id 的 first/middle/last 帧看到的道路结构是否支持地图判断。
+- `rgb/*__boundary_frames/`：RS 切换前后是否存在可见结构变化，或是否只是不可见的地图拓扑变化。
+
+如果 map 与 RGB 冲突，应先写入 `rules/failure_modes.md` 并降低对应帧置信度；
+不能直接改 magic number 把样本“拟合对”。
 
 ---
 
@@ -371,21 +491,21 @@ XML 事实：187 条；Town03/04/05/06/10HD/12/13；waypoints 2-82，均值 10.9
 
 ### 4.5 ConstructionObstacleTwoWays
 
-XML 事实：521 条；Town01/02/05/07/12/13/15；waypoints 2-68，均值 4.0；tags=`trigger_point/frequency/distance/front_vehicle_distance/behind_vehicle_distance/direction`。
+XML 事实：525 条；Town01/02/05/07/12/13/15；waypoints 2-68，均值 4.5；tags=`trigger_point/frequency/distance/front_vehicle_distance/behind_vehicle_distance/direction`。
 
 目标 RS：R1/R2/R4。
 
 主规则同 AccidentTwoWays；距离字段换成 `dist_to_construction_site`。
 
-缺 XML 特例：
+XML 对齐说明：
 
-- 4 条 Town12 run 没 XML。
-- 用 `current_active_scenario_type`、`dist_to_construction_site`、XODR opposite lane 判 medium R2。
-- 灯态仍可 high R4。
+- 旧记录里提到的 4 条 Town12 run 已能在 `data_routes` 按 `(town, route_key)` 找到源 XML，并已整理到 `AutoMoT/data/lead/ConstructionObstacleTwoWays/`。
+- 这些源文件原目录属于 `AccidentTwoWays`，但真实数据与本地整理后的 scenario 目录以 `lead_data` / `data/lead` 为准，不再按 XML 缺失降级。
+- 只有未来新增数据版本真的查不到 XML 时，才用 `current_active_scenario_type`、`dist_to_construction_site`、XODR opposite lane 判 medium R2；灯态仍可 high R4。
 
 否决/降级：
 
-- XML 缺失时 R2 最高 medium，边界帧 review。
+- 未来数据版本 XML 确认无法补齐时，R2 最高 medium，边界帧 review。
 
 输出 evidence：`r2_construction_twoways_window`、`xml_missing_r2_medium`。
 
@@ -739,7 +859,7 @@ XML 事实：94 条；Town12/13；waypoints 2-4，均值 2.4；tags=`trigger_poi
 
 ### 4.25 noScenarios
 
-XML 事实：1381 条；Town03/04/05/06/07/10HD/15；waypoints 2-9，均值 2.3；无 scenario tags。
+XML 事实：1417 条；Town03/04/05/06/07/10HD/15；waypoints 2-9，均值 2.3；无 scenario tags。
 
 目标 RS：R1/R4。
 
@@ -751,7 +871,7 @@ XML 事实：1381 条；Town03/04/05/06/07/10HD/15；waypoints 2-9，均值 2.3�
 否决/降级：
 
 - 没有 scenario 先验时，XODR opposite/parking/merge 只写 hint，不输出 R2/R3/R5/R6。
-- 缺 XML 的 36 条最高 medium，边界 review。
+- 旧记录里所谓缺 XML 的 36 条均可按 `(town, route_key)` 从 `data_routes` 的其它 scenario 目录找到源 XML，并已整理到 `AutoMoT/data/lead/noScenarios/`；不再按 XML 缺失降级。
 
 输出 evidence：`noscenario_conservative_r1`、`noscenario_tl_only_r4`。
 
@@ -1196,7 +1316,7 @@ run 级额外输出：
 当前代码层先按“保守增强”落地，不删除旧的强行填充候选：
 
 完整调研的硬标准：对每个 scenario，必须遍历其 XML 覆盖的所有 town；每个 town 至少读取
-`min(3, xml_count)` 条分散 route/id（首/中/尾，不只看连续前三条）；对这些样本同时读取
+`min(5, xml_count, readable_lead_run_count if >0)` 条分散 route/id（首/q1/中/q3/尾，不只看连续前五条）；对这些样本同时读取
 XML route/trigger/tag、XODR 静态几何/信号/路口近邻画像、以及可匹配 LEAD route 的
 `metas/*.pkl` first/mid/last 帧字段摘要。只有每个 town 都满足 XML + XODR + meta 三源可读，
 该 scenario 的 `complete_investigation_status.is_complete` 才能为 true。缺任何一源时不假装完成，
@@ -1222,7 +1342,7 @@ XML route/trigger/tag、XODR 静态几何/信号/路口近邻画像、以及可�
 - `XodrTopologyProbe` 在远端环境有 `carla` Python API 时，直接用 XODR 构造 `carla.Map`
   查询 lane/junction/opposite/parking/merge 证据；本地缺 API 时自动降级，不影响 XML+meta 规则；
 - `quick_start.py` 新增 `ROAD_STRUCTURE XML/XODR画像` 菜单项：逐 scenario 遍历所有 town，
-  每个 town 抽至少 3 条 route/id 的目的，是根据 XML route、trigger、scenario tag 与 XODR
+  每个 town 抽至少 5 条 route/id 的目的，是根据 XML route、trigger、scenario tag 与 XODR
   轻量画像观察“这个场景在该 town 的真实数据形态”，从而检查当前 policy 思路是否合理；
   这不是标签生成条件，也不是简单保证“3 个不同 id”。抽样按首/中/尾分散覆盖，避免只看连续
   前三个；同时记录 XODR 是否存在、junction/signal/controller 粗统计、waypoint 数、route
@@ -1231,7 +1351,7 @@ XML route/trigger/tag、XODR 静态几何/信号/路口近邻画像、以及可�
   `junction connection`，对每个抽样 XML 的 trigger、首/中/尾 waypoint 做静态近邻探针：
   估算最近 road、是否落在 junction road 附近、60m 内是否有 signal。该探针是审计证据，
   用于验证 R4/R5/R3/R2/R6 policy 假设，不替代运行时 meta 灯态和 CARLA waypoint 查询。
-- `quick_start.py` 同一画像入口新增 LEAD meta 审计：按 XML route id 反查
+- `quick_start.py` 同一画像入口新增 LEAD meta 审计：按 `(scenario,town,route_key)` 反查
   `AutoMoT/lead_data/<Scenario>/<run_id>/metas/*.pkl`（或用户输入的 `LEAD数据根目录`），
   对 first/mid/last meta 读取 `traffic_light_state/light_hazard`、
   `is_junction/is_intersection/dist_to_junction/distance_to_next_junction`、
@@ -1262,6 +1382,101 @@ XML route/trigger/tag、XODR 静态几何/信号/路口近邻画像、以及可�
 后续如果有完整 LEAD meta，可继续把 hysteresis、transition_margin 和 review_spans 从设计稿补成
 跨帧后处理；当前第一版已经能在单帧 annotation 中保存足够的 route/XML/XODR/meta evidence。
 
+### 7.2 新增硬性调研流程
+
+后续不再接受只基于 scenario 名称或单个 town 样本写 RS 规则。每个 scenario 的规则上线前必须完成：
+
+1. 列出该 scenario 在 `AutoMoT/lead_data` 中涉及的全部 town。
+2. 每个 town 抽 `first/q1/middle/q3/last` 五条 run；不足五条则全读可读 run。
+3. 读取并归档每条 run 对应 XML 的 route attr、weather、waypoints、scenario trigger/tag/参数。
+4. 读取该 town 的 XODR，生成 road/lane/junction/signal/controller/stop/yield/parking/shoulder/merge-split 摘要。
+5. 读取每条 run 的 LEAD meta first/middle/last 帧和关键边界帧，抽取 `pos_global/theta/speed`、
+   junction/light/active scenario/dist_to_* 等字段。
+6. 读取 RGB first/middle/last 和边界帧，生成 contact sheet。
+7. 生成地图 overlay：XML route、trigger、自车历史轨迹、关键帧位置、XODR junction/signal 近邻。
+8. 写出该 scenario 的 `rules/scenario_rule_design.md`，明确帧级 RS 切换边界、置信度、失败模式和阈值来源。
+
+推荐调研产物目录：
+
+```text
+keyframe_filter/collection_output/rs_research/<Scenario>/
+```
+
+该目录应包含 `README.md`、`town_index.json`、`sampled_runs.json`、`xml/`、`xodr/`、`meta/`、
+`rgb/`、`maps/`、`rules/`。这些产物默认不入库，但必须可重复生成；代码中的每个 scenario
+阈值和例外都要能追溯到这里的证据。
+
+如果某个 scenario 尚未完成上述调研，代码仍可输出临时标签，但 evidence 必须写：
+
+```text
+complete_investigation_status.is_complete=false
+```
+
+并列出未完成项，例如 `xodr_missing`、`meta_empty`、`rgb_not_reviewed`、`projection_untrusted`。
+
+### 7.3 5-id/town 调研后的逐场景规则边界矩阵
+
+本节把 `collection_output/rs_research/<Scenario>/rules/scenario_rule_design.md` 和
+`rules/thresholds.json` 汇总成实现入口。`sampled` 是本轮自动读取的可读 run 数；
+`auto-ok` 只表示 XML/XODR/meta/RGB 证据包已生成，人工 map/RGB 对齐未完成时仍保持
+`threshold_source=temporary_default` 和 `review_required` 通道。
+
+| Scenario | rule_kind | 候选 RS | towns | sampled | 初始阈值/边界 | 状态 | 缺口 |
+|---|---|---|---:|---:|---|---|---|
+| `Accident` | `same_direction_obstacle` | `R1, R4` | 7 | 35 | `junction_pre_m=60, junction_post_m=25, veto=no_r2/no_r6` | auto-ok | - |
+| `AccidentTwoWays` | `twoways_obstacle` | `R1, R2, R4` | 7 | 29 | `two_way_min_pre_m=45, two_way_post_pad_m=20, trigger_close_m=70` | auto-ok | - |
+| `BlockedIntersection` | `signalized_junction` | `R1, R4` | 4 | 20 | `junction_pre_m=60, junction_post_m=25, blocked_is_event_not_rs` | auto-ok | - |
+| `ConstructionObstacle` | `same_direction_obstacle` | `R1, R4` | 7 | 35 | `junction_pre_m=60, junction_post_m=25, veto=no_r2/no_r6` | auto-ok | - |
+| `ConstructionObstacleTwoWays` | `twoways_obstacle` | `R1, R2, R4` | 7 | 29 | `two_way_min_pre_m=45, two_way_post_pad_m=20, trigger_close_m=70` | auto-ok | - |
+| `ControlLoss` | `default_meta_map` | `R1, R4` | 10 | 50 | `junction_pre_m=50, junction_post_m=25, control_loss_not_rs` | auto-ok | - |
+| `CrossJunctionDefectTrafficLight` | `defect_junction` | `R1, R5` | 8 | 40 | `junction_pre_m=60, junction_post_m=20, override=r5_over_r4` | auto-ok | - |
+| `CrossingBicycleFlow` | `default_meta_map` | `R1, R4` | 1 | 5 | `junction_pre_m=50, junction_post_m=25, actor_flow_not_r3` | auto-ok | - |
+| `DynamicObjectCrossing` | `default_meta_map` | `R1, R4` | 10 | 50 | `junction_pre_m=50, junction_post_m=25, crossing_event_not_rs` | auto-ok | - |
+| `EnterActorFlow` | `highway_merge` | `R1, R3, R4` | 2 | 10 | `merge_pre_m=30, merge_post_m=40, trigger_close_m=90` | auto-ok | - |
+| `EnterActorFlowV2` | `highway_merge` | `R1, R3, R4` | 1 | 5 | `merge_pre_m=30, merge_post_m=40, trigger_close_m=90` | auto-ok | - |
+| `HardBreakRoute` | `default_meta_map` | `R1, R4` | 2 | 10 | `junction_pre_m=50, junction_post_m=25, brake_not_rs` | auto-ok | - |
+| `HazardAtSideLane` | `default_meta_map` | `R1, R4` | 2 | 10 | `junction_pre_m=50, junction_post_m=25, side_lane_not_twoways` | auto-ok | - |
+| `HazardAtSideLaneTwoWays` | `twoways_obstacle` | `R1, R2, R4` | 2 | 10 | `two_way_min_pre_m=70, two_way_post_pad_m=20, trigger_close_m=75` | auto-ok | - |
+| `HighwayCutIn` | `highway_merge` | `R1, R3, R4` | 2 | 10 | `merge_pre_m=40, merge_post_m=40, trigger_close_m=90` | auto-ok | - |
+| `HighwayExit` | `highway_merge` | `R1, R3, R4` | 2 | 10 | `merge_pre_m=50, merge_post_m=50, trigger_close_m=90` | auto-ok | - |
+| `InterurbanActorFlow` | `interurban` | `R1, R3, R4, R5` | 2 | 10 | `merge_pre_m=50, merge_post_m=45, junction_pre_m=55, junction_post_m=25` | auto-ok | - |
+| `InterurbanAdvancedActorFlow` | `interurban_advanced` | `R1, R4, R5` | 2 | 10 | `junction_pre_m=55, junction_post_m=25, r3_requires_topology=true` | auto-ok | - |
+| `InvadingTurn` | `invading_turn` | `R1, R2, R4` | 2 | 10 | `two_way_min_pre_m=80, two_way_post_pad_m=20, trigger_close_m=75` | auto-ok | - |
+| `MergerIntoSlowTraffic` | `highway_merge` | `R1, R3, R4` | 2 | 10 | `merge_pre_m=40, merge_post_m=50, trigger_close_m=90, keep_r3_when_slow=true` | auto-ok | - |
+| `MergerIntoSlowTrafficV2` | `highway_merge` | `R1, R3, R4` | 3 | 12 | `merge_pre_m=40, merge_post_m=50, trigger_close_m=90, keep_r3_when_slow=true` | auto-ok | - |
+| `NonSignalizedJunctionLeftTurn` | `nonsignalized_junction` | `R1, R5` | 6 | 28 | `junction_pre_m=50, junction_post_m=20` | auto-gap | `Town10HD:skipped_no_readable_meta` |
+| `NonSignalizedJunctionLeftTurnEnterFlow` | `nonsignalized_junction` | `R1, R5` | 7 | 30 | `junction_pre_m=60, junction_post_m=20, enter_flow_not_r3` | auto-ok | - |
+| `NonSignalizedJunctionRightTurn` | `nonsignalized_junction` | `R1, R5` | 2 | 10 | `junction_pre_m=45, junction_post_m=20` | auto-ok | - |
+| `OppositeVehicleRunningRedLight` | `signalized_junction` | `R1, R4` | 10 | 50 | `junction_pre_m=50, junction_post_m=20, violation_not_r5` | auto-ok | - |
+| `OppositeVehicleTakingPriority` | `nonsignalized_junction` | `R1, R5` | 2 | 10 | `junction_pre_m=50, junction_post_m=20` | auto-ok | - |
+| `ParkedObstacle` | `same_direction_obstacle` | `R1, R4` | 7 | 35 | `junction_pre_m=60, junction_post_m=25, parked_not_parking_rs` | auto-ok | - |
+| `ParkedObstacleTwoWays` | `twoways_obstacle` | `R1, R2, R4` | 2 | 10 | `two_way_min_pre_m=50, two_way_post_pad_m=20, trigger_close_m=70, parked_not_r6` | auto-ok | - |
+| `ParkingCrossingPedestrian` | `parking` | `R1, R4, R6` | 2 | 10 | `parking_pre_m=35, parking_post_m=60, pedestrian_not_rs` | auto-ok | - |
+| `ParkingCutIn` | `parking` | `R1, R4, R6` | 2 | 10 | `parking_pre_m=30, parking_post_m=50` | auto-ok | - |
+| `ParkingExit` | `parking_exit` | `R1, R4, R6` | 5 | 25 | `parking_pre_m=20, parking_post_m=60, parking_to_driving_transition` | auto-ok | - |
+| `PedestrianCrossing` | `pedestrian_crossing` | `R1, R4, R5` | 2 | 10 | `junction_pre_m=40, junction_post_m=40, pedestrian_not_rs` | auto-ok | - |
+| `PriorityAtJunction` | `nonsignalized_junction` | `R1, R5` | 2 | 10 | `junction_pre_m=50, junction_post_m=20` | auto-ok | - |
+| `RedLightWithoutLeadVehicle` | `signalized_junction` | `R1, R4` | 10 | 50 | `junction_pre_m=60, junction_post_m=20` | auto-ok | - |
+| `SignalizedJunctionLeftTurn` | `signalized_junction` | `R1, R4` | 11 | 55 | `junction_pre_m=60, junction_post_m=25` | auto-ok | - |
+| `SignalizedJunctionLeftTurnEnterFlow` | `signalized_junction` | `R1, R4` | 10 | 49 | `junction_pre_m=60, junction_post_m=25, enter_flow_not_r3` | auto-ok | - |
+| `SignalizedJunctionRightTurn` | `signalized_junction` | `R1, R4` | 10 | 46 | `junction_pre_m=50, junction_post_m=20` | auto-ok | - |
+| `StaticCutIn` | `static_cutin` | `R1, R3, R4, R6` | 2 | 10 | `parking_pre_m=35, parking_post_m=55, merge_pre_m=35, merge_post_m=55` | auto-ok | - |
+| `T_Junction` | `signalized_junction` | `R1, R4` | 6 | 30 | `junction_pre_m=50, junction_post_m=20, review_if_no_tl=true` | auto-ok | - |
+| `VehicleOpensDoorTwoWays` | `vehicle_opens_door_twoways` | `R1, R2, R4, R6` | 2 | 10 | `two_way_min_pre_m=50, two_way_post_pad_m=20, parking_pre_m=35, parking_post_m=55` | auto-ok | - |
+| `VehicleTurningRoute` | `vehicle_turning` | `R1, R4, R5` | 10 | 50 | `junction_pre_m=50, junction_post_m=20, multi_trigger=true` | auto-ok | - |
+| `VehicleTurningRoutePedestrian` | `vehicle_turning` | `R1, R4, R5` | 2 | 10 | `junction_pre_m=50, junction_post_m=40, pedestrian_not_rs` | auto-ok | - |
+| `noScenarios` | `noscenario` | `R1, R4` | 7 | 35 | `junction_pre_m=50, junction_post_m=25, conservative=true` | auto-ok | - |
+
+实现时不要只复制同一 rule_kind 的模板。每个 scenario 还要保留自己的例外：
+
+- `CrossJunctionDefectTrafficLight` 用 `defect_junction`，即使地图有 signal，也按 R5 override。
+- `SignalizedJunctionLeftTurnEnterFlow` 与 `NonSignalizedJunctionLeftTurnEnterFlow` 都 veto R3；
+  `EnterFlow` 是路口交互，不是 highway merge。
+- `ParkedObstacle` veto R6；`Parking*` 和 `ParkingExit` 才能在 parking/shoulder 结构窗口进入 R6。
+- `BlockedIntersection`、`OppositeVehicleRunningRedLight`、`HardBreakRoute` 的异常是 EVENT，
+  不是 RS；primary 仍由路口/道路结构决定。
+- `StaticCutIn` 是混合结构场景，后续错帧必须查 map/RGB，而不是只查 scenario 名。
+
 ---
 
 ## 8. 验收 sanity
@@ -1280,7 +1495,7 @@ XML route/trigger/tag、XODR 静态几何/信号/路口近邻画像、以及可�
 
 建议抽检：
 
-- 每类 scenario 随机 5 个 run。
+- 每个 scenario 的每个 town 抽 5 个分散 run；不足 5 个可读 run 时全量抽检。
 - 每个 run 抽 label 切换前后各 5 帧。
 - 每条 `review_required=true` 的 span 至少抽前 20 个。
 - 对所有 rules_fired 计数 top10 做人工看图，避免某个弱规则泛滥。

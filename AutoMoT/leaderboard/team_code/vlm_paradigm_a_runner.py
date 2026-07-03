@@ -1067,7 +1067,7 @@ class BaselineQwen3VLRunner:
 
         # keys: ['logits', 'past_key_values', 'rope_deltas']
         # 'logits': torch.Size([1, 2316, 151936])
-        # 'past_key_values': <class 'transformers.cache_utils.DynamicCache'>, 
+        # 'past_key_values': <class 'transformers.cache_utils.DynamicCache'>,
         # 'rope_deltas': torch.Size([1, 1])}
 
         past_key_values = outputs.past_key_values
@@ -1115,8 +1115,8 @@ class BaselineQwen3VLRunner:
                 prefix_len=prefix_len,
                 rope_deltas=rope_deltas,
             )
-            #  {'logits': torch.Size([1, 1, 151936]), 
-            # 'past_key_values': <class 'transformers.cache_utils.DynamicCache'>, 
+            #  {'logits': torch.Size([1, 1, 151936]),
+            # 'past_key_values': <class 'transformers.cache_utils.DynamicCache'>,
             # 'rope_deltas': torch.Size([1, 1])}
 
 

@@ -18,17 +18,18 @@ from typing import Sequence
 DEFAULT_DATA_ROOT = pathlib.Path("/datashare/IOL4SGH/data/data")
 DEFAULT_OUTPUT_ROOT = pathlib.Path("/data/lead_video")
 DEFAULT_FPS = 4.0
-DEFAULT_POSSIBLE_ABNORMAL_MIN_SECONDS = 90.0
-DEFAULT_CONFIRMED_ABNORMAL_MIN_SECONDS = 100.0
+DEFAULT_ABNORMAL_MIN_SECONDS = 90.0
+DEFAULT_POSSIBLE_ABNORMAL_MIN_SECONDS = DEFAULT_ABNORMAL_MIN_SECONDS
+DEFAULT_CONFIRMED_ABNORMAL_MIN_SECONDS = DEFAULT_ABNORMAL_MIN_SECONDS
 DEFAULT_FILTER_DIR = pathlib.Path(__file__).resolve().parent / "abnormal_duration_filter"
 DEFAULT_PROGRESS_INTERVAL = 20
 DEFAULT_ABNORMAL_DURATION_SCENARIO_ALLOWLIST = frozenset({"BlockedIntersection", "ControlLoss"})
-DEFAULT_POSSIBLE_DURATION_SCENARIO_ALLOWLIST = frozenset({"Accident"})
-DEFAULT_POSSIBLE_DURATION_SCENARIO_PREFIX_ALLOWLIST = ("park", "dynamic")
+DEFAULT_POSSIBLE_DURATION_SCENARIO_ALLOWLIST = frozenset()
+DEFAULT_POSSIBLE_DURATION_SCENARIO_PREFIX_ALLOWLIST: tuple[str, ...] = ()
 ABNORMAL_POSSIBLE_FILE = "abnormal_possible_90s_to_100s.txt"
-ABNORMAL_CONFIRMED_FILE = "abnormal_confirmed_over_100s.txt"
+ABNORMAL_CONFIRMED_FILE = "abnormal_confirmed_over_90s.txt"
 LEGACY_ABNORMAL_POSSIBLE_FILES = ("abnormal_possible_90s_to_120s.txt",)
-LEGACY_ABNORMAL_CONFIRMED_FILES = ("abnormal_confirmed_over_120s.txt",)
+LEGACY_ABNORMAL_CONFIRMED_FILES = ("abnormal_confirmed_over_100s.txt", "abnormal_confirmed_over_120s.txt")
 ABNORMAL_SUMMARY_FILE = "abnormal_duration_summary.json"
 
 
@@ -79,14 +80,65 @@ def classify_abnormal_duration(
     possible_min_seconds: float = DEFAULT_POSSIBLE_ABNORMAL_MIN_SECONDS,
     confirmed_min_seconds: float = DEFAULT_CONFIRMED_ABNORMAL_MIN_SECONDS,
 ) -> str | None:
-    """按视频时长把 route 分成 possible / confirmed 两类异常候选。"""
+    """按视频时长判断 route 是否必须剔除。
+
+    当前硬规则：4Hz LEAD RGB 严格大于 90s，即 frame_count > 360 时，
+    除全局白名单 scenario 外都视为 confirmed abnormal。保留 possible 参数只是为了兼容
+    旧 CLI / summary schema；新策略不再产出 possible 段。
+    """
 
     duration_s = frame_count / fps
     if duration_s > confirmed_min_seconds:
         return "confirmed"
-    if duration_s >= possible_min_seconds:
-        return "possible"
     return None
+
+
+def is_abnormal_duration_allowlisted(
+    scenario: str,
+    *,
+    scenario_allowlist: set[str] | frozenset[str] = DEFAULT_ABNORMAL_DURATION_SCENARIO_ALLOWLIST,
+) -> bool:
+    """判断 scenario 是否允许超过异常时长阈值仍保留。"""
+
+    return scenario in scenario_allowlist
+
+
+def is_abnormal_lead_route(
+    route_dir: pathlib.Path,
+    scenario: str | None = None,
+    *,
+    fps: float = DEFAULT_FPS,
+    abnormal_min_seconds: float = DEFAULT_ABNORMAL_MIN_SECONDS,
+    scenario_allowlist: set[str] | frozenset[str] = DEFAULT_ABNORMAL_DURATION_SCENARIO_ALLOWLIST,
+) -> tuple[bool, dict[str, int | float | str | bool]]:
+    """判断单条 LEAD route 是否因时长异常必须剔除。
+
+    返回 ``(should_exclude, info)``。只统计 ``rgb/*.jpg``，不读取图像内容。
+    """
+
+    route_dir = pathlib.Path(route_dir)
+    scenario_name = scenario or route_dir.parent.name
+    frame_count = _count_jpgs(route_dir / "rgb")
+    duration_s = frame_count / fps if fps > 0 else 0.0
+    allowlisted = is_abnormal_duration_allowlisted(scenario_name, scenario_allowlist=scenario_allowlist)
+    over_threshold = duration_s > abnormal_min_seconds
+    return (over_threshold and not allowlisted), {
+        "scenario": scenario_name,
+        "run_id": route_dir.name,
+        "frame_count": frame_count,
+        "duration_s": duration_s,
+        "fps": fps,
+        "abnormal_min_seconds": abnormal_min_seconds,
+        "allowlisted": allowlisted,
+        "over_threshold": over_threshold,
+        "reason": (
+            "allowlisted_over_90s"
+            if over_threshold and allowlisted
+            else "over_90s_not_allowlisted"
+            if over_threshold
+            else "within_duration_limit"
+        ),
+    }
 
 
 def is_possible_duration_allowlisted(
@@ -200,7 +252,7 @@ def scan_abnormal_durations(
     if routes:
         print_progress(0, len(routes), start, last="starting")
     for idx, (scenario, run_id, _route_dir, rgb_dir) in enumerate(routes, start=1):
-        if scenario in scenario_allowlist:
+        if is_abnormal_duration_allowlisted(scenario, scenario_allowlist=scenario_allowlist):
             allowlisted_count += 1
             if idx == len(routes) or idx % max(1, progress_interval) == 0:
                 print_progress(
@@ -298,11 +350,10 @@ def write_abnormal_duration_lists(
     summary_path = output_dir / ABNORMAL_SUMMARY_FILE
     header = (
         "# LEAD abnormal duration candidates\n"
-        f"# fps={fps:.6f} possible=[{possible_min_seconds:.1f}s,{confirmed_min_seconds:.1f}s] "
-        f"confirmed=>{confirmed_min_seconds:.1f}s\n"
+        f"# hard_rule=duration>{confirmed_min_seconds:.1f}s is abnormal unless scenario is allowlisted\n"
+        f"# fps={fps:.6f} confirmed=>{confirmed_min_seconds:.1f}s\n"
         f"# scenario_allowlist={','.join(sorted(DEFAULT_ABNORMAL_DURATION_SCENARIO_ALLOWLIST))}\n"
-        f"# possible_scenario_allowlist={','.join(sorted(DEFAULT_POSSIBLE_DURATION_SCENARIO_ALLOWLIST))}\n"
-        f"# possible_scenario_prefix_allowlist={','.join(DEFAULT_POSSIBLE_DURATION_SCENARIO_PREFIX_ALLOWLIST)}\n"
+        "# possible list is kept only for legacy compatibility and should be empty under the hard rule.\n"
         "# format: Scenario/run_id\n"
         "# details with frame_count/duration/rgb/video_dir are kept in abnormal_duration_summary.json\n"
     )
@@ -321,6 +372,7 @@ def write_abnormal_duration_lists(
         "possible_min_frames": duration_threshold_frames(fps, possible_min_seconds),
         "confirmed_min_frames": duration_over_threshold_frames(fps, confirmed_min_seconds),
         "confirmed_threshold_mode": "strictly_greater_than_seconds",
+        "hard_exclude_rule": "duration_s > 90.0 and scenario not in scenario_allowlist",
         "scenario_allowlist": sorted(DEFAULT_ABNORMAL_DURATION_SCENARIO_ALLOWLIST),
         "possible_scenario_allowlist": sorted(DEFAULT_POSSIBLE_DURATION_SCENARIO_ALLOWLIST),
         "possible_scenario_prefix_allowlist": list(DEFAULT_POSSIBLE_DURATION_SCENARIO_PREFIX_ALLOWLIST),

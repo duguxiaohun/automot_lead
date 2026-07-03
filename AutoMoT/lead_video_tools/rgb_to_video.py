@@ -31,6 +31,7 @@ from typing import Iterable, Sequence
 try:
     from .abnormal_duration_filter import (
         DEFAULT_FILTER_DIR,
+        is_abnormal_lead_route,
         load_abnormal_route_keys,
         scan_abnormal_durations,
         write_abnormal_duration_lists,
@@ -38,6 +39,7 @@ try:
 except ImportError:
     from abnormal_duration_filter import (
         DEFAULT_FILTER_DIR,
+        is_abnormal_lead_route,
         load_abnormal_route_keys,
         scan_abnormal_durations,
         write_abnormal_duration_lists,
@@ -327,6 +329,7 @@ def build_tasks(
     scenarios: set[str] | None = None,
     run_ids: set[str] | None = None,
     *,
+    exclude_abnormal_duration: bool = True,
     show_progress: bool = True,
     progress_interval: int = DEFAULT_DISCOVER_PROGRESS_INTERVAL,
 ) -> list[RouteTask]:
@@ -352,6 +355,10 @@ def build_tasks(
             rgb_dir = route_dir / "rgb"
             if not rgb_dir.is_dir() or not _has_jpg(rgb_dir):
                 continue
+            if exclude_abnormal_duration:
+                should_exclude, _abnormal_info = is_abnormal_lead_route(route_dir, scenario)
+                if should_exclude:
+                    continue
             output_dir = output_root / scenario / run_id
             tasks.append(
                 RouteTask(
@@ -1097,7 +1104,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     views = _parse_views(args.views)
-    tasks = build_tasks(args.data_root, args.output_root, scenarios, run_ids)
+    tasks = build_tasks(
+        args.data_root,
+        args.output_root,
+        scenarios,
+        run_ids,
+        exclude_abnormal_duration=args.abnormal_route_list_dir is None,
+    )
     if args.abnormal_route_list_dir is not None:
         route_keys = load_abnormal_route_keys(args.abnormal_route_list_dir, kind=args.abnormal_route_kind)
         before = len(tasks)

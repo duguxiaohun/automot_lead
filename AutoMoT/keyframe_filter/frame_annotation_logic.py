@@ -34,7 +34,7 @@ class EventType(Enum):
     R_E3 = "R-E3"    # 并道/变道
     R_E4 = "R-E4"    # 行人/自行车/动态物体
     R_E5 = "R-E5"    # 红灯等候/信号限制
-    
+
     # Unusual Events (异常危险事件)
     U_E1 = "U-E1"    # 紧急制动(Hard Brake)
     U_E2 = "U-E2"    # 碰撞/事故
@@ -60,7 +60,7 @@ class FrameAnnotation:
 class FrameAnnotationAnalyzer:
     """
     逐帧标注分析器 - 使用metas信息生成差异化标签
-    
+
     流程：
     1. 解析frame metas
     2. 判断RS（道路结构）
@@ -71,31 +71,31 @@ class FrameAnnotationAnalyzer:
     # ========================================================================
     # 阈值配置（可后续调参）
     # ========================================================================
-    
+
     # RS判断阈值
     JUNCTION_DISTANCE_THRESHOLD = 20.0      # m，靠近交叉口距离
     JUNCTION_ENTER_THRESHOLD = 10.0         # m，已进入交叉口
     SPEED_LIMIT_HIGH_SPEED = 80.0           # km/h，高速判断
     PARKED_OBSTACLE_DISTANCE = 10.0         # m，停泊障碍距离
     PARKING_ZONE_DISTANCE = 15.0            # m，停泊区距离
-    
+
     # Event判断阈值
     BRAKE_HIGH = 0.7                        # 制动强度
     BRAKE_HARD = 0.8                        # 严重制动
     ACCEL_HARD_BRAKE = -8.0                 # m/s²，紧急制动加速度
     ACCEL_COLLISION = -12.0                 # m/s²，碰撞级加速度
-    
+
     ACCIDENT_DISTANCE = 10.0                # m，事故点距离
     PEDESTRIAN_DISTANCE = 20.0              # m，行人检测距离
     PEDESTRIAN_DANGER = 10.0                # m，行人危险距离
     BIKER_DISTANCE = 15.0                   # m，自行车检测距离
-    
+
     STEER_THRESHOLD = 0.3                   # 方向盘转角阈值
     STEER_HARD = 0.6                        # 急转阈值
-    
+
     SPEED_EPSILON = 0.1                     # km/h，静止判定
     STOPPED_DURATION_FRAMES = 30            # 帧数，30帧=约1秒
-    
+
     def __init__(self):
         self.stopped_frames_counter = {}  # {frame_id: consecutive_stop_count}
 
@@ -119,16 +119,16 @@ class FrameAnnotationAnalyzer:
     def judge_road_structure(self, meta: Dict, prev_meta: Optional[Dict] = None) -> Tuple[RoadStructure, float]:
         """
         判断当前帧的道路结构 (RS)
-        
+
         返回: (主要RS, 置信度)
         优先级: 交叉口 > 高速 > 双向 > 停泊 > 直道
         """
-        
+
         # 1. 检查交叉口/路口优先级最高
         is_intersection = bool(self.safe_get(meta, 'is_intersection', False))
         is_junction = bool(self.safe_get(meta, 'is_junction', False))
         dist_to_junction = float(self.safe_get(meta, 'distance_to_junction', 999))
-        
+
         if is_intersection or is_junction or dist_to_junction < self.JUNCTION_DISTANCE_THRESHOLD:
             # 进一步区分信号化(R4)还是非信号化(R5)
             traffic_light = self.safe_get(meta, 'traffic_light_state', None)
@@ -136,142 +136,142 @@ class FrameAnnotationAnalyzer:
                 return RoadStructure.R5, 0.9  # 非信号化路口
             else:
                 return RoadStructure.R4, 0.95  # 信号化路口
-        
+
         # 2. 检查停泊相关
         dist_to_parked = float(self.safe_get(meta, 'dist_to_parked_obstacle', 999))
         route_left_len = float(self.safe_get(meta, 'route_left_length', 999))
         if dist_to_parked < self.PARKED_OBSTACLE_DISTANCE or (route_left_len > 0 and route_left_len < self.PARKING_ZONE_DISTANCE):
             return RoadStructure.R6, 0.85  # 停泊区
-        
+
         # 3. 检查双向道路
         lane_change_str = str(self.safe_get(meta, 'lane_change_str', ''))
         if 'opposite' in lane_change_str.lower() or 'bidirectional' in lane_change_str.lower():
             return RoadStructure.R2, 0.80  # 双向道路
-        
+
         # 4. 检查高速/多车道
         speed_limit = float(self.safe_get(meta, 'speed_limit', 50))
         if speed_limit > self.SPEED_LIMIT_HIGH_SPEED:
             return RoadStructure.R3, 0.85  # 高速
-        
+
         # 5. 默认直道
         return RoadStructure.R1, 0.70
 
     def judge_events(self, meta: Dict, prev_meta: Optional[Dict], rs: RoadStructure) -> List[str]:
         """
         根据当前RS判断发生的Events
-        
+
         返回: [主Event, 可选备选Event, ...]
-        
+
         优先级原则：
         - 危险事件(U-E*)优先于正常事件(R-E*)
         - 碰撞/闯红灯最高优先级
         - 每帧主要返回1个Event，可选返回多个
         """
-        
+
         events = []
-        
+
         # ====== 通用危险事件 (对所有RS) ======
-        
+
         # 碰撞检测 (U-E2) - 最高优先级
         dist_to_accident = float(self.safe_get(meta, 'dist_to_accident_site', 999))
         accel_x = float(self.safe_get(meta, 'accel_x', 0))
         brake = float(self.safe_get(meta, 'brake', 0))
-        
+
         # 碰撞判断：距离近 + 强制动，或距离近 + 大减速
         if dist_to_accident < self.ACCIDENT_DISTANCE:
             if brake > self.BRAKE_HARD or accel_x < self.ACCEL_HARD_BRAKE:
                 return [EventType.U_E2.value]  # 碰撞 - 最高优先级，立即返回
-        
+
         # 紧急制动 (U-E1) - 单独的brake或accel信号都可触发
         if brake > self.BRAKE_HARD or accel_x < self.ACCEL_HARD_BRAKE:
             events.append(EventType.U_E1.value)
-        
+
         # 急转/高速转向 (U-E5)
         steer = abs(float(self.safe_get(meta, 'steer', 0)))
         speed = float(self.safe_get(meta, 'speed', 0))  # km/h
         if steer > self.STEER_HARD and speed > 10:
             events.append(EventType.U_E5.value)
-        
+
         # ====== RS特定事件 ======
-        
+
         if rs == RoadStructure.R4:  # 信号化交叉口
             traffic_light = str(self.safe_get(meta, 'traffic_light_state', 'unknown')).lower()
-            
+
             # 红灯违反 (U-E6)
             if traffic_light == 'red' and speed > 1.0:
                 return [EventType.U_E6.value]  # 闯红灯 - 高优先级
-            
+
             # 交通灯异常 (U-E7)
             if traffic_light not in ['green', 'yellow', 'red', 'off']:
                 events.append(EventType.U_E7.value)
-            
+
             # 红灯等候 (R-E5)
             if traffic_light == 'red' and brake > 0.3:
                 events.append(EventType.R_E5.value)
-        
+
         elif rs == RoadStructure.R5:  # 非信号化路口
             # 红灯概念不适用，检查路口拥堵
             dist_to_junction = float(self.safe_get(meta, 'distance_to_junction', 999))
             if dist_to_junction < self.JUNCTION_ENTER_THRESHOLD and speed < 5:
                 events.append(EventType.U_E8.value)  # 路口拥堵
-        
+
         elif rs == RoadStructure.R6:  # 停泊区
             # 检查停泊状态
             if speed < self.SPEED_EPSILON:
                 events.append(EventType.U_E3.value)  # 停泊
-        
+
         # ====== 通用动态物体事件 ======
-        
+
         # 行人近距通行 (U-E4)
         dist_to_pedestrian = float(self.safe_get(meta, 'dist_to_pedestrian', 999))
         if dist_to_pedestrian < self.PEDESTRIAN_DANGER:
             events.append(EventType.U_E4.value)
-        
+
         # 行人/自行车检测 (R-E4)
         dist_to_biker = float(self.safe_get(meta, 'dist_to_biker', 999))
         if (dist_to_pedestrian < self.PEDESTRIAN_DISTANCE or dist_to_biker < self.BIKER_DISTANCE):
             if EventType.U_E4.value not in events:  # 避免重复
                 events.append(EventType.R_E4.value)
-        
+
         # ====== 道路事件 ======
-        
+
         # 障碍物 (R-E2)
         dist_to_parked = float(self.safe_get(meta, 'dist_to_parked_obstacle', 999))
         if dist_to_parked < self.PARKED_OBSTACLE_DISTANCE and EventType.R_E4.value not in events:
             events.append(EventType.R_E2.value)
-        
+
         # 并道 (R-E3)
         if steer > self.STEER_THRESHOLD and speed > 10:
             events.append(EventType.R_E3.value)
-        
+
         # ====== 默认事件 ======
         if not events:
             events.append(EventType.R_E1.value)  # 正常行驶
-        
+
         return events
 
     def analyze(self, frame_id: int, meta: Dict, prev_meta: Optional[Dict] = None) -> FrameAnnotation:
         """
         完整的逐帧分析流程
-        
+
         入参:
             frame_id: 帧号
             meta: 当前帧的metas字典
             prev_meta: 前一帧的metas字典（可选，用于时序分析）
-        
+
         返回:
             FrameAnnotation 对象
         """
-        
+
         # 1. 判断RS
         rs, rs_confidence = self.judge_road_structure(meta, prev_meta)
-        
+
         # 2. 判断Events
         events = self.judge_events(meta, prev_meta, rs)
-        
+
         # 构建标注
         reason = f"RS={rs.value} (conf={rs_confidence:.2f})"
-        
+
         ann = FrameAnnotation(
             frame_id=frame_id,
             road_structures=[rs.value],
@@ -288,7 +288,7 @@ class FrameAnnotationAnalyzer:
                 'dist_to_accident': self.safe_get(meta, 'dist_to_accident_site', 999),
             }
         )
-        
+
         return ann
 
     def to_dict(self, ann: FrameAnnotation) -> Dict:

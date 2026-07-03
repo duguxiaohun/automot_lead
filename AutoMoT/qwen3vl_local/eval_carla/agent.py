@@ -979,7 +979,7 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         """LEAD route XML 的真实终点 world 坐标。
 
         训练侧 final_goal 取自采集 meta["next_target_points"][-1] 后转 ego；
-        在线侧与之对齐，读取 scenario_picker 找到的 `<route_id>.xml` 最后一个
+        在线侧与之对齐，读取 scenario_picker 找到的 `data/lead` route XML 最后一个
         waypoint，再在 tick() 内统一转 ego frame。
         """
         if self.final_goal_world is not None:

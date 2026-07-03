@@ -1,7 +1,9 @@
 """220 routes 与 LEAD scenario 的反向映射 + 子集筛选。
 
-LEAD 按 `<Scenario>/<route_id>.xml` 组织：
-  lead/data/benchmark_routes/bench2drive220/<Scenario>/<route_id>.xml
+本项目整理后的 LEAD XML 按 `<Scenario>/<Town>_<route_key>.xml` 组织：
+  AutoMoT/data/lead/Accident/Town03_route_001783.xml
+  AutoMoT/data/lead/Accident/Town12_route_1054_0.xml
+  AutoMoT/data/lead/BlockedIntersection/Town06_route_Town06_13.xml
 
 AutoMoT 这边按 route_id 列表跑：
   AutoMoT/eval_json/b2d_all_routes_split{1,2}.json
@@ -18,7 +20,19 @@ from collections import defaultdict
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]   # automot_lead/
 _AUTOMOT_ROOT = pathlib.Path(__file__).resolve().parents[2]   # AutoMoT/
 _EVAL_JSON_DIR = _AUTOMOT_ROOT / "eval_json"
-_BENCHMARK_ROOT = _REPO_ROOT / "lead" / "data" / "benchmark_routes" / "bench2drive220"
+_BENCHMARK_ROOT = _AUTOMOT_ROOT / "data" / "lead"
+
+
+def _route_id_from_xml_name(xml_path: pathlib.Path) -> int | None:
+    """从 `TownXX_route_001783.xml` 这类本地命名中取 leaderboard route_id。"""
+    marker = "_route_"
+    stem = xml_path.stem
+    if marker not in stem:
+        return None
+    route_key = stem.split(marker, 1)[1]
+    if route_key.isdigit():
+        return int(route_key)
+    return None
 
 
 def load_all_route_ids() -> list[int]:
@@ -41,33 +55,34 @@ def load_all_route_ids() -> list[int]:
 
 
 def build_route_to_scenario(benchmark_root: pathlib.Path | None = None) -> dict[int, list[str]]:
-    """扫 lead benchmark_routes，建立 route_id -> [scenario, ...] 反向映射。"""
+    """扫本地 `data/lead` XML，建立 route_id -> [scenario, ...] 反向映射。"""
     root = pathlib.Path(benchmark_root) if benchmark_root else _BENCHMARK_ROOT
     mapping: dict[int, list[str]] = defaultdict(list)
     if not root.is_dir():
-        print(f"[scenario_picker] benchmark root not found: {root}")
+        print(f"[scenario_picker] route XML root not found: {root}")
         return mapping
     for scen_dir in sorted(root.iterdir()):
         if not scen_dir.is_dir():
             continue
         scen = scen_dir.name
         for xml_path in scen_dir.glob("*.xml"):
-            try:
-                # LEAD 的目录结构是 <Scenario>/<route_id>.xml，文件名就是 route_id。
-                rid = int(xml_path.stem)
-            except ValueError:
+            rid = _route_id_from_xml_name(xml_path)
+            if rid is None:
                 continue
             mapping[rid].append(scen)
     return mapping
 
 
 def find_route_xml(route_id: int, benchmark_root: pathlib.Path | None = None) -> pathlib.Path | None:
-    """按 route_id 查 LEAD `<Scenario>/<route_id>.xml` 路线文件。"""
+    """按 leaderboard route_id 查本地 `data/lead/<Scenario>/<Town>_route_XXXXXX.xml`。"""
     root = pathlib.Path(benchmark_root) if benchmark_root else _BENCHMARK_ROOT
     if not root.is_dir():
-        print(f"[scenario_picker] benchmark root not found: {root}")
+        print(f"[scenario_picker] route XML root not found: {root}")
         return None
-    matches = sorted(root.glob(f"*/{int(route_id)}.xml"))
+    rid = int(route_id)
+    matches = sorted(root.glob(f"*/*_route_{rid:06d}.xml"))
+    if not matches:
+        matches = sorted(root.glob(f"*/{rid}.xml"))
     return matches[0] if matches else None
 
 
@@ -120,8 +135,8 @@ def pick_routes(
         keep = set(int(x) for x in only_route_ids)
         ids = [i for i in ids if i in keep]
     if only_scenarios:
-        # scenario 过滤依赖 LEAD benchmark_routes，而不是 AutoMoT 的 bench2drive220.xml；
-        # 这样能保留 LEAD 原始场景分类。
+        # scenario 过滤依赖整理后的 data/lead XML，而不是 AutoMoT 的 bench2drive220.xml；
+        # 这样能保留 LEAD 原始场景分类和本地命名规范。
         mapping = build_route_to_scenario(benchmark_root)
         allowed: set[int] = set()
         targets = {s.lower() for s in only_scenarios}
