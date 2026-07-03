@@ -196,10 +196,12 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
   逐帧 review 时优先看这两个字段，再决定是阈值问题还是道路结构口径问题。
 - 2026-07-03 在用户指定目录 `collection_output/rs_full_frame_review/` 重新跑 43 个场景：
   每个 town 1 条 route，全帧 204 route / 24387 帧，生成 `scenario_visual_review_summary.json`
-  和 `global_visual_review_summary.json`。异常桶以 `xml_projection_or_boundary_parameter`
-  与 `arbitration_or_threshold_margin` 为主。代码已把稳定高置信标签上的
-  XML/XODR 投影质量告警、候选分差和 weaker-special 这类审计提示从
-  “视觉错配候选”中拆出：这些提示仍保留 route review reason，但不再塞进
+  和 `global_visual_review_summary.json`。最终回灌后 `candidate_anomalies=1869`，
+  主要剩余两类：`xml_projection_or_boundary_parameter=699`（多为 R4/R5 路口边界 /
+  sparse XML projection 质量问题）和 `topology_confirmation_missing=611`（主要是
+  TwoWays 场景 R2 缺可信 opposite-lane confirmation，仍需人工结合 RGB/XODR 看）。
+  代码已把稳定高置信标签上的 XML/XODR 投影质量告警、候选分差和 weaker-special 这类
+  审计提示从“视觉错配候选”中拆出：这些提示仍保留 route review reason，但不再塞进
   `candidate_anomalies.jsonl` / anomaly sheet；真正需要人工逐帧看的仍是标签切换、
   低置信、拓扑确认缺失和 RGB 可见语义冲突。
 - 本轮修正规则遵循“逐场景定位、通病抽象复用”：先用每个 scenario/town 的 RGB sheet

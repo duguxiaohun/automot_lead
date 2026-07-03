@@ -766,6 +766,9 @@ topology/meta confirmation window:
 
 2026-07-03 `rs_full_frame_review/` 回灌更新：
 
+- 最新全量复核口径：43 个 scenario、204 条 scenario-town route、24387 帧；
+  `candidate_anomalies=1869`。剩余主要不是普通 R1 低置信，而是路口 R4/R5 的
+  XML projection/boundary 问题，以及 TwoWays R2 的 opposite-lane / topology confirmation。
 - `collector.py` 收紧 `light_hazard` → R4：同向障碍/默认动态场景必须有 meta junction 或 stop hazard；
   静态 signal 近邻和弱 distance-to-junction 不再足以把普通路段升 R4。
 - 缺 merge/split/ramp 的 R3、缺 parking/shoulder/curbside 的 R6、缺 opposite-lane 的开门/切入弱候选，
