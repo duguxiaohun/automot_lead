@@ -536,20 +536,27 @@ class XodrTopologyProbe:
         if town in self._static_indexes:
             return self._static_indexes[town]
         xodr = self._find_xodr(town)
-        index: Dict[str, Any] = {"available": False, "path": str(xodr) if xodr else None, "roads": {}, "signals": []}
+        index: Dict[str, Any] = {"available": False, "path": str(xodr) if xodr else None, "roads": {}, "signals": [], "roundabout_junctions": []}
         if xodr is None:
             self._static_indexes[town] = index
             return index
         try:
             root = ET.parse(xodr).getroot()
             junction_roads = set()
-            for connection in root.findall(".//junction/connection"):
-                incoming = connection.get("incomingRoad")
-                connecting = connection.get("connectingRoad")
-                if incoming:
-                    junction_roads.add(str(incoming))
-                if connecting:
-                    junction_roads.add(str(connecting))
+            junction_connections: Dict[str, List[str]] = defaultdict(list)
+            for junction in root.findall(".//junction"):
+                junction_id = str(junction.get("id", ""))
+                for connection in junction.findall("connection"):
+                    incoming = connection.get("incomingRoad")
+                    connecting = connection.get("connectingRoad")
+                    if incoming:
+                        junction_roads.add(str(incoming))
+                        if junction_id:
+                            junction_connections[junction_id].append(str(incoming))
+                    if connecting:
+                        junction_roads.add(str(connecting))
+                        if junction_id:
+                            junction_connections[junction_id].append(str(connecting))
 
             for road in root.findall(".//road"):
                 road_id = str(road.get("id", ""))
@@ -583,10 +590,27 @@ class XodrTopologyProbe:
                             }
                         )
 
+                max_abs_curvature = max(abs(float(g.get("curvature", 0.0))) for g in geometries) if geometries else 0.0
+                total_geometry_length = sum(float(g.get("length", 0.0)) for g in geometries)
+                total_abs_heading_change = sum(
+                    abs(float(g.get("curvature", 0.0)) * float(g.get("length", 0.0)))
+                    for g in geometries
+                )
+                loop_closure_distance = math.inf
+                if geometries:
+                    first_point = _point_at_geometry_s(geometries[0], 0.0)
+                    last_geom = geometries[-1]
+                    last_point = _point_at_geometry_s(last_geom, float(last_geom.get("length", 0.0) or 0.0))
+                    loop_closure_distance = math.hypot(first_point[0] - last_point[0], first_point[1] - last_point[1])
                 road_entry = {
                     "id": road_id,
                     "junction": road.get("junction", "-1"),
                     "is_junction_road": road.get("junction", "-1") not in {"", "-1"} or road_id in junction_roads,
+                    "junction_connection_count": len(set(junction_connections.get(str(road.get("junction", "-1")), []))),
+                    "max_abs_curvature": max_abs_curvature,
+                    "total_geometry_length": total_geometry_length,
+                    "total_abs_heading_change": total_abs_heading_change,
+                    "loop_closure_distance": loop_closure_distance,
                     "geometries": geometries,
                     "lanes_by_side": lanes_by_side,
                 }
@@ -613,6 +637,79 @@ class XodrTopologyProbe:
                             "point": point,
                         }
                     )
+            roundabout_junctions = set()
+            roads_by_junction: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+            for road in index["roads"].values():
+                junction_id = str(road.get("junction", "-1"))
+                if junction_id not in {"", "-1"}:
+                    roads_by_junction[junction_id].append(road)
+            for junction_id, roads in roads_by_junction.items():
+                curved_roads = [r for r in roads if float(r.get("max_abs_curvature", 0.0) or 0.0) >= 0.035]
+                if len(roads) < 6 or len(curved_roads) < 4:
+                    continue
+                points = []
+                for road in roads:
+                    for geom in road.get("geometries", []):
+                        length = float(geom.get("length", 0.0) or 0.0)
+                        if length <= 0.0:
+                            continue
+                        for local_s in (0.0, length * 0.5, length):
+                            points.append(_point_at_geometry_s(geom, local_s))
+                if len(points) < 12:
+                    continue
+                cx = sum(p[0] for p in points) / len(points)
+                cy = sum(p[1] for p in points) / len(points)
+                radii = [math.hypot(p[0] - cx, p[1] - cy) for p in points]
+                mean_radius = sum(radii) / len(radii)
+                if mean_radius < 8.0 or mean_radius > 55.0 or min(radii) < 3.5:
+                    continue
+                radius_std = math.sqrt(sum((r - mean_radius) ** 2 for r in radii) / len(radii))
+                if radius_std / mean_radius > 0.42:
+                    continue
+                angles = sorted(math.atan2(p[1] - cy, p[0] - cx) for p in points)
+                gaps = [angles[i + 1] - angles[i] for i in range(len(angles) - 1)]
+                gaps.append((angles[0] + 2.0 * math.pi) - angles[-1])
+                angular_coverage_deg = math.degrees(2.0 * math.pi - max(gaps))
+                if angular_coverage_deg < 300.0:
+                    continue
+                nearest_signal_to_center = math.inf
+                for signal in index.get("signals", []):
+                    point = signal.get("point")
+                    if point is None:
+                        continue
+                    nearest_signal_to_center = min(nearest_signal_to_center, math.hypot(cx - point[0], cy - point[1]))
+                if math.isfinite(nearest_signal_to_center) and nearest_signal_to_center <= 45.0:
+                    continue
+                roundabout_junctions.add(junction_id)
+            index["roundabout_junctions"] = sorted(roundabout_junctions)
+            signal_points = [signal.get("point") for signal in index.get("signals", []) if signal.get("point") is not None]
+            for road in index["roads"].values():
+                closed_loop_candidate = (
+                    float(road.get("total_abs_heading_change", 0.0) or 0.0) >= 4.5
+                    and float(road.get("total_geometry_length", 0.0) or 0.0) <= 320.0
+                    and float(road.get("loop_closure_distance", math.inf) or math.inf) <= 45.0
+                )
+                nearest_signal_to_road = math.inf
+                if closed_loop_candidate and signal_points:
+                    road_points = []
+                    for geom in road.get("geometries", []):
+                        length = float(geom.get("length", 0.0) or 0.0)
+                        if length <= 0.0:
+                            continue
+                        for local_s in (0.0, length * 0.25, length * 0.5, length * 0.75, length):
+                            road_points.append(_point_at_geometry_s(geom, local_s))
+                    for road_point in road_points:
+                        nearest_signal_to_road = min(
+                            nearest_signal_to_road,
+                            min(math.hypot(road_point[0] - point[0], road_point[1] - point[1]) for point in signal_points),
+                        )
+                closed_loop_roundabout = closed_loop_candidate and not (
+                    math.isfinite(nearest_signal_to_road) and nearest_signal_to_road <= 45.0
+                )
+                road["is_roundabout_road"] = (
+                    str(road.get("junction", "-1")) in roundabout_junctions
+                    or closed_loop_roundabout
+                )
             index["available"] = True
         except Exception as exc:
             index["parse_error"] = str(exc)
@@ -665,6 +762,11 @@ class XodrTopologyProbe:
         same_dir_lanes = max(len(left_driving), len(right_driving), 1)
         has_opposite = bool(left_driving and right_driving)
         topology_trusted = best["distance_m"] <= 20.0
+        junction_id = str(road.get("junction", "-1"))
+        junction_connection_count = int(road.get("junction_connection_count", 0) or 0)
+        max_abs_curvature = float(road.get("max_abs_curvature", 0.0) or 0.0)
+        total_geometry_length = float(road.get("total_geometry_length", 0.0) or 0.0)
+        roundabout_hint = topology_trusted and bool(road.get("is_roundabout_road", False))
         out.update(
             {
                 "xodr_available": True,
@@ -675,6 +777,16 @@ class XodrTopologyProbe:
                 "map_lane_type": "Driving" if left_driving or right_driving else "unknown",
                 "map_is_junction": bool(road.get("is_junction_road")) and best["distance_m"] <= 12.0,
                 "map_junction_id": road.get("junction"),
+                "map_is_roundabout": roundabout_hint,
+                "junction_connection_count": junction_connection_count,
+                "road_max_abs_curvature": round(max_abs_curvature, 6),
+                "road_geometry_length_m": round(total_geometry_length, 3),
+                "road_total_abs_heading_change": round(float(road.get("total_abs_heading_change", 0.0) or 0.0), 6),
+                "road_loop_closure_distance_m": (
+                    round(float(road.get("loop_closure_distance")), 3)
+                    if math.isfinite(float(road.get("loop_closure_distance", math.inf)))
+                    else None
+                ),
                 "map_projection_error_m": round(best["distance_m"], 3),
                 "nearest_signal_m": round(nearest_signal, 3) if math.isfinite(nearest_signal) else None,
                 "lane_count_same_dir": same_dir_lanes,
@@ -735,6 +847,16 @@ class XodrTopologyProbe:
             out["has_opposite_driving_lane"] = has_opposite
             out["has_parking_or_shoulder_nearby"] = has_parking
             out["ramp_merge_split_hint"] = bool(wp.is_junction and not _valid_traffic_light(out.get("traffic_light_state")))
+            static_hint = self._probe_static(town, ego_xy)
+            for key in (
+                "map_is_roundabout",
+                "junction_connection_count",
+                "road_max_abs_curvature",
+                "road_geometry_length_m",
+                "nearest_signal_m",
+            ):
+                if key in static_hint:
+                    out[key] = static_hint[key]
             return out
         except Exception:
             return out
@@ -954,6 +1076,7 @@ def _diagnose_rs_decision(
         "meta_traffic_light_valid": bool(flags.get("has_tl")),
         "meta_light_hazard": bool(flags.get("light_hazard")),
         "meta_junction_hint": bool(flags.get("is_junction")) or bool(flags.get("dist_to_junction_near")),
+        "xodr_roundabout_hint": bool(flags.get("map_is_roundabout")),
         "meta_active_scenario": bool(flags.get("scenario_active")),
         "meta_stop_hint": bool(flags.get("stop_hazard")),
     }
@@ -1004,6 +1127,8 @@ def _diagnose_rs_decision(
     checks = []
     if primary == RoadStructure.R1:
         checks.extend(["检查 trigger_distance/route_progress 是否落在特殊窗口外", "检查 meta 灯态或 active_scenario 是否缺失"])
+        if flags.get("map_is_roundabout"):
+            checks.append("XODR 判定为 roundabout，按规则保留 R1 而不是 R4/R5")
     if primary in {RoadStructure.R4, RoadStructure.R5}:
         checks.extend(["检查 meta traffic_light_state/light_hazard 是否可信", "检查 XODR junction/signal/controller 与 XML trigger 是否同源"])
     if primary == RoadStructure.R2:
@@ -1021,6 +1146,7 @@ def _diagnose_rs_decision(
             "close_trigger": bool(flags.get("close_trigger")),
             "near_junction": bool(flags.get("near_junction")),
             "junction_window": bool(flags.get("junction_window")),
+            "roundabout_context": bool(flags.get("map_is_roundabout")),
             "two_way_window": bool(flags.get("two_way_window")),
             "scenario_active": bool(flags.get("scenario_active")),
         },
@@ -1099,6 +1225,7 @@ class RoadStructureRuleEngine:
         light_hazard = _safe_bool(frame_data.get("light_hazard", False))
         is_junction = _safe_bool(frame_data.get("is_junction", False)) or _safe_bool(frame_data.get("is_intersection", False))
         map_is_junction = bool(xodr.get("map_is_junction", False))
+        map_is_roundabout = bool(xodr.get("map_is_roundabout", False))
         dist_to_junction = _finite_min(frame_data.get("dist_to_junction"), frame_data.get("distance_to_next_junction"))
         stop_hazard = _safe_bool(frame_data.get("stop_sign_hazard", False)) or _safe_bool(frame_data.get("stop_sign_close", False))
         cfg = SCENARIO_RULE_CONFIG.get(scenario_name, {"kind": SCENARIO_RULE_KIND.get(scenario_name, "default_meta_map")})
@@ -1107,7 +1234,7 @@ class RoadStructureRuleEngine:
         close_trigger = trigger_distance < float(cfg.get("trigger_close_m", 70.0))
         static_signal_near = _safe_float(xodr.get("nearest_signal_m"), default=math.inf) <= 60.0
         dist_to_junction_near = dist_to_junction < 55.0
-        near_junction = is_junction or map_is_junction or dist_to_junction_near
+        near_junction = (is_junction or map_is_junction or dist_to_junction_near) and not map_is_roundabout
         xml_distance = _xml_numeric(xml_info, "distance", default=50.0)
         two_way_pre = max(xml_distance, float(cfg.get("two_way_min_pre_m", 45.0)))
         two_way_post = two_way_pre + float(cfg.get("two_way_post_pad_m", 20.0))
@@ -1124,20 +1251,28 @@ class RoadStructureRuleEngine:
             or close_trigger
             or scenario_active
         )
-        junction_window = near_junction or _route_trigger_window(route_s_for_window, trigger_s, junction_pre, junction_post) or close_trigger
+        junction_window = (
+            near_junction
+            or (_route_trigger_window(route_s_for_window, trigger_s, junction_pre, junction_post) and not map_is_roundabout)
+            or (close_trigger and not map_is_roundabout)
+        )
 
-        if has_tl and (near_junction or static_signal_near or dist_to_junction < float(cfg.get("junction_pre_m", 60.0))):
+        if map_is_roundabout:
+            self._add(scores, RoadStructure.R1, 0.92)
+            rules.append("roundabout_xodr_forces_r1")
+
+        if (not map_is_roundabout) and has_tl and (near_junction or static_signal_near or dist_to_junction < float(cfg.get("junction_pre_m", 60.0))):
             self._add(scores, RoadStructure.R4, 0.95)
             rules.append("r4_tl_confirmed")
-        elif has_tl:
+        elif (not map_is_roundabout) and has_tl:
             self._add(scores, RoadStructure.R4, 0.72)
             rules.append("r4_tl_seen_without_strong_junction_context")
-        elif light_hazard and (near_junction or static_signal_near):
+        elif (not map_is_roundabout) and light_hazard and (near_junction or static_signal_near):
             self._add(scores, RoadStructure.R4, 0.90)
             rules.append("r4_light_hazard")
         elif light_hazard:
             rules.append("light_hazard_ignored_without_junction_context")
-        elif static_signal_near and (is_junction or map_is_junction or dist_to_junction < 25.0):
+        elif (not map_is_roundabout) and static_signal_near and (is_junction or map_is_junction or dist_to_junction < 25.0):
             self._add(scores, RoadStructure.R4, 0.74)
             rules.append("r4_static_xodr_signal_near")
 
@@ -1285,6 +1420,13 @@ class RoadStructureRuleEngine:
             self._add(scores, RoadStructure.R1, 0.78)
             rules.append(f"{kind}_keeps_default_r1_unless_tl")
 
+        if map_is_roundabout:
+            if RoadStructure.R4 in scores or RoadStructure.R5 in scores:
+                rules.append("roundabout_removed_junction_rs_scores")
+            scores.pop(RoadStructure.R4, None)
+            scores.pop(RoadStructure.R5, None)
+            self._add(scores, RoadStructure.R1, 0.92)
+
         # 只保留原始候选表允许的 RS，保留强行填充候选全集但不让规则输出越界。
         scores = {rs: score for rs, score in scores.items() if rs in allowed}
         if not scores:
@@ -1320,6 +1462,7 @@ class RoadStructureRuleEngine:
                 "has_tl": has_tl,
                 "light_hazard": light_hazard,
                 "is_junction": is_junction,
+                "map_is_roundabout": map_is_roundabout,
                 "dist_to_junction_near": dist_to_junction_near,
                 "stop_hazard": stop_hazard,
                 "scenario_active": scenario_active,
@@ -1615,6 +1758,7 @@ class ScenarioCollector:
                 "road_id": evidence.get("xodr", {}).get("map_road_id"),
                 "lane_id": evidence.get("xodr", {}).get("map_lane_id"),
                 "is_junction": evidence.get("xodr", {}).get("map_is_junction"),
+                "is_roundabout": evidence.get("xodr", {}).get("map_is_roundabout"),
                 "opposite_lane": evidence.get("xodr", {}).get("has_opposite_driving_lane"),
                 "parking_or_shoulder": evidence.get("xodr", {}).get("has_parking_or_shoulder_nearby"),
                 "merge_split_hint": evidence.get("xodr", {}).get("ramp_merge_split_hint"),
@@ -1630,6 +1774,121 @@ class ScenarioCollector:
             "avg": round(sum(values) / len(values), 4),
             "max": round(max(values), 4),
         }
+
+    def _min_rs_segment_frames(self, rs_label: str) -> int:
+        """所有 RS 共用的最短稳定片段长度；4Hz 下 4 帧约 1 秒。"""
+        return {
+            "R1": 2,
+            "R2": 4,
+            "R3": 4,
+            "R4": 4,
+            "R5": 4,
+            "R6": 4,
+        }.get(str(rs_label), 4)
+
+    def _rs_runs(self, annotations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        runs: List[Dict[str, Any]] = []
+        if not annotations:
+            return runs
+        start = 0
+        current = annotations[0].get("primary_road_structure")
+        for idx, ann in enumerate(annotations[1:], 1):
+            label = ann.get("primary_road_structure")
+            if label == current:
+                continue
+            runs.append({"label": current, "start": start, "end": idx, "length": idx - start})
+            start = idx
+            current = label
+        runs.append({"label": current, "start": start, "end": len(annotations), "length": len(annotations) - start})
+        return runs
+
+    def _rewrite_rs_label(
+        self,
+        ann: Dict[str, Any],
+        new_label: str,
+        reason: str,
+        inherited_from: Optional[str],
+    ) -> None:
+        old_label = ann.get("primary_road_structure")
+        if old_label == new_label:
+            return
+        candidates = ann.setdefault("road_structure_candidates", {})
+        candidates[new_label] = max(float(candidates.get(new_label, 0.0) or 0.0), 0.74)
+        ann["primary_road_structure"] = new_label
+        ann["confidence"] = max(float(ann.get("confidence", 0.0) or 0.0), float(candidates.get(new_label, 0.74)))
+        secondary = set(ann.get("secondary_road_structures", []) or [])
+        secondary.discard(new_label)
+        if old_label:
+            secondary.add(str(old_label))
+        ann["secondary_road_structures"] = sorted(secondary)
+        evidence = ann.setdefault("evidence", {})
+        smoothing = evidence.setdefault("temporal_smoothing", [])
+        smoothing.append(
+            {
+                "from": old_label,
+                "to": new_label,
+                "reason": reason,
+                "inherited_from": inherited_from,
+            }
+        )
+        rules = evidence.setdefault("rules_fired", [])
+        rules.append(f"temporal_smoothing_{reason}")
+        review_reasons = evidence.setdefault("review_reasons", [])
+        if "temporal_smoothing_applied" not in review_reasons:
+            review_reasons.append("temporal_smoothing_applied")
+        evidence["review_required"] = True
+        ann["reason"] = f"{ann.get('reason', '')}; temporal_smoothing {old_label}->{new_label}"
+        ann["annotation_comment"] = _frame_annotation_comment(
+            RoadStructure(new_label),
+            {RoadStructure(x) for x in ann.get("secondary_road_structures", []) if x in RoadStructure._value2member_map_},
+            float(ann.get("confidence", 0.0) or 0.0),
+            evidence,
+        )
+        ann["frame_rs_annotation"] = self._frame_rs_annotation_payload(ann)
+
+    def _apply_temporal_rs_smoothing(self, annotations: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """通用 RS 去抖：所有短片段都必须持续足够久才作为真实结构切换。"""
+        changes: List[Dict[str, Any]] = []
+        if len(annotations) < 3:
+            return {"enabled": True, "changes": changes}
+
+        runs = self._rs_runs(annotations)
+        for run_index, run in enumerate(runs):
+            label = run.get("label")
+            if not label:
+                continue
+            min_frames = self._min_rs_segment_frames(str(label))
+            if int(run["length"]) >= min_frames:
+                continue
+            prev_run = runs[run_index - 1] if run_index > 0 else None
+            next_run = runs[run_index + 1] if run_index + 1 < len(runs) else None
+            replacement = None
+            reason = f"short_{label}_run_lt_{min_frames}_frames"
+            inherited_from = None
+            if prev_run and next_run and prev_run.get("label") == next_run.get("label"):
+                replacement = str(prev_run["label"])
+                inherited_from = "both_neighbors"
+            elif prev_run or next_run:
+                neighbor_options = [r for r in (prev_run, next_run) if r]
+                chosen = max(neighbor_options, key=lambda r: (int(r.get("length", 0)), -abs(int(r.get("start", 0)) - int(run.get("start", 0)))))
+                replacement = str(chosen["label"])
+                inherited_from = "previous_neighbor" if chosen is prev_run else "next_neighbor"
+            if replacement is None or replacement == label:
+                continue
+            change = {
+                "start_frame": annotations[int(run["start"])].get("frame_id"),
+                "end_frame": annotations[int(run["end"]) - 1].get("frame_id"),
+                "from": label,
+                "to": replacement,
+                "length": int(run["length"]),
+                "min_frames": min_frames,
+                "inherited_from": inherited_from,
+            }
+            changes.append(change)
+            for ann in annotations[int(run["start"]): int(run["end"])]:
+                self._rewrite_rs_label(ann, replacement, reason, inherited_from)
+
+        return {"enabled": True, "min_frames": {"R1": 2, "R2": 4, "R3": 4, "R4": 4, "R5": 4, "R6": 4}, "changes": changes}
 
     def _process_route(self, scenario_name: str, route_path: Path, max_frames_per_route: Optional[int] = None) -> Dict:
         """处理单个route"""
@@ -1658,6 +1917,8 @@ class ScenarioCollector:
             except Exception as e:
                 self.logger.warning(f"处理 {meta_file} 出错: {e}")
                 continue
+
+        temporal_smoothing_summary = self._apply_temporal_rs_smoothing(annotations)
 
         primary_counter = defaultdict(int)
         review_counter = defaultdict(int)
@@ -1699,6 +1960,7 @@ class ScenarioCollector:
             "review_required_ratio": round(review_frame_count / len(annotations), 4) if annotations else 0.0,
             "review_reason_distribution": dict(sorted(review_counter.items())),
             "xodr_source_distribution": dict(sorted(xodr_source_counter.items())),
+            "temporal_smoothing": temporal_smoothing_summary,
             "confidence_stats": self._confidence_stats(annotations),
             "primary_rs_transitions": transition_frames[:50],
             "annotations": annotations

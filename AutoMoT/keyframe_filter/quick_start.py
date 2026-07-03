@@ -665,6 +665,7 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
     route_count = 0
     frame_count = 0
     transition_count = 0
+    smoothing_change_count = 0
     confidence_values = []
     review_frame_count = 0
     sample_comments = []
@@ -677,6 +678,7 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
         for route in scenario_result.get("routes", []):
             route_count += 1
             transition_count += len(route.get("primary_rs_transitions", []))
+            smoothing_change_count += len(route.get("temporal_smoothing", {}).get("changes", []))
             for ann in route.get("annotations", []):
                 frame_count += 1
                 primary = ann.get("primary_road_structure")
@@ -724,6 +726,7 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
         "review_required_frame_count": review_frame_count,
         "review_required_ratio": round(review_frame_count / frame_count, 4) if frame_count else 0.0,
         "transition_count": transition_count,
+        "temporal_smoothing_change_count": smoothing_change_count,
         "sample_comments": sample_comments,
     }
 
@@ -731,7 +734,11 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
 def _print_annotation_summary(summary: Dict[str, Any]) -> None:
     """打印逐帧标注摘要。"""
     print("\n逐帧 RS 标注摘要:")
-    print(f"  routes={summary['route_count']} frames={summary['frame_count']} transitions={summary['transition_count']}")
+    print(
+        f"  routes={summary['route_count']} frames={summary['frame_count']} "
+        f"transitions={summary['transition_count']} "
+        f"smoothing_changes={summary.get('temporal_smoothing_change_count', 0)}"
+    )
     print(f"  primary_rs={summary['primary_rs_distribution']}")
     print(f"  rule_kind={summary['rule_kind_distribution']}")
     print(f"  xodr_source={summary['xodr_source_distribution']}")

@@ -58,6 +58,8 @@ python keyframe_filter/quick_start.py
 近邻解析。静态解析只有在 `map_projection_error_m <= 20m` 时设置
 `xodr_topology_trusted=true` 并允许 R2/R3/R6 使用 topology high 证据；超过该误差时只保留
 `xodr_topology_untrusted` 诊断，特殊 RS 会降为 medium/low + review。
+环岛 / roundabout 明确按 R1 处理：XODR 若输出 `map_is_roundabout=true`，即使附近有
+junction road，也会压住 R4/R5 并在 evidence 中写入 roundabout 规则命中。
 
 菜单里的 1/2/3/4 都是正式“采集 + 逐帧 RS 标注”入口：每帧都会同时写
 `road_structures` 候选全集与该帧独属的 `primary_road_structure` /
@@ -111,6 +113,10 @@ python keyframe_filter/quick_start.py annotate-rs \
   }
 }
 ```
+
+每条 route 还会执行统一时序去抖：R2/R3/R4/R5/R6 短于 4 帧、R1 短于 2 帧的孤立片段会并回邻近稳定片段，
+去抖原因写入 `evidence.temporal_smoothing`，route 摘要写入 `temporal_smoothing.changes`。
+这条规则适用于全部 RS，不只是 R1/R4。
 
 Web 可视化页面也按这个口径展示：顶部绿色标签是
 `frame_rs_annotation.label` / `primary_road_structure`，置信度对应这个“本帧最终 RS
@@ -433,6 +439,8 @@ meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；后�
 | Web 看不到结果 | 确认 `collection_output/*_result.json` 已生成 |
 | Web 只有候选没有本帧标签 | 重新打开新版 `web_app.py`；绿色“本帧最终标签”来自 `frame_rs_annotation.label`，置信度对应这个标签 |
 | Web XODR 显示 `trusted=false` | 说明静态 XODR 投影或局部拓扑不足以 high confidence；优先用 CARLA Python 环境重跑并对比 review 是否下降 |
+| 环岛被标成 R4/R5 | 检查 Web XODR 摘要是否有 `roundabout=true`；若没有，说明该 town 的 XODR 环岛几何特征需要补 probe 规则 |
+| 单帧 R4/R5/R2/R3/R6 抖动 | 检查 route 摘要 `temporal_smoothing.changes`；短片段默认会被并回邻近稳定 RS |
 
 ---
 

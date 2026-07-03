@@ -621,6 +621,7 @@ HTML_TEMPLATE = """
                                 <div class="evidence-item"><strong>XML/route:</strong> <span id="xmlEvidence">-</span></div>
                                 <div class="evidence-item"><strong>LEAD meta:</strong> <span id="metaEvidence">-</span></div>
                                 <div class="evidence-item"><strong>XODR:</strong> <span id="xodrEvidence">-</span></div>
+                                <div class="evidence-item"><strong>时序去抖:</strong> <span id="temporalSmoothingEvidence">-</span></div>
                                 <div class="evidence-item"><strong>弱/缺失输入:</strong> <span id="weakInputs">-</span></div>
                             </div>
                         </div>
@@ -963,6 +964,7 @@ HTML_TEMPLATE = """
                     `road=${formatScalar(xodr.road_id ?? xodr.map_road_id)}`,
                     `lane=${formatScalar(xodr.lane_id ?? xodr.map_lane_id)}`,
                     `junction=${formatScalar(xodr.is_junction ?? xodr.map_is_junction)}`,
+                    `roundabout=${formatScalar(xodr.is_roundabout ?? xodr.map_is_roundabout)}`,
                     `opposite=${formatScalar(xodr.opposite_lane ?? xodr.has_opposite_driving_lane)}`,
                     `parking=${formatScalar(xodr.parking_or_shoulder ?? xodr.has_parking_or_shoulder_nearby)}`,
                     `merge=${formatScalar(xodr.merge_split_hint ?? xodr.ramp_merge_split_hint)}`,
@@ -976,6 +978,12 @@ HTML_TEMPLATE = """
                 document.getElementById('xmlEvidence').innerHTML = `<span class="mono">${escapeHtml(xmlPieces.join(' | ') || '-')}</span>`;
                 document.getElementById('metaEvidence').innerHTML = `<span class="mono">${escapeHtml(metaPieces.join(' | ') || '-')}</span>`;
                 document.getElementById('xodrEvidence').innerHTML = `<span class="mono">${escapeHtml(xodrPieces.join(' | ') || '-')}</span>`;
+                const smoothing = evidence.temporal_smoothing || [];
+                const smoothingText = smoothing.map(item =>
+                    `${item.from}->${item.to} (${item.reason}, ${item.inherited_from})`
+                ).join(' | ');
+                document.getElementById('temporalSmoothingEvidence').innerHTML =
+                    `<span class="mono">${escapeHtml(smoothingText || '-')}</span>`;
                 document.getElementById('weakInputs').textContent =
                     (evidence.weak_or_missing_inputs || evidence.review_reasons || frameRs.reviewReasons || []).join(', ') || '-';
             } else {
@@ -993,6 +1001,7 @@ HTML_TEMPLATE = """
                 document.getElementById('xmlEvidence').textContent = '-';
                 document.getElementById('metaEvidence').textContent = '-';
                 document.getElementById('xodrEvidence').textContent = '-';
+                document.getElementById('temporalSmoothingEvidence').textContent = '-';
                 document.getElementById('weakInputs').textContent = '-';
             }
         }

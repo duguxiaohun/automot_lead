@@ -104,6 +104,8 @@ R1-R6 当前覆盖面足够，不需要继续细分。尤其 R1 可以明确作�
 - 没看到主辅路、匝道、合流、驶出结构时，默认 R1。
 - 没看到明显停车带 / 路边停车占道空间时，默认 R1。
 - 普通跟车、普通车道保持、非结构化道路正常前进、环岛内可行驶路径都可归 R1。
+- 环岛 / roundabout 明确归 R1：即使 XODR 把它编码成 junction road，也不能仅凭
+  `is_junction`、junction connection 或 route trigger 升为 R4/R5。
 
 典型场景或片段：
 
@@ -627,11 +629,11 @@ magic-number 分支。
 
 | RS | High-confidence 门控 | 常见否决 |
 |---|---|---|
-| R1 | 默认桶；同向障碍、急刹、动态对象、control loss 本身不改变 RS | brake/accel/vehicle_hazard/walker_hazard 不参与 RS 升级 |
+| R1 | 默认桶；同向障碍、急刹、动态对象、control loss、roundabout 本身不改变 RS | brake/accel/vehicle_hazard/walker_hazard 不参与 RS 升级 |
 | R2 | scenario prior + trigger/active 窗口 + 局部 XODR opposite driving lane + 同向车道不足 | 只有 TwoWays 名称或 `dist_to_*` 最高 medium；灯态/路口主导时 R4/R5 primary |
 | R3 | 高速/合流 scenario prior + actor-flow/merge/exit 窗口 + ramp/merge/split/lane-count-change 证据 | `start_actor_flow/end_actor_flow` 字段名不够；自行车/路口横向流 veto R3 |
-| R4 | 有效 `traffic_light_state` / `light_hazard`，或同源受控 junction/controller 支撑 | `CrossJunctionDefectTrafficLight` 由 R5 override；阻塞/违规只是 EVENT |
-| R5 | nonsignalized/priority/defect prior + route/trigger/junction 窗口 + 无有效正常灯态或 defect override | 连续有效灯态且非 defect scenario 时不 high R5 |
+| R4 | 有效 `traffic_light_state` / `light_hazard`，或同源受控 junction/controller 支撑，且 XODR 未判为 roundabout | `CrossJunctionDefectTrafficLight` 由 R5 override；阻塞/违规只是 EVENT；roundabout 强制回 R1 |
+| R5 | nonsignalized/priority/defect prior + route/trigger/junction 窗口 + 无有效正常灯态或 defect override，且 XODR 未判为 roundabout | 连续有效灯态且非 defect scenario 时不 high R5；roundabout 强制回 R1 |
 | R6 | Parking* / parking 子型 prior + parking trigger/active 窗口 + parking/shoulder/curbside 或停车汇入证据 | `ParkedObstacle` 不是 R6；灯控路口主导时 R4 primary |
 
 仲裁优先级默认：
@@ -645,6 +647,17 @@ R4/R5 > R3 > R2/R6 > R1
 - `CrossJunctionDefectTrafficLight`：R5 覆盖 R4，并写 `defect_signal_overrides_R4`。
 - `VehicleOpensDoorTwoWays`：R2/R6 可同时成立，primary 取决于是否必须占用/等待对向车道。
 - `noScenarios`：没有 scenario prior 时，只允许强灯态 + 同源受控 junction 升级 R4，否则 R1。
+- `roundabout`：XODR 若显示局部为 roundabout，则 R4/R5 junction 分支全部失效，primary 回 R1；
+  页面必须展示 `map_is_roundabout=true`，用于区分环岛和十字/丁字路口。
+
+时序稳定统一后处理：
+
+- 所有 RS 都要经过 route 级短片段去抖，不只 R1/R4。
+- 4Hz 数据下，R2/R3/R4/R5/R6 的候选片段至少连续 4 帧（约 1 秒）才作为真实结构切换；
+  短于 4 帧的片段并回前后邻居，若前后标签相同则直接填平。
+- R1 作为默认桶至少连续 2 帧；短 R1 缝隙夹在同一特殊 RS 中间时，也会被填回该特殊 RS。
+- 去抖后的帧必须写 `evidence.temporal_smoothing` 与 `temporal_smoothing_applied`，
+  让人工复核能看到原始标签和替换原因。
 
 ### 9.4 规则族结论
 
@@ -740,8 +753,8 @@ topology/meta confirmation window:
 2. `collector.py` 将当前特种 RS 的打分拆成 recall score 和 confirmation score。
 3. `collector.py` 对 `r2_scenario_trigger_medium`、`r3_lacks_xodr_merge_split_confirmation`、
    `r6_lacks_xodr_parking_or_shoulder_confirmation` 强制 review，并限制分数上限。
-4. 加最短持续帧与 transition margin：R2/R3/R6 少于 4 帧的孤立片段合并或 review，
-   R4 有有效灯态时不可被平滑覆盖。
+4. route 级最短持续帧已落地：R2/R3/R4/R5/R6 少于 4 帧、R1 少于 2 帧的孤立片段会合并到邻近稳定段；
+   后续若仍有边界抖动，再增加 transition margin / hysteresis。
 
 ### 9.6 错帧回查流程
 
