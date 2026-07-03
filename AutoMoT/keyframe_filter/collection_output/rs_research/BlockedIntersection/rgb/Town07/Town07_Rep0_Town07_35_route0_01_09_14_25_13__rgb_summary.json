@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/BlockedIntersection/rgb/Town07/Town07_Rep0_Town07_35_route0_01_09_14_25_13__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/BlockedIntersection/Town07_Rep0_Town07_35_route0_01_09_14_25_13/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/BlockedIntersection/Town07_Rep0_Town07_35_route0_01_09_14_25_13/rgb/0043.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/BlockedIntersection/Town07_Rep0_Town07_35_route0_01_09_14_25_13/rgb/0086.jpg"
-  ]
-}

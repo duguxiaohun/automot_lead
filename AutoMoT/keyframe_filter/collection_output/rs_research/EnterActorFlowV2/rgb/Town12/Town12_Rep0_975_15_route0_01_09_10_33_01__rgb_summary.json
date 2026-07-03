@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/EnterActorFlowV2/rgb/Town12/Town12_Rep0_975_15_route0_01_09_10_33_01__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/EnterActorFlowV2/Town12_Rep0_975_15_route0_01_09_10_33_01/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/EnterActorFlowV2/Town12_Rep0_975_15_route0_01_09_10_33_01/rgb/0063.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/EnterActorFlowV2/Town12_Rep0_975_15_route0_01_09_10_33_01/rgb/0126.jpg"
-  ]
-}

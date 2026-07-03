@@ -1,0 +1,3 @@
+# Local generated research/audit artifacts. Keep them on disk, do not commit.
+collection_output/
+__pycache__/

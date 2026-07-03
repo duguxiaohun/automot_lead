@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/ParkingExit/rgb/Town03/Town03_Rep0_route_001750_route0_01_09_07_59_44__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/ParkingExit/Town03_Rep0_route_001750_route0_01_09_07_59_44/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/ParkingExit/Town03_Rep0_route_001750_route0_01_09_07_59_44/rgb/0025.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/ParkingExit/Town03_Rep0_route_001750_route0_01_09_07_59_44/rgb/0050.jpg"
-  ]
-}

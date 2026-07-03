@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/ParkingCrossingPedestrian/rgb/Town13/Town13_Rep0_94_0_route0_01_10_08_19_50__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/ParkingCrossingPedestrian/Town13_Rep0_94_0_route0_01_10_08_19_50/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/ParkingCrossingPedestrian/Town13_Rep0_94_0_route0_01_10_08_19_50/rgb/0054.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/ParkingCrossingPedestrian/Town13_Rep0_94_0_route0_01_10_08_19_50/rgb/0109.jpg"
-  ]
-}

@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/OppositeVehicleTakingPriority/rgb/Town13/Town13_Rep0_1496_2_route0_01_09_03_34_48__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleTakingPriority/Town13_Rep0_1496_2_route0_01_09_03_34_48/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleTakingPriority/Town13_Rep0_1496_2_route0_01_09_03_34_48/rgb/0060.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleTakingPriority/Town13_Rep0_1496_2_route0_01_09_03_34_48/rgb/0120.jpg"
-  ]
-}

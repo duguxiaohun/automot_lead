@@ -1,8 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/CARLA_0915/CarlaUE4/Content/Carla/Maps/OpenDrive/Town07.xodr",
-  "junctions": 31,
-  "signals": 56,
-  "controllers": 48,
-  "stop_signals": 19
-}

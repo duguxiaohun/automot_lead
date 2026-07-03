@@ -157,7 +157,8 @@ first / q1 / middle / q3 / last
 AutoMoT/keyframe_filter/collection_output/rs_research/<Scenario>/
 ```
 
-该目录默认作为调研产物，不入库；文档和代码只记录生成规范。目录结构：
+该目录默认作为本地调研产物，不入库、不 push；文档和代码只记录生成规范。需要共享给
+远端的内容，必须先从自动产物中提炼为方案文档、阈值配置或小型审计摘要。目录结构：
 
 ```text
 rs_research/<Scenario>/

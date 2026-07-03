@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/DynamicObjectCrossing/rgb/Town03/Town03_Rep0_Town03_Scenario3_3_route0_01_10_11_45_14__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_3_route0_01_10_11_45_14/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_3_route0_01_10_11_45_14/rgb/0034.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_3_route0_01_10_11_45_14/rgb/0067.jpg"
-  ]
-}

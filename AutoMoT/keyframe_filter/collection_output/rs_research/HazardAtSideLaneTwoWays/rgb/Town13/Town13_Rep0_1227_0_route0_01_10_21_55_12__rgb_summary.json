@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/HazardAtSideLaneTwoWays/rgb/Town13/Town13_Rep0_1227_0_route0_01_10_21_55_12__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/HazardAtSideLaneTwoWays/Town13_Rep0_1227_0_route0_01_10_21_55_12/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/HazardAtSideLaneTwoWays/Town13_Rep0_1227_0_route0_01_10_21_55_12/rgb/0085.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/HazardAtSideLaneTwoWays/Town13_Rep0_1227_0_route0_01_10_21_55_12/rgb/0170.jpg"
-  ]
-}

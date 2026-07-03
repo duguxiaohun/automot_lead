@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/VehicleTurningRoute/rgb/Town07/Town07_Rep0_Town07_Scenario4_9_route0_01_10_03_44_37__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleTurningRoute/Town07_Rep0_Town07_Scenario4_9_route0_01_10_03_44_37/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleTurningRoute/Town07_Rep0_Town07_Scenario4_9_route0_01_10_03_44_37/rgb/0029.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleTurningRoute/Town07_Rep0_Town07_Scenario4_9_route0_01_10_03_44_37/rgb/0058.jpg"
-  ]
-}

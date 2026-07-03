@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/Accident/rgb/Town05/Town05_Rep0_route_001778_route0_01_10_16_49_11__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/Accident/Town05_Rep0_route_001778_route0_01_10_16_49_11/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/Accident/Town05_Rep0_route_001778_route0_01_10_16_49_11/rgb/0118.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/Accident/Town05_Rep0_route_001778_route0_01_10_16_49_11/rgb/0235.jpg"
-  ]
-}

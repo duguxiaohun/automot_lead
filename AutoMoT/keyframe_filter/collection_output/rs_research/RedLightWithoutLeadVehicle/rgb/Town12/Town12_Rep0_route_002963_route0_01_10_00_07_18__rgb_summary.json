@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/RedLightWithoutLeadVehicle/rgb/Town12/Town12_Rep0_route_002963_route0_01_10_00_07_18__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town12_Rep0_route_002963_route0_01_10_00_07_18/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town12_Rep0_route_002963_route0_01_10_00_07_18/rgb/0166.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town12_Rep0_route_002963_route0_01_10_00_07_18/rgb/0333.jpg"
-  ]
-}

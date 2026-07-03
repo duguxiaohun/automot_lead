@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/MergerIntoSlowTraffic/rgb/Town12/Town12_Rep0_4091_0_route0_01_11_04_21_03__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/MergerIntoSlowTraffic/Town12_Rep0_4091_0_route0_01_11_04_21_03/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/MergerIntoSlowTraffic/Town12_Rep0_4091_0_route0_01_11_04_21_03/rgb/0152.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/MergerIntoSlowTraffic/Town12_Rep0_4091_0_route0_01_11_04_21_03/rgb/0303.jpg"
-  ]
-}

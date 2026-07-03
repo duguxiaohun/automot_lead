@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/PedestrianCrossing/rgb/Town12/Town12_Rep0_2392_0_route0_01_07_22_49_01__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/PedestrianCrossing/Town12_Rep0_2392_0_route0_01_07_22_49_01/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/PedestrianCrossing/Town12_Rep0_2392_0_route0_01_07_22_49_01/rgb/0108.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/PedestrianCrossing/Town12_Rep0_2392_0_route0_01_07_22_49_01/rgb/0215.jpg"
-  ]
-}

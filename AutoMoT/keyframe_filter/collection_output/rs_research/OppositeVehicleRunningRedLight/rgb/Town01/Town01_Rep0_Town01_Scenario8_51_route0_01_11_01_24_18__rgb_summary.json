@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/OppositeVehicleRunningRedLight/rgb/Town01/Town01_Rep0_Town01_Scenario8_51_route0_01_11_01_24_18__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_51_route0_01_11_01_24_18/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_51_route0_01_11_01_24_18/rgb/0034.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_51_route0_01_11_01_24_18/rgb/0068.jpg"
-  ]
-}

@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/ParkedObstacle/rgb/Town13/Town13_Rep0_1395_0_route0_01_09_15_55_13__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/ParkedObstacle/Town13_Rep0_1395_0_route0_01_09_15_55_13/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/ParkedObstacle/Town13_Rep0_1395_0_route0_01_09_15_55_13/rgb/0058.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/ParkedObstacle/Town13_Rep0_1395_0_route0_01_09_15_55_13/rgb/0117.jpg"
-  ]
-}

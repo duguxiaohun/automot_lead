@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/VehicleTurningRoutePedestrian/rgb/Town12/Town12_Rep0_393_1_route0_01_11_09_43_58__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleTurningRoutePedestrian/Town12_Rep0_393_1_route0_01_11_09_43_58/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleTurningRoutePedestrian/Town12_Rep0_393_1_route0_01_11_09_43_58/rgb/0123.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleTurningRoutePedestrian/Town12_Rep0_393_1_route0_01_11_09_43_58/rgb/0246.jpg"
-  ]
-}

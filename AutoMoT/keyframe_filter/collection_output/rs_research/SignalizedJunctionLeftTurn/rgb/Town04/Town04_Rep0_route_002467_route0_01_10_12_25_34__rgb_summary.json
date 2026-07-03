@@ -1,9 +1,0 @@
-{
-  "available": true,
-  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/SignalizedJunctionLeftTurn/rgb/Town04/Town04_Rep0_route_002467_route0_01_10_12_25_34__sample_contact_sheet.jpg",
-  "sampled": [
-    "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town04_Rep0_route_002467_route0_01_10_12_25_34/rgb/0000.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town04_Rep0_route_002467_route0_01_10_12_25_34/rgb/0024.jpg",
-    "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town04_Rep0_route_002467_route0_01_10_12_25_34/rgb/0047.jpg"
-  ]
-}
