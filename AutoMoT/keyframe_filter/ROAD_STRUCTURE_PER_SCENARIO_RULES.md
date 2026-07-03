@@ -54,8 +54,9 @@
 
 ### 1.4 时间平滑与冲突
 
-- R2 / R3 / R6 结构片段建议最短持续 `4` 帧，即约 `1s`；更短片段若非明显灯态或 junction 切换，应 review。
-- R4 有有效红绿灯或 stopline 证据时，不应被平滑掉。
+- R2/R3/R4/R5/R6 结构片段最短持续 `4` 帧，即约 `1s`；R1 最短持续 `2` 帧。
+  更短片段默认视为时序噪音，由 route 级 smoothing 并回邻近稳定 RS，并写入 evidence。
+- R4 即使有红绿灯或 stopline 证据，也必须形成连续稳定片段；单帧 R4 仍按噪音处理。
 - 主候选与次候选分差 `< 0.15` 时，保留 primary 但必须 review。
 - 同一帧若 R4/R5 与 R2/R3/R6 冲突，优先判断是否处于真实路口控制区；路口控制证据同源时 R4/R5 做 primary，结构风险做 secondary。
 
@@ -75,6 +76,8 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
   的静态 XODR 拓扑才允许作为 R2/R3/R6 high 证据，否则必须写 `xodr_topology_untrusted` 并降级 review。
 - `light_hazard=True` 不能单独把非路口帧升为 R4；必须同时有 `near_junction`、有效灯态或可信静态 signal 近邻。
   本轮 smoke test 中该门控把 `AccidentTwoWays` 小样本的 R2/R4 抖动从 38 次切换降到 2 次核心切换。
+- 环岛 / roundabout 归 R1，不归 R4/R5。XODR 即使把环岛编码成 junction road，也必须进一步检查
+  roundabout 几何/连接特征；`map_is_roundabout=true` 时，R4/R5 的 junction/window 分支都要失效。
 - 所有 `*_TwoWays` / `InvadingTurn` / `VehicleOpensDoorTwoWays` 的 R2 high 必须补“同向 lane 不足或对向交互主导”的证据，不能只靠场景名和 trigger close。
 - 所有 `highway_merge` / `interurban` / `static_cutin` 的 R3 high 必须补 merge/split/ramp/lane-count-change 证据；切入、EnterFlow、低速车流等事件名不能单独触发 R3。
 - 所有 `parking` / `parking_exit` / `vehicle_opens_door_twoways` 的 R6 high 必须补 parking lane、shoulder、curbside 或 RGB 路边停车空间证据；“parked obstacle” 不等于 R6。
@@ -103,7 +106,26 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
 | `vehicle_turning` | VehicleTurningRoute, VehicleTurningRoutePedestrian | `junction_pre_m=50`, `junction_post_m=20-40`, `multi_trigger=True` | 多 trigger 分段；行人/横穿不改变 RS，控制源决定 R4/R5 |
 | `noscenario` | noScenarios | `junction_pre_m=50`, `junction_post_m=25`, `conservative=True` | 只允许 R1/R4；弱 topology hint 只写 evidence/review |
 
-### 1.7 已落地的可执行标注与可视化入口
+### 1.7 时序稳定与环岛仲裁
+
+帧级规则输出后必须再经过 route 级时序稳定，避免 `R1 -> R4 -> R1` 或任意
+`R* -> Rk -> R*` 的单帧/短片段扰动被当成真实道路结构切换：
+
+- R2/R3/R4/R5/R6 最短有效持续为 4 帧（4Hz 下约 1 秒）。
+- R1 最短有效持续为 2 帧；短 R1 夹在同一特殊 RS 中间时，视为噪音缝隙并填平。
+- 短片段前后标签一致时直接改为该标签；前后不一致时并入更长邻接片段，并写
+  `evidence.temporal_smoothing`。
+- 去抖是所有 RS 的统一后处理，不是 R4 特例；`frame_rs_annotation.label` 必须反映去抖后的最终标签。
+
+环岛判断优先级高于 R4/R5：
+
+- 静态 XODR 会结合 junction id、连接 road 数、局部曲率、geometry 长度和 signal 距离输出
+  `map_is_roundabout`。
+- CARLA API probe 可用时仍合并静态 XODR 的 roundabout hint，避免不同 Python 环境下规则漂移。
+- `map_is_roundabout=true` 时，R4/R5 分数被移除，R1 作为 primary，并记录
+  `roundabout_xodr_forces_r1` / `roundabout_removed_junction_rs_scores`。
+
+### 1.8 已落地的可执行标注与可视化入口
 
 本轮已把本文思路落到 `collector.py` / `quick_start.py` / `web_app.py`：
 
