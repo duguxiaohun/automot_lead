@@ -1028,11 +1028,11 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
     "Accident": {"kind": "same_direction_obstacle", "junction_pre_m": 60, "junction_post_m": 25, "veto": ["no_r2", "no_r6"]},
     "ConstructionObstacle": {"kind": "same_direction_obstacle", "junction_pre_m": 60, "junction_post_m": 25, "veto": ["no_r2", "no_r6"]},
     "ParkedObstacle": {"kind": "same_direction_obstacle", "junction_pre_m": 60, "junction_post_m": 25, "veto": ["parked_not_parking_rs"]},
-    # TwoWays：必须在 trigger/active/opposite-lane 窗口内才 R2。
-    "AccidentTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 45, "two_way_post_pad_m": 20, "trigger_close_m": 70},
-    "ConstructionObstacleTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 45, "two_way_post_pad_m": 20, "trigger_close_m": 70},
-    "HazardAtSideLaneTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 70, "two_way_post_pad_m": 20, "trigger_close_m": 75},
-    "ParkedObstacleTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 50, "two_way_post_pad_m": 20, "trigger_close_m": 70, "veto": ["parked_not_r6"]},
+    # TwoWays：核心障碍帧由 trigger/active/meta 支撑；清晰 TwoWays 场景的路型先验可保留 R2 + review，避免双向道路前后段被 R1 吃掉。
+    "AccidentTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 45, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_layout_prior": True},
+    "ConstructionObstacleTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 45, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_layout_prior": True},
+    "HazardAtSideLaneTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 70, "two_way_post_pad_m": 20, "trigger_close_m": 75, "two_way_layout_prior": True},
+    "ParkedObstacleTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 50, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_layout_prior": True, "veto": ["parked_not_r6"]},
     "InvadingTurn": {"kind": "invading_turn", "two_way_min_pre_m": 80, "two_way_post_pad_m": 20, "trigger_close_m": 75, "rule_note": "passive_oncoming_invasion"},
     # 信号灯路口：stopline 前也保持 R4。
     "BlockedIntersection": {"kind": "signalized_junction", "junction_pre_m": 60, "junction_post_m": 25, "rule_note": "blocked_is_event_not_rs"},
@@ -1054,8 +1054,8 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
     "EnterActorFlowV2": {"kind": "highway_merge", "merge_pre_m": 30, "merge_post_m": 40, "trigger_close_m": 90},
     "HighwayCutIn": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 40, "trigger_close_m": 90},
     "HighwayExit": {"kind": "highway_merge", "merge_pre_m": 50, "merge_post_m": 50, "trigger_close_m": 90},
-    "MergerIntoSlowTraffic": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True, "actor_flow_near_m": 45},
-    "MergerIntoSlowTrafficV2": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True, "actor_flow_near_m": 45},
+    "MergerIntoSlowTraffic": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True, "actor_flow_near_m": 20},
+    "MergerIntoSlowTrafficV2": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True, "actor_flow_near_m": 20},
     "InterurbanActorFlow": {"kind": "interurban", "merge_pre_m": 50, "merge_post_m": 45, "junction_pre_m": 55, "junction_post_m": 25},
     "InterurbanAdvancedActorFlow": {"kind": "interurban_advanced", "junction_pre_m": 55, "junction_post_m": 25, "r3_requires_topology": True},
     # 停车/路边占道。
@@ -1133,7 +1133,10 @@ def _diagnose_rs_decision(
     elif primary == RoadStructure.R3:
         decision_source = "merge_actor_flow_or_topology_window"
     elif primary == RoadStructure.R2:
-        decision_source = "twoways_trigger_window"
+        if "r2_twoways_layout_prior_review" in rules:
+            decision_source = "twoways_layout_prior"
+        else:
+            decision_source = "twoways_trigger_window"
     elif primary == RoadStructure.R6:
         decision_source = "parking_or_curbside_window"
     else:
@@ -1174,6 +1177,7 @@ def _diagnose_rs_decision(
             "junction_window": bool(flags.get("junction_window")),
             "roundabout_context": bool(flags.get("map_is_roundabout")),
             "two_way_window": bool(flags.get("two_way_window")),
+            "two_way_layout_prior": bool(flags.get("two_way_layout_prior")),
             "twoway_core_obstruction": bool(flags.get("twoway_core_obstruction")),
             "scenario_active": bool(flags.get("scenario_active")),
         },
@@ -1250,11 +1254,12 @@ def _strong_control_context(
     junction_pre: float,
 ) -> bool:
     """R4/R5 high 需要能在 RGB 或可信拓扑中解释的路口控制上下文。"""
+    static_signal_strong_m = min(junction_pre, 25.0)
     return (
         is_junction
         or xodr_near_junction
         or stop_hazard
-        or (static_signal_near and dist_to_junction < min(junction_pre, 35.0))
+        or (static_signal_near and dist_to_junction < static_signal_strong_m)
     )
 
 
@@ -1394,6 +1399,7 @@ class RoadStructureRuleEngine:
             rules.append("roundabout_xodr_forces_r1")
 
         twoway_obstruction = _twoway_obstruction_evidence(frame_data)
+        two_way_layout_prior_enabled = bool(cfg.get("two_way_layout_prior"))
         light_hazard_control_context = strong_control_context and (
             meta_near_junction
             or xodr_near_junction
@@ -1454,6 +1460,7 @@ class RoadStructureRuleEngine:
                     r4_score = 0.96
                 elif near_junction or static_signal_near:
                     r4_score = 0.82
+                    rules.append("r4_signalized_without_meta_tl_requires_rgb_review")
                 else:
                     r4_score = 0.66
                     self._add(scores, RoadStructure.R1, 0.76)
@@ -1477,6 +1484,12 @@ class RoadStructureRuleEngine:
             if has_tl or static_signal_near:
                 rules.append("nonsig_with_signal_conflict_review")
         elif kind in {"twoways_obstacle", "invading_turn"}:
+            r2_layout_prior_allowed = (
+                kind == "twoways_obstacle"
+                and two_way_layout_prior_enabled
+                and RoadStructure.R2 in allowed
+                and not (xodr_trusted and not static_topology_only and static_topology_strong and not has_opposite and same_dir_lanes > 1)
+            )
             if RoadStructure.R2 in allowed and two_way_window:
                 r2_topology_confirmed = has_opposite and same_dir_lanes <= 1
                 r2_core_meta_confirmed = (
@@ -1493,21 +1506,33 @@ class RoadStructureRuleEngine:
                     if kind == "twoways_obstacle":
                         rules.append("r2_core_obstruction_confirmed")
                 else:
-                    self._add(scores, RoadStructure.R2, 0.58)
-                    self._add(scores, RoadStructure.R1, 0.76)
-                    rules.append("r2_scenario_trigger_medium")
+                    if r2_layout_prior_allowed:
+                        self._add(scores, RoadStructure.R2, 0.82)
+                        rules.append("r2_twoways_layout_prior_review")
+                        if not has_opposite:
+                            rules.append("r2_layout_prior_lacks_xodr_opposite_confirmation")
+                    else:
+                        self._add(scores, RoadStructure.R2, 0.58)
+                        self._add(scores, RoadStructure.R1, 0.76)
+                        rules.append("r2_scenario_trigger_medium")
                     if r2_topology_confirmed:
                         rules.append("r2_waits_for_close_obstruction_or_vehicle_interaction")
                     else:
                         rules.append("r2_requires_visible_or_topology_occupancy_confirmation")
+            elif r2_layout_prior_allowed:
+                self._add(scores, RoadStructure.R2, 0.82)
+                rules.append("r2_twoways_layout_prior_review")
+                if not has_opposite:
+                    rules.append("r2_layout_prior_lacks_xodr_opposite_confirmation")
             if kind == "invading_turn":
                 rules.append("r2_passive_invading_turn")
         elif kind == "highway_merge":
+            keep_r3_when_slow = bool(cfg.get("keep_r3_when_slow"))
             merge_xml_fallback = bool(cfg.get("keep_r3_when_slow")) and (
                 actor_flow_near
                 or close_trigger
-                or scenario_active
             )
+            scenario_active_merge_window = scenario_active_for_structure and not keep_r3_when_slow
             merge_window = (
                 _route_trigger_window(
                     route_s_for_window,
@@ -1516,7 +1541,8 @@ class RoadStructureRuleEngine:
                     float(cfg.get("merge_post_m", 50.0)),
                 )
                 or close_trigger_for_structure
-                or scenario_active_for_structure
+                or (keep_r3_when_slow and close_trigger)
+                or scenario_active_merge_window
                 or actor_flow_near
             )
             if merge_window and RoadStructure.R3 in allowed:
@@ -1558,15 +1584,32 @@ class RoadStructureRuleEngine:
                     self._add(scores, RoadStructure.R4, 0.95)
                     rules.append("interurban_junction_r4")
                 elif stop_hazard or is_junction or (xodr_near_junction and not route_projection_error_high and not static_topology_only):
-                    self._add(scores, RoadStructure.R5, 0.70)
-                    rules.append("interurban_junction_r5_medium")
+                    if route_projection_error_high:
+                        self._add(scores, RoadStructure.R5, 0.62)
+                        self._add(scores, RoadStructure.R1, 0.78)
+                        rules.append("interurban_r5_demoted_projection_error_rgb_required")
+                    else:
+                        self._add(scores, RoadStructure.R5, 0.82 if (stop_hazard or is_junction) else 0.72)
+                        rules.append("interurban_junction_r5_medium")
                 else:
                     self._add(scores, RoadStructure.R1, 0.72)
                     rules.append("interurban_junction_window_lacks_visible_control_review")
         elif kind == "interurban_advanced":
             if junction_window:
-                self._add(scores, RoadStructure.R4 if has_tl else RoadStructure.R5, 0.85)
-                rules.append("advanced_actor_flow_junction_primary")
+                if has_tl:
+                    self._add(scores, RoadStructure.R4, 0.85)
+                    rules.append("advanced_actor_flow_junction_r4")
+                elif stop_hazard or is_junction or (xodr_near_junction and not route_projection_error_high and not static_topology_only):
+                    if route_projection_error_high:
+                        self._add(scores, RoadStructure.R5, 0.62)
+                        self._add(scores, RoadStructure.R1, 0.78)
+                        rules.append("advanced_actor_flow_r5_demoted_projection_error_rgb_required")
+                    else:
+                        self._add(scores, RoadStructure.R5, 0.82 if (stop_hazard or is_junction) else 0.72)
+                        rules.append("advanced_actor_flow_junction_r5")
+                else:
+                    self._add(scores, RoadStructure.R1, 0.78)
+                    rules.append("advanced_actor_flow_junction_window_lacks_visible_control_review")
             if ramp_hint:
                 self._add(scores, RoadStructure.R3, 0.58)
                 rules.append("advanced_actor_flow_r3_only_with_topology")
@@ -1634,9 +1677,20 @@ class RoadStructureRuleEngine:
                 rules.append("pedestrian_crossing_junction_space")
         elif kind == "vehicle_turning":
             if junction_window:
-                rs = RoadStructure.R4 if has_tl else RoadStructure.R5
-                self._add(scores, rs, 0.86 if has_tl else 0.70)
-                rules.append("vehicle_turning_junction_space")
+                if has_tl:
+                    self._add(scores, RoadStructure.R4, 0.86)
+                    rules.append("vehicle_turning_junction_space")
+                elif route_projection_error_high and not (
+                    stop_hazard
+                    or is_junction
+                    or (xodr_near_junction and not static_topology_only)
+                ):
+                    self._add(scores, RoadStructure.R1, 0.78)
+                    self._add(scores, RoadStructure.R5, 0.58)
+                    rules.append("vehicle_turning_r5_demoted_projection_error_rgb_required")
+                else:
+                    self._add(scores, RoadStructure.R5, 0.70)
+                    rules.append("vehicle_turning_junction_space")
         elif kind == "noscenario":
             if not has_tl and not light_hazard:
                 scores = {RoadStructure.R1: max(scores.get(RoadStructure.R1, 0.0), 0.86)}
@@ -1717,6 +1771,12 @@ class RoadStructureRuleEngine:
                 "static_signal_near": static_signal_near,
                 "junction_window": junction_window,
                 "two_way_window": two_way_window,
+                "two_way_layout_prior": bool(
+                    kind == "twoways_obstacle"
+                    and two_way_layout_prior_enabled
+                    and RoadStructure.R2 in allowed
+                    and not (xodr_trusted and not static_topology_only and static_topology_strong and not has_opposite and same_dir_lanes > 1)
+                ),
                 "twoway_core_obstruction": twoway_obstruction.core_confirmed
                 if kind in {"twoways_obstacle", "invading_turn", "vehicle_opens_door_twoways"}
                 else False,
@@ -1734,6 +1794,8 @@ class RoadStructureRuleEngine:
         weak_inputs = diagnostic_attribution.get("weak_or_missing_inputs", [])
         if primary in {RoadStructure.R2, RoadStructure.R3, RoadStructure.R6} and weak_inputs:
             review_reasons.append("special_rs_lacks_full_topology_confirmation")
+        if primary == RoadStructure.R2 and "r2_twoways_layout_prior_review" in rules:
+            review_reasons.append("twoways_layout_prior_requires_rgb_confirmation")
         if route_projection_error_high and (close_trigger or scenario_active) and not (close_trigger_for_structure or scenario_active_for_structure):
             review_reasons.append("structure_window_demoted_by_projection_error")
         if static_topology_only and route_projection_error_high and xodr.get("xodr_available"):
@@ -1742,6 +1804,8 @@ class RoadStructureRuleEngine:
             review_reasons.append("weaker_special_rs_kept_as_candidate_not_primary")
         if kind == "signalized_junction" and cfg.get("review_if_no_tl") and primary == RoadStructure.R4 and not has_tl:
             review_reasons.append("signalized_policy_without_meta_tl")
+        if kind == "signalized_junction" and primary == RoadStructure.R4 and not has_tl:
+            review_reasons.append("signalized_r4_without_meta_tl_requires_rgb_confirmation")
         if kind == "nonsignalized_junction" and "nonsig_with_signal_conflict_review" in rules:
             review_reasons.append("nonsignalized_with_signal_topology_conflict")
         evidence = {
@@ -2156,6 +2220,74 @@ class ScenarioCollector:
 
         return {"enabled": True, "min_frames": {"R1": 2, "R2": 4, "R3": 4, "R4": 4, "R5": 4, "R6": 4}, "changes": changes}
 
+    def _apply_twoways_layout_prior_boundaries(self, annotations: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """限制 TwoWays layout-prior：有核心证据的路线，核心之前不能只靠场景先验升 R2。"""
+        changes: List[Dict[str, Any]] = []
+        if not annotations:
+            return {"enabled": True, "changes": changes}
+
+        has_core_span = any(
+            "r2_core_obstruction_confirmed" in (ann.get("evidence", {}).get("rules_fired", []) or [])
+            for ann in annotations
+        )
+        if not has_core_span:
+            return {"enabled": True, "route_has_core_obstruction": False, "changes": changes}
+
+        seen_core = False
+        for ann in annotations:
+            evidence = ann.setdefault("evidence", {})
+            rules = evidence.setdefault("rules_fired", [])
+            is_core = "r2_core_obstruction_confirmed" in rules
+            is_layout_prior = "r2_twoways_layout_prior_review" in rules
+            if is_core:
+                seen_core = True
+                continue
+            if seen_core or ann.get("primary_road_structure") != "R2" or not is_layout_prior:
+                continue
+
+            old_label = ann.get("primary_road_structure")
+            candidates = ann.setdefault("road_structure_candidates", {})
+            candidates["R1"] = max(float(candidates.get("R1", 0.0) or 0.0), 0.78)
+            if "R2" in candidates:
+                candidates["R2"] = min(float(candidates.get("R2", 0.0) or 0.0), 0.58)
+            ann["primary_road_structure"] = "R1"
+            ann["secondary_road_structures"] = []
+            ann["confidence"] = 0.78
+
+            rules.append("twoways_layout_prior_pre_core_demoted_to_r1")
+            review_reasons = evidence.setdefault("review_reasons", [])
+            while "twoways_layout_prior_requires_rgb_confirmation" in review_reasons:
+                review_reasons.remove("twoways_layout_prior_requires_rgb_confirmation")
+            while "candidate_score_gap_lt_0.15" in review_reasons:
+                review_reasons.remove("candidate_score_gap_lt_0.15")
+            evidence["review_required"] = bool(review_reasons)
+            diagnostic = evidence.setdefault("diagnostic_attribution", {})
+            diagnostic["decision_source"] = "conservative_default_or_pre_core_twoways_layout"
+            diagnostic["score_ranking"] = sorted(
+                ((label, score) for label, score in candidates.items()),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+            diagnostic["top_score_gap"] = round(float(candidates.get("R1", 0.0)) - float(candidates.get("R2", 0.0)), 3)
+            ann["reason"] = f"{ann.get('reason', '')}; twoways layout prior pre-core demoted {old_label}->R1"
+            ann["annotation_comment"] = _frame_annotation_comment(
+                RoadStructure.R1,
+                set(),
+                float(ann.get("confidence", 0.78) or 0.78),
+                evidence,
+            )
+            ann["frame_rs_annotation"] = self._frame_rs_annotation_payload(ann)
+            changes.append(
+                {
+                    "frame_id": ann.get("frame_id"),
+                    "from": old_label,
+                    "to": "R1",
+                    "reason": "twoways_layout_prior_before_first_core_obstruction",
+                }
+            )
+
+        return {"enabled": True, "route_has_core_obstruction": True, "changes": changes}
+
     def _process_route(self, scenario_name: str, route_path: Path, max_frames_per_route: Optional[int] = None) -> Dict:
         """处理单个route"""
         metas_dir = route_path / "metas"
@@ -2184,6 +2316,7 @@ class ScenarioCollector:
                 self.logger.warning(f"处理 {meta_file} 出错: {e}")
                 continue
 
+        twoways_layout_boundary_summary = self._apply_twoways_layout_prior_boundaries(annotations)
         temporal_smoothing_summary = self._apply_temporal_rs_smoothing(annotations)
 
         primary_counter = defaultdict(int)
@@ -2226,6 +2359,7 @@ class ScenarioCollector:
             "review_required_ratio": round(review_frame_count / len(annotations), 4) if annotations else 0.0,
             "review_reason_distribution": dict(sorted(review_counter.items())),
             "xodr_source_distribution": dict(sorted(xodr_source_counter.items())),
+            "twoways_layout_prior_boundaries": twoways_layout_boundary_summary,
             "temporal_smoothing": temporal_smoothing_summary,
             "confidence_stats": self._confidence_stats(annotations),
             "primary_rs_transitions": transition_frames[:50],

@@ -173,25 +173,41 @@ scenario/trigger 窗口压过 R1，而是降为 secondary/review；
 `R1=182, R2=10, R3=20, R4=128, R5=80, R6=10`，
 `confidence min/avg/max = 0.70/0.8302/0.98`，`review_ratio=0.3093`。
 
-第二轮图像优先全量复核入口：
+全帧复核必须按 RGB-first 执行：每个 scenario 的每个 town 抽 1 条 route，完整生成
+`all_frames_*.jpg`，人工从 f0 到最后一帧逐帧看图。summary、置信度、标签分布和
+`candidate_anomalies` 都只是索引；稳定高置信 R1 也不能跳过。若 RGB 清晰显示
+merge/parking/junction/TwoWays 等特殊结构而标签仍为 R1，必须记录为视觉冲突，再查
+rules/evidence 判断是规则思路错误、参数阈值错误还是 XML/XODR 投影错误。只有低能见度
+或遮挡严重时才把 XODR/XML/meta 作为主要补充证据。
+
+RGB-first 全量复核入口：
 
 ```bash
 python keyframe_filter/rs_full_frame_review.py \
   --scenario all \
   --samples-per-town 1 \
   --max-routes-per-town 1 \
-  --frames-per-sheet 60 \
-  --sheet-cols 4 \
-  --output-dir keyframe_filter/collection_output/rs_full_frame_review_after_visual_gate
+  --max-frames-per-route 0 \
+  --frames-per-sheet 40 \
+  --sheet-cols 5 \
+  --output-dir keyframe_filter/collection_output/rs_full_frame_review_rgb_first_current
 ```
 
-该目录覆盖 43 个 scenario、204 个 scenario-town route、24387 帧。每个 town 只取
-1 条 route，但全帧标注并生成 RGB overview；复核结果写入
-`global_visual_review_summary.json` 以及每个 scenario 的
-`scenario_visual_review_summary.json`。这批 summary 是图像优先复核：confidence/review
-字段只用于定位候选 span，不作为标签正确性的证明。当前高优先级异常 63 条，主要是
-R2/R3/R6 缺可见占道/合流/停车空间时的规则门控问题，以及 R4/R5 在高 projection error
-下从 frame0 开始的窗口/投影参数问题。
+当前 RGB-first 闭环覆盖 43 个 scenario、204 个 scenario-town route、24387 帧；
+`candidate_anomalies=15788` 只是逐帧看图索引，不是错帧数。最终异常必须读取每个 route 的
+`all_frames_*.jpg` 后人工确认，并按下面的根因归类回灌规则。
+
+已确认导致标定与真实 RGB 不匹配的主要原因：
+
+- `route_projection_error_high` 时仍把 XML route_s / trigger window 当 hard boundary，导致普通路段被过早标成 R4/R5/R3。
+- 静态 XODR signal/opposite/parking/merge/junction hint 与 RGB 不同源，尤其在雾、夜间、稀疏 route 或投影偏移时会误导规则。
+- 只按 scenario 名称或 active scenario 延长特殊 RS，导致事件已经结束或 merge/路口已经离开后仍保持 R2/R3/R4/R5/R6。
+- 反向问题也存在：明显 merge / TwoWays road-layout 因 XODR 投影失败被压回 R1，因此坏 XODR 不能当作否定证据，只能触发 review。
+- `two_way_layout_prior` 若被理解成整条 route 的场景名先验，会把 `AccidentTwoWays`、
+  `ConstructionObstacleTwoWays` 等 core 前接近段误标为 R2；它只能作为 core 后布局延续，
+  或无 core 但 RGB 清楚显示双向单车道/中心黄线的召回线索。
+- 行人、事故、施工、急刹、切入、开门、闯红灯等多数是 EVENT，不应直接改变 ROAD_STRUCTURE；RS 必须由道路几何和控制源决定。
+- 置信度和 summary 只能作为索引。高置信不等于 RGB 正确，稳定 R1 也必须逐帧看，避免漏掉后段 merge、停车带、路口或双向路结构。
 
 第二轮错配回灌后，`collector.py` 已按图像优先结论收紧：
 
@@ -203,13 +219,21 @@ R2/R3/R6 缺可见占道/合流/停车空间时的规则门控问题，以及 R4
   `nonsignalized_with_signal_topology_conflict`，需要人工结合 RGB 确认。
 - `MergerIntoSlowTraffic*` 的明显 merge 口不能被坏 XODR 自动压回 R1；当 RGB/LEAD XML
   已支持合流，但 route/XODR 投影误差导致 topology 不可信时，规则会使用 XML
-  `start_actor_flow/end_actor_flow` 距离、trigger 距离和 active scenario 作为 fallback，
+  `start_actor_flow/end_actor_flow` 强近邻和 trigger 距离作为 fallback，
   写入 `r3_merger_actor_flow_or_trigger_fallback`，主标签可为 R3，同时保留 review 原因。
+  active scenario 只作为审计证据，不再单独延长 R3，避免 merge 完成后拖尾过长。
 - 人工逐帧看图后又补了两条更强的图像优先门控：
   静态 signal 或灯态只有在 `is_junction` / 可信 XODR junction / stopline / 近距离 signal-junction
   上下文成立时才给 R4 high；否则回 R1 + review。
   TwoWays 的 R2 high 必须有近距离障碍、stuck、vehicle_hazard 或 lane-change 核心证据；
-  只有场景 active / trigger close / 远距离障碍时保守 R1，R2 只保留 weak candidate。
+  但 `*_TwoWays` 的可见双向 road-layout 也不能被坏 XODR 或事件窗口截断。`twoways_obstacle`
+  现在分三层：核心障碍/借道帧仍由 trigger/meta 给 0.90；有核心证据的 route 在 first core
+  之前不能只靠 layout-prior 升 R2，会由 `twoways_layout_prior_pre_core_demoted_to_r1`
+  回到 R1/medium；core 后的非核心清晰 TwoWays road span 使用 `two_way_layout_prior`
+  给 R2=0.82，并强制写 `twoways_layout_prior_requires_rgb_confirmation`。如果整条 route
+  没有 core obstruction，但 RGB 清楚是双向单车道/中心黄线布局，则允许 layout-prior 召回 R2 + review。
+  静态 XODR no-opposite hint
+  不能单独否定 RGB 清晰的双向道路；只有非静态可信拓扑明确否定时才阻断该先验。
   输出 evidence 里同步写入 `strong_control_context` 和 TwoWays 专用
   `twoway_obstruction_evidence`，用于区分规则思路问题、参数窗口问题和底层证据缺失。
 
@@ -230,7 +254,10 @@ python keyframe_filter/quick_start.py annotate-rs \
 `R1=242, R2=0, R3=20, R4=88, R5=70, R6=10`，
 `confidence min/avg/max = 0.70/0.8120/0.98`，`review_ratio=0.4140`。
 代表性错配路线里，`Accident/Town03` 无清晰路口/灯控画面时尾段 R4 回 R1；
-`AccidentTwoWays/Town01` 远距离 active 窗口回 R1，核心障碍帧保留 R2 + topology review；
+`AccidentTwoWays/Town01/Town07/Town12/Town13` 逐帧 RGB 复核后确认，core 前接近段不能被
+场景名先验全程抬成 R2；核心障碍帧保留 R2=0.90，core 后非核心清晰双向路段用
+`two_way_layout_prior` 保留 R2=0.82 + RGB review；`Town02` 没有 core obstruction 证据，
+但 RGB 清楚显示中心黄线/双向单车道，因此作为“无 core 的纯 layout 召回”保留 R2 + review；
 `InterurbanActorFlow` / `MergerIntoSlowTrafficV2` 的静态 merge hint 在高投影误差后不再持续整段 R3，
 `ControlLoss` 起始弱 R4 不再压过 R1。
 
@@ -458,7 +485,10 @@ route 级结果还会写入：
   或显式 scenario config，并能回指到 maps/RGB/meta/XML/XODR 证据。
 - 用户指出错帧时，先查该 scenario 的调研包：README -> map trace -> XML/XODR -> meta jsonl ->
   RGB contact sheet/boundary frame -> thresholds/code。不要直接调阈值。
-- TwoWays 不全程 R2，只在 trigger/active/opposite-lane 窗口内 R2。
+- TwoWays 分三层：核心借道/障碍帧看 trigger/active/opposite-lane/meta obstruction；
+  有 core 的 route 在 first core 前不能只靠 layout-prior 升 R2；core 后清晰可见的双向
+  road-layout span 不能因窗口结束回 R1，使用 `two_way_layout_prior` 保留 R2 + review；
+  无 core 但 RGB 清楚双向单车道/中心黄线时可用 R2 + review 召回。
 - Parking* 不全程 R6，灯控路口段 R4 优先。
 - `CrossJunctionDefectTrafficLight` 强制 R5 覆盖 R4。
 - `ParkedObstacle` 不是 R6；`ParkedObstacleTwoWays` 核心窗口才是 R2。
@@ -482,12 +512,19 @@ meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；后�
 - `same_direction_obstacle`：`Accident`、`ConstructionObstacle`、`ParkedObstacle`。
   静态同向障碍是 EVENT 证据，不把整段升级成 R2/R6；只在受控路口窗口进入 R4。
 - `twoways_obstacle` / `invading_turn` / `vehicle_opens_door_twoways`：
-  只有 XML trigger、XODR 对向/双向单车道拓扑、meta active 或距离字段共同成立时进入 R2；
-  TwoWays 名称本身不能全程给 R2。
+  R2 拆成核心借道/障碍层与道路布局层。核心层需要 XML trigger、XODR 对向/双向单车道拓扑、
+  meta active、近距离障碍、stuck、vehicle_hazard 或 lane-change 证据；道路布局层允许
+  `two_way_layout_prior` 把 core 后清晰可见的 TwoWays road span 保持为 R2=0.82，并强制
+  RGB review；first core 前保持 R1/weak R2，除非整条 route 无 core 且 RGB 清楚显示双向单车道。
 - `highway_merge` / `interurban`：只有 ramp/merge/split/highway 拓扑支持时进入 R3；
   EnterFlow/Merger/HighwayExit 的行驶事件不能替代 XODR 拓扑证据。
 - `signalized_junction`：灯态有效、受控 junction 或 controller/traffic light 近邻成立时进入 R4；
   `BlockedIntersection` 和 `OppositeVehicleRunningRedLight` 的阻塞/违规只是 EVENT，不改成 R5。
+  如果 primary R4 不是由有效 `traffic_light_state` 支撑，而是由 junction/window/static signal
+  支撑，必须写 `signalized_r4_without_meta_tl_requires_rgb_confirmation`，逐帧看 RGB 确认
+  stopline/crosswalk/cross traffic/blocked pocket 是否仍可见，不能只按置信度放行。
+  若只有 static signal 近邻 + 灯态而缺少 `is_junction`/XODR junction，strong context 距离阈值为
+  25m；25-35m 只保留弱 R4 候选，避免在雾中普通路段过早覆盖 R1。
 - `nonsignalized_junction` / `defect_junction`：无有效灯态、stop/yield/priority 或灯故障机制成立时进入 R5；
   `CrossJunctionDefectTrafficLight` 强制 R5 覆盖 R4。
 - `parking` / `parking_exit` / `static_cutin`：R6 只给 parking/shoulder/curb/parking-exit 结构窗口；

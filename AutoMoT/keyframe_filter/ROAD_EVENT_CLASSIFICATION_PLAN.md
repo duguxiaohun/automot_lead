@@ -633,9 +633,9 @@ magic-number 分支。
 | RS | High-confidence 门控 | 常见否决 |
 |---|---|---|
 | R1 | 默认桶；同向障碍、急刹、动态对象、control loss、roundabout 本身不改变 RS | brake/accel/vehicle_hazard/walker_hazard 不参与 RS 升级 |
-| R2 | scenario prior + trigger/active 窗口 + 局部 XODR opposite driving lane + 同向车道不足 | 只有 TwoWays 名称或 `dist_to_*` 最高 medium；灯态/路口主导时 R4/R5 primary |
+| R2 | 两层门控：核心借道/障碍帧需要 trigger/active + opposite lane / 同向车道不足 / meta obstruction；非核心 TwoWays road-layout 可由 `two_way_layout_prior` 保持 R2=0.82 + RGB review | 只有 TwoWays 名称且 RGB/拓扑不支持时不能 high；灯态/路口主导时 R4/R5 primary |
 | R3 | 高速/合流 scenario prior + actor-flow/merge/exit 窗口 + ramp/merge/split/lane-count-change 证据 | `start_actor_flow/end_actor_flow` 字段名不够；自行车/路口横向流 veto R3 |
-| R4 | 有效 `traffic_light_state` / `light_hazard`，或同源受控 junction/controller 支撑，且 XODR 未判为 roundabout | `CrossJunctionDefectTrafficLight` 由 R5 override；阻塞/违规只是 EVENT；roundabout 强制回 R1 |
+| R4 | 有效 `traffic_light_state` / `light_hazard`，或同源受控 junction/controller 支撑，且 XODR 未判为 roundabout | `CrossJunctionDefectTrafficLight` 由 R5 override；阻塞/违规只是 EVENT；roundabout 强制回 R1；无有效 `traffic_light_state` 的 R4 必须进入 RGB confirmation review |
 | R5 | nonsignalized/priority/defect prior + route/trigger/junction 窗口 + 无有效正常灯态或 defect override，且 XODR 未判为 roundabout | 连续有效灯态且非 defect scenario 时不 high R5；roundabout 强制回 R1 |
 | R6 | Parking* / parking 子型 prior + parking trigger/active 窗口 + parking/shoulder/curbside 或停车汇入证据 | `ParkedObstacle` 不是 R6；灯控路口主导时 R4 primary |
 
@@ -667,12 +667,25 @@ R4/R5 > R3 > R2/R6 > R1
 - `same_direction_obstacle`：`Accident`、`ConstructionObstacle`、`ParkedObstacle`。
   静态同向障碍是 EVENT 证据，不把整段升级成 R2/R6；只在受控路口窗口进入 R4。
 - `twoways_obstacle` / `invading_turn` / `vehicle_opens_door_twoways`：
-  只有 XML trigger、XODR 对向/双向单车道拓扑、meta active 或距离字段共同成立时进入 R2；
-  TwoWays 名称本身不能全程给 R2。
+  R2 拆成“道路布局层”和“核心借道/障碍层”。核心帧需要 XML trigger、XODR 对向/双向单车道拓扑、
+  meta active、近距离障碍、stuck、vehicle_hazard 或 lane-change 证据共同支撑；
+  但逐帧 RGB 复核确认 `AccidentTwoWays` 多个 town 在 trigger 前后仍清楚可见中心黄线、
+  单车道双向 residential/forest/local road 和对向车/灯光，因此 `twoways_obstacle`
+  允许 `two_way_layout_prior` 给非核心 road-layout span 打 R2=0.82，并强制
+  `twoways_layout_prior_requires_rgb_confirmation`。这不是全 route 先验：若同一 route
+  存在稳定 core obstruction，则 first core 之前的 layout-prior 会被
+  `twoways_layout_prior_pre_core_demoted_to_r1` 收回 R1/medium；core 后 layout 才作为 R2 延续。
+  若整条 route 没有 core obstruction，但 RGB 清楚显示双向单车道/中心黄线，则允许 R2 + review 作为纯布局召回。
+  TwoWays 名称不能无脑覆盖所有情况，但静态 XODR no-opposite / projection error 也不能把清晰 RGB 双向路压回 R1。
 - `highway_merge` / `interurban`：只有 ramp/merge/split/highway 拓扑支持时进入 R3；
   EnterFlow/Merger/HighwayExit 的行驶事件不能替代 XODR 拓扑证据。
 - `signalized_junction`：灯态有效、受控 junction 或 controller/traffic light 近邻成立时进入 R4；
   `BlockedIntersection` 和 `OppositeVehicleRunningRedLight` 的阻塞/违规只是 EVENT，不改成 R5。
+  若 primary R4 没有有效 `traffic_light_state`，必须写
+  `signalized_r4_without_meta_tl_requires_rgb_confirmation`，人工逐帧确认 RGB 里仍有 stopline /
+  crosswalk / cross traffic / blocked pocket 等路口证据；XODR/XML 只能辅助低能见度判断。
+  若只有 static signal 近邻 + 灯态而缺少 `is_junction`/XODR junction，strong context 距离阈值为
+  25m；25-35m 只保留弱 R4 候选，避免在雾中普通路段过早覆盖 R1。
 - `nonsignalized_junction` / `defect_junction`：无有效灯态、stop/yield/priority 或灯故障机制成立时进入 R5；
   `CrossJunctionDefectTrafficLight` 强制 R5 覆盖 R4。
 - `parking` / `parking_exit` / `static_cutin`：R6 只给 parking/shoulder/curb/parking-exit 结构窗口；
@@ -691,8 +704,11 @@ provenance 后才能进入 high-confidence runtime。
 
 - 需要 per-frame XODR 时必须用能 `import carla` 的 Python；否则 XODR 证据为空，
   R2/R3/R6 只能 medium/low + review。
-- R2 primary 不能只靠 scenario + trigger；若没有 `has_opposite_driving_lane=true` 且
-  `same_direction_lane_count<=1`，不应 high。
+- R2 primary 不能只靠 scenario + trigger；核心借道/障碍帧若没有
+  `has_opposite_driving_lane=true` 且 `same_direction_lane_count<=1`，需要近距离障碍、
+  stuck、vehicle_hazard 或 lane-change 证据。另有一类 `two_way_layout_prior`
+  是非核心道路布局标签：它可以把清晰 TwoWays road span 保持为 R2，但必须低于核心帧
+  置信度并强制 RGB review；有 core 的 route 必须先见到 core，不能在 first core 前全程铺成 R2。
 - R3 high 必须要求 ramp/merge/split/lane-count-change；只有 active/trigger 时最多 medium，
   且 `review_required=true`。
 - R6 不能只靠附近 shoulder/parking hint；必须结合 Parking* prior、parking window、方向、
@@ -739,12 +755,15 @@ topology/meta confirmation window:
 具体含义：
 
 - R2：召回可用 TwoWays prior + trigger/active；确认必须有 opposite lane、同向车道不足、
-  或 RGB/bbox/动作主因证明对向参与。否则 primary R2 要 review，分数不超过 0.70。
+  或 RGB/bbox/动作主因证明对向参与。否则 primary R2 要 review；有 core 的 TwoWays route
+  在 first core 前只能给 R1 + 弱 R2 线索，不能用场景名/layout-prior 直接做 primary。
 - R3：召回可用 Highway/Merger/EnterFlow prior + actor-flow window；确认必须有 merge/split/ramp、
   lane-count change 或目标出口车道证据。`xodr_available=true` 不等于 R3 topology。
 - `MergerIntoSlowTraffic*` 的 XML `start_actor_flow/end_actor_flow` 是合流慢车流证据；
   当 RGB 显示明显 merge 口、而 route/XODR 投影误差导致 topology 不可信时，可用 actor-flow
-  距离、trigger 距离和 active scenario 作为 R3 fallback，并在 evidence 中保留投影误差 review。
+  强近邻或 trigger 距离作为 R3 fallback，并在 evidence 中保留投影误差 review。
+  active scenario 不能单独延长 R3；逐帧 RGB 显示 merge 完成后，即使
+  `current_active_scenario_type` 仍为 MergerIntoSlowTraffic，也应回 R1。
 - R6：召回可用 Parking* prior + parking window；确认必须有 parking/shoulder/curbside、
   parking->Driving 转换或路边静态车列。普通 shoulder hint 不够。
 - R4/R5：召回可用 junction/trigger window；确认必须看灯态、light_hazard、stop/yield/controller
@@ -770,24 +789,39 @@ topology/meta confirmation window:
 4. route 级最短持续帧已落地：R2/R3/R4/R5/R6 少于 4 帧、R1 少于 2 帧的孤立片段会合并到邻近稳定段；
    后续若仍有边界抖动，再增加 transition margin / hysteresis。
 
-2026-07-03 `rs_full_frame_review/` 回灌更新：
+当前 RGB-first 全帧复核基线：
 
-- 最新全量复核口径：43 个 scenario、204 条 scenario-town route、24387 帧；
-  `candidate_anomalies=1869`。剩余主要不是普通 R1 低置信，而是路口 R4/R5 的
-  XML projection/boundary 问题，以及 TwoWays R2 的 opposite-lane / topology confirmation。
-- `collector.py` 收紧 `light_hazard` → R4：同向障碍/默认动态场景必须有 meta junction 或 stop hazard；
-  静态 signal 近邻和弱 distance-to-junction 不再足以把普通路段升 R4。
-- 缺 merge/split/ramp 的 R3、缺 parking/shoulder/curbside 的 R6、缺 opposite-lane 的开门/切入弱候选，
-  分数下调到稳定 R1 之下，降低与 RGB 不符的低置信特殊结构候选。
-- “逐场景定位、通病抽象复用”是后续调参原则：先从每个场景的 RGB sheet 找具体错配，
-  再判断是场景私有阈值还是全局门控。多个场景共同出现的稳定普通路段低置信问题已抽象为
-  `r1_stable_no_special_structure_confirmed`：没有任何特殊 RS 达到有效候选阈值时，
-  R1 应作为稳定普通道路结构输出，而不是保留默认 0.35 低置信。
-- `rs_full_frame_review.py` 将稳定高置信标签上的 `route_projection_error_high`、
-  `static_xodr_topology_demoted_by_projection_error`、`candidate_score_gap_lt_0.15`
-  和 weaker-special 这类审计提示从视觉错配候选中剥离；它们仍保留在 route/scenario summary
-  里，但只有伴随低置信、标签切换、拓扑缺失或 RGB 可见语义冲突时才进入
-  `candidate_anomalies.jsonl`。
+- 覆盖 43 个 scenario、204 条 scenario-town route、24387 帧；每个 town 1 条 route，全帧标注并生成
+  `all_frames_*.jpg`。`candidate_anomalies=15788` 是逐帧看图索引，不是错帧数。
+- 全部历史迭代可以归结为六类错配根因：
+  1. XML route / trigger 投影误差高，却仍把 route_s 当 hard boundary，导致普通路段被过早升为 R4/R5/R3。
+  2. 静态 XODR signal/opposite/parking/merge/junction hint 与 RGB 不同源，弱 topology 被当成 high confirmation。
+  3. scenario 名称、active scenario、事件距离被当成 ROAD_STRUCTURE 真值，导致 EVENT 覆盖 RS。
+  4. 坏 XODR 被当作否定证据，导致明显 merge 或 TwoWays road-layout 被压回 R1。
+  5. 低能见度、夜间、雾天只看 summary/confidence，没有逐帧确认 RGB，容易把 review index 当错帧或把高置信当正确。
+  6. 转弯/行人/事故/施工/急刹/切入/开门等事件和道路控制源混在一起，导致 R4/R5/R6/R3 过宽。
+- 已回灌的通用修正：
+  无有效 `traffic_light_state` 的 signalized R4 必须写 RGB confirmation review；
+  static-signal-only strong control context 收紧到 25m；
+  Interurban no-light R5 在 `route_projection_error_high` 或弱可见控制证据下必须降为弱候选；
+  VehicleTurningRoute* 的无灯 R5 在 `route_projection_error_high` 下必须有 stop / is_junction /
+  非静态可信 XODR 近路口证据；
+  `MergerIntoSlowTraffic*` 允许 XML actor-flow/trigger 强近邻在 XODR 投影失败时召回 R3，但 active scenario
+  不能单独延长 R3；
+  TwoWays road-layout 与核心借道/障碍分层，清晰双向道路不因 trigger 结束自动回 R1。
+- 逐场景定位、通病抽象复用是固定调参原则：先从每个场景的 RGB sheet 找具体错配，再判断是场景私有阈值、
+  全局证据门控、XML/XODR 投影问题，还是低能见度证据不足。多个场景共同出现的稳定普通路段低置信问题已抽象为
+  `r1_stable_no_special_structure_confirmed`：没有任何特殊 RS 达到有效候选阈值时，R1 是稳定普通道路结构，
+  不是低置信兜底。
+
+RGB-first full-frame review protocol:
+
+- 每个 scenario 的每个 town 抽 1 条 readable route，生成全量全帧 RGB contact sheet。
+- 人工复核必须从第一帧看到最后一帧，不允许只看 summary、confidence、标签分布或前段代表帧。
+- 稳定 R1 也必须逐帧看，避免漏掉后段 merge/parking/junction/TwoWays 结构。
+- 判定顺序固定为 RGB 可见道路结构优先；低能见度或遮挡时才用 XODR/XML/meta 补证。
+- 异常记录必须写清帧范围、RGB 观察、标签冲突、触发的 evidence/rules 和原因归类：
+  规则思路问题、阈值参数问题、XML/XODR 投影问题或低能见度证据不足。
 
 ### 9.6 错帧回查流程
 
