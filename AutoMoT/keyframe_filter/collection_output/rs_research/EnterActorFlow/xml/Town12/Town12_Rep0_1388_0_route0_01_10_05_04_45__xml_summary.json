@@ -1,0 +1,101 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/EnterActorFlow/Town12_route_1388_0.xml",
+  "route_id": "26",
+  "town": "Town12",
+  "waypoint_count": 3,
+  "route_length_m": 222.34,
+  "route_heading_change_deg": 0.19,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "end_actor_flow",
+    "flow_speed",
+    "source_dist_interval",
+    "start_actor_flow",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      1009.2,
+      3139.2
+    ]
+  ],
+  "first_waypoint": [
+    995.8,
+    3155.1
+  ],
+  "last_waypoint": [
+    1211.0,
+    3099.2
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        1009.2,
+        3139.2
+      ],
+      "trigger_yaw": 317.5,
+      "start_actor_flow": {
+        "x": 1020.0,
+        "y": 3102.9,
+        "z": 363.0
+      },
+      "end_actor_flow": {
+        "x": 1165.0,
+        "y": 3102.7,
+        "z": 365.4
+      },
+      "flow_speed": 15.0,
+      "source_dist_interval": {
+        "from": 20.0,
+        "to": 70.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "370",
+        "distance_m": 1428.15,
+        "is_junction_road": true,
+        "point": [
+          1009.2,
+          3139.2
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 1444.06,
+        "is_junction_road": true,
+        "point": [
+          995.8,
+          3155.1
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 1391.5,
+        "is_junction_road": true,
+        "point": [
+          1197.7,
+          3102.7
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 1387.99,
+        "is_junction_road": true,
+        "point": [
+          1211.0,
+          3099.2
+        ]
+      }
+    ],
+    "nearest_signal_m": 1840.84,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

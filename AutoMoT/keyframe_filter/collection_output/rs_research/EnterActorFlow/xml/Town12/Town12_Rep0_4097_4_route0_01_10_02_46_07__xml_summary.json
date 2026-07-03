@@ -1,0 +1,101 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/EnterActorFlow/Town12_route_4097_4.xml",
+  "route_id": "78",
+  "town": "Town12",
+  "waypoint_count": 2,
+  "route_length_m": 251.79,
+  "route_heading_change_deg": 0.0,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "end_actor_flow",
+    "flow_speed",
+    "source_dist_interval",
+    "start_actor_flow",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      -638.5,
+      3134.1
+    ]
+  ],
+  "first_waypoint": [
+    -658.7,
+    3137.6
+  ],
+  "last_waypoint": [
+    -409.1,
+    3104.5
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        -638.5,
+        3134.1
+      ],
+      "trigger_yaw": 349.7,
+      "start_actor_flow": {
+        "x": -628.7,
+        "y": 3104.7,
+        "z": 356.9
+      },
+      "end_actor_flow": {
+        "x": -311.9,
+        "y": 3104.4,
+        "z": 361.7
+      },
+      "flow_speed": 18.0,
+      "source_dist_interval": {
+        "from": 15.0,
+        "to": 30.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "370",
+        "distance_m": 1586.02,
+        "is_junction_road": true,
+        "point": [
+          -638.5,
+          3134.1
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 1595.89,
+        "is_junction_road": true,
+        "point": [
+          -658.7,
+          3137.6
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 1490.92,
+        "is_junction_road": true,
+        "point": [
+          -409.1,
+          3104.5
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 1490.92,
+        "is_junction_road": true,
+        "point": [
+          -409.1,
+          3104.5
+        ]
+      }
+    ],
+    "nearest_signal_m": 1817.03,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

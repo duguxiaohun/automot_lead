@@ -1,0 +1,112 @@
+{
+  "Town01": {
+    "run_count": 5,
+    "readable_run_count": 5,
+    "sampled_run_ids": [
+      "Town01_Rep0_Town01_Scenario1_1_route0_01_09_20_45_28",
+      "Town01_Rep0_Town01_Scenario1_2_route0_01_09_21_20_38",
+      "Town01_Rep0_Town01_Scenario1_3_route0_01_08_12_08_15",
+      "Town01_Rep0_Town01_Scenario1_4_route0_01_09_07_57_40",
+      "Town01_Rep0_Town01_Scenario1_5_route0_01_09_04_43_40"
+    ]
+  },
+  "Town02": {
+    "run_count": 6,
+    "readable_run_count": 6,
+    "sampled_run_ids": [
+      "Town02_Rep0_Town02_Scenario1_0_route0_01_09_03_34_08",
+      "Town02_Rep0_Town02_Scenario1_1_route0_01_08_16_11_54",
+      "Town02_Rep0_Town02_Scenario1_2_route0_01_08_10_31_25",
+      "Town02_Rep0_Town02_Scenario1_4_route0_01_08_14_55_33",
+      "Town02_Rep0_Town02_Scenario1_5_route0_01_10_22_20_04"
+    ]
+  },
+  "Town03": {
+    "run_count": 23,
+    "readable_run_count": 22,
+    "sampled_run_ids": [
+      "Town03_Rep0_Town03_Scenario1_0_route0_01_10_10_45_04",
+      "Town03_Rep0_Town03_Scenario1_14_route0_01_08_06_27_13",
+      "Town03_Rep0_Town03_Scenario1_19_route0_01_08_08_32_25",
+      "Town03_Rep0_Town03_Scenario1_4_route0_01_08_19_06_07",
+      "Town03_Rep0_Town03_Scenario1_9_route0_01_10_11_41_53"
+    ]
+  },
+  "Town04": {
+    "run_count": 59,
+    "readable_run_count": 59,
+    "sampled_run_ids": [
+      "Town04_Rep0_Town04_Scenario1_0_route0_01_10_08_00_02",
+      "Town04_Rep0_Town04_Scenario1_23_route0_01_08_00_44_36",
+      "Town04_Rep0_Town04_Scenario1_37_route0_01_08_19_01_11",
+      "Town04_Rep0_Town04_Scenario1_50_route0_01_08_11_32_24",
+      "Town04_Rep0_Town04_Scenario1_9_route0_01_09_02_15_08"
+    ]
+  },
+  "Town05": {
+    "run_count": 60,
+    "readable_run_count": 57,
+    "sampled_run_ids": [
+      "Town05_Rep0_Town05_Scenario1_0_route0_01_08_07_44_04",
+      "Town05_Rep0_Town05_Scenario1_24_route0_01_08_14_43_34",
+      "Town05_Rep0_Town05_Scenario1_38_route0_01_10_00_02_02",
+      "Town05_Rep0_Town05_Scenario1_50_route0_01_08_07_37_48",
+      "Town05_Rep0_Town05_Scenario1_9_route0_01_08_07_39_18"
+    ]
+  },
+  "Town06": {
+    "run_count": 31,
+    "readable_run_count": 31,
+    "sampled_run_ids": [
+      "Town06_Rep0_Town06_Scenario1_0_route0_01_09_17_10_52",
+      "Town06_Rep0_Town06_Scenario1_17_route0_01_09_19_00_48",
+      "Town06_Rep0_Town06_Scenario1_23_route0_01_10_09_57_04",
+      "Town06_Rep0_Town06_Scenario1_2_route0_01_10_15_41_39",
+      "Town06_Rep0_Town06_Scenario1_9_route0_01_09_03_08_08"
+    ]
+  },
+  "Town07": {
+    "run_count": 12,
+    "readable_run_count": 12,
+    "sampled_run_ids": [
+      "Town07_Rep0_Town07_Scenario1_0_route0_01_10_22_58_17",
+      "Town07_Rep0_Town07_Scenario1_1_route0_01_09_10_58_47",
+      "Town07_Rep0_Town07_Scenario1_4_route0_01_08_11_50_20",
+      "Town07_Rep0_Town07_Scenario1_6_route0_01_09_10_04_41",
+      "Town07_Rep0_Town07_Scenario1_9_route0_01_09_23_41_12"
+    ]
+  },
+  "Town10HD": {
+    "run_count": 16,
+    "readable_run_count": 16,
+    "sampled_run_ids": [
+      "Town10HD_Rep0_Town10HD_Scenario1_0_route0_01_08_21_53_40",
+      "Town10HD_Rep0_Town10HD_Scenario1_13_route0_01_10_05_43_19",
+      "Town10HD_Rep0_Town10HD_Scenario1_2_route0_01_10_16_34_51",
+      "Town10HD_Rep0_Town10HD_Scenario1_5_route0_01_08_05_29_06",
+      "Town10HD_Rep0_Town10HD_Scenario1_9_route0_01_09_17_33_53"
+    ]
+  },
+  "Town12": {
+    "run_count": 50,
+    "readable_run_count": 50,
+    "sampled_run_ids": [
+      "Town12_Rep0_1102_0_route0_01_10_20_51_57",
+      "Town12_Rep0_2023_0_route0_01_10_23_15_31",
+      "Town12_Rep0_3056_0_route0_01_08_11_24_50",
+      "Town12_Rep0_4186_0_route0_01_09_23_10_36",
+      "Town12_Rep0_972_0_route0_01_09_17_20_53"
+    ]
+  },
+  "Town13": {
+    "run_count": 48,
+    "readable_run_count": 48,
+    "sampled_run_ids": [
+      "Town13_Rep0_1048_0_route0_01_08_08_14_09",
+      "Town13_Rep0_1341_0_route0_01_08_23_18_06",
+      "Town13_Rep0_1449_0_route0_01_10_14_35_55",
+      "Town13_Rep0_1561_0_route0_01_11_01_33_22",
+      "Town13_Rep0_97_0_route0_01_09_16_58_01"
+    ]
+  }
+}

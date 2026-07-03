@@ -1,0 +1,37 @@
+{
+  "Town03": {
+    "run_count": 11,
+    "xml_count": 12,
+    "xodr_available": true
+  },
+  "Town04": {
+    "run_count": 16,
+    "xml_count": 20,
+    "xodr_available": true
+  },
+  "Town05": {
+    "run_count": 16,
+    "xml_count": 22,
+    "xodr_available": true
+  },
+  "Town06": {
+    "run_count": 30,
+    "xml_count": 33,
+    "xodr_available": true
+  },
+  "Town10HD": {
+    "run_count": 7,
+    "xml_count": 7,
+    "xodr_available": true
+  },
+  "Town12": {
+    "run_count": 51,
+    "xml_count": 51,
+    "xodr_available": true
+  },
+  "Town13": {
+    "run_count": 42,
+    "xml_count": 50,
+    "xodr_available": true
+  }
+}

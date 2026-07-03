@@ -1,0 +1,110 @@
+{
+  "available": true,
+  "run_dir": "/home/codon/automot_lead/AutoMoT/lead_data/InvadingTurn/Town12_Rep0_78_0_route0_01_09_12_29_40",
+  "meta_count": 108,
+  "sampled_frame_ids": [
+    "0000",
+    "0054",
+    "0107"
+  ],
+  "traffic_light_values": {
+    "None": 3
+  },
+  "active_scenario_values": {
+    "InvadingTurn": 1,
+    "None": 2
+  },
+  "has_ego_trace": true,
+  "sampled_frames": [
+    {
+      "frame_id": "0000",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/InvadingTurn/Town12_Rep0_78_0_route0_01_09_12_29_40/metas/0000.pkl",
+      "pos_global": "[-1295.5809326171875, 3258.3955078125, 346.87994384765625]",
+      "theta": 0.0906,
+      "speed": 0.0,
+      "traffic_light_state": "None",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 448.1634,
+      "distance_to_next_junction": 448.1634,
+      "lane_id": -1,
+      "ego_lane_id": -1,
+      "ego_lane_width": 2.75,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "InvadingTurn",
+      "ego_xy": [
+        -1295.5809,
+        3258.3955
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 448.1634,
+        "dist_to_junction": 448.1634
+      }
+    },
+    {
+      "frame_id": "0054",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/InvadingTurn/Town12_Rep0_78_0_route0_01_09_12_29_40/metas/0054.pkl",
+      "pos_global": "[-1239.467041015625, 3296.755859375, 348.31298828125]",
+      "theta": 1.0975,
+      "speed": 8.9016,
+      "traffic_light_state": "None",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 393.9099,
+      "distance_to_next_junction": 393.9099,
+      "lane_id": -1,
+      "ego_lane_id": -1,
+      "ego_lane_width": 2.75,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "None",
+      "ego_xy": [
+        -1239.467,
+        3296.7559
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 393.9099,
+        "dist_to_junction": 393.9099
+      }
+    },
+    {
+      "frame_id": "0107",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/InvadingTurn/Town12_Rep0_78_0_route0_01_09_12_29_40/metas/0107.pkl",
+      "pos_global": "[-1237.642333984375, 3383.5185546875, 349.195068359375]",
+      "theta": 1.6154,
+      "speed": 8.3254,
+      "traffic_light_state": "None",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 310.3997,
+      "distance_to_next_junction": 310.3997,
+      "lane_id": -1,
+      "ego_lane_id": -1,
+      "ego_lane_width": 2.75,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "None",
+      "ego_xy": [
+        -1237.6423,
+        3383.5186
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 310.3997,
+        "dist_to_junction": 310.3997
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "available": true,
+  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/VehicleOpensDoorTwoWays/rgb/Town13/Town13_Rep0_route_000014_route0_01_10_13_07_17__sample_contact_sheet.jpg",
+  "sampled": [
+    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleOpensDoorTwoWays/Town13_Rep0_route_000014_route0_01_10_13_07_17/rgb/0000.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleOpensDoorTwoWays/Town13_Rep0_route_000014_route0_01_10_13_07_17/rgb/0057.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleOpensDoorTwoWays/Town13_Rep0_route_000014_route0_01_10_13_07_17/rgb/0114.jpg"
+  ]
+}

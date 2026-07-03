@@ -1,0 +1,9 @@
+{
+  "available": true,
+  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/CrossJunctionDefectTrafficLight/rgb/Town05/Town05_Rep0_route_002061_route0_01_08_19_58_20__sample_contact_sheet.jpg",
+  "sampled": [
+    "/home/codon/automot_lead/AutoMoT/lead_data/CrossJunctionDefectTrafficLight/Town05_Rep0_route_002061_route0_01_08_19_58_20/rgb/0000.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/CrossJunctionDefectTrafficLight/Town05_Rep0_route_002061_route0_01_08_19_58_20/rgb/0024.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/CrossJunctionDefectTrafficLight/Town05_Rep0_route_002061_route0_01_08_19_58_20/rgb/0047.jpg"
+  ]
+}

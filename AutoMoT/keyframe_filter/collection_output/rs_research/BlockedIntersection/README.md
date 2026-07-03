@@ -1,0 +1,12 @@
+# BlockedIntersection RS Research
+
+- rule_kind: `signalized_junction`
+- road_candidates: `R1, R4`
+- sampled towns: `Town06, Town07, Town12, Town13`
+- auto_input_complete: `True`
+- map_rgb_alignment_status: `not_checked`
+- manual_final_complete: `False`
+
+See `rules/scenario_rule_design.md` for the current scenario-specific logic.
+See `maps/`, `rgb/`, `meta/`, `xml/`, and `xodr/` for the evidence chain.
+Before changing runtime thresholds, check `maps/*route_trigger_ego_trace.png` and `rgb/*sample_contact_sheet.jpg`, then fill threshold provenance in `rules/thresholds.json`.

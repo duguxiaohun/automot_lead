@@ -1,0 +1,90 @@
+{
+  "Town03": {
+    "run_count": 19,
+    "readable_run_count": 19,
+    "sampled_run_ids": [
+      "Town03_Rep0_route_002130_route0_01_11_13_52_37",
+      "Town03_Rep0_route_002134_route0_01_11_02_06_33",
+      "Town03_Rep0_route_002140_route0_01_09_14_56_53",
+      "Town03_Rep0_route_002150_route0_01_11_03_11_04",
+      "Town03_Rep0_route_002155_route0_01_08_16_23_06"
+    ]
+  },
+  "Town04": {
+    "run_count": 15,
+    "readable_run_count": 15,
+    "sampled_run_ids": [
+      "Town04_Rep0_route_002162_route0_01_10_04_20_32",
+      "Town04_Rep0_route_002167_route0_01_09_07_11_41",
+      "Town04_Rep0_route_002170_route0_01_09_00_23_21",
+      "Town04_Rep0_route_002174_route0_01_09_23_28_03",
+      "Town04_Rep0_route_002178_route0_01_10_04_32_29"
+    ]
+  },
+  "Town05": {
+    "run_count": 36,
+    "readable_run_count": 36,
+    "sampled_run_ids": [
+      "Town05_Rep0_route_002052_route0_01_08_08_46_16",
+      "Town05_Rep0_route_002061_route0_01_08_19_58_20",
+      "Town05_Rep0_route_002070_route0_01_09_22_49_09",
+      "Town05_Rep0_route_002079_route0_01_08_14_30_54",
+      "Town05_Rep0_route_002090_route0_01_08_17_03_40"
+    ]
+  },
+  "Town07": {
+    "run_count": 7,
+    "readable_run_count": 7,
+    "sampled_run_ids": [
+      "Town07_Rep0_route_002117_route0_01_10_00_51_30",
+      "Town07_Rep0_route_002119_route0_01_10_07_04_06",
+      "Town07_Rep0_route_002120_route0_01_08_05_32_26",
+      "Town07_Rep0_route_002121_route0_01_11_09_41_22",
+      "Town07_Rep0_route_002123_route0_01_10_11_26_45"
+    ]
+  },
+  "Town10HD": {
+    "run_count": 5,
+    "readable_run_count": 5,
+    "sampled_run_ids": [
+      "Town10HD_Rep0_route_002192_route0_01_09_23_54_55",
+      "Town10HD_Rep0_route_002195_route0_01_10_01_29_56",
+      "Town10HD_Rep0_route_002196_route0_01_09_17_44_26",
+      "Town10HD_Rep0_route_002197_route0_01_08_10_58_44",
+      "Town10HD_Rep0_route_002198_route0_01_09_11_20_50"
+    ]
+  },
+  "Town12": {
+    "run_count": 12,
+    "readable_run_count": 12,
+    "sampled_run_ids": [
+      "Town12_Rep0_route_002103_route0_01_11_01_15_31",
+      "Town12_Rep0_route_002106_route0_01_08_14_14_14",
+      "Town12_Rep0_route_002110_route0_01_09_03_13_05",
+      "Town12_Rep0_route_002112_route0_01_10_17_34_19",
+      "Town12_Rep0_route_002115_route0_01_11_15_45_59"
+    ]
+  },
+  "Town13": {
+    "run_count": 10,
+    "readable_run_count": 10,
+    "sampled_run_ids": [
+      "Town13_Rep0_route_002180_route0_01_08_13_54_39",
+      "Town13_Rep0_route_002182_route0_01_08_12_45_46",
+      "Town13_Rep0_route_002184_route0_01_09_09_14_06",
+      "Town13_Rep0_route_002188_route0_01_11_01_13_24",
+      "Town13_Rep0_route_002190_route0_01_10_11_30_23"
+    ]
+  },
+  "Town15": {
+    "run_count": 19,
+    "readable_run_count": 19,
+    "sampled_run_ids": [
+      "Town15_Rep0_route_002091_route0_01_10_10_09_37",
+      "Town15_Rep0_route_002097_route0_01_08_21_11_39",
+      "Town15_Rep0_route_002125_route0_01_09_20_36_54",
+      "Town15_Rep0_route_002158_route0_01_11_03_04_56",
+      "Town15_Rep0_route_002214_route0_01_08_14_26_52"
+    ]
+  }
+}

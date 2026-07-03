@@ -1,0 +1,101 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/EnterActorFlow/Town12_route_961_4.xml",
+  "route_id": "17",
+  "town": "Town12",
+  "waypoint_count": 3,
+  "route_length_m": 286.04,
+  "route_heading_change_deg": 4.79,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "end_actor_flow",
+    "flow_speed",
+    "source_dist_interval",
+    "start_actor_flow",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      2707.9,
+      3155.3
+    ]
+  ],
+  "first_waypoint": [
+    2688.3,
+    3159.2
+  ],
+  "last_waypoint": [
+    2971.2,
+    3117.0
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        2707.9,
+        3155.3
+      ],
+      "trigger_yaw": -10.2,
+      "start_actor_flow": {
+        "x": 2745.2,
+        "y": 3117.1,
+        "z": 360.1
+      },
+      "end_actor_flow": {
+        "x": 3054.9,
+        "y": 3116.6,
+        "z": 364.6
+      },
+      "flow_speed": 20.0,
+      "source_dist_interval": {
+        "from": 15.0,
+        "to": 35.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "1166",
+        "distance_m": 1442.53,
+        "is_junction_road": true,
+        "point": [
+          2707.9,
+          3155.3
+        ]
+      },
+      {
+        "road_id": "1166",
+        "distance_m": 1448.45,
+        "is_junction_road": true,
+        "point": [
+          2688.3,
+          3159.2
+        ]
+      },
+      {
+        "road_id": "1166",
+        "distance_m": 1447.87,
+        "is_junction_road": true,
+        "point": [
+          2690.0,
+          3158.8
+        ]
+      },
+      {
+        "road_id": "1166",
+        "distance_m": 1389.8,
+        "is_junction_road": true,
+        "point": [
+          2971.2,
+          3117.0
+        ]
+      }
+    ],
+    "nearest_signal_m": 1510.29,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

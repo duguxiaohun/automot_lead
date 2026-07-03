@@ -36,6 +36,7 @@ from qwen3vl_local.prompt_pipeline import (  # noqa: E402
     SCENARIO_LABELS,
     get_full_sequence,
 )
+from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
 
 
 ACCEPTED_RUN_STATUS = {"Completed", "Perfect"}
@@ -450,10 +451,16 @@ def main() -> None:
 
     timelines_by_scenario: Dict[str, List[RunTimeline]] = defaultdict(list)
     skipped = Counter()
+    data_root = pathlib.Path(args.data_root)
     for run in runs:
         timeline = build_run_timeline(run)
         if timeline is None:
             skipped[run.get("status", "Unknown")] += 1
+            continue
+        route_dir = data_root / timeline.scenario / timeline.run_id
+        should_exclude, _abnormal_info = is_abnormal_lead_route(route_dir, timeline.scenario)
+        if should_exclude:
+            skipped["abnormal_duration_over_90s"] += 1
             continue
         timelines_by_scenario[timeline.scenario].append(timeline)
 
@@ -471,7 +478,6 @@ def main() -> None:
 
     samples_by_run: Dict[str, List[dict]] = defaultdict(list)
     stats: Dict[str, dict] = {}
-    data_root = pathlib.Path(args.data_root)
     target_per_scenario = 50 if args.dry_run else args.samples_per_scenario
 
     for scenario, timelines in sorted(timelines_by_scenario.items()):
@@ -544,6 +550,8 @@ def main() -> None:
         json.dump(
             {
                 "config": vars(args),
+                "abnormal_duration_rule": "exclude duration_s > 90 unless scenario is BlockedIntersection or ControlLoss",
+                "skipped_runs": dict(skipped),
                 "train_size": len(train),
                 "val_size": len(val),
                 "scenario_stats": stats,

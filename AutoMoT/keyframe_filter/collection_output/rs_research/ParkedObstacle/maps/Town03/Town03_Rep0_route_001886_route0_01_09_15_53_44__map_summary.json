@@ -1,0 +1,7 @@
+{
+  "available": true,
+  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/ParkedObstacle/maps/Town03/Town03_Rep0_route_001886_route0_01_09_15_53_44__route_trigger_ego_trace.png",
+  "route_points": 25,
+  "trigger_points": 1,
+  "ego_trace_points": 255
+}

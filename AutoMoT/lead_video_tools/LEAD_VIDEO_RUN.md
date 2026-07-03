@@ -9,7 +9,10 @@
 依赖：`ffmpeg` 和 `ffprobe` 需要在 PATH 中。脚本用 `ffmpeg` 编码，用 `ffprobe`
 做断点续跑完整性检查。
 
-注意：`rgb_to_video.py` 默认不做异常时长筛选，也不会自动读取异常名单；它只按当前筛选范围做普通视频转换与断点续跑检查。只有显式运行 `abnormal_duration_filter.py` / `rgb_to_video.py --abnormal-only`，才会生成异常名单；只有显式传 `--abnormal-route-list-dir`，才会只转异常名单里的 route。
+注意：`rgb_to_video.py` 普通转换默认会按硬规则剔除异常时长 route
+（`duration_s > 90` 且不在 `BlockedIntersection/ControlLoss` 白名单内）。
+只有显式运行 `abnormal_duration_filter.py` / `rgb_to_video.py --abnormal-only`，才会生成异常名单；
+只有显式传 `--abnormal-route-list-dir`，才会进入异常名单巡检模式并只转名单里的 route。
 
 ## 1. 数据与输出
 
@@ -34,7 +37,7 @@
 
 ```text
 lead_video_tools/abnormal_duration_filter/abnormal_possible_90s_to_100s.txt
-lead_video_tools/abnormal_duration_filter/abnormal_confirmed_over_100s.txt
+lead_video_tools/abnormal_duration_filter/abnormal_confirmed_over_90s.txt
 lead_video_tools/abnormal_duration_filter/abnormal_duration_summary.json
 ```
 
@@ -85,19 +88,20 @@ python3 lead_video_tools/rgb_to_video.py \
 python3 lead_video_tools/abnormal_duration_filter.py
 ```
 
-按默认 4Hz 换算，`360 <= frames <= 400`（1 分 30 秒到 1 分 40 秒）写入
-`abnormal_possible_90s_to_100s.txt`，`frames >= 401`（大于 1 分 40 秒）写入
-`abnormal_confirmed_over_100s.txt`。`BlockedIntersection` 和 `ControlLoss` 是筛选白名单，
-即使超过阈值也不会写入异常/存疑名单；`Accident` 只对白名单存疑段生效，
-即 360-400 帧不会写入存疑名单，但 401+ 帧仍会写入确定异常名单。场景名以
-`park` 或 `dynamic` 开头的数据也只在 360-400 帧存疑段白名单内，401+ 帧仍会写入确定异常名单。
+按默认 4Hz 换算，`frames >= 361`（严格大于 1 分 30 秒）且不在白名单内的 route
+全部写入 `abnormal_confirmed_over_90s.txt`，后续所有使用 LEAD 数据集的训练、调研、
+probe 入口都必须先剔除这些 route。`BlockedIntersection` 和 `ControlLoss` 是唯一时长白名单，
+即使超过阈值也不会写入异常名单。旧的 `abnormal_possible_90s_to_100s.txt` 只为兼容
+`rgb_to_video.py --abnormal-route-kind possible/all` 保留，新硬规则下应为空；`Accident`、
+`park*`、`dynamic*` 不再享有 90-100 秒存疑段豁免。
 `abnormal_duration_summary.json` 保留同一批名单的
 帧数、秒数、RGB 路径、视频输出目录和 scan 状态，方便后续脚本继续处理。
 两个 txt 名单只保留 `Scenario/run_id`，不写路径，便于人工复制和给
 `rgb_to_video.py --abnormal-route-list-dir` 复用。
 
 这个筛选脚本只统计 jpg 数量，不调用 `ffprobe`，也不检查已有视频，所以比
-`rgb_to_video.py` 的全局预扫描轻很多。普通 `rgb_to_video.py` 默认不会使用这些名单；筛完后，必须显式传 `--abnormal-route-list-dir` 才会只对筛选目录里的 route 生成视频：
+`rgb_to_video.py` 的全局预扫描轻很多。普通 `rgb_to_video.py` 默认会剔除异常时长 route；
+筛完后，必须显式传 `--abnormal-route-list-dir` 才会只对筛选目录里的异常 route 生成巡检视频：
 
 筛选时会先打印 `[filter:discover]` 统计 route 数，再打印 `[filter]` route 级进度条、
 elapsed / ETA 和当前候选数量；可用 `--progress-interval N` 调整每隔多少条 route 打印一次。
@@ -109,7 +113,7 @@ python3 lead_video_tools/rgb_to_video.py \
     --workers 0
 ```
 
-只跑“确定异常”（大于 1 分 40 秒）：
+只跑“确定异常”（大于 1 分 30 秒且非白名单）：
 
 ```bash
 python3 lead_video_tools/rgb_to_video.py \
@@ -283,18 +287,19 @@ python3 lead_video_tools/rgb_to_video.py --scenario Accident --workers 0 --skip-
 [plan] total=220 already_done=unknown excluded=unknown to_run=220 scan=skipped
 ```
 
-这表示脚本不再提前统计哪些已经完成、哪些异常，而是把 discover 到的 route 直接提交给
-worker。每条 route 进入 worker 后仍会执行：
+这表示脚本不再提前统计哪些已经完成、哪些 RGB 序列异常，而是把 discover 到且已通过
+`>90s` 时长硬过滤的 route 直接提交给 worker。每条 route 进入 worker 后仍会执行：
 
 - 已有完整视频则 `skipped`；
 - RGB 异常则 `excluded`；
 - 缺视频或视频不完整则 `converted`。
 
-适合场景：第一次跑某个 scenario，或者你确认大部分 route 都需要生成。  
+适合场景：第一次跑某个 scenario，或者你确认大部分 route 都需要生成。
 不适合场景：大部分视频已经生成好了，此时默认 scan 可以更早跳过，反而更省 worker 调度。
 
 异常数据剔除：
 
+- 普通转换默认先剔除 `duration_s > 90` 且不在 `BlockedIntersection/ControlLoss` 白名单内的 route。
 - 默认要求 `rgb` 帧文件名是连续数字序列：`0000.jpg ... 00NN.jpg`。
 - 默认要求至少 `--min-frames 2` 帧。
 - 默认用 `ffprobe` 检查首尾帧可读、尺寸一致，且 stitched 宽度能被 3 整除。

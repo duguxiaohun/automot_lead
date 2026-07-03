@@ -1,0 +1,99 @@
+{
+  "_status": "temporary_defaults_need_manual_provenance",
+  "_protocol": "Each threshold must point to map/RGB/meta/XML/XODR evidence before final use.",
+  "kind": {
+    "value": "vehicle_opens_door_twoways",
+    "unit": "unknown",
+    "source": "temporary_default_rule_config",
+    "supporting_runs": [
+      "Town12_Rep0_1544_0_route0_01_09_01_34_14",
+      "Town12_Rep0_3318_0_route0_01_08_14_18_10",
+      "Town12_Rep0_3785_1_route0_01_09_03_09_14",
+      "Town12_Rep0_526_0_route0_01_09_02_34_48",
+      "Town12_Rep0_719_1_route0_01_10_21_42_02",
+      "Town13_Rep0_1005_0_route0_01_09_03_37_24",
+      "Town13_Rep0_1064_2_route0_01_10_17_01_23",
+      "Town13_Rep0_1113_1_route0_01_11_03_54_44",
+      "Town13_Rep0_46_1_route0_01_11_02_31_47",
+      "Town13_Rep0_route_000014_route0_01_10_13_07_17"
+    ],
+    "reviewed_artifacts": [],
+    "reason": "Generated from existing rule_config; fill after map/RGB/meta review."
+  },
+  "two_way_min_pre_m": {
+    "value": 50,
+    "unit": "m",
+    "source": "temporary_default_rule_config",
+    "supporting_runs": [
+      "Town12_Rep0_1544_0_route0_01_09_01_34_14",
+      "Town12_Rep0_3318_0_route0_01_08_14_18_10",
+      "Town12_Rep0_3785_1_route0_01_09_03_09_14",
+      "Town12_Rep0_526_0_route0_01_09_02_34_48",
+      "Town12_Rep0_719_1_route0_01_10_21_42_02",
+      "Town13_Rep0_1005_0_route0_01_09_03_37_24",
+      "Town13_Rep0_1064_2_route0_01_10_17_01_23",
+      "Town13_Rep0_1113_1_route0_01_11_03_54_44",
+      "Town13_Rep0_46_1_route0_01_11_02_31_47",
+      "Town13_Rep0_route_000014_route0_01_10_13_07_17"
+    ],
+    "reviewed_artifacts": [],
+    "reason": "Generated from existing rule_config; fill after map/RGB/meta review."
+  },
+  "two_way_post_pad_m": {
+    "value": 20,
+    "unit": "m",
+    "source": "temporary_default_rule_config",
+    "supporting_runs": [
+      "Town12_Rep0_1544_0_route0_01_09_01_34_14",
+      "Town12_Rep0_3318_0_route0_01_08_14_18_10",
+      "Town12_Rep0_3785_1_route0_01_09_03_09_14",
+      "Town12_Rep0_526_0_route0_01_09_02_34_48",
+      "Town12_Rep0_719_1_route0_01_10_21_42_02",
+      "Town13_Rep0_1005_0_route0_01_09_03_37_24",
+      "Town13_Rep0_1064_2_route0_01_10_17_01_23",
+      "Town13_Rep0_1113_1_route0_01_11_03_54_44",
+      "Town13_Rep0_46_1_route0_01_11_02_31_47",
+      "Town13_Rep0_route_000014_route0_01_10_13_07_17"
+    ],
+    "reviewed_artifacts": [],
+    "reason": "Generated from existing rule_config; fill after map/RGB/meta review."
+  },
+  "parking_pre_m": {
+    "value": 35,
+    "unit": "m",
+    "source": "temporary_default_rule_config",
+    "supporting_runs": [
+      "Town12_Rep0_1544_0_route0_01_09_01_34_14",
+      "Town12_Rep0_3318_0_route0_01_08_14_18_10",
+      "Town12_Rep0_3785_1_route0_01_09_03_09_14",
+      "Town12_Rep0_526_0_route0_01_09_02_34_48",
+      "Town12_Rep0_719_1_route0_01_10_21_42_02",
+      "Town13_Rep0_1005_0_route0_01_09_03_37_24",
+      "Town13_Rep0_1064_2_route0_01_10_17_01_23",
+      "Town13_Rep0_1113_1_route0_01_11_03_54_44",
+      "Town13_Rep0_46_1_route0_01_11_02_31_47",
+      "Town13_Rep0_route_000014_route0_01_10_13_07_17"
+    ],
+    "reviewed_artifacts": [],
+    "reason": "Generated from existing rule_config; fill after map/RGB/meta review."
+  },
+  "parking_post_m": {
+    "value": 55,
+    "unit": "m",
+    "source": "temporary_default_rule_config",
+    "supporting_runs": [
+      "Town12_Rep0_1544_0_route0_01_09_01_34_14",
+      "Town12_Rep0_3318_0_route0_01_08_14_18_10",
+      "Town12_Rep0_3785_1_route0_01_09_03_09_14",
+      "Town12_Rep0_526_0_route0_01_09_02_34_48",
+      "Town12_Rep0_719_1_route0_01_10_21_42_02",
+      "Town13_Rep0_1005_0_route0_01_09_03_37_24",
+      "Town13_Rep0_1064_2_route0_01_10_17_01_23",
+      "Town13_Rep0_1113_1_route0_01_11_03_54_44",
+      "Town13_Rep0_46_1_route0_01_11_02_31_47",
+      "Town13_Rep0_route_000014_route0_01_10_13_07_17"
+    ],
+    "reviewed_artifacts": [],
+    "reason": "Generated from existing rule_config; fill after map/RGB/meta review."
+  }
+}

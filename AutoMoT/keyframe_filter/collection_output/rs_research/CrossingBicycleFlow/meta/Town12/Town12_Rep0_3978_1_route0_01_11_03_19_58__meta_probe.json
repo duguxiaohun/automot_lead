@@ -1,0 +1,112 @@
+{
+  "available": true,
+  "run_dir": "/home/codon/automot_lead/AutoMoT/lead_data/CrossingBicycleFlow/Town12_Rep0_3978_1_route0_01_11_03_19_58",
+  "meta_count": 73,
+  "sampled_frame_ids": [
+    "0000",
+    "0036",
+    "0072"
+  ],
+  "traffic_light_values": {
+    "None": 2,
+    "Green": 1
+  },
+  "active_scenario_values": {
+    "CrossingBicycleFlow": 2,
+    "None": 1
+  },
+  "has_ego_trace": true,
+  "sampled_frames": [
+    {
+      "frame_id": "0000",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/CrossingBicycleFlow/Town12_Rep0_3978_1_route0_01_11_03_19_58/metas/0000.pkl",
+      "pos_global": "[77.56007385253906, 5201.234375, 370.2835388183594]",
+      "theta": 2.7351,
+      "speed": 0.0002,
+      "traffic_light_state": "None",
+      "light_hazard": true,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 88.0024,
+      "distance_to_next_junction": 88.0024,
+      "lane_id": 2,
+      "ego_lane_id": 2,
+      "ego_lane_width": 3.25,
+      "lane_type_str": "Driving",
+      "lane_change_str": "Left",
+      "current_active_scenario_type": "CrossingBicycleFlow",
+      "ego_xy": [
+        77.5601,
+        5201.2344
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 88.0024,
+        "dist_to_junction": 88.0024
+      }
+    },
+    {
+      "frame_id": "0036",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/CrossingBicycleFlow/Town12_Rep0_3978_1_route0_01_11_03_19_58/metas/0036.pkl",
+      "pos_global": "[21.46546745300293, 5225.38037109375, 370.7728576660156]",
+      "theta": 2.7358,
+      "speed": 5.0916,
+      "traffic_light_state": "Green",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 27.0007,
+      "distance_to_next_junction": 27.0007,
+      "lane_id": 2,
+      "ego_lane_id": 2,
+      "ego_lane_width": 3.25,
+      "lane_type_str": "Driving",
+      "lane_change_str": "Left",
+      "current_active_scenario_type": "CrossingBicycleFlow",
+      "ego_xy": [
+        21.4655,
+        5225.3804
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 27.0007,
+        "dist_to_biker": 32.0421,
+        "dist_to_junction": 27.0007
+      }
+    },
+    {
+      "frame_id": "0072",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/CrossingBicycleFlow/Town12_Rep0_3978_1_route0_01_11_03_19_58/metas/0072.pkl",
+      "pos_global": "[-22.519453048706055, 5205.9404296875, 371.4497985839844]",
+      "theta": 4.2892,
+      "speed": 7.9685,
+      "traffic_light_state": "None",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 213.8062,
+      "distance_to_next_junction": 213.8062,
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 2.75,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "None",
+      "ego_xy": [
+        -22.5195,
+        5205.9404
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 213.8062,
+        "dist_to_junction": 213.8062
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "available": true,
+  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/OppositeVehicleRunningRedLight/rgb/Town03/Town03_Rep0_Town03_Scenario8_49_route0_01_09_12_44_14__sample_contact_sheet.jpg",
+  "sampled": [
+    "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_49_route0_01_09_12_44_14/rgb/0000.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_49_route0_01_09_12_44_14/rgb/0033.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_49_route0_01_09_12_44_14/rgb/0066.jpg"
+  ]
+}

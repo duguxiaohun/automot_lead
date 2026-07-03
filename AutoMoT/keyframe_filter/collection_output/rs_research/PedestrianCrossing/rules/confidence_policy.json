@@ -1,0 +1,5 @@
+{
+  "high": "scenario prior + XML window + XODR topology + meta signal/junction/active at least three-source agreement",
+  "medium": "two-source agreement or strong meta signal with partial XODR/RGB support",
+  "low": "scenario prior only or weak XODR hint; review_required=true"
+}

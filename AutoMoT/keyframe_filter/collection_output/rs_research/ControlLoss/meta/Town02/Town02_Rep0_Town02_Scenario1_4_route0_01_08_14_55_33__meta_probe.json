@@ -1,0 +1,104 @@
+{
+  "available": true,
+  "run_dir": "/home/codon/automot_lead/AutoMoT/lead_data/ControlLoss/Town02_Rep0_Town02_Scenario1_4_route0_01_08_14_55_33",
+  "meta_count": 132,
+  "sampled_frame_ids": [
+    "0000",
+    "0066",
+    "0131"
+  ],
+  "traffic_light_values": {
+    "None": 2,
+    "Red": 1
+  },
+  "active_scenario_values": {
+    "ControlLoss": 3
+  },
+  "has_ego_trace": true,
+  "sampled_frames": [
+    {
+      "frame_id": "0000",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/ControlLoss/Town02_Rep0_Town02_Scenario1_4_route0_01_08_14_55_33/metas/0000.pkl",
+      "pos_global": "[-3.4561166763305664, 179.23956298828125, 0.2001984417438507]",
+      "theta": -1.5711,
+      "speed": -0.0,
+      "traffic_light_state": "None",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": "None",
+      "distance_to_next_junction": "inf",
+      "lane_id": -1,
+      "ego_lane_id": -1,
+      "ego_lane_width": 4.0,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "ControlLoss",
+      "ego_xy": [
+        -3.4561,
+        179.2396
+      ],
+      "finite_dist_to": {}
+    },
+    {
+      "frame_id": "0066",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/ControlLoss/Town02_Rep0_Town02_Scenario1_4_route0_01_08_14_55_33/metas/0066.pkl",
+      "pos_global": "[76.67698669433594, 109.40835571289062, 0.2177710235118866]",
+      "theta": 0.0007,
+      "speed": 11.921,
+      "traffic_light_state": "None",
+      "light_hazard": true,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": "None",
+      "distance_to_next_junction": "inf",
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 4.0,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "ControlLoss",
+      "ego_xy": [
+        76.677,
+        109.4084
+      ],
+      "finite_dist_to": {}
+    },
+    {
+      "frame_id": "0131",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/ControlLoss/Town02_Rep0_Town02_Scenario1_4_route0_01_08_14_55_33/metas/0131.pkl",
+      "pos_global": "[189.59779357910156, 168.53089904785156, 0.21472129225730896]",
+      "theta": 1.6053,
+      "speed": 4.7298,
+      "traffic_light_state": "Red",
+      "light_hazard": true,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 14.0,
+      "distance_to_next_junction": 14.0,
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 4.0,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "ControlLoss",
+      "ego_xy": [
+        189.5978,
+        168.5309
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 14.0,
+        "dist_to_junction": 14.0
+      }
+    }
+  ]
+}

@@ -47,6 +47,9 @@ span，且不先 `.strip()`，避免 batch_decode 后重分词造成 loss token 
 ## 1. 构建 Episode Index
 
 只生成 episode index，不生成 per-frame 训练样本。
+构建前会自动剔除异常时长 LEAD route：4Hz 下 `rgb/*.jpg >= 361`
+（严格大于 90s）且不在 `BlockedIntersection/ControlLoss` 白名单内的 run
+不会进入 episode index；统计写入 `stats.json.skip_reasons`。
 
 ```bash
 python qwen3vl_local/sft_v3/build_dataset.py \

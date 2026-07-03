@@ -1,0 +1,9 @@
+{
+  "available": true,
+  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/ConstructionObstacle/rgb/Town12/Town12_Rep0_1256_0_route0_01_09_07_30_45__sample_contact_sheet.jpg",
+  "sampled": [
+    "/home/codon/automot_lead/AutoMoT/lead_data/ConstructionObstacle/Town12_Rep0_1256_0_route0_01_09_07_30_45/rgb/0000.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/ConstructionObstacle/Town12_Rep0_1256_0_route0_01_09_07_30_45/rgb/0066.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/ConstructionObstacle/Town12_Rep0_1256_0_route0_01_09_07_30_45/rgb/0133.jpg"
+  ]
+}

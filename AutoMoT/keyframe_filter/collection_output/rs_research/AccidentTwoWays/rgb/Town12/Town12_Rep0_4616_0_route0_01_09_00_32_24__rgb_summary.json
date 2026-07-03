@@ -1,0 +1,9 @@
+{
+  "available": true,
+  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/AccidentTwoWays/rgb/Town12/Town12_Rep0_4616_0_route0_01_09_00_32_24__sample_contact_sheet.jpg",
+  "sampled": [
+    "/home/codon/automot_lead/AutoMoT/lead_data/AccidentTwoWays/Town12_Rep0_4616_0_route0_01_09_00_32_24/rgb/0000.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/AccidentTwoWays/Town12_Rep0_4616_0_route0_01_09_00_32_24/rgb/0080.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/AccidentTwoWays/Town12_Rep0_4616_0_route0_01_09_00_32_24/rgb/0159.jpg"
+  ]
+}

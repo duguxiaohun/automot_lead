@@ -1,0 +1,110 @@
+{
+  "available": true,
+  "run_dir": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_99_route0_01_11_02_35_08",
+  "meta_count": 70,
+  "sampled_frame_ids": [
+    "0000",
+    "0034",
+    "0069"
+  ],
+  "traffic_light_values": {
+    "Red": 3
+  },
+  "active_scenario_values": {
+    "OppositeVehicleRunningRedLight": 2,
+    "None": 1
+  },
+  "has_ego_trace": true,
+  "sampled_frames": [
+    {
+      "frame_id": "0000",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_99_route0_01_11_02_35_08/metas/0000.pkl",
+      "pos_global": "[296.7351379394531, -172.4675750732422, 0.1551918387413025]",
+      "theta": -3.1359,
+      "speed": 0.0001,
+      "traffic_light_state": "Red",
+      "light_hazard": true,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 32.0,
+      "distance_to_next_junction": 32.0,
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 3.5,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "OppositeVehicleRunningRedLight",
+      "ego_xy": [
+        296.7351,
+        -172.4676
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 32.0,
+        "dist_to_junction": 32.0
+      }
+    },
+    {
+      "frame_id": "0034",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_99_route0_01_11_02_35_08/metas/0034.pkl",
+      "pos_global": "[265.8461608886719, -172.57025146484375, 0.19119849801063538]",
+      "theta": -3.1876,
+      "speed": -0.0,
+      "traffic_light_state": "Red",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": true,
+      "is_intersection": true,
+      "junction_id": 785,
+      "dist_to_junction": 0.0,
+      "distance_to_next_junction": 0.0,
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 3.5,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "OppositeVehicleRunningRedLight",
+      "ego_xy": [
+        265.8462,
+        -172.5703
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 0.0,
+        "dist_to_junction": 0.0
+      }
+    },
+    {
+      "frame_id": "0069",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_99_route0_01_11_02_35_08/metas/0069.pkl",
+      "pos_global": "[254.83909606933594, -141.07034301757812, 0.014977912418544292]",
+      "theta": -4.7095,
+      "speed": 6.1034,
+      "traffic_light_state": "Red",
+      "light_hazard": true,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 13.0,
+      "distance_to_next_junction": 13.0,
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 3.5,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "None",
+      "ego_xy": [
+        254.8391,
+        -141.0703
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 13.0,
+        "dist_to_junction": 13.0
+      }
+    }
+  ]
+}

@@ -1,0 +1,101 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/EnterActorFlow/Town13_route_1661_9.xml",
+  "route_id": "18",
+  "town": "Town13",
+  "waypoint_count": 3,
+  "route_length_m": 266.08,
+  "route_heading_change_deg": 14.18,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "end_actor_flow",
+    "flow_speed",
+    "source_dist_interval",
+    "start_actor_flow",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      -5716.6,
+      4856.6
+    ]
+  ],
+  "first_waypoint": [
+    -5704.2,
+    4873.3
+  ],
+  "last_waypoint": [
+    -5743.8,
+    4612.2
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        -5716.6,
+        4856.6
+      ],
+      "trigger_yaw": 240.2,
+      "start_actor_flow": {
+        "x": -5749.4,
+        "y": 4860.4,
+        "z": 188.5
+      },
+      "end_actor_flow": {
+        "x": -5741.6,
+        "y": 4502.3,
+        "z": 183.4
+      },
+      "flow_speed": 18.0,
+      "source_dist_interval": {
+        "from": 15.0,
+        "to": 70.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "1409",
+        "distance_m": 2273.93,
+        "is_junction_road": true,
+        "point": [
+          -5716.6,
+          4856.6
+        ]
+      },
+      {
+        "road_id": "1409",
+        "distance_m": 2283.82,
+        "is_junction_road": true,
+        "point": [
+          -5704.2,
+          4873.3
+        ]
+      },
+      {
+        "road_id": "1409",
+        "distance_m": 2169.34,
+        "is_junction_road": true,
+        "point": [
+          -5742.6,
+          4727.7
+        ]
+      },
+      {
+        "road_id": "1409",
+        "distance_m": 2067.29,
+        "is_junction_road": true,
+        "point": [
+          -5743.8,
+          4612.2
+        ]
+      }
+    ],
+    "nearest_signal_m": 2669.02,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

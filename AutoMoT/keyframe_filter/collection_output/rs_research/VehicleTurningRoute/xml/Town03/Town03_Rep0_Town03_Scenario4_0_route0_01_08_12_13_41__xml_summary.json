@@ -1,0 +1,82 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/VehicleTurningRoute/Town03_route_Town03_Scenario4_0.xml",
+  "route_id": "0",
+  "town": "Town03",
+  "waypoint_count": 2,
+  "route_length_m": 57.59,
+  "route_heading_change_deg": 0.0,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      46.543,
+      -192.833
+    ]
+  ],
+  "first_waypoint": [
+    41.454655,
+    -192.961319
+  ],
+  "last_waypoint": [
+    82.350372,
+    -152.40947
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        46.543,
+        -192.833
+      ],
+      "trigger_yaw": 1.44
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "67",
+        "distance_m": 9.33,
+        "is_junction_road": true,
+        "point": [
+          46.543,
+          -192.833
+        ]
+      },
+      {
+        "road_id": "67",
+        "distance_m": 9.22,
+        "is_junction_road": true,
+        "point": [
+          41.455,
+          -192.961
+        ]
+      },
+      {
+        "road_id": "76",
+        "distance_m": 20.74,
+        "is_junction_road": true,
+        "point": [
+          82.35,
+          -152.409
+        ]
+      },
+      {
+        "road_id": "76",
+        "distance_m": 20.74,
+        "is_junction_road": true,
+        "point": [
+          82.35,
+          -152.409
+        ]
+      }
+    ],
+    "nearest_signal_m": 58.47,
+    "near_junction_road_points": 2,
+    "has_near_signal_60m": true,
+    "has_near_junction_road": true
+  }
+}

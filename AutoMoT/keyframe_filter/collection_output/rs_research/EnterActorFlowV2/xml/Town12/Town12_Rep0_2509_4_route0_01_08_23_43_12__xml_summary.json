@@ -1,0 +1,101 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/EnterActorFlowV2/Town12_route_2509_4.xml",
+  "route_id": "47",
+  "town": "Town12",
+  "waypoint_count": 4,
+  "route_length_m": 402.16,
+  "route_heading_change_deg": 12.81,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "end_actor_flow",
+    "flow_speed",
+    "source_dist_interval",
+    "start_actor_flow",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      4046.2,
+      4059.3
+    ]
+  ],
+  "first_waypoint": [
+    4044.9,
+    3978.2
+  ],
+  "last_waypoint": [
+    4040.0,
+    4379.0
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        4046.2,
+        4059.3
+      ],
+      "trigger_yaw": 66.4,
+      "start_actor_flow": {
+        "x": 4092.6,
+        "y": 4039.9,
+        "z": 369.2
+      },
+      "end_actor_flow": {
+        "x": 4018.4,
+        "y": 4517.6,
+        "z": 368.7
+      },
+      "flow_speed": 22.0,
+      "source_dist_interval": {
+        "from": 15.0,
+        "to": 40.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "1166",
+        "distance_m": 2420.97,
+        "is_junction_road": true,
+        "point": [
+          4046.2,
+          4059.3
+        ]
+      },
+      {
+        "road_id": "1166",
+        "distance_m": 2342.37,
+        "is_junction_road": true,
+        "point": [
+          4044.9,
+          3978.2
+        ]
+      },
+      {
+        "road_id": "1166",
+        "distance_m": 2622.03,
+        "is_junction_road": true,
+        "point": [
+          4054.1,
+          4264.9
+        ]
+      },
+      {
+        "road_id": "1166",
+        "distance_m": 2729.66,
+        "is_junction_road": true,
+        "point": [
+          4040.0,
+          4379.0
+        ]
+      }
+    ],
+    "nearest_signal_m": 2835.94,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

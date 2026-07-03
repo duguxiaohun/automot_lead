@@ -1,0 +1,89 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/RedLightWithoutLeadVehicle/Town12_route_002999.xml",
+  "route_id": "route_002999",
+  "town": "Town12",
+  "waypoint_count": 3,
+  "route_length_m": 140.83,
+  "route_heading_change_deg": 60.91,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "flow_speed",
+    "source_dist_interval",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      3125.2,
+      4287.2
+    ]
+  ],
+  "first_waypoint": [
+    3149.5,
+    4287.9
+  ],
+  "last_waypoint": [
+    3041.8,
+    4344.4
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        3125.2,
+        4287.2
+      ],
+      "trigger_yaw": 189.2,
+      "flow_speed": 12.0,
+      "source_dist_interval": {
+        "from": 10.0,
+        "to": 70.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "1166",
+        "distance_m": 2556.73,
+        "is_junction_road": true,
+        "point": [
+          3125.2,
+          4287.2
+        ]
+      },
+      {
+        "road_id": "1166",
+        "distance_m": 2556.95,
+        "is_junction_road": true,
+        "point": [
+          3149.5,
+          4287.9
+        ]
+      },
+      {
+        "road_id": "1166",
+        "distance_m": 2551.29,
+        "is_junction_road": true,
+        "point": [
+          3086.8,
+          4281.0
+        ]
+      },
+      {
+        "road_id": "1166",
+        "distance_m": 2615.56,
+        "is_junction_road": true,
+        "point": [
+          3041.8,
+          4344.4
+        ]
+      }
+    ],
+    "nearest_signal_m": 2694.48,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

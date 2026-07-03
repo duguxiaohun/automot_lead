@@ -1,0 +1,88 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/ParkingExit/Town10HD_route_001645.xml",
+  "route_id": "route_001645",
+  "town": "Town10HD",
+  "waypoint_count": 2,
+  "route_length_m": 29.4,
+  "route_heading_change_deg": 0.0,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "behind_vehicle_distance",
+    "direction",
+    "front_vehicle_distance",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      -107.7,
+      -45.2
+    ]
+  ],
+  "first_waypoint": [
+    -107.7,
+    -45.2
+  ],
+  "last_waypoint": [
+    -113.6,
+    -16.4
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        -107.7,
+        -45.2
+      ],
+      "trigger_yaw": 117.39,
+      "direction": "right",
+      "front_vehicle_distance": 9.0,
+      "behind_vehicle_distance": 9.0
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "5",
+        "distance_m": 1.3,
+        "is_junction_road": true,
+        "point": [
+          -107.7,
+          -45.2
+        ]
+      },
+      {
+        "road_id": "5",
+        "distance_m": 1.3,
+        "is_junction_road": true,
+        "point": [
+          -107.7,
+          -45.2
+        ]
+      },
+      {
+        "road_id": "735",
+        "distance_m": 4.92,
+        "is_junction_road": true,
+        "point": [
+          -113.6,
+          -16.4
+        ]
+      },
+      {
+        "road_id": "735",
+        "distance_m": 4.92,
+        "is_junction_road": true,
+        "point": [
+          -113.6,
+          -16.4
+        ]
+      }
+    ],
+    "nearest_signal_m": 5.45,
+    "near_junction_road_points": 4,
+    "has_near_signal_60m": true,
+    "has_near_junction_road": true
+  }
+}

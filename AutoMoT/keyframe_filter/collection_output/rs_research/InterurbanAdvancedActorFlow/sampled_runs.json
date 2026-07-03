@@ -1,0 +1,24 @@
+{
+  "Town12": {
+    "run_count": 38,
+    "readable_run_count": 38,
+    "sampled_run_ids": [
+      "Town12_Rep0_1289_6_route0_01_08_20_05_17",
+      "Town12_Rep0_3489_1_route0_01_10_20_39_47",
+      "Town12_Rep0_3546_3_route0_01_08_08_35_09",
+      "Town12_Rep0_417_6_route0_01_08_22_19_57",
+      "Town12_Rep0_492_8_route0_01_08_15_35_33"
+    ]
+  },
+  "Town13": {
+    "run_count": 34,
+    "readable_run_count": 34,
+    "sampled_run_ids": [
+      "Town13_Rep0_1339_0_route0_01_10_17_12_27",
+      "Town13_Rep0_1339_6_route0_01_10_12_49_17",
+      "Town13_Rep0_1362_14_route0_01_08_10_00_20",
+      "Town13_Rep0_1362_7_route0_01_08_12_52_43",
+      "Town13_Rep0_1407_8_route0_01_10_00_59_47"
+    ]
+  }
+}

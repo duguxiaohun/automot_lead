@@ -1,0 +1,99 @@
+{
+  "_status": "temporary_defaults_need_manual_provenance",
+  "_protocol": "Each threshold must point to map/RGB/meta/XML/XODR evidence before final use.",
+  "kind": {
+    "value": "highway_merge",
+    "unit": "unknown",
+    "source": "temporary_default_rule_config",
+    "supporting_runs": [
+      "Town12_Rep0_1010_1_route0_01_09_18_29_03",
+      "Town12_Rep0_2787_0_route0_01_09_11_43_18",
+      "Town12_Rep0_4091_0_route0_01_11_04_21_03",
+      "Town12_Rep0_4331_2_route0_01_11_09_43_26",
+      "Town12_Rep0_route_002661_route0_01_09_02_51_11",
+      "Town13_Rep0_1230_0_route0_01_09_19_05_12",
+      "Town13_Rep0_1230_8_route0_01_10_19_54_19",
+      "Town13_Rep0_1397_10_route0_01_08_23_00_47",
+      "Town13_Rep0_1587_0_route0_01_09_10_01_14",
+      "Town13_Rep0_route_002662_route0_01_08_01_38_48"
+    ],
+    "reviewed_artifacts": [],
+    "reason": "Generated from existing rule_config; fill after map/RGB/meta review."
+  },
+  "merge_pre_m": {
+    "value": 40,
+    "unit": "m",
+    "source": "temporary_default_rule_config",
+    "supporting_runs": [
+      "Town12_Rep0_1010_1_route0_01_09_18_29_03",
+      "Town12_Rep0_2787_0_route0_01_09_11_43_18",
+      "Town12_Rep0_4091_0_route0_01_11_04_21_03",
+      "Town12_Rep0_4331_2_route0_01_11_09_43_26",
+      "Town12_Rep0_route_002661_route0_01_09_02_51_11",
+      "Town13_Rep0_1230_0_route0_01_09_19_05_12",
+      "Town13_Rep0_1230_8_route0_01_10_19_54_19",
+      "Town13_Rep0_1397_10_route0_01_08_23_00_47",
+      "Town13_Rep0_1587_0_route0_01_09_10_01_14",
+      "Town13_Rep0_route_002662_route0_01_08_01_38_48"
+    ],
+    "reviewed_artifacts": [],
+    "reason": "Generated from existing rule_config; fill after map/RGB/meta review."
+  },
+  "merge_post_m": {
+    "value": 50,
+    "unit": "m",
+    "source": "temporary_default_rule_config",
+    "supporting_runs": [
+      "Town12_Rep0_1010_1_route0_01_09_18_29_03",
+      "Town12_Rep0_2787_0_route0_01_09_11_43_18",
+      "Town12_Rep0_4091_0_route0_01_11_04_21_03",
+      "Town12_Rep0_4331_2_route0_01_11_09_43_26",
+      "Town12_Rep0_route_002661_route0_01_09_02_51_11",
+      "Town13_Rep0_1230_0_route0_01_09_19_05_12",
+      "Town13_Rep0_1230_8_route0_01_10_19_54_19",
+      "Town13_Rep0_1397_10_route0_01_08_23_00_47",
+      "Town13_Rep0_1587_0_route0_01_09_10_01_14",
+      "Town13_Rep0_route_002662_route0_01_08_01_38_48"
+    ],
+    "reviewed_artifacts": [],
+    "reason": "Generated from existing rule_config; fill after map/RGB/meta review."
+  },
+  "trigger_close_m": {
+    "value": 90,
+    "unit": "m",
+    "source": "temporary_default_rule_config",
+    "supporting_runs": [
+      "Town12_Rep0_1010_1_route0_01_09_18_29_03",
+      "Town12_Rep0_2787_0_route0_01_09_11_43_18",
+      "Town12_Rep0_4091_0_route0_01_11_04_21_03",
+      "Town12_Rep0_4331_2_route0_01_11_09_43_26",
+      "Town12_Rep0_route_002661_route0_01_09_02_51_11",
+      "Town13_Rep0_1230_0_route0_01_09_19_05_12",
+      "Town13_Rep0_1230_8_route0_01_10_19_54_19",
+      "Town13_Rep0_1397_10_route0_01_08_23_00_47",
+      "Town13_Rep0_1587_0_route0_01_09_10_01_14",
+      "Town13_Rep0_route_002662_route0_01_08_01_38_48"
+    ],
+    "reviewed_artifacts": [],
+    "reason": "Generated from existing rule_config; fill after map/RGB/meta review."
+  },
+  "keep_r3_when_slow": {
+    "value": true,
+    "unit": "unknown",
+    "source": "temporary_default_rule_config",
+    "supporting_runs": [
+      "Town12_Rep0_1010_1_route0_01_09_18_29_03",
+      "Town12_Rep0_2787_0_route0_01_09_11_43_18",
+      "Town12_Rep0_4091_0_route0_01_11_04_21_03",
+      "Town12_Rep0_4331_2_route0_01_11_09_43_26",
+      "Town12_Rep0_route_002661_route0_01_09_02_51_11",
+      "Town13_Rep0_1230_0_route0_01_09_19_05_12",
+      "Town13_Rep0_1230_8_route0_01_10_19_54_19",
+      "Town13_Rep0_1397_10_route0_01_08_23_00_47",
+      "Town13_Rep0_1587_0_route0_01_09_10_01_14",
+      "Town13_Rep0_route_002662_route0_01_08_01_38_48"
+    ],
+    "reviewed_artifacts": [],
+    "reason": "Generated from existing rule_config; fill after map/RGB/meta review."
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/InterurbanAdvancedActorFlow/Town13_route_1407_8.xml",
+  "route_id": "15",
+  "town": "Town13",
+  "waypoint_count": 3,
+  "route_length_m": 156.25,
+  "route_heading_change_deg": 46.44,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "end_actor_flow",
+    "flow_speed",
+    "source_dist_interval",
+    "start_actor_flow",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      969.8,
+      -2271.7
+    ]
+  ],
+  "first_waypoint": [
+    959.1,
+    -2254.1
+  ],
+  "last_waypoint": [
+    967.3,
+    -2397.8
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        969.8,
+        -2271.7
+      ],
+      "trigger_yaw": -59.6,
+      "start_actor_flow": {
+        "x": 901.6,
+        "y": -2433.8,
+        "z": 155.5
+      },
+      "end_actor_flow": {
+        "x": 1117.6,
+        "y": -2304.3,
+        "z": 154.0
+      },
+      "flow_speed": 18.0,
+      "source_dist_interval": {
+        "from": 23.0,
+        "to": 88.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "1216",
+        "distance_m": 307.3,
+        "is_junction_road": true,
+        "point": [
+          969.8,
+          -2271.7
+        ]
+      },
+      {
+        "road_id": "1216",
+        "distance_m": 315.99,
+        "is_junction_road": true,
+        "point": [
+          959.1,
+          -2254.1
+        ]
+      },
+      {
+        "road_id": "1216",
+        "distance_m": 290.16,
+        "is_junction_road": true,
+        "point": [
+          992.3,
+          -2310.6
+        ]
+      },
+      {
+        "road_id": "1216",
+        "distance_m": 328.54,
+        "is_junction_road": true,
+        "point": [
+          967.3,
+          -2397.8
+        ]
+      }
+    ],
+    "nearest_signal_m": 1045.1,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

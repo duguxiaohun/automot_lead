@@ -1394,7 +1394,7 @@ class LeadOfflineMoTRunner:
         aligned = bev_encoder_t_u.algin_lidar(points_xyz, pos_diff_local, rot_diff)
         return np.asarray(aligned, dtype=np.float32)
 
-    def _build_group_indices(self, clip_len: int, anchor_t: int, 
+    def _build_group_indices(self, clip_len: int, anchor_t: int,
                             rgb_frame_step: int = 1, rgb_frame_count: int = 4) -> OfflineGroup:
         """
         构造一个 anchor 的 RGB 采样索引。
@@ -1402,7 +1402,7 @@ class LeadOfflineMoTRunner:
         参数说明：
         - rgb_frame_step: 帧间隔（默认 1，对应 LEAD 的 0.25s，使用 5 对应 AutoMoT 的 1.25s）
         - rgb_frame_count: 采样帧数（默认 4）
-        
+
         规则：采样 [t, t-step, t-2*step, ...] 共 rgb_frame_count 帧。
         clip 长度不足时会被 clamp 到 0，确保索引有效。
         """
@@ -1414,11 +1414,11 @@ class LeadOfflineMoTRunner:
                                    rgb_frame_step: int = 1, rgb_frame_count: int = 4) -> list[OfflineGroup]:
         """
         为 clip 的最后一帧构造单个 group。
-        
+
         参数说明：
         - rgb_frame_step: RGB 采样间隔（默认 1）
         - rgb_frame_count: RGB 采样帧数（默认 4）
-        
+
         返回包含单个 group 的列表，便于与原有 run_clip 接口兼容。
         """
         anchor_t = clip_len - 1  # 最后一帧作为 anchor
@@ -1472,7 +1472,7 @@ class LeadOfflineMoTRunner:
             # (384, 1152, 3)  range: [0, 239]
             # 直接使用 LEAD 的三视角拼接图（前/左前/右前）。
             rgb_pil_list.append(Image.fromarray(rgb_hwc, mode="RGB"))
-        
+
         # 2) LiDAR/BEV 多帧采样与融合（与 RGB 一样支持步长和帧数）
         bev_indices_desc = [max(t - i * bev_frame_step, 0) for i in range(bev_frame_count)]
         bev_indices_asc = list(reversed(bev_indices_desc))
@@ -1488,7 +1488,7 @@ class LeadOfflineMoTRunner:
             pts = np.asarray(lidar_points_clip[idx], dtype=np.float32)
             # 默认 anchor=12, bev_count=1, bev_step=1 -> bev_indices_asc=[3]（clip 内 idx，仅 anchor 单帧）
             # Frame 3: original lidar_points shape ≈ (N, 3), dtype: float32  # N 因帧而异
-            
+
             if pts.ndim != 2 or pts.shape[1] < 3:
                 raise ValueError(f"lidar_points[{idx}] shape invalid: {pts.shape}")
             pts = pts[:, :3]
@@ -1838,7 +1838,7 @@ def _extract_tp_ntp_from_future_frames(
     ntp_meta = _load_meta(ntp_idx)
 
     tp_world = np.asarray(tp_meta.get("pos_global", [0.0, 0.0]), dtype=np.float32).reshape(-1)
-    # Loaded TP meta for frame 6: pos_global=[2.29582611e+02 8.36773529e+01 1.07219234e-01], theta=1.594943686327662    
+    # Loaded TP meta for frame 6: pos_global=[2.29582611e+02 8.36773529e+01 1.07219234e-01], theta=1.594943686327662
 
     ntp_world = np.asarray(ntp_meta.get("pos_global", [0.0, 0.0]), dtype=np.float32).reshape(-1)
     # Loaded NTP meta for frame 12: pos_global=[229.32587     94.25194      0.23421314], theta=1.5950125892970224
@@ -2103,7 +2103,7 @@ def build_clip_from_real_lead_route(
         las = laspy.read(str(lidar_path))
         pts = np.stack([las.x, las.y, las.z], axis=1).astype(np.float32)
         # (34890, 3)
-        
+
         lidar_points_list.append(pts)
 
     clip = {
@@ -2145,7 +2145,7 @@ def build_clip_from_real_lead_route(
 
 def _auto_select_gpu() -> str:
     """自动选择使用率最低的 GPU 设备。
-    
+
     如果 nvidia-smi 不可用或没有 GPU，默认返回 'cuda:0'。
     """
     try:
@@ -2158,11 +2158,11 @@ def _auto_select_gpu() -> str:
         if output.returncode != 0:
             print("[警告] nvidia-smi 查询失败，使用默认 cuda:0")
             return "cuda:0"
-        
+
         lines = output.stdout.strip().split("\n")
         min_usage = float("inf")
         best_gpu = 0
-        
+
         for line in lines:
             parts = line.split(",")
             if len(parts) >= 3:
@@ -2174,7 +2174,7 @@ def _auto_select_gpu() -> str:
                         best_gpu = gpu_id
                 except (ValueError, IndexError):
                     continue
-        
+
         previous = os.environ.get("CUDA_VISIBLE_DEVICES")
         os.environ["CUDA_VISIBLE_DEVICES"] = str(best_gpu)
         print(
@@ -2391,7 +2391,7 @@ def main():
     print(f"Using route-time mode (tp_lookahead_s={args.tp_lookahead_s}s, ntp_lookahead_s={args.ntp_lookahead_s}s)")
 
     # _print_clip_tensor_stats(clip)
-    
+
     # [Clip Stats]
     #     - rgb: shape=(4, 384, 1152, 3), dtype=uint8, range=[0, 255]
     #     - lidar_points: list[4] (变长), dtype=float32, points/frame(min/max/total)=33763/35926/138854, range=[-125.073, 117.508]
@@ -2400,7 +2400,7 @@ def main():
     #     - speed: shape=(4,), dtype=float32, range=[6.38579, 7.9911]
     #     - target_point: shape=(4, 2), dtype=float32, range=[0.000619971, 10.4444]
     #     - target_point_next: shape=(4, 2), dtype=float32, range=[0.00338461, 26.7549]
-    
+
     outputs = runner.run_clip(
         clip,
         rgb_frame_step=max(1, args.rgb_frame_step),

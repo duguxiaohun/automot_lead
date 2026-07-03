@@ -1,0 +1,91 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/CrossJunctionDefectTrafficLight/Town03_route_002134.xml",
+  "route_id": "route_002134",
+  "town": "Town03",
+  "waypoint_count": 2,
+  "route_length_m": 47.9,
+  "route_heading_change_deg": 0.0,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "flow_speed",
+    "source_dist_interval",
+    "traffic_direction",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      -84.6,
+      112.8
+    ]
+  ],
+  "first_waypoint": [
+    -84.6,
+    112.8
+  ],
+  "last_waypoint": [
+    -85.0,
+    160.7
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        -84.6,
+        112.8
+      ],
+      "trigger_yaw": 89.84,
+      "flow_speed": 6.0,
+      "traffic_direction": "left",
+      "source_dist_interval": {
+        "from": 24.0,
+        "to": 26.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "3",
+        "distance_m": 4.68,
+        "is_junction_road": true,
+        "point": [
+          -84.6,
+          112.8
+        ]
+      },
+      {
+        "road_id": "3",
+        "distance_m": 4.68,
+        "is_junction_road": true,
+        "point": [
+          -84.6,
+          112.8
+        ]
+      },
+      {
+        "road_id": "2",
+        "distance_m": 5.69,
+        "is_junction_road": true,
+        "point": [
+          -85.0,
+          160.7
+        ]
+      },
+      {
+        "road_id": "2",
+        "distance_m": 5.69,
+        "is_junction_road": true,
+        "point": [
+          -85.0,
+          160.7
+        ]
+      }
+    ],
+    "nearest_signal_m": 76.55,
+    "near_junction_road_points": 4,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": true
+  }
+}

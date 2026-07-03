@@ -1,0 +1,111 @@
+{
+  "available": true,
+  "run_dir": "/home/codon/automot_lead/AutoMoT/lead_data/CrossJunctionDefectTrafficLight/Town03_Rep0_route_002155_route0_01_08_16_23_06",
+  "meta_count": 45,
+  "sampled_frame_ids": [
+    "0000",
+    "0022",
+    "0044"
+  ],
+  "traffic_light_values": {
+    "Red": 1,
+    "Green": 1,
+    "None": 1
+  },
+  "active_scenario_values": {
+    "CrossJunctionDefectTrafficLight": 3
+  },
+  "has_ego_trace": true,
+  "sampled_frames": [
+    {
+      "frame_id": "0000",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/CrossJunctionDefectTrafficLight/Town03_Rep0_route_002155_route0_01_08_16_23_06/metas/0000.pkl",
+      "pos_global": "[-110.72802734375, 0.3133372664451599, -0.050029486417770386]",
+      "theta": 0.0051,
+      "speed": 0.0001,
+      "traffic_light_state": "Red",
+      "light_hazard": true,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 15.0,
+      "distance_to_next_junction": 15.0,
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 3.5,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "CrossJunctionDefectTrafficLight",
+      "ego_xy": [
+        -110.728,
+        0.3133
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 15.0,
+        "dist_to_junction": 15.0
+      }
+    },
+    {
+      "frame_id": "0022",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/CrossJunctionDefectTrafficLight/Town03_Rep0_route_002155_route0_01_08_16_23_06/metas/0022.pkl",
+      "pos_global": "[-101.83353424072266, 0.3590832054615021, -0.005075149238109589]",
+      "theta": 0.005,
+      "speed": 0.4104,
+      "traffic_light_state": "Green",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 6.0,
+      "distance_to_next_junction": 6.0,
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 3.5,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "CrossJunctionDefectTrafficLight",
+      "ego_xy": [
+        -101.8335,
+        0.3591
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 6.0,
+        "dist_to_junction": 6.0
+      }
+    },
+    {
+      "frame_id": "0044",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/CrossJunctionDefectTrafficLight/Town03_Rep0_route_002155_route0_01_08_16_23_06/metas/0044.pkl",
+      "pos_global": "[-68.78598022460938, 0.5287604928016663, -0.011838645674288273]",
+      "theta": 0.0056,
+      "speed": 7.1946,
+      "traffic_light_state": "None",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": true,
+      "is_intersection": true,
+      "junction_id": 861,
+      "dist_to_junction": 0.0,
+      "distance_to_next_junction": 0.0,
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 3.5,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "CrossJunctionDefectTrafficLight",
+      "ego_xy": [
+        -68.786,
+        0.5288
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 0.0,
+        "dist_to_junction": 0.0
+      }
+    }
+  ]
+}

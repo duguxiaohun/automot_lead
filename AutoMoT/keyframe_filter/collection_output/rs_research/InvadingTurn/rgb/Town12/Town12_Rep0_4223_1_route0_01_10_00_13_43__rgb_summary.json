@@ -1,0 +1,9 @@
+{
+  "available": true,
+  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/InvadingTurn/rgb/Town12/Town12_Rep0_4223_1_route0_01_10_00_13_43__sample_contact_sheet.jpg",
+  "sampled": [
+    "/home/codon/automot_lead/AutoMoT/lead_data/InvadingTurn/Town12_Rep0_4223_1_route0_01_10_00_13_43/rgb/0000.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/InvadingTurn/Town12_Rep0_4223_1_route0_01_10_00_13_43/rgb/0044.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/InvadingTurn/Town12_Rep0_4223_1_route0_01_10_00_13_43/rgb/0088.jpg"
+  ]
+}

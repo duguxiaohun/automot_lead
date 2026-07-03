@@ -9,6 +9,10 @@ GoalGen 运行手册按版本拆分：
 
 最短命令索引：
 
+数据构建前会自动剔除异常时长 LEAD route：4Hz 下 `rgb/*.jpg >= 361`
+（严格大于 90s）且不在 `BlockedIntersection/ControlLoss` 白名单内的 run
+不会进入 GoalGen train/val；统计写入 `stats.json.skipped_runs`。
+
 ```bash
 # v1 数据
 python qwen3vl_local/goalgen/build_dataset.py --mode v1 \

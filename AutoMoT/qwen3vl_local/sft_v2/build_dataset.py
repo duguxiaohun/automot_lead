@@ -49,6 +49,7 @@ from qwen3vl_local.sft_v2.prompts import (  # noqa: E402
     get_full_sequence,
     next_event,
 )
+from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
 
 
 def build_messages(sample, image_paths: List[str]) -> Dict:
@@ -246,11 +247,16 @@ def main() -> None:
     runs = keyframes.get("runs", [])
     timelines_by_scenario = defaultdict(list)
     skipped = Counter()
+    data_root = pathlib.Path(args.data_root)
     for run in runs:
         timeline = build_run_timeline(run)
         if timeline is None:
             # 只保留可解析且状态合法的 run；跳过原因按原 run status 统计，方便检查数据质量。
             skipped[run.get("status", "Unknown")] += 1
+            continue
+        should_exclude, _abnormal_info = is_abnormal_lead_route(data_root / timeline.scenario / timeline.run_id, timeline.scenario)
+        if should_exclude:
+            skipped["abnormal_duration_over_90s"] += 1
             continue
         timelines_by_scenario[timeline.scenario].append(timeline)
     print(f"[load] runs={len(runs)} kept={sum(len(v) for v in timelines_by_scenario.values())} skipped={dict(skipped)}")
@@ -321,6 +327,8 @@ def main() -> None:
         json.dump({
             "dataset_version": DATASET_VERSION,
             "config": vars(args),
+            "abnormal_duration_rule": "exclude duration_s > 90 unless scenario is BlockedIntersection or ControlLoss",
+            "skipped_runs": dict(skipped),
             "rgb_frame_count": RGB_FRAME_COUNT,
             "scenario_stats": scenario_stats,
             "train_size": len(train_rows),

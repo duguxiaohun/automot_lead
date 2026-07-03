@@ -1,0 +1,110 @@
+{
+  "available": true,
+  "run_dir": "/home/codon/automot_lead/AutoMoT/lead_data/PedestrianCrossing/Town12_Rep0_715_0_route0_01_08_19_14_12",
+  "meta_count": 254,
+  "sampled_frame_ids": [
+    "0000",
+    "0126",
+    "0253"
+  ],
+  "traffic_light_values": {
+    "None": 2,
+    "Red": 1
+  },
+  "active_scenario_values": {
+    "PedestrianCrossing": 3
+  },
+  "has_ego_trace": true,
+  "sampled_frames": [
+    {
+      "frame_id": "0000",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/PedestrianCrossing/Town12_Rep0_715_0_route0_01_08_19_14_12/metas/0000.pkl",
+      "pos_global": "[1748.8677978515625, 5150.541015625, 368.45635986328125]",
+      "theta": 1.5645,
+      "speed": 0.0001,
+      "traffic_light_state": "None",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 70.0,
+      "distance_to_next_junction": 70.0,
+      "lane_id": -1,
+      "ego_lane_id": -1,
+      "ego_lane_width": 3.0,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "PedestrianCrossing",
+      "ego_xy": [
+        1748.8678,
+        5150.541
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 70.0,
+        "dist_to_junction": 70.0
+      }
+    },
+    {
+      "frame_id": "0126",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/PedestrianCrossing/Town12_Rep0_715_0_route0_01_08_19_14_12/metas/0126.pkl",
+      "pos_global": "[1749.2252197265625, 5207.400390625, 368.5348205566406]",
+      "theta": 1.5643,
+      "speed": 0.0,
+      "traffic_light_state": "Red",
+      "light_hazard": true,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 13.0003,
+      "distance_to_next_junction": 13.0003,
+      "lane_id": -1,
+      "ego_lane_id": -1,
+      "ego_lane_width": 3.0,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "PedestrianCrossing",
+      "ego_xy": [
+        1749.2252,
+        5207.4004
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 13.0003,
+        "dist_to_junction": 13.0003
+      }
+    },
+    {
+      "frame_id": "0253",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/PedestrianCrossing/Town12_Rep0_715_0_route0_01_08_19_14_12/metas/0253.pkl",
+      "pos_global": "[1748.8936767578125, 5276.96435546875, 368.52667236328125]",
+      "theta": 1.8802,
+      "speed": 7.325,
+      "traffic_light_state": "None",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": true,
+      "is_intersection": true,
+      "junction_id": 19280,
+      "dist_to_junction": 0.0,
+      "distance_to_next_junction": 0.0,
+      "lane_id": -1,
+      "ego_lane_id": -1,
+      "ego_lane_width": 3.0,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "PedestrianCrossing",
+      "ego_xy": [
+        1748.8937,
+        5276.9644
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 0.0,
+        "dist_to_junction": 0.0
+      }
+    }
+  ]
+}

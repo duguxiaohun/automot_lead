@@ -1,0 +1,9 @@
+{
+  "available": true,
+  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/VehicleTurningRoute/rgb/Town01/Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03__sample_contact_sheet.jpg",
+  "sampled": [
+    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03/rgb/0000.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03/rgb/0122.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03/rgb/0244.jpg"
+  ]
+}

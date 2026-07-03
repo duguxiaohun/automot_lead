@@ -1,0 +1,57 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/noScenarios/Town06_route_000753.xml",
+  "route_id": "route_000753",
+  "town": "Town06",
+  "waypoint_count": 2,
+  "route_length_m": 27.2,
+  "route_heading_change_deg": 0.0,
+  "scenario_tag_count": 0,
+  "tag_keys": [],
+  "trigger_points": [],
+  "first_waypoint": [
+    -340.8,
+    232.3
+  ],
+  "last_waypoint": [
+    -319.9,
+    249.7
+  ],
+  "sampled_scenario_tags": [],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 3,
+    "nearest_roads": [
+      {
+        "road_id": "11",
+        "distance_m": 222.32,
+        "is_junction_road": false,
+        "point": [
+          -340.8,
+          232.3
+        ]
+      },
+      {
+        "road_id": "11",
+        "distance_m": 235.07,
+        "is_junction_road": false,
+        "point": [
+          -319.9,
+          249.7
+        ]
+      },
+      {
+        "road_id": "11",
+        "distance_m": 235.07,
+        "is_junction_road": false,
+        "point": [
+          -319.9,
+          249.7
+        ]
+      }
+    ],
+    "nearest_signal_m": 330.9,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

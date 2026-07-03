@@ -26,6 +26,10 @@
 
 ## 1. 构建训练索引
 
+构建器会先剔除异常时长 LEAD route：4Hz 下 `rgb/*.jpg >= 361`
+（严格大于 90s）且不在 `BlockedIntersection/ControlLoss` 白名单内的 run
+不会写入 JSONL；统计见 `stats.json.skipped_abnormal_duration_routes`。
+
 ```bash
 python qwen3vl_local/leadmot/build_dataset.py \
   --data-root lead_data \

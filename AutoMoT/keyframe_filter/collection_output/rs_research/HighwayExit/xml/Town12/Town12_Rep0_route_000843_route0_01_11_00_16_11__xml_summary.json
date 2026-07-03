@@ -1,0 +1,101 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/HighwayExit/Town12_route_000843.xml",
+  "route_id": "route_000843",
+  "town": "Town12",
+  "waypoint_count": 26,
+  "route_length_m": 105.63,
+  "route_heading_change_deg": 66.04,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "end_actor_flow",
+    "flow_speed",
+    "source_dist_interval",
+    "start_actor_flow",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      -822.6,
+      4825.7
+    ]
+  ],
+  "first_waypoint": [
+    -822.6,
+    4826.7
+  ],
+  "last_waypoint": [
+    -780.4,
+    4737.3
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        -822.6,
+        4825.7
+      ],
+      "trigger_yaw": 269.9,
+      "start_actor_flow": {
+        "x": -819.3,
+        "y": 4851.7,
+        "z": 372.8
+      },
+      "end_actor_flow": {
+        "x": -819.5,
+        "y": 4735.0,
+        "z": 369.4
+      },
+      "flow_speed": 14.0,
+      "source_dist_interval": {
+        "from": 17.0,
+        "to": 36.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "370",
+        "distance_m": 3260.85,
+        "is_junction_road": true,
+        "point": [
+          -822.6,
+          4825.7
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 3261.82,
+        "is_junction_road": true,
+        "point": [
+          -822.6,
+          4826.7
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 3181.22,
+        "is_junction_road": true,
+        "point": [
+          -800.7,
+          4749.1
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 3164.78,
+        "is_junction_road": true,
+        "point": [
+          -780.4,
+          4737.3
+        ]
+      }
+    ],
+    "nearest_signal_m": 3410.36,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

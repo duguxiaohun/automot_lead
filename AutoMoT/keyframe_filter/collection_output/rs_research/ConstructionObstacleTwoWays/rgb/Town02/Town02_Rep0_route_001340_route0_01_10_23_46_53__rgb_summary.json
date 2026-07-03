@@ -1,0 +1,9 @@
+{
+  "available": true,
+  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/ConstructionObstacleTwoWays/rgb/Town02/Town02_Rep0_route_001340_route0_01_10_23_46_53__sample_contact_sheet.jpg",
+  "sampled": [
+    "/home/codon/automot_lead/AutoMoT/lead_data/ConstructionObstacleTwoWays/Town02_Rep0_route_001340_route0_01_10_23_46_53/rgb/0000.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/ConstructionObstacleTwoWays/Town02_Rep0_route_001340_route0_01_10_23_46_53/rgb/0099.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/ConstructionObstacleTwoWays/Town02_Rep0_route_001340_route0_01_10_23_46_53/rgb/0198.jpg"
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "Town01": {
+    "run_count": 6,
+    "xml_count": 6,
+    "xodr_available": true
+  },
+  "Town02": {
+    "run_count": 6,
+    "xml_count": 6,
+    "xodr_available": true
+  },
+  "Town03": {
+    "run_count": 23,
+    "xml_count": 23,
+    "xodr_available": true
+  },
+  "Town04": {
+    "run_count": 58,
+    "xml_count": 59,
+    "xodr_available": true
+  },
+  "Town05": {
+    "run_count": 49,
+    "xml_count": 59,
+    "xodr_available": true
+  },
+  "Town06": {
+    "run_count": 30,
+    "xml_count": 30,
+    "xodr_available": true
+  },
+  "Town07": {
+    "run_count": 11,
+    "xml_count": 12,
+    "xodr_available": true
+  },
+  "Town10HD": {
+    "run_count": 15,
+    "xml_count": 15,
+    "xodr_available": true
+  },
+  "Town12": {
+    "run_count": 47,
+    "xml_count": 49,
+    "xodr_available": true
+  },
+  "Town13": {
+    "run_count": 49,
+    "xml_count": 49,
+    "xodr_available": true
+  }
+}

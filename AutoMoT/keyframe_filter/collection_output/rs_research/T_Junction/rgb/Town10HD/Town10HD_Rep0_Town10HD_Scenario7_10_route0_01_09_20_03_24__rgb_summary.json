@@ -1,0 +1,9 @@
+{
+  "available": true,
+  "path": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output/rs_research/T_Junction/rgb/Town10HD/Town10HD_Rep0_Town10HD_Scenario7_10_route0_01_09_20_03_24__sample_contact_sheet.jpg",
+  "sampled": [
+    "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_10_route0_01_09_20_03_24/rgb/0000.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_10_route0_01_09_20_03_24/rgb/0080.jpg",
+    "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_10_route0_01_09_20_03_24/rgb/0161.jpg"
+  ]
+}

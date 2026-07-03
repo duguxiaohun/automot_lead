@@ -1,0 +1,101 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/InterurbanAdvancedActorFlow/Town13_route_1339_0.xml",
+  "route_id": "14",
+  "town": "Town13",
+  "waypoint_count": 3,
+  "route_length_m": 281.38,
+  "route_heading_change_deg": 85.39,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "end_actor_flow",
+    "flow_speed",
+    "source_dist_interval",
+    "start_actor_flow",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      -1078.5,
+      4972.1
+    ]
+  ],
+  "first_waypoint": [
+    -1087.9,
+    4990.3
+  ],
+  "last_waypoint": [
+    -1036.5,
+    4747.2
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        -1078.5,
+        4972.1
+      ],
+      "trigger_yaw": -62.7,
+      "start_actor_flow": {
+        "x": -1109.0,
+        "y": 4716.4,
+        "z": 147.2
+      },
+      "end_actor_flow": {
+        "x": -861.5,
+        "y": 4835.0,
+        "z": 146.1
+      },
+      "flow_speed": 16.0,
+      "source_dist_interval": {
+        "from": 17.0,
+        "to": 65.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "1281",
+        "distance_m": 1566.3,
+        "is_junction_road": true,
+        "point": [
+          -1078.5,
+          4972.1
+        ]
+      },
+      {
+        "road_id": "1281",
+        "distance_m": 1584.82,
+        "is_junction_road": true,
+        "point": [
+          -1087.9,
+          4990.3
+        ]
+      },
+      {
+        "road_id": "1281",
+        "distance_m": 1357.69,
+        "is_junction_road": true,
+        "point": [
+          -1001.2,
+          4764.1
+        ]
+      },
+      {
+        "road_id": "1281",
+        "distance_m": 1340.58,
+        "is_junction_road": true,
+        "point": [
+          -1036.5,
+          4747.2
+        ]
+      }
+    ],
+    "nearest_signal_m": 2489.05,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

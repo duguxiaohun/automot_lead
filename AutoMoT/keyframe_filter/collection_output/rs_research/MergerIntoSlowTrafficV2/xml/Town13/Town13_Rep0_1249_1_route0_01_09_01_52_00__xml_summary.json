@@ -1,0 +1,101 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/MergerIntoSlowTrafficV2/Town13_route_1249_1.xml",
+  "route_id": "13",
+  "town": "Town13",
+  "waypoint_count": 11,
+  "route_length_m": 318.48,
+  "route_heading_change_deg": 95.11,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "end_actor_flow",
+    "flow_speed",
+    "source_dist_interval",
+    "start_actor_flow",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      1218.7,
+      1014.0
+    ]
+  ],
+  "first_waypoint": [
+    1238.2,
+    1007.6
+  ],
+  "last_waypoint": [
+    1208.5,
+    1272.6
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        1218.7,
+        1014.0
+      ],
+      "trigger_yaw": 156.6,
+      "start_actor_flow": {
+        "x": 1194.1,
+        "y": 988.8,
+        "z": 155.9
+      },
+      "end_actor_flow": {
+        "x": 1208.0,
+        "y": 1270.9,
+        "z": 155.2
+      },
+      "flow_speed": 10.0,
+      "source_dist_interval": {
+        "from": 17.0,
+        "to": 38.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "510",
+        "distance_m": 621.34,
+        "is_junction_road": true,
+        "point": [
+          1218.7,
+          1014.0
+        ]
+      },
+      {
+        "road_id": "510",
+        "distance_m": 631.83,
+        "is_junction_road": true,
+        "point": [
+          1238.2,
+          1007.6
+        ]
+      },
+      {
+        "road_id": "510",
+        "distance_m": 633.46,
+        "is_junction_road": true,
+        "point": [
+          1150.9,
+          1103.6
+        ]
+      },
+      {
+        "road_id": "510",
+        "distance_m": 794.52,
+        "is_junction_road": true,
+        "point": [
+          1208.5,
+          1272.6
+        ]
+      }
+    ],
+    "nearest_signal_m": 878.86,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

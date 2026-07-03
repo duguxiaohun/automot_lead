@@ -1,0 +1,101 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/MergerIntoSlowTrafficV2/Town13_route_1231_5.xml",
+  "route_id": "13",
+  "town": "Town13",
+  "waypoint_count": 7,
+  "route_length_m": 298.52,
+  "route_heading_change_deg": 9.58,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "end_actor_flow",
+    "flow_speed",
+    "source_dist_interval",
+    "start_actor_flow",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      1317.35,
+      1219.67
+    ]
+  ],
+  "first_waypoint": [
+    1299.1,
+    1227.4
+  ],
+  "last_waypoint": [
+    1556.2,
+    1109.9
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        1317.35,
+        1219.67
+      ],
+      "trigger_yaw": -27.88,
+      "start_actor_flow": {
+        "x": 1339.1,
+        "y": 1245.6,
+        "z": 156.6
+      },
+      "end_actor_flow": {
+        "x": 1402.6,
+        "y": 1118.2,
+        "z": 157.0
+      },
+      "flow_speed": 10.0,
+      "source_dist_interval": {
+        "from": 15.0,
+        "to": 30.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "184",
+        "distance_m": 749.72,
+        "is_junction_road": true,
+        "point": [
+          1317.35,
+          1219.67
+        ]
+      },
+      {
+        "road_id": "184",
+        "distance_m": 768.93,
+        "is_junction_road": true,
+        "point": [
+          1299.1,
+          1227.4
+        ]
+      },
+      {
+        "road_id": "184",
+        "distance_m": 715.95,
+        "is_junction_road": true,
+        "point": [
+          1348.1,
+          1195.9
+        ]
+      },
+      {
+        "road_id": "184",
+        "distance_m": 499.62,
+        "is_junction_road": true,
+        "point": [
+          1556.2,
+          1109.9
+        ]
+      }
+    ],
+    "nearest_signal_m": 660.98,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

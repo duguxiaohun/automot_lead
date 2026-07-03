@@ -1,0 +1,73 @@
+{
+  "Town01": {
+    "run_count": 8,
+    "readable_run_count": 8,
+    "sampled_run_ids": [
+      "Town01_Rep0_route_001275_route0_01_09_16_43_40",
+      "Town01_Rep0_route_001278_route0_01_09_04_40_28",
+      "Town01_Rep0_route_001280_route0_01_10_09_26_58",
+      "Town01_Rep0_route_001281_route0_01_08_19_48_36",
+      "Town01_Rep0_route_001284_route0_01_11_03_27_13"
+    ]
+  },
+  "Town02": {
+    "run_count": 3,
+    "readable_run_count": 3,
+    "sampled_run_ids": [
+      "Town02_Rep0_route_001339_route0_01_08_14_19_04",
+      "Town02_Rep0_route_001340_route0_01_10_23_46_53",
+      "Town02_Rep0_route_001341_route0_01_10_04_06_33"
+    ]
+  },
+  "Town05": {
+    "run_count": 1,
+    "readable_run_count": 1,
+    "sampled_run_ids": [
+      "Town05_Rep0_route_001312_route0_01_09_14_25_48"
+    ]
+  },
+  "Town07": {
+    "run_count": 11,
+    "readable_run_count": 11,
+    "sampled_run_ids": [
+      "Town07_Rep0_route_001173_route0_01_11_00_42_39",
+      "Town07_Rep0_route_001178_route0_01_11_02_50_17",
+      "Town07_Rep0_route_001185_route0_01_08_20_30_14",
+      "Town07_Rep0_route_001188_route0_01_09_00_24_05",
+      "Town07_Rep0_route_001191_route0_01_10_08_05_59"
+    ]
+  },
+  "Town12": {
+    "run_count": 189,
+    "readable_run_count": 178,
+    "sampled_run_ids": [
+      "Town12_Rep0_1113_0_route0_01_08_23_39_11",
+      "Town12_Rep0_4625_1_route0_01_08_20_06_11",
+      "Town12_Rep0_route_001162_route0_01_09_16_00_54",
+      "Town12_Rep0_route_002700_route0_01_11_08_48_03",
+      "Town12_Rep0_route_002861_route0_01_08_23_08_18"
+    ]
+  },
+  "Town13": {
+    "run_count": 147,
+    "readable_run_count": 147,
+    "sampled_run_ids": [
+      "Town13_Rep0_1128_0_route0_01_08_15_10_26",
+      "Town13_Rep0_1763_0_route0_01_10_08_25_17",
+      "Town13_Rep0_route_003030_route0_01_09_17_28_45",
+      "Town13_Rep0_route_003175_route0_01_10_08_31_22",
+      "Town13_Rep0_route_003212_route0_01_10_16_58_34"
+    ]
+  },
+  "Town15": {
+    "run_count": 106,
+    "readable_run_count": 106,
+    "sampled_run_ids": [
+      "Town15_Rep0_route_001074_route0_01_08_16_28_11",
+      "Town15_Rep0_route_001112_route0_01_10_02_49_18",
+      "Town15_Rep0_route_001212_route0_01_08_16_07_10",
+      "Town15_Rep0_route_001297_route0_01_10_07_13_42",
+      "Town15_Rep0_route_001335_route0_01_09_19_32_53"
+    ]
+  }
+}

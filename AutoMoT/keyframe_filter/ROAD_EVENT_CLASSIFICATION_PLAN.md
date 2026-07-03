@@ -9,6 +9,38 @@
 核心口径：`ROAD_STRUCTURE` 不是纯物理几何分类，而是驾驶决策规则空间分类。不同道路结构之所以要分开，
 是因为它们下层可触发的事件、通行优先级和动作约束不同。
 
+## 0. 数据 / XML 命名规则
+
+本方案中凡是需要从 LEAD run 找 route XML，都必须使用用户整理后的固定命名：
+
+```text
+lead_data/<Scenario>/<run_id>
+  -> parse (Scenario, Town, route_key)
+  -> data/lead/<Scenario>/<Town>_<route_key>.xml
+```
+
+解析规则：
+
+- `Scenario` 必须直接取 run 的父目录，不能从 XML 内 scenario type 或 `data_routes` 源目录反推。
+- `run_id` 先剥末尾 `MM_DD_HH_MM_SS` 时间戳，再只在存在时剥尾部采集后缀 `_route0`。
+- 剩余部分就是 `route_key`；`Town12_route15` 这类 legacy key 本体里的 `route15` 不能剥，也不能要求它带 `_route0`。
+- 文件名公式固定为：`route_key` 以 `route_` 开头时用 `<Town>_<route_key>.xml`，否则用 `<Town>_route_<route_key>.xml`。
+
+示例：
+
+```text
+Town03_Rep0_route_001783_route0_... -> data/lead/<Scenario>/Town03_route_001783.xml
+Town12_Rep0_1054_0_route0_...       -> data/lead/<Scenario>/Town12_route_1054_0.xml
+Town06_Rep0_Town06_13_route0_...    -> data/lead/<Scenario>/Town06_route_Town06_13.xml
+Town12_Rep0_Town12_route15_...      -> data/lead/<Scenario>/Town12_route_Town12_route15.xml
+```
+
+2026-07-03 全量核对：`lead_data` 9715 个 run 去重后 9294 个 `(Scenario,Town,route_key)`；
+`data/lead` 正好 9294 个 XML，缺失 0、冗余 0、命名不规范 0、XML 解析失败 0、内容结构异常 0。
+40 个 XML 的 `data_routes` 源在其它 scenario 目录，不是缺失；现有
+`ParkedObstacle/Town12_route_Town12_route15.xml` 覆盖有效并与
+`lead_data/ParkedObstacle/Town12_Rep0_Town12_route15_*` 对应，不能当作 `xml_available=false`。
+
 ## 1. 为什么要替换旧 status/subgoal
 
 旧 `keyframes_all_scenarios.json` 来自 `rule_based_keyframe_filter.py`，主要逻辑是：
@@ -503,13 +535,18 @@ EVENTS = 常规背景事件 + 命中的突发事件 span
 
 ## 9. 待核实问题
 
-需要后续结合视频或数据核实：
+需要后续结合 `collection_output/rs_research/<Scenario>/maps/*route_trigger_ego_trace.png`、
+`rgb/*sample_contact_sheet.jpg` 和 `meta/*__frame_features.jsonl` 核实：
 
-- HazardAtSideLane 到底主要是 R1 同向多车道避让，还是存在 R2 双向单车道片段。
-- StaticCutIn 是否混合 R1、R3、R6，需要按视频位置拆分。
-- T_Junction、PedestrianCrossing、VehicleTurningRoute 系列是否有灯，决定 R4/R5。
-- PriorityAtJunction 是否稳定归 R5。
-- InterurbanAdvancedActorFlow 是否存在前置 R1 变道片段。
+- `HazardAtSideLane` 当前 RS 口径保持 R1/R4；只有 map/RGB 明确存在对向参与时才允许加入 R2。
+- `StaticCutIn` 当前保留 R1/R3/R4/R6 混合候选，必须按每个 run 的 map/RGB 拆分。
+- `T_Junction` 当前为 signalized_junction 规则族，若 meta 灯态缺失则 review，不自动转 R5。
+- `PedestrianCrossing`、`VehicleTurningRoute*` 保留 R4/R5 候选；最终按灯态、signal/controller、
+  stop/yield 和 junction 证据决定。
+- `PriorityAtJunction`、`OppositeVehicleTakingPriority` 当前稳定按 R5 规则族处理。
+- `InterurbanAdvancedActorFlow` 当前不默认 R3；只有 XODR merge/highway/ramp 证据成立时才打开 R3。
+- `NonSignalizedJunctionLeftTurn/Town10HD` 缺可读 meta，后续 EVENT/RS 评估必须标记该 town 的
+  confidence 不高于 medium，直到补齐 meta 或人工确认。
 
 ## 10. 当前结论
 
@@ -521,5 +558,7 @@ EVENTS = 常规背景事件 + 命中的突发事件 span
 - R-E6 取消，不作为独立事件。
 - EVENTS 支持多选，用常规事件描述背景任务，用突发事件描述安全关键打断。
 - 旧 keyframe 逻辑只作为 span 提议器和人工抽检入口，不作为最终帧级 STATUS/SUBGOAL 真值。
+- EVENT 规则必须消费新的逐场景 RS 结果：先定 `primary_road_structure`，再按
+  `ROAD_EVENT_CANDIDATE_MAPPING.md` 求 scenario/event 候选交集。不能用 scenario 名直接决定 R2/R3/R4/R5/R6。
 
 这套结构更贴近你的原始意图：先判断当前处于哪套驾驶决策规则空间，再在该空间下判断可能发生的事件。

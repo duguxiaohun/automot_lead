@@ -1,0 +1,89 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/VehicleOpensDoorTwoWays/Town12_route_3318_0.xml",
+  "route_id": "63",
+  "town": "Town12",
+  "waypoint_count": 2,
+  "route_length_m": 141.55,
+  "route_heading_change_deg": 0.0,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "direction",
+    "frequency",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      249.3,
+      4429.1
+    ]
+  ],
+  "first_waypoint": [
+    249.2,
+    4376.6
+  ],
+  "last_waypoint": [
+    282.0,
+    4514.3
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        249.3,
+        4429.1
+      ],
+      "trigger_yaw": 90.0,
+      "direction": "right",
+      "frequency": {
+        "from": 40.0,
+        "to": 95.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "370",
+        "distance_m": 2719.48,
+        "is_junction_road": true,
+        "point": [
+          249.3,
+          4429.1
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 2666.99,
+        "is_junction_road": true,
+        "point": [
+          249.2,
+          4376.6
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 2804.19,
+        "is_junction_road": true,
+        "point": [
+          282.0,
+          4514.3
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 2804.19,
+        "is_junction_road": true,
+        "point": [
+          282.0,
+          4514.3
+        ]
+      }
+    ],
+    "nearest_signal_m": 3235.01,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

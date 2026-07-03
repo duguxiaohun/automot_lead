@@ -123,7 +123,7 @@
     `CarlaDataProvider.get_world()` 找到 `role_name=hero` 后 spawn cinematic + BEV 临时 carla camera）
   - `visualizer.py`（无依赖 pinhole 投影 + 三视角 overlay；从 LEAD common_utils.project_points_to_image 移植）
   - `scenario_picker.py`
-    （LEAD `<Scenario>/<route_id>.xml` 反向映射；CLI 支持 `--scenario` / `--route-id` /
+    （LEAD `data/lead/<Scenario>/<Town>_<route_key>.xml` 反向映射；CLI 支持 `--scenario` / `--route-id` /
     `--random N --seed K` 子集筛选与 `--list-scenarios`）
   - `aggregate.py`
     （按 scenario 聚合 leaderboard `eval_<route_id>.json` 写 `scenarios/<Scenario>/summary.json` + `summary_all.json`）
@@ -141,27 +141,49 @@
   `/data/lead_video/<Scenario>/<run_id>/{input,left,front,right}.mp4`（默认 input，`--views`
   可选三视角裁剪），默认在左上角写 frame id，支持异常 route 剔除、断点续跑、
   ffprobe 完整性检查、运行文档和 `--workers` route 级 CPU 并行（`--workers 0`
-  自动按 CPU 估计）；`rgb_to_video.py` 默认不做异常时长筛选；
-  `abnormal_duration_filter.py` 独立按 360-400 帧 / 401+ 帧输出存疑 / 确定异常采集名单，
-  `BlockedIntersection` 与 `ControlLoss` 是全异常筛选白名单不写入名单，
-  `Accident` 以及场景名以 `park` / `dynamic` 开头的数据仅在 360-400 帧存疑段不写入名单且 401+ 仍进确定异常，
+  自动按 CPU 估计）；`rgb_to_video.py` 普通转换默认剔除异常时长 route，
+  `abnormal_duration_filter.py` 按硬规则输出异常采集名单：
+  4Hz 下 `frames >= 361`（严格大于 1 分 30 秒 / 90s）且不在白名单内的 route
+  全部视为异常并写入 `abnormal_confirmed_over_90s.txt`；
+  `BlockedIntersection` 与 `ControlLoss` 是唯一时长白名单不写入名单；
+  `Accident`、`park*`、`dynamic*` 不再有 90-100 秒存疑段豁免；
+  `abnormal_possible_90s_to_100s.txt` 只为旧接口兼容保留，正常应为空。
+  **凡是 AutoMoT/keyframe_filter、AutoMoT/qwen3vl_local 或其它入口使用 LEAD 数据集，
+  都必须在构建样本/调研/probe 前先剔除这些异常 route**；
   筛选时打印 discover + route 级进度条，
   两个 txt 名单只保留 `Scenario/run_id`，详情保留在 `abnormal_duration_summary.json`；
   只有显式传 `rgb_to_video.py --abnormal-route-list-dir` 才复用筛选目录只转名单 route）
+- `AutoMoT/data/lead/`
+  （按用户同意纳入白名单：`lead_data` 对应 route XML 根目录，由
+  `AutoMoT/data/data_routes` 提取整理而来。命名规范固定为
+  `data/lead/<Scenario>/<Town>_<route_key>.xml`：旧数字 route 为
+  `Town03_route_001783.xml`，新版子编号为 `Town12_route_1054_0.xml`，
+  命名本身带 Town 的 legacy key 为 `Town06_route_Town06_13.xml`，legacy key
+  内部带 route 编号时保留完整 key，如 `Town12_route_Town12_route15.xml`。
+  从 `lead_data/<Scenario>/<run_id>` 找 XML 时，`Scenario` 必须取 run 的父目录；
+  run_id 先剥末尾 `MM_DD_HH_MM_SS` 时间戳，再只在存在时剥尾部采集后缀
+  `_route0`；`Town12_route15` 这类 legacy key 本体里的 `route15` 不能剥，
+  也不能要求它带 `_route0`。XML 文件名公式：`route_key` 以 `route_`
+  开头时用 `<Town>_<route_key>.xml`，否则用 `<Town>_route_<route_key>.xml`。
+  2026-07-03 全量核对结果：`lead_data` 9715 个 run 去重后 9294 个
+  `(Scenario,Town,route_key)`，`data/lead` 正好 9294 个 XML，缺失 0、冗余 0；
+  命名不规范 0、XML 解析失败 0、内容结构异常 0；XML 内 `<weathis_juncer>`
+  拼写已统一修正为 `<weather>`。40 个 XML 的
+  `data_routes` 源文件位于不同 scenario 目录（36 个 `noScenarios`、4 个
+  `ConstructionObstacleTwoWays`），不是缺失；另有
+  `ParkedObstacle/Town12_route_Town12_route15.xml` 覆盖有效并与
+  `lead_data/ParkedObstacle/Town12_Rep0_Town12_route15_*` 对应，但未在
+  `AutoMoT/data/data_routes` 找到直接源文件。使用时以 `lead_data` / `data/lead`
+  的 scenario 目录为准，不能把该项当作 XML 缺失。）
 - `AutoMoT/keyframe_filter/`
   （按用户同意新增到白名单：旧版 LEAD 关键帧选择器与新 ROAD/EVENT 语义重标注方案目录。
   `rule_based_keyframe_filter.py` 旧逻辑按 scenario 固定抽 initial / 3 middle / final，主要依赖
   meta 距离字段、speed/accel/brake，并 fallback 到 bbox / RGB motion；只作为突发事件 span
   提议器和验证工具参考，不再视为最终帧级 STATUS/SUBGOAL 真值。`classifier_logic.txt`
   是用户人工调研的道路结构与事件分类草案；`ROAD_EVENT_CLASSIFICATION_PLAN.md`
-  是新方案总结。**按用户同意扩展整目录白名单**：目录内 Python / HTML / MD /
-  verification_tool 相关文件（`analyzer.py` / `collector.py` / `frame_annotation_logic.py` /
-  `quick_start.py` / `qwen_road_event_probe.py` / `web_app.py` / `README.md` /
-  `middle_event_flowchart.html` / `rgb_fallback_analysis.html` / `ROAD_EVENT_CANDIDATE_MAPPING.md` /
-  `ROAD_STRUCTURE_MAP_XML_LABELING_PLAN.md` / `ROAD_STRUCTURE_PER_SCENARIO_LABELING_DESIGN.md` /
-  `verification_tool/pyproject.toml` / `verification_tool/uv.lock`）全部纳入白名单，
-  `collection_output/` 与 `__pycache__/` 仍不入库。目录内 `keyframes_all_scenarios.json` 是旧生成产物，
-  默认不随手修改；只有用户明确要求重生成/修正旧 keyframe 索引时才更新）
+  是新方案总结。**按用户同意扩展为递归整目录白名单**：`AutoMoT/keyframe_filter/`
+  下所有现有文件、子目录文件以及未来新增文件都允许修改、追踪、commit 和 push；
+  push 前可精确执行 `git add AutoMoT/keyframe_filter/`，不要再逐文件维护该目录白名单）
 - `AutoMoT/qwen3vl_local/`（含 `tb_serve.sh` 通用 TensorBoard launcher；`goalgen/` 子包详见 PROJECT_CONTEXT.md §15；`eval_carla/` 子包详见上）
 - `AutoMoT/qwen3vl_local/tb_serve.sh`
   （SFT / GoalGen / LeadMoT / VAE 共用 TensorBoard 启动器；从 `AutoMoT/` 目录下用
@@ -262,13 +284,25 @@
 - `AutoMoT/` 中除上述白名单外的源码、配置、权重、数据
 - `0026.json`
 - 仓库根目录或 `AutoMoT/lead_data` 下的 `keyframes_all_scenarios.json` 数据参考文件
-  （`AutoMoT/keyframe_filter/keyframes_all_scenarios.json` 是旧工具产物，只有用户明确要求重生成/修正时才更新）
+  （`AutoMoT/keyframe_filter/` 下的同名文件属于该目录递归白名单，不按这里的只读参考文件处理）
 
 如果确实需要改白名单外文件，先在对话里说明原因并等待用户确认。
 
 ---
 
 ## 5. Git 规则
+
+### 5.1 拉取远程更新
+
+当用户说“拉取远程最新代码覆盖本地”“更新到远程最新代码”或类似表达时，含义是：
+
+- 只更新 / 覆盖 git 已跟踪代码文件；优先用 `git fetch` 后按远程分支处理 tracked 文件。
+- 只有与远程 tracked 文件发生冲突或本地 tracked 改动挡住更新时，才覆盖这些 tracked 文件。
+- 不要删除未跟踪文件、未跟踪目录、本地数据、权重、缓存、软链接、外部同步目录或用户放在工作区里的参考资料。
+- 禁止把这类请求自动扩展成 `git clean -fd`、`git clean -ffd`、`rm -rf` 或任何清理未跟踪文件的操作。
+- 如果确实需要清理未跟踪内容，必须先单独列出将删除的路径，并得到用户明确确认。
+
+简言之：用户要的是“更新代码”，不是“清空工作区”。除非用户明确说要删除其它本地内容，否则不要动与远程 tracked 代码无关的东西。
 
 不要使用：
 
@@ -291,7 +325,7 @@ git add AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py
 git add AutoMoT/leaderboard/team_code/automot_utils.py AutoMoT/Automot/team_code/automot_utils.py AutoMoT/Automot/mot/evaluation/inference.py AutoMoT/Automot/mot/modeling/automot/automot.py AutoMoT/leaderboard/team_code/mot_b2d_agent.py AutoMoT/leaderboard/team_code/display_interface.py AutoMoT/Automot/team_code/display_interface.py
 git add AutoMoT/qwen3vl_local/eval_carla/__init__.py AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_PLAN.md AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md AutoMoT/qwen3vl_local/eval_carla/agent.py AutoMoT/qwen3vl_local/eval_carla/safety.py AutoMoT/qwen3vl_local/eval_carla/video_recorder.py AutoMoT/qwen3vl_local/eval_carla/visualizer.py AutoMoT/qwen3vl_local/eval_carla/scenario_picker.py AutoMoT/qwen3vl_local/eval_carla/aggregate.py AutoMoT/qwen3vl_local/eval_carla/run_eval.sh AutoMoT/qwen3vl_local/eval_carla/webapp/__init__.py AutoMoT/qwen3vl_local/eval_carla/webapp/app.py AutoMoT/qwen3vl_local/eval_carla/webapp/templates/index.html AutoMoT/qwen3vl_local/eval_carla/webapp/static/style.css
 git add AutoMoT/lead_video_tools/__init__.py AutoMoT/lead_video_tools/abnormal_duration_filter.py AutoMoT/lead_video_tools/rgb_to_video.py AutoMoT/lead_video_tools/LEAD_VIDEO_RUN.md
-git add AutoMoT/keyframe_filter/classifier_logic.txt AutoMoT/keyframe_filter/rule_based_keyframe_filter.py AutoMoT/keyframe_filter/ROAD_EVENT_CLASSIFICATION_PLAN.md AutoMoT/keyframe_filter/analyzer.py AutoMoT/keyframe_filter/collector.py AutoMoT/keyframe_filter/frame_annotation_logic.py AutoMoT/keyframe_filter/quick_start.py AutoMoT/keyframe_filter/qwen_road_event_probe.py AutoMoT/keyframe_filter/web_app.py AutoMoT/keyframe_filter/README.md AutoMoT/keyframe_filter/middle_event_flowchart.html AutoMoT/keyframe_filter/rgb_fallback_analysis.html AutoMoT/keyframe_filter/ROAD_EVENT_CANDIDATE_MAPPING.md AutoMoT/keyframe_filter/ROAD_STRUCTURE_MAP_XML_LABELING_PLAN.md AutoMoT/keyframe_filter/ROAD_STRUCTURE_PER_SCENARIO_LABELING_DESIGN.md AutoMoT/keyframe_filter/verification_tool/README.md AutoMoT/keyframe_filter/verification_tool/pyproject.toml AutoMoT/keyframe_filter/verification_tool/uv.lock AutoMoT/keyframe_filter/verification_tool/app/main.py AutoMoT/keyframe_filter/verification_tool/app/templates/index.html AutoMoT/keyframe_filter/verification_tool/app/static/styles.css AutoMoT/keyframe_filter/verification_tool/app/static/app.js
+git add AutoMoT/keyframe_filter/
 git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/mrope_utils.py AutoMoT/qwen3vl_local/prompt_pipeline.py AutoMoT/qwen3vl_local/run_log.py AutoMoT/qwen3vl_local/tb_serve.sh
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
@@ -312,7 +346,7 @@ git status
 
 如果 status 里出现白名单外改动，停下来问用户。
 
-`AutoMoT/keyframe_filter/keyframes_all_scenarios.json` 属于旧 keyframe 工具产物，只有用户明确要求重生成/修正时才精确 add；不要和仓库根目录或 `AutoMoT/lead_data` 下的只读参考 JSON 混淆。
+`AutoMoT/keyframe_filter/` 是递归整目录白名单，目录下所有现有与未来新增文件都可精确 add；不要和仓库根目录或 `AutoMoT/lead_data` 下的只读参考 JSON 混淆。
 
 push 前也问用户，不要替用户决定是否 push 到 main。
 
@@ -320,6 +354,7 @@ push 前也问用户，不要替用户决定是否 push 到 main。
 
 - 在 `CLAUDE.md` 的默认追踪文件列表里添加同一个文件。
 - 在本文件的文件修改范围 / git 规则里添加同一个文件。
+- 若新增文件位于 `AutoMoT/keyframe_filter/` 下，无需逐文件更新白名单，该目录已递归覆盖。
 - commit message 注明"按用户同意新增 XXX"。
 
 当修改 AI 规则文档时：
@@ -393,4 +428,3 @@ GPU 运行入口统一规则：
 - 代码注释可以用简体中文，变量名/函数名保持英文。
 - 不要把大段源码复制到文档里；文档写结论、边界、源码锚点。
 - 如果发现 `PROJECT_CONTEXT.md` 与源码不一致，核对后同步修正文档。
-

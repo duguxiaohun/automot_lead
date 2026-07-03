@@ -1,0 +1,111 @@
+{
+  "available": true,
+  "run_dir": "/home/codon/automot_lead/AutoMoT/lead_data/DynamicObjectCrossing/Town13_Rep0_40_0_route0_01_10_11_54_13",
+  "meta_count": 152,
+  "sampled_frame_ids": [
+    "0000",
+    "0076",
+    "0151"
+  ],
+  "traffic_light_values": {
+    "Red": 2,
+    "None": 1
+  },
+  "active_scenario_values": {
+    "DynamicObjectCrossing": 2,
+    "None": 1
+  },
+  "has_ego_trace": true,
+  "sampled_frames": [
+    {
+      "frame_id": "0000",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/DynamicObjectCrossing/Town13_Rep0_40_0_route0_01_10_11_54_13/metas/0000.pkl",
+      "pos_global": "[6949.064453125, 2582.870361328125, 167.0406036376953]",
+      "theta": -2.0514,
+      "speed": 0.0001,
+      "traffic_light_state": "Red",
+      "light_hazard": true,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 22.1727,
+      "distance_to_next_junction": 22.1727,
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 3.25,
+      "lane_type_str": "Driving",
+      "lane_change_str": "Right",
+      "current_active_scenario_type": "DynamicObjectCrossing",
+      "ego_xy": [
+        6949.0645,
+        2582.8704
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 22.1727,
+        "dist_to_junction": 22.1727
+      }
+    },
+    {
+      "frame_id": "0076",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/DynamicObjectCrossing/Town13_Rep0_40_0_route0_01_10_11_54_13/metas/0076.pkl",
+      "pos_global": "[6927.59033203125, 2560.00048828125, 166.99008178710938]",
+      "theta": -3.2767,
+      "speed": 8.1945,
+      "traffic_light_state": "None",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": true,
+      "is_intersection": true,
+      "junction_id": 7210,
+      "dist_to_junction": 0.0,
+      "distance_to_next_junction": 0.0,
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 3.1131,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "DynamicObjectCrossing",
+      "ego_xy": [
+        6927.5903,
+        2560.0005
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 0.0,
+        "dist_to_junction": 0.0
+      }
+    },
+    {
+      "frame_id": "0151",
+      "path": "/home/codon/automot_lead/AutoMoT/lead_data/DynamicObjectCrossing/Town13_Rep0_40_0_route0_01_10_11_54_13/metas/0151.pkl",
+      "pos_global": "[6781.23876953125, 2560.64892578125, 165.6633758544922]",
+      "theta": -3.14,
+      "speed": 7.8173,
+      "traffic_light_state": "Red",
+      "light_hazard": false,
+      "stop_sign_close": false,
+      "stop_sign_hazard": false,
+      "is_junction": false,
+      "is_intersection": false,
+      "junction_id": -1,
+      "dist_to_junction": 28.7293,
+      "distance_to_next_junction": 28.7293,
+      "lane_id": 1,
+      "ego_lane_id": 1,
+      "ego_lane_width": 3.0,
+      "lane_type_str": "Driving",
+      "lane_change_str": "NONE",
+      "current_active_scenario_type": "None",
+      "ego_xy": [
+        6781.2388,
+        2560.6489
+      ],
+      "finite_dist_to": {
+        "distance_to_next_junction": 28.7293,
+        "dist_to_junction": 28.7293
+      }
+    }
+  ]
+}

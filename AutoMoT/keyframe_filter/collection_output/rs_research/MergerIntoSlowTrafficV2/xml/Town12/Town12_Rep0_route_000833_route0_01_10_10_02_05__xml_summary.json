@@ -1,0 +1,101 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/MergerIntoSlowTrafficV2/Town12_route_000833.xml",
+  "route_id": "route_000833",
+  "town": "Town12",
+  "waypoint_count": 25,
+  "route_length_m": 145.86,
+  "route_heading_change_deg": 0.0,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "end_actor_flow",
+    "flow_speed",
+    "source_dist_interval",
+    "start_actor_flow",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      1032.2,
+      3099.4
+    ]
+  ],
+  "first_waypoint": [
+    1031.2,
+    3099.4
+  ],
+  "last_waypoint": [
+    1177.0,
+    3102.7
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        1032.2,
+        3099.4
+      ],
+      "trigger_yaw": -0.1,
+      "start_actor_flow": {
+        "x": 1013.3,
+        "y": 3135.6,
+        "z": 363.8
+      },
+      "end_actor_flow": {
+        "x": 1171.0,
+        "y": 3102.7,
+        "z": 365.5
+      },
+      "flow_speed": 10.0,
+      "source_dist_interval": {
+        "from": 11.0,
+        "to": 33.0
+      }
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "370",
+        "distance_m": 1388.34,
+        "is_junction_road": true,
+        "point": [
+          1032.2,
+          3099.4
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 1388.34,
+        "is_junction_road": true,
+        "point": [
+          1031.2,
+          3099.4
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 1391.54,
+        "is_junction_road": true,
+        "point": [
+          1153.0,
+          3102.7
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 1391.52,
+        "is_junction_road": true,
+        "point": [
+          1177.0,
+          3102.7
+        ]
+      }
+    ],
+    "nearest_signal_m": 1865.35,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

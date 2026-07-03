@@ -1,0 +1,66 @@
+{
+  "Town03": {
+    "run_count": 3,
+    "readable_run_count": 3,
+    "sampled_run_ids": [
+      "Town03_Rep0_route_000924_route0_01_11_02_27_49",
+      "Town03_Rep0_route_000925_route0_01_09_16_26_51",
+      "Town03_Rep0_route_000927_route0_01_09_07_01_13"
+    ]
+  },
+  "Town04": {
+    "run_count": 5,
+    "readable_run_count": 5,
+    "sampled_run_ids": [
+      "Town04_Rep0_route_000930_route0_01_10_01_26_01",
+      "Town04_Rep0_route_000931_route0_01_10_04_18_32",
+      "Town04_Rep0_route_000932_route0_01_09_23_24_00",
+      "Town04_Rep0_route_000933_route0_01_10_12_55_09",
+      "Town04_Rep0_route_000935_route0_01_10_17_02_05"
+    ]
+  },
+  "Town05": {
+    "run_count": 7,
+    "readable_run_count": 7,
+    "sampled_run_ids": [
+      "Town05_Rep0_route_000845_route0_01_10_00_42_03",
+      "Town05_Rep0_route_000847_route0_01_11_13_21_56",
+      "Town05_Rep0_route_000851_route0_01_08_14_37_53",
+      "Town05_Rep0_route_000855_route0_01_09_09_27_10",
+      "Town05_Rep0_route_000857_route0_01_09_11_46_11"
+    ]
+  },
+  "Town07": {
+    "run_count": 12,
+    "readable_run_count": 12,
+    "sampled_run_ids": [
+      "Town07_Rep0_route_000907_route0_01_08_18_53_01",
+      "Town07_Rep0_route_000912_route0_01_09_17_07_45",
+      "Town07_Rep0_route_000915_route0_01_09_18_08_49",
+      "Town07_Rep0_route_000917_route0_01_09_16_36_17",
+      "Town07_Rep0_route_000921_route0_01_08_17_19_42"
+    ]
+  },
+  "Town12": {
+    "run_count": 80,
+    "readable_run_count": 78,
+    "sampled_run_ids": [
+      "Town12_Rep0_1105_0_route0_01_08_04_47_40",
+      "Town12_Rep0_1815_0_route0_01_10_10_50_57",
+      "Town12_Rep0_3415_0_route0_01_09_15_49_39",
+      "Town12_Rep0_route_000879_route0_01_10_00_59_52",
+      "Town12_Rep0_route_000905_route0_01_08_04_13_07"
+    ]
+  },
+  "Town13": {
+    "run_count": 53,
+    "readable_run_count": 53,
+    "sampled_run_ids": [
+      "Town13_Rep0_1140_0_route0_01_08_20_32_50",
+      "Town13_Rep0_1201_1_route0_01_09_04_56_18",
+      "Town13_Rep0_1429_0_route0_01_10_00_18_34",
+      "Town13_Rep0_1633_0_route0_01_08_19_23_46",
+      "Town13_Rep0_route_000954_route0_01_10_02_57_17"
+    ]
+  }
+}

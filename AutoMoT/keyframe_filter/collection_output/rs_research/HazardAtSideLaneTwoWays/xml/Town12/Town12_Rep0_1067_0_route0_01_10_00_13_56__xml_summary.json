@@ -1,0 +1,90 @@
+{
+  "xml": "/home/codon/automot_lead/AutoMoT/data/lead/HazardAtSideLaneTwoWays/Town12_route_1067_0.xml",
+  "route_id": "20",
+  "town": "Town12",
+  "waypoint_count": 3,
+  "route_length_m": 247.64,
+  "route_heading_change_deg": 11.46,
+  "scenario_tag_count": 1,
+  "tag_keys": [
+    "bicycle_drive_distance",
+    "bicycle_speed",
+    "distance",
+    "frequency",
+    "trigger_point",
+    "trigger_yaw"
+  ],
+  "trigger_points": [
+    [
+      -201.5,
+      4619.5
+    ]
+  ],
+  "first_waypoint": [
+    -177.1,
+    4592.7
+  ],
+  "last_waypoint": [
+    -422.0,
+    4620.0
+  ],
+  "sampled_scenario_tags": [
+    {
+      "trigger_point": [
+        -201.5,
+        4619.5
+      ],
+      "trigger_yaw": 179.9,
+      "distance": 70.0,
+      "frequency": 90.0,
+      "bicycle_drive_distance": 70.0,
+      "bicycle_speed": 10.0
+    }
+  ],
+  "xodr_spatial_probe": {
+    "available": true,
+    "probe_points": 4,
+    "nearest_roads": [
+      {
+        "road_id": "370",
+        "distance_m": 2942.16,
+        "is_junction_road": true,
+        "point": [
+          -201.5,
+          4619.5
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 2912.6,
+        "is_junction_road": true,
+        "point": [
+          -177.1,
+          4592.7
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 2957.14,
+        "is_junction_road": true,
+        "point": [
+          -309.6,
+          4619.8
+        ]
+      },
+      {
+        "road_id": "370",
+        "distance_m": 2975.29,
+        "is_junction_road": true,
+        "point": [
+          -422.0,
+          4620.0
+        ]
+      }
+    ],
+    "nearest_signal_m": 3318.01,
+    "near_junction_road_points": 0,
+    "has_near_signal_60m": false,
+    "has_near_junction_road": false
+  }
+}

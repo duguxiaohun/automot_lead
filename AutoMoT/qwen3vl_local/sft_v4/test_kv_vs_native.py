@@ -93,7 +93,7 @@ def main() -> None:
     gt_rs = get_road_structure(GT_SCENE)
     mem = Memory(road_structure=gt_rs, scene=GT_SCENE, status="initial",
                  subgoal="flow_approach", ego_to_goal_x=78.6, ego_to_goal_y=-86.4)
-    messages = _build_messages_with_images(system_prompt=get_step_system_prompt("STEP1"), 
+    messages = _build_messages_with_images(system_prompt=get_step_system_prompt("STEP1"),
         user_text=build_step1_teacher_prompt(mem, gt_rs), images=images
     )
 

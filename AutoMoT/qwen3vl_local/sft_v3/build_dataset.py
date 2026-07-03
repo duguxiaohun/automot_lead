@@ -60,6 +60,7 @@ from qwen3vl_local.sft.build_dataset import (  # noqa: E402
     RGB_FRAME_COUNT,
     RGB_FRAME_STEP,
 )
+from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
 
 # ────────────────────────────────────────────────────
 # δ 计算
@@ -322,6 +323,10 @@ def main() -> None:
         if ep is None:
             skip_reasons["filtered"] += 1
             continue
+        should_exclude, _abnormal_info = is_abnormal_lead_route(pathlib.Path(ep["run_dir"]), ep["scenario"])
+        if should_exclude:
+            skip_reasons["abnormal_duration_over_90s"] += 1
+            continue
         # 过滤训练窗口过短的 episode
         frame_len = ep["frame_range"][1] - ep["frame_range"][0] + 1
         if frame_len < args.min_episode_length:
@@ -369,6 +374,7 @@ def main() -> None:
         "val": len(val_eps),
         "by_scenario": dict(counters),
         "skip_reasons": dict(skip_reasons),
+        "abnormal_duration_rule": "exclude duration_s > 90 unless scenario is BlockedIntersection or ControlLoss",
         "delta_cap": DELTA_CAP,
         "rgb_frame_count": RGB_FRAME_COUNT,
     }
