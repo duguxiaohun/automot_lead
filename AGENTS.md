@@ -181,8 +181,9 @@
   meta 距离字段、speed/accel/brake，并 fallback 到 bbox / RGB motion；只作为突发事件 span
   提议器和验证工具参考，不再视为最终帧级 STATUS/SUBGOAL 真值。`classifier_logic.txt`
   是用户人工调研的道路结构与事件分类草案；`ROAD_EVENT_CLASSIFICATION_PLAN.md`
-  是新方案总结。**按用户同意扩展为递归整目录白名单**：`AutoMoT/keyframe_filter/`
-  下代码、方案文档、规则配置和手写说明允许修改、追踪、commit 和 push；
+  是新方案总结。**按用户同意扩展为目录白名单，但明确排除输出产物**：
+  `AutoMoT/keyframe_filter/` 下代码、方案文档、规则配置和手写说明允许修改、追踪、
+  commit 和 push；
   但 `AutoMoT/keyframe_filter/collection_output/` 是本地自动调研输出目录，只保存
   maps/RGB/meta/XML/XODR 证据链和中间产物，默认不入库、不 push；需要共享时应先整理为
   方案文档或小型规则配置。push 前可精确执行 `git add AutoMoT/keyframe_filter/`，
@@ -287,7 +288,9 @@
 - `AutoMoT/` 中除上述白名单外的源码、配置、权重、数据
 - `0026.json`
 - 仓库根目录或 `AutoMoT/lead_data` 下的 `keyframes_all_scenarios.json` 数据参考文件
-  （`AutoMoT/keyframe_filter/` 下的同名文件属于该目录递归白名单，不按这里的只读参考文件处理）
+- `AutoMoT/keyframe_filter/collection_output/`
+  （本地自动调研输出目录，已从白名单移除；不入库、不 push，保留在本机即可）
+  （`AutoMoT/keyframe_filter/` 下的同名文件属于该目录白名单，不按这里的只读参考文件处理）
 
 如果确实需要改白名单外文件，先在对话里说明原因并等待用户确认。
 
@@ -317,6 +320,7 @@
 - `git add 0026.json`
 - `git add keyframes_all_scenarios.json`
 - `git add AutoMoT/lead_data/keyframes_all_scenarios.json`
+- `git add AutoMoT/keyframe_filter/collection_output`
 
 只精确 add 白名单文件。例如：
 
@@ -328,7 +332,7 @@ git add AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py
 git add AutoMoT/leaderboard/team_code/automot_utils.py AutoMoT/Automot/team_code/automot_utils.py AutoMoT/Automot/mot/evaluation/inference.py AutoMoT/Automot/mot/modeling/automot/automot.py AutoMoT/leaderboard/team_code/mot_b2d_agent.py AutoMoT/leaderboard/team_code/display_interface.py AutoMoT/Automot/team_code/display_interface.py
 git add AutoMoT/qwen3vl_local/eval_carla/__init__.py AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_PLAN.md AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md AutoMoT/qwen3vl_local/eval_carla/agent.py AutoMoT/qwen3vl_local/eval_carla/safety.py AutoMoT/qwen3vl_local/eval_carla/video_recorder.py AutoMoT/qwen3vl_local/eval_carla/visualizer.py AutoMoT/qwen3vl_local/eval_carla/scenario_picker.py AutoMoT/qwen3vl_local/eval_carla/aggregate.py AutoMoT/qwen3vl_local/eval_carla/run_eval.sh AutoMoT/qwen3vl_local/eval_carla/webapp/__init__.py AutoMoT/qwen3vl_local/eval_carla/webapp/app.py AutoMoT/qwen3vl_local/eval_carla/webapp/templates/index.html AutoMoT/qwen3vl_local/eval_carla/webapp/static/style.css
 git add AutoMoT/lead_video_tools/__init__.py AutoMoT/lead_video_tools/abnormal_duration_filter.py AutoMoT/lead_video_tools/rgb_to_video.py AutoMoT/lead_video_tools/LEAD_VIDEO_RUN.md
-git add AutoMoT/keyframe_filter/
+git add AutoMoT/keyframe_filter/  # 依赖 AutoMoT/keyframe_filter/.gitignore，禁止单独 add collection_output/
 git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/mrope_utils.py AutoMoT/qwen3vl_local/prompt_pipeline.py AutoMoT/qwen3vl_local/run_log.py AutoMoT/qwen3vl_local/tb_serve.sh
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
@@ -349,7 +353,9 @@ git status
 
 如果 status 里出现白名单外改动，停下来问用户。
 
-`AutoMoT/keyframe_filter/` 是递归整目录白名单，目录下所有现有与未来新增文件都可精确 add；不要和仓库根目录或 `AutoMoT/lead_data` 下的只读参考 JSON 混淆。
+`AutoMoT/keyframe_filter/` 是目录白名单，但 `AutoMoT/keyframe_filter/collection_output/`
+已明确移出白名单；目录下代码、方案文档、规则配置和手写说明可精确 add，自动调研输出
+只能留本地。不要和仓库根目录或 `AutoMoT/lead_data` 下的只读参考 JSON 混淆。
 
 push 前也问用户，不要替用户决定是否 push 到 main。
 
@@ -357,7 +363,7 @@ push 前也问用户，不要替用户决定是否 push 到 main。
 
 - 在 `CLAUDE.md` 的默认追踪文件列表里添加同一个文件。
 - 在本文件的文件修改范围 / git 规则里添加同一个文件。
-- 若新增文件位于 `AutoMoT/keyframe_filter/` 下，无需逐文件更新白名单，该目录已递归覆盖。
+- 若新增文件位于 `AutoMoT/keyframe_filter/` 下且不在 `collection_output/` 内，无需逐文件更新白名单。
 - commit message 注明"按用户同意新增 XXX"。
 
 当修改 AI 规则文档时：
