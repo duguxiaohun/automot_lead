@@ -59,7 +59,11 @@ python keyframe_filter/quick_start.py
 `xodr_topology_trusted=true` 并允许 R2/R3/R6 使用 topology high 证据；超过该误差时只保留
 `xodr_topology_untrusted` 诊断，特殊 RS 会降为 medium/low + review。
 
-非交互生成逐帧标注：
+菜单里的 1/2/3/4 都是正式“采集 + 逐帧 RS 标注”入口：每帧都会同时写
+`road_structures` 候选全集与该帧独属的 `primary_road_structure` /
+`frame_rs_annotation.label`。第 9 项只作为小范围 smoke / 参数闭环调试入口保留。
+
+非交互生成逐帧标注（等价于走采集器的逐帧标注链路）：
 
 ```bash
 python keyframe_filter/quick_start.py annotate-rs \
@@ -107,6 +111,12 @@ python keyframe_filter/quick_start.py annotate-rs \
   }
 }
 ```
+
+Web 可视化页面也按这个口径展示：顶部绿色标签是
+`frame_rs_annotation.label` / `primary_road_structure`，置信度对应这个“本帧最终 RS
+标签”，不是候选全集的置信度；候选全集单独显示为“该场景全部候选 RS”。页面下方的证据归因
+会同时列出 XML/route 进度、LEAD meta 动态字段和 XODR topology 摘要，用来判断该帧标注
+到底由哪类证据触发、是否需要人工复核。
 
 调参时可传入规则覆盖文件，不需要直接改代码：
 
@@ -200,11 +210,17 @@ XML/XODR/meta frame features，最后才看阈值和运行时代码。这样用�
 LEAD_DATA_ROOT=/path/to/lead_data python keyframe_filter/quick_start.py
 ```
 
-可选输出目录：
+Web 视频目录和输出目录也可覆盖：
 
 ```bash
-KEYFRAME_COLLECTION_OUTPUT=/path/to/output python keyframe_filter/quick_start.py
+LEAD_VIDEO_ROOT=/path/to/lead_video \
+KEYFRAME_COLLECTION_OUTPUT=/path/to/output \
+python keyframe_filter/quick_start.py
 ```
+
+启动 Web 后，页面右侧会分三块展示：本帧最终 RS 标注、该 scenario 的候选 RS 全集、
+以及 XML / LEAD meta / XODR 证据归因。绿色主标签才是当前 frame 的最终
+`frame_rs_annotation.label`；候选全集不是标注结果。
 
 ---
 
@@ -212,10 +228,10 @@ KEYFRAME_COLLECTION_OUTPUT=/path/to/output python keyframe_filter/quick_start.py
 
 采集模式：
 
-1. 单场景全部采集
-2. 单场景指定数采集
-3. 多场景采集
-4. 全部采集
+1. 单场景全部采集 + 逐帧 RS 标注
+2. 单场景指定数采集 + 逐帧 RS 标注
+3. 多场景采集 + 逐帧 RS 标注
+4. 全部采集 + 逐帧 RS 标注
 
 其他功能：
 
@@ -223,7 +239,7 @@ KEYFRAME_COLLECTION_OUTPUT=/path/to/output python keyframe_filter/quick_start.py
 6. 启动 Web 应用
 7. 显示所有场景
 8. ROAD_STRUCTURE XML/XODR 画像
-9. 逐帧RS标注生成
+9. 逐帧 RS 标注 smoke / 参数闭环调试入口
 10. 退出
 
 `ROAD_STRUCTURE XML/XODR 画像` 会逐 scenario 遍历所有 town，每个 town 默认抽 5 个 XML，
@@ -415,6 +431,8 @@ meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；后�
 | XML 匹配不到 | 先按 `(scenario,town,route_key)` 确认 `data/lead`，再按 `(town,route_key)` 全局查 `data_routes`；只有两边都没有有效 XML 时才设 `xml_available=false` 并降级 |
 | 没有 carla Python API | XODR 查询自动降级到静态 planView/lane/signal 近邻；若 `xodr_topology_untrusted` 很多，优先检查 XODR 坐标系/地图路径 |
 | Web 看不到结果 | 确认 `collection_output/*_result.json` 已生成 |
+| Web 只有候选没有本帧标签 | 重新打开新版 `web_app.py`；绿色“本帧最终标签”来自 `frame_rs_annotation.label`，置信度对应这个标签 |
+| Web XODR 显示 `trusted=false` | 说明静态 XODR 投影或局部拓扑不足以 high confidence；优先用 CARLA Python 环境重跑并对比 review 是否下降 |
 
 ---
 

@@ -559,6 +559,30 @@ XODR 只证明拓扑可能性，不提供实时灯色；实时灯色只用 meta 
 4Hz 下 `rgb/*.jpg >= 361` 且不在 `BlockedIntersection` / `ControlLoss` 白名单内的 run
 都视为异常采集。代码统一复用 `lead_video_tools.abnormal_duration_filter.is_abnormal_lead_route`。
 
+### 9.1.1 帧级标注输出与页面验收口径
+
+当前可执行标注 JSON 必须同时保留“候选全集”和“本帧结果”，两者不能混用：
+
+- `road_structures`：该 scenario 允许的 ROAD_STRUCTURE 候选全集，用于约束搜索空间和兼容旧工具。
+- `primary_road_structure`：当前 frame 的单选主 RS 标签。
+- `secondary_road_structures`：当前 frame 的次要 RS，用于 R2/R6、R4/R3 等冲突或共存结构。
+- `frame_rs_annotation`：当前 frame 的可解释标注块，至少包含
+  `label/secondary/confidence/comment/rule_kind/rules_fired/decision_source/review_required/review_reasons/metrics/xodr_summary`。
+
+`confidence` 的语义固定为“本帧 `primary_road_structure` / `frame_rs_annotation.label` 的置信度”，
+不是 `road_structures` 候选全集的置信度。页面、probe、人工复核表和后续训练数据都必须按这个口径读取。
+
+Web 验收页面必须展示三层信息：
+
+- 本帧最终标签：绿色主标签读取 `frame_rs_annotation.label`，旁边展示 secondary、confidence、comment 和 review 原因。
+- 场景候选全集：单独展示 `road_structures`，只说明该 scenario 可选哪些 RS。
+- 证据归因：展示 XML/route 投影、trigger 距离、LEAD meta 灯态/active scenario、XODR
+  source/trusted/road/lane/junction/opposite/parking/merge 等摘要。若 XODR 不可信、XML 投影误差过大或证据冲突，
+  必须在 review 状态里能看出原因。
+
+这也是后续“代码 → 小样本可视化 → 查错帧 → 修正规则/阈值 → 再跑 smoke”的闭环入口；
+不能只看候选 RS 分布或平均置信度来判断规则正确。
+
 ### 9.2 调研包完成标准
 
 每个 scenario 都必须先有独立调研包，默认输出：
