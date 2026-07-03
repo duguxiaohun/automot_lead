@@ -926,6 +926,26 @@ def _nearest_trigger_distance(ego_xy: Optional[Tuple[float, float]], info: Optio
     return min(distances) if distances else math.inf
 
 
+def _actor_flow_distance(ego_xy: Optional[Tuple[float, float]], info: Optional[RouteXmlInfo]) -> float:
+    """返回 ego 到 XML actor-flow 线段的最近距离，用于 merge 结构兜底。"""
+    if ego_xy is None or info is None:
+        return math.inf
+    best = math.inf
+    for tag in info.scenario_tags:
+        start = tag.get("start_actor_flow")
+        end = tag.get("end_actor_flow")
+        if not isinstance(start, dict) or not isinstance(end, dict):
+            continue
+        sx = _safe_float(start.get("x"))
+        sy = _safe_float(start.get("y"))
+        ex = _safe_float(end.get("x"))
+        ey = _safe_float(end.get("y"))
+        if not all(math.isfinite(v) for v in (sx, sy, ex, ey)):
+            continue
+        best = min(best, _distance_point_to_segment(ego_xy, (sx, sy), (ex, ey)))
+    return best
+
+
 def _route_trigger_window(route_s: float, trigger_s: float, pre_m: float, post_m: float) -> bool:
     if not math.isfinite(route_s) or not math.isfinite(trigger_s):
         return False
@@ -1034,8 +1054,8 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
     "EnterActorFlowV2": {"kind": "highway_merge", "merge_pre_m": 30, "merge_post_m": 40, "trigger_close_m": 90},
     "HighwayCutIn": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 40, "trigger_close_m": 90},
     "HighwayExit": {"kind": "highway_merge", "merge_pre_m": 50, "merge_post_m": 50, "trigger_close_m": 90},
-    "MergerIntoSlowTraffic": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True},
-    "MergerIntoSlowTrafficV2": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True},
+    "MergerIntoSlowTraffic": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True, "actor_flow_near_m": 45},
+    "MergerIntoSlowTrafficV2": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True, "actor_flow_near_m": 45},
     "InterurbanActorFlow": {"kind": "interurban", "merge_pre_m": 50, "merge_post_m": 45, "junction_pre_m": 55, "junction_post_m": 25},
     "InterurbanAdvancedActorFlow": {"kind": "interurban_advanced", "junction_pre_m": 55, "junction_post_m": 25, "r3_requires_topology": True},
     # 停车/路边占道。
@@ -1316,6 +1336,8 @@ class RoadStructureRuleEngine:
         scenario_active = scenario_name in active or active in {scenario_name, scenario_name.replace("V2", "")}
         trigger_close_m = float(cfg.get("trigger_close_m", 70.0))
         close_trigger = trigger_distance < trigger_close_m
+        actor_flow_distance = _actor_flow_distance(ego_xy, xml_info)
+        actor_flow_near = actor_flow_distance < float(cfg.get("actor_flow_near_m", 0.0))
         xodr_trusted = bool(xodr.get("xodr_topology_trusted", xodr.get("xodr_available", False)))
         xodr_source = str(xodr.get("xodr_source", ""))
         static_topology_only = xodr_source == "static_xodr"
@@ -1481,6 +1503,11 @@ class RoadStructureRuleEngine:
             if kind == "invading_turn":
                 rules.append("r2_passive_invading_turn")
         elif kind == "highway_merge":
+            merge_xml_fallback = bool(cfg.get("keep_r3_when_slow")) and (
+                actor_flow_near
+                or close_trigger
+                or scenario_active
+            )
             merge_window = (
                 _route_trigger_window(
                     route_s_for_window,
@@ -1490,10 +1517,14 @@ class RoadStructureRuleEngine:
                 )
                 or close_trigger_for_structure
                 or scenario_active_for_structure
+                or actor_flow_near
             )
             if merge_window and RoadStructure.R3 in allowed:
                 if ramp_hint:
                     r3_score = 0.88
+                elif merge_xml_fallback:
+                    r3_score = 0.84 if (actor_flow_near or close_trigger) else 0.80
+                    rules.append("r3_merger_actor_flow_or_trigger_fallback")
                 elif xodr.get("xodr_available"):
                     r3_score = 0.50
                     self._add(scores, RoadStructure.R1, 0.80)
@@ -1722,6 +1753,7 @@ class RoadStructureRuleEngine:
             "route_progress_m": route_s if math.isfinite(route_s) else None,
             "route_projection_error_m": route_error if math.isfinite(route_error) else None,
             "trigger_distance_m": trigger_distance if math.isfinite(trigger_distance) else None,
+            "actor_flow_distance_m": actor_flow_distance if math.isfinite(actor_flow_distance) else None,
             "traffic_light_state": str(tl) if tl is not None else None,
             "current_active_scenario_type": active or None,
             "strong_control_context": strong_control_context,
@@ -1981,6 +2013,7 @@ class ScenarioCollector:
                 "route_progress_m": evidence.get("route_progress_m"),
                 "route_projection_error_m": evidence.get("route_projection_error_m"),
                 "trigger_distance_m": evidence.get("trigger_distance_m"),
+                "actor_flow_distance_m": evidence.get("actor_flow_distance_m"),
                 "traffic_light_state": evidence.get("traffic_light_state"),
                 "active_scenario": evidence.get("current_active_scenario_type"),
             },

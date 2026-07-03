@@ -134,9 +134,12 @@ R1-R6 当前覆盖面足够，不需要继续细分。尤其 R1 可以明确作�
 - VehicleOpensDoorTwoWays
 - InvadingTurn
 
-### R3. 高速 / 匝道 / 合流 / 驶出道路
+### R3. 高速合流 / 匝道 / 分流 / 驶出决策结构
 
-定义：当前帧处于主辅路、匝道、合流、分流、驶出、高速切入等规则空间。
+定义：当前帧处于主辅路、匝道、合流、分流、驶出等会改变目标车道、
+速度匹配或主辅路关系的规则空间。物理 RGB 看起来像高速/快速路并不自动等于 R3；
+如果只是高速主路直行、跟车、普通同向 cut-in，且看不到 merge/split/ramp/exit
+或 lane-count-change 结构，主 ROAD_STRUCTURE 仍应回 R1，cut-in 等动态风险放到 EVENT。
 核心决策是速度匹配、侧后方间隙、目标车道和主路车流关系。
 
 典型场景：
@@ -398,7 +401,7 @@ HighwayCutIn 不属于 R-E3，因为它是他车切入自车路径，应由 U-E3
 |---|---|---|
 | R1 常规道路 / 同向可行驶道路 | R-E1, R-E2 | U-E1, U-E2, U-E3, U-E4 |
 | R2 双向单车道 / 借对向车道道路 | R-E1 | U-E2, U-E5 |
-| R3 高速 / 匝道 / 合流 / 驶出道路 | R-E1, R-E2, R-E3 | U-E3 |
+| R3 高速合流 / 匝道 / 分流 / 驶出决策结构 | R-E1, R-E2, R-E3 | U-E3 |
 | R4 信号灯路口 | R-E4 | U-E4, U-E6, U-E8 |
 | R5 无信号灯 / 信号灯失效路口 | R-E5 | U-E4, U-E7, U-E8 |
 | R6 路边停车 / 停车占道道路 | R-E1, R-E2 | U-E2, U-E3, U-E4 |
@@ -739,6 +742,9 @@ topology/meta confirmation window:
   或 RGB/bbox/动作主因证明对向参与。否则 primary R2 要 review，分数不超过 0.70。
 - R3：召回可用 Highway/Merger/EnterFlow prior + actor-flow window；确认必须有 merge/split/ramp、
   lane-count change 或目标出口车道证据。`xodr_available=true` 不等于 R3 topology。
+- `MergerIntoSlowTraffic*` 的 XML `start_actor_flow/end_actor_flow` 是合流慢车流证据；
+  当 RGB 显示明显 merge 口、而 route/XODR 投影误差导致 topology 不可信时，可用 actor-flow
+  距离、trigger 距离和 active scenario 作为 R3 fallback，并在 evidence 中保留投影误差 review。
 - R6：召回可用 Parking* prior + parking window；确认必须有 parking/shoulder/curbside、
   parking->Driving 转换或路边静态车列。普通 shoulder hint 不够。
 - R4/R5：召回可用 junction/trigger window；确认必须看灯态、light_hazard、stop/yield/controller

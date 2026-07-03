@@ -188,10 +188,17 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
   `scenario_obstacles_ids` 或 `signed_dist_to_lane_change` 核心证据。若缺可信 XODR opposite lane，
   核心帧可用 meta obstruction 保留 R2，但必须带 `special_rs_lacks_full_topology_confirmation` review。
   `HighwayCutIn` / `EnterActorFlow*` / `MergerIntoSlowTraffic*` 和 `ParkingCutIn` /
-  `StaticCutIn` / `VehicleOpensDoorTwoWays` 的全帧 RGB sheet 显示：很多帧只是高速直行、
-  普通 cut-in 或停车侧事件，并没有可见 merge/split/parking-space road structure。
+  `StaticCutIn` / `VehicleOpensDoorTwoWays` 的全帧 RGB sheet 显示：很多帧只是高速/快速路
+  直行、普通 cut-in 或停车侧事件，并没有可见 merge/split/parking-space road structure。
+  因此 R3 不能解释为“物理高速路标签”，而是“高速合流/匝道/分流/驶出等特殊决策结构”；
+  高速主路直行或普通同向 cut-in 应标 R1，动态风险由 EVENT 表达。
   缺 XODR/RGB topology confirmation 时，R3/R6/R2 现在只作为弱候选，分数低于稳定 R1，
   不再把 R1 置信压到低置信或触发大面积 `candidate_score_gap_lt_0.15`。
+  但 `MergerIntoSlowTraffic*` 复核显示另一个反向问题：明显 merge 口附近 XML route
+  横向误差会升高，静态 XODR 投影也可能失效；这时不能把失效 XODR 当成否定证据。
+  代码已加入 XML `start_actor_flow/end_actor_flow` 距离和 trigger fallback：
+  对 `MergerIntoSlowTraffic*`，若当前帧处于 actor-flow 线段附近、trigger 邻域或 active
+  merge 状态，即使 XODR topology 不可信，也可给 R3 高分并保留 review 原因。
   代码层面这些判断已拆成 `strong_control_context` 与 `twoway_obstruction_evidence` 两个证据字段，
   逐帧 review 时优先看这两个字段，再决定是阈值问题还是道路结构口径问题。
 - 2026-07-03 在用户指定目录 `collection_output/rs_full_frame_review/` 重新跑 43 个场景：
@@ -356,8 +363,8 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 ### HighwayCutIn
 
 - 候选 RS：R1, R3, R4。
-- 已确定口径：他车切入是 EVENT；只有道路本身处于高速/主辅路/匝道/合流拓扑时才 R3。
-- 分段逻辑：merge/ramp/highway topology 成立时 R3；普通多车道同向切入仍 R1；灯控路口 R4。
+- 已确定口径：他车切入是 EVENT；物理上像高速/快速路不等于 R3，只有道路本身处于主辅路、匝道、合流、分流或驶出拓扑时才 R3。
+- 分段逻辑：merge/ramp/split/exit 或 lane-count-change topology 成立时 R3；普通高速多车道同向切入仍 R1；灯控路口 R4。
 - 证据需求：XODR road/lane topology、XML actor flow、meta active scenario、RGB 车道线和侧向车流。
 - 待完善点：不能把所有 cut-in 都当 R3；R3 high 需要 topology，不是 action 名称。
 
@@ -397,9 +404,12 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 
 - 候选 RS：R1, R3, R4。
 - 已确定口径：慢车流合流是 R3，只要局部 merge/ramp 拓扑仍成立，低速不改变 RS。
-- 分段逻辑：merge/actor-flow 窗口 + topology 给 R3；合流完成回 R1；灯控路口 R4。
-- 证据需求：XML flow window、XODR merge/lane count、meta speed/active scenario、RGB 慢车流间隙。
-- 待完善点：不要把低速误归 R6 或 R5；低速只是事件/动作状态。
+- 分段逻辑：merge/actor-flow 窗口 + topology 给 R3；若 XODR/route 投影失效但 XML actor-flow
+  线段距离、trigger 距离或 active scenario 仍支持 merge，则走
+  `r3_merger_actor_flow_or_trigger_fallback` 给 R3 并保留 review；合流完成回 R1；灯控路口 R4。
+- 证据需求：XML flow window、`start_actor_flow/end_actor_flow`、XODR merge/lane count、meta speed/active scenario、RGB 慢车流间隙。
+- 待完善点：不要把低速误归 R6 或 R5；低速只是事件/动作状态。复核时优先看 RGB 与
+  `actor_flow_distance_m`，不要因为 `route_projection_error_high` 自动压回 R1。
 
 ### MergerIntoSlowTrafficV2
 
