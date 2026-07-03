@@ -9,6 +9,7 @@
 """
 
 import sys
+import argparse
 from pathlib import Path
 import socket
 import math
@@ -237,7 +238,8 @@ def print_main_menu():
   6️⃣  启动Web应用        - 交互式可视化查看
   7️⃣  显示所有场景       - 列出所有支持的场景
   8️⃣  ROAD_STRUCTURE XML/XODR画像 - 按场景/town审计XML与地图输入
-  9️⃣  退出
+  9️⃣  逐帧RS标注生成      - 按每场景规则生成可执行帧级标注
+  🔟  退出
     """)
     print("="*70)
 
@@ -607,6 +609,172 @@ def _print_primary_rs_summary(result: dict, prefix: str = "") -> None:
         return
     summary = ", ".join(f"{rs}={count}" for rs, count in sorted(counter.items()))
     print(f"{prefix}主 ROAD_STRUCTURE 分布: {summary} (total={total})")
+
+
+def _annotation_summary(result: dict) -> Dict[str, Any]:
+    """汇总逐帧 RS 标注结果，用于调参和 smoke test。"""
+    primary_counter = Counter()
+    review_counter = Counter()
+    xodr_counter = Counter()
+    rule_kind_counter = Counter()
+    route_count = 0
+    frame_count = 0
+    transition_count = 0
+    confidence_values = []
+    review_frame_count = 0
+    sample_comments = []
+
+    scenario_results = result.get("results", result)
+    if isinstance(scenario_results, dict) and "routes" in scenario_results:
+        scenario_results = {scenario_results.get("scenario", "UNKNOWN"): scenario_results}
+
+    for scenario, scenario_result in scenario_results.items():
+        for route in scenario_result.get("routes", []):
+            route_count += 1
+            transition_count += len(route.get("primary_rs_transitions", []))
+            for ann in route.get("annotations", []):
+                frame_count += 1
+                primary = ann.get("primary_road_structure")
+                if primary:
+                    primary_counter[primary] += 1
+                if ann.get("confidence") is not None:
+                    confidence_values.append(float(ann.get("confidence")))
+                evidence = ann.get("evidence", {})
+                if evidence.get("rule_kind"):
+                    rule_kind_counter[evidence["rule_kind"]] += 1
+                xodr_source = evidence.get("xodr", {}).get("xodr_source") or "unavailable"
+                xodr_counter[xodr_source] += 1
+                if evidence.get("review_required"):
+                    review_frame_count += 1
+                    for reason in evidence.get("review_reasons", ["review_required"]):
+                        review_counter[reason] += 1
+                if len(sample_comments) < 12 and ann.get("frame_rs_annotation"):
+                    sample_comments.append(
+                        {
+                            "scenario": scenario,
+                            "route_id": route.get("route_id"),
+                            "frame_id": ann.get("frame_id"),
+                            "label": ann.get("frame_rs_annotation", {}).get("label"),
+                            "review": ann.get("frame_rs_annotation", {}).get("review_required"),
+                            "comment": ann.get("frame_rs_annotation", {}).get("comment"),
+                        }
+                    )
+
+    confidence_stats = {"min": None, "avg": None, "max": None}
+    if confidence_values:
+        confidence_stats = {
+            "min": round(min(confidence_values), 4),
+            "avg": round(sum(confidence_values) / len(confidence_values), 4),
+            "max": round(max(confidence_values), 4),
+        }
+
+    return {
+        "route_count": route_count,
+        "frame_count": frame_count,
+        "primary_rs_distribution": dict(sorted(primary_counter.items())),
+        "review_reason_distribution": dict(sorted(review_counter.items())),
+        "xodr_source_distribution": dict(sorted(xodr_counter.items())),
+        "rule_kind_distribution": dict(sorted(rule_kind_counter.items())),
+        "confidence_stats": confidence_stats,
+        "review_required_frame_count": review_frame_count,
+        "review_required_ratio": round(review_frame_count / frame_count, 4) if frame_count else 0.0,
+        "transition_count": transition_count,
+        "sample_comments": sample_comments,
+    }
+
+
+def _print_annotation_summary(summary: Dict[str, Any]) -> None:
+    """打印逐帧标注摘要。"""
+    print("\n逐帧 RS 标注摘要:")
+    print(f"  routes={summary['route_count']} frames={summary['frame_count']} transitions={summary['transition_count']}")
+    print(f"  primary_rs={summary['primary_rs_distribution']}")
+    print(f"  rule_kind={summary['rule_kind_distribution']}")
+    print(f"  xodr_source={summary['xodr_source_distribution']}")
+    print(f"  confidence={summary['confidence_stats']} review_ratio={summary['review_required_ratio']}")
+    print(f"  review_reasons={summary['review_reason_distribution']}")
+    if summary["sample_comments"]:
+        print("  示例注释:")
+        for item in summary["sample_comments"][:5]:
+            print(f"    - {item['scenario']} / {item['route_id']} / frame {item['frame_id']}: {item['comment']}")
+
+
+def run_frame_rs_annotation(
+    scenarios: List[str],
+    max_routes_per_scenario: int = 1,
+    max_frames_per_route: Optional[int] = None,
+    lead_data_root: str = "",
+    output_dir: str = "",
+    xml_root: str = "",
+    carla_root: str = "",
+    rule_config_json: str = "",
+) -> Dict[str, Any]:
+    """按每个 scenario 独立规则生成逐帧 primary ROAD_STRUCTURE 标注。"""
+    collector = ScenarioCollector(
+        lead_data_root=lead_data_root,
+        output_dir=output_dir,
+        xml_root=xml_root,
+        carla_root=carla_root,
+        rule_config_json=rule_config_json,
+    )
+    if len(scenarios) == 1:
+        result = collector.collect_one_scenario(
+            scenarios[0],
+            max_routes=max_routes_per_scenario,
+            max_frames_per_route=max_frames_per_route,
+        )
+    else:
+        result = collector.collect_multiple_scenarios(
+            scenarios,
+            max_routes_per_scenario=max_routes_per_scenario,
+            max_frames_per_route=max_frames_per_route,
+        )
+    summary = _annotation_summary(result)
+    summary_file = collector.output_dir / "frame_rs_annotation_summary.json"
+    with open(summary_file, "w", encoding="utf-8") as handle:
+        json.dump(summary, handle, ensure_ascii=False, indent=2, default=str)
+    _print_annotation_summary(summary)
+    print(f"\n✓ 标注结果写入: {collector.output_dir}")
+    print(f"✓ 标注摘要写入: {summary_file}")
+    return {"result": result, "summary": summary, "summary_file": str(summary_file)}
+
+
+def run_frame_rs_annotation_ui():
+    """交互式逐帧 RS 标注入口。"""
+    print("\n" + "="*70)
+    print("逐帧 ROAD_STRUCTURE 标注生成".center(70))
+    print("="*70)
+    scenario_text = input("场景名，逗号分隔；输入 all 跑全部 (默认 noScenarios): ").strip() or "noScenarios"
+    if scenario_text.lower() == "all":
+        scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
+    else:
+        scenarios = [item.strip() for item in scenario_text.split(",") if item.strip()]
+    invalid = [scenario for scenario in scenarios if scenario not in SCENARIO_TO_ROAD_STRUCTURE]
+    if invalid:
+        print(f"❌ 未知场景: {invalid}")
+        return
+    try:
+        max_routes = int(input("每个场景最多 route 数 (默认1): ") or "1")
+    except Exception:
+        max_routes = 1
+    try:
+        max_frames = int(input("每条 route 最多帧数，0 表示全部 (默认0): ") or "0")
+    except Exception:
+        max_frames = 0
+    lead_root = input(f"LEAD数据根目录 (默认 {_DEFAULT_LEAD_DATA_ROOT}): ").strip()
+    output_dir = input("输出目录 (默认 keyframe_filter/collection_output): ").strip()
+    xml_root = input(f"XML根目录 (默认 {_DEFAULT_XML_ROOT}): ").strip()
+    carla_root = input(f"CARLA/XODR根目录 (默认 {_DEFAULT_CARLA_ROOT}): ").strip()
+    rule_config = input("规则阈值覆盖 JSON (可空): ").strip()
+    run_frame_rs_annotation(
+        scenarios=scenarios,
+        max_routes_per_scenario=max(1, max_routes),
+        max_frames_per_route=max_frames or None,
+        lead_data_root=lead_root,
+        output_dir=output_dir,
+        xml_root=xml_root,
+        carla_root=carla_root,
+        rule_config_json=rule_config,
+    )
 
 
 def _find_xodr_file(town: str, carla_root: Path = _DEFAULT_CARLA_ROOT) -> Optional[Path]:
@@ -1433,7 +1601,7 @@ def main():
     """主程序"""
     while True:
         print_main_menu()
-        choice = input("请选择 (1-9): ").strip()
+        choice = input("请选择 (1-10): ").strip()
 
         if choice == '1':
             collect_one_scenario_all_ui()
@@ -1452,6 +1620,8 @@ def main():
         elif choice == '8':
             road_structure_xml_xodr_audit_ui()
         elif choice == '9':
+            run_frame_rs_annotation_ui()
+        elif choice == '10':
             print("\n👋 再见！\n")
             break
         else:
@@ -1461,9 +1631,50 @@ def main():
             input("\n按 Enter 继续...")
 
 
+def _run_cli(argv: List[str]) -> bool:
+    """非交互命令入口；返回 True 表示已处理。"""
+    if not argv:
+        return False
+    parser = argparse.ArgumentParser(description="LEAD keyframe ROAD_STRUCTURE tools")
+    subparsers = parser.add_subparsers(dest="command")
+
+    annotate = subparsers.add_parser("annotate-rs", help="按每场景规则生成逐帧 RS 标注")
+    annotate.add_argument("--scenario", default="noScenarios", help="场景名、逗号分隔，或 all")
+    annotate.add_argument("--max-routes", type=int, default=1, help="每个场景最多处理 route 数")
+    annotate.add_argument("--max-frames-per-route", type=int, default=0, help="每条 route 最多处理帧数，0 表示全部")
+    annotate.add_argument("--lead-data-root", default=str(_DEFAULT_LEAD_DATA_ROOT))
+    annotate.add_argument("--output-dir", default=str(Path(__file__).resolve().parent / "collection_output"))
+    annotate.add_argument("--xml-root", default=str(_DEFAULT_XML_ROOT))
+    annotate.add_argument("--carla-root", default=str(_DEFAULT_CARLA_ROOT))
+    annotate.add_argument("--rule-config-json", default="", help="可选：每场景阈值覆盖 JSON")
+
+    args = parser.parse_args(argv)
+    if args.command == "annotate-rs":
+        if args.scenario.lower() == "all":
+            scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
+        else:
+            scenarios = [item.strip() for item in args.scenario.split(",") if item.strip()]
+        invalid = [scenario for scenario in scenarios if scenario not in SCENARIO_TO_ROAD_STRUCTURE]
+        if invalid:
+            raise ValueError(f"未知场景: {invalid}")
+        run_frame_rs_annotation(
+            scenarios=scenarios,
+            max_routes_per_scenario=max(1, args.max_routes),
+            max_frames_per_route=args.max_frames_per_route if args.max_frames_per_route > 0 else None,
+            lead_data_root=args.lead_data_root,
+            output_dir=args.output_dir,
+            xml_root=args.xml_root,
+            carla_root=args.carla_root,
+            rule_config_json=args.rule_config_json,
+        )
+        return True
+    return False
+
+
 if __name__ == "__main__":
     try:
-        main()
+        if not _run_cli(sys.argv[1:]):
+            main()
     except KeyboardInterrupt:
         print("\n\n👋 已中断\n")
     except Exception as e:

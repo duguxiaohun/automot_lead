@@ -46,10 +46,107 @@ CARLA_0915/.../*.xodr
 python keyframe_filter/quick_start.py
 ```
 
+帧级规则会优先使用能 `import carla` 的 Python 环境读取精确 XODR 拓扑
+（`map_road_id/lane_id/lane_type`、`has_opposite_driving_lane`、
+`has_parking_or_shoulder_nearby` 等），例如：
+
+```bash
+/home/codon/anaconda3/envs/carla/bin/python keyframe_filter/quick_start.py
+```
+
+默认 Python 若不能 import `carla`，采集不会中断，会自动降级为静态 XODR planView/lane/signal
+近邻解析。静态解析只有在 `map_projection_error_m <= 20m` 时设置
+`xodr_topology_trusted=true` 并允许 R2/R3/R6 使用 topology high 证据；超过该误差时只保留
+`xodr_topology_untrusted` 诊断，特殊 RS 会降为 medium/low + review。
+
+非交互生成逐帧标注：
+
+```bash
+python keyframe_filter/quick_start.py annotate-rs \
+  --scenario T_Junction,AccidentTwoWays,ParkingExit \
+  --max-routes 1 \
+  --max-frames-per-route 80 \
+  --output-dir /tmp/automot_rs_annotation_test
+```
+
+该入口会按每个 scenario 的 `SCENARIO_RULE_CONFIG` 独立规则逐帧输出
+`primary_road_structure`、`secondary_road_structures`、`annotation_comment`、
+`evidence.review_reasons` 和 route 级分布/切换摘要。`road_structures` 仍保留旧候选全集；
+真正的单帧标定结果请读新增的 `frame_rs_annotation`：
+
+```json
+{
+  "frame_id": 0,
+  "frame_time_s": 0.0,
+  "road_structures": ["R1", "R4"],
+  "primary_road_structure": "R4",
+  "frame_rs_annotation": {
+    "label": "R4",
+    "secondary": [],
+    "confidence": 0.96,
+    "comment": "R4：规则族=signalized_junction...",
+    "rule_kind": "signalized_junction",
+    "rules_fired": ["r1_default_candidate", "r4_tl_confirmed"],
+    "decision_source": "meta_traffic_light",
+    "review_required": false,
+    "review_reasons": [],
+    "metrics": {
+      "route_progress_m": 0.4,
+      "route_projection_error_m": 0.0,
+      "trigger_distance_m": 2.0,
+      "traffic_light_state": "Red"
+    },
+    "xodr_summary": {
+      "available": true,
+      "source": "static_xodr",
+      "trusted": false,
+      "opposite_lane": false,
+      "parking_or_shoulder": false,
+      "merge_split_hint": false
+    }
+  }
+}
+```
+
+调参时可传入规则覆盖文件，不需要直接改代码：
+
+```bash
+python keyframe_filter/quick_start.py annotate-rs \
+  --scenario HighwayExit \
+  --max-routes 3 \
+  --max-frames-per-route 120 \
+  --rule-config-json /tmp/rs_rule_overrides.json
+```
+
+覆盖 JSON 格式：
+
+```json
+{
+  "scenarios": {
+    "HighwayExit": {
+      "merge_pre_m": 45,
+      "merge_post_m": 55,
+      "trigger_close_m": 85
+    }
+  }
+}
+```
+
+Smoke test 口径：
+
+- `python -m py_compile keyframe_filter/collector.py keyframe_filter/quick_start.py`
+- `python keyframe_filter/quick_start.py annotate-rs --scenario T_Junction,AccidentTwoWays,ParkingExit,HighwayExit,noScenarios --max-routes 1 --max-frames-per-route 40 --output-dir /tmp/automot_rs_annotation_smoke`
+- `python keyframe_filter/quick_start.py annotate-rs --scenario all --max-routes 1 --max-frames-per-route 10 --output-dir /tmp/automot_rs_annotation_all_smoke`
+
+2026-07-03 smoke 结论：43 场景小样本均可生成逐帧标注；静态 XODR 模式下 R2/R3/R6
+若缺少 opposite/merge/parking 局部拓扑，会自动降为 low/medium + review；
+`noScenarios` 已调成只有 meta 有效灯态或 light hazard 时才允许 R4，否则保守 R1；
+`StaticCutIn` 无 R3/R6 拓扑证据时回 R1 中置信，不再给 0.35 低置信。
+
 逐场景 RS 调研产物生成：
 
 ```bash
-python keyframe_filter/rs_research.py --samples-per-town 5
+/home/codon/anaconda3/envs/carla/bin/python keyframe_filter/rs_research.py --samples-per-town 5
 ```
 
 输出到：
@@ -126,7 +223,8 @@ KEYFRAME_COLLECTION_OUTPUT=/path/to/output python keyframe_filter/quick_start.py
 6. 启动 Web 应用
 7. 显示所有场景
 8. ROAD_STRUCTURE XML/XODR 画像
-9. 退出
+9. 逐帧RS标注生成
+10. 退出
 
 `ROAD_STRUCTURE XML/XODR 画像` 会逐 scenario 遍历所有 town，每个 town 默认抽 5 个 XML，
 并记录 XODR 是否存在、junction/signal/controller 粗统计、waypoint 数和 scenario tag。
@@ -197,14 +295,27 @@ carla_root = AutoMoT/CARLA_0915
   "primary_road_structure": "R4",
   "secondary_road_structures": [],
   "road_structure_candidates": {"R1": 0.35, "R4": 0.95},
+  "annotation_comment": "R4：规则族=signalized_junction，来源=meta_traffic_light，置信=0.96...",
   "evidence": {
     "rules_fired": ["r1_default_candidate", "r4_tl_confirmed"],
+    "rule_kind": "signalized_junction",
     "xml_path": "data/lead/Accident/...",
     "route_progress_m": 42.5,
-    "review_required": false
+    "xodr": {
+      "xodr_source": "static_xodr",
+      "xodr_topology_trusted": true
+    },
+    "review_required": false,
+    "review_reasons": []
   }
 }
 ```
+
+route 级结果还会写入：
+
+- `primary_rs_distribution`：该 route 内 primary RS 计数。
+- `review_required_frames` / `review_reason_distribution`：需要人工回查的帧数与原因。
+- `primary_rs_transitions`：最多保留前 50 个 primary RS 切换帧，便于检查边界抖动。
 
 如果数据目录不存在，采集器会返回明确错误，不再触发 `total_frames` 二次异常：
 
@@ -232,9 +343,8 @@ carla_root = AutoMoT/CARLA_0915
 
 规则实现来自：
 
-- `ROAD_STRUCTURE_MAP_XML_LABELING_PLAN.md`
-- `ROAD_STRUCTURE_PER_SCENARIO_LABELING_DESIGN.md`
-- `ROAD_STRUCTURE_SCENARIO_RESEARCH_PROTOCOL.md`
+- `ROAD_EVENT_CLASSIFICATION_PLAN.md`：ROAD/EVENT 语义、RS 调研协议、runtime 门控和错帧回查流程
+- `ROAD_EVENT_CANDIDATE_MAPPING.md`：Qwen/probe 可解析的 scenario / ROAD_STRUCTURE / EVENT 候选表
 
 核心约束：
 
@@ -303,7 +413,7 @@ meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；后�
 | `Routes数: 0` | 检查 scenario 目录下是否有 run 子目录 |
 | 没有 `metas/*.pkl` | 当前 run 会被跳过；采集需要真实 LEAD meta |
 | XML 匹配不到 | 先按 `(scenario,town,route_key)` 确认 `data/lead`，再按 `(town,route_key)` 全局查 `data_routes`；只有两边都没有有效 XML 时才设 `xml_available=false` 并降级 |
-| 没有 carla Python API | XODR 拓扑查询自动降级，不应中断采集 |
+| 没有 carla Python API | XODR 查询自动降级到静态 planView/lane/signal 近邻；若 `xodr_topology_untrusted` 很多，优先检查 XODR 坐标系/地图路径 |
 | Web 看不到结果 | 确认 `collection_output/*_result.json` 已生成 |
 
 ---
@@ -311,8 +421,8 @@ meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；后�
 ## 参考文件
 
 - `collector.py`：采集器、XML 索引、XODR probe、RS 规则引擎
-- `quick_start.py`：交互式入口和 XML/XODR 画像
+- `quick_start.py`：交互式入口、XML/XODR 画像和 `annotate-rs` 逐帧标注命令
 - `analyzer.py`：结果统计
 - `web_app.py`：Web 可视化
+- `ROAD_EVENT_CLASSIFICATION_PLAN.md`：ROAD/EVENT 总方案 + ROAD_STRUCTURE 调研/实现协议
 - `ROAD_EVENT_CANDIDATE_MAPPING.md`：ROAD/EVENT 候选映射
-- `ROAD_STRUCTURE_PER_SCENARIO_LABELING_DESIGN.md`：逐场景 RS 标定设计
