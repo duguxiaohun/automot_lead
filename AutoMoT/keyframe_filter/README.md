@@ -69,6 +69,16 @@ junction road，也会压住 R4/R5 并在 evidence 中写入 roundabout 规则�
 
 ```bash
 python keyframe_filter/quick_start.py annotate-rs \
+  --scenario all \
+  --output-dir keyframe_filter/collection_output/rs_annotation_full
+```
+
+`annotate-rs` 默认全量：不传 `--max-routes` 时，会处理所选 scenario 下全部合法
+routes；不传 `--max-frames-per-route` 或传 `0` 时，会处理每条 route 的全部帧。
+小范围 smoke / 参数闭环调试才显式传 `--max-routes`：
+
+```bash
+python keyframe_filter/quick_start.py annotate-rs \
   --scenario T_Junction,AccidentTwoWays,ParkingExit \
   --max-routes 1 \
   --max-frames-per-route 80 \

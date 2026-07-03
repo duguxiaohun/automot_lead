@@ -1799,14 +1799,14 @@ class ScenarioCollector:
         """模式1: 单场景全部采集 - 采集该场景的所有routes"""
         return self._collect_scenario(scenario_name, max_routes=None, max_frames_per_route=max_frames_per_route)
 
-    def collect_one_scenario(self, scenario_name: str, max_routes: int = 5, max_frames_per_route: Optional[int] = None) -> Dict:
-        """模式2: 单场景指定数目采集 - 采集该场景的前 max_routes 个routes"""
+    def collect_one_scenario(self, scenario_name: str, max_routes: Optional[int] = None, max_frames_per_route: Optional[int] = None) -> Dict:
+        """模式2: 单场景采集；max_routes=None 时采集全部合法 routes。"""
         return self._collect_scenario(scenario_name, max_routes=max_routes, max_frames_per_route=max_frames_per_route)
 
     def collect_multiple_scenarios(
         self,
         scenario_names: List[str],
-        max_routes_per_scenario: int = 5,
+        max_routes_per_scenario: Optional[int] = None,
         max_frames_per_route: Optional[int] = None,
     ) -> Dict:
         """模式3: 多场景全部采集 - 采集多个指定场景"""
@@ -1844,8 +1844,8 @@ class ScenarioCollector:
 
         return summary
 
-    def collect_all_scenarios(self, max_routes_per_scenario: int = 5, max_frames_per_route: Optional[int] = None) -> Dict:
-        """模式4: 全部采集 - 采集所有47个场景"""
+    def collect_all_scenarios(self, max_routes_per_scenario: Optional[int] = None, max_frames_per_route: Optional[int] = None) -> Dict:
+        """模式4: 全部采集 - 默认采集所有场景的全部合法 routes。"""
         all_scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
         self.logger.info(f"采集所有场景 ({len(all_scenarios)}个)")
 

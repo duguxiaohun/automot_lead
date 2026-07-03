@@ -475,13 +475,9 @@ def collect_all_scenarios_ui():
     print(f"\n⚠️  警告: 这将采集所有 {len(scenarios)} 个场景")
     print("这可能需要很长时间和大量磁盘空间！")
 
-    try:
-        max_routes = int(input("请输入每个场景采集的routes数量 (默认2): ") or "2")
-    except:
-        max_routes = 2
     max_frames = _ask_max_frames_per_route()
 
-    print(f"\n预计采集 {len(scenarios)} × {max_routes} = {len(scenarios) * max_routes} 个routes")
+    print(f"\n预计采集所有 {len(scenarios)} 个场景下的全部合法 routes")
 
     confirm = input("确实要继续? (yes/no): ").strip().lower()
     if confirm != 'yes':
@@ -494,7 +490,7 @@ def collect_all_scenarios_ui():
 
     try:
         result = collector.collect_all_scenarios(
-            max_routes_per_scenario=max_routes,
+            max_routes_per_scenario=None,
             max_frames_per_route=max_frames,
         )
 
@@ -752,7 +748,7 @@ def _print_annotation_summary(summary: Dict[str, Any]) -> None:
 
 def run_frame_rs_annotation(
     scenarios: List[str],
-    max_routes_per_scenario: int = 1,
+    max_routes_per_scenario: Optional[int] = None,
     max_frames_per_route: Optional[int] = None,
     lead_data_root: str = "",
     output_dir: str = "",
@@ -805,9 +801,10 @@ def run_frame_rs_annotation_ui():
         print(f"❌ 未知场景: {invalid}")
         return
     try:
-        max_routes = int(input("每个场景最多 route 数 (默认1): ") or "1")
+        max_routes_text = input("每个场景最多 route 数，留空表示全量 (默认全量): ").strip()
+        max_routes = int(max_routes_text) if max_routes_text else None
     except Exception:
-        max_routes = 1
+        max_routes = None
     try:
         max_frames = int(input("每条 route 最多帧数，0 表示全部 (默认0): ") or "0")
     except Exception:
@@ -819,7 +816,7 @@ def run_frame_rs_annotation_ui():
     rule_config = input("规则阈值覆盖 JSON (可空): ").strip()
     run_frame_rs_annotation(
         scenarios=scenarios,
-        max_routes_per_scenario=max(1, max_routes),
+        max_routes_per_scenario=max_routes,
         max_frames_per_route=max_frames or None,
         lead_data_root=lead_root,
         output_dir=output_dir,
@@ -1692,7 +1689,7 @@ def _run_cli(argv: List[str]) -> bool:
 
     annotate = subparsers.add_parser("annotate-rs", help="按每场景规则生成逐帧 RS 标注")
     annotate.add_argument("--scenario", default="noScenarios", help="场景名、逗号分隔，或 all")
-    annotate.add_argument("--max-routes", type=int, default=1, help="每个场景最多处理 route 数")
+    annotate.add_argument("--max-routes", type=int, default=None, help="每个场景最多处理 route 数；不传表示全量")
     annotate.add_argument("--max-frames-per-route", type=int, default=0, help="每条 route 最多处理帧数，0 表示全部")
     annotate.add_argument("--lead-data-root", default=str(_DEFAULT_LEAD_DATA_ROOT))
     annotate.add_argument("--output-dir", default=str(Path(__file__).resolve().parent / "collection_output"))
@@ -1711,7 +1708,7 @@ def _run_cli(argv: List[str]) -> bool:
             raise ValueError(f"未知场景: {invalid}")
         run_frame_rs_annotation(
             scenarios=scenarios,
-            max_routes_per_scenario=max(1, args.max_routes),
+            max_routes_per_scenario=max(1, args.max_routes) if args.max_routes is not None else None,
             max_frames_per_route=args.max_frames_per_route if args.max_frames_per_route > 0 else None,
             lead_data_root=args.lead_data_root,
             output_dir=args.output_dir,
