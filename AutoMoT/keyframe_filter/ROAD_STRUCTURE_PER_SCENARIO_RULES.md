@@ -178,12 +178,37 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
   `Accident/Town03` 这类“XODR/static signal 近邻但画面没有清晰路口、stopline 或可见信号控制”的帧，
   不允许静态 signal + 距离字段单独把 R1 升成 R4；有效灯态若也缺强路口上下文，只给 weak R4 candidate
   并保持 R1 primary + review。
+  `Accident/Town05` 本轮全帧 RGB 复核进一步发现：同向事故/拥堵路段里 `light_hazard`
+  会在没有稳定可见受控路口时把 R1 误升为 R4，并造成 R1/R4 抖动。代码已收紧：
+  `same_direction_obstacle` / `default_meta_map` 场景中，`light_hazard` 只有同时具备
+  meta junction 或 stop hazard 这类强控制上下文时才允许升 R4；仅有静态 signal 近邻、
+  弱 distance-to-junction 或普通 hazard 时保持 R1，把事故/施工/急刹等交给 EVENT。
   `AccidentTwoWays/Town01` 这类普通双向道路早段不能只因 scenario active / trigger window 给 R2；
   R2 high 必须额外满足近距离障碍、`*_two_ways_stuck`、`vehicle_hazard`、近距离
   `scenario_obstacles_ids` 或 `signed_dist_to_lane_change` 核心证据。若缺可信 XODR opposite lane，
   核心帧可用 meta obstruction 保留 R2，但必须带 `special_rs_lacks_full_topology_confirmation` review。
+  `HighwayCutIn` / `EnterActorFlow*` / `MergerIntoSlowTraffic*` 和 `ParkingCutIn` /
+  `StaticCutIn` / `VehicleOpensDoorTwoWays` 的全帧 RGB sheet 显示：很多帧只是高速直行、
+  普通 cut-in 或停车侧事件，并没有可见 merge/split/parking-space road structure。
+  缺 XODR/RGB topology confirmation 时，R3/R6/R2 现在只作为弱候选，分数低于稳定 R1，
+  不再把 R1 置信压到低置信或触发大面积 `candidate_score_gap_lt_0.15`。
   代码层面这些判断已拆成 `strong_control_context` 与 `twoway_obstruction_evidence` 两个证据字段，
   逐帧 review 时优先看这两个字段，再决定是阈值问题还是道路结构口径问题。
+- 2026-07-03 在用户指定目录 `collection_output/rs_full_frame_review/` 重新跑 43 个场景：
+  每个 town 1 条 route，全帧 204 route / 24387 帧，生成 `scenario_visual_review_summary.json`
+  和 `global_visual_review_summary.json`。异常桶以 `xml_projection_or_boundary_parameter`
+  与 `arbitration_or_threshold_margin` 为主。代码已把稳定高置信标签上的
+  XML/XODR 投影质量告警、候选分差和 weaker-special 这类审计提示从
+  “视觉错配候选”中拆出：这些提示仍保留 route review reason，但不再塞进
+  `candidate_anomalies.jsonl` / anomaly sheet；真正需要人工逐帧看的仍是标签切换、
+  低置信、拓扑确认缺失和 RGB 可见语义冲突。
+- 本轮修正规则遵循“逐场景定位、通病抽象复用”：先用每个 scenario/town 的 RGB sheet
+  找到具体错配帧，再判断它是场景私有问题还是全局门控问题。`Accident/Town05`
+  触发了 `light_hazard` 全局收紧；`HighwayCutIn` / `ParkingCutIn` /
+  `StaticCutIn` 触发了 R3/R6 弱拓扑候选降权；多个 TwoWays 场景触发了 R2
+  confirmation 复核保留；多个场景共同暴露“没有特殊结构确认时 R1 仍为 0.35 低置信”，
+  因此代码新增 `r1_stable_no_special_structure_confirmed` 兜底：当没有任何特殊 RS
+  达到有效候选阈值时，把 R1 视为稳定普通道路结构，而不是继续输出低置信。
 
 已执行 smoke：
 

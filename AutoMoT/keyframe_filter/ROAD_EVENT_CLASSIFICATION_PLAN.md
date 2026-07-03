@@ -743,8 +743,16 @@ topology/meta confirmation window:
   parking->Driving 转换或路边静态车列。普通 shoulder hint 不够。
 - R4/R5：召回可用 junction/trigger window；确认必须看灯态、light_hazard、stop/yield/controller
   和 route 同源。`is_junction=false` 不代表不是 stopline approach。
+- `light_hazard` 不是独立 ROAD_STRUCTURE 证据。图像复核发现同向事故/施工/急刹/拥堵路段也可能出现
+  hazard 相关 meta 信号；在 `same_direction_obstacle` / `default_meta_map` 这类场景里，
+  只有 `light_hazard` 同时具备 meta junction 或 stop hazard 等强控制上下文时才升 R4，
+  否则保持 R1，把具体风险交给 EVENT。
 - XML route projection error >5m 时，不能用 route_s 做边界；应改用 meta 时序和 XODR map waypoint
   吸附，并强制 `review_required=true`。
+- 缺少 topology confirmation 的 R3/R6/R2 弱候选必须低于稳定 R1。`HighwayCutIn`、`ParkingCutIn`、
+  `StaticCutIn` 等 RGB sheet 显示，事件名和 trigger window 很容易覆盖到普通直行/普通切入片段；
+  没有 merge/split/parking/opposite-lane 或可见 road-structure 证据时，不应制造低置信 R1 或
+  大面积候选分差 review。
 
 下一步代码完善优先级：
 
@@ -755,6 +763,22 @@ topology/meta confirmation window:
    `r6_lacks_xodr_parking_or_shoulder_confirmation` 强制 review，并限制分数上限。
 4. route 级最短持续帧已落地：R2/R3/R4/R5/R6 少于 4 帧、R1 少于 2 帧的孤立片段会合并到邻近稳定段；
    后续若仍有边界抖动，再增加 transition margin / hysteresis。
+
+2026-07-03 `rs_full_frame_review/` 回灌更新：
+
+- `collector.py` 收紧 `light_hazard` → R4：同向障碍/默认动态场景必须有 meta junction 或 stop hazard；
+  静态 signal 近邻和弱 distance-to-junction 不再足以把普通路段升 R4。
+- 缺 merge/split/ramp 的 R3、缺 parking/shoulder/curbside 的 R6、缺 opposite-lane 的开门/切入弱候选，
+  分数下调到稳定 R1 之下，降低与 RGB 不符的低置信特殊结构候选。
+- “逐场景定位、通病抽象复用”是后续调参原则：先从每个场景的 RGB sheet 找具体错配，
+  再判断是场景私有阈值还是全局门控。多个场景共同出现的稳定普通路段低置信问题已抽象为
+  `r1_stable_no_special_structure_confirmed`：没有任何特殊 RS 达到有效候选阈值时，
+  R1 应作为稳定普通道路结构输出，而不是保留默认 0.35 低置信。
+- `rs_full_frame_review.py` 将稳定高置信标签上的 `route_projection_error_high`、
+  `static_xodr_topology_demoted_by_projection_error`、`candidate_score_gap_lt_0.15`
+  和 weaker-special 这类审计提示从视觉错配候选中剥离；它们仍保留在 route/scenario summary
+  里，但只有伴随低置信、标签切换、拓扑缺失或 RGB 可见语义冲突时才进入
+  `candidate_anomalies.jsonl`。
 
 ### 9.6 错帧回查流程
 
