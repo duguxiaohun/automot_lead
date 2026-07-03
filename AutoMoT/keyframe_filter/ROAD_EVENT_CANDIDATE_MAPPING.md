@@ -73,7 +73,7 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 |---|---|---|
 | R1 | 常规道路 / 同向可行驶道路 | 默认规则空间；普通直道、跟车、车道保持、同向变道、普通可行驶区域 |
 | R2 | 双向单车道 / 借对向车道道路 | 对向车道参与决策；包括自车借对向绕障或对向车侵占自车道 |
-| R3 | 高速 / 匝道 / 合流 / 驶出道路 | 主辅路、匝道、合流、并线、驶出、高速切入 |
+| R3 | 高速合流 / 匝道 / 分流 / 驶出决策结构 | 主辅路、匝道、合流、并线、驶出；普通高速直行或同向 cut-in 若无 merge/split/ramp/exit 结构，仍回 R1 + EVENT |
 | R4 | 信号灯路口 | 红绿灯正常可用，红绿灯是主通行规则 |
 | R5 | 无信号灯 / 信号灯失效路口 | 无灯、灯失效、或主要按路权/安全间隙通行 |
 | R6 | 路边停车 / 停车占道道路 | 停车带、路边停车、停车位汇入、开门、停车遮挡主导决策 |
@@ -134,7 +134,7 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 |---|---|---|
 | R1 常规道路 / 同向可行驶道路 | R-E1, R-E2, U-E1, U-E2, U-E3, U-E4 | 不放 R-E3/R-E4/R-E5；不放 U-E5，因为对向侵占属于 R2；不放 U-E6/U-E7/U-E8，因为它们是路口/阻塞类 |
 | R2 双向单车道 / 借对向车道道路 | R-E1, U-E2, U-E5 | 不放 U-E3，普通动态切入不是 R2 的核心；不放 U-E6/U-E7/U-E8；不放 R-E2，借对向绕障由 U-E2 表达 |
-| R3 高速 / 匝道 / 合流 / 驶出道路 | R-E1, R-E2, R-E3, U-E3 | 不放 U-E2，静态障碍绕行不属于 R3 核心；不放 U-E5/U-E6/U-E7/U-E8；不放 R-E4/R-E5 |
+| R3 高速合流 / 匝道 / 分流 / 驶出决策结构 | R-E1, R-E2, R-E3, U-E3 | 不放 U-E2，静态障碍绕行不属于 R3 核心；不放 U-E5/U-E6/U-E7/U-E8；不放 R-E4/R-E5；物理高速直行不能单独触发 R3 |
 | R4 信号灯路口 | R-E4, U-E4, U-E6, U-E8 | 不放 R-E5/U-E7，因为信号灯正常；不放 U-E5，因为对向侵占属于 R2；不放 U-E2，普通静态绕障不作为 R4 核心事件 |
 | R5 无信号灯 / 信号灯失效路口 | R-E5, U-E4, U-E7, U-E8 | 不放 R-E4/U-E6，前者是信号灯正常，后者主要是闯红灯违规；不放 U-E5；不放 U-E2 |
 | R6 路边停车 / 停车占道道路 | R-E1, R-E2, U-E2, U-E3, U-E4 | 不放 R-E3/R-E4/R-E5；不放 U-E5/U-E6/U-E7/U-E8 |
@@ -225,8 +225,8 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
   primary RS 仍由 XML/XODR/meta 的道路结构证据决定。
 - `TwoWays` 只让候选池包含 R2/U-E2，不代表全程 R2；只有 RS 输出为 R2 时才开放对向绕行相关事件。
 - `Parking*` 只让候选池包含 R6/停车区事件，不代表全程 R6；灯控路口段仍优先 R4。
-- `EnterFlow` 名称不等于 R3；只有 `highway_merge/interurban` 规则族且 XODR merge/highway 证据成立时，
-  EVENT 才按 R3 的高速/合流规则空间收窄。
+- `EnterFlow` 名称不等于 R3；只有 `highway_merge/interurban` 规则族且 XODR merge/highway 证据
+  或 `MergerIntoSlowTraffic*` 的 XML actor-flow fallback 成立时，EVENT 才按 R3 的高速/合流规则空间收窄。
 - `CrossJunctionDefectTrafficLight` 的 RS 由 defect 机制强制 R5；EVENT 选择 U-E7/R-E5 时不要再被
   XODR signal 存在性拉回 R4。
 

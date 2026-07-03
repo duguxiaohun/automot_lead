@@ -201,6 +201,10 @@ R2/R3/R6 缺可见占道/合流/停车空间时的规则门控问题，以及 R4
 - 静态 XODR 的 signal/opposite/parking/merge/junction hint 在高投影误差帧降级为
   `*_demoted_projection_error` 证据；nonsignalized 场景遇到静态 signal 会写
   `nonsignalized_with_signal_topology_conflict`，需要人工结合 RGB 确认。
+- `MergerIntoSlowTraffic*` 的明显 merge 口不能被坏 XODR 自动压回 R1；当 RGB/LEAD XML
+  已支持合流，但 route/XODR 投影误差导致 topology 不可信时，规则会使用 XML
+  `start_actor_flow/end_actor_flow` 距离、trigger 距离和 active scenario 作为 fallback，
+  写入 `r3_merger_actor_flow_or_trigger_fallback`，主标签可为 R3，同时保留 review 原因。
 - 人工逐帧看图后又补了两条更强的图像优先门控：
   静态 signal 或灯态只有在 `is_junction` / 可信 XODR junction / stopline / 近距离 signal-junction
   上下文成立时才给 R4 high；否则回 R1 + review。
@@ -429,7 +433,7 @@ route 级结果还会写入：
 |---|---|
 | R1 | 常规道路 / 同向可行驶道路 |
 | R2 | 双向单车道 / 对向车道参与决策 |
-| R3 | 高速 / 匝道 / 合流 / 驶出 |
+| R3 | 高速合流 / 匝道 / 分流 / 驶出决策结构 |
 | R4 | 信号灯路口 |
 | R5 | 无信号灯 / 信号灯失效 / 路权路口 |
 | R6 | 路边停车 / 停车占道 |
