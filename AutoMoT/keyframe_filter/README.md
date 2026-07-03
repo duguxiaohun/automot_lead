@@ -154,10 +154,71 @@ Smoke test 口径：
 - `python keyframe_filter/quick_start.py annotate-rs --scenario T_Junction,AccidentTwoWays,ParkingExit,HighwayExit,noScenarios --max-routes 1 --max-frames-per-route 40 --output-dir /tmp/automot_rs_annotation_smoke`
 - `python keyframe_filter/quick_start.py annotate-rs --scenario all --max-routes 1 --max-frames-per-route 10 --output-dir /tmp/automot_rs_annotation_all_smoke`
 
-2026-07-03 smoke 结论：43 场景小样本均可生成逐帧标注；静态 XODR 模式下 R2/R3/R6
-若缺少 opposite/merge/parking 局部拓扑，会自动降为 low/medium + review；
+2026-07-03 第一轮全帧 RGB 复核回灌后 smoke 结论：43 场景小样本均可生成逐帧标注；
+静态 XODR 模式下 R2/R3/R6 若缺少 opposite/merge/parking 局部拓扑，不再仅凭
+scenario/trigger 窗口压过 R1，而是降为 secondary/review；
 `noScenarios` 已调成只有 meta 有效灯态或 light hazard 时才允许 R4，否则保守 R1；
 `StaticCutIn` 无 R3/R6 拓扑证据时回 R1 中置信，不再给 0.35 低置信。
+当前 43 场景 × 10 帧 smoke 分布为
+`R1=182, R2=10, R3=20, R4=128, R5=80, R6=10`，
+`confidence min/avg/max = 0.70/0.8302/0.98`，`review_ratio=0.3093`。
+
+第二轮图像优先全量复核入口：
+
+```bash
+python keyframe_filter/rs_full_frame_review.py \
+  --scenario all \
+  --samples-per-town 1 \
+  --max-routes-per-town 1 \
+  --frames-per-sheet 60 \
+  --sheet-cols 4 \
+  --output-dir keyframe_filter/collection_output/rs_full_frame_review_after_visual_gate
+```
+
+该目录覆盖 43 个 scenario、204 个 scenario-town route、24387 帧。每个 town 只取
+1 条 route，但全帧标注并生成 RGB overview；复核结果写入
+`global_visual_review_summary.json` 以及每个 scenario 的
+`scenario_visual_review_summary.json`。这批 summary 是图像优先复核：confidence/review
+字段只用于定位候选 span，不作为标签正确性的证明。当前高优先级异常 63 条，主要是
+R2/R3/R6 缺可见占道/合流/停车空间时的规则门控问题，以及 R4/R5 在高 projection error
+下从 frame0 开始的窗口/投影参数问题。
+
+第二轮错配回灌后，`collector.py` 已按图像优先结论收紧：
+
+- 弱 R2/R3/R4/R5/R6 候选不能通过 priority tie-break 低分压过 R1。
+- `route_projection_error_m > 5m` 时，普通 `scenario_active` / `trigger_close_m`
+  只作为 review 线索，不再单独撑起 two-way / merge / parking / junction 窗口。
+- 静态 XODR 的 signal/opposite/parking/merge/junction hint 在高投影误差帧降级为
+  `*_demoted_projection_error` 证据；nonsignalized 场景遇到静态 signal 会写
+  `nonsignalized_with_signal_topology_conflict`，需要人工结合 RGB 确认。
+- 人工逐帧看图后又补了两条更强的图像优先门控：
+  静态 signal 或灯态只有在 `is_junction` / 可信 XODR junction / stopline / 近距离 signal-junction
+  上下文成立时才给 R4 high；否则回 R1 + review。
+  TwoWays 的 R2 high 必须有近距离障碍、stuck、vehicle_hazard 或 lane-change 核心证据；
+  只有场景 active / trigger close / 远距离障碍时保守 R1，R2 只保留 weak candidate。
+  输出 evidence 里同步写入 `strong_control_context` 和 TwoWays 专用
+  `twoway_obstruction_evidence`，用于区分规则思路问题、参数窗口问题和底层证据缺失。
+
+修正后 smoke：
+
+```bash
+python -m py_compile keyframe_filter/collector.py keyframe_filter/quick_start.py keyframe_filter/rs_full_frame_review.py
+python keyframe_filter/quick_start.py annotate-rs \
+  --scenario AccidentTwoWays,InterurbanActorFlow,MergerIntoSlowTrafficV2,NonSignalizedJunctionLeftTurn,ControlLoss,ParkingExit,VehicleTurningRoute \
+  --max-routes 1 --max-frames-per-route 80 \
+  --output-dir /tmp/automot_rs_annotation_visual_fix_smoke3
+python keyframe_filter/quick_start.py annotate-rs \
+  --scenario all --max-routes 1 --max-frames-per-route 10 \
+  --output-dir /tmp/automot_rs_annotation_all_visual_fix_smoke
+```
+
+全 43 场景 × 10 帧 smoke 分布为
+`R1=242, R2=0, R3=20, R4=88, R5=70, R6=10`，
+`confidence min/avg/max = 0.70/0.8120/0.98`，`review_ratio=0.4140`。
+代表性错配路线里，`Accident/Town03` 无清晰路口/灯控画面时尾段 R4 回 R1；
+`AccidentTwoWays/Town01` 远距离 active 窗口回 R1，核心障碍帧保留 R2 + topology review；
+`InterurbanActorFlow` / `MergerIntoSlowTrafficV2` 的静态 merge hint 在高投影误差后不再持续整段 R3，
+`ControlLoss` 起始弱 R4 不再压过 R1。
 
 逐场景 RS 调研产物生成：
 
