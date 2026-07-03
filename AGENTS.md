@@ -182,8 +182,11 @@
   提议器和验证工具参考，不再视为最终帧级 STATUS/SUBGOAL 真值。`classifier_logic.txt`
   是用户人工调研的道路结构与事件分类草案；`ROAD_EVENT_CLASSIFICATION_PLAN.md`
   是新方案总结。**按用户同意扩展为递归整目录白名单**：`AutoMoT/keyframe_filter/`
-  下所有现有文件、子目录文件以及未来新增文件都允许修改、追踪、commit 和 push；
-  push 前可精确执行 `git add AutoMoT/keyframe_filter/`，不要再逐文件维护该目录白名单）
+  下代码、方案文档、规则配置和手写说明允许修改、追踪、commit 和 push；
+  但 `AutoMoT/keyframe_filter/collection_output/` 是本地自动调研输出目录，只保存
+  maps/RGB/meta/XML/XODR 证据链和中间产物，默认不入库、不 push；需要共享时应先整理为
+  方案文档或小型规则配置。push 前可精确执行 `git add AutoMoT/keyframe_filter/`，
+  依赖该目录内 `.gitignore` 排除输出产物，不要再逐文件维护该目录白名单）
 - `AutoMoT/qwen3vl_local/`（含 `tb_serve.sh` 通用 TensorBoard launcher；`goalgen/` 子包详见 PROJECT_CONTEXT.md §15；`eval_carla/` 子包详见上）
 - `AutoMoT/qwen3vl_local/tb_serve.sh`
   （SFT / GoalGen / LeadMoT / VAE 共用 TensorBoard 启动器；从 `AutoMoT/` 目录下用

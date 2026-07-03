@@ -266,6 +266,10 @@ carla_root = AutoMoT/CARLA_0915
 `maps/*route_trigger_ego_trace.png` 与 `rgb/*sample_contact_sheet.jpg` 仍需人工确认后，
 才能把对应规则标成 final complete。
 
+`collection_output/` 是本地自动调研输出目录，包含 map trace、RGB contact sheet、
+meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；后续需要共享的结论应整理进
+本 README、ROAD_STRUCTURE/ROAD_EVENT 方案文档或小型规则配置。
+
 规则族结论：
 
 - `same_direction_obstacle`：`Accident`、`ConstructionObstacle`、`ParkedObstacle`。
