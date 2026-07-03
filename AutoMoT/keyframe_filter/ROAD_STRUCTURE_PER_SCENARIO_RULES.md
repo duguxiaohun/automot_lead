@@ -103,9 +103,9 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
 | `vehicle_turning` | VehicleTurningRoute, VehicleTurningRoutePedestrian | `junction_pre_m=50`, `junction_post_m=20-40`, `multi_trigger=True` | 多 trigger 分段；行人/横穿不改变 RS，控制源决定 R4/R5 |
 | `noscenario` | noScenarios | `junction_pre_m=50`, `junction_post_m=25`, `conservative=True` | 只允许 R1/R4；弱 topology hint 只写 evidence/review |
 
-### 1.7 已落地的可执行标注入口
+### 1.7 已落地的可执行标注与可视化入口
 
-本轮已把本文思路落到 `collector.py` / `quick_start.py`：
+本轮已把本文思路落到 `collector.py` / `quick_start.py` / `web_app.py`：
 
 - `SCENARIO_RULE_CONFIG` 为 43 个 scenario 提供独立规则族和阈值；`annotate-rs --rule-config-json`
   可加载每场景阈值覆盖文件，便于在不改代码的情况下调参。
@@ -114,6 +114,15 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
   `frame_rs_annotation`。
 - `frame_rs_annotation` 包含 `label/secondary/confidence/comment/rule_kind/rules_fired/decision_source/review_required/review_reasons/metrics/xodr_summary`，
   可直接作为人工验收和后续训练输入的帧级解释结果。
+- `web_app.py` 已把候选全集和本帧最终标签拆开展示：顶部绿色标签读取
+  `frame_rs_annotation.label` / `primary_road_structure`，置信度只表示该帧 primary RS 的置信度；
+  `road_structures` 只作为“该 scenario 可选 RS 候选全集”展示，不再和本帧标注混用。
+- Web 证据面板会展示 XML/route 投影、trigger 距离、LEAD meta 灯态/active scenario、XODR
+  source/trusted/road/lane/junction/opposite/parking/merge 等摘要；若这些证据不足或冲突，
+  页面会显示 review 状态和原因，供下一轮规则修正。
+- `web_app.py` 默认路径已改为当前仓库相对路径：
+  `AutoMoT/lead_data`、`AutoMoT/lead_video`、`AutoMoT/keyframe_filter/collection_output`；
+  仍可用 `LEAD_DATA_ROOT`、`LEAD_VIDEO_ROOT`、`KEYFRAME_COLLECTION_OUTPUT` 覆盖。
 - route 投影误差 `>5m` 时，代码会禁用 `route_s` hard window，只允许 trigger distance / meta active / junction/light 等证据参与，并写
   `route_s_window_disabled_projection_error_gt_5m`。
 - `noScenarios` 调整为无 meta 有效灯态或 light hazard 时强制保守 R1；静态 XODR signal/junction hint 只进 evidence/review，不再把普通无场景帧自动推成 R4。
@@ -137,33 +146,6 @@ python AutoMoT/keyframe_filter/quick_start.py annotate-rs \
 `min=0.66/avg=0.8197/max=0.98`，review frame ratio 为 `0.2837`。
 高 review 主要来自静态 XODR 无法确认 R2/R3/R6 的局部 opposite/merge/parking 拓扑，这是预期保守行为；
 后续若用 `/home/codon/anaconda3/envs/carla/bin/python` 跑 CARLA API XODR probe，应优先比较这些 review 是否下降。
-
-### 1.7 已落地代码入口
-
-当前可执行实现已写入：
-
-- `collector.py`：`RoadStructureRuleEngine.analyze(...)` 负责逐帧 primary/secondary RS、候选分数、证据和 review 原因。
-- `collector.py`：`XodrTopologyProbe` 优先走 CARLA API；失败时自动走静态 XODR planView/lane/signal fallback，并用
-  `xodr_topology_trusted` 门控高置信 topology 证据。
-- `quick_start.py annotate-rs`：非交互入口，按每个 scenario 的独立规则生成逐帧 JSON 标注和
-  `frame_rs_annotation_summary.json`。
-
-示例：
-
-```bash
-python AutoMoT/keyframe_filter/quick_start.py annotate-rs \
-  --scenario T_Junction,AccidentTwoWays,ParkingExit \
-  --max-routes 1 \
-  --output-dir /tmp/automot_rs_annotation_test
-```
-
-本轮 smoke test 使用上述 3 个场景各 1 条 route，共 488 帧。第一次测试因静态 XODR 误把
-50m+ 远的 road topology 当可信证据，且 `light_hazard` 在非路口帧直接覆盖 R4，导致
-TwoWays 样本 R2/R4 抖动明显；代码随后增加 `xodr_topology_trusted` 与
-`light_hazard` junction/signal 门控，复测 primary RS 切换从 41 次降到 5 次。
-随后全 43 场景各 1 条 route smoke test 通过（5900 帧），说明 `quick_start.py annotate-rs --scenario all`
-能覆盖全部现有候选表；同时把 `same_direction_obstacle` / `default_meta_map` / `noscenario`
-的默认 R1 从低置信临时标签提升为有效自动标签（0.78/0.80），避免普通直道帧被大量误送 review。
 
 ## 2. 逐场景规则
 

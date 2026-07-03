@@ -21,10 +21,14 @@ from collector import SCENARIO_TO_ROAD_STRUCTURE, SCENARIO_TO_FINE_EVENTS, load_
 app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
 
-# 配置路径
-LEAD_DATA_ROOT = Path("/home/cruser1/lda/AutoMoT/lead_data")
-LEAD_VIDEO_ROOT = Path("/home/cruser1/lda/AutoMoT/lead_video")
-COLLECTION_OUTPUT = Path("/home/cruser1/lda/AutoMoT/keyframe_filter/collection_output")
+# 配置路径：默认跟随当前仓库，必要时可用环境变量覆盖。
+KEYFRAME_FILTER_DIR = Path(__file__).resolve().parent
+AUTOMOT_ROOT = KEYFRAME_FILTER_DIR.parent
+LEAD_DATA_ROOT = Path(os.environ.get("LEAD_DATA_ROOT", AUTOMOT_ROOT / "lead_data"))
+LEAD_VIDEO_ROOT = Path(os.environ.get("LEAD_VIDEO_ROOT", AUTOMOT_ROOT / "lead_video"))
+COLLECTION_OUTPUT = Path(
+    os.environ.get("KEYFRAME_COLLECTION_OUTPUT", KEYFRAME_FILTER_DIR / "collection_output")
+)
 
 
 # ============================================================================
@@ -420,6 +424,54 @@ HTML_TEMPLATE = """
             font-size: 11px;
         }
         .tag.event { background: #f093fb; }
+        .tag.primary { background: #27ae60; font-size: 14px; padding: 5px 10px; }
+        .tag.secondary { background: #8e44ad; }
+        .tag.review { background: #e67e22; }
+        .tag.ok { background: #27ae60; }
+
+        .annotation-card {
+            background: #fff;
+            border: 1px solid #e8e8e8;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 12px 0;
+        }
+        .annotation-card h3 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .annotation-main {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .annotation-box {
+            background: #f6f8ff;
+            border-radius: 6px;
+            padding: 10px;
+        }
+        .annotation-box .small-label {
+            display: block;
+            font-weight: bold;
+            color: #666;
+            margin-bottom: 6px;
+        }
+        .evidence-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px 14px;
+            margin-top: 8px;
+        }
+        .evidence-item {
+            border-bottom: 1px dashed #e1e1e1;
+            padding-bottom: 5px;
+        }
+        .mono {
+            font-family: Consolas, Monaco, monospace;
+            word-break: break-all;
+        }
 
         .video-container {
             background: #000;
@@ -525,21 +577,52 @@ HTML_TEMPLATE = """
                             <span class="info-label">帧号</span>
                             <span class="info-value" id="infoFrame">-</span>
                         </div>
+                        <div class="annotation-card">
+                            <h3>✅ 本帧逐帧 RS 标注结果</h3>
+                            <div class="annotation-main">
+                                <div class="annotation-box">
+                                    <span class="small-label">本帧最终标签</span>
+                                    <div id="primaryRoadStructure"><span class="tag primary">-</span></div>
+                                </div>
+                                <div class="annotation-box">
+                                    <span class="small-label">本帧 secondary</span>
+                                    <div id="secondaryRoadStructures">-</div>
+                                </div>
+                                <div class="annotation-box">
+                                    <span class="small-label">本帧标签置信度</span>
+                                    <div id="infoConfidence">-</div>
+                                </div>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">标注解释</span>
+                                <span class="info-value" id="infoReason">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">复核状态</span>
+                                <span class="info-value" id="reviewStatus">-</span>
+                            </div>
+                        </div>
+
                         <div style="margin: 15px 0;">
-                            <span class="info-label">道路结构 (Road Structure)</span>
+                            <span class="info-label">该场景全部候选 RS（不是本帧最终标签）</span>
                             <div id="roadStructures"></div>
                         </div>
                         <div style="margin: 15px 0;">
                             <span class="info-label">事件 (Events)</span>
                             <div id="events"></div>
                         </div>
-                        <div class="info-row">
-                            <span class="info-label">置信度</span>
-                            <span class="info-value" id="infoConfidence">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">原因</span>
-                            <span class="info-value" id="infoReason">-</span>
+                        <div class="annotation-card">
+                            <h3>🧭 证据归因：XODR / XML / LEAD meta</h3>
+                            <div class="evidence-grid">
+                                <div class="evidence-item"><strong>决策来源:</strong> <span id="decisionSource">-</span></div>
+                                <div class="evidence-item"><strong>规则类型:</strong> <span id="ruleKind">-</span></div>
+                                <div class="evidence-item"><strong>命中规则:</strong> <span id="rulesFired">-</span></div>
+                                <div class="evidence-item"><strong>使用输入:</strong> <span id="usedInputs">-</span></div>
+                                <div class="evidence-item"><strong>XML/route:</strong> <span id="xmlEvidence">-</span></div>
+                                <div class="evidence-item"><strong>LEAD meta:</strong> <span id="metaEvidence">-</span></div>
+                                <div class="evidence-item"><strong>XODR:</strong> <span id="xodrEvidence">-</span></div>
+                                <div class="evidence-item"><strong>弱/缺失输入:</strong> <span id="weakInputs">-</span></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -782,6 +865,55 @@ HTML_TEMPLATE = """
             renderAnnotation(scenario, route, frame, ann, source);
         }
 
+        function escapeHtml(value) {
+            return String(value ?? '-')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function formatScalar(value) {
+            if (value === null || value === undefined || value === '') {
+                return '-';
+            }
+            if (typeof value === 'number') {
+                return Number.isInteger(value) ? String(value) : value.toFixed(3);
+            }
+            if (typeof value === 'boolean') {
+                return value ? 'true' : 'false';
+            }
+            return escapeHtml(value);
+        }
+
+        function formatList(values, className) {
+            if (!values || values.length === 0) {
+                return '<span class="tag">无</span>';
+            }
+            return values.map(v => `<span class="tag ${className || ''}">${escapeHtml(v)}</span>`).join('');
+        }
+
+        function normalizeFrameRs(ann) {
+            const frameRs = ann.frame_rs_annotation || {};
+            const evidence = ann.evidence || {};
+            const diagnostic = evidence.diagnostic_attribution || {};
+            return {
+                label: frameRs.label || ann.primary_road_structure || '-',
+                secondary: frameRs.secondary || ann.secondary_road_structures || [],
+                confidence: frameRs.confidence ?? ann.confidence ?? '-',
+                comment: frameRs.comment || ann.annotation_comment || ann.reason || '-',
+                ruleKind: frameRs.rule_kind || evidence.rule_kind || '-',
+                rulesFired: frameRs.rules_fired || evidence.rules_fired || [],
+                decisionSource: frameRs.decision_source || diagnostic.decision_source || '-',
+                reviewRequired: frameRs.review_required ?? evidence.review_required ?? false,
+                reviewReasons: frameRs.review_reasons || evidence.review_reasons || [],
+                metrics: frameRs.metrics || {},
+                xodr: frameRs.xodr_summary || evidence.xodr || {},
+                evidence,
+            };
+        }
+
         function renderAnnotation(scenario, route, frame, ann, source) {
             document.getElementById('infoSource').textContent = source || '-';
             document.getElementById('infoScenario').textContent = scenario || '-';
@@ -789,19 +921,79 @@ HTML_TEMPLATE = """
             document.getElementById('infoFrame').textContent = frame;
 
             if (ann) {
-                const roads = (ann.road_structures || []).map(r => `<span class="tag">${r}</span>`).join('');
-                document.getElementById('roadStructures').innerHTML = roads || '<span class="tag">无</span>';
+                const frameRs = normalizeFrameRs(ann);
 
-                const events = (ann.events || []).map(e => `<span class="tag event">${e}</span>`).join('');
-                document.getElementById('events').innerHTML = events || '<span class="tag event">无</span>';
+                document.getElementById('primaryRoadStructure').innerHTML =
+                    `<span class="tag primary">${escapeHtml(frameRs.label)}</span>`;
+                document.getElementById('secondaryRoadStructures').innerHTML =
+                    formatList(frameRs.secondary, 'secondary');
+                document.getElementById('infoConfidence').textContent =
+                    `${formatScalar(frameRs.confidence)}（对应本帧最终标签 ${frameRs.label}）`;
+                document.getElementById('infoReason').textContent = frameRs.comment;
 
-                document.getElementById('infoConfidence').textContent = ann.confidence ?? '-';
-                document.getElementById('infoReason').textContent = ann.reason || '-';
+                const reviewText = frameRs.reviewRequired
+                    ? `需要复核：${(frameRs.reviewReasons || []).join('; ') || '未给出原因'}`
+                    : '无需复核';
+                const reviewClass = frameRs.reviewRequired ? 'review' : 'ok';
+                document.getElementById('reviewStatus').innerHTML =
+                    `<span class="tag ${reviewClass}">${escapeHtml(reviewText)}</span>`;
+
+                document.getElementById('roadStructures').innerHTML =
+                    formatList(ann.road_structures || [], '');
+                document.getElementById('events').innerHTML =
+                    formatList(ann.events || [], 'event');
+
+                const metrics = frameRs.metrics || {};
+                const xodr = frameRs.xodr || {};
+                const evidence = frameRs.evidence || {};
+                const xmlPieces = [
+                    `route_s=${formatScalar(metrics.route_progress_m ?? evidence.route_progress_m)}m`,
+                    `proj_err=${formatScalar(metrics.route_projection_error_m ?? evidence.route_projection_error_m)}m`,
+                    `trigger_dist=${formatScalar(metrics.trigger_distance_m ?? evidence.trigger_distance_m)}m`,
+                    evidence.xml_route_path ? `xml=${evidence.xml_route_path}` : '',
+                ].filter(Boolean);
+                const metaPieces = [
+                    `traffic_light=${formatScalar(metrics.traffic_light_state ?? evidence.traffic_light_state)}`,
+                    `active=${formatScalar(metrics.active_scenario ?? evidence.current_active_scenario_type)}`,
+                ];
+                const xodrPieces = [
+                    `available=${formatScalar(xodr.available ?? xodr.xodr_available)}`,
+                    `trusted=${formatScalar(xodr.trusted ?? xodr.xodr_topology_trusted)}`,
+                    `source=${formatScalar(xodr.source ?? xodr.xodr_source)}`,
+                    `road=${formatScalar(xodr.road_id ?? xodr.map_road_id)}`,
+                    `lane=${formatScalar(xodr.lane_id ?? xodr.map_lane_id)}`,
+                    `junction=${formatScalar(xodr.is_junction ?? xodr.map_is_junction)}`,
+                    `opposite=${formatScalar(xodr.opposite_lane ?? xodr.has_opposite_driving_lane)}`,
+                    `parking=${formatScalar(xodr.parking_or_shoulder ?? xodr.has_parking_or_shoulder_nearby)}`,
+                    `merge=${formatScalar(xodr.merge_split_hint ?? xodr.ramp_merge_split_hint)}`,
+                ];
+
+                document.getElementById('decisionSource').textContent = frameRs.decisionSource;
+                document.getElementById('ruleKind').textContent = frameRs.ruleKind;
+                document.getElementById('rulesFired').innerHTML = formatList(frameRs.rulesFired, '');
+                document.getElementById('usedInputs').textContent =
+                    (evidence.used_inputs || evidence.inputs_used || []).join(', ') || '见下方 XML/meta/XODR 指标';
+                document.getElementById('xmlEvidence').innerHTML = `<span class="mono">${escapeHtml(xmlPieces.join(' | ') || '-')}</span>`;
+                document.getElementById('metaEvidence').innerHTML = `<span class="mono">${escapeHtml(metaPieces.join(' | ') || '-')}</span>`;
+                document.getElementById('xodrEvidence').innerHTML = `<span class="mono">${escapeHtml(xodrPieces.join(' | ') || '-')}</span>`;
+                document.getElementById('weakInputs').textContent =
+                    (evidence.weak_or_missing_inputs || evidence.review_reasons || frameRs.reviewReasons || []).join(', ') || '-';
             } else {
+                document.getElementById('primaryRoadStructure').innerHTML = '<span class="tag primary">无标注</span>';
+                document.getElementById('secondaryRoadStructures').textContent = '-';
                 document.getElementById('roadStructures').innerHTML = '<span class="tag">无标注</span>';
                 document.getElementById('events').innerHTML = '<span class="tag event">无标注</span>';
                 document.getElementById('infoConfidence').textContent = '-';
                 document.getElementById('infoReason').textContent = '该帧未找到标注';
+                document.getElementById('reviewStatus').textContent = '-';
+                document.getElementById('decisionSource').textContent = '-';
+                document.getElementById('ruleKind').textContent = '-';
+                document.getElementById('rulesFired').textContent = '-';
+                document.getElementById('usedInputs').textContent = '-';
+                document.getElementById('xmlEvidence').textContent = '-';
+                document.getElementById('metaEvidence').textContent = '-';
+                document.getElementById('xodrEvidence').textContent = '-';
+                document.getElementById('weakInputs').textContent = '-';
             }
         }
 

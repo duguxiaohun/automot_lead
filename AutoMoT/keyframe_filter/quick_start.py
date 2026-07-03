@@ -1,11 +1,13 @@
 """
 快速启动脚本 - 采集、分析、Web应用
 
-支持4种采集模式:
-  1. 单场景全部采集 - 采集某场景的所有routes
-  2. 单场景指定数目采集 - 采集某场景的前N个routes
-  3. 多场景采集 - 同时采集多个指定场景
-  4. 全部采集 - 采集所有47个场景
+支持4种正式采集 + 逐帧RS标注模式:
+  1. 单场景全部采集 + 逐帧标注 - 采集某场景的所有routes
+  2. 单场景指定数目采集 + 逐帧标注 - 采集某场景的N个routes
+  3. 多场景采集 + 逐帧标注 - 同时采集多个指定场景
+  4. 全部采集 + 逐帧标注 - 采集所有43个场景
+
+第9项只保留为小范围 smoke / 参数闭环调试入口，不再是唯一逐帧标注入口。
 """
 
 import sys
@@ -227,18 +229,18 @@ def print_main_menu():
     print("场景事件采集系统 - 快速启动".center(70))
     print("="*70)
     print("""
-采集模式:
-  1️⃣  单场景全部采集      - 采集某个场景的所有routes
-  2️⃣  单场景指定数采集     - 采集某个场景的前N个routes
-  3️⃣  多场景采集          - 同时采集多个指定的场景
-  4️⃣  全部采集            - 采集所有47个场景（可能耗时很长）
+采集 + 逐帧标注模式:
+  1️⃣  单场景全部采集+逐帧RS标注   - 采集某个场景的所有routes并逐帧标注
+  2️⃣  单场景指定数采集+逐帧RS标注  - 采集某个场景的N个routes并逐帧标注
+  3️⃣  多场景采集+逐帧RS标注       - 同时采集多个指定场景并逐帧标注
+  4️⃣  全部采集+逐帧RS标注         - 采集所有43个场景并逐帧标注（可能耗时很长）
 
 其他功能:
   5️⃣  多角度结构分析      - 分析已采集的数据
   6️⃣  启动Web应用        - 交互式可视化查看
   7️⃣  显示所有场景       - 列出所有支持的场景
   8️⃣  ROAD_STRUCTURE XML/XODR画像 - 按场景/town审计XML与地图输入
-  9️⃣  逐帧RS标注生成      - 按每场景规则生成可执行帧级标注
+  9️⃣  逐帧RS标注调试入口  - 小范围 smoke / 参数闭环调试
   🔟  退出
     """)
     print("="*70)
@@ -248,10 +250,37 @@ def print_main_menu():
 # 采集功能
 # ============================================================================
 
+def _ask_max_frames_per_route() -> Optional[int]:
+    """询问每条 route 最多处理多少帧；None 表示全帧逐帧标注。"""
+    try:
+        value = int(input("每条 route 最多处理帧数，0 表示全帧逐帧标注 (默认0): ") or "0")
+    except Exception:
+        value = 0
+    return value if value > 0 else None
+
+
+def _print_annotation_output_contract() -> None:
+    """说明采集结果中候选全集与单帧独立标签的字段区别。"""
+    print("  • 输出字段:")
+    print("    - road_structures: 该 scenario 的全部候选 RS（保留旧逻辑）")
+    print("    - primary_road_structure: 当前帧独属主 RS")
+    print("    - frame_rs_annotation: 当前帧可执行标注结果 + 证据 + 注释")
+
+
+def _write_and_print_annotation_summary(result: Dict[str, Any], output_dir: Path) -> Dict[str, Any]:
+    """所有采集模式统一写逐帧标注摘要。"""
+    summary = _annotation_summary(result)
+    summary_file = output_dir / "frame_rs_annotation_summary.json"
+    with open(summary_file, "w", encoding="utf-8") as handle:
+        json.dump(summary, handle, ensure_ascii=False, indent=2, default=str)
+    _print_annotation_summary(summary)
+    print(f"  • 逐帧标注摘要: {summary_file}")
+    return summary
+
 def collect_one_scenario_all_ui():
-    """模式1: 单场景全部采集"""
+    """模式1: 单场景全部采集 + 逐帧 RS 标注"""
     print("\n" + "="*70)
-    print("模式1: 单场景全部采集".center(70))
+    print("模式1: 单场景全部采集 + 逐帧RS标注".center(70))
     print("="*70)
 
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
@@ -268,11 +297,13 @@ def collect_one_scenario_all_ui():
         print("❌ 场景不存在")
         return
 
-    print(f"\n开始采集 {scenario} 的所有routes...")
+    max_frames = _ask_max_frames_per_route()
+
+    print(f"\n开始采集并逐帧标注 {scenario} 的所有routes...")
     collector = ScenarioCollector()
 
     try:
-        result = collector.collect_one_scenario_all(scenario)
+        result = collector.collect_one_scenario_all(scenario, max_frames_per_route=max_frames)
         if result.get("status") != "success":
             print("\n❌ 采集失败")
             print(f"  • 场景: {scenario}")
@@ -287,15 +318,16 @@ def collect_one_scenario_all_ui():
         print(f"  • Routes数: {len(result['routes'])}")
         print(f"  • 总帧数: {result.get('total_frames', 0)}")
         print(f"  • 结果: collection_output/{scenario}_result.json")
-        _print_primary_rs_summary(result)
+        _print_annotation_output_contract()
+        _write_and_print_annotation_summary(result, collector.output_dir)
     except Exception as e:
         print(f"\n❌ 采集失败: {e}")
 
 
 def collect_one_scenario_limited_ui():
-    """模式2: 单场景指定数目采集"""
+    """模式2: 单场景指定数目采集 + 逐帧 RS 标注"""
     print("\n" + "="*70)
-    print("模式2: 单场景指定数目采集".center(70))
+    print("模式2: 单场景指定数采集 + 逐帧RS标注".center(70))
     print("="*70)
 
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
@@ -316,12 +348,17 @@ def collect_one_scenario_limited_ui():
         max_routes = int(input("请输入采集的routes数量 (默认5): ") or "5")
     except:
         max_routes = 5
+    max_frames = _ask_max_frames_per_route()
 
-    print(f"\n开始采集 {scenario} 的前 {max_routes} 个routes...")
+    print(f"\n开始采集并逐帧标注 {scenario} 的 {max_routes} 个routes...")
     collector = ScenarioCollector()
 
     try:
-        result = collector.collect_one_scenario(scenario, max_routes=max_routes)
+        result = collector.collect_one_scenario(
+            scenario,
+            max_routes=max_routes,
+            max_frames_per_route=max_frames,
+        )
         if result.get("status") != "success":
             print("\n❌ 采集失败")
             print(f"  • 场景: {scenario}")
@@ -336,15 +373,16 @@ def collect_one_scenario_limited_ui():
         print(f"  • Routes数: {len(result['routes'])}")
         print(f"  • 总帧数: {result.get('total_frames', 0)}")
         print(f"  • 结果: collection_output/{scenario}_result.json")
-        _print_primary_rs_summary(result)
+        _print_annotation_output_contract()
+        _write_and_print_annotation_summary(result, collector.output_dir)
     except Exception as e:
         print(f"\n❌ 采集失败: {e}")
 
 
 def collect_multiple_scenarios_ui():
-    """模式3: 多场景采集"""
+    """模式3: 多场景采集 + 逐帧 RS 标注"""
     print("\n" + "="*70)
-    print("模式3: 多场景采集".center(70))
+    print("模式3: 多场景采集 + 逐帧RS标注".center(70))
     print("="*70)
 
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
@@ -385,8 +423,9 @@ def collect_multiple_scenarios_ui():
         max_routes = int(input("请输入每个场景采集的routes数量 (默认3): ") or "3")
     except:
         max_routes = 3
+    max_frames = _ask_max_frames_per_route()
 
-    print(f"\n将采集 {len(selected_scenarios)} 个场景, 每个采集 {max_routes} 个routes")
+    print(f"\n将采集并逐帧标注 {len(selected_scenarios)} 个场景, 每个采集 {max_routes} 个routes")
     print("场景列表:")
     for i, scenario in enumerate(selected_scenarios, 1):
         print(f"  {i}. {scenario}")
@@ -399,7 +438,11 @@ def collect_multiple_scenarios_ui():
     collector = ScenarioCollector()
 
     try:
-        result = collector.collect_multiple_scenarios(selected_scenarios, max_routes)
+        result = collector.collect_multiple_scenarios(
+            selected_scenarios,
+            max_routes_per_scenario=max_routes,
+            max_frames_per_route=max_frames,
+        )
 
         print(f"\n✅ 采集完成!")
         print(f"  • 成功场景数: {result.get('scenarios_collected', 0)}")
@@ -415,17 +458,16 @@ def collect_multiple_scenarios_ui():
             for name, error in failed[:10]:
                 print(f"    - {name}: {error}")
         print(f"  • 结果: collection_output/multi_scenario_collection.json")
-        for name, item in result.get("results", {}).items():
-            if item.get("status") == "success":
-                _print_primary_rs_summary(item, prefix=f"  {name}: ")
+        _print_annotation_output_contract()
+        _write_and_print_annotation_summary(result, collector.output_dir)
     except Exception as e:
         print(f"\n❌ 采集失败: {e}")
 
 
 def collect_all_scenarios_ui():
-    """模式4: 全部采集"""
+    """模式4: 全部采集 + 逐帧 RS 标注"""
     print("\n" + "="*70)
-    print("模式4: 全部采集".center(70))
+    print("模式4: 全部采集 + 逐帧RS标注".center(70))
     print("="*70)
 
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
@@ -437,6 +479,7 @@ def collect_all_scenarios_ui():
         max_routes = int(input("请输入每个场景采集的routes数量 (默认2): ") or "2")
     except:
         max_routes = 2
+    max_frames = _ask_max_frames_per_route()
 
     print(f"\n预计采集 {len(scenarios)} × {max_routes} = {len(scenarios) * max_routes} 个routes")
 
@@ -447,10 +490,13 @@ def collect_all_scenarios_ui():
 
     collector = ScenarioCollector()
 
-    print(f"\n开始采集所有 {len(scenarios)} 个场景...")
+    print(f"\n开始采集并逐帧标注所有 {len(scenarios)} 个场景...")
 
     try:
-        result = collector.collect_all_scenarios(max_routes)
+        result = collector.collect_all_scenarios(
+            max_routes_per_scenario=max_routes,
+            max_frames_per_route=max_frames,
+        )
 
         print(f"\n✅ 采集完成!")
         print(f"  • 成功场景数: {result.get('scenarios_collected', 0)}")
@@ -466,9 +512,8 @@ def collect_all_scenarios_ui():
             for name, error in failed[:10]:
                 print(f"    - {name}: {error}")
         print(f"  • 结果: collection_output/multi_scenario_collection.json")
-        for name, item in result.get("results", {}).items():
-            if item.get("status") == "success":
-                _print_primary_rs_summary(item, prefix=f"  {name}: ")
+        _print_annotation_output_contract()
+        _write_and_print_annotation_summary(result, collector.output_dir)
     except Exception as e:
         print(f"\n❌ 采集失败: {e}")
 
