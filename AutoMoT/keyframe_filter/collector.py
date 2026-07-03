@@ -100,6 +100,7 @@ class FrameAnnotation:
     secondary_road_structures: Set[RoadStructure] = field(default_factory=set)
     candidate_scores: Dict[str, float] = field(default_factory=dict)
     evidence: Dict[str, Any] = field(default_factory=dict)
+    annotation_comment: str = ""
 
     def to_dict(self):
         return {
@@ -119,6 +120,7 @@ class FrameAnnotation:
             ],
             'road_structure_candidates': self.candidate_scores,
             'evidence': self.evidence,
+            'annotation_comment': self.annotation_comment,
         }
 
 
@@ -279,6 +281,84 @@ def _finite_min(*values: Any) -> float:
     return min(finite) if finite else math.inf
 
 
+def _point_at_geometry_s(geom: Dict[str, float], local_s: float) -> Tuple[float, float]:
+    """按 OpenDRIVE planView geometry 粗略计算 s 位置坐标。"""
+    local_s = max(0.0, min(float(local_s), float(geom.get("length", 0.0))))
+    x = float(geom.get("x", 0.0))
+    y = float(geom.get("y", 0.0))
+    hdg = float(geom.get("hdg", 0.0))
+    curvature = geom.get("curvature")
+    if curvature is None or abs(float(curvature)) < 1e-9:
+        return (x + local_s * math.cos(hdg), y + local_s * math.sin(hdg))
+
+    curvature = float(curvature)
+    radius = 1.0 / curvature
+    cx = x - radius * math.sin(hdg)
+    cy = y + radius * math.cos(hdg)
+    theta = hdg + local_s * curvature
+    return (cx + radius * math.sin(theta), cy - radius * math.cos(theta))
+
+
+def _geometry_bbox(geom: Dict[str, float]) -> Tuple[float, float, float, float]:
+    """给 geometry 生成采样 bbox，用于静态 XODR 近邻粗筛。"""
+    length = float(geom.get("length", 0.0))
+    sample_count = 2 if geom.get("curvature") is None else 8
+    points = [
+        _point_at_geometry_s(geom, length * idx / max(1, sample_count - 1))
+        for idx in range(sample_count)
+    ]
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    pad = 8.0
+    return (min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
+
+
+def _bbox_min_distance(point: Tuple[float, float], bbox: Tuple[float, float, float, float]) -> float:
+    """点到 bbox 的最小可能距离，用于跳过明显无关 road geometry。"""
+    px, py = point
+    min_x, min_y, max_x, max_y = bbox
+    dx = max(min_x - px, 0.0, px - max_x)
+    dy = max(min_y - py, 0.0, py - max_y)
+    return math.hypot(dx, dy)
+
+
+def _distance_point_to_segment(
+    point: Tuple[float, float],
+    a: Tuple[float, float],
+    b: Tuple[float, float],
+) -> float:
+    """计算点到线段距离。"""
+    px, py = point
+    ax, ay = a
+    bx, by = b
+    vx = bx - ax
+    vy = by - ay
+    denom = vx * vx + vy * vy
+    if denom <= 1e-9:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * vx + (py - ay) * vy) / denom))
+    qx = ax + t * vx
+    qy = ay + t * vy
+    return math.hypot(px - qx, py - qy)
+
+
+def _distance_to_geometry(point: Tuple[float, float], geom: Dict[str, float]) -> float:
+    """用线段采样近似点到 OpenDRIVE geometry 的距离。"""
+    length = float(geom.get("length", 0.0))
+    if length <= 1e-6:
+        gx, gy = _point_at_geometry_s(geom, 0.0)
+        return math.hypot(point[0] - gx, point[1] - gy)
+    sample_count = max(2, min(24, int(length / 8.0) + 2))
+    best = math.inf
+    prev = _point_at_geometry_s(geom, 0.0)
+    for idx in range(1, sample_count):
+        local_s = length * idx / (sample_count - 1)
+        cur = _point_at_geometry_s(geom, local_s)
+        best = min(best, _distance_point_to_segment(point, prev, cur))
+        prev = cur
+    return best
+
+
 def _extract_route_num(text: str) -> Optional[str]:
     match = re.search(r"route[_-]?(\d{3,6})", text, re.IGNORECASE)
     if match:
@@ -415,6 +495,7 @@ class XodrTopologyProbe:
         self.carla_root = Path(carla_root)
         self._carla = None
         self._maps: Dict[str, Any] = {}
+        self._static_indexes: Dict[str, Dict[str, Any]] = {}
         self._import_failed = False
 
     def _find_xodr(self, town: str) -> Optional[Path]:
@@ -450,13 +531,167 @@ class XodrTopologyProbe:
             self._import_failed = True
             return None
 
+    def _load_static_index(self, town: str) -> Dict[str, Any]:
+        """无 CARLA API 时解析 XODR 几何/信号/lane 粗索引，保证规则可执行。"""
+        if town in self._static_indexes:
+            return self._static_indexes[town]
+        xodr = self._find_xodr(town)
+        index: Dict[str, Any] = {"available": False, "path": str(xodr) if xodr else None, "roads": {}, "signals": []}
+        if xodr is None:
+            self._static_indexes[town] = index
+            return index
+        try:
+            root = ET.parse(xodr).getroot()
+            junction_roads = set()
+            for connection in root.findall(".//junction/connection"):
+                incoming = connection.get("incomingRoad")
+                connecting = connection.get("connectingRoad")
+                if incoming:
+                    junction_roads.add(str(incoming))
+                if connecting:
+                    junction_roads.add(str(connecting))
+
+            for road in root.findall(".//road"):
+                road_id = str(road.get("id", ""))
+                if not road_id:
+                    continue
+                geometries = []
+                for geom in road.findall(".//planView/geometry"):
+                    try:
+                        item: Dict[str, float] = {
+                            "s": float(geom.get("s", 0.0)),
+                            "x": float(geom.get("x", 0.0)),
+                            "y": float(geom.get("y", 0.0)),
+                            "hdg": float(geom.get("hdg", 0.0)),
+                            "length": float(geom.get("length", 0.0)),
+                        }
+                    except Exception:
+                        continue
+                    arc = geom.find("arc")
+                    if arc is not None and arc.get("curvature") is not None:
+                        item["curvature"] = float(arc.get("curvature", "0"))
+                    item["bbox"] = _geometry_bbox(item)  # type: ignore[assignment]
+                    geometries.append(item)
+
+                lanes_by_side = {"left": [], "right": [], "center": []}
+                for side in ("left", "right", "center"):
+                    for lane in road.findall(f".//lanes/laneSection/{side}/lane"):
+                        lanes_by_side[side].append(
+                            {
+                                "id": int(_safe_float(lane.get("id"), 0)),
+                                "type": str(lane.get("type", "")),
+                            }
+                        )
+
+                road_entry = {
+                    "id": road_id,
+                    "junction": road.get("junction", "-1"),
+                    "is_junction_road": road.get("junction", "-1") not in {"", "-1"} or road_id in junction_roads,
+                    "geometries": geometries,
+                    "lanes_by_side": lanes_by_side,
+                }
+                index["roads"][road_id] = road_entry
+                for signal in road.findall(".//signals/signal"):
+                    sig_s = _safe_float(signal.get("s"), 0.0)
+                    geom = None
+                    for candidate in reversed(geometries):
+                        if sig_s >= float(candidate.get("s", 0.0)):
+                            geom = candidate
+                            break
+                    if geom is None and geometries:
+                        geom = geometries[0]
+                    point = None
+                    if geom is not None:
+                        point = _point_at_geometry_s(geom, sig_s - float(geom.get("s", 0.0)))
+                    index["signals"].append(
+                        {
+                            "road_id": road_id,
+                            "id": signal.get("id"),
+                            "name": signal.get("name"),
+                            "type": signal.get("type"),
+                            "subtype": signal.get("subtype"),
+                            "point": point,
+                        }
+                    )
+            index["available"] = True
+        except Exception as exc:
+            index["parse_error"] = str(exc)
+        self._static_indexes[town] = index
+        return index
+
+    def _probe_static(self, town: str, ego_xy: Optional[Tuple[float, float]]) -> Dict[str, Any]:
+        """普通 Python 可用的 XODR 静态几何探针。"""
+        out: Dict[str, Any] = {"xodr_available": False, "xodr_source": "static_xodr", "xodr_topology_trusted": False}
+        if ego_xy is None:
+            return out
+        index = self._load_static_index(town)
+        if not index.get("available"):
+            out["xodr_path"] = index.get("path")
+            if index.get("parse_error"):
+                out["parse_error"] = index.get("parse_error")
+            return out
+
+        best = None
+        for road in index.get("roads", {}).values():
+            for geom in road.get("geometries", []):
+                bbox = geom.get("bbox")
+                if best is not None and bbox is not None and _bbox_min_distance(ego_xy, bbox) > best["distance_m"]:
+                    continue
+                dist = _distance_to_geometry(ego_xy, geom)
+                if best is None or dist < best["distance_m"]:
+                    best = {"road": road, "distance_m": dist}
+        if best is None:
+            out["xodr_path"] = index.get("path")
+            return out
+
+        road = best["road"]
+        lanes_by_side = road.get("lanes_by_side", {})
+        left_driving = [lane for lane in lanes_by_side.get("left", []) if "driving" in lane.get("type", "").lower()]
+        right_driving = [lane for lane in lanes_by_side.get("right", []) if "driving" in lane.get("type", "").lower()]
+        parking_or_shoulder = any(
+            ("parking" in lane.get("type", "").lower() or "shoulder" in lane.get("type", "").lower())
+            for side_lanes in lanes_by_side.values()
+            for lane in side_lanes
+        )
+
+        signal_distances = []
+        for signal in index.get("signals", []):
+            point = signal.get("point")
+            if point is None:
+                continue
+            signal_distances.append(math.hypot(ego_xy[0] - point[0], ego_xy[1] - point[1]))
+        nearest_signal = min(signal_distances) if signal_distances else math.inf
+
+        same_dir_lanes = max(len(left_driving), len(right_driving), 1)
+        has_opposite = bool(left_driving and right_driving)
+        topology_trusted = best["distance_m"] <= 20.0
+        out.update(
+            {
+                "xodr_available": True,
+                "xodr_path": index.get("path"),
+                "xodr_topology_trusted": topology_trusted,
+                "map_road_id": road.get("id"),
+                "map_lane_id": None,
+                "map_lane_type": "Driving" if left_driving or right_driving else "unknown",
+                "map_is_junction": bool(road.get("is_junction_road")) and best["distance_m"] <= 12.0,
+                "map_junction_id": road.get("junction"),
+                "map_projection_error_m": round(best["distance_m"], 3),
+                "nearest_signal_m": round(nearest_signal, 3) if math.isfinite(nearest_signal) else None,
+                "lane_count_same_dir": same_dir_lanes,
+                "has_opposite_driving_lane": has_opposite and topology_trusted,
+                "has_parking_or_shoulder_nearby": parking_or_shoulder and topology_trusted,
+                "ramp_merge_split_hint": topology_trusted and bool(road.get("is_junction_road")) and not (math.isfinite(nearest_signal) and nearest_signal <= 60.0),
+            }
+        )
+        return out
+
     def probe(self, town: str, ego_xy: Optional[Tuple[float, float]]) -> Dict[str, Any]:
-        out: Dict[str, Any] = {"xodr_available": False}
+        out: Dict[str, Any] = {"xodr_available": False, "xodr_topology_trusted": False}
         if ego_xy is None:
             return out
         map_obj = self._load_map(town)
         if map_obj is None or self._carla is None:
-            return out
+            return self._probe_static(town, ego_xy)
         try:
             loc = self._carla.Location(x=float(ego_xy[0]), y=float(ego_xy[1]), z=0.0)
             wp = map_obj.get_waypoint(loc, project_to_road=True)
@@ -465,6 +700,8 @@ class XodrTopologyProbe:
             out.update(
                 {
                     "xodr_available": True,
+                    "xodr_source": "carla_api",
+                    "xodr_topology_trusted": True,
                     "map_road_id": int(wp.road_id),
                     "map_lane_id": int(wp.lane_id),
                     "map_lane_type": str(wp.lane_type),
@@ -571,6 +808,30 @@ def _route_trigger_window(route_s: float, trigger_s: float, pre_m: float, post_m
     if not math.isfinite(route_s) or not math.isfinite(trigger_s):
         return False
     return (trigger_s - pre_m) <= route_s <= (trigger_s + post_m)
+
+
+def apply_rule_config_overrides(overrides: Dict[str, Dict[str, Any]]) -> None:
+    """把人工调参后的场景阈值覆盖到运行时规则表。
+
+    覆盖文件只允许修改已存在场景的 `SCENARIO_RULE_CONFIG` 字段，避免拼错场景名时静默新增规则。
+    """
+    for scenario, patch in (overrides or {}).items():
+        if scenario not in SCENARIO_RULE_CONFIG:
+            raise ValueError(f"未知场景规则覆盖: {scenario}")
+        if not isinstance(patch, dict):
+            raise ValueError(f"{scenario} 的规则覆盖必须是 object")
+        SCENARIO_RULE_CONFIG[scenario].update(patch)
+
+
+def load_rule_config_overrides(path: str) -> None:
+    """从 JSON 文件加载每场景阈值覆盖，便于 smoke test 后快速调参。"""
+    if not path:
+        return
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if "scenarios" in payload:
+        payload = payload["scenarios"]
+    apply_rule_config_overrides(payload)
 
 
 SCENARIO_RULE_KIND = {
@@ -689,6 +950,7 @@ def _diagnose_rs_decision(
         "scenario_prior": scenario_name in SCENARIO_TO_ROAD_STRUCTURE,
         "xml_matched": xml_info is not None,
         "xodr_runtime_available": bool(xodr.get("xodr_available", False)),
+        "xodr_topology_trusted": bool(xodr.get("xodr_topology_trusted", xodr.get("xodr_available", False))),
         "meta_traffic_light_valid": bool(flags.get("has_tl")),
         "meta_light_hazard": bool(flags.get("light_hazard")),
         "meta_junction_hint": bool(flags.get("is_junction")) or bool(flags.get("dist_to_junction_near")),
@@ -701,6 +963,8 @@ def _diagnose_rs_decision(
         weak_or_missing.append("xml_not_matched_to_route")
     if not used_inputs["xodr_runtime_available"]:
         weak_or_missing.append("xodr_runtime_probe_unavailable")
+    elif not used_inputs["xodr_topology_trusted"]:
+        weak_or_missing.append("xodr_topology_untrusted")
     if flags.get("route_projection_error_high"):
         weak_or_missing.append("xml_route_projection_error_high")
     if kind in {"signalized_junction", "defect_junction"} and not (
@@ -766,8 +1030,41 @@ def _diagnose_rs_decision(
     }
 
 
+def _frame_annotation_comment(
+    primary: RoadStructure,
+    secondary: Set[RoadStructure],
+    confidence: float,
+    evidence: Dict[str, Any],
+) -> str:
+    """把单帧规则命中与关键证据转成可人工浏览的中文注释。"""
+    rule_kind = evidence.get("rule_kind", "unknown")
+    rules = evidence.get("rules_fired", [])
+    diag = evidence.get("diagnostic_attribution", {})
+    source = diag.get("decision_source", "unknown")
+    weak = diag.get("weak_or_missing_inputs", [])
+    secondary_text = ",".join(sorted(rs.value if isinstance(rs, RoadStructure) else str(rs) for rs in secondary)) or "无"
+    review_text = "需复核" if evidence.get("review_required") else "可自动使用"
+    metric_parts = []
+    route_s = evidence.get("route_progress_m")
+    route_error = evidence.get("route_projection_error_m")
+    trigger_distance = evidence.get("trigger_distance_m")
+    if route_s is not None:
+        metric_parts.append(f"route_s={route_s:.1f}m")
+    if route_error is not None:
+        metric_parts.append(f"proj_err={route_error:.1f}m")
+    if trigger_distance is not None:
+        metric_parts.append(f"trigger_dist={trigger_distance:.1f}m")
+    metric_text = ", ".join(metric_parts) if metric_parts else "无可用route/trigger度量"
+    weak_text = f"；弱证据={','.join(weak[:4])}" if weak else ""
+    return (
+        f"{primary.value}：规则族={rule_kind}，来源={source}，置信={confidence:.2f}，"
+        f"secondary={secondary_text}，{metric_text}，{review_text}；"
+        f"命中={','.join(rules[:5])}{weak_text}"
+    )
+
+
 class RoadStructureRuleEngine:
-    """按 ROAD_STRUCTURE_PER_SCENARIO_LABELING_DESIGN.md 生成帧级主 RS。"""
+    """按 ROAD_EVENT_CLASSIFICATION_PLAN.md 生成帧级主 RS。"""
 
     PRIORITY = [RoadStructure.R4, RoadStructure.R5, RoadStructure.R3, RoadStructure.R2, RoadStructure.R6, RoadStructure.R1]
 
@@ -808,6 +1105,7 @@ class RoadStructureRuleEngine:
         active = str(frame_data.get("current_active_scenario_type", "") or "")
         scenario_active = scenario_name in active or active in {scenario_name, scenario_name.replace("V2", "")}
         close_trigger = trigger_distance < float(cfg.get("trigger_close_m", 70.0))
+        static_signal_near = _safe_float(xodr.get("nearest_signal_m"), default=math.inf) <= 60.0
         dist_to_junction_near = dist_to_junction < 55.0
         near_junction = is_junction or map_is_junction or dist_to_junction_near
         xml_distance = _xml_numeric(xml_info, "distance", default=50.0)
@@ -815,19 +1113,33 @@ class RoadStructureRuleEngine:
         two_way_post = two_way_pre + float(cfg.get("two_way_post_pad_m", 20.0))
         junction_pre = float(cfg.get("junction_pre_m", 60.0))
         junction_post = float(cfg.get("junction_post_m", 25.0))
+        route_s_for_window = route_s
+        route_projection_error_high = route_error > 5.0 if math.isfinite(route_error) else False
+        if route_projection_error_high:
+            route_s_for_window = math.nan
+            rules.append("route_s_window_disabled_projection_error_gt_5m")
+
         two_way_window = (
-            _route_trigger_window(route_s, trigger_s, two_way_pre, two_way_post)
+            _route_trigger_window(route_s_for_window, trigger_s, two_way_pre, two_way_post)
             or close_trigger
             or scenario_active
         )
-        junction_window = near_junction or _route_trigger_window(route_s, trigger_s, junction_pre, junction_post) or close_trigger
+        junction_window = near_junction or _route_trigger_window(route_s_for_window, trigger_s, junction_pre, junction_post) or close_trigger
 
-        if has_tl:
+        if has_tl and (near_junction or static_signal_near or dist_to_junction < float(cfg.get("junction_pre_m", 60.0))):
             self._add(scores, RoadStructure.R4, 0.95)
             rules.append("r4_tl_confirmed")
-        elif light_hazard:
+        elif has_tl:
+            self._add(scores, RoadStructure.R4, 0.72)
+            rules.append("r4_tl_seen_without_strong_junction_context")
+        elif light_hazard and (near_junction or static_signal_near):
             self._add(scores, RoadStructure.R4, 0.90)
             rules.append("r4_light_hazard")
+        elif light_hazard:
+            rules.append("light_hazard_ignored_without_junction_context")
+        elif static_signal_near and (is_junction or map_is_junction or dist_to_junction < 25.0):
+            self._add(scores, RoadStructure.R4, 0.74)
+            rules.append("r4_static_xodr_signal_near")
 
         kind = str(cfg.get("kind", SCENARIO_RULE_KIND.get(scenario_name, "default_meta_map")))
         for note in cfg.get("veto", []):
@@ -866,7 +1178,7 @@ class RoadStructureRuleEngine:
         elif kind == "highway_merge":
             merge_window = (
                 _route_trigger_window(
-                    route_s,
+                    route_s_for_window,
                     trigger_s,
                     float(cfg.get("merge_pre_m", 50.0)),
                     float(cfg.get("merge_post_m", 50.0)),
@@ -875,12 +1187,20 @@ class RoadStructureRuleEngine:
                 or scenario_active
             )
             if merge_window and RoadStructure.R3 in allowed:
-                self._add(scores, RoadStructure.R3, 0.88 if ramp_hint or xodr.get("xodr_available") else 0.72)
+                if ramp_hint:
+                    r3_score = 0.88
+                elif xodr.get("xodr_available"):
+                    r3_score = 0.66
+                    rules.append("r3_xodr_available_without_merge_split_review")
+                else:
+                    r3_score = 0.58
+                    rules.append("r3_without_xodr_topology_low")
+                self._add(scores, RoadStructure.R3, r3_score)
                 rules.append("r3_merge_or_exit_window")
         elif kind == "interurban":
             merge_window = (
                 _route_trigger_window(
-                    route_s,
+                    route_s_for_window,
                     trigger_s,
                     float(cfg.get("merge_pre_m", 50.0)),
                     float(cfg.get("merge_post_m", 45.0)),
@@ -907,7 +1227,7 @@ class RoadStructureRuleEngine:
         elif kind in {"parking", "parking_exit"}:
             parking_window = (
                 _route_trigger_window(
-                    route_s,
+                    route_s_for_window,
                     trigger_s,
                     float(cfg.get("parking_pre_m", 35.0)),
                     float(cfg.get("parking_post_m", 60.0)),
@@ -929,7 +1249,7 @@ class RoadStructureRuleEngine:
         elif kind == "static_cutin":
             cutin_window = (
                 _route_trigger_window(
-                    route_s,
+                    route_s_for_window,
                     trigger_s,
                     float(cfg.get("parking_pre_m", 35.0)),
                     float(cfg.get("parking_post_m", 55.0)),
@@ -944,6 +1264,7 @@ class RoadStructureRuleEngine:
                 self._add(scores, RoadStructure.R3, 0.78)
                 rules.append("static_cutin_r3_merge_side")
             elif cutin_window:
+                self._add(scores, RoadStructure.R1, 0.72)
                 rules.append("static_cutin_same_direction_r1")
         elif kind == "pedestrian_crossing":
             if junction_window:
@@ -957,9 +1278,11 @@ class RoadStructureRuleEngine:
                 rules.append("vehicle_turning_junction_space")
         elif kind == "noscenario":
             if not has_tl and not light_hazard:
-                rules.append("noscenario_conservative_r1")
+                scores = {RoadStructure.R1: max(scores.get(RoadStructure.R1, 0.0), 0.86)}
+                rules.append("noscenario_conservative_r1_without_meta_light")
         else:
             # SameDirectionObstacle 与 DefaultMetaMapPolicy 都只允许灯态把主标签提升到 R4。
+            self._add(scores, RoadStructure.R1, 0.78)
             rules.append(f"{kind}_keeps_default_r1_unless_tl")
 
         # 只保留原始候选表允许的 RS，保留强行填充候选全集但不让规则输出越界。
@@ -1007,9 +1330,23 @@ class RoadStructureRuleEngine:
                 "route_projection_error_high": route_error > 5.0 if math.isfinite(route_error) else False,
             },
         )
+        review_reasons = []
+        if confidence < 0.70:
+            review_reasons.append("low_confidence")
+        if route_projection_error_high:
+            review_reasons.append("route_projection_error_high")
+        score_gap = diagnostic_attribution.get("top_score_gap")
+        if score_gap is not None and score_gap < 0.15:
+            review_reasons.append("candidate_score_gap_lt_0.15")
+        weak_inputs = diagnostic_attribution.get("weak_or_missing_inputs", [])
+        if primary in {RoadStructure.R2, RoadStructure.R3, RoadStructure.R6} and weak_inputs:
+            review_reasons.append("special_rs_lacks_full_topology_confirmation")
+        if kind == "signalized_junction" and cfg.get("review_if_no_tl") and primary == RoadStructure.R4 and not has_tl:
+            review_reasons.append("signalized_policy_without_meta_tl")
         evidence = {
             "rules_fired": rules,
             "rule_kind": kind,
+            "rule_config": cfg,
             "xml_path": str(xml_info.path) if xml_info else None,
             "xml_town": town,
             "route_progress_m": route_s if math.isfinite(route_s) else None,
@@ -1019,7 +1356,8 @@ class RoadStructureRuleEngine:
             "current_active_scenario_type": active or None,
             "xodr": xodr,
             "diagnostic_attribution": diagnostic_attribution,
-            "review_required": confidence < 0.70 or (route_error > 5.0 if math.isfinite(route_error) else False),
+            "review_required": bool(review_reasons),
+            "review_reasons": review_reasons,
         }
         return primary, secondary, {rs.value: round(score, 3) for rs, score in scores.items()}, evidence, confidence, reason
 
@@ -1056,6 +1394,7 @@ class SimpleFrameAnalyzer:
         if not events:
             events.add(EventType.R_E1)  # 默认为正常行驶
 
+        comment = _frame_annotation_comment(primary, secondary, confidence, evidence)
         return FrameAnnotation(
             frame_id=frame_id,
             road_structures=road_structures,
@@ -1066,6 +1405,7 @@ class SimpleFrameAnalyzer:
             secondary_road_structures=secondary,
             candidate_scores=scores,
             evidence=evidence,
+            annotation_comment=comment,
         )
 
 
@@ -1075,7 +1415,10 @@ class ScenarioCollector:
     def __init__(self, lead_data_root: str = "",
                  output_dir: str = "",
                  xml_root: str = "",
-                 carla_root: str = ""):
+                 carla_root: str = "",
+                 rule_config_json: str = ""):
+        if rule_config_json:
+            load_rule_config_overrides(rule_config_json)
         self.lead_data_root = Path(
             lead_data_root or os.environ.get("LEAD_DATA_ROOT", "") or _DEFAULT_LEAD_DATA_ROOT
         )
@@ -1094,15 +1437,20 @@ class ScenarioCollector:
     # 4种采集模式
     # ========================================================================
 
-    def collect_one_scenario_all(self, scenario_name: str) -> Dict:
+    def collect_one_scenario_all(self, scenario_name: str, max_frames_per_route: Optional[int] = None) -> Dict:
         """模式1: 单场景全部采集 - 采集该场景的所有routes"""
-        return self._collect_scenario(scenario_name, max_routes=None)
+        return self._collect_scenario(scenario_name, max_routes=None, max_frames_per_route=max_frames_per_route)
 
-    def collect_one_scenario(self, scenario_name: str, max_routes: int = 5) -> Dict:
+    def collect_one_scenario(self, scenario_name: str, max_routes: int = 5, max_frames_per_route: Optional[int] = None) -> Dict:
         """模式2: 单场景指定数目采集 - 采集该场景的前 max_routes 个routes"""
-        return self._collect_scenario(scenario_name, max_routes=max_routes)
+        return self._collect_scenario(scenario_name, max_routes=max_routes, max_frames_per_route=max_frames_per_route)
 
-    def collect_multiple_scenarios(self, scenario_names: List[str], max_routes_per_scenario: int = 5) -> Dict:
+    def collect_multiple_scenarios(
+        self,
+        scenario_names: List[str],
+        max_routes_per_scenario: int = 5,
+        max_frames_per_route: Optional[int] = None,
+    ) -> Dict:
         """模式3: 多场景全部采集 - 采集多个指定场景"""
         self.logger.info(f"采集多场景: {scenario_names}")
 
@@ -1111,7 +1459,11 @@ class ScenarioCollector:
 
         for scenario in scenario_names:
             try:
-                result = self._collect_scenario(scenario, max_routes=max_routes_per_scenario)
+                result = self._collect_scenario(
+                    scenario,
+                    max_routes=max_routes_per_scenario,
+                    max_frames_per_route=max_frames_per_route,
+                )
                 all_results[scenario] = result
                 total_frames += result.get('total_frames', 0)
                 self.logger.info(f"  ✓ {scenario}: {result.get('total_frames', 0)} 帧")
@@ -1134,18 +1486,43 @@ class ScenarioCollector:
 
         return summary
 
-    def collect_all_scenarios(self, max_routes_per_scenario: int = 5) -> Dict:
+    def collect_all_scenarios(self, max_routes_per_scenario: int = 5, max_frames_per_route: Optional[int] = None) -> Dict:
         """模式4: 全部采集 - 采集所有47个场景"""
         all_scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
         self.logger.info(f"采集所有场景 ({len(all_scenarios)}个)")
 
-        return self.collect_multiple_scenarios(all_scenarios, max_routes_per_scenario)
+        return self.collect_multiple_scenarios(all_scenarios, max_routes_per_scenario, max_frames_per_route=max_frames_per_route)
 
     # ========================================================================
     # 内部实现
     # ========================================================================
 
-    def _collect_scenario(self, scenario_name: str, max_routes: Optional[int] = None) -> Dict:
+    def _select_route_dirs(self, route_dirs: List[Path], max_routes: Optional[int]) -> List[Path]:
+        """分散抽样 route，避免只看排序最前面的同 town/id。"""
+        if max_routes is None or len(route_dirs) <= max_routes:
+            return route_dirs
+        max_routes = max(1, max_routes)
+        if max_routes == 1:
+            return [route_dirs[0]]
+        indexes = sorted({round(i * (len(route_dirs) - 1) / (max_routes - 1)) for i in range(max_routes)})
+        selected = [route_dirs[i] for i in indexes]
+        if len(selected) < max_routes:
+            selected_names = {p.name for p in selected}
+            for route_dir in route_dirs:
+                if route_dir.name in selected_names:
+                    continue
+                selected.append(route_dir)
+                selected_names.add(route_dir.name)
+                if len(selected) >= max_routes:
+                    break
+        return selected
+
+    def _collect_scenario(
+        self,
+        scenario_name: str,
+        max_routes: Optional[int] = None,
+        max_frames_per_route: Optional[int] = None,
+    ) -> Dict:
         """采集单个场景的内部实现"""
         self.logger.info(f"采集场景: {scenario_name}")
 
@@ -1177,7 +1554,7 @@ class ScenarioCollector:
             route_dirs = all_route_dirs
         else:
             # 采集前 max_routes 个
-            route_dirs = all_route_dirs[:max_routes]
+            route_dirs = self._select_route_dirs(all_route_dirs, max_routes)
 
         self.logger.info(
             f"  发现 {len(discovered_route_dirs)} 个routes, "
@@ -1187,7 +1564,7 @@ class ScenarioCollector:
         routes = []
         for i, route_dir in enumerate(route_dirs, 1):
             self.logger.info(f"    [{i}/{len(route_dirs)}] 处理 {route_dir.name}")
-            route_result = self._process_route(scenario_name, route_dir)
+            route_result = self._process_route(scenario_name, route_dir, max_frames_per_route=max_frames_per_route)
             routes.append(route_result)
 
         result = {
@@ -1210,7 +1587,51 @@ class ScenarioCollector:
 
         return result
 
-    def _process_route(self, scenario_name: str, route_path: Path) -> Dict:
+    def _frame_rs_annotation_payload(self, ann: Dict[str, Any]) -> Dict[str, Any]:
+        """生成显式逐帧 RS 标注块，和候选全集字段分开。"""
+        evidence = ann.get("evidence", {})
+        diagnostic = evidence.get("diagnostic_attribution", {})
+        return {
+            "label": ann.get("primary_road_structure"),
+            "secondary": ann.get("secondary_road_structures", []),
+            "confidence": ann.get("confidence"),
+            "comment": ann.get("annotation_comment", ""),
+            "rule_kind": evidence.get("rule_kind"),
+            "rules_fired": evidence.get("rules_fired", []),
+            "decision_source": diagnostic.get("decision_source"),
+            "review_required": bool(evidence.get("review_required")),
+            "review_reasons": evidence.get("review_reasons", []),
+            "metrics": {
+                "route_progress_m": evidence.get("route_progress_m"),
+                "route_projection_error_m": evidence.get("route_projection_error_m"),
+                "trigger_distance_m": evidence.get("trigger_distance_m"),
+                "traffic_light_state": evidence.get("traffic_light_state"),
+                "active_scenario": evidence.get("current_active_scenario_type"),
+            },
+            "xodr_summary": {
+                "available": evidence.get("xodr", {}).get("xodr_available"),
+                "source": evidence.get("xodr", {}).get("xodr_source"),
+                "trusted": evidence.get("xodr", {}).get("xodr_topology_trusted"),
+                "road_id": evidence.get("xodr", {}).get("map_road_id"),
+                "lane_id": evidence.get("xodr", {}).get("map_lane_id"),
+                "is_junction": evidence.get("xodr", {}).get("map_is_junction"),
+                "opposite_lane": evidence.get("xodr", {}).get("has_opposite_driving_lane"),
+                "parking_or_shoulder": evidence.get("xodr", {}).get("has_parking_or_shoulder_nearby"),
+                "merge_split_hint": evidence.get("xodr", {}).get("ramp_merge_split_hint"),
+            },
+        }
+
+    def _confidence_stats(self, annotations: List[Dict[str, Any]]) -> Dict[str, Any]:
+        values = [float(ann.get("confidence", 0.0)) for ann in annotations if ann.get("confidence") is not None]
+        if not values:
+            return {"min": None, "avg": None, "max": None}
+        return {
+            "min": round(min(values), 4),
+            "avg": round(sum(values) / len(values), 4),
+            "max": round(max(values), 4),
+        }
+
+    def _process_route(self, scenario_name: str, route_path: Path, max_frames_per_route: Optional[int] = None) -> Dict:
         """处理单个route"""
         metas_dir = route_path / "metas"
         if not metas_dir.exists():
@@ -1218,6 +1639,8 @@ class ScenarioCollector:
 
         xml_info = self.xml_index.match(scenario_name, route_path.name)
         meta_files = sorted(metas_dir.glob("*.pkl"))
+        if max_frames_per_route is not None and max_frames_per_route > 0:
+            meta_files = meta_files[:max_frames_per_route]
         annotations = []
 
         for meta_file in meta_files:
@@ -1227,10 +1650,42 @@ class ScenarioCollector:
                 frame_data = load_pickle_file(meta_file)
 
                 ann = SimpleFrameAnalyzer.analyze(scenario_name, frame_id, frame_data, xml_info=xml_info)
-                annotations.append(ann.to_dict())
+                ann_dict = ann.to_dict()
+                ann_dict["frame_time_s"] = round(frame_id * 0.25, 3)
+                ann_dict["meta_path"] = str(meta_file)
+                ann_dict["frame_rs_annotation"] = self._frame_rs_annotation_payload(ann_dict)
+                annotations.append(ann_dict)
             except Exception as e:
                 self.logger.warning(f"处理 {meta_file} 出错: {e}")
                 continue
+
+        primary_counter = defaultdict(int)
+        review_counter = defaultdict(int)
+        xodr_source_counter = defaultdict(int)
+        review_frame_count = 0
+        transition_frames = []
+        prev_primary = None
+        for ann in annotations:
+            primary = ann.get("primary_road_structure")
+            if primary:
+                primary_counter[primary] += 1
+                if prev_primary is not None and primary != prev_primary:
+                    transition_frames.append(
+                        {
+                            "frame_id": ann.get("frame_id"),
+                            "from": prev_primary,
+                            "to": primary,
+                            "comment": ann.get("annotation_comment", ""),
+                        }
+                    )
+                prev_primary = primary
+            evidence = ann.get("evidence", {})
+            if evidence.get("review_required"):
+                review_frame_count += 1
+                for reason in evidence.get("review_reasons", ["review_required"]):
+                    review_counter[reason] += 1
+            xodr_source = evidence.get("xodr", {}).get("xodr_source") or "unavailable"
+            xodr_source_counter[xodr_source] += 1
 
         return {
             "route_id": route_path.name,
@@ -1239,5 +1694,12 @@ class ScenarioCollector:
             "xml_town": xml_info.town if xml_info else None,
             "xml_available": xml_info is not None,
             "num_frames": len(annotations),
+            "primary_rs_distribution": dict(sorted(primary_counter.items())),
+            "review_required_frames": review_frame_count,
+            "review_required_ratio": round(review_frame_count / len(annotations), 4) if annotations else 0.0,
+            "review_reason_distribution": dict(sorted(review_counter.items())),
+            "xodr_source_distribution": dict(sorted(xodr_source_counter.items())),
+            "confidence_stats": self._confidence_stats(annotations),
+            "primary_rs_transitions": transition_frames[:50],
             "annotations": annotations
         }

@@ -533,7 +533,214 @@ EVENTS = 常规背景事件 + 命中的突发事件 span
 - R4 下命中 U-E6 span：`EVENTS=[R-E4, U-E6]`
 - R5 下命中 U-E7 span：`EVENTS=[R-E5, U-E7]`
 
-## 9. 待核实问题
+## 9. ROAD_STRUCTURE 调研与实现协议
+
+本节合并原先分散在 ROAD_STRUCTURE 调研协议和地图/XML 标注方案里的全局执行口径。
+逐场景 ROAD_STRUCTURE 规则、证据需求、阈值风险和未完善点单独维护在
+`ROAD_STRUCTURE_PER_SCENARIO_RULES.md`；`collection_output/rs_research/<Scenario>/`
+里的本地调研结论更新后，必须同步沉淀到该逐场景文档。
+
+### 9.1 三源输入与边界
+
+每个 frame 的 `primary_road_structure` 必须由三类证据共同约束：
+
+- `lead_data/<Scenario>/<run_id>/metas/*.pkl`：帧级事实来源，包括 `pos_global`、`theta`、
+  speed、junction、灯态、active scenario、`dist_to_*`、bbox/RGB 等。
+- `data/lead/<Scenario>/<Town>_<route_key>.xml`：route、trigger、scenario 参数和地理窗口。
+- `CARLA_0915/.../<Town>.xodr`：静态拓扑来源，包括 road/lane/junction/signal/controller、
+  stop/yield、parking/shoulder、merge/split 等。
+
+XML trigger 只是 scenario 机制锚点，不是事件可见起点，也不是结构标签唯一依据。
+XODR 只证明拓扑可能性，不提供实时灯色；实时灯色只用 meta 的
+`traffic_light_state` / `light_hazard`。`dist_to_*` 主要服务 EVENT/span，可给 RS 加置信，
+但不能单独决定 R2/R3/R6。
+
+所有 LEAD run 在进入调研、标注、SFT/GoalGen/LeadMoT 数据集或 probe 前，必须先剔除异常时长 route：
+4Hz 下 `rgb/*.jpg >= 361` 且不在 `BlockedIntersection` / `ControlLoss` 白名单内的 run
+都视为异常采集。代码统一复用 `lead_video_tools.abnormal_duration_filter.is_abnormal_lead_route`。
+
+### 9.2 调研包完成标准
+
+每个 scenario 都必须先有独立调研包，默认输出：
+
+```text
+keyframe_filter/collection_output/rs_research/<Scenario>/
+```
+
+最小要求：
+
+- 覆盖该 scenario 涉及的全部 town；每个 town 至少抽 5 条分散 run
+  （不足 5 条可读 run 则全读）。
+- 对每条 sampled run 核对 XML route/trigger、XODR 局部拓扑、ego global trace、
+  meta frame features、RGB contact sheet 和关键边界帧。
+- 边界增补必须覆盖 trigger 前后、active scenario 变化、`traffic_light_state` 变化、
+  `junction_id/is_junction` 变化，以及候选 RS 分数接近帧。
+- `rules/thresholds.json` 的阈值必须写明 `source`、`supporting_runs`、
+  `reviewed_artifacts` 和 `reason`；匿名 magic number 只能作为临时默认值。
+
+`collection_output/` 是本地自动调研输出目录，不入库、不 push。需要共享的全局结论应沉淀进本文，
+逐场景结论应沉淀进 `ROAD_STRUCTURE_PER_SCENARIO_RULES.md`，运行入口说明沉淀进
+`README.md`，可执行阈值再沉淀进小型规则配置或后续代码。
+
+完成 `rs_research.py --samples-per-town 5` 只表示 `auto_artifacts_ready`，不代表规则可标
+`final_complete=true`。只有当 `manual_map_rgb_checked=true`、
+`thresholds_have_provenance=true`、`runtime_rule_ready=true` 同时成立时，runtime 才能把
+`complete_investigation_status.is_complete` 置为 true。
+
+当前 5-id/town 自动调研结论：
+
+- 43 个 scenario 均已生成自动证据包。
+- 只有 `NonSignalizedJunctionLeftTurn/Town10HD` 本地缺可读 meta；其它 scenario 自动输入完整。
+- 43/43 个 scenario 的 `map_rgb_alignment_status=not_checked`、
+  `manual_final_complete=false`。
+- 当前阈值仍是 `temporary_default_rule_config`，`reviewed_artifacts=[]`；
+  因此只能作为临时规则设计和 smoke test 依据。
+
+### 9.3 Runtime 统一门控
+
+代码应先按 R1-R6 统一证据门控生成候选，再套 scenario config，不要写 43 个互相独立的
+magic-number 分支。
+
+| RS | High-confidence 门控 | 常见否决 |
+|---|---|---|
+| R1 | 默认桶；同向障碍、急刹、动态对象、control loss 本身不改变 RS | brake/accel/vehicle_hazard/walker_hazard 不参与 RS 升级 |
+| R2 | scenario prior + trigger/active 窗口 + 局部 XODR opposite driving lane + 同向车道不足 | 只有 TwoWays 名称或 `dist_to_*` 最高 medium；灯态/路口主导时 R4/R5 primary |
+| R3 | 高速/合流 scenario prior + actor-flow/merge/exit 窗口 + ramp/merge/split/lane-count-change 证据 | `start_actor_flow/end_actor_flow` 字段名不够；自行车/路口横向流 veto R3 |
+| R4 | 有效 `traffic_light_state` / `light_hazard`，或同源受控 junction/controller 支撑 | `CrossJunctionDefectTrafficLight` 由 R5 override；阻塞/违规只是 EVENT |
+| R5 | nonsignalized/priority/defect prior + route/trigger/junction 窗口 + 无有效正常灯态或 defect override | 连续有效灯态且非 defect scenario 时不 high R5 |
+| R6 | Parking* / parking 子型 prior + parking trigger/active 窗口 + parking/shoulder/curbside 或停车汇入证据 | `ParkedObstacle` 不是 R6；灯控路口主导时 R4 primary |
+
+仲裁优先级默认：
+
+```text
+R4/R5 > R3 > R2/R6 > R1
+```
+
+例外：
+
+- `CrossJunctionDefectTrafficLight`：R5 覆盖 R4，并写 `defect_signal_overrides_R4`。
+- `VehicleOpensDoorTwoWays`：R2/R6 可同时成立，primary 取决于是否必须占用/等待对向车道。
+- `noScenarios`：没有 scenario prior 时，只允许强灯态 + 同源受控 junction 升级 R4，否则 R1。
+
+### 9.4 规则族结论
+
+- `same_direction_obstacle`：`Accident`、`ConstructionObstacle`、`ParkedObstacle`。
+  静态同向障碍是 EVENT 证据，不把整段升级成 R2/R6；只在受控路口窗口进入 R4。
+- `twoways_obstacle` / `invading_turn` / `vehicle_opens_door_twoways`：
+  只有 XML trigger、XODR 对向/双向单车道拓扑、meta active 或距离字段共同成立时进入 R2；
+  TwoWays 名称本身不能全程给 R2。
+- `highway_merge` / `interurban`：只有 ramp/merge/split/highway 拓扑支持时进入 R3；
+  EnterFlow/Merger/HighwayExit 的行驶事件不能替代 XODR 拓扑证据。
+- `signalized_junction`：灯态有效、受控 junction 或 controller/traffic light 近邻成立时进入 R4；
+  `BlockedIntersection` 和 `OppositeVehicleRunningRedLight` 的阻塞/违规只是 EVENT，不改成 R5。
+- `nonsignalized_junction` / `defect_junction`：无有效灯态、stop/yield/priority 或灯故障机制成立时进入 R5；
+  `CrossJunctionDefectTrafficLight` 强制 R5 覆盖 R4。
+- `parking` / `parking_exit` / `static_cutin`：R6 只给 parking/shoulder/curb/parking-exit 结构窗口；
+  停车相关 scenario 在信号灯路口段仍优先 R4/R5。
+- `default_meta_map` / `noscenario`：默认 R1；ControlLoss、HardBreak、DynamicObjectCrossing、
+  HazardAtSideLane 等行为/突发事件本身不改变 RS，只能通过灯态或 junction 证据临时进入 R4。
+
+初始阈值只作为调研起点：`junction_pre_m=40~60`、`junction_post_m=20~40`、
+`two_way_min_pre_m=45~80`、`merge_pre_m=30~50`、`merge_post_m=40~50`、
+`parking_pre_m=20~35`、`parking_post_m=50~60`。正式阈值必须在 scenario 调研包中补齐
+provenance 后才能进入 high-confidence runtime。
+
+### 9.5 Smoke test 修正
+
+已有小样本 smoke test 证明 `rs_research.py` 和 `ScenarioCollector` 能跑通，但暴露了需要收紧的规则：
+
+- 需要 per-frame XODR 时必须用能 `import carla` 的 Python；否则 XODR 证据为空，
+  R2/R3/R6 只能 medium/low + review。
+- R2 primary 不能只靠 scenario + trigger；若没有 `has_opposite_driving_lane=true` 且
+  `same_direction_lane_count<=1`，不应 high。
+- R3 high 必须要求 ramp/merge/split/lane-count-change；只有 active/trigger 时最多 medium，
+  且 `review_required=true`。
+- R6 不能只靠附近 shoulder/parking hint；必须结合 Parking* prior、parking window、方向、
+  bbox/RGB 路边车列。
+- `route_projection_error_m > 5m` 时，无论候选分数多高，都必须 `review_required=true`。
+- `complete=true` 只能解释为 auto input complete；文档和代码字段应区分
+  `auto_input_complete` / `manual_final_complete`。
+
+扩展 smoke test 又抽了 9 个高风险场景，每个 scenario 先跑 1 条 route：
+
+```text
+ParkingCrossingPedestrian, VehicleOpensDoorTwoWays, StaticCutIn,
+InterurbanActorFlow, InterurbanAdvancedActorFlow,
+NonSignalizedJunctionLeftTurnEnterFlow, T_Junction,
+PedestrianCrossing, SignalizedJunctionRightTurn
+```
+
+观察结果：
+
+| Scenario | 小样本分布 | 暴露的问题 |
+|---|---|---|
+| `ParkingCrossingPedestrian` | 276 帧：R4=227、R6=39、R1=10；review=202 | R4/R6 仲裁方向对，但大量 `xml_route_projection_error_high`，说明 XML sparse route 不能作为边界主依据。 |
+| `VehicleOpensDoorTwoWays` | 76 帧：R6=52、R4=21、R1=3；15 次切换 | R2/R6 同时触发但 primary 多为 R6；切换偏碎，需要 hysteresis 和“是否必须借/等对向车道”的动作主因判断。 |
+| `StaticCutIn` | 105 帧：R6=97、R1=8 | 该样本像 parking-side cut-in；但全程有 `r3_lacks_xodr_merge_split_confirmation`，说明 StaticCutIn 必须逐 run 分 R3/R6/R1，不能统一。 |
+| `InterurbanActorFlow` | 122 帧：R3=102、R5=4、R1=16；review=109 | 前段 R3/后段 R4-R5 的思路对，但 `interurban_junction_r5_medium` 大量触发且 projection error 高，边界不能只靠 XML route_s。 |
+| `InterurbanAdvancedActorFlow` | 120 帧：R5=80、R1=40；review=111 | junction primary 方向可用；R3 只应在明确 topology 时开放。 |
+| `NonSignalizedJunctionLeftTurnEnterFlow` | 59 帧全 R5；review=37 | `enter_flow_not_r3` 正确；R5 窗口需要 meta junction/stop/yield + XODR 同源支撑。 |
+| `T_Junction` | 163 帧全 R4；140 帧有灯态 | 大体合理；但 23 帧无有效灯态仍未 review，`review_if_no_tl=true` 需要落实为“无灯态且无同源 controller 时 review”。 |
+| `PedestrianCrossing` | 154 帧：R4=114、R5=40；review=142 | 行人不决定 RS 的 veto 正确；R4/R5 边界被 projection error 污染，需要靠灯态和局部 junction。 |
+| `SignalizedJunctionRightTurn` | 44 帧全 R4；26 帧有灯态；review=35 | 右转场景 R4 方向正确；right-turn channel 不能按 XML sparse line 判 exit。 |
+
+由此把 runtime 思路进一步修正为“两级窗口”：
+
+```text
+candidate recall window:
+  scenario prior + XML trigger/active/meta distance
+  分数只给 0.55~0.70，用于把候选拉进来
+
+topology/meta confirmation window:
+  局部 XODR + meta 时序 + bbox/RGB 人工证据
+  命中后才升到 0.85~0.95，并允许 high-confidence primary
+```
+
+具体含义：
+
+- R2：召回可用 TwoWays prior + trigger/active；确认必须有 opposite lane、同向车道不足、
+  或 RGB/bbox/动作主因证明对向参与。否则 primary R2 要 review，分数不超过 0.70。
+- R3：召回可用 Highway/Merger/EnterFlow prior + actor-flow window；确认必须有 merge/split/ramp、
+  lane-count change 或目标出口车道证据。`xodr_available=true` 不等于 R3 topology。
+- R6：召回可用 Parking* prior + parking window；确认必须有 parking/shoulder/curbside、
+  parking->Driving 转换或路边静态车列。普通 shoulder hint 不够。
+- R4/R5：召回可用 junction/trigger window；确认必须看灯态、light_hazard、stop/yield/controller
+  和 route 同源。`is_junction=false` 不代表不是 stopline approach。
+- XML route projection error >5m 时，不能用 route_s 做边界；应改用 meta 时序和 XODR map waypoint
+  吸附，并强制 `review_required=true`。
+
+下一步代码完善优先级：
+
+1. `rs_research.py` 增加 boundary frame 采样和 `projection_metrics.json`，把 projection error
+   系统性记录到调研包。
+2. `collector.py` 将当前特种 RS 的打分拆成 recall score 和 confirmation score。
+3. `collector.py` 对 `r2_scenario_trigger_medium`、`r3_lacks_xodr_merge_split_confirmation`、
+   `r6_lacks_xodr_parking_or_shoulder_confirmation` 强制 review，并限制分数上限。
+4. 加最短持续帧与 transition margin：R2/R3/R6 少于 4 帧的孤立片段合并或 review，
+   R4 有有效灯态时不可被平滑覆盖。
+
+### 9.6 错帧回查流程
+
+用户指出某一帧错标时，先查该 scenario 的调研包，而不是直接调阈值：
+
+```text
+scenario README
+  -> maps/*route_trigger_ego_trace.png
+  -> XML/XODR local evidence
+  -> meta/*__frame_features.jsonl
+  -> RGB contact sheet / boundary frames
+  -> thresholds.json / runtime rule
+```
+
+归因口径：
+
+- R4/R5 错：优先查灯态、controller/stop/yield、route/junction 同源，不先改 scenario 名映射。
+- R2 错：优先查局部 opposite lane、same-dir lane count、trigger/active 窗口和障碍窗口。
+- R3 错：优先查 ramp/merge/split/topology，不把 EnterFlow 名称直接当 R3。
+- R6 错：优先查 parking/shoulder/curb/停车起步空间，不查 parked obstacle 字段本身。
+- R1 错：检查是否有被 veto 的事件误当结构，或 junction/merge/parking 窗口过窄。
+
+## 10. 待核实问题
 
 需要后续结合 `collection_output/rs_research/<Scenario>/maps/*route_trigger_ego_trace.png`、
 `rgb/*sample_contact_sheet.jpg` 和 `meta/*__frame_features.jsonl` 核实：
@@ -548,7 +755,7 @@ EVENTS = 常规背景事件 + 命中的突发事件 span
 - `NonSignalizedJunctionLeftTurn/Town10HD` 缺可读 meta，后续 EVENT/RS 评估必须标记该 town 的
   confidence 不高于 medium，直到补齐 meta 或人工确认。
 
-## 10. 当前结论
+## 11. 当前结论
 
 最终推荐口径：
 
