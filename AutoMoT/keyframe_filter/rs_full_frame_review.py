@@ -120,12 +120,43 @@ def _issue_bucket(reasons: List[str], label: str) -> str:
     return "needs_rgb_visual_review"
 
 
+def _is_benign_stable_review(reasons: List[str], label: str) -> bool:
+    """Stable audit notes are useful metadata, but not visual mismatches."""
+    if not reasons:
+        return False
+    benign_reasons = {
+        "candidate_score_gap_lt_0.15",
+        "route_projection_error_high",
+        "static_xodr_topology_demoted_by_projection_error",
+        "structure_window_demoted_by_projection_error",
+        "xml_route_projection_error_high",
+        "xodr_topology_untrusted",
+        "weaker_special_rs_kept_as_candidate_not_primary",
+    }
+    if label == "R1":
+        benign_reasons.update(
+            {
+                "r2_lacks_xodr_opposite_lane_confirmation",
+                "r3_lacks_xodr_merge_split_confirmation",
+                "r6_lacks_xodr_parking_or_shoulder_confirmation",
+            }
+        )
+    return all(str(reason) in benign_reasons for reason in reasons)
+
+
 def _is_candidate_anomaly(ann: Dict[str, Any], prev_label: Optional[str]) -> Tuple[bool, List[str]]:
     label = str(ann.get("primary_road_structure") or "")
     confidence = float(ann.get("confidence") or 0.0)
     reasons = _hard_review_reasons(ann)
     if reasons:
-        return True, _annotation_review_reasons(ann)
+        all_reasons = _annotation_review_reasons(ann)
+        if (
+            _is_benign_stable_review(all_reasons, label)
+            and confidence >= 0.75
+            and (prev_label is None or not label or label == prev_label)
+        ):
+            return False, []
+        return True, all_reasons
     if confidence < 0.75:
         return True, ["confidence_lt_0.75"]
     if prev_label is not None and label and label != prev_label:
@@ -274,6 +305,28 @@ def _route_summary(route_result: Dict[str, Any], anomaly_count: int, sheet_paths
     }
 
 
+def _scenario_visual_summary(scenario_summary: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the user-facing visual review summary without changing raw stats."""
+    return {
+        **scenario_summary,
+        "review_mode": "one_full_frame_route_per_town_rgb_primary",
+        "visual_evidence_contract": {
+            "primary_source": "RGB contact sheets with frame-level ROAD_STRUCTURE overlays",
+            "low_visibility_fallback": "XODR/XML/LEAD meta evidence in frame_rs_annotation",
+            "candidate_anomaly_definition": [
+                "frame_rs_annotation.review_required",
+                "confidence < 0.75",
+                "primary ROAD_STRUCTURE transition",
+            ],
+        },
+        "anomaly_record_file": "candidate_anomalies.jsonl",
+        "notes": [
+            "This summary is written per scenario and keeps route/town-level sheet paths for manual RGB inspection.",
+            "Existing scenario_visual_review_summary.json files are skipped when --skip-existing-visual-summary is set.",
+        ],
+    }
+
+
 def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
     lead_data_root = Path(args.lead_data_root)
     out_root = Path(args.output_dir)
@@ -314,6 +367,19 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
     for scenario_index, scenario in enumerate(scenarios, 1):
         print(f"[{scenario_index}/{len(scenarios)}] scenario={scenario}", flush=True)
         scenario_dir = out_root / scenario
+        visual_summary_path = scenario_dir / "scenario_visual_review_summary.json"
+        if args.skip_existing_visual_summary and visual_summary_path.exists():
+            print(f"  skip existing visual summary: {visual_summary_path}", flush=True)
+            try:
+                with visual_summary_path.open("r", encoding="utf-8") as handle:
+                    global_summary["scenarios"][scenario] = json.load(handle)
+            except Exception:
+                global_summary["scenarios"][scenario] = {
+                    "scenario": scenario,
+                    "status": "skipped_existing_unreadable",
+                    "path": str(visual_summary_path),
+                }
+            continue
         scenario_summary: Dict[str, Any] = {"towns": {}, "scenario": scenario}
         runs_by_town = _scenario_runs_by_town(lead_data_root, scenario)
         for town, town_runs in runs_by_town.items():
@@ -394,12 +460,14 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
         scenario_summary["review_reason_distribution"] = dict(sorted(scenario_review.items()))
         global_summary["scenarios"][scenario] = scenario_summary
         _write_json(scenario_dir / "scenario_review_summary.json", scenario_summary)
+        _write_json(visual_summary_path, _scenario_visual_summary(scenario_summary))
 
     global_summary["total_routes"] = total_routes
     global_summary["total_frames"] = total_frames
     global_summary["total_candidate_anomaly_frames"] = total_anomalies
     global_summary["candidate_anomalies_jsonl"] = str(anomaly_jsonl)
     _write_json(out_root / "global_review_summary.json", global_summary)
+    _write_json(out_root / "global_visual_review_summary.json", global_summary)
     return global_summary
 
 
@@ -417,6 +485,11 @@ def main() -> None:
     parser.add_argument("--rule-config-json", default="")
     parser.add_argument("--frames-per-sheet", type=int, default=40)
     parser.add_argument("--sheet-cols", type=int, default=4)
+    parser.add_argument(
+        "--skip-existing-visual-summary",
+        action="store_true",
+        help="Skip scenarios that already have scenario_visual_review_summary.json",
+    )
     args = parser.parse_args()
 
     summary = _run_review(args)

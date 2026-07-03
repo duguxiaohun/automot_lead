@@ -1311,6 +1311,7 @@ class RoadStructureRuleEngine:
         dist_to_junction = _finite_min(frame_data.get("dist_to_junction"), frame_data.get("distance_to_next_junction"))
         stop_hazard = _safe_bool(frame_data.get("stop_sign_hazard", False)) or _safe_bool(frame_data.get("stop_sign_close", False))
         cfg = SCENARIO_RULE_CONFIG.get(scenario_name, {"kind": SCENARIO_RULE_KIND.get(scenario_name, "default_meta_map")})
+        kind = str(cfg.get("kind", SCENARIO_RULE_KIND.get(scenario_name, "default_meta_map")))
         active = str(frame_data.get("current_active_scenario_type", "") or "")
         scenario_active = scenario_name in active or active in {scenario_name, scenario_name.replace("V2", "")}
         trigger_close_m = float(cfg.get("trigger_close_m", 70.0))
@@ -1371,6 +1372,16 @@ class RoadStructureRuleEngine:
             rules.append("roundabout_xodr_forces_r1")
 
         twoway_obstruction = _twoway_obstruction_evidence(frame_data)
+        light_hazard_control_context = strong_control_context and (
+            meta_near_junction
+            or xodr_near_junction
+            or stop_hazard
+        )
+        conservative_light_hazard_kind = kind in {"same_direction_obstacle", "default_meta_map"}
+        if conservative_light_hazard_kind and not (meta_near_junction or stop_hazard):
+            light_hazard_control_context = False
+        elif (not conservative_light_hazard_kind) and static_signal_near and strong_control_context:
+            light_hazard_control_context = True
 
         if (not map_is_roundabout) and has_tl and strong_control_context:
             self._add(scores, RoadStructure.R4, 0.95)
@@ -1379,10 +1390,11 @@ class RoadStructureRuleEngine:
             self._add(scores, RoadStructure.R4, 0.62)
             self._add(scores, RoadStructure.R1, 0.76)
             rules.append("r4_tl_seen_without_strong_junction_context")
-        elif (not map_is_roundabout) and light_hazard and (near_junction or static_signal_near):
+        elif (not map_is_roundabout) and light_hazard and light_hazard_control_context:
             self._add(scores, RoadStructure.R4, 0.90)
             rules.append("r4_light_hazard")
         elif light_hazard:
+            self._add(scores, RoadStructure.R1, 0.78)
             rules.append("light_hazard_ignored_without_junction_context")
         elif (not map_is_roundabout) and static_signal_near and strong_control_context:
             self._add(scores, RoadStructure.R4, 0.74)
@@ -1391,7 +1403,6 @@ class RoadStructureRuleEngine:
             self._add(scores, RoadStructure.R1, 0.76)
             rules.append("r4_static_signal_without_visual_junction_demoted")
 
-        kind = str(cfg.get("kind", SCENARIO_RULE_KIND.get(scenario_name, "default_meta_map")))
         for note in cfg.get("veto", []):
             rules.append(str(note))
         if cfg.get("rule_note"):
@@ -1484,12 +1495,12 @@ class RoadStructureRuleEngine:
                 if ramp_hint:
                     r3_score = 0.88
                 elif xodr.get("xodr_available"):
-                    r3_score = 0.58
-                    self._add(scores, RoadStructure.R1, 0.72)
+                    r3_score = 0.50
+                    self._add(scores, RoadStructure.R1, 0.80)
                     rules.append("r3_xodr_available_without_merge_split_review")
                 else:
-                    r3_score = 0.52
-                    self._add(scores, RoadStructure.R1, 0.72)
+                    r3_score = 0.45
+                    self._add(scores, RoadStructure.R1, 0.80)
                     rules.append("r3_without_xodr_topology_low")
                 self._add(scores, RoadStructure.R3, r3_score)
                 rules.append("r3_merge_or_exit_window")
@@ -1507,8 +1518,8 @@ class RoadStructureRuleEngine:
                 if ramp_hint:
                     self._add(scores, RoadStructure.R3, 0.82)
                 else:
-                    self._add(scores, RoadStructure.R3, 0.58)
-                    self._add(scores, RoadStructure.R1, 0.72)
+                    self._add(scores, RoadStructure.R3, 0.50)
+                    self._add(scores, RoadStructure.R1, 0.78)
                     rules.append("interurban_r3_lacks_merge_topology_review")
                 rules.append("interurban_r3_actor_flow_window")
             if junction_window:
@@ -1543,8 +1554,8 @@ class RoadStructureRuleEngine:
                 if has_parking:
                     self._add(scores, RoadStructure.R6, 0.88)
                 else:
-                    self._add(scores, RoadStructure.R6, 0.58)
-                    self._add(scores, RoadStructure.R1, 0.72)
+                    self._add(scores, RoadStructure.R6, 0.50)
+                    self._add(scores, RoadStructure.R1, 0.80)
                     rules.append("r6_requires_parking_or_curbside_confirmation")
                 rules.append("r6_parking_context_window")
         elif kind == "vehicle_opens_door_twoways":
@@ -1553,16 +1564,16 @@ class RoadStructureRuleEngine:
                 if has_opposite and same_dir_lanes <= 1:
                     self._add(scores, RoadStructure.R2, 0.88)
                 else:
-                    self._add(scores, RoadStructure.R2, 0.58)
-                    self._add(scores, RoadStructure.R1, 0.72)
+                    self._add(scores, RoadStructure.R2, 0.50)
+                    self._add(scores, RoadStructure.R1, 0.80)
                     rules.append("vehicle_open_door_r2_lacks_opposite_confirmation")
                 rules.append("vehicle_open_door_r2_possible")
             if door_window and RoadStructure.R6 in allowed:
                 if has_parking:
                     self._add(scores, RoadStructure.R6, 0.82)
                 else:
-                    self._add(scores, RoadStructure.R6, 0.56)
-                    self._add(scores, RoadStructure.R1, 0.72)
+                    self._add(scores, RoadStructure.R6, 0.48)
+                    self._add(scores, RoadStructure.R1, 0.80)
                     rules.append("vehicle_open_door_r6_lacks_parking_confirmation")
                 rules.append("vehicle_open_door_r6_parking_context")
         elif kind == "static_cutin":
@@ -1583,7 +1594,7 @@ class RoadStructureRuleEngine:
                 self._add(scores, RoadStructure.R3, 0.78)
                 rules.append("static_cutin_r3_merge_side")
             elif cutin_window:
-                self._add(scores, RoadStructure.R1, 0.72)
+                self._add(scores, RoadStructure.R1, 0.80)
                 rules.append("static_cutin_same_direction_r1")
         elif kind == "pedestrian_crossing":
             if junction_window:
@@ -1610,6 +1621,13 @@ class RoadStructureRuleEngine:
             scores.pop(RoadStructure.R4, None)
             scores.pop(RoadStructure.R5, None)
             self._add(scores, RoadStructure.R1, 0.92)
+
+        if (
+            scores.get(RoadStructure.R1, 0.0) <= 0.35
+            and not any(rs != RoadStructure.R1 and score >= 0.60 for rs, score in scores.items())
+        ):
+            self._add(scores, RoadStructure.R1, 0.78)
+            rules.append("r1_stable_no_special_structure_confirmed")
 
         # 只保留原始候选表允许的 RS，保留强行填充候选全集但不让规则输出越界。
         scores = {rs: score for rs, score in scores.items() if rs in allowed}
