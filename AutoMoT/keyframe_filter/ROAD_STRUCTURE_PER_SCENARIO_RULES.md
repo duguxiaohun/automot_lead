@@ -149,6 +149,41 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
   `route_s_window_disabled_projection_error_gt_5m`。
 - `noScenarios` 调整为无 meta 有效灯态或 light hazard 时强制保守 R1；静态 XODR signal/junction hint 只进 evidence/review，不再把普通无场景帧自动推成 R4。
 - `StaticCutIn` 调整为 cut-in 窗口内若没有 parking/merge 拓扑证据，则回 R1 中置信；R3/R6 仍必须有对应 XODR/RGB 证据才 high。
+- 第一轮全帧 RGB 视觉复核已覆盖 `rs_full_frame_review` 下 43/43 个场景的
+  `scenario_visual_review_summary.json`。复核结论已回灌到运行时门控：
+  R2/R3/R6 缺可信 XODR 拓扑或可见占道/合流/停车空间证据时，不再仅凭 scenario/trigger
+  窗口压过 R1，而是降为 secondary + review；R4/R5 缺 meta 灯态、junction hint
+  或可信 XODR signal/junction 时，也不再给 high confidence 的窗口标签。
+  后续若人工 RGB 证明某场景确实需要更长窗口，应通过逐场景 `--rule-config-json`
+  调 pre/post 参数，而不是放宽全局逻辑门控。
+- 第二轮图像优先全量复核已重跑到
+  `collection_output/rs_full_frame_review_after_visual_gate/`：43 个 scenario、204 个
+  scenario-town route、24387 帧，每个 town 1 条 route 全帧标注并查看对应 RGB overview。
+  复核产物为各场景的 `scenario_visual_review_summary.json` 和
+  `global_visual_review_summary.json`。本轮明确不以 confidence 作为正确性证明；
+  confidence/review 只用于定位候选 span，最终异常以 RGB 逐帧可见结构为主，低能见度再参考 XODR/XML/meta。
+  已记录 63 条高优先级发现，主要集中在两类：
+  R2/R3/R6 缺可见占道/合流/停车空间时属于规则思路门控问题；
+  R4/R5 从 frame0 开始且 route projection error 高时属于 pre-window / projection 参数问题。
+- 第二轮错配回灌后的代码原则：
+  弱特殊 RS 候选不能再通过全局 priority 低分压过 R1；
+  `route_projection_error_m > 5m` 时，`scenario_active` 和普通 `trigger_close_m`
+  只能写 review/evidence，不能单独撑起 two-way / merge / parking / junction 结构窗口；
+  静态 XODR 的 signal/opposite/parking/merge/junction hint 在 route 投影高误差帧降级为
+  `*_demoted_projection_error` 证据，不再作为 R2/R3/R6/R4/R5 high 证据。
+  对 nonsignalized 场景，如果静态 XODR 仍提示 signal/controller，需要写
+  `nonsignalized_with_signal_topology_conflict`，由人工结合 RGB 判定是真实地图信号、
+  XODR 误匹配，还是场景命名与 road structure 口径冲突。
+- 逐帧 RGB 复核的定点回灌原则：
+  `Accident/Town03` 这类“XODR/static signal 近邻但画面没有清晰路口、stopline 或可见信号控制”的帧，
+  不允许静态 signal + 距离字段单独把 R1 升成 R4；有效灯态若也缺强路口上下文，只给 weak R4 candidate
+  并保持 R1 primary + review。
+  `AccidentTwoWays/Town01` 这类普通双向道路早段不能只因 scenario active / trigger window 给 R2；
+  R2 high 必须额外满足近距离障碍、`*_two_ways_stuck`、`vehicle_hazard`、近距离
+  `scenario_obstacles_ids` 或 `signed_dist_to_lane_change` 核心证据。若缺可信 XODR opposite lane，
+  核心帧可用 meta obstruction 保留 R2，但必须带 `special_rs_lacks_full_topology_confirmation` review。
+  代码层面这些判断已拆成 `strong_control_context` 与 `twoway_obstruction_evidence` 两个证据字段，
+  逐帧 review 时优先看这两个字段，再决定是阈值问题还是道路结构口径问题。
 
 已执行 smoke：
 
@@ -164,9 +199,13 @@ python AutoMoT/keyframe_filter/quick_start.py annotate-rs \
 ```
 
 结果摘要：43 场景小样本均可执行生成；全场景 430 帧 smoke 中主标签分布为
-`R1=82, R2=40, R3=70, R4=129, R5=89, R6=20`，confidence 为
-`min=0.66/avg=0.8197/max=0.98`，review frame ratio 为 `0.2837`。
-高 review 主要来自静态 XODR 无法确认 R2/R3/R6 的局部 opposite/merge/parking 拓扑，这是预期保守行为；
+`R1=242, R2=0, R3=20, R4=88, R5=70, R6=10`，confidence 为
+`min=0.70/avg=0.8120/max=0.98`，review frame ratio 为 `0.4140`。
+review 增加主要来自图像优先复核后新增的投影/静态拓扑降级归因：
+`route_projection_error_high`、`static_xodr_topology_demoted_by_projection_error`、
+`structure_window_demoted_by_projection_error`、`weaker_special_rs_kept_as_candidate_not_primary`、
+`candidate_score_gap_lt_0.15`。
+这表示可疑 R2/R3/R6/R4/R5 不再被静态拓扑或 scenario 窗口直接当主标签；
 后续若用 `/home/codon/anaconda3/envs/carla/bin/python` 跑 CARLA API XODR probe，应优先比较这些 review 是否下降。
 
 ## 2. 逐场景规则
@@ -176,16 +215,20 @@ python AutoMoT/keyframe_filter/quick_start.py annotate-rs \
 - 候选 RS：R1, R4。
 - 已确定口径：事故障碍本身是 EVENT，不是 ROAD_STRUCTURE；默认 R1，进入真实信号灯路口才切 R4。
 - 分段逻辑：finite `dist_to_accident` / active scenario 只用于标记事故事件窗口；窗口内仍按道路结构判断 R1/R4。
-- 证据需求：XML accident trigger + meta distance 确定事件窗口；XODR/traffic light/meta junction 确认是否 R4。
+- 证据需求：XML accident trigger + meta distance 确定事件窗口；R4 必须有有效灯态且具备强路口/stopline/signal-junction 上下文，
+  或可信 XODR/meta junction 与静态 signal 同源。仅有 static signal near / distance-to-junction 不足以把普通路段升 R4。
 - 待完善点：不要把同向绕障误升为 R2；若 projection error 高，事故窗口只给事件候选，不改 RS。
 
 ### AccidentTwoWays
 
 - 候选 RS：R1, R2, R4。
-- 已确定口径：只有 two-way 障碍窗口且局部 XODR 证明对向 lane 参与时才给 R2；灯控路口优先 R4。
+- 已确定口径：two-way 障碍窗口内，优先用可信 XODR 证明对向 lane 参与；若 XODR 不可信，只有近距离障碍、
+  `accident_two_ways_stuck`、`vehicle_hazard` 或明显 lane-change 核心证据同时成立时才给 R2 high，并强制 review。
+  灯控路口仍优先 R4，但有效灯态缺强路口上下文时只保留 weak R4 candidate。
 - 分段逻辑：窗口外 R1；XML trigger / distance / active window 内检查 opposite driving lane、同向可用 lane 是否不足、障碍是否压占自车通行空间。
-- 证据需求：XODR lane_id 符号反转、lane direction、lane count、meta active scenario、RGB 对向借道边界。
-- 待完善点：实测发现只靠 scenario trigger 会把多同向车道片段误打 R2；R2 high 必须要求“同向 lane 不足或视觉/对象证明必须借对向”。
+- 证据需求：XODR lane_id 符号反转、lane direction、lane count、meta active scenario、近距离障碍距离、
+  `scenario_obstacles_ids`、`signed_dist_to_lane_change`、RGB 对向借道边界。
+- 待完善点：实测发现只靠 scenario trigger 会把普通双向路早段误打 R2；R2 high 必须要求“同向 lane 不足或视觉/对象证明必须借对向”。
 
 ### BlockedIntersection
 
