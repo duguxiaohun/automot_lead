@@ -121,27 +121,15 @@ def _issue_bucket(reasons: List[str], label: str) -> str:
 
 
 def _is_benign_stable_review(reasons: List[str], label: str) -> bool:
-    """Stable audit notes are useful metadata, but not visual mismatches."""
-    if not reasons:
-        return False
-    benign_reasons = {
-        "candidate_score_gap_lt_0.15",
-        "route_projection_error_high",
-        "static_xodr_topology_demoted_by_projection_error",
-        "structure_window_demoted_by_projection_error",
-        "xml_route_projection_error_high",
-        "xodr_topology_untrusted",
-        "weaker_special_rs_kept_as_candidate_not_primary",
-    }
-    if label == "R1":
-        benign_reasons.update(
-            {
-                "r2_lacks_xodr_opposite_lane_confirmation",
-                "r3_lacks_xodr_merge_split_confirmation",
-                "r6_lacks_xodr_parking_or_shoulder_confirmation",
-            }
-        )
-    return all(str(reason) in benign_reasons for reason in reasons)
+    """Do not suppress stable review notes in RGB-first audits.
+
+    Earlier versions treated stable high-confidence R1 plus projection/topology
+    notes as benign. That hid cases where RGB clearly showed a merge/parking/
+    junction structure but route/XODR projection failed. Full-frame review must
+    keep those frames visible; the human reviewer decides from RGB first.
+    """
+    _ = reasons, label
+    return False
 
 
 def _is_candidate_anomaly(ann: Dict[str, Any], prev_label: Optional[str]) -> Tuple[bool, List[str]]:
@@ -300,6 +288,8 @@ def _route_summary(route_result: Dict[str, Any], anomaly_count: int, sheet_paths
         "confidence_stats": route_result.get("confidence_stats", {}),
         "primary_rs_transitions": route_result.get("primary_rs_transitions", []),
         "candidate_anomaly_frames": anomaly_count,
+        "manual_rgb_review_required": True,
+        "manual_rgb_review_status": "pending",
         "full_frame_sheets": sheet_paths,
         "anomaly_sheets": anomaly_sheets,
     }
@@ -313,6 +303,9 @@ def _scenario_visual_summary(scenario_summary: Dict[str, Any]) -> Dict[str, Any]
         "visual_evidence_contract": {
             "primary_source": "RGB contact sheets with frame-level ROAD_STRUCTURE overlays",
             "low_visibility_fallback": "XODR/XML/LEAD meta evidence in frame_rs_annotation",
+            "manual_rgb_review_required": True,
+            "full_frame_sheets_are_authoritative": True,
+            "candidate_anomalies_are_only_review_index": True,
             "candidate_anomaly_definition": [
                 "frame_rs_annotation.review_required",
                 "confidence < 0.75",
@@ -321,7 +314,8 @@ def _scenario_visual_summary(scenario_summary: Dict[str, Any]) -> Dict[str, Any]
         },
         "anomaly_record_file": "candidate_anomalies.jsonl",
         "notes": [
-            "This summary is written per scenario and keeps route/town-level sheet paths for manual RGB inspection.",
+            "Every full_frame_sheet must be manually read frame-by-frame; do not infer correctness from confidence or anomaly counts alone.",
+            "This summary is an index for RGB inspection, not a replacement for visual judgment.",
             "Existing scenario_visual_review_summary.json files are skipped when --skip-existing-visual-summary is set.",
         ],
     }
@@ -481,7 +475,10 @@ def main() -> None:
     parser.add_argument("--lead-data-root", default=str(_DEFAULT_LEAD_DATA_ROOT))
     parser.add_argument("--xml-root", default=str(_DEFAULT_XML_ROOT))
     parser.add_argument("--carla-root", default=str(_DEFAULT_CARLA_ROOT))
-    parser.add_argument("--output-dir", default=str(KEYFRAME_DIR / "collection_output" / "rs_full_frame_review"))
+    parser.add_argument(
+        "--output-dir",
+        default=str(KEYFRAME_DIR / "collection_output" / "rs_full_frame_review_rgb_first_current"),
+    )
     parser.add_argument("--rule-config-json", default="")
     parser.add_argument("--frames-per-sheet", type=int, default=40)
     parser.add_argument("--sheet-cols", type=int, default=4)
