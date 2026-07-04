@@ -138,18 +138,18 @@ SCENARIO_TO_ROAD_STRUCTURE = {
     "CrossingBicycleFlow": [RoadStructure.R1, RoadStructure.R4],
     "CrossJunctionDefectTrafficLight": [RoadStructure.R1, RoadStructure.R5],
     "DynamicObjectCrossing": [RoadStructure.R1, RoadStructure.R4],
-    "EnterActorFlow": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4],
-    "EnterActorFlowV2": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4],
-    "HardBreakRoute": [RoadStructure.R1, RoadStructure.R4],
+    "EnterActorFlow": [RoadStructure.R3, RoadStructure.R4],
+    "EnterActorFlowV2": [RoadStructure.R3, RoadStructure.R4],
+    "HardBreakRoute": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4],
     "HazardAtSideLane": [RoadStructure.R1, RoadStructure.R4],
     "HazardAtSideLaneTwoWays": [RoadStructure.R1, RoadStructure.R2, RoadStructure.R4],
-    "HighwayCutIn": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4],
-    "HighwayExit": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4],
+    "HighwayCutIn": [RoadStructure.R3, RoadStructure.R4],
+    "HighwayExit": [RoadStructure.R3, RoadStructure.R4],
     "InterurbanActorFlow": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4, RoadStructure.R5],
     "InterurbanAdvancedActorFlow": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
     "InvadingTurn": [RoadStructure.R1, RoadStructure.R2, RoadStructure.R4],
-    "MergerIntoSlowTraffic": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4],
-    "MergerIntoSlowTrafficV2": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4],
+    "MergerIntoSlowTraffic": [RoadStructure.R3, RoadStructure.R4],
+    "MergerIntoSlowTrafficV2": [RoadStructure.R3, RoadStructure.R4],
     "NonSignalizedJunctionLeftTurn": [RoadStructure.R1, RoadStructure.R5],
     "NonSignalizedJunctionLeftTurnEnterFlow": [RoadStructure.R1, RoadStructure.R5],
     "NonSignalizedJunctionRightTurn": [RoadStructure.R1, RoadStructure.R5],
@@ -173,6 +173,110 @@ SCENARIO_TO_ROAD_STRUCTURE = {
     "VehicleTurningRoute": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
     "VehicleTurningRoutePedestrian": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
 }
+
+MIXED_SCENARIO_HIGHWAY_ROUTE_IDS = {
+    # RGB reviewed HardBreakRoute fast-road/highway bucket.
+    # These routes show divided multi-lane fast roads, guardrails, ramps/bridges, or highway-style lane geometry.
+    "HardBreakRoute": {
+        "Town12_Rep0_1428_0_route0_01_10_00_18_08",
+        "Town12_Rep0_1439_0_route0_01_10_04_51_04",
+        "Town12_Rep0_2452_0_route0_01_11_03_14_24",
+        "Town12_Rep0_2510_0_route0_01_09_22_05_04",
+        "Town12_Rep0_2585_0_route0_01_09_13_23_09",
+        "Town12_Rep0_4115_0_route0_01_09_08_38_49",
+        "Town12_Rep0_4118_0_route0_01_09_11_51_26",
+        "Town12_Rep0_4139_0_route0_01_11_01_24_29",
+        "Town12_Rep0_947_0_route0_01_10_04_45_34",
+        "Town12_Rep0_954_0_route0_01_10_01_42_01",
+        "Town13_Rep0_1258_0_route0_01_09_16_21_37",
+        "Town13_Rep0_1269_0_route0_01_07_23_43_15",
+        "Town13_Rep0_1275_0_route0_01_09_14_40_40",
+        "Town13_Rep0_1387_0_route0_01_08_06_02_20",
+        "Town13_Rep0_1663_0_route0_01_09_13_45_51",
+        "Town13_Rep0_1666_0_route0_01_10_04_27_25",
+    },
+    # RGB reviewed mixed scenarios. Empty sets mean every route stayed in the non-highway bucket.
+    "InterurbanActorFlow": set(),
+    "InterurbanAdvancedActorFlow": set(),
+    "StaticCutIn": {
+        "Town12_Rep0_1419_0_route0_01_09_22_23_57",
+        "Town12_Rep0_1429_0_route0_01_08_20_38_15",
+        "Town12_Rep0_1429_1_route0_01_10_03_05_37",
+        "Town12_Rep0_2450_0_route0_01_08_05_41_18",
+        "Town12_Rep0_2462_0_route0_01_08_23_27_47",
+        "Town12_Rep0_2579_0_route0_01_10_06_04_27",
+        "Town12_Rep0_2974_0_route0_01_10_17_47_12",
+        "Town12_Rep0_4001_1_route0_01_09_20_16_43",
+        "Town12_Rep0_4003_0_route0_01_10_13_44_50",
+        "Town12_Rep0_4015_0_route0_01_08_08_47_29",
+        "Town12_Rep0_4015_1_route0_01_10_18_20_11",
+        "Town12_Rep0_4029_0_route0_01_10_07_58_19",
+        "Town12_Rep0_4041_0_route0_01_10_19_55_39",
+        "Town12_Rep0_4133_0_route0_01_10_02_10_03",
+        "Town12_Rep0_4135_0_route0_01_09_00_50_04",
+        "Town12_Rep0_4135_1_route0_01_09_00_38_11",
+        "Town12_Rep0_4476_0_route0_01_09_04_31_11",
+        "Town12_Rep0_4476_1_route0_01_10_03_41_06",
+        "Town12_Rep0_4488_0_route0_01_09_10_22_28",
+        "Town12_Rep0_4490_0_route0_01_11_15_05_07",
+        "Town12_Rep0_4490_1_route0_01_10_19_02_40",
+        "Town12_Rep0_4495_0_route0_01_09_20_22_50",
+        "Town12_Rep0_4495_1_route0_01_08_08_10_03",
+        "Town12_Rep0_911_0_route0_01_10_14_53_36",
+        "Town12_Rep0_913_0_route0_01_11_01_32_11",
+        "Town12_Rep0_934_0_route0_01_09_20_20_25",
+        "Town12_Rep0_949_0_route0_01_07_22_14_09",
+        "Town13_Rep0_1264_0_route0_01_09_19_23_58",
+        "Town13_Rep0_1264_1_route0_01_08_01_53_22",
+        "Town13_Rep0_1264_2_route0_01_10_06_31_25",
+        "Town13_Rep0_1266_0_route0_01_10_11_13_19",
+        "Town13_Rep0_1266_1_route0_01_09_05_38_22",
+        "Town13_Rep0_1266_2_route0_01_07_22_56_05",
+        "Town13_Rep0_1267_0_route0_01_09_18_13_31",
+        "Town13_Rep0_1267_1_route0_01_08_12_46_57",
+        "Town13_Rep0_1267_2_route0_01_09_21_18_03",
+        "Town13_Rep0_1386_0_route0_01_10_22_42_39",
+        "Town13_Rep0_1386_1_route0_01_08_16_01_37",
+        "Town13_Rep0_1624_0_route0_01_09_02_55_07",
+        "Town13_Rep0_1624_1_route0_01_10_11_10_25",
+        "Town13_Rep0_1626_0_route0_01_08_13_53_39",
+        "Town13_Rep0_1626_1_route0_01_09_12_51_05",
+        "Town13_Rep0_1668_0_route0_01_11_09_17_39",
+        "Town13_Rep0_1668_1_route0_01_10_21_25_32",
+    },
+    "ParkingCutIn": set(),
+}
+
+MIXED_SCENARIO_RGB_REVIEW_COUNTS = {
+    "HardBreakRoute": 97,
+    "InterurbanActorFlow": 91,
+    "InterurbanAdvancedActorFlow": 78,
+    "StaticCutIn": 100,
+    "ParkingCutIn": 99,
+}
+
+
+def _mixed_route_semantic_bucket(scenario_name: str, route_id: Optional[str]) -> str:
+    if scenario_name not in MIXED_SCENARIO_HIGHWAY_ROUTE_IDS:
+        return "not_mixed"
+    if not route_id:
+        return "mixed_unknown_no_route_id"
+    if route_id in MIXED_SCENARIO_HIGHWAY_ROUTE_IDS.get(scenario_name, set()):
+        return "highway_rgb_route"
+    return "mixed_reviewed_non_highway"
+
+
+def _mixed_route_allowed_structures(
+    scenario_name: str,
+    route_id: Optional[str],
+    base_allowed: Set[RoadStructure],
+) -> Set[RoadStructure]:
+    bucket = _mixed_route_semantic_bucket(scenario_name, route_id)
+    if bucket == "highway_rgb_route":
+        allowed = {rs for rs in base_allowed if rs in {RoadStructure.R3, RoadStructure.R4}}
+        allowed.add(RoadStructure.R3)
+        return allowed
+    return set(base_allowed)
 
 SCENARIO_TO_FINE_EVENTS = {
     "Accident": [EventType.R_E1, EventType.R_E2, EventType.R_E4, EventType.U_E2],
@@ -988,7 +1092,7 @@ SCENARIO_RULE_KIND = {
     "DynamicObjectCrossing": "default_meta_map",
     "EnterActorFlow": "highway_merge",
     "EnterActorFlowV2": "highway_merge",
-    "HardBreakRoute": "default_meta_map",
+    "HardBreakRoute": "hardbreak_route",
     "HazardAtSideLane": "default_meta_map",
     "HazardAtSideLaneTwoWays": "twoways_obstacle",
     "HighwayCutIn": "highway_merge",
@@ -1028,7 +1132,7 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
     "Accident": {"kind": "same_direction_obstacle", "junction_pre_m": 60, "junction_post_m": 25, "veto": ["no_r2", "no_r6"]},
     "ConstructionObstacle": {"kind": "same_direction_obstacle", "junction_pre_m": 60, "junction_post_m": 25, "veto": ["no_r2", "no_r6"]},
     "ParkedObstacle": {"kind": "same_direction_obstacle", "junction_pre_m": 60, "junction_post_m": 25, "veto": ["parked_not_parking_rs"]},
-    # TwoWays：核心障碍帧由 trigger/active/meta 支撑；清晰 TwoWays 场景的路型先验可保留 R2 + review，避免双向道路前后段被 R1 吃掉。
+    # TwoWays：R2 只覆盖必须借/等对向的核心障碍片段；障碍前后普通双向道路回 R1/R4。
     "AccidentTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 45, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_layout_prior": True},
     "ConstructionObstacleTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 45, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_layout_prior": True},
     "HazardAtSideLaneTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 70, "two_way_post_pad_m": 20, "trigger_close_m": 75, "two_way_layout_prior": True},
@@ -1050,12 +1154,12 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
     "OppositeVehicleTakingPriority": {"kind": "nonsignalized_junction", "junction_pre_m": 50, "junction_post_m": 20},
     "PriorityAtJunction": {"kind": "nonsignalized_junction", "junction_pre_m": 50, "junction_post_m": 20},
     # R3 高速/匝道/合流。
-    "EnterActorFlow": {"kind": "highway_merge", "merge_pre_m": 30, "merge_post_m": 40, "trigger_close_m": 90},
-    "EnterActorFlowV2": {"kind": "highway_merge", "merge_pre_m": 30, "merge_post_m": 40, "trigger_close_m": 90},
-    "HighwayCutIn": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 40, "trigger_close_m": 90},
-    "HighwayExit": {"kind": "highway_merge", "merge_pre_m": 50, "merge_post_m": 50, "trigger_close_m": 90},
-    "MergerIntoSlowTraffic": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True, "actor_flow_near_m": 20},
-    "MergerIntoSlowTrafficV2": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True, "actor_flow_near_m": 20},
+    "EnterActorFlow": {"kind": "highway_merge", "merge_pre_m": 30, "merge_post_m": 40, "trigger_close_m": 90, "highway_default_r3": True},
+    "EnterActorFlowV2": {"kind": "highway_merge", "merge_pre_m": 30, "merge_post_m": 40, "trigger_close_m": 90, "highway_default_r3": True},
+    "HighwayCutIn": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 40, "trigger_close_m": 90, "highway_default_r3": True},
+    "HighwayExit": {"kind": "highway_merge", "merge_pre_m": 50, "merge_post_m": 50, "trigger_close_m": 90, "highway_default_r3": True},
+    "MergerIntoSlowTraffic": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True, "actor_flow_near_m": 20, "highway_default_r3": True},
+    "MergerIntoSlowTrafficV2": {"kind": "highway_merge", "merge_pre_m": 40, "merge_post_m": 50, "trigger_close_m": 90, "keep_r3_when_slow": True, "actor_flow_near_m": 20, "highway_default_r3": True},
     "InterurbanActorFlow": {"kind": "interurban", "merge_pre_m": 50, "merge_post_m": 45, "junction_pre_m": 55, "junction_post_m": 25},
     "InterurbanAdvancedActorFlow": {"kind": "interurban_advanced", "junction_pre_m": 55, "junction_post_m": 25, "r3_requires_topology": True},
     # 停车/路边占道。
@@ -1071,7 +1175,7 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
     "CrossingBicycleFlow": {"kind": "default_meta_map", "junction_pre_m": 50, "junction_post_m": 25, "veto": ["actor_flow_not_r3"]},
     "DynamicObjectCrossing": {"kind": "default_meta_map", "junction_pre_m": 50, "junction_post_m": 25, "veto": ["crossing_event_not_rs"]},
     "ControlLoss": {"kind": "default_meta_map", "junction_pre_m": 50, "junction_post_m": 25, "veto": ["control_loss_not_rs"]},
-    "HardBreakRoute": {"kind": "default_meta_map", "junction_pre_m": 50, "junction_post_m": 25, "veto": ["brake_not_rs"]},
+    "HardBreakRoute": {"kind": "hardbreak_route", "junction_pre_m": 50, "junction_post_m": 25, "veto": ["brake_not_rs"]},
     "HazardAtSideLane": {"kind": "default_meta_map", "junction_pre_m": 50, "junction_post_m": 25, "veto": ["side_lane_not_twoways"]},
     "noScenarios": {"kind": "noscenario", "junction_pre_m": 50, "junction_post_m": 25, "conservative": True},
 }
@@ -1133,10 +1237,7 @@ def _diagnose_rs_decision(
     elif primary == RoadStructure.R3:
         decision_source = "merge_actor_flow_or_topology_window"
     elif primary == RoadStructure.R2:
-        if "r2_twoways_layout_prior_review" in rules:
-            decision_source = "twoways_layout_prior"
-        else:
-            decision_source = "twoways_trigger_window"
+        decision_source = "twoways_trigger_window"
     elif primary == RoadStructure.R6:
         decision_source = "parking_or_curbside_window"
     else:
@@ -1287,6 +1388,9 @@ def _frame_annotation_comment(
         metric_parts.append(f"proj_err={route_error:.1f}m")
     if trigger_distance is not None:
         metric_parts.append(f"trigger_dist={trigger_distance:.1f}m")
+    route_bucket = evidence.get("route_semantic_bucket")
+    if route_bucket:
+        metric_parts.append(f"route_bucket={route_bucket}")
     metric_text = ", ".join(metric_parts) if metric_parts else "无可用route/trigger度量"
     weak_text = f"；弱证据={','.join(weak[:4])}" if weak else ""
     return (
@@ -1313,10 +1417,18 @@ class RoadStructureRuleEngine:
         frame_id: int,
         frame_data: Dict[str, Any],
         xml_info: Optional[RouteXmlInfo] = None,
+        route_id: Optional[str] = None,
     ) -> Tuple[RoadStructure, Set[RoadStructure], Dict[str, float], Dict[str, Any], float, str]:
-        allowed = set(SCENARIO_TO_ROAD_STRUCTURE.get(scenario_name, [RoadStructure.R1]))
+        base_allowed = set(SCENARIO_TO_ROAD_STRUCTURE.get(scenario_name, [RoadStructure.R1]))
+        route_semantic_bucket = _mixed_route_semantic_bucket(scenario_name, route_id)
+        route_highway_bucket = route_semantic_bucket == "highway_rgb_route"
+        allowed = _mixed_route_allowed_structures(scenario_name, route_id, base_allowed)
         scores: Dict[RoadStructure, float] = {RoadStructure.R1: 0.35}
         rules: List[str] = ["r1_default_candidate"]
+        if route_highway_bucket:
+            rules.append("mixed_route_rgb_highway_bucket_r3_r4_only")
+        elif route_semantic_bucket == "mixed_reviewed_non_highway":
+            rules.append("mixed_route_rgb_non_highway_keeps_base_candidates")
 
         ego_xy = _extract_ego_xy(frame_data)
         town = xml_info.town if xml_info is not None else str(frame_data.get("town", ""))
@@ -1507,8 +1619,9 @@ class RoadStructureRuleEngine:
                         rules.append("r2_core_obstruction_confirmed")
                 else:
                     if r2_layout_prior_allowed:
-                        self._add(scores, RoadStructure.R2, 0.82)
-                        rules.append("r2_twoways_layout_prior_review")
+                        self._add(scores, RoadStructure.R2, 0.58)
+                        self._add(scores, RoadStructure.R1, 0.78)
+                        rules.append("r2_twoways_layout_prior_weak_non_core")
                         if not has_opposite:
                             rules.append("r2_layout_prior_lacks_xodr_opposite_confirmation")
                     else:
@@ -1520,14 +1633,16 @@ class RoadStructureRuleEngine:
                     else:
                         rules.append("r2_requires_visible_or_topology_occupancy_confirmation")
             elif r2_layout_prior_allowed:
-                self._add(scores, RoadStructure.R2, 0.82)
-                rules.append("r2_twoways_layout_prior_review")
+                self._add(scores, RoadStructure.R2, 0.58)
+                self._add(scores, RoadStructure.R1, 0.78)
+                rules.append("r2_twoways_layout_prior_weak_non_core")
                 if not has_opposite:
                     rules.append("r2_layout_prior_lacks_xodr_opposite_confirmation")
             if kind == "invading_turn":
                 rules.append("r2_passive_invading_turn")
         elif kind == "highway_merge":
             keep_r3_when_slow = bool(cfg.get("keep_r3_when_slow"))
+            highway_default_r3 = bool(cfg.get("highway_default_r3"))
             merge_xml_fallback = bool(cfg.get("keep_r3_when_slow")) and (
                 actor_flow_near
                 or close_trigger
@@ -1552,15 +1667,28 @@ class RoadStructureRuleEngine:
                     r3_score = 0.84 if (actor_flow_near or close_trigger) else 0.80
                     rules.append("r3_merger_actor_flow_or_trigger_fallback")
                 elif xodr.get("xodr_available"):
-                    r3_score = 0.50
-                    self._add(scores, RoadStructure.R1, 0.80)
-                    rules.append("r3_xodr_available_without_merge_split_review")
+                    r3_score = 0.78 if highway_default_r3 else 0.50
+                    if not highway_default_r3:
+                        self._add(scores, RoadStructure.R1, 0.80)
+                    rules.append(
+                        "r3_highway_scene_default_without_merge_split"
+                        if highway_default_r3
+                        else "r3_xodr_available_without_merge_split_review"
+                    )
                 else:
-                    r3_score = 0.45
-                    self._add(scores, RoadStructure.R1, 0.80)
-                    rules.append("r3_without_xodr_topology_low")
+                    r3_score = 0.76 if highway_default_r3 else 0.45
+                    if not highway_default_r3:
+                        self._add(scores, RoadStructure.R1, 0.80)
+                    rules.append(
+                        "r3_highway_scene_default_without_xodr"
+                        if highway_default_r3
+                        else "r3_without_xodr_topology_low"
+                    )
                 self._add(scores, RoadStructure.R3, r3_score)
                 rules.append("r3_merge_or_exit_window")
+            elif highway_default_r3 and RoadStructure.R3 in allowed:
+                self._add(scores, RoadStructure.R3, 0.76)
+                rules.append("r3_highway_scene_default_outside_trigger_window")
         elif kind == "interurban":
             merge_window = (
                 _route_trigger_window(
@@ -1691,6 +1819,13 @@ class RoadStructureRuleEngine:
                 else:
                     self._add(scores, RoadStructure.R5, 0.70)
                     rules.append("vehicle_turning_junction_space")
+        elif kind == "hardbreak_route":
+            if route_highway_bucket:
+                self._add(scores, RoadStructure.R3, 0.84 if ramp_hint else 0.80)
+                rules.append("hardbreak_rgb_route_bucket_r3_no_r1")
+            else:
+                self._add(scores, RoadStructure.R1, 0.78)
+                rules.append("hardbreak_event_keeps_r1_unless_highway_like_or_tl")
         elif kind == "noscenario":
             if not has_tl and not light_hazard:
                 scores = {RoadStructure.R1: max(scores.get(RoadStructure.R1, 0.0), 0.86)}
@@ -1717,7 +1852,17 @@ class RoadStructureRuleEngine:
         # 只保留原始候选表允许的 RS，保留强行填充候选全集但不让规则输出越界。
         scores = {rs: score for rs, score in scores.items() if rs in allowed}
         if not scores:
-            scores = {RoadStructure.R1: 0.35}
+            if (kind == "highway_merge" or route_highway_bucket) and RoadStructure.R3 in allowed:
+                scores = {RoadStructure.R3: 0.76}
+                rules.append("r3_highway_candidate_fallback_no_r1")
+            elif RoadStructure.R1 in allowed:
+                scores = {RoadStructure.R1: 0.35}
+            elif allowed:
+                fallback_rs = next(iter(allowed))
+                scores = {fallback_rs: 0.35}
+                rules.append(f"fallback_to_allowed_{fallback_rs.value}_without_r1_candidate")
+            else:
+                scores = {RoadStructure.R1: 0.35}
 
         if scenario_name == "CrossJunctionDefectTrafficLight" and RoadStructure.R5 in scores:
             primary = RoadStructure.R5
@@ -1794,8 +1939,6 @@ class RoadStructureRuleEngine:
         weak_inputs = diagnostic_attribution.get("weak_or_missing_inputs", [])
         if primary in {RoadStructure.R2, RoadStructure.R3, RoadStructure.R6} and weak_inputs:
             review_reasons.append("special_rs_lacks_full_topology_confirmation")
-        if primary == RoadStructure.R2 and "r2_twoways_layout_prior_review" in rules:
-            review_reasons.append("twoways_layout_prior_requires_rgb_confirmation")
         if route_projection_error_high and (close_trigger or scenario_active) and not (close_trigger_for_structure or scenario_active_for_structure):
             review_reasons.append("structure_window_demoted_by_projection_error")
         if static_topology_only and route_projection_error_high and xodr.get("xodr_available"):
@@ -1830,6 +1973,14 @@ class RoadStructureRuleEngine:
             "diagnostic_attribution": diagnostic_attribution,
             "review_required": bool(review_reasons),
             "review_reasons": review_reasons,
+            "route_id": route_id,
+            "route_semantic_bucket": route_semantic_bucket,
+            "mixed_scenario_rgb_review_total_routes": MIXED_SCENARIO_RGB_REVIEW_COUNTS.get(scenario_name),
+            "mixed_scenario_highway_route_count": (
+                len(MIXED_SCENARIO_HIGHWAY_ROUTE_IDS[scenario_name])
+                if scenario_name in MIXED_SCENARIO_HIGHWAY_ROUTE_IDS
+                else None
+            ),
         }
         return primary, secondary, {rs.value: round(score, 3) for rs, score in scores.items()}, evidence, confidence, reason
 
@@ -1850,16 +2001,22 @@ class SimpleFrameAnalyzer:
         frame_id: int,
         frame_data: dict,
         xml_info: Optional[RouteXmlInfo] = None,
+        route_id: Optional[str] = None,
     ) -> FrameAnnotation:
         """通用帧分析"""
         # 保留旧逻辑：road_structures 仍是该 scenario 的候选全集。
-        road_structures = set(SCENARIO_TO_ROAD_STRUCTURE.get(scenario_name, [RoadStructure.R1]))
+        road_structures = _mixed_route_allowed_structures(
+            scenario_name,
+            route_id,
+            set(SCENARIO_TO_ROAD_STRUCTURE.get(scenario_name, [RoadStructure.R1])),
+        )
         events = set(SCENARIO_TO_FINE_EVENTS.get(scenario_name, [EventType.R_E1]))
         primary, secondary, scores, evidence, confidence, reason = SimpleFrameAnalyzer._engine.analyze(
             scenario_name=scenario_name,
             frame_id=frame_id,
             frame_data=frame_data,
             xml_info=xml_info,
+            route_id=route_id,
         )
 
         # 基础逻辑：根据场景类型添加默认事件
@@ -2205,6 +2362,9 @@ class ScenarioCollector:
                 inherited_from = "previous_neighbor" if chosen is prev_run else "next_neighbor"
             if replacement is None or replacement == label:
                 continue
+            run_annotations = annotations[int(run["start"]): int(run["end"])]
+            if not self._can_temporal_smoothing_promote(run_annotations, str(label), replacement):
+                continue
             change = {
                 "start_frame": annotations[int(run["start"])].get("frame_id"),
                 "end_frame": annotations[int(run["end"]) - 1].get("frame_id"),
@@ -2215,78 +2375,33 @@ class ScenarioCollector:
                 "inherited_from": inherited_from,
             }
             changes.append(change)
-            for ann in annotations[int(run["start"]): int(run["end"])]:
+            for ann in run_annotations:
                 self._rewrite_rs_label(ann, replacement, reason, inherited_from)
 
         return {"enabled": True, "min_frames": {"R1": 2, "R2": 4, "R3": 4, "R4": 4, "R5": 4, "R6": 4}, "changes": changes}
 
-    def _apply_twoways_layout_prior_boundaries(self, annotations: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """限制 TwoWays layout-prior：有核心证据的路线，核心之前不能只靠场景先验升 R2。"""
-        changes: List[Dict[str, Any]] = []
-        if not annotations:
-            return {"enabled": True, "changes": changes}
-
-        has_core_span = any(
-            "r2_core_obstruction_confirmed" in (ann.get("evidence", {}).get("rules_fired", []) or [])
-            for ann in annotations
-        )
-        if not has_core_span:
-            return {"enabled": True, "route_has_core_obstruction": False, "changes": changes}
-
-        seen_core = False
-        for ann in annotations:
-            evidence = ann.setdefault("evidence", {})
-            rules = evidence.setdefault("rules_fired", [])
-            is_core = "r2_core_obstruction_confirmed" in rules
-            is_layout_prior = "r2_twoways_layout_prior_review" in rules
-            if is_core:
-                seen_core = True
-                continue
-            if seen_core or ann.get("primary_road_structure") != "R2" or not is_layout_prior:
-                continue
-
-            old_label = ann.get("primary_road_structure")
-            candidates = ann.setdefault("road_structure_candidates", {})
-            candidates["R1"] = max(float(candidates.get("R1", 0.0) or 0.0), 0.78)
-            if "R2" in candidates:
-                candidates["R2"] = min(float(candidates.get("R2", 0.0) or 0.0), 0.58)
-            ann["primary_road_structure"] = "R1"
-            ann["secondary_road_structures"] = []
-            ann["confidence"] = 0.78
-
-            rules.append("twoways_layout_prior_pre_core_demoted_to_r1")
-            review_reasons = evidence.setdefault("review_reasons", [])
-            while "twoways_layout_prior_requires_rgb_confirmation" in review_reasons:
-                review_reasons.remove("twoways_layout_prior_requires_rgb_confirmation")
-            while "candidate_score_gap_lt_0.15" in review_reasons:
-                review_reasons.remove("candidate_score_gap_lt_0.15")
-            evidence["review_required"] = bool(review_reasons)
-            diagnostic = evidence.setdefault("diagnostic_attribution", {})
-            diagnostic["decision_source"] = "conservative_default_or_pre_core_twoways_layout"
-            diagnostic["score_ranking"] = sorted(
-                ((label, score) for label, score in candidates.items()),
-                key=lambda item: item[1],
-                reverse=True,
-            )
-            diagnostic["top_score_gap"] = round(float(candidates.get("R1", 0.0)) - float(candidates.get("R2", 0.0)), 3)
-            ann["reason"] = f"{ann.get('reason', '')}; twoways layout prior pre-core demoted {old_label}->R1"
-            ann["annotation_comment"] = _frame_annotation_comment(
-                RoadStructure.R1,
-                set(),
-                float(ann.get("confidence", 0.78) or 0.78),
-                evidence,
-            )
-            ann["frame_rs_annotation"] = self._frame_rs_annotation_payload(ann)
-            changes.append(
-                {
-                    "frame_id": ann.get("frame_id"),
-                    "from": old_label,
-                    "to": "R1",
-                    "reason": "twoways_layout_prior_before_first_core_obstruction",
-                }
-            )
-
-        return {"enabled": True, "route_has_core_obstruction": True, "changes": changes}
+    @staticmethod
+    def _can_temporal_smoothing_promote(run_annotations: List[Dict[str, Any]], old_label: str, replacement: str) -> bool:
+        """避免把只有弱证据的普通路段，因邻居继承提升成特殊 ROAD_STRUCTURE。"""
+        if old_label != "R1" or replacement not in {"R2", "R3", "R4", "R5", "R6"}:
+            return True
+        for ann in run_annotations:
+            evidence = ann.get("evidence", {}) or {}
+            rules = set(evidence.get("rules_fired", []) or [])
+            if replacement == "R2" and "r2_core_obstruction_confirmed" not in rules:
+                return False
+            if replacement == "R3" and not any(
+                rule.startswith("r3_") or rule.startswith("hardbreak_rgb_route_bucket")
+                for rule in rules
+            ):
+                return False
+            if replacement == "R4" and not any(rule.startswith("r4_") for rule in rules):
+                return False
+            if replacement == "R5" and not any(rule.startswith("r5_") for rule in rules):
+                return False
+            if replacement == "R6" and not any(rule.startswith("r6_") for rule in rules):
+                return False
+        return True
 
     def _process_route(self, scenario_name: str, route_path: Path, max_frames_per_route: Optional[int] = None) -> Dict:
         """处理单个route"""
@@ -2306,7 +2421,7 @@ class ScenarioCollector:
                 # 使用支持 XZ 压缩的加载函数
                 frame_data = load_pickle_file(meta_file)
 
-                ann = SimpleFrameAnalyzer.analyze(scenario_name, frame_id, frame_data, xml_info=xml_info)
+                ann = SimpleFrameAnalyzer.analyze(scenario_name, frame_id, frame_data, xml_info=xml_info, route_id=route_path.name)
                 ann_dict = ann.to_dict()
                 ann_dict["frame_time_s"] = round(frame_id * 0.25, 3)
                 ann_dict["meta_path"] = str(meta_file)
@@ -2316,12 +2431,12 @@ class ScenarioCollector:
                 self.logger.warning(f"处理 {meta_file} 出错: {e}")
                 continue
 
-        twoways_layout_boundary_summary = self._apply_twoways_layout_prior_boundaries(annotations)
         temporal_smoothing_summary = self._apply_temporal_rs_smoothing(annotations)
 
         primary_counter = defaultdict(int)
         review_counter = defaultdict(int)
         xodr_source_counter = defaultdict(int)
+        route_bucket_counter = defaultdict(int)
         review_frame_count = 0
         transition_frames = []
         prev_primary = None
@@ -2346,6 +2461,7 @@ class ScenarioCollector:
                     review_counter[reason] += 1
             xodr_source = evidence.get("xodr", {}).get("xodr_source") or "unavailable"
             xodr_source_counter[xodr_source] += 1
+            route_bucket_counter[evidence.get("route_semantic_bucket") or "unknown"] += 1
 
         return {
             "route_id": route_path.name,
@@ -2359,7 +2475,7 @@ class ScenarioCollector:
             "review_required_ratio": round(review_frame_count / len(annotations), 4) if annotations else 0.0,
             "review_reason_distribution": dict(sorted(review_counter.items())),
             "xodr_source_distribution": dict(sorted(xodr_source_counter.items())),
-            "twoways_layout_prior_boundaries": twoways_layout_boundary_summary,
+            "route_semantic_bucket_distribution": dict(sorted(route_bucket_counter.items())),
             "temporal_smoothing": temporal_smoothing_summary,
             "confidence_stats": self._confidence_stats(annotations),
             "primary_rs_transitions": transition_frames[:50],

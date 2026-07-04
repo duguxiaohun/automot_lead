@@ -57,7 +57,9 @@ EVENTS: R-E1, U-E2
 LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离开核心事件前后会有直道、
 普通车道保持、跟车、以及普通路口片段。因此本文采用以下默认假设：
 
-- 除非明显不成立，每个 scenario 至少包含 `R1 常规道路 / 同向可行驶道路`。
+- 默认保留 `R1 常规道路 / 同向可行驶道路`；但已由 RGB/XODR 复核确认的高速/合流主类
+  可以显式删除 R1，例如 `HighwayCutIn`、`HighwayExit`、`MergerIntoSlowTraffic*`、
+  `EnterActorFlow*` 这类 route 背景应在 `R3/R4` 内判别。
 - 除无信号灯/信号灯失效/路权类 scenario 外，每个 scenario 默认可包含 `R4 信号灯路口`。
 - 明确无信号灯、信号灯失效或按路权通过的 scenario，用 `R5 无信号灯 / 信号灯失效路口`
   替代默认 `R4`。
@@ -73,7 +75,7 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 |---|---|---|
 | R1 | 常规道路 / 同向可行驶道路 | 默认规则空间；普通直道、跟车、车道保持、同向变道、普通可行驶区域 |
 | R2 | 双向单车道 / 借对向车道道路 | 对向车道参与决策；包括自车借对向绕障或对向车侵占自车道 |
-| R3 | 高速合流 / 匝道 / 分流 / 驶出决策结构 | 主辅路、匝道、合流、并线、驶出；普通高速直行或同向 cut-in 若无 merge/split/ramp/exit 结构，仍回 R1 + EVENT |
+| R3 | 高速 / 合流 / 匝道 / 分流 / 驶出决策结构 | 高速或快速路主路、主辅路、匝道、合流、并线、驶出；在明确高速/merge scenario 中 R3 是默认道路空间，R4 只覆盖极短灯控/路口片段 |
 | R4 | 信号灯路口 | 红绿灯正常可用，红绿灯是主通行规则 |
 | R5 | 无信号灯 / 信号灯失效路口 | 无灯、灯失效、或主要按路权/安全间隙通行 |
 | R6 | 路边停车 / 停车占道道路 | 停车带、路边停车、停车位汇入、开门、停车遮挡主导决策 |
@@ -91,18 +93,18 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 | CrossingBicycleFlow | R1, R4 | 默认直道 + 信号灯路口；核心为自行车横穿 |
 | CrossJunctionDefectTrafficLight | R1, R5 | 默认直道 + 信号灯失效路口；不放 R4 |
 | DynamicObjectCrossing | R1, R4 | 默认直道 + 信号灯路口；可能存在动态对象横穿/干扰 |
-| EnterActorFlow | R1, R3, R4 | 默认直道 + 信号灯路口；核心为合流/进入车流 |
-| EnterActorFlowV2 | R1, R3, R4 | 与 EnterActorFlow 同候选 |
-| HardBreakRoute | R1, R4 | 默认直道 + 信号灯路口；核心为前车急刹 |
+| EnterActorFlow | R3, R4 | 高速/快速路进入车流；不开放 R1，非路口默认 R3 |
+| EnterActorFlowV2 | R3, R4 | 与 EnterActorFlow 同候选；不开放 R1 |
+| HardBreakRoute | R1, R3, R4 | 急刹是 EVENT；道路可能是城市/乡村 R1，也可能是高速/快速路 R3 |
 | HazardAtSideLane | R1, R4 | 当前按同向可行驶道路处理；是否有 R2 需视频核实 |
 | HazardAtSideLaneTwoWays | R1, R2, R4 | 默认直道 + 信号灯路口；核心为双向单车道侧向危险绕行 |
-| HighwayCutIn | R1, R3, R4 | 默认直道 + 信号灯路口；核心为高速/匝道他车切入 |
-| HighwayExit | R1, R3, R4 | 默认直道 + 信号灯路口；核心为高速驶出 |
+| HighwayCutIn | R3, R4 | 高速/快速路切入场景；不开放 R1，非路口默认 R3 |
+| HighwayExit | R3, R4 | 高速驶出/分流场景；不开放 R1，非路口默认 R3 |
 | InterurbanActorFlow | R1, R3, R4, R5 | 左变道/进入车流 + 路口寻找时机左转；路口信号不确定时保留 R4/R5 |
 | InterurbanAdvancedActorFlow | R1, R4, R5 | 主要按直道 + 路口寻找时机左转；若视频显示合流再加 R3 |
 | InvadingTurn | R1, R2, R4 | 默认直道 + 信号灯路口；核心为对向车侵占自车道 |
-| MergerIntoSlowTraffic | R1, R3, R4 | 默认直道 + 信号灯路口；核心为合流进入慢速车流 |
-| MergerIntoSlowTrafficV2 | R1, R3, R4 | 与 MergerIntoSlowTraffic 同候选 |
+| MergerIntoSlowTraffic | R3, R4 | 高速/快速路合流进入慢速车流；不开放 R1 |
+| MergerIntoSlowTrafficV2 | R3, R4 | 与 MergerIntoSlowTraffic 同候选；不开放 R1 |
 | NonSignalizedJunctionLeftTurn | R1, R5 | 明确无信号灯左转；不放 R4 |
 | NonSignalizedJunctionLeftTurnEnterFlow | R1, R5 | 明确无信号灯左转进入车流；不放 R4 |
 | NonSignalizedJunctionRightTurn | R1, R5 | 明确无信号灯右转；不放 R4 |
@@ -223,10 +225,16 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 - EVENT 不反推 RS。`HardBreakRoute`、`ControlLoss`、`DynamicObjectCrossing`、
   `BlockedIntersection`、`OppositeVehicleRunningRedLight` 的异常只进入 EVENT/span，
   primary RS 仍由 XML/XODR/meta 的道路结构证据决定。
-- `TwoWays` 只让候选池包含 R2/U-E2，不代表全程 R2；只有 RS 输出为 R2 时才开放对向绕行相关事件。
+- `TwoWays` 只让候选池包含 R2/U-E2，不代表全程 R2；R2 只覆盖必须借/等对向的核心障碍 span，
+  绕过障碍后恢复 R1/R4。
 - `Parking*` 只让候选池包含 R6/停车区事件，不代表全程 R6；灯控路口段仍优先 R4。
-- `EnterFlow` 名称不等于 R3；只有 `highway_merge/interurban` 规则族且 XODR merge/highway 证据
-  或 `MergerIntoSlowTraffic*` 的 XML actor-flow fallback 成立时，EVENT 才按 R3 的高速/合流规则空间收窄。
+- `EnterActorFlow*`、`HighwayCutIn`、`HighwayExit`、`MergerIntoSlowTraffic*`
+  是高速/快速路背景场景，候选池不开放 R1；除极短 R4 路口/灯控片段外，EVENT 按 R3 高速/合流规则空间收窄。
+- 混合场景不能只按 Town12/13 判高速。`HardBreakRoute`、`InterurbanActorFlow*`、
+  `StaticCutIn`、`ParkingCutIn` 必须先按 route RGB 分桶；高速/快速路桶候选收敛为 R3/R4，
+  非高速桶保留 R1。当前逐 id 均匀 5 帧 RGB 复核结果：HardBreakRoute 16/97 与 StaticCutIn 44/100
+  进入高速桶；InterurbanActorFlow、InterurbanAdvancedActorFlow、ParkingCutIn 高速桶为空。
+  `Town12_Rep0_258_0_route0_01_08_09_35_42` 是 HardBreakRoute 非高速反例。
 - `CrossJunctionDefectTrafficLight` 的 RS 由 defect 机制强制 R5；EVENT 选择 U-E7/R-E5 时不要再被
   XODR signal 存在性拉回 R4。
 

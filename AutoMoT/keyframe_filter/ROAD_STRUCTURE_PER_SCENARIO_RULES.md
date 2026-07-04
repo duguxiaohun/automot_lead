@@ -90,18 +90,19 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
 | 规则族 | 适用场景 | 当前初始窗口 / 关键开关 | 必须补的证据 |
 |---|---|---|---|
 | `same_direction_obstacle` | Accident, ConstructionObstacle, ParkedObstacle | `junction_pre_m=60`, `junction_post_m=25`; veto R2/R6 | 障碍只进 EVENT；R4 需灯控/stopline，同向绕障不得升 R2/R6 |
-| `twoways_obstacle` | AccidentTwoWays, ConstructionObstacleTwoWays, HazardAtSideLaneTwoWays, ParkedObstacleTwoWays | `two_way_min_pre_m=45-70`, `two_way_post_pad_m=20`, `trigger_close_m=70-75`, `two_way_layout_prior=true`, route 级 pre-core demotion | 核心帧看 opposite lane + 同向可用 lane 不足 / 借对向必要性；有 core 的 route 在 first core 前保持 R1/weak R2，core 后清晰 TwoWays layout 保留 R2 + review；无 core 但 RGB 清楚双向布局可召回 R2 + review |
-| `default_meta_map` | ControlLoss, CrossingBicycleFlow, DynamicObjectCrossing, HardBreakRoute, HazardAtSideLane | `junction_pre_m=50`, `junction_post_m=25`; 场景动作多数 veto RS 升级 | 急刹、横穿、失控、side-lane hazard 只进 EVENT；RS 由路网/灯控决定 |
+| `twoways_obstacle` | AccidentTwoWays, ConstructionObstacleTwoWays, HazardAtSideLaneTwoWays, ParkedObstacleTwoWays | `two_way_min_pre_m=45-70`, `two_way_post_pad_m=20`, `trigger_close_m=70-75`, `two_way_layout_prior=true` 但只作弱候选 | R2 只覆盖必须借/等对向的核心障碍 span；障碍前和绕过障碍后回 R1/R4，不能用双向 road-layout 维持后段 R2 |
+| `default_meta_map` | ControlLoss, CrossingBicycleFlow, DynamicObjectCrossing, HazardAtSideLane | `junction_pre_m=50`, `junction_post_m=25`; 场景动作多数 veto RS 升级 | 横穿、失控、side-lane hazard 只进 EVENT；RS 由路网/灯控决定 |
 | `signalized_junction` | BlockedIntersection, OppositeVehicleRunningRedLight, RedLightWithoutLeadVehicle, Signalized*Turn*, T_Junction | `junction_pre_m=50-60`, `junction_post_m=20-25`; T_Junction `review_if_no_tl=True`; static-signal-only strong context <=25m | 有效灯态、light_hazard、signal/controller、stopline approach 至少多源一致；无有效 `traffic_light_state` 的 R4 必须写 RGB confirmation review |
 | `defect_junction` | CrossJunctionDefectTrafficLight | `junction_pre_m=60`, `junction_post_m=20`, `override=r5_over_r4` | defect 场景即使有 signal/controller 也优先 R5；找不到路口只能 medium + review |
 | `nonsignalized_junction` | NonSignalizedJunction*, OppositeVehicleTakingPriority, PriorityAtJunction | `junction_pre_m=45-60`, `junction_post_m=20` | no-light / priority / stop / yield 证据；连续有效灯态必须 conflict review |
 | `pedestrian_crossing` | PedestrianCrossing | `junction_pre_m=40`, `junction_post_m=40`; `pedestrian_not_rs` | 行人只进 EVENT；R4/R5 取决于 crossing 是否与路口控制源同源 |
-| `highway_merge` | EnterActorFlow*, HighwayCutIn, HighwayExit, MergerIntoSlowTraffic* | `merge_pre_m=30-50`, `merge_post_m=40-50`, `trigger_close_m=90`; slow traffic 保持 R3 | merge/split/ramp/lane-count-change；cut-in/slow/EnterFlow 名称不能单独 high |
-| `interurban` | InterurbanActorFlow | `merge_pre_m=50`, `merge_post_m=45`, `junction_pre_m=55`, `junction_post_m=25`; projection-error R5 demotion | 先拆 R3 合流窗口，再拆 R4/R5 路口窗口；projection error 高时禁用 route_s hard boundary，R5 也必须有 RGB/低误差 junction/control 支撑 |
-| `interurban_advanced` | InterurbanAdvancedActorFlow | `junction_pre_m=55`, `junction_post_m=25`, `r3_requires_topology=True`; projection-error R5 demotion | 默认 R1；只有明确 merge/split/ramp 才给 R3 medium/review，只有可见或低误差无灯路口/priority 才给 R5 |
+| `highway_merge` | EnterActorFlow*, HighwayCutIn, HighwayExit, MergerIntoSlowTraffic* | 候选删除 R1；`merge_pre_m=30-50`, `merge_post_m=40-50`, `trigger_close_m=90`; `highway_default_r3=true` | RGB 确认高速/快速路背景，非路口默认 R3；merge/split/ramp/lane-count-change/actor-flow 只提高置信和定位边界，R4 只覆盖极短灯控段 |
+| `hardbreak_route` | HardBreakRoute | `junction_pre_m=50`, `junction_post_m=25`; route 级 RGB 高速桶候选收敛为 R3/R4 | 97 个 route 已逐 id 均匀 5 帧 RGB 复核；16 个高速/快速路桶给 R3/R4，其余城市/乡村 route 保留 R1/R4 |
+| `interurban` | InterurbanActorFlow | `merge_pre_m=50`, `merge_post_m=45`, `junction_pre_m=55`, `junction_post_m=25`; route 级 RGB 高速桶为空 | 91 个 route 已逐 id 均匀 5 帧 RGB 复核，未发现高速桶；保留 R1/R4/R5，仅强 merge/topology 才 review R3 |
+| `interurban_advanced` | InterurbanAdvancedActorFlow | `junction_pre_m=55`, `junction_post_m=25`, `r3_requires_topology=True`; route 级 RGB 高速桶为空 | 78 个 route 已逐 id 均匀 5 帧 RGB 复核，未发现高速桶；默认 R1/R4/R5，只有明确 RGB/XODR merge 才临时打开 R3 |
 | `invading_turn` | InvadingTurn | `two_way_min_pre_m=80`, `two_way_post_pad_m=20`, `trigger_close_m=75` | 对向车侵入/heading conflict；EVENT 区分被动让行与自车借道 |
-| `parking` / `parking_exit` | ParkingCrossingPedestrian, ParkingCutIn, ParkingExit | `parking_pre_m=20-35`, `parking_post_m=50-60` | parking/shoulder/curbside 或 RGB 停车空间；行人/切入仍归 EVENT |
-| `static_cutin` | StaticCutIn | `parking_pre_m=35`, `parking_post_m=55`, `merge_pre_m=35`, `merge_post_m=55` | R3/R6 二选一主导；分差小于 0.15 必须 review |
+| `parking` / `parking_exit` | ParkingCrossingPedestrian, ParkingCutIn, ParkingExit | `parking_pre_m=20-35`, `parking_post_m=50-60`; ParkingCutIn route 级高速桶为空 | parking/shoulder/curbside 或 RGB 停车空间；ParkingCutIn 99 个 route 已逐 id 5 帧复核未发现高速桶，行人/切入仍归 EVENT |
+| `static_cutin` | StaticCutIn | `parking_pre_m=35`, `parking_post_m=55`, `merge_pre_m=35`, `merge_post_m=55`; route 级 RGB 高速桶候选收敛为 R3/R4 | 100 个 route 已逐 id 均匀 5 帧 RGB 复核；44 个高速/快速路桶按 R3/R4，其余按 R1/R4/R6，R3/R6 分差小于 0.15 必须 review |
 | `vehicle_opens_door_twoways` | VehicleOpensDoorTwoWays | `two_way_min_pre_m=50`, `two_way_post_pad_m=20`, `parking_pre_m=35`, `parking_post_m=55` | R2/R6 可能共存，primary 看当前主导决策，secondary 记录另一项 |
 | `vehicle_turning` | VehicleTurningRoute, VehicleTurningRoutePedestrian | `junction_pre_m=50`, `junction_post_m=20-40`, `multi_trigger=True`; projection-error R5 demotion | 多 trigger 分段；行人/横穿不改变 RS，控制源决定 R4/R5；高投影误差下无灯 R5 必须有 stop / is_junction / 非静态可信 XODR 近路口证据 |
 | `noscenario` | noScenarios | `junction_pre_m=50`, `junction_post_m=25`, `conservative=True` | 只允许 R1/R4；弱 topology hint 只写 evidence/review |
@@ -157,7 +158,7 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
   1. XML/XODR route 投影误差高，却仍把 route_s / trigger window 当 hard boundary。
   2. 静态 XODR signal/opposite/parking/merge/junction hint 与 RGB 不同源，被误当 high confirmation。
   3. scenario 名称、active scenario 或事件距离被当作 ROAD_STRUCTURE 真值，导致 EVENT 覆盖 RS。
-  4. 坏 XODR 被当作否定证据，导致明显 merge 或 TwoWays road-layout 被压回 R1。
+  4. 坏 XODR 被当作否定证据，导致明显高速/merge 或 TwoWays 核心借道/绕障片段被压回 R1。
   5. 只看 summary/confidence，没有逐帧看稳定 R1 和低能见度帧。
   6. 行人、事故、施工、急刹、切入、开门、闯红灯等事件与道路控制源混淆。
 - 已回灌的通用修正：
@@ -168,8 +169,10 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
   高投影误差降级；Merger actor-flow/trigger fallback；TwoWays layout-prior 与核心借道/障碍分层。
 - 场景级回灌原则：
   同向事故/施工/急刹/动态障碍只进 EVENT，不能靠 `light_hazard` 或障碍距离升 RS；
-  TwoWays 既要避免只按场景名或 layout-prior 全段 R2，也要避免清晰双向 road-layout 被坏 XODR 压回 R1；
-  具体执行为“core 前不铺 R2、core 后可延续、无 core 但 RGB 清晰则 review 召回”；
+  TwoWays 既要避免只按场景名或 layout-prior 全段 R2，也要避免把静态/动态障碍事件误当持续道路结构；
+  具体执行为“只有必须借/等对向的核心障碍 span 是 R2，障碍前和绕过障碍后回 R1/R4”；
+  高速/merge 场景不能再被默认 R1 吃掉，已对 `EnterActorFlow*`、`HighwayCutIn`、`HighwayExit`、
+  `MergerIntoSlowTraffic*` 删除 R1 候选；`PriorityAtJunction` 和 `HardBreakRoute` 不能只因 Town12/13 判高速。
   R3 只表示 merge/ramp/split/exit 特殊结构，不表示物理高速路本身；
   R6 只表示停车带/路边停车空间主导，不表示 parked obstacle 事件；
   signalized / nonsignalized / defect junction 由控制源决定，低能见度时 XODR/XML/meta 只作补证。
@@ -209,26 +212,26 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 | 场景 | 最容易导致标定与 RGB 不匹配的原因 | 当前修正口径 |
 |---|---|---|
 | Accident | 事故事件或 light_hazard 被误当道路结构，普通同向路段提前升 R4/R2 | 障碍只进 EVENT；只有强路口/灯控上下文才 R4 |
-| AccidentTwoWays | trigger 前后清晰双向 road-layout 被坏 XODR/窗口结束压回 R1 | R2 拆成核心借道层和 TwoWays layout-prior 层 |
+| AccidentTwoWays | TwoWays 场景名或 layout-prior 把障碍前后普通双向路拖成 R2 | R2 只给核心借道/绕障 span，layout-prior 只作弱候选；障碍前后回 R1/R4 |
 | BlockedIntersection | 低能见度下无 meta 灯态的 R4 容易被误判为置信度问题 | RGB 可见 stopline/crosswalk/cross traffic/blocked pocket 时保留 R4 + review |
 | ConstructionObstacle | 施工物事件或静态 signal 近邻把普通路段提前升 R4/R2 | 施工只进 EVENT；static-signal-only strong context 限 25m |
-| ConstructionObstacleTwoWays | 施工锥桶与 two-way road-layout 混淆 | 核心占道看 R2；非核心双向道路看 layout-prior；未占道则 EVENT |
+| ConstructionObstacleTwoWays | 施工锥桶与 two-way road-layout 混淆 | 核心占道看 R2；非核心双向 layout 只作弱候选；未占道则 EVENT |
 | ControlLoss | 失控/低速/急刹被误当停车或路口结构 | 失控只进 EVENT；RS 由道路与灯控决定 |
 | CrossJunctionDefectTrafficLight | 看到信号灯硬件就误转 R4 | defect/异常信号控制场景优先 R5，硬件可见不等于正常灯控 |
 | CrossingBicycleFlow | actor flow 字样误触发 R3 | 自行车横穿只进 EVENT；只有真实灯控路口才 R4 |
 | DynamicObjectCrossing | 动态对象横穿被当成无灯路口/停车结构 | 动态对象只进 EVENT；RS 只看路网/灯控 |
-| EnterActorFlow | enter flow 与 merge/ramp 拓扑混淆 | 只有可见或可信 merge/split/ramp 才 R3，完成后 R1 |
-| EnterActorFlowV2 | 短 route / 投影抖动导致 R3 边界过宽 | 同 EnterActorFlow，短 route 必须靠 RGB 和强拓扑确认 |
+| EnterActorFlow | 高速/快速路 enter flow 被 R1 默认桶吃掉，或把事件窗口当道路边界 | 候选删除 R1；非路口默认 R3，enter/merge 证据只提高置信和定位核心窗口 |
+| EnterActorFlowV2 | 短 route / 投影抖动导致 R3 边界过宽或被压回 R1 | 同 EnterActorFlow，短 route 必须靠 RGB 和强拓扑确认 |
 | HardBreakRoute | 急刹被误当红灯/停车结构 | 急刹只进 EVENT；红灯停车必须有灯控/stopline 同源 |
 | HazardAtSideLane | side-lane hazard 被误当 R2 | 非 TwoWays 默认 R1 + EVENT；只有对向参与才 review R2 |
-| HazardAtSideLaneTwoWays | two-way hazard 与普通双向道路/占道核心混在一起 | core 前保持 R1；core/后段双向布局可 R2 + review，核心借道需障碍/对向证据 |
-| HighwayCutIn | 物理高速路或切入事件被误标为 R3 | R3 只表示 merge/ramp/split/exit 特殊结构；普通高速直行 R1 |
-| HighwayExit | exit 名称导致整段 R3 | 只在出口/分流拓扑窗口 R3，驶出完成回 R1 |
+| HazardAtSideLaneTwoWays | two-way hazard 与普通双向道路/占道核心混在一起 | 只有侧向风险压占路径且对向参与时 R2；非核心前后回 R1/R4 |
+| HighwayCutIn | 高速/快速路背景被 R1 默认桶吃掉，或把切入事件和道路结构混淆 | 候选删除 R1；非路口高速默认 R3，切入只进 EVENT，R4 只给短灯控/路口段 |
+| HighwayExit | 高速出口场景被 R1 默认桶吃掉，或 exit 名称把 R4/R3 边界拖宽 | 候选删除 R1；高速/分流背景默认 R3，R4 只给短灯控/路口段 |
 | InterurbanActorFlow | 高投影误差下 stop/junction hint 把普通城际路升 R5 | R5 必须有 RGB 可见或低误差 junction/control 支撑 |
 | InterurbanAdvancedActorFlow | advanced/actor-flow 先验过强，普通城际道路误升 R5/R3 | 默认 R1；R3/R5 都必须有可见或可信拓扑 |
 | InvadingTurn | 对向车事件与自车借道结构混淆 | R2 表示对向参与决策；EVENT 区分被动让行/侵入 |
-| MergerIntoSlowTraffic | 坏 XODR 把明显 merge 压回 R1，或 active scenario 把 merge 完成后拖成 R3 | actor-flow/trigger 强近邻可召回 R3；active scenario 不能单独延长 |
-| MergerIntoSlowTrafficV2 | 与 Merger 相同，且短路线更容易出现 R3/R1 边界误差 | 按 RGB 分段；明显 merge 保 R3，宽直主路回 R1 |
+| MergerIntoSlowTraffic | 坏 XODR 把明显高速/merge 压回 R1，或 active scenario 把核心合流窗口拖宽 | 候选删除 R1；高速/合流背景默认 R3，actor-flow/trigger 只用于定位核心窗口 |
+| MergerIntoSlowTrafficV2 | 与 Merger 相同，且短路线更容易出现 R3 边界误差 | 同 MergerIntoSlowTraffic；主线高速/快速路保持 R3，不回 R1 |
 | NonSignalizedJunctionLeftTurn | 静态 signal hint 与无灯路口语义冲突 | 无灯/priority/stop 证据给 R5；正常灯态进入 conflict review |
 | NonSignalizedJunctionLeftTurnEnterFlow | EnterFlow 名称误触发 R3 | 这是无灯路口进入车流，主口径 R5，不是匝道 R3 |
 | NonSignalizedJunctionRightTurn | slip lane / 右转动作被误当 R3 | 无灯 junction 给 R5；右转动作本身不是 R3 |
@@ -266,21 +269,17 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 - 候选 RS：R1, R2, R4。
 - 已确定口径：two-way 障碍核心窗口内，优先用可信 XODR 证明对向 lane 参与；若 XODR 不可信，近距离障碍、
   `accident_two_ways_stuck`、`vehicle_hazard` 或明显 lane-change 核心证据可给 R2=0.90，并强制 review。
-  但 RGB-first 复核确认不能把 `two_way_layout_prior` 当全 route 先验：
-  对存在 core obstruction 的 route，first core 前仍按 R1/weak R2；core 后非核心帧若 RGB 仍是清晰双向布局，
-  使用 `two_way_layout_prior` 保留 R2=0.82 + review。
-  对没有 core obstruction 的 route，例如本轮 `Town02` 样本，若 RGB 清楚显示中心黄线/双向单车道，
-  可作为纯 layout 召回保留 R2 + review。
+  RGB-first 复核进一步确认：双向 road-layout 不是持续 R2 的充分条件。R2 只覆盖触发关键事件、
+  自车必须借/等对向的那一小段；障碍前和绕过障碍后恢复 R1/R4。
+  `two_way_layout_prior` 只能作为弱 R2 候选和 review 线索，不能把非核心帧做 primary R2。
   灯控路口仍优先 R4，但有效灯态缺强路口上下文时只保留 weak R4 candidate。
 - 分段逻辑：先判 R4；再判 R2。核心障碍/借道帧由 XML trigger / distance / active window + opposite driving lane /
-  同向可用 lane 不足 / meta obstruction 支撑；route 级后处理会把 first core 前仅由 layout-prior 给出的 R2
-  通过 `twoways_layout_prior_pre_core_demoted_to_r1` 收回 R1，避免 `Town01/Town12/Town13` 这类接近段被全程铺 R2。
-  core 后或无 core 但 RGB 清晰的双向 layout，才保持 R2 + review。
+  同向可用 lane 不足 / meta obstruction 支撑；非核心 layout-prior 仅给 R2=0.58 与 R1=0.78，
+  primary 回 R1。参考边界：`Town01` 为 `R1 f0-f54 -> R2 f55-f135 -> R1 f136-end`。
 - 证据需求：XODR lane_id 符号反转、lane direction、lane count、meta active scenario、近距离障碍距离、
   `scenario_obstacles_ids`、`signed_dist_to_lane_change`、RGB 对向借道边界。
-- RGB 复核结论：`rs_full_frame_review_twoways_boundary_recheck` 中 7 个 town 共 1119 帧，
-  从旧全 R2 收紧为 `R1=277/R2=842`；`Town01/Town07/Town12/Town13` 回到 core 前 R1、core/后段 R2，
-  `Town02` 因无 core 但 RGB 黄线双向布局清楚而保留全程 R2 + review。
+- RGB 复核结论：`rs_full_frame_review_highway_twoways_user_fix` 中 7 个 town 共 1119 帧，
+  输出从旧全 R2 收紧为 `R1=736/R2=383`；`Town01` 明确恢复为核心小段 R2，其余前后段 R1。
 - 待完善点：`Town15` 有强停车/路边车列视觉，当前仍归 R2 + review；后续做 Parking/R6 复核时要确认它是纯 TwoWays road-layout，
   还是应在 EVENT/secondary 里记录 parking semantics。
 
@@ -315,11 +314,10 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 
 - 候选 RS：R1, R2, R4。
 - 已确定口径：two-way 施工障碍可进入 R2，但 high 需要 XODR 对向 lane + 同向 lane 不足。
-- 分段逻辑：R4 优先；two-way construction 窗口内满足对向参与条件给 R2；有 core 的 route 在 first core 前保持 R1，
-  core 后清晰 TwoWays layout 可用 `two_way_layout_prior` 延续 R2 + review。
+- 分段逻辑：R4 优先；two-way construction 窗口内满足对向参与条件给 R2；
+  施工物通过后即使仍是双向 road-layout，也回 R1/R4，layout-prior 只作弱候选。
 - 证据需求：XML distance/offset、XODR opposite lane、meta active scenario、RGB 施工占道。
-- RGB 复核结论：TwoWays 家族边界复核中 `ConstructionObstacleTwoWays` 7 条 route 共 1042 帧，
-  `twoways_layout_prior_pre_core_demoted_to_r1` 收回 183 帧 core 前 R2，剩余 `R1=183/R2=859`。
+- RGB 复核结论：静态施工/障碍不是持续道路结构；后续按 `AccidentTwoWays` 同款核心 span 口径复跑。
 - 待完善点：施工锥桶/障碍只在路边但不压占自车路径时，应保持 R1 + EVENT。
 
 ### ControlLoss
@@ -356,27 +354,50 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 
 ### EnterActorFlow
 
-- 候选 RS：R1, R3, R4。
-- 已确定口径：actor flow 的合流/汇入窗口可归 R3，但 high 必须有 ramp/merge/lane-count-change 或主辅路证据。
-- 分段逻辑：actor-flow start/end / trigger 窗口 + XODR merge 拓扑给 R3；灯控路口覆盖 R4；完成合流后 R1。
+- 候选 RS：R3, R4。
+- 已确定口径：RGB 抽样显示该类在 Town12/13 基本是高速/快速路进入车流；非路口默认 R3，不开放 R1。
+- 分段逻辑：actor-flow start/end / trigger 窗口 + XODR merge 拓扑提高 R3 置信；灯控路口覆盖 R4；窗口外仍保持 R3 背景。
 - 证据需求：XML start/end actor flow、other_actor_location、XODR merge/split、meta active scenario、RGB 车流关系。
-- 待完善点：只靠 XML actor-flow 不足以 high；需要把 candidate recall window 与 topology confirmation window 分开。
+- RGB 复核结论：`rs_full_frame_review_highway_twoways_user_fix` 两条 route 共 248 帧，输出 `R3=248`。
+- 待完善点：如果未来发现城区 EnterActorFlow 子集，需要按 run 级 RGB/XODR 分流，而不是恢复全局 R1 候选。
 
 ### EnterActorFlowV2
 
-- 候选 RS：R1, R3, R4。
-- 已确定口径：与 EnterActorFlow 同口径；V2 的 route/trigger 可能更短，不能用整段 sparse route 当 R3。
-- 分段逻辑：只在 actor-flow 核心窗口内尝试 R3；窗口外回 R1；灯控路口 R4。
+- 候选 RS：R3, R4。
+- 已确定口径：与 EnterActorFlow 同口径；非路口默认 R3，不开放 R1。
+- 分段逻辑：actor-flow 核心窗口提高 R3 置信；窗口外保持 R3；灯控路口 R4。
 - 证据需求：XML start/end、meta active scenario、XODR ramp/merge、RGB 侧向汇入。
-- 待完善点：短 route 下 projection 抖动更容易污染边界，必须用 meta/XODR waypoint 吸附辅助。
+- RGB 复核结论：`rs_full_frame_review_highway_twoways_user_fix` 一条 route 共 133 帧，输出 `R3=133`。
+- 待完善点：短 route 下 projection 抖动更容易污染边界，必须用 RGB + meta/XODR waypoint 吸附辅助。
 
 ### HardBreakRoute
 
-- 候选 RS：R1, R4。
-- 已确定口径：急刹是 EVENT；RS 默认 R1，灯控路口才 R4。
-- 分段逻辑：brake/accel/speed 只决定事件窗口；道路结构由 XODR/meta junction 和灯态决定。
-- 证据需求：meta brake/speed、XML route、XODR signal/junction。
-- 待完善点：急刹靠近路口时要区分“红灯停车 R4”与“前车急刹 R1 + EVENT”。
+- 候选 RS：R1, R3, R4。
+- 已确定口径：急刹是 EVENT；道路背景可能是城市/乡村 R1，也可能是高速/快速路 R3。
+- 分段逻辑：brake/accel/speed 只决定事件窗口；先按整条 route 的 RGB 分桶。
+  高速/快速路桶候选收敛为 R3/R4；非高速桶保留 R1，城市街区/乡村普通道路保持 R1，
+  灯控/stopline 段 R4。
+- 证据需求：meta brake/speed、XML route、XODR signal/junction/ramp/lane count、RGB 道路形态。
+- RGB 复核结论：HardBreakRoute 97 个 route 已逐 id 抽取均匀 5 帧 stitched RGB 复核，不能只按 Town12/13 判高速；例如
+  `Town12_Rep0_258_0_route0_01_08_09_35_42` 是乡村普通路，保留 R1。
+  当前筛入高速/快速路桶 16 个 route：
+  `Town12_Rep0_1428_0_route0_01_10_00_18_08`,
+  `Town12_Rep0_1439_0_route0_01_10_04_51_04`,
+  `Town12_Rep0_2452_0_route0_01_11_03_14_24`,
+  `Town12_Rep0_2510_0_route0_01_09_22_05_04`,
+  `Town12_Rep0_2585_0_route0_01_09_13_23_09`,
+  `Town12_Rep0_4115_0_route0_01_09_08_38_49`,
+  `Town12_Rep0_4118_0_route0_01_09_11_51_26`,
+  `Town12_Rep0_4139_0_route0_01_11_01_24_29`,
+  `Town12_Rep0_947_0_route0_01_10_04_45_34`,
+  `Town12_Rep0_954_0_route0_01_10_01_42_01`,
+  `Town13_Rep0_1258_0_route0_01_09_16_21_37`,
+  `Town13_Rep0_1269_0_route0_01_07_23_43_15`,
+  `Town13_Rep0_1275_0_route0_01_09_14_40_40`,
+  `Town13_Rep0_1387_0_route0_01_08_06_02_20`,
+  `Town13_Rep0_1663_0_route0_01_09_13_45_51`,
+  `Town13_Rep0_1666_0_route0_01_10_04_27_25`。
+- 待完善点：急刹靠近路口时要区分“红灯停车 R4”“前车急刹 R1 + EVENT”和“高速急刹 R3 + EVENT”。
 
 ### HazardAtSideLane
 
@@ -391,27 +412,31 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 - 候选 RS：R1, R2, R4。
 - 已确定口径：two-way side-lane hazard 可进入 R2，但必须证明对向 lane 影响当前决策。
 - 分段逻辑：灯控路口 R4；two-way hazard 窗口 + opposite lane + 同向 lane 不足给 R2；
-  若 route 有 core 证据，first core 前的 layout-prior 仍回 R1，避免只靠 TwoWays 名称全段 R2。
+  非核心 two-way layout 只保留弱 R2 候选，侧向风险未压占自车路径或已经通过后回 R1/R4。
 - 证据需求：XML trigger/distance、XODR lane direction、meta active scenario、RGB 对向/路边风险。
 - RGB 复核结论：TwoWays 家族边界复核中 `HazardAtSideLaneTwoWays` 2 条 route 共 413 帧，
-  core 前 demotion 251 帧，剩余 `R1=251/R2=162`；后续重点看 side-lane hazard 是否真正压占自车路径。
+  旧版曾出现 core 前后被 layout-prior 拖成 R2 的问题；新版以 RGB 核心占道/借道窗口为准。
 - 待完善点：侧向风险未压占自车路径时，保持 R1 + EVENT。
 
 ### HighwayCutIn
 
-- 候选 RS：R1, R3, R4。
-- 已确定口径：他车切入是 EVENT；物理上像高速/快速路不等于 R3，只有道路本身处于主辅路、匝道、合流、分流或驶出拓扑时才 R3。
-- 分段逻辑：merge/ramp/split/exit 或 lane-count-change topology 成立时 R3；普通高速多车道同向切入仍 R1；灯控路口 R4。
+- 候选 RS：R3, R4。
+- 已确定口径：RGB 抽样确认该类是高速/快速路 cut-in 背景；他车切入是 EVENT，底层道路空间默认 R3，不开放 R1。
+- 分段逻辑：merge/ramp/split/exit 或 lane-count-change topology 提高 R3 置信；无这些强 topology 时仍保持 R3 默认；
+  有效灯控/路口控制段才切 R4。
 - 证据需求：XODR road/lane topology、XML actor flow、meta active scenario、RGB 车道线和侧向车流。
-- 待完善点：不能把所有 cut-in 都当 R3；R3 high 需要 topology，不是 action 名称。
+- RGB 复核结论：`rs_full_frame_review_highway_twoways_user_fix` 两条 route 共 328 帧，输出 `R3=328`。
+- 待完善点：若未来发现城区 cut-in 子集，应单独按 run 级分流，不能恢复全局 R1。
 
 ### HighwayExit
 
-- 候选 RS：R1, R3, R4。
-- 已确定口径：驶出/分流是 R3 典型结构，但 high 需要 exit/split/lane-count-change 证据。
-- 分段逻辑：exit/actor-flow 窗口 + XODR split/ramp 给 R3；驶出完成后 R1；灯控路口 R4。
+- 候选 RS：R3, R4。
+- 已确定口径：驶出/分流是 R3 典型结构，且该 scenario 背景为高速/快速路，不开放 R1。
+- 分段逻辑：exit/actor-flow 窗口 + XODR split/ramp 提高 R3 置信；驶出完成后仍处于高速/快速路背景时保持 R3；
+  只有有效灯控/路口控制段才切 R4。
 - 证据需求：XML route/trigger/other_actor_location、XODR ramp/split、meta active scenario、RGB 出口边界。
-- 待完善点：实测仅有 `r3_lacks_xodr_merge_split_confirmation` 时仍可能高分，代码应把这类帧降为 medium + review。
+- RGB 复核结论：`rs_full_frame_review_highway_twoways_user_fix` 两条 route 共 232 帧，输出 `R3=232`。
+- 待完善点：若出口后进入城市路网，需要用 RGB/XODR route 分段切 R4/R1-like 后续类别；当前样本未显示该类。
 
 ### InterurbanActorFlow
 
@@ -421,8 +446,9 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
   R5 必须有 RGB 可见或低投影误差下的无信号 junction/stop/priority 证据；`route_projection_error_high`
   时的 stop/junction hint 只能降为弱候选 + review，不能压过 R1。
 - 证据需求：XML actor-flow + route、XODR merge/junction/signal、meta traffic_light_state/is_junction、RGB 边界帧。
-- RGB 复核结论：`Town12` 大面积 R5 与 RGB 不符，已回到 R1；
-  `Town13` 有可见无信号 fork/junction 和侧向/对向车流，保留分段 R5。
+- RGB 复核结论：91 个 route 已逐 id 抽取均匀 5 帧 stitched RGB 复核，未发现高速/快速路桶。
+  `Town12` 大面积 R5 与 RGB 不符，已回到 R1；`Town13` 有可见无信号 fork/junction 和侧向/对向车流，
+  保留分段 R5。
 - 待完善点：实测 projection error 多，边界必须优先使用 RGB + XODR/meta waypoint 吸附，不能只看 sparse route_s。
 
 ### InterurbanAdvancedActorFlow
@@ -432,8 +458,8 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
   R5 也必须有可见或低投影误差下的无信号路口/priority 证据。
 - 分段逻辑：junction + light 给 R4；junction/priority/no-light 给 R5；明确合流拓扑才临时 R3；其余 R1。
 - 证据需求：XODR junction/signal/priority、XML actor-flow、meta light/junction、RGB 路口和侧向车流。
-- RGB 复核结论：`Town12/Town13` 旧 R5 多由 scenario/stop hint 触发，RGB 更像普通城际道路，
-  已回到 R1 + review。
+- RGB 复核结论：78 个 route 已逐 id 抽取均匀 5 帧 stitched RGB 复核，未发现高速/快速路桶。
+  `Town12/Town13` 旧 R5 多由 scenario/stop hint 触发，RGB 更像普通城际道路，已回到 R1 + review。
 - 待完善点：实测大量 R5/R1 且 review 高，需补更细的路口窗口和投影修正。
 
 ### InvadingTurn
@@ -446,27 +472,25 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 
 ### MergerIntoSlowTraffic
 
-- 候选 RS：R1, R3, R4。
-- 已确定口径：慢车流合流是 R3，只要局部 merge/ramp 拓扑仍成立，低速不改变 RS。
+- 候选 RS：R3, R4。
+- 已确定口径：慢车流合流发生在高速/快速路背景，非路口默认 R3，不开放 R1；低速不改变 RS。
 - 分段逻辑：merge/actor-flow 窗口 + topology 给 R3；若 XODR/route 投影失效但 XML actor-flow
   强近邻或 trigger 距离仍支持 merge，则走
-  `r3_merger_actor_flow_or_trigger_fallback` 给 R3 并保留 review；合流完成回 R1；灯控路口 R4。
-- RGB 复核结论：`Town12/Town13` 不再出现明显 merge 被 all/mostly R1 吃掉的问题。
-  可见 merge/actor-flow 窗口为 R3；中间普通主路段回 R1；`Town13` 二次 split/merge 边界
-  再回 R3。这是正确的分段模式，不应为了 scenario 名称把全段强行 R3。
+  `r3_merger_actor_flow_or_trigger_fallback` 给 R3 并保留 review；窗口外仍保持高速 R3 背景；灯控路口 R4。
+- RGB 复核结论：`rs_full_frame_review_highway_twoways_user_fix` 两条 route 共 427 帧，输出 `R3=427`；
+  解决了明显 merge 路口被 all/mostly R1 吃掉的问题。
 - 证据需求：XML flow window、`start_actor_flow/end_actor_flow`、XODR merge/lane count、meta speed/active scenario、RGB 慢车流间隙。
 - 待完善点：不要把低速误归 R6 或 R5；低速只是事件/动作状态。复核时优先看 RGB 与
   `actor_flow_distance_m`，不要因为 `route_projection_error_high` 自动压回 R1。
-  active scenario 只能辅助解释，不能单独延长 R3；如果 RGB 显示 merge 已完成，应回 R1。
+  active scenario 只能辅助解释，不能单独制造 R4/R5。
 
 ### MergerIntoSlowTrafficV2
 
-- 候选 RS：R1, R3, R4。
+- 候选 RS：R3, R4。
 - 已确定口径：同 MergerIntoSlowTraffic；V2 只影响样本/route 形态，不改变可见 RS 语义。
-- 分段逻辑：只在合流核心窗口内 R3；完成后 R1；灯控路口 R4。
-- RGB 复核结论：`Town06` 短 route 全段处于 merge context；`Town12/Town13` 是分段 R3/R1，
-  其中 `Town12` 末尾可见 split/merge boundary 后恢复 R3。不能再出现“明显 merge 路口基本都标 R1”，
-  但也不能把宽直主路跟车段全刷成 R3。
+- 分段逻辑：非路口默认 R3；合流核心窗口提高置信；灯控路口 R4。
+- RGB 复核结论：`rs_full_frame_review_highway_twoways_user_fix` 三条 route 共 421 帧，输出 `R3=421`；
+  不能再出现“明显 merge 路口基本都标 R1”。
 - 证据需求：XML actor-flow、XODR merge、meta active scenario、RGB 侧向车流。
 - 待完善点：V2 需要和 canonical scene 合并时保留 raw scenario，用于回查失败样例。
 
@@ -523,10 +547,10 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 - 候选 RS：R1, R2, R4。
 - 已确定口径：停放障碍 + two-way 可进入 R2；“parked” 不是 R6 的充分条件。
 - 分段逻辑：two-way obstruction 窗口 + opposite lane 参与给 R2；灯控路口 R4；
-  route 有 core 证据时 first core 前保持 R1，core 后清晰双向 layout 可延续 R2 + review。
+  障碍未进入决策区或自车已经绕过障碍后回 R1/R4，不能只因 TwoWays 名称延续 R2。
 - 证据需求：XML distance/offset、XODR lane direction/count、meta active scenario、RGB 借道。
 - RGB 复核结论：TwoWays 家族边界复核中 `ParkedObstacleTwoWays` 2 条 route 共 160 帧，
-  core 前 demotion 64 帧，剩余 `R1=64/R2=96`；parking/R6 只能在停车空间主导时进入 secondary 或后续复核。
+  旧版会让 core 前后 layout-prior 过强；新版只在障碍压占路径/借对向的核心段给 R2。
 - 待完善点：路边停放但不需要借对向时，保持 R1 + EVENT。
 
 ### ParkingCrossingPedestrian
@@ -543,6 +567,8 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 - 已确定口径：路边停车车切入主路时 R6；灯控路口优先 R4；切入行为本身进入 EVENT。
 - 分段逻辑：parking trigger/distance 窗口 + parking/shoulder/curbside 或 parked car side evidence 给 R6；窗口外 R1。
 - 证据需求：XML direction/front/behind、XODR parking lane/shoulder、meta active scenario、RGB 停车车启动。
+- RGB 复核结论：99 个 route 已逐 id 抽取均匀 5 帧 stitched RGB 复核，未发现高速/快速路桶；
+  因此当前 ParkingCutIn 不删除 R1，只有停车带/路边车/curbside 证据成立时才进入 R6。
 - 待完善点：R6 high 必须有停车空间或路边车证据；不能只靠 scenario 名称。
 
 ### ParkingExit
@@ -605,8 +631,12 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 
 - 候选 RS：R1, R3, R4, R6。
 - 已确定口径：StaticCutIn 不是单一结构；每个 run 要按局部拓扑拆成停车侧 R6、合流侧 R3 或普通 R1。
-- 分段逻辑：parking/curbside evidence 给 R6；merge/ramp/split evidence 给 R3；灯控路口 R4；否则 R1。
+- 分段逻辑：先按 route 级 RGB 分高速/快速路桶；高速桶候选收敛为 R3/R4。
+  非高速桶保留 R1/R4/R6；parking/curbside evidence 给 R6；merge/ramp/split evidence 给 R3；灯控路口 R4；否则 R1。
 - 证据需求：XODR parking/shoulder/merge/split、XML trigger、meta active scenario、RGB 静态车切入来源。
+- RGB 复核结论：100 个 route 已逐 id 抽取均匀 5 帧 stitched RGB 复核；44 个 route 是多车道护栏/高架/快速路形态，
+  已写入 route 级高速桶并收敛为 R3/R4。其余 `Town13_Rep0_1704/1705/1714/1715/1717/1718` 等城市或普通宽路仍保留 R1，
+  不能因 Town13 或 StaticCutIn 名称统一判 R3。
 - 待完善点：R3/R6 不能同时 high；若二者证据分差小于 0.15，必须 review。
 
 ### T_Junction
