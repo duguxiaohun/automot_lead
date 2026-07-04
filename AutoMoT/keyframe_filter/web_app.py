@@ -16,7 +16,13 @@ import base64
 import os
 import lzma
 import pickle
-from collector import SCENARIO_TO_ROAD_STRUCTURE, SCENARIO_TO_FINE_EVENTS, load_pickle_file
+from collector import (
+    EVENT_LABELS,
+    ROAD_STRUCTURE_LABELS,
+    SCENARIO_TO_FINE_EVENTS,
+    SCENARIO_TO_ROAD_STRUCTURE,
+    load_pickle_file,
+)
 
 app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
@@ -31,6 +37,15 @@ COLLECTION_OUTPUT = Path(
 )
 
 
+@app.after_request
+def add_no_cache_headers(response):
+    """标注 JSON 会在外部命令运行后更新，Web 端所有响应都禁止缓存。"""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 # ============================================================================
 # API 端点
 # ============================================================================
@@ -41,7 +56,9 @@ def get_scenarios():
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
     return jsonify({
         "total": len(scenarios),
-        "scenarios": scenarios
+        "scenarios": scenarios,
+        "road_structure_labels": ROAD_STRUCTURE_LABELS,
+        "event_labels": EVENT_LABELS,
     })
 
 
@@ -62,6 +79,8 @@ def get_scenario_info(scenario):
         "scenario": scenario,
         "road_structures": [rs.value for rs in SCENARIO_TO_ROAD_STRUCTURE[scenario]],
         "events": [ev.value for ev in SCENARIO_TO_FINE_EVENTS.get(scenario, [])],
+        "road_structure_labels": ROAD_STRUCTURE_LABELS,
+        "event_labels": EVENT_LABELS,
         "collected": result is not None,
         "total_frames": result.get('total_frames', 0) if result else 0,
         "num_routes": len(result.get('routes', [])) if result else 0,
@@ -370,8 +389,7 @@ HTML_TEMPLATE = """
 
         .tab-content {
             display: none;
-            height: 600px;
-            overflow-y: auto;
+            overflow: visible;
         }
         .tab-content.active { display: block; }
 
@@ -428,6 +446,25 @@ HTML_TEMPLATE = """
         .tag.secondary { background: #8e44ad; }
         .tag.review { background: #e67e22; }
         .tag.ok { background: #27ae60; }
+        .tag.event-primary { background: #c0392b; font-size: 14px; padding: 5px 10px; }
+        .legend-list {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 4px 8px;
+            margin-top: 8px;
+        }
+        .legend-item {
+            font-size: 11px;
+            line-height: 1.35;
+            color: #333;
+        }
+        .legend-code {
+            display: inline-block;
+            min-width: 42px;
+            font-family: Consolas, Monaco, monospace;
+            font-weight: bold;
+            color: #667eea;
+        }
 
         .annotation-card {
             background: #fff;
@@ -477,8 +514,10 @@ HTML_TEMPLATE = """
             background: #000;
             border-radius: 8px;
             overflow: hidden;
+            line-height: 0;
         }
         .video-container video {
+            display: block;
             width: 100%;
             height: auto;
         }
@@ -528,11 +567,22 @@ HTML_TEMPLATE = """
 
                 <button class="btn" onclick="loadFrame()">加载帧数据</button>
                 <button class="btn" onclick="loadVideo()" style="background: #f093fb; margin-top: 10px;">加载视频</button>
+                <button class="btn" onclick="refreshCurrentAnnotations()" style="background: #27ae60; margin-top: 10px;">刷新标注结果</button>
 
                 <div style="margin-top: 30px; padding: 15px; background: #f0f4ff; border-radius: 8px;">
                     <h3 style="font-size: 14px; margin-bottom: 10px;">ℹ️ 场景信息</h3>
                     <div id="scenarioInfo" style="font-size: 12px; line-height: 1.6;">
                         <p>选择场景以查看详情</p>
+                    </div>
+                </div>
+
+                <div style="margin-top: 16px; padding: 15px; background: #fff7e8; border-radius: 8px;">
+                    <h3 style="font-size: 14px; margin-bottom: 10px;">标签含义</h3>
+                    <div style="font-size: 12px; color: #555;">
+                        选择场景后展示该场景候选。RS 是道路规则空间，EVENT 是当前事件标签。
+                    </div>
+                    <div id="labelLegend" class="legend-list">
+                        <span class="legend-item">选择场景以查看 RS / EVENT 含义</span>
                     </div>
                 </div>
             </div>
@@ -578,7 +628,7 @@ HTML_TEMPLATE = """
                             <span class="info-value" id="infoFrame">-</span>
                         </div>
                         <div class="annotation-card">
-                            <h3>✅ 本帧逐帧 RS 标注结果</h3>
+                            <h3>✅ 本帧 RS 标注结果</h3>
                             <div class="annotation-main">
                                 <div class="annotation-box">
                                     <span class="small-label">本帧最终标签</span>
@@ -612,6 +662,31 @@ HTML_TEMPLATE = """
                             <div id="events"></div>
                         </div>
                         <div class="annotation-card">
+                            <h3>本帧 EVENT 标注结果</h3>
+                            <div class="annotation-main">
+                                <div class="annotation-box">
+                                    <span class="small-label">本帧主 EVENT</span>
+                                    <div id="primaryEvent"><span class="tag event-primary">-</span></div>
+                                </div>
+                                <div class="annotation-box">
+                                    <span class="small-label">本帧 EVENTS</span>
+                                    <div id="frameEvents">-</div>
+                                </div>
+                                <div class="annotation-box">
+                                    <span class="small-label">EVENT 复核</span>
+                                    <div id="eventReviewStatus">-</div>
+                                </div>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">EVENT 解释</span>
+                                <span class="info-value" id="eventReason">-</span>
+                            </div>
+                            <div class="evidence-grid">
+                                <div class="evidence-item"><strong>EVENT 规则:</strong> <span id="eventRulesFired">-</span></div>
+                                <div class="evidence-item"><strong>EVENT 指标:</strong> <span id="eventMetrics">-</span></div>
+                            </div>
+                        </div>
+                        <div class="annotation-card">
                             <h3>🧭 证据归因：XODR / XML / LEAD meta</h3>
                             <div class="evidence-grid">
                                 <div class="evidence-item"><strong>决策来源:</strong> <span id="decisionSource">-</span></div>
@@ -636,15 +711,28 @@ HTML_TEMPLATE = """
     <script>
         let routeFrames = [];
         let routeAnnotationsByFrame = {};
+        let roadStructureLabels = {};
+        let eventLabels = {};
 
         // 初始化
         loadScenarios();
         bindVideoEvents();
 
+        function apiUrl(path) {
+            const sep = path.includes('?') ? '&' : '?';
+            return `${path}${sep}_ts=${Date.now()}`;
+        }
+
+        function fetchJson(path) {
+            return fetch(apiUrl(path), { cache: 'no-store' });
+        }
+
         function loadScenarios() {
-            fetch('/api/scenarios')
+            fetchJson('/api/scenarios')
                 .then(r => r.json())
                 .then(data => {
+                    roadStructureLabels = data.road_structure_labels || {};
+                    eventLabels = data.event_labels || {};
                     const select = document.getElementById('scenarioSelect');
                     data.scenarios.forEach(scenario => {
                         const option = document.createElement('option');
@@ -660,21 +748,24 @@ HTML_TEMPLATE = """
             if (!scenario) return;
 
             // 更新场景信息
-            fetch(`/api/scenario/${scenario}/info`)
+            fetchJson(`/api/scenario/${scenario}/info`)
                 .then(r => r.json())
                 .then(data => {
+                    roadStructureLabels = data.road_structure_labels || roadStructureLabels;
+                    eventLabels = data.event_labels || eventLabels;
                     const info = document.getElementById('scenarioInfo');
                     info.innerHTML = `
-                        <p><strong>道路结构:</strong> ${data.road_structures.join(', ')}</p>
-                        <p><strong>事件候选:</strong> ${data.events.slice(0, 3).join(', ')}...</p>
+                        <p><strong>RS候选:</strong> ${formatCodesInline(data.road_structures, roadStructureLabels)}</p>
+                        <p><strong>EVENT候选:</strong> ${formatCodesInline(data.events, eventLabels)}</p>
                         <p><strong>已采集:</strong> ${data.collected ? '✓' : '✗'}</p>
                         <p><strong>帧数:</strong> ${data.total_frames}</p>
                         <p><strong>Route数:</strong> ${data.num_routes}</p>
                     `;
+                    renderLabelLegend(data.road_structures || [], data.events || []);
                 });
 
             // 加载routes
-            fetch(`/api/scenario/${scenario}/routes`)
+            fetchJson(`/api/scenario/${scenario}/routes`)
                 .then(r => r.json())
                 .then(data => {
                     const select = document.getElementById('routeSelect');
@@ -696,7 +787,7 @@ HTML_TEMPLATE = """
             routeFrames = [];
             routeAnnotationsByFrame = {};
 
-            fetch(`/api/scenario/${scenario}/route/${route}/frames`)
+            fetchJson(`/api/scenario/${scenario}/route/${route}/frames`)
                 .then(r => r.json().then(data => ({ ok: r.ok, data })))
                 .then(({ ok, data }) => {
                     if (!ok || data.error) {
@@ -713,7 +804,7 @@ HTML_TEMPLATE = """
                     });
 
                     routeFrames = data.frames;
-                    return fetch(`/api/scenario/${scenario}/route/${route}/annotations`);
+                    return fetchJson(`/api/scenario/${scenario}/route/${route}/annotations`);
                 })
                 .then(r => {
                     if (!r) return null;
@@ -762,7 +853,7 @@ HTML_TEMPLATE = """
             }
 
             setStatus('加载中...', 'loading');
-            fetch(`/api/frame/${scenario}/${route}/${frame}`)
+            fetchJson(`/api/frame/${scenario}/${route}/${frame}`)
                 .then(r => r.json().then(data => ({ ok: r.ok, data })))
                 .then(({ ok, data }) => {
                     if (!ok || data.error) {
@@ -798,7 +889,7 @@ HTML_TEMPLATE = """
             }
 
             setStatus('加载视频中...', 'loading');
-            fetch(`/api/video/${scenario}/${route}`)
+            fetchJson(`/api/video/${scenario}/${route}`)
                 .then(r => r.json().then(data => ({ ok: r.ok, data })))
                 .then(({ ok, data }) => {
                     if (!ok || data.error) {
@@ -866,6 +957,67 @@ HTML_TEMPLATE = """
             renderAnnotation(scenario, route, frame, ann, source);
         }
 
+        function refreshCurrentAnnotations() {
+            const scenario = document.getElementById('scenarioSelect').value;
+            const route = document.getElementById('routeSelect').value;
+            const frameSelectValue = document.getElementById('frameSelect').value;
+            const frameInputValue = document.getElementById('frameInput').value;
+            const frame = frameInputValue !== '' ? frameInputValue : frameSelectValue;
+
+            if (!scenario) {
+                setStatus('请选择场景后再刷新', 'error');
+                return;
+            }
+
+            setStatus('刷新标注中...', 'loading');
+            fetchJson(`/api/scenario/${scenario}/info`)
+                .then(r => r.json().then(data => ({ ok: r.ok, data })))
+                .then(({ ok, data }) => {
+                    if (!ok || data.error) {
+                        throw new Error(data.error || '刷新场景信息失败');
+                    }
+                    roadStructureLabels = data.road_structure_labels || roadStructureLabels;
+                    eventLabels = data.event_labels || eventLabels;
+                    const info = document.getElementById('scenarioInfo');
+                    info.innerHTML = `
+                        <p><strong>RS候选:</strong> ${formatCodesInline(data.road_structures, roadStructureLabels)}</p>
+                        <p><strong>EVENT候选:</strong> ${formatCodesInline(data.events, eventLabels)}</p>
+                        <p><strong>已采集:</strong> ${data.collected ? '✓' : '✗'}</p>
+                        <p><strong>帧数:</strong> ${data.total_frames}</p>
+                        <p><strong>Route数:</strong> ${data.num_routes}</p>
+                    `;
+                    renderLabelLegend(data.road_structures || [], data.events || []);
+                    if (!route) {
+                        return null;
+                    }
+                    return fetchJson(`/api/scenario/${scenario}/route/${route}/annotations`);
+                })
+                .then(r => {
+                    if (!r) return null;
+                    return r.json().then(data => ({ ok: r.ok, data }));
+                })
+                .then(payload => {
+                    if (!payload) {
+                        setStatus('✓ 场景信息已刷新', 'success');
+                        return;
+                    }
+                    const { ok, data } = payload;
+                    if (!ok || data.error) {
+                        throw new Error(data.error || '刷新标注失败');
+                    }
+                    routeAnnotationsByFrame = {};
+                    (data.annotations || []).forEach(ann => {
+                        routeAnnotationsByFrame[String(ann.frame_id)] = ann;
+                    });
+                    if (frame !== '') {
+                        const ann = routeAnnotationsByFrame[String(frame)] || null;
+                        renderAnnotation(scenario, route, frame, ann, '手动刷新标注');
+                    }
+                    setStatus('✓ 标注已刷新', 'success');
+                })
+                .catch(e => setStatus('错误: ' + e.message, 'error'));
+        }
+
         function escapeHtml(value) {
             return String(value ?? '-')
                 .replaceAll('&', '&amp;')
@@ -892,7 +1044,34 @@ HTML_TEMPLATE = """
             if (!values || values.length === 0) {
                 return '<span class="tag">无</span>';
             }
-            return values.map(v => `<span class="tag ${className || ''}">${escapeHtml(v)}</span>`).join('');
+            const labels = className && className.includes('event') ? eventLabels : roadStructureLabels;
+            return values.map(v => {
+                const meaning = labels[String(v)] || '';
+                const title = meaning ? ` title="${escapeHtml(meaning)}"` : '';
+                return `<span class="tag ${className || ''}"${title}>${escapeHtml(v)}</span>`;
+            }).join('');
+        }
+
+        function formatCodesInline(values, labels) {
+            if (!values || values.length === 0) {
+                return '无';
+            }
+            return values.map(v => {
+                const code = escapeHtml(v);
+                const meaning = labels[String(v)] || '';
+                return meaning ? `${code}=${escapeHtml(meaning)}` : code;
+            }).join('<br>');
+        }
+
+        function renderLabelLegend(rsValues, eventValues) {
+            const rows = [];
+            (rsValues || []).forEach(code => {
+                rows.push(`<span class="legend-item"><span class="legend-code">${escapeHtml(code)}</span>${escapeHtml(roadStructureLabels[String(code)] || '未定义')}</span>`);
+            });
+            (eventValues || []).forEach(code => {
+                rows.push(`<span class="legend-item"><span class="legend-code">${escapeHtml(code)}</span>${escapeHtml(eventLabels[String(code)] || '未定义')}</span>`);
+            });
+            document.getElementById('labelLegend').innerHTML = rows.join('') || '<span class="legend-item">无候选标签</span>';
         }
 
         function normalizeFrameRs(ann) {
@@ -915,6 +1094,20 @@ HTML_TEMPLATE = """
             };
         }
 
+        function normalizeFrameEvent(ann) {
+            const frameEvent = ann.frame_event_annotation || {};
+            const evidence = ann.event_evidence || {};
+            return {
+                label: frameEvent.label || ann.primary_event || '-',
+                events: frameEvent.events || ann.events || [],
+                comment: frameEvent.comment || '-',
+                rulesFired: frameEvent.rules_fired || evidence.rules_fired || [],
+                metrics: frameEvent.metrics || evidence.metrics || {},
+                reviewRequired: frameEvent.review_required ?? evidence.review_required ?? false,
+                reviewReasons: frameEvent.review_reasons || evidence.review_reasons || [],
+            };
+        }
+
         function renderAnnotation(scenario, route, frame, ann, source) {
             document.getElementById('infoSource').textContent = source || '-';
             document.getElementById('infoScenario').textContent = scenario || '-';
@@ -923,6 +1116,7 @@ HTML_TEMPLATE = """
 
             if (ann) {
                 const frameRs = normalizeFrameRs(ann);
+                const frameEvent = normalizeFrameEvent(ann);
 
                 document.getElementById('primaryRoadStructure').innerHTML =
                     `<span class="tag primary">${escapeHtml(frameRs.label)}</span>`;
@@ -943,6 +1137,20 @@ HTML_TEMPLATE = """
                     formatList(ann.road_structures || [], '');
                 document.getElementById('events').innerHTML =
                     formatList(ann.events || [], 'event');
+                document.getElementById('primaryEvent').innerHTML =
+                    `<span class="tag event-primary" title="${escapeHtml(eventLabels[String(frameEvent.label)] || '')}">${escapeHtml(frameEvent.label)}</span>`;
+                document.getElementById('frameEvents').innerHTML =
+                    formatList(frameEvent.events || [], 'event');
+                const eventReviewText = frameEvent.reviewRequired
+                    ? `需要复核：${(frameEvent.reviewReasons || []).join('; ') || '未给出原因'}`
+                    : '无需复核';
+                document.getElementById('eventReviewStatus').innerHTML =
+                    `<span class="tag ${frameEvent.reviewRequired ? 'review' : 'ok'}">${escapeHtml(eventReviewText)}</span>`;
+                document.getElementById('eventReason').textContent =
+                    `${frameEvent.label} ${eventLabels[String(frameEvent.label)] || ''} | ${frameEvent.comment}`;
+                document.getElementById('eventRulesFired').innerHTML = formatList(frameEvent.rulesFired, 'event');
+                document.getElementById('eventMetrics').innerHTML =
+                    `<span class="mono">${escapeHtml(JSON.stringify(frameEvent.metrics || {}))}</span>`;
 
                 const metrics = frameRs.metrics || {};
                 const xodr = frameRs.xodr || {};
@@ -991,6 +1199,12 @@ HTML_TEMPLATE = """
                 document.getElementById('secondaryRoadStructures').textContent = '-';
                 document.getElementById('roadStructures').innerHTML = '<span class="tag">无标注</span>';
                 document.getElementById('events').innerHTML = '<span class="tag event">无标注</span>';
+                document.getElementById('primaryEvent').innerHTML = '<span class="tag event-primary">无标注</span>';
+                document.getElementById('frameEvents').innerHTML = '<span class="tag event">无标注</span>';
+                document.getElementById('eventReviewStatus').textContent = '-';
+                document.getElementById('eventReason').textContent = '-';
+                document.getElementById('eventRulesFired').textContent = '-';
+                document.getElementById('eventMetrics').textContent = '-';
                 document.getElementById('infoConfidence').textContent = '-';
                 document.getElementById('infoReason').textContent = '该帧未找到标注';
                 document.getElementById('reviewStatus').textContent = '-';
