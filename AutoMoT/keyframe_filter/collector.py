@@ -250,7 +250,7 @@ class FrameAnnotation:
 SCENARIO_TO_ROAD_STRUCTURE = {
     "Accident": [RoadStructure.R1, RoadStructure.R4],
     "AccidentTwoWays": [RoadStructure.R1, RoadStructure.R2, RoadStructure.R4],
-    "BlockedIntersection": [RoadStructure.R1, RoadStructure.R4],
+    "BlockedIntersection": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
     "ConstructionObstacle": [RoadStructure.R1, RoadStructure.R4],
     "ConstructionObstacleTwoWays": [RoadStructure.R1, RoadStructure.R2, RoadStructure.R4],
     "ControlLoss": [RoadStructure.R1, RoadStructure.R4],
@@ -1317,7 +1317,7 @@ def load_rule_config_overrides(path: str) -> None:
 SCENARIO_RULE_KIND = {
     "Accident": "same_direction_obstacle",
     "AccidentTwoWays": "twoways_obstacle",
-    "BlockedIntersection": "signalized_junction",
+    "BlockedIntersection": "blocked_intersection",
     "ConstructionObstacle": "same_direction_obstacle",
     "ConstructionObstacleTwoWays": "twoways_obstacle",
     "ControlLoss": "default_meta_map",
@@ -1372,8 +1372,8 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
     "HazardAtSideLaneTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 75, "two_way_post_pad_m": 20, "trigger_close_m": 75, "two_way_xml_core_close_m": 8, "two_way_obstacle_core_m": 20, "two_way_approach_obstacle_m": 30, "two_way_exit_delta_m": 2, "two_way_exit_hold_frames": 3, "two_way_post_core_signal_m": 45, "two_way_layout_prior": True},
     "ParkedObstacleTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 55, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_xml_core_close_m": 8, "two_way_obstacle_core_m": 18, "two_way_approach_obstacle_m": 28, "two_way_exit_delta_m": 2, "two_way_exit_hold_frames": 3, "two_way_post_core_signal_m": 45, "two_way_layout_prior": True, "veto": ["parked_not_r6"]},
     "InvadingTurn": {"kind": "invading_turn", "two_way_min_pre_m": 80, "two_way_post_pad_m": 20, "trigger_close_m": 75, "rule_note": "passive_oncoming_invasion"},
-    # 信号灯路口：stopline 前也保持 R4。
-    "BlockedIntersection": {"kind": "signalized_junction", "junction_pre_m": 48, "junction_post_m": 20, "rule_note": "blocked_is_event_not_rs"},
+    # 阻塞路口：阻塞是 EVENT；RS 由路口控制源决定，STOP/无灯路口不能默认 R4。
+    "BlockedIntersection": {"kind": "blocked_intersection", "junction_pre_m": 48, "junction_post_m": 20, "rule_note": "blocked_is_event_not_rs"},
     "OppositeVehicleRunningRedLight": {"kind": "signalized_junction", "junction_pre_m": 50, "junction_post_m": 20, "rule_note": "violation_not_r5"},
     "RedLightWithoutLeadVehicle": {"kind": "signalized_junction", "junction_pre_m": 60, "junction_post_m": 20},
     "SignalizedJunctionLeftTurn": {"kind": "signalized_junction", "junction_pre_m": 60, "junction_post_m": 25},
@@ -2229,6 +2229,27 @@ class RoadStructureRuleEngine:
                 ):
                     self._add(scores, RoadStructure.R5, 0.84)
                     rules.append("t_junction_stop_or_yield_no_light_r5")
+        elif kind == "blocked_intersection":
+            if junction_window or scenario_active:
+                signal_control = has_tl or (
+                    (bbox_traffic_light or light_hazard or static_signal_near)
+                    and strong_control_context
+                    and not stop_hazard
+                )
+                no_light_control = stop_hazard or meta_near_junction or close_trigger_for_junction
+                if signal_control:
+                    r4_score = 0.96 if has_tl else 0.84
+                    self._add(scores, RoadStructure.R4, r4_score)
+                    rules.append("blocked_intersection_signalized_r4")
+                    if not has_tl:
+                        rules.append("blocked_intersection_r4_without_meta_tl_review")
+                elif no_light_control:
+                    r5_score = 0.97 if stop_hazard else 0.82
+                    self._add(scores, RoadStructure.R5, r5_score)
+                    rules.append("blocked_intersection_stop_or_nolight_r5")
+                else:
+                    self._add(scores, RoadStructure.R1, 0.78)
+                    rules.append("blocked_intersection_window_lacks_control_source_review")
         elif kind == "nonsignalized_junction":
             if junction_window or stop_hazard or scenario_active:
                 if meta_near_junction or stop_hazard:
@@ -2671,6 +2692,8 @@ class RoadStructureRuleEngine:
             review_reasons.append("signalized_policy_without_meta_tl")
         if kind == "signalized_junction" and primary == RoadStructure.R4 and not has_tl:
             review_reasons.append("signalized_r4_without_meta_tl_requires_rgb_confirmation")
+        if kind == "blocked_intersection" and primary == RoadStructure.R4 and not has_tl:
+            review_reasons.append("blocked_r4_without_meta_tl_requires_rgb_confirmation")
         if primary == RoadStructure.R4 and "r4_meta_tl_without_strong_context_review" in rules:
             review_reasons.append("r4_meta_tl_without_strong_context_requires_rgb_confirmation")
         if primary == RoadStructure.R4 and "r4_bbox_tl_without_strong_context_review" in rules:

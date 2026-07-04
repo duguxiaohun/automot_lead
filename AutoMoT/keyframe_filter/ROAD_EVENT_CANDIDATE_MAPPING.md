@@ -93,7 +93,7 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 |---|---|---|
 | Accident | R1, R4 | 默认直道 + 信号灯路口；核心为同向静态障碍绕行 |
 | AccidentTwoWays | R1, R2, R4 | 默认直道 + 信号灯路口；核心为双向单车道借对向绕障 |
-| BlockedIntersection | R1, R4 | 跟车背景 + 看灯路口；核心为前方道路阻塞/解除 |
+| BlockedIntersection | R1, R4, R5 | 跟车背景 + 灯控/无灯阻塞路口；阻塞只进 EVENT，RS 由信号灯 vs STOP/无灯控制源决定 |
 | ConstructionObstacle | R1, R4 | 默认直道 + 信号灯路口；核心为同向施工障碍绕行 |
 | ConstructionObstacleTwoWays | R1, R2, R4 | 默认直道 + 信号灯路口；核心为双向单车道借对向绕施工障碍 |
 | ControlLoss | R1, R4 | 用户调研中近似跟车；保留默认信号灯路口片段 |

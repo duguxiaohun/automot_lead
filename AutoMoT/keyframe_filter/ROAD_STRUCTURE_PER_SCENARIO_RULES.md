@@ -111,7 +111,8 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
 | `same_direction_obstacle` | Accident, ConstructionObstacle, ParkedObstacle | `junction_pre_m=60`, `junction_post_m=25`; veto R2/R6 | 障碍只进 EVENT；R4 需灯控/stopline，同向绕障不得升 R2/R6 |
 | `twoways_obstacle` | AccidentTwoWays, ConstructionObstacleTwoWays, HazardAtSideLaneTwoWays, ParkedObstacleTwoWays | `two_way_min_pre_m=50-75`（较前一版统一提前约 5m 开始召回）, `two_way_post_pad_m=20`, `trigger_close_m=70-75`, `two_way_xml_core_close_m=8`, `two_way_obstacle_core_m=18-20`, `two_way_approach_obstacle_m=28-30`, `two_way_exit_delta_m=2`, `two_way_exit_hold_frames=3`, `two_way_layout_prior=true` 但只作弱候选 | R2 只覆盖必须借/等对向的核心障碍 span；XML trigger 极近或 trigger-close + XML 场景障碍近距离可召回核心 R2；过最近障碍点后若持续远离且无 stuck / vehicle_hazard，route 级 `twoways_core_span_clipping` 把后段恢复为 R1/R4，不能用双向 road-layout 维持后段 R2 |
 | `default_meta_map` | ControlLoss, CrossingBicycleFlow, DynamicObjectCrossing, HazardAtSideLane | `junction_pre_m=50`, `junction_post_m=25`; 场景动作多数 veto RS 升级 | 横穿、失控、side-lane hazard 只进 EVENT；RS 由路网/灯控决定 |
-| `signalized_junction` | BlockedIntersection, OppositeVehicleRunningRedLight, RedLightWithoutLeadVehicle, Signalized*Turn*, T_Junction | `junction_pre_m=48-60`, `junction_post_m=20-25`; runtime effective window = `0.85 * pre/post`，pre 最小 30m、post 最小 15m；BlockedIntersection 额外压缩 20% 为 `48/20`；T_Junction `review_if_no_tl=True`; static signal near <=45m 且 strong context <=30m | 有效灯态、light_hazard、signal/controller、stopline approach 至少多源一致；无有效 `traffic_light_state` 的 R4 必须写 RGB confirmation review；T_Junction 若 RGB/stop/yield 显示无灯控制则允许 R5；十字路口只覆盖接近/进入/刚离开的局部片段 |
+| `blocked_intersection` | BlockedIntersection | `junction_pre_m=48`, `junction_post_m=20`; 在通用十字路口窗口上额外压缩 20% | 阻塞只进 EVENT；有有效灯态/信号灯同源证据时 R4，RGB/meta/bbox 显示 STOP/yield/无灯路口时 R5，二者都缺失则 R1 + review |
+| `signalized_junction` | OppositeVehicleRunningRedLight, RedLightWithoutLeadVehicle, Signalized*Turn*, T_Junction | `junction_pre_m=50-60`, `junction_post_m=20-25`; runtime effective window = `0.85 * pre/post`，pre 最小 30m、post 最小 15m；T_Junction `review_if_no_tl=True`; static signal near <=45m 且 strong context <=30m | 有效灯态、light_hazard、signal/controller、stopline approach 至少多源一致；无有效 `traffic_light_state` 的 R4 必须写 RGB confirmation review；T_Junction 若 RGB/stop/yield 显示无灯控制则允许 R5；十字路口只覆盖接近/进入/刚离开的局部片段 |
 | `defect_junction` | CrossJunctionDefectTrafficLight | `junction_pre_m=60`, `junction_post_m=20`, `override=r5_over_r4` | defect 场景即使有 signal/controller 也优先 R5；找不到路口只能 medium + review |
 | `nonsignalized_junction` | NonSignalizedJunction*, OppositeVehicleTakingPriority, PriorityAtJunction | `junction_pre_m=45-60`, `junction_post_m=20` | no-light / priority / stop / yield 证据；NonSignalizedJunctionRightTurn 与 OppositeVehicleTakingPriority 以 R5 为主但全量 RGB 有少量灯控子集，R4 仅在灯控同源证据成立时开放；PriorityAtJunction 是 R4/R5 混合 |
 | `pedestrian_crossing` | PedestrianCrossing | `junction_pre_m=40`, `junction_post_m=40`; `pedestrian_not_rs` | 行人只进 EVENT；R4/R5 取决于 crossing 是否与路口控制源同源 |
@@ -331,20 +332,21 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 
 ### BlockedIntersection
 
-- 候选 RS：R1, R4。
-- 已确定口径：blocked intersection 是路口内阻塞事件，不等于 R5；有正常灯控时 primary R4。
-- 分段逻辑：接近/进入受控 junction 设 R4；该场景十字路口窗口专项压缩 20%
+- 候选 RS：R1, R4, R5。
+- 已确定口径：blocked intersection 是路口内阻塞事件；阻塞本身只进入 EVENT，不决定 R4/R5。
+  有正常灯控/信号灯同源证据时 primary R4；RGB/meta/bbox 显示 STOP、yield、priority 或无灯路口控制源时 primary R5。
+- 分段逻辑：接近/进入 junction 时先判断控制源；该场景十字路口窗口专项压缩 20%
   （`junction_pre_m=48`, `junction_post_m=20`），离开 junction 后回 R1；阻塞对象作为 EVENT。
-  如果 R4 不是由有效 `traffic_light_state` 支撑，而是由 junction/window/static signal 支撑，
-  必须写 `signalized_r4_without_meta_tl_requires_rgb_confirmation` 并逐帧看 RGB；低能见度
-  contact sheet 只能用于定位，最终以单帧 RGB 的 stopline/crosswalk/cross traffic/blocked pocket 为准。
-- 证据需求：XODR junction + signal/controller、meta traffic_light_state、XML trigger。
-- RGB 复核结论：`Town06` 雨雾 f100/f130 单帧 RGB 仍可见左侧 blocked intersection pocket，
-  因此保留 R4；`Town07` 后段低能见度且 meta 灯态缺失，保留 R4 但强制 RGB review；
-  `Town12` 夜间投影误差高，但 RGB 可见斑马线/横向车流，保留 R4 + projection review；
-  `Town13` 是参考分段，f20-f85 R4、f86 后退出到 R1，说明规则应按可见路口范围退出。
-- 待完善点：若 meta `is_junction=false` 但 stopline / traffic light 有效，应按 stopline approach 保留 R4 并 review；
-  若人工 RGB 发现无 stopline/crosswalk/cross traffic/blocked pocket 且只剩静态 signal 近邻，则应把 R4 降为候选并让 R1 做主标签。
+  如果 R4 不是由有效 `traffic_light_state` 支撑，必须写
+  `blocked_r4_without_meta_tl_requires_rgb_confirmation` 并逐帧看 RGB；低能见度 contact sheet
+  只能用于定位，最终以单帧 RGB 的 traffic light/stopline/STOP/yield/cross traffic/blocked pocket 为准。
+- 证据需求：RGB 控制源、meta traffic_light_state / stop_sign_close / is_junction、bbox traffic_light / stop_sign / yield、
+  XODR junction + signal/controller、XML trigger。
+- RGB 复核结论：2026-07-04 全场景逐帧审查发现 `Town12_Rep0_1881_0_route0_01_10_00_50_44`
+  是 STOP/无灯阻塞路口，旧逻辑误标 R4；修复后该 route 为 `R5=106, R1=5`，EVENT 仍覆盖 U-E1/U-E8。
+  其它 BlockedIntersection route 仍可存在真实灯控 R4，不能场景级禁 R4。
+- 待完善点：低能见度下若只有 static signal 近邻且没有 meta/RGB/bbox 灯控同源证据，应保持 R4 review；
+  若人工 RGB 看到 STOP/无灯控制源，应优先 R5，即使 XML/XODR 投影误差较高。
 
 ### ConstructionObstacle
 

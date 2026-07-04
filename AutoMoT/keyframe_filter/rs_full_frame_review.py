@@ -110,6 +110,21 @@ def _annotation_review_reasons(ann: Dict[str, Any]) -> List[str]:
     return sorted({str(reason) for reason in reasons if reason})
 
 
+def _primary_relevant_reasons(reasons: List[str], label: str) -> List[str]:
+    """Keep sheet text focused on the chosen primary RS, not every weak candidate."""
+    prefixes_by_label = {
+        "R2": ("r2_", "two_way", "opposite", "temporal", "candidate", "route_", "xml_", "static_xodr", "xodr_"),
+        "R3": ("r3_", "highway", "merge", "ramp", "candidate", "route_", "xml_", "static_xodr", "xodr_"),
+        "R4": ("r4_", "signalized", "traffic_light", "blocked_r4", "candidate", "route_", "xml_", "static_xodr", "xodr_"),
+        "R5": ("r5_", "nonsignalized", "defect", "stop", "yield", "priority", "blocked_intersection", "candidate", "route_", "xml_", "static_xodr", "xodr_"),
+        "R6": ("r6_", "parking", "shoulder", "curb", "candidate", "route_", "xml_", "static_xodr", "xodr_"),
+        "R1": ("r1_", "default", "candidate", "route_", "xml_", "static_xodr", "xodr_", "low_confidence"),
+    }
+    prefixes = prefixes_by_label.get(label, ())
+    filtered = [reason for reason in reasons if reason.startswith(prefixes)]
+    return filtered or reasons
+
+
 def _hard_review_reasons(ann: Dict[str, Any]) -> List[str]:
     frame_rs = ann.get("frame_rs_annotation", {}) or {}
     evidence = ann.get("evidence", {}) or {}
@@ -117,8 +132,52 @@ def _hard_review_reasons(ann: Dict[str, Any]) -> List[str]:
     return sorted({str(reason) for reason in reasons if reason})
 
 
+def _review_severity(reasons: List[str], label: str, is_event: bool = False) -> str:
+    reason_text = " ".join(reasons)
+    if is_event:
+        if "primary_event_transition" in reason_text:
+            return "event_boundary"
+        return "event_hard_issue"
+    if (
+        "low_confidence" in reason_text
+        or "confidence_lt_0.75" in reason_text
+        or "r4_meta_tl_without_strong_context" in reason_text
+        or "r4_bbox_tl_without_strong_context" in reason_text
+        or "signalized_r4_without_meta_tl" in reason_text
+        or "blocked_r4_without_meta_tl" in reason_text
+        or "nonsignalized_with_signal_topology_conflict" in reason_text
+        or "r5_requires_stop_yield_priority_or_junction_evidence" in reason_text
+    ):
+        return "hard_issue"
+    if (
+        "route_projection_error" in reason_text
+        or "xml_route_projection_error" in reason_text
+        or "candidate_score_gap" in reason_text
+        or "temporal_smoothing" in reason_text
+        or "primary_rs_transition" in reason_text
+    ):
+        return "boundary_review"
+    if label in {"R2", "R3", "R6"} and ("lacks_xodr" in reason_text or "xodr_topology_untrusted" in reason_text):
+        return "soft_evidence_note"
+    return "soft_evidence_note"
+
+
 def _issue_bucket(reasons: List[str], label: str) -> str:
     reason_text = " ".join(reasons)
+    if "blocked_r4_without_meta_tl" in reason_text:
+        return "blocked_intersection_signal_source_mismatch"
+    if (
+        "signalized_policy_without_meta_tl" in reason_text
+        or "signalized_r4_without_meta_tl" in reason_text
+        or "r4_meta_tl_without_strong_context" in reason_text
+        or "r4_bbox_tl_without_strong_context" in reason_text
+        or "nonsignalized_with_signal_topology_conflict" in reason_text
+    ):
+        return "traffic_light_meta_or_signalized_rule"
+    if "r5_requires_stop_yield_priority_or_junction_evidence" in reason_text:
+        return "missing_nonsignalized_control_source"
+    if "low_confidence" in reason_text or "confidence_lt_0.75" in reason_text:
+        return "threshold_or_evidence_strength"
     if "route_projection_error" in reason_text or "xml_route_projection_error" in reason_text:
         return "xml_projection_or_boundary_parameter"
     if "candidate_score_gap" in reason_text:
@@ -129,10 +188,6 @@ def _issue_bucket(reasons: List[str], label: str) -> str:
         if label in {"R2", "R3", "R6"}:
             return "topology_confirmation_missing"
         return "xodr_evidence_weak"
-    if "signalized_policy_without_meta_tl" in reason_text:
-        return "traffic_light_meta_or_signalized_rule"
-    if "low_confidence" in reason_text:
-        return "threshold_or_evidence_strength"
     return "needs_rgb_visual_review"
 
 
@@ -217,7 +272,7 @@ def _draw_frame_tile(
     event_label = str(ann.get("primary_event") or "-")
     events = ann.get("events") or []
     confidence = ann.get("confidence")
-    reasons = _annotation_review_reasons(ann)
+    reasons = _primary_relevant_reasons(_annotation_review_reasons(ann), label)
     frame_rs = ann.get("frame_rs_annotation", {}) or {}
     img = _safe_open_rgb(_rgb_path_for_frame(run_dir, frame_id), tile_size)
     draw = ImageDraw.Draw(img)
@@ -289,8 +344,10 @@ def _route_anomaly_rows(
         is_event_anom, event_reasons = _is_event_candidate_anomaly(ann, prev_event)
         if is_anom:
             frame_id = int(ann.get("frame_id", 0))
-            bucket = _issue_bucket(reasons, label)
-            selected_reasons[frame_id] = bucket
+            display_reasons = _primary_relevant_reasons(reasons, label)
+            bucket = _issue_bucket(display_reasons, label)
+            severity = _review_severity(display_reasons, label)
+            selected_reasons[frame_id] = f"{severity}:{bucket}"
             frame_rs = ann.get("frame_rs_annotation", {}) or {}
             rows.append(
                 {
@@ -300,8 +357,10 @@ def _route_anomaly_rows(
                     "frame_id": frame_id,
                     "label": label,
                     "confidence": ann.get("confidence"),
+                    "review_severity": severity,
                     "issue_bucket": bucket,
-                    "reasons": reasons,
+                    "reasons": display_reasons,
+                    "raw_reasons": reasons,
                     "decision_source": frame_rs.get("decision_source"),
                     "comment": frame_rs.get("comment") or ann.get("annotation_comment", ""),
                     "rgb_review_status": "pending_visual_check",
@@ -312,7 +371,8 @@ def _route_anomaly_rows(
             frame_id = int(ann.get("frame_id", 0))
             event_label = str(ann.get("primary_event") or "")
             bucket = "event_boundary_or_trigger_review"
-            selected_reasons.setdefault(frame_id, bucket)
+            severity = _review_severity(event_reasons, label, is_event=True)
+            selected_reasons.setdefault(frame_id, f"{severity}:{bucket}")
             frame_event = ann.get("frame_event_annotation", {}) or {}
             rows.append(
                 {
@@ -324,8 +384,10 @@ def _route_anomaly_rows(
                     "primary_event": event_label,
                     "events": ann.get("events") or [],
                     "confidence": ann.get("confidence"),
+                    "review_severity": severity,
                     "issue_bucket": bucket,
                     "reasons": event_reasons,
+                    "raw_reasons": event_reasons,
                     "decision_source": frame_event.get("rules_fired") or [],
                     "comment": frame_event.get("comment") or "",
                     "rgb_review_status": "pending_visual_check",
@@ -340,7 +402,14 @@ def _route_anomaly_rows(
     return rows, selected_reasons
 
 
-def _route_summary(route_result: Dict[str, Any], anomaly_count: int, sheet_paths: List[str], anomaly_sheets: List[str]) -> Dict[str, Any]:
+def _route_summary(
+    route_result: Dict[str, Any],
+    anomaly_rows: List[Dict[str, Any]],
+    sheet_paths: List[str],
+    anomaly_sheets: List[str],
+) -> Dict[str, Any]:
+    severity_counts = Counter(str(row.get("review_severity") or "unknown") for row in anomaly_rows)
+    issue_counts = Counter(str(row.get("issue_bucket") or "unknown") for row in anomaly_rows)
     return {
         "route_id": route_result.get("route_id"),
         "status": route_result.get("status"),
@@ -355,7 +424,9 @@ def _route_summary(route_result: Dict[str, Any], anomaly_count: int, sheet_paths
         "xodr_source_distribution": route_result.get("xodr_source_distribution", {}),
         "confidence_stats": route_result.get("confidence_stats", {}),
         "primary_rs_transitions": route_result.get("primary_rs_transitions", []),
-        "candidate_anomaly_frames": anomaly_count,
+        "candidate_anomaly_frames": len(anomaly_rows),
+        "review_severity_distribution": dict(sorted(severity_counts.items())),
+        "issue_bucket_distribution": dict(sorted(issue_counts.items())),
         "manual_rgb_review_required": True,
         "manual_rgb_review_status": "pending",
         "full_frame_sheets": sheet_paths,
@@ -374,11 +445,18 @@ def _scenario_visual_summary(scenario_summary: Dict[str, Any]) -> Dict[str, Any]
             "manual_rgb_review_required": True,
             "full_frame_sheets_are_authoritative": True,
             "candidate_anomalies_are_only_review_index": True,
+            "review_severity_is_primary_triage_key": True,
             "candidate_anomaly_definition": [
                 "frame_rs_annotation.review_required",
                 "confidence < 0.75",
                 "primary ROAD_STRUCTURE transition",
             ],
+            "review_severity": {
+                "hard_issue": "likely logic/data mismatch; inspect RGB first and consider rule changes",
+                "boundary_review": "projection/window/transition uncertainty; inspect boundary frames",
+                "soft_evidence_note": "weak supporting evidence for an otherwise plausible primary label",
+                "event_boundary": "EVENT transition/span review, not necessarily RS mismatch",
+            },
         },
         "anomaly_record_file": "candidate_anomalies.jsonl",
         "notes": [
@@ -425,6 +503,8 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
     total_frames = 0
     total_routes = 0
     total_anomalies = 0
+    global_severity = Counter()
+    global_issue = Counter()
 
     for scenario_index, scenario in enumerate(scenarios, 1):
         print(f"[{scenario_index}/{len(scenarios)}] scenario={scenario}", flush=True)
@@ -493,7 +573,7 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
                     "candidate_anomalies",
                     selected_reasons=selected_reasons,
                 )
-                route_summary = _route_summary(route_result, len(anomaly_rows), full_sheets, anomaly_sheets)
+                route_summary = _route_summary(route_result, anomaly_rows, full_sheets, anomaly_sheets)
                 _write_json(route_out / "route_review_summary.json", route_summary)
                 town_summary["routes"].append(route_summary)
                 total_routes += 1
@@ -505,28 +585,45 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
                 town_review.update(route_result.get("review_reason_distribution", {}))
             town_summary["primary_rs_distribution"] = dict(sorted(town_primary.items()))
             town_summary["review_reason_distribution"] = dict(sorted(town_review.items()))
+            town_severity = Counter()
+            town_issue = Counter()
+            for route_summary in town_summary["routes"]:
+                town_severity.update(route_summary.get("review_severity_distribution", {}))
+                town_issue.update(route_summary.get("issue_bucket_distribution", {}))
+            town_summary["review_severity_distribution"] = dict(sorted(town_severity.items()))
+            town_summary["issue_bucket_distribution"] = dict(sorted(town_issue.items()))
             scenario_summary["towns"][town] = town_summary
             _write_json(scenario_dir / town / "town_review_summary.json", town_summary)
         scenario_counter = Counter()
         scenario_review = Counter()
+        scenario_severity = Counter()
+        scenario_issue = Counter()
         scenario_frames = 0
         scenario_anomalies = 0
         for town_summary in scenario_summary["towns"].values():
             scenario_counter.update(town_summary.get("primary_rs_distribution", {}))
             scenario_review.update(town_summary.get("review_reason_distribution", {}))
+            scenario_severity.update(town_summary.get("review_severity_distribution", {}))
+            scenario_issue.update(town_summary.get("issue_bucket_distribution", {}))
             scenario_frames += int(town_summary.get("num_frames", 0) or 0)
             scenario_anomalies += int(town_summary.get("candidate_anomaly_frames", 0) or 0)
         scenario_summary["num_frames"] = scenario_frames
         scenario_summary["candidate_anomaly_frames"] = scenario_anomalies
         scenario_summary["primary_rs_distribution"] = dict(sorted(scenario_counter.items()))
         scenario_summary["review_reason_distribution"] = dict(sorted(scenario_review.items()))
+        scenario_summary["review_severity_distribution"] = dict(sorted(scenario_severity.items()))
+        scenario_summary["issue_bucket_distribution"] = dict(sorted(scenario_issue.items()))
         global_summary["scenarios"][scenario] = scenario_summary
+        global_severity.update(scenario_summary.get("review_severity_distribution", {}))
+        global_issue.update(scenario_summary.get("issue_bucket_distribution", {}))
         _write_json(scenario_dir / "scenario_review_summary.json", scenario_summary)
         _write_json(visual_summary_path, _scenario_visual_summary(scenario_summary))
 
     global_summary["total_routes"] = total_routes
     global_summary["total_frames"] = total_frames
     global_summary["total_candidate_anomaly_frames"] = total_anomalies
+    global_summary["review_severity_distribution"] = dict(sorted(global_severity.items()))
+    global_summary["issue_bucket_distribution"] = dict(sorted(global_issue.items()))
     global_summary["candidate_anomalies_jsonl"] = str(anomaly_jsonl)
     _write_json(out_root / "global_review_summary.json", global_summary)
     _write_json(out_root / "global_visual_review_summary.json", global_summary)
