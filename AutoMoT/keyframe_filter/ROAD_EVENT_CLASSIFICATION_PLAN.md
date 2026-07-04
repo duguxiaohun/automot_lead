@@ -813,8 +813,11 @@ R4/R5 > R3 > R2/R6 > R1
   这类乡村普通路必须保持 R1；精确高速 id 清单以 `collector.py` 的
   `MIXED_SCENARIO_HIGHWAY_ROUTE_IDS` 为准。
 - `interurban`：`InterurbanActorFlow` 保留 R1/R3/R5，已按全量 RGB 删除 R4；Town12/13 是提示但不是充分条件，乡村道路、STOP/priority/junction 仍需按 RGB/XODR 分段。
+- `blocked_intersection`：`BlockedIntersection` 的阻塞只是 EVENT；RS 由控制源决定。
+  灯态/信号灯同源证据成立时进入 R4；STOP/yield/priority/无灯路口证据成立时进入 R5；
+  两类控制源都缺失时回 R1 + RGB review。
 - `signalized_junction`：灯态有效、受控 junction 或 controller/traffic light 近邻成立时进入 R4；
-  `BlockedIntersection` 和 `OppositeVehicleRunningRedLight` 的阻塞/违规只是 EVENT，不改成 R5。
+  `OppositeVehicleRunningRedLight` 的违规只是 EVENT，不改成 R5。
   若 primary R4 没有有效 `traffic_light_state`，必须写
   `signalized_r4_without_meta_tl_requires_rgb_confirmation`，人工逐帧确认 RGB 里仍有 stopline /
   crosswalk / cross traffic / blocked pocket 等路口证据；XODR/XML 只能辅助低能见度判断。
@@ -833,6 +836,7 @@ R4/R5 > R3 > R2/R6 > R1
 让十字路口/丁字路口只覆盖接近、进入、刚离开的局部片段。
 `BlockedIntersection` 的十字路口窗口在该基础前额外压缩 20%，基准为
 `junction_pre_m=48`、`junction_post_m=20`；阻塞是 EVENT，不应把 R4/R5 范围拖长。
+窗口内有灯控同源证据才 R4；STOP/yield/无灯控制源优先 R5，不能再按场景名默认 R4。
 静态 XODR 的 junction/signal 不能单独作为 R4 strong context：若 `map_junction_id=-1`
 或 `junction_connection_count=0`，只能写弱证据/review；必须由有效 meta 灯态、
 stop/light hazard、结构化 junction/controller 或 RGB 可见路口/信号灯同源后才升 R4。
