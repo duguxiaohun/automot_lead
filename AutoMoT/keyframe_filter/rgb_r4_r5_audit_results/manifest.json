@@ -1,0 +1,257 @@
+{
+  "source_tmp_dir": "/tmp/automot_rgb_r4_r5_full_audit",
+  "summary_doc": "../RGB_R4_R5_AUDIT_SUMMARY.md",
+  "script": "../rgb_r4_r5_audit.py",
+  "scenarios": 43,
+  "routes_discovered": 9715,
+  "routes_analyzed_after_abnormal_filter": 8752,
+  "rgb_frames_analyzed": 1102886,
+  "omitted_large_files": [
+    {
+      "path": "route_rgb_r4_r5_audit.json",
+      "reason": "about 62 MB; route CSV preserves key route-level counters and classes"
+    }
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 1381,
+      "sha256": "fbd20dbc8b998a645c5c7ab18342de62f8e547ee6d43125248115c88230e6ddd"
+    },
+    {
+      "path": "evidence_sheets/Accident.jpg",
+      "bytes": 539822,
+      "sha256": "0f416e7cb1fa483e48cf1a7c0384075dee354bbd1c35cea0535b4d6e6cb3df83"
+    },
+    {
+      "path": "evidence_sheets/AccidentTwoWays.jpg",
+      "bytes": 559514,
+      "sha256": "5ec2753ceeff70efa0212594e8a20eb34c9b5e78d0c636714d601b6fb98ad2a0"
+    },
+    {
+      "path": "evidence_sheets/BlockedIntersection.jpg",
+      "bytes": 464522,
+      "sha256": "f6857d4a6a6fd255d3e29afa035fb89fbcd62e2e467425ad9c3ae889db57b575"
+    },
+    {
+      "path": "evidence_sheets/ConstructionObstacle.jpg",
+      "bytes": 507120,
+      "sha256": "e3d3e0664cb66e29853f0a7222d123c7c5a17e7eb8aafc16514860c38d66f287"
+    },
+    {
+      "path": "evidence_sheets/ConstructionObstacleTwoWays.jpg",
+      "bytes": 570765,
+      "sha256": "ca2f9a74f473abcc5b8e23d0c0662595e328390b5dbccb520b322f33a487742b"
+    },
+    {
+      "path": "evidence_sheets/ControlLoss.jpg",
+      "bytes": 498507,
+      "sha256": "060f7c77bd385c368c6c6db60cb019a889da550ed31fbbea672b430ee6a6d247"
+    },
+    {
+      "path": "evidence_sheets/CrossJunctionDefectTrafficLight.jpg",
+      "bytes": 531537,
+      "sha256": "d40393eb85e08b19ce5bf64b7a1f17aa1216e939cc32954ff9516c22ac385349"
+    },
+    {
+      "path": "evidence_sheets/CrossingBicycleFlow.jpg",
+      "bytes": 518895,
+      "sha256": "bebc7637daa3d71cc926324d5f1037e7e1174d68e8480e4fa23276de51513b4c"
+    },
+    {
+      "path": "evidence_sheets/DynamicObjectCrossing.jpg",
+      "bytes": 521886,
+      "sha256": "c3b87d4d7e758d2a67e75dc2d8e227b02d29067022b9c9fb0e05f0a031e7c029"
+    },
+    {
+      "path": "evidence_sheets/EnterActorFlow.jpg",
+      "bytes": 289581,
+      "sha256": "e1ac60f7a10b0896815edb3794c68ff6c4dd4118993b22441b77ab94b1042228"
+    },
+    {
+      "path": "evidence_sheets/EnterActorFlowV2.jpg",
+      "bytes": 319488,
+      "sha256": "019aa4982938caf951a7cbb77c2ce5310898b533fed9f043ba90a290fb19848a"
+    },
+    {
+      "path": "evidence_sheets/HardBreakRoute.jpg",
+      "bytes": 558406,
+      "sha256": "698c05e75544a2aabc8b3cf1a5b3b105abbe0e9116ffe0e96b5643f64fb0d2b6"
+    },
+    {
+      "path": "evidence_sheets/HazardAtSideLane.jpg",
+      "bytes": 584676,
+      "sha256": "dc4ffb5a72abab3e96ee018cc5261d269996a6fc7c6e6cdb665af1466c8deb2e"
+    },
+    {
+      "path": "evidence_sheets/HazardAtSideLaneTwoWays.jpg",
+      "bytes": 546556,
+      "sha256": "7906c4df555b10ac12fc198f6da62990e697868379f139a3cd182dc12fcea076"
+    },
+    {
+      "path": "evidence_sheets/HighwayCutIn.jpg",
+      "bytes": 428613,
+      "sha256": "0295c7c8afb0385c8f4e941425d7d97182271d6008f4f95d781be6bdbbce1b42"
+    },
+    {
+      "path": "evidence_sheets/HighwayExit.jpg",
+      "bytes": 298010,
+      "sha256": "b52ac7036427dcfac374e6f8ce9dd595368069ecb726255d8488564755f8f079"
+    },
+    {
+      "path": "evidence_sheets/InterurbanActorFlow.jpg",
+      "bytes": 289771,
+      "sha256": "dcc2b8112cf7e0167be949b1f98c3ab271ad16b2262ee0e34a498911bd15c179"
+    },
+    {
+      "path": "evidence_sheets/InterurbanAdvancedActorFlow.jpg",
+      "bytes": 300780,
+      "sha256": "287a9f06d17fbae953ad3f5063a75279a1d7e9cee1197c4d37af6304615399e3"
+    },
+    {
+      "path": "evidence_sheets/InvadingTurn.jpg",
+      "bytes": 341102,
+      "sha256": "9073e5ef1019f3dc94877a9e1dd96a9696c964c2aedf6f432b154143586e94a0"
+    },
+    {
+      "path": "evidence_sheets/MergerIntoSlowTraffic.jpg",
+      "bytes": 521481,
+      "sha256": "e5be5aad406ac199806301469bf64bf8e2644a987b436228fca2e5a0254979d3"
+    },
+    {
+      "path": "evidence_sheets/MergerIntoSlowTrafficV2.jpg",
+      "bytes": 361253,
+      "sha256": "e90d06e5cf29810d15cd873fcf046328351ce25a8e72b5a99b6f17fd6a4f9d3a"
+    },
+    {
+      "path": "evidence_sheets/NonSignalizedJunctionLeftTurn.jpg",
+      "bytes": 543292,
+      "sha256": "29fc59cf0278c56d20b5b1fc76af4698c53556c3e567415a1801fad177aa615d"
+    },
+    {
+      "path": "evidence_sheets/NonSignalizedJunctionLeftTurnEnterFlow.jpg",
+      "bytes": 520221,
+      "sha256": "5687a93ce788c2bf740428f2f78bd423c8751886526c644e8bd7ebd222eef6ab"
+    },
+    {
+      "path": "evidence_sheets/NonSignalizedJunctionRightTurn.jpg",
+      "bytes": 514388,
+      "sha256": "552f994d4d9cb4b59d137548a38bd6b701cc980b4dfc057db27952b77b0c9669"
+    },
+    {
+      "path": "evidence_sheets/OppositeVehicleRunningRedLight.jpg",
+      "bytes": 511174,
+      "sha256": "a9b4d12f3f119b1e420e53b121def0b692b19ab071a46905024c33c22c795d2d"
+    },
+    {
+      "path": "evidence_sheets/OppositeVehicleTakingPriority.jpg",
+      "bytes": 490265,
+      "sha256": "158952fda41fe05252aa216d192caf2c4ecb89df8a804b3ef2b2b11c6158e4ca"
+    },
+    {
+      "path": "evidence_sheets/ParkedObstacle.jpg",
+      "bytes": 518439,
+      "sha256": "25f7c913424db6ea07b6c5480499263d70223689a6c0986790b71f9f1ea589f9"
+    },
+    {
+      "path": "evidence_sheets/ParkedObstacleTwoWays.jpg",
+      "bytes": 536511,
+      "sha256": "715c6c0edaa7c59eac78c7d4c61894bbe1ba192ff63a311f2b5f02465834e10e"
+    },
+    {
+      "path": "evidence_sheets/ParkingCrossingPedestrian.jpg",
+      "bytes": 570426,
+      "sha256": "f51cb32c3d92804b9e0c6c6b1a4c9e1b04feefed16f12c35f8947c1f4b6ee614"
+    },
+    {
+      "path": "evidence_sheets/ParkingCutIn.jpg",
+      "bytes": 544958,
+      "sha256": "93f065b1e4929483a1821777f3a94a8c804fe51e18afb32470ca1aa40e75804f"
+    },
+    {
+      "path": "evidence_sheets/ParkingExit.jpg",
+      "bytes": 502098,
+      "sha256": "c62dd6cdba9ee6f6da0e57929ac2566d62774092717a9fe98a970058e0a1d993"
+    },
+    {
+      "path": "evidence_sheets/PedestrianCrossing.jpg",
+      "bytes": 540110,
+      "sha256": "f2396f7a08cb600946fa1477f9f3ee2c16d3c9ded7b61b454285268023879ca8"
+    },
+    {
+      "path": "evidence_sheets/PriorityAtJunction.jpg",
+      "bytes": 561317,
+      "sha256": "fb68f5f94a9caaf255a8124eeb375511a1a0eadd346c798b689ad971c583c4cf"
+    },
+    {
+      "path": "evidence_sheets/RedLightWithoutLeadVehicle.jpg",
+      "bytes": 546552,
+      "sha256": "902bd7d63f244b9afab5470942612a4a5160df0f41545efc4ff5575979e65267"
+    },
+    {
+      "path": "evidence_sheets/SignalizedJunctionLeftTurn.jpg",
+      "bytes": 496648,
+      "sha256": "ecedc26cb6b2d0539e524381e9ee38ac3ffeabef7886cccb35bbf538dac2c136"
+    },
+    {
+      "path": "evidence_sheets/SignalizedJunctionLeftTurnEnterFlow.jpg",
+      "bytes": 553815,
+      "sha256": "cc0bffb1ad5292384a639b4556e153981aca94c1871acafd4e9c3cf7c0a637cd"
+    },
+    {
+      "path": "evidence_sheets/SignalizedJunctionRightTurn.jpg",
+      "bytes": 519690,
+      "sha256": "5b0dfe77a2e391ef0114c73863a47fd0a18e2e5d2fa49932abcf8b3d0efa7e4c"
+    },
+    {
+      "path": "evidence_sheets/StaticCutIn.jpg",
+      "bytes": 509986,
+      "sha256": "5ec459be46f9e054fcd0c3fae2464c02b0443ea589d6d14573fdb32295b8ae92"
+    },
+    {
+      "path": "evidence_sheets/T_Junction.jpg",
+      "bytes": 481794,
+      "sha256": "40f08369593c655162b7cf3b4ac8765f31d0506a945e416ee0b9316fe6604fa5"
+    },
+    {
+      "path": "evidence_sheets/VehicleOpensDoorTwoWays.jpg",
+      "bytes": 583275,
+      "sha256": "a269944d29d6190e13fc920078c0663310f9915682ace7d8d397a5ed132ce2b8"
+    },
+    {
+      "path": "evidence_sheets/VehicleTurningRoute.jpg",
+      "bytes": 546391,
+      "sha256": "286442578930ee889199b5bf726270d45ca24d5e06b8a4358da71f8a1a1a0567"
+    },
+    {
+      "path": "evidence_sheets/VehicleTurningRoutePedestrian.jpg",
+      "bytes": 526565,
+      "sha256": "6a16c012875c007f04d364dd8240b883d2586703c4a0fb6401d929b3723c4a4a"
+    },
+    {
+      "path": "evidence_sheets/noScenarios.jpg",
+      "bytes": 513315,
+      "sha256": "04722bd8a7281519bc948c2345bf209bf4ebdf51247ff24826d99184ddc56d9a"
+    },
+    {
+      "path": "route_rgb_r4_r5_audit.csv",
+      "bytes": 1252424,
+      "sha256": "ff78ce1ac06429b780565e3646413ab2e5b0836b9659c256c42d220de21bf111"
+    },
+    {
+      "path": "rule_update_decisions.csv",
+      "bytes": 1749,
+      "sha256": "e1dc56ce627233bc0c2693c6aa9604f3990f60b8ca67bcdffc6459bfa88f76cd"
+    },
+    {
+      "path": "scenario_rgb_r4_r5_summary.csv",
+      "bytes": 10680,
+      "sha256": "4bd0290bb3e8c65b99fe86260bd9e1c045f2aeee2b8ba883bd6baeb6afe4c2a5"
+    },
+    {
+      "path": "scenario_rgb_r4_r5_summary.json",
+      "bytes": 25732,
+      "sha256": "4d70b3318dfc07b7dde90a51096c614e84db97e6b2fcac7b6365049ac134144f"
+    }
+  ]
+}

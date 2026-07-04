@@ -1,7 +1,7 @@
 """
 快速启动脚本 - 采集、分析、Web应用
 
-支持4种正式采集 + 逐帧RS标注模式:
+支持4种正式采集 + 逐帧 RS/EVENT 标注模式:
   1. 单场景全部采集 + 逐帧标注 - 采集某场景的所有routes
   2. 单场景指定数目采集 + 逐帧标注 - 采集某场景的N个routes
   3. 多场景采集 + 逐帧标注 - 同时采集多个指定场景
@@ -19,6 +19,8 @@ import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 from collector import (
+    EVENT_LABELS,
+    ROAD_STRUCTURE_LABELS,
     ScenarioCollector,
     SCENARIO_TO_ROAD_STRUCTURE,
     SCENARIO_TO_FINE_EVENTS,
@@ -51,11 +53,12 @@ _POLICY_LOGIC_BY_KIND: Dict[str, Dict[str, Any]] = {
     "twoways_obstacle": {
         "primary_rules": [
             "有效灯态/受控路口窗口优先 -> R4，R2 仅作为 secondary",
-            "TwoWays trigger/distance/active 窗口 + XODR 对向 driving lane + 同向车道不足 -> R2",
-            "XODR 不可用时 scenario+XML 窗口只给 medium R2；窗口外 -> R1",
+            "TwoWays trigger/distance/active 窗口 + XODR 对向 driving lane + 同向车道不足 + 核心障碍交互 -> R2",
+            "XODR 不可用时也必须有近距离障碍、stuck、vehicle_hazard 或 lane-change 核心证据；普通 layout-prior 只给弱候选",
+            "过最近障碍点后持续远离且无 stuck/vehicle_hazard 时，route 级裁剪回 R1/R4",
         ],
         "xml_xodr_usage": [
-            "XML distance/front/behind/frequency 定义绕障核心窗口",
+            "XML distance/front/behind/frequency 只召回绕障核心窗口，不延长整段 TwoWays",
             "XODR lane_id 符号反转与同向车道数决定是否确实需要对向参与",
         ],
     },
@@ -230,17 +233,17 @@ def print_main_menu():
     print("="*70)
     print("""
 采集 + 逐帧标注模式:
-  1️⃣  单场景全部采集+逐帧RS标注   - 采集某个场景的所有routes并逐帧标注
-  2️⃣  单场景指定数采集+逐帧RS标注  - 采集某个场景的N个routes并逐帧标注
-  3️⃣  多场景采集+逐帧RS标注       - 同时采集多个指定场景并逐帧标注
-  4️⃣  全部采集+逐帧RS标注         - 采集所有43个场景并逐帧标注（可能耗时很长）
+  1️⃣  单场景全部采集+逐帧RS/EVENT标注   - 采集某个场景的所有routes并逐帧标注
+  2️⃣  单场景指定数采集+逐帧RS/EVENT标注  - 采集某个场景的N个routes并逐帧标注
+  3️⃣  多场景采集+逐帧RS/EVENT标注       - 同时采集多个指定场景并逐帧标注
+  4️⃣  全部采集+逐帧RS/EVENT标注         - 采集所有43个场景并逐帧标注（可能耗时很长）
 
 其他功能:
   5️⃣  多角度结构分析      - 分析已采集的数据
   6️⃣  启动Web应用        - 交互式可视化查看
   7️⃣  显示所有场景       - 列出所有支持的场景
   8️⃣  ROAD_STRUCTURE XML/XODR画像 - 按场景/town审计XML与地图输入
-  9️⃣  逐帧RS标注调试入口  - 小范围 smoke / 参数闭环调试
+  9️⃣  逐帧RS/EVENT标注调试入口  - 小范围 smoke / 参数闭环调试
   🔟  退出
     """)
     print("="*70)
@@ -265,6 +268,9 @@ def _print_annotation_output_contract() -> None:
     print("    - road_structures: 该 scenario 的全部候选 RS（保留旧逻辑）")
     print("    - primary_road_structure: 当前帧独属主 RS")
     print("    - frame_rs_annotation: 当前帧可执行标注结果 + 证据 + 注释")
+    print("    - events: 当前帧事件集合")
+    print("    - primary_event: 当前帧独属主 EVENT")
+    print("    - frame_event_annotation: 当前帧 EVENT 结果 + 证据 + 注释")
 
 
 def _write_and_print_annotation_summary(result: Dict[str, Any], output_dir: Path) -> Dict[str, Any]:
@@ -278,9 +284,9 @@ def _write_and_print_annotation_summary(result: Dict[str, Any], output_dir: Path
     return summary
 
 def collect_one_scenario_all_ui():
-    """模式1: 单场景全部采集 + 逐帧 RS 标注"""
+    """模式1: 单场景全部采集 + 逐帧 RS/EVENT 标注"""
     print("\n" + "="*70)
-    print("模式1: 单场景全部采集 + 逐帧RS标注".center(70))
+    print("模式1: 单场景全部采集 + 逐帧RS/EVENT标注".center(70))
     print("="*70)
 
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
@@ -325,9 +331,9 @@ def collect_one_scenario_all_ui():
 
 
 def collect_one_scenario_limited_ui():
-    """模式2: 单场景指定数目采集 + 逐帧 RS 标注"""
+    """模式2: 单场景指定数目采集 + 逐帧 RS/EVENT 标注"""
     print("\n" + "="*70)
-    print("模式2: 单场景指定数采集 + 逐帧RS标注".center(70))
+    print("模式2: 单场景指定数采集 + 逐帧RS/EVENT标注".center(70))
     print("="*70)
 
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
@@ -380,9 +386,9 @@ def collect_one_scenario_limited_ui():
 
 
 def collect_multiple_scenarios_ui():
-    """模式3: 多场景采集 + 逐帧 RS 标注"""
+    """模式3: 多场景采集 + 逐帧 RS/EVENT 标注"""
     print("\n" + "="*70)
-    print("模式3: 多场景采集 + 逐帧RS标注".center(70))
+    print("模式3: 多场景采集 + 逐帧RS/EVENT标注".center(70))
     print("="*70)
 
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
@@ -465,9 +471,9 @@ def collect_multiple_scenarios_ui():
 
 
 def collect_all_scenarios_ui():
-    """模式4: 全部采集 + 逐帧 RS 标注"""
+    """模式4: 全部采集 + 逐帧 RS/EVENT 标注"""
     print("\n" + "="*70)
-    print("模式4: 全部采集 + 逐帧RS标注".center(70))
+    print("模式4: 全部采集 + 逐帧RS/EVENT标注".center(70))
     print("="*70)
 
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
@@ -653,17 +659,21 @@ def _print_primary_rs_summary(result: dict, prefix: str = "") -> None:
 
 
 def _annotation_summary(result: dict) -> Dict[str, Any]:
-    """汇总逐帧 RS 标注结果，用于调参和 smoke test。"""
+    """汇总逐帧 RS + EVENT 标注结果，用于调参和 smoke test。"""
     primary_counter = Counter()
+    event_counter = Counter()
     review_counter = Counter()
+    event_review_counter = Counter()
     xodr_counter = Counter()
     rule_kind_counter = Counter()
     route_count = 0
     frame_count = 0
     transition_count = 0
+    event_transition_count = 0
     smoothing_change_count = 0
     confidence_values = []
     review_frame_count = 0
+    event_review_frame_count = 0
     sample_comments = []
 
     scenario_results = result.get("results", result)
@@ -674,12 +684,16 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
         for route in scenario_result.get("routes", []):
             route_count += 1
             transition_count += len(route.get("primary_rs_transitions", []))
+            event_transition_count += len(route.get("primary_event_transitions", []))
             smoothing_change_count += len(route.get("temporal_smoothing", {}).get("changes", []))
             for ann in route.get("annotations", []):
                 frame_count += 1
                 primary = ann.get("primary_road_structure")
                 if primary:
                     primary_counter[primary] += 1
+                primary_event = ann.get("primary_event")
+                if primary_event:
+                    event_counter[primary_event] += 1
                 if ann.get("confidence") is not None:
                     confidence_values.append(float(ann.get("confidence")))
                 evidence = ann.get("evidence", {})
@@ -691,6 +705,11 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
                     review_frame_count += 1
                     for reason in evidence.get("review_reasons", ["review_required"]):
                         review_counter[reason] += 1
+                event_evidence = ann.get("event_evidence", {})
+                if event_evidence.get("review_required"):
+                    event_review_frame_count += 1
+                    for reason in event_evidence.get("review_reasons", ["event_review_required"]):
+                        event_review_counter[reason] += 1
                 if len(sample_comments) < 12 and ann.get("frame_rs_annotation"):
                     sample_comments.append(
                         {
@@ -698,8 +717,10 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
                             "route_id": route.get("route_id"),
                             "frame_id": ann.get("frame_id"),
                             "label": ann.get("frame_rs_annotation", {}).get("label"),
+                            "event": ann.get("frame_event_annotation", {}).get("label"),
                             "review": ann.get("frame_rs_annotation", {}).get("review_required"),
                             "comment": ann.get("frame_rs_annotation", {}).get("comment"),
+                            "event_comment": ann.get("frame_event_annotation", {}).get("comment"),
                         }
                     )
 
@@ -714,49 +735,72 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
     return {
         "route_count": route_count,
         "frame_count": frame_count,
+        "road_structure_labels": ROAD_STRUCTURE_LABELS,
+        "event_labels": EVENT_LABELS,
         "primary_rs_distribution": dict(sorted(primary_counter.items())),
+        "primary_event_distribution": dict(sorted(event_counter.items())),
         "review_reason_distribution": dict(sorted(review_counter.items())),
+        "event_review_reason_distribution": dict(sorted(event_review_counter.items())),
         "xodr_source_distribution": dict(sorted(xodr_counter.items())),
         "rule_kind_distribution": dict(sorted(rule_kind_counter.items())),
         "confidence_stats": confidence_stats,
         "review_required_frame_count": review_frame_count,
         "review_required_ratio": round(review_frame_count / frame_count, 4) if frame_count else 0.0,
+        "event_review_required_frame_count": event_review_frame_count,
+        "event_review_required_ratio": round(event_review_frame_count / frame_count, 4) if frame_count else 0.0,
         "transition_count": transition_count,
+        "event_transition_count": event_transition_count,
         "temporal_smoothing_change_count": smoothing_change_count,
         "sample_comments": sample_comments,
     }
 
 
 def _print_annotation_summary(summary: Dict[str, Any]) -> None:
-    """打印逐帧标注摘要。"""
-    print("\n逐帧 RS 标注摘要:")
+    """打印逐帧 RS + EVENT 标注摘要。"""
+    print("\n逐帧 RS + EVENT 标注摘要:")
     print(
         f"  routes={summary['route_count']} frames={summary['frame_count']} "
         f"transitions={summary['transition_count']} "
+        f"event_transitions={summary.get('event_transition_count', 0)} "
         f"smoothing_changes={summary.get('temporal_smoothing_change_count', 0)}"
     )
     print(f"  primary_rs={summary['primary_rs_distribution']}")
+    print(f"  primary_event={summary.get('primary_event_distribution', {})}")
+    print("  RS 代号含义:")
+    for code, meaning in summary.get("road_structure_labels", {}).items():
+        print(f"    {code}: {meaning}")
+    print("  EVENT 代号含义:")
+    for code, meaning in summary.get("event_labels", {}).items():
+        print(f"    {code}: {meaning}")
     print(f"  rule_kind={summary['rule_kind_distribution']}")
     print(f"  xodr_source={summary['xodr_source_distribution']}")
     print(f"  confidence={summary['confidence_stats']} review_ratio={summary['review_required_ratio']}")
     print(f"  review_reasons={summary['review_reason_distribution']}")
+    print(
+        f"  event_review_ratio={summary.get('event_review_required_ratio', 0.0)} "
+        f"event_review_reasons={summary.get('event_review_reason_distribution', {})}"
+    )
     if summary["sample_comments"]:
         print("  示例注释:")
         for item in summary["sample_comments"][:5]:
-            print(f"    - {item['scenario']} / {item['route_id']} / frame {item['frame_id']}: {item['comment']}")
+            print(
+                f"    - {item['scenario']} / {item['route_id']} / frame {item['frame_id']}: "
+                f"{item['comment']} | {item.get('event_comment')}"
+            )
 
 
 def run_frame_rs_annotation(
     scenarios: List[str],
     max_routes_per_scenario: Optional[int] = None,
     max_frames_per_route: Optional[int] = None,
+    samples_per_town: Optional[int] = None,
     lead_data_root: str = "",
     output_dir: str = "",
     xml_root: str = "",
     carla_root: str = "",
     rule_config_json: str = "",
 ) -> Dict[str, Any]:
-    """按每个 scenario 独立规则生成逐帧 primary ROAD_STRUCTURE 标注。"""
+    """按每个 scenario 独立规则生成逐帧 primary ROAD_STRUCTURE 和 primary EVENT 标注。"""
     collector = ScenarioCollector(
         lead_data_root=lead_data_root,
         output_dir=output_dir,
@@ -769,12 +813,14 @@ def run_frame_rs_annotation(
             scenarios[0],
             max_routes=max_routes_per_scenario,
             max_frames_per_route=max_frames_per_route,
+            samples_per_town=samples_per_town,
         )
     else:
         result = collector.collect_multiple_scenarios(
             scenarios,
             max_routes_per_scenario=max_routes_per_scenario,
             max_frames_per_route=max_frames_per_route,
+            samples_per_town=samples_per_town,
         )
     summary = _annotation_summary(result)
     summary_file = collector.output_dir / "frame_rs_annotation_summary.json"
@@ -787,9 +833,9 @@ def run_frame_rs_annotation(
 
 
 def run_frame_rs_annotation_ui():
-    """交互式逐帧 RS 标注入口。"""
+    """交互式逐帧 RS/EVENT 标注入口。"""
     print("\n" + "="*70)
-    print("逐帧 ROAD_STRUCTURE 标注生成".center(70))
+    print("逐帧 ROAD_STRUCTURE + EVENT 标注生成".center(70))
     print("="*70)
     scenario_text = input("场景名，逗号分隔；输入 all 跑全部 (默认 noScenarios): ").strip() or "noScenarios"
     if scenario_text.lower() == "all":
@@ -806,6 +852,11 @@ def run_frame_rs_annotation_ui():
     except Exception:
         max_routes = None
     try:
+        samples_per_town_text = input("每个 town 抽样 route 数；留空不用 per-town 抽样: ").strip()
+        samples_per_town = int(samples_per_town_text) if samples_per_town_text else None
+    except Exception:
+        samples_per_town = None
+    try:
         max_frames = int(input("每条 route 最多帧数，0 表示全部 (默认0): ") or "0")
     except Exception:
         max_frames = 0
@@ -818,6 +869,7 @@ def run_frame_rs_annotation_ui():
         scenarios=scenarios,
         max_routes_per_scenario=max_routes,
         max_frames_per_route=max_frames or None,
+        samples_per_town=samples_per_town,
         lead_data_root=lead_root,
         output_dir=output_dir,
         xml_root=xml_root,
@@ -1684,12 +1736,13 @@ def _run_cli(argv: List[str]) -> bool:
     """非交互命令入口；返回 True 表示已处理。"""
     if not argv:
         return False
-    parser = argparse.ArgumentParser(description="LEAD keyframe ROAD_STRUCTURE tools")
+    parser = argparse.ArgumentParser(description="LEAD keyframe ROAD_STRUCTURE / EVENT tools")
     subparsers = parser.add_subparsers(dest="command")
 
-    annotate = subparsers.add_parser("annotate-rs", help="按每场景规则生成逐帧 RS 标注")
+    annotate = subparsers.add_parser("annotate-rs", help="按每场景规则生成逐帧 RS + EVENT 标注")
     annotate.add_argument("--scenario", default="noScenarios", help="场景名、逗号分隔，或 all")
     annotate.add_argument("--max-routes", type=int, default=None, help="每个场景最多处理 route 数；不传表示全量")
+    annotate.add_argument("--samples-per-town", type=int, default=None, help="每个 town 分散抽样 route 数；设置后优先于 --max-routes")
     annotate.add_argument("--max-frames-per-route", type=int, default=0, help="每条 route 最多处理帧数，0 表示全部")
     annotate.add_argument("--lead-data-root", default=str(_DEFAULT_LEAD_DATA_ROOT))
     annotate.add_argument("--output-dir", default=str(Path(__file__).resolve().parent / "collection_output"))
@@ -1710,6 +1763,7 @@ def _run_cli(argv: List[str]) -> bool:
             scenarios=scenarios,
             max_routes_per_scenario=max(1, args.max_routes) if args.max_routes is not None else None,
             max_frames_per_route=args.max_frames_per_route if args.max_frames_per_route > 0 else None,
+            samples_per_town=max(1, args.samples_per_town) if args.samples_per_town is not None else None,
             lead_data_root=args.lead_data_root,
             output_dir=args.output_dir,
             xml_root=args.xml_root,

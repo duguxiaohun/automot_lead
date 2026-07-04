@@ -60,6 +60,90 @@ def load_pickle_file(file_path: Path):
             # 两种方式都失败，抛出原始错误
             raise e
 
+
+def _bbox_object_iter(raw: Any):
+    """尽量兼容 LEAD bbox pkl 的 list/dict/ndarray 结构，逐个产出对象 dict。"""
+    if raw is None:
+        return
+    if isinstance(raw, np.ndarray):
+        raw = raw.tolist()
+    if isinstance(raw, dict):
+        for key in ("objects", "bboxes", "boxes", "actors", "data"):
+            value = raw.get(key)
+            if value is not None:
+                yield from _bbox_object_iter(value)
+                return
+        yield raw
+        return
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            if isinstance(item, np.ndarray):
+                item = item.tolist()
+            if isinstance(item, dict):
+                yield item
+
+
+def _bbox_class_text(obj: Dict[str, Any]) -> str:
+    for key in ("class", "type", "label", "name", "category", "semantic_class"):
+        value = obj.get(key)
+        if value is not None:
+            return str(value).strip().lower()
+    return ""
+
+
+def summarize_bbox_semantics(bbox_path: Path) -> Dict[str, Any]:
+    """读取单帧 bbox，提取 R4/R5 需要的轻量语义证据。"""
+    if not bbox_path.exists():
+        return {
+            "bbox_available": False,
+            "bbox_has_traffic_light": False,
+            "bbox_has_stop_sign": False,
+            "bbox_has_yield_sign": False,
+            "bbox_has_junction_hint": False,
+            "bbox_semantic_classes": {},
+        }
+    try:
+        raw = load_pickle_file(bbox_path)
+    except Exception:
+        return {
+            "bbox_available": False,
+            "bbox_load_error": True,
+            "bbox_has_traffic_light": False,
+            "bbox_has_stop_sign": False,
+            "bbox_has_yield_sign": False,
+            "bbox_has_junction_hint": False,
+            "bbox_semantic_classes": {},
+        }
+
+    counts: Dict[str, int] = defaultdict(int)
+    has_tl = False
+    has_stop = False
+    has_yield = False
+    has_junction = False
+    for obj in _bbox_object_iter(raw) or []:
+        cls = _bbox_class_text(obj)
+        if not cls:
+            continue
+        counts[cls] += 1
+        compact = cls.replace("_", "").replace("-", "").replace(" ", "")
+        if "trafficlight" in compact or compact in {"tl", "light"}:
+            has_tl = True
+        if "stopsign" in compact or compact == "stop":
+            has_stop = True
+        if "yield" in compact or "giveway" in compact:
+            has_yield = True
+        if "junction" in compact or "intersection" in compact or "crosswalk" in compact:
+            has_junction = True
+
+    return {
+        "bbox_available": True,
+        "bbox_has_traffic_light": has_tl,
+        "bbox_has_stop_sign": has_stop,
+        "bbox_has_yield_sign": has_yield,
+        "bbox_has_junction_hint": has_junction,
+        "bbox_semantic_classes": dict(sorted(counts.items())),
+    }
+
 # ============================================================================
 # 数据定义
 # ============================================================================
@@ -89,6 +173,33 @@ class EventType(Enum):
     U_E8 = "U-E8"
 
 
+ROAD_STRUCTURE_LABELS = {
+    "R1": "常规道路 / 跟车 / 车道保持",
+    "R2": "双向单车道 / 借对向绕行规则空间",
+    "R3": "匝道合流 / 并线 / 高速驶出",
+    "R4": "信号灯控制路口",
+    "R5": "无信号灯 / 信号灯失效 / 路权路口",
+    "R6": "路边停车 / 停车占道道路结构",
+}
+
+
+EVENT_LABELS = {
+    "R-E1": "常规跟车 / 车道保持",
+    "R-E2": "目标导向型变道 / 回目标车道",
+    "R-E3": "常规匝道合流 / 并线 / 驶出",
+    "R-E4": "信号灯路口常规通行",
+    "R-E5": "无信号灯 / 路权路口常规通行",
+    "U-E1": "前车急刹 / 突然减速",
+    "U-E2": "静态障碍物占道 / 被迫绕行",
+    "U-E3": "动态车辆切入 / 动态占道",
+    "U-E4": "行人 / 自行车横穿",
+    "U-E5": "对向车辆异常侵占自车道",
+    "U-E6": "违规车辆冲突",
+    "U-E7": "信号灯故障 / 路口规则失效",
+    "U-E8": "前方道路暂时阻塞 / 阻塞解除",
+}
+
+
 @dataclass
 class FrameAnnotation:
     frame_id: int
@@ -101,12 +212,19 @@ class FrameAnnotation:
     candidate_scores: Dict[str, float] = field(default_factory=dict)
     evidence: Dict[str, Any] = field(default_factory=dict)
     annotation_comment: str = ""
+    primary_event: Optional[EventType] = None
+    event_evidence: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self):
         return {
             'frame_id': self.frame_id,
             'road_structures': [rs.value for rs in self.road_structures],
             'events': [ev.value for ev in self.events],
+            'primary_event': (
+                self.primary_event.value
+                if isinstance(self.primary_event, EventType)
+                else self.primary_event
+            ),
             'confidence': self.confidence,
             'reason': self.reason,
             'primary_road_structure': (
@@ -120,6 +238,7 @@ class FrameAnnotation:
             ],
             'road_structure_candidates': self.candidate_scores,
             'evidence': self.evidence,
+            'event_evidence': self.event_evidence,
             'annotation_comment': self.annotation_comment,
         }
 
@@ -138,37 +257,37 @@ SCENARIO_TO_ROAD_STRUCTURE = {
     "CrossingBicycleFlow": [RoadStructure.R1, RoadStructure.R4],
     "CrossJunctionDefectTrafficLight": [RoadStructure.R1, RoadStructure.R5],
     "DynamicObjectCrossing": [RoadStructure.R1, RoadStructure.R4],
-    "EnterActorFlow": [RoadStructure.R3, RoadStructure.R4],
-    "EnterActorFlowV2": [RoadStructure.R3, RoadStructure.R4],
+    "EnterActorFlow": [RoadStructure.R3],
+    "EnterActorFlowV2": [RoadStructure.R3],
     "HardBreakRoute": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4],
     "HazardAtSideLane": [RoadStructure.R1, RoadStructure.R4],
     "HazardAtSideLaneTwoWays": [RoadStructure.R1, RoadStructure.R2, RoadStructure.R4],
     "HighwayCutIn": [RoadStructure.R3, RoadStructure.R4],
-    "HighwayExit": [RoadStructure.R3, RoadStructure.R4],
-    "InterurbanActorFlow": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4, RoadStructure.R5],
-    "InterurbanAdvancedActorFlow": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
-    "InvadingTurn": [RoadStructure.R1, RoadStructure.R2, RoadStructure.R4],
+    "HighwayExit": [RoadStructure.R3],
+    "InterurbanActorFlow": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R5],
+    "InterurbanAdvancedActorFlow": [RoadStructure.R1, RoadStructure.R5],
+    "InvadingTurn": [RoadStructure.R1, RoadStructure.R2, RoadStructure.R5],
     "MergerIntoSlowTraffic": [RoadStructure.R3, RoadStructure.R4],
-    "MergerIntoSlowTrafficV2": [RoadStructure.R3, RoadStructure.R4],
+    "MergerIntoSlowTrafficV2": [RoadStructure.R3],
     "NonSignalizedJunctionLeftTurn": [RoadStructure.R1, RoadStructure.R5],
     "NonSignalizedJunctionLeftTurnEnterFlow": [RoadStructure.R1, RoadStructure.R5],
-    "NonSignalizedJunctionRightTurn": [RoadStructure.R1, RoadStructure.R5],
+    "NonSignalizedJunctionRightTurn": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
     "noScenarios": [RoadStructure.R1, RoadStructure.R4],
     "OppositeVehicleRunningRedLight": [RoadStructure.R1, RoadStructure.R4],
-    "OppositeVehicleTakingPriority": [RoadStructure.R1, RoadStructure.R5],
+    "OppositeVehicleTakingPriority": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
     "ParkedObstacle": [RoadStructure.R1, RoadStructure.R4],
     "ParkedObstacleTwoWays": [RoadStructure.R1, RoadStructure.R2, RoadStructure.R4],
     "ParkingCrossingPedestrian": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R6],
     "ParkingCutIn": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R6],
     "ParkingExit": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R6],
     "PedestrianCrossing": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
-    "PriorityAtJunction": [RoadStructure.R1, RoadStructure.R5],
+    "PriorityAtJunction": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
     "RedLightWithoutLeadVehicle": [RoadStructure.R1, RoadStructure.R4],
     "SignalizedJunctionLeftTurn": [RoadStructure.R1, RoadStructure.R4],
     "SignalizedJunctionLeftTurnEnterFlow": [RoadStructure.R1, RoadStructure.R4],
     "SignalizedJunctionRightTurn": [RoadStructure.R1, RoadStructure.R4],
     "StaticCutIn": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4, RoadStructure.R6],
-    "T_Junction": [RoadStructure.R1, RoadStructure.R4],
+    "T_Junction": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
     "VehicleOpensDoorTwoWays": [RoadStructure.R1, RoadStructure.R2, RoadStructure.R4, RoadStructure.R6],
     "VehicleTurningRoute": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
     "VehicleTurningRoutePedestrian": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
@@ -255,6 +374,17 @@ MIXED_SCENARIO_RGB_REVIEW_COUNTS = {
     "ParkingCutIn": 99,
 }
 
+SCENARIOS_WITH_RGB_NO_R4 = {
+    # 2026-07-04 full lead_video RGB overview: no stable signalized intersections.
+    "EnterActorFlow",
+    "EnterActorFlowV2",
+    "HighwayExit",
+    "InterurbanActorFlow",
+    "InterurbanAdvancedActorFlow",
+    "InvadingTurn",
+    "MergerIntoSlowTrafficV2",
+}
+
 
 def _mixed_route_semantic_bucket(scenario_name: str, route_id: Optional[str]) -> str:
     if scenario_name not in MIXED_SCENARIO_HIGHWAY_ROUTE_IDS:
@@ -279,49 +409,89 @@ def _mixed_route_allowed_structures(
     return set(base_allowed)
 
 SCENARIO_TO_FINE_EVENTS = {
-    "Accident": [EventType.R_E1, EventType.R_E2, EventType.R_E4, EventType.U_E2],
-    "AccidentTwoWays": [EventType.R_E1, EventType.R_E2, EventType.R_E4, EventType.U_E2],
-    "BlockedIntersection": [EventType.R_E1, EventType.R_E4, EventType.U_E8],
-    "ConstructionObstacle": [EventType.R_E1, EventType.R_E2, EventType.R_E4, EventType.U_E2],
-    "ConstructionObstacleTwoWays": [EventType.R_E1, EventType.R_E2, EventType.R_E4, EventType.U_E2],
+    "Accident": [EventType.R_E1, EventType.R_E2, EventType.U_E2],
+    "AccidentTwoWays": [EventType.R_E1, EventType.R_E2, EventType.U_E2],
+    "BlockedIntersection": [EventType.R_E1, EventType.R_E4, EventType.U_E1, EventType.U_E8],
+    "ConstructionObstacle": [EventType.R_E1, EventType.R_E2, EventType.U_E2],
+    "ConstructionObstacleTwoWays": [EventType.R_E1, EventType.R_E2, EventType.U_E2],
     "ControlLoss": [EventType.R_E1, EventType.R_E4],
     "CrossingBicycleFlow": [EventType.R_E1, EventType.R_E4, EventType.U_E4],
-    "CrossJunctionDefectTrafficLight": [EventType.R_E1, EventType.R_E5, EventType.U_E7],
-    "DynamicObjectCrossing": [EventType.R_E1, EventType.R_E4, EventType.U_E3, EventType.U_E4],
-    "EnterActorFlow": [EventType.R_E1, EventType.R_E3, EventType.R_E4],
-    "EnterActorFlowV2": [EventType.R_E1, EventType.R_E3, EventType.R_E4],
+    "CrossJunctionDefectTrafficLight": [EventType.R_E1, EventType.R_E5, EventType.U_E6, EventType.U_E7],
+    "DynamicObjectCrossing": [EventType.R_E1, EventType.R_E4],
+    "EnterActorFlow": [EventType.R_E1, EventType.R_E3],
+    "EnterActorFlowV2": [EventType.R_E1, EventType.R_E3],
     "HardBreakRoute": [EventType.R_E1, EventType.R_E4, EventType.U_E1],
-    "HazardAtSideLane": [EventType.R_E1, EventType.R_E2, EventType.R_E4, EventType.U_E2],
-    "HazardAtSideLaneTwoWays": [EventType.R_E1, EventType.R_E2, EventType.R_E4, EventType.U_E2],
-    "HighwayCutIn": [EventType.R_E1, EventType.R_E3, EventType.R_E4, EventType.U_E3],
-    "HighwayExit": [EventType.R_E1, EventType.R_E2, EventType.R_E3, EventType.R_E4],
-    "InterurbanActorFlow": [EventType.R_E1, EventType.R_E2, EventType.R_E3, EventType.R_E4, EventType.R_E5],
-    "InterurbanAdvancedActorFlow": [EventType.R_E1, EventType.R_E4, EventType.R_E5],
-    "InvadingTurn": [EventType.R_E1, EventType.R_E4, EventType.U_E5],
+    "HazardAtSideLane": [EventType.R_E1, EventType.R_E2, EventType.U_E2],
+    "HazardAtSideLaneTwoWays": [EventType.R_E1, EventType.R_E2, EventType.U_E2],
+    "HighwayCutIn": [EventType.R_E1, EventType.R_E2, EventType.R_E3, EventType.R_E4],
+    "HighwayExit": [EventType.R_E1, EventType.R_E2, EventType.R_E3],
+    "InterurbanActorFlow": [EventType.R_E1, EventType.R_E2, EventType.R_E5],
+    "InterurbanAdvancedActorFlow": [EventType.R_E1, EventType.R_E5],
+    "InvadingTurn": [EventType.R_E1, EventType.R_E5, EventType.U_E5],
     "MergerIntoSlowTraffic": [EventType.R_E1, EventType.R_E3, EventType.R_E4],
-    "MergerIntoSlowTrafficV2": [EventType.R_E1, EventType.R_E3, EventType.R_E4],
+    "MergerIntoSlowTrafficV2": [EventType.R_E1, EventType.R_E3],
     "NonSignalizedJunctionLeftTurn": [EventType.R_E1, EventType.R_E5],
     "NonSignalizedJunctionLeftTurnEnterFlow": [EventType.R_E1, EventType.R_E5],
-    "NonSignalizedJunctionRightTurn": [EventType.R_E1, EventType.R_E5],
+    "NonSignalizedJunctionRightTurn": [EventType.R_E1, EventType.R_E4, EventType.R_E5],
     "noScenarios": [EventType.R_E1, EventType.R_E4],
     "OppositeVehicleRunningRedLight": [EventType.R_E1, EventType.R_E4, EventType.U_E6],
-    "OppositeVehicleTakingPriority": [EventType.R_E1, EventType.R_E5],
-    "ParkedObstacle": [EventType.R_E1, EventType.R_E2, EventType.R_E4, EventType.U_E2],
-    "ParkedObstacleTwoWays": [EventType.R_E1, EventType.R_E2, EventType.R_E4, EventType.U_E2],
+    "OppositeVehicleTakingPriority": [EventType.R_E1, EventType.R_E4, EventType.R_E5, EventType.U_E7],
+    "ParkedObstacle": [EventType.R_E1, EventType.R_E2, EventType.U_E2],
+    "ParkedObstacleTwoWays": [EventType.R_E1, EventType.R_E2, EventType.U_E2],
     "ParkingCrossingPedestrian": [EventType.R_E1, EventType.R_E4, EventType.U_E4],
     "ParkingCutIn": [EventType.R_E1, EventType.R_E4, EventType.U_E3],
     "ParkingExit": [EventType.R_E1, EventType.R_E2, EventType.R_E4],
     "PedestrianCrossing": [EventType.R_E1, EventType.R_E4, EventType.R_E5, EventType.U_E4],
-    "PriorityAtJunction": [EventType.R_E1, EventType.R_E5],
+    "PriorityAtJunction": [EventType.R_E1, EventType.R_E4, EventType.R_E5],
     "RedLightWithoutLeadVehicle": [EventType.R_E1, EventType.R_E4],
     "SignalizedJunctionLeftTurn": [EventType.R_E1, EventType.R_E4],
     "SignalizedJunctionLeftTurnEnterFlow": [EventType.R_E1, EventType.R_E4],
     "SignalizedJunctionRightTurn": [EventType.R_E1, EventType.R_E4],
     "StaticCutIn": [EventType.R_E1, EventType.R_E2, EventType.R_E3, EventType.R_E4, EventType.U_E3],
-    "T_Junction": [EventType.R_E1, EventType.R_E4],
-    "VehicleOpensDoorTwoWays": [EventType.R_E1, EventType.R_E2, EventType.R_E4, EventType.U_E2],
+    "T_Junction": [EventType.R_E1, EventType.R_E4, EventType.R_E5],
+    "VehicleOpensDoorTwoWays": [EventType.R_E1, EventType.R_E2, EventType.U_E2],
     "VehicleTurningRoute": [EventType.R_E1, EventType.R_E4, EventType.R_E5, EventType.U_E4],
     "VehicleTurningRoutePedestrian": [EventType.R_E1, EventType.R_E4, EventType.R_E5, EventType.U_E4],
+}
+
+OBSTACLE_EVENT_DISTANCE_FIELDS = {
+    "Accident": ("dist_to_accident_site", 32.0),
+    "AccidentTwoWays": ("dist_to_accident_site", 32.0),
+    "ConstructionObstacle": ("dist_to_construction_site", 35.0),
+    "ConstructionObstacleTwoWays": ("dist_to_construction_site", 35.0),
+    "ParkedObstacle": ("dist_to_parked_obstacle", 28.0),
+    "ParkedObstacleTwoWays": ("dist_to_parked_obstacle", 28.0),
+    "HazardAtSideLane": ("dist_to_parked_obstacle", 30.0),
+    "HazardAtSideLaneTwoWays": ("dist_to_parked_obstacle", 30.0),
+    "VehicleOpensDoorTwoWays": ("dist_to_vehicle_opens_door", 28.0),
+}
+
+PEDESTRIAN_BICYCLE_EVENT_FIELDS = {
+    "CrossingBicycleFlow": ("dist_to_biker", 22.0),
+    "PedestrianCrossing": ("dist_to_pedestrian", 22.0),
+    "ParkingCrossingPedestrian": ("dist_to_pedestrian", 24.0),
+    "VehicleTurningRoute": ("dist_to_biker", 22.0),
+    "VehicleTurningRoutePedestrian": ("dist_to_pedestrian", 22.0),
+}
+
+R3_MERGE_SCENARIOS = {
+    "EnterActorFlow",
+    "EnterActorFlowV2",
+    "MergerIntoSlowTraffic",
+    "MergerIntoSlowTrafficV2",
+    "HighwayExit",
+}
+
+R2_RETURN_SCENARIOS = {
+    "Accident",
+    "AccidentTwoWays",
+    "ConstructionObstacle",
+    "ConstructionObstacleTwoWays",
+    "ParkedObstacle",
+    "ParkedObstacleTwoWays",
+    "HazardAtSideLane",
+    "HazardAtSideLaneTwoWays",
+    "VehicleOpensDoorTwoWays",
 }
 
 @dataclass
@@ -473,6 +643,13 @@ def _extract_route_num(text: str) -> Optional[str]:
     return None
 
 
+def _extract_town(text: str) -> Optional[str]:
+    match = re.search(r"(Town\d+(?:HD)?)", str(text), re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1)
+
+
 def _route_key_aliases(text: str) -> Set[str]:
     name = Path(str(text)).stem
     out = {name.lower()}
@@ -482,17 +659,48 @@ def _route_key_aliases(text: str) -> Set[str]:
         re.IGNORECASE,
     )
     if run_match:
+        town = run_match.group("town")
         raw = run_match.group("key")
         if raw.endswith("_route0"):
             raw = raw[: -len("_route0")]
         out.add(raw.lower())
-        out.add(f"{run_match.group('town')}_route_{raw}".lower())
+        out.add(f"{town}_Rep0_{raw}".lower())
+        if raw.lower().startswith("route_"):
+            out.add(f"{town}_{raw}".lower())
+            out.add(raw[len("route_"):].lower())
+        else:
+            out.add(f"{town}_route_{raw}".lower())
     xml_match = re.match(r"^(?P<town>Town\d+(?:HD)?)_route_(?P<key>.+)$", name, re.IGNORECASE)
     if xml_match:
+        town = xml_match.group("town")
         raw = xml_match.group("key")
         out.add(raw.lower())
-        out.add(f"{xml_match.group('town')}_Rep0_{raw}".lower())
+        out.add(f"{town}_Rep0_{raw}".lower())
+        if raw.lower().startswith("route_"):
+            out.add(f"{town}_{raw}".lower())
+            out.add(raw[len("route_"):].lower())
+        else:
+            out.add(f"{town}_Rep0_route_{raw}".lower())
     return out
+
+
+def _strict_xml_stem_from_run_name(text: str) -> Optional[str]:
+    """按 LEAD run_id 命名规范反推 XML stem，优先于模糊 alias 匹配。"""
+    name = Path(str(text)).stem
+    run_match = re.match(
+        r"^(?P<town>Town\d+(?:HD)?)_Rep\d+_(?P<key>.+)_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}$",
+        name,
+        re.IGNORECASE,
+    )
+    if not run_match:
+        return None
+    town = run_match.group("town")
+    raw = run_match.group("key")
+    if raw.endswith("_route0"):
+        raw = raw[: -len("_route0")]
+    if raw.startswith("route_"):
+        return f"{town}_{raw}"
+    return f"{town}_route_{raw}"
 
 
 def _parse_position_node(node: ET.Element) -> Optional[Tuple[float, float]]:
@@ -554,8 +762,15 @@ class RouteXmlIndex:
     def __init__(self, xml_root: Path = _DEFAULT_XML_ROOT):
         self.xml_root = Path(xml_root)
         self.by_scenario: Dict[str, List[RouteXmlInfo]] = defaultdict(list)
-        self.by_route_num: Dict[Tuple[str, str], RouteXmlInfo] = {}
+        self.by_stem: Dict[Tuple[str, str], RouteXmlInfo] = {}
+        self.by_route_num: Dict[Tuple[str, str], List[RouteXmlInfo]] = defaultdict(list)
+        self.by_town_route_num: Dict[Tuple[str, str, str], List[RouteXmlInfo]] = defaultdict(list)
         self._build()
+
+    @staticmethod
+    def _append_unique(bucket: List[RouteXmlInfo], info: RouteXmlInfo) -> None:
+        if not any(existing.path == info.path for existing in bucket):
+            bucket.append(info)
 
     def _build(self) -> None:
         if not self.xml_root.exists():
@@ -567,26 +782,45 @@ class RouteXmlIndex:
                 if info is None:
                     continue
                 self.by_scenario[scenario].append(info)
+                self.by_stem[(scenario, xml_path.stem.lower())] = info
                 for key in {xml_path.stem, info.route_id}:
                     route_num = _extract_route_num(key)
                     if route_num:
-                        self.by_route_num[(scenario, route_num)] = info
+                        self._append_unique(self.by_route_num[(scenario, route_num)], info)
+                        if info.town:
+                            self._append_unique(self.by_town_route_num[(scenario, info.town.lower(), route_num)], info)
 
     def match(self, scenario: str, route_name: str) -> Optional[RouteXmlInfo]:
+        strict_stem = _strict_xml_stem_from_run_name(route_name)
+        if strict_stem:
+            hit = self.by_stem.get((scenario, strict_stem.lower()))
+            if hit is not None:
+                return hit
+
         candidates = self.by_scenario.get(scenario, [])
+        route_name_lower = route_name.lower()
+        route_aliases = _route_key_aliases(route_name)
+        route_town = _extract_town(route_name)
+        route_town_key = route_town.lower() if route_town else None
         for info in candidates:
-            if info.path.stem and info.path.stem in route_name:
+            if info.path.stem and info.path.stem.lower() in route_name_lower:
                 return info
-            if _route_key_aliases(info.path.stem) & _route_key_aliases(route_name):
+            if _route_key_aliases(info.path.stem) & route_aliases:
                 return info
         route_num = _extract_route_num(route_name)
         if route_num:
-            hit = self.by_route_num.get((scenario, route_num))
-            if hit is not None:
-                return hit
+            if route_town_key:
+                town_hits = self.by_town_route_num.get((scenario, route_town_key, route_num), [])
+                if len(town_hits) == 1:
+                    return town_hits[0]
+            hits = self.by_route_num.get((scenario, route_num), [])
+            if len(hits) == 1:
+                return hits[0]
         if not candidates:
             return None
         for info in candidates:
+            if route_town_key and info.town and info.town.lower() != route_town_key:
+                continue
             if info.route_id and len(str(info.route_id)) >= 3 and str(info.route_id) in route_name:
                 return info
         return None
@@ -1133,13 +1367,13 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
     "ConstructionObstacle": {"kind": "same_direction_obstacle", "junction_pre_m": 60, "junction_post_m": 25, "veto": ["no_r2", "no_r6"]},
     "ParkedObstacle": {"kind": "same_direction_obstacle", "junction_pre_m": 60, "junction_post_m": 25, "veto": ["parked_not_parking_rs"]},
     # TwoWays：R2 只覆盖必须借/等对向的核心障碍片段；障碍前后普通双向道路回 R1/R4。
-    "AccidentTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 45, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_layout_prior": True},
-    "ConstructionObstacleTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 45, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_layout_prior": True},
-    "HazardAtSideLaneTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 70, "two_way_post_pad_m": 20, "trigger_close_m": 75, "two_way_layout_prior": True},
-    "ParkedObstacleTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 50, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_layout_prior": True, "veto": ["parked_not_r6"]},
+    "AccidentTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 50, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_xml_core_close_m": 8, "two_way_obstacle_core_m": 18, "two_way_approach_obstacle_m": 28, "two_way_exit_delta_m": 2, "two_way_exit_hold_frames": 3, "two_way_post_core_signal_m": 45, "two_way_layout_prior": True},
+    "ConstructionObstacleTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 50, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_xml_core_close_m": 8, "two_way_obstacle_core_m": 18, "two_way_approach_obstacle_m": 28, "two_way_exit_delta_m": 2, "two_way_exit_hold_frames": 3, "two_way_post_core_signal_m": 45, "two_way_layout_prior": True},
+    "HazardAtSideLaneTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 75, "two_way_post_pad_m": 20, "trigger_close_m": 75, "two_way_xml_core_close_m": 8, "two_way_obstacle_core_m": 20, "two_way_approach_obstacle_m": 30, "two_way_exit_delta_m": 2, "two_way_exit_hold_frames": 3, "two_way_post_core_signal_m": 45, "two_way_layout_prior": True},
+    "ParkedObstacleTwoWays": {"kind": "twoways_obstacle", "two_way_min_pre_m": 55, "two_way_post_pad_m": 20, "trigger_close_m": 70, "two_way_xml_core_close_m": 8, "two_way_obstacle_core_m": 18, "two_way_approach_obstacle_m": 28, "two_way_exit_delta_m": 2, "two_way_exit_hold_frames": 3, "two_way_post_core_signal_m": 45, "two_way_layout_prior": True, "veto": ["parked_not_r6"]},
     "InvadingTurn": {"kind": "invading_turn", "two_way_min_pre_m": 80, "two_way_post_pad_m": 20, "trigger_close_m": 75, "rule_note": "passive_oncoming_invasion"},
     # 信号灯路口：stopline 前也保持 R4。
-    "BlockedIntersection": {"kind": "signalized_junction", "junction_pre_m": 60, "junction_post_m": 25, "rule_note": "blocked_is_event_not_rs"},
+    "BlockedIntersection": {"kind": "signalized_junction", "junction_pre_m": 48, "junction_post_m": 20, "rule_note": "blocked_is_event_not_rs"},
     "OppositeVehicleRunningRedLight": {"kind": "signalized_junction", "junction_pre_m": 50, "junction_post_m": 20, "rule_note": "violation_not_r5"},
     "RedLightWithoutLeadVehicle": {"kind": "signalized_junction", "junction_pre_m": 60, "junction_post_m": 20},
     "SignalizedJunctionLeftTurn": {"kind": "signalized_junction", "junction_pre_m": 60, "junction_post_m": 25},
@@ -1166,7 +1400,7 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
     "ParkingCrossingPedestrian": {"kind": "parking", "parking_pre_m": 35, "parking_post_m": 60, "veto": ["pedestrian_not_rs"]},
     "ParkingCutIn": {"kind": "parking", "parking_pre_m": 30, "parking_post_m": 50},
     "ParkingExit": {"kind": "parking_exit", "parking_pre_m": 20, "parking_post_m": 60, "rule_note": "parking_to_driving_transition"},
-    "VehicleOpensDoorTwoWays": {"kind": "vehicle_opens_door_twoways", "two_way_min_pre_m": 50, "two_way_post_pad_m": 20, "parking_pre_m": 35, "parking_post_m": 55},
+    "VehicleOpensDoorTwoWays": {"kind": "vehicle_opens_door_twoways", "two_way_min_pre_m": 55, "two_way_post_pad_m": 20, "parking_pre_m": 35, "parking_post_m": 55},
     "StaticCutIn": {"kind": "static_cutin", "parking_pre_m": 35, "parking_post_m": 55, "merge_pre_m": 35, "merge_post_m": 55},
     # 按道路空间拆分的横穿/转弯/普通场景。
     "PedestrianCrossing": {"kind": "pedestrian_crossing", "junction_pre_m": 40, "junction_post_m": 40, "veto": ["pedestrian_not_rs"]},
@@ -1179,6 +1413,20 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
     "HazardAtSideLane": {"kind": "default_meta_map", "junction_pre_m": 50, "junction_post_m": 25, "veto": ["side_lane_not_twoways"]},
     "noScenarios": {"kind": "noscenario", "junction_pre_m": 50, "junction_post_m": 25, "conservative": True},
 }
+
+
+JUNCTION_WINDOW_SCALE = 0.85
+JUNCTION_META_NEAR_M = 45.0
+JUNCTION_STRONG_MAX_M = 30.0
+STATIC_SIGNAL_NEAR_M = 45.0
+JUNCTION_CLOSE_TRIGGER_MAX_M = 35.0
+
+
+def _shrink_junction_window(pre_m: float, post_m: float) -> Tuple[float, float]:
+    """轻微收窄路口影响区，避免十字路口标签覆盖过早/过晚。"""
+    pre = max(30.0, float(pre_m) * JUNCTION_WINDOW_SCALE)
+    post = max(15.0, float(post_m) * JUNCTION_WINDOW_SCALE)
+    return pre, post
 
 
 def _diagnose_rs_decision(
@@ -1199,10 +1447,13 @@ def _diagnose_rs_decision(
         "xodr_topology_trusted": bool(xodr.get("xodr_topology_trusted", xodr.get("xodr_available", False))),
         "meta_traffic_light_valid": bool(flags.get("has_tl")),
         "meta_light_hazard": bool(flags.get("light_hazard")),
+        "bbox_traffic_light": bool(flags.get("bbox_traffic_light")),
         "meta_junction_hint": bool(flags.get("is_junction")) or bool(flags.get("dist_to_junction_near")),
+        "bbox_junction_hint": bool(flags.get("bbox_junction_hint")),
         "xodr_roundabout_hint": bool(flags.get("map_is_roundabout")),
         "meta_active_scenario": bool(flags.get("scenario_active")),
         "meta_stop_hint": bool(flags.get("stop_hazard")),
+        "bbox_stop_or_yield_hint": bool(flags.get("bbox_stop_or_yield")),
     }
 
     weak_or_missing = []
@@ -1215,7 +1466,7 @@ def _diagnose_rs_decision(
     if flags.get("route_projection_error_high"):
         weak_or_missing.append("xml_route_projection_error_high")
     if kind in {"signalized_junction", "defect_junction"} and not (
-        used_inputs["meta_traffic_light_valid"] or used_inputs["meta_light_hazard"] or used_inputs["xodr_runtime_available"]
+        used_inputs["meta_traffic_light_valid"] or used_inputs["meta_light_hazard"] or used_inputs["bbox_traffic_light"] or used_inputs["xodr_runtime_available"]
     ):
         weak_or_missing.append("signalized_policy_lacks_meta_light_and_xodr")
     if kind in {"twoways_obstacle", "invading_turn", "vehicle_opens_door_twoways"} and not bool(xodr.get("has_opposite_driving_lane", False)):
@@ -1228,6 +1479,10 @@ def _diagnose_rs_decision(
     if primary == RoadStructure.R4:
         if "r4_tl_confirmed" in rules:
             decision_source = "meta_traffic_light"
+        elif "r4_bbox_traffic_light_confirmed" in rules:
+            decision_source = "bbox_traffic_light"
+        elif "r4_meta_tl_without_strong_context_review" in rules:
+            decision_source = "meta_traffic_light_without_strong_context"
         elif "r4_light_hazard" in rules:
             decision_source = "meta_light_hazard"
         else:
@@ -1261,6 +1516,8 @@ def _diagnose_rs_decision(
         checks.extend(["检查 XODR 是否找到相邻对向 driving lane", "检查 same_dir_lanes 是否被地图误判为足够绕行"])
         if flags.get("twoway_core_obstruction"):
             checks.append("R2 由近距离障碍/车辆交互 meta 支撑，需核查 RGB 是否确有占道或借对向需求")
+        if flags.get("twoway_xml_core_confirmed"):
+            checks.append("R2 由 XML trigger 极近或 XML 场景障碍近距离召回，需核查 RGB 是否正处于核心绕障区")
     if primary == RoadStructure.R3:
         checks.extend(["检查 XML actor-flow/other_actor_location 是否投影到正确窗口", "检查 XODR ramp_merge_split_hint 是否过弱"])
     if primary == RoadStructure.R6:
@@ -1272,6 +1529,7 @@ def _diagnose_rs_decision(
         "weak_or_missing_inputs": weak_or_missing,
         "window_flags": {
             "close_trigger": bool(flags.get("close_trigger")),
+            "close_trigger_for_junction": bool(flags.get("close_trigger_for_junction")),
             "near_junction": bool(flags.get("near_junction")),
             "strong_control_context": bool(flags.get("strong_control_context")),
             "static_signal_near": bool(flags.get("static_signal_near")),
@@ -1280,12 +1538,302 @@ def _diagnose_rs_decision(
             "two_way_window": bool(flags.get("two_way_window")),
             "two_way_layout_prior": bool(flags.get("two_way_layout_prior")),
             "twoway_core_obstruction": bool(flags.get("twoway_core_obstruction")),
+            "twoway_strict_core_obstruction": bool(flags.get("twoway_strict_core_obstruction")),
+            "twoway_xml_core_close": bool(flags.get("twoway_xml_core_close")),
+            "twoway_xml_obstacle_close": bool(flags.get("twoway_xml_obstacle_close")),
+            "twoway_xml_core_confirmed": bool(flags.get("twoway_xml_core_confirmed")),
             "scenario_active": bool(flags.get("scenario_active")),
         },
         "score_ranking": sorted_scores,
         "top_score_gap": score_gap,
         "if_this_frame_is_wrong_check": checks,
     }
+
+
+class RoadEventRuleEngine:
+    """把 scenario 先验、RS、meta/XML 证据合成逐帧 EVENT 标签。"""
+
+    @staticmethod
+    def _scenario_active(frame_data: Dict[str, Any], scenario_name: str) -> bool:
+        active = str(frame_data.get("current_active_scenario_type") or "")
+        previous = str(frame_data.get("previous_active_scenario_type") or "")
+        return scenario_name in {active, previous}
+
+    @staticmethod
+    def _near_trigger(evidence: Dict[str, Any], max_m: float = 45.0) -> bool:
+        return _safe_float(evidence.get("trigger_distance_m"), default=math.inf) <= max_m
+
+    @staticmethod
+    def _speed(frame_data: Dict[str, Any]) -> float:
+        return _safe_float(frame_data.get("speed"), default=0.0)
+
+    @staticmethod
+    def _target_speed(frame_data: Dict[str, Any]) -> float:
+        return _safe_float(frame_data.get("target_speed"), default=math.inf)
+
+    @staticmethod
+    def _hard_decel(frame_data: Dict[str, Any]) -> bool:
+        accel_x = _safe_float(frame_data.get("accel_x"), default=0.0)
+        brake = _safe_bool(frame_data.get("brake", False))
+        speed = RoadEventRuleEngine._speed(frame_data)
+        target_speed = RoadEventRuleEngine._target_speed(frame_data)
+        target_drop = math.isfinite(target_speed) and target_speed <= max(0.5, speed * 0.45)
+        return brake or accel_x <= -3.5 or target_drop
+
+    @staticmethod
+    def _changed_route(frame_data: Dict[str, Any]) -> bool:
+        if _safe_bool(frame_data.get("changed_route", False)):
+            return True
+        signed = abs(_safe_float(frame_data.get("signed_dist_to_lane_change"), default=math.inf))
+        return math.isfinite(signed) and signed <= 3.5
+
+    @staticmethod
+    def _regular_event(scenario_name: str, primary_rs: RoadStructure, frame_data: Dict[str, Any]) -> EventType:
+        if primary_rs == RoadStructure.R4:
+            return EventType.R_E4
+        if primary_rs == RoadStructure.R5:
+            return EventType.R_E5
+        if scenario_name in R3_MERGE_SCENARIOS and primary_rs == RoadStructure.R3:
+            return EventType.R_E3
+        if scenario_name in {"HighwayCutIn", "HighwayExit", "InterurbanActorFlow", "ParkingExit", "StaticCutIn"}:
+            if RoadEventRuleEngine._changed_route(frame_data):
+                return EventType.R_E2
+        if primary_rs == RoadStructure.R3:
+            return EventType.R_E3
+        if primary_rs in {RoadStructure.R1, RoadStructure.R2, RoadStructure.R6} and RoadEventRuleEngine._changed_route(frame_data):
+            return EventType.R_E2
+        return EventType.R_E1
+
+    @staticmethod
+    def _obstacle_event(
+        scenario_name: str,
+        frame_data: Dict[str, Any],
+        primary_rs: RoadStructure,
+        evidence: Dict[str, Any],
+    ) -> Tuple[bool, List[str], Dict[str, Any]]:
+        if scenario_name not in OBSTACLE_EVENT_DISTANCE_FIELDS:
+            return False, [], {}
+        field, threshold = OBSTACLE_EVENT_DISTANCE_FIELDS[scenario_name]
+        dist = _safe_float(frame_data.get(field), default=math.inf)
+        speed_obj_dist = _safe_float(frame_data.get("speed_reduced_by_obj_distance"), default=math.inf)
+        scenario_active = RoadEventRuleEngine._scenario_active(frame_data, scenario_name)
+        near_trigger = RoadEventRuleEngine._near_trigger(evidence, 55.0)
+        twoway = evidence.get("twoway_obstruction_evidence") or {}
+        twoway_core = bool(
+            (evidence.get("diagnostic_attribution", {}) or {})
+            .get("window_flags", {})
+            .get("twoway_core_obstruction", False)
+        )
+        close_specific_obstacle = dist <= threshold
+        speed_obj_close_near_xml = speed_obj_dist <= threshold and near_trigger
+        close_obstacle = close_specific_obstacle or speed_obj_close_near_xml
+        hard_response = RoadEventRuleEngine._hard_decel(frame_data) or _safe_bool(frame_data.get("vehicle_hazard", False))
+        door_open = scenario_name == "VehicleOpensDoorTwoWays" and _safe_bool(frame_data.get("vehicle_opened_door", False))
+        active_window = near_trigger or primary_rs == RoadStructure.R2 or close_specific_obstacle or twoway_core or door_open
+        hard_response_near_object = hard_response and speed_obj_dist <= threshold + 10.0 and (
+            near_trigger or close_specific_obstacle or primary_rs == RoadStructure.R2
+        )
+        should = active_window and (close_obstacle or twoway_core or door_open or hard_response_near_object)
+        rules = []
+        if scenario_active:
+            rules.append("event_active_scenario")
+        if near_trigger:
+            rules.append("event_near_xml_trigger")
+        if close_specific_obstacle:
+            rules.append(f"event_obstacle_distance:{field}")
+        if speed_obj_close_near_xml:
+            rules.append("event_speed_reduced_object_near_xml_trigger")
+        if hard_response_near_object:
+            rules.append("event_obstacle_speed_or_brake_response")
+        if twoway_core:
+            rules.append("event_twoway_core_obstruction")
+        if door_open:
+            rules.append("event_vehicle_door_opened")
+        metrics = {
+            field: dist if math.isfinite(dist) else None,
+            "speed_reduced_by_obj_distance": speed_obj_dist if math.isfinite(speed_obj_dist) else None,
+            "twoway_obstruction": twoway,
+        }
+        return should, rules, metrics
+
+    @staticmethod
+    def _ped_bike_event(
+        scenario_name: str,
+        frame_data: Dict[str, Any],
+        primary_rs: RoadStructure,
+        evidence: Dict[str, Any],
+    ) -> Tuple[bool, List[str], Dict[str, Any]]:
+        if scenario_name not in PEDESTRIAN_BICYCLE_EVENT_FIELDS:
+            return False, [], {}
+        field, threshold = PEDESTRIAN_BICYCLE_EVENT_FIELDS[scenario_name]
+        dist = _safe_float(frame_data.get(field), default=math.inf)
+        alt_dist = min(
+            _safe_float(frame_data.get("dist_to_pedestrian"), default=math.inf),
+            _safe_float(frame_data.get("dist_to_biker"), default=math.inf),
+        )
+        scenario_active = RoadEventRuleEngine._scenario_active(frame_data, scenario_name)
+        near_trigger = RoadEventRuleEngine._near_trigger(evidence, 45.0)
+        hazard = (
+            _safe_bool(frame_data.get("walker_hazard", False))
+            or _safe_bool(frame_data.get("does_emergency_brake_for_pedestrians", False))
+        )
+        close = dist <= threshold or alt_dist <= threshold
+        if scenario_name in {"VehicleTurningRoute", "VehicleTurningRoutePedestrian"}:
+            should = (scenario_active or near_trigger or primary_rs in {RoadStructure.R4, RoadStructure.R5}) and (close or hazard)
+        elif scenario_name == "CrossingBicycleFlow":
+            should = (scenario_active or near_trigger or primary_rs == RoadStructure.R4) and (close or hazard)
+        else:
+            should = (scenario_active or near_trigger or close or hazard) and (close or hazard)
+        rules = []
+        if scenario_active:
+            rules.append("event_active_scenario")
+        if near_trigger:
+            rules.append("event_near_xml_trigger")
+        if close:
+            rules.append(f"event_crossing_distance:{field}")
+        if hazard:
+            rules.append("event_walker_or_emergency_brake_hazard")
+        metrics = {
+            field: dist if math.isfinite(dist) else None,
+            "nearest_ped_bike_m": alt_dist if math.isfinite(alt_dist) else None,
+        }
+        return should, rules, metrics
+
+    @staticmethod
+    def analyze(
+        scenario_name: str,
+        frame_data: Dict[str, Any],
+        primary_rs: RoadStructure,
+        evidence: Dict[str, Any],
+    ) -> Tuple[Set[EventType], EventType, Dict[str, Any]]:
+        allowed = set(SCENARIO_TO_FINE_EVENTS.get(scenario_name, [EventType.R_E1]))
+        regular = RoadEventRuleEngine._regular_event(scenario_name, primary_rs, frame_data)
+        if regular not in allowed:
+            if primary_rs == RoadStructure.R4 and EventType.R_E4 in allowed:
+                regular = EventType.R_E4
+            elif primary_rs == RoadStructure.R5 and EventType.R_E5 in allowed:
+                regular = EventType.R_E5
+            else:
+                regular = EventType.R_E1
+
+        unusual: Optional[EventType] = None
+        extra_events: Set[EventType] = set()
+        rules: List[str] = []
+        metrics: Dict[str, Any] = {}
+
+        obstacle_hit, obstacle_rules, obstacle_metrics = RoadEventRuleEngine._obstacle_event(
+            scenario_name, frame_data, primary_rs, evidence
+        )
+        if obstacle_hit and EventType.U_E2 in allowed:
+            unusual = EventType.U_E2
+            rules.extend(obstacle_rules)
+            metrics.update(obstacle_metrics)
+
+        ped_hit, ped_rules, ped_metrics = RoadEventRuleEngine._ped_bike_event(
+            scenario_name, frame_data, primary_rs, evidence
+        )
+        if unusual is None and ped_hit and EventType.U_E4 in allowed:
+            unusual = EventType.U_E4
+            rules.extend(ped_rules)
+            metrics.update(ped_metrics)
+
+        scenario_active = RoadEventRuleEngine._scenario_active(frame_data, scenario_name)
+        near_trigger = RoadEventRuleEngine._near_trigger(evidence, 45.0)
+        speed_obj_dist = _safe_float(frame_data.get("speed_reduced_by_obj_distance"), default=math.inf)
+        cutin_dist = _safe_float(frame_data.get("dist_to_cutin_vehicle"), default=math.inf)
+        hard_decel = RoadEventRuleEngine._hard_decel(frame_data)
+        vehicle_hazard = _safe_bool(frame_data.get("vehicle_hazard", False))
+
+        if unusual is None and scenario_name == "HardBreakRoute" and EventType.U_E1 in allowed:
+            close_lead_stop = vehicle_hazard and speed_obj_dist <= 14.0 and RoadEventRuleEngine._speed(frame_data) <= 2.5
+            if (scenario_active or speed_obj_dist <= 30.0) and (hard_decel or close_lead_stop):
+                unusual = EventType.U_E1
+                rules.extend(["event_hard_brake_response"])
+        if unusual is None and scenario_name == "BlockedIntersection":
+            if EventType.U_E8 in allowed and (scenario_active or near_trigger) and (
+                _safe_bool(frame_data.get("slower_occluded_junction", False))
+                or (RoadEventRuleEngine._speed(frame_data) <= 0.7 and _safe_bool(frame_data.get("brake", False)))
+            ):
+                unusual = EventType.U_E8
+                rules.extend(["event_blocked_intersection_wait_or_clear"])
+            elif EventType.U_E1 in allowed and hard_decel and speed_obj_dist <= 25.0:
+                unusual = EventType.U_E1
+                rules.extend(["event_blocked_intersection_lead_vehicle_decel"])
+        if unusual is None and scenario_name in {"ParkingCutIn", "StaticCutIn"} and EventType.U_E3 in allowed:
+            if (scenario_active or near_trigger or cutin_dist <= 35.0) and (
+                cutin_dist <= 30.0 or _safe_bool(frame_data.get("brake_cutin", False)) or vehicle_hazard
+            ):
+                unusual = EventType.U_E3
+                rules.extend(["event_dynamic_cutin_or_occupancy"])
+        if unusual is None and scenario_name == "InvadingTurn" and EventType.U_E5 in allowed:
+            if (scenario_active or near_trigger or primary_rs in {RoadStructure.R2, RoadStructure.R5}) and (
+                vehicle_hazard or speed_obj_dist <= 35.0
+            ):
+                unusual = EventType.U_E5
+                rules.extend(["event_oncoming_lane_invasion"])
+        if unusual is None and scenario_name == "OppositeVehicleRunningRedLight" and EventType.U_E6 in allowed:
+            if primary_rs == RoadStructure.R4 and (scenario_active or near_trigger) and (vehicle_hazard or speed_obj_dist <= 30.0 or hard_decel):
+                unusual = EventType.U_E6
+                rules.extend(["event_opposite_vehicle_running_red_light"])
+        if unusual is None and scenario_name == "CrossJunctionDefectTrafficLight":
+            if EventType.U_E7 in allowed and primary_rs == RoadStructure.R5 and (scenario_active or near_trigger or _safe_bool(frame_data.get("is_junction", False))):
+                unusual = EventType.U_E7
+                rules.extend(["event_defect_junction_rule_failure"])
+                if EventType.U_E6 in allowed and vehicle_hazard:
+                    extra_events.add(EventType.U_E6)
+                    rules.extend(["event_defect_junction_vehicle_conflict"])
+        if unusual is None and scenario_name == "OppositeVehicleTakingPriority" and EventType.U_E7 in allowed:
+            if primary_rs == RoadStructure.R5 and (scenario_active or near_trigger or vehicle_hazard or hard_decel):
+                unusual = EventType.U_E7
+                rules.extend(["event_priority_rule_failure_or_extra_yield"])
+
+        if unusual is not None and unusual not in allowed:
+            unusual = None
+
+        if unusual is None:
+            events = {regular}
+            primary_event = regular
+        elif (
+            primary_rs in {RoadStructure.R4, RoadStructure.R5}
+            and regular in {EventType.R_E4, EventType.R_E5}
+            and unusual in {EventType.U_E1, EventType.U_E4, EventType.U_E6, EventType.U_E7, EventType.U_E8}
+        ):
+            events = {regular, unusual, *extra_events}
+            primary_event = unusual
+        else:
+            events = {unusual, *extra_events}
+            primary_event = unusual
+
+        metrics.update(
+            {
+                "speed": RoadEventRuleEngine._speed(frame_data),
+                "target_speed": RoadEventRuleEngine._target_speed(frame_data),
+                "speed_reduced_by_obj_distance": speed_obj_dist if math.isfinite(speed_obj_dist) else None,
+                "dist_to_cutin_vehicle": cutin_dist if math.isfinite(cutin_dist) else None,
+                "changed_route": RoadEventRuleEngine._changed_route(frame_data),
+                "signed_dist_to_lane_change": (
+                    signed_dist
+                    if math.isfinite(signed_dist := _safe_float(frame_data.get("signed_dist_to_lane_change"), default=math.inf))
+                    else None
+                ),
+                "scenario_active": scenario_active,
+                "near_trigger": near_trigger,
+                "primary_road_structure": primary_rs.value,
+            }
+        )
+        event_evidence = {
+            "primary_event": primary_event.value,
+            "events": [ev.value for ev in sorted(events, key=lambda ev: ev.value)],
+            "regular_event": regular.value,
+            "unusual_event": unusual.value if unusual else None,
+            "secondary_unusual_events": [ev.value for ev in sorted(extra_events, key=lambda ev: ev.value)],
+            "allowed_events": [ev.value for ev in allowed],
+            "rules_fired": rules or ["event_regular_by_road_structure"],
+            "metrics": metrics,
+            "review_required": False,
+            "review_reasons": [],
+        }
+        return events, primary_event, event_evidence
 
 
 @dataclass(frozen=True)
@@ -1342,6 +1890,29 @@ def _twoway_obstruction_evidence(frame_data: Dict[str, Any]) -> TwoWayObstructio
         has_scenario_obstacles=has_scenario_obstacles,
         signed_lane_change_abs_m=signed_lane_change_out,
         core_confirmed=core_confirmed,
+    )
+
+
+def _twoway_strict_core_confirmed(
+    evidence: TwoWayObstructionEvidence,
+    cfg: Dict[str, Any],
+) -> bool:
+    """TwoWays R2 high 的严格核心门控：只覆盖正在借/等对向的局部障碍段。"""
+    nearest = evidence.nearest_obstacle_m
+    lane_change_abs = evidence.signed_lane_change_abs_m
+    core_m = float(cfg.get("two_way_obstacle_core_m", 18.0))
+    approach_m = float(cfg.get("two_way_approach_obstacle_m", max(core_m, 28.0)))
+    if evidence.stuck or evidence.vehicle_hazard:
+        return True
+    if nearest is None:
+        return False
+    if nearest <= core_m:
+        return True
+    return (
+        evidence.has_scenario_obstacles
+        and nearest <= approach_m
+        and lane_change_abs is not None
+        and lane_change_abs <= 1.5
     )
 
 
@@ -1442,11 +2013,24 @@ class RoadStructureRuleEngine:
         tl = frame_data.get("traffic_light_state")
         has_tl = _valid_traffic_light(tl)
         light_hazard = _safe_bool(frame_data.get("light_hazard", False))
-        is_junction = _safe_bool(frame_data.get("is_junction", False)) or _safe_bool(frame_data.get("is_intersection", False))
+        bbox_traffic_light = _safe_bool(frame_data.get("bbox_has_traffic_light", False))
+        bbox_stop_sign = _safe_bool(frame_data.get("bbox_has_stop_sign", False))
+        bbox_yield_sign = _safe_bool(frame_data.get("bbox_has_yield_sign", False))
+        bbox_junction_hint = _safe_bool(frame_data.get("bbox_has_junction_hint", False))
+        rgb_no_r4 = scenario_name in SCENARIOS_WITH_RGB_NO_R4
+        if (
+            (has_tl or light_hazard or bbox_traffic_light)
+            and scenario_name != "CrossJunctionDefectTrafficLight"
+            and not rgb_no_r4
+        ):
+            allowed.add(RoadStructure.R4)
+        meta_is_junction = _safe_bool(frame_data.get("is_junction", False)) or _safe_bool(frame_data.get("is_intersection", False))
+        is_junction = meta_is_junction or bbox_junction_hint
         map_is_junction = bool(xodr.get("map_is_junction", False))
         map_is_roundabout = bool(xodr.get("map_is_roundabout", False))
         dist_to_junction = _finite_min(frame_data.get("dist_to_junction"), frame_data.get("distance_to_next_junction"))
-        stop_hazard = _safe_bool(frame_data.get("stop_sign_hazard", False)) or _safe_bool(frame_data.get("stop_sign_close", False))
+        meta_stop_hazard = _safe_bool(frame_data.get("stop_sign_hazard", False)) or _safe_bool(frame_data.get("stop_sign_close", False))
+        stop_hazard = meta_stop_hazard or bbox_stop_sign or bbox_yield_sign
         cfg = SCENARIO_RULE_CONFIG.get(scenario_name, {"kind": SCENARIO_RULE_KIND.get(scenario_name, "default_meta_map")})
         kind = str(cfg.get("kind", SCENARIO_RULE_KIND.get(scenario_name, "default_meta_map")))
         active = str(frame_data.get("current_active_scenario_type", "") or "")
@@ -1458,13 +2042,28 @@ class RoadStructureRuleEngine:
         xodr_trusted = bool(xodr.get("xodr_topology_trusted", xodr.get("xodr_available", False)))
         xodr_source = str(xodr.get("xodr_source", ""))
         static_topology_only = xodr_source == "static_xodr"
-        dist_to_junction_near = dist_to_junction < 55.0
+        xodr_junction_id = str(xodr.get("map_junction_id", ""))
+        xodr_junction_connection_count = int(xodr.get("junction_connection_count", 0) or 0)
+        xodr_structured_junction = (
+            map_is_junction
+            and (
+                not static_topology_only
+                or (
+                    xodr_junction_id not in {"", "-1", "None", "none"}
+                    and xodr_junction_connection_count > 0
+                )
+            )
+        )
+        if static_topology_only and map_is_junction and not xodr_structured_junction:
+            rules.append("static_xodr_junction_hint_demoted_unstructured")
+        dist_to_junction_near = dist_to_junction < JUNCTION_META_NEAR_M
         xml_distance = _xml_numeric(xml_info, "distance", default=50.0)
         two_way_pre = max(xml_distance, float(cfg.get("two_way_min_pre_m", 45.0)))
         two_way_post = two_way_pre + float(cfg.get("two_way_post_pad_m", 20.0))
         junction_pre = float(cfg.get("junction_pre_m", 60.0))
         junction_post = float(cfg.get("junction_post_m", 25.0))
-        dist_to_junction_strong = dist_to_junction < min(junction_pre, 35.0)
+        junction_pre_window, junction_post_window = _shrink_junction_window(junction_pre, junction_post)
+        dist_to_junction_strong = dist_to_junction < min(junction_pre_window, JUNCTION_STRONG_MAX_M)
         route_s_for_window = route_s
         route_projection_error_high = route_error > 5.0 if math.isfinite(route_error) else False
         if route_projection_error_high:
@@ -1476,10 +2075,10 @@ class RoadStructureRuleEngine:
         static_signal_near = (
             xodr_trusted
             and static_topology_strong
-            and _safe_float(xodr.get("nearest_signal_m"), default=math.inf) <= 60.0
+            and _safe_float(xodr.get("nearest_signal_m"), default=math.inf) <= STATIC_SIGNAL_NEAR_M
         )
         meta_near_junction = is_junction or dist_to_junction_strong
-        xodr_near_junction = xodr_trusted and static_topology_strong and map_is_junction
+        xodr_near_junction = xodr_trusted and static_topology_strong and xodr_structured_junction
         near_junction = (meta_near_junction or xodr_near_junction) and not map_is_roundabout
         strong_control_context = _strong_control_context(
             is_junction=is_junction,
@@ -1487,11 +2086,19 @@ class RoadStructureRuleEngine:
             stop_hazard=stop_hazard,
             static_signal_near=static_signal_near,
             dist_to_junction=dist_to_junction,
-            junction_pre=junction_pre,
+            junction_pre=junction_pre_window,
         )
         close_trigger_for_structure = close_trigger and (
             not route_projection_error_high
             or trigger_distance < min(trigger_close_m, 25.0)
+        )
+        close_trigger_for_junction = trigger_distance < min(
+            trigger_close_m,
+            junction_pre_window,
+            JUNCTION_CLOSE_TRIGGER_MAX_M,
+        ) and not map_is_roundabout and (
+            not route_projection_error_high
+            or trigger_distance < min(JUNCTION_CLOSE_TRIGGER_MAX_M, 25.0)
         )
         scenario_active_for_structure = scenario_active and not route_projection_error_high
 
@@ -1502,8 +2109,8 @@ class RoadStructureRuleEngine:
         )
         junction_window = (
             near_junction
-            or (_route_trigger_window(route_s_for_window, trigger_s, junction_pre, junction_post) and not map_is_roundabout)
-            or (close_trigger_for_structure and not map_is_roundabout)
+            or (_route_trigger_window(route_s_for_window, trigger_s, junction_pre_window, junction_post_window) and not map_is_roundabout)
+            or close_trigger_for_junction
         )
 
         if map_is_roundabout:
@@ -1523,13 +2130,32 @@ class RoadStructureRuleEngine:
         elif (not conservative_light_hazard_kind) and static_signal_near and strong_control_context:
             light_hazard_control_context = True
 
-        if (not map_is_roundabout) and has_tl and strong_control_context:
+        if rgb_no_r4 and (has_tl or light_hazard or bbox_traffic_light):
+            rules.append("rgb_review_no_signalized_intersection_ignores_meta_tl")
+        elif (not map_is_roundabout) and has_tl and strong_control_context:
             self._add(scores, RoadStructure.R4, 0.95)
             rules.append("r4_tl_confirmed")
         elif (not map_is_roundabout) and has_tl:
-            self._add(scores, RoadStructure.R4, 0.62)
-            self._add(scores, RoadStructure.R1, 0.76)
-            rules.append("r4_tl_seen_without_strong_junction_context")
+            if kind == "highway_merge":
+                self._add(scores, RoadStructure.R4, 0.70)
+                self._add(scores, RoadStructure.R3, 0.78)
+                rules.append("r4_highway_meta_tl_without_control_context_demoted")
+            else:
+                self._add(scores, RoadStructure.R4, 0.86)
+                self._add(scores, RoadStructure.R1, 0.62)
+                rules.append("r4_meta_tl_without_strong_context_review")
+        elif (not map_is_roundabout) and bbox_traffic_light and strong_control_context:
+            self._add(scores, RoadStructure.R4, 0.90)
+            rules.append("r4_bbox_traffic_light_confirmed")
+        elif (not map_is_roundabout) and bbox_traffic_light:
+            if kind == "highway_merge":
+                self._add(scores, RoadStructure.R4, 0.68)
+                self._add(scores, RoadStructure.R3, 0.78)
+                rules.append("r4_highway_bbox_tl_without_control_context_demoted")
+            else:
+                self._add(scores, RoadStructure.R4, 0.78)
+                self._add(scores, RoadStructure.R1, 0.70)
+                rules.append("r4_bbox_tl_without_strong_context_review")
         elif (not map_is_roundabout) and light_hazard and light_hazard_control_context:
             self._add(scores, RoadStructure.R4, 0.90)
             rules.append("r4_light_hazard")
@@ -1551,6 +2177,22 @@ class RoadStructureRuleEngine:
         same_dir_lanes = int(xodr.get("lane_count_same_dir", 1) or 1)
         has_parking = xodr_trusted and static_topology_strong and bool(xodr.get("has_parking_or_shoulder_nearby", False))
         ramp_hint = xodr_trusted and static_topology_strong and bool(xodr.get("ramp_merge_split_hint", False))
+        twoway_xml_core_close = trigger_distance <= float(cfg.get("two_way_xml_core_close_m", 8.0))
+        twoway_strict_core_confirmed = _twoway_strict_core_confirmed(twoway_obstruction, cfg)
+        twoway_xml_obstacle_close = (
+            twoway_obstruction.has_scenario_obstacles
+            and (
+                twoway_obstruction.nearest_obstacle_m is None
+                or twoway_obstruction.nearest_obstacle_m <= float(cfg.get("two_way_obstacle_core_m", 18.0))
+            )
+        )
+        twoway_xml_core_confirmed = (
+            kind == "twoways_obstacle"
+            and RoadStructure.R2 in allowed
+            and two_way_window
+            and (twoway_xml_core_close or (close_trigger and twoway_xml_obstacle_close))
+            and (has_opposite or not xodr_trusted or route_projection_error_high)
+        )
         if not static_topology_strong:
             if bool(xodr.get("has_opposite_driving_lane", False)):
                 rules.append("opposite_lane_hint_demoted_projection_error")
@@ -1579,6 +2221,14 @@ class RoadStructureRuleEngine:
                     rules.append("r4_signalized_window_lacks_visualizable_junction_evidence")
                 self._add(scores, RoadStructure.R4, r4_score)
                 rules.append("r4_signalized_scenario_window")
+                if (
+                    scenario_name == "T_Junction"
+                    and RoadStructure.R5 in allowed
+                    and not (has_tl or light_hazard or static_signal_near)
+                    and stop_hazard
+                ):
+                    self._add(scores, RoadStructure.R5, 0.84)
+                    rules.append("t_junction_stop_or_yield_no_light_r5")
         elif kind == "nonsignalized_junction":
             if junction_window or stop_hazard or scenario_active:
                 if meta_near_junction or stop_hazard:
@@ -1587,10 +2237,14 @@ class RoadStructureRuleEngine:
                     r5_score = 0.74
                     self._add(scores, RoadStructure.R1, 0.72)
                     rules.append("r5_static_xodr_only_junction_review")
+                elif scenario_active and close_trigger_for_junction:
+                    r5_score = 0.78
+                    self._add(scores, RoadStructure.R1, 0.70)
+                    rules.append("r5_active_close_trigger_without_stop_review")
                 else:
-                    r5_score = 0.66
-                    self._add(scores, RoadStructure.R1, 0.76)
-                    rules.append("r5_window_lacks_strong_junction_evidence")
+                    r5_score = 0.56
+                    self._add(scores, RoadStructure.R1, 0.78)
+                    rules.append("r5_demoted_without_stop_yield_or_junction_evidence")
                 self._add(scores, RoadStructure.R5, r5_score)
                 rules.append("r5_nonsignalized_junction_window")
             if has_tl or static_signal_near:
@@ -1606,17 +2260,25 @@ class RoadStructureRuleEngine:
                 r2_topology_confirmed = has_opposite and same_dir_lanes <= 1
                 r2_core_meta_confirmed = (
                     kind == "twoways_obstacle"
-                    and twoway_obstruction.core_confirmed
+                    and twoway_strict_core_confirmed
                     and scenario_active_for_structure
                 )
-                if (r2_topology_confirmed and (twoway_obstruction.core_confirmed or kind == "invading_turn")) or r2_core_meta_confirmed:
-                    self._add(scores, RoadStructure.R2, 0.90)
+                if (
+                    (r2_topology_confirmed and (twoway_obstruction.core_confirmed or kind == "invading_turn"))
+                    or r2_core_meta_confirmed
+                    or twoway_xml_core_confirmed
+                ):
+                    self._add(scores, RoadStructure.R2, 0.90 if not twoway_xml_core_confirmed else 0.88)
                     if r2_topology_confirmed:
                         rules.append("r2_opposite_lane_confirmed")
+                    elif twoway_xml_core_confirmed:
+                        rules.append("r2_xml_trigger_core_confirmed")
                     else:
                         rules.append("r2_core_obstruction_meta_confirmed_without_trusted_xodr")
                     if kind == "twoways_obstacle":
                         rules.append("r2_core_obstruction_confirmed")
+                        if twoway_strict_core_confirmed:
+                            rules.append("r2_strict_core_obstruction_window")
                 else:
                     if r2_layout_prior_allowed:
                         self._add(scores, RoadStructure.R2, 0.58)
@@ -1640,6 +2302,50 @@ class RoadStructureRuleEngine:
                     rules.append("r2_layout_prior_lacks_xodr_opposite_confirmation")
             if kind == "invading_turn":
                 rules.append("r2_passive_invading_turn")
+                if RoadStructure.R5 in allowed and junction_window and not map_is_roundabout:
+                    if stop_hazard or is_junction:
+                        self._add(scores, RoadStructure.R5, 0.86)
+                        rules.append("invading_turn_nonsignalized_stop_or_junction_r5")
+                    elif scenario_active and close_trigger_for_junction:
+                        self._add(scores, RoadStructure.R5, 0.80)
+                        rules.append("invading_turn_active_close_trigger_r5")
+                    elif scenario_active and near_junction:
+                        self._add(scores, RoadStructure.R5, 0.82)
+                        self._add(scores, RoadStructure.R1, 0.72)
+                        rules.append("invading_turn_active_meta_junction_r5")
+                    elif near_junction:
+                        self._add(scores, RoadStructure.R5, 0.78)
+                        self._add(scores, RoadStructure.R1, 0.72)
+                        rules.append("invading_turn_meta_junction_r5_review")
+                    else:
+                        self._add(scores, RoadStructure.R1, 0.72)
+                        rules.append("invading_turn_junction_window_lacks_nonsig_control_review")
+                elif RoadStructure.R5 in allowed and not map_is_roundabout:
+                    if stop_hazard and close_trigger:
+                        self._add(scores, RoadStructure.R5, 0.82)
+                        rules.append("invading_turn_stop_close_trigger_r5")
+                    elif scenario_active and trigger_distance < min(trigger_close_m, 45.0):
+                        self._add(scores, RoadStructure.R5, 0.80)
+                        rules.append("invading_turn_active_near_trigger_r5")
+            if kind == "twoways_obstacle" and RoadStructure.R4 in allowed and not twoway_xml_core_confirmed:
+                post_core_signal_near = (
+                    xodr_trusted
+                    and static_topology_strong
+                    and not map_is_roundabout
+                    and _safe_float(xodr.get("nearest_signal_m"), default=math.inf) <= float(cfg.get("two_way_post_core_signal_m", 45.0))
+                )
+                post_core_junction_context = (
+                    meta_near_junction
+                    or stop_hazard
+                    or light_hazard
+                    or xodr_near_junction
+                )
+                if has_tl:
+                    self._add(scores, RoadStructure.R4, 0.88)
+                    rules.append("twoways_post_core_meta_tl_r4")
+                elif post_core_signal_near and post_core_junction_context and strong_control_context:
+                    self._add(scores, RoadStructure.R4, 0.84)
+                    rules.append("twoways_post_core_xodr_signal_r4")
         elif kind == "highway_merge":
             keep_r3_when_slow = bool(cfg.get("keep_r3_when_slow"))
             highway_default_r3 = bool(cfg.get("highway_default_r3"))
@@ -1712,13 +2418,19 @@ class RoadStructureRuleEngine:
                     self._add(scores, RoadStructure.R4, 0.95)
                     rules.append("interurban_junction_r4")
                 elif stop_hazard or is_junction or (xodr_near_junction and not route_projection_error_high and not static_topology_only):
-                    if route_projection_error_high:
+                    if route_projection_error_high and (stop_hazard or is_junction):
+                        self._add(scores, RoadStructure.R5, 0.86 if stop_hazard else 0.82)
+                        rules.append("interurban_rgb_reviewed_stop_or_junction_r5")
+                    elif route_projection_error_high:
                         self._add(scores, RoadStructure.R5, 0.62)
                         self._add(scores, RoadStructure.R1, 0.78)
                         rules.append("interurban_r5_demoted_projection_error_rgb_required")
                     else:
                         self._add(scores, RoadStructure.R5, 0.82 if (stop_hazard or is_junction) else 0.72)
                         rules.append("interurban_junction_r5_medium")
+                elif scenario_active and close_trigger_for_junction:
+                    self._add(scores, RoadStructure.R5, 0.80)
+                    rules.append("interurban_rgb_reviewed_active_close_trigger_r5")
                 else:
                     self._add(scores, RoadStructure.R1, 0.72)
                     rules.append("interurban_junction_window_lacks_visible_control_review")
@@ -1902,6 +2614,9 @@ class RoadStructureRuleEngine:
             flags={
                 "has_tl": has_tl,
                 "light_hazard": light_hazard,
+                "bbox_traffic_light": bbox_traffic_light,
+                "bbox_stop_or_yield": bbox_stop_sign or bbox_yield_sign,
+                "bbox_junction_hint": bbox_junction_hint,
                 "is_junction": is_junction,
                 "map_is_roundabout": map_is_roundabout,
                 "dist_to_junction_near": dist_to_junction_near,
@@ -1910,6 +2625,7 @@ class RoadStructureRuleEngine:
                 "scenario_active": scenario_active,
                 "close_trigger": close_trigger,
                 "close_trigger_for_structure": close_trigger_for_structure,
+                "close_trigger_for_junction": close_trigger_for_junction,
                 "scenario_active_for_structure": scenario_active_for_structure,
                 "near_junction": near_junction,
                 "strong_control_context": strong_control_context,
@@ -1925,6 +2641,12 @@ class RoadStructureRuleEngine:
                 "twoway_core_obstruction": twoway_obstruction.core_confirmed
                 if kind in {"twoways_obstacle", "invading_turn", "vehicle_opens_door_twoways"}
                 else False,
+                "twoway_strict_core_obstruction": twoway_strict_core_confirmed
+                if kind in {"twoways_obstacle", "invading_turn", "vehicle_opens_door_twoways"}
+                else False,
+                "twoway_xml_core_close": twoway_xml_core_close,
+                "twoway_xml_obstacle_close": twoway_xml_obstacle_close,
+                "twoway_xml_core_confirmed": twoway_xml_core_confirmed,
                 "route_projection_error_high": route_error > 5.0 if math.isfinite(route_error) else False,
             },
         )
@@ -1949,6 +2671,14 @@ class RoadStructureRuleEngine:
             review_reasons.append("signalized_policy_without_meta_tl")
         if kind == "signalized_junction" and primary == RoadStructure.R4 and not has_tl:
             review_reasons.append("signalized_r4_without_meta_tl_requires_rgb_confirmation")
+        if primary == RoadStructure.R4 and "r4_meta_tl_without_strong_context_review" in rules:
+            review_reasons.append("r4_meta_tl_without_strong_context_requires_rgb_confirmation")
+        if primary == RoadStructure.R4 and "r4_bbox_tl_without_strong_context_review" in rules:
+            review_reasons.append("r4_bbox_tl_without_strong_context_requires_rgb_confirmation")
+        if any(rule.startswith("r4_highway_") and rule.endswith("_demoted") for rule in rules):
+            review_reasons.append("highway_light_hint_demoted_without_control_context")
+        if "r5_demoted_without_stop_yield_or_junction_evidence" in rules:
+            review_reasons.append("r5_requires_stop_yield_priority_or_junction_evidence")
         if kind == "nonsignalized_junction" and "nonsig_with_signal_conflict_review" in rules:
             review_reasons.append("nonsignalized_with_signal_topology_conflict")
         evidence = {
@@ -1961,7 +2691,29 @@ class RoadStructureRuleEngine:
             "route_projection_error_m": route_error if math.isfinite(route_error) else None,
             "trigger_distance_m": trigger_distance if math.isfinite(trigger_distance) else None,
             "actor_flow_distance_m": actor_flow_distance if math.isfinite(actor_flow_distance) else None,
+            "junction_window_config": {
+                "junction_pre_m": junction_pre,
+                "junction_post_m": junction_post,
+                "effective_pre_m": round(junction_pre_window, 3),
+                "effective_post_m": round(junction_post_window, 3),
+                "scale": JUNCTION_WINDOW_SCALE,
+                "meta_near_m": JUNCTION_META_NEAR_M,
+                "strong_max_m": JUNCTION_STRONG_MAX_M,
+                "static_signal_near_m": STATIC_SIGNAL_NEAR_M,
+                "close_trigger_max_m": JUNCTION_CLOSE_TRIGGER_MAX_M,
+            },
             "traffic_light_state": str(tl) if tl is not None else None,
+            "bbox_semantics": {
+                "available": _safe_bool(frame_data.get("bbox_available", False)),
+                "traffic_light": bbox_traffic_light,
+                "stop_sign": bbox_stop_sign,
+                "yield_sign": bbox_yield_sign,
+                "junction_hint": bbox_junction_hint,
+                "classes": frame_data.get("bbox_semantic_classes", {}),
+            },
+            "meta_is_junction": meta_is_junction,
+            "meta_stop_hazard": meta_stop_hazard,
+            "combined_stop_hazard": stop_hazard,
             "current_active_scenario_type": active or None,
             "strong_control_context": strong_control_context,
             "twoway_obstruction_evidence": (
@@ -2010,7 +2762,16 @@ class SimpleFrameAnalyzer:
             route_id,
             set(SCENARIO_TO_ROAD_STRUCTURE.get(scenario_name, [RoadStructure.R1])),
         )
-        events = set(SCENARIO_TO_FINE_EVENTS.get(scenario_name, [EventType.R_E1]))
+        if (
+            (
+                _valid_traffic_light(frame_data.get("traffic_light_state"))
+                or _safe_bool(frame_data.get("light_hazard", False))
+                or _safe_bool(frame_data.get("bbox_has_traffic_light", False))
+            )
+            and scenario_name != "CrossJunctionDefectTrafficLight"
+            and scenario_name not in SCENARIOS_WITH_RGB_NO_R4
+        ):
+            road_structures.add(RoadStructure.R4)
         primary, secondary, scores, evidence, confidence, reason = SimpleFrameAnalyzer._engine.analyze(
             scenario_name=scenario_name,
             frame_id=frame_id,
@@ -2018,22 +2779,26 @@ class SimpleFrameAnalyzer:
             xml_info=xml_info,
             route_id=route_id,
         )
-
-        # 基础逻辑：根据场景类型添加默认事件
-        if not events:
-            events.add(EventType.R_E1)  # 默认为正常行驶
+        events, primary_event, event_evidence = RoadEventRuleEngine.analyze(
+            scenario_name=scenario_name,
+            frame_data=frame_data,
+            primary_rs=primary,
+            evidence=evidence,
+        )
 
         comment = _frame_annotation_comment(primary, secondary, confidence, evidence)
         return FrameAnnotation(
             frame_id=frame_id,
             road_structures=road_structures,
             events=events,
+            primary_event=primary_event,
             confidence=confidence,
             reason=reason,
             primary_road_structure=primary,
             secondary_road_structures=secondary,
             candidate_scores=scores,
             evidence=evidence,
+            event_evidence=event_evidence,
             annotation_comment=comment,
         )
 
@@ -2066,19 +2831,41 @@ class ScenarioCollector:
     # 4种采集模式
     # ========================================================================
 
-    def collect_one_scenario_all(self, scenario_name: str, max_frames_per_route: Optional[int] = None) -> Dict:
+    def collect_one_scenario_all(
+        self,
+        scenario_name: str,
+        max_frames_per_route: Optional[int] = None,
+        samples_per_town: Optional[int] = None,
+    ) -> Dict:
         """模式1: 单场景全部采集 - 采集该场景的所有routes"""
-        return self._collect_scenario(scenario_name, max_routes=None, max_frames_per_route=max_frames_per_route)
+        return self._collect_scenario(
+            scenario_name,
+            max_routes=None,
+            max_frames_per_route=max_frames_per_route,
+            samples_per_town=samples_per_town,
+        )
 
-    def collect_one_scenario(self, scenario_name: str, max_routes: Optional[int] = None, max_frames_per_route: Optional[int] = None) -> Dict:
+    def collect_one_scenario(
+        self,
+        scenario_name: str,
+        max_routes: Optional[int] = None,
+        max_frames_per_route: Optional[int] = None,
+        samples_per_town: Optional[int] = None,
+    ) -> Dict:
         """模式2: 单场景采集；max_routes=None 时采集全部合法 routes。"""
-        return self._collect_scenario(scenario_name, max_routes=max_routes, max_frames_per_route=max_frames_per_route)
+        return self._collect_scenario(
+            scenario_name,
+            max_routes=max_routes,
+            max_frames_per_route=max_frames_per_route,
+            samples_per_town=samples_per_town,
+        )
 
     def collect_multiple_scenarios(
         self,
         scenario_names: List[str],
         max_routes_per_scenario: Optional[int] = None,
         max_frames_per_route: Optional[int] = None,
+        samples_per_town: Optional[int] = None,
     ) -> Dict:
         """模式3: 多场景全部采集 - 采集多个指定场景"""
         self.logger.info(f"采集多场景: {scenario_names}")
@@ -2092,6 +2879,7 @@ class ScenarioCollector:
                     scenario,
                     max_routes=max_routes_per_scenario,
                     max_frames_per_route=max_frames_per_route,
+                    samples_per_town=samples_per_town,
                 )
                 all_results[scenario] = result
                 total_frames += result.get('total_frames', 0)
@@ -2115,12 +2903,22 @@ class ScenarioCollector:
 
         return summary
 
-    def collect_all_scenarios(self, max_routes_per_scenario: Optional[int] = None, max_frames_per_route: Optional[int] = None) -> Dict:
+    def collect_all_scenarios(
+        self,
+        max_routes_per_scenario: Optional[int] = None,
+        max_frames_per_route: Optional[int] = None,
+        samples_per_town: Optional[int] = None,
+    ) -> Dict:
         """模式4: 全部采集 - 默认采集所有场景的全部合法 routes。"""
         all_scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE.keys())
         self.logger.info(f"采集所有场景 ({len(all_scenarios)}个)")
 
-        return self.collect_multiple_scenarios(all_scenarios, max_routes_per_scenario, max_frames_per_route=max_frames_per_route)
+        return self.collect_multiple_scenarios(
+            all_scenarios,
+            max_routes_per_scenario,
+            max_frames_per_route=max_frames_per_route,
+            samples_per_town=samples_per_town,
+        )
 
     # ========================================================================
     # 内部实现
@@ -2146,11 +2944,26 @@ class ScenarioCollector:
                     break
         return selected
 
+    def _select_route_dirs_per_town(self, route_dirs: List[Path], samples_per_town: Optional[int]) -> List[Path]:
+        """每个 town 分散抽样 N 条 route；None 表示不启用 per-town 抽样。"""
+        if samples_per_town is None:
+            return route_dirs
+        samples_per_town = max(1, int(samples_per_town))
+        by_town: Dict[str, List[Path]] = defaultdict(list)
+        for route_dir in route_dirs:
+            town = _extract_town(route_dir.name) or "unknown"
+            by_town[town].append(route_dir)
+        selected: List[Path] = []
+        for town in sorted(by_town):
+            selected.extend(self._select_route_dirs(sorted(by_town[town]), samples_per_town))
+        return selected
+
     def _collect_scenario(
         self,
         scenario_name: str,
         max_routes: Optional[int] = None,
         max_frames_per_route: Optional[int] = None,
+        samples_per_town: Optional[int] = None,
     ) -> Dict:
         """采集单个场景的内部实现"""
         self.logger.info(f"采集场景: {scenario_name}")
@@ -2177,8 +2990,10 @@ class ScenarioCollector:
                 continue
             all_route_dirs.append(route_dir)
 
-        # 根据 max_routes 参数决定采集多少
-        if max_routes is None:
+        # 根据 per-town / max_routes 参数决定采集多少
+        if samples_per_town is not None:
+            route_dirs = self._select_route_dirs_per_town(all_route_dirs, samples_per_town)
+        elif max_routes is None:
             # None 表示采集所有
             route_dirs = all_route_dirs
         else:
@@ -2188,6 +3003,7 @@ class ScenarioCollector:
         self.logger.info(
             f"  发现 {len(discovered_route_dirs)} 个routes, "
             f"异常时长剔除 {len(abnormal_skipped)} 个, 将采集 {len(route_dirs)} 个"
+            + (f" (每 town {samples_per_town} 条)" if samples_per_town is not None else "")
         )
 
         routes = []
@@ -2203,6 +3019,7 @@ class ScenarioCollector:
             "event_candidates": [ev.value for ev in SCENARIO_TO_FINE_EVENTS.get(scenario_name, [])],
             "abnormal_duration_rule": "exclude duration_s > 90 unless scenario is BlockedIntersection or ControlLoss",
             "abnormal_duration_skipped": abnormal_skipped,
+            "samples_per_town": samples_per_town,
             "routes": routes,
             "total_frames": sum(r.get('num_frames', 0) for r in routes)
         }
@@ -2251,6 +3068,426 @@ class ScenarioCollector:
                 "merge_split_hint": evidence.get("xodr", {}).get("ramp_merge_split_hint"),
             },
         }
+
+    def _frame_event_annotation_payload(self, ann: Dict[str, Any]) -> Dict[str, Any]:
+        """生成显式逐帧 EVENT 标注块，和候选全集字段分开。"""
+        evidence = ann.get("event_evidence", {}) or {}
+        return {
+            "label": ann.get("primary_event"),
+            "events": ann.get("events", []),
+            "regular_event": evidence.get("regular_event"),
+            "unusual_event": evidence.get("unusual_event"),
+            "allowed_events": evidence.get("allowed_events", []),
+            "rules_fired": evidence.get("rules_fired", []),
+            "metrics": evidence.get("metrics", {}),
+            "review_required": bool(evidence.get("review_required")),
+            "review_reasons": evidence.get("review_reasons", []),
+            "comment": self._event_comment(ann),
+        }
+
+    @staticmethod
+    def _event_comment(ann: Dict[str, Any]) -> str:
+        label = ann.get("primary_event") or "unknown"
+        events = ann.get("events", [])
+        evidence = ann.get("event_evidence", {}) or {}
+        rules = evidence.get("rules_fired", [])
+        if events and len(events) > 1:
+            return f"EVENT {label}: 路口双触发 {events}; rules={','.join(rules[:3])}"
+        return f"EVENT {label}: rules={','.join(rules[:3])}"
+
+    @staticmethod
+    def _rewrite_event_label(
+        ann: Dict[str, Any],
+        events: Set[EventType],
+        primary_event: EventType,
+        reason: str,
+    ) -> None:
+        ann["events"] = [ev.value for ev in sorted(events, key=lambda ev: ev.value)]
+        ann["primary_event"] = primary_event.value
+        evidence = ann.setdefault("event_evidence", {})
+        evidence["events"] = ann["events"]
+        evidence["primary_event"] = primary_event.value
+        if primary_event.value.startswith("R-E"):
+            evidence["regular_event"] = primary_event.value
+            evidence["unusual_event"] = None
+        else:
+            evidence["unusual_event"] = primary_event.value
+        evidence.setdefault("rules_fired", []).append(reason)
+
+    def _apply_event_route_postprocess(
+        self,
+        scenario_name: str,
+        annotations: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Route 级 EVENT 修正：障碍核心后短恢复段按 R-E2，短孤立 U-E 去抖。"""
+        if not annotations:
+            return {"enabled": True, "changes": []}
+        changes: List[Dict[str, Any]] = []
+
+        obstacle_field_cfg = OBSTACLE_EVENT_DISTANCE_FIELDS.get(scenario_name)
+
+        def _event_metrics(ann: Dict[str, Any]) -> Dict[str, Any]:
+            return ((ann.get("event_evidence") or {}).get("metrics") or {})
+
+        def _trigger_distance(ann: Dict[str, Any]) -> float:
+            return _safe_float((ann.get("evidence") or {}).get("trigger_distance_m"), default=math.inf)
+
+        def _signed_lane_change(ann: Dict[str, Any]) -> float:
+            return _safe_float(_event_metrics(ann).get("signed_dist_to_lane_change"), default=math.inf)
+
+        def _route_change_hint(ann: Dict[str, Any], *, allow_abs: bool = True) -> bool:
+            metrics = _event_metrics(ann)
+            signed = _signed_lane_change(ann)
+            if bool(metrics.get("changed_route")):
+                return True
+            return allow_abs and math.isfinite(signed) and abs(signed) <= 4.5
+
+        def _return_lane_change_hint(ann: Dict[str, Any]) -> bool:
+            signed = _signed_lane_change(ann)
+            return math.isfinite(signed) and signed <= -1.0
+
+        def _obstacle_still_close(ann: Dict[str, Any], *, pad_m: float = 0.0) -> bool:
+            if obstacle_field_cfg is None:
+                return False
+            field, threshold = obstacle_field_cfg
+            metrics = _event_metrics(ann)
+            dist = _safe_float(metrics.get(field), default=math.inf)
+            if dist <= threshold + pad_m:
+                return True
+            speed_obj = _safe_float(metrics.get("speed_reduced_by_obj_distance"), default=math.inf)
+            return speed_obj <= threshold + pad_m and _trigger_distance(ann) <= 55.0
+
+        def _specific_obstacle_close(ann: Dict[str, Any], *, pad_m: float = 0.0) -> bool:
+            if obstacle_field_cfg is None:
+                return False
+            field, threshold = obstacle_field_cfg
+            dist = _safe_float(_event_metrics(ann).get(field), default=math.inf)
+            return dist <= threshold + pad_m
+
+        def _regular_event_for_annotation(ann: Dict[str, Any]) -> EventType:
+            rs = ann.get("primary_road_structure")
+            if rs == RoadStructure.R4.value:
+                return EventType.R_E4
+            if rs == RoadStructure.R5.value:
+                return EventType.R_E5
+            if rs == RoadStructure.R3.value:
+                return EventType.R_E3
+            return EventType.R_E1
+
+        if scenario_name in R2_RETURN_SCENARIOS:
+            max_u2_gap_frames = 6
+            idx = 0
+            while idx < len(annotations):
+                if annotations[idx].get("primary_event") != EventType.U_E2.value:
+                    idx += 1
+                    continue
+                left_end = idx + 1
+                while left_end < len(annotations) and annotations[left_end].get("primary_event") == EventType.U_E2.value:
+                    left_end += 1
+                gap_end = left_end
+                while gap_end < len(annotations) and annotations[gap_end].get("primary_event") != EventType.U_E2.value:
+                    gap_end += 1
+                if (
+                    gap_end < len(annotations)
+                    and 0 < gap_end - left_end <= max_u2_gap_frames
+                    and all(str(annotations[j].get("primary_event", "")).startswith("R-E") for j in range(left_end, gap_end))
+                ):
+                    for ann in annotations[left_end:gap_end]:
+                        old = ann.get("primary_event")
+                        self._rewrite_event_label(ann, {EventType.U_E2}, EventType.U_E2, "event_short_u2_gap_merged")
+                        changes.append(
+                            {
+                                "frame_id": ann.get("frame_id"),
+                                "from": old,
+                                "to": EventType.U_E2.value,
+                                "reason": "short_u2_gap_merged",
+                            }
+                        )
+                    idx = left_end
+                    continue
+                idx = left_end
+
+            idx = 0
+            while idx < len(annotations):
+                if annotations[idx].get("primary_event") != EventType.U_E2.value:
+                    idx += 1
+                    continue
+                start = idx
+                while idx < len(annotations) and annotations[idx].get("primary_event") == EventType.U_E2.value:
+                    idx += 1
+                end = idx
+                if start > 2 or end > 18:
+                    continue
+                lookahead_end = min(len(annotations), end + 8)
+                has_specific_obstacle = any(_specific_obstacle_close(annotations[j], pad_m=4.0) for j in range(start, lookahead_end))
+                has_near_route_change = any(_route_change_hint(annotations[j]) for j in range(start, lookahead_end))
+                if has_specific_obstacle or has_near_route_change:
+                    continue
+                for ann in annotations[start:end]:
+                    old = ann.get("primary_event")
+                    replacement = _regular_event_for_annotation(ann)
+                    self._rewrite_event_label(ann, {replacement}, replacement, "event_initial_trigger_only_u2_suppressed")
+                    changes.append(
+                        {
+                            "frame_id": ann.get("frame_id"),
+                            "from": old,
+                            "to": replacement.value,
+                            "reason": "initial_trigger_only_u2_suppressed",
+                        }
+                    )
+
+            idx = 0
+            while idx < len(annotations):
+                if annotations[idx].get("primary_event") != EventType.U_E2.value:
+                    idx += 1
+                    continue
+                start = idx
+                while idx < len(annotations) and annotations[idx].get("primary_event") == EventType.U_E2.value:
+                    idx += 1
+                pre_start = start
+                while pre_start > 0 and annotations[pre_start - 1].get("primary_event") == EventType.R_E2.value:
+                    pre_start -= 1
+                if pre_start == start or start - pre_start > 10:
+                    continue
+                previous_u2_nearby = any(
+                    annotations[j].get("primary_event") == EventType.U_E2.value
+                    for j in range(max(0, pre_start - 16), pre_start)
+                )
+                if previous_u2_nearby:
+                    continue
+                if not any(_route_change_hint(annotations[j]) for j in range(pre_start, start)):
+                    continue
+                for ann in annotations[pre_start:start]:
+                    old = ann.get("primary_event")
+                    self._rewrite_event_label(ann, {EventType.U_E2}, EventType.U_E2, "event_pre_u2_avoidance_lane_change_absorbed")
+                    changes.append(
+                        {
+                            "frame_id": ann.get("frame_id"),
+                            "from": old,
+                            "to": EventType.U_E2.value,
+                            "reason": "pre_u2_avoidance_lane_change_absorbed",
+                        }
+                    )
+
+            idx = 0
+            while idx < len(annotations):
+                if annotations[idx].get("primary_event") != EventType.U_E2.value:
+                    idx += 1
+                    continue
+                start = idx
+                while idx < len(annotations) and annotations[idx].get("primary_event") == EventType.U_E2.value:
+                    idx += 1
+                end = idx
+                if end - start < 8:
+                    continue
+                return_start: Optional[int] = None
+                for j in range(start + 6, end):
+                    if _return_lane_change_hint(annotations[j]) and (
+                        _trigger_distance(annotations[j]) > 45.0
+                        or not _obstacle_still_close(annotations[j], pad_m=-2.0)
+                    ):
+                        return_start = j
+                        break
+                if return_start is None:
+                    continue
+                return_end = return_start
+                hold_without_hint = 0
+                while return_end < end:
+                    ann = annotations[return_end]
+                    if _route_change_hint(ann) or _return_lane_change_hint(ann):
+                        hold_without_hint = 0
+                        return_end += 1
+                        continue
+                    if hold_without_hint < 1 and _trigger_distance(ann) > 45.0:
+                        hold_without_hint += 1
+                        return_end += 1
+                        continue
+                    break
+                for ann in annotations[return_start:return_end]:
+                    old = ann.get("primary_event")
+                    self._rewrite_event_label(ann, {EventType.R_E2}, EventType.R_E2, "event_u2_return_lane_change_to_r2")
+                    changes.append(
+                        {
+                            "frame_id": ann.get("frame_id"),
+                            "from": old,
+                            "to": EventType.R_E2.value,
+                            "reason": "u2_return_lane_change_to_r2",
+                        }
+                    )
+
+            idx = 0
+            while idx < len(annotations):
+                ann = annotations[idx]
+                if ann.get("primary_event") != EventType.U_E2.value:
+                    idx += 1
+                    continue
+                far_from_trigger = _trigger_distance(ann) > 80.0
+                if far_from_trigger and not _obstacle_still_close(ann, pad_m=6.0) and not _route_change_hint(ann):
+                    replacement = _regular_event_for_annotation(ann)
+                    old = ann.get("primary_event")
+                    self._rewrite_event_label(ann, {replacement}, replacement, "event_u2_far_from_trigger_without_obstacle_released")
+                    event_evidence = ann.setdefault("event_evidence", {})
+                    event_evidence["review_required"] = True
+                    event_evidence.setdefault("review_reasons", []).append("u2_released_far_from_xml_trigger")
+                    changes.append(
+                        {
+                            "frame_id": ann.get("frame_id"),
+                            "from": old,
+                            "to": replacement.value,
+                            "reason": "u2_far_from_trigger_without_obstacle_released",
+                        }
+                    )
+                    idx += 1
+                    continue
+                idx += 1
+
+            if annotations[-1].get("primary_event") == EventType.U_E2.value:
+                tail_start = len(annotations) - 1
+                while tail_start > 0 and annotations[tail_start - 1].get("primary_event") == EventType.U_E2.value:
+                    tail_start -= 1
+                tail_reason = "u2_reaches_route_end_requires_review"
+                for ann in annotations[tail_start:]:
+                    event_evidence = ann.setdefault("event_evidence", {})
+                    event_evidence["review_required"] = True
+                    reasons = event_evidence.setdefault("review_reasons", [])
+                    if tail_reason not in reasons:
+                        reasons.append(tail_reason)
+                changes.append(
+                    {
+                        "start_frame": annotations[tail_start].get("frame_id"),
+                        "end_frame": annotations[-1].get("frame_id"),
+                        "from": EventType.U_E2.value,
+                        "to": EventType.U_E2.value,
+                        "reason": tail_reason,
+                    }
+                )
+
+            last_u2_end = None
+            for idx, ann in enumerate(annotations):
+                primary = ann.get("primary_event")
+                if primary == EventType.U_E2.value:
+                    last_u2_end = idx
+                    continue
+                if last_u2_end is None:
+                    continue
+                if idx - last_u2_end > 16:
+                    last_u2_end = None
+                    continue
+                rs = ann.get("primary_road_structure")
+                if (
+                    primary == EventType.R_E1.value
+                    and rs not in {RoadStructure.R4.value, RoadStructure.R5.value}
+                    and _route_change_hint(ann)
+                ):
+                    self._rewrite_event_label(ann, {EventType.R_E2}, EventType.R_E2, "event_post_u2_recovery_to_target_lane")
+                    changes.append(
+                        {
+                            "frame_id": ann.get("frame_id"),
+                            "from": primary,
+                            "to": EventType.R_E2.value,
+                            "reason": "post_u2_recovery_window",
+                        }
+                    )
+                elif primary not in {EventType.R_E1.value, EventType.R_E2.value}:
+                    last_u2_end = None
+
+            idx = 0
+            while idx < len(annotations):
+                label = annotations[idx].get("primary_event")
+                start = idx
+                while idx < len(annotations) and annotations[idx].get("primary_event") == label:
+                    idx += 1
+                end = idx
+                if label != EventType.R_E2.value or end - start > 2:
+                    continue
+                prev_label = annotations[start - 1].get("primary_event") if start > 0 else None
+                next_label = annotations[end].get("primary_event") if end < len(annotations) else None
+                if prev_label == EventType.R_E1.value and next_label == EventType.R_E1.value:
+                    for ann in annotations[start:end]:
+                        self._rewrite_event_label(ann, {EventType.R_E1}, EventType.R_E1, "event_short_r2_recovery_smoothed")
+                    changes.append(
+                        {
+                            "start_frame": annotations[start].get("frame_id"),
+                            "end_frame": annotations[end - 1].get("frame_id"),
+                            "from": EventType.R_E2.value,
+                            "to": EventType.R_E1.value,
+                            "reason": "short_r2_recovery_smoothed",
+                        }
+                    )
+
+        sticky_gap_by_scenario = {
+            "InvadingTurn": (EventType.U_E5, 5),
+            "OppositeVehicleRunningRedLight": (EventType.U_E6, 5),
+        }
+        sticky_config = sticky_gap_by_scenario.get(scenario_name)
+        if sticky_config is not None:
+            sticky_event, max_gap = sticky_config
+            idx = 0
+            while idx < len(annotations):
+                if annotations[idx].get("primary_event") != sticky_event.value:
+                    idx += 1
+                    continue
+                left_end = idx + 1
+                while left_end < len(annotations) and annotations[left_end].get("primary_event") == sticky_event.value:
+                    left_end += 1
+                gap_end = left_end
+                while gap_end < len(annotations) and annotations[gap_end].get("primary_event") != sticky_event.value:
+                    gap_end += 1
+                if (
+                    gap_end < len(annotations)
+                    and 0 < gap_end - left_end <= max_gap
+                    and all(str(annotations[j].get("primary_event", "")).startswith("R-E") for j in range(left_end, gap_end))
+                ):
+                    for ann in annotations[left_end:gap_end]:
+                        old = ann.get("primary_event")
+                        regular = EventType.R_E5 if sticky_event == EventType.U_E5 else EventType.R_E4
+                        events = {sticky_event}
+                        if ann.get("primary_road_structure") == RoadStructure.R4.value and regular == EventType.R_E4:
+                            events.add(EventType.R_E4)
+                        if ann.get("primary_road_structure") == RoadStructure.R5.value and regular == EventType.R_E5:
+                            events.add(EventType.R_E5)
+                        self._rewrite_event_label(ann, events, sticky_event, f"event_short_{sticky_event.value.lower()}_gap_merged")
+                        changes.append(
+                            {
+                                "frame_id": ann.get("frame_id"),
+                                "from": old,
+                                "to": sticky_event.value,
+                                "reason": f"short_{sticky_event.value}_gap_merged",
+                            }
+                        )
+                    idx = left_end
+                    continue
+                idx = left_end
+
+        min_unusual_frames = 2
+        idx = 0
+        while idx < len(annotations):
+            label = annotations[idx].get("primary_event")
+            start = idx
+            while idx < len(annotations) and annotations[idx].get("primary_event") == label:
+                idx += 1
+            end = idx
+            if not str(label).startswith("U-E") or end - start >= min_unusual_frames:
+                continue
+            prev_label = annotations[start - 1].get("primary_event") if start > 0 else None
+            next_label = annotations[end].get("primary_event") if end < len(annotations) else None
+            replacement = next_label or prev_label
+            if replacement and str(replacement).startswith("R-E"):
+                replacement_ev = EventType(replacement)
+                for ann in annotations[start:end]:
+                    self._rewrite_event_label(ann, {replacement_ev}, replacement_ev, "event_short_unusual_span_smoothed")
+                changes.append(
+                    {
+                        "start_frame": annotations[start].get("frame_id"),
+                        "end_frame": annotations[end - 1].get("frame_id"),
+                        "from": label,
+                        "to": replacement,
+                        "reason": "short_unusual_span_smoothed",
+                    }
+                )
+        for ann in annotations:
+            ann["frame_event_annotation"] = self._frame_event_annotation_payload(ann)
+        return {"enabled": True, "changes": changes}
 
     def _confidence_stats(self, annotations: List[Dict[str, Any]]) -> Dict[str, Any]:
         values = [float(ann.get("confidence", 0.0)) for ann in annotations if ann.get("confidence") is not None]
@@ -2302,7 +3539,7 @@ class ScenarioCollector:
         candidates = ann.setdefault("road_structure_candidates", {})
         candidates[new_label] = max(float(candidates.get(new_label, 0.0) or 0.0), 0.74)
         ann["primary_road_structure"] = new_label
-        ann["confidence"] = max(float(ann.get("confidence", 0.0) or 0.0), float(candidates.get(new_label, 0.74)))
+        ann["confidence"] = float(candidates.get(new_label, 0.74) or 0.74)
         secondary = set(ann.get("secondary_road_structures", []) or [])
         secondary.discard(new_label)
         if old_label:
@@ -2380,9 +3617,182 @@ class ScenarioCollector:
 
         return {"enabled": True, "min_frames": {"R1": 2, "R2": 4, "R3": 4, "R4": 4, "R5": 4, "R6": 4}, "changes": changes}
 
+    def _fallback_after_twoways_core(self, ann: Dict[str, Any]) -> str:
+        """TwoWays 核心段结束后回到真实路网标签：有强 R4 证据才回 R4，否则 R1。"""
+        candidates = ann.get("road_structure_candidates", {}) or {}
+        evidence = ann.get("evidence", {}) or {}
+        rules = set(evidence.get("rules_fired", []) or [])
+        r4_score = float(candidates.get("R4", 0.0) or 0.0)
+        if r4_score >= 0.82 and any(rule.startswith("r4_") or rule.startswith("twoways_post_core") for rule in rules):
+            return "R4"
+        return "R1"
+
+    @staticmethod
+    def _twoways_core_metric(ann: Dict[str, Any]) -> Tuple[Optional[float], bool, bool]:
+        evidence = ann.get("evidence", {}) or {}
+        obs = evidence.get("twoway_obstruction_evidence") or {}
+        nearest = obs.get("nearest_obstacle_m")
+        nearest_f = _safe_float(nearest, default=math.inf)
+        return (
+            nearest_f if math.isfinite(nearest_f) else None,
+            _safe_bool(obs.get("stuck", False)),
+            _safe_bool(obs.get("vehicle_hazard", False)),
+        )
+
+    def _apply_twoways_core_span_clipping(
+        self,
+        scenario_name: str,
+        annotations: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """把 TwoWays R2 限定在局部核心段，避免绕过障碍后整段继续 R2。"""
+        cfg = SCENARIO_RULE_CONFIG.get(scenario_name, {})
+        if cfg.get("kind") != "twoways_obstacle" or not annotations:
+            return {"enabled": False, "changes": []}
+
+        exit_delta = float(cfg.get("two_way_exit_delta_m", 3.0))
+        exit_hold = max(1, int(cfg.get("two_way_exit_hold_frames", 8)))
+        changes: List[Dict[str, Any]] = []
+        runs = self._rs_runs(annotations)
+        for run in runs:
+            if run.get("label") != "R2":
+                continue
+            start = int(run["start"])
+            end = int(run["end"])
+            run_annotations = annotations[start:end]
+            finite_metrics = []
+            for offset, ann in enumerate(run_annotations):
+                nearest, stuck, vehicle_hazard = self._twoways_core_metric(ann)
+                if nearest is not None:
+                    finite_metrics.append((offset, nearest, stuck, vehicle_hazard))
+            if not finite_metrics:
+                continue
+            min_offset, min_nearest, _, _ = min(finite_metrics, key=lambda item: item[1])
+            cut_offset = None
+            quiet_count = 0
+            for offset, nearest, stuck, vehicle_hazard in finite_metrics:
+                if offset <= min_offset:
+                    continue
+                moving_away = nearest >= min_nearest + exit_delta
+                quiet = (not stuck) and (not vehicle_hazard)
+                if moving_away and quiet:
+                    quiet_count += 1
+                    if quiet_count >= exit_hold:
+                        cut_offset = offset - exit_hold + 1
+                        break
+                else:
+                    quiet_count = 0
+            if cut_offset is None:
+                continue
+
+            cut_start = start + cut_offset
+            change = {
+                "start_frame": annotations[cut_start].get("frame_id"),
+                "end_frame": annotations[end - 1].get("frame_id"),
+                "from": "R2",
+                "to": "R1/R4_by_evidence",
+                "nearest_obstacle_min_m": round(min_nearest, 3),
+                "exit_delta_m": exit_delta,
+                "exit_hold_frames": exit_hold,
+                "reason": "twoways_core_passed_obstacle_distance_increasing",
+            }
+            changes.append(change)
+            for ann in annotations[cut_start:end]:
+                replacement = self._fallback_after_twoways_core(ann)
+                self._rewrite_rs_label(
+                    ann,
+                    replacement,
+                    "twoways_core_span_clipped_after_obstacle",
+                    "route_level_twoways_core_exit",
+                )
+                evidence = ann.setdefault("evidence", {})
+                evidence.setdefault("twoways_core_span_clipping", []).append(change)
+
+        return {"enabled": True, "changes": changes}
+
+    def _apply_twoways_longest_r2_filter(
+        self,
+        scenario_name: str,
+        annotations: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """TwoWays route 只保留最长 R2 核心段，清理偶发短 R2 扰动。"""
+        cfg = SCENARIO_RULE_CONFIG.get(scenario_name, {})
+        if cfg.get("kind") not in {"twoways_obstacle", "vehicle_opens_door_twoways"} or not annotations:
+            return {"enabled": False, "changes": []}
+
+        r2_runs = [run for run in self._rs_runs(annotations) if run.get("label") == "R2"]
+        if len(r2_runs) <= 1:
+            return {"enabled": True, "kept": None, "changes": []}
+
+        def run_score(run: Dict[str, Any]) -> Tuple[int, float, float]:
+            start = int(run["start"])
+            end = int(run["end"])
+            run_annotations = annotations[start:end]
+            confidences = [
+                float(ann.get("confidence", 0.0) or 0.0)
+                for ann in run_annotations
+            ]
+            r2_scores = [
+                float((ann.get("road_structure_candidates", {}) or {}).get("R2", 0.0) or 0.0)
+                for ann in run_annotations
+            ]
+            return (
+                int(run.get("length", 0) or 0),
+                sum(r2_scores) / len(r2_scores) if r2_scores else 0.0,
+                sum(confidences) / len(confidences) if confidences else 0.0,
+            )
+
+        keep_run = max(r2_runs, key=run_score)
+        kept = {
+            "start_frame": annotations[int(keep_run["start"])].get("frame_id"),
+            "end_frame": annotations[int(keep_run["end"]) - 1].get("frame_id"),
+            "length": int(keep_run["length"]),
+            "reason": "longest_continuous_r2_span",
+        }
+        changes: List[Dict[str, Any]] = []
+        for run in r2_runs:
+            if run is keep_run:
+                continue
+            start = int(run["start"])
+            end = int(run["end"])
+            change = {
+                "start_frame": annotations[start].get("frame_id"),
+                "end_frame": annotations[end - 1].get("frame_id"),
+                "from": "R2",
+                "to": "R1/R4_by_evidence",
+                "length": int(run["length"]),
+                "kept_r2_span": kept,
+                "reason": "twoways_non_longest_r2_disturbance",
+            }
+            changes.append(change)
+            for ann in annotations[start:end]:
+                replacement = self._fallback_after_twoways_core(ann)
+                self._rewrite_rs_label(
+                    ann,
+                    replacement,
+                    "twoways_non_longest_r2_disturbance",
+                    "route_level_longest_r2_span",
+                )
+                evidence = ann.setdefault("evidence", {})
+                evidence.setdefault("twoways_longest_r2_filter", []).append(change)
+
+        return {"enabled": True, "kept": kept, "changes": changes}
+
     @staticmethod
     def _can_temporal_smoothing_promote(run_annotations: List[Dict[str, Any]], old_label: str, replacement: str) -> bool:
         """避免把只有弱证据的普通路段，因邻居继承提升成特殊 ROAD_STRUCTURE。"""
+        if old_label == "R4" and replacement != "R4":
+            for ann in run_annotations:
+                rules = set((ann.get("evidence", {}) or {}).get("rules_fired", []) or [])
+                if any(rule.startswith("r4_") for rule in rules):
+                    return False
+        if old_label == "R5" and replacement == "R1":
+            for ann in run_annotations:
+                rules = set((ann.get("evidence", {}) or {}).get("rules_fired", []) or [])
+                if any(
+                    rule.startswith("invading_turn_") and rule.endswith("_r5")
+                    for rule in rules
+                ):
+                    return False
         if old_label != "R1" or replacement not in {"R2", "R3", "R4", "R5", "R6"}:
             return True
         for ann in run_annotations:
@@ -2397,8 +3807,26 @@ class ScenarioCollector:
                 return False
             if replacement == "R4" and not any(rule.startswith("r4_") for rule in rules):
                 return False
-            if replacement == "R5" and not any(rule.startswith("r5_") for rule in rules):
-                return False
+            if replacement == "R5" and not any(
+                rule.startswith("r5_")
+                or (rule.startswith("invading_turn_") and rule.endswith("_r5"))
+                or (rule.startswith("interurban_") and rule.endswith("_r5"))
+                for rule in rules
+            ):
+                diagnostic = evidence.get("diagnostic_attribution", {}) or {}
+                window_flags = diagnostic.get("window_flags", {}) or {}
+                used_inputs = diagnostic.get("used_inputs", {}) or {}
+                trigger_distance = _safe_float(evidence.get("trigger_distance_m"), default=math.inf)
+                invading_gap_bridge = (
+                    evidence.get("rule_kind") == "invading_turn"
+                    and (
+                        bool(window_flags.get("junction_window"))
+                        or bool(used_inputs.get("meta_stop_hint"))
+                        or trigger_distance < 45.0
+                    )
+                )
+                if not invading_gap_bridge:
+                    return False
             if replacement == "R6" and not any(rule.startswith("r6_") for rule in rules):
                 return False
         return True
@@ -2413,6 +3841,7 @@ class ScenarioCollector:
         meta_files = sorted(metas_dir.glob("*.pkl"))
         if max_frames_per_route is not None and max_frames_per_route > 0:
             meta_files = meta_files[:max_frames_per_route]
+        bboxes_dir = route_path / "bboxes"
         annotations = []
 
         for meta_file in meta_files:
@@ -2420,6 +3849,9 @@ class ScenarioCollector:
                 frame_id = int(meta_file.stem)
                 # 使用支持 XZ 压缩的加载函数
                 frame_data = load_pickle_file(meta_file)
+                if isinstance(frame_data, dict):
+                    bbox_summary = summarize_bbox_semantics(bboxes_dir / meta_file.name)
+                    frame_data.update(bbox_summary)
 
                 ann = SimpleFrameAnalyzer.analyze(scenario_name, frame_id, frame_data, xml_info=xml_info, route_id=route_path.name)
                 ann_dict = ann.to_dict()
@@ -2431,15 +3863,23 @@ class ScenarioCollector:
                 self.logger.warning(f"处理 {meta_file} 出错: {e}")
                 continue
 
+        twoways_core_span_clipping = self._apply_twoways_core_span_clipping(scenario_name, annotations)
+        twoways_longest_r2_filter = self._apply_twoways_longest_r2_filter(scenario_name, annotations)
         temporal_smoothing_summary = self._apply_temporal_rs_smoothing(annotations)
+        event_postprocess_summary = self._apply_event_route_postprocess(scenario_name, annotations)
 
         primary_counter = defaultdict(int)
+        event_counter = defaultdict(int)
         review_counter = defaultdict(int)
+        event_review_counter = defaultdict(int)
         xodr_source_counter = defaultdict(int)
         route_bucket_counter = defaultdict(int)
         review_frame_count = 0
+        event_review_frame_count = 0
         transition_frames = []
+        event_transition_frames = []
         prev_primary = None
+        prev_event = None
         for ann in annotations:
             primary = ann.get("primary_road_structure")
             if primary:
@@ -2454,11 +3894,29 @@ class ScenarioCollector:
                         }
                     )
                 prev_primary = primary
+            primary_event = ann.get("primary_event")
+            if primary_event:
+                event_counter[primary_event] += 1
+                if prev_event is not None and primary_event != prev_event:
+                    event_transition_frames.append(
+                        {
+                            "frame_id": ann.get("frame_id"),
+                            "from": prev_event,
+                            "to": primary_event,
+                            "comment": ann.get("frame_event_annotation", {}).get("comment", ""),
+                        }
+                    )
+                prev_event = primary_event
             evidence = ann.get("evidence", {})
             if evidence.get("review_required"):
                 review_frame_count += 1
                 for reason in evidence.get("review_reasons", ["review_required"]):
                     review_counter[reason] += 1
+            event_evidence = ann.get("event_evidence", {})
+            if event_evidence.get("review_required"):
+                event_review_frame_count += 1
+                for reason in event_evidence.get("review_reasons", ["event_review_required"]):
+                    event_review_counter[reason] += 1
             xodr_source = evidence.get("xodr", {}).get("xodr_source") or "unavailable"
             xodr_source_counter[xodr_source] += 1
             route_bucket_counter[evidence.get("route_semantic_bucket") or "unknown"] += 1
@@ -2471,13 +3929,21 @@ class ScenarioCollector:
             "xml_available": xml_info is not None,
             "num_frames": len(annotations),
             "primary_rs_distribution": dict(sorted(primary_counter.items())),
+            "primary_event_distribution": dict(sorted(event_counter.items())),
             "review_required_frames": review_frame_count,
             "review_required_ratio": round(review_frame_count / len(annotations), 4) if annotations else 0.0,
+            "event_review_required_frames": event_review_frame_count,
+            "event_review_required_ratio": round(event_review_frame_count / len(annotations), 4) if annotations else 0.0,
             "review_reason_distribution": dict(sorted(review_counter.items())),
+            "event_review_reason_distribution": dict(sorted(event_review_counter.items())),
             "xodr_source_distribution": dict(sorted(xodr_source_counter.items())),
             "route_semantic_bucket_distribution": dict(sorted(route_bucket_counter.items())),
+            "twoways_core_span_clipping": twoways_core_span_clipping,
+            "twoways_longest_r2_filter": twoways_longest_r2_filter,
             "temporal_smoothing": temporal_smoothing_summary,
+            "event_postprocess": event_postprocess_summary,
             "confidence_stats": self._confidence_stats(annotations),
             "primary_rs_transitions": transition_frames[:50],
+            "primary_event_transitions": event_transition_frames[:80],
             "annotations": annotations
         }

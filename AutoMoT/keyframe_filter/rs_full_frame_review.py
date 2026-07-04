@@ -51,6 +51,22 @@ RS_COLORS = {
     "R6": (211, 142, 62),
 }
 
+EVENT_COLORS = {
+    "R-E1": (95, 116, 142),
+    "R-E2": (85, 139, 214),
+    "R-E3": (62, 148, 172),
+    "R-E4": (50, 151, 91),
+    "R-E5": (156, 105, 205),
+    "U-E1": (210, 83, 65),
+    "U-E2": (214, 89, 76),
+    "U-E3": (220, 128, 58),
+    "U-E4": (200, 93, 143),
+    "U-E5": (176, 76, 132),
+    "U-E6": (190, 54, 54),
+    "U-E7": (142, 80, 196),
+    "U-E8": (172, 102, 45),
+}
+
 
 def _json_default(value: Any) -> Any:
     if isinstance(value, Path):
@@ -152,6 +168,21 @@ def _is_candidate_anomaly(ann: Dict[str, Any], prev_label: Optional[str]) -> Tup
     return False, []
 
 
+def _is_event_candidate_anomaly(ann: Dict[str, Any], prev_event: Optional[str]) -> Tuple[bool, List[str]]:
+    event_label = str(ann.get("primary_event") or "")
+    event_block = ann.get("frame_event_annotation", {}) or {}
+    event_evidence = ann.get("event_evidence", {}) or {}
+    reasons = list(event_block.get("review_reasons") or event_evidence.get("review_reasons") or [])
+    if reasons:
+        return True, sorted({str(reason) for reason in reasons if reason})
+    if prev_event is not None and event_label and event_label != prev_event:
+        return True, ["primary_event_transition"]
+    rules = event_evidence.get("rules_fired") or []
+    if event_label.startswith("U-E") and not rules:
+        return True, ["unusual_event_without_rule_trace"]
+    return False, []
+
+
 def _safe_open_rgb(path: Optional[Path], size: Tuple[int, int]) -> Image.Image:
     if Image is None:
         raise RuntimeError("PIL is required to render review sheets")
@@ -183,6 +214,8 @@ def _draw_frame_tile(
 ) -> Image.Image:
     frame_id = int(ann.get("frame_id", 0))
     label = str(ann.get("primary_road_structure") or "-")
+    event_label = str(ann.get("primary_event") or "-")
+    events = ann.get("events") or []
     confidence = ann.get("confidence")
     reasons = _annotation_review_reasons(ann)
     frame_rs = ann.get("frame_rs_annotation", {}) or {}
@@ -190,10 +223,16 @@ def _draw_frame_tile(
     draw = ImageDraw.Draw(img)
     color = RS_COLORS.get(label, (70, 70, 70))
     draw.rectangle((0, 0, tile_size[0], 26), fill=color)
-    text = f"f={frame_id} {label} conf={float(confidence or 0.0):.2f}"
+    text = f"f={frame_id} RS={label} conf={float(confidence or 0.0):.2f}"
     if frame_rs.get("review_required") or reasons:
         text += " REVIEW"
     draw.text((5, 6), text, fill=(255, 255, 255))
+    event_color = EVENT_COLORS.get(event_label, (45, 45, 45))
+    draw.rectangle((0, 26, tile_size[0], 48), fill=event_color)
+    event_text = f"EV={event_label}"
+    if len(events) > 1:
+        event_text += f" +{','.join(str(ev) for ev in events if ev != event_label)[:34]}"
+    draw.text((5, 31), event_text[:72], fill=(255, 255, 255))
     bottom_text = selected_reason or ", ".join(reasons[:2]) or str(frame_rs.get("decision_source") or "")
     if bottom_text:
         draw.rectangle((0, tile_size[1] - 22, tile_size[0], tile_size[1]), fill=(0, 0, 0))
@@ -243,9 +282,11 @@ def _route_anomaly_rows(
     rows: List[Dict[str, Any]] = []
     selected_reasons: Dict[int, str] = {}
     prev_label: Optional[str] = None
+    prev_event: Optional[str] = None
     for ann in annotations:
         label = str(ann.get("primary_road_structure") or "")
         is_anom, reasons = _is_candidate_anomaly(ann, prev_label)
+        is_event_anom, event_reasons = _is_event_candidate_anomaly(ann, prev_event)
         if is_anom:
             frame_id = int(ann.get("frame_id", 0))
             bucket = _issue_bucket(reasons, label)
@@ -267,8 +308,35 @@ def _route_anomaly_rows(
                     "suspected_cause": bucket,
                 }
             )
+        if is_event_anom:
+            frame_id = int(ann.get("frame_id", 0))
+            event_label = str(ann.get("primary_event") or "")
+            bucket = "event_boundary_or_trigger_review"
+            selected_reasons.setdefault(frame_id, bucket)
+            frame_event = ann.get("frame_event_annotation", {}) or {}
+            rows.append(
+                {
+                    "scenario": scenario,
+                    "town": town,
+                    "route_id": route_id,
+                    "frame_id": frame_id,
+                    "label": label,
+                    "primary_event": event_label,
+                    "events": ann.get("events") or [],
+                    "confidence": ann.get("confidence"),
+                    "issue_bucket": bucket,
+                    "reasons": event_reasons,
+                    "decision_source": frame_event.get("rules_fired") or [],
+                    "comment": frame_event.get("comment") or "",
+                    "rgb_review_status": "pending_visual_check",
+                    "suspected_cause": bucket,
+                }
+            )
         if label:
             prev_label = label
+        event_label = str(ann.get("primary_event") or "")
+        if event_label:
+            prev_event = event_label
     return rows, selected_reasons
 
 

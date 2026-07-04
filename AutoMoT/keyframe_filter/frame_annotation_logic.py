@@ -1,6 +1,11 @@
 """
 逐帧标注逻辑模块 - 根据metas信息生成差异化的帧级标签
 
+注意：本文件保留的是早期 legacy analyzer，EventType 注释和当前
+ROAD_EVENT_CLASSIFICATION_PLAN.md 的 R-E/U-E 语义不完全一致。新的帧级候选
+与 ROAD_STRUCTURE 标注以 collector.py、ROAD_EVENT_CLASSIFICATION_PLAN.md 和
+ROAD_EVENT_CANDIDATE_MAPPING.md 为准；不要把本文件输出直接当作新版 EVENT 真值。
+
 设计原则：
 1. RS（Road Structure）优先级：交叉口 > 高速 > 双向 > 停泊 > 直道
 2. Event 优先级：危险/异常 > 场景特定 > 正常
