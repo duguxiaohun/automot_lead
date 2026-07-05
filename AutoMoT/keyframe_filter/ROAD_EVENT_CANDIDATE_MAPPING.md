@@ -218,6 +218,9 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 - `R-E5 无信号灯路口通行` 只给无信号/路权/灯故障类 scenario 或混合场景中的无灯控制帧。
 - `R-E4 信号灯路口通行` 给默认信号灯配置、明确信号灯 scenario，以及全量 RGB 证明存在灯控子集的混合 scenario；
   对无灯/灯故障帧本身不输出 R-E4。
+- `NonSignalizedJunctionLeftTurn` 与 `NonSignalizedJunctionLeftTurnEnterFlow` 是 strict no-R4/no-R-E4。
+  即使 bbox 或静态 XODR 弱提示报 `traffic_light`，只要没有有效 `traffic_light_state` 且同帧有
+  STOP/yield/无灯路口证据，就保持 R5/R-E5 并写 review，不动态打开 R4。
 - `R-E6` 已取消，不出现在候选表中。
 - TwoWays 场景中的正常对向来车等待不等于 U-E5；只有对向车异常侵占自车道才是 U-E5。
 - 障碍/TwoWays 场景不要输出 `R-E1+U-E2` 这类非路口叠加；为绕障离开原车道与核心绕行都用 U-E2，

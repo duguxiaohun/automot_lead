@@ -23,6 +23,7 @@ python AutoMoT/keyframe_filter/rs_full_frame_review.py \
 3. `InterurbanActorFlow`、`InvadingTurn` 的代表 RGB 显示无信号/STOP/T 路口 R5 方向基本正确；问题主要是 review 原因里混入 R3/R2 次候选的弱 XODR 文案。
 4. `ConstructionObstacleTwoWays` 等 TwoWays 样本中 R2 核心持续段与 RGB 窄路/障碍绕行匹配，最长 R2 段保留逻辑有效；剩余问题是 XODR 不确认应作为软提示，而不是硬错配。
 5. `BlockedIntersection` 发现真实逻辑漏洞：部分 RGB 明显是 STOP/无信号阻塞路口，旧规则因场景族默认 `signalized_junction` 标成 R4。已修复为 `blocked_intersection` 规则族：灯控同源证据给 R4，STOP/yield/无灯控制源给 R5，阻塞本身只进 EVENT。
+6. `NonSignalizedJunctionLeftTurn*` 发现硬错误：RGB 是无灯/STOP 左转口，但 bbox 偶发同时报 `traffic_light` 与 `stop_sign`，旧代码动态打开 R4 并把整条 route 标成 R4。已将两个 LeftTurn 场景加入 strict no-R4，并在无灯/T-junction 规则中让 STOP/yield 在无有效 meta 灯态时压制 bbox/static-signal 的 R4 提升。
 
 ## 每场景复核结论
 
@@ -49,8 +50,8 @@ python AutoMoT/keyframe_filter/rs_full_frame_review.py \
 | InvadingTurn | 1278 | R1:608, R5:670 | review 文案串入 R2 次候选 | 无信号路口 R5；R2 只保留侵占主导段 |
 | MergerIntoSlowTraffic | 1730 | R3:1729, R4:1 | R3 topology soft review | 主体 R3；少量 R4 要灯控同源 |
 | MergerIntoSlowTrafficV2 | 1688 | R3:1688 | R3 topology soft review | 保持 R3/no-R4 |
-| NonSignalizedJunctionLeftTurn | 1946 | R1:23, R4:571, R5:1352 | projection + 少量 signal conflict | R5 为主；灯控子集逐帧 R4 |
-| NonSignalizedJunctionLeftTurnEnterFlow | 2364 | R1:24, R4:542, R5:1798 | projection + 少量 signal conflict | R5 为主；enter-flow 不改 R3 |
+| NonSignalizedJunctionLeftTurn | 1946 | 修复前 R1:23, R4:571, R5:1352；目标复测 R5:756 | bbox traffic_light 与 stop_sign 冲突导致误升 R4 | strict no-R4；STOP/yield/无灯左转给 R5 |
+| NonSignalizedJunctionLeftTurnEnterFlow | 2364 | 修复前 R1:24, R4:542, R5:1798；目标复测 R1:14, R5:942 | bbox/static signal 弱提示在无灯口抢占 R4 | strict no-R4；enter-flow 不改 R3 |
 | NonSignalizedJunctionRightTurn | 808 | R1:9, R4:77, R5:722 | projection review 高 | 保持 R1/R4/R5 混合 |
 | OppositeVehicleRunningRedLight | 4854 | R1:370, R4:4484 | projection + no-meta R4 review | 保持 R4；闯红灯只进 EVENT |
 | OppositeVehicleTakingPriority | 1558 | R1:52, R4:408, R5:1098 | R4/R5 仲裁边界 | R5 为主，少量灯控子集 R4 |
@@ -78,6 +79,8 @@ python AutoMoT/keyframe_filter/rs_full_frame_review.py \
   - `BlockedIntersection` 候选从 R1/R4 改为 R1/R4/R5。
   - 新增 `blocked_intersection` 规则族：R4 需要灯控同源证据；STOP/yield/无灯控制源给 R5。
   - 新增 `blocked_r4_without_meta_tl_requires_rgb_confirmation` review reason。
+  - `NonSignalizedJunctionLeftTurn`、`NonSignalizedJunctionLeftTurnEnterFlow` 加入 no-R4 动态兜底黑名单。
+  - 无灯路口/T 路口中，若无有效 `traffic_light_state` 且有 STOP/yield 证据，bbox/static signal 弱提示不再提升 R4。
 - `rs_full_frame_review.py`
   - 新增 `review_severity_distribution` / `issue_bucket_distribution`。
   - RGB sheet 底部原因按 primary RS 过滤，避免次候选 R2/R3/R4/R5 弱证据污染主解释。
