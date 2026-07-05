@@ -410,9 +410,13 @@ def _route_summary(
 ) -> Dict[str, Any]:
     severity_counts = Counter(str(row.get("review_severity") or "unknown") for row in anomaly_rows)
     issue_counts = Counter(str(row.get("issue_bucket") or "unknown") for row in anomaly_rows)
+    data_missing = route_result.get("status") == "data_missing_skip"
     return {
         "route_id": route_result.get("route_id"),
         "status": route_result.get("status"),
+        "skip_reason": route_result.get("skip_reason"),
+        "skip_reasons": route_result.get("skip_reasons", []),
+        "data_quality": route_result.get("data_quality", {}),
         "xml_path": route_result.get("xml_path"),
         "xml_town": route_result.get("xml_town"),
         "xml_available": route_result.get("xml_available"),
@@ -424,11 +428,13 @@ def _route_summary(
         "xodr_source_distribution": route_result.get("xodr_source_distribution", {}),
         "confidence_stats": route_result.get("confidence_stats", {}),
         "primary_rs_transitions": route_result.get("primary_rs_transitions", []),
+        "r4_context_recovery": route_result.get("r4_context_recovery", {}),
+        "r4_context_recovery_count": len((route_result.get("r4_context_recovery", {}) or {}).get("changes", [])),
         "candidate_anomaly_frames": len(anomaly_rows),
         "review_severity_distribution": dict(sorted(severity_counts.items())),
         "issue_bucket_distribution": dict(sorted(issue_counts.items())),
-        "manual_rgb_review_required": True,
-        "manual_rgb_review_status": "pending",
+        "manual_rgb_review_required": not data_missing,
+        "manual_rgb_review_status": "skipped_data_missing" if data_missing else "pending",
         "full_frame_sheets": sheet_paths,
         "anomaly_sheets": anomaly_sheets,
     }
@@ -502,9 +508,12 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
     }
     total_frames = 0
     total_routes = 0
+    total_skipped_routes = 0
+    total_r4_recoveries = 0
     total_anomalies = 0
     global_severity = Counter()
     global_issue = Counter()
+    global_skip_reasons = Counter()
 
     for scenario_index, scenario in enumerate(scenarios, 1):
         print(f"[{scenario_index}/{len(scenarios)}] scenario={scenario}", flush=True)
@@ -532,6 +541,9 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
             town_summary: Dict[str, Any] = {
                 "sampled_run_ids": [run.name for run in sampled_runs],
                 "routes": [],
+                "skipped_routes": 0,
+                "data_missing_skip_reason_distribution": {},
+                "r4_context_recovery_count": 0,
                 "primary_rs_distribution": {},
                 "review_reason_distribution": {},
                 "candidate_anomaly_frames": 0,
@@ -549,38 +561,52 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
                 annotations = route_result.get("annotations", [])
                 route_out = scenario_dir / town / run_dir.name
                 _write_json(route_out / "route_annotations.json", route_result)
-                anomaly_rows, selected_reasons = _route_anomaly_rows(scenario, town, run_dir.name, annotations)
-                if anomaly_rows:
-                    _append_jsonl(anomaly_jsonl, anomaly_rows)
-                full_sheets = _write_sheets(
-                    annotations,
-                    run_dir,
-                    route_out / "sheets",
-                    args.frames_per_sheet,
-                    args.sheet_cols,
-                    "all_frames",
-                )
-                anomaly_annotations = [
-                    ann for ann in annotations
-                    if int(ann.get("frame_id", 0)) in selected_reasons
-                ]
-                anomaly_sheets = _write_sheets(
-                    anomaly_annotations,
-                    run_dir,
-                    route_out / "sheets",
-                    args.frames_per_sheet,
-                    args.sheet_cols,
-                    "candidate_anomalies",
-                    selected_reasons=selected_reasons,
-                )
+                if route_result.get("status") == "data_missing_skip":
+                    anomaly_rows = []
+                    full_sheets = []
+                    anomaly_sheets = []
+                    town_summary["skipped_routes"] += 1
+                    for reason in route_result.get("skip_reasons") or [route_result.get("skip_reason", "data_missing_skip")]:
+                        current = town_summary["data_missing_skip_reason_distribution"].get(str(reason), 0)
+                        town_summary["data_missing_skip_reason_distribution"][str(reason)] = current + 1
+                else:
+                    anomaly_rows, selected_reasons = _route_anomaly_rows(scenario, town, run_dir.name, annotations)
+                    if anomaly_rows:
+                        _append_jsonl(anomaly_jsonl, anomaly_rows)
+                    full_sheets = _write_sheets(
+                        annotations,
+                        run_dir,
+                        route_out / "sheets",
+                        args.frames_per_sheet,
+                        args.sheet_cols,
+                        "all_frames",
+                    )
+                    anomaly_annotations = [
+                        ann for ann in annotations
+                        if int(ann.get("frame_id", 0)) in selected_reasons
+                    ]
+                    anomaly_sheets = _write_sheets(
+                        anomaly_annotations,
+                        run_dir,
+                        route_out / "sheets",
+                        args.frames_per_sheet,
+                        args.sheet_cols,
+                        "candidate_anomalies",
+                        selected_reasons=selected_reasons,
+                    )
                 route_summary = _route_summary(route_result, anomaly_rows, full_sheets, anomaly_sheets)
                 _write_json(route_out / "route_review_summary.json", route_summary)
                 town_summary["routes"].append(route_summary)
                 total_routes += 1
+                if route_result.get("status") == "data_missing_skip":
+                    total_skipped_routes += 1
+                    global_skip_reasons.update(route_result.get("skip_reasons") or [route_result.get("skip_reason", "data_missing_skip")])
+                total_r4_recoveries += len((route_result.get("r4_context_recovery", {}) or {}).get("changes", []))
                 total_frames += int(route_result.get("num_frames", 0) or 0)
                 total_anomalies += len(anomaly_rows)
                 town_summary["candidate_anomaly_frames"] += len(anomaly_rows)
                 town_summary["num_frames"] += int(route_result.get("num_frames", 0) or 0)
+                town_summary["r4_context_recovery_count"] += len((route_result.get("r4_context_recovery", {}) or {}).get("changes", []))
                 town_primary.update(route_result.get("primary_rs_distribution", {}))
                 town_review.update(route_result.get("review_reason_distribution", {}))
             town_summary["primary_rs_distribution"] = dict(sorted(town_primary.items()))
@@ -600,6 +626,9 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
         scenario_issue = Counter()
         scenario_frames = 0
         scenario_anomalies = 0
+        scenario_skipped = 0
+        scenario_skip_reasons = Counter()
+        scenario_r4_recoveries = 0
         for town_summary in scenario_summary["towns"].values():
             scenario_counter.update(town_summary.get("primary_rs_distribution", {}))
             scenario_review.update(town_summary.get("review_reason_distribution", {}))
@@ -607,7 +636,13 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
             scenario_issue.update(town_summary.get("issue_bucket_distribution", {}))
             scenario_frames += int(town_summary.get("num_frames", 0) or 0)
             scenario_anomalies += int(town_summary.get("candidate_anomaly_frames", 0) or 0)
+            scenario_skipped += int(town_summary.get("skipped_routes", 0) or 0)
+            scenario_skip_reasons.update(town_summary.get("data_missing_skip_reason_distribution", {}))
+            scenario_r4_recoveries += int(town_summary.get("r4_context_recovery_count", 0) or 0)
         scenario_summary["num_frames"] = scenario_frames
+        scenario_summary["skipped_routes"] = scenario_skipped
+        scenario_summary["r4_context_recovery_count"] = scenario_r4_recoveries
+        scenario_summary["data_missing_skip_reason_distribution"] = dict(sorted(scenario_skip_reasons.items()))
         scenario_summary["candidate_anomaly_frames"] = scenario_anomalies
         scenario_summary["primary_rs_distribution"] = dict(sorted(scenario_counter.items()))
         scenario_summary["review_reason_distribution"] = dict(sorted(scenario_review.items()))
@@ -620,8 +655,11 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
         _write_json(visual_summary_path, _scenario_visual_summary(scenario_summary))
 
     global_summary["total_routes"] = total_routes
+    global_summary["total_skipped_routes"] = total_skipped_routes
+    global_summary["total_r4_context_recoveries"] = total_r4_recoveries
     global_summary["total_frames"] = total_frames
     global_summary["total_candidate_anomaly_frames"] = total_anomalies
+    global_summary["data_missing_skip_reason_distribution"] = dict(sorted(global_skip_reasons.items()))
     global_summary["review_severity_distribution"] = dict(sorted(global_severity.items()))
     global_summary["issue_bucket_distribution"] = dict(sorted(global_issue.items()))
     global_summary["candidate_anomalies_jsonl"] = str(anomaly_jsonl)
