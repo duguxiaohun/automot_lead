@@ -751,7 +751,7 @@ magic-number 分支。
 | R1 | 默认桶；同向障碍、急刹、动态对象、control loss、roundabout 本身不改变 RS | brake/accel/vehicle_hazard/walker_hazard 不参与 RS 升级 |
 | R2 | 核心借道/障碍帧需要 trigger/active + opposite lane / 同向车道不足 / meta obstruction；meta 缺失时允许 XML trigger 极近或 trigger-close + XML 场景障碍近距离召回短核心 R2；非核心 TwoWays road-layout 只能作为弱候选 | TwoWays 名称不代表全程 R2；绕过静态/动态障碍后重新按 XODR/meta 判 R1/R4；灯态/路口主导时 R4/R5 primary |
 | R3 | 高速/快速路/合流/驶出 scenario prior；明确高速/merge 场景不开放 R1，非路口默认 R3；merge/exit 窗口和 actor-flow 提供更强证据 | `PriorityAtJunction`、部分 `HardBreakRoute`、Interurban rural/junction 不能只因 Town12/13 判 R3 |
-| R4 | 有效 `traffic_light_state` / `light_hazard`，或同源受控 junction/controller 支撑，且 XODR 未判为 roundabout；有效 meta 灯态可动态开放 R4 候选 | `CrossJunctionDefectTrafficLight` 由 R5 override；阻塞/违规只是 EVENT；roundabout 强制回 R1；有 meta 灯态但缺 strong context 的 R4 必须进入 RGB confirmation review；只有弱静态 signal 且无 meta 灯态时不能自动 R4 |
+| R4 | 有效 `traffic_light_state` / `light_hazard`，或同源受控 junction/controller 支撑，且 XODR 未判为 roundabout；有效 meta 灯态可动态开放 R4 候选 | `CrossJunctionDefectTrafficLight` 由 R5 override；`NonSignalizedJunctionLeftTurn*` 是 strict no-R4；阻塞/违规只是 EVENT；roundabout 强制回 R1；有 meta 灯态但缺 strong context 的 R4 必须进入 RGB confirmation review；只有弱静态 signal/bbox traffic_light 且无 meta 灯态时不能自动 R4，尤其同帧已有 STOP/yield 证据时必须优先 R5 |
 | R5 | nonsignalized/priority/defect prior + route/trigger/junction 窗口 + 无有效正常灯态或 defect override，且 XODR 未判为 roundabout | 连续有效灯态且非 defect scenario 时不 high R5；roundabout 强制回 R1 |
 | R6 | Parking* / parking 子型 prior + parking trigger/active 窗口 + parking/shoulder/curbside 或停车汇入证据 | `ParkedObstacle` 不是 R6；灯控路口主导时 R4 primary |
 
@@ -768,9 +768,10 @@ R4/R5 > R3 > R2/R6 > R1
 - `noScenarios`：没有 scenario prior 时，只允许强灯态 + 同源受控 junction 升级 R4，否则 R1。
 - `roundabout`：XODR 若显示局部为 roundabout，则 R4/R5 junction 分支全部失效，primary 回 R1；
   页面必须展示 `map_is_roundabout=true`，用于区分环岛和十字/丁字路口。
-- 动态 R4 候选：除 `CrossJunctionDefectTrafficLight` 和 RGB 已确认无稳定灯控的场景外，只要单帧有有效
-  `traffic_light_state` 或 `light_hazard`，就临时把 R4 加入候选池；若缺少 strong control context，
-  仍以 R4 做 primary 但写 `r4_meta_tl_without_strong_context_requires_rgb_confirmation`。
+- 动态 R4 候选：除 `CrossJunctionDefectTrafficLight`、`NonSignalizedJunctionLeftTurn*` 和 RGB 已确认无稳定灯控的场景外，
+  只要单帧有有效 `traffic_light_state` 或 `light_hazard`，就临时把 R4 加入候选池；若缺少 strong control context，
+  仍以 R4 做 primary 但写 `r4_meta_tl_without_strong_context_requires_rgb_confirmation`。bbox/static signal 只是辅助证据；
+  在无有效 meta 灯态且同帧存在 STOP/yield/无灯控制证据时，不允许靠 bbox/static signal 把 R5 抬成 R4。
   这修复了 Accident / Hazard / Parking / Priority 等场景“明明有灯态却被候选池或弱分数压回 R1”的问题。
 
 时序稳定统一后处理：
@@ -816,6 +817,10 @@ R4/R5 > R3 > R2/R6 > R1
 - `blocked_intersection`：`BlockedIntersection` 的阻塞只是 EVENT；RS 由控制源决定。
   灯态/信号灯同源证据成立时进入 R4；STOP/yield/priority/无灯路口证据成立时进入 R5；
   两类控制源都缺失时回 R1 + RGB review。
+- `nonsignalized_junction`：无灯/STOP/yield/priority 路口进入 R5；只有全量 RGB 已确认存在灯控子集的
+  `NonSignalizedJunctionRightTurn`、`OppositeVehicleTakingPriority`、`PriorityAtJunction` 才允许有效灯态或强灯控同源证据打开 R4。
+  `NonSignalizedJunctionLeftTurn` 与 `NonSignalizedJunctionLeftTurnEnterFlow` 是 strict no-R4，
+  bbox/static signal 弱提示不能覆盖 STOP/yield/无灯控制源。
 - `signalized_junction`：灯态有效、受控 junction 或 controller/traffic light 近邻成立时进入 R4；
   `OppositeVehicleRunningRedLight` 的违规只是 EVENT，不改成 R5。
   若 primary R4 没有有效 `traffic_light_state`，必须写

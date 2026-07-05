@@ -114,7 +114,7 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
 | `blocked_intersection` | BlockedIntersection | `junction_pre_m=48`, `junction_post_m=20`; 在通用十字路口窗口上额外压缩 20% | 阻塞只进 EVENT；有有效灯态/信号灯同源证据时 R4，RGB/meta/bbox 显示 STOP/yield/无灯路口时 R5，二者都缺失则 R1 + review |
 | `signalized_junction` | OppositeVehicleRunningRedLight, RedLightWithoutLeadVehicle, Signalized*Turn*, T_Junction | `junction_pre_m=50-60`, `junction_post_m=20-25`; runtime effective window = `0.85 * pre/post`，pre 最小 30m、post 最小 15m；T_Junction `review_if_no_tl=True`; static signal near <=45m 且 strong context <=30m | 有效灯态、light_hazard、signal/controller、stopline approach 至少多源一致；无有效 `traffic_light_state` 的 R4 必须写 RGB confirmation review；T_Junction 若 RGB/stop/yield 显示无灯控制则允许 R5；十字路口只覆盖接近/进入/刚离开的局部片段 |
 | `defect_junction` | CrossJunctionDefectTrafficLight | `junction_pre_m=60`, `junction_post_m=20`, `override=r5_over_r4` | defect 场景即使有 signal/controller 也优先 R5；找不到路口只能 medium + review |
-| `nonsignalized_junction` | NonSignalizedJunction*, OppositeVehicleTakingPriority, PriorityAtJunction | `junction_pre_m=45-60`, `junction_post_m=20` | no-light / priority / stop / yield 证据；NonSignalizedJunctionRightTurn 与 OppositeVehicleTakingPriority 以 R5 为主但全量 RGB 有少量灯控子集，R4 仅在灯控同源证据成立时开放；PriorityAtJunction 是 R4/R5 混合 |
+| `nonsignalized_junction` | NonSignalizedJunction*, OppositeVehicleTakingPriority, PriorityAtJunction | `junction_pre_m=45-60`, `junction_post_m=20` | no-light / priority / stop / yield 证据；NonSignalizedJunctionLeftTurn 与 NonSignalizedJunctionLeftTurnEnterFlow 是 strict no-R4，bbox/static signal 弱提示不能动态打开 R4；NonSignalizedJunctionRightTurn 与 OppositeVehicleTakingPriority 以 R5 为主但全量 RGB 有少量灯控子集，R4 仅在有效灯态或强灯控同源证据成立时开放；PriorityAtJunction 是 R4/R5 混合 |
 | `pedestrian_crossing` | PedestrianCrossing | `junction_pre_m=40`, `junction_post_m=40`; `pedestrian_not_rs` | 行人只进 EVENT；R4/R5 取决于 crossing 是否与路口控制源同源 |
 | `highway_merge` | EnterActorFlow*, HighwayCutIn, HighwayExit, MergerIntoSlowTraffic* | 默认 R3；EnterActorFlow*、HighwayExit、MergerIntoSlowTrafficV2 候选删除 R1/R4；HighwayCutIn 与 MergerIntoSlowTraffic 保留少量 R4 子集；`merge_pre_m=30-50`, `merge_post_m=40-50`, `trigger_close_m=90`; `highway_default_r3=true` | 全量逐帧 RGB 显示主体为高速/快速路/匝道背景；HighwayCutIn 与 MergerIntoSlowTraffic 的 R4 必须有 RGB/meta/bbox 灯控同源证据；匝道/导流线/停车线不能单独制造 R5 |
 | `hardbreak_route` | HardBreakRoute | `junction_pre_m=50`, `junction_post_m=25`; route 级 RGB 高速桶候选收敛为 R3/R4 | 97 个 route 已逐 id 均匀 5 帧 RGB 复核；16 个高速/快速路桶给 R3/R4，其余城市/乡村 route 保留 R1/R4 |
@@ -270,8 +270,8 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 | InvadingTurn | 对向车事件与无灯十字路口结构混淆，且旧候选缺 R5 | R2 表示双向窄路/对向占道主导；R5 表示无信号/STOP 路口主导；EVENT 用 U-E5 表达被动让行/侵入 |
 | MergerIntoSlowTraffic | 坏 XODR 把明显高速/merge 压回 R1，或 active scenario 把核心合流窗口拖宽；少量灯控子集会被场景级 no-R4 误删 | 候选删除 R1、保留 R3/R4；高速/合流背景默认 R3，R4 只靠逐帧灯控同源证据触发，actor-flow/trigger 只用于定位核心窗口 |
 | MergerIntoSlowTrafficV2 | 与 Merger 同属高速合流，但全量 RGB 未发现稳定灯控子集 | 候选删除 R1/R4；主线高速/快速路保持 R3，不继承 MergerIntoSlowTraffic 的少量 R4 子集 |
-| NonSignalizedJunctionLeftTurn | 静态 signal hint 与无灯路口语义冲突 | 无灯/priority/stop 证据给 R5；正常灯态进入 conflict review |
-| NonSignalizedJunctionLeftTurnEnterFlow | EnterFlow 名称误触发 R3 | 这是无灯路口进入车流，主口径 R5，不是匝道 R3 |
+| NonSignalizedJunctionLeftTurn | bbox traffic_light 与 stop_sign 同时报出，弱灯控提示把无灯/STOP 左转误升 R4 | strict no-R4；无灯/priority/stop 证据给 R5；bbox/static signal 弱提示只写 review，不动态打开 R4 |
+| NonSignalizedJunctionLeftTurnEnterFlow | EnterFlow 名称误触发 R3，且 bbox traffic_light 与 stop/yield 冲突时误升 R4 | 这是无灯路口进入车流，主口径 R5，不是匝道 R3；同样 strict no-R4 |
 | NonSignalizedJunctionRightTurn | slip lane / 右转动作被误当 R3，或少量灯控子集被场景名压成 R5 | 大多数无灯 junction 给 R5；少量灯控右转可给 R4，但必须有逐帧 RGB/meta/bbox 灯控证据；右转动作本身不是 R3 |
 | OppositeVehicleRunningRedLight | 闯红灯事件被误当 R5 | 信号规则仍有效，主 RS 是 R4，违规进 EVENT |
 | OppositeVehicleTakingPriority | priority/no-light 与正常灯控冲突 | 以 priority/no-light R5 为主；全量 RGB 有少量灯控子集，R4 只在灯控同源证据成立时开放 |
@@ -559,17 +559,23 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 ### NonSignalizedJunctionLeftTurn
 
 - 候选 RS：R1, R5。
-- 已确定口径：无信号灯左转是 R5；若出现正常灯态，只能 medium/review，不应静默改 R4。
+- 已确定口径：无信号灯左转是 R5；这是 strict no-R4 场景。若 bbox 或静态 XODR 同时给出
+  `traffic_light` 弱提示和 `stop_sign/yield` 证据，以 STOP/yield/无灯控制源为准，不动态打开 R4。
 - 分段逻辑：junction/priority/stop/yield 窗口 R5；窗口外 R1。
 - 证据需求：XODR junction/priority/sign、XML route trigger、meta is_junction、RGB 路口入口。
+- RGB 复核回灌：2026-07-04 5-id/town 复测中，修复前样本分布为 `R1:23, R4:571, R5:1352`；
+  代表 route `Town04_route_000930` 的 RGB 是无灯/STOP 小路口，但 bbox 同时报
+  `traffic_light=True, stop_sign=True`，导致旧代码误判 R4。修复后目标复测分布为 `R5:756`。
 - 待完善点：Town10HD 样本曾出现 meta 缺口；缺 meta 时只能用 XODR/XML 给 medium 并 review。
 
 ### NonSignalizedJunctionLeftTurnEnterFlow
 
 - 候选 RS：R1, R5。
-- 已确定口径：名字里有 EnterFlow，但这是无信号灯路口进入车流，不是匝道 R3。
+- 已确定口径：名字里有 EnterFlow，但这是无信号灯路口进入车流，不是匝道 R3；同样 strict no-R4。
 - 分段逻辑：junction/priority/no-light 窗口 R5；窗口外 R1；仅明确 ramp/merge 才 review R3。
 - 证据需求：XODR junction/priority、XML enter-flow trigger、meta active scenario、RGB 路口车流。
+- RGB 复核回灌：修复前样本分布为 `R1:24, R4:542, R5:1798`，主要是 bbox/static signal 弱提示在
+  stop/yield 口抢占 R4；修复后目标复测分布为 `R1:14, R5:942`，不再输出 R4。
 - 待完善点：实测 `enter_flow_not_r3` 方向正确，但 projection error 高，需要补边界帧。
 
 ### NonSignalizedJunctionRightTurn

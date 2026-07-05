@@ -383,6 +383,11 @@ SCENARIOS_WITH_RGB_NO_R4 = {
     "InterurbanAdvancedActorFlow",
     "InvadingTurn",
     "MergerIntoSlowTrafficV2",
+    # Explicit no-signal left-turn families: RGB review shows STOP/no-light control.
+    # Bbox occasionally reports traffic_light together with stop_sign here; do not
+    # dynamically reopen R4 from that weak hint.
+    "NonSignalizedJunctionLeftTurn",
+    "NonSignalizedJunctionLeftTurnEnterFlow",
 }
 
 
@@ -2077,6 +2082,20 @@ class RoadStructureRuleEngine:
             and static_topology_strong
             and _safe_float(xodr.get("nearest_signal_m"), default=math.inf) <= STATIC_SIGNAL_NEAR_M
         )
+        bbox_traffic_light_for_r4 = bbox_traffic_light
+        static_signal_near_for_r4 = static_signal_near
+        stop_yield_overrides_weak_signal_hint = (
+            stop_hazard
+            and not has_tl
+            and (
+                kind == "nonsignalized_junction"
+                or scenario_name == "T_Junction"
+            )
+        )
+        if stop_yield_overrides_weak_signal_hint:
+            bbox_traffic_light_for_r4 = False
+            static_signal_near_for_r4 = False
+            rules.append("stop_yield_suppresses_bbox_or_static_signal_r4")
         meta_near_junction = is_junction or dist_to_junction_strong
         xodr_near_junction = xodr_trusted and static_topology_strong and xodr_structured_junction
         near_junction = (meta_near_junction or xodr_near_junction) and not map_is_roundabout
@@ -2144,10 +2163,10 @@ class RoadStructureRuleEngine:
                 self._add(scores, RoadStructure.R4, 0.86)
                 self._add(scores, RoadStructure.R1, 0.62)
                 rules.append("r4_meta_tl_without_strong_context_review")
-        elif (not map_is_roundabout) and bbox_traffic_light and strong_control_context:
+        elif (not map_is_roundabout) and bbox_traffic_light_for_r4 and strong_control_context:
             self._add(scores, RoadStructure.R4, 0.90)
             rules.append("r4_bbox_traffic_light_confirmed")
-        elif (not map_is_roundabout) and bbox_traffic_light:
+        elif (not map_is_roundabout) and bbox_traffic_light_for_r4:
             if kind == "highway_merge":
                 self._add(scores, RoadStructure.R4, 0.68)
                 self._add(scores, RoadStructure.R3, 0.78)
@@ -2162,10 +2181,10 @@ class RoadStructureRuleEngine:
         elif light_hazard:
             self._add(scores, RoadStructure.R1, 0.78)
             rules.append("light_hazard_ignored_without_junction_context")
-        elif (not map_is_roundabout) and static_signal_near and strong_control_context:
+        elif (not map_is_roundabout) and static_signal_near_for_r4 and strong_control_context:
             self._add(scores, RoadStructure.R4, 0.74)
             rules.append("r4_static_xodr_signal_near")
-        elif (not map_is_roundabout) and static_signal_near:
+        elif (not map_is_roundabout) and static_signal_near_for_r4:
             self._add(scores, RoadStructure.R1, 0.76)
             rules.append("r4_static_signal_without_visual_junction_demoted")
 
@@ -2212,7 +2231,7 @@ class RoadStructureRuleEngine:
             if junction_window or scenario_active:
                 if has_tl:
                     r4_score = 0.96
-                elif near_junction or static_signal_near:
+                elif near_junction or static_signal_near_for_r4:
                     r4_score = 0.82
                     rules.append("r4_signalized_without_meta_tl_requires_rgb_review")
                 else:
@@ -2224,7 +2243,7 @@ class RoadStructureRuleEngine:
                 if (
                     scenario_name == "T_Junction"
                     and RoadStructure.R5 in allowed
-                    and not (has_tl or light_hazard or static_signal_near)
+                    and not (has_tl or light_hazard or static_signal_near_for_r4)
                     and stop_hazard
                 ):
                     self._add(scores, RoadStructure.R5, 0.84)
