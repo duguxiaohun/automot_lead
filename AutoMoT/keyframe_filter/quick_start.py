@@ -667,10 +667,15 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
     xodr_counter = Counter()
     rule_kind_counter = Counter()
     route_count = 0
+    annotated_route_count = 0
+    skipped_route_count = 0
+    data_missing_skip_count = 0
+    skip_reason_counter = Counter()
     frame_count = 0
     transition_count = 0
     event_transition_count = 0
     smoothing_change_count = 0
+    r4_recovery_change_count = 0
     confidence_values = []
     review_frame_count = 0
     event_review_frame_count = 0
@@ -681,10 +686,23 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
         scenario_results = {scenario_results.get("scenario", "UNKNOWN"): scenario_results}
 
     for scenario, scenario_result in scenario_results.items():
+        for skipped in scenario_result.get("data_missing_skipped", []):
+            skipped_route_count += 1
+            data_missing_skip_count += 1
+            for reason in skipped.get("skip_reasons") or [skipped.get("skip_reason", "data_missing_skip")]:
+                skip_reason_counter[str(reason)] += 1
         for route in scenario_result.get("routes", []):
             route_count += 1
+            if route.get("status") == "data_missing_skip":
+                skipped_route_count += 1
+                data_missing_skip_count += 1
+                for reason in route.get("skip_reasons") or [route.get("skip_reason", "data_missing_skip")]:
+                    skip_reason_counter[str(reason)] += 1
+                continue
+            annotated_route_count += 1
             transition_count += len(route.get("primary_rs_transitions", []))
             event_transition_count += len(route.get("primary_event_transitions", []))
+            r4_recovery_change_count += len(route.get("r4_context_recovery", {}).get("changes", []))
             smoothing_change_count += len(route.get("temporal_smoothing", {}).get("changes", []))
             for ann in route.get("annotations", []):
                 frame_count += 1
@@ -734,6 +752,10 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
 
     return {
         "route_count": route_count,
+        "annotated_route_count": annotated_route_count,
+        "skipped_route_count": skipped_route_count,
+        "data_missing_skip_count": data_missing_skip_count,
+        "skip_reason_distribution": dict(sorted(skip_reason_counter.items())),
         "frame_count": frame_count,
         "road_structure_labels": ROAD_STRUCTURE_LABELS,
         "event_labels": EVENT_LABELS,
@@ -751,6 +773,7 @@ def _annotation_summary(result: dict) -> Dict[str, Any]:
         "transition_count": transition_count,
         "event_transition_count": event_transition_count,
         "temporal_smoothing_change_count": smoothing_change_count,
+        "r4_context_recovery_change_count": r4_recovery_change_count,
         "sample_comments": sample_comments,
     }
 
@@ -759,11 +782,15 @@ def _print_annotation_summary(summary: Dict[str, Any]) -> None:
     """打印逐帧 RS + EVENT 标注摘要。"""
     print("\n逐帧 RS + EVENT 标注摘要:")
     print(
-        f"  routes={summary['route_count']} frames={summary['frame_count']} "
+        f"  routes={summary['route_count']} annotated_routes={summary.get('annotated_route_count', summary['route_count'])} "
+        f"skipped_routes={summary.get('skipped_route_count', 0)} frames={summary['frame_count']} "
         f"transitions={summary['transition_count']} "
         f"event_transitions={summary.get('event_transition_count', 0)} "
+        f"r4_recoveries={summary.get('r4_context_recovery_change_count', 0)} "
         f"smoothing_changes={summary.get('temporal_smoothing_change_count', 0)}"
     )
+    if summary.get("skipped_route_count"):
+        print(f"  skipped_reasons={summary.get('skip_reason_distribution', {})}")
     print(f"  primary_rs={summary['primary_rs_distribution']}")
     print(f"  primary_event={summary.get('primary_event_distribution', {})}")
     print("  RS 代号含义:")

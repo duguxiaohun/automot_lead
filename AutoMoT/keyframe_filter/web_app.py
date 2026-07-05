@@ -37,6 +37,26 @@ COLLECTION_OUTPUT = Path(
 )
 
 
+def _load_scenario_result(scenario: str):
+    result_file = COLLECTION_OUTPUT / f"{scenario}_result.json"
+    if not result_file.exists():
+        return None
+    with open(result_file, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _find_route_result(result, route_id: str):
+    if not result:
+        return None
+    for route in result.get("routes", []):
+        if route.get("route_id") == route_id:
+            return route
+    for route in result.get("data_missing_skipped", []):
+        if route.get("route_id") == route_id:
+            return route
+    return None
+
+
 @app.after_request
 def add_no_cache_headers(response):
     """标注 JSON 会在外部命令运行后更新，Web 端所有响应都禁止缓存。"""
@@ -69,11 +89,12 @@ def get_scenario_info(scenario):
         return jsonify({"error": "Scenario not found"}), 404
 
     # 尝试加载采集结果
-    result_file = COLLECTION_OUTPUT / f"{scenario}_result.json"
-    result = None
-    if result_file.exists():
-        with open(result_file, 'r') as f:
-            result = json.load(f)
+    result = _load_scenario_result(scenario)
+    data_quality_summary = result.get("data_quality_summary", {}) if result else {}
+    r4_recovery_count = 0
+    if result:
+        for route in result.get("routes", []):
+            r4_recovery_count += len((route.get("r4_context_recovery", {}) or {}).get("changes", []))
 
     return jsonify({
         "scenario": scenario,
@@ -84,6 +105,9 @@ def get_scenario_info(scenario):
         "collected": result is not None,
         "total_frames": result.get('total_frames', 0) if result else 0,
         "num_routes": len(result.get('routes', [])) if result else 0,
+        "data_quality_summary": data_quality_summary,
+        "data_missing_skip_count": result.get("data_missing_skip_count", 0) if result else 0,
+        "r4_context_recovery_count": r4_recovery_count,
     })
 
 
@@ -95,26 +119,32 @@ def get_scenario_routes(scenario):
         return jsonify({"error": "Scenario directory not found"}), 404
 
     routes = sorted([d.name for d in scenario_dir.iterdir() if d.is_dir()])
-    return jsonify({"scenario": scenario, "routes": routes})
+    result = _load_scenario_result(scenario)
+    route_status = {}
+    route_skip_reasons = {}
+    if result:
+        for route in result.get("routes", []):
+            route_status[route.get("route_id")] = route.get("status", "success")
+        for route in result.get("data_missing_skipped", []):
+            route_status[route.get("route_id")] = route.get("status", "data_missing_skip")
+            route_skip_reasons[route.get("route_id")] = route.get("skip_reasons", [])
+    return jsonify({
+        "scenario": scenario,
+        "routes": routes,
+        "route_status": route_status,
+        "route_skip_reasons": route_skip_reasons,
+    })
 
 
 @app.route('/api/scenario/<scenario>/route/<route_id>/frames')
 def get_route_frames(scenario, route_id):
     """获取route的frames"""
     # 从采集结果文件获取
-    result_file = COLLECTION_OUTPUT / f"{scenario}_result.json"
-    if not result_file.exists():
+    result = _load_scenario_result(scenario)
+    if not result:
         return jsonify({"error": "No collection result"}), 404
 
-    with open(result_file, 'r') as f:
-        result = json.load(f)
-
-    route_data = None
-    for route in result.get('routes', []):
-        if route.get('route_id') == route_id:
-            route_data = route
-            break
-
+    route_data = _find_route_result(result, route_id)
     if not route_data:
         return jsonify({"error": "Route not found"}), 404
 
@@ -122,6 +152,11 @@ def get_route_frames(scenario, route_id):
     return jsonify({
         "scenario": scenario,
         "route_id": route_id,
+        "status": route_data.get("status"),
+        "skip_reason": route_data.get("skip_reason"),
+        "skip_reasons": route_data.get("skip_reasons", []),
+        "data_quality": route_data.get("data_quality", {}),
+        "r4_context_recovery": route_data.get("r4_context_recovery", {}),
         "total_frames": len(frames),
         "frames": [f['frame_id'] for f in frames]
     })
@@ -130,19 +165,11 @@ def get_route_frames(scenario, route_id):
 @app.route('/api/scenario/<scenario>/route/<route_id>/annotations')
 def get_route_annotations(scenario, route_id):
     """获取route全部标注，供前端按帧联动显示。"""
-    result_file = COLLECTION_OUTPUT / f"{scenario}_result.json"
-    if not result_file.exists():
+    result = _load_scenario_result(scenario)
+    if not result:
         return jsonify({"error": "No collection result"}), 404
 
-    with open(result_file, 'r') as f:
-        result = json.load(f)
-
-    route_data = None
-    for route in result.get('routes', []):
-        if route.get('route_id') == route_id:
-            route_data = route
-            break
-
+    route_data = _find_route_result(result, route_id)
     if not route_data:
         return jsonify({"error": "Route not found"}), 404
 
@@ -152,6 +179,11 @@ def get_route_annotations(scenario, route_id):
     return jsonify({
         "scenario": scenario,
         "route_id": route_id,
+        "status": route_data.get("status"),
+        "skip_reason": route_data.get("skip_reason"),
+        "skip_reasons": route_data.get("skip_reasons", []),
+        "data_quality": route_data.get("data_quality", {}),
+        "r4_context_recovery": route_data.get("r4_context_recovery", {}),
         "total_frames": len(frame_ids),
         "frames": frame_ids,
         "annotations": annotations,
@@ -760,6 +792,8 @@ HTML_TEMPLATE = """
                         <p><strong>已采集:</strong> ${data.collected ? '✓' : '✗'}</p>
                         <p><strong>帧数:</strong> ${data.total_frames}</p>
                         <p><strong>Route数:</strong> ${data.num_routes}</p>
+                        <p><strong>数据缺失跳过:</strong> ${data.data_missing_skip_count || 0}</p>
+                        <p><strong>R4恢复段:</strong> ${data.r4_context_recovery_count || 0}</p>
                     `;
                     renderLabelLegend(data.road_structures || [], data.events || []);
                 });
@@ -770,10 +804,16 @@ HTML_TEMPLATE = """
                 .then(data => {
                     const select = document.getElementById('routeSelect');
                     select.innerHTML = '<option value="">-- 选择路线 --</option>';
+                    const routeStatus = data.route_status || {};
+                    const routeSkipReasons = data.route_skip_reasons || {};
                     data.routes.forEach(route => {
                         const option = document.createElement('option');
                         option.value = route;
-                        option.textContent = route.substring(0, 50);
+                        const status = routeStatus[route];
+                        const suffix = status === 'data_missing_skip'
+                            ? ` [data missing: ${(routeSkipReasons[route] || []).join(',') || 'unknown'}]`
+                            : '';
+                        option.textContent = route.substring(0, 50) + suffix;
                         select.appendChild(option);
                     });
                 });
@@ -792,6 +832,14 @@ HTML_TEMPLATE = """
                 .then(({ ok, data }) => {
                     if (!ok || data.error) {
                         throw new Error(data.error || '加载帧列表失败');
+                    }
+                    if (data.status === 'data_missing_skip') {
+                        const reasons = (data.skip_reasons || []).join(', ') || data.skip_reason || 'unknown';
+                        document.getElementById('frameSelect').innerHTML = '<option value="">-- 数据缺失，无逐帧标注 --</option>';
+                        routeFrames = [];
+                        routeAnnotationsByFrame = {};
+                        setStatus(`该 route 已跳过：${reasons}`, 'error');
+                        return null;
                     }
 
                     const select = document.getElementById('frameSelect');
@@ -985,6 +1033,8 @@ HTML_TEMPLATE = """
                         <p><strong>已采集:</strong> ${data.collected ? '✓' : '✗'}</p>
                         <p><strong>帧数:</strong> ${data.total_frames}</p>
                         <p><strong>Route数:</strong> ${data.num_routes}</p>
+                        <p><strong>数据缺失跳过:</strong> ${data.data_missing_skip_count || 0}</p>
+                        <p><strong>R4恢复段:</strong> ${data.r4_context_recovery_count || 0}</p>
                     `;
                     renderLabelLegend(data.road_structures || [], data.events || []);
                     if (!route) {
