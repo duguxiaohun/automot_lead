@@ -133,7 +133,8 @@ R1-R6 当前覆盖面足够，不需要继续细分。尤其 R1 可以明确作�
 - noScenarios
 - DynamicObjectCrossing 的多数正常行驶片段
 - HardBreakRoute 急刹前后的普通跟车片段
-- Accident / ConstructionObstacle / ParkedObstacle 的障碍前后普通片段
+- Accident / ConstructionObstacle / ParkedObstacle 的障碍前后普通片段；
+  其中 Accident 前 30 帧若被误标成 R4/R5，强制回 R1 + R-E1
 - StaticCutIn 起步时不在期望车道的部分片段，如果不是匝道或停车区
 
 ### R2. 双向单车道 / 借对向车道道路
@@ -282,7 +283,17 @@ R6 和 R2/R1 在视觉上可能有重叠，但如果单选 ROAD_STRUCTURE，建�
 
 - EnterActorFlow / MergerIntoSlowTraffic 的自车主动合流。
 - HighwayExit 的驶出过程。
-- R3 下的常规速度匹配、找间隙、进入目标车流。
+- R3 下由 XML trigger / actor-flow / XODR ramp-merge-split 同源证据确认的核心 merge/exit span。
+
+R3 是高速/匝道/合流道路结构，不等于全程 R-E3。R3 内的普通跟车、车道保持、速度匹配和 cut-in
+背景默认仍是 R-E1；只有局部 route 中心线偏离并伴随 `changed_route` / signed lane-change 等组合证据时
+才切 R-E2。`lane_change_str` 和 `signed_dist_to_lane_change` 都只是先验/距离线索，不能单独触发 R-E2。R-E3 必须贴住
+合流/驶出核心窗口：EnterActorFlow* 用 trigger 近邻，或 actor-flow 近邻且仍在 trigger 近邻；
+MergerIntoSlowTraffic* 用 trigger / actor-flow+trigger 近邻 / XODR ramp hint 近邻。HighwayExit
+不再用 trigger 欧氏圆窗直接输出 R-E3：高速/匝道正常行驶为 R-E1，真实目标导向换道为 R-E2，
+`next_commands[0]==3` 的出口连接/离开匝道结构转换段为 R-E3。
+actor-flow 不能单独维持 R-E3，否则进入车流后的普通跟车会被长时间误标。
+离开 core 后回 R-E1，若仍有真实目标换道证据则短暂 R-E2。
 
 HighwayCutIn 当前不默认视为 U-E3；它多是自车在主路保持/减速跟车或少量 R-E2 目标导向变道。
 只有后续 RGB/轨迹复核确认“他车突然进入自车未来路径并迫使避让”时，才单独回灌 U-E3。
@@ -871,6 +882,9 @@ R4/R5 > R3 > R2/R6 > R1
 - R3/高速/合流类：导流线、让行牌、宽路面和分流/合流曲线容易被 RGB blind detector 误判 R5。
   若 collector 当前帧有 `rule_kind=highway_merge/highway_exit`、`r3_*` 规则或 route 级 highway RGB bucket，
   `blind_R5_label_R3` 应作为审计器误报解释；不要为了降低该项把 Enter/Merger/HighwayExit 改成 R5。
+  但 EVENT 不能把 `primary_rs=R3` 机械同步成全程 R-E3；R3 regular event 必须再按
+  XML trigger / actor-flow / XODR ramp hint、`signed_dist_to_lane_change`、局部 route 中心线与 meta
+  lane-change 证据拆成 R-E1/R-E2/R-E3。
 - 障碍族：Accident / ConstructionObstacle / ParkedObstacle / HazardAtSideLane 及 TwoWays 版本、
   VehicleOpensDoorTwoWays 都可在 route 前后真实 STOP/无灯路口输出 R5/R-E5；但障碍核心仍按
   U-E2/R2/R-E2 处理，不能因开了 R5 候选就把核心绕障改成路口 regular。
@@ -899,6 +913,8 @@ R4/R5 > R3 > R2/R6 > R1
 
 - `same_direction_obstacle`：`Accident`、`ConstructionObstacle`、`ParkedObstacle`。
   静态同向障碍是 EVENT 证据，不把整段升级成 R2/R6；只在受控路口窗口进入 R4。
+  `Accident` 前 30 帧明确不是十字路口，若 static junction/signal hint 抢成 R4/R5，
+  route 级后处理会回写为 R1，并把 R-E4/R-E5 常规事件同步回 R-E1。
 - `twoways_obstacle` / `invading_turn` / `vehicle_opens_door_twoways`：
   R2 只覆盖必须借/等对向车道的核心片段。核心帧需要 XML trigger、XODR 对向/双向单车道拓扑、
   meta active、近距离障碍、stuck、vehicle_hazard 或 lane-change 证据共同支撑。
@@ -917,6 +933,12 @@ R4/R5 > R3 > R2/R6 > R1
   已由全量逐帧 RGB 确认是稳定无灯控高速/快速路背景，候选池删除 R1/R4；非路口段默认 R3。
   `HighwayCutIn` 与 `MergerIntoSlowTraffic` 删除 R1 但保留少量 R4 子集；R4 只能由逐帧
   RGB/meta/bbox 灯控同源证据触发，merge/exit/actor-flow 窗口只提高 R3 置信度。
+  R3 下 EVENT 二次判定：HighwayCutIn 默认 R-E1，只有显式 `changed_route` 或有限
+  route 中心线偏离 + lane-change 组合证据才 R-E2；EnterActorFlow* 的 R-E3 贴 trigger<=20m，或 actor-flow<=20m
+  且 trigger<=30m；HighwayExit 不用 trigger-only R-E3，高速/匝道普通行驶为 R-E1，目标换道短段 R-E2，
+  `next_commands[0]==3` 的出口连接/离开匝道段为 R-E3；
+  MergerIntoSlowTraffic* 的 R-E3 贴 trigger<=20m、actor-flow<=18m 且 trigger<=30m，或 ramp/merge XODR 近邻。
+  这层逻辑只改 EVENT，不改变 ROAD_STRUCTURE=R3 的道路空间判断。
 - 混合场景 route 分桶：`HardBreakRoute`、`InterurbanActorFlow`、`InterurbanAdvancedActorFlow`、
   `StaticCutIn`、`ParkingCutIn` 不能只按 scenario 或 Town12/13 判 RS。必须先用 RGB sheet
   把 route 分为高速/快速路桶、普通城市/乡村桶、停车/路边桶等；高速桶候选收敛为 R3/R4，
@@ -962,9 +984,11 @@ R4/R5 > R3 > R2/R6 > R1
   被误计为 R5 mismatch；完整 `U-E2 -> R-E2` 后回到 R-E1 的普通车流 motion 不再计作漏事件。
 
 初始阈值只作为调研起点：`junction_pre_m=40~60`、`junction_post_m=20~40`；
-运行时路口窗口会轻量收缩为 `0.85 * junction_pre/post`（pre 最小 30m、post 最小 15m），
-`dist_to_junction_near=45m`，strong junction 上限 30m，static signal near 上限 45m，
-让十字路口/丁字路口只覆盖接近、进入、刚离开的局部片段。
+运行时同时收紧进入和退出侧：effective pre = `0.40 * junction_pre`（pre 最小 20m），
+effective post = `0.35 * junction_post`（post 最小 6m）。`dist_to_junction_near=35m`，
+strong junction 上限 22m，static signal near 上限 35m，close-trigger 上限 25m；
+进入侧在原配置上约缩短 60%，退出侧约缩短 65%，辅助召回阈值也同步收紧，避免 R4/R5
+过早吞掉正常接近/跟车阶段，离开路口后也更快回普通道路。
 `BlockedIntersection` 的十字路口窗口在该基础前额外压缩 20%，基准为
 `junction_pre_m=48`、`junction_post_m=20`；阻塞是 EVENT，不应把 R4/R5 范围拖长。
 窗口内有灯控同源证据才 R4；STOP/yield/无灯控制源优先 R5，不能再按场景名默认 R4。

@@ -422,8 +422,8 @@ SCENARIO_TO_FINE_EVENTS = {
     "CrossingBicycleFlow": [EventType.R_E1, EventType.R_E4, EventType.U_E4],
     "CrossJunctionDefectTrafficLight": [EventType.R_E1, EventType.R_E5, EventType.U_E6, EventType.U_E7],
     "DynamicObjectCrossing": [EventType.R_E1, EventType.R_E4, EventType.R_E5, EventType.U_E3, EventType.U_E4],
-    "EnterActorFlow": [EventType.R_E1, EventType.R_E3],
-    "EnterActorFlowV2": [EventType.R_E1, EventType.R_E3],
+    "EnterActorFlow": [EventType.R_E1, EventType.R_E2, EventType.R_E3],
+    "EnterActorFlowV2": [EventType.R_E1, EventType.R_E2, EventType.R_E3],
     "HardBreakRoute": [EventType.R_E1, EventType.R_E4, EventType.R_E5, EventType.U_E1],
     "HazardAtSideLane": [EventType.R_E1, EventType.R_E2, EventType.R_E5, EventType.U_E2],
     "HazardAtSideLaneTwoWays": [EventType.R_E1, EventType.R_E2, EventType.R_E5, EventType.U_E2],
@@ -432,8 +432,8 @@ SCENARIO_TO_FINE_EVENTS = {
     "InterurbanActorFlow": [EventType.R_E1, EventType.R_E2, EventType.R_E5],
     "InterurbanAdvancedActorFlow": [EventType.R_E1, EventType.R_E5],
     "InvadingTurn": [EventType.R_E1, EventType.R_E4, EventType.R_E5, EventType.U_E5],
-    "MergerIntoSlowTraffic": [EventType.R_E1, EventType.R_E3, EventType.R_E4],
-    "MergerIntoSlowTrafficV2": [EventType.R_E1, EventType.R_E3],
+    "MergerIntoSlowTraffic": [EventType.R_E1, EventType.R_E2, EventType.R_E3, EventType.R_E4],
+    "MergerIntoSlowTrafficV2": [EventType.R_E1, EventType.R_E2, EventType.R_E3],
     "NonSignalizedJunctionLeftTurn": [EventType.R_E1, EventType.R_E5],
     "NonSignalizedJunctionLeftTurnEnterFlow": [EventType.R_E1, EventType.R_E5],
     "NonSignalizedJunctionRightTurn": [EventType.R_E1, EventType.R_E4, EventType.R_E5],
@@ -1429,17 +1429,20 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
 }
 
 
-JUNCTION_WINDOW_SCALE = 0.85
-JUNCTION_META_NEAR_M = 45.0
-JUNCTION_STRONG_MAX_M = 30.0
-STATIC_SIGNAL_NEAR_M = 45.0
-JUNCTION_CLOSE_TRIGGER_MAX_M = 35.0
+JUNCTION_PRE_WINDOW_SCALE = 0.40
+JUNCTION_POST_WINDOW_SCALE = 0.35
+JUNCTION_PRE_WINDOW_MIN_M = 20.0
+JUNCTION_POST_WINDOW_MIN_M = 6.0
+JUNCTION_META_NEAR_M = 35.0
+JUNCTION_STRONG_MAX_M = 22.0
+STATIC_SIGNAL_NEAR_M = 35.0
+JUNCTION_CLOSE_TRIGGER_MAX_M = 25.0
 
 
 def _shrink_junction_window(pre_m: float, post_m: float) -> Tuple[float, float]:
-    """轻微收窄路口影响区，避免十字路口标签覆盖过早/过晚。"""
-    pre = max(30.0, float(pre_m) * JUNCTION_WINDOW_SCALE)
-    post = max(15.0, float(post_m) * JUNCTION_WINDOW_SCALE)
+    """收紧路口影响区，避免十字路口标签过早/过晚覆盖普通路段。"""
+    pre = max(JUNCTION_PRE_WINDOW_MIN_M, float(pre_m) * JUNCTION_PRE_WINDOW_SCALE)
+    post = max(JUNCTION_POST_WINDOW_MIN_M, float(post_m) * JUNCTION_POST_WINDOW_SCALE)
     return pre, post
 
 
@@ -1668,21 +1671,134 @@ class RoadEventRuleEngine:
         return changed_route or signed_active
 
     @staticmethod
-    def _regular_event(scenario_name: str, primary_rs: RoadStructure, frame_data: Dict[str, Any]) -> EventType:
+    def _signed_lane_change_intent(frame_data: Dict[str, Any]) -> bool:
+        signed = abs(_safe_float(frame_data.get("signed_dist_to_lane_change"), default=math.inf))
+        return math.isfinite(signed) and signed <= 2.0
+
+    @staticmethod
+    def _highway_exit_ramp_transition_active(frame_data: Dict[str, Any]) -> bool:
+        commands = frame_data.get("next_commands")
+        if not isinstance(commands, (list, tuple)) or not commands:
+            return False
+        try:
+            first_command = int(commands[0])
+        except (TypeError, ValueError):
+            return False
+        return first_command == 3
+
+    @staticmethod
+    def _highway_r3_core_event_active(
+        scenario_name: str,
+        frame_data: Dict[str, Any],
+        evidence: Dict[str, Any],
+    ) -> Tuple[bool, List[str], Dict[str, Any]]:
+        """R3 是道路空间；只有真实合流/驶出核心窗口才输出 R-E3。"""
+        if scenario_name == "HighwayCutIn":
+            return False, ["event_highway_cutin_regular_follow_default"], {"highway_r3_core_active": False}
+        if scenario_name == "HighwayExit":
+            active = RoadEventRuleEngine._highway_exit_ramp_transition_active(frame_data)
+            return active, (
+                ["event_highway_exit_ramp_transition_r3"] if active else ["event_highway_exit_regular_follow_default"]
+            ), {"highway_r3_core_active": active, "highway_exit_command3_transition": active}
+
+        trigger_distance = _safe_float(evidence.get("trigger_distance_m"), default=math.inf)
+        actor_flow_distance = _safe_float(evidence.get("actor_flow_distance_m"), default=math.inf)
+        xodr = evidence.get("xodr") or {}
+        ramp_hint = bool(xodr.get("ramp_merge_split_hint", False))
+
+        trigger_core_m = {
+            "EnterActorFlow": 20.0,
+            "EnterActorFlowV2": 20.0,
+            "MergerIntoSlowTraffic": 20.0,
+            "MergerIntoSlowTrafficV2": 20.0,
+        }.get(scenario_name, 20.0)
+        actor_core_m = {
+            "EnterActorFlow": 20.0,
+            "EnterActorFlowV2": 20.0,
+            "MergerIntoSlowTraffic": 18.0,
+            "MergerIntoSlowTrafficV2": 18.0,
+        }.get(scenario_name, math.inf)
+        actor_trigger_guard_m = {
+            "EnterActorFlow": 30.0,
+            "EnterActorFlowV2": 30.0,
+            "MergerIntoSlowTraffic": 30.0,
+            "MergerIntoSlowTrafficV2": 30.0,
+        }.get(scenario_name, math.inf)
+
+        trigger_core = trigger_distance <= trigger_core_m
+        actor_core = (
+            math.isfinite(actor_core_m)
+            and actor_flow_distance <= actor_core_m
+            and trigger_distance <= actor_trigger_guard_m
+        )
+        ramp_core = ramp_hint and trigger_distance <= max(trigger_core_m, 25.0)
+        active = trigger_core or actor_core or ramp_core
+
+        rules = []
+        if trigger_core:
+            rules.append("event_highway_trigger_core_r3")
+        if actor_core:
+            rules.append("event_highway_actor_flow_core_r3")
+        if ramp_core:
+            rules.append("event_highway_xodr_ramp_core_r3")
+        if not rules:
+            rules.append("event_highway_r3_space_regular_follow")
+        return active, rules, {
+            "highway_r3_core_active": active,
+            "highway_trigger_core_m": trigger_core_m,
+            "highway_actor_flow_core_m": None if math.isinf(actor_core_m) else actor_core_m,
+            "highway_actor_trigger_guard_m": None if math.isinf(actor_trigger_guard_m) else actor_trigger_guard_m,
+            "highway_trigger_distance_m": trigger_distance if math.isfinite(trigger_distance) else None,
+            "highway_actor_flow_distance_m": actor_flow_distance if math.isfinite(actor_flow_distance) else None,
+            "highway_ramp_merge_split_hint": ramp_hint,
+        }
+
+    @staticmethod
+    def _regular_event_details(
+        scenario_name: str,
+        primary_rs: RoadStructure,
+        frame_data: Dict[str, Any],
+        evidence: Dict[str, Any],
+    ) -> Tuple[EventType, List[str], Dict[str, Any]]:
         if primary_rs == RoadStructure.R4:
-            return EventType.R_E4
+            return EventType.R_E4, ["event_regular_by_r4_signalized_junction"], {}
         if primary_rs == RoadStructure.R5:
-            return EventType.R_E5
-        if scenario_name in R3_MERGE_SCENARIOS and primary_rs == RoadStructure.R3:
-            return EventType.R_E3
+            return EventType.R_E5, ["event_regular_by_r5_nonsignalized_or_defect_junction"], {}
+        if primary_rs == RoadStructure.R3:
+            core_active, core_rules, core_metrics = RoadEventRuleEngine._highway_r3_core_event_active(
+                scenario_name,
+                frame_data,
+                evidence,
+            )
+            lane_change_active = RoadEventRuleEngine._target_lane_change_active(frame_data)
+            if core_active:
+                return EventType.R_E3, core_rules, core_metrics
+            if lane_change_active:
+                metrics = dict(core_metrics)
+                metrics["highway_lane_change_regular"] = True
+                return EventType.R_E2, ["event_highway_target_lane_change_r2", *core_rules], metrics
+            return EventType.R_E1, core_rules, core_metrics
         if scenario_name in {"HighwayCutIn", "HighwayExit", "InterurbanActorFlow", "ParkingExit", "StaticCutIn"}:
             if RoadEventRuleEngine._target_lane_change_active(frame_data):
-                return EventType.R_E2
-        if primary_rs == RoadStructure.R3:
-            return EventType.R_E3
+                return EventType.R_E2, ["event_regular_target_lane_change_r2"], {}
         if primary_rs in {RoadStructure.R1, RoadStructure.R2, RoadStructure.R6} and RoadEventRuleEngine._target_lane_change_active(frame_data):
-            return EventType.R_E2
-        return EventType.R_E1
+            return EventType.R_E2, ["event_regular_target_lane_change_r2"], {}
+        return EventType.R_E1, ["event_regular_by_road_structure"], {}
+
+    @staticmethod
+    def _regular_event(
+        scenario_name: str,
+        primary_rs: RoadStructure,
+        frame_data: Dict[str, Any],
+        evidence: Dict[str, Any],
+    ) -> EventType:
+        event, _rules, _metrics = RoadEventRuleEngine._regular_event_details(
+            scenario_name,
+            primary_rs,
+            frame_data,
+            evidence,
+        )
+        return event
 
     @staticmethod
     def _obstacle_event(
@@ -1801,7 +1917,12 @@ class RoadEventRuleEngine:
         road_allowed = set(ROAD_STRUCTURE_TO_FINE_EVENTS.get(primary_rs, {EventType.R_E1}))
         if scenario_name == "InvadingTurn" and primary_rs == RoadStructure.R4:
             road_allowed.add(EventType.U_E5)
-        regular = RoadEventRuleEngine._regular_event(scenario_name, primary_rs, frame_data)
+        regular, regular_rules, regular_metrics = RoadEventRuleEngine._regular_event_details(
+            scenario_name,
+            primary_rs,
+            frame_data,
+            evidence,
+        )
         allowed = (scenario_allowed & road_allowed) | {regular}
 
         unusual: Optional[EventType] = None
@@ -1926,6 +2047,7 @@ class RoadEventRuleEngine:
                 "primary_road_structure": primary_rs.value,
             }
         )
+        metrics.update(regular_metrics)
         event_evidence = {
             "primary_event": primary_event.value,
             "events": [ev.value for ev in sorted(events, key=lambda ev: ev.value)],
@@ -1933,7 +2055,7 @@ class RoadEventRuleEngine:
             "unusual_event": unusual.value if unusual else None,
             "secondary_unusual_events": [ev.value for ev in sorted(extra_events, key=lambda ev: ev.value)],
             "allowed_events": [ev.value for ev in allowed],
-            "rules_fired": rules or ["event_regular_by_road_structure"],
+            "rules_fired": rules or regular_rules or ["event_regular_by_road_structure"],
             "metrics": metrics,
             "review_required": False,
             "review_reasons": [],
@@ -2913,7 +3035,8 @@ class RoadStructureRuleEngine:
                 "junction_post_m": junction_post,
                 "effective_pre_m": round(junction_pre_window, 3),
                 "effective_post_m": round(junction_post_window, 3),
-                "scale": JUNCTION_WINDOW_SCALE,
+                "pre_scale": JUNCTION_PRE_WINDOW_SCALE,
+                "post_scale": JUNCTION_POST_WINDOW_SCALE,
                 "meta_near_m": JUNCTION_META_NEAR_M,
                 "strong_max_m": JUNCTION_STRONG_MAX_M,
                 "static_signal_near_m": STATIC_SIGNAL_NEAR_M,
@@ -3656,7 +3779,16 @@ class ScenarioCollector:
             if rs == RoadStructure.R5.value:
                 return EventType.R_E5
             if rs == RoadStructure.R3.value:
-                return EventType.R_E3
+                event_evidence = ann.get("event_evidence") or {}
+                regular = event_evidence.get("regular_event")
+                if regular in {EventType.R_E1.value, EventType.R_E2.value, EventType.R_E3.value}:
+                    return EventType(regular)
+                metrics = event_evidence.get("metrics") or {}
+                if bool(metrics.get("highway_r3_core_active")):
+                    return EventType.R_E3
+                if bool(metrics.get("target_lane_change_active")) or bool(metrics.get("highway_lane_change_regular")):
+                    return EventType.R_E2
+                return EventType.R_E1
             return EventType.R_E1
 
         def _intersection_or_signal_control(ann: Dict[str, Any]) -> bool:
@@ -5073,6 +5205,53 @@ class ScenarioCollector:
 
         return {"enabled": True, "min_frames": {"R1": 2, "R2": 4, "R3": 4, "R4": 4, "R5": 4, "R6": 4}, "changes": changes}
 
+    def _apply_accident_initial_no_junction_filter(
+        self,
+        scenario_name: str,
+        annotations: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Accident 起始段不是十字路口：前 30 帧若误入 R4/R5，强制回 R1。"""
+        first_n_frames = 30
+        if scenario_name != "Accident" or not annotations:
+            return {"enabled": False, "changes": []}
+
+        changes: List[Dict[str, Any]] = []
+        for index, ann in enumerate(annotations[:first_n_frames]):
+            old_rs = ann.get("primary_road_structure")
+            if old_rs not in {RoadStructure.R4.value, RoadStructure.R5.value}:
+                continue
+            old_event = ann.get("primary_event")
+            change = {
+                "frame_index": index,
+                "frame_id": ann.get("frame_id"),
+                "from": old_rs,
+                "to": RoadStructure.R1.value,
+                "old_primary_event": old_event,
+                "reason": "accident_initial_30_frames_no_junction",
+            }
+            self._rewrite_rs_label(
+                ann,
+                RoadStructure.R1.value,
+                "accident_initial_30_frames_no_junction",
+                "route_level_accident_initial_filter",
+            )
+            if old_event in {EventType.R_E4.value, EventType.R_E5.value}:
+                self._rewrite_event_label(
+                    ann,
+                    {EventType.R_E1},
+                    EventType.R_E1,
+                    "event_recomputed_after_accident_initial_no_junction",
+                )
+                ann["frame_event_annotation"] = self._frame_event_annotation_payload(ann)
+                change["new_primary_event"] = EventType.R_E1.value
+            else:
+                change["new_primary_event"] = ann.get("primary_event")
+            evidence = ann.setdefault("evidence", {})
+            evidence.setdefault("accident_initial_no_junction_filter", []).append(change)
+            changes.append(change)
+
+        return {"enabled": True, "first_n_frames": first_n_frames, "changes": changes}
+
     def _fallback_after_twoways_core(self, ann: Dict[str, Any]) -> str:
         """TwoWays 核心段结束后回到真实路网标签：有强 R4 证据才回 R4，否则 R1。"""
         candidates = ann.get("road_structure_candidates", {}) or {}
@@ -5322,6 +5501,7 @@ class ScenarioCollector:
         twoways_longest_r2_filter = self._apply_twoways_longest_r2_filter(scenario_name, annotations)
         r4_context_recovery = self._apply_r4_context_recovery(annotations)
         temporal_smoothing_summary = self._apply_temporal_rs_smoothing(annotations)
+        accident_initial_no_junction_filter = self._apply_accident_initial_no_junction_filter(scenario_name, annotations)
         event_postprocess_summary = self._apply_event_route_postprocess(scenario_name, annotations)
 
         primary_counter = defaultdict(int)
@@ -5398,6 +5578,7 @@ class ScenarioCollector:
             "twoways_longest_r2_filter": twoways_longest_r2_filter,
             "r4_context_recovery": r4_context_recovery,
             "temporal_smoothing": temporal_smoothing_summary,
+            "accident_initial_no_junction_filter": accident_initial_no_junction_filter,
             "event_postprocess": event_postprocess_summary,
             "confidence_stats": self._confidence_stats(annotations),
             "primary_rs_transitions": transition_frames[:50],
