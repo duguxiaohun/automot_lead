@@ -650,6 +650,8 @@ meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；后�
 
 - `same_direction_obstacle`：`Accident`、`ConstructionObstacle`、`ParkedObstacle`。
   静态同向障碍是 EVENT 证据，不把整段升级成 R2/R6；只在受控路口窗口进入 R4。
+  `Accident` 前 30 帧如果被静态 junction/signal hint 误标成 R4/R5，会强制回 R1，
+  由十字路口产生的 R-E4/R-E5 常规事件也同步回 R-E1。
 - `twoways_obstacle` / `invading_turn` / `vehicle_opens_door_twoways`：
   R2 只覆盖核心借道/障碍层。核心层需要 XML trigger、XODR 对向/双向单车道拓扑、
   meta active、近距离障碍、stuck、vehicle_hazard、lane-change 证据；
@@ -699,9 +701,11 @@ meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；后�
   修复后剩余 R1+灯控证据主要是 `noScenarios` 弱静态 XODR signal 或短 R4 片段被时序平滑。
 
 本轮自动阈值是调研初值：`junction_pre_m=40~60`、`junction_post_m=20~40`；
-运行时会对路口窗口轻量收缩，effective window = `0.85 * junction_pre/post`
-（pre 最小 30m、post 最小 15m），`dist_to_junction_near=45m`，strong junction 上限 30m，
-static signal near 上限 45m，避免十字路口范围过早/过晚覆盖普通路段。
+运行时同时收紧十字路口进入和退出侧：effective pre = `0.40 * junction_pre`
+（pre 最小 20m），effective post = `0.35 * junction_post`（post 最小 6m）。
+`dist_to_junction_near=35m`，strong junction 上限 22m，static signal near 上限 35m，
+close-trigger 上限 25m；进入/退出侧与辅助召回阈值都继续收窄，避免 R4/R5 过早吞掉正常接近/跟车阶段；
+离开路口后也更快回普通道路。
 `BlockedIntersection` 的十字路口窗口额外压缩 20%，基准为 `junction_pre_m=48`、
 `junction_post_m=20`，阻塞本身只进 EVENT，不能扩大成整段 R4/R5。
 但 static signal 近邻不是 R4 充分条件；只有有效 meta 灯态、stop/light hazard、
