@@ -178,6 +178,9 @@ EVENT 后处理会按 scenario 家族执行 route 级去抖：
   触发后才开始 U-E2；不能让前方运动车辆跟车距离或普通减速抢占唯一 U-E2 名额；`U-E3` 的保留优先看
   `dist_to_cutin_vehicle`、`brake_cutin`、`vehicle_hazard` 和对象进入自车未来路径，
   不能让普通跟车减速或红灯等待抢占唯一 U-E3 名额。
+  反过来，`*_TwoWays` 的 `U-E2/U-E3` 也不能只靠 XML trigger 或旧 R2 候选提前开始：
+  当前帧必须仍有最终 R2、具体障碍核心距离、TwoWays core/stuck/hazard 或强 R2 core rule。
+  真正借/占对向车道之前保持当前道路 regular；越过核心后回目标/原车道才进入 R-E2。
   TwoWays 单次 U-E2 span 评分以最终 R2 重叠为硬优先；后处理若先切出短 R-E2/R-E1 再发现两侧仍是
   同一借道绕障核心，会二次合并回 U-E2，避免 `U-E2 -> R-E2/R-E1 -> U-E2` 的假断裂。
   R4/R5 路口、有效红绿灯或红灯等待帧不允许继续保持 `U-E2/U-E3`；这类帧会释放为
@@ -196,6 +199,13 @@ EVENT 后处理会按 scenario 家族执行 route 级去抖：
   对事故/施工/停放/side hazard/开门等障碍恢复类，`U-E2 -> R-E1 -> R-E2`
   的桥接窗口放宽到 8 帧；反过来，如果 R-E2 离最近 U-E2 超过约 6 秒（24 帧），
   视为后段弯道/跟车/投影扰动，释放回当前道路 regular event。
+  `AccidentTwoWays` 对 `U-E2 -> R-E2 -> 短 R-E1 -> R-E4/R-E5/route-end` 还会做尾段桥接：
+  这段短 R-E1 仍按借对向绕障后的回目标/原车道处理为 R-E2，避免恢复尾段过早变成普通跟车。
+  如果 `AccidentTwoWays` 的 R2 核心刚好叠在 R4/R5 路口跟前，ROAD_STRUCTURE 可以保持
+  R4/R5 主标签，但 EVENT 层按 R2 overlay 处理：U-E2/R-E2 优先于 R-E4/R-E5，不能让路口常规事件吃掉借道绕障事件。
+  对 `Town07_route_001454` 这类 XML/meta 强核心，R2 primary 还会反过来压过 R4/R5：
+  即使 route projection error 让 two-way window 失效，只要近距离事故障碍、stuck 或 vehicle_hazard 仍在，
+  就保持 R2/U-E2，不能因 bbox traffic_light 或路口控制源提前释放。
   非 TwoWays 同向障碍还会检查 `dist_to_*` 最近点：经过最近障碍点后若距离开始回升且
   ego-frame route 已稳定回中心线，后段即使仍在距离阈值内也释放为常规；若仍在回正轨迹中，
   只保留很短的 R-E2，避免“绕完以后才开始 U-E2”或 U-E2 尾段粘滞。
@@ -216,11 +226,12 @@ EVENT 后处理会按 scenario 家族执行 route 级去抖：
 - 行人/自行车横穿按场景区分时机：`ParkingCrossingPedestrian` 可在进入路口前由近距离
   pedestrian/walker hazard 触发；`VehicleTurningRoute*` 只在转弯/驶出后对象进入交互范围时触发。
 
-每条 route 还会先执行 TwoWays 核心 span 裁剪和最长 R2 段过滤，再执行统一时序去抖：`*_TwoWays` 静态/侧向障碍
-只在必须借/等对向的局部核心段保持 R2；过最近障碍点后，若连续约 0.75s 远离超过 2m 且没有
-`stuck` / `vehicle_hazard`，后段会按证据回 R1 或 R4，并在 route 摘要写
-`twoways_core_span_clipping.changes`。若同一条 TwoWays route 中出现多个 R2 片段，只保留最长连续
-R2 段作为真正核心，其它偶发短 R2 扰动按当前证据回 R1/R4，并写入
+每条 route 还会先执行 TwoWays 事件型 R2 裁剪和 R2 碎片过滤，再执行统一时序去抖：`*_TwoWays` 若 XODR/meta
+确认是双向单车道，正常直道 ROAD_STRUCTURE 也保持 R2；只有不是双向单车道、仅靠障碍核心临时召回的 R2，
+才会在过最近障碍点后，因连续约 0.75s 远离超过 2m 且没有 `stuck` / `vehicle_hazard`，
+按证据回 R1 或 R4，并在 route 摘要写
+`twoways_core_span_clipping.changes`。若同一条 TwoWays route 中出现多个无拓扑支撑的 R2 片段，只保留最长连续
+事件型 R2 段，其它偶发短 R2 扰动按当前证据回 R1/R4，并写入
 `twoways_longest_r2_filter.changes`。随后 R2/R3/R4/R5/R6 短于 4 帧、R1 短于 2 帧的孤立片段
 会并回邻近稳定片段，去抖原因写入 `evidence.temporal_smoothing`，route 摘要写入
 `temporal_smoothing.changes`。这条规则适用于全部 RS，不只是 R1/R4；其中 R4/R5
@@ -325,11 +336,9 @@ python keyframe_filter/rs_full_frame_review.py \
 - `route_projection_error_high` 时仍把 XML route_s / trigger window 当 hard boundary，导致普通路段被过早标成 R4/R5/R3。
 - 静态 XODR signal/opposite/parking/merge/junction hint 与 RGB 不同源，尤其在雾、夜间、稀疏 route 或投影偏移时会误导规则。
 - 只按 scenario 名称或 active scenario 延长特殊 RS，导致事件已经结束或 merge/路口已经离开后仍保持 R2/R3/R4/R5/R6。
-- 反向问题也存在：明显高速/merge 因 XODR 投影失败被压回 R1；坏 XODR 不能当作否定证据，
-  但 TwoWays road-layout 本身也不能把非核心片段升成 R2。
-- `two_way_layout_prior` 若被理解成整条 route 的场景名先验，会把 `AccidentTwoWays`、
-  `ConstructionObstacleTwoWays` 等非核心片段误标为 R2；它现在只能作为弱候选，R2 primary
-  只覆盖必须借/等对向的核心障碍 span，绕过障碍后恢复 R1/R4。
+- 反向问题也存在：明显高速/merge 或双向单车道因 XODR 投影失败被压回 R1；坏 XODR 不能当作否定证据。
+- `two_way_layout_prior` 不能只靠场景名把整条 route 升成 R2；但一旦 XODR/meta 确认是双向单车道，
+  正常直道也应为 R2。是否处在借对向绕障核心由 EVENT 的 `U-E2/U-E3` 决定，而不是靠 RS 从 R1/R2 切换表达。
 - 高速/merge/exit/enter-flow 场景此前被 R1 默认桶吃掉；全量逐帧 RGB 确认
   `HighwayExit`、`EnterActorFlow*`、`MergerIntoSlowTrafficV2` 稳定按 R3 收敛且不开放 R1/R4。
   `HighwayCutIn` 与 `MergerIntoSlowTraffic` 主体仍是 R3，但存在少量真实灯控子集，因此恢复 R4 候选；
@@ -358,11 +367,10 @@ python keyframe_filter/rs_full_frame_review.py \
   `collector.py` 会读取同帧 `bboxes/*.pkl` 的轻量语义摘要：`traffic_light` 可辅助 R4，
   `stop_sign/yield/junction/crosswalk` 可辅助 R5；但高速/merge 场景中缺少同源控制上下文的灯控 hint
   会被降级为 review 弱候选，不压过默认 R3。
-  TwoWays 的 R2 high 必须有近距离障碍、stuck、vehicle_hazard、lane-change 核心证据，
-  或 XML trigger 极近 / trigger-close + XML 场景障碍近距离召回；
-  双向 road-layout 本身不能维持 R2 primary。`twoways_obstacle` 现在把 layout-prior
-  降为 R2=0.58 弱候选，R1=0.78 做主标签；核心障碍/借道帧由 trigger/meta 给 R2=0.90，
-  XML 近核心召回给 R2=0.88。R2 结束后重新按 meta/XODR 判 R1 或 R4。
+  TwoWays 的 R2 high 分两类：XODR/meta 确认双向单车道时，正常直道也保持 R2；
+  若拓扑不确认，则只能由近距离障碍、stuck、vehicle_hazard、lane-change 核心证据，
+  或 XML trigger 极近 / trigger-close + XML 场景障碍近距离临时召回事件型 R2。
+  `twoways_obstacle` 的纯场景名 layout-prior 仍降为弱候选；是否处在借对向核心由 U-E2/U-E3 表达。
   输出 evidence 里同步写入 `strong_control_context` 和 TwoWays 专用
   `twoway_obstruction_evidence`，用于区分规则思路问题、参数窗口问题和底层证据缺失。
 
@@ -385,7 +393,8 @@ python keyframe_filter/quick_start.py annotate-rs \
 代表性错配路线里，`Accident/Town03` 无清晰路口/灯控画面时尾段 R4 回 R1；
 `AccidentTwoWays/Town01` 当前代码复核边界是
 `R1 f0-f55 -> R2 f56-f108 -> R1 f109-f149 -> R4 f150-end`；`twoways_core_span_clipping`
-把最近障碍点后的 f109-f135 从旧 R2 裁回 R1，绕过障碍后不再保持 R2，也不能在红绿灯后段一直保持 R1；
+把最近障碍点后的无拓扑支撑旧 R2 裁回 R1；若该后段由 XODR/meta 确认为双向单车道，则应保持 R2，
+不能在红绿灯后段一直保持 R1；
 本轮 TwoWays smoke 覆盖 Accident/Construction/Hazard/Parked 四类各 5 条 route，均能召回核心 R2；
 `HighwayExit/EnterActorFlow*/MergerIntoSlowTrafficV2` 不再被 R1/R4 吃掉，局部复核输出均为 R3；
 `HighwayCutIn/MergerIntoSlowTraffic` 主体仍是 R3，但保留逐帧灯控子集 R4；
@@ -626,8 +635,8 @@ route 级结果还会写入：
   或显式 scenario config，并能回指到 maps/RGB/meta/XML/XODR 证据。
 - 用户指出错帧时，先查该 scenario 的调研包：README -> map trace -> XML/XODR -> meta jsonl ->
   RGB contact sheet/boundary frame -> thresholds/code。不要直接调阈值。
-- TwoWays 只在必须借/等对向的核心障碍 span 输出 R2；障碍前和绕过障碍后回 R1/R4，
-  `two_way_layout_prior` 只能作为弱候选，不做 primary。
+- TwoWays 的双向单车道直道应输出 R2；如果该 route/片段并非双向单车道，才不能凭场景名输出 R2。
+  `two_way_layout_prior` 只能作为弱候选，必须有 XODR/meta 对向单车道拓扑或核心障碍证据才可做 primary。
 - Parking* 不全程 R6，灯控路口段 R4 优先。
 - `CrossJunctionDefectTrafficLight` 强制 R5 覆盖 R4。
 - `ParkedObstacle` 不是 R6；`ParkedObstacleTwoWays` 核心窗口才是 R2。
@@ -651,10 +660,18 @@ meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；后�
 - `same_direction_obstacle`：`Accident`、`ConstructionObstacle`、`ParkedObstacle`。
   静态同向障碍是 EVENT 证据，不把整段升级成 R2/R6；只在受控路口窗口进入 R4。
   `Accident` 前 30 帧如果被静态 junction/signal hint 误标成 R4/R5，会强制回 R1，
-  由十字路口产生的 R-E4/R-E5 常规事件也同步回 R-E1。
+  但 Town13 例外：Town13 按原始 XODR/meta/RGB 证据保留 R2/R4/R5；
+  其它 town 中由十字路口产生的 R-E4/R-E5 常规事件同步回 R-E1。
 - `twoways_obstacle` / `invading_turn` / `vehicle_opens_door_twoways`：
-  R2 只覆盖核心借道/障碍层。核心层需要 XML trigger、XODR 对向/双向单车道拓扑、
-  meta active、近距离障碍、stuck、vehicle_hazard、lane-change 证据；
+  R2 表示双向单车道 / 对向车道参与的道路结构；XODR/meta 确认双向单车道时，正常直道也应为 R2。
+  若不是双向单车道，只能由 XML trigger、meta active、近距离障碍、stuck、vehicle_hazard、
+  lane-change 核心证据临时召回事件型 R2；
+  `AccidentTwoWays` 前 30 帧同样不允许被静态 junction/signal hint 抢成 R4/R5，
+  但 Town13 例外，应该是什么 ROAD_STRUCTURE 就保留什么；
+  其它 town 若误标则强制回 R1，并把由十字路口产生的 R-E4/R-E5 常规事件同步回 R-E1。
+  但在核心借对向/绕障已经发生、且同帧又靠近真实 R4/R5 控制区时，允许 R2 与 R4/R5
+  在事件层叠加：道路主标签可为 R4/R5，事件仍优先输出 U-E2/R-E2。
+  若 meta/XML 明确是强 R2 核心，则道路主标签也优先 R2，R4/R5 只能作为 secondary/overlay 信息。
   对 `*_TwoWays`，XML trigger 极近或 trigger-close + XML 场景障碍近距离可召回短核心 R2。
   道路布局层只给弱候选；R2 结束后必须重新按 XODR/meta 判 R1/R4。
   `InvadingTurn` 已按 2026-07-04 全量逐帧 RGB 审计删除 R4、加入 R5；STOP/无灯路口窗口给 R5，
@@ -732,7 +749,7 @@ close-trigger 上限 25m；进入/退出侧与辅助召回阈值都继续收窄�
 | Web XODR 显示 `trusted=false` | 说明静态 XODR 投影或局部拓扑不足以 high confidence；优先用 CARLA Python 环境重跑并对比 review 是否下降 |
 | 环岛被标成 R4/R5 | 检查 Web XODR 摘要是否有 `roundabout=true`；若没有，说明该 town 的 XODR 环岛几何特征需要补 probe 规则 |
 | 单帧 R4/R5/R2/R3/R6 抖动 | 检查 route 摘要 `temporal_smoothing.changes`；短片段默认会被并回邻近稳定 RS |
-| TwoWays 出现多个 R2 碎片 | 查 `twoways_longest_r2_filter.kept` 和 `changes`；最长连续 R2 段保留为真正核心，其它 R2 短扰动会回 R1/R4 |
+| TwoWays 出现多个 R2 碎片 | 查 `twoways_longest_r2_filter.kept` 和 `changes`；有双向单车道拓扑支撑的 R2 不应被裁掉，只有无拓扑支撑的事件型 R2 碎片会回 R1/R4 |
 | TwoWays 核心仍全 R1 | 查 `evidence.diagnostic_attribution.window_flags.twoway_xml_core_confirmed`、`twoway_obstruction_evidence`、`trigger_distance_m`；XML 极近或 trigger-close + XML 场景障碍近距离应召回短核心 R2 |
 | TwoWays 绕障后红绿灯段仍 R1 | 查 `rules_fired` 是否有 `twoways_post_core_meta_tl_r4` 或 `twoways_post_core_xodr_signal_r4`；没有则继续核查 meta 灯态、XODR `nearest_signal_m`、`map_is_junction` 与 RGB 灯控是否同源 |
 | TwoWays 普通山路误标 R4 | 先看 RGB contact sheet；若无路口/灯控，检查 XML 是否跨 Town 误配，以及静态 XODR 是否只有 `map_junction_id=-1` / `junction_connection_count=0` 的弱 junction hint |
