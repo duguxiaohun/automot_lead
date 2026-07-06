@@ -1801,6 +1801,34 @@ class RoadEventRuleEngine:
         return event
 
     @staticmethod
+    def _accident_twoways_r2_overlay_active(
+        scenario_name: str,
+        primary_rs: RoadStructure,
+        evidence: Dict[str, Any],
+    ) -> bool:
+        """AccidentTwoWays 中 R4/R5 可与 R2 核心叠加，事件层优先保留绕障/回正。"""
+        if scenario_name != "AccidentTwoWays" or primary_rs not in {RoadStructure.R4, RoadStructure.R5}:
+            return False
+        rules = set(evidence.get("rules_fired", []) or [])
+        if any(
+            rule in rules
+            for rule in (
+                "r2_core_obstruction_confirmed",
+                "r2_xml_trigger_core_confirmed",
+                "r2_strict_core_obstruction_window",
+                "r2_core_obstruction_meta_confirmed_without_trusted_xodr",
+                "r2_opposite_lane_confirmed",
+            )
+        ):
+            return True
+        diagnostic = evidence.get("diagnostic_attribution", {}) or {}
+        window_flags = diagnostic.get("window_flags", {}) or {}
+        if bool(window_flags.get("twoway_core_obstruction")) or bool(window_flags.get("twoway_xml_core_confirmed")):
+            return True
+        twoway = evidence.get("twoway_obstruction_evidence") or {}
+        return bool(twoway.get("core_confirmed")) or bool(twoway.get("stuck")) or bool(twoway.get("vehicle_hazard"))
+
+    @staticmethod
     def _obstacle_event(
         scenario_name: str,
         frame_data: Dict[str, Any],
@@ -1816,6 +1844,14 @@ class RoadEventRuleEngine:
         near_trigger = RoadEventRuleEngine._near_trigger(evidence, 55.0)
         kind = evidence.get("rule_kind") or SCENARIO_RULE_CONFIG.get(scenario_name, {}).get("kind")
         twoway = evidence.get("twoway_obstruction_evidence") or {}
+        speed_obj_threshold = max(0.0, threshold - 2.0)
+        close_specific_obstacle = dist <= threshold
+        speed_obj_close_near_xml = speed_obj_dist <= speed_obj_threshold and near_trigger
+        close_obstacle = close_specific_obstacle or speed_obj_close_near_xml
+        hard_response = RoadEventRuleEngine._hard_decel(frame_data) or _safe_bool(frame_data.get("vehicle_hazard", False))
+        hard_response_near_object = hard_response and speed_obj_dist <= threshold + 8.0 and (
+            near_trigger or close_specific_obstacle or primary_rs == RoadStructure.R2
+        )
         twoway_core = bool(
             (evidence.get("diagnostic_attribution", {}) or {})
             .get("window_flags", {})
@@ -1823,18 +1859,13 @@ class RoadEventRuleEngine:
         )
         twoway_r2_lane_change_core = (
             kind in {"twoways_obstacle", "vehicle_opens_door_twoways"}
-            and primary_rs == RoadStructure.R2
+            and (
+                (primary_rs == RoadStructure.R2 and (twoway_core or close_specific_obstacle or hard_response_near_object))
+                or RoadEventRuleEngine._accident_twoways_r2_overlay_active(scenario_name, primary_rs, evidence)
+            )
         )
-        speed_obj_threshold = max(0.0, threshold - 2.0)
-        close_specific_obstacle = dist <= threshold
-        speed_obj_close_near_xml = speed_obj_dist <= speed_obj_threshold and near_trigger
-        close_obstacle = close_specific_obstacle or speed_obj_close_near_xml
-        hard_response = RoadEventRuleEngine._hard_decel(frame_data) or _safe_bool(frame_data.get("vehicle_hazard", False))
         door_open = scenario_name == "VehicleOpensDoorTwoWays" and _safe_bool(frame_data.get("vehicle_opened_door", False))
         active_window = near_trigger or primary_rs == RoadStructure.R2 or close_specific_obstacle or twoway_core or twoway_r2_lane_change_core or door_open
-        hard_response_near_object = hard_response and speed_obj_dist <= threshold + 8.0 and (
-            near_trigger or close_specific_obstacle or primary_rs == RoadStructure.R2
-        )
         should = active_window and (close_obstacle or twoway_core or twoway_r2_lane_change_core or door_open or hard_response_near_object)
         rules = []
         if scenario_active:
@@ -1860,6 +1891,11 @@ class RoadEventRuleEngine:
             "event_speed_object_trigger_threshold_m": speed_obj_threshold,
             "twoway_obstruction": twoway,
             "twoway_r2_lane_change_core": twoway_r2_lane_change_core,
+            "accident_twoways_r2_overlay_active": RoadEventRuleEngine._accident_twoways_r2_overlay_active(
+                scenario_name,
+                primary_rs,
+                evidence,
+            ),
         }
         return should, rules, metrics
 
@@ -1917,6 +1953,13 @@ class RoadEventRuleEngine:
         road_allowed = set(ROAD_STRUCTURE_TO_FINE_EVENTS.get(primary_rs, {EventType.R_E1}))
         if scenario_name == "InvadingTurn" and primary_rs == RoadStructure.R4:
             road_allowed.add(EventType.U_E5)
+        accident_twoways_r2_overlay = RoadEventRuleEngine._accident_twoways_r2_overlay_active(
+            scenario_name,
+            primary_rs,
+            evidence,
+        )
+        if accident_twoways_r2_overlay:
+            road_allowed.update({EventType.R_E2, EventType.U_E2, EventType.U_E3})
         regular, regular_rules, regular_metrics = RoadEventRuleEngine._regular_event_details(
             scenario_name,
             primary_rs,
@@ -2045,6 +2088,7 @@ class RoadEventRuleEngine:
                 "scenario_active": scenario_active,
                 "near_trigger": near_trigger,
                 "primary_road_structure": primary_rs.value,
+                "accident_twoways_r2_overlay_active": accident_twoways_r2_overlay,
             }
         )
         metrics.update(regular_metrics)
@@ -2578,19 +2622,26 @@ class RoadStructureRuleEngine:
                 and RoadStructure.R2 in allowed
                 and not (xodr_trusted and not static_topology_only and static_topology_strong and not has_opposite and same_dir_lanes > 1)
             )
-            if RoadStructure.R2 in allowed and two_way_window:
-                r2_topology_confirmed = has_opposite and same_dir_lanes <= 1
-                r2_core_meta_confirmed = (
-                    kind == "twoways_obstacle"
-                    and twoway_strict_core_confirmed
-                    and scenario_active_for_structure
-                )
+            r2_topology_confirmed = has_opposite and same_dir_lanes <= 1
+            r2_core_meta_confirmed = (
+                kind == "twoways_obstacle"
+                and twoway_strict_core_confirmed
+                and (scenario_active_for_structure or twoway_obstruction.has_scenario_obstacles)
+            )
+            r2_core_allowed_by_meta = r2_core_meta_confirmed and (
+                two_way_window
+                or close_trigger_for_structure
+                or route_projection_error_high
+                or scenario_active_for_structure
+            )
+            if RoadStructure.R2 in allowed and (two_way_window or r2_core_allowed_by_meta):
                 if (
                     (r2_topology_confirmed and (twoway_obstruction.core_confirmed or kind == "invading_turn"))
                     or r2_core_meta_confirmed
                     or twoway_xml_core_confirmed
                 ):
-                    self._add(scores, RoadStructure.R2, 0.90 if not twoway_xml_core_confirmed else 0.88)
+                    r2_score = 0.93 if r2_core_allowed_by_meta else (0.90 if not twoway_xml_core_confirmed else 0.88)
+                    self._add(scores, RoadStructure.R2, r2_score)
                     if r2_topology_confirmed:
                         rules.append("r2_opposite_lane_confirmed")
                     elif twoway_xml_core_confirmed:
@@ -2602,7 +2653,10 @@ class RoadStructureRuleEngine:
                         if twoway_strict_core_confirmed:
                             rules.append("r2_strict_core_obstruction_window")
                 else:
-                    if r2_layout_prior_allowed:
+                    if r2_layout_prior_allowed and r2_topology_confirmed:
+                        self._add(scores, RoadStructure.R2, 0.82)
+                        rules.append("r2_twoways_single_lane_topology_confirmed")
+                    elif r2_layout_prior_allowed:
                         self._add(scores, RoadStructure.R2, 0.58)
                         self._add(scores, RoadStructure.R1, 0.78)
                         rules.append("r2_twoways_layout_prior_weak_non_core")
@@ -2616,6 +2670,9 @@ class RoadStructureRuleEngine:
                         rules.append("r2_waits_for_close_obstruction_or_vehicle_interaction")
                     else:
                         rules.append("r2_requires_visible_or_topology_occupancy_confirmation")
+            elif r2_layout_prior_allowed and r2_topology_confirmed:
+                self._add(scores, RoadStructure.R2, 0.82)
+                rules.append("r2_twoways_single_lane_topology_confirmed")
             elif r2_layout_prior_allowed:
                 self._add(scores, RoadStructure.R2, 0.58)
                 self._add(scores, RoadStructure.R1, 0.78)
@@ -2919,9 +2976,25 @@ class RoadStructureRuleEngine:
             primary = RoadStructure.R1
         else:
             max_score = max(scores.values())
-            primary = max(scores, key=lambda rs: (scores[rs], -self.PRIORITY.index(rs) if rs in self.PRIORITY else -99))
+            priority = self.PRIORITY
+            if (
+                scenario_name == "AccidentTwoWays"
+                and RoadStructure.R2 in scores
+                and any(
+                    rule in rules
+                    for rule in (
+                        "r2_core_obstruction_confirmed",
+                        "r2_strict_core_obstruction_window",
+                        "r2_core_obstruction_meta_confirmed_without_trusted_xodr",
+                        "r2_xml_trigger_core_confirmed",
+                    )
+                )
+            ):
+                priority = [RoadStructure.R2, RoadStructure.R4, RoadStructure.R5, RoadStructure.R3, RoadStructure.R6, RoadStructure.R1]
+                rules.append("accidenttwoways_r2_core_priority_over_junction")
+            primary = max(scores, key=lambda rs: (scores[rs], -priority.index(rs) if rs in priority else -99))
             # 分数接近时按全局优先级仲裁，但视觉复核显示弱特殊 RS 不能低分压过 R1。
-            for rs in self.PRIORITY:
+            for rs in priority:
                 if rs not in scores or scores[rs] < max_score - 0.08:
                     continue
                 if primary == RoadStructure.R1 and rs != RoadStructure.R1 and scores[rs] < scores[RoadStructure.R1]:
@@ -3570,7 +3643,9 @@ class ScenarioCollector:
             ann = annotations[index]
             rs = ann.get("primary_road_structure")
             if rs in {RoadStructure.R4.value, RoadStructure.R5.value}:
-                return False
+                metrics = _event_metrics(ann)
+                if not (scenario_name == "AccidentTwoWays" and bool(metrics.get("accident_twoways_r2_overlay_active"))):
+                    return False
             if _return_lane_change_hint(ann):
                 return True
             if _route_change_hint(ann) and (not _route_centered(ann) or _signed_lane_change_active(ann)):
@@ -3809,6 +3884,32 @@ class ScenarioCollector:
                 return None
             self._rewrite_event_label(ann, {replacement}, replacement, reason)
             return replacement
+
+        def _twoways_current_core_active(ann: Dict[str, Any]) -> bool:
+            """TwoWays U-E2/U-E3 starts only when the current frame is in the actual opposite-lane core."""
+            if "TwoWays" not in scenario_name:
+                return False
+            rules = set((ann.get("evidence") or {}).get("rules_fired") or [])
+            strong_rs_rules = {
+                "r2_core_obstruction_confirmed",
+                "r2_strict_core_obstruction_window",
+                "r2_core_obstruction_meta_confirmed_without_trusted_xodr",
+                "r2_xml_trigger_core_confirmed",
+                "accidenttwoways_r2_core_priority_over_junction",
+            }
+            r2_removed_as_disturbance = "temporal_smoothing_twoways_non_longest_r2_disturbance" in rules
+            if rules & strong_rs_rules and not r2_removed_as_disturbance:
+                return True
+            event_metrics = ((ann.get("event_evidence") or {}).get("metrics") or {})
+            twoway_metrics = event_metrics.get("twoway_obstruction") or {}
+            if (
+                bool(twoway_metrics.get("core_confirmed"))
+                or bool(twoway_metrics.get("stuck"))
+                or bool(twoway_metrics.get("vehicle_hazard"))
+            ):
+                return True
+            dist = _specific_obstacle_distance(ann)
+            return math.isfinite(dist) and dist <= 18.0
 
         if scenario_name in R2_RETURN_SCENARIOS:
             max_u2_gap_frames = 6
@@ -4370,6 +4471,94 @@ class ScenarioCollector:
                         }
                     )
 
+            if scenario_name == "AccidentTwoWays":
+                idx = 0
+                while idx < len(annotations):
+                    if annotations[idx].get("primary_event") != EventType.R_E1.value:
+                        idx += 1
+                        continue
+                    start = idx
+                    while idx < len(annotations) and annotations[idx].get("primary_event") == EventType.R_E1.value:
+                        idx += 1
+                    end = idx
+                    if end - start > 12:
+                        continue
+                    prev_label = annotations[start - 1].get("primary_event") if start > 0 else None
+                    next_label = annotations[end].get("primary_event") if end < len(annotations) else None
+                    if prev_label != EventType.R_E2.value:
+                        continue
+                    if next_label not in {EventType.R_E4.value, EventType.R_E5.value, None}:
+                        continue
+                    prev_r2_start = start - 1
+                    while prev_r2_start > 0 and annotations[prev_r2_start - 1].get("primary_event") == EventType.R_E2.value:
+                        prev_r2_start -= 1
+                    if start - prev_r2_start < 4:
+                        continue
+                    recent_u2 = any(
+                        annotations[j].get("primary_event") == EventType.U_E2.value
+                        for j in range(max(0, prev_r2_start - 24), prev_r2_start)
+                    )
+                    if not recent_u2:
+                        continue
+                    if any(
+                        annotations[j].get("primary_road_structure") in {RoadStructure.R4.value, RoadStructure.R5.value}
+                        for j in range(start, end)
+                    ):
+                        continue
+                    for ann in annotations[start:end]:
+                        old = ann.get("primary_event")
+                        self._rewrite_event_label(
+                            ann,
+                            {EventType.R_E2},
+                            EventType.R_E2,
+                            "event_accidenttwoways_recovery_tail_r1_to_r2_final",
+                        )
+                        changes.append(
+                            {
+                                "frame_id": ann.get("frame_id"),
+                                "from": old,
+                                "to": EventType.R_E2.value,
+                                "reason": "accidenttwoways_recovery_tail_r1_to_r2_final",
+                                "previous_r2_start_frame": annotations[prev_r2_start].get("frame_id"),
+                                "next_event": next_label,
+                            }
+                        )
+
+            if scenario_name == "AccidentTwoWays":
+                for ann in annotations:
+                    primary = ann.get("primary_event")
+                    if primary not in {EventType.R_E1.value, EventType.R_E2.value}:
+                        continue
+                    event_rules = set(((ann.get("event_evidence") or {}).get("rules_fired") or []))
+                    event_metrics = ((ann.get("event_evidence") or {}).get("metrics") or {})
+                    twoway_metrics = event_metrics.get("twoway_obstruction") or {}
+                    dist = _specific_obstacle_distance(ann)
+                    still_core = (
+                        "event_twoway_core_obstruction" in event_rules
+                        or "event_twoway_r2_lane_change_core" in event_rules
+                        or bool(twoway_metrics.get("core_confirmed"))
+                        or bool(twoway_metrics.get("stuck"))
+                        or bool(twoway_metrics.get("vehicle_hazard"))
+                        or (math.isfinite(dist) and dist <= 18.0)
+                    )
+                    if not still_core:
+                        continue
+                    old = primary
+                    self._rewrite_event_label(
+                        ann,
+                        {EventType.U_E2},
+                        EventType.U_E2,
+                        "event_accidenttwoways_core_obstruction_keeps_u2",
+                    )
+                    changes.append(
+                        {
+                            "frame_id": ann.get("frame_id"),
+                            "from": old,
+                            "to": EventType.U_E2.value,
+                            "reason": "accidenttwoways_core_obstruction_keeps_u2",
+                        }
+                    )
+
             idx = 0
             while idx < len(annotations):
                 label = annotations[idx].get("primary_event")
@@ -4661,6 +4850,13 @@ class ScenarioCollector:
                 continue
             if not _intersection_or_signal_control(ann):
                 continue
+            metrics = ((ann.get("event_evidence") or {}).get("metrics") or {})
+            if scenario_name == "AccidentTwoWays" and bool(metrics.get("accident_twoways_r2_overlay_active")):
+                event_evidence = ann.setdefault("event_evidence", {})
+                rules = event_evidence.setdefault("rules_fired", [])
+                if "event_intersection_release_skipped_for_r2_overlay" not in rules:
+                    rules.append("event_intersection_release_skipped_for_r2_overlay")
+                continue
             replacement = _release_to_regular(ann, f"event_{label.lower()}_intersection_wait_released")
             if replacement is None:
                 continue
@@ -4862,6 +5058,30 @@ class ScenarioCollector:
                         }
                     )
 
+        if "TwoWays" in scenario_name and scenario_name in R2_RETURN_SCENARIOS:
+            for idx, ann in enumerate(annotations):
+                label = ann.get("primary_event")
+                if label not in {EventType.U_E2.value, EventType.U_E3.value}:
+                    continue
+                if _twoways_current_core_active(ann):
+                    continue
+                replacement = _regular_event_for_annotation(ann)
+                old = label
+                self._rewrite_event_label(
+                    ann,
+                    {replacement},
+                    replacement,
+                    "event_twoways_pre_core_unusual_suppressed",
+                )
+                changes.append(
+                    {
+                        "frame_id": ann.get("frame_id"),
+                        "from": old,
+                        "to": replacement.value,
+                        "reason": "twoways_pre_core_unusual_suppressed",
+                    }
+                )
+
         for ann in annotations:
             rs_label = ann.get("primary_road_structure")
             event_label = ann.get("primary_event")
@@ -4893,6 +5113,13 @@ class ScenarioCollector:
                 )
                 event_label = regular_for_rs.value
             if rs_label == RoadStructure.R4.value and event_label in {EventType.U_E2.value, EventType.U_E3.value}:
+                metrics = (ann.get("event_evidence") or {}).get("metrics") or {}
+                if scenario_name == "AccidentTwoWays" and bool(metrics.get("accident_twoways_r2_overlay_active")):
+                    event_evidence = ann.setdefault("event_evidence", {})
+                    rules = event_evidence.setdefault("rules_fired", [])
+                    if "event_r4_r2_overlay_keeps_obstacle_priority" not in rules:
+                        rules.append("event_r4_r2_overlay_keeps_obstacle_priority")
+                    continue
                 old = event_label
                 self._rewrite_event_label(ann, {EventType.R_E4}, EventType.R_E4, "event_forced_regular_by_r4_candidate_pool")
                 changes.append(
@@ -4904,6 +5131,13 @@ class ScenarioCollector:
                     }
                 )
             elif rs_label == RoadStructure.R5.value and event_label in {EventType.U_E2.value, EventType.U_E3.value}:
+                metrics = (ann.get("event_evidence") or {}).get("metrics") or {}
+                if scenario_name == "AccidentTwoWays" and bool(metrics.get("accident_twoways_r2_overlay_active")):
+                    event_evidence = ann.setdefault("event_evidence", {})
+                    rules = event_evidence.setdefault("rules_fired", [])
+                    if "event_r5_r2_overlay_keeps_obstacle_priority" not in rules:
+                        rules.append("event_r5_r2_overlay_keeps_obstacle_priority")
+                    continue
                 old = event_label
                 self._rewrite_event_label(ann, {EventType.R_E5}, EventType.R_E5, "event_forced_regular_by_r5_candidate_pool")
                 changes.append(
@@ -5210,10 +5444,21 @@ class ScenarioCollector:
         scenario_name: str,
         annotations: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """Accident 起始段不是十字路口：前 30 帧若误入 R4/R5，强制回 R1。"""
+        """Accident/AccidentTwoWays 起始段不是十字路口：Town13 例外，其余前 30 帧 R4/R5 回 R1。"""
         first_n_frames = 30
-        if scenario_name != "Accident" or not annotations:
+        if scenario_name not in {"Accident", "AccidentTwoWays"} or not annotations:
             return {"enabled": False, "changes": []}
+        first_ann = annotations[0]
+        first_evidence = first_ann.get("evidence") or {}
+        route_town = first_evidence.get("xml_town") or _extract_town(str(first_evidence.get("route_id") or ""))
+        if str(route_town).lower() == "town13":
+            return {
+                "enabled": True,
+                "first_n_frames": first_n_frames,
+                "skipped": True,
+                "reason": "town13_keeps_original_rs",
+                "changes": [],
+            }
 
         changes: List[Dict[str, Any]] = []
         for index, ann in enumerate(annotations[:first_n_frames]):
@@ -5228,6 +5473,7 @@ class ScenarioCollector:
                 "to": RoadStructure.R1.value,
                 "old_primary_event": old_event,
                 "reason": "accident_initial_30_frames_no_junction",
+                "scenario": scenario_name,
             }
             self._rewrite_rs_label(
                 ann,
@@ -5274,12 +5520,17 @@ class ScenarioCollector:
             _safe_bool(obs.get("vehicle_hazard", False)),
         )
 
+    @staticmethod
+    def _twoways_topology_r2_confirmed(ann: Dict[str, Any]) -> bool:
+        rules = set(((ann.get("evidence") or {}).get("rules_fired") or []))
+        return "r2_twoways_single_lane_topology_confirmed" in rules or "r2_opposite_lane_confirmed" in rules
+
     def _apply_twoways_core_span_clipping(
         self,
         scenario_name: str,
         annotations: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """把 TwoWays R2 限定在局部核心段，避免绕过障碍后整段继续 R2。"""
+        """只裁掉无双向单车道拓扑支撑的事件型 R2，保留正常 TwoWays 道路 R2。"""
         cfg = SCENARIO_RULE_CONFIG.get(scenario_name, {})
         if cfg.get("kind") != "twoways_obstacle" or not annotations:
             return {"enabled": False, "changes": []}
@@ -5294,6 +5545,8 @@ class ScenarioCollector:
             start = int(run["start"])
             end = int(run["end"])
             run_annotations = annotations[start:end]
+            if all(self._twoways_topology_r2_confirmed(ann) for ann in run_annotations):
+                continue
             finite_metrics = []
             for offset, ann in enumerate(run_annotations):
                 nearest, stuck, vehicle_hazard = self._twoways_core_metric(ann)
@@ -5332,6 +5585,8 @@ class ScenarioCollector:
             }
             changes.append(change)
             for ann in annotations[cut_start:end]:
+                if self._twoways_topology_r2_confirmed(ann):
+                    continue
                 replacement = self._fallback_after_twoways_core(ann)
                 self._rewrite_rs_label(
                     ann,
@@ -5349,12 +5604,20 @@ class ScenarioCollector:
         scenario_name: str,
         annotations: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """TwoWays route 只保留最长 R2 核心段，清理偶发短 R2 扰动。"""
+        """只清理无双向单车道拓扑支撑的 R2 碎片；正常 TwoWays 直道可以持续 R2。"""
         cfg = SCENARIO_RULE_CONFIG.get(scenario_name, {})
         if cfg.get("kind") not in {"twoways_obstacle", "vehicle_opens_door_twoways"} or not annotations:
             return {"enabled": False, "changes": []}
 
-        r2_runs = [run for run in self._rs_runs(annotations) if run.get("label") == "R2"]
+        r2_runs = []
+        for run in self._rs_runs(annotations):
+            if run.get("label") != "R2":
+                continue
+            start = int(run["start"])
+            end = int(run["end"])
+            if all(self._twoways_topology_r2_confirmed(ann) for ann in annotations[start:end]):
+                continue
+            r2_runs.append(run)
         if len(r2_runs) <= 1:
             return {"enabled": True, "kept": None, "changes": []}
 
@@ -5400,6 +5663,8 @@ class ScenarioCollector:
             }
             changes.append(change)
             for ann in annotations[start:end]:
+                if self._twoways_topology_r2_confirmed(ann):
+                    continue
                 replacement = self._fallback_after_twoways_core(ann)
                 self._rewrite_rs_label(
                     ann,
