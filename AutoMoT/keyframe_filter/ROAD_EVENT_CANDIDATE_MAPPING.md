@@ -108,7 +108,7 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 |---|---|---|
 | Accident | R1, R4, R5 | 同向静态障碍只进 EVENT；route 前后若 RGB/meta 显示 STOP/无灯路口则允许 R5 |
 | AccidentTwoWays | R2, R4, R5 | 全量 RGB 复核后按有效可行驶通道口径处理：非路口默认 R2；有灯路口 R4；STOP/无灯/路权路口 R5 |
-| BlockedIntersection | R1, R4, R5 | 跟车背景 + 灯控/无灯阻塞路口；阻塞只进 EVENT，RS 由信号灯 vs STOP/无灯控制源决定 |
+| BlockedIntersection | R1, R4, R5 | 跟车背景 + 灯控/无灯阻塞路口；阻塞只进 EVENT，RS 由信号灯 vs STOP/无灯控制源决定；稳定灯控 R4 尾段若仅因视角丢失灯态且无 STOP/yield，继续保持 R4 |
 | ConstructionObstacle | R1, R4, R5 | 施工障碍只进 EVENT；真实 STOP/无灯路口段允许 R5 |
 | ConstructionObstacleTwoWays | R2, R4, R5 | 非路口默认 R2；施工核心由 U-E2/R-E2 表达；真实 STOP/无灯路口段允许 R5 |
 | ControlLoss | R1, R4, R5 | 失控/跟车本身不改 RS；但全量 RGB 复核发现 STOP/无灯路口片段，R5 只由 STOP/yield/meta junction/XODR 同源证据触发 |
@@ -265,7 +265,8 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
   若 `changed_route` 与 `signed_dist_to_lane_change` 仍连续有效，不允许仅凭
   `route_centered=true` 把恢复段释放成 R-E1。post-U2 R-E2 只能由长度足够的 U-E2
   核心 span 开启，1-3 帧 trigger 抖动不能触发恢复窗口；进入恢复 R-E2 后 4 帧以内的
-  U-E2 反跳合入 R-E2，回到中心线容差且 signed lane-change 结束并稳定后退出。
+  U-E2 反跳合入 R-E2，回到 `1.10 * route_center_tolerance` 且 signed lane-change 结束、
+  未来 2 帧稳定后退出。
   该规则用于障碍恢复、HighwayCutIn/HighwayExit、
   InterurbanActorFlow、ParkingExit、StaticCutIn 等 R-E2 候选场景；不用于判定 R4/R5 控制源或
   单独触发其它 U-E。同一个常规 R-E 前后夹住的 1-2 帧孤立 R-E2 视为中心线/flag 抖动，

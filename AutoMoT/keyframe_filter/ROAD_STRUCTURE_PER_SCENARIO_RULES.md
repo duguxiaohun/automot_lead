@@ -147,11 +147,11 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
 
 | 规则族 | 适用场景 | 当前初始窗口 / 关键开关 | 必须补的证据 |
 |---|---|---|---|
-| `same_direction_obstacle` | Accident, ConstructionObstacle, ParkedObstacle | Accident `junction_pre_m=54`, `junction_post_m=22`; Accident 前 30 帧若被标成 R4/R5 强制回 R1，Town13 除外；Construction/Parked 仍为 `60/25`; veto R2 | 障碍只进 EVENT；Accident 起始段不应是十字路口，但 Town13 按原始 XODR/meta/RGB 证据保留 R2/R4/R5；Accident 路口窗口小幅收缩以减少普通绕障路段误升 R4/R5；R4 需灯控/stopline；STOP/无灯路口 regular 允许 R5；同向绕障不得升 R2；可见 `meta TL + bbox traffic_light` / `bbox/meta STOP/yield` 可越过稀疏 XML window 恢复 R4/R5 |
-| `twoways_obstacle` | AccidentTwoWays, ConstructionObstacleTwoWays, HazardAtSideLaneTwoWays, ParkedObstacleTwoWays | `two_way_min_pre_m=50-75`, `two_way_post_pad_m=20`, `trigger_close_m=70-75`, `two_way_xml_core_close_m=8`, `two_way_obstacle_core_m=18-20`, `two_way_approach_obstacle_m=28-30`, `two_way_exit_delta_m=2`, `two_way_exit_hold_frames=3`, `two_way_layout_prior=true`; AccidentTwoWays 前 30 帧若被标成 R4/R5 强制回 R2，Town13 除外 | `*_TwoWays` 候选删除 R1；双向窄路和两侧停车/障碍导致侧向 lane 不可行驶的四车道路段都按有效可行驶对向单车道 R2。AccidentTwoWays 起始段不应是十字路口，但 Town13 按原始 XODR/meta/RGB 证据保留 R2/R4/R5；STOP/无灯路口 regular 允许 R5；EVENT 的 U-E2/U-E3 必须等当前障碍核心/TwoWays core-stuck-hazard 成立才开始；真正借/占对向车道前是 R2 + R-E1，核心后回目标/原车道为 R-E2；只有真实灯控/STOP/无灯控制源覆盖为 R4/R5 |
+| `same_direction_obstacle` | Accident, ConstructionObstacle, ParkedObstacle | Accident `junction_pre_m=54`, `junction_post_m=22`; Accident 前 30 帧只有缺少真实控制源的弱 R4/R5 hint 才强制回 R1，Town13 除外；Construction/Parked 仍为 `60/25`; veto R2 | 障碍只进 EVENT；Accident 起始段默认不应被弱十字路口 hint 抢走，但若初始帧已有有效灯态、bbox traffic_light、STOP/yield 或明确 junction 控制源，则保留 R4/R5；Town13 按原始 XODR/meta/RGB 证据保留 R2/R4/R5；Accident 路口窗口小幅收缩以减少普通绕障路段误升 R4/R5；R4 需灯控/stopline；STOP/无灯路口 regular 允许 R5；同向绕障不得升 R2；可见 `meta TL + bbox traffic_light` / `bbox/meta STOP/yield` 可越过稀疏 XML window 恢复 R4/R5 |
+| `twoways_obstacle` | AccidentTwoWays, ConstructionObstacleTwoWays, HazardAtSideLaneTwoWays, ParkedObstacleTwoWays | `two_way_min_pre_m=50-75`, `two_way_post_pad_m=20`, `trigger_close_m=70-75`, `two_way_xml_core_close_m=8`, `two_way_obstacle_core_m=18-20`, `two_way_approach_obstacle_m=28-30`, `two_way_exit_delta_m=2`, `two_way_exit_hold_frames=3`, `two_way_layout_prior=true`; AccidentTwoWays 前 30 帧只有缺少真实控制源的弱 R4/R5 hint 才强制回 R2，Town13 除外 | `*_TwoWays` 候选删除 R1；双向窄路和两侧停车/障碍导致侧向 lane 不可行驶的四车道路段都按有效可行驶对向单车道 R2。AccidentTwoWays 起始段默认不应被弱十字路口 hint 抢走，但若初始帧已有有效灯控、STOP/yield 或 junction 控制源，则保留 R4/R5；Town13 按原始 XODR/meta/RGB 证据保留 R2/R4/R5；STOP/无灯路口 regular 允许 R5；EVENT 的 U-E2/U-E3 必须等当前障碍核心/TwoWays core-stuck-hazard 成立才开始；真正借/占对向车道前是 R2 + R-E1，核心后回目标/原车道为 R-E2；只有真实灯控/STOP/无灯控制源覆盖为 R4/R5 |
 | `default_meta_map` | ControlLoss, CrossingBicycleFlow, DynamicObjectCrossing, HazardAtSideLane | `junction_pre_m=50`, `junction_post_m=25`; 场景动作多数 veto RS 升级 | 横穿、失控、side-lane hazard 只进 EVENT；RS 由路网/灯控/STOP 无灯控制源决定 |
 | `blocked_intersection` | BlockedIntersection | `junction_pre_m=48`, `junction_post_m=20`; 在通用十字路口窗口上额外压缩 20% | 阻塞只进 EVENT；有有效灯态/信号灯同源证据时 R4，RGB/meta/bbox 显示 STOP/yield/无灯路口时 R5，二者都缺失则 R1 + review |
-| `signalized_junction` | OppositeVehicleRunningRedLight, RedLightWithoutLeadVehicle, Signalized*Turn*, T_Junction | `junction_pre_m=50-60`, `junction_post_m=20-25`; runtime effective pre = `0.32 * pre`、post = `0.28 * post`，pre 最小 16m、post 最小 5m；T_Junction `review_if_no_tl=True`; static signal near <=35m 且 strong context <=22m；close-trigger 上限 25m | 有效灯态、light_hazard、signal/controller、stopline approach 至少多源一致；无有效 `traffic_light_state` 的 R4 必须写 RGB confirmation review；T_Junction 若 RGB/stop/yield 显示无灯控制则允许 R5；进入/退出侧和辅助召回阈值继续收窄，避免 R4/R5 过早吞掉正常接近/跟车阶段，退出路口后更快回 R1/其它当前道路结构 |
+| `signalized_junction` | OppositeVehicleRunningRedLight, RedLightWithoutLeadVehicle, Signalized*Turn*, T_Junction | `junction_pre_m=50-60`, `junction_post_m=20-25`; runtime effective pre = `0.36 * pre`、post = `0.28 * post`，pre 最小 16m、post 最小 5m；T_Junction `review_if_no_tl=True`; static signal near <=35m 且 strong context <=22m；close-trigger 上限 25m | 有效灯态、light_hazard、signal/controller、stopline approach 至少多源一致；无有效 `traffic_light_state` 的 R4 必须写 RGB confirmation review；T_Junction 若 RGB/stop/yield 显示无灯控制则允许 R5；进入侧较上一版适度放宽、退出侧仍收紧，避免 R4/R5 过早吞掉正常接近/跟车阶段，同时退出路口后更快回 R1/其它当前道路结构 |
 | `defect_junction` | CrossJunctionDefectTrafficLight | `junction_pre_m=60`, `junction_post_m=20`, `override=r5_over_r4` | defect 场景即使有 signal/controller 也优先 R5；找不到路口只能 medium + review |
 | `nonsignalized_junction` | NonSignalizedJunction*, OppositeVehicleTakingPriority, PriorityAtJunction | `junction_pre_m=45-60`, `junction_post_m=20` | no-light / priority / stop / yield 证据；NonSignalizedJunctionLeftTurn 与 NonSignalizedJunctionLeftTurnEnterFlow 是 strict no-R4，bbox/static signal 弱提示不能动态打开 R4；NonSignalizedJunctionRightTurn 与 OppositeVehicleTakingPriority 以 R5 为主但全量 RGB 有少量灯控子集，R4 仅在有效灯态或强灯控同源证据成立时开放；PriorityAtJunction 是 R4/R5 混合 |
 | `pedestrian_crossing` | PedestrianCrossing | `junction_pre_m=40`, `junction_post_m=40`; `pedestrian_not_rs` | 行人只进 EVENT；R4/R5 取决于 crossing 是否与路口控制源同源 |
@@ -341,8 +341,10 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 - 候选 RS：R1, R4, R5。
 - 已确定口径：事故障碍本身是 EVENT，不是 ROAD_STRUCTURE；默认 R1，进入真实信号灯路口才切 R4。
 - 分段逻辑：finite `dist_to_accident` / active scenario 只用于标记事故事件窗口；窗口内仍按道路结构判断 R1/R4。
-  Accident route 前 30 帧如果被静态 junction / signal hint 误标成 R4/R5，route 级后处理强制回 R1，
-  并把对应 R-E4/R-E5 常规事件重算为 R-E1；Town13 除外，按原始证据保留；其它事故起始接近段不允许凭十字路口窗口覆盖正常跟车。
+  Accident route 前 30 帧如果只是被弱静态 junction / signal hint 误标成 R4/R5，route 级后处理强制回 R1；
+  但若同帧存在有效灯态、bbox traffic_light、STOP/yield 或明确 junction 控制源，说明初始确实在路口控制区，
+  保留原始 R4/R5。被压回的帧会把对应 R-E4/R-E5 常规事件重算为 R-E1；Town13 除外，按原始证据保留。
+  其它事故起始接近段不允许凭十字路口窗口覆盖正常跟车。
   EVENT 层按轨迹分三段：开头只有 XML trigger/对象减速距离、但无具体障碍距离和变道轨迹时回 R-E1；
   为绕障离开原车道 + 绕过障碍核心为 U-E2；绕过后负向/收敛的 lane-change 轨迹切 R-E2；
   回正结束后释放为当前道路常规事件。2026-07-05 起，U-E2 距离触发后移 3m
@@ -422,6 +424,8 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
   如果 R4 不是由有效 `traffic_light_state` 支撑，必须写
   `blocked_r4_without_meta_tl_requires_rgb_confirmation` 并逐帧看 RGB；低能见度 contact sheet
   只能用于定位，最终以单帧 RGB 的 traffic light/stopline/STOP/yield/cross traffic/blocked pocket 为准。
+  若同一路口前段已稳定 R4 且后段没有 STOP/yield 证据，尾段灯态/bbox 灯因视角丢失时仍保持 R4；
+  `Town12_route_2399_0` 这类灯控路口出口不能仅因 `is_junction=True` + 灯态缺失切成 R5。
 - 证据需求：RGB 控制源、meta traffic_light_state / stop_sign_close / is_junction、bbox traffic_light / stop_sign / yield、
   XODR junction + signal/controller、XML trigger。
 - RGB 复核结论：2026-07-04 全场景逐帧审查发现 `Town12_Rep0_1881_0_route0_01_10_00_50_44`
@@ -896,9 +900,13 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 - 障碍族 route 前后经常包含真实 STOP/无灯 T/十字路口。已给
   Accident / ConstructionObstacle / ParkedObstacle / HazardAtSideLane 及其 TwoWays 版本、
   VehicleOpensDoorTwoWays 开放 R5/R-E5，但仍要求 STOP/yield/meta junction/XODR 近路口同源证据。
-  全局 junction effective window 当前为 pre `0.32 * junction_pre` 且最小 16m、
+  全局 junction effective window 当前为 pre `0.36 * junction_pre` 且最小 16m、
   post `0.28 * junction_post` 且最小 5m；仅靠宽 junction window 或弱静态 signal 不能提前吞掉
   U-E2/R-E2 恢复链。
+  XML `<weather>` 显示夜间、低太阳高度或大雾时，collector 会对所有场景再乘
+  `low_visibility_factor=0.65~0.95`，同步收缩 junction window、meta near、strong context、
+  static signal near 和 close-trigger；单纯下雨不再压缩，雨只在叠加雾/夜/低太阳时轻微增强收缩。
+  低能见度下必须更接近路口控制源才允许 R4/R5 覆盖。
   子集回归显示：
   `Accident 2868->1771`、`AccidentTwoWays 7725->4585`、
   `ConstructionObstacle 2191->1325`、`ConstructionObstacleTwoWays 7309->5058`、
