@@ -106,8 +106,8 @@ VehicleTurningRoute, VehicleTurningRoutePedestrian`。
 |---|---:|
 | Eligible routes | 3552 |
 | Frames | 526001 |
-| Overlay frames | 1696 |
-| Overlay routes | 115 |
+| Overlay frames | 1472 |
+| Overlay routes | 99 |
 | Max overlay age | 24 frames |
 | Raw U-E -> R4/R5 regular boundaries | 675 |
 | Direct boundaries whose previous frame was not already overlay | 623 |
@@ -117,9 +117,9 @@ VehicleTurningRoute, VehicleTurningRoutePedestrian`。
 | Scenario | Overlay frames |
 |---|---:|
 | HardBreakRoute | 18 |
-| Accident | 69 |
-| ConstructionObstacle | 95 |
-| ParkedObstacle | 151 |
+| Accident | 24 |
+| ConstructionObstacle | 43 |
+| ParkedObstacle | 24 |
 | AccidentTwoWays | 1 |
 | ConstructionObstacleTwoWays | 177 |
 | VehicleOpensDoorTwoWays | 168 |
@@ -140,6 +140,19 @@ VehicleTurningRoute, VehicleTurningRoutePedestrian`。
 - `Accident/Construction/Parked/VehicleOpensDoor/ParkingCutIn` 等 R1 绕障、cut-in、
   急刹类被 R4/R5 夹断的核心问题已缓解：RGB 样例中同帧保留 `R-E4/R-E5 + U-E*`
   或恢复 `R-E2`，直到对象/回正证据结束或上限退出。
+- 复查 `Accident/Town03_Rep0_route_001792...` 后发现 RGB 是沿墙直道，不是路口；
+  旧规则把 bbox stop-sign / traffic-light 与静态 XODR junction hint 组合成 R5/R4。
+  现对 `Accident/ConstructionObstacle/ParkedObstacle/ControlLoss` 的 outside-XML
+  R4/R5 入口增加 local-junction guard：stop/yield 不能单独创建 R5；traffic-light
+  outside-XML 需要 bbox/meta/XODR/trigger 之一提供本地路口上下文。后续复查
+  `Accident/Town03_route_001793` 发现 XML trigger 起点附近普通前车减速被误触发为
+  U-E2，且环岛/弯曲多连接 junction 中 `light_hazard` 会短暂闪成 R4；现要求同向障碍
+  U-E2 必须有具体障碍距离、active scenario、scenario obstacle、vehicle hazard 或真实偏离/回正证据，
+  并把 roundabout-like static junction loop 压回 R1。再复查 `Town03_route_001794`
+  发现 route 快结束的持续红绿灯路口应恢复 R4；现用 `traffic_light_state + bbox traffic_light +
+  near static signal` 窄召回末尾稳定灯控段。回归后 1792 无伪 U-E2/R4，
+  1793/1794 的中段环岛/弯道伪 R4/R-E2 被清掉，末尾稳定灯控段保留 R4/R-E4；overlay id 清单同步重生为
+  99 route / 1472 帧。
 
 RGB 抽样结论：
 

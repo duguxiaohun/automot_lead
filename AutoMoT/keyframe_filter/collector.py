@@ -519,6 +519,7 @@ class RouteXmlInfo:
     town: str
     waypoints: List[Tuple[float, float]]
     scenario_tags: List[Dict[str, Any]]
+    weathers: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def trigger_points(self) -> List[Tuple[float, float]]:
@@ -726,6 +727,14 @@ def _parse_position_node(node: ET.Element) -> Optional[Tuple[float, float]]:
     return None
 
 
+def _parse_weather_node(node: ET.Element) -> Dict[str, Any]:
+    weather: Dict[str, Any] = {}
+    for key, value in node.attrib.items():
+        parsed = _safe_float(value, default=math.nan)
+        weather[key] = parsed if math.isfinite(parsed) else value
+    return weather
+
+
 def _parse_route_xml(path: Path, fallback_scenario: str) -> Optional[RouteXmlInfo]:
     try:
         root = ET.parse(path).getroot()
@@ -739,6 +748,8 @@ def _parse_route_xml(path: Path, fallback_scenario: str) -> Optional[RouteXmlInf
         point = _parse_position_node(node)
         if point is not None:
             waypoints.append(point)
+
+    weathers = [_parse_weather_node(node) for node in route.findall(".//weathers/weather")]
 
     tags = []
     for scenario_node in route.findall(".//scenarios/scenario"):
@@ -768,6 +779,7 @@ def _parse_route_xml(path: Path, fallback_scenario: str) -> Optional[RouteXmlInf
         town=route.get("town", ""),
         waypoints=waypoints,
         scenario_tags=tags,
+        weathers=weathers,
     )
 
 
@@ -1243,6 +1255,78 @@ def _project_route_s(point: Optional[Tuple[float, float]], waypoints: List[Tuple
     return (best_s, best_d)
 
 
+def _route_length_m(waypoints: List[Tuple[float, float]]) -> float:
+    if len(waypoints) < 2:
+        return math.nan
+    total = 0.0
+    for a, b in zip(waypoints[:-1], waypoints[1:]):
+        total += math.hypot(b[0] - a[0], b[1] - a[1])
+    return total
+
+
+def _current_xml_weather(
+    xml_info: Optional[RouteXmlInfo],
+    route_s: float,
+) -> Tuple[Dict[str, Any], Optional[float]]:
+    """按 route 百分比选择最接近当前帧的 XML weather。"""
+    if xml_info is None or not xml_info.weathers:
+        return {}, None
+    route_len = _route_length_m(xml_info.waypoints)
+    route_percent: Optional[float] = None
+    if math.isfinite(route_s) and math.isfinite(route_len) and route_len > 1e-6:
+        route_percent = max(0.0, min(100.0, route_s / route_len * 100.0))
+        best = min(
+            xml_info.weathers,
+            key=lambda item: abs(_safe_float(item.get("route_percentage"), default=0.0) - route_percent),
+        )
+        return best, route_percent
+    return xml_info.weathers[0], route_percent
+
+
+def _low_visibility_junction_factor(weather: Dict[str, Any]) -> Tuple[float, List[str]]:
+    """低能见度下压缩路口判定距离；1.0 表示不压缩。"""
+    if not weather:
+        return 1.0, []
+    factor = 1.0
+    reasons: List[str] = []
+    precipitation = _safe_float(weather.get("precipitation"), default=0.0)
+    fog = _safe_float(weather.get("fog_density"), default=0.0)
+    sun_altitude = _safe_float(weather.get("sun_altitude_angle"), default=45.0)
+    cloudiness = _safe_float(weather.get("cloudiness"), default=0.0)
+
+    if sun_altitude <= 0.0:
+        factor *= 0.78
+        reasons.append("night")
+    elif sun_altitude < 15.0:
+        factor *= 0.90
+        reasons.append("low_sun")
+
+    if fog >= 50.0:
+        factor *= 0.85
+        reasons.append("heavy_fog")
+    elif fog >= 20.0:
+        factor *= 0.92
+        reasons.append("fog")
+
+    # 雨天 RGB 中红绿灯通常仍可见；单纯 precipitation 不压缩 R4/R5 范围。
+    # 只有雨与夜间/低太阳/雾叠加时，才轻微增强低能见度收缩。
+    if precipitation >= 60.0:
+        if reasons:
+            factor *= 0.96
+            reasons.append("rain_compounds_low_visibility")
+    elif precipitation >= 20.0 and reasons:
+        factor *= 0.98
+        reasons.append("rain_compounds_low_visibility")
+
+    if cloudiness >= 80.0 and (fog > 0.0 or sun_altitude < 20.0):
+        factor *= 0.95
+        reasons.append("heavy_cloud")
+
+    if not reasons:
+        return 1.0, []
+    return max(0.65, min(1.0, factor)), reasons
+
+
 def _extract_ego_xy(meta: Dict[str, Any]) -> Optional[Tuple[float, float]]:
     pos = meta.get("pos_global")
     if isinstance(pos, np.ndarray):
@@ -1430,7 +1514,7 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
 }
 
 
-JUNCTION_PRE_WINDOW_SCALE = 0.32
+JUNCTION_PRE_WINDOW_SCALE = 0.36
 JUNCTION_POST_WINDOW_SCALE = 0.28
 JUNCTION_PRE_WINDOW_MIN_M = 16.0
 JUNCTION_POST_WINDOW_MIN_M = 5.0
@@ -1438,6 +1522,8 @@ JUNCTION_META_NEAR_M = 35.0
 JUNCTION_STRONG_MAX_M = 22.0
 STATIC_SIGNAL_NEAR_M = 35.0
 JUNCTION_CLOSE_TRIGGER_MAX_M = 25.0
+RE2_EXIT_CENTER_TOLERANCE_SCALE = 1.10
+RE2_EXIT_STABLE_FUTURE_FRAMES = 2
 
 
 def _shrink_junction_window(pre_m: float, post_m: float) -> Tuple[float, float]:
@@ -1778,6 +1864,26 @@ class RoadEventRuleEngine:
             if RoadEventRuleEngine._target_lane_change_active(frame_data):
                 return EventType.R_E2, ["event_regular_target_lane_change_r2"], {}
         if primary_rs in {RoadStructure.R1, RoadStructure.R2} and RoadEventRuleEngine._target_lane_change_active(frame_data):
+            cfg = SCENARIO_RULE_CONFIG.get(scenario_name, {})
+            xodr = evidence.get("xodr") or {}
+            trigger_distance = _safe_float(evidence.get("trigger_distance_m"), default=math.inf)
+            if cfg.get("kind") == "same_direction_obstacle":
+                field_cfg = OBSTACLE_EVENT_DISTANCE_FIELDS.get(scenario_name)
+                field, threshold = field_cfg if field_cfg else ("", 0.0)
+                specific_obstacle_close = bool(field) and _safe_float(frame_data.get(field), default=math.inf) <= threshold + 5.0
+                xodr_multileg_curved_junction = (
+                    bool(xodr.get("map_is_junction"))
+                    and int(xodr.get("junction_connection_count", 0) or 0) >= 5
+                    and _safe_float(xodr.get("road_total_abs_heading_change"), default=0.0) >= 1.0
+                    and _safe_float(xodr.get("nearest_signal_m"), default=math.inf) > 35.0
+                )
+                roundabout_or_curved_junction = bool(xodr.get("map_is_roundabout")) or (
+                    bool(xodr.get("map_is_junction"))
+                    and bool(xodr.get("ramp_merge_split_hint"))
+                    and _safe_float(xodr.get("nearest_signal_m"), default=math.inf) > 60.0
+                ) or xodr_multileg_curved_junction
+                if roundabout_or_curved_junction and not specific_obstacle_close and trigger_distance > 70.0:
+                    return EventType.R_E1, ["event_regular_lane_change_suppressed_in_roundabout_like_junction"], {}
             return EventType.R_E2, ["event_regular_target_lane_change_r2"], {}
         return EventType.R_E1, ["event_regular_by_road_structure"], {}
 
@@ -1842,12 +1948,31 @@ class RoadEventRuleEngine:
         twoway = evidence.get("twoway_obstruction_evidence") or {}
         speed_obj_threshold = max(0.0, threshold - 2.0)
         close_specific_obstacle = dist <= threshold
-        speed_obj_close_near_xml = speed_obj_dist <= speed_obj_threshold and near_trigger
+        scenario_obstacles = frame_data.get("scenario_obstacles_ids")
+        has_scenario_obstacles = bool(scenario_obstacles) and str(scenario_obstacles) not in {"[]", "None", "nan"}
+        trigger_only_same_direction = (
+            kind == "same_direction_obstacle"
+            and not scenario_active
+            and not close_specific_obstacle
+            and not has_scenario_obstacles
+        )
+        speed_obj_close_near_xml = (
+            speed_obj_dist <= speed_obj_threshold
+            and near_trigger
+            and not trigger_only_same_direction
+        )
         close_obstacle = close_specific_obstacle or speed_obj_close_near_xml
         hard_response = RoadEventRuleEngine._hard_decel(frame_data) or _safe_bool(frame_data.get("vehicle_hazard", False))
         hard_response_near_object = hard_response and speed_obj_dist <= threshold + 8.0 and (
             near_trigger or close_specific_obstacle or primary_rs == RoadStructure.R2
         )
+        if (
+            trigger_only_same_direction
+            and hard_response_near_object
+            and RoadEventRuleEngine._route_centered(frame_data)
+            and not _safe_bool(frame_data.get("vehicle_hazard", False))
+        ):
+            hard_response_near_object = False
         twoway_core = bool(
             (evidence.get("diagnostic_attribution", {}) or {})
             .get("window_flags", {})
@@ -2271,6 +2396,8 @@ class RoadStructureRuleEngine:
         ego_xy = _extract_ego_xy(frame_data)
         town = xml_info.town if xml_info is not None else str(frame_data.get("town", ""))
         route_s, route_error = _project_route_s(ego_xy, xml_info.waypoints if xml_info else [])
+        xml_weather, xml_weather_route_percentage = _current_xml_weather(xml_info, route_s)
+        low_visibility_factor, low_visibility_reasons = _low_visibility_junction_factor(xml_weather)
         trigger_s = math.nan
         if xml_info and xml_info.trigger_points and xml_info.waypoints:
             trigger_s, _ = _project_route_s(xml_info.trigger_points[0], xml_info.waypoints)
@@ -2311,6 +2438,25 @@ class RoadStructureRuleEngine:
         static_topology_only = xodr_source == "static_xodr"
         xodr_junction_id = str(xodr.get("map_junction_id", ""))
         xodr_junction_connection_count = int(xodr.get("junction_connection_count", 0) or 0)
+        xodr_nearest_signal_m = _safe_float(xodr.get("nearest_signal_m"), default=math.inf)
+        xodr_heading_change = _safe_float(xodr.get("road_total_abs_heading_change"), default=0.0)
+        xodr_roundabout_like_junction = (
+            xodr_trusted
+            and map_is_junction
+            and xodr_junction_connection_count >= 5
+            and (
+                (bool(xodr.get("ramp_merge_split_hint", False)) and xodr_nearest_signal_m > 60.0)
+                or (xodr_heading_change >= 1.0 and xodr_nearest_signal_m > 35.0)
+            )
+            and not has_tl
+            and not bbox_traffic_light
+        )
+        if kind == "same_direction_obstacle" and xodr_roundabout_like_junction:
+            xodr = dict(xodr)
+            xodr["map_is_roundabout"] = True
+            xodr["roundabout_inferred_by_static_junction_loop"] = True
+            map_is_roundabout = True
+            rules.append("roundabout_like_static_junction_loop_forces_r1")
         xodr_structured_junction = (
             map_is_junction
             and (
@@ -2330,7 +2476,18 @@ class RoadStructureRuleEngine:
         junction_pre = float(cfg.get("junction_pre_m", 60.0))
         junction_post = float(cfg.get("junction_post_m", 25.0))
         junction_pre_window, junction_post_window = _shrink_junction_window(junction_pre, junction_post)
-        dist_to_junction_strong = dist_to_junction < min(junction_pre_window, JUNCTION_STRONG_MAX_M)
+        if low_visibility_factor < 1.0:
+            junction_pre_window = max(10.0, junction_pre_window * low_visibility_factor)
+            junction_post_window = max(3.0, junction_post_window * low_visibility_factor)
+            rules.append(
+                f"low_visibility_junction_window_scaled_{low_visibility_factor:.2f}"
+            )
+        effective_meta_near_m = JUNCTION_META_NEAR_M * low_visibility_factor
+        effective_strong_max_m = JUNCTION_STRONG_MAX_M * low_visibility_factor
+        effective_static_signal_near_m = STATIC_SIGNAL_NEAR_M * low_visibility_factor
+        effective_close_trigger_max_m = JUNCTION_CLOSE_TRIGGER_MAX_M * low_visibility_factor
+        dist_to_junction_near = dist_to_junction < effective_meta_near_m
+        dist_to_junction_strong = dist_to_junction < min(junction_pre_window, effective_strong_max_m)
         route_s_for_window = route_s
         route_projection_error_high = route_error > 5.0 if math.isfinite(route_error) else False
         if route_projection_error_high:
@@ -2342,7 +2499,7 @@ class RoadStructureRuleEngine:
         static_signal_near = (
             xodr_trusted
             and static_topology_strong
-            and _safe_float(xodr.get("nearest_signal_m"), default=math.inf) <= STATIC_SIGNAL_NEAR_M
+            and xodr_nearest_signal_m <= effective_static_signal_near_m
         )
         bbox_traffic_light_for_r4 = bbox_traffic_light
         static_signal_near_for_r4 = static_signal_near
@@ -2361,10 +2518,26 @@ class RoadStructureRuleEngine:
         meta_near_junction = is_junction or dist_to_junction_strong
         xodr_near_junction = xodr_trusted and static_topology_strong and xodr_structured_junction
         near_junction = (meta_near_junction or xodr_near_junction) and not map_is_roundabout
+        stop_hazard_for_r5 = stop_hazard
+        junction_context_for_r5 = is_junction
+        conservative_outside_xml_guard = kind == "same_direction_obstacle" or (
+            kind == "default_meta_map" and scenario_name == "ControlLoss"
+        )
+        if conservative_outside_xml_guard:
+            conservative_r5_context = bbox_junction_hint or (
+                meta_stop_hazard
+                and (meta_is_junction or (dist_to_junction_strong and not static_topology_only))
+            )
+            stop_hazard_for_r5 = stop_hazard and (
+                conservative_r5_context
+            )
+            junction_context_for_r5 = conservative_r5_context
+            if (stop_hazard or is_junction) and not conservative_r5_context:
+                rules.append(f"{kind}_stop_yield_without_local_junction_demoted")
         strong_control_context = _strong_control_context(
             is_junction=is_junction,
             xodr_near_junction=xodr_near_junction,
-            stop_hazard=stop_hazard,
+            stop_hazard=stop_hazard_for_r5,
             static_signal_near=static_signal_near,
             dist_to_junction=dist_to_junction,
             junction_pre=junction_pre_window,
@@ -2376,10 +2549,10 @@ class RoadStructureRuleEngine:
         close_trigger_for_junction = trigger_distance < min(
             trigger_close_m,
             junction_pre_window,
-            JUNCTION_CLOSE_TRIGGER_MAX_M,
+            effective_close_trigger_max_m,
         ) and not map_is_roundabout and (
             not route_projection_error_high
-            or trigger_distance < min(JUNCTION_CLOSE_TRIGGER_MAX_M, 25.0)
+            or trigger_distance < min(effective_close_trigger_max_m, 25.0)
         )
         scenario_active_for_structure = scenario_active and not route_projection_error_high
 
@@ -2432,6 +2605,13 @@ class RoadStructureRuleEngine:
                 self._add(scores, RoadStructure.R4, 0.70)
                 self._add(scores, RoadStructure.R3, 0.78)
                 rules.append("r4_highway_meta_tl_without_control_context_demoted")
+            elif (
+                kind == "same_direction_obstacle"
+                and bbox_traffic_light
+                and xodr_nearest_signal_m <= effective_static_signal_near_m
+            ):
+                self._add(scores, RoadStructure.R4, 0.88)
+                rules.append("r4_same_direction_stable_meta_bbox_light_near_signal")
             elif conservative_light_hazard_kind:
                 self._add(scores, RoadStructure.R1, 0.80)
                 rules.append("r4_meta_tl_without_control_context_demoted_to_r1")
@@ -2474,16 +2654,16 @@ class RoadStructureRuleEngine:
             and not light_hazard
             and junction_window
         ):
-            r5_control = stop_hazard or is_junction or (
+            r5_control = stop_hazard_for_r5 or junction_context_for_r5 or (
                 xodr_near_junction and not route_projection_error_high and not static_topology_only
             )
             if r5_control:
-                if route_projection_error_high and not (stop_hazard or is_junction):
+                if route_projection_error_high and not (stop_hazard_for_r5 or junction_context_for_r5):
                     self._add(scores, RoadStructure.R5, 0.58)
                     self._add(scores, RoadStructure.R1, 0.78)
                     rules.append("r5_generic_demoted_projection_error_rgb_required")
                 else:
-                    self._add(scores, RoadStructure.R5, 0.84 if (stop_hazard or is_junction) else 0.72)
+                    self._add(scores, RoadStructure.R5, 0.84 if (stop_hazard_for_r5 or junction_context_for_r5) else 0.72)
                     rules.append("r5_generic_stop_or_junction_control")
 
         if (
@@ -2493,11 +2673,17 @@ class RoadStructureRuleEngine:
             )
             or kind == "same_direction_obstacle"
         ) and not map_is_roundabout:
+            outside_xml_r4_context = (
+                bbox_junction_hint
+                or meta_near_junction
+                or xodr_near_junction
+                or close_trigger_for_junction
+            )
             if (
                 RoadStructure.R5 in allowed
                 and not has_tl
                 and not light_hazard
-                and stop_hazard
+                and stop_hazard_for_r5
             ):
                 self._add(scores, RoadStructure.R5, 0.86)
                 rules.append(f"{kind}_visible_stop_yield_r5_outside_xml_window")
@@ -2506,9 +2692,18 @@ class RoadStructureRuleEngine:
                 and has_tl
                 and bbox_traffic_light
                 and not stop_hazard
+                and outside_xml_r4_context
             ):
                 self._add(scores, RoadStructure.R4, 0.88)
                 rules.append(f"{kind}_meta_tl_bbox_light_r4_outside_xml_window")
+            elif (
+                RoadStructure.R4 in allowed
+                and has_tl
+                and bbox_traffic_light
+                and not stop_hazard
+                and not outside_xml_r4_context
+            ):
+                rules.append(f"{kind}_traffic_light_without_local_junction_demoted")
 
         for note in cfg.get("veto", []):
             rules.append(str(note))
@@ -2716,7 +2911,8 @@ class RoadStructureRuleEngine:
                     xodr_trusted
                     and static_topology_strong
                     and not map_is_roundabout
-                    and _safe_float(xodr.get("nearest_signal_m"), default=math.inf) <= float(cfg.get("two_way_post_core_signal_m", 45.0))
+                    and _safe_float(xodr.get("nearest_signal_m"), default=math.inf)
+                    <= float(cfg.get("two_way_post_core_signal_m", 45.0)) * low_visibility_factor
                 )
                 post_core_junction_context = (
                     meta_near_junction
@@ -3112,10 +3308,22 @@ class RoadStructureRuleEngine:
                 "pre_scale": JUNCTION_PRE_WINDOW_SCALE,
                 "post_scale": JUNCTION_POST_WINDOW_SCALE,
                 "meta_near_m": JUNCTION_META_NEAR_M,
+                "effective_meta_near_m": round(effective_meta_near_m, 3),
                 "strong_max_m": JUNCTION_STRONG_MAX_M,
+                "effective_strong_max_m": round(effective_strong_max_m, 3),
                 "static_signal_near_m": STATIC_SIGNAL_NEAR_M,
+                "effective_static_signal_near_m": round(effective_static_signal_near_m, 3),
                 "close_trigger_max_m": JUNCTION_CLOSE_TRIGGER_MAX_M,
+                "effective_close_trigger_max_m": round(effective_close_trigger_max_m, 3),
+                "low_visibility_factor": round(low_visibility_factor, 3),
+                "low_visibility_reasons": low_visibility_reasons,
             },
+            "xml_weather": xml_weather,
+            "xml_weather_route_percentage": (
+                round(xml_weather_route_percentage, 3)
+                if xml_weather_route_percentage is not None
+                else None
+            ),
             "traffic_light_state": str(tl) if tl is not None else None,
             "bbox_semantics": {
                 "available": _safe_bool(frame_data.get("bbox_available", False)),
@@ -3631,6 +3839,13 @@ class ScenarioCollector:
                 return bool(metrics.get("route_centered"))
             route_abs = _route_lateral_abs(ann)
             return math.isfinite(route_abs) and route_abs <= _route_center_tolerance(ann)
+
+        def _route_centered_for_re2_exit(ann: Dict[str, Any]) -> bool:
+            """R-E2 退出稍早于严格中心线完成，避免恢复段尾部粘滞。"""
+            route_abs = _route_lateral_abs(ann)
+            if math.isfinite(route_abs):
+                return route_abs <= _route_center_tolerance(ann) * RE2_EXIT_CENTER_TOLERANCE_SCALE
+            return _route_centered(ann)
 
         def _route_change_hint(ann: Dict[str, Any], *, allow_abs: bool = True) -> bool:
             metrics = _event_metrics(ann)
@@ -4454,11 +4669,11 @@ class ScenarioCollector:
                     continue
                 complete_idx = None
                 for j in range(start + 2, end):
-                    if not _route_centered(annotations[j]) or _signed_lane_change_active(annotations[j]):
+                    if not _route_centered_for_re2_exit(annotations[j]) or _signed_lane_change_active(annotations[j]):
                         continue
-                    future = range(j + 1, min(end, j + 4))
+                    future = range(j + 1, min(end, j + 1 + RE2_EXIT_STABLE_FUTURE_FRAMES))
                     future_centered = all(
-                        _route_centered(annotations[k])
+                        _route_centered_for_re2_exit(annotations[k])
                         and not _signed_lane_change_active(annotations[k])
                         for k in future
                     )
@@ -5809,6 +6024,82 @@ class ScenarioCollector:
             )
         return {"enabled": True, "changes": changes}
 
+    def _apply_blocked_signalized_tail_recovery(
+        self,
+        scenario_name: str,
+        annotations: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """BlockedIntersection 灯控路口内灯态丢失时，不把出口尾段误判为 R5。"""
+        changes: List[Dict[str, Any]] = []
+        if scenario_name != "BlockedIntersection" or len(annotations) < 4:
+            return {"enabled": True, "changes": changes}
+
+        def _has_signal_evidence(ann: Dict[str, Any]) -> bool:
+            evidence = ann.get("evidence") or {}
+            tl = str(evidence.get("traffic_light_state", "")).strip().lower()
+            bbox_tl = bool((evidence.get("bbox_semantics") or {}).get("traffic_light"))
+            return tl in {"red", "yellow", "green"} or bbox_tl
+
+        def _has_stop_or_yield_evidence(ann: Dict[str, Any]) -> bool:
+            evidence = ann.get("evidence") or {}
+            bbox = evidence.get("bbox_semantics") or {}
+            return bool(evidence.get("meta_stop_hazard")) or bool(evidence.get("combined_stop_hazard")) or bool(
+                bbox.get("stop_sign") or bbox.get("yield_sign")
+            )
+
+        runs = self._rs_runs(annotations)
+        for run in runs:
+            if run.get("label") != RoadStructure.R5.value:
+                continue
+            start = int(run["start"])
+            end = int(run["end"])
+            if start <= 0:
+                continue
+            rules_in_run = [
+                rule
+                for ann in annotations[start:end]
+                for rule in ((ann.get("evidence") or {}).get("rules_fired") or [])
+            ]
+            if "blocked_intersection_stop_or_nolight_r5" not in rules_in_run:
+                continue
+            if any(_has_stop_or_yield_evidence(ann) for ann in annotations[start:end]):
+                continue
+            prior_window = annotations[max(0, start - 24):start]
+            prior_signalized = [
+                ann for ann in prior_window
+                if ann.get("primary_road_structure") == RoadStructure.R4.value and _has_signal_evidence(ann)
+            ]
+            if len(prior_signalized) < 4:
+                continue
+            for ann in annotations[start:end]:
+                old = ann.get("primary_road_structure")
+                self._rewrite_rs_label(
+                    ann,
+                    RoadStructure.R4.value,
+                    "blocked_signalized_tail_kept_r4_without_stop_yield",
+                    RoadStructure.R4.value,
+                )
+                evidence = ann.setdefault("evidence", {})
+                evidence.setdefault("blocked_signalized_tail_recovery", []).append(
+                    {
+                        "from": old,
+                        "to": RoadStructure.R4.value,
+                        "reason": "prior_stable_r4_signal_no_stop_yield",
+                        "prior_signalized_frames": len(prior_signalized),
+                    }
+                )
+                changes.append(
+                    {
+                        "frame_id": ann.get("frame_id"),
+                        "from": old,
+                        "to": RoadStructure.R4.value,
+                        "reason": "blocked_signalized_tail_kept_r4_without_stop_yield",
+                        "run_start_frame": annotations[start].get("frame_id"),
+                        "run_end_frame": annotations[end - 1].get("frame_id"),
+                    }
+                )
+        return {"enabled": True, "changes": changes}
+
     def _apply_temporal_rs_smoothing(self, annotations: List[Dict[str, Any]]) -> Dict[str, Any]:
         """通用 RS 去抖：所有短片段都必须持续足够久才作为真实结构切换。"""
         changes: List[Dict[str, Any]] = []
@@ -5874,7 +6165,7 @@ class ScenarioCollector:
         scenario_name: str,
         annotations: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """Accident 起始段不是十字路口；TwoWays 版本回到等效对向单车道 R2。"""
+        """Accident 起始段只压制弱静态路口 hint；真实初始路口保留原 RS。"""
         first_n_frames = 30
         if scenario_name not in {"Accident", "AccidentTwoWays"} or not annotations:
             return {"enabled": False, "changes": []}
@@ -5891,9 +6182,33 @@ class ScenarioCollector:
             }
 
         changes: List[Dict[str, Any]] = []
+
+        def _has_initial_control_source(ann: Dict[str, Any]) -> bool:
+            evidence = ann.get("evidence") or {}
+            tl = str(evidence.get("traffic_light_state", "")).strip().lower()
+            bbox = evidence.get("bbox_semantics") or {}
+            if tl in {"red", "yellow", "green"} or bool(bbox.get("traffic_light")):
+                return True
+            if bool(evidence.get("meta_stop_hazard")) or bool(evidence.get("combined_stop_hazard")):
+                return True
+            return bool(bbox.get("stop_sign") or bbox.get("yield_sign") or bbox.get("junction_hint"))
+
         for index, ann in enumerate(annotations[:first_n_frames]):
             old_rs = ann.get("primary_road_structure")
             if old_rs not in {RoadStructure.R4.value, RoadStructure.R5.value}:
+                continue
+            if _has_initial_control_source(ann):
+                evidence = ann.setdefault("evidence", {})
+                evidence.setdefault("accident_initial_no_junction_filter", []).append(
+                    {
+                        "frame_index": index,
+                        "frame_id": ann.get("frame_id"),
+                        "from": old_rs,
+                        "to": old_rs,
+                        "reason": "accident_initial_kept_true_control_source",
+                        "scenario": scenario_name,
+                    }
+                )
                 continue
             old_event = ann.get("primary_event")
             replacement_rs = RoadStructure.R2.value if scenario_name == "AccidentTwoWays" else RoadStructure.R1.value
@@ -6205,6 +6520,7 @@ class ScenarioCollector:
         twoways_core_span_clipping = self._apply_twoways_core_span_clipping(scenario_name, annotations)
         twoways_longest_r2_filter = self._apply_twoways_longest_r2_filter(scenario_name, annotations)
         r4_context_recovery = self._apply_r4_context_recovery(annotations)
+        blocked_signalized_tail_recovery = self._apply_blocked_signalized_tail_recovery(scenario_name, annotations)
         temporal_smoothing_summary = self._apply_temporal_rs_smoothing(annotations)
         accident_initial_no_junction_filter = self._apply_accident_initial_no_junction_filter(scenario_name, annotations)
         event_postprocess_summary = self._apply_event_route_postprocess(scenario_name, annotations)
@@ -6283,6 +6599,7 @@ class ScenarioCollector:
             "twoways_core_span_clipping": twoways_core_span_clipping,
             "twoways_longest_r2_filter": twoways_longest_r2_filter,
             "r4_context_recovery": r4_context_recovery,
+            "blocked_signalized_tail_recovery": blocked_signalized_tail_recovery,
             "temporal_smoothing": temporal_smoothing_summary,
             "accident_initial_no_junction_filter": accident_initial_no_junction_filter,
             "event_postprocess": event_postprocess_summary,
