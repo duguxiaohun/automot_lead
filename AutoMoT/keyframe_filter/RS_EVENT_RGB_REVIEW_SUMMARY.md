@@ -27,13 +27,17 @@ python AutoMoT/keyframe_filter/rs_full_frame_review.py \
 
 ## 每场景复核结论
 
+下表是早期 town5 RGB 抽样的复核结果，部分 TwoWays / 独立停车结构结论已被 2026-07-06
+全量逐帧 RGB audit 覆盖；最终候选池以 `ROAD_STRUCTURE_FULL_RGB_AUDIT_20260706.md`
+和 `collector.py::SCENARIO_TO_ROAD_STRUCTURE` 为准。
+
 | Scenario | Frames | 当前 RS 分布 | 主要问题 | 后续口径 |
 |---|---:|---|---|---|
 | Accident | 5005 | R1:4169, R4:836 | projection/topology review 高 | 事件不决定 RS；R4 只看灯控/路口证据 |
-| AccidentTwoWays | 4087 | R1:2198, R2:1109, R4:780 | R2 topology soft review 多 | 保留最长/核心 R2，障碍前后回 R1/R4 |
+| AccidentTwoWays | 4087 | 旧抽样 R1:2198, R2:1109, R4:780 | R2 topology soft review 多 | 已由全量 RGB 覆盖：候选删除 R1；非路口按有效可行驶对向单车道 R2，灯控/STOP/无灯覆盖 R4/R5 |
 | BlockedIntersection | 2814 | 旧逻辑 R1:229, R4:2585 | STOP/无灯路口被默认 R4 | 已改 R1/R4/R5，控制源决定 R4/R5 |
 | ConstructionObstacle | 5207 | R1:4221, R4:986 | projection/topology review 高 | 施工障碍只进 EVENT；RS 仍看道路控制源 |
-| ConstructionObstacleTwoWays | 4364 | R1:2035, R2:1373, R4:956 | R2/XODR 确认弱 | 保留核心 R2，XODR-only 原因降为软提示 |
+| ConstructionObstacleTwoWays | 4364 | 旧抽样 R1:2035, R2:1373, R4:956 | R2/XODR 确认弱 | 已由全量 RGB 覆盖：候选删除 R1；非路口默认 R2，真实控制源覆盖 R4/R5 |
 | ControlLoss | 6394 | R1:4086, R4:2308 | projection review 极高 | 失控只进 EVENT；RS 不由失控动作决定 |
 | CrossJunctionDefectTrafficLight | 2455 | R1:101, R5:2354 | 少量低置信 | 保持 defect 优先 R5 |
 | CrossingBicycleFlow | 507 | R1:201, R4:306 | projection review 高 | 自行车横穿只进 EVENT；R4 需灯控证据 |
@@ -42,7 +46,7 @@ python AutoMoT/keyframe_filter/rs_full_frame_review.py \
 | EnterActorFlowV2 | 627 | R3:627 | R3 topology soft review | 保持 R3/no-R4 |
 | HardBreakRoute | 1471 | R1:847, R3:129, R4:495 | projection review 高 | 急刹只进 EVENT；按 route RGB 分桶 |
 | HazardAtSideLane | 2187 | R1:1263, R4:924 | R4 灯控上下文弱 | side-lane hazard 不制造 RS |
-| HazardAtSideLaneTwoWays | 1785 | R1:1461, R2:92, R4:232 | projection review 高 | R2 只给必须借/等对向核心段 |
+| HazardAtSideLaneTwoWays | 1785 | 旧抽样 R1:1461, R2:92, R4:232 | projection review 高 | 已由全量 RGB 覆盖：候选删除 R1；R2 是有效可行驶对向单车道道路空间，U-E2/R-E2 表达核心动作 |
 | HighwayCutIn | 2119 | R3:2005, R4:114 | R3 topology soft review | 主体 R3；少量 R4 必须灯控同源 |
 | HighwayExit | 1212 | R3:1212 | R3 topology soft review | 保持 R3/no-R4 |
 | InterurbanActorFlow | 1228 | R1:420, R5:808 | review 文案串入 R3 次候选 | R5 方向可用；删除 R4 继续成立 |
@@ -55,20 +59,20 @@ python AutoMoT/keyframe_filter/rs_full_frame_review.py \
 | NonSignalizedJunctionRightTurn | 808 | R1:9, R4:77, R5:722 | projection review 高 | 保持 R1/R4/R5 混合 |
 | OppositeVehicleRunningRedLight | 4854 | R1:370, R4:4484 | projection + no-meta R4 review | 保持 R4；闯红灯只进 EVENT |
 | OppositeVehicleTakingPriority | 1558 | R1:52, R4:408, R5:1098 | R4/R5 仲裁边界 | R5 为主，少量灯控子集 R4 |
-| ParkedObstacle | 4623 | R1:3921, R4:702 | projection review 高 | 停车障碍不等于 R6；只按道路证据升 RS |
-| ParkedObstacleTwoWays | 1340 | R1:1001, R2:335, R4:4 | projection/R2 soft review | 保留核心 R2 |
-| ParkingCrossingPedestrian | 1211 | R1:754, R4:457 | projection review 高 | 行人只进 EVENT；停车空间证据另判 R6 |
+| ParkedObstacle | 4623 | R1:3921, R4:702 | projection review 高 | 停车障碍只进 EVENT；只按道路证据升 RS |
+| ParkedObstacleTwoWays | 1340 | 旧抽样 R1:1001, R2:335, R4:4 | projection/R2 soft review | 已由全量 RGB 覆盖：候选删除 R1；非路口默认 R2，STOP/无灯可 R5 |
+| ParkingCrossingPedestrian | 1211 | R1:754, R4:457 | projection review 高 | 行人只进 EVENT；停车空间不单独成 RS |
 | ParkingCutIn | 2166 | R1:551, R4:1615 | R4 灯控上下文弱 | 停车切入不制造 R4，需灯控同源 |
-| ParkingExit | 1569 | R1:980, R4:164, R6:425 | R4/R6 仲裁边界 | parking exit 窗口给 R6，灯控优先 R4 |
+| ParkingExit | 1569 | R1:1405, R4:164 | R4/parking-exit 仲裁边界 | parking exit 窗口给 R1/R-E2，灯控优先 R4 |
 | PedestrianCrossing | 2014 | R1:143, R4:1616, R5:255 | R4/R5 控制源复核多 | 行人不决定 RS；按灯控/无灯源分 R4/R5 |
 | PriorityAtJunction | 955 | R1:155, R4:566, R5:234 | R4/R5 仲裁边界 | 保持混合，不能按 Town 自动判 |
 | RedLightWithoutLeadVehicle | 6822 | R1:410, R4:6412 | no-meta R4 review 多 | 保持 R4；加强 stopline/灯控同源证据 |
 | SignalizedJunctionLeftTurn | 3639 | R1:584, R4:3055 | projection review 高 | 保持 R4 policy |
 | SignalizedJunctionLeftTurnEnterFlow | 3480 | R1:488, R4:2992 | projection review 高 | 保持 R4；enter-flow 只进 EVENT |
 | SignalizedJunctionRightTurn | 3080 | R1:328, R4:2752 | projection review 高 | 保持 R4 policy |
-| StaticCutIn | 1331 | R1:636, R3:537, R4:158 | route 分桶/topology review | 高速桶 R3，城市/路边按 R1/R4/R6 |
+| StaticCutIn | 1331 | R1:636, R3:537, R4:158 | route 分桶/topology review | 高速桶 R3，城市/普通路段按 R1/R4；2026-07-06 全量逐帧 RGB 后候选收紧为 R1/R3/R4/R5 |
 | T_Junction | 3785 | R1:85, R4:3690, R5:10 | no-meta R4 review 多 | 保持 R1/R4/R5；缺灯态不能自动 R5 |
-| VehicleOpensDoorTwoWays | 1518 | R1:731, R4:787 | R4 灯控上下文弱 | 开门风险按 EVENT/R6/R2 证据，不默认 R2 |
+| VehicleOpensDoorTwoWays | 1518 | 旧抽样 R1:731, R4:787 | R4 灯控上下文弱 | 已由全量 RGB 覆盖：候选删除 R1；两侧停车/开门压缩可行驶 lane 时主 RS 为 R2，真实控制源覆盖 R4/R5 |
 | VehicleTurningRoute | 7372 | R1:1291, R4:4539, R5:1542 | projection review 极高 | 转弯路线不决定 RS；控制源分 R4/R5 |
 | VehicleTurningRoutePedestrian | 2036 | R1:377, R4:938, R5:721 | projection review 极高 | 同 VehicleTurningRoute，行人只进 EVENT |
 | noScenarios | 3137 | R1:2434, R4:703 | projection review 高 | 保守 R1；强灯控才 R4 |

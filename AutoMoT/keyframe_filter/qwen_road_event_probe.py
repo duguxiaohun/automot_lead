@@ -86,7 +86,6 @@ ROAD_DEFINITION_FALLBACK: Dict[str, str] = {
     "R3": "Highway / ramp / merge / exit road: ramp, merge, split, highway cut-in, highway exit, or speed-matching with main traffic.",
     "R4": "Signalized intersection: cross intersection, T-junction, or junction area where a normal traffic light is the main rule.",
     "R5": "Unsignalized or signal-failure intersection: cross intersection, T-junction, or junction area where no usable traffic-light rule is available.",
-    "R6": "Roadside parking / parking-occupied road: parked cars, parking bay exit, door opening, roadside occlusion, or parking-dominated risk.",
 }
 
 EVENT_DEFINITION_FALLBACK: Dict[str, str] = {
@@ -515,14 +514,13 @@ Look for only decision-relevant visible cues:
 - key factors that affect the ego vehicle's next decision.
 
 Important distinction rules:
-- R1 is the default/other bucket. Choose R1 when there is no clear visual evidence for junction, ramp/merge/highway exit, two-way single-lane borrowing, or parking-dominated risk.
-- Choose R2 only when the opposite lane or oncoming traffic is part of the immediate decision.
+- R1 is the default/other bucket. Choose R1 when there is no clear visual evidence for junction, ramp/merge/highway exit, or two-way single-lane borrowing. Roadside parking, parking-space exit, parked cars, door opening, and occlusion do not create a separate RS; express them through R1/R2 plus EVENT.
+- Choose R2 only when the opposite lane or oncoming traffic is part of the immediate decision, including effective two-way single-lane cases where parked cars or door-opening risk make side lanes unusable.
 - Choose R3 only for ramp, merge, highway, split, or exit structures.
 - A junction can be recognized by road geometry, not only by traffic lights: side-road opening, T-shaped road, cross-shaped road, stop/yield line, turning pocket, cross traffic, or a wide conflict area.
 - If clear junction geometry is visible, do not choose R1 just because no traffic light is visible.
 - Choose R4 when junction geometry is present and a normal traffic light is visible or is the main rule.
 - Choose R5 when junction geometry is present but no usable traffic light is visible, or the decision mainly depends on right-of-way/gaps.
-- Choose R6 only when roadside parking, parking-space exit, parked cars, door opening, or parking occlusion dominates the decision.
 
 EVENTS may contain one or more labels, but only from the candidates compatible with the chosen ROAD_STRUCTURE and scenario:
 {chr(10).join(per_road_event_lines)}

@@ -48,7 +48,6 @@ RS_COLORS = {
     "R3": (85, 139, 214),
     "R4": (50, 151, 91),
     "R5": (156, 105, 205),
-    "R6": (211, 142, 62),
 }
 
 EVENT_COLORS = {
@@ -117,7 +116,6 @@ def _primary_relevant_reasons(reasons: List[str], label: str) -> List[str]:
         "R3": ("r3_", "highway", "merge", "ramp", "candidate", "route_", "xml_", "static_xodr", "xodr_"),
         "R4": ("r4_", "signalized", "traffic_light", "blocked_r4", "candidate", "route_", "xml_", "static_xodr", "xodr_"),
         "R5": ("r5_", "nonsignalized", "defect", "stop", "yield", "priority", "blocked_intersection", "candidate", "route_", "xml_", "static_xodr", "xodr_"),
-        "R6": ("r6_", "parking", "shoulder", "curb", "candidate", "route_", "xml_", "static_xodr", "xodr_"),
         "R1": ("r1_", "default", "candidate", "route_", "xml_", "static_xodr", "xodr_", "low_confidence"),
     }
     prefixes = prefixes_by_label.get(label, ())
@@ -157,7 +155,7 @@ def _review_severity(reasons: List[str], label: str, is_event: bool = False) -> 
         or "primary_rs_transition" in reason_text
     ):
         return "boundary_review"
-    if label in {"R2", "R3", "R6"} and ("lacks_xodr" in reason_text or "xodr_topology_untrusted" in reason_text):
+    if label in {"R2", "R3"} and ("lacks_xodr" in reason_text or "xodr_topology_untrusted" in reason_text):
         return "soft_evidence_note"
     return "soft_evidence_note"
 
@@ -185,7 +183,7 @@ def _issue_bucket(reasons: List[str], label: str) -> str:
     if "temporal_smoothing" in reason_text:
         return "temporal_boundary_smoothing"
     if "lacks_xodr" in reason_text or "xodr_topology_untrusted" in reason_text:
-        if label in {"R2", "R3", "R6"}:
+        if label in {"R2", "R3"}:
             return "topology_confirmation_missing"
         return "xodr_evidence_weak"
     return "needs_rgb_visual_review"

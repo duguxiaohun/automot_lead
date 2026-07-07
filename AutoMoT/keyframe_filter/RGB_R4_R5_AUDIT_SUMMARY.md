@@ -68,8 +68,8 @@ python AutoMoT/keyframe_filter/rgb_r4_r5_audit.py \
 
 ## 后续使用
 
-- 场景级 no-R4 黑名单只保留全量 RGB 未见稳定灯控的场景：`EnterActorFlow`、`EnterActorFlowV2`、`HighwayExit`、`InterurbanActorFlow`、`InterurbanAdvancedActorFlow`、`InvadingTurn`、`MergerIntoSlowTrafficV2`。
-- `HighwayCutIn`、`MergerIntoSlowTraffic`、`NonSignalizedJunctionRightTurn`、`OppositeVehicleTakingPriority`、`T_Junction` 不再用场景名压掉 R4。
+- 场景级 no-R4 黑名单只保留全量 RGB 未见稳定灯控的场景：`EnterActorFlow`、`EnterActorFlowV2`、`HighwayExit`、`InterurbanActorFlow`、`InterurbanAdvancedActorFlow`、`MergerIntoSlowTrafficV2`。
+- `HighwayCutIn`、`InvadingTurn`、`MergerIntoSlowTraffic`、`NonSignalizedJunctionRightTurn`、`OppositeVehicleTakingPriority`、`T_Junction` 不再用场景名压掉 R4；其中 `InvadingTurn` 的 R4 只允许稳定灯控子集逐帧触发。
 - R5 不允许从“没有看见红绿灯”直接得出；必须有无灯/STOP/yield/priority/T-junction 证据。
 - `collector.py` 已按本口径接入同帧 `bboxes/*.pkl` 的轻量语义摘要：`traffic_light` 可作为 R4 辅助确认，
   `stop_sign/yield/junction/crosswalk` 可作为 R5 辅助确认；但 highway/merge 场景里的弱灯控 hint 若没有同源控制上下文会被降级，不压过默认 R3。
