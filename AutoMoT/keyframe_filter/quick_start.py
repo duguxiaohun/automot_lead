@@ -140,30 +140,30 @@ _POLICY_LOGIC_BY_KIND: Dict[str, Dict[str, Any]] = {
     },
     "parking": {
         "primary_rules": [
-            "灯态/受控路口优先 -> R4，停车空间作为 secondary R6",
-            "trigger/distance 窗口 + parking/shoulder/curbside 证据 -> R6",
-            "窗口外 -> R1",
+            "灯态/受控路口优先 -> R4，STOP/无灯路口 -> R5",
+            "停车空间、遮挡和行人横穿不再生成独立 RS；非路口保持 R1，行人/遮挡进入 EVENT",
+            "两侧停车压缩成有效对向单车道时才由 TwoWays/开门类规则进入 R2",
         ],
         "xml_xodr_usage": [
-            "XML direction/distance/crossing_angle 定义停车侧与影响窗口",
-            "XODR parking/shoulder lane 或路边空间证据决定 R6 置信度",
+            "XML direction/distance/crossing_angle 定义停车侧与影响窗口，只辅助 EVENT/span",
+            "XODR parking/shoulder lane 或路边空间证据只用于判断 R1/R2 与遮挡风险",
         ],
     },
     "parking_exit": {
         "primary_rules": [
-            "停车位/停车带汇入主路窗口 -> R6",
-            "有灯态/受控路口时 primary=R4，secondary=[R6]",
-            "汇入完成且 driving lane 稳定后 -> R1",
+            "停车位/停车带汇入主路窗口仍为 R1，道路事件用 R-E2 表达汇入/回正",
+            "有灯态/受控路口时 primary=R4",
+            "汇入完成且 driving lane 稳定后保持 R1/R-E1",
         ],
         "xml_xodr_usage": [
             "XML front/behind_vehicle_distance/direction 定义停车空隙与汇入侧",
-            "XODR Parking/Shoulder -> Driving 的拓扑切换增强 R6",
+            "XODR Parking/Shoulder -> Driving 的拓扑切换只增强 R-E2 汇入证据",
         ],
     },
     "vehicle_opens_door_twoways": {
         "primary_rules": [
-            "R4 > 必须借/等待对向车道的 R2 > 路边开门停车空间 R6 > R1",
-            "R2/R6 分差很小时标 review",
+            "R4/R5 控制源优先；两侧停车/开门压缩有效可行驶 lane 时主 RS 为 R2",
+            "不再输出独立停车 RS，开门/停车风险进入 U-E2/R-E2",
         ],
         "xml_xodr_usage": [
             "XML distance/frequency/direction 定义开门风险窗口",
@@ -173,12 +173,12 @@ _POLICY_LOGIC_BY_KIND: Dict[str, Dict[str, Any]] = {
     "static_cutin": {
         "primary_rules": [
             "灯态/受控路口优先 -> R4",
-            "cut-in 侧为 parking/shoulder/curbside -> R6",
+            "cut-in 侧为 parking/shoulder/curbside 时仍保持 R1，切入进入 U-E3",
             "cut-in 侧为 ramp/merge/auxiliary lane -> R3，否则 -> R1",
         ],
         "xml_xodr_usage": [
             "XML distance/direction/speed 定义切入窗口与侧向",
-            "XODR 用于仲裁 parking-side R6 和 merge-side R3",
+            "XODR 用于仲裁普通 R1 与 merge-side R3",
         ],
     },
     "pedestrian_crossing": {
@@ -205,7 +205,7 @@ _POLICY_LOGIC_BY_KIND: Dict[str, Dict[str, Any]] = {
     "noscenario": {
         "primary_rules": [
             "仅真实有效灯态/light_hazard + 同源受控路口可升级 -> R4",
-            "禁止单靠 XODR opposite/parking/merge hint 输出 R2/R3/R5/R6",
+            "禁止单靠 XODR opposite/parking/merge hint 输出 R2/R3/R5",
             "其它全部 -> R1",
         ],
         "xml_xodr_usage": [
@@ -1427,9 +1427,9 @@ def _logic_validation_notes(kind: str, towns: Dict[str, Any], tag_counter: Count
             notes.append("抽样 town 未见明显 controller，R5 无灯/路权假设相对一致。")
     if kind in {"parking", "parking_exit", "static_cutin", "vehicle_opens_door_twoways"}:
         if "direction" in observed_tags or "front_vehicle_distance" in observed_tags or "behind_vehicle_distance" in observed_tags:
-            notes.append("抽样 XML 含 direction/front/behind 等停车侧或停车空隙线索，可辅助 R6 窗口定位。")
+            notes.append("抽样 XML 含 direction/front/behind 等停车侧或停车空隙线索，可辅助 R1/R2 与 EVENT 窗口定位。")
         else:
-            notes.append("抽样 XML 停车侧线索有限，R6 high confidence 需要 XODR parking/shoulder 或 bbox/meta 支撑。")
+            notes.append("抽样 XML 停车侧线索有限，停车/遮挡只作为 R1/R2 与 EVENT 弱证据。")
     if not any_xodr:
         notes.append("本地未找到对应 XODR；当前画像只能验证 XML 形态，运行时规则会自动降级。")
     if meta_available_samples:
@@ -1593,7 +1593,7 @@ def _build_scenario_policy_plan(scenario: str, scenario_entry: Dict[str, Any]) -
         "frame_primary_rules": template["primary_rules"],
         "arbitration": [
             "CrossJunctionDefectTrafficLight 固定 R5 覆盖 R4",
-            "普通优先级按 R4/R5 > R3 > R2/R6 > R1，分数接近时使用全局优先级",
+            "普通优先级按 R4/R5 > R3 > R2 > R1，分数接近时使用全局优先级",
             "noScenarios 无灯态时强制 conservative R1",
             "只允许输出 candidate_pool_from_scenario 中已有的 RS，避免规则越界",
         ],

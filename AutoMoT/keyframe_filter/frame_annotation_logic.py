@@ -7,7 +7,7 @@ ROAD_EVENT_CLASSIFICATION_PLAN.md 的 R-E/U-E 语义不完全一致。新的帧�
 ROAD_EVENT_CANDIDATE_MAPPING.md 为准；不要把本文件输出直接当作新版 EVENT 真值。
 
 设计原则：
-1. RS（Road Structure）优先级：交叉口 > 高速 > 双向 > 停泊 > 直道
+1. RS（Road Structure）优先级：交叉口 > 高速 > 双向 > 直道；停车/遮挡只进 EVENT 或 R2 等效窄路
 2. Event 优先级：危险/异常 > 场景特定 > 正常
 3. 每帧只输出一个主要RS和一个主要Event（但可扩展多标签）
 """
@@ -28,7 +28,6 @@ class RoadStructure(Enum):
     R3 = "R3"      # 高速/多车道
     R4 = "R4"      # 交叉口/转弯
     R5 = "R5"      # 非信号化路口
-    R6 = "R6"      # 停泊区
 
 
 class EventType(Enum):
@@ -82,7 +81,7 @@ class FrameAnnotationAnalyzer:
     JUNCTION_ENTER_THRESHOLD = 10.0         # m，已进入交叉口
     SPEED_LIMIT_HIGH_SPEED = 80.0           # km/h，高速判断
     PARKED_OBSTACLE_DISTANCE = 10.0         # m，停泊障碍距离
-    PARKING_ZONE_DISTANCE = 15.0            # m，停泊区距离
+    PARKING_ZONE_DISTANCE = 15.0            # m，停车侧/遮挡事件参考距离
 
     # Event判断阈值
     BRAKE_HIGH = 0.7                        # 制动强度
@@ -142,23 +141,17 @@ class FrameAnnotationAnalyzer:
             else:
                 return RoadStructure.R4, 0.95  # 信号化路口
 
-        # 2. 检查停泊相关
-        dist_to_parked = float(self.safe_get(meta, 'dist_to_parked_obstacle', 999))
-        route_left_len = float(self.safe_get(meta, 'route_left_length', 999))
-        if dist_to_parked < self.PARKED_OBSTACLE_DISTANCE or (route_left_len > 0 and route_left_len < self.PARKING_ZONE_DISTANCE):
-            return RoadStructure.R6, 0.85  # 停泊区
-
-        # 3. 检查双向道路
+        # 2. 检查双向道路。停车/遮挡不再单独生成 RS；若压缩成有效对向单车道，由 R2 表达。
         lane_change_str = str(self.safe_get(meta, 'lane_change_str', ''))
         if 'opposite' in lane_change_str.lower() or 'bidirectional' in lane_change_str.lower():
             return RoadStructure.R2, 0.80  # 双向道路
 
-        # 4. 检查高速/多车道
+        # 3. 检查高速/多车道
         speed_limit = float(self.safe_get(meta, 'speed_limit', 50))
         if speed_limit > self.SPEED_LIMIT_HIGH_SPEED:
             return RoadStructure.R3, 0.85  # 高速
 
-        # 5. 默认直道
+        # 4. 默认直道
         return RoadStructure.R1, 0.70
 
     def judge_events(self, meta: Dict, prev_meta: Optional[Dict], rs: RoadStructure) -> List[str]:
@@ -219,11 +212,6 @@ class FrameAnnotationAnalyzer:
             dist_to_junction = float(self.safe_get(meta, 'distance_to_junction', 999))
             if dist_to_junction < self.JUNCTION_ENTER_THRESHOLD and speed < 5:
                 events.append(EventType.U_E8.value)  # 路口拥堵
-
-        elif rs == RoadStructure.R6:  # 停泊区
-            # 检查停泊状态
-            if speed < self.SPEED_EPSILON:
-                events.append(EventType.U_E3.value)  # 停泊
 
         # ====== 通用动态物体事件 ======
 

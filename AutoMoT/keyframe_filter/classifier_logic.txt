@@ -97,12 +97,12 @@ R1. 常规道路/同向可行驶道路
 此外还有几个场景的部分片段属于 R1:StaticCutIn 里"自车起步时不在期望车道所以要变道"这一段;InterurbanActorFlow 里"先向左变道"这一段(InterurbanAdvancedActorFlow 是否也有这段前置变道,需要你核实原始数据,如果没有就不挂 R1)。
 R2. 双向单车道/借对向车道道路
 核心特征是自车方向只有一条车道,前方被占死后必须短暂借用对向车道通过,通过后返回原车道,如果对向车优先或遇红绿灯则停车等待。
-包含的场景:AccidentTwoWays、ConstructionObstacleTwoWays、ParkedObstacleTwoWays、HazardAtSideLaneTwoWays、VehicleOpensDoorTwoWays(同时也挂 R6,双标签)。这五个是"自车主动借道"。
+包含的场景:AccidentTwoWays、ConstructionObstacleTwoWays、ParkedObstacleTwoWays、HazardAtSideLaneTwoWays、VehicleOpensDoorTwoWays。这五个是"自车主动借道"；VehicleOpensDoorTwoWays 不再挂独立停车道路结构，两侧停车/开门只是把有效可行驶通道压缩成 R2。
 InvadingTurn 结构上也挂在 R2 下(同样是双向单车道),但行为方向相反——是对向车占用自车道,自车被动等待、不主动进入对向车道,需要单独标注为被动让行,不要和上面五个的主动借道行为混用。
 R3. 高速/匝道/合流道路
 核心特征是存在主路、匝道、合流、分流、驶出结构,自车需要根据侧后方车辆和目标车道找时机并线或驶出。
 包含的场景:EnterActorFlow/EnterActorFlowV2(自车并入主路)、MergerIntoSlowTraffic/MergerIntoSlowTrafficV2(同类合流)、HighwayCutIn(他车切入自车道,自车减速跟车)、HighwayExit(自车找时机驶出)。
-StaticCutIn 如果触发位置在匝道汇入口附近,也应该挂这一类;但如前面说过,这个标签下可能混了两种不同物理场景,需要你核实具体数据位置后再决定它挂 R3 还是 R6。
+StaticCutIn 如果触发位置在匝道汇入口附近,也应该挂这一类;2026-07-06 全量逐帧 RGB 复核后,当前候选收紧为 R1/R3/R4/R5,不再保留独立停车道路结构。
 R4. 信号灯路口
 核心特征是红灯停、绿灯行,同时仍需观察冲突车辆、行人、自行车或异常交通行为。
 确定包含:RedLightWithoutLeadVehicle、SignalizedJunctionLeftTurn/SignalizedJunctionLeftTurnEnterFlow、SignalizedJunctionRightTurn、OppositeVehicleRunningRedLight。
@@ -111,10 +111,10 @@ R5. 无信号灯路口
 核心特征是没有明确灯控,自车需要根据路权、横向车流、对向车流、行人或自行车判断通行时机。
 确定包含:NonSignalizedJunctionLeftTurn/NonSignalizedJunctionLeftTurnEnterFlow、NonSignalizedJunctionRightTurn、OppositeVehicleTakingPriority、PriorityAtJunction(原文未写明是否有信号灯,建议核实)、CrossJunctionDefectTrafficLight(按你确认,信号灯失效后按无信号灯路口逻辑处理,但建议保留"信号灯故障"这个独立事件子标记,因为四向都可能来车的不确定性比普通无信号灯路口更高)。
 条件性包含:T_Junction、PedestrianCrossing、VehicleTurningRoute、VehicleTurningRoutePedestrian、InterurbanActorFlow/InterurbanAdvancedActorFlow 的路口片段、BlockedIntersection 的路口片段——这些和 R4 是互斥的同一批场景,具体挂哪边取决于该路口实际有没有信号灯。
-R6. 路边停车/停车占道道路
-核心特征是看起来是双车道,实际其中一条被路边停车完全占据,有效通行空间接近单车道,风险来自停车车辆突然启动、开车门、遮挡视线或自车从停车区域并入主路。
-包含的场景:ParkingCutIn、ParkingExit、ParkingCrossingPedestrian、VehicleOpensDoorTwoWays(同时挂 R2)。
-StaticCutIn 如果触发位置确实在路边停车区附近,也挂这一类,和 R3 互斥,取决于具体数据位置。
+停车/开门/遮挡并入口径
+不再设置独立停车道路结构。看起来是双车道但其中一条被路边停车完全占据时,如果有效通行空间接近对向单车道,归 R2；否则普通行驶仍归 R1。
+停车车辆突然启动、开车门、遮挡视线或自车从停车区域并入主路,统一由 R-E2/U-E2/U-E3/U-E4 表达事件。
+ParkingExit、ParkingCrossingPedestrian、ParkingCutIn、StaticCutIn 都不再额外生成停车道路结构；VehicleOpensDoorTwoWays 用 R2 表达有效可行驶对向单车道。
 
 
 
@@ -235,22 +235,6 @@ GO_STRAIGHT_WHEN_SAFE
 ●  PedestrianCrossing 中如果只是正常路口让行，也可以作为背景事件。
 这里需要注意：
 正常路权判断本身不是突发事件。只有出现额外异常对象时，才切换到突发事件。
-
-R-E6. 常规停车等待 / 恢复启动
-这一类可以作为常规事件的辅助单元。
-核心含义：
-自车因为正常交通规则或正常车流状态停车等待，条件满足后恢复行驶。
-包括：
-●  红灯等待；
-●  无信号灯路口等待安全间隙；
-●  前车正常排队等待；
-●  合流等待间隙；
-●  停车位汇入前等待主路空隙。
-对应行为：
-STOP_AND_WAIT_BY_RULE
-WAIT_FOR_GAP
-RESUME_WHEN_ALLOWED
-这一类不是必须单独作为主标签，也可以作为 R-E4、R-E5、R-E3 的行为状态。但如果你后续做时序标签，它很有用，因为很多场景都有“正常等待”片段。
 
 三、完善后的突发事件分类
 突发事件建议保留为 8 类基本单元。
@@ -447,9 +431,5 @@ WAIT_UNTIL_PATH_CLEAR
 RESUME_AFTER_BLOCKAGE_DISAPPEARS
 建议单独保留，不要混入静态障碍占道，因为 BlockedIntersection 的重点不是“绕障能力”，而是：
 能否在长时间等待后重新判断道路已恢复可通行。
-
-
-
-
 
 
