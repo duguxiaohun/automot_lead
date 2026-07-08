@@ -39,7 +39,7 @@ python AutoMoT/keyframe_filter/rs_full_frame_review.py \
 | ConstructionObstacle | 5207 | R1:4221, R4:986 | projection/topology review 高 | 施工障碍只进 EVENT；RS 仍看道路控制源 |
 | ConstructionObstacleTwoWays | 4364 | 旧抽样 R1:2035, R2:1373, R4:956 | R2/XODR 确认弱 | 已由全量 RGB 覆盖：候选删除 R1；非路口默认 R2，真实控制源覆盖 R4/R5 |
 | ControlLoss | 6394 | R1:4086, R4:2308 | projection review 极高 | 失控只进 EVENT；RS 不由失控动作决定 |
-| CrossJunctionDefectTrafficLight | 2455 | R1:101, R5:2354 | 少量低置信 | 保持 defect 优先 R5 |
+| CrossJunctionDefectTrafficLight | 2455 | 旧结果 R1:101, R5:2354 | 少量低置信 | 已修正口径：保留有灯控 R4，defect/失效进入 U-E7 |
 | CrossingBicycleFlow | 507 | R1:201, R4:306 | projection review 高 | 自行车横穿只进 EVENT；R4 需灯控证据 |
 | DynamicObjectCrossing | 7135 | R1:4852, R4:2283 | projection review 极高 | 动态横穿只进 EVENT |
 | EnterActorFlow | 1050 | R3:1050 | R3 topology soft review | 保持 R3/no-R4 |

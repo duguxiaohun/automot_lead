@@ -97,13 +97,13 @@ _POLICY_LOGIC_BY_KIND: Dict[str, Dict[str, Any]] = {
     },
     "defect_junction": {
         "primary_rules": [
-            "trigger 对应 junction 前后窗口 -> R5",
-            "即使 XODR 有 signal/controller 或 meta 有灯态，也按故障灯语义覆盖 R4",
-            "找不到 junction 时 R5 medium + review",
+            "trigger 对应 junction 前后窗口 + 本地路口/近灯控证据 -> R4",
+            "远距离 meta/bbox 灯态不能单独把起始直道升成 R4",
+            "信号灯故障语义进入 U-E7，不把 RS 改成 R5",
         ],
         "xml_xodr_usage": [
             "XML trigger/traffic_direction/source_dist_interval 定义故障路口窗口",
-            "XODR signal/controller 在本场景中是 defect_signal evidence，而非 R4 evidence",
+            "XODR signal/controller 和 meta dist_to_junction 用于确认本地路口接近，defect_signal 由 EVENT 表达",
         ],
     },
     "highway_merge": {
@@ -1592,7 +1592,7 @@ def _build_scenario_policy_plan(scenario: str, scenario_entry: Dict[str, Any]) -
         },
         "frame_primary_rules": template["primary_rules"],
         "arbitration": [
-            "CrossJunctionDefectTrafficLight 固定 R5 覆盖 R4",
+            "CrossJunctionDefectTrafficLight 保持 R4，信号失效由 EVENT U-E7 表达",
             "普通优先级按 R4/R5 > R3 > R2 > R1，分数接近时使用全局优先级",
             "noScenarios 无灯态时强制 conservative R1",
             "只允许输出 candidate_pool_from_scenario 中已有的 RS，避免规则越界",

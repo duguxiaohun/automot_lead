@@ -54,9 +54,11 @@ function renderCards(items) {
     title.textContent = item.header_text;
     if (item.image_exists) {
       img.src = item.image_url;
+      img.style.display = "block";
+      missing.style.display = "none";
     } else {
       img.style.display = "none";
-      missing.style.display = "block";
+      missing.style.display = "flex";
     }
 
     addMeta(meta, "run_id", item.run_id);
