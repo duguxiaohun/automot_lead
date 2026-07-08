@@ -109,7 +109,7 @@ R4. 信号灯路口
 条件性包含(取决于该路口是否有信号灯,需核实):T_Junction、CrossingBicycleFlow、PedestrianCrossing、VehicleTurningRoute、VehicleTurningRoutePedestrian、InterurbanActorFlow 和 InterurbanAdvancedActorFlow 的路口转弯片段、BlockedIntersection 的路口片段。
 R5. 无信号灯路口
 核心特征是没有明确灯控,自车需要根据路权、横向车流、对向车流、行人或自行车判断通行时机。
-确定包含:NonSignalizedJunctionLeftTurn/NonSignalizedJunctionLeftTurnEnterFlow、NonSignalizedJunctionRightTurn、OppositeVehicleTakingPriority、PriorityAtJunction(原文未写明是否有信号灯,建议核实)、CrossJunctionDefectTrafficLight(按你确认,信号灯失效后按无信号灯路口逻辑处理,但建议保留"信号灯故障"这个独立事件子标记,因为四向都可能来车的不确定性比普通无信号灯路口更高)。
+确定包含:NonSignalizedJunctionLeftTurn/NonSignalizedJunctionLeftTurnEnterFlow、NonSignalizedJunctionRightTurn、OppositeVehicleTakingPriority、PriorityAtJunction(原文未写明是否有信号灯,建议核实)。CrossJunctionDefectTrafficLight 已改为 R4：它仍是有红绿灯硬件/受控路口，信号灯失效只作为 U-E7 独立事件子标记，因为四向都可能来车的不确定性比普通无信号灯路口更高。
 条件性包含:T_Junction、PedestrianCrossing、VehicleTurningRoute、VehicleTurningRoutePedestrian、InterurbanActorFlow/InterurbanAdvancedActorFlow 的路口片段、BlockedIntersection 的路口片段——这些和 R4 是互斥的同一批场景,具体挂哪边取决于该路口实际有没有信号灯。
 停车/开门/遮挡并入口径
 不再设置独立停车道路结构。看起来是双车道但其中一条被路边停车完全占据时,如果有效通行空间接近对向单车道,归 R2；否则普通行驶仍归 R1。
@@ -431,5 +431,4 @@ WAIT_UNTIL_PATH_CLEAR
 RESUME_AFTER_BLOCKAGE_DISAPPEARS
 建议单独保留，不要混入静态障碍占道，因为 BlockedIntersection 的重点不是“绕障能力”，而是：
 能否在长时间等待后重新判断道路已恢复可通行。
-
 

@@ -24,7 +24,7 @@ blind RGB 只作为冲突提示。
 | ConstructionObstacle | R1,R4,R5 | R1 74.8%, R4 16.6%, R5 8.5% |
 | ConstructionObstacleTwoWays | R2,R4,R5 | R2 81.4%, R4 14.3%, R5 4.3% |
 | ControlLoss | R1,R4,R5 | R1 51.0%, R4 28.5%, R5 20.5% |
-| CrossJunctionDefectTrafficLight | R1,R5 | R1 4.7%, R5 95.3% |
+| CrossJunctionDefectTrafficLight | R1,R4 | 旧审计 R1 4.7%, R5 95.3%；当前口径应改为 R4+U-E7 |
 | CrossingBicycleFlow | R1,R4 | R1 37.6%, R4 62.4% |
 | DynamicObjectCrossing | R1,R4,R5 | R1 61.3%, R4 23.4%, R5 15.3% |
 | EnterActorFlow | R3 | R3 100.0% |
@@ -76,7 +76,7 @@ blind RGB 只作为冲突提示。
 
 ### 暂不建议加入候选的 RGB blind 提示
 
-- `CrossJunctionDefectTrafficLight` 的 RGB blind R4 是看见红绿灯硬件；语义仍是故障灯，候选保持 R1/R5。
+- `CrossJunctionDefectTrafficLight` 的 RGB blind R4 是看见红绿灯硬件；当前口径保留 R4，故障/失效语义由 U-E7 表达。
 - `EnterActorFlow*`、`HighwayExit`、`MergerIntoSlowTrafficV2` 的 RGB blind R5 多来自匝道/导流线/路牌/路面线误报；候选保持 R3。
 - `NonSignalizedJunctionLeftTurn*` 的 RGB blind R4 需要人工 sheet 复核；当前 strict no-R4 规则暂不改。
 - Signalized 场景的 RGB blind R5 多来自 stopline/crosswalk；不应因此加入 R5。

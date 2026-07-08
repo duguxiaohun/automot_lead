@@ -436,14 +436,18 @@ HTML_TEMPLATE = """
             background: #f9f9f9;
             border-radius: 8px;
             padding: 20px;
-            min-height: 400px;
+            aspect-ratio: 3 / 1;
+            min-height: 300px;
+            max-height: 520px;
             display: flex;
             align-items: center;
             justify-content: center;
+            overflow: hidden;
         }
         .image-container img {
-            max-width: 100%;
-            max-height: 500px;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         }
@@ -547,11 +551,15 @@ HTML_TEMPLATE = """
             border-radius: 8px;
             overflow: hidden;
             line-height: 0;
+            aspect-ratio: 3 / 1;
+            min-height: 300px;
+            max-height: 520px;
         }
         .video-container video {
             display: block;
             width: 100%;
-            height: auto;
+            height: 100%;
+            object-fit: contain;
         }
 
         .status { text-align: center; color: #666; font-size: 12px; padding: 10px; }
@@ -635,7 +643,7 @@ HTML_TEMPLATE = """
 
                     <div id="videoTab" class="tab-content">
                         <div class="video-container">
-                            <video id="videoPlayer" controls style="width:100%; height:auto;">
+                            <video id="videoPlayer" controls>
                                 <source id="videoSource" src="" type="video/mp4">
                                 您的浏览器不支持视频播放
                             </video>

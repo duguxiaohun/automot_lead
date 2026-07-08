@@ -44,7 +44,7 @@ python AutoMoT/keyframe_filter/rgb_r4_r5_audit.py \
 - R4 需要 RGB 可疑灯控颜色块，同时有 meta `traffic_light_state/light_hazard` 或 bbox `traffic_light` 同源确认。
 - R5 需要 RGB 中 junction/stopline/turn/crossing 线索，同时有 meta junction/stop 或 bbox stop/sign/junction 线索；但高速匝道、导流线、merge 线、停车线不能单独当作无灯十字路口。
 - XODR/meta/bbox 用来确认或反证 RGB，不替代 RGB。XODR projection error 大时只作弱提示。
-- `CrossJunctionDefectTrafficLight` 即使可见信号灯，也按 defect 语义优先 R5，不按正常 R4 回灌。
+- `CrossJunctionDefectTrafficLight` 可见信号灯时仍按有灯控路口 R4；defect/失效语义进入 EVENT 的 U-E7，不再用 R5 表达。
 
 ## 规则回灌
 
