@@ -14,6 +14,66 @@
 R2/R3。因此 R2/R3 结论以当前规则输出 + 逐场景 RGB sheet/历史人工复核为主，
 blind RGB 只作为冲突提示。
 
+## 2026-07-08 R2 回退专项复核
+
+用户指出上一版把部分普通 R1/R-E1 场景误升为 R2。当前修正后，runtime 不再根据
+非 TwoWays 场景级 XODR sparse scan 批量开放 R2；`LAYOUT_R2_ROUTE_IDS` 为空。
+R2 只保留在 `*_TwoWays`、`InvadingTurn` 这类候选本身允许 R2 的场景，或后续经
+逐 route / 逐帧 RGB 确认后手工写入白名单。
+
+专项重跑命令：
+
+```bash
+python AutoMoT/keyframe_filter/quick_start.py annotate-rs \
+  --scenario all \
+  --max-frames-per-route 0 \
+  --lead-data-root AutoMoT/lead_data \
+  --output-dir AutoMoT/keyframe_filter/collection_output/current_r2_reaudit_20260708
+```
+
+该 all-run 为单进程长跑，先完成若干风险场景后在 `DynamicObjectCrossing` 中途手动
+中断以避免继续占用机器；随后对所有当前允许 R2 的候选场景做了逐场景全量补跑。
+未完整完成的 `DynamicObjectCrossing` 不计入本表。
+
+| Scenario | routes | frames | R2 routes | 当前规则输出占比 |
+|---|---:|---:|---:|---|
+| Accident | 172 | 23553 | 0 | R1 87.0%, R4 13.0% |
+| AccidentTwoWays | 457 | 71237 | 457 | R2 80.0%, R4 16.0%, R5 4.0% |
+| BlockedIntersection | 152 | 22521 | 0 | R1 5.7%, R4 64.6%, R5 29.6% |
+| ConstructionObstacle | 170 | 22231 | 0 | R1 85.2%, R4 14.8% |
+| ConstructionObstacleTwoWays | 454 | 70530 | 454 | R2 81.8%, R4 14.2%, R5 4.0% |
+| ControlLoss | 306 | 39612 | 0 | R1 78.5%, R4 15.0%, R5 6.6% |
+| CrossJunctionDefectTrafficLight | 123 | 6723 | 0 | R1 7.4%, R4 92.6% |
+| CrossingBicycleFlow | 48 | 5005 | 0 | R1 37.0%, R4 63.0% |
+| HazardAtSideLaneTwoWays | 88 | 14923 | 88 | R2 87.2%, R4 6.3%, R5 6.5% |
+| InvadingTurn | 98 | 11883 | 59 | R1 72.4%, R2 12.7%, R4 1.0%, R5 13.9% |
+| ParkedObstacleTwoWays | 96 | 14030 | 96 | R2 81.1%, R4 3.0%, R5 15.9% |
+| VehicleOpensDoorTwoWays | 104 | 14157 | 104 | R2 44.8%, R4 49.9%, R5 5.3% |
+
+结论：
+
+- 普通非 TwoWays 风险场景 `Accident`、`ConstructionObstacle`、`ControlLoss`、
+  `BlockedIntersection`、`CrossJunctionDefectTrafficLight`、`CrossingBicycleFlow`
+  均未再产生 R2。
+- `AccidentTwoWays` 与 `ConstructionObstacleTwoWays` 每条有效 route 均保留 R2，
+  且 R2 占约 80% / 81.8%，说明 TwoWays 的对向单车道主体没有被压回 R1。
+- `HazardAtSideLaneTwoWays`、`ParkedObstacleTwoWays`、`VehicleOpensDoorTwoWays`
+  也均保留 R2；其中 `VehicleOpensDoorTwoWays` 的 R4 比例约 49.9%，必须继续结合
+  RGB sheet 核查是否真实灯控，不能只凭场景名或远灯态覆盖 R2。
+- `InvadingTurn` 只在 59/98 条有效 route 产生 primary R2，更多帧为 R1/R5/R4 + U-E5；
+  这符合“对向侵入是 EVENT，R2 只在对向单车道/侵占规则空间成立时出现”的方向，
+  但 review ratio 高，需要逐帧看图确认 U-E5 是否过早。
+- 后续若发现非 TwoWays route 确实是对向单车道，必须先逐帧 RGB 复核，再加入
+  `LAYOUT_R2_ROUTE_IDS`；不能按 scenario 批量打开。
+
+逐帧 RGB evidence：
+
+- `AutoMoT/keyframe_filter/collection_output/r2_rgb_route_sheets_20260708/route_sheet_manifest.csv`
+  包含 1577 条 route 的 contact sheet 路径、异常时长标记、当前 RS/EVENT 分布和 R2 帧数。
+- `AutoMoT/keyframe_filter/R2_ROUTE_RGB_REVIEW_INDEX_20260708.csv` 是可追踪的 R2 人工复核索引，
+  按 route 关联 `first_sheet` / `sheet_dir`、`r2_ratio`、`review_required_ratio`。
+  该索引只用于人工逐帧确认；不作为自动真值。
+
 ## 场景占比
 
 | Scenario | 候选 RS | 当前规则输出占比 |
@@ -59,7 +119,7 @@ blind RGB 只作为冲突提示。
 | T_Junction | R1,R4,R5 | R1 1.3%, R4 97.3%, R5 1.4% |
 | VehicleOpensDoorTwoWays | R2,R4,R5 | R2 44.8%, R4 49.9%, R5 5.3% |
 | VehicleTurningRoute | R1,R4,R5 | R1 17.3%, R4 62.4%, R5 20.3% |
-| VehicleTurningRoutePedestrian | R1,R4,R5 | R1 19.9%, R4 36.1%, R5 44.1% |
+| VehicleTurningRoutePedestrian | R1,R4,R5 | 场景级候选仍为 R1/R4/R5；非 TwoWays R2 暂停动态加入，待所有 id 逐帧 RGB 复核后再按 route 白名单开放 |
 | noScenarios | R1,R4,R5 | R1 69.7%, R4 12.6%, R5 17.7% |
 
 ## 候选池结论
@@ -90,6 +150,8 @@ blind RGB 只作为冲突提示。
 
 - `T_Junction`: R4 仍占 97.3%，R5 仅 1.4%。虽然候选正确包含 R1/R4/R5，但需要继续看 RGB sheet，确认无灯/STOP T 路口是否仍被 R4 吃掉。
 - `VehicleOpensDoorTwoWays`: R4 占 49.9% 偏高；候选池本身正确，但需继续检查真实灯控证据，避免开门/停车路段被 R4 过度覆盖。
+- `VehicleTurningRoutePedestrian`: 曾抽查 `Town12_393_0/1`、`Town12_398_0/1`、`Town13_84_0` 后发现疑似非 TwoWays R2；
+  但由于需要按“对向单车道”严格逐帧复核全部 id，runtime 当前不开放非 TwoWays R2，避免普通 R1/R-E1 被误升。
 - `noScenarios`: R5 已有 17.7%，说明保守候选 R1/R4/R5 是必要的；但 blind_R5_label_R1 仍多，后续可专门审计 noScenarios 的 STOP/无灯召回。
 
 ## 产物

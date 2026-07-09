@@ -72,6 +72,41 @@ def _route_out_dir(output_dir: pathlib.Path, scenario: str, route_id: str) -> pa
     return output_dir / "route_sheets" / scenario / route_id
 
 
+def _load_annotation_index(result_dir: pathlib.Path | None) -> dict[tuple[str, str], dict]:
+    """Load per-route annotation summaries keyed by (scenario, route_id)."""
+    if not result_dir:
+        return {}
+    if not result_dir.exists():
+        return {}
+    index: dict[tuple[str, str], dict] = {}
+    for result_path in sorted(result_dir.glob("*_result.json")):
+        try:
+            data = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        scenario = str(data.get("scenario") or result_path.stem.replace("_result", ""))
+        for route in data.get("routes", []) or []:
+            route_id = str(route.get("route_id") or "")
+            if not route_id:
+                continue
+            rs_dist = route.get("primary_rs_distribution", {}) or {}
+            event_dist = route.get("primary_event_distribution", {}) or {}
+            total = int(route.get("num_frames", 0) or sum(int(v or 0) for v in rs_dist.values()))
+            r2_frames = int(rs_dist.get("R2", 0) or 0)
+            index[(scenario, route_id)] = {
+                "annotation_status": route.get("status", ""),
+                "annotation_num_frames": total,
+                "primary_rs_distribution": dict(sorted(rs_dist.items())),
+                "primary_event_distribution": dict(sorted(event_dist.items())),
+                "r2_frames": r2_frames,
+                "r2_ratio": round(r2_frames / total, 6) if total > 0 else 0.0,
+                "has_r2": r2_frames > 0,
+                "review_required_frames": int(route.get("review_required_frames", 0) or 0),
+                "review_required_ratio": float(route.get("review_required_ratio", 0.0) or 0.0),
+            }
+    return index
+
+
 def _load_thumb(path: pathlib.Path, thumb_w: int, thumb_h: int) -> np.ndarray:
     bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if bgr is None:
@@ -228,6 +263,15 @@ def _write_indexes(output_dir: pathlib.Path, results: list[dict]) -> None:
         "page_count",
         "abnormal_duration",
         "abnormal_reason",
+        "annotation_status",
+        "annotation_num_frames",
+        "primary_rs_distribution",
+        "primary_event_distribution",
+        "has_r2",
+        "r2_frames",
+        "r2_ratio",
+        "review_required_frames",
+        "review_required_ratio",
         "status",
         "first_sheet",
         "sheet_dir",
@@ -251,12 +295,14 @@ def _write_indexes(output_dir: pathlib.Path, results: list[dict]) -> None:
                 "frames": sum(int(r.get("frame_count", 0) or 0) for r in rows),
                 "pages": sum(int(r.get("page_count", 0) or 0) for r in rows),
                 "abnormal_routes": sum(1 for r in rows if r.get("abnormal_duration")),
+                "r2_routes": sum(1 for r in rows if r.get("has_r2")),
+                "r2_frames": sum(int(r.get("r2_frames", 0) or 0) for r in rows),
                 "first_sheet": next((r.get("first_sheet") for r in rows if r.get("first_sheet")), ""),
             }
         )
     (output_dir / "scenario_sheet_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     with (output_dir / "scenario_sheet_summary.csv").open("w", newline="", encoding="utf-8") as f:
-        fields2 = ["scenario", "routes", "frames", "pages", "abnormal_routes", "first_sheet"]
+        fields2 = ["scenario", "routes", "frames", "pages", "abnormal_routes", "r2_routes", "r2_frames", "first_sheet"]
         writer = csv.DictWriter(f, fieldnames=fields2)
         writer.writeheader()
         writer.writerows(summary)
@@ -321,6 +367,11 @@ def run(args: argparse.Namespace) -> None:
                 if idx == len(tasks) or idx % max(1, args.progress_interval) == 0:
                     _progress(idx, len(tasks), start, f"last={task[0]}/{task[1]}")
     results.sort(key=lambda x: (x["scenario"], x["route_id"]))
+    annotation_index = _load_annotation_index(pathlib.Path(args.annotation_result_dir) if args.annotation_result_dir else None)
+    for row in results:
+        ann = annotation_index.get((row["scenario"], row["route_id"]), {})
+        for key, value in ann.items():
+            row[key] = json.dumps(value, ensure_ascii=False, sort_keys=True) if isinstance(value, dict) else value
     _write_indexes(output_dir, results)
     print(f"[rgb-sheets] wrote manifest={output_dir / 'route_sheet_manifest.csv'}", flush=True)
 
@@ -339,6 +390,11 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--max-frames-per-page", type=int, default=240)
     parser.add_argument("--jpeg-quality", type=int, default=82)
     parser.add_argument("--max-routes-per-scenario", type=int, default=0)
+    parser.add_argument(
+        "--annotation-result-dir",
+        default=None,
+        help="Optional directory containing *_result.json files; route RS/event distributions are merged into the manifest.",
+    )
     parser.add_argument("--overwrite", action="store_true")
     return parser
 
