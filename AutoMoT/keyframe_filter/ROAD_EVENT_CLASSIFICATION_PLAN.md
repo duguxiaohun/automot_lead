@@ -161,6 +161,10 @@ R1-R5 当前覆盖面足够，不需要继续细分。独立停车类 ROAD_STRUC
 - HazardAtSideLaneTwoWays
 - VehicleOpensDoorTwoWays
 - InvadingTurn
+- 非 TwoWays 场景不能只凭场景级 XODR sparse scan 批量开放 R2。若逐 route 逐帧 RGB
+  已确认是有效双向单车道，必须先写入 runtime 的 route 白名单，再动态开放 R2；
+  当前白名单为空，先避免普通 R1/R-E1 场景被误升 R2。正常跟车仍是 R-E1，不自动生成
+  U-E2/R-E2。
 
 ### R3. 高速合流 / 匝道 / 分流 / 驶出决策结构
 
@@ -550,7 +554,18 @@ BlockedIntersection 需要区分三类停车原因：
   必须由 `changed_route`、负向 `signed_dist_to_lane_change <= -0.45m` 或 ego-frame route
   局部中心线收敛趋势支持，代表回原/目标车道。R-E2 到达 `1.10 * route_center_tolerance`
   且未来 2 帧稳定、无 signed lane-change active 后回当前道路常规事件，退出侧比旧规则略提前。
-  已进入恢复 R-E2 后，不允许再短暂回跳 U-E2；4 帧以内的 U-E2 反跳按距离/XODR 投影抖动合入 R-E2。
+  对非 TwoWays 的 Accident / ConstructionObstacle / ParkedObstacle / HazardAtSideLane，
+  “静态障碍仍在 21.5m 内所以延迟恢复”的保护只能阻止无证据的早期 R-E2；若该帧已有
+  `_lane_change_re2_supported`、回正趋势或已回到中心线附近，则不能再把 R-E2 压回 U-E2，
+  避免 RGB 上已经绕过并开始/完成回正时仍长时间停留在 U-E2。
+  但 R-E2 仍必须贴着同一个静态障碍核心的自然恢复段出现：route 级最终收口会把同一簇
+  `U-E2/R-E2` 看成整体，按具体障碍最近点与横向避让峰值共同判断。最近点之前，或距离最近点
+  回升不足约 4.5m 且还没有越过核心最近点与横向避让峰值/没有回正趋势的 R-E2，一律合回 U-E2；若 RGB/轨迹
+  显示已经过横向偏移峰值，并且 `route_lateral_abs_m` 持续下降、`signed_dist_to_lane_change`
+  转负或局部中心线开始收敛，则 R-E2 从“开始回目标/原车道”处起标，不再等距离完全清空或车身
+  已经回正。若进入恢复 R-E2 后只出现 1-2 帧 U-E2 反跳，且前后 R-E2 与横向回正证据连续，则按
+  距离/XODR 投影抖动合入 R-E2；未清核心且没有回正证据的 `U-E2 -> R-E2 -> U-E2` 会把中间 R-E2
+  合回 U-E2。
   2026-07-04 RGB 审计后，障碍类 U-E2 route 后处理允许合并
   6 帧以内的短 R-E1/R-E4/R-E5 gap，避免 XML/XODR 路口边界把仍在绕障的片段切碎；
   2026-07-05 中心线复核后，夹在两个 U-E2 span 中间的 1-2 帧 R-E2 视为抖动并合回 U-E2；
@@ -563,12 +578,14 @@ BlockedIntersection 需要区分三类停车原因：
   EVENT route postprocess 末尾会再次执行候选池一致性兜底：若桥接/单核心等后处理又产生
   `R4/R5 + U-E2/U-E3`，强制回 `R-E4/R-E5` 并记录 `*_candidate_pool_excludes_u2_u3`。
   同一 route 内若出现多个 U-E2 span，不能按时长保留；必须优先保留具体事故/施工/停放障碍距离、
-  绕障/回正轨迹和 route 中心线偏离证据最强的 span。`*_TwoWays` 的 R2 借对向车道绕障核心
-  本身就是强 U-E2 证据，应在进入/准备进入对向借道核心时开始 U-E2，而不是等绕完后才补标。
-  但 `*_TwoWays` 也不能把 route 开头 XML trigger、旧候选 R2 或普通减速直接当作 U-E2/U-E3：
-  每个 U-E2/U-E3 帧都要有当前最终 R2、具体障碍核心距离、TwoWays core/stuck/hazard 或强 R2 core rule。
+  绕障/回正轨迹和 route 中心线偏离证据最强的 span。`*_TwoWays` 的 R2 是道路/可行驶空间标签，
+  不能单独作为 U-E2 证据；正常沿对向单车道通行仍是 R2/R-E1。
+  `*_TwoWays` 不能把 route 开头 XML trigger、旧候选 R2、最终 R2 或普通减速直接当作 U-E2/U-E3：
+  每个 U-E2/U-E3 帧都要有具体障碍核心距离、TwoWays core/stuck/hazard、door/open、
+  强制制动近障碍或真实借道/回正轨迹等独立事件证据。
   在真正使用/等待对向车道前保持 regular；核心结束后的目标/原车道回归才标 R-E2。
-  选择唯一 U-E2 span 时，TwoWays 优先看最终 R2 重叠帧数，再看具体障碍距离和中心线偏离；
+  选择唯一 U-E2 span 时，TwoWays 优先看具体障碍距离、TwoWays event core 和中心线偏离；
+  R2 重叠只能作为已经有事件核心证据后的背景加权，不能独立保留 U-E2。
   后处理若先切出短 R-E2/R-E1 但两侧仍属于同一 R2/障碍核心，必须二次合并回 U-E2。
   这样可以避免运动前车跟车距离误触发的早期 U-E2 或后段普通恢复片段抢占真正静态障碍核心。
   如果 U-E2 后面马上进入恢复/目标变道 R-E2，中间 4 帧以内的短 R-E1 必须并入 R-E2，
@@ -582,7 +599,9 @@ BlockedIntersection 需要区分三类停车原因：
   优先，表示借对向绕障 / 回目标车道的安全关键事件。
   同向静态障碍（Accident / ConstructionObstacle / ParkedObstacle / HazardAtSideLane）的
   `U-E2 -> R-E2` 恢复链若被 R4/R5 截断，也要使用 interrupted overlay：障碍核心旁保持
-  `R-E4/R-E5 + U-E2`，过核心后切 `R-E4/R-E5 + R-E2`。
+  `R-E4/R-E5 + U-E2`，过核心后切 `R-E4/R-E5 + R-E2`；若 R4/R5 接管首帧恢复证据不足，
+  最终 candidate clamp 还需在最近 8 帧 U-E2/U-E3 source 与当前回正/回车道证据同时成立时补回
+  `R-E2` overlay，避免 ConstructionObstacle/Accident 类恢复段被 R-E4/R-E5 吃掉。
   对 ParkingCutIn / StaticCutIn 等 U-E3 场景，R-E2 恢复链被 R4/R5 截断时 source event
   也应从近期 U-E3 推断，而不是只支持 U-E2。
   若 XML/meta 已明确核心 TwoWays 障碍存在，例如 `Town07_route_001454` 的
@@ -630,7 +649,7 @@ BlockedIntersection 需要区分三类停车原因：
   同一 route 内若出现多个 U-E3 span，也必须保留 cut-in 证据最强的 span：优先看
   `dist_to_cutin_vehicle`、`brake_cutin`、`vehicle_hazard` 和对象是否进入自车未来路径，
   普通跟车减速、红灯等待或无对象支撑的短扰动不能抢占真正动态占道核心。
-  经过 cut-in 最近点后若距离回升且无持续强响应，后段不再保持 U-E3；若仍有自车回正/目标变道，
+  经过 cut-in 最近点后若距离回升且无持续强响应，后段不再保持 U-E3；cut-in active 保持距离收为约 28m，若仍有自车回正/目标变道，
   只转短 R-E2，否则释放为 regular event。
   如果 U-E3 后面马上进入 R-E2，中间 4 帧以内的短 R-E1 同样并入 R-E2。
 - `InvadingTurn`：U-E5 必须有对向车辆 hazard 或近距离对象证据，不能仅凭自车减速触发；
@@ -703,7 +722,8 @@ Qwen 先在 scenario 给出的候选 ROAD_STRUCTURE 中选择当前帧主规则�
 - 看到主辅路、匝道、合流、出口时，切到 R3。
 - 看到停车带、路边停车、停车位汇入、开门风险时，不切独立 RS；普通通行保持 R1，
   若有效可行驶空间被压缩成对向单车道或必须借道，则切到 R2。
-- 看到双向单车道并且对向车道参与决策时，切到 R2。
+- 看到双向单车道、黄中心线窄路，或 XODR 显示对向 driving lane 且同向有效通道
+  `<=1` / 被两侧停车压缩时，切到 R2；如果同帧已有强灯控/STOP/路口控制源，则 R4/R5 仍优先。
 
 ### Step 2：在 ROAD_STRUCTURE 下选择 EVENTS
 
@@ -912,7 +932,7 @@ magic-number 分支。
 | RS | High-confidence 门控 | 常见否决 |
 |---|---|---|
 | R1 | 默认桶；同向障碍、急刹、动态对象、control loss、roundabout 本身不改变 RS | brake/accel/vehicle_hazard/walker_hazard 不参与 RS 升级 |
-| R2 | 有效可行驶通道为对向单车道：`has_opposite_driving_lane=true` + `same_direction_lane_count<=1`，或同向 lane 虽多但两侧停车/障碍/开门风险使侧向 lane 不可行驶；核心借道/障碍帧还可由 trigger/active + meta obstruction 强化 | `*_TwoWays` 候选删除 R1，非路口默认 R2；必须借/等对向由 U-E2/U-E3/R-E2 表达；灯态/路口主导时 R4/R5 primary；缺 meta 或 XML 的 run 直接 data_missing_skip |
+| R2 | 有效可行驶通道为对向单车道：`has_opposite_driving_lane=true` + `same_direction_lane_count<=1`，或同向 lane 虽多但两侧停车/障碍/开门风险使侧向 lane 不可行驶；核心借道/障碍帧还可由 trigger/active + meta obstruction 强化；非 TwoWays 只能由人工逐帧 RGB route 白名单触发 `r2_layout_xodr_effective_twoway_confirmed` | `*_TwoWays` 候选删除 R1，非路口默认 R2；非 TwoWays 不做场景级批量开放，只有白名单 route 可从 R1 改 R2；必须借/等对向由 U-E2/U-E3/R-E2 表达，普通跟车保持 R-E1；灯态/路口强控制源主导时 R4/R5 primary；缺 meta 或 XML 的 run 直接 data_missing_skip |
 | R3 | 高速/快速路/合流/驶出 scenario prior；明确高速/merge 场景不开放 R1，非路口默认 R3；merge/exit 窗口和 actor-flow 提供更强证据 | `PriorityAtJunction`、部分 `HardBreakRoute`、Interurban rural/junction 不能只因 Town12/13 判 R3 |
 | R4 | 有效 `traffic_light_state` / `light_hazard`，或同源受控 junction/controller 支撑，且 XODR 未判为 roundabout；有效 meta 灯态可动态开放 R4 候选；CrossJunctionDefectTrafficLight 的故障信号灯仍是 R4；noScenarios 可用“有效灯态 + bbox 灯 + junction window”窄召回稳定灯控 approach | `NonSignalizedJunctionLeftTurn*` 是 strict no-R4；阻塞/违规/信号失效只是 EVENT；roundabout 强制回 R1；同向障碍/默认场景有 meta/bbox 灯态但缺 strong context 时必须降回 R1，避免 R4 删除 U-E2/U-E3；只有弱静态 signal/bbox traffic_light 且无 meta 灯态时不能自动 R4，尤其同帧已有 STOP/yield 证据时必须优先 R5 |
 | R5 | nonsignalized/priority prior，或已开放 R5 的 default/noScenarios/ControlLoss/ParkingCutIn/障碍族场景 + route/trigger/junction/STOP/yield 同源证据，且 XODR 未判为 roundabout | 连续有效灯态时不 high R5；CrossJunctionDefectTrafficLight 不再归 R5；roundabout 强制回 R1；雾天/弯道 blind R5 不足以单独修改 collector；障碍族 R5 只表达 route 前后 STOP/无灯 regular，不表达障碍核心 |

@@ -165,8 +165,13 @@ EVENT 后处理会按 scenario 家族执行 route 级去抖：
   会压回常规事件。为绕障离开原车道的短 R-E2 会吸收进 U-E2；U-E2 结束后只有在
   过障碍核心后的负向 `signed_dist_to_lane_change <= -0.45m`、局部中心线偏移峰值/下降
   或紧邻 R-E2 边界支持“准备回目标/原车道”时才写 R-E2；起点可比明显回正早 1-2 帧。
-  一旦进入恢复 R-E2，后面 4 帧以内的短 U-E2 反跳视为距离/投影抖动并合入 R-E2，
-  不允许出现 `R-E2 -> U-E2` 的恢复段回跳。
+  对 Accident / ConstructionObstacle / ParkedObstacle / HazardAtSideLane，最终还会按同一
+  `U-E2/R-E2` 簇的具体障碍最近点与横向避让峰值共同收口：最近点之前，或距离最近点回升不足约
+  4.5m 且尚未越过核心最近点与横向峰值/没有回正趋势的 R-E2 仍合回 U-E2；若已经过核心最近点与横向峰值并出现
+  `route_lateral_abs_m` 回落、负向 `signed_dist_to_lane_change` 或局部中心线收敛，则 R-E2
+  从开始回目标/原车道处起标，不再等距离完全清空或车身已经回正。进入恢复 R-E2 后夹在前后
+  R-E2 中间的 1-2 帧 U-E2 反跳，只有在横向回正证据连续时才视为距离/投影抖动并合入 R-E2。
+  这样既不允许 `U-E2` 尚未结束就开始 `R-E2`，也不把已经开始回正的片段继续粘成 U-E2。
   R-E2 退出稍微提前：回到 `1.10 * route_center_tolerance` 且未来 2 帧稳定、无
   signed lane-change active 时释放为当前道路 regular event，避免恢复段尾部粘滞。
   2026-07-04 RGB 审计后，U-E2 短 gap 合并放宽到 6 帧，并允许障碍绕行过程中短暂
@@ -228,10 +233,14 @@ EVENT 后处理会按 scenario 家族执行 route 级去抖：
   桥接，但跳过真实 R4/R5 帧，防止 RS 平滑把已完成恢复变道的边界重新打断。
   若 `U-E2/U-E3 -> 1-3 帧 R-E2 -> 同一个 U-E2/U-E3`，且前后 2 帧邻域仍有障碍/切入核心证据，
   这段短 R-E2 视为距离/meta 缺失或投影抖动并合回对应 U-E2/U-E3。
+  同向静态障碍还会对 `U-E2 -> R-E2 -> U-E2` 做最终二次审计：未清障碍核心时把中间
+  R-E2 合回 U-E2；已清核心时把极短 U-E2 尾巴合入 R-E2。
   如果 `AccidentTwoWays` 的 R2 核心刚好叠在 R4/R5 路口跟前，ROAD_STRUCTURE 可以保持
   R4/R5 主标签，但 EVENT 层按 R2 overlay 处理：U-E2/R-E2 优先于 R-E4/R-E5，不能让路口常规事件吃掉借道绕障事件。
   同向静态障碍的 U-E2/R-E2 恢复链若被 R4/R5 截断，也走 interrupted overlay：
-  仍在障碍最近点/锥桶核心旁边时保持 `R-E4/R-E5 + U-E2`，过核心后切 `R-E4/R-E5 + R-E2`。
+  仍在障碍最近点/锥桶核心旁边时保持 `R-E4/R-E5 + U-E2`，过核心后切 `R-E4/R-E5 + R-E2`；
+  若 R4/R5 刚接管时第一帧恢复证据不足，最终候选池收口还会在最近 8 帧 U-E2/U-E3 source
+  与当前回正/回车道证据同时成立时补回 `R-E2` overlay，避免施工/事故恢复段被路口 regular 吃掉。
   `ParkingCutIn/StaticCutIn` 等 U-E3 场景如果恢复 R-E2 被 R4/R5 截断，也按近期 U-E3 source
   继续 overlay，不再只按 U-E2 处理。
   对 `Town07_route_001454` 这类 XML/meta 强核心，R2 primary 还会反过来压过 R4/R5：
@@ -247,7 +256,8 @@ EVENT 后处理会按 scenario 家族执行 route 级去抖：
   后面 4 帧以内的 U-E3 反跳，或中间只夹 1-2 帧常规事件再跳 U-E3，都视作 cut-in
   证据抖动并合入 R-E2。
   U-E3 也按最近点截尾：`dist_to_cutin_vehicle` 过最近点后若对象开始远离且没有持续
-  `brake_cutin` / `vehicle_hazard`，后段释放为 regular；若自车还在回正/目标变道，只保留短 R-E2。
+  `brake_cutin` / `vehicle_hazard`，后段释放为 regular；cut-in active 保持距离收为约 28m，
+  若自车还在回正/目标变道，只保留短 R-E2。
 - `InvadingTurn`：U-E5 必须有对向车辆 hazard 或近距离对象证据，不能仅凭自车减速触发；
   route 级后处理会合并 5 帧以内的 U-E5 短断点。
 - `OppositeVehicleRunningRedLight`：U-E6 必须发生在 R4 路口窗口且有冲突车/近距离对象/自车响应；
@@ -260,7 +270,10 @@ EVENT 后处理会按 scenario 家族执行 route 级去抖：
 每条 route 还会先执行 TwoWays 事件型 R2 裁剪和 R2 碎片过滤，再执行统一时序去抖：`*_TwoWays` 的
 ROAD_STRUCTURE 候选不再包含 R1。R2 表示有效可行驶通道为对向单车道：黄中心线窄路、乡路，
 以及四车道但两侧停车/障碍/开门风险导致侧向 lane 不可行驶的等效双向单车道，都属于 R2。
-障碍核心由 U-E2/U-E3 表达，核心后回目标/原车道由 R-E2 表达；非路口常规行驶仍保持 R2/R-E1。
+这个口径不限于 `*_TwoWays`：Accident / ConstructionObstacle / ControlLoss / DynamicObjectCrossing /
+ParkedObstacle / T_Junction / VehicleTurningRoute* / noScenarios 等场景若逐帧 XODR/RGB 确认同样 layout，
+也可从 R1 修正为 R2。障碍核心由 U-E2/U-E3 表达，核心后回目标/原车道由 R-E2 表达；
+非路口常规行驶仍保持 R2/R-E1，不能因为 RS=R2 自动把 event 改成 R-E2 或 U-E2。
 真实灯控路口覆盖为 R4/R-E4，STOP/无灯/路权路口覆盖为 R5/R-E5，并在 route 摘要写
 `twoways_core_span_clipping.changes`。若同一条 TwoWays route 中出现多个无拓扑支撑的临时 R2 片段，只保留最长连续
 事件型 R2 段，其它偶发短 R2 扰动按当前控制源回 R2/R4/R5，并写入
@@ -400,6 +413,8 @@ python keyframe_filter/rs_full_frame_review.py \
 - 反向问题也存在：明显高速/merge 或双向单车道因 XODR 投影失败被压回 R1；坏 XODR 不能当作否定证据。
 - `two_way_layout_prior` 不能只靠场景名把整条 route 升成 R2；但一旦 XODR/meta 确认是双向单车道，
   正常直道也应为 R2。是否处在借对向绕障核心由 EVENT 的 `U-E2/U-E3` 决定，而不是靠 RS 从 R1/R2 切换表达。
+- 非 TwoWays 场景不能只靠场景级 XODR sparse scan 批量开放 layout R2；必须逐 route 看 RGB 后加入白名单，
+  才允许把普通 R1 修正为 R2。未白名单 route 即使 XODR 有 opposite hint，也先保持原场景候选，避免 R1/R-E1 背景被误升。
 - 高速/merge/exit/enter-flow 场景此前被 R1 默认桶吃掉；全量逐帧 RGB 确认
   `HighwayExit`、`EnterActorFlow*`、`MergerIntoSlowTrafficV2` 稳定按 R3 收敛且不开放 R1/R4。
   `HighwayCutIn` 与 `MergerIntoSlowTraffic` 主体仍是 R3，但存在少量真实灯控子集，因此恢复 R4 候选；
@@ -432,6 +447,9 @@ python keyframe_filter/rs_full_frame_review.py \
   若拓扑不确认，则只能由近距离障碍、stuck、vehicle_hazard、lane-change 核心证据，
   或 XML trigger 极近 / trigger-close + XML 场景障碍近距离临时召回事件型 R2。
   `twoways_obstacle` 的纯场景名 layout-prior 仍降为弱候选；是否处在借对向核心由 U-E2/U-E3 表达。
+  非 TwoWays 的 R2 不使用场景名先验整段提升；当前 `LAYOUT_R2_ROUTE_IDS` 保持空白，
+  也就是非 TwoWays 暂不动态输出 R2。后续只有所有 id 逐帧 RGB 复核确认确实是对向单车道后，
+  才写入 route 白名单触发 `r2_layout_xodr_effective_twoway_confirmed`。
   输出 evidence 里同步写入 `strong_control_context` 和 TwoWays 专用
   `twoway_obstruction_evidence`，用于区分规则思路问题、参数窗口问题和底层证据缺失。
 

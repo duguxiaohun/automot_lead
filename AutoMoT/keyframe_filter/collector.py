@@ -291,6 +291,11 @@ SCENARIO_TO_ROAD_STRUCTURE = {
     "VehicleTurningRoutePedestrian": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
 }
 
+LAYOUT_R2_ROUTE_IDS: Dict[str, Set[str]] = {
+    # 非 TwoWays 场景必须先逐 route / 逐帧 RGB 复核，确认确实是对向单车道，
+    # 再写入这里动态开放 R2。当前先保持空白，避免普通 R1/R-E1 场景被误升 R2。
+}
+
 MIXED_SCENARIO_HIGHWAY_ROUTE_IDS = {
     # RGB reviewed HardBreakRoute fast-road/highway bucket.
     # These routes show divided multi-lane fast roads, guardrails, ramps/bridges, or highway-style lane geometry.
@@ -408,7 +413,10 @@ def _mixed_route_allowed_structures(
         allowed = {rs for rs in base_allowed if rs in {RoadStructure.R3, RoadStructure.R4}}
         allowed.add(RoadStructure.R3)
         return allowed
-    return set(base_allowed)
+    allowed = set(base_allowed)
+    if route_id and route_id in LAYOUT_R2_ROUTE_IDS.get(scenario_name, set()):
+        allowed.add(RoadStructure.R2)
+    return allowed
 
 SCENARIO_TO_FINE_EVENTS = {
     "Accident": [EventType.R_E1, EventType.R_E2, EventType.R_E5, EventType.U_E2],
@@ -498,6 +506,11 @@ def _crossing_u4_support_pad_m(scenario_name: str) -> float:
 INTERRUPTED_UNUSUAL_OVERLAY_EVENTS = {EventType.U_E1, EventType.U_E2, EventType.U_E3, EventType.U_E4}
 INTERRUPTED_UNUSUAL_OVERLAY_RECOVERY_MAX_FRAMES = 12
 INTERRUPTED_UNUSUAL_OVERLAY_TOTAL_MAX_FRAMES = 24
+STATIC_U2_RE2_CLEAR_DELTA_M = 4.5
+CUTIN_U3_ACTIVE_DISTANCE_M = 28.0
+RECOVERY_AFTER_LATERAL_PEAK_FRAMES = 3
+RECOVERY_LATERAL_DROP_START_M = 0.18
+RECOVERY_LATERAL_DROP_STRONG_M = 0.35
 
 R3_MERGE_SCENARIOS = {
     "EnterActorFlow",
@@ -1606,7 +1619,10 @@ def _diagnose_rs_decision(
     elif primary == RoadStructure.R3:
         decision_source = "merge_actor_flow_or_topology_window"
     elif primary == RoadStructure.R2:
-        decision_source = "twoways_trigger_window"
+        if "r2_layout_xodr_effective_twoway_confirmed" in rules:
+            decision_source = "xodr_effective_twoway_layout"
+        else:
+            decision_source = "twoways_trigger_window"
     else:
         decision_source = "conservative_default_or_outside_special_window"
 
@@ -1649,6 +1665,9 @@ def _diagnose_rs_decision(
             "roundabout_context": bool(flags.get("map_is_roundabout")),
             "two_way_window": bool(flags.get("two_way_window")),
             "two_way_layout_prior": bool(flags.get("two_way_layout_prior")),
+            "layout_r2_enabled": bool(flags.get("layout_r2_enabled")),
+            "effective_twoway_drivable_layout": bool(flags.get("effective_twoway_drivable_layout")),
+            "layout_effective_twoway_drivable": bool(flags.get("layout_effective_twoway_drivable")),
             "twoway_core_obstruction": bool(flags.get("twoway_core_obstruction")),
             "twoway_strict_core_obstruction": bool(flags.get("twoway_strict_core_obstruction")),
             "twoway_xml_core_close": bool(flags.get("twoway_xml_core_close")),
@@ -2018,7 +2037,7 @@ class RoadEventRuleEngine:
         close_obstacle = close_specific_obstacle or speed_obj_close_near_xml
         hard_response = RoadEventRuleEngine._hard_decel(frame_data) or _safe_bool(frame_data.get("vehicle_hazard", False))
         hard_response_near_object = hard_response and speed_obj_dist <= threshold + 8.0 and (
-            near_trigger or close_specific_obstacle or primary_rs == RoadStructure.R2
+            near_trigger or close_specific_obstacle
         )
         if (
             trigger_only_same_direction
@@ -2040,7 +2059,7 @@ class RoadEventRuleEngine:
             )
         )
         door_open = scenario_name == "VehicleOpensDoorTwoWays" and _safe_bool(frame_data.get("vehicle_opened_door", False))
-        active_window = near_trigger or primary_rs == RoadStructure.R2 or close_specific_obstacle or twoway_core or twoway_r2_lane_change_core or door_open
+        active_window = near_trigger or close_specific_obstacle or twoway_core or twoway_r2_lane_change_core or door_open
         should = active_window and (close_obstacle or twoway_core or twoway_r2_lane_change_core or door_open or hard_response_near_object)
         rules = []
         if scenario_active:
@@ -2199,7 +2218,7 @@ class RoadEventRuleEngine:
                 unusual = EventType.U_E3
                 rules.extend(["event_dynamic_cutin_or_occupancy"])
         if unusual is None and scenario_name == "InvadingTurn" and EventType.U_E5 in allowed:
-            if (scenario_active or near_trigger or primary_rs in {RoadStructure.R2, RoadStructure.R4, RoadStructure.R5}) and (
+            if (scenario_active or near_trigger or primary_rs in {RoadStructure.R4, RoadStructure.R5}) and (
                 vehicle_hazard or speed_obj_dist <= 35.0
             ):
                 unusual = EventType.U_E5
@@ -2848,10 +2867,21 @@ class RoadStructureRuleEngine:
             rules.append(str(note))
         if cfg.get("rule_note"):
             rules.append(str(cfg["rule_note"]))
-        has_opposite = xodr_trusted and static_topology_strong and bool(xodr.get("has_opposite_driving_lane", False))
+        raw_has_opposite = xodr_trusted and bool(xodr.get("has_opposite_driving_lane", False))
+        raw_has_parking = xodr_trusted and bool(xodr.get("has_parking_or_shoulder_nearby", False))
+        has_opposite = xodr_trusted and static_topology_strong and raw_has_opposite
         same_dir_lanes = int(xodr.get("lane_count_same_dir", 1) or 1)
-        has_parking = xodr_trusted and static_topology_strong and bool(xodr.get("has_parking_or_shoulder_nearby", False))
+        has_parking = xodr_trusted and static_topology_strong and raw_has_parking
         effective_twoway_drivable_layout = has_opposite and (same_dir_lanes <= 1 or has_parking)
+        layout_r2_enabled = bool(route_id and route_id in LAYOUT_R2_ROUTE_IDS.get(scenario_name, set()))
+        static_layout_r2_fallback = (
+            layout_r2_enabled
+            and static_topology_only
+            and route_projection_error_high
+            and raw_has_opposite
+            and (same_dir_lanes <= 1 or raw_has_parking)
+        )
+        layout_effective_twoway_drivable = effective_twoway_drivable_layout or static_layout_r2_fallback
         ramp_hint = xodr_trusted and static_topology_strong and bool(xodr.get("ramp_merge_split_hint", False))
         twoway_xml_core_close = trigger_distance <= float(cfg.get("two_way_xml_core_close_m", 8.0))
         twoway_strict_core_confirmed = _twoway_strict_core_confirmed(twoway_obstruction, cfg)
@@ -2876,6 +2906,22 @@ class RoadStructureRuleEngine:
                 rules.append("parking_hint_demoted_projection_error")
             if bool(xodr.get("ramp_merge_split_hint", False)):
                 rules.append("merge_split_hint_demoted_projection_error")
+        if (
+            layout_r2_enabled
+            and RoadStructure.R2 in allowed
+            and layout_effective_twoway_drivable
+            and not map_is_roundabout
+            and not route_highway_bucket
+            and not (strong_control_context and (junction_window or stop_hazard or has_tl or light_hazard))
+        ):
+            r2_layout_score = 0.88
+            if (has_parking or raw_has_parking) and same_dir_lanes > 1:
+                r2_layout_score = 0.86
+                rules.append("r2_effective_lane_count_reduced_by_parking_or_shoulder")
+            if static_layout_r2_fallback:
+                rules.append("r2_layout_static_xodr_projection_error_review")
+            self._add(scores, RoadStructure.R2, r2_layout_score)
+            rules.append("r2_layout_xodr_effective_twoway_confirmed")
 
         if kind == "defect_junction":
             if junction_window and defect_local_control_context:
@@ -3260,7 +3306,12 @@ class RoadStructureRuleEngine:
                 self._add(scores, RoadStructure.R1, 0.78)
                 rules.append("hardbreak_event_keeps_r1_unless_highway_like_or_tl")
         elif kind == "noscenario":
-            if not has_tl and not light_hazard and RoadStructure.R5 not in scores:
+            if (
+                not has_tl
+                and not light_hazard
+                and RoadStructure.R5 not in scores
+                and RoadStructure.R2 not in scores
+            ):
                 scores = {RoadStructure.R1: max(scores.get(RoadStructure.R1, 0.0), 0.86)}
                 rules.append("noscenario_conservative_r1_without_meta_light")
         else:
@@ -3320,7 +3371,12 @@ class RoadStructureRuleEngine:
             else:
                 scores = {RoadStructure.R1: 0.35}
 
-        if kind == "noscenario" and RoadStructure.R4 not in scores and RoadStructure.R5 not in scores:
+        if (
+            kind == "noscenario"
+            and RoadStructure.R4 not in scores
+            and RoadStructure.R5 not in scores
+            and RoadStructure.R2 not in scores
+        ):
             primary = RoadStructure.R1
         else:
             max_score = max(scores.values())
@@ -3406,6 +3462,9 @@ class RoadStructureRuleEngine:
                         and not has_parking
                     )
                 ),
+                "layout_r2_enabled": layout_r2_enabled,
+                "effective_twoway_drivable_layout": effective_twoway_drivable_layout,
+                "layout_effective_twoway_drivable": layout_effective_twoway_drivable,
                 "twoway_core_obstruction": twoway_obstruction.core_confirmed
                 if kind in {"twoways_obstacle", "invading_turn", "vehicle_opens_door_twoways"}
                 else False,
@@ -4084,6 +4143,50 @@ class ScenarioCollector:
                 or (math.isfinite(next_low) and cur - next_low >= 0.15)
             )
 
+        def _lateral_recovery_started(
+            index: int,
+            span_start: int,
+            span_end: int,
+            *,
+            require_after_peak: bool = True,
+        ) -> bool:
+            """自车已从绕障侧向峰值开始回目标/原车道。"""
+            if index < span_start or index >= span_end:
+                return False
+            cur = _route_lateral_abs(annotations[index])
+            if not math.isfinite(cur):
+                return False
+            prior_values = [
+                (j, _route_lateral_abs(annotations[j]))
+                for j in range(span_start, index + 1)
+                if math.isfinite(_route_lateral_abs(annotations[j]))
+            ]
+            if len(prior_values) < 3:
+                return False
+            peak_idx, peak_val = max(prior_values, key=lambda item: item[1])
+            if require_after_peak and peak_idx >= index:
+                return False
+            future_values = [
+                _route_lateral_abs(annotations[j])
+                for j in range(index + 1, min(span_end, index + 4))
+                if math.isfinite(_route_lateral_abs(annotations[j]))
+            ]
+            recent_values = [
+                _route_lateral_abs(annotations[j])
+                for j in range(max(span_start, index - 3), index)
+                if math.isfinite(_route_lateral_abs(annotations[j]))
+            ]
+            future_drop = bool(future_values) and cur - min(future_values) >= RECOVERY_LATERAL_DROP_START_M
+            past_drop = bool(recent_values) and max(recent_values) - cur >= RECOVERY_LATERAL_DROP_START_M
+            peak_drop = peak_val - cur >= RECOVERY_LATERAL_DROP_STRONG_M
+            signed_return = _return_lane_change_hint(annotations[index])
+            signed_near_zero_after_peak = (
+                peak_drop
+                and _signed_lane_change_active(annotations[index], limit_m=4.5)
+                and _signed_lane_change(annotations[index]) <= 0.25
+            )
+            return signed_return or future_drop or past_drop or signed_near_zero_after_peak
+
         def _route_recovery_start(
             start: int,
             end: int,
@@ -4157,7 +4260,21 @@ class ScenarioCollector:
             # the avoidance lane-change, not the return/recovery lane-change.
             elif signed_start is not None and signed_start >= max(start + 3, closest_idx - 2):
                 return signed_start
-            search_start = max(start + 2, closest_idx - 1)
+            lateral_peak_idx, _lateral_peak = max(finite_points, key=lambda item: item[1])
+            closest_dist = _specific_obstacle_distance(annotations[closest_idx])
+            if math.isfinite(closest_dist):
+                for j in range(max(start + 3, closest_idx + 1), min(end, closest_idx + 5)):
+                    dist = _specific_obstacle_distance(annotations[j])
+                    signed = _signed_lane_change(annotations[j])
+                    if (
+                        math.isfinite(dist)
+                        and dist > closest_dist + 0.05
+                        and math.isfinite(signed)
+                        and abs(signed) <= 1.20
+                        and _route_centered_for_re2_exit(annotations[j])
+                    ):
+                        return j
+            search_start = max(start + 2, min(closest_idx - 1, lateral_peak_idx + 1))
             peak_so_far = -math.inf
             peak_idx = search_start
             for j in range(start, end):
@@ -4191,15 +4308,21 @@ class ScenarioCollector:
                     and peak_idx <= j
                 )
                 has_forward_drop = math.isfinite(next_min) and cur - next_min >= 0.12
-                trend = _route_centering_trend(j) or has_left_peak or has_forward_drop or signed_return
+                lateral_recovery = _lateral_recovery_started(j, start, end)
+                trend = _route_centering_trend(j) or has_left_peak or has_forward_drop or signed_return or lateral_recovery
                 if not trend:
                     continue
                 passed_core = j >= max(start + 3, closest_idx - 1)
                 no_longer_specific_core = not _specific_obstacle_close(annotations[j], pad_m=-3.0)
-                if not (passed_core or no_longer_specific_core):
+                passed_lateral_peak = j >= max(start + 3, lateral_peak_idx + 1)
+                if not (
+                    passed_core
+                    or no_longer_specific_core
+                    or (passed_lateral_peak and lateral_recovery and (has_forward_drop or signed_return or _route_centering_trend(j)))
+                ):
                     continue
                 # R-E2 起点应略早于可观测下降，表达“准备回原/目标车道”。
-                early = 2 if has_forward_drop or signed_return else 1
+                early = 1 if lateral_recovery else (2 if has_forward_drop or signed_return else 0)
                 return max(start, min(j, max(search_start - 1, j - early)))
             return None
 
@@ -4471,8 +4594,7 @@ class ScenarioCollector:
                 has_specific_obstacle = any(_specific_obstacle_close(annotations[j], pad_m=4.0) for j in range(start, lookahead_end))
                 has_near_route_change = any(_route_change_hint(annotations[j]) for j in range(start, lookahead_end))
                 has_twoway_core = any(
-                    ann.get("primary_road_structure") == RoadStructure.R2.value
-                    or "event_twoway_r2_lane_change_core" in ((ann.get("event_evidence") or {}).get("rules_fired") or [])
+                    "event_twoway_r2_lane_change_core" in ((ann.get("event_evidence") or {}).get("rules_fired") or [])
                     or "event_twoway_core_obstruction" in ((ann.get("event_evidence") or {}).get("rules_fired") or [])
                     for ann in annotations[start:lookahead_end]
                 )
@@ -5411,11 +5533,6 @@ class ScenarioCollector:
                         & set((annotations[j].get("event_evidence") or {}).get("rules_fired") or [])
                         for j in range(start, end)
                     )
-                    has_twoway_r2_core = (
-                        "TwoWays" in scenario_name
-                        and scenario_name in R2_RETURN_SCENARIOS
-                        and any(annotations[j].get("primary_road_structure") == RoadStructure.R2.value for j in range(start, end))
-                    )
                     twoway_r2_overlap = (
                         sum(1 for j in range(start, end) if annotations[j].get("primary_road_structure") == RoadStructure.R2.value)
                         if "TwoWays" in scenario_name and scenario_name in R2_RETURN_SCENARIOS
@@ -5428,9 +5545,7 @@ class ScenarioCollector:
                             score += 20.0 if twoway_r2_overlap else 2.0
                         else:
                             score += 20.0
-                    if has_twoway_r2_core:
-                        score += 10.0
-                    if twoway_r2_overlap:
+                    if has_twoway_event_core and twoway_r2_overlap:
                         score += min(18.0, twoway_r2_overlap * 0.75)
                     if finite_specific:
                         min_specific = min(finite_specific)
@@ -5911,11 +6026,83 @@ class ScenarioCollector:
                 )
                 if not has_recent_u2:
                     continue
-                for ann in annotations[start:end]:
+                recent_u2_start = start
+                left_budget = 0
+                while (
+                    recent_u2_start > 0
+                    and left_budget < 64
+                    and annotations[recent_u2_start - 1].get("primary_event") in {EventType.U_E2.value, EventType.R_E2.value}
+                ):
+                    recent_u2_start -= 1
+                    left_budget += 1
+                recent_closest_idx = None
+                recent_closest_dist = math.inf
+                for recent_idx in range(recent_u2_start, start):
+                    recent_dist = _specific_obstacle_distance(annotations[recent_idx])
+                    if math.isfinite(recent_dist) and recent_dist < recent_closest_dist:
+                        recent_closest_dist = recent_dist
+                        recent_closest_idx = recent_idx
+                recent_lateral_peak_idx = None
+                recent_lateral_points = [
+                    (j, _route_lateral_abs(annotations[j]))
+                    for j in range(recent_u2_start, end)
+                    if math.isfinite(_route_lateral_abs(annotations[j]))
+                ]
+                if recent_lateral_points:
+                    recent_lateral_peak_idx = max(recent_lateral_points, key=lambda item: item[1])[0]
+                for j in range(start, end):
+                    ann = annotations[j]
                     if ann.get("primary_road_structure") in {RoadStructure.R4.value, RoadStructure.R5.value}:
                         continue
                     dist = _specific_obstacle_distance(ann)
-                    if not math.isfinite(dist) or dist > 21.5 or _return_lane_change_hint(ann):
+                    prev_dist = _specific_obstacle_distance(annotations[j - 1]) if j > 0 else math.inf
+                    obstacle_has_cleared_core = (
+                        math.isfinite(recent_closest_dist)
+                        and dist >= recent_closest_dist + STATIC_U2_RE2_CLEAR_DELTA_M
+                    )
+                    rules = set(((ann.get("event_evidence") or {}).get("rules_fired") or []))
+                    recovery_after_lateral_peak = (
+                        recent_lateral_peak_idx is not None
+                        and j >= recent_lateral_peak_idx + RECOVERY_AFTER_LATERAL_PEAK_FRAMES
+                        and (recent_closest_idx is None or j >= recent_closest_idx)
+                        and _lateral_recovery_started(j, recent_u2_start, end)
+                        and (
+                            _route_centered_for_re2_exit(ann)
+                            or _route_centering_trend(j)
+                            or _return_lane_change_hint(ann)
+                        )
+                    )
+                    post_closest_prepare_re2 = (
+                        recent_closest_idx is not None
+                        and j > recent_closest_idx
+                        and math.isfinite(recent_closest_dist)
+                        and math.isfinite(dist)
+                        and dist > recent_closest_dist + 0.05
+                        and _signed_lane_change_active(ann, limit_m=1.20)
+                        and _route_centered_for_re2_exit(ann)
+                    ) or (
+                        "event_u2_return_lane_change_to_r2" in rules
+                        and math.isfinite(dist)
+                        and math.isfinite(prev_dist)
+                        and dist > prev_dist + 0.05
+                        and _signed_lane_change_active(ann, limit_m=1.20)
+                    )
+                    recovery_supported_after_core = (
+                        obstacle_has_cleared_core
+                        or recovery_after_lateral_peak
+                        or post_closest_prepare_re2
+                    ) and (
+                        _return_lane_change_hint(ann)
+                        or _lane_change_re2_supported(j)
+                        or _route_centered_for_re2_exit(ann)
+                        or _lateral_recovery_started(j, recent_u2_start, end)
+                        or post_closest_prepare_re2
+                    )
+                    if (
+                        not math.isfinite(dist)
+                        or dist > 21.5
+                        or recovery_supported_after_core
+                    ):
                         continue
                     old = ann.get("primary_event")
                     self._rewrite_event_label(
@@ -5958,7 +6145,7 @@ class ScenarioCollector:
                 )
             else:
                 supported = any(
-                    _cutin_distance(annotations[j]) <= 30.0 or _cutin_response_active(annotations[j])
+                    _cutin_distance(annotations[j]) <= CUTIN_U3_ACTIVE_DISTANCE_M or _cutin_response_active(annotations[j])
                     for j in support_window
                 )
             if not supported:
@@ -6017,7 +6204,7 @@ class ScenarioCollector:
 
         def _overlay_u3_still_active(index: int) -> bool:
             ann = annotations[index]
-            return _cutin_distance(ann) <= 30.0 or _cutin_response_active(ann)
+            return _cutin_distance(ann) <= CUTIN_U3_ACTIVE_DISTANCE_M or _cutin_response_active(ann)
 
         def _overlay_u4_still_active(index: int, age_frames: int) -> bool:
             ann = annotations[index]
@@ -6146,6 +6333,8 @@ class ScenarioCollector:
                 prev_rs = prev.get("primary_road_structure")
                 source_event = None
                 source_rs = str(prev_rs or RoadStructure.R1.value)
+                seed_age_frames = 1
+                seed_recovery_age = 0
                 if (
                     prev_event_label in EventType._value2member_map_
                     and EventType(prev_event_label) in INTERRUPTED_UNUSUAL_OVERLAY_EVENTS
@@ -6173,12 +6362,40 @@ class ScenarioCollector:
                                 candidate_source == EventType.U_E3
                                 and (_overlay_u3_still_active(idx) or _overlay_recovery_supported(idx))
                             )
+                            ):
+                                source_event = candidate_source
+                elif EventType.R_E2 in set(SCENARIO_TO_FINE_EVENTS.get(scenario_name, [])):
+                    # R4/R5 may arrive one or two frames before the recovery
+                    # evidence becomes visible. Keep a short grace window so an
+                    # interrupted U-E2/U-E3 can still surface as overlay R-E2
+                    # once the return maneuver starts.
+                    recent_unusual = [
+                        j
+                        for j in range(max(0, idx - 8), idx)
+                        if annotations[j].get("primary_event") in {EventType.U_E2.value, EventType.U_E3.value}
+                        and annotations[j].get("primary_road_structure") not in {RoadStructure.R4.value, RoadStructure.R5.value}
+                    ]
+                    if recent_unusual:
+                        source_idx = recent_unusual[-1]
+                        candidate_source = EventType(annotations[source_idx].get("primary_event"))
+                        source_rs = str(annotations[source_idx].get("primary_road_structure") or source_rs)
+                        if (
+                            (
+                                candidate_source == EventType.U_E2
+                                and (_overlay_u2_still_active(idx) or _overlay_recovery_supported(idx))
+                            )
+                            or (
+                                candidate_source == EventType.U_E3
+                                and (_overlay_u3_still_active(idx) or _overlay_recovery_supported(idx))
+                            )
                         ):
                             source_event = candidate_source
+                            seed_age_frames = max(1, idx - source_idx)
+                            seed_recovery_age = 0
                 if source_event is None:
                     continue
-                age_frames = 1
-                recovery_age = 0
+                age_frames = seed_age_frames
+                recovery_age = seed_recovery_age
             if source_event is None or age_frames > INTERRUPTED_UNUSUAL_OVERLAY_TOTAL_MAX_FRAMES:
                 continue
             choice = _choose_interrupted_overlay_event(idx, source_event, recovery_age, age_frames)
@@ -6210,6 +6427,346 @@ class ScenarioCollector:
                     "age_frames": age_frames,
                 }
             )
+
+        if EventType.R_E2 in set(SCENARIO_TO_FINE_EVENTS.get(scenario_name, [])):
+            for idx, ann in enumerate(annotations):
+                rs_label = ann.get("primary_road_structure")
+                if rs_label not in {RoadStructure.R4.value, RoadStructure.R5.value}:
+                    continue
+                overlay = ((ann.get("event_evidence") or {}).get("interrupted_event_overlay") or {})
+                if overlay.get("active"):
+                    continue
+                if not _overlay_recovery_supported(idx):
+                    continue
+                recent_unusual = [
+                    j
+                    for j in range(max(0, idx - 8), idx)
+                    if annotations[j].get("primary_event") in {EventType.U_E2.value, EventType.U_E3.value}
+                    and annotations[j].get("primary_road_structure") not in {RoadStructure.R4.value, RoadStructure.R5.value}
+                ]
+                if not recent_unusual:
+                    continue
+                source_idx = recent_unusual[-1]
+                source_event = EventType(annotations[source_idx].get("primary_event"))
+                source_rs = str(annotations[source_idx].get("primary_road_structure") or RoadStructure.R1.value)
+                if source_event == EventType.U_E2:
+                    supported = _overlay_u2_still_active(idx) or _overlay_recovery_supported(idx)
+                else:
+                    supported = _overlay_u3_still_active(idx) or _overlay_recovery_supported(idx)
+                if not supported:
+                    continue
+                age_frames = max(1, idx - source_idx)
+                if age_frames > INTERRUPTED_UNUSUAL_OVERLAY_TOTAL_MAX_FRAMES:
+                    continue
+                old = ann.get("primary_event")
+                _set_interrupted_overlay(
+                    ann,
+                    EventType.R_E2,
+                    source_event,
+                    source_rs,
+                    age_frames,
+                    1,
+                    "recovery_to_target_lane_grace",
+                )
+                changes.append(
+                    {
+                        "frame_id": ann.get("frame_id"),
+                        "from": old,
+                        "to": EventType.R_E2.value,
+                        "reason": "interrupted_unusual_overlay_recovery_grace",
+                        "primary_rs": rs_label,
+                        "base_rs": source_rs,
+                        "regular_event": _regular_event_for_annotation(ann).value,
+                        "source_unusual_event": source_event.value,
+                        "phase": "recovery_to_target_lane_grace",
+                        "age_frames": age_frames,
+                    }
+                )
+
+        if scenario_name in {"Accident", "ConstructionObstacle", "ParkedObstacle", "HazardAtSideLane"}:
+            def _static_u2_r2_cluster_bounds(r2_start: int, r2_end: int) -> Tuple[int, int]:
+                cluster_start = r2_start
+                left_budget = 0
+                while cluster_start > 0 and left_budget < 56:
+                    prev_label = annotations[cluster_start - 1].get("primary_event")
+                    if prev_label not in {EventType.U_E2.value, EventType.R_E2.value}:
+                        break
+                    cluster_start -= 1
+                    left_budget += 1
+                cluster_end = r2_end
+                right_budget = 0
+                while cluster_end < len(annotations) and right_budget < 56:
+                    next_label = annotations[cluster_end].get("primary_event")
+                    if next_label not in {EventType.U_E2.value, EventType.R_E2.value}:
+                        break
+                    cluster_end += 1
+                    right_budget += 1
+                return cluster_start, cluster_end
+
+            def _cluster_closest_index(cluster_start: int, cluster_end: int) -> Tuple[Optional[int], float]:
+                closest_index = None
+                closest_distance = math.inf
+                for cluster_idx in range(cluster_start, cluster_end):
+                    dist = _specific_obstacle_distance(annotations[cluster_idx])
+                    if math.isfinite(dist) and dist < closest_distance:
+                        closest_distance = dist
+                        closest_index = cluster_idx
+                return closest_index, closest_distance
+
+            def _cluster_lateral_peak_index(cluster_start: int, cluster_end: int) -> Optional[int]:
+                finite_points = [
+                    (cluster_idx, _route_lateral_abs(annotations[cluster_idx]))
+                    for cluster_idx in range(cluster_start, cluster_end)
+                    if math.isfinite(_route_lateral_abs(annotations[cluster_idx]))
+                ]
+                if not finite_points:
+                    return None
+                return max(finite_points, key=lambda item: item[1])[0]
+
+            idx = 0
+            while idx < len(annotations):
+                if annotations[idx].get("primary_event") != EventType.R_E2.value:
+                    idx += 1
+                    continue
+                start = idx
+                while idx < len(annotations) and annotations[idx].get("primary_event") == EventType.R_E2.value:
+                    idx += 1
+                end = idx
+                cluster_start, cluster_end = _static_u2_r2_cluster_bounds(start, end)
+                if not any(
+                    annotations[j].get("primary_event") == EventType.U_E2.value
+                    for j in range(cluster_start, cluster_end)
+                ):
+                    continue
+                closest_idx, closest_dist = _cluster_closest_index(cluster_start, cluster_end)
+                if closest_idx is None or not math.isfinite(closest_dist):
+                    continue
+                lateral_peak_idx = _cluster_lateral_peak_index(cluster_start, cluster_end)
+                for j in range(start, end):
+                    ann = annotations[j]
+                    dist = _specific_obstacle_distance(ann)
+                    if not math.isfinite(dist):
+                        continue
+                    prev_dist = _specific_obstacle_distance(annotations[j - 1]) if j > 0 else math.inf
+                    rules = set(((ann.get("event_evidence") or {}).get("rules_fired") or []))
+                    recovery_after_lateral_peak = (
+                        lateral_peak_idx is not None
+                        and j >= lateral_peak_idx + RECOVERY_AFTER_LATERAL_PEAK_FRAMES
+                        and j > closest_idx
+                        and _lateral_recovery_started(j, cluster_start, cluster_end)
+                        and (
+                            _route_centered_for_re2_exit(ann)
+                            or _route_centering_trend(j)
+                            or _return_lane_change_hint(ann)
+                        )
+                    )
+                    post_closest_prepare_re2 = (
+                        j > closest_idx
+                        and math.isfinite(closest_dist)
+                        and math.isfinite(dist)
+                        and dist > closest_dist + 0.05
+                        and _signed_lane_change_active(ann, limit_m=1.20)
+                        and _route_centered_for_re2_exit(ann)
+                    ) or (
+                        "event_u2_return_lane_change_to_r2" in rules
+                        and math.isfinite(prev_dist)
+                        and dist > prev_dist + 0.05
+                        and _signed_lane_change_active(ann, limit_m=1.20)
+                    )
+                    before_or_near_core_exit = (
+                        (j <= closest_idx and not recovery_after_lateral_peak and not post_closest_prepare_re2)
+                        or (
+                            dist < closest_dist + STATIC_U2_RE2_CLEAR_DELTA_M
+                            and not recovery_after_lateral_peak
+                            and not post_closest_prepare_re2
+                        )
+                    )
+                    if not before_or_near_core_exit:
+                        continue
+                    old = ann.get("primary_event")
+                    regular = _regular_event_for_annotation(ann)
+                    events = {EventType.U_E2}
+                    if regular in {EventType.R_E4, EventType.R_E5}:
+                        events.add(regular)
+                    self._rewrite_event_label(
+                        ann,
+                        events,
+                        EventType.U_E2,
+                        "event_re2_inside_unfinished_static_u2_core_merged",
+                    )
+                    overlay = (ann.get("event_evidence") or {}).get("interrupted_event_overlay") or {}
+                    if overlay.get("active"):
+                        overlay["overlay_event"] = EventType.U_E2.value
+                        overlay["phase"] = "unfinished_static_obstacle_core"
+                        event_evidence = ann.setdefault("event_evidence", {})
+                        event_evidence["interrupted_event_overlay"] = overlay
+                        event_evidence["unusual_event"] = EventType.U_E2.value
+                        event_evidence.pop("overlay_recovery_event", None)
+                    changes.append(
+                        {
+                            "frame_id": ann.get("frame_id"),
+                            "from": old,
+                            "to": EventType.U_E2.value,
+                            "reason": "re2_inside_unfinished_static_u2_core_merged",
+                            "cluster_start_frame": annotations[cluster_start].get("frame_id"),
+                            "cluster_end_frame": annotations[cluster_end - 1].get("frame_id"),
+                            "closest_frame": annotations[closest_idx].get("frame_id"),
+                            "clear_delta_m": round(dist - closest_dist, 3),
+                        }
+                    )
+
+            idx = 0
+            while idx < len(annotations):
+                if annotations[idx].get("primary_event") != EventType.U_E2.value:
+                    idx += 1
+                    continue
+                u2_start = idx
+                while idx < len(annotations) and annotations[idx].get("primary_event") == EventType.U_E2.value:
+                    idx += 1
+                if idx >= len(annotations) or annotations[idx].get("primary_event") != EventType.R_E2.value:
+                    continue
+                r2_start = idx
+                while idx < len(annotations) and annotations[idx].get("primary_event") == EventType.R_E2.value:
+                    idx += 1
+                if idx >= len(annotations) or annotations[idx].get("primary_event") != EventType.U_E2.value:
+                    continue
+                tail_start = idx
+                while idx < len(annotations) and annotations[idx].get("primary_event") == EventType.U_E2.value:
+                    idx += 1
+                tail_end = idx
+                cluster_start, cluster_end = u2_start, tail_end
+                closest_idx, closest_dist = _cluster_closest_index(cluster_start, cluster_end)
+                if closest_idx is None or not math.isfinite(closest_dist):
+                    continue
+                tail_distances = [
+                    _specific_obstacle_distance(annotations[j])
+                    for j in range(tail_start, tail_end)
+                    if math.isfinite(_specific_obstacle_distance(annotations[j]))
+                ]
+                tail_min_dist = min(tail_distances) if tail_distances else math.inf
+                tail_len = tail_end - tail_start
+                if (
+                    tail_len <= 2
+                    and math.isfinite(tail_min_dist)
+                    and tail_min_dist >= closest_dist + STATIC_U2_RE2_CLEAR_DELTA_M
+                ):
+                    rewrite_range = range(tail_start, tail_end)
+                    replacement = EventType.R_E2
+                    reason = "event_short_clear_u2_tail_absorbed_into_re2"
+                    change_reason = "short_clear_u2_tail_absorbed_into_re2"
+                else:
+                    rewrite_range = range(r2_start, tail_start)
+                    replacement = EventType.U_E2
+                    reason = "event_re2_before_u2_tail_merged_to_unfinished_core"
+                    change_reason = "re2_before_u2_tail_merged_to_unfinished_core"
+                for j in rewrite_range:
+                    ann = annotations[j]
+                    old = ann.get("primary_event")
+                    regular = _regular_event_for_annotation(ann)
+                    events = {replacement}
+                    if regular in {EventType.R_E4, EventType.R_E5}:
+                        events.add(regular)
+                    self._rewrite_event_label(ann, events, replacement, reason)
+                    overlay = (ann.get("event_evidence") or {}).get("interrupted_event_overlay") or {}
+                    if overlay.get("active"):
+                        overlay["overlay_event"] = replacement.value
+                        overlay["phase"] = (
+                            "recovery_to_target_lane"
+                            if replacement == EventType.R_E2
+                            else "unfinished_static_obstacle_core"
+                        )
+                        event_evidence = ann.setdefault("event_evidence", {})
+                        event_evidence["interrupted_event_overlay"] = overlay
+                        if replacement == EventType.U_E2:
+                            event_evidence["unusual_event"] = EventType.U_E2.value
+                            event_evidence.pop("overlay_recovery_event", None)
+                        else:
+                            event_evidence["unusual_event"] = None
+                            event_evidence["overlay_recovery_event"] = EventType.R_E2.value
+                    changes.append(
+                        {
+                            "frame_id": ann.get("frame_id"),
+                            "from": old,
+                            "to": replacement.value,
+                            "reason": change_reason,
+                            "u2_start_frame": annotations[u2_start].get("frame_id"),
+                            "r2_start_frame": annotations[r2_start].get("frame_id"),
+                            "tail_start_frame": annotations[tail_start].get("frame_id"),
+                            "closest_frame": annotations[closest_idx].get("frame_id"),
+                            "tail_clear_delta_m": round(tail_min_dist - closest_dist, 3)
+                            if math.isfinite(tail_min_dist)
+                            else None,
+                        }
+                    )
+
+            idx = 0
+            while idx < len(annotations):
+                if annotations[idx].get("primary_event") != EventType.U_E2.value:
+                    idx += 1
+                    continue
+                start = idx
+                while idx < len(annotations) and annotations[idx].get("primary_event") == EventType.U_E2.value:
+                    idx += 1
+                end = idx
+                if end - start > 2 or start <= 0 or end >= len(annotations):
+                    continue
+                prev_label = annotations[start - 1].get("primary_event")
+                next_label = annotations[end].get("primary_event")
+                if prev_label != EventType.R_E2.value or next_label != EventType.R_E2.value:
+                    continue
+                cluster_start, cluster_end = _static_u2_r2_cluster_bounds(start - 1, end + 1)
+                closest_idx, closest_dist = _cluster_closest_index(cluster_start, cluster_end)
+                if closest_idx is None or start <= closest_idx:
+                    continue
+                lateral_peak_idx = _cluster_lateral_peak_index(cluster_start, cluster_end)
+                if lateral_peak_idx is None or start <= lateral_peak_idx:
+                    continue
+                supported = False
+                support_range = range(max(cluster_start, start - 3), min(cluster_end, end + 4))
+                for j in support_range:
+                    ann = annotations[j]
+                    if (
+                        _lateral_recovery_started(j, cluster_start, cluster_end)
+                        or _lane_change_re2_supported(j)
+                        or _return_lane_change_hint(ann)
+                        or _route_centering_trend(j)
+                    ):
+                        supported = True
+                        break
+                if not supported:
+                    continue
+                for j in range(start, end):
+                    ann = annotations[j]
+                    old = ann.get("primary_event")
+                    regular = _regular_event_for_annotation(ann)
+                    events = {EventType.R_E2}
+                    if regular in {EventType.R_E4, EventType.R_E5}:
+                        events.add(regular)
+                    self._rewrite_event_label(
+                        ann,
+                        events,
+                        EventType.R_E2,
+                        "event_short_u2_inside_static_recovery_absorbed",
+                    )
+                    overlay = (ann.get("event_evidence") or {}).get("interrupted_event_overlay") or {}
+                    if overlay.get("active"):
+                        overlay["overlay_event"] = EventType.R_E2.value
+                        overlay["phase"] = "recovery_to_target_lane"
+                        event_evidence = ann.setdefault("event_evidence", {})
+                        event_evidence["interrupted_event_overlay"] = overlay
+                        event_evidence["unusual_event"] = None
+                        event_evidence["overlay_recovery_event"] = EventType.R_E2.value
+                    changes.append(
+                        {
+                            "frame_id": ann.get("frame_id"),
+                            "from": old,
+                            "to": EventType.R_E2.value,
+                            "reason": "short_u2_inside_static_recovery_absorbed",
+                            "cluster_start_frame": annotations[cluster_start].get("frame_id"),
+                            "cluster_end_frame": annotations[cluster_end - 1].get("frame_id"),
+                            "lateral_peak_frame": annotations[lateral_peak_idx].get("frame_id"),
+                        }
+                    )
         for ann in annotations:
             ann["frame_event_annotation"] = self._frame_event_annotation_payload(ann)
         return {"enabled": True, "changes": changes}
@@ -6416,7 +6973,67 @@ class ScenarioCollector:
             )
             return regular_options[0] if regular_options else sorted(current_allowed, key=lambda ev: ev.value)[0]
 
-        for ann in annotations:
+        def _final_recovery_overlay_supported(ann: Dict[str, Any]) -> bool:
+            metrics = (ann.get("event_evidence") or {}).get("metrics") or {}
+            signed = _safe_float(metrics.get("signed_dist_to_lane_change"), default=math.inf)
+            if math.isfinite(signed) and signed <= -0.45:
+                return True
+            if bool(metrics.get("target_lane_change_active")):
+                return True
+            lateral = _safe_float(metrics.get("route_lateral_abs_m"), default=math.inf)
+            tolerance = _safe_float(metrics.get("route_center_tolerance_m"), default=0.55)
+            return math.isfinite(lateral) and math.isfinite(tolerance) and lateral > max(0.35, tolerance * 0.75)
+
+        def _seed_final_interrupted_overlay(index: int, ann: Dict[str, Any]) -> None:
+            if EventType.R_E2 not in scenario_allowed:
+                return
+            rs_label = ann.get("primary_road_structure")
+            if rs_label not in {RoadStructure.R4.value, RoadStructure.R5.value}:
+                return
+            event_evidence = ann.setdefault("event_evidence", {})
+            overlay = event_evidence.get("interrupted_event_overlay") or {}
+            if overlay.get("active"):
+                return
+            if not _final_recovery_overlay_supported(ann):
+                return
+            recent = [
+                j
+                for j in range(max(0, index - 8), index)
+                if annotations[j].get("primary_event") in {EventType.U_E2.value, EventType.U_E3.value}
+                and annotations[j].get("primary_road_structure") not in {RoadStructure.R4.value, RoadStructure.R5.value}
+            ]
+            if not recent:
+                return
+            source_idx = recent[-1]
+            source_event = annotations[source_idx].get("primary_event")
+            source_rs = annotations[source_idx].get("primary_road_structure") or RoadStructure.R1.value
+            regular = _current_regular_event(ann)
+            ann["events"] = [ev.value for ev in sorted({regular, EventType.R_E2}, key=lambda ev: ev.value)]
+            ann["primary_event"] = EventType.R_E2.value
+            event_evidence["events"] = ann["events"]
+            event_evidence["primary_event"] = EventType.R_E2.value
+            event_evidence["regular_event"] = regular.value
+            event_evidence["unusual_event"] = None
+            event_evidence["overlay_recovery_event"] = EventType.R_E2.value
+            event_evidence["interrupted_event_overlay"] = {
+                "active": True,
+                "base_road_structure": source_rs,
+                "intersection_road_structure": rs_label,
+                "regular_event": regular.value,
+                "overlay_event": EventType.R_E2.value,
+                "source_unusual_event": source_event,
+                "age_frames": max(1, index - source_idx),
+                "age_seconds": round(max(1, index - source_idx) * 0.25, 3),
+                "max_frames": INTERRUPTED_UNUSUAL_OVERLAY_TOTAL_MAX_FRAMES,
+                "recovery_age_frames": 1,
+                "recovery_max_frames": INTERRUPTED_UNUSUAL_OVERLAY_RECOVERY_MAX_FRAMES,
+                "phase": "recovery_to_target_lane_final_grace",
+                "reason": "unusual_event_interrupted_by_intersection_rs",
+            }
+            event_evidence.setdefault("rules_fired", []).append("event_interrupted_unusual_overlay_final_grace")
+
+        for index, ann in enumerate(annotations):
+            _seed_final_interrupted_overlay(index, ann)
             current_allowed = _current_rs_allowed(ann)
             current_allowed_values = {ev.value for ev in current_allowed}
             primary_label = ann.get("primary_event")
