@@ -311,6 +311,7 @@ class FrameAnnotation:
                 for rs in sorted(self.secondary_road_structures, key=lambda x: x.value if isinstance(x, RoadStructure) else str(x))
             ],
             'road_structure_candidates': self.candidate_scores,
+            'road_structure_overlay': None,
             'evidence': self.evidence,
             'event_evidence': self.event_evidence,
             'annotation_comment': self.annotation_comment,
@@ -4415,6 +4416,7 @@ class ScenarioCollector:
         return {
             "label": ann.get("primary_road_structure"),
             "secondary": ann.get("secondary_road_structures", []),
+            "overlay": ann.get("road_structure_overlay"),
             "confidence": ann.get("confidence"),
             "comment": ann.get("annotation_comment", ""),
             "rule_kind": evidence.get("rule_kind"),
@@ -4461,6 +4463,18 @@ class ScenarioCollector:
         if base_label not in secondary:
             secondary.add(base_label)
             ann["secondary_road_structures"] = sorted(secondary)
+        overlay = ann.get("road_structure_overlay")
+        if not isinstance(overlay, dict):
+            overlay = {}
+            ann["road_structure_overlay"] = overlay
+        overlay["active"] = True
+        overlay["source"] = "interrupted_event_overlay"
+        overlay["base_road_structure"] = base_label
+        overlay["intersection_road_structure"] = primary_label
+        overlay["secondary_road_structure"] = base_label
+        reasons = overlay.setdefault("reasons", [])
+        if reason not in reasons:
+            reasons.append(reason)
         evidence = ann.setdefault("evidence", {})
         overlay_secondary = evidence.setdefault("overlay_secondary_road_structures", [])
         marker = {

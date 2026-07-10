@@ -272,11 +272,16 @@ def _draw_frame_tile(
     confidence = ann.get("confidence")
     reasons = _primary_relevant_reasons(_annotation_review_reasons(ann), label)
     frame_rs = ann.get("frame_rs_annotation", {}) or {}
+    rs_overlay = frame_rs.get("overlay") or ann.get("road_structure_overlay") or {}
     img = _safe_open_rgb(_rgb_path_for_frame(run_dir, frame_id), tile_size)
     draw = ImageDraw.Draw(img)
     color = RS_COLORS.get(label, (70, 70, 70))
     draw.rectangle((0, 0, tile_size[0], 26), fill=color)
     text = f"f={frame_id} RS={label} conf={float(confidence or 0.0):.2f}"
+    if rs_overlay.get("active"):
+        base = rs_overlay.get("base_road_structure") or rs_overlay.get("secondary_road_structure") or "-"
+        target = rs_overlay.get("intersection_road_structure") or label
+        text += f" OV={base}->{target}"
     if frame_rs.get("review_required") or reasons:
         text += " REVIEW"
     draw.text((5, 6), text, fill=(255, 255, 255))

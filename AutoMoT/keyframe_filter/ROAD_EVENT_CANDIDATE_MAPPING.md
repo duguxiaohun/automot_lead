@@ -61,6 +61,11 @@ R4/R5 本身是 route 级单控制源：同一条 route 不允许 `R4 -> R5` 或
 `R-E4/R-E5 + U-E*` 或 `R-E4/R-E5 + R-E2`；总时长上限 24 帧，恢复 `R-E2` 子阶段上限 12 帧。
 若 R4/R5 接管首帧恢复证据不足，最终候选池收口可用最近 8 帧 U-E2/U-E3 source + 当前回正/回车道证据补回 `R-E2` overlay。
 U-E4 的中距离横穿/转弯冲突只短续 10 帧，避免把普通 R4/R5 长期污染为突发事件。
+这类 overlay 不能只靠 `secondary_road_structures` 表达，因为普通 secondary 也可能来自候选冲突或不确定性。
+程序化判断必须读取专用 `road_structure_overlay.active=true` / `frame_rs_annotation.overlay.active=true`：
+`base_road_structure` 表示被截断突发事件原本所属的 R1/R2 视角，
+`intersection_road_structure` 表示当前 primary R4/R5 控制源；Web 可视化单独显示
+`RS-Overlay base→intersection`。
 例如：
 
 ```text
@@ -336,6 +341,8 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 - 当前生成入口 `quick_start.py annotate-rs` 会同时输出 RS 与 EVENT。人工/训练读取时应使用
   `frame_rs_annotation.label` 和 `frame_event_annotation.label` 作为本帧最终标签；
   `road_structures/events` 是候选/集合字段，不应当作“单帧唯一标签”直接显示给人看。
+  如果要识别 R4/R5 路口内被截断的 R1/R2 突发状态，读取 `road_structure_overlay` 或
+  `frame_rs_annotation.overlay`，不要只用普通 `secondary_road_structures` 推断。
 - Web 页面和 summary 使用 `road_structure_labels/event_labels` 解释代号含义；新增或修改候选时，
   必须同步维护这两个词典，避免可视化验收时只看到 R1/U-E2 等裸代号。
 
