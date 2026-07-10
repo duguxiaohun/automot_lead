@@ -34,7 +34,10 @@ TwoWays 删除 R1 后仍保留 U-E2/R-E2，不再被 R4/R5 regular 全部吞掉�
 少量非路口 `U-E1/U-E2/U-E3/U-E4` 或静态障碍 `U-E2 -> R-E2` 恢复链被 R4/R5 控制源接管的边界使用 interrupted overlay：
 primary RS 仍为 R4/R5，但 EVENT 可短时叠加 `R-E4/R-E5 + U-E*` 或
 `R-E4/R-E5 + R-E2`，总上限 24 帧，恢复 `R-E2` 子阶段上限 12 帧；
-U-E4 中距离横穿/转弯冲突只短续 10 帧；详见
+U-E4 中距离横穿/转弯冲突只短续 10 帧。overlay 段必须写入专用
+`road_structure_overlay` / `frame_rs_annotation.overlay`，其中 `base_road_structure`
+表示被截断突发事件原本所属 R1/R2，`intersection_road_structure` 表示当前 primary R4/R5；
+普通 `secondary_road_structures` 仍兼容写入 base RS，但不能单独作为 overlay 判据。详见
 `ROAD_EVENT_INTERRUPTED_OVERLAY_AUDIT_20260706.md`。
 
 ## 0. 当前调研结论是否可直接当最终规则
@@ -207,12 +210,16 @@ XODR 摘要和 `thresholds.json`，但这些产物仍偏“可运行模板”，
   `road_structures` 候选全集，同时新增 `primary_road_structure` 与显式单帧结果
   `frame_rs_annotation`；EVENT 侧新增 `primary_event`、`events`、`event_evidence` 与
   `frame_event_annotation`。
-- `frame_rs_annotation` 包含 `label/secondary/confidence/comment/rule_kind/rules_fired/decision_source/review_required/review_reasons/metrics/xodr_summary`，
+- `frame_rs_annotation` 包含 `label/secondary/overlay/confidence/comment/rule_kind/rules_fired/decision_source/review_required/review_reasons/metrics/xodr_summary`，
   可直接作为人工验收和后续训练输入的帧级解释结果。
+  其中 `overlay` 是 R4/R5 路口截断 R1/R2 突发事件时的专用结构化字段，普通 secondary
+  可能表示候选冲突或不确定性，不能单独用于判断 overlay。
 - `frame_event_annotation` 包含 `label/events/regular_event/unusual_event/allowed_events/rules_fired/metrics/review_required/review_reasons/comment`，
   用于解释当前 EVENT 是否来自常规 RS、异常白名单、XML/active 窗口还是 meta/轨迹证据。
 - `web_app.py` 已把候选全集和本帧最终标签拆开展示：顶部绿色标签读取
   `frame_rs_annotation.label` / `primary_road_structure`，置信度只表示该帧 primary RS 的置信度；
+  RS 卡片中的 `RS Overlay` 单独读取 `frame_rs_annotation.overlay` / `road_structure_overlay`，
+  显示为 `RS-Overlay base→intersection`；
   红色 EVENT 主标签读取 `frame_event_annotation.label` / `primary_event`；
   `road_structures` 与 `events` 只作为候选/同帧集合展示，不再和本帧主标签混用。
 - Web 与 `frame_rs_annotation_summary.json` 均暴露 `road_structure_labels/event_labels`，

@@ -941,8 +941,10 @@ runtime 枚举、候选池和本轮输出中均无 R6 类别，RS 候选越界 0
 少量 `U-E1/U-E2/U-E3/U-E4` 或静态障碍 `U-E2 -> R-E2` 恢复链被 R4/R5 路口控制源突然接管的边界，采用 interrupted overlay：
 primary RS 保持 R4/R5，EVENT 同帧保留 `R-E4/R-E5 + U-E*` 或恢复 `R-E4/R-E5 + R-E2`，
 同时把被截断突发事件所属的 base RS 写入 `secondary_road_structures` /
-`frame_rs_annotation.secondary`，例如 `R4 + secondary R1` 才能表达 `R-E4 + U-E2`
-不是纯 R4 事件，
+`frame_rs_annotation.secondary`，并写入专用 `road_structure_overlay` /
+`frame_rs_annotation.overlay`；普通 secondary 可能表示候选冲突或不确定性，所以程序化判断
+overlay 必须优先看 `road_structure_overlay.active=true`，例如 `R4 + secondary R1` 且
+`road_structure_overlay.base_road_structure=R1` 才能表达 `R-E4 + U-E2` 不是纯 R4 事件，
 最长 24 帧，恢复 `R-E2` 子阶段最长 12 帧；U-E4 中距离横穿/转弯冲突仅短续 10 帧。
 2026-07-07 全量 R1 突发事件场景审计覆盖 3552 route / 526001 帧；修复同向障碍直道
 stop/yield 伪 R5 后，触发 99 route / 1472 帧。详见

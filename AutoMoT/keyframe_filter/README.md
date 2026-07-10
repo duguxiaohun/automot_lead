@@ -133,6 +133,7 @@ python keyframe_filter/quick_start.py annotate-rs \
   "frame_rs_annotation": {
     "label": "R4",
     "secondary": [],
+    "overlay": null,
     "confidence": 0.96,
     "comment": "R4：规则族=signalized_junction...",
     "rule_kind": "signalized_junction",
@@ -454,7 +455,11 @@ U-E6 仅作为 secondary 事件；`ParkingCutIn/StaticCutIn` 不再因普通减�
 - 少量 `U-E1/U-E2/U-E3/U-E4` 或静态障碍 `U-E2 -> R-E2` 恢复链被 R4/R5 突然接管的边界现在走 interrupted overlay，详见
   `ROAD_EVENT_INTERRUPTED_OVERLAY_AUDIT_20260706.md`。primary RS 保持 R4/R5，但 EVENT 同帧保留
   `R-E4/R-E5 + U-E*` 或 `R-E4/R-E5 + R-E2`，并把被截断突发事件的 base RS 同步写入
-  `secondary_road_structures` / `frame_rs_annotation.secondary`；总叠加最长 24 帧，恢复 `R-E2` 子阶段最长 12 帧。
+  专用 `road_structure_overlay` / `frame_rs_annotation.overlay`，同时兼容性写入
+  `secondary_road_structures` / `frame_rs_annotation.secondary`。普通 secondary 也可能表示候选冲突或不确定性，
+  所以判断 overlay 时必须优先看 `road_structure_overlay.active`；Web 可视化会在 RS 卡片中单独显示
+  `RS-Overlay base→intersection`，RGB contact sheet 顶栏显示 `OV=base->intersection`；
+  总叠加最长 24 帧，恢复 `R-E2` 子阶段最长 12 帧。
   U-E4 中距离横穿/转弯冲突只给 10 帧短续，防止普通路口被长期污染。2026-07-07 全量 R1
   突发事件场景审计覆盖 3552 route / 526001 帧；在修复同向障碍直道 stop/yield 伪 R5 后，
   触发 99 route / 1472 帧。
@@ -736,6 +741,7 @@ carla_root = AutoMoT/CARLA_0915
   "events": ["R-E1", "R-E2", "R-E4", "U-E2"],
   "primary_road_structure": "R4",
   "secondary_road_structures": [],
+  "road_structure_overlay": null,
   "road_structure_candidates": {"R1": 0.35, "R4": 0.95},
   "annotation_comment": "R4：规则族=signalized_junction，来源=meta_traffic_light，置信=0.96...",
   "evidence": {

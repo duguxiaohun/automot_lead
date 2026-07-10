@@ -480,6 +480,7 @@ HTML_TEMPLATE = """
         .tag.event { background: #f093fb; }
         .tag.primary { background: #27ae60; font-size: 14px; padding: 5px 10px; }
         .tag.secondary { background: #8e44ad; }
+        .tag.rs-overlay { background: #1f7a8c; }
         .tag.review { background: #e67e22; }
         .tag.ok { background: #27ae60; }
         .tag.event-primary { background: #c0392b; font-size: 14px; padding: 5px 10px; }
@@ -677,6 +678,10 @@ HTML_TEMPLATE = """
                                 <div class="annotation-box">
                                     <span class="small-label">本帧 secondary</span>
                                     <div id="secondaryRoadStructures">-</div>
+                                </div>
+                                <div class="annotation-box">
+                                    <span class="small-label">RS Overlay</span>
+                                    <div id="roadStructureOverlay">-</div>
                                 </div>
                                 <div class="annotation-box">
                                     <span class="small-label">本帧标签置信度</span>
@@ -1139,6 +1144,7 @@ HTML_TEMPLATE = """
             return {
                 label: frameRs.label || ann.primary_road_structure || '-',
                 secondary: frameRs.secondary || ann.secondary_road_structures || [],
+                overlay: frameRs.overlay || ann.road_structure_overlay || null,
                 confidence: frameRs.confidence ?? ann.confidence ?? '-',
                 comment: frameRs.comment || ann.annotation_comment || ann.reason || '-',
                 ruleKind: frameRs.rule_kind || evidence.rule_kind || '-',
@@ -1150,6 +1156,18 @@ HTML_TEMPLATE = """
                 xodr: frameRs.xodr_summary || evidence.xodr || {},
                 evidence,
             };
+        }
+
+        function renderRsOverlay(overlay) {
+            if (!overlay || overlay.active !== true) {
+                return '<span class="tag">无专用 overlay</span>';
+            }
+            const base = overlay.base_road_structure || overlay.secondary_road_structure || '-';
+            const intersection = overlay.intersection_road_structure || '-';
+            const source = overlay.source || 'overlay';
+            const reasons = (overlay.reasons || []).join('; ');
+            const title = `${source}${reasons ? ' | ' + reasons : ''}`;
+            return `<span class="tag rs-overlay" title="${escapeHtml(title)}">RS-Overlay ${escapeHtml(base)}→${escapeHtml(intersection)}</span>`;
         }
 
         function normalizeFrameEvent(ann) {
@@ -1180,6 +1198,8 @@ HTML_TEMPLATE = """
                     `<span class="tag primary">${escapeHtml(frameRs.label)}</span>`;
                 document.getElementById('secondaryRoadStructures').innerHTML =
                     formatList(frameRs.secondary, 'secondary');
+                document.getElementById('roadStructureOverlay').innerHTML =
+                    renderRsOverlay(frameRs.overlay);
                 document.getElementById('infoConfidence').textContent =
                     `${formatScalar(frameRs.confidence)}（对应本帧最终标签 ${frameRs.label}）`;
                 document.getElementById('infoReason').textContent = frameRs.comment;
@@ -1255,6 +1275,7 @@ HTML_TEMPLATE = """
             } else {
                 document.getElementById('primaryRoadStructure').innerHTML = '<span class="tag primary">无标注</span>';
                 document.getElementById('secondaryRoadStructures').textContent = '-';
+                document.getElementById('roadStructureOverlay').textContent = '-';
                 document.getElementById('roadStructures').innerHTML = '<span class="tag">无标注</span>';
                 document.getElementById('events').innerHTML = '<span class="tag event">无标注</span>';
                 document.getElementById('primaryEvent').innerHTML = '<span class="tag event-primary">无标注</span>';
