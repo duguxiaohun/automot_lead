@@ -676,10 +676,14 @@ ConstructionObstacleTwoWays 共 1405 route / 210072 frame，mixed=0、direct=0�
   `bbox/meta STOP/yield` 可恢复 R5；子集回归中 Accident 的 `blind_R5_label_R1`
   从 289 降到 7、`blind_R4_label_R1` 从 132 降到 21，ConstructionObstacle 的
   `blind_R5_label_R1` 从 231 降到 14，ParkedObstacle 从 304 降到 77。
-  noScenarios 另有一个窄召回：若 meta `traffic_light_state` 有效、bbox 连续看到
+  noScenarios 另有一个窄召回：若 meta `traffic_light_state` 有效、bbox 连续看到本地
   `traffic_light`，并处于 junction window，且无 STOP/yield 或 roundabout 证据，则按
   `r4_noscenario_stable_tl_bbox_approach` 给 R4/R-E4。它只修正常规无事件 route 的稳定灯控
   approach，不能外推到 Accident/UE2/UE3 等容易被路口候选干扰的场景。
+  2026-07-10 起，noScenarios 的 bbox 灯必须使用距离/朝向/控制关系过滤：overhead、affects_ego
+  且 forward/distance 近、近 physical traffic light、或近 junction 内连续灯控才算本地信号；
+  远处单灯框、弱 static signal 或 bbox-only 灯只写 review。若同帧存在本地 STOP/yield，
+  则优先 R5/R-E5，不允许弱灯控把无灯/让行路口改成 R4。
 - `HardBreakRoute`：U-E1 必须贴近 ego 实际 hard decel / brake / target speed drop；
   仅有近距离 lead 或 XML active window 不足以触发。低速近距离 vehicle hazard 可作为
   兜底，但不能把整段 active window 全部打成 U-E1。
@@ -702,10 +706,11 @@ ConstructionObstacleTwoWays 共 1405 route / 210072 frame，mixed=0、direct=0�
   R1 响应证据的长 cluster 标为 U-E5，单段最多补 48 帧，避免锥桶仍可见时过早退回 R-E1。
   2026-07-10 全量验证为 U-E5=4744 帧，所有含 R2 的有效 route 均不再缺 U-E5。
 - `OppositeVehicleRunningRedLight`：U-E6 必须在 R4 路口窗口内由冲突车辆、近距离对象或
-  ego 停车/让行响应触发；同一冲突车过程内短断点会被合并，并在主冲突段前保留约 6 帧、
-  后保留最多约 32 帧等待/驶离上下文。2026-07-10 全量验证从旧 U-E6=1075 扩为
-  U-E6=3515 帧；`Town13_1047_5` 中 f128/f145/f155 均为 `R-E4+U-E6`，
-  冲突解除后的 f170 回 R-E4，不再无限拖尾。
+  ego 停车/让行响应触发；不能只依赖 meta `vehicle_hazard`，bbox/RGB 中位于自车前方
+  0-30m、横向 2-7.5m、距离 35m 内且有横穿/对向 heading 的动态车辆也可作为违规冲突种子。
+  同一冲突车过程内短断点会被合并，并在主冲突段前保留约 6 帧、后保留最多约 32 帧等待/驶离上下文。
+  2026-07-10 全量验证 287 route / 28165 帧：U-E6 由上一版 3515 帧扩为 5744 帧，
+  R4 route 完全无 U-E6 从 126 条降到 9 条，1-3 帧短 U-E6 降为 0；冲突解除后回 R-E4，不再无限拖尾。
 - `CrossJunctionDefectTrafficLight`：U-E7 是主事件；有冲突车辆时 U-E6 作为同帧 secondary
   `events` 保留，避免 U-E7/U-E6 primary 来回切换。
 - 行人/自行车：`ParkingCrossingPedestrian` 可在进入路口前由近距离行人/刹车触发；
@@ -1001,7 +1006,12 @@ R4/R5 > R3 > R2 > R1
 - `CrossJunctionDefectTrafficLight`：R4 保持，写 `defect_signal_keeps_r4_with_u7_event`，EVENT 叠 U-E7；但远距离 `traffic_light_state` / bbox traffic_light 不能单独把起始直道升成 R4，必须有近 `dist_to_junction`、`is_junction`、bbox junction 或可信 XODR signal/junction 等本地控制源。
 - `VehicleOpensDoorTwoWays`：两侧停车/开门风险压缩可行驶 lane 时仍按有效对向单车道 R2；停车/开门不单独生成 RS。
 - `noScenarios`：没有 scenario prior 时默认 R1；强灯态 + 同源受控 junction 升级 R4；
-  稳定 meta 灯态 + bbox 灯 + junction window 可作为 R4 approach 窄召回；STOP/无灯控制证据可给 R5。
+  稳定 meta 灯态 + 本地 bbox 灯 + junction window 可作为 R4 approach 窄召回；STOP/无灯控制证据可给 R5。
+  本地 bbox 灯必须看 `bbox_semantic_metrics` 的 forward/distance/physical distance/affects_ego/overhead；
+  远处单灯框和弱 XODR signal 不能把直道升成 R4。2026-07-10 起候选池补回 R3 与 R-E2/R-E3：
+  R-E2 只由 `changed_route` / `signed_dist_to_lane_change` + route 横向偏移触发，并做 1 帧短缝合并和少量轨迹补边；
+  R3/R-E3 只接受可信 XODR ramp/merge/split 或人工 RGB highway bucket，不因 Town/route 名或普通宽路自动触发。
+  XML 几何精确匹配显示 noScenarios 可匹配到的既有具体场景主要是 `VehicleTurningRoute`，不能据此批量恢复高速/合流 R3。
 - `CrossJunctionDefectTrafficLight`：RGB 看到本地红绿灯硬件/路口接近代表 R4；该场景的控制规则失效语义由 R4+U-E7 表达。远处小红绿灯、route 起点 trigger 或 meta 灯态不能提前覆盖直道 R1。
   审计比较时旧 `blind_R4_label_R5` 解释作废，应回查是否仍被旧 R5 规则污染。
 - R3/高速/合流类：导流线、让行牌、宽路面和分流/合流曲线容易被 RGB blind detector 误判 R5。
@@ -1033,8 +1043,10 @@ R4/R5 > R3 > R2 > R1
 - 单一路口控制源锁：T_Junction、PedestrianCrossing、PriorityAtJunction、
   OppositeVehicleTakingPriority 每条 route 的 junction core 只能选 R4 或 R5，依据是否存在有效
   meta 灯态决定；远离 trigger 且高速贴中心线的前后直行段恢复 R1。
-- OppositeVehicleRunningRedLight 的 U-E6 必须在 R4 路口窗口内由冲突车辆、近距离对象或
-  ego 停车/让行响应触发；每 route 保留最强连续 span 并补等待上下文，输出为 `R-E4 + U-E6` 叠加。
+- OppositeVehicleRunningRedLight 的 U-E6 必须在 R4 路口窗口内由冲突车辆、近距离对象、
+  bbox/RGB 横穿或对向动态车辆、ego 停车/让行响应触发；每 route 保留最强连续 span 并补等待上下文，
+  输出为 `R-E4 + U-E6` 叠加。若同 route 出现多个横向车候选，优先保留让 ego 停车/等待的 span，
+  再比较 bbox 冲突帧数、span 长度和最近对象距离，避免后续正常通过时的横向车片段抢走真正的闯红灯等待段。
 - RedLightWithoutLeadVehicle 离开灯控区后要释放为 R1/R-E1：trigger 距离超过约 52m、
   自车已恢复行驶且没有本地 junction/strong-control/window 时，不能继续拖 R4/R-E4。
 - SignalizedJunctionLeftTurnEnterFlow 的 Town01/Town02 起始直道若只是远灯/弱 trigger，
@@ -1166,6 +1178,8 @@ R4/R5 > R3 > R2 > R1
 - `default_meta_map` / `noscenario`：默认 R1；ControlLoss、HardBreak、DynamicObjectCrossing、
   HazardAtSideLane 等行为/突发事件本身不改变 RS。稳定灯控证据可临时进入 R4；
   只有场景候选显式开放 R5 时，STOP/无灯路口强证据才可进入 R5。
+  对 noScenarios，稳定灯控还必须是本地/ego-affecting 灯控，STOP/yield 近控制源优先 R5；
+  远处 bbox traffic_light、bbox-only 弱灯或 static signal 只保留为 evidence/review。
   2026-07-05 全量 RGB 盲审后，`DynamicObjectCrossing` 恢复 R5 候选：
   XODR 拓扑不可信时，连续 bbox/meta STOP + RGB 路口证据仍可召回 R5/R-E5。
   同日 RGB top mismatch 复核后，`HardBreakRoute` 与 `ParkingCrossingPedestrian`
@@ -1428,6 +1442,8 @@ scenario README
 - `OppositeVehicleTakingPriority` 以全量 RGB 无灯 priority/R5 为主，但少量灯控子集保留 R4/R-E4；
   U-E7 在 CrossJunctionDefectTrafficLight 的 R4 故障信号灯帧触发，也可在 primary RS 为 R5 的无灯/路权失效帧触发；不能覆盖正常灯控 R4 帧。
 - `PriorityAtJunction` 是混合场景：全量 RGB 同时看到真实灯控城市十字路口和无灯/让行段，候选保持 R1/R4/R5。
+  对 Town13 中第一段稳定 R4 偏晚的灯控 approach，route lock 可以在稳定 R4 起点 >= f30 时最多前补 4 帧；
+  `Town13_Rep0_1105_0` / `Town13_Rep0_1099_0` 从 f47 提前到 f43，早期远灯小框不作为前补锚点。
 - `InterurbanAdvancedActorFlow` 当前不默认 R3，且全量 RGB 未见稳定 R4；只有 RGB route 高速桶或 XODR merge/highway/ramp 证据成立时才打开 R3。无灯/STOP junction 窗口在原 `55/25m` 配置基础上放宽约 30% 到 `72/33m`，用于召回过路口段；若过路口时存在 `changed_route` + 横向偏移/换道符号证据，R5/R-E5 段内也允许切出 R-E2，并按轨迹前补最多 3 帧、后补最多 4 帧。
 - `NonSignalizedJunctionLeftTurn/Town10HD` 缺可读 meta，后续 EVENT/RS 评估必须标记该 town 的
   confidence 不高于 medium，直到补齐 meta 或人工确认。

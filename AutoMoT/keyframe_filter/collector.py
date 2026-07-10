@@ -101,6 +101,7 @@ def summarize_bbox_semantics(bbox_path: Path) -> Dict[str, Any]:
             "bbox_has_yield_sign": False,
             "bbox_has_junction_hint": False,
             "bbox_semantic_classes": {},
+            "bbox_semantic_metrics": {},
         }
     try:
         raw = load_pickle_file(bbox_path)
@@ -113,6 +114,7 @@ def summarize_bbox_semantics(bbox_path: Path) -> Dict[str, Any]:
             "bbox_has_yield_sign": False,
             "bbox_has_junction_hint": False,
             "bbox_semantic_classes": {},
+            "bbox_semantic_metrics": {},
         }
 
     counts: Dict[str, int] = defaultdict(int)
@@ -120,6 +122,33 @@ def summarize_bbox_semantics(bbox_path: Path) -> Dict[str, Any]:
     has_stop = False
     has_yield = False
     has_junction = False
+    metrics: Dict[str, Any] = {
+        "traffic_light_count": 0,
+        "traffic_light_min_distance_m": None,
+        "traffic_light_min_forward_x_m": None,
+        "traffic_light_min_physical_distance_m": None,
+        "traffic_light_affects_ego": False,
+        "traffic_light_same_lane": False,
+        "traffic_light_overhead": False,
+        "stop_sign_count": 0,
+        "stop_sign_min_distance_m": None,
+        "yield_sign_count": 0,
+        "yield_sign_min_distance_m": None,
+        "red_light_conflict_vehicle_count": 0,
+        "red_light_conflict_vehicle_min_distance_m": None,
+        "red_light_conflict_vehicle_min_forward_x_m": None,
+        "red_light_conflict_vehicle_min_abs_lateral_y_m": None,
+        "red_light_conflict_vehicle_max_speed_mps": None,
+    }
+
+    def _update_min(key: str, value: Any) -> None:
+        value_f = _safe_float(value, default=math.inf)
+        if not math.isfinite(value_f):
+            return
+        current = _safe_float(metrics.get(key), default=math.inf)
+        if value_f < current:
+            metrics[key] = round(value_f, 3)
+
     for obj in _bbox_object_iter(raw) or []:
         cls = _bbox_class_text(obj)
         if not cls:
@@ -128,12 +157,58 @@ def summarize_bbox_semantics(bbox_path: Path) -> Dict[str, Any]:
         compact = cls.replace("_", "").replace("-", "").replace(" ", "")
         if "trafficlight" in compact or compact in {"tl", "light"}:
             has_tl = True
+            metrics["traffic_light_count"] = int(metrics["traffic_light_count"]) + 1
+            _update_min("traffic_light_min_distance_m", obj.get("distance"))
+            position = obj.get("position")
+            if isinstance(position, (list, tuple)) and position:
+                _update_min("traffic_light_min_forward_x_m", position[0])
+            _update_min("traffic_light_min_physical_distance_m", obj.get("distance_to_physical_traffic_light"))
+            metrics["traffic_light_affects_ego"] = bool(metrics["traffic_light_affects_ego"]) or _safe_bool(obj.get("affects_ego"))
+            metrics["traffic_light_same_lane"] = bool(metrics["traffic_light_same_lane"]) or _safe_bool(obj.get("same_lane_as_ego"))
+            metrics["traffic_light_overhead"] = bool(metrics["traffic_light_overhead"]) or _safe_bool(obj.get("is_over_head_traffic_light"))
         if "stopsign" in compact or compact == "stop":
             has_stop = True
+            metrics["stop_sign_count"] = int(metrics["stop_sign_count"]) + 1
+            _update_min("stop_sign_min_distance_m", obj.get("distance"))
         if "yield" in compact or "giveway" in compact:
             has_yield = True
+            metrics["yield_sign_count"] = int(metrics["yield_sign_count"]) + 1
+            _update_min("yield_sign_min_distance_m", obj.get("distance"))
         if "junction" in compact or "intersection" in compact or "crosswalk" in compact:
             has_junction = True
+        if (
+            ("car" in compact or "vehicle" in compact)
+            and "ego" not in compact
+            and "static" not in compact
+        ):
+            position = obj.get("position")
+            if isinstance(position, (list, tuple)) and len(position) >= 2:
+                x = _safe_float(position[0], default=math.inf)
+                y = _safe_float(position[1], default=math.inf)
+                dist = _safe_float(obj.get("distance"), default=math.inf)
+                speed = _safe_float(obj.get("speed"), default=0.0)
+                yaw = _safe_float(obj.get("yaw"), default=math.inf)
+                abs_y = abs(y) if math.isfinite(y) else math.inf
+                yaw_abs = abs(((yaw + math.pi) % (2.0 * math.pi)) - math.pi) if math.isfinite(yaw) else math.inf
+                crossing_or_opposite_heading = (
+                    yaw_abs >= 2.2
+                    or abs(yaw_abs - (math.pi / 2.0)) <= 0.7
+                    or speed >= 5.0
+                )
+                if (
+                    0.0 <= x <= 30.0
+                    and 2.0 <= abs_y <= 7.5
+                    and dist <= 35.0
+                    and speed >= 1.0
+                    and crossing_or_opposite_heading
+                ):
+                    metrics["red_light_conflict_vehicle_count"] = int(metrics["red_light_conflict_vehicle_count"]) + 1
+                    _update_min("red_light_conflict_vehicle_min_distance_m", dist)
+                    _update_min("red_light_conflict_vehicle_min_forward_x_m", x)
+                    _update_min("red_light_conflict_vehicle_min_abs_lateral_y_m", abs_y)
+                    current_speed = _safe_float(metrics.get("red_light_conflict_vehicle_max_speed_mps"), default=-math.inf)
+                    if speed > current_speed:
+                        metrics["red_light_conflict_vehicle_max_speed_mps"] = round(speed, 3)
 
     return {
         "bbox_available": True,
@@ -142,6 +217,7 @@ def summarize_bbox_semantics(bbox_path: Path) -> Dict[str, Any]:
         "bbox_has_yield_sign": has_yield,
         "bbox_has_junction_hint": has_junction,
         "bbox_semantic_classes": dict(sorted(counts.items())),
+        "bbox_semantic_metrics": metrics,
     }
 
 # ============================================================================
@@ -270,7 +346,7 @@ SCENARIO_TO_ROAD_STRUCTURE = {
     "NonSignalizedJunctionLeftTurn": [RoadStructure.R1, RoadStructure.R5],
     "NonSignalizedJunctionLeftTurnEnterFlow": [RoadStructure.R1, RoadStructure.R5],
     "NonSignalizedJunctionRightTurn": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
-    "noScenarios": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
+    "noScenarios": [RoadStructure.R1, RoadStructure.R3, RoadStructure.R4, RoadStructure.R5],
     "OppositeVehicleRunningRedLight": [RoadStructure.R1, RoadStructure.R4],
     "OppositeVehicleTakingPriority": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
     "ParkedObstacle": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
@@ -279,7 +355,7 @@ SCENARIO_TO_ROAD_STRUCTURE = {
     "ParkingCutIn": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
     "ParkingExit": [RoadStructure.R1, RoadStructure.R4],
     "PedestrianCrossing": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
-    "PriorityAtJunction": [RoadStructure.R1, RoadStructure.R4],
+    "PriorityAtJunction": [RoadStructure.R1, RoadStructure.R4, RoadStructure.R5],
     "RedLightWithoutLeadVehicle": [RoadStructure.R1, RoadStructure.R4],
     "SignalizedJunctionLeftTurn": [RoadStructure.R1, RoadStructure.R4],
     "SignalizedJunctionLeftTurnEnterFlow": [RoadStructure.R1, RoadStructure.R4],
@@ -443,7 +519,7 @@ SCENARIO_TO_FINE_EVENTS = {
     "NonSignalizedJunctionLeftTurn": [EventType.R_E1, EventType.R_E5],
     "NonSignalizedJunctionLeftTurnEnterFlow": [EventType.R_E1, EventType.R_E5],
     "NonSignalizedJunctionRightTurn": [EventType.R_E1, EventType.R_E4, EventType.R_E5],
-    "noScenarios": [EventType.R_E1, EventType.R_E4, EventType.R_E5],
+    "noScenarios": [EventType.R_E1, EventType.R_E2, EventType.R_E3, EventType.R_E4, EventType.R_E5],
     "OppositeVehicleRunningRedLight": [EventType.R_E1, EventType.R_E4, EventType.U_E6],
     "OppositeVehicleTakingPriority": [EventType.R_E1, EventType.R_E4, EventType.R_E5, EventType.U_E7],
     "ParkedObstacle": [EventType.R_E1, EventType.R_E2, EventType.R_E5, EventType.U_E2],
@@ -452,7 +528,7 @@ SCENARIO_TO_FINE_EVENTS = {
     "ParkingCutIn": [EventType.R_E1, EventType.R_E4, EventType.R_E5, EventType.U_E3],
     "ParkingExit": [EventType.R_E1, EventType.R_E2, EventType.R_E4],
     "PedestrianCrossing": [EventType.R_E1, EventType.R_E4, EventType.R_E5, EventType.U_E4],
-    "PriorityAtJunction": [EventType.R_E1, EventType.R_E4],
+    "PriorityAtJunction": [EventType.R_E1, EventType.R_E4, EventType.R_E5],
     "RedLightWithoutLeadVehicle": [EventType.R_E1, EventType.R_E4],
     "SignalizedJunctionLeftTurn": [EventType.R_E1, EventType.R_E4],
     "SignalizedJunctionLeftTurnEnterFlow": [EventType.R_E1, EventType.R_E4],
@@ -1517,7 +1593,7 @@ SCENARIO_RULE_CONFIG: Dict[str, Dict[str, Any]] = {
     "NonSignalizedJunctionLeftTurnEnterFlow": {"kind": "nonsignalized_junction", "junction_pre_m": 84, "junction_post_m": 20, "veto": ["enter_flow_not_r3"]},
     "NonSignalizedJunctionRightTurn": {"kind": "nonsignalized_junction", "junction_pre_m": 63, "junction_post_m": 20, "junction_tighten_factor": 0.75, "junction_min_pre_m": 10.0, "junction_min_post_m": 3.0, "rightturn_core_pre_m": 45.0, "rightturn_core_post_m": 5.0, "rightturn_core_dist_to_junction_m": 18.0, "rightturn_core_trigger_m": 12.0},
     "OppositeVehicleTakingPriority": {"kind": "nonsignalized_junction", "junction_pre_m": 75, "junction_post_m": 20, "junction_tighten_factor": 0.60},
-    "PriorityAtJunction": {"kind": "nonsignalized_junction", "junction_pre_m": 50, "junction_post_m": 20, "junction_tighten_factor": 0.65, "junction_lock_signal_protect_m": 50},
+    "PriorityAtJunction": {"kind": "nonsignalized_junction", "junction_pre_m": 50, "junction_post_m": 20, "junction_tighten_factor": 0.65, "junction_lock_signal_protect_m": 70, "priority_signal_pre_frames": 4, "junction_regular_gap_merge_max_frames": 28, "junction_regular_gap_min_neighbor_frames": 4},
     # R3 高速/匝道/合流。
     "EnterActorFlow": {"kind": "highway_merge", "merge_pre_m": 24, "merge_post_m": 36, "trigger_close_m": 75, "actor_flow_near_m": 40, "highway_default_r3": False},
     "EnterActorFlowV2": {"kind": "highway_merge", "merge_pre_m": 24, "merge_post_m": 36, "trigger_close_m": 75, "actor_flow_near_m": 40, "highway_default_r3": False},
@@ -1794,6 +1870,22 @@ class RoadEventRuleEngine:
         return changed_route or signed_active
 
     @staticmethod
+    def _noscenario_target_lane_change_active(frame_data: Dict[str, Any]) -> bool:
+        """noScenarios 没有场景先验，RE2 必须依赖显式换道轨迹证据。"""
+        route_lateral_offset = RoadEventRuleEngine._route_lateral_offset(frame_data)
+        route_abs = abs(route_lateral_offset) if math.isfinite(route_lateral_offset) else math.inf
+        tol = RoadEventRuleEngine._lane_center_tolerance(frame_data)
+        signed = abs(_safe_float(frame_data.get("signed_dist_to_lane_change"), default=math.inf))
+        changed_route = _safe_bool(frame_data.get("changed_route", False))
+        lane_change_str = str(frame_data.get("lane_change_str", "") or "").upper()
+        explicit_cmd = "CHANGELANE" in lane_change_str or lane_change_str in {"LEFT", "RIGHT"}
+        route_offset_active = math.isfinite(route_abs) and route_abs > max(tol, 0.18)
+        signed_active = math.isfinite(signed) and signed <= 3.5
+        if math.isfinite(route_abs):
+            return route_offset_active and (changed_route or signed_active or explicit_cmd)
+        return changed_route or signed_active or explicit_cmd
+
+    @staticmethod
     def _signed_lane_change_intent(frame_data: Dict[str, Any]) -> bool:
         signed = abs(_safe_float(frame_data.get("signed_dist_to_lane_change"), default=math.inf))
         return math.isfinite(signed) and signed <= 2.0
@@ -1883,7 +1975,9 @@ class RoadEventRuleEngine:
             and actor_flow_distance <= actor_core_m
             and trigger_distance <= actor_trigger_guard_m
         )
-        if scenario_name in {"MergerIntoSlowTraffic", "MergerIntoSlowTrafficV2"}:
+        if scenario_name == "noScenarios":
+            ramp_core = ramp_hint
+        elif scenario_name in {"MergerIntoSlowTraffic", "MergerIntoSlowTrafficV2"}:
             ramp_core = ramp_hint and actor_flow_distance <= max(actor_core_m, 35.0)
         else:
             ramp_core = ramp_hint and trigger_distance <= max(trigger_core_m, 25.0)
@@ -1944,7 +2038,10 @@ class RoadEventRuleEngine:
                 frame_data,
                 evidence,
             )
-            lane_change_active = RoadEventRuleEngine._target_lane_change_active(frame_data)
+            if scenario_name == "noScenarios":
+                lane_change_active = RoadEventRuleEngine._noscenario_target_lane_change_active(frame_data)
+            else:
+                lane_change_active = RoadEventRuleEngine._target_lane_change_active(frame_data)
             if scenario_name in {"EnterActorFlow", "EnterActorFlowV2"} and not lane_change_active:
                 actor_flow_distance = _safe_float(evidence.get("actor_flow_distance_m"), default=math.inf)
                 signed = abs(_safe_float(frame_data.get("signed_dist_to_lane_change"), default=math.inf))
@@ -1969,7 +2066,11 @@ class RoadEventRuleEngine:
         if scenario_name in {"HighwayCutIn", "HighwayExit", "InterurbanActorFlow", "ParkingExit", "StaticCutIn"}:
             if RoadEventRuleEngine._target_lane_change_active(frame_data):
                 return EventType.R_E2, ["event_regular_target_lane_change_r2"], {}
-        if primary_rs in {RoadStructure.R1, RoadStructure.R2} and RoadEventRuleEngine._target_lane_change_active(frame_data):
+        if primary_rs in {RoadStructure.R1, RoadStructure.R2} and (
+            RoadEventRuleEngine._noscenario_target_lane_change_active(frame_data)
+            if scenario_name == "noScenarios"
+            else RoadEventRuleEngine._target_lane_change_active(frame_data)
+        ):
             cfg = SCENARIO_RULE_CONFIG.get(scenario_name, {})
             xodr = evidence.get("xodr") or {}
             trigger_distance = _safe_float(evidence.get("trigger_distance_m"), default=math.inf)
@@ -2311,14 +2412,53 @@ class RoadEventRuleEngine:
                 unusual = EventType.U_E5
                 rules.extend(["event_oncoming_lane_invasion_vehicle_hazard_confirmed"])
         if unusual is None and scenario_name == "OppositeVehicleRunningRedLight" and EventType.U_E6 in allowed:
-            if (
+            bbox_metrics = frame_data.get("bbox_semantic_metrics", {}) or {}
+            bbox_conflict_count = int(
+                _safe_float(bbox_metrics.get("red_light_conflict_vehicle_count"), default=0.0) or 0
+            )
+            bbox_conflict_dist = _safe_float(
+                bbox_metrics.get("red_light_conflict_vehicle_min_distance_m"),
+                default=math.inf,
+            )
+            bbox_conflict_forward_x = _safe_float(
+                bbox_metrics.get("red_light_conflict_vehicle_min_forward_x_m"),
+                default=math.inf,
+            )
+            bbox_conflict_lateral_y = _safe_float(
+                bbox_metrics.get("red_light_conflict_vehicle_min_abs_lateral_y_m"),
+                default=math.inf,
+            )
+            bbox_conflict_speed = _safe_float(
+                bbox_metrics.get("red_light_conflict_vehicle_max_speed_mps"),
+                default=math.inf,
+            )
+            vehicle_hazard_conflict = (
                 primary_rs == RoadStructure.R4
                 and vehicle_hazard
                 and math.isfinite(speed_obj_dist)
                 and speed_obj_dist <= 30.0
-            ):
+            )
+            bbox_crossing_conflict = (
+                primary_rs == RoadStructure.R4
+                and bbox_conflict_count > 0
+                and bbox_conflict_dist <= 32.0
+                and bbox_conflict_forward_x <= 26.0
+            )
+            if vehicle_hazard_conflict or bbox_crossing_conflict:
                 unusual = EventType.U_E6
-                rules.extend(["event_opposite_vehicle_running_red_light_hazard_confirmed"])
+                if vehicle_hazard_conflict:
+                    rules.extend(["event_opposite_vehicle_running_red_light_hazard_confirmed"])
+                if bbox_crossing_conflict:
+                    rules.extend(["event_opposite_red_light_bbox_crossing_vehicle_confirmed"])
+                    metrics.update(
+                        {
+                            "red_light_conflict_vehicle_count": bbox_conflict_count,
+                            "red_light_conflict_vehicle_min_distance_m": bbox_conflict_dist,
+                            "red_light_conflict_vehicle_min_forward_x_m": bbox_conflict_forward_x,
+                            "red_light_conflict_vehicle_min_abs_lateral_y_m": bbox_conflict_lateral_y,
+                            "red_light_conflict_vehicle_max_speed_mps": bbox_conflict_speed,
+                        }
+                    )
         defect_traffic_light_state = str(frame_data.get("traffic_light_state") or "")
         defect_has_valid_light_state = defect_traffic_light_state in {"Red", "Yellow", "Green"}
         defect_is_junction_frame = _safe_bool(frame_data.get("is_junction", False))
@@ -2603,6 +2743,20 @@ class RoadStructureRuleEngine:
         bbox_stop_sign = _safe_bool(frame_data.get("bbox_has_stop_sign", False))
         bbox_yield_sign = _safe_bool(frame_data.get("bbox_has_yield_sign", False))
         bbox_junction_hint = _safe_bool(frame_data.get("bbox_has_junction_hint", False))
+        bbox_metrics = frame_data.get("bbox_semantic_metrics", {}) or {}
+        bbox_tl_count = int(_safe_float(bbox_metrics.get("traffic_light_count"), default=0.0) or 0)
+        bbox_tl_min_distance = _safe_float(bbox_metrics.get("traffic_light_min_distance_m"), default=math.inf)
+        bbox_tl_forward_x = _safe_float(bbox_metrics.get("traffic_light_min_forward_x_m"), default=math.inf)
+        bbox_tl_physical_distance = _safe_float(
+            bbox_metrics.get("traffic_light_min_physical_distance_m"),
+            default=math.inf,
+        )
+        bbox_tl_affects_ego = _safe_bool(bbox_metrics.get("traffic_light_affects_ego", False))
+        bbox_tl_same_lane = _safe_bool(bbox_metrics.get("traffic_light_same_lane", False))
+        bbox_tl_overhead = _safe_bool(bbox_metrics.get("traffic_light_overhead", False))
+        bbox_stop_min_distance = _safe_float(bbox_metrics.get("stop_sign_min_distance_m"), default=math.inf)
+        bbox_yield_min_distance = _safe_float(bbox_metrics.get("yield_sign_min_distance_m"), default=math.inf)
+        bbox_stop_yield_min_distance = min(bbox_stop_min_distance, bbox_yield_min_distance)
         rgb_no_r4 = scenario_name in SCENARIOS_WITH_RGB_NO_R4
         if (
             (has_tl or light_hazard or bbox_traffic_light)
@@ -2704,6 +2858,41 @@ class RoadStructureRuleEngine:
         )
         bbox_traffic_light_for_r4 = bbox_traffic_light
         static_signal_near_for_r4 = static_signal_near
+        has_tl_for_r4 = has_tl
+        noscenario_local_signal_control = True
+        noscenario_stop_yield_overrides_weak_light = False
+        noscenario_far_single_light_demoted = False
+        if kind == "noscenario":
+            noscenario_local_signal_control = bool(
+                bbox_tl_overhead
+                or (bbox_tl_affects_ego and bbox_tl_forward_x <= 18.0)
+                or (bbox_tl_affects_ego and bbox_tl_min_distance <= 12.0)
+                or (bbox_tl_count >= 2 and bbox_tl_affects_ego and bbox_tl_forward_x <= 32.0)
+                or (bbox_tl_physical_distance <= 24.0 and bbox_tl_forward_x <= 25.0)
+                or (meta_is_junction and bbox_tl_forward_x <= 12.0)
+            )
+            local_stop_or_yield = bool(meta_stop_hazard or bbox_stop_yield_min_distance <= 35.0)
+            noscenario_stop_yield_overrides_weak_light = (
+                local_stop_or_yield
+                and not noscenario_local_signal_control
+                and not light_hazard
+            )
+            noscenario_far_single_light_demoted = (
+                (has_tl or bbox_traffic_light)
+                and not noscenario_local_signal_control
+                and not local_stop_or_yield
+                and not light_hazard
+            )
+            if noscenario_stop_yield_overrides_weak_light:
+                has_tl_for_r4 = False
+                bbox_traffic_light_for_r4 = False
+                static_signal_near_for_r4 = False
+                rules.append("noscenario_stop_yield_overrides_weak_far_light")
+            elif noscenario_far_single_light_demoted:
+                has_tl_for_r4 = False
+                bbox_traffic_light_for_r4 = False
+                static_signal_near_for_r4 = False
+                rules.append("noscenario_far_single_light_demoted_to_r1")
         stop_yield_overrides_weak_signal_hint = (
             stop_hazard
             and not has_tl
@@ -2881,8 +3070,9 @@ class RoadStructureRuleEngine:
         noscenario_signalized_approach_context = (
             kind == "noscenario"
             and junction_window
-            and has_tl
+            and has_tl_for_r4
             and bbox_traffic_light_for_r4
+            and noscenario_local_signal_control
             and not stop_hazard
             and not map_is_roundabout
         )
@@ -2896,20 +3086,20 @@ class RoadStructureRuleEngine:
         elif noscenario_signalized_approach_context:
             self._add(scores, RoadStructure.R4, 0.90)
             rules.append("r4_noscenario_stable_tl_bbox_approach")
-        elif (not map_is_roundabout) and has_tl and strong_control_context and dynamic_crossing_strict_junction_context:
+        elif (not map_is_roundabout) and has_tl_for_r4 and strong_control_context and dynamic_crossing_strict_junction_context:
             self._add(scores, RoadStructure.R4, 0.95)
             rules.append("r4_tl_confirmed")
         elif (
             not map_is_roundabout
             and scenario_name == "DynamicObjectCrossing"
-            and has_tl
+            and has_tl_for_r4
             and bbox_traffic_light_for_r4
             and (near_junction or close_trigger_for_junction or bbox_junction_hint)
         ):
             self._add(scores, RoadStructure.R4, 0.88)
             self._add(scores, RoadStructure.R1, 0.70)
             rules.append("r4_dynamic_crossing_meta_bbox_light_near_control")
-        elif (not map_is_roundabout) and has_tl:
+        elif (not map_is_roundabout) and has_tl_for_r4:
             if kind == "highway_merge":
                 self._add(scores, RoadStructure.R4, 0.70)
                 self._add(scores, RoadStructure.R3, 0.78)
@@ -2937,11 +3127,19 @@ class RoadStructureRuleEngine:
                 self._add(scores, RoadStructure.R4, 0.86)
                 self._add(scores, RoadStructure.R1, 0.62)
                 rules.append("r4_meta_tl_without_strong_context_review")
+        elif kind == "noscenario" and has_tl and not has_tl_for_r4:
+            if noscenario_stop_yield_overrides_weak_light:
+                self._add(scores, RoadStructure.R5, 0.86)
+                self._add(scores, RoadStructure.R1, 0.70)
+                rules.append("noscenario_weak_light_keeps_stop_yield_r5")
+            else:
+                self._add(scores, RoadStructure.R1, 0.86)
+                rules.append("noscenario_weak_far_light_keeps_r1")
         elif (
             not map_is_roundabout
             and scenario_name == "DynamicObjectCrossing"
             and bbox_traffic_light_for_r4
-            and not has_tl
+            and not has_tl_for_r4
             and (bbox_stop_sign or bbox_yield_sign or not close_trigger_for_junction)
         ):
             self._add(scores, RoadStructure.R1, 0.82)
@@ -2983,7 +3181,7 @@ class RoadStructureRuleEngine:
         if (
             RoadStructure.R5 in allowed
             and not map_is_roundabout
-            and not has_tl
+            and not has_tl_for_r4
             and not light_hazard
             and junction_window
         ):
@@ -3547,11 +3745,26 @@ class RoadStructureRuleEngine:
                 self._add(scores, RoadStructure.R1, 0.78)
                 rules.append("hardbreak_event_keeps_r1_unless_highway_like_or_tl")
         elif kind == "noscenario":
+            noscenario_r3_allowed = (
+                RoadStructure.R3 in allowed
+                and not map_is_roundabout
+                and not (
+                    strong_control_context
+                    and (junction_window or stop_hazard or has_tl or light_hazard)
+                )
+            )
+            if noscenario_r3_allowed and ramp_hint:
+                self._add(scores, RoadStructure.R3, 0.82)
+                rules.append("r3_noscenario_xodr_ramp_merge_split")
+            elif noscenario_r3_allowed and route_highway_bucket:
+                self._add(scores, RoadStructure.R3, 0.78)
+                rules.append("r3_noscenario_highway_route_bucket")
             if (
                 not has_tl
                 and not light_hazard
                 and RoadStructure.R5 not in scores
                 and RoadStructure.R2 not in scores
+                and RoadStructure.R3 not in scores
             ):
                 scores = {RoadStructure.R1: max(scores.get(RoadStructure.R1, 0.0), 0.86)}
                 rules.append("noscenario_conservative_r1_without_meta_light")
@@ -3628,6 +3841,7 @@ class RoadStructureRuleEngine:
             and RoadStructure.R4 not in scores
             and RoadStructure.R5 not in scores
             and RoadStructure.R2 not in scores
+            and RoadStructure.R3 not in scores
         ):
             primary = RoadStructure.R1
         else:
@@ -3814,6 +4028,7 @@ class RoadStructureRuleEngine:
                 "yield_sign": bbox_yield_sign,
                 "junction_hint": bbox_junction_hint,
                 "classes": frame_data.get("bbox_semantic_classes", {}),
+                "metrics": bbox_metrics,
             },
             "meta_is_junction": meta_is_junction,
             "meta_stop_hazard": meta_stop_hazard,
@@ -4684,6 +4899,109 @@ class ScenarioCollector:
             metrics["highway_route_postprocess_r3"] = True
             ann["frame_event_annotation"] = self._frame_event_annotation_payload(ann)
             return True
+
+        if scenario_name == "noScenarios":
+            def _noscenario_re2_support(index: int) -> bool:
+                ann = annotations[index]
+                if ann.get("primary_road_structure") not in {RoadStructure.R1.value, RoadStructure.R3.value}:
+                    return False
+                if ann.get("primary_event") not in {EventType.R_E1.value, EventType.R_E2.value, EventType.R_E3.value}:
+                    return False
+                metrics = _event_metrics(ann)
+                signed = _signed_lane_change(ann)
+                route_abs = _route_lateral_abs(ann)
+                changed_route = bool(metrics.get("changed_route"))
+                return (
+                    bool(metrics.get("target_lane_change_active"))
+                    or (changed_route and math.isfinite(signed) and abs(signed) <= 4.0)
+                    or (
+                        changed_route
+                        and math.isfinite(route_abs)
+                        and route_abs > max(_route_center_tolerance(ann), 0.18)
+                    )
+                    or (
+                        math.isfinite(signed)
+                        and abs(signed) <= 2.5
+                        and math.isfinite(route_abs)
+                        and route_abs > max(_route_center_tolerance(ann), 0.18)
+                    )
+                )
+
+            def _force_noscenario_re2(index: int, reason: str, *, require_support: bool = True) -> bool:
+                ann = annotations[index]
+                if require_support and not _noscenario_re2_support(index):
+                    return False
+                if ann.get("primary_road_structure") not in {RoadStructure.R1.value, RoadStructure.R3.value}:
+                    return False
+                if ann.get("primary_event") == EventType.R_E2.value:
+                    return False
+                old = ann.get("primary_event")
+                self._rewrite_event_label(ann, {EventType.R_E2}, EventType.R_E2, reason)
+                metrics = _event_metrics(ann)
+                metrics["noscenario_re2_span_smoothed"] = True
+                ann["frame_event_annotation"] = self._frame_event_annotation_payload(ann)
+                changes.append(
+                    {
+                        "frame_id": ann.get("frame_id"),
+                        "from": old,
+                        "to": EventType.R_E2.value,
+                        "reason": reason,
+                    }
+                )
+                return True
+
+            re2_spans: List[Tuple[int, int]] = []
+            idx = 0
+            while idx < len(annotations):
+                if annotations[idx].get("primary_event") != EventType.R_E2.value:
+                    idx += 1
+                    continue
+                start = idx
+                while idx < len(annotations) and annotations[idx].get("primary_event") == EventType.R_E2.value:
+                    idx += 1
+                re2_spans.append((start, idx))
+
+            for start, end in re2_spans:
+                new_start = start
+                while new_start > 0 and start - new_start <= 2 and _noscenario_re2_support(new_start - 1):
+                    new_start -= 1
+                new_end = end
+                while new_end < len(annotations) and new_end - end <= 4 and _noscenario_re2_support(new_end):
+                    new_end += 1
+                for j in range(new_start, new_end):
+                    _force_noscenario_re2(j, "event_noscenario_lane_change_span_expanded_by_trajectory")
+
+            # Fill tiny regular gaps between two supported RE2 chunks; this keeps a single
+            # lane-change maneuver from being split by one noisy centered frame.
+            idx = 0
+            while idx < len(annotations):
+                if annotations[idx].get("primary_event") == EventType.R_E2.value:
+                    idx += 1
+                    continue
+                gap_start = idx
+                while idx < len(annotations) and annotations[idx].get("primary_event") != EventType.R_E2.value:
+                    idx += 1
+                gap_end = idx
+                if gap_start == 0 or gap_end >= len(annotations) or gap_end - gap_start > 3:
+                    continue
+                if (
+                    annotations[gap_start - 1].get("primary_event") == EventType.R_E2.value
+                    and annotations[gap_end].get("primary_event") == EventType.R_E2.value
+                    and (
+                        gap_end - gap_start == 1
+                        or all(_noscenario_re2_support(j) for j in range(gap_start, gap_end))
+                    )
+                    and all(
+                        annotations[j].get("primary_road_structure") in {RoadStructure.R1.value, RoadStructure.R3.value}
+                        for j in range(gap_start, gap_end)
+                    )
+                ):
+                    for j in range(gap_start, gap_end):
+                        _force_noscenario_re2(
+                            j,
+                            "event_noscenario_short_re2_gap_merged",
+                            require_support=gap_end - gap_start != 1,
+                        )
 
         highway_enter_merge_scenarios = {
             "EnterActorFlow",
@@ -6490,7 +6808,7 @@ class ScenarioCollector:
                     idx += 1
                 u6_spans.append((start, idx))
             if len(u6_spans) > 1:
-                def _u6_span_score(span: Tuple[int, int]) -> Tuple[int, float]:
+                def _u6_span_score(span: Tuple[int, int]) -> Tuple[int, int, int, float]:
                     start, end = span
                     closest = min(
                         (
@@ -6502,7 +6820,22 @@ class ScenarioCollector:
                         ),
                         default=math.inf,
                     )
-                    return end - start, -closest
+                    stopped_wait_frames = 0
+                    slow_wait_frames = 0
+                    bbox_conflict_frames = 0
+                    for j in range(max(0, start - 6), min(len(annotations), end + 6)):
+                        metrics = _event_metrics(annotations[j])
+                        speed = _safe_float(metrics.get("speed"), default=math.inf)
+                        target_speed = _safe_float(metrics.get("target_speed"), default=math.inf)
+                        if speed <= 1.5 and target_speed <= 1.5:
+                            stopped_wait_frames += 1
+                        elif speed <= 3.0 and target_speed <= 2.5:
+                            slow_wait_frames += 1
+                    for j in range(start, end):
+                        metrics = _event_metrics(annotations[j])
+                        if int(_safe_float(metrics.get("red_light_conflict_vehicle_count"), default=0.0) or 0) > 0:
+                            bbox_conflict_frames += 1
+                    return stopped_wait_frames, slow_wait_frames, bbox_conflict_frames, end - start, -closest
 
                 keep_span = max(u6_spans, key=_u6_span_score)
                 for start, end in u6_spans:
@@ -8977,10 +9310,11 @@ class ScenarioCollector:
     ) -> Dict[str, Any]:
         """最终输出前再次缝合同一 R4/R5 路口段内的短 R-E1/R-E2 噪声。"""
         cfg = SCENARIO_RULE_CONFIG.get(scenario_name, {})
-        if cfg.get("kind") != "vehicle_turning" or not annotations:
+        has_gap_merge_cfg = "junction_regular_gap_merge_max_frames" in cfg
+        if (cfg.get("kind") != "vehicle_turning" and not has_gap_merge_cfg) or not annotations:
             return {"enabled": False, "changes": []}
-        max_gap = int(cfg.get("turning_final_regular_gap_max_frames", 6))
-        min_neighbor = int(cfg.get("turning_final_regular_gap_min_neighbor_frames", 4))
+        max_gap = int(cfg.get("junction_regular_gap_merge_max_frames", cfg.get("turning_final_regular_gap_max_frames", 6)))
+        min_neighbor = int(cfg.get("junction_regular_gap_min_neighbor_frames", cfg.get("turning_final_regular_gap_min_neighbor_frames", 4)))
         changes: List[Dict[str, Any]] = []
 
         def _same_event_run_len(pos: int, label: str, step: int) -> int:
@@ -9023,14 +9357,14 @@ class ScenarioCollector:
                     self._rewrite_rs_label(
                         ann,
                         fill_rs.value,
-                        "rs_final_vehicle_turning_short_regular_gap_merged",
+                        "rs_final_junction_short_regular_gap_merged",
                         "route_level_final_junction_regular_gap_merge",
                     )
                 self._rewrite_event_label(
                     ann,
                     {fill_event},
                     fill_event,
-                    "event_final_vehicle_turning_short_regular_gap_merged",
+                    "event_final_junction_short_regular_gap_merged",
                 )
                 ann["frame_rs_annotation"] = self._frame_rs_annotation_payload(ann)
                 ann["frame_event_annotation"] = self._frame_event_annotation_payload(ann)
@@ -9041,7 +9375,7 @@ class ScenarioCollector:
                         "to": fill_event.value,
                         "rs_from": old_rs,
                         "rs_to": fill_rs.value,
-                        "reason": "final_vehicle_turning_short_regular_gap_merged",
+                        "reason": "final_junction_short_regular_gap_merged",
                     }
                 )
         return {
@@ -10131,6 +10465,38 @@ class ScenarioCollector:
             changes.append(change)
         return {"enabled": True, "trigger_limit_m": trigger_limit, "changes": changes}
 
+    @staticmethod
+    def _noscenario_local_signal_control(evidence: Dict[str, Any]) -> bool:
+        bbox = evidence.get("bbox_semantics") or {}
+        metrics = bbox.get("metrics") or {}
+        tl_count = int(_safe_float(metrics.get("traffic_light_count"), default=0.0) or 0)
+        tl_distance = _safe_float(metrics.get("traffic_light_min_distance_m"), default=math.inf)
+        tl_forward_x = _safe_float(metrics.get("traffic_light_min_forward_x_m"), default=math.inf)
+        tl_physical = _safe_float(metrics.get("traffic_light_min_physical_distance_m"), default=math.inf)
+        tl_affects_ego = _safe_bool(metrics.get("traffic_light_affects_ego", False))
+        tl_overhead = _safe_bool(metrics.get("traffic_light_overhead", False))
+        meta_is_junction = _safe_bool(evidence.get("meta_is_junction", False))
+        return bool(
+            tl_overhead
+            or (tl_affects_ego and tl_forward_x <= 18.0)
+            or (tl_affects_ego and tl_distance <= 12.0)
+            or (tl_count >= 2 and tl_affects_ego and tl_forward_x <= 32.0)
+            or (tl_physical <= 24.0 and tl_forward_x <= 25.0)
+            or (meta_is_junction and tl_forward_x <= 12.0)
+        )
+
+    @staticmethod
+    def _noscenario_local_stop_or_yield(evidence: Dict[str, Any]) -> bool:
+        bbox = evidence.get("bbox_semantics") or {}
+        metrics = bbox.get("metrics") or {}
+        stop_distance = _safe_float(metrics.get("stop_sign_min_distance_m"), default=math.inf)
+        yield_distance = _safe_float(metrics.get("yield_sign_min_distance_m"), default=math.inf)
+        return bool(
+            _safe_bool(evidence.get("meta_stop_hazard", False))
+            or stop_distance <= 35.0
+            or yield_distance <= 35.0
+        )
+
     def _apply_route_junction_control_lock(
         self,
         scenario_name: str,
@@ -10167,6 +10533,33 @@ class ScenarioCollector:
         )
         has_visible_light = bbox_light_frames >= 3
         route_is_signalized = bool(has_valid_light or has_visible_light)
+        priority_signal_support_indices = []
+        if scenario_name == "PriorityAtJunction" and route_is_signalized:
+            for idx_ann, ann in enumerate(annotations):
+                evidence = ann.get("evidence") or {}
+                bbox = evidence.get("bbox_semantics") or {}
+                if (
+                    str(evidence.get("traffic_light_state") or "") in {"Red", "Yellow", "Green"}
+                    or bool(evidence.get("light_hazard"))
+                    or bool(bbox.get("traffic_light"))
+                    or bool(evidence.get("meta_is_junction"))
+                ):
+                    priority_signal_support_indices.append(idx_ann)
+        priority_signal_start = min(priority_signal_support_indices) if priority_signal_support_indices else None
+        priority_signal_end = max(priority_signal_support_indices) if priority_signal_support_indices else None
+        priority_existing_control_indices = []
+        if scenario_name == "PriorityAtJunction" and route_is_signalized:
+            priority_existing_control_indices = [
+                idx_ann
+                for idx_ann, ann in enumerate(annotations)
+                if ann.get("primary_road_structure") == RoadStructure.R4.value
+            ]
+        priority_existing_control_start = (
+            min(priority_existing_control_indices) if priority_existing_control_indices else priority_signal_start
+        )
+        priority_signal_pre_frames = int(
+            SCENARIO_RULE_CONFIG.get(scenario_name, {}).get("priority_signal_pre_frames", 2)
+        )
         changes: List[Dict[str, Any]] = []
         centered_far_threshold = {
             "T_Junction": 30.0,
@@ -10182,11 +10575,19 @@ class ScenarioCollector:
                 return EventType.R_E5
             return EventType.R_E1
 
-        for ann in annotations:
+        for idx_ann, ann in enumerate(annotations):
             old = ann.get("primary_road_structure")
             local_control_protected = False
             if scenario_name in lock_scenarios:
-                if old not in {RoadStructure.R4.value, RoadStructure.R5.value}:
+                priority_signal_pre_window = bool(
+                    scenario_name == "PriorityAtJunction"
+                    and route_is_signalized
+                    and priority_existing_control_start is not None
+                    and priority_existing_control_start >= 30
+                    and idx_ann >= max(0, priority_existing_control_start - priority_signal_pre_frames)
+                    and idx_ann < priority_existing_control_start
+                )
+                if old not in {RoadStructure.R4.value, RoadStructure.R5.value} and not priority_signal_pre_window:
                     continue
                 metrics = (ann.get("event_evidence") or {}).get("metrics") or {}
                 evidence = ann.get("evidence") or {}
@@ -10197,6 +10598,25 @@ class ScenarioCollector:
                     SCENARIO_RULE_CONFIG.get(scenario_name, {}).get("junction_lock_signal_protect_m"),
                     default=math.nan,
                 )
+                local_signal_frame = bool(
+                    bool(bbox.get("traffic_light"))
+                    or bool(evidence.get("light_hazard"))
+                    or str(evidence.get("traffic_light_state") or "") in {"Red", "Yellow", "Green"}
+                    or bool(evidence.get("meta_is_junction"))
+                    or bool(bbox.get("junction_hint"))
+                )
+                priority_signal_window = bool(
+                    scenario_name == "PriorityAtJunction"
+                    and route_is_signalized
+                    and priority_existing_control_start is not None
+                    and priority_signal_end is not None
+                    and idx_ann >= max(
+                        0,
+                        priority_existing_control_start
+                        - (priority_signal_pre_frames if priority_existing_control_start >= 30 else 0),
+                    )
+                    and idx_ann <= min(len(annotations) - 1, priority_signal_end + 8)
+                )
                 local_control_protected = bool(
                     evidence.get("meta_is_junction")
                     or bool(bbox.get("junction_hint"))
@@ -10204,24 +10624,32 @@ class ScenarioCollector:
                         math.isfinite(lock_signal_protect_m)
                         and trigger_distance <= lock_signal_protect_m
                         and (
-                            route_is_signalized
-                            or bool(bbox.get("traffic_light"))
+                            bool(bbox.get("traffic_light"))
                             or str(evidence.get("traffic_light_state") or "") in {"Red", "Yellow", "Green"}
                         )
                     )
+                    or priority_signal_window
                 )
-                moving_centered_far = (
-                    centered_far_threshold is not None
-                    and trigger_distance > centered_far_threshold
-                    and _safe_float(metrics.get("speed"), default=0.0) > 5.0
-                    and math.isfinite(lateral)
-                    and lateral < 0.04
-                    and not local_control_protected
-                )
-                if moving_centered_far:
-                    target = RoadStructure.R1.value
+                if scenario_name == "PriorityAtJunction" and route_is_signalized:
+                    if priority_signal_window or local_signal_frame:
+                        target = RoadStructure.R4.value
+                    else:
+                        target = RoadStructure.R1.value
+                    moving_centered_far = False
+                    local_control_protected = bool(priority_signal_window or local_signal_frame)
                 else:
-                    target = RoadStructure.R4.value if route_is_signalized else RoadStructure.R5.value
+                    moving_centered_far = (
+                        centered_far_threshold is not None
+                        and trigger_distance > centered_far_threshold
+                        and _safe_float(metrics.get("speed"), default=0.0) > 5.0
+                        and math.isfinite(lateral)
+                        and lateral < 0.04
+                        and not local_control_protected
+                    )
+                    if moving_centered_far:
+                        target = RoadStructure.R1.value
+                    else:
+                        target = RoadStructure.R4.value if route_is_signalized else RoadStructure.R5.value
             elif scenario_name in parking_guard_scenarios:
                 if has_valid_light:
                     if scenario_name == "ParkingCutIn" and old == RoadStructure.R5.value:
@@ -10243,6 +10671,18 @@ class ScenarioCollector:
                         if scenario_name == "ParkingCutIn" and strong_nolight
                         else RoadStructure.R1.value
                     )
+            elif scenario_name == "noScenarios":
+                if old not in {RoadStructure.R4.value, RoadStructure.R5.value}:
+                    continue
+                evidence = ann.get("evidence") or {}
+                local_signal = self._noscenario_local_signal_control(evidence)
+                local_stop_yield = self._noscenario_local_stop_or_yield(evidence)
+                if local_stop_yield and not local_signal:
+                    target = RoadStructure.R5.value
+                elif local_signal:
+                    target = RoadStructure.R4.value
+                else:
+                    target = RoadStructure.R1.value
             else:
                 if old not in {RoadStructure.R4.value, RoadStructure.R5.value}:
                     continue

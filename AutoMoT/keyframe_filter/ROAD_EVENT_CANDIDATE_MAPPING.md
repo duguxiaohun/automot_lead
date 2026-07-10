@@ -137,7 +137,7 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 | NonSignalizedJunctionLeftTurn | R1, R5 | 明确无信号灯左转；不放 R4 |
 | NonSignalizedJunctionLeftTurnEnterFlow | R1, R5 | 明确无信号灯左转进入车流；不放 R4 |
 | NonSignalizedJunctionRightTurn | R1, R4, R5 | 大多数是 STOP/无灯右转，但全量 RGB 发现少量灯控右转子集；R4/R5 必须按逐帧 RGB + meta/bbox 控制源区分；远处直道和驶离后直道由 RightTurn 局部核心门控恢复 R1 |
-| noScenarios | R1, R4, R5 | 默认普通道路；稳定灯态+bbox 灯+路口窗口可召回 R4，STOP/无灯控制证据可召回 R5；弱 XODR hint 仍保守 R1 |
+| noScenarios | R1, R3, R4, R5 | 默认普通道路；只有本地 ego-affecting/overhead/近距离 bbox 灯 + 有效灯态/路口窗口才召回 R4，STOP/yield/无灯控制源召回 R5 且压制弱灯；可信 XODR ramp/merge/split 或人工 RGB highway bucket 才开放 R3；远处单灯框、bbox-only 弱灯和弱 XODR hint 仍保守 R1 |
 | OppositeVehicleRunningRedLight | R1, R4 | 信号灯正常但对方违规 |
 | OppositeVehicleTakingPriority | R1, R4, R5 | 以 STOP/让行/无灯 priority 路口为主，但全量 RGB 有少量灯控子集；R4 需要有效灯态或 RGB/bbox 灯控确认；2026-07-10 RGB 边界回灌后进入侧 `junction_pre_m=75` |
 | ParkedObstacle | R1, R4, R5 | 停放障碍只进 EVENT；真实 STOP/无灯路口段允许 R5；parked 本身不改变 RS；2026-07-10 RGB 边界回灌后进入侧 `junction_pre_m=72` |
@@ -146,7 +146,7 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 | ParkingCutIn | R1, R4, R5 | 停车车辆动态切入进 EVENT；普通路段 R1，灯控路口 R4，STOP/无灯路口 R5 |
 | ParkingExit | R1, R4 | 从停车区域并入主路由 R-E2 表达；道路结构仍是 R1，若进入灯控路口则 R4；初始驶出 R-E2 收尾按 RGB 提前约 5 帧释放 |
 | PedestrianCrossing | R1, R4, R5 | 用户调研写“信号灯看情况有无”，保留 R4/R5；入口收紧、出口 tail 延长，同一 R4/R5 路口内 1-8 帧短 R1/R-E1 缝同步缝合 RS+EVENT |
-| PriorityAtJunction | R1, R4 | 2026-07-10 保护局部有效灯控帧，route lock 不能把仍在本地灯控/stopline 区内的 R4 错压回 R1；前后直行段 R1 |
+| PriorityAtJunction | R1, R4, R5 | 混合 priority 场景：真实灯控城市路口为 R4，无灯/让行控制为 R5，前后直行段 R1；2026-07-10 保护局部有效灯控帧，route lock 不能把仍在本地灯控/stopline 区内的 R4 错压回 R1；Town13 晚触发灯控 approach 对第一段稳定 R4 最多前补 4 帧 |
 | RedLightWithoutLeadVehicle | R1, R4 | 明确信号灯路口；驶离灯控区后若 trigger>52m 且无本地 junction/control，则释放回 R1 |
 | SignalizedJunctionLeftTurn | R1, R4 | 明确信号灯左转 |
 | SignalizedJunctionLeftTurnEnterFlow | R1, R4 | 明确信号灯左转进入车流；Town01/02 前 30 帧远灯/弱 trigger 且无本地 junction core 时回 R1 |
@@ -207,8 +207,8 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
 | NonSignalizedJunctionLeftTurn | R-E1, R-E5 | 无信号灯左转；R-E5 仅覆盖局部路口核心，驶离后回 R-E1；不放 R-E4；同一 R-E5 中间不超过 12 帧的 R-E1/R-E2 短缝会同步把 RS+EVENT 合并回 R5/R-E5 |
 | NonSignalizedJunctionLeftTurnEnterFlow | R-E1, R-E5 | 无信号灯左转进入车流；进入窗口按 RGB 放宽到 `junction_pre_m=84`；局部核心 R-E5，进入后的直行段回 R-E1；同一 R-E5 中间不超过 12 帧的 R-E1/R-E2 短缝同步合并 RS+EVENT，`Town03 route001042` / `Town13 route001061` 开头连续保持 R5/R-E5 |
 | NonSignalizedJunctionRightTurn | R-E1, R-E4, R-E5 | 大多数无信号灯右转核心走 R-E5，驶离后回 R-E1；进入窗口放宽到 `junction_pre_m=63`，但仍用局部核心门控压掉远处直道；少量灯控右转子集按 R-E4；同一 R-E4/R-E5 中间不超过 12 帧的 R-E1/R-E2 短缝同步合并 RS+EVENT |
-| noScenarios | R-E1, R-E4, R-E5 | 默认正常行驶；稳定灯控路口 R-E4，STOP/无灯路口 R-E5；无核心突发 U-E |
-| OppositeVehicleRunningRedLight | R-E1, R-E4, U-E6 | U-E6 在 R4 窗口内表达违规车辆冲突；按冲突车、近距离对象、自车停车/让行响应保留等待上下文，输出必须是 `R-E4 + U-E6` 同帧叠加；2026-07-10 全量验证 U-E6 从 1075 扩为 3515 帧，冲突解除后回 R-E4 |
+| noScenarios | R-E1, R-E2, R-E3, R-E4, R-E5 | 默认正常行驶；局部目标车道变化由 `changed_route` / `signed_dist_to_lane_change` + route 横向偏移输出 R-E2，并做 1 帧短缝合并和少量轨迹补边；可信 R3 merge/split 核心可输出 R-E3；本地稳定灯控路口 R-E4，STOP/yield/无灯路口 R-E5；无核心突发 U-E |
+| OppositeVehicleRunningRedLight | R-E1, R-E4, U-E6 | U-E6 在 R4 窗口内表达违规车辆冲突；按冲突车、近距离对象、bbox/RGB 横穿或对向动态车辆、自车停车/让行响应保留等待上下文，输出必须是 `R-E4 + U-E6` 同帧叠加；同 route 多段横向车候选优先保留导致自车停车/等待的 span，再按 bbox 冲突帧数和长度排序；2026-07-10 全量验证 U-E6 从上一版 3515 扩为 5744 帧，R4 route 完全无 U-E6 从 126 条降到 9 条，冲突解除后回 R-E4 |
 | OppositeVehicleTakingPriority | R-E1, R-E4, R-E5, U-E7 | 确有 12 条有效灯态 route；有灯 route 锁 R4，无灯 route 锁 R5，禁止互切；不是 U-E6；进入侧 `junction_pre_m=75` |
 | ParkedObstacle | R-E1, R-E2, R-E4, R-E5, U-E2 | 静态停放障碍绕行；U-E2 后恢复 R-E2 起点提前最多 3 帧、终点提前最多 4 帧；灯控 regular 为 R-E4，STOP/无灯 regular 为 R-E5 |
 | ParkedObstacleTwoWays | R-E1, R-E2, R-E4, R-E5, U-E2 | 双向单车道借对向绕障；U-E2 后恢复 R-E2 起点提前最多 3 帧、终点提前最多 4 帧；短路口插缝不打断连续 R-E2 |
@@ -249,7 +249,8 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
   `R-E4/R-E5` 或路口专属 U-E，不能把等红灯/路口排队继续保持为 `U-E2/U-E3`。
   EVENT 后处理末尾强制执行这个候选池约束，防止桥接/单核心规则又把路口帧改回 U-E2/U-E3。
   所以 R4/R5 primary 必须严格：同向障碍/默认/noScenarios 场景只有 meta/bbox 灯态与 strong control context
-  同源时才升 R4；远处/瞬时 `traffic_light` 不能压掉 R1/U-E2。
+  同源时才升 R4；noScenarios 还要检查 bbox 灯的 forward/distance/physical distance/affects_ego/overhead，
+  远处/瞬时 `traffic_light` 不能压掉 R1/U-E2，近 STOP/yield 会优先解释为 R5。
   若需要从过度保守的 R1 恢复 R4，必须走 route 级 `r4_context_recovery`：
   连续灯态/bbox traffic_light 不少于 4 帧，并且有 strong control context、close trigger
   或 bbox junction hint；弱 `near_junction` / 宽 `junction_window` 只能 review。
