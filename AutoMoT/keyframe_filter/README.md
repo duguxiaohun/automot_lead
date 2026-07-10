@@ -200,10 +200,11 @@ EVENT 后处理会按 scenario 家族执行 route 级去抖：
   R4/R5、698 条 route 有相邻 R4/R5 跳变；按新锁复算后两项均为 0。实际重跑高风险大场景
   Accident / AccidentTwoWays / BlockedIntersection / ConstructionObstacle /
   ConstructionObstacleTwoWays 共 1405 条 route / 210072 帧，同样 mixed=0、direct jump=0。
-- OppositeVehicleRunningRedLight 的 U-E6 使用 R4 路口内冲突车/近距离对象/自车响应门控，
-  每 route 保留主冲突 span，并根据自车停车/让行等待保留 UE6 后续上下文，冲突完全解除后回 R-E4。
-  2026-07-10 全量复验 U-E6 从旧 1075 帧扩为 3515 帧，`Town13_1047_5` f128/f145/f155 为
-  `R-E4+U-E6`，f170 回 R-E4。ParkingExit 无有效灯态不输出 R4，
+- OppositeVehicleRunningRedLight 的 U-E6 使用 R4 路口内冲突车/近距离对象/bbox 横穿或对向动态车辆/自车响应门控，
+  每 route 保留主冲突 span；若同 route 有多个横向车辆候选，优先保留导致自车停车/让行等待的 span，
+  再按 bbox 冲突帧数和长度排序，并根据自车等待保留 UE6 后续上下文，冲突完全解除后回 R-E4。
+  2026-07-10 全量复验 U-E6 从上一版 3515 帧扩为 5744 帧，R4 route 完全无 U-E6 从 126 条降到 9 条，
+  1-3 帧短 U-E6 降为 0。ParkingExit 无有效灯态不输出 R4，
   初始驶出 R-E2 在变道完成后按 RGB 复核提前约 5 帧释放，避免驶入正常跟车后仍拖成 R-E2；
   ParkingCutIn U-E3 不再只因进入 cut-in 距离范围而触发，也不因对象仍在近距离内拖尾：
   起点必须有 `brake_cutin`、`vehicle_hazard`、目标变道或横向轨迹证据，进入 R4/R5 overlay 后只有响应仍持续或自车尚未回正才短续。
@@ -213,6 +214,8 @@ EVENT 后处理会按 scenario 家族执行 route 级去抖：
   1-8 帧 R1/R-E1/R-E2 短缝，同步缝合 RS+EVENT；更长普通直行段仍保留 R1/R-E1。
 - PriorityAtJunction 的 route lock 不再把仍在本地灯控/stopline 区内的 R4 错压回 R1；
   2026-07-10 复验 99 route / 9702 帧，R4 从 1333 增到 1362，lock 改动从 68 降到 3。
+  Town13 中 `1105_0` / `1099_0` 这类远处灯框弱、第一段稳定 R4 到 f47 才出现的 route，
+  以稳定 R4 起点为锚点最多前补 4 帧，修正为 f43 进入 R4；锚点早于 f30 的短 route 不做前补，避免起始远灯误触发。
 - RedLightWithoutLeadVehicle 离开灯控区后缩短尾段：trigger 超过约 52m、车辆恢复行驶且无
   本地 junction/control/window 时同步释放为 R1/R-E1；`Town01_Scenario7_16` f165/f170/f172 已回 R1。
 - SignalizedJunctionLeftTurnEnterFlow 的 Town01/Town02 起始弱 R4 过滤：前 30 帧仅远灯/弱 trigger
@@ -458,7 +461,8 @@ U-E6 仅作为 secondary 事件；`ParkingCutIn/StaticCutIn` 不再因普通减�
 2026-07-03 第一轮全帧 RGB 复核回灌后 smoke 结论：43 场景小样本均可生成逐帧标注；
 静态 XODR 模式下 R2/R3 若缺少 opposite/merge 局部拓扑，不再仅凭
 scenario/trigger 窗口压过 R1，而是降为 secondary/review；
-`noScenarios` 已调成只有 meta 有效灯态或 light hazard 时才允许 R4，否则保守 R1；
+`noScenarios` 已调成只有本地有效灯态或 light hazard 且 bbox 灯控距离/朝向/affects_ego 同源时才允许 R4，
+远处单灯框、bbox-only 弱灯和 weak static signal 保守 R1；近 STOP/yield/无灯控制源召回 R5；
 `StaticCutIn` 无 R3 merge/highway 证据时回 R1 中置信；2026-07-06 全量逐帧 RGB 未见稳定独立停车结构，候选已收紧为 R1/R3/R4/R5。
 当前 43 场景 × 10 帧 smoke 分布为
 `R1=192, R2=10, R3=20, R4=128, R5=80`，
@@ -880,6 +884,8 @@ meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；后�
   两侧停车/开门压缩有效通道时可归 R2，停车相关 scenario 在信号灯/无灯路口段仍优先 R4/R5。
 - `default_meta_map` / `noscenario`：默认 R1；ControlLoss、HardBreak、DynamicObjectCrossing、
   HazardAtSideLane 等行为/突发事件本身不改变 RS，只能通过灯态或 junction 证据临时进入 R4。
+  noScenarios 额外要求 bbox traffic_light 是本地有效控制源；若近 STOP/yield 存在则按 R5/R-E5，
+  避免 Town07 农场/乡村直道被远灯框整段抬成 R4。
   本轮跨场景 R4 漏检审计覆盖 43 个 scenario 各 2 条 route：修复前大量 `Accident`、`HazardAtSideLane`、
   `ControlLoss`、`Parking*` 等帧命中 `r4_tl_seen_without_strong_junction_context` 但 primary 仍是 R1；
   修复后剩余 R1+灯控证据主要是 `noScenarios` 弱静态 XODR signal 或短 R4 片段被时序平滑。

@@ -75,11 +75,18 @@ python AutoMoT/keyframe_filter/rs_full_frame_review.py \
 | VehicleOpensDoorTwoWays | 1518 | 旧抽样 R1:731, R4:787 | R4 灯控上下文弱 | 已由全量 RGB 覆盖：候选删除 R1；两侧停车/开门压缩可行驶 lane 时主 RS 为 R2，真实控制源覆盖 R4/R5 |
 | VehicleTurningRoute | 7372 | R1:1291, R4:4539, R5:1542 | projection review 极高 | 转弯路线不决定 RS；控制源分 R4/R5 |
 | VehicleTurningRoutePedestrian | 2036 | R1:377, R4:938, R5:721 | projection review 极高 | 同 VehicleTurningRoute，行人只进 EVENT |
-| noScenarios | 3137 | R1:2434, R4:703 | projection review 高 | 保守 R1；强灯控才 R4 |
+| noScenarios | 147935 | R1:114354, R4:7364, R5:26217 | projection review 高；远灯/弱 XODR 容易误触发 | 保守 R1；R4 需要本地 ego-affecting/overhead/近距离灯控，STOP/yield/无灯控制源召回 R5 |
 
 ## 已同步修改
 
 - `collector.py`
+
+## 2026-07-10 noScenarios RGB/XODR 复核
+
+- `Town07_Rep0_Town07_100_route0_01_10_17_12_08`、`Town07_Rep0_Town07_99_route0_01_09_20_35_46`：RGB 主体是农场/乡村直道，旧规则因远处或 bbox-only traffic_light 过早整段 R4；修复后只在接近真实本地信号灯时给短 R4，其余回 R1。
+- `Town07_Rep0_Town07_51_route0_01_10_21_31_05`：RGB 为 STOP/无灯控制，旧灯控锁会误偏 R4；修复后按 R5/R-E5。
+- `Town15_Rep0_route_000616_route0_01_10_12_04_00`、`Town06_Rep0_route_002205_route0_01_09_16_41_15`：真实大型信号灯路口仍保持 R4，说明新门控没有把有效灯控漏掉。
+- 全量 `annotate-rs --scenario noScenarios --max-frames-per-route 0` 结果：1373 route / 147935 frame，`R1/R4/R5=114354/7364/26217`，旧分布 `111104/11233/25598` 中过宽 R4 主要回收到 R1。
   - `BlockedIntersection` 候选从 R1/R4 改为 R1/R4/R5。
   - 新增 `blocked_intersection` 规则族：R4 需要灯控同源证据；STOP/yield/无灯控制源给 R5。
   - 新增 `blocked_r4_without_meta_tl_requires_rgb_confirmation` review reason。
@@ -137,9 +144,10 @@ python AutoMoT/keyframe_filter/rs_full_frame_review.py \
   698 条 route 有相邻 R4/R5 跳变；按新 route-level 控制源锁复算后 mixed=0、direct=0。
   实际重跑 Accident、AccidentTwoWays、BlockedIntersection、ConstructionObstacle、
   ConstructionObstacleTwoWays 共 1405 route / 210072 frame，mixed=0、direct=0。
-- OppositeVehicleRunningRedLight U-E6 二次修正：不只看违规车瞬间，也看自车停车/让行等待与轨迹响应。
-  2026-07-10 全量 287 route / 28165 帧中，U-E6 从旧 1075 扩为 3515 帧；
-  `Town13_1047_5` f128/f145/f155 均为 `R-E4 + U-E6`，冲突解除后的 f170 回 R-E4。
+- OppositeVehicleRunningRedLight U-E6 二次修正：不只看 meta `vehicle_hazard` 和违规车瞬间，
+  也看 bbox/RGB 横穿或对向动态车辆、自车停车/让行等待与轨迹响应。
+  2026-07-10 全量 287 route / 28165 帧中，U-E6 从上一版 3515 扩为 5744 帧；
+  R4 route 完全无 U-E6 从 126 条降到 9 条，1-3 帧短 U-E6 降为 0。
 - PriorityAtJunction route lock 保护本地灯控/stopline：99 route / 9702 帧，R4 从 1333 增到 1362，
   route lock 改动从 68 降到 3，`Town12_4022_0` f18-f45 保持 R4/R-E4，f60 回 R1/R-E1。
 - RedLightWithoutLeadVehicle 出口尾段收紧：355 route / 48310 帧，R1/R4=4021/44289；

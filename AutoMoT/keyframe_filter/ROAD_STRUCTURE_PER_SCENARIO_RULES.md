@@ -797,10 +797,12 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 - 已确定口径：对向车闯红灯是 R4 下的突发事件，不是 R5；信号规则仍有效。
 - 分段逻辑：受控路口/红绿灯窗口 R4；窗口外 R1；违规对象进入 EVENT。
 - 证据需求：meta traffic_light_state、XODR signal/controller、XML trigger、RGB 对向车与灯态。
-- EVENT 边界：U-E6 由冲突车辆、近距离对象和 ego 停车/让行响应共同触发；允许主冲突前约 6 帧、
-  冲突后最多约 32 帧等待上下文，冲突解除后回 R-E4。
-- 2026-07-10 复验：287 route / 28165 帧中，U-E6 从旧 1075 帧扩为 3515 帧；
-  `Town13_Rep0_1047_5` 的 f128/f145/f155 均为 `R-E4+U-E6`，f170 回 R-E4。
+- EVENT 边界：U-E6 由冲突车辆、近距离对象、bbox/RGB 横穿或对向动态车辆、ego 停车/让行响应共同触发；
+  允许主冲突前约 6 帧、冲突后最多约 32 帧等待上下文，冲突解除后回 R-E4。
+  多段横向车候选时先选导致 ego 停车/等待的 span，再比较 bbox 冲突帧数、span 长度和最近对象距离；
+  `Town05_Scenario8_123` 这类自车已进路口后停车的 case 应保留早期等待段，而不是后续正常通行时更长的横向车段。
+- 2026-07-10 复验：287 route / 28165 帧中，U-E6 从上一版 3515 帧扩为 5744 帧；
+  R4 route 完全无 U-E6 从 126 条降到 9 条，1-3 帧短 U-E6 降为 0，超过 80 帧的长段仅剩 2 条且 RGB 为持续横向冲突车流。
 - 待完善点：若灯态缺失但场景名强提示，最多 R4 medium + review。
 
 ### OppositeVehicleTakingPriority
@@ -883,12 +885,15 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 ### PriorityAtJunction
 
 - 候选 RS：R1, R4, R5。
-- 已确定口径：当前 runtime 候选收敛为 R1/R4，重点修复“已经在本地灯控/stopline 区内却被 route lock
+- 已确定口径：当前 runtime 候选保持 R1/R4/R5，重点修复“已经在本地灯控/stopline 区内却被 route lock
   错压成 R1”的问题；不能按 Town12/13 自动高速。
-- 分段逻辑：traffic light / stopline / controller 与 junction 同源时给 R4；窗口外 R1。
+- 分段逻辑：traffic light / stopline / controller 与 junction 同源时给 R4；无灯/让行控制源给 R5；窗口外 R1。
 - 证据需求：XODR priority/yield/sign/junction/signal、XML trigger、meta active scenario/light、RGB 横向车流与灯控硬件。
 - 2026-07-10 复验：99 route / 9702 帧，route lock 改动从旧 68 帧降到 3 帧，R4 从
   1333 帧增到 1362 帧；`Town12_Rep0_4022_0` 的 f18/f20/f25/f35/f45 保持 R4/R-E4，f60 回 R1/R-E1。
+- 2026-07-10 Town13 晚触发回灌：`Town13_Rep0_1105_0` 与 `Town13_Rep0_1099_0` RGB 在 f43-f44 已明显接近灯控路口，
+  旧规则到 f47 才 R4；route lock 现在以第一段稳定 R4 为锚点，在锚点 >= f30 时最多前补 4 帧，
+  两条均变为 `R1 f0-42 -> R4 f43-69 -> R1 tail`，且 Town13 全量未产生短 R4 小岛。
 - 待完善点：低能见度时要显式区分 priority sign 与 traffic light controller 的冲突。
 
 ### RedLightWithoutLeadVehicle
@@ -1025,11 +1030,14 @@ review 增加主要来自图像优先复核后新增的投影/静态拓扑降级
 
 ### noScenarios
 
-- 候选 RS：R1, R4, R5。
-- 已确定口径：没有 scenario 事件先验时保守 R1；稳定灯态 + bbox traffic_light + junction window 可召回 R4；STOP/无灯控制证据可召回 R5。
-- 分段逻辑：普通路段 R1；正常灯控路口 R4；STOP/yield/无灯路口 R5；不从弱 XODR hint 自动产生 R2/R3。
-- 证据需求：R4 需要 meta traffic_light_state 与 bbox traffic_light 同时稳定，并处于 junction window；R5 需要 STOP/yield/meta junction 或可信 XODR 近路口证据；弱灯态或弱 topology 只进 evidence/review。
+- 候选 RS：R1, R3, R4, R5。
+- 已确定口径：没有 scenario 事件先验时保守 R1；R4 只接受本地受控灯控证据，不能由远处/单个 bbox 灯框或弱 XODR signal 把直道整段抬成路口；STOP/yield/无灯控制证据可召回 R5，并会压制同帧弱灯控提示。
+- 分段逻辑：普通路段 R1；正常灯控路口 R4；STOP/yield/无灯路口 R5；可信 XODR ramp/merge/split 或人工 RGB highway bucket 才允许 R3；不从弱 XODR hint、Town 名、普通宽路或 route 名自动产生 R2/R3。
+- 证据需求：R4 需要有效灯态/light hazard 与本地距离证据同源：overhead light、affects_ego 且 forward/distance 足够近、近 physical traffic light，或近 junction 内的连续灯控；R5 需要 STOP/yield/meta junction 或可信 XODR 近路口证据。bbox semantic metrics 必须写入 evidence，包含 traffic light count/min distance/forward x/physical distance/affects_ego/same_lane/overhead 以及 STOP/YIELD 最近距离；弱灯态或弱 topology 只进 evidence/review。
 - RGB 回灌：2026-07-05 三场景回归中，开放 R5 后 `blind_R5_label_R1` 从 18879 帧降到 3453 帧；再加入 `r4_noscenario_stable_tl_bbox_approach` 后，`blind_R4_label_R1` 从 759 降到 315，R4 过标仅从 12 增到 21。`Town07_Rep0_route_000276...` 人工 RGB 显示 32-176 帧为稳定灯控路口，旧 strong context 过严仅标 183-188，修复后召回为连续 R4。
+- 2026-07-10 noScenarios 专项 RGB/XODR 复核：`Town07_Rep0_Town07_100...` 与 `Town07_Rep0_Town07_99...` 大部分 RGB 是农场/乡村直道，旧规则因单个远处 traffic_light/bbox 弱提示几乎整段 R4，修复后分别为 `R1 0-189 -> R4 190-212 -> R1 213-223`、`R1 0-187 -> R4 188-207`；`Town07_Rep0_Town07_51...` STOP/无灯控制全段改为 R5；`Town15_Rep0_route_000616...` 与 `Town06_Rep0_route_002205...` 的真实灯控路口仍保持 R4。
+- 2026-07-10 RE2/R3 专项验证：noScenarios XML 通过 route 几何精确匹配可关联到既有具体 scenario 的只有 96 条，且均为 `VehicleTurningRoute`，不能靠“原场景名”批量恢复高速/合流 R3；抽查 Town15/Town06 RGB 多为普通城市/乡村宽路或路口，不应按 Town 自动升 R3。全量直接标注 1436 route，R-E2 从候选缺失修复为 13850 帧，R1/R4/R5=122686/7617/26549，R3 仍为 0，表示当前未发现可信 ramp/merge/split 证据；后续若逐帧 RGB 确认具体 noScenarios route 是匝道/合流，应写入人工 highway bucket 或补充几何匹配表。
+- 旧版全量验证：`annotate-rs --scenario noScenarios --max-frames-per-route 0` 得到 1373 route / 147935 frame，`R1/R4/R5=114354/7364/26217`；相对旧分布 `111104/11233/25598`，主要把过宽 R4 收回 R1，同时保留 STOP/yield R5。
 - 待完善点：blind audit 在雾天/弯道/横向车流上仍会产生 R5 误报；collector 不应仅因 blind R5 就放大 R5，必须继续要求控制源同源证据。
 
 ## 4.1 2026-07-05 全量 RGB 审计回灌
