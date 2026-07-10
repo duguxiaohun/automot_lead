@@ -294,10 +294,24 @@ CrossJunctionDefectTrafficLight 仍归 R4，因为 RGB/XODR 中存在红绿灯�
 R3 是高速/匝道/合流道路结构，不等于机械全程 R-E3。R3 内的主线普通跟车、车道保持、速度匹配和
 HighwayCutIn 背景默认仍是 R-E1；只有局部 route 中心线偏离并伴随 `changed_route` / signed lane-change
 等组合证据时才切 R-E2。`lane_change_str` 和 `signed_dist_to_lane_change` 都只是先验/距离线索，不能单独触发
-R-E2。EnterActorFlow* / MergerIntoSlowTraffic* 的匝道进入、actor-flow approach、准备汇入段保持 R-E3，
+R-E2。EnterActorFlow* 允许距离 actor-flow/merge 起点较远的普通直道保持 R1/R-E1，
+靠近 `actor_flow_distance<=40m` 或近 trigger 局部窗口后再进入 R3/R-E3；R-E3 回填上限约 36 帧，
+且在真实变道前至少保留约 16 帧准备汇入段。EnterActorFlow* / MergerIntoSlowTraffic* 的匝道进入、
+actor-flow approach、准备汇入段保持 R-E3，
 真实变道阶段直接切 R-E2，不允许出现 `R-E3 -> R-E1 -> R-E2` 的断裂。HighwayExit 出口前仍在主线内正常
 跟车时可 R-E1；从出口目标变道/分流进入驶出匝道后保持 `R-E2 -> R-E3`，匝道驶出段不再回落 R-E1。
 merge/exit 完成且 RGB/route 显示已经回到主线正常跟车后，才释放回 R-E1。
+EnterActorFlow* 的 R-E2 还会围绕已有 R-E2 核心做 route 级轨迹补全：只要前后帧仍在 R1/R3、
+存在 `changed_route`，且 `signed_dist_to_lane_change` 沿目标车道变道轨迹连续收敛/越线，即使
+`route_lateral_abs` 峰值只出现在一两帧或 actor-flow 距离已拉开，也补入同一段 R-E2；没有
+已有核心的普通跟车段不硬造 R-E2。MergerIntoSlowTraffic* 参考 HighwayCutIn/HighwayExit：
+起始/中间普通主线跟车保持 R-E1，禁用 trigger-only 圆窗直接制造 R-E3，靠近 merge/actor-flow
+才切 R-E3；已有 R-E2 核心按轨迹
+前后各最多补 5 帧，R-E2 后若 actor-flow/merge 近邻仍在约 35m 内，则最多 64 帧 tail
+保持 R-E3，并允许 8 帧以内短空窗桥接，防止驶出/分离汇入段误回 R-E1；3 帧以内夹在
+R-E1 中的孤立 R-E3 小岛平滑回 R-E1。HighwayCutIn 的已有
+R-E2 核心同样按轨迹支撑扩边，最多前补 3 帧、后补 4 帧，补足自车 cut-in/避让换道的进入与回正尾段；
+`changed_route/signed_dist_to_lane_change` 轨迹的 route 不能凭场景名硬造 R-E2。
 
 HighwayCutIn 当前不默认视为 U-E3；它多是自车在主路保持/减速跟车或少量 R-E2 目标导向变道。
 只有后续 RGB/轨迹复核确认“他车突然进入自车未来路径并迫使避让”时，才单独回灌 U-E3。
@@ -425,6 +439,10 @@ U-E4 必须分场景做时序分型，不能共用一个“路口 trigger 起点
   自车前向路径到让行/恢复的短 span；通过后即回 R-E1，不随之后可能出现的路口持续。
 - `CrossingBicycleFlow`：通常是信号灯路口自行车横穿，可允许 `R-E4 + U-E4`，但 U-E4
   起点必须晚于自行车进入可见/可交互范围，不能从路口 approach 全程开始。
+  该场景是持续 bicycle flow，不是单个瞬时行人点；逐帧 RGB 复核 `Town12 route2385_{0,1,2,3}`
+  后，允许 `dist_to_biker` 因遮挡/夜间/横穿队列短丢失时合并 14 帧以内内部 gap，
+  且主 span 内不再保留单帧 `R-E4/R-E1` 空洞。修正后 2385 四条 route 分别为
+  f21-f49、f22-f52、f22-f56、f26-f63 的连续 U-E4。
 - `VehicleTurningRoute` / `VehicleTurningRoutePedestrian`：横穿多发生在自车已转弯或驶出路口过程中。
   U-E4 不能在转弯前过早触发；应等 RGB/轨迹显示对象将进入转弯后路径、或 meta 距离进入危险阈值。
   2026-07-08 VehicleTurningRoute 逐帧 RGB smoke 显示 `dist_to_biker ~= 20-22m` 往往只是远端骑行者或远端路口，
@@ -434,6 +452,9 @@ U-E4 必须分场景做时序分型，不能共用一个“路口 trigger 起点
   若不超过 16 帧且两侧各至少 8 帧、gap 内仍有本地路口/stop-yield 证据，则回填为同类路口 RS；
   这用于修复 `Town12_1754` 的 STOP 路口内 R5-R1-R5 抖动，不扩大整体十字路口窗口。
 - `PedestrianCrossing`：按 RGB/灯态分成 R4 或 R5；U-E4 只覆盖行人实际需要让行的交互 span。
+  2026-07-10 RGB 复核后入口侧略收紧、退出侧延迟，`Town13_1106_0` 这类
+  `R4/R-E4 -> 1-3 帧 R1/R-E1/U-E4 -> R4/U-E4` 短跳要同步缝合 RS 与 EVENT；
+  但 `Town13_1239_*` 这类 16-20 帧普通直行段不按短缝强行并入路口。
 - `DynamicObjectCrossing`：若 `dist_to_pedestrian` / pedestrian-bike 类 hazard 显示行人、骑行者或小动态对象横穿，
   可开放 U-E4；2026-07-05 子集审计中恢复 U-E3/U-E4 后，
   `event_regular_during_rgb_object_or_motion_activity` 从 2363 降到 2030 帧。
@@ -442,6 +463,8 @@ U-E4 必须分场景做时序分型，不能共用一个“路口 trigger 起点
   和 `event_crossing_distance` 共同支撑；证据带内部短 regular gap 合并回 U-E4，证据带外的零碎
   U-E4 释放回当前 RS regular。R4/R5 内仍可输出 `R-E4/R-E5 + U-E4` 双事件，
   但 primary_event 保持 U-E4，避免 `U-E4 -> R-E4 -> U-E4` 假断裂。
+  通用内部 gap 上限为 10 帧；`CrossingBicycleFlow` 单独放宽到 14 帧，因为 RGB 中常见连续自行车流
+  被车辆/路口视角遮挡，meta 距离会短暂空缺。
 
 这些分型结论必须写入 per-scenario 调研记录或后续规则配置。RGB 未复核前，行人/自行车边界帧保持 review。
 
@@ -501,6 +524,8 @@ BlockedIntersection 需要区分三类停车原因：
 - 前车突然刹停导致自车急减速：短 span 输出 U-E1。
 - 前方路口空间被堵住且一段时间后解除：核心等待/解除 span 输出 U-E8；若仍在信号灯路口规则空间，
   可输出 `R-E4 + U-E8`，但不能让整条 route 都双触发。
+  触发空间比普通 near-trigger 略宽：BlockedIntersection 专用阻塞 near-trigger 为约 52m，
+  低速等待阈值为 `speed <= 0.9m/s + brake`，用于稍早覆盖阻塞等待/解除边界。
 
 若 BlockedIntersection 前段已有连续稳定 R4 灯控证据，后段仍在同一 junction/blocked context 内但
 `traffic_light_state` / bbox traffic_light 因进入或离开路口而丢失，且没有 STOP/yield/priority
@@ -528,6 +553,15 @@ BlockedIntersection 需要区分三类停车原因：
 - CrossJunctionDefectTrafficLight：RS=R4，regular 为 R-E4，有效 span 叠 U-E7。
 - 独立停车类常规事件已删除；停车区域正常跟车为 R-E1，自车从停车侧/路边并入主路为 R-E2。
 
+R4/R5 控制源必须 route 级一致：同一条 route 不允许出现 `R4 -> R5` 或 `R5 -> R4`
+互跳。若同时出现 R4/R5，先按有效 `traffic_light_state` 或连续可见红绿灯判定整条 route 的路口控制源；
+有灯锁 R4，无灯锁 R5。该锁只同步 regular event（R4->R-E4、R5->R-E5），原本存在的
+U-E4/U-E6/U-E7/U-E8 等非常规事件继续作为同帧叠加事件保留，不重新触发或删除 U-E。
+2026-07-09 全量历史结果复算覆盖 24 个同时允许 R4/R5 的场景：旧结果 mixed route=759、
+direct R4/R5 jump route=698；按该锁复算后 mixed=0、direct=0。实际重跑高风险大场景
+Accident / AccidentTwoWays / BlockedIntersection / ConstructionObstacle /
+ConstructionObstacleTwoWays 共 1405 route / 210072 frame，mixed=0、direct=0。
+
 当前可执行实现位于 `collector.py::RoadEventRuleEngine`，输出 `events`、
 `primary_event`、`event_evidence`、`frame_event_annotation`。实现补充口径：
 
@@ -547,6 +581,16 @@ BlockedIntersection 需要区分三类停车原因：
   路口控制源，也不单独触发 U-E3/U-E4/U-E5/U-E6/U-E7/U-E8。
   全局 route 后处理还会把夹在同一个常规 R-E1/R-E3/R-E4/R-E5 前后之间、长度不超过
   2 帧的孤立 R-E2 平滑回常规事件；ParkingExit/StaticCutIn 这类持续多帧并入/修正不会被该规则压掉。
+- 路口常规事件短缝：如果 `R-E4 -> 短 R-E1/R-E2 -> R-E4` 或
+  `R-E5 -> 短 R-E1/R-E2 -> R-E5`，且中间 regular gap 不超过 12 帧，则认为是
+  XODR/meta/RS 平滑边界抖动，直接合并回前后相同的路口事件。该规则只保留同一种
+  junction regular event，不跨 `R-E4/R-E5` 互转。2026-07-10 验证
+  `NonSignalizedJunctionLeftTurnEnterFlow + NonSignalizedJunctionRightTurn`
+  268 条 route / 24005 帧后，剩余同类短缝为 0。
+  `VehicleTurningRoutePedestrian` 另有最终输出兜底：若稳定同类 R4/R5 段中间只夹
+  6 帧以内 `R-E1/R-E2`，必须同步回填 EVENT 与 RS。2026-07-10 全量 91 route /
+  20399 帧复验，`vehicle_turning_junction_gap_recovery` 修正 22 帧、temporal smoothing
+  修正 6 帧，最终 EVENT/RS 同类短缝残留均为 0。
 - 障碍 / TwoWays / 开门 / Hazard 类：U-E2 只在障碍距离、对象减速距离、door/open 或 TwoWays
   core evidence 命中时触发；仅由 route 开头 XML trigger + `speed_reduced_by_obj_distance`
   触发、且短窗口内没有具体障碍距离/变道轨迹的初始 U-E2 会压回常规事件。
@@ -554,7 +598,7 @@ BlockedIntersection 需要区分三类停车原因：
   必须由 `changed_route`、负向 `signed_dist_to_lane_change <= -0.45m` 或 ego-frame route
   局部中心线收敛趋势支持，代表回原/目标车道。R-E2 到达 `1.10 * route_center_tolerance`
   且未来 2 帧稳定、无 signed lane-change active 后回当前道路常规事件，退出侧比旧规则略提前。
-  对非 TwoWays 的 Accident / ConstructionObstacle / ParkedObstacle / HazardAtSideLane，
+  对非 TwoWays 的 Accident / ConstructionObstacle / ParkedObstacle，
   “静态障碍仍在 21.5m 内所以延迟恢复”的保护只能阻止无证据的早期 R-E2；若该帧已有
   `_lane_change_re2_supported`、回正趋势或已回到中心线附近，则不能再把 R-E2 压回 U-E2，
   避免 RGB 上已经绕过并开始/完成回正时仍长时间停留在 U-E2。
@@ -597,7 +641,7 @@ BlockedIntersection 需要区分三类停车原因：
   如果 `AccidentTwoWays` 的 R2 核心与 R4/R5 路口控制区重叠，ROAD_STRUCTURE 可以仍以
   R4/R5 为 primary，但 EVENT 不能被候选池强制改成 R-E4/R-E5；R2 overlay 下 U-E2/R-E2
   优先，表示借对向绕障 / 回目标车道的安全关键事件。
-  同向静态障碍（Accident / ConstructionObstacle / ParkedObstacle / HazardAtSideLane）的
+  同向静态障碍（Accident / ConstructionObstacle / ParkedObstacle）的
   `U-E2 -> R-E2` 恢复链若被 R4/R5 截断，也要使用 interrupted overlay：障碍核心旁保持
   `R-E4/R-E5 + U-E2`，过核心后切 `R-E4/R-E5 + R-E2`；若 R4/R5 接管首帧恢复证据不足，
   最终 candidate clamp 还需在最近 8 帧 U-E2/U-E3 source 与当前回正/回车道证据同时成立时补回
@@ -642,20 +686,26 @@ BlockedIntersection 需要区分三类停车原因：
   2026-07-05 RGB 复核发现该类会经过 STOP/无灯路口，因此候选池加入 R5/R-E5；
   子集审计 `blind_R5_label_R1` 从 1001 降到 104 帧。剩余 top case 多为雾天远处灯点/路面线导致 blind 过宽，
   不继续靠单帧 stopline/turn-marking hint 扩大 R5。
-- `ParkingCutIn` / `StaticCutIn`：U-E3 必须有 cut-in 距离、`brake_cutin` 或
-  `vehicle_hazard`，不能仅凭普通急减速触发。进入 R-E2 目标/恢复变道后，4 帧以内
+- `ParkingCutIn` / `StaticCutIn`：U-E3 必须有 cut-in 距离与动态证据；
+  `ParkingCutIn` 还必须同时命中 `brake_cutin`、`vehicle_hazard`、目标变道或横向轨迹之一，
+  不能仅凭进入距离范围或普通急减速触发。进入 R-E2 目标/恢复变道后，4 帧以内
   的 U-E3 反跳，或中间只夹 1-2 帧常规事件再跳 U-E3，视作 cut-in 证据抖动并合入 R-E2。
   U-E3 同样不进入 R4/R5 候选池；路口等待/起步阶段不能继续保持 U-E3。
   同一 route 内若出现多个 U-E3 span，也必须保留 cut-in 证据最强的 span：优先看
   `dist_to_cutin_vehicle`、`brake_cutin`、`vehicle_hazard` 和对象是否进入自车未来路径，
   普通跟车减速、红灯等待或无对象支撑的短扰动不能抢占真正动态占道核心。
-  经过 cut-in 最近点后若距离回升且无持续强响应，后段不再保持 U-E3；cut-in active 保持距离收为约 28m，若仍有自车回正/目标变道，
-  只转短 R-E2，否则释放为 regular event。
+  经过 cut-in 最近点后若距离回升且无持续强响应，后段不再保持 U-E3；
+  `ParkingCutIn` 的 R4/R5 overlay 不再接受 distance-only 续尾，只有响应仍持续或自车尚未回正时短续，否则释放为 regular event。
   如果 U-E3 后面马上进入 R-E2，中间 4 帧以内的短 R-E1 同样并入 R-E2。
-- `InvadingTurn`：U-E5 必须有对向车辆 hazard 或近距离对象证据，不能仅凭自车减速触发；
-  同一对向侵占过程内 5 帧以内的短断点会被合并。
+- `InvadingTurn`：U-E5 按 RGB 可见锥桶/对向通道占用长度保持。初始核心仍优先看 R2 对向侵占规则
+  与本地轨迹响应；final pass 会把连续 `passive_oncoming_invasion`、trigger>=35m，且有 R2 或
+  R1 响应证据的长 cluster 标为 U-E5，单段最多补 48 帧，避免锥桶仍可见时过早退回 R-E1。
+  2026-07-10 全量验证为 U-E5=4744 帧，所有含 R2 的有效 route 均不再缺 U-E5。
 - `OppositeVehicleRunningRedLight`：U-E6 必须在 R4 路口窗口内由冲突车辆、近距离对象或
-  ego 让行响应触发；同一冲突车过程内 5 帧以内的短断点会被合并。
+  ego 停车/让行响应触发；同一冲突车过程内短断点会被合并，并在主冲突段前保留约 6 帧、
+  后保留最多约 32 帧等待/驶离上下文。2026-07-10 全量验证从旧 U-E6=1075 扩为
+  U-E6=3515 帧；`Town13_1047_5` 中 f128/f145/f155 均为 `R-E4+U-E6`，
+  冲突解除后的 f170 回 R-E4，不再无限拖尾。
 - `CrossJunctionDefectTrafficLight`：U-E7 是主事件；有冲突车辆时 U-E6 作为同帧 secondary
   `events` 保留，避免 U-E7/U-E6 primary 来回切换。
 - 行人/自行车：`ParkingCrossingPedestrian` 可在进入路口前由近距离行人/刹车触发；
@@ -877,6 +927,9 @@ Web 验收页面必须展示三层信息：
 EnterActorFlow* / MergerIntoSlowTraffic* 改为准备汇入段保持 R-E3、真实变道切 R-E2，
 HighwayExit 改为出口变道/驶出后保持 R-E2/R-E3，不能把匝道驶出段回落 R-E1。TwoWays 场景删除 R1 后，`AccidentTwoWays` 为 R2 80.8%，EVENT 同时保留
 U-E2 29.0% 与 R-E2 17.4%，没有被 R4/R5 regular 全部吞掉。
+2026-07-09 又对 EnterActorFlow* 全量回归 123 条 route / 13490 帧：`R1=3866, R3=9624`，
+EVENT 为 `R-E1=6214, R-E2=1613, R-E3=5663`；R-E2 连续段最短长度 EnterActorFlow=7 帧、
+EnterActorFlowV2=11 帧，1-3 帧短碎片为 0。
 旧 R6 删除后的停车/开门/停放障碍高风险场景审计见
 `ROAD_EVENT_NO_R6_RGB_AUDIT_20260706.md`：7 个场景、895 条可标注 route、106471 帧，
 runtime 枚举、候选池和本轮输出中均无 R6 类别，RS 候选越界 0，当前 RS allowed events 越界 0。
@@ -957,9 +1010,43 @@ R4/R5 > R3 > R2 > R1
   但 EVENT 不能把 `primary_rs=R3` 机械同步成全程 R-E3；R3 regular event 必须再按
   主线正常跟车、匝道/merge/exit approach、`signed_dist_to_lane_change`、局部 route 中心线与 meta
   lane-change 证据拆成 R-E1/R-E2/R-E3。
-- 障碍族：Accident / ConstructionObstacle / ParkedObstacle / HazardAtSideLane 及 TwoWays 版本、
+- 障碍族：Accident / ConstructionObstacle / ParkedObstacle 及 TwoWays 版本、
   VehicleOpensDoorTwoWays 都可在 route 前后真实 STOP/无灯路口输出 R5/R-E5；但障碍核心仍按
   U-E2/R2/R-E2 处理，不能因开了 R5 候选就把核心绕障改成路口 regular。
+- `HazardAtSideLane*` 不再按静态障碍族处理：XML 的 `bicycle_drive_distance/bicycle_speed`
+  与逐帧 RGB 均确认核心为自行车/行人从侧边进入或横穿自车路径。`dist_to_biker<=30m`
+  的可交互段输出连续 U-E4；对象离开后仍存在回目标车道轨迹时才切 R-E2。
+  TwoWays 版本的 R2 只表示有效可行驶对向单车道路结构，不会把 U-E4 改成 U-E2。
+  2026-07-09 全量回归 182 条 route / 34117 帧后，EVENT 为
+  2026-07-09 overlay 与初始伪路口修复后为
+  `R-E1=17460, R-E2=1423, R-E4=7100, R-E5=1075, U-E4=7059`，U-E2=0；
+  HazardAtSideLane 的 U-E4 连续段最短 14 帧，TwoWays 最短 28 帧，均无多段碎片。
+  若 U-E4 结束后 8 帧内出现 `target_lane_change_active`、`changed_route` 或
+  `route_lateral_abs` 横向回正证据，必须从 U-E4 后第一帧直接接 R-E2，不能夹
+  `R-E1`；若此时 R4/R5 接管，继续输出 `R-E4/R-E5 + R-E2` interrupted overlay，
+  不能直接退成路口 regular。非 TwoWays 前 30 帧仅 bbox-only STOP、close-trigger
+  或 untrusted XODR 的弱路口 hint 必须回 R1；TwoWays 版本同类弱 STOP 回 R2。
+  HazardAtSideLaneTwoWays 前 30 帧只有 bbox STOP、没有真实 junction/control 时保持 R2。
+  17 条 `Town13 route30_*` 未触发 scenario，meta/RGB 均无自行车，因此保持普通事件。
+- `VehicleOpensDoorTwoWays` 紧接 U-E2 的恢复 R-E2 起点最多提前 3 帧、终点最多提前 4 帧；
+  只平移恢复 span，不处理前面的独立变道碎片。
+- 单一路口控制源锁：T_Junction、PedestrianCrossing、PriorityAtJunction、
+  OppositeVehicleTakingPriority 每条 route 的 junction core 只能选 R4 或 R5，依据是否存在有效
+  meta 灯态决定；远离 trigger 且高速贴中心线的前后直行段恢复 R1。
+- OppositeVehicleRunningRedLight 的 U-E6 必须在 R4 路口窗口内由冲突车辆、近距离对象或
+  ego 停车/让行响应触发；每 route 保留最强连续 span 并补等待上下文，输出为 `R-E4 + U-E6` 叠加。
+- RedLightWithoutLeadVehicle 离开灯控区后要释放为 R1/R-E1：trigger 距离超过约 52m、
+  自车已恢复行驶且没有本地 junction/strong-control/window 时，不能继续拖 R4/R-E4。
+- SignalizedJunctionLeftTurnEnterFlow 的 Town01/Town02 起始直道若只是远灯/弱 trigger，
+  且前 30 帧内没有本地 junction core，则回 R1/R-E1；真实靠近路口后仍恢复 R4/R-E4。
+- T_Junction 退出侧可比通用 signalized 稍长，避免 RGB 仍在 T 路口内时过早回 R1；
+  但控制源仍由有效灯态/STOP/yield 决定，不能借此制造 R4/R5 互跳。
+- ParkingExit 无有效灯态时禁止弱 bbox/static hint 生成 R4；R-E2 持续到变道和回正完成。
+  2026-07-10 RGB 复核后，初始驶出 R-E2 收尾在当前基础上提前约 5 帧释放为常规事件。
+  ParkingCutIn 的 U-E3 起点必须有近距离 cut-in + 动态响应/横向证据；进入 R4/R5 后不再按对象仍近拖尾，
+  只在制动/风险响应仍持续或自车未回正时短续。
+- ParkedObstacle / ParkedObstacleTwoWays 与 VehicleOpensDoorTwoWays 使用同一恢复边界：
+  R-E2 起点提前最多 3 帧、终点提前最多 4 帧。
 - `roundabout`：XODR 若显示局部为 roundabout，则 R4/R5 junction 分支全部失效，primary 回 R1；
   页面必须展示 `map_is_roundabout=true`，用于区分环岛和十字/丁字路口。若静态 XODR 未显式标
   roundabout，但局部是多连接 junction、几何明显弯曲且最近 signal 不近，也按
@@ -1021,15 +1108,22 @@ R4/R5 > R3 > R2 > R1
   route 级 `twoways_core_span_clipping` 只裁掉无对向单车道拓扑支撑的事件型 R2 后段；若同一条 TwoWays route
   出现多个这类 R2 片段，`twoways_longest_r2_filter` 只保留最长连续事件型 R2 核心段，其它短扰动按控制源回 R2/R4/R5。
   旧参考边界中 `R1 -> R2 -> R1` 的 TwoWays 直道已作废；非路口应保持 R2，只有同源路口/灯控证据才切 R4/R5。
-- `highway_merge`：`EnterActorFlow*`、`HighwayExit`、`MergerIntoSlowTrafficV2`
+- `highway_merge`：`HighwayExit`、`MergerIntoSlowTrafficV2`
   已由全量逐帧 RGB 确认是稳定无灯控高速/快速路背景，候选池删除 R1/R4；非路口段默认 R3。
+  `EnterActorFlow*` 保留 R1/R3：远离 actor-flow/merge 起点的直道可为 R1，靠近汇入控制区后才切 R3。
   `HighwayCutIn` 与 `MergerIntoSlowTraffic` 删除 R1 但保留少量 R4 子集；R4 只能由逐帧
   RGB/meta/bbox 灯控同源证据触发，merge/exit/actor-flow 窗口只提高 R3 置信度。
   R3 下 EVENT 二次判定：HighwayCutIn 默认 R-E1，只有显式 `changed_route` 或有限
   route 中心线偏离 + lane-change 组合证据才 R-E2；EnterActorFlow* / MergerIntoSlowTraffic*
   用 trigger、actor-flow、ramp/merge hint 与 route 级 postprocess 保持准备汇入段 R-E3，
-  若随后出现真实目标变道则直接切 R-E2；HighwayExit 不用 trigger-only 圆窗，出口前主线正常跟车为 R-E1，
-  从出口变道/分流/`next_commands[0]==3` 起进入 `R-E2 -> R-E3`，驶出匝道段保持 R-E3。
+  EnterActorFlow* 的 R-E3 回填上限约 36 帧、最小准备汇入段约 16 帧，
+  若随后出现真实目标变道则直接切 R-E2，并按 `changed_route + signed_dist_to_lane_change`
+  对已有 R-E2 核心前后补完整变道轨迹，避免只标横向峰值一两帧；MergerIntoSlowTraffic*
+  的 R-E2 核心按轨迹前后各最多补 5 帧，R-E2 后仍在 actor-flow/merge 近邻的 tail 保持 R-E3，
+  但最多 64 帧且仅桥接 8 帧以内短空窗；trigger-only 圆窗不再单独制造 Merger R-E3，
+  3 帧以内夹在 R-E1 中的孤立 R-E3 小岛平滑回 R-E1。HighwayExit 不用 trigger-only 圆窗，出口前主线正常跟车为 R-E1；
+  在原有后补 4 帧基础上继续前补 2 帧、后补 2 帧，累计为前补最多 2 帧、后补最多 6 帧后再进入 R-E3；
+  从分流/`next_commands[0]==3` 进入驶出匝道后保持 R-E3。
   这层逻辑只改 EVENT，不改变 ROAD_STRUCTURE=R3 的道路空间判断。
 - 混合场景 route 分桶：`HardBreakRoute`、`InterurbanActorFlow`、`InterurbanAdvancedActorFlow`、
   `StaticCutIn`、`ParkingCutIn` 不能只按 scenario 或 Town12/13 判 RS。必须先用 RGB sheet
@@ -1039,14 +1133,21 @@ R4/R5 > R3 > R2 > R1
   ParkingCutIn 99 个未发现高速桶。`Town12_Rep0_258_0_route0_01_08_09_35_42`
   这类乡村普通路必须保持 R1；精确高速 id 清单以 `collector.py` 的
   `MIXED_SCENARIO_HIGHWAY_ROUTE_IDS` 为准。
-- `interurban`：`InterurbanActorFlow` 保留 R1/R3/R5，已按全量 RGB 删除 R4；Town12/13 是提示但不是充分条件，乡村道路、STOP/priority/junction 仍需按 RGB/XODR 分段。
+- `interurban`：`InterurbanActorFlow` 保留 R1/R3/R5，已按全量 RGB 删除 R4；Town12/13 是提示但不是充分条件，
+  乡村道路、STOP/priority/junction 仍需按 RGB/XODR 分段。`scenario_active + close-trigger`
+  但没有 stop/is_junction/可信局部 XODR 路口证据时保持 R1，不能把开头直道抬成 R5。
 - `blocked_intersection`：`BlockedIntersection` 的阻塞只是 EVENT；RS 由控制源决定。
   灯态/信号灯同源证据成立时进入 R4；STOP/yield/priority/无灯路口证据成立时进入 R5；
   两类控制源都缺失时回 R1 + RGB review。
 - `nonsignalized_junction`：无灯/STOP/yield/priority 路口进入 R5；只有全量 RGB 已确认存在灯控子集的
   `NonSignalizedJunctionRightTurn`、`OppositeVehicleTakingPriority`、`PriorityAtJunction` 才允许有效灯态或强灯控同源证据打开 R4。
   `NonSignalizedJunctionLeftTurn` 与 `NonSignalizedJunctionLeftTurnEnterFlow` 是 strict no-R4，
-  bbox/static signal 弱提示不能覆盖 STOP/yield/无灯控制源。
+  bbox/static signal 弱提示不能覆盖 STOP/yield/无灯控制源。R5 只覆盖局部路口核心；
+  scenario 已退出、meta 非 junction 且超出 route/trigger 局部窗口后必须恢复 R1，不能被残留 stop_hazard
+  或 `map_junction_id=-1` 的静态 XODR hint 锁成全程 R5。
+  `NonSignalizedJunctionRightTurn` 额外使用 `distance_to_intersection_index_ego`（进入前约 45m、驶出后约 5m）、
+  `dist_to_junction<=18m` 与近距离 trigger 作为局部核心门控；远处 `scenario_active`、`traffic.stop`
+  或 meta/bbox 灯控不能单独把起始直道/驶离直道升为 R4/R5。
 - `signalized_junction`：灯态有效、受控 junction 或 controller/traffic light 近邻成立时进入 R4；
   `OppositeVehicleRunningRedLight` 的违规只是 EVENT，不改成 R5。
   若 primary R4 没有有效 `traffic_light_state`，必须写
@@ -1087,6 +1188,8 @@ strong junction 上限 22m，static signal near 上限 35m，close-trigger 上�
 过早吞掉正常接近/跟车阶段，离开路口后也更快回普通道路。
 `BlockedIntersection` 的十字路口窗口在该基础上额外收紧，基准为
 `junction_pre_m=44`、`junction_post_m=18`；阻塞是 EVENT，不应把 R4/R5 范围拖长。
+U-E8 的事件触发范围可比 RS 路口窗口略宽，当前 near-trigger 约 52m，只扩大阻塞事件 span，
+不反向拉长 R4/R5。
 `AccidentTwoWays` 也单独收窄 R4/R5 窗口为 `junction_pre_m=50`、`junction_post_m=20`，
 用于防止绕障/借对向后的普通 R2 片段被宽路口窗口提前覆盖。
 2026-07-08 RGB sheet 复核后，非路口事件场景增加 `junction_tighten_factor`，并同步作用于
@@ -1096,13 +1199,22 @@ strong junction 上限 22m，static signal near 上限 35m，close-trigger 上�
 其余按 RGB 中真实可见路口占比与误报风险分层：
 `StaticCutIn=0.70`，`HazardAtSideLaneTwoWays/ParkedObstacleTwoWays=0.75`，
 `DynamicObjectCrossing=0.65`（约压 35%），`HardBreakRoute=0.80`，
-`Accident/AccidentTwoWays/ConstructionObstacle/ParkedObstacle/VehicleOpensDoorTwoWays=0.85`，
+`Accident/AccidentTwoWays/ConstructionObstacle/VehicleOpensDoorTwoWays=0.85`，
 `HazardAtSideLane/CrossingBicycleFlow=0.90`。纯 signalized/nonsignalized junction 场景不加该压缩。
 压缩只减少弱远距召回，不删除 R4/R5：有效灯态、STOP/yield、可见路口几何和结构化 junction/controller
 同源时仍可进入 R4/R5。
+2026-07-10 RGB 边界复核后，两个场景反向适度放宽进入侧：
+`OppositeVehicleTakingPriority junction_pre_m=75`（约 +50%），`ParkedObstacle junction_pre_m=72`（约 +20%）。
+二者只扩大真实路口控制区召回，不改变 U-E2/R-E2/U-E7 的事件触发条件。
 `DynamicObjectCrossing` 另加 strict gate：远处 bbox traffic_light 不能单独触发 R4；
 有效 meta 灯态 + bbox traffic_light 也必须靠近 junction/close-trigger/bbox junction 才允许 R4。
 route 起始 8m 内若没有近 junction / bbox junction，弱 STOP/R5 证据回 R1，避免雾天乡路起步误判无灯路口。
+2026-07-09 逐帧 RGB 复核后补充 DynamicObjectCrossing 的双向保护：
+直道/隧道中的 U-E4 横穿对象只改 EVENT，不反推 R4；短于 6 帧且只有弱灯框 close-trigger 的 R4 片段回 R1。
+反过来，真实信号灯路口若 XODR 投影/near-junction 不稳定，但同一路段持续出现有效灯控证据，
+允许 route 级恢复 R4：连续段 `light_count>=24` 且 `meta_light_count>=12` 时整段恢复，
+稳定 R4 前最多 4 帧 close-light tail 可补回，避免 `Town10HD Scenario3_{2,10}` 这类路口被漏成 R1。
+本轮 DynamicObjectCrossing smoke 294 route / 42608 frame，短弱 R4 残留为 0，R1/R4/R5 为 27477/10169/4962。
 窗口内有灯控同源证据才 R4；STOP/yield/无灯控制源优先 R5，不能再按场景名默认 R4。
 静态 XODR 的 junction/signal 不能单独作为 R4 strong context：若 `map_junction_id=-1`
 或 `junction_connection_count=0`，只能写弱证据/review；必须由有效 meta 灯态、
@@ -1316,7 +1428,7 @@ scenario README
 - `OppositeVehicleTakingPriority` 以全量 RGB 无灯 priority/R5 为主，但少量灯控子集保留 R4/R-E4；
   U-E7 在 CrossJunctionDefectTrafficLight 的 R4 故障信号灯帧触发，也可在 primary RS 为 R5 的无灯/路权失效帧触发；不能覆盖正常灯控 R4 帧。
 - `PriorityAtJunction` 是混合场景：全量 RGB 同时看到真实灯控城市十字路口和无灯/让行段，候选保持 R1/R4/R5。
-- `InterurbanAdvancedActorFlow` 当前不默认 R3，且全量 RGB 未见稳定 R4；只有 RGB route 高速桶或 XODR merge/highway/ramp 证据成立时才打开 R3。
+- `InterurbanAdvancedActorFlow` 当前不默认 R3，且全量 RGB 未见稳定 R4；只有 RGB route 高速桶或 XODR merge/highway/ramp 证据成立时才打开 R3。无灯/STOP junction 窗口在原 `55/25m` 配置基础上放宽约 30% 到 `72/33m`，用于召回过路口段；若过路口时存在 `changed_route` + 横向偏移/换道符号证据，R5/R-E5 段内也允许切出 R-E2，并按轨迹前补最多 3 帧、后补最多 4 帧。
 - `NonSignalizedJunctionLeftTurn/Town10HD` 缺可读 meta，后续 EVENT/RS 评估必须标记该 town 的
   confidence 不高于 medium，直到补齐 meta 或人工确认。
 

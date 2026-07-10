@@ -46,11 +46,11 @@ python AutoMoT/keyframe_filter/rs_full_frame_review.py \
 | EnterActorFlowV2 | 627 | R3:627 | R3 topology soft review | 保持 R3/no-R4 |
 | HardBreakRoute | 1471 | R1:847, R3:129, R4:495 | projection review 高 | 急刹只进 EVENT；按 route RGB 分桶 |
 | HazardAtSideLane | 2187 | R1:1263, R4:924 | R4 灯控上下文弱 | side-lane hazard 不制造 RS |
-| HazardAtSideLaneTwoWays | 1785 | 旧抽样 R1:1461, R2:92, R4:232 | projection review 高 | 已由全量 RGB 覆盖：候选删除 R1；R2 是有效可行驶对向单车道道路空间，U-E2/R-E2 表达核心动作 |
+| HazardAtSideLaneTwoWays | 1785 | 旧抽样 R1:1461, R2:92, R4:232 | projection review 高 | 2026-07-09 纠正：候选删除 R1；R2 是有效可行驶对向单车道道路空间，自行车/行人进入路径用 U-E4，离开对象后回正才 R-E2，不再使用 U-E2 |
 | HighwayCutIn | 2119 | R3:2005, R4:114 | R3 topology soft review | 主体 R3；少量 R4 必须灯控同源 |
 | HighwayExit | 1212 | R3:1212 | R3 topology soft review | 保持 R3/no-R4 |
 | InterurbanActorFlow | 1228 | R1:420, R5:808 | review 文案串入 R3 次候选 | R5 方向可用；删除 R4 继续成立 |
-| InterurbanAdvancedActorFlow | 1171 | R1:1127, R5:44 | projection review 高 | 只有明确无灯/STOP 窗口给 R5 |
+| InterurbanAdvancedActorFlow | 1171 | R1:1127, R5:44 | projection review 高 | 只有明确无灯/STOP 窗口给 R5；2026-07-09 起 junction 窗口约 +30%，通过 R5 路口且有换道轨迹证据时允许 R-E2 |
 | InvadingTurn | 1278 | R1:608, R5:670 | review 文案串入 R2 次候选 | 无信号路口 R5；R2 只保留侵占主导段 |
 | MergerIntoSlowTraffic | 1730 | R3:1729, R4:1 | R3 topology soft review | 主体 R3；少量 R4 要灯控同源 |
 | MergerIntoSlowTrafficV2 | 1688 | R3:1688 | R3 topology soft review | 保持 R3/no-R4 |
@@ -92,3 +92,87 @@ python AutoMoT/keyframe_filter/rs_full_frame_review.py \
 - 文档
   - `ROAD_EVENT_CANDIDATE_MAPPING.md`、`ROAD_STRUCTURE_PER_SCENARIO_RULES.md`、
     `ROAD_EVENT_CLASSIFICATION_PLAN.md` 已同步 BlockedIntersection 新口径。
+
+## 2026-07-09 边界复核补充
+
+- HighwayExit 的出口变道 R-E2 在原有后补 4 帧基础上继续前补 2 帧、后补 2 帧，
+  累计为前补最多 2 帧、后补最多 6 帧，随后再进入 R-E3。
+- InterurbanActorFlow 的已有 R-E2 核心按轨迹前补最多 3 帧、后补最多 4 帧，不跨 R5/R-E5。
+- InterurbanAdvancedActorFlow 的无灯/STOP junction 配置从 `55/25m` 放宽到 `72/33m`；
+  通过 R5 路口时若有 `changed_route` + 横向偏移/换道符号证据，R5 段也可输出 R-E2，
+  并按轨迹前补最多 3 帧、后补最多 4 帧。
+- MergerIntoSlowTraffic* 参考 HighwayCutIn/HighwayExit：刚开始/中间普通主线跟车保持 R-E1，
+  trigger-only 圆窗不再单独制造 R-E3，靠近 merge/actor-flow 切 R-E3，真实目标变道切 R-E2；
+  R-E2 按轨迹前后各最多补 5 帧，R-E2 后近 actor-flow/merge tail 最多 64 帧保持 R-E3，
+  并允许 8 帧短空窗桥接；3 帧以内夹在 R-E1 中的孤立 R-E3 小岛平滑回 R-E1。
+- InterurbanActorFlow 无 stop/junction 证据的初始直道恢复 R1/R-E1。
+- InvadingTurn 的 U-E5 按 RGB 可见锥桶/对向占道长度保持；final pass 对连续
+  `passive_oncoming_invasion`、trigger>=35m 且有 R2 或 R1 响应证据的长 cluster 输出 U-E5，
+  单段最多补 48 帧，2026-07-10 全量为 4744 帧且含 R2 route 不再缺 U-E5。
+- NonSignalizedJunction* 使用“移动且贴 route 中心的直行段”门控恢复 R1，
+  仅停车/转弯/路口核心保留 R4/R5。
+- NonSignalizedJunctionRightTurn 追加 `distance_to_intersection_index_ego` 局部核心门控：
+  全量 93 route / 8074 帧从 `R1=3446,R4=709,R5=3919` 调整为
+  `R1=4170,R4=598,R5=3306`；`Town12_1210_0` 的起始直道和驶离直道均恢复 R1，
+  灯控子集 `Town13_75_0` 核心 R4 仍保留。
+
+## 2026-07-09 Hazard / VehicleOpenDoor 补充
+
+- VehicleOpensDoorTwoWays 的 U-E2 后恢复 R-E2 起点提前最多 3 帧、终点提前最多 4 帧。
+- HazardAtSideLane* 的 U-E4 结束后若仍有回正轨迹，R4/R5 下保留 regular+R-E2 overlay；
+  全量补回 819 帧 U-E4 后恢复 R-E2，U-E4 总量不变。U-E4 后 8 帧内仍有
+  `target_lane_change/changed_route/route_lateral_abs` 支撑却没有接 R-E2 的残留为 0。
+- HazardAtSideLane 非 TwoWays 前 30 帧仅 bbox-only STOP、close-trigger 或 untrusted XODR
+  不能升 R4/R5，清除 393 帧初始弱路口；`Town13_1619_10` 开头暗光直道恢复 R1。
+- HazardAtSideLaneTwoWays 前 30 帧 bbox-only STOP 伪路口回 R2，清除 336 帧初始误标 R5。
+
+## 2026-07-09 Junction / Parking 补充
+
+- T_Junction、PedestrianCrossing、PriorityAtJunction、OppositeVehicleTakingPriority
+  的 R4/R5混合 route 全部归零，控制源按 route 有效灯态锁定。
+- R4/R5 单控制源锁扩展到所有同时允许 R4/R5 的场景：只防止控制源互跳，并只同步
+  R4/R5 对应 regular event，不改变 U-E 触发逻辑。`VehicleTurningRoutePedestrian`
+  全量验证从 50 条 mixed route / 47 次直接 R4-R5 跳变降为 0 / 0，U-E4 保持 3454 帧不变。
+- 24 个同时允许 R4/R5 的场景历史全量结果复算：旧结果 759 条 route 同时出现 R4/R5、
+  698 条 route 有相邻 R4/R5 跳变；按新 route-level 控制源锁复算后 mixed=0、direct=0。
+  实际重跑 Accident、AccidentTwoWays、BlockedIntersection、ConstructionObstacle、
+  ConstructionObstacleTwoWays 共 1405 route / 210072 frame，mixed=0、direct=0。
+- OppositeVehicleRunningRedLight U-E6 二次修正：不只看违规车瞬间，也看自车停车/让行等待与轨迹响应。
+  2026-07-10 全量 287 route / 28165 帧中，U-E6 从旧 1075 扩为 3515 帧；
+  `Town13_1047_5` f128/f145/f155 均为 `R-E4 + U-E6`，冲突解除后的 f170 回 R-E4。
+- PriorityAtJunction route lock 保护本地灯控/stopline：99 route / 9702 帧，R4 从 1333 增到 1362，
+  route lock 改动从 68 降到 3，`Town12_4022_0` f18-f45 保持 R4/R-E4，f60 回 R1/R-E1。
+- RedLightWithoutLeadVehicle 出口尾段收紧：355 route / 48310 帧，R1/R4=4021/44289；
+  `Town01_Scenario7_16` f165/f170/f172 释放为 R1/R-E1。
+- SignalizedJunctionLeftTurnEnterFlow Town01/02 起始弱 R4 过滤：173 route / 12884 帧，
+  起始 210 帧回 R1/R-E1；`Town01 route_002329` f0-f12 为 R1，f16 起恢复 R4。
+- T_Junction 出口侧延迟：246 route / 31498 帧，R1/R4/R5=2048/29374/76；
+  `Town01_Scenario7_68` f44-f63 保持 R4/R-E4。
+- VehicleTurningRoutePedestrian 短缝复验：91 route / 20399 帧，
+  `vehicle_turning_junction_gap_recovery` 修正 22 帧、temporal smoothing 修正 6 帧；
+  最终 `R-E4/R-E5 -> R-E1/R-E2 <=6帧 -> 同类 R-E4/R-E5` 与对应 RS 短缝残留均为 0。
+- ParkingExit 无灯伪 R4 route `6 -> 0`，R-E2 延续到变道完成；ParkingCutIn U-E3
+  `1955 -> 3059`，补齐提前退出尾段。
+- ParkedObstacle* 的恢复 R-E2 起点提前最多 3 帧、终点提前最多 4 帧。
+
+### 2026-07-10 Priority/Parked/ParkingCutIn 微调
+
+- OppositeVehicleTakingPriority 进入侧按 RGB 放宽到 `junction_pre_m=75`；复验 97 route /
+  13238 帧，R1/R4/R5=6668/2078/4492。
+- ParkedObstacle 进入侧按 RGB 放宽到 `junction_pre_m=72`；复验 168 route /
+  20676 帧，R1/R4=18330/2346，U-E2 后 R-E2 仍保持恢复边界。
+- ParkedObstacleTwoWays 复验 96 route / 14030 帧，没有残留短
+  `R-E2 -> R-E4/R-E5 -> R-E2` 插缝；保留 8 帧以内兜底合并。
+- ParkingCutIn U-E3 改为近距离 + 动态响应/横向证据触发；R4/R5 overlay 不再按
+  distance-only 拖到前车消失。复验 97 route / 13892 帧，U-E3=330 帧 / 80 route，
+  最长 span 7 帧；`1757_0` 收为 f48-51，`815_0` 收为 f211-215。
+
+### 2026-07-10 ParkingExit / PedestrianCrossing 微调
+
+- ParkingExit 初始驶出 R-E2 收尾按 RGB 提前约 5 帧：全量 241 route / 17586 帧，
+  `R-E2 8698 -> 7903`，`R-E1 2604 -> 3399`，R4/R-E4 不变；210 条初始 R-E2 route
+  中 158 条实际提前，52 条因不满足长度/边界条件保持原样。
+- PedestrianCrossing 入口侧收紧、退出侧延迟：全量 98 route / 18141 帧，
+  首个 R4/R5 起点无提前，最多向后 11 帧；`R1/R4/R5=4367/12621/1153`。
+  `R4/R-E4 -> 1-8 帧 R1/R-E1/R-E2 -> R4/R-E4` 的短缝同步缝合 RS+EVENT；
+  16-20 帧普通直行段仍保留 R1/R-E1，不做过度吞并。
