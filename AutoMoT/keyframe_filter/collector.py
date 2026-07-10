@@ -4444,6 +4444,48 @@ class ScenarioCollector:
             },
         }
 
+    def _attach_overlay_base_rs(
+        self,
+        ann: Dict[str, Any],
+        base_rs: Any,
+        reason: str = "interrupted_event_overlay_base_rs",
+    ) -> None:
+        """在路口 overlay 帧保留被截断突发事件所属的基础 RS。"""
+        base_label = str(base_rs or "")
+        if base_label not in RoadStructure._value2member_map_:
+            return
+        primary_label = str(ann.get("primary_road_structure") or "")
+        if not primary_label or base_label == primary_label:
+            return
+        secondary = set(str(x) for x in (ann.get("secondary_road_structures") or []) if x)
+        if base_label not in secondary:
+            secondary.add(base_label)
+            ann["secondary_road_structures"] = sorted(secondary)
+        evidence = ann.setdefault("evidence", {})
+        overlay_secondary = evidence.setdefault("overlay_secondary_road_structures", [])
+        marker = {
+            "base_road_structure": base_label,
+            "primary_road_structure": primary_label,
+            "reason": reason,
+        }
+        if marker not in overlay_secondary:
+            overlay_secondary.append(marker)
+        rules = evidence.setdefault("rules_fired", [])
+        rule = f"rs_{reason}"
+        if rule not in rules:
+            rules.append(rule)
+        ann["annotation_comment"] = _frame_annotation_comment(
+            RoadStructure(primary_label),
+            {
+                RoadStructure(x)
+                for x in ann.get("secondary_road_structures", [])
+                if x in RoadStructure._value2member_map_
+            },
+            float(ann.get("confidence", 0.0) or 0.0),
+            evidence,
+        )
+        ann["frame_rs_annotation"] = self._frame_rs_annotation_payload(ann)
+
     def _frame_event_annotation_payload(self, ann: Dict[str, Any]) -> Dict[str, Any]:
         """生成显式逐帧 EVENT 标注块，和候选全集字段分开。"""
         evidence = ann.get("event_evidence", {}) or {}
@@ -5693,6 +5735,11 @@ class ScenarioCollector:
                             "phase": "hazard_side_post_u4_recovery_to_target_lane",
                             "reason": "hazard_side_u4_recovery_requires_re2",
                         }
+                        self._attach_overlay_base_rs(
+                            ann,
+                            source_rs,
+                            "hazard_side_u4_recovery_overlay_base_rs",
+                        )
                         event_evidence.setdefault("rules_fired", []).append(reason)
                     else:
                         self._rewrite_event_label(ann, {EventType.R_E2}, EventType.R_E2, reason)
@@ -8127,6 +8174,7 @@ class ScenarioCollector:
                 "phase": phase,
                 "reason": "unusual_event_interrupted_by_intersection_rs",
             }
+            self._attach_overlay_base_rs(ann, source_rs)
             rules = event_evidence.setdefault("rules_fired", [])
             if "event_interrupted_unusual_overlay" not in rules:
                 rules.append("event_interrupted_unusual_overlay")
@@ -8935,6 +8983,11 @@ class ScenarioCollector:
                             "phase": "vehicle_door_recovery_start_advanced",
                             "reason": "unusual_event_interrupted_by_intersection_rs",
                         }
+                        self._attach_overlay_base_rs(
+                            ann,
+                            RoadStructure.R2.value,
+                            "vehicle_door_recovery_overlay_base_rs",
+                        )
                     event_evidence["unusual_event"] = None
                     changes.append(
                         {
@@ -9120,6 +9173,26 @@ class ScenarioCollector:
         allowed_values = {ev.value for ev in scenario_allowed}
         changes: List[Dict[str, Any]] = []
 
+        for ann in annotations:
+            overlay = ((ann.get("event_evidence") or {}).get("interrupted_event_overlay") or {})
+            if overlay.get("active"):
+                self._attach_overlay_base_rs(
+                    ann,
+                    overlay.get("base_road_structure"),
+                    "interrupted_event_overlay_base_rs_final_sync",
+                )
+            metrics = (ann.get("event_evidence") or {}).get("metrics") or {}
+            if (
+                scenario_name == "AccidentTwoWays"
+                and bool(metrics.get("accident_twoways_r2_overlay_active"))
+                and ann.get("primary_road_structure") in {RoadStructure.R4.value, RoadStructure.R5.value}
+            ):
+                self._attach_overlay_base_rs(
+                    ann,
+                    RoadStructure.R2.value,
+                    "accident_twoways_r2_overlay_base_rs_final_sync",
+                )
+
         def _current_regular_event(ann: Dict[str, Any]) -> EventType:
             return {
                 RoadStructure.R4.value: EventType.R_E4,
@@ -9257,6 +9330,7 @@ class ScenarioCollector:
                 "phase": "recovery_to_target_lane_final_grace",
                 "reason": "unusual_event_interrupted_by_intersection_rs",
             }
+            self._attach_overlay_base_rs(ann, source_rs, "final_grace_overlay_base_rs")
             event_evidence.setdefault("rules_fired", []).append("event_interrupted_unusual_overlay_final_grace")
 
         for index, ann in enumerate(annotations):

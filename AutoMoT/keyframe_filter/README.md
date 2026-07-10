@@ -453,7 +453,8 @@ U-E6 仅作为 secondary 事件；`ParkingCutIn/StaticCutIn` 不再因普通减�
   runtime 枚举、候选池和本轮输出中均无 R6 类别，RS 候选越界 0，当前 RS allowed events 越界 0。
 - 少量 `U-E1/U-E2/U-E3/U-E4` 或静态障碍 `U-E2 -> R-E2` 恢复链被 R4/R5 突然接管的边界现在走 interrupted overlay，详见
   `ROAD_EVENT_INTERRUPTED_OVERLAY_AUDIT_20260706.md`。primary RS 保持 R4/R5，但 EVENT 同帧保留
-  `R-E4/R-E5 + U-E*` 或 `R-E4/R-E5 + R-E2`；总叠加最长 24 帧，恢复 `R-E2` 子阶段最长 12 帧。
+  `R-E4/R-E5 + U-E*` 或 `R-E4/R-E5 + R-E2`，并把被截断突发事件的 base RS 同步写入
+  `secondary_road_structures` / `frame_rs_annotation.secondary`；总叠加最长 24 帧，恢复 `R-E2` 子阶段最长 12 帧。
   U-E4 中距离横穿/转弯冲突只给 10 帧短续，防止普通路口被长期污染。2026-07-07 全量 R1
   突发事件场景审计覆盖 3552 route / 526001 帧；在修复同向障碍直道 stop/yield 伪 R5 后，
   触发 99 route / 1472 帧。
