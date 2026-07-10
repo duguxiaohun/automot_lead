@@ -12,6 +12,7 @@
 
 ```text
 primary_road_structure = R4/R5
+secondary_road_structures = {base R1/R2/...}
 events = {R-E4/R-E5, U-E1/U-E2/U-E3/U-E4 or R-E2}
 primary_event = safety/recovery event
 event_evidence.interrupted_event_overlay = {...}
@@ -30,15 +31,21 @@ event_evidence.interrupted_event_overlay = {...}
 - 或 `R-E2` 恢复子阶段达到 `12` 帧（约 3s）。
 
 这样可以保留“R4/R5 控制源已经到来”和“R1/R2 视角突发动作尚未完成”两套信息，同时避免叠加状态污染后续普通路口。
+注意：overlay 帧不能只在 EVENT 层双标签。`event_evidence.interrupted_event_overlay.base_road_structure`
+必须同步写入 `secondary_road_structures` 与 `frame_rs_annotation.secondary`，例如
+`primary_road_structure=R4` 且 `events={R-E4,U-E2}` 时，RS 应为 `R4 + secondary R1/R2`，
+表示 U-E2 仍属于被路口截断前的基础路段视角。
 
 ## Code Path
 
 - `collector.py::_apply_event_route_postprocess`
   - 检测 `U-E1/U-E2/U-E3/U-E4 -> R4/R5 regular` 的硬切断；
   - 写入 `event_evidence.interrupted_event_overlay`；
-  - 同帧 `events` 同时保留路口 regular event 与 overlay event。
+  - 同帧 `events` 同时保留路口 regular event 与 overlay event；
+  - 同步把 overlay 的 `base_road_structure` 写入 `secondary_road_structures`。
 - `collector.py::_apply_event_candidate_clamp`
   - 只有 `interrupted_event_overlay.active=true` 的帧才临时放行 overlay event；
+  - 最终兜底再检查 overlay / AccidentTwoWays R2 overlay，确保 RS secondary 没有漏补；
   - 其余 R4/R5 帧仍按当前 RS allowed events 收紧。
 
 ## Validation
