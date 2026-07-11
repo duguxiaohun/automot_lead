@@ -198,8 +198,8 @@ python qwen3vl_local/sft_v5/eval.py \
 | 生成学生输出并可视化 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --adapter-dir checkpoints/sft_v5_runs/latest/final --output-dir checkpoints/sft_v5_runs/latest/probe_with_model --num-cases 8 --with-model --with-teacher` | 是，只加载 student adapter | 上述全部产物 + `q1_student_output.txt` / `q2_student_output.txt` |
 | 检查 teacher 合同 | `python qwen3vl_local/sft_v5/inspect_teacher.py --index checkpoints/sft_v5_data/train_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/teacher_inspect --num-cases 64` | 否 | `teacher_report.json` / `teacher_report.md` |
 
-同一份速查记录也保存在 `checkpoints/SFT_V5_VISUALIZATION_RECORD.md`，方便从
-`AutoMoT/checkpoints/` 目录直接回看。
+同一份速查记录也保存在 `qwen3vl_local/sft_v5/SFT_V5_VISUALIZATION_RECORD.md`，
+方便在 v5 子包内直接回看。
 
 ### 6.2 Probe 入口
 

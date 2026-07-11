@@ -941,7 +941,7 @@ probe*/
 ```
 
 可视化方法单独记录在 `SFT_V5_RUN.md` 的“Probe / 可视化输入输出”章节与
-`checkpoints/SFT_V5_VISUALIZATION_RECORD.md`。v5 probe 默认不加载模型；`--with-model`
+`SFT_V5_VISUALIZATION_RECORD.md`。v5 probe 默认不加载模型；`--with-model`
 才加载 student adapter 并填充 `q1_student_output.txt` / `q2_student_output.txt`。
 `--with-teacher` 是 v3 兼容参数，v5 始终写 teacher privileged prompt 和脚本化
 teacher target，但不额外加载第二份 teacher Qwen。
