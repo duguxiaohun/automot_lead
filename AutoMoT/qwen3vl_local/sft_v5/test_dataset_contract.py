@@ -23,6 +23,8 @@ from qwen3vl_local.sft_v5.labels import (
 
 
 def main() -> None:
+    # scenario_candidates 模拟 collection_output 顶层候选：它描述这条 scenario
+    # 理论上可能出现哪些原始事件；真正进入 Q2 前还要按当前 RS 过滤。
     scenario_candidates = ["R-E1", "R-E2", "R-E4", "R-E5", "U-E4", "U-E6"]
 
     r1_raw = q2_raw_candidates(scenario_candidates, "R1")
@@ -35,6 +37,7 @@ def main() -> None:
 
     r3_raw = q2_raw_candidates(scenario_candidates, "R3")
     assert set(r3_raw) == {"R-E1", "R-E2"}
+    # R3 的正常 highway/ramp 行为可能有多个 R-E，但 prompt 里只训练一个 RE。
     assert collapse_regular_to_re(r3_raw, "R3") == ["RE"], "R3 只折叠 regular 为 RE，不开放 UE"
 
     m1 = stable_event_option_map(run_id="route", frame_id=3, rs_label="R4", scenario_candidates=scenario_candidates, seed=7)
@@ -46,6 +49,8 @@ def main() -> None:
         "frame_event_annotation": {"allowed_events": ["R-E4", "U-E8"]},
         "event_evidence": {"allowed_events": ["R-E4", "U-E6"]},
     }
+    # 用户明确要求逐帧 allowed_events 优先；即使 event_evidence 或静态 scenario 表里
+    # 有不同 UE，也不能覆盖 frame_event_annotation.allowed_events。
     assert allowed_events_from_frame(frame) == ["R-E4", "U-E8"]
     allowed_raw = q2_raw_candidates_for_frame(frame, scenario_candidates=scenario_candidates, rs_label="R4")
     assert allowed_raw == ["R-E4", "U-E8"], "逐帧 allowed_events 必须优先于 scenario fallback"
@@ -61,6 +66,7 @@ def main() -> None:
     assert set(m3.values()) == {"RE", "U-E8"}
 
     for rs, candidates in EVENT_CANDIDATES_BY_RS.items():
+        # 静态表只允许原始 R-E*/U-E*，不能提前混入 prompt 展示用的 RE。
         assert all(code.startswith("R-E") or code.startswith("U-E") for code in candidates), rs
     print("[test_dataset_contract] ok")
 

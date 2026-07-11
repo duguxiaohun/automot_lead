@@ -136,6 +136,8 @@ echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
 
 COMMON_ARGS=(
+  # 下面所有参数都可以通过同名大写环境变量覆盖；这里保持和 v3/v4 launcher
+  # 类似的写法，方便远端批量实验只改 shell 环境，不手动编辑脚本。
   --train-index "${TRAIN_INDEX}"
   --val-index "${VAL_INDEX}"
   --model-dir "${MODEL_DIR}"
@@ -150,6 +152,7 @@ COMMON_ARGS=(
   --lora-alpha "${LORA_ALPHA:-32}"
   --lora-dropout "${LORA_DROPOUT:-0.1}"
   --lora-vision-scope "${LORA_VISION_SCOPE:-off}"
+  # 视觉 LoRA 默认 off；开启时仍给较小 LR/clip，避免 RS/EVENT 小任务冲坏视觉层。
   --vision-lr-scale "${VISION_LR_SCALE:-0.1}"
   --language-clip-norm "${LANGUAGE_CLIP_NORM:-1.0}"
   --vision-clip-norm "${VISION_CLIP_NORM:-0.3}"

@@ -26,6 +26,8 @@ from qwen3vl_local.sft_v5.labels import (
 SYSTEM_PROMPT_V5 = """\
 You are an autonomous driving agent. Use the stitched RGB history as visual context, ordered from oldest to newest. Keep the current memory by default and change it only when clear visual evidence supports the change. Describe weak, distant, foggy, or occluded evidence as uncertain. Never mention ground truth, answer keys, hidden labels, dataset rules, or scenario names."""
 
+# loss 权重只用于训练时的 token span 加权。ANALYSIS 低权重，让模型学习“怎么解释”，
+# 但不要让冗长自然语言压过 RS/ABNORMAL/EVENT 这几个离散答案 token。
 DEFAULT_W_ANALYSIS = 0.2
 DEFAULT_W_RS = 1.2
 DEFAULT_W_ABNORMAL = 0.8
@@ -66,6 +68,8 @@ class Memory:
         event_desc = EVENT_DESCRIPTIONS.get(self.event_label)
         if self.event_label == "RE":
             event_desc = event_description_for_display("RE", self.rs_label)
+        # Memory 是学生唯一可见的跨帧状态。它不包含 scenario、GT、置信度或 event_code，
+        # 只保留“上一次相信的 RS/EVENT”，模拟真实推理时的自维护记忆。
         return (
             "[MEMORY]\n"
             f"BELIEVED_RS: {rs_opt} - {rs_desc}\n"
@@ -205,6 +209,8 @@ def build_q2_student_prompt(
     """
 
     if q1_abnormal:
+        # Q1 已经说 abnormal=yes 时，Q2 仍允许选择 RE：这是为了处理 Q1 误报或
+        # 视觉证据不足的情况，不能因为第一问异常就硬塞 UE。
         task = (
             "You judged in Question 1 that an unusual event is active. Choose the listed unusual event "
             "that most directly affects the ego vehicle right now. If the latest frame does not actually "
@@ -212,6 +218,8 @@ def build_q2_student_prompt(
             "option instead."
         )
     else:
+        # Q1 说 no abnormal 时也列出 UE 候选，让模型显式比较“保持 RE”与“确有异常”。
+        # 这能训练模型在弱证据下保持 RE，而不是被候选中的 UE 诱导。
         task = (
             "You judged in Question 1 that no unusual event is active, but you must still compare the "
             "regular-event option against the listed unusual-event candidates. If the only listed choice "
@@ -294,6 +302,8 @@ def build_q2_teacher_target(
 _Q1_RS_RE = re.compile(r"(?im)^\s*RS\s*:\s*([A-E])\b")
 _Q1_ABNORMAL_RE = re.compile(r"(?im)^\s*ABNORMAL\s*:\s*(YES|NO)\b")
 _Q2_EVENT_RE = re.compile(r"(?im)^\s*EVENT\s*:\s*([A-Z])\b")
+# 解析器刻意只看行首字段，不试图理解整段 analysis。这样学生可以自由解释，
+# 但离散答案必须落在固定字段上，便于 eval/probe 和 memory 状态机稳定读取。
 
 
 def parse_q1_output(text: str) -> Dict[str, Optional[str]]:

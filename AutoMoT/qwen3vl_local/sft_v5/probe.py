@@ -1,7 +1,10 @@
 """SFT v5 case-level probe。
 
 默认不加载模型，只 dump prompt / target / label / memory / RGB，方便先人工检查候选池与
-随机选项是否符合预期。传 `--with-model` 后会额外生成 student Q1/Q2 输出。
+随机选项是否符合预期。传 `--with-model` 后会额外生成 student Q1/Q2 输出；传
+`--with-teacher-model` 后会额外用默认/base Qwen 跑 privileged teacher prompt。
+训练前 OPSD 能力体检必须不传 `--adapter-dir`，即 teacher/student 都只用普通 Qwen，
+不导入任何 LoRA。
 
 产物刻意仿照 sft_v3/probe.py 的组织方式：顶层 manifest、route 级 timeline、
 frame 级 RGB/prompt/output/memory/flags。这样人工看 case 时不用在 v3/v5 之间切换
@@ -167,17 +170,30 @@ def dump_probe(args: argparse.Namespace) -> None:
         max_frames_per_route=int(args.max_frames_per_route),
     )
     bundle = None
+    teacher_bundle = None
     if args.with_model:
         import torch
 
-        # `--with-model` 才加载 student adapter。默认静态 dump 不加载 Qwen，适合快速
-        # 批量检查 teacher/student prompt 合同与候选池，不占 GPU。
+        # `--with-model` 负责生成 student 输出；只有显式传 `--adapter-dir` 时才加载
+        # student LoRA。训练前 OPSD 能力体检不要传 adapter，保持纯 base Qwen。
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         bundle = load_eval_bundle(
             pathlib.Path(args.model_dir),
             pathlib.Path(args.adapter_dir) if args.adapter_dir else None,
             device,
             merge_lora=bool(args.merge_lora),
+        )
+    if args.with_teacher_model:
+        import torch
+
+        # 训练前能力体检时，teacher 也用默认/base Qwen，但吃 privileged prompt。
+        # 这里不加载 adapter，避免把待训练学生能力混入 teacher 侧判断。
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        teacher_bundle = load_eval_bundle(
+            pathlib.Path(args.teacher_model_dir or args.model_dir),
+            None,
+            device,
+            merge_lora=True,
         )
 
     manifest: List[Dict[str, Any]] = []
@@ -201,6 +217,7 @@ def dump_probe(args: argparse.Namespace) -> None:
                 # 训练/eval 口径：首帧或上帧非法/RS 错后，用 GT RS + RE 重置下一帧 memory。
                 memory = reset_memory_for_frame(rs_target)
                 reset_next = False
+            memory_at_frame_start = memory
             memory_before = _memory_json(memory)
             case_dir = route_dir / f"frame_{frame.frame_id:04d}"
             case_dir.mkdir(parents=True, exist_ok=True)
@@ -221,21 +238,55 @@ def dump_probe(args: argparse.Namespace) -> None:
             )
             q1_output: Optional[str] = None
             q2_output: Optional[str] = None
+            q1_teacher_output: Optional[str] = None
+            q2_teacher_output: Optional[str] = None
             q2_student = ""
             q2_teacher = ""
             q2_target = ""
             parsed_q1: Dict[str, Optional[str]] = {}
             parsed_q2: Dict[str, Optional[str]] = {}
+            parsed_teacher_q1: Dict[str, Optional[str]] = {}
+            parsed_teacher_q2: Dict[str, Optional[str]] = {}
             q1_rs_ok = True
             q1_abnormal: Optional[bool] = frame.abnormal
+            q1_teacher_rs_correct: Optional[bool] = None
+            q1_teacher_abnormal_correct: Optional[bool] = None
             q2_triggered = True
             q2_invalid = False
             q2_event_correct: Optional[bool] = None
+            q2_teacher_event_correct: Optional[bool] = None
             q2_candidate_mismatch = False
+            q2_teacher_forced = False
+            images: Optional[List[Any]] = None
+
+            def _images_for_generation() -> List[Any]:
+                """懒加载该帧 RGB，避免纯静态 probe 读图进入模型路径。"""
+
+                nonlocal images
+                if images is None:
+                    images = _load_images(frame.history_rgb_paths)
+                return images
+
             memory_after_q1 = update_memory_after_q1(memory, student_rs_label=frame.rs_label, student_abnormal=frame.abnormal)
+            if teacher_bundle is not None:
+                # 训练前体检用：teacher_bundle 永远是纯 base Qwen，不加载 LoRA。
+                # 它吃 privileged prompt，用来判断“普通 Qwen 当老师”是否能稳定解析/解释。
+                q1_teacher_output = _generate(
+                    teacher_bundle,
+                    _images_for_generation(),
+                    q1_teacher,
+                    int(args.max_new_tokens_q1),
+                )
+                parsed_teacher_q1 = parse_q1_output(q1_teacher_output)
+                q1_teacher_rs_correct = parsed_teacher_q1.get("rs_label") == frame.rs_label
+                teacher_abnormal_text = parsed_teacher_q1.get("abnormal")
+                q1_teacher_abnormal_correct = (
+                    (teacher_abnormal_text == "YES") == frame.abnormal if teacher_abnormal_text else False
+                )
             if bundle is not None:
-                images = _load_images(frame.history_rgb_paths)
-                q1_output = _generate(bundle, images, q1_student, int(args.max_new_tokens_q1))
+                # student bundle 可以是纯 base Qwen（训练前体检）或 base+adapter（训练后可视化）。
+                # 是否误传 adapter 会写入 flags.json 的 student_adapter_dir 供人工审计。
+                q1_output = _generate(bundle, _images_for_generation(), q1_student, int(args.max_new_tokens_q1))
                 parsed_q1 = parse_q1_output(q1_output)
                 q1_rs_ok = parsed_q1.get("rs_label") == frame.rs_label
                 q1_abnormal = parsed_q1.get("abnormal") == "YES" if parsed_q1.get("abnormal") else None
@@ -261,11 +312,13 @@ def dump_probe(args: argparse.Namespace) -> None:
                         event_target=event_target,
                         regular_event_codes=frame.regular_event_codes,
                     )
-                    q2_output = _generate(bundle, images, q2_student, int(args.max_new_tokens_q2))
+                    q2_output = _generate(bundle, _images_for_generation(), q2_student, int(args.max_new_tokens_q2))
                     parsed_q2 = parse_q2_output(q2_output, frame.event_option_map)
                     memory = update_memory_after_q2(memory_after_q1, student_event_label=parsed_q2.get("event_label"))
                     q2_invalid = parsed_q2.get("event_label") is None
                     target_dynamic = _event_target_from_frame(frame, student_event=parsed_q2.get("event_label"))
+                    # 双标签 EVENT 的正确性必须按“student 选择是否在可接受集合内”动态计算，
+                    # 不能只和 build_dataset 固定 event_label 比较。
                     q2_event_correct = parsed_q2.get("event_label") == target_dynamic.label
                     q2_candidate_mismatch = target_dynamic.label not in set(frame.event_option_map.values())
                     if q2_invalid:
@@ -303,6 +356,40 @@ def dump_probe(args: argparse.Namespace) -> None:
                 q2_candidate_mismatch = event_target.label not in set(frame.event_option_map.values())
                 q2_event_correct = not q2_candidate_mismatch
 
+            if teacher_bundle is not None:
+                if not q2_teacher:
+                    # 如果 student Q1 的 RS 已经错了，本帧 student 会停止采样；但训练前
+                    # 评估 teacher 能力时仍需要看 Q2 teacher prompt 是否合理，所以这里
+                    # 用 GT Q1 结果 teacher-forced 构造 Q2，仅用于可视化/体检。
+                    teacher_memory_after_q1 = update_memory_after_q1(
+                        memory_at_frame_start,
+                        student_rs_label=frame.rs_label,
+                        student_abnormal=frame.abnormal,
+                    )
+                    q2_teacher = build_q2_teacher_prompt(
+                        teacher_memory_after_q1,
+                        option_map=frame.event_option_map,
+                        q1_abnormal=frame.abnormal,
+                        event_target=event_target,
+                        regular_event_codes=frame.regular_event_codes,
+                    )
+                    q2_target = build_q2_teacher_target(
+                        teacher_memory_after_q1,
+                        option_map=frame.event_option_map,
+                        event_target=event_target,
+                        regular_event_codes=frame.regular_event_codes,
+                    )
+                    q2_teacher_forced = True
+                q2_teacher_output = _generate(
+                    teacher_bundle,
+                    _images_for_generation(),
+                    q2_teacher,
+                    int(args.max_new_tokens_q2),
+                )
+                parsed_teacher_q2 = parse_q2_output(q2_teacher_output, frame.event_option_map)
+                teacher_dynamic_target = _event_target_from_frame(frame, student_event=parsed_teacher_q2.get("event_label"))
+                q2_teacher_event_correct = parsed_teacher_q2.get("event_label") == teacher_dynamic_target.label
+
             files = {
                 # v5 native names.
                 "q1_student_prompt.txt": q1_student,
@@ -322,8 +409,12 @@ def dump_probe(args: argparse.Namespace) -> None:
             }
             files["q1_student_output.txt"] = q1_output or ""
             files["q2_student_output.txt"] = q2_output or ""
+            files["q1_teacher_output.txt"] = q1_teacher_output or ""
+            files["q2_teacher_output.txt"] = q2_teacher_output or ""
             files["step1_student.txt"] = q1_output or ""
             files["step2_student.txt"] = q2_output or ""
+            files["step1_teacher_output.txt"] = q1_teacher_output or ""
+            files["step2_teacher_output.txt"] = q2_teacher_output or ""
             _write_texts(case_dir, files)
 
             labels = _frame_labels(route, frame)
@@ -334,18 +425,31 @@ def dump_probe(args: argparse.Namespace) -> None:
 
             frame_log = {
                 **labels,
+                # flags.json 聚合三类信息：
+                # 1) label/source/candidate 证据；
+                # 2) student/teacher 解析结果；
+                # 3) 状态机诊断，例如 Q1 是否截断、Q2 是否非法、下一帧是否 reset。
                 "case_index": case_idx,
                 "case_dir": str(case_dir),
                 "copied_rgb": copied_rgb,
                 "teacher_forced": bundle is None,
+                "teacher_model_enabled": teacher_bundle is not None,
+                "teacher_model_dir": str(pathlib.Path(args.teacher_model_dir or args.model_dir)) if teacher_bundle is not None else None,
+                "student_adapter_dir": str(pathlib.Path(args.adapter_dir)) if args.adapter_dir else None,
                 "memory_before": memory_before,
                 "memory_after": memory_after,
                 "parsed_q1": parsed_q1,
                 "parsed_q2": parsed_q2,
+                "parsed_teacher_q1": parsed_teacher_q1,
+                "parsed_teacher_q2": parsed_teacher_q2,
                 "q1_rs_correct": q1_rs_ok,
                 "q1_abnormal_correct": q1_abnormal == frame.abnormal if q1_abnormal is not None else False,
+                "q1_teacher_rs_correct": q1_teacher_rs_correct,
+                "q1_teacher_abnormal_correct": q1_teacher_abnormal_correct,
                 "q2_triggered": q2_triggered,
                 "q2_event_correct": q2_event_correct,
+                "q2_teacher_event_correct": q2_teacher_event_correct,
+                "q2_teacher_forced": q2_teacher_forced,
                 "q2_invalid_output": q2_invalid,
                 "q2_candidate_mismatch": q2_candidate_mismatch,
                 "rs_wrong_reset": not q1_rs_ok,
@@ -377,8 +481,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
     p.add_argument("--with-model", action="store_true")
-    p.add_argument("--with-teacher", action="store_true", help="compat flag: v5 always dumps teacher prompt/target and does not load a second teacher model")
+    p.add_argument("--with-teacher", action="store_true", help="compat flag: v5 always dumps teacher prompt/target")
+    p.add_argument("--with-teacher-model", action="store_true", help="load base Qwen without LoRA to generate privileged teacher outputs")
     p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--teacher-model-dir", type=str, default=None, help="optional base Qwen dir for teacher generation; defaults to --model-dir")
     p.add_argument("--adapter-dir", type=str, default=None)
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--max-new-tokens-q1", type=int, default=256)

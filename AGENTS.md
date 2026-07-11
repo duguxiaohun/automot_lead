@@ -285,8 +285,13 @@
   `train.sh` 支持 `single/ddp/check`，遵循 GPU 自动选址、`GPU_IDS` pin 卡和
   `run_<RUN_TAG>/latest` 防覆盖约定。`probe.py` 仿 v3 输出 route/frame 层级可视化：
   复制 4 帧 RGB，保存 student prompt/output、teacher privileged prompt、脚本化 teacher target、
-  memory_before/after、flags、timeline.json/png 和 manifest.json；`--with-teacher`
-  是兼容标志，不额外加载第二份 teacher Qwen。运行与可视化方法见
+  可选 `q*_teacher_output.txt`、memory_before/after、flags、timeline.json/png 和
+  manifest.json；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用
+  `--with-teacher-model`；训练前 base Qwen OPSD 能力体检必须不传 `--adapter-dir`、
+  不加载任何 LoRA；可视化分为训练前 base Qwen OPSD 能力体检、训练后 adapter
+  学生可视化、静态 prompt/target 快检三类。v5 代码已补中文函数说明和关键逻辑块注释；
+  后续改标签协议、prompt、memory、loss、probe 或 DDP 训练逻辑时必须同步维护相邻注释。
+  运行与可视化方法见
   `SFT_V5_RUN.md` / `SFT_V5_PLAN.md` / `SFT_V5_VISUALIZATION_RECORD.md`。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md`

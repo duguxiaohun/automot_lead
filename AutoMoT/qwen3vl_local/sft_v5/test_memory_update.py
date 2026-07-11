@@ -21,6 +21,8 @@ from qwen3vl_local.sft_v5.prompts import (
 
 
 def main() -> None:
+    # memory 的初始值只依赖当前帧 GT RS，事件默认 RE；这也是 Q1 RS 错误后
+    # 下一帧恢复的状态，避免错误道路结构继续污染 Q2。
     rs = RSTarget("R1", "A", "ordinary road", 0.8, (), {"R1": 0.8})
     mem = reset_memory_for_frame(rs)
     assert mem.rs_label == "R1"
@@ -28,6 +30,7 @@ def main() -> None:
 
     mem = update_memory_after_q1(mem, student_rs_label="R4", student_abnormal=True)
     assert mem.rs_label == "R4"
+    # Q1 只能确认“是否异常”，不能凭空写具体 U-E*；具体事件必须由 Q2 决定。
     assert mem.event_label == "RE", "Q1 abnormal=yes 只等待 Q2，不应凭空写 UE"
 
     mem = update_memory_after_q2(mem, student_event_label="U-E6")

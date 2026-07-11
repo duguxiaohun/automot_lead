@@ -66,6 +66,9 @@ RS_OPTION_DESCRIPTIONS: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 EVENT_CANDIDATES_BY_RS: Dict[str, List[str]] = {
+    # 这里保留原始 R-E*/U-E* 候选表，而不是直接写 prompt 里的 RE。
+    # 原因是 build_dataset 还需要保存 event_code / regular_event_codes 供审计；
+    # 真正给学生看的选项会在 collapse_regular_to_re 里把所有 R-E* 折成一个 RE。
     "R1": ["R-E1", "R-E2", "U-E1", "U-E2", "U-E3", "U-E4"],
     "R2": ["R-E1", "R-E2", "U-E2", "U-E5"],
     "R3": ["R-E1", "R-E2", "R-E3"],
@@ -74,6 +77,9 @@ EVENT_CANDIDATES_BY_RS: Dict[str, List[str]] = {
 }
 
 RS_REGULAR_EVENTS: Dict[str, List[str]] = {
+    # 每个 RS 下有哪些 regular 行为可被解释成 RE。R3 特意保留 3 个 regular，
+    # 因为 highway/ramp/merge/exit 结构下，“无异常”不只是普通跟车，也可能是
+    # 正常汇入、分流、驶离或目标车道跟踪。
     "R1": ["R-E1", "R-E2"],
     "R2": ["R-E1", "R-E2"],
     "R3": ["R-E1", "R-E2", "R-E3"],
@@ -168,6 +174,8 @@ EVENT_DESCRIPTIONS: Dict[str, str] = {
 }
 
 EVENT_ORDER: Tuple[str, ...] = (
+    # 多标签没有置信度或 primary 不可用时，用这个全局顺序做确定性兜底。
+    # 这样同一份数据在不同机器/不同 Python hash seed 下不会得到不同 teacher target。
     "R-E1", "R-E2", "R-E3", "R-E4", "R-E5",
     "U-E1", "U-E2", "U-E3", "U-E4", "U-E5", "U-E6", "U-E7", "U-E8",
 )
@@ -258,6 +266,8 @@ def resolve_rs_target(frame: Mapping[str, Any]) -> RSTarget:
 
     label = str(primary) if primary in RS_LABEL_TO_OPTION else "R1"
     if candidates:
+        # RS 多标签只训练一个标签：优先最高置信度；置信度相同则按 R1-R5 稳定顺序。
+        # 这里不采用 student 动态答案，是为了避免 Q1 的路结构监督变成多目标漂移。
         best_label, _ = max(
             candidates.items(),
             key=lambda item: (item[1], -list(RS_OPTION_TO_LABEL.values()).index(item[0]) if item[0] in RS_OPTION_TO_LABEL.values() else -99),
@@ -322,6 +332,9 @@ def resolve_event_target(
     ue = [code for code in raw_events if is_unusual(code)]
     regular = [code for code in raw_events if code.startswith("R-E")]
     if ue:
+        # EVENT 多标签里只要出现 UE，就按“异常优先”训练，避免异常帧被 RE 稀释。
+        # 如果 student 已经选择了 raw UE 之一，teacher 也接受这个选择并围绕它解释；
+        # 否则才退回 primary/稳定顺序。这就是用户要求的“单标签但兼容双 UE”的口径。
         if student in ue:
             chosen = str(student)
         else:
@@ -336,6 +349,9 @@ def resolve_event_target(
         )
 
     if student in regular:
+        # 全 regular 的双标签会折叠成 RE；event_code 仍记住具体 R-E*。
+        # 若 student 选中了 raw regular 之一，teacher target 使用该 regular 作为审计 code，
+        # 否则按 primary/稳定顺序选一个，不影响最终监督 label=RE。
         chosen_re = str(student)
     else:
         primary = normalize_event_code((frame.get("frame_event_annotation") or {}).get("label") or frame.get("primary_event"))
@@ -407,6 +423,8 @@ def q2_raw_candidates_for_frame(
 
     allowed = allowed_events_from_frame(frame)
     if allowed:
+        # allowed_events 是逐帧最终候选，已经融合了 keyframe_filter 的 clamp/overlay。
+        # 只要存在就直接采用，不能再用静态表强行改写，否则会把人工修正的候选冲掉。
         return allowed
     return q2_raw_candidates(scenario_candidates, rs_label)
 
@@ -474,6 +492,8 @@ def stable_event_option_map(
 
     raw = list(raw_candidates) if raw_candidates is not None else q2_raw_candidates(scenario_candidates, rs_label)
     display = collapse_regular_to_re(raw, rs_label)
+    # 随机只打乱“字母到标签”的映射，不改变本帧候选集合；seed 源里包含 dataset_version，
+    # 以后如果候选协议变化，可以自然得到一套新映射，避免旧缓存混用。
     seed_src = f"{dataset_version}::{run_id}::{frame_id}::{seed}".encode("utf-8")
     rng_seed = int(hashlib.sha256(seed_src).hexdigest(), 16) % (2**31)
     items = list(display)

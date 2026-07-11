@@ -941,10 +941,31 @@ probe*/
 ```
 
 可视化方法单独记录在 `SFT_V5_RUN.md` 的“Probe / 可视化输入输出”章节与
-`SFT_V5_VISUALIZATION_RECORD.md`。v5 probe 默认不加载模型；`--with-model`
-才加载 student adapter 并填充 `q1_student_output.txt` / `q2_student_output.txt`。
-`--with-teacher` 是 v3 兼容参数，v5 始终写 teacher privileged prompt 和脚本化
-teacher target，但不额外加载第二份 teacher Qwen。
+`SFT_V5_VISUALIZATION_RECORD.md`。v5 probe 明确分成三类：
+
+- 训练前 base Qwen OPSD 能力体检：`--with-model --with-teacher-model`，不传
+  `--adapter-dir`，不加载任何 LoRA，让默认 Qwen 分别跑 student prompt 和
+  privileged teacher prompt，用 `q*_student_output.txt` / `q*_teacher_output.txt`
+  判断普通 Qwen 的基础能力与 prompt 合同是否足够支撑 OPSD。
+- 训练后 adapter 学生可视化：`--with-model --adapter-dir ...`，只加载训练后的
+  student adapter，检查真实状态机下的 Q1/Q2 输出、memory 更新和 reset 行为。
+- 静态 prompt / target 快检：不加载模型，只写 RGB、student prompt、teacher prompt、
+  脚本化 teacher target、label、memory、flags 和 timeline。
+
+`--with-teacher` 只保留为 v3 兼容标志；真正生成 teacher 模型文本必须显式使用
+`--with-teacher-model`。
+
+### 9.2 代码注释维护要求
+
+`AutoMoT/qwen3vl_local/sft_v5/` 下代码采用中文注释维护：
+
+- 函数/docstring 描述入口、输入输出和状态机职责。
+- 关键逻辑块必须解释设计原因，而不只是复述代码行为；当前已覆盖
+  `allowed_events` 优先级、`R-E* -> RE` 折叠、RS/EVENT 双标签单标签化、
+  Q1 RS 错误截断、OPSD teacher/student logits 对齐、DDP local/global padding、
+  训练前纯 base Qwen 体检不加载 LoRA、probe flags 审计字段和测试回归意图。
+- 后续修改标签协议、prompt、memory、loss、probe 或 DDP 训练逻辑时，需要同步更新
+  相邻代码注释和 `SFT_V5_RUN.md`，避免文档与实现脱节。
 
 ---
 
