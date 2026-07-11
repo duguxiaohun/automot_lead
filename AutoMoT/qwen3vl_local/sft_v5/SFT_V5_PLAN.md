@@ -775,6 +775,24 @@ Qwen3-VL 增量 decode 必须复用 `qwen3vl_local/mrope_utils.py` 的
 `qwen3vl_incremental_forward`，禁止走 PEFT wrapper 的 `generate` /
 `prepare_inputs_for_generation`。
 
+### 7.4 OPSD 的“采样数据”定义
+
+v5 当前实现是同步 on-policy OPSD，而不是离线 teacher 数据生成，也不是 v4 那种
+collector/learner 异步 replay：
+
+- “采样数据”指当前 student 在本 step 对 Q1/Q2 自由生成出来的 token、解析结果和
+  对应 KV state。
+- 这些数据只在当前 `_run_frame()` 内存中临时存在，不写 replay，不跨 step 复用。
+- Teacher 只在同一批 student rollout token 上提供 privileged logits，用于
+  forward-KL；teacher 不提前物化 target dataset。
+- DDP 下每张 H20 都同时承担 rollout 采样和训练反传角色，所以四卡默认是
+  `4` 张卡同步边采样边训练。
+
+如果后续要做“几张卡采样、几张卡训练”的真正异步 OPSD，需要新增 v5
+`collector -> replay -> learner` 路线。H20 四卡的自然起点可以是 `3 collector + 1 learner`
+或 `2 collector + 2 learner`，但这属于 v5 off-policy 改版，不是当前 `train.py`
+已经实现的 DDP 路线。
+
 ---
 
 ## 8. DDP + sequence padding 训练
@@ -864,6 +882,22 @@ grad_accum=1
 outer_stride=1
 max_frames_per_route=0  # 0 means full route
 ```
+
+训练日志/TensorBoard 必须能审计“边采样边训练”和 DDP padding：
+
+- `train/loss_frame`
+- `train/q2_trigger_rate`
+- `train/q1_rs_acc_window`
+- `train/q1_abnormal_acc_window`
+- `train/q2_event_acc_window`
+- `train/q2_invalid_output`
+- `train/reset_next`
+- `train/rollout_tokens_per_frame`
+- `ddp/padding_rate`
+- `ddp/max_T_global_avg`
+
+这些指标在 logging window 内先按 rank 本地累计，再 `all_reduce(SUM)` 到全局口径，
+rank0 打印一行 `[train] ...` 并写 TensorBoard。
 
 ### 8.4 Padding 与 memory reset
 

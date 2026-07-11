@@ -418,6 +418,8 @@ def _run_frame(
         "q1_abnormal_correct": q1_abnormal == frame.abnormal if q1_abnormal is not None else False,
         "q2_triggered": False,
         "candidate_mismatch": False,
+        "q1_rollout_tokens": int(q1_ids.numel()),
+        "q2_rollout_tokens": 0,
         "q1_parts": q1_parts,
     }
     if not q1_rs_correct:
@@ -467,6 +469,7 @@ def _run_frame(
             "q2_triggered": True,
             "q2_event_correct": student_event == event_target.label,
             "q2_invalid_output": q2_invalid,
+            "q2_rollout_tokens": int(q2_ids.numel()),
             "q2_parts": q2_parts,
         }
     )
@@ -532,6 +535,102 @@ def run_check(loader: DataLoader, *, max_batches: int = 2) -> None:
             )
         if batch_idx + 1 >= max_batches:
             break
+
+
+_TRAIN_WINDOW_KEYS = (
+    "batches",
+    "frames",
+    "loss_sum",
+    "q1_rs_correct",
+    "q1_abnormal_correct",
+    "q2_triggered",
+    "q2_event_correct",
+    "q2_invalid_output",
+    "candidate_mismatch",
+    "reset_next",
+    "q1_rollout_tokens",
+    "q2_rollout_tokens",
+    "valid_slots",
+    "padding_slots",
+    "max_T_local_sum",
+    "max_T_global_sum",
+)
+
+
+def _new_train_window_stats() -> Dict[str, float]:
+    """创建一个 logging window 内的 on-policy 采样/训练统计容器。"""
+
+    return {key: 0.0 for key in _TRAIN_WINDOW_KEYS}
+
+
+def _add_batch_shape_stats(stats: Dict[str, float], batch: Mapping[str, Any]) -> None:
+    """记录本 rank 当前 batch 的 padding 形状。
+
+    这些数字能直接审计 DDP padding 是否按预期运行：valid_slots 是真实 frame 数，
+    padding_slots 是补齐到 global max_T 后额外占位的 None frame 数。
+    """
+
+    routes = batch.get("routes") or []
+    valid = batch.get("valid_mask")
+    valid_count = int(valid.sum().item()) if isinstance(valid, torch.Tensor) else 0
+    max_t_global = int(batch.get("max_T_global", 0))
+    max_t_local = int(batch.get("max_T_local", 0))
+    total_slots = len(routes) * max_t_global
+    stats["batches"] += 1.0
+    stats["valid_slots"] += float(valid_count)
+    stats["padding_slots"] += float(max(0, total_slots - valid_count))
+    stats["max_T_local_sum"] += float(max_t_local)
+    stats["max_T_global_sum"] += float(max_t_global)
+
+
+def _add_frame_rollout_stats(stats: Dict[str, float], frame_stats: Mapping[str, Any], *, need_reset: bool) -> None:
+    """累计一个有效 frame 的 on-policy rollout 统计。"""
+
+    stats["frames"] += 1.0
+    stats["q1_rs_correct"] += float(bool(frame_stats.get("q1_rs_correct", False)))
+    stats["q1_abnormal_correct"] += float(bool(frame_stats.get("q1_abnormal_correct", False)))
+    stats["q2_triggered"] += float(bool(frame_stats.get("q2_triggered", False)))
+    stats["q2_event_correct"] += float(bool(frame_stats.get("q2_event_correct", False)))
+    stats["q2_invalid_output"] += float(bool(frame_stats.get("q2_invalid_output", False)))
+    stats["candidate_mismatch"] += float(bool(frame_stats.get("candidate_mismatch", False)))
+    stats["reset_next"] += float(bool(need_reset))
+    stats["q1_rollout_tokens"] += float(int(frame_stats.get("q1_rollout_tokens", 0) or 0))
+    stats["q2_rollout_tokens"] += float(int(frame_stats.get("q2_rollout_tokens", 0) or 0))
+
+
+def _ddp_sum_train_stats(stats: Mapping[str, float]) -> Dict[str, float]:
+    """把各 rank 的 logging window 统计按 sum 聚合到所有 rank。"""
+
+    values = [float(stats.get(key, 0.0)) for key in _TRAIN_WINDOW_KEYS]
+    if not (dist.is_available() and dist.is_initialized()):
+        return dict(zip(_TRAIN_WINDOW_KEYS, values))
+    device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
+    tensor = torch.tensor(values, device=device, dtype=torch.float64)
+    dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+    return {key: float(value) for key, value in zip(_TRAIN_WINDOW_KEYS, tensor.cpu().tolist())}
+
+
+def _format_train_window(stats: Mapping[str, float]) -> str:
+    """把聚合后的 on-policy 统计格式化成一行日志。"""
+
+    frames = max(1.0, float(stats.get("frames", 0.0)))
+    q2 = max(1.0, float(stats.get("q2_triggered", 0.0)))
+    batches = max(1.0, float(stats.get("batches", 0.0)))
+    valid_slots = max(1.0, float(stats.get("valid_slots", 0.0)))
+    rollout_tokens = float(stats.get("q1_rollout_tokens", 0.0)) + float(stats.get("q2_rollout_tokens", 0.0))
+    return (
+        f"loss/frame={float(stats.get('loss_sum', 0.0)) / frames:.4f} "
+        f"frames={int(stats.get('frames', 0.0))} "
+        f"q2_rate={float(stats.get('q2_triggered', 0.0)) / frames:.3f} "
+        f"rs_acc={float(stats.get('q1_rs_correct', 0.0)) / frames:.3f} "
+        f"abn_acc={float(stats.get('q1_abnormal_correct', 0.0)) / frames:.3f} "
+        f"event_acc={float(stats.get('q2_event_correct', 0.0)) / q2:.3f} "
+        f"invalid={int(stats.get('q2_invalid_output', 0.0))} "
+        f"reset={int(stats.get('reset_next', 0.0))} "
+        f"tok/frame={rollout_tokens / frames:.1f} "
+        f"pad_rate={float(stats.get('padding_slots', 0.0)) / (valid_slots + float(stats.get('padding_slots', 0.0))):.3f} "
+        f"maxT={float(stats.get('max_T_global_sum', 0.0)) / batches:.1f}"
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -638,7 +737,7 @@ def main() -> None:
 
     global_step = 0
     micro_step = 0
-    running_loss = 0.0
+    window_stats = _new_train_window_stats()
     start = time.time()
     bundle.model.train()
     for epoch in range(int(args.num_epochs)):
@@ -646,6 +745,7 @@ def main() -> None:
             sampler.set_epoch(epoch)
         for batch in loader:
             batch = pad_batch_to_global_length(batch)
+            _add_batch_shape_stats(window_stats, batch)
             batch_loss = None
             frame_count = 0
             routes: List[SequenceRow] = batch["routes"]
@@ -681,11 +781,13 @@ def main() -> None:
                         continue
                     batch_loss = loss if batch_loss is None else batch_loss + loss
                     frame_count += 1
+                    _add_frame_rollout_stats(window_stats, stats, need_reset=bool(need_reset))
                     memories[b] = next_mem
                     reset_next[b] = bool(need_reset)
             if batch_loss is None or frame_count == 0:
                 continue
             batch_loss = batch_loss / float(frame_count)
+            window_stats["loss_sum"] += float(batch_loss.detach().item()) * float(frame_count)
             loss_scaled = batch_loss / float(max(1, int(args.grad_accum)))
             sync_this_step = (micro_step + 1) % max(1, int(args.grad_accum)) == 0
             sync_context = (
@@ -697,7 +799,6 @@ def main() -> None:
                 # 梯度累积中间 micro step 不做 DDP all-reduce，最后一个 micro step 再同步，
                 # 避免每帧/每小 batch 都触发昂贵 collective。
                 loss_scaled.backward()
-            running_loss += float(batch_loss.detach().item())
             micro_step += 1
             if micro_step % max(1, int(args.grad_accum)) == 0:
                 if language_params:
@@ -708,13 +809,30 @@ def main() -> None:
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 global_step += 1
-                if rank == 0 and global_step % int(args.logging_steps) == 0:
-                    avg_loss = running_loss / float(max(1, int(args.logging_steps)))
+                log_every = max(1, int(args.logging_steps))
+                if global_step % log_every == 0:
+                    reduced_stats = _ddp_sum_train_stats(window_stats)
+                    # 所有 rank 都必须在 collective 后清零窗口；只有 rank0 负责输出人可读日志。
+                    window_stats = _new_train_window_stats()
                     elapsed = time.time() - start
-                    print(f"[train] step={global_step} epoch={epoch} loss={avg_loss:.4f} elapsed={elapsed:.1f}s")
-                    if tb is not None:
-                        tb.add_scalar("train/loss", avg_loss, global_step)
-                    running_loss = 0.0
+                    if rank == 0:
+                        log_line = _format_train_window(reduced_stats)
+                        print(f"[train] step={global_step} epoch={epoch} {log_line} elapsed={elapsed:.1f}s")
+                        if tb is not None:
+                            frames = max(1.0, reduced_stats["frames"])
+                            q2 = max(1.0, reduced_stats["q2_triggered"])
+                            valid = max(1.0, reduced_stats["valid_slots"])
+                            pad_total = valid + reduced_stats["padding_slots"]
+                            tb.add_scalar("train/loss_frame", reduced_stats["loss_sum"] / frames, global_step)
+                            tb.add_scalar("train/q2_trigger_rate", reduced_stats["q2_triggered"] / frames, global_step)
+                            tb.add_scalar("train/q1_rs_acc_window", reduced_stats["q1_rs_correct"] / frames, global_step)
+                            tb.add_scalar("train/q1_abnormal_acc_window", reduced_stats["q1_abnormal_correct"] / frames, global_step)
+                            tb.add_scalar("train/q2_event_acc_window", reduced_stats["q2_event_correct"] / q2, global_step)
+                            tb.add_scalar("train/q2_invalid_output", reduced_stats["q2_invalid_output"], global_step)
+                            tb.add_scalar("train/reset_next", reduced_stats["reset_next"], global_step)
+                            tb.add_scalar("train/rollout_tokens_per_frame", (reduced_stats["q1_rollout_tokens"] + reduced_stats["q2_rollout_tokens"]) / frames, global_step)
+                            tb.add_scalar("ddp/padding_rate", reduced_stats["padding_slots"] / max(1.0, pad_total), global_step)
+                            tb.add_scalar("ddp/max_T_global_avg", reduced_stats["max_T_global_sum"] / max(1.0, reduced_stats["batches"]), global_step)
                 if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
                     _save_adapter(bundle, output_dir / f"checkpoint-{global_step}", args)
                 if int(args.max_steps) > 0 and global_step >= int(args.max_steps):

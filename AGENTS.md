@@ -280,8 +280,11 @@
   `frame_event_annotation.allowed_events`，缺失时才 fallback 到
   `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]`；所有 `R-E*`
   在 prompt 中折为一个 `RE`，原始 `event_code` / `regular_event_codes` 只作审计和 RE
-  细分文案。训练用 true torch DDP：collate 只做本 rank local padding，主训练进程
-  all-reduce 得到 global `max_T` 后补齐，padding frame 不读图、不进 Qwen、不产 loss；
+  细分文案。训练用 true torch DDP 的同步 on-policy OPSD：每张卡都先让当前 student
+  rollout Q1/Q2 token，再用 privileged teacher logits 对同一批 token 做 forward-KL
+  并 DDP 同步梯度；当前不是 v4 的 collector/learner 异步 replay 分卡架构。collate
+  只做本 rank local padding，主训练进程 all-reduce 得到 global `max_T` 后补齐，
+  padding frame 不读图、不进 Qwen、不产 loss；
   `train.sh` 支持 `single/ddp/check`，遵循 GPU 自动选址、`GPU_IDS` pin 卡和
   `run_<RUN_TAG>/latest` 防覆盖约定。`probe.py` 仿 v3 输出 route/frame 层级可视化：
   复制 4 帧 RGB，保存 student prompt/output、teacher privileged prompt、脚本化 teacher target、
