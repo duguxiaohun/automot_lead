@@ -271,6 +271,26 @@
 - `AutoMoT/qwen3vl_local/sft_v4/inspect_teacher.py`
   （按用户同意新增到白名单：SFT v4 是 sequence-memory OPD 的 off-policy actor-learner 路线；生产入口为 `launch_offpolicy.sh`，默认 4×H20 部署为 GPU0 跑单进程 learner、GPU1/GPU2/GPU3 各 1 个 collector；确认服务器允许单卡多 CUDA 进程后，可手动调 `COLLECTORS_PER_GPU=2/3`。collector 不进 DDP/NCCL，只异步用 LoRA snapshot rollout 并写 `replay/ready/*.jsonl`；learner 不进 DDP/NCCL，单进程随机读取 replay 做 teacher-forced loss/backward，并周期发布 `latest_lora/v_<step>/`。`learn.py` 日志/TB 记录 `replay_ready/replay_pending/replay_failed/wait_events/wait_total` 与 `train/replay/*`，用于判断 collector 和 learner 谁是吞吐瓶颈。`replay.py` 负责 trajectory schema、原子写、文件锁 counter、FIFO 驱逐；`collect.py` 负责 Phase A 50% 正确初始化、Phase B 0.15 噪声扰动、teacher/student generate 和 trajectory 写盘；`learn.py` 负责 replay 采样、无 generate 的 loss/backward、checkpoint/final/snapshot；`train.py` / `train.sh` 仅保留为 on-policy 兼容调试入口，生产训练不要走它。自定义 KV decode 已本地化到 `qwen3vl_local/mrope_utils.py`，`test_kv_vs_native.py` 对比本地增量 KV 与全量无 cache / 原生 generate；旧 bug 污染过的 v4 checkpoint 需作废后重训。三步 student prompt 与 teacher target 共用 `Scene Description` / `Critical Object Description` / `Reasoning on Intent` / `Memory Judgment` 四个公开 heading；step1 student 只读 road-only memory，step2/3 才读完整 memory，teacher 可看 answer 字段但 teacher prompt 不列 label 占位符，标签由脚本追加并清洗成学生视角。scene 训练标签使用 canonical 口径：`EnterActorFlowV2 -> EnterActorFlow`、`MergerIntoSlowTrafficV2 -> MergerIntoSlowTraffic`，原始 CARLA scenario 仅保留在 `scenario/raw_gt_scene` 元数据中。`inspect_teacher.py` 是离线老师抽检脚本：随机采样 episode × 帧 × 5 种 memory 模式（all_keep / rs_change / scene_change_same_rs / event_change / scene_change_cross_rs），先做 prompt contract 自检，再 lazy import torch/model runtime，全程 `disable_adapter` 走 frozen base Qwen，逐 step 记录 teacher-private prompt/raw、student-facing prompt、adapter-enabled student 初始输出、supervised target 与 token 统计，产物为 `teacher_report.md` + `teacher_report.jsonl`，供人工评估老师推理质量并指导 prompt 迭代。）
   （v3/v4 prompt 同步硬约束：`AutoMoT/qwen3vl_local/sft_v4/prompts.py` 是唯一 prompt、Memory、状态机、target span 源；`sft_v3/prompts.py` 只能 re-export v4 并保留兼容别名。v3 是 offline on-policy OPSD：student rollout 更新 memory，`disable_adapter()` privileged teacher logits 对同一批 student step token 做 forward-KL 分布监督；v4 是 off-policy actor-learner/replay 路线。任何 prompt 或状态机改动必须同时验证 v3 和 v4。）
+- `AutoMoT/qwen3vl_local/sft_v5/`
+  （按用户同意新增到白名单：SFT v5 是 RS / EVENT 两问串行 OPSD 路线。数据来自
+  `AutoMoT/keyframe_filter/collection_output/*_result.json`，但训练前跳过
+  `noScenarios_result.json`、异常时长 route、数据缺失 skip、缺 XML/RGB/meta/逐帧 annotation
+  的 route；`review_required=true` 正常参与训练。Q1 输出 `ANALYSIS / RS / ABNORMAL`，
+  Q2 在 Q1 RS 正确后进入，候选优先使用逐帧
+  `frame_event_annotation.allowed_events`，缺失时才 fallback 到
+  `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]`；所有 `R-E*`
+  在 prompt 中折为一个 `RE`，原始 `event_code` / `regular_event_codes` 只作审计和 RE
+  细分文案。训练用 true torch DDP：collate 只做本 rank local padding，主训练进程
+  all-reduce 得到 global `max_T` 后补齐，padding frame 不读图、不进 Qwen、不产 loss；
+  `train.sh` 支持 `single/ddp/check`，遵循 GPU 自动选址、`GPU_IDS` pin 卡和
+  `run_<RUN_TAG>/latest` 防覆盖约定。`probe.py` 仿 v3 输出 route/frame 层级可视化：
+  复制 4 帧 RGB，保存 student prompt/output、teacher privileged prompt、脚本化 teacher target、
+  memory_before/after、flags、timeline.json/png 和 manifest.json；`--with-teacher`
+  是兼容标志，不额外加载第二份 teacher Qwen。运行与可视化方法见
+  `SFT_V5_RUN.md` / `SFT_V5_PLAN.md`。）
+- `AutoMoT/checkpoints/SFT_V5_VISUALIZATION_RECORD.md`
+  （按用户同意新增到白名单：仅保存 SFT v5 教师/学生输入输出可视化方法与产物清单的轻量
+  markdown 记录；`AutoMoT/checkpoints/` 里的权重、模型软链接、probe 产物和训练输出仍默认不入库。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md`
@@ -344,6 +364,7 @@ git add AutoMoT/qwen3vl_local/sft/__init__.py AutoMoT/qwen3vl_local/sft/SFT_PLAN
 git add AutoMoT/qwen3vl_local/sft_v2/__init__.py AutoMoT/qwen3vl_local/sft_v2/SFT_V2_PLAN.md AutoMoT/qwen3vl_local/sft_v2/SFT_V2_RUN.md AutoMoT/qwen3vl_local/sft_v2/prompts.py AutoMoT/qwen3vl_local/sft_v2/build_dataset.py AutoMoT/qwen3vl_local/sft_v2/train.py AutoMoT/qwen3vl_local/sft_v2/train.sh AutoMoT/qwen3vl_local/sft_v2/eval.py AutoMoT/qwen3vl_local/sft_v2/probe.py AutoMoT/qwen3vl_local/sft_v2/check_loss_mask.py
 git add AutoMoT/qwen3vl_local/sft_v3/__init__.py AutoMoT/qwen3vl_local/sft_v3/SFT_V3_PLAN.md AutoMoT/qwen3vl_local/sft_v3/SFT_V3_RUN.md AutoMoT/qwen3vl_local/sft_v3/prompts.py AutoMoT/qwen3vl_local/sft_v3/build_dataset.py AutoMoT/qwen3vl_local/sft_v3/train.py AutoMoT/qwen3vl_local/sft_v3/train.sh AutoMoT/qwen3vl_local/sft_v3/eval.py AutoMoT/qwen3vl_local/sft_v3/probe.py AutoMoT/qwen3vl_local/sft_v3/check_loss_mask.py AutoMoT/qwen3vl_local/sft_v3/test_memory_update.py AutoMoT/qwen3vl_local/sft_v3/test_kv_reuse.py AutoMoT/qwen3vl_local/sft_v3/test_gt_leak_filter.py
 git add AutoMoT/qwen3vl_local/sft_v4/__init__.py AutoMoT/qwen3vl_local/sft_v4/SFT_V4_PLAN.md AutoMoT/qwen3vl_local/sft_v4/SFT_V4_RUN.md AutoMoT/qwen3vl_local/sft_v4/prompts.py AutoMoT/qwen3vl_local/sft_v4/build_dataset.py AutoMoT/qwen3vl_local/sft_v4/train.py AutoMoT/qwen3vl_local/sft_v4/train.sh AutoMoT/qwen3vl_local/sft_v4/eval.py AutoMoT/qwen3vl_local/sft_v4/probe.py AutoMoT/qwen3vl_local/sft_v4/check_loss_mask.py AutoMoT/qwen3vl_local/sft_v4/test_memory_update.py AutoMoT/qwen3vl_local/sft_v4/test_kv_reuse.py AutoMoT/qwen3vl_local/sft_v4/test_kv_vs_native.py AutoMoT/qwen3vl_local/sft_v4/test_gt_leak_filter.py AutoMoT/qwen3vl_local/sft_v4/replay.py AutoMoT/qwen3vl_local/sft_v4/collect.py AutoMoT/qwen3vl_local/sft_v4/learn.py AutoMoT/qwen3vl_local/sft_v4/launch_offpolicy.sh AutoMoT/qwen3vl_local/sft_v4/inspect_teacher.py
+git add AutoMoT/qwen3vl_local/sft_v5/ AutoMoT/checkpoints/SFT_V5_VISUALIZATION_RECORD.md
 git add AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V2.md AutoMoT/qwen3vl_local/goalgen/build_dataset.py AutoMoT/qwen3vl_local/goalgen/train.py AutoMoT/qwen3vl_local/goalgen/train.sh AutoMoT/qwen3vl_local/goalgen/eval.py AutoMoT/qwen3vl_local/goalgen/probe.py
 git add AutoMoT/qwen3vl_local/leadmot/__init__.py AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_PLAN.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md AutoMoT/qwen3vl_local/leadmot/build_dataset.py AutoMoT/qwen3vl_local/leadmot/train.py AutoMoT/qwen3vl_local/leadmot/train.sh AutoMoT/qwen3vl_local/leadmot/eval.py AutoMoT/qwen3vl_local/leadmot/probe.py AutoMoT/qwen3vl_local/leadmot/config.py AutoMoT/qwen3vl_local/leadmot/projectors.py AutoMoT/qwen3vl_local/leadmot/query_bank.py AutoMoT/qwen3vl_local/leadmot/heads.py AutoMoT/qwen3vl_local/leadmot/mot_block.py AutoMoT/qwen3vl_local/leadmot/decoder.py AutoMoT/qwen3vl_local/leadmot/subgoal_prompt.py
 git add AutoMoT/vae_standalone/train_patch_unpatch.py AutoMoT/vae_standalone/vae_reconstruct.py
