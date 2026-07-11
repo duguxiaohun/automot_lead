@@ -1,0 +1,147 @@
+"""SFT v5 teacher prompt 合同抽检。
+
+本脚本默认不加载模型，只检查：
+- XML weather 是否只进入 teacher prompt；
+- teacher target 是否没有 ANSWER_/REFERENCE/XML_WEATHER 泄漏；
+- Q2 option map 是否 frame 级随机且可解析。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import pathlib
+import sys
+
+_THIS_FILE = pathlib.Path(__file__).resolve()
+_AUTOMOT_ROOT = _THIS_FILE.parents[2]
+_PROJECT_ROOT = _THIS_FILE.parents[3]
+for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
+    build_q1_student_prompt,
+    build_q1_teacher_prompt,
+    build_q1_teacher_target,
+    build_q2_student_prompt,
+    build_q2_teacher_prompt,
+    build_q2_teacher_target,
+    check_no_private_markers,
+    reset_memory_for_frame,
+)
+from qwen3vl_local.sft_v5.train import RouteSequenceDataset, _event_target_from_frame, _rs_target_from_frame  # noqa: E402
+
+
+def inspect(args: argparse.Namespace) -> dict:
+    """执行抽检并写 report。"""
+
+    ds = RouteSequenceDataset(
+        pathlib.Path(args.index),
+        max_routes=int(args.max_routes),
+        max_frames_per_route=int(args.max_frames_per_route),
+    )
+    out_dir = pathlib.Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    bad = 0
+    count = 0
+    for route in ds.rows:
+        for frame in route.frames:
+            if count >= int(args.num_cases):
+                break
+            rs_target = _rs_target_from_frame(frame)
+            event_target = _event_target_from_frame(frame)
+            memory = reset_memory_for_frame(rs_target)
+            q1_student = build_q1_student_prompt(memory)
+            q1_teacher = build_q1_teacher_prompt(
+                memory,
+                rs_target=rs_target,
+                event_target=event_target,
+                weather_text=frame.weather_text,
+            )
+            q1_target = build_q1_teacher_target(
+                rs_target=rs_target,
+                event_target=event_target,
+                weather_text=frame.weather_text,
+            )
+            q2_student = build_q2_student_prompt(
+                memory,
+                option_map=frame.event_option_map,
+                q1_abnormal=frame.abnormal,
+                regular_event_codes=frame.regular_event_codes,
+            )
+            q2_teacher = build_q2_teacher_prompt(
+                memory,
+                option_map=frame.event_option_map,
+                q1_abnormal=frame.abnormal,
+                event_target=event_target,
+                regular_event_codes=frame.regular_event_codes,
+            )
+            q2_target = build_q2_teacher_target(
+                memory,
+                option_map=frame.event_option_map,
+                event_target=event_target,
+                regular_event_codes=frame.regular_event_codes,
+            )
+            checks = {
+                "q1_student_has_xml_weather": "XML_WEATHER" in q1_student or "XML reports" in q1_student,
+                "q1_teacher_has_xml_weather": "XML_WEATHER" in q1_teacher,
+                "q1_target_contains_weather_text": bool(frame.weather_text) and frame.weather_text in q1_target,
+                "q1_target_private_clean": check_no_private_markers(q1_target),
+                "q2_target_private_clean": check_no_private_markers(q2_target),
+                "option_map_nonempty": bool(frame.event_option_map),
+                "q2_student_has_scenario_name": route.scenario in q2_student,
+            }
+            ok = (
+                not checks["q1_student_has_xml_weather"]
+                and checks["q1_teacher_has_xml_weather"]
+                and not checks["q1_target_contains_weather_text"]
+                and checks["q1_target_private_clean"]
+                and checks["q2_target_private_clean"]
+                and checks["option_map_nonempty"]
+                and not checks["q2_student_has_scenario_name"]
+            )
+            bad += int(not ok)
+            rows.append(
+                {
+                    "scenario": route.scenario,
+                    "route_id": route.route_id,
+                    "frame_id": frame.frame_id,
+                    "rs": frame.rs_label,
+                    "event": frame.event_label,
+                    "option_map": frame.event_option_map,
+                    "checks": checks,
+                    "ok": ok,
+                }
+            )
+            count += 1
+        if count >= int(args.num_cases):
+            break
+    report = {"checked": count, "bad": bad, "rows": rows}
+    with open(out_dir / "teacher_report.json", "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    with open(out_dir / "teacher_report.md", "w", encoding="utf-8") as f:
+        f.write(f"# SFT v5 teacher inspect\n\nchecked={count}, bad={bad}\n")
+        for row in rows[:50]:
+            f.write(f"\n- {row['scenario']}/{row['route_id']} f{row['frame_id']}: ok={row['ok']} checks={row['checks']}\n")
+    return report
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Inspect SFT v5 teacher prompt contract")
+    p.add_argument("--index", type=str, required=True)
+    p.add_argument("--output-dir", type=str, default="checkpoints/sft_v5_teacher_inspect")
+    p.add_argument("--num-cases", type=int, default=64)
+    p.add_argument("--max-routes", type=int, default=0)
+    p.add_argument("--max-frames-per-route", type=int, default=0)
+    return p.parse_args()
+
+
+def main() -> None:
+    report = inspect(parse_args())
+    print(json.dumps({"checked": report["checked"], "bad": report["bad"]}, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()
