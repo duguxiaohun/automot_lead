@@ -59,6 +59,21 @@ python qwen3vl_local/sft_v5/train.py \
 
 ## 3. 训练
 
+### 3.0 OPSD 采样与训练关系
+
+OPSD 不是先离线生成一批 teacher 数据再训练。v5 当前实现是同步 on-policy：
+
+1. 每个 DDP rank 读取自己的 route sequence batch。
+2. 对每个有效 frame，当前 student 先自由生成 Q1；Q1 RS 正确时再自由生成 Q2。
+3. 这些 student 生成出来的 token 就是本 step 的 on-policy 采样数据，只在内存中临时保存。
+4. Teacher 关闭 LoRA，读取 privileged prompt，在同一批 student token 上 forward 得到 logits。
+5. Student/teacher logits 做 weighted forward-KL，然后当前 rank 反向传播，DDP 同步梯度。
+
+因此 H20 四卡下，当前 v5 是“四张卡都边采样边训练”，不是“几张卡专门采数据、几张卡专门训练”。
+这和 v4 的 off-policy collector/learner 不同。若要改成异步架构，可以参考 v4：
+`3` 张 H20 跑 collector 持续写 replay，`1` 张 H20 跑 learner 训练；但那需要新增 v5
+collector/replay/learner 代码，当前 `train.py` 没有这个分卡角色。
+
 ### Launcher 模式
 
 `train.sh` 参考 v3 的运行口径，支持 `single/ddp/check` 三种模式，并会维护
@@ -143,7 +158,14 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 
 当前 v5 训练脚本至少写：
 
-- `train/loss`
+- `train/loss_frame`：当前 logging window 内所有 rank 聚合后的 frame 平均 loss。
+- `train/q2_trigger_rate`：Q1 RS 正确后进入 Q2 的比例，也就是第二问实际采样率。
+- `train/q1_rs_acc_window` / `train/q1_abnormal_acc_window`：当前窗口的 Q1 解析正确率。
+- `train/q2_event_acc_window`：进入 Q2 的帧中，EVENT 解析是否命中动态真值。
+- `train/q2_invalid_output` / `train/reset_next`：非法输出和下一帧 reset 次数。
+- `train/rollout_tokens_per_frame`：student on-policy 采样出的 Q1+Q2 token 平均长度。
+- `ddp/padding_rate`：global padding 后的 None frame 占位比例。
+- `ddp/max_T_global_avg`：logging window 内 DDP 对齐后的平均 `max_T_global`。
 
 后续如果扩展详细 loss，可沿用 v3 的命名习惯拆到
 `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}`、
