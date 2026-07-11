@@ -85,11 +85,15 @@ def inspect(args: argparse.Namespace) -> dict:
                 regular_event_codes=frame.regular_event_codes,
             )
             checks = {
+                # student prompt 必须干净：不能把 XML weather 或 scenario name 泄漏给学生。
                 "q1_student_has_xml_weather": "XML_WEATHER" in q1_student or "XML reports" in q1_student,
+                # teacher prompt 必须真的含有 privileged weather，否则老师分析就退化成学生视角。
                 "q1_teacher_has_xml_weather": "XML_WEATHER" in q1_teacher,
+                # target 是“学生可见监督文本”，不能逐字包含 teacher-only weather_text。
                 "q1_target_contains_weather_text": bool(frame.weather_text) and frame.weather_text in q1_target,
                 "q1_target_private_clean": check_no_private_markers(q1_target),
                 "q2_target_private_clean": check_no_private_markers(q2_target),
+                # Q2 没候选会让训练/评估都无法解析 EVENT，因此作为硬合同检查。
                 "option_map_nonempty": bool(frame.event_option_map),
                 "q2_student_has_scenario_name": route.scenario in q2_student,
             }

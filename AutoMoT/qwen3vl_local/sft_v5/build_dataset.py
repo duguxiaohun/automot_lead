@@ -75,6 +75,8 @@ def _history_rgb_paths(run_dir: pathlib.Path, frame_id: int) -> List[str]:
 
     rgb_dir = run_dir / "rgb"
     rgb_files = sorted(rgb_dir.glob("*.jpg")) if rgb_dir.exists() else []
+    # Qwen 看到的是短历史而不是单帧：从旧到新排列。frame_id 不足 3 时复制/回退到
+    # frame 0，和训练时“左 padding”语义一致，避免序列开头样本被丢掉。
     frame_ids = [max(frame_id - i * RGB_HISTORY_STEP, 0) for i in range(RGB_HISTORY_COUNT)]
     ordered = list(reversed(frame_ids))
     paths: List[str] = []
@@ -203,11 +205,15 @@ def _build_frame_row(
         return None
     rs_target = resolve_rs_target(ann)
     event_target = resolve_event_target(ann)
+    # Q2 候选优先取 frame_event_annotation.allowed_events；只有旧数据缺失时才 fallback。
+    # raw_candidates 仍保留 R-E*/U-E*，后面 display_candidates/option_map 才折叠 regular。
     raw_candidates = q2_raw_candidates_for_frame(
         ann,
         scenario_candidates=scenario_candidates,
         rs_label=rs_target.label,
     )
+    # option_map 是本帧“字母 -> RE/U-E*”的唯一真相。训练/eval/probe 都保存它，
+    # 避免运行时重新随机导致 target 和 prompt 对不上。
     option_map = stable_event_option_map(
         run_id=route_id,
         frame_id=frame_id,
@@ -220,6 +226,8 @@ def _build_frame_row(
     weather = _weather_for_frame(ann, xml_weathers)
     regular_event_codes = [code for code in raw_candidates if code.startswith("R-E")]
     if not regular_event_codes:
+        # 如果 allowed_events 只有 UE，没有显式 regular code，仍保存 event_target 里的
+        # regular_event_codes 供 RE 文案兜底；这只影响解释文本，不强塞负例候选。
         regular_event_codes = list(event_target.regular_event_codes)
     return {
         "frame_id": frame_id,
@@ -264,6 +272,8 @@ def _build_route_row(
 ) -> Optional[Dict[str, Any]]:
     """把单条 route result 转成 sequence row。"""
 
+    # 只有结构完整的 success route 进入训练。review_required=true 是正常训练样本，
+    # 不在这里过滤；真正跳过的只有 noScenarios、异常时长、数据缺失、XML/RGB/meta 缺失。
     if route.get("status") != "success":
         return None
     route_id = str(route.get("route_id", ""))
@@ -289,6 +299,8 @@ def _build_route_row(
             automot_root=automot_root,
         )
         if frame_row is None:
+            # v5 的训练单元是整条 route sequence；任一帧证据链缺失都会破坏 memory 轨迹，
+            # 所以这里选择丢整条 route，而不是只删中间一帧造成时间跳变。
             return None
         frames.append(frame_row)
     if not frames:
@@ -362,6 +374,8 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     for path in files:
         scenario = path.name[: -len("_result.json")]
         if scenario == "noScenarios":
+            # noScenarios 是用户明确要求排除的收集结果；它可能含可视证据，
+            # 但不属于本轮 RS/EVENT OPSD 的训练分布。
             skip_counter["skip_noScenarios_file"] += 1
             continue
         if scenario_filter and scenario not in scenario_filter:
@@ -376,9 +390,13 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         for route in route_rows:
             route_id = str(route.get("route_id", ""))
             if route_id in abnormal_skips:
+                # lead_video_tools 的异常时长规则在 keyframe_filter 前置产物里已经记录；
+                # 这里再次执行，防止长异常 route 混入训练。
                 skip_counter["skip_abnormal_duration"] += 1
                 continue
             if route_id in missing_skips:
+                # 数据结构缺失、RGB/meta/XML 不完整的 route 不训练；这和
+                # review_required=true 不同，后者只是需要人工关注但仍有完整证据链。
                 skip_counter["skip_data_missing"] += 1
                 continue
             row = _build_route_row(

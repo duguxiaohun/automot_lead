@@ -194,8 +194,9 @@ python qwen3vl_local/sft_v5/eval.py \
 
 | 目的 | 命令 | 是否加载模型 | 主要产物 |
 |---|---|---|---|
-| 静态检查教师/学生输入 | `python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/probe --num-cases 24 --with-teacher` | 否 | RGB 副本、student prompt、teacher prompt、teacher target、memory、flags、timeline |
-| 生成学生输出并可视化 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --adapter-dir checkpoints/sft_v5_runs/latest/final --output-dir checkpoints/sft_v5_runs/latest/probe_with_model --num-cases 8 --with-model --with-teacher` | 是，只加载 student adapter | 上述全部产物 + `q1_student_output.txt` / `q2_student_output.txt` |
+| 训练前 base Qwen OPSD 能力体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe --num-cases 8 --with-model --with-teacher-model --with-teacher` | 是，纯默认/base Qwen，不传 `--adapter-dir`，不加载任何 LoRA | RGB 副本、student prompt/output、teacher prompt/target/output、memory、flags、timeline |
+| 训练后 adapter 学生可视化 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --adapter-dir checkpoints/sft_v5_runs/latest/final --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter --num-cases 8 --with-model --with-teacher` | 是，只加载 student adapter | 上述静态产物 + `q1_student_output.txt` / `q2_student_output.txt` |
+| 静态检查教师/学生输入合同 | `python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/probe_static --num-cases 24 --with-teacher` | 否 | RGB 副本、student prompt、teacher prompt、teacher target、memory、flags、timeline |
 | 检查 teacher 合同 | `python qwen3vl_local/sft_v5/inspect_teacher.py --index checkpoints/sft_v5_data/train_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/teacher_inspect --num-cases 64` | 否 | `teacher_report.json` / `teacher_report.md` |
 
 同一份速查记录也保存在 `qwen3vl_local/sft_v5/SFT_V5_VISUALIZATION_RECORD.md`，
@@ -203,32 +204,62 @@ python qwen3vl_local/sft_v5/eval.py \
 
 ### 6.2 Probe 入口
 
-`probe.py` 是 v5 的主要可视化/审计入口。默认不加载模型，只 dump 当前样本的学生 prompt、
-teacher privileged prompt、脚本化 teacher target、label、memory 轨迹与 4 帧 RGB 输入副本，
-适合先检查候选池、RE 细分文案、XML weather 隔离和 memory 初始状态。
+`probe.py` 是 v5 的主要可视化/审计入口。它有三种用途，必须分开理解：
+
+- 训练前 base Qwen OPSD 体检：`--with-model --with-teacher-model`，不传
+  `--adapter-dir`，不加载任何 LoRA，用默认 Qwen 分别跑 student prompt 和
+  privileged teacher prompt，判断模型基础能力与 prompt 合同是否足够支撑 OPSD。
+- 训练后 adapter 学生可视化：`--with-model --adapter-dir ...`，只看训练出的学生在
+  真实状态机下的 Q1/Q2 输出。
+- 静态 prompt / target 快检：不加载模型，只 dump RGB、student prompt、teacher prompt、
+  脚本化 teacher target、label、memory 和 timeline。
+
+训练前 base Qwen OPSD 能力体检：
 
 ```bash
-python qwen3vl_local/sft_v5/probe.py \
+GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
-  --output-dir checkpoints/sft_v5_runs/latest/probe \
-  --num-cases 24
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe \
+  --num-cases 8 \
+  --with-model \
+  --with-teacher-model \
+  --with-teacher
 ```
 
-带学生模型输出：
+这个命令不传 `--adapter-dir`，所以 student 和 teacher 都是默认/base Qwen；
+区别是 student 只看 RGB + 学生 prompt，teacher 看 RGB + privileged teacher prompt。
+这一类训练前体检不要加载任何 adapter，否则就不是在测试普通 Qwen 是否足够支撑
+OPSD。
+如果同卡同时加载两份 Qwen 显存不够，可以拆成 student-only 的 `--with-model` 和
+teacher-only 的 `--with-teacher-model` 两次跑。
+
+训练后 adapter 学生可视化：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
-  --output-dir checkpoints/sft_v5_runs/latest/probe_with_model \
+  --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
   --num-cases 8 \
   --with-model \
   --with-teacher
 ```
 
+静态 prompt / target 快检：
+
+```bash
+python qwen3vl_local/sft_v5/probe.py \
+  --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
+  --output-dir checkpoints/sft_v5_runs/latest/probe_static \
+  --num-cases 24 \
+  --with-teacher
+```
+
 `--with-teacher` 是 v3 兼容参数；v5 始终写 teacher privileged prompt 和脚本化
-teacher target，不会因为该参数额外加载第二份 Qwen teacher。
+teacher target。只有显式加 `--with-teacher-model` 时，才会额外加载 base Qwen 并生成
+`q1_teacher_output.txt` / `q2_teacher_output.txt`。
 
 输出结构仿 v3 probe：
 
@@ -248,26 +279,24 @@ teacher target，不会因为该参数额外加载第二份 Qwen teacher。
 - `q1_teacher_prompt.txt`：Q1 privileged teacher 输入，含 XML weather、GT RS、GT abnormal、
   原始 `event_code`。
 - `q1_teacher_target.txt`：脚本化学生视角 target，用于审计合同和 loss mask。
+- `q1_teacher_output.txt`：只有 `--with-teacher-model` 时非空，用于训练前检查 base teacher。
 - `q2_student_prompt.txt`：Q2 学生真实输入，含逐帧随机 `EVENT_CHOICES`；`RE` 会展开
   当前帧 `regular_event_codes` 的自然语言含义。
 - `q2_teacher_prompt.txt`：Q2 privileged teacher 输入，含 answer event option 与
   `event_code` 审计字段。
 - `q2_teacher_target.txt`：脚本化 Q2 target。
+- `q2_teacher_output.txt`：只有 `--with-teacher-model` 时非空，用于训练前检查 base teacher。
 - `q1_student_output.txt` / `q2_student_output.txt`：目录结构固定；只有 `--with-model` 时内容非空。
 - `step1_user.txt` / `step1_student.txt` / `step1_teacher_user.txt` / `step1_teacher.txt`：
   v3 风格别名，对应 Q1。
 - `step2_user.txt` / `step2_student.txt` / `step2_teacher_user.txt` / `step2_teacher.txt`：
   v3 风格别名，对应 Q2。
 - `memory_before.json` / `memory_after.json`：该帧前后的 `RS + EVENT` memory。
-- `flags.json`：解析出的 student 输出、是否 RS 正确、是否进入 Q2、是否 candidate mismatch、
-  是否 reset 下一帧等诊断字段。
+- `flags.json`：解析出的 student/teacher 输出、是否 RS 正确、是否进入 Q2、
+  是否 candidate mismatch、是否 reset 下一帧等诊断字段。
 - `labels.json`：`history_rgb_paths`、`rs_label/rs_option`、`event_label/event_code`、
   `abnormal`、`event_option_map`、`frame_allowed_events_raw`、`regular_event_codes`、
   `event_candidate_codes` 与 `weather_text_teacher_only`。
-
-注意：v5 目前没有单独的 `--with-teacher` 模型生成模式；训练中的 privileged teacher 是
-logits 监督，probe 中写出的是 teacher privileged prompt 与脚本化 teacher target。
-`--with-model` 只加载 student adapter 并生成学生 Q1/Q2 输出。
 
 ### 6.3 Teacher 合同抽检
 
@@ -291,3 +320,16 @@ python qwen3vl_local/sft_v5/inspect_teacher.py \
 - teacher target 不泄漏 `ANSWER_` / `REFERENCE` / `XML_WEATHER` 等私有标记。
 - Q2 option map 非空。
 - Q2 student prompt 不泄漏 scenario name。
+
+## 7. 代码注释维护要求
+
+`sft_v5` 代码已经按中文注释口径补充：
+
+- 函数/docstring 说明入口职责。
+- 关键逻辑块说明“为什么这样做”，包括逐帧 `allowed_events` 优先、`R-E* -> RE`
+  折叠、双标签单标签化、Q1 RS 错误截断、DDP global padding、OPSD teacher/student
+  logits 对齐，以及训练前纯 base Qwen 体检不加载 LoRA。
+- 测试脚本说明各自防止哪类回归。
+
+后续改 prompt、候选池、memory、训练状态机、probe 输出或 DDP padding 时，需要同步更新
+对应代码块注释和本运行文档，避免实现和人工检查口径漂移。

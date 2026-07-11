@@ -82,6 +82,8 @@ def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path
     if adapter_dir is not None:
         from peft import PeftModel
 
+        # eval/probe 路径默认 merge LoRA，后续 KV decode 直接走普通模型 forward，
+        # 避免 PEFT wrapper 在 Qwen3-VL incremental decode 中吞掉 cache_position。
         model = PeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False)
         if merge_lora and hasattr(model, "merge_and_unload"):
             model = model.merge_and_unload()
@@ -136,6 +138,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         for frame in route.frames:
             rs_target = _rs_target_from_frame(frame)
             if memory is None or reset_next:
+                # 评估严格模拟 v5 推理状态机：首帧或上帧失败后，只恢复 GT RS + RE；
+                # 之后的 memory 完全由 student 自己的 Q1/Q2 输出维护。
                 memory = reset_memory_for_frame(rs_target)
                 reset_next = False
             images = _load_images(frame.history_rgb_paths)
@@ -148,6 +152,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             counters["q1_abnormal_correct"] += int(q1_abnormal == frame.abnormal if q1_abnormal is not None else False)
             memory = update_memory_after_q1(memory, student_rs_label=parsed_q1.get("rs_label"), student_abnormal=q1_abnormal)
             if not q1_rs_ok:
+                # RS 错误会导致 Q2 候选空间错误，因此本帧不再追问 EVENT；
+                # q2_trigger_rate 会记录有多少帧真正进入了第二问。
                 counters["rs_wrong_resets"] += 1
                 reset_next = True
                 continue
@@ -164,6 +170,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             )
             parsed_q2 = parse_q2_output(q2_text, frame.event_option_map)
             target = _event_target_from_frame(frame, student_event=parsed_q2.get("event_label"))
+            # target 用 student_event 动态解析，和训练一致：双 UE / 双 RE 时如果学生选中
+            # 可接受标签之一，就按该标签计正确，不强行拉回置信度最高项。
             counters["q2_triggered"] += 1
             counters["q2_candidate_mismatch"] += int(option_for_event(target.label, frame.event_option_map) is None)
             event_ok = parsed_q2.get("event_label") == target.label

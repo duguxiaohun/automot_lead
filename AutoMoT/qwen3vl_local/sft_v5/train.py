@@ -140,6 +140,8 @@ class RouteSequenceDataset(Dataset):
                 obj = json.loads(line)
                 frames: List[FrameRow] = []
                 for fr in obj.get("frames", []):
+                    # build_dataset 已经把原始 annotation 压成训练需要的最小字段；
+                    # raw 仍完整保留 frame row，供多标签 EVENT 动态真值和 probe 审计回查。
                     frames.append(
                         FrameRow(
                             frame_id=int(fr["frame_id"]),
@@ -226,6 +228,9 @@ def pad_batch_to_global_length(batch: Dict[str, Any]) -> Dict[str, Any]:
         batch["max_T_global"] = global_max
         return batch
     for frames in batch["frame_rows"]:
+        # 只在主训练进程里补到 global max_T；padding frame 是 None，后续 loop 会跳过，
+        # 不读图、不进 Qwen、不产生 loss。这样不同 rank 的 sequence 长度能对齐 collective，
+        # 但不会把 padding 当成训练样本。
         while len(frames) < global_max:
             frames.append(None)
     valid = batch["valid_mask"]
@@ -265,6 +270,8 @@ def _load_images(paths: List[str]) -> List[Image.Image]:
 def _messages(images: List[Image.Image], user_prompt: str) -> List[Dict[str, Any]]:
     """构造 Qwen structured chat messages。"""
 
+    # Qwen3-VL processor 需要 structured message：4 张历史图先放，再放同一个 user prompt。
+    # system prompt 固定为 v5 协议，确保 train/eval/probe 的图文输入完全一致。
     content: List[Dict[str, Any]] = [{"type": "image", "image": image} for image in images]
     content.append({"type": "text", "text": user_prompt})
     return [
@@ -283,6 +290,8 @@ def _loss_positions(bundle: Any, text: str, span_fn: Any, weights: Mapping[str, 
     for key, (lo, hi) in spans.items():
         if key not in out:
             continue
+        # 字符 span 与 token offset 相交即可纳入 loss。这样即使 tokenizer 把 "A - ..."
+        # 切成多个 token，也能完整监督离散值所在整段。
         out[key] = [i for i, (a, b) in enumerate(offsets) if a < hi and b > lo]
     return out
 
@@ -320,6 +329,8 @@ def _opsd_loss(
     if rollout_ids.numel() == 0:
         return zero, {key: 0.0 for key in weights}
     with _teacher_eval_context(bundle):
+        # teacher 使用同一个 base Qwen，但 adapter 被临时禁用，并吃 privileged prompt。
+        # logits 只 detach 作目标分布；反向梯度只流向当前启用 LoRA 的 student。
         _, teacher_logits, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(teacher_state), rollout_ids)
     _, student_logits, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(student_state), rollout_ids)
     positions = _loss_positions(bundle, rollout_text, span_fn, weights)
@@ -375,6 +386,8 @@ def _run_frame(
     # ---- Q1: student rollout ----
     q1_prompt = build_q1_student_prompt(memory)
     with torch.no_grad():
+        # student 先自由生成 Q1；OPSD 的监督不是 teacher-forced token，而是随后在
+        # 这批 student 自己采样出的 token 上比较 teacher/student 分布。
         q1_student_state = _kv_start_state(bundle, _messages(images, q1_prompt))
         q1_text, q1_after, q1_ids = _student_generate_kv(bundle, q1_student_state, max_new_tokens_q1)
     q1_parsed = parse_q1_output(q1_text)
@@ -408,6 +421,8 @@ def _run_frame(
         "q1_parts": q1_parts,
     }
     if not q1_rs_correct:
+        # Q1 的 RS 是 Q2 候选池的上层条件。RS 错时继续问 Q2 会把错误道路结构传下去，
+        # 所以本帧立即截断；下一帧由外层恢复 GT RS + RE。
         return q1_loss, stats, memory_after_q1, True
 
     # ---- Q2: 只有 RS 正确才进入 ----
@@ -422,6 +437,8 @@ def _run_frame(
         q2_text, _q2_after, q2_ids = _student_generate_kv(bundle, q2_student_state, max_new_tokens_q2)
     q2_parsed = parse_q2_output(q2_text, frame.event_option_map)
     event_target = _event_target_from_frame(frame, student_event=q2_parsed.get("event_label"))
+    # EVENT 支持“单标签训练、双标签容错”：如果 raw label 有多个 UE/RE，而 student
+    # 选中了其中之一，teacher target 会接受这个 student_event 作为解释目标。
     target_option = option_for_event(event_target.label, frame.event_option_map)
     stats["candidate_mismatch"] = target_option is None
     q2_teacher_prompt = build_q2_teacher_prompt(
@@ -464,6 +481,8 @@ def _trainable_param_groups(bundle: Any, args: argparse.Namespace) -> Tuple[List
     for name, param in bundle.model.named_parameters():
         if not param.requires_grad:
             continue
+        # 视觉 LoRA 默认关闭；如果用户显式开启，视觉参数单独用较小 LR 和较低 clip norm，
+        # 防止少量 RS/EVENT 监督把 Qwen 视觉表征冲坏。
         if _is_vision_module_name(name):
             vision.append(param)
         else:
@@ -567,6 +586,8 @@ def main() -> None:
     if world_size > 1:
         from torch.utils.data.distributed import DistributedSampler
 
+        # v5 这里使用 true DDP 的普通 DistributedSampler；和 v3 local-SGD/work-stealing 不同。
+        # 不同 rank 拿到的 route 长度可能不同，所以后面还要 global max_T 对齐。
         sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True, seed=int(args.seed))
     else:
         sampler = None
@@ -629,12 +650,16 @@ def main() -> None:
             frame_count = 0
             routes: List[SequenceRow] = batch["routes"]
             frame_rows: List[List[Optional[FrameRow]]] = batch["frame_rows"]
+            # 每条 route 各自维护 memory/reset；batch 内 route 之间互不影响。
+            # reset_next=True 表示上一个有效帧 RS 错或 Q2 非法，下一帧开头恢复 GT RS + RE。
             reset_next = [False for _ in routes]
             memories: List[Optional[Memory]] = [None for _ in routes]
             for t in range(int(batch["max_T_global"])):
                 for b, route in enumerate(routes):
                     frame = frame_rows[b][t]
                     if frame is None:
+                        # global padding 位置不参与任何计算，确保 DDP 对齐只影响 loop 长度，
+                        # 不影响训练样本数量和 loss。
                         continue
                     rs_target = _rs_target_from_frame(frame)
                     if memories[b] is None or reset_next[b]:
@@ -669,6 +694,8 @@ def main() -> None:
                 else nullcontext()
             )
             with sync_context:
+                # 梯度累积中间 micro step 不做 DDP all-reduce，最后一个 micro step 再同步，
+                # 避免每帧/每小 batch 都触发昂贵 collective。
                 loss_scaled.backward()
             running_loss += float(batch_loss.detach().item())
             micro_step += 1
