@@ -170,6 +170,8 @@ COMMON_ARGS=(
   --max-frames-per-route "${MAX_FRAMES_PER_ROUTE:-0}"
   --num-workers "${NUM_WORKERS:-0}"
   --logging-steps "${LOGGING_STEPS:-5}"
+  --progress-frames "${PROGRESS_FRAMES:-5}"
+  --heartbeat-seconds "${HEARTBEAT_SECONDS:-120}"
   --save-steps "${SAVE_STEPS:-200}"
   --max-steps "${MAX_STEPS:-0}"
   --seed "${SEED:-20260711}"

@@ -195,6 +195,27 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 - `ddp/padding_rate`：global padding 后的 None frame 占位比例。
 - `ddp/max_T_global_avg`：logging window 内多进程对齐后的平均 `max_T_global`。
 
+stdout / `log.txt` 还会写 rank0 心跳，避免长时间看不到训练状态：
+
+- `[batch-start]`：当前 batch 的 route 数、local/global padding 长度、有效 frame 数。
+- `[frame-start]` / `[frame-done]`：当前 rank0 正在处理的 route/frame、memory、耗时、
+  loss、Q1/Q2 rollout token、是否进入 Q2、是否 reset、CUDA 显存。
+- `[batch-local-done]` / `[batch-global-done]`：本 rank frame 已处理完，随后是否卡在
+  跨 rank frame_count all-reduce。
+- `[sync-start]` / `[sync-done]`：optimizer step 前的 LoRA 梯度 all-reduce 是否开始/结束。
+
+默认每个 rank0 的前 3 个 frame 都打印，之后每 `PROGRESS_FRAMES=5` 个本地有效 frame
+打印一次；单个长操作超过 `HEARTBEAT_SECONDS=120` 秒也会补心跳。排查卡顿时建议：
+
+```bash
+PROGRESS_FRAMES=1 HEARTBEAT_SECONDS=60 GPU_IDS=0,1,2,3 \
+bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+如果最后一条日志停在 `[frame-start]`，说明某个单帧 Qwen OPSD 很慢或卡在图像/生成；
+停在 `[batch-local-done]` 则优先查 rank 间是否有某个进程落后；停在 `[sync-start]`
+则优先查 LoRA 梯度 all-reduce / NCCL。
+
 后续如果扩展详细 loss，可沿用 v3 的命名习惯拆到
 `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}`、
 `grad_norm/{language,vision}` 和 `param_norm/lora_{language,vision}`。
