@@ -160,7 +160,12 @@ LORA_VISION_SCOPE=merger VISION_LR_SCALE=0.1 GPU_IDS=0 bash qwen3vl_local/sft_v5
   `use_cache=True`；`--grad-checkpoint` 仅保留为实验开关。
 - Q1 输出 `Scene Description / Critical Object Description / Reasoning on Intent / RS / ABNORMAL`；
   天气、道路、车道线、交通灯和周围运动都压缩写进 `Scene Description`，没有单独天气分类 loss。
-- `MEMORY` 内含 `EGO_TO_GOAL_XY`，由 build_dataset 从当前帧 meta
+- System prompt 明确提醒关注交通灯/标志、周围车辆/行人/障碍物、车道线/道路结构、
+  以及影响自车决策的关键因素，但仍保持短句。
+- Q1 使用 road-only `MEMORY`：只含自然语言 `BELIEVED_RS` 和
+  `EGO_TO_GOAL_XY=(+x, +y) m`，不提前暴露 `BELIEVED_EVENT`。
+- Q2 才使用 road + event `MEMORY`；memory 文本只写自然语言描述，不写 A-E 选项字母
+  或 `RE/U-E*` 标签代码。`EGO_TO_GOAL_XY` 由 build_dataset 从当前帧 meta
   `next_target_points[-1]` 转 ego frame 写入；缺失该坐标的 route 不进入新数据集。
 - Student 不看 XML weather；XML weather 只进入 teacher prompt，并且 teacher target
   清洗成学生视角。若 XML weather 与 RGB 可见天气或能见度冲突，teacher 以 RGB
@@ -342,8 +347,8 @@ teacher target。只有显式加 `--with-teacher-model` 时，才会额外加载
   v3 风格别名，对应 Q1。
 - `step2_user.txt` / `step2_student.txt` / `step2_teacher_user.txt` / `step2_teacher.txt`：
   v3 风格别名，对应 Q2。
-- `memory_before.json` / `memory_after.json`：该帧前后的 `RS + EVENT + EGO_TO_GOAL_XY`
-  memory。
+- `memory_before.json` / `memory_after.json`：该帧前后的内部 `RS + EVENT + EGO_TO_GOAL_XY`
+  memory。实际 Q1 user prompt 只渲染 road-only memory，Q2 user prompt 才渲染 event。
 - `flags.json`：解析出的 student/teacher 输出、是否 RS 正确、是否进入 Q2、
   是否 candidate mismatch、是否 reset 下一帧，以及
   `q2_student_continued_from_q1_kv` / `q2_teacher_continued_from_q1_kv` 等诊断字段。

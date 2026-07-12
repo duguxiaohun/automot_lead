@@ -278,7 +278,10 @@
   的 route；`review_required=true` 正常参与训练。每帧 meta 会抽取
   `next_target_points[-1]` 转 ego frame 写成学生可见 `EGO_TO_GOAL_XY`。Q1 使用精简
   `Scene Description / Critical Object Description / Reasoning on Intent` 三段式 CoT 后输出
-  `RS / ABNORMAL`，
+  `RS / ABNORMAL`；system prompt 简短提醒关注交通灯/标志、周围车辆/行人/障碍物、
+  车道线/道路结构和影响自车决策的关键因素；Q1 memory 只渲染自然语言
+  `BELIEVED_RS + EGO_TO_GOAL_XY`，不带 `BELIEVED_EVENT`，Q2 才渲染自然语言
+  `BELIEVED_EVENT`，memory 文本不写 A-E 选项字母或 `RE/U-E*` 标签代码。
   Q2 在 Q1 RS 正确后进入，候选优先使用逐帧
   `frame_event_annotation.allowed_events`，缺失时才 fallback 到
   `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]`；所有 `R-E*`

@@ -23,6 +23,12 @@ SFT v5 每帧分成两个问题：
 - prompt 是否诱导模型泄漏私有字段、复读候选、漏掉三段式 CoT
   `Scene Description / Critical Object Description / Reasoning on Intent`
   或 `RS/ABNORMAL/EVENT` 等关键输出字段。
+- system prompt 是否简洁提醒模型关注交通灯/标志、周围车辆/行人/障碍物、
+  车道线/道路结构和影响自车决策的关键因素。
+- `q1_*_user_prompt.txt` 的 `[MEMORY]` 是否只包含自然语言 `BELIEVED_RS` 和
+  `EGO_TO_GOAL_XY=(+x, +y) m`，不包含 `BELIEVED_EVENT`，也不包含 `A -` 这类选项前缀。
+- `q2_*_user_prompt.txt` 的 `[MEMORY]` 才包含自然语言 `BELIEVED_EVENT`，但仍不写
+  `RE -` 或 `U-E* -` 标签前缀。
 - Q2 的 `RE` 文案和当前帧 `U-E*` 候选是否足够清晰。
 - Q2 是否确实作为 Q1 assistant 输出后的第二轮 user turn 续接 KV cache，而不是重新
   fresh prefill 同一帧。
@@ -200,8 +206,9 @@ probe*/
 - `rgb_00.jpg` 到 `rgb_03.jpg` 是真实输入 Qwen 的 4 帧 stitched RGB history。
 - `labels.json` 保存 RS/EVENT 标签、候选池、`event_code`、`regular_event_codes`
   `ego_to_goal_xy` 和 teacher-only weather 文本。
-- `memory_before.json` / `memory_after.json` 保存该帧前后的
-  `RS + EVENT + EGO_TO_GOAL_XY` memory。
+- `memory_before.json` / `memory_after.json` 保存该帧前后的内部
+  `RS + EVENT + EGO_TO_GOAL_XY` memory；真正写入 Qwen 的 prompt 里，Q1 只渲染
+  road-only memory，Q2 才渲染 event memory。
 - `flags.json` 保存解析出的学生输出、teacher 输出、是否 RS 正确、是否进入 Q2、
   是否 candidate mismatch、是否 reset 下一帧、是否误传 `student_adapter_dir`
   以及 Q2 是否续接 Q1 KV cache 等诊断字段。

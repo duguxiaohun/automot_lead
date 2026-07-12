@@ -24,7 +24,7 @@ from qwen3vl_local.sft_v5.labels import (
 
 
 SYSTEM_PROMPT_V5 = """\
-You are an autonomous driving agent. Use the stitched RGB history as visual context, ordered from oldest to newest. Keep the current memory by default and change it only when clear visual evidence supports the change. Describe weak, distant, foggy, or occluded evidence as uncertain. Never mention ground truth, answer keys, hidden labels, dataset rules, or scenario names."""
+You are an autonomous driving agent. Use the stitched RGB history as visual context, ordered from oldest to newest. Focus on traffic lights/signs, nearby vehicles/pedestrians/obstacles, lane markings and road structure, and key factors affecting ego decisions. Keep the current memory by default and change it only when clear visual evidence supports the change. Describe weak, distant, foggy, or occluded evidence as uncertain. Never mention ground truth, answer keys, hidden labels, dataset rules, or scenario names."""
 
 # loss 权重只用于训练时的 token span 加权。结构化分析段低权重，让模型学习“怎么解释”，
 # 但不要让冗长自然语言压过 RS/ABNORMAL/EVENT 这几个离散答案 token。
@@ -68,27 +68,54 @@ class Memory:
             ego_to_goal_y=self.ego_to_goal_y,
         )
 
-    def format_text(self) -> str:
-        """渲染给学生看的纯文本 memory。"""
+    def _road_description(self) -> str:
+        """返回 memory 中使用的道路结构自然语言描述，不带 A-E 选项字母。"""
 
-        rs_opt = self.rs_option
-        rs_desc = RS_OPTION_DESCRIPTIONS.get(rs_opt, RS_OPTION_DESCRIPTIONS["A"])
+        return RS_OPTION_DESCRIPTIONS.get(self.rs_option, RS_OPTION_DESCRIPTIONS["A"])
+
+    def _event_description(self) -> str:
+        """返回 memory 中使用的事件自然语言描述，不带 RE/U-E 标签。"""
+
         event_desc = EVENT_DESCRIPTIONS.get(self.event_label)
         if self.event_label == "RE":
             event_desc = event_description_for_display("RE", self.rs_label)
+        return event_desc or EVENT_DESCRIPTIONS["RE"]
+
+    def _goal_text(self) -> str:
+        """按 v4 同款格式渲染当前帧目的地相对坐标。"""
+
         if self.ego_to_goal_x is None or self.ego_to_goal_y is None:
-            goal_text = "UNKNOWN"
-        else:
-            goal_text = f"({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m"
-        # Memory 是学生唯一可见的跨帧状态。它不包含 scenario、GT、置信度或 event_code，
-        # 只保留“上一次相信的 RS/EVENT”和当前目的地相对坐标，模拟真实推理时的自维护记忆。
-        return (
-            "[MEMORY]\n"
-            f"BELIEVED_RS: {rs_opt} - {rs_desc}\n"
-            f"BELIEVED_EVENT: {self.event_label} - {event_desc}\n"
-            f"EGO_TO_GOAL_XY: {goal_text}\n"
-            "[/MEMORY]"
-        )
+            return "UNKNOWN"
+        return f"({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m"
+
+    def format_text(self, *, include_event: bool = True) -> str:
+        """渲染给学生看的纯文本 memory。
+
+        Q1 只看 road-only memory，不能提前暴露上一次 EVENT；Q2 才在 Q1 的
+        RS 判断基础上继续使用 EVENT memory。渲染文本只写自然语言描述，不写
+        A-E 或 RE/U-E 标签，避免模型把局部选项编号当成跨帧状态。
+        """
+
+        # Memory 是学生唯一可见的跨帧状态。它不包含 scenario、GT、置信度或 event_code。
+        lines = [
+            "[MEMORY]",
+            f"BELIEVED_RS: {self._road_description()}",
+        ]
+        if include_event:
+            lines.append(f"BELIEVED_EVENT: {self._event_description()}")
+        lines.append(f"EGO_TO_GOAL_XY={self._goal_text()}")
+        lines.append("[/MEMORY]")
+        return "\n".join(lines)
+
+    def format_q1_text(self) -> str:
+        """Q1 使用 road-only memory。"""
+
+        return self.format_text(include_event=False)
+
+    def format_q2_text(self) -> str:
+        """Q2 使用 road + event memory。"""
+
+        return self.format_text(include_event=True)
 
 
 def _structured_q1_format() -> str:
@@ -150,7 +177,7 @@ def build_q1_student_prompt(memory: Memory) -> str:
     """
 
     return "\n\n".join([
-        memory.format_text(),
+        memory.format_q1_text(),
         rs_choices_block(),
         (
             "[QUESTION_1]\n"
@@ -183,7 +210,7 @@ def build_q1_teacher_prompt(
 
     abnormal = "YES" if event_target.abnormal else "NO"
     return "\n\n".join([
-        memory.format_text(),
+        memory.format_q1_text(),
         rs_choices_block(),
         (
             "[REFERENCE]\n"
@@ -262,7 +289,7 @@ def build_q2_student_prompt(
             "is RE, use the analysis to explain which regular behavior is visible under the current road structure."
         )
     return "\n\n".join([
-        memory.format_text(),
+        memory.format_q2_text(),
         event_choices_block(option_map, memory.rs_label, regular_event_codes),
         (
             "[QUESTION_2]\n"
@@ -290,7 +317,7 @@ def build_q2_teacher_prompt(
     regular_codes = regular_event_codes if regular_event_codes is not None else event_target.regular_event_codes
     target_desc = event_description_for_display(event_target.label, memory.rs_label, regular_codes)
     return "\n\n".join([
-        memory.format_text(),
+        memory.format_q2_text(),
         event_choices_block(option_map, memory.rs_label, regular_codes),
         (
             "[REFERENCE]\n"
