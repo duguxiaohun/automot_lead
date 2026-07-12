@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SFT v5 训练 launcher：RS/EVENT 两问 OPSD + true torch DDP。
+# SFT v5 训练 launcher：RS/EVENT 两问 OPSD + torchrun 多进程训练。
 #
 # 从 AutoMoT/ 目录运行：
 #   GPU_IDS=0 bash qwen3vl_local/sft_v5/train.sh single
@@ -112,9 +112,13 @@ case "${MODE}" in
     fi
     export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
     export MASTER_PORT="${MASTER_PORT:-$(find_free_master_port)}"
-    # v5 使用真正 torch DDP；各 rank 的 batch 会先 local padding，再由 train.py
-    # all-reduce 出 global max_T。这里仅负责进程数和 master 端口。
+    # v5 使用 torchrun 多进程；各 rank 的 batch 会先 local padding，再由 train.py
+    # all-reduce 出 global max_T，并手动 all-reduce LoRA 梯度。这里仅负责进程数和 master 端口。
     export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
+    # NCCL 2.26 RAS 会额外尝试绑定本地监听端口；同机多实验时容易出现
+    # "NCCL WARN Call to bind failed: Address already in use"。训练不依赖 RAS，
+    # 默认关闭，用户需要 NCCL RAS 诊断时可显式 NCCL_RAS_ENABLE=1。
+    export NCCL_RAS_ENABLE="${NCCL_RAS_ENABLE:-0}"
     ;;
   *)
     echo "Unknown mode: ${MODE}. Use single/ddp/check." >&2

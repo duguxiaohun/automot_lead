@@ -283,10 +283,12 @@
   `frame_event_annotation.allowed_events`，缺失时才 fallback 到
   `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]`；所有 `R-E*`
   在 prompt 中折为一个 `RE`，原始 `event_code` / `regular_event_codes` 只作审计和 RE
-  细分文案。训练用 true torch DDP 的同步 on-policy OPSD：每张卡都先让当前 student
+  细分文案。训练用 torchrun 多进程同步 on-policy OPSD：每张卡都先让当前 student
   rollout Q1/Q2 token，Q2 作为 Q1 assistant 输出后的第二轮 user turn 复用 Q1 KV cache，
-  再用 privileged teacher logits 对同一批 token 做 forward-KL
-  并 DDP 同步梯度；当前不是 v4 的 collector/learner 异步 replay 分卡架构。collate
+  再用 privileged teacher logits 对同一批 token 做 forward-KL，并在 optimizer step
+  前手动 all-reduce LoRA 梯度；不能包 `DistributedDataParallel(model)` wrapper，
+  因为动态 Q2 分支会造成 rank 间 forward 次数不一致并触发 NCCL watchdog。当前不是
+  v4 的 collector/learner 异步 replay 分卡架构。collate
   只做本 rank local padding，主训练进程 all-reduce 得到 global `max_T` 后补齐，
   padding frame 不读图、不进 Qwen、不产 loss；
   `train.sh` 支持 `single/ddp/check`，遵循 GPU 自动选址、`GPU_IDS` pin 卡和
