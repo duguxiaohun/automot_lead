@@ -17,6 +17,9 @@ export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
 export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+# v5 的 Qwen3-VL OPSD 会频繁创建/释放 KV 与 logits 张量；启用 expandable
+# segments 可降低 CUDA allocator 碎片化导致的小额分配 OOM。
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 TRAIN_INDEX="${TRAIN_INDEX:-checkpoints/sft_v5_data/train_sequence_index.jsonl}"
 VAL_INDEX="${VAL_INDEX:-checkpoints/sft_v5_data/val_sequence_index.jsonl}"

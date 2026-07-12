@@ -54,7 +54,7 @@
 - LEAD RGB 是三视角拼接 `(W=1152, H=384)`；当前本地 Qwen frozen prefill 直接喂整图，不切片、不 resize、不选前视。
 - `vlm_paradigm_a_runner.py` 的 `qwen` backend 必须只读本地 `AutoMoT/checkpoints/Qwen3-VL-4B`（`local_files_only=True`），并用 HF 标准 `past_key_values` 显式 prefill/decode 做文字输出；AutoMoT 现有 `InterleaveInferencer` / `qwen3vl_template_inference` 绑定 AutoMoT 自定义 MoT 架构，不要拿来直接支撑 standalone Qwen 的完整自由文本生成。
 - `qwen3vl_instruct_paradigm_a_runner.py` 是 standalone Qwen-only 范式 A runner，只跑本地 `AutoMoT/checkpoints/Qwen3-VL-4B-Instruct`；该目录对应 HuggingFace `repo_id=Qwen/Qwen3-VL-4B-Instruct`，用户远程环境已下载。必须 `local_files_only=True` 且设置 HF/Transformers offline 环境变量，禁止下载；不 import `vlm_paradigm_a_runner.py`，不接 AutoMoT `InterleaveInferencer`。
-- `AutoMoT/qwen3vl_local/` 保存 Qwen3-VL-Instruct 本地可魔改代码：`prompt_pipeline.py` 从 `vlm_paradigm_a_runner.py` 的迁移块同步完整提示词/状态机；另含 LEAD RGB 读取、显式 prefill/decode、KV cache summary 与可选 `torch.save`。Qwen3-VL 自定义 KV 增量 decode 必须复用 `mrope_utils.py` 的 `qwen3vl_incremental_forward` 显式复算 M-RoPE `position_ids`，禁止再依赖 `prepare_inputs_for_generation` 组装 decode 输入（PEFT wrapper 会丢 `cache_position`）。`engine.py` 的 `cache_system_prompt` 只允许纯文本 suffix 复用 system-prefix cache；含 `pixel_values` / `image_grid_thw` 的多模态输入必须回退完整 prefill，避免半截图文 M-RoPE cache 错位。
+- `AutoMoT/qwen3vl_local/` 保存 Qwen3-VL-Instruct 本地可魔改代码：`prompt_pipeline.py` 从 `vlm_paradigm_a_runner.py` 的迁移块同步完整提示词/状态机；另含 LEAD RGB 读取、显式 prefill/decode、KV cache summary 与可选 `torch.save`。Qwen3-VL 自定义 KV 增量 decode 必须复用 `mrope_utils.py` 的 `qwen3vl_incremental_forward` 显式复算 M-RoPE `position_ids`，禁止再依赖 `prepare_inputs_for_generation` 组装 decode 输入（PEFT wrapper 会丢 `cache_position`）。`engine.py` 的 `cache_system_prompt` 只允许纯文本 suffix 复用 system-prefix cache；含 `pixel_values` / `image_grid_thw` 的多模态输入必须回退完整 prefill，避免半截图文 M-RoPE cache 错位。`engine.py` 的 `_clone_cache` 必须优先保持 Transformers `Cache` 对象类型（如带 `get_mask_sizes` / `get_seq_length` 的新版 cache），legacy tuple 只能作为旧版兜底；新版 Qwen3-VL forward 会直接调用 Cache 方法，不能把它退化成普通 tuple。
 - `0026.json` 是 LEAD meta.pkl 转 JSON 的固定参考样本，只读，绝对不要修改或入库。
 
 ---
@@ -285,8 +285,9 @@
   在 prompt 中折为一个 `RE`，原始 `event_code` / `regular_event_codes` 只作审计和 RE
   细分文案。训练用 torchrun 多进程同步 on-policy OPSD：每张卡都先让当前 student
   rollout Q1/Q2 token，Q2 作为 Q1 assistant 输出后的第二轮 user turn 复用 Q1 KV cache，
-  再用 privileged teacher logits 对同一批 token 做 forward-KL，并在 optimizer step
-  前手动 all-reduce LoRA 梯度；不能包 `DistributedDataParallel(model)` wrapper，
+  再用 privileged teacher logits 对同一批 token 的监督 span 做 forward-KL；每帧
+  loss 立刻 backward，只累计 LoRA 梯度，并在 optimizer step 前手动 all-reduce；
+  不能包 `DistributedDataParallel(model)` wrapper，
   因为动态 Q2 分支会造成 rank 间 forward 次数不一致并触发 NCCL watchdog。当前不是
   v4 的 collector/learner 异步 replay 分卡架构。collate
   只做本 rank local padding，主训练进程 all-reduce 得到 global `max_T` 后补齐，
