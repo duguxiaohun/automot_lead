@@ -339,18 +339,22 @@ def _loss_positions(bundle: Any, text: str, span_fn: Any, weights: Mapping[str, 
     return out
 
 
-def _kl_positions(student_logits: torch.Tensor, teacher_logits: torch.Tensor, positions: List[int], *, temperature: float) -> torch.Tensor:
-    """选定 token 位置上的 forward-KL。"""
+def _select_logits_at_positions(logits: torch.Tensor, positions: List[int]) -> Optional[torch.Tensor]:
+    """只保留需要监督的 token 位置，尽早释放完整 vocab logits。"""
 
     if not positions:
-        return student_logits.sum() * 0.0
-    idx = torch.tensor(positions, device=student_logits.device, dtype=torch.long)
-    s = student_logits[:, idx, :].reshape(-1, student_logits.shape[-1])
-    t = teacher_logits[:, idx, :].reshape(-1, teacher_logits.shape[-1]).detach()
+        return None
+    idx = torch.tensor(positions, device=logits.device, dtype=torch.long)
+    return logits[:, idx, :].reshape(-1, logits.shape[-1])
+
+
+def _kl_selected_logits(student_logits: torch.Tensor, teacher_logits: torch.Tensor, *, temperature: float) -> torch.Tensor:
+    """对已经裁剪到监督位置的 logits 计算 forward-KL。"""
+
     temp = max(float(temperature), 1e-6)
     return F.kl_div(
-        F.log_softmax(s / temp, dim=-1),
-        F.softmax(t / temp, dim=-1),
+        F.log_softmax(student_logits / temp, dim=-1),
+        F.softmax(teacher_logits.detach() / temp, dim=-1),
         reduction="batchmean",
     ) * (temp * temp)
 
@@ -371,16 +375,37 @@ def _opsd_loss(
     zero = student_state.next_logits.sum() * 0.0
     if rollout_ids.numel() == 0:
         return zero, {key: 0.0 for key in weights}
+    positions = _loss_positions(bundle, rollout_text, span_fn, weights)
+    active_positions = {key: pos for key, pos in positions.items() if pos}
+    if not active_positions:
+        return zero, {key: 0.0 for key in weights}
+
+    teacher_selected: Dict[str, torch.Tensor] = {}
     with _teacher_eval_context(bundle):
         # teacher 使用同一个 base Qwen，但 adapter 被临时禁用，并吃 privileged prompt。
         # logits 只 detach 作目标分布；反向梯度只流向当前启用 LoRA 的 student。
         _, teacher_logits, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(teacher_state), rollout_ids)
+        for key, pos in active_positions.items():
+            selected = _select_logits_at_positions(teacher_logits, pos)
+            if selected is not None:
+                teacher_selected[key] = selected.detach()
+        del teacher_logits
+
     _, student_logits, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(student_state), rollout_ids)
-    positions = _loss_positions(bundle, rollout_text, span_fn, weights)
+    student_selected: Dict[str, torch.Tensor] = {}
+    for key, pos in active_positions.items():
+        selected = _select_logits_at_positions(student_logits, pos)
+        if selected is not None:
+            student_selected[key] = selected
+    del student_logits
+
     total = zero
     parts: Dict[str, float] = {}
     for key, weight in weights.items():
-        loss = _kl_positions(student_logits, teacher_logits, positions.get(key, []), temperature=temperature)
+        if key not in student_selected or key not in teacher_selected:
+            loss = zero
+        else:
+            loss = _kl_selected_logits(student_selected[key], teacher_selected[key], temperature=temperature)
         total = total + float(weight) * loss
         parts[key] = float(loss.detach().item()) if loss.numel() else 0.0
     return total, parts
@@ -583,15 +608,6 @@ def _sync_trainable_grads(params: List[nn.Parameter]) -> None:
             param.grad = torch.zeros_like(param.data)
         dist.all_reduce(param.grad, op=dist.ReduceOp.SUM)
         param.grad.div_(world)
-
-
-def _zero_trainable_loss(params: List[nn.Parameter], device: torch.device) -> torch.Tensor:
-    """构造一个带梯度图的 0 loss，保证空 batch rank 也能参与同步。"""
-
-    zero = torch.zeros((), device=device)
-    for param in params:
-        zero = zero + param.sum() * 0.0
-    return zero
 
 
 def _ddp_sum_int(value: int) -> int:
@@ -892,10 +908,11 @@ def main() -> None:
         for batch in loader:
             batch = pad_batch_to_global_length(batch)
             _add_batch_shape_stats(window_stats, batch)
-            batch_loss = None
             frame_count = 0
             routes: List[SequenceRow] = batch["routes"]
             frame_rows: List[List[Optional[FrameRow]]] = batch["frame_rows"]
+            local_frame_slots = sum(1 for frames in frame_rows for frame in frames if frame is not None)
+            loss_scale = 1.0 / float(max(1, local_frame_slots) * max(1, int(args.grad_accum)))
             # 每条 route 各自维护 memory/reset；batch 内 route 之间互不影响。
             # reset_next=True 表示上一个有效帧 RS 错或 Q2 非法，下一帧开头恢复 GT RS + RE。
             reset_next = [False for _ in routes]
@@ -925,7 +942,12 @@ def main() -> None:
                         if rank == 0:
                             print(f"[warn] skip missing image route={route.route_id} frame={frame.frame_id}: {exc}")
                         continue
-                    batch_loss = loss if batch_loss is None else batch_loss + loss
+                    # 关键显存控制：每帧 OPSD loss 算完立刻 backward，只把 LoRA
+                    # 梯度累积在参数上，不把整条 route sequence 的 Qwen 计算图留到
+                    # batch 末尾。这样长序列不会把 H20 95GB 显存吃满。
+                    window_stats["loss_sum"] += float(loss.detach().item())
+                    (loss * loss_scale).backward()
+                    del loss
                     frame_count += 1
                     _add_frame_rollout_stats(window_stats, stats, need_reset=bool(need_reset))
                     memories[b] = next_mem
@@ -933,16 +955,6 @@ def main() -> None:
             global_frame_count = _ddp_sum_int(frame_count)
             if global_frame_count == 0:
                 continue
-            if batch_loss is None or frame_count == 0:
-                batch_loss = _zero_trainable_loss(trainable_params, device)
-            else:
-                batch_loss = batch_loss / float(frame_count)
-                window_stats["loss_sum"] += float(batch_loss.detach().item()) * float(frame_count)
-            loss_scaled = batch_loss / float(max(1, int(args.grad_accum)))
-            sync_this_step = (micro_step + 1) % max(1, int(args.grad_accum)) == 0
-            # v5 不使用 DDP wrapper，因此梯度累积中间 micro step 天然不会触发
-            # all-reduce；只在 optimizer step 前手动同步一次 LoRA 梯度。
-            loss_scaled.backward()
             micro_step += 1
             if micro_step % max(1, int(args.grad_accum)) == 0:
                 complete_optimizer_step(epoch)

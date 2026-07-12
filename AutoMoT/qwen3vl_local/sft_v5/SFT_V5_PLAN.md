@@ -717,7 +717,7 @@ laterally enters the ego path.
 
 v5 默认继承 v3 的核心思想：student 先自由生成，memory 由 student rollout 推进；
 teacher 不提供 hard answer text 给 student，而是在同一批 student token 上给
-full-vocabulary logits，做 forward-KL。
+privileged teacher 分布，并只在监督 span token 上做 forward-KL。
 
 ### 7.1 Loss type
 
@@ -779,12 +779,14 @@ loss = q1_analysis + q1_rs + q1_abnormal + q2_analysis + q2_event
 
 每个问答 step：
 
-1. Student adapter enabled，自由生成 token，保存未裁剪 token ids、student logits、
-   decoded text。
+1. Student adapter enabled，自由生成 token，保存未裁剪 token ids、decoded text
+   和对应 KV state。
 2. Parser 从 decoded text 读 RS / ABNORMAL / EVENT。
 3. Teacher `disable_adapter()`，使用 privileged prompt，在同一批 student token 上 forward，
-   得到 teacher logits。
-4. 按 target spans 对 student logits 与 teacher logits 做 weighted forward-KL。
+   得到 teacher logits 后立即按 target spans 裁剪。
+4. Student 在同一批 token 上 forward，logits 也立即裁剪到 target spans。
+5. 对裁剪后的 teacher/student span logits 做 weighted forward-KL；完整 vocab logits
+   不跨 loss 计算长期保留。
 
 Qwen3-VL 增量 decode 必须复用 `qwen3vl_local/mrope_utils.py` 的
 `qwen3vl_incremental_forward`，禁止走 PEFT wrapper 的 `generate` /
@@ -798,8 +800,8 @@ collector/learner 异步 replay：
 - “采样数据”指当前 student 在本 step 对 Q1/Q2 自由生成出来的 token、解析结果和
   对应 KV state。
 - 这些数据只在当前 `_run_frame()` 内存中临时存在，不写 replay，不跨 step 复用。
-- Teacher 只在同一批 student rollout token 上提供 privileged logits，用于
-  forward-KL；teacher 不提前物化 target dataset。
+- Teacher 只在同一批 student rollout token 的监督 span 上提供 privileged logits，
+  用于 forward-KL；teacher 不提前物化 target dataset。
 - torchrun 多进程下每张 H20 都同时承担 rollout 采样和训练反传角色，所以四卡默认是
   `4` 张卡同步边采样边训练。
 
@@ -839,6 +841,15 @@ LoRA 参数手动 all-reduce 梯度。这里不能使用 `DistributedDataParalle
 wrapper：Q2 是否触发由各 rank 的 Q1 student 输出决定，rank 间 forward 次数会不一致，
 DDP wrapper 的 forward hook / buffer broadcast 可能产生 unmatched collective 并触发
 NCCL watchdog hang。
+
+显存策略：
+
+- 每个有效 frame 的 Q1/Q2 OPSD loss 算完立刻 backward，只把 LoRA 梯度留在参数上；
+  不把一整条 route sequence 的 Qwen 计算图累加到 batch 末尾。
+- Forward-KL 只在 `target_spans_q1/q2` 标出的 token 位置上计算；teacher/student
+  完整 vocab logits 会尽快裁剪成 span logits，避免两份大 logits 长时间同时常驻。
+- `train.sh` 默认设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，降低
+  KV/logits 张量反复申请释放时的 allocator 碎片化。
 
 `grad_accum` 的尾部处理必须显式 flush：如果一个 epoch 结束时已经反传了若干个
 有效 micro-batch 但数量不足 `grad_accum`，仍然要手动 all-reduce 梯度并执行一次
@@ -891,9 +902,9 @@ for t in range(max_T_global):
 默认 `per_device_batch_size=1`，`grad_accum=1`。如果显存允许：
 
 - batch 内多个 route 按时间步交错推进；
-- 每个有效 frame 的 Q1/Q2 loss 累加到 batch loss；
-- batch loss 除以有效 frame 数或有效 token 权重和，再 backward；
-- `grad_accum>1` 时使用 DDP `no_sync()` 包住非同步 micro-step。
+- 每个有效 frame 的 Q1/Q2 loss 按本 rank 当前 batch 的有效 frame 数归一化后立即 backward；
+- `grad_accum>1` 时继续在参数梯度上累积，只有 optimizer step 前才手动 all-reduce
+  LoRA 梯度。
 
 推荐第一版：
 

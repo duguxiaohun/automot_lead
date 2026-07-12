@@ -67,8 +67,8 @@ OPSD 不是先离线生成一批 teacher 数据再训练。v5 当前实现是同
 2. 对每个有效 frame，当前 student 先自由生成 Q1；Q1 RS 正确时再自由生成 Q2。
 3. 这些 student 生成出来的 token 就是本 step 的 on-policy 采样数据，只在内存中临时保存。
 4. Teacher 关闭 LoRA，读取 privileged prompt，在同一批 student token 上 forward 得到 logits。
-5. Student/teacher logits 做 weighted forward-KL，然后当前 rank 反向传播。
-6. 每个 optimizer step 前手动 all-reduce LoRA 梯度，保持四卡参数同步。
+5. Student/teacher logits 只裁剪到需要监督的 span token，做 weighted forward-KL。
+6. 当前 rank 每帧算完立即 backward；每个 optimizer step 前手动 all-reduce LoRA 梯度。
 
 因此 H20 四卡下，当前 v5 是“四张卡都边采样边训练”，不是“几张卡专门采数据、几张卡专门训练”。
 实现上使用 torchrun 多进程和手动梯度 all-reduce，不把模型包进
@@ -150,6 +150,10 @@ LORA_VISION_SCOPE=merger VISION_LR_SCALE=0.1 GPU_IDS=0 bash qwen3vl_local/sft_v5
 - 多卡训练使用 torchrun + DistributedSampler + 手动 LoRA 梯度 all-reduce；
   不使用 `DistributedDataParallel(model)` wrapper，避免动态 Q2 分支造成 rank 间
   forward collective 不匹配。
+- 训练循环不再把整条 route sequence 的 Qwen 计算图攒到 batch 末尾；每帧
+  OPSD loss 立刻 backward，只累计 LoRA 梯度，降低 H20 上长序列 OOM 风险。
+- `train.sh` 默认 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，减少
+  KV/logits 张量反复申请释放带来的 CUDA allocator 碎片化。
 - `grad_accum` 只控制 optimizer step 间隔；epoch 末尾未满 `grad_accum` 的有效
   micro-batch 也会做一次同步 step，不会静默丢弃尾批梯度。
 - v5 默认关闭 gradient checkpointing，因为 Qwen3-VL KV cache 续接必须保持
@@ -370,7 +374,44 @@ python qwen3vl_local/sft_v5/inspect_teacher.py \
 - Q2 option map 非空。
 - Q2 student prompt 不泄漏 scenario name。
 
-## 7. 代码注释维护要求
+## 7. 常见失败与定位
+
+### 7.1 NCCL watchdog 卡死
+
+如果日志停在 NCCL collective，随后出现 watchdog timeout，先确认当前代码没有把
+`bundle.model` 包进 `DistributedDataParallel(model)`。v5 的 Q2 是否触发取决于每个
+rank 的 Q1 student 输出，rank 间 forward 次数天然不一致；DDP wrapper 的 forward hook
+可能产生 unmatched collective。当前实现只用 torchrun 启多进程，optimizer step 前
+手动 all-reduce LoRA 梯度。
+
+### 7.2 Cache 类型错误
+
+如果出现：
+
+```text
+AttributeError: 'tuple' object has no attribute 'get_mask_sizes'
+```
+
+说明新版 Transformers 的 Qwen3-VL 收到了 legacy tuple cache。`engine.py::_clone_cache`
+必须保持带 `get_mask_sizes` / `get_seq_length` 的 `Cache` 对象类型，不能把新版 cache
+退化成 tuple。
+
+### 7.3 CUDA OOM
+
+如果 H20 仍然 OOM，先看是不是加载了额外模型或把 token 上限设得太大。当前训练侧已经：
+
+- 每帧 OPSD loss 立刻 backward，不把整条 route sequence 的 Qwen 计算图攒到 batch 末尾。
+- Teacher/student logits 只裁剪到监督 span 后参与 forward-KL。
+- `train.sh` 默认设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`。
+
+进一步降显存可以临时调小：
+
+```bash
+MAX_NEW_TOKENS_Q1=160 MAX_NEW_TOKENS_Q2=96 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+## 8. 代码注释维护要求
 
 `sft_v5` 代码已经按中文注释口径补充：
 

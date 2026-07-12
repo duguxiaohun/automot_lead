@@ -15,6 +15,7 @@ structured image message + processor 生成，而不是靠 prompt 里的字符�
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import pathlib
@@ -298,6 +299,18 @@ def _clone_cache(cache: Any) -> Any:
 
     if cache is None:
         return None
+
+    if not isinstance(cache, (tuple, list)) and (hasattr(cache, "get_mask_sizes") or hasattr(cache, "get_seq_length")):
+        # Transformers 4.5x+ 的 Qwen3-VL 在 attention mask 构造时会调用 Cache
+        # 对象上的 get_mask_sizes/get_seq_length。某些 Cache 子类没有可靠的
+        # from_legacy_cache，强行转 legacy tuple 后再传回模型会触发
+        # "'tuple' object has no attribute 'get_mask_sizes'"。优先 deepcopy 保持
+        # 原始 Cache 类型；这些 KV 都来自 prefill/generation 的 no_grad 路径，
+        # 不需要保留计算图。
+        try:
+            return copy.deepcopy(cache)
+        except Exception:
+            pass
 
     cache_cls: Any = None
     if hasattr(cache, "to_legacy_cache"):
