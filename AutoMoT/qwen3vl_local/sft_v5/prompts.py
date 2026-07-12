@@ -220,10 +220,13 @@ def build_q1_teacher_prompt(
             f"ANSWER_EVENT_FOR_REASONING: {event_target.event_code}\n"
             "[/REFERENCE]\n\n"
             "[QUESTION_1_TEACHER]\n"
-            "Write the same structured output format as the student. Use the reference only to make the "
-            "visible analysis grounded and consistent. If XML weather conflicts with visible "
-            "RGB weather or visibility, follow the RGB evidence. Do not mention the reference block, "
-            "ground truth, answer keys, or hidden labels. Keep the CoT concise.\n"
+            "Write the same structured output format as the student. Start directly with "
+            "`Scene Description:` and do not copy MEMORY, RS_CHOICES, REFERENCE, or this instruction. "
+            "Use the reference only to make the visible analysis grounded and consistent. If XML weather "
+            "conflicts with visible RGB weather or visibility, follow the RGB evidence. Do not mention "
+            "the reference block, ground truth, answer keys, or hidden labels. Keep the CoT concise.\n\n"
+            "Output exactly these lines:\n"
+            f"{_structured_q1_format()}\n"
             "[/QUESTION_1_TEACHER]"
         ),
     ])
@@ -326,8 +329,12 @@ def build_q2_teacher_prompt(
             f"ANSWER_EVENT_CODE: {event_target.event_code}\n"
             "[/REFERENCE]\n\n"
             "[QUESTION_2_TEACHER]\n"
-            "Write the same structured output format as the student. Use the reference only to explain the visible "
-            "event choice. Do not mention the reference block, ground truth, answer keys, or hidden labels. Keep the CoT concise.\n"
+            "Write the same structured output format as the student. Start directly with "
+            "`Scene Description:` and do not copy MEMORY, EVENT_CHOICES, REFERENCE, or this instruction. "
+            "Use the reference only to explain the visible event choice. Do not mention the reference block, "
+            "ground truth, answer keys, or hidden labels. Keep the CoT concise.\n\n"
+            "Output exactly these lines:\n"
+            f"{_structured_q2_format()}\n"
             "[/QUESTION_2_TEACHER]"
         ),
     ])

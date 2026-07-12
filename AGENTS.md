@@ -276,7 +276,8 @@
   `AutoMoT/keyframe_filter/collection_output/*_result.json`，但训练前跳过
   `noScenarios_result.json`、异常时长 route、数据缺失 skip、缺 XML/RGB/meta/逐帧 annotation
   的 route；`review_required=true` 正常参与训练。每帧 meta 会抽取
-  `next_target_points[-1]` 转 ego frame 写成学生可见 `EGO_TO_GOAL_XY`。Q1 使用精简
+  `next_target_points[-1]` 转 ego frame 写成学生可见 `EGO_TO_GOAL_XY`，缺该坐标的
+  frame/旧 index 行会被跳过，不能继续显示 UNKNOWN。Q1 使用精简
   `Scene Description / Critical Object Description / Reasoning on Intent` 三段式 CoT 后输出
   `RS / ABNORMAL`；system prompt 简短提醒关注交通灯/标志、周围车辆/行人/障碍物、
   车道线/道路结构和影响自车决策的关键因素；Q1 memory 只渲染自然语言
@@ -301,7 +302,8 @@
   可选 `q*_teacher_output.txt`、memory_before/after、flags、timeline.json/png 和
   manifest.json；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用
   `--with-teacher-model`；训练前 base Qwen OPSD 能力体检必须不传 `--adapter-dir`、
-  不加载任何 LoRA；可视化分为训练前 base Qwen OPSD 能力体检、训练后 adapter
+  不加载任何 LoRA；teacher model output 应和 student 一样从 `Scene Description:`
+  开始输出分析与 `RS/EVENT`，不能复读 MEMORY、choices 或 REFERENCE；可视化分为训练前 base Qwen OPSD 能力体检、训练后 adapter
   学生可视化、静态 prompt/target 快检三类。v5 代码已补中文函数说明和关键逻辑块注释；
   后续改标签协议、prompt、memory、loss、probe 或 DDP 训练逻辑时必须同步维护相邻注释。
   运行与可视化方法见
