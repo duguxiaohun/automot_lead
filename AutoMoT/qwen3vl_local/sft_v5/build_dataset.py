@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import lzma
 import pathlib
+import pickle
 import random
 import sys
 import xml.etree.ElementTree as ET
@@ -40,6 +42,8 @@ from qwen3vl_local.sft_v5.labels import (  # noqa: E402
     stable_event_option_map,
     weather_to_text,
 )
+
+import numpy as np  # noqa: E402
 
 RGB_HISTORY_COUNT = 4
 RGB_HISTORY_STEP = 1
@@ -104,6 +108,58 @@ def _meta_path_for_frame(run_dir: pathlib.Path, automot_root: pathlib.Path, ann:
             return run_relative
         return automot_root / path
     return run_dir / "metas" / f"{frame_id:04d}.pkl"
+
+
+def _inverse_conversion_2d(point: np.ndarray, translation: np.ndarray, yaw: float) -> np.ndarray:
+    """把 world-frame 点转换到当前 ego frame，与 v3/v4/LeadMoT 的 final_goal 公式一致。"""
+
+    pt = np.asarray(point, dtype=np.float32).reshape(2)
+    tr = np.asarray(translation, dtype=np.float32).reshape(2)
+    delta = pt - tr
+    c = float(np.cos(-yaw))
+    s = float(np.sin(-yaw))
+    return np.asarray([c * delta[0] - s * delta[1], s * delta[0] + c * delta[1]], dtype=np.float32)
+
+
+def _extract_final_goal_ego_from_meta(meta: Mapping[str, Any]) -> Tuple[float, float]:
+    """从 LEAD meta 取 `next_target_points[-1]` 并转 ego frame。
+
+    这条坐标和 v3/v4 的 `EGO_TO_GOAL_XY` 同源，是学生可见的导航输入，不是标签。
+    不回退到 `route[-1]` 或 `(0, 0)`，避免给路口左右转/匝道样本塞错方向信号。
+    """
+
+    next_points = np.asarray(meta.get("next_target_points", []), dtype=np.float32)
+    if next_points.size == 0:
+        raise KeyError("meta missing next_target_points")
+    next_points = next_points.reshape(-1, next_points.shape[-1])
+    if next_points.shape[-1] < 2:
+        raise ValueError(f"next_target_points last dim < 2: shape={next_points.shape}")
+    if "pos_global" not in meta:
+        raise KeyError("meta missing pos_global")
+    if "theta" not in meta:
+        raise KeyError("meta missing theta")
+    pos_xy = np.asarray(meta["pos_global"], dtype=np.float32).reshape(-1)[:2]
+    theta = float(np.asarray(meta["theta"], dtype=np.float32).reshape(-1)[0])
+    goal = _inverse_conversion_2d(next_points[-1, :2], pos_xy, theta)
+    return float(goal[0]), float(goal[1])
+
+
+def _load_ego_to_goal_xy(meta_path: pathlib.Path) -> Optional[Tuple[float, float]]:
+    """读取当前帧目的地相对坐标；失败返回 None 并让该 route 被跳过。"""
+
+    try:
+        with lzma.open(meta_path, "rb") as f:
+            meta = pickle.load(f)
+    except Exception:
+        try:
+            with open(meta_path, "rb") as f:
+                meta = pickle.load(f)
+        except Exception:
+            return None
+    try:
+        return _extract_final_goal_ego_from_meta(meta)
+    except Exception:
+        return None
 
 
 def _xml_path_from_route(route: Mapping[str, Any], automot_root: pathlib.Path) -> Optional[pathlib.Path]:
@@ -200,6 +256,9 @@ def _build_frame_row(
     meta_path = _meta_path_for_frame(run_dir, automot_root, ann, frame_id)
     if not meta_path.exists():
         return None
+    ego_to_goal_xy = _load_ego_to_goal_xy(meta_path)
+    if ego_to_goal_xy is None:
+        return None
     history = _history_rgb_paths(run_dir, frame_id)
     if not history or any(not pathlib.Path(path).exists() for path in history):
         return None
@@ -236,6 +295,7 @@ def _build_frame_row(
         "history_rgb_paths": history,
         "weather": weather,
         "weather_text": weather_to_text(weather),
+        "ego_to_goal_xy": [round(float(ego_to_goal_xy[0]), 4), round(float(ego_to_goal_xy[1]), 4)],
         "rs_label": rs_target.label,
         "rs_option": rs_target.option,
         "rs_confidence": rs_target.confidence,

@@ -1,7 +1,8 @@
 """静态检查 SFT v5 的监督 span。
 
-本脚本不加载模型，只验证 Q1/Q2 teacher target 中的 ANALYSIS/RS/ABNORMAL/EVENT
-字符 span 能被 prompt parser 找到，避免后续 prompt 改动导致离散标签 loss 变成 0。
+本脚本不加载模型，只验证 Q1/Q2 teacher target 中的结构化分析段、
+RS/ABNORMAL/EVENT 字符 span 能被 prompt parser 找到，避免后续 prompt 改动导致
+离散标签 loss 变成 0。
 """
 
 from __future__ import annotations

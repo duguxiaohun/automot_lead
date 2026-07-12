@@ -29,6 +29,7 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     build_q2_teacher_target,
     check_no_private_markers,
     reset_memory_for_frame,
+    update_memory_after_q1,
 )
 from qwen3vl_local.sft_v5.train import RouteSequenceDataset, _event_target_from_frame, _rs_target_from_frame  # noqa: E402
 
@@ -52,7 +53,7 @@ def inspect(args: argparse.Namespace) -> dict:
                 break
             rs_target = _rs_target_from_frame(frame)
             event_target = _event_target_from_frame(frame)
-            memory = reset_memory_for_frame(rs_target)
+            memory = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
             q1_student = build_q1_student_prompt(memory)
             q1_teacher = build_q1_teacher_prompt(
                 memory,
@@ -65,21 +66,22 @@ def inspect(args: argparse.Namespace) -> dict:
                 event_target=event_target,
                 weather_text=frame.weather_text,
             )
+            memory_after_q1 = update_memory_after_q1(memory, student_rs_label=frame.rs_label, student_abnormal=frame.abnormal)
             q2_student = build_q2_student_prompt(
-                memory,
+                memory_after_q1,
                 option_map=frame.event_option_map,
                 q1_abnormal=frame.abnormal,
                 regular_event_codes=frame.regular_event_codes,
             )
             q2_teacher = build_q2_teacher_prompt(
-                memory,
+                memory_after_q1,
                 option_map=frame.event_option_map,
                 q1_abnormal=frame.abnormal,
                 event_target=event_target,
                 regular_event_codes=frame.regular_event_codes,
             )
             q2_target = build_q2_teacher_target(
-                memory,
+                memory_after_q1,
                 option_map=frame.event_option_map,
                 event_target=event_target,
                 regular_event_codes=frame.regular_event_codes,

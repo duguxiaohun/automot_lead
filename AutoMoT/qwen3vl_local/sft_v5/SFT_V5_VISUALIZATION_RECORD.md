@@ -20,9 +20,12 @@ SFT v5 每帧分成两个问题：
 - 默认 Qwen 作为 student 时，是否能理解 Q1/Q2 选择题格式、RS 选项和 EVENT 选项。
 - 默认 Qwen 作为 teacher 时，吃到 XML weather、GT RS、GT event 等私有参考后，
   是否能给出稳定、合理、可被解析的 teacher 分析与答案。
-- prompt 是否诱导模型泄漏私有字段、复读候选、漏掉 `ANALYSIS/RS/ABNORMAL/EVENT`
-  等关键输出字段。
+- prompt 是否诱导模型泄漏私有字段、复读候选、漏掉结构化分析行
+  `WEATHER/SCENE DESCRIPTION/CRITICAL OBJECT DESCRIPTION/REASONING/MEMORY JUDGMENT`
+  或 `RS/ABNORMAL/EVENT` 等关键输出字段。
 - Q2 的 `RE` 文案和当前帧 `U-E*` 候选是否足够清晰。
+- Q2 是否确实作为 Q1 assistant 输出后的第二轮 user turn 续接 KV cache，而不是重新
+  fresh prefill 同一帧。
 
 从 `AutoMoT/` 目录运行：
 
@@ -47,7 +50,8 @@ OPSD。
 - `q1_student_output.txt` / `q2_student_output.txt`：默认 Qwen 在学生输入下的输出。
 - `q1_teacher_output.txt` / `q2_teacher_output.txt`：默认 Qwen 在 teacher 私有输入下的输出。
 - `flags.json` 里的 `parsed_teacher_q1`、`parsed_teacher_q2`、
-  `q1_teacher_rs_correct`、`q1_teacher_abnormal_correct`、`q2_teacher_event_correct`。
+  `q1_teacher_rs_correct`、`q1_teacher_abnormal_correct`、`q2_teacher_event_correct`、
+  `q2_student_continued_from_q1_kv`、`q2_teacher_continued_from_q1_kv`。
 
 如果同卡同时加载 student 和 teacher 两份 Qwen 显存不够，可以分两次跑：
 
@@ -76,6 +80,9 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 - `q2_student_output.txt` 能否只从当前 `EVENT_CHOICES` 里选，不编造选项。
 - `q1_teacher_output.txt` / `q2_teacher_output.txt` 是否能利用私有参考做更稳的分析，
   但最终表述不要依赖学生看不到的字段名。
+- `q1_student_messages.json` / `q2_student_messages.json` 是否清楚区分 system role
+  和 user role；`q2_*_messages.json` 里的 prompt 是第二轮 user turn 的内容，模型输出
+  实际由 Q1 KV cache 续接得到。
 - `flags.json` 里 teacher/student 解析字段是否为空；为空说明 prompt 或解析合同要先修。
 - `flags.json` 里的 `student_adapter_dir` 必须为空；否则说明训练前体检误加载了 LoRA，
   需要重跑纯 base Qwen 检查。
@@ -145,13 +152,23 @@ probe*/
       rgb_02.jpg
       rgb_03.jpg
       rgb_paths.json
+      q1_system_prompt.txt
+      q1_student_user_prompt.txt
+      q1_student_messages.json
       q1_student_prompt.txt
       q1_student_output.txt
+      q1_teacher_user_prompt.txt
+      q1_teacher_messages.json
       q1_teacher_prompt.txt
       q1_teacher_target.txt
       q1_teacher_output.txt
+      q2_system_prompt.txt
+      q2_student_user_prompt.txt
+      q2_student_messages.json
       q2_student_prompt.txt
       q2_student_output.txt
+      q2_teacher_user_prompt.txt
+      q2_teacher_messages.json
       q2_teacher_prompt.txt
       q2_teacher_target.txt
       q2_teacher_output.txt
@@ -175,14 +192,19 @@ probe*/
 
 - `q1_*` 是 v5 原生命名，对应第一问。
 - `q2_*` 是 v5 原生命名，对应第二问。
+- `q*_system_prompt.txt` / `q*_student_user_prompt.txt` / `q*_teacher_user_prompt.txt`
+  把 system prompt 和 user prompt 分开保存，解决旧版 demo 里 role 边界不清的问题。
+- `q*_messages.json` 是可序列化的 Qwen chat messages：system 为固定 v5 协议，user
+  content 中先列 4 张 RGB，再列文本 prompt。图片用文件名和原路径表示，不嵌入 PIL。
 - `step1_*` / `step2_*` 是仿 v3 的别名，方便用同一套人工检查习惯对比 v3/v5。
 - `rgb_00.jpg` 到 `rgb_03.jpg` 是真实输入 Qwen 的 4 帧 stitched RGB history。
 - `labels.json` 保存 RS/EVENT 标签、候选池、`event_code`、`regular_event_codes`
-  和 teacher-only weather 文本。
-- `memory_before.json` / `memory_after.json` 保存该帧前后的 `RS + EVENT` memory。
+  `ego_to_goal_xy` 和 teacher-only weather 文本。
+- `memory_before.json` / `memory_after.json` 保存该帧前后的
+  `RS + EVENT + EGO_TO_GOAL_XY` memory。
 - `flags.json` 保存解析出的学生输出、teacher 输出、是否 RS 正确、是否进入 Q2、
   是否 candidate mismatch、是否 reset 下一帧、是否误传 `student_adapter_dir`
-  等诊断字段。
+  以及 Q2 是否续接 Q1 KV cache 等诊断字段。
 
 ## Timeline 颜色
 
@@ -193,14 +215,22 @@ probe*/
 
 ## 人工检查清单
 
-- `q1_student_prompt.txt` / `q2_student_prompt.txt` 不应包含 `XML_WEATHER`、
+- `q1_student_user_prompt.txt` / `q2_student_user_prompt.txt` 不应包含 `XML_WEATHER`、
   `ANSWER_`、`REFERENCE`、GT label 或 scenario name。
-- `q1_teacher_prompt.txt` / `q2_teacher_prompt.txt` 可以包含 teacher 私有参考信息。
+- `q1_system_prompt.txt` / `q2_system_prompt.txt` 应为固定 v5 system prompt；
+  `q*_messages.json` 应能看到 system/user 分离和 4 帧 RGB 顺序。
+- `q1_teacher_user_prompt.txt` / `q2_teacher_user_prompt.txt` 可以包含 teacher 私有参考信息。
 - `q1_teacher_target.txt` / `q2_teacher_target.txt` 必须是学生视角文本，不能泄漏
   `ANSWER_`、`REFERENCE`、`XML_WEATHER` 这类私有字段名。
 - `q1_teacher_output.txt` / `q2_teacher_output.txt` 是模型生成文本，只在
   `--with-teacher-model` 时非空，用来评估默认 Qwen 老师能力和 prompt 合理性。
-- `q2_student_prompt.txt` 应该显示 `RE` 加当前帧允许的 `U-E*` 候选；`RE` 文案里
+- `q1_student_output.txt` 应按结构化行输出天气、场景、关键物体、推理、memory 判断、
+  `RS` 和 `ABNORMAL`；`q2_student_output.txt` 应按结构化行输出场景、关键物体、
+  推理、memory 判断和 `EVENT`。
+- `q2_student_user_prompt.txt` 应该显示 `RE` 加当前帧允许的 `U-E*` 候选；`RE` 文案里
   应覆盖当前帧 `regular_event_codes` 对应的 regular 行为。
 - `memory_before.json` / `memory_after.json` 应符合 v5 状态机：
   Q1 RS 错误时跳过本帧 Q2，并在下一帧恢复 `GT RS + RE`；Q2 非法输出不污染 memory。
+- `flags.json` 中 `q2_student_continued_from_q1_kv=true` 表示 student Q2 是接在 Q1
+  KV cache 后继续问；`q2_teacher_continued_from_q1_kv=true` 表示 teacher 模型输出也
+  是同样的第二轮对话体检。

@@ -103,6 +103,7 @@ class FrameRow:
     frame_id: int
     history_rgb_paths: List[str]
     weather_text: str
+    ego_to_goal_xy: Optional[Tuple[float, float]]
     rs_label: str
     rs_option: str
     event_label: str
@@ -147,6 +148,7 @@ class RouteSequenceDataset(Dataset):
                             frame_id=int(fr["frame_id"]),
                             history_rgb_paths=[str(x) for x in fr.get("history_rgb_paths", [])],
                             weather_text=str(fr.get("weather_text", "")),
+                            ego_to_goal_xy=_parse_goal_xy(fr.get("ego_to_goal_xy")),
                             rs_label=str(fr.get("rs_label", "R1")),
                             rs_option=str(fr.get("rs_option", "A")),
                             event_label=str(fr.get("event_label", "RE")),
@@ -267,6 +269,21 @@ def _load_images(paths: List[str]) -> List[Image.Image]:
     return [Image.open(path).convert("RGB") for path in paths]
 
 
+def _parse_goal_xy(value: Any) -> Optional[Tuple[float, float]]:
+    """把 dataset 里的 `ego_to_goal_xy` 容错解析成二元组。
+
+    新数据由 build_dataset.py 从 meta `next_target_points[-1]` 生成；旧 index
+    可能没有这个字段，解析失败时返回 None，prompt 会显示 UNKNOWN，避免崩溃。
+    """
+
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return None
+    try:
+        return float(value[0]), float(value[1])
+    except Exception:
+        return None
+
+
 def _messages(images: List[Image.Image], user_prompt: str) -> List[Dict[str, Any]]:
     """构造 Qwen structured chat messages。"""
 
@@ -368,6 +385,12 @@ def _event_target_from_frame(frame: FrameRow, student_event: Optional[str] = Non
     return resolve_event_target(raw, student_event=student_event)
 
 
+def _reset_memory_for_frame_row(frame: FrameRow) -> Memory:
+    """按当前帧 GT RS + 当前帧目的地坐标重置 v5 memory。"""
+
+    return reset_memory_for_frame(_rs_target_from_frame(frame), ego_to_goal_xy=frame.ego_to_goal_xy)
+
+
 def _run_frame(
     bundle: Any,
     memory: Memory,
@@ -450,7 +473,12 @@ def _run_frame(
         event_target=event_target,
         regular_event_codes=frame.regular_event_codes,
     )
-    q2_teacher_state = _teacher_start_state(bundle, _messages(images, q2_teacher_prompt))
+    # teacher 的 Q2 也保持串行对话：先用 privileged Q1 prompt 吃掉同一段 student
+    # Q1 rollout token，再追加 Q2 teacher user turn。这样 Q2 KL 目标分布和 student
+    # 一样是“基于 Q1 KV cache 继续问”，不是 fresh dialog。
+    with _teacher_eval_context(bundle):
+        q1_teacher_after, _, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(q1_teacher_state), q1_ids)
+        q2_teacher_state = _append_user_turn(bundle, q1_teacher_after, q2_teacher_prompt)
     q2_loss, q2_parts = _opsd_loss(
         bundle,
         student_state=q2_student_state,
@@ -528,7 +556,7 @@ def run_check(loader: DataLoader, *, max_batches: int = 2) -> None:
         print(f"[check] batch={batch_idx} routes={len(routes)} max_T_global={max_t} valid={int(valid.sum().item())}")
         for row in routes[:2]:
             first = row.frames[0]
-            mem = reset_memory_for_frame(_rs_target_from_frame(first))
+            mem = _reset_memory_for_frame_row(first)
             print(
                 f"  route={row.scenario}/{row.route_id} frames={len(row.frames)} "
                 f"first_rs={first.rs_label} q2_options={first.event_option_map} mem={mem.rs_label}/{mem.event_label}"
@@ -763,7 +791,7 @@ def main() -> None:
                         continue
                     rs_target = _rs_target_from_frame(frame)
                     if memories[b] is None or reset_next[b]:
-                        memories[b] = reset_memory_for_frame(rs_target)
+                        memories[b] = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
                         reset_next[b] = False
                     assert memories[b] is not None
                     try:

@@ -27,8 +27,9 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from qwen3vl_local.sft_v5.eval import _generate, load_eval_bundle  # noqa: E402
+from qwen3vl_local.sft_v5.eval import _generate_next, _generate_start, load_eval_bundle  # noqa: E402
 from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
+    SYSTEM_PROMPT_V5,
     build_q1_student_prompt,
     build_q1_teacher_prompt,
     build_q1_teacher_target,
@@ -37,7 +38,6 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     build_q2_teacher_target,
     parse_q1_output,
     parse_q2_output,
-    reset_memory_for_frame,
     update_memory_after_q1,
     update_memory_after_q2,
 )
@@ -47,6 +47,7 @@ from qwen3vl_local.sft_v5.train import (  # noqa: E402
     SequenceRow,
     _event_target_from_frame,
     _load_images,
+    _reset_memory_for_frame_row,
     _rs_target_from_frame,
 )
 
@@ -70,7 +71,39 @@ def _memory_json(memory: Any) -> Dict[str, Any]:
         "rs_label": getattr(memory, "rs_label", None),
         "rs_option": getattr(memory, "rs_option", None),
         "event_label": getattr(memory, "event_label", None),
+        "ego_to_goal_x": getattr(memory, "ego_to_goal_x", None),
+        "ego_to_goal_y": getattr(memory, "ego_to_goal_y", None),
     }
+
+
+def _messages_json(copied_rgb: List[Dict[str, str]], user_prompt: str) -> List[Dict[str, Any]]:
+    """用可序列化形式展示真正送给 Qwen 的 system/user messages。"""
+
+    content: List[Dict[str, str]] = []
+    for item in copied_rgb:
+        content.append(
+            {
+                "type": "image",
+                "file": item.get("file", ""),
+                "source": item.get("source", ""),
+            }
+        )
+    content.append({"type": "text", "text": user_prompt})
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT_V5},
+        {"role": "user", "content": content},
+    ]
+
+
+def _write_messages(frame_dir: pathlib.Path, name: str, copied_rgb: List[Dict[str, str]], user_prompt: str) -> None:
+    """写出 v3 风格的 system/user 分离会话视图。"""
+
+    (frame_dir / f"{name}_system_prompt.txt").write_text(SYSTEM_PROMPT_V5, encoding="utf-8")
+    (frame_dir / f"{name}_user_prompt.txt").write_text(user_prompt or "", encoding="utf-8")
+    (frame_dir / f"{name}_messages.json").write_text(
+        json.dumps(_messages_json(copied_rgb, user_prompt or ""), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _copy_rgb_inputs(frame: FrameRow, frame_dir: pathlib.Path) -> List[Dict[str, str]]:
@@ -154,6 +187,7 @@ def _frame_labels(route: SequenceRow, frame: FrameRow) -> Dict[str, Any]:
         "regular_event_codes": frame.raw.get("regular_event_codes", []),
         "event_candidate_codes": frame.raw.get("event_candidate_codes", []),
         "weather_text_teacher_only": frame.weather_text,
+        "ego_to_goal_xy": list(frame.ego_to_goal_xy) if frame.ego_to_goal_xy is not None else None,
         "review_required": frame.raw.get("review_required", False),
         "source": frame.raw.get("source", {}),
     }
@@ -215,7 +249,7 @@ def dump_probe(args: argparse.Namespace) -> None:
             event_target = _event_target_from_frame(frame)
             if memory is None or reset_next:
                 # 训练/eval 口径：首帧或上帧非法/RS 错后，用 GT RS + RE 重置下一帧 memory。
-                memory = reset_memory_for_frame(rs_target)
+                memory = _reset_memory_for_frame_row(frame)
                 reset_next = False
             memory_at_frame_start = memory
             memory_before = _memory_json(memory)
@@ -240,6 +274,8 @@ def dump_probe(args: argparse.Namespace) -> None:
             q2_output: Optional[str] = None
             q1_teacher_output: Optional[str] = None
             q2_teacher_output: Optional[str] = None
+            q1_after: Optional[Any] = None
+            q1_teacher_after: Optional[Any] = None
             q2_student = ""
             q2_teacher = ""
             q2_target = ""
@@ -271,7 +307,7 @@ def dump_probe(args: argparse.Namespace) -> None:
             if teacher_bundle is not None:
                 # 训练前体检用：teacher_bundle 永远是纯 base Qwen，不加载 LoRA。
                 # 它吃 privileged prompt，用来判断“普通 Qwen 当老师”是否能稳定解析/解释。
-                q1_teacher_output = _generate(
+                q1_teacher_output, q1_teacher_after = _generate_start(
                     teacher_bundle,
                     _images_for_generation(),
                     q1_teacher,
@@ -286,7 +322,7 @@ def dump_probe(args: argparse.Namespace) -> None:
             if bundle is not None:
                 # student bundle 可以是纯 base Qwen（训练前体检）或 base+adapter（训练后可视化）。
                 # 是否误传 adapter 会写入 flags.json 的 student_adapter_dir 供人工审计。
-                q1_output = _generate(bundle, _images_for_generation(), q1_student, int(args.max_new_tokens_q1))
+                q1_output, q1_after = _generate_start(bundle, _images_for_generation(), q1_student, int(args.max_new_tokens_q1))
                 parsed_q1 = parse_q1_output(q1_output)
                 q1_rs_ok = parsed_q1.get("rs_label") == frame.rs_label
                 q1_abnormal = parsed_q1.get("abnormal") == "YES" if parsed_q1.get("abnormal") else None
@@ -312,7 +348,8 @@ def dump_probe(args: argparse.Namespace) -> None:
                         event_target=event_target,
                         regular_event_codes=frame.regular_event_codes,
                     )
-                    q2_output = _generate(bundle, _images_for_generation(), q2_student, int(args.max_new_tokens_q2))
+                    if q1_after is not None:
+                        q2_output, _ = _generate_next(bundle, q1_after, q2_student, int(args.max_new_tokens_q2))
                     parsed_q2 = parse_q2_output(q2_output, frame.event_option_map)
                     memory = update_memory_after_q2(memory_after_q1, student_event_label=parsed_q2.get("event_label"))
                     q2_invalid = parsed_q2.get("event_label") is None
@@ -380,23 +417,30 @@ def dump_probe(args: argparse.Namespace) -> None:
                         regular_event_codes=frame.regular_event_codes,
                     )
                     q2_teacher_forced = True
-                q2_teacher_output = _generate(
-                    teacher_bundle,
-                    _images_for_generation(),
-                    q2_teacher,
-                    int(args.max_new_tokens_q2),
-                )
+                if q1_teacher_after is not None:
+                    q2_teacher_output, _ = _generate_next(
+                        teacher_bundle,
+                        q1_teacher_after,
+                        q2_teacher,
+                        int(args.max_new_tokens_q2),
+                    )
                 parsed_teacher_q2 = parse_q2_output(q2_teacher_output, frame.event_option_map)
                 teacher_dynamic_target = _event_target_from_frame(frame, student_event=parsed_teacher_q2.get("event_label"))
                 q2_teacher_event_correct = parsed_teacher_q2.get("event_label") == teacher_dynamic_target.label
 
             files = {
                 # v5 native names.
+                "q1_system_prompt.txt": SYSTEM_PROMPT_V5,
+                "q2_system_prompt.txt": SYSTEM_PROMPT_V5,
                 "q1_student_prompt.txt": q1_student,
+                "q1_student_user_prompt.txt": q1_student,
                 "q1_teacher_prompt.txt": q1_teacher,
+                "q1_teacher_user_prompt.txt": q1_teacher,
                 "q1_teacher_target.txt": q1_target,
                 "q2_student_prompt.txt": q2_student,
+                "q2_student_user_prompt.txt": q2_student,
                 "q2_teacher_prompt.txt": q2_teacher,
+                "q2_teacher_user_prompt.txt": q2_teacher,
                 "q2_teacher_target.txt": q2_target,
                 # v3-style aliases for visual comparison tooling.
                 # step1/step2 别名让已有的 v3 case 对比脚本可以直接看 v5 输出。
@@ -416,6 +460,10 @@ def dump_probe(args: argparse.Namespace) -> None:
             files["step1_teacher_output.txt"] = q1_teacher_output or ""
             files["step2_teacher_output.txt"] = q2_teacher_output or ""
             _write_texts(case_dir, files)
+            _write_messages(case_dir, "q1_student", copied_rgb, q1_student)
+            _write_messages(case_dir, "q1_teacher", copied_rgb, q1_teacher)
+            _write_messages(case_dir, "q2_student", copied_rgb, q2_student)
+            _write_messages(case_dir, "q2_teacher", copied_rgb, q2_teacher)
 
             labels = _frame_labels(route, frame)
             (case_dir / "labels.json").write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -450,6 +498,8 @@ def dump_probe(args: argparse.Namespace) -> None:
                 "q2_event_correct": q2_event_correct,
                 "q2_teacher_event_correct": q2_teacher_event_correct,
                 "q2_teacher_forced": q2_teacher_forced,
+                "q2_student_continued_from_q1_kv": bool(bundle is not None and q2_triggered and q1_after is not None),
+                "q2_teacher_continued_from_q1_kv": bool(teacher_bundle is not None and q1_teacher_after is not None),
                 "q2_invalid_output": q2_invalid,
                 "q2_candidate_mismatch": q2_candidate_mismatch,
                 "rs_wrong_reset": not q1_rs_ok,
