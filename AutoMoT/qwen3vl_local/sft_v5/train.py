@@ -145,6 +145,12 @@ class RouteSequenceDataset(Dataset):
                 obj = json.loads(line)
                 frames: List[FrameRow] = []
                 for fr in obj.get("frames", []):
+                    ego_to_goal_xy = _parse_goal_xy(fr.get("ego_to_goal_xy"))
+                    if ego_to_goal_xy is None:
+                        # v5 的导航输入合同要求每个训练/probe frame 都有当前帧
+                        # EGO_TO_GOAL_XY。旧 sequence_index 可能没有该字段；这里直接
+                        # 跳过旧 frame，避免 prompt 中继续出现 UNKNOWN。
+                        continue
                     # build_dataset 已经把原始 annotation 压成训练需要的最小字段；
                     # raw 仍完整保留 frame row，供多标签 EVENT 动态真值和 probe 审计回查。
                     frames.append(
@@ -152,7 +158,7 @@ class RouteSequenceDataset(Dataset):
                             frame_id=int(fr["frame_id"]),
                             history_rgb_paths=[str(x) for x in fr.get("history_rgb_paths", [])],
                             weather_text=str(fr.get("weather_text", "")),
-                            ego_to_goal_xy=_parse_goal_xy(fr.get("ego_to_goal_xy")),
+                            ego_to_goal_xy=ego_to_goal_xy,
                             rs_label=str(fr.get("rs_label", "R1")),
                             rs_option=str(fr.get("rs_option", "A")),
                             event_label=str(fr.get("event_label", "RE")),
@@ -299,7 +305,8 @@ def _parse_goal_xy(value: Any) -> Optional[Tuple[float, float]]:
     """把 dataset 里的 `ego_to_goal_xy` 容错解析成二元组。
 
     新数据由 build_dataset.py 从 meta `next_target_points[-1]` 生成；旧 index
-    可能没有这个字段，解析失败时返回 None，prompt 会显示 UNKNOWN，避免崩溃。
+    可能没有这个字段，解析失败时返回 None，并由 RouteSequenceDataset 跳过该
+    frame，避免 prompt 中继续出现 UNKNOWN。
     """
 
     if not isinstance(value, (list, tuple)) or len(value) < 2:

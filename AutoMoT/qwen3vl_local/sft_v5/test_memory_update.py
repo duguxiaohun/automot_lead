@@ -12,8 +12,10 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from qwen3vl_local.sft_v5.labels import RSTarget
+from qwen3vl_local.sft_v5.labels import EventTarget, RSTarget
 from qwen3vl_local.sft_v5.prompts import (
+    build_q1_teacher_prompt,
+    build_q2_teacher_prompt,
     reset_memory_for_frame,
     update_memory_after_q1,
     update_memory_after_q2,
@@ -36,6 +38,24 @@ def main() -> None:
     rendered_q2 = mem_with_goal.format_q2_text()
     assert "BELIEVED_EVENT" in rendered_q2, "Q2 memory 才需要带 EVENT"
     assert "BELIEVED_EVENT: RE -" not in rendered_q2, "memory 不应保存 RE/U-E 标签前缀"
+
+    # teacher model 的可视化输出也应当和 student 一样直接产出分析字段，而不是复读
+    # MEMORY / choices / REFERENCE。这里把 prompt 合同固定住，避免 base probe
+    # 再出现 q1_teacher_output 只续写输入块的情况。
+    event = EventTarget("RE", "R-E1", False, ("R-E1",), ("R-E1",))
+    q1_teacher = build_q1_teacher_prompt(mem_with_goal, rs_target=rs, event_target=event, weather_text="clear")
+    assert "Start directly with `Scene Description:`" in q1_teacher
+    assert "Output exactly these lines:" in q1_teacher
+    assert "RS: <A|B|C|D|E>" in q1_teacher
+    q2_teacher = build_q2_teacher_prompt(
+        mem_with_goal,
+        option_map={"A": "RE"},
+        q1_abnormal=False,
+        event_target=event,
+        regular_event_codes=("R-E1",),
+    )
+    assert "Start directly with `Scene Description:`" in q2_teacher
+    assert "EVENT: <option letter>" in q2_teacher
 
     mem = update_memory_after_q1(mem, student_rs_label="R4", student_abnormal=True)
     assert mem.rs_label == "R4"

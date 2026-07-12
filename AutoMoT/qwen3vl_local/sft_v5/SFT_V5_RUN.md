@@ -167,6 +167,8 @@ LORA_VISION_SCOPE=merger VISION_LR_SCALE=0.1 GPU_IDS=0 bash qwen3vl_local/sft_v5
 - Q2 才使用 road + event `MEMORY`；memory 文本只写自然语言描述，不写 A-E 选项字母
   或 `RE/U-E*` 标签代码。`EGO_TO_GOAL_XY` 由 build_dataset 从当前帧 meta
   `next_target_points[-1]` 转 ego frame 写入；缺失该坐标的 route 不进入新数据集。
+  如果旧 probe 里仍看到 `EGO_TO_GOAL_XY=UNKNOWN`，说明它来自旧 sequence index；
+  当前 `RouteSequenceDataset` 会跳过缺坐标 frame，需要先重跑 build_dataset 再重跑 probe。
 - Student 不看 XML weather；XML weather 只进入 teacher prompt，并且 teacher target
   清洗成学生视角。若 XML weather 与 RGB 可见天气或能见度冲突，teacher 以 RGB
   证据为准。
@@ -335,13 +337,17 @@ teacher target。只有显式加 `--with-teacher-model` 时，才会额外加载
 - `q1_teacher_prompt.txt`：Q1 privileged teacher 输入，含 XML weather、GT RS、GT abnormal、
   原始 `event_code`。
 - `q1_teacher_target.txt`：脚本化学生视角 target，用于审计合同和 loss mask。
-- `q1_teacher_output.txt`：只有 `--with-teacher-model` 时非空，用于训练前检查 base teacher。
+- `q1_teacher_output.txt`：只有 `--with-teacher-model` 时非空，用于训练前检查 base
+  teacher。它应当和 student 一样从 `Scene Description:` 开始输出分析；如果复读
+  `[MEMORY]` / `[RS_CHOICES]` / `[REFERENCE]`，说明是旧 demo 或 prompt 合同未生效，
+  需要重跑 probe。
 - `q2_student_prompt.txt`：Q2 学生真实输入，含逐帧随机 `EVENT_CHOICES`；`RE` 会展开
   当前帧 `regular_event_codes` 的自然语言含义。
 - `q2_teacher_prompt.txt`：Q2 privileged teacher 输入，含 answer event option 与
   `event_code` 审计字段。
 - `q2_teacher_target.txt`：脚本化 Q2 target。
-- `q2_teacher_output.txt`：只有 `--with-teacher-model` 时非空，用于训练前检查 base teacher。
+- `q2_teacher_output.txt`：只有 `--with-teacher-model` 时非空，用于训练前检查 base
+  teacher，也应从 `Scene Description:` 开始并最终输出 `EVENT:`。
 - `q1_student_output.txt` / `q2_student_output.txt`：目录结构固定；只有 `--with-model` 时内容非空。
 - `step1_user.txt` / `step1_student.txt` / `step1_teacher_user.txt` / `step1_teacher.txt`：
   v3 风格别名，对应 Q1。

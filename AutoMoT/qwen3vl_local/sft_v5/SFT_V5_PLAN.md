@@ -490,6 +490,9 @@ EGO_TO_GOAL_XY=(+12.3, -1.5) m
 注意：memory 渲染文本只写自然语言描述，不写 `A/B/C/D/E` 选项字母，也不写
 `RE/U-E*` 事件代码。A-E 只出现在 `RS_CHOICES` 和最终 `RS:` 答案里；Q2 的动态
 事件选项字母只出现在 `EVENT_CHOICES` 和最终 `EVENT:` 答案里。
+`EGO_TO_GOAL_XY` 是必需学生输入：新 build_dataset 会在缺失时跳过 frame/route；
+运行时 `RouteSequenceDataset` 也会跳过旧 index 中缺 `ego_to_goal_xy` 的 frame，
+避免 prompt 继续显示 `UNKNOWN`。
 
 内部 dataclass：
 
@@ -1034,6 +1037,10 @@ probe*/
   `--adapter-dir`，不加载任何 LoRA，让默认 Qwen 分别跑 student prompt 和
   privileged teacher prompt，用 `q*_student_output.txt` / `q*_teacher_output.txt`
   判断普通 Qwen 的基础能力与 prompt 合同是否足够支撑 OPSD。
+  teacher model 的自由生成输出必须和 student 一样直接从 `Scene Description:` 开始，
+  并按 `Scene Description / Critical Object Description / Reasoning on Intent /
+  RS 或 EVENT` 写完整结构；如果复读 MEMORY、choices 或 REFERENCE，说明旧 demo 需要
+  重跑或 prompt 合同还要继续收紧。
 - 训练后 adapter 学生可视化：`--with-model --adapter-dir ...`，只加载训练后的
   student adapter，检查真实状态机下的 Q1/Q2 输出、memory 更新和 reset 行为。
 - 静态 prompt / target 快检：不加载模型，只写 RGB、student prompt、teacher prompt、

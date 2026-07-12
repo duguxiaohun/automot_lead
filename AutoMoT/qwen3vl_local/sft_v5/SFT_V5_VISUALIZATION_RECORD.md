@@ -29,6 +29,8 @@ SFT v5 每帧分成两个问题：
   `EGO_TO_GOAL_XY=(+x, +y) m`，不包含 `BELIEVED_EVENT`，也不包含 `A -` 这类选项前缀。
 - `q2_*_user_prompt.txt` 的 `[MEMORY]` 才包含自然语言 `BELIEVED_EVENT`，但仍不写
   `RE -` 或 `U-E* -` 标签前缀。
+- 如果看到 `EGO_TO_GOAL_XY=UNKNOWN`，先检查 `labels.json` 里的 `ego_to_goal_xy`
+  是否为 `null`；这表示 probe 使用了旧 sequence index，需要重跑 build_dataset 和 probe。
 - Q2 的 `RE` 文案和当前帧 `U-E*` 候选是否足够清晰。
 - Q2 是否确实作为 Q1 assistant 输出后的第二轮 user turn 续接 KV cache，而不是重新
   fresh prefill 同一帧。
@@ -55,6 +57,9 @@ OPSD。
 
 - `q1_student_output.txt` / `q2_student_output.txt`：默认 Qwen 在学生输入下的输出。
 - `q1_teacher_output.txt` / `q2_teacher_output.txt`：默认 Qwen 在 teacher 私有输入下的输出。
+  合格内容应当像学生输出一样，从 `Scene Description:` 开始写分析和答案；如果看到它
+  复读 `[MEMORY]`、`[RS_CHOICES]`、`[REFERENCE]` 等输入块，说明这份 demo 是旧
+  prompt 产物，或默认 Qwen 没有遵守格式，需要用当前代码重新跑 probe。
 - `flags.json` 里的 `parsed_teacher_q1`、`parsed_teacher_q2`、
   `q1_teacher_rs_correct`、`q1_teacher_abnormal_correct`、`q2_teacher_event_correct`、
   `q2_student_continued_from_q1_kv`、`q2_teacher_continued_from_q1_kv`。
@@ -86,6 +91,9 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 - `q2_student_output.txt` 能否只从当前 `EVENT_CHOICES` 里选，不编造选项。
 - `q1_teacher_output.txt` / `q2_teacher_output.txt` 是否能利用私有参考做更稳的分析，
   但最终表述不要依赖学生看不到的字段名。
+- `q1_teacher_output.txt` / `q2_teacher_output.txt` 是否从 `Scene Description:`
+  直接开始；若复读输入 prompt，优先检查 `q*_teacher_user_prompt.txt` 是否包含
+  `Output exactly these lines:`，并重新生成 demo。
 - `q1_student_messages.json` / `q2_student_messages.json` 是否清楚区分 system role
   和 user role；`q2_*_messages.json` 里的 prompt 是第二轮 user turn 的内容，模型输出
   实际由 Q1 KV cache 续接得到。
@@ -231,6 +239,9 @@ probe*/
   `ANSWER_`、`REFERENCE`、`XML_WEATHER` 这类私有字段名。
 - `q1_teacher_output.txt` / `q2_teacher_output.txt` 是模型生成文本，只在
   `--with-teacher-model` 时非空，用来评估默认 Qwen 老师能力和 prompt 合理性。
+  它不是脚本化标签；合格输出应包含 `Scene Description / Critical Object Description /
+  Reasoning on Intent / RS 或 EVENT`。如果文件内容像 prompt 续写，先确认是否为旧
+  probe 产物，再重跑当前版本。
 - `q1_student_output.txt` 应按三段式 CoT 输出 `Scene Description`、
   `Critical Object Description`、`Reasoning on Intent`，然后输出 `RS` 和 `ABNORMAL`；
   `q2_student_output.txt` 应按同样三段式 CoT 输出后给出 `EVENT`。
