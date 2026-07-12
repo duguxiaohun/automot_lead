@@ -142,10 +142,15 @@ LORA_VISION_SCOPE=merger VISION_LR_SCALE=0.1 GPU_IDS=0 bash qwen3vl_local/sft_v5
 
 - DataLoader collate 只做本 rank local padding；主训练进程再 all-reduce 得到
   当前 batch 的 global `max_T`，padding timestep 不读图、不进 Qwen、不产 loss。
-- Q1 输出 `ANALYSIS / RS / ABNORMAL`，天气只写在 `ANALYSIS`，没有单独天气分类 loss。
+- Q1 输出 `WEATHER / SCENE DESCRIPTION / CRITICAL OBJECT DESCRIPTION / REASONING /
+  MEMORY JUDGMENT / RS / ABNORMAL`；天气只写在 `WEATHER` 行，没有单独天气分类 loss。
+- `MEMORY` 内含 `EGO_TO_GOAL_XY`，由 build_dataset 从当前帧 meta
+  `next_target_points[-1]` 转 ego frame 写入；缺失该坐标的 route 不进入新数据集。
 - Student 不看 XML weather；XML weather 只进入 teacher prompt，并且 teacher target
   清洗成学生视角。若 XML weather 与 RGB 可见天气或能见度冲突，teacher 以 RGB
   证据为准。
+- Q2 是 Q1 assistant 输出后的第二轮 user turn，训练、eval 和 probe 的模型路径都复用
+  Q1 KV cache，不重新问一轮 fresh Q2。
 - Q1 RS 错误时只结束当前帧：跳过本帧 Q2，下一有效帧恢复 `GT RS + RE`。
 - Q2 非法 option 不污染 memory，下一有效帧同样恢复 `GT RS + RE`。
 - Q2 候选字母每帧可复现随机，不能假设某个字母固定代表 `RE`。
@@ -216,7 +221,7 @@ python qwen3vl_local/sft_v5/eval.py \
 
 | 目的 | 命令 | 是否加载模型 | 主要产物 |
 |---|---|---|---|
-| 训练前 base Qwen OPSD 能力体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe --num-cases 8 --with-model --with-teacher-model --with-teacher` | 是，纯默认/base Qwen，不传 `--adapter-dir`，不加载任何 LoRA | RGB 副本、student prompt/output、teacher prompt/target/output、memory、flags、timeline |
+| 训练前 base Qwen OPSD 能力体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe --num-cases 8 --with-model --with-teacher-model --with-teacher` | 是，纯默认/base Qwen，不传 `--adapter-dir`，不加载任何 LoRA | RGB 副本、system/user/messages、student output、teacher target/output、memory、flags、timeline |
 | 训练后 adapter 学生可视化 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --adapter-dir checkpoints/sft_v5_runs/latest/final --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter --num-cases 8 --with-model --with-teacher` | 是，只加载 student adapter | 上述静态产物 + `q1_student_output.txt` / `q2_student_output.txt` |
 | 静态检查教师/学生输入合同 | `python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/probe_static --num-cases 24 --with-teacher` | 否 | RGB 副本、student prompt、teacher prompt、teacher target、memory、flags、timeline |
 | 检查 teacher 合同 | `python qwen3vl_local/sft_v5/inspect_teacher.py --index checkpoints/sft_v5_data/train_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/teacher_inspect --num-cases 64` | 否 | `teacher_report.json` / `teacher_report.md` |
@@ -297,6 +302,14 @@ teacher target。只有显式加 `--with-teacher-model` 时，才会额外加载
   stitched RGB history 副本。
 - `rgb_paths.json`：RGB 原路径与复制状态。
 
+- `q1_system_prompt.txt` / `q2_system_prompt.txt`：v5 固定 system prompt。
+- `q1_student_user_prompt.txt` / `q1_teacher_user_prompt.txt`：Q1 的 student / teacher
+  user prompt；`q1_student_prompt.txt` / `q1_teacher_prompt.txt` 仍作为兼容别名保留。
+- `q2_student_user_prompt.txt` / `q2_teacher_user_prompt.txt`：Q2 的 student / teacher
+  user prompt；`q2_student_prompt.txt` / `q2_teacher_prompt.txt` 仍作为兼容别名保留。
+- `q1_student_messages.json` / `q1_teacher_messages.json` / `q2_student_messages.json` /
+  `q2_teacher_messages.json`：可序列化的 system + user messages，图片用 `rgb_*.jpg`
+  文件名和原路径表示，方便直接检查 role 分界。
 - `q1_student_prompt.txt`：Q1 学生真实输入，不含 XML weather / GT。
 - `q1_teacher_prompt.txt`：Q1 privileged teacher 输入，含 XML weather、GT RS、GT abnormal、
   原始 `event_code`。
@@ -313,12 +326,14 @@ teacher target。只有显式加 `--with-teacher-model` 时，才会额外加载
   v3 风格别名，对应 Q1。
 - `step2_user.txt` / `step2_student.txt` / `step2_teacher_user.txt` / `step2_teacher.txt`：
   v3 风格别名，对应 Q2。
-- `memory_before.json` / `memory_after.json`：该帧前后的 `RS + EVENT` memory。
+- `memory_before.json` / `memory_after.json`：该帧前后的 `RS + EVENT + EGO_TO_GOAL_XY`
+  memory。
 - `flags.json`：解析出的 student/teacher 输出、是否 RS 正确、是否进入 Q2、
-  是否 candidate mismatch、是否 reset 下一帧等诊断字段。
+  是否 candidate mismatch、是否 reset 下一帧，以及
+  `q2_student_continued_from_q1_kv` / `q2_teacher_continued_from_q1_kv` 等诊断字段。
 - `labels.json`：`history_rgb_paths`、`rs_label/rs_option`、`event_label/event_code`、
   `abnormal`、`event_option_map`、`frame_allowed_events_raw`、`regular_event_codes`、
-  `event_candidate_codes` 与 `weather_text_teacher_only`。
+  `event_candidate_codes`、`ego_to_goal_xy` 与 `weather_text_teacher_only`。
 
 ### 6.3 Teacher 合同抽检
 

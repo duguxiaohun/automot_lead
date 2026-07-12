@@ -27,7 +27,7 @@ os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
 import torch
 
-from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
+from qwen3vl_local.sft_v3.train import _append_user_turn, _kv_start_state, _student_generate_kv  # noqa: E402
 from qwen3vl_local.sft_v5.labels import option_for_event  # noqa: E402
 from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     Memory,
@@ -92,12 +92,28 @@ def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path
     return EvalBundle(model=model, processor=processor, tokenizer=processor.tokenizer, device=device)
 
 
-def _generate(bundle: EvalBundle, images: List[Any], prompt: str, max_new_tokens: int) -> str:
-    """对单个 prompt 做 KV prefill + greedy decode。"""
+def _generate_start(bundle: EvalBundle, images: List[Any], prompt: str, max_new_tokens: int) -> tuple[str, Any]:
+    """对 Q1 做 system+image+user prefill，并返回生成后的 KV state。"""
 
     with torch.inference_mode():
         state = _kv_start_state(bundle, _messages(images, prompt))
-        text, _, _ = _student_generate_kv(bundle, state, max_new_tokens)
+        text, after, _ = _student_generate_kv(bundle, state, max_new_tokens)
+    return text, after
+
+
+def _generate_next(bundle: EvalBundle, previous_state: Any, prompt: str, max_new_tokens: int) -> tuple[str, Any]:
+    """在上一问 assistant 输出后的 KV cache 上追加新的 user turn。"""
+
+    with torch.inference_mode():
+        state = _append_user_turn(bundle, previous_state, prompt)
+        text, after, _ = _student_generate_kv(bundle, state, max_new_tokens)
+    return text, after
+
+
+def _generate(bundle: EvalBundle, images: List[Any], prompt: str, max_new_tokens: int) -> str:
+    """兼容旧调用：单个 prompt fresh prefill + greedy decode。"""
+
+    text, _ = _generate_start(bundle, images, prompt, max_new_tokens)
     return text
 
 
@@ -140,10 +156,10 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             if memory is None or reset_next:
                 # 评估严格模拟 v5 推理状态机：首帧或上帧失败后，只恢复 GT RS + RE；
                 # 之后的 memory 完全由 student 自己的 Q1/Q2 输出维护。
-                memory = reset_memory_for_frame(rs_target)
+                memory = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
                 reset_next = False
             images = _load_images(frame.history_rgb_paths)
-            q1_text = _generate(bundle, images, build_q1_student_prompt(memory), int(args.max_new_tokens_q1))
+            q1_text, q1_after = _generate_start(bundle, images, build_q1_student_prompt(memory), int(args.max_new_tokens_q1))
             parsed_q1 = parse_q1_output(q1_text)
             q1_rs_ok = parsed_q1.get("rs_label") == frame.rs_label
             q1_abnormal = parsed_q1.get("abnormal") == "YES" if parsed_q1.get("abnormal") else None
@@ -157,15 +173,16 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 counters["rs_wrong_resets"] += 1
                 reset_next = True
                 continue
-            q2_text = _generate(
+            q2_prompt = build_q2_student_prompt(
+                memory,
+                option_map=frame.event_option_map,
+                q1_abnormal=bool(q1_abnormal),
+                regular_event_codes=frame.regular_event_codes,
+            )
+            q2_text, _ = _generate_next(
                 bundle,
-                images,
-                build_q2_student_prompt(
-                    memory,
-                    option_map=frame.event_option_map,
-                    q1_abnormal=bool(q1_abnormal),
-                    regular_event_codes=frame.regular_event_codes,
-                ),
+                q1_after,
+                q2_prompt,
                 int(args.max_new_tokens_q2),
             )
             parsed_q2 = parse_q2_output(q2_text, frame.event_option_map)
