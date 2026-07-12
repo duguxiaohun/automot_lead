@@ -142,8 +142,8 @@ LORA_VISION_SCOPE=merger VISION_LR_SCALE=0.1 GPU_IDS=0 bash qwen3vl_local/sft_v5
 
 - DataLoader collate 只做本 rank local padding；主训练进程再 all-reduce 得到
   当前 batch 的 global `max_T`，padding timestep 不读图、不进 Qwen、不产 loss。
-- Q1 输出 `WEATHER / SCENE DESCRIPTION / CRITICAL OBJECT DESCRIPTION / REASONING /
-  MEMORY JUDGMENT / RS / ABNORMAL`；天气只写在 `WEATHER` 行，没有单独天气分类 loss。
+- Q1 输出 `Scene Description / Critical Object Description / Reasoning on Intent / RS / ABNORMAL`；
+  天气、道路、车道线、交通灯和周围运动都压缩写进 `Scene Description`，没有单独天气分类 loss。
 - `MEMORY` 内含 `EGO_TO_GOAL_XY`，由 build_dataset 从当前帧 meta
   `next_target_points[-1]` 转 ego frame 写入；缺失该坐标的 route 不进入新数据集。
 - Student 不看 XML weather；XML weather 只进入 teacher prompt，并且 teacher target
