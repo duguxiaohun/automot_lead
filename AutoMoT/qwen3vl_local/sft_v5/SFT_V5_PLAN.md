@@ -571,12 +571,10 @@ Use visible road geometry, lane layout, traffic lights or stop/yield cues, nearb
 actors, ego-path conflicts, and image-visible weather or visibility cues. Do not
 use a scenario name. If the evidence is weak, keep the memory unless contradicted.
 
-Output exactly these lines:
-WEATHER: <one sentence about RGB-visible weather and visibility>
-SCENE DESCRIPTION: <one sentence about the road layout, lane topology, signals, and goal direction>
-CRITICAL OBJECT DESCRIPTION: <one sentence about vehicles, pedestrians, obstacles, lights, or no critical object>
-REASONING: <1-2 sentences explaining the RS and abnormal decision from visible evidence>
-MEMORY JUDGMENT: <one sentence saying whether memory is kept or changed>
+Output exactly these concise CoT lines:
+Scene Description: <1-2 concise sentences about visible weather/visibility, lane markings, road layout, traffic lights/signs, surrounding motion, and goal direction>
+Critical Object Description: <1-2 concise sentences naming up to 2-3 key actors or map cues, their locations/actions, likely next motion, and why they matter to ego>
+Reasoning on Intent: <1-2 concise sentences using motion, signals, lanes, ego state, and EGO_TO_GOAL_XY to decide RS and abnormality>
 RS: <A|B|C|D|E> - <copy the chosen option meaning in your own words>
 ABNORMAL: <YES|NO>
 [/QUESTION_1]
@@ -608,11 +606,9 @@ ANSWER_EVENT_FOR_REASONING: {gt_event_description}
 Teacher target 文本仍清洗成学生视角：
 
 ```text
-WEATHER: The RGB history shows ...
-SCENE DESCRIPTION: The road layout supports option D because ...
-CRITICAL OBJECT DESCRIPTION: The relevant signal/vehicle/pedestrian/object is ...
-REASONING: The scene does / does not show an unusual event affecting the ego path because ...
-MEMORY JUDGMENT: The RS memory should be ...
+Scene Description: The RGB history shows weather, lane markings, traffic controls, surrounding motion, and a signalized intersection layout.
+Critical Object Description: The relevant signal/vehicle/pedestrian/object is ...
+Reasoning on Intent: The scene does / does not show an unusual event affecting the ego path because ...
 RS: D - Signalized intersection with traffic-light control.
 ABNORMAL: YES
 ```
@@ -644,11 +640,10 @@ the analysis to explain which regular behavior is visible under the current road
 structure. Choose a U-E option only when it is listed and visibly affects the ego
 vehicle.
 
-Output exactly these lines:
-SCENE DESCRIPTION: <one sentence continuing from Question 1 and the current RS>
-CRITICAL OBJECT DESCRIPTION: <one sentence about the object or cue relevant to EVENT, or no critical object>
-REASONING: <1-2 sentences explaining why the selected event is active or why regular behavior continues>
-MEMORY JUDGMENT: <one sentence saying how EVENT memory should update or stay RE>
+Output exactly these concise CoT lines:
+Scene Description: <one concise sentence continuing from Question 1 and the current RS>
+Critical Object Description: <1-2 concise sentences naming up to 2-3 event-relevant actors or cues, or stating that no critical object is visible>
+Reasoning on Intent: <1-2 concise sentences explaining why the selected event is active or why regular behavior continues>
 EVENT: <option letter> - <copy the chosen event meaning in your own words>
 [/QUESTION_2]
 ```
@@ -671,11 +666,10 @@ unusual event is listed, or if the latest frame does not support any listed
 unusual event, choose the regular-event option instead. Do not invent an event
 that is not listed.
 
-Output exactly these lines:
-SCENE DESCRIPTION: <one sentence continuing from Question 1 and the current RS>
-CRITICAL OBJECT DESCRIPTION: <one sentence about the object or cue relevant to EVENT, or no critical object>
-REASONING: <1-2 sentences explaining the selected event or why regular behavior should continue>
-MEMORY JUDGMENT: <one sentence saying how EVENT memory should update or stay RE>
+Output exactly these concise CoT lines:
+Scene Description: <one concise sentence continuing from Question 1 and the current RS>
+Critical Object Description: <1-2 concise sentences naming up to 2-3 event-relevant actors or cues, or stating that no critical object is visible>
+Reasoning on Intent: <1-2 concise sentences explaining the selected event or why regular behavior should continue>
 EVENT: <option letter> - <copy the chosen event meaning in your own words>
 [/QUESTION_2]
 ```
@@ -695,25 +689,23 @@ Teacher target examples:
 No abnormal:
 
 ```text
-SCENE DESCRIPTION: Continue from the current signalized intersection decision.
-CRITICAL OBJECT DESCRIPTION: No pedestrian, vehicle cut-in, obstacle, or blocked
+Scene Description: Continue from the current signalized intersection decision.
+Critical Object Description: No pedestrian, vehicle cut-in, obstacle, or blocked
 intersection space interrupts the ego path.
-REASONING: The vehicle should keep the regular traffic-light intersection
+Reasoning on Intent: The vehicle should keep the regular traffic-light intersection
 behavior under the current signalized intersection structure.
-MEMORY JUDGMENT: Keep the event memory at RE.
 EVENT: A - No unusual event; obey normal traffic-light intersection rules.
 ```
 
 Abnormal:
 
 ```text
-SCENE DESCRIPTION: Continue from the current road-structure decision.
-CRITICAL OBJECT DESCRIPTION: A vulnerable road user is crossing laterally into
+Scene Description: Continue from the current road-structure decision.
+Critical Object Description: A vulnerable road user is crossing laterally into
 the ego vehicle's intended path.
-REASONING: The interruption is not merely normal lane keeping or signal
+Reasoning on Intent: The interruption is not merely normal lane keeping or signal
 compliance. This matches the event option about a pedestrian or cyclist crossing
 the ego path.
-MEMORY JUDGMENT: Update the event memory to the selected unusual event.
 EVENT: A - A pedestrian, cyclist, or small vulnerable road user crosses or
 laterally enters the ego path.
 ```
@@ -751,14 +743,14 @@ loss = KL(teacher_probs || student_log_probs) * T * T
 
 Q1:
 
-- structured analysis lines (`WEATHER / SCENE DESCRIPTION / CRITICAL OBJECT DESCRIPTION / REASONING / MEMORY JUDGMENT`): `0.2`
+- structured CoT lines (`Scene Description / Critical Object Description / Reasoning on Intent`): `0.2`
 - `RS` option letter + description span: `1.2`
 - `ABNORMAL` value span: `0.8`
 - formatting tokens / prompt tokens: `0`
 
 Q2:
 
-- structured analysis lines (`SCENE DESCRIPTION / CRITICAL OBJECT DESCRIPTION / REASONING / MEMORY JUDGMENT`): `0.2`
+- structured CoT lines (`Scene Description / Critical Object Description / Reasoning on Intent`): `0.2`
 - `EVENT` option letter + description span: `1.2`
 - formatting tokens / prompt tokens: `0`
 
@@ -1117,9 +1109,9 @@ TOKENIZERS_PARALLELISM=false
 - 逐帧 allowed events 中的所有 `R-E*` regular 分支在 prompt 里显示为 `RE`。
   训练内部保留原始 `R-E*` 作为 `event_code` / `regular_event_codes` 审计字段。
 - Q2 的选项字母每帧可复现随机化，不能让 `A/B/C/...` 固定绑定到某个 EVENT。
-- Q1 输出字段固定为 `WEATHER / SCENE DESCRIPTION / CRITICAL OBJECT DESCRIPTION /
-  REASONING / MEMORY JUDGMENT / RS / ABNORMAL`。天气只写在 `WEATHER` 行，不单独
-  做天气分类 loss。
+- Q1 输出字段固定为 `Scene Description / Critical Object Description /
+  Reasoning on Intent / RS / ABNORMAL`。天气、道路、车道线、交通灯和周围运动
+  都压缩写进 `Scene Description`，不单独做天气分类 loss。
 - XML weather 只给 teacher。Student 只能从 RGB 中判断天气 / 能见度；teacher 可用 XML
   weather 生成更稳定的分析监督，但 XML 与 RGB 冲突时以 RGB 可见证据为准。
 - `review_required=true` 正常参与训练；只有数据结构异常、缺 meta/XML/RGB/annotation、

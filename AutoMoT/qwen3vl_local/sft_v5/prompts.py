@@ -95,11 +95,9 @@ def _structured_q1_format() -> str:
     """Q1 的学生/老师共享输出合同。"""
 
     return (
-        "WEATHER: <one sentence about RGB-visible weather and visibility>\n"
-        "SCENE DESCRIPTION: <one sentence about the road layout, lane topology, signals, and goal direction>\n"
-        "CRITICAL OBJECT DESCRIPTION: <one sentence about vehicles, pedestrians, obstacles, lights, or no critical object>\n"
-        "REASONING: <1-2 sentences explaining the RS and abnormal decision from visible evidence>\n"
-        "MEMORY JUDGMENT: <one sentence saying whether memory is kept or changed>\n"
+        "Scene Description: <1-2 concise sentences about visible weather/visibility, lane markings, road layout, traffic lights/signs, surrounding motion, and goal direction>\n"
+        "Critical Object Description: <1-2 concise sentences naming up to 2-3 key actors or map cues, their locations/actions, likely next motion, and why they matter to ego>\n"
+        "Reasoning on Intent: <1-2 concise sentences using motion, signals, lanes, ego state, and EGO_TO_GOAL_XY to decide RS and abnormality>\n"
         "RS: <A|B|C|D|E> - <copy the chosen option meaning in your own words>\n"
         "ABNORMAL: <YES|NO>"
     )
@@ -109,10 +107,9 @@ def _structured_q2_format() -> str:
     """Q2 的学生/老师共享输出合同。"""
 
     return (
-        "SCENE DESCRIPTION: <one sentence continuing from Question 1 and the current RS>\n"
-        "CRITICAL OBJECT DESCRIPTION: <one sentence about the object or cue relevant to EVENT, or no critical object>\n"
-        "REASONING: <1-2 sentences explaining why the selected event is active or why regular behavior continues>\n"
-        "MEMORY JUDGMENT: <one sentence saying how EVENT memory should update or stay RE>\n"
+        "Scene Description: <one concise sentence continuing from Question 1 and the current RS>\n"
+        "Critical Object Description: <1-2 concise sentences naming up to 2-3 event-relevant actors or cues, or stating that no critical object is visible>\n"
+        "Reasoning on Intent: <1-2 concise sentences explaining why the selected event is active or why regular behavior continues>\n"
         "EVENT: <option letter> - <copy the chosen event meaning in your own words>"
     )
 
@@ -149,7 +146,7 @@ def event_choices_block(
 def build_q1_student_prompt(memory: Memory) -> str:
     """Q1 student prompt。
 
-    Student 不看 XML weather；天气只允许从 RGB 中观察，并写进 WEATHER 行。
+    Student 不看 XML weather；天气只允许从 RGB 中观察，并写进 Scene Description。
     """
 
     return "\n\n".join([
@@ -163,7 +160,7 @@ def build_q1_student_prompt(memory: Memory) -> str:
             "2. whether an unusual event is currently happening or still affecting the ego vehicle.\n\n"
             "Use visible road geometry, lane layout, traffic lights or stop/yield cues, nearby actors, "
             "ego-path conflicts, and image-visible weather or visibility cues. Do not use a scenario name. "
-            "If the evidence is weak, keep the memory unless contradicted.\n\n"
+            "If the evidence is weak, keep the memory unless contradicted. Keep the CoT concise.\n\n"
             "Output exactly these lines:\n"
             f"{_structured_q1_format()}\n"
             "[/QUESTION_1]"
@@ -199,7 +196,7 @@ def build_q1_teacher_prompt(
             "Write the same structured output format as the student. Use the reference only to make the "
             "visible analysis grounded and consistent. If XML weather conflicts with visible "
             "RGB weather or visibility, follow the RGB evidence. Do not mention the reference block, "
-            "ground truth, answer keys, or hidden labels.\n"
+            "ground truth, answer keys, or hidden labels. Keep the CoT concise.\n"
             "[/QUESTION_1_TEACHER]"
         ),
     ])
@@ -225,11 +222,9 @@ def build_q1_teacher_target(
     ).rstrip(".")
     return "\n".join(
         [
-            "WEATHER: The RGB history should be used to describe the visible weather and visibility cues.",
-            f"SCENE DESCRIPTION: The road layout supports option {rs_target.option}: {rs_target.description}",
-            "CRITICAL OBJECT DESCRIPTION: Describe the most relevant actor, obstacle, signal, or state that affects the ego path; if none is visible, state that no critical object is present.",
-            f"REASONING: The road-structure evidence supports {rs_target.option}, and the event evidence indicates {event_phrase}.",
-            f"MEMORY JUDGMENT: Set the road-structure memory to option {rs_target.option} and set abnormal to {abnormal}.",
+            f"Scene Description: Describe the visible weather, lane markings, traffic controls, road layout, surrounding motion, and goal direction; the road layout supports option {rs_target.option}.",
+            "Critical Object Description: Name the most relevant actor, obstacle, signal, or map cue that affects the ego path; if none is visible, state that no critical object is present.",
+            f"Reasoning on Intent: The road-structure evidence supports {rs_target.option}: {rs_target.description}. The event evidence indicates that {event_phrase}.",
             f"RS: {rs_target.option} - {rs_target.description}",
             f"ABNORMAL: {abnormal}",
         ]
@@ -273,7 +268,7 @@ def build_q2_student_prompt(
             "[QUESTION_2]\n"
             "Decide the current event from EVENT_CHOICES. The choices have already been filtered to "
             "events that are possible for the current road structure and this route type. "
-            f"{task} Do not invent an event that is not listed.\n\n"
+            f"{task} Do not invent an event that is not listed. Keep the CoT concise.\n\n"
             "Output exactly these lines:\n"
             f"{_structured_q2_format()}\n"
             "[/QUESTION_2]"
@@ -305,7 +300,7 @@ def build_q2_teacher_prompt(
             "[/REFERENCE]\n\n"
             "[QUESTION_2_TEACHER]\n"
             "Write the same structured output format as the student. Use the reference only to explain the visible "
-            "event choice. Do not mention the reference block, ground truth, answer keys, or hidden labels.\n"
+            "event choice. Do not mention the reference block, ground truth, answer keys, or hidden labels. Keep the CoT concise.\n"
             "[/QUESTION_2_TEACHER]"
         ),
     ])
@@ -334,16 +329,13 @@ def build_q2_teacher_target(
             "The latest frame does not show one of the listed unusual events interrupting the ego path, "
             "so the regular behavior for the current road structure should continue."
         )
-        memory_judgment = "Keep the event memory at RE unless later frames show a listed unusual event."
     else:
         reasoning = f"The latest frame supports the listed unusual event: {desc}"
-        memory_judgment = f"Update the event memory to {chosen} while this visual evidence remains active."
     return "\n".join(
         [
-            "SCENE DESCRIPTION: Continue from the current road-structure decision and inspect the latest frame for event evidence.",
-            "CRITICAL OBJECT DESCRIPTION: Name the actor, obstacle, signal, or absence of a critical object that drives the event choice.",
-            f"REASONING: {reasoning}",
-            f"MEMORY JUDGMENT: {memory_judgment}",
+            "Scene Description: Continue from the current road-structure decision and inspect the latest frame for event evidence.",
+            "Critical Object Description: Name the actor, obstacle, signal, or map cue that drives the event choice; if none matters, state that no critical object is visible.",
+            f"Reasoning on Intent: {reasoning}",
             f"EVENT: {option} - {desc}",
         ]
     )
@@ -434,7 +426,7 @@ def _line_value_span(text: str, label: str) -> Optional[Tuple[int, int]]:
 
 
 _ANALYSIS_HEADING_RE = re.compile(
-    r"(?im)^\s*(WEATHER|SCENE DESCRIPTION|CRITICAL OBJECT DESCRIPTION|REASONING|MEMORY JUDGMENT|ANALYSIS)\s*:",
+    r"(?im)^\s*(WEATHER|SCENE DESCRIPTION|CRITICAL OBJECT DESCRIPTION|REASONING|REASONING ON INTENT|MEMORY JUDGMENT|ANALYSIS)\s*:",
 )
 
 

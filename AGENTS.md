@@ -276,8 +276,9 @@
   `AutoMoT/keyframe_filter/collection_output/*_result.json`，但训练前跳过
   `noScenarios_result.json`、异常时长 route、数据缺失 skip、缺 XML/RGB/meta/逐帧 annotation
   的 route；`review_required=true` 正常参与训练。每帧 meta 会抽取
-  `next_target_points[-1]` 转 ego frame 写成学生可见 `EGO_TO_GOAL_XY`。Q1 输出
-  `WEATHER / SCENE DESCRIPTION / CRITICAL OBJECT DESCRIPTION / REASONING / MEMORY JUDGMENT / RS / ABNORMAL`，
+  `next_target_points[-1]` 转 ego frame 写成学生可见 `EGO_TO_GOAL_XY`。Q1 使用精简
+  `Scene Description / Critical Object Description / Reasoning on Intent` 三段式 CoT 后输出
+  `RS / ABNORMAL`，
   Q2 在 Q1 RS 正确后进入，候选优先使用逐帧
   `frame_event_annotation.allowed_events`，缺失时才 fallback 到
   `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]`；所有 `R-E*`

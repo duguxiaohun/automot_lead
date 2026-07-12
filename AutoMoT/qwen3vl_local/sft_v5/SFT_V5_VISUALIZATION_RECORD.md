@@ -20,8 +20,8 @@ SFT v5 每帧分成两个问题：
 - 默认 Qwen 作为 student 时，是否能理解 Q1/Q2 选择题格式、RS 选项和 EVENT 选项。
 - 默认 Qwen 作为 teacher 时，吃到 XML weather、GT RS、GT event 等私有参考后，
   是否能给出稳定、合理、可被解析的 teacher 分析与答案。
-- prompt 是否诱导模型泄漏私有字段、复读候选、漏掉结构化分析行
-  `WEATHER/SCENE DESCRIPTION/CRITICAL OBJECT DESCRIPTION/REASONING/MEMORY JUDGMENT`
+- prompt 是否诱导模型泄漏私有字段、复读候选、漏掉三段式 CoT
+  `Scene Description / Critical Object Description / Reasoning on Intent`
   或 `RS/ABNORMAL/EVENT` 等关键输出字段。
 - Q2 的 `RE` 文案和当前帧 `U-E*` 候选是否足够清晰。
 - Q2 是否确实作为 Q1 assistant 输出后的第二轮 user turn 续接 KV cache，而不是重新
@@ -224,9 +224,9 @@ probe*/
   `ANSWER_`、`REFERENCE`、`XML_WEATHER` 这类私有字段名。
 - `q1_teacher_output.txt` / `q2_teacher_output.txt` 是模型生成文本，只在
   `--with-teacher-model` 时非空，用来评估默认 Qwen 老师能力和 prompt 合理性。
-- `q1_student_output.txt` 应按结构化行输出天气、场景、关键物体、推理、memory 判断、
-  `RS` 和 `ABNORMAL`；`q2_student_output.txt` 应按结构化行输出场景、关键物体、
-  推理、memory 判断和 `EVENT`。
+- `q1_student_output.txt` 应按三段式 CoT 输出 `Scene Description`、
+  `Critical Object Description`、`Reasoning on Intent`，然后输出 `RS` 和 `ABNORMAL`；
+  `q2_student_output.txt` 应按同样三段式 CoT 输出后给出 `EVENT`。
 - `q2_student_user_prompt.txt` 应该显示 `RE` 加当前帧允许的 `U-E*` 候选；`RE` 文案里
   应覆盖当前帧 `regular_event_codes` 对应的 regular 行为。
 - `memory_before.json` / `memory_after.json` 应符合 v5 状态机：
