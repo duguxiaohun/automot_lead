@@ -1,4 +1,4 @@
-# SFT v5 方案说明：RS / EVENT OPSD + true DDP sequence padding
+# SFT v5 方案说明：RS / EVENT OPSD + torchrun sequence padding
 
 本文是 `qwen3vl_local/sft_v5/` 的实现蓝图。目标是仿照 `sft_v3`
 的 offline on-policy self-distillation (OPSD) 思路，但把监督目标从
@@ -14,9 +14,10 @@ v5 的关键变化：
   2. 在第 1 问 RS 正确的前提下，判断当前 EVENT；若第 1 问认为有突发事件，
      在当前 RS 对应的 U-E 候选中选择；否则输出当前 RS 的 regular event (RE)。
 - Memory 只保留 `RS` 与 `EVENT`，不再保留 scene/status/subgoal。
-- 多卡训练改成真正 DDP：DataLoader 每次取 route sequence，collate 只做本 rank
+- 多卡训练改成 torchrun 多进程：DataLoader 每次取 route sequence，collate 只做本 rank
   的 local padding / local length；`train.py` 主进程再 all-reduce 当前 step 的全局
-  最长 sequence，补齐 mask 后进入统一时间循环。
+  最长 sequence，补齐 mask 后进入统一时间循环，并在 optimizer step 前手动
+  all-reduce LoRA 梯度。
 - Prompt 全部使用英文，标签选项必须是自然语言描述，不训练模型只背裸标签名。
 
 > 约定：本文里 `RS` 指 ROAD_STRUCTURE，`UE` 指 unusual event，`RE` 指 regular /
@@ -799,23 +800,23 @@ collector/learner 异步 replay：
 - 这些数据只在当前 `_run_frame()` 内存中临时存在，不写 replay，不跨 step 复用。
 - Teacher 只在同一批 student rollout token 上提供 privileged logits，用于
   forward-KL；teacher 不提前物化 target dataset。
-- DDP 下每张 H20 都同时承担 rollout 采样和训练反传角色，所以四卡默认是
+- torchrun 多进程下每张 H20 都同时承担 rollout 采样和训练反传角色，所以四卡默认是
   `4` 张卡同步边采样边训练。
 
 如果后续要做“几张卡采样、几张卡训练”的真正异步 OPSD，需要新增 v5
 `collector -> replay -> learner` 路线。H20 四卡的自然起点可以是 `3 collector + 1 learner`
 或 `2 collector + 2 learner`，但这属于 v5 off-policy 改版，不是当前 `train.py`
-已经实现的 DDP 路线。
+已经实现的同步多进程路线。
 
 ---
 
-## 8. DDP + sequence padding 训练
+## 8. torchrun + sequence padding 训练
 
 ### 8.1 Dataset / sampler
 
 `RouteSequenceDataset` 每个 `__getitem__` 返回一条 route sequence row。
 
-DDP 下：
+torchrun 多进程下：
 
 ```python
 sampler = DistributedSampler(
@@ -831,11 +832,17 @@ loader = DataLoader(
     sampler=sampler,
     collate_fn=collate_route_sequences,
 )
-model = DistributedDataParallel(model, device_ids=[local_rank], ...)
 ```
 
-与 v3 不同，v5 不用 work-stealing + local-SGD；每个 optimizer step 走标准 DDP
-梯度同步。
+与 v3 不同，v5 不用 work-stealing + local-SGD；每个 optimizer step 前对所有
+LoRA 参数手动 all-reduce 梯度。这里不能使用 `DistributedDataParallel(model)`
+wrapper：Q2 是否触发由各 rank 的 Q1 student 输出决定，rank 间 forward 次数会不一致，
+DDP wrapper 的 forward hook / buffer broadcast 可能产生 unmatched collective 并触发
+NCCL watchdog hang。
+
+`grad_accum` 的尾部处理必须显式 flush：如果一个 epoch 结束时已经反传了若干个
+有效 micro-batch 但数量不足 `grad_accum`，仍然要手动 all-reduce 梯度并执行一次
+optimizer step，然后重置 micro-step 计数，避免最后几个 OPSD 样本被静默丢弃。
 
 ### 8.2 Collate padding
 

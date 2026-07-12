@@ -1,4 +1,4 @@
-"""SFT v5 训练入口：RS/EVENT 两问 OPSD + true DDP sequence padding。
+"""SFT v5 训练入口：RS/EVENT 两问 OPSD + torchrun sequence padding。
 
 核心训练流程：
 
@@ -9,6 +9,11 @@
 5. teacher 关闭 LoRA，读取 privileged prompt，在同一批 student rollout token 上给
    full-vocabulary logits；
 6. student/teacher logits 做 forward-KL，梯度只回到 LoRA student。
+
+注意：v5 使用 torchrun 多进程 + 手动梯度 all-reduce，不把模型包进
+DistributedDataParallel wrapper。原因是 OPSD 的 Q2 是否触发取决于每个 rank 的
+student Q1 输出，rank 之间 forward 次数天然不一致；DDP wrapper 的 forward hook
+会在这种分支生成里产生 unmatched collective，导致 NCCL watchdog 卡死。
 
 `--check` 模式不加载模型，只检查 dataset / DDP padding / prompt / memory 状态机。
 """
@@ -22,7 +27,6 @@ import os
 import pathlib
 import sys
 import time
-from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
@@ -184,7 +188,7 @@ class RouteSequenceDataset(Dataset):
 
 
 def _global_max_int(value: int) -> int:
-    """DDP 下对一个 int 做 all_reduce max；单进程直接返回。"""
+    """torchrun 多进程下对一个 int 做 all_reduce max；单进程直接返回。"""
 
     if dist.is_available() and dist.is_initialized():
         device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
@@ -252,8 +256,30 @@ def setup_distributed() -> Tuple[int, int, int]:
     if world_size > 1 and not dist.is_initialized():
         if torch.cuda.is_available():
             torch.cuda.set_device(local_rank)
-        dist.init_process_group(backend="nccl" if torch.cuda.is_available() else "gloo", timeout=timedelta(hours=6))
+        backend = "nccl" if torch.cuda.is_available() else "gloo"
+        kwargs: Dict[str, Any] = {"backend": backend, "timeout": timedelta(hours=6)}
+        if torch.cuda.is_available():
+            # PyTorch 2.6+ 如果不显式传 device_id，会在 barrier/collective 前警告
+            # "device used by this process is currently unknown"。老版本没有该参数，
+            # 因此保留 TypeError fallback。
+            kwargs["device_id"] = torch.device(f"cuda:{local_rank}")
+        try:
+            dist.init_process_group(**kwargs)
+        except TypeError:
+            kwargs.pop("device_id", None)
+            dist.init_process_group(**kwargs)
     return rank, world_size, local_rank
+
+
+def distributed_barrier() -> None:
+    """DDP/torchrun 下带 device_id 的 barrier，避免 NCCL 设备映射警告。"""
+
+    if not (dist.is_available() and dist.is_initialized()):
+        return
+    if torch.cuda.is_available():
+        dist.barrier(device_ids=[torch.cuda.current_device()])
+    else:
+        dist.barrier()
 
 
 def cleanup_distributed() -> None:
@@ -526,6 +552,59 @@ def _trainable_param_groups(bundle: Any, args: argparse.Namespace) -> Tuple[List
     return groups, language, vision
 
 
+def _all_trainable_params(language_params: List[nn.Parameter], vision_params: List[nn.Parameter]) -> List[nn.Parameter]:
+    """返回当前需要手动同步的 LoRA 参数列表。"""
+
+    return [p for p in [*language_params, *vision_params] if p.requires_grad]
+
+
+def _broadcast_trainable_params(params: List[nn.Parameter], *, src: int = 0) -> None:
+    """启动时从 rank0 广播 LoRA 初始参数，确保各 rank 起点完全一致。"""
+
+    if not (dist.is_available() and dist.is_initialized()):
+        return
+    for param in params:
+        dist.broadcast(param.data, src=src)
+
+
+def _sync_trainable_grads(params: List[nn.Parameter]) -> None:
+    """手动 all-reduce LoRA 梯度。
+
+    这里替代 DDP wrapper 的 reducer。v5 的 forward 轮数会因 Q2 触发门而在 rank
+    之间不同，但每个 optimizer step 都会在所有 rank 上调用本函数，因此 collective
+    次序固定，不会出现 DDP forward hook 的不匹配问题。
+    """
+
+    if not (dist.is_available() and dist.is_initialized()):
+        return
+    world = float(dist.get_world_size())
+    for param in params:
+        if param.grad is None:
+            param.grad = torch.zeros_like(param.data)
+        dist.all_reduce(param.grad, op=dist.ReduceOp.SUM)
+        param.grad.div_(world)
+
+
+def _zero_trainable_loss(params: List[nn.Parameter], device: torch.device) -> torch.Tensor:
+    """构造一个带梯度图的 0 loss，保证空 batch rank 也能参与同步。"""
+
+    zero = torch.zeros((), device=device)
+    for param in params:
+        zero = zero + param.sum() * 0.0
+    return zero
+
+
+def _ddp_sum_int(value: int) -> int:
+    """把一个 int 在所有 rank 上求和；单进程直接返回。"""
+
+    if not (dist.is_available() and dist.is_initialized()):
+        return int(value)
+    device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
+    tensor = torch.tensor([int(value)], device=device, dtype=torch.long)
+    dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+    return int(tensor.item())
+
+
 def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespace) -> None:
     """保存 LoRA adapter 与 v5 元数据。"""
 
@@ -693,7 +772,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--save-steps", type=int, default=200)
     p.add_argument("--max-steps", type=int, default=0)
     p.add_argument("--check", action="store_true")
-    p.add_argument("--no-grad-checkpoint", action="store_true")
+    p.add_argument("--grad-checkpoint", action="store_true", help="experimental; KV-cache OPSD normally keeps this off")
+    p.add_argument("--no-grad-checkpoint", action="store_true", help="legacy compatibility flag; v5 keeps grad checkpoint off by default")
     p.add_argument("--seed", type=int, default=20260711)
     return p.parse_args()
 
@@ -713,7 +793,7 @@ def main() -> None:
     if world_size > 1:
         from torch.utils.data.distributed import DistributedSampler
 
-        # v5 这里使用 true DDP 的普通 DistributedSampler；和 v3 local-SGD/work-stealing 不同。
+        # v5 这里使用 torchrun 的普通 DistributedSampler；和 v3 local-SGD/work-stealing 不同。
         # 不同 rank 拿到的 route 长度可能不同，所以后面还要 global max_T 对齐。
         sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True, seed=int(args.seed))
     else:
@@ -734,8 +814,7 @@ def main() -> None:
     output_dir = pathlib.Path(args.output_dir)
     if rank == 0:
         output_dir.mkdir(parents=True, exist_ok=True)
-    if dist.is_available() and dist.is_initialized():
-        dist.barrier()
+    distributed_barrier()
 
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
@@ -745,15 +824,13 @@ def main() -> None:
         lora_dropout=float(args.lora_dropout),
         lora_vision_scope=str(args.lora_vision_scope),
         strict_vision_scope=bool(args.strict_vision_scope),
-        gradient_checkpointing=not bool(args.no_grad_checkpoint),
+        gradient_checkpointing=bool(args.grad_checkpoint),
     )
-    if world_size > 1:
-        bundle.model = torch.nn.parallel.DistributedDataParallel(
-            bundle.model,
-            device_ids=[local_rank] if torch.cuda.is_available() else None,
-            find_unused_parameters=True,
-        )
     groups, language_params, vision_params = _trainable_param_groups(bundle, args)
+    trainable_params = _all_trainable_params(language_params, vision_params)
+    _broadcast_trainable_params(trainable_params, src=0)
+    if rank == 0 and bool(args.grad_checkpoint):
+        print("[warn] --grad-checkpoint is experimental for v5: Qwen KV-cache generation requires use_cache=True.")
     optimizer = torch.optim.AdamW(groups, lr=float(args.learning_rate), weight_decay=float(args.weight_decay))
     total_steps = max(1, math.ceil(len(loader) * int(args.num_epochs) / max(1, int(args.grad_accum))))
     scheduler = make_scheduler(
@@ -768,6 +845,47 @@ def main() -> None:
     window_stats = _new_train_window_stats()
     start = time.time()
     bundle.model.train()
+
+    def complete_optimizer_step(epoch_idx: int) -> None:
+        """完成一次全 rank 对齐的 LoRA optimizer step。"""
+
+        nonlocal global_step, window_stats
+        _sync_trainable_grads(trainable_params)
+        if language_params:
+            torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm))
+        if vision_params:
+            torch.nn.utils.clip_grad_norm_(vision_params, float(args.vision_clip_norm))
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad(set_to_none=True)
+        global_step += 1
+        log_every = max(1, int(args.logging_steps))
+        if global_step % log_every == 0:
+            reduced_stats = _ddp_sum_train_stats(window_stats)
+            # 所有 rank 都必须在 collective 后清零窗口；只有 rank0 负责输出人可读日志。
+            window_stats = _new_train_window_stats()
+            elapsed = time.time() - start
+            if rank == 0:
+                log_line = _format_train_window(reduced_stats)
+                print(f"[train] step={global_step} epoch={epoch_idx} {log_line} elapsed={elapsed:.1f}s")
+                if tb is not None:
+                    frames = max(1.0, reduced_stats["frames"])
+                    q2 = max(1.0, reduced_stats["q2_triggered"])
+                    valid = max(1.0, reduced_stats["valid_slots"])
+                    pad_total = valid + reduced_stats["padding_slots"]
+                    tb.add_scalar("train/loss_frame", reduced_stats["loss_sum"] / frames, global_step)
+                    tb.add_scalar("train/q2_trigger_rate", reduced_stats["q2_triggered"] / frames, global_step)
+                    tb.add_scalar("train/q1_rs_acc_window", reduced_stats["q1_rs_correct"] / frames, global_step)
+                    tb.add_scalar("train/q1_abnormal_acc_window", reduced_stats["q1_abnormal_correct"] / frames, global_step)
+                    tb.add_scalar("train/q2_event_acc_window", reduced_stats["q2_event_correct"] / q2, global_step)
+                    tb.add_scalar("train/q2_invalid_output", reduced_stats["q2_invalid_output"], global_step)
+                    tb.add_scalar("train/reset_next", reduced_stats["reset_next"], global_step)
+                    tb.add_scalar("train/rollout_tokens_per_frame", (reduced_stats["q1_rollout_tokens"] + reduced_stats["q2_rollout_tokens"]) / frames, global_step)
+                    tb.add_scalar("ddp/padding_rate", reduced_stats["padding_slots"] / max(1.0, pad_total), global_step)
+                    tb.add_scalar("ddp/max_T_global_avg", reduced_stats["max_T_global_sum"] / max(1.0, reduced_stats["batches"]), global_step)
+        if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
+            _save_adapter(bundle, output_dir / f"checkpoint-{global_step}", args)
+
     for epoch in range(int(args.num_epochs)):
         if sampler is not None:
             sampler.set_epoch(epoch)
@@ -812,59 +930,29 @@ def main() -> None:
                     _add_frame_rollout_stats(window_stats, stats, need_reset=bool(need_reset))
                     memories[b] = next_mem
                     reset_next[b] = bool(need_reset)
-            if batch_loss is None or frame_count == 0:
+            global_frame_count = _ddp_sum_int(frame_count)
+            if global_frame_count == 0:
                 continue
-            batch_loss = batch_loss / float(frame_count)
-            window_stats["loss_sum"] += float(batch_loss.detach().item()) * float(frame_count)
+            if batch_loss is None or frame_count == 0:
+                batch_loss = _zero_trainable_loss(trainable_params, device)
+            else:
+                batch_loss = batch_loss / float(frame_count)
+                window_stats["loss_sum"] += float(batch_loss.detach().item()) * float(frame_count)
             loss_scaled = batch_loss / float(max(1, int(args.grad_accum)))
             sync_this_step = (micro_step + 1) % max(1, int(args.grad_accum)) == 0
-            sync_context = (
-                bundle.model.no_sync()
-                if (world_size > 1 and not sync_this_step and hasattr(bundle.model, "no_sync"))
-                else nullcontext()
-            )
-            with sync_context:
-                # 梯度累积中间 micro step 不做 DDP all-reduce，最后一个 micro step 再同步，
-                # 避免每帧/每小 batch 都触发昂贵 collective。
-                loss_scaled.backward()
+            # v5 不使用 DDP wrapper，因此梯度累积中间 micro step 天然不会触发
+            # all-reduce；只在 optimizer step 前手动同步一次 LoRA 梯度。
+            loss_scaled.backward()
             micro_step += 1
             if micro_step % max(1, int(args.grad_accum)) == 0:
-                if language_params:
-                    torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm))
-                if vision_params:
-                    torch.nn.utils.clip_grad_norm_(vision_params, float(args.vision_clip_norm))
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad(set_to_none=True)
-                global_step += 1
-                log_every = max(1, int(args.logging_steps))
-                if global_step % log_every == 0:
-                    reduced_stats = _ddp_sum_train_stats(window_stats)
-                    # 所有 rank 都必须在 collective 后清零窗口；只有 rank0 负责输出人可读日志。
-                    window_stats = _new_train_window_stats()
-                    elapsed = time.time() - start
-                    if rank == 0:
-                        log_line = _format_train_window(reduced_stats)
-                        print(f"[train] step={global_step} epoch={epoch} {log_line} elapsed={elapsed:.1f}s")
-                        if tb is not None:
-                            frames = max(1.0, reduced_stats["frames"])
-                            q2 = max(1.0, reduced_stats["q2_triggered"])
-                            valid = max(1.0, reduced_stats["valid_slots"])
-                            pad_total = valid + reduced_stats["padding_slots"]
-                            tb.add_scalar("train/loss_frame", reduced_stats["loss_sum"] / frames, global_step)
-                            tb.add_scalar("train/q2_trigger_rate", reduced_stats["q2_triggered"] / frames, global_step)
-                            tb.add_scalar("train/q1_rs_acc_window", reduced_stats["q1_rs_correct"] / frames, global_step)
-                            tb.add_scalar("train/q1_abnormal_acc_window", reduced_stats["q1_abnormal_correct"] / frames, global_step)
-                            tb.add_scalar("train/q2_event_acc_window", reduced_stats["q2_event_correct"] / q2, global_step)
-                            tb.add_scalar("train/q2_invalid_output", reduced_stats["q2_invalid_output"], global_step)
-                            tb.add_scalar("train/reset_next", reduced_stats["reset_next"], global_step)
-                            tb.add_scalar("train/rollout_tokens_per_frame", (reduced_stats["q1_rollout_tokens"] + reduced_stats["q2_rollout_tokens"]) / frames, global_step)
-                            tb.add_scalar("ddp/padding_rate", reduced_stats["padding_slots"] / max(1.0, pad_total), global_step)
-                            tb.add_scalar("ddp/max_T_global_avg", reduced_stats["max_T_global_sum"] / max(1.0, reduced_stats["batches"]), global_step)
-                if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
-                    _save_adapter(bundle, output_dir / f"checkpoint-{global_step}", args)
+                complete_optimizer_step(epoch)
                 if int(args.max_steps) > 0 and global_step >= int(args.max_steps):
                     break
+        if micro_step % max(1, int(args.grad_accum)) != 0 and not (int(args.max_steps) > 0 and global_step >= int(args.max_steps)):
+            # epoch 末尾如果还有未满 grad_accum 的梯度，也要同步并更新一次；
+            # 否则最后几个有效 batch 的 OPSD 信号会被静默丢掉。
+            complete_optimizer_step(epoch)
+            micro_step = 0
         if int(args.max_steps) > 0 and global_step >= int(args.max_steps):
             break
     if rank == 0:

@@ -67,9 +67,14 @@ OPSD 不是先离线生成一批 teacher 数据再训练。v5 当前实现是同
 2. 对每个有效 frame，当前 student 先自由生成 Q1；Q1 RS 正确时再自由生成 Q2。
 3. 这些 student 生成出来的 token 就是本 step 的 on-policy 采样数据，只在内存中临时保存。
 4. Teacher 关闭 LoRA，读取 privileged prompt，在同一批 student token 上 forward 得到 logits。
-5. Student/teacher logits 做 weighted forward-KL，然后当前 rank 反向传播，DDP 同步梯度。
+5. Student/teacher logits 做 weighted forward-KL，然后当前 rank 反向传播。
+6. 每个 optimizer step 前手动 all-reduce LoRA 梯度，保持四卡参数同步。
 
 因此 H20 四卡下，当前 v5 是“四张卡都边采样边训练”，不是“几张卡专门采数据、几张卡专门训练”。
+实现上使用 torchrun 多进程和手动梯度 all-reduce，不把模型包进
+`DistributedDataParallel` wrapper：Q2 是否触发取决于各 rank 的 Q1 student 输出，
+forward 次数会不一致，DDP wrapper 的 forward hook/collective 容易出现 NCCL
+watchdog 卡死。
 这和 v4 的 off-policy collector/learner 不同。若要改成异步架构，可以参考 v4：
 `3` 张 H20 跑 collector 持续写 replay，`1` 张 H20 跑 learner 训练；但那需要新增 v5
 collector/replay/learner 代码，当前 `train.py` 没有这个分卡角色。
@@ -142,6 +147,13 @@ LORA_VISION_SCOPE=merger VISION_LR_SCALE=0.1 GPU_IDS=0 bash qwen3vl_local/sft_v5
 
 - DataLoader collate 只做本 rank local padding；主训练进程再 all-reduce 得到
   当前 batch 的 global `max_T`，padding timestep 不读图、不进 Qwen、不产 loss。
+- 多卡训练使用 torchrun + DistributedSampler + 手动 LoRA 梯度 all-reduce；
+  不使用 `DistributedDataParallel(model)` wrapper，避免动态 Q2 分支造成 rank 间
+  forward collective 不匹配。
+- `grad_accum` 只控制 optimizer step 间隔；epoch 末尾未满 `grad_accum` 的有效
+  micro-batch 也会做一次同步 step，不会静默丢弃尾批梯度。
+- v5 默认关闭 gradient checkpointing，因为 Qwen3-VL KV cache 续接必须保持
+  `use_cache=True`；`--grad-checkpoint` 仅保留为实验开关。
 - Q1 输出 `Scene Description / Critical Object Description / Reasoning on Intent / RS / ABNORMAL`；
   天气、道路、车道线、交通灯和周围运动都压缩写进 `Scene Description`，没有单独天气分类 loss。
 - `MEMORY` 内含 `EGO_TO_GOAL_XY`，由 build_dataset 从当前帧 meta
@@ -170,7 +182,7 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 - `train/q2_invalid_output` / `train/reset_next`：非法输出和下一帧 reset 次数。
 - `train/rollout_tokens_per_frame`：student on-policy 采样出的 Q1+Q2 token 平均长度。
 - `ddp/padding_rate`：global padding 后的 None frame 占位比例。
-- `ddp/max_T_global_avg`：logging window 内 DDP 对齐后的平均 `max_T_global`。
+- `ddp/max_T_global_avg`：logging window 内多进程对齐后的平均 `max_T_global`。
 
 后续如果扩展详细 loss，可沿用 v3 的命名习惯拆到
 `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}`、
