@@ -628,6 +628,18 @@ def _ddp_sum_int(value: int) -> int:
     return int(tensor.item())
 
 
+def _cuda_memory_text() -> str:
+    """返回当前 rank 的 CUDA 显存摘要，供长时间训练心跳日志使用。"""
+
+    if not torch.cuda.is_available():
+        return "cuda_mem=NA"
+    device = torch.cuda.current_device()
+    allocated = torch.cuda.memory_allocated(device) / (1024 ** 3)
+    reserved = torch.cuda.memory_reserved(device) / (1024 ** 3)
+    peak = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+    return f"cuda_mem={allocated:.1f}G reserved={reserved:.1f}G peak={peak:.1f}G"
+
+
 def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespace) -> None:
     """保存 LoRA adapter 与 v5 元数据。"""
 
@@ -794,6 +806,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--logging-steps", type=int, default=5)
     p.add_argument("--save-steps", type=int, default=200)
     p.add_argument("--max-steps", type=int, default=0)
+    p.add_argument("--progress-frames", type=int, default=5, help="rank0 每处理多少个本地有效 frame 打一次进度；0 表示关闭逐帧进度")
+    p.add_argument("--heartbeat-seconds", type=float, default=120.0, help="rank0 长操作超过多少秒补一条心跳；0 表示关闭按时间心跳")
     p.add_argument("--check", action="store_true")
     p.add_argument("--grad-checkpoint", action="store_true", help="experimental; KV-cache OPSD normally keeps this off")
     p.add_argument("--no-grad-checkpoint", action="store_true", help="legacy compatibility flag; v5 keeps grad checkpoint off by default")
@@ -865,15 +879,46 @@ def main() -> None:
 
     global_step = 0
     micro_step = 0
+    processed_local_frames = 0
     window_stats = _new_train_window_stats()
     start = time.time()
+    last_heartbeat = start
     bundle.model.train()
+
+    def rank0_log(message: str) -> None:
+        """rank0 统一日志出口，flush=True 保证 tee/log.txt 里能实时看到。"""
+
+        if rank == 0:
+            print(message, flush=True)
+
+    def should_log_frame() -> bool:
+        """判断本地 frame 心跳是否应该输出。"""
+
+        interval = int(args.progress_frames)
+        if interval <= 0:
+            return False
+        # 前几个 frame 总是打印，方便判断训练是否已经进入真实 Qwen OPSD。
+        return processed_local_frames < 3 or processed_local_frames % interval == 0
+
+    def should_time_heartbeat(now: Optional[float] = None) -> bool:
+        """判断距离上次日志是否已经超过 heartbeat 秒。"""
+
+        interval = float(args.heartbeat_seconds)
+        if interval <= 0:
+            return False
+        return ((time.time() if now is None else now) - last_heartbeat) >= interval
 
     def complete_optimizer_step(epoch_idx: int) -> None:
         """完成一次全 rank 对齐的 LoRA optimizer step。"""
 
-        nonlocal global_step, window_stats
+        nonlocal global_step, window_stats, last_heartbeat
+        sync_start = time.time()
+        rank0_log(
+            f"[sync-start] step_next={global_step + 1} epoch={epoch_idx} "
+            f"local_window_frames={int(window_stats.get('frames', 0.0))} {_cuda_memory_text()}"
+        )
         _sync_trainable_grads(trainable_params)
+        rank0_log(f"[sync-done] step_next={global_step + 1} grad_all_reduce={time.time() - sync_start:.1f}s {_cuda_memory_text()}")
         if language_params:
             torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm))
         if vision_params:
@@ -882,6 +927,7 @@ def main() -> None:
         scheduler.step()
         optimizer.zero_grad(set_to_none=True)
         global_step += 1
+        last_heartbeat = time.time()
         log_every = max(1, int(args.logging_steps))
         if global_step % log_every == 0:
             reduced_stats = _ddp_sum_train_stats(window_stats)
@@ -890,7 +936,7 @@ def main() -> None:
             elapsed = time.time() - start
             if rank == 0:
                 log_line = _format_train_window(reduced_stats)
-                print(f"[train] step={global_step} epoch={epoch_idx} {log_line} elapsed={elapsed:.1f}s")
+                print(f"[train] step={global_step} epoch={epoch_idx} {log_line} elapsed={elapsed:.1f}s {_cuda_memory_text()}", flush=True)
                 if tb is not None:
                     frames = max(1.0, reduced_stats["frames"])
                     q2 = max(1.0, reduced_stats["q2_triggered"])
@@ -912,13 +958,18 @@ def main() -> None:
     for epoch in range(int(args.num_epochs)):
         if sampler is not None:
             sampler.set_epoch(epoch)
-        for batch in loader:
+        for batch_idx, batch in enumerate(loader):
             batch = pad_batch_to_global_length(batch)
             _add_batch_shape_stats(window_stats, batch)
             frame_count = 0
             routes: List[SequenceRow] = batch["routes"]
             frame_rows: List[List[Optional[FrameRow]]] = batch["frame_rows"]
             local_frame_slots = sum(1 for frames in frame_rows for frame in frames if frame is not None)
+            rank0_log(
+                f"[batch-start] epoch={epoch} batch={batch_idx} routes={len(routes)} "
+                f"maxT_local={int(batch['max_T_local'])} maxT_global={int(batch['max_T_global'])} "
+                f"valid_local={local_frame_slots} micro_step_next={micro_step + 1} {_cuda_memory_text()}"
+            )
             loss_scale = 1.0 / float(max(1, local_frame_slots) * max(1, int(args.grad_accum)))
             # 每条 route 各自维护 memory/reset；batch 内 route 之间互不影响。
             # reset_next=True 表示上一个有效帧 RS 错或 Q2 非法，下一帧开头恢复 GT RS + RE。
@@ -936,6 +987,15 @@ def main() -> None:
                         memories[b] = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
                         reset_next[b] = False
                     assert memories[b] is not None
+                    frame_start = time.time()
+                    log_this_frame = should_log_frame()
+                    if log_this_frame:
+                        rank0_log(
+                            f"[frame-start] epoch={epoch} batch={batch_idx} t={t} route_idx={b} "
+                            f"route={route.scenario}/{route.route_id} frame={frame.frame_id} "
+                            f"local_frame={processed_local_frames + 1}/{local_frame_slots} "
+                            f"mem={memories[b].rs_label}/{memories[b].event_label} {_cuda_memory_text()}"
+                        )
                     try:
                         loss, stats, next_mem, need_reset = _run_frame(
                             bundle,
@@ -947,19 +1007,42 @@ def main() -> None:
                         )
                     except FileNotFoundError as exc:
                         if rank == 0:
-                            print(f"[warn] skip missing image route={route.route_id} frame={frame.frame_id}: {exc}")
+                            print(f"[warn] skip missing image route={route.route_id} frame={frame.frame_id}: {exc}", flush=True)
                         continue
                     # 关键显存控制：每帧 OPSD loss 算完立刻 backward，只把 LoRA
                     # 梯度累积在参数上，不把整条 route sequence 的 Qwen 计算图留到
                     # batch 末尾。这样长序列不会把 H20 95GB 显存吃满。
-                    window_stats["loss_sum"] += float(loss.detach().item())
+                    loss_value = float(loss.detach().item())
+                    window_stats["loss_sum"] += loss_value
                     (loss * loss_scale).backward()
                     del loss
                     frame_count += 1
+                    processed_local_frames += 1
                     _add_frame_rollout_stats(window_stats, stats, need_reset=bool(need_reset))
                     memories[b] = next_mem
                     reset_next[b] = bool(need_reset)
+                    frame_elapsed = time.time() - frame_start
+                    now = time.time()
+                    if log_this_frame or should_time_heartbeat(now):
+                        rank0_log(
+                            f"[frame-done] epoch={epoch} batch={batch_idx} t={t} route_idx={b} "
+                            f"frame={frame.frame_id} dt={frame_elapsed:.1f}s "
+                            f"loss={loss_value:.4f} "
+                            f"q1_tokens={int(stats.get('q1_rollout_tokens', 0))} "
+                            f"q2_tokens={int(stats.get('q2_rollout_tokens', 0))} "
+                            f"q2={int(bool(stats.get('q2_triggered', False)))} "
+                            f"reset={int(bool(need_reset))} {_cuda_memory_text()}"
+                        )
+                        last_heartbeat = now
+            rank0_log(
+                f"[batch-local-done] epoch={epoch} batch={batch_idx} local_frames={frame_count} "
+                f"calling_global_frame_reduce=1 {_cuda_memory_text()}"
+            )
             global_frame_count = _ddp_sum_int(frame_count)
+            rank0_log(
+                f"[batch-global-done] epoch={epoch} batch={batch_idx} "
+                f"global_frames={global_frame_count} local_frames={frame_count}"
+            )
             if global_frame_count == 0:
                 continue
             micro_step += 1

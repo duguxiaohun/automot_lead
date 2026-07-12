@@ -297,7 +297,8 @@
   只做本 rank local padding，主训练进程 all-reduce 得到 global `max_T` 后补齐，
   padding frame 不读图、不进 Qwen、不产 loss；
   `train.sh` 支持 `single/ddp/check`，遵循 GPU 自动选址、`GPU_IDS` pin 卡和
-  `run_<RUN_TAG>/latest` 防覆盖约定。`probe.py` 仿 v3 输出 route/frame 层级可视化：
+  `run_<RUN_TAG>/latest` 防覆盖约定；rank0 会输出 batch/frame/sync 心跳，
+  可用 `PROGRESS_FRAMES` 和 `HEARTBEAT_SECONDS` 调整日志密度。`probe.py` 仿 v3 输出 route/frame 层级可视化：
   复制 4 帧 RGB，保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
   可选 `q*_teacher_output.txt`、memory_before/after、flags、timeline.json/png 和
   manifest.json；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用
