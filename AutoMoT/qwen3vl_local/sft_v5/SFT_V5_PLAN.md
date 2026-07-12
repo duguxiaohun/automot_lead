@@ -471,20 +471,35 @@ v5 Memory 是跨帧纯文本状态：
 
 ```text
 [MEMORY]
-BELIEVED_RS: A - Ordinary same-direction drivable road ...
-BELIEVED_EVENT: RE - No unusual event; continue ordinary same-direction behavior.
+BELIEVED_RS: Ordinary same-direction drivable road ...
+EGO_TO_GOAL_XY=(+12.3, -1.5) m
 [/MEMORY]
 ```
+
+Q1 使用 road-only memory，不提前暴露 event；Q2 才在同一轮 Q1 之后使用
+road + event memory：
+
+```text
+[MEMORY]
+BELIEVED_RS: Ordinary same-direction drivable road ...
+BELIEVED_EVENT: No unusual event; continue ordinary same-direction behavior.
+EGO_TO_GOAL_XY=(+12.3, -1.5) m
+[/MEMORY]
+```
+
+注意：memory 渲染文本只写自然语言描述，不写 `A/B/C/D/E` 选项字母，也不写
+`RE/U-E*` 事件代码。A-E 只出现在 `RS_CHOICES` 和最终 `RS:` 答案里；Q2 的动态
+事件选项字母只出现在 `EVENT_CHOICES` 和最终 `EVENT:` 答案里。
 
 内部 dataclass：
 
 ```python
 @dataclass
 class Memory:
-    rs_option: str       # A-E
     rs_label: str        # R1-R5
-    event_label: str     # RE or U-E*
-    event_option: str    # dynamic option letter from previous Q2, optional
+    event_label: str     # RE or U-E*, only rendered from Q2 onward
+    ego_to_goal_x: float | None
+    ego_to_goal_y: float | None
 ```
 
 初始化：
@@ -533,10 +548,12 @@ class Memory:
 
 ```text
 You are an autonomous driving agent. Use the stitched RGB history as visual
-context, ordered from oldest to newest. Keep the current memory by default and
-change it only when clear visual evidence supports the change. Describe weak,
-distant, foggy, or occluded evidence as uncertain. Never mention ground truth,
-answer keys, labels hidden from the user, or dataset rules.
+context, ordered from oldest to newest. Focus on traffic lights/signs, nearby
+vehicles/pedestrians/obstacles, lane markings and road structure, and key
+factors affecting ego decisions. Keep the current memory by default and change
+it only when clear visual evidence supports the change. Describe weak, distant,
+foggy, or occluded evidence as uncertain. Never mention ground truth, answer
+keys, hidden labels, dataset rules, or scenario names.
 ```
 
 ### 6.1 Q1 student prompt
@@ -544,7 +561,8 @@ answer keys, labels hidden from the user, or dataset rules.
 输入：
 
 - 4 张 stitched RGB history。
-- 当前 `MEMORY`，包含 `BELIEVED_RS`、`BELIEVED_EVENT` 和 `EGO_TO_GOAL_XY`。
+- 当前 road-only `MEMORY`，只包含 `BELIEVED_RS` 和 `EGO_TO_GOAL_XY`，不包含
+  `BELIEVED_EVENT`。
   `EGO_TO_GOAL_XY` 必须来自当前帧 meta `next_target_points[-1]` 转 ego frame，
   和 v3/v4/LeadMoT final goal 同源。
 - `RS_CHOICES` A-E。
@@ -622,6 +640,9 @@ ABNORMAL: YES
 训练、评估和 probe 的模型路径都把 Q2 当作 Q1 assistant 输出后的第二轮 user turn，
 通过 Q1 KV cache 续接，不重新对同一帧 fresh prefill。训练时如果 Q1 RS 错，跳过
 Q2 并 reset 下一帧。
+
+Q2 的 prompt 前缀使用 road + event memory：`BELIEVED_RS` 和 `BELIEVED_EVENT`
+都只写自然语言描述，仍然不写 A-E / RE / U-E* 这类局部选项或标签代码。
 
 若 Q1 `ABNORMAL=NO`：
 

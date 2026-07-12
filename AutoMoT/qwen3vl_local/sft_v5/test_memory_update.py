@@ -27,6 +27,15 @@ def main() -> None:
     mem = reset_memory_for_frame(rs)
     assert mem.rs_label == "R1"
     assert mem.event_label == "RE"
+    rendered_q1 = mem.format_q1_text()
+    assert "BELIEVED_EVENT" not in rendered_q1, "Q1 memory 不应提前暴露 EVENT"
+    assert "BELIEVED_RS: A -" not in rendered_q1, "memory 不应保存 A-E 选项编号"
+
+    mem_with_goal = reset_memory_for_frame(rs, ego_to_goal_xy=(12.3, -1.5))
+    assert "EGO_TO_GOAL_XY=(+12.3, -1.5) m" in mem_with_goal.format_q1_text()
+    rendered_q2 = mem_with_goal.format_q2_text()
+    assert "BELIEVED_EVENT" in rendered_q2, "Q2 memory 才需要带 EVENT"
+    assert "BELIEVED_EVENT: RE -" not in rendered_q2, "memory 不应保存 RE/U-E 标签前缀"
 
     mem = update_memory_after_q1(mem, student_rs_label="R4", student_abnormal=True)
     assert mem.rs_label == "R4"
