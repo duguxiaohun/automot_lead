@@ -143,7 +143,7 @@ class Q1GroupedRolloutResult:
     这两个概念不能混用，否则 TensorBoard 会高估 `QWEN_BATCH_SIZE>1` 的收益。
     """
 
-    rollouts: List[Tuple[KVState, str, KVState, torch.Tensor]]
+    rollouts: List[Tuple[Optional[KVState], str, Optional[KVState], torch.Tensor]]
     input_lengths: List[int]
     group_sizes: List[int]
     batched_group_sizes: List[int]
@@ -600,10 +600,11 @@ def _kv_start_state_batch(bundle: Any, messages_list: List[List[Dict[str, Any]]]
 
 
 def _kv_start_state_batch_padded(bundle: Any, messages_list: List[List[Dict[str, Any]]]) -> KVState:
-    """允许 padding 的 batched prefill，仅用于 Q2 student rollout 采样。
+    """允许 padding 的 batched prefill，仅用于 Q1/Q2 student rollout 采样。
 
-    这个 state 不会进入 KL 训练路径，只用于并行生成 Q2 文本。KL 仍由 `_run_frame`
-    重新构造单样本精确 q2_student_state，避免 padded KV 影响 teacher/student 分布比较。
+    这个 state 不会进入 KL 训练路径，只用于并行生成 student 文本/token。
+    KL 和 Q2 续接仍由 `_run_frame` 重新构造单样本精确 state，避免 padded KV
+    影响 teacher/student 分布比较。
     """
 
     if len(messages_list) == 1:
@@ -675,8 +676,9 @@ def _decode_position_ids_varlen(
 def _append_token_ids_padded_rollout(bundle: Any, state: KVState, suffix_ids: torch.Tensor) -> KVState:
     """向允许 padding 的 batched rollout state 追加 token。
 
-    只用于 no_grad Q2 rollout 采样。因为 cache 长度包含 padding，`cache_position` 仍使用
-    padded cache length；但 M-RoPE `position_ids` 使用每样本真实有效长度。
+    只用于 no_grad Q1/Q2 rollout 采样。因为 cache 长度包含 padding，
+    `cache_position` 仍使用 padded cache length；但 M-RoPE `position_ids`
+    使用每样本真实有效长度。返回的 padded state 不进入 KL/Q2 训练路径。
     """
 
     if suffix_ids.ndim == 1:
@@ -993,7 +995,18 @@ def _run_frame(
 
     # ---- Q1: student rollout ----
     images: Optional[List[Image.Image]] = None
-    if q1_student_state is None or q1_text is None or q1_after is None or q1_ids is None:
+    if q1_text is not None and q1_ids is not None and (q1_student_state is None or q1_after is None):
+        q1_student_start = time.time()
+        images = _load_images(frame.history_rgb_paths)
+        q1_prompt = build_q1_student_prompt(memory)
+        with torch.no_grad():
+            # Q1 文本/token 已由 padded batched rollout 得到；这里只重建单样本精确
+            # Q1 prompt KV 和 Q1-after KV 给 KL/Q2 使用。padded KV 不进入训练图，
+            # 因而不会把 padding prefix length 或 M-RoPE 位置带进 OPSD loss。
+            q1_student_state = _kv_start_state(bundle, _messages(images, q1_prompt))
+            q1_after, _ = _append_token_ids(bundle, q1_student_state, q1_ids)
+        timings["q1_student_seconds"] = time.time() - q1_student_start
+    elif q1_student_state is None or q1_text is None or q1_after is None or q1_ids is None:
         q1_student_start = time.time()
         images = _load_images(frame.history_rgb_paths)
         q1_prompt = build_q1_student_prompt(memory)
@@ -1141,14 +1154,16 @@ def _run_q1_rollout_grouped(
     *,
     max_new_tokens_q1: int,
 ) -> Q1GroupedRolloutResult:
-    """按 exact processor input length 分组后运行 Q1 student rollout。
+    """运行 Q1 student rollout，并统计真实 batched 情况。
 
     返回值逐样本包含：
     `q1_student_state`（Q1 prompt prefill 后）、`q1_text`、`q1_after`（Q1 生成后干净 KV）、
     `q1_ids`。后续 `_run_frame` 会用这些 token 做同款 OPSD loss 和 Q2 状态机。
 
-    注意：只有同 length 且 size>=2 的 group 会真正走 batched KV。混长样本被拆成
-    singleton 或同长子组，避免 padded past_key_values 污染后续 M-RoPE prefix_len。
+    注意：多样本 Q1 现在和 Q2 一样，padded batched KV 只用于 student 采样 token；
+    返回的 state 置为 None，后续 `_run_frame` 会按单样本精确 prompt 重新构造
+    q1_student_state/q1_after，再做 KL 和 Q2 续接。这样 mixed-length prompt 也能
+    真正 4 路采样，同时不把 padded past_key_values 带入训练语义。
     """
 
     total_start = time.time()
@@ -1173,50 +1188,40 @@ def _run_q1_rollout_grouped(
         for images, memory in zip(images_per_frame, memories)
     ]
     length_start = time.time()
-    # exact-length 分组目前需要逐条跑 processor 取 input_ids 长度，这是安全但有开销的
-    # 做法。TensorBoard 的 qwen/q1_length_seconds_per_chunk 就是用来判断这一步是否
-    # 抵消了 batched Qwen 的收益。
+    # 逐条记录 processor input length 只用于日志里的 padding pressure 审计。
+    # Q1 rollout 本身允许 mixed-length padded batch，训练用 KV 会在 _run_frame
+    # 中按单样本精确重建。
     input_lengths = [_qwen_message_input_length(bundle, messages) for messages in messages_list]
     length_seconds = time.time() - length_start
     groups: Dict[int, List[int]] = {}
     for idx, length in enumerate(input_lengths):
-        # 只有 processor 后的完整 input length 完全一致，才能保证 past_key_values 里
-        # 没有 padding token，后续 Q1 KL/Q2 的 prefix_len/M-RoPE 才和单样本一致。
         groups.setdefault(int(length), []).append(idx)
-    outputs: List[Optional[Tuple[KVState, str, KVState, torch.Tensor]]] = [None for _ in frames]
-    group_sizes: List[int] = []
+    outputs: List[Optional[Tuple[Optional[KVState], str, Optional[KVState], torch.Tensor]]] = [None for _ in frames]
+    group_sizes: List[int] = [len(indices) for indices in groups.values()]
     batched_group_sizes: List[int] = []
     singleton_groups = 0
-    for indices in groups.values():
-        group_sizes.append(len(indices))
-        if len(indices) == 1:
-            # singleton 仍进入 grouped 统计，但不是真实 batch。这样日志能告诉我们
-            # QWEN_BATCH_SIZE>1 是否只是不断退回单样本。
-            singleton_groups += 1
-            idx = indices[0]
-            outputs[idx] = _run_single_q1_rollout_from_images(
-                bundle,
-                images_per_frame[idx],
-                memories[idx],
-                max_new_tokens_q1=max_new_tokens_q1,
-            )
-            continue
-        batched_group_sizes.append(len(indices))
-        group_messages = [messages_list[i] for i in indices]
+    if len(frames) == 1:
+        singleton_groups = 1
+        outputs[0] = _run_single_q1_rollout_from_images(
+            bundle,
+            images_per_frame[0],
+            memories[0],
+            max_new_tokens_q1=max_new_tokens_q1,
+        )
+    else:
+        # mixed-length prompt 也放在同一个 padded batch 中采样；padded KV 不向外返回。
+        # length_histogram 仍保留真实长度分布，方便从日志判断 prompt 长度差异。
+        batched_group_sizes.append(len(frames))
         with torch.no_grad():
-            # 这里才是真正的 Qwen batch forward/generate；上层日志中的
-            # batched_frames/batched_groups 只统计进入这个分支的样本。
-            state_batch = _kv_start_state_batch(bundle, group_messages)
-            texts, after_states, ids_list = _student_generate_kv_batch(bundle, state_batch, max_new_tokens_q1)
-        for row_idx, idx in enumerate(indices):
-            # q1_student_state 用于后续 Q1 KL；after_states 用于 Q2 续接。
-            # 两者都必须切回单样本 KVState，交给旧的 _run_frame 单样本语义。
-            outputs[idx] = (
-                _slice_kv_state_batch(state_batch, [row_idx]),
-                texts[row_idx],
-                after_states[row_idx],
-                ids_list[row_idx],
+            state_batch = _kv_start_state_batch_padded(bundle, messages_list)
+            texts, _after_states, ids_list = _student_generate_kv_batch(
+                bundle,
+                state_batch,
+                max_new_tokens_q1,
+                allow_padded_cache=True,
             )
+        for idx in range(len(frames)):
+            outputs[idx] = (None, texts[idx], None, ids_list[idx])
     assert all(item is not None for item in outputs)
     return Q1GroupedRolloutResult(
         rollouts=[item for item in outputs if item is not None],
@@ -1681,7 +1686,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
     p.add_argument("--num-workers", type=int, default=0)
-    p.add_argument("--qwen-batch-size", type=int, default=1, help="每个 rank/timestep 内尝试并行 Q1 rollout 的 frame 数；只有 exact input length 同组才会真实 batch")
+    p.add_argument("--qwen-batch-size", type=int, default=1, help="每个 rank/timestep 内尝试并行 Q1/Q2 student rollout 的 frame 数；Q1/Q2 允许 mixed-length padded rollout，KL 会重建单样本精确 KV")
     p.add_argument("--logging-steps", type=int, default=1)
     p.add_argument("--save-steps", type=int, default=200)
     p.add_argument("--max-steps", type=int, default=0)
@@ -1839,7 +1844,7 @@ def main() -> None:
                     # 这三个 qwen 指标的分母刻意不同：
                     # - q1_batched_frame_rate：全训练 frame 口径，判断 QWEN_BATCH_SIZE 是否真有收益；
                     # - q1_grouped_frame_rate：有多少 frame 进入了 grouped 尝试路径；
-                    # - q1_batched_frame_rate_grouped：只看 grouped 路径内部，排查 exact-length 命中率。
+                    # - q1_batched_frame_rate_grouped：只看 grouped 路径内部，排查 fallback/有效 batch 率。
                     tb.add_scalar("qwen/q1_batched_frame_rate", reduced_stats["q1_batched_frames"] / frames, global_step)
                     tb.add_scalar("qwen/q1_grouped_frame_rate", reduced_stats["q1_grouped_frames"] / frames, global_step)
                     tb.add_scalar("qwen/q1_batched_frame_rate_grouped", reduced_stats["q1_batched_frames"] / q1_grouped_frames, global_step)
@@ -1926,13 +1931,12 @@ def main() -> None:
                     active_items.append((b, route, frame, memories[b]))
                 for chunk_start in range(0, len(active_items), qwen_batch_size):
                     chunk = active_items[chunk_start:chunk_start + qwen_batch_size]
-                    q1_rollouts: List[Optional[Tuple[KVState, str, KVState, torch.Tensor]]] = [None] * len(chunk)
+                    q1_rollouts: List[Optional[Tuple[Optional[KVState], str, Optional[KVState], torch.Tensor]]] = [None] * len(chunk)
                     q2_rollouts: List[Optional[Tuple[Optional[KVState], str, torch.Tensor]]] = [None] * len(chunk)
                     if qwen_batch_size > 1 and len(chunk) > 1:
-                        # 只把同一 timestep 的多条 route 合成 Q1 rollout chunk；
-                        # KL 仍在下面逐 frame 单样本执行，降低优化引入的语义风险；Q2
-                        # student rollout 会在 Q1 解析后尽量按 exact full-dialog length 再
-                        # 做一次 grouped/batched。
+                        # 只把同一 timestep 的多条 route 合成 Q1 rollout chunk。Q1/Q2 的
+                        # padded batched KV 只用于采样文本/token；KL 和 Q2 续接会在 _run_frame
+                        # 里重建单样本精确 KV，避免 padding prefix length 污染训练语义。
                         q1_batch_start = time.time()
                         try:
                             q1_grouped = _run_q1_rollout_grouped(
@@ -2055,8 +2059,9 @@ def main() -> None:
                             rollout = q1_rollouts[chunk_idx]
                             rollout_kwargs: Dict[str, Any] = {}
                             if rollout is not None:
-                                # grouped/batched 路径已经完成 Q1 student rollout；_run_frame
-                                # 只复用这些 token/KV 做 Q1 KL 和 Q2 续接，不再重复生成 Q1。
+                                # grouped/batched 路径已经完成 Q1 student rollout；如果其中
+                                # state/after 为 None，_run_frame 会复用这些 token 重建单样本
+                                # 精确 KV，只是不再重复生成 Q1 文本。
                                 q1_student_state, q1_text, q1_after, q1_ids = rollout
                                 rollout_kwargs = {
                                     "q1_student_state": q1_student_state,

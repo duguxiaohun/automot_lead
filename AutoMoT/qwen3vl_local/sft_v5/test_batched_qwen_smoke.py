@@ -30,6 +30,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 import torch
 
 from qwen3vl_local.sft_v3.train import (  # noqa: E402
+    _append_token_ids,
     _append_token_ids_with_logits,
     _append_user_turn,
     _clone_kv_state,
@@ -118,32 +119,20 @@ def _select_case_indices(
     prefer_different_lengths: bool,
     require_batched_group: bool,
 ) -> List[int]:
-    """选择 smoke case；可强制选出至少一个 exact-length size>=2 group。"""
+    """选择 smoke case；可强制至少选择两个样本以触发 padded batched rollout。"""
 
     if not lengths:
         return []
     by_length: Dict[int, List[int]] = {}
     for idx, length in enumerate(lengths):
-        # 先按 processor 后的完整 input length 建桶。真正 batched KV 只能从同一个
-        # length 桶里取样，否则训练时会因为 padding KV 破坏 Q2 续接等价性。
         by_length.setdefault(int(length), []).append(idx)
     if require_batched_group:
-        candidates = [indices for indices in by_length.values() if len(indices) >= 2]
-        if not candidates:
-            return []
-        # 强制模式优先取最大同长桶，保证 smoke 确实跑到 size>=2 的 batched KV；
-        # 剩余位置再补其它样本，便于同时观察 mixed/singleton 情况。
-        selected = list(max(candidates, key=len)[: min(num_cases, len(max(candidates, key=len)))])
-        for idx in range(len(lengths)):
-            if len(selected) >= num_cases:
-                break
-            if idx not in selected:
-                selected.append(idx)
-        return selected[:num_cases]
+        return list(range(min(max(2, num_cases), len(lengths))))
     if not prefer_different_lengths or len(lengths) == 1:
         return list(range(min(num_cases, len(lengths))))
-    # 默认模式刻意挑最长/最短输入，制造 padding 压力。这个模式主要验证
-    # “混长不会被错误塞进同一个 batched KV”，不等同于验证真实 batch。
+    # 默认模式刻意挑最长/最短输入，制造 padding 压力。当前 Q1/Q2 的 padded
+    # rollout 只用于采样 token，KL/Q2 续接会重建单样本精确 KV；这个 smoke
+    # 正是用来确认 mixed-length padded rollout 没改变 student 采样语义。
     min_idx = min(range(len(lengths)), key=lambda i: lengths[i])
     max_idx = max(range(len(lengths)), key=lambda i: lengths[i])
     selected: List[int] = []
@@ -171,6 +160,16 @@ def _logit_diff_on_ids(bundle: Any, single_state: Any, batch_state: Any, ids: to
         "max_abs": float(diff.max().item()),
         "mean_abs": float(diff.mean().item()),
     }
+
+
+def _rebuild_q1_state_after(bundle: Any, frame: FrameRow, memory: Memory, ids: torch.Tensor) -> Tuple[Any, Any]:
+    """用 batched rollout 采样出的 Q1 token 重建单样本精确 Q1 state/after。"""
+
+    images = _load_images(frame.history_rgb_paths)
+    with torch.inference_mode():
+        state = _kv_start_state(bundle, _messages(images, build_q1_student_prompt(memory)))
+        after, _ = _append_token_ids(bundle, state, ids)
+    return state, after
 
 
 def _collect_cases(index: pathlib.Path, num_cases: int, max_routes: int) -> Tuple[List[FrameRow], List[Memory]]:
@@ -208,8 +207,8 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
         device,
         merge_lora=bool(args.merge_lora),
     )
-    # 先对候选池逐帧计算 Q1 输入长度。这里和训练的 exact-length 分组使用同一个
-    # _qwen_message_input_length，避免 smoke 选出来的 group 与训练实际分组口径不一致。
+    # 先对候选池逐帧计算 Q1 输入长度。当前训练允许 mixed-length padded rollout；
+    # length 仍用于报告 padding pressure，帮助判断本次 smoke 是否覆盖了混长 batch。
     candidate_lengths = [
         _q1_input_length(bundle, frame, memory)
         for frame, memory in zip(candidate_frames, candidate_memories)
@@ -225,7 +224,7 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
         for length in candidate_lengths:
             length_histogram[int(length)] = length_histogram.get(int(length), 0) + 1
         raise RuntimeError(
-            "No exact-length group with size>=2 found in candidate pool; "
+            "Need at least two candidate frames to exercise batched rollout; "
             f"increase --candidate-pool or disable --require-batched-group. length_histogram={length_histogram}"
         )
     frames = [candidate_frames[i] for i in selected_indices]
@@ -244,10 +243,10 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
     )
     batched_q1 = grouped_q1.rollouts
     if bool(args.require_batched_group) and grouped_q1.batched_frames < 2:
-        # 防御性检查：即使选择器理论上找到了同长桶，也要求 grouped 运行结果报告
-        # 真实 batched_frames>=2，避免因为后续逻辑变化让测试“假通过”。
+        # 防御性检查：要求 grouped 运行结果报告真实 batched_frames>=2，
+        # 避免因为后续逻辑变化让测试“假通过”。
         raise RuntimeError(
-            "Smoke did not exercise a real batched KV group even though --require-batched-group was set; "
+            "Smoke did not exercise a real batched rollout group even though --require-batched-group was set; "
             f"group_sizes={grouped_q1.group_sizes} input_lengths={input_lengths}"
         )
 
@@ -256,6 +255,8 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
     for idx, (frame, memory) in enumerate(zip(frames, memories)):
         single_state, single_text, single_after, single_ids = single_q1[idx]
         batch_state, batch_text, batch_after, batch_ids = batched_q1[idx]
+        if batch_state is None or batch_after is None:
+            batch_state, batch_after = _rebuild_q1_state_after(bundle, frame, memory, batch_ids)
         # 训练真正优化的是 _append_token_ids_with_logits 上的 KL，不只是 generate 文本。
         # 所以这里要比较同一批 q1_ids 对应的 logits 差异。
         q1_logit_diff = _logit_diff_on_ids(bundle, single_state, batch_state, single_ids)
@@ -344,7 +345,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-new-tokens-q2", type=int, default=192)
     p.add_argument("--logit-atol", type=float, default=0.5)
     p.add_argument("--prefer-different-lengths", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--require-batched-group", action="store_true", help="必须找到并运行至少一个 exact-length size>=2 的真实 batched KV group")
+    p.add_argument("--require-batched-group", action="store_true", help="必须运行至少一个 size>=2 的真实 batched rollout group")
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--no-fail", action="store_true", help="即使发现不一致也只打印 JSON，不返回非 0")
