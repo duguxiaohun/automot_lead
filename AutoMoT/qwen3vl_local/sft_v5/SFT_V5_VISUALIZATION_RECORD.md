@@ -162,6 +162,20 @@ size>=2 的 group，否则直接失败。合格时需要看到：
 - 如果 `qwen/q1_batched_frame_rate` 接近 0，同时 `qwen/q1_length_seconds_per_chunk`
   不小，先把 `QWEN_BATCH_SIZE=1`，后续再做 length bucketing 或 length cache。
 
+四卡多 batch 训练 demo：
+
+```bash
+PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 \
+LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+默认 `GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp` 只是
+`PER_DEVICE_BATCH_SIZE=1 / QWEN_BATCH_SIZE=1`：会启动 4 个 rank，但每卡内部 Qwen
+仍是单样本。上面的 demo 才会让每卡同一 timestep 有 2 个 frame 可尝试 Q1 grouped/batched
+rollout。是否真的并行，以 `actual_batched_frames`、`[q1-grouped] batched_frames=...`
+和 TensorBoard 的 `qwen/q1_batched_frame_rate` 为准。
+
 代码审阅时同步检查注释：
 
 - `_kv_start_state_batch` 必须写清楚：padding 不是只影响首 token logits，还会污染

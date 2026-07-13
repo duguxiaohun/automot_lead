@@ -239,12 +239,74 @@ bash qwen3vl_local/sft_v5/train.sh ddp
 batch，而是在同一个 rank、同一个 timestep 内，把多条 route 的 Q1 student rollout
 合成一次 Qwen prefill/generate：
 
-建议先从 2 开始验证峰值和等价性，再逐步试 3/4：
+默认四卡命令：
+
+```bash
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+实际等价于：
+
+```bash
+NPROC=4
+PER_DEVICE_BATCH_SIZE=1
+GRAD_ACCUM=1
+QWEN_BATCH_SIZE=1
+```
+
+这表示 4 张卡各跑 1 个进程、每卡每个 DataLoader batch 只有 1 条 route sequence。
+它能用上 4 张卡，但每张卡内部 Qwen 仍是单样本 Q1/Q2 逐帧跑；H20 上通常不会吃满显存，
+也不一定能把 GPU util 拉满。
+
+#### 4.1.1 推荐多 batch demo
+
+先从每卡 2 条 route、Q1 尝试 2 路并行开始：
 
 ```bash
 PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 \
 LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+这个配置的含义：
+
+- `NPROC=4`：四张卡各一个 torchrun rank。
+- `PER_DEVICE_BATCH_SIZE=2`：每张卡每个 DataLoader batch 取 2 条 route sequence。
+- 全局 route batch 约为 `4 * 2 = 8` 条 sequence。
+- `QWEN_BATCH_SIZE=2`：每个 rank、同一个 timestep 内最多拿 2 个 frame 尝试合成 Q1
+  student rollout batch。
+- `GRAD_ACCUM=1`：每个 DataLoader batch 后做一次 optimizer step；如果显存紧张但想保持
+  更大等效 batch，可改成 `GRAD_ACCUM=2`。
+
+如果 `PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2` 稳定、没有 OOM，并且 TensorBoard 里
+`qwen/q1_batched_frame_rate` 明显大于 0，可以再试更激进配置：
+
+```bash
+PER_DEVICE_BATCH_SIZE=3 QWEN_BATCH_SIZE=3 \
+LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+或：
+
+```bash
+PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4 \
+LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+开到 3/4 前建议先跑下面的真实 batched KV smoke，确认模型和当前数据里能找到
+exact-length group：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
+  --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --num-cases 2 \
+  --candidate-pool 256 \
+  --require-batched-group \
+  --no-prefer-different-lengths \
+  --output-json checkpoints/sft_v5_runs/batched_qwen_smoke_require_batch.json
 ```
 
 注意：

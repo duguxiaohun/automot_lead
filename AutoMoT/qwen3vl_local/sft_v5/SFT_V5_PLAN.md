@@ -1057,6 +1057,23 @@ rank0 打印一行 `[train] ...` 并写 TensorBoard。
 length 预计算开销。此时先退回 `QWEN_BATCH_SIZE=1`，后续再考虑 length bucketing
 sampler 或缓存每帧 processor input length。
 
+多 batch 运行 demo：
+
+```bash
+PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 \
+LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+该命令是当前推荐的四张 H20 起步配置：四卡各 1 个 rank，每卡 2 条 route sequence，
+全局约 8 条 sequence，并在每个 rank/timestep 内尝试 2 路 Q1 student rollout batch。
+默认 `GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp` 只有
+`PER_DEVICE_BATCH_SIZE=1 / QWEN_BATCH_SIZE=1`，虽然使用四卡，但每卡内部 Qwen 仍是单样本。
+如果 2 路稳定且 `qwen/q1_batched_frame_rate` 明显大于 0，再逐步试
+`PER_DEVICE_BATCH_SIZE=3 QWEN_BATCH_SIZE=3` 或
+`PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4`；若该指标长期接近 0，则回到
+`QWEN_BATCH_SIZE=1`。
+
 实现注释要求：
 
 - 代码中必须保留中文注释解释 `grouped` 与真正 `batched` 的区别，避免后续把
