@@ -1046,6 +1046,13 @@ max_frames_per_route=0  # 0 means full route
 - `qwen/q1_batched_groups`
 - `qwen/q1_singleton_groups`
 - `qwen/q1_length_seconds_per_chunk`
+- `qwen/q1_grouped_seconds_per_chunk`
+- `time/frame_q1_student_seconds`
+- `time/frame_q1_teacher_seconds`
+- `time/frame_q1_loss_seconds`
+- `time/frame_q2_rollout_seconds`
+- `time/frame_q2_teacher_seconds`
+- `time/frame_q2_loss_seconds`
 - `ddp/padding_rate`
 - `ddp/max_T_global_avg`
 
@@ -1073,6 +1080,10 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 `PER_DEVICE_BATCH_SIZE=3 QWEN_BATCH_SIZE=3` 或
 `PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4`；若该指标长期接近 0，则回到
 `QWEN_BATCH_SIZE=1`。
+若 2 路已经稳定显示 `group_sizes=[2] / batched_frames=2`，但 GPU util 仍约
+45%-50%，优先试 4 路；如果 4 路仍无法明显提升，则根据 `time/frame_*` 判断是否应进入
+阶段 2/3（batched Q2 rollout 或 batched KL forward），因为当前阶段只并行 Q1 student
+rollout，Q1/Q2 teacher 与 KL 仍是单样本路径。
 
 实现注释要求：
 

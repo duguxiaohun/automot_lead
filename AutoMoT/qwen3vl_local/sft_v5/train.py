@@ -152,6 +152,7 @@ class Q1GroupedRolloutResult:
     batched_frames: int
     length_histogram: Dict[int, int]
     length_seconds: float
+    total_seconds: float
 
 
 class RouteSequenceDataset(Dataset):
@@ -811,12 +812,21 @@ def _run_frame(
 ) -> Tuple[torch.Tensor, Dict[str, Any], Memory, bool]:
     """运行单帧 Q1/Q2，返回 loss、统计、更新后的 memory、是否需要下一帧 reset。"""
 
+    timings: Dict[str, float] = {
+        "q1_student_seconds": 0.0,
+        "q1_teacher_seconds": 0.0,
+        "q1_loss_seconds": 0.0,
+        "q2_rollout_seconds": 0.0,
+        "q2_teacher_seconds": 0.0,
+        "q2_loss_seconds": 0.0,
+    }
     rs_target = _rs_target_from_frame(frame)
     event_target_static = _event_target_from_frame(frame)
 
     # ---- Q1: student rollout ----
     images: Optional[List[Image.Image]] = None
     if q1_student_state is None or q1_text is None or q1_after is None or q1_ids is None:
+        q1_student_start = time.time()
         images = _load_images(frame.history_rgb_paths)
         q1_prompt = build_q1_student_prompt(memory)
         with torch.no_grad():
@@ -824,6 +834,7 @@ def _run_frame(
             # 这批 student 自己采样出的 token 上比较 teacher/student 分布。
             q1_student_state = _kv_start_state(bundle, _messages(images, q1_prompt))
             q1_text, q1_after, q1_ids = _student_generate_kv(bundle, q1_student_state, max_new_tokens_q1)
+        timings["q1_student_seconds"] = time.time() - q1_student_start
     q1_parsed = parse_q1_output(q1_text)
     q1_teacher_prompt = build_q1_teacher_prompt(
         memory,
@@ -833,7 +844,10 @@ def _run_frame(
     )
     if images is None:
         images = _load_images(frame.history_rgb_paths)
+    q1_teacher_start = time.time()
     q1_teacher_state = _teacher_start_state(bundle, _messages(images, q1_teacher_prompt))
+    timings["q1_teacher_seconds"] = time.time() - q1_teacher_start
+    q1_loss_start = time.time()
     q1_loss, q1_parts = _opsd_loss(
         bundle,
         student_state=q1_student_state,
@@ -844,6 +858,7 @@ def _run_frame(
         weights=loss_weights_q1(),
         temperature=temperature,
     )
+    timings["q1_loss_seconds"] = time.time() - q1_loss_start
 
     student_rs = q1_parsed.get("rs_label")
     q1_rs_correct = student_rs == frame.rs_label
@@ -857,6 +872,7 @@ def _run_frame(
         "q1_rollout_tokens": int(q1_ids.numel()),
         "q2_rollout_tokens": 0,
         "q1_parts": q1_parts,
+        "timings": timings,
     }
     if not q1_rs_correct:
         # Q1 的 RS 是 Q2 候选池的上层条件。RS 错时继续问 Q2 会把错误道路结构传下去，
@@ -870,9 +886,11 @@ def _run_frame(
         q1_abnormal=bool(q1_abnormal),
         regular_event_codes=frame.regular_event_codes,
     )
+    q2_rollout_start = time.time()
     with torch.no_grad():
         q2_student_state = _append_user_turn(bundle, q1_after, q2_prompt)
         q2_text, _q2_after, q2_ids = _student_generate_kv(bundle, q2_student_state, max_new_tokens_q2)
+    timings["q2_rollout_seconds"] = time.time() - q2_rollout_start
     q2_parsed = parse_q2_output(q2_text, frame.event_option_map)
     event_target = _event_target_from_frame(frame, student_event=q2_parsed.get("event_label"))
     # EVENT 支持“单标签训练、双标签容错”：如果 raw label 有多个 UE/RE，而 student
@@ -889,9 +907,12 @@ def _run_frame(
     # teacher 的 Q2 也保持串行对话：先用 privileged Q1 prompt 吃掉同一段 student
     # Q1 rollout token，再追加 Q2 teacher user turn。这样 Q2 KL 目标分布和 student
     # 一样是“基于 Q1 KV cache 继续问”，不是 fresh dialog。
+    q2_teacher_start = time.time()
     with _teacher_eval_context(bundle):
         q1_teacher_after, _, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(q1_teacher_state), q1_ids)
         q2_teacher_state = _append_user_turn(bundle, q1_teacher_after, q2_teacher_prompt)
+    timings["q2_teacher_seconds"] = time.time() - q2_teacher_start
+    q2_loss_start = time.time()
     q2_loss, q2_parts = _opsd_loss(
         bundle,
         student_state=q2_student_state,
@@ -902,6 +923,7 @@ def _run_frame(
         weights=loss_weights_q2(),
         temperature=temperature,
     )
+    timings["q2_loss_seconds"] = time.time() - q2_loss_start
     student_event = q2_parsed.get("event_label")
     memory_after_q2 = update_memory_after_q2(memory_after_q1, student_event_label=student_event)
     q2_invalid = student_event is None
@@ -949,6 +971,7 @@ def _run_q1_rollout_grouped(
     singleton 或同长子组，避免 padded past_key_values 污染后续 M-RoPE prefix_len。
     """
 
+    total_start = time.time()
     if not frames:
         return Q1GroupedRolloutResult(
             rollouts=[],
@@ -960,6 +983,7 @@ def _run_q1_rollout_grouped(
             batched_frames=0,
             length_histogram={},
             length_seconds=0.0,
+            total_seconds=0.0,
         )
     # 先统一读取图片，后面 length 计算和真正 prefill 共用同一组 PIL 对象；
     # 这样不会因为重复打开文件导致随机 IO 波动太大。
@@ -1024,6 +1048,7 @@ def _run_q1_rollout_grouped(
         batched_frames=sum(batched_group_sizes),
         length_histogram={int(length): len(indices) for length, indices in groups.items()},
         length_seconds=length_seconds,
+        total_seconds=time.time() - total_start,
     )
 
 
@@ -1194,6 +1219,13 @@ _TRAIN_WINDOW_KEYS = (
     "q1_singleton_groups",
     "q1_batched_frames",
     "q1_length_seconds",
+    "q1_grouped_seconds",
+    "time_q1_student_seconds",
+    "time_q1_teacher_seconds",
+    "time_q1_loss_seconds",
+    "time_q2_rollout_seconds",
+    "time_q2_teacher_seconds",
+    "time_q2_loss_seconds",
     "valid_slots",
     "padding_slots",
     "max_T_local_sum",
@@ -1249,6 +1281,14 @@ def _add_frame_rollout_stats(stats: Dict[str, float], frame_stats: Mapping[str, 
     stats["reset_next"] += float(bool(need_reset))
     stats["q1_rollout_tokens"] += float(int(frame_stats.get("q1_rollout_tokens", 0) or 0))
     stats["q2_rollout_tokens"] += float(int(frame_stats.get("q2_rollout_tokens", 0) or 0))
+    timings = frame_stats.get("timings") or {}
+    if isinstance(timings, Mapping):
+        stats["time_q1_student_seconds"] += float(timings.get("q1_student_seconds", 0.0) or 0.0)
+        stats["time_q1_teacher_seconds"] += float(timings.get("q1_teacher_seconds", 0.0) or 0.0)
+        stats["time_q1_loss_seconds"] += float(timings.get("q1_loss_seconds", 0.0) or 0.0)
+        stats["time_q2_rollout_seconds"] += float(timings.get("q2_rollout_seconds", 0.0) or 0.0)
+        stats["time_q2_teacher_seconds"] += float(timings.get("q2_teacher_seconds", 0.0) or 0.0)
+        stats["time_q2_loss_seconds"] += float(timings.get("q2_loss_seconds", 0.0) or 0.0)
 
 
 def _add_q1_grouped_stats(stats: Dict[str, float], grouped: Q1GroupedRolloutResult) -> None:
@@ -1263,6 +1303,7 @@ def _add_q1_grouped_stats(stats: Dict[str, float], grouped: Q1GroupedRolloutResu
     stats["q1_singleton_groups"] += float(grouped.singleton_groups)
     stats["q1_batched_frames"] += float(grouped.batched_frames)
     stats["q1_length_seconds"] += float(grouped.length_seconds)
+    stats["q1_grouped_seconds"] += float(grouped.total_seconds)
 
 
 def _ddp_sum_train_stats(stats: Mapping[str, float]) -> Dict[str, float]:
@@ -1287,6 +1328,7 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
     rollout_tokens = float(stats.get("q1_rollout_tokens", 0.0)) + float(stats.get("q2_rollout_tokens", 0.0))
     grouped_frames = max(1.0, float(stats.get("q1_grouped_frames", 0.0)))
     batched_frames = float(stats.get("q1_batched_frames", 0.0))
+    grouped_chunks = max(1.0, float(stats.get("q1_grouped_chunks", 0.0)))
     return (
         f"loss/frame={float(stats.get('loss_sum', 0.0)) / frames:.4f} "
         f"q1_loss={{a:{float(stats.get('q1_loss_analysis_sum', 0.0)) / frames:.3f},"
@@ -1302,6 +1344,13 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"invalid={int(stats.get('q2_invalid_output', 0.0))} "
         f"reset={int(stats.get('reset_next', 0.0))} "
         f"tok/frame={rollout_tokens / frames:.1f} "
+        f"time/frame={{q1stu:{float(stats.get('time_q1_student_seconds', 0.0)) / frames:.2f},"
+        f"q1teach:{float(stats.get('time_q1_teacher_seconds', 0.0)) / frames:.2f},"
+        f"q1loss:{float(stats.get('time_q1_loss_seconds', 0.0)) / frames:.2f},"
+        f"q2roll:{float(stats.get('time_q2_rollout_seconds', 0.0)) / frames:.2f},"
+        f"q2teach:{float(stats.get('time_q2_teacher_seconds', 0.0)) / frames:.2f},"
+        f"q2loss:{float(stats.get('time_q2_loss_seconds', 0.0)) / frames:.2f}}} "
+        f"q1group/chunk={float(stats.get('q1_grouped_seconds', 0.0)) / grouped_chunks:.2f}s "
         f"q1_batched_all={batched_frames / frames:.3f} "
         f"q1_batched_grouped={batched_frames / grouped_frames:.3f} "
         f"pad_rate={float(stats.get('padding_slots', 0.0)) / (valid_slots + float(stats.get('padding_slots', 0.0))):.3f} "
@@ -1504,6 +1553,15 @@ def main() -> None:
                     # 如果这个耗时很高而 q1_batched_frame_rate 很低，说明逐帧 processor
                     # 长度预计算比真实 batch 省下的时间还贵，应先退回 QWEN_BATCH_SIZE=1。
                     tb.add_scalar("qwen/q1_length_seconds_per_chunk", reduced_stats["q1_length_seconds"] / q1_grouped_chunks, global_step)
+                    tb.add_scalar("qwen/q1_grouped_seconds_per_chunk", reduced_stats["q1_grouped_seconds"] / q1_grouped_chunks, global_step)
+                    # 这些 time/* 指标用于判断 GPU 利用率低到底卡在 Q1 batched rollout、
+                    # Q1/Q2 teacher prefill，还是 Q2 rollout / KL 单样本路径。
+                    tb.add_scalar("time/frame_q1_student_seconds", reduced_stats["time_q1_student_seconds"] / frames, global_step)
+                    tb.add_scalar("time/frame_q1_teacher_seconds", reduced_stats["time_q1_teacher_seconds"] / frames, global_step)
+                    tb.add_scalar("time/frame_q1_loss_seconds", reduced_stats["time_q1_loss_seconds"] / frames, global_step)
+                    tb.add_scalar("time/frame_q2_rollout_seconds", reduced_stats["time_q2_rollout_seconds"] / frames, global_step)
+                    tb.add_scalar("time/frame_q2_teacher_seconds", reduced_stats["time_q2_teacher_seconds"] / frames, global_step)
+                    tb.add_scalar("time/frame_q2_loss_seconds", reduced_stats["time_q2_loss_seconds"] / frames, global_step)
                     tb.add_scalar("ddp/padding_rate", reduced_stats["padding_slots"] / max(1.0, pad_total), global_step)
                     tb.add_scalar("ddp/max_T_global_avg", reduced_stats["max_T_global_sum"] / max(1.0, reduced_stats["batches"]), global_step)
         if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
@@ -1665,12 +1723,19 @@ def main() -> None:
                         frame_elapsed = time.time() - frame_start
                         now = time.time()
                         if log_this_frame or should_time_heartbeat(now):
+                            timings = stats.get("timings") or {}
                             rank0_log(
                                 f"[frame-done] epoch={epoch} batch={batch_idx} t={t} route_idx={b} "
                                 f"frame={frame.frame_id} dt={frame_elapsed:.1f}s "
                                 f"loss={loss_value:.4f} "
                                 f"q1_tokens={int(stats.get('q1_rollout_tokens', 0))} "
                                 f"q2_tokens={int(stats.get('q2_rollout_tokens', 0))} "
+                                f"time={{q1stu:{float(timings.get('q1_student_seconds', 0.0)):.1f},"
+                                f"q1teach:{float(timings.get('q1_teacher_seconds', 0.0)):.1f},"
+                                f"q1loss:{float(timings.get('q1_loss_seconds', 0.0)):.1f},"
+                                f"q2roll:{float(timings.get('q2_rollout_seconds', 0.0)):.1f},"
+                                f"q2teach:{float(timings.get('q2_teacher_seconds', 0.0)):.1f},"
+                                f"q2loss:{float(timings.get('q2_loss_seconds', 0.0)):.1f}}} "
                                 f"q2={int(bool(stats.get('q2_triggered', False)))} "
                                 f"reset={int(bool(need_reset))} {_cuda_memory_text()}"
                             )
