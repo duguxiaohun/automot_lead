@@ -183,15 +183,17 @@
   是用户人工调研的道路结构与事件分类草案；`ROAD_EVENT_CLASSIFICATION_PLAN.md`
   是 ROAD/EVENT canonical 总方案，已合并 ROAD_STRUCTURE 调研协议、runtime 门控和错帧回查流程；
   `ROAD_EVENT_CANDIDATE_MAPPING.md` 保留为 Qwen/probe 可解析的候选表。
-  **按用户同意扩展为目录白名单，但明确排除输出产物**：
-  `AutoMoT/keyframe_filter/` 下除 `AutoMoT/keyframe_filter/collection_output/` 以外的全部文件都在白名单内；
-  代码、方案文档、规则配置、README、HTML/CSS/JS、验证工具和手写说明允许修改、追踪、commit 和 push。
-  但 `AutoMoT/keyframe_filter/collection_output/` 是本地自动调研输出目录，只保存
-  maps/RGB/meta/XML/XODR 证据链和中间产物，默认不入库、不 push；需要共享时应先整理为
-  方案文档或小型规则配置。ROAD_STRUCTURE / ROAD_EVENT 规则迭代不是手工凭空调参：必须按
+  **按用户同意扩展为 clean push 白名单，但明确排除输出产物**：
+  `AutoMoT/keyframe_filter/` 下代码、方案文档、规则配置、README、HTML/CSS/JS、
+  verification 工具和手写说明允许修改、追踪、commit 和 push。
+  但 `AutoMoT/keyframe_filter/collection_output/`、`rgb_r4_r5_audit_results/`、
+  `keyframes_all_scenarios.json`、`R2_ROUTE_RGB_REVIEW_INDEX_*.csv`、
+  `ROAD_EVENT_INTERRUPTED_OVERLAY_*_IDS_*.csv`、
+  `ROAD_EVENT_INTERRUPTED_OVERLAY_IDS_SUMMARY_*.json` 都是本地数据/审计/证据产物，
+  默认不入库、不 push；需要共享时应先整理为方案文档或小型规则配置。ROAD_STRUCTURE / ROAD_EVENT 规则迭代不是手工凭空调参：必须按
   “先把思路写成可执行代码 → 跑小范围样本并生成可视化/逐帧注释 → 查看错帧与证据归因 →
   修正规则/阈值 → 再跑 smoke”的闭环推进。push 前可精确执行 `git add AutoMoT/keyframe_filter/`，
-  依赖该目录内 `.gitignore` 排除输出产物，不要再逐文件维护该目录白名单）
+  依赖该目录内 `.gitignore` 排除输出产物；若要提交新产物，必须先确认它不是可再生 evidence）
 - `AutoMoT/qwen3vl_local/`（含 `tb_serve.sh` 通用 TensorBoard launcher；`goalgen/` 子包详见 PROJECT_CONTEXT.md §15；`eval_carla/` 子包详见上）
 - `AutoMoT/qwen3vl_local/tb_serve.sh`
   （SFT / GoalGen / LeadMoT / VAE 共用 TensorBoard 启动器；从 `AutoMoT/` 目录下用
