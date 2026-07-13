@@ -84,6 +84,13 @@ def main() -> None:
     assert pos_one.shape == (3, 1, 1)
     assert pos_one[0, 0, 0].item() == 35
 
+    # 真实训练里 Qwen incremental output 可能带出上一次 batched prefill 的 stale
+    # rope_deltas：当前 feed batch 已经缩到 1，但 delta 仍是 (2, 1)。底层 helper
+    # 必须防御这种输入，不能再直接 expand(1, -1) 崩溃。
+    pos_stale = qwen3vl_decode_position_ids(torch.tensor([[10], [20]]), prefix_len=5, feed_len=1, batch_size=1, device=torch.device("cpu"))
+    assert pos_stale.shape == (3, 1, 1)
+    assert pos_stale[0, 0, 0].item() == 15
+
     logits = torch.arange(2 * 5 * 3).view(2, 5, 3).float()
     # 第一条是 right padding，最后真实位置为 2；第二条是 left padding，最后真实位置为 4。
     # 这个用例防止以后有人重新改回 logits[:, -1, :]，那会在 right padding 上取错。

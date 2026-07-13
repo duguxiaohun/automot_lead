@@ -578,7 +578,12 @@ def _append_token_ids(
         cache_input_ids=decoded_input_ids,
         attention_mask=attention_mask,
         past_key_values=outputs.past_key_values,
-        rope_deltas=getattr(outputs, "rope_deltas", state.rope_deltas),
+        # 增量追加纯文本不会改变图文 prefix 的 M-RoPE delta。这里必须沿用输入
+        # state.rope_deltas，而不是读取 outputs.rope_deltas：部分 Qwen/Transformers
+        # 版本会把模型对象上一次 batched prefill 的旧 rope_deltas 带出来，active batch
+        # 缩小时会把 batch=2 的 delta 写回 batch=1 的 KVState，导致后续 decode expand
+        # 报 `Target sizes: [1, -1]. Tensor sizes: [2, 1]`。
+        rope_deltas=state.rope_deltas,
         next_logits=outputs.logits[:, -1, :],
     )
     return new_state, parts
@@ -656,7 +661,9 @@ def _append_token_ids_with_logits(
         cache_input_ids=decoded_input_ids,
         attention_mask=attention_mask,
         past_key_values=outputs.past_key_values,
-        rope_deltas=getattr(outputs, "rope_deltas", state.rope_deltas),
+        # 与 _append_token_ids 保持一致：纯文本增量不会改变多模态 rope delta，
+        # 继续使用输入 state，避免 batched rollout 后 Qwen 输出 stale delta 污染 KVState。
+        rope_deltas=state.rope_deltas,
         next_logits=outputs.logits[:, -1, :],
     )
     return new_state, pred_logits, feed_ids

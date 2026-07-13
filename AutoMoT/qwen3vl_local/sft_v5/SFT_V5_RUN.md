@@ -364,7 +364,9 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   `Target sizes: [1, -1]. Tensor sizes: [2, 1]` 的 fallback，这是 batched Qwen
   active batch 缩小时 `rope_deltas` 方向没有切干净导致的 M-RoPE shape 问题；当前代码已在
   `mrope_utils.py`、v5 batched prefill 出口、active-batch 切片和 append-token 后统一兼容
-  `(batch,1)` / `(1,batch)`，并把内部 KVState 规范为 `(batch,1)`。
+  `(batch,1)` / `(1,batch)`，并把内部 KVState 规范为 `(batch,1)`。注意纯文本
+  incremental append 不应信任 `outputs.rope_deltas`，它可能带出上一次 batched prefill
+  的 stale batch 维；append 后应继续沿用输入 state 的 `rope_deltas`。
 - batched prefill 的 next-token logits 按 `attention_mask` 取每条样本最后一个真实
   token；repetition penalty 只看真实 token，不把 padding token 纳入惩罚。
 - 每帧 loss 按当前 batch 的全局有效 frame 数归一化，梯度 all-reduce 后是 frame
