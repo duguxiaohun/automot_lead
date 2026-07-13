@@ -401,21 +401,40 @@ def _slice_cache_batch(cache: Any, rows: torch.Tensor) -> Any:
     return cache
 
 
+def _slice_rope_deltas_batch(rope: Any, rows: torch.Tensor, batch_size: int) -> Any:
+    """按 batch 行切 `rope_deltas`，兼容 `(batch,1)` 与 `(1,batch)` 两种方向。
+
+    Qwen3-VL 的不同版本可能把 `rope_deltas` 存成 `(batch, 1)`，也可能存成
+    `(1, batch)`。batched Q1 生成过程中 active batch 会不断缩小，如果这里没有把
+    rope_deltas 一起切到对应行，后续增量 decode 会拿错 M-RoPE delta 并触发 expand
+    shape 报错，最终导致 `[warn] q1 batch fallback ...`。
+    """
+
+    if not hasattr(rope, "detach"):
+        return rope
+    rd = rope.detach().clone()
+    if rd.ndim == 0:
+        return rd
+    # 标准方向：(batch, ...)。
+    if rd.shape[0] == batch_size:
+        return _select_batch_tensor(rd, rows)
+    # Qwen/Transformers 某些输出方向：(1, batch)。
+    if rd.ndim >= 2 and rd.shape[0] == 1 and rd.shape[1] == batch_size:
+        return rd.index_select(1, rows.to(rd.device)).detach().clone()
+    # 兜底：如果元素个数正好等于 batch_size，就展平成每样本一个 delta 后切。
+    if rd.numel() == batch_size:
+        flat = rd.reshape(batch_size, 1)
+        return _select_batch_tensor(flat, rows)
+    # 无法判断 batch 维时保守 clone，不做错误切片；这种情况 smoke 会暴露。
+    return rd
+
+
 def _slice_kv_state_batch(state: KVState, rows: Sequence[int]) -> KVState:
     """从 batched KVState 中切出一个子 batch，保持 Cache 类型不退化。"""
 
     device = state.cache_input_ids.device
     row_tensor = torch.tensor(list(rows), device=device, dtype=torch.long)
-    rope = state.rope_deltas
-    if isinstance(rope, torch.Tensor) and rope.ndim > 0 and rope.shape[0] == state.cache_input_ids.shape[0]:
-        # rope_deltas 在新版 Qwen3-VL 里可能带 batch 维；如果形状对得上，就和
-        # input_ids/cache 一起切。这样后续 qwen3vl_incremental_forward 的 M-RoPE
-        # 位置与原 batch 行保持一致。
-        rope = _select_batch_tensor(rope, row_tensor)
-    elif hasattr(rope, "detach"):
-        # 有些版本返回共享标量/无 batch 维 tensor，不能 index_select，只 clone 防止
-        # 后续状态对象意外共享可变 tensor。
-        rope = rope.detach().clone()
+    rope = _slice_rope_deltas_batch(state.rope_deltas, row_tensor, int(state.cache_input_ids.shape[0]))
     return KVState(
         decoded_input_ids=_select_batch_tensor(state.decoded_input_ids, row_tensor).detach().clone(),
         cache_input_ids=_select_batch_tensor(state.cache_input_ids, row_tensor).detach().clone(),

@@ -180,6 +180,10 @@ rollout。是否真的并行，以 `actual_batched_frames`、`[q1-grouped] batch
 
 - `_kv_start_state_batch` 必须写清楚：padding 不是只影响首 token logits，还会污染
   `past_key_values` 的 prefix length / M-RoPE 位置，所以混长样本不能共享 batched KV。
+- `_slice_kv_state_batch` 与 `mrope_utils.py` 必须兼容 `(batch,1)` / `(1,batch)` 两种
+  `rope_deltas` 方向；如果 log 里出现
+  `Target sizes: [1, -1]. Tensor sizes: [2, 1]` 的 `[warn] q1 batch fallback`，
+  通常说明 active batch 缩小时 M-RoPE delta 没跟着样本行正确切片。
 - `_student_generate_kv_batch` 必须写清楚：EOS 样本要从 active batch 移除，Q2 才能接在
   干净的 Q1 assistant KV 后。
 - `test_batched_qwen_smoke.py` 必须写清楚：默认 smoke 不证明真实 batched KV，
