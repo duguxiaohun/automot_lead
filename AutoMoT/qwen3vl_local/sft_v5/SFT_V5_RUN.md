@@ -94,11 +94,45 @@ bash qwen3vl_local/sft_v5/train.sh ddp
 GPU_IDS=0 bash qwen3vl_local/sft_v5/train.sh single
 ```
 
-显式 4 卡 DDP：
+显式 4 卡 DDP（默认 batch 口径，不是多 batch）：
 
 ```bash
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
+
+这个默认命令实际是：
+
+```bash
+NPROC=4
+PER_DEVICE_BATCH_SIZE=1
+QWEN_BATCH_SIZE=1
+GRAD_ACCUM=1
+```
+
+也就是 4 张卡各 1 个 rank、每卡 1 条 route sequence、每卡内部 Qwen 仍单样本逐帧跑。
+它能用四卡，但不等于充分吃满 H20，也不等于启用了 Qwen batch。
+
+推荐四卡多 batch 起步命令：
+
+```bash
+PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 \
+LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+这个命令实际是：
+
+```bash
+NPROC=4
+PER_DEVICE_BATCH_SIZE=2
+QWEN_BATCH_SIZE=2
+GRAD_ACCUM=1
+```
+
+含义是：四卡各 1 个 rank，每卡每个 DataLoader batch 取 2 条 route，全局约 8 条
+route sequence；每个 rank 在同一个 timestep 内最多拿 2 个 frame 尝试 Q1 grouped/batched
+rollout。是否真的形成 Qwen batch，要看 `[q1-grouped] ... batched_frames=...` 和
+TensorBoard 的 `qwen/q1_batched_frame_rate`。
 
 自动选择 4 张空闲卡：
 
