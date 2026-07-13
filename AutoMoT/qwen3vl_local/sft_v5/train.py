@@ -164,7 +164,7 @@ class Q2GroupedRolloutResult:
     进入 batched Qwen；混长样本留给原来的单样本 KV 续接路径。
     """
 
-    rollouts: List[Optional[Tuple[KVState, str, torch.Tensor]]]
+    rollouts: List[Optional[Tuple[Optional[KVState], str, torch.Tensor]]]
     input_lengths: List[int]
     group_sizes: List[int]
     batched_group_sizes: List[int]
@@ -599,6 +599,123 @@ def _kv_start_state_batch(bundle: Any, messages_list: List[List[Dict[str, Any]]]
     )
 
 
+def _kv_start_state_batch_padded(bundle: Any, messages_list: List[List[Dict[str, Any]]]) -> KVState:
+    """允许 padding 的 batched prefill，仅用于 Q2 student rollout 采样。
+
+    这个 state 不会进入 KL 训练路径，只用于并行生成 Q2 文本。KL 仍由 `_run_frame`
+    重新构造单样本精确 q2_student_state，避免 padded KV 影响 teacher/student 分布比较。
+    """
+
+    if len(messages_list) == 1:
+        return _kv_start_state(bundle, messages_list[0])
+    texts = [
+        bundle.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        for messages in messages_list
+    ]
+    images: List[Image.Image] = []
+    for messages in messages_list:
+        imgs = _collect_images_from_messages(messages)
+        if imgs:
+            images.extend(imgs)
+    inputs = bundle.processor(
+        text=texts,
+        images=images or None,
+        return_tensors="pt",
+        padding=True,
+    )
+    kwargs: Dict[str, Any] = {
+        "input_ids": inputs["input_ids"].to(bundle.device),
+        "attention_mask": inputs["attention_mask"].to(bundle.device),
+    }
+    for key, value in inputs.items():
+        if key in ("input_ids", "attention_mask"):
+            continue
+        kwargs[key] = value.to(bundle.device) if isinstance(value, torch.Tensor) else value
+    outputs = bundle.model(**kwargs, use_cache=True, return_dict=True)
+    input_ids = kwargs["input_ids"]
+    attention_mask = kwargs["attention_mask"]
+    return KVState(
+        decoded_input_ids=input_ids,
+        cache_input_ids=input_ids,
+        attention_mask=attention_mask,
+        past_key_values=outputs.past_key_values,
+        rope_deltas=_normalize_rope_deltas_batch(getattr(outputs, "rope_deltas", None), int(input_ids.shape[0])),
+        next_logits=_last_valid_next_logits(outputs.logits, attention_mask),
+    )
+
+
+def _decode_position_ids_varlen(
+    rope_deltas: Any,
+    valid_prefix_lengths: torch.Tensor,
+    feed_len: int,
+    batch_size: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """为 padded batched decode 计算每样本自己的 M-RoPE position_ids。
+
+    cache 本身按 padded seq_len 存储，但 pad key 被 attention_mask 屏蔽；位置编码应跟
+    每条样本的真实有效长度走，而不是跟 padded 长度走。
+    """
+
+    base = torch.arange(feed_len, device=device, dtype=torch.long).view(1, -1).expand(batch_size, -1)
+    if rope_deltas is None:
+        rd = torch.zeros((batch_size, 1), device=device, dtype=torch.long)
+    else:
+        rd = _normalize_rope_deltas_batch(rope_deltas, batch_size)
+        rd = rd.to(device) if hasattr(rd, "to") else torch.as_tensor(rd, device=device)
+        if rd.ndim == 0:
+            rd = rd.view(1, 1)
+        if rd.shape[0] != batch_size:
+            rd = rd[:batch_size] if rd.shape[0] > batch_size else rd.expand(batch_size, -1)
+        rd = rd.reshape(batch_size, -1)[:, :1]
+    delta = valid_prefix_lengths.to(device=device, dtype=torch.long).view(batch_size, 1) + rd.to(torch.long)
+    return (base + delta).unsqueeze(0).expand(3, -1, -1).contiguous()
+
+
+def _append_token_ids_padded_rollout(bundle: Any, state: KVState, suffix_ids: torch.Tensor) -> KVState:
+    """向允许 padding 的 batched rollout state 追加 token。
+
+    只用于 no_grad Q2 rollout 采样。因为 cache 长度包含 padding，`cache_position` 仍使用
+    padded cache length；但 M-RoPE `position_ids` 使用每样本真实有效长度。
+    """
+
+    if suffix_ids.ndim == 1:
+        suffix_ids = suffix_ids.unsqueeze(0)
+    suffix_ids = suffix_ids.to(state.cache_input_ids.device)
+    old_attention = state.attention_mask.to(state.cache_input_ids.device)
+    feed_len = int(suffix_ids.shape[1])
+    batch_size = int(suffix_ids.shape[0])
+    prefix_cache_len = int(state.cache_input_ids.shape[1])
+    valid_prefix_lengths = old_attention.to(torch.long).sum(dim=1)
+    attention_mask = torch.cat([old_attention, torch.ones_like(suffix_ids, device=old_attention.device)], dim=1)
+    cache_position = torch.arange(prefix_cache_len, prefix_cache_len + feed_len, device=suffix_ids.device)
+    position_ids = _decode_position_ids_varlen(
+        state.rope_deltas,
+        valid_prefix_lengths,
+        feed_len,
+        batch_size,
+        suffix_ids.device,
+    )
+    outputs = bundle.model(
+        input_ids=suffix_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        past_key_values=state.past_key_values,
+        cache_position=cache_position,
+        use_cache=True,
+        return_dict=True,
+    )
+    decoded_input_ids = torch.cat([state.cache_input_ids, suffix_ids], dim=1)
+    return KVState(
+        decoded_input_ids=decoded_input_ids,
+        cache_input_ids=decoded_input_ids,
+        attention_mask=attention_mask,
+        past_key_values=outputs.past_key_values,
+        rope_deltas=state.rope_deltas,
+        next_logits=outputs.logits[:, -1, :],
+    )
+
+
 def _apply_repetition_penalty_batch(bundle: Any, logits: torch.Tensor, seen_ids: List[torch.Tensor], penalty: float) -> torch.Tensor:
     """逐样本施加 repetition penalty，避免把不同 frame 的历史 token 混在一起惩罚。"""
 
@@ -618,7 +735,13 @@ def _apply_repetition_penalty_batch(bundle: Any, logits: torch.Tensor, seen_ids:
     return out
 
 
-def _student_generate_kv_batch(bundle: Any, state: KVState, max_new_tokens: int) -> Tuple[List[str], List[KVState], List[torch.Tensor]]:
+def _student_generate_kv_batch(
+    bundle: Any,
+    state: KVState,
+    max_new_tokens: int,
+    *,
+    allow_padded_cache: bool = False,
+) -> Tuple[List[str], List[KVState], List[torch.Tensor]]:
     """batched greedy rollout，返回每个样本自己的文本、干净 KVState 和 token ids。
 
     关键点是 EOS 处理：某个样本预测到 EOS 时，保存它**追加 EOS 前**的 KVState，
@@ -685,7 +808,10 @@ def _student_generate_kv_batch(bundle: Any, state: KVState, max_new_tokens: int)
             # 这一步是 batched generate 的关键：不让 finished 样本继续吃 pad/EOS。
             cur = _slice_kv_state_batch(cur, keep_rows)
             suffix = torch.cat(keep_tokens, dim=0).to(cur.cache_input_ids.device)
-            cur, _ = _append_token_ids(bundle, cur, suffix)
+            if allow_padded_cache:
+                cur = _append_token_ids_padded_rollout(bundle, cur, suffix)
+            else:
+                cur, _ = _append_token_ids(bundle, cur, suffix)
             # `_append_token_ids` 会根据当前 active batch 继续 decode；这里再次规范
             # rope_deltas，防止底层 forward 返回的新 Cache/输出把形状恢复成 `(1, batch)`。
             cur.rope_deltas = _normalize_rope_deltas_batch(cur.rope_deltas, int(cur.cache_input_ids.shape[0]))
@@ -928,7 +1054,14 @@ def _run_frame(
         q1_abnormal=bool(q1_abnormal),
         regular_event_codes=frame.regular_event_codes,
     )
-    if q2_student_state is None or q2_text is None or q2_ids is None:
+    if q2_text is not None and q2_ids is not None and q2_student_state is None:
+        q2_rollout_start = time.time()
+        with torch.no_grad():
+            # Q2 文本/token 已由 padded batched rollout 得到；这里只重建单样本精确
+            # Q2 prompt state 给 KL 使用，不再重复生成。
+            q2_student_state = _append_user_turn(bundle, q1_after, q2_prompt)
+        timings["q2_rollout_seconds"] = time.time() - q2_rollout_start
+    elif q2_student_state is None or q2_text is None or q2_ids is None:
         q2_rollout_start = time.time()
         with torch.no_grad():
             q2_student_state = _append_user_turn(bundle, q1_after, q2_prompt)
@@ -1127,8 +1260,9 @@ def _run_q2_rollout_grouped(
 ) -> Q2GroupedRolloutResult:
     """按完整 Q2 对话 length 分组后运行 Q2 student rollout。
 
-    返回的 `rollouts` 与输入顺序一一对应；无法安全 batch 的 singleton 位置为 None，
-    外层会继续使用旧的 `_append_user_turn + _student_generate_kv` 单样本路径。
+    返回的 `rollouts` 与输入顺序一一对应。Q2 rollout 是 no_grad 采样路径；为了并行
+    长度不同的 Q1 assistant 上下文，这里允许 padded batched prefill/generate，但返回的
+    state 置为 None，外层会为 KL 重新构造单样本精确 q2_student_state。
     """
 
     total_start = time.time()
@@ -1170,26 +1304,26 @@ def _run_q2_rollout_grouped(
     for idx, length in enumerate(input_lengths):
         groups.setdefault(int(length), []).append(idx)
 
-    outputs: List[Optional[Tuple[KVState, str, torch.Tensor]]] = [None for _ in range(n)]
-    group_sizes: List[int] = []
+    outputs: List[Optional[Tuple[Optional[KVState], str, torch.Tensor]]] = [None for _ in range(n)]
+    group_sizes = [len(indices) for indices in groups.values()]
     batched_group_sizes: List[int] = []
     singleton_groups = 0
-    for indices in groups.values():
-        group_sizes.append(len(indices))
-        if len(indices) == 1:
-            singleton_groups += 1
-            continue
-        batched_group_sizes.append(len(indices))
-        group_messages = [messages_list[i] for i in indices]
+    if n == 1:
+        singleton_groups = 1
+    else:
+        batched_group_sizes.append(n)
         with torch.no_grad():
-            state_batch = _kv_start_state_batch(bundle, group_messages)
-            texts, _after_states, ids_list = _student_generate_kv_batch(bundle, state_batch, max_new_tokens_q2)
-        for row_idx, idx in enumerate(indices):
-            outputs[idx] = (
-                _slice_kv_state_batch(state_batch, [row_idx]),
-                texts[row_idx],
-                ids_list[row_idx],
+            state_batch = _kv_start_state_batch_padded(bundle, messages_list)
+            texts, _after_states, ids_list = _student_generate_kv_batch(
+                bundle,
+                state_batch,
+                max_new_tokens_q2,
+                allow_padded_cache=True,
             )
+        for idx in range(n):
+            # state=None 是刻意的：padded rollout 只提供 student 采样文本/token；
+            # KL 训练 state 在 _run_frame 中按单样本精确 KV 重新构造。
+            outputs[idx] = (None, texts[idx], ids_list[idx])
 
     return Q2GroupedRolloutResult(
         rollouts=outputs,
@@ -1793,7 +1927,7 @@ def main() -> None:
                 for chunk_start in range(0, len(active_items), qwen_batch_size):
                     chunk = active_items[chunk_start:chunk_start + qwen_batch_size]
                     q1_rollouts: List[Optional[Tuple[KVState, str, KVState, torch.Tensor]]] = [None] * len(chunk)
-                    q2_rollouts: List[Optional[Tuple[KVState, str, torch.Tensor]]] = [None] * len(chunk)
+                    q2_rollouts: List[Optional[Tuple[Optional[KVState], str, torch.Tensor]]] = [None] * len(chunk)
                     if qwen_batch_size > 1 and len(chunk) > 1:
                         # 只把同一 timestep 的多条 route 合成 Q1 rollout chunk；
                         # KL 仍在下面逐 frame 单样本执行，降低优化引入的语义风险；Q2
