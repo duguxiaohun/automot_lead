@@ -1086,7 +1086,10 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
   计算必须同时兼容两种方向，v5 内部 KVState 边界统一保存为 `(batch,1)`。若日志出现
   `Target sizes: [1, -1]. Tensor sizes: [2, 1]` 一类 `[warn] q1 batch fallback`，
   优先检查 batched prefill 出口、active batch 缩小时和 append-token 后的
-  `rope_deltas` 是否仍保持每个样本一行。
+  `rope_deltas` 是否仍保持每个样本一行。纯文本 incremental append 不改变图文
+  M-RoPE delta，因此 append helper 必须沿用输入 state 的 `rope_deltas`，不要把
+  `outputs.rope_deltas` 写回 KVState；后者可能是 Qwen 模型对象缓存的 stale batched
+  delta。
 - `test_batched_qwen_smoke.py` 的默认 mixed-length 模式和
   `--require-batched-group` 模式必须在代码注释和文档中保持一致：默认模式验证安全分组，
   强制模式才证明真实 batched KV。

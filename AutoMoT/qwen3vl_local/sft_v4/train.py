@@ -551,7 +551,9 @@ def _append_token_ids(
         cache_input_ids=decoded_input_ids,
         attention_mask=attention_mask,
         past_key_values=outputs.past_key_values,
-        rope_deltas=getattr(outputs, "rope_deltas", state.rope_deltas),
+        # 增量追加文本不会改变图文 prefix 的 M-RoPE delta。沿用输入 state，
+        # 避免 Qwen incremental output 带出旧 batched prefill 的 stale rope_deltas。
+        rope_deltas=state.rope_deltas,
         next_logits=outputs.logits[:, -1, :],
     )
     return new_state, parts

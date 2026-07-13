@@ -97,6 +97,14 @@ def qwen3vl_decode_position_ids(
                 rd = rd.reshape(batch_size, -1)[:, :1]
             elif rd.numel() == batch_size:
                 rd = rd.reshape(batch_size, 1)
+        if rd.shape[0] != batch_size:
+            # 正常情况下调用方会传入与 feed_ids batch 一致的 delta；但 Qwen 的
+            # incremental output 有时会暴露模型对象上一次 batched prefill 的 stale
+            # rope_deltas。若 active batch 已缩小到 1，而 delta 仍是 (2, 1)，直接
+            # expand 会报 shape 错。这里做最后一道防御：多出来的行按当前 batch 裁掉；
+            # 行数不够时才使用 expand 复制。
+            if rd.shape[0] > batch_size:
+                rd = rd[:batch_size].contiguous()
         delta = (rd + int(prefix_len)).to(torch.long)
         if delta.shape[0] != batch_size:
             delta = delta.expand(batch_size, -1)
