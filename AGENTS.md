@@ -297,20 +297,29 @@
   因为动态 Q2 分支会造成 rank 间 forward 次数不一致并触发 NCCL watchdog。当前不是
   v4 的 collector/learner 异步 replay 分卡架构。collate
   只做本 rank local padding，主训练进程 all-reduce 得到 global `max_T` 后补齐，
-  padding frame 不读图、不进 Qwen、不产 loss；
+  padding frame 不读图、不进 Qwen、不产 loss；多卡默认使用
+  `LengthBalancedDistributedSampler` / `SAMPLER_MODE=length_balanced`，在每个 rank
+  route 数一致的前提下按 route frame 数均衡分片，减少长 route rank 拖住其它 rank；
+  `SAMPLER_MODE=distributed` 可切回 PyTorch 原生 `DistributedSampler` 做对照；
   `train.sh` 支持 `single/ddp/check`，遵循 GPU 自动选址、`GPU_IDS` pin 卡和
   `run_<RUN_TAG>/latest` 防覆盖约定；四卡 `ddp` 默认 H20 4 路口径：
-  `PER_DEVICE_BATCH_SIZE=4`、`QWEN_BATCH_SIZE=4`、`PROGRESS_FRAMES=20`，启动时打印
+  `PER_DEVICE_BATCH_SIZE=4`、`QWEN_BATCH_SIZE=4`、`MAX_NEW_TOKENS_Q1=1024`、
+  `MAX_NEW_TOKENS_Q2=1024`、`PROGRESS_FRAMES=20`，启动时打印
   `[batch]` 配置，第一条 `[batch-start]` 应显示 `routes=4 / qwen_batch=4`；
   `single/check` 默认仍保守 `1/1`。rank0 会输出 batch/frame/sync 心跳，默认 `LOGGING_STEPS=1`，
   可用 `PROGRESS_FRAMES` 和 `HEARTBEAT_SECONDS` 调整日志密度；阶段 1 batched Qwen
-  通过 `QWEN_BATCH_SIZE` 启用，只批量化同一 timestep 多 route 的 Q1 student rollout，
-  需要配合 `PER_DEVICE_BATCH_SIZE>1`；阶段 1 Q1 student rollout 允许 mixed-length
+  通过 `QWEN_BATCH_SIZE` 启用，批量化同一 timestep 多 route 的 Q1/Q2 student rollout，
+  需要配合 `PER_DEVICE_BATCH_SIZE>1`；阶段 1 Q1/Q2 student rollout 允许 mixed-length
   padded batch，padded past_key_values 只用于 no-grad 采样 Q1/Q2 文本/token，
-  禁止直接传给 Q1 KL/Q2 训练 state，`_run_frame` 必须用同一段 student ids
-  重建单样本精确 KV；batched Q1 必须按 `attention_mask` 取最后真实
+  不写回 memory；默认 `PARALLEL_KL=1` / `--parallel-kl` 会在同一 chunk 内批量化
+  Q1/Q2 teacher prompt prefill、student prompt prefill、rollout token scoring 和 span KL，
+  并对 chunk loss 一次 backward；Q2 parallel KL 必须按精确 `q1_ids` 续接 Q1 KV 后再追加 Q2 user turn，
+  不允许用 `q1_ids -> q1_text -> full-dialog tokenizer` 回环替代；普通兼容问题打印 `[warn] parallel KL fallback ...`
+  后回退旧逐帧 teacher/KL，CUDA OOM 不允许回退；batched Q1 必须按 `attention_mask` 取最后真实
   token logits、repetition penalty 不得包含 padding token，CUDA OOM 不允许静默 fallback，
-  开大前用 `test_batched_qwen_smoke.py` 做 single-vs-batch Q1/Q2 续接和训练 logits 对照；
+  开大前用 `test_batched_qwen_smoke.py --check-parallel-kl` 做 single-vs-batch Q1/Q2
+  续接、训练 logits 和 parallel-KL-vs-逐帧-KL 总 loss / case loss / parts 对照；
+  parallel KL 的显存峰值主要来自 `batch x rollout_len x vocab` student/teacher logits，开 8 路前必须小 run 验证；必须记录并观察 `train/q1_token_cap_hit_rate` / `train/q2_token_cap_hit_rate`，若长期非 0 说明 1024 安全上限正在截断输出；student rollout 缺少可监督 span 时必须返回 graph-connected zero，不能返回 no-grad 纯 0 破坏 backward；
   只有报告里的 `actual_batched_group_sizes` / `actual_batched_frames` 能证明真实 batched rollout
   被测到，强制验证时必须加 `--require-batched-group`；`qwen/q1_batched_frame_rate`
   是全训练 Q1 frame 的真实 batch 比例，若长期接近 0 应优先检查 `[warn] q1 batch fallback`；

@@ -9,7 +9,8 @@
 # ddp 模式默认按四张 H20 的当前推荐口径启动：每卡 4 条 route sequence，
 # 同一 timestep 最多 4 个 frame 做 batched Qwen rollout。single/check 模式仍保守用 1，
 # 避免单卡调试时意外把显存吃爆。用户显式传 PER_DEVICE_BATCH_SIZE / QWEN_BATCH_SIZE
-# 时永远优先使用用户配置。
+# 时永远优先使用用户配置。多卡默认启用 length_balanced sampler，按 route frame
+# 数均衡各 rank；如需复现旧分片行为，可设置 SAMPLER_MODE=distributed。
 
 set -euo pipefail
 
@@ -143,6 +144,11 @@ fi
 if [[ "${NO_GRAD_CHECKPOINT:-0}" == "1" ]]; then
   EXTRA_ARGS+=("--no-grad-checkpoint")
 fi
+if [[ "${PARALLEL_KL:-1}" == "0" ]]; then
+  EXTRA_ARGS+=("--no-parallel-kl")
+else
+  EXTRA_ARGS+=("--parallel-kl")
+fi
 
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
@@ -169,6 +175,8 @@ EFFECTIVE_PROGRESS_FRAMES="${PROGRESS_FRAMES:-${DEFAULT_PROGRESS_FRAMES}}"
 echo "[batch] PER_DEVICE_BATCH_SIZE=${EFFECTIVE_PER_DEVICE_BATCH_SIZE}"
 echo "[batch] QWEN_BATCH_SIZE=${EFFECTIVE_QWEN_BATCH_SIZE}"
 echo "[batch] GRAD_ACCUM=${GRAD_ACCUM:-1}"
+echo "[sampler] SAMPLER_MODE=${SAMPLER_MODE:-length_balanced}"
+echo "[parallel] PARALLEL_KL=${PARALLEL_KL:-1}"
 if [[ "${MODE}" == "ddp" && "${EFFECTIVE_PER_DEVICE_BATCH_SIZE}" -lt "${EFFECTIVE_QWEN_BATCH_SIZE}" ]]; then
   echo "[batch][warn] QWEN_BATCH_SIZE=${EFFECTIVE_QWEN_BATCH_SIZE} > PER_DEVICE_BATCH_SIZE=${EFFECTIVE_PER_DEVICE_BATCH_SIZE}; extra Qwen slots will be unused"
 fi
@@ -194,13 +202,14 @@ COMMON_ARGS=(
   --vision-lr-scale "${VISION_LR_SCALE:-0.1}"
   --language-clip-norm "${LANGUAGE_CLIP_NORM:-1.0}"
   --vision-clip-norm "${VISION_CLIP_NORM:-0.3}"
-  --max-new-tokens-q1 "${MAX_NEW_TOKENS_Q1:-256}"
-  --max-new-tokens-q2 "${MAX_NEW_TOKENS_Q2:-192}"
+  --max-new-tokens-q1 "${MAX_NEW_TOKENS_Q1:-1024}"
+  --max-new-tokens-q2 "${MAX_NEW_TOKENS_Q2:-1024}"
   --temperature "${TEMPERATURE:-1.0}"
   --max-routes "${MAX_ROUTES:-0}"
   --max-frames-per-route "${MAX_FRAMES_PER_ROUTE:-0}"
   --num-workers "${NUM_WORKERS:-0}"
   --qwen-batch-size "${EFFECTIVE_QWEN_BATCH_SIZE}"
+  --sampler-mode "${SAMPLER_MODE:-length_balanced}"
   --logging-steps "${LOGGING_STEPS:-1}"
   --progress-frames "${EFFECTIVE_PROGRESS_FRAMES}"
   --heartbeat-seconds "${HEARTBEAT_SECONDS:-120}"
