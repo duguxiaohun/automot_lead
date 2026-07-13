@@ -863,7 +863,7 @@ DataLoader batch 攒更多 route。实现分阶段推进：
 阶段 1 使用方式：
 
 ```bash
-PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 GPU_IDS=0,1,2,3 \
+PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4 GPU_IDS=0,1,2,3 \
 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
@@ -1007,7 +1007,8 @@ for t in range(max_T_global):
 
 ### 8.3 梯度累积
 
-默认 `per_device_batch_size=1`，`grad_accum=1`。如果显存允许：
+`train.sh ddp` 默认 `per_device_batch_size=4`、`qwen_batch_size=4`、`grad_accum=1`；
+`single/check` 模式默认仍保守使用 `1/1`。如果显存允许：
 
 - batch 内多个 route 按时间步交错推进；
 - 每个有效 frame 的 Q1/Q2 loss 按当前 batch 的全局有效 frame 数归一化后立即 backward；
@@ -1016,10 +1017,11 @@ for t in range(max_T_global):
 - `grad_accum>1` 时继续在参数梯度上累积，只有 optimizer step 前才手动 all-reduce
   LoRA 梯度。
 
-推荐第一版：
+推荐四卡 H20 训练口径：
 
 ```text
-per_device_batch_size=1
+per_device_batch_size=4
+qwen_batch_size=4
 grad_accum=1
 outer_stride=1
 max_frames_per_route=0  # 0 means full route
@@ -1074,21 +1076,20 @@ sampler 或缓存每帧 processor input length。
 多 batch 运行 demo：
 
 ```bash
-PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 \
+PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4 \
 LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
-该命令是当前推荐的四张 H20 起步配置：四卡各 1 个 rank，每卡 2 条 route sequence，
-全局约 8 条 sequence，并在每个 rank/timestep 内尝试 2 路 Q1 student rollout batch。
-默认 `GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp` 只有
-`PER_DEVICE_BATCH_SIZE=1 / QWEN_BATCH_SIZE=1`，虽然使用四卡，但每卡内部 Qwen 仍是单样本。
-如果 2 路稳定且 `qwen/q1_batched_frame_rate` 明显大于 0，再逐步试
-`PER_DEVICE_BATCH_SIZE=3 QWEN_BATCH_SIZE=3` 或
-`PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4`；若该指标长期接近 0，则回到
-`QWEN_BATCH_SIZE=1`。
-若 2 路已经稳定显示 `group_sizes=[2] / batched_frames=2`，但 GPU util 仍约
-45%-50%，优先试 4 路；如果 4 路仍无法明显提升，则根据 `time/frame_*` 和
+该命令是当前推荐的四张 H20 配置：四卡各 1 个 rank，每卡 4 条 route sequence，
+全局约 16 条 sequence，并在每个 rank/timestep 内尝试 4 路 Q1 student rollout batch。
+现在 `GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp` 默认就是
+`PER_DEVICE_BATCH_SIZE=4 / QWEN_BATCH_SIZE=4`；启动时 launcher 会打印 `[batch]`
+配置，第一条 `[batch-start]` 也应显示 `routes=4` 与 `qwen_batch=4`。若 4 路 OOM
+或频繁 fallback，可降到
+`PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2` 做保守 debug；若 `qwen/q1_batched_frame_rate`
+长期接近 0，则回到 `QWEN_BATCH_SIZE=1` 或后续做 length bucketing。
+若 4 路已经稳定显示 `batched_frames=4`，但 GPU util 仍约 45%-50%，则根据 `time/frame_*` 和
 `qwen/q2_*` 判断是否应进入下一阶段（batched KL forward），因为当前阶段并行
 Q1 student rollout，并对 Q2 student rollout 做 padded batched rollout；padded Q2
 KV 只用于采样文本/token，Q1/Q2 teacher 与 KL 仍重新走单样本精确路径。

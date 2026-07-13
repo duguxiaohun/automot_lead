@@ -165,16 +165,18 @@ size>=2 的 group，否则直接失败。合格时需要看到：
 四卡多 batch 训练 demo：
 
 ```bash
-PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 \
+PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4 \
 LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
-默认 `GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp` 只是
-`PER_DEVICE_BATCH_SIZE=1 / QWEN_BATCH_SIZE=1`：会启动 4 个 rank，但每卡内部 Qwen
-仍是单样本。上面的 demo 才会让每卡同一 timestep 有 2 个 frame 可尝试 Q1 grouped/batched
+现在 `GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp` 默认就是
+`PER_DEVICE_BATCH_SIZE=4 / QWEN_BATCH_SIZE=4`：会启动 4 个 rank，并让每卡同一 timestep
+有 4 个 frame 可尝试 Q1 grouped/batched
 rollout。是否真的并行，以 `actual_batched_frames`、`[q1-grouped] batched_frames=...`
-和 TensorBoard 的 `qwen/q1_batched_frame_rate` 为准。
+和 TensorBoard 的 `qwen/q1_batched_frame_rate` 为准。训练日志第一条 `[batch-start]`
+应显示 `routes=4` / `qwen_batch=4`；如果仍是 `routes=2` / `qwen_batch=2`，说明本次
+run 没有按 4 路配置启动。
 
 代码审阅时同步检查注释：
 

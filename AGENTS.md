@@ -299,7 +299,10 @@
   只做本 rank local padding，主训练进程 all-reduce 得到 global `max_T` 后补齐，
   padding frame 不读图、不进 Qwen、不产 loss；
   `train.sh` 支持 `single/ddp/check`，遵循 GPU 自动选址、`GPU_IDS` pin 卡和
-  `run_<RUN_TAG>/latest` 防覆盖约定；rank0 会输出 batch/frame/sync 心跳，默认 `LOGGING_STEPS=1`，
+  `run_<RUN_TAG>/latest` 防覆盖约定；四卡 `ddp` 默认 H20 4 路口径：
+  `PER_DEVICE_BATCH_SIZE=4`、`QWEN_BATCH_SIZE=4`、`PROGRESS_FRAMES=20`，启动时打印
+  `[batch]` 配置，第一条 `[batch-start]` 应显示 `routes=4 / qwen_batch=4`；
+  `single/check` 默认仍保守 `1/1`。rank0 会输出 batch/frame/sync 心跳，默认 `LOGGING_STEPS=1`，
   可用 `PROGRESS_FRAMES` 和 `HEARTBEAT_SECONDS` 调整日志密度；阶段 1 batched Qwen
   通过 `QWEN_BATCH_SIZE` 启用，只批量化同一 timestep 多 route 的 Q1 student rollout，
   需要配合 `PER_DEVICE_BATCH_SIZE>1`；阶段 1 只允许 processor input length 完全一致的
