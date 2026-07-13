@@ -16,8 +16,9 @@ v5 的关键变化：
 - Memory 只保留 `RS` 与 `EVENT`，不再保留 scene/status/subgoal。
 - 多卡训练改成 torchrun 多进程：DataLoader 每次取 route sequence，collate 只做本 rank
   的 local padding / local length；`train.py` 主进程再 all-reduce 当前 step 的全局
-  最长 sequence，补齐 mask 后进入统一时间循环，并在 optimizer step 前手动
-  all-reduce LoRA 梯度。
+  最长 sequence，补齐 mask 后进入统一时间循环。默认每 512 个 global 有效 frame，
+  或最迟 32 个 global timestep，在完整 timestep 边界手动 all-reduce LoRA 梯度并
+  更新权重，不再等待完整超长 route batch。
 - Prompt 全部使用英文，标签选项必须是自然语言描述，不训练模型只背裸标签名。
 
 > 约定：本文里 `RS` 指 ROAD_STRUCTURE，`UE` 指 unusual event，`RE` 指 regular /
@@ -983,9 +984,25 @@ NCCL watchdog hang。
 - `train.sh` 默认设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，降低
   KV/logits 张量反复申请释放时的 allocator 碎片化。
 
-`grad_accum` 的尾部处理必须显式 flush：如果一个 epoch 结束时已经反传了若干个
-有效 micro-batch 但数量不足 `grad_accum`，仍然要手动 all-reduce 梯度并执行一次
-optimizer step，然后重置 micro-step 计数，避免最后几个 OPSD 样本被静默丢弃。
+默认优化策略不是等待完整 DataLoader route batch，而是
+`UPDATE_MODE=streaming_frames`：每个 global timestep 内先完成全部 Q1/Q2 rollout、
+teacher/student KL 和 backward，再 all-reduce 本 timestep 的实际有效 frame 数。
+累计达到 512 个 global frame，或最迟达到 32 个 global timestep，就在该完整
+timestep 边界同步 LoRA 梯度并执行 optimizer step。更新后保留各 route 的离散
+RS/EVENT memory，下一帧使用更新后的 student；不能在同一帧 Q1 与 Q2 之间更新。
+
+窗口内每个 frame loss 先除以 effective target frame 数再 backward；同步时梯度跨
+rank 求 SUM，再乘 `effective_target / actual_global_frames`，最终严格等价于所有 rank
+实际有效 frame 的平均梯度。没有本地有效 frame 的 rank 也必须补零梯度并参加相同
+collective。同步实现按 device/dtype 将 LoRA 梯度合并成约 64 MiB bucket，减少大量
+小参数逐个 all-reduce 的 NCCL 启动开销。`GRAD_ACCUM` 在流式模式中作为窗口倍率：默认 1 对应 512 frame / 32
+timestep，设为 2 对应 1024 / 64。epoch 尾部不足阈值的窗口必须 flush。
+adapter 元数据必须同时保存原始阈值与 effective 阈值、LR 和梯度同步策略，不能只靠
+启动日志恢复优化器口径。
+
+`UPDATE_MODE=batch` 仅保留为旧实验兼容模式，此时 `GRAD_ACCUM` 才表示累计多少个
+DataLoader batch；正式训练不建议使用，因为一批长 route 可能累计上万帧并让一次
+optimizer update、TensorBoard loss 和 scheduler step 延迟数小时。
 
 ### 8.2 Collate padding
 
@@ -1036,11 +1053,11 @@ for t in range(max_T_global):
 `single/check` 模式默认仍保守使用 `1/1`。如果显存允许：
 
 - batch 内多个 route 按时间步交错推进；
-- 每个有效 frame 的 Q1/Q2 loss 按当前 batch 的全局有效 frame 数归一化后立即 backward；
-  因为梯度同步会 all-reduce 后除以 `world_size`，代码会预乘 `world_size`，最终得到
-  frame 等权平均，而不是 rank 等权平均；
-- `grad_accum>1` 时继续在参数梯度上累积，只有 optimizer step 前才手动 all-reduce
-  LoRA 梯度。
+- 每个有效 frame 的 Q1/Q2 loss 按固定 target normalizer 缩放后立即 backward；
+- 每个 timestep 都用轻量标量 all-reduce 汇总实际 global frame 数；
+- 达到 frame/timestep 阈值后，对 LoRA 梯度做 SUM all-reduce，再按实际 global frame
+  数修正为 frame 等权平均，而不是 rank 等权平均；
+- optimizer step 之后保留 sequence memory，继续当前 DataLoader batch。
 
 推荐四卡 H20 训练口径：
 
@@ -1049,6 +1066,10 @@ BATCH_PROFILE=max_util
 per_device_batch_size=8
 qwen_batch_size=8
 grad_accum=1
+update_mode=streaming_frames
+target_global_frames_per_step=512
+max_timesteps_per_step=32
+learning_rate=1e-5
 outer_stride=1
 max_frames_per_route=0  # 0 means full route
 ```
@@ -1070,6 +1091,13 @@ max_frames_per_route=0  # 0 means full route
 - `train/rollout_tokens_per_frame`
 - `train/q1_token_cap_hit_rate`
 - `train/q2_token_cap_hit_rate`
+- `train/global_frames_per_step`
+- `train/timesteps_per_step`
+- `train/update_reason_code`
+- `train/learning_rate`
+- `time/grad_sync_seconds`
+- `time/optimizer_step_seconds`
+- `ddp/grad_allreduce_buckets`
 - `qwen/q1_batched_frame_rate`
 - `qwen/q1_grouped_frame_rate`
 - `qwen/q1_batched_frame_rate_grouped`
@@ -1332,6 +1360,7 @@ TOKENIZERS_PARALLELISM=false
 6. 测试：
    - `python qwen3vl_local/sft_v5/test_memory_update.py`
    - `python qwen3vl_local/sft_v5/test_dataset_contract.py`
+   - `python qwen3vl_local/sft_v5/test_streaming_optimizer.py`
    - `python qwen3vl_local/sft_v5/check_loss_mask.py`
    - `python -m py_compile qwen3vl_local/sft_v5/*.py`
 

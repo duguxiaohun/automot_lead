@@ -8,7 +8,9 @@
 4. Q1 RS 正确才进入 Q2，否则本帧结束，下一有效帧恢复 GT RS + RE；
 5. teacher 关闭 LoRA，读取 privileged prompt，在同一批 student rollout token 上给
    full-vocabulary logits；
-6. student/teacher logits 做 forward-KL，梯度只回到 LoRA student。
+6. student/teacher logits 做 forward-KL，梯度只回到 LoRA student；
+7. 默认按全局有效 frame 数组成短更新窗口，在完整 timestep 边界同步 LoRA 梯度并
+   执行 optimizer step；不会再等待整批超长 route 全部结束才更新权重。
 
 注意：v5 使用 torchrun 多进程 + 手动梯度 all-reduce，不把模型包进
 DistributedDataParallel wrapper。原因是 OPSD 的 Q2 是否触发取决于每个 rank 的
@@ -176,6 +178,27 @@ class Q2GroupedRolloutResult:
     total_seconds: float
 
 
+@dataclass
+class OptimizerWindow:
+    """当前流式 optimizer 窗口的跨 timestep 计数。
+
+    `local_frames` 只统计当前 rank 真正完成 loss/backward 的 frame；
+    `global_frames` 是每个 timestep 对 local_frames 做 SUM all-reduce 后的累计值，
+    因而四个 rank 上完全一致，可以安全地用来决定 collective/optimizer 的触发时机。
+    """
+
+    local_frames: int = 0
+    global_frames: int = 0
+    timesteps: int = 0
+
+    def reset(self) -> None:
+        """optimizer step 后清空窗口，但不影响各 route 的离散 memory。"""
+
+        self.local_frames = 0
+        self.global_frames = 0
+        self.timesteps = 0
+
+
 class RouteSequenceDataset(Dataset):
     """读取 build_dataset.py 生成的 sequence_index.jsonl。"""
 
@@ -245,8 +268,8 @@ class LengthBalancedDistributedSampler(Sampler[int]):
 
     普通 `DistributedSampler` 只保证每个 rank 拿到的 route 数接近一致；但 v5 的
     训练耗时更接近“route 内有效 frame 数 × Q1/Q2 生成长度”。如果某个 rank 恰好
-    抽到一批长 route，其它 rank 会在 batch 末尾的 `_ddp_sum_int` 或 optimizer step
-    等 collective 前空等。这个 sampler 在**每个 rank 样本数一致**的前提下，按 route
+    抽到一批长 route，其它 rank 会在每个 timestep 的 frame-count collective 或
+    optimizer step 前空等。这个 sampler 在**每个 rank 样本数一致**的前提下，按 route
     长度贪心分配，尽量让每个 rank 的总 frame 数接近。
 
     保持每个 rank 样本数一致非常重要：DataLoader batch 数如果不一致，训练 loop 里的
@@ -1985,22 +2008,120 @@ def _broadcast_trainable_params(params: List[nn.Parameter], *, src: int = 0) -> 
         dist.broadcast(param.data, src=src)
 
 
-def _sync_trainable_grads(params: List[nn.Parameter]) -> None:
-    """手动 all-reduce LoRA 梯度。
+def _streaming_update_reason(
+    *,
+    global_frames: int,
+    timesteps: int,
+    target_global_frames: int,
+    max_timesteps: int,
+) -> Optional[str]:
+    """判断流式窗口是否应在当前完整 timestep 后更新。
 
-    这里替代 DDP wrapper 的 reducer。v5 的 forward 轮数会因 Q2 触发门而在 rank
-    之间不同，但每个 optimizer step 都会在所有 rank 上调用本函数，因此 collective
-    次序固定，不会出现 DDP forward hook 的不匹配问题。
+    frame 阈值优先，保证常规阶段每次 step 的有效 batch 接近固定值；当 route 大量
+    结束、每个 timestep 只剩少量 frame 时，max_timesteps 作为延迟上限，避免一次
+    optimizer step 又等待数小时。该函数只依赖所有 rank 一致的全局计数。
     """
 
-    if not (dist.is_available() and dist.is_initialized()):
-        return
-    world = float(dist.get_world_size())
+    if int(global_frames) >= max(1, int(target_global_frames)):
+        return "target_frames"
+    if int(max_timesteps) > 0 and int(timesteps) >= int(max_timesteps):
+        return "max_timesteps"
+    return None
+
+
+def _gradient_rescale_factor(*, backward_normalizer: int, global_frames: int) -> float:
+    """返回从“按固定 normalizer backward”到全局逐帧平均梯度的修正系数。"""
+
+    if int(backward_normalizer) <= 0:
+        raise ValueError("backward_normalizer must be positive")
+    if int(global_frames) <= 0:
+        raise ValueError("global_frames must be positive")
+    return float(backward_normalizer) / float(global_frames)
+
+
+def _sync_trainable_grads_by_global_frames(
+    params: List[nn.Parameter],
+    *,
+    global_frames: int,
+    backward_normalizer: int,
+    bucket_cap_mb: float = 64.0,
+) -> int:
+    """分桶 SUM all-reduce LoRA 梯度，并严格归一化为全局 frame 平均。
+
+    窗口内每个 frame 的 loss 都先除以 `backward_normalizer` 再 backward，避免长窗口
+    直接累计大梯度；同步时先对所有 rank 求 SUM，再乘
+    `backward_normalizer / global_frames`。最终数学上等价于：
+
+        sum(loss_gradient_on_all_ranks) / actual_global_frames
+
+    与各 rank 的 frame 数、route 长度和 Q2 触发比例无关。没有本地有效 frame 的
+    rank 也会为缺失梯度补零并参与相同 collective，保证 NCCL 次序一致。
+
+    不能逐参数调用 ``dist.all_reduce``：语言侧 LoRA 通常包含数百个小参数，流式
+    optimizer step 变频繁后，大量小 NCCL collective 会让 GPU 在同步边界出现明显
+    空洞。这里按 device/dtype 和约 64 MiB 上限把梯度拼成少量连续 bucket；所有 rank
+    使用完全相同的参数顺序，因此 bucket 划分及 collective 次序也是确定的。
+    """
+
+    scale = _gradient_rescale_factor(
+        backward_normalizer=int(backward_normalizer),
+        global_frames=int(global_frames),
+    )
+    distributed = dist.is_available() and dist.is_initialized()
+    bucket_cap_bytes = max(1, int(float(bucket_cap_mb) * 1024 * 1024))
+
+    # 参数注册顺序在四个 rank 上一致。先按相邻 device/dtype 构造 bucket，既避免
+    # dtype 转换，也不会因为某个 rank 的 param.grad=None 改变 collective 数量。
+    buckets: List[List[nn.Parameter]] = []
+    current: List[nn.Parameter] = []
+    current_bytes = 0
+    current_key: Optional[Tuple[torch.device, torch.dtype]] = None
     for param in params:
-        if param.grad is None:
-            param.grad = torch.zeros_like(param.data)
-        dist.all_reduce(param.grad, op=dist.ReduceOp.SUM)
-        param.grad.div_(world)
+        param_bytes = int(param.numel()) * int(param.element_size())
+        key = (param.device, param.dtype)
+        exceeds_cap = bool(current) and current_bytes + param_bytes > bucket_cap_bytes
+        if current and (key != current_key or exceeds_cap):
+            buckets.append(current)
+            current = []
+            current_bytes = 0
+        current.append(param)
+        current_bytes += param_bytes
+        current_key = key
+    if current:
+        buckets.append(current)
+
+    for bucket_params in buckets:
+        total_numel = sum(int(param.numel()) for param in bucket_params)
+        flat_grad = torch.empty(
+            total_numel,
+            device=bucket_params[0].device,
+            dtype=bucket_params[0].dtype,
+        )
+        offset = 0
+        for param in bucket_params:
+            numel = int(param.numel())
+            target = flat_grad.narrow(0, offset, numel)
+            if param.grad is None:
+                target.zero_()
+            else:
+                target.copy_(param.grad.detach().reshape(-1))
+            offset += numel
+
+        if distributed:
+            dist.all_reduce(flat_grad, op=dist.ReduceOp.SUM)
+        flat_grad.mul_(scale)
+
+        # optimizer 仍读取每个参数自己的 grad tensor。这里把同步结果拷回，而不是让
+        # 所有 grad 长期引用整块 flat buffer，防止小参数意外延长大 bucket 生命周期。
+        offset = 0
+        for param in bucket_params:
+            numel = int(param.numel())
+            synced = flat_grad.narrow(0, offset, numel).view_as(param)
+            if param.grad is None:
+                param.grad = torch.empty_like(param)
+            param.grad.copy_(synced)
+            offset += numel
+    return len(buckets)
 
 
 def _ddp_sum_int(value: int) -> int:
@@ -2036,7 +2157,7 @@ def _cuda_memory_text() -> str:
 
 
 def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespace) -> None:
-    """保存 LoRA adapter 与 v5 元数据。"""
+    """保存 LoRA adapter 与可复现实验所需的 v5 元数据。"""
 
     output_dir.mkdir(parents=True, exist_ok=True)
     model = bundle.unwrap() if hasattr(bundle, "unwrap") else bundle.model
@@ -2049,6 +2170,17 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "max_new_tokens_q1": int(args.max_new_tokens_q1),
         "max_new_tokens_q2": int(args.max_new_tokens_q2),
         "temperature": float(args.temperature),
+        "update_mode": str(args.update_mode),
+        "target_global_frames_per_step": int(args.target_global_frames_per_step),
+        "max_timesteps_per_step": int(args.max_timesteps_per_step),
+        "grad_accum": int(args.grad_accum),
+        # streaming_frames 下 GRAD_ACCUM 是窗口倍率。把最终生效值也直接落盘，
+        # 避免只看 checkpoint 时还要人工重算，或把它误解成 DataLoader batch 累计数。
+        "effective_target_global_frames_per_step": int(args.target_global_frames_per_step) * int(args.grad_accum),
+        "effective_max_timesteps_per_step": int(args.max_timesteps_per_step) * int(args.grad_accum),
+        "learning_rate": float(args.learning_rate),
+        "gradient_sync": "bucketed_sum_allreduce_then_global_frame_average",
+        "gradient_bucket_cap_mb": 64.0,
     }
     with open(output_dir / "sft_v5_adapter_config.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -2075,7 +2207,7 @@ def run_check(loader: DataLoader, *, max_batches: int = 2) -> None:
 
 
 _TRAIN_WINDOW_KEYS = (
-    "batches",
+    "timesteps",
     "frames",
     "loss_sum",
     "q1_loss_analysis_sum",
@@ -2131,24 +2263,26 @@ def _new_train_window_stats() -> Dict[str, float]:
     return {key: 0.0 for key in _TRAIN_WINDOW_KEYS}
 
 
-def _add_batch_shape_stats(stats: Dict[str, float], batch: Mapping[str, Any]) -> None:
-    """记录本 rank 当前 batch 的 padding 形状。
+def _add_timestep_shape_stats(stats: Dict[str, float], batch: Mapping[str, Any], timestep: int) -> None:
+    """按 timestep 记录当前 logging window 真正经历的 padding 压力。
 
-    这些数字能直接审计 DDP padding 是否按预期运行：valid_slots 是真实 frame 数，
-    padding_slots 是补齐到 global max_T 后额外占位的 None frame 数。
+    流式 optimizer 可能在一个 DataLoader batch 中更新多次，因此不能只在 batch 开头
+    把整批 shape 写进随后会被清零的 window_stats。这里逐 timestep 累计，确保每次
+    `train/*` 日志对应的 valid/padding 分母都覆盖同一段训练窗口。
     """
 
     routes = batch.get("routes") or []
-    valid = batch.get("valid_mask")
-    valid_count = int(valid.sum().item()) if isinstance(valid, torch.Tensor) else 0
-    max_t_global = int(batch.get("max_T_global", 0))
-    max_t_local = int(batch.get("max_T_local", 0))
-    total_slots = len(routes) * max_t_global
-    stats["batches"] += 1.0
+    frame_rows = batch.get("frame_rows") or []
+    t = int(timestep)
+    valid_count = 0
+    for frames in frame_rows:
+        if t < len(frames) and frames[t] is not None:
+            valid_count += 1
+    stats["timesteps"] += 1.0
     stats["valid_slots"] += float(valid_count)
-    stats["padding_slots"] += float(max(0, total_slots - valid_count))
-    stats["max_T_local_sum"] += float(max_t_local)
-    stats["max_T_global_sum"] += float(max_t_global)
+    stats["padding_slots"] += float(max(0, len(routes) - valid_count))
+    stats["max_T_local_sum"] += float(batch.get("max_T_local", 0))
+    stats["max_T_global_sum"] += float(batch.get("max_T_global", 0))
 
 
 def _add_frame_rollout_stats(
@@ -2241,7 +2375,7 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
 
     frames = max(1.0, float(stats.get("frames", 0.0)))
     q2 = max(1.0, float(stats.get("q2_triggered", 0.0)))
-    batches = max(1.0, float(stats.get("batches", 0.0)))
+    shape_steps = max(1.0, float(stats.get("timesteps", 0.0)))
     valid_slots = max(1.0, float(stats.get("valid_slots", 0.0)))
     rollout_tokens = float(stats.get("q1_rollout_tokens", 0.0)) + float(stats.get("q2_rollout_tokens", 0.0))
     grouped_frames = max(1.0, float(stats.get("q1_grouped_frames", 0.0)))
@@ -2283,7 +2417,7 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"parallel_kl/chunk={float(stats.get('parallel_kl_seconds', 0.0)) / max(1.0, float(stats.get('parallel_kl_chunks', 0.0))):.2f}s "
         f"parallel_fallbacks={int(stats.get('parallel_kl_fallbacks', 0.0))} "
         f"pad_rate={float(stats.get('padding_slots', 0.0)) / (valid_slots + float(stats.get('padding_slots', 0.0))):.3f} "
-        f"maxT={float(stats.get('max_T_global_sum', 0.0)) / batches:.1f}"
+        f"maxT={float(stats.get('max_T_global_sum', 0.0)) / shape_steps:.1f}"
     )
 
 
@@ -2297,8 +2431,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", type=str, required=True)
     p.add_argument("--num-epochs", type=int, default=1)
     p.add_argument("--per-device-batch-size", type=int, default=1)
-    p.add_argument("--grad-accum", type=int, default=1)
-    p.add_argument("--learning-rate", type=float, default=3e-5)
+    p.add_argument(
+        "--grad-accum",
+        type=int,
+        default=1,
+        help="更新窗口倍率；streaming_frames 下同时放大 target frames 和 max timesteps，batch 下表示累计多少个 DataLoader batch",
+    )
+    p.add_argument("--learning-rate", type=float, default=1e-5)
     p.add_argument("--weight-decay", type=float, default=0.05)
     p.add_argument("--warmup-ratio", type=float, default=0.03)
     p.add_argument("--lora-rank", type=int, default=16)
@@ -2318,6 +2457,25 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--qwen-batch-size", type=int, default=1, help="每个 rank/timestep 内尝试并行 Q1/Q2 student rollout 的 frame 数；Q1/Q2 允许 mixed-length padded rollout，KL 会重建单样本精确 KV")
     p.add_argument("--sampler-mode", type=str, default="length_balanced", choices=["length_balanced", "distributed"], help="多卡 route 分片方式；length_balanced 按 route frame 数均衡各 rank，distributed 为 PyTorch 默认 DistributedSampler")
     p.add_argument("--parallel-kl", action=argparse.BooleanOptionalAction, default=True, help="同一 timestep/chunk 内并行 Q1/Q2 teacher/student KL；失败时回退逐帧路径，CUDA OOM 直接中止")
+    p.add_argument(
+        "--update-mode",
+        type=str,
+        default="streaming_frames",
+        choices=["streaming_frames", "batch"],
+        help="streaming_frames 在完整 timestep 边界按全局有效 frame 窗口更新；batch 保留旧的整批 route 更新口径",
+    )
+    p.add_argument(
+        "--target-global-frames-per-step",
+        type=int,
+        default=512,
+        help="streaming_frames 每次 optimizer step 的目标全局有效 frame 数；实际值允许在最后一个 timestep 轻微越过",
+    )
+    p.add_argument(
+        "--max-timesteps-per-step",
+        type=int,
+        default=32,
+        help="streaming_frames 最多等待多少个 global timestep；0 表示只按 frame 阈值触发",
+    )
     p.add_argument("--logging-steps", type=int, default=1)
     p.add_argument("--save-steps", type=int, default=200)
     p.add_argument("--max-steps", type=int, default=0)
@@ -2334,6 +2492,12 @@ def main() -> None:
     """训练主入口。"""
 
     args = parse_args()
+    if int(args.grad_accum) <= 0:
+        raise ValueError("--grad-accum must be >= 1")
+    if int(args.target_global_frames_per_step) <= 0:
+        raise ValueError("--target-global-frames-per-step must be >= 1")
+    if int(args.max_timesteps_per_step) < 0:
+        raise ValueError("--max-timesteps-per-step must be >= 0")
     torch.manual_seed(int(args.seed))
     rank, world_size, local_rank = setup_distributed()
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
@@ -2379,9 +2543,15 @@ def main() -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
     distributed_barrier()
 
-    # TensorBoard writer 尽早创建并立刻写 run/* 标量。v5 一个 optimizer step
-    # 可能要等很久，如果只在 [train] 后写 loss，events 文件会长期只有 88B header，
-    # TensorBoard 前端就会显示 "No dashboards are active"。
+    # streaming_frames 下 GRAD_ACCUM 表示“窗口倍率”，而不是再等待若干完整
+    # DataLoader batch。默认 512 frame / 32 timestep；GRAD_ACCUM=2 就变成
+    # 1024 frame / 64 timestep。四个 rank 使用同一组 effective 阈值。
+    effective_target_frames = int(args.target_global_frames_per_step) * int(args.grad_accum)
+    effective_max_timesteps = int(args.max_timesteps_per_step) * int(args.grad_accum)
+    backward_normalizer = max(1, effective_target_frames)
+
+    # TensorBoard writer 尽早创建并立刻写 run/* 标量。即使首个流式更新窗口仍需
+    # 若干分钟，events 文件也会立即包含配置和 progress 心跳。
     tb = SummaryWriter(str(output_dir / "tb")) if rank == 0 and _TB_AVAILABLE else None
     if tb is not None:
         tb.add_scalar("run/alive", 1.0, 0)
@@ -2389,6 +2559,9 @@ def main() -> None:
         tb.add_scalar("run/per_device_batch_size", float(args.per_device_batch_size), 0)
         tb.add_scalar("run/qwen_batch_size", float(args.qwen_batch_size), 0)
         tb.add_scalar("run/grad_accum", float(args.grad_accum), 0)
+        tb.add_scalar("run/update_mode_streaming", float(str(args.update_mode) == "streaming_frames"), 0)
+        tb.add_scalar("run/target_global_frames_per_step", float(effective_target_frames), 0)
+        tb.add_scalar("run/max_timesteps_per_step", float(effective_max_timesteps), 0)
         tb.add_scalar("run/max_new_tokens_q1", float(args.max_new_tokens_q1), 0)
         tb.add_scalar("run/max_new_tokens_q2", float(args.max_new_tokens_q2), 0)
         tb.add_scalar("run/parallel_kl", float(bool(args.parallel_kl)), 0)
@@ -2403,6 +2576,9 @@ def main() -> None:
                     f"per_device_batch_size: {args.per_device_batch_size}",
                     f"qwen_batch_size: {args.qwen_batch_size}",
                     f"grad_accum: {args.grad_accum}",
+                    f"update_mode: {args.update_mode}",
+                    f"target_global_frames_per_step_effective: {effective_target_frames}",
+                    f"max_timesteps_per_step_effective: {effective_max_timesteps}",
                     f"max_new_tokens_q1: {args.max_new_tokens_q1}",
                     f"max_new_tokens_q2: {args.max_new_tokens_q2}",
                     f"parallel_kl: {args.parallel_kl}",
@@ -2429,15 +2605,35 @@ def main() -> None:
     if rank == 0 and bool(args.grad_checkpoint):
         print("[warn] --grad-checkpoint is experimental for v5: Qwen KV-cache generation requires use_cache=True.")
     optimizer = torch.optim.AdamW(groups, lr=float(args.learning_rate), weight_decay=float(args.weight_decay))
-    total_steps = max(1, math.ceil(len(loader) * int(args.num_epochs) / max(1, int(args.grad_accum))))
+    if int(args.max_steps) > 0:
+        total_steps = int(args.max_steps)
+    elif str(args.update_mode) == "streaming_frames":
+        # sequence index 在每个 rank 都是完整数据集，因此这里直接按全量 frame 数估算
+        # scheduler step。分布式 sampler 为整除 world_size 补的极少量重复 route，以及
+        # max_timesteps 延迟上限触发的尾部小窗口，会造成轻微偏差，但远小于旧版按
+        # len(loader) 估算导致的数量级错误。
+        total_train_frames = sum(len(row.frames) for row in train_ds.rows) * int(args.num_epochs)
+        total_steps = max(1, math.ceil(total_train_frames / max(1, effective_target_frames)))
+    else:
+        total_steps = max(1, math.ceil(len(loader) * int(args.num_epochs) / max(1, int(args.grad_accum))))
     scheduler = make_scheduler(
         optimizer,
         total_steps=total_steps,
         warmup_steps=int(total_steps * float(args.warmup_ratio)),
     )
+    if rank == 0:
+        print(
+            f"[update] mode={args.update_mode} target_global_frames={effective_target_frames} "
+            f"max_timesteps={effective_max_timesteps} backward_normalizer={backward_normalizer} "
+            f"estimated_total_steps={total_steps} lr={float(args.learning_rate):.3g}",
+            flush=True,
+        )
 
     global_step = 0
+    # batch 模式下 micro_step 仍表示累计 DataLoader batch 数；流式模式的真实窗口
+    # 状态由 optimizer_window 维护，避免再把“batch”和“optimizer step”混为一谈。
     micro_step = 0
+    optimizer_window = OptimizerWindow()
     processed_local_frames = 0
     window_stats = _new_train_window_stats()
     start = time.time()
@@ -2495,6 +2691,9 @@ def main() -> None:
         tb.add_scalar("progress/micro_step", float(micro_step), step)
         tb.add_scalar("progress/processed_local_frames", float(processed_local_frames), step)
         tb.add_scalar("progress/window_frames", float(window_stats.get("frames", 0.0)), step)
+        tb.add_scalar("progress/optimizer_window_local_frames", float(optimizer_window.local_frames), step)
+        tb.add_scalar("progress/optimizer_window_global_frames", float(optimizer_window.global_frames), step)
+        tb.add_scalar("progress/optimizer_window_timesteps", float(optimizer_window.timesteps), step)
         if local_frames is not None:
             tb.add_scalar("progress/local_frames", float(local_frames), step)
         if global_frames is not None:
@@ -2504,28 +2703,73 @@ def main() -> None:
             tb.add_scalar("progress/cuda_reserved_gb", torch.cuda.memory_reserved() / (1024 ** 3), step)
         tb.flush()
 
-    def complete_optimizer_step(epoch_idx: int) -> None:
-        """完成一次全 rank 对齐的 LoRA optimizer step。"""
+    def complete_optimizer_step(epoch_idx: int, batch_idx: int, *, reason: str) -> bool:
+        """完成一次全 rank 对齐、按实际 global frame 平均的 LoRA 更新。
+
+        返回 False 表示窗口内没有任何有效 frame，因此没有执行 optimizer step。
+        调用点只能位于完整 timestep、batch 尾部或 epoch 尾部；严禁夹在 Q1/Q2/KL
+        中间，否则同一帧会混用不同版本的 LoRA。
+        """
 
         nonlocal global_step, window_stats, last_heartbeat
+        if optimizer_window.global_frames <= 0:
+            return False
+        step_local_frames = int(optimizer_window.local_frames)
+        step_global_frames = int(optimizer_window.global_frames)
+        step_timesteps = int(optimizer_window.timesteps)
         sync_start = time.time()
         rank0_log(
             f"[sync-start] step_next={global_step + 1} epoch={epoch_idx} "
-            f"local_window_frames={int(window_stats.get('frames', 0.0))} {_cuda_memory_text()}"
+            f"reason={reason} local_window_frames={step_local_frames} "
+            f"global_window_frames={step_global_frames} timesteps={step_timesteps} {_cuda_memory_text()}"
         )
-        write_tb_progress(event_code=6, epoch_idx=epoch_idx, batch_idx=-1, local_frames=int(window_stats.get("frames", 0.0)))
-        _sync_trainable_grads(trainable_params)
-        rank0_log(f"[sync-done] step_next={global_step + 1} grad_all_reduce={time.time() - sync_start:.1f}s {_cuda_memory_text()}")
-        write_tb_progress(event_code=7, epoch_idx=epoch_idx, batch_idx=-1, local_frames=int(window_stats.get("frames", 0.0)))
+        write_tb_progress(
+            event_code=6,
+            epoch_idx=epoch_idx,
+            batch_idx=batch_idx,
+            local_frames=step_local_frames,
+            global_frames=step_global_frames,
+        )
+        grad_bucket_count = _sync_trainable_grads_by_global_frames(
+            trainable_params,
+            global_frames=step_global_frames,
+            backward_normalizer=backward_normalizer,
+        )
+        grad_sync_seconds = time.time() - sync_start
+        rank0_log(
+            f"[sync-done] step_next={global_step + 1} grad_all_reduce={grad_sync_seconds:.1f}s "
+            f"grad_buckets={grad_bucket_count} global_window_frames={step_global_frames} {_cuda_memory_text()}"
+        )
+        write_tb_progress(
+            event_code=7,
+            epoch_idx=epoch_idx,
+            batch_idx=batch_idx,
+            local_frames=step_local_frames,
+            global_frames=step_global_frames,
+        )
         if language_params:
             torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm))
         if vision_params:
             torch.nn.utils.clip_grad_norm_(vision_params, float(args.vision_clip_norm))
+        optimizer_start = time.time()
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad(set_to_none=True)
+        optimizer_seconds = time.time() - optimizer_start
         global_step += 1
+        optimizer_window.reset()
         last_heartbeat = time.time()
+        if rank == 0 and tb is not None:
+            # 这些指标每次 optimizer step 都写，不受 LOGGING_STEPS 影响；它们用于确认
+            # 流式窗口是否真的按 512 frame / 32 timestep 触发。
+            tb.add_scalar("train/global_frames_per_step", float(step_global_frames), global_step)
+            tb.add_scalar("train/local_frames_rank0_per_step", float(step_local_frames), global_step)
+            tb.add_scalar("train/timesteps_per_step", float(step_timesteps), global_step)
+            tb.add_scalar("train/update_reason_code", 1.0 if reason == "target_frames" else 2.0 if reason == "max_timesteps" else 3.0, global_step)
+            tb.add_scalar("time/grad_sync_seconds", grad_sync_seconds, global_step)
+            tb.add_scalar("time/optimizer_step_seconds", optimizer_seconds, global_step)
+            tb.add_scalar("ddp/grad_allreduce_buckets", float(grad_bucket_count), global_step)
+            tb.add_scalar("train/learning_rate", float(optimizer.param_groups[0]["lr"]), global_step)
         log_every = max(1, int(args.logging_steps))
         if global_step % log_every == 0:
             reduced_stats = _ddp_sum_train_stats(window_stats)
@@ -2591,10 +2835,13 @@ def main() -> None:
                     tb.add_scalar("parallel_kl/seconds_per_chunk", reduced_stats["parallel_kl_seconds"] / max(1.0, reduced_stats["parallel_kl_chunks"]), global_step)
                     tb.add_scalar("parallel_kl/fallbacks", reduced_stats["parallel_kl_fallbacks"], global_step)
                     tb.add_scalar("ddp/padding_rate", reduced_stats["padding_slots"] / max(1.0, pad_total), global_step)
-                    tb.add_scalar("ddp/max_T_global_avg", reduced_stats["max_T_global_sum"] / max(1.0, reduced_stats["batches"]), global_step)
+                    tb.add_scalar("ddp/max_T_global_avg", reduced_stats["max_T_global_sum"] / max(1.0, reduced_stats["timesteps"]), global_step)
+                    tb.flush()
         if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
             _save_adapter(bundle, output_dir / f"checkpoint-{global_step}", args)
+        return True
 
+    stop_training = False
     for epoch in range(int(args.num_epochs)):
         if sampler is not None:
             sampler.set_epoch(epoch)
@@ -2614,9 +2861,9 @@ def main() -> None:
                 )
         for batch_idx, batch in enumerate(loader):
             batch = pad_batch_to_global_length(batch)
-            _add_batch_shape_stats(window_stats, batch)
             frame_count = 0
             batch_processed_frames = 0
+            batch_global_processed_frames = 0
             routes: List[SequenceRow] = batch["routes"]
             frame_rows: List[List[Optional[FrameRow]]] = batch["frame_rows"]
             local_frame_slots = sum(1 for frames in frame_rows for frame in frames if frame is not None)
@@ -2633,7 +2880,8 @@ def main() -> None:
                 f"maxT_local={int(batch['max_T_local'])} maxT_global={int(batch['max_T_global'])} "
                 f"valid_local={local_frame_slots} valid_global={global_frame_slots} "
                 f"loss_local={local_loss_slots} loss_global={global_loss_slots} qwen_batch={qwen_batch_size} "
-                f"micro_step_next={micro_step + 1} {_cuda_memory_text()}"
+                f"update_mode={args.update_mode} window_global={optimizer_window.global_frames}/{effective_target_frames} "
+                f"window_t={optimizer_window.timesteps}/{effective_max_timesteps} {_cuda_memory_text()}"
             )
             write_tb_progress(
                 event_code=1,
@@ -2642,16 +2890,15 @@ def main() -> None:
                 local_frames=local_frame_slots,
                 global_frames=global_frame_slots,
             )
-            # 梯度同步函数会 all_reduce(SUM) 后再除以 world_size；这里预乘 world_size，
-            # 使最终等价于按 global 有效 frame 数平均，而不是每个 rank 等权平均。
-            # 分母使用实际可训练 frame（RGB 路径存在）数量，避免少量缺图 skip 把 loss
-            # 额外缩小；正常 build_dataset 已过滤缺图时它与 valid_global 相同。
-            loss_scale = float(world_size) / float(max(1, global_loss_slots) * max(1, int(args.grad_accum)))
             # 每条 route 各自维护 memory/reset；batch 内 route 之间互不影响。
             # reset_next=True 表示上一个有效帧 RS 错或 Q2 非法，下一帧开头恢复 GT RS + RE。
             reset_next = [False for _ in routes]
             memories: List[Optional[Memory]] = [None for _ in routes]
             for t in range(int(batch["max_T_global"])):
+                # window_stats 会在流式 optimizer step 后清零，所以 padding 统计也必须
+                # 按 timestep 写入，不能只在超长 DataLoader batch 开头写一次。
+                _add_timestep_shape_stats(window_stats, batch, t)
+                timestep_local_frames = 0
                 active_items: List[Tuple[int, SequenceRow, FrameRow, Memory]] = []
                 for b, route in enumerate(routes):
                     frame = frame_rows[b][t]
@@ -2671,6 +2918,8 @@ def main() -> None:
                     active_items.append((b, route, frame, memories[b]))
                 for chunk_start in range(0, len(active_items), qwen_batch_size):
                     chunk = active_items[chunk_start:chunk_start + qwen_batch_size]
+                    q1_grouped: Optional[Q1GroupedRolloutResult] = None
+                    q2_grouped: Optional[Q2GroupedRolloutResult] = None
                     q1_rollouts: List[Optional[Tuple[Optional[KVState], str, Optional[KVState], torch.Tensor]]] = [None] * len(chunk)
                     q2_rollouts: List[Optional[Tuple[Optional[KVState], str, torch.Tensor]]] = [None] * len(chunk)
                     if qwen_batch_size > 1 and len(chunk) > 1:
@@ -2796,9 +3045,9 @@ def main() -> None:
                                 q2_rollouts=q2_rollouts,
                                 temperature=float(args.temperature),
                             )
-                            # chunk_loss 是当前 chunk 内各 frame loss 的 sum；乘同一个
-                            # global loss_scale 后一次 backward，减少逐帧小 backward 和
-                            # teacher/student KL 小 forward 带来的 GPU 碎片化。
+                            # chunk_loss 是当前 chunk 内各 frame loss 的 sum。先除以固定
+                            # backward_normalizer 再 backward；optimizer step 时再按窗口
+                            # 实际 global frame 数做精确修正，既控制梯度数值，也保持 frame 等权。
                             if not bool(chunk_loss.requires_grad):
                                 # 极端情况下，chunk 内所有样本的 student 输出都没有命中
                                 # RS/ABNORMAL/EVENT 等监督字段，batched KL 会得到一个数值为
@@ -2810,11 +3059,12 @@ def main() -> None:
                                         f"epoch={epoch} batch={batch_idx} t={t} size={len(chunk)}"
                                     )
                                 chunk_loss = _trainable_graph_zero(bundle, chunk_loss)
-                            (chunk_loss * loss_scale).backward()
+                            (chunk_loss / float(backward_normalizer)).backward()
                             chunk_loss_value = float(chunk_loss.detach().item())
                             frame_count += len(chunk_results)
                             batch_processed_frames += len(chunk_results)
                             processed_local_frames += len(chunk_results)
+                            timestep_local_frames += len(chunk_results)
                             q1_tok = 0
                             q2_tok = 0
                             reset_count = 0
@@ -2851,6 +3101,9 @@ def main() -> None:
                             window_stats["parallel_kl_frames"] += float(len(chunk_results))
                             window_stats["parallel_kl_seconds"] += float(time.time() - parallel_start)
                             parallel_chunk_done = True
+                            # backward 已释放主体计算图；显式删除最后一个 chunk 的输出，
+                            # 避免它在下一轮 Qwen rollout 构造期间仍被 Python 局部变量引用。
+                            del chunk_loss, chunk_results
                         except Exception as exc:
                             if _is_cuda_oom(exc):
                                 if torch.cuda.is_available():
@@ -2869,10 +3122,19 @@ def main() -> None:
                                     rank0_log(traceback.format_exc(limit=12).rstrip())
                             window_stats["parallel_kl_fallbacks"] += 1.0
                     if parallel_chunk_done:
+                        # rollout token 已写入 memory/stats，训练 KV 不跨 timestep 复用；
+                        # 在可能触发 optimizer.step 前释放 singleton 路径留下的 KV 引用。
+                        q1_rollouts.clear()
+                        q2_rollouts.clear()
+                        q1_grouped = None
+                        q2_grouped = None
                         continue
                     for chunk_idx, (b, route, frame, memory_for_frame) in enumerate(chunk):
                         frame_start = time.time()
                         log_this_frame = should_log_frame()
+                        q1_student_state: Optional[KVState] = None
+                        q1_after: Optional[KVState] = None
+                        q2_student_state: Optional[KVState] = None
                         if log_this_frame:
                             rank0_log(
                                 f"[frame-start] epoch={epoch} batch={batch_idx} t={t} route_idx={b} "
@@ -2929,11 +3191,12 @@ def main() -> None:
                                     f"route={route.scenario}/{route.route_id} frame={frame.frame_id}"
                                 )
                             loss = _trainable_graph_zero(bundle, loss)
-                        (loss * loss_scale).backward()
+                        (loss / float(backward_normalizer)).backward()
                         del loss
                         frame_count += 1
                         batch_processed_frames += 1
                         processed_local_frames += 1
+                        timestep_local_frames += 1
                         _add_frame_rollout_stats(
                             window_stats,
                             stats,
@@ -2969,12 +3232,48 @@ def main() -> None:
                                 local_frames=batch_processed_frames,
                             )
                             last_heartbeat = now
+                        # 单样本 fallback 可能返回完整 Q1/Q2 KV；下一帧不会复用这些
+                        # cache，及时断开引用，避免恰好在窗口边界执行 AdamW 时叠加峰值。
+                        q1_student_state = None
+                        q1_after = None
+                        q2_student_state = None
+                        rollout_kwargs.clear()
+                        rollout = None
+                        q2_rollout = None
+                    q1_rollouts.clear()
+                    q2_rollouts.clear()
+                    q1_grouped = None
+                    q2_grouped = None
+                # 所有 rank 都在同一个 global timestep 结束后进入这一标量 all-reduce。
+                # Q2 分支和本地 chunk 数可以不同，但更新判定只看这个全局一致的 frame
+                # 计数，因此后续梯度 collective 的调用次序仍完全一致。
+                timestep_global_frames = _ddp_sum_int(timestep_local_frames)
+                if timestep_global_frames > 0:
+                    optimizer_window.local_frames += int(timestep_local_frames)
+                    optimizer_window.global_frames += int(timestep_global_frames)
+                    optimizer_window.timesteps += 1
+                    batch_global_processed_frames += int(timestep_global_frames)
+
+                if str(args.update_mode) == "streaming_frames":
+                    update_reason = _streaming_update_reason(
+                        global_frames=optimizer_window.global_frames,
+                        timesteps=optimizer_window.timesteps,
+                        target_global_frames=effective_target_frames,
+                        max_timesteps=effective_max_timesteps,
+                    )
+                    if update_reason is not None:
+                        complete_optimizer_step(epoch, batch_idx, reason=update_reason)
+                        if int(args.max_steps) > 0 and global_step >= int(args.max_steps):
+                            stop_training = True
+                            break
             rank0_log(
                 f"[batch-local-done] epoch={epoch} batch={batch_idx} local_frames={frame_count} "
-                f"calling_global_frame_reduce=1 {_cuda_memory_text()}"
+                f"global_frames={batch_global_processed_frames} {_cuda_memory_text()}"
             )
             write_tb_progress(event_code=4, epoch_idx=epoch, batch_idx=batch_idx, local_frames=frame_count)
-            global_frame_count = _ddp_sum_int(frame_count)
+            # 每个 timestep 已经同步过实际 frame 数，batch 尾部直接复用累计值，避免
+            # 再做一次冗余 collective。
+            global_frame_count = int(batch_global_processed_frames)
             rank0_log(
                 f"[batch-global-done] epoch={epoch} batch={batch_idx} "
                 f"global_frames={global_frame_count} local_frames={frame_count}"
@@ -2986,19 +3285,22 @@ def main() -> None:
                 local_frames=frame_count,
                 global_frames=global_frame_count,
             )
-            if global_frame_count == 0:
-                continue
-            micro_step += 1
-            if micro_step % max(1, int(args.grad_accum)) == 0:
-                complete_optimizer_step(epoch)
-                if int(args.max_steps) > 0 and global_step >= int(args.max_steps):
-                    break
-        if micro_step % max(1, int(args.grad_accum)) != 0 and not (int(args.max_steps) > 0 and global_step >= int(args.max_steps)):
-            # epoch 末尾如果还有未满 grad_accum 的梯度，也要同步并更新一次；
-            # 否则最后几个有效 batch 的 OPSD 信号会被静默丢掉。
-            complete_optimizer_step(epoch)
+            if str(args.update_mode) == "batch" and global_frame_count > 0:
+                micro_step += 1
+                if micro_step % max(1, int(args.grad_accum)) == 0:
+                    complete_optimizer_step(epoch, batch_idx, reason="batch")
+                    if int(args.max_steps) > 0 and global_step >= int(args.max_steps):
+                        stop_training = True
+            if stop_training:
+                break
+        if not stop_training and optimizer_window.global_frames > 0:
+            # streaming_frames 把不足目标值的 epoch 尾窗口正常 flush；batch 模式也在
+            # 这里处理不足 GRAD_ACCUM 的尾批，避免已经 backward 的样本被静默丢弃。
+            complete_optimizer_step(epoch, -1, reason="epoch_flush")
             micro_step = 0
-        if int(args.max_steps) > 0 and global_step >= int(args.max_steps):
+            if int(args.max_steps) > 0 and global_step >= int(args.max_steps):
+                stop_training = True
+        if stop_training:
             break
     if rank == 0:
         _save_adapter(bundle, output_dir / "final", args)

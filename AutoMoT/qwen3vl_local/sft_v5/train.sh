@@ -7,7 +7,9 @@
 #   GPU_IDS=0 bash qwen3vl_local/sft_v5/train.sh check
 #
 # ddp 模式默认按四张 H20 的当前“max_util”口径启动：每卡 8 条 route sequence，
-# 同一 timestep 最多 8 个 frame 做 batched Qwen rollout，优先追求 GPU 利用率。
+# 同一 timestep 最多 8 个 frame 做 batched Qwen rollout，优先追求 GPU 利用率；
+# optimizer 默认按 512 个 global frame 组成流式窗口，最迟 32 个 timestep 更新一次，
+# 不再等待整个超长 route batch 结束。
 # single/check 模式仍保守用 1，避免单卡调试时意外把显存吃爆。
 # 用户可用 BATCH_PROFILE=debug/balanced/max_util 在 4/6/8 路间切换；
 # 显式传 PER_DEVICE_BATCH_SIZE / QWEN_BATCH_SIZE 时永远优先使用
@@ -192,6 +194,13 @@ EFFECTIVE_PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-${PER_DEVICE_BS:-${DEF
 # 降到 balanced/debug/2 路时也会自然变成 6/6、4/4、2/2。
 EFFECTIVE_QWEN_BATCH_SIZE="${QWEN_BATCH_SIZE:-${EFFECTIVE_PER_DEVICE_BATCH_SIZE:-${DEFAULT_QWEN_BATCH_SIZE}}}"
 EFFECTIVE_PROGRESS_FRAMES="${PROGRESS_FRAMES:-${DEFAULT_PROGRESS_FRAMES}}"
+# 正式训练默认按全局有效 frame 组成短 optimizer 窗口：四卡 8 路时一个
+# timestep 最多贡献 32 frame，通常约 16 个 timestep 达到 512。若后期 route
+# 大量结束导致每个 timestep 的有效 frame 变少，32 timestep 上限负责及时更新。
+# GRAD_ACCUM 会在 train.py 内同时放大下面两个阈值；这里保留原始配置用于清晰打印。
+EFFECTIVE_UPDATE_MODE="${UPDATE_MODE:-streaming_frames}"
+EFFECTIVE_TARGET_GLOBAL_FRAMES="${TARGET_GLOBAL_FRAMES_PER_STEP:-512}"
+EFFECTIVE_MAX_TIMESTEPS="${MAX_TIMESTEPS_PER_STEP:-32}"
 
 echo "[batch] PER_DEVICE_BATCH_SIZE=${EFFECTIVE_PER_DEVICE_BATCH_SIZE}"
 echo "[batch] QWEN_BATCH_SIZE=${EFFECTIVE_QWEN_BATCH_SIZE}"
@@ -199,6 +208,9 @@ echo "[batch] GRAD_ACCUM=${GRAD_ACCUM:-1}"
 echo "[batch] BATCH_PROFILE=${BATCH_PROFILE}"
 echo "[sampler] SAMPLER_MODE=${SAMPLER_MODE:-length_balanced}"
 echo "[parallel] PARALLEL_KL=${PARALLEL_KL:-1}"
+echo "[update] UPDATE_MODE=${EFFECTIVE_UPDATE_MODE}"
+echo "[update] TARGET_GLOBAL_FRAMES_PER_STEP=${EFFECTIVE_TARGET_GLOBAL_FRAMES}"
+echo "[update] MAX_TIMESTEPS_PER_STEP=${EFFECTIVE_MAX_TIMESTEPS}"
 if [[ "${MODE}" == "ddp" && "${EFFECTIVE_PER_DEVICE_BATCH_SIZE}" -lt "${EFFECTIVE_QWEN_BATCH_SIZE}" ]]; then
   echo "[batch][warn] QWEN_BATCH_SIZE=${EFFECTIVE_QWEN_BATCH_SIZE} > PER_DEVICE_BATCH_SIZE=${EFFECTIVE_PER_DEVICE_BATCH_SIZE}; extra Qwen slots will be unused"
 fi
@@ -213,7 +225,7 @@ COMMON_ARGS=(
   --per-device-batch-size "${EFFECTIVE_PER_DEVICE_BATCH_SIZE}"
   --grad-accum "${GRAD_ACCUM:-1}"
   --num-epochs "${NUM_EPOCHS:-1}"
-  --learning-rate "${LEARNING_RATE:-${LR:-3e-5}}"
+  --learning-rate "${LEARNING_RATE:-${LR:-1e-5}}"
   --weight-decay "${WEIGHT_DECAY:-0.05}"
   --warmup-ratio "${WARMUP_RATIO:-0.03}"
   --lora-rank "${LORA_RANK:-16}"
@@ -232,6 +244,9 @@ COMMON_ARGS=(
   --num-workers "${NUM_WORKERS:-0}"
   --qwen-batch-size "${EFFECTIVE_QWEN_BATCH_SIZE}"
   --sampler-mode "${SAMPLER_MODE:-length_balanced}"
+  --update-mode "${EFFECTIVE_UPDATE_MODE}"
+  --target-global-frames-per-step "${EFFECTIVE_TARGET_GLOBAL_FRAMES}"
+  --max-timesteps-per-step "${EFFECTIVE_MAX_TIMESTEPS}"
   --logging-steps "${LOGGING_STEPS:-1}"
   --progress-frames "${EFFECTIVE_PROGRESS_FRAMES}"
   --heartbeat-seconds "${HEARTBEAT_SECONDS:-120}"

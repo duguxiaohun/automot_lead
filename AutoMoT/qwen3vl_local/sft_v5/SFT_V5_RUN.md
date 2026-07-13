@@ -45,6 +45,7 @@ fallback 到 `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]`�
 python qwen3vl_local/sft_v5/check_loss_mask.py
 python qwen3vl_local/sft_v5/test_memory_update.py
 python qwen3vl_local/sft_v5/test_dataset_contract.py
+python qwen3vl_local/sft_v5/test_streaming_optimizer.py
 python -m py_compile qwen3vl_local/sft_v5/*.py
 ```
 
@@ -68,7 +69,9 @@ OPSD 不是先离线生成一批 teacher 数据再训练。v5 当前实现是同
 3. 这些 student 生成出来的 token 就是本 step 的 on-policy 采样数据，只在内存中临时保存。
 4. Teacher 关闭 LoRA，读取 privileged prompt，在同一批 student token 上 forward 得到 logits。
 5. Student/teacher logits 只裁剪到需要监督的 span token，做 weighted forward-KL。
-6. 当前 rank 每帧算完立即 backward；每个 optimizer step 前手动 all-reduce LoRA 梯度。
+6. 当前 rank 每帧算完立即 backward，只累计 LoRA 梯度，不保留跨帧计算图。
+7. 默认累计 512 个 global 有效 frame，或最迟 32 个 global timestep，在完整 timestep
+   边界手动 all-reduce LoRA 梯度并执行 optimizer step；各 route memory 原样继续。
 
 因此 H20 四卡下，当前 v5 是“四张卡都边采样边训练”，不是“几张卡专门采数据、几张卡专门训练”。
 实现上使用 torchrun 多进程和手动梯度 all-reduce，不把模型包进
@@ -96,6 +99,10 @@ BATCH_PROFILE=max_util
 PER_DEVICE_BATCH_SIZE=8
 QWEN_BATCH_SIZE=8
 GRAD_ACCUM=1
+UPDATE_MODE=streaming_frames
+TARGET_GLOBAL_FRAMES_PER_STEP=512
+MAX_TIMESTEPS_PER_STEP=32
+LEARNING_RATE=1e-5
 ```
 
 只想确认 launcher 会解析成 8 路、不加载模型时：
@@ -110,6 +117,16 @@ DRY_RUN=1 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 BATCH_PROFILE=balanced GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp  # 6 路
 BATCH_PROFILE=debug GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp     # 4 路
 ```
+
+只用于复现旧实验的整批 route 更新口径：
+
+```bash
+UPDATE_MODE=batch LEARNING_RATE=3e-5 GPU_IDS=0,1,2,3 \
+bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+正式训练默认使用 `streaming_frames`；旧 `batch` 模式可能一次累计上万帧，optimizer
+step 和正式 loss 曲线都会延迟数小时。
 
 单卡调试和静态检查：
 
@@ -154,10 +171,21 @@ MAX_NEW_TOKENS_Q2=1024
   PyTorch 原生 route 数均衡分片做对照。
 - 训练循环不再把整条 route sequence 的 Qwen 计算图攒到 batch 末尾；每帧
   OPSD loss 立刻 backward，只累计 LoRA 梯度，降低 H20 上长序列 OOM 风险。
+- 默认 `UPDATE_MODE=streaming_frames`：四卡累计 512 个实际 global frame，或达到
+  32 个 global timestep 后立即同步更新，不等待完整 DataLoader route batch。
+- 更新只发生在完整 timestep 结束后，绝不会夹在同一帧 Q1/Q2/KL 中间；optimizer
+  step 后保留各 route 的离散 RS/EVENT memory，下一帧使用更新后的 student。
+- 每个 frame loss 先除以 effective target frame 数再 backward；同步时梯度跨 rank
+  求 SUM，并按窗口实际 global frame 数修正，最终严格等价于全局逐帧平均。
+- LoRA 梯度按 device/dtype 合并成约 64 MiB 的连续 bucket 后再 all-reduce，避免数百个
+  小参数逐个发起 NCCL collective；这只减少同步开销，不改变梯度数值。
+- 每个 checkpoint/final 的 `sft_v5_adapter_config.json` 同时记录原始阈值、经过
+  `GRAD_ACCUM` 放大后的 effective 阈值、LR 和梯度同步策略，便于复现实验。
 - `train.sh` 默认 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，减少
   KV/logits 张量反复申请释放带来的 CUDA allocator 碎片化。
-- `grad_accum` 只控制 optimizer step 间隔；epoch 末尾未满 `grad_accum` 的有效
-  micro-batch 也会做一次同步 step，不会静默丢弃尾批梯度。
+- 流式模式中 `GRAD_ACCUM` 是窗口倍率：例如 2 表示 `1024 frame / 64 timestep`；
+  默认保持 1。`UPDATE_MODE=batch` 时才恢复“累计若干 DataLoader batch”的旧语义。
+- epoch 末尾不足目标 frame/timestep 的窗口也会 flush，不会静默丢弃尾部梯度。
 - v5 默认关闭 gradient checkpointing，因为 Qwen3-VL KV cache 续接必须保持
   `use_cache=True`；`--grad-checkpoint` 仅保留为实验开关。
 - Q1 输出 `Scene Description / Critical Object Description / Reasoning on Intent / RS / ABNORMAL`；
@@ -189,9 +217,19 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 当前 v5 训练脚本至少写：
 
 - `run/alive` / `run/world_size` / `run/per_device_batch_size` /
-  `run/qwen_batch_size`：writer 创建后立刻写入，用来确认 events 文件不是空壳。
+  `run/qwen_batch_size` / `run/update_mode_streaming` /
+  `run/target_global_frames_per_step` / `run/max_timesteps_per_step`：writer 创建后立即
+  写入，用来确认 events 文件不是空壳，并核对流式更新配置。
 - `progress/*`：首个 optimizer step 之前的轻量心跳，记录当前 batch/frame/sync
-  进度和 CUDA 显存；横轴是 rank0 已处理的本地 frame 数。
+  进度、optimizer window 的 local/global frame、timestep 和 CUDA 显存；横轴是
+  rank0 已处理的本地 frame 数。
+- `train/global_frames_per_step` / `train/timesteps_per_step`：每次流式更新的实际窗口；
+  常规阶段应接近 512 frame，低吞吐尾段可能由 32 timestep 上限提前触发。
+- `train/update_reason_code`：`1=target_frames`、`2=max_timesteps`、`3=batch/epoch_flush`。
+- `train/learning_rate` / `time/grad_sync_seconds` / `time/optimizer_step_seconds`：当前
+  scheduler LR、LoRA 梯度同步和 AdamW 更新耗时。
+- `ddp/grad_allreduce_buckets`：每次同步的连续梯度 bucket 数，用于确认没有退回逐参数
+  collective。
 - `train/loss_frame`：当前 logging window 内所有 rank 聚合后的 frame 平均 loss。
 - `train/loss/q1_analysis` / `train/loss/q1_rs` / `train/loss/q1_abnormal`：
   Q1 OPSD KL 的分项 loss，按有效 frame 平均。
@@ -232,14 +270,14 @@ stdout / `log.txt` 还会写 rank0 心跳，避免长时间看不到训练状态
 - `[frame-start]` / `[frame-done]`：当前 rank0 正在处理的 route/frame、memory、耗时、
   当前 batch 内 frame 进度、loss、Q1/Q2 rollout token、是否进入 Q2、是否 reset、
   CUDA 显存。
-- `[batch-local-done]` / `[batch-global-done]`：本 rank frame 已处理完，随后是否卡在
-  跨 rank frame_count all-reduce。
+- `[batch-local-done]` / `[batch-global-done]`：本 rank 和已逐 timestep 汇总的 global
+  frame 数；流式模式不会等到这里才做 optimizer step。
 - `[sync-start]` / `[sync-done]`：optimizer step 前的 LoRA 梯度 all-reduce 是否开始/结束。
 
-v5 每个 optimizer step 都可能需要几十分钟，因此默认 `LOGGING_STEPS=1`，每次
-optimizer step 后都会输出一次聚合 `[train]` 指标。默认每个 rank0 的前 3 个 frame
-都打印，之后每 `PROGRESS_FRAMES=5` 个本地有效 frame 打印一次；单个长操作超过
-`HEARTBEAT_SECONDS=120` 秒也会补心跳。排查卡顿时建议：
+v5 默认每 512 global frame 或 32 timestep 更新一次，因此不用再等完整长 route batch
+才看到 loss。`LOGGING_STEPS=1` 会在每次流式 optimizer step 后输出聚合 `[train]`
+指标。默认 rank0 前 3 个 frame 都打印，之后按 `PROGRESS_FRAMES` 输出；单个长操作
+超过 `HEARTBEAT_SECONDS=120` 秒也会补心跳。排查卡顿时建议：
 
 ```bash
 PROGRESS_FRAMES=1 HEARTBEAT_SECONDS=60 GPU_IDS=0,1,2,3 \
@@ -253,7 +291,8 @@ bash qwen3vl_local/sft_v5/train.sh ddp
 如果 TensorBoard 仍提示 `No dashboards are active`，先确认这个 run 是新代码产生的。
 新 run 的 events 文件即使还没到第一条 `[train]`，也应该能看到 `run/*` 或
 `progress/*` tags；只有旧 run 或 writer 尚未创建时，events 才可能长期只有 88B
-header。
+header。新默认下第一组 `train/loss/*` 应在首个 512-frame/32-timestep 窗口后出现，
+不再等待 `max_T_global` 全部跑完。
 
 ### 4.1 真正并行 Qwen 的阶段开关
 

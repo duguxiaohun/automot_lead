@@ -339,6 +339,16 @@
   开始输出分析与 `RS/EVENT`，不能复读 MEMORY、choices 或 REFERENCE；可视化分为训练前 base Qwen OPSD 能力体检、训练后 adapter
   学生可视化、静态 prompt/target 快检三类。v5 代码已补中文函数说明和关键逻辑块注释；
   后续改标签协议、prompt、memory、loss、probe 或 DDP 训练逻辑时必须同步维护相邻注释。
+  正式训练默认 `UPDATE_MODE=streaming_frames`：每个完整 global timestep 后汇总实际
+  有效 frame，累计 `TARGET_GLOBAL_FRAMES_PER_STEP=512` 或达到
+  `MAX_TIMESTEPS_PER_STEP=32` 时同步 LoRA 梯度并 optimizer step；不能在同一帧
+  Q1/Q2/KL 中间更新。梯度按窗口实际 global frame 数归一化，optimizer step 后保留
+  route memory；无本地 frame 的 rank 也必须补零参加 collective，epoch 尾窗口必须
+  flush。LoRA 梯度按 device/dtype 合并成约 64 MiB bucket 后再 all-reduce，禁止退回
+  数百个小参数逐个 collective。`GRAD_ACCUM` 是流式窗口倍率，`UPDATE_MODE=batch` 只作旧实验兼容；默认
+  learning rate 为 `1e-5`。TensorBoard 还必须记录每步 global frame/timestep、更新原因、
+  梯度同步 bucket 数、梯度同步和 optimizer 耗时；adapter 元数据必须同时记录原始与
+  effective 窗口阈值、LR 和梯度同步策略。
   运行与可视化方法见
   `SFT_V5_RUN.md` / `SFT_V5_PLAN.md` / `SFT_V5_VISUALIZATION_RECORD.md`。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
