@@ -188,6 +188,10 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 
 当前 v5 训练脚本至少写：
 
+- `run/alive` / `run/world_size` / `run/per_device_batch_size` /
+  `run/qwen_batch_size`：writer 创建后立刻写入，用来确认 events 文件不是空壳。
+- `progress/*`：首个 optimizer step 之前的轻量心跳，记录当前 batch/frame/sync
+  进度和 CUDA 显存；横轴是 rank0 已处理的本地 frame 数。
 - `train/loss_frame`：当前 logging window 内所有 rank 聚合后的 frame 平均 loss。
 - `train/loss/q1_analysis` / `train/loss/q1_rs` / `train/loss/q1_abnormal`：
   Q1 OPSD KL 的分项 loss，按有效 frame 平均。
@@ -245,6 +249,11 @@ bash qwen3vl_local/sft_v5/train.sh ddp
 如果最后一条日志停在 `[frame-start]`，说明某个单帧 Qwen OPSD 很慢或卡在图像/生成；
 停在 `[batch-local-done]` 则优先查 rank 间是否有某个进程落后；停在 `[sync-start]`
 则优先查 LoRA 梯度 all-reduce / NCCL。
+
+如果 TensorBoard 仍提示 `No dashboards are active`，先确认这个 run 是新代码产生的。
+新 run 的 events 文件即使还没到第一条 `[train]`，也应该能看到 `run/*` 或
+`progress/*` tags；只有旧 run 或 writer 尚未创建时，events 才可能长期只有 88B
+header。
 
 ### 4.1 真正并行 Qwen 的阶段开关
 

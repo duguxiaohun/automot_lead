@@ -2379,6 +2379,40 @@ def main() -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
     distributed_barrier()
 
+    # TensorBoard writer 尽早创建并立刻写 run/* 标量。v5 一个 optimizer step
+    # 可能要等很久，如果只在 [train] 后写 loss，events 文件会长期只有 88B header，
+    # TensorBoard 前端就会显示 "No dashboards are active"。
+    tb = SummaryWriter(str(output_dir / "tb")) if rank == 0 and _TB_AVAILABLE else None
+    if tb is not None:
+        tb.add_scalar("run/alive", 1.0, 0)
+        tb.add_scalar("run/world_size", float(world_size), 0)
+        tb.add_scalar("run/per_device_batch_size", float(args.per_device_batch_size), 0)
+        tb.add_scalar("run/qwen_batch_size", float(args.qwen_batch_size), 0)
+        tb.add_scalar("run/grad_accum", float(args.grad_accum), 0)
+        tb.add_scalar("run/max_new_tokens_q1", float(args.max_new_tokens_q1), 0)
+        tb.add_scalar("run/max_new_tokens_q2", float(args.max_new_tokens_q2), 0)
+        tb.add_scalar("run/parallel_kl", float(bool(args.parallel_kl)), 0)
+        tb.add_scalar("run/train_routes", float(len(train_ds)), 0)
+        tb.add_text(
+            "run/config",
+            "\n".join(
+                [
+                    f"train_index: {args.train_index}",
+                    f"model_dir: {args.model_dir}",
+                    f"sampler_mode: {args.sampler_mode}",
+                    f"per_device_batch_size: {args.per_device_batch_size}",
+                    f"qwen_batch_size: {args.qwen_batch_size}",
+                    f"grad_accum: {args.grad_accum}",
+                    f"max_new_tokens_q1: {args.max_new_tokens_q1}",
+                    f"max_new_tokens_q2: {args.max_new_tokens_q2}",
+                    f"parallel_kl: {args.parallel_kl}",
+                    f"lora_vision_scope: {args.lora_vision_scope}",
+                ]
+            ),
+            0,
+        )
+        tb.flush()
+
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
         device=device,
@@ -2401,7 +2435,6 @@ def main() -> None:
         total_steps=total_steps,
         warmup_steps=int(total_steps * float(args.warmup_ratio)),
     )
-    tb = SummaryWriter(str(output_dir / "tb")) if rank == 0 and _TB_AVAILABLE else None
 
     global_step = 0
     micro_step = 0
@@ -2434,6 +2467,43 @@ def main() -> None:
             return False
         return ((time.time() if now is None else now) - last_heartbeat) >= interval
 
+    def write_tb_progress(
+        *,
+        event_code: int,
+        epoch_idx: int,
+        batch_idx: int,
+        local_frames: Optional[int] = None,
+        global_frames: Optional[int] = None,
+    ) -> None:
+        """在 optimizer step 之前写轻量进度 scalar，避免 TB 长时间空白。
+
+        event_code 约定：
+        1=batch-start，2=chunk-train，3=frame-done，4=batch-local-done，
+        5=batch-global-done，6=sync-start，7=sync-done。
+        这些指标只描述训练进度和显存，不参与 loss，也不触发任何 DDP collective。
+        """
+
+        if tb is None:
+            return
+        # progress/* 使用本 rank0 已处理 frame 数作为横轴；loss 类指标仍使用
+        # optimizer global_step。这样首个 optimizer step 前也能看到一条逐帧进度线。
+        step = max(0, int(processed_local_frames))
+        tb.add_scalar("progress/event_code", float(event_code), step)
+        tb.add_scalar("progress/epoch", float(epoch_idx), step)
+        tb.add_scalar("progress/batch_idx", float(batch_idx), step)
+        tb.add_scalar("progress/global_step", float(global_step), step)
+        tb.add_scalar("progress/micro_step", float(micro_step), step)
+        tb.add_scalar("progress/processed_local_frames", float(processed_local_frames), step)
+        tb.add_scalar("progress/window_frames", float(window_stats.get("frames", 0.0)), step)
+        if local_frames is not None:
+            tb.add_scalar("progress/local_frames", float(local_frames), step)
+        if global_frames is not None:
+            tb.add_scalar("progress/global_frames", float(global_frames), step)
+        if torch.cuda.is_available():
+            tb.add_scalar("progress/cuda_allocated_gb", torch.cuda.memory_allocated() / (1024 ** 3), step)
+            tb.add_scalar("progress/cuda_reserved_gb", torch.cuda.memory_reserved() / (1024 ** 3), step)
+        tb.flush()
+
     def complete_optimizer_step(epoch_idx: int) -> None:
         """完成一次全 rank 对齐的 LoRA optimizer step。"""
 
@@ -2443,8 +2513,10 @@ def main() -> None:
             f"[sync-start] step_next={global_step + 1} epoch={epoch_idx} "
             f"local_window_frames={int(window_stats.get('frames', 0.0))} {_cuda_memory_text()}"
         )
+        write_tb_progress(event_code=6, epoch_idx=epoch_idx, batch_idx=-1, local_frames=int(window_stats.get("frames", 0.0)))
         _sync_trainable_grads(trainable_params)
         rank0_log(f"[sync-done] step_next={global_step + 1} grad_all_reduce={time.time() - sync_start:.1f}s {_cuda_memory_text()}")
+        write_tb_progress(event_code=7, epoch_idx=epoch_idx, batch_idx=-1, local_frames=int(window_stats.get("frames", 0.0)))
         if language_params:
             torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm))
         if vision_params:
@@ -2562,6 +2634,13 @@ def main() -> None:
                 f"valid_local={local_frame_slots} valid_global={global_frame_slots} "
                 f"loss_local={local_loss_slots} loss_global={global_loss_slots} qwen_batch={qwen_batch_size} "
                 f"micro_step_next={micro_step + 1} {_cuda_memory_text()}"
+            )
+            write_tb_progress(
+                event_code=1,
+                epoch_idx=epoch,
+                batch_idx=batch_idx,
+                local_frames=local_frame_slots,
+                global_frames=global_frame_slots,
             )
             # 梯度同步函数会 all_reduce(SUM) 后再除以 world_size；这里预乘 world_size，
             # 使最终等价于按 global 有效 frame 数平均，而不是每个 rank 等权平均。
@@ -2761,6 +2840,12 @@ def main() -> None:
                                     f"q1_tokens={q1_tok} q2_tokens={q2_tok} resets={reset_count} "
                                     f"parallel_kl=1 {_cuda_memory_text()}"
                                 )
+                                write_tb_progress(
+                                    event_code=2,
+                                    epoch_idx=epoch,
+                                    batch_idx=batch_idx,
+                                    local_frames=batch_processed_frames,
+                                )
                                 last_heartbeat = time.time()
                             window_stats["parallel_kl_chunks"] += 1.0
                             window_stats["parallel_kl_frames"] += float(len(chunk_results))
@@ -2877,15 +2962,29 @@ def main() -> None:
                                 f"q2={int(bool(stats.get('q2_triggered', False)))} "
                                 f"reset={int(bool(need_reset))} {_cuda_memory_text()}"
                             )
+                            write_tb_progress(
+                                event_code=3,
+                                epoch_idx=epoch,
+                                batch_idx=batch_idx,
+                                local_frames=batch_processed_frames,
+                            )
                             last_heartbeat = now
             rank0_log(
                 f"[batch-local-done] epoch={epoch} batch={batch_idx} local_frames={frame_count} "
                 f"calling_global_frame_reduce=1 {_cuda_memory_text()}"
             )
+            write_tb_progress(event_code=4, epoch_idx=epoch, batch_idx=batch_idx, local_frames=frame_count)
             global_frame_count = _ddp_sum_int(frame_count)
             rank0_log(
                 f"[batch-global-done] epoch={epoch} batch={batch_idx} "
                 f"global_frames={global_frame_count} local_frames={frame_count}"
+            )
+            write_tb_progress(
+                event_code=5,
+                epoch_idx=epoch,
+                batch_idx=batch_idx,
+                local_frames=frame_count,
+                global_frames=global_frame_count,
             )
             if global_frame_count == 0:
                 continue
