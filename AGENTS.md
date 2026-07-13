@@ -297,8 +297,22 @@
   只做本 rank local padding，主训练进程 all-reduce 得到 global `max_T` 后补齐，
   padding frame 不读图、不进 Qwen、不产 loss；
   `train.sh` 支持 `single/ddp/check`，遵循 GPU 自动选址、`GPU_IDS` pin 卡和
-  `run_<RUN_TAG>/latest` 防覆盖约定；rank0 会输出 batch/frame/sync 心跳，
-  可用 `PROGRESS_FRAMES` 和 `HEARTBEAT_SECONDS` 调整日志密度。`probe.py` 仿 v3 输出 route/frame 层级可视化：
+  `run_<RUN_TAG>/latest` 防覆盖约定；rank0 会输出 batch/frame/sync 心跳，默认 `LOGGING_STEPS=1`，
+  可用 `PROGRESS_FRAMES` 和 `HEARTBEAT_SECONDS` 调整日志密度；阶段 1 batched Qwen
+  通过 `QWEN_BATCH_SIZE` 启用，只批量化同一 timestep 多 route 的 Q1 student rollout，
+  需要配合 `PER_DEVICE_BATCH_SIZE>1`；阶段 1 只允许 processor input length 完全一致的
+  frame 共享 batched KV，混长 frame 必须按长度分组或走单样本，禁止把 padded
+  past_key_values 传给 Q1 KL/Q2 续接；batched Q1 必须按 `attention_mask` 取最后真实
+  token logits、repetition penalty 不得包含 padding token，CUDA OOM 不允许静默 fallback，
+  开大前用 `test_batched_qwen_smoke.py` 做 single-vs-batch Q1/Q2 续接和训练 logits 对照；
+  只有报告里的 `actual_batched_group_sizes` / `actual_batched_frames` 能证明真实 batched KV
+  被测到，强制验证时必须加 `--require-batched-group`；`qwen/q1_batched_frame_rate`
+  是全训练 Q1 frame 的真实 batch 比例，若长期接近 0 应退回 `QWEN_BATCH_SIZE=1`
+  或后续做 length bucketing/cache；batched Qwen 相关代码必须保留中文注释解释
+  Cache 切片、last-valid logits、padding 排除、EOS active batch 移除、OOM 不 fallback
+  和 TensorBoard 分母口径，后续改这些逻辑时同步更新注释。每帧 loss
+  按全局有效 frame 数归一化，手动 all-reduce 后保持 frame 等权；TensorBoard 必须记录
+  `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}` 分项。`probe.py` 仿 v3 输出 route/frame 层级可视化：
   复制 4 帧 RGB，保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
   可选 `q*_teacher_output.txt`、memory_before/after、flags、timeline.json/png 和
   manifest.json；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用

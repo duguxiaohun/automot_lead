@@ -779,11 +779,22 @@ Q2:
 - `EVENT` option letter + description span: `1.2`
 - formatting tokens / prompt tokens: `0`
 
-建议默认总 loss：
+默认总 loss：
 
 ```python
 loss = q1_analysis + q1_rs + q1_abnormal + q2_analysis + q2_event
 ```
+
+TensorBoard 会同时记录总 loss 和未加权 KL 分项：
+
+- `train/loss_frame`
+- `train/loss/q1_analysis`
+- `train/loss/q1_rs`
+- `train/loss/q1_abnormal`
+- `train/loss/q2_analysis`
+- `train/loss/q2_event`
+
+Q1 分项按有效 frame 平均；Q2 分项按实际进入 Q2 的 frame 平均。
 
 若 Q1 RS 错误：
 
@@ -816,7 +827,80 @@ Qwen3-VL 增量 decode 必须复用 `qwen3vl_local/mrope_utils.py` 的
 `qwen3vl_incremental_forward`，禁止走 PEFT wrapper 的 `generate` /
 `prepare_inputs_for_generation`。
 
-### 7.4 OPSD 的“采样数据”定义
+训练阶段不能做基于输出字段的结构早停：即使 student 已经生成出 `ABNORMAL:` 或
+`EVENT:`，也不能立刻截断 rollout。OPSD 需要让完整分析 token 和离散答案 token
+共同接受 teacher logits 监督；字段早停会系统性缩短 CoT，改变训练分布，只能作为
+独立推理加速实验另行评估，不能进入 v5 训练默认路径。
+
+### 7.4 Batched Qwen 分阶段实现
+
+目标是让 H20 的显存和算力真正用于同一 rank 内的多 frame Qwen forward，而不是只靠
+DataLoader batch 攒更多 route。实现分阶段推进：
+
+1. **阶段 1：batched Q1 student rollout**（已落地为 `QWEN_BATCH_SIZE`）
+   - 同一 rank、同一 timestep 内收集多条 route 的 frame；
+   - 只把 processor 后真实 input length 完全一致的 frame 放进同一个 batched KV，
+     混长 frame 按 length 分组，单元素组回到单样本路径；
+   - 同 length group 一次 processor/Qwen prefill，batched greedy 生成 Q1；
+   - prefill 首 token logits 按 `attention_mask` 找每条样本最后一个真实 token，兼容
+     left/right padding；
+   - repetition penalty 只看真实 prompt token，padding token 不进入 seen set；
+   - 若 batched KV 里出现 padding，直接拒绝该路径；不能把 padded past_key_values
+     交给后续 Q1 KL/Q2，因为 M-RoPE `prefix_len` 会按 padded length 走；
+   - 某个样本预测 EOS 时，从 active batch 中移除并保存追加 EOS 前的干净 KV；
+   - 后续 Q1 loss、Q2、teacher KL 仍走单样本路径，训练语义不变；
+   - 若 processor/cache 兼容失败，自动 fallback 到单帧旧路径；CUDA OOM 直接中止，
+     不在 OOM 后继续降级运行。
+2. **阶段 2：batched Q2 student rollout**
+   - 只对 Q1 RS 正确的子集做 batch；
+   - 需要把 Q1 assistant 后的第二轮 user turn 组织成等价的 batched KV/full-history
+     prefill，并确保 memory/candidate pool 逐样本隔离。
+3. **阶段 3：batched KL forward**
+   - 对不同长度 rollout ids 做 padding；
+   - 按每个样本自己的 span positions 取 logits；
+   - padding token 不进入 loss，不污染 KV。
+
+阶段 1 使用方式：
+
+```bash
+PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 GPU_IDS=0,1,2,3 \
+bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+`QWEN_BATCH_SIZE>1` 必须配合 `PER_DEVICE_BATCH_SIZE>1`，否则同一 timestep 没有多个
+route/frame 可以并行。
+
+阶段 1 开大前必须做真实模型对照：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
+  --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --num-cases 2 \
+  --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json
+```
+
+该 smoke 默认优先挑 Q1 input length 不同的两帧制造 padding 压力，并对比 single Q1
+与 batched/grouped Q1，包括首 token、完整生成文本、`q1_ids`、同一 `q1_ids` 上训练
+KL 路径 logits 的 max/mean abs diff，以及 Q1 KV 后续接 Q2 的输出；训练前默认不传
+`--adapter-dir`，只验证普通 Qwen 路径。默认命令可能只验证“混长安全分组/回退”。
+若要强制确认真的跑到 size>=2 的 batched KV，必须加：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
+  --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --num-cases 2 \
+  --candidate-pool 256 \
+  --require-batched-group \
+  --no-prefer-different-lengths \
+  --output-json checkpoints/sft_v5_runs/batched_qwen_smoke_require_batch.json
+```
+
+报告里 `actual_batched_group_sizes` / `actual_batched_frames` 才是真实 batched KV 是否
+被测到的证据。
+
+### 7.5 OPSD 的“采样数据”定义
 
 v5 当前实现是同步 on-policy OPSD，而不是离线 teacher 数据生成，也不是 v4 那种
 collector/learner 异步 replay：
@@ -926,7 +1010,9 @@ for t in range(max_T_global):
 默认 `per_device_batch_size=1`，`grad_accum=1`。如果显存允许：
 
 - batch 内多个 route 按时间步交错推进；
-- 每个有效 frame 的 Q1/Q2 loss 按本 rank 当前 batch 的有效 frame 数归一化后立即 backward；
+- 每个有效 frame 的 Q1/Q2 loss 按当前 batch 的全局有效 frame 数归一化后立即 backward；
+  因为梯度同步会 all-reduce 后除以 `world_size`，代码会预乘 `world_size`，最终得到
+  frame 等权平均，而不是 rank 等权平均；
 - `grad_accum>1` 时继续在参数梯度上累积，只有 optimizer step 前才手动 all-reduce
   LoRA 梯度。
 
@@ -942,6 +1028,11 @@ max_frames_per_route=0  # 0 means full route
 训练日志/TensorBoard 必须能审计“边采样边训练”和 DDP padding：
 
 - `train/loss_frame`
+- `train/loss/q1_analysis`
+- `train/loss/q1_rs`
+- `train/loss/q1_abnormal`
+- `train/loss/q2_analysis`
+- `train/loss/q2_event`
 - `train/q2_trigger_rate`
 - `train/q1_rs_acc_window`
 - `train/q1_abnormal_acc_window`
@@ -949,11 +1040,33 @@ max_frames_per_route=0  # 0 means full route
 - `train/q2_invalid_output`
 - `train/reset_next`
 - `train/rollout_tokens_per_frame`
+- `qwen/q1_batched_frame_rate`
+- `qwen/q1_grouped_frame_rate`
+- `qwen/q1_batched_frame_rate_grouped`
+- `qwen/q1_batched_groups`
+- `qwen/q1_singleton_groups`
+- `qwen/q1_length_seconds_per_chunk`
 - `ddp/padding_rate`
 - `ddp/max_T_global_avg`
 
 这些指标在 logging window 内先按 rank 本地累计，再 `all_reduce(SUM)` 到全局口径，
 rank0 打印一行 `[train] ...` 并写 TensorBoard。
+
+`qwen/q1_batched_frame_rate` 是所有训练 Q1 frame 的真实 batched 比例；如果它长期接近
+0，说明 exact-length 分组大多退回 singleton，`QWEN_BATCH_SIZE>1` 可能只增加
+length 预计算开销。此时先退回 `QWEN_BATCH_SIZE=1`，后续再考虑 length bucketing
+sampler 或缓存每帧 processor input length。
+
+实现注释要求：
+
+- 代码中必须保留中文注释解释 `grouped` 与真正 `batched` 的区别，避免后续把
+  `qwen/q1_batched_frame_rate_grouped` 误读成全局 batch 生效率。
+- Cache 切片、last-valid logits、padding token 排除、EOS active batch 移除、OOM
+  不 fallback、loss_slots 归一化这些位置都属于 v5 correctness 关键点，修改时必须
+  同步更新相邻注释。
+- `test_batched_qwen_smoke.py` 的默认 mixed-length 模式和
+  `--require-batched-group` 模式必须在代码注释和文档中保持一致：默认模式验证安全分组，
+  强制模式才证明真实 batched KV。
 
 ### 8.4 Padding 与 memory reset
 

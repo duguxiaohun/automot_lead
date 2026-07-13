@@ -29,7 +29,7 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
 _AUTOMOT_ROOT = _THIS_FILE.parents[2]
@@ -64,8 +64,11 @@ from qwen3vl_local.sft_v2.train import (  # noqa: E402
     make_scheduler,
 )
 from qwen3vl_local.sft_v3.train import (  # noqa: E402
+    KVState,
+    _append_token_ids,
     _append_token_ids_with_logits,
     _append_user_turn,
+    _collect_images_from_messages,
     _clone_kv_state,
     _kv_start_state,
     _student_generate_kv,
@@ -127,6 +130,27 @@ class SequenceRow:
     run_dir: str
     split: str
     frames: List[FrameRow]
+
+
+@dataclass
+class Q1GroupedRolloutResult:
+    """Q1 grouped rollout 的输出和真实并行统计。
+
+    这里把 `grouped` 和 `batched` 明确拆开：
+    - grouped：进入了按 input length 分组的优化路径；
+    - batched：某个分组 size>=2，真的让 Qwen 在 batch 维同时 forward。
+    这两个概念不能混用，否则 TensorBoard 会高估 `QWEN_BATCH_SIZE>1` 的收益。
+    """
+
+    rollouts: List[Tuple[KVState, str, KVState, torch.Tensor]]
+    input_lengths: List[int]
+    group_sizes: List[int]
+    batched_group_sizes: List[int]
+    singleton_groups: int
+    batched_groups: int
+    batched_frames: int
+    length_histogram: Dict[int, int]
+    length_seconds: float
 
 
 class RouteSequenceDataset(Dataset):
@@ -301,6 +325,12 @@ def _load_images(paths: List[str]) -> List[Image.Image]:
     return [Image.open(path).convert("RGB") for path in paths]
 
 
+def _frame_images_exist(frame: FrameRow) -> bool:
+    """只做轻量路径存在性检查，用于 loss 归一化和 batch 前跳过坏帧。"""
+
+    return all(pathlib.Path(path).exists() for path in frame.history_rgb_paths)
+
+
 def _parse_goal_xy(value: Any) -> Optional[Tuple[float, float]]:
     """把 dataset 里的 `ego_to_goal_xy` 容错解析成二元组。
 
@@ -328,6 +358,278 @@ def _messages(images: List[Image.Image], user_prompt: str) -> List[Dict[str, Any
         {"role": "system", "content": SYSTEM_PROMPT_V5},
         {"role": "user", "content": content},
     ]
+
+
+def _select_batch_tensor(value: torch.Tensor, rows: torch.Tensor) -> torch.Tensor:
+    """按 batch 维选择 tensor 行；rows 必须已经在 value 所在设备或可搬过去。"""
+
+    # 所有 KVState 成员都约定 batch 维在第 0 维；index_select 比高级索引更稳定，
+    # 也更容易保持 dtype/device 不被隐式改变。
+    return value.index_select(0, rows.to(value.device))
+
+
+def _slice_cache_batch(cache: Any, rows: torch.Tensor) -> Any:
+    """从 batched past_key_values 中切出若干样本。
+
+    Transformers 新版 Qwen3-VL 使用 DynamicCache，只有 `reorder_cache` 没有公开
+    batch slice API；这里 clone 后用 reorder_cache(index) 等价完成子 batch 选择。
+    legacy tuple cache 则按每层 K/V 的 batch 维 index_select。
+    """
+
+    if hasattr(cache, "reorder_cache"):
+        # DynamicCache.reorder_cache 是 in-place 操作，所以先走 _clone_kv_state 的 cache
+        # clone 逻辑，避免污染原 batched state。
+        import copy
+
+        cloned_state = copy.deepcopy(cache)
+        # reorder_cache 原本用于 beam search，这里借它实现“保留指定 batch 行”。
+        # 传入的 rows 可能只有一个元素，也可能是同长子 batch 的若干元素。
+        cloned_state.reorder_cache(rows)
+        return cloned_state
+    if isinstance(cache, tuple):
+        sliced_layers = []
+        for layer in cache:
+            if isinstance(layer, tuple):
+                # legacy tuple cache 通常是每层 (key, value, ...)，只切 tensor，
+                # 非 tensor 元数据保持原样。
+                sliced_layers.append(tuple(_select_batch_tensor(x, rows) if isinstance(x, torch.Tensor) else x for x in layer))
+            elif isinstance(layer, torch.Tensor):
+                sliced_layers.append(_select_batch_tensor(layer, rows))
+            else:
+                sliced_layers.append(layer)
+        return tuple(sliced_layers)
+    return cache
+
+
+def _slice_kv_state_batch(state: KVState, rows: Sequence[int]) -> KVState:
+    """从 batched KVState 中切出一个子 batch，保持 Cache 类型不退化。"""
+
+    device = state.cache_input_ids.device
+    row_tensor = torch.tensor(list(rows), device=device, dtype=torch.long)
+    rope = state.rope_deltas
+    if isinstance(rope, torch.Tensor) and rope.ndim > 0 and rope.shape[0] == state.cache_input_ids.shape[0]:
+        # rope_deltas 在新版 Qwen3-VL 里可能带 batch 维；如果形状对得上，就和
+        # input_ids/cache 一起切。这样后续 qwen3vl_incremental_forward 的 M-RoPE
+        # 位置与原 batch 行保持一致。
+        rope = _select_batch_tensor(rope, row_tensor)
+    elif hasattr(rope, "detach"):
+        # 有些版本返回共享标量/无 batch 维 tensor，不能 index_select，只 clone 防止
+        # 后续状态对象意外共享可变 tensor。
+        rope = rope.detach().clone()
+    return KVState(
+        decoded_input_ids=_select_batch_tensor(state.decoded_input_ids, row_tensor).detach().clone(),
+        cache_input_ids=_select_batch_tensor(state.cache_input_ids, row_tensor).detach().clone(),
+        attention_mask=_select_batch_tensor(state.attention_mask, row_tensor).detach().clone(),
+        past_key_values=_slice_cache_batch(state.past_key_values, row_tensor),
+        rope_deltas=rope,
+        next_logits=_select_batch_tensor(state.next_logits, row_tensor).detach().clone(),
+    )
+
+
+def _last_valid_next_logits(logits: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    """按 attention_mask 取每条样本最后一个真实 token 的 next-token logits。
+
+    这个小函数故意不依赖 tokenizer padding_side：left/right padding 都只相信
+    attention_mask，避免 batched prefill 在短样本上取到 pad 位置 logits。
+    """
+
+    valid = attention_mask.to(torch.bool)
+    # 通过 mask 反推每条样本最后一个真实 token 的位置。右 padding 时它在中间，
+    # 左 padding 时它通常是最后一列；这个写法同时覆盖两种 tokenizer padding_side。
+    pos = torch.arange(attention_mask.shape[1], device=attention_mask.device).view(1, -1)
+    last_valid_idx = pos.masked_fill(~valid, -1).max(dim=1).values.clamp(min=0)
+    row_idx = torch.arange(logits.shape[0], device=logits.device)
+    return logits[row_idx, last_valid_idx.to(logits.device), :]
+
+
+def _qwen_message_input_length(bundle: Any, messages: List[Dict[str, Any]]) -> int:
+    """计算单条 Qwen message 经 processor 后的真实 input length。
+
+    v5 的 batched KV 只有在多样本 processor length 完全一致时才安全复用；否则
+    past_key_values 里会含 padding token，后续增量 decode 的 `prefix_len` / M-RoPE
+    位置会偏离单样本路径。
+    """
+
+    text = bundle.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    images = _collect_images_from_messages(messages)
+    inputs = bundle.processor(
+        text=[text],
+        images=images or None,
+        return_tensors="pt",
+        padding=False,
+    )
+    return int(inputs["input_ids"].shape[1])
+
+
+def _kv_start_state_batch(bundle: Any, messages_list: List[List[Dict[str, Any]]]) -> KVState:
+    """对多个 Qwen chat 一起做 prefill，得到 batched KVState。
+
+    这是 v5 真正并行 Qwen 的基础入口：processor 一次接收多条 text 和所有图片，
+    Qwen forward 的 batch 维即为 frame batch。若上层只给 1 条消息，行为等价于
+    v3 的 `_kv_start_state`。
+    """
+
+    if len(messages_list) == 1:
+        # 单条消息直接复用 v3 的成熟路径，避免在 size=1 时引入 batch-only 行为差异。
+        return _kv_start_state(bundle, messages_list[0])
+    texts = [
+        bundle.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        for messages in messages_list
+    ]
+    images: List[Image.Image] = []
+    for messages in messages_list:
+        imgs = _collect_images_from_messages(messages)
+        if imgs:
+            # Qwen processor 会按 message 顺序消费图片。这里把每条样本的 4 帧 history
+            # 顺序拼到一个 images list 中，和 text batch 对齐。
+            images.extend(imgs)
+    inputs = bundle.processor(
+        text=texts,
+        images=images or None,
+        return_tensors="pt",
+        padding=True,
+    )
+    kwargs: Dict[str, Any] = {
+        "input_ids": inputs["input_ids"].to(bundle.device),
+        "attention_mask": inputs["attention_mask"].to(bundle.device),
+    }
+    for key, value in inputs.items():
+        if key in ("input_ids", "attention_mask"):
+            continue
+        kwargs[key] = value.to(bundle.device) if isinstance(value, torch.Tensor) else value
+    outputs = bundle.model(**kwargs, use_cache=True, return_dict=True)
+    input_ids = kwargs["input_ids"]
+    attention_mask = kwargs["attention_mask"]
+    valid_lengths = attention_mask.to(torch.long).sum(dim=1)
+    seq_len = int(input_ids.shape[1])
+    if bool((valid_lengths != seq_len).any().item()):
+        # 首 token logits 可以按 attention_mask 修正，但 past_key_values 仍会保留 pad
+        # 位置；后续 _append_token_ids_with_logits 的 prefix_len 会按 padded length 走，
+        # M-RoPE 位置不再等价于单样本路径。因此真正进入 batched KV 的样本必须零 padding。
+        raise ValueError(f"batched Qwen KV requires equal input lengths, got valid={valid_lengths.detach().cpu().tolist()} padded_seq={seq_len}")
+    # 这里仍然使用 last-valid logits，而不是 outputs.logits[:, -1, :]。
+    # 当前函数会拒绝 padding，但保留这个写法能让 helper 自身更健壮，也和 smoke
+    # 里对 padding 压力的检查逻辑一致。
+    next_logits = _last_valid_next_logits(outputs.logits, attention_mask)
+    return KVState(
+        decoded_input_ids=input_ids,
+        cache_input_ids=input_ids,
+        attention_mask=attention_mask,
+        past_key_values=outputs.past_key_values,
+        rope_deltas=getattr(outputs, "rope_deltas", None),
+        next_logits=next_logits,
+    )
+
+
+def _apply_repetition_penalty_batch(bundle: Any, logits: torch.Tensor, seen_ids: List[torch.Tensor], penalty: float) -> torch.Tensor:
+    """逐样本施加 repetition penalty，避免把不同 frame 的历史 token 混在一起惩罚。"""
+
+    if penalty == 1.0:
+        return logits
+    out = logits.clone()
+    for row, ids in enumerate(seen_ids):
+        if ids.numel() == 0:
+            continue
+        # 只惩罚该样本自己见过的 token。OPSD 训练关注 student rollout 的真实分布，
+        # 如果把另一个样本或 padding 的 token 混进来，会造成 batch-vs-single 漂移。
+        row_logits = out[row:row + 1]
+        scores = row_logits.index_select(-1, ids.to(out.device))
+        scores = torch.where(scores < 0, scores * penalty, scores / penalty)
+        row_logits.index_copy_(-1, ids.to(out.device), scores)
+        out[row:row + 1] = row_logits
+    return out
+
+
+def _student_generate_kv_batch(bundle: Any, state: KVState, max_new_tokens: int) -> Tuple[List[str], List[KVState], List[torch.Tensor]]:
+    """batched greedy rollout，返回每个样本自己的文本、干净 KVState 和 token ids。
+
+    关键点是 EOS 处理：某个样本预测到 EOS 时，保存它**追加 EOS 前**的 KVState，
+    然后从 active batch 中移除；剩余样本继续并行生成。这样不会用重复 EOS/pad 污染
+    已结束样本的 Q1 KV，后续 Q2 仍能接在干净的 Q1 assistant 输出后。
+    """
+
+    batch_size = int(state.next_logits.shape[0])
+    if batch_size == 1:
+        text, after, ids = _student_generate_kv(bundle, state, max_new_tokens)
+        return [text], [after], [ids]
+
+    eos_ids = set()
+    eos = getattr(bundle.tokenizer, "eos_token_id", None)
+    if eos is not None:
+        if isinstance(eos, (list, tuple, set)):
+            eos_ids.update(int(x) for x in eos)
+        else:
+            eos_ids.add(int(eos))
+    im_end = bundle.tokenizer.convert_tokens_to_ids("<|im_end|>")
+    if isinstance(im_end, int) and im_end >= 0:
+        eos_ids.add(int(im_end))
+
+    cur = state
+    active = list(range(batch_size))
+    generated: List[List[torch.Tensor]] = [[] for _ in range(batch_size)]
+    final_states: List[Optional[KVState]] = [None for _ in range(batch_size)]
+    seen_unique: List[torch.Tensor] = []
+    for i in range(batch_size):
+        # repetition penalty 只应该看到真实 prompt token。padding token 如果进入
+        # seen 集合，会让 batch 路径和 single 路径产生轻微但系统性的差异。
+        mask = state.attention_mask[i].to(torch.bool)
+        real_ids = state.decoded_input_ids[i][mask]
+        seen_unique.append(torch.unique(real_ids.reshape(-1).to(state.next_logits.device)))
+    penalty = 1.05
+
+    with torch.no_grad():
+        for _ in range(max_new_tokens):
+            if not active:
+                break
+            # cur 只包含仍未 EOS 的 active 样本；seen_unique 仍按原始 batch 编号保存，
+            # 因此这里要用 active 映射回原始样本。
+            logits = _apply_repetition_penalty_batch(bundle, cur.next_logits, [seen_unique[i] for i in active], penalty)
+            next_token = torch.argmax(logits, dim=-1, keepdim=True)
+            token_ids = [int(x) for x in next_token.reshape(-1).tolist()]
+            keep_rows: List[int] = []
+            keep_tokens: List[torch.Tensor] = []
+            for row_idx, token_id in enumerate(token_ids):
+                orig_idx = active[row_idx]
+                if token_id in eos_ids:
+                    # EOS 本身不追加到 KV。这样 final_states[orig_idx] 仍停在最后一个
+                    # 非 EOS assistant token，后续 Q2 user turn 可以接在干净的 Q1 后面。
+                    final_states[orig_idx] = _slice_kv_state_batch(cur, [row_idx])
+                    continue
+                tok = next_token[row_idx:row_idx + 1]
+                generated[orig_idx].append(tok.detach().clone())
+                seen_unique[orig_idx] = torch.unique(torch.cat([seen_unique[orig_idx], tok.reshape(-1).to(seen_unique[orig_idx].device)], dim=0))
+                keep_rows.append(row_idx)
+                keep_tokens.append(tok)
+            if not keep_rows:
+                active = []
+                break
+            # 把已经 EOS 的行从 cur 中移除，只对仍活跃样本追加本轮 token。
+            # 这一步是 batched generate 的关键：不让 finished 样本继续吃 pad/EOS。
+            cur = _slice_kv_state_batch(cur, keep_rows)
+            suffix = torch.cat(keep_tokens, dim=0).to(cur.cache_input_ids.device)
+            cur, _ = _append_token_ids(bundle, cur, suffix)
+            active = [active[i] for i in keep_rows]
+        for row_idx, orig_idx in enumerate(active):
+            # 达到 max_new_tokens 仍没 EOS 的样本，最终 KV 就是当前 active state。
+            final_states[orig_idx] = _slice_kv_state_batch(cur, [row_idx])
+
+    texts: List[str] = []
+    ids_out: List[torch.Tensor] = []
+    states_out: List[KVState] = []
+    for idx in range(batch_size):
+        if generated[idx]:
+            ids = torch.cat(generated[idx], dim=1).to(state.cache_input_ids.device)
+            text = bundle.processor.batch_decode(ids, skip_special_tokens=True)[0]
+        else:
+            # 空生成也保留 shape=(1,0)，方便后续 _append_token_ids_with_logits
+            # 直接用 numel 判断，无需额外处理 None。
+            ids = state.cache_input_ids.new_zeros((1, 0))
+            text = ""
+        texts.append(text)
+        ids_out.append(ids)
+        assert final_states[idx] is not None
+        states_out.append(final_states[idx])  # type: ignore[arg-type]
+    return texts, states_out, ids_out
 
 
 def _loss_positions(bundle: Any, text: str, span_fn: Any, weights: Mapping[str, float]) -> Dict[str, List[int]]:
@@ -381,10 +683,13 @@ def _opsd_loss(
 
     zero = student_state.next_logits.sum() * 0.0
     if rollout_ids.numel() == 0:
+        # student 没生成任何可监督 token 时，返回带 graph/device 的 0，保证外层
+        # backward 和 loss 归一化逻辑不用特判。
         return zero, {key: 0.0 for key in weights}
     positions = _loss_positions(bundle, rollout_text, span_fn, weights)
     active_positions = {key: pos for key, pos in positions.items() if pos}
     if not active_positions:
+        # 生成文本缺少目标字段时不强行对全段做 KL，避免把无关分析 token 当成离散标签。
         return zero, {key: 0.0 for key in weights}
 
     teacher_selected: Dict[str, torch.Tensor] = {}
@@ -401,6 +706,7 @@ def _opsd_loss(
     _, student_logits, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(student_state), rollout_ids)
     student_selected: Dict[str, torch.Tensor] = {}
     for key, pos in active_positions.items():
+        # student logits 保留梯度，teacher logits 已 detach；两边只在同一 token 位置比较。
         selected = _select_logits_at_positions(student_logits, pos)
         if selected is not None:
             student_selected[key] = selected
@@ -457,20 +763,26 @@ def _run_frame(
     max_new_tokens_q1: int,
     max_new_tokens_q2: int,
     temperature: float,
+    q1_student_state: Optional[KVState] = None,
+    q1_text: Optional[str] = None,
+    q1_after: Optional[KVState] = None,
+    q1_ids: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, Dict[str, Any], Memory, bool]:
     """运行单帧 Q1/Q2，返回 loss、统计、更新后的 memory、是否需要下一帧 reset。"""
 
-    images = _load_images(frame.history_rgb_paths)
     rs_target = _rs_target_from_frame(frame)
     event_target_static = _event_target_from_frame(frame)
 
     # ---- Q1: student rollout ----
-    q1_prompt = build_q1_student_prompt(memory)
-    with torch.no_grad():
-        # student 先自由生成 Q1；OPSD 的监督不是 teacher-forced token，而是随后在
-        # 这批 student 自己采样出的 token 上比较 teacher/student 分布。
-        q1_student_state = _kv_start_state(bundle, _messages(images, q1_prompt))
-        q1_text, q1_after, q1_ids = _student_generate_kv(bundle, q1_student_state, max_new_tokens_q1)
+    images: Optional[List[Image.Image]] = None
+    if q1_student_state is None or q1_text is None or q1_after is None or q1_ids is None:
+        images = _load_images(frame.history_rgb_paths)
+        q1_prompt = build_q1_student_prompt(memory)
+        with torch.no_grad():
+            # student 先自由生成 Q1；OPSD 的监督不是 teacher-forced token，而是随后在
+            # 这批 student 自己采样出的 token 上比较 teacher/student 分布。
+            q1_student_state = _kv_start_state(bundle, _messages(images, q1_prompt))
+            q1_text, q1_after, q1_ids = _student_generate_kv(bundle, q1_student_state, max_new_tokens_q1)
     q1_parsed = parse_q1_output(q1_text)
     q1_teacher_prompt = build_q1_teacher_prompt(
         memory,
@@ -478,6 +790,8 @@ def _run_frame(
         event_target=event_target_static,
         weather_text=frame.weather_text,
     )
+    if images is None:
+        images = _load_images(frame.history_rgb_paths)
     q1_teacher_state = _teacher_start_state(bundle, _messages(images, q1_teacher_prompt))
     q1_loss, q1_parts = _opsd_loss(
         bundle,
@@ -562,6 +876,133 @@ def _run_frame(
     return q1_loss + q2_loss, stats, memory_after_q2, q2_invalid
 
 
+def _run_single_q1_rollout_from_images(
+    bundle: Any,
+    images: List[Image.Image],
+    memory: Memory,
+    *,
+    max_new_tokens_q1: int,
+) -> Tuple[KVState, str, KVState, torch.Tensor]:
+    """单样本 Q1 rollout；供 grouped 路径中的 singleton group 复用。"""
+
+    with torch.no_grad():
+        state = _kv_start_state(bundle, _messages(images, build_q1_student_prompt(memory)))
+        text, after, ids = _student_generate_kv(bundle, state, max_new_tokens_q1)
+    return state, text, after, ids
+
+
+def _run_q1_rollout_grouped(
+    bundle: Any,
+    memories: Sequence[Memory],
+    frames: Sequence[FrameRow],
+    *,
+    max_new_tokens_q1: int,
+) -> Q1GroupedRolloutResult:
+    """按 exact processor input length 分组后运行 Q1 student rollout。
+
+    返回值逐样本包含：
+    `q1_student_state`（Q1 prompt prefill 后）、`q1_text`、`q1_after`（Q1 生成后干净 KV）、
+    `q1_ids`。后续 `_run_frame` 会用这些 token 做同款 OPSD loss 和 Q2 状态机。
+
+    注意：只有同 length 且 size>=2 的 group 会真正走 batched KV。混长样本被拆成
+    singleton 或同长子组，避免 padded past_key_values 污染后续 M-RoPE prefix_len。
+    """
+
+    if not frames:
+        return Q1GroupedRolloutResult(
+            rollouts=[],
+            input_lengths=[],
+            group_sizes=[],
+            batched_group_sizes=[],
+            singleton_groups=0,
+            batched_groups=0,
+            batched_frames=0,
+            length_histogram={},
+            length_seconds=0.0,
+        )
+    # 先统一读取图片，后面 length 计算和真正 prefill 共用同一组 PIL 对象；
+    # 这样不会因为重复打开文件导致随机 IO 波动太大。
+    images_per_frame = [_load_images(frame.history_rgb_paths) for frame in frames]
+    messages_list = [
+        _messages(images, build_q1_student_prompt(memory))
+        for images, memory in zip(images_per_frame, memories)
+    ]
+    length_start = time.time()
+    # exact-length 分组目前需要逐条跑 processor 取 input_ids 长度，这是安全但有开销的
+    # 做法。TensorBoard 的 qwen/q1_length_seconds_per_chunk 就是用来判断这一步是否
+    # 抵消了 batched Qwen 的收益。
+    input_lengths = [_qwen_message_input_length(bundle, messages) for messages in messages_list]
+    length_seconds = time.time() - length_start
+    groups: Dict[int, List[int]] = {}
+    for idx, length in enumerate(input_lengths):
+        # 只有 processor 后的完整 input length 完全一致，才能保证 past_key_values 里
+        # 没有 padding token，后续 Q1 KL/Q2 的 prefix_len/M-RoPE 才和单样本一致。
+        groups.setdefault(int(length), []).append(idx)
+    outputs: List[Optional[Tuple[KVState, str, KVState, torch.Tensor]]] = [None for _ in frames]
+    group_sizes: List[int] = []
+    batched_group_sizes: List[int] = []
+    singleton_groups = 0
+    for indices in groups.values():
+        group_sizes.append(len(indices))
+        if len(indices) == 1:
+            # singleton 仍进入 grouped 统计，但不是真实 batch。这样日志能告诉我们
+            # QWEN_BATCH_SIZE>1 是否只是不断退回单样本。
+            singleton_groups += 1
+            idx = indices[0]
+            outputs[idx] = _run_single_q1_rollout_from_images(
+                bundle,
+                images_per_frame[idx],
+                memories[idx],
+                max_new_tokens_q1=max_new_tokens_q1,
+            )
+            continue
+        batched_group_sizes.append(len(indices))
+        group_messages = [messages_list[i] for i in indices]
+        with torch.no_grad():
+            # 这里才是真正的 Qwen batch forward/generate；上层日志中的
+            # batched_frames/batched_groups 只统计进入这个分支的样本。
+            state_batch = _kv_start_state_batch(bundle, group_messages)
+            texts, after_states, ids_list = _student_generate_kv_batch(bundle, state_batch, max_new_tokens_q1)
+        for row_idx, idx in enumerate(indices):
+            # q1_student_state 用于后续 Q1 KL；after_states 用于 Q2 续接。
+            # 两者都必须切回单样本 KVState，交给旧的 _run_frame 单样本语义。
+            outputs[idx] = (
+                _slice_kv_state_batch(state_batch, [row_idx]),
+                texts[row_idx],
+                after_states[row_idx],
+                ids_list[row_idx],
+            )
+    assert all(item is not None for item in outputs)
+    return Q1GroupedRolloutResult(
+        rollouts=[item for item in outputs if item is not None],
+        input_lengths=input_lengths,
+        group_sizes=group_sizes,
+        batched_group_sizes=batched_group_sizes,
+        singleton_groups=singleton_groups,
+        batched_groups=len(batched_group_sizes),
+        batched_frames=sum(batched_group_sizes),
+        length_histogram={int(length): len(indices) for length, indices in groups.items()},
+        length_seconds=length_seconds,
+    )
+
+
+def _run_q1_rollout_batch(
+    bundle: Any,
+    memories: Sequence[Memory],
+    frames: Sequence[FrameRow],
+    *,
+    max_new_tokens_q1: int,
+) -> List[Tuple[KVState, str, KVState, torch.Tensor]]:
+    """兼容旧调用：只返回 rollouts，不返回 grouped 统计。"""
+
+    return _run_q1_rollout_grouped(
+        bundle,
+        memories,
+        frames,
+        max_new_tokens_q1=max_new_tokens_q1,
+    ).rollouts
+
+
 def _trainable_param_groups(bundle: Any, args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[nn.Parameter], List[nn.Parameter]]:
     """按语言/视觉 LoRA 分组，复用 v2/v3 的视觉保险口径。"""
 
@@ -628,6 +1069,15 @@ def _ddp_sum_int(value: int) -> int:
     return int(tensor.item())
 
 
+def _is_cuda_oom(exc: BaseException) -> bool:
+    """识别 CUDA OOM，避免 OOM 后静默 fallback 到不稳定的单样本路径。"""
+
+    if isinstance(exc, torch.cuda.OutOfMemoryError):
+        return True
+    text = str(exc).lower()
+    return "cuda out of memory" in text or "out of memory" in text
+
+
 def _cuda_memory_text() -> str:
     """返回当前 rank 的 CUDA 显存摘要，供长时间训练心跳日志使用。"""
 
@@ -683,6 +1133,11 @@ _TRAIN_WINDOW_KEYS = (
     "batches",
     "frames",
     "loss_sum",
+    "q1_loss_analysis_sum",
+    "q1_loss_rs_sum",
+    "q1_loss_abnormal_sum",
+    "q2_loss_analysis_sum",
+    "q2_loss_event_sum",
     "q1_rs_correct",
     "q1_abnormal_correct",
     "q2_triggered",
@@ -692,6 +1147,12 @@ _TRAIN_WINDOW_KEYS = (
     "reset_next",
     "q1_rollout_tokens",
     "q2_rollout_tokens",
+    "q1_grouped_chunks",
+    "q1_grouped_frames",
+    "q1_batched_groups",
+    "q1_singleton_groups",
+    "q1_batched_frames",
+    "q1_length_seconds",
     "valid_slots",
     "padding_slots",
     "max_T_local_sum",
@@ -729,6 +1190,15 @@ def _add_frame_rollout_stats(stats: Dict[str, float], frame_stats: Mapping[str, 
     """累计一个有效 frame 的 on-policy rollout 统计。"""
 
     stats["frames"] += 1.0
+    q1_parts = frame_stats.get("q1_parts") or {}
+    if isinstance(q1_parts, Mapping):
+        stats["q1_loss_analysis_sum"] += float(q1_parts.get("analysis", 0.0) or 0.0)
+        stats["q1_loss_rs_sum"] += float(q1_parts.get("rs", 0.0) or 0.0)
+        stats["q1_loss_abnormal_sum"] += float(q1_parts.get("abnormal", 0.0) or 0.0)
+    q2_parts = frame_stats.get("q2_parts") or {}
+    if isinstance(q2_parts, Mapping):
+        stats["q2_loss_analysis_sum"] += float(q2_parts.get("analysis", 0.0) or 0.0)
+        stats["q2_loss_event_sum"] += float(q2_parts.get("event", 0.0) or 0.0)
     stats["q1_rs_correct"] += float(bool(frame_stats.get("q1_rs_correct", False)))
     stats["q1_abnormal_correct"] += float(bool(frame_stats.get("q1_abnormal_correct", False)))
     stats["q2_triggered"] += float(bool(frame_stats.get("q2_triggered", False)))
@@ -738,6 +1208,20 @@ def _add_frame_rollout_stats(stats: Dict[str, float], frame_stats: Mapping[str, 
     stats["reset_next"] += float(bool(need_reset))
     stats["q1_rollout_tokens"] += float(int(frame_stats.get("q1_rollout_tokens", 0) or 0))
     stats["q2_rollout_tokens"] += float(int(frame_stats.get("q2_rollout_tokens", 0) or 0))
+
+
+def _add_q1_grouped_stats(stats: Dict[str, float], grouped: Q1GroupedRolloutResult) -> None:
+    """累计 Q1 grouped rollout 的真实并行程度。"""
+
+    # q1_grouped_frames 是“尝试过 grouped 路径”的 frame 数；
+    # q1_batched_frames 是真正 size>=2 同长 batch 的 frame 数。二者的比值只代表
+    # grouped 路径内部效率，不能当作全训练 frame 的 batch 生效率。
+    stats["q1_grouped_chunks"] += 1.0
+    stats["q1_grouped_frames"] += float(len(grouped.rollouts))
+    stats["q1_batched_groups"] += float(grouped.batched_groups)
+    stats["q1_singleton_groups"] += float(grouped.singleton_groups)
+    stats["q1_batched_frames"] += float(grouped.batched_frames)
+    stats["q1_length_seconds"] += float(grouped.length_seconds)
 
 
 def _ddp_sum_train_stats(stats: Mapping[str, float]) -> Dict[str, float]:
@@ -760,8 +1244,15 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
     batches = max(1.0, float(stats.get("batches", 0.0)))
     valid_slots = max(1.0, float(stats.get("valid_slots", 0.0)))
     rollout_tokens = float(stats.get("q1_rollout_tokens", 0.0)) + float(stats.get("q2_rollout_tokens", 0.0))
+    grouped_frames = max(1.0, float(stats.get("q1_grouped_frames", 0.0)))
+    batched_frames = float(stats.get("q1_batched_frames", 0.0))
     return (
         f"loss/frame={float(stats.get('loss_sum', 0.0)) / frames:.4f} "
+        f"q1_loss={{a:{float(stats.get('q1_loss_analysis_sum', 0.0)) / frames:.3f},"
+        f"rs:{float(stats.get('q1_loss_rs_sum', 0.0)) / frames:.3f},"
+        f"abn:{float(stats.get('q1_loss_abnormal_sum', 0.0)) / frames:.3f}}} "
+        f"q2_loss={{a:{float(stats.get('q2_loss_analysis_sum', 0.0)) / q2:.3f},"
+        f"event:{float(stats.get('q2_loss_event_sum', 0.0)) / q2:.3f}}} "
         f"frames={int(stats.get('frames', 0.0))} "
         f"q2_rate={float(stats.get('q2_triggered', 0.0)) / frames:.3f} "
         f"rs_acc={float(stats.get('q1_rs_correct', 0.0)) / frames:.3f} "
@@ -770,6 +1261,8 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"invalid={int(stats.get('q2_invalid_output', 0.0))} "
         f"reset={int(stats.get('reset_next', 0.0))} "
         f"tok/frame={rollout_tokens / frames:.1f} "
+        f"q1_batched_all={batched_frames / frames:.3f} "
+        f"q1_batched_grouped={batched_frames / grouped_frames:.3f} "
         f"pad_rate={float(stats.get('padding_slots', 0.0)) / (valid_slots + float(stats.get('padding_slots', 0.0))):.3f} "
         f"maxT={float(stats.get('max_T_global_sum', 0.0)) / batches:.1f}"
     )
@@ -803,7 +1296,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
     p.add_argument("--num-workers", type=int, default=0)
-    p.add_argument("--logging-steps", type=int, default=5)
+    p.add_argument("--qwen-batch-size", type=int, default=1, help="每个 rank/timestep 内尝试并行 Q1 rollout 的 frame 数；只有 exact input length 同组才会真实 batch")
+    p.add_argument("--logging-steps", type=int, default=1)
     p.add_argument("--save-steps", type=int, default=200)
     p.add_argument("--max-steps", type=int, default=0)
     p.add_argument("--progress-frames", type=int, default=5, help="rank0 每处理多少个本地有效 frame 打一次进度；0 表示关闭逐帧进度")
@@ -943,6 +1437,11 @@ def main() -> None:
                     valid = max(1.0, reduced_stats["valid_slots"])
                     pad_total = valid + reduced_stats["padding_slots"]
                     tb.add_scalar("train/loss_frame", reduced_stats["loss_sum"] / frames, global_step)
+                    tb.add_scalar("train/loss/q1_analysis", reduced_stats["q1_loss_analysis_sum"] / frames, global_step)
+                    tb.add_scalar("train/loss/q1_rs", reduced_stats["q1_loss_rs_sum"] / frames, global_step)
+                    tb.add_scalar("train/loss/q1_abnormal", reduced_stats["q1_loss_abnormal_sum"] / frames, global_step)
+                    tb.add_scalar("train/loss/q2_analysis", reduced_stats["q2_loss_analysis_sum"] / q2, global_step)
+                    tb.add_scalar("train/loss/q2_event", reduced_stats["q2_loss_event_sum"] / q2, global_step)
                     tb.add_scalar("train/q2_trigger_rate", reduced_stats["q2_triggered"] / frames, global_step)
                     tb.add_scalar("train/q1_rs_acc_window", reduced_stats["q1_rs_correct"] / frames, global_step)
                     tb.add_scalar("train/q1_abnormal_acc_window", reduced_stats["q1_abnormal_correct"] / frames, global_step)
@@ -950,6 +1449,20 @@ def main() -> None:
                     tb.add_scalar("train/q2_invalid_output", reduced_stats["q2_invalid_output"], global_step)
                     tb.add_scalar("train/reset_next", reduced_stats["reset_next"], global_step)
                     tb.add_scalar("train/rollout_tokens_per_frame", (reduced_stats["q1_rollout_tokens"] + reduced_stats["q2_rollout_tokens"]) / frames, global_step)
+                    q1_grouped_frames = max(1.0, reduced_stats["q1_grouped_frames"])
+                    q1_grouped_chunks = max(1.0, reduced_stats["q1_grouped_chunks"])
+                    # 这三个 qwen 指标的分母刻意不同：
+                    # - q1_batched_frame_rate：全训练 frame 口径，判断 QWEN_BATCH_SIZE 是否真有收益；
+                    # - q1_grouped_frame_rate：有多少 frame 进入了 grouped 尝试路径；
+                    # - q1_batched_frame_rate_grouped：只看 grouped 路径内部，排查 exact-length 命中率。
+                    tb.add_scalar("qwen/q1_batched_frame_rate", reduced_stats["q1_batched_frames"] / frames, global_step)
+                    tb.add_scalar("qwen/q1_grouped_frame_rate", reduced_stats["q1_grouped_frames"] / frames, global_step)
+                    tb.add_scalar("qwen/q1_batched_frame_rate_grouped", reduced_stats["q1_batched_frames"] / q1_grouped_frames, global_step)
+                    tb.add_scalar("qwen/q1_batched_groups", reduced_stats["q1_batched_groups"], global_step)
+                    tb.add_scalar("qwen/q1_singleton_groups", reduced_stats["q1_singleton_groups"], global_step)
+                    # 如果这个耗时很高而 q1_batched_frame_rate 很低，说明逐帧 processor
+                    # 长度预计算比真实 batch 省下的时间还贵，应先退回 QWEN_BATCH_SIZE=1。
+                    tb.add_scalar("qwen/q1_length_seconds_per_chunk", reduced_stats["q1_length_seconds"] / q1_grouped_chunks, global_step)
                     tb.add_scalar("ddp/padding_rate", reduced_stats["padding_slots"] / max(1.0, pad_total), global_step)
                     tb.add_scalar("ddp/max_T_global_avg", reduced_stats["max_T_global_sum"] / max(1.0, reduced_stats["batches"]), global_step)
         if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
@@ -962,78 +1475,160 @@ def main() -> None:
             batch = pad_batch_to_global_length(batch)
             _add_batch_shape_stats(window_stats, batch)
             frame_count = 0
+            batch_processed_frames = 0
             routes: List[SequenceRow] = batch["routes"]
             frame_rows: List[List[Optional[FrameRow]]] = batch["frame_rows"]
             local_frame_slots = sum(1 for frames in frame_rows for frame in frames if frame is not None)
+            local_loss_slots = sum(1 for frames in frame_rows for frame in frames if frame is not None and _frame_images_exist(frame))
+            # slots 统计分两层：
+            # - frame_slots：DataLoader 给出的非 padding frame，用来观察 sequence/global padding；
+            # - loss_slots：RGB 路径也存在的 frame，用作 loss 归一化分母。
+            # 正常数据两者一致；如果个别 frame 缺图，训练会 skip 且不稀释 loss。
+            global_frame_slots = _ddp_sum_int(local_frame_slots)
+            global_loss_slots = _ddp_sum_int(local_loss_slots)
+            qwen_batch_size = max(1, int(args.qwen_batch_size))
             rank0_log(
                 f"[batch-start] epoch={epoch} batch={batch_idx} routes={len(routes)} "
                 f"maxT_local={int(batch['max_T_local'])} maxT_global={int(batch['max_T_global'])} "
-                f"valid_local={local_frame_slots} micro_step_next={micro_step + 1} {_cuda_memory_text()}"
+                f"valid_local={local_frame_slots} valid_global={global_frame_slots} "
+                f"loss_local={local_loss_slots} loss_global={global_loss_slots} qwen_batch={qwen_batch_size} "
+                f"micro_step_next={micro_step + 1} {_cuda_memory_text()}"
             )
-            loss_scale = 1.0 / float(max(1, local_frame_slots) * max(1, int(args.grad_accum)))
+            # 梯度同步函数会 all_reduce(SUM) 后再除以 world_size；这里预乘 world_size，
+            # 使最终等价于按 global 有效 frame 数平均，而不是每个 rank 等权平均。
+            # 分母使用实际可训练 frame（RGB 路径存在）数量，避免少量缺图 skip 把 loss
+            # 额外缩小；正常 build_dataset 已过滤缺图时它与 valid_global 相同。
+            loss_scale = float(world_size) / float(max(1, global_loss_slots) * max(1, int(args.grad_accum)))
             # 每条 route 各自维护 memory/reset；batch 内 route 之间互不影响。
             # reset_next=True 表示上一个有效帧 RS 错或 Q2 非法，下一帧开头恢复 GT RS + RE。
             reset_next = [False for _ in routes]
             memories: List[Optional[Memory]] = [None for _ in routes]
             for t in range(int(batch["max_T_global"])):
+                active_items: List[Tuple[int, SequenceRow, FrameRow, Memory]] = []
                 for b, route in enumerate(routes):
                     frame = frame_rows[b][t]
                     if frame is None:
                         # global padding 位置不参与任何计算，确保 DDP 对齐只影响 loop 长度，
                         # 不影响训练样本数量和 loss。
                         continue
+                    if not _frame_images_exist(frame):
+                        if rank == 0:
+                            rank0_log(f"[warn] skip missing image paths route={route.route_id} frame={frame.frame_id}")
+                        continue
                     rs_target = _rs_target_from_frame(frame)
                     if memories[b] is None or reset_next[b]:
                         memories[b] = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
                         reset_next[b] = False
                     assert memories[b] is not None
-                    frame_start = time.time()
-                    log_this_frame = should_log_frame()
-                    if log_this_frame:
-                        rank0_log(
-                            f"[frame-start] epoch={epoch} batch={batch_idx} t={t} route_idx={b} "
-                            f"route={route.scenario}/{route.route_id} frame={frame.frame_id} "
-                            f"local_frame={processed_local_frames + 1}/{local_frame_slots} "
-                            f"mem={memories[b].rs_label}/{memories[b].event_label} {_cuda_memory_text()}"
-                        )
-                    try:
-                        loss, stats, next_mem, need_reset = _run_frame(
-                            bundle,
-                            memories[b],
-                            frame,
-                            max_new_tokens_q1=int(args.max_new_tokens_q1),
-                            max_new_tokens_q2=int(args.max_new_tokens_q2),
-                            temperature=float(args.temperature),
-                        )
-                    except FileNotFoundError as exc:
-                        if rank == 0:
-                            print(f"[warn] skip missing image route={route.route_id} frame={frame.frame_id}: {exc}", flush=True)
-                        continue
-                    # 关键显存控制：每帧 OPSD loss 算完立刻 backward，只把 LoRA
-                    # 梯度累积在参数上，不把整条 route sequence 的 Qwen 计算图留到
-                    # batch 末尾。这样长序列不会把 H20 95GB 显存吃满。
-                    loss_value = float(loss.detach().item())
-                    window_stats["loss_sum"] += loss_value
-                    (loss * loss_scale).backward()
-                    del loss
-                    frame_count += 1
-                    processed_local_frames += 1
-                    _add_frame_rollout_stats(window_stats, stats, need_reset=bool(need_reset))
-                    memories[b] = next_mem
-                    reset_next[b] = bool(need_reset)
-                    frame_elapsed = time.time() - frame_start
-                    now = time.time()
-                    if log_this_frame or should_time_heartbeat(now):
-                        rank0_log(
-                            f"[frame-done] epoch={epoch} batch={batch_idx} t={t} route_idx={b} "
-                            f"frame={frame.frame_id} dt={frame_elapsed:.1f}s "
-                            f"loss={loss_value:.4f} "
-                            f"q1_tokens={int(stats.get('q1_rollout_tokens', 0))} "
-                            f"q2_tokens={int(stats.get('q2_rollout_tokens', 0))} "
-                            f"q2={int(bool(stats.get('q2_triggered', False)))} "
-                            f"reset={int(bool(need_reset))} {_cuda_memory_text()}"
-                        )
-                        last_heartbeat = now
+                    active_items.append((b, route, frame, memories[b]))
+                for chunk_start in range(0, len(active_items), qwen_batch_size):
+                    chunk = active_items[chunk_start:chunk_start + qwen_batch_size]
+                    q1_rollouts: List[Optional[Tuple[KVState, str, KVState, torch.Tensor]]] = [None] * len(chunk)
+                    if qwen_batch_size > 1 and len(chunk) > 1:
+                        # 只把同一 timestep 的多条 route 合成 Q1 rollout chunk；
+                        # Q2 和 KL 仍在下面逐 frame 单样本执行，降低优化引入的语义风险。
+                        q1_batch_start = time.time()
+                        try:
+                            q1_grouped = _run_q1_rollout_grouped(
+                                bundle,
+                                [item[3] for item in chunk],
+                                [item[2] for item in chunk],
+                                max_new_tokens_q1=int(args.max_new_tokens_q1),
+                            )
+                            q1_rollouts = list(q1_grouped.rollouts)
+                            _add_q1_grouped_stats(window_stats, q1_grouped)
+                            if rank == 0:
+                                rank0_log(
+                                    f"[q1-grouped] epoch={epoch} batch={batch_idx} t={t} "
+                                    f"size={len(chunk)} group_sizes={q1_grouped.group_sizes} "
+                                    f"batched_groups={q1_grouped.batched_groups} "
+                                    f"singleton_groups={q1_grouped.singleton_groups} "
+                                    f"batched_frames={q1_grouped.batched_frames} "
+                                    f"length_hist={q1_grouped.length_histogram} "
+                                    f"length_s={q1_grouped.length_seconds:.3f} "
+                                    f"dt={time.time() - q1_batch_start:.1f}s {_cuda_memory_text()}"
+                                )
+                        except Exception as exc:
+                            if _is_cuda_oom(exc):
+                                if torch.cuda.is_available():
+                                    torch.cuda.empty_cache()
+                                rank0_log(
+                                    f"[error] q1 batch OOM epoch={epoch} batch={batch_idx} t={t} "
+                                    f"size={len(chunk)}; abort instead of unsafe fallback. {_cuda_memory_text()}"
+                                )
+                                # OOM 后 CUDA allocator / NCCL 状态可能已经不干净。这里直接
+                                # 抛出让 torchrun 重启/停止，比静默 fallback 单样本更安全。
+                                raise
+                            # batched Qwen 是新增优化路径；任何 processor/cache 兼容问题都回退
+                            # 到旧单帧路径，保证训练语义优先于吞吐。
+                            if rank == 0:
+                                rank0_log(
+                                    f"[warn] q1 batch fallback epoch={epoch} batch={batch_idx} t={t} "
+                                    f"size={len(chunk)} reason={type(exc).__name__}: {exc}"
+                                )
+                            q1_rollouts = [None] * len(chunk)
+                    for chunk_idx, (b, route, frame, memory_for_frame) in enumerate(chunk):
+                        frame_start = time.time()
+                        log_this_frame = should_log_frame()
+                        if log_this_frame:
+                            rank0_log(
+                                f"[frame-start] epoch={epoch} batch={batch_idx} t={t} route_idx={b} "
+                                f"route={route.scenario}/{route.route_id} frame={frame.frame_id} "
+                                f"batch_frame={batch_processed_frames + 1}/{local_frame_slots} "
+                                f"mem={memories[b].rs_label}/{memories[b].event_label} {_cuda_memory_text()}"
+                            )
+                        try:
+                            rollout = q1_rollouts[chunk_idx]
+                            rollout_kwargs: Dict[str, Any] = {}
+                            if rollout is not None:
+                                # grouped/batched 路径已经完成 Q1 student rollout；_run_frame
+                                # 只复用这些 token/KV 做 Q1 KL 和 Q2 续接，不再重复生成 Q1。
+                                q1_student_state, q1_text, q1_after, q1_ids = rollout
+                                rollout_kwargs = {
+                                    "q1_student_state": q1_student_state,
+                                    "q1_text": q1_text,
+                                    "q1_after": q1_after,
+                                    "q1_ids": q1_ids,
+                                }
+                            loss, stats, next_mem, need_reset = _run_frame(
+                                bundle,
+                                memory_for_frame,
+                                frame,
+                                max_new_tokens_q1=int(args.max_new_tokens_q1),
+                                max_new_tokens_q2=int(args.max_new_tokens_q2),
+                                temperature=float(args.temperature),
+                                **rollout_kwargs,
+                            )
+                        except FileNotFoundError as exc:
+                            if rank == 0:
+                                print(f"[warn] skip missing image route={route.route_id} frame={frame.frame_id}: {exc}", flush=True)
+                            continue
+                        # 关键显存控制：每帧 OPSD loss 算完立刻 backward，只把 LoRA
+                        # 梯度累积在参数上，不把整条 route sequence 的 Qwen 计算图留到
+                        # batch 末尾。这样长序列不会把 H20 95GB 显存吃满。
+                        loss_value = float(loss.detach().item())
+                        window_stats["loss_sum"] += loss_value
+                        (loss * loss_scale).backward()
+                        del loss
+                        frame_count += 1
+                        batch_processed_frames += 1
+                        processed_local_frames += 1
+                        _add_frame_rollout_stats(window_stats, stats, need_reset=bool(need_reset))
+                        memories[b] = next_mem
+                        reset_next[b] = bool(need_reset)
+                        frame_elapsed = time.time() - frame_start
+                        now = time.time()
+                        if log_this_frame or should_time_heartbeat(now):
+                            rank0_log(
+                                f"[frame-done] epoch={epoch} batch={batch_idx} t={t} route_idx={b} "
+                                f"frame={frame.frame_id} dt={frame_elapsed:.1f}s "
+                                f"loss={loss_value:.4f} "
+                                f"q1_tokens={int(stats.get('q1_rollout_tokens', 0))} "
+                                f"q2_tokens={int(stats.get('q2_rollout_tokens', 0))} "
+                                f"q2={int(bool(stats.get('q2_triggered', False)))} "
+                                f"reset={int(bool(need_reset))} {_cuda_memory_text()}"
+                            )
+                            last_heartbeat = now
             rank0_log(
                 f"[batch-local-done] epoch={epoch} batch={batch_idx} local_frames={frame_count} "
                 f"calling_global_frame_reduce=1 {_cuda_memory_text()}"

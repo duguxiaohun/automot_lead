@@ -187,11 +187,25 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 当前 v5 训练脚本至少写：
 
 - `train/loss_frame`：当前 logging window 内所有 rank 聚合后的 frame 平均 loss。
+- `train/loss/q1_analysis` / `train/loss/q1_rs` / `train/loss/q1_abnormal`：
+  Q1 OPSD KL 的分项 loss，按有效 frame 平均。
+- `train/loss/q2_analysis` / `train/loss/q2_event`：Q2 OPSD KL 的分项 loss，按实际进入
+  Q2 的 frame 平均；如果窗口内没有 Q2，会用 1 作分母避免 NaN。
 - `train/q2_trigger_rate`：Q1 RS 正确后进入 Q2 的比例，也就是第二问实际采样率。
 - `train/q1_rs_acc_window` / `train/q1_abnormal_acc_window`：当前窗口的 Q1 解析正确率。
 - `train/q2_event_acc_window`：进入 Q2 的帧中，EVENT 解析是否命中动态真值。
 - `train/q2_invalid_output` / `train/reset_next`：非法输出和下一帧 reset 次数。
 - `train/rollout_tokens_per_frame`：student on-policy 采样出的 Q1+Q2 token 平均长度。
+- `qwen/q1_batched_frame_rate`：所有已训练 Q1 frame 中，真正进入 size>=2 batched KV
+  的比例；这是判断 `QWEN_BATCH_SIZE>1` 是否真有收益的主指标。
+- `qwen/q1_grouped_frame_rate`：所有已训练 Q1 frame 中，进入 grouped 路径的比例；
+  `QWEN_BATCH_SIZE=1` 或尾部单 frame chunk 不进入这个分母。
+- `qwen/q1_batched_frame_rate_grouped`：只在 grouped 路径内部计算的 batched frame 比例；
+  它不能代表全训练 frame 的真实 batch 比例。
+- `qwen/q1_batched_groups` / `qwen/q1_singleton_groups`：真实 batched group 和 singleton
+  group 数。
+- `qwen/q1_length_seconds_per_chunk`：为了 exact-length 分组而计算 processor input
+  length 的平均耗时；如果它过大，说明长度预计算可能抵消吞吐收益。
 - `ddp/padding_rate`：global padding 后的 None frame 占位比例。
 - `ddp/max_T_global_avg`：logging window 内多进程对齐后的平均 `max_T_global`。
 
@@ -199,13 +213,16 @@ stdout / `log.txt` 还会写 rank0 心跳，避免长时间看不到训练状态
 
 - `[batch-start]`：当前 batch 的 route 数、local/global padding 长度、有效 frame 数。
 - `[frame-start]` / `[frame-done]`：当前 rank0 正在处理的 route/frame、memory、耗时、
-  loss、Q1/Q2 rollout token、是否进入 Q2、是否 reset、CUDA 显存。
+  当前 batch 内 frame 进度、loss、Q1/Q2 rollout token、是否进入 Q2、是否 reset、
+  CUDA 显存。
 - `[batch-local-done]` / `[batch-global-done]`：本 rank frame 已处理完，随后是否卡在
   跨 rank frame_count all-reduce。
 - `[sync-start]` / `[sync-done]`：optimizer step 前的 LoRA 梯度 all-reduce 是否开始/结束。
 
-默认每个 rank0 的前 3 个 frame 都打印，之后每 `PROGRESS_FRAMES=5` 个本地有效 frame
-打印一次；单个长操作超过 `HEARTBEAT_SECONDS=120` 秒也会补心跳。排查卡顿时建议：
+v5 每个 optimizer step 都可能需要几十分钟，因此默认 `LOGGING_STEPS=1`，每次
+optimizer step 后都会输出一次聚合 `[train]` 指标。默认每个 rank0 的前 3 个 frame
+都打印，之后每 `PROGRESS_FRAMES=5` 个本地有效 frame 打印一次；单个长操作超过
+`HEARTBEAT_SECONDS=120` 秒也会补心跳。排查卡顿时建议：
 
 ```bash
 PROGRESS_FRAMES=1 HEARTBEAT_SECONDS=60 GPU_IDS=0,1,2,3 \
@@ -216,9 +233,107 @@ bash qwen3vl_local/sft_v5/train.sh ddp
 停在 `[batch-local-done]` 则优先查 rank 间是否有某个进程落后；停在 `[sync-start]`
 则优先查 LoRA 梯度 all-reduce / NCCL。
 
-后续如果扩展详细 loss，可沿用 v3 的命名习惯拆到
-`train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}`、
-`grad_norm/{language,vision}` 和 `param_norm/lora_{language,vision}`。
+### 4.1 真正并行 Qwen 的阶段开关
+
+`QWEN_BATCH_SIZE` 是 v5 batched Qwen 的第一阶段开关。它不是简单改变 DataLoader
+batch，而是在同一个 rank、同一个 timestep 内，把多条 route 的 Q1 student rollout
+合成一次 Qwen prefill/generate：
+
+建议先从 2 开始验证峰值和等价性，再逐步试 3/4：
+
+```bash
+PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 \
+LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+注意：
+
+- `QWEN_BATCH_SIZE>1` 必须配合 `PER_DEVICE_BATCH_SIZE>1` 才有并行对象；如果每卡
+  只有 1 条 route，同一 timestep 仍只有 1 个 frame 可跑。
+- 当前阶段只批量化 Q1 student rollout；Q2 rollout、teacher/student KL forward
+  仍保持单样本路径，确保训练语义先不变。
+- batched Q1 只会把 processor 后真实 input length 完全一致的 frame 放进同一个
+  batched KV；混长 frame 会按长度分组，单元素组回到单样本路径。不要把带 padding
+  的 past_key_values 继续传给 Q1 KL/Q2，因为后续增量 decode 的 `prefix_len` /
+  M-RoPE 位置会偏离单样本路径。
+- batch Q1 的普通 processor/cache 兼容错误会打印 `[warn] q1 batch fallback ...` 并
+  回退单帧旧路径；CUDA OOM 不静默回退，会清理 cache 后直接中止，避免 OOM 后继续
+  跑出不稳定状态。
+- 日志里 `[q1-grouped] ... group_sizes=[...] batched_groups=... singleton_groups=...`
+  会显示该 chunk 的真实分组。只有 `batched_frames>0` 时，才说明本 chunk 真正跑了
+  size>=2 的 batched Qwen；如果全是 singleton，就只是安全分组/回退。
+- batched prefill 的 next-token logits 按 `attention_mask` 取每条样本最后一个真实
+  token；repetition penalty 只看真实 token，不把 padding token 纳入惩罚。
+- 每帧 loss 按当前 batch 的全局有效 frame 数归一化，梯度 all-reduce 后是 frame
+  等权，不再是 rank 等权。
+- 如果 `qwen/q1_batched_frame_rate` 长期接近 0，且
+  `qwen/q1_length_seconds_per_chunk` 明显增加 step 时间，说明 exact-length 分组没有带来
+  真实吞吐收益，建议先把 `QWEN_BATCH_SIZE=1`，后续再做长度 bucketing sampler 或更低
+  成本的 length cache。
+
+代码里的对应注释位置也按这个口径维护：
+
+- `Q1GroupedRolloutResult`：说明 grouped 与真正 batched 的区别。
+- `_slice_kv_state_batch` / `_slice_cache_batch`：说明为什么必须保持 Cache 类型和 batch
+  维切片。
+- `_kv_start_state_batch`：说明为什么有 padding 时拒绝 batched KV，而不是只修
+  `next_logits`。
+- `_student_generate_kv_batch`：说明 EOS 样本为什么要从 active batch 中移除，避免污染
+  Q2 续接 KV。
+- 训练主循环：说明 `loss_slots`、`qwen/q1_batched_frame_rate`、OOM 不回退和 Q1 rollout
+  复用逻辑。
+
+后续如果改 batched Qwen、Q2 续接、loss 归一化或 TensorBoard 指标，必须同步维护这些
+中文注释，不能只改代码。
+
+训练前真实模型对照 smoke 分两种。
+
+1. 混长安全分组检查：默认优先挑 input length 差异大的 case，确认不会把 padded
+   cache 传给后续 Q1 KL/Q2。
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
+  --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --num-cases 2 \
+  --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json
+```
+
+2. 强制真实 batched KV 检查：必须找到至少一个 exact input length 相同且 size>=2
+   的 group，否则直接失败，避免误以为 batch 已验证。
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
+  --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --num-cases 2 \
+  --candidate-pool 256 \
+  --require-batched-group \
+  --no-prefer-different-lengths \
+  --output-json checkpoints/sft_v5_runs/batched_qwen_smoke_require_batch.json
+```
+
+这个脚本不导入 LoRA，除非你显式传 `--adapter-dir`。默认模式会优先从候选池里挑 Q1 input
+length 差异大的两帧制造 padding 压力，并比较单样本 Q1 与 batched/grouped Q1：
+首 token、完整 `q1_ids`、Q1 文本、同一 `q1_ids` 上训练 KL 路径的 logits max/mean
+abs diff，以及在 Q1 KV cache 后继续追加 Q2 user turn 的 `q2_ids` / Q2 文本。任一
+不一致或 logits diff 超过 `--logit-atol` 会返回非 0。报告里的
+`actual_batched_group_sizes` / `actual_batched_frames` 才是真正 batched KV 是否被测到
+的证据。
+
+下一阶段才继续批量化 Q2 rollout 和 KL forward；这需要对不同 rollout 长度、不同
+loss span 和 Q1 正确子集做 padding/mask，不能简单合并。
+
+不要在训练阶段做“结构字段早停”：不能因为已经生成到 `ABNORMAL:` 或 `EVENT:` 就
+提前截断 student rollout。v5 的 OPSD loss 需要完整的学生分析 token 和离散答案
+token 共同接受 teacher logits 监督；训练时强行按字段早停会把学生推向短答案/少分析，
+破坏 CoT 分布。若要提速，应优先调小数据规模、优化 prompt 简洁度、降低 token 上限
+并用 probe 检查是否截断，而不是改变训练 rollout 的停止规则。
+
+当前已记录 `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}`。
+后续如果扩展视觉 LoRA 保险，可继续沿用 v3/v4 的
+`grad_norm/{language,vision}` 和 `param_norm/lora_{language,vision}` 命名。
 
 ## 5. Eval
 
@@ -266,6 +381,7 @@ python qwen3vl_local/sft_v5/eval.py \
 | 目的 | 命令 | 是否加载模型 | 主要产物 |
 |---|---|---|---|
 | 训练前 base Qwen OPSD 能力体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe --num-cases 8 --with-model --with-teacher-model --with-teacher` | 是，纯默认/base Qwen，不传 `--adapter-dir`，不加载任何 LoRA | RGB 副本、system/user/messages、student output、teacher target/output、memory、flags、timeline |
+| 训练前 grouped Qwen 等价性体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --num-cases 2 --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json`；强制真实 batched KV 时加 `--candidate-pool 256 --require-batched-group --no-prefer-different-lengths` | 是，纯默认/base Qwen，不传 `--adapter-dir` | single-vs-grouped Q1/Q2 文本、token、训练 logits diff、actual group sizes、input length / padding pressure |
 | 训练后 adapter 学生可视化 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --adapter-dir checkpoints/sft_v5_runs/latest/final --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter --num-cases 8 --with-model --with-teacher` | 是，只加载 student adapter | 上述静态产物 + `q1_student_output.txt` / `q2_student_output.txt` |
 | 静态检查教师/学生输入合同 | `python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/probe_static --num-cases 24 --with-teacher` | 否 | RGB 副本、student prompt、teacher prompt、teacher target、memory、flags、timeline |
 | 检查 teacher 合同 | `python qwen3vl_local/sft_v5/inspect_teacher.py --index checkpoints/sft_v5_data/train_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/teacher_inspect --num-cases 64` | 否 | `teacher_report.json` / `teacher_report.md` |
@@ -280,6 +396,9 @@ python qwen3vl_local/sft_v5/eval.py \
 - 训练前 base Qwen OPSD 体检：`--with-model --with-teacher-model`，不传
   `--adapter-dir`，不加载任何 LoRA，用默认 Qwen 分别跑 student prompt 和
   privileged teacher prompt，判断模型基础能力与 prompt 合同是否足够支撑 OPSD。
+- 训练前 grouped Qwen 等价性体检：运行 `test_batched_qwen_smoke.py`，不传
+  `--adapter-dir`，用默认 Qwen 检查 `QWEN_BATCH_SIZE>1` 的 Q1 grouped rollout 是否
+  和单样本路径在 Q1/Q2 文本、token 以及训练 logits 上一致。
 - 训练后 adapter 学生可视化：`--with-model --adapter-dir ...`，只看训练出的学生在
   真实状态机下的 Q1/Q2 输出。
 - 静态 prompt / target 快检：不加载模型，只 dump RGB、student prompt、teacher prompt、
