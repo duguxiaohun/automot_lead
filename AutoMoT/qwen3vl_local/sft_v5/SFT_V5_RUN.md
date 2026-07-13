@@ -330,8 +330,8 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
 H20 96GB 上如果 2 路只占约 20-23GB 显存、没有 fallback/OOM，优先试 4 路。若 4 路
-仍只有中等 GPU util，说明瓶颈主要在 Q2/KL 单样本路径，继续增大 Q1 batch 的收益会变小，
-下一阶段需要实现 batched Q2 rollout 或 batched KL forward。
+仍只有中等 GPU util，说明瓶颈主要在 KL/teacher 单样本路径，继续增大 rollout batch
+的收益会变小，下一阶段需要实现 batched KL forward。
 
 开到 3/4 前建议先跑下面的真实 batched KV smoke，确认模型和当前数据里能找到
 exact-length group：
@@ -351,22 +351,29 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
 
 - `QWEN_BATCH_SIZE>1` 必须配合 `PER_DEVICE_BATCH_SIZE>1` 才有并行对象；如果每卡
   只有 1 条 route，同一 timestep 仍只有 1 个 frame 可跑。
-- 当前阶段只批量化 Q1 student rollout；Q2 rollout、teacher/student KL forward
-  仍保持单样本路径，确保训练语义先不变。
+- 当前阶段批量化 Q1 student rollout，并对 Q2 student rollout 做 conservative
+  grouped/batched：只有完整 Q2 对话 input length 完全一致时才 batch；混长或 singleton
+  样本继续走原来的单样本 KV 续接路径。teacher/student KL forward 仍保持单样本路径，
+  确保训练语义先不变。
 - batched Q1 只会把 processor 后真实 input length 完全一致的 frame 放进同一个
   batched KV；混长 frame 会按长度分组，单元素组回到单样本路径。不要把带 padding
   的 past_key_values 继续传给 Q1 KL/Q2，因为后续增量 decode 的 `prefix_len` /
   M-RoPE 位置会偏离单样本路径。
 - batch Q1 的普通 processor/cache 兼容错误会打印 `[warn] q1 batch fallback ...` 并
   回退单帧旧路径；CUDA OOM 不静默回退，会清理 cache 后直接中止，避免 OOM 后继续
-  跑出不稳定状态。若需要定位 fallback 栈，临时加 `Q1_BATCH_TRACEBACK=1` 运行。
+  跑出不稳定状态。若需要定位 fallback 栈，临时加 `Q1_BATCH_TRACEBACK=1` 或
+  `Q2_BATCH_TRACEBACK=1` 运行。
 - 日志里 `[q1-grouped] ... group_sizes=[...] batched_groups=... singleton_groups=...`
   会显示该 chunk 的真实分组。只有 `batched_frames>0` 时，才说明本 chunk 真正跑了
   size>=2 的 batched Qwen；如果全是 singleton，就只是安全分组/回退。
+- 日志里 `[q2-grouped] ... group_sizes=[...] batched_groups=... singleton_groups=...`
+  会显示 Q2 student rollout 是否真的 batch。Q2 的完整上下文包含 Q1 生成文本，
+  因此比 Q1 更容易出现不同 length；`batched_frames=0` 时说明该 chunk 的 Q2 仍走
+  单样本路径。
 - 如果 `[q1-grouped]` 已经稳定显示 `group_sizes=[2]` / `batched_frames=2`，但
   `nvidia-smi` 仍只有 45%-50% 左右，通常不是 batch 没生效，而是当前阶段只批量化
-  Q1 student rollout；每个 frame 后面的 Q1 teacher/KL、Q2 rollout、Q2 teacher/KL
-  仍是单样本串行。日志中的 `time={q1stu,...,q2loss}` 和 TensorBoard 的 `time/*`
+  rollout；每个 frame 后面的 Q1/Q2 teacher 与 KL 仍是单样本串行。日志中的
+  `time={q1stu,...,q2loss}`、`[q2-grouped]` 和 TensorBoard 的 `time/*` / `qwen/q2_*`
   指标用于确认瓶颈具体在哪一段。
 - 如果日志出现 `[warn] q1 batch fallback ...`，说明本 chunk 没有走成 batched Qwen，
   后续会退回单帧路径，GPU 利用率自然不会明显提升。曾经出现过

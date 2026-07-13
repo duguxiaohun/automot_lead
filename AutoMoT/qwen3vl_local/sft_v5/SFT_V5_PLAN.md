@@ -1047,6 +1047,13 @@ max_frames_per_route=0  # 0 means full route
 - `qwen/q1_singleton_groups`
 - `qwen/q1_length_seconds_per_chunk`
 - `qwen/q1_grouped_seconds_per_chunk`
+- `qwen/q2_batched_frame_rate`
+- `qwen/q2_grouped_frame_rate`
+- `qwen/q2_batched_frame_rate_grouped`
+- `qwen/q2_batched_groups`
+- `qwen/q2_singleton_groups`
+- `qwen/q2_length_seconds_per_chunk`
+- `qwen/q2_grouped_seconds_per_chunk`
 - `time/frame_q1_student_seconds`
 - `time/frame_q1_teacher_seconds`
 - `time/frame_q1_loss_seconds`
@@ -1081,9 +1088,10 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 `PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4`；若该指标长期接近 0，则回到
 `QWEN_BATCH_SIZE=1`。
 若 2 路已经稳定显示 `group_sizes=[2] / batched_frames=2`，但 GPU util 仍约
-45%-50%，优先试 4 路；如果 4 路仍无法明显提升，则根据 `time/frame_*` 判断是否应进入
-阶段 2/3（batched Q2 rollout 或 batched KL forward），因为当前阶段只并行 Q1 student
-rollout，Q1/Q2 teacher 与 KL 仍是单样本路径。
+45%-50%，优先试 4 路；如果 4 路仍无法明显提升，则根据 `time/frame_*` 和
+`qwen/q2_*` 判断是否应进入下一阶段（batched KL forward），因为当前阶段只并行
+Q1 student rollout，并对 Q2 student rollout 做 conservative exact-length grouped
+batch，Q1/Q2 teacher 与 KL 仍是单样本路径。
 
 实现注释要求：
 
