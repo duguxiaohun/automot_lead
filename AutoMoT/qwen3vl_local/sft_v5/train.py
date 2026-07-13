@@ -27,6 +27,7 @@ import os
 import pathlib
 import sys
 import time
+import traceback
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -401,13 +402,14 @@ def _slice_cache_batch(cache: Any, rows: torch.Tensor) -> Any:
     return cache
 
 
-def _slice_rope_deltas_batch(rope: Any, rows: torch.Tensor, batch_size: int) -> Any:
-    """按 batch 行切 `rope_deltas`，兼容 `(batch,1)` 与 `(1,batch)` 两种方向。
+def _normalize_rope_deltas_batch(rope: Any, batch_size: int) -> Any:
+    """把 Qwen 返回的 `rope_deltas` 统一整理成 `(batch, 1)`。
 
     Qwen3-VL 的不同版本可能把 `rope_deltas` 存成 `(batch, 1)`，也可能存成
-    `(1, batch)`。batched Q1 生成过程中 active batch 会不断缩小，如果这里没有把
-    rope_deltas 一起切到对应行，后续增量 decode 会拿错 M-RoPE delta 并触发 expand
-    shape 报错，最终导致 `[warn] q1 batch fallback ...`。
+    `(1, batch)`。v5 的 batched Q1 会在生成中不断缩小 active batch，如果内部状态
+    继续保存横向 `(1, batch)`，下一步 decode 很容易把 batch 维误当成 token 维，
+    触发 `Target sizes: [1, -1]. Tensor sizes: [2, 1]` 这类 expand 报错。因此这里在
+    KVState 边界统一成“每个样本一行”的形状。
     """
 
     if not hasattr(rope, "detach"):
@@ -415,17 +417,31 @@ def _slice_rope_deltas_batch(rope: Any, rows: torch.Tensor, batch_size: int) -> 
     rd = rope.detach().clone()
     if rd.ndim == 0:
         return rd
-    # 标准方向：(batch, ...)。
+    # 一维向量通常就是每个样本一个 delta，补一列维度即可。
+    if rd.ndim == 1 and rd.numel() == batch_size:
+        return rd.reshape(batch_size, 1).contiguous()
+    # 标准方向 `(batch, anything)`：如果第二维不止 1，也只保留每个样本的第一个 delta。
+    # Qwen3-VL decode 只需要每条样本自己的 M-RoPE offset。
+    if rd.shape[0] == batch_size:
+        return rd.reshape(batch_size, -1)[:, :1].contiguous()
+    # 某些 transformers 版本会返回 `(1, batch)`，转置成 `(batch, 1)`。
+    if rd.ndim >= 2 and rd.shape[0] == 1 and rd.numel() == batch_size:
+        return rd.reshape(1, batch_size).transpose(0, 1).contiguous()
+    # 兜底：元素个数刚好等于 batch_size 时，也按每样本一个 delta 解释。
+    if rd.numel() == batch_size:
+        return rd.reshape(batch_size, 1).contiguous()
+    # 无法判断 batch 维时保守 clone，不做错误 reshape；这种情况 smoke 会暴露。
+    return rd
+
+
+def _slice_rope_deltas_batch(rope: Any, rows: torch.Tensor, batch_size: int) -> Any:
+    """按 batch 行切 `rope_deltas`，并保持 `(new_batch, 1)` 内部契约。"""
+
+    rd = _normalize_rope_deltas_batch(rope, batch_size)
+    if not hasattr(rd, "detach") or getattr(rd, "ndim", 0) == 0:
+        return rd
     if rd.shape[0] == batch_size:
         return _select_batch_tensor(rd, rows)
-    # Qwen/Transformers 某些输出方向：(1, batch)。
-    if rd.ndim >= 2 and rd.shape[0] == 1 and rd.shape[1] == batch_size:
-        return rd.index_select(1, rows.to(rd.device)).detach().clone()
-    # 兜底：如果元素个数正好等于 batch_size，就展平成每样本一个 delta 后切。
-    if rd.numel() == batch_size:
-        flat = rd.reshape(batch_size, 1)
-        return _select_batch_tensor(flat, rows)
-    # 无法判断 batch 维时保守 clone，不做错误切片；这种情况 smoke 会暴露。
     return rd
 
 
@@ -535,7 +551,10 @@ def _kv_start_state_batch(bundle: Any, messages_list: List[List[Dict[str, Any]]]
         cache_input_ids=input_ids,
         attention_mask=attention_mask,
         past_key_values=outputs.past_key_values,
-        rope_deltas=getattr(outputs, "rope_deltas", None),
+        # 在 batched prefill 的出口就统一 rope_deltas 方向，后续所有 active-batch
+        # 切片和增量 decode 都只处理 `(batch, 1)`，避免 Qwen 内部 `(1, batch)` 形状
+        # 在生成循环里重新触发 fallback。
+        rope_deltas=_normalize_rope_deltas_batch(getattr(outputs, "rope_deltas", None), int(input_ids.shape[0])),
         next_logits=next_logits,
     )
 
@@ -627,6 +646,9 @@ def _student_generate_kv_batch(bundle: Any, state: KVState, max_new_tokens: int)
             cur = _slice_kv_state_batch(cur, keep_rows)
             suffix = torch.cat(keep_tokens, dim=0).to(cur.cache_input_ids.device)
             cur, _ = _append_token_ids(bundle, cur, suffix)
+            # `_append_token_ids` 会根据当前 active batch 继续 decode；这里再次规范
+            # rope_deltas，防止底层 forward 返回的新 Cache/输出把形状恢复成 `(1, batch)`。
+            cur.rope_deltas = _normalize_rope_deltas_batch(cur.rope_deltas, int(cur.cache_input_ids.shape[0]))
             active = [active[i] for i in keep_rows]
         for row_idx, orig_idx in enumerate(active):
             # 达到 max_new_tokens 仍没 EOS 的样本，最终 KV 就是当前 active state。
@@ -1585,6 +1607,11 @@ def main() -> None:
                                     f"[warn] q1 batch fallback epoch={epoch} batch={batch_idx} t={t} "
                                     f"size={len(chunk)} reason={type(exc).__name__}: {exc}"
                                 )
+                                if os.environ.get("Q1_BATCH_TRACEBACK", "0") == "1":
+                                    # 默认只打一行 fallback，避免训练日志爆炸；需要追新兼容问题时
+                                    # 再显式打开 traceback，能定位是 processor、prefill 还是增量
+                                    # decode 触发了回退。
+                                    rank0_log(traceback.format_exc(limit=12).rstrip())
                             q1_rollouts = [None] * len(chunk)
                     for chunk_idx, (b, route, frame, memory_for_frame) in enumerate(chunk):
                         frame_start = time.time()

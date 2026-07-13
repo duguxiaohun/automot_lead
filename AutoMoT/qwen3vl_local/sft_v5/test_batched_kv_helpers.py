@@ -20,7 +20,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 
 from qwen3vl_local.sft_v3.train import KVState
 from qwen3vl_local.mrope_utils import qwen3vl_decode_position_ids
-from qwen3vl_local.sft_v5.train import _last_valid_next_logits, _slice_kv_state_batch
+from qwen3vl_local.sft_v5.train import _last_valid_next_logits, _normalize_rope_deltas_batch, _slice_kv_state_batch
 
 
 def main() -> None:
@@ -54,7 +54,8 @@ def main() -> None:
     assert torch.equal(sliced.next_logits[0], state.next_logits[2])
 
     # rope_deltas 也可能是 (1, batch) 方向；这正是 batched Qwen fallback 报错的来源。
-    # 切 [2, 0] 后应该得到 (1, 2)，值顺序与 batch 行一致。
+    # v5 内部现在统一要求切片后是 (new_batch, 1)，后续增量 decode 才不会把 batch
+    # 维误当成 token/feed 维。
     state_transposed_rope = KVState(
         decoded_input_ids=decoded,
         cache_input_ids=decoded.clone(),
@@ -64,7 +65,13 @@ def main() -> None:
         next_logits=torch.arange(batch * hidden).view(batch, hidden).float(),
     )
     sliced_transposed = _slice_kv_state_batch(state_transposed_rope, [2, 0])
-    assert sliced_transposed.rope_deltas.tolist() == [[30, 10]]
+    assert sliced_transposed.rope_deltas.tolist() == [[30], [10]]
+
+    # prefill 出口也要直接归一化，避免只有 slice helper 修好、但 active batch 生成循环
+    # 内部仍拿到横向 (1, batch) 的 rope_deltas。
+    normalized = _normalize_rope_deltas_batch(torch.tensor([[10, 20, 30]]), batch)
+    assert normalized.shape == (batch, 1)
+    assert normalized.tolist() == [[10], [20], [30]]
 
     # M-RoPE helper 自身也要能把 (1, batch) 归一化成每样本一个 delta，
     # 否则 batch_size=2/feed_len=1 时会错误广播成 feed_len=2。

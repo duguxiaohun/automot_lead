@@ -355,7 +355,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   M-RoPE 位置会偏离单样本路径。
 - batch Q1 的普通 processor/cache 兼容错误会打印 `[warn] q1 batch fallback ...` 并
   回退单帧旧路径；CUDA OOM 不静默回退，会清理 cache 后直接中止，避免 OOM 后继续
-  跑出不稳定状态。
+  跑出不稳定状态。若需要定位 fallback 栈，临时加 `Q1_BATCH_TRACEBACK=1` 运行。
 - 日志里 `[q1-grouped] ... group_sizes=[...] batched_groups=... singleton_groups=...`
   会显示该 chunk 的真实分组。只有 `batched_frames>0` 时，才说明本 chunk 真正跑了
   size>=2 的 batched Qwen；如果全是 singleton，就只是安全分组/回退。
@@ -363,7 +363,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   后续会退回单帧路径，GPU 利用率自然不会明显提升。曾经出现过
   `Target sizes: [1, -1]. Tensor sizes: [2, 1]` 的 fallback，这是 batched Qwen
   active batch 缩小时 `rope_deltas` 方向没有切干净导致的 M-RoPE shape 问题；当前代码已在
-  `mrope_utils.py` 和 v5 KV 切片 helper 中兼容 `(batch,1)` / `(1,batch)` 两种方向。
+  `mrope_utils.py`、v5 batched prefill 出口、active-batch 切片和 append-token 后统一兼容
+  `(batch,1)` / `(1,batch)`，并把内部 KVState 规范为 `(batch,1)`。
 - batched prefill 的 next-token logits 按 `attention_mask` 取每条样本最后一个真实
   token；repetition penalty 只看真实 token，不把 padding token 纳入惩罚。
 - 每帧 loss 按当前 batch 的全局有效 frame 数归一化，梯度 all-reduce 后是 frame
