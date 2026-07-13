@@ -351,10 +351,10 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
 
 - `QWEN_BATCH_SIZE>1` 必须配合 `PER_DEVICE_BATCH_SIZE>1` 才有并行对象；如果每卡
   只有 1 条 route，同一 timestep 仍只有 1 个 frame 可跑。
-- 当前阶段批量化 Q1 student rollout，并对 Q2 student rollout 做 conservative
-  grouped/batched：只有完整 Q2 对话 input length 完全一致时才 batch；混长或 singleton
-  样本继续走原来的单样本 KV 续接路径。teacher/student KL forward 仍保持单样本路径，
-  确保训练语义先不变。
+- 当前阶段批量化 Q1 student rollout，并对 Q2 student rollout 做 padded batched
+  rollout：Q2 采样可以容纳完整对话长度不同的样本，但 padded Q2 KV 只用于生成
+  student 文本/token；teacher/student KL forward 会重新构造单样本精确 Q2 state，避免
+  padded KV 污染训练分布。
 - batched Q1 只会把 processor 后真实 input length 完全一致的 frame 放进同一个
   batched KV；混长 frame 会按长度分组，单元素组回到单样本路径。不要把带 padding
   的 past_key_values 继续传给 Q1 KL/Q2，因为后续增量 decode 的 `prefix_len` /
@@ -367,9 +367,9 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   会显示该 chunk 的真实分组。只有 `batched_frames>0` 时，才说明本 chunk 真正跑了
   size>=2 的 batched Qwen；如果全是 singleton，就只是安全分组/回退。
 - 日志里 `[q2-grouped] ... group_sizes=[...] batched_groups=... singleton_groups=...`
-  会显示 Q2 student rollout 是否真的 batch。Q2 的完整上下文包含 Q1 生成文本，
-  因此比 Q1 更容易出现不同 length；`batched_frames=0` 时说明该 chunk 的 Q2 仍走
-  单样本路径。
+  会显示 Q2 student rollout 是否真的 batch。`length_hist` 仍记录完整 Q2 对话长度差异；
+  当前 padded rollout 下，只要同一 timestep 有多个 Q2 candidate，就应看到
+  `batched_frames>0`。如果仍为 0，通常表示 Q1 RS 错导致可进入 Q2 的候选不足。
 - 如果 `[q1-grouped]` 已经稳定显示 `group_sizes=[2]` / `batched_frames=2`，但
   `nvidia-smi` 仍只有 45%-50% 左右，通常不是 batch 没生效，而是当前阶段只批量化
   rollout；每个 frame 后面的 Q1/Q2 teacher 与 KL 仍是单样本串行。日志中的

@@ -1089,9 +1089,9 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 `QWEN_BATCH_SIZE=1`。
 若 2 路已经稳定显示 `group_sizes=[2] / batched_frames=2`，但 GPU util 仍约
 45%-50%，优先试 4 路；如果 4 路仍无法明显提升，则根据 `time/frame_*` 和
-`qwen/q2_*` 判断是否应进入下一阶段（batched KL forward），因为当前阶段只并行
-Q1 student rollout，并对 Q2 student rollout 做 conservative exact-length grouped
-batch，Q1/Q2 teacher 与 KL 仍是单样本路径。
+`qwen/q2_*` 判断是否应进入下一阶段（batched KL forward），因为当前阶段并行
+Q1 student rollout，并对 Q2 student rollout 做 padded batched rollout；padded Q2
+KV 只用于采样文本/token，Q1/Q2 teacher 与 KL 仍重新走单样本精确路径。
 
 实现注释要求：
 

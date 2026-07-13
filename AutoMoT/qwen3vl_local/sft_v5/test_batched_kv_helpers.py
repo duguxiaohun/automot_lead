@@ -20,7 +20,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 
 from qwen3vl_local.sft_v3.train import KVState
 from qwen3vl_local.mrope_utils import qwen3vl_decode_position_ids
-from qwen3vl_local.sft_v5.train import _last_valid_next_logits, _normalize_rope_deltas_batch, _slice_kv_state_batch
+from qwen3vl_local.sft_v5.train import _decode_position_ids_varlen, _last_valid_next_logits, _normalize_rope_deltas_batch, _slice_kv_state_batch
 
 
 def main() -> None:
@@ -90,6 +90,19 @@ def main() -> None:
     pos_stale = qwen3vl_decode_position_ids(torch.tensor([[10], [20]]), prefix_len=5, feed_len=1, batch_size=1, device=torch.device("cpu"))
     assert pos_stale.shape == (3, 1, 1)
     assert pos_stale[0, 0, 0].item() == 15
+
+    # Q2 padded rollout 会在同一个 batch 内容纳不同真实 prefix length 的样本；
+    # position_ids 必须按 attention_mask 的有效长度逐样本计算，而不是统一用 padded len。
+    pos_var = _decode_position_ids_varlen(
+        torch.tensor([[10], [20]]),
+        valid_prefix_lengths=torch.tensor([100, 120]),
+        feed_len=2,
+        batch_size=2,
+        device=torch.device("cpu"),
+    )
+    assert pos_var.shape == (3, 2, 2)
+    assert pos_var[0, 0].tolist() == [110, 111]
+    assert pos_var[0, 1].tolist() == [140, 141]
 
     logits = torch.arange(2 * 5 * 3).view(2, 5, 3).float()
     # 第一条是 right padding，最后真实位置为 2；第二条是 left padding，最后真实位置为 4。
