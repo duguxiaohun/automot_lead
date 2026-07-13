@@ -871,7 +871,7 @@ DataLoader batch 攒更多 route。实现分阶段推进：
 阶段 1/2 使用方式：
 
 ```bash
-PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4 GPU_IDS=0,1,2,3 \
+BATCH_PROFILE=max_util GPU_IDS=0,1,2,3 \
 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
@@ -1031,7 +1031,8 @@ for t in range(max_T_global):
 
 ### 8.3 梯度累积
 
-`train.sh ddp` 默认 `per_device_batch_size=4`、`qwen_batch_size=4`、`grad_accum=1`；
+`train.sh ddp` 默认 `BATCH_PROFILE=max_util`，即
+`per_device_batch_size=8`、`qwen_batch_size=8`、`grad_accum=1`；
 `single/check` 模式默认仍保守使用 `1/1`。如果显存允许：
 
 - batch 内多个 route 按时间步交错推进；
@@ -1044,8 +1045,9 @@ for t in range(max_T_global):
 推荐四卡 H20 训练口径：
 
 ```text
-per_device_batch_size=4
-qwen_batch_size=4
+BATCH_PROFILE=max_util
+per_device_batch_size=8
+qwen_batch_size=8
 grad_accum=1
 outer_stride=1
 max_frames_per_route=0  # 0 means full route
@@ -1104,20 +1106,22 @@ rank0 打印一行 `[train] ...` 并写 TensorBoard。
 多 batch 运行 demo：
 
 ```bash
-PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4 \
+BATCH_PROFILE=max_util \
 LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
-该命令是当前推荐的四张 H20 配置：四卡各 1 个 rank，每卡 4 条 route sequence，
-全局约 16 条 sequence，并在每个 rank/timestep 内尝试 4 路 Q1/Q2 student rollout batch。
+该命令是当前推荐的四张 H20 配置：四卡各 1 个 rank，每卡 8 条 route sequence，
+全局约 32 条 sequence，并在每个 rank/timestep 内尝试 8 路 Q1/Q2 student rollout batch。
 现在 `GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp` 默认就是
-`PER_DEVICE_BATCH_SIZE=4 / QWEN_BATCH_SIZE=4`；启动时 launcher 会打印 `[batch]`
-配置，第一条 `[batch-start]` 也应显示 `routes=4` 与 `qwen_batch=4`。若 4 路 OOM
-或频繁 fallback，可降到
-`PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2` 做保守 debug；若 `qwen/q1_batched_frame_rate`
-长期接近 0，则先查 `[warn] q1 batch fallback`，必要时回到 `QWEN_BATCH_SIZE=1`。
-若 4 路已经稳定显示 `batched_frames=4`，但 GPU util 仍约 45%-50%，先确认启动日志里
+`BATCH_PROFILE=max_util / PER_DEVICE_BATCH_SIZE=8 / QWEN_BATCH_SIZE=8`；启动时
+launcher 会打印 `[batch]` 配置，第一条 `[batch-start]` 也应显示 `routes=8`
+与 `qwen_batch=8`。若 8 路 OOM、频繁 fallback 或单步明显变慢，可用
+`BATCH_PROFILE=balanced` 退回 6 路；若 6 路仍不稳，再用 `BATCH_PROFILE=debug`
+退回 4 路；若 4 路仍不稳，再降到 `PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2`
+做兼容 debug。若 `qwen/q1_batched_frame_rate` 长期接近 0，则先查
+`[warn] q1 batch fallback`，必要时回到 `QWEN_BATCH_SIZE=1`。
+若 8 路已经稳定显示 `batched_frames=8`，但 GPU util 仍只有中等水平，先确认启动日志里
 `[parallel] PARALLEL_KL=1`，并观察是否出现 `[chunk-train] ... parallel_kl=1`。
 若频繁出现 `[warn] parallel KL fallback ...`，说明仍回到了旧逐帧 teacher/KL 路径；
 可设置 `PARALLEL_KL_TRACEBACK=1` 定位。

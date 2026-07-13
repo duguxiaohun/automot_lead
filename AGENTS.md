@@ -302,10 +302,12 @@
   route 数一致的前提下按 route frame 数均衡分片，减少长 route rank 拖住其它 rank；
   `SAMPLER_MODE=distributed` 可切回 PyTorch 原生 `DistributedSampler` 做对照；
   `train.sh` 支持 `single/ddp/check`，遵循 GPU 自动选址、`GPU_IDS` pin 卡和
-  `run_<RUN_TAG>/latest` 防覆盖约定；四卡 `ddp` 默认 H20 4 路口径：
-  `PER_DEVICE_BATCH_SIZE=4`、`QWEN_BATCH_SIZE=4`、`MAX_NEW_TOKENS_Q1=1024`、
-  `MAX_NEW_TOKENS_Q2=1024`、`PROGRESS_FRAMES=20`，启动时打印
-  `[batch]` 配置，第一条 `[batch-start]` 应显示 `routes=4 / qwen_batch=4`；
+  `run_<RUN_TAG>/latest` 防覆盖约定；四卡 `ddp` 默认 H20 max_util 8 路口径：
+  `BATCH_PROFILE=max_util`、`PER_DEVICE_BATCH_SIZE=8`、`QWEN_BATCH_SIZE=8`、
+  `MAX_NEW_TOKENS_Q1=1024`、`MAX_NEW_TOKENS_Q2=1024`、`PROGRESS_FRAMES=20`，
+  启动时打印 `[batch]` 配置，第一条 `[batch-start]` 应显示
+  `routes=8 / qwen_batch=8`；`BATCH_PROFILE=balanced` 退回 6 路，
+  `BATCH_PROFILE=debug` 退回 4 路；
   `single/check` 默认仍保守 `1/1`。rank0 会输出 batch/frame/sync 心跳，默认 `LOGGING_STEPS=1`，
   可用 `PROGRESS_FRAMES` 和 `HEARTBEAT_SECONDS` 调整日志密度；阶段 1 batched Qwen
   通过 `QWEN_BATCH_SIZE` 启用，批量化同一 timestep 多 route 的 Q1/Q2 student rollout，

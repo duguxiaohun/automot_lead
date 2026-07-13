@@ -6,11 +6,13 @@
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 #   GPU_IDS=0 bash qwen3vl_local/sft_v5/train.sh check
 #
-# ddp 模式默认按四张 H20 的当前推荐口径启动：每卡 4 条 route sequence，
-# 同一 timestep 最多 4 个 frame 做 batched Qwen rollout。single/check 模式仍保守用 1，
-# 避免单卡调试时意外把显存吃爆。用户显式传 PER_DEVICE_BATCH_SIZE / QWEN_BATCH_SIZE
-# 时永远优先使用用户配置。多卡默认启用 length_balanced sampler，按 route frame
-# 数均衡各 rank；如需复现旧分片行为，可设置 SAMPLER_MODE=distributed。
+# ddp 模式默认按四张 H20 的当前“max_util”口径启动：每卡 8 条 route sequence，
+# 同一 timestep 最多 8 个 frame 做 batched Qwen rollout，优先追求 GPU 利用率。
+# single/check 模式仍保守用 1，避免单卡调试时意外把显存吃爆。
+# 用户可用 BATCH_PROFILE=debug/balanced/max_util 在 4/6/8 路间切换；
+# 显式传 PER_DEVICE_BATCH_SIZE / QWEN_BATCH_SIZE 时永远优先使用
+# 用户配置。多卡默认启用 length_balanced sampler，按 route frame 数均衡各 rank；
+# 如需复现旧分片行为，可设置 SAMPLER_MODE=distributed。
 
 set -euo pipefail
 
@@ -155,12 +157,30 @@ echo "[gpu] NPROC=${NPROC}"
 
 # launcher 统一在这里决定“默认 batch 口径”。这样文档里的
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
-# 就会真实变成 4 路，而不是只启动 4 个 rank、每个 rank 内部仍单样本。
+# 就会真实变成 H20 max_util 8 路，而不是只启动 4 个 rank、每个 rank 内部仍单样本。
+BATCH_PROFILE="${BATCH_PROFILE:-${SFT_V5_BATCH_PROFILE:-max_util}}"
 if [[ "${MODE}" == "ddp" ]]; then
-  DEFAULT_PER_DEVICE_BATCH_SIZE=4
-  DEFAULT_QWEN_BATCH_SIZE=4
+  case "${BATCH_PROFILE}" in
+    debug|conservative|4)
+      DEFAULT_PER_DEVICE_BATCH_SIZE=4
+      DEFAULT_QWEN_BATCH_SIZE=4
+      ;;
+    balanced|6)
+      DEFAULT_PER_DEVICE_BATCH_SIZE=6
+      DEFAULT_QWEN_BATCH_SIZE=6
+      ;;
+    aggressive|max_util|8)
+      DEFAULT_PER_DEVICE_BATCH_SIZE=8
+      DEFAULT_QWEN_BATCH_SIZE=8
+      ;;
+    *)
+      echo "[batch][error] unknown BATCH_PROFILE=${BATCH_PROFILE}; use debug/balanced/max_util or set PER_DEVICE_BATCH_SIZE/QWEN_BATCH_SIZE" >&2
+      exit 1
+      ;;
+  esac
   DEFAULT_PROGRESS_FRAMES=20
 else
+  BATCH_PROFILE="single"
   DEFAULT_PER_DEVICE_BATCH_SIZE=1
   DEFAULT_QWEN_BATCH_SIZE=1
   DEFAULT_PROGRESS_FRAMES=5
@@ -168,13 +188,15 @@ fi
 
 EFFECTIVE_PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-${PER_DEVICE_BS:-${DEFAULT_PER_DEVICE_BATCH_SIZE}}}"
 # 如果用户只调 PER_DEVICE_BATCH_SIZE/PER_DEVICE_BS 而没调 QWEN_BATCH_SIZE，
-# Qwen rollout batch 默认跟随每卡 route 数；这样 4 路默认是 4/4，降到 2 路时也自然是 2/2。
+# Qwen rollout batch 默认跟随每卡 route 数；这样 max_util 默认是 8/8，
+# 降到 balanced/debug/2 路时也会自然变成 6/6、4/4、2/2。
 EFFECTIVE_QWEN_BATCH_SIZE="${QWEN_BATCH_SIZE:-${EFFECTIVE_PER_DEVICE_BATCH_SIZE:-${DEFAULT_QWEN_BATCH_SIZE}}}"
 EFFECTIVE_PROGRESS_FRAMES="${PROGRESS_FRAMES:-${DEFAULT_PROGRESS_FRAMES}}"
 
 echo "[batch] PER_DEVICE_BATCH_SIZE=${EFFECTIVE_PER_DEVICE_BATCH_SIZE}"
 echo "[batch] QWEN_BATCH_SIZE=${EFFECTIVE_QWEN_BATCH_SIZE}"
 echo "[batch] GRAD_ACCUM=${GRAD_ACCUM:-1}"
+echo "[batch] BATCH_PROFILE=${BATCH_PROFILE}"
 echo "[sampler] SAMPLER_MODE=${SAMPLER_MODE:-length_balanced}"
 echo "[parallel] PARALLEL_KL=${PARALLEL_KL:-1}"
 if [[ "${MODE}" == "ddp" && "${EFFECTIVE_PER_DEVICE_BATCH_SIZE}" -lt "${EFFECTIVE_QWEN_BATCH_SIZE}" ]]; then
@@ -218,6 +240,22 @@ COMMON_ARGS=(
   --seed "${SEED:-20260711}"
   "${EXTRA_ARGS[@]}"
 )
+
+if [[ "${DRY_RUN:-0}" == "1" ]]; then
+  # 只检查 launcher 解析后的 GPU、batch profile 和 train.py 参数，不加载 Qwen 权重。
+  # 用法：DRY_RUN=1 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+  echo "[dry-run] NPROC=${NPROC}"
+  printf "[dry-run] command:"
+  if [[ "${NPROC}" -gt 1 ]]; then
+    printf " torchrun --nproc_per_node=%q --master_addr=%q --master_port=%q qwen3vl_local/sft_v5/train.py" \
+      "${NPROC}" "${MASTER_ADDR}" "${MASTER_PORT}"
+  else
+    printf " python qwen3vl_local/sft_v5/train.py"
+  fi
+  printf " %q" "${COMMON_ARGS[@]}"
+  printf "\n"
+  exit 0
+fi
 
 if [[ "${NPROC}" -gt 1 ]]; then
   torchrun --nproc_per_node="${NPROC}" \

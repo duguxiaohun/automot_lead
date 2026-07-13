@@ -176,28 +176,34 @@ padding 压力；`--require-batched-group` 要求实际运行到 size>=2 的 bat
   `MAX_NEW_TOKENS_Q1/Q2`；如果长期非 0，说明 1024 安全上限正在截断输出，远端要优先
   检查模型是否不出 EOS / `<|im_end|>`。
 - 如果 `qwen/q1_batched_frame_rate` 接近 0，优先查 `[warn] q1 batch fallback`；
-  没有 fallback 时 4 路配置应稳定看到 `batched_frames=4`。
+  没有 fallback 时默认 max_util 8 路配置应稳定看到 `batched_frames=8`。
 
 四卡多 batch 训练 demo：
 
 ```bash
-PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4 \
+BATCH_PROFILE=max_util \
 LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
 现在 `GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp` 默认就是
-`PER_DEVICE_BATCH_SIZE=4 / QWEN_BATCH_SIZE=4`：会启动 4 个 rank，并让每卡同一 timestep
-有 4 个 frame 可尝试 Q1 grouped/batched
+`BATCH_PROFILE=max_util / PER_DEVICE_BATCH_SIZE=8 / QWEN_BATCH_SIZE=8`：会启动 4 个 rank，
+并让每卡同一 timestep 有 8 个 frame 可尝试 Q1 grouped/batched
 rollout。是否真的并行，以 `actual_batched_frames`、`[q1-grouped] batched_frames=...`
 和 TensorBoard 的 `qwen/q1_batched_frame_rate` 为准。训练日志第一条 `[batch-start]`
-应显示 `routes=4` / `qwen_batch=4`；如果仍是 `routes=2` / `qwen_batch=2`，说明本次
-run 没有按 4 路配置启动。
+应显示 `routes=8` / `qwen_batch=8`；如果是 `routes=6` / `qwen_batch=6`，说明本次
+run 使用了 `BATCH_PROFILE=balanced`；如果是 4 路，则是 debug 或显式覆盖了 batch。
 
-如果 H20 显存仍明显空闲，可以临时试 8 路，但要先确认 smoke 和小 run 不 OOM：
+如果 8 路不稳，先退回 balanced 6 路；如果 6 路仍不稳，再退回 debug 4 路：
 
 ```bash
-PER_DEVICE_BATCH_SIZE=8 QWEN_BATCH_SIZE=8 \
+BATCH_PROFILE=balanced \
+LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+```bash
+BATCH_PROFILE=debug \
 LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
@@ -205,8 +211,8 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 注意：Qwen 输出不做 `ABNORMAL:` / `EVENT:` 字段早停，但仍保留
 `MAX_NEW_TOKENS_Q1=1024` / `MAX_NEW_TOKENS_Q2=1024` 作为安全上限。parallel KL 的显存
 峰值主要来自近似 `batch x rollout_len x vocab` 的 student/teacher logits；如果 8 路
-或 1024 上限导致 OOM，先退回 `QWEN_BATCH_SIZE=4` 或 `PARALLEL_KL=0` 定位，不要改成
-字段早停。
+或 1024 上限导致 OOM，先退回 `BATCH_PROFILE=balanced` / `BATCH_PROFILE=debug`，
+必要时再用 `PARALLEL_KL=0` 定位，不要改成字段早停。
 
 代码审阅时同步检查注释：
 
