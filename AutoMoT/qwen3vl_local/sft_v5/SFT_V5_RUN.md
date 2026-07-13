@@ -94,7 +94,7 @@ bash qwen3vl_local/sft_v5/train.sh ddp
 GPU_IDS=0 bash qwen3vl_local/sft_v5/train.sh single
 ```
 
-显式 4 卡 DDP（默认 batch 口径，不是多 batch）：
+显式 4 卡 DDP（默认 4 路 H20 batch 口径）：
 
 ```bash
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
@@ -104,18 +104,19 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 
 ```bash
 NPROC=4
-PER_DEVICE_BATCH_SIZE=1
-QWEN_BATCH_SIZE=1
+PER_DEVICE_BATCH_SIZE=4
+QWEN_BATCH_SIZE=4
 GRAD_ACCUM=1
 ```
 
-也就是 4 张卡各 1 个 rank、每卡 1 条 route sequence、每卡内部 Qwen 仍单样本逐帧跑。
-它能用四卡，但不等于充分吃满 H20，也不等于启用了 Qwen batch。
+也就是 4 张卡各 1 个 rank、每卡 4 条 route sequence、每卡同一 timestep 最多
+4 个 frame 尝试 Q1/Q2 batched rollout。启动日志会先打印 `[batch]` 配置，
+随后第一条 `[batch-start]` 应显示 `routes=4` 和 `qwen_batch=4`。
 
-推荐四卡多 batch 起步命令：
+显式写全的四卡 H20 多 batch 命令：
 
 ```bash
-PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 \
+PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4 \
 LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
@@ -124,13 +125,13 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 
 ```bash
 NPROC=4
-PER_DEVICE_BATCH_SIZE=2
-QWEN_BATCH_SIZE=2
+PER_DEVICE_BATCH_SIZE=4
+QWEN_BATCH_SIZE=4
 GRAD_ACCUM=1
 ```
 
-含义是：四卡各 1 个 rank，每卡每个 DataLoader batch 取 2 条 route，全局约 8 条
-route sequence；每个 rank 在同一个 timestep 内最多拿 2 个 frame 尝试 Q1 grouped/batched
+含义是：四卡各 1 个 rank，每卡每个 DataLoader batch 取 4 条 route，全局约 16 条
+route sequence；每个 rank 在同一个 timestep 内最多拿 4 个 frame 尝试 Q1 grouped/batched
 rollout。是否真的形成 Qwen batch，要看 `[q1-grouped] ... batched_frames=...` 和
 TensorBoard 的 `qwen/q1_batched_frame_rate`。
 
@@ -283,45 +284,17 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 
 ```bash
 NPROC=4
-PER_DEVICE_BATCH_SIZE=1
+PER_DEVICE_BATCH_SIZE=4
 GRAD_ACCUM=1
-QWEN_BATCH_SIZE=1
+QWEN_BATCH_SIZE=4
 ```
 
-这表示 4 张卡各跑 1 个进程、每卡每个 DataLoader batch 只有 1 条 route sequence。
-它能用上 4 张卡，但每张卡内部 Qwen 仍是单样本 Q1/Q2 逐帧跑；H20 上通常不会吃满显存，
-也不一定能把 GPU util 拉满。
+也就是说默认四卡命令已经是 4 路。`single` / `check` 模式为了单卡调试安全，
+默认仍是 `PER_DEVICE_BATCH_SIZE=1 / QWEN_BATCH_SIZE=1`。
 
 #### 4.1.1 推荐多 batch demo
 
-先从每卡 2 条 route、Q1 尝试 2 路并行开始：
-
-```bash
-PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 \
-LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
-GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
-```
-
-这个配置的含义：
-
-- `NPROC=4`：四张卡各一个 torchrun rank。
-- `PER_DEVICE_BATCH_SIZE=2`：每张卡每个 DataLoader batch 取 2 条 route sequence。
-- 全局 route batch 约为 `4 * 2 = 8` 条 sequence。
-- `QWEN_BATCH_SIZE=2`：每个 rank、同一个 timestep 内最多拿 2 个 frame 尝试合成 Q1
-  student rollout batch。
-- `GRAD_ACCUM=1`：每个 DataLoader batch 后做一次 optimizer step；如果显存紧张但想保持
-  更大等效 batch，可改成 `GRAD_ACCUM=2`。
-
-如果 `PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2` 稳定、没有 OOM，并且 TensorBoard 里
-`qwen/q1_batched_frame_rate` 明显大于 0，可以再试更激进配置：
-
-```bash
-PER_DEVICE_BATCH_SIZE=3 QWEN_BATCH_SIZE=3 \
-LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
-GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
-```
-
-或：
+四张 H20 上推荐直接使用默认 4 路，也可以显式写出：
 
 ```bash
 PER_DEVICE_BATCH_SIZE=4 QWEN_BATCH_SIZE=4 \
@@ -329,11 +302,41 @@ LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
-H20 96GB 上如果 2 路只占约 20-23GB 显存、没有 fallback/OOM，优先试 4 路。若 4 路
-仍只有中等 GPU util，说明瓶颈主要在 KL/teacher 单样本路径，继续增大 rollout batch
-的收益会变小，下一阶段需要实现 batched KL forward。
+这个配置的含义：
 
-开到 3/4 前建议先跑下面的真实 batched KV smoke，确认模型和当前数据里能找到
+- `NPROC=4`：四张卡各一个 torchrun rank。
+- `PER_DEVICE_BATCH_SIZE=4`：每张卡每个 DataLoader batch 取 4 条 route sequence。
+- 全局 route batch 约为 `4 * 4 = 16` 条 sequence。
+- `QWEN_BATCH_SIZE=4`：每个 rank、同一个 timestep 内最多拿 4 个 frame 尝试合成 Q1
+  student rollout batch。
+- `GRAD_ACCUM=1`：每个 DataLoader batch 后做一次 optimizer step；如果显存紧张但想保持
+  更大等效 batch，可改成 `GRAD_ACCUM=2`。
+
+启动后第一条 `[batch-start]` 应该能看到 `routes=4` 和 `qwen_batch=4`，`[q1-grouped]`
+/ `[q2-grouped]` 中理想情况下会出现 `size=4`、`batched_frames=4`。如果仍显示
+`routes=2` 或 `qwen_batch=2`，说明环境变量没有按 4 路传进去，当前 run 不是 4 路配置。
+
+如果 4 路出现 OOM、频繁 fallback，或者想先做保守 debug，再降到 2 路：
+
+```bash
+PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2 \
+LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+中间档 3 路也可以用来定位显存和吞吐拐点：
+
+```bash
+PER_DEVICE_BATCH_SIZE=3 QWEN_BATCH_SIZE=3 \
+LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+H20 96GB 上如果 4 路只占较低显存、没有 fallback/OOM，但 GPU util 仍只有中等水平，
+说明瓶颈主要在 KL/teacher 单样本路径，继续增大 rollout batch 的收益会变小，下一阶段
+需要实现 batched KL forward。
+
+正式跑默认 4 路前建议先跑下面的真实 batched KV smoke，确认模型和当前数据里能找到
 exact-length group：
 
 ```bash

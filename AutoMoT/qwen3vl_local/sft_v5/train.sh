@@ -5,6 +5,11 @@
 #   GPU_IDS=0 bash qwen3vl_local/sft_v5/train.sh single
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 #   GPU_IDS=0 bash qwen3vl_local/sft_v5/train.sh check
+#
+# ddp 模式默认按四张 H20 的当前推荐口径启动：每卡 4 条 route sequence，
+# 同一 timestep 最多 4 个 frame 做 batched Qwen rollout。single/check 模式仍保守用 1，
+# 避免单卡调试时意外把显存吃爆。用户显式传 PER_DEVICE_BATCH_SIZE / QWEN_BATCH_SIZE
+# 时永远优先使用用户配置。
 
 set -euo pipefail
 
@@ -142,6 +147,32 @@ fi
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
 
+# launcher 统一在这里决定“默认 batch 口径”。这样文档里的
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+# 就会真实变成 4 路，而不是只启动 4 个 rank、每个 rank 内部仍单样本。
+if [[ "${MODE}" == "ddp" ]]; then
+  DEFAULT_PER_DEVICE_BATCH_SIZE=4
+  DEFAULT_QWEN_BATCH_SIZE=4
+  DEFAULT_PROGRESS_FRAMES=20
+else
+  DEFAULT_PER_DEVICE_BATCH_SIZE=1
+  DEFAULT_QWEN_BATCH_SIZE=1
+  DEFAULT_PROGRESS_FRAMES=5
+fi
+
+EFFECTIVE_PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-${PER_DEVICE_BS:-${DEFAULT_PER_DEVICE_BATCH_SIZE}}}"
+# 如果用户只调 PER_DEVICE_BATCH_SIZE/PER_DEVICE_BS 而没调 QWEN_BATCH_SIZE，
+# Qwen rollout batch 默认跟随每卡 route 数；这样 4 路默认是 4/4，降到 2 路时也自然是 2/2。
+EFFECTIVE_QWEN_BATCH_SIZE="${QWEN_BATCH_SIZE:-${EFFECTIVE_PER_DEVICE_BATCH_SIZE:-${DEFAULT_QWEN_BATCH_SIZE}}}"
+EFFECTIVE_PROGRESS_FRAMES="${PROGRESS_FRAMES:-${DEFAULT_PROGRESS_FRAMES}}"
+
+echo "[batch] PER_DEVICE_BATCH_SIZE=${EFFECTIVE_PER_DEVICE_BATCH_SIZE}"
+echo "[batch] QWEN_BATCH_SIZE=${EFFECTIVE_QWEN_BATCH_SIZE}"
+echo "[batch] GRAD_ACCUM=${GRAD_ACCUM:-1}"
+if [[ "${MODE}" == "ddp" && "${EFFECTIVE_PER_DEVICE_BATCH_SIZE}" -lt "${EFFECTIVE_QWEN_BATCH_SIZE}" ]]; then
+  echo "[batch][warn] QWEN_BATCH_SIZE=${EFFECTIVE_QWEN_BATCH_SIZE} > PER_DEVICE_BATCH_SIZE=${EFFECTIVE_PER_DEVICE_BATCH_SIZE}; extra Qwen slots will be unused"
+fi
+
 COMMON_ARGS=(
   # 下面所有参数都可以通过同名大写环境变量覆盖；这里保持和 v3/v4 launcher
   # 类似的写法，方便远端批量实验只改 shell 环境，不手动编辑脚本。
@@ -149,7 +180,7 @@ COMMON_ARGS=(
   --val-index "${VAL_INDEX}"
   --model-dir "${MODEL_DIR}"
   --output-dir "${OUTPUT_DIR}"
-  --per-device-batch-size "${PER_DEVICE_BATCH_SIZE:-${PER_DEVICE_BS:-1}}"
+  --per-device-batch-size "${EFFECTIVE_PER_DEVICE_BATCH_SIZE}"
   --grad-accum "${GRAD_ACCUM:-1}"
   --num-epochs "${NUM_EPOCHS:-1}"
   --learning-rate "${LEARNING_RATE:-${LR:-3e-5}}"
@@ -169,9 +200,9 @@ COMMON_ARGS=(
   --max-routes "${MAX_ROUTES:-0}"
   --max-frames-per-route "${MAX_FRAMES_PER_ROUTE:-0}"
   --num-workers "${NUM_WORKERS:-0}"
-  --qwen-batch-size "${QWEN_BATCH_SIZE:-1}"
+  --qwen-batch-size "${EFFECTIVE_QWEN_BATCH_SIZE}"
   --logging-steps "${LOGGING_STEPS:-1}"
-  --progress-frames "${PROGRESS_FRAMES:-5}"
+  --progress-frames "${EFFECTIVE_PROGRESS_FRAMES}"
   --heartbeat-seconds "${HEARTBEAT_SECONDS:-120}"
   --save-steps "${SAVE_STEPS:-200}"
   --max-steps "${MAX_STEPS:-0}"
