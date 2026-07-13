@@ -305,16 +305,17 @@
   `single/check` 默认仍保守 `1/1`。rank0 会输出 batch/frame/sync 心跳，默认 `LOGGING_STEPS=1`，
   可用 `PROGRESS_FRAMES` 和 `HEARTBEAT_SECONDS` 调整日志密度；阶段 1 batched Qwen
   通过 `QWEN_BATCH_SIZE` 启用，只批量化同一 timestep 多 route 的 Q1 student rollout，
-  需要配合 `PER_DEVICE_BATCH_SIZE>1`；阶段 1 只允许 processor input length 完全一致的
-  frame 共享 batched KV，混长 frame 必须按长度分组或走单样本，禁止把 padded
-  past_key_values 传给 Q1 KL/Q2 续接；batched Q1 必须按 `attention_mask` 取最后真实
+  需要配合 `PER_DEVICE_BATCH_SIZE>1`；阶段 1 Q1 student rollout 允许 mixed-length
+  padded batch，padded past_key_values 只用于 no-grad 采样 Q1/Q2 文本/token，
+  禁止直接传给 Q1 KL/Q2 训练 state，`_run_frame` 必须用同一段 student ids
+  重建单样本精确 KV；batched Q1 必须按 `attention_mask` 取最后真实
   token logits、repetition penalty 不得包含 padding token，CUDA OOM 不允许静默 fallback，
   开大前用 `test_batched_qwen_smoke.py` 做 single-vs-batch Q1/Q2 续接和训练 logits 对照；
-  只有报告里的 `actual_batched_group_sizes` / `actual_batched_frames` 能证明真实 batched KV
+  只有报告里的 `actual_batched_group_sizes` / `actual_batched_frames` 能证明真实 batched rollout
   被测到，强制验证时必须加 `--require-batched-group`；`qwen/q1_batched_frame_rate`
-  是全训练 Q1 frame 的真实 batch 比例，若长期接近 0 应退回 `QWEN_BATCH_SIZE=1`
-  或后续做 length bucketing/cache；batched Qwen 相关代码必须保留中文注释解释
-  Cache 切片、last-valid logits、padding 排除、EOS active batch 移除、OOM 不 fallback
+  是全训练 Q1 frame 的真实 batch 比例，若长期接近 0 应优先检查 `[warn] q1 batch fallback`；
+  batched Qwen 相关代码必须保留中文注释解释
+  padded rollout、单样本 KV 重建、last-valid logits、padding 排除、EOS active batch 移除、OOM 不 fallback
   和 TensorBoard 分母口径，`rope_deltas` 必须兼容 `(batch,1)` / `(1,batch)` 两种方向，
   避免 active batch 缩小时 M-RoPE delta 切片错误；后续改这些逻辑时同步更新注释。每帧 loss
   按全局有效 frame 数归一化，手动 all-reduce 后保持 frame 等权；TensorBoard 必须记录

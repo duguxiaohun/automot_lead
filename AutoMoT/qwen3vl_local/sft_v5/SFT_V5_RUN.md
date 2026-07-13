@@ -231,7 +231,7 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 - `train/q2_event_acc_window`：进入 Q2 的帧中，EVENT 解析是否命中动态真值。
 - `train/q2_invalid_output` / `train/reset_next`：非法输出和下一帧 reset 次数。
 - `train/rollout_tokens_per_frame`：student on-policy 采样出的 Q1+Q2 token 平均长度。
-- `qwen/q1_batched_frame_rate`：所有已训练 Q1 frame 中，真正进入 size>=2 batched KV
+- `qwen/q1_batched_frame_rate`：所有已训练 Q1 frame 中，真正进入 size>=2 batched rollout
   的比例；这是判断 `QWEN_BATCH_SIZE>1` 是否真有收益的主指标。
 - `qwen/q1_grouped_frame_rate`：所有已训练 Q1 frame 中，进入 grouped 路径的比例；
   `QWEN_BATCH_SIZE=1` 或尾部单 frame chunk 不进入这个分母。
@@ -239,8 +239,9 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
   它不能代表全训练 frame 的真实 batch 比例。
 - `qwen/q1_batched_groups` / `qwen/q1_singleton_groups`：真实 batched group 和 singleton
   group 数。
-- `qwen/q1_length_seconds_per_chunk`：为了 exact-length 分组而计算 processor input
-  length 的平均耗时；如果它过大，说明长度预计算可能抵消吞吐收益。
+- `qwen/q1_length_seconds_per_chunk`：为了记录 padding pressure 而计算 processor input
+  length 的平均耗时；Q1 现在允许 mixed-length padded rollout，这个指标主要用于审计
+  prompt 长度差异。
 - `ddp/padding_rate`：global padding 后的 None frame 占位比例。
 - `ddp/max_T_global_avg`：logging window 内多进程对齐后的平均 `max_T_global`。
 
@@ -336,8 +337,8 @@ H20 96GB 上如果 4 路只占较低显存、没有 fallback/OOM，但 GPU util 
 说明瓶颈主要在 KL/teacher 单样本路径，继续增大 rollout batch 的收益会变小，下一阶段
 需要实现 batched KL forward。
 
-正式跑默认 4 路前建议先跑下面的真实 batched KV smoke，确认模型和当前数据里能找到
-exact-length group：
+正式跑默认 4 路前建议先跑下面的真实 batched rollout smoke，确认 mixed-length
+padded Q1/Q2 采样与单样本路径一致：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
@@ -355,26 +356,25 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
 - `QWEN_BATCH_SIZE>1` 必须配合 `PER_DEVICE_BATCH_SIZE>1` 才有并行对象；如果每卡
   只有 1 条 route，同一 timestep 仍只有 1 个 frame 可跑。
 - 当前阶段批量化 Q1 student rollout，并对 Q2 student rollout 做 padded batched
-  rollout：Q2 采样可以容纳完整对话长度不同的样本，但 padded Q2 KV 只用于生成
-  student 文本/token；teacher/student KL forward 会重新构造单样本精确 Q2 state，避免
-  padded KV 污染训练分布。
-- batched Q1 只会把 processor 后真实 input length 完全一致的 frame 放进同一个
-  batched KV；混长 frame 会按长度分组，单元素组回到单样本路径。不要把带 padding
-  的 past_key_values 继续传给 Q1 KL/Q2，因为后续增量 decode 的 `prefix_len` /
-  M-RoPE 位置会偏离单样本路径。
+  rollout：Q1/Q2 采样都可以容纳输入长度不同的样本，但 padded KV 只用于生成
+  student 文本/token；teacher/student KL forward 会重新构造单样本精确 Q1/Q2 state，
+  避免 padded KV 污染训练分布。
+- batched Q1 不再要求 processor input length 完全一致。日志中的 `length_hist`
+  只表示 padding pressure；只要 `batched_frames=4`，就说明当前 chunk 真正 4 路采样。
 - batch Q1 的普通 processor/cache 兼容错误会打印 `[warn] q1 batch fallback ...` 并
   回退单帧旧路径；CUDA OOM 不静默回退，会清理 cache 后直接中止，避免 OOM 后继续
   跑出不稳定状态。若需要定位 fallback 栈，临时加 `Q1_BATCH_TRACEBACK=1` 或
   `Q2_BATCH_TRACEBACK=1` 运行。
 - 日志里 `[q1-grouped] ... group_sizes=[...] batched_groups=... singleton_groups=...`
   会显示该 chunk 的真实分组。只有 `batched_frames>0` 时，才说明本 chunk 真正跑了
-  size>=2 的 batched Qwen；如果全是 singleton，就只是安全分组/回退。
+  size>=2 的 batched Qwen；如果全是 singleton，通常是 chunk 里有效 frame 不足或发生回退。
 - 日志里 `[q2-grouped] ... group_sizes=[...] batched_groups=... singleton_groups=...`
   会显示 Q2 student rollout 是否真的 batch。`length_hist` 仍记录完整 Q2 对话长度差异；
   当前 padded rollout 下，只要同一 timestep 有多个 Q2 candidate，就应看到
   `batched_frames>0`。如果仍为 0，通常表示 Q1 RS 错导致可进入 Q2 的候选不足。
-- 如果 `[q1-grouped]` 已经稳定显示 `group_sizes=[2]` / `batched_frames=2`，但
-  `nvidia-smi` 仍只有 45%-50% 左右，通常不是 batch 没生效，而是当前阶段只批量化
+- 如果 `[q1-grouped]` 仍只显示 `batched_frames=2`，说明当前运行还不是这版
+  padded Q1 rollout，或发生了 fallback；新版正常 4 路时应看到 `batched_frames=4`。
+  如果已经稳定 `batched_frames=4`，但 `nvidia-smi` 仍只有 45%-50% 左右，通常不是 batch 没生效，而是当前阶段只批量化
   rollout；每个 frame 后面的 Q1/Q2 teacher 与 KL 仍是单样本串行。日志中的
   `time={q1stu,...,q2loss}`、`[q2-grouped]` 和 TensorBoard 的 `time/*` / `qwen/q2_*`
   指标用于确认瓶颈具体在哪一段。
@@ -390,18 +390,17 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   token；repetition penalty 只看真实 token，不把 padding token 纳入惩罚。
 - 每帧 loss 按当前 batch 的全局有效 frame 数归一化，梯度 all-reduce 后是 frame
   等权，不再是 rank 等权。
-- 如果 `qwen/q1_batched_frame_rate` 长期接近 0，且
-  `qwen/q1_length_seconds_per_chunk` 明显增加 step 时间，说明 exact-length 分组没有带来
-  真实吞吐收益，建议先把 `QWEN_BATCH_SIZE=1`，后续再做长度 bucketing sampler 或更低
-  成本的 length cache。
+- 如果 `qwen/q1_batched_frame_rate` 长期接近 0，优先查 `[warn] q1 batch fallback`；
+  在没有 fallback 的 4 路配置下，Q1 mixed-length padded rollout 应稳定产生
+  `batched_frames=4`。
 
 代码里的对应注释位置也按这个口径维护：
 
 - `Q1GroupedRolloutResult`：说明 grouped 与真正 batched 的区别。
 - `_slice_kv_state_batch` / `_slice_cache_batch`：说明为什么必须保持 Cache 类型和 batch
   维切片。
-- `_kv_start_state_batch`：说明为什么有 padding 时拒绝 batched KV，而不是只修
-  `next_logits`。
+- `_kv_start_state_batch_padded`：说明 padded KV 只用于 no-grad rollout，KL/Q2 必须
+  重建单样本精确 KV。
 - `_student_generate_kv_batch`：说明 EOS 样本为什么要从 active batch 中移除，避免污染
   Q2 续接 KV。
 - 训练主循环：说明 `loss_slots`、`qwen/q1_batched_frame_rate`、OOM 不回退和 Q1 rollout
@@ -412,8 +411,9 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
 
 训练前真实模型对照 smoke 分两种。
 
-1. 混长安全分组检查：默认优先挑 input length 差异大的 case，确认不会把 padded
-   cache 传给后续 Q1 KL/Q2。
+1. 混长 padded rollout 检查：默认优先挑 input length 差异大的 case，确认 padded
+   Q1 rollout 的采样文本/token 与单样本路径一致，并且后续 Q1 KL/Q2 使用重建后的
+   单样本精确 KV。
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
@@ -423,8 +423,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json
 ```
 
-2. 强制真实 batched KV 检查：必须找到至少一个 exact input length 相同且 size>=2
-   的 group，否则直接失败，避免误以为 batch 已验证。
+2. 强制真实 batched rollout 检查：必须跑到 size>=2 的 batched rollout group，
+   否则直接失败，避免误以为 batch 已验证。
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
@@ -504,7 +504,7 @@ python qwen3vl_local/sft_v5/eval.py \
 | 目的 | 命令 | 是否加载模型 | 主要产物 |
 |---|---|---|---|
 | 训练前 base Qwen OPSD 能力体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe --num-cases 8 --with-model --with-teacher-model --with-teacher` | 是，纯默认/base Qwen，不传 `--adapter-dir`，不加载任何 LoRA | RGB 副本、system/user/messages、student output、teacher target/output、memory、flags、timeline |
-| 训练前 grouped Qwen 等价性体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --num-cases 2 --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json`；强制真实 batched KV 时加 `--candidate-pool 256 --require-batched-group --no-prefer-different-lengths` | 是，纯默认/base Qwen，不传 `--adapter-dir` | single-vs-grouped Q1/Q2 文本、token、训练 logits diff、actual group sizes、input length / padding pressure |
+| 训练前 grouped Qwen 等价性体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --num-cases 2 --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json`；强制真实 batched rollout 时加 `--candidate-pool 256 --require-batched-group --no-prefer-different-lengths` | 是，纯默认/base Qwen，不传 `--adapter-dir` | single-vs-grouped Q1/Q2 文本、token、训练 logits diff、actual group sizes、input length / padding pressure |
 | 训练后 adapter 学生可视化 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --adapter-dir checkpoints/sft_v5_runs/latest/final --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter --num-cases 8 --with-model --with-teacher` | 是，只加载 student adapter | 上述静态产物 + `q1_student_output.txt` / `q2_student_output.txt` |
 | 静态检查教师/学生输入合同 | `python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/probe_static --num-cases 24 --with-teacher` | 否 | RGB 副本、student prompt、teacher prompt、teacher target、memory、flags、timeline |
 | 检查 teacher 合同 | `python qwen3vl_local/sft_v5/inspect_teacher.py --index checkpoints/sft_v5_data/train_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/teacher_inspect --num-cases 64` | 否 | `teacher_report.json` / `teacher_report.md` |

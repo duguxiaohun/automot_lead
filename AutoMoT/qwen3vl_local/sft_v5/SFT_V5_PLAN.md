@@ -839,14 +839,13 @@ DataLoader batch 攒更多 route。实现分阶段推进：
 
 1. **阶段 1：batched Q1 student rollout**（已落地为 `QWEN_BATCH_SIZE`）
    - 同一 rank、同一 timestep 内收集多条 route 的 frame；
-   - 只把 processor 后真实 input length 完全一致的 frame 放进同一个 batched KV，
-     混长 frame 按 length 分组，单元素组回到单样本路径；
-   - 同 length group 一次 processor/Qwen prefill，batched greedy 生成 Q1；
+   - Q1 student rollout 允许 mixed-length padded batch，用一次 Qwen prefill/generate
+     采样多条 route 的 Q1 文本/token；
    - prefill 首 token logits 按 `attention_mask` 找每条样本最后一个真实 token，兼容
      left/right padding；
    - repetition penalty 只看真实 prompt token，padding token 不进入 seen set；
-   - 若 batched KV 里出现 padding，直接拒绝该路径；不能把 padded past_key_values
-     交给后续 Q1 KL/Q2，因为 M-RoPE `prefix_len` 会按 padded length 走；
+   - padded KV 只用于 no-grad 采样，不返回给后续 Q1 KL/Q2；`_run_frame` 会用
+     同一段 q1_ids 重建单样本精确 q1_student_state/q1_after；
    - 某个样本预测 EOS 时，从 active batch 中移除并保存追加 EOS 前的干净 KV；
    - 后续 Q1 loss、Q2、teacher KL 仍走单样本路径，训练语义不变；
    - 若 processor/cache 兼容失败，自动 fallback 到单帧旧路径；CUDA OOM 直接中止，
@@ -883,8 +882,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
 该 smoke 默认优先挑 Q1 input length 不同的两帧制造 padding 压力，并对比 single Q1
 与 batched/grouped Q1，包括首 token、完整生成文本、`q1_ids`、同一 `q1_ids` 上训练
 KL 路径 logits 的 max/mean abs diff，以及 Q1 KV 后续接 Q2 的输出；训练前默认不传
-`--adapter-dir`，只验证普通 Qwen 路径。默认命令可能只验证“混长安全分组/回退”。
-若要强制确认真的跑到 size>=2 的 batched KV，必须加：
+`--adapter-dir`，只验证普通 Qwen 路径。若要强制确认真的跑到 size>=2 的
+batched rollout，必须加：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
@@ -897,7 +896,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   --output-json checkpoints/sft_v5_runs/batched_qwen_smoke_require_batch.json
 ```
 
-报告里 `actual_batched_group_sizes` / `actual_batched_frames` 才是真实 batched KV 是否
+报告里 `actual_batched_group_sizes` / `actual_batched_frames` 才是真实 batched rollout 是否
 被测到的证据。
 
 ### 7.5 OPSD 的“采样数据”定义
@@ -1068,10 +1067,9 @@ max_frames_per_route=0  # 0 means full route
 这些指标在 logging window 内先按 rank 本地累计，再 `all_reduce(SUM)` 到全局口径，
 rank0 打印一行 `[train] ...` 并写 TensorBoard。
 
-`qwen/q1_batched_frame_rate` 是所有训练 Q1 frame 的真实 batched 比例；如果它长期接近
-0，说明 exact-length 分组大多退回 singleton，`QWEN_BATCH_SIZE>1` 可能只增加
-length 预计算开销。此时先退回 `QWEN_BATCH_SIZE=1`，后续再考虑 length bucketing
-sampler 或缓存每帧 processor input length。
+`qwen/q1_batched_frame_rate` 是所有训练 Q1 frame 的真实 batched rollout 比例；如果它长期接近
+0，说明同一 timestep 内有效 frame 不足或 batch fallback 频繁。此时先看日志里的
+`[warn] q1 batch fallback`，再考虑退回 `QWEN_BATCH_SIZE=1`。
 
 多 batch 运行 demo：
 
@@ -1088,11 +1086,11 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 配置，第一条 `[batch-start]` 也应显示 `routes=4` 与 `qwen_batch=4`。若 4 路 OOM
 或频繁 fallback，可降到
 `PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2` 做保守 debug；若 `qwen/q1_batched_frame_rate`
-长期接近 0，则回到 `QWEN_BATCH_SIZE=1` 或后续做 length bucketing。
+长期接近 0，则先查 `[warn] q1 batch fallback`，必要时回到 `QWEN_BATCH_SIZE=1`。
 若 4 路已经稳定显示 `batched_frames=4`，但 GPU util 仍约 45%-50%，则根据 `time/frame_*` 和
 `qwen/q2_*` 判断是否应进入下一阶段（batched KL forward），因为当前阶段并行
-Q1 student rollout，并对 Q2 student rollout 做 padded batched rollout；padded Q2
-KV 只用于采样文本/token，Q1/Q2 teacher 与 KL 仍重新走单样本精确路径。
+Q1/Q2 student rollout；padded Q1/Q2 KV 只用于采样文本/token，Q1/Q2 teacher 与 KL
+仍重新走单样本精确路径。
 
 实现注释要求：
 
@@ -1111,8 +1109,8 @@ KV 只用于采样文本/token，Q1/Q2 teacher 与 KL 仍重新走单样本精�
   `outputs.rope_deltas` 写回 KVState；后者可能是 Qwen 模型对象缓存的 stale batched
   delta。
 - `test_batched_qwen_smoke.py` 的默认 mixed-length 模式和
-  `--require-batched-group` 模式必须在代码注释和文档中保持一致：默认模式验证安全分组，
-  强制模式才证明真实 batched KV。
+  `--require-batched-group` 模式必须在代码注释和文档中保持一致：默认模式验证
+  mixed-length padded rollout，强制模式要求真实 batched_frames>=2。
 
 ### 8.4 Padding 与 memory reset
 

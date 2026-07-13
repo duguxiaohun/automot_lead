@@ -116,7 +116,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 这个检查也必须使用默认/base Qwen，不传 `--adapter-dir`；只有当你想专门检查某个
 已训练 adapter 的 grouped 路径时，才显式传 `--adapter-dir`。
 
-默认命令偏向检查“混长是否安全分组/回退”，不保证一定跑到 size>=2 的真实 batched KV：
+默认命令偏向检查“混长 padded rollout 是否和单样本等价”，并会主动制造 padding 压力：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
@@ -126,7 +126,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json
 ```
 
-强制验证真实 batched KV 时，用：
+强制验证真实 batched rollout 时，用：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
@@ -140,14 +140,14 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
 ```
 
 默认命令会优先从 `--candidate-pool` 里挑 Q1 input length 差异大的 case，主动制造
-padding 压力；`--require-batched-group` 则必须找到 exact input length 相同且
-size>=2 的 group，否则直接失败。合格时需要看到：
+padding 压力；`--require-batched-group` 要求实际运行到 size>=2 的 batched rollout。
+合格时需要看到：
 
 - `ok=true`。
-- `padding_pressure=true` 时，混长 case 仍能通过，因为代码会按 exact input length
-  分组，单元素组保持单样本路径，不把 padded `past_key_values` 传给后续 Q1 KL/Q2。
+- `padding_pressure=true` 时，混长 case 仍能通过，因为 padded KV 只用于 no-grad
+  student 采样，后续 Q1 KL/Q2 会重建单样本精确 KV。
 - `actual_batched_group_sizes` 非空且 `actual_batched_frames>=2`，才说明这次真的测到了
-  size>=2 的 batched KV；如果为空，只能说明安全分组/回退路径通过。
+  size>=2 的 batched rollout。
 - 每个 case 的 `q1_ids_equal=true`、`q1_text_equal=true`。
 - 每个 case 的 `q2_ids_equal=true`、`q2_text_equal=true`。
 - `q1_logits_max_abs <= logit_atol`，默认 `logit_atol=0.5`；这是训练真正使用的
@@ -159,8 +159,8 @@ size>=2 的 group，否则直接失败。合格时需要看到：
 - `qwen/q1_batched_frame_rate` 是所有已训练 Q1 frame 的真实 batched 比例。
 - `qwen/q1_batched_frame_rate_grouped` 只表示进入 grouped 路径后的内部比例，不能当成
   全局 batch 生效率。
-- 如果 `qwen/q1_batched_frame_rate` 接近 0，同时 `qwen/q1_length_seconds_per_chunk`
-  不小，先把 `QWEN_BATCH_SIZE=1`，后续再做 length bucketing 或 length cache。
+- 如果 `qwen/q1_batched_frame_rate` 接近 0，优先查 `[warn] q1 batch fallback`；
+  没有 fallback 时 4 路配置应稳定看到 `batched_frames=4`。
 
 四卡多 batch 训练 demo：
 
@@ -180,16 +180,16 @@ run 没有按 4 路配置启动。
 
 代码审阅时同步检查注释：
 
-- `_kv_start_state_batch` 必须写清楚：padding 不是只影响首 token logits，还会污染
-  `past_key_values` 的 prefix length / M-RoPE 位置，所以混长样本不能共享 batched KV。
+- `_kv_start_state_batch_padded` 必须写清楚：padding KV 只允许用于 no-grad rollout，
+  不能直接传给后续 Q1 KL/Q2；训练 state 必须重建单样本精确 KV。
 - `_slice_kv_state_batch` 与 `mrope_utils.py` 必须兼容 `(batch,1)` / `(1,batch)` 两种
   `rope_deltas` 方向；如果 log 里出现
   `Target sizes: [1, -1]. Tensor sizes: [2, 1]` 的 `[warn] q1 batch fallback`，
   通常说明 active batch 缩小时 M-RoPE delta 没跟着样本行正确切片。
 - `_student_generate_kv_batch` 必须写清楚：EOS 样本要从 active batch 移除，Q2 才能接在
   干净的 Q1 assistant KV 后。
-- `test_batched_qwen_smoke.py` 必须写清楚：默认 smoke 不证明真实 batched KV，
-  `--require-batched-group` 且 `actual_batched_frames>=2` 才证明。
+- `test_batched_qwen_smoke.py` 必须写清楚：默认 smoke 主要验证 mixed-length padded
+  rollout，`--require-batched-group` 且 `actual_batched_frames>=2` 才证明真实 batch。
 
 ## B. 训练后：adapter 学生输入输出可视化
 
