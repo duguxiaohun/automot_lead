@@ -52,7 +52,10 @@ from qwen3vl_local.sft_v5.train import (  # noqa: E402
     _messages,
     _qwen_message_input_length,
     _reset_memory_for_frame_row,
+    _run_chunk_parallel_kl,
+    _run_frame,
     _run_q1_rollout_grouped,
+    _run_q2_rollout_grouped,
 )
 
 
@@ -187,6 +190,125 @@ def _collect_cases(index: pathlib.Path, num_cases: int, max_routes: int) -> Tupl
     return frames, memories
 
 
+def _parallel_kl_compare(
+    bundle: Any,
+    frames: List[FrameRow],
+    memories: List[Memory],
+    q1_rollouts: List[Tuple[Any, str, Any, torch.Tensor]],
+    *,
+    max_new_tokens_q2: int,
+    temperature: float,
+) -> Dict[str, Any]:
+    """比较旧逐帧 KL 和新 chunk parallel KL 的 loss/parts 等价性。"""
+
+    q2_rollouts: List[Optional[Tuple[Any, str, torch.Tensor]]] = [None for _ in frames]
+    candidate_indices: List[int] = []
+    candidate_frames: List[FrameRow] = []
+    candidate_memories: List[Memory] = []
+    candidate_q1_texts: List[str] = []
+    candidate_abnormal: List[bool] = []
+    for idx, (frame, memory, rollout) in enumerate(zip(frames, memories, q1_rollouts)):
+        _state, q1_text, _after, _ids = rollout
+        parsed = parse_q1_output(q1_text)
+        if parsed.get("rs_label") != frame.rs_label:
+            continue
+        candidate_indices.append(idx)
+        candidate_frames.append(frame)
+        candidate_memories.append(memory)
+        candidate_q1_texts.append(q1_text)
+        candidate_abnormal.append(bool(parsed.get("abnormal") == "YES"))
+    if candidate_frames:
+        grouped_q2 = _run_q2_rollout_grouped(
+            bundle,
+            frames=candidate_frames,
+            memories=candidate_memories,
+            q1_texts=candidate_q1_texts,
+            q1_abnormal_flags=candidate_abnormal,
+            max_new_tokens_q2=max_new_tokens_q2,
+        )
+        for idx, rollout in zip(candidate_indices, grouped_q2.rollouts):
+            q2_rollouts[idx] = rollout
+
+    chunk = [(idx, None, frame, memory) for idx, (frame, memory) in enumerate(zip(frames, memories))]
+    with torch.inference_mode():
+        parallel_loss, parallel_results = _run_chunk_parallel_kl(
+            bundle,
+            chunk,
+            q1_rollouts=q1_rollouts,
+            q2_rollouts=q2_rollouts,
+            temperature=temperature,
+        )
+        sequential_total = None
+        sequential_cases: List[Dict[str, Any]] = []
+        for idx, (frame, memory, q1_rollout, q2_rollout) in enumerate(zip(frames, memories, q1_rollouts, q2_rollouts)):
+            q1_state, q1_text, q1_after, q1_ids = q1_rollout
+            kwargs: Dict[str, Any] = {
+                "q1_student_state": q1_state,
+                "q1_text": q1_text,
+                "q1_after": q1_after,
+                "q1_ids": q1_ids,
+            }
+            if q2_rollout is not None:
+                q2_state, q2_text, q2_ids = q2_rollout
+                kwargs.update({"q2_student_state": q2_state, "q2_text": q2_text, "q2_ids": q2_ids})
+            loss, stats, _next_mem, need_reset = _run_frame(
+                bundle,
+                memory,
+                frame,
+                max_new_tokens_q1=1,
+                max_new_tokens_q2=max_new_tokens_q2,
+                temperature=temperature,
+                **kwargs,
+            )
+            sequential_total = loss if sequential_total is None else sequential_total + loss
+            sequential_cases.append(
+                {
+                    "index": idx,
+                    "loss": float(loss.detach().item()),
+                    "q1_parts": stats.get("q1_parts") or {},
+                    "q2_parts": stats.get("q2_parts") or {},
+                    "q2_triggered": bool(stats.get("q2_triggered", False)),
+                    "need_reset": bool(need_reset),
+                }
+            )
+        if sequential_total is None:
+            sequential_total = parallel_loss * 0.0
+    parallel_cases = [
+        {
+            "index": int(idx),
+            "loss": float(loss_value),
+            "q1_parts": result_stats.get("q1_parts") or {},
+            "q2_parts": result_stats.get("q2_parts") or {},
+            "q2_triggered": bool(result_stats.get("q2_triggered", False)),
+            "need_reset": bool(need_reset),
+        }
+        for idx, result_stats, _next_mem, need_reset, loss_value in parallel_results
+    ]
+    sequential_by_index = {int(case["index"]): case for case in sequential_cases}
+    parallel_by_index = {int(case["index"]): case for case in parallel_cases}
+    case_loss_abs_diffs: List[float] = []
+    part_abs_diffs: List[float] = []
+    for idx in sorted(set(sequential_by_index) & set(parallel_by_index)):
+        seq_case = sequential_by_index[idx]
+        par_case = parallel_by_index[idx]
+        case_loss_abs_diffs.append(abs(float(seq_case["loss"]) - float(par_case["loss"])))
+        for part_group in ("q1_parts", "q2_parts"):
+            seq_parts = seq_case.get(part_group) or {}
+            par_parts = par_case.get(part_group) or {}
+            for key in sorted(set(seq_parts) | set(par_parts)):
+                part_abs_diffs.append(abs(float(seq_parts.get(key, 0.0)) - float(par_parts.get(key, 0.0))))
+    return {
+        "sequential_loss": float(sequential_total.detach().item()),
+        "parallel_loss": float(parallel_loss.detach().item()),
+        "loss_abs_diff": float((sequential_total.detach() - parallel_loss.detach()).abs().item()),
+        "case_loss_max_abs_diff": float(max(case_loss_abs_diffs) if case_loss_abs_diffs else 0.0),
+        "parts_max_abs_diff": float(max(part_abs_diffs) if part_abs_diffs else 0.0),
+        "q2_candidate_count": len(candidate_frames),
+        "sequential_cases": sequential_cases,
+        "parallel_cases": parallel_cases,
+    }
+
+
 def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
     """执行 batch-vs-single 对照并返回 JSON 报告。"""
 
@@ -312,6 +434,24 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
             }
         )
 
+    parallel_kl_report: Optional[Dict[str, Any]] = None
+    if bool(args.check_parallel_kl):
+        parallel_kl_report = _parallel_kl_compare(
+            bundle,
+            frames,
+            memories,
+            batched_q1,  # 使用训练新路径实际拿到的 Q1 rollout token。
+            max_new_tokens_q2=int(args.max_new_tokens_q2),
+            temperature=float(args.temperature),
+        )
+        parallel_ok = (
+            parallel_kl_report["loss_abs_diff"] <= float(args.parallel_loss_atol)
+            and parallel_kl_report["case_loss_max_abs_diff"] <= float(args.parallel_loss_atol)
+            and parallel_kl_report["parts_max_abs_diff"] <= float(args.parallel_loss_atol)
+        )
+        parallel_kl_report["ok"] = bool(parallel_ok)
+        ok = ok and bool(parallel_ok)
+
     return {
         "ok": ok,
         "num_cases": len(cases),
@@ -329,6 +469,9 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
         "length_seconds": grouped_q1.length_seconds,
         "require_batched_group": bool(args.require_batched_group),
         "logit_atol": float(args.logit_atol),
+        "check_parallel_kl": bool(args.check_parallel_kl),
+        "parallel_loss_atol": float(args.parallel_loss_atol),
+        "parallel_kl": parallel_kl_report,
         "cases": cases,
     }
 
@@ -341,9 +484,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num-cases", type=int, default=2)
     p.add_argument("--candidate-pool", type=int, default=32)
     p.add_argument("--max-routes", type=int, default=0)
-    p.add_argument("--max-new-tokens-q1", type=int, default=256)
-    p.add_argument("--max-new-tokens-q2", type=int, default=192)
+    p.add_argument("--max-new-tokens-q1", type=int, default=1024)
+    p.add_argument("--max-new-tokens-q2", type=int, default=1024)
+    p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--logit-atol", type=float, default=0.5)
+    p.add_argument("--check-parallel-kl", action="store_true", help="额外比较旧逐帧 KL 与新 chunk parallel KL 的总 loss、逐 case loss 和 parts 等价性")
+    p.add_argument("--parallel-loss-atol", type=float, default=0.05)
     p.add_argument("--prefer-different-lengths", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--require-batched-group", action="store_true", help="必须运行至少一个 size>=2 的真实 batched rollout group")
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)

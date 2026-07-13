@@ -111,7 +111,9 @@ GRAD_ACCUM=1
 
 也就是 4 张卡各 1 个 rank、每卡 4 条 route sequence、每卡同一 timestep 最多
 4 个 frame 尝试 Q1/Q2 batched rollout。启动日志会先打印 `[batch]` 配置，
-随后第一条 `[batch-start]` 应显示 `routes=4` 和 `qwen_batch=4`。
+随后第一条 `[batch-start]` 应显示 `routes=4` 和 `qwen_batch=4`。默认 sampler 是
+`length_balanced`，会按 route frame 数均衡各 rank；如果要对照旧行为，可设置
+`SAMPLER_MODE=distributed`。
 
 显式写全的四卡 H20 多 batch 命令：
 
@@ -131,9 +133,45 @@ GRAD_ACCUM=1
 ```
 
 含义是：四卡各 1 个 rank，每卡每个 DataLoader batch 取 4 条 route，全局约 16 条
-route sequence；每个 rank 在同一个 timestep 内最多拿 4 个 frame 尝试 Q1 grouped/batched
+route sequence；每个 rank 在同一个 timestep 内最多拿 4 个 frame 尝试 Q1/Q2 grouped/batched
 rollout。是否真的形成 Qwen batch，要看 `[q1-grouped] ... batched_frames=...` 和
 TensorBoard 的 `qwen/q1_batched_frame_rate`。
+
+H20 显存仍明显空闲时，可以试 8 路 rollout batch。这个配置不会降低 token 上限，
+只是每卡一次取更多 route，让同一 timestep 有更多 frame 可 batch；如果出现 OOM 或
+单步明显变慢，再退回 4 路：
+
+```bash
+PER_DEVICE_BATCH_SIZE=8 QWEN_BATCH_SIZE=8 \
+LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+`PARALLEL_KL` 默认开启，会把同一 chunk 内的 Q1/Q2 teacher prompt prefill、
+student prompt prefill、rollout token scoring 和 span KL 合成 batched forward，并对
+chunk loss 一次 backward。如果新路径出现普通兼容问题，会打印
+`[warn] parallel KL fallback ...` 并回到旧逐帧 teacher/KL；CUDA OOM 不回退，直接中止。
+Q2 KL scoring 会按旧逐帧语义先把精确 `q1_ids` 追加到 Q1 prompt KV，再追加 Q2 user
+turn；不会把 `q1_ids` decode 成文本后重新 tokenize 成 full dialog。注意 parallel KL
+会临时持有近似 `batch x rollout_len x vocab` 的 student/teacher logits，`QWEN_BATCH_SIZE=8`
+叠加 1024 token 上限时显存压力会明显高于旧逐帧路径。
+临时回到旧路径：
+
+```bash
+PARALLEL_KL=0 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+Qwen 输出不做 `ABNORMAL:` / `EVENT:` 字段早停；为了防止模型不出 EOS 时无限生成，
+launcher 只保留一个很大的安全上限，默认：
+
+```bash
+MAX_NEW_TOKENS_Q1=1024
+MAX_NEW_TOKENS_Q2=1024
+```
+
+正式训练不要再用很小的 token cap；只有排查 OOM 或做极短 smoke 时才临时调低。
+因此这里不是“完全无限输出”，而是“无字段早停 + EOS / `<|im_end|>` 自然停止 +
+1024 token 安全上限”。
 
 自动选择 4 张空闲卡：
 
@@ -182,9 +220,12 @@ LORA_VISION_SCOPE=merger VISION_LR_SCALE=0.1 GPU_IDS=0 bash qwen3vl_local/sft_v5
 
 - DataLoader collate 只做本 rank local padding；主训练进程再 all-reduce 得到
   当前 batch 的 global `max_T`，padding timestep 不读图、不进 Qwen、不产 loss。
-- 多卡训练使用 torchrun + DistributedSampler + 手动 LoRA 梯度 all-reduce；
+- 多卡训练使用 torchrun + 默认 `LengthBalancedDistributedSampler` + 手动 LoRA 梯度 all-reduce；
   不使用 `DistributedDataParallel(model)` wrapper，避免动态 Q2 分支造成 rank 间
   forward collective 不匹配。
+- `SAMPLER_MODE=length_balanced` 会在每个 rank route 数一致的前提下按 route frame
+  数均衡分片，减少长 route rank 拖住其它 rank；`SAMPLER_MODE=distributed` 可切回
+  PyTorch 原生 route 数均衡分片做对照。
 - 训练循环不再把整条 route sequence 的 Qwen 计算图攒到 batch 末尾；每帧
   OPSD loss 立刻 backward，只累计 LoRA 梯度，降低 H20 上长序列 OOM 风险。
 - `train.sh` 默认 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，减少
@@ -231,6 +272,9 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 - `train/q2_event_acc_window`：进入 Q2 的帧中，EVENT 解析是否命中动态真值。
 - `train/q2_invalid_output` / `train/reset_next`：非法输出和下一帧 reset 次数。
 - `train/rollout_tokens_per_frame`：student on-policy 采样出的 Q1+Q2 token 平均长度。
+- `train/q1_token_cap_hit_rate` / `train/q2_token_cap_hit_rate`：Q1/Q2 生成是否打满
+  `MAX_NEW_TOKENS_Q1/Q2`。如果长期非 0，说明模型经常没有自然输出 EOS / `<|im_end|>`，
+  1024 安全上限正在截断输出，parallel KL 也会更吃显存。
 - `qwen/q1_batched_frame_rate`：所有已训练 Q1 frame 中，真正进入 size>=2 batched rollout
   的比例；这是判断 `QWEN_BATCH_SIZE>1` 是否真有收益的主指标。
 - `qwen/q1_grouped_frame_rate`：所有已训练 Q1 frame 中，进入 grouped 路径的比例；
@@ -242,11 +286,18 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 - `qwen/q1_length_seconds_per_chunk`：为了记录 padding pressure 而计算 processor input
   length 的平均耗时；Q1 现在允许 mixed-length padded rollout，这个指标主要用于审计
   prompt 长度差异。
+- `parallel_kl/frame_rate`：当前 logging window 内有多少 frame 走了 chunk 级 batched
+  teacher/student KL。
+- `parallel_kl/seconds_per_chunk`：chunk 级 KL scoring + backward 的平均耗时。
+- `parallel_kl/fallbacks`：parallel KL 普通兼容问题回退旧逐帧路径的次数；非 0 时优先
+  打开 `PARALLEL_KL_TRACEBACK=1` 定位。
 - `ddp/padding_rate`：global padding 后的 None frame 占位比例。
 - `ddp/max_T_global_avg`：logging window 内多进程对齐后的平均 `max_T_global`。
 
 stdout / `log.txt` 还会写 rank0 心跳，避免长时间看不到训练状态：
 
+- `[sampler]`：当前 epoch sampler 的 rank 间 frame 数均衡情况；重点看
+  `min_rank_frames/max_rank_frames` 是否差距很大。
 - `[batch-start]`：当前 batch 的 route 数、local/global padding 长度、有效 frame 数。
 - `[frame-start]` / `[frame-done]`：当前 rank0 正在处理的 route/frame、memory、耗时、
   当前 batch 内 frame 进度、loss、Q1/Q2 rollout token、是否进入 Q2、是否 reset、
@@ -272,8 +323,8 @@ bash qwen3vl_local/sft_v5/train.sh ddp
 ### 4.1 真正并行 Qwen 的阶段开关
 
 `QWEN_BATCH_SIZE` 是 v5 batched Qwen 的第一阶段开关。它不是简单改变 DataLoader
-batch，而是在同一个 rank、同一个 timestep 内，把多条 route 的 Q1 student rollout
-合成一次 Qwen prefill/generate：
+batch，而是在同一个 rank、同一个 timestep 内，把多条 route 的 Q1/Q2 student
+rollout 合成 Qwen padded prefill/generate：
 
 默认四卡命令：
 
@@ -308,7 +359,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 - `NPROC=4`：四张卡各一个 torchrun rank。
 - `PER_DEVICE_BATCH_SIZE=4`：每张卡每个 DataLoader batch 取 4 条 route sequence。
 - 全局 route batch 约为 `4 * 4 = 16` 条 sequence。
-- `QWEN_BATCH_SIZE=4`：每个 rank、同一个 timestep 内最多拿 4 个 frame 尝试合成 Q1
+- `QWEN_BATCH_SIZE=4`：每个 rank、同一个 timestep 内最多拿 4 个 frame 尝试合成 Q1/Q2
   student rollout batch。
 - `GRAD_ACCUM=1`：每个 DataLoader batch 后做一次 optimizer step；如果显存紧张但想保持
   更大等效 batch，可改成 `GRAD_ACCUM=2`。
@@ -334,8 +385,9 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
 H20 96GB 上如果 4 路只占较低显存、没有 fallback/OOM，但 GPU util 仍只有中等水平，
-说明瓶颈主要在 KL/teacher 单样本路径，继续增大 rollout batch 的收益会变小，下一阶段
-需要实现 batched KL forward。
+可以先试上面的 8 路命令，并确认日志里有 `[chunk-train] ... parallel_kl=1`。如果频繁
+出现 `[warn] parallel KL fallback ...`，说明 teacher/KL 又回到了旧逐帧路径；加
+`PARALLEL_KL_TRACEBACK=1` 能打印 fallback 栈。
 
 正式跑默认 4 路前建议先跑下面的真实 batched rollout smoke，确认 mixed-length
 padded Q1/Q2 采样与单样本路径一致：
@@ -355,10 +407,10 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
 
 - `QWEN_BATCH_SIZE>1` 必须配合 `PER_DEVICE_BATCH_SIZE>1` 才有并行对象；如果每卡
   只有 1 条 route，同一 timestep 仍只有 1 个 frame 可跑。
-- 当前阶段批量化 Q1 student rollout，并对 Q2 student rollout 做 padded batched
-  rollout：Q1/Q2 采样都可以容纳输入长度不同的样本，但 padded KV 只用于生成
-  student 文本/token；teacher/student KL forward 会重新构造单样本精确 Q1/Q2 state，
-  避免 padded KV 污染训练分布。
+- 当前阶段批量化 Q1/Q2 student rollout 和 teacher/student KL scoring：Q1/Q2 采样
+  可以容纳输入长度不同的样本；parallel KL 会重新构造 batched student/teacher prompt
+  state，Q2 KL 用精确 `q1_ids` 续接 Q1 KV 后再追加 Q2 user turn，并按每个样本自己的
+  span mask 取 logits，padding token 不进 loss。
 - batched Q1 不再要求 processor input length 完全一致。日志中的 `length_hist`
   只表示 padding pressure；只要 `batched_frames=4`，就说明当前 chunk 真正 4 路采样。
 - batch Q1 的普通 processor/cache 兼容错误会打印 `[warn] q1 batch fallback ...` 并
@@ -370,14 +422,22 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   size>=2 的 batched Qwen；如果全是 singleton，通常是 chunk 里有效 frame 不足或发生回退。
 - 日志里 `[q2-grouped] ... group_sizes=[...] batched_groups=... singleton_groups=...`
   会显示 Q2 student rollout 是否真的 batch。`length_hist` 仍记录完整 Q2 对话长度差异；
-  当前 padded rollout 下，只要同一 timestep 有多个 Q2 candidate，就应看到
-  `batched_frames>0`。如果仍为 0，通常表示 Q1 RS 错导致可进入 Q2 的候选不足。
+  当前实现 n>1 时直接整组 mixed-length padded batch，不再按 exact length 拆组。
+  只要同一 timestep 有多个 Q2 candidate，就应看到 `batched_frames>0`。如果仍为 0，
+  通常表示 Q1 RS 错导致可进入 Q2 的候选不足。
 - 如果 `[q1-grouped]` 仍只显示 `batched_frames=2`，说明当前运行还不是这版
   padded Q1 rollout，或发生了 fallback；新版正常 4 路时应看到 `batched_frames=4`。
-  如果已经稳定 `batched_frames=4`，但 `nvidia-smi` 仍只有 45%-50% 左右，通常不是 batch 没生效，而是当前阶段只批量化
-  rollout；每个 frame 后面的 Q1/Q2 teacher 与 KL 仍是单样本串行。日志中的
-  `time={q1stu,...,q2loss}`、`[q2-grouped]` 和 TensorBoard 的 `time/*` / `qwen/q2_*`
-  指标用于确认瓶颈具体在哪一段。
+  如果已经稳定 `batched_frames=4`，但 `nvidia-smi` 仍只有 45%-50% 左右，先看是否有
+  `[chunk-train] ... parallel_kl=1`；如果没有，说明 KL scoring 正在 fallback 到旧逐帧路径。
+- `[chunk-train] ... parallel_kl=1` 表示该 chunk 的 Q1/Q2 teacher/student KL 已经走
+  batched scoring，并对 chunk loss 一次 backward；如果只看到 `[frame-done]`，说明当前
+  chunk 回退到了旧逐帧路径。
+- parallel KL 的主要显存峰值来自 batched student/teacher rollout logits；如果
+  `QWEN_BATCH_SIZE=8` 或 1024 token 上限导致 OOM，先退回 `QWEN_BATCH_SIZE=4` 或
+  `PARALLEL_KL=0` 定位，不要改成字段早停。
+- 远端训练时重点看 `[train] ... cap_hit={q1:...,q2:...}` 或 TB 的
+  `train/q*_token_cap_hit_rate`；如果经常接近 1，说明不是“无限生成”，而是在安全上限处
+  截断，应优先检查 prompt/模型是否不出 EOS。
 - 如果日志出现 `[warn] q1 batch fallback ...`，说明本 chunk 没有走成 batched Qwen，
   后续会退回单帧路径，GPU 利用率自然不会明显提升。曾经出现过
   `Target sizes: [1, -1]. Tensor sizes: [2, 1]` 的 fallback，这是 batched Qwen
@@ -424,7 +484,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
 ```
 
 2. 强制真实 batched rollout 检查：必须跑到 size>=2 的 batched rollout group，
-   否则直接失败，避免误以为 batch 已验证。
+   否则直接失败，避免误以为 batch 已验证。加 `--check-parallel-kl` 会额外比较
+   旧逐帧 KL 与新 chunk parallel KL 的总 loss、逐 case loss 和 loss parts 等价性。
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
@@ -434,6 +495,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   --candidate-pool 256 \
   --require-batched-group \
   --no-prefer-different-lengths \
+  --check-parallel-kl \
   --output-json checkpoints/sft_v5_runs/batched_qwen_smoke_require_batch.json
 ```
 
@@ -445,8 +507,8 @@ abs diff，以及在 Q1 KV cache 后继续追加 Q2 user turn 的 `q2_ids` / Q2 
 `actual_batched_group_sizes` / `actual_batched_frames` 才是真正 batched KV 是否被测到
 的证据。
 
-下一阶段才继续批量化 Q2 rollout 和 KL forward；这需要对不同 rollout 长度、不同
-loss span 和 Q1 正确子集做 padding/mask，不能简单合并。
+当前训练路径已经默认批量化 teacher/KL forward。仍然不能并行的是时间维 `t -> t+1`：
+memory 依赖上一帧学生输出，所以只能在同一 timestep 的多 route/frame 内并行。
 
 不要在训练阶段做“结构字段早停”：不能因为已经生成到 `ABNORMAL:` 或 `EVENT:` 就
 提前截断 student rollout。v5 的 OPSD loss 需要完整的学生分析 token 和离散答案
@@ -504,7 +566,7 @@ python qwen3vl_local/sft_v5/eval.py \
 | 目的 | 命令 | 是否加载模型 | 主要产物 |
 |---|---|---|---|
 | 训练前 base Qwen OPSD 能力体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe --num-cases 8 --with-model --with-teacher-model --with-teacher` | 是，纯默认/base Qwen，不传 `--adapter-dir`，不加载任何 LoRA | RGB 副本、system/user/messages、student output、teacher target/output、memory、flags、timeline |
-| 训练前 grouped Qwen 等价性体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --num-cases 2 --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json`；强制真实 batched rollout 时加 `--candidate-pool 256 --require-batched-group --no-prefer-different-lengths` | 是，纯默认/base Qwen，不传 `--adapter-dir` | single-vs-grouped Q1/Q2 文本、token、训练 logits diff、actual group sizes、input length / padding pressure |
+| 训练前 grouped/parallel Qwen 等价性体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --num-cases 2 --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json`；强制真实 batched rollout 和 parallel KL 时加 `--candidate-pool 256 --require-batched-group --no-prefer-different-lengths --check-parallel-kl` | 是，纯默认/base Qwen，不传 `--adapter-dir` | single-vs-grouped Q1/Q2 文本、token、训练 logits diff、parallel-KL-vs-逐帧-KL 总 loss / case loss / parts diff、actual group sizes、input length / padding pressure |
 | 训练后 adapter 学生可视化 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --adapter-dir checkpoints/sft_v5_runs/latest/final --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter --num-cases 8 --with-model --with-teacher` | 是，只加载 student adapter | 上述静态产物 + `q1_student_output.txt` / `q2_student_output.txt` |
 | 静态检查教师/学生输入合同 | `python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/probe_static --num-cases 24 --with-teacher` | 否 | RGB 副本、student prompt、teacher prompt、teacher target、memory、flags、timeline |
 | 检查 teacher 合同 | `python qwen3vl_local/sft_v5/inspect_teacher.py --index checkpoints/sft_v5_data/train_sequence_index.jsonl --output-dir checkpoints/sft_v5_runs/latest/teacher_inspect --num-cases 64` | 否 | `teacher_report.json` / `teacher_report.md` |
@@ -678,12 +740,30 @@ AttributeError: 'tuple' object has no attribute 'get_mask_sizes'
 - Teacher/student logits 只裁剪到监督 span 后参与 forward-KL。
 - `train.sh` 默认设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`。
 
-进一步降显存可以临时调小：
+进一步降显存可以临时调小；注意这会重新限制 Qwen 输出长度，只适合 OOM 定位或极短
+smoke，不建议作为正式训练配置：
 
 ```bash
 MAX_NEW_TOKENS_Q1=160 MAX_NEW_TOKENS_Q2=96 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
+
+### 7.4 `loss does not require grad`
+
+如果旧 run 出现：
+
+```text
+RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn
+```
+
+通常是某个 student rollout 没有输出可监督字段，导致 `_opsd_loss` 或 chunk-level
+parallel KL 返回了一个纯 0 loss。当前代码会用第一个可训练 LoRA 参数构造
+graph-connected zero，仍保持本帧 / 本 chunk loss=0，但允许 `backward()` 正常执行，
+避免某个 rank 因一个坏输出中断全局训练。如果日志出现
+`[warn] loss has no grad; replace with graph-zero ...` 或
+`[warn] chunk loss has no grad; replace with graph-zero ...`，优先检查对应 frame/chunk
+的 `q1_student_output.txt` / `q2_student_output.txt` 或 probe 输出，看模型是否没有写
+`RS:`、`ABNORMAL:`、`EVENT:` 等字段。
 
 ## 8. 代码注释维护要求
 

@@ -49,7 +49,7 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from PIL import Image
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Sampler
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -138,7 +138,7 @@ class Q1GroupedRolloutResult:
     """Q1 grouped rollout 的输出和真实并行统计。
 
     这里把 `grouped` 和 `batched` 明确拆开：
-    - grouped：进入了按 input length 分组的优化路径；
+    - grouped：进入了同一 timestep 多 frame 的 rollout 优化路径；
     - batched：某个分组 size>=2，真的让 Qwen 在 batch 维同时 forward。
     这两个概念不能混用，否则 TensorBoard 会高估 `QWEN_BATCH_SIZE>1` 的收益。
     """
@@ -159,9 +159,9 @@ class Q1GroupedRolloutResult:
 class Q2GroupedRolloutResult:
     """Q2 grouped rollout 的输出和真实并行统计。
 
-    Q2 与 Q1 不同：它发生在 Q1 assistant 输出之后，完整上下文长度会受到 Q1
-    生成文本长短影响。因此这里仍然只允许 exact full-dialog input length 相同的样本
-    进入 batched Qwen；混长样本留给原来的单样本 KV 续接路径。
+    Q2 与 Q1 一样，padded batched KV 只用于 no_grad student rollout 采样；
+    真正计算 KL 时会在 `_run_frame` 里按单样本重建精确 KV，避免把 padding
+    位置写进训练语义。`input_lengths` / `length_histogram` 只用于审计 padding 压力。
     """
 
     rollouts: List[Optional[Tuple[Optional[KVState], str, torch.Tensor]]]
@@ -240,6 +240,91 @@ class RouteSequenceDataset(Dataset):
         return self.rows[idx]
 
 
+class LengthBalancedDistributedSampler(Sampler[int]):
+    """按 route frame 数均衡各 rank 负载的 distributed sampler。
+
+    普通 `DistributedSampler` 只保证每个 rank 拿到的 route 数接近一致；但 v5 的
+    训练耗时更接近“route 内有效 frame 数 × Q1/Q2 生成长度”。如果某个 rank 恰好
+    抽到一批长 route，其它 rank 会在 batch 末尾的 `_ddp_sum_int` 或 optimizer step
+    等 collective 前空等。这个 sampler 在**每个 rank 样本数一致**的前提下，按 route
+    长度贪心分配，尽量让每个 rank 的总 frame 数接近。
+
+    保持每个 rank 样本数一致非常重要：DataLoader batch 数如果不一致，训练 loop 里的
+    all-reduce 调用次数就会不一致，最终仍可能卡住。
+    """
+
+    def __init__(
+        self,
+        dataset: RouteSequenceDataset,
+        *,
+        num_replicas: int,
+        rank: int,
+        shuffle: bool = True,
+        seed: int = 0,
+    ) -> None:
+        self.dataset = dataset
+        self.num_replicas = int(num_replicas)
+        self.rank = int(rank)
+        self.shuffle = bool(shuffle)
+        self.seed = int(seed)
+        self.epoch = 0
+        self.num_samples = int(math.ceil(len(self.dataset) / max(1, self.num_replicas))) if len(self.dataset) else 0
+        self.total_size = self.num_samples * max(1, self.num_replicas)
+
+    def __len__(self) -> int:
+        return self.num_samples
+
+    def set_epoch(self, epoch: int) -> None:
+        """与 PyTorch DistributedSampler 同款接口，保证每个 epoch 排布不同。"""
+
+        self.epoch = int(epoch)
+
+    def __iter__(self) -> Iterable[int]:
+        n = len(self.dataset)
+        if n == 0:
+            return iter([])
+        generator = torch.Generator()
+        generator.manual_seed(self.seed + self.epoch)
+        if self.shuffle:
+            # 先随机打散，再按长度降序贪心。这样长 route 的相对顺序每个 epoch 会变，
+            # 但仍能把长短 route 均匀摊到各 rank。
+            perm = torch.randperm(n, generator=generator).tolist()
+        else:
+            perm = list(range(n))
+        lengths = {idx: len(self.dataset.rows[idx].frames) for idx in range(n)}
+        # sort 是稳定排序；前面的随机 perm 会成为同长度 route 的 tie-breaker。
+        ordered = sorted(perm, key=lambda idx: lengths[idx], reverse=True)
+        rank_indices: List[List[int]] = [[] for _ in range(self.num_replicas)]
+        rank_loads = [0 for _ in range(self.num_replicas)]
+        for idx in ordered:
+            # 只在还有样本名额的 rank 中选择当前总 frame 数最小者，确保最终每个
+            # rank 的样本数都不超过 num_samples。
+            candidates = [r for r in range(self.num_replicas) if len(rank_indices[r]) < self.num_samples]
+            if not candidates:
+                break
+            target = min(candidates, key=lambda r: (rank_loads[r], len(rank_indices[r]), r))
+            rank_indices[target].append(idx)
+            rank_loads[target] += lengths[idx]
+        # 如果数据量不能整除 world_size，尾部 rank 需要补样本来保证 batch 数一致。
+        # 补样本优先使用全局最短 route，而不是复制本 rank 自己的 route；否则某个
+        # rank 只拿到一条超长 route 时，padding 会把这条长 route 重复多次，反而让
+        # 负载更不均衡。
+        global_short_first = sorted(range(n), key=lambda idx: (lengths[idx], idx))
+        for r in range(self.num_replicas):
+            if not rank_indices[r]:
+                rank_indices[r].append(global_short_first[r % len(global_short_first)])
+            fill_pos = 0
+            while len(rank_indices[r]) < self.num_samples:
+                rank_indices[r].append(global_short_first[fill_pos % len(global_short_first)])
+                fill_pos += 1
+        return iter(rank_indices[self.rank][: self.num_samples])
+
+    def local_epoch_frame_count(self) -> int:
+        """返回当前 epoch 本 rank sampler 分到的 frame 数，用于启动日志审计。"""
+
+        return sum(len(self.dataset.rows[idx].frames) for idx in list(iter(self)))
+
+
 def _global_max_int(value: int) -> int:
     """torchrun 多进程下对一个 int 做 all_reduce max；单进程直接返回。"""
 
@@ -247,6 +332,17 @@ def _global_max_int(value: int) -> int:
         device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
         tensor = torch.tensor([int(value)], device=device, dtype=torch.long)
         dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
+        return int(tensor.item())
+    return int(value)
+
+
+def _global_min_int(value: int) -> int:
+    """torchrun 多进程下对一个 int 做 all_reduce min；单进程直接返回。"""
+
+    if dist.is_available() and dist.is_initialized():
+        device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
+        tensor = torch.tensor([int(value)], device=device, dtype=torch.long)
+        dist.all_reduce(tensor, op=dist.ReduceOp.MIN)
         return int(tensor.item())
     return int(value)
 
@@ -386,9 +482,10 @@ def _messages(images: List[Image.Image], user_prompt: str) -> List[Dict[str, Any
 def _q2_full_messages(images: List[Image.Image], q1_prompt: str, q1_text: str, q2_prompt: str) -> List[Dict[str, Any]]:
     """构造“图像 + Q1 user + Q1 assistant + Q2 user”的完整 Q2 对话。
 
-    Q2 batched rollout 不能直接复用多个单样本 KV cache，因为 Q1 生成长度不同会让
-    past_key_values 变成 ragged。这里选择重新 prefill 完整对话，只在 full-dialog token
-    length 完全相同时 batch，保证 M-RoPE / cache_position 与单样本完整对话等价。
+    这个 helper 只用于 Q2 student rollout 采样：为了让多个 route 的 Q2 能合成 padded
+    batch，先把 Q1 assistant 文本放回完整对话再 prefill/generate。正式 KL scoring
+    不走这里，而是用精确的 q1_ids 追加到 Q1 KV 后再追加 Q2 user turn，避免
+    `q1_ids -> text -> tokenizer` 往返造成 token 边界漂移。
     """
 
     content: List[Dict[str, Any]] = [{"type": "image", "image": image} for image in images]
@@ -877,6 +974,299 @@ def _kl_selected_logits(student_logits: torch.Tensor, teacher_logits: torch.Tens
     ) * (temp * temp)
 
 
+def _trainable_graph_zero(bundle: Any, fallback: torch.Tensor) -> torch.Tensor:
+    """返回一个带 autograd graph 的 0，供“无监督 span”帧安全 backward。
+
+    某些 student rollout 可能没有输出 `RS:` / `ABNORMAL:` / `EVENT:` 等可监督字段。
+    这种帧的 OPSD loss 应该是 0，但仍要允许外层执行 backward，并保持所有 rank 的
+    optimizer/all-reduce 节奏一致。直接用 no-grad KV logits 构造的 0 没有 grad_fn，
+    会触发 `element 0 of tensors does not require grad`；这里改为从第一个可训练 LoRA
+    参数构造 `param.sum() * 0.0`。
+    """
+
+    model = bundle.model if hasattr(bundle, "model") else bundle
+    for param in model.parameters():
+        if param.requires_grad:
+            return param.reshape(-1)[0] * 0.0
+    return fallback.sum() * 0.0
+
+
+def _pad_rollout_id_list(bundle: Any, ids_list: Sequence[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+    """把多条 rollout ids padding 成 `(B, L)`，并返回真实 token mask。
+
+    这个 padding 只用于 batched teacher/student scoring。loss 位置来自每个样本自己的
+    span positions，padding token 永远不会进入 KL。
+    """
+
+    if not ids_list:
+        device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
+        return torch.zeros((0, 0), device=device, dtype=torch.long), torch.zeros((0, 0), device=device, dtype=torch.bool)
+    pad_id = getattr(bundle.tokenizer, "pad_token_id", None)
+    if pad_id is None:
+        pad_id = getattr(bundle.tokenizer, "eos_token_id", 0)
+        if isinstance(pad_id, (list, tuple, set)):
+            pad_id = next(iter(pad_id), 0)
+    device = ids_list[0].device
+    max_len = max(int(ids.reshape(1, -1).shape[1]) for ids in ids_list)
+    padded = torch.full((len(ids_list), max_len), int(pad_id or 0), device=device, dtype=torch.long)
+    mask = torch.zeros((len(ids_list), max_len), device=device, dtype=torch.bool)
+    for row, ids in enumerate(ids_list):
+        flat = ids.reshape(1, -1).to(device=device, dtype=torch.long)
+        length = int(flat.shape[1])
+        if length <= 0:
+            continue
+        padded[row, :length] = flat[0]
+        mask[row, :length] = True
+    return padded, mask
+
+
+def _append_token_ids_with_logits_padded_scoring(
+    bundle: Any,
+    state: KVState,
+    suffix_ids: torch.Tensor,
+    suffix_mask: torch.Tensor,
+) -> Tuple[KVState, torch.Tensor]:
+    """在 padded batched state 后追加一批 rollout ids，并返回逐 token 预测 logits。
+
+    与 `_append_token_ids_with_logits` 的语义相同：`pred_logits[:, j, :]` 对齐
+    `suffix_ids[:, j]` 这个 token 被预测时的分布。不同点是这里允许 prefix 和 suffix
+    都带 padding；attention mask 会屏蔽 padding，M-RoPE position_ids 按每个样本自己的
+    真实 prefix length 计算。该函数用于并行 teacher/student KL scoring。
+    """
+
+    if suffix_ids.ndim == 1:
+        suffix_ids = suffix_ids.unsqueeze(0)
+    if suffix_mask.ndim == 1:
+        suffix_mask = suffix_mask.unsqueeze(0)
+    suffix_ids = suffix_ids.to(state.cache_input_ids.device)
+    suffix_mask = suffix_mask.to(state.cache_input_ids.device, dtype=torch.bool)
+    if suffix_ids.shape[1] == 0:
+        empty = state.next_logits.new_zeros((suffix_ids.shape[0], 0, state.next_logits.shape[-1]))
+        return state, empty
+    old_attention = state.attention_mask.to(state.cache_input_ids.device)
+    attention_mask = torch.cat([old_attention, suffix_mask.to(old_attention.dtype)], dim=1)
+    batch_size = int(suffix_ids.shape[0])
+    feed_len = int(suffix_ids.shape[1])
+    prefix_cache_len = int(state.cache_input_ids.shape[1])
+    valid_prefix_lengths = old_attention.to(torch.long).sum(dim=1)
+    cache_position = torch.arange(prefix_cache_len, prefix_cache_len + feed_len, device=suffix_ids.device)
+    position_ids = _decode_position_ids_varlen(
+        state.rope_deltas,
+        valid_prefix_lengths,
+        feed_len,
+        batch_size,
+        suffix_ids.device,
+    )
+    outputs = bundle.model(
+        input_ids=suffix_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        past_key_values=state.past_key_values,
+        cache_position=cache_position,
+        use_cache=True,
+        return_dict=True,
+    )
+    pred_logits = torch.cat([state.next_logits.unsqueeze(1), outputs.logits[:, :-1, :]], dim=1)
+    decoded_input_ids = torch.cat([state.cache_input_ids, suffix_ids], dim=1)
+    new_state = KVState(
+        decoded_input_ids=decoded_input_ids,
+        cache_input_ids=decoded_input_ids,
+        attention_mask=attention_mask,
+        past_key_values=outputs.past_key_values,
+        rope_deltas=state.rope_deltas,
+        next_logits=outputs.logits[:, -1, :],
+    )
+    return new_state, pred_logits
+
+
+def _append_token_ids_padded_no_logits(
+    bundle: Any,
+    state: KVState,
+    ids_list: Sequence[torch.Tensor],
+) -> KVState:
+    """把多条变长 token ids 追加到 padded KV，但不保留逐 token vocab logits。
+
+    该函数用于构造 Q2 parallel KL 的上下文：先把每个样本自己的精确 `q1_ids`
+    追加到 Q1 prompt KV，再追加 Q2 user turn。这里不会产生训练 loss，所以外层会在
+    `torch.no_grad()` / teacher eval context 下调用，避免 prompt/context 构造占用
+    autograd 显存。真正需要梯度的 logits 只在后续 q2 rollout token scoring 时保留。
+    """
+
+    if len(ids_list) == 1:
+        new_state, _ = _append_token_ids(bundle, state, ids_list[0])
+        return new_state
+    suffix_ids, suffix_mask = _pad_rollout_id_list(bundle, ids_list)
+    if suffix_ids.numel() == 0 or int(suffix_mask.sum().item()) == 0:
+        return state
+    suffix_ids = suffix_ids.to(state.cache_input_ids.device)
+    suffix_mask = suffix_mask.to(state.cache_input_ids.device, dtype=torch.bool)
+    if int(suffix_ids.shape[0]) != int(state.cache_input_ids.shape[0]):
+        raise ValueError(
+            f"padded append batch mismatch: ids={int(suffix_ids.shape[0])} "
+            f"state={int(state.cache_input_ids.shape[0])}"
+        )
+    old_attention = state.attention_mask.to(state.cache_input_ids.device)
+    attention_mask = torch.cat([old_attention, suffix_mask.to(old_attention.dtype)], dim=1)
+    batch_size = int(suffix_ids.shape[0])
+    feed_len = int(suffix_ids.shape[1])
+    prefix_cache_len = int(state.cache_input_ids.shape[1])
+    valid_prefix_lengths = old_attention.to(torch.long).sum(dim=1)
+    cache_position = torch.arange(prefix_cache_len, prefix_cache_len + feed_len, device=suffix_ids.device)
+    position_ids = _decode_position_ids_varlen(
+        state.rope_deltas,
+        valid_prefix_lengths,
+        feed_len,
+        batch_size,
+        suffix_ids.device,
+    )
+    outputs = bundle.model(
+        input_ids=suffix_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        past_key_values=state.past_key_values,
+        cache_position=cache_position,
+        use_cache=True,
+        return_dict=True,
+    )
+    decoded_input_ids = torch.cat([state.cache_input_ids, suffix_ids], dim=1)
+    return KVState(
+        decoded_input_ids=decoded_input_ids,
+        cache_input_ids=decoded_input_ids,
+        attention_mask=attention_mask,
+        past_key_values=outputs.past_key_values,
+        rope_deltas=state.rope_deltas,
+        next_logits=_last_valid_next_logits(outputs.logits, suffix_mask.to(outputs.logits.device)),
+    )
+
+
+def _render_user_turn_ids(bundle: Any, user_text: str) -> torch.Tensor:
+    """把“关闭上一轮 assistant + 新 user turn + generation prompt”渲染成 token ids。"""
+
+    suffix = bundle.processor.apply_chat_template(
+        [{"role": "user", "content": user_text}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    if not suffix.startswith("\n"):
+        suffix = "\n" + suffix
+    enc = bundle.tokenizer("<|im_end|>" + suffix, add_special_tokens=False, return_tensors="pt")
+    return enc["input_ids"]
+
+
+def _append_user_turn_batch_padded(bundle: Any, state: KVState, user_texts: Sequence[str]) -> KVState:
+    """对 batched Q1-after KV 追加每个样本自己的 Q2 user turn。
+
+    单样本时直接复用旧 `_append_user_turn`，方便 smoke 和旧逐帧路径做 bit-level 对照；
+    多样本时走 padded token ids，attention mask 会屏蔽不同长度 user turn 的 padding。
+    """
+
+    if len(user_texts) == 1:
+        return _append_user_turn(bundle, state, user_texts[0])
+    ids_list = [_render_user_turn_ids(bundle, text) for text in user_texts]
+    return _append_token_ids_padded_no_logits(bundle, state, ids_list)
+
+
+def _opsd_loss_batch_states(
+    bundle: Any,
+    *,
+    student_state: KVState,
+    teacher_state: KVState,
+    rollout_texts: Sequence[str],
+    rollout_ids_list: Sequence[torch.Tensor],
+    span_fn: Any,
+    weights: Mapping[str, float],
+    temperature: float,
+) -> Tuple[torch.Tensor, List[Dict[str, float]], List[torch.Tensor]]:
+    """在已经构造好的 batched student/teacher KV state 上计算 OPSD KL。
+
+    与 `_opsd_loss_batch_messages` 的区别是：本函数不重新 prefill prompt，而是直接接
+    收外层按精确 token ids 构造好的 state。Q2 parallel KL 用它来避免把 Q1 rollout
+    先 decode 成文本再重新套 chat template。
+    """
+
+    if not rollout_ids_list:
+        raise ValueError("_opsd_loss_batch_states requires at least one rollout.")
+    suffix_ids, suffix_mask = _pad_rollout_id_list(bundle, rollout_ids_list)
+    positions_by_sample: List[Dict[str, List[int]]] = []
+    for row, text in enumerate(rollout_texts):
+        raw_positions = _loss_positions(bundle, text, span_fn, weights)
+        valid_len = int(suffix_mask[row].sum().item())
+        positions_by_sample.append(
+            {key: [p for p in raw_positions.get(key, []) if p < valid_len] for key in weights}
+        )
+    teacher_selected: Dict[Tuple[int, str], torch.Tensor] = {}
+    with _teacher_eval_context(bundle):
+        _, teacher_logits = _append_token_ids_with_logits_padded_scoring(bundle, teacher_state, suffix_ids, suffix_mask)
+        # 立即把 teacher full-vocab logits 裁剪到监督 span，再释放完整 B x L x vocab
+        # 张量。parallel KL 的显存峰值主要就在 logits；不要让 teacher/student 两份大
+        # logits 同时常驻超过必要时间。
+        for row, positions in enumerate(positions_by_sample):
+            for key, pos in positions.items():
+                if not pos:
+                    continue
+                idx = torch.tensor(pos, device=teacher_logits.device, dtype=torch.long)
+                teacher_selected[(row, key)] = teacher_logits[row:row + 1, idx, :].reshape(-1, teacher_logits.shape[-1]).detach()
+        del teacher_logits
+    _, student_logits = _append_token_ids_with_logits_padded_scoring(bundle, student_state, suffix_ids, suffix_mask)
+    zero = student_logits.sum() * 0.0
+    per_sample_losses: List[torch.Tensor] = []
+    per_sample_parts: List[Dict[str, float]] = []
+    for row, positions in enumerate(positions_by_sample):
+        sample_total = zero
+        sample_parts: Dict[str, float] = {}
+        for key, weight in weights.items():
+            pos = positions.get(key, [])
+            t = teacher_selected.get((row, key))
+            if pos and t is not None:
+                idx = torch.tensor(pos, device=student_logits.device, dtype=torch.long)
+                s = student_logits[row:row + 1, idx, :].reshape(-1, student_logits.shape[-1])
+                part_loss = _kl_selected_logits(s, t, temperature=temperature)
+            else:
+                part_loss = zero
+            sample_total = sample_total + float(weight) * part_loss
+            sample_parts[key] = float(part_loss.detach().item()) if part_loss.numel() else 0.0
+        per_sample_losses.append(sample_total)
+        per_sample_parts.append(sample_parts)
+    return torch.stack(per_sample_losses).sum(), per_sample_parts, per_sample_losses
+
+
+def _opsd_loss_batch_messages(
+    bundle: Any,
+    *,
+    student_messages: Sequence[List[Dict[str, Any]]],
+    teacher_messages: Sequence[List[Dict[str, Any]]],
+    rollout_texts: Sequence[str],
+    rollout_ids_list: Sequence[torch.Tensor],
+    span_fn: Any,
+    weights: Mapping[str, float],
+    temperature: float,
+) -> Tuple[torch.Tensor, List[Dict[str, float]], List[torch.Tensor]]:
+    """对一组样本并行计算 OPSD teacher/student KL。
+
+    这是 v5 全流程并行化的核心 scoring helper：同一个 chunk 内的 student prompt
+    prefill、teacher privileged prompt prefill、同一批 student rollout token scoring
+    都走 batched Qwen。函数仍按样本分别计算 span KL，最后返回每个样本自己的 loss，
+    因此外层 loss 归一化语义与旧逐帧 `_opsd_loss` 保持一致。
+    """
+
+    if not rollout_ids_list:
+        raise ValueError("_opsd_loss_batch_messages requires at least one rollout.")
+    with torch.no_grad():
+        student_state = _kv_start_state_batch_padded(bundle, list(student_messages))
+    with _teacher_eval_context(bundle):
+        teacher_state = _kv_start_state_batch_padded(bundle, list(teacher_messages))
+    return _opsd_loss_batch_states(
+        bundle,
+        student_state=student_state,
+        teacher_state=teacher_state,
+        rollout_texts=rollout_texts,
+        rollout_ids_list=rollout_ids_list,
+        span_fn=span_fn,
+        weights=weights,
+        temperature=temperature,
+    )
+
+
 def _opsd_loss(
     bundle: Any,
     *,
@@ -890,7 +1280,7 @@ def _opsd_loss(
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """在同一批 student rollout token 上比较 teacher/student logits。"""
 
-    zero = student_state.next_logits.sum() * 0.0
+    zero = _trainable_graph_zero(bundle, student_state.next_logits)
     if rollout_ids.numel() == 0:
         # student 没生成任何可监督 token 时，返回带 graph/device 的 0，保证外层
         # backward 和 loss 归一化逻辑不用特判。
@@ -1132,6 +1522,215 @@ def _run_frame(
     return q1_loss + q2_loss, stats, memory_after_q2, q2_invalid
 
 
+def _run_chunk_parallel_kl(
+    bundle: Any,
+    chunk: Sequence[Tuple[int, SequenceRow, FrameRow, Memory]],
+    *,
+    q1_rollouts: Sequence[Optional[Tuple[Optional[KVState], str, Optional[KVState], torch.Tensor]]],
+    q2_rollouts: Sequence[Optional[Tuple[Optional[KVState], str, torch.Tensor]]],
+    temperature: float,
+) -> Tuple[torch.Tensor, List[Tuple[int, Dict[str, Any], Memory, bool, float]]]:
+    """对同一 timestep 的 chunk 并行计算 Q1/Q2 teacher/student KL。
+
+    返回 `(total_loss, per_frame_results)`，其中 `per_frame_results` 的元素是
+    `(route_batch_index, stats, next_memory, need_reset, detached_loss_value)`。
+
+    约束：
+    - Q1 rollout 必须已由 grouped/batched 路径生成；否则无法避免重复采样。
+    - 对 Q1 RS 正确的样本，Q2 rollout 也必须已准备好；否则回退旧逐帧路径。
+    - 使用 batched full/padded prompt state 只做 KL scoring，不把 padded KV 写回 memory。
+    """
+
+    if len(chunk) == 0:
+        raise ValueError("empty chunk")
+    if len(q1_rollouts) != len(chunk) or len(q2_rollouts) != len(chunk):
+        raise ValueError("chunk rollout length mismatch")
+    if any(item is None for item in q1_rollouts):
+        raise ValueError("parallel KL requires all Q1 rollouts to be ready")
+
+    images_per_frame = [_load_images(item[2].history_rgb_paths) for item in chunk]
+    q1_texts: List[str] = []
+    q1_ids_list: List[torch.Tensor] = []
+    q1_student_messages: List[List[Dict[str, Any]]] = []
+    q1_teacher_messages: List[List[Dict[str, Any]]] = []
+    q1_parsed_list: List[Dict[str, str]] = []
+    q1_abnormal_flags: List[Optional[bool]] = []
+    for (images, (_b, _route, frame, memory), rollout) in zip(images_per_frame, chunk, q1_rollouts):
+        assert rollout is not None
+        _q1_state, q1_text, _q1_after, q1_ids = rollout
+        q1_texts.append(q1_text)
+        q1_ids_list.append(q1_ids)
+        q1_parsed = parse_q1_output(q1_text)
+        q1_parsed_list.append(q1_parsed)
+        q1_abnormal = q1_parsed.get("abnormal") == "YES" if q1_parsed.get("abnormal") else None
+        q1_abnormal_flags.append(q1_abnormal)
+        rs_target = _rs_target_from_frame(frame)
+        event_target_static = _event_target_from_frame(frame)
+        q1_student_messages.append(_messages(images, build_q1_student_prompt(memory)))
+        q1_teacher_messages.append(
+            _messages(
+                images,
+                build_q1_teacher_prompt(
+                    memory,
+                    rs_target=rs_target,
+                    event_target=event_target_static,
+                    weather_text=frame.weather_text,
+                ),
+            )
+        )
+
+    q1_total_loss, q1_parts_list, q1_loss_list = _opsd_loss_batch_messages(
+        bundle,
+        student_messages=q1_student_messages,
+        teacher_messages=q1_teacher_messages,
+        rollout_texts=q1_texts,
+        rollout_ids_list=q1_ids_list,
+        span_fn=target_spans_q1,
+        weights=loss_weights_q1(),
+        temperature=temperature,
+    )
+    total_loss = q1_total_loss
+    q2_parts_by_local: Dict[int, Dict[str, float]] = {}
+    q2_loss_by_local: Dict[int, torch.Tensor] = {}
+
+    q2_local_indices: List[int] = []
+    q2_q1_ids_list: List[torch.Tensor] = []
+    q2_student_prompts: List[str] = []
+    q2_teacher_prompts: List[str] = []
+    q2_texts: List[str] = []
+    q2_ids_list: List[torch.Tensor] = []
+    q2_event_targets: Dict[int, EventTarget] = {}
+    for local_idx, ((images, (_b, _route, frame, memory)), q1_text, q1_parsed, q1_abnormal) in enumerate(
+        zip(zip(images_per_frame, chunk), q1_texts, q1_parsed_list, q1_abnormal_flags)
+    ):
+        if q1_parsed.get("rs_label") != frame.rs_label:
+            continue
+        q2_rollout = q2_rollouts[local_idx]
+        if q2_rollout is None:
+            raise ValueError("parallel KL requires Q2 rollout for every Q1-correct frame")
+        _q2_state, q2_text, q2_ids = q2_rollout
+        q2_parsed = parse_q2_output(q2_text, frame.event_option_map)
+        event_target = _event_target_from_frame(frame, student_event=q2_parsed.get("event_label"))
+        q2_event_targets[local_idx] = event_target
+        memory_after_q1 = update_memory_after_q1(
+            memory,
+            student_rs_label=q1_parsed.get("rs_label"),
+            student_abnormal=q1_abnormal,
+        )
+        q1_student_prompt = build_q1_student_prompt(memory)
+        q1_teacher_prompt = build_q1_teacher_prompt(
+            memory,
+            rs_target=_rs_target_from_frame(frame),
+            event_target=_event_target_from_frame(frame),
+            weather_text=frame.weather_text,
+        )
+        q2_student_prompt = build_q2_student_prompt(
+            memory_after_q1,
+            option_map=frame.event_option_map,
+            q1_abnormal=bool(q1_abnormal),
+            regular_event_codes=frame.regular_event_codes,
+        )
+        q2_teacher_prompt = build_q2_teacher_prompt(
+            memory_after_q1,
+            option_map=frame.event_option_map,
+            q1_abnormal=bool(q1_abnormal),
+            event_target=event_target,
+            regular_event_codes=frame.regular_event_codes,
+        )
+        q2_local_indices.append(local_idx)
+        q2_texts.append(q2_text)
+        q2_ids_list.append(q2_ids)
+        q2_q1_ids_list.append(q1_ids_list[local_idx])
+        q2_student_prompts.append(q2_student_prompt)
+        q2_teacher_prompts.append(q2_teacher_prompt)
+
+    if q2_local_indices:
+        q2_student_q1_messages = [q1_student_messages[i] for i in q2_local_indices]
+        q2_teacher_q1_messages = [q1_teacher_messages[i] for i in q2_local_indices]
+        with torch.no_grad():
+            # Q2 parallel KL 不能把 q1_ids decode 成 q1_text 再重新 tokenize；那会和旧逐帧
+            # 路径的“精确 q1_ids 追加到 Q1 KV”产生 token 边界漂移。这里按旧路径同款：
+            # Q1 prompt prefill -> 追加每条样本自己的 q1_ids -> 追加 Q2 user turn。
+            q2_student_prompt_state = _kv_start_state_batch_padded(bundle, q2_student_q1_messages)
+            q2_student_after_q1 = _append_token_ids_padded_no_logits(bundle, q2_student_prompt_state, q2_q1_ids_list)
+            q2_student_state = _append_user_turn_batch_padded(bundle, q2_student_after_q1, q2_student_prompts)
+        with _teacher_eval_context(bundle):
+            q2_teacher_prompt_state = _kv_start_state_batch_padded(bundle, q2_teacher_q1_messages)
+            q2_teacher_after_q1 = _append_token_ids_padded_no_logits(bundle, q2_teacher_prompt_state, q2_q1_ids_list)
+            q2_teacher_state = _append_user_turn_batch_padded(bundle, q2_teacher_after_q1, q2_teacher_prompts)
+        q2_total_loss, q2_parts_list, q2_loss_list = _opsd_loss_batch_states(
+            bundle,
+            student_state=q2_student_state,
+            teacher_state=q2_teacher_state,
+            rollout_texts=q2_texts,
+            rollout_ids_list=q2_ids_list,
+            span_fn=target_spans_q2,
+            weights=loss_weights_q2(),
+            temperature=temperature,
+        )
+        total_loss = total_loss + q2_total_loss
+        for local_idx, parts, loss_tensor in zip(q2_local_indices, q2_parts_list, q2_loss_list):
+            q2_parts_by_local[local_idx] = parts
+            q2_loss_by_local[local_idx] = loss_tensor
+
+    per_frame_results: List[Tuple[int, Dict[str, Any], Memory, bool, float]] = []
+    for local_idx, (b, _route, frame, memory) in enumerate(chunk):
+        q1_parsed = q1_parsed_list[local_idx]
+        q1_abnormal = q1_abnormal_flags[local_idx]
+        q1_rs_correct = q1_parsed.get("rs_label") == frame.rs_label
+        memory_after_q1 = update_memory_after_q1(
+            memory,
+            student_rs_label=q1_parsed.get("rs_label"),
+            student_abnormal=q1_abnormal,
+        )
+        stats: Dict[str, Any] = {
+            "q1_rs_correct": q1_rs_correct,
+            "q1_abnormal_correct": q1_abnormal == frame.abnormal if q1_abnormal is not None else False,
+            "q2_triggered": False,
+            "candidate_mismatch": False,
+            "q1_rollout_tokens": int(q1_ids_list[local_idx].numel()),
+            "q2_rollout_tokens": 0,
+            "q1_parts": q1_parts_list[local_idx],
+            "timings": {
+                # chunk 级 batch forward 已经合并计时；这里不把总耗时硬摊到每帧，
+                # 避免和旧逐帧计时混淆。吞吐主要看 q1/q2 grouped seconds。
+                "q1_student_seconds": 0.0,
+                "q1_teacher_seconds": 0.0,
+                "q1_loss_seconds": 0.0,
+                "q2_rollout_seconds": 0.0,
+                "q2_teacher_seconds": 0.0,
+                "q2_loss_seconds": 0.0,
+            },
+        }
+        frame_loss = q1_loss_list[local_idx]
+        if not q1_rs_correct:
+            per_frame_results.append((b, stats, memory_after_q1, True, float(frame_loss.detach().item())))
+            continue
+        q2_rollout = q2_rollouts[local_idx]
+        assert q2_rollout is not None
+        _q2_state, q2_text, q2_ids = q2_rollout
+        q2_parsed = parse_q2_output(q2_text, frame.event_option_map)
+        event_target = q2_event_targets[local_idx]
+        target_option = option_for_event(event_target.label, frame.event_option_map)
+        stats["candidate_mismatch"] = target_option is None
+        student_event = q2_parsed.get("event_label")
+        memory_after_q2 = update_memory_after_q2(memory_after_q1, student_event_label=student_event)
+        q2_invalid = student_event is None
+        q2_loss_tensor = q2_loss_by_local.get(local_idx, frame_loss * 0.0)
+        frame_loss = frame_loss + q2_loss_tensor
+        stats.update(
+            {
+                "q2_triggered": True,
+                "q2_event_correct": student_event == event_target.label,
+                "q2_invalid_output": q2_invalid,
+                "q2_rollout_tokens": int(q2_ids.numel()),
+                "q2_parts": q2_parts_by_local.get(local_idx, {key: 0.0 for key in loss_weights_q2()}),
+            }
+        )
+        per_frame_results.append((b, stats, memory_after_q2, q2_invalid, float(frame_loss.detach().item())))
+    return total_loss, per_frame_results
+
+
 def _run_single_q1_rollout_from_images(
     bundle: Any,
     images: List[Image.Image],
@@ -1263,11 +1862,12 @@ def _run_q2_rollout_grouped(
     q1_abnormal_flags: Sequence[bool],
     max_new_tokens_q2: int,
 ) -> Q2GroupedRolloutResult:
-    """按完整 Q2 对话 length 分组后运行 Q2 student rollout。
+    """用 mixed-length padded batch 运行 Q2 student rollout。
 
-    返回的 `rollouts` 与输入顺序一一对应。Q2 rollout 是 no_grad 采样路径；为了并行
-    长度不同的 Q1 assistant 上下文，这里允许 padded batched prefill/generate，但返回的
-    state 置为 None，外层会为 KL 重新构造单样本精确 q2_student_state。
+    返回的 `rollouts` 与输入顺序一一对应。Q2 rollout 是 no_grad 采样路径；n>1 时不再
+    按 full-dialog length 拆组，而是整组走 padded prefill/generate。`input_lengths` /
+    `length_histogram` 仍会记录 padding pressure，方便 smoke 和日志审计。返回的 state
+    置为 None，外层会为 KL 重新构造精确 `q1_ids -> Q1 KV -> Q2 user turn` 状态。
     """
 
     total_start = time.time()
@@ -1315,6 +1915,10 @@ def _run_q2_rollout_grouped(
     singleton_groups = 0
     if n == 1:
         singleton_groups = 1
+        with torch.no_grad():
+            state = _kv_start_state(bundle, messages_list[0])
+            text, _after, ids = _student_generate_kv(bundle, state, max_new_tokens_q2)
+        outputs[0] = (state, text, ids)
     else:
         batched_group_sizes.append(n)
         with torch.no_grad():
@@ -1488,6 +2092,8 @@ _TRAIN_WINDOW_KEYS = (
     "reset_next",
     "q1_rollout_tokens",
     "q2_rollout_tokens",
+    "q1_token_cap_hits",
+    "q2_token_cap_hits",
     "q1_grouped_chunks",
     "q1_grouped_frames",
     "q1_batched_groups",
@@ -1508,6 +2114,10 @@ _TRAIN_WINDOW_KEYS = (
     "time_q2_rollout_seconds",
     "time_q2_teacher_seconds",
     "time_q2_loss_seconds",
+    "parallel_kl_chunks",
+    "parallel_kl_frames",
+    "parallel_kl_seconds",
+    "parallel_kl_fallbacks",
     "valid_slots",
     "padding_slots",
     "max_T_local_sum",
@@ -1541,7 +2151,14 @@ def _add_batch_shape_stats(stats: Dict[str, float], batch: Mapping[str, Any]) ->
     stats["max_T_global_sum"] += float(max_t_global)
 
 
-def _add_frame_rollout_stats(stats: Dict[str, float], frame_stats: Mapping[str, Any], *, need_reset: bool) -> None:
+def _add_frame_rollout_stats(
+    stats: Dict[str, float],
+    frame_stats: Mapping[str, Any],
+    *,
+    need_reset: bool,
+    max_new_tokens_q1: int,
+    max_new_tokens_q2: int,
+) -> None:
     """累计一个有效 frame 的 on-policy rollout 统计。"""
 
     stats["frames"] += 1.0
@@ -1561,8 +2178,15 @@ def _add_frame_rollout_stats(stats: Dict[str, float], frame_stats: Mapping[str, 
     stats["q2_invalid_output"] += float(bool(frame_stats.get("q2_invalid_output", False)))
     stats["candidate_mismatch"] += float(bool(frame_stats.get("candidate_mismatch", False)))
     stats["reset_next"] += float(bool(need_reset))
-    stats["q1_rollout_tokens"] += float(int(frame_stats.get("q1_rollout_tokens", 0) or 0))
-    stats["q2_rollout_tokens"] += float(int(frame_stats.get("q2_rollout_tokens", 0) or 0))
+    q1_tokens = int(frame_stats.get("q1_rollout_tokens", 0) or 0)
+    q2_tokens = int(frame_stats.get("q2_rollout_tokens", 0) or 0)
+    stats["q1_rollout_tokens"] += float(q1_tokens)
+    stats["q2_rollout_tokens"] += float(q2_tokens)
+    # 1024 是防无限生成的安全上限，不是结构字段早停。这个指标专门用来发现
+    # 模型是否经常没出 EOS / <|im_end|> 而打满上限；如果命中率高，远端日志里
+    # q1_tokens/q2_tokens 会接近 max_new_tokens，parallel KL 也会显著更吃显存。
+    stats["q1_token_cap_hits"] += float(q1_tokens >= int(max_new_tokens_q1) and int(max_new_tokens_q1) > 0)
+    stats["q2_token_cap_hits"] += float(q2_tokens >= int(max_new_tokens_q2) and int(max_new_tokens_q2) > 0)
     timings = frame_stats.get("timings") or {}
     if isinstance(timings, Mapping):
         stats["time_q1_student_seconds"] += float(timings.get("q1_student_seconds", 0.0) or 0.0)
@@ -1577,7 +2201,7 @@ def _add_q1_grouped_stats(stats: Dict[str, float], grouped: Q1GroupedRolloutResu
     """累计 Q1 grouped rollout 的真实并行程度。"""
 
     # q1_grouped_frames 是“尝试过 grouped 路径”的 frame 数；
-    # q1_batched_frames 是真正 size>=2 同长 batch 的 frame 数。二者的比值只代表
+    # q1_batched_frames 是真正 size>=2 batched rollout 的 frame 数。二者的比值只代表
     # grouped 路径内部效率，不能当作全训练 frame 的 batch 生效率。
     stats["q1_grouped_chunks"] += 1.0
     stats["q1_grouped_frames"] += float(len(grouped.rollouts))
@@ -1641,6 +2265,8 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"invalid={int(stats.get('q2_invalid_output', 0.0))} "
         f"reset={int(stats.get('reset_next', 0.0))} "
         f"tok/frame={rollout_tokens / frames:.1f} "
+        f"cap_hit={{q1:{float(stats.get('q1_token_cap_hits', 0.0)) / frames:.3f},"
+        f"q2:{float(stats.get('q2_token_cap_hits', 0.0)) / q2:.3f}}} "
         f"time/frame={{q1stu:{float(stats.get('time_q1_student_seconds', 0.0)) / frames:.2f},"
         f"q1teach:{float(stats.get('time_q1_teacher_seconds', 0.0)) / frames:.2f},"
         f"q1loss:{float(stats.get('time_q1_loss_seconds', 0.0)) / frames:.2f},"
@@ -1653,6 +2279,9 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"q1_batched_grouped={batched_frames / grouped_frames:.3f} "
         f"q2_batched_all={q2_batched_frames / frames:.3f} "
         f"q2_batched_grouped={q2_batched_frames / q2_grouped_frames:.3f} "
+        f"parallel_kl={float(stats.get('parallel_kl_frames', 0.0)) / frames:.3f} "
+        f"parallel_kl/chunk={float(stats.get('parallel_kl_seconds', 0.0)) / max(1.0, float(stats.get('parallel_kl_chunks', 0.0))):.2f}s "
+        f"parallel_fallbacks={int(stats.get('parallel_kl_fallbacks', 0.0))} "
         f"pad_rate={float(stats.get('padding_slots', 0.0)) / (valid_slots + float(stats.get('padding_slots', 0.0))):.3f} "
         f"maxT={float(stats.get('max_T_global_sum', 0.0)) / batches:.1f}"
     )
@@ -1680,13 +2309,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--strict-vision-scope", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--language-clip-norm", type=float, default=1.0)
     p.add_argument("--vision-clip-norm", type=float, default=0.3)
-    p.add_argument("--max-new-tokens-q1", type=int, default=256)
-    p.add_argument("--max-new-tokens-q2", type=int, default=192)
+    p.add_argument("--max-new-tokens-q1", type=int, default=1024)
+    p.add_argument("--max-new-tokens-q2", type=int, default=1024)
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
     p.add_argument("--num-workers", type=int, default=0)
     p.add_argument("--qwen-batch-size", type=int, default=1, help="每个 rank/timestep 内尝试并行 Q1/Q2 student rollout 的 frame 数；Q1/Q2 允许 mixed-length padded rollout，KL 会重建单样本精确 KV")
+    p.add_argument("--sampler-mode", type=str, default="length_balanced", choices=["length_balanced", "distributed"], help="多卡 route 分片方式；length_balanced 按 route frame 数均衡各 rank，distributed 为 PyTorch 默认 DistributedSampler")
+    p.add_argument("--parallel-kl", action=argparse.BooleanOptionalAction, default=True, help="同一 timestep/chunk 内并行 Q1/Q2 teacher/student KL；失败时回退逐帧路径，CUDA OOM 直接中止")
     p.add_argument("--logging-steps", type=int, default=1)
     p.add_argument("--save-steps", type=int, default=200)
     p.add_argument("--max-steps", type=int, default=0)
@@ -1714,9 +2345,20 @@ def main() -> None:
     if world_size > 1:
         from torch.utils.data.distributed import DistributedSampler
 
-        # v5 这里使用 torchrun 的普通 DistributedSampler；和 v3 local-SGD/work-stealing 不同。
-        # 不同 rank 拿到的 route 长度可能不同，所以后面还要 global max_T 对齐。
-        sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True, seed=int(args.seed))
+        if str(args.sampler_mode) == "length_balanced":
+            # 默认使用长度均衡 sampler：仍然保证每个 rank 的 route 数 / batch 数一致，
+            # 但尽量让每个 rank 的总 frame 数接近，减少长 route rank 拖住其它 rank。
+            sampler = LengthBalancedDistributedSampler(
+                train_ds,
+                num_replicas=world_size,
+                rank=rank,
+                shuffle=True,
+                seed=int(args.seed),
+            )
+        else:
+            # PyTorch 默认 DistributedSampler 只均衡 route 数，不均衡 route frame 数。
+            # 保留该模式方便和旧 run 做对照。
+            sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True, seed=int(args.seed))
     else:
         sampler = None
     loader = DataLoader(
@@ -1839,6 +2481,8 @@ def main() -> None:
                     tb.add_scalar("train/q2_invalid_output", reduced_stats["q2_invalid_output"], global_step)
                     tb.add_scalar("train/reset_next", reduced_stats["reset_next"], global_step)
                     tb.add_scalar("train/rollout_tokens_per_frame", (reduced_stats["q1_rollout_tokens"] + reduced_stats["q2_rollout_tokens"]) / frames, global_step)
+                    tb.add_scalar("train/q1_token_cap_hit_rate", reduced_stats["q1_token_cap_hits"] / frames, global_step)
+                    tb.add_scalar("train/q2_token_cap_hit_rate", reduced_stats["q2_token_cap_hits"] / q2, global_step)
                     q1_grouped_frames = max(1.0, reduced_stats["q1_grouped_frames"])
                     q1_grouped_chunks = max(1.0, reduced_stats["q1_grouped_chunks"])
                     # 这三个 qwen 指标的分母刻意不同：
@@ -1871,6 +2515,9 @@ def main() -> None:
                     tb.add_scalar("time/frame_q2_rollout_seconds", reduced_stats["time_q2_rollout_seconds"] / frames, global_step)
                     tb.add_scalar("time/frame_q2_teacher_seconds", reduced_stats["time_q2_teacher_seconds"] / frames, global_step)
                     tb.add_scalar("time/frame_q2_loss_seconds", reduced_stats["time_q2_loss_seconds"] / frames, global_step)
+                    tb.add_scalar("parallel_kl/frame_rate", reduced_stats["parallel_kl_frames"] / frames, global_step)
+                    tb.add_scalar("parallel_kl/seconds_per_chunk", reduced_stats["parallel_kl_seconds"] / max(1.0, reduced_stats["parallel_kl_chunks"]), global_step)
+                    tb.add_scalar("parallel_kl/fallbacks", reduced_stats["parallel_kl_fallbacks"], global_step)
                     tb.add_scalar("ddp/padding_rate", reduced_stats["padding_slots"] / max(1.0, pad_total), global_step)
                     tb.add_scalar("ddp/max_T_global_avg", reduced_stats["max_T_global_sum"] / max(1.0, reduced_stats["batches"]), global_step)
         if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
@@ -1879,6 +2526,20 @@ def main() -> None:
     for epoch in range(int(args.num_epochs)):
         if sampler is not None:
             sampler.set_epoch(epoch)
+            if isinstance(sampler, LengthBalancedDistributedSampler):
+                # 所有 rank 都进入这三个 all-reduce，rank0 打印本 epoch 的 sampler
+                # 均衡效果。若 max/min 仍差很多，说明 route 长度极端或 batch size 太小。
+                local_sampler_frames = sampler.local_epoch_frame_count()
+                global_sampler_frames = _ddp_sum_int(local_sampler_frames)
+                max_sampler_frames = _global_max_int(local_sampler_frames)
+                min_sampler_frames = _global_min_int(local_sampler_frames)
+                rank0_log(
+                    f"[sampler] epoch={epoch} mode=length_balanced "
+                    f"local_rank0_frames={local_sampler_frames} "
+                    f"global_frames={global_sampler_frames} "
+                    f"avg_per_rank={global_sampler_frames / max(1, world_size):.1f} "
+                    f"min_rank_frames={min_sampler_frames} max_rank_frames={max_sampler_frames}"
+                )
         for batch_idx, batch in enumerate(loader):
             batch = pad_batch_to_global_length(batch)
             _add_batch_shape_stats(window_stats, batch)
@@ -1982,9 +2643,9 @@ def main() -> None:
                                     # decode 触发了回退。
                                     rank0_log(traceback.format_exc(limit=12).rstrip())
                             q1_rollouts = [None] * len(chunk)
-                        # Q2 student rollout 是当前 profiling 中最慢的单样本段。只有 Q1
-                        # 已经 batched/生成成功且 RS 正确的 frame 才能进入 Q2；full-dialog
-                        # length 不一致的样本仍回到 _run_frame 内的单样本 KV 续接。
+                            # Q2 student rollout 也要为 singleton candidate 生成；否则某个
+                            # chunk 里只有 1 个 Q1-correct frame 时，parallel KL 会因为缺
+                            # q2_rollout 整块 fallback 到旧逐帧路径。
                         q2_candidate_local_indices: List[int] = []
                         q2_candidate_frames: List[FrameRow] = []
                         q2_candidate_memories: List[Memory] = []
@@ -2003,7 +2664,7 @@ def main() -> None:
                             q2_candidate_memories.append(memory_for_q2)
                             q2_candidate_q1_texts.append(q1_text_for_q2)
                             q2_candidate_abnormal.append(bool(q1_parsed_for_q2.get("abnormal") == "YES"))
-                        if len(q2_candidate_frames) > 1:
+                        if len(q2_candidate_frames) >= 1:
                             q2_batch_start = time.time()
                             try:
                                 q2_grouped = _run_q2_rollout_grouped(
@@ -2045,6 +2706,85 @@ def main() -> None:
                                     if os.environ.get("Q2_BATCH_TRACEBACK", "0") == "1":
                                         rank0_log(traceback.format_exc(limit=12).rstrip())
                                 q2_rollouts = [None] * len(chunk)
+                    parallel_chunk_done = False
+                    if bool(args.parallel_kl) and len(chunk) > 1 and all(rollout is not None for rollout in q1_rollouts):
+                        parallel_start = time.time()
+                        try:
+                            chunk_loss, chunk_results = _run_chunk_parallel_kl(
+                                bundle,
+                                chunk,
+                                q1_rollouts=q1_rollouts,
+                                q2_rollouts=q2_rollouts,
+                                temperature=float(args.temperature),
+                            )
+                            # chunk_loss 是当前 chunk 内各 frame loss 的 sum；乘同一个
+                            # global loss_scale 后一次 backward，减少逐帧小 backward 和
+                            # teacher/student KL 小 forward 带来的 GPU 碎片化。
+                            if not bool(chunk_loss.requires_grad):
+                                # 极端情况下，chunk 内所有样本的 student 输出都没有命中
+                                # RS/ABNORMAL/EVENT 等监督字段，batched KL 会得到一个数值为
+                                # 0 的 loss。这里仍然需要让 backward 走完，保证本 rank 与
+                                # 其它 rank 的梯度同步节奏一致。
+                                if rank == 0:
+                                    rank0_log(
+                                        f"[warn] chunk loss has no grad; replace with graph-zero "
+                                        f"epoch={epoch} batch={batch_idx} t={t} size={len(chunk)}"
+                                    )
+                                chunk_loss = _trainable_graph_zero(bundle, chunk_loss)
+                            (chunk_loss * loss_scale).backward()
+                            chunk_loss_value = float(chunk_loss.detach().item())
+                            frame_count += len(chunk_results)
+                            batch_processed_frames += len(chunk_results)
+                            processed_local_frames += len(chunk_results)
+                            q1_tok = 0
+                            q2_tok = 0
+                            reset_count = 0
+                            for b_result, stats, next_mem, need_reset, frame_loss_value in chunk_results:
+                                q1_tok += int(stats.get("q1_rollout_tokens", 0) or 0)
+                                q2_tok += int(stats.get("q2_rollout_tokens", 0) or 0)
+                                reset_count += int(bool(need_reset))
+                                window_stats["loss_sum"] += float(frame_loss_value)
+                                _add_frame_rollout_stats(
+                                    window_stats,
+                                    stats,
+                                    need_reset=bool(need_reset),
+                                    max_new_tokens_q1=int(args.max_new_tokens_q1),
+                                    max_new_tokens_q2=int(args.max_new_tokens_q2),
+                                )
+                                memories[b_result] = next_mem
+                                reset_next[b_result] = bool(need_reset)
+                            if rank == 0 and (should_log_frame() or should_time_heartbeat()):
+                                rank0_log(
+                                    f"[chunk-train] epoch={epoch} batch={batch_idx} t={t} "
+                                    f"size={len(chunk_results)} dt={time.time() - parallel_start:.1f}s "
+                                    f"loss_sum={chunk_loss_value:.4f} "
+                                    f"q1_tokens={q1_tok} q2_tokens={q2_tok} resets={reset_count} "
+                                    f"parallel_kl=1 {_cuda_memory_text()}"
+                                )
+                                last_heartbeat = time.time()
+                            window_stats["parallel_kl_chunks"] += 1.0
+                            window_stats["parallel_kl_frames"] += float(len(chunk_results))
+                            window_stats["parallel_kl_seconds"] += float(time.time() - parallel_start)
+                            parallel_chunk_done = True
+                        except Exception as exc:
+                            if _is_cuda_oom(exc):
+                                if torch.cuda.is_available():
+                                    torch.cuda.empty_cache()
+                                rank0_log(
+                                    f"[error] parallel KL OOM epoch={epoch} batch={batch_idx} t={t} "
+                                    f"size={len(chunk)}; abort instead of unsafe fallback. {_cuda_memory_text()}"
+                                )
+                                raise
+                            if rank == 0:
+                                rank0_log(
+                                    f"[warn] parallel KL fallback epoch={epoch} batch={batch_idx} t={t} "
+                                    f"size={len(chunk)} reason={type(exc).__name__}: {exc}"
+                                )
+                                if os.environ.get("PARALLEL_KL_TRACEBACK", "0") == "1":
+                                    rank0_log(traceback.format_exc(limit=12).rstrip())
+                            window_stats["parallel_kl_fallbacks"] += 1.0
+                    if parallel_chunk_done:
+                        continue
                     for chunk_idx, (b, route, frame, memory_for_frame) in enumerate(chunk):
                         frame_start = time.time()
                         log_this_frame = should_log_frame()
@@ -2097,12 +2837,25 @@ def main() -> None:
                         # batch 末尾。这样长序列不会把 H20 95GB 显存吃满。
                         loss_value = float(loss.detach().item())
                         window_stats["loss_sum"] += loss_value
+                        if not bool(loss.requires_grad):
+                            if rank == 0:
+                                rank0_log(
+                                    f"[warn] loss has no grad; replace with graph-zero "
+                                    f"route={route.scenario}/{route.route_id} frame={frame.frame_id}"
+                                )
+                            loss = _trainable_graph_zero(bundle, loss)
                         (loss * loss_scale).backward()
                         del loss
                         frame_count += 1
                         batch_processed_frames += 1
                         processed_local_frames += 1
-                        _add_frame_rollout_stats(window_stats, stats, need_reset=bool(need_reset))
+                        _add_frame_rollout_stats(
+                            window_stats,
+                            stats,
+                            need_reset=bool(need_reset),
+                            max_new_tokens_q1=int(args.max_new_tokens_q1),
+                            max_new_tokens_q2=int(args.max_new_tokens_q2),
+                        )
                         memories[b] = next_mem
                         reset_next[b] = bool(need_reset)
                         frame_elapsed = time.time() - frame_start

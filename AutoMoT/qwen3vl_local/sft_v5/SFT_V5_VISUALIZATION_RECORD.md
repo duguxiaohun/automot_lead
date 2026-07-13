@@ -110,11 +110,12 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 - `flags.json` 里的 `student_adapter_dir` 必须为空；否则说明训练前体检误加载了 LoRA，
   需要重跑纯 base Qwen 检查。
 
-### A.2 grouped Qwen 等价性检查
+### A.2 grouped / parallel Qwen 等价性检查
 
-目的：在启用 `QWEN_BATCH_SIZE>1` 前，确认阶段 1 grouped Q1 rollout 没有改变训练语义。
-这个检查也必须使用默认/base Qwen，不传 `--adapter-dir`；只有当你想专门检查某个
-已训练 adapter 的 grouped 路径时，才显式传 `--adapter-dir`。
+目的：在启用 `QWEN_BATCH_SIZE>1` 和默认 `PARALLEL_KL=1` 前，确认 Q1/Q2 batched
+student rollout、Q1/Q2 parallel KL 都没有改变训练语义。这个检查也必须使用
+默认/base Qwen，不传 `--adapter-dir`；只有当你想专门检查某个已训练 adapter 的
+grouped/parallel 路径时，才显式传 `--adapter-dir`。
 
 默认命令偏向检查“混长 padded rollout 是否和单样本等价”，并会主动制造 padding 压力：
 
@@ -126,7 +127,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json
 ```
 
-强制验证真实 batched rollout 时，用：
+强制验证真实 batched rollout 和 parallel KL 时，用：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
@@ -136,22 +137,30 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   --candidate-pool 256 \
   --require-batched-group \
   --no-prefer-different-lengths \
+  --check-parallel-kl \
   --output-json checkpoints/sft_v5_runs/batched_qwen_smoke_require_batch.json
 ```
 
 默认命令会优先从 `--candidate-pool` 里挑 Q1 input length 差异大的 case，主动制造
 padding 压力；`--require-batched-group` 要求实际运行到 size>=2 的 batched rollout。
+`--check-parallel-kl` 会额外比较新 chunk parallel KL 与旧逐帧 KL 的总 loss、
+逐 case loss 和 Q1/Q2 loss parts。Q2 KL scoring 必须按旧逐帧语义先把精确
+`q1_ids` 追加到 Q1 prompt KV，再追加 Q2 user turn；不能把 `q1_ids` decode 成
+`q1_text` 后重新 tokenize 成 full dialog 来替代。
 合格时需要看到：
 
 - `ok=true`。
 - `padding_pressure=true` 时，混长 case 仍能通过，因为 padded KV 只用于 no-grad
-  student 采样，后续 Q1 KL/Q2 会重建单样本精确 KV。
+  student 采样，后续 Q1/Q2 KL 会重建 batched student/teacher prompt state；
+  Q2 KL 使用精确 `q1_ids` 续接 Q1 KV。
 - `actual_batched_group_sizes` 非空且 `actual_batched_frames>=2`，才说明这次真的测到了
   size>=2 的 batched rollout。
 - 每个 case 的 `q1_ids_equal=true`、`q1_text_equal=true`。
 - 每个 case 的 `q2_ids_equal=true`、`q2_text_equal=true`。
 - `q1_logits_max_abs <= logit_atol`，默认 `logit_atol=0.5`；这是训练真正使用的
   `_append_token_ids_with_logits` 路径，不只是自由生成文本。
+- 开启 `--check-parallel-kl` 时，`parallel_kl.ok=true`，并且 `loss_abs_diff`、
+  `case_loss_max_abs_diff`、`parts_max_abs_diff` 都不超过 `parallel_loss_atol`。
 - `adapter_dir=null`，表示没有误加载 LoRA。
 
 训练时再看 TensorBoard：
@@ -159,6 +168,13 @@ padding 压力；`--require-batched-group` 要求实际运行到 size>=2 的 bat
 - `qwen/q1_batched_frame_rate` 是所有已训练 Q1 frame 的真实 batched 比例。
 - `qwen/q1_batched_frame_rate_grouped` 只表示进入 grouped 路径后的内部比例，不能当成
   全局 batch 生效率。
+- `parallel_kl/frame_rate` 表示当前 logging window 内走 chunk 级 batched KL 的 frame
+  比例；如果长期为 0，说明 parallel KL 没有真正生效。
+- `parallel_kl/fallbacks` 非 0 时，优先用 `PARALLEL_KL_TRACEBACK=1` 定位普通兼容问题；
+  CUDA OOM 不会 fallback。
+- `train/q1_token_cap_hit_rate` / `train/q2_token_cap_hit_rate` 记录 Q1/Q2 是否打满
+  `MAX_NEW_TOKENS_Q1/Q2`；如果长期非 0，说明 1024 安全上限正在截断输出，远端要优先
+  检查模型是否不出 EOS / `<|im_end|>`。
 - 如果 `qwen/q1_batched_frame_rate` 接近 0，优先查 `[warn] q1 batch fallback`；
   没有 fallback 时 4 路配置应稳定看到 `batched_frames=4`。
 
@@ -178,16 +194,32 @@ rollout。是否真的并行，以 `actual_batched_frames`、`[q1-grouped] batch
 应显示 `routes=4` / `qwen_batch=4`；如果仍是 `routes=2` / `qwen_batch=2`，说明本次
 run 没有按 4 路配置启动。
 
+如果 H20 显存仍明显空闲，可以临时试 8 路，但要先确认 smoke 和小 run 不 OOM：
+
+```bash
+PER_DEVICE_BATCH_SIZE=8 QWEN_BATCH_SIZE=8 \
+LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+注意：Qwen 输出不做 `ABNORMAL:` / `EVENT:` 字段早停，但仍保留
+`MAX_NEW_TOKENS_Q1=1024` / `MAX_NEW_TOKENS_Q2=1024` 作为安全上限。parallel KL 的显存
+峰值主要来自近似 `batch x rollout_len x vocab` 的 student/teacher logits；如果 8 路
+或 1024 上限导致 OOM，先退回 `QWEN_BATCH_SIZE=4` 或 `PARALLEL_KL=0` 定位，不要改成
+字段早停。
+
 代码审阅时同步检查注释：
 
 - `_kv_start_state_batch_padded` 必须写清楚：padding KV 只允许用于 no-grad rollout，
-  不能直接传给后续 Q1 KL/Q2；训练 state 必须重建单样本精确 KV。
+  不能直接写回 memory；parallel KL 会重建 batched student/teacher prompt state。
 - `_slice_kv_state_batch` 与 `mrope_utils.py` 必须兼容 `(batch,1)` / `(1,batch)` 两种
   `rope_deltas` 方向；如果 log 里出现
   `Target sizes: [1, -1]. Tensor sizes: [2, 1]` 的 `[warn] q1 batch fallback`，
   通常说明 active batch 缩小时 M-RoPE delta 没跟着样本行正确切片。
 - `_student_generate_kv_batch` 必须写清楚：EOS 样本要从 active batch 移除，Q2 才能接在
   干净的 Q1 assistant KV 后。
+- `_q2_full_messages` 只允许用于 Q2 student rollout 采样；Q2 KL 必须通过精确
+  `q1_ids` 续接 Q1 KV 后再追加 Q2 user turn。
 - `test_batched_qwen_smoke.py` 必须写清楚：默认 smoke 主要验证 mixed-length padded
   rollout，`--require-batched-group` 且 `actual_batched_frames>=2` 才证明真实 batch。
 
