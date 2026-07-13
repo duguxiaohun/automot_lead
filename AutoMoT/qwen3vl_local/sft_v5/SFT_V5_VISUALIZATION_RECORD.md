@@ -13,6 +13,15 @@ SFT v5 每帧分成两个问题：
 
 ## A. 训练前：默认 Qwen 的 OPSD 能力与 prompt 检查
 
+训练前检查分两类：
+
+1. `probe.py`：检查默认 Qwen 在学生 prompt / privileged teacher prompt 下的 OPSD
+   能力，以及 system/user/messages、teacher target、memory、候选池是否合理。
+2. `test_batched_qwen_smoke.py`：检查阶段 1 grouped Qwen 路径和单样本路径是否等价，
+   尤其是 Q1/Q2 token、文本和训练 KL logits。
+
+### A.1 默认 Qwen prompt / teacher-student 能力检查
+
 目的：在真正开始 OPSD / DDP 训练前，先用默认 `Qwen3-VL-4B-Instruct`
 同时跑学生 prompt 和 privileged teacher prompt。这个检查必须是纯 base Qwen，
 不导入任何 LoRA，也不要传 `--adapter-dir`，用来确认：
@@ -100,6 +109,67 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 - `flags.json` 里 teacher/student 解析字段是否为空；为空说明 prompt 或解析合同要先修。
 - `flags.json` 里的 `student_adapter_dir` 必须为空；否则说明训练前体检误加载了 LoRA，
   需要重跑纯 base Qwen 检查。
+
+### A.2 grouped Qwen 等价性检查
+
+目的：在启用 `QWEN_BATCH_SIZE>1` 前，确认阶段 1 grouped Q1 rollout 没有改变训练语义。
+这个检查也必须使用默认/base Qwen，不传 `--adapter-dir`；只有当你想专门检查某个
+已训练 adapter 的 grouped 路径时，才显式传 `--adapter-dir`。
+
+默认命令偏向检查“混长是否安全分组/回退”，不保证一定跑到 size>=2 的真实 batched KV：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
+  --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --num-cases 2 \
+  --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json
+```
+
+强制验证真实 batched KV 时，用：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
+  --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --num-cases 2 \
+  --candidate-pool 256 \
+  --require-batched-group \
+  --no-prefer-different-lengths \
+  --output-json checkpoints/sft_v5_runs/batched_qwen_smoke_require_batch.json
+```
+
+默认命令会优先从 `--candidate-pool` 里挑 Q1 input length 差异大的 case，主动制造
+padding 压力；`--require-batched-group` 则必须找到 exact input length 相同且
+size>=2 的 group，否则直接失败。合格时需要看到：
+
+- `ok=true`。
+- `padding_pressure=true` 时，混长 case 仍能通过，因为代码会按 exact input length
+  分组，单元素组保持单样本路径，不把 padded `past_key_values` 传给后续 Q1 KL/Q2。
+- `actual_batched_group_sizes` 非空且 `actual_batched_frames>=2`，才说明这次真的测到了
+  size>=2 的 batched KV；如果为空，只能说明安全分组/回退路径通过。
+- 每个 case 的 `q1_ids_equal=true`、`q1_text_equal=true`。
+- 每个 case 的 `q2_ids_equal=true`、`q2_text_equal=true`。
+- `q1_logits_max_abs <= logit_atol`，默认 `logit_atol=0.5`；这是训练真正使用的
+  `_append_token_ids_with_logits` 路径，不只是自由生成文本。
+- `adapter_dir=null`，表示没有误加载 LoRA。
+
+训练时再看 TensorBoard：
+
+- `qwen/q1_batched_frame_rate` 是所有已训练 Q1 frame 的真实 batched 比例。
+- `qwen/q1_batched_frame_rate_grouped` 只表示进入 grouped 路径后的内部比例，不能当成
+  全局 batch 生效率。
+- 如果 `qwen/q1_batched_frame_rate` 接近 0，同时 `qwen/q1_length_seconds_per_chunk`
+  不小，先把 `QWEN_BATCH_SIZE=1`，后续再做 length bucketing 或 length cache。
+
+代码审阅时同步检查注释：
+
+- `_kv_start_state_batch` 必须写清楚：padding 不是只影响首 token logits，还会污染
+  `past_key_values` 的 prefix length / M-RoPE 位置，所以混长样本不能共享 batched KV。
+- `_student_generate_kv_batch` 必须写清楚：EOS 样本要从 active batch 移除，Q2 才能接在
+  干净的 Q1 assistant KV 后。
+- `test_batched_qwen_smoke.py` 必须写清楚：默认 smoke 不证明真实 batched KV，
+  `--require-batched-group` 且 `actual_batched_frames>=2` 才证明。
 
 ## B. 训练后：adapter 学生输入输出可视化
 
