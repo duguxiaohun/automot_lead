@@ -998,6 +998,23 @@ python AutoMoT/keyframe_filter/rgb_blind_rs_event_audit.py \
 
 ---
 
+## 版本控制边界
+
+默认只把代码、规则文档、README、HTML/CSS/JS、verification 工具和手写说明纳入 git。
+以下内容是本地数据/审计/证据产物，不再进入 push 范围：
+
+- `collection_output/`
+- `rgb_r4_r5_audit_results/`
+- `keyframes_all_scenarios.json`
+- `R2_ROUTE_RGB_REVIEW_INDEX_*.csv`
+- `ROAD_EVENT_INTERRUPTED_OVERLAY_*_IDS_*.csv`
+- `ROAD_EVENT_INTERRUPTED_OVERLAY_IDS_SUMMARY_*.json`
+
+SFT v5 训练需要的是 `collection_output/*_result.json` 作为数据源；这类 result 应按数据
+同步方式传到远程机器，或在远程重新运行 `annotate-rs` 生成，不通过 git 仓库携带。
+
+---
+
 ## 参考文件
 
 - `collector.py`：采集器、XML 索引、XODR probe、RS 规则引擎

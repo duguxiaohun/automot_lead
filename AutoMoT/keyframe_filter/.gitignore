@@ -1,3 +1,8 @@
 # Local generated research/audit artifacts. Keep them on disk, do not commit.
 collection_output/
+rgb_r4_r5_audit_results/
+keyframes_all_scenarios.json
+R2_ROUTE_RGB_REVIEW_INDEX_*.csv
+ROAD_EVENT_INTERRUPTED_OVERLAY_*_IDS_*.csv
+ROAD_EVENT_INTERRUPTED_OVERLAY_IDS_SUMMARY_*.json
 __pycache__/
