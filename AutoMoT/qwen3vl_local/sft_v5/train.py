@@ -155,6 +155,27 @@ class Q1GroupedRolloutResult:
     total_seconds: float
 
 
+@dataclass
+class Q2GroupedRolloutResult:
+    """Q2 grouped rollout 的输出和真实并行统计。
+
+    Q2 与 Q1 不同：它发生在 Q1 assistant 输出之后，完整上下文长度会受到 Q1
+    生成文本长短影响。因此这里仍然只允许 exact full-dialog input length 相同的样本
+    进入 batched Qwen；混长样本留给原来的单样本 KV 续接路径。
+    """
+
+    rollouts: List[Optional[Tuple[KVState, str, torch.Tensor]]]
+    input_lengths: List[int]
+    group_sizes: List[int]
+    batched_group_sizes: List[int]
+    singleton_groups: int
+    batched_groups: int
+    batched_frames: int
+    length_histogram: Dict[int, int]
+    length_seconds: float
+    total_seconds: float
+
+
 class RouteSequenceDataset(Dataset):
     """读取 build_dataset.py 生成的 sequence_index.jsonl。"""
 
@@ -359,6 +380,24 @@ def _messages(images: List[Image.Image], user_prompt: str) -> List[Dict[str, Any
     return [
         {"role": "system", "content": SYSTEM_PROMPT_V5},
         {"role": "user", "content": content},
+    ]
+
+
+def _q2_full_messages(images: List[Image.Image], q1_prompt: str, q1_text: str, q2_prompt: str) -> List[Dict[str, Any]]:
+    """构造“图像 + Q1 user + Q1 assistant + Q2 user”的完整 Q2 对话。
+
+    Q2 batched rollout 不能直接复用多个单样本 KV cache，因为 Q1 生成长度不同会让
+    past_key_values 变成 ragged。这里选择重新 prefill 完整对话，只在 full-dialog token
+    length 完全相同时 batch，保证 M-RoPE / cache_position 与单样本完整对话等价。
+    """
+
+    content: List[Dict[str, Any]] = [{"type": "image", "image": image} for image in images]
+    content.append({"type": "text", "text": q1_prompt})
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT_V5},
+        {"role": "user", "content": content},
+        {"role": "assistant", "content": q1_text},
+        {"role": "user", "content": q2_prompt},
     ]
 
 
@@ -809,6 +848,9 @@ def _run_frame(
     q1_text: Optional[str] = None,
     q1_after: Optional[KVState] = None,
     q1_ids: Optional[torch.Tensor] = None,
+    q2_student_state: Optional[KVState] = None,
+    q2_text: Optional[str] = None,
+    q2_ids: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, Dict[str, Any], Memory, bool]:
     """运行单帧 Q1/Q2，返回 loss、统计、更新后的 memory、是否需要下一帧 reset。"""
 
@@ -886,11 +928,16 @@ def _run_frame(
         q1_abnormal=bool(q1_abnormal),
         regular_event_codes=frame.regular_event_codes,
     )
-    q2_rollout_start = time.time()
-    with torch.no_grad():
-        q2_student_state = _append_user_turn(bundle, q1_after, q2_prompt)
-        q2_text, _q2_after, q2_ids = _student_generate_kv(bundle, q2_student_state, max_new_tokens_q2)
-    timings["q2_rollout_seconds"] = time.time() - q2_rollout_start
+    if q2_student_state is None or q2_text is None or q2_ids is None:
+        q2_rollout_start = time.time()
+        with torch.no_grad():
+            q2_student_state = _append_user_turn(bundle, q1_after, q2_prompt)
+            q2_text, _q2_after, q2_ids = _student_generate_kv(bundle, q2_student_state, max_new_tokens_q2)
+        timings["q2_rollout_seconds"] = time.time() - q2_rollout_start
+    else:
+        # Q2 student rollout 已在当前 timestep 的 grouped/batched 路径中完成；这里继续
+        # 使用同一段 q2_text/q2_ids 做 teacher/student KL，不再重复生成。
+        timings["q2_rollout_seconds"] = 0.0
     q2_parsed = parse_q2_output(q2_text, frame.event_option_map)
     event_target = _event_target_from_frame(frame, student_event=q2_parsed.get("event_label"))
     # EVENT 支持“单标签训练、双标签容错”：如果 raw label 有多个 UE/RE，而 student
@@ -1069,6 +1116,95 @@ def _run_q1_rollout_batch(
     ).rollouts
 
 
+def _run_q2_rollout_grouped(
+    bundle: Any,
+    *,
+    frames: Sequence[FrameRow],
+    memories: Sequence[Memory],
+    q1_texts: Sequence[str],
+    q1_abnormal_flags: Sequence[bool],
+    max_new_tokens_q2: int,
+) -> Q2GroupedRolloutResult:
+    """按完整 Q2 对话 length 分组后运行 Q2 student rollout。
+
+    返回的 `rollouts` 与输入顺序一一对应；无法安全 batch 的 singleton 位置为 None，
+    外层会继续使用旧的 `_append_user_turn + _student_generate_kv` 单样本路径。
+    """
+
+    total_start = time.time()
+    n = len(frames)
+    if n == 0:
+        return Q2GroupedRolloutResult(
+            rollouts=[],
+            input_lengths=[],
+            group_sizes=[],
+            batched_group_sizes=[],
+            singleton_groups=0,
+            batched_groups=0,
+            batched_frames=0,
+            length_histogram={},
+            length_seconds=0.0,
+            total_seconds=0.0,
+        )
+    images_per_frame = [_load_images(frame.history_rgb_paths) for frame in frames]
+    messages_list: List[List[Dict[str, Any]]] = []
+    for images, memory, frame, q1_text, q1_abnormal in zip(images_per_frame, memories, frames, q1_texts, q1_abnormal_flags):
+        q1_prompt = build_q1_student_prompt(memory)
+        memory_after_q1 = update_memory_after_q1(
+            memory,
+            student_rs_label=parse_q1_output(q1_text).get("rs_label"),
+            student_abnormal=q1_abnormal,
+        )
+        q2_prompt = build_q2_student_prompt(
+            memory_after_q1,
+            option_map=frame.event_option_map,
+            q1_abnormal=bool(q1_abnormal),
+            regular_event_codes=frame.regular_event_codes,
+        )
+        messages_list.append(_q2_full_messages(images, q1_prompt, q1_text, q2_prompt))
+
+    length_start = time.time()
+    input_lengths = [_qwen_message_input_length(bundle, messages) for messages in messages_list]
+    length_seconds = time.time() - length_start
+    groups: Dict[int, List[int]] = {}
+    for idx, length in enumerate(input_lengths):
+        groups.setdefault(int(length), []).append(idx)
+
+    outputs: List[Optional[Tuple[KVState, str, torch.Tensor]]] = [None for _ in range(n)]
+    group_sizes: List[int] = []
+    batched_group_sizes: List[int] = []
+    singleton_groups = 0
+    for indices in groups.values():
+        group_sizes.append(len(indices))
+        if len(indices) == 1:
+            singleton_groups += 1
+            continue
+        batched_group_sizes.append(len(indices))
+        group_messages = [messages_list[i] for i in indices]
+        with torch.no_grad():
+            state_batch = _kv_start_state_batch(bundle, group_messages)
+            texts, _after_states, ids_list = _student_generate_kv_batch(bundle, state_batch, max_new_tokens_q2)
+        for row_idx, idx in enumerate(indices):
+            outputs[idx] = (
+                _slice_kv_state_batch(state_batch, [row_idx]),
+                texts[row_idx],
+                ids_list[row_idx],
+            )
+
+    return Q2GroupedRolloutResult(
+        rollouts=outputs,
+        input_lengths=input_lengths,
+        group_sizes=group_sizes,
+        batched_group_sizes=batched_group_sizes,
+        singleton_groups=singleton_groups,
+        batched_groups=len(batched_group_sizes),
+        batched_frames=sum(batched_group_sizes),
+        length_histogram={int(length): len(indices) for length, indices in groups.items()},
+        length_seconds=length_seconds,
+        total_seconds=time.time() - total_start,
+    )
+
+
 def _trainable_param_groups(bundle: Any, args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[nn.Parameter], List[nn.Parameter]]:
     """按语言/视觉 LoRA 分组，复用 v2/v3 的视觉保险口径。"""
 
@@ -1220,6 +1356,13 @@ _TRAIN_WINDOW_KEYS = (
     "q1_batched_frames",
     "q1_length_seconds",
     "q1_grouped_seconds",
+    "q2_grouped_chunks",
+    "q2_grouped_frames",
+    "q2_batched_groups",
+    "q2_singleton_groups",
+    "q2_batched_frames",
+    "q2_length_seconds",
+    "q2_grouped_seconds",
     "time_q1_student_seconds",
     "time_q1_teacher_seconds",
     "time_q1_loss_seconds",
@@ -1306,6 +1449,18 @@ def _add_q1_grouped_stats(stats: Dict[str, float], grouped: Q1GroupedRolloutResu
     stats["q1_grouped_seconds"] += float(grouped.total_seconds)
 
 
+def _add_q2_grouped_stats(stats: Dict[str, float], grouped: Q2GroupedRolloutResult) -> None:
+    """累计 Q2 grouped rollout 的真实并行程度。"""
+
+    stats["q2_grouped_chunks"] += 1.0
+    stats["q2_grouped_frames"] += float(len(grouped.rollouts))
+    stats["q2_batched_groups"] += float(grouped.batched_groups)
+    stats["q2_singleton_groups"] += float(grouped.singleton_groups)
+    stats["q2_batched_frames"] += float(grouped.batched_frames)
+    stats["q2_length_seconds"] += float(grouped.length_seconds)
+    stats["q2_grouped_seconds"] += float(grouped.total_seconds)
+
+
 def _ddp_sum_train_stats(stats: Mapping[str, float]) -> Dict[str, float]:
     """把各 rank 的 logging window 统计按 sum 聚合到所有 rank。"""
 
@@ -1329,6 +1484,9 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
     grouped_frames = max(1.0, float(stats.get("q1_grouped_frames", 0.0)))
     batched_frames = float(stats.get("q1_batched_frames", 0.0))
     grouped_chunks = max(1.0, float(stats.get("q1_grouped_chunks", 0.0)))
+    q2_grouped_frames = max(1.0, float(stats.get("q2_grouped_frames", 0.0)))
+    q2_batched_frames = float(stats.get("q2_batched_frames", 0.0))
+    q2_grouped_chunks = max(1.0, float(stats.get("q2_grouped_chunks", 0.0)))
     return (
         f"loss/frame={float(stats.get('loss_sum', 0.0)) / frames:.4f} "
         f"q1_loss={{a:{float(stats.get('q1_loss_analysis_sum', 0.0)) / frames:.3f},"
@@ -1351,8 +1509,11 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"q2teach:{float(stats.get('time_q2_teacher_seconds', 0.0)) / frames:.2f},"
         f"q2loss:{float(stats.get('time_q2_loss_seconds', 0.0)) / frames:.2f}}} "
         f"q1group/chunk={float(stats.get('q1_grouped_seconds', 0.0)) / grouped_chunks:.2f}s "
+        f"q2group/chunk={float(stats.get('q2_grouped_seconds', 0.0)) / q2_grouped_chunks:.2f}s "
         f"q1_batched_all={batched_frames / frames:.3f} "
         f"q1_batched_grouped={batched_frames / grouped_frames:.3f} "
+        f"q2_batched_all={q2_batched_frames / frames:.3f} "
+        f"q2_batched_grouped={q2_batched_frames / q2_grouped_frames:.3f} "
         f"pad_rate={float(stats.get('padding_slots', 0.0)) / (valid_slots + float(stats.get('padding_slots', 0.0))):.3f} "
         f"maxT={float(stats.get('max_T_global_sum', 0.0)) / batches:.1f}"
     )
@@ -1550,10 +1711,19 @@ def main() -> None:
                     tb.add_scalar("qwen/q1_batched_frame_rate_grouped", reduced_stats["q1_batched_frames"] / q1_grouped_frames, global_step)
                     tb.add_scalar("qwen/q1_batched_groups", reduced_stats["q1_batched_groups"], global_step)
                     tb.add_scalar("qwen/q1_singleton_groups", reduced_stats["q1_singleton_groups"], global_step)
+                    q2_grouped_frames = max(1.0, reduced_stats["q2_grouped_frames"])
+                    q2_grouped_chunks = max(1.0, reduced_stats["q2_grouped_chunks"])
+                    tb.add_scalar("qwen/q2_batched_frame_rate", reduced_stats["q2_batched_frames"] / frames, global_step)
+                    tb.add_scalar("qwen/q2_grouped_frame_rate", reduced_stats["q2_grouped_frames"] / frames, global_step)
+                    tb.add_scalar("qwen/q2_batched_frame_rate_grouped", reduced_stats["q2_batched_frames"] / q2_grouped_frames, global_step)
+                    tb.add_scalar("qwen/q2_batched_groups", reduced_stats["q2_batched_groups"], global_step)
+                    tb.add_scalar("qwen/q2_singleton_groups", reduced_stats["q2_singleton_groups"], global_step)
                     # 如果这个耗时很高而 q1_batched_frame_rate 很低，说明逐帧 processor
                     # 长度预计算比真实 batch 省下的时间还贵，应先退回 QWEN_BATCH_SIZE=1。
                     tb.add_scalar("qwen/q1_length_seconds_per_chunk", reduced_stats["q1_length_seconds"] / q1_grouped_chunks, global_step)
                     tb.add_scalar("qwen/q1_grouped_seconds_per_chunk", reduced_stats["q1_grouped_seconds"] / q1_grouped_chunks, global_step)
+                    tb.add_scalar("qwen/q2_length_seconds_per_chunk", reduced_stats["q2_length_seconds"] / q2_grouped_chunks, global_step)
+                    tb.add_scalar("qwen/q2_grouped_seconds_per_chunk", reduced_stats["q2_grouped_seconds"] / q2_grouped_chunks, global_step)
                     # 这些 time/* 指标用于判断 GPU 利用率低到底卡在 Q1 batched rollout、
                     # Q1/Q2 teacher prefill，还是 Q2 rollout / KL 单样本路径。
                     tb.add_scalar("time/frame_q1_student_seconds", reduced_stats["time_q1_student_seconds"] / frames, global_step)
@@ -1623,9 +1793,12 @@ def main() -> None:
                 for chunk_start in range(0, len(active_items), qwen_batch_size):
                     chunk = active_items[chunk_start:chunk_start + qwen_batch_size]
                     q1_rollouts: List[Optional[Tuple[KVState, str, KVState, torch.Tensor]]] = [None] * len(chunk)
+                    q2_rollouts: List[Optional[Tuple[KVState, str, torch.Tensor]]] = [None] * len(chunk)
                     if qwen_batch_size > 1 and len(chunk) > 1:
                         # 只把同一 timestep 的多条 route 合成 Q1 rollout chunk；
-                        # Q2 和 KL 仍在下面逐 frame 单样本执行，降低优化引入的语义风险。
+                        # KL 仍在下面逐 frame 单样本执行，降低优化引入的语义风险；Q2
+                        # student rollout 会在 Q1 解析后尽量按 exact full-dialog length 再
+                        # 做一次 grouped/batched。
                         q1_batch_start = time.time()
                         try:
                             q1_grouped = _run_q1_rollout_grouped(
@@ -1671,6 +1844,69 @@ def main() -> None:
                                     # decode 触发了回退。
                                     rank0_log(traceback.format_exc(limit=12).rstrip())
                             q1_rollouts = [None] * len(chunk)
+                        # Q2 student rollout 是当前 profiling 中最慢的单样本段。只有 Q1
+                        # 已经 batched/生成成功且 RS 正确的 frame 才能进入 Q2；full-dialog
+                        # length 不一致的样本仍回到 _run_frame 内的单样本 KV 续接。
+                        q2_candidate_local_indices: List[int] = []
+                        q2_candidate_frames: List[FrameRow] = []
+                        q2_candidate_memories: List[Memory] = []
+                        q2_candidate_q1_texts: List[str] = []
+                        q2_candidate_abnormal: List[bool] = []
+                        for local_idx, rollout in enumerate(q1_rollouts):
+                            if rollout is None:
+                                continue
+                            _b, _route, frame_for_q2, memory_for_q2 = chunk[local_idx]
+                            _q1_state, q1_text_for_q2, _q1_after, _q1_ids = rollout
+                            q1_parsed_for_q2 = parse_q1_output(q1_text_for_q2)
+                            if q1_parsed_for_q2.get("rs_label") != frame_for_q2.rs_label:
+                                continue
+                            q2_candidate_local_indices.append(local_idx)
+                            q2_candidate_frames.append(frame_for_q2)
+                            q2_candidate_memories.append(memory_for_q2)
+                            q2_candidate_q1_texts.append(q1_text_for_q2)
+                            q2_candidate_abnormal.append(bool(q1_parsed_for_q2.get("abnormal") == "YES"))
+                        if len(q2_candidate_frames) > 1:
+                            q2_batch_start = time.time()
+                            try:
+                                q2_grouped = _run_q2_rollout_grouped(
+                                    bundle,
+                                    frames=q2_candidate_frames,
+                                    memories=q2_candidate_memories,
+                                    q1_texts=q2_candidate_q1_texts,
+                                    q1_abnormal_flags=q2_candidate_abnormal,
+                                    max_new_tokens_q2=int(args.max_new_tokens_q2),
+                                )
+                                _add_q2_grouped_stats(window_stats, q2_grouped)
+                                for candidate_idx, rollout in zip(q2_candidate_local_indices, q2_grouped.rollouts):
+                                    q2_rollouts[candidate_idx] = rollout
+                                if rank == 0:
+                                    rank0_log(
+                                        f"[q2-grouped] epoch={epoch} batch={batch_idx} t={t} "
+                                        f"size={len(q2_candidate_frames)} group_sizes={q2_grouped.group_sizes} "
+                                        f"batched_groups={q2_grouped.batched_groups} "
+                                        f"singleton_groups={q2_grouped.singleton_groups} "
+                                        f"batched_frames={q2_grouped.batched_frames} "
+                                        f"length_hist={q2_grouped.length_histogram} "
+                                        f"length_s={q2_grouped.length_seconds:.3f} "
+                                        f"dt={time.time() - q2_batch_start:.1f}s {_cuda_memory_text()}"
+                                    )
+                            except Exception as exc:
+                                if _is_cuda_oom(exc):
+                                    if torch.cuda.is_available():
+                                        torch.cuda.empty_cache()
+                                    rank0_log(
+                                        f"[error] q2 batch OOM epoch={epoch} batch={batch_idx} t={t} "
+                                        f"size={len(q2_candidate_frames)}; abort instead of unsafe fallback. {_cuda_memory_text()}"
+                                    )
+                                    raise
+                                if rank == 0:
+                                    rank0_log(
+                                        f"[warn] q2 batch fallback epoch={epoch} batch={batch_idx} t={t} "
+                                        f"size={len(q2_candidate_frames)} reason={type(exc).__name__}: {exc}"
+                                    )
+                                    if os.environ.get("Q2_BATCH_TRACEBACK", "0") == "1":
+                                        rank0_log(traceback.format_exc(limit=12).rstrip())
+                                q2_rollouts = [None] * len(chunk)
                     for chunk_idx, (b, route, frame, memory_for_frame) in enumerate(chunk):
                         frame_start = time.time()
                         log_this_frame = should_log_frame()
@@ -1694,6 +1930,16 @@ def main() -> None:
                                     "q1_after": q1_after,
                                     "q1_ids": q1_ids,
                                 }
+                            q2_rollout = q2_rollouts[chunk_idx]
+                            if q2_rollout is not None:
+                                q2_student_state, q2_text, q2_ids = q2_rollout
+                                rollout_kwargs.update(
+                                    {
+                                        "q2_student_state": q2_student_state,
+                                        "q2_text": q2_text,
+                                        "q2_ids": q2_ids,
+                                    }
+                                )
                             loss, stats, next_mem, need_reset = _run_frame(
                                 bundle,
                                 memory_for_frame,
