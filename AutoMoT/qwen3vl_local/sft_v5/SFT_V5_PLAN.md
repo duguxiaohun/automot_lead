@@ -1081,6 +1081,11 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 - Cache 切片、last-valid logits、padding token 排除、EOS active batch 移除、OOM
   不 fallback、loss_slots 归一化这些位置都属于 v5 correctness 关键点，修改时必须
   同步更新相邻注释。
+- batched Qwen 的 `rope_deltas` 可能来自不同 Qwen/Transformers 版本，形状既可能是
+  `(batch,1)`，也可能是 `(1,batch)`；KV 切片和 `mrope_utils.py` 的 decode position
+  计算必须同时兼容两种方向。若日志出现
+  `Target sizes: [1, -1]. Tensor sizes: [2, 1]` 一类 `[warn] q1 batch fallback`，
+  优先检查 active batch 缩小时 `rope_deltas` 是否随 batch 行正确切片。
 - `test_batched_qwen_smoke.py` 的默认 mixed-length 模式和
   `--require-batched-group` 模式必须在代码注释和文档中保持一致：默认模式验证安全分组，
   强制模式才证明真实 batched KV。

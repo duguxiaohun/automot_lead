@@ -19,6 +19,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _p)
 
 from qwen3vl_local.sft_v3.train import KVState
+from qwen3vl_local.mrope_utils import qwen3vl_decode_position_ids
 from qwen3vl_local.sft_v5.train import _last_valid_next_logits, _slice_kv_state_batch
 
 
@@ -51,6 +52,31 @@ def main() -> None:
     assert torch.equal(skey[1], key[0])
     assert torch.equal(svalue[0], value[2])
     assert torch.equal(sliced.next_logits[0], state.next_logits[2])
+
+    # rope_deltas 也可能是 (1, batch) 方向；这正是 batched Qwen fallback 报错的来源。
+    # 切 [2, 0] 后应该得到 (1, 2)，值顺序与 batch 行一致。
+    state_transposed_rope = KVState(
+        decoded_input_ids=decoded,
+        cache_input_ids=decoded.clone(),
+        attention_mask=attention,
+        past_key_values=((key, value),),
+        rope_deltas=torch.tensor([[10, 20, 30]]),
+        next_logits=torch.arange(batch * hidden).view(batch, hidden).float(),
+    )
+    sliced_transposed = _slice_kv_state_batch(state_transposed_rope, [2, 0])
+    assert sliced_transposed.rope_deltas.tolist() == [[30, 10]]
+
+    # M-RoPE helper 自身也要能把 (1, batch) 归一化成每样本一个 delta，
+    # 否则 batch_size=2/feed_len=1 时会错误广播成 feed_len=2。
+    pos = qwen3vl_decode_position_ids(torch.tensor([[10, 20]]), prefix_len=5, feed_len=1, batch_size=2, device=torch.device("cpu"))
+    assert pos.shape == (3, 2, 1)
+    assert pos[0, :, 0].tolist() == [15, 25]
+
+    # active batch 缩到 1 时也不能再拿着两个 delta expand。
+    pos_one = qwen3vl_decode_position_ids(torch.tensor([[30]]), prefix_len=5, feed_len=1, batch_size=1, device=torch.device("cpu"))
+    assert pos_one.shape == (3, 1, 1)
+    assert pos_one[0, 0, 0].item() == 35
+
     logits = torch.arange(2 * 5 * 3).view(2, 5, 3).float()
     # 第一条是 right padding，最后真实位置为 2；第二条是 left padding，最后真实位置为 4。
     # 这个用例防止以后有人重新改回 logits[:, -1, :]，那会在 right padding 上取错。

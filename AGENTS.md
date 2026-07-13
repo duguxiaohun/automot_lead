@@ -310,7 +310,8 @@
   是全训练 Q1 frame 的真实 batch 比例，若长期接近 0 应退回 `QWEN_BATCH_SIZE=1`
   或后续做 length bucketing/cache；batched Qwen 相关代码必须保留中文注释解释
   Cache 切片、last-valid logits、padding 排除、EOS active batch 移除、OOM 不 fallback
-  和 TensorBoard 分母口径，后续改这些逻辑时同步更新注释。每帧 loss
+  和 TensorBoard 分母口径，`rope_deltas` 必须兼容 `(batch,1)` / `(1,batch)` 两种方向，
+  避免 active batch 缩小时 M-RoPE delta 切片错误；后续改这些逻辑时同步更新注释。每帧 loss
   按全局有效 frame 数归一化，手动 all-reduce 后保持 frame 等权；TensorBoard 必须记录
   `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}` 分项。`probe.py` 仿 v3 输出 route/frame 层级可视化：
   复制 4 帧 RGB，保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、

@@ -85,6 +85,18 @@ def qwen3vl_decode_position_ids(
             rd = rd.view(1, 1)
         elif rd.ndim == 1:
             rd = rd.view(-1, 1)
+        elif rd.ndim >= 2:
+            # 不同 transformers / Qwen3-VL 版本返回的 rope_deltas 方向不完全一致：
+            # 常见形状既可能是 (batch, 1)，也可能是 (1, batch)。decode 阶段只需要
+            # “每个样本一个 delta”，所以这里统一整理成 (batch, 1)。如果不做这一步，
+            # batched rollout 在 active batch 从 2 缩到 1 时会出现
+            # "Target sizes: [1, -1]. Tensor sizes: [2, 1]" 这类 expand 报错。
+            if rd.shape[0] == 1 and rd.numel() == batch_size:
+                rd = rd.reshape(1, batch_size).transpose(0, 1).contiguous()
+            elif rd.shape[0] == batch_size:
+                rd = rd.reshape(batch_size, -1)[:, :1]
+            elif rd.numel() == batch_size:
+                rd = rd.reshape(batch_size, 1)
         delta = (rd + int(prefix_len)).to(torch.long)
         if delta.shape[0] != batch_size:
             delta = delta.expand(batch_size, -1)
