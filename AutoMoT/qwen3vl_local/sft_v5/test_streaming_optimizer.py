@@ -123,6 +123,8 @@ def test_adapter_metadata_records_effective_window() -> None:
         max_new_tokens_q1=1024,
         max_new_tokens_q2=1024,
         temperature=1.0,
+        parallel_kl=True,
+        parallel_kl_microbatch_size=4,
         update_mode="streaming_frames",
         target_global_frames_per_step=512,
         max_timesteps_per_step=32,
@@ -135,6 +137,7 @@ def test_adapter_metadata_records_effective_window() -> None:
         meta = json.loads((output_dir / "sft_v5_adapter_config.json").read_text(encoding="utf-8"))
     assert meta["effective_target_global_frames_per_step"] == 1024
     assert meta["effective_max_timesteps_per_step"] == 64
+    assert meta["parallel_kl_microbatch_size"] == 4
     assert meta["gradient_sync"] == "bucketed_sum_allreduce_then_global_frame_average"
 
 

@@ -848,8 +848,8 @@ DataLoader batch 攒更多 route。实现分阶段推进：
    - padded KV 只用于 no-grad 采样，不写回 memory；训练 scoring 由 chunk 级
      parallel KL 路径重新构造 batched student/teacher prompt state；
    - 某个样本预测 EOS 时，从 active batch 中移除并保存追加 EOS 前的干净 KV；
-   - 后续 teacher 与 KL 默认走 chunk 级 batched scoring；兼容问题会回退旧逐帧路径，
-     CUDA OOM 直接中止；
+   - 后续 teacher 与 KL 默认走 chunk 级 batched scoring，但 rollout batch 与 KL
+     autograd 微批独立；
    - 若 processor/cache 兼容失败，自动 fallback 到单帧旧路径；CUDA OOM 直接中止，
      不在 OOM 后继续降级运行。
 2. **阶段 2：batched Q2 student rollout**（已落地）
@@ -862,10 +862,14 @@ DataLoader batch 攒更多 route。实现分阶段推进：
    - 对不同长度 rollout ids 做 padding；
    - 按每个样本自己的 span positions 取 logits；
    - padding token 不进入 loss，不污染 KV。
-   - teacher/student prompt state、rollout token scoring 和 span KL 在同一个 chunk 内
-     batched forward，并对 chunk loss 一次 backward。
-   - 显存峰值主要来自 `batch x rollout_len x vocab` 的 student/teacher logits；1024 token
-     上限和 `QWEN_BATCH_SIZE=8` 同时开启时要先用 smoke / 小 run 确认不 OOM。
+   - teacher/student prompt state、rollout token scoring 和 span KL 在同一 rollout
+     chunk 内按 `PARALLEL_KL_MICROBATCH_SIZE` 拆分；默认 8 路 rollout 对应 `4+4`
+     KL 微批，每个微批立即 backward，不同时保留两份 autograd graph。
+   - 显存峰值主要来自 `KL microbatch x context length` 的 attention activation 与
+     student logits。1024 token 上限保持不变；若 4 路 KL forward OOM，只把当前微批
+     二分为 `2+2`，不降低输出长度、不重新 rollout。
+   - 自适应二分只包住尚未 backward 的 forward/scoring；backward OOM 或普通异常直接
+     中止，禁止在已有部分梯度后整块 fallback 导致重复累计。
    - `PARALLEL_KL=0` / `--no-parallel-kl` 可切回旧逐帧 teacher/KL；正式开大仍建议
      用小 run 对比 loss/解析率曲线。
 
@@ -1049,7 +1053,8 @@ for t in range(max_T_global):
 ### 8.3 梯度累积
 
 `train.sh ddp` 默认 `BATCH_PROFILE=max_util`，即
-`per_device_batch_size=8`、`qwen_batch_size=8`、`grad_accum=1`；
+`per_device_batch_size=8`、`qwen_batch_size=8`、`parallel_kl_microbatch_size=4`、
+`grad_accum=1`；
 `single/check` 模式默认仍保守使用 `1/1`。如果显存允许：
 
 - batch 内多个 route 按时间步交错推进；
@@ -1065,6 +1070,7 @@ for t in range(max_T_global):
 BATCH_PROFILE=max_util
 per_device_batch_size=8
 qwen_batch_size=8
+parallel_kl_microbatch_size=4
 grad_accum=1
 update_mode=streaming_frames
 target_global_frames_per_step=512
@@ -1120,6 +1126,9 @@ max_frames_per_route=0  # 0 means full route
 - `time/frame_q2_loss_seconds`
 - `parallel_kl/frame_rate`
 - `parallel_kl/seconds_per_chunk`
+- `parallel_kl/microbatches_per_chunk`
+- `parallel_kl/frames_per_microbatch`
+- `parallel_kl/oom_splits`
 - `parallel_kl/fallbacks`
 - `ddp/padding_rate`
 - `ddp/max_T_global_avg`
@@ -1145,14 +1154,15 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 `BATCH_PROFILE=max_util / PER_DEVICE_BATCH_SIZE=8 / QWEN_BATCH_SIZE=8`；启动时
 launcher 会打印 `[batch]` 配置，第一条 `[batch-start]` 也应显示 `routes=8`
 与 `qwen_batch=8`。若 8 路 OOM、频繁 fallback 或单步明显变慢，可用
-`BATCH_PROFILE=balanced` 退回 6 路；若 6 路仍不稳，再用 `BATCH_PROFILE=debug`
-退回 4 路；若 4 路仍不稳，再降到 `PER_DEVICE_BATCH_SIZE=2 QWEN_BATCH_SIZE=2`
-做兼容 debug。若 `qwen/q1_batched_frame_rate` 长期接近 0，则先查
+traceback 判断阶段：若 OOM 位于 `_opsd_loss_batch_states`，先设
+`PARALLEL_KL_MICROBATCH_SIZE=2`，保持 8 路 rollout；只有 OOM 位于 Q1/Q2 grouped
+student rollout 时，才用 `BATCH_PROFILE=balanced/debug` 降低 rollout batch。若
+`qwen/q1_batched_frame_rate` 长期接近 0，则先查
 `[warn] q1 batch fallback`，必要时回到 `QWEN_BATCH_SIZE=1`。
 若 8 路已经稳定显示 `batched_frames=8`，但 GPU util 仍只有中等水平，先确认启动日志里
 `[parallel] PARALLEL_KL=1`，并观察是否出现 `[chunk-train] ... parallel_kl=1`。
-若频繁出现 `[warn] parallel KL fallback ...`，说明仍回到了旧逐帧 teacher/KL 路径；
-可设置 `PARALLEL_KL_TRACEBACK=1` 定位。
+`[chunk-train]` 应同时打印 `kl_microbatches=[4, 4]`；偶发
+`[warn] parallel KL adaptive split ... [2, 2]` 可继续训练，长期出现则固定改成 2。
 
 训练阶段不按 `ABNORMAL:` / `EVENT:` 字段早停；默认仅保留 `MAX_NEW_TOKENS_Q1=1024`
 和 `MAX_NEW_TOKENS_Q2=1024` 作为防无限生成的安全上限。正式训练不建议使用很小的
@@ -1163,8 +1173,8 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
 
 - 代码中必须保留中文注释解释 `grouped` 与真正 `batched` 的区别，避免后续把
   `qwen/q1_batched_frame_rate_grouped` 误读成全局 batch 生效率。
-- Cache 切片、last-valid logits、padding token 排除、EOS active batch 移除、OOM
-  不 fallback、loss_slots 归一化、无监督 span 返回 graph-connected zero 这些位置都属于
+- Cache 切片、last-valid logits、padding token 排除、EOS active batch 移除、KL forward
+  OOM 仅在 backward 前二分、loss_slots 归一化、无监督 span 返回 graph-connected zero 这些位置都属于
   v5 correctness 关键点，修改时必须同步更新相邻注释。
 - batched Qwen 的 `rope_deltas` 可能来自不同 Qwen/Transformers 版本，形状既可能是
   `(batch,1)`，也可能是 `(1,batch)`；KV 切片和 `mrope_utils.py` 的 decode position
@@ -1361,6 +1371,7 @@ TOKENIZERS_PARALLELISM=false
    - `python qwen3vl_local/sft_v5/test_memory_update.py`
    - `python qwen3vl_local/sft_v5/test_dataset_contract.py`
    - `python qwen3vl_local/sft_v5/test_streaming_optimizer.py`
+   - `python qwen3vl_local/sft_v5/test_parallel_kl_microbatch.py`
    - `python qwen3vl_local/sft_v5/check_loss_mask.py`
    - `python -m py_compile qwen3vl_local/sft_v5/*.py`
 

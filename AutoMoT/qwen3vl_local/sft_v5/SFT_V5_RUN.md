@@ -46,6 +46,7 @@ python qwen3vl_local/sft_v5/check_loss_mask.py
 python qwen3vl_local/sft_v5/test_memory_update.py
 python qwen3vl_local/sft_v5/test_dataset_contract.py
 python qwen3vl_local/sft_v5/test_streaming_optimizer.py
+python qwen3vl_local/sft_v5/test_parallel_kl_microbatch.py
 python -m py_compile qwen3vl_local/sft_v5/*.py
 ```
 
@@ -98,6 +99,7 @@ NPROC=4
 BATCH_PROFILE=max_util
 PER_DEVICE_BATCH_SIZE=8
 QWEN_BATCH_SIZE=8
+PARALLEL_KL_MICROBATCH_SIZE=4
 GRAD_ACCUM=1
 UPDATE_MODE=streaming_frames
 TARGET_GLOBAL_FRAMES_PER_STEP=512
@@ -139,8 +141,10 @@ GPU_IDS=0 bash qwen3vl_local/sft_v5/train.sh check
 自回归 decode、CPU/IO 和 rank 间阶段差异会让 `nvidia-smi` 瞬时值波动，文档不承诺
 每一秒固定 100%，但 `max_util` 是当前同步 on-policy v5 里最接近满载的口径。
 
-`PARALLEL_KL` 默认开启，会把同一 chunk 内的 teacher/student KL 合成 batched
-forward；如果频繁 fallback，可临时设 `PARALLEL_KL=0` 回到旧逐帧路径定位。
+`PARALLEL_KL` 默认开启。Q1/Q2 student rollout 仍按 8 路并行，但有 autograd graph、
+显存更重的 teacher/student KL 默认按 `PARALLEL_KL_MICROBATCH_SIZE=4` 拆成 `4+4`，
+每个微批立即 backward。若某个 4 路 KL forward 因更长上下文 OOM，代码会自动二分
+为 `2+2`，不会降低 token 上限或重新采样 student 输出。
 
 Qwen 输出不做 `ABNORMAL:` / `EVENT:` 字段早停；为了防止模型不出 EOS 时无限生成，
 launcher 只保留一个很大的安全上限，默认：
@@ -171,6 +175,8 @@ MAX_NEW_TOKENS_Q2=1024
   PyTorch 原生 route 数均衡分片做对照。
 - 训练循环不再把整条 route sequence 的 Qwen 计算图攒到 batch 末尾；每帧
   OPSD loss 立刻 backward，只累计 LoRA 梯度，降低 H20 上长序列 OOM 风险。
+- rollout batch 与 KL 训练微批解耦：默认保持 8 路 Q1/Q2 生成吞吐，Q1/Q2 KL 按
+  4 路微批构图并立即 backward；forward OOM 时只二分当前 KL 微批。
 - 默认 `UPDATE_MODE=streaming_frames`：四卡累计 512 个实际 global frame，或达到
   32 个 global timestep 后立即同步更新，不等待完整 DataLoader route batch。
 - 更新只发生在完整 timestep 结束后，绝不会夹在同一帧 Q1/Q2/KL 中间；optimizer
@@ -257,8 +263,12 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 - `parallel_kl/frame_rate`：当前 logging window 内有多少 frame 走了 chunk 级 batched
   teacher/student KL。
 - `parallel_kl/seconds_per_chunk`：chunk 级 KL scoring + backward 的平均耗时。
-- `parallel_kl/fallbacks`：parallel KL 普通兼容问题回退旧逐帧路径的次数；非 0 时优先
-  打开 `PARALLEL_KL_TRACEBACK=1` 定位。
+- `parallel_kl/microbatches_per_chunk` / `parallel_kl/frames_per_microbatch`：8 路 rollout
+  chunk 实际拆成多少个 KL 微批，以及每个微批的平均 frame 数；默认应接近 `2 / 4`。
+- `parallel_kl/oom_splits`：KL forward 因上下文过长触发的安全二分次数；偶发非 0 可继续
+  训练，若长期非 0，直接把 `PARALLEL_KL_MICROBATCH_SIZE` 从 4 调成 2。
+- `parallel_kl/fallbacks`：旧兼容统计。微批开始 backward 后不允许整块 fallback，避免
+  已完成微批被重复累计；普通异常会明确中止并打印 traceback 开关。
 - `ddp/padding_rate`：global padding 后的 None frame 占位比例。
 - `ddp/max_T_global_avg`：logging window 内多进程对齐后的平均 `max_T_global`。
 
@@ -300,7 +310,7 @@ header。新默认下第一组 `train/loss/*` 应在首个 512-frame/32-timestep
 
 - `[batch-start] ... routes=8 ... qwen_batch=8`
 - `[q1-grouped] ... batched_frames=8`
-- `[chunk-train] ... parallel_kl=1`
+- `[chunk-train] ... parallel_kl=1 kl_microbatches=[4, 4] kl_oom_splits=0`
 
 训练前只保留一个真实 batched smoke 命令：
 
@@ -316,7 +326,10 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
   --output-json checkpoints/sft_v5_runs/batched_qwen_smoke_require_batch.json
 ```
 
-如果频繁看到 `[warn] q1 batch fallback ...` 或 `[warn] parallel KL fallback ...`，说明当前 run 回退到了旧逐帧路径；需要时再打开 `Q1_BATCH_TRACEBACK=1` / `Q2_BATCH_TRACEBACK=1` / `PARALLEL_KL_TRACEBACK=1` 定位。时间维 `t -> t+1` 不能并行，因为 memory 依赖上一帧学生输出。
+如果频繁看到 `[warn] q1 batch fallback ...`，说明 rollout 回退到了旧逐帧路径；需要时
+打开 `Q1_BATCH_TRACEBACK=1` / `Q2_BATCH_TRACEBACK=1`。若看到
+`[warn] parallel KL adaptive split ...`，说明 rollout 仍是 8 路，只是 KL scoring 为了
+显存安全继续拆小。时间维 `t -> t+1` 不能并行，因为 memory 依赖上一帧学生输出。
 
 不要在训练阶段做“结构字段早停”：不能因为已经生成到 `ABNORMAL:` 或 `EVENT:` 就
 提前截断 student rollout。v5 的 OPSD loss 需要完整的学生分析 token 和离散答案
@@ -542,19 +555,24 @@ AttributeError: 'tuple' object has no attribute 'get_mask_sizes'
 
 ### 7.3 CUDA OOM
 
-如果 H20 仍然 OOM，先看是不是加载了额外模型或把 token 上限设得太大。当前训练侧已经：
+如果 H20 仍然 OOM，先看 traceback 所在阶段。当前训练侧已经：
 
 - 每帧 OPSD loss 立刻 backward，不把整条 route sequence 的 Qwen 计算图攒到 batch 末尾。
 - Teacher/student logits 只裁剪到监督 span 后参与 forward-KL。
+- 8 路 rollout 与 4 路 KL 微批解耦，KL forward OOM 会在 backward 前自动二分。
 - `train.sh` 默认设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`。
 
-进一步降显存可以临时调小；注意这会重新限制 Qwen 输出长度，只适合 OOM 定位或极短
-smoke，不建议作为正式训练配置：
+若日志里的 `parallel_kl/oom_splits` 长期非 0，先只缩小 KL 微批，不改 8 路 rollout、
+不改 1024 token 上限：
 
 ```bash
-MAX_NEW_TOKENS_Q1=160 MAX_NEW_TOKENS_Q2=96 \
+PARALLEL_KL_MICROBATCH_SIZE=2 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
+
+只有 OOM 明确发生在 `[q1-grouped]` / `[q2-grouped]` student rollout，而不是
+`_opsd_loss_batch_states` KL scoring 时，才需要考虑降低 `QWEN_BATCH_SIZE`；正式训练不应
+为了 KL 峰值先缩短 Qwen 输出上限。
 
 ### 7.4 `loss does not require grad`
 

@@ -23,6 +23,7 @@ student Q1 输出，rank 之间 forward 次数天然不一致；DDP wrapper 的 
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import math
 import os
@@ -197,6 +198,21 @@ class OptimizerWindow:
         self.local_frames = 0
         self.global_frames = 0
         self.timesteps = 0
+
+
+@dataclass
+class ParallelKLMicrobatchResult:
+    """一次 rollout chunk 拆成若干 KL 微批后的训练结果。
+
+    rollout 仍可保持 8 路并行；这里只把需要保留 autograd activation 的 KL scoring
+    拆小并在每个微批后立即 backward。这样不会改变 student 采样 token、teacher
+    target 或最终梯度求和，只降低 ``batch x context length`` 的瞬时显存峰值。
+    """
+
+    frame_results: List[Tuple[int, Dict[str, Any], Memory, bool, float]]
+    detached_loss_sum: float
+    microbatch_sizes: List[int]
+    oom_splits: int
 
 
 class RouteSequenceDataset(Dataset):
@@ -1219,7 +1235,7 @@ def _opsd_loss_batch_states(
         )
     teacher_selected: Dict[Tuple[int, str], torch.Tensor] = {}
     with _teacher_eval_context(bundle):
-        _, teacher_logits = _append_token_ids_with_logits_padded_scoring(bundle, teacher_state, suffix_ids, suffix_mask)
+        teacher_after, teacher_logits = _append_token_ids_with_logits_padded_scoring(bundle, teacher_state, suffix_ids, suffix_mask)
         # 立即把 teacher full-vocab logits 裁剪到监督 span，再释放完整 B x L x vocab
         # 张量。parallel KL 的显存峰值主要就在 logits；不要让 teacher/student 两份大
         # logits 同时常驻超过必要时间。
@@ -1229,8 +1245,12 @@ def _opsd_loss_batch_states(
                     continue
                 idx = torch.tensor(pos, device=teacher_logits.device, dtype=torch.long)
                 teacher_selected[(row, key)] = teacher_logits[row:row + 1, idx, :].reshape(-1, teacher_logits.shape[-1]).detach()
-        del teacher_logits
-    _, student_logits = _append_token_ids_with_logits_padded_scoring(bundle, student_state, suffix_ids, suffix_mask)
+        # teacher_after 含整段扩展 KV，但后续只需要裁好的 teacher_selected；若继续用 `_`
+        # 隐式持有，它会和 student Q2 graph 同时常驻并抬高峰值。
+        del teacher_logits, teacher_after
+    student_after, student_logits = _append_token_ids_with_logits_padded_scoring(bundle, student_state, suffix_ids, suffix_mask)
+    # student loss 只依赖 logits/autograd graph，不需要返回的 decode KV 容器。
+    del student_after
     zero = student_logits.sum() * 0.0
     per_sample_losses: List[torch.Tensor] = []
     per_sample_parts: List[Dict[str, float]] = []
@@ -1318,14 +1338,15 @@ def _opsd_loss(
     with _teacher_eval_context(bundle):
         # teacher 使用同一个 base Qwen，但 adapter 被临时禁用，并吃 privileged prompt。
         # logits 只 detach 作目标分布；反向梯度只流向当前启用 LoRA 的 student。
-        _, teacher_logits, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(teacher_state), rollout_ids)
+        teacher_after, teacher_logits, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(teacher_state), rollout_ids)
         for key, pos in active_positions.items():
             selected = _select_logits_at_positions(teacher_logits, pos)
             if selected is not None:
                 teacher_selected[key] = selected.detach()
-        del teacher_logits
+        del teacher_logits, teacher_after
 
-    _, student_logits, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(student_state), rollout_ids)
+    student_after, student_logits, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(student_state), rollout_ids)
+    del student_after
     student_selected: Dict[str, torch.Tensor] = {}
     for key, pos in active_positions.items():
         # student logits 保留梯度，teacher logits 已 detach；两边只在同一 token 位置比较。
@@ -1677,10 +1698,12 @@ def _run_chunk_parallel_kl(
             q2_student_prompt_state = _kv_start_state_batch_padded(bundle, q2_student_q1_messages)
             q2_student_after_q1 = _append_token_ids_padded_no_logits(bundle, q2_student_prompt_state, q2_q1_ids_list)
             q2_student_state = _append_user_turn_batch_padded(bundle, q2_student_after_q1, q2_student_prompts)
+            del q2_student_prompt_state, q2_student_after_q1
         with _teacher_eval_context(bundle):
             q2_teacher_prompt_state = _kv_start_state_batch_padded(bundle, q2_teacher_q1_messages)
             q2_teacher_after_q1 = _append_token_ids_padded_no_logits(bundle, q2_teacher_prompt_state, q2_q1_ids_list)
             q2_teacher_state = _append_user_turn_batch_padded(bundle, q2_teacher_after_q1, q2_teacher_prompts)
+            del q2_teacher_prompt_state, q2_teacher_after_q1
         q2_total_loss, q2_parts_list, q2_loss_list = _opsd_loss_batch_states(
             bundle,
             student_state=q2_student_state,
@@ -1691,6 +1714,8 @@ def _run_chunk_parallel_kl(
             weights=loss_weights_q2(),
             temperature=temperature,
         )
+        # KL loss graph 已持有反向真正需要的 activation；prompt state 容器本身不再使用。
+        del q2_student_state, q2_teacher_state
         total_loss = total_loss + q2_total_loss
         for local_idx, parts, loss_tensor in zip(q2_local_indices, q2_parts_list, q2_loss_list):
             q2_parts_by_local[local_idx] = parts
@@ -2144,6 +2169,101 @@ def _is_cuda_oom(exc: BaseException) -> bool:
     return "cuda out of memory" in text or "out of memory" in text
 
 
+def _run_parallel_kl_microbatches(
+    bundle: Any,
+    chunk: Sequence[Tuple[int, SequenceRow, FrameRow, Memory]],
+    *,
+    q1_rollouts: Sequence[Optional[Tuple[Optional[KVState], str, Optional[KVState], torch.Tensor]]],
+    q2_rollouts: Sequence[Optional[Tuple[Optional[KVState], str, torch.Tensor]]],
+    temperature: float,
+    backward_normalizer: int,
+    microbatch_size: int,
+) -> ParallelKLMicrobatchResult:
+    """把一个 rollout chunk 拆成显存可控的 parallel-KL 微批并立即反传。
+
+    Qwen rollout 的 batch 与 KL 训练微批是两个独立概念：前者没有 autograd graph，
+    可以继续使用 8 路提高生成吞吐；后者需要保留 Q1/Q2 student activation，且 Q2
+    上下文通常超过 3k token，8 路会在 H20 95 GiB 上逼近物理上限。因此默认让调用方
+    使用 4 路 KL 微批，并在每个微批返回后立即 backward，避免多个微批计算图同时常驻。
+
+    如果某个微批在 **forward/scoring** 阶段仍然 OOM，本函数会先释放失败调用留下的
+    Python/CUDA cache，再把该微批二分重试，最小到单帧。backward 不放进 OOM retry
+    区间：一旦 backward 已经部分写入梯度就不能安全重放，发生该类 OOM 应直接中止。
+    各 rank 可以得到不同的二分形状，但都只在完整 timestep 末尾做 collective，最终
+    梯度仍按同一 global frame 窗口同步。
+    """
+
+    if len(chunk) == 0:
+        return ParallelKLMicrobatchResult([], 0.0, [], 0)
+    if len(q1_rollouts) != len(chunk) or len(q2_rollouts) != len(chunk):
+        raise ValueError("parallel KL microbatch rollout length mismatch")
+    if int(backward_normalizer) <= 0:
+        raise ValueError("backward_normalizer must be positive")
+
+    frame_results: List[Tuple[int, Dict[str, Any], Memory, bool, float]] = []
+    detached_loss_sum = 0.0
+    completed_sizes: List[int] = []
+    oom_splits = 0
+
+    def run_slice(start_idx: int, end_idx: int) -> None:
+        """训练一个连续子片；仅 forward OOM 可以在尚未 backward 时安全二分。"""
+
+        nonlocal detached_loss_sum, oom_splits
+        size = int(end_idx - start_idx)
+        if size <= 0:
+            return
+        micro_chunk = chunk[start_idx:end_idx]
+        micro_q1 = q1_rollouts[start_idx:end_idx]
+        micro_q2 = q2_rollouts[start_idx:end_idx]
+        try:
+            micro_loss, micro_results = _run_chunk_parallel_kl(
+                bundle,
+                micro_chunk,
+                q1_rollouts=micro_q1,
+                q2_rollouts=micro_q2,
+                temperature=float(temperature),
+            )
+        except Exception as exc:
+            if not _is_cuda_oom(exc) or size <= 1:
+                raise
+            # 当前调用尚未进入 backward，所以可以安全释放失败 forward 的临时张量后
+            # 二分重试。异常 traceback 会引用失败 forward 的 Python frame/KV/logits，
+            # 必须先显式断开；否则在 except 块里 empty_cache 也可能释放不了这些张量。
+            # 不要在这里改 token 上限，也不要回退整块逐帧重新采样。
+            oom_splits += 1
+            exc.__traceback__ = None
+            del exc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            middle = start_idx + size // 2
+            run_slice(start_idx, middle)
+            run_slice(middle, end_idx)
+            return
+
+        if not bool(micro_loss.requires_grad):
+            # 输出没有命中监督 span 时仍构造 graph-connected zero，保持训练节奏一致。
+            micro_loss = _trainable_graph_zero(bundle, micro_loss)
+        micro_loss_value = float(micro_loss.detach().item())
+        # backward 位于 retry try/except 之外；若它自身 OOM，直接向上抛出，避免已经写入
+        # 一部分 LoRA grad 后重复执行同一微批。
+        (micro_loss / float(backward_normalizer)).backward()
+        detached_loss_sum += micro_loss_value
+        frame_results.extend(micro_results)
+        completed_sizes.append(size)
+        del micro_loss, micro_results
+
+    cap = max(1, int(microbatch_size))
+    for start in range(0, len(chunk), cap):
+        run_slice(start, min(len(chunk), start + cap))
+    return ParallelKLMicrobatchResult(
+        frame_results=frame_results,
+        detached_loss_sum=detached_loss_sum,
+        microbatch_sizes=completed_sizes,
+        oom_splits=oom_splits,
+    )
+
+
 def _cuda_memory_text() -> str:
     """返回当前 rank 的 CUDA 显存摘要，供长时间训练心跳日志使用。"""
 
@@ -2170,6 +2290,8 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "max_new_tokens_q1": int(args.max_new_tokens_q1),
         "max_new_tokens_q2": int(args.max_new_tokens_q2),
         "temperature": float(args.temperature),
+        "parallel_kl": bool(args.parallel_kl),
+        "parallel_kl_microbatch_size": int(args.parallel_kl_microbatch_size),
         "update_mode": str(args.update_mode),
         "target_global_frames_per_step": int(args.target_global_frames_per_step),
         "max_timesteps_per_step": int(args.max_timesteps_per_step),
@@ -2247,6 +2369,9 @@ _TRAIN_WINDOW_KEYS = (
     "time_q2_teacher_seconds",
     "time_q2_loss_seconds",
     "parallel_kl_chunks",
+    "parallel_kl_microbatches",
+    "parallel_kl_microbatch_frames",
+    "parallel_kl_oom_splits",
     "parallel_kl_frames",
     "parallel_kl_seconds",
     "parallel_kl_fallbacks",
@@ -2415,6 +2540,9 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"q2_batched_grouped={q2_batched_frames / q2_grouped_frames:.3f} "
         f"parallel_kl={float(stats.get('parallel_kl_frames', 0.0)) / frames:.3f} "
         f"parallel_kl/chunk={float(stats.get('parallel_kl_seconds', 0.0)) / max(1.0, float(stats.get('parallel_kl_chunks', 0.0))):.2f}s "
+        f"kl_micro/chunk={float(stats.get('parallel_kl_microbatches', 0.0)) / max(1.0, float(stats.get('parallel_kl_chunks', 0.0))):.2f} "
+        f"kl_micro_size={float(stats.get('parallel_kl_microbatch_frames', 0.0)) / max(1.0, float(stats.get('parallel_kl_microbatches', 0.0))):.2f} "
+        f"kl_oom_splits={int(stats.get('parallel_kl_oom_splits', 0.0))} "
         f"parallel_fallbacks={int(stats.get('parallel_kl_fallbacks', 0.0))} "
         f"pad_rate={float(stats.get('padding_slots', 0.0)) / (valid_slots + float(stats.get('padding_slots', 0.0))):.3f} "
         f"maxT={float(stats.get('max_T_global_sum', 0.0)) / shape_steps:.1f}"
@@ -2456,7 +2584,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num-workers", type=int, default=0)
     p.add_argument("--qwen-batch-size", type=int, default=1, help="每个 rank/timestep 内尝试并行 Q1/Q2 student rollout 的 frame 数；Q1/Q2 允许 mixed-length padded rollout，KL 会重建单样本精确 KV")
     p.add_argument("--sampler-mode", type=str, default="length_balanced", choices=["length_balanced", "distributed"], help="多卡 route 分片方式；length_balanced 按 route frame 数均衡各 rank，distributed 为 PyTorch 默认 DistributedSampler")
-    p.add_argument("--parallel-kl", action=argparse.BooleanOptionalAction, default=True, help="同一 timestep/chunk 内并行 Q1/Q2 teacher/student KL；失败时回退逐帧路径，CUDA OOM 直接中止")
+    p.add_argument("--parallel-kl", action=argparse.BooleanOptionalAction, default=True, help="同一 timestep/chunk 内并行 Q1/Q2 teacher/student KL；rollout batch 与有梯度的 KL 微批独立配置")
+    p.add_argument(
+        "--parallel-kl-microbatch-size",
+        type=int,
+        default=4,
+        help="有 autograd graph 的 parallel-KL 微批上限；默认 4，forward OOM 时会继续二分，Q1/Q2 rollout batch 不受影响",
+    )
     p.add_argument(
         "--update-mode",
         type=str,
@@ -2498,6 +2632,8 @@ def main() -> None:
         raise ValueError("--target-global-frames-per-step must be >= 1")
     if int(args.max_timesteps_per_step) < 0:
         raise ValueError("--max-timesteps-per-step must be >= 0")
+    if int(args.parallel_kl_microbatch_size) <= 0:
+        raise ValueError("--parallel-kl-microbatch-size must be >= 1")
     torch.manual_seed(int(args.seed))
     rank, world_size, local_rank = setup_distributed()
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
@@ -2565,6 +2701,7 @@ def main() -> None:
         tb.add_scalar("run/max_new_tokens_q1", float(args.max_new_tokens_q1), 0)
         tb.add_scalar("run/max_new_tokens_q2", float(args.max_new_tokens_q2), 0)
         tb.add_scalar("run/parallel_kl", float(bool(args.parallel_kl)), 0)
+        tb.add_scalar("run/parallel_kl_microbatch_size", float(args.parallel_kl_microbatch_size), 0)
         tb.add_scalar("run/train_routes", float(len(train_ds)), 0)
         tb.add_text(
             "run/config",
@@ -2582,6 +2719,7 @@ def main() -> None:
                     f"max_new_tokens_q1: {args.max_new_tokens_q1}",
                     f"max_new_tokens_q2: {args.max_new_tokens_q2}",
                     f"parallel_kl: {args.parallel_kl}",
+                    f"parallel_kl_microbatch_size: {args.parallel_kl_microbatch_size}",
                     f"lora_vision_scope: {args.lora_vision_scope}",
                 ]
             ),
@@ -2833,6 +2971,9 @@ def main() -> None:
                     tb.add_scalar("time/frame_q2_loss_seconds", reduced_stats["time_q2_loss_seconds"] / frames, global_step)
                     tb.add_scalar("parallel_kl/frame_rate", reduced_stats["parallel_kl_frames"] / frames, global_step)
                     tb.add_scalar("parallel_kl/seconds_per_chunk", reduced_stats["parallel_kl_seconds"] / max(1.0, reduced_stats["parallel_kl_chunks"]), global_step)
+                    tb.add_scalar("parallel_kl/microbatches_per_chunk", reduced_stats["parallel_kl_microbatches"] / max(1.0, reduced_stats["parallel_kl_chunks"]), global_step)
+                    tb.add_scalar("parallel_kl/frames_per_microbatch", reduced_stats["parallel_kl_microbatch_frames"] / max(1.0, reduced_stats["parallel_kl_microbatches"]), global_step)
+                    tb.add_scalar("parallel_kl/oom_splits", reduced_stats["parallel_kl_oom_splits"], global_step)
                     tb.add_scalar("parallel_kl/fallbacks", reduced_stats["parallel_kl_fallbacks"], global_step)
                     tb.add_scalar("ddp/padding_rate", reduced_stats["padding_slots"] / max(1.0, pad_total), global_step)
                     tb.add_scalar("ddp/max_T_global_avg", reduced_stats["max_T_global_sum"] / max(1.0, reduced_stats["timesteps"]), global_step)
@@ -2880,6 +3021,7 @@ def main() -> None:
                 f"maxT_local={int(batch['max_T_local'])} maxT_global={int(batch['max_T_global'])} "
                 f"valid_local={local_frame_slots} valid_global={global_frame_slots} "
                 f"loss_local={local_loss_slots} loss_global={global_loss_slots} qwen_batch={qwen_batch_size} "
+                f"kl_microbatch={int(args.parallel_kl_microbatch_size)} "
                 f"update_mode={args.update_mode} window_global={optimizer_window.global_frames}/{effective_target_frames} "
                 f"window_t={optimizer_window.timesteps}/{effective_max_timesteps} {_cuda_memory_text()}"
             )
@@ -3038,29 +3180,20 @@ def main() -> None:
                     if bool(args.parallel_kl) and len(chunk) > 1 and all(rollout is not None for rollout in q1_rollouts):
                         parallel_start = time.time()
                         try:
-                            chunk_loss, chunk_results = _run_chunk_parallel_kl(
+                            # rollout 仍按 QWEN_BATCH_SIZE（默认 8）并行；只有需要保留
+                            # autograd graph 的 KL scoring 按独立微批（默认 4）执行并立即
+                            # backward。Q2 约 3k token 时，这能显著降低 H20 瞬时峰值。
+                            kl_result = _run_parallel_kl_microbatches(
                                 bundle,
                                 chunk,
                                 q1_rollouts=q1_rollouts,
                                 q2_rollouts=q2_rollouts,
                                 temperature=float(args.temperature),
+                                backward_normalizer=backward_normalizer,
+                                microbatch_size=int(args.parallel_kl_microbatch_size),
                             )
-                            # chunk_loss 是当前 chunk 内各 frame loss 的 sum。先除以固定
-                            # backward_normalizer 再 backward；optimizer step 时再按窗口
-                            # 实际 global frame 数做精确修正，既控制梯度数值，也保持 frame 等权。
-                            if not bool(chunk_loss.requires_grad):
-                                # 极端情况下，chunk 内所有样本的 student 输出都没有命中
-                                # RS/ABNORMAL/EVENT 等监督字段，batched KL 会得到一个数值为
-                                # 0 的 loss。这里仍然需要让 backward 走完，保证本 rank 与
-                                # 其它 rank 的梯度同步节奏一致。
-                                if rank == 0:
-                                    rank0_log(
-                                        f"[warn] chunk loss has no grad; replace with graph-zero "
-                                        f"epoch={epoch} batch={batch_idx} t={t} size={len(chunk)}"
-                                    )
-                                chunk_loss = _trainable_graph_zero(bundle, chunk_loss)
-                            (chunk_loss / float(backward_normalizer)).backward()
-                            chunk_loss_value = float(chunk_loss.detach().item())
+                            chunk_results = kl_result.frame_results
+                            chunk_loss_value = float(kl_result.detached_loss_sum)
                             frame_count += len(chunk_results)
                             batch_processed_frames += len(chunk_results)
                             processed_local_frames += len(chunk_results)
@@ -3088,7 +3221,8 @@ def main() -> None:
                                     f"size={len(chunk_results)} dt={time.time() - parallel_start:.1f}s "
                                     f"loss_sum={chunk_loss_value:.4f} "
                                     f"q1_tokens={q1_tok} q2_tokens={q2_tok} resets={reset_count} "
-                                    f"parallel_kl=1 {_cuda_memory_text()}"
+                                    f"parallel_kl=1 kl_microbatches={kl_result.microbatch_sizes} "
+                                    f"kl_oom_splits={kl_result.oom_splits} {_cuda_memory_text()}"
                                 )
                                 write_tb_progress(
                                     event_code=2,
@@ -3098,29 +3232,41 @@ def main() -> None:
                                 )
                                 last_heartbeat = time.time()
                             window_stats["parallel_kl_chunks"] += 1.0
+                            window_stats["parallel_kl_microbatches"] += float(len(kl_result.microbatch_sizes))
+                            window_stats["parallel_kl_microbatch_frames"] += float(sum(kl_result.microbatch_sizes))
+                            window_stats["parallel_kl_oom_splits"] += float(kl_result.oom_splits)
                             window_stats["parallel_kl_frames"] += float(len(chunk_results))
                             window_stats["parallel_kl_seconds"] += float(time.time() - parallel_start)
+                            if kl_result.oom_splits > 0:
+                                rank0_log(
+                                    f"[warn] parallel KL adaptive split epoch={epoch} batch={batch_idx} t={t} "
+                                    f"rollout_size={len(chunk)} completed_microbatches={kl_result.microbatch_sizes} "
+                                    f"oom_splits={kl_result.oom_splits} {_cuda_memory_text()}"
+                                )
                             parallel_chunk_done = True
-                            # backward 已释放主体计算图；显式删除最后一个 chunk 的输出，
-                            # 避免它在下一轮 Qwen rollout 构造期间仍被 Python 局部变量引用。
-                            del chunk_loss, chunk_results
+                            # 每个 KL 微批都已经 backward；显式删除统计对象，避免下一轮
+                            # rollout 构造期间仍保留 frame result 容器。
+                            del kl_result, chunk_results
                         except Exception as exc:
                             if _is_cuda_oom(exc):
                                 if torch.cuda.is_available():
                                     torch.cuda.empty_cache()
                                 rank0_log(
                                     f"[error] parallel KL OOM epoch={epoch} batch={batch_idx} t={t} "
-                                    f"size={len(chunk)}; abort instead of unsafe fallback. {_cuda_memory_text()}"
+                                    f"size={len(chunk)} microbatch_cap={int(args.parallel_kl_microbatch_size)}; "
+                                    f"adaptive split reached an unsafe point/minimum size, abort. {_cuda_memory_text()}"
                                 )
                                 raise
-                            if rank == 0:
-                                rank0_log(
-                                    f"[warn] parallel KL fallback epoch={epoch} batch={batch_idx} t={t} "
-                                    f"size={len(chunk)} reason={type(exc).__name__}: {exc}"
-                                )
-                                if os.environ.get("PARALLEL_KL_TRACEBACK", "0") == "1":
-                                    rank0_log(traceback.format_exc(limit=12).rstrip())
-                            window_stats["parallel_kl_fallbacks"] += 1.0
+                            # 微批 1 已 backward 后，微批 2 如果遇到普通异常，整块回退会
+                            # 重复累计微批 1 的梯度。为保证 correctness，这里明确中止而不
+                            # 做“看似继续、实则双算”的 fallback。
+                            rank0_log(
+                                f"[error] parallel KL microbatch failed epoch={epoch} batch={batch_idx} t={t} "
+                                f"size={len(chunk)} reason={type(exc).__name__}: {exc}"
+                            )
+                            if os.environ.get("PARALLEL_KL_TRACEBACK", "0") == "1":
+                                rank0_log(traceback.format_exc(limit=12).rstrip())
+                            raise
                     if parallel_chunk_done:
                         # rollout token 已写入 memory/stats，训练 KV 不跨 timestep 复用；
                         # 在可能触发 optimizer.step 前释放 singleton 路径留下的 KV 引用。
