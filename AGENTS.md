@@ -304,6 +304,7 @@
   `train.sh` 支持 `single/ddp/check`，遵循 GPU 自动选址、`GPU_IDS` pin 卡和
   `run_<RUN_TAG>/latest` 防覆盖约定；四卡 `ddp` 默认 H20 max_util 8 路口径：
   `BATCH_PROFILE=max_util`、`PER_DEVICE_BATCH_SIZE=8`、`QWEN_BATCH_SIZE=8`、
+  `PARALLEL_KL_MICROBATCH_SIZE=4`、
   `MAX_NEW_TOKENS_Q1=1024`、`MAX_NEW_TOKENS_Q2=1024`、`PROGRESS_FRAMES=20`，
   启动时打印 `[batch]` 配置，第一条 `[batch-start]` 应显示
   `routes=8 / qwen_batch=8`；`BATCH_PROFILE=balanced` 退回 6 路，
@@ -313,20 +314,21 @@
   通过 `QWEN_BATCH_SIZE` 启用，批量化同一 timestep 多 route 的 Q1/Q2 student rollout，
   需要配合 `PER_DEVICE_BATCH_SIZE>1`；阶段 1 Q1/Q2 student rollout 允许 mixed-length
   padded batch，padded past_key_values 只用于 no-grad 采样 Q1/Q2 文本/token，
-  不写回 memory；默认 `PARALLEL_KL=1` / `--parallel-kl` 会在同一 chunk 内批量化
-  Q1/Q2 teacher prompt prefill、student prompt prefill、rollout token scoring 和 span KL，
-  并对 chunk loss 一次 backward；Q2 parallel KL 必须按精确 `q1_ids` 续接 Q1 KV 后再追加 Q2 user turn，
-  不允许用 `q1_ids -> q1_text -> full-dialog tokenizer` 回环替代；普通兼容问题打印 `[warn] parallel KL fallback ...`
-  后回退旧逐帧 teacher/KL，CUDA OOM 不允许回退；batched Q1 必须按 `attention_mask` 取最后真实
+  不写回 memory；默认 `PARALLEL_KL=1` / `--parallel-kl`，但 8 路 rollout 与有 autograd
+  graph 的 KL 微批解耦：Q1/Q2 teacher/student scoring 默认按 4+4 微批并逐批 backward；
+  Q2 parallel KL 必须按精确 `q1_ids` 续接 Q1 KV 后再追加 Q2 user turn，不允许用
+  `q1_ids -> q1_text -> full-dialog tokenizer` 回环替代；KL forward OOM 只允许在尚未
+  backward 时二分当前微批，不能降低 token 上限或整块重新 rollout；backward OOM 和
+  普通异常必须中止，避免部分梯度后 fallback 重复累计；batched Q1 必须按 `attention_mask` 取最后真实
   token logits、repetition penalty 不得包含 padding token，CUDA OOM 不允许静默 fallback，
   开大前用 `test_batched_qwen_smoke.py --check-parallel-kl` 做 single-vs-batch Q1/Q2
   续接、训练 logits 和 parallel-KL-vs-逐帧-KL 总 loss / case loss / parts 对照；
-  parallel KL 的显存峰值主要来自 `batch x rollout_len x vocab` student/teacher logits，开 8 路前必须小 run 验证；必须记录并观察 `train/q1_token_cap_hit_rate` / `train/q2_token_cap_hit_rate`，若长期非 0 说明 1024 安全上限正在截断输出；student rollout 缺少可监督 span 时必须返回 graph-connected zero，不能返回 no-grad 纯 0 破坏 backward；
+  parallel KL 的显存峰值主要来自 `KL microbatch x context length` attention activation/logits；必须记录 `parallel_kl/{microbatches_per_chunk,frames_per_microbatch,oom_splits}`，并观察 `train/q1_token_cap_hit_rate` / `train/q2_token_cap_hit_rate`；student rollout 缺少可监督 span 时必须返回 graph-connected zero，不能返回 no-grad 纯 0 破坏 backward；
   只有报告里的 `actual_batched_group_sizes` / `actual_batched_frames` 能证明真实 batched rollout
   被测到，强制验证时必须加 `--require-batched-group`；`qwen/q1_batched_frame_rate`
   是全训练 Q1 frame 的真实 batch 比例，若长期接近 0 应优先检查 `[warn] q1 batch fallback`；
   batched Qwen 相关代码必须保留中文注释解释
-  padded rollout、单样本 KV 重建、last-valid logits、padding 排除、EOS active batch 移除、OOM 不 fallback
+  padded rollout、单样本 KV 重建、last-valid logits、padding 排除、EOS active batch 移除、KL OOM 安全二分
   和 TensorBoard 分母口径，`rope_deltas` 必须兼容 `(batch,1)` / `(1,batch)` 两种方向，
   避免 active batch 缩小时 M-RoPE delta 切片错误；后续改这些逻辑时同步更新注释。每帧 loss
   按全局有效 frame 数归一化，手动 all-reduce 后保持 frame 等权；TensorBoard 必须记录
