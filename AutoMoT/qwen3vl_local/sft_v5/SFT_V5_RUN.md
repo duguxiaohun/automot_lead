@@ -47,6 +47,7 @@ python qwen3vl_local/sft_v5/test_memory_update.py
 python qwen3vl_local/sft_v5/test_dataset_contract.py
 python qwen3vl_local/sft_v5/test_streaming_optimizer.py
 python qwen3vl_local/sft_v5/test_parallel_kl_microbatch.py
+python qwen3vl_local/sft_v5/test_checkpoint_probe.py
 python -m py_compile qwen3vl_local/sft_v5/*.py
 ```
 
@@ -99,12 +100,25 @@ NPROC=4
 BATCH_PROFILE=max_util
 PER_DEVICE_BATCH_SIZE=8
 QWEN_BATCH_SIZE=8
-PARALLEL_KL_MICROBATCH_SIZE=4
+PARALLEL_KL_MICROBATCH_SIZE=2
 GRAD_ACCUM=1
 UPDATE_MODE=streaming_frames
 TARGET_GLOBAL_FRAMES_PER_STEP=512
 MAX_TIMESTEPS_PER_STEP=32
 LEARNING_RATE=1e-5
+SAVE_STEPS=40
+CHECKPOINT_PROBE=1
+CHECKPOINT_PROBE_BASE=1
+CHECKPOINT_PROBE_WITH_TEACHER=1
+CHECKPOINT_PROBE_NUM_CASES=8
+```
+
+用户实测当前四卡配置约 `80 optimizer steps/day`，所以默认 `SAVE_STEPS=40`，约半天
+保存一版 LoRA。这里的 step 是完成 512 个 global frame 或最多 32 个 timestep 后的
+optimizer step，不是 frame、chunk 或 DataLoader batch。保存频率可以显式覆盖：
+
+```bash
+SAVE_STEPS=40 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
 只想确认 launcher 会解析成 8 路、不加载模型时：
@@ -142,9 +156,9 @@ GPU_IDS=0 bash qwen3vl_local/sft_v5/train.sh check
 每一秒固定 100%，但 `max_util` 是当前同步 on-policy v5 里最接近满载的口径。
 
 `PARALLEL_KL` 默认开启。Q1/Q2 student rollout 仍按 8 路并行，但有 autograd graph、
-显存更重的 teacher/student KL 默认按 `PARALLEL_KL_MICROBATCH_SIZE=4` 拆成 `4+4`，
-每个微批立即 backward。若某个 4 路 KL forward 因更长上下文 OOM，代码会自动二分
-为 `2+2`，不会降低 token 上限或重新采样 student 输出。
+显存更重的 teacher/student KL 默认按 `PARALLEL_KL_MICROBATCH_SIZE=2` 拆成
+`2+2+2+2`，每个微批立即 backward。若某个 2 路 KL forward 因更长上下文 OOM，
+代码会自动二分为两个单帧，不会降低 token 上限或重新采样 student 输出。
 
 Qwen 输出不做 `ABNORMAL:` / `EVENT:` 字段早停；为了防止模型不出 EOS 时无限生成，
 launcher 只保留一个很大的安全上限，默认：
@@ -176,7 +190,7 @@ MAX_NEW_TOKENS_Q2=1024
 - 训练循环不再把整条 route sequence 的 Qwen 计算图攒到 batch 末尾；每帧
   OPSD loss 立刻 backward，只累计 LoRA 梯度，降低 H20 上长序列 OOM 风险。
 - rollout batch 与 KL 训练微批解耦：默认保持 8 路 Q1/Q2 生成吞吐，Q1/Q2 KL 按
-  4 路微批构图并立即 backward；forward OOM 时只二分当前 KL 微批。
+  2 路微批构图并立即 backward；forward OOM 时只二分当前 KL 微批。
 - 默认 `UPDATE_MODE=streaming_frames`：四卡累计 512 个实际 global frame，或达到
   32 个 global timestep 后立即同步更新，不等待完整 DataLoader route batch。
 - 更新只发生在完整 timestep 结束后，绝不会夹在同一帧 Q1/Q2/KL 中间；optimizer
@@ -187,8 +201,25 @@ MAX_NEW_TOKENS_Q2=1024
   小参数逐个发起 NCCL collective；这只减少同步开销，不改变梯度数值。
 - 每个 checkpoint/final 的 `sft_v5_adapter_config.json` 同时记录原始阈值、经过
   `GRAD_ACCUM` 放大后的 effective 阈值、LR 和梯度同步策略，便于复现实验。
+- 默认每 40 个 optimizer step 保存 `checkpoint-40/80/...`；如果一轮训练不足 40 step，
+  不会产生周期 checkpoint，但正常结束仍会保存 `final/`。
+- 每个 run 开始时自动生成一次 `probes/base/`；每次周期 checkpoint 后生成
+  `probes/checkpoint-000040/` 等 LoRA probe；训练结束后生成 `probes/final/`。
+  `probes/comparison.json` 汇总同一批 8 个 validation case 的 base/LoRA 指标。
+- 自动 probe 不启动子进程、不加载第二份 Qwen：rank0 复用当前训练 bundle，LoRA
+  student 保持 adapter 开启，base student 和 privileged teacher 临时
+  `disable_adapter()`；其它 rank 在 barrier 等待。probe 完成后恢复 train 模式并清理
+  CUDA cache，因此不会形成长期显存占用，但生成期间训练会短暂停顿。
+- 自动 probe 失败只写对应目录的 `error.txt` 并继续主训练，避免旁路可视化损坏长跑。
 - `train.sh` 默认 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，减少
   KV/logits 张量反复申请释放带来的 CUDA allocator 碎片化。
+- batched rollout 只返回文本和精确 token ids，不再为每个完成样本切出无用的 final
+  KV；Q2/single fallback 在状态续接完成后也会立即断开旧 Q1/Q2 KV 引用。
+- optimizer step 后使用 `zero_grad(set_to_none=True)` 解除旧梯度引用；正常和异常退出都
+  会销毁 process group，并在进程退出前执行一次 GC/CUDA cache 清理。训练过程中不会
+  每步强制 `empty_cache()`，避免 allocator 反复申请显存拖慢吞吐。
+- 判断长期 OOM 风险以 TensorBoard 的 `memory/allocated_gb` 为主，不以单次
+  `nvidia-smi` 的进程显存或 `reserved` 为主；后两者通常包含 allocator 缓存。
 - 流式模式中 `GRAD_ACCUM` 是窗口倍率：例如 2 表示 `1024 frame / 64 timestep`；
   默认保持 1。`UPDATE_MODE=batch` 时才恢复“累计若干 DataLoader batch”的旧语义。
 - epoch 末尾不足目标 frame/timestep 的窗口也会 flush，不会静默丢弃尾部梯度。
@@ -229,6 +260,9 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 - `progress/*`：首个 optimizer step 之前的轻量心跳，记录当前 batch/frame/sync
   进度、optimizer window 的 local/global frame、timestep 和 CUDA 显存；横轴是
   rank0 已处理的本地 frame 数。
+- `progress/cuda_{allocated,reserved,max_allocated,max_reserved}_gb`：首步前与逐帧阶段的
+  CUDA 当前值/历史峰值。`allocated` 代表仍被活跃 tensor 或计算图引用的显存，
+  `reserved` 代表 PyTorch allocator 为复用保留的高水位缓存，后者增长不等于泄漏。
 - `train/global_frames_per_step` / `train/timesteps_per_step`：每次流式更新的实际窗口；
   常规阶段应接近 512 frame，低吞吐尾段可能由 32 timestep 上限提前触发。
 - `train/update_reason_code`：`1=target_frames`、`2=max_timesteps`、`3=batch/epoch_flush`。
@@ -236,6 +270,10 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
   scheduler LR、LoRA 梯度同步和 AdamW 更新耗时。
 - `ddp/grad_allreduce_buckets`：每次同步的连续梯度 bucket 数，用于确认没有退回逐参数
   collective。
+- `memory/{allocated,reserved,max_allocated,max_reserved}_gb`：每个 optimizer step 后的
+  显存主审计曲线。多个 step 后 `allocated` 应大体回落或稳定；`reserved` 可以维持在
+  历史高水位。只有 `allocated` 和 `max_allocated` 持续刷新并最终逼近物理显存时，才更
+  像是仍有计算图/KV 引用未释放。
 - `train/loss_frame`：当前 logging window 内所有 rank 聚合后的 frame 平均 loss。
 - `train/loss/q1_analysis` / `train/loss/q1_rs` / `train/loss/q1_abnormal`：
   Q1 OPSD KL 的分项 loss，按有效 frame 平均。
@@ -264,9 +302,10 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
   teacher/student KL。
 - `parallel_kl/seconds_per_chunk`：chunk 级 KL scoring + backward 的平均耗时。
 - `parallel_kl/microbatches_per_chunk` / `parallel_kl/frames_per_microbatch`：8 路 rollout
-  chunk 实际拆成多少个 KL 微批，以及每个微批的平均 frame 数；默认应接近 `2 / 4`。
+  chunk 实际拆成多少个 KL 微批，以及每个微批的平均 frame 数；默认应接近 `4 / 2`。
 - `parallel_kl/oom_splits`：KL forward 因上下文过长触发的安全二分次数；偶发非 0 可继续
-  训练，若长期非 0，直接把 `PARALLEL_KL_MICROBATCH_SIZE` 从 4 调成 2。
+  训练；默认已经是 2，若长期非 0，说明部分上下文需要自动拆成单帧，应结合显存峰值
+  判断是否固定设为 1。
 - `parallel_kl/fallbacks`：旧兼容统计。微批开始 backward 后不允许整块 fallback，避免
   已完成微批被重复累计；普通异常会明确中止并打印 traceback 开关。
 - `ddp/padding_rate`：global padding 后的 None frame 占位比例。
@@ -310,7 +349,7 @@ header。新默认下第一组 `train/loss/*` 应在首个 512-frame/32-timestep
 
 - `[batch-start] ... routes=8 ... qwen_batch=8`
 - `[q1-grouped] ... batched_frames=8`
-- `[chunk-train] ... parallel_kl=1 kl_microbatches=[4, 4] kl_oom_splits=0`
+- `[chunk-train] ... parallel_kl=1 kl_microbatches=[2, 2, 2, 2] kl_oom_splits=0`
 
 训练前只保留一个真实 batched smoke 命令：
 
@@ -386,6 +425,7 @@ python qwen3vl_local/sft_v5/eval.py \
 
 | 目的 | 命令 | 是否加载模型 | 主要产物 |
 |---|---|---|---|
+| 训练中自动 base/checkpoint/final 对比 | 正式 `train.sh ddp` 默认开启；可用 `CHECKPOINT_PROBE=0` 关闭 | 复用 rank0 当前 Qwen，不额外加载模型 | `latest/probes/{base,checkpoint-*,final}/`、各版本 `summary.json`、总表 `comparison.json` |
 | 训练前 base Qwen OPSD 能力体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe --num-cases 8 --with-model --with-teacher-model --with-teacher` | 是，纯默认/base Qwen，不传 `--adapter-dir`，不加载任何 LoRA | RGB 副本、system/user/messages、student output、teacher target/output、memory、flags、timeline |
 | 训练前 grouped/parallel Qwen 等价性体检 | `GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --num-cases 2 --output-json checkpoints/sft_v5_runs/batched_qwen_smoke.json`；强制真实 batched rollout 和 parallel KL 时加 `--candidate-pool 256 --require-batched-group --no-prefer-different-lengths --check-parallel-kl` | 是，纯默认/base Qwen，不传 `--adapter-dir` | single-vs-grouped Q1/Q2 文本、token、训练 logits diff、parallel-KL-vs-逐帧-KL 总 loss / case loss / parts diff、actual group sizes、input length / padding pressure |
 | 训练后 adapter 学生可视化 | `GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py --index checkpoints/sft_v5_data/val_sequence_index.jsonl --model-dir checkpoints/Qwen3-VL-4B-Instruct --adapter-dir checkpoints/sft_v5_runs/latest/final --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter --num-cases 8 --with-model --with-teacher` | 是，只加载 student adapter | 上述静态产物 + `q1_student_output.txt` / `q2_student_output.txt` |
@@ -397,7 +437,11 @@ python qwen3vl_local/sft_v5/eval.py \
 
 ### 6.2 Probe 入口
 
-`probe.py` 是 v5 的主要可视化/审计入口。它有三种用途，必须分开理解：
+`probe.py` 是 v5 的主要可视化/审计入口。它有四种用途，必须分开理解：
+
+- 训练中自动对比：launcher 默认在 step 0、每 40 step checkpoint 和 final 边界复用
+  rank0 当前模型。step 0 的 student/teacher 都关闭 LoRA；checkpoint/final 的 student
+  开启 LoRA、teacher 关闭 LoRA，始终使用同一批 8 个 validation case。
 
 - 训练前 base Qwen OPSD 体检：`--with-model --with-teacher-model`，不传
   `--adapter-dir`，不加载任何 LoRA，用默认 Qwen 分别跑 student prompt 和
@@ -460,6 +504,9 @@ teacher target。只有显式加 `--with-teacher-model` 时，才会额外加载
 输出结构仿 v3 probe：
 
 - 顶层 `manifest.json`：列出每条 route dump 的目录、scenario、route_id 和帧数。
+- 顶层 `summary.json`：汇总 Q1 RS、Q1 abnormal、Q2 trigger/event，以及 base teacher
+  Q1 accuracy、Q2 trigger rate/event accuracy；自动训练 probe 会把它们进一步写入
+  run 级 `probes/comparison.json`。
 - 每条 route 一个 `route_<idx>__<scenario>__<route_id>/` 目录。
 - 每条 route 下有 `timeline.json` 和 `timeline.png`，红点表示 RS 错/reset，蓝点表示
   进入 Q2，绿点表示无模型的 teacher-forced 静态 dump。
@@ -477,8 +524,10 @@ teacher target。只有显式加 `--with-teacher-model` 时，才会额外加载
 - `q2_student_user_prompt.txt` / `q2_teacher_user_prompt.txt`：Q2 的 student / teacher
   user prompt；`q2_student_prompt.txt` / `q2_teacher_prompt.txt` 仍作为兼容别名保留。
 - `q1_student_messages.json` / `q1_teacher_messages.json` / `q2_student_messages.json` /
-  `q2_teacher_messages.json`：可序列化的 system + user messages，图片用 `rgb_*.jpg`
+  `q2_teacher_messages.json`：可序列化的实际 system + user messages，图片用 `rgb_*.jpg`
   文件名和原路径表示，方便直接检查 role 分界。
+- `q2_teacher_model_messages.json`：teacher model 自主 Q2 续接使用的 system + user
+  messages；其 Q1 KV、RS、ABNORMAL 都来自 teacher 自己的 Q1 输出。
 - `q1_student_prompt.txt`：Q1 学生真实输入，不含 XML weather / GT。
 - `q1_teacher_prompt.txt`：Q1 privileged teacher 输入，含 XML weather、GT RS、GT abnormal、
   原始 `event_code`。
@@ -489,11 +538,17 @@ teacher target。只有显式加 `--with-teacher-model` 时，才会额外加载
   需要重跑 probe。
 - `q2_student_prompt.txt`：Q2 学生真实输入，含逐帧随机 `EVENT_CHOICES`；`RE` 会展开
   当前帧 `regular_event_codes` 的自然语言含义。
-- `q2_teacher_prompt.txt`：Q2 privileged teacher 输入，含 answer event option 与
-  `event_code` 审计字段。
-- `q2_teacher_target.txt`：脚本化 Q2 target。
+- `q2_teacher_prompt.txt` / `q2_teacher_user_prompt.txt` / `q2_teacher_target.txt`：与
+  `q2_teacher_output.txt` 实际配对的 teacher 自主续接输入和 target。
+- `q2_teacher_training_prompt.txt` / `q2_teacher_training_target.txt` /
+  `q2_teacher_training_messages.json`：训练 OPSD 时基于 student Q1 rollout 构造的
+  privileged Q2 输入，含 answer event option 与 `event_code` 审计字段。
+- `q2_teacher_model_prompt.txt` / `q2_teacher_model_target.txt`：目录结构固定，只有
+  teacher model 的 Q1 RS 正确并真正触发 Q2 时内容非空；它们是默认
+  `q2_teacher_prompt/target.txt` 的显式别名，与 `q2_teacher_training_*` 分开。
 - `q2_teacher_output.txt`：只有 `--with-teacher-model` 时非空，用于训练前检查 base
-  teacher，也应从 `Scene Description:` 开始并最终输出 `EVENT:`。
+  teacher，也应从 `Scene Description:` 开始并最终输出 `EVENT:`；它对应
+  `q2_teacher_model_prompt.txt`。
 - `q1_student_output.txt` / `q2_student_output.txt`：目录结构固定；只有 `--with-model` 时内容非空。
 - `step1_user.txt` / `step1_student.txt` / `step1_teacher_user.txt` / `step1_teacher.txt`：
   v3 风格别名，对应 Q1。
@@ -508,7 +563,52 @@ teacher target。只有显式加 `--with-teacher-model` 时，才会额外加载
   `abnormal`、`event_option_map`、`frame_allowed_events_raw`、`regular_event_codes`、
   `event_candidate_codes`、`ego_to_goal_xy` 与 `weather_text_teacher_only`。
 
-### 6.3 Teacher 合同抽检
+### 6.3 自动 checkpoint probe
+
+默认目录结构：
+
+```text
+checkpoints/sft_v5_runs/latest/
+  checkpoint-40/
+  checkpoint-80/
+  final/
+  probes/
+    comparison.json
+    base/
+      summary.json
+      probe_metadata.json
+      manifest.json
+      route_*/frame_*/...
+    checkpoint-000040/
+      summary.json
+      probe_metadata.json
+      manifest.json
+      route_*/frame_*/...
+    final/
+      summary.json
+      probe_metadata.json
+      manifest.json
+      route_*/frame_*/...
+```
+
+常用覆盖项：
+
+```bash
+# 保留每 40 step 保存，但完全关闭自动 probe。
+CHECKPOINT_PROBE=0 SAVE_STEPS=40 GPU_IDS=0,1,2,3 \
+bash qwen3vl_local/sft_v5/train.sh ddp
+
+# 减少自动 probe case；不会改变训练 Qwen 的 1024 token 上限。
+CHECKPOINT_PROBE_NUM_CASES=4 GPU_IDS=0,1,2,3 \
+bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+自动 probe 使用独立的可视化安全上限 `256/192`，只影响 probe 耗时，不改变训练
+Q1/Q2 的 `1024/1024`。要覆盖时使用
+`CHECKPOINT_PROBE_MAX_NEW_TOKENS_Q1/Q2`。`comparison.json` 中 `base` 是纯 base
+student+teacher，`checkpoint-*` / `final` 是 LoRA student + 纯 base teacher。
+
+### 6.4 Teacher 合同抽检
 
 Teacher 合同抽检：
 
@@ -559,7 +659,7 @@ AttributeError: 'tuple' object has no attribute 'get_mask_sizes'
 
 - 每帧 OPSD loss 立刻 backward，不把整条 route sequence 的 Qwen 计算图攒到 batch 末尾。
 - Teacher/student logits 只裁剪到监督 span 后参与 forward-KL。
-- 8 路 rollout 与 4 路 KL 微批解耦，KL forward OOM 会在 backward 前自动二分。
+- 8 路 rollout 与 2 路 KL 微批解耦，KL forward OOM 会在 backward 前自动二分。
 - `train.sh` 默认设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`。
 
 若日志里的 `parallel_kl/oom_splits` 长期非 0，先只缩小 KL 微批，不改 8 路 rollout、

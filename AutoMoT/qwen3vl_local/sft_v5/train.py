@@ -477,6 +477,28 @@ def cleanup_distributed() -> None:
         dist.destroy_process_group()
 
 
+def cleanup_runtime_resources() -> None:
+    """在正常结束或异常退出时统一释放分布式与 CUDA allocator 资源。
+
+    训练过程中不应每步调用 ``empty_cache``，否则会反复向 CUDA 申请显存并降低吞吐；
+    这里只在进程准备退出时执行。torchrun 异常本来最终也会由操作系统回收 CUDA
+    context，但显式清理能减少 NCCL process-group 泄漏警告，也让单进程调试更干净。
+    """
+
+    try:
+        cleanup_distributed()
+    except Exception as cleanup_exc:
+        # cleanup 失败不能覆盖真正的训练异常；保留一行警告供 NCCL 排障即可。
+        print(
+            f"[warn] runtime cleanup failed: {type(cleanup_exc).__name__}: {cleanup_exc}",
+            flush=True,
+        )
+    finally:
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
 def _load_images(paths: List[str]) -> List[Image.Image]:
     """读取 4 帧 RGB history；缺文件时抛错，由外层 frame skip 记录。"""
 
@@ -879,18 +901,19 @@ def _student_generate_kv_batch(
     max_new_tokens: int,
     *,
     allow_padded_cache: bool = False,
-) -> Tuple[List[str], List[KVState], List[torch.Tensor]]:
-    """batched greedy rollout，返回每个样本自己的文本、干净 KVState 和 token ids。
+) -> Tuple[List[str], List[torch.Tensor]]:
+    """batched greedy rollout，只返回每个样本自己的文本和 token ids。
 
-    关键点是 EOS 处理：某个样本预测到 EOS 时，保存它**追加 EOS 前**的 KVState，
-    然后从 active batch 中移除；剩余样本继续并行生成。这样不会用重复 EOS/pad 污染
-    已结束样本的 Q1 KV，后续 Q2 仍能接在干净的 Q1 assistant 输出后。
+    关键点是 EOS 处理：某个样本预测到 EOS 时直接从 active batch 中移除，剩余样本
+    继续并行生成。parallel-KL/Q2 会按精确 prompt + rollout ids 重建训练 KV，因此纯
+    采样路径不能再为每个完成样本切出一份完整 final KV；8 路长上下文时这些无用副本
+    会在 rollout 尾部制造明显显存峰值。
     """
 
     batch_size = int(state.next_logits.shape[0])
     if batch_size == 1:
-        text, after, ids = _student_generate_kv(bundle, state, max_new_tokens)
-        return [text], [after], [ids]
+        text, _after, ids = _student_generate_kv(bundle, state, max_new_tokens)
+        return [text], [ids]
 
     eos_ids = set()
     eos = getattr(bundle.tokenizer, "eos_token_id", None)
@@ -906,7 +929,6 @@ def _student_generate_kv_batch(
     cur = state
     active = list(range(batch_size))
     generated: List[List[torch.Tensor]] = [[] for _ in range(batch_size)]
-    final_states: List[Optional[KVState]] = [None for _ in range(batch_size)]
     seen_unique: List[torch.Tensor] = []
     for i in range(batch_size):
         # repetition penalty 只应该看到真实 prompt token。padding token 如果进入
@@ -930,9 +952,8 @@ def _student_generate_kv_batch(
             for row_idx, token_id in enumerate(token_ids):
                 orig_idx = active[row_idx]
                 if token_id in eos_ids:
-                    # EOS 本身不追加到 KV。这样 final_states[orig_idx] 仍停在最后一个
-                    # 非 EOS assistant token，后续 Q2 user turn 可以接在干净的 Q1 后面。
-                    final_states[orig_idx] = _slice_kv_state_batch(cur, [row_idx])
+                    # EOS 本身不追加到 KV；该样本的文本/token 已完整，训练所需精确 KV
+                    # 会在 scoring 阶段重建，因此这里不保留逐样本 cache 副本。
                     continue
                 tok = next_token[row_idx:row_idx + 1]
                 generated[orig_idx].append(tok.detach().clone())
@@ -954,13 +975,8 @@ def _student_generate_kv_batch(
             # rope_deltas，防止底层 forward 返回的新 Cache/输出把形状恢复成 `(1, batch)`。
             cur.rope_deltas = _normalize_rope_deltas_batch(cur.rope_deltas, int(cur.cache_input_ids.shape[0]))
             active = [active[i] for i in keep_rows]
-        for row_idx, orig_idx in enumerate(active):
-            # 达到 max_new_tokens 仍没 EOS 的样本，最终 KV 就是当前 active state。
-            final_states[orig_idx] = _slice_kv_state_batch(cur, [row_idx])
-
     texts: List[str] = []
     ids_out: List[torch.Tensor] = []
-    states_out: List[KVState] = []
     for idx in range(batch_size):
         if generated[idx]:
             ids = torch.cat(generated[idx], dim=1).to(state.cache_input_ids.device)
@@ -972,9 +988,7 @@ def _student_generate_kv_batch(
             text = ""
         texts.append(text)
         ids_out.append(ids)
-        assert final_states[idx] is not None
-        states_out.append(final_states[idx])  # type: ignore[arg-type]
-    return texts, states_out, ids_out
+    return texts, ids_out
 
 
 def _loss_positions(bundle: Any, text: str, span_fn: Any, weights: Mapping[str, float]) -> Dict[str, List[int]]:
@@ -1512,12 +1526,23 @@ def _run_frame(
         q2_rollout_start = time.time()
         with torch.no_grad():
             q2_student_state = _append_user_turn(bundle, q1_after, q2_prompt)
-            q2_text, _q2_after, q2_ids = _student_generate_kv(bundle, q2_student_state, max_new_tokens_q2)
+            q2_text, q2_after_generated, q2_ids = _student_generate_kv(
+                bundle,
+                q2_student_state,
+                max_new_tokens_q2,
+            )
+            # OPSD scoring 从 q2_student_state + q2_ids 重放 logits，不使用生成后的 Q2 KV。
+            # 立即断开它，避免与随后构造的 teacher Q2 state / student autograd graph叠加。
+            del q2_after_generated
         timings["q2_rollout_seconds"] = time.time() - q2_rollout_start
     else:
         # Q2 student rollout 已在当前 timestep 的 grouped/batched 路径中完成；这里继续
         # 使用同一段 q2_text/q2_ids 做 teacher/student KL，不再重复生成。
         timings["q2_rollout_seconds"] = 0.0
+    # Q2 student state 已经包含 Q1 上下文；后续不再直接读取 Q1 student prefill/after KV。
+    # 这些 state 均在 no_grad 下构造，可以安全立即释放，不影响 q1_loss 的 autograd graph。
+    q1_student_state = None
+    q1_after = None
     q2_parsed = parse_q2_output(q2_text, frame.event_option_map)
     event_target = _event_target_from_frame(frame, student_event=q2_parsed.get("event_label"))
     # EVENT 支持“单标签训练、双标签容错”：如果 raw label 有多个 UE/RE，而 student
@@ -1538,6 +1563,9 @@ def _run_frame(
     with _teacher_eval_context(bundle):
         q1_teacher_after, _, _ = _append_token_ids_with_logits(bundle, _clone_kv_state(q1_teacher_state), q1_ids)
         q2_teacher_state = _append_user_turn(bundle, q1_teacher_after, q2_teacher_prompt)
+    # q2_teacher_state 已经完整承接 privileged Q1 KV；旧 Q1 teacher states 不再参与 KL。
+    q1_teacher_after = None
+    q1_teacher_state = None
     timings["q2_teacher_seconds"] = time.time() - q2_teacher_start
     q2_loss_start = time.time()
     q2_loss, q2_parts = _opsd_loss(
@@ -1861,7 +1889,7 @@ def _run_q1_rollout_grouped(
         batched_group_sizes.append(len(frames))
         with torch.no_grad():
             state_batch = _kv_start_state_batch_padded(bundle, messages_list)
-            texts, _after_states, ids_list = _student_generate_kv_batch(
+            texts, ids_list = _student_generate_kv_batch(
                 bundle,
                 state_batch,
                 max_new_tokens_q1,
@@ -1890,7 +1918,7 @@ def _run_q1_rollout_batch(
     frames: Sequence[FrameRow],
     *,
     max_new_tokens_q1: int,
-) -> List[Tuple[KVState, str, KVState, torch.Tensor]]:
+) -> List[Tuple[Optional[KVState], str, Optional[KVState], torch.Tensor]]:
     """兼容旧调用：只返回 rollouts，不返回 grouped 统计。"""
 
     return _run_q1_rollout_grouped(
@@ -1966,12 +1994,14 @@ def _run_q2_rollout_grouped(
         with torch.no_grad():
             state = _kv_start_state(bundle, messages_list[0])
             text, _after, ids = _student_generate_kv(bundle, state, max_new_tokens_q2)
-        outputs[0] = (state, text, ids)
+        # 即使只有一个 Q2 candidate，外层也只需要 text/ids；KL 会按精确 Q1 ids
+        # 重建 Q2 state。不要把完整单样本 KV 留在 q2_rollouts 中跨到 KL forward。
+        outputs[0] = (None, text, ids)
     else:
         batched_group_sizes.append(n)
         with torch.no_grad():
             state_batch = _kv_start_state_batch_padded(bundle, messages_list)
-            texts, _after_states, ids_list = _student_generate_kv_batch(
+            texts, ids_list = _student_generate_kv_batch(
                 bundle,
                 state_batch,
                 max_new_tokens_q2,
@@ -2184,7 +2214,7 @@ def _run_parallel_kl_microbatches(
     Qwen rollout 的 batch 与 KL 训练微批是两个独立概念：前者没有 autograd graph，
     可以继续使用 8 路提高生成吞吐；后者需要保留 Q1/Q2 student activation，且 Q2
     上下文通常超过 3k token，8 路会在 H20 95 GiB 上逼近物理上限。因此默认让调用方
-    使用 4 路 KL 微批，并在每个微批返回后立即 backward，避免多个微批计算图同时常驻。
+    使用 2 路 KL 微批，并在每个微批返回后立即 backward，避免多个微批计算图同时常驻。
 
     如果某个微批在 **forward/scoring** 阶段仍然 OOM，本函数会先释放失败调用留下的
     Python/CUDA cache，再把该微批二分重试，最小到单帧。backward 不放进 OOM retry
@@ -2303,9 +2333,111 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "learning_rate": float(args.learning_rate),
         "gradient_sync": "bucketed_sum_allreduce_then_global_frame_average",
         "gradient_bucket_cap_mb": 64.0,
+        "checkpoint_probe_enabled": bool(args.checkpoint_probe),
+        "checkpoint_probe_num_cases": int(args.checkpoint_probe_num_cases),
+        "checkpoint_probe_with_teacher": bool(args.checkpoint_probe_with_teacher),
     }
     with open(output_dir / "sft_v5_adapter_config.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
+
+
+def _update_probe_comparison(output_dir: pathlib.Path, record: Mapping[str, Any]) -> None:
+    """原子更新一个 run 内 base/checkpoint/final probe 的对比索引。"""
+
+    probes_dir = output_dir / "probes"
+    probes_dir.mkdir(parents=True, exist_ok=True)
+    comparison_path = probes_dir / "comparison.json"
+    payload: Dict[str, Any] = {"format_version": 1, "entries": []}
+    if comparison_path.exists():
+        try:
+            loaded = json.loads(comparison_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and isinstance(loaded.get("entries"), list):
+                payload = loaded
+        except Exception:
+            # 旧 comparison 损坏不应阻断训练；当前 probe 会重建一个可读索引。
+            payload = {"format_version": 1, "entries": []}
+    name = str(record.get("name", ""))
+    entries = [item for item in payload.get("entries", []) if str(item.get("name", "")) != name]
+    entries.append(dict(record))
+    entries.sort(
+        key=lambda item: (
+            0 if str(item.get("name")) == "base" else 2 if str(item.get("name")) == "final" else 1,
+            int(item.get("global_step", 0)),
+        )
+    )
+    payload["entries"] = entries
+    tmp_path = comparison_path.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path.replace(comparison_path)
+
+
+def _run_probe_with_training_bundle(
+    bundle: Any,
+    args: argparse.Namespace,
+    *,
+    output_dir: pathlib.Path,
+    name: str,
+    global_step: int,
+    adapter_dir: Optional[pathlib.Path],
+    base_student: bool,
+) -> Dict[str, Any]:
+    """复用 rank0 当前 Qwen 生成一次 base 或 checkpoint LoRA probe。
+
+    这里运行时导入 ``probe.py``，避免训练模块加载阶段形成循环 import。student 和
+    teacher 都复用 ``bundle``：checkpoint student 保持 LoRA 开启，base student 与
+    privileged teacher 临时关闭 adapter，因此不会在已经高占用的 H20 上再加载一份
+    Qwen。完整 case 写到 ``probes/<name>/``，摘要追加到 ``comparison.json``。
+    """
+
+    from qwen3vl_local.sft_v5.probe import dump_probe
+
+    if not args.val_index:
+        raise ValueError("checkpoint probe requires --val-index")
+    index_path = pathlib.Path(args.val_index)
+    if not index_path.exists():
+        raise FileNotFoundError(f"checkpoint probe index not found: {index_path}")
+    probe_dir = output_dir / "probes" / name
+    probe_args = argparse.Namespace(
+        index=str(index_path),
+        output_dir=str(probe_dir),
+        num_cases=int(args.checkpoint_probe_num_cases),
+        max_routes=0,
+        max_frames_per_route=0,
+        with_model=True,
+        with_teacher=True,
+        with_teacher_model=bool(args.checkpoint_probe_with_teacher),
+        model_dir=str(args.model_dir),
+        teacher_model_dir=None,
+        # 该路径只写入 flags/summary 供审计；模型来自外部 bundle，不会重新 load。
+        adapter_dir=str(adapter_dir) if adapter_dir is not None else None,
+        merge_lora=False,
+        max_new_tokens_q1=int(args.checkpoint_probe_max_new_tokens_q1),
+        max_new_tokens_q2=int(args.checkpoint_probe_max_new_tokens_q2),
+    )
+    started = time.time()
+    summary = dump_probe(
+        probe_args,
+        student_bundle=bundle,
+        teacher_bundle=bundle if bool(args.checkpoint_probe_with_teacher) else None,
+        student_disable_adapter=bool(base_student),
+        teacher_disable_adapter=True,
+    )
+    record = {
+        "name": name,
+        "status": "ok",
+        "global_step": int(global_step),
+        "adapter_dir": str(adapter_dir) if adapter_dir is not None else None,
+        "probe_dir": str(probe_dir),
+        "summary_path": str(probe_dir / "summary.json"),
+        "elapsed_seconds": time.time() - started,
+        "summary": summary,
+    }
+    (probe_dir / "probe_metadata.json").write_text(
+        json.dumps(record, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    _update_probe_comparison(output_dir, record)
+    return record
 
 
 def run_check(loader: DataLoader, *, max_batches: int = 2) -> None:
@@ -2588,8 +2720,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--parallel-kl-microbatch-size",
         type=int,
-        default=4,
-        help="有 autograd graph 的 parallel-KL 微批上限；默认 4，forward OOM 时会继续二分，Q1/Q2 rollout batch 不受影响",
+        default=2,
+        help="有 autograd graph 的 parallel-KL 微批上限；默认 2，forward OOM 时会继续二分到单帧，Q1/Q2 rollout batch 不受影响",
     )
     p.add_argument(
         "--update-mode",
@@ -2611,8 +2743,29 @@ def parse_args() -> argparse.Namespace:
         help="streaming_frames 最多等待多少个 global timestep；0 表示只按 frame 阈值触发",
     )
     p.add_argument("--logging-steps", type=int, default=1)
-    p.add_argument("--save-steps", type=int, default=200)
+    p.add_argument("--save-steps", type=int, default=40)
     p.add_argument("--max-steps", type=int, default=0)
+    p.add_argument(
+        "--checkpoint-probe",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="在训练开始、周期 checkpoint 和 final 边界复用 rank0 当前模型生成 base/LoRA 对比 probe",
+    )
+    p.add_argument(
+        "--checkpoint-probe-base",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="checkpoint probe 启用时，训练前额外保存一次纯 base student/teacher 表现",
+    )
+    p.add_argument(
+        "--checkpoint-probe-with-teacher",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="自动 probe 中同时用当前 Qwen 的 disable_adapter 模式生成 privileged base teacher 输出",
+    )
+    p.add_argument("--checkpoint-probe-num-cases", type=int, default=8)
+    p.add_argument("--checkpoint-probe-max-new-tokens-q1", type=int, default=256)
+    p.add_argument("--checkpoint-probe-max-new-tokens-q2", type=int, default=192)
     p.add_argument("--progress-frames", type=int, default=5, help="rank0 每处理多少个本地有效 frame 打一次进度；0 表示关闭逐帧进度")
     p.add_argument("--heartbeat-seconds", type=float, default=120.0, help="rank0 长操作超过多少秒补一条心跳；0 表示关闭按时间心跳")
     p.add_argument("--check", action="store_true")
@@ -2634,6 +2787,10 @@ def main() -> None:
         raise ValueError("--max-timesteps-per-step must be >= 0")
     if int(args.parallel_kl_microbatch_size) <= 0:
         raise ValueError("--parallel-kl-microbatch-size must be >= 1")
+    if int(args.checkpoint_probe_num_cases) <= 0:
+        raise ValueError("--checkpoint-probe-num-cases must be >= 1")
+    if int(args.checkpoint_probe_max_new_tokens_q1) <= 0 or int(args.checkpoint_probe_max_new_tokens_q2) <= 0:
+        raise ValueError("checkpoint probe max-new-tokens must be >= 1")
     torch.manual_seed(int(args.seed))
     rank, world_size, local_rank = setup_distributed()
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
@@ -2702,6 +2859,9 @@ def main() -> None:
         tb.add_scalar("run/max_new_tokens_q2", float(args.max_new_tokens_q2), 0)
         tb.add_scalar("run/parallel_kl", float(bool(args.parallel_kl)), 0)
         tb.add_scalar("run/parallel_kl_microbatch_size", float(args.parallel_kl_microbatch_size), 0)
+        tb.add_scalar("run/save_steps", float(args.save_steps), 0)
+        tb.add_scalar("run/checkpoint_probe", float(bool(args.checkpoint_probe)), 0)
+        tb.add_scalar("run/checkpoint_probe_num_cases", float(args.checkpoint_probe_num_cases), 0)
         tb.add_scalar("run/train_routes", float(len(train_ds)), 0)
         tb.add_text(
             "run/config",
@@ -2720,6 +2880,11 @@ def main() -> None:
                     f"max_new_tokens_q2: {args.max_new_tokens_q2}",
                     f"parallel_kl: {args.parallel_kl}",
                     f"parallel_kl_microbatch_size: {args.parallel_kl_microbatch_size}",
+                    f"save_steps: {args.save_steps}",
+                    f"checkpoint_probe: {args.checkpoint_probe}",
+                    f"checkpoint_probe_base: {args.checkpoint_probe_base}",
+                    f"checkpoint_probe_with_teacher: {args.checkpoint_probe_with_teacher}",
+                    f"checkpoint_probe_num_cases: {args.checkpoint_probe_num_cases}",
                     f"lora_vision_scope: {args.lora_vision_scope}",
                 ]
             ),
@@ -2784,6 +2949,76 @@ def main() -> None:
         if rank == 0:
             print(message, flush=True)
 
+    def run_synchronized_checkpoint_probe(
+        name: str,
+        *,
+        step: int,
+        adapter_dir: Optional[pathlib.Path],
+        base_student: bool,
+    ) -> None:
+        """在所有 rank 一致等待时，由 rank0 复用当前模型生成 checkpoint probe。
+
+        probe 期间其它 rank 停在 barrier，不会继续修改参数或提前进入下一次 collective。
+        可视化失败只写 ``error.txt`` / ``comparison.json`` 并继续训练，避免一次 probe
+        损坏耗时数天的主训练；无论成功失败都会恢复 train 模式并释放 probe cache。
+        """
+
+        if not bool(args.checkpoint_probe):
+            return
+        distributed_barrier()
+        if rank == 0:
+            probe_dir = output_dir / "probes" / name
+            rank0_log(
+                f"[probe-start] name={name} step={step} base_student={int(base_student)} "
+                f"cases={int(args.checkpoint_probe_num_cases)} {_cuda_memory_text()}"
+            )
+            started = time.time()
+            try:
+                record = _run_probe_with_training_bundle(
+                    bundle,
+                    args,
+                    output_dir=output_dir,
+                    name=name,
+                    global_step=int(step),
+                    adapter_dir=adapter_dir,
+                    base_student=bool(base_student),
+                )
+                elapsed_probe = float(record.get("elapsed_seconds", time.time() - started))
+                rank0_log(
+                    f"[probe-done] name={name} step={step} elapsed={elapsed_probe:.1f}s "
+                    f"summary={record.get('summary_path')} {_cuda_memory_text()}"
+                )
+                if tb is not None:
+                    tb.add_scalar("probe/last_completed_step", float(step), max(0, int(step)))
+                    tb.add_scalar("probe/elapsed_seconds", elapsed_probe, max(0, int(step)))
+                    tb.flush()
+            except Exception as exc:
+                # 自动可视化是旁路审计，不应因为一张缺图或 probe 解析问题让训练报废。
+                probe_dir.mkdir(parents=True, exist_ok=True)
+                error_text = f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
+                (probe_dir / "error.txt").write_text(error_text, encoding="utf-8")
+                error_record = {
+                    "name": name,
+                    "status": "error",
+                    "global_step": int(step),
+                    "adapter_dir": str(adapter_dir) if adapter_dir is not None else None,
+                    "probe_dir": str(probe_dir),
+                    "elapsed_seconds": time.time() - started,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                _update_probe_comparison(output_dir, error_record)
+                rank0_log(
+                    f"[probe-error] name={name} step={step} reason={type(exc).__name__}: {exc}; "
+                    "training will continue"
+                )
+            finally:
+                # probe 会临时把模型切到 eval/disable_adapter；这里再做一次显式恢复。
+                bundle.model.train()
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+        distributed_barrier()
+
     def should_log_frame() -> bool:
         """判断本地 frame 心跳是否应该输出。"""
 
@@ -2839,6 +3074,11 @@ def main() -> None:
         if torch.cuda.is_available():
             tb.add_scalar("progress/cuda_allocated_gb", torch.cuda.memory_allocated() / (1024 ** 3), step)
             tb.add_scalar("progress/cuda_reserved_gb", torch.cuda.memory_reserved() / (1024 ** 3), step)
+            # allocated 是当前仍被活跃 tensor/graph 引用的显存，reserved 是 PyTorch
+            # allocator 为后续复用保留的显存。后者随历史峰值增长并不等于泄漏；同时记录
+            # max_* 才能判断本 run 是否不断刷新真实峰值。
+            tb.add_scalar("progress/cuda_max_allocated_gb", torch.cuda.max_memory_allocated() / (1024 ** 3), step)
+            tb.add_scalar("progress/cuda_max_reserved_gb", torch.cuda.max_memory_reserved() / (1024 ** 3), step)
         tb.flush()
 
     def complete_optimizer_step(epoch_idx: int, batch_idx: int, *, reason: str) -> bool:
@@ -2908,6 +3148,13 @@ def main() -> None:
             tb.add_scalar("time/optimizer_step_seconds", optimizer_seconds, global_step)
             tb.add_scalar("ddp/grad_allreduce_buckets", float(grad_bucket_count), global_step)
             tb.add_scalar("train/learning_rate", float(optimizer.param_groups[0]["lr"]), global_step)
+            if torch.cuda.is_available():
+                # optimizer-step 级显存曲线是判断长期 OOM 风险的主口径。allocated 在多个
+                # step 后应大体回落/稳定；reserved 可停留在历史高水位，不要求回到初始值。
+                tb.add_scalar("memory/allocated_gb", torch.cuda.memory_allocated() / (1024 ** 3), global_step)
+                tb.add_scalar("memory/reserved_gb", torch.cuda.memory_reserved() / (1024 ** 3), global_step)
+                tb.add_scalar("memory/max_allocated_gb", torch.cuda.max_memory_allocated() / (1024 ** 3), global_step)
+                tb.add_scalar("memory/max_reserved_gb", torch.cuda.max_memory_reserved() / (1024 ** 3), global_step)
         log_every = max(1, int(args.logging_steps))
         if global_step % log_every == 0:
             reduced_stats = _ddp_sum_train_stats(window_stats)
@@ -2978,9 +3225,25 @@ def main() -> None:
                     tb.add_scalar("ddp/padding_rate", reduced_stats["padding_slots"] / max(1.0, pad_total), global_step)
                     tb.add_scalar("ddp/max_T_global_avg", reduced_stats["max_T_global_sum"] / max(1.0, reduced_stats["timesteps"]), global_step)
                     tb.flush()
-        if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
-            _save_adapter(bundle, output_dir / f"checkpoint-{global_step}", args)
+        if int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
+            checkpoint_dir = output_dir / f"checkpoint-{global_step}"
+            if rank == 0:
+                _save_adapter(bundle, checkpoint_dir, args)
+            run_synchronized_checkpoint_probe(
+                f"checkpoint-{global_step:06d}",
+                step=global_step,
+                adapter_dir=checkpoint_dir,
+                base_student=False,
+            )
         return True
+
+    if bool(args.checkpoint_probe) and bool(args.checkpoint_probe_base):
+        # base 只在每个 run 开始时生成一次。它和后续 checkpoint 使用同一批 val case，
+        # student/teacher 都通过 disable_adapter 得到纯 Qwen 输出，方便逐版本横向对比。
+        run_synchronized_checkpoint_probe("base", step=0, adapter_dir=None, base_student=True)
+        # 首条 [train] 的 elapsed 不应把训练前 base probe 时间算成优化吞吐。
+        start = time.time()
+        last_heartbeat = start
 
     stop_training = False
     for epoch in range(int(args.num_epochs)):
@@ -3181,8 +3444,9 @@ def main() -> None:
                         parallel_start = time.time()
                         try:
                             # rollout 仍按 QWEN_BATCH_SIZE（默认 8）并行；只有需要保留
-                            # autograd graph 的 KL scoring 按独立微批（默认 4）执行并立即
-                            # backward。Q2 约 3k token 时，这能显著降低 H20 瞬时峰值。
+                            # autograd graph 的 KL scoring 按独立微批（默认 2）执行并立即
+                            # backward。Q2 约 3k token 时，这能显著降低 H20 瞬时峰值，
+                            # 同时保持 8 路无梯度 rollout 和 1024 token 上限不变。
                             kl_result = _run_parallel_kl_microbatches(
                                 bundle,
                                 chunk,
@@ -3448,12 +3712,23 @@ def main() -> None:
                 stop_training = True
         if stop_training:
             break
+    final_dir = output_dir / "final"
     if rank == 0:
-        _save_adapter(bundle, output_dir / "final", args)
+        _save_adapter(bundle, final_dir, args)
+    run_synchronized_checkpoint_probe(
+        "final",
+        step=global_step,
+        adapter_dir=final_dir,
+        base_student=False,
+    )
     if tb is not None:
         tb.close()
     cleanup_distributed()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        # main 的正常路径已经主动 cleanup；这里作为异常退出兜底，函数本身可重复调用。
+        cleanup_runtime_resources()

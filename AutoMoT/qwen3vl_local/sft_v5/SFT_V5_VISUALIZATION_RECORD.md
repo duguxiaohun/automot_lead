@@ -9,7 +9,8 @@ SFT v5 每帧分成两个问题：
 - Q1：判断当前道路结构 `RS`，以及当前是否发生或处在异常事件中。
 - Q2：在 Q1 的道路结构基础上，从当前帧候选里判断 `EVENT`。
 
-这里需要区分三类检查，它们目的不同，不应该混在一起看。
+这里需要区分四类检查：训练前 base 能力、batched 等价性、训练中自动版本对比、
+训练后手动 adapter 检查。它们目的不同，不应该混在一起看。
 
 ## A. 训练前：默认 Qwen 的 OPSD 能力与 prompt 检查
 
@@ -70,8 +71,11 @@ OPSD。
   复读 `[MEMORY]`、`[RS_CHOICES]`、`[REFERENCE]` 等输入块，说明这份 demo 是旧
   prompt 产物，或默认 Qwen 没有遵守格式，需要用当前代码重新跑 probe。
 - `flags.json` 里的 `parsed_teacher_q1`、`parsed_teacher_q2`、
-  `q1_teacher_rs_correct`、`q1_teacher_abnormal_correct`、`q2_teacher_event_correct`、
+  `q1_teacher_rs_correct`、`q1_teacher_abnormal_correct`、`q2_teacher_triggered`、
+  `q2_teacher_event_correct`、
   `q2_student_continued_from_q1_kv`、`q2_teacher_continued_from_q1_kv`。
+- `q2_teacher_model_prompt.txt` / `q2_teacher_model_target.txt`：teacher Q2 自主续接输入；
+  只使用 teacher 自己的 Q1 KV/解析结果，不与 student Q1 memory 混用。
 
 如果同卡同时加载 student 和 teacher 两份 Qwen 显存不够，可以分两次跑：
 
@@ -229,7 +233,60 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 - `test_batched_qwen_smoke.py` 必须写清楚：默认 smoke 主要验证 mixed-length padded
   rollout，`--require-batched-group` 且 `actual_batched_frames>=2` 才证明真实 batch。
 
-## B. 训练后：adapter 学生输入输出可视化
+## B. 训练中：base 与 checkpoint LoRA 自动对比
+
+正式 `train.sh ddp` 默认启用自动 probe。按当前约 80 optimizer steps/day 的实测速度，
+默认每 `40 step`（约半天）保存一版：
+
+```text
+SAVE_STEPS=40
+CHECKPOINT_PROBE=1
+CHECKPOINT_PROBE_BASE=1
+CHECKPOINT_PROBE_WITH_TEACHER=1
+CHECKPOINT_PROBE_NUM_CASES=8
+```
+
+训练开始时生成 `probes/base/`，每次保存 `checkpoint-40/80/...` 后生成对应
+`probes/checkpoint-000040/000080/...`，正常结束保存 `final/` 后生成 `probes/final/`。
+所有版本固定使用 validation index 的前 8 个 case：
+
+- `base`：student 与 teacher 都临时关闭 LoRA，记录未训练 Qwen 的表现。
+- `checkpoint-*` / `final`：student 使用当前 LoRA；teacher 临时关闭 LoRA，保持纯 base
+  privileged teacher，便于判断学生是否相对同一个老师改善。
+- rank0 复用训练进程里已经加载的 Qwen+LoRA，不另起 `probe.py` 子进程，也不加载
+  第二份 Qwen；其它 rank 在 barrier 等待，完成后恢复训练并清理 CUDA cache。
+
+训练显存趋势不从 probe 文件判断，而看同一 run 的 TensorBoard：
+`memory/allocated_gb`、`memory/reserved_gb`、`memory/max_allocated_gb`、
+`memory/max_reserved_gb`。其中 `allocated` 是活跃引用主口径；`reserved` 或
+`nvidia-smi` 进程显存停在历史高位，不能单独证明泄漏。
+
+主要入口：
+
+```text
+checkpoints/sft_v5_runs/latest/probes/comparison.json
+checkpoints/sft_v5_runs/latest/probes/base/summary.json
+checkpoints/sft_v5_runs/latest/probes/checkpoint-000040/summary.json
+checkpoints/sft_v5_runs/latest/probes/final/summary.json
+```
+
+`comparison.json` 会集中记录 Q1 RS accuracy、Q1 abnormal accuracy、Q2 trigger rate、
+Q2 event accuracy，以及同批 case 的 base teacher 指标。完整的 RGB、prompt、output、
+memory、flags 和 timeline 仍保存在各版本自己的 route/frame 目录。
+
+关闭或缩小自动检查：
+
+```bash
+CHECKPOINT_PROBE=0 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
+
+CHECKPOINT_PROBE_NUM_CASES=4 GPU_IDS=0,1,2,3 \
+bash qwen3vl_local/sft_v5/train.sh ddp
+```
+
+自动 probe 的 `256/192` token 是可视化安全上限，不会改变训练的 `1024/1024`。
+probe 失败会写 `error.txt` 并继续训练，不会因为旁路可视化终止长跑。
+
+## C. 训练后：adapter 学生输入输出可视化
 
 目的：训练结束后检查当前 adapter 学生在真实推理状态机下的表现。此时重点不是看
 base Qwen 强不强，而是看训练出的学生是否：
@@ -262,7 +319,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 如果训练后也想把 adapter student 和 base teacher 放在同一个 case 里对照，可以额外加
 `--with-teacher-model`，但显存会同时常驻两份 Qwen。
 
-## C. 静态 prompt / target 合同快检
+## D. 静态 prompt / target 合同快检
 
 目的：不加载模型，只快速检查数据、候选池、teacher/student prompt 隔离、teacher target
 清洗、RGB history 复制和 timeline 是否完整。
@@ -285,6 +342,7 @@ python qwen3vl_local/sft_v5/probe.py \
 ```text
 probe*/
   manifest.json
+  summary.json
   route_<idx>__<scenario>__<route_id>/
     timeline.json
     timeline.png
@@ -313,6 +371,12 @@ probe*/
       q2_teacher_messages.json
       q2_teacher_prompt.txt
       q2_teacher_target.txt
+      q2_teacher_training_messages.json
+      q2_teacher_training_prompt.txt
+      q2_teacher_training_target.txt
+      q2_teacher_model_messages.json
+      q2_teacher_model_prompt.txt
+      q2_teacher_model_target.txt
       q2_teacher_output.txt
       step1_user.txt
       step1_student.txt
@@ -332,8 +396,14 @@ probe*/
 
 其中：
 
+- `summary.json` 汇总当前版本的 Q1/Q2 student 与 base teacher 指标，包括 teacher Q2
+  trigger rate；训练自动 probe 还会把各版本摘要写进 run 级
+  `probes/comparison.json`。
 - `q1_*` 是 v5 原生命名，对应第一问。
 - `q2_*` 是 v5 原生命名，对应第二问。
+- `q2_teacher_prompt/target/messages` 与 `q2_teacher_output.txt` 实际配对；
+  `q2_teacher_training_*` 是基于 student Q1 rollout 的 OPSD 训练输入，不能拿它解释
+  teacher 自主输出。
 - `q*_system_prompt.txt` / `q*_student_user_prompt.txt` / `q*_teacher_user_prompt.txt`
   把 system prompt 和 user prompt 分开保存，解决旧版 demo 里 role 边界不清的问题。
 - `q*_messages.json` 是可序列化的 Qwen chat messages：system 为固定 v5 协议，user
