@@ -153,6 +153,21 @@ if [[ "${PARALLEL_KL:-1}" == "0" ]]; then
 else
   EXTRA_ARGS+=("--parallel-kl")
 fi
+if [[ "${CHECKPOINT_PROBE:-1}" == "0" ]]; then
+  EXTRA_ARGS+=("--no-checkpoint-probe")
+else
+  EXTRA_ARGS+=("--checkpoint-probe")
+fi
+if [[ "${CHECKPOINT_PROBE_BASE:-1}" == "0" ]]; then
+  EXTRA_ARGS+=("--no-checkpoint-probe-base")
+else
+  EXTRA_ARGS+=("--checkpoint-probe-base")
+fi
+if [[ "${CHECKPOINT_PROBE_WITH_TEACHER:-1}" == "0" ]]; then
+  EXTRA_ARGS+=("--no-checkpoint-probe-with-teacher")
+else
+  EXTRA_ARGS+=("--checkpoint-probe-with-teacher")
+fi
 
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
@@ -201,9 +216,10 @@ EFFECTIVE_PROGRESS_FRAMES="${PROGRESS_FRAMES:-${DEFAULT_PROGRESS_FRAMES}}"
 EFFECTIVE_UPDATE_MODE="${UPDATE_MODE:-streaming_frames}"
 EFFECTIVE_TARGET_GLOBAL_FRAMES="${TARGET_GLOBAL_FRAMES_PER_STEP:-512}"
 EFFECTIVE_MAX_TIMESTEPS="${MAX_TIMESTEPS_PER_STEP:-32}"
-# 8 路 rollout 没有 autograd graph，可以保持吞吐；Q2 KL 约 3k token 时 8 路反传
-# 会把 H20 推到 90+ GiB，因此训练 scoring 默认拆成 4+4 并逐微批 backward。
-EFFECTIVE_PARALLEL_KL_MICROBATCH_SIZE="${PARALLEL_KL_MICROBATCH_SIZE:-4}"
+# 8 路 rollout 没有 autograd graph，可以保持吞吐；Q2 KL 约 3k token 时有梯度的
+# scoring 才是显存峰值。正式 H20 配置默认拆成 2+2+2+2 并逐微批 backward，
+# 不降低 rollout 并行度，也不缩短 Q1/Q2 的 1024 token 安全上限。
+EFFECTIVE_PARALLEL_KL_MICROBATCH_SIZE="${PARALLEL_KL_MICROBATCH_SIZE:-2}"
 
 echo "[batch] PER_DEVICE_BATCH_SIZE=${EFFECTIVE_PER_DEVICE_BATCH_SIZE}"
 echo "[batch] QWEN_BATCH_SIZE=${EFFECTIVE_QWEN_BATCH_SIZE}"
@@ -215,6 +231,8 @@ echo "[parallel] PARALLEL_KL_MICROBATCH_SIZE=${EFFECTIVE_PARALLEL_KL_MICROBATCH_
 echo "[update] UPDATE_MODE=${EFFECTIVE_UPDATE_MODE}"
 echo "[update] TARGET_GLOBAL_FRAMES_PER_STEP=${EFFECTIVE_TARGET_GLOBAL_FRAMES}"
 echo "[update] MAX_TIMESTEPS_PER_STEP=${EFFECTIVE_MAX_TIMESTEPS}"
+echo "[save] SAVE_STEPS=${SAVE_STEPS:-40}"
+echo "[probe] CHECKPOINT_PROBE=${CHECKPOINT_PROBE:-1} BASE=${CHECKPOINT_PROBE_BASE:-1} TEACHER=${CHECKPOINT_PROBE_WITH_TEACHER:-1} CASES=${CHECKPOINT_PROBE_NUM_CASES:-8}"
 if [[ "${MODE}" == "ddp" && "${EFFECTIVE_PER_DEVICE_BATCH_SIZE}" -lt "${EFFECTIVE_QWEN_BATCH_SIZE}" ]]; then
   echo "[batch][warn] QWEN_BATCH_SIZE=${EFFECTIVE_QWEN_BATCH_SIZE} > PER_DEVICE_BATCH_SIZE=${EFFECTIVE_PER_DEVICE_BATCH_SIZE}; extra Qwen slots will be unused"
 fi
@@ -255,8 +273,13 @@ COMMON_ARGS=(
   --logging-steps "${LOGGING_STEPS:-1}"
   --progress-frames "${EFFECTIVE_PROGRESS_FRAMES}"
   --heartbeat-seconds "${HEARTBEAT_SECONDS:-120}"
-  --save-steps "${SAVE_STEPS:-200}"
+  # 用户实测约 80 optimizer steps/day；默认 40 step 约半天保存一次，既降低长跑
+  # 中断风险，也避免 checkpoint/probe 过于频繁地占用磁盘和暂停训练。
+  --save-steps "${SAVE_STEPS:-40}"
   --max-steps "${MAX_STEPS:-0}"
+  --checkpoint-probe-num-cases "${CHECKPOINT_PROBE_NUM_CASES:-8}"
+  --checkpoint-probe-max-new-tokens-q1 "${CHECKPOINT_PROBE_MAX_NEW_TOKENS_Q1:-256}"
+  --checkpoint-probe-max-new-tokens-q2 "${CHECKPOINT_PROBE_MAX_NEW_TOKENS_Q2:-192}"
   --seed "${SEED:-20260711}"
   "${EXTRA_ARGS[@]}"
 )

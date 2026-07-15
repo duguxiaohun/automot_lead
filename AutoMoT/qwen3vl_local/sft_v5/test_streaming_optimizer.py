@@ -124,12 +124,15 @@ def test_adapter_metadata_records_effective_window() -> None:
         max_new_tokens_q2=1024,
         temperature=1.0,
         parallel_kl=True,
-        parallel_kl_microbatch_size=4,
+        parallel_kl_microbatch_size=2,
         update_mode="streaming_frames",
         target_global_frames_per_step=512,
         max_timesteps_per_step=32,
         grad_accum=2,
         learning_rate=1e-5,
+        checkpoint_probe=True,
+        checkpoint_probe_num_cases=8,
+        checkpoint_probe_with_teacher=True,
     )
     with tempfile.TemporaryDirectory(prefix="sft_v5_adapter_meta_") as tmp:
         output_dir = pathlib.Path(tmp) / "adapter"
@@ -137,8 +140,27 @@ def test_adapter_metadata_records_effective_window() -> None:
         meta = json.loads((output_dir / "sft_v5_adapter_config.json").read_text(encoding="utf-8"))
     assert meta["effective_target_global_frames_per_step"] == 1024
     assert meta["effective_max_timesteps_per_step"] == 64
-    assert meta["parallel_kl_microbatch_size"] == 4
+    assert meta["parallel_kl_microbatch_size"] == 2
+    assert meta["checkpoint_probe_enabled"] is True
+    assert meta["checkpoint_probe_num_cases"] == 8
+    assert meta["checkpoint_probe_with_teacher"] is True
     assert meta["gradient_sync"] == "bucketed_sum_allreduce_then_global_frame_average"
+
+
+def test_memory_tensorboard_tags_are_complete() -> None:
+    """显存审计必须同时保留当前值和历史峰值，且区分 allocated/reserved。"""
+
+    train_source = pathlib.Path(__file__).with_name("train.py").read_text(encoding="utf-8")
+    expected_tags = (
+        "memory/allocated_gb",
+        "memory/reserved_gb",
+        "memory/max_allocated_gb",
+        "memory/max_reserved_gb",
+        "progress/cuda_max_allocated_gb",
+        "progress/cuda_max_reserved_gb",
+    )
+    for tag in expected_tags:
+        assert tag in train_source, f"missing TensorBoard memory tag: {tag}"
 
 
 def _distributed_gradient_worker(rank: int, world_size: int, rendezvous_path: str) -> None:
@@ -189,6 +211,7 @@ def main() -> None:
     test_gradient_rescale_factor()
     test_single_process_gradient_sync_and_window_reset()
     test_adapter_metadata_records_effective_window()
+    test_memory_tensorboard_tags_are_complete()
     test_distributed_gradient_sync()
     print("[ok] streaming optimizer policy")
 

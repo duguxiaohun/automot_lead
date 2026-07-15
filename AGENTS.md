@@ -304,7 +304,7 @@
   `train.sh` 支持 `single/ddp/check`，遵循 GPU 自动选址、`GPU_IDS` pin 卡和
   `run_<RUN_TAG>/latest` 防覆盖约定；四卡 `ddp` 默认 H20 max_util 8 路口径：
   `BATCH_PROFILE=max_util`、`PER_DEVICE_BATCH_SIZE=8`、`QWEN_BATCH_SIZE=8`、
-  `PARALLEL_KL_MICROBATCH_SIZE=4`、
+  `PARALLEL_KL_MICROBATCH_SIZE=2`、
   `MAX_NEW_TOKENS_Q1=1024`、`MAX_NEW_TOKENS_Q2=1024`、`PROGRESS_FRAMES=20`，
   启动时打印 `[batch]` 配置，第一条 `[batch-start]` 应显示
   `routes=8 / qwen_batch=8`；`BATCH_PROFILE=balanced` 退回 6 路，
@@ -315,7 +315,7 @@
   需要配合 `PER_DEVICE_BATCH_SIZE>1`；阶段 1 Q1/Q2 student rollout 允许 mixed-length
   padded batch，padded past_key_values 只用于 no-grad 采样 Q1/Q2 文本/token，
   不写回 memory；默认 `PARALLEL_KL=1` / `--parallel-kl`，但 8 路 rollout 与有 autograd
-  graph 的 KL 微批解耦：Q1/Q2 teacher/student scoring 默认按 4+4 微批并逐批 backward；
+  graph 的 KL 微批解耦：Q1/Q2 teacher/student scoring 默认按 2+2+2+2 微批并逐批 backward；
   Q2 parallel KL 必须按精确 `q1_ids` 续接 Q1 KV 后再追加 Q2 user turn，不允许用
   `q1_ids -> q1_text -> full-dialog tokenizer` 回环替代；KL forward OOM 只允许在尚未
   backward 时二分当前微批，不能降低 token 上限或整块重新 rollout；backward OOM 和
@@ -329,17 +329,22 @@
   是全训练 Q1 frame 的真实 batch 比例，若长期接近 0 应优先检查 `[warn] q1 batch fallback`；
   batched Qwen 相关代码必须保留中文注释解释
   padded rollout、单样本 KV 重建、last-valid logits、padding 排除、EOS active batch 移除、KL OOM 安全二分
-  和 TensorBoard 分母口径，`rope_deltas` 必须兼容 `(batch,1)` / `(1,batch)` 两种方向，
+  和 TensorBoard 分母口径；纯 batched rollout 不得物化/返回逐样本 final KV，Q2 state
+  构造后必须及时释放旧 Q1/Q2 KV；`rope_deltas` 必须兼容 `(batch,1)` / `(1,batch)` 两种方向，
   避免 active batch 缩小时 M-RoPE delta 切片错误；后续改这些逻辑时同步更新注释。每帧 loss
   按全局有效 frame 数归一化，手动 all-reduce 后保持 frame 等权；TensorBoard 必须记录
-  `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}` 分项。`probe.py` 仿 v3 输出 route/frame 层级可视化：
+  `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}` 分项，以及
+  `memory/{allocated,reserved,max_allocated,max_reserved}_gb`；长期显存风险以
+  `allocated` 为主，不能只凭 `nvidia-smi` 或 allocator `reserved` 高水位判断泄漏。
+  `probe.py` 仿 v3 输出 route/frame 层级可视化：
   复制 4 帧 RGB，保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
   可选 `q*_teacher_output.txt`、memory_before/after、flags、timeline.json/png 和
   manifest.json；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用
   `--with-teacher-model`；训练前 base Qwen OPSD 能力体检必须不传 `--adapter-dir`、
   不加载任何 LoRA；teacher model output 应和 student 一样从 `Scene Description:`
-  开始输出分析与 `RS/EVENT`，不能复读 MEMORY、choices 或 REFERENCE；可视化分为训练前 base Qwen OPSD 能力体检、训练后 adapter
-  学生可视化、静态 prompt/target 快检三类。v5 代码已补中文函数说明和关键逻辑块注释；
+  开始输出分析与 `RS/EVENT`，不能复读 MEMORY、choices 或 REFERENCE；可视化分为训练前 base Qwen OPSD 能力体检、
+  训练中 base/checkpoint/final 固定样本自动对比、训练后 adapter 学生深入可视化、静态 prompt/target 快检四类。
+  v5 代码已补中文函数说明和关键逻辑块注释；
   后续改标签协议、prompt、memory、loss、probe 或 DDP 训练逻辑时必须同步维护相邻注释。
   正式训练默认 `UPDATE_MODE=streaming_frames`：每个完整 global timestep 后汇总实际
   有效 frame，累计 `TARGET_GLOBAL_FRAMES_PER_STEP=512` 或达到
@@ -350,7 +355,18 @@
   数百个小参数逐个 collective。`GRAD_ACCUM` 是流式窗口倍率，`UPDATE_MODE=batch` 只作旧实验兼容；默认
   learning rate 为 `1e-5`。TensorBoard 还必须记录每步 global frame/timestep、更新原因、
   梯度同步 bucket 数、梯度同步和 optimizer 耗时；adapter 元数据必须同时记录原始与
-  effective 窗口阈值、LR 和梯度同步策略。
+  effective 窗口阈值、LR 和梯度同步策略。正式 launcher 默认 `SAVE_STEPS=40`（按用户
+  实测约 80 step/day，即约半天一版）；默认开启 checkpoint probe：step 0 保存
+  `probes/base/`，每个 `checkpoint-*` 和 `final/` 保存后用固定 8 个 validation case
+  生成对应 probe，并在 `probes/comparison.json` 聚合 `summary.json`。自动 probe 必须
+  复用 rank0 当前训练 bundle，base student/teacher 临时 `disable_adapter()`，LoRA
+  checkpoint student 保持 adapter 开启；禁止另起进程或加载第二份 Qwen。其它 rank
+  必须在 probe 前后 barrier，probe 完成后恢复 train 模式并清理 CUDA cache；probe
+  失败写 `error.txt` 后继续训练。probe 的 256/192 token 上限只用于可视化，不能改变
+  训练的 1024/1024。teacher Q2 能力指标只在 teacher 自身 Q1 RS 正确时触发，并必须
+  续接 teacher 自己的 Q1 KV/解析 memory，不能混用 student Q1 prompt；训练 privileged
+  输入写 `q2_teacher_training_prompt.txt`，默认 `q2_teacher_prompt.txt` 必须和
+  `q2_teacher_output.txt` 实际配对。
   运行与可视化方法见
   `SFT_V5_RUN.md` / `SFT_V5_PLAN.md` / `SFT_V5_VISUALIZATION_RECORD.md`。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
