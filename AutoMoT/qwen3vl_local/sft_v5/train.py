@@ -18,6 +18,9 @@ student Q1 输出，rank 之间 forward 次数天然不一致；DDP wrapper 的 
 会在这种分支生成里产生 unmatched collective，导致 NCCL watchdog 卡死。
 
 `--check` 模式不加载模型，只检查 dataset / DDP padding / prompt / memory 状态机。
+
+正式训练建议从 ``train.sh`` 启动，它负责 GPU、torchrun、run 目录和日志；直接运行
+本文件主要用于 ``--check`` 或单进程调试。常用命令见 ``SFT_V5_RUN.md``。
 """
 
 from __future__ import annotations
@@ -216,9 +219,16 @@ class ParallelKLMicrobatchResult:
 
 
 class RouteSequenceDataset(Dataset):
-    """读取 build_dataset.py 生成的 sequence_index.jsonl。"""
+    """读取 ``build_dataset.py`` 生成的 route sequence JSONL。
+
+    每个 dataset item 是一整条 route，不是单帧。DataLoader 的 batch 因而表示多条
+    独立时间序列；训练循环在同一个 timestep 上并行这些 route，再各自推进 memory。
+    ``max_routes`` / ``max_frames_per_route`` 只用于 smoke，不应在正式训练中设置。
+    """
 
     def __init__(self, path: pathlib.Path, *, max_routes: int = 0, max_frames_per_route: int = 0):
+        """加载并规范化 JSONL；过滤不满足当前导航输入合同的旧帧。"""
+
         self.path = pathlib.Path(path)
         if not self.path.exists():
             raise FileNotFoundError(f"sequence index not found: {self.path}")
@@ -273,9 +283,13 @@ class RouteSequenceDataset(Dataset):
         self.rows = rows
 
     def __len__(self) -> int:
+        """返回可训练 route 数，而不是帧数。"""
+
         return len(self.rows)
 
     def __getitem__(self, idx: int) -> SequenceRow:
+        """按 DataLoader 索引返回一条完整 route sequence。"""
+
         return self.rows[idx]
 
 
@@ -301,6 +315,8 @@ class LengthBalancedDistributedSampler(Sampler[int]):
         shuffle: bool = True,
         seed: int = 0,
     ) -> None:
+        """保存 rank 拓扑和可复现 shuffle 参数，并计算每 rank 固定 route 数。"""
+
         self.dataset = dataset
         self.num_replicas = int(num_replicas)
         self.rank = int(rank)
@@ -311,6 +327,8 @@ class LengthBalancedDistributedSampler(Sampler[int]):
         self.total_size = self.num_samples * max(1, self.num_replicas)
 
     def __len__(self) -> int:
+        """返回当前 rank 每个 epoch 必须消费的 route 数。"""
+
         return self.num_samples
 
     def set_epoch(self, epoch: int) -> None:
@@ -319,6 +337,8 @@ class LengthBalancedDistributedSampler(Sampler[int]):
         self.epoch = int(epoch)
 
     def __iter__(self) -> Iterable[int]:
+        """生成当前 rank 的 route 索引，并保持所有 rank 迭代次数一致。"""
+
         n = len(self.dataset)
         if n == 0:
             return iter([])
@@ -2336,6 +2356,8 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "checkpoint_probe_enabled": bool(args.checkpoint_probe),
         "checkpoint_probe_num_cases": int(args.checkpoint_probe_num_cases),
         "checkpoint_probe_with_teacher": bool(args.checkpoint_probe_with_teacher),
+        "checkpoint_probe_sample_mode": str(args.checkpoint_probe_sample_mode),
+        "checkpoint_probe_context_radius": int(args.checkpoint_probe_context_radius),
     }
     with open(output_dir / "sft_v5_adapter_config.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -2403,6 +2425,9 @@ def _run_probe_with_training_bundle(
         num_cases=int(args.checkpoint_probe_num_cases),
         max_routes=0,
         max_frames_per_route=0,
+        sample_mode=str(args.checkpoint_probe_sample_mode),
+        context_radius=int(args.checkpoint_probe_context_radius),
+        seed=int(args.seed),
         with_model=True,
         with_teacher=True,
         with_teacher_model=bool(args.checkpoint_probe_with_teacher),
@@ -2764,6 +2789,13 @@ def parse_args() -> argparse.Namespace:
         help="自动 probe 中同时用当前 Qwen 的 disable_adapter 模式生成 privileged base teacher 输出",
     )
     p.add_argument("--checkpoint-probe-num-cases", type=int, default=8)
+    p.add_argument(
+        "--checkpoint-probe-sample-mode",
+        choices=("diagnostic", "ue_context", "rs_transition", "random", "sequential"),
+        default="diagnostic",
+        help="自动小样本 probe 的定向选帧策略",
+    )
+    p.add_argument("--checkpoint-probe-context-radius", type=int, default=2)
     p.add_argument("--checkpoint-probe-max-new-tokens-q1", type=int, default=256)
     p.add_argument("--checkpoint-probe-max-new-tokens-q2", type=int, default=192)
     p.add_argument("--progress-frames", type=int, default=5, help="rank0 每处理多少个本地有效 frame 打一次进度；0 表示关闭逐帧进度")
@@ -2789,6 +2821,8 @@ def main() -> None:
         raise ValueError("--parallel-kl-microbatch-size must be >= 1")
     if int(args.checkpoint_probe_num_cases) <= 0:
         raise ValueError("--checkpoint-probe-num-cases must be >= 1")
+    if int(args.checkpoint_probe_context_radius) < 0:
+        raise ValueError("--checkpoint-probe-context-radius must be >= 0")
     if int(args.checkpoint_probe_max_new_tokens_q1) <= 0 or int(args.checkpoint_probe_max_new_tokens_q2) <= 0:
         raise ValueError("checkpoint probe max-new-tokens must be >= 1")
     torch.manual_seed(int(args.seed))
@@ -2885,6 +2919,8 @@ def main() -> None:
                     f"checkpoint_probe_base: {args.checkpoint_probe_base}",
                     f"checkpoint_probe_with_teacher: {args.checkpoint_probe_with_teacher}",
                     f"checkpoint_probe_num_cases: {args.checkpoint_probe_num_cases}",
+                    f"checkpoint_probe_sample_mode: {args.checkpoint_probe_sample_mode}",
+                    f"checkpoint_probe_context_radius: {args.checkpoint_probe_context_radius}",
                     f"lora_vision_scope: {args.lora_vision_scope}",
                 ]
             ),

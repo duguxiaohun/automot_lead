@@ -2,6 +2,10 @@
 
 这里是 v5 文本协议的唯一来源。训练、评估和 probe 都从本文件 import，
 避免不同入口对同一个 Q1/Q2 问题写出不一致格式。
+
+调用顺序是：用 ``reset_memory_for_frame`` 初始化，构造 Q1 prompt 并解析输出，调用
+``update_memory_after_q1``；只有 RS 正确时再构造 Q2 prompt、解析 EVENT 并调用
+``update_memory_after_q2``。teacher builder 只供 OPSD 私有 forward 和审计产物使用。
 """
 
 from __future__ import annotations

@@ -24,19 +24,27 @@ class _FakeModel:
     """只实现 probe 上下文需要的最小 PEFT 模型接口。"""
 
     def __init__(self) -> None:
+        """初始状态模拟正在训练且 adapter 已启用。"""
+
         self.training = True
         self.disable_depth = 0
 
     def eval(self) -> "_FakeModel":
+        """模拟 probe 进入推理态。"""
+
         self.training = False
         return self
 
     def train(self) -> "_FakeModel":
+        """模拟 probe 结束后恢复训练态。"""
+
         self.training = True
         return self
 
     @contextmanager
     def disable_adapter(self):
+        """记录嵌套关闭深度，验证 context manager 不会泄漏 LoRA 状态。"""
+
         self.disable_depth += 1
         try:
             yield
@@ -48,9 +56,13 @@ class _FakeBundle:
     """模拟训练 bundle 的 model/unwrap 结构。"""
 
     def __init__(self) -> None:
+        """创建供 probe context 使用的最小模型容器。"""
+
         self.model = _FakeModel()
 
     def unwrap(self) -> _FakeModel:
+        """返回底层 fake model，与正式训练 bundle 接口一致。"""
+
         return self.model
 
 

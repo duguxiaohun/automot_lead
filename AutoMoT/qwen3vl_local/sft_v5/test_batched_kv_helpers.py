@@ -24,6 +24,8 @@ from qwen3vl_local.sft_v5.train import _decode_position_ids_varlen, _last_valid_
 
 
 def main() -> None:
+    """直接运行全部 KV shape、M-RoPE 和 last-valid-logit 回归断言。"""
+
     # 构造一个最小 KVState：batch=3、seq=5。这里不用真实 Qwen cache，
     # 只要保证 tensor 的第 0 维是 batch 维，就能覆盖 slice helper 的核心约定。
     batch = 3

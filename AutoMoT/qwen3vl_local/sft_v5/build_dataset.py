@@ -217,6 +217,8 @@ def _weather_for_frame(ann: Mapping[str, Any], xml_weathers: List[Dict[str, Any]
     )
 
     def _weather_progress(item: Mapping[str, Any]) -> float:
+        """统一读取新旧 XML weather 节点里的 route 进度字段。"""
+
         return _safe_float(item.get("route_percentage", item.get("route_progress", 0.0)), 0.0)
 
     return dict(min(xml_weathers, key=lambda item: abs(_weather_progress(item) - progress)))

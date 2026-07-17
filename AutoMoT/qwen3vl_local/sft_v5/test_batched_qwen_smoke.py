@@ -477,6 +477,8 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def parse_args() -> argparse.Namespace:
+    """解析真实 Qwen single-vs-batch smoke 参数。"""
+
     p = argparse.ArgumentParser(description="Compare SFT v5 single Qwen rollout with batched Qwen rollout")
     p.add_argument("--index", type=str, required=True)
     p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
@@ -499,6 +501,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """加载本地 Qwen 和真实 index，运行生成/KL 数值等价性检查。"""
+
     args = parse_args()
     report = run_smoke(args)
     print(json.dumps(report, ensure_ascii=False, indent=2))

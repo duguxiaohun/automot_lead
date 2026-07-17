@@ -42,12 +42,14 @@ qwen3vl_local/sft_v5/
   train.py
   train.sh
   eval.py
+  metrics.py
   probe.py
   inspect_teacher.py
   check_loss_mask.py
   test_memory_update.py
   test_dataset_contract.py
   test_checkpoint_probe.py
+  test_probe_selection_and_metrics.py
 ```
 
 职责划分：
@@ -65,10 +67,14 @@ qwen3vl_local/sft_v5/
   DDP + OPSD 主入口。每个 rank 默认用 `LengthBalancedDistributedSampler` 读 sequence batch，
   collate 成 `[B, T_max]` 的 padded batch，按时间步推进 memory 与 Q/A。
 - `eval.py`
-  自由生成评估。使用同一套 Memory 和两问协议，不用 teacher 强制纠偏。
+  大样本自由生成评估。使用同一套 Memory 和两问协议，不用 teacher 强制纠偏；
+  指标按帧流式累计，可选把完整输入输出逐帧写入 JSONL。
+- `metrics.py`
+  `eval.py` 与 `probe.py` 共用的指标定义、混淆矩阵和流式 accumulator；每个指标必须
+  同时声明中文含义与“越高越好 / 越低越好 / 仅诊断”。
 - `probe.py`
-  case-level dump，保存 RGB 路径、prompt、student 输出、teacher prompt/target、
-  memory transition 与 GT。
+  小样本定向 case-level dump。默认覆盖 UE 正例/边界/邻近 RE 硬负例、RS 变换/邻帧和
+  稳定 RE；保存完整 RGB、messages、prompt、student/teacher 输出、memory transition 与 GT。
 - `inspect_teacher.py`
   抽检 privileged teacher 的分析质量；只跑 base Qwen `disable_adapter()`，
   不训练。
@@ -1017,9 +1023,10 @@ Checkpoint / probe 策略：
 
 - 用户实测四卡当前吞吐约 80 optimizer steps/day，正式 launcher 默认
   `SAVE_STEPS=40`，约半天保存 `checkpoint-40/80/...`；正常结束始终保存 `final/`。
-- 每个 run 的 step 0 自动在 `probes/base/` 保存 8 个固定 validation case 的纯 base
-  student + privileged teacher 表现；每个 checkpoint/final 保存后生成同 case 的 LoRA
-  student + 纯 base teacher probe。
+- 每个 run 的 step 0 自动在 `probes/base/` 保存 8 个固定、可复现的 validation case。
+  默认 `diagnostic` 选帧覆盖 UE 正例、UE 起止边界、UE 周围 RE 硬负例、RS 变换、
+  RS 邻帧和稳定 RE，而不是简单取 index 前 8 帧；每个 checkpoint/final 保存后生成
+  同一选帧规则、同一 seed 的 LoRA student + 纯 base teacher probe。
 - 自动 probe 必须复用 rank0 当前训练 bundle，不能另起子进程加载第二份 Qwen。base
   student/teacher 使用 `disable_adapter()`，checkpoint student 保持 LoRA 开启；其它
   rank 在 probe 前后 barrier，防止参数变化和 collective 次序错位。
@@ -1030,8 +1037,9 @@ Checkpoint / probe 策略：
   与 ABNORMAL；不得把 student/GT-forced Q2 prompt 接到 teacher Q1 KV 后。训练用
   `q2_teacher_training_prompt.txt` 与自主 teacher 的 `q2_teacher_model_prompt.txt` 分开保存；
   默认 `q2_teacher_prompt.txt` 必须和 `q2_teacher_output.txt` 一一配对。
-- probe 的默认生成上限是 Q1=256、Q2=192，只控制旁路可视化耗时；训练 rollout 仍是
-  1024/1024，不得因为自动 probe 缩短 OPSD 训练输出。
+- 训练中自动 probe 的默认生成上限是 Q1=256、Q2=192，只控制旁路可视化耗时；
+  手工 `probe.py` 与正式 eval 默认 1024/1024，训练 rollout 也仍是 1024/1024，
+  不得因为自动 probe 缩短 OPSD 训练输出或正式评估输出。
 
 `UPDATE_MODE=batch` 仅保留为旧实验兼容模式，此时 `GRAD_ACCUM` 才表示累计多少个
 DataLoader batch；正式训练不建议使用，因为一批长 route 可能累计上万帧并让一次
@@ -1240,29 +1248,46 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
 
 ## 9. Eval 指标
 
-Frame-level 指标：
+`metrics.py` 是 `eval.py` 与 `probe.py` 的唯一指标口径。大样本评估按帧流式更新计数器，
+不会把全量 prompt/output 留在内存；只有显式传 `--output-jsonl` 时才把完整逐帧证据落盘。
+分母没有样本的指标写 `null`，不能用 0 假装模型失败。
+正式 eval 的 Q1/Q2 默认安全上限均为 1024，与训练 rollout 对齐；自动小样本 probe 的
+256/192 只控制 checkpoint 旁路耗时，不用于报告正式大样本指标。
 
-- `rs_acc`: Q1 RS option accuracy。
-- `abnormal_acc`: Q1 YES/NO accuracy。
-- `event_acc_when_rs_correct`: Q2 event accuracy，只统计 Q1 RS 正确且 Q2 触发帧。
-- `ue_acc`: raw abnormal=true 且 Q2 触发时的 UE 准确率。
-- `re_acc`: abnormal=false 且 Q2 触发时的 RE 准确率。
-- `q2_trigger_rate`: Q1 RS 正确后进入 Q2 的比例。
-- `rs_wrong_reset_count`: 因 Q1 RS 错导致下一帧 reset 的次数。
-- `candidate_mismatch_count`: 当前 scenario + 当前 RS 交集候选池不含 GT event 的次数。
+核心 frame-level 指标：
+
+- `rs_acc`、`rs_transition_acc`、`rs_stable_acc`：全帧、RS 变化首帧、RS 稳定帧准确率，
+  都是越高越好。
+- `abnormal_acc`：Q1 YES/NO 严格准确率，非法格式计错，越高越好。
+- `abnormal_precision/recall/f1`：Q1 对 UE 的查准率、召回率和 F1，越高越好。
+- `abnormal_false_positive_rate`：真实 RE 被 Q1 错报为异常的比例，越低越好。
+- `abnormal_false_negative_rate`：真实 UE 未被 Q1 正确报为异常的比例，非法输出也计入，
+  越低越好。
+- `abnormal_boundary_acc`：RE/UE 状态发生切换的首帧 Q1 准确率，越高越好。
+- `event_acc_when_rs_correct`：Q1 RS 正确并进入 Q2 后的具体 EVENT 准确率，支持既定的
+  动态双标签容错，越高越好。
+- `q2_ue_precision/recall/f1`：进入 Q2 后，把具体 EVENT 折为 UE/RE 的检测指标，越高越好。
+- `q2_false_positive_rate` / `q2_false_negative_rate`：Q2 的 UE 假阳性/假阴性率，越低越好。
+- `ue_acc` / `re_acc`：进入 Q2 后真实 UE/RE 子集的具体标签准确率，越高越好。
+- `event_end_to_end_acc`、`ue_end_to_end_recall`：把 Q1 RS 门控失败也计错的端到端 EVENT
+  准确率与 UE 召回率，越高越好。
+- `event_end_to_end_false_positive_rate`：所有真实 RE 中最终被错误输出为 UE 的比例，
+  越低越好。
+- `q2_trigger_rate`、非法输出率和原始 `tp/fp/tn/fn/invalid` 只用于解释门控与格式问题，
+  不能脱离准确率单独判断好坏。
 
 Route-level 指标：
 
-- `route_rs_all_correct_ratio`
-- `route_abnormal_f1`
-- `route_ue_macro_f1`
-- `mean_resets_per_100_frames`
-- `mean_valid_frames_per_route`
+- `route_rs_all_correct_ratio`：整条 route 每帧 RS 都正确的 route 比例，越高越好。
+- `route_abnormal_f1_macro` / `route_ue_f1_macro`：先逐 route 算 F1 再等权平均，越高越好。
+- `mean_resets_per_100_frames`：每 100 帧 reset 次数，越低越好。
+- `mean_valid_frames_per_route`：评估规模诊断，不单独判断好坏。
 
 Probe dump：
 
 ```text
 probe*/
+  selection_plan.json
   manifest.json
   summary.json
   route_<idx>__<scenario>__<route_id>/
@@ -1274,6 +1299,7 @@ probe*/
       rgb_02.jpg
       rgb_03.jpg
       rgb_paths.json
+      case_record.json
       q1_student_prompt.txt
       q1_student_output.txt
       q1_teacher_prompt.txt
@@ -1296,11 +1322,14 @@ probe*/
       labels.json
 ```
 
-可视化方法单独记录在 `SFT_V5_RUN.md` 的“Probe / 可视化输入输出”章节与
-`SFT_V5_VISUALIZATION_RECORD.md`。v5 probe 明确分成四类：
+可执行的 probe / eval 命令仅在 `SFT_V5_RUN.md` 保留快速入口；完整的输入输出
+产物、目录结构和人工检查项统一记录在 `SFT_V5_VISUALIZATION_RECORD.md`。v5 检查
+明确分成五类：训练中自动版本对比、训练前
+base 能力、训练前 grouped/parallel 等价性、训练后 adapter 可视化、静态合同快检。
 
 - 训练中自动版本对比：训练前 `base`、每 40 step `checkpoint-*`、训练结束 `final`；
-  固定使用同一批 validation case，并在 `probes/comparison.json` 汇总指标。
+  固定使用同一批 `diagnostic` 定向 validation case，并在 `selection_plan.json` 记录每帧
+  的选择原因，在 `probes/comparison.json` 汇总指标。
 
 - 训练前 base Qwen OPSD 能力体检：`--with-model --with-teacher-model`，不传
   `--adapter-dir`，不加载任何 LoRA，让默认 Qwen 分别跑 student prompt 和
@@ -1322,13 +1351,18 @@ probe*/
 
 `AutoMoT/qwen3vl_local/sft_v5/` 下代码采用中文注释维护：
 
-- 函数/docstring 描述入口、输入输出和状态机职责。
+- Python 模块 docstring 需说明该文件的用法、主入口和与相邻模块的分工。
+- 所有 class/function，包括 CLI 入口、嵌套 helper 和 `__len__` / `__iter__` 等魔术方法，
+  都要有中文 docstring，说明输入输出、状态机职责或调用语义。
 - 关键逻辑块必须解释设计原因，而不只是复述代码行为；当前已覆盖
   `allowed_events` 优先级、`R-E* -> RE` 折叠、RS/EVENT 双标签单标签化、
   Q1 RS 错误截断、OPSD teacher/student logits 对齐、DDP local/global padding、
   训练前纯 base Qwen 体检不加载 LoRA、probe flags 审计字段和测试回归意图。
+- 避免“给变量赋值”这类逐行复述；对 padding、KV 续接、loss 分母、DDP collective、
+  显存生命周期等非显然合同，在代码块前解释“为什么”。
 - 后续修改标签协议、prompt、memory、loss、probe 或 DDP 训练逻辑时，需要同步更新
-  相邻代码注释和 `SFT_V5_RUN.md`，避免文档与实现脱节。
+  相邻代码注释和相关文档。运行参数改动写入 `SFT_V5_RUN.md`，设计合同写入本文，
+  完整可视化产物说明写入 `SFT_V5_VISUALIZATION_RECORD.md`，避免三份文档重复膨胀。
 
 ---
 
@@ -1400,14 +1434,15 @@ TOKENIZERS_PARALLELISM=false
    - 再接 DDP / LengthBalancedDistributedSampler / 主进程 global sequence padding。
    - 再接 teacher forward-KL 与 TensorBoard。
 5. `eval.py` / `probe.py`
-   - 先自由生成评估。
-   - 再加 teacher 对照 dump。
+   - 先实现共用流式指标和大样本自由生成评估。
+   - 再实现 UE/RS 边界定向小样本与 teacher 对照完整 dump。
 6. 测试：
    - `python qwen3vl_local/sft_v5/test_memory_update.py`
    - `python qwen3vl_local/sft_v5/test_dataset_contract.py`
    - `python qwen3vl_local/sft_v5/test_streaming_optimizer.py`
    - `python qwen3vl_local/sft_v5/test_parallel_kl_microbatch.py`
    - `python qwen3vl_local/sft_v5/test_checkpoint_probe.py`
+   - `python qwen3vl_local/sft_v5/test_probe_selection_and_metrics.py`
    - `python qwen3vl_local/sft_v5/check_loss_mask.py`
    - `python -m py_compile qwen3vl_local/sft_v5/*.py`
 

@@ -4,6 +4,9 @@
 - XML weather 是否只进入 teacher prompt；
 - teacher target 是否没有 ANSWER_/REFERENCE/XML_WEATHER 泄漏；
 - Q2 option map 是否 frame 级随机且可解析。
+
+本入口是纯 CPU 静态检查，不生成 teacher 文本。使用 ``--index`` 指向 train/val
+sequence index，报告写入 ``--output-dir``，适合在改 prompt 后、加载模型前先运行。
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ from qwen3vl_local.sft_v5.train import RouteSequenceDataset, _event_target_from_
 
 
 def inspect(args: argparse.Namespace) -> dict:
-    """执行抽检并写 report。"""
+    """抽取前 ``num_cases`` 帧，检查 student/teacher 隔离并写 JSON/Markdown 报告。"""
 
     ds = RouteSequenceDataset(
         pathlib.Path(args.index),
@@ -135,6 +138,8 @@ def inspect(args: argparse.Namespace) -> dict:
 
 
 def parse_args() -> argparse.Namespace:
+    """解析静态 teacher 合同抽检参数。"""
+
     p = argparse.ArgumentParser(description="Inspect SFT v5 teacher prompt contract")
     p.add_argument("--index", type=str, required=True)
     p.add_argument("--output-dir", type=str, default="checkpoints/sft_v5_teacher_inspect")
@@ -145,6 +150,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """运行抽检并打印总 case 数与失败数。"""
+
     report = inspect(parse_args())
     print(json.dumps({"checked": report["checked"], "bad": report["bad"]}, ensure_ascii=False))
 

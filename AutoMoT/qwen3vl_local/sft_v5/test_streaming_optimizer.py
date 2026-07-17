@@ -109,14 +109,22 @@ def test_adapter_metadata_records_effective_window() -> None:
     """checkpoint 配置必须直接写出 GRAD_ACCUM 放大后的真实流式窗口。"""
 
     class _FakeModel:
+        """只实现 adapter 保存接口，避免测试加载真实 Qwen。"""
+
         def save_pretrained(self, _path: str) -> None:
+            """模拟 PEFT 保存；元数据写入由被测函数完成。"""
+
             return None
 
     class _FakeBundle:
+        """提供 _save_adapter 需要的 LoRA 配置和 unwrap 接口。"""
+
         lora_vision_scope = "off"
         lora_target_modules = ["q_proj"]
 
         def unwrap(self) -> _FakeModel:
+            """返回可接受 save_pretrained 调用的 fake model。"""
+
             return _FakeModel()
 
     args = SimpleNamespace(
@@ -133,6 +141,8 @@ def test_adapter_metadata_records_effective_window() -> None:
         checkpoint_probe=True,
         checkpoint_probe_num_cases=8,
         checkpoint_probe_with_teacher=True,
+        checkpoint_probe_sample_mode="diagnostic",
+        checkpoint_probe_context_radius=2,
     )
     with tempfile.TemporaryDirectory(prefix="sft_v5_adapter_meta_") as tmp:
         output_dir = pathlib.Path(tmp) / "adapter"
@@ -144,6 +154,8 @@ def test_adapter_metadata_records_effective_window() -> None:
     assert meta["checkpoint_probe_enabled"] is True
     assert meta["checkpoint_probe_num_cases"] == 8
     assert meta["checkpoint_probe_with_teacher"] is True
+    assert meta["checkpoint_probe_sample_mode"] == "diagnostic"
+    assert meta["checkpoint_probe_context_radius"] == 2
     assert meta["gradient_sync"] == "bucketed_sum_allreduce_then_global_frame_average"
 
 
