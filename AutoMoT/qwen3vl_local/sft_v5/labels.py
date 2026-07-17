@@ -3,6 +3,10 @@
 本文件只做纯 Python 标签和候选集逻辑，不读图片、不加载模型。这样 build_dataset、
 train、eval、probe 和测试可以共用同一份“什么能出现在 Q2 选项里”的规则，避免
 后续出现训练和评估各写一套隐式候选表。
+
+调用约定：构建数据使用 ``resolve_rs_target`` / ``resolve_event_target`` 和
+``stable_event_option_map``；训练、eval、probe 只消费这些函数返回的 ``RSTarget`` /
+``EventTarget``，不要在入口脚本里重新实现双标签优先级或候选过滤。
 """
 
 from __future__ import annotations

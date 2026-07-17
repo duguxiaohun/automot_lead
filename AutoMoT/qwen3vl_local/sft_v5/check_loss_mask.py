@@ -39,6 +39,8 @@ def _assert_nonempty(text: str, spans: dict, keys: list[str]) -> None:
 
 
 def main() -> None:
+    """构造最小 Q1/Q2 target，验证所有训练 span 都能被定位。"""
+
     # 这个脚本使用手工构造的最小 target，不依赖数据集和模型。
     # 它主要防止后续改 prompt 时把 "RS:" / "EVENT:" 等字段名改掉，
     # 导致训练里的 span 定位失败而离散标签 loss 悄悄变成 0。

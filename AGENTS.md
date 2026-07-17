@@ -336,16 +336,22 @@
   `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}` 分项，以及
   `memory/{allocated,reserved,max_allocated,max_reserved}_gb`；长期显存风险以
   `allocated` 为主，不能只凭 `nvidia-smi` 或 allocator `reserved` 高水位判断泄漏。
-  `probe.py` 仿 v3 输出 route/frame 层级可视化：
-  复制 4 帧 RGB，保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
+  `probe.py` 仿 v3 输出 route/frame 层级可视化：默认 `diagnostic` 小样本定向覆盖
+  UE 正例/边界/周围 RE 硬负例、RS 变换/邻帧和稳定 RE，`selection_plan.json` 记录每帧
+  选择原因；复制 4 帧 RGB，保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
   可选 `q*_teacher_output.txt`、memory_before/after、flags、timeline.json/png 和
-  manifest.json；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用
+  manifest.json，每帧另写完整 `case_record.json`；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用
   `--with-teacher-model`；训练前 base Qwen OPSD 能力体检必须不传 `--adapter-dir`、
   不加载任何 LoRA；teacher model output 应和 student 一样从 `Scene Description:`
   开始输出分析与 `RS/EVENT`，不能复读 MEMORY、choices 或 REFERENCE；可视化分为训练前 base Qwen OPSD 能力体检、
-  训练中 base/checkpoint/final 固定样本自动对比、训练后 adapter 学生深入可视化、静态 prompt/target 快检四类。
-  v5 代码已补中文函数说明和关键逻辑块注释；
+  训练中 base/checkpoint/final 固定样本自动对比、训练前 grouped/parallel 等价性、
+  训练后 adapter 学生深入可视化、静态 prompt/target 快检五类。
+  v5 每个 Python 模块需用中文 docstring 说明用法和入口，所有 class/function
+  （含 CLI、嵌套 helper 和魔术方法）都需有中文 docstring；非显然的 padding、KV、
+  loss 分母、DDP collective 和显存生命周期逻辑需注释设计原因，不写逐行复述。
   后续改标签协议、prompt、memory、loss、probe 或 DDP 训练逻辑时必须同步维护相邻注释。
+  `SFT_V5_RUN.md` 保持为精简的可执行命令手册；设计合同放在 `SFT_V5_PLAN.md`，
+  完整 probe 产物和人工检查项放在 `SFT_V5_VISUALIZATION_RECORD.md`，不在三份文档间重复铺开。
   正式训练默认 `UPDATE_MODE=streaming_frames`：每个完整 global timestep 后汇总实际
   有效 frame，累计 `TARGET_GLOBAL_FRAMES_PER_STEP=512` 或达到
   `MAX_TIMESTEPS_PER_STEP=32` 时同步 LoRA 梯度并 optimizer step；不能在同一帧
@@ -357,8 +363,9 @@
   梯度同步 bucket 数、梯度同步和 optimizer 耗时；adapter 元数据必须同时记录原始与
   effective 窗口阈值、LR 和梯度同步策略。正式 launcher 默认 `SAVE_STEPS=40`（按用户
   实测约 80 step/day，即约半天一版）；默认开启 checkpoint probe：step 0 保存
-  `probes/base/`，每个 `checkpoint-*` 和 `final/` 保存后用固定 8 个 validation case
-  生成对应 probe，并在 `probes/comparison.json` 聚合 `summary.json`。自动 probe 必须
+  `probes/base/`，每个 `checkpoint-*` 和 `final/` 保存后用固定 8 个、相同 seed 和相同
+  `diagnostic` 规则选出的 validation case 生成对应 probe，并在 `probes/comparison.json`
+  聚合 `summary.json`。自动 probe 必须
   复用 rank0 当前训练 bundle，base student/teacher 临时 `disable_adapter()`，LoRA
   checkpoint student 保持 adapter 开启；禁止另起进程或加载第二份 Qwen。其它 rank
   必须在 probe 前后 barrier，probe 完成后恢复 train 模式并清理 CUDA cache；probe
@@ -367,6 +374,10 @@
   续接 teacher 自己的 Q1 KV/解析 memory，不能混用 student Q1 prompt；训练 privileged
   输入写 `q2_teacher_training_prompt.txt`，默认 `q2_teacher_prompt.txt` 必须和
   `q2_teacher_output.txt` 实际配对。
+  大样本 `eval.py` 与小样本 `probe.py` 必须共用 `metrics.py`：统计 RS/UE 边界、Q1/Q2
+  precision/recall/F1、假阳性/假阴性、端到端 EVENT 与 route macro 指标，并在输出中
+  保存每个指标的中文定义和方向；eval 默认流式累计，只有显式 `--output-jsonl` 才落盘
+  全量逐帧输入输出，不能为统计把全量 prompt/output 常驻内存。
   运行与可视化方法见
   `SFT_V5_RUN.md` / `SFT_V5_PLAN.md` / `SFT_V5_VISUALIZATION_RECORD.md`。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`

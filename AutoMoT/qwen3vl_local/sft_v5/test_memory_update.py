@@ -23,6 +23,8 @@ from qwen3vl_local.sft_v5.prompts import (
 
 
 def main() -> None:
+    """按 Q1/Q2 顺序推进 memory，并验证 reset 与私有信息隔离合同。"""
+
     # memory 的初始值只依赖当前帧 GT RS，事件默认 RE；这也是 Q1 RS 错误后
     # 下一帧恢复的状态，避免错误道路结构继续污染 Q2。
     rs = RSTarget("R1", "A", "ordinary road", 0.8, (), {"R1": 0.8})

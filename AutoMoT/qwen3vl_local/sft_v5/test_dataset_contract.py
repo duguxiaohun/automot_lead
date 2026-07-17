@@ -23,6 +23,8 @@ from qwen3vl_local.sft_v5.labels import (
 
 
 def main() -> None:
+    """验证逐帧 allowed_events 优先、RE 折叠和选项随机可复现。"""
+
     # scenario_candidates 模拟 collection_output 顶层候选：它描述这条 scenario
     # 理论上可能出现哪些原始事件；真正进入 Q2 前还要按当前 RS 过滤。
     scenario_candidates = ["R-E1", "R-E2", "R-E4", "R-E5", "U-E4", "U-E6"]

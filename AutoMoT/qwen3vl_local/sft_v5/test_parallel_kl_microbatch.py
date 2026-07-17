@@ -33,6 +33,8 @@ def _run_fake_microbatch(*, oom_above: int) -> tuple[train_module.ParallelKLMicr
         chunk: Sequence[int],
         **_kwargs: Any,
     ) -> tuple[torch.Tensor, list[int]]:
+        """用 chunk 大小触发模拟 OOM，并返回可反传的线性标量 loss。"""
+
         if len(chunk) > int(oom_above):
             raise torch.cuda.OutOfMemoryError("simulated parallel KL forward OOM")
         # 每个 frame 对 loss 的贡献都是 parameter；8 frame / normalizer 8 后梯度应为 1。

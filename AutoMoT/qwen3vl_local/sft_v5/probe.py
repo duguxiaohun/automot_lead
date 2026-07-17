@@ -9,6 +9,9 @@
 产物刻意仿照 sft_v3/probe.py 的组织方式：顶层 manifest、route 级 timeline、
 frame 级 RGB/prompt/output/memory/flags。这样人工看 case 时不用在 v3/v5 之间切换
 不同心智模型，只需要记住 v5 的 step1=Q1(RS+ABNORMAL)，step2=Q2(EVENT)。
+
+手工检查通常使用 ``--sample-mode diagnostic --with-model``；UE/RS 专项分别改成
+``ue_context`` / ``rs_transition``。不传模型开关时只生成静态 prompt/target 合同。
 """
 
 from __future__ import annotations
@@ -16,10 +19,13 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import random
 import shutil
 import sys
+from collections import Counter, defaultdict
 from contextlib import contextmanager, nullcontext
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
 _AUTOMOT_ROOT = _THIS_FILE.parents[2]
@@ -29,6 +35,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _p)
 
 from qwen3vl_local.sft_v5.eval import _generate_next, _generate_start, load_eval_bundle  # noqa: E402
+from qwen3vl_local.sft_v5.metrics import summarize_student_predictions  # noqa: E402
 from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     SYSTEM_PROMPT_V5,
     build_q1_student_prompt,
@@ -194,6 +201,177 @@ def _frame_labels(route: SequenceRow, frame: FrameRow) -> Dict[str, Any]:
     }
 
 
+@dataclass(frozen=True)
+class ProbeSelection:
+    """一条被选中的小样本 probe 帧及其可审计原因。"""
+
+    route_index: int
+    frame_index: int
+    scenario: str
+    route_id: str
+    frame_id: int
+    primary_reason: str
+    reasons: Tuple[str, ...]
+
+
+def _probe_candidate_reasons(
+    routes: Sequence[SequenceRow],
+    *,
+    context_radius: int,
+) -> Dict[Tuple[int, int], Tuple[str, ...]]:
+    """为所有帧标记 UE/RS 边界、邻帧和稳定 RE 对照类别。
+
+    `ue_nearby_re` 特意只标真实 RE 帧，它是检查假阳性的硬负例；UE span 内的帧由
+    `ue_positive` 覆盖。`rs_nearby` 则保留变换点前后的视觉上下文。
+    """
+
+    radius = max(0, int(context_radius))
+    reasons: Dict[Tuple[int, int], set[str]] = defaultdict(set)
+    for route_idx, route in enumerate(routes):
+        frames = route.frames
+        abnormal_indices = [idx for idx, frame in enumerate(frames) if bool(frame.abnormal)]
+        for frame_idx, frame in enumerate(frames):
+            key = (route_idx, frame_idx)
+            if frame.abnormal:
+                reasons[key].add("ue_positive")
+            abnormal_changed = frame_idx > 0 and bool(frames[frame_idx - 1].abnormal) != bool(frame.abnormal)
+            if abnormal_changed or (frame_idx == 0 and frame.abnormal):
+                reasons[key].add("ue_boundary")
+            rs_changed = frame_idx > 0 and frames[frame_idx - 1].rs_label != frame.rs_label
+            if rs_changed:
+                reasons[key].add("rs_transition")
+
+        # UE 周围的 RE 是最有价值的假阳性检查样本；围绕所有 UE 帧扩展 radius，长
+        # UE span 的内部不会误标为 hard negative。
+        for abnormal_idx in abnormal_indices:
+            lo = max(0, abnormal_idx - radius)
+            hi = min(len(frames), abnormal_idx + radius + 1)
+            for frame_idx in range(lo, hi):
+                if not frames[frame_idx].abnormal:
+                    reasons[(route_idx, frame_idx)].add("ue_nearby_re")
+
+        transition_indices = [
+            idx
+            for idx in range(1, len(frames))
+            if frames[idx - 1].rs_label != frames[idx].rs_label
+        ]
+        for transition_idx in transition_indices:
+            lo = max(0, transition_idx - radius)
+            hi = min(len(frames), transition_idx + radius + 1)
+            for frame_idx in range(lo, hi):
+                if frame_idx != transition_idx:
+                    reasons[(route_idx, frame_idx)].add("rs_nearby")
+
+        for frame_idx, frame in enumerate(frames):
+            key = (route_idx, frame_idx)
+            if not frame.abnormal and not reasons.get(key):
+                reasons[key].add("stable_re")
+            # 每种 RS 都至少有机会进入 fallback/control pool，避免小样本只覆盖 R1。
+            reasons[key].add(f"rs_{frame.rs_label.lower()}")
+    return {key: tuple(sorted(value)) for key, value in reasons.items()}
+
+
+def build_probe_selection_plan(
+    routes: Sequence[SequenceRow],
+    *,
+    num_cases: int,
+    sample_mode: str,
+    context_radius: int,
+    seed: int,
+) -> List[ProbeSelection]:
+    """构造确定、类别均衡且优先 route 多样性的小样本计划。
+
+    `diagnostic` 是训练前/训练后默认模式，不做盲目随机抽帧。它按 UE 边界、UE 正例、
+    UE 周围 RE、RS 变换、RS 邻帧、稳定 RE 轮询取样。只有显式 `random` 才使用 seed。
+    """
+
+    limit = max(0, int(num_cases))
+    if limit == 0:
+        return []
+    reasons_by_key = _probe_candidate_reasons(routes, context_radius=context_radius)
+    all_keys = [
+        (route_idx, frame_idx)
+        for route_idx, route in enumerate(routes)
+        for frame_idx, _frame in enumerate(route.frames)
+    ]
+    mode = str(sample_mode or "diagnostic").lower()
+    category_order = (
+        "ue_boundary",
+        "ue_positive",
+        "ue_nearby_re",
+        "rs_transition",
+        "rs_nearby",
+        "stable_re",
+    )
+    pools: Dict[str, List[Tuple[int, int]]] = {
+        category: [key for key in all_keys if category in reasons_by_key.get(key, ())]
+        for category in category_order
+    }
+    selected: List[Tuple[Tuple[int, int], str]] = []
+    selected_keys: set[Tuple[int, int]] = set()
+    route_counts: Counter[int] = Counter()
+
+    def take_one(category: str, candidates: Sequence[Tuple[int, int]]) -> bool:
+        """从类别中取 route 使用次数最少的帧，减少一个长 route 垄断样本。"""
+
+        available = [key for key in candidates if key not in selected_keys]
+        if not available:
+            return False
+        key = min(available, key=lambda item: (route_counts[item[0]], item[0], item[1]))
+        selected.append((key, category))
+        selected_keys.add(key)
+        route_counts[key[0]] += 1
+        return True
+
+    if mode == "random":
+        shuffled = list(all_keys)
+        random.Random(int(seed)).shuffle(shuffled)
+        for key in shuffled[:limit]:
+            selected.append((key, "random"))
+    elif mode == "sequential":
+        selected = [(key, "sequential") for key in all_keys[:limit]]
+    else:
+        if mode == "ue_context":
+            active_categories = ("ue_boundary", "ue_positive", "ue_nearby_re")
+        elif mode == "rs_transition":
+            active_categories = ("rs_transition", "rs_nearby")
+        elif mode == "diagnostic":
+            active_categories = category_order
+        else:
+            raise ValueError(
+                f"unsupported probe sample mode: {sample_mode}; expected diagnostic/ue_context/rs_transition/random/sequential"
+            )
+        while len(selected) < limit:
+            added = False
+            for category in active_categories:
+                if len(selected) >= limit:
+                    break
+                added = take_one(category, pools[category]) or added
+            if not added:
+                break
+        # 数据中可能没有 UE 或 RS 变换。剩余配额回退到全体帧，但原因明确写 fallback，
+        # 不能让用户误以为已经覆盖了不存在的类别。
+        while len(selected) < limit and take_one("fallback", all_keys):
+            pass
+
+    plan: List[ProbeSelection] = []
+    for (route_idx, frame_idx), primary_reason in selected[:limit]:
+        route = routes[route_idx]
+        frame = route.frames[frame_idx]
+        plan.append(
+            ProbeSelection(
+                route_index=route_idx,
+                frame_index=frame_idx,
+                scenario=route.scenario,
+                route_id=route.route_id,
+                frame_id=frame.frame_id,
+                primary_reason=primary_reason,
+                reasons=reasons_by_key.get((route_idx, frame_idx), (primary_reason,)),
+            )
+        )
+    return plan
+
+
 @contextmanager
 def _probe_inference_context(bundle: Any, *, disable_adapter: bool) -> Any:
     """把外部训练 bundle 临时切到稳定推理态，并按需关闭 LoRA。
@@ -254,7 +432,7 @@ def summarize_probe(
         for item in frame_logs
         if bool(item.get("q2_teacher_triggered")) and item.get("q2_teacher_event_correct") is not None
     ] if teacher_enabled else []
-    return {
+    summary = {
         "frames": frames,
         "student_enabled": bool(student_enabled),
         "teacher_enabled": bool(teacher_enabled),
@@ -289,6 +467,11 @@ def summarize_probe(
             len(teacher_q2_logs),
         ),
     }
+    if student_enabled:
+        # 新版严格指标与 eval.py 共用同一实现；旧 q1_rs_accuracy 等 key 继续保留，
+        # 现有 checkpoint comparison 不会因为 schema 扩展而失效。
+        summary.update(summarize_student_predictions(frame_logs))
+    return summary
 
 
 def dump_probe(
@@ -312,6 +495,48 @@ def dump_probe(
         pathlib.Path(args.index),
         max_routes=int(args.max_routes),
         max_frames_per_route=int(args.max_frames_per_route),
+    )
+    sample_mode = str(getattr(args, "sample_mode", "diagnostic"))
+    context_radius = int(getattr(args, "context_radius", 2))
+    sample_seed = int(getattr(args, "seed", 20260711))
+    selection_plan = build_probe_selection_plan(
+        ds.rows,
+        num_cases=int(args.num_cases),
+        sample_mode=sample_mode,
+        context_radius=context_radius,
+        seed=sample_seed,
+    )
+    selection_by_key = {
+        (item.route_index, item.frame_index): item
+        for item in selection_plan
+    }
+    selection_category_counts = Counter(item.primary_reason for item in selection_plan)
+    (out_dir / "selection_plan.json").write_text(
+        json.dumps(
+            {
+                "sample_mode": sample_mode,
+                "context_radius": context_radius,
+                "seed": sample_seed,
+                "requested_cases": int(args.num_cases),
+                "selected_cases": len(selection_plan),
+                "primary_reason_counts": dict(sorted(selection_category_counts.items())),
+                "cases": [
+                    {
+                        "route_index": item.route_index,
+                        "frame_index": item.frame_index,
+                        "scenario": item.scenario,
+                        "route_id": item.route_id,
+                        "frame_id": item.frame_id,
+                        "primary_reason": item.primary_reason,
+                        "reasons": list(item.reasons),
+                    }
+                    for item in selection_plan
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
     )
     bundle = student_bundle
     if args.with_model and bundle is None:
@@ -343,8 +568,13 @@ def dump_probe(
     all_frame_logs: List[Dict[str, Any]] = []
     case_idx = 0
     for route_idx, route in enumerate(ds.rows):
-        if case_idx >= int(args.num_cases):
-            break
+        selected_frame_indices = {
+            frame_idx
+            for selected_route_idx, frame_idx in selection_by_key
+            if selected_route_idx == route_idx
+        }
+        if not selected_frame_indices:
+            continue
         # v3 probe 是 episode/frame 层级；v5 没有 sub-scenario episode 概念，所以用
         # route/frame 层级表达同一件事：一条 route 的 memory 随时间推进。
         route_dir = out_dir / f"route_{route_idx:03d}__{_safe_name(route.scenario)}__{_safe_name(route.route_id)}"
@@ -352,9 +582,22 @@ def dump_probe(
         frame_logs: List[Dict[str, Any]] = []
         memory = None
         reset_next = False
-        for frame in route.frames:
-            if case_idx >= int(args.num_cases):
-                break
+        previous_selected_frame_index: Optional[int] = None
+        for frame_index, frame in enumerate(route.frames):
+            selection = selection_by_key.get((route_idx, frame_index))
+            if selection is None:
+                continue
+            selection_gap_reset = bool(
+                previous_selected_frame_index is None
+                or frame_index != previous_selected_frame_index + 1
+            )
+            if selection_gap_reset:
+                # 定向采样可能从一条 route 取多个不连续窗口。不能让前一个窗口的 student
+                # memory 跨越未实际推理的几十帧污染后一个窗口，因此在 gap 处按正式
+                # reset 口径恢复当前 GT RS + RE。连续邻帧仍保留真实 memory 推进。
+                memory = None
+                reset_next = False
+            previous_selected_frame_index = frame_index
             rs_target = _rs_target_from_frame(frame)
             event_target = _event_target_from_frame(frame)
             if memory is None or reset_next:
@@ -639,6 +882,13 @@ def dump_probe(
                 "student_adapter_dir": str(pathlib.Path(args.adapter_dir)) if args.adapter_dir else None,
                 "student_adapter_enabled": bool(bundle is not None and not student_disable_adapter and args.adapter_dir),
                 "student_base_mode": bool(bundle is not None and (student_disable_adapter or not args.adapter_dir)),
+                "generation_limits": {
+                    "max_new_tokens_q1": int(args.max_new_tokens_q1),
+                    "max_new_tokens_q2": int(args.max_new_tokens_q2),
+                },
+                "selection_primary_reason": selection.primary_reason,
+                "selection_reasons": list(selection.reasons),
+                "selection_gap_reset": selection_gap_reset,
                 "memory_before": memory_before,
                 "memory_after": memory_after,
                 "parsed_q1": parsed_q1,
@@ -661,9 +911,73 @@ def dump_probe(
                 "q2_candidate_mismatch": q2_candidate_mismatch,
                 "rs_wrong_reset": not q1_rs_ok,
                 "reset_next": reset_next,
+                # probe/eval 共用指标字段。transition 必须基于原始 route 相邻帧，而不是
+                # 基于定向采样后相邻的 case，避免跳帧制造假边界。
+                "gt_rs_label": frame.rs_label,
+                "pred_rs_label": parsed_q1.get("rs_label") if bundle is not None else frame.rs_label,
+                "gt_abnormal": bool(frame.abnormal),
+                "pred_abnormal": q1_abnormal if bundle is not None else bool(frame.abnormal),
+                "gt_event_label": event_target.label,
+                "pred_event_label": parsed_q2.get("event_label") if bundle is not None else event_target.label,
+                "pred_event_is_ue": (
+                    None
+                    if bundle is not None and parsed_q2.get("event_label") is None
+                    else bool((parsed_q2.get("event_label") if bundle is not None else event_target.label) != "RE")
+                ),
+                "rs_transition": bool(
+                    frame_index > 0 and route.frames[frame_index - 1].rs_label != frame.rs_label
+                ),
+                "abnormal_transition": bool(
+                    frame_index > 0
+                    and bool(route.frames[frame_index - 1].abnormal) != bool(frame.abnormal)
+                ),
             }
             # flags.json 是逐帧快速诊断入口；timeline.json/png 只聚合其中几个关键字段。
             (case_dir / "flags.json").write_text(json.dumps(frame_log, ensure_ascii=False, indent=2), encoding="utf-8")
+            # case_record.json 是单文件完整审计入口。它不内嵌图片字节，但记录复制后的
+            # RGB 文件、原始来源、实际 system/user messages、监督 target、模型原始输出、
+            # 解析结果和 memory 状态；人工比较 base/checkpoint 时无需在十几个文件间猜配对。
+            case_record = {
+                "selection": {
+                    "sample_mode": sample_mode,
+                    "primary_reason": selection.primary_reason,
+                    "reasons": list(selection.reasons),
+                    "gap_reset": selection_gap_reset,
+                },
+                "labels": labels,
+                "inputs": {
+                    "rgb": copied_rgb,
+                    "q1_student_messages": _messages_json(copied_rgb, q1_student),
+                    "q1_teacher_messages": _messages_json(copied_rgb, q1_teacher),
+                    "q2_student_messages": _messages_json(copied_rgb, q2_student),
+                    "q2_teacher_training_messages": _messages_json(copied_rgb, q2_teacher),
+                    "q2_teacher_model_messages": _messages_json(copied_rgb, q2_teacher_model_prompt),
+                },
+                "targets": {
+                    "q1_teacher_target": q1_target,
+                    "q2_teacher_training_target": q2_target,
+                    "q2_teacher_model_target": q2_teacher_model_target,
+                },
+                "outputs": {
+                    "q1_student_raw": q1_output or "",
+                    "q2_student_raw": q2_output or "",
+                    "q1_teacher_raw": q1_teacher_output or "",
+                    "q2_teacher_raw": q2_teacher_output or "",
+                    "q1_student_parsed": parsed_q1,
+                    "q2_student_parsed": parsed_q2,
+                    "q1_teacher_parsed": parsed_teacher_q1,
+                    "q2_teacher_parsed": parsed_teacher_q2,
+                },
+                "memory": {
+                    "before": memory_before,
+                    "after": memory_after,
+                },
+                "flags": frame_log,
+            }
+            (case_dir / "case_record.json").write_text(
+                json.dumps(case_record, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
             frame_logs.append(frame_log)
             all_frame_logs.append(frame_log)
             case_idx += 1
@@ -675,6 +989,9 @@ def dump_probe(
                 "scenario": route.scenario,
                 "route_id": route.route_id,
                 "frames": len(frame_logs),
+                "selection_reason_counts": dict(
+                    sorted(Counter(str(item.get("selection_primary_reason")) for item in frame_logs).items())
+                ),
             }
         )
     (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -685,18 +1002,45 @@ def dump_probe(
         student_adapter_dir=str(pathlib.Path(args.adapter_dir)) if args.adapter_dir else None,
         student_disable_adapter=bool(student_disable_adapter),
     )
+    summary["sampling"] = {
+        "sample_mode": sample_mode,
+        "context_radius": context_radius,
+        "seed": sample_seed,
+        "requested_cases": int(args.num_cases),
+        "selected_cases": len(selection_plan),
+        "primary_reason_counts": dict(sorted(selection_category_counts.items())),
+        "selection_plan": "selection_plan.json",
+    }
+    summary["generation_limits"] = {
+        "max_new_tokens_q1": int(args.max_new_tokens_q1),
+        "max_new_tokens_q2": int(args.max_new_tokens_q2),
+    }
     (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[write] {out_dir}")
     return summary
 
 
 def parse_args() -> argparse.Namespace:
+    """解析小样本 probe 参数。
+
+    不传 ``--with-model`` 时只落盘静态合同；传 ``--with-model`` 才运行 student，
+    ``--with-teacher-model`` 则额外运行无 LoRA 的 privileged base teacher。
+    """
+
     p = argparse.ArgumentParser(description="Dump SFT v5 probe cases")
     p.add_argument("--index", type=str, required=True)
     p.add_argument("--output-dir", type=str, default="checkpoints/sft_v5_probe")
     p.add_argument("--num-cases", type=int, default=24)
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
+    p.add_argument(
+        "--sample-mode",
+        choices=("diagnostic", "ue_context", "rs_transition", "random", "sequential"),
+        default="diagnostic",
+        help="小样本选择策略；默认定向覆盖 UE 边界/周围 RE、RS 变换和稳定 RE 对照",
+    )
+    p.add_argument("--context-radius", type=int, default=2, help="UE/RS 边界前后纳入候选的帧半径")
+    p.add_argument("--seed", type=int, default=20260711, help="仅 random 模式使用；其它模式保持确定性")
     p.add_argument("--with-model", action="store_true")
     p.add_argument("--with-teacher", action="store_true", help="compat flag: v5 always dumps teacher prompt/target")
     p.add_argument("--with-teacher-model", action="store_true", help="load base Qwen without LoRA to generate privileged teacher outputs")
@@ -704,12 +1048,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--teacher-model-dir", type=str, default=None, help="optional base Qwen dir for teacher generation; defaults to --model-dir")
     p.add_argument("--adapter-dir", type=str, default=None)
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--max-new-tokens-q1", type=int, default=256)
-    p.add_argument("--max-new-tokens-q2", type=int, default=192)
+    # 手工小样本用于完整审阅，默认与训练 rollout 对齐；训练内自动 probe 会通过
+    # checkpoint-probe-max-new-tokens-* 独立显式传入更小的 256/192 旁路上限。
+    p.add_argument("--max-new-tokens-q1", type=int, default=1024)
+    p.add_argument("--max-new-tokens-q2", type=int, default=1024)
     return p.parse_args()
 
 
 def main() -> None:
+    """CLI 入口：按选帧计划生成 route/frame 层级完整审计产物。"""
+
     dump_probe(parse_args())
 
 

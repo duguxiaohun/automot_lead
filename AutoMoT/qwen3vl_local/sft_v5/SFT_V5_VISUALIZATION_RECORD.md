@@ -1,7 +1,8 @@
 # SFT v5 可视化记录
 
-这个文件记录 SFT v5 教师/学生输入输出的可视化方法。它只保存方法说明，
-不保存真实 probe case；真实产物建议放在具体 run 目录下面，例如
+这个文件是 SFT v5 教师/学生输入输出、产物目录和人工检查项的完整说明。
+`SFT_V5_RUN.md` 只保留常用命令，不再重复本文的文件级细节。本文不保存真实
+probe case；真实产物建议放在具体 run 目录下面，例如
 `checkpoints/sft_v5_runs/latest/probe_*`。
 
 SFT v5 每帧分成两个问题：
@@ -9,8 +10,9 @@ SFT v5 每帧分成两个问题：
 - Q1：判断当前道路结构 `RS`，以及当前是否发生或处在异常事件中。
 - Q2：在 Q1 的道路结构基础上，从当前帧候选里判断 `EVENT`。
 
-这里需要区分四类检查：训练前 base 能力、batched 等价性、训练中自动版本对比、
-训练后手动 adapter 检查。它们目的不同，不应该混在一起看。
+这里需要区分五类检查：训练前 base 能力、batched 等价性、训练中自动版本对比、
+训练后手动 adapter 检查、静态合同快检。它们目的不同，不应该混在一起看；大样本
+eval 则负责总体统计，不属于小样本可视化。
 
 ## A. 训练前：默认 Qwen 的 OPSD 能力与 prompt 检查
 
@@ -244,11 +246,15 @@ CHECKPOINT_PROBE=1
 CHECKPOINT_PROBE_BASE=1
 CHECKPOINT_PROBE_WITH_TEACHER=1
 CHECKPOINT_PROBE_NUM_CASES=8
+CHECKPOINT_PROBE_SAMPLE_MODE=diagnostic
+CHECKPOINT_PROBE_CONTEXT_RADIUS=2
 ```
 
 训练开始时生成 `probes/base/`，每次保存 `checkpoint-40/80/...` 后生成对应
 `probes/checkpoint-000040/000080/...`，正常结束保存 `final/` 后生成 `probes/final/`。
-所有版本固定使用 validation index 的前 8 个 case：
+所有版本使用相同 seed 和相同 `diagnostic` 规则固定选择 8 个 case，不再简单取
+validation index 前 8 帧。默认尽量覆盖 UE 起止边界、UE 正帧、UE 周围 RE 硬负例、
+RS 变换、RS 邻帧和稳定 RE 对照；实际覆盖情况写入 `selection_plan.json`：
 
 - `base`：student 与 teacher 都临时关闭 LoRA，记录未训练 Qwen 的表现。
 - `checkpoint-*` / `final`：student 使用当前 LoRA；teacher 临时关闭 LoRA，保持纯 base
@@ -270,9 +276,9 @@ checkpoints/sft_v5_runs/latest/probes/checkpoint-000040/summary.json
 checkpoints/sft_v5_runs/latest/probes/final/summary.json
 ```
 
-`comparison.json` 会集中记录 Q1 RS accuracy、Q1 abnormal accuracy、Q2 trigger rate、
-Q2 event accuracy，以及同批 case 的 base teacher 指标。完整的 RGB、prompt、output、
-memory、flags 和 timeline 仍保存在各版本自己的 route/frame 目录。
+`comparison.json` 会集中记录 Q1 RS、Q1 abnormal、Q2 EVENT、UE 假阳性/假阴性和端到端
+指标，以及同批 case 的 base teacher 指标。完整的 RGB、prompt、output、memory、flags、
+`case_record.json` 和 timeline 仍保存在各版本自己的 route/frame 目录。
 
 关闭或缩小自动检查：
 
@@ -285,6 +291,8 @@ bash qwen3vl_local/sft_v5/train.sh ddp
 
 自动 probe 的 `256/192` token 是可视化安全上限，不会改变训练的 `1024/1024`。
 probe 失败会写 `error.txt` 并继续训练，不会因为旁路可视化终止长跑。
+手工 `probe.py` 默认使用 1024/1024，并在 `summary.json` / `flags.json` 的
+`generation_limits` 中记录实际值；因此手工完整检查和自动轻量对比可以明确区分。
 
 ## C. 训练后：adapter 学生输入输出可视化
 
@@ -305,6 +313,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
   --num-cases 8 \
+  --sample-mode diagnostic \
+  --context-radius 2 \
   --with-model \
   --with-teacher
 ```
@@ -315,6 +325,13 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 - `q2_student_output.txt`
 - `flags.json` 里的 `parsed_q1`、`parsed_q2`、`q1_rs_correct`、
   `q1_abnormal_correct`、`q2_event_correct`、`q2_invalid_output`、`rs_wrong_reset`
+
+专项小样本只需切换选帧模式：
+
+- `--sample-mode ue_context`：UE 起止、UE 正帧和周围 RE 硬负例，重点检查漏检与假阳性。
+- `--sample-mode rs_transition`：RS 变化首帧及邻帧，重点检查 RS 与 memory 切换。
+- `--sample-mode random --seed <N>`：随机对照；默认不使用随机模式。
+- `--sample-mode sequential`：兼容旧的顺序前 N 帧，仅用于复现旧结果。
 
 如果训练后也想把 adapter student 和 base teacher 放在同一个 case 里对照，可以额外加
 `--with-teacher-model`，但显存会同时常驻两份 Qwen。
@@ -341,12 +358,14 @@ python qwen3vl_local/sft_v5/probe.py \
 
 ```text
 probe*/
+  selection_plan.json
   manifest.json
   summary.json
   route_<idx>__<scenario>__<route_id>/
     timeline.json
     timeline.png
     frame_<frame_id>/
+      case_record.json
       rgb_00.jpg
       rgb_01.jpg
       rgb_02.jpg
@@ -396,6 +415,9 @@ probe*/
 
 其中：
 
+- `selection_plan.json` 记录选帧模式、边界半径、seed、每个 case 的选择原因和类别计数。
+- `case_record.json` 是单 case 完整入口，集中保存 RGB 来源、实际 system/user messages、
+  teacher target、student/teacher 原始与解析输出、memory 和 flags。
 - `summary.json` 汇总当前版本的 Q1/Q2 student 与 base teacher 指标，包括 teacher Q2
   trigger rate；训练自动 probe 还会把各版本摘要写进 run 级
   `probes/comparison.json`。
@@ -418,6 +440,33 @@ probe*/
 - `flags.json` 保存解析出的学生输出、teacher 输出、是否 RS 正确、是否进入 Q2、
   是否 candidate mismatch、是否 reset 下一帧、是否误传 `student_adapter_dir`
   以及 Q2 是否续接 Q1 KV cache 等诊断字段。
+
+## E. 大样本：完整统计与假阳性指标
+
+小样本 probe 用于人工看完整证据，不能代替总体统计。正式 adapter 评估使用：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_v5/eval.py \
+  --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --adapter-dir checkpoints/sft_v5_runs/latest/final \
+  --output-json checkpoints/sft_v5_runs/latest/eval_metrics.json \
+  --output-jsonl checkpoints/sft_v5_runs/latest/eval_frames.jsonl
+```
+
+`eval_metrics.json` 保存总体、边界、分 RS、分 EVENT、混淆矩阵和 route macro 指标；
+`eval_frames.jsonl` 可选保存每帧完整输入输出，用于反查 FP/FN。聚合本身是流式的，
+不传 `--output-jsonl` 时不会把全量 prompt/output 留在内存。
+正式 eval 默认 Q1/Q2 均为 1024 token 安全上限，与训练 rollout 对齐；自动 checkpoint
+probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
+
+指标方向：`rs_acc`、`rs_transition_acc`、`abnormal_acc`、各类 precision/recall/F1、
+`event_acc_when_rs_correct`、`ue_acc/re_acc`、端到端准确率/召回率均越高越好；
+`abnormal_false_positive_rate`、`abnormal_false_negative_rate`、
+`q2_false_positive_rate`、`q2_false_negative_rate`、
+`event_end_to_end_false_positive_rate`、非法输出率和每百帧 reset 次数均越低越好；
+`q2_trigger_rate` 与样本数只作诊断。每个字段的完整中文定义和方向同时内嵌在
+`eval_metrics.json.metric_definitions`，以代码输出为最终口径。
 
 ## Timeline 颜色
 
