@@ -147,6 +147,9 @@ class Q1GroupedRolloutResult:
     - grouped：进入了同一 timestep 多 frame 的 rollout 优化路径；
     - batched：某个分组 size>=2，真的让 Qwen 在 batch 维同时 forward。
     这两个概念不能混用，否则 TensorBoard 会高估 `QWEN_BATCH_SIZE>1` 的收益。
+
+    `group_sizes` / `length_histogram` 记录的是 prompt token 长度分布，主要用于
+    审计 padding 压力；当前 mixed-length rollout 不再按长度切成多个 CUDA batch。
     """
 
     rollouts: List[Tuple[Optional[KVState], str, Optional[KVState], torch.Tensor]]
@@ -698,9 +701,10 @@ def _last_valid_next_logits(logits: torch.Tensor, attention_mask: torch.Tensor) 
 def _qwen_message_input_length(bundle: Any, messages: List[Dict[str, Any]]) -> int:
     """计算单条 Qwen message 经 processor 后的真实 input length。
 
-    v5 的 batched KV 只有在多样本 processor length 完全一致时才安全复用；否则
-    past_key_values 里会含 padding token，后续增量 decode 的 `prefix_len` / M-RoPE
-    位置会偏离单样本路径。
+    这一步只做“量长度”：返回 token 数给 `length_histogram` / `group_sizes` 等日志，
+    方便判断 padded batch 的 padding 压力。这里产生的 processor tensor 会立刻丢弃，
+    不会传给模型，也不会进入 KV cache；真正 prefill 在 `_kv_start_state*` helper
+    中重新执行。
     """
 
     text = bundle.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -1067,8 +1071,15 @@ def _trainable_graph_zero(bundle: Any, fallback: torch.Tensor) -> torch.Tensor:
 def _pad_rollout_id_list(bundle: Any, ids_list: Sequence[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
     """把多条 rollout ids padding 成 `(B, L)`，并返回真实 token mask。
 
-    这个 padding 只用于 batched teacher/student scoring。loss 位置来自每个样本自己的
-    span positions，padding token 永远不会进入 KL。
+    `ids_list` 来自 student 自由生成的 Q1/Q2 token（`q1_ids_list` / `q2_ids_list`）。
+    padding 只用于把变长 student rollout 打包给 batched teacher/student scoring：
+
+    - `suffix_ids` 是右侧补齐后的 student token 内容；
+    - `suffix_mask` 标出哪些位置是真实 token，哪些只是 padding。
+
+    teacher 不在这里生成自己的回答，而是在同一批 `suffix_ids` 上给分布；这样
+    forward-KL 比较的是同一条 student 轨迹、同一组 token 位置。loss 位置来自每个
+    样本自己的 span positions，padding token 永远不会进入 KL。
     """
 
     if not ids_list:
@@ -1104,7 +1115,8 @@ def _append_token_ids_with_logits_padded_scoring(
     与 `_append_token_ids_with_logits` 的语义相同：`pred_logits[:, j, :]` 对齐
     `suffix_ids[:, j]` 这个 token 被预测时的分布。不同点是这里允许 prefix 和 suffix
     都带 padding；attention mask 会屏蔽 padding，M-RoPE position_ids 按每个样本自己的
-    真实 prefix length 计算。该函数用于并行 teacher/student KL scoring。
+    真实 prefix length 计算。该函数用于并行 teacher/student KL scoring：teacher 和
+    student 分别从自己的 prompt KV 出发，但消费的是同一批 student 生成 token。
     """
 
     if suffix_ids.ndim == 1:
@@ -1255,6 +1267,10 @@ def _opsd_loss_batch_states(
     与 `_opsd_loss_batch_messages` 的区别是：本函数不重新 prefill prompt，而是直接接
     收外层按精确 token ids 构造好的 state。Q2 parallel KL 用它来避免把 Q1 rollout
     先 decode 成文本再重新套 chat template。
+
+    OPSD 这里不是“teacher 生成答案再做 CE”。teacher prompt 里有 privileged
+    `[REFERENCE]`，但实际 loss 只在 `rollout_ids_list` 这批 student 自己采出的
+    suffix token 上比较 teacher/student full-vocab 分布。
     """
 
     if not rollout_ids_list:
@@ -1270,6 +1286,9 @@ def _opsd_loss_batch_states(
     teacher_selected: Dict[Tuple[int, str], torch.Tensor] = {}
     with _teacher_eval_context(bundle):
         teacher_after, teacher_logits = _append_token_ids_with_logits_padded_scoring(bundle, teacher_state, suffix_ids, suffix_mask)
+        # teacher_after：teacher prompt KV 继续吃完 student suffix 后的新 KV；
+        # teacher_logits：teacher 在每个 student suffix 位置给出的 next-token 分布。
+        # 这里后续只需要 logits 裁出的监督位置，KV 容器本身不写回 memory。
         # 立即把 teacher full-vocab logits 裁剪到监督 span，再释放完整 B x L x vocab
         # 张量。parallel KL 的显存峰值主要就在 logits；不要让 teacher/student 两份大
         # logits 同时常驻超过必要时间。
@@ -1448,7 +1467,16 @@ def _run_frame(
     q2_text: Optional[str] = None,
     q2_ids: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, Dict[str, Any], Memory, bool]:
-    """运行单帧 Q1/Q2，返回 loss、统计、更新后的 memory、是否需要下一帧 reset。"""
+    """运行单帧 Q1/Q2，返回 loss、统计、更新后的 memory、是否需要下一帧 reset。
+
+    这是旧逐帧路径，也是 batched rollout/parallel-KL fallback 的语义基准。单帧内部
+    按 on-policy OPSD 顺序执行：
+
+    1. student 在 `torch.no_grad()` 下自由生成 Q1/Q2 token，完成“采集”；
+    2. teacher 关闭 LoRA、读取 privileged prompt，在同一批 student token 上给 logits；
+    3. student 重新打分同一批 token，和 teacher 做 forward-KL，梯度只回 LoRA；
+    4. 用 student 解析结果更新 memory，并把是否要下帧 reset 交给外层。
+    """
 
     timings: Dict[str, float] = {
         "q1_student_seconds": 0.0,
@@ -1853,7 +1881,8 @@ def _run_q1_rollout_grouped(
 
     返回值逐样本包含：
     `q1_student_state`（Q1 prompt prefill 后）、`q1_text`、`q1_after`（Q1 生成后干净 KV）、
-    `q1_ids`。后续 `_run_frame` 会用这些 token 做同款 OPSD loss 和 Q2 状态机。
+    `q1_ids`。后续 `_run_frame` 或 `_run_chunk_parallel_kl` 会用这些 token 做同款
+    OPSD loss 和 Q2 状态机。
 
     注意：多样本 Q1 现在和 Q2 一样，padded batched KV 只用于 student 采样 token；
     返回的 state 置为 None，后续 `_run_frame` 会按单样本精确 prompt 重新构造
@@ -1891,6 +1920,9 @@ def _run_q1_rollout_grouped(
     groups: Dict[int, List[int]] = {}
     for idx, length in enumerate(input_lengths):
         groups.setdefault(int(length), []).append(idx)
+    # 注意：`groups` 现在只保留“相同 input length 有多少条”的统计意义。真正采样时，
+    # len(frames)>1 会整块进入一个 mixed-length padded CUDA batch，而不是按 length
+    # 分多个 batch；这样日志仍能看 padding 压力，吞吐路径也保持简单。
     outputs: List[Optional[Tuple[Optional[KVState], str, Optional[KVState], torch.Tensor]]] = [None for _ in frames]
     group_sizes: List[int] = [len(indices) for indices in groups.values()]
     batched_group_sizes: List[int] = []
@@ -1964,6 +1996,9 @@ def _run_q2_rollout_grouped(
     按 full-dialog length 拆组，而是整组走 padded prefill/generate。`input_lengths` /
     `length_histogram` 仍会记录 padding pressure，方便 smoke 和日志审计。返回的 state
     置为 None，外层会为 KL 重新构造精确 `q1_ids -> Q1 KV -> Q2 user turn` 状态。
+
+    这一步仍属于“采集”：只拿 student 的 Q2 文本/token，不把 padded final KV 交给
+    训练或 memory。
     """
 
     total_start = time.time()
@@ -3356,6 +3391,9 @@ def main() -> None:
                         memories[b] = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
                         reset_next[b] = False
                     assert memories[b] is not None
+                    # 当前 timestep 的 prompt 读取的是上一帧写回的 student memory。采集
+                    # 和训练不会在 route 间共享 memory；每条 route 的时间状态只存在
+                    # `memories[b]` 这一格里。
                     active_items.append((b, route, frame, memories[b]))
                 for chunk_start in range(0, len(active_items), qwen_batch_size):
                     chunk = active_items[chunk_start:chunk_start + qwen_batch_size]
@@ -3513,6 +3551,9 @@ def main() -> None:
                                     max_new_tokens_q1=int(args.max_new_tokens_q1),
                                     max_new_tokens_q2=int(args.max_new_tokens_q2),
                                 )
+                                # memory 写回点：`next_mem` 已经由 student 的 Q1/Q2 解析结果
+                                # 更新。若 Q1 RS 错或 Q2 非法，`reset_next` 只影响下一有效帧
+                                # 开头的初始化，不会回滚本帧已经用于 loss 的 student 轨迹。
                                 memories[b_result] = next_mem
                                 reset_next[b_result] = bool(need_reset)
                             if rank == 0 and (should_log_frame() or should_time_heartbeat()):
@@ -3650,6 +3691,9 @@ def main() -> None:
                             max_new_tokens_q1=int(args.max_new_tokens_q1),
                             max_new_tokens_q2=int(args.max_new_tokens_q2),
                         )
+                        # 逐帧 fallback 的 memory 写回点，语义与 parallel-KL 分支一致：
+                        # 下一帧 prompt 看到的是 student 自己更新后的 memory；只有
+                        # `need_reset=True` 时，下一帧开头才重置为当前帧 GT RS + 默认 RE。
                         memories[b] = next_mem
                         reset_next[b] = bool(need_reset)
                         frame_elapsed = time.time() - frame_start
