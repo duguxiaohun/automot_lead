@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import re
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
@@ -28,7 +29,7 @@ from qwen3vl_local.sft_v5.labels import (
 
 
 SYSTEM_PROMPT_V5 = """\
-You are an autonomous driving agent. Use the stitched RGB history as visual context, ordered from oldest to newest. Focus on traffic lights/signs, nearby vehicles/pedestrians/obstacles, lane markings and road structure, and key factors affecting ego decisions. Keep the current memory by default and change it only when clear visual evidence supports the change. Describe weak, distant, foggy, or occluded evidence as uncertain. Never mention ground truth, answer keys, hidden labels, dataset rules, or scenario names."""
+You are an autonomous driving agent. Use the stitched RGB history as visual context, ordered from oldest to newest. Focus on traffic lights/signs, nearby vehicles/pedestrians/obstacles, lane markings and road structure, and key factors affecting ego decisions. Memory is only an unverified previous hypothesis: it may be stale or wrong, so decide from current visual evidence first and change memory whenever the evidence contradicts it. Describe weak, distant, foggy, or occluded evidence as uncertain. Never mention ground truth, answer keys, hidden labels, dataset rules, or scenario names."""
 
 # loss 权重只用于训练时的 token span 加权。结构化分析段低权重，让模型学习“怎么解释”，
 # 但不要让冗长自然语言压过 RS/ABNORMAL/EVENT 这几个离散答案 token。
@@ -60,7 +61,7 @@ class Memory:
     def rs_option(self) -> str:
         """返回 A-E 选项。"""
 
-        return RS_LABEL_TO_OPTION.get(self.rs_label, "A")
+        return RS_LABEL_TO_OPTION.get(self.rs_label, "?")
 
     def copy(self) -> "Memory":
         """浅拷贝，便于状态机更新。"""
@@ -75,11 +76,15 @@ class Memory:
     def _road_description(self) -> str:
         """返回 memory 中使用的道路结构自然语言描述，不带 A-E 选项字母。"""
 
-        return RS_OPTION_DESCRIPTIONS.get(self.rs_option, RS_OPTION_DESCRIPTIONS["A"])
+        if self.rs_label not in RS_LABEL_TO_OPTION:
+            return "No reliable previous road-structure hypothesis is available."
+        return RS_OPTION_DESCRIPTIONS[self.rs_option]
 
     def _event_description(self) -> str:
         """返回 memory 中使用的事件自然语言描述，不带 RE/U-E 标签。"""
 
+        if self.event_label not in EVENT_DESCRIPTIONS:
+            return "No reliable previous event hypothesis is available."
         event_desc = EVENT_DESCRIPTIONS.get(self.event_label)
         if self.event_label == "RE":
             event_desc = event_description_for_display("RE", self.rs_label)
@@ -103,10 +108,11 @@ class Memory:
         # Memory 是学生唯一可见的跨帧状态。它不包含 scenario、GT、置信度或 event_code。
         lines = [
             "[MEMORY]",
-            f"BELIEVED_RS: {self._road_description()}",
+            f"PREVIOUS_RS_HYPOTHESIS: {self._road_description()}",
         ]
         if include_event:
-            lines.append(f"BELIEVED_EVENT: {self._event_description()}")
+            lines.append(f"PREVIOUS_EVENT_HYPOTHESIS: {self._event_description()}")
+        lines.append("MEMORY_RELIABILITY: unverified previous model output; it may be stale or wrong")
         lines.append(f"EGO_TO_GOAL_XY={self._goal_text()}")
         lines.append("[/MEMORY]")
         return "\n".join(lines)
@@ -129,7 +135,7 @@ def _structured_q1_format() -> str:
         "Scene Description: <1-2 concise sentences about visible weather/visibility, lane markings, road layout, traffic lights/signs, surrounding motion, and goal direction>\n"
         "Critical Object Description: <1-2 concise sentences naming up to 2-3 key actors or map cues, their locations/actions, likely next motion, and why they matter to ego>\n"
         "Reasoning on Intent: <1-2 concise sentences using motion, signals, lanes, ego state, and EGO_TO_GOAL_XY to decide RS and abnormality>\n"
-        "RS: <A|B|C|D|E> - <copy the chosen option meaning in your own words>\n"
+        "RS: <A|B|C|D|E>\n"
         "ABNORMAL: <YES|NO>"
     )
 
@@ -141,7 +147,7 @@ def _structured_q2_format() -> str:
         "Scene Description: <one concise sentence continuing from Question 1 and the current RS>\n"
         "Critical Object Description: <1-2 concise sentences naming up to 2-3 event-relevant actors or cues, or stating that no critical object is visible>\n"
         "Reasoning on Intent: <1-2 concise sentences explaining why the selected event is active or why regular behavior continues>\n"
-        "EVENT: <option letter> - <copy the chosen event meaning in your own words>"
+        "EVENT: <option letter>"
     )
 
 
@@ -191,7 +197,9 @@ def build_q1_student_prompt(memory: Memory) -> str:
             "2. whether an unusual event is currently happening or still affecting the ego vehicle.\n\n"
             "Use visible road geometry, lane layout, traffic lights or stop/yield cues, nearby actors, "
             "ego-path conflicts, and image-visible weather or visibility cues. Do not use a scenario name. "
-            "If the evidence is weak, keep the memory unless contradicted. Keep the CoT concise.\n\n"
+            "First reach an independent decision from the RGB evidence. Treat PREVIOUS_RS_HYPOTHESIS as "
+            "a fallible temporal hint, not as an answer. If visible geometry or traffic control contradicts "
+            "it, the final RS must follow the current image. Keep the CoT concise.\n\n"
             "Output exactly these lines:\n"
             f"{_structured_q1_format()}\n"
             "[/QUESTION_1]"
@@ -259,7 +267,7 @@ def build_q1_teacher_target(
             f"Scene Description: Describe the visible weather, lane markings, traffic controls, road layout, surrounding motion, and goal direction; the road layout supports option {rs_target.option}.",
             "Critical Object Description: Name the most relevant actor, obstacle, signal, or map cue that affects the ego path; if none is visible, state that no critical object is present.",
             f"Reasoning on Intent: The road-structure evidence supports {rs_target.option}: {rs_target.description}. The event evidence indicates that {event_phrase}.",
-            f"RS: {rs_target.option} - {rs_target.description}",
+            f"RS: {rs_target.option}",
             f"ABNORMAL: {abnormal}",
         ]
     )
@@ -374,7 +382,7 @@ def build_q2_teacher_target(
             "Scene Description: Continue from the current road-structure decision and inspect the latest frame for event evidence.",
             "Critical Object Description: Name the actor, obstacle, signal, or map cue that drives the event choice; if none matters, state that no critical object is visible.",
             f"Reasoning on Intent: {reasoning}",
-            f"EVENT: {option} - {desc}",
+            f"EVENT: {option}",
         ]
     )
 
@@ -398,6 +406,17 @@ def parse_q1_output(text: str) -> Dict[str, Optional[str]]:
     }
 
 
+def should_trigger_q2(*, student_rs_label: Optional[str], target_rs_label: str) -> bool:
+    """只有本帧 Q1 的 RS 回答正确时才允许进入 Q2。
+
+    RS memory 错误不会让 Q1 休眠：训练/eval/probe 在下一有效帧仍要重新运行 Q1，
+    直到学生自行纠正，或训练期 curriculum 达到 patience 后执行兜底修复。这个函数
+    只定义“当前帧是否追问 EVENT”，不能被用来跳过下一帧 Q1。
+    """
+
+    return student_rs_label == str(target_rs_label)
+
+
 def parse_q2_output(text: str, option_map: Mapping[str, str]) -> Dict[str, Optional[str]]:
     """解析 Q2 student 输出，并按本帧 event_option_map 还原 label。"""
 
@@ -417,15 +436,14 @@ def update_memory_after_q1(
 ) -> Memory:
     """Q1 后的 memory 更新。
 
-    只有合法 RS 才写入 memory。若 Q1 判断 no abnormal，则 event 立即回到 RE；
-    若判断 abnormal，则等待 Q2 进一步选择具体事件。
+    只有合法 RS 才写入 memory。Q1 的 ABNORMAL 只是进入 Q2 前的粗判断，不能在
+    脚本里直接把 EVENT 改成 RE；否则错误 EVENT memory 会在 Q2 真正比较视觉证据前
+    被自动清掉，模型永远学不到 EVENT 自主纠偏。
     """
 
     mem = memory.copy()
     if student_rs_label in RS_LABEL_TO_OPTION:
         mem.rs_label = str(student_rs_label)
-    if student_abnormal is False:
-        mem.event_label = "RE"
     return mem
 
 
@@ -465,7 +483,7 @@ def update_memory_navigation(
 
 
 def reset_memory_for_frame(rs_target: RSTarget, ego_to_goal_xy: Optional[Sequence[float]] = None) -> Memory:
-    """RS 错误后，下一有效帧恢复 GT RS + RE。"""
+    """构造 GT RS + RE reference/兼容初始化；正式训练的延迟修复由 curriculum 管理。"""
 
     gx: Optional[float] = None
     gy: Optional[float] = None
@@ -479,11 +497,269 @@ def reset_memory_for_frame(rs_target: RSTarget, ego_to_goal_xy: Optional[Sequenc
     return Memory(rs_label=rs_target.label, event_label="RE", ego_to_goal_x=gx, ego_to_goal_y=gy)
 
 
+@dataclasses.dataclass(frozen=True)
+class MemoryCurriculumConfig:
+    """训练期错误记忆课程参数。
+
+    RS 是慢变量，默认给更长的自主修复窗口并只按较疏的 review interval 执行强制
+    修复；EVENT 是快变量，每帧都复核，较短 patience 后才使用 GT 兜底。扰动只在
+    当前 memory 原本正确时注入；若学生复制了错误 hypothesis，它会自然延续到后续帧，
+    从而形成真正的 closed-loop 纠偏样本，而不是每帧互不关联的随机噪声。
+    """
+
+    rs_error_patience: int = 4
+    event_error_patience: int = 3
+    rs_repair_interval: int = 2
+    event_repair_interval: int = 1
+    rs_corrupt_prob: float = 0.06
+    rs_unknown_prob: float = 0.02
+    event_corrupt_prob: float = 0.10
+    event_unknown_prob: float = 0.05
+    rs_initial_gt_prob: float = 0.5
+    event_initial_gt_prob: float = 0.5
+
+    def validate(self) -> None:
+        """拒绝会破坏概率或延迟语义的配置。"""
+
+        for name in (
+            "rs_error_patience",
+            "event_error_patience",
+            "rs_repair_interval",
+            "event_repair_interval",
+        ):
+            if int(getattr(self, name)) <= 0:
+                raise ValueError(f"{name} must be >= 1")
+        for prefix in ("rs", "event"):
+            corrupt = float(getattr(self, f"{prefix}_corrupt_prob"))
+            unknown = float(getattr(self, f"{prefix}_unknown_prob"))
+            initial = float(getattr(self, f"{prefix}_initial_gt_prob"))
+            if corrupt < 0.0 or unknown < 0.0 or corrupt + unknown > 1.0:
+                raise ValueError(f"{prefix} corruption/unknown probabilities must sum to [0, 1]")
+            if not 0.0 <= initial <= 1.0:
+                raise ValueError(f"{prefix}_initial_gt_prob must be in [0, 1]")
+
+
+@dataclasses.dataclass
+class MemoryCurriculumState:
+    """单条 route 的训练期延迟修复状态。"""
+
+    frames_seen: int = 0
+    rs_error_streak: int = 0
+    event_error_streak: int = 0
+    rs_repair_pending: bool = False
+    event_repair_pending: bool = False
+
+
+def _stable_unit_interval(seed: int, *parts: object) -> float:
+    """把 route/frame/key 稳定映射到 [0, 1)，保证 DDP 与重跑可复现。"""
+
+    payload = "|".join([str(int(seed)), *(str(part) for part in parts)]).encode("utf-8")
+    value = int.from_bytes(hashlib.sha256(payload).digest()[:8], "big", signed=False)
+    return float(value) / float(1 << 64)
+
+
+def _stable_different_label(
+    current: str,
+    choices: Sequence[str],
+    *,
+    seed: int,
+    key: Sequence[object],
+) -> str:
+    """从候选中可复现地选择一个不同标签。"""
+
+    alternatives = [str(item) for item in choices if str(item) != str(current)]
+    if not alternatives:
+        return "UNKNOWN"
+    draw = _stable_unit_interval(seed, *key, "choice")
+    index = min(len(alternatives) - 1, int(draw * len(alternatives)))
+    return alternatives[index]
+
+
+def prepare_training_memory(
+    memory: Optional[Memory],
+    state: MemoryCurriculumState,
+    config: MemoryCurriculumConfig,
+    *,
+    gt_rs_label: str,
+    gt_event_label: str,
+    accepted_event_labels: Optional[Sequence[str]] = None,
+    event_corruption_choices: Optional[Sequence[str]] = None,
+    ego_to_goal_xy: Optional[Sequence[float]],
+    route_key: str,
+    frame_id: int,
+    epoch: int,
+    seed: int,
+) -> Tuple[Memory, Dict[str, object]]:
+    """在当前帧 prompt 前执行延迟修复、初始化和错误记忆注入。
+
+    返回的审计字段会进入训练窗口统计。强制修复只在 patience 已耗尽且当前维度的
+    review interval 到期时发生；EVENT 默认每帧 review，RS 默认每 2 帧 review。
+    """
+
+    config.validate()
+    frame_ordinal = int(state.frames_seen)
+    key = (str(route_key), int(frame_id), int(epoch), frame_ordinal)
+    initialized = memory is None
+    if initialized:
+        keep_rs = _stable_unit_interval(seed, *key, "init_rs") < float(config.rs_initial_gt_prob)
+        keep_event = _stable_unit_interval(seed, *key, "init_event") < float(config.event_initial_gt_prob)
+        memory = Memory(
+            rs_label=str(gt_rs_label) if keep_rs else "UNKNOWN",
+            event_label=str(gt_event_label) if keep_event else "UNKNOWN",
+        )
+    memory = update_memory_navigation(memory, ego_to_goal_xy)
+    audit: Dict[str, object] = {
+        "memory_initialized": initialized,
+        "memory_rs_forced_repair": False,
+        "memory_event_forced_repair": False,
+        "memory_rs_injected_wrong": False,
+        "memory_rs_injected_unknown": False,
+        "memory_event_injected_wrong": False,
+        "memory_event_injected_unknown": False,
+    }
+
+    rs_review_due = frame_ordinal % int(config.rs_repair_interval) == 0
+    event_review_due = frame_ordinal % int(config.event_repair_interval) == 0
+    if state.rs_repair_pending and rs_review_due:
+        memory.rs_label = str(gt_rs_label)
+        state.rs_error_streak = 0
+        state.rs_repair_pending = False
+        audit["memory_rs_forced_repair"] = True
+    # 只扰动当前正确状态；已经错误/UNKNOWN 的 memory 应交给学生自行修复，不能每帧
+    # 再换一个随机答案，否则学到的是无结构噪声而不是连续 closed-loop recovery。
+    if memory.rs_label == str(gt_rs_label) and not bool(audit["memory_rs_forced_repair"]):
+        draw = _stable_unit_interval(seed, *key, "augment_rs")
+        if draw < float(config.rs_unknown_prob):
+            memory.rs_label = "UNKNOWN"
+            audit["memory_rs_injected_unknown"] = True
+        elif draw < float(config.rs_unknown_prob + config.rs_corrupt_prob):
+            memory.rs_label = _stable_different_label(
+                str(gt_rs_label),
+                tuple(RS_LABEL_TO_OPTION),
+                seed=seed,
+                key=(*key, "augment_rs"),
+            )
+            audit["memory_rs_injected_wrong"] = True
+    # EVENT 只有在 RS 扰动完成后仍保持正确时才有机会进入 Q2。RS memory 已知错误/
+    # UNKNOWN 时保留 EVENT pending，不在一个注定无法可靠构造 EVENT 选择题的帧里
+    # 悄悄修复或注入 EVENT。
+    event_gate_ready = memory.rs_label == str(gt_rs_label)
+    if state.event_repair_pending and event_review_due and event_gate_ready:
+        memory.event_label = str(gt_event_label)
+        state.event_error_streak = 0
+        state.event_repair_pending = False
+        audit["memory_event_forced_repair"] = True
+    accepted_events = {
+        str(item)
+        for item in (accepted_event_labels or (gt_event_label,))
+        if str(item) in EVENT_DESCRIPTIONS
+    } or {str(gt_event_label)}
+    if (
+        event_gate_ready
+        and memory.event_label in accepted_events
+        and not bool(audit["memory_event_forced_repair"])
+    ):
+        draw = _stable_unit_interval(seed, *key, "augment_event")
+        if draw < float(config.event_unknown_prob):
+            memory.event_label = "UNKNOWN"
+            audit["memory_event_injected_unknown"] = True
+        elif draw < float(config.event_unknown_prob + config.event_corrupt_prob):
+            # 优先从本帧 Q2 真正会展示的候选里构造“看起来合理但错误”的 EVENT
+            # hypothesis；单选 RE 等没有替代项时再退回全局事件表，保证仍能形成
+            # stale-memory 纠偏样本。
+            local_choices = tuple(
+                dict.fromkeys(
+                    str(item)
+                    for item in (event_corruption_choices or ())
+                    if str(item) in EVENT_DESCRIPTIONS
+                )
+            )
+            local_choices = tuple(item for item in local_choices if item not in accepted_events)
+            if not local_choices:
+                local_choices = tuple(item for item in EVENT_DESCRIPTIONS if item not in accepted_events)
+            memory.event_label = _stable_different_label(
+                str(gt_event_label),
+                local_choices,
+                seed=seed,
+                key=(*key, "augment_event"),
+            )
+            audit["memory_event_injected_wrong"] = True
+
+    audit.update(
+        {
+            "memory_rs_input_label": memory.rs_label,
+            "memory_event_input_label": memory.event_label,
+            "memory_rs_review_due": rs_review_due,
+            "memory_event_review_due": event_review_due,
+            "memory_event_gate_ready": event_gate_ready,
+            "memory_rs_error_streak_before": int(state.rs_error_streak),
+            "memory_event_error_streak_before": int(state.event_error_streak),
+        }
+    )
+    state.frames_seen += 1
+    return memory, audit
+
+
+def observe_training_memory(
+    state: MemoryCurriculumState,
+    config: MemoryCurriculumConfig,
+    *,
+    rs_correct: bool,
+    event_checked: bool,
+    event_correct: bool,
+) -> Dict[str, object]:
+    """观察学生本帧结果，更新两个维度各自的错误 streak 与延迟修复请求。"""
+
+    if rs_correct:
+        rs_self_recovered = state.rs_error_streak > 0 or state.rs_repair_pending
+        state.rs_error_streak = 0
+        state.rs_repair_pending = False
+    else:
+        rs_self_recovered = False
+        state.rs_error_streak += 1
+        if state.rs_error_streak >= int(config.rs_error_patience):
+            state.rs_repair_pending = True
+
+    event_self_recovered = False
+    if event_checked:
+        if event_correct:
+            event_self_recovered = state.event_error_streak > 0 or state.event_repair_pending
+            state.event_error_streak = 0
+            state.event_repair_pending = False
+        else:
+            state.event_error_streak += 1
+            if state.event_error_streak >= int(config.event_error_patience):
+                state.event_repair_pending = True
+    return {
+        "memory_rs_self_recovered_after_streak": rs_self_recovered,
+        "memory_event_self_recovered_after_streak": event_self_recovered,
+        "memory_rs_error_streak_after": int(state.rs_error_streak),
+        "memory_event_error_streak_after": int(state.event_error_streak),
+        "memory_rs_repair_pending": bool(state.rs_repair_pending),
+        "memory_event_repair_pending": bool(state.event_repair_pending),
+        "memory_any_repair_pending": bool(
+            state.rs_repair_pending or state.event_repair_pending
+        ),
+    }
+
+
 def _line_value_span(text: str, label: str) -> Optional[Tuple[int, int]]:
     """返回某个输出行冒号后的值 span。"""
 
     pattern = re.compile(rf"(?im)^\s*{re.escape(label)}\s*:\s*(.+?)\s*$")
     match = pattern.search(text or "")
+    if not match:
+        return None
+    return match.start(1), match.end(1)
+
+
+def _line_choice_span(text: str, label: str, choices: str) -> Optional[Tuple[int, int]]:
+    """只返回离散选项字符 span，避免错误答案后的长描述稀释纠偏梯度。"""
+
+    match = re.search(
+        rf"(?im)^\s*{re.escape(label)}\s*:\s*([{re.escape(choices)}])\b",
+        text or "",
+    )
     if not match:
         return None
     return match.start(1), match.end(1)
@@ -515,7 +791,7 @@ def target_spans_q1(text: str) -> Dict[str, Tuple[int, int]]:
     """Q1 的 token loss 字符 span。"""
 
     spans: Dict[str, Tuple[int, int]] = {"analysis": _analysis_span(text, terminal_label="RS")}
-    rs_span = _line_value_span(text, "RS")
+    rs_span = _line_choice_span(text, "RS", "ABCDE")
     abnormal_span = _line_value_span(text, "ABNORMAL")
     if rs_span is not None:
         spans["rs"] = rs_span
@@ -528,7 +804,7 @@ def target_spans_q2(text: str) -> Dict[str, Tuple[int, int]]:
     """Q2 的 token loss 字符 span。"""
 
     spans: Dict[str, Tuple[int, int]] = {"analysis": _analysis_span(text, terminal_label="EVENT")}
-    event_span = _line_value_span(text, "EVENT")
+    event_span = _line_choice_span(text, "EVENT", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     if event_span is not None:
         spans["event"] = event_span
     return spans

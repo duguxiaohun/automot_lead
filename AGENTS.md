@@ -283,8 +283,9 @@
   `Scene Description / Critical Object Description / Reasoning on Intent` 三段式 CoT 后输出
   `RS / ABNORMAL`；system prompt 简短提醒关注交通灯/标志、周围车辆/行人/障碍物、
   车道线/道路结构和影响自车决策的关键因素；Q1 memory 只渲染自然语言
-  `BELIEVED_RS + EGO_TO_GOAL_XY`，不带 `BELIEVED_EVENT`，Q2 才渲染自然语言
-  `BELIEVED_EVENT`，memory 文本不写 A-E 选项字母或 `RE/U-E*` 标签代码。
+  `PREVIOUS_RS_HYPOTHESIS + EGO_TO_GOAL_XY`，不带 `PREVIOUS_EVENT_HYPOTHESIS`，
+  Q2 才渲染自然语言 `PREVIOUS_EVENT_HYPOTHESIS`；两个 memory block 都必须显式写
+  `MEMORY_RELIABILITY=unverified`，memory 文本不写 A-E 选项字母或 `RE/U-E*` 标签代码。
   Q2 在 Q1 RS 正确后进入，候选优先使用逐帧
   `frame_event_annotation.allowed_events`，缺失时才 fallback 到
   `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]`；所有 `R-E*`
@@ -385,6 +386,20 @@
   续接 teacher 自己的 Q1 KV/解析 memory，不能混用 student Q1 prompt；训练 privileged
   输入写 `q2_teacher_training_prompt.txt`，默认 `q2_teacher_prompt.txt` 必须和
   `q2_teacher_output.txt` 实际配对。
+  v5 训练 memory 必须按“可疑 hypothesis”而非答案使用：route 首帧 RS/EVENT 分别以
+  0.5 概率使用 GT，否则为 UNKNOWN；原本正确的 RS memory 以 0.06/0.02 概率注入错误值/
+  UNKNOWN，EVENT 为 0.10/0.05。每个有效帧都必须运行 Q1；RS 错误只跳过本帧 Q2，
+  下一帧仍继续分析 RS，直到学生自行纠正或训练期 delayed repair 真正执行。RS 默认
+  连续错 4 帧后申请修复并每 2 个有效帧 review，EVENT 默认连续错 3 次后申请修复并
+  每帧 review；`rs_repair_interval` 只控制脚本兜底，绝不能用作 Q1 采样间隔；
+  EVENT wrong 扰动优先从本帧 `event_option_map` 的其它可见候选中选择，单选题无替代项
+  时才回退全局 EVENT 表；EVENT repair/augmentation 只在 RS memory 本帧扰动后仍正确
+  时执行，RS 错误/UNKNOWN 时必须保留 EVENT 状态，避免处理一个不会进入 Q2 的样本；
+  Q1 `ABNORMAL=NO` 不得由脚本直接把 EVENT 清成 RE。以上参数必须可由 `train.py` CLI/
+  `train.sh` 环境变量覆盖，并写入 adapter metadata。Q1/Q2 最终高权重 span 只监督单个
+  选项字符；训练/TensorBoard 必须记录 wrong-memory copy、wrong/UNKNOWN recovery、
+  injected wrong/UNKNOWN、forced repair、RS/EVENT input anomaly rate、RS error streak、
+  因 RS 错跳过 Q2 的比例，以及 ABNORMAL/UE 的 TP/FP/TN/FN 与 P/R/F1。
   大样本 `eval.py` 与小样本 `probe.py` 必须共用 `metrics.py`：统计 RS/UE 边界、Q1/Q2
   precision/recall/F1、假阳性/假阴性、端到端 EVENT 与 route macro 指标；另外必须用相邻帧
   GT/预测状态分别统计 RS 变化、RE->UE 进入和 UE->RE 退出的 TP/FP/TN/FN/invalid、

@@ -77,12 +77,31 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 | `MAX_TIMESTEPS_PER_STEP` | `32` | 最迟更新的 timestep 阈值 |
 | `LEARNING_RATE` | `1e-5` | LoRA 学习率 |
 | `MAX_NEW_TOKENS_Q1/Q2` | `1024/1024` | 无字段早停时的安全上限 |
+| `RS_ERROR_PATIENCE` / `EVENT_ERROR_PATIENCE` | `4/3` | 连续错误后才申请 GT 兜底；错误期间仍持续自主思考 |
+| `RS_REPAIR_INTERVAL` / `EVENT_REPAIR_INTERVAL` | `2/1` | 只控制脚本兜底检查；不降低 Q1 的逐帧运行频率 |
+| `RS_MEMORY_CORRUPT_PROB/RS_MEMORY_UNKNOWN_PROB` | `0.06/0.02` | 正确 RS memory 的 wrong/UNKNOWN 扰动，总条件概率 8% |
+| `EVENT_MEMORY_CORRUPT_PROB/EVENT_MEMORY_UNKNOWN_PROB` | `0.10/0.05` | 正确 EVENT memory 的 wrong/UNKNOWN 扰动，总条件概率 15% |
+| `RS_INITIAL_GT_PROB/EVENT_INITIAL_GT_PROB` | `0.5/0.5` | route 首帧其余样本使用 UNKNOWN/no-prior |
 | `SAVE_STEPS` | `40` | 约半天保存一次 checkpoint |
 
 v5 在每张卡上同步边采样边训练：student 先自由生成 Q1/Q2，再由关闭 LoRA 的
-privileged teacher 对相同 token span 提供 forward-KL。Q1 RS 错误时跳过本帧 Q2，
-下一有效帧恢复 `GT RS + RE`。模型不包 DDP wrapper，只在 optimizer step 前手动
-all-reduce LoRA 梯度。
+privileged teacher 对相同 token span 提供 forward-KL。**每个有效帧都运行 Q1**；
+Q1 RS 错误只跳过当前帧 Q2，下一帧仍继续回答 RS，直到学生自行答对或 delayed repair
+真正执行。EVENT 只有在本帧 RS 正确、实际进入 Q2 后才产生 rollout/loss 并累计自己的
+error streak。Q1 `ABNORMAL=NO` 不再脚本化覆盖 EVENT，必须由 Q2 自己选 RE。
+模型不包 DDP wrapper，只在 optimizer step 前手动 all-reduce LoRA 梯度。
+EVENT wrong memory 优先从本帧 Q2 可见候选中选其它事件；只有单选题没有替代项时才
+使用全局 EVENT 作为 stale hypothesis。EVENT repair/augmentation 还要求本帧 RS
+memory 已对齐；RS 已错误/UNKNOWN 时保留 EVENT 状态，避免统计学生没看到的增强样本。
+
+当前 42 个有效场景 collection 文件含 7241 条 success route、914466 个标注帧；默认
+10% route-level validation 后，训练规模约 82.3 万帧，最终精确值以远端构建出的
+`checkpoints/sft_v5_data/summary.json` 为准。原始 GT 中 UE 为 142180 帧（15.55%），
+RE 为 772286 帧（84.45%）；这和下面人为注入的“错误 memory 异常”是两个概念。
+在模型能当帧纠偏时，预计 RS 异常输入约
+8.4%（约 6.9 万帧，含首帧 UNKNOWN），EVENT 异常输入约为实际 Q2 帧的 15%；如果
+模型持续复制错误 memory 直到脚本兜底，按当前平均约 126 帧/route 的模拟上界约为
+RS 27.5%、EVENT/Q2 31.7%。
 
 只检查 launcher 参数：
 
@@ -165,6 +184,14 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 | `train/loss_frame` | 全局帧平均总 loss |
 | `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}` | 各监督部分 loss |
 | `train/q1_rs_acc_window` / `train/q2_event_acc_window` | 当前窗口解析准确率 |
+| `train/q2_skip_due_rs_rate` | 因本帧 RS 错而跳过 Q2 的比例；应与 RS 错误率一致 |
+| `train/abnormal_{precision,recall,f1}` | Q1 UE/RE 混淆指标 |
+| `train/q2_ue_{precision,recall,f1}` | Q2 UE/RE 混淆指标 |
+| `memory/rs_wrong_copy_rate` / `memory/event_wrong_copy_rate` | 已知错误 memory 被原样复制的比例，越低越好 |
+| `memory/rs_recovery_rate` / `memory/event_recovery_rate` | wrong/UNKNOWN memory 的自主纠偏率 |
+| `memory/rs_input_anomaly_rate` / `memory/event_input_anomaly_rate` | 实际进入 prompt 的 wrong+UNKNOWN 比例；EVENT 分母是 Q2 帧 |
+| `memory/rs_error_streak_mean` / `memory/event_error_streak_mean` | 延迟纠偏持续长度；用于判断 patience 是否过长 |
+| `memory/{rs,event}_{injected_wrong,injected_unknown,forced_repair}` | 课程扰动与兜底修复实际样本数 |
 | `train/q1_token_cap_hit_rate` / `train/q2_token_cap_hit_rate` | 是否经常打满 1024 |
 | `qwen/q1_batched_frame_rate` | Q1 真正进入 batch rollout 的帧比例 |
 | `parallel_kl/frame_rate` | 走并行 KL 的帧比例 |
@@ -219,11 +246,14 @@ RS 变化、UE 进入/退出帧以及 FP/FN，每行直接给出 `TP/FP/FN/TN/in
 | `abnormal_false_negative_rate` | 真实 UE 未被 Q1 正确报异常的比例 | 越低越好 |
 | `event_acc_when_rs_correct` | 进入 Q2 后的具体 EVENT 准确率 | 越高越好 |
 | `q2_ue_precision/recall/f1` | Q2 的 UE/RE 二分类指标 | 越高越好 |
+| `q2_trigger_rate` / `q2_skip_due_rs_rate` | RS 正确进入 Q2 / RS 错误跳过 Q2 的互补覆盖率 | 诊断 |
 | `q2_false_positive_rate` / `q2_false_negative_rate` | Q2 的 UE 假阳性/假阴性率 | 越低越好 |
 | `event_end_to_end_acc` / `ue_end_to_end_recall` | 包含 Q1 门控失败的端到端指标 | 越高越好 |
 | `event_end_to_end_false_positive_rate` | 所有真实 RE 中最终误报 UE 的比例 | 越低越好 |
+| `rs_wrong_memory_copy_rate` / `event_wrong_memory_copy_rate` | 错误 memory 被直接照抄的比例 | 越低越好 |
+| `rs_wrong_or_unknown_memory_recovery_rate` / `event_wrong_or_unknown_memory_recovery_rate` | 错误或无先验输入上的自主恢复率 | 越高越好 |
 | `mean_resets_per_100_frames` | 测试中每百帧真值强制纠错次数；学生闭环应为 0 | 越低越好 |
-| `mean_training_reset_recommendations_per_100_frames` | 若套用训练 reset 规则会触发的频率，仅诊断 | 仅诊断 |
+| `mean_training_reset_recommendations_per_100_frames` | 兼容旧报告的即时失败信号（Q1 RS 错或 Q2 非法）；不代表当前延迟修复实际执行次数 | 仅诊断 |
 | `q2_trigger_rate` / 样本数 | 门控覆盖与评估规模 | 仅诊断 |
 
 完整定义与方向保存在 `eval_metrics.json.metric_definitions`。分母无样本时写 `null`。

@@ -284,6 +284,19 @@ def test_metric_false_positive_false_negative_contract() -> None:
             "q2_candidate_mismatch": False, "rs_transition": False, "abnormal_transition": False,
         },
     ]
+    # 两个已知错误 memory case：一个继续复制，一个自主恢复，copy/recovery 都应为 0.5。
+    logs[0].update(
+        memory_rs_input_known_wrong=True,
+        memory_rs_copied_when_wrong=True,
+        memory_event_input_known_wrong=True,
+        memory_event_copied_when_wrong=True,
+    )
+    logs[1].update(
+        memory_rs_input_known_wrong=True,
+        memory_rs_recovered=True,
+        memory_event_input_known_wrong=True,
+        memory_event_recovered=True,
+    )
     summary = summarize_student_predictions(logs)
     assert summary["abnormal_confusion"]["tp"] == 1
     assert summary["abnormal_confusion"]["fp"] == 1
@@ -294,6 +307,12 @@ def test_metric_false_positive_false_negative_contract() -> None:
     assert summary["event_end_to_end_false_positive_rate"] == 0.5
     assert summary["event_acc_when_rs_correct"] == 2 / 3
     assert summary["ue_end_to_end_recall"] == 0.5
+    assert summary["rs_wrong_memory_copy_rate"] == 0.5
+    assert summary["rs_wrong_or_unknown_memory_recovery_rate"] == 0.5
+    assert summary["event_wrong_memory_copy_rate"] == 0.5
+    assert summary["event_wrong_or_unknown_memory_recovery_rate"] == 0.5
+    assert summary["q2_skipped_rs_wrong"] == 1
+    assert summary["q2_skip_due_rs_rate"] == 0.25
     assert summary["metric_definitions"]["abnormal_false_positive_rate"]["direction"] == "lower_is_better"
 
     streaming = StudentMetricsAccumulator()

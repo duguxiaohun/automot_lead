@@ -113,6 +113,10 @@ METRIC_DEFINITIONS: Dict[str, Dict[str, str]] = {
         "meaning": "Q1 RS 正确并实际进入 Q2 的帧比例；用于诊断门控覆盖率，不宜单独优化。",
         "direction": "diagnostic",
     },
+    "q2_skip_due_rs_rate": {
+        "meaning": "因本帧 Q1 RS 错误而跳过 EVENT Q2 的帧比例；下一有效帧仍会重新运行 Q1。",
+        "direction": "lower_is_better",
+    },
     "event_acc_when_rs_correct": {
         "meaning": "实际进入 Q2 的帧中 EVENT 标签按动态多标签容错规则计正确的比例。",
         "direction": "higher_is_better",
@@ -178,8 +182,24 @@ METRIC_DEFINITIONS: Dict[str, Dict[str, str]] = {
         "direction": "lower_is_better",
     },
     "mean_training_reset_recommendations_per_100_frames": {
-        "meaning": "每 100 帧若按训练状态机会因 Q1 RS 错或 Q2 非法而建议 reset 的次数；仅诊断，测试并未执行这些 reset。",
+        "meaning": "兼容旧报告：每 100 帧出现 Q1 RS 错或 Q2 非法的即时失败信号次数；v5 延迟修复课程不会据此在下一帧直接 reset。",
+        "direction": "diagnostic",
+    },
+    "rs_wrong_memory_copy_rate": {
+        "meaning": "输入 RS memory 已知且错误时，Q1 仍原样输出该错误 RS 的比例；直接衡量 memory shortcut。",
         "direction": "lower_is_better",
+    },
+    "rs_wrong_or_unknown_memory_recovery_rate": {
+        "meaning": "输入 RS memory 错误或 UNKNOWN 时，Q1 在当前帧自行恢复到 GT RS 的比例。",
+        "direction": "higher_is_better",
+    },
+    "event_wrong_memory_copy_rate": {
+        "meaning": "进入 Q2 且 EVENT memory 已知错误时，Q2 仍复制该错误 EVENT 的比例。",
+        "direction": "lower_is_better",
+    },
+    "event_wrong_or_unknown_memory_recovery_rate": {
+        "meaning": "进入 Q2 且 EVENT memory 错误或 UNKNOWN 时，Q2 自行恢复到可接受 EVENT 的比例。",
+        "direction": "higher_is_better",
     },
     "mean_valid_frames_per_route": {
         "meaning": "每条参与评估 route 的平均有效帧数，用于审计评估规模。",
@@ -452,6 +472,7 @@ class StudentMetricsAccumulator:
         # 总帧、Q1 RS 和 reset 计数使用所有评估帧作为分母。
         self.frames = 0
         self.q2_triggered = 0
+        self.q2_skipped_rs_wrong = 0
         self.rs_correct = 0
         self.rs_transition_frames = 0
         self.rs_transition_correct = 0
@@ -471,6 +492,14 @@ class StudentMetricsAccumulator:
         self.end_to_end_fp = 0
         self.reset_count = 0
         self.training_reset_recommendation_count = 0
+        self.rs_memory_known_wrong = 0
+        self.rs_memory_unknown = 0
+        self.rs_memory_copied_when_wrong = 0
+        self.rs_memory_recovered = 0
+        self.event_memory_known_wrong = 0
+        self.event_memory_unknown = 0
+        self.event_memory_copied_when_wrong = 0
+        self.event_memory_recovered = 0
         # Q1 ABNORMAL 与 Q2 EVENT->UE/RE 使用两套混淆矩阵。Q2 只接收真正触发的帧，
         # 端到端漏检则由 all_ue_* 另行统计，不能把两个分母混在一起。
         self.abnormal_binary = _BinaryCounts()
@@ -496,11 +525,22 @@ class StudentMetricsAccumulator:
 
         # Q1 统计对所有帧生效；RS/UE 边界标记由 eval/probe 按原始 route 相邻帧生成。
         self.frames += 1
+        self.q2_skipped_rs_wrong += int(
+            bool(row.get("q2_skipped_rs_wrong", not q1_rs_correct))
+        )
         self.reset_count += int(bool(row.get("reset_next")))
         self.training_reset_recommendation_count += int(
             bool(row.get("would_reset_under_training"))
         )
         self.rs_correct += int(q1_rs_correct)
+        self.rs_memory_known_wrong += int(bool(row.get("memory_rs_input_known_wrong")))
+        self.rs_memory_unknown += int(bool(row.get("memory_rs_input_unknown")))
+        self.rs_memory_copied_when_wrong += int(bool(row.get("memory_rs_copied_when_wrong")))
+        self.rs_memory_recovered += int(bool(row.get("memory_rs_recovered")))
+        self.event_memory_known_wrong += int(bool(row.get("memory_event_input_known_wrong")))
+        self.event_memory_unknown += int(bool(row.get("memory_event_input_unknown")))
+        self.event_memory_copied_when_wrong += int(bool(row.get("memory_event_copied_when_wrong")))
+        self.event_memory_recovered += int(bool(row.get("memory_event_recovered")))
         self.abnormal_binary.update(gt_abnormal, pred_abnormal)
         if bool(row.get("rs_transition")):
             self.rs_transition_frames += 1
@@ -595,6 +635,7 @@ class StudentMetricsAccumulator:
             "ue_exit_detection_f1": ue_exit["f1"],
             "ue_exit_false_positive_rate": ue_exit["false_positive_rate"],
             "q2_trigger_rate": _ratio(self.q2_triggered, self.frames),
+            "q2_skip_due_rs_rate": _ratio(self.q2_skipped_rs_wrong, self.frames),
             "event_acc_when_rs_correct": _ratio(self.event_correct, self.q2_triggered),
             "q2_ue_precision": q2["precision"],
             "q2_ue_recall": q2["recall"],
@@ -607,12 +648,29 @@ class StudentMetricsAccumulator:
             "event_end_to_end_acc": _ratio(self.event_correct, self.frames),
             "ue_end_to_end_recall": _ratio(self.all_ue_exact_correct, self.all_ue_total),
             "event_end_to_end_false_positive_rate": _ratio(self.end_to_end_fp, self.all_re_total),
+            "rs_wrong_memory_copy_rate": _ratio(
+                self.rs_memory_copied_when_wrong,
+                self.rs_memory_known_wrong,
+            ),
+            "rs_wrong_or_unknown_memory_recovery_rate": _ratio(
+                self.rs_memory_recovered,
+                self.rs_memory_known_wrong + self.rs_memory_unknown,
+            ),
+            "event_wrong_memory_copy_rate": _ratio(
+                self.event_memory_copied_when_wrong,
+                self.event_memory_known_wrong,
+            ),
+            "event_wrong_or_unknown_memory_recovery_rate": _ratio(
+                self.event_memory_recovered,
+                self.event_memory_known_wrong + self.event_memory_unknown,
+            ),
         }
         return {
             "frames": self.frames,
             "q1_rs_correct": self.rs_correct,
             "q1_abnormal_correct": abnormal["tp"] + abnormal["tn"],
             "q2_triggered": self.q2_triggered,
+            "q2_skipped_rs_wrong": self.q2_skipped_rs_wrong,
             "q2_event_correct": self.event_correct,
             "q2_candidate_mismatch": self.q2_candidate_mismatch,
             "q2_invalid_output": q2["invalid"],
@@ -626,6 +684,16 @@ class StudentMetricsAccumulator:
             "rs_wrong_frames": self.frames - self.rs_correct,
             "reset_count": self.reset_count,
             "training_reset_recommendation_count": self.training_reset_recommendation_count,
+            "memory_dependency_counts": {
+                "rs_known_wrong": self.rs_memory_known_wrong,
+                "rs_unknown": self.rs_memory_unknown,
+                "rs_copied_when_wrong": self.rs_memory_copied_when_wrong,
+                "rs_recovered": self.rs_memory_recovered,
+                "event_known_wrong": self.event_memory_known_wrong,
+                "event_unknown": self.event_memory_unknown,
+                "event_copied_when_wrong": self.event_memory_copied_when_wrong,
+                "event_recovered": self.event_memory_recovered,
+            },
             "rs_transition_frames": self.rs_transition_frames,
             "abnormal_boundary_frames": self.abnormal_boundary_frames,
             "abnormal_confusion": abnormal,

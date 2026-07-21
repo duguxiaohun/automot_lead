@@ -37,9 +37,10 @@ eval 则负责总体统计，不属于小样本可视化。
   或 `RS/ABNORMAL/EVENT` 等关键输出字段。
 - system prompt 是否简洁提醒模型关注交通灯/标志、周围车辆/行人/障碍物、
   车道线/道路结构和影响自车决策的关键因素。
-- `q1_*_user_prompt.txt` 的 `[MEMORY]` 是否只包含自然语言 `BELIEVED_RS` 和
-  `EGO_TO_GOAL_XY=(+x, +y) m`，不包含 `BELIEVED_EVENT`，也不包含 `A -` 这类选项前缀。
-- `q2_*_user_prompt.txt` 的 `[MEMORY]` 才包含自然语言 `BELIEVED_EVENT`，但仍不写
+- `q1_*_user_prompt.txt` 的 `[MEMORY]` 是否只包含自然语言 `PREVIOUS_RS_HYPOTHESIS`、
+  `MEMORY_RELIABILITY` 和 `EGO_TO_GOAL_XY=(+x, +y) m`，不包含
+  `PREVIOUS_EVENT_HYPOTHESIS`，也不包含 `A -` 这类选项前缀。
+- `q2_*_user_prompt.txt` 的 `[MEMORY]` 才包含自然语言 `PREVIOUS_EVENT_HYPOTHESIS`，但仍不写
   `RE -` 或 `U-E* -` 标签前缀。
 - 如果看到 `EGO_TO_GOAL_XY=UNKNOWN`，先检查 `labels.json` 里的 `ego_to_goal_xy`
   是否为 `null`；这表示 probe 使用了旧 sequence index，需要重跑 build_dataset 和 probe。
@@ -260,6 +261,12 @@ CHECKPOINT_PROBE_CONTEXT_RADIUS=8
 `memory/max_reserved_gb`。其中 `allocated` 是活跃引用主口径；`reserved` 或
 `nvidia-smi` 进程显存停在历史高位，不能单独证明泄漏。
 
+错误 memory 课程是否达到预期则看：
+`memory/{rs,event}_input_anomaly_rate`、`memory/{rs,event}_wrong_copy_rate`、
+`memory/{rs,event}_recovery_rate`、`memory/{rs,event}_error_streak_mean` 和
+`train/q2_skip_due_rs_rate`。RS 默认目标不是固定比例，但长期 anomaly 超过 30% 或
+Q2 trigger 低于 70% 通常说明 RS 扰动/延迟过强，会挤压 EVENT 训练。
+
 主要入口：
 
 ```text
@@ -293,7 +300,8 @@ probe 失败会写 `error.txt` 并继续训练，不会因为旁路可视化终�
 目的：训练结束后检查当前 adapter 学生在真实推理状态机下的表现。此时重点不是看
 base Qwen 强不强，而是看训练出的学生是否：
 
-- Q1 RS 错时停止本帧 Q2，但下一帧继续使用学生自己的 memory，观察后续自主纠正。
+- Q1 RS 错时停止本帧 Q2，但下一帧必须再次运行 Q1，并继续使用学生自己的 memory
+  观察后续自主纠正；不能把 RS repair interval 当成 Q1 跳帧间隔。
 - Q1 正确时进入 Q2，且 Q2 只在当前帧候选里输出 `RE` 或 `U-E*`。
 - `memory.json` 分清 Q1/Q2 输入、输出、下一帧 student memory 和只读 truth memory。
 - 错误样本能通过 RGB、prompt、label、flags 定位到原因。
@@ -508,7 +516,7 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 `event_end_to_end_false_positive_rate`、非法输出率和每百帧 reset 次数均越低越好；
 `rs_change_false_positive_rate`、`ue_entry_false_positive_rate`、
 `ue_exit_false_positive_rate` 也均越低越好；
-`q2_trigger_rate` 与样本数只作诊断。每个字段的完整中文定义和方向同时内嵌在
+`q2_trigger_rate`、`q2_skip_due_rs_rate` 与样本数只作门控诊断。每个字段的完整中文定义和方向同时内嵌在
 `eval_metrics.json.metric_definitions`，以代码输出为最终口径。
 
 变化指标保存在 `results.json.summary`，自主纠正延迟保存在
@@ -518,7 +526,8 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 
 ## Timeline 颜色
 
-- 红色：Q1 的 RS 错误；测试下一帧仍沿用学生 memory，不做 GT 纠错。
+- 红色：Q1 的 RS 错误；本帧跳过 Q2，下一帧仍沿用学生 memory 并再次运行 Q1，
+  测试不做 GT 纠错。
 - 蓝色：Q1 的 RS 正确，本帧进入 Q2。
 - 绿色：未加载 student 模型的静态 teacher-forced dump。
 - 灰色：没有特别转折的普通帧。

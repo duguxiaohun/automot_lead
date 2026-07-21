@@ -55,11 +55,15 @@ def main() -> None:
     event = EventTarget(label="U-E6", event_code="U-E6", abnormal=True, raw_events=("R-E4", "U-E6"))
     q1 = build_q1_teacher_target(rs_target=rs, event_target=event, weather_text="clear daytime weather")
     # Q1 必须同时监督分析、RS 选择和 ABNORMAL 判断。
-    _assert_nonempty(q1, target_spans_q1(q1), ["analysis", "rs", "abnormal"])
+    q1_spans = target_spans_q1(q1)
+    _assert_nonempty(q1, q1_spans, ["analysis", "rs", "abnormal"])
+    assert q1_spans["rs"][1] - q1_spans["rs"][0] == 1, "RS 高权重 span 只能覆盖 option token"
     memory = reset_memory_for_frame(rs)
     q2 = build_q2_teacher_target(memory, option_map={"A": "RE", "B": "U-E6"}, event_target=event)
     # Q2 必须同时监督分析和 EVENT 选择。
-    _assert_nonempty(q2, target_spans_q2(q2), ["analysis", "event"])
+    q2_spans = target_spans_q2(q2)
+    _assert_nonempty(q2, q2_spans, ["analysis", "event"])
+    assert q2_spans["event"][1] - q2_spans["event"][0] == 1, "EVENT 高权重 span 只能覆盖 option token"
     print("[check_loss_mask] ok")
 
 

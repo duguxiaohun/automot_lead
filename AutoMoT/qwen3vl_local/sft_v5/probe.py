@@ -42,7 +42,7 @@ from qwen3vl_local.sft_v5.metrics import (  # noqa: E402
     build_transition_report,
     summarize_student_predictions,
 )
-from qwen3vl_local.sft_v5.labels import option_for_event  # noqa: E402
+from qwen3vl_local.sft_v5.labels import RS_LABEL_TO_OPTION, option_for_event  # noqa: E402
 from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     SYSTEM_PROMPT_V5,
     build_q1_student_prompt,
@@ -53,6 +53,7 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     build_q2_teacher_target,
     parse_q1_output,
     parse_q2_output,
+    should_trigger_q2,
     update_memory_after_q1,
     update_memory_after_q2,
     update_memory_navigation,
@@ -1018,7 +1019,10 @@ def dump_probe(
                         int(args.max_new_tokens_q1),
                     )
                 parsed_q1 = parse_q1_output(q1_output)
-                q1_rs_ok = parsed_q1.get("rs_label") == frame.rs_label
+                q1_rs_ok = should_trigger_q2(
+                    student_rs_label=parsed_q1.get("rs_label"),
+                    target_rs_label=frame.rs_label,
+                )
                 q1_abnormal = parsed_q1.get("abnormal") == "YES" if parsed_q1.get("abnormal") else None
                 memory_after_q1 = update_memory_after_q1(memory, student_rs_label=parsed_q1.get("rs_label"), student_abnormal=q1_abnormal)
                 if q1_rs_ok:
@@ -1246,8 +1250,36 @@ def dump_probe(
                     and q2_after_event_matches is False
                 ),
             }
+            pred_rs_label = parsed_q1.get("rs_label") if bundle is not None else None
+            pred_abnormal = q1_abnormal if bundle is not None else None
             would_reset_under_training = bool(
                 bundle is not None and (not q1_rs_ok or (q2_triggered and q2_invalid))
+            )
+            rs_memory_known_wrong = bool(
+                bundle is not None
+                and memory_before.get("rs_label") in RS_LABEL_TO_OPTION
+                and memory_before.get("rs_label") != frame.rs_label
+            )
+            rs_memory_unknown = bool(
+                bundle is not None and memory_before.get("rs_label") not in RS_LABEL_TO_OPTION
+            )
+            event_memory_label = (
+                q2_student_memory_input.get("event_label")
+                if q2_student_memory_input is not None
+                else None
+            )
+            event_memory_known = bool(
+                event_memory_label == "RE"
+                or (isinstance(event_memory_label, str) and event_memory_label.startswith("U-E"))
+            )
+            event_memory_wrong = bool(
+                bundle is not None
+                and q2_triggered
+                and event_memory_known
+                and event_memory_label not in set(accepted_event_labels)
+            )
+            event_memory_unknown = bool(
+                bundle is not None and q2_triggered and not event_memory_known
             )
             ground_truth_structure = {
                 "q1": {
@@ -1327,8 +1359,6 @@ def dump_probe(
                     json.dumps(memory_after, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
 
-            pred_rs_label = parsed_q1.get("rs_label") if bundle is not None else None
-            pred_abnormal = q1_abnormal if bundle is not None else None
             transition_fields = build_transition_fields(
                 pair_evaluated=bool(bundle is not None and not selection_gap_reset),
                 previous_frame_id=(route.frames[frame_index - 1].frame_id if frame_index > 0 else None),
@@ -1382,6 +1412,7 @@ def dump_probe(
                 "q1_teacher_rs_correct": q1_teacher_rs_correct,
                 "q1_teacher_abnormal_correct": q1_teacher_abnormal_correct,
                 "q2_triggered": q2_triggered,
+                "q2_skipped_rs_wrong": bool(bundle is not None and not q1_rs_ok),
                 "q2_event_correct": q2_event_correct,
                 "q2_teacher_event_correct": q2_teacher_event_correct,
                 "q2_teacher_triggered": q2_teacher_triggered,
@@ -1391,12 +1422,31 @@ def dump_probe(
                 "q2_teacher_continued_from_q1_kv": bool(q2_teacher_triggered and q1_teacher_after is not None),
                 "q2_invalid_output": q2_invalid,
                 "q2_candidate_mismatch": q2_candidate_mismatch,
-                # 测试永不应用 GT 纠错。保留 would_reset 字段，只用于说明若按训练协议
-                # 运行该帧是否会在下一帧 reset，不能据此改写 student memory。
+                # 测试永不应用 GT 纠错。would_reset 是旧报告兼容字段，只表示本帧出现
+                # Q1 RS 错或 Q2 非法；当前训练课程不会因此在下一帧直接 reset。
                 "rs_wrong_reset": False,
                 "reset_next": False,
                 "would_reset_under_training": would_reset_under_training,
                 "memory_forced_correction_applied": False,
+                "memory_rs_input_known_wrong": rs_memory_known_wrong,
+                "memory_rs_input_unknown": rs_memory_unknown,
+                "memory_rs_copied_when_wrong": bool(
+                    rs_memory_known_wrong and pred_rs_label == memory_before.get("rs_label")
+                ),
+                "memory_rs_recovered": bool(
+                    (rs_memory_known_wrong or rs_memory_unknown) and q1_rs_ok
+                ),
+                "memory_event_input_known_wrong": event_memory_wrong,
+                "memory_event_input_unknown": event_memory_unknown,
+                "memory_event_copied_when_wrong": bool(
+                    event_memory_wrong and parsed_q2.get("event_label") == event_memory_label
+                ),
+                "memory_event_recovered": bool(
+                    bundle is not None
+                    and q2_triggered
+                    and (event_memory_wrong or event_memory_unknown)
+                    and parsed_q2.get("event_label") in set(accepted_event_labels)
+                ),
                 "student_memory_after_q1_rs_label": student_memory_after_q1.get("rs_label"),
                 "student_memory_after_q2_event_label": student_memory_for_next_frame.get(
                     "event_label"

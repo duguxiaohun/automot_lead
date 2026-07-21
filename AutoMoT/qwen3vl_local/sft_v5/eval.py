@@ -35,7 +35,7 @@ os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 import torch
 
 from qwen3vl_local.sft_v3.train import _append_user_turn, _kv_start_state, _student_generate_kv  # noqa: E402
-from qwen3vl_local.sft_v5.labels import option_for_event  # noqa: E402
+from qwen3vl_local.sft_v5.labels import RS_LABEL_TO_OPTION, option_for_event  # noqa: E402
 from qwen3vl_local.sft_v5.metrics import (  # noqa: E402
     StudentMetricsAccumulator,
     build_transition_fields,
@@ -49,6 +49,7 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     parse_q1_output,
     parse_q2_output,
     reset_memory_for_frame,
+    should_trigger_q2,
     update_memory_after_q1,
     update_memory_after_q2,
     update_memory_navigation,
@@ -217,7 +218,10 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     int(args.max_new_tokens_q1),
                 )
                 parsed_q1 = parse_q1_output(q1_text)
-                q1_rs_ok = parsed_q1.get("rs_label") == frame.rs_label
+                q1_rs_ok = should_trigger_q2(
+                    student_rs_label=parsed_q1.get("rs_label"),
+                    target_rs_label=frame.rs_label,
+                )
                 q1_abnormal = parsed_q1.get("abnormal") == "YES" if parsed_q1.get("abnormal") else None
                 q1_abnormal_correct = bool(q1_abnormal == frame.abnormal) if q1_abnormal is not None else False
                 memory = update_memory_after_q1(
@@ -322,6 +326,26 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     and student_memory_after_q2["event_label"] in accepted_event_labels
                 )
                 would_reset_under_training = bool(not q1_rs_ok or (q2_triggered and q2_invalid))
+                rs_memory_known_wrong = bool(
+                    memory_before["rs_label"] in RS_LABEL_TO_OPTION
+                    and memory_before["rs_label"] != frame.rs_label
+                )
+                rs_memory_unknown = memory_before["rs_label"] not in RS_LABEL_TO_OPTION
+                event_memory_label = (
+                    q2_student_memory_input.get("event_label")
+                    if q2_student_memory_input is not None
+                    else None
+                )
+                event_memory_known = bool(
+                    event_memory_label == "RE"
+                    or (isinstance(event_memory_label, str) and event_memory_label.startswith("U-E"))
+                )
+                event_memory_wrong = bool(
+                    q2_triggered
+                    and event_memory_known
+                    and event_memory_label not in accepted_event_labels
+                )
+                event_memory_unknown = bool(q2_triggered and not event_memory_known)
 
                 pred_event_label = parsed_q2.get("event_label")
                 pred_rs_label = parsed_q1.get("rs_label")
@@ -354,12 +378,31 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     "q1_rs_correct": q1_rs_ok,
                     "q1_abnormal_correct": q1_abnormal_correct,
                     "q2_triggered": q2_triggered,
+                    "q2_skipped_rs_wrong": bool(not q1_rs_ok),
                     "q2_event_correct": q2_event_correct,
                     "q2_candidate_mismatch": q2_candidate_mismatch,
                     "q2_invalid_output": q2_invalid,
                     "reset_next": False,
                     "would_reset_under_training": would_reset_under_training,
                     "memory_forced_correction_applied": False,
+                    "memory_rs_input_known_wrong": rs_memory_known_wrong,
+                    "memory_rs_input_unknown": rs_memory_unknown,
+                    "memory_rs_copied_when_wrong": bool(
+                        rs_memory_known_wrong and pred_rs_label == memory_before["rs_label"]
+                    ),
+                    "memory_rs_recovered": bool(
+                        (rs_memory_known_wrong or rs_memory_unknown) and q1_rs_ok
+                    ),
+                    "memory_event_input_known_wrong": event_memory_wrong,
+                    "memory_event_input_unknown": event_memory_unknown,
+                    "memory_event_copied_when_wrong": bool(
+                        event_memory_wrong and pred_event_label == event_memory_label
+                    ),
+                    "memory_event_recovered": bool(
+                        q2_triggered
+                        and (event_memory_wrong or event_memory_unknown)
+                        and pred_event_label in accepted_event_labels
+                    ),
                     "rs_transition": bool(
                         frame_index > 0 and route.frames[frame_index - 1].rs_label != frame.rs_label
                     ),
