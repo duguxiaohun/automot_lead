@@ -438,6 +438,32 @@ def update_memory_after_q2(memory: Memory, *, student_event_label: Optional[str]
     return mem
 
 
+def update_memory_navigation(
+    memory: Memory,
+    ego_to_goal_xy: Optional[Sequence[float]],
+) -> Memory:
+    """只刷新当前帧导航坐标，不改 RS/EVENT 离散状态。
+
+    连续序列中的 RS/EVENT 应由学生上一帧输出维护；但 ``EGO_TO_GOAL_XY`` 是当前帧
+    meta 提供的外部导航输入，必须每帧刷新。测试时调用本函数不会形成 GT 标签纠错，
+    因为它只写坐标；训练的错误后 GT reset 仍由外层显式调用
+    :func:`reset_memory_for_frame`。
+    """
+
+    mem = memory.copy()
+    if ego_to_goal_xy is None or len(ego_to_goal_xy) < 2:
+        mem.ego_to_goal_x = None
+        mem.ego_to_goal_y = None
+        return mem
+    try:
+        mem.ego_to_goal_x = float(ego_to_goal_xy[0])
+        mem.ego_to_goal_y = float(ego_to_goal_xy[1])
+    except Exception:
+        mem.ego_to_goal_x = None
+        mem.ego_to_goal_y = None
+    return mem
+
+
 def reset_memory_for_frame(rs_target: RSTarget, ego_to_goal_xy: Optional[Sequence[float]] = None) -> Memory:
     """RS 错误后，下一有效帧恢复 GT RS + RE。"""
 

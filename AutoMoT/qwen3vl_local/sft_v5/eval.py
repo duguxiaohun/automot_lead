@@ -1,7 +1,9 @@
 """SFT v5 自由生成评估入口。
 
 评估不使用 teacher，也不做 Phase B 纠偏；它按真实推理方式让 student 自己维护
-RS/EVENT memory。Q1 RS 错时跳过本帧 Q2，下一有效帧恢复 GT RS + RE。
+RS/EVENT memory。Q1 RS 错时只跳过本帧 Q2，后续帧继续读取学生错误 memory，观察
+学生是否会自主纠正。独立的 reference memory 只按 GT 推演并写入审计结果，绝不回写
+student prompt。
 
 常用方式是传 ``--adapter-dir`` 评估训练后的 LoRA；``--output-json`` 保存聚合指标，
 ``--output-jsonl`` 可选保存逐帧完整输入输出，``--transition-jsonl`` 只保存 RS/UE 变化、
@@ -49,6 +51,7 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     reset_memory_for_frame,
     update_memory_after_q1,
     update_memory_after_q2,
+    update_memory_navigation,
 )
 from qwen3vl_local.sft_v5.train import (  # noqa: E402
     RouteSequenceDataset,
@@ -165,23 +168,46 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         for route in ds.rows:
             route_accumulator = StudentMetricsAccumulator()
             memory: Optional[Memory] = None
-            reset_next = False
+            reference_memory: Optional[Memory] = None
             previous_pred_rs_label: Optional[str] = None
             previous_pred_abnormal: Optional[bool] = None
             for frame_index, frame in enumerate(route.frames):
                 rs_target = _rs_target_from_frame(frame)
                 event_target = _event_target_from_frame(frame)
-                if memory is None or reset_next:
-                    # 评估严格模拟 v5 推理状态机：首帧或上帧失败后，只恢复 GT RS + RE；
-                    # 之后的 memory 完全由 student 自己的 Q1/Q2 输出维护。
+                memory_initialized_from_gt = memory is None
+                if memory is None:
+                    # route 首帧建立 student/reference 共同起点。之后即使学生答错也不会
+                    # 再触发 GT reset；reference 仅用于结果对比。
                     memory = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
-                    reset_next = False
+                    reference_memory = reset_memory_for_frame(
+                        rs_target,
+                        ego_to_goal_xy=frame.ego_to_goal_xy,
+                    )
+                else:
+                    memory = update_memory_navigation(memory, frame.ego_to_goal_xy)
+                    assert reference_memory is not None
+                    reference_memory = update_memory_navigation(
+                        reference_memory,
+                        frame.ego_to_goal_xy,
+                    )
+                assert reference_memory is not None
                 memory_before = {
                     "rs_label": memory.rs_label,
                     "event_label": memory.event_label,
                     "ego_to_goal_x": memory.ego_to_goal_x,
                     "ego_to_goal_y": memory.ego_to_goal_y,
                 }
+                reference_memory_before = {
+                    "rs_label": reference_memory.rs_label,
+                    "event_label": reference_memory.event_label,
+                    "ego_to_goal_x": reference_memory.ego_to_goal_x,
+                    "ego_to_goal_y": reference_memory.ego_to_goal_y,
+                }
+                reference_memory_after_q1_state = update_memory_after_q1(
+                    reference_memory,
+                    student_rs_label=frame.rs_label,
+                    student_abnormal=frame.abnormal,
+                )
                 images = _load_images(frame.history_rgb_paths)
                 q1_prompt = build_q1_student_prompt(memory)
                 q1_text, q1_after = _generate_start(
@@ -199,6 +225,18 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     student_rs_label=parsed_q1.get("rs_label"),
                     student_abnormal=q1_abnormal,
                 )
+                student_memory_after_q1 = {
+                    "rs_label": memory.rs_label,
+                    "event_label": memory.event_label,
+                    "ego_to_goal_x": memory.ego_to_goal_x,
+                    "ego_to_goal_y": memory.ego_to_goal_y,
+                }
+                reference_memory_after_q1 = {
+                    "rs_label": reference_memory_after_q1_state.rs_label,
+                    "event_label": reference_memory_after_q1_state.event_label,
+                    "ego_to_goal_x": reference_memory_after_q1_state.ego_to_goal_x,
+                    "ego_to_goal_y": reference_memory_after_q1_state.ego_to_goal_y,
+                }
 
                 q2_triggered = False
                 q2_prompt = ""
@@ -207,13 +245,14 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 q2_event_correct = False
                 q2_candidate_mismatch = False
                 q2_invalid = False
+                q2_student_memory_input: Optional[Dict[str, Any]] = None
                 if not q1_rs_ok:
                     # RS 错误会导致 Q2 候选空间错误，因此本帧不追问 EVENT；端到端
                     # event 指标会把真实 UE 计为漏检，conditional Q2 指标则不纳入分母。
-                    reset_next = True
                     q1_after = None
                 else:
                     q2_triggered = True
+                    q2_student_memory_input = dict(student_memory_after_q1)
                     q2_prompt = build_q2_student_prompt(
                         memory,
                         option_map=frame.event_option_map,
@@ -238,8 +277,51 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     q2_event_correct = parsed_q2.get("event_label") == target.label
                     memory = update_memory_after_q2(memory, student_event_label=parsed_q2.get("event_label"))
                     q2_invalid = parsed_q2.get("event_label") is None
-                    if q2_invalid:
-                        reset_next = True
+
+                # reference Q2 总是按 GT 推演，用于回答“该问之后 memory 理论上应该是什么”。
+                # 它不会影响上面的 student memory，也不会决定下一帧 student prompt。
+                reference_memory_after_q2_state = update_memory_after_q2(
+                    reference_memory_after_q1_state,
+                    student_event_label=event_target.label,
+                )
+                reference_memory = reference_memory_after_q2_state
+                reference_memory_after_q2 = {
+                    "rs_label": reference_memory.rs_label,
+                    "event_label": reference_memory.event_label,
+                    "ego_to_goal_x": reference_memory.ego_to_goal_x,
+                    "ego_to_goal_y": reference_memory.ego_to_goal_y,
+                }
+                student_memory_after_q2 = (
+                    {
+                        "rs_label": memory.rs_label,
+                        "event_label": memory.event_label,
+                        "ego_to_goal_x": memory.ego_to_goal_x,
+                        "ego_to_goal_y": memory.ego_to_goal_y,
+                    }
+                    if q2_triggered
+                    else None
+                )
+                student_memory_for_next_frame = {
+                    "rs_label": memory.rs_label,
+                    "event_label": memory.event_label,
+                    "ego_to_goal_x": memory.ego_to_goal_x,
+                    "ego_to_goal_y": memory.ego_to_goal_y,
+                }
+                raw_ue_labels = [
+                    code for code in event_target.raw_events if str(code).startswith("U-E")
+                ]
+                accepted_event_labels = set(raw_ue_labels or ["RE"])
+                q1_input_matches_target = memory_before["rs_label"] == frame.rs_label
+                q1_after_matches_target = student_memory_after_q1["rs_label"] == frame.rs_label
+                q2_input_matches_target = bool(
+                    q2_student_memory_input is not None
+                    and q2_student_memory_input["event_label"] in accepted_event_labels
+                )
+                q2_after_matches_target = bool(
+                    student_memory_after_q2 is not None
+                    and student_memory_after_q2["event_label"] in accepted_event_labels
+                )
+                would_reset_under_training = bool(not q1_rs_ok or (q2_triggered and q2_invalid))
 
                 pred_event_label = parsed_q2.get("event_label")
                 pred_rs_label = parsed_q1.get("rs_label")
@@ -275,7 +357,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     "q2_event_correct": q2_event_correct,
                     "q2_candidate_mismatch": q2_candidate_mismatch,
                     "q2_invalid_output": q2_invalid,
-                    "reset_next": reset_next,
+                    "reset_next": False,
+                    "would_reset_under_training": would_reset_under_training,
+                    "memory_forced_correction_applied": False,
                     "rs_transition": bool(
                         frame_index > 0 and route.frames[frame_index - 1].rs_label != frame.rs_label
                     ),
@@ -285,11 +369,53 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     ),
                     **transition_fields,
                     "memory_before": memory_before,
-                    "memory_after": {
-                        "rs_label": memory.rs_label,
-                        "event_label": memory.event_label,
-                        "ego_to_goal_x": memory.ego_to_goal_x,
-                        "ego_to_goal_y": memory.ego_to_goal_y,
+                    "memory_after": student_memory_for_next_frame,
+                    "reference_memory_before": reference_memory_before,
+                    "reference_memory_after": reference_memory_after_q2,
+                    "memory_trace": {
+                        "policy": "student_closed_loop",
+                        "route_initialized_from_ground_truth": memory_initialized_from_gt,
+                        "reference_is_comparison_only": True,
+                        "forced_correction_applied": False,
+                        "q1": {
+                            "input_student": memory_before,
+                            "input_reference": reference_memory_before,
+                            "after_student_output": student_memory_after_q1,
+                            "after_ground_truth_reference": reference_memory_after_q1,
+                            "input_matches_current_frame_target": q1_input_matches_target,
+                            "after_matches_current_frame_target": q1_after_matches_target,
+                        },
+                        "q2": {
+                            "triggered": q2_triggered,
+                            "input_student": q2_student_memory_input,
+                            "input_ground_truth_reference": reference_memory_after_q1,
+                            "after_student_output": student_memory_after_q2,
+                            "after_ground_truth_reference": reference_memory_after_q2,
+                            "input_matches_current_frame_target": (
+                                q2_input_matches_target if q2_triggered else None
+                            ),
+                            "after_matches_current_frame_target": (
+                                q2_after_matches_target if q2_triggered else None
+                            ),
+                        },
+                        "autonomous_change": {
+                            "q1_rs_corrected_by_student": bool(
+                                not q1_input_matches_target and q1_after_matches_target
+                            ),
+                            "q1_rs_corrupted_by_student": bool(
+                                q1_input_matches_target and not q1_after_matches_target
+                            ),
+                            "q2_event_corrected_by_student": bool(
+                                q2_triggered
+                                and not q2_input_matches_target
+                                and q2_after_matches_target
+                            ),
+                            "q2_event_corrupted_by_student": bool(
+                                q2_triggered
+                                and q2_input_matches_target
+                                and not q2_after_matches_target
+                            ),
+                        },
                     },
                     # JSONL 可选保存完整文本输入输出，方便从大样本指标反查具体 FP/FN。
                     "q1_prompt": q1_prompt,
@@ -334,6 +460,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     "route_id": route.route_id,
                     "frames": route_summary["frames"],
                     "reset_count": route_summary["reset_count"],
+                    "training_reset_recommendation_count": route_summary[
+                        "training_reset_recommendation_count"
+                    ],
                     "metrics": route_summary["metrics"],
                 }
             )
@@ -369,6 +498,16 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             if total_route_frames > 0
             else None
         ),
+        "mean_training_reset_recommendations_per_100_frames": (
+            100.0
+            * sum(
+                int(item["training_reset_recommendation_count"])
+                for item in route_summaries
+            )
+            / total_route_frames
+            if total_route_frames > 0
+            else None
+        ),
         "mean_valid_frames_per_route": (
             total_route_frames / route_count if route_count > 0 else None
         ),
@@ -376,7 +515,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     summary.update(route_metrics)
     summary.update(
         {
-            "schema_version": "sft_v5_eval_v3",
+            "schema_version": "sft_v5_eval_v4",
+            "memory_policy": "student_closed_loop_reference_comparison_only",
             "index": str(args.index),
             "model_dir": str(args.model_dir),
             "adapter_dir": str(args.adapter_dir) if args.adapter_dir else None,

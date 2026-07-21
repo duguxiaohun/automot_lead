@@ -139,11 +139,11 @@ def test_adapter_metadata_records_effective_window() -> None:
         grad_accum=2,
         learning_rate=1e-5,
         checkpoint_probe=True,
-        checkpoint_probe_num_cases=8,
+        checkpoint_probe_num_cases=24,
         checkpoint_probe_with_teacher=True,
         checkpoint_probe_sample_mode="random",
-        checkpoint_probe_context_radius=2,
-        checkpoint_probe_sequence_length=8,
+        checkpoint_probe_context_radius=8,
+        checkpoint_probe_sequence_length=24,
         checkpoint_probe_artifact_level="review",
     )
     with tempfile.TemporaryDirectory(prefix="sft_v5_adapter_meta_") as tmp:
@@ -154,11 +154,11 @@ def test_adapter_metadata_records_effective_window() -> None:
     assert meta["effective_max_timesteps_per_step"] == 64
     assert meta["parallel_kl_microbatch_size"] == 2
     assert meta["checkpoint_probe_enabled"] is True
-    assert meta["checkpoint_probe_num_cases"] == 8
+    assert meta["checkpoint_probe_num_cases"] == 24
     assert meta["checkpoint_probe_with_teacher"] is True
     assert meta["checkpoint_probe_sample_mode"] == "random"
-    assert meta["checkpoint_probe_context_radius"] == 2
-    assert meta["checkpoint_probe_sequence_length"] == 8
+    assert meta["checkpoint_probe_context_radius"] == 8
+    assert meta["checkpoint_probe_sequence_length"] == 24
     assert meta["checkpoint_probe_artifact_level"] == "review"
     assert meta["gradient_sync"] == "bucketed_sum_allreduce_then_global_frame_average"
 

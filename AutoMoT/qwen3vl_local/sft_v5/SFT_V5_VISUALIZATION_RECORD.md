@@ -54,7 +54,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe \
-  --num-cases 8 \
+  --num-cases 24 \
+  --sequence-length 24 \
   --with-model \
   --with-teacher-model \
   --with-teacher
@@ -65,19 +66,15 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 这一类训练前体检不要加载任何 adapter，否则看到的就不是普通 Qwen 是否足够支撑
 OPSD。
 
-会额外生成：
+每帧重点看：
 
-- `q1_student_output.txt` / `q2_student_output.txt`：默认 Qwen 在学生输入下的输出。
-- `q1_teacher_output.txt` / `q2_teacher_output.txt`：默认 Qwen 在 teacher 私有输入下的输出。
+- `output.json.student`：默认 Qwen 在学生输入下的 Q1/Q2 原始输出和解析结构。
+- `output.json.teacher`：默认 Qwen 在 teacher 私有输入下的 Q1/Q2 原始输出和解析结构。
   合格内容应当像学生输出一样，从 `Scene Description:` 开始写分析和答案；如果看到它
   复读 `[MEMORY]`、`[RS_CHOICES]`、`[REFERENCE]` 等输入块，说明这份 demo 是旧
   prompt 产物，或默认 Qwen 没有遵守格式，需要用当前代码重新跑 probe。
-- `flags.json` 里的 `parsed_teacher_q1`、`parsed_teacher_q2`、
-  `q1_teacher_rs_correct`、`q1_teacher_abnormal_correct`、`q2_teacher_triggered`、
-  `q2_teacher_event_correct`、
-  `q2_student_continued_from_q1_kv`、`q2_teacher_continued_from_q1_kv`。
-- `q2_teacher_model_prompt.txt` / `q2_teacher_model_target.txt`：teacher Q2 自主续接输入；
-  只使用 teacher 自己的 Q1 KV/解析结果，不与 student Q1 memory 混用。
+- `input.json`：teacher/student Q1 prompt 与 Q2 KV 续接 user turn。
+- `memory.json`：两问的 student memory 输入/输出和只读 truth 对照。
 
 如果同卡同时加载 student 和 teacher 两份 Qwen 显存不够，可以分两次跑：
 
@@ -87,7 +84,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_v5_runs/pre_opsd_base_student_probe \
-  --num-cases 8 \
+  --num-cases 24 \
+  --sequence-length 24 \
   --with-model
 
 # 只看默认 Qwen teacher 能力，不传 --adapter-dir
@@ -95,24 +93,21 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_v5_runs/pre_opsd_base_teacher_probe \
-  --num-cases 8 \
+  --num-cases 24 \
+  --sequence-length 24 \
   --with-teacher-model \
   --with-teacher
 ```
 
 训练前重点看：
 
-- `q1_student_output.txt` 能否稳定输出 `RS: <A-E>` 和 `ABNORMAL: YES/NO`。
-- `q2_student_output.txt` 能否只从当前 `EVENT_CHOICES` 里选，不编造选项。
-- `q1_teacher_output.txt` / `q2_teacher_output.txt` 是否能利用私有参考做更稳的分析，
+- `output.json.student.q1_output` 能否稳定输出 `RS: <A-E>` 和 `ABNORMAL: YES/NO`。
+- `output.json.student.q2_output` 能否只从当前 `EVENT_CHOICES` 里选，不编造选项。
+- `output.json.teacher` 是否能利用私有参考做更稳的分析，
   但最终表述不要依赖学生看不到的字段名。
-- `q1_teacher_output.txt` / `q2_teacher_output.txt` 是否从 `Scene Description:`
-  直接开始；若复读输入 prompt，优先检查 `q*_teacher_user_prompt.txt` 是否包含
-  `Output exactly these lines:`，并重新生成 demo。
-- `q1_student_messages.json` / `q2_student_messages.json` 是否清楚区分 system role
-  和 user role；`q2_*_messages.json` 里的 prompt 是第二轮 user turn 的内容，模型输出
-  实际由 Q1 KV cache 续接得到。
-- `flags.json` 里 teacher/student 解析字段是否为空；为空说明 prompt 或解析合同要先修。
+- teacher 输出是否从 `Scene Description:` 直接开始；若复读输入，检查 `input.json`。
+- `input.json` 是否清楚区分 system/user，以及 Q2 是否标记从 Q1 KV 续接。
+- `output.json` 的 teacher/student 解析字段是否为空；为空说明 prompt 或解析合同要先修。
 - `flags.json` 里的 `student_adapter_dir` 必须为空；否则说明训练前体检误加载了 LoRA，
   需要重跑纯 base Qwen 检查。
 
@@ -245,18 +240,17 @@ SAVE_STEPS=40
 CHECKPOINT_PROBE=1
 CHECKPOINT_PROBE_BASE=1
 CHECKPOINT_PROBE_WITH_TEACHER=1
-CHECKPOINT_PROBE_NUM_CASES=8
+CHECKPOINT_PROBE_NUM_CASES=24
 CHECKPOINT_PROBE_SAMPLE_MODE=random
-CHECKPOINT_PROBE_SEQUENCE_LENGTH=8
+CHECKPOINT_PROBE_SEQUENCE_LENGTH=24
 CHECKPOINT_PROBE_ARTIFACT_LEVEL=review
-CHECKPOINT_PROBE_CONTEXT_RADIUS=2
+CHECKPOINT_PROBE_CONTEXT_RADIUS=8
 ```
 
 训练开始时生成 `probes/base/`，每次保存 `checkpoint-40/80/...` 后生成对应
 `probes/checkpoint-000040/000080/...`，正常结束保存 `final/` 后生成 `probes/final/`。
-所有版本使用相同 seed 和相同 `random` 规则固定选择一段连续 8 帧，不再从全 validation
-打散抽取 8 个孤立帧。固定 seed 保证 base/checkpoint/final 始终比较同一片段；实际帧号、
-选择原因、真值、原始输出和指标集中写入 `results.json`：
+所有版本使用相同 seed 和相同 `random` 规则固定选择一段连续 24 帧，不再从全
+validation 打散抽孤立帧。长窗口用于观察学生在变化首帧没改对时，后续是否会自主恢复：
 
 - `base`：student 与 teacher 都临时关闭 LoRA，记录未训练 Qwen 的表现。
 - `checkpoint-*` / `final`：student 使用当前 LoRA；teacher 临时关闭 LoRA，保持纯 base
@@ -279,8 +273,8 @@ checkpoints/sft_v5_runs/latest/probes/final/results.json
 ```
 
 `comparison.json` 会集中记录 Q1 RS、Q1 abnormal、Q2 EVENT、UE 假阳性/假阴性和端到端
-指标。默认 review 按场景/帧分开保存输入、输出和真值但不复制 RGB；确需归档 RGB 和
-legacy 文件时设置 `CHECKPOINT_PROBE_ARTIFACT_LEVEL=full`。
+指标。默认 review 已逐帧复制真实 RGB，并保存精简 input/output/memory；只有 legacy
+逐项 TXT/JSON 需要设置 `CHECKPOINT_PROBE_ARTIFACT_LEVEL=full`。
 
 关闭或缩小自动检查：
 
@@ -301,9 +295,9 @@ probe 失败会写 `error.txt` 并继续训练，不会因为旁路可视化终�
 目的：训练结束后检查当前 adapter 学生在真实推理状态机下的表现。此时重点不是看
 base Qwen 强不强，而是看训练出的学生是否：
 
-- Q1 RS 错时正确停止本帧 Q2，并在下一帧恢复 `GT RS + RE` 默认 memory。
+- Q1 RS 错时停止本帧 Q2，但下一帧继续使用学生自己的 memory，观察后续自主纠正。
 - Q1 正确时进入 Q2，且 Q2 只在当前帧候选里输出 `RE` 或 `U-E*`。
-- `memory_before.json` / `memory_after.json` 符合 v5 状态机。
+- `memory.json` 分清 Q1/Q2 输入、输出、下一帧 student memory 和只读 truth memory。
 - 错误样本能通过 RGB、prompt、label、flags 定位到原因。
 
 从 `AutoMoT/` 目录运行：
@@ -314,11 +308,11 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
-  --num-cases 8 \
-  --sequence-length 8 \
+  --num-cases 24 \
+  --sequence-length 24 \
   --artifact-level review \
   --sample-mode random \
-  --context-radius 2 \
+  --context-radius 8 \
   --with-model \
   --with-teacher-model \
   --with-teacher
@@ -326,13 +320,12 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 
 这个命令让 student 加载训练后的 LoRA，同时让 teacher 使用未加载 LoRA 的纯 base
 Qwen，和训练前能力检查保持同一输入输出合同。默认结果集中在
-`scenarios/<scenario>__<route_id>/frame_*/`；每帧的输入、学生输出、老师输出、老师真值、
-场景真值、memory 和评估各是独立 JSON。加 `--artifact-level full` 后再额外生成 RGB、
-`q1_student_output.txt`、teacher legacy 文件和 `flags.json`。
+`scenarios/<scenario>__<route_id>/frame_*/`；每帧只写输入 RGB、`input.json`、
+`output.json`、`memory.json`。加 `--artifact-level full` 后再额外生成 legacy 文件。
 
 小样本只有三种选帧模式：
 
-- `--sample-mode random --sequence-length 8 --seed <N>`：随机连续片段，默认；相同 seed 可复现。
+- `--sample-mode random --sequence-length 24 --seed <N>`：随机连续长片段，默认。
 - `--sample-mode rs_transition`：对每一次 RS 变化连续保留变化前帧、新 RS 首帧和变化后帧，
   用于检查 RS 识别和 memory 切换。
 - `--sample-mode ue_transition`：完整保留一个连续 UE span 的全部 UE 帧，并按
@@ -358,7 +351,7 @@ python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --output-dir checkpoints/sft_v5_runs/latest/probe_static \
   --num-cases 24 \
-  --sequence-length 8 \
+  --sequence-length 24 \
   --artifact-level full \
   --with-teacher
 ```
@@ -376,32 +369,25 @@ probe*/
   scenarios/
     <scenario>__<route_id>/
       frame_<frame_id>/
-        inputs.json
-        student_outputs.json
-        teacher_outputs.json
-        teacher_targets.json
-        ground_truth.json
+        input_rgb_00.jpg
+        input_rgb_01.jpg
+        input_rgb_02.jpg
+        input_rgb_03.jpg
+        input.json
+        output.json
         memory.json
-        prediction_vs_ground_truth.json
-        evaluation.json
 ```
 
 先选测试场景，再进入连续 frame。各文件职责如下：
 
-- `ground_truth.json`：完整 RS/EVENT 真值、原始 event code、候选池、weather 和来源。
-- `inputs.json`：RGB history 路径、Q1 完整 student/teacher messages，以及明确标注 KV 续接
-  来源的 Q2 student/training-teacher/base-teacher user turns。
-- `student_outputs.json` / `teacher_outputs.json`：完整 CoT 分析、解析答案和正确性。
-- `teacher_targets.json`：Q1 真值、OPSD Q2 真值和 teacher 自主续接 Q2 真值。
-- `memory.json`：帧前后 memory。
-- `prediction_vs_ground_truth.json`：当前场景 RS/ABNORMAL/EVENT 真值、学生 Q1/Q2
-  解析结构、teacher 脚本真值与逐项正确性，作为每帧首选检查入口。其中
-  `current_scene_ground_truth.structured` 保存 Q1/Q2 结构化真值；Q2 同时列出双标签下
-  可接受 EVENT、默认单标签及按当前学生输出动态解析的单标签，避免合法双标签命中被误读。
-  同层 `scenario_name/route_id` 保存原始场景定位真值，仅作审计。
-  `field_comparisons` 将 Q1 RS、Q1 ABNORMAL、Q2 EVENT 的
-  `expected/predicted/correct` 直接并排；未运行 student 时后两者为 `null`。
-- `evaluation.json`：本帧正确性、reset 和 RS/UE 变化检测结果。
+- `input_rgb_*.jpg`：该帧模型实际读取的 RGB history 原始字节。
+- `input.json`：Q1 student/teacher messages，以及标明 KV 续接来源的 Q2 user turn。
+- `output.json`：学生/老师完整 CoT、解析结构、teacher target、RS/EVENT 真值和正确性。
+- `memory.json`：Q1 输入→学生输出、Q2 输入→学生输出、下一帧 student memory 与
+  reference truth memory。reference 只作对比，`forced_correction_applied=false`。
+
+根目录 `results.json.memory_recovery_report` 统计 RS/UE 变化后学生首次自行与 reference
+对齐的 `recovery_delay_frames`；窗口内未改对时记录 `recovered=false`。
 
 `--artifact-level compact` 才只写顶层 `results.json`，用于机器汇总，不作为默认人工入口。
 
@@ -418,7 +404,7 @@ probe*/
       timeline.json
       timeline.png
       frame_<frame_id>/
-        # 上述 8 个 review JSON 仍保留，并额外增加以下文件：
+        # 上述 review 文件仍保留，并额外增加以下 legacy 文件：
       case_record.json
       rgb_00.jpg
       rgb_01.jpg
@@ -528,44 +514,25 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 `q2_trigger_rate` 与样本数只作诊断。每个字段的完整中文定义和方向同时内嵌在
 `eval_metrics.json.metric_definitions`，以代码输出为最终口径。
 
-三种 artifact mode 都把以下内容内嵌到 `results.json.transition_report`；full 模式另写
-`transition_report.json`：
-
-- `metrics`：RS 变化、UE 进入、UE 退出的 precision/recall/F1 和误报率。
-- `confusions`：三类变化的 `tp/fp/tn/fn/invalid`。
-- `cases`：相邻帧 GT/预测状态与 `TP/FP/FN/TN/invalid` 结果。
-
-`random` probe 默认抽一段连续 8 帧，可以观察短时间 memory 推进；要确保命中变化边界，
-使用 `rs_transition` 或 `ue_transition`。全量 eval 则按 validation route 的所有连续帧计算。
+变化指标保存在 `results.json.summary`，自主纠正延迟保存在
+`results.json.memory_recovery_report`；full 模式另写完整 `transition_report.json`。
+`random` 默认抽连续 24 帧；要确保命中变化边界，使用 `rs_transition` 或
+`ue_transition`。全量 eval 按 validation route 的所有连续帧计算。
 
 ## Timeline 颜色
 
-- 红色：Q1 的 RS 错误，下一帧会恢复 `GT RS + RE`。
+- 红色：Q1 的 RS 错误；测试下一帧仍沿用学生 memory，不做 GT 纠错。
 - 蓝色：Q1 的 RS 正确，本帧进入 Q2。
 - 绿色：未加载 student 模型的静态 teacher-forced dump。
 - 灰色：没有特别转折的普通帧。
 
 ## 人工检查清单
 
-- `q1_student_user_prompt.txt` / `q2_student_user_prompt.txt` 不应包含 `XML_WEATHER`、
-  `ANSWER_`、`REFERENCE`、GT label 或 scenario name。
-- `q1_system_prompt.txt` / `q2_system_prompt.txt` 应为固定 v5 system prompt；
-  `q*_messages.json` 应能看到 system/user 分离和 4 帧 RGB 顺序。
-- `q1_teacher_user_prompt.txt` / `q2_teacher_user_prompt.txt` 可以包含 teacher 私有参考信息。
-- `q1_teacher_target.txt` / `q2_teacher_target.txt` 必须是学生视角文本，不能泄漏
-  `ANSWER_`、`REFERENCE`、`XML_WEATHER` 这类私有字段名。
-- `q1_teacher_output.txt` / `q2_teacher_output.txt` 是模型生成文本，只在
-  `--with-teacher-model` 时非空，用来评估默认 Qwen 老师能力和 prompt 合理性。
-  它不是脚本化标签；合格输出应包含 `Scene Description / Critical Object Description /
-  Reasoning on Intent / RS 或 EVENT`。如果文件内容像 prompt 续写，先确认是否为旧
-  probe 产物，再重跑当前版本。
-- `q1_student_output.txt` 应按三段式 CoT 输出 `Scene Description`、
-  `Critical Object Description`、`Reasoning on Intent`，然后输出 `RS` 和 `ABNORMAL`；
-  `q2_student_output.txt` 应按同样三段式 CoT 输出后给出 `EVENT`。
-- `q2_student_user_prompt.txt` 应该显示 `RE` 加当前帧允许的 `U-E*` 候选；`RE` 文案里
-  应覆盖当前帧 `regular_event_codes` 对应的 regular 行为。
-- `memory_before.json` / `memory_after.json` 应符合 v5 状态机：
-  Q1 RS 错误时跳过本帧 Q2，并在下一帧恢复 `GT RS + RE`；Q2 非法输出不污染 memory。
-- `flags.json` 中 `q2_student_continued_from_q1_kv=true` 表示 student Q2 是接在 Q1
-  KV cache 后继续问；`q2_teacher_continued_from_q1_kv=true` 表示 teacher 模型输出也
-  是同样的第二轮对话体检。
+- `input.json` 的 student prompt 不应包含 `XML_WEATHER`、`ANSWER_`、`REFERENCE`、GT
+  label 或 scenario name；teacher prompt 可以包含私有参考。
+- `output.json.student/teacher` 应包含三段式 CoT 与最终 RS/ABNORMAL/EVENT，解析字段非空。
+- `output.json.teacher_targets` 必须是学生视角文本，不能泄漏私有字段名。
+- `memory.json.q1/q2` 应能看到两问各自的 student input、student output 和 reference；
+  `reference_is_comparison_only=true`、`forced_correction_applied=false`。
+- Q1 RS 错误时本帧 Q2 应跳过，但 `next_frame.student` 仍保留学生结果；后续改对必须来自
+  新一帧学生输出。Q2 非法输出不覆盖已有 student EVENT。
