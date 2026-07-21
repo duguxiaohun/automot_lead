@@ -2391,6 +2391,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "gradient_bucket_cap_mb": 64.0,
         "checkpoint_probe_enabled": bool(args.checkpoint_probe),
         "checkpoint_probe_num_cases": int(args.checkpoint_probe_num_cases),
+        "checkpoint_probe_num_routes": int(args.checkpoint_probe_num_routes),
         "checkpoint_probe_with_teacher": bool(args.checkpoint_probe_with_teacher),
         "checkpoint_probe_sample_mode": str(args.checkpoint_probe_sample_mode),
         "checkpoint_probe_context_radius": int(args.checkpoint_probe_context_radius),
@@ -2461,6 +2462,7 @@ def _run_probe_with_training_bundle(
         index=str(index_path),
         output_dir=str(probe_dir),
         num_cases=int(args.checkpoint_probe_num_cases),
+        num_routes=int(args.checkpoint_probe_num_routes),
         max_routes=0,
         max_frames_per_route=0,
         sample_mode=str(args.checkpoint_probe_sample_mode),
@@ -2834,7 +2836,13 @@ def parse_args() -> argparse.Namespace:
         "--checkpoint-probe-num-cases",
         type=int,
         default=24,
-        help="random/RS 的 probe 总帧预算；UE 模式为最小预算且不截断完整 span",
+        help="RS 的帧预算、UE 的最小预算；random 模式忽略该参数",
+    )
+    p.add_argument(
+        "--checkpoint-probe-num-routes",
+        type=int,
+        default=1,
+        help="random 自动 probe 抽取的完整 route ID 数；每个 ID 测试全部帧",
     )
     p.add_argument(
         "--checkpoint-probe-sample-mode",
@@ -2847,7 +2855,7 @@ def parse_args() -> argparse.Namespace:
         "--checkpoint-probe-sequence-length",
         type=int,
         default=24,
-        help="random checkpoint probe 默认连续观察 24 帧，覆盖延迟 memory 纠正",
+        help="旧配置兼容；random 已按完整 route ID 测试，不再按 sequence length 截断",
     )
     p.add_argument(
         "--checkpoint-probe-artifact-level",
@@ -2880,6 +2888,8 @@ def main() -> None:
         raise ValueError("--parallel-kl-microbatch-size must be >= 1")
     if int(args.checkpoint_probe_num_cases) <= 0:
         raise ValueError("--checkpoint-probe-num-cases must be >= 1")
+    if int(args.checkpoint_probe_num_routes) <= 0:
+        raise ValueError("--checkpoint-probe-num-routes must be >= 1")
     if int(args.checkpoint_probe_context_radius) < 0:
         raise ValueError("--checkpoint-probe-context-radius must be >= 0")
     if int(args.checkpoint_probe_sequence_length) <= 0:
@@ -2957,6 +2967,7 @@ def main() -> None:
         tb.add_scalar("run/save_steps", float(args.save_steps), 0)
         tb.add_scalar("run/checkpoint_probe", float(bool(args.checkpoint_probe)), 0)
         tb.add_scalar("run/checkpoint_probe_num_cases", float(args.checkpoint_probe_num_cases), 0)
+        tb.add_scalar("run/checkpoint_probe_num_routes", float(args.checkpoint_probe_num_routes), 0)
         tb.add_scalar(
             "run/checkpoint_probe_sequence_length",
             float(args.checkpoint_probe_sequence_length),
@@ -2985,6 +2996,7 @@ def main() -> None:
                     f"checkpoint_probe_base: {args.checkpoint_probe_base}",
                     f"checkpoint_probe_with_teacher: {args.checkpoint_probe_with_teacher}",
                     f"checkpoint_probe_num_cases: {args.checkpoint_probe_num_cases}",
+                    f"checkpoint_probe_num_routes: {args.checkpoint_probe_num_routes}",
                     f"checkpoint_probe_sample_mode: {args.checkpoint_probe_sample_mode}",
                     f"checkpoint_probe_context_radius: {args.checkpoint_probe_context_radius}",
                     f"checkpoint_probe_sequence_length: {args.checkpoint_probe_sequence_length}",
@@ -3075,7 +3087,7 @@ def main() -> None:
             rank0_log(
                 f"[probe-start] name={name} step={step} base_student={int(base_student)} "
                 f"cases={int(args.checkpoint_probe_num_cases)} "
-                f"sequence={int(args.checkpoint_probe_sequence_length)} "
+                f"routes={int(args.checkpoint_probe_num_routes)} "
                 f"artifacts={args.checkpoint_probe_artifact_level} {_cuda_memory_text()}"
             )
             started = time.time()
