@@ -4,7 +4,8 @@
 RS/EVENT memory。Q1 RS 错时跳过本帧 Q2，下一有效帧恢复 GT RS + RE。
 
 常用方式是传 ``--adapter-dir`` 评估训练后的 LoRA；``--output-json`` 保存聚合指标，
-``--output-jsonl`` 可选保存逐帧完整输入输出。只检查 index 时使用 ``--check``，该模式
+``--output-jsonl`` 可选保存逐帧完整输入输出，``--transition-jsonl`` 只保存 RS/UE 变化、
+边界误报和漏检。只检查 index 时使用 ``--check``，该模式
 不会加载 Qwen。
 """
 
@@ -33,7 +34,12 @@ import torch
 
 from qwen3vl_local.sft_v3.train import _append_user_turn, _kv_start_state, _student_generate_kv  # noqa: E402
 from qwen3vl_local.sft_v5.labels import option_for_event  # noqa: E402
-from qwen3vl_local.sft_v5.metrics import StudentMetricsAccumulator  # noqa: E402
+from qwen3vl_local.sft_v5.metrics import (  # noqa: E402
+    StudentMetricsAccumulator,
+    build_transition_fields,
+    transition_case_from_row,
+    transition_case_is_informative,
+)
 from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     Memory,
     build_q1_student_prompt,
@@ -144,16 +150,24 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     accumulator = StudentMetricsAccumulator()
     route_summaries: List[Dict[str, Any]] = []
     output_jsonl = pathlib.Path(args.output_jsonl) if args.output_jsonl else None
+    transition_jsonl_arg = getattr(args, "transition_jsonl", None)
+    transition_jsonl = pathlib.Path(transition_jsonl_arg) if transition_jsonl_arg else None
     jsonl_handle = None
+    transition_handle = None
     if output_jsonl is not None:
         output_jsonl.parent.mkdir(parents=True, exist_ok=True)
         jsonl_handle = output_jsonl.open("w", encoding="utf-8")
+    if transition_jsonl is not None:
+        transition_jsonl.parent.mkdir(parents=True, exist_ok=True)
+        transition_handle = transition_jsonl.open("w", encoding="utf-8")
     processed_frames = 0
     try:
         for route in ds.rows:
             route_accumulator = StudentMetricsAccumulator()
             memory: Optional[Memory] = None
             reset_next = False
+            previous_pred_rs_label: Optional[str] = None
+            previous_pred_abnormal: Optional[bool] = None
             for frame_index, frame in enumerate(route.frames):
                 rs_target = _rs_target_from_frame(frame)
                 event_target = _event_target_from_frame(frame)
@@ -228,13 +242,28 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                         reset_next = True
 
                 pred_event_label = parsed_q2.get("event_label")
+                pred_rs_label = parsed_q1.get("rs_label")
+                transition_fields = build_transition_fields(
+                    pair_evaluated=frame_index > 0,
+                    previous_frame_id=(route.frames[frame_index - 1].frame_id if frame_index > 0 else None),
+                    previous_gt_rs_label=(route.frames[frame_index - 1].rs_label if frame_index > 0 else None),
+                    gt_rs_label=frame.rs_label,
+                    previous_pred_rs_label=previous_pred_rs_label,
+                    pred_rs_label=pred_rs_label,
+                    previous_gt_abnormal=(
+                        bool(route.frames[frame_index - 1].abnormal) if frame_index > 0 else None
+                    ),
+                    gt_abnormal=bool(frame.abnormal),
+                    previous_pred_abnormal=previous_pred_abnormal,
+                    pred_abnormal=q1_abnormal,
+                )
                 frame_log: Dict[str, Any] = {
                     "scenario": route.scenario,
                     "route_id": route.route_id,
                     "frame_id": frame.frame_id,
                     "history_rgb_paths": frame.history_rgb_paths,
                     "gt_rs_label": frame.rs_label,
-                    "pred_rs_label": parsed_q1.get("rs_label"),
+                    "pred_rs_label": pred_rs_label,
                     "gt_abnormal": bool(frame.abnormal),
                     "pred_abnormal": q1_abnormal,
                     "gt_event_label": event_target.label,
@@ -254,6 +283,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                         frame_index > 0
                         and bool(route.frames[frame_index - 1].abnormal) != bool(frame.abnormal)
                     ),
+                    **transition_fields,
                     "memory_before": memory_before,
                     "memory_after": {
                         "rs_label": memory.rs_label,
@@ -274,11 +304,24 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 route_accumulator.update(frame_log)
                 if jsonl_handle is not None:
                     jsonl_handle.write(json.dumps(frame_log, ensure_ascii=False) + "\n")
+                transition_case = transition_case_from_row(frame_log)
+                if (
+                    transition_handle is not None
+                    and transition_case is not None
+                    and transition_case_is_informative(transition_case)
+                ):
+                    transition_handle.write(json.dumps(transition_case, ensure_ascii=False) + "\n")
+                # 下一帧的变化判断使用本帧实际模型输出。解析失败时保留
+                # None，使后续帧对记为 invalid，不伪装成“未变化”。
+                previous_pred_rs_label = pred_rs_label
+                previous_pred_abnormal = q1_abnormal
                 processed_frames += 1
                 progress_every = max(0, int(args.progress_frames))
                 if progress_every > 0 and processed_frames % progress_every == 0:
                     if jsonl_handle is not None:
                         jsonl_handle.flush()
+                    if transition_handle is not None:
+                        transition_handle.flush()
                     print(
                         f"[eval] frames={processed_frames} scenario={route.scenario} "
                         f"route={route.route_id} frame={frame.frame_id}",
@@ -297,6 +340,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     finally:
         if jsonl_handle is not None:
             jsonl_handle.close()
+        if transition_handle is not None:
+            transition_handle.close()
 
     summary = accumulator.summary()
     def _mean_defined(values: List[Optional[float]]) -> Optional[float]:
@@ -331,11 +376,12 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     summary.update(route_metrics)
     summary.update(
         {
-            "schema_version": "sft_v5_eval_v2",
+            "schema_version": "sft_v5_eval_v3",
             "index": str(args.index),
             "model_dir": str(args.model_dir),
             "adapter_dir": str(args.adapter_dir) if args.adapter_dir else None,
             "output_jsonl": str(output_jsonl) if output_jsonl is not None else None,
+            "transition_jsonl": str(transition_jsonl) if transition_jsonl is not None else None,
             "route_metrics": route_metrics,
             "route_summaries": route_summaries,
         }
@@ -352,6 +398,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--adapter-dir", type=str, default=None)
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--output-jsonl", type=str, default=None, help="可选逐帧完整 prompt/output/解析记录，便于回查 FP/FN")
+    p.add_argument(
+        "--transition-jsonl",
+        type=str,
+        default=None,
+        help="可选轻量变化帧报告；只写真实/预测 RS 变化、UE 进入/退出及 FP/FN",
+    )
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
     # 正式大样本指标必须与训练 rollout 的安全上限对齐，避免长 CoT 被旧 probe 的

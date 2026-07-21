@@ -10,8 +10,9 @@
 frame 级 RGB/prompt/output/memory/flags。这样人工看 case 时不用在 v3/v5 之间切换
 不同心智模型，只需要记住 v5 的 step1=Q1(RS+ABNORMAL)，step2=Q2(EVENT)。
 
-手工检查通常使用 ``--sample-mode diagnostic --with-model``；UE/RS 专项分别改成
-``ue_context`` / ``rs_transition``。不传模型开关时只生成静态 prompt/target 合同。
+小样本只保留三种直观模式：``random`` 随机抽帧，``rs_transition`` 查看同一次
+RS 变化前后，``ue_transition`` 查看同一次 UE 的进入、持续和退出。不传模型开关时
+只生成静态 prompt/target 合同。
 """
 
 from __future__ import annotations
@@ -35,7 +36,11 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _p)
 
 from qwen3vl_local.sft_v5.eval import _generate_next, _generate_start, load_eval_bundle  # noqa: E402
-from qwen3vl_local.sft_v5.metrics import summarize_student_predictions  # noqa: E402
+from qwen3vl_local.sft_v5.metrics import (  # noqa: E402
+    build_transition_fields,
+    build_transition_report,
+    summarize_student_predictions,
+)
 from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     SYSTEM_PROMPT_V5,
     build_q1_student_prompt,
@@ -58,6 +63,26 @@ from qwen3vl_local.sft_v5.train import (  # noqa: E402
     _reset_memory_for_frame_row,
     _rs_target_from_frame,
 )
+
+
+PROBE_SAMPLE_MODE_DESCRIPTIONS = {
+    "random": "从 validation 全部帧中按固定随机种子抽样",
+    "rs_transition": "检查同一次 RS 变化的变化前帧、新 RS 首帧和变化后帧",
+    "ue_transition": "检查同一 UE 片段的进入前 RE、UE 内部和退出后 RE",
+}
+
+PROBE_REASON_DESCRIPTIONS = {
+    "random": "随机抽中的帧",
+    "rs_before_transition": "RS 变化前的旧 RS 帧",
+    "rs_transition": "RS 变化后的新 RS 首帧",
+    "rs_after_transition": "RS 变化后的新 RS 邻帧",
+    "ue_before_entry": "进入 UE 之前的 RE 帧",
+    "ue_entry": "从 RE 变为 UE 的首帧",
+    "ue_inside": "仍处于 UE 片段内的帧",
+    "ue_last_frame": "退出 UE 之前的最后一个 UE 帧",
+    "ue_exit": "从 UE 退出后的第一个 RE 帧",
+    "ue_after_exit": "退出 UE 后继续保持 RE 的邻帧",
+}
 
 
 def _safe_name(text: str, *, max_len: int = 96) -> str:
@@ -266,9 +291,68 @@ def _probe_candidate_reasons(
             key = (route_idx, frame_idx)
             if not frame.abnormal and not reasons.get(key):
                 reasons[key].add("stable_re")
-            # 每种 RS 都至少有机会进入 fallback/control pool，避免小样本只覆盖 R1。
+            # 额外保留 RS 类别作为审计 reason，不参与三种公开选帧模式的凑数回退。
             reasons[key].add(f"rs_{frame.rs_label.lower()}")
     return {key: tuple(sorted(value)) for key, value in reasons.items()}
+
+
+def _route_round_robin_windows(
+    windows: Sequence[Tuple[int, int, int]],
+) -> List[Tuple[int, int, int]]:
+    """按 route 轮询排列时间窗口，避免单条长 route 占满专项样本。
+
+    输入三元组为 ``(route_index, start, end)``。同一 route 内仍按时间顺序，
+    route 之间每轮各取一个窗口，让小样本尽量覆盖不同场景。
+    """
+
+    by_route: Dict[int, List[Tuple[int, int, int]]] = defaultdict(list)
+    for window in sorted(windows):
+        by_route[int(window[0])].append(window)
+    ordered: List[Tuple[int, int, int]] = []
+    depth = 0
+    while True:
+        added = False
+        for route_idx in sorted(by_route):
+            route_windows = by_route[route_idx]
+            if depth < len(route_windows):
+                ordered.append(route_windows[depth])
+                added = True
+        if not added:
+            return ordered
+        depth += 1
+
+
+def _rs_transition_windows(routes: Sequence[SequenceRow]) -> List[Tuple[int, int, int]]:
+    """列出 RS 变化点，``start=end`` 均指向新 RS 首帧。"""
+
+    windows = []
+    for route_idx, route in enumerate(routes):
+        for frame_idx in range(1, len(route.frames)):
+            if route.frames[frame_idx - 1].rs_label != route.frames[frame_idx].rs_label:
+                windows.append((route_idx, frame_idx, frame_idx))
+    return _route_round_robin_windows(windows)
+
+
+def _ue_transition_windows(routes: Sequence[SequenceRow]) -> List[Tuple[int, int, int]]:
+    """列出连续 UE span，优先返回同时具有进入前 RE 和退出后 RE 的完整片段。"""
+
+    complete: List[Tuple[int, int, int]] = []
+    partial: List[Tuple[int, int, int]] = []
+    for route_idx, route in enumerate(routes):
+        start: Optional[int] = None
+        for frame_idx in range(len(route.frames) + 1):
+            abnormal = frame_idx < len(route.frames) and bool(route.frames[frame_idx].abnormal)
+            if abnormal and start is None:
+                start = frame_idx
+            if not abnormal and start is not None:
+                end = frame_idx - 1
+                window = (route_idx, start, end)
+                # 完整 span 可以同时审计 RE->UE 与 UE->RE，因此排在 route
+                # 起始就是 UE 或 route 结束仍是 UE 的不完整 span 之前。
+                target = complete if start > 0 and end + 1 < len(route.frames) else partial
+                target.append(window)
+                start = None
+    return _route_round_robin_windows(complete) + _route_round_robin_windows(partial)
 
 
 def build_probe_selection_plan(
@@ -279,10 +363,12 @@ def build_probe_selection_plan(
     context_radius: int,
     seed: int,
 ) -> List[ProbeSelection]:
-    """构造确定、类别均衡且优先 route 多样性的小样本计划。
+    """按三种公开语义构造小样本计划。
 
-    `diagnostic` 是训练前/训练后默认模式，不做盲目随机抽帧。它按 UE 边界、UE 正例、
-    UE 周围 RE、RS 变换、RS 邻帧、稳定 RE 轮询取样。只有显式 `random` 才使用 seed。
+    ``random`` 用 seed 随机抽取独立帧；``rs_transition`` 保留同一 RS 变化点的
+    前/当前/后帧；``ue_transition`` 保留同一 UE span 的进入前 RE、UE 内部和
+    退出后 RE。专项模式找不到真实变化时返回少于 ``num_cases`` 的结果，
+    不用普通帧冒充专项样本。
     """
 
     limit = max(0, int(num_cases))
@@ -294,65 +380,86 @@ def build_probe_selection_plan(
         for route_idx, route in enumerate(routes)
         for frame_idx, _frame in enumerate(route.frames)
     ]
-    mode = str(sample_mode or "diagnostic").lower()
-    category_order = (
-        "ue_boundary",
-        "ue_positive",
-        "ue_nearby_re",
-        "rs_transition",
-        "rs_nearby",
-        "stable_re",
-    )
-    pools: Dict[str, List[Tuple[int, int]]] = {
-        category: [key for key in all_keys if category in reasons_by_key.get(key, ())]
-        for category in category_order
-    }
+    mode = str(sample_mode or "random").lower()
+    if mode not in {"random", "rs_transition", "ue_transition"}:
+        raise ValueError(
+            f"unsupported probe sample mode: {sample_mode}; "
+            "expected random/rs_transition/ue_transition"
+        )
     selected: List[Tuple[Tuple[int, int], str]] = []
     selected_keys: set[Tuple[int, int]] = set()
-    route_counts: Counter[int] = Counter()
 
-    def take_one(category: str, candidates: Sequence[Tuple[int, int]]) -> bool:
-        """从类别中取 route 使用次数最少的帧，减少一个长 route 垄断样本。"""
+    def add_frame(key: Tuple[int, int], reason: str) -> None:
+        """在限额内去重追加帧，并保留它在时间窗口中的角色。"""
 
-        available = [key for key in candidates if key not in selected_keys]
-        if not available:
-            return False
-        key = min(available, key=lambda item: (route_counts[item[0]], item[0], item[1]))
-        selected.append((key, category))
+        if len(selected) >= limit or key in selected_keys:
+            return
+        selected.append((key, reason))
         selected_keys.add(key)
-        route_counts[key[0]] += 1
-        return True
 
     if mode == "random":
         shuffled = list(all_keys)
         random.Random(int(seed)).shuffle(shuffled)
         for key in shuffled[:limit]:
-            selected.append((key, "random"))
-    elif mode == "sequential":
-        selected = [(key, "sequential") for key in all_keys[:limit]]
-    else:
-        if mode == "ue_context":
-            active_categories = ("ue_boundary", "ue_positive", "ue_nearby_re")
-        elif mode == "rs_transition":
-            active_categories = ("rs_transition", "rs_nearby")
-        elif mode == "diagnostic":
-            active_categories = category_order
-        else:
-            raise ValueError(
-                f"unsupported probe sample mode: {sample_mode}; expected diagnostic/ue_context/rs_transition/random/sequential"
-            )
-        while len(selected) < limit:
-            added = False
-            for category in active_categories:
-                if len(selected) >= limit:
-                    break
-                added = take_one(category, pools[category]) or added
-            if not added:
+            add_frame(key, "random")
+    elif mode == "rs_transition":
+        radius = max(1, int(context_radius))
+        for route_idx, transition_idx, _end in _rs_transition_windows(routes):
+            route_len = len(routes[route_idx].frames)
+            roles: Dict[int, str] = {}
+            for frame_idx in range(
+                max(0, transition_idx - radius),
+                min(route_len, transition_idx + radius + 1),
+            ):
+                roles[frame_idx] = (
+                    "rs_before_transition"
+                    if frame_idx < transition_idx
+                    else "rs_transition"
+                    if frame_idx == transition_idx
+                    else "rs_after_transition"
+                )
+            # 配额很小时也必须同时看到变化两侧；多余配额再向外扩邻帧。
+            priority = [transition_idx - 1, transition_idx, transition_idx + 1]
+            priority.extend(sorted(roles, key=lambda idx: (abs(idx - transition_idx), idx)))
+            for frame_idx in priority:
+                if frame_idx in roles:
+                    add_frame((route_idx, frame_idx), roles[frame_idx])
+            if len(selected) >= limit:
                 break
-        # 数据中可能没有 UE 或 RS 变换。剩余配额回退到全体帧，但原因明确写 fallback，
-        # 不能让用户误以为已经覆盖了不存在的类别。
-        while len(selected) < limit and take_one("fallback", all_keys):
-            pass
+    else:  # ue_transition
+        radius = max(1, int(context_radius))
+        for route_idx, start, end in _ue_transition_windows(routes):
+            route_len = len(routes[route_idx].frames)
+            roles: Dict[int, str] = {}
+            for frame_idx in range(max(0, start - radius), start):
+                roles[frame_idx] = "ue_before_entry"
+            roles[start] = "ue_entry"
+
+            # 长 UE 不能把中间上百帧全塞进小样本：保留入口附近、
+            # 中点和末尾，既能看“变到 UE”，也能看“仍处于 UE”。
+            for frame_idx in range(start + 1, min(end + 1, start + radius + 1)):
+                roles[frame_idx] = "ue_inside"
+            if end > start:
+                middle = (start + end) // 2
+                if middle not in {start, end}:
+                    roles[middle] = "ue_inside"
+                roles[end] = "ue_last_frame"
+            for frame_idx in range(end + 1, min(route_len, end + radius + 1)):
+                roles[frame_idx] = "ue_exit" if frame_idx == end + 1 else "ue_after_exit"
+
+            # 先保证进入/退出两个边界不会被 num_cases 截掉，再补更多邻帧。
+            priority = [start - 1, start, end, end + 1]
+            priority.extend(sorted(roles, key=lambda idx: (abs(idx - start), abs(idx - end), idx)))
+            for frame_idx in priority:
+                if frame_idx in roles:
+                    add_frame((route_idx, frame_idx), roles[frame_idx])
+            if len(selected) >= limit:
+                break
+
+    # 专项模式的选择阶段会优先保住边界核心帧；落盘前恢复 route 内
+    # 时间顺序，使 selection_plan 和 timeline 可以直接从前往后阅读。
+    if mode != "random":
+        selected.sort(key=lambda item: item[0])
 
     plan: List[ProbeSelection] = []
     for (route_idx, frame_idx), primary_reason in selected[:limit]:
@@ -366,7 +473,9 @@ def build_probe_selection_plan(
                 route_id=route.route_id,
                 frame_id=frame.frame_id,
                 primary_reason=primary_reason,
-                reasons=reasons_by_key.get((route_idx, frame_idx), (primary_reason,)),
+                reasons=tuple(
+                    sorted(set(reasons_by_key.get((route_idx, frame_idx), ())) | {primary_reason})
+                ),
             )
         )
     return plan
@@ -496,7 +605,7 @@ def dump_probe(
         max_routes=int(args.max_routes),
         max_frames_per_route=int(args.max_frames_per_route),
     )
-    sample_mode = str(getattr(args, "sample_mode", "diagnostic"))
+    sample_mode = str(getattr(args, "sample_mode", "random"))
     context_radius = int(getattr(args, "context_radius", 2))
     sample_seed = int(getattr(args, "seed", 20260711))
     selection_plan = build_probe_selection_plan(
@@ -515,6 +624,7 @@ def dump_probe(
         json.dumps(
             {
                 "sample_mode": sample_mode,
+                "sample_mode_description": PROBE_SAMPLE_MODE_DESCRIPTIONS[sample_mode],
                 "context_radius": context_radius,
                 "seed": sample_seed,
                 "requested_cases": int(args.num_cases),
@@ -528,6 +638,9 @@ def dump_probe(
                         "route_id": item.route_id,
                         "frame_id": item.frame_id,
                         "primary_reason": item.primary_reason,
+                        "primary_reason_description": PROBE_REASON_DESCRIPTIONS.get(
+                            item.primary_reason, item.primary_reason
+                        ),
                         "reasons": list(item.reasons),
                     }
                     for item in selection_plan
@@ -583,6 +696,8 @@ def dump_probe(
         memory = None
         reset_next = False
         previous_selected_frame_index: Optional[int] = None
+        previous_pred_rs_label: Optional[str] = None
+        previous_pred_abnormal: Optional[bool] = None
         for frame_index, frame in enumerate(route.frames):
             selection = selection_by_key.get((route_idx, frame_index))
             if selection is None:
@@ -597,6 +712,8 @@ def dump_probe(
                 # reset 口径恢复当前 GT RS + RE。连续邻帧仍保留真实 memory 推进。
                 memory = None
                 reset_next = False
+                previous_pred_rs_label = None
+                previous_pred_abnormal = None
             previous_selected_frame_index = frame_index
             rs_target = _rs_target_from_frame(frame)
             event_target = _event_target_from_frame(frame)
@@ -867,6 +984,22 @@ def dump_probe(
             (case_dir / "memory_before.json").write_text(json.dumps(memory_before, ensure_ascii=False, indent=2), encoding="utf-8")
             (case_dir / "memory_after.json").write_text(json.dumps(memory_after, ensure_ascii=False, indent=2), encoding="utf-8")
 
+            pred_rs_label = parsed_q1.get("rs_label") if bundle is not None else None
+            pred_abnormal = q1_abnormal if bundle is not None else None
+            transition_fields = build_transition_fields(
+                pair_evaluated=bool(bundle is not None and not selection_gap_reset),
+                previous_frame_id=(route.frames[frame_index - 1].frame_id if frame_index > 0 else None),
+                previous_gt_rs_label=(route.frames[frame_index - 1].rs_label if frame_index > 0 else None),
+                gt_rs_label=frame.rs_label,
+                previous_pred_rs_label=previous_pred_rs_label,
+                pred_rs_label=pred_rs_label,
+                previous_gt_abnormal=(
+                    bool(route.frames[frame_index - 1].abnormal) if frame_index > 0 else None
+                ),
+                gt_abnormal=bool(frame.abnormal),
+                previous_pred_abnormal=previous_pred_abnormal,
+                pred_abnormal=pred_abnormal,
+            )
             frame_log = {
                 **labels,
                 # flags.json 聚合三类信息：
@@ -887,6 +1020,9 @@ def dump_probe(
                     "max_new_tokens_q2": int(args.max_new_tokens_q2),
                 },
                 "selection_primary_reason": selection.primary_reason,
+                "selection_primary_reason_description": PROBE_REASON_DESCRIPTIONS.get(
+                    selection.primary_reason, selection.primary_reason
+                ),
                 "selection_reasons": list(selection.reasons),
                 "selection_gap_reset": selection_gap_reset,
                 "memory_before": memory_before,
@@ -914,9 +1050,9 @@ def dump_probe(
                 # probe/eval 共用指标字段。transition 必须基于原始 route 相邻帧，而不是
                 # 基于定向采样后相邻的 case，避免跳帧制造假边界。
                 "gt_rs_label": frame.rs_label,
-                "pred_rs_label": parsed_q1.get("rs_label") if bundle is not None else frame.rs_label,
+                "pred_rs_label": pred_rs_label,
                 "gt_abnormal": bool(frame.abnormal),
-                "pred_abnormal": q1_abnormal if bundle is not None else bool(frame.abnormal),
+                "pred_abnormal": pred_abnormal,
                 "gt_event_label": event_target.label,
                 "pred_event_label": parsed_q2.get("event_label") if bundle is not None else event_target.label,
                 "pred_event_is_ue": (
@@ -931,6 +1067,7 @@ def dump_probe(
                     frame_index > 0
                     and bool(route.frames[frame_index - 1].abnormal) != bool(frame.abnormal)
                 ),
+                **transition_fields,
             }
             # flags.json 是逐帧快速诊断入口；timeline.json/png 只聚合其中几个关键字段。
             (case_dir / "flags.json").write_text(json.dumps(frame_log, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -940,7 +1077,11 @@ def dump_probe(
             case_record = {
                 "selection": {
                     "sample_mode": sample_mode,
+                    "sample_mode_description": PROBE_SAMPLE_MODE_DESCRIPTIONS[sample_mode],
                     "primary_reason": selection.primary_reason,
+                    "primary_reason_description": PROBE_REASON_DESCRIPTIONS.get(
+                        selection.primary_reason, selection.primary_reason
+                    ),
                     "reasons": list(selection.reasons),
                     "gap_reset": selection_gap_reset,
                 },
@@ -980,6 +1121,8 @@ def dump_probe(
             )
             frame_logs.append(frame_log)
             all_frame_logs.append(frame_log)
+            previous_pred_rs_label = pred_rs_label
+            previous_pred_abnormal = pred_abnormal
             case_idx += 1
         (route_dir / "timeline.json").write_text(json.dumps(frame_logs, ensure_ascii=False, indent=2), encoding="utf-8")
         _write_timeline_png(route_dir / "timeline.png", frame_logs)
@@ -1004,6 +1147,7 @@ def dump_probe(
     )
     summary["sampling"] = {
         "sample_mode": sample_mode,
+        "sample_mode_description": PROBE_SAMPLE_MODE_DESCRIPTIONS[sample_mode],
         "context_radius": context_radius,
         "seed": sample_seed,
         "requested_cases": int(args.num_cases),
@@ -1015,6 +1159,13 @@ def dump_probe(
         "max_new_tokens_q1": int(args.max_new_tokens_q1),
         "max_new_tokens_q2": int(args.max_new_tokens_q2),
     }
+    transition_report = build_transition_report(all_frame_logs, summary=summary)
+    transition_report["student_enabled"] = bundle is not None
+    (out_dir / "transition_report.json").write_text(
+        json.dumps(transition_report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    summary["transition_report"] = "transition_report.json"
     (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[write] {out_dir}")
     return summary
@@ -1035,12 +1186,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-frames-per-route", type=int, default=0)
     p.add_argument(
         "--sample-mode",
-        choices=("diagnostic", "ue_context", "rs_transition", "random", "sequential"),
-        default="diagnostic",
-        help="小样本选择策略；默认定向覆盖 UE 边界/周围 RE、RS 变换和稳定 RE 对照",
+        choices=("random", "rs_transition", "ue_transition"),
+        default="random",
+        help="小样本选帧：random 随机；rs_transition 查 RS 变化前后；ue_transition 查 UE 进入与退出",
     )
-    p.add_argument("--context-radius", type=int, default=2, help="UE/RS 边界前后纳入候选的帧半径")
-    p.add_argument("--seed", type=int, default=20260711, help="仅 random 模式使用；其它模式保持确定性")
+    p.add_argument("--context-radius", type=int, default=2, help="RS/UE 专项中边界前后保留的帧数，最少为 1")
+    p.add_argument("--seed", type=int, default=20260711, help="random 模式随机种子，用于复现同一批帧")
     p.add_argument("--with-model", action="store_true")
     p.add_argument("--with-teacher", action="store_true", help="compat flag: v5 always dumps teacher prompt/target")
     p.add_argument("--with-teacher-model", action="store_true", help="load base Qwen without LoRA to generate privileged teacher outputs")

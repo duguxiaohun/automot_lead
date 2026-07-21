@@ -133,8 +133,8 @@ probes/final/
 probes/comparison.json
 ```
 
-自动 probe 复用 rank0 已加载的模型，不额外加载第二份 Qwen。默认用相同 seed 的
-`diagnostic` 规则选择 8 帧，覆盖 UE 边界/正例/周围 RE、RS 变换及稳定 RE。
+自动 probe 复用 rank0 已加载的模型，不额外加载第二份 Qwen。默认用固定 seed 的
+`random` 模式随机选择 8 帧，保证 base/checkpoint/final 始终对比同一批帧。
 自动 probe 使用 256/192 token 旁路上限，不影响训练的 1024/1024。
 
 常用覆盖：
@@ -144,8 +144,8 @@ probes/comparison.json
 CHECKPOINT_PROBE=0 SAVE_STEPS=40 GPU_IDS=0,1,2,3 \
 bash qwen3vl_local/sft_v5/train.sh ddp
 
-# 改成 UE 专项小样本。
-CHECKPOINT_PROBE_SAMPLE_MODE=ue_context CHECKPOINT_PROBE_NUM_CASES=8 \
+# 改成 UE 进入/退出专项小样本。
+CHECKPOINT_PROBE_SAMPLE_MODE=ue_transition CHECKPOINT_PROBE_NUM_CASES=8 \
 CHECKPOINT_PROBE_CONTEXT_RADIUS=2 GPU_IDS=0,1,2,3 \
 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
@@ -193,18 +193,25 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/eval.py \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
   --output-json checkpoints/sft_v5_runs/latest/eval_metrics.json \
-  --output-jsonl checkpoints/sft_v5_runs/latest/eval_frames.jsonl
+  --output-jsonl checkpoints/sft_v5_runs/latest/eval_frames.jsonl \
+  --transition-jsonl checkpoints/sft_v5_runs/latest/eval_transitions.jsonl
 ```
 
 `eval_metrics.json` 是流式聚合结果；`eval_frames.jsonl` 可选保存逐帧 RGB 路径、prompt、
 原始输出、解析、memory 和 GT/prediction，便于回查 FP/FN。不需要逐帧证据时移除
-`--output-jsonl`，可减少磁盘写入。
+`--output-jsonl`，可减少磁盘写入。`eval_transitions.jsonl` 更小，只保存真实或预测的
+RS 变化、UE 进入/退出帧以及 FP/FN，每行直接给出 `TP/FP/FN/TN/invalid`。
 
 核心指标：
 
 | 指标 | 含义 | 方向 |
 |---|---|---|
 | `rs_acc` / `rs_transition_acc` | 全帧 RS / RS 变化首帧准确率 | 越高越好 |
+| `rs_change_detection_precision/recall/f1` | 模型是否真正在正确帧切换 RS | 越高越好 |
+| `rs_change_false_positive_rate` | 真值 RS 稳定时模型误切换的比例 | 越低越好 |
+| `ue_entry_detection_precision/recall/f1` | RE->UE 进入帧检测 | 越高越好 |
+| `ue_exit_detection_precision/recall/f1` | UE->RE 退出帧检测 | 越高越好 |
+| `ue_entry_false_positive_rate` / `ue_exit_false_positive_rate` | UE 进入/退出边界误报率 | 越低越好 |
 | `abnormal_precision/recall/f1` | Q1 对 UE 的查准率、召回率和 F1 | 越高越好 |
 | `abnormal_false_positive_rate` | 真实 RE 被 Q1 错报为异常的比例 | 越低越好 |
 | `abnormal_false_negative_rate` | 真实 UE 未被 Q1 正确报异常的比例 | 越低越好 |
@@ -242,7 +249,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
   --num-cases 8 \
-  --sample-mode diagnostic \
+  --sample-mode random \
   --context-radius 2 \
   --with-model \
   --with-teacher
@@ -250,14 +257,16 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 
 选帧模式：
 
-- `diagnostic`：UE、RS 变换和稳定 RE 综合检查，默认。
-- `ue_context`：UE 起止、UE 正帧与周围 RE，重点看漏检和假阳性。
-- `rs_transition`：RS 变化首帧及邻帧，重点看 memory 切换。
-- `random`：显式随机对照，受 `--seed` 控制。
-- `sequential`：兼容旧的顺序前 N 帧。
+- `random`：从 validation 中随机抽帧，默认；`--seed` 相同时可复现。
+- `rs_transition`：按同一次 RS 变化连续取变化前帧、新 RS 首帧和变化后帧。
+- `ue_transition`：按同一 UE 片段取进入前 RE、UE 入口/内部/末帧、退出后 RE。
+
+`--context-radius 2` 表示专项模式保留边界前后最多 2 帧。如果所读数据中没有
+对应的 RS/UE 变化，专项模式会返回 0 或少于 `--num-cases` 的结果，不用无关帧凑数。
 
 每个 case 的集中入口是 `frame_*/case_record.json`；顶层 `selection_plan.json` 记录选择
-原因，`summary.json` 保存统一指标。完整文件列表见 `SFT_V5_VISUALIZATION_RECORD.md`。
+原因，`summary.json` 保存统一指标，`transition_report.json` 保存变化帧 GT/预测、
+TP/FP/FN/TN 和假阳性指标。完整文件列表见 `SFT_V5_VISUALIZATION_RECORD.md`。
 手工 probe 默认 1024/1024 token；自动 checkpoint probe 才使用 256/192。
 
 训练前 grouped/parallel 等价性检查：

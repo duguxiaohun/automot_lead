@@ -18,6 +18,8 @@ if str(_AUTOMOT_ROOT) not in sys.path:
 
 from qwen3vl_local.sft_v5.metrics import (  # noqa: E402
     StudentMetricsAccumulator,
+    build_transition_fields,
+    build_transition_report,
     summarize_student_predictions,
 )
 from qwen3vl_local.sft_v5.probe import build_probe_selection_plan, dump_probe  # noqa: E402
@@ -71,26 +73,74 @@ def _routes() -> list[SequenceRow]:
     ]
 
 
-def test_diagnostic_selection_covers_hard_cases() -> None:
-    """默认 6 个 case 应各覆盖一个核心诊断类别，而不是顺序取前 6 帧。"""
+def test_random_selection_is_seeded() -> None:
+    """random 必须是可复现的随机抽帧，不是顺序取 index 前 N 帧。"""
 
-    plan = build_probe_selection_plan(
+    first = build_probe_selection_plan(
         _routes(),
-        num_cases=6,
-        sample_mode="diagnostic",
+        num_cases=4,
+        sample_mode="random",
         context_radius=1,
         seed=7,
     )
-    assert len(plan) == 6
-    assert {item.primary_reason for item in plan} == {
-        "ue_boundary",
-        "ue_positive",
-        "ue_nearby_re",
+    second = build_probe_selection_plan(
+        _routes(), num_cases=4, sample_mode="random", context_radius=1, seed=7
+    )
+    assert [(x.route_index, x.frame_index) for x in first] == [
+        (x.route_index, x.frame_index) for x in second
+    ]
+    assert {item.primary_reason for item in first} == {"random"}
+    assert [(x.route_index, x.frame_index) for x in first] != [(0, i) for i in range(4)]
+
+
+def test_rs_transition_selection_is_one_contiguous_change_window() -> None:
+    """RS 专项必须返回变化前帧、新 RS 首帧和变化后帧。"""
+
+    plan = build_probe_selection_plan(
+        _routes(), num_cases=3, sample_mode="rs_transition", context_radius=2, seed=7
+    )
+    assert [(item.route_id, item.frame_id) for item in plan] == [
+        ("route_event", 3),
+        ("route_event", 4),
+        ("route_event", 5),
+    ]
+    assert [item.primary_reason for item in plan] == [
+        "rs_before_transition",
         "rs_transition",
-        "rs_nearby",
-        "stable_re",
-    }
-    assert any(item.route_id == "route_control" for item in plan), "稳定 RE 对照应优先跨 route"
+        "rs_after_transition",
+    ]
+
+
+def test_ue_transition_selection_contains_entry_and_exit() -> None:
+    """UE 专项必须从进入前 RE 跟到 UE 末帧和退出后首个 RE。"""
+
+    plan = build_probe_selection_plan(
+        _routes(), num_cases=4, sample_mode="ue_transition", context_radius=1, seed=7
+    )
+    assert [(item.route_id, item.frame_id) for item in plan] == [
+        ("route_event", 0),
+        ("route_event", 1),
+        ("route_event", 2),
+        ("route_event", 3),
+    ]
+    assert [item.primary_reason for item in plan] == [
+        "ue_before_entry",
+        "ue_entry",
+        "ue_last_frame",
+        "ue_exit",
+    ]
+
+
+def test_transition_modes_do_not_fill_with_unrelated_frames() -> None:
+    """专项数据不存在时应返回空计划，不能用稳定 RE 冒充变化帧。"""
+
+    stable_routes = [_routes()[1]]
+    assert build_probe_selection_plan(
+        stable_routes, num_cases=4, sample_mode="rs_transition", context_radius=1, seed=7
+    ) == []
+    assert build_probe_selection_plan(
+        stable_routes, num_cases=4, sample_mode="ue_transition", context_radius=1, seed=7
+    ) == []
 
 
 def test_metric_false_positive_false_negative_contract() -> None:
@@ -140,6 +190,71 @@ def test_metric_false_positive_false_negative_contract() -> None:
     assert streaming.summary() == summary
 
 
+def test_transition_detection_confusion_and_report() -> None:
+    """变化帧指标必须区分 RS/UE 的 TP、FP、FN，并能生成轻量对比报告。"""
+
+    gt_rs = ["R1", "R2", "R2", "R3", "R3"]
+    pred_rs = ["R1", "R2", "R1", "R1", "R1"]
+    gt_abnormal = [False, True, True, False, False]
+    pred_abnormal = [False, True, False, False, True]
+    logs = []
+    for index in range(len(gt_rs)):
+        transitions = build_transition_fields(
+            pair_evaluated=index > 0,
+            previous_frame_id=index - 1 if index > 0 else None,
+            previous_gt_rs_label=gt_rs[index - 1] if index > 0 else None,
+            gt_rs_label=gt_rs[index],
+            previous_pred_rs_label=pred_rs[index - 1] if index > 0 else None,
+            pred_rs_label=pred_rs[index],
+            previous_gt_abnormal=gt_abnormal[index - 1] if index > 0 else None,
+            gt_abnormal=gt_abnormal[index],
+            previous_pred_abnormal=pred_abnormal[index - 1] if index > 0 else None,
+            pred_abnormal=pred_abnormal[index],
+        )
+        logs.append(
+            {
+                "scenario": "TransitionRoute",
+                "route_id": "route_transition",
+                "frame_id": index,
+                "gt_rs_label": gt_rs[index],
+                "pred_rs_label": pred_rs[index],
+                "gt_abnormal": gt_abnormal[index],
+                "pred_abnormal": pred_abnormal[index],
+                "gt_event_label": "U-E1" if gt_abnormal[index] else "RE",
+                "q1_rs_correct": gt_rs[index] == pred_rs[index],
+                "q1_abnormal_correct": gt_abnormal[index] == pred_abnormal[index],
+                "q2_triggered": False,
+                "q2_event_correct": False,
+                "reset_next": False,
+                "rs_transition": bool(transitions["gt_rs_change"]),
+                "abnormal_transition": bool(
+                    transitions["gt_ue_entry"] or transitions["gt_ue_exit"]
+                ),
+                **transitions,
+            }
+        )
+
+    summary = summarize_student_predictions(logs)
+    assert summary["rs_change_confusion"]["tp"] == 1
+    assert summary["rs_change_confusion"]["fp"] == 1
+    assert summary["rs_change_confusion"]["fn"] == 1
+    assert summary["rs_change_detection_precision"] == 0.5
+    assert summary["rs_change_detection_recall"] == 0.5
+    assert summary["rs_change_false_positive_rate"] == 0.5
+    assert summary["ue_entry_confusion"]["tp"] == 1
+    assert summary["ue_entry_confusion"]["fp"] == 1
+    assert summary["ue_entry_detection_precision"] == 0.5
+    assert summary["ue_entry_detection_recall"] == 1.0
+    assert summary["ue_exit_confusion"]["fp"] == 1
+    assert summary["ue_exit_confusion"]["fn"] == 1
+    assert summary["ue_exit_detection_recall"] == 0.0
+
+    report = build_transition_report(logs, summary=summary)
+    assert report["evaluated_pairs"] == 4
+    assert report["informative_cases"] == 4
+    assert {case["rs_change_outcome"] for case in report["cases"]} >= {"TP", "FP", "FN"}
+
+
 def test_static_probe_writes_selection_and_complete_case_record() -> None:
     """静态 probe 也必须写定向计划和单文件完整输入输出合同。"""
 
@@ -174,33 +289,46 @@ def test_static_probe_writes_selection_and_complete_case_record() -> None:
         output_dir = root / "probe"
         args = argparse.Namespace(
             index=str(index_path), output_dir=str(output_dir), num_cases=4,
-            max_routes=0, max_frames_per_route=0, sample_mode="diagnostic",
+            max_routes=0, max_frames_per_route=0, sample_mode="random",
             context_radius=1, seed=7, with_model=False, with_teacher=True,
             with_teacher_model=False, model_dir="unused", teacher_model_dir=None,
             adapter_dir=None, merge_lora=True, max_new_tokens_q1=16, max_new_tokens_q2=16,
         )
         summary = dump_probe(args)
         selection = json.loads((output_dir / "selection_plan.json").read_text(encoding="utf-8"))
-        assert selection["sample_mode"] == "diagnostic"
+        assert selection["sample_mode"] == "random"
+        assert "随机种子" in selection["sample_mode_description"]
         assert selection["selected_cases"] == 4
+        assert all(case["primary_reason_description"] == "随机抽中的帧" for case in selection["cases"])
         case_records = list(output_dir.glob("route_*/frame_*/case_record.json"))
         assert len(case_records) == 4
         case = json.loads(case_records[0].read_text(encoding="utf-8"))
         assert set(case) == {"selection", "labels", "inputs", "targets", "outputs", "memory", "flags"}
         assert "q1_student_messages" in case["inputs"]
+        assert case["selection"]["sample_mode_description"]
+        assert case["selection"]["primary_reason_description"] == "随机抽中的帧"
         assert case["flags"]["generation_limits"] == {
             "max_new_tokens_q1": 16,
             "max_new_tokens_q2": 16,
         }
         assert summary["sampling"]["selected_cases"] == 4
         assert summary["generation_limits"]["max_new_tokens_q1"] == 16
+        transition_report = json.loads(
+            (output_dir / "transition_report.json").read_text(encoding="utf-8")
+        )
+        assert transition_report["student_enabled"] is False
+        assert transition_report["evaluated_pairs"] == 0
 
 
 def main() -> None:
     """运行定向选帧、FP/FN 指标和完整 case 产物回归。"""
 
-    test_diagnostic_selection_covers_hard_cases()
+    test_random_selection_is_seeded()
+    test_rs_transition_selection_is_one_contiguous_change_window()
+    test_ue_transition_selection_contains_entry_and_exit()
+    test_transition_modes_do_not_fill_with_unrelated_frames()
     test_metric_false_positive_false_negative_contract()
+    test_transition_detection_confusion_and_report()
     test_static_probe_writes_selection_and_complete_case_record()
     print("[ok] probe selection and eval metrics")
 
