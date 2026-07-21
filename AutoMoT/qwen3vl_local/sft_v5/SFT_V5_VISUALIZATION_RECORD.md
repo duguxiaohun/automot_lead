@@ -316,15 +316,18 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
   --num-cases 8 \
   --sequence-length 8 \
+  --artifact-level compact \
   --sample-mode random \
   --context-radius 2 \
   --with-model \
+  --with-teacher-model \
   --with-teacher
 ```
 
-这个命令只加载 student adapter，不额外加载 teacher Qwen。默认结果集中在
-`results.json.frames`；加 `--artifact-level full` 后才会展开
-`q1_student_output.txt`、`q2_student_output.txt` 和 `flags.json`。
+这个命令让 student 加载训练后的 LoRA，同时让 teacher 使用未加载 LoRA 的纯 base
+Qwen，和训练前能力检查保持同一输入输出合同。默认结果集中在
+`results.json.frames`；加 `--artifact-level full` 后只是把同样内容展开为
+`q1_student_output.txt`、`q2_student_output.txt`、teacher 文件和 `flags.json`。
 
 小样本只有三种选帧模式：
 
@@ -338,8 +341,9 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 `--num-cases`，这是正常审计结果，不会用无关 RE 帧填满；UE 为避免截断真实 span，
 实际帧数也允许超过 `--num-cases`。
 
-如果训练后也想把 adapter student 和 base teacher 放在同一个 case 里对照，可以额外加
-`--with-teacher-model`，但显存会同时常驻两份 Qwen。
+独立 CLI 使用 `--with-teacher-model` 时显存会同时常驻 student 与 teacher 两份 Qwen；
+显存不足时可去掉该参数，只运行 LoRA student。脚本化 teacher target 和场景 GT 不依赖
+teacher 模型，仍会完整写入 `results.json`。
 
 ## D. 静态 prompt / target 合同快检
 
@@ -371,8 +375,16 @@ probe*/
 ```
 
 `results.json` 内含 `sampling`、`summary`、`transition_report` 和按时间排列的
-`frames`。每帧保留 GT、student/teacher 原始输出、解析结果、正确性与变化检测结果，
-因此通常只看这一份即可。
+`frames`。每帧固定包含：
+
+- `ground_truth`：完整 RS/EVENT 真值、原始 event code、候选池、weather 和来源。
+- `inputs`：RGB history 路径、Q1 完整 student/teacher messages，以及明确标注 KV 续接
+  来源的 Q2 student/training-teacher/base-teacher user turns。
+- `teacher_targets`：Q1 真值、OPSD Q2 真值和 teacher 自主续接 Q2 真值。
+- `student` / `teacher`：完整 CoT 分析输出、解析答案和正确性。
+- `memory` / `transition`：帧前后 memory 与 RS/UE 变化检测结果。
+
+因此 compact 只是减少文件数量，并不减少人工评估所需的信息。
 
 只有显式传 `--artifact-level full` 才额外展开以下深度审计结构：
 

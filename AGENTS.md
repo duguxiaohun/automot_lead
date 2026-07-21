@@ -343,7 +343,9 @@
   UE span 的全部 UE 帧并按 context radius 补进入前/退出后邻帧，不能被
   `num_cases` 从中间截断；专项找不到变化时不用
   无关帧 fallback 凑数。默认 `--artifact-level compact` 只写一个 `results.json`，集中
-  保存选帧、GT、student/teacher 原始与解析输出、summary 和 transition report；只有
+  保存选帧、RGB 路径、实际 student/teacher messages、脚本化 teacher target、完整
+  RS/EVENT 场景 GT、student/base-teacher CoT 原始与解析输出、memory、summary 和
+  transition report；compact 只减少文件数量，不得减少 base/LoRA 人工对比字段。只有
   `--artifact-level full` 才仿 v3 复制 4 帧 RGB，保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
   可选 `q*_teacher_output.txt`、memory_before/after、flags、timeline.json/png 和
   manifest.json，每帧另写完整 `case_record.json`；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用

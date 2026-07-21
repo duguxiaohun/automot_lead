@@ -256,11 +256,19 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
   --num-cases 8 \
   --sequence-length 8 \
+  --artifact-level compact \
   --sample-mode random \
   --context-radius 2 \
   --with-model \
+  --with-teacher-model \
   --with-teacher
 ```
+
+这条训练后命令与训练前 base 检查使用同一批输入和同一产物 schema：student 加载
+`--adapter-dir` 的 LoRA，teacher 仍是未加载 LoRA 的纯 base Qwen。打开
+`results.json.frames` 可同时查看完整 messages、学生/老师分析输出、teacher 脚本真值、
+RS/EVENT 场景真值、memory 和正确性。若只想看 LoRA student，可去掉
+`--with-teacher-model`，其它真值字段仍会保留。
 
 选帧模式：
 
@@ -273,9 +281,10 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 对应的 RS/UE 变化，专项模式不会用无关帧凑数。RS 结果可能少于 `--num-cases`；UE
 结果为保证 span 完整性也可能多于 `--num-cases`。
 
-默认只需打开 `results.json`：其中集中保存抽样片段、逐帧真值、学生/教师原始输出、
-解析结果、统一指标和变化帧 TP/FP/FN/TN。需要检查 RGB、完整 prompt、memory 和每问
-messages 时加 `--artifact-level full`；完整文件列表见 `SFT_V5_VISUALIZATION_RECORD.md`。
+默认只需打开 `results.json`：其中集中保存 RGB 路径、实际 system/user messages、
+privileged teacher messages、teacher 脚本真值、RS/EVENT 场景真值、学生/教师完整分析
+输出、memory、统一指标和变化帧 TP/FP/FN/TN。`--artifact-level full` 只是把同一证据
+额外拆成逐帧 TXT/JSON 并复制 RGB，内容口径不变。
 手工 probe 默认 1024/1024 token；自动 checkpoint probe 才使用 256/192。
 
 训练前 grouped/parallel 等价性检查：

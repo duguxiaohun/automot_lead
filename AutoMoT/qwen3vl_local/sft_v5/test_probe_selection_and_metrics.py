@@ -342,6 +342,21 @@ def test_static_probe_compact_and_full_artifacts() -> None:
         assert len(results["frames"]) == 4
         frame_indices = [item["frame_index"] for item in results["frames"]]
         assert frame_indices == list(range(frame_indices[0], frame_indices[0] + 4))
+        compact_case = results["frames"][0]
+        # compact 只减少文件数量，不能删掉训练前 base / 训练后 LoRA 人工对比所需的
+        # 输入、完整标签、teacher 脚本真值、输出槽位和 memory。
+        assert compact_case["ground_truth"]["rs_label"] in {"R1", "R2"}
+        assert "resolved_event_target" in compact_case["ground_truth"]
+        assert "q1_student_messages" in compact_case["inputs"]
+        assert "q1_teacher_messages" in compact_case["inputs"]
+        assert "q2_student_user_turn" in compact_case["inputs"]
+        assert compact_case["inputs"]["q1_student_messages"][0]["role"] == "system"
+        assert compact_case["inputs"]["q2_student_user_turn"]["continued_from"] == "student.q1_output_kv"
+        assert compact_case["teacher_targets"]["q1"].startswith("Scene Description:")
+        assert compact_case["teacher_targets"]["q2_training"].startswith("Scene Description:")
+        assert set(compact_case["memory"]) == {"before", "after"}
+        assert set(compact_case["student"]) >= {"q1_output", "q2_output", "q1_parsed", "q2_parsed"}
+        assert set(compact_case["teacher"]) >= {"q1_output", "q2_output", "q1_parsed", "q2_parsed"}
         assert results["transition_report"]["student_enabled"] is False
         assert results["transition_report"]["evaluated_pairs"] == 0
         assert summary["sampling"]["selected_cases"] == 4
