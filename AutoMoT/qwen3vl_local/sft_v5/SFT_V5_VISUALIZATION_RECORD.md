@@ -248,7 +248,7 @@ CHECKPOINT_PROBE_WITH_TEACHER=1
 CHECKPOINT_PROBE_NUM_CASES=8
 CHECKPOINT_PROBE_SAMPLE_MODE=random
 CHECKPOINT_PROBE_SEQUENCE_LENGTH=8
-CHECKPOINT_PROBE_ARTIFACT_LEVEL=compact
+CHECKPOINT_PROBE_ARTIFACT_LEVEL=review
 CHECKPOINT_PROBE_CONTEXT_RADIUS=2
 ```
 
@@ -279,8 +279,8 @@ checkpoints/sft_v5_runs/latest/probes/final/results.json
 ```
 
 `comparison.json` 会集中记录 Q1 RS、Q1 abnormal、Q2 EVENT、UE 假阳性/假阴性和端到端
-指标。默认 compact 不复制 RGB、不展开 route/frame 目录；确需保存完整 prompt/memory 时
-设置 `CHECKPOINT_PROBE_ARTIFACT_LEVEL=full`。
+指标。默认 review 按场景/帧分开保存输入、输出和真值但不复制 RGB；确需归档 RGB 和
+legacy 文件时设置 `CHECKPOINT_PROBE_ARTIFACT_LEVEL=full`。
 
 关闭或缩小自动检查：
 
@@ -316,7 +316,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
   --num-cases 8 \
   --sequence-length 8 \
-  --artifact-level compact \
+  --artifact-level review \
   --sample-mode random \
   --context-radius 2 \
   --with-model \
@@ -326,8 +326,9 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 
 这个命令让 student 加载训练后的 LoRA，同时让 teacher 使用未加载 LoRA 的纯 base
 Qwen，和训练前能力检查保持同一输入输出合同。默认结果集中在
-`results.json.frames`；加 `--artifact-level full` 后只是把同样内容展开为
-`q1_student_output.txt`、`q2_student_output.txt`、teacher 文件和 `flags.json`。
+`scenarios/<scenario>__<route_id>/frame_*/`；每帧的输入、学生输出、老师输出、老师真值、
+场景真值、memory 和评估各是独立 JSON。加 `--artifact-level full` 后再额外生成 RGB、
+`q1_student_output.txt`、teacher legacy 文件和 `flags.json`。
 
 小样本只有三种选帧模式：
 
@@ -367,24 +368,42 @@ python qwen3vl_local/sft_v5/probe.py \
 
 ## 输出结构
 
-默认 `--artifact-level compact` 只写一个主文件：
+默认 `--artifact-level review` 的人工检查结构：
 
 ```text
 probe*/
   results.json
+  scenarios/
+    <scenario>__<route_id>/
+      frame_<frame_id>/
+        inputs.json
+        student_outputs.json
+        teacher_outputs.json
+        teacher_targets.json
+        ground_truth.json
+        memory.json
+        prediction_vs_ground_truth.json
+        evaluation.json
 ```
 
-`results.json` 内含 `sampling`、`summary`、`transition_report` 和按时间排列的
-`frames`。每帧固定包含：
+先选测试场景，再进入连续 frame。各文件职责如下：
 
-- `ground_truth`：完整 RS/EVENT 真值、原始 event code、候选池、weather 和来源。
-- `inputs`：RGB history 路径、Q1 完整 student/teacher messages，以及明确标注 KV 续接
+- `ground_truth.json`：完整 RS/EVENT 真值、原始 event code、候选池、weather 和来源。
+- `inputs.json`：RGB history 路径、Q1 完整 student/teacher messages，以及明确标注 KV 续接
   来源的 Q2 student/training-teacher/base-teacher user turns。
-- `teacher_targets`：Q1 真值、OPSD Q2 真值和 teacher 自主续接 Q2 真值。
-- `student` / `teacher`：完整 CoT 分析输出、解析答案和正确性。
-- `memory` / `transition`：帧前后 memory 与 RS/UE 变化检测结果。
+- `student_outputs.json` / `teacher_outputs.json`：完整 CoT 分析、解析答案和正确性。
+- `teacher_targets.json`：Q1 真值、OPSD Q2 真值和 teacher 自主续接 Q2 真值。
+- `memory.json`：帧前后 memory。
+- `prediction_vs_ground_truth.json`：当前场景 RS/ABNORMAL/EVENT 真值、学生 Q1/Q2
+  解析结构、teacher 脚本真值与逐项正确性，作为每帧首选检查入口。其中
+  `current_scene_ground_truth.structured` 保存 Q1/Q2 结构化真值；Q2 同时列出双标签下
+  可接受 EVENT、默认单标签及按当前学生输出动态解析的单标签，避免合法双标签命中被误读。
+  同层 `scenario_name/route_id` 保存原始场景定位真值，仅作审计。
+  `field_comparisons` 将 Q1 RS、Q1 ABNORMAL、Q2 EVENT 的
+  `expected/predicted/correct` 直接并排；未运行 student 时后两者为 `null`。
+- `evaluation.json`：本帧正确性、reset 和 RS/UE 变化检测结果。
 
-因此 compact 只是减少文件数量，并不减少人工评估所需的信息。
+`--artifact-level compact` 才只写顶层 `results.json`，用于机器汇总，不作为默认人工入口。
 
 只有显式传 `--artifact-level full` 才额外展开以下深度审计结构：
 
@@ -394,10 +413,12 @@ probe*/
   selection_plan.json
   manifest.json
   summary.json
-  route_<idx>__<scenario>__<route_id>/
-    timeline.json
-    timeline.png
-    frame_<frame_id>/
+  scenarios/
+    <scenario>__<route_id>/
+      timeline.json
+      timeline.png
+      frame_<frame_id>/
+        # 上述 8 个 review JSON 仍保留，并额外增加以下文件：
       case_record.json
       rgb_00.jpg
       rgb_01.jpg
@@ -507,7 +528,7 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 `q2_trigger_rate` 与样本数只作诊断。每个字段的完整中文定义和方向同时内嵌在
 `eval_metrics.json.metric_definitions`，以代码输出为最终口径。
 
-compact 模式把以下内容内嵌到 `results.json.transition_report`；full 模式另写
+三种 artifact mode 都把以下内容内嵌到 `results.json.transition_report`；full 模式另写
 `transition_report.json`：
 
 - `metrics`：RS 变化、UE 进入、UE 退出的 precision/recall/F1 和误报率。

@@ -6,9 +6,10 @@
 训练前 OPSD 能力体检必须不传 `--adapter-dir`，即 teacher/student 都只用普通 Qwen，
 不导入任何 LoRA。
 
-默认 ``compact`` 产物只写一个 ``results.json``，集中保存抽样信息、真值、原始输出、
-解析结果与变化指标。显式指定 ``--artifact-level full`` 时才仿照 sft_v3/probe.py
-写顶层 manifest、route 级 timeline 和 frame 级 RGB/prompt/output/memory/flags。
+默认 ``review`` 按 ``scenarios/<scenario>__<route>/frame_<id>/`` 保存连续帧，并把输入、
+学生输出、教师输出、场景真值和预测对照拆成固定 JSON。``compact`` 只写汇总
+``results.json``；显式指定 ``--artifact-level full`` 时再仿照 sft_v3/probe.py 增加
+RGB 副本、逐项 TXT、route timeline 和 manifest。
 
 小样本只保留三种直观模式：``random`` 随机连续片段，``rs_transition`` 查看同一次
 RS 变化前后，``ue_transition`` 查看同一次 UE 的进入、持续和退出。不传模型开关时
@@ -41,6 +42,7 @@ from qwen3vl_local.sft_v5.metrics import (  # noqa: E402
     build_transition_report,
     summarize_student_predictions,
 )
+from qwen3vl_local.sft_v5.labels import option_for_event  # noqa: E402
 from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     SYSTEM_PROMPT_V5,
     build_q1_student_prompt,
@@ -622,8 +624,8 @@ def dump_probe(
 
     ``student_bundle`` / ``teacher_bundle`` 仅供训练进程内自动 probe 使用。传入后不会
     重新加载 Qwen；checkpoint student 使用当前 LoRA，base 与 teacher 则在同一模型上
-    临时关闭 adapter。``compact`` 默认只写 ``results.json``；``full`` 才展开 v3 风格
-    的逐帧 RGB、prompt、memory 和 timeline，避免普通检查被大量 JSON/TXT 淹没。
+    临时关闭 adapter。默认 ``review`` 按 scenario/frame 分目录，并把输入、输出、真值
+    分成少量固定 JSON；``compact`` 只写汇总；``full`` 再展开 v3 风格 RGB/TXT/timeline。
     """
 
     out_dir = pathlib.Path(args.output_dir)
@@ -637,9 +639,12 @@ def dump_probe(
     context_radius = int(getattr(args, "context_radius", 2))
     sample_seed = int(getattr(args, "seed", 20260711))
     sequence_length = max(1, int(getattr(args, "sequence_length", 8)))
-    artifact_level = str(getattr(args, "artifact_level", "compact")).lower()
-    if artifact_level not in {"compact", "full"}:
-        raise ValueError(f"unsupported artifact level: {artifact_level}; expected compact/full")
+    artifact_level = str(getattr(args, "artifact_level", "review")).lower()
+    if artifact_level not in {"compact", "review", "full"}:
+        raise ValueError(
+            f"unsupported artifact level: {artifact_level}; expected compact/review/full"
+        )
+    review_artifacts = artifact_level in {"review", "full"}
     full_artifacts = artifact_level == "full"
     selection_plan = build_probe_selection_plan(
         ds.rows,
@@ -722,10 +727,14 @@ def dump_probe(
         }
         if not selected_frame_indices:
             continue
-        # v3 probe 是 episode/frame 层级；v5 没有 sub-scenario episode 概念，所以用
-        # route/frame 层级表达同一件事：一条 route 的 memory 随时间推进。
-        route_dir = out_dir / f"route_{route_idx:03d}__{_safe_name(route.scenario)}__{_safe_name(route.route_id)}"
-        if full_artifacts:
+        # 人工测试先按 scenario/route 归组，下面直接是连续 frame。route id 合进场景
+        # 目录名，既保持用户期望的“场景 -> 帧”，又避免同名 scenario 多条 route 冲突。
+        route_dir = (
+            out_dir
+            / "scenarios"
+            / f"{_safe_name(route.scenario)}__{_safe_name(route.route_id)}"
+        )
+        if review_artifacts:
             route_dir.mkdir(parents=True, exist_ok=True)
         frame_logs: List[Dict[str, Any]] = []
         memory = None
@@ -759,11 +768,12 @@ def dump_probe(
             memory_at_frame_start = memory
             memory_before = _memory_json(memory)
             case_dir = route_dir / f"frame_{frame.frame_id:04d}"
-            if full_artifacts:
+            if review_artifacts:
                 case_dir.mkdir(parents=True, exist_ok=True)
+            if full_artifacts:
                 copied_rgb = _copy_rgb_inputs(frame, case_dir)
             else:
-                # compact 仍记录原始图像路径供定位，但不复制 JPEG，也不创建 frame 目录。
+                # review/compact 记录原始图像路径但不复制 JPEG；只有 full 才归档图像字节。
                 copied_rgb = [
                     {"index": str(idx), "source": str(path), "file": str(path)}
                     for idx, path in enumerate(frame.history_rgb_paths)
@@ -970,6 +980,36 @@ def dump_probe(
                     )
 
             labels = _frame_labels(route, frame)
+            # 双 UE 标签允许学生命中任意一个合法 UE；全 regular 标签则统一折成 RE。
+            # 因此人工对照既要保存默认单标签，也要保存根据当前 student 输出重新解析的
+            # 动态单标签，否则会出现代码判对、JSON 却像是判错的假冲突。
+            student_event_label = parsed_q2.get("event_label") if bundle is not None else None
+            resolved_student_event_target = _event_target_from_frame(
+                frame,
+                student_event=student_event_label,
+            )
+            raw_ue_labels = [
+                code for code in resolved_student_event_target.raw_events if str(code).startswith("U-E")
+            ]
+            accepted_event_labels = list(dict.fromkeys(raw_ue_labels)) if raw_ue_labels else ["RE"]
+            ground_truth_structure = {
+                "q1": {
+                    "rs_option": frame.rs_option,
+                    "rs_label": frame.rs_label,
+                    "abnormal": "YES" if frame.abnormal else "NO",
+                },
+                "q2": {
+                    "accepted_event_labels": accepted_event_labels,
+                    "default_event_option": option_for_event(event_target.label, frame.event_option_map),
+                    "default_event_label": event_target.label,
+                    "resolved_for_student_option": option_for_event(
+                        resolved_student_event_target.label,
+                        frame.event_option_map,
+                    ),
+                    "resolved_for_student_label": resolved_student_event_target.label,
+                    "event_code_audit": resolved_student_event_target.event_code,
+                },
+            }
             memory_after = _memory_json(memory)
             if full_artifacts:
                 # 默认 teacher input/output 文件必须一一对应。启用 teacher model 时，Q2
@@ -1121,135 +1161,241 @@ def dump_probe(
                     json.dumps(frame_log, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
                 case_record = {
-                "selection": {
-                    "sample_mode": sample_mode,
-                    "sample_mode_description": PROBE_SAMPLE_MODE_DESCRIPTIONS[sample_mode],
-                    "primary_reason": selection.primary_reason,
-                    "primary_reason_description": PROBE_REASON_DESCRIPTIONS.get(
-                        selection.primary_reason, selection.primary_reason
-                    ),
-                    "reasons": list(selection.reasons),
-                    "gap_reset": selection_gap_reset,
-                },
-                "labels": labels,
-                "inputs": {
-                    "rgb": copied_rgb,
-                    "q1_student_messages": _messages_json(copied_rgb, q1_student),
-                    "q1_teacher_messages": _messages_json(copied_rgb, q1_teacher),
-                    "q2_student_messages": _messages_json(copied_rgb, q2_student),
-                    "q2_teacher_training_messages": _messages_json(copied_rgb, q2_teacher),
-                    "q2_teacher_model_messages": _messages_json(copied_rgb, q2_teacher_model_prompt),
-                },
-                "targets": {
-                    "q1_teacher_target": q1_target,
-                    "q2_teacher_training_target": q2_target,
-                    "q2_teacher_model_target": q2_teacher_model_target,
-                },
-                "outputs": {
-                    "q1_student_raw": q1_output or "",
-                    "q2_student_raw": q2_output or "",
-                    "q1_teacher_raw": q1_teacher_output or "",
-                    "q2_teacher_raw": q2_teacher_output or "",
-                    "q1_student_parsed": parsed_q1,
-                    "q2_student_parsed": parsed_q2,
-                    "q1_teacher_parsed": parsed_teacher_q1,
-                    "q2_teacher_parsed": parsed_teacher_q2,
-                },
-                "memory": {
-                    "before": memory_before,
-                    "after": memory_after,
-                },
-                "flags": frame_log,
+                    "selection": {
+                        "sample_mode": sample_mode,
+                        "sample_mode_description": PROBE_SAMPLE_MODE_DESCRIPTIONS[sample_mode],
+                        "primary_reason": selection.primary_reason,
+                        "primary_reason_description": PROBE_REASON_DESCRIPTIONS.get(
+                            selection.primary_reason, selection.primary_reason
+                        ),
+                        "reasons": list(selection.reasons),
+                        "gap_reset": selection_gap_reset,
+                    },
+                    "labels": labels,
+                    "inputs": {
+                        "rgb": copied_rgb,
+                        "q1_student_messages": _messages_json(copied_rgb, q1_student),
+                        "q1_teacher_messages": _messages_json(copied_rgb, q1_teacher),
+                        "q2_student_messages": _messages_json(copied_rgb, q2_student),
+                        "q2_teacher_training_messages": _messages_json(copied_rgb, q2_teacher),
+                        "q2_teacher_model_messages": _messages_json(
+                            copied_rgb, q2_teacher_model_prompt
+                        ),
+                    },
+                    "targets": {
+                        "structured_ground_truth": ground_truth_structure,
+                        "q1_teacher_target": q1_target,
+                        "q2_teacher_training_target": q2_target,
+                        "q2_teacher_model_target": q2_teacher_model_target,
+                    },
+                    "outputs": {
+                        "q1_student_raw": q1_output or "",
+                        "q2_student_raw": q2_output or "",
+                        "q1_teacher_raw": q1_teacher_output or "",
+                        "q2_teacher_raw": q2_teacher_output or "",
+                        "q1_student_parsed": parsed_q1,
+                        "q2_student_parsed": parsed_q2,
+                        "q1_teacher_parsed": parsed_teacher_q1,
+                        "q2_teacher_parsed": parsed_teacher_q2,
+                    },
+                    "memory": {
+                        "before": memory_before,
+                        "after": memory_after,
+                    },
+                    "flags": frame_log,
                 }
                 (case_dir / "case_record.json").write_text(
                     json.dumps(case_record, ensure_ascii=False, indent=2),
                     encoding="utf-8",
                 )
 
-            # compact 不是“只留指标”，而是把训练前 base probe 与训练后 LoRA probe
+            # results.json 不是“只留指标”，而是把训练前 base probe 与训练后 LoRA probe
             # 都需要的证据集中进一个 results.json：真实输入 messages、完整分析输出、
             # privileged teacher 输入/脚本真值、场景标签和 memory 都必须保留。它只省掉
             # 重复的逐文件 TXT/JSON 与 JPEG 副本，避免人工在几十个文件间来回寻找。
-            compact_frames.append(
-                {
-                    "scenario": route.scenario,
-                    "route_id": route.route_id,
-                    "frame_index": frame_index,
-                    "frame_id": frame.frame_id,
-                    "selection_reason": selection.primary_reason,
-                    "selection_reason_description": PROBE_REASON_DESCRIPTIONS.get(
-                        selection.primary_reason, selection.primary_reason
+            frame_record = {
+                "scenario": route.scenario,
+                "route_id": route.route_id,
+                "frame_index": frame_index,
+                "frame_id": frame.frame_id,
+                "selection_reason": selection.primary_reason,
+                "selection_reason_description": PROBE_REASON_DESCRIPTIONS.get(
+                    selection.primary_reason, selection.primary_reason
+                ),
+                "gap_reset": selection_gap_reset,
+                "ground_truth": {
+                    # labels 包含 RS/EVENT 真值、原始 event_code、候选池、weather、
+                    # goal 坐标和来源，足以回查“场景真值是怎么来的”。
+                    **labels,
+                    "resolved_event_target": event_target.label,
+                    "structured": ground_truth_structure,
+                },
+                "inputs": {
+                    "rgb_history_paths": list(frame.history_rgb_paths),
+                    "q1_student_messages": _messages_json(copied_rgb, q1_student),
+                    "q1_teacher_messages": _messages_json(copied_rgb, q1_teacher),
+                    # Q2 不会重新发送 system/RGB，而是在 Q1 assistant KV 后追加一个
+                    # user turn。把 suffix 与续接来源分开记录，避免把可视化误读成
+                    # “第二次独立问图”；RS 错误时 student suffix 自然为空。
+                    "q2_student_user_turn": {
+                        "role": "user",
+                        "content": q2_student,
+                        "continued_from": "student.q1_output_kv",
+                    },
+                    "q2_teacher_training_user_turn": {
+                        "role": "user",
+                        "content": q2_teacher,
+                        "continued_from": "student.q1_output_kv",
+                    },
+                    "q2_teacher_model_user_turn": {
+                        "role": "user",
+                        "content": q2_teacher_model_prompt,
+                        "continued_from": "teacher.q1_output_kv",
+                    },
+                },
+                "teacher_targets": {
+                    "structured_ground_truth": ground_truth_structure,
+                    "q1": q1_target,
+                    # training target 基于 student Q1 rollout 后的 memory，是 OPSD
+                    # 实际监督真值；model target 则对应纯 base teacher 自己的 Q1 续接。
+                    "q2_training": q2_target,
+                    "q2_teacher_model": q2_teacher_model_target,
+                },
+                "student": {
+                    # q1/q2_output 都是完整生成文本，包含 Scene Description、
+                    # Critical Object Description、Reasoning on Intent 与最终答案。
+                    "q1_output": q1_output or "",
+                    "q2_output": q2_output or "",
+                    "q1_parsed": parsed_q1 if bundle is not None else {},
+                    "q2_parsed": parsed_q2 if bundle is not None else {},
+                    "rs_correct": q1_rs_ok if bundle is not None else None,
+                    "abnormal_correct": (
+                        q1_abnormal == frame.abnormal
+                        if bundle is not None and q1_abnormal is not None
+                        else None
                     ),
-                    "gap_reset": selection_gap_reset,
-                    "ground_truth": {
-                        # labels 包含 RS/EVENT 真值、原始 event_code、候选池、weather、
-                        # goal 坐标和来源，足以回查“场景真值是怎么来的”。
-                        **labels,
-                        "resolved_event_target": event_target.label,
-                    },
-                    "inputs": {
-                        "rgb_history_paths": list(frame.history_rgb_paths),
-                        "q1_student_messages": _messages_json(copied_rgb, q1_student),
-                        "q1_teacher_messages": _messages_json(copied_rgb, q1_teacher),
-                        # Q2 不会重新发送 system/RGB，而是在 Q1 assistant KV 后追加一个
-                        # user turn。把 suffix 与续接来源分开记录，避免把可视化误读成
-                        # “第二次独立问图”；RS 错误时 student suffix 自然为空。
-                        "q2_student_user_turn": {
-                            "role": "user",
-                            "content": q2_student,
-                            "continued_from": "student.q1_output_kv",
+                    "q2_triggered": q2_triggered if bundle is not None else None,
+                    "event_correct": q2_event_correct if bundle is not None else None,
+                },
+                "teacher": {
+                    # 只有 --with-teacher-model 时这些字段才非空；该模型始终不加载
+                    # student LoRA，用于和训练前纯 base teacher 保持同一比较口径。
+                    "q1_output": q1_teacher_output or "",
+                    "q2_output": q2_teacher_output or "",
+                    "q1_parsed": parsed_teacher_q1,
+                    "q2_parsed": parsed_teacher_q2,
+                    "rs_correct": q1_teacher_rs_correct,
+                    "abnormal_correct": q1_teacher_abnormal_correct,
+                    "q2_triggered": q2_teacher_triggered if teacher_bundle is not None else None,
+                    "event_correct": q2_teacher_event_correct,
+                },
+                "memory": {
+                    "before": memory_before,
+                    "after": memory_after,
+                },
+                "transition": transition_fields,
+            }
+
+            if review_artifacts:
+                # review 是默认人工审计结构：一个场景目录下按 frame 展开，每类信息
+                # 固定一个文件。这样输入、输出和真值不会混在同一大 JSON，也不会像
+                # legacy full 模式那样产生几十个同义 TXT/JSON。
+                review_files = {
+                    "inputs.json": frame_record["inputs"],
+                    "student_outputs.json": frame_record["student"],
+                    "teacher_outputs.json": frame_record["teacher"],
+                    "teacher_targets.json": frame_record["teacher_targets"],
+                    "ground_truth.json": frame_record["ground_truth"],
+                    "memory.json": frame_record["memory"],
+                    # 这是每帧最先看的单文件对照入口：不需要人工跨文件拼接 GT、
+                    # student 解析结构和 teacher 真值，就能直接判断错在 Q1 还是 Q2。
+                    "prediction_vs_ground_truth.json": {
+                        "scenario": route.scenario,
+                        "route_id": route.route_id,
+                        "frame_id": frame.frame_id,
+                        "student_model_enabled": bundle is not None,
+                        "current_scene_ground_truth": {
+                            # 原始 CARLA scenario 只用于定位/审计，不进入 v5 RS/EVENT 监督。
+                            "scenario_name": route.scenario,
+                            "route_id": route.route_id,
+                            "rs_option": frame.rs_option,
+                            "rs_label": frame.rs_label,
+                            "abnormal": bool(frame.abnormal),
+                            "event_label": event_target.label,
+                            "event_code_audit": frame.event_code,
+                            "event_option_map": frame.event_option_map,
+                            "structured": ground_truth_structure,
                         },
-                        "q2_teacher_training_user_turn": {
-                            "role": "user",
-                            "content": q2_teacher,
-                            "continued_from": "student.q1_output_kv",
+                        "student_extracted_structure": {
+                            "q1": parsed_q1 if bundle is not None else {},
+                            "q2": parsed_q2 if bundle is not None else {},
                         },
-                        "q2_teacher_model_user_turn": {
-                            "role": "user",
-                            "content": q2_teacher_model_prompt,
-                            "continued_from": "teacher.q1_output_kv",
+                        "teacher_ground_truth": {
+                            "structured": ground_truth_structure,
+                            "q1_target": q1_target,
+                            "q2_training_target": q2_target,
+                            "q2_teacher_model_target": q2_teacher_model_target,
+                        },
+                        # 逐字段视图是人工判断的最短路径；上面的三个对象仍保留完整上下文，
+                        # 这里仅把 expected/predicted/correct 并排，避免手工跨层寻找。
+                        "field_comparisons": {
+                            "q1_rs": {
+                                "expected": {
+                                    "rs_option": ground_truth_structure["q1"]["rs_option"],
+                                    "rs_label": ground_truth_structure["q1"]["rs_label"],
+                                },
+                                "predicted": (
+                                    {
+                                        "rs_option": parsed_q1.get("rs_option"),
+                                        "rs_label": parsed_q1.get("rs_label"),
+                                    }
+                                    if bundle is not None
+                                    else None
+                                ),
+                                "correct": frame_record["student"]["rs_correct"],
+                            },
+                            "q1_abnormal": {
+                                "expected": ground_truth_structure["q1"]["abnormal"],
+                                "predicted": (
+                                    parsed_q1.get("abnormal") if bundle is not None else None
+                                ),
+                                "correct": frame_record["student"]["abnormal_correct"],
+                            },
+                            "q2_event": {
+                                "expected": ground_truth_structure["q2"],
+                                "predicted": parsed_q2 if bundle is not None else None,
+                                "correct": frame_record["student"]["event_correct"],
+                            },
+                        },
+                        "correctness": {
+                            "q1_rs_correct": frame_record["student"]["rs_correct"],
+                            "q1_abnormal_correct": frame_record["student"]["abnormal_correct"],
+                            "q2_triggered": frame_record["student"]["q2_triggered"],
+                            "q2_event_correct": frame_record["student"]["event_correct"],
+                            "q2_invalid_output": q2_invalid if bundle is not None else None,
+                            "reset_next": frame_log["reset_next"],
                         },
                     },
-                    "teacher_targets": {
-                        "q1": q1_target,
-                        # training target 基于 student Q1 rollout 后的 memory，是 OPSD
-                        # 实际监督真值；model target 则对应纯 base teacher 自己的 Q1 续接。
-                        "q2_training": q2_target,
-                        "q2_teacher_model": q2_teacher_model_target,
+                    "evaluation.json": {
+                        "selection_reason": frame_record["selection_reason"],
+                        "selection_reason_description": frame_record[
+                            "selection_reason_description"
+                        ],
+                        "gap_reset": frame_record["gap_reset"],
+                        "transition": frame_record["transition"],
+                        "q1_rs_correct": frame_record["student"]["rs_correct"],
+                        "q1_abnormal_correct": frame_record["student"]["abnormal_correct"],
+                        "q2_triggered": frame_record["student"]["q2_triggered"],
+                        "q2_event_correct": frame_record["student"]["event_correct"],
+                        "reset_next": frame_log["reset_next"],
                     },
-                    "student": {
-                        # q1/q2_output 都是完整生成文本，包含 Scene Description、
-                        # Critical Object Description、Reasoning on Intent 与最终答案。
-                        "q1_output": q1_output or "",
-                        "q2_output": q2_output or "",
-                        "q1_parsed": parsed_q1 if bundle is not None else {},
-                        "q2_parsed": parsed_q2 if bundle is not None else {},
-                        "rs_correct": q1_rs_ok if bundle is not None else None,
-                        "abnormal_correct": (
-                            q1_abnormal == frame.abnormal if bundle is not None and q1_abnormal is not None else None
-                        ),
-                        "q2_triggered": q2_triggered if bundle is not None else None,
-                        "event_correct": q2_event_correct if bundle is not None else None,
-                    },
-                    "teacher": {
-                        # 只有 --with-teacher-model 时这些字段才非空；该模型始终不加载
-                        # student LoRA，用于和训练前纯 base teacher 保持同一比较口径。
-                        "q1_output": q1_teacher_output or "",
-                        "q2_output": q2_teacher_output or "",
-                        "q1_parsed": parsed_teacher_q1,
-                        "q2_parsed": parsed_teacher_q2,
-                        "rs_correct": q1_teacher_rs_correct,
-                        "abnormal_correct": q1_teacher_abnormal_correct,
-                        "q2_triggered": q2_teacher_triggered if teacher_bundle is not None else None,
-                        "event_correct": q2_teacher_event_correct,
-                    },
-                    "memory": {
-                        "before": memory_before,
-                        "after": memory_after,
-                    },
-                    "transition": transition_fields,
                 }
-            )
+                for filename, payload in review_files.items():
+                    (case_dir / filename).write_text(
+                        json.dumps(payload, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+            compact_frames.append(frame_record)
             frame_logs.append(frame_log)
             all_frame_logs.append(frame_log)
             previous_pred_rs_label = pred_rs_label
@@ -1302,8 +1448,7 @@ def dump_probe(
             json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
-    # compact/default 的唯一主产物。full 模式也额外写这份入口，方便脚本和人工都只先
-    # 打开一个文件；需要追查某一帧 prompt/KV 续接时再进入 route/frame 子目录。
+    # 三种模式都写顶层索引；review/full 的人工入口则是 scenarios/.../frame_*/。
     results = {
         "format_version": 1,
         "artifact_level": artifact_level,
@@ -1355,9 +1500,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=20260711, help="random 模式随机种子，用于复现同一批帧")
     p.add_argument(
         "--artifact-level",
-        choices=("compact", "full"),
-        default="compact",
-        help="compact 只写 results.json；full 额外保存逐帧 RGB/prompt/output/memory",
+        choices=("compact", "review", "full"),
+        default="review",
+        help="review 按场景/帧分开输入输出真值；compact 只汇总；full 再保存 RGB/legacy 文件",
     )
     p.add_argument("--with-model", action="store_true")
     p.add_argument("--with-teacher", action="store_true", help="compat flag: v5 always dumps teacher prompt/target")

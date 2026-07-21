@@ -342,10 +342,14 @@
   RS 专项必须保留同一次变化的前帧/新 RS 首帧/后帧，UE 专项必须保留同一
   UE span 的全部 UE 帧并按 context radius 补进入前/退出后邻帧，不能被
   `num_cases` 从中间截断；专项找不到变化时不用
-  无关帧 fallback 凑数。默认 `--artifact-level compact` 只写一个 `results.json`，集中
-  保存选帧、RGB 路径、实际 student/teacher messages、脚本化 teacher target、完整
-  RS/EVENT 场景 GT、student/base-teacher CoT 原始与解析输出、memory、summary 和
-  transition report；compact 只减少文件数量，不得减少 base/LoRA 人工对比字段。只有
+  无关帧 fallback 凑数。默认 `--artifact-level review` 按
+  `scenarios/<scenario>__<route>/frame_<id>/` 保存连续测试帧；每帧分别写输入、学生输出、
+  教师输出、teacher target、场景 GT、memory、evaluation，以及
+  `prediction_vs_ground_truth.json`。该对照文件必须并列当前 RS/ABNORMAL/EVENT 真值、
+  原始 scenario/route 审计真值、
+  学生 Q1/Q2 解析结构、默认与按双标签动态解析的结构化真值、文本 teacher target 和
+  逐项正确性，并按字段给出 `expected/predicted/correct`；未运行 student 时预测与正确性
+  必须为 null。`compact` 只写同 schema 的顶层 `results.json`；只有
   `--artifact-level full` 才仿 v3 复制 4 帧 RGB，保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
   可选 `q*_teacher_output.txt`、memory_before/after、flags、timeline.json/png 和
   manifest.json，每帧另写完整 `case_record.json`；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用
@@ -385,8 +389,8 @@
   大样本 `eval.py` 与小样本 `probe.py` 必须共用 `metrics.py`：统计 RS/UE 边界、Q1/Q2
   precision/recall/F1、假阳性/假阴性、端到端 EVENT 与 route macro 指标；另外必须用相邻帧
   GT/预测状态分别统计 RS 变化、RE->UE 进入和 UE->RE 退出的 TP/FP/TN/FN/invalid、
-  precision/recall/F1 与 false-positive-rate。小样本 compact 把变化报告内嵌在
-  `results.json.transition_report`，full 模式另写 `transition_report.json`；eval
+  precision/recall/F1 与 false-positive-rate。小样本三种 artifact mode 都把变化报告内嵌在
+  `results.json.transition_report`，full 模式再另写 `transition_report.json`；eval
   可用 `--transition-jsonl` 只落盘变化和 FP/FN 的轻量记录。所有指标输出保存中文定义和方向；
   eval 默认流式累计，只有显式 `--output-jsonl` 才落盘全量逐帧输入输出，不能为统计把全量
   prompt/output 常驻内存。
