@@ -4,10 +4,10 @@
 
 1. DataLoader 每次读取若干条 route sequence；
 2. collate 阶段只做本 rank local padding，主训练进程再 all-reduce 得到 global T；
-3. 每个有效 frame 先让 student 自由回答 Q1；
-4. 每个有效帧都运行 Q1；只有本帧 RS 正确才进入 Q2。RS 错误时后续帧仍持续运行
-   Q1，错误 RS/EVENT 继续写回供学生自主纠偏，超过各自 patience 后才按 RS 低频 /
-   EVENT 高频 review interval 做训练期 GT 兜底；
+3. 稳定 RS 每 4 个 4Hz 帧运行一次 RS_SLOW，中间帧只复用 RS memory；
+4. EVENT_FAST 在每个 RS gate 正确的帧直接从显式 [RE | REGULAR] /
+   [UE | UNUSUAL] 混合候选中选择；RS
+   错误/UNKNOWN 时立即切回逐帧 RS recovery，并在 RS 恢复前跳过 EVENT；
 5. teacher 关闭 LoRA，读取 privileged prompt，在同一批 student rollout token 上给
    full-vocabulary logits；
 6. student/teacher logits 做 forward-KL，梯度只回到 LoRA student；
@@ -108,6 +108,7 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     parse_q2_output,
     prepare_training_memory,
     reset_memory_for_frame,
+    should_run_rs_slow,
     should_trigger_q2,
     target_spans_q1,
     target_spans_q2,
@@ -568,25 +569,6 @@ def _messages(images: List[Image.Image], user_prompt: str) -> List[Dict[str, Any
     return [
         {"role": "system", "content": SYSTEM_PROMPT_V5},
         {"role": "user", "content": content},
-    ]
-
-
-def _q2_full_messages(images: List[Image.Image], q1_prompt: str, q1_text: str, q2_prompt: str) -> List[Dict[str, Any]]:
-    """构造“图像 + Q1 user + Q1 assistant + Q2 user”的完整 Q2 对话。
-
-    这个 helper 只用于 Q2 student rollout 采样：为了让多个 route 的 Q2 能合成 padded
-    batch，先把 Q1 assistant 文本放回完整对话再 prefill/generate。正式 KL scoring
-    不走这里，而是用精确的 q1_ids 追加到 Q1 KV 后再追加 Q2 user turn，避免
-    `q1_ids -> text -> tokenizer` 往返造成 token 边界漂移。
-    """
-
-    content: List[Dict[str, Any]] = [{"type": "image", "image": image} for image in images]
-    content.append({"type": "text", "text": q1_prompt})
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT_V5},
-        {"role": "user", "content": content},
-        {"role": "assistant", "content": q1_text},
-        {"role": "user", "content": q2_prompt},
     ]
 
 
@@ -1062,7 +1044,7 @@ def _kl_selected_logits(student_logits: torch.Tensor, teacher_logits: torch.Tens
 def _trainable_graph_zero(bundle: Any, fallback: torch.Tensor) -> torch.Tensor:
     """返回一个带 autograd graph 的 0，供“无监督 span”帧安全 backward。
 
-    某些 student rollout 可能没有输出 `RS:` / `ABNORMAL:` / `EVENT:` 等可监督字段。
+    某些 student rollout 可能没有输出 `RS:` / `EVENT:` 等可监督字段。
     这种帧的 OPSD loss 应该是 0，但仍要允许外层执行 backward，并保持所有 rank 的
     optimizer/all-reduce 节奏一致。直接用 no-grad KV logits 构造的 0 没有 grad_fn，
     会触发 `element 0 of tensors does not require grad`；这里改为从第一个可训练 LoRA
@@ -1466,9 +1448,8 @@ def _q1_memory_diagnostics(
     frame: FrameRow,
     *,
     student_rs: Optional[str],
-    student_abnormal: Optional[bool],
 ) -> Dict[str, Any]:
-    """统计 Q1 是否在错误/UNKNOWN RS memory 上复制、纠偏及异常混淆矩阵。"""
+    """统计 RS_SLOW 是否在错误/UNKNOWN RS memory 上复制或纠偏。"""
 
     input_known = memory.rs_label in RS_LABEL_TO_OPTION
     input_wrong = bool(input_known and memory.rs_label != frame.rs_label)
@@ -1478,10 +1459,6 @@ def _q1_memory_diagnostics(
         "memory_rs_input_unknown": input_unknown,
         "memory_rs_copied_when_wrong": bool(input_wrong and student_rs == memory.rs_label),
         "memory_rs_recovered": bool((input_wrong or input_unknown) and student_rs == frame.rs_label),
-        "q1_abnormal_tp": bool(frame.abnormal and student_abnormal is True),
-        "q1_abnormal_fp": bool(not frame.abnormal and student_abnormal is True),
-        "q1_abnormal_tn": bool(not frame.abnormal and student_abnormal is False),
-        "q1_abnormal_fn": bool(frame.abnormal and student_abnormal is not True),
     }
 
 
@@ -1528,6 +1505,7 @@ def _finalize_memory_curriculum_frame(
         state,
         config,
         rs_correct=bool(stats.get("q1_rs_correct")),
+        rs_checked=bool(stats.get("q1_triggered")),
         event_checked=bool(stats.get("q2_triggered")),
         event_correct=bool(stats.get("q2_event_correct")),
     )
@@ -1578,7 +1556,6 @@ def _run_frame(
         "q2_loss_seconds": 0.0,
     }
     rs_target = _rs_target_from_frame(frame)
-    event_target_static = _event_target_from_frame(frame)
 
     # ---- Q1: student rollout ----
     images: Optional[List[Image.Image]] = None
@@ -1607,7 +1584,6 @@ def _run_frame(
     q1_teacher_prompt = build_q1_teacher_prompt(
         memory,
         rs_target=rs_target,
-        event_target=event_target_static,
         weather_text=frame.weather_text,
     )
     if images is None:
@@ -1633,11 +1609,11 @@ def _run_frame(
         student_rs_label=student_rs,
         target_rs_label=frame.rs_label,
     )
-    q1_abnormal = q1_parsed.get("abnormal") == "YES" if q1_parsed.get("abnormal") else None
-    memory_after_q1 = update_memory_after_q1(memory, student_rs_label=student_rs, student_abnormal=q1_abnormal)
+    memory_after_q1 = update_memory_after_q1(memory, student_rs_label=student_rs)
     stats: Dict[str, Any] = {
+        "q1_triggered": True,
         "q1_rs_correct": q1_rs_correct,
-        "q1_abnormal_correct": q1_abnormal == frame.abnormal if q1_abnormal is not None else False,
+        "rs_gate_correct": q1_rs_correct,
         "q2_triggered": False,
         "candidate_mismatch": False,
         "q1_rollout_tokens": int(q1_ids.numel()),
@@ -1648,7 +1624,6 @@ def _run_frame(
             memory,
             frame,
             student_rs=student_rs,
-            student_abnormal=q1_abnormal,
         ),
     }
     if not q1_rs_correct:
@@ -1660,7 +1635,6 @@ def _run_frame(
     q2_prompt = build_q2_student_prompt(
         memory_after_q1,
         option_map=frame.event_option_map,
-        q1_abnormal=bool(q1_abnormal),
         regular_event_codes=frame.regular_event_codes,
     )
     if q2_text is not None and q2_ids is not None and q2_student_state is None:
@@ -1700,7 +1674,6 @@ def _run_frame(
     q2_teacher_prompt = build_q2_teacher_prompt(
         memory_after_q1,
         option_map=frame.event_option_map,
-        q1_abnormal=bool(q1_abnormal),
         event_target=event_target,
         regular_event_codes=frame.regular_event_codes,
     )
@@ -1747,6 +1720,185 @@ def _run_frame(
     return q1_loss + q2_loss, stats, memory_after_q2, q2_invalid
 
 
+def _run_event_only_frame(
+    bundle: Any,
+    memory: Memory,
+    frame: FrameRow,
+    *,
+    max_new_tokens_q2: int,
+    temperature: float,
+    q2_text: Optional[str] = None,
+    q2_ids: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, Dict[str, Any], Memory, bool]:
+    """在稳定 RS fast frame 上直接运行合并后的 EVENT_FAST。
+
+    该路径不生成、不监督 RS，也不伪造一段 Q1 assistant 文本。EVENT prompt 直接以
+    system + 当前 RGB + road/event memory 做 fresh prefill；RE 即 normal，任意 UE 即
+    abnormal。只有 ``memory.rs_label`` 已与当前帧 RS 对齐时才允许调用。
+    """
+
+    if memory.rs_label != frame.rs_label:
+        raise ValueError(
+            f"EVENT_FAST requires correct RS memory: memory={memory.rs_label} target={frame.rs_label}"
+        )
+    timings: Dict[str, float] = {
+        "q1_student_seconds": 0.0,
+        "q1_teacher_seconds": 0.0,
+        "q1_loss_seconds": 0.0,
+        "q2_rollout_seconds": 0.0,
+        "q2_teacher_seconds": 0.0,
+        "q2_loss_seconds": 0.0,
+    }
+    images = _load_images(frame.history_rgb_paths)
+    q2_prompt = build_q2_student_prompt(
+        memory,
+        option_map=frame.event_option_map,
+        regular_event_codes=frame.regular_event_codes,
+    )
+    q2_rollout_start = time.time()
+    with torch.no_grad():
+        q2_student_state = _kv_start_state(bundle, _messages(images, q2_prompt))
+        if q2_text is None or q2_ids is None:
+            q2_text, q2_after, q2_ids = _student_generate_kv(
+                bundle,
+                q2_student_state,
+                max_new_tokens_q2,
+            )
+            del q2_after
+    timings["q2_rollout_seconds"] = time.time() - q2_rollout_start
+    assert q2_text is not None and q2_ids is not None
+    q2_parsed = parse_q2_output(q2_text, frame.event_option_map)
+    event_target = _event_target_from_frame(frame, student_event=q2_parsed.get("event_label"))
+    q2_teacher_prompt = build_q2_teacher_prompt(
+        memory,
+        option_map=frame.event_option_map,
+        event_target=event_target,
+        regular_event_codes=frame.regular_event_codes,
+    )
+    q2_teacher_start = time.time()
+    q2_teacher_state = _teacher_start_state(bundle, _messages(images, q2_teacher_prompt))
+    timings["q2_teacher_seconds"] = time.time() - q2_teacher_start
+    q2_loss_start = time.time()
+    q2_loss, q2_parts = _opsd_loss(
+        bundle,
+        student_state=q2_student_state,
+        teacher_state=q2_teacher_state,
+        rollout_text=q2_text,
+        rollout_ids=q2_ids,
+        span_fn=target_spans_q2,
+        weights=loss_weights_q2(),
+        temperature=temperature,
+    )
+    timings["q2_loss_seconds"] = time.time() - q2_loss_start
+    student_event = q2_parsed.get("event_label")
+    next_memory = update_memory_after_q2(memory, student_event_label=student_event)
+    q2_invalid = student_event is None
+    stats: Dict[str, Any] = {
+        "q1_triggered": False,
+        "q1_rs_correct": False,
+        "rs_gate_correct": True,
+        "q2_triggered": True,
+        "q2_event_correct": student_event == event_target.label,
+        "q2_invalid_output": q2_invalid,
+        "candidate_mismatch": option_for_event(event_target.label, frame.event_option_map) is None,
+        "q1_rollout_tokens": 0,
+        "q2_rollout_tokens": int(q2_ids.numel()),
+        "q1_parts": {key: 0.0 for key in loss_weights_q1()},
+        "q2_parts": q2_parts,
+        "timings": timings,
+        **_q1_memory_diagnostics(memory, frame, student_rs=None),
+        **_q2_memory_diagnostics(memory, frame, student_event=student_event),
+    }
+    return q2_loss, stats, next_memory, q2_invalid
+
+
+def _run_event_only_chunk_parallel_kl(
+    bundle: Any,
+    chunk: Sequence[Tuple[int, SequenceRow, FrameRow, Memory]],
+    *,
+    q2_rollouts: Sequence[Optional[Tuple[Optional[KVState], str, torch.Tensor]]],
+    temperature: float,
+) -> Tuple[torch.Tensor, List[Tuple[int, Dict[str, Any], Memory, bool, float]]]:
+    """并行计算一组稳定 RS fast frame 的 EVENT_FAST OPSD loss。"""
+
+    if not chunk or len(chunk) != len(q2_rollouts) or any(item is None for item in q2_rollouts):
+        raise ValueError("EVENT_FAST parallel KL requires one rollout per frame")
+    images_per_frame = [_load_images(frame.history_rgb_paths) for _b, _route, frame, _memory in chunk]
+    student_messages: List[List[Dict[str, Any]]] = []
+    teacher_messages: List[List[Dict[str, Any]]] = []
+    rollout_texts: List[str] = []
+    rollout_ids: List[torch.Tensor] = []
+    event_targets: List[EventTarget] = []
+    for images, (_b, _route, frame, memory), rollout in zip(images_per_frame, chunk, q2_rollouts):
+        assert rollout is not None
+        if memory.rs_label != frame.rs_label:
+            raise ValueError("EVENT_FAST parallel KL received stale RS memory")
+        _state, q2_text, q2_ids = rollout
+        parsed = parse_q2_output(q2_text, frame.event_option_map)
+        target = _event_target_from_frame(frame, student_event=parsed.get("event_label"))
+        student_prompt = build_q2_student_prompt(
+            memory,
+            option_map=frame.event_option_map,
+            regular_event_codes=frame.regular_event_codes,
+        )
+        teacher_prompt = build_q2_teacher_prompt(
+            memory,
+            option_map=frame.event_option_map,
+            event_target=target,
+            regular_event_codes=frame.regular_event_codes,
+        )
+        student_messages.append(_messages(images, student_prompt))
+        teacher_messages.append(_messages(images, teacher_prompt))
+        rollout_texts.append(q2_text)
+        rollout_ids.append(q2_ids)
+        event_targets.append(target)
+    total_loss, parts_list, loss_list = _opsd_loss_batch_messages(
+        bundle,
+        student_messages=student_messages,
+        teacher_messages=teacher_messages,
+        rollout_texts=rollout_texts,
+        rollout_ids_list=rollout_ids,
+        span_fn=target_spans_q2,
+        weights=loss_weights_q2(),
+        temperature=temperature,
+    )
+    results: List[Tuple[int, Dict[str, Any], Memory, bool, float]] = []
+    for (b, _route, frame, memory), rollout, target, parts, loss in zip(
+        chunk, q2_rollouts, event_targets, parts_list, loss_list
+    ):
+        assert rollout is not None
+        _state, q2_text, q2_ids = rollout
+        parsed = parse_q2_output(q2_text, frame.event_option_map)
+        student_event = parsed.get("event_label")
+        next_memory = update_memory_after_q2(memory, student_event_label=student_event)
+        invalid = student_event is None
+        stats: Dict[str, Any] = {
+            "q1_triggered": False,
+            "q1_rs_correct": False,
+            "rs_gate_correct": True,
+            "q2_triggered": True,
+            "q2_event_correct": student_event == target.label,
+            "q2_invalid_output": invalid,
+            "candidate_mismatch": option_for_event(target.label, frame.event_option_map) is None,
+            "q1_rollout_tokens": 0,
+            "q2_rollout_tokens": int(q2_ids.numel()),
+            "q1_parts": {key: 0.0 for key in loss_weights_q1()},
+            "q2_parts": parts,
+            "timings": {
+                "q1_student_seconds": 0.0,
+                "q1_teacher_seconds": 0.0,
+                "q1_loss_seconds": 0.0,
+                "q2_rollout_seconds": 0.0,
+                "q2_teacher_seconds": 0.0,
+                "q2_loss_seconds": 0.0,
+            },
+            **_q1_memory_diagnostics(memory, frame, student_rs=None),
+            **_q2_memory_diagnostics(memory, frame, student_event=student_event),
+        }
+        results.append((b, stats, next_memory, invalid, float(loss.detach().item())))
+    return total_loss, results
+
+
 def _run_chunk_parallel_kl(
     bundle: Any,
     chunk: Sequence[Tuple[int, SequenceRow, FrameRow, Memory]],
@@ -1779,7 +1931,6 @@ def _run_chunk_parallel_kl(
     q1_student_messages: List[List[Dict[str, Any]]] = []
     q1_teacher_messages: List[List[Dict[str, Any]]] = []
     q1_parsed_list: List[Dict[str, str]] = []
-    q1_abnormal_flags: List[Optional[bool]] = []
     for (images, (_b, _route, frame, memory), rollout) in zip(images_per_frame, chunk, q1_rollouts):
         assert rollout is not None
         _q1_state, q1_text, _q1_after, q1_ids = rollout
@@ -1787,10 +1938,7 @@ def _run_chunk_parallel_kl(
         q1_ids_list.append(q1_ids)
         q1_parsed = parse_q1_output(q1_text)
         q1_parsed_list.append(q1_parsed)
-        q1_abnormal = q1_parsed.get("abnormal") == "YES" if q1_parsed.get("abnormal") else None
-        q1_abnormal_flags.append(q1_abnormal)
         rs_target = _rs_target_from_frame(frame)
-        event_target_static = _event_target_from_frame(frame)
         q1_student_messages.append(_messages(images, build_q1_student_prompt(memory)))
         q1_teacher_messages.append(
             _messages(
@@ -1798,7 +1946,6 @@ def _run_chunk_parallel_kl(
                 build_q1_teacher_prompt(
                     memory,
                     rs_target=rs_target,
-                    event_target=event_target_static,
                     weather_text=frame.weather_text,
                 ),
             )
@@ -1825,8 +1972,8 @@ def _run_chunk_parallel_kl(
     q2_texts: List[str] = []
     q2_ids_list: List[torch.Tensor] = []
     q2_event_targets: Dict[int, EventTarget] = {}
-    for local_idx, ((images, (_b, _route, frame, memory)), q1_text, q1_parsed, q1_abnormal) in enumerate(
-        zip(zip(images_per_frame, chunk), q1_texts, q1_parsed_list, q1_abnormal_flags)
+    for local_idx, ((images, (_b, _route, frame, memory)), q1_text, q1_parsed) in enumerate(
+        zip(zip(images_per_frame, chunk), q1_texts, q1_parsed_list)
     ):
         if not should_trigger_q2(
             student_rs_label=q1_parsed.get("rs_label"),
@@ -1843,25 +1990,21 @@ def _run_chunk_parallel_kl(
         memory_after_q1 = update_memory_after_q1(
             memory,
             student_rs_label=q1_parsed.get("rs_label"),
-            student_abnormal=q1_abnormal,
         )
         q1_student_prompt = build_q1_student_prompt(memory)
         q1_teacher_prompt = build_q1_teacher_prompt(
             memory,
             rs_target=_rs_target_from_frame(frame),
-            event_target=_event_target_from_frame(frame),
             weather_text=frame.weather_text,
         )
         q2_student_prompt = build_q2_student_prompt(
             memory_after_q1,
             option_map=frame.event_option_map,
-            q1_abnormal=bool(q1_abnormal),
             regular_event_codes=frame.regular_event_codes,
         )
         q2_teacher_prompt = build_q2_teacher_prompt(
             memory_after_q1,
             option_map=frame.event_option_map,
-            q1_abnormal=bool(q1_abnormal),
             event_target=event_target,
             regular_event_codes=frame.regular_event_codes,
         )
@@ -1908,7 +2051,6 @@ def _run_chunk_parallel_kl(
     per_frame_results: List[Tuple[int, Dict[str, Any], Memory, bool, float]] = []
     for local_idx, (b, _route, frame, memory) in enumerate(chunk):
         q1_parsed = q1_parsed_list[local_idx]
-        q1_abnormal = q1_abnormal_flags[local_idx]
         q1_rs_correct = should_trigger_q2(
             student_rs_label=q1_parsed.get("rs_label"),
             target_rs_label=frame.rs_label,
@@ -1916,11 +2058,11 @@ def _run_chunk_parallel_kl(
         memory_after_q1 = update_memory_after_q1(
             memory,
             student_rs_label=q1_parsed.get("rs_label"),
-            student_abnormal=q1_abnormal,
         )
         stats: Dict[str, Any] = {
+            "q1_triggered": True,
             "q1_rs_correct": q1_rs_correct,
-            "q1_abnormal_correct": q1_abnormal == frame.abnormal if q1_abnormal is not None else False,
+            "rs_gate_correct": q1_rs_correct,
             "q2_triggered": False,
             "candidate_mismatch": False,
             "q1_rollout_tokens": int(q1_ids_list[local_idx].numel()),
@@ -1940,7 +2082,6 @@ def _run_chunk_parallel_kl(
                 memory,
                 frame,
                 student_rs=q1_parsed.get("rs_label"),
-                student_abnormal=q1_abnormal,
             ),
         }
         frame_loss = q1_loss_list[local_idx]
@@ -2103,21 +2244,98 @@ def _run_q1_rollout_batch(
     ).rollouts
 
 
+def _run_event_fast_rollout_grouped(
+    bundle: Any,
+    *,
+    frames: Sequence[FrameRow],
+    memories: Sequence[Memory],
+    max_new_tokens_q2: int,
+) -> Q2GroupedRolloutResult:
+    """对不需要 RS_SLOW 的稳定帧批量采样 EVENT_FAST。
+
+    与串行 Q2 不同，这里没有前一轮 Q1 KV；每条样本直接使用 system + RGB +
+    EVENT_FAST user prompt 做 fresh prefill。返回值只保留文本/token，KL 会重建精确
+    prompt state。
+    """
+
+    total_start = time.time()
+    n = len(frames)
+    if n == 0:
+        return Q2GroupedRolloutResult([], [], [], [], 0, 0, 0, {}, 0.0, 0.0)
+    images_per_frame = [_load_images(frame.history_rgb_paths) for frame in frames]
+    messages_list = [
+        _messages(
+            images,
+            build_q2_student_prompt(
+                memory,
+                option_map=frame.event_option_map,
+                regular_event_codes=frame.regular_event_codes,
+            ),
+        )
+        for images, memory, frame in zip(images_per_frame, memories, frames)
+    ]
+    length_start = time.time()
+    input_lengths = [_qwen_message_input_length(bundle, messages) for messages in messages_list]
+    length_seconds = time.time() - length_start
+    groups: Dict[int, List[int]] = {}
+    for idx, length in enumerate(input_lengths):
+        groups.setdefault(int(length), []).append(idx)
+    outputs: List[Optional[Tuple[Optional[KVState], str, torch.Tensor]]] = [None] * n
+    batched_group_sizes: List[int] = []
+    singleton_groups = 0
+    if n == 1:
+        singleton_groups = 1
+        with torch.no_grad():
+            state = _kv_start_state(bundle, messages_list[0])
+            text, after, ids = _student_generate_kv(bundle, state, max_new_tokens_q2)
+        del after
+        outputs[0] = (None, text, ids)
+    else:
+        batched_group_sizes.append(n)
+        with torch.no_grad():
+            state_batch = _kv_start_state_batch_padded(bundle, messages_list)
+            texts, ids_list = _student_generate_kv_batch(
+                bundle,
+                state_batch,
+                max_new_tokens_q2,
+                allow_padded_cache=True,
+            )
+        for idx in range(n):
+            outputs[idx] = (None, texts[idx], ids_list[idx])
+    assert all(item is not None for item in outputs)
+    return Q2GroupedRolloutResult(
+        rollouts=[item for item in outputs if item is not None],
+        input_lengths=input_lengths,
+        group_sizes=[len(indices) for indices in groups.values()],
+        batched_group_sizes=batched_group_sizes,
+        singleton_groups=singleton_groups,
+        batched_groups=len(batched_group_sizes),
+        batched_frames=sum(batched_group_sizes),
+        length_histogram={int(length): len(indices) for length, indices in groups.items()},
+        length_seconds=length_seconds,
+        total_seconds=time.time() - total_start,
+    )
+
+
 def _run_q2_rollout_grouped(
     bundle: Any,
     *,
     frames: Sequence[FrameRow],
     memories: Sequence[Memory],
     q1_texts: Sequence[str],
-    q1_abnormal_flags: Sequence[bool],
+    q1_ids_list: Sequence[torch.Tensor],
     max_new_tokens_q2: int,
 ) -> Q2GroupedRolloutResult:
     """用 mixed-length padded batch 运行 Q2 student rollout。
 
-    返回的 `rollouts` 与输入顺序一一对应。Q2 rollout 是 no_grad 采样路径；n>1 时不再
-    按 full-dialog length 拆组，而是整组走 padded prefill/generate。`input_lengths` /
-    `length_histogram` 仍会记录 padding pressure，方便 smoke 和日志审计。返回的 state
-    置为 None，外层会为 KL 重新构造精确 `q1_ids -> Q1 KV -> Q2 user turn` 状态。
+    返回的 `rollouts` 与输入顺序一一对应。Q2 rollout 是 no_grad 采样路径：先对
+    当帧 Q1 图文 prompt 做 padded prefill，再追加 student 真实采样的精确
+    `q1_ids`，最后 append Q2 user turn。禁止把 `q1_text` 放回 chat template 重新
+    tokenize；否则 rollout 与 KL scoring 会看到不同的 Q1 token 上下文。
+
+    n>1 时整组走 padded KV/generate。`input_lengths` / `length_histogram` 记录
+    追加 Q2 turn 后每个样本的有效上下文长度。返回 state 置为 None，外层
+    仍会为 KL 重建有梯度的精确状态。
 
     这一步仍属于“采集”：只拿 student 的 Q2 文本/token，不把 padded final KV 交给
     训练或 memory。
@@ -2125,6 +2343,10 @@ def _run_q2_rollout_grouped(
 
     total_start = time.time()
     n = len(frames)
+    if len(memories) != n or len(q1_texts) != n or len(q1_ids_list) != n:
+        raise ValueError(
+            "Q2 grouped rollout requires aligned frames/memories/q1_texts/q1_ids_list"
+        )
     if n == 0:
         return Q2GroupedRolloutResult(
             rollouts=[],
@@ -2139,55 +2361,64 @@ def _run_q2_rollout_grouped(
             total_seconds=0.0,
         )
     images_per_frame = [_load_images(frame.history_rgb_paths) for frame in frames]
-    messages_list: List[List[Dict[str, Any]]] = []
-    for images, memory, frame, q1_text, q1_abnormal in zip(images_per_frame, memories, frames, q1_texts, q1_abnormal_flags):
+    q1_messages_list: List[List[Dict[str, Any]]] = []
+    q2_prompts: List[str] = []
+    for images, memory, frame, q1_text in zip(images_per_frame, memories, frames, q1_texts):
         q1_prompt = build_q1_student_prompt(memory)
         memory_after_q1 = update_memory_after_q1(
             memory,
             student_rs_label=parse_q1_output(q1_text).get("rs_label"),
-            student_abnormal=q1_abnormal,
         )
         q2_prompt = build_q2_student_prompt(
             memory_after_q1,
             option_map=frame.event_option_map,
-            q1_abnormal=bool(q1_abnormal),
             regular_event_codes=frame.regular_event_codes,
         )
-        messages_list.append(_q2_full_messages(images, q1_prompt, q1_text, q2_prompt))
+        q1_messages_list.append(_messages(images, q1_prompt))
+        q2_prompts.append(q2_prompt)
 
     length_start = time.time()
-    input_lengths = [_qwen_message_input_length(bundle, messages) for messages in messages_list]
+    outputs: List[Optional[Tuple[Optional[KVState], str, torch.Tensor]]] = [None for _ in range(n)]
+    batched_group_sizes: List[int] = []
+    singleton_groups = 0
+    with torch.no_grad():
+        if n == 1:
+            singleton_groups = 1
+            q1_state = _kv_start_state(bundle, q1_messages_list[0])
+            q1_after, _ = _append_token_ids(bundle, q1_state, q1_ids_list[0])
+            q2_state = _append_user_turn(bundle, q1_after, q2_prompts[0])
+            input_lengths = [int(q2_state.attention_mask.to(torch.long).sum().item())]
+            text, q2_after, ids = _student_generate_kv(bundle, q2_state, max_new_tokens_q2)
+            del q2_after
+            outputs[0] = (None, text, ids)
+        else:
+            batched_group_sizes.append(n)
+            q1_state_batch = _kv_start_state_batch_padded(bundle, q1_messages_list)
+            q1_after_batch = _append_token_ids_padded_no_logits(
+                bundle,
+                q1_state_batch,
+                q1_ids_list,
+            )
+            q2_state_batch = _append_user_turn_batch_padded(bundle, q1_after_batch, q2_prompts)
+            input_lengths = [
+                int(value)
+                for value in q2_state_batch.attention_mask.to(torch.long).sum(dim=1).detach().cpu().tolist()
+            ]
+            texts, generated_ids_list = _student_generate_kv_batch(
+                bundle,
+                q2_state_batch,
+                max_new_tokens_q2,
+                allow_padded_cache=True,
+            )
+            for idx in range(n):
+                # state=None 是刻意的：rollout 只提供 student 采样文本/token；
+                # KL 训练 state 会按精确 q1_ids 重建。
+                outputs[idx] = (None, texts[idx], generated_ids_list[idx])
     length_seconds = time.time() - length_start
     groups: Dict[int, List[int]] = {}
     for idx, length in enumerate(input_lengths):
         groups.setdefault(int(length), []).append(idx)
-
-    outputs: List[Optional[Tuple[Optional[KVState], str, torch.Tensor]]] = [None for _ in range(n)]
     group_sizes = [len(indices) for indices in groups.values()]
-    batched_group_sizes: List[int] = []
-    singleton_groups = 0
-    if n == 1:
-        singleton_groups = 1
-        with torch.no_grad():
-            state = _kv_start_state(bundle, messages_list[0])
-            text, _after, ids = _student_generate_kv(bundle, state, max_new_tokens_q2)
-        # 即使只有一个 Q2 candidate，外层也只需要 text/ids；KL 会按精确 Q1 ids
-        # 重建 Q2 state。不要把完整单样本 KV 留在 q2_rollouts 中跨到 KL forward。
-        outputs[0] = (None, text, ids)
-    else:
-        batched_group_sizes.append(n)
-        with torch.no_grad():
-            state_batch = _kv_start_state_batch_padded(bundle, messages_list)
-            texts, ids_list = _student_generate_kv_batch(
-                bundle,
-                state_batch,
-                max_new_tokens_q2,
-                allow_padded_cache=True,
-            )
-        for idx in range(n):
-            # state=None 是刻意的：padded rollout 只提供 student 采样文本/token；
-            # KL 训练 state 在 _run_frame 中按单样本精确 KV 重新构造。
-            outputs[idx] = (None, texts[idx], ids_list[idx])
 
     return Q2GroupedRolloutResult(
         rollouts=outputs,
@@ -2471,6 +2702,73 @@ def _run_parallel_kl_microbatches(
     )
 
 
+def _run_event_fast_parallel_kl_microbatches(
+    bundle: Any,
+    chunk: Sequence[Tuple[int, SequenceRow, FrameRow, Memory]],
+    *,
+    q2_rollouts: Sequence[Optional[Tuple[Optional[KVState], str, torch.Tensor]]],
+    temperature: float,
+    backward_normalizer: int,
+    microbatch_size: int,
+) -> ParallelKLMicrobatchResult:
+    """对 EVENT_FAST rollout 做可二分 OOM 的 parallel-KL 微批训练。"""
+
+    if len(chunk) == 0:
+        return ParallelKLMicrobatchResult([], 0.0, [], 0)
+    if len(chunk) != len(q2_rollouts):
+        raise ValueError("EVENT_FAST parallel KL rollout length mismatch")
+    frame_results: List[Tuple[int, Dict[str, Any], Memory, bool, float]] = []
+    detached_loss_sum = 0.0
+    completed_sizes: List[int] = []
+    oom_splits = 0
+
+    def run_slice(start_idx: int, end_idx: int) -> None:
+        """训练一个 EVENT_FAST 子片；forward OOM 时安全二分。"""
+
+        nonlocal detached_loss_sum, oom_splits
+        size = int(end_idx - start_idx)
+        if size <= 0:
+            return
+        try:
+            loss, results = _run_event_only_chunk_parallel_kl(
+                bundle,
+                chunk[start_idx:end_idx],
+                q2_rollouts=q2_rollouts[start_idx:end_idx],
+                temperature=float(temperature),
+            )
+        except Exception as exc:
+            if not _is_cuda_oom(exc) or size <= 1:
+                raise
+            oom_splits += 1
+            exc.__traceback__ = None
+            del exc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            middle = start_idx + size // 2
+            run_slice(start_idx, middle)
+            run_slice(middle, end_idx)
+            return
+        if not bool(loss.requires_grad):
+            loss = _trainable_graph_zero(bundle, loss)
+        loss_value = float(loss.detach().item())
+        (loss / float(backward_normalizer)).backward()
+        detached_loss_sum += loss_value
+        frame_results.extend(results)
+        completed_sizes.append(size)
+        del loss, results
+
+    cap = max(1, int(microbatch_size))
+    for start in range(0, len(chunk), cap):
+        run_slice(start, min(len(chunk), start + cap))
+    return ParallelKLMicrobatchResult(
+        frame_results=frame_results,
+        detached_loss_sum=detached_loss_sum,
+        microbatch_sizes=completed_sizes,
+        oom_splits=oom_splits,
+    )
+
+
 def _cuda_memory_text() -> str:
     """返回当前 rank 的 CUDA 显存摘要，供长时间训练心跳日志使用。"""
 
@@ -2498,6 +2796,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "max_new_tokens_q2": int(args.max_new_tokens_q2),
         "temperature": float(args.temperature),
         "memory_curriculum": {
+            "rs_slow_interval": int(getattr(args, "rs_slow_interval", 4)),
             "rs_error_patience": int(getattr(args, "rs_error_patience", 4)),
             "event_error_patience": int(getattr(args, "event_error_patience", 3)),
             "rs_repair_interval": int(getattr(args, "rs_repair_interval", 2)),
@@ -2508,7 +2807,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
             "event_memory_unknown_prob": float(getattr(args, "event_memory_unknown_prob", 0.05)),
             "rs_initial_gt_prob": float(getattr(args, "rs_initial_gt_prob", 0.5)),
             "event_initial_gt_prob": float(getattr(args, "event_initial_gt_prob", 0.5)),
-            "q1_abnormal_direct_event_reset": False,
+            "event_fast_merges_normal_abnormal": True,
         },
         "parallel_kl": bool(args.parallel_kl),
         "parallel_kl_microbatch_size": int(args.parallel_kl_microbatch_size),
@@ -2614,6 +2913,7 @@ def _run_probe_with_training_bundle(
         merge_lora=False,
         max_new_tokens_q1=int(args.checkpoint_probe_max_new_tokens_q1),
         max_new_tokens_q2=int(args.checkpoint_probe_max_new_tokens_q2),
+        rs_slow_interval=int(args.rs_slow_interval),
     )
     started = time.time()
     summary = dump_probe(
@@ -2669,11 +2969,12 @@ _TRAIN_WINDOW_KEYS = (
     "loss_sum",
     "q1_loss_analysis_sum",
     "q1_loss_rs_sum",
-    "q1_loss_abnormal_sum",
     "q2_loss_analysis_sum",
     "q2_loss_event_sum",
+    "q1_triggered",
     "q1_rs_correct",
-    "q1_abnormal_correct",
+    "rs_gate_correct",
+    "rs_reused_fast_frames",
     "q2_triggered",
     "q2_skipped_rs_wrong",
     "q2_event_correct",
@@ -2699,10 +3000,6 @@ _TRAIN_WINDOW_KEYS = (
     "memory_event_self_recovered_after_streak",
     "memory_rs_error_streak_sum",
     "memory_event_error_streak_sum",
-    "q1_abnormal_tp",
-    "q1_abnormal_fp",
-    "q1_abnormal_tn",
-    "q1_abnormal_fn",
     "q2_ue_tp",
     "q2_ue_fp",
     "q2_ue_tn",
@@ -2788,15 +3085,16 @@ def _add_frame_rollout_stats(
     if isinstance(q1_parts, Mapping):
         stats["q1_loss_analysis_sum"] += float(q1_parts.get("analysis", 0.0) or 0.0)
         stats["q1_loss_rs_sum"] += float(q1_parts.get("rs", 0.0) or 0.0)
-        stats["q1_loss_abnormal_sum"] += float(q1_parts.get("abnormal", 0.0) or 0.0)
     q2_parts = frame_stats.get("q2_parts") or {}
     if isinstance(q2_parts, Mapping):
         stats["q2_loss_analysis_sum"] += float(q2_parts.get("analysis", 0.0) or 0.0)
         stats["q2_loss_event_sum"] += float(q2_parts.get("event", 0.0) or 0.0)
+    stats["q1_triggered"] += float(bool(frame_stats.get("q1_triggered", False)))
     stats["q1_rs_correct"] += float(bool(frame_stats.get("q1_rs_correct", False)))
-    stats["q1_abnormal_correct"] += float(bool(frame_stats.get("q1_abnormal_correct", False)))
+    stats["rs_gate_correct"] += float(bool(frame_stats.get("rs_gate_correct", False)))
+    stats["rs_reused_fast_frames"] += float(not bool(frame_stats.get("q1_triggered", False)))
     stats["q2_triggered"] += float(bool(frame_stats.get("q2_triggered", False)))
-    stats["q2_skipped_rs_wrong"] += float(not bool(frame_stats.get("q1_rs_correct", False)))
+    stats["q2_skipped_rs_wrong"] += float(not bool(frame_stats.get("rs_gate_correct", False)))
     stats["q2_event_correct"] += float(bool(frame_stats.get("q2_event_correct", False)))
     stats["q2_invalid_output"] += float(bool(frame_stats.get("q2_invalid_output", False)))
     stats["candidate_mismatch"] += float(bool(frame_stats.get("candidate_mismatch", False)))
@@ -2819,17 +3117,16 @@ def _add_frame_rollout_stats(
         "memory_event_forced_repair",
         "memory_rs_self_recovered_after_streak",
         "memory_event_self_recovered_after_streak",
-        "q1_abnormal_tp",
-        "q1_abnormal_fp",
-        "q1_abnormal_tn",
-        "q1_abnormal_fn",
         "q2_ue_tp",
         "q2_ue_fp",
         "q2_ue_tn",
         "q2_ue_fn",
     ):
         stats[key] += float(bool(frame_stats.get(key, False)))
-    stats["memory_rs_error_streak_sum"] += float(frame_stats.get("memory_rs_error_streak_after", 0) or 0)
+    if bool(frame_stats.get("q1_triggered", False)):
+        stats["memory_rs_error_streak_sum"] += float(
+            frame_stats.get("memory_rs_error_streak_after", 0) or 0
+        )
     if bool(frame_stats.get("q2_triggered", False)):
         # EVENT streak 只在实际 Q2 帧更新，分母也必须是 q2_triggered；RS 错导致
         # Q2 跳过时不能把同一个陈旧 streak 重复计入均值。
@@ -2910,6 +3207,7 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
     """把聚合后的 on-policy 统计格式化成一行日志。"""
 
     frames = max(1.0, float(stats.get("frames", 0.0)))
+    q1 = max(1.0, float(stats.get("q1_triggered", 0.0)))
     q2 = max(1.0, float(stats.get("q2_triggered", 0.0)))
     shape_steps = max(1.0, float(stats.get("timesteps", 0.0)))
     valid_slots = max(1.0, float(stats.get("valid_slots", 0.0)))
@@ -2920,27 +3218,25 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
     q2_grouped_frames = max(1.0, float(stats.get("q2_grouped_frames", 0.0)))
     q2_batched_frames = float(stats.get("q2_batched_frames", 0.0))
     q2_grouped_chunks = max(1.0, float(stats.get("q2_grouped_chunks", 0.0)))
-    abnormal_prf = _window_binary_metrics(stats, "q1_abnormal")
     event_prf = _window_binary_metrics(stats, "q2_ue")
     rs_wrong = max(1.0, float(stats.get("memory_rs_input_known_wrong", 0.0)))
     event_wrong = max(1.0, float(stats.get("memory_event_input_known_wrong", 0.0)))
     return (
         f"loss/frame={float(stats.get('loss_sum', 0.0)) / frames:.4f} "
-        f"q1_loss={{a:{float(stats.get('q1_loss_analysis_sum', 0.0)) / frames:.3f},"
-        f"rs:{float(stats.get('q1_loss_rs_sum', 0.0)) / frames:.3f},"
-        f"abn:{float(stats.get('q1_loss_abnormal_sum', 0.0)) / frames:.3f}}} "
+        f"q1_loss={{a:{float(stats.get('q1_loss_analysis_sum', 0.0)) / q1:.3f},"
+        f"rs:{float(stats.get('q1_loss_rs_sum', 0.0)) / q1:.3f}}} "
         f"q2_loss={{a:{float(stats.get('q2_loss_analysis_sum', 0.0)) / q2:.3f},"
         f"event:{float(stats.get('q2_loss_event_sum', 0.0)) / q2:.3f}}} "
         f"frames={int(stats.get('frames', 0.0))} "
+        f"rs_slow_rate={float(stats.get('q1_triggered', 0.0)) / frames:.3f} "
+        f"rs_reuse_rate={float(stats.get('rs_reused_fast_frames', 0.0)) / frames:.3f} "
         f"q2_rate={float(stats.get('q2_triggered', 0.0)) / frames:.3f} "
         f"q2_skip_rs={float(stats.get('q2_skipped_rs_wrong', 0.0)) / frames:.3f} "
-        f"rs_acc={float(stats.get('q1_rs_correct', 0.0)) / frames:.3f} "
-        f"abn_acc={float(stats.get('q1_abnormal_correct', 0.0)) / frames:.3f} "
+        f"rs_acc={float(stats.get('q1_rs_correct', 0.0)) / q1:.3f} "
         f"event_acc={float(stats.get('q2_event_correct', 0.0)) / q2:.3f} "
         f"invalid={int(stats.get('q2_invalid_output', 0.0))} "
         f"repair_pending={int(stats.get('memory_repair_pending', 0.0))} "
-        f"abn_prf={{{abnormal_prf['precision']:.3f}/{abnormal_prf['recall']:.3f}/{abnormal_prf['f1']:.3f}}} "
-        f"event_prf={{{event_prf['precision']:.3f}/{event_prf['recall']:.3f}/{event_prf['f1']:.3f}}} "
+        f"event_ue_prf={{{event_prf['precision']:.3f}/{event_prf['recall']:.3f}/{event_prf['f1']:.3f}}} "
         f"mem_rs={{wrong:{int(stats.get('memory_rs_input_known_wrong', 0.0))},"
         f"bad_rate:{(float(stats.get('memory_rs_input_known_wrong', 0.0)) + float(stats.get('memory_rs_input_unknown', 0.0))) / frames:.3f},"
         f"copy:{float(stats.get('memory_rs_copied_when_wrong', 0.0)) / rs_wrong:.3f},"
@@ -2950,11 +3246,11 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"copy:{float(stats.get('memory_event_copied_when_wrong', 0.0)) / event_wrong:.3f},"
         f"recover:{float(stats.get('memory_event_recovered', 0.0)) / max(1.0, float(stats.get('memory_event_input_known_wrong', 0.0)) + float(stats.get('memory_event_input_unknown', 0.0))):.3f}}} "
         f"tok/frame={rollout_tokens / frames:.1f} "
-        f"cap_hit={{q1:{float(stats.get('q1_token_cap_hits', 0.0)) / frames:.3f},"
+        f"cap_hit={{q1:{float(stats.get('q1_token_cap_hits', 0.0)) / q1:.3f},"
         f"q2:{float(stats.get('q2_token_cap_hits', 0.0)) / q2:.3f}}} "
-        f"time/frame={{q1stu:{float(stats.get('time_q1_student_seconds', 0.0)) / frames:.2f},"
-        f"q1teach:{float(stats.get('time_q1_teacher_seconds', 0.0)) / frames:.2f},"
-        f"q1loss:{float(stats.get('time_q1_loss_seconds', 0.0)) / frames:.2f},"
+        f"time/frame={{q1stu:{float(stats.get('time_q1_student_seconds', 0.0)) / q1:.2f},"
+        f"q1teach:{float(stats.get('time_q1_teacher_seconds', 0.0)) / q1:.2f},"
+        f"q1loss:{float(stats.get('time_q1_loss_seconds', 0.0)) / q1:.2f},"
         f"q2roll:{float(stats.get('time_q2_rollout_seconds', 0.0)) / frames:.2f},"
         f"q2teach:{float(stats.get('time_q2_teacher_seconds', 0.0)) / frames:.2f},"
         f"q2loss:{float(stats.get('time_q2_loss_seconds', 0.0)) / frames:.2f}}} "
@@ -3005,9 +3301,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-new-tokens-q1", type=int, default=1024)
     p.add_argument("--max-new-tokens-q2", type=int, default=1024)
     p.add_argument("--temperature", type=float, default=1.0)
+    p.add_argument("--rs-slow-interval", type=int, default=4, help="RS 正确稳定时每隔多少有效帧运行一次 RS_SLOW；数据为 4Hz，默认 4 即约 1Hz")
     p.add_argument("--rs-error-patience", type=int, default=4, help="RS 连续错误多少帧后才申请训练期强制修复；错误期间每帧仍运行 Q1")
     p.add_argument("--event-error-patience", type=int, default=3, help="EVENT 连续错误多少次 Q2 后才申请训练期强制修复")
-    p.add_argument("--rs-repair-interval", type=int, default=2, help="RS 强制修复申请每隔多少有效帧复核一次；只控制脚本兜底，不降低 Q1 思考频率")
+    p.add_argument("--rs-repair-interval", type=int, default=2, help="RS 强制修复申请每隔多少有效帧复核一次；只控制 pending 兜底，recovery 期间仍逐帧思考")
     p.add_argument("--event-repair-interval", type=int, default=1, help="EVENT 强制修复申请每隔多少有效帧复核一次；EVENT 快变量默认每帧")
     p.add_argument("--rs-memory-corrupt-prob", type=float, default=0.06, help="正确 RS memory 在单帧开头被替换成其它 RS 的概率")
     p.add_argument("--rs-memory-unknown-prob", type=float, default=0.02, help="正确 RS memory 在单帧开头变成 UNKNOWN 的概率")
@@ -3122,6 +3419,7 @@ def main() -> None:
     if int(args.parallel_kl_microbatch_size) <= 0:
         raise ValueError("--parallel-kl-microbatch-size must be >= 1")
     curriculum_config = MemoryCurriculumConfig(
+        rs_slow_interval=int(args.rs_slow_interval),
         rs_error_patience=int(args.rs_error_patience),
         event_error_patience=int(args.event_error_patience),
         rs_repair_interval=int(args.rs_repair_interval),
@@ -3216,6 +3514,7 @@ def main() -> None:
         tb.add_scalar("run/checkpoint_probe", float(bool(args.checkpoint_probe)), 0)
         tb.add_scalar("run/checkpoint_probe_num_cases", float(args.checkpoint_probe_num_cases), 0)
         tb.add_scalar("run/checkpoint_probe_num_routes", float(args.checkpoint_probe_num_routes), 0)
+        tb.add_scalar("run/rs_slow_interval", float(args.rs_slow_interval), 0)
         tb.add_scalar("run/rs_error_patience", float(args.rs_error_patience), 0)
         tb.add_scalar("run/event_error_patience", float(args.event_error_patience), 0)
         tb.add_scalar("run/rs_repair_interval", float(args.rs_repair_interval), 0)
@@ -3256,6 +3555,7 @@ def main() -> None:
                     f"checkpoint_probe_sample_mode: {args.checkpoint_probe_sample_mode}",
                     f"checkpoint_probe_context_radius: {args.checkpoint_probe_context_radius}",
                     f"checkpoint_probe_sequence_length: {args.checkpoint_probe_sequence_length}",
+                    f"rs_slow_interval: {args.rs_slow_interval}",
                     f"checkpoint_probe_artifact_level: {args.checkpoint_probe_artifact_level}",
                     f"lora_vision_scope: {args.lora_vision_scope}",
                 ]
@@ -3323,6 +3623,7 @@ def main() -> None:
 
     rank0_log(
         "[memory-curriculum] "
+        f"rs_slow_interval={curriculum_config.rs_slow_interval} "
         f"rs_patience={curriculum_config.rs_error_patience} "
         f"event_patience={curriculum_config.event_error_patience} "
         f"repair_interval=rs:{curriculum_config.rs_repair_interval}/event:{curriculum_config.event_repair_interval} "
@@ -3550,19 +3851,20 @@ def main() -> None:
                 print(f"[train] step={global_step} epoch={epoch_idx} {log_line} elapsed={elapsed:.1f}s {_cuda_memory_text()}", flush=True)
                 if tb is not None:
                     frames = max(1.0, reduced_stats["frames"])
+                    q1 = max(1.0, reduced_stats["q1_triggered"])
                     q2 = max(1.0, reduced_stats["q2_triggered"])
                     valid = max(1.0, reduced_stats["valid_slots"])
                     pad_total = valid + reduced_stats["padding_slots"]
                     tb.add_scalar("train/loss_frame", reduced_stats["loss_sum"] / frames, global_step)
-                    tb.add_scalar("train/loss/q1_analysis", reduced_stats["q1_loss_analysis_sum"] / frames, global_step)
-                    tb.add_scalar("train/loss/q1_rs", reduced_stats["q1_loss_rs_sum"] / frames, global_step)
-                    tb.add_scalar("train/loss/q1_abnormal", reduced_stats["q1_loss_abnormal_sum"] / frames, global_step)
+                    tb.add_scalar("train/loss/q1_analysis", reduced_stats["q1_loss_analysis_sum"] / q1, global_step)
+                    tb.add_scalar("train/loss/q1_rs", reduced_stats["q1_loss_rs_sum"] / q1, global_step)
                     tb.add_scalar("train/loss/q2_analysis", reduced_stats["q2_loss_analysis_sum"] / q2, global_step)
                     tb.add_scalar("train/loss/q2_event", reduced_stats["q2_loss_event_sum"] / q2, global_step)
                     tb.add_scalar("train/q2_trigger_rate", reduced_stats["q2_triggered"] / frames, global_step)
                     tb.add_scalar("train/q2_skip_due_rs_rate", reduced_stats["q2_skipped_rs_wrong"] / frames, global_step)
-                    tb.add_scalar("train/q1_rs_acc_window", reduced_stats["q1_rs_correct"] / frames, global_step)
-                    tb.add_scalar("train/q1_abnormal_acc_window", reduced_stats["q1_abnormal_correct"] / frames, global_step)
+                    tb.add_scalar("train/rs_slow_trigger_rate", reduced_stats["q1_triggered"] / frames, global_step)
+                    tb.add_scalar("train/rs_reuse_fast_rate", reduced_stats["rs_reused_fast_frames"] / frames, global_step)
+                    tb.add_scalar("train/q1_rs_acc_window", reduced_stats["q1_rs_correct"] / q1, global_step)
                     tb.add_scalar("train/q2_event_acc_window", reduced_stats["q2_event_correct"] / q2, global_step)
                     tb.add_scalar("train/q2_invalid_output", reduced_stats["q2_invalid_output"], global_step)
                     tb.add_scalar("train/reset_next", reduced_stats["reset_next"], global_step)
@@ -3585,7 +3887,7 @@ def main() -> None:
                     )
                     tb.add_scalar(
                         "memory/rs_error_streak_mean",
-                        reduced_stats["memory_rs_error_streak_sum"] / frames,
+                        reduced_stats["memory_rs_error_streak_sum"] / q1,
                         global_step,
                     )
                     tb.add_scalar(
@@ -3615,14 +3917,13 @@ def main() -> None:
                         / max(1.0, reduced_stats["memory_event_input_known_wrong"] + reduced_stats["memory_event_input_unknown"]),
                         global_step,
                     )
-                    abnormal_prf = _window_binary_metrics(reduced_stats, "q1_abnormal")
                     event_prf = _window_binary_metrics(reduced_stats, "q2_ue")
-                    for name, value in abnormal_prf.items():
-                        tb.add_scalar(f"train/abnormal_{name}", value, global_step)
                     for name, value in event_prf.items():
+                        # EVENT_FAST 的 RE/UE 选择本身就是 normal/abnormal 判断。
+                        tb.add_scalar(f"train/abnormal_{name}", value, global_step)
                         tb.add_scalar(f"train/q2_ue_{name}", value, global_step)
                     tb.add_scalar("train/rollout_tokens_per_frame", (reduced_stats["q1_rollout_tokens"] + reduced_stats["q2_rollout_tokens"]) / frames, global_step)
-                    tb.add_scalar("train/q1_token_cap_hit_rate", reduced_stats["q1_token_cap_hits"] / frames, global_step)
+                    tb.add_scalar("train/q1_token_cap_hit_rate", reduced_stats["q1_token_cap_hits"] / q1, global_step)
                     tb.add_scalar("train/q2_token_cap_hit_rate", reduced_stats["q2_token_cap_hits"] / q2, global_step)
                     q1_grouped_frames = max(1.0, reduced_stats["q1_grouped_frames"])
                     q1_grouped_chunks = max(1.0, reduced_stats["q1_grouped_chunks"])
@@ -3650,9 +3951,9 @@ def main() -> None:
                     tb.add_scalar("qwen/q2_grouped_seconds_per_chunk", reduced_stats["q2_grouped_seconds"] / q2_grouped_chunks, global_step)
                     # 这些 time/* 指标用于判断 GPU 利用率低到底卡在 Q1 batched rollout、
                     # Q1/Q2 teacher prefill，还是 Q2 rollout / KL 单样本路径。
-                    tb.add_scalar("time/frame_q1_student_seconds", reduced_stats["time_q1_student_seconds"] / frames, global_step)
-                    tb.add_scalar("time/frame_q1_teacher_seconds", reduced_stats["time_q1_teacher_seconds"] / frames, global_step)
-                    tb.add_scalar("time/frame_q1_loss_seconds", reduced_stats["time_q1_loss_seconds"] / frames, global_step)
+                    tb.add_scalar("time/frame_q1_student_seconds", reduced_stats["time_q1_student_seconds"] / q1, global_step)
+                    tb.add_scalar("time/frame_q1_teacher_seconds", reduced_stats["time_q1_teacher_seconds"] / q1, global_step)
+                    tb.add_scalar("time/frame_q1_loss_seconds", reduced_stats["time_q1_loss_seconds"] / q1, global_step)
                     tb.add_scalar("time/frame_q2_rollout_seconds", reduced_stats["time_q2_rollout_seconds"] / frames, global_step)
                     tb.add_scalar("time/frame_q2_teacher_seconds", reduced_stats["time_q2_teacher_seconds"] / frames, global_step)
                     tb.add_scalar("time/frame_q2_loss_seconds", reduced_stats["time_q2_loss_seconds"] / frames, global_step)
@@ -3735,10 +4036,10 @@ def main() -> None:
                 local_frames=local_frame_slots,
                 global_frames=global_frame_slots,
             )
-            # 每条 route 各自维护 student memory 与延迟修复 curriculum。RS 错误只跳过
-            # 当前帧 Q2，下一有效帧仍会进入本循环重新运行 Q1；不能因为 RS 是慢变量
-            # 就停止学生思考。错误 hypothesis 先跨帧保留，超过各自 patience 后才按
-            # 不同 review interval 兜底修复。
+            # 每条 route 各自维护 student memory、RS 慢频调度与延迟修复 curriculum。
+            # 稳定 RS 默认约 1Hz 复核；其它帧只跑 EVENT_FAST。只要 RS memory 错误/
+            # UNKNOWN 或上一轮 RS 回答错误，就立刻进入逐帧 RS recovery，RS 未恢复的
+            # 当前帧不构造 EVENT 选择题。
             memories: List[Optional[Memory]] = [None for _ in routes]
             curriculum_states = [MemoryCurriculumState() for _ in routes]
             memory_audits: List[Dict[str, object]] = [{} for _ in routes]
@@ -3747,7 +4048,8 @@ def main() -> None:
                 # 按 timestep 写入，不能只在超长 DataLoader batch 开头写一次。
                 _add_timestep_shape_stats(window_stats, batch, t)
                 timestep_local_frames = 0
-                active_items: List[Tuple[int, SequenceRow, FrameRow, Memory]] = []
+                slow_active_items: List[Tuple[int, SequenceRow, FrameRow, Memory]] = []
+                fast_active_items: List[Tuple[int, SequenceRow, FrameRow, Memory]] = []
                 for b, route in enumerate(routes):
                     frame = frame_rows[b][t]
                     if frame is None:
@@ -3774,16 +4076,124 @@ def main() -> None:
                         seed=int(args.seed),
                     )
                     assert memories[b] is not None
+                    run_rs, rs_schedule_reason = should_run_rs_slow(
+                        curriculum_states[b],
+                        curriculum_config,
+                        memory=memories[b],
+                        gt_rs_label=frame.rs_label,
+                        frame_ordinal=int(memory_audits[b].get("memory_frame_ordinal", t)),
+                    )
+                    memory_audits[b]["rs_slow_triggered"] = bool(run_rs)
+                    memory_audits[b]["rs_slow_reason"] = rs_schedule_reason
                     # 当前 timestep 的 prompt 读取的是上一帧写回的 student memory。采集
                     # 和训练不会在 route 间共享 memory；每条 route 的时间状态只存在
                     # `memories[b]` 这一格里。
-                    active_items.append((b, route, frame, memories[b]))
-                for chunk_start in range(0, len(active_items), qwen_batch_size):
-                    chunk = active_items[chunk_start:chunk_start + qwen_batch_size]
+                    target_list = slow_active_items if run_rs else fast_active_items
+                    target_list.append((b, route, frame, memories[b]))
+                scheduled_chunks: List[Tuple[bool, List[Tuple[int, SequenceRow, FrameRow, Memory]]]] = []
+                for run_rs, items in ((True, slow_active_items), (False, fast_active_items)):
+                    for chunk_start in range(0, len(items), qwen_batch_size):
+                        scheduled_chunks.append((run_rs, items[chunk_start:chunk_start + qwen_batch_size]))
+                for run_rs_chunk, chunk in scheduled_chunks:
                     q1_grouped: Optional[Q1GroupedRolloutResult] = None
                     q2_grouped: Optional[Q2GroupedRolloutResult] = None
                     q1_rollouts: List[Optional[Tuple[Optional[KVState], str, Optional[KVState], torch.Tensor]]] = [None] * len(chunk)
                     q2_rollouts: List[Optional[Tuple[Optional[KVState], str, torch.Tensor]]] = [None] * len(chunk)
+                    if not run_rs_chunk:
+                        # 稳定帧只采样合并后的 EVENT_FAST；不生成 RS，也不构造假的 Q1
+                        # assistant turn。rollout 仍按 QWEN_BATCH_SIZE 并行，KL 仍按独立
+                        # microbatch 立即 backward。
+                        fast_grouped = _run_event_fast_rollout_grouped(
+                            bundle,
+                            frames=[item[2] for item in chunk],
+                            memories=[item[3] for item in chunk],
+                            max_new_tokens_q2=int(args.max_new_tokens_q2),
+                        )
+                        q2_rollouts = list(fast_grouped.rollouts)
+                        _add_q2_grouped_stats(window_stats, fast_grouped)
+                        if bool(args.parallel_kl) and len(chunk) > 1:
+                            fast_parallel_start = time.time()
+                            fast_result = _run_event_fast_parallel_kl_microbatches(
+                                bundle,
+                                chunk,
+                                q2_rollouts=q2_rollouts,
+                                temperature=float(args.temperature),
+                                backward_normalizer=backward_normalizer,
+                                microbatch_size=int(args.parallel_kl_microbatch_size),
+                            )
+                            frame_count += len(fast_result.frame_results)
+                            batch_processed_frames += len(fast_result.frame_results)
+                            processed_local_frames += len(fast_result.frame_results)
+                            timestep_local_frames += len(fast_result.frame_results)
+                            for b_result, stats, next_mem, need_reset, frame_loss_value in fast_result.frame_results:
+                                repair_pending = _finalize_memory_curriculum_frame(
+                                    curriculum_states[b_result],
+                                    curriculum_config,
+                                    stats,
+                                    memory_audits[b_result],
+                                )
+                                window_stats["loss_sum"] += float(frame_loss_value)
+                                _add_frame_rollout_stats(
+                                    window_stats,
+                                    stats,
+                                    need_reset=repair_pending,
+                                    max_new_tokens_q1=int(args.max_new_tokens_q1),
+                                    max_new_tokens_q2=int(args.max_new_tokens_q2),
+                                )
+                                memories[b_result] = next_mem
+                            window_stats["parallel_kl_chunks"] += 1.0
+                            window_stats["parallel_kl_microbatches"] += float(len(fast_result.microbatch_sizes))
+                            window_stats["parallel_kl_microbatch_frames"] += float(sum(fast_result.microbatch_sizes))
+                            window_stats["parallel_kl_oom_splits"] += float(fast_result.oom_splits)
+                            window_stats["parallel_kl_frames"] += float(len(fast_result.frame_results))
+                            window_stats["parallel_kl_seconds"] += float(time.time() - fast_parallel_start)
+                            if rank == 0 and (should_log_frame() or should_time_heartbeat()):
+                                rank0_log(
+                                    f"[event-fast] epoch={epoch} batch={batch_idx} t={t} "
+                                    f"size={len(fast_result.frame_results)} rs_reused=1 "
+                                    f"kl_microbatches={fast_result.microbatch_sizes} {_cuda_memory_text()}"
+                                )
+                                last_heartbeat = time.time()
+                            del fast_result
+                            continue
+                        for chunk_idx, (b, route, frame, memory_for_frame) in enumerate(chunk):
+                            rollout = q2_rollouts[chunk_idx]
+                            assert rollout is not None
+                            _state, q2_text, q2_ids = rollout
+                            loss, stats, next_mem, need_reset = _run_event_only_frame(
+                                bundle,
+                                memory_for_frame,
+                                frame,
+                                max_new_tokens_q2=int(args.max_new_tokens_q2),
+                                temperature=float(args.temperature),
+                                q2_text=q2_text,
+                                q2_ids=q2_ids,
+                            )
+                            loss_value = float(loss.detach().item())
+                            repair_pending = _finalize_memory_curriculum_frame(
+                                curriculum_states[b],
+                                curriculum_config,
+                                stats,
+                                memory_audits[b],
+                            )
+                            if not bool(loss.requires_grad):
+                                loss = _trainable_graph_zero(bundle, loss)
+                            (loss / float(backward_normalizer)).backward()
+                            del loss
+                            frame_count += 1
+                            batch_processed_frames += 1
+                            processed_local_frames += 1
+                            timestep_local_frames += 1
+                            window_stats["loss_sum"] += loss_value
+                            _add_frame_rollout_stats(
+                                window_stats,
+                                stats,
+                                need_reset=repair_pending,
+                                max_new_tokens_q1=int(args.max_new_tokens_q1),
+                                max_new_tokens_q2=int(args.max_new_tokens_q2),
+                            )
+                            memories[b] = next_mem
+                        continue
                     if qwen_batch_size > 1 and len(chunk) > 1:
                         # 只把同一 timestep 的多条 route 合成 Q1 rollout chunk。Q1/Q2 的
                         # padded batched KV 只用于采样文本/token；KL 和 Q2 续接会在 _run_frame
@@ -3840,12 +4250,12 @@ def main() -> None:
                         q2_candidate_frames: List[FrameRow] = []
                         q2_candidate_memories: List[Memory] = []
                         q2_candidate_q1_texts: List[str] = []
-                        q2_candidate_abnormal: List[bool] = []
+                        q2_candidate_q1_ids: List[torch.Tensor] = []
                         for local_idx, rollout in enumerate(q1_rollouts):
                             if rollout is None:
                                 continue
                             _b, _route, frame_for_q2, memory_for_q2 = chunk[local_idx]
-                            _q1_state, q1_text_for_q2, _q1_after, _q1_ids = rollout
+                            _q1_state, q1_text_for_q2, _q1_after, q1_ids_for_q2 = rollout
                             q1_parsed_for_q2 = parse_q1_output(q1_text_for_q2)
                             if not should_trigger_q2(
                                 student_rs_label=q1_parsed_for_q2.get("rs_label"),
@@ -3856,7 +4266,7 @@ def main() -> None:
                             q2_candidate_frames.append(frame_for_q2)
                             q2_candidate_memories.append(memory_for_q2)
                             q2_candidate_q1_texts.append(q1_text_for_q2)
-                            q2_candidate_abnormal.append(bool(q1_parsed_for_q2.get("abnormal") == "YES"))
+                            q2_candidate_q1_ids.append(q1_ids_for_q2)
                         if len(q2_candidate_frames) >= 1:
                             q2_batch_start = time.time()
                             try:
@@ -3865,7 +4275,7 @@ def main() -> None:
                                     frames=q2_candidate_frames,
                                     memories=q2_candidate_memories,
                                     q1_texts=q2_candidate_q1_texts,
-                                    q1_abnormal_flags=q2_candidate_abnormal,
+                                    q1_ids_list=q2_candidate_q1_ids,
                                     max_new_tokens_q2=int(args.max_new_tokens_q2),
                                 )
                                 _add_q2_grouped_stats(window_stats, q2_grouped)

@@ -261,8 +261,10 @@ COMMON_ARGS=(
   --max-new-tokens-q1 "${MAX_NEW_TOKENS_Q1:-1024}"
   --max-new-tokens-q2 "${MAX_NEW_TOKENS_Q2:-1024}"
   --temperature "${TEMPERATURE:-1.0}"
-  # 错误记忆课程：RS 错误期间仍每帧运行 Q1；“低频”只指脚本兜底检查。
-  # EVENT 只有在本帧 RS 正确、实际进入 Q2 后才累计自己的错误 streak。
+  # RS_SLOW 默认每 4 个 4Hz 帧复核一次；错误/UNKNOWN/recovery 时自动切回逐帧。
+  --rs-slow-interval "${RS_SLOW_INTERVAL:-4}"
+  # 错误记忆课程：稳定 RS 低频，错误期间逐帧运行 Q1；EVENT_FAST 每个 RS 有效帧运行。
+  # EVENT 只有在 RS gate 正确、实际进入 Q2 后才累计自己的错误 streak。
   --rs-error-patience "${RS_ERROR_PATIENCE:-4}"
   --event-error-patience "${EVENT_ERROR_PATIENCE:-3}"
   --rs-repair-interval "${RS_REPAIR_INTERVAL:-2}"

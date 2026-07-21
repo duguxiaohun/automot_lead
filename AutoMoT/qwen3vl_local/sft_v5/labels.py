@@ -438,19 +438,15 @@ def collapse_regular_to_re(candidates: Sequence[str], rs_label: str) -> List[str
 
     逐帧 `allowed_events` 已经包含 collector 的最终 clamp / overlay 结果，不能再
     用当前 RS 的静态 regular 表二次过滤；否则会丢掉 final clamp 或 interrupted
-    overlay 留下的例外 regular code。
+    overlay 留下的例外 regular code。合并后的 EVENT_FAST 是一次性的
+    REGULAR-vs-UNUSUAL 具体事件选择，所以即使原始 allowed 只列 UE，prompt 也必须
+    保留一个 RE 负类选项，让模型能根据当帧 RGB 否定诱导性 UE 候选。
     """
 
-    out: List[str] = []
-    if any(str(code).startswith("R-E") for code in candidates):
-        out.append("RE")
+    out: List[str] = ["RE"]
     for code in candidates:
         if is_unusual(code) and code not in out:
             out.append(code)
-    if not out:
-        # 兜底：如果某个 scenario_candidates 漏了当前 RS regular，仍给一个 RE，
-        # 避免 Q2 出现空选项导致训练无法继续。
-        out.append("RE")
     return out
 
 

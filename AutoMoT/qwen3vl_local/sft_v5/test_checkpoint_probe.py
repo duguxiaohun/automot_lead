@@ -82,24 +82,28 @@ def test_summary_and_comparison_are_stable() -> None:
 
     logs = [
         {
+            "q1_triggered": True,
             "q1_rs_correct": True,
-            "q1_abnormal_correct": True,
+            "rs_gate_correct": True,
+            "event_family_correct": True,
             "q2_triggered": True,
             "q2_event_correct": True,
             "q2_invalid_output": False,
             "q1_teacher_rs_correct": True,
-            "q1_teacher_abnormal_correct": True,
+            "teacher_event_family_correct": True,
             "q2_teacher_triggered": True,
             "q2_teacher_event_correct": True,
         },
         {
+            "q1_triggered": True,
             "q1_rs_correct": False,
-            "q1_abnormal_correct": True,
+            "rs_gate_correct": False,
+            "event_family_correct": False,
             "q2_triggered": False,
             "q2_event_correct": None,
             "q2_invalid_output": False,
             "q1_teacher_rs_correct": False,
-            "q1_teacher_abnormal_correct": False,
+            "teacher_event_family_correct": False,
             "q2_teacher_triggered": False,
             "q2_teacher_event_correct": None,
         },
@@ -112,6 +116,9 @@ def test_summary_and_comparison_are_stable() -> None:
         student_disable_adapter=False,
     )
     assert summary["q1_rs_accuracy"] == 0.5
+    assert summary["rs_slow_accuracy"] == 0.5
+    assert summary["event_family_accuracy"] == 1.0
+    # 旧 key 仅是 EVENT family 的兼容别名，不再是 Q1 输出。
     assert summary["q1_abnormal_accuracy"] == 1.0
     assert summary["q2_trigger_rate"] == 0.5
     assert summary["q2_event_accuracy_when_triggered"] == 1.0

@@ -281,17 +281,25 @@
   `next_target_points[-1]` 转 ego frame 写成学生可见 `EGO_TO_GOAL_XY`，缺该坐标的
   frame/旧 index 行会被跳过，不能继续显示 UNKNOWN。Q1 使用精简
   `Scene Description / Critical Object Description / Reasoning on Intent` 三段式 CoT 后输出
-  `RS / ABNORMAL`；system prompt 简短提醒关注交通灯/标志、周围车辆/行人/障碍物、
+  `RS`；Q2 保留同样的三段分析后输出 `EVENT`，候选项显式标注
+  `[RE | REGULAR]` / `[UE | UNUSUAL]`，直接合并 normal/abnormal 与具体事件判断，
+  不再单问当前是否异常；
+  system prompt 简短提醒关注交通灯/标志、周围车辆/行人/障碍物、
   车道线/道路结构和影响自车决策的关键因素；Q1 memory 只渲染自然语言
   `PREVIOUS_RS_HYPOTHESIS + EGO_TO_GOAL_XY`，不带 `PREVIOUS_EVENT_HYPOTHESIS`，
   Q2 才渲染自然语言 `PREVIOUS_EVENT_HYPOTHESIS`；两个 memory block 都必须显式写
   `MEMORY_RELIABILITY=unverified`，memory 文本不写 A-E 选项字母或 `RE/U-E*` 标签代码。
-  Q2 在 Q1 RS 正确后进入，候选优先使用逐帧
+  Q2 在当前 RS gate 正确后进入，候选优先使用逐帧
   `frame_event_annotation.allowed_events`，缺失时才 fallback 到
   `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]`；所有 `R-E*`
   在 prompt 中折为一个 `RE`，原始 `event_code` / `regular_event_codes` 只作审计和 RE
-  细分文案。训练用 torchrun 多进程同步 on-policy OPSD：每张卡都先让当前 student
-  rollout Q1/Q2 token，Q2 作为 Q1 assistant 输出后的第二轮 user turn 复用 Q1 KV cache，
+  细分文案。RS 采用慢思考、EVENT 采用快思考：稳定正确 RS 默认每 4 个
+  4Hz frame 运行一次 RS_SLOW，中间帧复用 RS memory；EVENT_FAST 在每个 RS gate
+  正确的帧都重新读当前 RGB 并训练，禁止复用前帧 normal/abnormal/EVENT。RS
+  错误、UNKNOWN 或 recovery 时 RS_SLOW 恢复逐帧，当帧 RS 错就跳过 EVENT。
+  训练用 torchrun 多进程同步 on-policy OPSD：慢帧 EVENT_FAST 作为 Q1 assistant
+  输出后的第二轮 user turn 复用当帧 Q1 KV cache；快帧没有 Q1 turn，EVENT_FAST
+  必须对本帧 RGB fresh prefill，
   再用 privileged teacher logits 对同一批 token 的监督 span 做 forward-KL；每帧
   loss 立刻 backward，只累计 LoRA 梯度，并在 optimizer step 前手动 all-reduce；
   不能包 `DistributedDataParallel(model)` wrapper，
@@ -317,7 +325,8 @@
   padded batch，padded past_key_values 只用于 no-grad 采样 Q1/Q2 文本/token，
   不写回 memory；默认 `PARALLEL_KL=1` / `--parallel-kl`，但 8 路 rollout 与有 autograd
   graph 的 KL 微批解耦：Q1/Q2 teacher/student scoring 默认按 2+2+2+2 微批并逐批 backward；
-  Q2 parallel KL 必须按精确 `q1_ids` 续接 Q1 KV 后再追加 Q2 user turn，不允许用
+  Q2 student rollout 与 parallel KL 都必须按精确 `q1_ids` 续接 Q1 KV 后再追加
+  Q2 user turn，不允许用
   `q1_ids -> q1_text -> full-dialog tokenizer` 回环替代；KL forward OOM 只允许在尚未
   backward 时二分当前微批，不能降低 token 上限或整块重新 rollout；backward OOM 和
   普通异常必须中止，避免部分梯度后 fallback 重复累计；batched Q1 必须按 `attention_mask` 取最后真实
@@ -334,7 +343,7 @@
   构造后必须及时释放旧 Q1/Q2 KV；`rope_deltas` 必须兼容 `(batch,1)` / `(1,batch)` 两种方向，
   避免 active batch 缩小时 M-RoPE delta 切片错误；后续改这些逻辑时同步更新注释。每帧 loss
   按全局有效 frame 数归一化，手动 all-reduce 后保持 frame 等权；TensorBoard 必须记录
-  `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}` 分项，以及
+  `train/loss/{q1_analysis,q1_rs,q2_analysis,q2_event}` 分项，以及
   `memory/{allocated,reserved,max_allocated,max_reserved}_gb`；长期显存风险以
   `allocated` 为主，不能只凭 `nvidia-smi` 或 allocator `reserved` 高水位判断泄漏。
   `probe.py` 公开选帧模式只保留 `random` / `rs_transition` / `ue_transition`；默认
@@ -382,24 +391,27 @@
   checkpoint student 保持 adapter 开启；禁止另起进程或加载第二份 Qwen。其它 rank
   必须在 probe 前后 barrier，probe 完成后恢复 train 模式并清理 CUDA cache；probe
   失败写 `error.txt` 后继续训练。probe 的 256/192 token 上限只用于可视化，不能改变
-  训练的 1024/1024。teacher Q2 能力指标只在 teacher 自身 Q1 RS 正确时触发，并必须
-  续接 teacher 自己的 Q1 KV/解析 memory，不能混用 student Q1 prompt；训练 privileged
+  训练的 1024/1024。慢帧 teacher EVENT 能力指标只在 teacher 自身 Q1 RS 正确时
+  触发，并必须续接 teacher 自己的 Q1 KV/解析 memory；快帧 teacher EVENT 对本帧
+  RGB fresh prefill，不能混用 student Q1 prompt；训练 privileged
   输入写 `q2_teacher_training_prompt.txt`，默认 `q2_teacher_prompt.txt` 必须和
   `q2_teacher_output.txt` 实际配对。
   v5 训练 memory 必须按“可疑 hypothesis”而非答案使用：route 首帧 RS/EVENT 分别以
   0.5 概率使用 GT，否则为 UNKNOWN；原本正确的 RS memory 以 0.06/0.02 概率注入错误值/
-  UNKNOWN，EVENT 为 0.10/0.05。每个有效帧都必须运行 Q1；RS 错误只跳过本帧 Q2，
-  下一帧仍继续分析 RS，直到学生自行纠正或训练期 delayed repair 真正执行。RS 默认
+  UNKNOWN，EVENT 为 0.10/0.05。稳定正确 RS 默认 `rs_slow_interval=4`；快帧不产生
+  RS rollout/loss，但必须产生 EVENT rollout/loss。RS 错误只跳过本帧 EVENT，下一帧恢复
+  逐帧 RS 分析，直到学生自行纠正或训练期 delayed repair 真正执行。RS 默认
   连续错 4 帧后申请修复并每 2 个有效帧 review，EVENT 默认连续错 3 次后申请修复并
-  每帧 review；`rs_repair_interval` 只控制脚本兜底，绝不能用作 Q1 采样间隔；
+  每帧 review；`rs_repair_interval` 只控制脚本兜底，与 `rs_slow_interval` 独立；
   EVENT wrong 扰动优先从本帧 `event_option_map` 的其它可见候选中选择，单选题无替代项
   时才回退全局 EVENT 表；EVENT repair/augmentation 只在 RS memory 本帧扰动后仍正确
-  时执行，RS 错误/UNKNOWN 时必须保留 EVENT 状态，避免处理一个不会进入 Q2 的样本；
-  Q1 `ABNORMAL=NO` 不得由脚本直接把 EVENT 清成 RE。以上参数必须可由 `train.py` CLI/
+  时执行，RS 错误/UNKNOWN 时必须保留 EVENT 状态，避免处理一个不会进入 Q2 的样本。
+  EVENT 的 RE/UE family 完全由当帧 `[RE | REGULAR]` / `[UE | UNUSUAL]` EVENT
+  选项推导，不存在独立 ABNORMAL 状态。以上参数必须可由 `train.py` CLI/
   `train.sh` 环境变量覆盖，并写入 adapter metadata。Q1/Q2 最终高权重 span 只监督单个
   选项字符；训练/TensorBoard 必须记录 wrong-memory copy、wrong/UNKNOWN recovery、
   injected wrong/UNKNOWN、forced repair、RS/EVENT input anomaly rate、RS error streak、
-  因 RS 错跳过 Q2 的比例，以及 ABNORMAL/UE 的 TP/FP/TN/FN 与 P/R/F1。
+  因 RS 错跳过 Q2 的比例，以及由 EVENT 选项折叠出的 UE/RE TP/FP/TN/FN 与 P/R/F1。
   大样本 `eval.py` 与小样本 `probe.py` 必须共用 `metrics.py`：统计 RS/UE 边界、Q1/Q2
   precision/recall/F1、假阳性/假阴性、端到端 EVENT 与 route macro 指标；另外必须用相邻帧
   GT/预测状态分别统计 RS 变化、RE->UE 进入和 UE->RE 退出的 TP/FP/TN/FN/invalid、
@@ -408,6 +420,10 @@
   可用 `--transition-jsonl` 只落盘变化和 FP/FN 的轻量记录。所有指标输出保存中文定义和方向；
   eval 默认流式累计，只有显式 `--output-jsonl` 才落盘全量逐帧输入输出，不能为统计把全量
   prompt/output 常驻内存。
+  数据量审计以 42 个有效场景、7241 route、914466 帧为上限；10% validation
+  后约 82.3 万训练帧。默认 4 帧周期的 RS_SLOW 基础量约 20.6 万帧，加上
+  memory 扰动/UNKNOWN/recovery 后预期约 23 万帧；EVENT_FAST 在 RS gate 正确时
+  接近覆盖 82.3 万训练帧。GT UE=15.55% 与 wrong/UNKNOWN memory 异常不能直接相加。
   运行与可视化方法见
   `SFT_V5_RUN.md` / `SFT_V5_PLAN.md` / `SFT_V5_VISUALIZATION_RECORD.md`。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`

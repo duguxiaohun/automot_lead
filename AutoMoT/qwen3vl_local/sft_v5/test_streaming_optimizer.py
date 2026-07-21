@@ -164,6 +164,7 @@ def test_adapter_metadata_records_effective_window() -> None:
     assert meta["checkpoint_probe_artifact_level"] == "review"
     assert meta["gradient_sync"] == "bucketed_sum_allreduce_then_global_frame_average"
     assert meta["memory_curriculum"] == {
+        "rs_slow_interval": 4,
         "rs_error_patience": 4,
         "event_error_patience": 3,
         "rs_repair_interval": 2,
@@ -174,7 +175,7 @@ def test_adapter_metadata_records_effective_window() -> None:
         "event_memory_unknown_prob": 0.05,
         "rs_initial_gt_prob": 0.5,
         "event_initial_gt_prob": 0.5,
-        "q1_abnormal_direct_event_reset": False,
+        "event_fast_merges_normal_abnormal": True,
     }
 
 

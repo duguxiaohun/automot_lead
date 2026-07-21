@@ -1,7 +1,7 @@
 """SFT v5 case-level probe。
 
 默认不加载模型，只按完整 route ID 或变化专项窗口检查 label / memory / prompt 合同。传 `--with-model`
-后会额外生成 student Q1/Q2 输出；传
+后会额外生成低频 RS_SLOW 和逐帧 EVENT_FAST 输出；传
 `--with-teacher-model` 后会额外用默认/base Qwen 跑 privileged teacher prompt。
 训练前 OPSD 能力体检必须不传 `--adapter-dir`，即 teacher/student 都只用普通 Qwen，
 不导入任何 LoRA。
@@ -44,6 +44,8 @@ from qwen3vl_local.sft_v5.metrics import (  # noqa: E402
 )
 from qwen3vl_local.sft_v5.labels import RS_LABEL_TO_OPTION, option_for_event  # noqa: E402
 from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
+    MemoryCurriculumConfig,
+    MemoryCurriculumState,
     SYSTEM_PROMPT_V5,
     build_q1_student_prompt,
     build_q1_teacher_prompt,
@@ -53,10 +55,13 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     build_q2_teacher_target,
     parse_q1_output,
     parse_q2_output,
+    should_run_rs_slow,
+    should_run_event_fast,
     should_trigger_q2,
     update_memory_after_q1,
     update_memory_after_q2,
     update_memory_navigation,
+    observe_training_memory,
 )
 from qwen3vl_local.sft_v5.train import (  # noqa: E402
     FrameRow,
@@ -596,6 +601,7 @@ def summarize_probe(
 
     frames = len(frame_logs)
     student_frames = frames if student_enabled else 0
+    rs_slow_logs = [item for item in frame_logs if bool(item.get("q1_triggered"))] if student_enabled else []
     q2_logs = [item for item in frame_logs if bool(item.get("q2_triggered"))] if student_enabled else []
     teacher_q1_logs = (
         [item for item in frame_logs if item.get("q1_teacher_rs_correct") is not None]
@@ -616,8 +622,22 @@ def summarize_probe(
         "student_base_mode": bool(student_enabled and (student_disable_adapter or not student_adapter_dir)),
         "q1_rs_correct": sum(bool(item.get("q1_rs_correct")) for item in frame_logs) if student_enabled else 0,
         "q1_rs_accuracy": _ratio(sum(bool(item.get("q1_rs_correct")) for item in frame_logs), student_frames),
-        "q1_abnormal_correct": sum(bool(item.get("q1_abnormal_correct")) for item in frame_logs) if student_enabled else 0,
-        "q1_abnormal_accuracy": _ratio(sum(bool(item.get("q1_abnormal_correct")) for item in frame_logs), student_frames),
+        "rs_gate_accuracy": _ratio(sum(bool(item.get("rs_gate_correct")) for item in frame_logs), student_frames),
+        "rs_slow_frames": len(rs_slow_logs),
+        "rs_slow_trigger_rate": _ratio(len(rs_slow_logs), student_frames),
+        "rs_slow_accuracy": _ratio(sum(bool(item.get("q1_rs_correct")) for item in rs_slow_logs), len(rs_slow_logs)),
+        "event_family_correct": sum(bool(item.get("event_family_correct")) for item in q2_logs),
+        "event_family_accuracy": _ratio(
+            sum(bool(item.get("event_family_correct")) for item in q2_logs),
+            len(q2_logs),
+        ),
+        # 旧 comparison.json 兼容别名；数值现在源自 EVENT 选项的 RE/UE family，
+        # 不再表示 Q1 存在独立 ABNORMAL 输出。
+        "q1_abnormal_correct": sum(bool(item.get("event_family_correct")) for item in q2_logs),
+        "q1_abnormal_accuracy": _ratio(
+            sum(bool(item.get("event_family_correct")) for item in q2_logs),
+            len(q2_logs),
+        ),
         "q2_triggered": len(q2_logs),
         "q2_trigger_rate": _ratio(len(q2_logs), student_frames),
         "q2_event_correct": sum(bool(item.get("q2_event_correct")) for item in q2_logs),
@@ -631,9 +651,13 @@ def summarize_probe(
             sum(bool(item.get("q1_teacher_rs_correct")) for item in teacher_q1_logs),
             len(teacher_q1_logs),
         ),
+        "teacher_event_family_accuracy": _ratio(
+            sum(bool(item.get("teacher_event_family_correct")) for item in teacher_q2_logs),
+            len(teacher_q2_logs),
+        ),
         "teacher_q1_abnormal_accuracy": _ratio(
-            sum(bool(item.get("q1_teacher_abnormal_correct")) for item in teacher_q1_logs),
-            len(teacher_q1_logs),
+            sum(bool(item.get("teacher_event_family_correct")) for item in teacher_q2_logs),
+            len(teacher_q2_logs),
         ),
         "teacher_q2_frames": len(teacher_q2_logs),
         "teacher_q2_trigger_rate": _ratio(len(teacher_q2_logs), len(teacher_q1_logs)),
@@ -858,6 +882,9 @@ def dump_probe(
     all_frame_logs: List[Dict[str, Any]] = []
     compact_frames: List[Dict[str, Any]] = []
     case_idx = 0
+    rs_schedule_config = MemoryCurriculumConfig(
+        rs_slow_interval=int(getattr(args, "rs_slow_interval", 4))
+    )
     for route_idx, route in enumerate(ds.rows):
         selected_frame_indices = {
             frame_idx
@@ -881,6 +908,8 @@ def dump_probe(
         previous_selected_frame_index: Optional[int] = None
         previous_pred_rs_label: Optional[str] = None
         previous_pred_abnormal: Optional[bool] = None
+        rs_schedule_state = MemoryCurriculumState()
+        window_ordinal = 0
         for frame_index, frame in enumerate(route.frames):
             selection = selection_by_key.get((route_idx, frame_index))
             if selection is None:
@@ -897,6 +926,8 @@ def dump_probe(
                 reference_memory = None
                 previous_pred_rs_label = None
                 previous_pred_abnormal = None
+                rs_schedule_state = MemoryCurriculumState()
+                window_ordinal = 0
             previous_selected_frame_index = frame_index
             rs_target = _rs_target_from_frame(frame)
             event_target = _event_target_from_frame(frame)
@@ -915,6 +946,13 @@ def dump_probe(
                     frame.ego_to_goal_xy,
                 )
             assert reference_memory is not None
+            run_rs_slow, rs_schedule_reason = should_run_rs_slow(
+                rs_schedule_state,
+                rs_schedule_config,
+                memory=memory,
+                gt_rs_label=frame.rs_label,
+                frame_ordinal=window_ordinal,
+            )
             memory_at_frame_start = memory
             memory_before = _memory_json(memory)
             reference_memory_before = _memory_json(reference_memory)
@@ -929,19 +967,25 @@ def dump_probe(
                     {"index": str(idx), "source": str(path), "file": str(path)}
                     for idx, path in enumerate(frame.history_rgb_paths)
                 ]
-            q1_student = build_q1_student_prompt(memory)
-            # teacher prompt 是 privileged 输入：可看 XML weather、GT RS/ABNORMAL、
-            # 原始 event_code；target 则被清洗成学生视角，用于人工检查不泄漏私有字段。
-            q1_teacher = build_q1_teacher_prompt(
-                memory,
-                rs_target=rs_target,
-                event_target=event_target,
-                weather_text=frame.weather_text,
+            q1_student = build_q1_student_prompt(memory) if run_rs_slow else ""
+            # RS teacher prompt 是 privileged 输入：可看 XML weather 与 GT RS；EVENT
+            # teacher 单独看 GT EVENT。target 都会清洗成学生视角，便于审计泄漏。
+            q1_teacher = (
+                build_q1_teacher_prompt(
+                    memory,
+                    rs_target=rs_target,
+                    weather_text=frame.weather_text,
+                )
+                if run_rs_slow
+                else ""
             )
-            q1_target = build_q1_teacher_target(
-                rs_target=rs_target,
-                event_target=event_target,
-                weather_text=frame.weather_text,
+            q1_target = (
+                build_q1_teacher_target(
+                    rs_target=rs_target,
+                    weather_text=frame.weather_text,
+                )
+                if run_rs_slow
+                else ""
             )
             q1_output: Optional[str] = None
             q2_output: Optional[str] = None
@@ -959,11 +1003,10 @@ def dump_probe(
             parsed_q2: Dict[str, Optional[str]] = {}
             parsed_teacher_q1: Dict[str, Optional[str]] = {}
             parsed_teacher_q2: Dict[str, Optional[str]] = {}
-            q1_rs_ok = True
-            q1_abnormal: Optional[bool] = frame.abnormal
+            q1_rs_ok = False
+            rs_gate_ok = memory.rs_label == frame.rs_label
             q1_teacher_rs_correct: Optional[bool] = None
-            q1_teacher_abnormal_correct: Optional[bool] = None
-            q2_triggered = True
+            q2_triggered = False
             q2_invalid = False
             q2_event_correct: Optional[bool] = None
             q2_teacher_event_correct: Optional[bool] = None
@@ -979,20 +1022,15 @@ def dump_probe(
                     images = _load_images(frame.history_rgb_paths)
                 return images
 
-            # reference 分支只做离线对比，不进入任何 student/teacher prompt。Q1 reference
-            # 按 GT RS/ABNORMAL 推演；异常为 YES 时，具体 EVENT 要等 reference Q2 才更新。
+            # reference 分支只做离线对比，不进入任何 student/teacher prompt。RS 与
+            # EVENT 分别按 GT 推演，不能把 reference 写回 student memory。
             reference_memory_after_q1_state = update_memory_after_q1(
                 reference_memory,
                 student_rs_label=frame.rs_label,
-                student_abnormal=frame.abnormal,
             )
             reference_memory_after_q1 = _memory_json(reference_memory_after_q1_state)
-            memory_after_q1 = update_memory_after_q1(
-                memory,
-                student_rs_label=frame.rs_label,
-                student_abnormal=frame.abnormal,
-            )
-            if teacher_bundle is not None:
+            memory_after_q1 = memory.copy()
+            if teacher_bundle is not None and run_rs_slow:
                 # 训练前体检用：teacher_bundle 永远是纯 base Qwen，不加载 LoRA。
                 # 它吃 privileged prompt，用来判断“普通 Qwen 当老师”是否能稳定解析/解释。
                 with _probe_inference_context(teacher_bundle, disable_adapter=teacher_disable_adapter):
@@ -1004,40 +1042,45 @@ def dump_probe(
                     )
                 parsed_teacher_q1 = parse_q1_output(q1_teacher_output)
                 q1_teacher_rs_correct = parsed_teacher_q1.get("rs_label") == frame.rs_label
-                teacher_abnormal_text = parsed_teacher_q1.get("abnormal")
-                q1_teacher_abnormal_correct = (
-                    (teacher_abnormal_text == "YES") == frame.abnormal if teacher_abnormal_text else False
-                )
             if bundle is not None:
                 # student bundle 可以是纯 base Qwen（训练前体检）或 base+adapter（训练后可视化）。
                 # 是否误传 adapter 会写入 flags.json 的 student_adapter_dir 供人工审计。
-                with _probe_inference_context(bundle, disable_adapter=student_disable_adapter):
-                    q1_output, q1_after = _generate_start(
-                        bundle,
-                        _images_for_generation(),
-                        q1_student,
-                        int(args.max_new_tokens_q1),
+                if run_rs_slow:
+                    with _probe_inference_context(bundle, disable_adapter=student_disable_adapter):
+                        q1_output, q1_after = _generate_start(
+                            bundle,
+                            _images_for_generation(),
+                            q1_student,
+                            int(args.max_new_tokens_q1),
+                        )
+                    parsed_q1 = parse_q1_output(q1_output)
+                    q1_rs_ok = should_trigger_q2(
+                        student_rs_label=parsed_q1.get("rs_label"),
+                        target_rs_label=frame.rs_label,
                     )
-                parsed_q1 = parse_q1_output(q1_output)
-                q1_rs_ok = should_trigger_q2(
-                    student_rs_label=parsed_q1.get("rs_label"),
+                    memory_after_q1 = update_memory_after_q1(
+                        memory,
+                        student_rs_label=parsed_q1.get("rs_label"),
+                    )
+                # 和 train/eval 保持同一门控：慢帧 Q1 必须在本帧解析且答对；旧 memory
+                # 即使碰巧正确，也不能掩盖本帧 Q1 的 invalid/错误。稳定快帧才复用 RS。
+                rs_gate_ok = should_run_event_fast(
+                    rs_slow_ran=run_rs_slow,
+                    q1_rs_correct=q1_rs_ok,
+                    memory_rs_label=memory_after_q1.rs_label,
                     target_rs_label=frame.rs_label,
                 )
-                q1_abnormal = parsed_q1.get("abnormal") == "YES" if parsed_q1.get("abnormal") else None
-                memory_after_q1 = update_memory_after_q1(memory, student_rs_label=parsed_q1.get("rs_label"), student_abnormal=q1_abnormal)
-                if q1_rs_ok:
+                if rs_gate_ok:
                     # 只有 Q1 的 RS 正确才进入 Q2；这和训练时的采样/截断规则保持一致。
                     q2_student_memory_input = _memory_json(memory_after_q1)
                     q2_student = build_q2_student_prompt(
                         memory_after_q1,
                         option_map=frame.event_option_map,
-                        q1_abnormal=bool(q1_abnormal),
                         regular_event_codes=frame.regular_event_codes,
                     )
                     q2_teacher = build_q2_teacher_prompt(
                         memory_after_q1,
                         option_map=frame.event_option_map,
-                        q1_abnormal=bool(q1_abnormal),
                         event_target=event_target,
                         regular_event_codes=frame.regular_event_codes,
                     )
@@ -1047,7 +1090,8 @@ def dump_probe(
                         event_target=event_target,
                         regular_event_codes=frame.regular_event_codes,
                     )
-                    if q1_after is not None:
+                    q2_triggered = True
+                    if run_rs_slow and q1_after is not None:
                         with _probe_inference_context(bundle, disable_adapter=student_disable_adapter):
                             q2_output, q2_after = _generate_next(
                                 bundle,
@@ -1057,6 +1101,15 @@ def dump_probe(
                             )
                         # probe 只保存文本；若写成 `q2_output, _ = ...`，普通变量 `_`
                         # 会把完整 Q2 KV 持有到下一帧，和下一次 prefill 叠加显存峰值。
+                        del q2_after
+                    else:
+                        with _probe_inference_context(bundle, disable_adapter=student_disable_adapter):
+                            q2_output, q2_after = _generate_start(
+                                bundle,
+                                _images_for_generation(),
+                                q2_student,
+                                int(args.max_new_tokens_q2),
+                            )
                         del q2_after
                     parsed_q2 = parse_q2_output(q2_output, frame.event_option_map)
                     memory = update_memory_after_q2(memory_after_q1, student_event_label=parsed_q2.get("event_label"))
@@ -1074,17 +1127,23 @@ def dump_probe(
             else:
                 # 静态 dump 模式不跑 student 生成；为了仍然能看到完整 Q2 prompt/target，
                 # 这里使用 GT Q1 结果推进一次 memory，相当于 teacher-forced 可视化。
-                q2_student_memory_input = _memory_json(memory_after_q1)
+                if run_rs_slow:
+                    memory_after_q1 = update_memory_after_q1(
+                        memory,
+                        student_rs_label=frame.rs_label,
+                    )
+                    q1_rs_ok = True
+                rs_gate_ok = memory_after_q1.rs_label == frame.rs_label
+                q2_triggered = rs_gate_ok
+                q2_student_memory_input = _memory_json(memory_after_q1) if rs_gate_ok else None
                 q2_student = build_q2_student_prompt(
                     memory_after_q1,
                     option_map=frame.event_option_map,
-                    q1_abnormal=frame.abnormal,
                     regular_event_codes=frame.regular_event_codes,
                 )
                 q2_teacher = build_q2_teacher_prompt(
                     memory_after_q1,
                     option_map=frame.event_option_map,
-                    q1_abnormal=frame.abnormal,
                     event_target=event_target,
                     regular_event_codes=frame.regular_event_codes,
                 )
@@ -1094,31 +1153,43 @@ def dump_probe(
                     event_target=event_target,
                     regular_event_codes=frame.regular_event_codes,
                 )
-                memory = update_memory_after_q2(memory_after_q1, student_event_label=event_target.label)
-                parsed_q1 = {"rs_option": frame.rs_option, "rs_label": frame.rs_label, "abnormal": "YES" if frame.abnormal else "NO"}
-                parsed_q2 = {"event_option": None, "event_label": event_target.label}
+                memory = (
+                    update_memory_after_q2(memory_after_q1, student_event_label=event_target.label)
+                    if rs_gate_ok
+                    else memory_after_q1
+                )
+                parsed_q1 = (
+                    {"rs_option": frame.rs_option, "rs_label": frame.rs_label}
+                    if run_rs_slow
+                    else {}
+                )
+                parsed_q2 = (
+                    {"event_option": None, "event_label": event_target.label}
+                    if rs_gate_ok
+                    else {}
+                )
                 q2_candidate_mismatch = event_target.label not in set(frame.event_option_map.values())
                 q2_event_correct = not q2_candidate_mismatch
 
             if teacher_bundle is not None:
-                # teacher 能力体检必须自洽：Q2 只依赖 teacher 自己生成的 Q1 KV、RS 和
-                # ABNORMAL，不能把 student Q1 构造的 memory/prompt 接到 teacher KV 后面。
-                # teacher Q1 的 RS 错误时按正式状态机停止 Q2，该帧不进入 teacher Q2
-                # accuracy 分母；trigger rate 会单独暴露这种上层失败。
-                if q1_teacher_after is not None and bool(q1_teacher_rs_correct):
-                    teacher_abnormal_text = parsed_teacher_q1.get("abnormal")
-                    teacher_q1_abnormal = (
-                        teacher_abnormal_text == "YES" if teacher_abnormal_text else None
-                    )
+                # 慢帧 Q2 续接 teacher 自己的 RS_SLOW KV；稳定 fast 帧没有 Q1，直接用
+                # 当前 RGB + memory fresh prefill EVENT_FAST。两条路径都不复用旧 ABNORMAL。
+                teacher_rs_gate_ok = bool(
+                    (run_rs_slow and q1_teacher_after is not None and q1_teacher_rs_correct)
+                    or (not run_rs_slow and memory_at_frame_start.rs_label == frame.rs_label)
+                )
+                if teacher_rs_gate_ok:
                     teacher_memory_after_q1 = update_memory_after_q1(
                         memory_at_frame_start,
-                        student_rs_label=parsed_teacher_q1.get("rs_label"),
-                        student_abnormal=teacher_q1_abnormal,
+                        student_rs_label=(
+                            parsed_teacher_q1.get("rs_label")
+                            if run_rs_slow
+                            else memory_at_frame_start.rs_label
+                        ),
                     )
                     q2_teacher_model_prompt = build_q2_teacher_prompt(
                         teacher_memory_after_q1,
                         option_map=frame.event_option_map,
-                        q1_abnormal=bool(teacher_q1_abnormal),
                         event_target=event_target,
                         regular_event_codes=frame.regular_event_codes,
                     )
@@ -1130,12 +1201,20 @@ def dump_probe(
                     )
                     q2_teacher_triggered = True
                     with _probe_inference_context(teacher_bundle, disable_adapter=teacher_disable_adapter):
-                        q2_teacher_output, q2_teacher_after = _generate_next(
-                            teacher_bundle,
-                            q1_teacher_after,
-                            q2_teacher_model_prompt,
-                            int(args.max_new_tokens_q2),
-                        )
+                        if run_rs_slow:
+                            q2_teacher_output, q2_teacher_after = _generate_next(
+                                teacher_bundle,
+                                q1_teacher_after,
+                                q2_teacher_model_prompt,
+                                int(args.max_new_tokens_q2),
+                            )
+                        else:
+                            q2_teacher_output, q2_teacher_after = _generate_start(
+                                teacher_bundle,
+                                _images_for_generation(),
+                                q2_teacher_model_prompt,
+                                int(args.max_new_tokens_q2),
+                            )
                     del q2_teacher_after
                     parsed_teacher_q2 = parse_q2_output(q2_teacher_output, frame.event_option_map)
                     teacher_dynamic_target = _event_target_from_frame(
@@ -1181,6 +1260,8 @@ def dump_probe(
                 "reference_is_comparison_only": True,
                 "forced_correction_applied": False,
                 "q1": {
+                    "triggered": run_rs_slow,
+                    "schedule_reason": rs_schedule_reason,
                     "input": _compare_memory_states(
                         memory_before,
                         reference_memory_before,
@@ -1229,11 +1310,13 @@ def dump_probe(
             memory_trace["autonomous_change"] = {
                 "q1_rs_corrected_by_student": bool(
                     bundle is not None
+                    and run_rs_slow
                     and not q1_input_matches_current_target
                     and q1_after_matches is True
                 ),
                 "q1_rs_corrupted_by_student": bool(
                     bundle is not None
+                    and run_rs_slow
                     and q1_input_matches_current_target
                     and q1_after_matches is False
                 ),
@@ -1250,11 +1333,32 @@ def dump_probe(
                     and q2_after_event_matches is False
                 ),
             }
-            pred_rs_label = parsed_q1.get("rs_label") if bundle is not None else None
-            pred_abnormal = q1_abnormal if bundle is not None else None
-            would_reset_under_training = bool(
-                bundle is not None and (not q1_rs_ok or (q2_triggered and q2_invalid))
+            pred_rs_label = (
+                memory_after_q1.rs_label
+                if bundle is not None and memory_after_q1.rs_label in RS_LABEL_TO_OPTION
+                else (frame.rs_label if bundle is None else None)
             )
+            observed_event_label = (
+                parsed_q2.get("event_label")
+                if bundle is not None
+                else (event_target.label if q2_triggered else None)
+            )
+            pred_abnormal = (
+                None if observed_event_label is None else observed_event_label != "RE"
+            )
+            would_reset_under_training = bool(
+                bundle is not None and (not rs_gate_ok or (q2_triggered and q2_invalid))
+            )
+            rs_schedule_state.frames_seen = window_ordinal + 1
+            observe_training_memory(
+                rs_schedule_state,
+                rs_schedule_config,
+                rs_correct=(q1_rs_ok if bundle is not None else run_rs_slow),
+                rs_checked=run_rs_slow,
+                event_checked=q2_triggered,
+                event_correct=(bool(q2_event_correct) if bundle is not None else q2_triggered),
+            )
+            window_ordinal += 1
             rs_memory_known_wrong = bool(
                 bundle is not None
                 and memory_before.get("rs_label") in RS_LABEL_TO_OPTION
@@ -1285,9 +1389,9 @@ def dump_probe(
                 "q1": {
                     "rs_option": frame.rs_option,
                     "rs_label": frame.rs_label,
-                    "abnormal": "YES" if frame.abnormal else "NO",
                 },
                 "q2": {
+                    "event_family": "UE" if frame.abnormal else "RE",
                     "accepted_event_labels": accepted_event_labels,
                     "default_event_option": option_for_event(event_target.label, frame.event_option_map),
                     "default_event_label": event_target.label,
@@ -1407,19 +1511,35 @@ def dump_probe(
                 "parsed_q2": parsed_q2,
                 "parsed_teacher_q1": parsed_teacher_q1,
                 "parsed_teacher_q2": parsed_teacher_q2,
+                "q1_triggered": run_rs_slow,
+                "rs_slow_reason": rs_schedule_reason,
                 "q1_rs_correct": q1_rs_ok,
-                "q1_abnormal_correct": q1_abnormal == frame.abnormal if q1_abnormal is not None else False,
+                "rs_gate_correct": rs_gate_ok,
+                "event_family_correct": bool(
+                    pred_abnormal is not None and pred_abnormal == bool(frame.abnormal)
+                ),
+                # 兼容旧 probe schema；实际由 EVENT_FAST 的 RE/UE 选项推导。
+                "q1_abnormal_correct": bool(
+                    pred_abnormal is not None and pred_abnormal == bool(frame.abnormal)
+                ),
                 "q1_teacher_rs_correct": q1_teacher_rs_correct,
-                "q1_teacher_abnormal_correct": q1_teacher_abnormal_correct,
+                "teacher_event_family_correct": bool(
+                    parsed_teacher_q2.get("event_label") is not None
+                    and (parsed_teacher_q2.get("event_label") != "RE") == bool(frame.abnormal)
+                ),
+                "q1_teacher_abnormal_correct": bool(
+                    parsed_teacher_q2.get("event_label") is not None
+                    and (parsed_teacher_q2.get("event_label") != "RE") == bool(frame.abnormal)
+                ),
                 "q2_triggered": q2_triggered,
-                "q2_skipped_rs_wrong": bool(bundle is not None and not q1_rs_ok),
+                "q2_skipped_rs_wrong": bool(bundle is not None and not rs_gate_ok),
                 "q2_event_correct": q2_event_correct,
                 "q2_teacher_event_correct": q2_teacher_event_correct,
                 "q2_teacher_triggered": q2_teacher_triggered,
                 # 兼容旧 flags 消费方；新代码不再把 GT/student prompt 强接到 teacher Q1 KV。
                 "q2_teacher_forced": False,
-                "q2_student_continued_from_q1_kv": bool(bundle is not None and q2_triggered and q1_after is not None),
-                "q2_teacher_continued_from_q1_kv": bool(q2_teacher_triggered and q1_teacher_after is not None),
+                "q2_student_continued_from_q1_kv": bool(bundle is not None and run_rs_slow and q2_triggered and q1_after is not None),
+                "q2_teacher_continued_from_q1_kv": bool(run_rs_slow and q2_teacher_triggered and q1_teacher_after is not None),
                 "q2_invalid_output": q2_invalid,
                 "q2_candidate_mismatch": q2_candidate_mismatch,
                 # 测试永不应用 GT 纠错。would_reset 是旧报告兼容字段，只表示本帧出现
@@ -1431,10 +1551,12 @@ def dump_probe(
                 "memory_rs_input_known_wrong": rs_memory_known_wrong,
                 "memory_rs_input_unknown": rs_memory_unknown,
                 "memory_rs_copied_when_wrong": bool(
-                    rs_memory_known_wrong and pred_rs_label == memory_before.get("rs_label")
+                    run_rs_slow
+                    and rs_memory_known_wrong
+                    and pred_rs_label == memory_before.get("rs_label")
                 ),
                 "memory_rs_recovered": bool(
-                    (rs_memory_known_wrong or rs_memory_unknown) and q1_rs_ok
+                    run_rs_slow and (rs_memory_known_wrong or rs_memory_unknown) and q1_rs_ok
                 ),
                 "memory_event_input_known_wrong": event_memory_wrong,
                 "memory_event_input_unknown": event_memory_unknown,
@@ -1462,11 +1584,9 @@ def dump_probe(
                 "gt_abnormal": bool(frame.abnormal),
                 "pred_abnormal": pred_abnormal,
                 "gt_event_label": event_target.label,
-                "pred_event_label": parsed_q2.get("event_label") if bundle is not None else event_target.label,
+                "pred_event_label": observed_event_label,
                 "pred_event_is_ue": (
-                    None
-                    if bundle is not None and parsed_q2.get("event_label") is None
-                    else bool((parsed_q2.get("event_label") if bundle is not None else event_target.label) != "RE")
+                    None if observed_event_label is None else observed_event_label != "RE"
                 ),
                 "rs_transition": bool(
                     frame_index > 0 and route.frames[frame_index - 1].rs_label != frame.rs_label
@@ -1559,17 +1679,23 @@ def dump_probe(
                     "q2_student_user_turn": {
                         "role": "user",
                         "content": q2_student,
-                        "continued_from": "student.q1_output_kv",
+                        "continued_from": (
+                            "student.q1_output_kv" if run_rs_slow else "fresh_rgb_prefill"
+                        ),
                     },
                     "q2_teacher_training_user_turn": {
                         "role": "user",
                         "content": q2_teacher,
-                        "continued_from": "student.q1_output_kv",
+                        "continued_from": (
+                            "student.q1_output_kv" if run_rs_slow else "fresh_rgb_prefill"
+                        ),
                     },
                     "q2_teacher_model_user_turn": {
                         "role": "user",
                         "content": q2_teacher_model_prompt,
-                        "continued_from": "teacher.q1_output_kv",
+                        "continued_from": (
+                            "teacher.q1_output_kv" if run_rs_slow else "fresh_rgb_prefill"
+                        ),
                     },
                 },
                 "teacher_targets": {
@@ -1589,8 +1715,8 @@ def dump_probe(
                     "q2_parsed": parsed_q2 if bundle is not None else {},
                     "rs_correct": q1_rs_ok if bundle is not None else None,
                     "abnormal_correct": (
-                        q1_abnormal == frame.abnormal
-                        if bundle is not None and q1_abnormal is not None
+                        pred_abnormal == frame.abnormal
+                        if bundle is not None and pred_abnormal is not None
                         else None
                     ),
                     "q2_triggered": q2_triggered if bundle is not None else None,
@@ -1604,7 +1730,11 @@ def dump_probe(
                     "q1_parsed": parsed_teacher_q1,
                     "q2_parsed": parsed_teacher_q2,
                     "rs_correct": q1_teacher_rs_correct,
-                    "abnormal_correct": q1_teacher_abnormal_correct,
+                    "abnormal_correct": (
+                        (parsed_teacher_q2.get("event_label") != "RE") == frame.abnormal
+                        if parsed_teacher_q2.get("event_label") is not None
+                        else None
+                    ),
                     "q2_triggered": q2_teacher_triggered if teacher_bundle is not None else None,
                     "event_correct": q2_teacher_event_correct,
                 },
@@ -1634,7 +1764,11 @@ def dump_probe(
                         "student": frame_record["student"],
                         "teacher": frame_record["teacher"],
                         "correctness": {
+                            "q1_triggered": run_rs_slow,
+                            "rs_slow_reason": rs_schedule_reason,
                             "q1_rs_correct": frame_record["student"]["rs_correct"],
+                            "event_family_correct": frame_record["student"]["abnormal_correct"],
+                            # 兼容旧 review 消费方；不代表 Q1 仍输出 ABNORMAL。
                             "q1_abnormal_correct": frame_record["student"]["abnormal_correct"],
                             "q2_triggered": frame_record["student"]["q2_triggered"],
                             "q2_event_correct": frame_record["student"]["event_correct"],
@@ -1803,6 +1937,7 @@ def parse_args() -> argparse.Namespace:
     # checkpoint-probe-max-new-tokens-* 独立显式传入更小的 256/192 旁路上限。
     p.add_argument("--max-new-tokens-q1", type=int, default=1024)
     p.add_argument("--max-new-tokens-q2", type=int, default=1024)
+    p.add_argument("--rs-slow-interval", type=int, default=4)
     return p.parse_args()
 
 

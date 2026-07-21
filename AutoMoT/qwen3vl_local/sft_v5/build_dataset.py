@@ -288,7 +288,8 @@ def _build_frame_row(
     regular_event_codes = [code for code in raw_candidates if code.startswith("R-E")]
     if not regular_event_codes:
         # 如果 allowed_events 只有 UE，没有显式 regular code，仍保存 event_target 里的
-        # regular_event_codes 供 RE 文案兜底；这只影响解释文本，不强塞负例候选。
+        # regular_event_codes 供 RE 文案兜底。collapse_regular_to_re 会统一加入一个
+        # RE 负类选项，但不伪造原始 R-E* 审计 code。
         regular_event_codes = list(event_target.regular_event_codes)
     return {
         "frame_id": frame_id,

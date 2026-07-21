@@ -14,7 +14,15 @@ from typing import Any, Dict, List, Mapping, Optional
 
 METRIC_DEFINITIONS: Dict[str, Dict[str, str]] = {
     "rs_acc": {
-        "meaning": "Q1 预测 RS 与真值 RS 完全一致的帧比例。",
+        "meaning": "每帧实际使用的 RS（新 RS_SLOW 输出或复用 memory）与真值一致的比例。",
+        "direction": "higher_is_better",
+    },
+    "rs_slow_trigger_rate": {
+        "meaning": "实际运行低频 RS_SLOW 的帧比例；稳定区默认约 25%，recovery 会提高该值。",
+        "direction": "diagnostic",
+    },
+    "rs_slow_acc": {
+        "meaning": "只在实际运行 RS_SLOW 的帧上计算 RS 选择准确率。",
         "direction": "higher_is_better",
     },
     "rs_transition_acc": {
@@ -42,7 +50,7 @@ METRIC_DEFINITIONS: Dict[str, Dict[str, str]] = {
         "direction": "lower_is_better",
     },
     "abnormal_acc": {
-        "meaning": "Q1 ABNORMAL YES/NO 的严格准确率；无法解析的输出按错误计。",
+        "meaning": "EVENT_FAST 选择的 RE/UE family 与真值 normal/abnormal 是否一致。",
         "direction": "higher_is_better",
     },
     "abnormal_precision": {
@@ -50,31 +58,31 @@ METRIC_DEFINITIONS: Dict[str, Dict[str, str]] = {
         "direction": "higher_is_better",
     },
     "abnormal_recall": {
-        "meaning": "所有真实异常帧中被 Q1 正确报为 YES 的比例 TP/GT_UE。",
+        "meaning": "所有真实异常帧中 EVENT_FAST 选择任意 UE 的比例 TP/GT_UE。",
         "direction": "higher_is_better",
     },
     "abnormal_f1": {
-        "meaning": "Q1 异常 precision 与 recall 的调和平均。",
+        "meaning": "EVENT_FAST 的 UE/RE precision 与 recall 调和平均。",
         "direction": "higher_is_better",
     },
     "abnormal_specificity": {
-        "meaning": "所有真实 RE 帧中被 Q1 正确报为 NO 的比例 TN/GT_RE。",
+        "meaning": "所有真实 RE 帧中 EVENT_FAST 正确选择 RE 的比例 TN/GT_RE。",
         "direction": "higher_is_better",
     },
     "abnormal_false_positive_rate": {
-        "meaning": "真实 RE 帧被 Q1 错报为 YES 的比例 FP/GT_RE。",
+        "meaning": "真实 RE 帧被 EVENT_FAST 选成任意 UE 的比例 FP/GT_RE。",
         "direction": "lower_is_better",
     },
     "abnormal_false_negative_rate": {
-        "meaning": "真实 UE 帧未被 Q1 正确报为 YES 的比例，包含 NO 和无法解析输出。",
+        "meaning": "真实 UE 帧未被 EVENT_FAST 选成 UE 的比例，包含 RE、跳过和非法输出。",
         "direction": "lower_is_better",
     },
     "abnormal_invalid_rate": {
-        "meaning": "Q1 ABNORMAL 字段无法解析为 YES/NO 的帧比例。",
+        "meaning": "EVENT_FAST 未产生可解析 RE/UE 选择的帧比例。",
         "direction": "lower_is_better",
     },
     "abnormal_boundary_acc": {
-        "meaning": "仅在 RE/UE 真值状态切换首帧上计算 Q1 ABNORMAL 严格准确率。",
+        "meaning": "仅在 RE/UE 真值切换首帧上计算 EVENT_FAST family 准确率。",
         "direction": "higher_is_better",
     },
     "ue_entry_detection_precision": {
@@ -110,11 +118,11 @@ METRIC_DEFINITIONS: Dict[str, Dict[str, str]] = {
         "direction": "lower_is_better",
     },
     "q2_trigger_rate": {
-        "meaning": "Q1 RS 正确并实际进入 Q2 的帧比例；用于诊断门控覆盖率，不宜单独优化。",
+        "meaning": "RS gate 正确并实际运行 EVENT_FAST 的帧比例。",
         "direction": "diagnostic",
     },
     "q2_skip_due_rs_rate": {
-        "meaning": "因本帧 Q1 RS 错误而跳过 EVENT Q2 的帧比例；下一有效帧仍会重新运行 Q1。",
+        "meaning": "因 RS_SLOW 输出或复用 RS memory 错误而跳过 EVENT_FAST 的帧比例。",
         "direction": "lower_is_better",
     },
     "event_acc_when_rs_correct": {
@@ -170,7 +178,7 @@ METRIC_DEFINITIONS: Dict[str, Dict[str, str]] = {
         "direction": "higher_is_better",
     },
     "route_abnormal_f1_macro": {
-        "meaning": "先逐 route 计算 Q1 abnormal F1，再对有定义的 route 等权平均。",
+        "meaning": "先逐 route 计算 EVENT_FAST RE/UE F1，再对有定义的 route 等权平均。",
         "direction": "higher_is_better",
     },
     "route_ue_f1_macro": {
@@ -440,8 +448,12 @@ class _GroupCounts:
         """把统一逐帧记录加入当前 RS 或 EVENT 分组。"""
 
         self.frames += 1
-        self.rs_correct += int(bool(row.get("q1_rs_correct")))
-        self.abnormal_correct += int(bool(row.get("q1_abnormal_correct")))
+        self.rs_correct += int(bool(row.get("rs_gate_correct", row.get("q1_rs_correct"))))
+        pred_event_is_ue = row.get("pred_event_is_ue")
+        self.abnormal_correct += int(
+            pred_event_is_ue is not None
+            and bool(pred_event_is_ue) == bool(row.get("gt_abnormal"))
+        )
         if bool(row.get("q2_triggered")):
             self.q2_triggered += 1
             self.q2_event_correct += int(bool(row.get("q2_event_correct")))
@@ -473,6 +485,8 @@ class StudentMetricsAccumulator:
         self.frames = 0
         self.q2_triggered = 0
         self.q2_skipped_rs_wrong = 0
+        self.q1_triggered = 0
+        self.q1_checked_correct = 0
         self.rs_correct = 0
         self.rs_transition_frames = 0
         self.rs_transition_correct = 0
@@ -500,12 +514,12 @@ class StudentMetricsAccumulator:
         self.event_memory_unknown = 0
         self.event_memory_copied_when_wrong = 0
         self.event_memory_recovered = 0
-        # Q1 ABNORMAL 与 Q2 EVENT->UE/RE 使用两套混淆矩阵。Q2 只接收真正触发的帧，
-        # 端到端漏检则由 all_ue_* 另行统计，不能把两个分母混在一起。
+        # normal/abnormal 直接由 EVENT_FAST 的 RE/UE family 得到；保留 abnormal_binary
+        # 键名兼容旧报告，但不再存在独立 Q1 ABNORMAL 输出。
         self.abnormal_binary = _BinaryCounts()
         self.q2_binary = _BinaryCounts()
         # 三套变化检测矩阵比较“相邻两帧是否变化”，与当前帧的
-        # RS/ABNORMAL 分类准确率是两个不同问题。
+        # RS gate 与 EVENT_FAST 的 RE/UE family 准确率是两个不同问题。
         self.rs_change_binary = _BinaryCounts()
         self.ue_entry_binary = _BinaryCounts()
         self.ue_exit_binary = _BinaryCounts()
@@ -515,24 +529,26 @@ class StudentMetricsAccumulator:
     def update(self, row: Mapping[str, Any]) -> None:
         """消费一帧 eval/probe 记录，并更新总体、边界、条件和端到端计数。"""
 
-        # parser 无法给出 YES/NO 时 pred_abnormal 必须保持 None。bool(None) 会把格式
-        # 错误误当成正确的 NO，因此这里先显式保留三态。
         gt_abnormal = bool(row.get("gt_abnormal"))
-        pred_abnormal_raw = row.get("pred_abnormal")
+        pred_abnormal_raw = row.get("pred_event_is_ue", row.get("pred_abnormal"))
         pred_abnormal = None if pred_abnormal_raw is None else bool(pred_abnormal_raw)
+        q1_triggered = bool(row.get("q1_triggered", True))
         q1_rs_correct = bool(row.get("q1_rs_correct"))
+        rs_gate_correct = bool(row.get("rs_gate_correct", q1_rs_correct))
         q2_triggered = bool(row.get("q2_triggered"))
 
         # Q1 统计对所有帧生效；RS/UE 边界标记由 eval/probe 按原始 route 相邻帧生成。
         self.frames += 1
         self.q2_skipped_rs_wrong += int(
-            bool(row.get("q2_skipped_rs_wrong", not q1_rs_correct))
+            bool(row.get("q2_skipped_rs_wrong", not rs_gate_correct))
         )
         self.reset_count += int(bool(row.get("reset_next")))
         self.training_reset_recommendation_count += int(
             bool(row.get("would_reset_under_training"))
         )
-        self.rs_correct += int(q1_rs_correct)
+        self.q1_triggered += int(q1_triggered)
+        self.q1_checked_correct += int(q1_triggered and q1_rs_correct)
+        self.rs_correct += int(rs_gate_correct)
         self.rs_memory_known_wrong += int(bool(row.get("memory_rs_input_known_wrong")))
         self.rs_memory_unknown += int(bool(row.get("memory_rs_input_unknown")))
         self.rs_memory_copied_when_wrong += int(bool(row.get("memory_rs_copied_when_wrong")))
@@ -544,13 +560,15 @@ class StudentMetricsAccumulator:
         self.abnormal_binary.update(gt_abnormal, pred_abnormal)
         if bool(row.get("rs_transition")):
             self.rs_transition_frames += 1
-            self.rs_transition_correct += int(q1_rs_correct)
+            self.rs_transition_correct += int(rs_gate_correct)
         else:
             self.rs_stable_frames += 1
-            self.rs_stable_correct += int(q1_rs_correct)
+            self.rs_stable_correct += int(rs_gate_correct)
         if bool(row.get("abnormal_transition")):
             self.abnormal_boundary_frames += 1
-            self.abnormal_boundary_correct += int(bool(row.get("q1_abnormal_correct")))
+            self.abnormal_boundary_correct += int(
+                pred_abnormal is not None and pred_abnormal == gt_abnormal
+            )
         if bool(row.get("transition_pair_evaluated")):
             pred_rs_change_raw = row.get("pred_rs_change")
             pred_ue_entry_raw = row.get("pred_ue_entry")
@@ -608,6 +626,8 @@ class StudentMetricsAccumulator:
         # 只看一个比率时无法判断样本量是否足够。
         metrics = {
             "rs_acc": _ratio(self.rs_correct, self.frames),
+            "rs_slow_trigger_rate": _ratio(self.q1_triggered, self.frames),
+            "rs_slow_acc": _ratio(self.q1_checked_correct, self.q1_triggered),
             "rs_transition_acc": _ratio(self.rs_transition_correct, self.rs_transition_frames),
             "rs_stable_acc": _ratio(self.rs_stable_correct, self.rs_stable_frames),
             "rs_change_detection_precision": rs_change["precision"],
@@ -668,7 +688,11 @@ class StudentMetricsAccumulator:
         return {
             "frames": self.frames,
             "q1_rs_correct": self.rs_correct,
+            "event_family_correct": abnormal["tp"] + abnormal["tn"],
+            # 旧结果 schema 兼容别名；当前不存在 Q1 ABNORMAL 问题。
             "q1_abnormal_correct": abnormal["tp"] + abnormal["tn"],
+            "q1_triggered": self.q1_triggered,
+            "q1_checked_correct": self.q1_checked_correct,
             "q2_triggered": self.q2_triggered,
             "q2_skipped_rs_wrong": self.q2_skipped_rs_wrong,
             "q2_event_correct": self.event_correct,

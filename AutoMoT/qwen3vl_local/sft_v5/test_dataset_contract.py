@@ -57,6 +57,20 @@ def main() -> None:
     allowed_raw = q2_raw_candidates_for_frame(frame, scenario_candidates=scenario_candidates, rs_label="R4")
     assert allowed_raw == ["R-E4", "U-E8"], "逐帧 allowed_events 必须优先于 scenario fallback"
     assert collapse_regular_to_re(["R-E2", "U-E8"], "R4") == ["RE", "U-E8"], "逐帧 R-E 不能被当前 RS 静态表过滤"
+    # 合并后的 EVENT_FAST 必须始终能在 REGULAR 和 UE 之间比较。
+    # 即使 collector 的逐帧 allowed_events 只列 UE，也保留恰好一个 RE。
+    ue_only = collapse_regular_to_re(["U-E6", "U-E8"], "R4")
+    assert ue_only == ["RE", "U-E6", "U-E8"]
+    ue_only_map = stable_event_option_map(
+        run_id="route",
+        frame_id=5,
+        rs_label="R4",
+        scenario_candidates=scenario_candidates,
+        raw_candidates=["U-E6", "U-E8"],
+        seed=7,
+    )
+    assert list(ue_only_map.values()).count("RE") == 1
+    assert set(ue_only_map.values()) == {"RE", "U-E6", "U-E8"}
     m3 = stable_event_option_map(
         run_id="route",
         frame_id=4,

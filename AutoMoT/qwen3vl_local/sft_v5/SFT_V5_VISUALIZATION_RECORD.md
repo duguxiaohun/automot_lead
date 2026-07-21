@@ -5,10 +5,13 @@
 probe case；真实产物建议放在具体 run 目录下面，例如
 `checkpoints/sft_v5_runs/latest/probe_*`。
 
-SFT v5 每帧分成两个问题：
+SFT v5 是双频两问协议：
 
-- Q1：判断当前道路结构 `RS`，以及当前是否发生或处在异常事件中。
-- Q2：在 Q1 的道路结构基础上，从当前帧候选里判断 `EVENT`。
+- Q1 / `RS_SLOW`：保留三段分析并判断 `RS`；稳定时默认每 4 帧运行，
+  错误/UNKNOWN/recovery 时恢复逐帧。
+- Q2 / `EVENT_FAST`：每个 RS gate 正确的帧都重新分析本帧 RGB，直接从
+  显式标注 `[RE | REGULAR]` / `[UE | UNUSUAL]` 的混合候选里判断 `EVENT`，
+  不再单问当前是否异常。
 
 这里需要区分五类检查：训练前 base 能力、batched 等价性、训练中自动版本对比、
 训练后手动 adapter 检查、静态合同快检。它们目的不同，不应该混在一起看；大样本
@@ -34,7 +37,7 @@ eval 则负责总体统计，不属于小样本可视化。
   是否能给出稳定、合理、可被解析的 teacher 分析与答案。
 - prompt 是否诱导模型泄漏私有字段、复读候选、漏掉三段式 CoT
   `Scene Description / Critical Object Description / Reasoning on Intent`
-  或 `RS/ABNORMAL/EVENT` 等关键输出字段。
+  或 `RS/EVENT` 等关键输出字段。
 - system prompt 是否简洁提醒模型关注交通灯/标志、周围车辆/行人/障碍物、
   车道线/道路结构和影响自车决策的关键因素。
 - `q1_*_user_prompt.txt` 的 `[MEMORY]` 是否只包含自然语言 `PREVIOUS_RS_HYPOTHESIS`、
@@ -44,9 +47,10 @@ eval 则负责总体统计，不属于小样本可视化。
   `RE -` 或 `U-E* -` 标签前缀。
 - 如果看到 `EGO_TO_GOAL_XY=UNKNOWN`，先检查 `labels.json` 里的 `ego_to_goal_xy`
   是否为 `null`；这表示 probe 使用了旧 sequence index，需要重跑 build_dataset 和 probe。
-- Q2 的 `RE` 文案和当前帧 `U-E*` 候选是否足够清晰。
-- Q2 是否确实作为 Q1 assistant 输出后的第二轮 user turn 续接 KV cache，而不是重新
-  fresh prefill 同一帧。
+- Q2 的所有选项是否显式标注 `[RE | REGULAR]` / `[UE | UNUSUAL]`，且文案足够清晰。
+  完整 family 标识只出现在当帧 choices；memory 仍只保存无标签前缀的自然语言 hypothesis。
+- 慢帧 Q2 是否作为 Q1 assistant 输出后的第二轮 user turn 续接当帧 KV；快帧
+  是否标注 `fresh_rgb_prefill`，并且不伪造、不复用上一慢帧 Q1 分析。
 
 从 `AutoMoT/` 目录运行：
 
@@ -99,12 +103,16 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 
 训练前重点看：
 
-- `output.json.student.q1_output` 能否稳定输出 `RS: <A-E>` 和 `ABNORMAL: YES/NO`。
-- `output.json.student.q2_output` 能否只从当前 `EVENT_CHOICES` 里选，不编造选项。
+- 触发 RS_SLOW 的帧，`output.json.student.q1_output` 能否稳定输出 `RS: <A-E>`；
+  快帧该字段应为空，且 `q1_triggered=false`。
+- `output.json.student.q2_output` 能否只从当前 `[RE | REGULAR]` /
+  `[UE | UNUSUAL]` 混合
+  `EVENT_CHOICES` 里选，不编造选项。
 - `output.json.teacher` 是否能利用私有参考做更稳的分析，
   但最终表述不要依赖学生看不到的字段名。
 - teacher 输出是否从 `Scene Description:` 直接开始；若复读输入，检查 `input.json`。
-- `input.json` 是否清楚区分 system/user，以及 Q2 是否标记从 Q1 KV 续接。
+- `input.json` 是否清楚区分 system/user，以及 EVENT_FAST 是否正确标记
+  `student.q1_output_kv` 或 `fresh_rgb_prefill`。
 - `output.json` 的 teacher/student 解析字段是否为空；为空说明 prompt 或解析合同要先修。
 - `flags.json` 里的 `student_adapter_dir` 必须为空；否则说明训练前体检误加载了 LoRA，
   需要重跑纯 base Qwen 检查。
@@ -143,8 +151,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/test_batched_qwen_smoke.py \
 默认命令会优先从 `--candidate-pool` 里挑 Q1 input length 差异大的 case，主动制造
 padding 压力；`--require-batched-group` 要求实际运行到 size>=2 的 batched rollout。
 `--check-parallel-kl` 会额外比较新 chunk parallel KL 与旧逐帧 KL 的总 loss、
-逐 case loss 和 Q1/Q2 loss parts。Q2 KL scoring 必须按旧逐帧语义先把精确
-`q1_ids` 追加到 Q1 prompt KV，再追加 Q2 user turn；不能把 `q1_ids` decode 成
+逐 case loss 和 Q1/Q2 loss parts。grouped Q2 rollout 与 Q2 KL scoring 都必须先把
+精确 `q1_ids` 追加到 Q1 prompt KV，再追加 Q2 user turn；不能把 `q1_ids` decode 成
 `q1_text` 后重新 tokenize 成 full dialog 来替代。
 合格时需要看到：
 
@@ -156,6 +164,8 @@ padding 压力；`--require-batched-group` 要求实际运行到 size>=2 的 bat
   size>=2 的 batched rollout。
 - 每个 case 的 `q1_ids_equal=true`、`q1_text_equal=true`。
 - 每个 case 的 `q2_ids_equal=true`、`q2_text_equal=true`。
+- 每个 case 的 `grouped_q2_ids_equal=true`、`grouped_q2_text_equal=true`，证明训练实际
+  grouped Q2 采样与单样本精确 Q1 KV 续接一致。
 - `q1_logits_max_abs <= logit_atol`，默认 `logit_atol=0.5`；这是训练真正使用的
   `_append_token_ids_with_logits` 路径，不只是自由生成文本。
 - 开启 `--check-parallel-kl` 时，`parallel_kl.ok=true`，并且 `loss_abs_diff`、
@@ -207,7 +217,7 @@ LOGGING_STEPS=1 PROGRESS_FRAMES=20 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
-注意：Qwen 输出不做 `ABNORMAL:` / `EVENT:` 字段早停，但仍保留
+注意：Qwen 输出不做 `RS:` / `EVENT:` 字段早停，但仍保留
 `MAX_NEW_TOKENS_Q1=1024` / `MAX_NEW_TOKENS_Q2=1024` 作为安全上限。parallel KL 的显存
 峰值主要来自近似 `batch x rollout_len x vocab` 的 student/teacher logits；如果 8 路
 或 1024 上限导致 OOM，先退回 `BATCH_PROFILE=balanced` / `BATCH_PROFILE=debug`，
@@ -223,8 +233,9 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
   通常说明 active batch 缩小时 M-RoPE delta 没跟着样本行正确切片。
 - `_student_generate_kv_batch` 必须写清楚：EOS 样本要从 active batch 移除，Q2 才能接在
   干净的 Q1 assistant KV 后。
-- `_q2_full_messages` 只允许用于 Q2 student rollout 采样；Q2 KL 必须通过精确
-  `q1_ids` 续接 Q1 KV 后再追加 Q2 user turn。
+- grouped Q2 student rollout 与 Q2 KL 都必须先 prefill 当帧 Q1 图文 prompt，再通过
+  原始 `q1_ids` 精确续接 Q1 KV 后追加 Q2 user turn；两条路径都禁止把 `q1_text`
+  放回 full dialog 重新 tokenize。
 - `test_batched_qwen_smoke.py` 必须写清楚：默认 smoke 主要验证 mixed-length padded
   rollout，`--require-batched-group` 且 `actual_batched_frames>=2` 才证明真实 batch。
 
@@ -276,7 +287,8 @@ checkpoints/sft_v5_runs/latest/probes/checkpoint-000040/results.json
 checkpoints/sft_v5_runs/latest/probes/final/results.json
 ```
 
-`comparison.json` 会集中记录 Q1 RS、Q1 abnormal、Q2 EVENT、UE 假阳性/假阴性和端到端
+`comparison.json` 会集中记录 RS_SLOW 触发/准确率、EVENT_FAST、由 EVENT 折叠的
+UE 假阳性/假阴性和端到端
 指标。默认 review 已逐帧复制真实 RGB，并保存精简 input/output/memory；只有 legacy
 逐项 TXT/JSON 需要设置 `CHECKPOINT_PROBE_ARTIFACT_LEVEL=full`。
 
@@ -302,7 +314,8 @@ base Qwen 强不强，而是看训练出的学生是否：
 
 - Q1 RS 错时停止本帧 Q2，但下一帧必须再次运行 Q1，并继续使用学生自己的 memory
   观察后续自主纠正；不能把 RS repair interval 当成 Q1 跳帧间隔。
-- Q1 正确时进入 Q2，且 Q2 只在当前帧候选里输出 `RE` 或 `U-E*`。
+- Q1 正确时进入 Q2，且 Q2 只输出当前帧候选字母；parser 再按
+  `event_option_map` 还原为 `RE` 或 `U-E*`。
 - `memory.json` 分清 Q1/Q2 输入、输出、下一帧 student memory 和只读 truth memory。
 - 错误样本能通过 RGB、prompt、label、flags 定位到原因。
 
@@ -519,6 +532,9 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 `q2_trigger_rate`、`q2_skip_due_rs_rate` 与样本数只作门控诊断。每个字段的完整中文定义和方向同时内嵌在
 `eval_metrics.json.metric_definitions`，以代码输出为最终口径。
 
+其中 `abnormal_*` 只是旧报告 schema 的兼容名称，值由 EVENT_FAST 的 RE/UE family
+派生，不代表 prompt、memory 或模型输出里仍有独立 `ABNORMAL` 状态。
+
 变化指标保存在 `results.json.summary`，自主纠正延迟保存在
 `results.json.memory_recovery_report`；full 模式另写完整 `transition_report.json`。
 `random` 默认抽 1 条完整 route ID 并测试全部帧；要确保命中变化边界，使用 `rs_transition` 或
@@ -526,9 +542,10 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 
 ## Timeline 颜色
 
-- 红色：Q1 的 RS 错误；本帧跳过 Q2，下一帧仍沿用学生 memory 并再次运行 Q1，
+- 红色：RS_SLOW 的 RS 错误；本帧跳过 EVENT_FAST，下一帧仍沿用学生 memory
+  并再次运行 RS_SLOW，
   测试不做 GT 纠错。
-- 蓝色：Q1 的 RS 正确，本帧进入 Q2。
+- 蓝色：RS gate 正确，本帧进入 EVENT_FAST；可以是慢帧新 RS，也可以是快帧复用 RS。
 - 绿色：未加载 student 模型的静态 teacher-forced dump。
 - 灰色：没有特别转折的普通帧。
 
@@ -536,9 +553,11 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 
 - `input.json` 的 student prompt 不应包含 `XML_WEATHER`、`ANSWER_`、`REFERENCE`、GT
   label 或 scenario name；teacher prompt 可以包含私有参考。
-- `output.json.student/teacher` 应包含三段式 CoT 与最终 RS/ABNORMAL/EVENT，解析字段非空。
+- 慢帧 `output.json.student/teacher` 应包含 RS 三段式 CoT 和 EVENT 三段式 CoT；
+  快帧 Q1 为空，EVENT 仍必须包含三段分析与最终 `EVENT`。
 - `output.json.teacher_targets` 必须是学生视角文本，不能泄漏私有字段名。
 - `memory.json.q1/q2` 应能看到两问各自的 student input、student output 和 reference；
   `reference_is_comparison_only=true`、`forced_correction_applied=false`。
-- Q1 RS 错误时本帧 Q2 应跳过，但 `next_frame.student` 仍保留学生结果；后续改对必须来自
+- RS_SLOW 错误时本帧 EVENT_FAST 应跳过，但 `next_frame.student` 仍保留学生结果；
+  后续改对必须来自
   新一帧学生输出。Q2 非法输出不覆盖已有 student EVENT。
