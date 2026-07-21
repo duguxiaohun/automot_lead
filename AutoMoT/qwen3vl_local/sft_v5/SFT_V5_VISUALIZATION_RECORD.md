@@ -54,8 +54,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe \
-  --num-cases 24 \
-  --sequence-length 24 \
+  --num-routes 1 \
   --with-model \
   --with-teacher-model \
   --with-teacher
@@ -84,8 +83,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_v5_runs/pre_opsd_base_student_probe \
-  --num-cases 24 \
-  --sequence-length 24 \
+  --num-routes 1 \
   --with-model
 
 # 只看默认 Qwen teacher 能力，不传 --adapter-dir
@@ -93,8 +91,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_v5_runs/pre_opsd_base_teacher_probe \
-  --num-cases 24 \
-  --sequence-length 24 \
+  --num-routes 1 \
   --with-teacher-model \
   --with-teacher
 ```
@@ -241,16 +238,16 @@ CHECKPOINT_PROBE=1
 CHECKPOINT_PROBE_BASE=1
 CHECKPOINT_PROBE_WITH_TEACHER=1
 CHECKPOINT_PROBE_NUM_CASES=24
+CHECKPOINT_PROBE_NUM_ROUTES=1
 CHECKPOINT_PROBE_SAMPLE_MODE=random
-CHECKPOINT_PROBE_SEQUENCE_LENGTH=24
 CHECKPOINT_PROBE_ARTIFACT_LEVEL=review
 CHECKPOINT_PROBE_CONTEXT_RADIUS=8
 ```
 
 训练开始时生成 `probes/base/`，每次保存 `checkpoint-40/80/...` 后生成对应
 `probes/checkpoint-000040/000080/...`，正常结束保存 `final/` 后生成 `probes/final/`。
-所有版本使用相同 seed 和相同 `random` 规则固定选择一段连续 24 帧，不再从全
-validation 打散抽孤立帧。长窗口用于观察学生在变化首帧没改对时，后续是否会自主恢复：
+所有版本使用相同 seed 和相同 `random` 规则固定选择 1 条完整 route ID，从首帧运行到
+末帧。完整 ID 用于观察学生 memory 的全部 step-by-step 变化：
 
 - `base`：student 与 teacher 都临时关闭 LoRA，记录未训练 Qwen 的表现。
 - `checkpoint-*` / `final`：student 使用当前 LoRA；teacher 临时关闭 LoRA，保持纯 base
@@ -276,12 +273,13 @@ checkpoints/sft_v5_runs/latest/probes/final/results.json
 指标。默认 review 已逐帧复制真实 RGB，并保存精简 input/output/memory；只有 legacy
 逐项 TXT/JSON 需要设置 `CHECKPOINT_PROBE_ARTIFACT_LEVEL=full`。
 
-关闭或缩小自动检查：
+关闭自动检查，或临时改成少量 RS 变化帧专项：
 
 ```bash
 CHECKPOINT_PROBE=0 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 
-CHECKPOINT_PROBE_NUM_CASES=4 GPU_IDS=0,1,2,3 \
+CHECKPOINT_PROBE_SAMPLE_MODE=rs_transition CHECKPOINT_PROBE_NUM_CASES=4 \
+GPU_IDS=0,1,2,3 \
 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
@@ -308,8 +306,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
-  --num-cases 24 \
-  --sequence-length 24 \
+  --num-routes 1 \
   --artifact-level review \
   --sample-mode random \
   --context-radius 8 \
@@ -325,12 +322,13 @@ Qwen，和训练前能力检查保持同一输入输出合同。默认结果集�
 
 小样本只有三种选帧模式：
 
-- `--sample-mode random --sequence-length 24 --seed <N>`：随机连续长片段，默认。
+- `--sample-mode random --num-routes 1 --seed <N>`：随机完整 route ID，默认从首帧测到末帧。
 - `--sample-mode rs_transition`：对每一次 RS 变化连续保留变化前帧、新 RS 首帧和变化后帧，
   用于检查 RS 识别和 memory 切换。
 - `--sample-mode ue_transition`：完整保留一个连续 UE span 的全部 UE 帧，并按
   `--context-radius` 补进入前和退出后的邻帧，同时检查进入、持续和退出。
 
+`--num-cases` 只用于 RS/UE 专项；random 不会按帧预算截断完整 ID。
 `--context-radius` 控制专项边界前后的邻帧数（最少 1）。专项数据不存在时会少于
 `--num-cases`，这是正常审计结果，不会用无关 RE 帧填满；UE 为避免截断真实 span，
 实际帧数也允许超过 `--num-cases`。
@@ -350,8 +348,7 @@ teacher 模型，仍会完整写入 `results.json`。
 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --output-dir checkpoints/sft_v5_runs/latest/probe_static \
-  --num-cases 24 \
-  --sequence-length 24 \
+  --num-routes 1 \
   --artifact-level full \
   --with-teacher
 ```
@@ -516,7 +513,7 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 
 变化指标保存在 `results.json.summary`，自主纠正延迟保存在
 `results.json.memory_recovery_report`；full 模式另写完整 `transition_report.json`。
-`random` 默认抽连续 24 帧；要确保命中变化边界，使用 `rs_transition` 或
+`random` 默认抽 1 条完整 route ID 并测试全部帧；要确保命中变化边界，使用 `rs_transition` 或
 `ue_transition`。全量 eval 按 validation route 的所有连续帧计算。
 
 ## Timeline 颜色

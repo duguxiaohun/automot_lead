@@ -78,7 +78,7 @@ def _routes() -> list[SequenceRow]:
 
 
 def test_random_selection_is_seeded() -> None:
-    """random 必须按 seed 复现同一段连续帧，而不是全数据集散点抽样。"""
+    """random 必须按 seed 复现同一个完整 route ID 的全部帧。"""
 
     first = build_probe_selection_plan(
         _routes(),
@@ -87,18 +87,36 @@ def test_random_selection_is_seeded() -> None:
         context_radius=1,
         seed=7,
         sequence_length=4,
+        num_routes=1,
     )
     second = build_probe_selection_plan(
         _routes(), num_cases=4, sample_mode="random", context_radius=1, seed=7,
         sequence_length=4,
+        num_routes=1,
     )
     assert [(x.route_index, x.frame_index) for x in first] == [
         (x.route_index, x.frame_index) for x in second
     ]
     assert {item.primary_reason for item in first} == {"random"}
     assert len({item.route_index for item in first}) == 1
+    selected_route = _routes()[first[0].route_index]
     frame_indices = [item.frame_index for item in first]
-    assert frame_indices == list(range(frame_indices[0], frame_indices[0] + 4))
+    assert frame_indices == list(range(len(selected_route.frames)))
+    assert [item.frame_id for item in first] == [
+        frame.frame_id for frame in selected_route.frames
+    ]
+
+    # num_cases/sequence_length 都不能把随机 ID 截成短片段。
+    tiny_budget = build_probe_selection_plan(
+        _routes(),
+        num_cases=1,
+        sample_mode="random",
+        context_radius=1,
+        seed=7,
+        sequence_length=1,
+        num_routes=1,
+    )
+    assert len(tiny_budget) == len(selected_route.frames)
 
 
 def test_rs_transition_selection_is_one_contiguous_change_window() -> None:
@@ -386,7 +404,7 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         index_path.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
         output_dir = root / "probe"
         args = argparse.Namespace(
-            index=str(index_path), output_dir=str(output_dir), num_cases=4,
+            index=str(index_path), output_dir=str(output_dir), num_cases=4, num_routes=1,
             max_routes=0, max_frames_per_route=0, sample_mode="random",
             context_radius=1, sequence_length=4, artifact_level="compact",
             seed=7, with_model=False, with_teacher=True,
@@ -398,13 +416,15 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
         selection = results["sampling"]
         assert selection["sample_mode"] == "random"
-        assert "连续短片段" in selection["sample_mode_description"]
-        assert selection["selected_cases"] == 4
+        assert "完整 route ID" in selection["sample_mode_description"]
+        assert selection["selected_cases"] == len(route.frames)
         assert selection["sequence_length"] == 4
+        assert selection["sequence_length_ignored_for_random"] is True
+        assert selection["requested_routes"] == 1
         assert "cases" not in selection, "顶层 results 不应重复逐帧选择记录"
-        assert len(results["frames"]) == 4
+        assert len(results["frames"]) == len(route.frames)
         frame_indices = [item["frame_index"] for item in results["frames"]]
-        assert frame_indices == list(range(frame_indices[0], frame_indices[0] + 4))
+        assert frame_indices == list(range(len(route.frames)))
         compact_case = results["frames"][0]
         # compact 只减少文件数量，不能删掉训练前 base / 训练后 LoRA 人工对比所需的
         # 输入、完整标签、teacher 脚本真值、输出槽位和 memory。
@@ -426,7 +446,7 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         assert set(compact_case["teacher"]) >= {"q1_output", "q2_output", "q1_parsed", "q2_parsed"}
         assert results["frame_artifacts"] == []
         assert results["memory_recovery_report"]["student_enabled"] is False
-        assert summary["sampling"]["selected_cases"] == 4
+        assert summary["sampling"]["selected_cases"] == len(route.frames)
         assert summary["generation_limits"]["max_new_tokens_q1"] == 16
 
         # review 是默认人工入口：每帧只保留 RGB、input、output、memory。
@@ -435,7 +455,7 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         args.artifact_level = "review"
         dump_probe(args)
         review_frames = list(review_output_dir.glob("scenarios/*/frame_*"))
-        assert len(review_frames) == 4
+        assert len(review_frames) == len(route.frames)
         expected_review_files = {"input_rgb_00.jpg", "input.json", "output.json", "memory.json"}
         assert {path.name for path in review_frames[0].iterdir()} == expected_review_files
         inputs = json.loads((review_frames[0] / "input.json").read_text(encoding="utf-8"))
@@ -460,7 +480,7 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         assert memory["forced_correction_applied"] is False
         review_results = json.loads((review_output_dir / "results.json").read_text(encoding="utf-8"))
         assert review_results["frames"] == []
-        assert len(review_results["frame_artifacts"]) == 4
+        assert len(review_results["frame_artifacts"]) == len(route.frames)
 
         # full 是显式深度审计开关，不应删除 review 的规范文件和 legacy 产物。
         full_output_dir = root / "probe_full"
@@ -472,12 +492,12 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         assert (full_output_dir / "summary.json").exists()
         assert (full_output_dir / "transition_report.json").exists()
         case_records = list(full_output_dir.glob("scenarios/*/frame_*/case_record.json"))
-        assert len(case_records) == 4
+        assert len(case_records) == len(route.frames)
         case = json.loads(case_records[0].read_text(encoding="utf-8"))
         assert set(case) == {"selection", "labels", "inputs", "targets", "outputs", "memory", "flags"}
         assert "q1_student_messages" in case["inputs"]
         assert case["selection"]["sample_mode_description"]
-        assert case["selection"]["primary_reason_description"] == "随机连续片段中的帧"
+        assert case["selection"]["primary_reason_description"] == "随机完整 route ID 中按时间顺序测试的帧"
         assert case["flags"]["generation_limits"] == {
             "max_new_tokens_q1": 16,
             "max_new_tokens_q2": 16,

@@ -1,6 +1,6 @@
 """SFT v5 case-level probe。
 
-默认不加载模型，只按连续短片段检查 label / memory / prompt 合同。传 `--with-model`
+默认不加载模型，只按完整 route ID 或变化专项窗口检查 label / memory / prompt 合同。传 `--with-model`
 后会额外生成 student Q1/Q2 输出；传
 `--with-teacher-model` 后会额外用默认/base Qwen 跑 privileged teacher prompt。
 训练前 OPSD 能力体检必须不传 `--adapter-dir`，即 teacher/student 都只用普通 Qwen，
@@ -11,7 +11,7 @@
 输出、解析结构、场景真值与两问 memory 转换都有唯一入口。``compact`` 只写汇总
 ``results.json``；显式指定 ``--artifact-level full`` 时才额外生成旧式逐项文件。
 
-小样本只保留三种直观模式：``random`` 随机连续片段，``rs_transition`` 查看同一次
+小样本只保留三种直观模式：``random`` 随机完整 route ID，``rs_transition`` 查看同一次
 RS 变化前后，``ue_transition`` 查看同一次 UE 的进入、持续和退出。不传模型开关时
 只生成静态 prompt/target 合同。
 """
@@ -69,13 +69,13 @@ from qwen3vl_local.sft_v5.train import (  # noqa: E402
 
 
 PROBE_SAMPLE_MODE_DESCRIPTIONS = {
-    "random": "从 validation 中按固定随机种子抽取连续短片段",
+    "random": "从 validation 中按固定随机种子抽取完整 route ID，并测试该 ID 的全部帧",
     "rs_transition": "检查同一次 RS 变化的变化前帧、新 RS 首帧和变化后帧",
     "ue_transition": "检查同一 UE 片段的进入前 RE、UE 内部和退出后 RE",
 }
 
 PROBE_REASON_DESCRIPTIONS = {
-    "random": "随机连续片段中的帧",
+    "random": "随机完整 route ID 中按时间顺序测试的帧",
     "rs_before_transition": "RS 变化前的旧 RS 帧",
     "rs_transition": "RS 变化后的新 RS 首帧",
     "rs_after_transition": "RS 变化后的新 RS 邻帧",
@@ -411,26 +411,33 @@ def build_probe_selection_plan(
     context_radius: int,
     seed: int,
     sequence_length: int = 24,
+    num_routes: int = 1,
 ) -> List[ProbeSelection]:
     """按三种公开语义构造小样本计划。
 
-    ``random`` 用 seed 随机抽取连续短片段；``rs_transition`` 保留同一 RS 变化点的
+    ``random`` 用 seed 随机抽取完整 route ID，并保留该 ID 的全部帧；
+    ``rs_transition`` 保留同一 RS 变化点的
     前/当前/后帧；``ue_transition`` 保留同一 UE span 的进入前 RE、UE 内部和
     退出后 RE。UE 模式不会用 ``num_cases`` 截断一个真实 UE span：它保留整段 UE，
     再向前后补 ``context_radius`` 帧，因此长 UE 的实际返回帧数可以超过预算。
     专项模式找不到真实变化时返回空结果，不用普通帧冒充专项样本。
+
+    ``sequence_length`` 仅作为旧命令兼容参数保留，random 模式不再使用它截断 route。
+    ``num_routes`` 只控制 random 抽取多少个完整 ID，默认 1。
     """
 
-    limit = max(0, int(num_cases))
-    if limit == 0:
-        return []
-    reasons_by_key = _probe_candidate_reasons(routes, context_radius=context_radius)
     mode = str(sample_mode or "random").lower()
     if mode not in {"random", "rs_transition", "ue_transition"}:
         raise ValueError(
             f"unsupported probe sample mode: {sample_mode}; "
             "expected random/rs_transition/ue_transition"
         )
+    # sequence_length 是兼容入口。显式转换能尽早暴露非法旧参数，但 random 不再使用它。
+    _ = max(1, int(sequence_length))
+    limit = max(0, int(num_cases))
+    if mode != "random" and limit == 0:
+        return []
+    reasons_by_key = _probe_candidate_reasons(routes, context_radius=context_radius)
     selected: List[Tuple[Tuple[int, int], str]] = []
     selected_keys: set[Tuple[int, int]] = set()
 
@@ -448,32 +455,15 @@ def build_probe_selection_plan(
         selected_keys.add(key)
 
     if mode == "random":
-        # random 不是把全数据集帧打散后各抽一帧，而是随机选择 route/start，再连续
-        # 推理若干帧。这样 Q1 错误后的 memory 漂移/自主恢复、RS 切换及 UE 进入/退出
-        # 都能按真实时间顺序被观察。num_cases 仍是总帧预算，避免自动 checkpoint probe
-        # 因语义变化突然扩大推理成本。
+        # random 的采样单位是完整 route ID，不是 frame 或短片段。被选 route 的所有帧
+        # 都按时间顺序运行，因此可以完整观察 student memory 从首帧到末帧的逐步变化。
         rng = random.Random(int(seed))
-        clip_target = max(1, int(sequence_length))
-        while len(selected) < limit:
-            remaining = limit - len(selected)
-            desired = min(clip_target, remaining)
-            windows: List[Tuple[int, int, int]] = []
-
-            # 优先寻找完整 desired 长度且与已选帧不重叠的窗口。若所有 route 都太短
-            # 或已被占用，再逐级缩短窗口，保证小数据 smoke 仍能尽量填满总预算。
-            while desired > 0 and not windows:
-                for route_idx, route in enumerate(routes):
-                    route_len = len(route.frames)
-                    for start in range(0, route_len - desired + 1):
-                        keys = [(route_idx, idx) for idx in range(start, start + desired)]
-                        if all(key not in selected_keys for key in keys):
-                            windows.append((route_idx, start, desired))
-                desired -= 1 if not windows else 0
-            if not windows:
-                break
-            route_idx, start, window_len = rng.choice(windows)
-            for frame_idx in range(start, start + window_len):
-                add_frame((route_idx, frame_idx), "random")
+        route_indices = [idx for idx, route in enumerate(routes) if route.frames]
+        rng.shuffle(route_indices)
+        route_limit = min(max(1, int(num_routes)), len(route_indices))
+        for route_idx in route_indices[:route_limit]:
+            for frame_idx in range(len(routes[route_idx].frames)):
+                add_frame((route_idx, frame_idx), "random", respect_limit=False)
     elif mode == "rs_transition":
         radius = max(1, int(context_radius))
         for route_idx, transition_idx, _end in _rs_transition_windows(routes):
@@ -531,12 +521,12 @@ def build_probe_selection_plan(
 
     # 专项模式的选择阶段会优先保住边界核心帧；落盘前恢复 route 内
     # 时间顺序，使 selection_plan 和 timeline 可以直接从前往后阅读。
-    # 所有模式都按 route/frame 恢复时间顺序。random 的随机性体现在 route/start
-    # 选择，而不是落盘顺序；顺序化后 memory 才能按连续帧自然推进。
+    # 所有模式都按 route/frame 恢复时间顺序。random 的随机性体现在 route ID 选择，
+    # 不是帧顺序；顺序化后 memory 才能从 ID 首帧自然推进到末帧。
     selected.sort(key=lambda item: item[0])
 
     plan: List[ProbeSelection] = []
-    final_selected = selected if mode == "ue_transition" else selected[:limit]
+    final_selected = selected if mode in {"random", "ue_transition"} else selected[:limit]
     for (route_idx, frame_idx), primary_reason in final_selected:
         route = routes[route_idx]
         frame = route.frames[frame_idx]
@@ -780,6 +770,7 @@ def dump_probe(
     context_radius = int(getattr(args, "context_radius", 8))
     sample_seed = int(getattr(args, "seed", 20260711))
     sequence_length = max(1, int(getattr(args, "sequence_length", 24)))
+    num_routes = max(1, int(getattr(args, "num_routes", 1)))
     artifact_level = str(getattr(args, "artifact_level", "review")).lower()
     if artifact_level not in {"compact", "review", "full"}:
         raise ValueError(
@@ -794,20 +785,26 @@ def dump_probe(
         context_radius=context_radius,
         seed=sample_seed,
         sequence_length=sequence_length,
+        num_routes=num_routes,
     )
     selection_by_key = {
         (item.route_index, item.frame_index): item
         for item in selection_plan
     }
     selection_category_counts = Counter(item.primary_reason for item in selection_plan)
+    selected_route_ids = list(dict.fromkeys(item.route_id for item in selection_plan))
     selection_payload = {
         "sample_mode": sample_mode,
         "sample_mode_description": PROBE_SAMPLE_MODE_DESCRIPTIONS[sample_mode],
         "sequence_length": sequence_length,
+        "sequence_length_ignored_for_random": sample_mode == "random",
+        "requested_routes": num_routes if sample_mode == "random" else None,
         "context_radius": context_radius,
         "seed": sample_seed,
-        "requested_cases": int(args.num_cases),
+        "requested_cases": int(args.num_cases) if sample_mode != "random" else None,
+        "requested_cases_ignored_for_random": sample_mode == "random",
         "selected_cases": len(selection_plan),
+        "selected_route_ids": selected_route_ids,
         "primary_reason_counts": dict(sorted(selection_category_counts.items())),
         "cases": [
             {
@@ -1710,13 +1707,19 @@ def parse_args() -> argparse.Namespace:
         "--num-cases",
         type=int,
         default=24,
-        help="random/RS 的总帧预算；UE 模式为最小预算且不会截断完整 UE span",
+        help="RS 的总帧预算；UE 为最小预算且不截断 span；random 模式忽略该参数",
+    )
+    p.add_argument(
+        "--num-routes",
+        type=int,
+        default=1,
+        help="random 模式随机抽取的完整 route ID 数；每个 ID 都测试全部帧",
     )
     p.add_argument(
         "--sequence-length",
         type=int,
         default=24,
-        help="random 模式每个连续片段的目标帧数；默认观察 24 帧以覆盖延迟纠正",
+        help="旧命令兼容参数；random 已改为完整 route ID，不再按该值截断",
     )
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
@@ -1724,7 +1727,7 @@ def parse_args() -> argparse.Namespace:
         "--sample-mode",
         choices=("random", "rs_transition", "ue_transition"),
         default="random",
-        help="小样本选帧：random 连续片段；RS 取变化前后；UE 取完整持续段及前后邻帧",
+        help="小样本选帧：random 完整 route ID；RS 取变化前后；UE 取完整持续段及前后邻帧",
     )
     p.add_argument(
         "--context-radius",

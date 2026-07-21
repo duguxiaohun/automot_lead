@@ -134,8 +134,8 @@ probes/comparison.json
 ```
 
 自动 probe 复用 rank0 已加载的模型，不额外加载第二份 Qwen。默认用固定 seed 的
-`random` 模式选择一段连续 24 帧，保证 base/checkpoint/final 始终对比同一片段，并观察
-学生在 RS/EVENT 变化后是否会延迟自行纠正。默认 `review` 每帧只保存输入 RGB、
+`random` 模式选择 1 条完整 route ID，从首帧逐步测试到末帧，保证
+base/checkpoint/final 始终对比同一 ID。默认 `review` 每帧只保存输入 RGB、
 `input.json`、`output.json` 和 `memory.json`。
 自动 probe 使用 256/192 token 旁路上限，不影响训练的 1024/1024。
 
@@ -240,8 +240,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe \
-  --num-cases 24 \
-  --sequence-length 24 \
+  --num-routes 1 \
   --artifact-level review \
   --with-model \
   --with-teacher-model \
@@ -256,8 +255,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
-  --num-cases 24 \
-  --sequence-length 24 \
+  --num-routes 1 \
   --artifact-level review \
   --sample-mode random \
   --context-radius 8 \
@@ -272,12 +270,14 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 
 选帧模式：
 
-- `random`：随机选择连续短片段，默认；`--seed` 相同时可复现。
+- `random`：按 `--seed` 随机选择完整 route ID，并从该 ID 首帧测试到末帧；
+  `--num-routes` 控制完整 ID 数，默认 1。
 - `rs_transition`：按同一次 RS 变化连续取变化前帧、新 RS 首帧和变化后帧。
 - `ue_transition`：完整保留同一 UE 从首帧到末帧，再向前后各补
   `--context-radius` 个 RE/邻帧；长 UE 可以超过 `--num-cases`，不会从中间截断。
 
-`--context-radius 8` 表示专项模式保留边界前后最多 8 帧。如果所读数据中没有
+`--num-cases` 只用于 RS/UE 专项，不会截断 random 的完整 ID。`--context-radius 8`
+表示专项模式保留边界前后最多 8 帧。如果所读数据中没有
 对应的 RS/UE 变化，专项模式不会用无关帧凑数。RS 结果可能少于 `--num-cases`；UE
 结果为保证 span 完整性也可能多于 `--num-cases`。
 

@@ -1023,10 +1023,10 @@ Checkpoint / probe 策略：
 
 - 用户实测四卡当前吞吐约 80 optimizer steps/day，正式 launcher 默认
   `SAVE_STEPS=40`，约半天保存 `checkpoint-40/80/...`；正常结束始终保存 `final/`。
-- 每个 run 的 step 0 自动在 `probes/base/` 保存 24 个固定、可复现的 validation frame。
-  默认 `random` 用固定 seed 选择一段连续 24 帧；每个 checkpoint/final 保存后生成
-  同一批帧的 LoRA student + 纯 base teacher probe，便于直接纵向对比。
-- probe 公开选帧模式只有三种：`random` 随机连续片段；`rs_transition` 的同一 RS
+- 每个 run 的 step 0 自动在 `probes/base/` 保存固定、可复现的完整 validation route。
+  默认 `random` 用固定 seed 选择 1 条 route ID，从首帧测试到末帧；每个 checkpoint/final
+  保存后生成同一 ID 的 LoRA student + 纯 base teacher probe，便于逐帧纵向对比。
+- probe 公开选帧模式只有三种：`random` 随机完整 route ID；`rs_transition` 的同一 RS
   变化前/首帧/后帧；`ue_transition` 必须保留同一 UE span 的全部 UE 帧，再按
   context radius 补进入前和退出后邻帧。UE 不得被 `num_cases` 从中间截断；专项模式
   没有找到真实变化时不得用普通帧 fallback 凑数。
@@ -1252,10 +1252,10 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
 - 下一个有效 frame 开始时，若 `reset_next_frame[b]`：
   `memory = GT_RS(current frame) + RE`，然后清标记。
 
-以上只属于训练采样协议。`eval.py` / `probe.py` 使用纯 student closed-loop：连续窗口首帧
+以上只属于训练采样协议。`eval.py` / `probe.py` 使用纯 student closed-loop：完整 ID 首帧
 初始化一次，此后只刷新每帧 `EGO_TO_GOAL_XY`，RS/EVENT 仅由学生输出推进；GT reference
-只用于比较，绝不回写。测试窗口默认 24 帧，RS/UE 边界前后默认观察 8 帧，并报告学生
-首次自行对齐 reference 的延迟。
+只用于比较，绝不回写。random 默认测试整条 ID；RS/UE 边界前后默认观察 8 帧，并报告
+学生首次自行对齐 reference 的延迟。
 
 如果某条 route sequence 在中间出现缺 RGB / 缺 weather / 缺 label：
 
@@ -1375,7 +1375,7 @@ probe*/
 base 能力、训练前 grouped/parallel 等价性、训练后 adapter 可视化、静态合同快检。
 
 - 训练中自动版本对比：训练前 `base`、每 40 step `checkpoint-*`、训练结束 `final`；
-  默认固定使用同一段 seed 可复现的 `random` validation 连续帧，并在每个
+  默认固定使用同一条 seed 可复现的 `random` validation route ID，并在每个
   `results.json` 记录选帧、输出和指标，在 `probes/comparison.json` 汇总版本对比。
 
 - 训练前 base Qwen OPSD 能力体检：`--with-model --with-teacher-model`，不传

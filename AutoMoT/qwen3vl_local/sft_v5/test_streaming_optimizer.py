@@ -140,6 +140,7 @@ def test_adapter_metadata_records_effective_window() -> None:
         learning_rate=1e-5,
         checkpoint_probe=True,
         checkpoint_probe_num_cases=24,
+        checkpoint_probe_num_routes=1,
         checkpoint_probe_with_teacher=True,
         checkpoint_probe_sample_mode="random",
         checkpoint_probe_context_radius=8,
@@ -155,6 +156,7 @@ def test_adapter_metadata_records_effective_window() -> None:
     assert meta["parallel_kl_microbatch_size"] == 2
     assert meta["checkpoint_probe_enabled"] is True
     assert meta["checkpoint_probe_num_cases"] == 24
+    assert meta["checkpoint_probe_num_routes"] == 1
     assert meta["checkpoint_probe_with_teacher"] is True
     assert meta["checkpoint_probe_sample_mode"] == "random"
     assert meta["checkpoint_probe_context_radius"] == 8

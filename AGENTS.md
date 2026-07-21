@@ -337,8 +337,8 @@
   `memory/{allocated,reserved,max_allocated,max_reserved}_gb`；长期显存风险以
   `allocated` 为主，不能只凭 `nvidia-smi` 或 allocator `reserved` 高水位判断泄漏。
   `probe.py` 公开选帧模式只保留 `random` / `rs_transition` / `ue_transition`；默认
-  `random` 用固定 seed 抽取连续 24 帧，`--num-cases` 是总帧预算，
-  `--sequence-length` 是每段目标长度，RS/UE 默认边界 context radius 为 8；
+  `random` 用固定 seed 抽取 1 条完整 route ID 并测试全部帧，`--num-routes` 控制
+  完整 ID 数；`--num-cases` 只用于 RS/UE 专项预算，RS/UE 默认 context radius 为 8；
   RS 专项必须保留同一次变化的前帧/新 RS 首帧/后帧，UE 专项必须保留同一
   UE span 的全部 UE 帧并按 context radius 补进入前/退出后邻帧，不能被
   `num_cases` 从中间截断；专项找不到变化时不用
@@ -375,7 +375,7 @@
   effective 窗口阈值、LR 和梯度同步策略。正式 launcher 默认 `SAVE_STEPS=40`（按用户
   实测约 80 step/day，即约半天一版）；默认开启 checkpoint probe：step 0 保存
   `probes/base/`，每个 `checkpoint-*` 和 `final/` 保存后用固定 8 个、相同 seed 和相同
-  `random` 规则选出的一段连续 validation 帧生成对应 probe，并在 `probes/comparison.json`
+  `random` 规则选出的完整 validation route ID 生成对应 probe，并在 `probes/comparison.json`
   聚合各版本 `results.json` 摘要。自动 probe 必须
   复用 rank0 当前训练 bundle，base student/teacher 临时 `disable_adapter()`，LoRA
   checkpoint student 保持 adapter 开启；禁止另起进程或加载第二份 Qwen。其它 rank
