@@ -135,7 +135,8 @@ probes/comparison.json
 
 自动 probe 复用 rank0 已加载的模型，不额外加载第二份 Qwen。默认用固定 seed 的
 `random` 模式选择一段连续 8 帧，保证 base/checkpoint/final 始终对比同一片段。
-默认 `compact` 只写 `results.json`，不会展开大量逐帧文件。
+默认 `review` 按测试场景和帧分目录，输入、学生输出、老师输出、老师真值、场景真值、
+memory 与评估结果各自单独保存。
 自动 probe 使用 256/192 token 旁路上限，不影响训练的 1024/1024。
 
 常用覆盖：
@@ -240,7 +241,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe \
   --num-cases 8 \
   --sequence-length 8 \
-  --artifact-level compact \
+  --artifact-level review \
   --with-model \
   --with-teacher-model \
   --with-teacher
@@ -256,7 +257,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
   --num-cases 8 \
   --sequence-length 8 \
-  --artifact-level compact \
+  --artifact-level review \
   --sample-mode random \
   --context-radius 2 \
   --with-model \
@@ -266,8 +267,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 
 这条训练后命令与训练前 base 检查使用同一批输入和同一产物 schema：student 加载
 `--adapter-dir` 的 LoRA，teacher 仍是未加载 LoRA 的纯 base Qwen。打开
-`results.json.frames` 可同时查看完整 messages、学生/老师分析输出、teacher 脚本真值、
-RS/EVENT 场景真值、memory 和正确性。若只想看 LoRA student，可去掉
+`scenarios/<scenario>__<route_id>/frame_*/` 下可分别查看输入、学生/老师分析输出、
+teacher 脚本真值、RS/EVENT 场景真值、memory 和正确性。若只想看 LoRA student，可去掉
 `--with-teacher-model`，其它真值字段仍会保留。
 
 选帧模式：
@@ -281,10 +282,17 @@ RS/EVENT 场景真值、memory 和正确性。若只想看 LoRA student，可去
 对应的 RS/UE 变化，专项模式不会用无关帧凑数。RS 结果可能少于 `--num-cases`；UE
 结果为保证 span 完整性也可能多于 `--num-cases`。
 
-默认只需打开 `results.json`：其中集中保存 RGB 路径、实际 system/user messages、
-privileged teacher messages、teacher 脚本真值、RS/EVENT 场景真值、学生/教师完整分析
-输出、memory、统一指标和变化帧 TP/FP/FN/TN。`--artifact-level full` 只是把同一证据
-额外拆成逐帧 TXT/JSON 并复制 RGB，内容口径不变。
+默认从 `scenarios/` 进入测试场景，再进入对应 `frame_*`。每帧固定写
+`inputs.json`、`student_outputs.json`、`teacher_outputs.json`、`teacher_targets.json`、
+`ground_truth.json`、`memory.json`、`prediction_vs_ground_truth.json` 和 `evaluation.json`。
+其中 `prediction_vs_ground_truth.json` 直接并列当前场景真值、学生解析结构、teacher
+真值和正确性，是每帧首选入口。其中 `current_scene_ground_truth.structured` 给出 Q1 的
+RS/ABNORMAL 真值与 Q2 的可接受 EVENT、默认真值和按学生输出动态解析的真值；
+同层 `scenario_name/route_id` 保存原始场景定位真值，仅用于审计，不作为 v5 类别；
+`student_extracted_structure` 是从学生原始输出提取出的实际字段；`field_comparisons`
+进一步按 Q1 RS、Q1 ABNORMAL、Q2 EVENT 并排保存 `expected/predicted/correct`。
+静态检查没有运行 student 时，预测与正确性为 `null`。顶层 `results.json` 只负责汇总和
+机器索引；`--artifact-level full` 再额外复制 RGB 并保存 legacy TXT/JSON。
 手工 probe 默认 1024/1024 token；自动 checkpoint probe 才使用 256/192。
 
 训练前 grouped/parallel 等价性检查：

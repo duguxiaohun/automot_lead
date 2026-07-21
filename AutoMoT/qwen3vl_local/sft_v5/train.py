@@ -2492,7 +2492,7 @@ def _run_probe_with_training_bundle(
         "global_step": int(global_step),
         "adapter_dir": str(adapter_dir) if adapter_dir is not None else None,
         "probe_dir": str(probe_dir),
-        # compact/full 都统一提供 results.json；自动比较不再依赖 full 模式专有的
+        # compact/review/full 都统一提供 results.json；自动比较不再依赖 full 模式专有的
         # summary.json，避免 checkpoint probe 为了一个摘要生成大量逐帧文件。
         "summary_path": str(probe_dir / "results.json"),
         "elapsed_seconds": time.time() - started,
@@ -2850,9 +2850,9 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--checkpoint-probe-artifact-level",
-        choices=("compact", "full"),
-        default="compact",
-        help="compact 只写 results.json；full 才展开逐帧可视化产物",
+        choices=("compact", "review", "full"),
+        default="review",
+        help="review 按场景/帧拆分输入输出真值；compact 只汇总；full 展开 legacy 可视化",
     )
     p.add_argument("--checkpoint-probe-max-new-tokens-q1", type=int, default=256)
     p.add_argument("--checkpoint-probe-max-new-tokens-q2", type=int, default=192)

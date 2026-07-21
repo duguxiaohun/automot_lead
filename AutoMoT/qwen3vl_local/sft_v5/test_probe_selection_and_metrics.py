@@ -362,7 +362,49 @@ def test_static_probe_compact_and_full_artifacts() -> None:
         assert summary["sampling"]["selected_cases"] == 4
         assert summary["generation_limits"]["max_new_tokens_q1"] == 16
 
-        # full 是显式深度审计开关，不应被默认 compact 的收敛产物删除。
+        # review 是默认人工入口：场景目录下面是 frame，每帧输入/输出/真值分开保存。
+        review_output_dir = root / "probe_review"
+        args.output_dir = str(review_output_dir)
+        args.artifact_level = "review"
+        dump_probe(args)
+        review_frames = list(review_output_dir.glob("scenarios/*/frame_*"))
+        assert len(review_frames) == 4
+        expected_review_files = {
+            "inputs.json",
+            "student_outputs.json",
+            "teacher_outputs.json",
+            "teacher_targets.json",
+            "ground_truth.json",
+            "memory.json",
+            "prediction_vs_ground_truth.json",
+            "evaluation.json",
+        }
+        assert {path.name for path in review_frames[0].iterdir()} == expected_review_files
+        comparison = json.loads(
+            (review_frames[0] / "prediction_vs_ground_truth.json").read_text(encoding="utf-8")
+        )
+        assert comparison["current_scene_ground_truth"]["scenario_name"]
+        assert comparison["current_scene_ground_truth"]["route_id"]
+        assert comparison["current_scene_ground_truth"]["rs_label"] in {"R1", "R2"}
+        expected_q1 = comparison["current_scene_ground_truth"]["structured"]["q1"]
+        expected_q2 = comparison["current_scene_ground_truth"]["structured"]["q2"]
+        assert expected_q1["rs_option"] in {"A", "B"}
+        assert expected_q1["abnormal"] in {"YES", "NO"}
+        assert expected_q2["resolved_for_student_label"] in {"RE", "U-E1"}
+        assert expected_q2["accepted_event_labels"]
+        assert set(comparison["student_extracted_structure"]) == {"q1", "q2"}
+        assert set(comparison["teacher_ground_truth"]) == {
+            "structured", "q1_target", "q2_training_target", "q2_teacher_model_target"
+        }
+        assert comparison["teacher_ground_truth"]["structured"] == comparison[
+            "current_scene_ground_truth"
+        ]["structured"]
+        assert set(comparison["field_comparisons"]) == {"q1_rs", "q1_abnormal", "q2_event"}
+        assert comparison["field_comparisons"]["q1_rs"]["predicted"] is None
+        assert comparison["field_comparisons"]["q1_rs"]["correct"] is None
+        assert comparison["correctness"]["q1_rs_correct"] is None
+
+        # full 是显式深度审计开关，不应删除 review 的规范文件和 legacy 产物。
         full_output_dir = root / "probe_full"
         args.output_dir = str(full_output_dir)
         args.artifact_level = "full"
@@ -371,7 +413,7 @@ def test_static_probe_compact_and_full_artifacts() -> None:
         assert (full_output_dir / "selection_plan.json").exists()
         assert (full_output_dir / "summary.json").exists()
         assert (full_output_dir / "transition_report.json").exists()
-        case_records = list(full_output_dir.glob("route_*/frame_*/case_record.json"))
+        case_records = list(full_output_dir.glob("scenarios/*/frame_*/case_record.json"))
         assert len(case_records) == 4
         case = json.loads(case_records[0].read_text(encoding="utf-8"))
         assert set(case) == {"selection", "labels", "inputs", "targets", "outputs", "memory", "flags"}

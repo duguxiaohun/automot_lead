@@ -1033,13 +1033,18 @@ Checkpoint / probe 策略：
 - 自动 probe 必须复用 rank0 当前训练 bundle，不能另起子进程加载第二份 Qwen。base
   student/teacher 使用 `disable_adapter()`，checkpoint student 保持 LoRA 开启；其它
   rank 在 probe 前后 barrier，防止参数变化和 collective 次序错位。
-- 每个 probe 默认只写一个主 `results.json`，run 级 `probes/comparison.json` 聚合 base、
-  各 checkpoint 和 final；`--artifact-level full` 才展开 v3 风格逐帧 RGB/prompt/memory。
-  compact 只减少文件数量，不能减少审计字段：每帧必须保留 RGB 路径、实际 Q1
+- 每个 probe 都写主 `results.json`，run 级 `probes/comparison.json` 聚合 base、各
+  checkpoint 和 final。默认 `--artifact-level review` 另按
+  `scenarios/<scenario>__<route>/frame_<id>/` 拆分连续帧；`--artifact-level full` 才在
+  review 文件之上增加 v3 风格 RGB/prompt/memory。`compact` 只减少文件数量，不能减少
+  审计字段：每帧必须保留 RGB 路径、实际 Q1
   student/teacher messages、标明 Q1 KV 来源的 Q2 user turns、完整 student/base-teacher
   CoT 输出、脚本化 teacher target、
   RS/EVENT 场景真值、memory 与变化检测结果。base 和 LoRA probe 必须使用同一 schema，
   唯一区别是 LoRA probe 的 student 开启 adapter。
+  每个 frame 还必须写 `prediction_vs_ground_truth.json`，直接并列当前场景真值、学生
+  Q1/Q2 解析结构、默认与按双标签动态解析的结构化真值、teacher 文本真值和逐项正确性，
+  禁止要求人工跨文件拼接比较。
   失败写 `error.txt` 后继续训练。probe 结束必须恢复 train 模式并清理 CUDA
   cache，不能让可视化对象跨训练窗口常驻。
 - teacher model 的 Q2 只在其自身 Q1 RS 正确时触发，并续接 teacher 自己的 Q1 KV、RS
@@ -1260,8 +1265,8 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
 `metrics.py` 是 `eval.py` 与 `probe.py` 的唯一指标口径。大样本评估按帧流式更新计数器，
 不会把全量 prompt/output 留在内存；只有显式传 `--output-jsonl` 时才把完整逐帧证据落盘。
 可单独传 `--transition-jsonl` 只落盘真实/预测 RS 变化、UE 进入/退出和 FP/FN，
-  不保存大段 prompt。小样本 compact probe 把变化报告内嵌在
-  `results.json.transition_report`，full 模式另写 `transition_report.json`。
+  不保存大段 prompt。小样本三种 artifact mode 都把变化报告内嵌在
+  `results.json.transition_report`，full 模式再另写 `transition_report.json`。
 分母没有样本的指标写 `null`，不能用 0 假装模型失败。
 正式 eval 的 Q1/Q2 默认安全上限均为 1024，与训练 rollout 对齐；自动小样本 probe 的
 256/192 只控制 checkpoint 旁路耗时，不用于报告正式大样本指标。
@@ -1304,46 +1309,66 @@ Probe dump：
 ```text
 probe*/
   results.json
+  scenarios/
+    <scenario>__<route_id>/
+      frame_<frame_id>/
+        inputs.json
+        student_outputs.json
+        teacher_outputs.json
+        teacher_targets.json
+        ground_truth.json
+        memory.json
+        prediction_vs_ground_truth.json
+        evaluation.json
 ```
 
-默认 compact 到此为止，但 `results.json.frames[*]` 已包含完整输入、输出、teacher target、
-场景 GT 和 memory；只有 `--artifact-level full` 才把同一证据额外拆成：
+默认 `review` 使用以上结构。`prediction_vs_ground_truth.json` 是单帧首选入口：其中
+`current_scene_ground_truth.structured` 是 Q1/Q2 结构化真值，
+`current_scene_ground_truth.scenario_name/route_id` 是原始场景定位审计字段，不进入 v5 loss；
+`student_extracted_structure` 是从学生原始输出解析出的字段，`teacher_ground_truth` 同时
+保存结构化真值和完整文本 target，`correctness` 保存逐项判分。双 EVENT 标签会同时保存
+可接受标签集合、默认单标签和按当前学生输出动态解析的单标签。`field_comparisons` 再按
+Q1 RS、Q1 ABNORMAL、Q2 EVENT 直接并排 `expected/predicted/correct`；未运行 student 的
+静态检查必须写 `null`，不能伪装成 teacher-forced 学生正确。
+
+只有 `--artifact-level full` 才在以上 review 文件之外增加：
 
 ```text
 probe*/
   selection_plan.json
   manifest.json
   summary.json
-  route_<idx>__<scenario>__<route_id>/
-    timeline.json
-    timeline.png
-    frame_<frame_id>/
-      rgb_00.jpg
-      rgb_01.jpg
-      rgb_02.jpg
-      rgb_03.jpg
-      rgb_paths.json
-      case_record.json
-      q1_student_prompt.txt
-      q1_student_output.txt
-      q1_teacher_prompt.txt
-      q1_teacher_target.txt
-      q2_student_prompt.txt
-      q2_student_output.txt
-      q2_teacher_prompt.txt
-      q2_teacher_target.txt
-      step1_user.txt
-      step1_student.txt
-      step1_teacher_user.txt
-      step1_teacher.txt
-      step2_user.txt
-      step2_student.txt
-      step2_teacher_user.txt
-      step2_teacher.txt
-      memory_before.json
-      memory_after.json
-      flags.json
-      labels.json
+  scenarios/
+    <scenario>__<route_id>/
+      timeline.json
+      timeline.png
+      frame_<frame_id>/
+        rgb_00.jpg
+        rgb_01.jpg
+        rgb_02.jpg
+        rgb_03.jpg
+        rgb_paths.json
+        case_record.json
+        q1_student_prompt.txt
+        q1_student_output.txt
+        q1_teacher_prompt.txt
+        q1_teacher_target.txt
+        q2_student_prompt.txt
+        q2_student_output.txt
+        q2_teacher_prompt.txt
+        q2_teacher_target.txt
+        step1_user.txt
+        step1_student.txt
+        step1_teacher_user.txt
+        step1_teacher.txt
+        step2_user.txt
+        step2_student.txt
+        step2_teacher_user.txt
+        step2_teacher.txt
+        memory_before.json
+        memory_after.json
+        flags.json
+        labels.json
 ```
 
 可执行的 probe / eval 命令仅在 `SFT_V5_RUN.md` 保留快速入口；完整的输入输出
