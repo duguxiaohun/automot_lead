@@ -2393,6 +2393,8 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "checkpoint_probe_with_teacher": bool(args.checkpoint_probe_with_teacher),
         "checkpoint_probe_sample_mode": str(args.checkpoint_probe_sample_mode),
         "checkpoint_probe_context_radius": int(args.checkpoint_probe_context_radius),
+        "checkpoint_probe_sequence_length": int(args.checkpoint_probe_sequence_length),
+        "checkpoint_probe_artifact_level": str(args.checkpoint_probe_artifact_level),
     }
     with open(output_dir / "sft_v5_adapter_config.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -2462,6 +2464,8 @@ def _run_probe_with_training_bundle(
         max_frames_per_route=0,
         sample_mode=str(args.checkpoint_probe_sample_mode),
         context_radius=int(args.checkpoint_probe_context_radius),
+        sequence_length=int(args.checkpoint_probe_sequence_length),
+        artifact_level=str(args.checkpoint_probe_artifact_level),
         seed=int(args.seed),
         with_model=True,
         with_teacher=True,
@@ -2488,7 +2492,9 @@ def _run_probe_with_training_bundle(
         "global_step": int(global_step),
         "adapter_dir": str(adapter_dir) if adapter_dir is not None else None,
         "probe_dir": str(probe_dir),
-        "summary_path": str(probe_dir / "summary.json"),
+        # compact/full 都统一提供 results.json；自动比较不再依赖 full 模式专有的
+        # summary.json，避免 checkpoint probe 为了一个摘要生成大量逐帧文件。
+        "summary_path": str(probe_dir / "results.json"),
         "elapsed_seconds": time.time() - started,
         "summary": summary,
     }
@@ -2823,7 +2829,12 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="自动 probe 中同时用当前 Qwen 的 disable_adapter 模式生成 privileged base teacher 输出",
     )
-    p.add_argument("--checkpoint-probe-num-cases", type=int, default=8)
+    p.add_argument(
+        "--checkpoint-probe-num-cases",
+        type=int,
+        default=8,
+        help="random/RS 的 probe 总帧预算；UE 模式为最小预算且不截断完整 span",
+    )
     p.add_argument(
         "--checkpoint-probe-sample-mode",
         choices=("random", "rs_transition", "ue_transition"),
@@ -2831,6 +2842,18 @@ def parse_args() -> argparse.Namespace:
         help="自动 probe 选帧：随机、RS 变化前后或 UE 进入/退出片段",
     )
     p.add_argument("--checkpoint-probe-context-radius", type=int, default=2)
+    p.add_argument(
+        "--checkpoint-probe-sequence-length",
+        type=int,
+        default=8,
+        help="random checkpoint probe 每段连续帧数；num-cases 仍是总帧预算",
+    )
+    p.add_argument(
+        "--checkpoint-probe-artifact-level",
+        choices=("compact", "full"),
+        default="compact",
+        help="compact 只写 results.json；full 才展开逐帧可视化产物",
+    )
     p.add_argument("--checkpoint-probe-max-new-tokens-q1", type=int, default=256)
     p.add_argument("--checkpoint-probe-max-new-tokens-q2", type=int, default=192)
     p.add_argument("--progress-frames", type=int, default=5, help="rank0 每处理多少个本地有效 frame 打一次进度；0 表示关闭逐帧进度")
@@ -2858,6 +2881,8 @@ def main() -> None:
         raise ValueError("--checkpoint-probe-num-cases must be >= 1")
     if int(args.checkpoint_probe_context_radius) < 0:
         raise ValueError("--checkpoint-probe-context-radius must be >= 0")
+    if int(args.checkpoint_probe_sequence_length) <= 0:
+        raise ValueError("--checkpoint-probe-sequence-length must be >= 1")
     if int(args.checkpoint_probe_max_new_tokens_q1) <= 0 or int(args.checkpoint_probe_max_new_tokens_q2) <= 0:
         raise ValueError("checkpoint probe max-new-tokens must be >= 1")
     torch.manual_seed(int(args.seed))
@@ -2931,6 +2956,11 @@ def main() -> None:
         tb.add_scalar("run/save_steps", float(args.save_steps), 0)
         tb.add_scalar("run/checkpoint_probe", float(bool(args.checkpoint_probe)), 0)
         tb.add_scalar("run/checkpoint_probe_num_cases", float(args.checkpoint_probe_num_cases), 0)
+        tb.add_scalar(
+            "run/checkpoint_probe_sequence_length",
+            float(args.checkpoint_probe_sequence_length),
+            0,
+        )
         tb.add_scalar("run/train_routes", float(len(train_ds)), 0)
         tb.add_text(
             "run/config",
@@ -2956,6 +2986,8 @@ def main() -> None:
                     f"checkpoint_probe_num_cases: {args.checkpoint_probe_num_cases}",
                     f"checkpoint_probe_sample_mode: {args.checkpoint_probe_sample_mode}",
                     f"checkpoint_probe_context_radius: {args.checkpoint_probe_context_radius}",
+                    f"checkpoint_probe_sequence_length: {args.checkpoint_probe_sequence_length}",
+                    f"checkpoint_probe_artifact_level: {args.checkpoint_probe_artifact_level}",
                     f"lora_vision_scope: {args.lora_vision_scope}",
                 ]
             ),
@@ -3041,7 +3073,9 @@ def main() -> None:
             probe_dir = output_dir / "probes" / name
             rank0_log(
                 f"[probe-start] name={name} step={step} base_student={int(base_student)} "
-                f"cases={int(args.checkpoint_probe_num_cases)} {_cuda_memory_text()}"
+                f"cases={int(args.checkpoint_probe_num_cases)} "
+                f"sequence={int(args.checkpoint_probe_sequence_length)} "
+                f"artifacts={args.checkpoint_probe_artifact_level} {_cuda_memory_text()}"
             )
             started = time.time()
             try:

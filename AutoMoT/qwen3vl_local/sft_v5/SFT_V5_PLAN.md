@@ -1024,16 +1024,18 @@ Checkpoint / probe 策略：
 - 用户实测四卡当前吞吐约 80 optimizer steps/day，正式 launcher 默认
   `SAVE_STEPS=40`，约半天保存 `checkpoint-40/80/...`；正常结束始终保存 `final/`。
 - 每个 run 的 step 0 自动在 `probes/base/` 保存 8 个固定、可复现的 validation case。
-  默认 `random` 用固定 seed 随机抽帧；每个 checkpoint/final 保存后生成
+  默认 `random` 用固定 seed 选择一段连续 8 帧；每个 checkpoint/final 保存后生成
   同一批帧的 LoRA student + 纯 base teacher probe，便于直接纵向对比。
-- probe 公开选帧模式只有三种：`random` 随机帧；`rs_transition` 的同一 RS
-  变化前/首帧/后帧；`ue_transition` 的同一 UE span 进入前 RE、UE 内部和退出后 RE。
-  专项模式没有找到真实变化时不得用普通帧 fallback 凑数。
+- probe 公开选帧模式只有三种：`random` 随机连续片段；`rs_transition` 的同一 RS
+  变化前/首帧/后帧；`ue_transition` 必须保留同一 UE span 的全部 UE 帧，再按
+  context radius 补进入前和退出后邻帧。UE 不得被 `num_cases` 从中间截断；专项模式
+  没有找到真实变化时不得用普通帧 fallback 凑数。
 - 自动 probe 必须复用 rank0 当前训练 bundle，不能另起子进程加载第二份 Qwen。base
   student/teacher 使用 `disable_adapter()`，checkpoint student 保持 LoRA 开启；其它
   rank 在 probe 前后 barrier，防止参数变化和 collective 次序错位。
-- 每个 probe 写 `summary.json`，run 级 `probes/comparison.json` 聚合 base、各 checkpoint
-  和 final；失败写 `error.txt` 后继续训练。probe 结束必须恢复 train 模式并清理 CUDA
+- 每个 probe 默认只写一个主 `results.json`，run 级 `probes/comparison.json` 聚合 base、
+  各 checkpoint 和 final；`--artifact-level full` 才展开 v3 风格逐帧 RGB/prompt/memory。
+  失败写 `error.txt` 后继续训练。probe 结束必须恢复 train 模式并清理 CUDA
   cache，不能让可视化对象跨训练窗口常驻。
 - teacher model 的 Q2 只在其自身 Q1 RS 正确时触发，并续接 teacher 自己的 Q1 KV、RS
   与 ABNORMAL；不得把 student/GT-forced Q2 prompt 接到 teacher Q1 KV 后。训练用
@@ -1253,7 +1255,8 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
 `metrics.py` 是 `eval.py` 与 `probe.py` 的唯一指标口径。大样本评估按帧流式更新计数器，
 不会把全量 prompt/output 留在内存；只有显式传 `--output-jsonl` 时才把完整逐帧证据落盘。
 可单独传 `--transition-jsonl` 只落盘真实/预测 RS 变化、UE 进入/退出和 FP/FN，
-不保存大段 prompt。小样本 probe 固定写 `transition_report.json`。
+  不保存大段 prompt。小样本 compact probe 把变化报告内嵌在
+  `results.json.transition_report`，full 模式另写 `transition_report.json`。
 分母没有样本的指标写 `null`，不能用 0 假装模型失败。
 正式 eval 的 Q1/Q2 默认安全上限均为 1024，与训练 rollout 对齐；自动小样本 probe 的
 256/192 只控制 checkpoint 旁路耗时，不用于报告正式大样本指标。
@@ -1292,6 +1295,13 @@ Route-level 指标：
 - `mean_valid_frames_per_route`：评估规模诊断，不单独判断好坏。
 
 Probe dump：
+
+```text
+probe*/
+  results.json
+```
+
+默认 compact 到此为止；只有 `--artifact-level full` 才额外写：
 
 ```text
 probe*/
@@ -1336,8 +1346,8 @@ probe*/
 base 能力、训练前 grouped/parallel 等价性、训练后 adapter 可视化、静态合同快检。
 
 - 训练中自动版本对比：训练前 `base`、每 40 step `checkpoint-*`、训练结束 `final`；
-  默认固定使用同一批 seed 可复现的 `random` validation case，并在 `selection_plan.json` 记录每帧
-  的选择原因，在 `probes/comparison.json` 汇总指标。
+  默认固定使用同一段 seed 可复现的 `random` validation 连续帧，并在每个
+  `results.json` 记录选帧、输出和指标，在 `probes/comparison.json` 汇总版本对比。
 
 - 训练前 base Qwen OPSD 能力体检：`--with-model --with-teacher-model`，不传
   `--adapter-dir`，不加载任何 LoRA，让默认 Qwen 分别跑 student prompt 和

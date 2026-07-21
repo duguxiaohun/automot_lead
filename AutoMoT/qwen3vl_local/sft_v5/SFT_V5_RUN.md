@@ -134,7 +134,8 @@ probes/comparison.json
 ```
 
 自动 probe 复用 rank0 已加载的模型，不额外加载第二份 Qwen。默认用固定 seed 的
-`random` 模式随机选择 8 帧，保证 base/checkpoint/final 始终对比同一批帧。
+`random` 模式选择一段连续 8 帧，保证 base/checkpoint/final 始终对比同一片段。
+默认 `compact` 只写 `results.json`，不会展开大量逐帧文件。
 自动 probe 使用 256/192 token 旁路上限，不影响训练的 1024/1024。
 
 常用覆盖：
@@ -227,6 +228,9 @@ RS 变化、UE 进入/退出帧以及 FP/FN，每行直接给出 `TP/FP/FN/TN/in
 
 ## 6. 小样本 Probe
 
+`build_dataset.py` 只负责把所有合法 route 建成连续序列索引，不执行模型测试。小样本
+连续片段检查使用 `probe.py`；验证集所有 route 的所有连续帧指标使用上一节的 `eval.py`。
+
 训练前纯 base Qwen 能力检查，不加载 LoRA：
 
 ```bash
@@ -235,6 +239,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe \
   --num-cases 8 \
+  --sequence-length 8 \
+  --artifact-level compact \
   --with-model \
   --with-teacher-model \
   --with-teacher
@@ -249,6 +255,7 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
   --num-cases 8 \
+  --sequence-length 8 \
   --sample-mode random \
   --context-radius 2 \
   --with-model \
@@ -257,16 +264,18 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 
 选帧模式：
 
-- `random`：从 validation 中随机抽帧，默认；`--seed` 相同时可复现。
+- `random`：随机选择连续短片段，默认；`--seed` 相同时可复现。
 - `rs_transition`：按同一次 RS 变化连续取变化前帧、新 RS 首帧和变化后帧。
-- `ue_transition`：按同一 UE 片段取进入前 RE、UE 入口/内部/末帧、退出后 RE。
+- `ue_transition`：完整保留同一 UE 从首帧到末帧，再向前后各补
+  `--context-radius` 个 RE/邻帧；长 UE 可以超过 `--num-cases`，不会从中间截断。
 
 `--context-radius 2` 表示专项模式保留边界前后最多 2 帧。如果所读数据中没有
-对应的 RS/UE 变化，专项模式会返回 0 或少于 `--num-cases` 的结果，不用无关帧凑数。
+对应的 RS/UE 变化，专项模式不会用无关帧凑数。RS 结果可能少于 `--num-cases`；UE
+结果为保证 span 完整性也可能多于 `--num-cases`。
 
-每个 case 的集中入口是 `frame_*/case_record.json`；顶层 `selection_plan.json` 记录选择
-原因，`summary.json` 保存统一指标，`transition_report.json` 保存变化帧 GT/预测、
-TP/FP/FN/TN 和假阳性指标。完整文件列表见 `SFT_V5_VISUALIZATION_RECORD.md`。
+默认只需打开 `results.json`：其中集中保存抽样片段、逐帧真值、学生/教师原始输出、
+解析结果、统一指标和变化帧 TP/FP/FN/TN。需要检查 RGB、完整 prompt、memory 和每问
+messages 时加 `--artifact-level full`；完整文件列表见 `SFT_V5_VISUALIZATION_RECORD.md`。
 手工 probe 默认 1024/1024 token；自动 checkpoint probe 才使用 256/192。
 
 训练前 grouped/parallel 等价性检查：

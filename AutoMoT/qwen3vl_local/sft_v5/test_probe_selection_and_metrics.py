@@ -74,7 +74,7 @@ def _routes() -> list[SequenceRow]:
 
 
 def test_random_selection_is_seeded() -> None:
-    """random 必须是可复现的随机抽帧，不是顺序取 index 前 N 帧。"""
+    """random 必须按 seed 复现同一段连续帧，而不是全数据集散点抽样。"""
 
     first = build_probe_selection_plan(
         _routes(),
@@ -82,15 +82,19 @@ def test_random_selection_is_seeded() -> None:
         sample_mode="random",
         context_radius=1,
         seed=7,
+        sequence_length=4,
     )
     second = build_probe_selection_plan(
-        _routes(), num_cases=4, sample_mode="random", context_radius=1, seed=7
+        _routes(), num_cases=4, sample_mode="random", context_radius=1, seed=7,
+        sequence_length=4,
     )
     assert [(x.route_index, x.frame_index) for x in first] == [
         (x.route_index, x.frame_index) for x in second
     ]
     assert {item.primary_reason for item in first} == {"random"}
-    assert [(x.route_index, x.frame_index) for x in first] != [(0, i) for i in range(4)]
+    assert len({item.route_index for item in first}) == 1
+    frame_indices = [item.frame_index for item in first]
+    assert frame_indices == list(range(frame_indices[0], frame_indices[0] + 4))
 
 
 def test_rs_transition_selection_is_one_contiguous_change_window() -> None:
@@ -129,6 +133,34 @@ def test_ue_transition_selection_contains_entry_and_exit() -> None:
         "ue_last_frame",
         "ue_exit",
     ]
+
+
+def test_ue_transition_keeps_full_long_span_beyond_budget() -> None:
+    """长 UE 必须保留完整持续区间和前后 RE，不能被 num_cases 从中间截断。"""
+
+    long_route = SequenceRow(
+        scenario="LongEventRoute",
+        route_id="route_long_event",
+        run_dir="/tmp/route_long_event",
+        split="val",
+        frames=[
+            _frame(0, "R1", "RE"),
+            *[_frame(frame_id, "R1", "U-E1") for frame_id in range(1, 7)],
+            _frame(7, "R1", "RE"),
+        ],
+    )
+    plan = build_probe_selection_plan(
+        [long_route],
+        num_cases=4,
+        sample_mode="ue_transition",
+        context_radius=1,
+        seed=7,
+    )
+    assert [item.frame_id for item in plan] == list(range(8))
+    assert plan[0].primary_reason == "ue_before_entry"
+    assert plan[1].primary_reason == "ue_entry"
+    assert plan[-2].primary_reason == "ue_last_frame"
+    assert plan[-1].primary_reason == "ue_exit"
 
 
 def test_transition_modes_do_not_fill_with_unrelated_frames() -> None:
@@ -255,8 +287,8 @@ def test_transition_detection_confusion_and_report() -> None:
     assert {case["rs_change_outcome"] for case in report["cases"]} >= {"TP", "FP", "FN"}
 
 
-def test_static_probe_writes_selection_and_complete_case_record() -> None:
-    """静态 probe 也必须写定向计划和单文件完整输入输出合同。"""
+def test_static_probe_compact_and_full_artifacts() -> None:
+    """默认只写 results.json，full 模式仍保留完整逐帧输入输出合同。"""
 
     route = _routes()[0]
     row = {
@@ -290,34 +322,51 @@ def test_static_probe_writes_selection_and_complete_case_record() -> None:
         args = argparse.Namespace(
             index=str(index_path), output_dir=str(output_dir), num_cases=4,
             max_routes=0, max_frames_per_route=0, sample_mode="random",
-            context_radius=1, seed=7, with_model=False, with_teacher=True,
+            context_radius=1, sequence_length=4, artifact_level="compact",
+            seed=7, with_model=False, with_teacher=True,
             with_teacher_model=False, model_dir="unused", teacher_model_dir=None,
             adapter_dir=None, merge_lora=True, max_new_tokens_q1=16, max_new_tokens_q2=16,
         )
         summary = dump_probe(args)
-        selection = json.loads((output_dir / "selection_plan.json").read_text(encoding="utf-8"))
+        assert [path.name for path in output_dir.iterdir()] == ["results.json"]
+        results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+        selection = results["sampling"]
         assert selection["sample_mode"] == "random"
-        assert "随机种子" in selection["sample_mode_description"]
+        assert "连续短片段" in selection["sample_mode_description"]
         assert selection["selected_cases"] == 4
-        assert all(case["primary_reason_description"] == "随机抽中的帧" for case in selection["cases"])
-        case_records = list(output_dir.glob("route_*/frame_*/case_record.json"))
+        assert selection["sequence_length"] == 4
+        assert all(
+            case["primary_reason_description"] == "随机连续片段中的帧"
+            for case in selection["cases"]
+        )
+        assert len(results["frames"]) == 4
+        frame_indices = [item["frame_index"] for item in results["frames"]]
+        assert frame_indices == list(range(frame_indices[0], frame_indices[0] + 4))
+        assert results["transition_report"]["student_enabled"] is False
+        assert results["transition_report"]["evaluated_pairs"] == 0
+        assert summary["sampling"]["selected_cases"] == 4
+        assert summary["generation_limits"]["max_new_tokens_q1"] == 16
+
+        # full 是显式深度审计开关，不应被默认 compact 的收敛产物删除。
+        full_output_dir = root / "probe_full"
+        args.output_dir = str(full_output_dir)
+        args.artifact_level = "full"
+        dump_probe(args)
+        assert (full_output_dir / "results.json").exists()
+        assert (full_output_dir / "selection_plan.json").exists()
+        assert (full_output_dir / "summary.json").exists()
+        assert (full_output_dir / "transition_report.json").exists()
+        case_records = list(full_output_dir.glob("route_*/frame_*/case_record.json"))
         assert len(case_records) == 4
         case = json.loads(case_records[0].read_text(encoding="utf-8"))
         assert set(case) == {"selection", "labels", "inputs", "targets", "outputs", "memory", "flags"}
         assert "q1_student_messages" in case["inputs"]
         assert case["selection"]["sample_mode_description"]
-        assert case["selection"]["primary_reason_description"] == "随机抽中的帧"
+        assert case["selection"]["primary_reason_description"] == "随机连续片段中的帧"
         assert case["flags"]["generation_limits"] == {
             "max_new_tokens_q1": 16,
             "max_new_tokens_q2": 16,
         }
-        assert summary["sampling"]["selected_cases"] == 4
-        assert summary["generation_limits"]["max_new_tokens_q1"] == 16
-        transition_report = json.loads(
-            (output_dir / "transition_report.json").read_text(encoding="utf-8")
-        )
-        assert transition_report["student_enabled"] is False
-        assert transition_report["evaluated_pairs"] == 0
 
 
 def main() -> None:
@@ -326,10 +375,11 @@ def main() -> None:
     test_random_selection_is_seeded()
     test_rs_transition_selection_is_one_contiguous_change_window()
     test_ue_transition_selection_contains_entry_and_exit()
+    test_ue_transition_keeps_full_long_span_beyond_budget()
     test_transition_modes_do_not_fill_with_unrelated_frames()
     test_metric_false_positive_false_negative_contract()
     test_transition_detection_confusion_and_report()
-    test_static_probe_writes_selection_and_complete_case_record()
+    test_static_probe_compact_and_full_artifacts()
     print("[ok] probe selection and eval metrics")
 
 

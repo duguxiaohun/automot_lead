@@ -143,6 +143,8 @@ def test_adapter_metadata_records_effective_window() -> None:
         checkpoint_probe_with_teacher=True,
         checkpoint_probe_sample_mode="random",
         checkpoint_probe_context_radius=2,
+        checkpoint_probe_sequence_length=8,
+        checkpoint_probe_artifact_level="compact",
     )
     with tempfile.TemporaryDirectory(prefix="sft_v5_adapter_meta_") as tmp:
         output_dir = pathlib.Path(tmp) / "adapter"
@@ -156,6 +158,8 @@ def test_adapter_metadata_records_effective_window() -> None:
     assert meta["checkpoint_probe_with_teacher"] is True
     assert meta["checkpoint_probe_sample_mode"] == "random"
     assert meta["checkpoint_probe_context_radius"] == 2
+    assert meta["checkpoint_probe_sequence_length"] == 8
+    assert meta["checkpoint_probe_artifact_level"] == "compact"
     assert meta["gradient_sync"] == "bucketed_sum_allreduce_then_global_frame_average"
 
 
