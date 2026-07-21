@@ -247,14 +247,16 @@ CHECKPOINT_PROBE_BASE=1
 CHECKPOINT_PROBE_WITH_TEACHER=1
 CHECKPOINT_PROBE_NUM_CASES=8
 CHECKPOINT_PROBE_SAMPLE_MODE=random
+CHECKPOINT_PROBE_SEQUENCE_LENGTH=8
+CHECKPOINT_PROBE_ARTIFACT_LEVEL=compact
 CHECKPOINT_PROBE_CONTEXT_RADIUS=2
 ```
 
 训练开始时生成 `probes/base/`，每次保存 `checkpoint-40/80/...` 后生成对应
 `probes/checkpoint-000040/000080/...`，正常结束保存 `final/` 后生成 `probes/final/`。
-所有版本使用相同 seed 和相同 `random` 规则固定选择 8 个 case，不再简单取
-validation index 前 8 帧。固定 seed 保证 base/checkpoint/final 始终比较同一批随机帧；
-实际帧号和选择原因写入 `selection_plan.json`：
+所有版本使用相同 seed 和相同 `random` 规则固定选择一段连续 8 帧，不再从全 validation
+打散抽取 8 个孤立帧。固定 seed 保证 base/checkpoint/final 始终比较同一片段；实际帧号、
+选择原因、真值、原始输出和指标集中写入 `results.json`：
 
 - `base`：student 与 teacher 都临时关闭 LoRA，记录未训练 Qwen 的表现。
 - `checkpoint-*` / `final`：student 使用当前 LoRA；teacher 临时关闭 LoRA，保持纯 base
@@ -271,14 +273,14 @@ validation index 前 8 帧。固定 seed 保证 base/checkpoint/final 始终比�
 
 ```text
 checkpoints/sft_v5_runs/latest/probes/comparison.json
-checkpoints/sft_v5_runs/latest/probes/base/summary.json
-checkpoints/sft_v5_runs/latest/probes/checkpoint-000040/summary.json
-checkpoints/sft_v5_runs/latest/probes/final/summary.json
+checkpoints/sft_v5_runs/latest/probes/base/results.json
+checkpoints/sft_v5_runs/latest/probes/checkpoint-000040/results.json
+checkpoints/sft_v5_runs/latest/probes/final/results.json
 ```
 
 `comparison.json` 会集中记录 Q1 RS、Q1 abnormal、Q2 EVENT、UE 假阳性/假阴性和端到端
-指标，以及同批 case 的 base teacher 指标。完整的 RGB、prompt、output、memory、flags、
-`case_record.json` 和 timeline 仍保存在各版本自己的 route/frame 目录。
+指标。默认 compact 不复制 RGB、不展开 route/frame 目录；确需保存完整 prompt/memory 时
+设置 `CHECKPOINT_PROBE_ARTIFACT_LEVEL=full`。
 
 关闭或缩小自动检查：
 
@@ -291,8 +293,8 @@ bash qwen3vl_local/sft_v5/train.sh ddp
 
 自动 probe 的 `256/192` token 是可视化安全上限，不会改变训练的 `1024/1024`。
 probe 失败会写 `error.txt` 并继续训练，不会因为旁路可视化终止长跑。
-手工 `probe.py` 默认使用 1024/1024，并在 `summary.json` / `flags.json` 的
-`generation_limits` 中记录实际值；因此手工完整检查和自动轻量对比可以明确区分。
+手工 `probe.py` 默认使用 1024/1024，并在 `results.json.summary.generation_limits`
+记录实际值；因此手工完整检查和自动轻量对比可以明确区分。
 
 ## C. 训练后：adapter 学生输入输出可视化
 
@@ -313,29 +315,28 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
   --num-cases 8 \
+  --sequence-length 8 \
   --sample-mode random \
   --context-radius 2 \
   --with-model \
   --with-teacher
 ```
 
-这个命令只加载 student adapter，不额外加载 teacher Qwen。它会填充：
-
-- `q1_student_output.txt`
-- `q2_student_output.txt`
-- `flags.json` 里的 `parsed_q1`、`parsed_q2`、`q1_rs_correct`、
-  `q1_abnormal_correct`、`q2_event_correct`、`q2_invalid_output`、`rs_wrong_reset`
+这个命令只加载 student adapter，不额外加载 teacher Qwen。默认结果集中在
+`results.json.frames`；加 `--artifact-level full` 后才会展开
+`q1_student_output.txt`、`q2_student_output.txt` 和 `flags.json`。
 
 小样本只有三种选帧模式：
 
-- `--sample-mode random --seed <N>`：真正随机抽帧，默认；相同 seed 可复现。
+- `--sample-mode random --sequence-length 8 --seed <N>`：随机连续片段，默认；相同 seed 可复现。
 - `--sample-mode rs_transition`：对每一次 RS 变化连续保留变化前帧、新 RS 首帧和变化后帧，
   用于检查 RS 识别和 memory 切换。
-- `--sample-mode ue_transition`：对每一个连续 UE span 保留进入前 RE、UE 入口/内部/末帧、
-  退出后首个 RE 及邻帧，同时检查进入 UE 和退出 UE。
+- `--sample-mode ue_transition`：完整保留一个连续 UE span 的全部 UE 帧，并按
+  `--context-radius` 补进入前和退出后的邻帧，同时检查进入、持续和退出。
 
 `--context-radius` 控制专项边界前后的邻帧数（最少 1）。专项数据不存在时会少于
-`--num-cases`，这是正常审计结果，不会用无关 RE 帧填满。
+`--num-cases`，这是正常审计结果，不会用无关 RE 帧填满；UE 为避免截断真实 span，
+实际帧数也允许超过 `--num-cases`。
 
 如果训练后也想把 adapter student 和 base teacher 放在同一个 case 里对照，可以额外加
 `--with-teacher-model`，但显存会同时常驻两份 Qwen。
@@ -352,6 +353,8 @@ python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --output-dir checkpoints/sft_v5_runs/latest/probe_static \
   --num-cases 24 \
+  --sequence-length 8 \
+  --artifact-level full \
   --with-teacher
 ```
 
@@ -360,8 +363,22 @@ python qwen3vl_local/sft_v5/probe.py \
 
 ## 输出结构
 
+默认 `--artifact-level compact` 只写一个主文件：
+
 ```text
 probe*/
+  results.json
+```
+
+`results.json` 内含 `sampling`、`summary`、`transition_report` 和按时间排列的
+`frames`。每帧保留 GT、student/teacher 原始输出、解析结果、正确性与变化检测结果，
+因此通常只看这一份即可。
+
+只有显式传 `--artifact-level full` 才额外展开以下深度审计结构：
+
+```text
+probe*/
+  results.json
   selection_plan.json
   manifest.json
   summary.json
@@ -417,7 +434,7 @@ probe*/
       flags.json
 ```
 
-其中：
+full 模式中：
 
 - `selection_plan.json` 记录选帧模式、边界半径、seed、每个 case 的选择原因和类别计数。
 - `case_record.json` 是单 case 完整入口，集中保存 RGB 来源、实际 system/user messages、
@@ -478,14 +495,15 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 `q2_trigger_rate` 与样本数只作诊断。每个字段的完整中文定义和方向同时内嵌在
 `eval_metrics.json.metric_definitions`，以代码输出为最终口径。
 
-每个小样本 probe 根目录还会写 `transition_report.json`：
+compact 模式把以下内容内嵌到 `results.json.transition_report`；full 模式另写
+`transition_report.json`：
 
 - `metrics`：RS 变化、UE 进入、UE 退出的 precision/recall/F1 和误报率。
 - `confusions`：三类变化的 `tp/fp/tn/fn/invalid`。
 - `cases`：相邻帧 GT/预测状态与 `TP/FP/FN/TN/invalid` 结果。
 
-`random` probe 通常是跳帧，不会强行伪造变化帧指标；要看小样本变化检测，
-应使用 `rs_transition` 或 `ue_transition`。全量 eval 则按 route 的所有连续帧计算。
+`random` probe 默认抽一段连续 8 帧，可以观察短时间 memory 推进；要确保命中变化边界，
+使用 `rs_transition` 或 `ue_transition`。全量 eval 则按 validation route 的所有连续帧计算。
 
 ## Timeline 颜色
 

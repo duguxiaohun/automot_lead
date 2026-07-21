@@ -1,16 +1,16 @@
 """SFT v5 case-level probe。
 
-默认不加载模型，只 dump prompt / target / label / memory / RGB，方便先人工检查候选池与
-随机选项是否符合预期。传 `--with-model` 后会额外生成 student Q1/Q2 输出；传
+默认不加载模型，只按连续短片段检查 label / memory / prompt 合同。传 `--with-model`
+后会额外生成 student Q1/Q2 输出；传
 `--with-teacher-model` 后会额外用默认/base Qwen 跑 privileged teacher prompt。
 训练前 OPSD 能力体检必须不传 `--adapter-dir`，即 teacher/student 都只用普通 Qwen，
 不导入任何 LoRA。
 
-产物刻意仿照 sft_v3/probe.py 的组织方式：顶层 manifest、route 级 timeline、
-frame 级 RGB/prompt/output/memory/flags。这样人工看 case 时不用在 v3/v5 之间切换
-不同心智模型，只需要记住 v5 的 step1=Q1(RS+ABNORMAL)，step2=Q2(EVENT)。
+默认 ``compact`` 产物只写一个 ``results.json``，集中保存抽样信息、真值、原始输出、
+解析结果与变化指标。显式指定 ``--artifact-level full`` 时才仿照 sft_v3/probe.py
+写顶层 manifest、route 级 timeline 和 frame 级 RGB/prompt/output/memory/flags。
 
-小样本只保留三种直观模式：``random`` 随机抽帧，``rs_transition`` 查看同一次
+小样本只保留三种直观模式：``random`` 随机连续片段，``rs_transition`` 查看同一次
 RS 变化前后，``ue_transition`` 查看同一次 UE 的进入、持续和退出。不传模型开关时
 只生成静态 prompt/target 合同。
 """
@@ -66,13 +66,13 @@ from qwen3vl_local.sft_v5.train import (  # noqa: E402
 
 
 PROBE_SAMPLE_MODE_DESCRIPTIONS = {
-    "random": "从 validation 全部帧中按固定随机种子抽样",
+    "random": "从 validation 中按固定随机种子抽取连续短片段",
     "rs_transition": "检查同一次 RS 变化的变化前帧、新 RS 首帧和变化后帧",
     "ue_transition": "检查同一 UE 片段的进入前 RE、UE 内部和退出后 RE",
 }
 
 PROBE_REASON_DESCRIPTIONS = {
-    "random": "随机抽中的帧",
+    "random": "随机连续片段中的帧",
     "rs_before_transition": "RS 变化前的旧 RS 帧",
     "rs_transition": "RS 变化后的新 RS 首帧",
     "rs_after_transition": "RS 变化后的新 RS 邻帧",
@@ -362,24 +362,21 @@ def build_probe_selection_plan(
     sample_mode: str,
     context_radius: int,
     seed: int,
+    sequence_length: int = 8,
 ) -> List[ProbeSelection]:
     """按三种公开语义构造小样本计划。
 
-    ``random`` 用 seed 随机抽取独立帧；``rs_transition`` 保留同一 RS 变化点的
+    ``random`` 用 seed 随机抽取连续短片段；``rs_transition`` 保留同一 RS 变化点的
     前/当前/后帧；``ue_transition`` 保留同一 UE span 的进入前 RE、UE 内部和
-    退出后 RE。专项模式找不到真实变化时返回少于 ``num_cases`` 的结果，
-    不用普通帧冒充专项样本。
+    退出后 RE。UE 模式不会用 ``num_cases`` 截断一个真实 UE span：它保留整段 UE，
+    再向前后补 ``context_radius`` 帧，因此长 UE 的实际返回帧数可以超过预算。
+    专项模式找不到真实变化时返回空结果，不用普通帧冒充专项样本。
     """
 
     limit = max(0, int(num_cases))
     if limit == 0:
         return []
     reasons_by_key = _probe_candidate_reasons(routes, context_radius=context_radius)
-    all_keys = [
-        (route_idx, frame_idx)
-        for route_idx, route in enumerate(routes)
-        for frame_idx, _frame in enumerate(route.frames)
-    ]
     mode = str(sample_mode or "random").lower()
     if mode not in {"random", "rs_transition", "ue_transition"}:
         raise ValueError(
@@ -389,19 +386,46 @@ def build_probe_selection_plan(
     selected: List[Tuple[Tuple[int, int], str]] = []
     selected_keys: set[Tuple[int, int]] = set()
 
-    def add_frame(key: Tuple[int, int], reason: str) -> None:
-        """在限额内去重追加帧，并保留它在时间窗口中的角色。"""
+    def add_frame(
+        key: Tuple[int, int],
+        reason: str,
+        *,
+        respect_limit: bool = True,
+    ) -> None:
+        """去重追加帧；UE 完整 span 可显式绕过普通总帧上限。"""
 
-        if len(selected) >= limit or key in selected_keys:
+        if (respect_limit and len(selected) >= limit) or key in selected_keys:
             return
         selected.append((key, reason))
         selected_keys.add(key)
 
     if mode == "random":
-        shuffled = list(all_keys)
-        random.Random(int(seed)).shuffle(shuffled)
-        for key in shuffled[:limit]:
-            add_frame(key, "random")
+        # random 不是把全数据集帧打散后各抽一帧，而是随机选择 route/start，再连续
+        # 推理若干帧。这样 Q1 错误后的 memory reset、RS 切换及 UE 进入/退出都能按
+        # 真实时间顺序被观察。num_cases 仍是总帧预算，避免自动 checkpoint probe
+        # 因语义变化突然扩大推理成本。
+        rng = random.Random(int(seed))
+        clip_target = max(1, int(sequence_length))
+        while len(selected) < limit:
+            remaining = limit - len(selected)
+            desired = min(clip_target, remaining)
+            windows: List[Tuple[int, int, int]] = []
+
+            # 优先寻找完整 desired 长度且与已选帧不重叠的窗口。若所有 route 都太短
+            # 或已被占用，再逐级缩短窗口，保证小数据 smoke 仍能尽量填满总预算。
+            while desired > 0 and not windows:
+                for route_idx, route in enumerate(routes):
+                    route_len = len(route.frames)
+                    for start in range(0, route_len - desired + 1):
+                        keys = [(route_idx, idx) for idx in range(start, start + desired)]
+                        if all(key not in selected_keys for key in keys):
+                            windows.append((route_idx, start, desired))
+                desired -= 1 if not windows else 0
+            if not windows:
+                break
+            route_idx, start, window_len = rng.choice(windows)
+            for frame_idx in range(start, start + window_len):
+                add_frame((route_idx, frame_idx), "random")
     elif mode == "rs_transition":
         radius = max(1, int(context_radius))
         for route_idx, transition_idx, _end in _rs_transition_windows(routes):
@@ -433,36 +457,39 @@ def build_probe_selection_plan(
             roles: Dict[int, str] = {}
             for frame_idx in range(max(0, start - radius), start):
                 roles[frame_idx] = "ue_before_entry"
-            roles[start] = "ue_entry"
-
-            # 长 UE 不能把中间上百帧全塞进小样本：保留入口附近、
-            # 中点和末尾，既能看“变到 UE”，也能看“仍处于 UE”。
-            for frame_idx in range(start + 1, min(end + 1, start + radius + 1)):
-                roles[frame_idx] = "ue_inside"
-            if end > start:
-                middle = (start + end) // 2
-                if middle not in {start, end}:
-                    roles[middle] = "ue_inside"
-                roles[end] = "ue_last_frame"
+            # UE 是持续状态，不是单个边界点。完整保留 start..end 才能评估进入、
+            # 持续和退出是否都稳定；不能按固定 num_cases 截掉 span 中后段。
+            for frame_idx in range(start, end + 1):
+                roles[frame_idx] = (
+                    "ue_entry"
+                    if frame_idx == start
+                    else "ue_last_frame"
+                    if frame_idx == end
+                    else "ue_inside"
+                )
             for frame_idx in range(end + 1, min(route_len, end + radius + 1)):
                 roles[frame_idx] = "ue_exit" if frame_idx == end + 1 else "ue_after_exit"
 
-            # 先保证进入/退出两个边界不会被 num_cases 截掉，再补更多邻帧。
-            priority = [start - 1, start, end, end + 1]
-            priority.extend(sorted(roles, key=lambda idx: (abs(idx - start), abs(idx - end), idx)))
-            for frame_idx in priority:
-                if frame_idx in roles:
-                    add_frame((route_idx, frame_idx), roles[frame_idx])
+            # 按时间顺序加入整个窗口。UE 模式把 num_cases 当作“至少希望检查多少帧”
+            # 的预算，不允许它截断当前 span；完成一个完整窗口后再判断是否需要下一段。
+            for frame_idx in sorted(roles):
+                add_frame(
+                    (route_idx, frame_idx),
+                    roles[frame_idx],
+                    respect_limit=False,
+                )
             if len(selected) >= limit:
                 break
 
     # 专项模式的选择阶段会优先保住边界核心帧；落盘前恢复 route 内
     # 时间顺序，使 selection_plan 和 timeline 可以直接从前往后阅读。
-    if mode != "random":
-        selected.sort(key=lambda item: item[0])
+    # 所有模式都按 route/frame 恢复时间顺序。random 的随机性体现在 route/start
+    # 选择，而不是落盘顺序；顺序化后 memory 才能按连续帧自然推进。
+    selected.sort(key=lambda item: item[0])
 
     plan: List[ProbeSelection] = []
-    for (route_idx, frame_idx), primary_reason in selected[:limit]:
+    final_selected = selected if mode == "ue_transition" else selected[:limit]
+    for (route_idx, frame_idx), primary_reason in final_selected:
         route = routes[route_idx]
         frame = route.frames[frame_idx]
         plan.append(
@@ -591,11 +618,12 @@ def dump_probe(
     student_disable_adapter: bool = False,
     teacher_disable_adapter: bool = False,
 ) -> Dict[str, Any]:
-    """生成 probe case 文件夹，并返回逐版本对比所需的汇总指标。
+    """运行连续小样本 probe，并返回逐版本对比所需的汇总指标。
 
     ``student_bundle`` / ``teacher_bundle`` 仅供训练进程内自动 probe 使用。传入后不会
     重新加载 Qwen；checkpoint student 使用当前 LoRA，base 与 teacher 则在同一模型上
-    临时关闭 adapter。普通 CLI 不传这两个参数时，仍保持原来的独立加载行为。
+    临时关闭 adapter。``compact`` 默认只写 ``results.json``；``full`` 才展开 v3 风格
+    的逐帧 RGB、prompt、memory 和 timeline，避免普通检查被大量 JSON/TXT 淹没。
     """
 
     out_dir = pathlib.Path(args.output_dir)
@@ -608,49 +636,54 @@ def dump_probe(
     sample_mode = str(getattr(args, "sample_mode", "random"))
     context_radius = int(getattr(args, "context_radius", 2))
     sample_seed = int(getattr(args, "seed", 20260711))
+    sequence_length = max(1, int(getattr(args, "sequence_length", 8)))
+    artifact_level = str(getattr(args, "artifact_level", "compact")).lower()
+    if artifact_level not in {"compact", "full"}:
+        raise ValueError(f"unsupported artifact level: {artifact_level}; expected compact/full")
+    full_artifacts = artifact_level == "full"
     selection_plan = build_probe_selection_plan(
         ds.rows,
         num_cases=int(args.num_cases),
         sample_mode=sample_mode,
         context_radius=context_radius,
         seed=sample_seed,
+        sequence_length=sequence_length,
     )
     selection_by_key = {
         (item.route_index, item.frame_index): item
         for item in selection_plan
     }
     selection_category_counts = Counter(item.primary_reason for item in selection_plan)
-    (out_dir / "selection_plan.json").write_text(
-        json.dumps(
+    selection_payload = {
+        "sample_mode": sample_mode,
+        "sample_mode_description": PROBE_SAMPLE_MODE_DESCRIPTIONS[sample_mode],
+        "sequence_length": sequence_length,
+        "context_radius": context_radius,
+        "seed": sample_seed,
+        "requested_cases": int(args.num_cases),
+        "selected_cases": len(selection_plan),
+        "primary_reason_counts": dict(sorted(selection_category_counts.items())),
+        "cases": [
             {
-                "sample_mode": sample_mode,
-                "sample_mode_description": PROBE_SAMPLE_MODE_DESCRIPTIONS[sample_mode],
-                "context_radius": context_radius,
-                "seed": sample_seed,
-                "requested_cases": int(args.num_cases),
-                "selected_cases": len(selection_plan),
-                "primary_reason_counts": dict(sorted(selection_category_counts.items())),
-                "cases": [
-                    {
-                        "route_index": item.route_index,
-                        "frame_index": item.frame_index,
-                        "scenario": item.scenario,
-                        "route_id": item.route_id,
-                        "frame_id": item.frame_id,
-                        "primary_reason": item.primary_reason,
-                        "primary_reason_description": PROBE_REASON_DESCRIPTIONS.get(
-                            item.primary_reason, item.primary_reason
-                        ),
-                        "reasons": list(item.reasons),
-                    }
-                    for item in selection_plan
-                ],
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+                "route_index": item.route_index,
+                "frame_index": item.frame_index,
+                "scenario": item.scenario,
+                "route_id": item.route_id,
+                "frame_id": item.frame_id,
+                "primary_reason": item.primary_reason,
+                "primary_reason_description": PROBE_REASON_DESCRIPTIONS.get(
+                    item.primary_reason, item.primary_reason
+                ),
+                "reasons": list(item.reasons),
+            }
+            for item in selection_plan
+        ],
+    }
+    if full_artifacts:
+        (out_dir / "selection_plan.json").write_text(
+            json.dumps(selection_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     bundle = student_bundle
     if args.with_model and bundle is None:
         import torch
@@ -679,6 +712,7 @@ def dump_probe(
 
     manifest: List[Dict[str, Any]] = []
     all_frame_logs: List[Dict[str, Any]] = []
+    compact_frames: List[Dict[str, Any]] = []
     case_idx = 0
     for route_idx, route in enumerate(ds.rows):
         selected_frame_indices = {
@@ -691,7 +725,8 @@ def dump_probe(
         # v3 probe 是 episode/frame 层级；v5 没有 sub-scenario episode 概念，所以用
         # route/frame 层级表达同一件事：一条 route 的 memory 随时间推进。
         route_dir = out_dir / f"route_{route_idx:03d}__{_safe_name(route.scenario)}__{_safe_name(route.route_id)}"
-        route_dir.mkdir(parents=True, exist_ok=True)
+        if full_artifacts:
+            route_dir.mkdir(parents=True, exist_ok=True)
         frame_logs: List[Dict[str, Any]] = []
         memory = None
         reset_next = False
@@ -724,8 +759,15 @@ def dump_probe(
             memory_at_frame_start = memory
             memory_before = _memory_json(memory)
             case_dir = route_dir / f"frame_{frame.frame_id:04d}"
-            case_dir.mkdir(parents=True, exist_ok=True)
-            copied_rgb = _copy_rgb_inputs(frame, case_dir)
+            if full_artifacts:
+                case_dir.mkdir(parents=True, exist_ok=True)
+                copied_rgb = _copy_rgb_inputs(frame, case_dir)
+            else:
+                # compact 仍记录原始图像路径供定位，但不复制 JPEG，也不创建 frame 目录。
+                copied_rgb = [
+                    {"index": str(idx), "source": str(path), "file": str(path)}
+                    for idx, path in enumerate(frame.history_rgb_paths)
+                ]
             q1_student = build_q1_student_prompt(memory)
             # teacher prompt 是 privileged 输入：可看 XML weather、GT RS/ABNORMAL、
             # 原始 event_code；target 则被清洗成学生视角，用于人工检查不泄漏私有字段。
@@ -927,62 +969,66 @@ def dump_probe(
                         parsed_teacher_q2.get("event_label") == teacher_dynamic_target.label
                     )
 
-            # 默认 teacher input/output 文件必须一一对应。启用 teacher model 时，Q2
-            # output 来自 teacher 自己的 Q1 KV，因此默认 q2_teacher_* 指向自主续接
-            # prompt；训练时基于 student rollout 构造的 privileged prompt 另存为
-            # q2_teacher_training_*，两者不能混用。
-            q2_teacher_output_prompt = q2_teacher_model_prompt if teacher_bundle is not None else q2_teacher
-            q2_teacher_output_target = q2_teacher_model_target if teacher_bundle is not None else q2_target
-            files = {
-                # v5 native names.
-                "q1_system_prompt.txt": SYSTEM_PROMPT_V5,
-                "q2_system_prompt.txt": SYSTEM_PROMPT_V5,
-                "q1_student_prompt.txt": q1_student,
-                "q1_student_user_prompt.txt": q1_student,
-                "q1_teacher_prompt.txt": q1_teacher,
-                "q1_teacher_user_prompt.txt": q1_teacher,
-                "q1_teacher_target.txt": q1_target,
-                "q2_student_prompt.txt": q2_student,
-                "q2_student_user_prompt.txt": q2_student,
-                "q2_teacher_prompt.txt": q2_teacher_output_prompt,
-                "q2_teacher_user_prompt.txt": q2_teacher_output_prompt,
-                "q2_teacher_target.txt": q2_teacher_output_target,
-                "q2_teacher_training_prompt.txt": q2_teacher,
-                "q2_teacher_training_target.txt": q2_target,
-                # teacher model 自主 Q2 续接使用自己的 Q1 输出；与训练时基于 student
-                # rollout 构造的 privileged prompt 分开保存，防止人工审计时误配上下文。
-                "q2_teacher_model_prompt.txt": q2_teacher_model_prompt,
-                "q2_teacher_model_target.txt": q2_teacher_model_target,
-                # v3-style aliases for visual comparison tooling.
-                # step1/step2 别名让已有的 v3 case 对比脚本可以直接看 v5 输出。
-                "step1_user.txt": q1_student,
-                "step1_teacher_user.txt": q1_teacher,
-                "step1_teacher.txt": q1_target,
-                "step2_user.txt": q2_student,
-                "step2_teacher_user.txt": q2_teacher_output_prompt,
-                "step2_teacher.txt": q2_teacher_output_target,
-            }
-            files["q1_student_output.txt"] = q1_output or ""
-            files["q2_student_output.txt"] = q2_output or ""
-            files["q1_teacher_output.txt"] = q1_teacher_output or ""
-            files["q2_teacher_output.txt"] = q2_teacher_output or ""
-            files["step1_student.txt"] = q1_output or ""
-            files["step2_student.txt"] = q2_output or ""
-            files["step1_teacher_output.txt"] = q1_teacher_output or ""
-            files["step2_teacher_output.txt"] = q2_teacher_output or ""
-            _write_texts(case_dir, files)
-            _write_messages(case_dir, "q1_student", copied_rgb, q1_student)
-            _write_messages(case_dir, "q1_teacher", copied_rgb, q1_teacher)
-            _write_messages(case_dir, "q2_student", copied_rgb, q2_student)
-            _write_messages(case_dir, "q2_teacher", copied_rgb, q2_teacher_output_prompt)
-            _write_messages(case_dir, "q2_teacher_training", copied_rgb, q2_teacher)
-            _write_messages(case_dir, "q2_teacher_model", copied_rgb, q2_teacher_model_prompt)
-
             labels = _frame_labels(route, frame)
-            (case_dir / "labels.json").write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
             memory_after = _memory_json(memory)
-            (case_dir / "memory_before.json").write_text(json.dumps(memory_before, ensure_ascii=False, indent=2), encoding="utf-8")
-            (case_dir / "memory_after.json").write_text(json.dumps(memory_after, ensure_ascii=False, indent=2), encoding="utf-8")
+            if full_artifacts:
+                # 默认 teacher input/output 文件必须一一对应。启用 teacher model 时，Q2
+                # output 来自 teacher 自己的 Q1 KV；训练 privileged prompt 单独保存。
+                q2_teacher_output_prompt = (
+                    q2_teacher_model_prompt if teacher_bundle is not None else q2_teacher
+                )
+                q2_teacher_output_target = (
+                    q2_teacher_model_target if teacher_bundle is not None else q2_target
+                )
+                files = {
+                    "q1_system_prompt.txt": SYSTEM_PROMPT_V5,
+                    "q2_system_prompt.txt": SYSTEM_PROMPT_V5,
+                    "q1_student_prompt.txt": q1_student,
+                    "q1_student_user_prompt.txt": q1_student,
+                    "q1_teacher_prompt.txt": q1_teacher,
+                    "q1_teacher_user_prompt.txt": q1_teacher,
+                    "q1_teacher_target.txt": q1_target,
+                    "q2_student_prompt.txt": q2_student,
+                    "q2_student_user_prompt.txt": q2_student,
+                    "q2_teacher_prompt.txt": q2_teacher_output_prompt,
+                    "q2_teacher_user_prompt.txt": q2_teacher_output_prompt,
+                    "q2_teacher_target.txt": q2_teacher_output_target,
+                    "q2_teacher_training_prompt.txt": q2_teacher,
+                    "q2_teacher_training_target.txt": q2_target,
+                    "q2_teacher_model_prompt.txt": q2_teacher_model_prompt,
+                    "q2_teacher_model_target.txt": q2_teacher_model_target,
+                    # v3-style aliases 仅在 full 模式保留，供已有可视化脚本直接复用。
+                    "step1_user.txt": q1_student,
+                    "step1_teacher_user.txt": q1_teacher,
+                    "step1_teacher.txt": q1_target,
+                    "step2_user.txt": q2_student,
+                    "step2_teacher_user.txt": q2_teacher_output_prompt,
+                    "step2_teacher.txt": q2_teacher_output_target,
+                    "q1_student_output.txt": q1_output or "",
+                    "q2_student_output.txt": q2_output or "",
+                    "q1_teacher_output.txt": q1_teacher_output or "",
+                    "q2_teacher_output.txt": q2_teacher_output or "",
+                    "step1_student.txt": q1_output or "",
+                    "step2_student.txt": q2_output or "",
+                    "step1_teacher_output.txt": q1_teacher_output or "",
+                    "step2_teacher_output.txt": q2_teacher_output or "",
+                }
+                _write_texts(case_dir, files)
+                _write_messages(case_dir, "q1_student", copied_rgb, q1_student)
+                _write_messages(case_dir, "q1_teacher", copied_rgb, q1_teacher)
+                _write_messages(case_dir, "q2_student", copied_rgb, q2_student)
+                _write_messages(case_dir, "q2_teacher", copied_rgb, q2_teacher_output_prompt)
+                _write_messages(case_dir, "q2_teacher_training", copied_rgb, q2_teacher)
+                _write_messages(case_dir, "q2_teacher_model", copied_rgb, q2_teacher_model_prompt)
+                (case_dir / "labels.json").write_text(
+                    json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                (case_dir / "memory_before.json").write_text(
+                    json.dumps(memory_before, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                (case_dir / "memory_after.json").write_text(
+                    json.dumps(memory_after, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
 
             pred_rs_label = parsed_q1.get("rs_label") if bundle is not None else None
             pred_abnormal = q1_abnormal if bundle is not None else None
@@ -1007,8 +1053,8 @@ def dump_probe(
                 # 2) student/teacher 解析结果；
                 # 3) 状态机诊断，例如 Q1 是否截断、Q2 是否非法、下一帧是否 reset。
                 "case_index": case_idx,
-                "case_dir": str(case_dir),
-                "copied_rgb": copied_rgb,
+                "case_dir": str(case_dir) if full_artifacts else None,
+                "copied_rgb": copied_rgb if full_artifacts else None,
                 "teacher_forced": bundle is None,
                 "teacher_model_enabled": teacher_bundle is not None,
                 "teacher_model_dir": str(pathlib.Path(args.teacher_model_dir or args.model_dir)) if teacher_bundle is not None else None,
@@ -1069,12 +1115,12 @@ def dump_probe(
                 ),
                 **transition_fields,
             }
-            # flags.json 是逐帧快速诊断入口；timeline.json/png 只聚合其中几个关键字段。
-            (case_dir / "flags.json").write_text(json.dumps(frame_log, ensure_ascii=False, indent=2), encoding="utf-8")
-            # case_record.json 是单文件完整审计入口。它不内嵌图片字节，但记录复制后的
-            # RGB 文件、原始来源、实际 system/user messages、监督 target、模型原始输出、
-            # 解析结果和 memory 状态；人工比较 base/checkpoint 时无需在十几个文件间猜配对。
-            case_record = {
+            if full_artifacts:
+                # flags/case_record 是 full 模式的逐帧深度审计入口。
+                (case_dir / "flags.json").write_text(
+                    json.dumps(frame_log, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                case_record = {
                 "selection": {
                     "sample_mode": sample_mode,
                     "sample_mode_description": PROBE_SAMPLE_MODE_DESCRIPTIONS[sample_mode],
@@ -1114,30 +1160,80 @@ def dump_probe(
                     "after": memory_after,
                 },
                 "flags": frame_log,
-            }
-            (case_dir / "case_record.json").write_text(
-                json.dumps(case_record, ensure_ascii=False, indent=2),
-                encoding="utf-8",
+                }
+                (case_dir / "case_record.json").write_text(
+                    json.dumps(case_record, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+
+            # compact 模式只聚合真正需要查看的字段。保留原始 student/teacher 输出，
+            # 但不重复嵌入 prompt、RGB 副本和内部 flags，单个 results.json 即可完成对照。
+            compact_frames.append(
+                {
+                    "scenario": route.scenario,
+                    "route_id": route.route_id,
+                    "frame_index": frame_index,
+                    "frame_id": frame.frame_id,
+                    "selection_reason": selection.primary_reason,
+                    "selection_reason_description": PROBE_REASON_DESCRIPTIONS.get(
+                        selection.primary_reason, selection.primary_reason
+                    ),
+                    "gap_reset": selection_gap_reset,
+                    "ground_truth": {
+                        "rs": frame.rs_label,
+                        "abnormal": bool(frame.abnormal),
+                        "event": event_target.label,
+                    },
+                    "student": {
+                        "q1_output": q1_output or "",
+                        "q2_output": q2_output or "",
+                        "q1_parsed": parsed_q1 if bundle is not None else {},
+                        "q2_parsed": parsed_q2 if bundle is not None else {},
+                        "rs_correct": q1_rs_ok if bundle is not None else None,
+                        "abnormal_correct": (
+                            q1_abnormal == frame.abnormal if bundle is not None and q1_abnormal is not None else None
+                        ),
+                        "q2_triggered": q2_triggered if bundle is not None else None,
+                        "event_correct": q2_event_correct if bundle is not None else None,
+                    },
+                    "teacher": {
+                        "q1_output": q1_teacher_output or "",
+                        "q2_output": q2_teacher_output or "",
+                        "q1_parsed": parsed_teacher_q1,
+                        "q2_parsed": parsed_teacher_q2,
+                        "rs_correct": q1_teacher_rs_correct,
+                        "abnormal_correct": q1_teacher_abnormal_correct,
+                        "q2_triggered": q2_teacher_triggered if teacher_bundle is not None else None,
+                        "event_correct": q2_teacher_event_correct,
+                    },
+                    "transition": transition_fields,
+                }
             )
             frame_logs.append(frame_log)
             all_frame_logs.append(frame_log)
             previous_pred_rs_label = pred_rs_label
             previous_pred_abnormal = pred_abnormal
             case_idx += 1
-        (route_dir / "timeline.json").write_text(json.dumps(frame_logs, ensure_ascii=False, indent=2), encoding="utf-8")
-        _write_timeline_png(route_dir / "timeline.png", frame_logs)
-        manifest.append(
-            {
-                "route_dir": str(route_dir),
-                "scenario": route.scenario,
-                "route_id": route.route_id,
-                "frames": len(frame_logs),
-                "selection_reason_counts": dict(
-                    sorted(Counter(str(item.get("selection_primary_reason")) for item in frame_logs).items())
-                ),
-            }
+        if full_artifacts:
+            (route_dir / "timeline.json").write_text(
+                json.dumps(frame_logs, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            _write_timeline_png(route_dir / "timeline.png", frame_logs)
+            manifest.append(
+                {
+                    "route_dir": str(route_dir),
+                    "scenario": route.scenario,
+                    "route_id": route.route_id,
+                    "frames": len(frame_logs),
+                    "selection_reason_counts": dict(
+                        sorted(Counter(str(item.get("selection_primary_reason")) for item in frame_logs).items())
+                    ),
+                }
+            )
+    if full_artifacts:
+        (out_dir / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-    (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     summary = summarize_probe(
         all_frame_logs,
         student_enabled=bundle is not None,
@@ -1146,28 +1242,41 @@ def dump_probe(
         student_disable_adapter=bool(student_disable_adapter),
     )
     summary["sampling"] = {
-        "sample_mode": sample_mode,
-        "sample_mode_description": PROBE_SAMPLE_MODE_DESCRIPTIONS[sample_mode],
-        "context_radius": context_radius,
-        "seed": sample_seed,
-        "requested_cases": int(args.num_cases),
-        "selected_cases": len(selection_plan),
-        "primary_reason_counts": dict(sorted(selection_category_counts.items())),
-        "selection_plan": "selection_plan.json",
+        key: value for key, value in selection_payload.items() if key != "cases"
     }
+    summary["artifact_level"] = artifact_level
     summary["generation_limits"] = {
         "max_new_tokens_q1": int(args.max_new_tokens_q1),
         "max_new_tokens_q2": int(args.max_new_tokens_q2),
     }
     transition_report = build_transition_report(all_frame_logs, summary=summary)
     transition_report["student_enabled"] = bundle is not None
-    (out_dir / "transition_report.json").write_text(
-        json.dumps(transition_report, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    if full_artifacts:
+        (out_dir / "transition_report.json").write_text(
+            json.dumps(transition_report, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        summary["transition_report"] = "transition_report.json"
+        (out_dir / "summary.json").write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    # compact/default 的唯一主产物。full 模式也额外写这份入口，方便脚本和人工都只先
+    # 打开一个文件；需要追查某一帧 prompt/KV 续接时再进入 route/frame 子目录。
+    results = {
+        "format_version": 1,
+        "artifact_level": artifact_level,
+        "sampling": selection_payload,
+        "summary": summary,
+        "transition_report": transition_report,
+        "frames": compact_frames,
+    }
+    results_path = out_dir / "results.json"
+    results_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(
+        f"[write] {results_path} frames={len(compact_frames)} "
+        f"artifact_level={artifact_level}"
     )
-    summary["transition_report"] = "transition_report.json"
-    (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[write] {out_dir}")
     return summary
 
 
@@ -1181,17 +1290,34 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Dump SFT v5 probe cases")
     p.add_argument("--index", type=str, required=True)
     p.add_argument("--output-dir", type=str, default="checkpoints/sft_v5_probe")
-    p.add_argument("--num-cases", type=int, default=24)
+    p.add_argument(
+        "--num-cases",
+        type=int,
+        default=24,
+        help="random/RS 的总帧预算；UE 模式为最小预算且不会截断完整 UE span",
+    )
+    p.add_argument(
+        "--sequence-length",
+        type=int,
+        default=8,
+        help="random 模式每个连续片段的目标帧数；num-cases 仍表示总测试帧预算",
+    )
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
     p.add_argument(
         "--sample-mode",
         choices=("random", "rs_transition", "ue_transition"),
         default="random",
-        help="小样本选帧：random 随机；rs_transition 查 RS 变化前后；ue_transition 查 UE 进入与退出",
+        help="小样本选帧：random 连续片段；RS 取变化前后；UE 取完整持续段及前后邻帧",
     )
     p.add_argument("--context-radius", type=int, default=2, help="RS/UE 专项中边界前后保留的帧数，最少为 1")
     p.add_argument("--seed", type=int, default=20260711, help="random 模式随机种子，用于复现同一批帧")
+    p.add_argument(
+        "--artifact-level",
+        choices=("compact", "full"),
+        default="compact",
+        help="compact 只写 results.json；full 额外保存逐帧 RGB/prompt/output/memory",
+    )
     p.add_argument("--with-model", action="store_true")
     p.add_argument("--with-teacher", action="store_true", help="compat flag: v5 always dumps teacher prompt/target")
     p.add_argument("--with-teacher-model", action="store_true", help="load base Qwen without LoRA to generate privileged teacher outputs")
@@ -1207,7 +1333,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """CLI 入口：按选帧计划生成 route/frame 层级完整审计产物。"""
+    """CLI 入口：默认生成紧凑结果，按需展开 route/frame 完整审计产物。"""
 
     dump_probe(parse_args())
 

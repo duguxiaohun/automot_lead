@@ -336,12 +336,15 @@
   `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}` 分项，以及
   `memory/{allocated,reserved,max_allocated,max_reserved}_gb`；长期显存风险以
   `allocated` 为主，不能只凭 `nvidia-smi` 或 allocator `reserved` 高水位判断泄漏。
-  `probe.py` 仿 v3 输出 route/frame 层级可视化：公开选帧模式只保留
-  `random` / `rs_transition` / `ue_transition`；默认 `random` 用固定 seed 随机抽帧，
+  `probe.py` 公开选帧模式只保留 `random` / `rs_transition` / `ue_transition`；默认
+  `random` 用固定 seed 抽取连续短片段，`--num-cases` 是总帧预算，
+  `--sequence-length` 是每段目标长度；
   RS 专项必须保留同一次变化的前帧/新 RS 首帧/后帧，UE 专项必须保留同一
-  UE span 的进入前 RE、UE 入口/内部/末帧和退出后 RE；专项找不到变化时不用
-  无关帧 fallback 凑数。`selection_plan.json` 记录每帧
-  选择原因；复制 4 帧 RGB，保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
+  UE span 的全部 UE 帧并按 context radius 补进入前/退出后邻帧，不能被
+  `num_cases` 从中间截断；专项找不到变化时不用
+  无关帧 fallback 凑数。默认 `--artifact-level compact` 只写一个 `results.json`，集中
+  保存选帧、GT、student/teacher 原始与解析输出、summary 和 transition report；只有
+  `--artifact-level full` 才仿 v3 复制 4 帧 RGB，保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
   可选 `q*_teacher_output.txt`、memory_before/after、flags、timeline.json/png 和
   manifest.json，每帧另写完整 `case_record.json`；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用
   `--with-teacher-model`；训练前 base Qwen OPSD 能力体检必须不传 `--adapter-dir`、
@@ -367,8 +370,8 @@
   effective 窗口阈值、LR 和梯度同步策略。正式 launcher 默认 `SAVE_STEPS=40`（按用户
   实测约 80 step/day，即约半天一版）；默认开启 checkpoint probe：step 0 保存
   `probes/base/`，每个 `checkpoint-*` 和 `final/` 保存后用固定 8 个、相同 seed 和相同
-  `random` 规则选出的 validation case 生成对应 probe，并在 `probes/comparison.json`
-  聚合 `summary.json`。自动 probe 必须
+  `random` 规则选出的一段连续 validation 帧生成对应 probe，并在 `probes/comparison.json`
+  聚合各版本 `results.json` 摘要。自动 probe 必须
   复用 rank0 当前训练 bundle，base student/teacher 临时 `disable_adapter()`，LoRA
   checkpoint student 保持 adapter 开启；禁止另起进程或加载第二份 Qwen。其它 rank
   必须在 probe 前后 barrier，probe 完成后恢复 train 模式并清理 CUDA cache；probe
@@ -380,7 +383,8 @@
   大样本 `eval.py` 与小样本 `probe.py` 必须共用 `metrics.py`：统计 RS/UE 边界、Q1/Q2
   precision/recall/F1、假阳性/假阴性、端到端 EVENT 与 route macro 指标；另外必须用相邻帧
   GT/预测状态分别统计 RS 变化、RE->UE 进入和 UE->RE 退出的 TP/FP/TN/FN/invalid、
-  precision/recall/F1 与 false-positive-rate。小样本固定写 `transition_report.json`；eval
+  precision/recall/F1 与 false-positive-rate。小样本 compact 把变化报告内嵌在
+  `results.json.transition_report`，full 模式另写 `transition_report.json`；eval
   可用 `--transition-jsonl` 只落盘变化和 FP/FN 的轻量记录。所有指标输出保存中文定义和方向；
   eval 默认流式累计，只有显式 `--output-jsonl` 才落盘全量逐帧输入输出，不能为统计把全量
   prompt/output 常驻内存。
