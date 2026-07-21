@@ -1,7 +1,7 @@
 """SFT v5 probe/eval 共用的自由生成指标。
 
 本模块只处理已经解析好的逐帧记录，不加载 Qwen，也不依赖 CUDA。这样小样本 probe
-和大样本 eval 可以共享完全相同的假阳性、假阴性和边界指标定义，避免两个入口对
+和大样本 eval 可以共享完全相同的假阳性、假阴性和变化帧指标定义，避免两个入口对
 同一个数字给出不同解释。
 """
 
@@ -24,6 +24,22 @@ METRIC_DEFINITIONS: Dict[str, Dict[str, str]] = {
     "rs_stable_acc": {
         "meaning": "仅在真值 RS 未发生变化的帧上计算 RS 准确率。",
         "direction": "higher_is_better",
+    },
+    "rs_change_detection_precision": {
+        "meaning": "模型判为 RS 发生变化的帧中，真值也在该帧变化的比例。",
+        "direction": "higher_is_better",
+    },
+    "rs_change_detection_recall": {
+        "meaning": "所有真实 RS 变化首帧中，模型预测 RS 也在该帧发生变化的比例。",
+        "direction": "higher_is_better",
+    },
+    "rs_change_detection_f1": {
+        "meaning": "RS 变化帧检测 precision 与 recall 的调和平均。",
+        "direction": "higher_is_better",
+    },
+    "rs_change_false_positive_rate": {
+        "meaning": "真值 RS 稳定的相邻帧对中，模型错误切换 RS 的比例。",
+        "direction": "lower_is_better",
     },
     "abnormal_acc": {
         "meaning": "Q1 ABNORMAL YES/NO 的严格准确率；无法解析的输出按错误计。",
@@ -60,6 +76,38 @@ METRIC_DEFINITIONS: Dict[str, Dict[str, str]] = {
     "abnormal_boundary_acc": {
         "meaning": "仅在 RE/UE 真值状态切换首帧上计算 Q1 ABNORMAL 严格准确率。",
         "direction": "higher_is_better",
+    },
+    "ue_entry_detection_precision": {
+        "meaning": "模型判为从 RE 进入 UE 的帧中，真值也在该帧进入 UE 的比例。",
+        "direction": "higher_is_better",
+    },
+    "ue_entry_detection_recall": {
+        "meaning": "所有真实 RE->UE 进入帧中，模型也在该帧进入 UE 的比例。",
+        "direction": "higher_is_better",
+    },
+    "ue_entry_detection_f1": {
+        "meaning": "UE 进入帧检测 precision 与 recall 的调和平均。",
+        "direction": "higher_is_better",
+    },
+    "ue_entry_false_positive_rate": {
+        "meaning": "真值未进入 UE 的相邻帧对中，模型错报 RE->UE 的比例。",
+        "direction": "lower_is_better",
+    },
+    "ue_exit_detection_precision": {
+        "meaning": "模型判为从 UE 退出到 RE 的帧中，真值也在该帧退出 UE 的比例。",
+        "direction": "higher_is_better",
+    },
+    "ue_exit_detection_recall": {
+        "meaning": "所有真实 UE->RE 退出帧中，模型也在该帧退出 UE 的比例。",
+        "direction": "higher_is_better",
+    },
+    "ue_exit_detection_f1": {
+        "meaning": "UE 退出帧检测 precision 与 recall 的调和平均。",
+        "direction": "higher_is_better",
+    },
+    "ue_exit_false_positive_rate": {
+        "meaning": "真值未退出 UE 的相邻帧对中，模型错报 UE->RE 的比例。",
+        "direction": "lower_is_better",
     },
     "q2_trigger_rate": {
         "meaning": "Q1 RS 正确并实际进入 Q2 的帧比例；用于诊断门控覆盖率，不宜单独优化。",
@@ -136,6 +184,22 @@ METRIC_DEFINITIONS: Dict[str, Dict[str, str]] = {
 }
 
 
+TRANSITION_METRIC_NAMES = (
+    "rs_change_detection_precision",
+    "rs_change_detection_recall",
+    "rs_change_detection_f1",
+    "rs_change_false_positive_rate",
+    "ue_entry_detection_precision",
+    "ue_entry_detection_recall",
+    "ue_entry_detection_f1",
+    "ue_entry_false_positive_rate",
+    "ue_exit_detection_precision",
+    "ue_exit_detection_recall",
+    "ue_exit_detection_f1",
+    "ue_exit_false_positive_rate",
+)
+
+
 def _ratio(numerator: int, denominator: int) -> Optional[float]:
     """无有效分母时返回 None，避免把“没有样本”伪装成 0 分。"""
 
@@ -152,6 +216,133 @@ def _f1(precision: Optional[float], recall: Optional[float]) -> Optional[float]:
     if precision + recall <= 0.0:
         return 0.0
     return 2.0 * precision * recall / (precision + recall)
+
+
+def _transition_outcome(gt: bool, pred: Optional[bool]) -> str:
+    """把单个变化帧对比转为 TP/FP/FN/TN/invalid，供 JSON 报告直接阅读。"""
+
+    if pred is None:
+        return "invalid"
+    if gt and pred:
+        return "TP"
+    if not gt and pred:
+        return "FP"
+    if gt and not pred:
+        return "FN"
+    return "TN"
+
+
+def transition_case_from_row(row: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """将统一逐帧记录压缩为一条真值/预测变化对比。
+
+    只有上一个原始时间帧也实际跑过模型时，``transition_pair_evaluated`` 才为
+    true。随机 probe 中的跳帧不会被伪造成变化帧指标。
+    """
+
+    if not bool(row.get("transition_pair_evaluated")):
+        return None
+    gt_rs_change = bool(row.get("gt_rs_change"))
+    gt_ue_entry = bool(row.get("gt_ue_entry"))
+    gt_ue_exit = bool(row.get("gt_ue_exit"))
+    pred_rs_change_raw = row.get("pred_rs_change")
+    pred_ue_entry_raw = row.get("pred_ue_entry")
+    pred_ue_exit_raw = row.get("pred_ue_exit")
+    pred_rs_change = None if pred_rs_change_raw is None else bool(pred_rs_change_raw)
+    pred_ue_entry = None if pred_ue_entry_raw is None else bool(pred_ue_entry_raw)
+    pred_ue_exit = None if pred_ue_exit_raw is None else bool(pred_ue_exit_raw)
+    return {
+        "scenario": row.get("scenario"),
+        "route_id": row.get("route_id"),
+        "frame_id": row.get("frame_id"),
+        "previous_frame_id": row.get("previous_frame_id"),
+        "previous_gt_rs_label": row.get("previous_gt_rs_label"),
+        "gt_rs_label": row.get("gt_rs_label"),
+        "previous_pred_rs_label": row.get("previous_pred_rs_label"),
+        "pred_rs_label": row.get("pred_rs_label"),
+        "previous_gt_abnormal": row.get("previous_gt_abnormal"),
+        "gt_abnormal": row.get("gt_abnormal"),
+        "previous_pred_abnormal": row.get("previous_pred_abnormal"),
+        "pred_abnormal": row.get("pred_abnormal"),
+        "gt_rs_change": gt_rs_change,
+        "pred_rs_change": pred_rs_change,
+        "rs_change_outcome": _transition_outcome(gt_rs_change, pred_rs_change),
+        "gt_ue_entry": gt_ue_entry,
+        "pred_ue_entry": pred_ue_entry,
+        "ue_entry_outcome": _transition_outcome(gt_ue_entry, pred_ue_entry),
+        "gt_ue_exit": gt_ue_exit,
+        "pred_ue_exit": pred_ue_exit,
+        "ue_exit_outcome": _transition_outcome(gt_ue_exit, pred_ue_exit),
+    }
+
+
+def transition_case_is_informative(case: Mapping[str, Any]) -> bool:
+    """只保留真实变化、预测变化或真实变化上的无法解析样本。"""
+
+    return any(
+        bool(case.get(key))
+        for key in (
+            "gt_rs_change",
+            "pred_rs_change",
+            "gt_ue_entry",
+            "pred_ue_entry",
+            "gt_ue_exit",
+            "pred_ue_exit",
+        )
+    )
+
+
+def build_transition_fields(
+    *,
+    pair_evaluated: bool,
+    previous_frame_id: Optional[int],
+    previous_gt_rs_label: Optional[str],
+    gt_rs_label: str,
+    previous_pred_rs_label: Optional[str],
+    pred_rs_label: Optional[str],
+    previous_gt_abnormal: Optional[bool],
+    gt_abnormal: bool,
+    previous_pred_abnormal: Optional[bool],
+    pred_abnormal: Optional[bool],
+) -> Dict[str, Any]:
+    """用相邻帧真值/预测状态生成统一变化检测字段。
+
+    ``pair_evaluated`` 表示上一帧也实际跑过当前模型。模型任一帧输出
+    无法解析时，对应预测变化保留 ``None``，后续指标按 invalid 处理。
+    """
+
+    has_gt_previous = previous_gt_rs_label is not None and previous_gt_abnormal is not None
+    gt_rs_change = bool(has_gt_previous and previous_gt_rs_label != gt_rs_label)
+    gt_ue_entry = bool(has_gt_previous and not bool(previous_gt_abnormal) and bool(gt_abnormal))
+    gt_ue_exit = bool(has_gt_previous and bool(previous_gt_abnormal) and not bool(gt_abnormal))
+    pred_rs_change = (
+        None
+        if not pair_evaluated or previous_pred_rs_label is None or pred_rs_label is None
+        else previous_pred_rs_label != pred_rs_label
+    )
+    pred_ue_entry = (
+        None
+        if not pair_evaluated or previous_pred_abnormal is None or pred_abnormal is None
+        else not bool(previous_pred_abnormal) and bool(pred_abnormal)
+    )
+    pred_ue_exit = (
+        None
+        if not pair_evaluated or previous_pred_abnormal is None or pred_abnormal is None
+        else bool(previous_pred_abnormal) and not bool(pred_abnormal)
+    )
+    return {
+        "transition_pair_evaluated": bool(pair_evaluated and has_gt_previous),
+        "previous_frame_id": previous_frame_id,
+        "previous_gt_rs_label": previous_gt_rs_label,
+        "previous_pred_rs_label": previous_pred_rs_label,
+        "previous_gt_abnormal": previous_gt_abnormal,
+        "previous_pred_abnormal": previous_pred_abnormal,
+        "gt_rs_change": gt_rs_change,
+        "pred_rs_change": pred_rs_change,
+        "gt_ue_entry": gt_ue_entry,
+        "pred_ue_entry": pred_ue_entry,
+        "gt_ue_exit": gt_ue_exit,
+        "pred_ue_exit": pred_ue_exit,
+    }
 
 
 @dataclass
@@ -279,6 +470,11 @@ class StudentMetricsAccumulator:
         # 端到端漏检则由 all_ue_* 另行统计，不能把两个分母混在一起。
         self.abnormal_binary = _BinaryCounts()
         self.q2_binary = _BinaryCounts()
+        # 三套变化检测矩阵比较“相邻两帧是否变化”，与当前帧的
+        # RS/ABNORMAL 分类准确率是两个不同问题。
+        self.rs_change_binary = _BinaryCounts()
+        self.ue_entry_binary = _BinaryCounts()
+        self.ue_exit_binary = _BinaryCounts()
         self.per_rs: Dict[str, _GroupCounts] = defaultdict(_GroupCounts)
         self.per_event: Dict[str, _GroupCounts] = defaultdict(_GroupCounts)
 
@@ -307,6 +503,22 @@ class StudentMetricsAccumulator:
         if bool(row.get("abnormal_transition")):
             self.abnormal_boundary_frames += 1
             self.abnormal_boundary_correct += int(bool(row.get("q1_abnormal_correct")))
+        if bool(row.get("transition_pair_evaluated")):
+            pred_rs_change_raw = row.get("pred_rs_change")
+            pred_ue_entry_raw = row.get("pred_ue_entry")
+            pred_ue_exit_raw = row.get("pred_ue_exit")
+            self.rs_change_binary.update(
+                bool(row.get("gt_rs_change")),
+                None if pred_rs_change_raw is None else bool(pred_rs_change_raw),
+            )
+            self.ue_entry_binary.update(
+                bool(row.get("gt_ue_entry")),
+                None if pred_ue_entry_raw is None else bool(pred_ue_entry_raw),
+            )
+            self.ue_exit_binary.update(
+                bool(row.get("gt_ue_exit")),
+                None if pred_ue_exit_raw is None else bool(pred_ue_exit_raw),
+            )
 
         # 先记录全量 UE/RE 分母，再单独进入 conditional Q2 分支。Q1 RS 错而未触发
         # Q2 的 UE 会降低端到端 recall，但不会污染 q2_ue_re_confusion 的条件分母。
@@ -341,12 +553,19 @@ class StudentMetricsAccumulator:
 
         abnormal = self.abnormal_binary.summary()
         q2 = self.q2_binary.summary()
+        rs_change = self.rs_change_binary.summary()
+        ue_entry = self.ue_entry_binary.summary()
+        ue_exit = self.ue_exit_binary.summary()
         # metrics 是面向画图/比较的扁平标量；外层同时保留原始计数和混淆矩阵，避免
         # 只看一个比率时无法判断样本量是否足够。
         metrics = {
             "rs_acc": _ratio(self.rs_correct, self.frames),
             "rs_transition_acc": _ratio(self.rs_transition_correct, self.rs_transition_frames),
             "rs_stable_acc": _ratio(self.rs_stable_correct, self.rs_stable_frames),
+            "rs_change_detection_precision": rs_change["precision"],
+            "rs_change_detection_recall": rs_change["recall"],
+            "rs_change_detection_f1": rs_change["f1"],
+            "rs_change_false_positive_rate": rs_change["false_positive_rate"],
             "abnormal_acc": abnormal["accuracy"],
             "abnormal_precision": abnormal["precision"],
             "abnormal_recall": abnormal["recall"],
@@ -359,6 +578,14 @@ class StudentMetricsAccumulator:
                 self.abnormal_boundary_correct,
                 self.abnormal_boundary_frames,
             ),
+            "ue_entry_detection_precision": ue_entry["precision"],
+            "ue_entry_detection_recall": ue_entry["recall"],
+            "ue_entry_detection_f1": ue_entry["f1"],
+            "ue_entry_false_positive_rate": ue_entry["false_positive_rate"],
+            "ue_exit_detection_precision": ue_exit["precision"],
+            "ue_exit_detection_recall": ue_exit["recall"],
+            "ue_exit_detection_f1": ue_exit["f1"],
+            "ue_exit_false_positive_rate": ue_exit["false_positive_rate"],
             "q2_trigger_rate": _ratio(self.q2_triggered, self.frames),
             "event_acc_when_rs_correct": _ratio(self.event_correct, self.q2_triggered),
             "q2_ue_precision": q2["precision"],
@@ -391,6 +618,9 @@ class StudentMetricsAccumulator:
             "abnormal_boundary_frames": self.abnormal_boundary_frames,
             "abnormal_confusion": abnormal,
             "q2_ue_re_confusion": q2,
+            "rs_change_confusion": rs_change,
+            "ue_entry_confusion": ue_entry,
+            "ue_exit_confusion": ue_exit,
             "metrics": metrics,
             **metrics,
             "per_rs": {key: value.summary() for key, value in sorted(self.per_rs.items())},
@@ -406,3 +636,27 @@ def summarize_student_predictions(frame_logs: List[Mapping[str, Any]]) -> Dict[s
     for row in frame_logs:
         accumulator.update(row)
     return accumulator.summary()
+
+
+def build_transition_report(
+    frame_logs: List[Mapping[str, Any]],
+    *,
+    summary: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """生成小样本变化帧对比报告，不保存 prompt/logits 等大对象。"""
+
+    resolved_summary = dict(summary or summarize_student_predictions(frame_logs))
+    cases = [case for row in frame_logs if (case := transition_case_from_row(row)) is not None]
+    return {
+        "description": "逐相邻帧对比真值变化与模型预测变化；TP/FP/FN/TN 均按变化首帧计数。",
+        "evaluated_pairs": len(cases),
+        "informative_cases": sum(transition_case_is_informative(case) for case in cases),
+        "metrics": {name: resolved_summary.get(name) for name in TRANSITION_METRIC_NAMES},
+        "confusions": {
+            "rs_change": resolved_summary.get("rs_change_confusion"),
+            "ue_entry": resolved_summary.get("ue_entry_confusion"),
+            "ue_exit": resolved_summary.get("ue_exit_confusion"),
+        },
+        "metric_definitions": {name: METRIC_DEFINITIONS[name] for name in TRANSITION_METRIC_NAMES},
+        "cases": cases,
+    }

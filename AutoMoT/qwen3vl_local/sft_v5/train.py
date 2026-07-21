@@ -2826,9 +2826,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--checkpoint-probe-num-cases", type=int, default=8)
     p.add_argument(
         "--checkpoint-probe-sample-mode",
-        choices=("diagnostic", "ue_context", "rs_transition", "random", "sequential"),
-        default="diagnostic",
-        help="自动小样本 probe 的定向选帧策略",
+        choices=("random", "rs_transition", "ue_transition"),
+        default="random",
+        help="自动 probe 选帧：随机、RS 变化前后或 UE 进入/退出片段",
     )
     p.add_argument("--checkpoint-probe-context-radius", type=int, default=2)
     p.add_argument("--checkpoint-probe-max-new-tokens-q1", type=int, default=256)
