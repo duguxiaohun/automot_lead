@@ -1166,8 +1166,10 @@ def dump_probe(
                     encoding="utf-8",
                 )
 
-            # compact 模式只聚合真正需要查看的字段。保留原始 student/teacher 输出，
-            # 但不重复嵌入 prompt、RGB 副本和内部 flags，单个 results.json 即可完成对照。
+            # compact 不是“只留指标”，而是把训练前 base probe 与训练后 LoRA probe
+            # 都需要的证据集中进一个 results.json：真实输入 messages、完整分析输出、
+            # privileged teacher 输入/脚本真值、场景标签和 memory 都必须保留。它只省掉
+            # 重复的逐文件 TXT/JSON 与 JPEG 副本，避免人工在几十个文件间来回寻找。
             compact_frames.append(
                 {
                     "scenario": route.scenario,
@@ -1180,11 +1182,44 @@ def dump_probe(
                     ),
                     "gap_reset": selection_gap_reset,
                     "ground_truth": {
-                        "rs": frame.rs_label,
-                        "abnormal": bool(frame.abnormal),
-                        "event": event_target.label,
+                        # labels 包含 RS/EVENT 真值、原始 event_code、候选池、weather、
+                        # goal 坐标和来源，足以回查“场景真值是怎么来的”。
+                        **labels,
+                        "resolved_event_target": event_target.label,
+                    },
+                    "inputs": {
+                        "rgb_history_paths": list(frame.history_rgb_paths),
+                        "q1_student_messages": _messages_json(copied_rgb, q1_student),
+                        "q1_teacher_messages": _messages_json(copied_rgb, q1_teacher),
+                        # Q2 不会重新发送 system/RGB，而是在 Q1 assistant KV 后追加一个
+                        # user turn。把 suffix 与续接来源分开记录，避免把可视化误读成
+                        # “第二次独立问图”；RS 错误时 student suffix 自然为空。
+                        "q2_student_user_turn": {
+                            "role": "user",
+                            "content": q2_student,
+                            "continued_from": "student.q1_output_kv",
+                        },
+                        "q2_teacher_training_user_turn": {
+                            "role": "user",
+                            "content": q2_teacher,
+                            "continued_from": "student.q1_output_kv",
+                        },
+                        "q2_teacher_model_user_turn": {
+                            "role": "user",
+                            "content": q2_teacher_model_prompt,
+                            "continued_from": "teacher.q1_output_kv",
+                        },
+                    },
+                    "teacher_targets": {
+                        "q1": q1_target,
+                        # training target 基于 student Q1 rollout 后的 memory，是 OPSD
+                        # 实际监督真值；model target 则对应纯 base teacher 自己的 Q1 续接。
+                        "q2_training": q2_target,
+                        "q2_teacher_model": q2_teacher_model_target,
                     },
                     "student": {
+                        # q1/q2_output 都是完整生成文本，包含 Scene Description、
+                        # Critical Object Description、Reasoning on Intent 与最终答案。
                         "q1_output": q1_output or "",
                         "q2_output": q2_output or "",
                         "q1_parsed": parsed_q1 if bundle is not None else {},
@@ -1197,6 +1232,8 @@ def dump_probe(
                         "event_correct": q2_event_correct if bundle is not None else None,
                     },
                     "teacher": {
+                        # 只有 --with-teacher-model 时这些字段才非空；该模型始终不加载
+                        # student LoRA，用于和训练前纯 base teacher 保持同一比较口径。
                         "q1_output": q1_teacher_output or "",
                         "q2_output": q2_teacher_output or "",
                         "q1_parsed": parsed_teacher_q1,
@@ -1205,6 +1242,10 @@ def dump_probe(
                         "abnormal_correct": q1_teacher_abnormal_correct,
                         "q2_triggered": q2_teacher_triggered if teacher_bundle is not None else None,
                         "event_correct": q2_teacher_event_correct,
+                    },
+                    "memory": {
+                        "before": memory_before,
+                        "after": memory_after,
                     },
                     "transition": transition_fields,
                 }

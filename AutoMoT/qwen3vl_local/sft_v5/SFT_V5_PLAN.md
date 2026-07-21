@@ -1035,6 +1035,11 @@ Checkpoint / probe 策略：
   rank 在 probe 前后 barrier，防止参数变化和 collective 次序错位。
 - 每个 probe 默认只写一个主 `results.json`，run 级 `probes/comparison.json` 聚合 base、
   各 checkpoint 和 final；`--artifact-level full` 才展开 v3 风格逐帧 RGB/prompt/memory。
+  compact 只减少文件数量，不能减少审计字段：每帧必须保留 RGB 路径、实际 Q1
+  student/teacher messages、标明 Q1 KV 来源的 Q2 user turns、完整 student/base-teacher
+  CoT 输出、脚本化 teacher target、
+  RS/EVENT 场景真值、memory 与变化检测结果。base 和 LoRA probe 必须使用同一 schema，
+  唯一区别是 LoRA probe 的 student 开启 adapter。
   失败写 `error.txt` 后继续训练。probe 结束必须恢复 train 模式并清理 CUDA
   cache，不能让可视化对象跨训练窗口常驻。
 - teacher model 的 Q2 只在其自身 Q1 RS 正确时触发，并续接 teacher 自己的 Q1 KV、RS
@@ -1301,7 +1306,8 @@ probe*/
   results.json
 ```
 
-默认 compact 到此为止；只有 `--artifact-level full` 才额外写：
+默认 compact 到此为止，但 `results.json.frames[*]` 已包含完整输入、输出、teacher target、
+场景 GT 和 memory；只有 `--artifact-level full` 才把同一证据额外拆成：
 
 ```text
 probe*/
