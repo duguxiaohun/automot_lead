@@ -5,7 +5,9 @@
 1. DataLoader 每次读取若干条 route sequence；
 2. collate 阶段只做本 rank local padding，主训练进程再 all-reduce 得到 global T；
 3. 每个有效 frame 先让 student 自由回答 Q1；
-4. Q1 RS 正确才进入 Q2，否则本帧结束，下一有效帧恢复 GT RS + RE；
+4. 每个有效帧都运行 Q1；只有本帧 RS 正确才进入 Q2。RS 错误时后续帧仍持续运行
+   Q1，错误 RS/EVENT 继续写回供学生自主纠偏，超过各自 patience 后才按 RS 低频 /
+   EVENT 高频 review interval 做训练期 GT 兜底；
 5. teacher 关闭 LoRA，读取 privileged prompt，在同一批 student rollout token 上给
    full-vocabulary logits；
 6. student/teacher logits 做 forward-KL，梯度只回到 LoRA student；
@@ -94,6 +96,8 @@ from qwen3vl_local.sft_v5.labels import (  # noqa: E402
 from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     SYSTEM_PROMPT_V5,
     Memory,
+    MemoryCurriculumConfig,
+    MemoryCurriculumState,
     build_q1_student_prompt,
     build_q1_teacher_prompt,
     build_q2_student_prompt,
@@ -102,12 +106,15 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     loss_weights_q2,
     parse_q1_output,
     parse_q2_output,
+    prepare_training_memory,
     reset_memory_for_frame,
+    should_trigger_q2,
     target_spans_q1,
     target_spans_q2,
     update_memory_after_q1,
     update_memory_after_q2,
     update_memory_navigation,
+    observe_training_memory,
 )
 
 
@@ -1446,6 +1453,88 @@ def _event_target_from_frame(frame: FrameRow, student_event: Optional[str] = Non
     return resolve_event_target(raw, student_event=student_event)
 
 
+def _accepted_event_labels(frame: FrameRow) -> set[str]:
+    """返回该帧按 v5 多标签容错规则允许的 EVENT memory 标签。"""
+
+    target = _event_target_from_frame(frame)
+    unusual = {str(code) for code in target.raw_events if str(code).startswith("U-E")}
+    return unusual or {"RE"}
+
+
+def _q1_memory_diagnostics(
+    memory: Memory,
+    frame: FrameRow,
+    *,
+    student_rs: Optional[str],
+    student_abnormal: Optional[bool],
+) -> Dict[str, Any]:
+    """统计 Q1 是否在错误/UNKNOWN RS memory 上复制、纠偏及异常混淆矩阵。"""
+
+    input_known = memory.rs_label in RS_LABEL_TO_OPTION
+    input_wrong = bool(input_known and memory.rs_label != frame.rs_label)
+    input_unknown = not input_known
+    return {
+        "memory_rs_input_known_wrong": input_wrong,
+        "memory_rs_input_unknown": input_unknown,
+        "memory_rs_copied_when_wrong": bool(input_wrong and student_rs == memory.rs_label),
+        "memory_rs_recovered": bool((input_wrong or input_unknown) and student_rs == frame.rs_label),
+        "q1_abnormal_tp": bool(frame.abnormal and student_abnormal is True),
+        "q1_abnormal_fp": bool(not frame.abnormal and student_abnormal is True),
+        "q1_abnormal_tn": bool(not frame.abnormal and student_abnormal is False),
+        "q1_abnormal_fn": bool(frame.abnormal and student_abnormal is not True),
+    }
+
+
+def _q2_memory_diagnostics(
+    memory_after_q1: Memory,
+    frame: FrameRow,
+    *,
+    student_event: Optional[str],
+) -> Dict[str, Any]:
+    """统计 Q2 是否在错误/UNKNOWN EVENT memory 上复制、纠偏及 UE/RE 混淆矩阵。"""
+
+    accepted = _accepted_event_labels(frame)
+    input_known = memory_after_q1.event_label == "RE" or memory_after_q1.event_label.startswith("U-E")
+    input_wrong = bool(input_known and memory_after_q1.event_label not in accepted)
+    input_unknown = not input_known
+    gt_ue = bool(frame.abnormal)
+    pred_ue = None if student_event is None else student_event != "RE"
+    return {
+        "memory_event_input_known_wrong": input_wrong,
+        "memory_event_input_unknown": input_unknown,
+        "memory_event_copied_when_wrong": bool(
+            input_wrong and student_event == memory_after_q1.event_label
+        ),
+        "memory_event_recovered": bool(
+            (input_wrong or input_unknown) and student_event in accepted
+        ),
+        "q2_ue_tp": bool(gt_ue and pred_ue is True),
+        "q2_ue_fp": bool(not gt_ue and pred_ue is True),
+        "q2_ue_tn": bool(not gt_ue and pred_ue is False),
+        "q2_ue_fn": bool(gt_ue and pred_ue is not True),
+    }
+
+
+def _finalize_memory_curriculum_frame(
+    state: MemoryCurriculumState,
+    config: MemoryCurriculumConfig,
+    stats: Dict[str, Any],
+    before_audit: Mapping[str, object],
+) -> bool:
+    """把单帧 rollout 结果写回延迟修复状态，并把完整审计字段并入 stats。"""
+
+    stats.update(dict(before_audit))
+    after_audit = observe_training_memory(
+        state,
+        config,
+        rs_correct=bool(stats.get("q1_rs_correct")),
+        event_checked=bool(stats.get("q2_triggered")),
+        event_correct=bool(stats.get("q2_event_correct")),
+    )
+    stats.update(after_audit)
+    return bool(after_audit["memory_any_repair_pending"])
+
+
 def _reset_memory_for_frame_row(frame: FrameRow) -> Memory:
     """按当前帧 GT RS + 当前帧目的地坐标重置 v5 memory。"""
 
@@ -1468,7 +1557,7 @@ def _run_frame(
     q2_text: Optional[str] = None,
     q2_ids: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, Dict[str, Any], Memory, bool]:
-    """运行单帧 Q1/Q2，返回 loss、统计、更新后的 memory、是否需要下一帧 reset。
+    """运行单帧 Q1/Q2，返回 loss、统计、更新后的 memory、当前帧是否出现旧式修复候选。
 
     这是旧逐帧路径，也是 batched rollout/parallel-KL fallback 的语义基准。单帧内部
     按 on-policy OPSD 顺序执行：
@@ -1476,7 +1565,8 @@ def _run_frame(
     1. student 在 `torch.no_grad()` 下自由生成 Q1/Q2 token，完成“采集”；
     2. teacher 关闭 LoRA、读取 privileged prompt，在同一批 student token 上给 logits；
     3. student 重新打分同一批 token，和 teacher 做 forward-KL，梯度只回 LoRA；
-    4. 用 student 解析结果更新 memory，并把是否要下帧 reset 交给外层。
+    4. 用 student 解析结果更新 memory；最后的 bool 只保留旧调用兼容，正式训练由
+       ``MemoryCurriculumState`` 根据连续错误 streak 决定何时修复。
     """
 
     timings: Dict[str, float] = {
@@ -1539,7 +1629,10 @@ def _run_frame(
     timings["q1_loss_seconds"] = time.time() - q1_loss_start
 
     student_rs = q1_parsed.get("rs_label")
-    q1_rs_correct = student_rs == frame.rs_label
+    q1_rs_correct = should_trigger_q2(
+        student_rs_label=student_rs,
+        target_rs_label=frame.rs_label,
+    )
     q1_abnormal = q1_parsed.get("abnormal") == "YES" if q1_parsed.get("abnormal") else None
     memory_after_q1 = update_memory_after_q1(memory, student_rs_label=student_rs, student_abnormal=q1_abnormal)
     stats: Dict[str, Any] = {
@@ -1551,10 +1644,16 @@ def _run_frame(
         "q2_rollout_tokens": 0,
         "q1_parts": q1_parts,
         "timings": timings,
+        **_q1_memory_diagnostics(
+            memory,
+            frame,
+            student_rs=student_rs,
+            student_abnormal=q1_abnormal,
+        ),
     }
     if not q1_rs_correct:
-        # Q1 的 RS 是 Q2 候选池的上层条件。RS 错时继续问 Q2 会把错误道路结构传下去，
-        # 所以本帧立即截断；下一帧由外层恢复 GT RS + RE。
+        # Q1 的 RS 是 Q2 候选池的上层条件。RS 错时本帧截断 Q2，但错误 RS 会继续
+        # 写入后续帧；外层 curriculum 先观察能否自救，不能再下一帧立即 GT reset。
         return q1_loss, stats, memory_after_q1, True
 
     # ---- Q2: 只有 RS 正确才进入 ----
@@ -1638,6 +1737,11 @@ def _run_frame(
             "q2_invalid_output": q2_invalid,
             "q2_rollout_tokens": int(q2_ids.numel()),
             "q2_parts": q2_parts,
+            **_q2_memory_diagnostics(
+                memory_after_q1,
+                frame,
+                student_event=student_event,
+            ),
         }
     )
     return q1_loss + q2_loss, stats, memory_after_q2, q2_invalid
@@ -1724,7 +1828,10 @@ def _run_chunk_parallel_kl(
     for local_idx, ((images, (_b, _route, frame, memory)), q1_text, q1_parsed, q1_abnormal) in enumerate(
         zip(zip(images_per_frame, chunk), q1_texts, q1_parsed_list, q1_abnormal_flags)
     ):
-        if q1_parsed.get("rs_label") != frame.rs_label:
+        if not should_trigger_q2(
+            student_rs_label=q1_parsed.get("rs_label"),
+            target_rs_label=frame.rs_label,
+        ):
             continue
         q2_rollout = q2_rollouts[local_idx]
         if q2_rollout is None:
@@ -1802,7 +1909,10 @@ def _run_chunk_parallel_kl(
     for local_idx, (b, _route, frame, memory) in enumerate(chunk):
         q1_parsed = q1_parsed_list[local_idx]
         q1_abnormal = q1_abnormal_flags[local_idx]
-        q1_rs_correct = q1_parsed.get("rs_label") == frame.rs_label
+        q1_rs_correct = should_trigger_q2(
+            student_rs_label=q1_parsed.get("rs_label"),
+            target_rs_label=frame.rs_label,
+        )
         memory_after_q1 = update_memory_after_q1(
             memory,
             student_rs_label=q1_parsed.get("rs_label"),
@@ -1826,6 +1936,12 @@ def _run_chunk_parallel_kl(
                 "q2_teacher_seconds": 0.0,
                 "q2_loss_seconds": 0.0,
             },
+            **_q1_memory_diagnostics(
+                memory,
+                frame,
+                student_rs=q1_parsed.get("rs_label"),
+                student_abnormal=q1_abnormal,
+            ),
         }
         frame_loss = q1_loss_list[local_idx]
         if not q1_rs_correct:
@@ -1850,6 +1966,11 @@ def _run_chunk_parallel_kl(
                 "q2_invalid_output": q2_invalid,
                 "q2_rollout_tokens": int(q2_ids.numel()),
                 "q2_parts": q2_parts_by_local.get(local_idx, {key: 0.0 for key in loss_weights_q2()}),
+                **_q2_memory_diagnostics(
+                    memory_after_q1,
+                    frame,
+                    student_event=student_event,
+                ),
             }
         )
         per_frame_results.append((b, stats, memory_after_q2, q2_invalid, float(frame_loss.detach().item())))
@@ -2376,6 +2497,19 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "max_new_tokens_q1": int(args.max_new_tokens_q1),
         "max_new_tokens_q2": int(args.max_new_tokens_q2),
         "temperature": float(args.temperature),
+        "memory_curriculum": {
+            "rs_error_patience": int(getattr(args, "rs_error_patience", 4)),
+            "event_error_patience": int(getattr(args, "event_error_patience", 3)),
+            "rs_repair_interval": int(getattr(args, "rs_repair_interval", 2)),
+            "event_repair_interval": int(getattr(args, "event_repair_interval", 1)),
+            "rs_memory_corrupt_prob": float(getattr(args, "rs_memory_corrupt_prob", 0.06)),
+            "rs_memory_unknown_prob": float(getattr(args, "rs_memory_unknown_prob", 0.02)),
+            "event_memory_corrupt_prob": float(getattr(args, "event_memory_corrupt_prob", 0.10)),
+            "event_memory_unknown_prob": float(getattr(args, "event_memory_unknown_prob", 0.05)),
+            "rs_initial_gt_prob": float(getattr(args, "rs_initial_gt_prob", 0.5)),
+            "event_initial_gt_prob": float(getattr(args, "event_initial_gt_prob", 0.5)),
+            "q1_abnormal_direct_event_reset": False,
+        },
         "parallel_kl": bool(args.parallel_kl),
         "parallel_kl_microbatch_size": int(args.parallel_kl_microbatch_size),
         "update_mode": str(args.update_mode),
@@ -2541,10 +2675,38 @@ _TRAIN_WINDOW_KEYS = (
     "q1_rs_correct",
     "q1_abnormal_correct",
     "q2_triggered",
+    "q2_skipped_rs_wrong",
     "q2_event_correct",
     "q2_invalid_output",
     "candidate_mismatch",
     "reset_next",
+    "memory_repair_pending",
+    "memory_rs_input_known_wrong",
+    "memory_rs_input_unknown",
+    "memory_rs_copied_when_wrong",
+    "memory_rs_recovered",
+    "memory_event_input_known_wrong",
+    "memory_event_input_unknown",
+    "memory_event_copied_when_wrong",
+    "memory_event_recovered",
+    "memory_rs_injected_wrong",
+    "memory_rs_injected_unknown",
+    "memory_event_injected_wrong",
+    "memory_event_injected_unknown",
+    "memory_rs_forced_repair",
+    "memory_event_forced_repair",
+    "memory_rs_self_recovered_after_streak",
+    "memory_event_self_recovered_after_streak",
+    "memory_rs_error_streak_sum",
+    "memory_event_error_streak_sum",
+    "q1_abnormal_tp",
+    "q1_abnormal_fp",
+    "q1_abnormal_tn",
+    "q1_abnormal_fn",
+    "q2_ue_tp",
+    "q2_ue_fp",
+    "q2_ue_tn",
+    "q2_ue_fn",
     "q1_rollout_tokens",
     "q2_rollout_tokens",
     "q1_token_cap_hits",
@@ -2634,10 +2796,46 @@ def _add_frame_rollout_stats(
     stats["q1_rs_correct"] += float(bool(frame_stats.get("q1_rs_correct", False)))
     stats["q1_abnormal_correct"] += float(bool(frame_stats.get("q1_abnormal_correct", False)))
     stats["q2_triggered"] += float(bool(frame_stats.get("q2_triggered", False)))
+    stats["q2_skipped_rs_wrong"] += float(not bool(frame_stats.get("q1_rs_correct", False)))
     stats["q2_event_correct"] += float(bool(frame_stats.get("q2_event_correct", False)))
     stats["q2_invalid_output"] += float(bool(frame_stats.get("q2_invalid_output", False)))
     stats["candidate_mismatch"] += float(bool(frame_stats.get("candidate_mismatch", False)))
     stats["reset_next"] += float(bool(need_reset))
+    stats["memory_repair_pending"] += float(bool(need_reset))
+    for key in (
+        "memory_rs_input_known_wrong",
+        "memory_rs_input_unknown",
+        "memory_rs_copied_when_wrong",
+        "memory_rs_recovered",
+        "memory_event_input_known_wrong",
+        "memory_event_input_unknown",
+        "memory_event_copied_when_wrong",
+        "memory_event_recovered",
+        "memory_rs_injected_wrong",
+        "memory_rs_injected_unknown",
+        "memory_event_injected_wrong",
+        "memory_event_injected_unknown",
+        "memory_rs_forced_repair",
+        "memory_event_forced_repair",
+        "memory_rs_self_recovered_after_streak",
+        "memory_event_self_recovered_after_streak",
+        "q1_abnormal_tp",
+        "q1_abnormal_fp",
+        "q1_abnormal_tn",
+        "q1_abnormal_fn",
+        "q2_ue_tp",
+        "q2_ue_fp",
+        "q2_ue_tn",
+        "q2_ue_fn",
+    ):
+        stats[key] += float(bool(frame_stats.get(key, False)))
+    stats["memory_rs_error_streak_sum"] += float(frame_stats.get("memory_rs_error_streak_after", 0) or 0)
+    if bool(frame_stats.get("q2_triggered", False)):
+        # EVENT streak 只在实际 Q2 帧更新，分母也必须是 q2_triggered；RS 错导致
+        # Q2 跳过时不能把同一个陈旧 streak 重复计入均值。
+        stats["memory_event_error_streak_sum"] += float(
+            frame_stats.get("memory_event_error_streak_after", 0) or 0
+        )
     q1_tokens = int(frame_stats.get("q1_rollout_tokens", 0) or 0)
     q2_tokens = int(frame_stats.get("q2_rollout_tokens", 0) or 0)
     stats["q1_rollout_tokens"] += float(q1_tokens)
@@ -2696,6 +2894,18 @@ def _ddp_sum_train_stats(stats: Mapping[str, float]) -> Dict[str, float]:
     return {key: float(value) for key, value in zip(_TRAIN_WINDOW_KEYS, tensor.cpu().tolist())}
 
 
+def _window_binary_metrics(stats: Mapping[str, float], prefix: str) -> Dict[str, float]:
+    """从训练窗口 TP/FP/TN/FN 计算 precision/recall/F1，空分母返回 0 供 TB 使用。"""
+
+    tp = float(stats.get(f"{prefix}_tp", 0.0))
+    fp = float(stats.get(f"{prefix}_fp", 0.0))
+    fn = float(stats.get(f"{prefix}_fn", 0.0))
+    precision = tp / max(1.0, tp + fp)
+    recall = tp / max(1.0, tp + fn)
+    f1 = 2.0 * precision * recall / max(1e-12, precision + recall)
+    return {"precision": precision, "recall": recall, "f1": f1}
+
+
 def _format_train_window(stats: Mapping[str, float]) -> str:
     """把聚合后的 on-policy 统计格式化成一行日志。"""
 
@@ -2710,6 +2920,10 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
     q2_grouped_frames = max(1.0, float(stats.get("q2_grouped_frames", 0.0)))
     q2_batched_frames = float(stats.get("q2_batched_frames", 0.0))
     q2_grouped_chunks = max(1.0, float(stats.get("q2_grouped_chunks", 0.0)))
+    abnormal_prf = _window_binary_metrics(stats, "q1_abnormal")
+    event_prf = _window_binary_metrics(stats, "q2_ue")
+    rs_wrong = max(1.0, float(stats.get("memory_rs_input_known_wrong", 0.0)))
+    event_wrong = max(1.0, float(stats.get("memory_event_input_known_wrong", 0.0)))
     return (
         f"loss/frame={float(stats.get('loss_sum', 0.0)) / frames:.4f} "
         f"q1_loss={{a:{float(stats.get('q1_loss_analysis_sum', 0.0)) / frames:.3f},"
@@ -2719,11 +2933,22 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"event:{float(stats.get('q2_loss_event_sum', 0.0)) / q2:.3f}}} "
         f"frames={int(stats.get('frames', 0.0))} "
         f"q2_rate={float(stats.get('q2_triggered', 0.0)) / frames:.3f} "
+        f"q2_skip_rs={float(stats.get('q2_skipped_rs_wrong', 0.0)) / frames:.3f} "
         f"rs_acc={float(stats.get('q1_rs_correct', 0.0)) / frames:.3f} "
         f"abn_acc={float(stats.get('q1_abnormal_correct', 0.0)) / frames:.3f} "
         f"event_acc={float(stats.get('q2_event_correct', 0.0)) / q2:.3f} "
         f"invalid={int(stats.get('q2_invalid_output', 0.0))} "
-        f"reset={int(stats.get('reset_next', 0.0))} "
+        f"repair_pending={int(stats.get('memory_repair_pending', 0.0))} "
+        f"abn_prf={{{abnormal_prf['precision']:.3f}/{abnormal_prf['recall']:.3f}/{abnormal_prf['f1']:.3f}}} "
+        f"event_prf={{{event_prf['precision']:.3f}/{event_prf['recall']:.3f}/{event_prf['f1']:.3f}}} "
+        f"mem_rs={{wrong:{int(stats.get('memory_rs_input_known_wrong', 0.0))},"
+        f"bad_rate:{(float(stats.get('memory_rs_input_known_wrong', 0.0)) + float(stats.get('memory_rs_input_unknown', 0.0))) / frames:.3f},"
+        f"copy:{float(stats.get('memory_rs_copied_when_wrong', 0.0)) / rs_wrong:.3f},"
+        f"recover:{float(stats.get('memory_rs_recovered', 0.0)) / max(1.0, float(stats.get('memory_rs_input_known_wrong', 0.0)) + float(stats.get('memory_rs_input_unknown', 0.0))):.3f}}} "
+        f"mem_event={{wrong:{int(stats.get('memory_event_input_known_wrong', 0.0))},"
+        f"bad_rate:{(float(stats.get('memory_event_input_known_wrong', 0.0)) + float(stats.get('memory_event_input_unknown', 0.0))) / q2:.3f},"
+        f"copy:{float(stats.get('memory_event_copied_when_wrong', 0.0)) / event_wrong:.3f},"
+        f"recover:{float(stats.get('memory_event_recovered', 0.0)) / max(1.0, float(stats.get('memory_event_input_known_wrong', 0.0)) + float(stats.get('memory_event_input_unknown', 0.0))):.3f}}} "
         f"tok/frame={rollout_tokens / frames:.1f} "
         f"cap_hit={{q1:{float(stats.get('q1_token_cap_hits', 0.0)) / frames:.3f},"
         f"q2:{float(stats.get('q2_token_cap_hits', 0.0)) / q2:.3f}}} "
@@ -2780,6 +3005,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-new-tokens-q1", type=int, default=1024)
     p.add_argument("--max-new-tokens-q2", type=int, default=1024)
     p.add_argument("--temperature", type=float, default=1.0)
+    p.add_argument("--rs-error-patience", type=int, default=4, help="RS 连续错误多少帧后才申请训练期强制修复；错误期间每帧仍运行 Q1")
+    p.add_argument("--event-error-patience", type=int, default=3, help="EVENT 连续错误多少次 Q2 后才申请训练期强制修复")
+    p.add_argument("--rs-repair-interval", type=int, default=2, help="RS 强制修复申请每隔多少有效帧复核一次；只控制脚本兜底，不降低 Q1 思考频率")
+    p.add_argument("--event-repair-interval", type=int, default=1, help="EVENT 强制修复申请每隔多少有效帧复核一次；EVENT 快变量默认每帧")
+    p.add_argument("--rs-memory-corrupt-prob", type=float, default=0.06, help="正确 RS memory 在单帧开头被替换成其它 RS 的概率")
+    p.add_argument("--rs-memory-unknown-prob", type=float, default=0.02, help="正确 RS memory 在单帧开头变成 UNKNOWN 的概率")
+    p.add_argument("--event-memory-corrupt-prob", type=float, default=0.10, help="正确 EVENT memory 在单帧开头被替换成其它 EVENT 的概率")
+    p.add_argument("--event-memory-unknown-prob", type=float, default=0.05, help="正确 EVENT memory 在单帧开头变成 UNKNOWN 的概率")
+    p.add_argument("--rs-initial-gt-prob", type=float, default=0.5, help="route 首帧 RS memory 使用 GT 的概率；其余为 UNKNOWN/no-prior")
+    p.add_argument("--event-initial-gt-prob", type=float, default=0.5, help="route 首帧 EVENT memory 使用 GT 的概率；其余为 UNKNOWN/no-prior")
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
     p.add_argument("--num-workers", type=int, default=0)
@@ -2886,6 +3121,19 @@ def main() -> None:
         raise ValueError("--max-timesteps-per-step must be >= 0")
     if int(args.parallel_kl_microbatch_size) <= 0:
         raise ValueError("--parallel-kl-microbatch-size must be >= 1")
+    curriculum_config = MemoryCurriculumConfig(
+        rs_error_patience=int(args.rs_error_patience),
+        event_error_patience=int(args.event_error_patience),
+        rs_repair_interval=int(args.rs_repair_interval),
+        event_repair_interval=int(args.event_repair_interval),
+        rs_corrupt_prob=float(args.rs_memory_corrupt_prob),
+        rs_unknown_prob=float(args.rs_memory_unknown_prob),
+        event_corrupt_prob=float(args.event_memory_corrupt_prob),
+        event_unknown_prob=float(args.event_memory_unknown_prob),
+        rs_initial_gt_prob=float(args.rs_initial_gt_prob),
+        event_initial_gt_prob=float(args.event_initial_gt_prob),
+    )
+    curriculum_config.validate()
     if int(args.checkpoint_probe_num_cases) <= 0:
         raise ValueError("--checkpoint-probe-num-cases must be >= 1")
     if int(args.checkpoint_probe_num_routes) <= 0:
@@ -2968,6 +3216,14 @@ def main() -> None:
         tb.add_scalar("run/checkpoint_probe", float(bool(args.checkpoint_probe)), 0)
         tb.add_scalar("run/checkpoint_probe_num_cases", float(args.checkpoint_probe_num_cases), 0)
         tb.add_scalar("run/checkpoint_probe_num_routes", float(args.checkpoint_probe_num_routes), 0)
+        tb.add_scalar("run/rs_error_patience", float(args.rs_error_patience), 0)
+        tb.add_scalar("run/event_error_patience", float(args.event_error_patience), 0)
+        tb.add_scalar("run/rs_repair_interval", float(args.rs_repair_interval), 0)
+        tb.add_scalar("run/event_repair_interval", float(args.event_repair_interval), 0)
+        tb.add_scalar("run/rs_memory_corrupt_prob", float(args.rs_memory_corrupt_prob), 0)
+        tb.add_scalar("run/rs_memory_unknown_prob", float(args.rs_memory_unknown_prob), 0)
+        tb.add_scalar("run/event_memory_corrupt_prob", float(args.event_memory_corrupt_prob), 0)
+        tb.add_scalar("run/event_memory_unknown_prob", float(args.event_memory_unknown_prob), 0)
         tb.add_scalar(
             "run/checkpoint_probe_sequence_length",
             float(args.checkpoint_probe_sequence_length),
@@ -3064,6 +3320,16 @@ def main() -> None:
 
         if rank == 0:
             print(message, flush=True)
+
+    rank0_log(
+        "[memory-curriculum] "
+        f"rs_patience={curriculum_config.rs_error_patience} "
+        f"event_patience={curriculum_config.event_error_patience} "
+        f"repair_interval=rs:{curriculum_config.rs_repair_interval}/event:{curriculum_config.event_repair_interval} "
+        f"corrupt=rs:{curriculum_config.rs_corrupt_prob:.3f}/event:{curriculum_config.event_corrupt_prob:.3f} "
+        f"unknown=rs:{curriculum_config.rs_unknown_prob:.3f}/event:{curriculum_config.event_unknown_prob:.3f} "
+        f"init_gt=rs:{curriculum_config.rs_initial_gt_prob:.3f}/event:{curriculum_config.event_initial_gt_prob:.3f}"
+    )
 
     def run_synchronized_checkpoint_probe(
         name: str,
@@ -3294,11 +3560,67 @@ def main() -> None:
                     tb.add_scalar("train/loss/q2_analysis", reduced_stats["q2_loss_analysis_sum"] / q2, global_step)
                     tb.add_scalar("train/loss/q2_event", reduced_stats["q2_loss_event_sum"] / q2, global_step)
                     tb.add_scalar("train/q2_trigger_rate", reduced_stats["q2_triggered"] / frames, global_step)
+                    tb.add_scalar("train/q2_skip_due_rs_rate", reduced_stats["q2_skipped_rs_wrong"] / frames, global_step)
                     tb.add_scalar("train/q1_rs_acc_window", reduced_stats["q1_rs_correct"] / frames, global_step)
                     tb.add_scalar("train/q1_abnormal_acc_window", reduced_stats["q1_abnormal_correct"] / frames, global_step)
                     tb.add_scalar("train/q2_event_acc_window", reduced_stats["q2_event_correct"] / q2, global_step)
                     tb.add_scalar("train/q2_invalid_output", reduced_stats["q2_invalid_output"], global_step)
                     tb.add_scalar("train/reset_next", reduced_stats["reset_next"], global_step)
+                    tb.add_scalar("memory/repair_pending", reduced_stats["memory_repair_pending"], global_step)
+                    tb.add_scalar("memory/rs_injected_wrong", reduced_stats["memory_rs_injected_wrong"], global_step)
+                    tb.add_scalar("memory/rs_injected_unknown", reduced_stats["memory_rs_injected_unknown"], global_step)
+                    tb.add_scalar("memory/event_injected_wrong", reduced_stats["memory_event_injected_wrong"], global_step)
+                    tb.add_scalar("memory/event_injected_unknown", reduced_stats["memory_event_injected_unknown"], global_step)
+                    tb.add_scalar("memory/rs_forced_repair", reduced_stats["memory_rs_forced_repair"], global_step)
+                    tb.add_scalar("memory/event_forced_repair", reduced_stats["memory_event_forced_repair"], global_step)
+                    tb.add_scalar(
+                        "memory/rs_input_anomaly_rate",
+                        (reduced_stats["memory_rs_input_known_wrong"] + reduced_stats["memory_rs_input_unknown"]) / frames,
+                        global_step,
+                    )
+                    tb.add_scalar(
+                        "memory/event_input_anomaly_rate",
+                        (reduced_stats["memory_event_input_known_wrong"] + reduced_stats["memory_event_input_unknown"]) / q2,
+                        global_step,
+                    )
+                    tb.add_scalar(
+                        "memory/rs_error_streak_mean",
+                        reduced_stats["memory_rs_error_streak_sum"] / frames,
+                        global_step,
+                    )
+                    tb.add_scalar(
+                        "memory/event_error_streak_mean",
+                        reduced_stats["memory_event_error_streak_sum"] / q2,
+                        global_step,
+                    )
+                    tb.add_scalar(
+                        "memory/rs_wrong_copy_rate",
+                        reduced_stats["memory_rs_copied_when_wrong"] / max(1.0, reduced_stats["memory_rs_input_known_wrong"]),
+                        global_step,
+                    )
+                    tb.add_scalar(
+                        "memory/rs_recovery_rate",
+                        reduced_stats["memory_rs_recovered"]
+                        / max(1.0, reduced_stats["memory_rs_input_known_wrong"] + reduced_stats["memory_rs_input_unknown"]),
+                        global_step,
+                    )
+                    tb.add_scalar(
+                        "memory/event_wrong_copy_rate",
+                        reduced_stats["memory_event_copied_when_wrong"] / max(1.0, reduced_stats["memory_event_input_known_wrong"]),
+                        global_step,
+                    )
+                    tb.add_scalar(
+                        "memory/event_recovery_rate",
+                        reduced_stats["memory_event_recovered"]
+                        / max(1.0, reduced_stats["memory_event_input_known_wrong"] + reduced_stats["memory_event_input_unknown"]),
+                        global_step,
+                    )
+                    abnormal_prf = _window_binary_metrics(reduced_stats, "q1_abnormal")
+                    event_prf = _window_binary_metrics(reduced_stats, "q2_ue")
+                    for name, value in abnormal_prf.items():
+                        tb.add_scalar(f"train/abnormal_{name}", value, global_step)
+                    for name, value in event_prf.items():
+                        tb.add_scalar(f"train/q2_ue_{name}", value, global_step)
                     tb.add_scalar("train/rollout_tokens_per_frame", (reduced_stats["q1_rollout_tokens"] + reduced_stats["q2_rollout_tokens"]) / frames, global_step)
                     tb.add_scalar("train/q1_token_cap_hit_rate", reduced_stats["q1_token_cap_hits"] / frames, global_step)
                     tb.add_scalar("train/q2_token_cap_hit_rate", reduced_stats["q2_token_cap_hits"] / q2, global_step)
@@ -3413,10 +3735,13 @@ def main() -> None:
                 local_frames=local_frame_slots,
                 global_frames=global_frame_slots,
             )
-            # 每条 route 各自维护 memory/reset；batch 内 route 之间互不影响。
-            # reset_next=True 表示上一个有效帧 RS 错或 Q2 非法，下一帧开头恢复 GT RS + RE。
-            reset_next = [False for _ in routes]
+            # 每条 route 各自维护 student memory 与延迟修复 curriculum。RS 错误只跳过
+            # 当前帧 Q2，下一有效帧仍会进入本循环重新运行 Q1；不能因为 RS 是慢变量
+            # 就停止学生思考。错误 hypothesis 先跨帧保留，超过各自 patience 后才按
+            # 不同 review interval 兜底修复。
             memories: List[Optional[Memory]] = [None for _ in routes]
+            curriculum_states = [MemoryCurriculumState() for _ in routes]
+            memory_audits: List[Dict[str, object]] = [{} for _ in routes]
             for t in range(int(batch["max_T_global"])):
                 # window_stats 会在流式 optimizer step 后清零，所以 padding 统计也必须
                 # 按 timestep 写入，不能只在超长 DataLoader batch 开头写一次。
@@ -3433,17 +3758,21 @@ def main() -> None:
                         if rank == 0:
                             rank0_log(f"[warn] skip missing image paths route={route.route_id} frame={frame.frame_id}")
                         continue
-                    rs_target = _rs_target_from_frame(frame)
-                    if memories[b] is None or reset_next[b]:
-                        memories[b] = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
-                        reset_next[b] = False
-                    else:
-                        # RS/EVENT 延续上一帧 student 状态；EGO_TO_GOAL_XY 是当前帧导航
-                        # 输入，必须逐帧刷新。这里只改坐标，不构成 GT 标签纠错。
-                        memories[b] = update_memory_navigation(
-                            memories[b],
-                            frame.ego_to_goal_xy,
-                        )
+                    event_target = _event_target_from_frame(frame)
+                    memories[b], memory_audits[b] = prepare_training_memory(
+                        memories[b],
+                        curriculum_states[b],
+                        curriculum_config,
+                        gt_rs_label=frame.rs_label,
+                        gt_event_label=event_target.label,
+                        accepted_event_labels=tuple(_accepted_event_labels(frame)),
+                        event_corruption_choices=tuple(frame.event_option_map.values()),
+                        ego_to_goal_xy=frame.ego_to_goal_xy,
+                        route_key=f"{route.scenario}/{route.route_id}",
+                        frame_id=frame.frame_id,
+                        epoch=epoch,
+                        seed=int(args.seed),
+                    )
                     assert memories[b] is not None
                     # 当前 timestep 的 prompt 读取的是上一帧写回的 student memory。采集
                     # 和训练不会在 route 间共享 memory；每条 route 的时间状态只存在
@@ -3518,7 +3847,10 @@ def main() -> None:
                             _b, _route, frame_for_q2, memory_for_q2 = chunk[local_idx]
                             _q1_state, q1_text_for_q2, _q1_after, _q1_ids = rollout
                             q1_parsed_for_q2 = parse_q1_output(q1_text_for_q2)
-                            if q1_parsed_for_q2.get("rs_label") != frame_for_q2.rs_label:
+                            if not should_trigger_q2(
+                                student_rs_label=q1_parsed_for_q2.get("rs_label"),
+                                target_rs_label=frame_for_q2.rs_label,
+                            ):
                                 continue
                             q2_candidate_local_indices.append(local_idx)
                             q2_candidate_frames.append(frame_for_q2)
@@ -3594,22 +3926,27 @@ def main() -> None:
                             q2_tok = 0
                             reset_count = 0
                             for b_result, stats, next_mem, need_reset, frame_loss_value in chunk_results:
+                                repair_pending = _finalize_memory_curriculum_frame(
+                                    curriculum_states[b_result],
+                                    curriculum_config,
+                                    stats,
+                                    memory_audits[b_result],
+                                )
                                 q1_tok += int(stats.get("q1_rollout_tokens", 0) or 0)
                                 q2_tok += int(stats.get("q2_rollout_tokens", 0) or 0)
-                                reset_count += int(bool(need_reset))
+                                reset_count += int(repair_pending)
                                 window_stats["loss_sum"] += float(frame_loss_value)
                                 _add_frame_rollout_stats(
                                     window_stats,
                                     stats,
-                                    need_reset=bool(need_reset),
+                                    need_reset=repair_pending,
                                     max_new_tokens_q1=int(args.max_new_tokens_q1),
                                     max_new_tokens_q2=int(args.max_new_tokens_q2),
                                 )
-                                # memory 写回点：`next_mem` 已经由 student 的 Q1/Q2 解析结果
-                                # 更新。若 Q1 RS 错或 Q2 非法，`reset_next` 只影响下一有效帧
-                                # 开头的初始化，不会回滚本帧已经用于 loss 的 student 轨迹。
+                                # memory 写回点：错误结果继续进入后续帧；curriculum state 只
+                                # 标记 delayed repair pending，真正 GT 修复要等 patience 和
+                                # 对应 RS/EVENT review interval 同时满足。
                                 memories[b_result] = next_mem
-                                reset_next[b_result] = bool(need_reset)
                             if rank == 0 and (should_log_frame() or should_time_heartbeat()):
                                 rank0_log(
                                     f"[chunk-train] epoch={epoch} batch={batch_idx} t={t} "
@@ -3724,6 +4061,12 @@ def main() -> None:
                         # 梯度累积在参数上，不把整条 route sequence 的 Qwen 计算图留到
                         # batch 末尾。这样长序列不会把 H20 95GB 显存吃满。
                         loss_value = float(loss.detach().item())
+                        repair_pending = _finalize_memory_curriculum_frame(
+                            curriculum_states[b],
+                            curriculum_config,
+                            stats,
+                            memory_audits[b],
+                        )
                         window_stats["loss_sum"] += loss_value
                         if not bool(loss.requires_grad):
                             if rank == 0:
@@ -3741,15 +4084,14 @@ def main() -> None:
                         _add_frame_rollout_stats(
                             window_stats,
                             stats,
-                            need_reset=bool(need_reset),
+                            need_reset=repair_pending,
                             max_new_tokens_q1=int(args.max_new_tokens_q1),
                             max_new_tokens_q2=int(args.max_new_tokens_q2),
                         )
-                        # 逐帧 fallback 的 memory 写回点，语义与 parallel-KL 分支一致：
-                        # 下一帧 prompt 看到的是 student 自己更新后的 memory；只有
-                        # `need_reset=True` 时，下一帧开头才重置为当前帧 GT RS + 默认 RE。
+                        # 逐帧 fallback 的 memory 写回点与 parallel-KL 一致：错误 memory
+                        # 继续进入后续帧；pending 只表示 patience 已耗尽，真正修复仍要
+                        # 等对应 RS/EVENT review interval 到期。
                         memories[b] = next_mem
-                        reset_next[b] = bool(need_reset)
                         frame_elapsed = time.time() - frame_start
                         now = time.time()
                         if log_this_frame or should_time_heartbeat(now):
@@ -3767,7 +4109,7 @@ def main() -> None:
                                 f"q2teach:{float(timings.get('q2_teacher_seconds', 0.0)):.1f},"
                                 f"q2loss:{float(timings.get('q2_loss_seconds', 0.0)):.1f}}} "
                                 f"q2={int(bool(stats.get('q2_triggered', False)))} "
-                                f"reset={int(bool(need_reset))} {_cuda_memory_text()}"
+                                f"repair_pending={int(repair_pending)} {_cuda_memory_text()}"
                             )
                             write_tb_progress(
                                 event_code=3,

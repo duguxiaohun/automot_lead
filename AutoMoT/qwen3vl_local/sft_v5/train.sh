@@ -261,6 +261,18 @@ COMMON_ARGS=(
   --max-new-tokens-q1 "${MAX_NEW_TOKENS_Q1:-1024}"
   --max-new-tokens-q2 "${MAX_NEW_TOKENS_Q2:-1024}"
   --temperature "${TEMPERATURE:-1.0}"
+  # 错误记忆课程：RS 错误期间仍每帧运行 Q1；“低频”只指脚本兜底检查。
+  # EVENT 只有在本帧 RS 正确、实际进入 Q2 后才累计自己的错误 streak。
+  --rs-error-patience "${RS_ERROR_PATIENCE:-4}"
+  --event-error-patience "${EVENT_ERROR_PATIENCE:-3}"
+  --rs-repair-interval "${RS_REPAIR_INTERVAL:-2}"
+  --event-repair-interval "${EVENT_REPAIR_INTERVAL:-1}"
+  --rs-memory-corrupt-prob "${RS_MEMORY_CORRUPT_PROB:-0.06}"
+  --rs-memory-unknown-prob "${RS_MEMORY_UNKNOWN_PROB:-0.02}"
+  --event-memory-corrupt-prob "${EVENT_MEMORY_CORRUPT_PROB:-0.10}"
+  --event-memory-unknown-prob "${EVENT_MEMORY_UNKNOWN_PROB:-0.05}"
+  --rs-initial-gt-prob "${RS_INITIAL_GT_PROB:-0.5}"
+  --event-initial-gt-prob "${EVENT_INITIAL_GT_PROB:-0.5}"
   --max-routes "${MAX_ROUTES:-0}"
   --max-frames-per-route "${MAX_FRAMES_PER_ROUTE:-0}"
   --num-workers "${NUM_WORKERS:-0}"

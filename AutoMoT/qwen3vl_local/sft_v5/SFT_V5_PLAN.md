@@ -473,13 +473,16 @@ RS 训练目标默认取高置信单标签：
 
 ---
 
-## 5. Memory 设计
+## 5. Memory 设计与错误记忆课程
 
-v5 Memory 是跨帧纯文本状态：
+v5.1 把 Memory 明确定义为“上一帧模型的未验证假设”，不是当前帧答案。RS memory
+同时用于 Q2 的 EVENT 候选语义，因此不能直接删除；训练必须主动降低“复制 memory
+就答对”的比例，并让学生经历连续错误状态。Q1 使用的跨帧纯文本为：
 
 ```text
 [MEMORY]
-BELIEVED_RS: Ordinary same-direction drivable road ...
+PREVIOUS_RS_HYPOTHESIS: Ordinary same-direction drivable road ...
+MEMORY_RELIABILITY: unverified previous model output; it may be stale or wrong
 EGO_TO_GOAL_XY=(+12.3, -1.5) m
 [/MEMORY]
 ```
@@ -489,8 +492,9 @@ road + event memory：
 
 ```text
 [MEMORY]
-BELIEVED_RS: Ordinary same-direction drivable road ...
-BELIEVED_EVENT: No unusual event; continue ordinary same-direction behavior.
+PREVIOUS_RS_HYPOTHESIS: Ordinary same-direction drivable road ...
+PREVIOUS_EVENT_HYPOTHESIS: No unusual event; continue ordinary same-direction behavior.
+MEMORY_RELIABILITY: unverified previous model output; it may be stale or wrong
 EGO_TO_GOAL_XY=(+12.3, -1.5) m
 [/MEMORY]
 ```
@@ -513,29 +517,68 @@ class Memory:
     ego_to_goal_y: float | None
 ```
 
-初始化：
+UNKNOWN/no-prior：`Memory.rs_label/event_label` 允许内部值 `UNKNOWN`，prompt 显示
+“No reliable previous ... hypothesis is available”，绝不能静默 fallback 成 R1/RE。
 
-- 每条 route sequence 的第一帧默认 `rs=GT_RS`，`event=RE under GT_RS`。
-- 可选 `--p-init-rs-correct` 做扰动实验；第一版默认 1.0，因为 v5 的重点是学习
-  RS/EVENT 标定本身，不先引入随机错 memory。
+初始化与随机扰动默认值：
 
-帧间更新：
+- route 首帧 RS/EVENT 各有 0.5 概率使用 GT，剩余为 UNKNOWN/no-prior。
+- 当前 RS memory 原本正确时，以 0.06 概率替换成其它 R1-R5，以 0.02 概率改成 UNKNOWN。
+- 当前 EVENT memory 原本正确时，以 0.10 概率替换成其它 RE/U-E，以 0.05 概率改成 UNKNOWN。
+- EVENT wrong 优先从本帧 `event_option_map` 里选择不属于当前多标签容错集合的可见候选，
+  使 Q2 真能在“错误旧假设 vs 当前视觉证据”之间纠偏；单选题没有替代项时才退回
+  全局 EVENT 表，表达一个已过期但当前候选不再允许的旧事件。双 UE 可接受集合中的
+  另一个正确标签绝不能被审计成 wrong augmentation。
+- EVENT repair/augmentation 只在 RS memory 经过本帧 RS 扰动后仍与 GT 对齐时执行；
+  若 RS memory 已错误/UNKNOWN，本帧大概率会跳过 Q2，EVENT pending 与原 memory 都保留，
+  避免制造或修复一个学生根本没看到的 EVENT 样本。
+- 扰动只覆盖本帧输入；若学生复制错误 memory，错误会由 closed-loop 自然延续。已经
+  错误/UNKNOWN 的 memory 不会每帧继续随机换标签，避免把连续纠偏任务退化成白噪声。
+- 所有 draw 使用 `seed + route + frame + epoch` 的稳定 SHA-256 映射，DDP 与重跑可复现。
 
-- Q1 RS 正确：
-  - `memory.rs` 更新为 student RS。
-  - 若 Q1 abnormal=no，`memory.event=RE under student RS`。
-  - 若 Q1 abnormal=yes，等待 Q2 更新 event。
-- Q1 RS 错误：
-  - 当前帧立即停止，不跑 Q2，不计算 Q2 loss。
-  - 下一帧开始前恢复 `memory.rs=GT_RS(next frame)`，
-    `memory.event=RE under GT_RS(next frame)`。
-  - 这对应用户说的“RS 回答错误就结束采样，下一次采样默认恢复真值 RS，事件 memory
-    对应 RS 真值下面的默认 RE”。
-- Q2 输出合法：
-  - `memory.event` 更新为 parsed event。
-- Q2 输出非法：
-  - 若输出不在本帧 `event_option_map` 中，下一帧恢复 GT RS + RE。
-  - 若输出映射为 `RE`，memory 保持当前 RS 下的 RE。
+延迟修复：
+
+- 每个有效帧都必须运行 Q1。Q1 RS 错误只停止本帧 Q2，错误 RS 写回下一帧；下一帧
+  仍继续观察 RGB、重新分析并回答 RS，不能因为 RS 是慢变量就跳过 Q1。
+- RS 默认连续 4 帧错误后只“申请修复”，每 2 个有效帧检查一次申请；学生在修复前
+  自行答对会清空 streak/pending。“低频”只描述脚本兜底，不描述学生思考频率。
+- EVENT 只有 Q2 实际触发时才累计错误；默认连续 3 次错误后申请修复，并每帧检查，
+  体现 EVENT 快变量的高频复核。
+- Q1 `ABNORMAL=NO` 不再由脚本直接把 EVENT memory 改成 RE；错误/陈旧 EVENT 必须
+  进入 Q2 后由学生自己选择 RE 才算纠正。
+- 强制修复仅训练期使用。eval/probe 仍是纯 student closed-loop，GT reference 只比较。
+
+### 5.1 默认阈值与异常样本量审计
+
+本地 42 个有效场景 `collection_output` 文件（排除 `noScenarios`）共有 7241 条
+`status=success` route、914466 个逐帧标注。`build_dataset.py` 默认按 route 划出 10%
+validation，因此远端数据链完整时训练规模约 82.3 万帧；RGB/meta/XML 二次过滤后的
+精确数字必须读取构建产物 `checkpoints/sft_v5_data/summary.json`，不能把 82.3 万当成
+最终固定值。
+
+其中原始 GT EVENT 分布为 RE 772286 帧（84.45%）、UE 142180 帧（15.55%）。GT UE
+表示驾驶场景真实异常；下文的 memory anomaly 表示人为喂入错误/UNKNOWN 历史假设，
+两者不能相加成一个“总异常率”。ABNORMAL/UE 的 15.55% 类别不均衡也是必须同时报告
+precision、recall、F1、FP、FN，而不能只看 accuracy 的原因。
+
+增强在 rollout 时在线发生，不会把 index 物理复制成更多行。按约 82.3 万训练帧估计：
+
+- 若学生在异常 memory 出现的当帧就能纠正，RS wrong+UNKNOWN 输入约 8.4%，约 6.9
+  万帧；其中额外的约 0.4 个百分点来自 route 首帧 50% UNKNOWN。
+- 若学生完全复制错误 RS，直到 patience/review 兜底，当前 `8% + patience=4 +
+  interval=2` 按平均约 126 帧/route 重置 memory 的模拟上界约 27.5%，约 22.6 万帧；
+  对应 Q2 仍覆盖约 72.5% 帧。旧 `12% + patience=6 + interval=4` 的长序列上界约
+  47.1%，会让接近一半帧无法进入 Q2，因而已下调。
+- EVENT 的 15% 扰动只以实际进入 Q2 的帧为分母。学生当帧纠正时约占 Q2 的 15.3%；
+  持续复制到 `patience=3/interval=1` 兜底时约 31.7%。当 RS 也处于最坏复制上界时，
+  Q2 约 59.7 万帧，对应 EVENT 异常输入约 9.2 万到 18.9 万帧；RS 较好时 Q2 更多，
+  EVENT 异常样本也会同比增加。
+
+这些只是策略上下界，不替代实际日志。训练必须观察
+`memory/{rs,event}_input_anomaly_rate`、`memory/{rs,event}_wrong_copy_rate`、
+`memory/{rs,event}_recovery_rate` 和 `train/q2_skip_due_rs_rate`：若 RS anomaly 长期
+超过 30% 或 Q2 trigger 低于 70%，先降低 RS 扰动或 patience；若 RS anomaly 低于 8%
+且 copy rate 仍高，再小幅提高 RS 扰动，不能直接把 patience 拉回 6。
 
 实现时要显式记录：
 
@@ -545,7 +588,11 @@ class Memory:
   "q1_rs_correct": false,
   "q1_abnormal_correct": true,
   "q2_triggered": false,
-  "reset_next_frame": true,
+  "rs_error_streak": 3,
+  "event_error_streak": 1,
+  "rs_repair_pending": false,
+  "event_repair_pending": false,
+  "memory_rs_injected_wrong": true,
   "memory_before": "...",
   "memory_after": "..."
 }
@@ -561,8 +608,9 @@ class Memory:
 You are an autonomous driving agent. Use the stitched RGB history as visual
 context, ordered from oldest to newest. Focus on traffic lights/signs, nearby
 vehicles/pedestrians/obstacles, lane markings and road structure, and key
-factors affecting ego decisions. Keep the current memory by default and change
-it only when clear visual evidence supports the change. Describe weak, distant,
+factors affecting ego decisions. Memory is only an unverified previous
+hypothesis: it may be stale or wrong, so decide from current visual evidence
+first and change memory whenever the evidence contradicts it. Describe weak, distant,
 foggy, or occluded evidence as uncertain. Never mention ground truth, answer
 keys, hidden labels, dataset rules, or scenario names.
 ```
@@ -572,8 +620,8 @@ keys, hidden labels, dataset rules, or scenario names.
 输入：
 
 - 4 张 stitched RGB history。
-- 当前 road-only `MEMORY`，只包含 `BELIEVED_RS` 和 `EGO_TO_GOAL_XY`，不包含
-  `BELIEVED_EVENT`。
+- 当前 road-only `MEMORY`，只包含 `PREVIOUS_RS_HYPOTHESIS`、可靠性声明和
+  `EGO_TO_GOAL_XY`，不包含 `PREVIOUS_EVENT_HYPOTHESIS`。
   `EGO_TO_GOAL_XY` 必须来自当前帧 meta `next_target_points[-1]` 转 ego frame，
   和 v3/v4/LeadMoT final goal 同源。
 - `RS_CHOICES` A-E。
@@ -599,13 +647,14 @@ Decide:
 
 Use visible road geometry, lane layout, traffic lights or stop/yield cues, nearby
 actors, ego-path conflicts, and image-visible weather or visibility cues. Do not
-use a scenario name. If the evidence is weak, keep the memory unless contradicted.
+use a scenario name. First decide from RGB evidence. Treat the previous RS
+hypothesis as fallible; current visible geometry and traffic control override it.
 
 Output exactly these concise CoT lines:
 Scene Description: <1-2 concise sentences about visible weather/visibility, lane markings, road layout, traffic lights/signs, surrounding motion, and goal direction>
 Critical Object Description: <1-2 concise sentences naming up to 2-3 key actors or map cues, their locations/actions, likely next motion, and why they matter to ego>
 Reasoning on Intent: <1-2 concise sentences using motion, signals, lanes, ego state, and EGO_TO_GOAL_XY to decide RS and abnormality>
-RS: <A|B|C|D|E> - <copy the chosen option meaning in your own words>
+RS: <A|B|C|D|E>
 ABNORMAL: <YES|NO>
 [/QUESTION_1]
 ```
@@ -639,7 +688,7 @@ Teacher target 文本仍清洗成学生视角：
 Scene Description: The RGB history shows weather, lane markings, traffic controls, surrounding motion, and a signalized intersection layout.
 Critical Object Description: The relevant signal/vehicle/pedestrian/object is ...
 Reasoning on Intent: The scene does / does not show an unusual event affecting the ego path because ...
-RS: D - Signalized intersection with traffic-light control.
+RS: D
 ABNORMAL: YES
 ```
 
@@ -650,9 +699,10 @@ ABNORMAL: YES
 只有 Q1 parsed RS 正确时才进入 Q2。Q2 使用 Q1 输出的 RS 作为当前 RS；
 训练、评估和 probe 的模型路径都把 Q2 当作 Q1 assistant 输出后的第二轮 user turn，
 通过 Q1 KV cache 续接，不重新对同一帧 fresh prefill。训练时如果 Q1 RS 错，跳过
-Q2 并 reset 下一帧。
+本帧 Q2，但错误 RS 继续进入后续帧，等待学生自救或延迟修复。
 
-Q2 的 prompt 前缀使用 road + event memory：`BELIEVED_RS` 和 `BELIEVED_EVENT`
+Q2 的 prompt 前缀使用 road + event memory：`PREVIOUS_RS_HYPOTHESIS` 和
+`PREVIOUS_EVENT_HYPOTHESIS`
 都只写自然语言描述，仍然不写 A-E / RE / U-E* 这类局部选项或标签代码。
 
 若 Q1 `ABNORMAL=NO`：
@@ -677,7 +727,7 @@ Output exactly these concise CoT lines:
 Scene Description: <one concise sentence continuing from Question 1 and the current RS>
 Critical Object Description: <1-2 concise sentences naming up to 2-3 event-relevant actors or cues, or stating that no critical object is visible>
 Reasoning on Intent: <1-2 concise sentences explaining why the selected event is active or why regular behavior continues>
-EVENT: <option letter> - <copy the chosen event meaning in your own words>
+EVENT: <option letter>
 [/QUESTION_2]
 ```
 
@@ -703,7 +753,7 @@ Output exactly these concise CoT lines:
 Scene Description: <one concise sentence continuing from Question 1 and the current RS>
 Critical Object Description: <1-2 concise sentences naming up to 2-3 event-relevant actors or cues, or stating that no critical object is visible>
 Reasoning on Intent: <1-2 concise sentences explaining the selected event or why regular behavior should continue>
-EVENT: <option letter> - <copy the chosen event meaning in your own words>
+EVENT: <option letter>
 [/QUESTION_2]
 ```
 
@@ -727,7 +777,7 @@ Critical Object Description: No pedestrian, vehicle cut-in, obstacle, or blocked
 intersection space interrupts the ego path.
 Reasoning on Intent: The vehicle should keep the regular traffic-light intersection
 behavior under the current signalized intersection structure.
-EVENT: A - No unusual event; obey normal traffic-light intersection rules.
+EVENT: A
 ```
 
 Abnormal:
@@ -739,8 +789,7 @@ the ego vehicle's intended path.
 Reasoning on Intent: The interruption is not merely normal lane keeping or signal
 compliance. This matches the event option about a pedestrian or cyclist crossing
 the ego path.
-EVENT: A - A pedestrian, cyclist, or small vulnerable road user crosses or
-laterally enters the ego path.
+EVENT: A
 ```
 
 ---
@@ -777,14 +826,14 @@ loss = KL(teacher_probs || student_log_probs) * T * T
 Q1:
 
 - structured CoT lines (`Scene Description / Critical Object Description / Reasoning on Intent`): `0.2`
-- `RS` option letter + description span: `1.2`
+- `RS` option letter 单 token: `1.2`
 - `ABNORMAL` value span: `0.8`
 - formatting tokens / prompt tokens: `0`
 
 Q2:
 
 - structured CoT lines (`Scene Description / Critical Object Description / Reasoning on Intent`): `0.2`
-- `EVENT` option letter + description span: `1.2`
+- `EVENT` option letter 单 token: `1.2`
 - formatting tokens / prompt tokens: `0`
 
 默认总 loss：
@@ -804,11 +853,15 @@ TensorBoard 会同时记录总 loss 和未加权 KL 分项：
 
 Q1 分项按有效 frame 平均；Q2 分项按实际进入 Q2 的 frame 平均。
 
+离散 span 只覆盖 option letter，不能再覆盖 `A - long description`。否则 teacher/student
+在错误 option 已经进入自回归前缀后，会花大量高权重 token 学习“如何把错误答案解释圆”，
+稀释真正把 A 改成 D 的首 token 梯度。
+
 若 Q1 RS 错误：
 
 - Q1 loss 正常计算。
 - Q2 不触发，Q2 loss = 0。
-- 下一帧 memory reset。
+- 错误 RS 写回后续帧，按 §5 patience/review interval 延迟修复。
 
 若 Q1 RS 正确但 abnormal 判断与 GT 不一致：
 
@@ -1144,7 +1197,12 @@ max_frames_per_route=0  # 0 means full route
 - `train/q1_abnormal_acc_window`
 - `train/q2_event_acc_window`
 - `train/q2_invalid_output`
-- `train/reset_next`
+- `memory/repair_pending`
+- `memory/rs_wrong_copy_rate` / `memory/rs_recovery_rate`
+- `memory/event_wrong_copy_rate` / `memory/event_recovery_rate`
+- `memory/{rs,event}_{injected_wrong,injected_unknown,forced_repair}`
+- `train/abnormal_{precision,recall,f1}`
+- `train/q2_ue_{precision,recall,f1}`
 - `train/rollout_tokens_per_frame`
 - `train/q1_token_cap_hit_rate`
 - `train/q2_token_cap_hit_rate`
@@ -1242,15 +1300,18 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
   `--require-batched-group` 模式必须在代码注释和文档中保持一致：默认模式验证
   mixed-length padded rollout，强制模式要求真实 batched_frames>=2。
 
-### 8.4 训练 padding 与 memory reset
+### 8.4 训练 padding 与 delayed memory repair
 
 每个 batch 初始化 `memory[B]`：
 
-- 第一个有效 frame 前：`GT_RS(first frame) + RE`。
+- 第一个有效 frame 前：RS/EVENT 各自按 `initial_gt_prob` 选择 GT 或 UNKNOWN。
 - Padding timestep：memory 不变。
-- Q1 RS 错：标记 `reset_next_frame[b]=True`。
-- 下一个有效 frame 开始时，若 `reset_next_frame[b]`：
-  `memory = GT_RS(current frame) + RE`，然后清标记。
+- Q1 RS 错：增加 `rs_error_streak`，错误 student RS 原样进入下一有效帧。
+- Q2 EVENT 错：增加独立 `event_error_streak`；Q1 不再自动把它改成 RE。
+- streak 达到 patience 后只设置 repair pending；RS 默认每 2 帧检查，EVENT 默认每帧检查。
+- RS 错误期间每个有效帧仍运行 Q1；只有当前帧 Q1 RS 正确才运行 Q2，禁止把
+  `rs_repair_interval` 误用成 Q1 的采样间隔。
+- 学生在 pending 真正执行前自行恢复时清空 pending，不再做多余 GT overwrite。
 
 以上只属于训练采样协议。`eval.py` / `probe.py` 使用纯 student closed-loop：完整 ID 首帧
 初始化一次，此后只刷新每帧 `EGO_TO_GOAL_XY`，RS/EVENT 仅由学生输出推进；GT reference
@@ -1299,14 +1360,20 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
   准确率与 UE 召回率，越高越好。
 - `event_end_to_end_false_positive_rate`：所有真实 RE 中最终被错误输出为 UE 的比例，
   越低越好。
-- `q2_trigger_rate`、非法输出率和原始 `tp/fp/tn/fn/invalid` 只用于解释门控与格式问题，
-  不能脱离准确率单独判断好坏。
+- `q2_trigger_rate` / `q2_skip_due_rs_rate` 分别表示 RS 正确进入 Q2、RS 错误跳过 Q2；
+  两者和非法输出率、原始 `tp/fp/tn/fn/invalid` 只用于解释门控与格式问题，不能脱离
+  准确率单独判断好坏。
 
 Route-level 指标：
 
 - `route_rs_all_correct_ratio`：整条 route 每帧 RS 都正确的 route 比例，越高越好。
 - `route_abnormal_f1_macro` / `route_ue_f1_macro`：先逐 route 算 F1 再等权平均，越高越好。
-- `mean_resets_per_100_frames`：每 100 帧 reset 次数，越低越好。
+- `rs_wrong_memory_copy_rate` / `event_wrong_memory_copy_rate`：输入已知错误 memory 时仍
+  原样复制错误标签的比例，越低越好；这是本轮定位 shortcut 的主指标。
+- `rs_wrong_or_unknown_memory_recovery_rate` /
+  `event_wrong_or_unknown_memory_recovery_rate`：错误/UNKNOWN 输入上的单帧自主恢复率，越高越好。
+- `mean_resets_per_100_frames`：eval/probe 实际 GT reset 次数，closed-loop 应为 0；训练期
+  delayed repair 的次数与 pending/streak 另走 `memory/*` TensorBoard。
 - `mean_valid_frames_per_route`：评估规模诊断，不单独判断好坏。
 
 Probe dump：
@@ -1387,7 +1454,7 @@ base 能力、训练前 grouped/parallel 等价性、训练后 adapter 可视化
   RS 或 EVENT` 写完整结构；如果复读 MEMORY、choices 或 REFERENCE，说明旧 demo 需要
   重跑或 prompt 合同还要继续收紧。
 - 训练后 adapter 学生可视化：`--with-model --adapter-dir ...`，只加载训练后的
-  student adapter，检查真实状态机下的 Q1/Q2 输出、memory 更新和 reset 行为。
+  student adapter，检查真实状态机下的 Q1/Q2 输出、memory-copy 与自主恢复行为。
 - 静态 prompt / target 快检：不加载模型，只写 RGB、student prompt、teacher prompt、
   脚本化 teacher target、label、memory、flags 和 timeline。
 
@@ -1497,8 +1564,10 @@ TOKENIZERS_PARALLELISM=false
 
 ## 12. 已拍板规则
 
-- 训练时 RS 错误只结束当前帧 Q2，下一有效帧按训练协议恢复 GT RS + RE；正式
-  eval/probe 不做该纠错，而是继续学生闭环，以测量后续自主恢复能力。
+- 训练时每个有效帧都运行 Q1；RS 错误只结束当前帧 Q2，错误 memory 继续进入后续帧，
+  下一帧继续让学生分析 RS；超过 RS patience 且到低频 review 帧才兜底修复。
+  EVENT 使用更短 patience 和逐帧 review。正式
+  eval/probe 不做任何 GT 纠错，而是继续学生闭环，以测量后续自主恢复能力。
 - Q2 候选优先使用每帧 `frame_event_annotation.allowed_events`；只有缺失时才 fallback
   到 `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]` 静态表。Prompt
   不显示 scenario 名。
