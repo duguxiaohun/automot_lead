@@ -174,7 +174,11 @@ METRIC_DEFINITIONS: Dict[str, Dict[str, str]] = {
         "direction": "higher_is_better",
     },
     "mean_resets_per_100_frames": {
-        "meaning": "每 100 帧因 Q1 RS 错或 Q2 非法输出触发的平均 reset 次数。",
+        "meaning": "每 100 帧实际应用的 GT memory 强制纠错次数；student closed-loop 测试中应为 0。",
+        "direction": "lower_is_better",
+    },
+    "mean_training_reset_recommendations_per_100_frames": {
+        "meaning": "每 100 帧若按训练状态机会因 Q1 RS 错或 Q2 非法而建议 reset 的次数；仅诊断，测试并未执行这些 reset。",
         "direction": "lower_is_better",
     },
     "mean_valid_frames_per_route": {
@@ -466,6 +470,7 @@ class StudentMetricsAccumulator:
         self.all_re_total = 0
         self.end_to_end_fp = 0
         self.reset_count = 0
+        self.training_reset_recommendation_count = 0
         # Q1 ABNORMAL 与 Q2 EVENT->UE/RE 使用两套混淆矩阵。Q2 只接收真正触发的帧，
         # 端到端漏检则由 all_ue_* 另行统计，不能把两个分母混在一起。
         self.abnormal_binary = _BinaryCounts()
@@ -492,6 +497,9 @@ class StudentMetricsAccumulator:
         # Q1 统计对所有帧生效；RS/UE 边界标记由 eval/probe 按原始 route 相邻帧生成。
         self.frames += 1
         self.reset_count += int(bool(row.get("reset_next")))
+        self.training_reset_recommendation_count += int(
+            bool(row.get("would_reset_under_training"))
+        )
         self.rs_correct += int(q1_rs_correct)
         self.abnormal_binary.update(gt_abnormal, pred_abnormal)
         if bool(row.get("rs_transition")):
@@ -612,8 +620,12 @@ class StudentMetricsAccumulator:
             "q2_ue_correct": self.q2_ue_exact_correct,
             "q2_re_total": self.q2_re_total,
             "q2_re_correct": self.q2_re_exact_correct,
+            # legacy key 只为旧 comparison.json 兼容保留；它历史上实际统计的是 RS
+            # 错帧数而非真正 reset 次数。新消费方应读取 rs_wrong_frames/reset_count。
             "rs_wrong_resets": self.frames - self.rs_correct,
+            "rs_wrong_frames": self.frames - self.rs_correct,
             "reset_count": self.reset_count,
+            "training_reset_recommendation_count": self.training_reset_recommendation_count,
             "rs_transition_frames": self.rs_transition_frames,
             "abnormal_boundary_frames": self.abnormal_boundary_frames,
             "abnormal_confusion": abnormal,

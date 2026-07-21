@@ -19,6 +19,7 @@ from qwen3vl_local.sft_v5.prompts import (
     reset_memory_for_frame,
     update_memory_after_q1,
     update_memory_after_q2,
+    update_memory_navigation,
 )
 
 
@@ -68,7 +69,21 @@ def main() -> None:
     assert mem.event_label == "U-E6"
 
     mem2 = update_memory_after_q2(mem, student_event_label=None)
-    assert mem2.event_label == "U-E6", "Q2 非法输出不能污染当前 memory；外层负责下一帧 reset"
+    assert mem2.event_label == "U-E6", "Q2 非法输出不能污染当前 memory"
+
+    # 测试/eval 的下一帧只能刷新外部导航量，不能因为真值已经变化就强制覆盖学生
+    # 的 RS/EVENT。这样才能观察学生在后续多帧中是否会自行纠正。
+    carried = update_memory_navigation(mem2, ego_to_goal_xy=(8.0, 2.0))
+    assert carried.rs_label == "R4"
+    assert carried.event_label == "U-E6"
+    assert carried.ego_to_goal_x == 8.0 and carried.ego_to_goal_y == 2.0
+    corrected = update_memory_after_q1(
+        carried,
+        student_rs_label="R2",
+        student_abnormal=True,
+    )
+    assert corrected.rs_label == "R2", "RS 必须由后续 student Q1 输出自行改正"
+    assert corrected.event_label == "U-E6", "Q1 abnormal=yes 时保留原 EVENT 等待 Q2"
 
     mem = update_memory_after_q1(mem, student_rs_label="R4", student_abnormal=False)
     assert mem.event_label == "RE", "Q1 abnormal=no 应回到当前 RS 下 RE"

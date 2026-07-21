@@ -134,9 +134,9 @@ probes/comparison.json
 ```
 
 自动 probe 复用 rank0 已加载的模型，不额外加载第二份 Qwen。默认用固定 seed 的
-`random` 模式选择一段连续 8 帧，保证 base/checkpoint/final 始终对比同一片段。
-默认 `review` 按测试场景和帧分目录，输入、学生输出、老师输出、老师真值、场景真值、
-memory 与评估结果各自单独保存。
+`random` 模式选择一段连续 24 帧，保证 base/checkpoint/final 始终对比同一片段，并观察
+学生在 RS/EVENT 变化后是否会延迟自行纠正。默认 `review` 每帧只保存输入 RGB、
+`input.json`、`output.json` 和 `memory.json`。
 自动 probe 使用 256/192 token 旁路上限，不影响训练的 1024/1024。
 
 常用覆盖：
@@ -147,8 +147,8 @@ CHECKPOINT_PROBE=0 SAVE_STEPS=40 GPU_IDS=0,1,2,3 \
 bash qwen3vl_local/sft_v5/train.sh ddp
 
 # 改成 UE 进入/退出专项小样本。
-CHECKPOINT_PROBE_SAMPLE_MODE=ue_transition CHECKPOINT_PROBE_NUM_CASES=8 \
-CHECKPOINT_PROBE_CONTEXT_RADIUS=2 GPU_IDS=0,1,2,3 \
+CHECKPOINT_PROBE_SAMPLE_MODE=ue_transition CHECKPOINT_PROBE_NUM_CASES=24 \
+CHECKPOINT_PROBE_CONTEXT_RADIUS=8 GPU_IDS=0,1,2,3 \
 bash qwen3vl_local/sft_v5/train.sh ddp
 ```
 
@@ -222,7 +222,8 @@ RS 变化、UE 进入/退出帧以及 FP/FN，每行直接给出 `TP/FP/FN/TN/in
 | `q2_false_positive_rate` / `q2_false_negative_rate` | Q2 的 UE 假阳性/假阴性率 | 越低越好 |
 | `event_end_to_end_acc` / `ue_end_to_end_recall` | 包含 Q1 门控失败的端到端指标 | 越高越好 |
 | `event_end_to_end_false_positive_rate` | 所有真实 RE 中最终误报 UE 的比例 | 越低越好 |
-| `mean_resets_per_100_frames` | 每百帧 reset 次数 | 越低越好 |
+| `mean_resets_per_100_frames` | 测试中每百帧真值强制纠错次数；学生闭环应为 0 | 越低越好 |
+| `mean_training_reset_recommendations_per_100_frames` | 若套用训练 reset 规则会触发的频率，仅诊断 | 仅诊断 |
 | `q2_trigger_rate` / 样本数 | 门控覆盖与评估规模 | 仅诊断 |
 
 完整定义与方向保存在 `eval_metrics.json.metric_definitions`。分母无样本时写 `null`。
@@ -239,8 +240,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe \
-  --num-cases 8 \
-  --sequence-length 8 \
+  --num-cases 24 \
+  --sequence-length 24 \
   --artifact-level review \
   --with-model \
   --with-teacher-model \
@@ -255,21 +256,19 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
   --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
-  --num-cases 8 \
-  --sequence-length 8 \
+  --num-cases 24 \
+  --sequence-length 24 \
   --artifact-level review \
   --sample-mode random \
-  --context-radius 2 \
+  --context-radius 8 \
   --with-model \
   --with-teacher-model \
   --with-teacher
 ```
 
-这条训练后命令与训练前 base 检查使用同一批输入和同一产物 schema：student 加载
-`--adapter-dir` 的 LoRA，teacher 仍是未加载 LoRA 的纯 base Qwen。打开
-`scenarios/<scenario>__<route_id>/frame_*/` 下可分别查看输入、学生/老师分析输出、
-teacher 脚本真值、RS/EVENT 场景真值、memory 和正确性。若只想看 LoRA student，可去掉
-`--with-teacher-model`，其它真值字段仍会保留。
+这条训练后命令与训练前 base 检查使用同一批输入和 schema：student 加载 LoRA，teacher
+仍是纯 base Qwen。测试窗口首帧建立共同起点，此后 student memory 只由学生 Q1/Q2
+输出推进；truth memory 只在 `memory.json` 对照，绝不回写纠错。
 
 选帧模式：
 
@@ -278,21 +277,19 @@ teacher 脚本真值、RS/EVENT 场景真值、memory 和正确性。若只想�
 - `ue_transition`：完整保留同一 UE 从首帧到末帧，再向前后各补
   `--context-radius` 个 RE/邻帧；长 UE 可以超过 `--num-cases`，不会从中间截断。
 
-`--context-radius 2` 表示专项模式保留边界前后最多 2 帧。如果所读数据中没有
+`--context-radius 8` 表示专项模式保留边界前后最多 8 帧。如果所读数据中没有
 对应的 RS/UE 变化，专项模式不会用无关帧凑数。RS 结果可能少于 `--num-cases`；UE
 结果为保证 span 完整性也可能多于 `--num-cases`。
 
-默认从 `scenarios/` 进入测试场景，再进入对应 `frame_*`。每帧固定写
-`inputs.json`、`student_outputs.json`、`teacher_outputs.json`、`teacher_targets.json`、
-`ground_truth.json`、`memory.json`、`prediction_vs_ground_truth.json` 和 `evaluation.json`。
-其中 `prediction_vs_ground_truth.json` 直接并列当前场景真值、学生解析结构、teacher
-真值和正确性，是每帧首选入口。其中 `current_scene_ground_truth.structured` 给出 Q1 的
-RS/ABNORMAL 真值与 Q2 的可接受 EVENT、默认真值和按学生输出动态解析的真值；
-同层 `scenario_name/route_id` 保存原始场景定位真值，仅用于审计，不作为 v5 类别；
-`student_extracted_structure` 是从学生原始输出提取出的实际字段；`field_comparisons`
-进一步按 Q1 RS、Q1 ABNORMAL、Q2 EVENT 并排保存 `expected/predicted/correct`。
-静态检查没有运行 student 时，预测与正确性为 `null`。顶层 `results.json` 只负责汇总和
-机器索引；`--artifact-level full` 再额外复制 RGB 并保存 legacy TXT/JSON。
+默认从 `scenarios/` 进入测试场景，再进入对应 `frame_*`。每帧只有：
+
+- `input_rgb_*.jpg`：模型实际读取的连续 RGB history。
+- `input.json`：Q1 student/teacher 输入及 Q2 KV 续接 user turn。
+- `output.json`：学生和老师的完整输出、解析结构、teacher target、场景真值与正确性。
+- `memory.json`：Q1 输入/输出、Q2 输入/输出、下一帧 student memory 与只读 truth 对照。
+
+顶层 `results.json` 只保留指标、帧目录索引和 `memory_recovery_report`；后者统计变化后
+学生首次自主改对的延迟帧数。`--artifact-level full` 才增加 legacy TXT/JSON。
 手工 probe 默认 1024/1024 token；自动 checkpoint probe 才使用 256/192。
 
 训练前 grouped/parallel 等价性检查：

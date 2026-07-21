@@ -1023,8 +1023,8 @@ Checkpoint / probe 策略：
 
 - 用户实测四卡当前吞吐约 80 optimizer steps/day，正式 launcher 默认
   `SAVE_STEPS=40`，约半天保存 `checkpoint-40/80/...`；正常结束始终保存 `final/`。
-- 每个 run 的 step 0 自动在 `probes/base/` 保存 8 个固定、可复现的 validation case。
-  默认 `random` 用固定 seed 选择一段连续 8 帧；每个 checkpoint/final 保存后生成
+- 每个 run 的 step 0 自动在 `probes/base/` 保存 24 个固定、可复现的 validation frame。
+  默认 `random` 用固定 seed 选择一段连续 24 帧；每个 checkpoint/final 保存后生成
   同一批帧的 LoRA student + 纯 base teacher probe，便于直接纵向对比。
 - probe 公开选帧模式只有三种：`random` 随机连续片段；`rs_transition` 的同一 RS
   变化前/首帧/后帧；`ue_transition` 必须保留同一 UE span 的全部 UE 帧，再按
@@ -1033,18 +1033,18 @@ Checkpoint / probe 策略：
 - 自动 probe 必须复用 rank0 当前训练 bundle，不能另起子进程加载第二份 Qwen。base
   student/teacher 使用 `disable_adapter()`，checkpoint student 保持 LoRA 开启；其它
   rank 在 probe 前后 barrier，防止参数变化和 collective 次序错位。
-- 每个 probe 都写主 `results.json`，run 级 `probes/comparison.json` 聚合 base、各
-  checkpoint 和 final。默认 `--artifact-level review` 另按
-  `scenarios/<scenario>__<route>/frame_<id>/` 拆分连续帧；`--artifact-level full` 才在
-  review 文件之上增加 v3 风格 RGB/prompt/memory。`compact` 只减少文件数量，不能减少
+- 每个 probe 都写轻量主 `results.json`，run 级 `probes/comparison.json` 聚合 base、各
+  checkpoint 和 final。默认 `--artifact-level review` 按
+  `scenarios/<scenario>__<route>/frame_<id>/` 拆分连续帧，每帧只写输入 RGB、
+  `input.json`、`output.json`、`memory.json`；`--artifact-level full` 才增加 legacy
+  prompt/memory 文件。`compact` 只减少文件数量，不能减少
   审计字段：每帧必须保留 RGB 路径、实际 Q1
   student/teacher messages、标明 Q1 KV 来源的 Q2 user turns、完整 student/base-teacher
   CoT 输出、脚本化 teacher target、
   RS/EVENT 场景真值、memory 与变化检测结果。base 和 LoRA probe 必须使用同一 schema，
   唯一区别是 LoRA probe 的 student 开启 adapter。
-  每个 frame 还必须写 `prediction_vs_ground_truth.json`，直接并列当前场景真值、学生
-  Q1/Q2 解析结构、默认与按双标签动态解析的结构化真值、teacher 文本真值和逐项正确性，
-  禁止要求人工跨文件拼接比较。
+  `output.json` 必须直接并列学生/老师 raw output、解析结构、场景真值、teacher target 和
+  逐项正确性；`memory.json` 必须并列 Q1/Q2 student memory 转换与只读 reference。
   失败写 `error.txt` 后继续训练。probe 结束必须恢复 train 模式并清理 CUDA
   cache，不能让可视化对象跨训练窗口常驻。
 - teacher model 的 Q2 只在其自身 Q1 RS 正确时触发，并续接 teacher 自己的 Q1 KV、RS
@@ -1242,7 +1242,7 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
   `--require-batched-group` 模式必须在代码注释和文档中保持一致：默认模式验证
   mixed-length padded rollout，强制模式要求真实 batched_frames>=2。
 
-### 8.4 Padding 与 memory reset
+### 8.4 训练 padding 与 memory reset
 
 每个 batch 初始化 `memory[B]`：
 
@@ -1251,6 +1251,11 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
 - Q1 RS 错：标记 `reset_next_frame[b]=True`。
 - 下一个有效 frame 开始时，若 `reset_next_frame[b]`：
   `memory = GT_RS(current frame) + RE`，然后清标记。
+
+以上只属于训练采样协议。`eval.py` / `probe.py` 使用纯 student closed-loop：连续窗口首帧
+初始化一次，此后只刷新每帧 `EGO_TO_GOAL_XY`，RS/EVENT 仅由学生输出推进；GT reference
+只用于比较，绝不回写。测试窗口默认 24 帧，RS/UE 边界前后默认观察 8 帧，并报告学生
+首次自行对齐 reference 的延迟。
 
 如果某条 route sequence 在中间出现缺 RGB / 缺 weather / 缺 label：
 
@@ -1265,8 +1270,8 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
 `metrics.py` 是 `eval.py` 与 `probe.py` 的唯一指标口径。大样本评估按帧流式更新计数器，
 不会把全量 prompt/output 留在内存；只有显式传 `--output-jsonl` 时才把完整逐帧证据落盘。
 可单独传 `--transition-jsonl` 只落盘真实/预测 RS 变化、UE 进入/退出和 FP/FN，
-  不保存大段 prompt。小样本三种 artifact mode 都把变化报告内嵌在
-  `results.json.transition_report`，full 模式再另写 `transition_report.json`。
+  不保存大段 prompt。小样本的变化指标在 `results.json.summary`，自主 memory 恢复延迟
+  在 `results.json.memory_recovery_report`；full 模式另写 `transition_report.json`。
 分母没有样本的指标写 `null`，不能用 0 假装模型失败。
 正式 eval 的 Q1/Q2 默认安全上限均为 1024，与训练 rollout 对齐；自动小样本 probe 的
 256/192 只控制 checkpoint 旁路耗时，不用于报告正式大样本指标。
@@ -1312,24 +1317,18 @@ probe*/
   scenarios/
     <scenario>__<route_id>/
       frame_<frame_id>/
-        inputs.json
-        student_outputs.json
-        teacher_outputs.json
-        teacher_targets.json
-        ground_truth.json
+        input_rgb_00.jpg
+        input_rgb_01.jpg
+        input_rgb_02.jpg
+        input_rgb_03.jpg
+        input.json
+        output.json
         memory.json
-        prediction_vs_ground_truth.json
-        evaluation.json
 ```
 
-默认 `review` 使用以上结构。`prediction_vs_ground_truth.json` 是单帧首选入口：其中
-`current_scene_ground_truth.structured` 是 Q1/Q2 结构化真值，
-`current_scene_ground_truth.scenario_name/route_id` 是原始场景定位审计字段，不进入 v5 loss；
-`student_extracted_structure` 是从学生原始输出解析出的字段，`teacher_ground_truth` 同时
-保存结构化真值和完整文本 target，`correctness` 保存逐项判分。双 EVENT 标签会同时保存
-可接受标签集合、默认单标签和按当前学生输出动态解析的单标签。`field_comparisons` 再按
-Q1 RS、Q1 ABNORMAL、Q2 EVENT 直接并排 `expected/predicted/correct`；未运行 student 的
-静态检查必须写 `null`，不能伪装成 teacher-forced 学生正确。
+默认 `review` 使用以上结构。`input.json` 保存实际 messages 与 Q2 KV 续接；`output.json`
+保存 student/teacher raw 与 parsed、双标签结构化真值、文本 target 和正确性；
+`memory.json` 保存 Q1/Q2 输入输出、下一帧 student state 和 comparison-only reference。
 
 只有 `--artifact-level full` 才在以上 review 文件之外增加：
 
@@ -1343,11 +1342,10 @@ probe*/
       timeline.json
       timeline.png
       frame_<frame_id>/
-        rgb_00.jpg
-        rgb_01.jpg
-        rgb_02.jpg
-        rgb_03.jpg
-        rgb_paths.json
+        input_rgb_00.jpg
+        input_rgb_01.jpg
+        input_rgb_02.jpg
+        input_rgb_03.jpg
         case_record.json
         q1_student_prompt.txt
         q1_student_output.txt
@@ -1499,8 +1497,8 @@ TOKENIZERS_PARALLELISM=false
 
 ## 12. 已拍板规则
 
-- RS 错误后的“结束采样”粒度与 v3 一样：只结束当前帧。Q1 RS 错则跳过本帧
-  Q2，下一有效帧恢复 GT RS + 当前 GT RS 下默认 RE 后继续同一条 route sequence。
+- 训练时 RS 错误只结束当前帧 Q2，下一有效帧按训练协议恢复 GT RS + RE；正式
+  eval/probe 不做该纠错，而是继续学生闭环，以测量后续自主恢复能力。
 - Q2 候选优先使用每帧 `frame_event_annotation.allowed_events`；只有缺失时才 fallback
   到 `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]` 静态表。Prompt
   不显示 scenario 名。

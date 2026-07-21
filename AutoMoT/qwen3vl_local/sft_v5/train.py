@@ -107,6 +107,7 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     target_spans_q2,
     update_memory_after_q1,
     update_memory_after_q2,
+    update_memory_navigation,
 )
 
 
@@ -2832,7 +2833,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--checkpoint-probe-num-cases",
         type=int,
-        default=8,
+        default=24,
         help="random/RS 的 probe 总帧预算；UE 模式为最小预算且不截断完整 span",
     )
     p.add_argument(
@@ -2841,12 +2842,12 @@ def parse_args() -> argparse.Namespace:
         default="random",
         help="自动 probe 选帧：随机、RS 变化前后或 UE 进入/退出片段",
     )
-    p.add_argument("--checkpoint-probe-context-radius", type=int, default=2)
+    p.add_argument("--checkpoint-probe-context-radius", type=int, default=8)
     p.add_argument(
         "--checkpoint-probe-sequence-length",
         type=int,
-        default=8,
-        help="random checkpoint probe 每段连续帧数；num-cases 仍是总帧预算",
+        default=24,
+        help="random checkpoint probe 默认连续观察 24 帧，覆盖延迟 memory 纠正",
     )
     p.add_argument(
         "--checkpoint-probe-artifact-level",
@@ -3424,6 +3425,13 @@ def main() -> None:
                     if memories[b] is None or reset_next[b]:
                         memories[b] = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
                         reset_next[b] = False
+                    else:
+                        # RS/EVENT 延续上一帧 student 状态；EGO_TO_GOAL_XY 是当前帧导航
+                        # 输入，必须逐帧刷新。这里只改坐标，不构成 GT 标签纠错。
+                        memories[b] = update_memory_navigation(
+                            memories[b],
+                            frame.ego_to_goal_xy,
+                        )
                     assert memories[b] is not None
                     # 当前 timestep 的 prompt 读取的是上一帧写回的 student memory。采集
                     # 和训练不会在 route 间共享 memory；每条 route 的时间状态只存在

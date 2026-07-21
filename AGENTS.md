@@ -337,20 +337,19 @@
   `memory/{allocated,reserved,max_allocated,max_reserved}_gb`；长期显存风险以
   `allocated` 为主，不能只凭 `nvidia-smi` 或 allocator `reserved` 高水位判断泄漏。
   `probe.py` 公开选帧模式只保留 `random` / `rs_transition` / `ue_transition`；默认
-  `random` 用固定 seed 抽取连续短片段，`--num-cases` 是总帧预算，
-  `--sequence-length` 是每段目标长度；
+  `random` 用固定 seed 抽取连续 24 帧，`--num-cases` 是总帧预算，
+  `--sequence-length` 是每段目标长度，RS/UE 默认边界 context radius 为 8；
   RS 专项必须保留同一次变化的前帧/新 RS 首帧/后帧，UE 专项必须保留同一
   UE span 的全部 UE 帧并按 context radius 补进入前/退出后邻帧，不能被
   `num_cases` 从中间截断；专项找不到变化时不用
-  无关帧 fallback 凑数。默认 `--artifact-level review` 按
-  `scenarios/<scenario>__<route>/frame_<id>/` 保存连续测试帧；每帧分别写输入、学生输出、
-  教师输出、teacher target、场景 GT、memory、evaluation，以及
-  `prediction_vs_ground_truth.json`。该对照文件必须并列当前 RS/ABNORMAL/EVENT 真值、
-  原始 scenario/route 审计真值、
-  学生 Q1/Q2 解析结构、默认与按双标签动态解析的结构化真值、文本 teacher target 和
-  逐项正确性，并按字段给出 `expected/predicted/correct`；未运行 student 时预测与正确性
-  必须为 null。`compact` 只写同 schema 的顶层 `results.json`；只有
-  `--artifact-level full` 才仿 v3 复制 4 帧 RGB，保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
+  无关帧 fallback 凑数。测试窗口首帧初始化 student/reference；随后 student RS/EVENT
+  只由自身 Q1/Q2 输出推进，reference 只作真值比较，禁止回写纠错；逐帧导航坐标可刷新。
+  `results.json.memory_recovery_report` 必须统计 RS/UE 变化后 student 首次自行对齐的延迟。
+  默认 `--artifact-level review` 按 `scenarios/<scenario>__<route>/frame_<id>/` 保存连续帧；
+  每帧只写 `input_rgb_*.jpg`、`input.json`、`output.json`、`memory.json`。output 并列
+  student/teacher raw 与 parsed、teacher target、场景 GT 和正确性；memory 并列两问
+  student 转换与 comparison-only reference。`compact` 只写顶层 `results.json`；只有
+  `--artifact-level full` 才额外保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
   可选 `q*_teacher_output.txt`、memory_before/after、flags、timeline.json/png 和
   manifest.json，每帧另写完整 `case_record.json`；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用
   `--with-teacher-model`；训练前 base Qwen OPSD 能力体检必须不传 `--adapter-dir`、

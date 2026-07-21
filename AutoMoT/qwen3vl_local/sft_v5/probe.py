@@ -6,10 +6,10 @@
 训练前 OPSD 能力体检必须不传 `--adapter-dir`，即 teacher/student 都只用普通 Qwen，
 不导入任何 LoRA。
 
-默认 ``review`` 按 ``scenarios/<scenario>__<route>/frame_<id>/`` 保存连续帧，并把输入、
-学生输出、教师输出、场景真值和预测对照拆成固定 JSON。``compact`` 只写汇总
-``results.json``；显式指定 ``--artifact-level full`` 时再仿照 sft_v3/probe.py 增加
-RGB 副本、逐项 TXT、route timeline 和 manifest。
+默认 ``review`` 按 ``scenarios/<scenario>__<route>/frame_<id>/`` 保存连续帧。每帧只保留
+实际输入 RGB、``input.json``、``output.json`` 和 ``memory.json``：输入、学生/老师
+输出、解析结构、场景真值与两问 memory 转换都有唯一入口。``compact`` 只写汇总
+``results.json``；显式指定 ``--artifact-level full`` 时才额外生成旧式逐项文件。
 
 小样本只保留三种直观模式：``random`` 随机连续片段，``rs_transition`` 查看同一次
 RS 变化前后，``ue_transition`` 查看同一次 UE 的进入、持续和退出。不传模型开关时
@@ -55,6 +55,7 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     parse_q2_output,
     update_memory_after_q1,
     update_memory_after_q2,
+    update_memory_navigation,
 )
 from qwen3vl_local.sft_v5.train import (  # noqa: E402
     FrameRow,
@@ -111,6 +112,48 @@ def _memory_json(memory: Any) -> Dict[str, Any]:
     }
 
 
+def _compare_memory_states(
+    student: Optional[Dict[str, Any]],
+    reference: Dict[str, Any],
+    *,
+    accepted_event_labels: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """并排比较 student/reference memory，不把 reference 写回 student。
+
+    Q2 双标签场景使用 ``accepted_event_labels`` 判断 EVENT 是否正确；展示的 reference
+    仍保留 canonical 单标签，既能审计默认 GT，也不会把另一个合法 UE 误判为错误。
+    """
+
+    if student is None:
+        return {
+            "student": None,
+            "reference": reference,
+            "rs_matches": None,
+            "event_matches": None,
+            "goal_matches": None,
+            "discrete_state_matches": None,
+        }
+    accepted = set(str(item) for item in (accepted_event_labels or ()))
+    rs_matches = student.get("rs_label") == reference.get("rs_label")
+    event_matches = (
+        student.get("event_label") in accepted
+        if accepted
+        else student.get("event_label") == reference.get("event_label")
+    )
+    goal_matches = (
+        student.get("ego_to_goal_x") == reference.get("ego_to_goal_x")
+        and student.get("ego_to_goal_y") == reference.get("ego_to_goal_y")
+    )
+    return {
+        "student": student,
+        "reference": reference,
+        "rs_matches": rs_matches,
+        "event_matches": event_matches,
+        "goal_matches": goal_matches,
+        "discrete_state_matches": bool(rs_matches and event_matches),
+    }
+
+
 def _messages_json(copied_rgb: List[Dict[str, str]], user_prompt: str) -> List[Dict[str, Any]]:
     """用可序列化形式展示真正送给 Qwen 的 system/user messages。"""
 
@@ -142,12 +185,16 @@ def _write_messages(frame_dir: pathlib.Path, name: str, copied_rgb: List[Dict[st
 
 
 def _copy_rgb_inputs(frame: FrameRow, frame_dir: pathlib.Path) -> List[Dict[str, str]]:
-    """复制 4 帧 RGB history 到 probe case 目录。"""
+    """复制模型实际读取的 RGB history 到逐帧 probe 目录。
+
+    文件名前缀固定为 ``input_rgb``，明确表示这些 JPEG 是该帧 Q1
+    student/teacher 共用的视觉输入，而不是模型输出或渲染图。
+    """
 
     copied: List[Dict[str, str]] = []
     for idx, src_text in enumerate(frame.history_rgb_paths):
         src = pathlib.Path(src_text)
-        dst = frame_dir / f"rgb_{idx:02d}.jpg"
+        dst = frame_dir / f"input_rgb_{idx:02d}.jpg"
         record = {"index": str(idx), "source": str(src), "file": str(dst.name)}
         try:
             if src.exists():
@@ -160,7 +207,6 @@ def _copy_rgb_inputs(frame: FrameRow, frame_dir: pathlib.Path) -> List[Dict[str,
             record["copied"] = "false"
             record["error"] = str(exc)
         copied.append(record)
-    (frame_dir / "rgb_paths.json").write_text(json.dumps(copied, ensure_ascii=False, indent=2), encoding="utf-8")
     return copied
 
 
@@ -188,7 +234,7 @@ def _write_timeline_png(path: pathlib.Path, frame_logs: List[Dict[str, Any]]) ->
     n = max(len(frame_logs) - 1, 1)
     for i, log in enumerate(frame_logs):
         x = 12 + int((width - 24) * i / n)
-        if log.get("rs_wrong_reset"):
+        if log.get("q1_rs_correct") is False:
             color = (210, 40, 40)
             r = 5
         elif log.get("q2_triggered"):
@@ -364,7 +410,7 @@ def build_probe_selection_plan(
     sample_mode: str,
     context_radius: int,
     seed: int,
-    sequence_length: int = 8,
+    sequence_length: int = 24,
 ) -> List[ProbeSelection]:
     """按三种公开语义构造小样本计划。
 
@@ -403,8 +449,8 @@ def build_probe_selection_plan(
 
     if mode == "random":
         # random 不是把全数据集帧打散后各抽一帧，而是随机选择 route/start，再连续
-        # 推理若干帧。这样 Q1 错误后的 memory reset、RS 切换及 UE 进入/退出都能按
-        # 真实时间顺序被观察。num_cases 仍是总帧预算，避免自动 checkpoint probe
+        # 推理若干帧。这样 Q1 错误后的 memory 漂移/自主恢复、RS 切换及 UE 进入/退出
+        # 都能按真实时间顺序被观察。num_cases 仍是总帧预算，避免自动 checkpoint probe
         # 因语义变化突然扩大推理成本。
         rng = random.Random(int(seed))
         clip_target = max(1, int(sequence_length))
@@ -612,6 +658,100 @@ def summarize_probe(
     return summary
 
 
+def build_memory_recovery_report(frame_logs: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """统计 RS/EVENT 真值变化后 student memory 的自主恢复延迟。
+
+    每个变化点只在当前连续选帧窗口内向后搜索，并在下一次同类 GT 变化前停止。延迟 0
+    表示学生在变化首帧立即改对；``recovered=false`` 表示直到观察窗口结束仍未与
+    reference 对齐。该函数只读 probe 日志，不参与任何 memory 更新。
+    """
+
+    logs = list(frame_logs)
+
+    def collect(kind: str) -> List[Dict[str, Any]]:
+        """收集一种变化的逐 case 恢复结果。"""
+
+        cases: List[Dict[str, Any]] = []
+        for start, row in enumerate(logs):
+            if bool(row.get("selection_gap_reset")):
+                # 窗口首帧没有真实 student 前序，不能测“从旧 memory 自主切换”的延迟。
+                continue
+            if kind == "rs":
+                is_transition = bool(row.get("rs_transition"))
+                match_key = "memory_rs_matches_after_q1"
+                target = row.get("gt_rs_label")
+                boundary_key = "rs_transition"
+                transition_name = "rs_change"
+            else:
+                is_transition = bool(row.get("abnormal_transition"))
+                match_key = "memory_event_matches_after_q2"
+                target = row.get("gt_event_label")
+                boundary_key = "abnormal_transition"
+                transition_name = "ue_entry" if bool(row.get("gt_abnormal")) else "ue_exit"
+            if not is_transition:
+                continue
+
+            recovered_at: Optional[int] = None
+            end = start
+            for cursor in range(start, len(logs)):
+                candidate = logs[cursor]
+                if cursor > start and (
+                    bool(candidate.get("selection_gap_reset"))
+                    or candidate.get("route_id") != row.get("route_id")
+                    or bool(candidate.get(boundary_key))
+                ):
+                    break
+                end = cursor
+                if candidate.get(match_key) is True:
+                    recovered_at = cursor
+                    break
+            cases.append(
+                {
+                    "transition": transition_name,
+                    "scenario": row.get("scenario"),
+                    "route_id": row.get("route_id"),
+                    "transition_frame_id": row.get("frame_id"),
+                    "target": target,
+                    "recovered": recovered_at is not None,
+                    "recovery_delay_frames": (
+                        recovered_at - start if recovered_at is not None else None
+                    ),
+                    "recovered_frame_id": (
+                        logs[recovered_at].get("frame_id") if recovered_at is not None else None
+                    ),
+                    "observed_frames": end - start + 1,
+                    "last_observed_frame_id": logs[end].get("frame_id"),
+                }
+            )
+        return cases
+
+    rs_cases = collect("rs")
+    event_cases = collect("event")
+    all_cases = rs_cases + event_cases
+    recovered_delays = [
+        int(case["recovery_delay_frames"])
+        for case in all_cases
+        if case.get("recovery_delay_frames") is not None
+    ]
+    return {
+        "meaning": (
+            "GT 变化后 student memory 首次自行与 reference 对齐的延迟；reference 只用于比较，"
+            "没有回写 student。"
+        ),
+        "rs_change_cases": rs_cases,
+        "event_change_cases": event_cases,
+        "summary": {
+            "transition_cases": len(all_cases),
+            "recovered_cases": sum(bool(case.get("recovered")) for case in all_cases),
+            "not_recovered_cases": sum(not bool(case.get("recovered")) for case in all_cases),
+            "mean_recovery_delay_frames": (
+                sum(recovered_delays) / len(recovered_delays) if recovered_delays else None
+            ),
+            "max_recovery_delay_frames": max(recovered_delays) if recovered_delays else None,
+        },
+    }
+
+
 def dump_probe(
     args: argparse.Namespace,
     *,
@@ -624,8 +764,9 @@ def dump_probe(
 
     ``student_bundle`` / ``teacher_bundle`` 仅供训练进程内自动 probe 使用。传入后不会
     重新加载 Qwen；checkpoint student 使用当前 LoRA，base 与 teacher 则在同一模型上
-    临时关闭 adapter。默认 ``review`` 按 scenario/frame 分目录，并把输入、输出、真值
-    分成少量固定 JSON；``compact`` 只写汇总；``full`` 再展开 v3 风格 RGB/TXT/timeline。
+    临时关闭 adapter。默认 ``review`` 按 scenario/frame 分目录，每帧只写 RGB、
+    input/output/memory 三个 JSON；``compact`` 只写汇总；``full`` 再展开旧式
+    TXT/JSON/timeline 深度审计文件。
     """
 
     out_dir = pathlib.Path(args.output_dir)
@@ -636,9 +777,9 @@ def dump_probe(
         max_frames_per_route=int(args.max_frames_per_route),
     )
     sample_mode = str(getattr(args, "sample_mode", "random"))
-    context_radius = int(getattr(args, "context_radius", 2))
+    context_radius = int(getattr(args, "context_radius", 8))
     sample_seed = int(getattr(args, "seed", 20260711))
-    sequence_length = max(1, int(getattr(args, "sequence_length", 8)))
+    sequence_length = max(1, int(getattr(args, "sequence_length", 24)))
     artifact_level = str(getattr(args, "artifact_level", "review")).lower()
     if artifact_level not in {"compact", "review", "full"}:
         raise ValueError(
@@ -738,7 +879,7 @@ def dump_probe(
             route_dir.mkdir(parents=True, exist_ok=True)
         frame_logs: List[Dict[str, Any]] = []
         memory = None
-        reset_next = False
+        reference_memory = None
         previous_selected_frame_index: Optional[int] = None
         previous_pred_rs_label: Optional[str] = None
         previous_pred_abnormal: Optional[bool] = None
@@ -751,29 +892,41 @@ def dump_probe(
                 or frame_index != previous_selected_frame_index + 1
             )
             if selection_gap_reset:
-                # 定向采样可能从一条 route 取多个不连续窗口。不能让前一个窗口的 student
-                # memory 跨越未实际推理的几十帧污染后一个窗口，因此在 gap 处按正式
-                # reset 口径恢复当前 GT RS + RE。连续邻帧仍保留真实 memory 推进。
+                # 定向采样可能从一条 route 取多个不连续窗口。每个窗口首帧分别初始化
+                # student/reference；窗口内部 student 只由模型输出推进，reference 只由 GT
+                # 推演，二者永不互相覆盖。
                 memory = None
-                reset_next = False
+                reference_memory = None
                 previous_pred_rs_label = None
                 previous_pred_abnormal = None
             previous_selected_frame_index = frame_index
             rs_target = _rs_target_from_frame(frame)
             event_target = _event_target_from_frame(frame)
-            if memory is None or reset_next:
-                # 训练/eval 口径：首帧或上帧非法/RS 错后，用 GT RS + RE 重置下一帧 memory。
+            memory_initialized_from_gt = memory is None
+            if memory is None:
+                # 连续窗口没有历史输出，只能用当前 GT RS + RE 建立共同起点；该初始化
+                # 会写入审计字段，且只发生一次，不会在学生答错后再次触发。
                 memory = _reset_memory_for_frame_row(frame)
-                reset_next = False
+                reference_memory = _reset_memory_for_frame_row(frame)
+            else:
+                # 导航坐标是逐帧外部输入，不属于标签纠错；RS/EVENT 保持学生上一帧结果。
+                memory = update_memory_navigation(memory, frame.ego_to_goal_xy)
+                assert reference_memory is not None
+                reference_memory = update_memory_navigation(
+                    reference_memory,
+                    frame.ego_to_goal_xy,
+                )
+            assert reference_memory is not None
             memory_at_frame_start = memory
             memory_before = _memory_json(memory)
+            reference_memory_before = _memory_json(reference_memory)
             case_dir = route_dir / f"frame_{frame.frame_id:04d}"
             if review_artifacts:
                 case_dir.mkdir(parents=True, exist_ok=True)
-            if full_artifacts:
+            if review_artifacts:
                 copied_rgb = _copy_rgb_inputs(frame, case_dir)
             else:
-                # review/compact 记录原始图像路径但不复制 JPEG；只有 full 才归档图像字节。
+                # compact 不创建逐帧目录，只在 results.json 中保留原始图像路径。
                 copied_rgb = [
                     {"index": str(idx), "source": str(path), "file": str(path)}
                     for idx, path in enumerate(frame.history_rgb_paths)
@@ -803,6 +956,7 @@ def dump_probe(
             q2_target = ""
             q2_teacher_model_prompt = ""
             q2_teacher_model_target = ""
+            q2_student_memory_input: Optional[Dict[str, Any]] = None
             parsed_q1: Dict[str, Optional[str]] = {}
             parsed_q2: Dict[str, Optional[str]] = {}
             parsed_teacher_q1: Dict[str, Optional[str]] = {}
@@ -827,7 +981,19 @@ def dump_probe(
                     images = _load_images(frame.history_rgb_paths)
                 return images
 
-            memory_after_q1 = update_memory_after_q1(memory, student_rs_label=frame.rs_label, student_abnormal=frame.abnormal)
+            # reference 分支只做离线对比，不进入任何 student/teacher prompt。Q1 reference
+            # 按 GT RS/ABNORMAL 推演；异常为 YES 时，具体 EVENT 要等 reference Q2 才更新。
+            reference_memory_after_q1_state = update_memory_after_q1(
+                reference_memory,
+                student_rs_label=frame.rs_label,
+                student_abnormal=frame.abnormal,
+            )
+            reference_memory_after_q1 = _memory_json(reference_memory_after_q1_state)
+            memory_after_q1 = update_memory_after_q1(
+                memory,
+                student_rs_label=frame.rs_label,
+                student_abnormal=frame.abnormal,
+            )
             if teacher_bundle is not None:
                 # 训练前体检用：teacher_bundle 永远是纯 base Qwen，不加载 LoRA。
                 # 它吃 privileged prompt，用来判断“普通 Qwen 当老师”是否能稳定解析/解释。
@@ -860,6 +1026,7 @@ def dump_probe(
                 memory_after_q1 = update_memory_after_q1(memory, student_rs_label=parsed_q1.get("rs_label"), student_abnormal=q1_abnormal)
                 if q1_rs_ok:
                     # 只有 Q1 的 RS 正确才进入 Q2；这和训练时的采样/截断规则保持一致。
+                    q2_student_memory_input = _memory_json(memory_after_q1)
                     q2_student = build_q2_student_prompt(
                         memory_after_q1,
                         option_map=frame.event_option_map,
@@ -898,16 +1065,15 @@ def dump_probe(
                     # 不能只和 build_dataset 固定 event_label 比较。
                     q2_event_correct = parsed_q2.get("event_label") == target_dynamic.label
                     q2_candidate_mismatch = target_dynamic.label not in set(frame.event_option_map.values())
-                    if q2_invalid:
-                        reset_next = True
                 else:
-                    # RS 错误时本帧停止采样，下一帧恢复 GT RS + RE，不让错误 RS 污染事件判断。
+                    # RS 错误时本帧停止 Q2，但保留学生 Q1 后的 memory。下一帧继续把该
+                    # memory 输入学生，才能观察模型是否会自行纠正，而不是脚本替它纠正。
                     q2_triggered = False
-                    reset_next = True
                     memory = memory_after_q1
             else:
                 # 静态 dump 模式不跑 student 生成；为了仍然能看到完整 Q2 prompt/target，
                 # 这里使用 GT Q1 结果推进一次 memory，相当于 teacher-forced 可视化。
+                q2_student_memory_input = _memory_json(memory_after_q1)
                 q2_student = build_q2_student_prompt(
                     memory_after_q1,
                     option_map=frame.event_option_map,
@@ -992,6 +1158,100 @@ def dump_probe(
                 code for code in resolved_student_event_target.raw_events if str(code).startswith("U-E")
             ]
             accepted_event_labels = list(dict.fromkeys(raw_ue_labels)) if raw_ue_labels else ["RE"]
+            student_memory_after_q1 = _memory_json(memory_after_q1)
+            student_memory_after_q2 = _memory_json(memory) if q2_triggered else None
+            student_memory_for_next_frame = _memory_json(memory)
+            reference_memory_after_q2_state = update_memory_after_q2(
+                reference_memory_after_q1_state,
+                student_event_label=event_target.label,
+            )
+            reference_memory_after_q2 = _memory_json(reference_memory_after_q2_state)
+            # reference_memory 只沿 GT 轨迹向前推进，用于下一帧继续生成“应该是什么”的
+            # 对照；student memory 保持上面模型输出的结果，绝不从这里复制 reference。
+            reference_memory = reference_memory_after_q2_state
+            memory_trace = {
+                "policy": (
+                    "student_closed_loop" if bundle is not None else "teacher_forced_static_contract"
+                ),
+                # before/after 保留旧消费方入口；四个问答节点在 q1/q2 下提供完整细节。
+                "before": memory_before,
+                "after": student_memory_for_next_frame,
+                "window_initialized_from_ground_truth": memory_initialized_from_gt,
+                "reference_is_comparison_only": True,
+                "forced_correction_applied": False,
+                "q1": {
+                    "input": _compare_memory_states(
+                        memory_before,
+                        reference_memory_before,
+                    ),
+                    "after_student_output": _compare_memory_states(
+                        student_memory_after_q1,
+                        reference_memory_after_q1,
+                    ),
+                },
+                "q2": {
+                    "triggered": q2_triggered if bundle is not None else None,
+                    "input": _compare_memory_states(
+                        q2_student_memory_input if bundle is not None else None,
+                        reference_memory_after_q1,
+                    ),
+                    "after_student_output": _compare_memory_states(
+                        student_memory_after_q2 if bundle is not None else None,
+                        reference_memory_after_q2,
+                        accepted_event_labels=accepted_event_labels,
+                    ),
+                },
+                "next_frame": {
+                    "student": student_memory_for_next_frame,
+                    "reference": reference_memory_after_q2,
+                    "student_was_not_overwritten_by_reference": True,
+                },
+            }
+            q1_after_matches = memory_trace["q1"]["after_student_output"]["rs_matches"]
+            q2_after_event_matches = memory_trace["q2"]["after_student_output"]["event_matches"]
+            # “输入是否已对齐当前目标”与“是否匹配 reference 输入历史”不是一回事：
+            # RS/UE 刚变化时，正确的 Q1/Q2 输入本来仍可能保存旧状态。自主纠正判断应
+            # 以前者为起点，观察学生输出后是否转成当前帧目标。
+            q1_input_matches_current_target = memory_before.get("rs_label") == frame.rs_label
+            q2_input_matches_current_target = bool(
+                q2_student_memory_input is not None
+                and q2_student_memory_input.get("event_label") in set(accepted_event_labels)
+            )
+            memory_trace["q1"]["input_matches_current_frame_target"] = (
+                q1_input_matches_current_target if bundle is not None else None
+            )
+            memory_trace["q2"]["input_matches_current_frame_target"] = (
+                q2_input_matches_current_target
+                if bundle is not None and q2_triggered
+                else None
+            )
+            memory_trace["autonomous_change"] = {
+                "q1_rs_corrected_by_student": bool(
+                    bundle is not None
+                    and not q1_input_matches_current_target
+                    and q1_after_matches is True
+                ),
+                "q1_rs_corrupted_by_student": bool(
+                    bundle is not None
+                    and q1_input_matches_current_target
+                    and q1_after_matches is False
+                ),
+                "q2_event_corrected_by_student": bool(
+                    bundle is not None
+                    and q2_triggered
+                    and not q2_input_matches_current_target
+                    and q2_after_event_matches is True
+                ),
+                "q2_event_corrupted_by_student": bool(
+                    bundle is not None
+                    and q2_triggered
+                    and q2_input_matches_current_target
+                    and q2_after_event_matches is False
+                ),
+            }
+            would_reset_under_training = bool(
+                bundle is not None and (not q1_rs_ok or (q2_triggered and q2_invalid))
+            )
             ground_truth_structure = {
                 "q1": {
                     "rs_option": frame.rs_option,
@@ -1010,7 +1270,7 @@ def dump_probe(
                     "event_code_audit": resolved_student_event_target.event_code,
                 },
             }
-            memory_after = _memory_json(memory)
+            memory_after = student_memory_for_next_frame
             if full_artifacts:
                 # 默认 teacher input/output 文件必须一一对应。启用 teacher model 时，Q2
                 # output 来自 teacher 自己的 Q1 KV；训练 privileged prompt 单独保存。
@@ -1091,7 +1351,7 @@ def dump_probe(
                 # flags.json 聚合三类信息：
                 # 1) label/source/candidate 证据；
                 # 2) student/teacher 解析结果；
-                # 3) 状态机诊断，例如 Q1 是否截断、Q2 是否非法、下一帧是否 reset。
+                # 3) student/reference 双轨 memory 与“训练协议是否会建议 reset”的诊断。
                 "case_index": case_idx,
                 "case_dir": str(case_dir) if full_artifacts else None,
                 "copied_rgb": copied_rgb if full_artifacts else None,
@@ -1113,6 +1373,9 @@ def dump_probe(
                 "selection_gap_reset": selection_gap_reset,
                 "memory_before": memory_before,
                 "memory_after": memory_after,
+                "reference_memory_before": reference_memory_before,
+                "reference_memory_after": reference_memory_after_q2,
+                "memory_trace": memory_trace,
                 "parsed_q1": parsed_q1,
                 "parsed_q2": parsed_q2,
                 "parsed_teacher_q1": parsed_teacher_q1,
@@ -1131,8 +1394,20 @@ def dump_probe(
                 "q2_teacher_continued_from_q1_kv": bool(q2_teacher_triggered and q1_teacher_after is not None),
                 "q2_invalid_output": q2_invalid,
                 "q2_candidate_mismatch": q2_candidate_mismatch,
-                "rs_wrong_reset": not q1_rs_ok,
-                "reset_next": reset_next,
+                # 测试永不应用 GT 纠错。保留 would_reset 字段，只用于说明若按训练协议
+                # 运行该帧是否会在下一帧 reset，不能据此改写 student memory。
+                "rs_wrong_reset": False,
+                "reset_next": False,
+                "would_reset_under_training": would_reset_under_training,
+                "memory_forced_correction_applied": False,
+                "student_memory_after_q1_rs_label": student_memory_after_q1.get("rs_label"),
+                "student_memory_after_q2_event_label": student_memory_for_next_frame.get(
+                    "event_label"
+                ),
+                "memory_rs_matches_after_q1": q1_after_matches if bundle is not None else None,
+                "memory_event_matches_after_q2": (
+                    q2_after_event_matches if bundle is not None and q2_triggered else None
+                ),
                 # probe/eval 共用指标字段。transition 必须基于原始 route 相邻帧，而不是
                 # 基于定向采样后相邻的 case，避免跳帧制造假边界。
                 "gt_rs_label": frame.rs_label,
@@ -1198,10 +1473,7 @@ def dump_probe(
                         "q1_teacher_parsed": parsed_teacher_q1,
                         "q2_teacher_parsed": parsed_teacher_q2,
                     },
-                    "memory": {
-                        "before": memory_before,
-                        "after": memory_after,
-                    },
+                    "memory": memory_trace,
                     "flags": frame_log,
                 }
                 (case_dir / "case_record.json").write_text(
@@ -1289,106 +1561,41 @@ def dump_probe(
                     "q2_triggered": q2_teacher_triggered if teacher_bundle is not None else None,
                     "event_correct": q2_teacher_event_correct,
                 },
-                "memory": {
-                    "before": memory_before,
-                    "after": memory_after,
-                },
+                "memory": memory_trace,
                 "transition": transition_fields,
             }
 
             if review_artifacts:
-                # review 是默认人工审计结构：一个场景目录下按 frame 展开，每类信息
-                # 固定一个文件。这样输入、输出和真值不会混在同一大 JSON，也不会像
-                # legacy full 模式那样产生几十个同义 TXT/JSON。
+                # 默认每帧只保留三个 JSON。output 同时放 raw/parsed/GT/correctness，
+                # 既满足完整证据审计，也避免同一结论散落到多个重复文件。
                 review_files = {
-                    "inputs.json": frame_record["inputs"],
-                    "student_outputs.json": frame_record["student"],
-                    "teacher_outputs.json": frame_record["teacher"],
-                    "teacher_targets.json": frame_record["teacher_targets"],
-                    "ground_truth.json": frame_record["ground_truth"],
-                    "memory.json": frame_record["memory"],
-                    # 这是每帧最先看的单文件对照入口：不需要人工跨文件拼接 GT、
-                    # student 解析结构和 teacher 真值，就能直接判断错在 Q1 还是 Q2。
-                    "prediction_vs_ground_truth.json": {
+                    "input.json": {
                         "scenario": route.scenario,
                         "route_id": route.route_id,
                         "frame_id": frame.frame_id,
-                        "student_model_enabled": bundle is not None,
-                        "current_scene_ground_truth": {
-                            # 原始 CARLA scenario 只用于定位/审计，不进入 v5 RS/EVENT 监督。
-                            "scenario_name": route.scenario,
-                            "route_id": route.route_id,
-                            "rs_option": frame.rs_option,
-                            "rs_label": frame.rs_label,
-                            "abnormal": bool(frame.abnormal),
-                            "event_label": event_target.label,
-                            "event_code_audit": frame.event_code,
-                            "event_option_map": frame.event_option_map,
-                            "structured": ground_truth_structure,
+                        "selection": {
+                            "reason": frame_record["selection_reason"],
+                            "description": frame_record["selection_reason_description"],
+                            "gap_reset": frame_record["gap_reset"],
                         },
-                        "student_extracted_structure": {
-                            "q1": parsed_q1 if bundle is not None else {},
-                            "q2": parsed_q2 if bundle is not None else {},
-                        },
-                        "teacher_ground_truth": {
-                            "structured": ground_truth_structure,
-                            "q1_target": q1_target,
-                            "q2_training_target": q2_target,
-                            "q2_teacher_model_target": q2_teacher_model_target,
-                        },
-                        # 逐字段视图是人工判断的最短路径；上面的三个对象仍保留完整上下文，
-                        # 这里仅把 expected/predicted/correct 并排，避免手工跨层寻找。
-                        "field_comparisons": {
-                            "q1_rs": {
-                                "expected": {
-                                    "rs_option": ground_truth_structure["q1"]["rs_option"],
-                                    "rs_label": ground_truth_structure["q1"]["rs_label"],
-                                },
-                                "predicted": (
-                                    {
-                                        "rs_option": parsed_q1.get("rs_option"),
-                                        "rs_label": parsed_q1.get("rs_label"),
-                                    }
-                                    if bundle is not None
-                                    else None
-                                ),
-                                "correct": frame_record["student"]["rs_correct"],
-                            },
-                            "q1_abnormal": {
-                                "expected": ground_truth_structure["q1"]["abnormal"],
-                                "predicted": (
-                                    parsed_q1.get("abnormal") if bundle is not None else None
-                                ),
-                                "correct": frame_record["student"]["abnormal_correct"],
-                            },
-                            "q2_event": {
-                                "expected": ground_truth_structure["q2"],
-                                "predicted": parsed_q2 if bundle is not None else None,
-                                "correct": frame_record["student"]["event_correct"],
-                            },
-                        },
+                        "rgb": copied_rgb,
+                        **frame_record["inputs"],
+                    },
+                    "output.json": {
+                        "ground_truth": frame_record["ground_truth"],
+                        "teacher_targets": frame_record["teacher_targets"],
+                        "student": frame_record["student"],
+                        "teacher": frame_record["teacher"],
                         "correctness": {
                             "q1_rs_correct": frame_record["student"]["rs_correct"],
                             "q1_abnormal_correct": frame_record["student"]["abnormal_correct"],
                             "q2_triggered": frame_record["student"]["q2_triggered"],
                             "q2_event_correct": frame_record["student"]["event_correct"],
                             "q2_invalid_output": q2_invalid if bundle is not None else None,
-                            "reset_next": frame_log["reset_next"],
                         },
-                    },
-                    "evaluation.json": {
-                        "selection_reason": frame_record["selection_reason"],
-                        "selection_reason_description": frame_record[
-                            "selection_reason_description"
-                        ],
-                        "gap_reset": frame_record["gap_reset"],
                         "transition": frame_record["transition"],
-                        "q1_rs_correct": frame_record["student"]["rs_correct"],
-                        "q1_abnormal_correct": frame_record["student"]["abnormal_correct"],
-                        "q2_triggered": frame_record["student"]["q2_triggered"],
-                        "q2_event_correct": frame_record["student"]["event_correct"],
-                        "reset_next": frame_log["reset_next"],
                     },
+                    "memory.json": frame_record["memory"],
                 }
                 for filename, payload in review_files.items():
                     (case_dir / filename).write_text(
@@ -1438,6 +1645,9 @@ def dump_probe(
     }
     transition_report = build_transition_report(all_frame_logs, summary=summary)
     transition_report["student_enabled"] = bundle is not None
+    memory_recovery_report = build_memory_recovery_report(all_frame_logs)
+    memory_recovery_report["student_enabled"] = bundle is not None
+    summary["memory_recovery"] = memory_recovery_report["summary"]
     if full_artifacts:
         (out_dir / "transition_report.json").write_text(
             json.dumps(transition_report, ensure_ascii=False, indent=2),
@@ -1447,15 +1657,35 @@ def dump_probe(
         (out_dir / "summary.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        (out_dir / "memory_recovery_report.json").write_text(
+            json.dumps(memory_recovery_report, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
-    # 三种模式都写顶层索引；review/full 的人工入口则是 scenarios/.../frame_*/。
+    # review/full 的完整证据已经逐帧落盘，顶层只保留轻量目录索引，避免再次把所有
+    # prompt/output/memory 复制进一个巨大 results.json。compact 没有逐帧目录，才把
+    # frame_record 直接内嵌，继续满足无文件展开的快速合同检查用途。
+    frame_artifacts = [
+        {
+            "scenario": item["scenario"],
+            "route_id": item["route_id"],
+            "frame_id": item["frame_id"],
+            "directory": str(
+                pathlib.Path("scenarios")
+                / f"{_safe_name(item['scenario'])}__{_safe_name(item['route_id'])}"
+                / f"frame_{int(item['frame_id']):04d}"
+            ),
+        }
+        for item in compact_frames
+    ]
     results = {
-        "format_version": 1,
+        "format_version": 2,
         "artifact_level": artifact_level,
-        "sampling": selection_payload,
+        "sampling": {key: value for key, value in selection_payload.items() if key != "cases"},
         "summary": summary,
-        "transition_report": transition_report,
-        "frames": compact_frames,
+        "memory_recovery_report": memory_recovery_report,
+        "frame_artifacts": frame_artifacts if review_artifacts else [],
+        "frames": compact_frames if artifact_level == "compact" else [],
     }
     results_path = out_dir / "results.json"
     results_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1485,8 +1715,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--sequence-length",
         type=int,
-        default=8,
-        help="random 模式每个连续片段的目标帧数；num-cases 仍表示总测试帧预算",
+        default=24,
+        help="random 模式每个连续片段的目标帧数；默认观察 24 帧以覆盖延迟纠正",
     )
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
@@ -1496,13 +1726,18 @@ def parse_args() -> argparse.Namespace:
         default="random",
         help="小样本选帧：random 连续片段；RS 取变化前后；UE 取完整持续段及前后邻帧",
     )
-    p.add_argument("--context-radius", type=int, default=2, help="RS/UE 专项中边界前后保留的帧数，最少为 1")
+    p.add_argument(
+        "--context-radius",
+        type=int,
+        default=8,
+        help="RS/UE 专项中边界前后保留的连续帧数；默认观察变化后 8 帧",
+    )
     p.add_argument("--seed", type=int, default=20260711, help="random 模式随机种子，用于复现同一批帧")
     p.add_argument(
         "--artifact-level",
         choices=("compact", "review", "full"),
         default="review",
-        help="review 按场景/帧分开输入输出真值；compact 只汇总；full 再保存 RGB/legacy 文件",
+        help="review 每帧保存 RGB + input/output/memory；compact 只写 results；full 再保存 legacy 文件",
     )
     p.add_argument("--with-model", action="store_true")
     p.add_argument("--with-teacher", action="store_true", help="compat flag: v5 always dumps teacher prompt/target")
@@ -1519,7 +1754,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """CLI 入口：默认生成紧凑结果，按需展开 route/frame 完整审计产物。"""
+    """CLI 入口：默认生成逐帧精简证据，按需展开 legacy 深度审计产物。"""
 
     dump_probe(parse_args())
 

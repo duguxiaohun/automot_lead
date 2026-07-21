@@ -22,7 +22,11 @@ from qwen3vl_local.sft_v5.metrics import (  # noqa: E402
     build_transition_report,
     summarize_student_predictions,
 )
-from qwen3vl_local.sft_v5.probe import build_probe_selection_plan, dump_probe  # noqa: E402
+from qwen3vl_local.sft_v5.probe import (  # noqa: E402
+    build_memory_recovery_report,
+    build_probe_selection_plan,
+    dump_probe,
+)
 from qwen3vl_local.sft_v5.train import FrameRow, SequenceRow  # noqa: E402
 
 
@@ -175,6 +179,64 @@ def test_transition_modes_do_not_fill_with_unrelated_frames() -> None:
     ) == []
 
 
+def test_long_context_observes_delayed_correction_window() -> None:
+    """RS 变化后必须继续保留多帧，不能只测变化首帧就判定模型不会纠正。"""
+
+    route = SequenceRow(
+        scenario="LongRSRoute",
+        route_id="route_long_rs",
+        run_dir="/tmp/route_long_rs",
+        split="val",
+        frames=[
+            *[_frame(frame_id, "R1", "RE") for frame_id in range(5)],
+            *[_frame(frame_id, "R2", "RE") for frame_id in range(5, 18)],
+        ],
+    )
+    plan = build_probe_selection_plan(
+        [route],
+        num_cases=17,
+        sample_mode="rs_transition",
+        context_radius=8,
+        seed=7,
+    )
+    selected = [item.frame_id for item in plan]
+    assert 4 in selected and 5 in selected
+    assert max(selected) >= 13, "RS 变化后至少继续观察 8 帧"
+
+
+def test_memory_recovery_report_tracks_delayed_student_repair() -> None:
+    """reference 只做比较；学生延迟两帧改对时必须报告 delay=2。"""
+
+    logs = []
+    for frame_id, rs_match, event_match in (
+        (0, True, True),
+        (1, False, False),
+        (2, False, False),
+        (3, True, True),
+        (4, True, True),
+    ):
+        logs.append(
+            {
+                "scenario": "RecoveryRoute",
+                "route_id": "route_recovery",
+                "frame_id": frame_id,
+                "selection_gap_reset": frame_id == 0,
+                "rs_transition": frame_id == 1,
+                "abnormal_transition": frame_id == 1,
+                "gt_rs_label": "R2" if frame_id >= 1 else "R1",
+                "gt_event_label": "U-E1" if frame_id >= 1 else "RE",
+                "gt_abnormal": frame_id >= 1,
+                "memory_rs_matches_after_q1": rs_match,
+                "memory_event_matches_after_q2": event_match,
+            }
+        )
+    report = build_memory_recovery_report(logs)
+    assert report["rs_change_cases"][0]["recovery_delay_frames"] == 2
+    assert report["event_change_cases"][0]["recovery_delay_frames"] == 2
+    assert report["summary"]["recovered_cases"] == 2
+    assert report["summary"]["not_recovered_cases"] == 0
+
+
 def test_metric_false_positive_false_negative_contract() -> None:
     """严格指标必须让 invalid 降低 recall，并正确区分 Q1/Q2 假阳性。"""
 
@@ -287,8 +349,8 @@ def test_transition_detection_confusion_and_report() -> None:
     assert {case["rs_change_outcome"] for case in report["cases"]} >= {"TP", "FP", "FN"}
 
 
-def test_static_probe_compact_and_full_artifacts() -> None:
-    """默认只写 results.json，full 模式仍保留完整逐帧输入输出合同。"""
+def test_static_probe_compact_review_and_full_artifacts() -> None:
+    """compact 只写结果；review 每帧保存 RGB/输入/输出/memory。"""
 
     route = _routes()[0]
     row = {
@@ -316,6 +378,10 @@ def test_static_probe_compact_and_full_artifacts() -> None:
     }
     with tempfile.TemporaryDirectory(prefix="sft_v5_directed_probe_") as tmp:
         root = pathlib.Path(tmp)
+        rgb_path = root / "source_rgb.jpg"
+        rgb_path.write_bytes(b"fake-jpeg-for-copy-contract")
+        for frame_payload in row["frames"]:
+            frame_payload["history_rgb_paths"] = [str(rgb_path)]
         index_path = root / "index.jsonl"
         index_path.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
         output_dir = root / "probe"
@@ -335,10 +401,7 @@ def test_static_probe_compact_and_full_artifacts() -> None:
         assert "连续短片段" in selection["sample_mode_description"]
         assert selection["selected_cases"] == 4
         assert selection["sequence_length"] == 4
-        assert all(
-            case["primary_reason_description"] == "随机连续片段中的帧"
-            for case in selection["cases"]
-        )
+        assert "cases" not in selection, "顶层 results 不应重复逐帧选择记录"
         assert len(results["frames"]) == 4
         frame_indices = [item["frame_index"] for item in results["frames"]]
         assert frame_indices == list(range(frame_indices[0], frame_indices[0] + 4))
@@ -354,55 +417,50 @@ def test_static_probe_compact_and_full_artifacts() -> None:
         assert compact_case["inputs"]["q2_student_user_turn"]["continued_from"] == "student.q1_output_kv"
         assert compact_case["teacher_targets"]["q1"].startswith("Scene Description:")
         assert compact_case["teacher_targets"]["q2_training"].startswith("Scene Description:")
-        assert set(compact_case["memory"]) == {"before", "after"}
+        assert set(compact_case["memory"]) >= {
+            "before", "after", "q1", "q2", "next_frame", "autonomous_change"
+        }
+        assert compact_case["memory"]["reference_is_comparison_only"] is True
+        assert compact_case["memory"]["forced_correction_applied"] is False
         assert set(compact_case["student"]) >= {"q1_output", "q2_output", "q1_parsed", "q2_parsed"}
         assert set(compact_case["teacher"]) >= {"q1_output", "q2_output", "q1_parsed", "q2_parsed"}
-        assert results["transition_report"]["student_enabled"] is False
-        assert results["transition_report"]["evaluated_pairs"] == 0
+        assert results["frame_artifacts"] == []
+        assert results["memory_recovery_report"]["student_enabled"] is False
         assert summary["sampling"]["selected_cases"] == 4
         assert summary["generation_limits"]["max_new_tokens_q1"] == 16
 
-        # review 是默认人工入口：场景目录下面是 frame，每帧输入/输出/真值分开保存。
+        # review 是默认人工入口：每帧只保留 RGB、input、output、memory。
         review_output_dir = root / "probe_review"
         args.output_dir = str(review_output_dir)
         args.artifact_level = "review"
         dump_probe(args)
         review_frames = list(review_output_dir.glob("scenarios/*/frame_*"))
         assert len(review_frames) == 4
-        expected_review_files = {
-            "inputs.json",
-            "student_outputs.json",
-            "teacher_outputs.json",
-            "teacher_targets.json",
-            "ground_truth.json",
-            "memory.json",
-            "prediction_vs_ground_truth.json",
-            "evaluation.json",
-        }
+        expected_review_files = {"input_rgb_00.jpg", "input.json", "output.json", "memory.json"}
         assert {path.name for path in review_frames[0].iterdir()} == expected_review_files
-        comparison = json.loads(
-            (review_frames[0] / "prediction_vs_ground_truth.json").read_text(encoding="utf-8")
-        )
-        assert comparison["current_scene_ground_truth"]["scenario_name"]
-        assert comparison["current_scene_ground_truth"]["route_id"]
-        assert comparison["current_scene_ground_truth"]["rs_label"] in {"R1", "R2"}
-        expected_q1 = comparison["current_scene_ground_truth"]["structured"]["q1"]
-        expected_q2 = comparison["current_scene_ground_truth"]["structured"]["q2"]
+        inputs = json.loads((review_frames[0] / "input.json").read_text(encoding="utf-8"))
+        outputs = json.loads((review_frames[0] / "output.json").read_text(encoding="utf-8"))
+        memory = json.loads((review_frames[0] / "memory.json").read_text(encoding="utf-8"))
+        assert inputs["rgb"][0]["file"] == "input_rgb_00.jpg"
+        assert inputs["q1_student_messages"][0]["role"] == "system"
+        assert inputs["q2_student_user_turn"]["continued_from"] == "student.q1_output_kv"
+        assert outputs["ground_truth"]["scenario"]
+        assert outputs["ground_truth"]["route_id"]
+        expected_q1 = outputs["ground_truth"]["structured"]["q1"]
+        expected_q2 = outputs["ground_truth"]["structured"]["q2"]
         assert expected_q1["rs_option"] in {"A", "B"}
         assert expected_q1["abnormal"] in {"YES", "NO"}
         assert expected_q2["resolved_for_student_label"] in {"RE", "U-E1"}
         assert expected_q2["accepted_event_labels"]
-        assert set(comparison["student_extracted_structure"]) == {"q1", "q2"}
-        assert set(comparison["teacher_ground_truth"]) == {
-            "structured", "q1_target", "q2_training_target", "q2_teacher_model_target"
-        }
-        assert comparison["teacher_ground_truth"]["structured"] == comparison[
-            "current_scene_ground_truth"
-        ]["structured"]
-        assert set(comparison["field_comparisons"]) == {"q1_rs", "q1_abnormal", "q2_event"}
-        assert comparison["field_comparisons"]["q1_rs"]["predicted"] is None
-        assert comparison["field_comparisons"]["q1_rs"]["correct"] is None
-        assert comparison["correctness"]["q1_rs_correct"] is None
+        assert set(outputs["student"]) >= {"q1_output", "q2_output", "q1_parsed", "q2_parsed"}
+        assert set(outputs["teacher"]) >= {"q1_output", "q2_output", "q1_parsed", "q2_parsed"}
+        assert outputs["teacher_targets"]["q1"].startswith("Scene Description:")
+        assert outputs["correctness"]["q1_rs_correct"] is None
+        assert memory["reference_is_comparison_only"] is True
+        assert memory["forced_correction_applied"] is False
+        review_results = json.loads((review_output_dir / "results.json").read_text(encoding="utf-8"))
+        assert review_results["frames"] == []
+        assert len(review_results["frame_artifacts"]) == 4
 
         # full 是显式深度审计开关，不应删除 review 的规范文件和 legacy 产物。
         full_output_dir = root / "probe_full"
@@ -434,9 +492,11 @@ def main() -> None:
     test_ue_transition_selection_contains_entry_and_exit()
     test_ue_transition_keeps_full_long_span_beyond_budget()
     test_transition_modes_do_not_fill_with_unrelated_frames()
+    test_long_context_observes_delayed_correction_window()
+    test_memory_recovery_report_tracks_delayed_student_repair()
     test_metric_false_positive_false_negative_contract()
     test_transition_detection_confusion_and_report()
-    test_static_probe_compact_and_full_artifacts()
+    test_static_probe_compact_review_and_full_artifacts()
     print("[ok] probe selection and eval metrics")
 
 
