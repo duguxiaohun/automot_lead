@@ -3,9 +3,11 @@
 这里是 v5 文本协议的唯一来源。训练、评估和 probe 都从本文件 import，
 避免不同入口对同一个 Q1/Q2 问题写出不一致格式。
 
-调用顺序是：用 ``reset_memory_for_frame`` 初始化，构造 Q1 prompt 并解析输出，调用
-``update_memory_after_q1``；只有 RS 正确时再构造 Q2 prompt、解析 EVENT 并调用
-``update_memory_after_q2``。teacher builder 只供 OPSD 私有 forward 和审计产物使用。
+调用顺序是：用 ``reset_memory_for_frame`` 初始化；Q1 是低频 RS_SLOW，只有到达
+固定间隔或处于 RS recovery 时才运行；Q2 是逐帧 EVENT_FAST，直接在显式标注
+``[RE | REGULAR]`` / ``[UE | UNUSUAL]`` 的混合候选里选择。Q2 不再依赖
+独立 ABNORMAL 问题：选择 RE 就表示 regular/normal，选择任意 UE 就表示
+unusual/abnormal。两问都保留三段式视觉分析。
 """
 
 from __future__ import annotations
@@ -20,7 +22,6 @@ from qwen3vl_local.sft_v5.labels import (
     RS_LABEL_TO_OPTION,
     RS_OPTION_DESCRIPTIONS,
     RS_OPTION_TO_LABEL,
-    UE_DESCRIPTIONS,
     EventTarget,
     RSTarget,
     event_description_for_display,
@@ -32,10 +33,9 @@ SYSTEM_PROMPT_V5 = """\
 You are an autonomous driving agent. Use the stitched RGB history as visual context, ordered from oldest to newest. Focus on traffic lights/signs, nearby vehicles/pedestrians/obstacles, lane markings and road structure, and key factors affecting ego decisions. Memory is only an unverified previous hypothesis: it may be stale or wrong, so decide from current visual evidence first and change memory whenever the evidence contradicts it. Describe weak, distant, foggy, or occluded evidence as uncertain. Never mention ground truth, answer keys, hidden labels, dataset rules, or scenario names."""
 
 # loss 权重只用于训练时的 token span 加权。结构化分析段低权重，让模型学习“怎么解释”，
-# 但不要让冗长自然语言压过 RS/ABNORMAL/EVENT 这几个离散答案 token。
+# 但不要让冗长自然语言压过 RS/EVENT 这两个离散答案 token。
 DEFAULT_W_ANALYSIS = 0.2
 DEFAULT_W_RS = 1.2
-DEFAULT_W_ABNORMAL = 0.8
 DEFAULT_W_EVENT = 1.2
 
 TEACHER_MAX_NEW_TOKENS_Q1 = 256
@@ -129,22 +129,21 @@ class Memory:
 
 
 def _structured_q1_format() -> str:
-    """Q1 的学生/老师共享输出合同。"""
+    """RS_SLOW 的学生/老师共享输出合同。"""
 
     return (
         "Scene Description: <1-2 concise sentences about visible weather/visibility, lane markings, road layout, traffic lights/signs, surrounding motion, and goal direction>\n"
         "Critical Object Description: <1-2 concise sentences naming up to 2-3 key actors or map cues, their locations/actions, likely next motion, and why they matter to ego>\n"
-        "Reasoning on Intent: <1-2 concise sentences using motion, signals, lanes, ego state, and EGO_TO_GOAL_XY to decide RS and abnormality>\n"
-        "RS: <A|B|C|D|E>\n"
-        "ABNORMAL: <YES|NO>"
+        "Reasoning on Intent: <1-2 concise sentences using road geometry, signals, lanes, ego state, and EGO_TO_GOAL_XY to decide RS>\n"
+        "RS: <A|B|C|D|E>"
     )
 
 
 def _structured_q2_format() -> str:
-    """Q2 的学生/老师共享输出合同。"""
+    """EVENT_FAST 的学生/老师共享输出合同。"""
 
     return (
-        "Scene Description: <one concise sentence continuing from Question 1 and the current RS>\n"
+        "Scene Description: <1-2 concise sentences about the latest frame under the current RS>\n"
         "Critical Object Description: <1-2 concise sentences naming up to 2-3 event-relevant actors or cues, or stating that no critical object is visible>\n"
         "Reasoning on Intent: <1-2 concise sentences explaining why the selected event is active or why regular behavior continues>\n"
         "EVENT: <option letter>"
@@ -172,16 +171,26 @@ def event_choices_block(
     只负责把 label 转成自然语言描述。
     """
 
-    lines = [f"[EVENT_CHOICES under RS={RS_LABEL_TO_OPTION.get(rs_label, 'A')}]"]
+    lines = [
+        "[EVENT_FAMILY_LEGEND]",
+        "[RE | REGULAR] = regular/normal driving behavior; no unusual event is actively affecting ego.",
+        "[UE | UNUSUAL] = an unusual/abnormal event is actively affecting ego.",
+        "[/EVENT_FAMILY_LEGEND]",
+        f"[EVENT_CHOICES under RS={RS_LABEL_TO_OPTION.get(rs_label, 'A')}]",
+    ]
     for letter in sorted(option_map):
         label = option_map[letter]
-        lines.append(f"{letter}. {event_description_for_display(label, rs_label, regular_event_codes)}")
+        event_family = "RE | REGULAR" if label == "RE" else "UE | UNUSUAL"
+        lines.append(
+            f"{letter}. [{event_family}] "
+            f"{event_description_for_display(label, rs_label, regular_event_codes)}"
+        )
     lines.append("[/EVENT_CHOICES]")
     return "\n".join(lines)
 
 
 def build_q1_student_prompt(memory: Memory) -> str:
-    """Q1 student prompt。
+    """低频 RS_SLOW student prompt。
 
     Student 不看 XML weather；天气只允许从 RGB 中观察，并写进 Scene Description。
     """
@@ -191,12 +200,10 @@ def build_q1_student_prompt(memory: Memory) -> str:
         rs_choices_block(),
         (
             "[QUESTION_1]\n"
-            "Analyze the latest frame in the RGB history.\n"
-            "Decide:\n"
-            "1. the current road-structure option from RS_CHOICES;\n"
-            "2. whether an unusual event is currently happening or still affecting the ego vehicle.\n\n"
-            "Use visible road geometry, lane layout, traffic lights or stop/yield cues, nearby actors, "
-            "ego-path conflicts, and image-visible weather or visibility cues. Do not use a scenario name. "
+            "This is the low-frequency road-structure review. Analyze the latest frame in the RGB history "
+            "and decide the current road-structure option from RS_CHOICES.\n\n"
+            "Use visible road geometry, lane layout, traffic lights or stop/yield cues, "
+            "EGO_TO_GOAL_XY, and image-visible weather or visibility cues. Do not use a scenario name. "
             "First reach an independent decision from the RGB evidence. Treat PREVIOUS_RS_HYPOTHESIS as "
             "a fallible temporal hint, not as an answer. If visible geometry or traffic control contradicts "
             "it, the final RS must follow the current image. Keep the CoT concise.\n\n"
@@ -211,7 +218,6 @@ def build_q1_teacher_prompt(
     memory: Memory,
     *,
     rs_target: RSTarget,
-    event_target: EventTarget,
     weather_text: str,
 ) -> str:
     """Q1 teacher privileged prompt。
@@ -220,7 +226,6 @@ def build_q1_teacher_prompt(
     字段清洗掉，只给学生视角的监督文本。
     """
 
-    abnormal = "YES" if event_target.abnormal else "NO"
     return "\n\n".join([
         memory.format_q1_text(),
         rs_choices_block(),
@@ -228,8 +233,6 @@ def build_q1_teacher_prompt(
             "[REFERENCE]\n"
             f"XML_WEATHER: {weather_text}\n"
             f"ANSWER_RS: {rs_target.option} - {rs_target.description}\n"
-            f"ANSWER_ABNORMAL: {abnormal}\n"
-            f"ANSWER_EVENT_FOR_REASONING: {event_target.event_code}\n"
             "[/REFERENCE]\n\n"
             "[QUESTION_1_TEACHER]\n"
             "Write the same structured output format as the student. Start directly with "
@@ -247,7 +250,6 @@ def build_q1_teacher_prompt(
 def build_q1_teacher_target(
     *,
     rs_target: RSTarget,
-    event_target: EventTarget,
     weather_text: str,
 ) -> str:
     """脚本化 Q1 teacher target，供 CE smoke 或 teacher 抽检兜底。
@@ -256,19 +258,12 @@ def build_q1_teacher_target(
     一个可读 target 来审计 prompt 合同。
     """
 
-    abnormal = "YES" if event_target.abnormal else "NO"
-    event_phrase = (
-        UE_DESCRIPTIONS.get(event_target.label, event_target.label)
-        if event_target.abnormal
-        else "no unusual event visibly interrupts the ego vehicle"
-    ).rstrip(".")
     return "\n".join(
         [
             f"Scene Description: Describe the visible weather, lane markings, traffic controls, road layout, surrounding motion, and goal direction; the road layout supports option {rs_target.option}.",
-            "Critical Object Description: Name the most relevant actor, obstacle, signal, or map cue that affects the ego path; if none is visible, state that no critical object is present.",
-            f"Reasoning on Intent: The road-structure evidence supports {rs_target.option}: {rs_target.description}. The event evidence indicates that {event_phrase}.",
+            "Critical Object Description: Name the most relevant lane boundary, traffic control, map cue, or occluding actor needed to identify the road structure.",
+            f"Reasoning on Intent: The road-structure evidence supports {rs_target.option}: {rs_target.description}.",
             f"RS: {rs_target.option}",
-            f"ABNORMAL: {abnormal}",
         ]
     )
 
@@ -277,7 +272,6 @@ def build_q2_student_prompt(
     memory: Memory,
     *,
     option_map: Mapping[str, str],
-    q1_abnormal: bool,
     regular_event_codes: Optional[Sequence[str]] = None,
 ) -> str:
     """Q2 student prompt。
@@ -286,31 +280,18 @@ def build_q2_student_prompt(
     并做 frame 级随机化。prompt 不能暴露 scenario 名。
     """
 
-    if q1_abnormal:
-        # Q1 已经说 abnormal=yes 时，Q2 仍允许选择 RE：这是为了处理 Q1 误报或
-        # 视觉证据不足的情况，不能因为第一问异常就硬塞 UE。
-        task = (
-            "You judged in Question 1 that an unusual event is active. Choose the listed unusual event "
-            "that most directly affects the ego vehicle right now. If the latest frame does not actually "
-            "support any listed unusual event, or if no unusual event is listed, choose the regular-event "
-            "option instead."
-        )
-    else:
-        # Q1 说 no abnormal 时也列出 UE 候选，让模型显式比较“保持 RE”与“确有异常”。
-        # 这能训练模型在弱证据下保持 RE，而不是被候选中的 UE 诱导。
-        task = (
-            "You judged in Question 1 that no unusual event is active, but you must still compare the "
-            "regular-event option against the listed unusual-event candidates. If the only listed choice "
-            "is RE, use the analysis to explain which regular behavior is visible under the current road structure."
-        )
     return "\n\n".join([
         memory.format_q2_text(),
         event_choices_block(option_map, memory.rs_label, regular_event_codes),
         (
             "[QUESTION_2]\n"
-            "Decide the current event from EVENT_CHOICES. The choices have already been filtered to "
-            "events that are possible for the current road structure and this route type. "
-            f"{task} Do not invent an event that is not listed. Keep the CoT concise.\n\n"
+            "This is the per-frame event review. Decide the current event directly from EVENT_CHOICES. "
+            "Every choice is explicitly marked [RE | REGULAR] for regular/normal behavior or "
+            "[UE | UNUSUAL] for an unusual/abnormal event. Compare all listed RE and UE choices against "
+            "the latest RGB evidence; do not perform a "
+            "separate normal/abnormal classification and do not blindly copy PREVIOUS_EVENT_HYPOTHESIS. "
+            "The choices have already been filtered for the current road structure and route type. "
+            "Do not invent an unlisted event. Keep the CoT concise.\n\n"
             "Output exactly these lines:\n"
             f"{_structured_q2_format()}\n"
             "[/QUESTION_2]"
@@ -322,7 +303,6 @@ def build_q2_teacher_prompt(
     memory: Memory,
     *,
     option_map: Mapping[str, str],
-    q1_abnormal: bool,
     event_target: EventTarget,
     regular_event_codes: Optional[Sequence[str]] = None,
 ) -> str:
@@ -336,7 +316,6 @@ def build_q2_teacher_prompt(
         event_choices_block(option_map, memory.rs_label, regular_codes),
         (
             "[REFERENCE]\n"
-            f"QUESTION_1_ABNORMAL: {'YES' if q1_abnormal else 'NO'}\n"
             f"ANSWER_EVENT: {target_option} - {target_desc}\n"
             f"ANSWER_EVENT_CODE: {event_target.event_code}\n"
             "[/REFERENCE]\n\n"
@@ -388,7 +367,6 @@ def build_q2_teacher_target(
 
 
 _Q1_RS_RE = re.compile(r"(?im)^\s*RS\s*:\s*([A-E])\b")
-_Q1_ABNORMAL_RE = re.compile(r"(?im)^\s*ABNORMAL\s*:\s*(YES|NO)\b")
 _Q2_EVENT_RE = re.compile(r"(?im)^\s*EVENT\s*:\s*([A-Z])\b")
 # 解析器刻意只看行首字段，不试图理解整段 analysis。这样学生可以自由解释，
 # 但离散答案必须落在固定字段上，便于 eval/probe 和 memory 状态机稳定读取。
@@ -398,11 +376,9 @@ def parse_q1_output(text: str) -> Dict[str, Optional[str]]:
     """解析 Q1 student 输出。"""
 
     rs_match = _Q1_RS_RE.search(text or "")
-    abnormal_match = _Q1_ABNORMAL_RE.search(text or "")
     return {
         "rs_option": rs_match.group(1).upper() if rs_match else None,
         "rs_label": RS_OPTION_TO_LABEL.get(rs_match.group(1).upper()) if rs_match else None,
-        "abnormal": abnormal_match.group(1).upper() if abnormal_match else None,
     }
 
 
@@ -415,6 +391,25 @@ def should_trigger_q2(*, student_rs_label: Optional[str], target_rs_label: str) 
     """
 
     return student_rs_label == str(target_rs_label)
+
+
+def should_run_event_fast(
+    *,
+    rs_slow_ran: bool,
+    q1_rs_correct: bool,
+    memory_rs_label: Optional[str],
+    target_rs_label: str,
+) -> bool:
+    """统一慢帧/快帧的 EVENT_FAST RS gate。
+
+    慢帧刚运行过 RS_SLOW，必须以本帧 Q1 是否解析且答对为准；旧 memory 即使碰巧
+    正确，也不能掩盖当前 Q1 的错误或非法输出。快帧没有 Q1，才允许复用稳定 RS
+    memory。train/eval/probe 应共用这个合同。
+    """
+
+    if rs_slow_ran:
+        return bool(q1_rs_correct)
+    return memory_rs_label == str(target_rs_label)
 
 
 def parse_q2_output(text: str, option_map: Mapping[str, str]) -> Dict[str, Optional[str]]:
@@ -432,13 +427,11 @@ def update_memory_after_q1(
     memory: Memory,
     *,
     student_rs_label: Optional[str],
-    student_abnormal: Optional[bool],
 ) -> Memory:
     """Q1 后的 memory 更新。
 
-    只有合法 RS 才写入 memory。Q1 的 ABNORMAL 只是进入 Q2 前的粗判断，不能在
-    脚本里直接把 EVENT 改成 RE；否则错误 EVENT memory 会在 Q2 真正比较视觉证据前
-    被自动清掉，模型永远学不到 EVENT 自主纠偏。
+    只有合法 RS 才写入 memory。RS_SLOW 不输出 EVENT family；EVENT memory
+    只能由 EVENT_FAST 的当帧选择结果更新。
     """
 
     mem = memory.copy()
@@ -507,6 +500,7 @@ class MemoryCurriculumConfig:
     从而形成真正的 closed-loop 纠偏样本，而不是每帧互不关联的随机噪声。
     """
 
+    rs_slow_interval: int = 4
     rs_error_patience: int = 4
     event_error_patience: int = 3
     rs_repair_interval: int = 2
@@ -522,6 +516,7 @@ class MemoryCurriculumConfig:
         """拒绝会破坏概率或延迟语义的配置。"""
 
         for name in (
+            "rs_slow_interval",
             "rs_error_patience",
             "event_error_patience",
             "rs_repair_interval",
@@ -544,10 +539,44 @@ class MemoryCurriculumState:
     """单条 route 的训练期延迟修复状态。"""
 
     frames_seen: int = 0
+    last_rs_query_ordinal: int = -1
+    rs_recovery_active: bool = False
     rs_error_streak: int = 0
     event_error_streak: int = 0
     rs_repair_pending: bool = False
     event_repair_pending: bool = False
+
+
+def should_run_rs_slow(
+    state: MemoryCurriculumState,
+    config: MemoryCurriculumConfig,
+    *,
+    memory: Memory,
+    gt_rs_label: Optional[str],
+    frame_ordinal: Optional[int] = None,
+) -> Tuple[bool, str]:
+    """决定当前帧是否执行低频 RS_SLOW，并返回可审计原因。
+
+    稳定且正确的 RS 默认每 ``rs_slow_interval`` 帧复核一次。首帧、UNKNOWN、已知
+    memory 与当前训练/离线评估 GT 不一致、上一轮 RS 错误 recovery、以及 delayed
+    repair pending 都立即执行 RS。真实部署没有 GT 时应把 ``gt_rs_label`` 传 ``None``，
+    依赖周期复核与模型不确定性进入 recovery；训练/eval 使用 GT 门控是为了保证错误
+    RS 帧绝不继续构造错误 EVENT 选择题。
+    """
+
+    config.validate()
+    ordinal = int(state.frames_seen if frame_ordinal is None else frame_ordinal)
+    if state.last_rs_query_ordinal < 0:
+        return True, "route_start"
+    if state.rs_recovery_active or state.rs_error_streak > 0 or state.rs_repair_pending:
+        return True, "recovery"
+    if memory.rs_label not in RS_LABEL_TO_OPTION:
+        return True, "unknown_memory"
+    if gt_rs_label is not None and memory.rs_label != str(gt_rs_label):
+        return True, "memory_mismatch"
+    if ordinal - int(state.last_rs_query_ordinal) >= int(config.rs_slow_interval):
+        return True, "periodic"
+    return False, "reuse_stable_rs"
 
 
 def _stable_unit_interval(seed: int, *parts: object) -> float:
@@ -609,6 +638,7 @@ def prepare_training_memory(
         )
     memory = update_memory_navigation(memory, ego_to_goal_xy)
     audit: Dict[str, object] = {
+        "memory_frame_ordinal": frame_ordinal,
         "memory_initialized": initialized,
         "memory_rs_forced_repair": False,
         "memory_event_forced_repair": False,
@@ -705,20 +735,29 @@ def observe_training_memory(
     config: MemoryCurriculumConfig,
     *,
     rs_correct: bool,
+    rs_checked: bool = True,
     event_checked: bool,
     event_correct: bool,
 ) -> Dict[str, object]:
     """观察学生本帧结果，更新两个维度各自的错误 streak 与延迟修复请求。"""
 
-    if rs_correct:
-        rs_self_recovered = state.rs_error_streak > 0 or state.rs_repair_pending
-        state.rs_error_streak = 0
-        state.rs_repair_pending = False
-    else:
-        rs_self_recovered = False
-        state.rs_error_streak += 1
-        if state.rs_error_streak >= int(config.rs_error_patience):
-            state.rs_repair_pending = True
+    rs_self_recovered = False
+    if rs_checked:
+        state.last_rs_query_ordinal = max(0, int(state.frames_seen) - 1)
+        if rs_correct:
+            rs_self_recovered = (
+                state.rs_recovery_active
+                or state.rs_error_streak > 0
+                or state.rs_repair_pending
+            )
+            state.rs_error_streak = 0
+            state.rs_repair_pending = False
+            state.rs_recovery_active = False
+        else:
+            state.rs_recovery_active = True
+            state.rs_error_streak += 1
+            if state.rs_error_streak >= int(config.rs_error_patience):
+                state.rs_repair_pending = True
 
     event_self_recovered = False
     if event_checked:
@@ -736,6 +775,8 @@ def observe_training_memory(
         "memory_rs_error_streak_after": int(state.rs_error_streak),
         "memory_event_error_streak_after": int(state.event_error_streak),
         "memory_rs_repair_pending": bool(state.rs_repair_pending),
+        "memory_rs_recovery_active": bool(state.rs_recovery_active),
+        "memory_rs_last_query_ordinal": int(state.last_rs_query_ordinal),
         "memory_event_repair_pending": bool(state.event_repair_pending),
         "memory_any_repair_pending": bool(
             state.rs_repair_pending or state.event_repair_pending
@@ -775,7 +816,7 @@ def _analysis_span(text: str, *, terminal_label: str) -> Tuple[int, int]:
 
     v5 新格式不再只有一行 `ANALYSIS:`，而是把天气、场景、关键物体、推理和
     memory 判断拆成多行。训练时仍把这些行统一归为低权重 analysis span，
-    离散字段 `RS/ABNORMAL/EVENT` 单独加权。
+    离散字段 `RS/EVENT` 单独加权。
     """
 
     first = _ANALYSIS_HEADING_RE.search(text or "")
@@ -792,11 +833,8 @@ def target_spans_q1(text: str) -> Dict[str, Tuple[int, int]]:
 
     spans: Dict[str, Tuple[int, int]] = {"analysis": _analysis_span(text, terminal_label="RS")}
     rs_span = _line_choice_span(text, "RS", "ABCDE")
-    abnormal_span = _line_value_span(text, "ABNORMAL")
     if rs_span is not None:
         spans["rs"] = rs_span
-    if abnormal_span is not None:
-        spans["abnormal"] = abnormal_span
     return spans
 
 
@@ -825,7 +863,6 @@ def loss_weights_q1() -> Dict[str, float]:
     return {
         "analysis": DEFAULT_W_ANALYSIS,
         "rs": DEFAULT_W_RS,
-        "abnormal": DEFAULT_W_ABNORMAL,
     }
 
 

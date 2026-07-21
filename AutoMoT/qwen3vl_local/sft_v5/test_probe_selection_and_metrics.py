@@ -445,6 +445,7 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         frame_indices = [item["frame_index"] for item in results["frames"]]
         assert frame_indices == list(range(len(route.frames)))
         compact_case = results["frames"][0]
+        compact_fast_case = results["frames"][1]
         # compact 只减少文件数量，不能删掉训练前 base / 训练后 LoRA 人工对比所需的
         # 输入、完整标签、teacher 脚本真值、输出槽位和 memory。
         assert compact_case["ground_truth"]["rs_label"] in {"R1", "R2"}
@@ -454,6 +455,8 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         assert "q2_student_user_turn" in compact_case["inputs"]
         assert compact_case["inputs"]["q1_student_messages"][0]["role"] == "system"
         assert compact_case["inputs"]["q2_student_user_turn"]["continued_from"] == "student.q1_output_kv"
+        assert compact_fast_case["inputs"]["q2_student_user_turn"]["continued_from"] == "fresh_rgb_prefill"
+        assert compact_fast_case["teacher_targets"]["q1"] == ""
         assert compact_case["teacher_targets"]["q1"].startswith("Scene Description:")
         assert compact_case["teacher_targets"]["q2_training"].startswith("Scene Description:")
         assert set(compact_case["memory"]) >= {
@@ -488,7 +491,8 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         expected_q1 = outputs["ground_truth"]["structured"]["q1"]
         expected_q2 = outputs["ground_truth"]["structured"]["q2"]
         assert expected_q1["rs_option"] in {"A", "B"}
-        assert expected_q1["abnormal"] in {"YES", "NO"}
+        assert "abnormal" not in expected_q1
+        assert expected_q2["event_family"] in {"RE", "UE"}
         assert expected_q2["resolved_for_student_label"] in {"RE", "U-E1"}
         assert expected_q2["accepted_event_labels"]
         assert set(outputs["student"]) >= {"q1_output", "q2_output", "q1_parsed", "q2_parsed"}

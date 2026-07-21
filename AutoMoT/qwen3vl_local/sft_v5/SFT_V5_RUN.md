@@ -77,18 +77,22 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 | `MAX_TIMESTEPS_PER_STEP` | `32` | 最迟更新的 timestep 阈值 |
 | `LEARNING_RATE` | `1e-5` | LoRA 学习率 |
 | `MAX_NEW_TOKENS_Q1/Q2` | `1024/1024` | 无字段早停时的安全上限 |
+| `RS_SLOW_INTERVAL` | `4` | RS 稳定正确时每 4 个 4Hz frame 运行一次慢思考 |
 | `RS_ERROR_PATIENCE` / `EVENT_ERROR_PATIENCE` | `4/3` | 连续错误后才申请 GT 兜底；错误期间仍持续自主思考 |
-| `RS_REPAIR_INTERVAL` / `EVENT_REPAIR_INTERVAL` | `2/1` | 只控制脚本兜底检查；不降低 Q1 的逐帧运行频率 |
+| `RS_REPAIR_INTERVAL` / `EVENT_REPAIR_INTERVAL` | `2/1` | 只控制 pending 后的脚本兜底检查，与慢思考频率独立 |
 | `RS_MEMORY_CORRUPT_PROB/RS_MEMORY_UNKNOWN_PROB` | `0.06/0.02` | 正确 RS memory 的 wrong/UNKNOWN 扰动，总条件概率 8% |
 | `EVENT_MEMORY_CORRUPT_PROB/EVENT_MEMORY_UNKNOWN_PROB` | `0.10/0.05` | 正确 EVENT memory 的 wrong/UNKNOWN 扰动，总条件概率 15% |
 | `RS_INITIAL_GT_PROB/EVENT_INITIAL_GT_PROB` | `0.5/0.5` | route 首帧其余样本使用 UNKNOWN/no-prior |
 | `SAVE_STEPS` | `40` | 约半天保存一次 checkpoint |
 
-v5 在每张卡上同步边采样边训练：student 先自由生成 Q1/Q2，再由关闭 LoRA 的
-privileged teacher 对相同 token span 提供 forward-KL。**每个有效帧都运行 Q1**；
-Q1 RS 错误只跳过当前帧 Q2，下一帧仍继续回答 RS，直到学生自行答对或 delayed repair
-真正执行。EVENT 只有在本帧 RS 正确、实际进入 Q2 后才产生 rollout/loss 并累计自己的
-error streak。Q1 `ABNORMAL=NO` 不再脚本化覆盖 EVENT，必须由 Q2 自己选 RE。
+v5 在每张卡上同步边采样边训练：student 先自由生成当前需要的 RS_SLOW /
+EVENT_FAST，再由关闭 LoRA 的 privileged teacher 对相同 token span 提供 forward-KL。
+RS 稳定正确时，快帧直接复用 RS memory，不采集也不训练 RS；但 EVENT_FAST 每个
+RS gate 正确的帧都重新读本帧 RGB，保留三段分析，并直接在混合标注的
+`[RE | REGULAR]` / `[UE | UNUSUAL]` 选项中选 EVENT，没有独立 normal/abnormal
+问题。RS 一旦答错就跳过
+当帧 EVENT，下一帧恢复逐帧 RS 慢思考，直到自我修正或 delayed repair 执行。
+换句话说，旧概念的 `EVENT_FAST_1` / `EVENT_FAST_2` 已合并为单个 `EVENT_FAST`。
 模型不包 DDP wrapper，只在 optimizer step 前手动 all-reduce LoRA 梯度。
 EVENT wrong memory 优先从本帧 Q2 可见候选中选其它事件；只有单选题没有替代项时才
 使用全局 EVENT 作为 stale hypothesis。EVENT repair/augmentation 还要求本帧 RS
@@ -98,8 +102,11 @@ memory 已对齐；RS 已错误/UNKNOWN 时保留 EVENT 状态，避免统计学
 10% route-level validation 后，训练规模约 82.3 万帧，最终精确值以远端构建出的
 `checkpoints/sft_v5_data/summary.json` 为准。原始 GT 中 UE 为 142180 帧（15.55%），
 RE 为 772286 帧（84.45%）；这和下面人为注入的“错误 memory 异常”是两个概念。
+默认 4 帧 RS_SLOW 周期在无额外触发时约产生 20.6 万个 RS 训练帧（训练帧的
+25%）；加上 8% RS memory 扰动、UNKNOWN 和 recovery，预期 RS 触发率约 28%、
+约 23 万帧。EVENT_FAST 在 RS gate 正确时接近覆盖全部 82.3 万训练帧。
 在模型能当帧纠偏时，预计 RS 异常输入约
-8.4%（约 6.9 万帧，含首帧 UNKNOWN），EVENT 异常输入约为实际 Q2 帧的 15%；如果
+8.4%（约 6.9 万帧，含首帧 UNKNOWN），EVENT 异常输入约为实际 EVENT_FAST 帧的 15%；如果
 模型持续复制错误 memory 直到脚本兜底，按当前平均约 126 帧/route 的模拟上界约为
 RS 27.5%、EVENT/Q2 31.7%。
 
@@ -182,11 +189,11 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 | Tag | 用途 |
 |---|---|
 | `train/loss_frame` | 全局帧平均总 loss |
-| `train/loss/{q1_analysis,q1_rs,q1_abnormal,q2_analysis,q2_event}` | 各监督部分 loss |
+| `train/loss/{q1_analysis,q1_rs,q2_analysis,q2_event}` | 各监督部分 loss |
 | `train/q1_rs_acc_window` / `train/q2_event_acc_window` | 当前窗口解析准确率 |
+| `train/rs_slow_trigger_rate` / `train/rs_reuse_fast_rate` | RS 慢思考触发率 / 快帧复用率 |
 | `train/q2_skip_due_rs_rate` | 因本帧 RS 错而跳过 Q2 的比例；应与 RS 错误率一致 |
-| `train/abnormal_{precision,recall,f1}` | Q1 UE/RE 混淆指标 |
-| `train/q2_ue_{precision,recall,f1}` | Q2 UE/RE 混淆指标 |
+| `train/abnormal_{precision,recall,f1}` / `train/q2_ue_{precision,recall,f1}` | EVENT_FAST 选项折成 UE/RE 的同口径混淆指标 |
 | `memory/rs_wrong_copy_rate` / `memory/event_wrong_copy_rate` | 已知错误 memory 被原样复制的比例，越低越好 |
 | `memory/rs_recovery_rate` / `memory/event_recovery_rate` | wrong/UNKNOWN memory 的自主纠偏率 |
 | `memory/rs_input_anomaly_rate` / `memory/event_input_anomaly_rate` | 实际进入 prompt 的 wrong+UNKNOWN 比例；EVENT 分母是 Q2 帧 |
@@ -233,6 +240,9 @@ RS 变化、UE 进入/退出帧以及 FP/FN，每行直接给出 `TP/FP/FN/TN/in
 
 核心指标：
 
+`abnormal_*` 是旧报告 schema 的兼容名称，实际都由 EVENT_FAST 最终选择的 RE/UE
+family 派生，不表示仍有独立的 `ABNORMAL` 问题或输出字段。
+
 | 指标 | 含义 | 方向 |
 |---|---|---|
 | `rs_acc` / `rs_transition_acc` | 全帧 RS / RS 变化首帧准确率 | 越高越好 |
@@ -241,9 +251,9 @@ RS 变化、UE 进入/退出帧以及 FP/FN，每行直接给出 `TP/FP/FN/TN/in
 | `ue_entry_detection_precision/recall/f1` | RE->UE 进入帧检测 | 越高越好 |
 | `ue_exit_detection_precision/recall/f1` | UE->RE 退出帧检测 | 越高越好 |
 | `ue_entry_false_positive_rate` / `ue_exit_false_positive_rate` | UE 进入/退出边界误报率 | 越低越好 |
-| `abnormal_precision/recall/f1` | Q1 对 UE 的查准率、召回率和 F1 | 越高越好 |
-| `abnormal_false_positive_rate` | 真实 RE 被 Q1 错报为异常的比例 | 越低越好 |
-| `abnormal_false_negative_rate` | 真实 UE 未被 Q1 正确报异常的比例 | 越低越好 |
+| `abnormal_precision/recall/f1` | EVENT_FAST 选项折成 UE/RE 后的查准率、召回率和 F1 | 越高越好 |
+| `abnormal_false_positive_rate` | 真实 RE 被 EVENT_FAST 错选为 UE 的比例 | 越低越好 |
+| `abnormal_false_negative_rate` | 真实 UE 未被 EVENT_FAST 正确选中的比例 | 越低越好 |
 | `event_acc_when_rs_correct` | 进入 Q2 后的具体 EVENT 准确率 | 越高越好 |
 | `q2_ue_precision/recall/f1` | Q2 的 UE/RE 二分类指标 | 越高越好 |
 | `q2_trigger_rate` / `q2_skip_due_rs_rate` | RS 正确进入 Q2 / RS 错误跳过 Q2 的互补覆盖率 | 诊断 |
@@ -365,7 +375,7 @@ Cache 被退化成 legacy tuple。必须保持带 `get_mask_sizes/get_seq_length
 
 ### loss 没有 grad
 
-若出现 `loss does not require grad`，检查对应输出是否缺 `RS:`、`ABNORMAL:` 或
+若出现 `loss does not require grad`，检查对应输出是否缺 `RS:` 或
 `EVENT:`。当前代码会用可训练参数构造 graph-connected zero，避免单个坏输出直接中断
 所有 rank，但这类警告仍表示 prompt/output 需要检查。
 

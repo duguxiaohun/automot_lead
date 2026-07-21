@@ -18,10 +18,14 @@ from qwen3vl_local.sft_v5.prompts import (
     MemoryCurriculumConfig,
     MemoryCurriculumState,
     build_q1_teacher_prompt,
+    build_q1_teacher_target,
+    build_q2_student_prompt,
     build_q2_teacher_prompt,
     observe_training_memory,
     prepare_training_memory,
     reset_memory_for_frame,
+    should_run_rs_slow,
+    should_run_event_fast,
     should_trigger_q2,
     update_memory_after_q1,
     update_memory_after_q2,
@@ -41,6 +45,18 @@ def main() -> None:
     assert should_trigger_q2(student_rs_label="R1", target_rs_label="R1") is True
     assert should_trigger_q2(student_rs_label="R4", target_rs_label="R1") is False
     assert should_trigger_q2(student_rs_label=None, target_rs_label="R1") is False
+    assert should_run_event_fast(
+        rs_slow_ran=True,
+        q1_rs_correct=False,
+        memory_rs_label="R1",
+        target_rs_label="R1",
+    ) is False, "慢帧 Q1 invalid/错误不能被旧正确 memory 掩盖"
+    assert should_run_event_fast(
+        rs_slow_ran=False,
+        q1_rs_correct=False,
+        memory_rs_label="R1",
+        target_rs_label="R1",
+    ) is True, "稳定快帧应复用正确 RS memory"
     rendered_q1 = mem.format_q1_text()
     assert "PREVIOUS_EVENT_HYPOTHESIS" not in rendered_q1, "Q1 memory 不应提前暴露 EVENT"
     assert "PREVIOUS_RS_HYPOTHESIS: A -" not in rendered_q1, "memory 不应保存 A-E 选项编号"
@@ -55,24 +71,37 @@ def main() -> None:
     # MEMORY / choices / REFERENCE。这里把 prompt 合同固定住，避免 base probe
     # 再出现 q1_teacher_output 只续写输入块的情况。
     event = EventTarget("RE", "R-E1", False, ("R-E1",), ("R-E1",))
-    q1_teacher = build_q1_teacher_prompt(mem_with_goal, rs_target=rs, event_target=event, weather_text="clear")
+    q1_teacher = build_q1_teacher_prompt(mem_with_goal, rs_target=rs, weather_text="clear")
     assert "Start directly with `Scene Description:`" in q1_teacher
     assert "Output exactly these lines:" in q1_teacher
     assert "RS: <A|B|C|D|E>" in q1_teacher
+    assert "ABNORMAL:" not in q1_teacher
+    assert "ABNORMAL:" not in build_q1_teacher_target(
+        rs_target=rs,
+        weather_text="clear",
+    )
     q2_teacher = build_q2_teacher_prompt(
         mem_with_goal,
         option_map={"A": "RE"},
-        q1_abnormal=False,
         event_target=event,
         regular_event_codes=("R-E1",),
     )
     assert "Start directly with `Scene Description:`" in q2_teacher
     assert "EVENT: <option letter>" in q2_teacher
+    q2_student = build_q2_student_prompt(
+        mem_with_goal,
+        option_map={"A": "RE", "B": "U-E6"},
+    )
+    assert "[RE | REGULAR] = regular/normal" in q2_student
+    assert "[UE | UNUSUAL] = an unusual/abnormal" in q2_student
+    assert "A. [RE | REGULAR]" in q2_student
+    assert "B. [UE | UNUSUAL]" in q2_student
+    assert "ABNORMAL:" not in q2_student
 
-    mem = update_memory_after_q1(mem, student_rs_label="R4", student_abnormal=True)
+    mem = update_memory_after_q1(mem, student_rs_label="R4")
     assert mem.rs_label == "R4"
-    # Q1 只能确认“是否异常”，不能凭空写具体 U-E*；具体事件必须由 Q2 决定。
-    assert mem.event_label == "RE", "Q1 abnormal=yes 只等待 Q2，不应凭空写 UE"
+    # RS_SLOW 不回答 EVENT family，也不能凭空写具体 U-E*；EVENT 只由 Q2 决定。
+    assert mem.event_label == "RE", "RS_SLOW 不应改写 EVENT memory"
 
     mem = update_memory_after_q2(mem, student_event_label="U-E6")
     assert mem.event_label == "U-E6"
@@ -89,12 +118,11 @@ def main() -> None:
     corrected = update_memory_after_q1(
         carried,
         student_rs_label="R2",
-        student_abnormal=True,
     )
     assert corrected.rs_label == "R2", "RS 必须由后续 student Q1 输出自行改正"
-    assert corrected.event_label == "U-E6", "Q1 abnormal=yes 时保留原 EVENT 等待 Q2"
+    assert corrected.event_label == "U-E6", "RS_SLOW 必须保留原 EVENT 等待当帧 EVENT_FAST"
 
-    mem = update_memory_after_q1(mem, student_rs_label="R4", student_abnormal=False)
+    mem = update_memory_after_q1(mem, student_rs_label="R4")
     assert mem.event_label == "U-E6", "Q1 不得在 Q2 前脚本化清除错误 EVENT memory"
     mem = update_memory_after_q2(mem, student_event_label="RE")
     assert mem.event_label == "RE", "EVENT 必须由 Q2 自己纠正"
@@ -166,10 +194,78 @@ def main() -> None:
     assert delayed.rs_label == "R1" and audit["memory_rs_forced_repair"] is True
 
     defaults = MemoryCurriculumConfig()
+    assert defaults.rs_slow_interval == 4
     assert (defaults.rs_error_patience, defaults.rs_repair_interval) == (4, 2)
     assert (defaults.rs_corrupt_prob, defaults.rs_unknown_prob) == (0.06, 0.02)
     assert (defaults.event_error_patience, defaults.event_repair_interval) == (3, 1)
     assert (defaults.event_corrupt_prob, defaults.event_unknown_prob) == (0.10, 0.05)
+
+    # 稳定 RS 每 4 帧复核；中间帧只跑 EVENT_FAST。RS 错误/UNKNOWN 会立即切回
+    # RS_SLOW，并在回答错误后保持逐帧 recovery。
+    schedule_config = dataclasses.replace(
+        defaults,
+        rs_corrupt_prob=0.0,
+        rs_unknown_prob=0.0,
+        event_corrupt_prob=0.0,
+        event_unknown_prob=0.0,
+        rs_initial_gt_prob=1.0,
+        event_initial_gt_prob=1.0,
+    )
+    schedule_state = MemoryCurriculumState()
+    schedule_mem, schedule_audit = prepare_training_memory(
+        None,
+        schedule_state,
+        schedule_config,
+        gt_rs_label="R1",
+        gt_event_label="RE",
+        ego_to_goal_xy=(0.0, 0.0),
+        route_key="Scenario/schedule",
+        frame_id=0,
+        epoch=0,
+        seed=10,
+    )
+    run_rs, reason = should_run_rs_slow(
+        schedule_state,
+        schedule_config,
+        memory=schedule_mem,
+        gt_rs_label="R1",
+        frame_ordinal=int(schedule_audit["memory_frame_ordinal"]),
+    )
+    assert run_rs and reason == "route_start"
+    observe_training_memory(
+        schedule_state,
+        schedule_config,
+        rs_correct=True,
+        rs_checked=True,
+        event_checked=True,
+        event_correct=True,
+    )
+    for frame_ordinal in (1, 2, 3):
+        run_rs, reason = should_run_rs_slow(
+            schedule_state,
+            schedule_config,
+            memory=schedule_mem,
+            gt_rs_label="R1",
+            frame_ordinal=frame_ordinal,
+        )
+        assert not run_rs and reason == "reuse_stable_rs"
+    run_rs, reason = should_run_rs_slow(
+        schedule_state,
+        schedule_config,
+        memory=schedule_mem,
+        gt_rs_label="R1",
+        frame_ordinal=4,
+    )
+    assert run_rs and reason == "periodic"
+    schedule_mem.rs_label = "R4"
+    run_rs, reason = should_run_rs_slow(
+        schedule_state,
+        schedule_config,
+        memory=schedule_mem,
+        gt_rs_label="R1",
+        frame_ordinal=2,
+    )
+    assert run_rs and reason == "memory_mismatch"
 
     # EVENT 使用独立且更快的策略：达到 patience 后，默认 interval=1 的下一帧就修复。
     event_state = MemoryCurriculumState()

@@ -90,16 +90,13 @@ def _run_q2_from_q1(bundle: Any, q1_after: Any, frame: FrameRow, memory: Memory,
     """在 Q1 assistant 输出后的 KV cache 上追加 Q2，验证续接状态是否等价。"""
 
     parsed = parse_q1_output(q1_text)
-    abnormal = parsed.get("abnormal") == "YES" if parsed.get("abnormal") else None
     memory_after_q1 = update_memory_after_q1(
         memory,
         student_rs_label=parsed.get("rs_label"),
-        student_abnormal=abnormal,
     )
     q2_prompt = build_q2_student_prompt(
         memory_after_q1,
         option_map=frame.event_option_map,
-        q1_abnormal=bool(abnormal),
         regular_event_codes=frame.regular_event_codes,
     )
     with torch.inference_mode():
@@ -206,9 +203,9 @@ def _parallel_kl_compare(
     candidate_frames: List[FrameRow] = []
     candidate_memories: List[Memory] = []
     candidate_q1_texts: List[str] = []
-    candidate_abnormal: List[bool] = []
+    candidate_q1_ids: List[torch.Tensor] = []
     for idx, (frame, memory, rollout) in enumerate(zip(frames, memories, q1_rollouts)):
-        _state, q1_text, _after, _ids = rollout
+        _state, q1_text, _after, q1_ids = rollout
         parsed = parse_q1_output(q1_text)
         if parsed.get("rs_label") != frame.rs_label:
             continue
@@ -216,14 +213,14 @@ def _parallel_kl_compare(
         candidate_frames.append(frame)
         candidate_memories.append(memory)
         candidate_q1_texts.append(q1_text)
-        candidate_abnormal.append(bool(parsed.get("abnormal") == "YES"))
+        candidate_q1_ids.append(q1_ids)
     if candidate_frames:
         grouped_q2 = _run_q2_rollout_grouped(
             bundle,
             frames=candidate_frames,
             memories=candidate_memories,
             q1_texts=candidate_q1_texts,
-            q1_abnormal_flags=candidate_abnormal,
+            q1_ids_list=candidate_q1_ids,
             max_new_tokens_q2=max_new_tokens_q2,
         )
         for idx, rollout in zip(candidate_indices, grouped_q2.rollouts):
@@ -371,6 +368,19 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
             "Smoke did not exercise a real batched rollout group even though --require-batched-group was set; "
             f"group_sizes={grouped_q1.group_sizes} input_lengths={input_lengths}"
         )
+    grouped_q2 = _run_q2_rollout_grouped(
+        bundle,
+        frames=frames,
+        memories=memories,
+        q1_texts=[rollout[1] for rollout in batched_q1],
+        q1_ids_list=[rollout[3] for rollout in batched_q1],
+        max_new_tokens_q2=int(args.max_new_tokens_q2),
+    )
+    if bool(args.require_batched_group) and grouped_q2.batched_frames < 2:
+        raise RuntimeError(
+            "Smoke did not exercise a real exact-KV batched Q2 rollout group; "
+            f"group_sizes={grouped_q2.group_sizes} input_lengths={grouped_q2.input_lengths}"
+        )
 
     cases: List[Dict[str, Any]] = []
     ok = True
@@ -398,8 +408,10 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
             batch_text,
             int(args.max_new_tokens_q2),
         )
+        _grouped_q2_state, grouped_q2_text, grouped_q2_ids = grouped_q2.rollouts[idx]
         q1_ids_equal = _ids_list(single_ids) == _ids_list(batch_ids)
         q2_ids_equal = _ids_list(single_q2_ids) == _ids_list(batch_q2_ids)
+        grouped_q2_ids_equal = _ids_list(batch_q2_ids) == _ids_list(grouped_q2_ids)
         q1_logits_ok = q1_logit_diff["max_abs"] <= float(args.logit_atol)
         # case_ok 同时覆盖四层等价性：
         # 1. 首 token；2. 完整 Q1 token/text；3. 训练 logits；4. Q1 KV 后续接 Q2。
@@ -410,6 +422,8 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
             and q1_logits_ok
             and single_q2_text == batch_q2_text
             and q2_ids_equal
+            and batch_q2_text == grouped_q2_text
+            and grouped_q2_ids_equal
         )
         ok = ok and case_ok
         cases.append(
@@ -426,11 +440,14 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
                 "q1_logits_ok": q1_logits_ok,
                 "q2_ids_equal": q2_ids_equal,
                 "q2_text_equal": single_q2_text == batch_q2_text,
+                "grouped_q2_ids_equal": grouped_q2_ids_equal,
+                "grouped_q2_text_equal": batch_q2_text == grouped_q2_text,
                 "ok": case_ok,
                 "single_q1_text": single_text,
                 "batched_q1_text": batch_text,
                 "single_q2_text": single_q2_text,
                 "batched_q2_text": batch_q2_text,
+                "grouped_q2_text": grouped_q2_text,
             }
         )
 
@@ -464,6 +481,8 @@ def run_smoke(args: argparse.Namespace) -> Dict[str, Any]:
         "actual_batched_group_sizes": grouped_q1.batched_group_sizes,
         "actual_batched_groups": grouped_q1.batched_groups,
         "actual_singleton_groups": grouped_q1.singleton_groups,
+        "q2_actual_group_sizes": grouped_q2.group_sizes,
+        "q2_actual_batched_group_sizes": grouped_q2.batched_group_sizes,
         "actual_batched_frames": grouped_q1.batched_frames,
         "length_histogram": grouped_q1.length_histogram,
         "length_seconds": grouped_q1.length_seconds,

@@ -61,25 +61,21 @@ def inspect(args: argparse.Namespace) -> dict:
             q1_teacher = build_q1_teacher_prompt(
                 memory,
                 rs_target=rs_target,
-                event_target=event_target,
                 weather_text=frame.weather_text,
             )
             q1_target = build_q1_teacher_target(
                 rs_target=rs_target,
-                event_target=event_target,
                 weather_text=frame.weather_text,
             )
-            memory_after_q1 = update_memory_after_q1(memory, student_rs_label=frame.rs_label, student_abnormal=frame.abnormal)
+            memory_after_q1 = update_memory_after_q1(memory, student_rs_label=frame.rs_label)
             q2_student = build_q2_student_prompt(
                 memory_after_q1,
                 option_map=frame.event_option_map,
-                q1_abnormal=frame.abnormal,
                 regular_event_codes=frame.regular_event_codes,
             )
             q2_teacher = build_q2_teacher_prompt(
                 memory_after_q1,
                 option_map=frame.event_option_map,
-                q1_abnormal=frame.abnormal,
                 event_target=event_target,
                 regular_event_codes=frame.regular_event_codes,
             )
@@ -100,6 +96,11 @@ def inspect(args: argparse.Namespace) -> dict:
                 "q2_target_private_clean": check_no_private_markers(q2_target),
                 # Q2 没候选会让训练/评估都无法解析 EVENT，因此作为硬合同检查。
                 "option_map_nonempty": bool(frame.event_option_map),
+                "event_choices_mark_re_ue": all(
+                    f"{letter}. [{'RE | REGULAR' if label == 'RE' else 'UE | UNUSUAL'}]"
+                    in q2_student
+                    for letter, label in frame.event_option_map.items()
+                ),
                 "q2_student_has_scenario_name": route.scenario in q2_student,
             }
             ok = (
@@ -109,6 +110,7 @@ def inspect(args: argparse.Namespace) -> dict:
                 and checks["q1_target_private_clean"]
                 and checks["q2_target_private_clean"]
                 and checks["option_map_nonempty"]
+                and checks["event_choices_mark_re_ue"]
                 and not checks["q2_student_has_scenario_name"]
             )
             bad += int(not ok)
