@@ -54,6 +54,7 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     Memory,
     MemoryCurriculumConfig,
     MemoryCurriculumState,
+    PROMPT_CONTRACT_VERSION,
     advance_memory_age,
     build_q1_student_prompt,
     build_q2_student_prompt,
@@ -768,6 +769,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     summary.update(
         {
             "schema_version": "sft_v5_eval_v6",
+            "prompt_contract_version": PROMPT_CONTRACT_VERSION,
             "memory_policy": "student_closed_loop_reference_comparison_only",
             "event_memory_semantics": "event_conditioned_on_rs",
             "rs_change_invalidates_event": True,

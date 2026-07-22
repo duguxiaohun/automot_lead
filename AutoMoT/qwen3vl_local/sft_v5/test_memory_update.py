@@ -18,7 +18,10 @@ from qwen3vl_local.sft_v5.prompts import (
     Memory,
     MemoryCurriculumConfig,
     MemoryCurriculumState,
+    PROMPT_CONTRACT_VERSION,
+    SYSTEM_PROMPT_V5,
     advance_memory_age,
+    build_q1_student_prompt,
     build_q1_teacher_prompt,
     build_q1_teacher_target,
     build_q2_student_prompt,
@@ -79,9 +82,9 @@ def main() -> None:
     # 再出现 q1_teacher_output 只续写输入块的情况。
     event = EventTarget("RE", "R-E1", False, ("R-E1",), ("R-E1",))
     q1_teacher = build_q1_teacher_prompt(mem_with_goal, rs_target=rs, weather_text="clear")
-    assert "Start directly with `Scene Description:`" in q1_teacher
-    assert "Output exactly these lines:" in q1_teacher
-    assert "RS: <A|B|C|D|E>" in q1_teacher
+    assert "Use REFERENCE to return the same four-line format" in q1_teacher
+    assert "Return exactly:" in q1_teacher
+    assert "RS: <option letter A-E>" in q1_teacher
     assert "ABNORMAL:" not in q1_teacher
     assert "ABNORMAL:" not in build_q1_teacher_target(
         rs_target=rs,
@@ -93,17 +96,27 @@ def main() -> None:
         event_target=event,
         regular_event_codes=("R-E1",),
     )
-    assert "Start directly with `Scene Description:`" in q2_teacher
+    assert "Use REFERENCE to return the same four-line format" in q2_teacher
     assert "EVENT: <option letter>" in q2_teacher
     q2_student = build_q2_student_prompt(
         mem_with_goal,
         option_map={"A": "RE", "B": "U-E6"},
     )
-    assert "[RE | REGULAR] = regular/normal" in q2_student
-    assert "[UE | UNUSUAL] = an unusual/abnormal" in q2_student
+    assert "[RE | REGULAR] regular/normal" in q2_student
+    assert "[UE | UNUSUAL] unusual/abnormal" in q2_student
     assert "A. [RE | REGULAR]" in q2_student
     assert "B. [UE | UNUSUAL]" in q2_student
     assert "ABNORMAL:" not in q2_student
+
+    # compact prompt 是显式版本化合同，防止后续又把 system、问题说明和格式占位
+    # 各自扩写成重复长文。候选数量会改变 Q2 长度，所以这里只固定一个代表性二选一。
+    q1_student = build_q1_student_prompt(mem_with_goal)
+    assert PROMPT_CONTRACT_VERSION == "sft_v5_compact_prompt_v1"
+    assert len(SYSTEM_PROMPT_V5.split()) <= 70
+    assert len(q1_student.split()) <= 160
+    assert len(q2_student.split()) <= 175
+    assert len(q1_teacher.split()) <= 180
+    assert len(q2_teacher.split()) <= 180
 
     mem = update_memory_after_q1(mem, student_rs_label="R4")
     assert mem.rs_label == "R4"
@@ -508,7 +521,7 @@ def main() -> None:
         seed=9,
     )
     assert unknown.rs_label == "UNKNOWN" and unknown.event_label == "UNKNOWN"
-    assert "No reliable previous road-structure hypothesis" in unknown.format_q1_text()
+    assert "No reliable prior road structure" in unknown.format_q1_text()
 
     # eval/probe 默认也从 UNKNOWN 起步。无 GT 调度把“UNKNOWN -> 合法 RS”的第一次
     # 变化视为待确认，下一帧再输出相同 RS 后才恢复低频周期；整个过程不需要真值。

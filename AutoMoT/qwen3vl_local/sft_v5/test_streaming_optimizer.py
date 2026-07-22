@@ -152,6 +152,7 @@ def test_adapter_metadata_records_effective_window() -> None:
         _save_adapter(_FakeBundle(), output_dir, args)
         meta = json.loads((output_dir / "sft_v5_adapter_config.json").read_text(encoding="utf-8"))
     assert meta["effective_target_global_frames_per_step"] == 1024
+    assert meta["prompt_contract_version"] == "sft_v5_compact_prompt_v1"
     assert meta["effective_max_timesteps_per_step"] == 64
     assert meta["parallel_kl_microbatch_size"] == 2
     assert meta["checkpoint_probe_enabled"] is True

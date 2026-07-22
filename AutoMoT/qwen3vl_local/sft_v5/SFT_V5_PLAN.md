@@ -243,10 +243,8 @@ RS_OPTIONS = {
 
 ### A = R1
 
-`A. Ordinary same-direction drivable road: the ego vehicle is mainly following,
-lane-keeping, making same-direction lane adjustments, or recovering on a normal
-drivable path; there is no dominant intersection rule, traffic-light control,
-highway merge/exit structure, or opposing-lane borrowing requirement.`
+Prompt 短描述：
+`A. Ordinary same-direction road; lane keeping/following or same-direction lane changes dominate.`
 
 覆盖要点：
 
@@ -257,10 +255,8 @@ highway merge/exit structure, or opposing-lane borrowing requirement.`
 
 ### B = R2
 
-`B. Bidirectional single-lane or opposing-lane-sharing road: the usable corridor
-is narrow enough that the oncoming lane affects the decision, including borrowing
-the opposing lane to pass a blockage or yielding because an oncoming vehicle
-invades the ego lane.`
+Prompt 短描述：
+`B. Narrow bidirectional/shared road; oncoming traffic or opposing-lane borrowing dominates.`
 
 覆盖要点：
 
@@ -271,9 +267,8 @@ invades the ego lane.`
 
 ### C = R3
 
-`C. Highway, ramp, merge, split, or exit structure: the ego vehicle is in a
-high-speed or ramp-like decision space where speed matching, gap selection,
-target-lane tracking, merging, diverging, or exiting dominates the driving rule.`
+Prompt 短描述：
+`C. Highway/ramp/merge/split/exit; speed matching, gaps, merging or diverging dominates.`
 
 覆盖要点：
 
@@ -283,10 +278,8 @@ target-lane tracking, merging, diverging, or exiting dominates the driving rule.
 
 ### D = R4
 
-`D. Signalized intersection: the ego vehicle is inside or approaching an
-intersection where working traffic lights are the main right-of-way rule,
-including red-light waiting, green-light crossing, and protected or permissive
-turning under signal control.`
+Prompt 短描述：
+`D. Signalized intersection; working traffic lights control right of way.`
 
 覆盖要点：
 
@@ -297,10 +290,8 @@ turning under signal control.`
 
 ### E = R5
 
-`E. Unsignalized or priority-controlled intersection: the ego vehicle is inside
-or approaching an intersection without a reliable traffic-light rule, so it must
-use stop/yield signs, priority, road geometry, cross traffic, pedestrians, or
-safe-gap reasoning to proceed.`
+Prompt 短描述：
+`E. Unsignalized/priority intersection; stop/yield, geometry, cross traffic or safe gaps control right of way.`
 
 覆盖要点：
 
@@ -318,15 +309,19 @@ safe-gap reasoning to proceed.`
 ### 4.1 EVENT 自然语言描述
 
 v5 的 EVENT prompt 展示自然语言选项，内部仍保存原始 code 方便统计。
+`labels.py` 和下列覆盖要点保留完整工程语义；实际输入 VLM 的文案使用
+`prompts.py` 中的短描述，只保留行为主体、冲突类型和对 ego 的影响，避免在
+memory、候选、REFERENCE 三处重复同一段长定义。
 
-RE 不是一个原始 `keyframe_filter` code，而是 v5 为第二问引入的折叠标签：
+RE 不是一个原始 `keyframe_filter` code，而是 v5 为第二问引入的折叠标签。通用工程
+语义如下（不直接整段复制进 prompt）：
 
 ```text
 RE: No unusual event is currently interrupting the driving task; continue the
 regular behavior implied by the current road structure.
 ```
 
-不同 RS 下的 RE 解释。RE 是单一监督类，但它的文案要吸收当前帧
+不同 RS 下的 RE 完整解释。RE 是单一监督类，但它的语义要吸收当前帧
 `regular_event_codes` 的细分含义；例如 R3 可同时覆盖主线跟车/速度匹配
 (`R-E1`)、目标导向变道/回目标车道 (`R-E2`) 和常规匝道合流/分流/驶出
 (`R-E3`)。
@@ -501,9 +496,9 @@ v5.1 把 Memory 明确定义为“上一帧模型的未验证假设”，不是�
 
 ```text
 [MEMORY]
-PREVIOUS_RS_HYPOTHESIS: Ordinary same-direction drivable road ...
-PREVIOUS_RS_HYPOTHESIS_AGE: 6 frames (1.50 s at 4 Hz; 0 means newly initialized or changed)
-MEMORY_RELIABILITY: unverified previous model output; it may be stale or wrong
+PREVIOUS_RS_HYPOTHESIS: Ordinary same-direction road; lane keeping/following or same-direction lane changes dominate.
+PREVIOUS_RS_HYPOTHESIS_AGE: 6 frames / 1.50 s
+MEMORY_RELIABILITY: unverified; may be stale or wrong
 EGO_TO_GOAL_XY=(+12.3, -1.5) m
 [/MEMORY]
 ```
@@ -513,11 +508,11 @@ road + event memory：
 
 ```text
 [MEMORY]
-PREVIOUS_RS_HYPOTHESIS: Ordinary same-direction drivable road ...
-PREVIOUS_RS_HYPOTHESIS_AGE: 6 frames (1.50 s at 4 Hz; 0 means newly initialized or changed)
-PREVIOUS_EVENT_HYPOTHESIS: No unusual event; continue ordinary same-direction behavior.
-PREVIOUS_EVENT_HYPOTHESIS_AGE: 2 frames (0.50 s at 4 Hz; 0 means newly initialized or changed)
-MEMORY_RELIABILITY: unverified previous model output; it may be stale or wrong
+PREVIOUS_RS_HYPOTHESIS: Ordinary same-direction road; lane keeping/following or same-direction lane changes dominate.
+PREVIOUS_RS_HYPOTHESIS_AGE: 6 frames / 1.50 s
+PREVIOUS_EVENT_HYPOTHESIS: Regular same-direction following, lane keeping or lane adjustment; no active unusual conflict.
+PREVIOUS_EVENT_HYPOTHESIS_AGE: 2 frames / 0.50 s
+MEMORY_RELIABILITY: unverified; may be stale or wrong
 EGO_TO_GOAL_XY=(+12.3, -1.5) m
 [/MEMORY]
 ```
@@ -679,18 +674,24 @@ precision、recall、F1、FP、FN，而不能只看 accuracy 的原因。
 
 ## 6. 两问 Prompt 协议
 
-所有 prompt 必须英文。System prompt 只放通用角色和证据原则：
+所有 prompt 必须英文。当前协议版本是 `sft_v5_compact_prompt_v1`。System prompt 只放
+所有问题共享的证据原则；Q1/Q2 的候选、任务说明和输出格式不得再在 system 中重复：
 
 ```text
-You are an autonomous driving agent. Use the stitched RGB history as visual
-context, ordered from oldest to newest. Focus on traffic lights/signs, nearby
-vehicles/pedestrians/obstacles, lane markings and road structure, and key
-factors affecting ego decisions. Memory is only an unverified previous
-hypothesis: it may be stale or wrong, so decide from current visual evidence
-first and change memory whenever the evidence contradicts it. Describe weak, distant,
-foggy, or occluded evidence as uncertain. Never mention ground truth, answer
-keys, hidden labels, dataset rules, or scenario names.
+You are an autonomous-driving visual reasoner. Read stitched RGB frames from
+oldest to newest. Use visible road geometry, lanes, controls, and relevant actors
+to choose only from the provided options. Memory is an unverified prior: check it
+against the latest RGB and override conflicts; age is duration, not confidence.
+State uncertainty when evidence is weak. Never mention references, hidden labels,
+datasets, or scenario names.
 ```
+
+Compact 合同的代表性预算（R1/RE、Q2 二选一）由 `test_memory_update.py` 固定：system
+不超过 70 words，Q1 student user 不超过 160 words，Q2 student user 不超过 175 words，
+代表性 teacher user 均不超过 180 words。
+候选数量增加时 Q2 可相应增长，但不得重复 system 原则或展开无关标签。adapter、eval 和
+probe summary 必须写 `prompt_contract_version=sft_v5_compact_prompt_v1`；旧 prompt
+训练的 adapter 若要严格横向比较，应重新训练或至少明确标注协议不一致。
 
 ### 6.1 Q1 student prompt
 
@@ -709,27 +710,22 @@ Prompt 模板：
 {memory_text}
 
 [RS_CHOICES]
-A. Ordinary same-direction drivable road: ...
-B. Bidirectional single-lane or opposing-lane-sharing road: ...
-C. Highway, ramp, merge, split, or exit structure: ...
-D. Signalized intersection: ...
-E. Unsignalized or priority-controlled intersection: ...
+A. Ordinary same-direction road; lane keeping/following or same-direction lane changes dominate.
+B. Narrow bidirectional/shared road; oncoming traffic or opposing-lane borrowing dominates.
+C. Highway/ramp/merge/split/exit; speed matching, gaps, merging or diverging dominates.
+D. Signalized intersection; working traffic lights control right of way.
+E. Unsignalized/priority intersection; stop/yield, geometry, cross traffic or safe gaps control right of way.
 [/RS_CHOICES]
 
 [QUESTION_1]
-This is the low-frequency road-structure review. Analyze the latest frame in
-the RGB history and decide the current road-structure option from RS_CHOICES.
-
-Use visible road geometry, lane layout, traffic lights or stop/yield cues,
-EGO_TO_GOAL_XY, and image-visible weather or visibility cues. Do not
-use a scenario name. First decide from RGB evidence. Treat the previous RS
-hypothesis as fallible; current visible geometry and traffic control override it.
-
-Output exactly these concise CoT lines:
-Scene Description: <1-2 concise sentences about visible weather/visibility, lane markings, road layout, traffic lights/signs, surrounding motion, and goal direction>
-Critical Object Description: <1-2 concise sentences naming up to 2-3 key actors or map cues, their locations/actions, likely next motion, and why they matter to ego>
-Reasoning on Intent: <1-2 concise sentences using road geometry, signals, lanes, ego state, and EGO_TO_GOAL_XY to decide RS>
-RS: <A|B|C|D|E>
+From the latest RGB, choose one RS_CHOICES option using road/lane geometry,
+controls, goal direction and relevant actors. Verify the untrusted memory;
+override conflicts.
+Return exactly:
+Scene Description: <current visible scene; one sentence>
+Critical Object Description: <key actor/control/road cue and relevance; one sentence>
+Reasoning on Intent: <why one RS option fits; one sentence>
+RS: <option letter A-E>
 [/QUESTION_1]
 ```
 
@@ -777,27 +773,21 @@ Q2 的 prompt 前缀使用 road + event memory：`PREVIOUS_RS_HYPOTHESIS` 和
 都只写自然语言描述，仍然不写 A-E / RE / U-E* 这类局部选项或标签代码。
 
 ```text
-[EVENT_FAMILY_LEGEND]
-[RE | REGULAR] = regular/normal driving behavior; no unusual event is actively affecting ego.
-[UE | UNUSUAL] = an unusual/abnormal event is actively affecting ego.
-[/EVENT_FAMILY_LEGEND]
+[EVENT_FAMILY] [RE | REGULAR] regular/normal; [UE | UNUSUAL] unusual/abnormal. [/EVENT_FAMILY]
 [EVENT_CHOICES under RS={chosen_rs_option}]
-B. [UE | UNUSUAL] A pedestrian, cyclist, or small vulnerable road user crosses or laterally enters the ego path.
-A. [RE | REGULAR] No unusual event: continue the regular behavior for this road structure ...
-C. [UE | UNUSUAL] Another vehicle violates the expected intersection rule and creates conflict.
+B. [UE | UNUSUAL] A pedestrian, cyclist or vulnerable road user enters ego's path.
+A. [RE | REGULAR] Regular signalized-intersection behavior: obey the current traffic light.
+C. [UE | UNUSUAL] A vehicle violates the expected intersection rule and conflicts with ego.
 [/EVENT_CHOICES]
 
 [QUESTION_2]
-This is the per-frame event review. Decide the current event directly from
-EVENT_CHOICES. Every choice is explicitly marked [RE | REGULAR] for regular/normal
-behavior or [UE | UNUSUAL] for an unusual/abnormal event. Compare every listed choice against the
-latest RGB evidence; do not perform a separate normal/abnormal classification and
-do not blindly copy PREVIOUS_EVENT_HYPOTHESIS.
-
-Output exactly these concise CoT lines:
-Scene Description: <1-2 concise sentences about the latest frame under the current RS>
-Critical Object Description: <1-2 concise sentences naming up to 2-3 event-relevant actors or cues, or stating that no critical object is visible>
-Reasoning on Intent: <1-2 concise sentences explaining why the selected event is active or why regular behavior continues>
+From the latest RGB, choose one EVENT_CHOICES option. RE/UE is already marked;
+do not add a separate normal/abnormal decision. Verify the untrusted memory and
+choose only a listed option.
+Return exactly:
+Scene Description: <latest visible scene; one sentence>
+Critical Object Description: <key event actor/cue, or none; one sentence>
+Reasoning on Intent: <why one EVENT option fits; one sentence>
 EVENT: <option letter>
 [/QUESTION_2]
 ```
@@ -1643,6 +1633,7 @@ TOKENIZERS_PARALLELISM=false
 - 只保存 LoRA adapter delta。
 - 写 `sft_v5_adapter_config.json`，记录：
   - dataset version
+  - prompt contract version
   - RS/EVENT label version
   - RE folding policy
   - DDP world size

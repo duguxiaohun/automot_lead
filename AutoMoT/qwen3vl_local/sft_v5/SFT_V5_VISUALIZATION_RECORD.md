@@ -58,6 +58,10 @@ student 默认从 UNKNOWN 启动，RS_SLOW 调度默认不再用 GT mismatch。
   或 `RS/EVENT` 等关键输出字段。
 - system prompt 是否简洁提醒模型关注交通灯/标志、周围车辆/行人/障碍物、
   车道线/道路结构和影响自车决策的关键因素。
+- `results.json.summary.prompt_contract_version` 是否为
+  `sft_v5_compact_prompt_v1`；代表性二选一不应超过 system 70 words、student Q1
+  160 words、student Q2 175 words、teacher user 180 words。候选变多只允许候选表
+  本身增长，不能重复 system 规则。
 - `q1_*_user_prompt.txt` 的 `[MEMORY]` 是否只包含自然语言 `PREVIOUS_RS_HYPOTHESIS`、
   独立的 `PREVIOUS_RS_HYPOTHESIS_AGE`、`MEMORY_RELIABILITY` 和
   `EGO_TO_GOAL_XY=(+x, +y) m`，不包含
