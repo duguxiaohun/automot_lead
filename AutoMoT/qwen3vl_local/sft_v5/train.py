@@ -100,6 +100,7 @@ from qwen3vl_local.sft_v5.labels import (  # noqa: E402
     resolve_event_target,
 )
 from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
+    PROMPT_CONTRACT_VERSION,
     SYSTEM_PROMPT_V5,
     Memory,
     MemoryCurriculumConfig,
@@ -3055,6 +3056,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         model.save_pretrained(str(output_dir))
     meta = {
         "dataset_version": DATASET_VERSION,
+        "prompt_contract_version": PROMPT_CONTRACT_VERSION,
         "lora_vision_scope": getattr(bundle, "lora_vision_scope", "off"),
         "lora_target_modules": getattr(bundle, "lora_target_modules", []),
         "max_new_tokens_q1": int(args.max_new_tokens_q1),

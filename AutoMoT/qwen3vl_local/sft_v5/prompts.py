@@ -31,17 +31,60 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from qwen3vl_local.sft_v5.labels import (
     EVENT_DESCRIPTIONS,
     RS_LABEL_TO_OPTION,
-    RS_OPTION_DESCRIPTIONS,
     RS_OPTION_TO_LABEL,
     EventTarget,
     RSTarget,
-    event_description_for_display,
     option_for_event,
 )
 
 
+PROMPT_CONTRACT_VERSION = "sft_v5_compact_prompt_v1"
+
+# system 只放所有问题共享的原则，不重复 Q1/Q2 的局部任务和输出模板。Memory、候选、
+# 当前问题均留在 user turn，减少每次 prefill 都要处理的固定文本。
 SYSTEM_PROMPT_V5 = """\
-You are an autonomous driving agent. Use the stitched RGB history as visual context, ordered from oldest to newest. Focus on traffic lights/signs, nearby vehicles/pedestrians/obstacles, lane markings and road structure, and key factors affecting ego decisions. Memory is only an unverified previous hypothesis: it may be stale or wrong, so decide from current visual evidence first and change memory whenever the evidence contradicts it. Memory age measures how many 4 Hz frames the hypothesis has remained unchanged; older hypotheses require stronger visual verification, especially for dynamic events. Describe weak, distant, foggy, or occluded evidence as uncertain. Never mention ground truth, answer keys, hidden labels, dataset rules, or scenario names."""
+You are an autonomous-driving visual reasoner. Read stitched RGB frames from oldest to newest. Use visible road geometry, lanes, controls, and relevant actors to choose only from the provided options. Memory is an unverified prior: check it against the latest RGB and override conflicts; age is duration, not confidence. State uncertainty when evidence is weak. Never mention references, hidden labels, datasets, or scenario names."""
+
+
+# labels.py 保留完整工程定义，供文档、审计和规则代码使用；下面是只给 VLM prompt
+# 渲染的短描述。它们保留各类之间真正有判别力的边界，删除枚举式同义词和解释重复。
+_RS_PROMPT_DESCRIPTIONS: Dict[str, str] = {
+    "A": "Ordinary same-direction road; lane keeping/following or same-direction lane changes dominate.",
+    "B": "Narrow bidirectional/shared road; oncoming traffic or opposing-lane borrowing dominates.",
+    "C": "Highway/ramp/merge/split/exit; speed matching, gaps, merging or diverging dominates.",
+    "D": "Signalized intersection; working traffic lights control right of way.",
+    "E": "Unsignalized/priority intersection; stop/yield, geometry, cross traffic or safe gaps control right of way.",
+}
+
+_RE_PROMPT_DESCRIPTIONS: Dict[str, str] = {
+    "R1": "Regular same-direction following, lane keeping or lane adjustment; no active unusual conflict.",
+    "R2": "Regular narrow bidirectional travel with safe oncoming clearance; no active blockage or invasion.",
+    "R3": "Regular highway/ramp merging, diverging, exiting or target-lane tracking; no active unusual conflict.",
+    "R4": "Regular signalized-intersection behavior: obey the current traffic light.",
+    "R5": "Regular unsignalized/priority-intersection behavior: follow right-of-way and safe-gap rules.",
+}
+
+_UE_PROMPT_DESCRIPTIONS: Dict[str, str] = {
+    "U-E1": "A lead vehicle brakes or slows suddenly, requiring ego to react.",
+    "U-E2": "A static obstacle, accident, construction object, parked vehicle or blocked lane obstructs ego.",
+    "U-E3": "A moving vehicle cuts in, pulls out or occupies ego's path, creating a near-term conflict.",
+    "U-E4": "A pedestrian, cyclist or vulnerable road user enters ego's path.",
+    "U-E5": "An oncoming vehicle invades ego's lane or priority space.",
+    "U-E6": "A vehicle violates the expected intersection rule and conflicts with ego.",
+    "U-E7": "Traffic-light or priority control is failed, unreliable or ambiguous.",
+    "U-E8": "The road/intersection is blocked or reopening, requiring waiting or cautious release.",
+}
+
+
+def _event_prompt_description(label: str, rs_label: str) -> str:
+    """返回短 EVENT prompt 文案，保留 RE 对当前 RS 的条件语义。"""
+
+    if str(label) == "RE":
+        return _RE_PROMPT_DESCRIPTIONS.get(
+            str(rs_label),
+            "Regular behavior for the current road structure; no active unusual conflict.",
+        )
+    return _UE_PROMPT_DESCRIPTIONS.get(str(label), "No reliable prior event.")
 
 # loss 权重只用于训练时的 token span 加权。结构化分析段低权重，让模型学习“怎么解释”，
 # 但不要让冗长自然语言压过 RS/EVENT 这两个离散答案 token。
@@ -111,8 +154,8 @@ class Memory:
         """
 
         if self.rs_label not in RS_LABEL_TO_OPTION:
-            return "No reliable previous road-structure hypothesis is available."
-        return RS_OPTION_DESCRIPTIONS[self.rs_option]
+            return "No reliable prior road structure."
+        return _RS_PROMPT_DESCRIPTIONS[self.rs_option]
 
     def _event_description(self) -> str:
         """返回 memory 中使用的事件自然语言描述，不带 RE/U-E 标签。
@@ -122,11 +165,8 @@ class Memory:
         """
 
         if self.event_label not in EVENT_DESCRIPTIONS:
-            return "No reliable previous event hypothesis is available."
-        event_desc = EVENT_DESCRIPTIONS.get(self.event_label)
-        if self.event_label == "RE":
-            event_desc = event_description_for_display("RE", self.rs_label)
-        return event_desc or EVENT_DESCRIPTIONS["RE"]
+            return "No reliable prior event."
+        return _event_prompt_description(self.event_label, self.rs_label)
 
     def _goal_text(self) -> str:
         """按 v4 同款格式渲染当前帧目的地相对坐标。
@@ -153,18 +193,18 @@ class Memory:
             "[MEMORY]",
             f"PREVIOUS_RS_HYPOTHESIS: {self._road_description()}",
             f"PREVIOUS_RS_HYPOTHESIS_AGE: {max(0, int(self.rs_age_frames))} frames "
-            f"({max(0, int(self.rs_age_frames)) / 4.0:.2f} s at 4 Hz; 0 means newly initialized or changed)",
+            f"/ {max(0, int(self.rs_age_frames)) / 4.0:.2f} s",
         ]
         if include_event:
             # Q1 专门判断慢变量 RS，所以不展示 EVENT；Q2 才读取上一帧 EVENT hypothesis。
             lines.append(f"PREVIOUS_EVENT_HYPOTHESIS: {self._event_description()}")
             lines.append(
                 f"PREVIOUS_EVENT_HYPOTHESIS_AGE: {max(0, int(self.event_age_frames))} frames "
-                f"({max(0, int(self.event_age_frames)) / 4.0:.2f} s at 4 Hz; 0 means newly initialized or changed)"
+                f"/ {max(0, int(self.event_age_frames)) / 4.0:.2f} s"
             )
         # reliability 不是装饰文本：它明确阻止模型把 memory 当作确定答案，也是错误
         # memory curriculum 能产生纠偏学习信号的必要 prompt 条件。
-        lines.append("MEMORY_RELIABILITY: unverified previous model output; it may be stale or wrong")
+        lines.append("MEMORY_RELIABILITY: unverified; may be stale or wrong")
         lines.append(f"EGO_TO_GOAL_XY={self._goal_text()}")
         lines.append("[/MEMORY]")
         return "\n".join(lines)
@@ -188,10 +228,10 @@ def _structured_q1_format() -> str:
     """
 
     return (
-        "Scene Description: <1-2 concise sentences about visible weather/visibility, lane markings, road layout, traffic lights/signs, surrounding motion, and goal direction>\n"
-        "Critical Object Description: <1-2 concise sentences naming up to 2-3 key actors or map cues, their locations/actions, likely next motion, and why they matter to ego>\n"
-        "Reasoning on Intent: <1-2 concise sentences using road geometry, signals, lanes, ego state, and EGO_TO_GOAL_XY to decide RS>\n"
-        "RS: <A|B|C|D|E>"
+        "Scene Description: <current visible scene; one sentence>\n"
+        "Critical Object Description: <key actor/control/road cue and relevance; one sentence>\n"
+        "Reasoning on Intent: <why one RS option fits; one sentence>\n"
+        "RS: <option letter A-E>"
     )
 
 
@@ -203,9 +243,9 @@ def _structured_q2_format() -> str:
     """
 
     return (
-        "Scene Description: <1-2 concise sentences about the latest frame under the current RS>\n"
-        "Critical Object Description: <1-2 concise sentences naming up to 2-3 event-relevant actors or cues, or stating that no critical object is visible>\n"
-        "Reasoning on Intent: <1-2 concise sentences explaining why the selected event is active or why regular behavior continues>\n"
+        "Scene Description: <latest visible scene; one sentence>\n"
+        "Critical Object Description: <key event actor/cue, or none; one sentence>\n"
+        "Reasoning on Intent: <why one EVENT option fits; one sentence>\n"
         "EVENT: <option letter>"
     )
 
@@ -219,7 +259,7 @@ def rs_choices_block() -> str:
 
     lines = ["[RS_CHOICES]"]
     for option in ("A", "B", "C", "D", "E"):
-        lines.append(f"{option}. {RS_OPTION_DESCRIPTIONS[option]}")
+        lines.append(f"{option}. {_RS_PROMPT_DESCRIPTIONS[option]}")
     lines.append("[/RS_CHOICES]")
     return "\n".join(lines)
 
@@ -234,13 +274,14 @@ def event_choices_block(
     ``option_map`` 已经由 ``labels.stable_event_option_map`` 按 frame 可复现随机生成；
     这里不再重排，只把 canonical label 转成学生能理解的自然语言描述。每个选项都显式
     标注 REGULAR/UNUSUAL，使原先的 EVENT_FAST_1 和 EVENT_FAST_2 合成一次选择。
+    ``regular_event_codes`` 为兼容现有调用和审计保留；compact RE 文案已按 RS 汇总，
+    不再把多个 R-E 细分逐项展开到 prompt。
     """
 
+    _ = regular_event_codes
+
     lines = [
-        "[EVENT_FAMILY_LEGEND]",
-        "[RE | REGULAR] = regular/normal driving behavior; no unusual event is actively affecting ego.",
-        "[UE | UNUSUAL] = an unusual/abnormal event is actively affecting ego.",
-        "[/EVENT_FAMILY_LEGEND]",
+        "[EVENT_FAMILY] [RE | REGULAR] regular/normal; [UE | UNUSUAL] unusual/abnormal. [/EVENT_FAMILY]",
         f"[EVENT_CHOICES under RS={RS_LABEL_TO_OPTION.get(rs_label, 'A')}]",
     ]
     # 按字母排序只影响显示顺序，不改变 option_map 的 label 绑定关系。
@@ -249,7 +290,7 @@ def event_choices_block(
         event_family = "RE | REGULAR" if label == "RE" else "UE | UNUSUAL"
         lines.append(
             f"{letter}. [{event_family}] "
-            f"{event_description_for_display(label, rs_label, regular_event_codes)}"
+            f"{_event_prompt_description(label, rs_label)}"
         )
     lines.append("[/EVENT_CHOICES]")
     return "\n".join(lines)
@@ -264,20 +305,15 @@ def build_q1_student_prompt(memory: Memory) -> str:
     """
 
     # 三块按“过去的假设 → 当前可选语义 → 当前问题”排列。memory reliability 会提示
-    # 模型先看图再判断，候选描述则把 R1-R5 的工程语义完整翻译给基础模型。
+    # 模型先看图再判断；候选只保留区分 R1-R5 所需的核心语义，完整定义留在 labels.py。
     return "\n\n".join([
         memory.format_q1_text(),
         rs_choices_block(),
         (
             "[QUESTION_1]\n"
-            "This is the low-frequency road-structure review. Analyze the latest frame in the RGB history "
-            "and decide the current road-structure option from RS_CHOICES.\n\n"
-            "Use visible road geometry, lane layout, traffic lights or stop/yield cues, "
-            "EGO_TO_GOAL_XY, and image-visible weather or visibility cues. Do not use a scenario name. "
-            "First reach an independent decision from the RGB evidence. Treat PREVIOUS_RS_HYPOTHESIS as "
-            "a fallible temporal hint, not as an answer. If visible geometry or traffic control contradicts "
-            "it, the final RS must follow the current image. Keep the CoT concise.\n\n"
-            "Output exactly these lines:\n"
+            "From the latest RGB, choose one RS_CHOICES option using road/lane geometry, controls, "
+            "goal direction and relevant actors. Verify the untrusted memory; override conflicts.\n"
+            "Return exactly:\n"
             f"{_structured_q1_format()}\n"
             "[/QUESTION_1]"
         ),
@@ -305,15 +341,12 @@ def build_q1_teacher_prompt(
         (
             "[REFERENCE]\n"
             f"XML_WEATHER: {weather_text}\n"
-            f"ANSWER_RS: {rs_target.option} - {rs_target.description}\n"
+            f"ANSWER_RS: {rs_target.option} - {_RS_PROMPT_DESCRIPTIONS[rs_target.option]}\n"
             "[/REFERENCE]\n\n"
             "[QUESTION_1_TEACHER]\n"
-            "Write the same structured output format as the student. Start directly with "
-            "`Scene Description:` and do not copy MEMORY, RS_CHOICES, REFERENCE, or this instruction. "
-            "Use the reference only to make the visible analysis grounded and consistent. If XML weather "
-            "conflicts with visible RGB weather or visibility, follow the RGB evidence. Do not mention "
-            "the reference block, ground truth, answer keys, or hidden labels. Keep the CoT concise.\n\n"
-            "Output exactly these lines:\n"
+            "Use REFERENCE to return the same four-line format. Ground visible claims in RGB; if weather "
+            "conflicts, trust RGB. Do not mention or copy private blocks.\n"
+            "Return exactly:\n"
             f"{_structured_q1_format()}\n"
             "[/QUESTION_1_TEACHER]"
         ),
@@ -334,9 +367,9 @@ def build_q1_teacher_target(
 
     return "\n".join(
         [
-            f"Scene Description: Describe the visible weather, lane markings, traffic controls, road layout, surrounding motion, and goal direction; the road layout supports option {rs_target.option}.",
-            "Critical Object Description: Name the most relevant lane boundary, traffic control, map cue, or occluding actor needed to identify the road structure.",
-            f"Reasoning on Intent: The road-structure evidence supports {rs_target.option}: {rs_target.description}.",
+            f"Scene Description: The latest RGB road layout and controls support option {rs_target.option}.",
+            "Critical Object Description: The key visible lane or control cue distinguishes this structure.",
+            f"Reasoning on Intent: The road evidence supports {rs_target.option}: {_RS_PROMPT_DESCRIPTIONS[rs_target.option]}",
             f"RS: {rs_target.option}",
         ]
     )
@@ -364,14 +397,9 @@ def build_q2_student_prompt(
         event_choices_block(option_map, memory.rs_label, regular_event_codes),
         (
             "[QUESTION_2]\n"
-            "This is the per-frame event review. Decide the current event directly from EVENT_CHOICES. "
-            "Every choice is explicitly marked [RE | REGULAR] for regular/normal behavior or "
-            "[UE | UNUSUAL] for an unusual/abnormal event. Compare all listed RE and UE choices against "
-            "the latest RGB evidence; do not perform a "
-            "separate normal/abnormal classification and do not blindly copy PREVIOUS_EVENT_HYPOTHESIS. "
-            "The choices have already been filtered for the current road structure and route type. "
-            "Do not invent an unlisted event. Keep the CoT concise.\n\n"
-            "Output exactly these lines:\n"
+            "From the latest RGB, choose one EVENT_CHOICES option. RE/UE is already marked; do not add "
+            "a separate normal/abnormal decision. Verify the untrusted memory and choose only a listed option.\n"
+            "Return exactly:\n"
             f"{_structured_q2_format()}\n"
             "[/QUESTION_2]"
         ),
@@ -388,13 +416,13 @@ def build_q2_teacher_prompt(
     """构造 Q2 teacher 的 privileged prompt。
 
     ``event_target`` 只出现在 REFERENCE 中；学生看到的 memory、候选表和输出格式与
-    teacher 一致。regular 原始 code 只用于细化 RE 文案和审计，最终标签仍折叠为 RE。
+    teacher 一致。regular 原始 code 只作审计，compact RE 文案按 RS 汇总，最终标签仍折叠为 RE。
     """
 
     # target_option 必须反查本帧 option_map，不能假设某个固定字母恒等于 RE/某个 UE。
     target_option = option_for_event(event_target.label, option_map) or "?"
     regular_codes = regular_event_codes if regular_event_codes is not None else event_target.regular_event_codes
-    target_desc = event_description_for_display(event_target.label, memory.rs_label, regular_codes)
+    target_desc = _event_prompt_description(event_target.label, memory.rs_label)
     return "\n\n".join([
         memory.format_q2_text(),
         event_choices_block(option_map, memory.rs_label, regular_codes),
@@ -404,11 +432,9 @@ def build_q2_teacher_prompt(
             f"ANSWER_EVENT_CODE: {event_target.event_code}\n"
             "[/REFERENCE]\n\n"
             "[QUESTION_2_TEACHER]\n"
-            "Write the same structured output format as the student. Start directly with "
-            "`Scene Description:` and do not copy MEMORY, EVENT_CHOICES, REFERENCE, or this instruction. "
-            "Use the reference only to explain the visible event choice. Do not mention the reference block, "
-            "ground truth, answer keys, or hidden labels. Keep the CoT concise.\n\n"
-            "Output exactly these lines:\n"
+            "Use REFERENCE to return the same four-line format, grounded in visible RGB evidence. "
+            "Do not mention or copy private blocks.\n"
+            "Return exactly:\n"
             f"{_structured_q2_format()}\n"
             "[/QUESTION_2_TEACHER]"
         ),
@@ -436,8 +462,9 @@ def build_q2_teacher_target(
         chosen = option_map.get(option, "RE")
     else:
         chosen = event_target.label
-    regular_codes = regular_event_codes if regular_event_codes is not None else event_target.regular_event_codes
-    desc = event_description_for_display(chosen, memory.rs_label, regular_codes)
+    # 保留参数接口供 artifact 审计；compact target 按 RS 汇总 RE，不展开 R-E 子项。
+    _ = regular_event_codes
+    desc = _event_prompt_description(chosen, memory.rs_label)
     if chosen == "RE":
         reasoning = (
             "The latest frame does not show one of the listed unusual events interrupting the ego path, "
@@ -447,8 +474,8 @@ def build_q2_teacher_target(
         reasoning = f"The latest frame supports the listed unusual event: {desc}"
     return "\n".join(
         [
-            "Scene Description: Continue from the current road-structure decision and inspect the latest frame for event evidence.",
-            "Critical Object Description: Name the actor, obstacle, signal, or map cue that drives the event choice; if none matters, state that no critical object is visible.",
+            "Scene Description: The latest RGB is reviewed under the current road structure.",
+            "Critical Object Description: The key visible actor or control cue determines the event choice.",
             f"Reasoning on Intent: {reasoning}",
             f"EVENT: {option}",
         ]

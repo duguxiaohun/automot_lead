@@ -284,8 +284,11 @@
   `RS`；Q2 保留同样的三段分析后输出 `EVENT`，候选项显式标注
   `[RE | REGULAR]` / `[UE | UNUSUAL]`，直接合并 normal/abnormal 与具体事件判断，
   不再单问当前是否异常；
-  system prompt 简短提醒关注交通灯/标志、周围车辆/行人/障碍物、
-  车道线/道路结构和影响自车决策的关键因素；Q1 memory 只渲染自然语言
+  prompt 合同固定为 `sft_v5_compact_prompt_v1`：system 只简短保留跨问题共享的
+  视觉证据、memory 不可信和禁止泄漏规则，Q1/Q2 user 只放短 memory、短候选、本题
+  一句任务和四行格式；代表性二选一预算为 system≤70、Q1≤160、Q2≤175 words，
+  版本必须写入 adapter/eval/probe。完整工程标签定义保留在 `labels.py`，真正 prompt
+  用短判别描述，禁止在 system/memory/候选/question 重复同一规则。Q1 memory 只渲染自然语言
   `PREVIOUS_RS_HYPOTHESIS + PREVIOUS_RS_HYPOTHESIS_AGE + EGO_TO_GOAL_XY`，不带
   `PREVIOUS_EVENT_HYPOTHESIS`，Q2 才渲染自然语言
   `PREVIOUS_EVENT_HYPOTHESIS + PREVIOUS_EVENT_HYPOTHESIS_AGE`；两个 memory block 都必须显式写

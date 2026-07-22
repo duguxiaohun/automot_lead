@@ -86,6 +86,11 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 | `RS_INITIAL_GT_PROB/EVENT_INITIAL_GT_PROB` | `0.5/0.5` | route 首帧其余样本使用 UNKNOWN/no-prior |
 | `SAVE_STEPS` | `40` | 约半天保存一次 checkpoint |
 
+当前 prompt 合同为 `sft_v5_compact_prompt_v1`：system 只保留跨问题通用证据原则，
+Q1/Q2 user 只保留短 memory、短候选、本题一句任务和四行输出模板。代表性 R1/RE
+二选一输入约为 system 64 words、Q1 141 words、Q2 156 words；版本会写入 adapter、
+eval 和 probe summary。若现有 adapter 由旧长 prompt 训练，严格版本对比应重训。
+
 v5 在每张卡上同步边采样边训练：student 先自由生成当前需要的 RS_SLOW /
 EVENT_FAST，再由关闭 LoRA 的 privileged teacher 对相同 token span 提供 forward-KL。
 RS 稳定正确时，快帧直接复用 RS memory，不采集也不训练 RS；但 EVENT_FAST 每个

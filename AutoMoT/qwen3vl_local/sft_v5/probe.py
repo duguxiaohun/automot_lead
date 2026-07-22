@@ -53,6 +53,7 @@ from qwen3vl_local.sft_v5.labels import RS_LABEL_TO_OPTION, option_for_event  # 
 from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     MemoryCurriculumConfig,
     MemoryCurriculumState,
+    PROMPT_CONTRACT_VERSION,
     SYSTEM_PROMPT_V5,
     advance_memory_age,
     build_q1_student_prompt,
@@ -2050,6 +2051,7 @@ def dump_probe(
         key: value for key, value in selection_payload.items() if key != "cases"
     }
     summary["artifact_level"] = artifact_level
+    summary["prompt_contract_version"] = PROMPT_CONTRACT_VERSION
     summary["student_initial_memory_mode"] = initial_memory_mode
     summary["event_memory_semantics"] = "event_conditioned_on_rs"
     summary["rs_change_invalidates_event"] = True

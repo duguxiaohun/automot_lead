@@ -473,6 +473,7 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         assert compact_case["memory"]["reference_is_comparison_only"] is True
         assert compact_case["memory"]["forced_correction_applied"] is False
         assert results["summary"]["student_initial_memory_mode"] == "unknown"
+        assert results["summary"]["prompt_contract_version"] == "sft_v5_compact_prompt_v1"
         assert results["summary"]["event_memory_semantics"] == "event_conditioned_on_rs"
         assert results["summary"]["rs_change_invalidates_event"] is True
         assert results["summary"]["rs_schedule_policy"] == "deployable"
