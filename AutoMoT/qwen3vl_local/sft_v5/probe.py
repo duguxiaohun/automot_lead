@@ -26,6 +26,7 @@ RS 变化前后，``ue_transition`` 查看同一次 UE 的进入、持续和退�
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import random
@@ -34,6 +35,7 @@ import sys
 from collections import Counter, defaultdict
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
@@ -105,21 +107,159 @@ PROBE_REASON_DESCRIPTIONS = {
     "ue_after_exit": "退出 UE 后继续保持 RE 的邻帧",
 }
 
+# 运行期间保留这个隐藏文件。正常写完原子化 ``results.json`` 后删除；若进程被杀、
+# 数据读取报错或 artifact 不完整，它会留在目录中，明确告诉人工检查者“这不是一份
+# 完成的 probe”。文件名固定，便于 shell/上层训练脚本做存在性检查。
+_PROBE_IN_PROGRESS_FILE = ".probe_in_progress.json"
+
+
+def _write_json_atomic(path: pathlib.Path, payload: Any) -> None:
+    """先写同目录临时文件，再原子替换目标 JSON。
+
+    probe 经常运行数小时，进程可能在写顶层汇总时被中断。直接 ``write_text`` 会留下
+    看似存在却只有半截的 JSON；同文件系统内 ``replace`` 可保证读者只能看到旧完整
+    文件或新完整文件。输出目录在本次运行中必须为空，因此临时文件不会覆盖用户产物。
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _reserve_probe_output_dir(
+    out_dir: pathlib.Path,
+    args: argparse.Namespace,
+) -> pathlib.Path:
+    """独占一个空输出目录，并写入未完成运行标记。
+
+    旧实现允许把新结果写进已有目录：新 ``results.json`` 虽然只描述本次选帧，旧的
+    ``scenarios/*/frame_*`` 却继续存在，最终会出现 ``--num-routes 1`` 目录里看见多条
+    route 的假象。这里默认拒绝任何非空目录，不猜哪些文件可以安全删除；重跑时应换
+    一个新目录或由用户自行归档旧目录。
+
+    返回隐藏标记路径。调用方只有在所有 artifact 校验通过且 ``results.json`` 已原子
+    落盘后才能删除它；异常退出时保留标记就是预期行为。
+    """
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    existing = sorted(path.name for path in out_dir.iterdir())
+    if existing:
+        preview = ", ".join(existing[:8])
+        if len(existing) > 8:
+            preview += f", ... (+{len(existing) - 8})"
+        raise FileExistsError(
+            "probe --output-dir must be empty to prevent stale route/frame mixing: "
+            f"{out_dir} contains [{preview}]. Choose a new --output-dir or archive the "
+            "existing directory first; probe.py will not delete evidence automatically."
+        )
+
+    marker_path = out_dir / _PROBE_IN_PROGRESS_FILE
+    _write_json_atomic(
+        marker_path,
+        {
+            "format_version": 1,
+            "status": "in_progress_or_interrupted",
+            "started_at_utc": datetime.now(timezone.utc).isoformat(),
+            "index": str(getattr(args, "index", "")),
+            "sample_mode": str(getattr(args, "sample_mode", "random")),
+            "num_routes": int(getattr(args, "num_routes", 1)),
+            "num_cases": int(getattr(args, "num_cases", 24)),
+            "artifact_level": str(getattr(args, "artifact_level", "review")),
+            "expected_completion_file": "results.json",
+            "meaning": (
+                "This marker is deleted only after all requested artifacts pass validation "
+                "and results.json is atomically committed."
+            ),
+        },
+    )
+    return marker_path
+
+
+def _validate_probe_artifacts(
+    out_dir: pathlib.Path,
+    *,
+    artifact_level: str,
+    frame_artifacts: Sequence[Dict[str, Any]],
+) -> int:
+    """在提交顶层结果前核对本次 artifact 合同，返回检查项数量。
+
+    ``review/full`` 必须让索引中的每个 frame 目录都具备 RGB、input、output、memory；
+    ``full`` 还要具备根级深度报告、route timeline 和关键逐帧审计文件。任何缺项都抛错
+    并保留 ``.probe_in_progress.json``，避免不完整目录被当成可比较结果。
+    """
+
+    if artifact_level == "compact":
+        return 0
+
+    missing: List[str] = []
+    checked = 0
+    route_dirs: set[pathlib.Path] = set()
+    for artifact in frame_artifacts:
+        frame_dir = out_dir / str(artifact["directory"])
+        route_dirs.add(frame_dir.parent)
+        for filename in ("input.json", "output.json", "memory.json"):
+            checked += 1
+            if not (frame_dir / filename).is_file():
+                missing.append(str((frame_dir / filename).relative_to(out_dir)))
+        checked += 1
+        if not any(frame_dir.glob("input_rgb_*.jpg")):
+            missing.append(str((frame_dir / "input_rgb_*.jpg").relative_to(out_dir)))
+        if artifact_level == "full":
+            for filename in ("case_record.json", "flags.json", "labels.json"):
+                checked += 1
+                if not (frame_dir / filename).is_file():
+                    missing.append(str((frame_dir / filename).relative_to(out_dir)))
+
+    if artifact_level == "full":
+        for filename in (
+            "selection_plan.json",
+            "manifest.json",
+            "summary.json",
+            "transition_report.json",
+            "memory_recovery_report.json",
+        ):
+            checked += 1
+            if not (out_dir / filename).is_file():
+                missing.append(filename)
+        for route_dir in sorted(route_dirs):
+            for filename in ("timeline.json", "timeline.png"):
+                checked += 1
+                if not (route_dir / filename).is_file():
+                    missing.append(str((route_dir / filename).relative_to(out_dir)))
+
+    if missing:
+        preview = ", ".join(missing[:16])
+        if len(missing) > 16:
+            preview += f", ... (+{len(missing) - 16})"
+        raise RuntimeError(
+            f"probe artifact validation failed: missing {len(missing)} required paths: {preview}"
+        )
+    return checked
+
 
 def _safe_name(text: str, *, max_len: int = 96) -> str:
     """把 scenario / route id 转成目录安全名称。
 
-    只替换非字母数字等字符并限长，不做随机化或哈希；这样
-    artifact 目录仍可以被人直接映射回原 scenario/route。
+    常规名称保持原样；含文件系统不友好字符或超过长度上限时，保留可读前缀并追加
+    原字符串短哈希。仅截断/替换而不带哈希会让两个长 route 映射到同一目录，造成
+    本次运行内部的 frame 覆盖，这和复用旧输出目录一样会破坏 artifact 完整性。
     """
 
-    # route_id 里通常已经包含 Town/route/time 等有用信息；这里只替换文件系统不友好
-    # 的字符，不做哈希，方便人眼从目录名直接定位原始 route。
+    raw = str(text)
     keep = []
-    for ch in str(text):
+    for ch in raw:
         keep.append(ch if ch.isalnum() or ch in ("-", "_", ".") else "_")
-    out = "".join(keep).strip("_")
-    return (out[:max_len] or "unknown")
+    normalized = "".join(keep).strip("_") or "unknown"
+    changed = normalized != raw or len(normalized) > max_len
+    if not changed:
+        return normalized
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
+    prefix_budget = max(1, int(max_len) - len(digest) - 1)
+    return f"{normalized[:prefix_budget]}_{digest}"
 
 
 def _memory_json(memory: Any) -> Dict[str, Any]:
@@ -912,16 +1052,11 @@ def dump_probe(
 
     返回的 summary 供 checkpoint ``comparison.json`` 聚合；更完整的
     选帧、逐帧 CoT、teacher target、memory 和 transition 证据写入
-    ``results.json`` 及所选 artifact 目录。
+    ``results.json`` 及所选 artifact 目录。输出目录必须为空；运行中断会保留
+    ``.probe_in_progress.json``，成功结果则在 ``run_integrity`` 给出机器可读完整性清单。
     """
 
     out_dir = pathlib.Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    ds = RouteSequenceDataset(
-        pathlib.Path(args.index),
-        max_routes=int(args.max_routes),
-        max_frames_per_route=int(args.max_frames_per_route),
-    )
     sample_mode = str(getattr(args, "sample_mode", "random"))
     context_radius = int(getattr(args, "context_radius", 8))
     sample_seed = int(getattr(args, "seed", 20260711))
@@ -932,6 +1067,14 @@ def dump_probe(
         raise ValueError(
             f"unsupported artifact level: {artifact_level}; expected compact/review/full"
         )
+    # 参数合同先校验，再占用输出目录；这样拼错 artifact level 不会留下“运行中”标记。
+    # 从读取 index 开始的任何异常则应该保留标记，明确说明该目录不能当成完成结果。
+    in_progress_marker = _reserve_probe_output_dir(out_dir, args)
+    ds = RouteSequenceDataset(
+        pathlib.Path(args.index),
+        max_routes=int(args.max_routes),
+        max_frames_per_route=int(args.max_frames_per_route),
+    )
     review_artifacts = artifact_level in {"review", "full"}
     full_artifacts = artifact_level == "full"
     # 先固定选帧计划，再加载/调用模型。这样 base、checkpoint、
@@ -951,7 +1094,23 @@ def dump_probe(
         for item in selection_plan
     }
     selection_category_counts = Counter(item.primary_reason for item in selection_plan)
-    selected_route_ids = list(dict.fromkeys(item.route_id for item in selection_plan))
+    # route_id 在不同 scenario 中并不保证全局唯一，不能只按字符串去重。按 dataset
+    # route_index 保留稳定顺序，并同时写 scenario/id，run_integrity 才能准确解释
+    # ``--num-routes`` 实际选中了哪几条序列。
+    selected_routes: List[Dict[str, Any]] = []
+    seen_route_indices: set[int] = set()
+    for item in selection_plan:
+        if item.route_index in seen_route_indices:
+            continue
+        seen_route_indices.add(item.route_index)
+        selected_routes.append(
+            {
+                "route_index": int(item.route_index),
+                "scenario": item.scenario,
+                "route_id": item.route_id,
+            }
+        )
+    selected_route_ids = [str(item["route_id"]) for item in selected_routes]
     selection_payload = {
         "sample_mode": sample_mode,
         "sample_mode_description": PROBE_SAMPLE_MODE_DESCRIPTIONS[sample_mode],
@@ -964,6 +1123,7 @@ def dump_probe(
         "requested_cases_ignored_for_random": sample_mode == "random",
         "selected_cases": len(selection_plan),
         "selected_route_ids": selected_route_ids,
+        "selected_routes": selected_routes,
         "primary_reason_counts": dict(sorted(selection_category_counts.items())),
         "cases": [
             {
@@ -1215,7 +1375,8 @@ def dump_probe(
                 q1_teacher_rs_correct = parsed_teacher_q1.get("rs_label") == frame.rs_label
             if bundle is not None:
                 # student bundle 可以是纯 base Qwen（训练前体检）或 base+adapter（训练后可视化）。
-                # 是否误传 adapter 会写入 flags.json 的 student_adapter_dir 供人工审计。
+                # 是否误传 adapter 会写入 results summary；full 模式还会逐帧写 flags.json，
+                # 因此默认 review 不需要额外复制一份完全相同的运行配置。
                 if run_rs_slow:
                     with _probe_inference_context(bundle, disable_adapter=student_disable_adapter):
                         q1_output, q1_after = _generate_start(
@@ -2108,20 +2269,44 @@ def dump_probe(
         }
         for item in compact_frames
     ]
+    artifact_checks = _validate_probe_artifacts(
+        out_dir,
+        artifact_level=artifact_level,
+        frame_artifacts=frame_artifacts,
+    )
+    selected_route_count = len(selected_routes)
     results = {
-        "format_version": 4,
+        "format_version": 5,
         "artifact_level": artifact_level,
         "sampling": {key: value for key, value in selection_payload.items() if key != "cases"},
         "summary": summary,
         "memory_recovery_report": memory_recovery_report,
+        # 这里是“本次目录是否可作为一个独立 probe 使用”的机器可读清单。目录在运行前
+        # 已确认为空，逐帧文件也已逐项检查；因此用户不需要再靠目录总数猜测是否混入
+        # 旧 route。中断时不会生成这段 complete 记录，而会留下隐藏 marker。
+        "run_integrity": {
+            "status": "complete",
+            "output_directory_isolated": True,
+            "selected_route_count": selected_route_count,
+            "selected_route_ids": selected_route_ids,
+            "selected_routes": selected_routes,
+            "selected_frame_count": len(compact_frames),
+            "frame_artifacts_expected": len(compact_frames) if review_artifacts else 0,
+            "frame_artifacts_indexed": len(frame_artifacts) if review_artifacts else 0,
+            "artifact_checks_passed": artifact_checks,
+            "incomplete_marker_present_after_success": False,
+        },
         "frame_artifacts": frame_artifacts if review_artifacts else [],
         "frames": compact_frames if artifact_level == "compact" else [],
     }
     results_path = out_dir / "results.json"
-    results_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_json_atomic(results_path, results)
+    # 只有完整 results 已提交后才删除 marker。若在此前发生任何异常，marker 会原样保留，
+    # 下一次运行也会因目录非空而拒绝混写，迫使使用者明确处理这份不完整证据。
+    in_progress_marker.unlink()
     print(
         f"[write] {results_path} frames={len(compact_frames)} "
-        f"artifact_level={artifact_level}"
+        f"routes={selected_route_count} artifact_level={artifact_level} integrity=complete"
     )
     return summary
 
@@ -2140,7 +2325,12 @@ def parse_args() -> argparse.Namespace:
 
     p = argparse.ArgumentParser(description="Dump SFT v5 probe cases")
     p.add_argument("--index", type=str, required=True)
-    p.add_argument("--output-dir", type=str, default="checkpoints/sft_v5_probe")
+    p.add_argument(
+        "--output-dir",
+        type=str,
+        default="checkpoints/sft_v5_probe",
+        help="必须为空的独立 probe 目录；代码拒绝混写且不会自动删除旧证据",
+    )
     p.add_argument(
         "--num-cases",
         type=int,

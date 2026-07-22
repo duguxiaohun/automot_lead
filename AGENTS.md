@@ -372,7 +372,11 @@
   student 转换与 comparison-only reference。`compact` 只写顶层 `results.json`；只有
   `--artifact-level full` 才额外保存 system/user/messages 分离视图、student prompt/output、teacher privileged prompt、脚本化 teacher target、
   可选 `q*_teacher_output.txt`、memory_before/after、flags、timeline.json/png 和
-  manifest.json，每帧另写完整 `case_record.json`；`--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用
+  manifest.json，每帧另写完整 `case_record.json`。probe 输出目录启动时必须为空，
+  非空直接拒绝且不自动删除；运行中保留 `.probe_in_progress.json`，只有 artifact 校验
+  通过并原子提交 `format_version=5` 的 `results.json` 后才删除，`run_integrity` 必须
+  记录 route/frame/artifact 完整性；超长/非法 scenario-route 目录名需追加短哈希防碰撞；
+  `--with-teacher` 是兼容标志，真正生成 teacher 模型文本必须显式使用
   `--with-teacher-model`；训练前 base Qwen OPSD 能力体检必须不传 `--adapter-dir`、
   不加载任何 LoRA；teacher model output 应和 student 一样从 `Scene Description:`
   开始输出分析与 `RS/EVENT`，不能复读 MEMORY、choices 或 REFERENCE；可视化分为训练前 base Qwen OPSD 能力体检、

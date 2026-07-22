@@ -1144,6 +1144,13 @@ Checkpoint / probe 策略：
   唯一区别是 LoRA probe 的 student 开启 adapter。
   `output.json` 必须直接并列学生/老师 raw output、解析结构、场景真值、teacher target 和
   逐项正确性；`memory.json` 必须并列 Q1/Q2 student memory 转换与只读 reference。
+  每次 probe 的 `--output-dir` 必须在启动时为空，禁止把新 `results.json` 与旧
+  `scenarios/frame_*` 混写；代码发现非空目录时直接拒绝且不自动删除证据。运行期间写
+  `.probe_in_progress.json`，只有 review/full 逐帧 artifact 合同校验通过且顶层
+  `results.json` 原子提交后才删除。`format_version=5` 的 `run_integrity` 必须记录完成
+  状态、选中 route/frame 数、frame artifact 索引数和检查数；marker 残留或缺少
+  `results.json` 的目录只能视为中断产物。scenario/route 名称含非法字符或过长时必须
+  追加原字符串短哈希，不能只替换/截断后让两条 route 写进同一目录。
   失败写 `error.txt` 后继续训练。probe 结束必须恢复 train 模式并清理 CUDA
   cache，不能让可视化对象跨训练窗口常驻。
 - 慢帧 teacher model 的 EVENT_FAST 只在其自身 Q1 RS 正确时触发，并续接 teacher
