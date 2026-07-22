@@ -286,17 +286,25 @@
   不再单问当前是否异常；
   system prompt 简短提醒关注交通灯/标志、周围车辆/行人/障碍物、
   车道线/道路结构和影响自车决策的关键因素；Q1 memory 只渲染自然语言
-  `PREVIOUS_RS_HYPOTHESIS + EGO_TO_GOAL_XY`，不带 `PREVIOUS_EVENT_HYPOTHESIS`，
-  Q2 才渲染自然语言 `PREVIOUS_EVENT_HYPOTHESIS`；两个 memory block 都必须显式写
+  `PREVIOUS_RS_HYPOTHESIS + PREVIOUS_RS_HYPOTHESIS_AGE + EGO_TO_GOAL_XY`，不带
+  `PREVIOUS_EVENT_HYPOTHESIS`，Q2 才渲染自然语言
+  `PREVIOUS_EVENT_HYPOTHESIS + PREVIOUS_EVENT_HYPOTHESIS_AGE`；两个 memory block 都必须显式写
   `MEMORY_RELIABILITY=unverified`，memory 文本不写 A-E 选项字母或 `RE/U-E*` 标签代码。
   Q2 在当前 RS gate 正确后进入，候选优先使用逐帧
   `frame_event_annotation.allowed_events`，缺失时才 fallback 到
   `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]`；所有 `R-E*`
   在 prompt 中折为一个 `RE`，原始 `event_code` / `regular_event_codes` 只作审计和 RE
-  细分文案。RS 采用慢思考、EVENT 采用快思考：稳定正确 RS 默认每 4 个
-  4Hz frame 运行一次 RS_SLOW，中间帧复用 RS memory；EVENT_FAST 在每个 RS gate
+  细分文案。RS 采用慢思考、EVENT 采用快思考：稳定正确 RS 默认以 4 帧为中心，
+  每次从 3/4/5 个 4Hz frame 中可复现随机选择下一次 RS_SLOW 间隔，中间帧复用
+  RS memory；EVENT_FAST 在每个 RS gate
   正确的帧都重新读当前 RGB 并训练，禁止复用前帧 normal/abnormal/EVENT。RS
   错误、UNKNOWN 或 recovery 时 RS_SLOW 恢复逐帧，当帧 RS 错就跳过 EVENT。
+  正式训练默认 `RS_REPAIR_MODE=EVENT_REPAIR_MODE=ground_truth`：RS 连错 4 帧且
+  到达 2 帧 review slot、EVENT 连错 3 次且到达每帧 review slot 后才延迟
+  写回 GT，绝不在错误下一帧立刻纠正。`unknown` 软擦除只作消融；它在
+  纯 memory-copy 压力测试中可长期卡住并饿饿 EVENT，不得作为正式长训默认。
+  修复后答对必须与干预前自主恢复分开记录，禁止把 forced repair 帧算作
+  `self_recovered_after_streak`。
   训练用 torchrun 多进程同步 on-policy OPSD：慢帧 EVENT_FAST 作为 Q1 assistant
   输出后的第二轮 user turn 复用当帧 Q1 KV cache；快帧没有 Q1 turn，EVENT_FAST
   必须对本帧 RGB fresh prefill，
@@ -373,6 +381,12 @@
   后续改标签协议、prompt、memory、loss、probe 或 DDP 训练逻辑时必须同步维护相邻注释。
   `SFT_V5_RUN.md` 保持为精简的可执行命令手册；设计合同放在 `SFT_V5_PLAN.md`，
   完整 probe 产物和人工检查项放在 `SFT_V5_VISUALIZATION_RECORD.md`，不在三份文档间重复铺开。
+  2026-07 本轮详细中文注释覆盖数据过滤/坐标转换、标签与动态候选、memory curriculum、
+  local/global padding、batched KV/M-RoPE、精确 `q1_ids` 续接、OPSD span/KL、OOM 安全二分、
+  global-frame 梯度归一化与分桶 all-reduce、closed-loop eval、probe 选帧与 artifact 落盘；
+  并修正了 forced-repair 恢复统计与 eval/probe oracle 调度泄漏。代码阅读顺序固定参考
+  `SFT_V5_PLAN.md` §9.3：`labels.py -> prompts.py -> build_dataset.py -> train.py ->
+  metrics.py -> eval.py -> probe.py -> tests`。
   正式训练默认 `UPDATE_MODE=streaming_frames`：每个完整 global timestep 后汇总实际
   有效 frame，累计 `TARGET_GLOBAL_FRAMES_PER_STEP=512` 或达到
   `MAX_TIMESTEPS_PER_STEP=32` 时同步 LoRA 梯度并 optimizer step；不能在同一帧
@@ -397,12 +411,20 @@
   输入写 `q2_teacher_training_prompt.txt`，默认 `q2_teacher_prompt.txt` 必须和
   `q2_teacher_output.txt` 实际配对。
   v5 训练 memory 必须按“可疑 hypothesis”而非答案使用：route 首帧 RS/EVENT 分别以
-  0.5 概率使用 GT，否则为 UNKNOWN；原本正确的 RS memory 以 0.06/0.02 概率注入错误值/
-  UNKNOWN，EVENT 为 0.10/0.05。稳定正确 RS 默认 `rs_slow_interval=4`；快帧不产生
+  0.5 概率使用 GT，否则为 UNKNOWN；原本正确的 RS memory 以 0.05/0.07 概率注入
+  contradiction/UNKNOWN omission，EVENT 为 0.20/0.25。UNKNOWN 代表固定 memory schema
+  内的 no-prior，不整块删除 prompt。RS/EVENT 分别维护 age：该维度 label 真正改变时归零，
+  否则每个真实 4Hz frame 累加；周期确认同一 label 不归零，padding/skip 不累加。
+  新注入的 wrong/UNKNOWN 因为刚改变 hypothesis，age 必须从 0 开始；若学生继续复制，
+  才随后续真实帧自然形成 age>0 的 stale 样本，禁止随机伪造旧 age。
+  稳定正确 RS 默认 `rs_slow_interval=4, rs_slow_interval_jitter=1`，即每次在 3/4/5
+  帧中可复现抽取下一次复核间隔；快帧不产生
   RS rollout/loss，但必须产生 EVENT rollout/loss。RS 错误只跳过本帧 EVENT，下一帧恢复
   逐帧 RS 分析，直到学生自行纠正或训练期 delayed repair 真正执行。RS 默认
   连续错 4 帧后申请修复并每 2 个有效帧 review，EVENT 默认连续错 3 次后申请修复并
   每帧 review；`rs_repair_interval` 只控制脚本兜底，与 `rs_slow_interval` 独立；
+  正式默认在 patience/review 后延迟写回 GT，`unknown` 只是软擦除消融；
+  forced repair 后答对与干预前自主恢复必须分开统计；
   EVENT wrong 扰动优先从本帧 `event_option_map` 的其它可见候选中选择，单选题无替代项
   时才回退全局 EVENT 表；EVENT repair/augmentation 只在 RS memory 本帧扰动后仍正确
   时执行，RS 错误/UNKNOWN 时必须保留 EVENT 状态，避免处理一个不会进入 Q2 的样本。
@@ -410,7 +432,8 @@
   选项推导，不存在独立 ABNORMAL 状态。以上参数必须可由 `train.py` CLI/
   `train.sh` 环境变量覆盖，并写入 adapter metadata。Q1/Q2 最终高权重 span 只监督单个
   选项字符；训练/TensorBoard 必须记录 wrong-memory copy、wrong/UNKNOWN recovery、
-  injected wrong/UNKNOWN、forced repair、RS/EVENT input anomaly rate、RS error streak、
+  injected wrong/UNKNOWN、forced repair、Q1/Q2 aligned/omission/contradiction 实际比例、
+  RS/EVENT input age、随机 RS interval 均值/方差、RS/EVENT input anomaly rate、RS error streak、
   因 RS 错跳过 Q2 的比例，以及由 EVENT 选项折叠出的 UE/RE TP/FP/TN/FN 与 P/R/F1。
   大样本 `eval.py` 与小样本 `probe.py` 必须共用 `metrics.py`：统计 RS/UE 边界、Q1/Q2
   precision/recall/F1、假阳性/假阴性、端到端 EVENT 与 route macro 指标；另外必须用相邻帧
@@ -420,10 +443,16 @@
   可用 `--transition-jsonl` 只落盘变化和 FP/FN 的轻量记录。所有指标输出保存中文定义和方向；
   eval 默认流式累计，只有显式 `--output-jsonl` 才落盘全量逐帧输入输出，不能为统计把全量
   prompt/output 常驻内存。
-  数据量审计以 42 个有效场景、7241 route、914466 帧为上限；10% validation
-  后约 82.3 万训练帧。默认 4 帧周期的 RS_SLOW 基础量约 20.6 万帧，加上
-  memory 扰动/UNKNOWN/recovery 后预期约 23 万帧；EVENT_FAST 在 RS gate 正确时
-  接近覆盖 82.3 万训练帧。GT UE=15.55% 与 wrong/UNKNOWN memory 异常不能直接相加。
+  eval/probe 的 student 默认从 RS/EVENT=UNKNOWN 启动，
+  `rs_schedule_policy=deployable` 仅使用 UNKNOWN/非法输出、RS 变化后确认和可复现随机周期复核，
+  不能再用 GT mismatch 触发下一帧 recovery；`ground_truth/oracle` 只复现旧报告。
+  为实现“RS 真错就跳过 EVENT”，离线 EVENT gate 仍用 GT correctness，输出必须显式
+  记录 `event_gate_uses_ground_truth=true` / `fully_deployable_end_to_end=false`，不得误称整条链路可部署。
+  数据量审计以 42 个有效场景、7241 route、914466 帧为上限；10% validation 后约
+  82.3 万训练帧。恒定 GT、当帧自纠模拟中 Q1 trigger≈30.5%，Q1 relation≈
+  59.6/24.1/16.2，Q2 relation≈60.2/22.4/17.4；纯 memory-copy 到 delayed repair
+  的压力测试中 Q1 trigger≈55.4%、Q2 gate≈64.2%。GT UE=15.55% 与 wrong/UNKNOWN
+  memory 异常不能直接相加，最终比例必须看 TensorBoard。
   运行与可视化方法见
   `SFT_V5_RUN.md` / `SFT_V5_PLAN.md` / `SFT_V5_VISUALIZATION_RECORD.md`。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`

@@ -445,7 +445,15 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         frame_indices = [item["frame_index"] for item in results["frames"]]
         assert frame_indices == list(range(len(route.frames)))
         compact_case = results["frames"][0]
-        compact_fast_case = results["frames"][1]
+        # 默认从 UNKNOWN 启动时，第 0 帧给出新 RS 后会进入一次无 GT 的确认态，
+        # 因此第 1 帧仍是 RS_SLOW；第 2 帧确认完成后才是首个纯 EVENT_FAST。
+        # 这里显式按 schedule_reason 找 fast frame，避免以后调整确认长度时把
+        # “第几帧”这种实现细节误当成 prompt/KV 合同本身。
+        compact_fast_case = next(
+            item
+            for item in results["frames"]
+            if item["memory"]["q1"]["schedule_reason"] == "reuse_stable_rs"
+        )
         # compact 只减少文件数量，不能删掉训练前 base / 训练后 LoRA 人工对比所需的
         # 输入、完整标签、teacher 脚本真值、输出槽位和 memory。
         assert compact_case["ground_truth"]["rs_label"] in {"R1", "R2"}
@@ -464,6 +472,9 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         }
         assert compact_case["memory"]["reference_is_comparison_only"] is True
         assert compact_case["memory"]["forced_correction_applied"] is False
+        assert results["summary"]["student_initial_memory_mode"] == "unknown"
+        assert results["summary"]["rs_schedule_policy"] == "deployable"
+        assert results["summary"]["rs_schedule_uses_ground_truth"] is False
         assert set(compact_case["student"]) >= {"q1_output", "q2_output", "q1_parsed", "q2_parsed"}
         assert set(compact_case["teacher"]) >= {"q1_output", "q2_output", "q1_parsed", "q2_parsed"}
         assert results["frame_artifacts"] == []

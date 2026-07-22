@@ -165,14 +165,19 @@ def test_adapter_metadata_records_effective_window() -> None:
     assert meta["gradient_sync"] == "bucketed_sum_allreduce_then_global_frame_average"
     assert meta["memory_curriculum"] == {
         "rs_slow_interval": 4,
+        "rs_slow_interval_jitter": 1,
         "rs_error_patience": 4,
         "event_error_patience": 3,
         "rs_repair_interval": 2,
         "event_repair_interval": 1,
-        "rs_memory_corrupt_prob": 0.06,
-        "rs_memory_unknown_prob": 0.02,
-        "event_memory_corrupt_prob": 0.10,
-        "event_memory_unknown_prob": 0.05,
+        # 正式默认在 patience/review 后延迟写回 GT；不是下一帧立刻修复。
+        # 这两个字段必须进 adapter metadata，否则无法复现训练课程。
+        "rs_repair_mode": "ground_truth",
+        "event_repair_mode": "ground_truth",
+        "rs_memory_corrupt_prob": 0.05,
+        "rs_memory_unknown_prob": 0.07,
+        "event_memory_corrupt_prob": 0.20,
+        "event_memory_unknown_prob": 0.25,
         "rs_initial_gt_prob": 0.5,
         "event_initial_gt_prob": 0.5,
         "event_fast_merges_normal_abnormal": True,
@@ -190,6 +195,12 @@ def test_memory_tensorboard_tags_are_complete() -> None:
         "memory/max_reserved_gb",
         "progress/cuda_max_allocated_gb",
         "progress/cuda_max_reserved_gb",
+        "memory/q1_relation_",
+        "memory/q2_relation_",
+        "memory/q1_rs_age_frames_mean",
+        "memory/q2_event_age_frames_mean",
+        "memory/rs_periodic_interval_mean",
+        "memory/rs_periodic_interval_std",
     )
     for tag in expected_tags:
         assert tag in train_source, f"missing TensorBoard memory tag: {tag}"

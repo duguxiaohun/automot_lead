@@ -15,15 +15,20 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 
 from qwen3vl_local.sft_v5.labels import EventTarget, RSTarget
 from qwen3vl_local.sft_v5.prompts import (
+    Memory,
     MemoryCurriculumConfig,
     MemoryCurriculumState,
+    advance_memory_age,
     build_q1_teacher_prompt,
     build_q1_teacher_target,
     build_q2_student_prompt,
     build_q2_teacher_prompt,
+    initialize_student_memory,
+    observe_inference_rs_schedule,
     observe_training_memory,
     prepare_training_memory,
     reset_memory_for_frame,
+    rs_slow_interval_for_state,
     should_run_rs_slow,
     should_run_event_fast,
     should_trigger_q2,
@@ -60,11 +65,13 @@ def main() -> None:
     rendered_q1 = mem.format_q1_text()
     assert "PREVIOUS_EVENT_HYPOTHESIS" not in rendered_q1, "Q1 memory 不应提前暴露 EVENT"
     assert "PREVIOUS_RS_HYPOTHESIS: A -" not in rendered_q1, "memory 不应保存 A-E 选项编号"
+    assert "PREVIOUS_RS_HYPOTHESIS_AGE: 0 frames" in rendered_q1
 
     mem_with_goal = reset_memory_for_frame(rs, ego_to_goal_xy=(12.3, -1.5))
     assert "EGO_TO_GOAL_XY=(+12.3, -1.5) m" in mem_with_goal.format_q1_text()
     rendered_q2 = mem_with_goal.format_q2_text()
     assert "PREVIOUS_EVENT_HYPOTHESIS" in rendered_q2, "Q2 memory 才需要带 EVENT"
+    assert "PREVIOUS_EVENT_HYPOTHESIS_AGE: 0 frames" in rendered_q2
     assert "PREVIOUS_EVENT_HYPOTHESIS: RE -" not in rendered_q2, "memory 不应保存 RE/U-E 标签前缀"
 
     # teacher model 的可视化输出也应当和 student 一样直接产出分析字段，而不是复读
@@ -109,17 +116,25 @@ def main() -> None:
     mem2 = update_memory_after_q2(mem, student_event_label=None)
     assert mem2.event_label == "U-E6", "Q2 非法输出不能污染当前 memory"
 
-    # 测试/eval 的下一帧只能刷新外部导航量，不能因为真值已经变化就强制覆盖学生
-    # 的 RS/EVENT。这样才能观察学生在后续多帧中是否会自行纠正。
-    carried = update_memory_navigation(mem2, ego_to_goal_xy=(8.0, 2.0))
+    # 测试/eval 的下一帧先让两个 hypothesis age 各加 1，再只刷新外部
+    # 导航量；两步都不能因为真值变化就覆盖学生 RS/EVENT。
+    carried = advance_memory_age(mem2)
+    carried = update_memory_navigation(carried, ego_to_goal_xy=(8.0, 2.0))
     assert carried.rs_label == "R4"
     assert carried.event_label == "U-E6"
     assert carried.ego_to_goal_x == 8.0 and carried.ego_to_goal_y == 2.0
+    assert carried.rs_age_frames == 1 and carried.event_age_frames == 1
+    confirmed_rs = update_memory_after_q1(carried, student_rs_label="R4")
+    confirmed_event = update_memory_after_q2(carried, student_event_label="U-E6")
+    assert confirmed_rs.rs_age_frames == 1, "重复确认同一 RS 不能伪装成新 memory"
+    assert confirmed_event.event_age_frames == 1, "重复确认同一 EVENT 不能重置持续时间"
     corrected = update_memory_after_q1(
         carried,
         student_rs_label="R2",
     )
     assert corrected.rs_label == "R2", "RS 必须由后续 student Q1 输出自行改正"
+    assert corrected.rs_age_frames == 0, "RS label 变化后独立 age 必须归零"
+    assert corrected.event_age_frames == 1, "RS 变化不得误清空 EVENT age"
     assert corrected.event_label == "U-E6", "RS_SLOW 必须保留原 EVENT 等待当帧 EVENT_FAST"
 
     mem = update_memory_after_q1(mem, student_rs_label="R4")
@@ -178,7 +193,8 @@ def main() -> None:
         seed=7,
     )
     assert delayed.rs_label == "R4" and not audit["memory_rs_forced_repair"]
-    # 下一 review ordinal=2 才执行 GT 兜底。
+    # 下一 review ordinal=2 才执行默认延迟 GT 修复。从首次错误到这里
+    # 已经保留了数帧连续错误 memory，不是下一帧立刻覆盖。
     delayed, audit = prepare_training_memory(
         delayed,
         state,
@@ -192,16 +208,35 @@ def main() -> None:
         seed=7,
     )
     assert delayed.rs_label == "R1" and audit["memory_rs_forced_repair"] is True
+    assert audit["memory_rs_repaired_to_ground_truth"] is True
+    assert audit["memory_rs_input_age_frames"] == 0, "repair 真正改变 RS 时 age 应归零"
+    repaired_after = observe_training_memory(
+        state,
+        config,
+        rs_correct=True,
+        rs_checked=True,
+        event_checked=False,
+        event_correct=False,
+        rs_forced_repair=True,
+    )
+    assert repaired_after["memory_rs_self_recovered_after_streak"] is False
+    assert repaired_after["memory_rs_recovered_after_forced_repair"] is True
 
     defaults = MemoryCurriculumConfig()
     assert defaults.rs_slow_interval == 4
+    assert defaults.rs_slow_interval_jitter == 1
     assert (defaults.rs_error_patience, defaults.rs_repair_interval) == (4, 2)
-    assert (defaults.rs_corrupt_prob, defaults.rs_unknown_prob) == (0.06, 0.02)
+    assert (defaults.rs_repair_mode, defaults.event_repair_mode) == (
+        "ground_truth",
+        "ground_truth",
+    )
+    assert (defaults.rs_corrupt_prob, defaults.rs_unknown_prob) == (0.05, 0.07)
     assert (defaults.event_error_patience, defaults.event_repair_interval) == (3, 1)
-    assert (defaults.event_corrupt_prob, defaults.event_unknown_prob) == (0.10, 0.05)
+    assert (defaults.event_corrupt_prob, defaults.event_unknown_prob) == (0.20, 0.25)
 
-    # 稳定 RS 每 4 帧复核；中间帧只跑 EVENT_FAST。RS 错误/UNKNOWN 会立即切回
-    # RS_SLOW，并在回答错误后保持逐帧 recovery。
+    # 不传 schedule_key 是 legacy 固定周期单测：稳定 RS 每 4 帧复核，中间帧只跑
+    # EVENT_FAST。正式 train/eval/probe 会传 key 并随机成 3/4/5；RS 错误/UNKNOWN
+    # 仍会立即切回 RS_SLOW，并在回答错误后保持逐帧 recovery。
     schedule_config = dataclasses.replace(
         defaults,
         rs_corrupt_prob=0.0,
@@ -257,6 +292,41 @@ def main() -> None:
         frame_ordinal=4,
     )
     assert run_rs and reason == "periodic"
+
+    # 正式调用传入 route key 后，每次 query 之后会从 3/4/5 帧可复现
+    # 采样下一间隔；不同 route 不应全部锁在同一相位。
+    random_state = MemoryCurriculumState(last_rs_query_ordinal=4)
+    interval_draws = {
+        rs_slow_interval_for_state(
+            random_state,
+            defaults,
+            schedule_key=f"Scenario/route-{idx}",
+            schedule_seed=20260711,
+        )
+        for idx in range(64)
+    }
+    assert interval_draws == {3, 4, 5}
+    same_route_draws = {
+        rs_slow_interval_for_state(
+            MemoryCurriculumState(last_rs_query_ordinal=ordinal),
+            defaults,
+            schedule_key="Scenario/same-route",
+            schedule_seed=20260711,
+        )
+        for ordinal in range(64)
+    }
+    assert same_route_draws == {3, 4, 5}, "同一 route 的后续 query 也不能锁死同一间隔"
+    assert rs_slow_interval_for_state(
+        random_state,
+        defaults,
+        schedule_key="Scenario/repro",
+        schedule_seed=7,
+    ) == rs_slow_interval_for_state(
+        random_state,
+        defaults,
+        schedule_key="Scenario/repro",
+        schedule_seed=7,
+    )
     schedule_mem.rs_label = "R4"
     run_rs, reason = should_run_rs_slow(
         schedule_state,
@@ -267,7 +337,8 @@ def main() -> None:
     )
     assert run_rs and reason == "memory_mismatch"
 
-    # EVENT 使用独立且更快的策略：达到 patience 后，默认 interval=1 的下一帧就修复。
+    # EVENT 使用独立且更快的策略：达到 patience 后，默认 interval=1
+    # 在下一个 review slot 延迟写回 GT；错误当帧仍不会立刻修复。
     event_state = MemoryCurriculumState()
     event_mem, _ = prepare_training_memory(
         None,
@@ -304,6 +375,36 @@ def main() -> None:
         seed=8,
     )
     assert event_mem.event_label == "RE" and event_audit["memory_event_forced_repair"] is True
+    assert event_audit["memory_event_repaired_to_ground_truth"] is True
+    assert event_audit["memory_event_input_age_frames"] == 0
+
+    # UNKNOWN 软擦除作为显式消融仍可用；它只移除陈旧先验，不保证
+    # 学生退出 UNKNOWN，所以不能和正式延迟 GT 修复统计混在一起。
+    soft_config = dataclasses.replace(
+        config,
+        rs_repair_mode="unknown",
+        event_repair_mode="unknown",
+    )
+    soft_state = MemoryCurriculumState(
+        frames_seen=2,
+        rs_recovery_active=True,
+        rs_error_streak=soft_config.rs_error_patience,
+        rs_repair_pending=True,
+    )
+    soft_mem, soft_audit = prepare_training_memory(
+        Memory(rs_label="R4", event_label="RE"),
+        soft_state,
+        soft_config,
+        gt_rs_label="R1",
+        gt_event_label="RE",
+        ego_to_goal_xy=(1.0, 2.0),
+        route_key="Scenario/soft-repair",
+        frame_id=2,
+        epoch=0,
+        seed=8,
+    )
+    assert soft_mem.rs_label == "UNKNOWN"
+    assert soft_audit["memory_rs_repaired_to_unknown"] is True
 
     # RS wrong 会让当前帧 EVENT gate 关闭，不能在同一帧再伪造一个未被 Q2 使用的
     # EVENT augmentation。
@@ -380,6 +481,37 @@ def main() -> None:
     )
     assert unknown.rs_label == "UNKNOWN" and unknown.event_label == "UNKNOWN"
     assert "No reliable previous road-structure hypothesis" in unknown.format_q1_text()
+
+    # eval/probe 默认也从 UNKNOWN 起步。无 GT 调度把“UNKNOWN -> 合法 RS”的第一次
+    # 变化视为待确认，下一帧再输出相同 RS 后才恢复低频周期；整个过程不需要真值。
+    inference_mem = initialize_student_memory(rs, ego_to_goal_xy=(3.0, -2.0))
+    assert inference_mem.rs_label == "UNKNOWN" and inference_mem.event_label == "UNKNOWN"
+    inference_state = MemoryCurriculumState(frames_seen=1, last_rs_query_ordinal=-1)
+    inference_audit = observe_inference_rs_schedule(
+        inference_state,
+        rs_checked=True,
+        memory_rs_label_before="UNKNOWN",
+        student_rs_label="R1",
+    )
+    assert inference_audit["inference_rs_changed"] is True
+    assert inference_state.rs_recovery_active is True
+    run_confirm, confirm_reason = should_run_rs_slow(
+        inference_state,
+        defaults,
+        memory=Memory(rs_label="R1", event_label="UNKNOWN"),
+        gt_rs_label=None,
+        frame_ordinal=1,
+    )
+    assert run_confirm and confirm_reason == "recovery"
+    inference_state.frames_seen = 2
+    stable_audit = observe_inference_rs_schedule(
+        inference_state,
+        rs_checked=True,
+        memory_rs_label_before="R1",
+        student_rs_label="R1",
+    )
+    assert stable_audit["inference_rs_changed"] is False
+    assert inference_state.rs_recovery_active is False
     print("[test_memory_update] ok")
 
 

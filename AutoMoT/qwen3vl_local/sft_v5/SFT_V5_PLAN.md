@@ -10,8 +10,9 @@ v5 的关键变化：
 - 数据源改为 `AutoMoT/keyframe_filter/collection_output/*_result.json` 的
   全帧标定结果，不再使用 `keyframes_all_scenarios.json` 的 5-anchor 子场景。
 - 训练目标是双速率两问：
-  1. `RS_SLOW`：保留三段分析，只输出道路结构 RS；稳定时默认每 4 个 4Hz 帧运行
-     一次，错误/UNKNOWN/recovery 时切回逐帧。
+  1. `RS_SLOW`：保留三段分析，只输出道路结构 RS；稳定时以 4 帧为中心，默认在
+     3/4/5 个 4Hz 帧中可复现地随机选择下一次复核间隔，错误/UNKNOWN/recovery
+     时切回逐帧。
   2. `EVENT_FAST`：每个 RS gate 正确的帧运行，保留三段分析，直接在显式标注
      `[RE | REGULAR]` / `[UE | UNUSUAL]` 的混合候选中选择 EVENT。RE 就是
      regular/normal，任意 UE 就是 unusual/abnormal，不再单独询问 `ABNORMAL`。
@@ -23,6 +24,9 @@ v5 的关键变化：
   或最迟 32 个 global timestep，在完整 timestep 边界手动 all-reduce LoRA 梯度并
   更新权重，不再等待完整超长 route batch。
 - Prompt 全部使用英文，标签选项必须是自然语言描述，不训练模型只背裸标签名。
+- v5 不改 Qwen 的视觉/文本注意力结构，不采用额外 asymmetric cross-attention；当前路线用
+  aligned / omission / contradiction 数据课程和显式 memory age 近似“先验置信度”，便于
+  继续复用现有 LoRA、KV 和 OPSD 训练链路。
 
 > 约定：本文里 `RS` 指 ROAD_STRUCTURE，`UE` 指 unusual event，`RE` 指 regular /
 > no-unusual-event 状态。除非后续拍板修改，v5 默认把 `R-E1..R-E5` 折叠成
@@ -39,6 +43,7 @@ qwen3vl_local/sft_v5/
   __init__.py
   SFT_V5_PLAN.md
   SFT_V5_RUN.md
+  SFT_V5_VISUALIZATION_RECORD.md
   labels.py
   prompts.py
   build_dataset.py
@@ -49,10 +54,14 @@ qwen3vl_local/sft_v5/
   probe.py
   inspect_teacher.py
   check_loss_mask.py
+  test_batched_kv_helpers.py
+  test_batched_qwen_smoke.py
   test_memory_update.py
   test_dataset_contract.py
   test_checkpoint_probe.py
+  test_parallel_kl_microbatch.py
   test_probe_selection_and_metrics.py
+  test_streaming_optimizer.py
 ```
 
 职责划分：
@@ -69,6 +78,9 @@ qwen3vl_local/sft_v5/
 - `train.py`
   DDP + OPSD 主入口。每个 rank 默认用 `LengthBalancedDistributedSampler` 读 sequence batch，
   collate 成 `[B, T_max]` 的 padded batch，按时间步推进 memory 与 Q/A。
+- `train.sh`
+  `single/ddp/check` 统一 launcher；负责 GPU pin、batch profile、memory curriculum 默认值、
+  run 目录防覆盖和 torchrun 参数展开。正式启动参数应先用 `DRY_RUN=1` 审计。
 - `eval.py`
   大样本自由生成评估。使用同一套 Memory 和两问协议，不用 teacher 强制纠偏；
   指标按帧流式累计，可选把完整输入输出逐帧写入 JSONL。
@@ -78,12 +90,19 @@ qwen3vl_local/sft_v5/
 - `probe.py`
   小样本定向 case-level dump。默认覆盖 UE 正例/边界/邻近 RE 硬负例、RS 变换/邻帧和
   稳定 RE；保存完整 RGB、messages、prompt、student/teacher 输出、memory transition 与 GT。
+- `SFT_V5_VISUALIZATION_RECORD.md`
+  规定 compact/review/full 三档 probe 产物、时间线字段、人工审查顺序，以及训练曲线中
+  relation、age、随机 interval、复制与恢复指标的判读口径。
 - `inspect_teacher.py`
   抽检 privileged teacher 的分析质量；只跑 base Qwen `disable_adapter()`，
   不训练。
 - `check_loss_mask.py`
   静态检查 RS_SLOW analysis / RS 与 EVENT_FAST analysis / EVENT span 权重，防止 prompt 改动导致
   离散标签 loss 掉线。
+- `test_*.py`
+  覆盖 sequence/index 合同、memory age/扰动/延迟修复、可复现随机 RS 调度、streaming
+  optimizer、parallel-KL 微批、checkpoint probe 和 batched KV helper。真实
+  `test_batched_qwen_smoke.py` 会加载本地 Qwen/RGB，必须在有模型与 GPU 的服务器单独运行。
 
 ---
 
@@ -483,6 +502,7 @@ v5.1 把 Memory 明确定义为“上一帧模型的未验证假设”，不是�
 ```text
 [MEMORY]
 PREVIOUS_RS_HYPOTHESIS: Ordinary same-direction drivable road ...
+PREVIOUS_RS_HYPOTHESIS_AGE: 6 frames (1.50 s at 4 Hz; 0 means newly initialized or changed)
 MEMORY_RELIABILITY: unverified previous model output; it may be stale or wrong
 EGO_TO_GOAL_XY=(+12.3, -1.5) m
 [/MEMORY]
@@ -494,7 +514,9 @@ road + event memory：
 ```text
 [MEMORY]
 PREVIOUS_RS_HYPOTHESIS: Ordinary same-direction drivable road ...
+PREVIOUS_RS_HYPOTHESIS_AGE: 6 frames (1.50 s at 4 Hz; 0 means newly initialized or changed)
 PREVIOUS_EVENT_HYPOTHESIS: No unusual event; continue ordinary same-direction behavior.
+PREVIOUS_EVENT_HYPOTHESIS_AGE: 2 frames (0.50 s at 4 Hz; 0 means newly initialized or changed)
 MEMORY_RELIABILITY: unverified previous model output; it may be stale or wrong
 EGO_TO_GOAL_XY=(+12.3, -1.5) m
 [/MEMORY]
@@ -516,16 +538,37 @@ class Memory:
     event_label: str     # RE or U-E*, only rendered from Q2 onward
     ego_to_goal_x: float | None
     ego_to_goal_y: float | None
+    rs_age_frames: int   # RS hypothesis 连续未变化的 4Hz 帧数
+    event_age_frames: int  # EVENT hypothesis 连续未变化的 4Hz 帧数
 ```
 
 UNKNOWN/no-prior：`Memory.rs_label/event_label` 允许内部值 `UNKNOWN`，prompt 显示
 “No reliable previous ... hypothesis is available”，绝不能静默 fallback 成 R1/RE。
+这里把“没有 memory”实现成固定 schema 内的 UNKNOWN/no-prior，而不是随机删除整个
+`[MEMORY]` block：两者都不泄漏答案，但固定 schema 不会额外制造 train/deploy 格式漂移。
+
+RS 与 EVENT age 独立维护。route 首帧 age=0；进入下一个真实有效帧时各自加 1；只有
+该维度 label 真正发生变化（包括学生修正、随机 corruption、UNKNOWN 注入和延迟 repair）
+才把对应 age 归零。周期复核后仍输出同一 label 不重置 age；padding、缺图 skip 和另一个
+维度的变化也不影响它。这样 age 表示“这条 hypothesis 已持续多久”，而不是“上次问了多久”。
+
+人工注入一个新错误 label 本身也是一次 memory 改变，因此该 contradiction 的 age 必须从
+0 开始，不能随机伪造为较大的“旧时间戳”。如果学生没有依据当前 RGB 纠正它，这个错误
+hypothesis 会随后续真实帧自然累加成 age=1、2、3……的 stale 样本。这样较老的错误样本
+来自真实 closed-loop 失败轨迹，而不是 age 与标签互相矛盾的静态拼接。与此同时，长期稳定
+且正确的 RS 也允许有较大 age，所以 age 只表示需要重新核验的先验强度，绝不能替代当前图像。
 
 初始化与随机扰动默认值：
 
 - route 首帧 RS/EVENT 各有 0.5 概率使用 GT，剩余为 UNKNOWN/no-prior。
-- 当前 RS memory 原本正确时，以 0.06 概率替换成其它 R1-R5，以 0.02 概率改成 UNKNOWN。
-- 当前 EVENT memory 原本正确时，以 0.10 概率替换成其它 RE/U-E，以 0.05 概率改成 UNKNOWN。
+- 当前 RS memory 原本正确时，以 0.05 概率替换成其它 R1-R5（contradiction/stale），
+  以 0.07 概率改成 UNKNOWN/no-prior（omission）。
+- 当前 EVENT memory 原本正确时，以 0.20 概率替换成其它 RE/U-E（contradiction/stale），
+  以 0.25 概率改成 UNKNOWN/no-prior（omission）。这里 eligible 条件分布是
+  `55/25/20`，用于抵消 RS augmentation 在 Q1 前拦下部分 EVENT 注入的稀释效应。
+- 三类关系按模型真正看到的 Q1/Q2 prompt 统计：`aligned` 是 memory 与当前 GT 一致，
+  `omission` 是 UNKNOWN/no-prior，`contradiction` 是已知但错误/陈旧的 label。注入概率是
+  “当前 memory 原本正确且通过上游 gate”的条件概率，不等于最终训练样本比例。
 - EVENT wrong 优先从本帧 `event_option_map` 里选择不属于当前多标签容错集合的可见候选，
   使 Q2 真能在“错误旧假设 vs 当前视觉证据”之间纠偏；单选题没有替代项时才退回
   全局 EVENT 表，表达一个已过期但当前候选不再允许的旧事件。双 UE 可接受集合中的
@@ -539,8 +582,9 @@ UNKNOWN/no-prior：`Memory.rs_label/event_label` 允许内部值 `UNKNOWN`，pro
 
 延迟修复：
 
-- `RS_SLOW_INTERVAL=4`：RS 正确稳定时每 4 个 4Hz 帧运行一次 RS_SLOW，中间帧只
-  复用 RS memory 并运行 EVENT_FAST。
+- `RS_SLOW_INTERVAL=4`、`RS_SLOW_INTERVAL_JITTER=1`：RS 正确稳定时，每次 Q1 后
+  按 `route + seed + last_query_ordinal` 从 3/4/5 帧均匀、可复现地抽取下一次
+  RS_SLOW 间隔，中间帧只复用 RS memory 并运行 EVENT_FAST。jitter=0 才恢复固定 4 帧。
 - route 首帧、RS memory 为 UNKNOWN、memory 与当前训练 GT 不一致、上一轮 RS
   错误或 repair pending 时，立即运行 RS_SLOW；错误期间每帧运行，直到自主恢复或
   delayed repair。RS 错误帧只停止本帧 EVENT_FAST。
@@ -548,9 +592,16 @@ UNKNOWN/no-prior：`Memory.rs_label/event_label` 允许内部值 `UNKNOWN`，pro
   自行答对会清空 streak/pending。
 - EVENT 只有 EVENT_FAST 实际触发时才累计错误；默认连续 3 次错误后申请修复，并每帧检查，
   体现 EVENT 快变量的高频复核。
+- 正式默认 `RS_REPAIR_MODE=EVENT_REPAIR_MODE=ground_truth`：只在上述
+  patience 和 review slot 都满足后延迟写回 GT。这保证早期学生不会因为
+  长期卡在 wrong/UNKNOWN 而让 EVENT 训练饿饿，也不会在错误后下一帧立刻纠正。
+- `unknown` 模式保留为软擦除消融：它只去掉陈旧先验，不保证学生能退出
+  UNKNOWN。在“模型只复制 memory”的压力测试中，纯软修复会让 RS 异常输入
+  约 95.7%、Q2 gate 只剩约 4.3%，因此不是正式长训默认。
 - 错误/陈旧 EVENT 必须由 EVENT_FAST 自己选择正确的 RE/UE 候选才算纠正，脚本不从
   其它字段推导或覆盖 EVENT。
-- 强制修复仅训练期使用。eval/probe 仍是纯 student closed-loop，GT reference 只比较。
+- 强制修复仅训练期使用。修复帧答对单列为
+  `recovered_after_forced_repair`，不能计入 `self_recovered_after_streak`。
 
 ### 5.1 默认阈值与异常样本量审计
 
@@ -565,29 +616,34 @@ validation，因此远端数据链完整时训练规模约 82.3 万帧；RGB/met
 两者不能相加成一个“总异常率”。UE 的 15.55% 类别不均衡也是必须同时报告
 precision、recall、F1、FP、FN，而不能只看 accuracy 的原因。
 
-增强在 rollout 时在线发生，不会把 index 物理复制成更多行。按约 82.3 万训练帧估计：
+增强在 rollout 时在线发生，不会把 index 物理复制成更多行。为避免把条件注入概率误当成
+最终训练分布，当前默认值先按 3000 条、每条 126 帧的恒定 GT 序列做了状态机模拟。
+下面数字按约 82.3 万训练帧线性换算，只用于容量规划；真实 RS/EVENT 变化、route 长度和
+学生能力都会改变结果，最终必须以 TensorBoard 为准。
 
-- 不计 recovery 时，固定 `RS_SLOW_INTERVAL=4` 的基础 RS 监督约占 25%，即约 20.6
-  万帧；8% RS 扰动会提前触发额外 RS review，若都能当帧纠正，更新后的期望
-  `rs_slow_trigger_rate` 约 28%，即约 23 万帧。实际数量必须看训练日志。
+- “理想当帧纠偏”模拟中，Q1 触发率约 30.5%，即约 25.1 万个 RS 训练帧；Q1 真正
+  看到的 `aligned / omission / contradiction` 约为 `59.6% / 24.1% / 16.2%`，约
+  `15.0 / 6.1 / 4.1` 万帧。Q1 异常 memory（后两类）约占 Q1 的 40.4%，不是简单的
+  `5%+7%`，因为异常会额外触发 RS_SLOW。
+- 同一理想模拟中 Q2 gate 约 100%；受 RS augmentation 先行门控影响，Q2 实际关系约为
+  `60.2% / 22.4% / 17.4%`，约 `49.5 / 18.4 / 14.3` 万帧。配置中的 EVENT
+  `55/25/20` 是 eligible frame 的条件分布，专门校准成上述 gate 后最终分布。
+- “学生完全复制输入 memory，直到 patience/review 延迟 GT 兜底”的压力测试中，Q1
+  触发率约 55.4%（约 45.6 万帧），关系约 `35.3/39.1/25.6`；Q2 gate 约 64.2%
+  （约 52.8 万帧），Q2 关系约 `42.1/33.4/24.5`。这不是期望训练终态，而是验证
+  delayed repair 不会让 EVENT 永久饿死的保守压力边界。
 
-- 若学生在异常 memory 出现的当帧就能纠正，RS wrong+UNKNOWN 输入约 8.4%，约 6.9
-  万帧；其中额外的约 0.4 个百分点来自 route 首帧 50% UNKNOWN。
-- 若学生完全复制错误 RS，直到 patience/review 兜底，当前 `8% + patience=4 +
-  interval=2` 按平均约 126 帧/route 重置 memory 的模拟上界约 27.5%，约 22.6 万帧；
-  对应 EVENT_FAST 仍覆盖约 72.5% 帧。旧 `12% + patience=6 + interval=4` 的长序列上界约
-  47.1%，会让接近一半帧无法进入 Q2，因而已下调。
-- EVENT 的 15% 扰动只以实际进入 Q2 的帧为分母。学生当帧纠正时约占 Q2 的 15.3%；
-  持续复制到 `patience=3/interval=1` 兜底时约 31.7%。当 RS 也处于最坏复制上界时，
-  Q2 约 59.7 万帧，对应 EVENT 异常输入约 9.2 万到 18.9 万帧；RS 较好时 Q2 更多，
-  EVENT 异常样本也会同比增加。
+训练必须同时观察关系、复制和门控，而不是只看单一 anomaly rate：
 
-这些只是策略上下界，不替代实际日志。训练必须观察
-`memory/{rs,event}_input_anomaly_rate`、`memory/{rs,event}_wrong_copy_rate`、
-`memory/{rs,event}_recovery_rate`、`train/rs_slow_trigger_rate` 和
-`train/q2_skip_due_rs_rate`：若 RS anomaly 长期
-超过 30% 或 Q2 trigger 低于 70%，先降低 RS 扰动或 patience；若 RS anomaly 低于 8%
-且 copy rate 仍高，再小幅提高 RS 扰动，不能直接把 patience 拉回 6。
+- 健康目标带可接受波动：Q1 relation 大致落在 `50-70 / 18-30 / 12-22`，Q2 大致落在
+  `55-75 / 12-28 / 10-23`；Q1 trigger 通常约 28-35%，成熟模型的 Q2 trigger 应逐步
+  高于 80%。
+- 经过 warmup 后若 Q1 aligned 长期低于 45% 或 Q2 trigger 长期低于 70%，优先把 RS
+  wrong/UNKNOWN 各下调 1-2 个百分点，或缩短 RS patience；不要提高 EVENT 噪声。
+- 若 Q1/Q2 aligned 长期高于 80%、wrong-copy rate 仍高，说明 memory 仍过于可靠，可把
+  对应 contradiction 或 omission 小幅上调 2-3 个百分点。一次只调一个维度，并继续观察
+  `memory/q{1,2}_relation_*`、`memory/q{1,2}_*_age_frames_mean`、
+  `train/rs_slow_trigger_rate`、`train/q2_skip_due_rs_rate` 与 recovery 指标。
 
 实现时要显式记录：
 
@@ -604,6 +660,9 @@ precision、recall、F1、FP、FN，而不能只看 accuracy 的原因。
   "rs_repair_pending": false,
   "event_repair_pending": false,
   "memory_rs_injected_wrong": true,
+  "memory_rs_input_age_frames": 0,
+  "memory_event_input_age_frames": 7,
+  "rs_slow_interval_draw": 3,
   "memory_before": "...",
   "memory_after": "..."
 }
@@ -1290,8 +1349,9 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
 
 - 第一个有效 frame 前：RS/EVENT 各自按 `initial_gt_prob` 选择 GT 或 UNKNOWN。
 - Padding timestep：memory 不变。
-- 稳定且正确的 RS 默认每 4 个 4Hz frame 运行一次 RS_SLOW，中间帧复用
-  RS memory；`UNKNOWN`、memory 与当前 RS 不一致、上次 RS 预测错误时立即进入逐帧 recovery。
+- 稳定且正确的 RS 默认在 3/4/5 个 4Hz frame 中可复现地随机选择下一次
+  RS_SLOW 间隔，中间帧复用 RS memory；`UNKNOWN`、memory 与当前 RS 不一致、上次
+  RS 预测错误时立即进入逐帧 recovery。
 - RS_SLOW 错：增加 `rs_error_streak`，错误 student RS 原样进入下一有效帧，
   下一帧继续慢思考；只有当前 RS gate 正确才运行 EVENT_FAST。
 - EVENT_FAST 每个 RS gate 正确的帧都重新读取 RGB 并预测 EVENT，不复用上帧
@@ -1299,11 +1359,21 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
 - streak 达到 patience 后只设置 repair pending；RS 默认每 2 帧检查脚本修复，EVENT 默认
   每帧检查。`rs_repair_interval` 仅控制兜底修复，不控制稳定期 `rs_slow_interval`。
 - 学生在 pending 真正执行前自行恢复时清空 pending，不再做多余 GT overwrite。
+  已执行延迟 GT 修复的帧即使答对，也只记为干预后恢复，不冒充自主纠偏。
 
-以上只属于训练采样协议。`eval.py` / `probe.py` 使用纯 student closed-loop：完整 ID 首帧
-初始化一次，此后只刷新每帧 `EGO_TO_GOAL_XY`，RS/EVENT 仅由学生输出推进；GT reference
-只用于比较，绝不回写。random 默认测试整条 ID；RS/UE 边界前后默认观察 8 帧，并报告
-学生首次自行对齐 reference 的延迟。
+以上只属于训练采样协议。`eval.py` / `probe.py` 默认从 RS/EVENT=UNKNOWN 开始，
+此后只刷新每帧 `EGO_TO_GOAL_XY`，RS/EVENT 由学生输出推进，不做训练期
+repair。RS_SLOW 调度默认为可部署口径：UNKNOWN/非法输出会逐帧重问，合法 RS
+变化后多问一帧确认，稳定时按同一 seed/key 的 3/4/5 帧随机周期复核；不使用 GT
+mismatch 触发恢复。
+`--rs-schedule-policy oracle` 和 `--initial-memory ground_truth` 只用于复现旧报告。
+
+这里有一个必须明示的离线评分边界：用户要求“RS 答错则跳过 EVENT”，而
+离线 eval/probe 只能通过 GT 知道一个合法 R1-R5 是否真错。因此 RS 调度默认
+不看 GT，但 EVENT gate 仍是 `offline_ground_truth_rs_correctness`。摘要会写
+`fully_deployable_end_to_end=false`；在上线前仍需增加 RS 置信度/几何一致性 verifier。
+random 默认测试整条 ID；RS/UE 边界前后默认观察 8 帧，并报告学生首次自行
+对齐 reference 的延迟。
 
 如果某条 route sequence 在中间出现缺 RGB / 缺 weather / 缺 label：
 
@@ -1468,6 +1538,52 @@ base 能力、训练前 grouped/parallel 等价性、训练后 adapter 可视化
   相邻代码注释和相关文档。运行参数改动写入 `SFT_V5_RUN.md`，设计合同写入本文，
   完整可视化产物说明写入 `SFT_V5_VISUALIZATION_RECORD.md`，避免三份文档重复膨胀。
 
+### 9.3 本轮中文注释覆盖与代码阅读路线
+
+本轮对 `sft_v5/` 做的是**纯注释与文档增强**：补充模块级中文说明、class/function
+docstring，以及函数内部关键逻辑块的设计原因。它不修改 RS/EVENT 标签协议、memory
+状态机、采样概率、repair patience/interval、loss 权重、batch profile、token 上限、
+optimizer 窗口或评估口径；运行结果若有变化，应先按代码改动或运行环境排查，不能把
+变化归因于这次注释整理。
+
+建议按以下顺序读代码；这样先建立标签与状态语义，再进入最长的训练主循环：
+
+| 顺序 | 文件 / 核心入口 | 函数内部应重点理解的逻辑 |
+|---:|---|---|
+| 1 | `labels.py`：`resolve_rs_target`、`resolve_event_target`、`q2_raw_candidates_for_frame`、`stable_event_option_map` | 如何从原始多标签证据解析单个 RS/EVENT 监督；为什么逐帧 `allowed_events` 优先、`R-E*` 只折成一个 RE，以及选项字母如何可复现随机化。 |
+| 2 | `prompts.py`：`Memory`、`prepare_training_memory`、`should_run_rs_slow`、`observe_training_memory` | Q1/Q2 为什么读取不同 memory；错误/UNKNOWN 扰动如何只改变当前输入；student 输出如何写回闭环状态；pending repair 如何在学生自主恢复之后才决定是否执行。 |
+| 3 | `build_dataset.py`：`build_dataset` → `_build_route_row` → `_build_frame_row` | route 过滤、逐帧 RGB/meta/XML 对齐、`next_target_points[-1]` 到 ego 坐标、weather fallback、历史帧 left-pad，以及 frame/route 为何会被跳过。 |
+| 4 | `train.py` 数据入口：`RouteSequenceDataset`、`LengthBalancedDistributedSampler`、`collate_route_sequences`、`pad_batch_to_global_length` | 为什么 worker 只做 local padding、distributed collective 必须回到主训练进程、padding frame 为什么不能读图或进入 Qwen。 |
+| 5 | `train.py` Qwen/KV：`_kv_start_state_batch_padded`、`_student_generate_kv_batch`、`_run_q1_rollout_grouped`、`_run_q2_rollout_grouped` | no-grad rollout 与有梯度 scoring 的边界；last-valid logits、padding token 排除、EOS active batch 收缩、`rope_deltas` 方向兼容，以及 Q2 为什么必须用原始 `q1_ids` 续接 KV。 |
+| 6 | `train.py` 单帧语义基准：`_run_frame`、`_run_event_only_frame` | 慢帧如何串行执行 Q1→RS gate→Q2，RS 错误为什么只跳过当帧 EVENT；快帧为什么不伪造 Q1，而是对当前 RGB fresh prefill 后只训练 EVENT_FAST。 |
+| 7 | `train.py` KL/优化：`_opsd_loss_batch_states`、`_run_parallel_kl_microbatches`、`_sync_trainable_grads_by_global_frames`、`complete_optimizer_step` | teacher/student 如何在同一批 student token 和 span 上对齐；为什么只允许 forward OOM 在 backward 前二分；loss 分母如何按实际 global frame 校正；为什么 LoRA 梯度要按 device/dtype 分桶 all-reduce。 |
+| 8 | `metrics.py` → `eval.py` → `probe.py` | closed-loop 指标怎样流式累计；RS gate 失败如何进入端到端 EVENT 指标；transition、FP/FN、memory recovery 如何从逐帧记录构造；probe 如何选择连续窗口并写审计产物。 |
+| 9 | `test_*.py`、`check_loss_mask.py`、`train.sh` | 每个回归测试保护哪项合同，以及 launcher 怎样把环境变量转换成 `train.py` CLI；shell 注释重点解释模式分支、GPU 选址和默认 profile，不重复 Python 算法。 |
+
+训练主路径可以压缩成下面这条调用链：
+
+```text
+main
+  -> Dataset / sampler / local collate / global T padding
+  -> 每个 global timestep 选择 RS_SLOW 帧与 EVENT_FAST-only 帧
+  -> grouped no-grad student rollout
+  -> RS gate 与动态 EVENT 候选解析
+  -> parallel-KL 微批重建精确 student/teacher state
+  -> 每个微批立即 backward
+  -> 更新 student memory 与 delayed-repair 审计状态
+  -> 完整 timestep 边界判断 streaming optimizer window
+  -> 分桶同步 LoRA 梯度、optimizer step、checkpoint/probe
+```
+
+阅读函数内部注释时要区分三类语句：
+
+- **correctness 合同**：padding、M-RoPE、精确 `q1_ids` 续接、loss 分母、collective
+  次序和显存释放；修改这些代码前必须先跑对应测试。
+- **状态机语义**：RS_SLOW 触发、RS gate、EVENT_FAST、memory 写回、delayed repair；
+  修改后必须同时核对 train/eval/probe 的 closed-loop 行为。
+- **审计与可视化**：日志、TensorBoard、probe schema 和 transition report；它们不参与
+  loss，但不能随意删减，否则无法验证模型是否仍在复制错误 memory。
+
 ---
 
 ## 10. 训练运行草案
@@ -1554,7 +1670,8 @@ TOKENIZERS_PARALLELISM=false
 
 ## 12. 已拍板规则
 
-- 训练时 RS_SLOW 在稳定正确期默认每 4 帧运行；快帧复用 RS，但 EVENT_FAST
+- 训练时 RS_SLOW 在稳定正确期默认按 3/4/5 帧可复现随机间隔运行；快帧复用 RS，
+  但 EVENT_FAST
   仍必须重新分析当前 RGB。RS 错误只结束当前帧 EVENT_FAST，错误 memory 继续
   进入后续帧，下一帧恢复逐帧 RS 慢思考；超过 patience 且到 review 帧才兜底修复。
   EVENT 使用更短 patience 和逐帧 review。正式

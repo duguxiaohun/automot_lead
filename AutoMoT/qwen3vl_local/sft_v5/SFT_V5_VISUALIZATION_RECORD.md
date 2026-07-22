@@ -7,8 +7,8 @@ probe case；真实产物建议放在具体 run 目录下面，例如
 
 SFT v5 是双频两问协议：
 
-- Q1 / `RS_SLOW`：保留三段分析并判断 `RS`；稳定时默认每 4 帧运行，
-  错误/UNKNOWN/recovery 时恢复逐帧。
+- Q1 / `RS_SLOW`：保留三段分析并判断 `RS`；稳定时默认从 3/4/5 帧中可复现地
+  随机选择下一次复核间隔，错误/UNKNOWN/recovery 时恢复逐帧。
 - Q2 / `EVENT_FAST`：每个 RS gate 正确的帧都重新分析本帧 RGB，直接从
   显式标注 `[RE | REGULAR]` / `[UE | UNUSUAL]` 的混合候选里判断 `EVENT`，
   不再单问当前是否异常。
@@ -16,6 +16,24 @@ SFT v5 是双频两问协议：
 这里需要区分五类检查：训练前 base 能力、batched 等价性、训练中自动版本对比、
 训练后手动 adapter 检查、静态合同快检。它们目的不同，不应该混在一起看；大样本
 eval 则负责总体统计，不属于小样本可视化。
+
+可视化代码建议按“选择 → 执行 → 汇总 → 落盘”阅读：
+
+1. `build_probe_selection_plan` 先按 `random` / `rs_transition` / `ue_transition` 生成连续
+   frame 计划；其中 UE 模式保留完整 span，不能把 `num_cases` 当成硬截断。
+2. `dump_probe` 按 route 顺序推进 student memory，决定当帧是否运行 RS_SLOW、是否通过
+   RS gate 进入 EVENT_FAST，并把实际 messages、KV 来源、raw/parsed output 和真值放进
+   同一条 frame record。
+3. `summarize_probe` 与 `metrics.py` 计算帧级、边界、FP/FN 和端到端指标；
+   `build_memory_recovery_report` 只比较 student 与只读 reference，不执行 GT 修复。
+4. `_copy_rgb_inputs`、`_write_messages`、`_write_texts` 和 timeline helper 再按
+   `compact/review/full` 决定写哪些文件。artifact level 只改变落盘粒度，不改变模型输入、
+   状态机或指标分母。
+
+本轮为上述函数及其内部关键分支补充了中文 docstring/设计注释，重点解释连续窗口选择、
+慢帧 Q1 KV 与快帧 fresh prefill 的区别、teacher/student 上下文隔离、reference 只读语义、
+artifact schema 和指标分母。同时修正了两个会虚高 probe/eval 的 oracle 入口：
+student 默认从 UNKNOWN 启动，RS_SLOW 调度默认不再用 GT mismatch。
 
 ## A. 训练前：默认 Qwen 的 OPSD 能力与 prompt 检查
 
@@ -41,10 +59,11 @@ eval 则负责总体统计，不属于小样本可视化。
 - system prompt 是否简洁提醒模型关注交通灯/标志、周围车辆/行人/障碍物、
   车道线/道路结构和影响自车决策的关键因素。
 - `q1_*_user_prompt.txt` 的 `[MEMORY]` 是否只包含自然语言 `PREVIOUS_RS_HYPOTHESIS`、
-  `MEMORY_RELIABILITY` 和 `EGO_TO_GOAL_XY=(+x, +y) m`，不包含
+  独立的 `PREVIOUS_RS_HYPOTHESIS_AGE`、`MEMORY_RELIABILITY` 和
+  `EGO_TO_GOAL_XY=(+x, +y) m`，不包含
   `PREVIOUS_EVENT_HYPOTHESIS`，也不包含 `A -` 这类选项前缀。
-- `q2_*_user_prompt.txt` 的 `[MEMORY]` 才包含自然语言 `PREVIOUS_EVENT_HYPOTHESIS`，但仍不写
-  `RE -` 或 `U-E* -` 标签前缀。
+- `q2_*_user_prompt.txt` 的 `[MEMORY]` 才包含自然语言 `PREVIOUS_EVENT_HYPOTHESIS`
+  和 `PREVIOUS_EVENT_HYPOTHESIS_AGE`，但仍不写 `RE -` 或 `U-E* -` 标签前缀。
 - 如果看到 `EGO_TO_GOAL_XY=UNKNOWN`，先检查 `labels.json` 里的 `ego_to_goal_xy`
   是否为 `null`；这表示 probe 使用了旧 sequence index，需要重跑 build_dataset 和 probe。
 - Q2 的所有选项是否显式标注 `[RE | REGULAR]` / `[UE | UNUSUAL]`，且文案足够清晰。
@@ -275,8 +294,21 @@ CHECKPOINT_PROBE_CONTEXT_RADIUS=8
 错误 memory 课程是否达到预期则看：
 `memory/{rs,event}_input_anomaly_rate`、`memory/{rs,event}_wrong_copy_rate`、
 `memory/{rs,event}_recovery_rate`、`memory/{rs,event}_error_streak_mean` 和
-`train/q2_skip_due_rs_rate`。RS 默认目标不是固定比例，但长期 anomaly 超过 30% 或
-Q2 trigger 低于 70% 通常说明 RS 扰动/延迟过强，会挤压 EVENT 训练。
+`train/q2_skip_due_rs_rate`。三类关系和时序衰减还要看
+`memory/q{1,2}_relation_{aligned,omission,contradiction}_rate`、
+`memory/q1_rs_age_frames_mean`、`memory/q2_event_age_frames_mean` 以及
+`memory/rs_periodic_interval_{mean,std}`。默认 relation 参考区间见 `SFT_V5_PLAN.md`
+§5.1；interval mean 应接近 4 且 std 不应长期为 0。经过 warmup 后 Q1 aligned
+低于 45% 或 Q2 trigger 低于 70% 通常说明 RS 扰动/延迟过强，会挤压 EVENT 训练。
+人工查看连续 case 时还要核对 age 的因果顺序：label 改变当帧必须为 0；同 label 的下一
+真实帧依次为 1、2、3；周期复核仍输出同一 label 时不能回到 0；只有 padding/缺图位置
+可以不增长。若 wrong/UNKNOWN 在 age=0 后被学生连续复制，后续 age>0 正是需要保留的
+stale-memory 纠偏证据，不能在可视化导出时按“重复异常”去重。
+还要同时看 `memory/{rs,event}_repaired_to_ground_truth`、
+`memory/{rs,event}_self_recovered_after_streak` 和
+`memory/{rs,event}_recovered_after_forced_repair`；最后一类已经发生脚本干预，
+不能算作模型自己学会了纠偏。正式 launcher 默认在 patience/review 后延迟
+写回 GT；`RS_REPAIR_MODE=EVENT_REPAIR_MODE=unknown` 只是软擦除消融。
 
 主要入口：
 
@@ -340,6 +372,12 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 Qwen，和训练前能力检查保持同一输入输出合同。默认结果集中在
 `scenarios/<scenario>__<route_id>/frame_*/`；每帧只写输入 RGB、`input.json`、
 `output.json`、`memory.json`。加 `--artifact-level full` 后再额外生成 legacy 文件。
+默认 `--initial-memory unknown --rs-schedule-policy deployable`：首帧必须看图给出
+RS，第二帧确认首次合法变化，之后才回到周期慢问。只在复现旧可视化时
+使用 `--initial-memory ground_truth --rs-schedule-policy oracle`。
+`results.json.format_version=4` 固化了这两个口径字段、EVENT gate 声明、RS/EVENT 独立
+age 和随机 interval 配置/逐帧 draw；旧 format 的指标不能在未标注这些条件时与 v4
+直接混比。
 
 小样本只有三种选帧模式：
 
@@ -493,8 +531,9 @@ full 模式中：
 - `labels.json` 保存 RS/EVENT 标签、候选池、`event_code`、`regular_event_codes`
   `ego_to_goal_xy` 和 teacher-only weather 文本。
 - `memory_before.json` / `memory_after.json` 保存该帧前后的内部
-  `RS + EVENT + EGO_TO_GOAL_XY` memory；真正写入 Qwen 的 prompt 里，Q1 只渲染
-  road-only memory，Q2 才渲染 event memory。
+  `RS + EVENT + EGO_TO_GOAL_XY + rs_age_frames + event_age_frames` memory；真正写入
+  Qwen 的 prompt 里，Q1 只渲染 road-only memory 与 RS age，Q2 才渲染 event
+  memory 与 EVENT age。label 真正改变时对应 age 归零，重复确认同一 label 不归零。
 - `flags.json` 保存解析出的学生输出、teacher 输出、是否 RS 正确、是否进入 Q2、
   是否 candidate mismatch、是否 reset 下一帧、是否误传 `student_adapter_dir`
   以及 Q2 是否续接 Q1 KV cache 等诊断字段。
@@ -520,6 +559,11 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/eval.py \
 不包含大段 prompt，适合快速人工审计变化帧。
 正式 eval 默认 Q1/Q2 均为 1024 token 安全上限，与训练 rollout 对齐；自动 checkpoint
 probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
+与手工 probe 一样，eval 默认 UNKNOWN 启动和 deployable RS scheduler。摘要中
+`rs_schedule_uses_ground_truth=false`，但 `event_gate_uses_ground_truth=true`：后者是离线
+实现“RS 真错就跳过 EVENT”的评分边界，所以还会显示
+`fully_deployable_end_to_end=false`。不能因为 RS scheduler 不看 GT，就把整条评估
+误称为无 GT 上线链路。
 
 指标方向：`rs_acc`、`rs_transition_acc`、RS 变化检测、UE 进入/退出检测、
 `abnormal_acc`、各类 precision/recall/F1、

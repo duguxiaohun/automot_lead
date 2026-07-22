@@ -7,6 +7,10 @@ train、eval、probe 和测试可以共用同一份“什么能出现在 Q2 选�
 调用约定：构建数据使用 ``resolve_rs_target`` / ``resolve_event_target`` 和
 ``stable_event_option_map``；训练、eval、probe 只消费这些函数返回的 ``RSTarget`` /
 ``EventTarget``，不要在入口脚本里重新实现双标签优先级或候选过滤。
+
+标签一共分三层：原始 collection code（R-E*/U-E*）用于审计，canonical 训练标签
+（RE/U-E*）用于 memory 与 loss，本帧随机字母（A-Z）只用于 prompt。三层不能混写：
+尤其不能把某一帧的字母存进下一帧 memory，也不能丢掉 regular 原始 code 后再猜 RE 文案。
 """
 
 from __future__ import annotations
@@ -235,13 +239,17 @@ def normalize_event_code(code: Any) -> Optional[str]:
 
 
 def is_unusual(code: str) -> bool:
-    """判断某个 EVENT code 是否是 UE。"""
+    """判断某个 canonical/raw EVENT code 是否属于 unusual family。
+
+    正常行为 ``RE`` 与原始 ``R-E*`` 都返回 ``False``；只有 ``U-E*`` 返回 ``True``。
+    该函数只区分 family，不负责验证编号是否合法。
+    """
 
     return str(code).startswith("U-E")
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
-    """轻量数值转换，用在候选分数/置信度解析。"""
+    """把候选分数/置信度容错转换为浮点，失败时返回显式默认值。"""
 
     try:
         return float(value)
@@ -292,13 +300,18 @@ def resolve_rs_target(frame: Mapping[str, Any]) -> RSTarget:
 
 
 def raw_events_from_frame(frame: Mapping[str, Any]) -> Tuple[str, ...]:
-    """按权威优先级读取原始 EVENT 列表。"""
+    """按权威优先级读取、规范化并去重原始 EVENT 列表。
+
+    优先读取新版 ``frame_event_annotation.events``，再兼容旧顶层字段，最后才退回
+    primary 单标签。显式 ``RE`` 不属于原始细分 code，因而不会进入返回值。
+    """
 
     event_ann = frame.get("frame_event_annotation") or {}
     raw = event_ann.get("events") or frame.get("events") or frame.get("event_labels_raw") or None
     if not raw:
         primary = event_ann.get("label") or frame.get("primary_event") or frame.get("event_code")
         raw = [primary] if primary else []
+    # 保持源数据顺序去重，便于 JSON 审计；后续需要单目标时再走 _stable_first。
     out: List[str] = []
     for item in raw:
         code = normalize_event_code(item)
@@ -308,7 +321,11 @@ def raw_events_from_frame(frame: Mapping[str, Any]) -> Tuple[str, ...]:
 
 
 def _stable_first(codes: Iterable[str]) -> str:
-    """按全局 EVENT_ORDER 取稳定第一项。"""
+    """按全局 ``EVENT_ORDER`` 取稳定第一项。
+
+    输入可能来自 set/dict 等无稳定顺序容器，因此不能直接 ``next(iter(...))``。
+    空集合返回 R-E1 只用于旧数据的 regular 审计兜底，最终监督仍会折叠为 RE。
+    """
 
     items = set(codes)
     for code in EVENT_ORDER:
@@ -381,7 +398,11 @@ def scenario_event_candidates_from_result(result: Mapping[str, Any]) -> List[str
 
 
 def q2_raw_candidates(scenario_candidates: Sequence[str], rs_label: str) -> List[str]:
-    """计算 Q2 fallback 原始候选：scenario 候选与当前 RS 候选的交集。"""
+    """计算旧数据的 Q2 fallback：scenario 候选与当前 RS 候选取交集。
+
+    返回顺序以 ``EVENT_CANDIDATES_BY_RS`` 为准，保留 R-E*/U-E* 原始 code。新版逐帧
+    ``allowed_events`` 存在时不调用本规则，避免静态表覆盖人工审核后的 frame 候选。
+    """
 
     scenario_set = {str(x) for x in scenario_candidates}
     return [code for code in EVENT_CANDIDATES_BY_RS.get(rs_label, []) if code in scenario_set]
@@ -455,7 +476,12 @@ def event_description_for_display(
     rs_label: str,
     regular_event_codes: Optional[Sequence[str]] = None,
 ) -> str:
-    """返回 Q2 选项展示文本。"""
+    """把 canonical EVENT label 展开成 Q2 可读描述。
+
+    UE 直接查固定描述；RE 先按当前 RS 解释“正常驾驶意味着什么”，再附加本帧允许的
+    R-E* 细分模式。``regular_event_codes=None`` 表示不追加细分，显式空序列则回退当前
+    RS 的标准 regular 列表，这两种语义由调用方有意区分。
+    """
 
     if label == "RE":
         base = RE_DESCRIPTIONS_BY_RS.get(rs_label, EVENT_DESCRIPTIONS["RE"])
@@ -467,6 +493,7 @@ def event_description_for_display(
             code = normalize_event_code(item)
             if code and code.startswith("R-E") and code not in codes:
                 codes.append(code)
+        # 细分 code 只扩充自然语言，不会把一个 RE 重新拆回多个答案。
         details = [REGULAR_EVENT_DESCRIPTIONS[code] for code in codes if code in REGULAR_EVENT_DESCRIPTIONS]
         if details:
             return f"{base} Regular modes allowed for this frame include: {'; '.join(details)}."
@@ -505,7 +532,11 @@ def stable_event_option_map(
 
 
 def option_for_event(label: str, option_map: Mapping[str, str]) -> Optional[str]:
-    """从 event label 反查本帧随机 option letter。"""
+    """从 canonical event label 反查本帧随机 option letter。
+
+    找不到返回 ``None``，上层据此记录 candidate mismatch；不能默认 A，因为每帧映射都
+    会稳定随机打乱，默认字母会制造错误监督。
+    """
 
     for letter, value in option_map.items():
         if value == label:
@@ -517,6 +548,8 @@ def weather_to_text(weather: Mapping[str, Any] | None) -> str:
     """把 XML weather 数值压成 teacher 用的短英文描述。
 
     Student 不直接看到这段文字；它只进入 teacher privileged prompt 和数据审计字段。
+    阈值只是把连续 XML 数值压缩为基础模型更易理解的短语，不参与 RS/EVENT 真值规则；
+    teacher prompt 也被要求在 XML 与 RGB 冲突时以图像证据为准。
     """
 
     if not weather:
@@ -526,6 +559,8 @@ def weather_to_text(weather: Mapping[str, Any] | None) -> str:
     wet = _safe_float(weather.get("wetness"), 0.0)
     fog = _safe_float(weather.get("fog_density"), 0.0)
     sun = _safe_float(weather.get("sun_altitude_angle"), 45.0)
+    # 五类因素分别追加，最终逗号连接成一行；保留多个因素比只输出晴/雨更能描述
+    # 夜间、湿地但已停雨、轻雾等组合条件。
     parts: List[str] = []
     if sun <= 0:
         parts.append("night or very low-sun lighting")
