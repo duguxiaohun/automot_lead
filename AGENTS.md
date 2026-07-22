@@ -412,9 +412,11 @@
   `q2_teacher_output.txt` 实际配对。
   v5 训练 memory 必须按“可疑 hypothesis”而非答案使用：route 首帧 RS/EVENT 分别以
   0.5 概率使用 GT，否则为 UNKNOWN；原本正确的 RS memory 以 0.05/0.07 概率注入
-  contradiction/UNKNOWN omission，EVENT 为 0.20/0.25。UNKNOWN 代表固定 memory schema
-  内的 no-prior，不整块删除 prompt。RS/EVENT 分别维护 age：该维度 label 真正改变时归零，
-  否则每个真实 4Hz frame 累加；周期确认同一 label 不归零，padding/skip 不累加。
+  contradiction/UNKNOWN omission，EVENT 额外注入为 0.20/0.12。UNKNOWN 代表固定 memory
+  schema 内的 no-prior，不整块删除 prompt。普通帧 RS/EVENT age 分别累加：对应 label
+  真正改变时归零，周期确认同一 label 不归零，padding/skip 不累加；但 EVENT 是
+  `EVENT | RS` 条件状态，RS hypothesis 真正改变时旧 EVENT 必须失效为 UNKNOWN/age=0，
+  只有新 RS gate 下的 Q2 能重新建立。
   新注入的 wrong/UNKNOWN 因为刚改变 hypothesis，age 必须从 0 开始；若学生继续复制，
   才随后续真实帧自然形成 age>0 的 stale 样本，禁止随机伪造旧 age。
   稳定正确 RS 默认 `rs_slow_interval=4, rs_slow_interval_jitter=1`，即每次在 3/4/5
@@ -427,13 +429,16 @@
   forced repair 后答对与干预前自主恢复必须分开统计；
   EVENT wrong 扰动优先从本帧 `event_option_map` 的其它可见候选中选择，单选题无替代项
   时才回退全局 EVENT 表；EVENT repair/augmentation 只在 RS memory 本帧扰动后仍正确
-  时执行，RS 错误/UNKNOWN 时必须保留 EVENT 状态，避免处理一个不会进入 Q2 的样本。
+  时执行。RS 变化导致 EVENT 失效时还必须清空旧 RS 语境的 EVENT streak/pending；若
+  同帧 Q2 仍错误，从新语境 streak=1 重新累计，禁止继承旧 pending 立即修复。
   EVENT 的 RE/UE family 完全由当帧 `[RE | REGULAR]` / `[UE | UNUSUAL]` EVENT
   选项推导，不存在独立 ABNORMAL 状态。以上参数必须可由 `train.py` CLI/
-  `train.sh` 环境变量覆盖，并写入 adapter metadata。Q1/Q2 最终高权重 span 只监督单个
-  选项字符；训练/TensorBoard 必须记录 wrong-memory copy、wrong/UNKNOWN recovery、
+  `train.sh` 环境变量覆盖，并写入 adapter metadata。合法 Q1/Q2 最终高权重 span 只监督
+  单个选项字符；若存在 `RS:`/`EVENT:` 行但值是 `R4`/`RE` 等非法语义标签，严格 parser
+  仍拒绝且不更新 memory，但 loss 必须监督答案起始 token 以直接纠正选项格式；
+  训练/TensorBoard 必须记录 wrong-memory copy、wrong/UNKNOWN recovery、
   injected wrong/UNKNOWN、forced repair、Q1/Q2 aligned/omission/contradiction 实际比例、
-  RS/EVENT input age、随机 RS interval 均值/方差、RS/EVENT input anomaly rate、RS error streak、
+  RS/EVENT input age、RS 变化导致 EVENT 失效率、随机 RS interval 均值/方差、RS/EVENT input anomaly rate、RS error streak、
   因 RS 错跳过 Q2 的比例，以及由 EVENT 选项折叠出的 UE/RE TP/FP/TN/FN 与 P/R/F1。
   大样本 `eval.py` 与小样本 `probe.py` 必须共用 `metrics.py`：统计 RS/UE 边界、Q1/Q2
   precision/recall/F1、假阳性/假阴性、端到端 EVENT 与 route macro 指标；另外必须用相邻帧
@@ -450,8 +455,8 @@
   记录 `event_gate_uses_ground_truth=true` / `fully_deployable_end_to_end=false`，不得误称整条链路可部署。
   数据量审计以 42 个有效场景、7241 route、914466 帧为上限；10% validation 后约
   82.3 万训练帧。恒定 GT、当帧自纠模拟中 Q1 trigger≈30.5%，Q1 relation≈
-  59.6/24.1/16.2，Q2 relation≈60.2/22.4/17.4；纯 memory-copy 到 delayed repair
-  的压力测试中 Q1 trigger≈55.4%、Q2 gate≈64.2%。GT UE=15.55% 与 wrong/UNKNOWN
+  59.7/24.2/16.1，Q2 relation≈59.6/23.0/17.4；纯 memory-copy 到 delayed repair
+  的压力测试中 Q1 trigger≈55.5%、Q2 gate≈64.0%、Q2 relation≈38.6/43.5/17.9。GT UE=15.55% 与 wrong/UNKNOWN
   memory 异常不能直接相加，最终比例必须看 TensorBoard。
   运行与可视化方法见
   `SFT_V5_RUN.md` / `SFT_V5_PLAN.md` / `SFT_V5_VISUALIZATION_RECORD.md`。）

@@ -64,9 +64,10 @@ class Memory:
 
     ``rs_label`` / ``event_label`` 保存内部 canonical label，只有渲染 prompt 时才转换成
     自然语言。``*_age_frames`` 是两个 hypothesis 各自连续未变的 4Hz 帧数：
-    label 改变时归零，进入下一帧时加一。RS 和 EVENT 必须独立计时，因为
-    道路结构的先验衰减速度和瞬时交通事件不同。调用者更新状态时必须先
-    ``copy``，避免同一 timestep 的 student、teacher、reference 分支原地污染。
+    label 改变时归零，进入下一帧时加一。两个 age 平时独立累加，但 EVENT 的语义是
+    ``EVENT | RS``：RS hypothesis 一旦真正改变，旧 RS 下的 EVENT 立即失效为
+    ``UNKNOWN, age=0``，只能由新 RS gate 下同帧/后续 Q2 重新建立。调用者更新状态时
+    必须先 ``copy``，避免同一 timestep 的 student、teacher、reference 分支原地污染。
     """
 
     rs_label: str
@@ -528,7 +529,9 @@ def update_memory_after_q1(
 
     只有合法 RS 才写入 memory。新 label 与输入 hypothesis 不同时才把
     ``rs_age_frames`` 归零；周期复核后仍回答同一 RS 表示该假设继续成立，
-    age 保持连续，不伪造成“刚刚变化”。RS_SLOW 不输出 EVENT family。
+    age 保持连续，不伪造成“刚刚变化”。EVENT 是 RS 条件状态，因此 RS 真正变化时
+    必须同步失效为 ``UNKNOWN, age=0``，不能把旧道路结构下的事件沿用到新结构。
+    RS_SLOW 本身不输出 EVENT family；新 EVENT 由通过 gate 后的 Q2 重建。
     """
 
     mem = memory.copy()
@@ -537,6 +540,8 @@ def update_memory_after_q1(
         if next_label != mem.rs_label:
             mem.rs_label = next_label
             mem.rs_age_frames = 0
+            mem.event_label = "UNKNOWN"
+            mem.event_age_frames = 0
     return mem
 
 
@@ -544,8 +549,9 @@ def update_memory_after_q2(memory: Memory, *, student_event_label: Optional[str]
     """用 EVENT_FAST 的合法输出更新 EVENT memory；非法输出保持上一状态。
 
     本函数不判断答案是否正确：closed-loop memory 必须记录学生真实预测，错误预测才会
-    在后续帧形成纠偏样本。只有 EVENT label 真正变化时才将独立 age 归零；
-    重复确认同一事件不重置时钟。GT 强制修复只允许由训练期 curriculum 执行。
+    在后续帧形成纠偏样本。在当前 RS 条件内，只有 EVENT label 真正变化时才将
+    EVENT age 归零；重复确认同一事件不重置时钟。RS 变化导致的 EVENT 失效由
+    :func:`update_memory_after_q1` 处理。GT 强制修复只允许由训练期 curriculum 执行。
     """
 
     mem = memory.copy()
@@ -666,15 +672,17 @@ class MemoryCurriculumConfig:
     event_repair_mode: str = "ground_truth"
     # RS 扰动是“每个当前正确 frame”的条件概率。由于扰动会额外触发
     # RS_SLOW，5% contradiction + 7% omission 在理想当帧纠偏下会映射为
-    # Q1 样本约 61% aligned / 23% omission / 16% contradiction，而非 88/7/5。
+    # Q1 样本约 60% aligned / 24% omission / 16% contradiction，而非 88/7/5。
     rs_corrupt_prob: float = 0.05
     rs_unknown_prob: float = 0.07
-    # EVENT 在每个 RS gate 正确帧都训练；这里把“有资格注入 EVENT 的帧”设成
-    # 55% aligned / 25% omission / 20% contradiction。由于 RS augmentation 先于
-    # EVENT 且会拦下一部分注入，理想当帧纠偏的最终 Q2 实测约为 60/22/17；
-    # closed-loop 持续错误还会继续改变分布，因此最终必须以 TB 实测为准。
+    # EVENT 在每个 RS gate 正确帧都训练；显式 corruption 保留 20%。RS 变化还会
+    # 自动失效条件 EVENT，因此 omission 不应只由下面的显式 UNKNOWN 概率理解；
+    # 两条路径合并后，理想当帧纠偏的最终 Q2 实测约为 60/23/17。
     event_corrupt_prob: float = 0.20
-    event_unknown_prob: float = 0.25
+    # RS 变化会天然把条件 EVENT 失效为 UNKNOWN，因此 EVENT 额外 omission 无需再用
+    # 旧版 0.25；0.12 与 event_corrupt_prob=0.20 组合后，状态机理想纠偏模拟约为
+    # aligned/omission/contradiction=59/23/18，避免同一种 omission 被重复注入。
+    event_unknown_prob: float = 0.12
     rs_initial_gt_prob: float = 0.5
     event_initial_gt_prob: float = 0.5
 
@@ -922,13 +930,14 @@ def _repair_memory_label(mode: str, ground_truth_label: str) -> str:
     raise ValueError(f"unsupported repair mode: {mode!r}")
 
 
-def _set_memory_hypothesis(memory: Memory, *, dimension: str, label: str) -> None:
-    """原地写入训练期 RS/EVENT hypothesis，发生变化时将对应 age 归零。
+def _set_memory_hypothesis(memory: Memory, *, dimension: str, label: str) -> bool:
+    """原地写入训练期 RS/EVENT hypothesis，并返回 label 是否真的变化。
 
     ``prepare_training_memory`` 在自己的局部 copy 上调用该 helper，因此
-    这里允许原地更新。统一 helper 可防止 corruption 重置了 age、repair 却忘了，
-    或 RS 变化误清空 EVENT 时钟。label 未变时保留 age，严格实现“从 memory
-    改变开始重新计时”。
+    这里允许原地更新。统一 helper 可防止 corruption 重置了 age、repair 却忘了。
+    EVENT 是 ``EVENT | RS`` 条件状态：RS 变化时不仅 RS age 归零，还必须把旧 EVENT
+    失效为 ``UNKNOWN, age=0``；同一 RS 的周期复核则保留两个 age。EVENT 自身变化只
+    重置 EVENT age。返回值用于上层清理旧 RS 语境遗留的 EVENT error streak。
     """
 
     normalized = str(dimension).strip().lower()
@@ -936,12 +945,16 @@ def _set_memory_hypothesis(memory: Memory, *, dimension: str, label: str) -> Non
         if memory.rs_label != str(label):
             memory.rs_label = str(label)
             memory.rs_age_frames = 0
-        return
+            memory.event_label = "UNKNOWN"
+            memory.event_age_frames = 0
+            return True
+        return False
     if normalized == "event":
         if memory.event_label != str(label):
             memory.event_label = str(label)
             memory.event_age_frames = 0
-        return
+            return True
+        return False
     raise ValueError(f"dimension must be 'rs' or 'event', got {dimension!r}")
 
 
@@ -1004,6 +1017,9 @@ def prepare_training_memory(
         "memory_rs_repaired_to_ground_truth": False,
         "memory_event_repaired_to_unknown": False,
         "memory_event_repaired_to_ground_truth": False,
+        # EVENT 依赖 RS。只要训练期 repair/corruption 真的改变 RS，就标记旧 EVENT
+        # 已被失效；后续统计还会把学生 Q1 导致的 RS 变化合并进同一指标。
+        "memory_event_invalidated_by_rs_change": False,
     }
 
     # pending 只表示“patience 已耗尽”，实际干预还要等各自 repair
@@ -1014,11 +1030,12 @@ def prepare_training_memory(
     if state.rs_repair_pending and rs_review_due:
         # 正式默认在这个延迟 slot 写回 GT，防止早期学生长期卡在错误/
         # UNKNOWN 而饿饿 EVENT 训练。该帧会单列为 repair-after-recovery，不算自主纠偏。
-        _set_memory_hypothesis(
+        rs_changed = _set_memory_hypothesis(
             memory,
             dimension="rs",
             label=_repair_memory_label(config.rs_repair_mode, str(gt_rs_label)),
         )
+        audit["memory_event_invalidated_by_rs_change"] = bool(rs_changed)
         state.rs_error_streak = 0
         state.rs_repair_pending = False
         audit["memory_rs_forced_repair"] = True
@@ -1030,10 +1047,11 @@ def prepare_training_memory(
         if draw < float(config.rs_unknown_prob):
             # UNKNOWN 是这一帧新形成的 no-prior 状态，所以对应 age 从 0 开始。不能为了
             # 模拟“陈旧”而随意伪造较大 age；若学生没有纠正，后续真实帧会让它自然变旧。
-            _set_memory_hypothesis(memory, dimension="rs", label="UNKNOWN")
+            rs_changed = _set_memory_hypothesis(memory, dimension="rs", label="UNKNOWN")
+            audit["memory_event_invalidated_by_rs_change"] = bool(rs_changed)
             audit["memory_rs_injected_unknown"] = True
         elif draw < float(config.rs_unknown_prob + config.rs_corrupt_prob):
-            _set_memory_hypothesis(
+            rs_changed = _set_memory_hypothesis(
                 memory,
                 dimension="rs",
                 label=_stable_different_label(
@@ -1043,10 +1061,17 @@ def prepare_training_memory(
                     key=(*key, "augment_rs"),
                 ),
             )
+            audit["memory_event_invalidated_by_rs_change"] = bool(rs_changed)
             audit["memory_rs_injected_wrong"] = True
-    # EVENT 只有在 RS 扰动完成后仍保持正确时才有机会进入 Q2。RS memory 已知错误/
-    # UNKNOWN 时保留 EVENT pending，不在一个注定无法可靠构造 EVENT 选择题的帧里
-    # 悄悄修复或注入 EVENT。
+    # 旧 EVENT 的错误 streak/pending 也属于旧 RS 语境。RS 改变后必须一起清空，
+    # 否则新 RS 的第一帧可能被旧 pending 立即强制写入 GT，重新制造标签捷径。
+    if bool(audit["memory_event_invalidated_by_rs_change"]):
+        state.event_error_streak = 0
+        state.event_repair_pending = False
+
+    # EVENT 只有在 RS 扰动完成后仍保持正确时才有机会进入 Q2。若 RS 变为错误/
+    # UNKNOWN，旧 EVENT 已失效为 UNKNOWN；若 RS 未发生变化，则保持现有 EVENT，
+    # 不会因为每帧 gate 检查而反复重置 age。
     event_gate_ready = memory.rs_label == str(gt_rs_label)
     if state.event_repair_pending and event_review_due and event_gate_ready:
         # EVENT 也在独立 patience 后才修复；正式默认写回 GT，软擦除消融
@@ -1133,14 +1158,21 @@ def observe_training_memory(
     event_correct: bool,
     rs_forced_repair: bool = False,
     event_forced_repair: bool = False,
+    event_context_reset: bool = False,
 ) -> Dict[str, object]:
     """观察学生本帧结果，更新两个维度各自的错误 streak 与延迟修复请求。
 
     ``rs_checked`` 只有实际运行 RS_SLOW 时才为真；稳定快帧复用 RS memory，不得把
     “没有问 Q1”误记成一次正确或错误。``event_checked`` 同理，只在 RS gate 通过且
-    EVENT_FAST 真正运行时更新 EVENT streak。forced-repair 帧即使答对也不能记为“学生
-    在干预前自主恢复”；它会单列为 repair 后恢复。返回字典直接并入训练审计指标。
+    EVENT_FAST 真正运行时更新 EVENT streak。``event_context_reset`` 表示本帧 RS
+    hypothesis 已变化，须先清空旧 RS 语境的 EVENT streak/pending，再从本帧 Q2 结果
+    开始计算新语境。forced-repair 帧即使答对也不能记为“学生在干预前自主恢复”；
+    它会单列为 repair 后恢复。返回字典直接并入训练审计指标。
     """
+
+    if event_context_reset:
+        state.event_error_streak = 0
+        state.event_repair_pending = False
 
     rs_self_recovered = False
     if rs_checked:
@@ -1194,6 +1226,7 @@ def observe_training_memory(
         "memory_rs_recovery_active": bool(state.rs_recovery_active),
         "memory_rs_last_query_ordinal": int(state.last_rs_query_ordinal),
         "memory_event_repair_pending": bool(state.event_repair_pending),
+        "memory_event_context_reset_by_rs_change": bool(event_context_reset),
         "memory_any_repair_pending": bool(
             state.rs_repair_pending or state.event_repair_pending
         ),
@@ -1230,6 +1263,37 @@ def _line_choice_span(text: str, label: str, choices: str) -> Optional[Tuple[int
     return match.start(1), match.end(1)
 
 
+def _line_choice_training_span(
+    text: str,
+    label: str,
+    choices: str,
+) -> Optional[Tuple[int, int]]:
+    """返回合法选项字符，或非法答案值的首字符作为纠偏位置。
+
+    正常输出例如 ``EVENT: A`` 时，仍只监督合法的单字母选项。学生有时会输出
+    ``EVENT: RE``、``RS: R1`` 或其它语义标签：严格 parser 必须继续把它判为
+    invalid，memory 也不能接受这类文本；但若训练 span 同样完全丢弃，最需要纠正
+    输出合同的样本反而只有低权重 analysis KL，离散答案永远收不到直接梯度。
+
+    因此这里仅供 OPSD loss 使用：存在独立 ``RS:``/``EVENT:`` 行但值非法时，取
+    值的第一个字符。字符到 token 的映射采用“相交即选中”，即使 tokenizer 把
+    ``RE`` 合成一个 token，也会选择它在冒号后的第一个生成位置；privileged
+    teacher 在该位置的分布会推动学生改成当前 prompt 要求的选项字母。解析、指标和
+    memory 更新仍调用严格 parser，不会把非法格式伪装成正确答案。
+    """
+
+    choice_span = _line_choice_span(text, label, choices)
+    if choice_span is not None:
+        return choice_span
+    value_span = _line_value_span(text, label)
+    if value_span is None:
+        return None
+    start, end = value_span
+    if end <= start:
+        return None
+    return start, start + 1
+
+
 _ANALYSIS_HEADING_RE = re.compile(
     r"(?im)^\s*(WEATHER|SCENE DESCRIPTION|CRITICAL OBJECT DESCRIPTION|REASONING|REASONING ON INTENT|MEMORY JUDGMENT|ANALYSIS)\s*:",
 )
@@ -1255,12 +1319,14 @@ def _analysis_span(text: str, *, terminal_label: str) -> Tuple[int, int]:
 def target_spans_q1(text: str) -> Dict[str, Tuple[int, int]]:
     """返回 Q1 的低权重分析 span 与高权重 RS 字符 span。
 
-    缺少合法 ``RS`` 行时不创建 ``rs`` key，训练侧可据此识别无离散监督样本；analysis
-    即使为空仍保留 ``(0, 0)``，使调用接口稳定。
+    合法答案只覆盖单个选项字符；若存在 ``RS:`` 行但答案写成 ``R1`` 等非法文本，
+    则覆盖值的首字符，让 teacher-KL 直接纠正答案起始 token。严格解析和 memory 更新
+    仍会拒绝该输出。完全缺少 ``RS:`` 行时不创建 ``rs`` key；analysis 即使为空仍
+    保留 ``(0, 0)``，使调用接口稳定。
     """
 
     spans: Dict[str, Tuple[int, int]] = {"analysis": _analysis_span(text, terminal_label="RS")}
-    rs_span = _line_choice_span(text, "RS", "ABCDE")
+    rs_span = _line_choice_training_span(text, "RS", "ABCDE")
     if rs_span is not None:
         spans["rs"] = rs_span
     return spans
@@ -1270,11 +1336,12 @@ def target_spans_q2(text: str) -> Dict[str, Tuple[int, int]]:
     """返回 Q2 的低权重分析 span 与高权重 EVENT 字符 span。
 
     EVENT 字母范围允许 A-Z，是因为候选数由逐帧 allowed_events 决定；真正是否有效还要
-    由本帧 ``option_map`` 解析，span 层只负责定位输出合同中的字符。
+    由本帧 ``option_map`` 解析。``EVENT: RE`` 等非法值仍只取答案首字符参与高权重
+    teacher-KL，但严格 parser 会继续判 invalid，不能写入 EVENT memory。
     """
 
     spans: Dict[str, Tuple[int, int]] = {"analysis": _analysis_span(text, terminal_label="EVENT")}
-    event_span = _line_choice_span(text, "EVENT", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    event_span = _line_choice_training_span(text, "EVENT", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     if event_span is not None:
         spans["event"] = event_span
     return spans

@@ -473,6 +473,8 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         assert compact_case["memory"]["reference_is_comparison_only"] is True
         assert compact_case["memory"]["forced_correction_applied"] is False
         assert results["summary"]["student_initial_memory_mode"] == "unknown"
+        assert results["summary"]["event_memory_semantics"] == "event_conditioned_on_rs"
+        assert results["summary"]["rs_change_invalidates_event"] is True
         assert results["summary"]["rs_schedule_policy"] == "deployable"
         assert results["summary"]["rs_schedule_uses_ground_truth"] is False
         assert set(compact_case["student"]) >= {"q1_output", "q2_output", "q1_parsed", "q2_parsed"}
@@ -512,6 +514,9 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         assert outputs["correctness"]["q1_rs_correct"] is None
         assert memory["reference_is_comparison_only"] is True
         assert memory["forced_correction_applied"] is False
+        assert memory["q1"]["event_context_invalidated_by_rs_change"] is True
+        assert memory["q2"]["input"]["student"]["event_label"] == "UNKNOWN"
+        assert memory["q2"]["input"]["student"]["event_age_frames"] == 0
         review_results = json.loads((review_output_dir / "results.json").read_text(encoding="utf-8"))
         assert review_results["frames"] == []
         assert len(review_results["frame_artifacts"]) == len(route.frames)

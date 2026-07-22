@@ -348,6 +348,8 @@ base Qwen 强不强，而是看训练出的学生是否：
   观察后续自主纠正；不能把 RS repair interval 当成 Q1 跳帧间隔。
 - Q1 正确时进入 Q2，且 Q2 只输出当前帧候选字母；parser 再按
   `event_option_map` 还原为 `RE` 或 `U-E*`。
+- 若仍看到 `RS: R4` / `EVENT: RE`，它们在 probe 中必须保持 invalid、不得更新
+  memory；训练端会在答案起始 token 上施加高权重 teacher-KL，不能只训练分析段。
 - `memory.json` 分清 Q1/Q2 输入、输出、下一帧 student memory 和只读 truth memory。
 - 错误样本能通过 RGB、prompt、label、flags 定位到原因。
 
@@ -533,7 +535,9 @@ full 模式中：
 - `memory_before.json` / `memory_after.json` 保存该帧前后的内部
   `RS + EVENT + EGO_TO_GOAL_XY + rs_age_frames + event_age_frames` memory；真正写入
   Qwen 的 prompt 里，Q1 只渲染 road-only memory 与 RS age，Q2 才渲染 event
-  memory 与 EVENT age。label 真正改变时对应 age 归零，重复确认同一 label 不归零。
+  memory 与 EVENT age。label 真正改变时对应 age 归零，重复确认同一 label 不归零；
+  另外 EVENT 是 `EVENT | RS`，所以 RS 真正变化时旧 EVENT 必须显示为
+  `UNKNOWN, event_age_frames=0`，再由同帧/后续 Q2 重新建立。
 - `flags.json` 保存解析出的学生输出、teacher 输出、是否 RS 正确、是否进入 Q2、
   是否 candidate mismatch、是否 reset 下一帧、是否误传 `student_adapter_dir`
   以及 Q2 是否续接 Q1 KV cache 等诊断字段。
@@ -588,7 +592,8 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 
 - 红色：RS_SLOW 的 RS 错误；本帧跳过 EVENT_FAST，下一帧仍沿用学生 memory
   并再次运行 RS_SLOW，
-  测试不做 GT 纠错。
+  测试不做 GT 纠错。若该错误输出改变了 RS hypothesis，旧 EVENT 会按条件状态规则
+  失效为 UNKNOWN；这不是 GT 纠错，而是避免跨 RS 沿用语义不成立的 EVENT。
 - 蓝色：RS gate 正确，本帧进入 EVENT_FAST；可以是慢帧新 RS，也可以是快帧复用 RS。
 - 绿色：未加载 student 模型的静态 teacher-forced dump。
 - 灰色：没有特别转折的普通帧。
@@ -602,6 +607,12 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 - `output.json.teacher_targets` 必须是学生视角文本，不能泄漏私有字段名。
 - `memory.json.q1/q2` 应能看到两问各自的 student input、student output 和 reference；
   `reference_is_comparison_only=true`、`forced_correction_applied=false`。
+- `memory.json.q1.event_context_invalidated_by_rs_change=true` 时，Q1 after 和 Q2 input
+  的 EVENT 必须为 UNKNOWN 且 age=0；若 Q2 随后输出合法 EVENT，next frame 两个 age
+  都应从 1 开始。RS 未改变时该字段必须为 false，EVENT age 继续累计。
+- 典型 RS 边界应是：帧首 `R1/RE, age=46/46` → Q1 输出 `R4` 后
+  `R4/UNKNOWN, age=0/0` → 同帧 Q2 输出 `RE` 后 `R4/RE, age=0/0` → 下一真实帧
+  `R4/RE, age=1/1`。若看到 `R4/RE, age=0/46`，说明仍在跨 RS 复用旧 EVENT，是错误产物。
 - RS_SLOW 错误时本帧 EVENT_FAST 应跳过，但 `next_frame.student` 仍保留学生结果；
   后续改对必须来自
   新一帧学生输出。Q2 非法输出不覆盖已有 student EVENT。

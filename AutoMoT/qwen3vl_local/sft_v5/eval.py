@@ -267,7 +267,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     )
                 else:
                     # 先表示真实进入下一个 4Hz 帧，再刷新当前导航坐标。
-                    # age 不依赖 GT，student/reference 各自沿自己的 label 变化独立累加。
+                    # age 不依赖 GT，student/reference 各自推进；普通帧两个 age 独立累加，
+                    # 但随后若 Q1 真正改变 RS，update_memory_after_q1 会失效条件 EVENT。
                     memory = advance_memory_age(memory)
                     memory = update_memory_navigation(memory, frame.ego_to_goal_xy)
                     assert reference_memory is not None
@@ -429,6 +430,11 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                         rs_checked=run_rs_slow,
                         event_checked=q2_triggered,
                         event_correct=q2_event_correct,
+                        event_context_reset=bool(
+                            run_rs_slow
+                            and parsed_q1.get("rs_label") in RS_LABEL_TO_OPTION
+                            and parsed_q1.get("rs_label") != memory_before["rs_label"]
+                        ),
                     )
                 else:
                     rs_schedule_after = observe_inference_rs_schedule(
@@ -763,6 +769,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         {
             "schema_version": "sft_v5_eval_v6",
             "memory_policy": "student_closed_loop_reference_comparison_only",
+            "event_memory_semantics": "event_conditioned_on_rs",
+            "rs_change_invalidates_event": True,
+            "rs_change_resets_event_error_context": True,
             "student_initial_memory_mode": initial_memory_mode,
             "rs_schedule_policy": rs_schedule_policy,
             "rs_schedule_uses_ground_truth": rs_schedule_policy == "oracle",

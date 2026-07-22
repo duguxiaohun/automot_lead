@@ -82,7 +82,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_v5/train.sh ddp
 | `RS_REPAIR_INTERVAL` / `EVENT_REPAIR_INTERVAL` | `2/1` | 只控制 pending 后的脚本兜底检查，与慢思考频率独立 |
 | `RS_REPAIR_MODE` / `EVENT_REPAIR_MODE` | `ground_truth/ground_truth` | patience+review 后才延迟写回 GT；`unknown` 仅用于软擦除消融 |
 | `RS_MEMORY_CORRUPT_PROB/RS_MEMORY_UNKNOWN_PROB` | `0.05/0.07` | 正确 RS memory 的 contradiction/omission 条件概率；最终 Q1 比例受额外慢问影响 |
-| `EVENT_MEMORY_CORRUPT_PROB/EVENT_MEMORY_UNKNOWN_PROB` | `0.20/0.25` | eligible EVENT memory 的 contradiction/omission 条件概率；用于把 gate 后 Q2 校准到约 60/22/17 |
+| `EVENT_MEMORY_CORRUPT_PROB/EVENT_MEMORY_UNKNOWN_PROB` | `0.20/0.12` | eligible EVENT memory 的额外 contradiction/omission 条件概率；RS 变化还会自然失效 EVENT，合并后把 Q2 校准到约 60/23/17 |
 | `RS_INITIAL_GT_PROB/EVENT_INITIAL_GT_PROB` | `0.5/0.5` | route 首帧其余样本使用 UNKNOWN/no-prior |
 | `SAVE_STEPS` | `40` | 约半天保存一次 checkpoint |
 
@@ -100,14 +100,22 @@ RS gate 正确的帧都重新读本帧 RGB，保留三段分析，并直接在�
 模型不包 DDP wrapper，只在 optimizer step 前手动 all-reduce LoRA 梯度。
 EVENT wrong memory 优先从本帧 Q2 可见候选中选其它事件；只有单选题没有替代项时才
 使用全局 EVENT 作为 stale hypothesis。EVENT repair/augmentation 还要求本帧 RS
-memory 已对齐；RS 已错误/UNKNOWN 时保留 EVENT 状态，避免统计学生没看到的增强样本。
+memory 已对齐。EVENT 是条件状态 `EVENT | RS`：RS hypothesis 真正变化时，旧 EVENT
+立即失效为 UNKNOWN/age=0，并清空旧语境的 EVENT streak/pending；若 RS 没有再次变化，
+则保持当前 EVENT/age，不会每帧反复重置。
 “没有 memory”统一表示为固定 `[MEMORY]` schema 内的 UNKNOWN/no-prior，不整块删除
-prompt。RS/EVENT 各自带 `*_HYPOTHESIS_AGE`：label 改变时独立归零，否则每个真实
-4Hz 帧持续增加；周期核验后答案没变不会把 age 清零。
+prompt。RS/EVENT 各自带 `*_HYPOTHESIS_AGE`：普通帧独立增加，对应 label 改变时归零；
+此外 RS 改变会使条件 EVENT 一起归零。周期核验同一 RS 不会把任一 age 清零。
 新注入的 wrong/UNKNOWN 因为刚刚改变了 hypothesis，age 也从 0 开始；只有模型后续
 继续复制它，才会自然得到 age>0 的 stale-memory 训练轨迹。不要在离线 index 中人为
 随机填写较大的 age，也不要把 age 当成“越大越一定错误”的硬标签：稳定 RS 可以长期正确，
 EVENT 才通常衰减得更快，两者最终都必须由当前 RGB 复核。
+
+RS/EVENT 的输出 parser 始终只接受本帧选项字母，`RS: R4`、`EVENT: RE` 等语义标签
+仍记为 invalid，不能写入 memory。为了避免这类最需要纠正的 rollout 只剩低权重分析
+loss，训练会把答案值的第一个生成 token 纳入高权重 teacher-KL；privileged teacher
+在冒号后的起始位置推动合法选项字母。若整行 `RS:`/`EVENT:` 都缺失，则不猜测离散
+监督位置，只保留实际存在的分析 span。
 
 当前 42 个有效场景 collection 文件含 7241 条 success route、914466 个标注帧；默认
 10% route-level validation 后，训练规模约 82.3 万帧，最终精确值以远端构建出的
@@ -115,9 +123,9 @@ EVENT 才通常衰减得更快，两者最终都必须由当前 RGB 复核。
 RE 为 772286 帧（84.45%）；这和下面人为注入的“错误 memory 异常”是两个概念。
 默认稳定间隔在 3/4/5 帧中随机，平均仍是 4 帧。按 3000 条、每条 126 帧的恒定 GT
 序列模拟：模型若能当帧纠偏，Q1 触发约 30.5%（约 25.1 万帧），其
-`aligned/omission/contradiction` 约为 `59.6/24.1/16.2`；Q2 gate 约 100%，关系约为
-`60.2/22.4/17.4`。若模型只复制 memory 直到 delayed repair，压力测试中 Q1 触发约
-55.4%，Q2 gate 约 64.2%，Q2 关系约 `42.1/33.4/24.5`。这些是策略仿真，不替代
+`aligned/omission/contradiction` 约为 `59.7/24.2/16.1`；Q2 gate 约 100%，关系约为
+`59.6/23.0/17.4`。若模型只复制 memory 直到 delayed repair，压力测试中 Q1 触发约
+55.5%，Q2 gate 约 64.0%，Q2 关系约 `38.6/43.5/17.9`。这些是策略仿真，不替代
 TensorBoard 的实际关系比例与 gate 统计。
 上述上界依赖正式默认的延迟 GT 兜底。若显式改成 `unknown` 软擦除，
 “学生只复制 memory”压力测试中 RS anomaly 会达约 95.7%、Q2 gate 只剩约
@@ -216,6 +224,7 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_v5_runs/latest/tb
 | `memory/rs_input_anomaly_rate` / `memory/event_input_anomaly_rate` | 实际进入 prompt 的 wrong+UNKNOWN 比例；EVENT 分母是 Q2 帧 |
 | `memory/rs_error_streak_mean` / `memory/event_error_streak_mean` | 延迟纠偏持续长度；用于判断 patience 是否过长 |
 | `memory/{rs,event}_{injected_wrong,injected_unknown,forced_repair}` | 课程扰动与兜底修复实际样本数 |
+| `memory/event_invalidated_by_rs_change_rate` | RS hypothesis 变化导致旧条件 EVENT 失效的帧比例；用于核对 EVENT age 是否正确重置 |
 | `memory/{rs,event}_repaired_to_{ground_truth,unknown}` | 延迟 GT 硬修复与 UNKNOWN 软擦除分开计数 |
 | `memory/{rs,event}_self_recovered_after_streak` | 脚本干预前学生自行退出连续错误，越多越好 |
 | `memory/{rs,event}_recovered_after_forced_repair` | 已介入修复后才答对；不能当成自主纠偏 |
@@ -270,8 +279,8 @@ RS 变化、UE 进入/退出帧以及 FP/FN，每行直接给出 `TP/FP/FN/TN/in
 新旧口径不能放在同一条曲线直接比较；新 summary schema 会记录
 `student_initial_memory_mode` / `rs_schedule_policy` / `rs_schedule_uses_ground_truth`。
 当前大样本摘要为 `schema_version=sft_v5_eval_v6`，probe 为
-`format_version=4`；两者都记录 RS/EVENT 独立 age、随机 interval 的中心/jitter/seed
-以及逐帧实际 interval draw。
+`format_version=4`；两者都记录普通帧独立累加的 RS/EVENT age、RS 变化导致 EVENT
+上下文失效、随机 interval 的中心/jitter/seed 以及逐帧实际 interval draw。
 另外，为了实现“RS 真错就跳过 EVENT”，离线评分的 EVENT gate 仍需 GT
 判断一个合法 R1-R5 是否真错。因此 summary 显式写
 `event_gate_policy=offline_ground_truth_rs_correctness` 和
@@ -373,6 +382,10 @@ RS 后会在下一帧再做一次无 GT 确认，此后 student memory 只由学
 顶层 `results.json` 只保留指标、帧目录索引和 `memory_recovery_report`；后者统计变化后
 学生首次自主改对的延迟帧数。`--artifact-level full` 才增加 legacy TXT/JSON。
 手工 probe 默认 1024/1024 token；自动 checkpoint probe 才使用 256/192。
+`teacher_q2_trigger_rate` 的分母是所选全部 frame，因为 teacher EVENT_FAST 同时覆盖
+慢帧 Q1-KV 续接与快帧 fresh-RGB；它不再除以 teacher Q1 帧数，因此范围固定在 `[0,1]`。
+旧兼容字段 `q1_rs_accuracy` 与 `rs_gate_accuracy` 都表示每帧实际使用 RS 的准确率；
+只看慢思考输出时使用 `rs_slow_accuracy`，不能混用两个分母。
 
 训练前 grouped/parallel 等价性检查：
 

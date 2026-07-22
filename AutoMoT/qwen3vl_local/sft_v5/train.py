@@ -1610,7 +1610,8 @@ def _q1_memory_diagnostics(
     """比较 Q1 输入 memory、GT 与 student 输出，生成 RS 纠偏诊断字段。
 
     返回值只用于训练日志/TensorBoard：区分已知但错误、UNKNOWN、照抄错误 memory、
-    以及依靠当前 RGB 恢复正确 RS。函数本身不修改 memory。
+    以及依靠当前 RGB 恢复正确 RS。若合法 student RS 与输入不同，还会标记它将触发
+    ``EVENT | RS`` 上下文失效；函数本身不修改 memory。
     """
 
     input_known = memory.rs_label in RS_LABEL_TO_OPTION
@@ -1623,6 +1624,9 @@ def _q1_memory_diagnostics(
         "memory_rs_input_age_frames": int(memory.rs_age_frames),
         "memory_rs_copied_when_wrong": bool(input_wrong and student_rs == memory.rs_label),
         "memory_rs_recovered": bool((input_wrong or input_unknown) and student_rs == frame.rs_label),
+        "memory_event_invalidated_by_student_rs_change": bool(
+            student_rs in RS_LABEL_TO_OPTION and student_rs != memory.rs_label
+        ),
     }
 
 
@@ -1676,7 +1680,15 @@ def _finalize_memory_curriculum_frame(
     表示是否存在待复核修复，用于日志，不会在这里立刻用 GT 覆盖 student memory。
     """
 
+    # RS 可能在帧开始的 curriculum repair/corruption 阶段变化，也可能被本帧 Q1
+    # student 改写。两条路径都会使旧 EVENT 失效；先合并再更新 stats，避免
+    # before_audit 的同名字段覆盖 student rollout 诊断。
+    event_context_reset = bool(
+        before_audit.get("memory_event_invalidated_by_rs_change", False)
+        or stats.get("memory_event_invalidated_by_student_rs_change", False)
+    )
     stats.update(dict(before_audit))
+    stats["memory_event_invalidated_by_rs_change"] = event_context_reset
     after_audit = observe_training_memory(
         state,
         config,
@@ -1688,6 +1700,7 @@ def _finalize_memory_curriculum_frame(
         # 值会被误算成“在脚本干预前自主恢复”，夸大纠偏能力。
         rs_forced_repair=bool(before_audit.get("memory_rs_forced_repair", False)),
         event_forced_repair=bool(before_audit.get("memory_event_forced_repair", False)),
+        event_context_reset=event_context_reset,
     )
     stats.update(after_audit)
     return bool(after_audit["memory_any_repair_pending"])
@@ -3061,10 +3074,15 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
             "rs_memory_corrupt_prob": float(getattr(args, "rs_memory_corrupt_prob", 0.05)),
             "rs_memory_unknown_prob": float(getattr(args, "rs_memory_unknown_prob", 0.07)),
             "event_memory_corrupt_prob": float(getattr(args, "event_memory_corrupt_prob", 0.20)),
-            "event_memory_unknown_prob": float(getattr(args, "event_memory_unknown_prob", 0.25)),
+            "event_memory_unknown_prob": float(getattr(args, "event_memory_unknown_prob", 0.12)),
             "rs_initial_gt_prob": float(getattr(args, "rs_initial_gt_prob", 0.5)),
             "event_initial_gt_prob": float(getattr(args, "event_initial_gt_prob", 0.5)),
             "event_fast_merges_normal_abnormal": True,
+            # 该状态机语义会改变 checkpoint 看到的 Q2 memory 分布，必须与概率阈值
+            # 一起落盘，避免后续只看 adapter 元数据时误按旧版“EVENT 与 RS 独立”复现。
+            "event_conditioned_on_rs": True,
+            "rs_change_invalidates_event": True,
+            "rs_change_resets_event_error_context": True,
         },
         "parallel_kl": bool(args.parallel_kl),
         "parallel_kl_microbatch_size": int(args.parallel_kl_microbatch_size),
@@ -3283,6 +3301,7 @@ _TRAIN_WINDOW_KEYS = (
     "memory_rs_repaired_to_ground_truth",
     "memory_event_repaired_to_unknown",
     "memory_event_repaired_to_ground_truth",
+    "memory_event_invalidated_by_rs_change",
     "memory_rs_self_recovered_after_streak",
     "memory_event_self_recovered_after_streak",
     "memory_rs_recovered_after_forced_repair",
@@ -3453,6 +3472,7 @@ def _add_frame_rollout_stats(
         "memory_rs_repaired_to_ground_truth",
         "memory_event_repaired_to_unknown",
         "memory_event_repaired_to_ground_truth",
+        "memory_event_invalidated_by_rs_change",
         "memory_rs_self_recovered_after_streak",
         "memory_event_self_recovered_after_streak",
         "memory_rs_recovered_after_forced_repair",
@@ -3616,6 +3636,7 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"rs_interval={interval_mean:.2f}±{interval_std:.2f} "
         f"invalid={int(stats.get('q2_invalid_output', 0.0))} "
         f"repair_pending={int(stats.get('memory_repair_pending', 0.0))} "
+        f"event_ctx_reset={int(stats.get('memory_event_invalidated_by_rs_change', 0.0))} "
         f"event_ue_prf={{{event_prf['precision']:.3f}/{event_prf['recall']:.3f}/{event_prf['f1']:.3f}}} "
         f"mem_rs={{wrong:{int(stats.get('memory_rs_input_known_wrong', 0.0))},"
         f"bad_rate:{(float(stats.get('memory_rs_input_known_wrong', 0.0)) + float(stats.get('memory_rs_input_unknown', 0.0))) / frames:.3f},"
@@ -3724,7 +3745,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--rs-memory-corrupt-prob", type=float, default=0.05, help="正确 RS memory 注入错误/陈旧 RS（contradiction）的条件概率")
     p.add_argument("--rs-memory-unknown-prob", type=float, default=0.07, help="正确 RS memory 移除为 UNKNOWN/no-prior（omission）的条件概率")
     p.add_argument("--event-memory-corrupt-prob", type=float, default=0.20, help="正确 EVENT memory 注入错误/陈旧 EVENT（contradiction）的条件概率")
-    p.add_argument("--event-memory-unknown-prob", type=float, default=0.25, help="正确 EVENT memory 移除为 UNKNOWN/no-prior（omission）的条件概率")
+    p.add_argument("--event-memory-unknown-prob", type=float, default=0.12, help="正确 EVENT memory 额外移除为 UNKNOWN/no-prior（omission）的条件概率；RS 变化还会自然失效 EVENT")
     p.add_argument("--rs-initial-gt-prob", type=float, default=0.5, help="route 首帧 RS memory 使用 GT 的概率；其余为 UNKNOWN/no-prior")
     p.add_argument("--event-initial-gt-prob", type=float, default=0.5, help="route 首帧 EVENT memory 使用 GT 的概率；其余为 UNKNOWN/no-prior")
     # 数据 smoke、route sampler 和 Qwen 采样并行。QWEN_BATCH_SIZE 只控制 no-grad
@@ -4402,6 +4423,11 @@ def main() -> None:
                     tb.add_scalar("memory/event_injected_unknown", reduced_stats["memory_event_injected_unknown"], global_step)
                     tb.add_scalar("memory/rs_forced_repair", reduced_stats["memory_rs_forced_repair"], global_step)
                     tb.add_scalar("memory/event_forced_repair", reduced_stats["memory_event_forced_repair"], global_step)
+                    tb.add_scalar(
+                        "memory/event_invalidated_by_rs_change_rate",
+                        reduced_stats["memory_event_invalidated_by_rs_change"] / frames,
+                        global_step,
+                    )
                     # forced_repair 是总次数；下面进一步拆分软擦除 UNKNOWN 与延迟 GT
                     # 硬修复，并区分“干预前自主恢复”和“干预后才答对”。
                     for metric_name in (

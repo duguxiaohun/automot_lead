@@ -177,10 +177,13 @@ def test_adapter_metadata_records_effective_window() -> None:
         "rs_memory_corrupt_prob": 0.05,
         "rs_memory_unknown_prob": 0.07,
         "event_memory_corrupt_prob": 0.20,
-        "event_memory_unknown_prob": 0.25,
+        "event_memory_unknown_prob": 0.12,
         "rs_initial_gt_prob": 0.5,
         "event_initial_gt_prob": 0.5,
         "event_fast_merges_normal_abnormal": True,
+        "event_conditioned_on_rs": True,
+        "rs_change_invalidates_event": True,
+        "rs_change_resets_event_error_context": True,
     }
 
 
