@@ -78,10 +78,11 @@ student 默认从 UNKNOWN 启动，RS_SLOW 调度默认不再用 GT mismatch。
 从 `AutoMoT/` 目录运行：
 
 ```bash
+PROBE_DIR=checkpoints/sft_v5_runs/pre_opsd_base_probe_$(date +%Y%m%d_%H%M%S)
 GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe \
+  --output-dir "$PROBE_DIR" \
   --num-routes 1 \
   --with-model \
   --with-teacher-model \
@@ -107,18 +108,20 @@ OPSD。
 
 ```bash
 # 只看默认 Qwen 学生能力，不传 --adapter-dir
+PROBE_DIR=checkpoints/sft_v5_runs/pre_opsd_base_student_probe_$(date +%Y%m%d_%H%M%S)
 GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_v5_runs/pre_opsd_base_student_probe \
+  --output-dir "$PROBE_DIR" \
   --num-routes 1 \
   --with-model
 
 # 只看默认 Qwen teacher 能力，不传 --adapter-dir
+PROBE_DIR=checkpoints/sft_v5_runs/pre_opsd_base_teacher_probe_$(date +%Y%m%d_%H%M%S)
 GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_v5_runs/pre_opsd_base_teacher_probe \
+  --output-dir "$PROBE_DIR" \
   --num-routes 1 \
   --with-teacher-model \
   --with-teacher
@@ -137,8 +140,8 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 - `input.json` 是否清楚区分 system/user，以及 EVENT_FAST 是否正确标记
   `student.q1_output_kv` 或 `fresh_rgb_prefill`。
 - `output.json` 的 teacher/student 解析字段是否为空；为空说明 prompt 或解析合同要先修。
-- `flags.json` 里的 `student_adapter_dir` 必须为空；否则说明训练前体检误加载了 LoRA，
-  需要重跑纯 base Qwen 检查。
+- `results.json.summary.student_adapter_dir` 必须为空；否则说明训练前体检误加载了 LoRA，
+  需要重跑纯 base Qwen 检查。只有 full 模式才会再把该字段逐帧写入 `flags.json`。
 
 ### A.2 grouped / parallel Qwen 等价性检查
 
@@ -360,11 +363,12 @@ base Qwen 强不强，而是看训练出的学生是否：
 从 `AutoMoT/` 目录运行：
 
 ```bash
+PROBE_DIR=checkpoints/sft_v5_runs/latest/probe_with_adapter_$(date +%Y%m%d_%H%M%S)
 GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
-  --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
+  --output-dir "$PROBE_DIR" \
   --num-routes 1 \
   --artifact-level review \
   --sample-mode random \
@@ -381,8 +385,8 @@ Qwen，和训练前能力检查保持同一输入输出合同。默认结果集�
 默认 `--initial-memory unknown --rs-schedule-policy deployable`：首帧必须看图给出
 RS，第二帧确认首次合法变化，之后才回到周期慢问。只在复现旧可视化时
 使用 `--initial-memory ground_truth --rs-schedule-policy oracle`。
-`results.json.format_version=4` 固化了这两个口径字段、EVENT gate 声明、RS/EVENT 独立
-age 和随机 interval 配置/逐帧 draw；旧 format 的指标不能在未标注这些条件时与 v4
+`results.json.format_version=5` 固化了这些口径字段、EVENT gate 声明、RS/EVENT 独立
+age、随机 interval 配置/逐帧 draw 和目录完整性清单；旧 format 的指标不能在未标注这些条件时与 v5
 直接混比。
 
 小样本只有三种选帧模式：
@@ -410,9 +414,10 @@ teacher 模型，仍会完整写入 `results.json`。
 从 `AutoMoT/` 目录运行：
 
 ```bash
+PROBE_DIR=checkpoints/sft_v5_runs/latest/probe_static_$(date +%Y%m%d_%H%M%S)
 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
-  --output-dir checkpoints/sft_v5_runs/latest/probe_static \
+  --output-dir "$PROBE_DIR" \
   --num-routes 1 \
   --artifact-level full \
   --with-teacher
@@ -439,6 +444,17 @@ probe*/
         output.json
         memory.json
 ```
+
+输出目录是一次 probe 的不可混写边界：启动时目录必须为空，代码不会自动删除或覆盖
+旧证据。运行过程中根目录存在 `.probe_in_progress.json`；成功提交原子化
+`results.json` 后 marker 才消失。`results.json.run_integrity` 记录
+`selected_route_count/selected_route_ids/selected_frame_count`、应有/已索引 frame artifact
+数和实际完成的文件检查数。默认 `--num-routes 1` 必须看到
+`selected_route_count=1`；如果 marker 仍存在、根目录缺 `results.json`、顶层出现旧式 route
+目录，或目录数与 `run_integrity` 不一致，这份产物属于中断/旧版混合结果，不应继续做
+模型结论。重新运行时使用新的时间戳目录，不要把新文件复制合并到旧目录。
+超长或含文件系统不友好字符的 scenario/route 目录会保留可读前缀并追加短哈希，避免
+不同原始 ID 在替换或截断后碰撞；真实 ID 始终以 `run_integrity.selected_routes` 为准。
 
 先选测试场景，再进入连续 frame。各文件职责如下：
 
@@ -604,6 +620,8 @@ probe 的 256/192 只是小样本可视化上限，不应替代正式指标。
 
 ## 人工检查清单
 
+- 根目录不存在 `.probe_in_progress.json`，且 `results.json` 的
+  `format_version=5`、`run_integrity.status=complete`；route/frame 数与本次命令一致。
 - `input.json` 的 student prompt 不应包含 `XML_WEATHER`、`ANSWER_`、`REFERENCE`、GT
   label 或 scenario name；teacher prompt 可以包含私有参考。
 - 慢帧 `output.json.student/teacher` 应包含 RS 三段式 CoT 和 EVENT 三段式 CoT；

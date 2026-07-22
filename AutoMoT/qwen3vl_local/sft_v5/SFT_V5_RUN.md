@@ -284,7 +284,7 @@ RS 变化、UE 进入/退出帧以及 FP/FN，每行直接给出 `TP/FP/FN/TN/in
 新旧口径不能放在同一条曲线直接比较；新 summary schema 会记录
 `student_initial_memory_mode` / `rs_schedule_policy` / `rs_schedule_uses_ground_truth`。
 当前大样本摘要为 `schema_version=sft_v5_eval_v6`，probe 为
-`format_version=4`；两者都记录普通帧独立累加的 RS/EVENT age、RS 变化导致 EVENT
+`format_version=5`；两者都记录普通帧独立累加的 RS/EVENT age、RS 变化导致 EVENT
 上下文失效、随机 interval 的中心/jitter/seed 以及逐帧实际 interval draw。
 另外，为了实现“RS 真错就跳过 EVENT”，离线评分的 EVENT gate 仍需 GT
 判断一个合法 R1-R5 是否真错。因此 summary 显式写
@@ -329,10 +329,11 @@ family 派生，不表示仍有独立的 `ABNORMAL` 问题或输出字段。
 训练前纯 base Qwen 能力检查，不加载 LoRA：
 
 ```bash
+PROBE_DIR=checkpoints/sft_v5_runs/pre_opsd_base_probe_$(date +%Y%m%d_%H%M%S)
 GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_v5_runs/pre_opsd_base_probe \
+  --output-dir "$PROBE_DIR" \
   --num-routes 1 \
   --artifact-level review \
   --with-model \
@@ -343,11 +344,12 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
 训练后 adapter 检查：
 
 ```bash
+PROBE_DIR=checkpoints/sft_v5_runs/latest/probe_with_adapter_$(date +%Y%m%d_%H%M%S)
 GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --index checkpoints/sft_v5_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_v5_runs/latest/final \
-  --output-dir checkpoints/sft_v5_runs/latest/probe_with_adapter \
+  --output-dir "$PROBE_DIR" \
   --num-routes 1 \
   --artifact-level review \
   --sample-mode random \
@@ -356,6 +358,13 @@ GPU_IDS=0 python qwen3vl_local/sft_v5/probe.py \
   --with-teacher-model \
   --with-teacher
 ```
+
+`probe.py` 现在要求 `--output-dir` 为空：发现任何旧文件就直接拒绝，不自动删除证据。
+上面用时间戳创建独立目录，避免新 `results.json` 与旧 `scenarios/frame_*` 混写。运行中
+会出现 `.probe_in_progress.json`；只有逐帧 artifact 校验通过且 `results.json` 原子写完后
+才删除。成功结果必须同时满足 `format_version=5`、`run_integrity.status=complete`，且
+`--num-routes 1` 时 `run_integrity.selected_route_count=1`。根目录没有 `results.json`、仍有
+隐藏 marker，或 route 数不符，都应视为中断/旧版混合产物并重跑，不能继续判断模型。
 
 这条训练后命令与训练前 base 检查使用同一批输入和 schema：student 加载 LoRA，teacher
 仍是纯 base Qwen。测试窗口首帧默认从 UNKNOWN 建立共同起点，第一次产生合法

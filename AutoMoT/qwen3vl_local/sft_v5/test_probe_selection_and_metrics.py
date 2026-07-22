@@ -23,6 +23,7 @@ from qwen3vl_local.sft_v5.metrics import (  # noqa: E402
     summarize_student_predictions,
 )
 from qwen3vl_local.sft_v5.probe import (  # noqa: E402
+    _safe_name,
     build_memory_recovery_report,
     build_probe_selection_plan,
     dump_probe,
@@ -75,6 +76,18 @@ def _routes() -> list[SequenceRow]:
             frames=[_frame(0, "R3", "RE"), _frame(1, "R3", "RE")],
         ),
     ]
+
+
+def test_artifact_names_do_not_collide_after_sanitizing() -> None:
+    """长 route 或非法字符不同的名称不能被截断/替换成同一 artifact 目录。"""
+
+    assert _safe_name("Town01_route_001") == "Town01_route_001"
+    long_prefix = "Town12_" + "x" * 120
+    first = _safe_name(long_prefix + "_route_a")
+    second = _safe_name(long_prefix + "_route_b")
+    assert first != second
+    assert len(first) <= 96 and len(second) <= 96
+    assert _safe_name("route/a") != _safe_name("route:a")
 
 
 def test_random_selection_is_seeded() -> None:
@@ -433,6 +446,46 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         summary = dump_probe(args)
         assert [path.name for path in output_dir.iterdir()] == ["results.json"]
         results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+        assert results["format_version"] == 5
+        assert results["run_integrity"] == {
+            "status": "complete",
+            "output_directory_isolated": True,
+            "selected_route_count": 1,
+            "selected_route_ids": [route.route_id],
+            "selected_routes": [
+                {
+                    "route_index": 0,
+                    "scenario": route.scenario,
+                    "route_id": route.route_id,
+                }
+            ],
+            "selected_frame_count": len(route.frames),
+            "frame_artifacts_expected": 0,
+            "frame_artifacts_indexed": 0,
+            "artifact_checks_passed": 0,
+            "incomplete_marker_present_after_success": False,
+        }
+        assert not (output_dir / ".probe_in_progress.json").exists()
+        # 同一输出目录二次运行必须拒绝，不能让旧 scenarios/frame 与新 results 混在一起。
+        try:
+            dump_probe(args)
+        except FileExistsError as exc:
+            assert "must be empty" in str(exc)
+            assert "will not delete evidence" in str(exc)
+        else:
+            raise AssertionError("probe should reject a non-empty output directory")
+        interrupted_dir = root / "probe_interrupted"
+        interrupted_args = argparse.Namespace(**vars(args))
+        interrupted_args.output_dir = str(interrupted_dir)
+        interrupted_args.index = str(root / "missing_index.jsonl")
+        try:
+            dump_probe(interrupted_args)
+        except FileNotFoundError:
+            pass
+        else:
+            raise AssertionError("missing index should leave an interrupted probe marker")
+        assert (interrupted_dir / ".probe_in_progress.json").is_file()
+        assert not (interrupted_dir / "results.json").exists()
         selection = results["sampling"]
         assert selection["sample_mode"] == "random"
         assert "完整 route ID" in selection["sample_mode_description"]
@@ -521,6 +574,10 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         review_results = json.loads((review_output_dir / "results.json").read_text(encoding="utf-8"))
         assert review_results["frames"] == []
         assert len(review_results["frame_artifacts"]) == len(route.frames)
+        assert review_results["run_integrity"]["status"] == "complete"
+        assert review_results["run_integrity"]["frame_artifacts_expected"] == len(route.frames)
+        assert review_results["run_integrity"]["artifact_checks_passed"] == 4 * len(route.frames)
+        assert not (review_output_dir / ".probe_in_progress.json").exists()
 
         # full 是显式深度审计开关，不应删除 review 的规范文件和 legacy 产物。
         full_output_dir = root / "probe_full"
@@ -531,6 +588,10 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
         assert (full_output_dir / "selection_plan.json").exists()
         assert (full_output_dir / "summary.json").exists()
         assert (full_output_dir / "transition_report.json").exists()
+        full_results = json.loads((full_output_dir / "results.json").read_text(encoding="utf-8"))
+        assert full_results["run_integrity"]["status"] == "complete"
+        assert full_results["run_integrity"]["artifact_checks_passed"] > 7 * len(route.frames)
+        assert not (full_output_dir / ".probe_in_progress.json").exists()
         case_records = list(full_output_dir.glob("scenarios/*/frame_*/case_record.json"))
         assert len(case_records) == len(route.frames)
         case = json.loads(case_records[0].read_text(encoding="utf-8"))
@@ -547,6 +608,7 @@ def test_static_probe_compact_review_and_full_artifacts() -> None:
 def main() -> None:
     """运行定向选帧、FP/FN 指标和完整 case 产物回归。"""
 
+    test_artifact_names_do_not_collide_after_sanitizing()
     test_random_selection_is_seeded()
     test_rs_transition_selection_is_one_contiguous_change_window()
     test_ue_transition_selection_contains_entry_and_exit()
