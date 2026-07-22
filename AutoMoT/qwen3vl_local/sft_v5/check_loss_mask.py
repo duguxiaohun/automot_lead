@@ -28,18 +28,28 @@ from qwen3vl_local.sft_v5.prompts import (
 
 
 def _assert_nonempty(text: str, spans: dict, keys: list[str]) -> None:
-    """检查指定 span 是否存在且非空。"""
+    """检查指定字符 span 存在且满足 ``end > start``。
+
+    ``text`` 只用于失败时打印完整 target，便于立刻看出是字段名变了、格式行缺失，还是
+    span 正则只匹配到了空值；本函数不涉及 tokenizer 或模型。
+    """
 
     for key in keys:
         if key not in spans:
             raise AssertionError(f"missing span {key} in {text!r}")
+        # span 采用 Python slice 的左闭右开语义，长度等于 hi - lo。
         lo, hi = spans[key]
         if hi <= lo:
             raise AssertionError(f"empty span {key} in {text!r}")
 
 
 def main() -> None:
-    """构造最小 Q1/Q2 target，验证所有训练 span 都能被定位。"""
+    """构造最小 Q1/Q2 target，验证所有训练 span 都能被定位。
+
+    这是纯 CPU 的 prompt-contract smoke：Q1 应只有 analysis+rs，Q2 应只有
+    analysis+event，且两个高权重离散 span 都只能覆盖单个选项字符。训练前通过
+    ``train.sh check`` 或直接运行本脚本即可快速发现 loss mask 漂移。
+    """
 
     # 这个脚本使用手工构造的最小 target，不依赖数据集和模型。
     # 它主要防止后续改 prompt 时把 "RS:" / "EVENT:" 等字段名改掉，
@@ -59,6 +69,8 @@ def main() -> None:
     _assert_nonempty(q1, q1_spans, ["analysis", "rs"])
     assert "abnormal" not in q1_spans
     assert q1_spans["rs"][1] - q1_spans["rs"][0] == 1, "RS 高权重 span 只能覆盖 option token"
+    # 用 R4 构造 memory，确保 RE 文案能走 signalized-intersection 的动态描述；候选表
+    # 同时放 RE/U-E6，覆盖合并后的 REGULAR-vs-UNUSUAL EVENT_FAST 合同。
     memory = reset_memory_for_frame(rs)
     q2 = build_q2_teacher_target(memory, option_map={"A": "RE", "B": "U-E6"}, event_target=event)
     # Q2 必须同时监督分析和 EVENT 选择。

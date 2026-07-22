@@ -261,18 +261,30 @@ COMMON_ARGS=(
   --max-new-tokens-q1 "${MAX_NEW_TOKENS_Q1:-1024}"
   --max-new-tokens-q2 "${MAX_NEW_TOKENS_Q2:-1024}"
   --temperature "${TEMPERATURE:-1.0}"
-  # RS_SLOW 默认每 4 个 4Hz 帧复核一次；错误/UNKNOWN/recovery 时自动切回逐帧。
+  # RS_SLOW 以 4 帧为中心；下一行默认把每次稳定复核间隔随机化为 3/4/5 帧。
   --rs-slow-interval "${RS_SLOW_INTERVAL:-4}"
+  # 正式默认不锁死 4 帧；每次稳定 RS query 后按 route/seed 可复现地从
+  # 3/4/5 帧选下一次复核间隔。设 RS_SLOW_INTERVAL_JITTER=0 可做固定周期消融。
+  --rs-slow-interval-jitter "${RS_SLOW_INTERVAL_JITTER:-1}"
   # 错误记忆课程：稳定 RS 低频，错误期间逐帧运行 Q1；EVENT_FAST 每个 RS 有效帧运行。
   # EVENT 只有在 RS gate 正确、实际进入 Q2 后才累计自己的错误 streak。
   --rs-error-patience "${RS_ERROR_PATIENCE:-4}"
   --event-error-patience "${EVENT_ERROR_PATIENCE:-3}"
   --rs-repair-interval "${RS_REPAIR_INTERVAL:-2}"
   --event-repair-interval "${EVENT_REPAIR_INTERVAL:-1}"
-  --rs-memory-corrupt-prob "${RS_MEMORY_CORRUPT_PROB:-0.06}"
-  --rs-memory-unknown-prob "${RS_MEMORY_UNKNOWN_PROB:-0.02}"
-  --event-memory-corrupt-prob "${EVENT_MEMORY_CORRUPT_PROB:-0.10}"
-  --event-memory-unknown-prob "${EVENT_MEMORY_UNKNOWN_PROB:-0.05}"
+  # 正式默认是延迟硬修复：RS/EVENT 先连续出错用完 patience，到 review slot
+  # 才写回 GT。这保留连续纠偏数据，同时避免纯 UNKNOWN 软修复在极端复制模型上
+  # 永久卡住。只做消融时可显式设 RS_REPAIR_MODE/EVENT_REPAIR_MODE=unknown。
+  --rs-repair-mode "${RS_REPAIR_MODE:-ground_truth}"
+  --event-repair-mode "${EVENT_REPAIR_MODE:-ground_truth}"
+  # relation curriculum：RS 的 5% contradiction + 7% omission 会因额外触发慢问，
+  # 在理想当帧纠偏下约映射为 Q1 60/24/16（aligned/omission/contradiction）。
+  # EVENT 的 eligible 比例为 55/25/20；受 RS pre-gate 影响，最终 Q2 理想值
+  # 约 60/22/17。closed-loop 实测比例以 TensorBoard 为准。
+  --rs-memory-corrupt-prob "${RS_MEMORY_CORRUPT_PROB:-0.05}"
+  --rs-memory-unknown-prob "${RS_MEMORY_UNKNOWN_PROB:-0.07}"
+  --event-memory-corrupt-prob "${EVENT_MEMORY_CORRUPT_PROB:-0.20}"
+  --event-memory-unknown-prob "${EVENT_MEMORY_UNKNOWN_PROB:-0.25}"
   --rs-initial-gt-prob "${RS_INITIAL_GT_PROB:-0.5}"
   --event-initial-gt-prob "${EVENT_INITIAL_GT_PROB:-0.5}"
   --max-routes "${MAX_ROUTES:-0}"

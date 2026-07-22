@@ -3,6 +3,10 @@
 本模块只处理已经解析好的逐帧记录，不加载 Qwen，也不依赖 CUDA。这样小样本 probe
 和大样本 eval 可以共享完全相同的假阳性、假阴性和变化帧指标定义，避免两个入口对
 同一个数字给出不同解释。
+
+指标分三层：逐帧 RS/EVENT 正确性、只在 RS gate 通过时统计的 conditional Q2、以及
+把 RS 错误导致 Q2 跳过也计错的 end-to-end EVENT。变化检测另外比较相邻“实际连续且
+都执行过模型”的帧对；随机 probe 的不连续样本不会混入 transition F1。
 """
 
 from __future__ import annotations
@@ -233,7 +237,11 @@ TRANSITION_METRIC_NAMES = (
 
 
 def _ratio(numerator: int, denominator: int) -> Optional[float]:
-    """无有效分母时返回 None，避免把“没有样本”伪装成 0 分。"""
+    """安全计算比例；无有效分母时返回 ``None``。
+
+    ``None`` 表示当前评估集合没有这种样本，例如全程无 UE 时 recall 没有定义；它与
+    “存在 UE 但一个都没检出”的 0.0 含义不同，写报告时必须保留这个区别。
+    """
 
     if int(denominator) <= 0:
         return None
@@ -241,7 +249,7 @@ def _ratio(numerator: int, denominator: int) -> Optional[float]:
 
 
 def _f1(precision: Optional[float], recall: Optional[float]) -> Optional[float]:
-    """计算 F1；没有正样本/正预测时保留 None 语义。"""
+    """由 precision/recall 计算 F1，并保留未定义的 ``None`` 语义。"""
 
     if precision is None or recall is None:
         return None
@@ -251,7 +259,11 @@ def _f1(precision: Optional[float], recall: Optional[float]) -> Optional[float]:
 
 
 def _transition_outcome(gt: bool, pred: Optional[bool]) -> str:
-    """把单个变化帧对比转为 TP/FP/FN/TN/invalid，供 JSON 报告直接阅读。"""
+    """把一个变化检测结果编码为 TP/FP/FN/TN/invalid。
+
+    ``pred=None`` 通常表示前后任一离散输出无法解析；它单列为 invalid，不按“未变化”
+    处理，否则会虚高 TN 或把格式错误错误地归为 FN。
+    """
 
     if pred is None:
         return "invalid"
@@ -268,11 +280,14 @@ def transition_case_from_row(row: Mapping[str, Any]) -> Optional[Dict[str, Any]]
     """将统一逐帧记录压缩为一条真值/预测变化对比。
 
     只有上一个原始时间帧也实际跑过模型时，``transition_pair_evaluated`` 才为
-    true。随机 probe 中的跳帧不会被伪造成变化帧指标。
+    true。随机 probe 中的跳帧不会被伪造成变化帧指标。返回值保留前后状态和三类
+    outcome，供 transition_report.json 直接定位具体错帧。
     """
 
     if not bool(row.get("transition_pair_evaluated")):
         return None
+    # 先把可能来自 JSON 的 0/1/None 统一成严格 bool/Optional[bool]，后续混淆矩阵
+    # 不需要知道 eval/probe 的序列化细节。
     gt_rs_change = bool(row.get("gt_rs_change"))
     gt_ue_entry = bool(row.get("gt_ue_entry"))
     gt_ue_exit = bool(row.get("gt_ue_exit"))
@@ -308,7 +323,11 @@ def transition_case_from_row(row: Mapping[str, Any]) -> Optional[Dict[str, Any]]
 
 
 def transition_case_is_informative(case: Mapping[str, Any]) -> bool:
-    """只保留真实变化、预测变化或真实变化上的无法解析样本。"""
+    """判断一个 frame pair 是否值得在人工变化报告中展开。
+
+    全部为稳定 TN 的 pair 仍进入总体分母，但不必逐条写进精简人工列表；真实变化、
+    模型报变化或相应 invalid 才是需要回看的信息样本。
+    """
 
     return any(
         bool(case.get(key))
@@ -339,9 +358,11 @@ def build_transition_fields(
     """用相邻帧真值/预测状态生成统一变化检测字段。
 
     ``pair_evaluated`` 表示上一帧也实际跑过当前模型。模型任一帧输出
-    无法解析时，对应预测变化保留 ``None``，后续指标按 invalid 处理。
+    无法解析时，对应预测变化保留 ``None``，后续指标按 invalid 处理。真值变化仍可
+    计算并写日志，但只有 ``transition_pair_evaluated=True`` 才进入变化指标分母。
     """
 
+    # GT 前态和预测前态分开判定：有 GT 只能说明真实边界可定义，不代表模型边界可定义。
     has_gt_previous = previous_gt_rs_label is not None and previous_gt_abnormal is not None
     gt_rs_change = bool(has_gt_previous and previous_gt_rs_label != gt_rs_label)
     gt_ue_entry = bool(has_gt_previous and not bool(previous_gt_abnormal) and bool(gt_abnormal))
@@ -379,7 +400,12 @@ def build_transition_fields(
 
 @dataclass
 class _BinaryCounts:
-    """可流式更新的严格二分类计数。"""
+    """可流式更新的严格二分类混淆矩阵。
+
+    positive 的具体语义由持有者决定：abnormal/q2 中 positive=UE，RS change 中
+    positive=发生变化，entry/exit 中 positive=对应边界发生。统一实现可确保所有 FPR、
+    FNR、invalid 的分母口径完全一致。
+    """
 
     total: int = 0
     tp: int = 0
@@ -392,7 +418,7 @@ class _BinaryCounts:
     predicted_positive: int = 0
 
     def update(self, gt: bool, pred: Optional[bool]) -> None:
-        """加入一条二分类记录；``None`` 单列为 invalid，不伪装成负类。"""
+        """加入一条二分类记录；预测为 ``None`` 时单列 invalid，绝不伪装成负类。"""
 
         self.total += 1
         self.gt_positive += int(gt)
@@ -411,7 +437,11 @@ class _BinaryCounts:
             self.fn += 1
 
     def summary(self) -> Dict[str, Any]:
-        """按累计混淆矩阵计算严格指标，无分母时返回 ``None``。"""
+        """按累计混淆矩阵计算严格指标，无分母时返回 ``None``。
+
+        invalid 被计入 total，因此会降低 accuracy/invalid_rate；在 FNR 中，真实正类里
+        除 TP 外的所有样本（含 invalid）都算漏检，符合安全评估的严格口径。
+        """
 
         precision = _ratio(self.tp, self.predicted_positive)
         recall = _ratio(self.tp, self.gt_positive)
@@ -436,7 +466,7 @@ class _BinaryCounts:
 
 @dataclass
 class _GroupCounts:
-    """per-RS/per-EVENT 只保留必要计数，避免大评估持有逐帧对象。"""
+    """per-RS/per-EVENT 的轻量计数器，只保留汇总所需字段而不持有逐帧对象。"""
 
     frames: int = 0
     rs_correct: int = 0
@@ -445,7 +475,11 @@ class _GroupCounts:
     q2_event_correct: int = 0
 
     def update(self, row: Mapping[str, Any]) -> None:
-        """把统一逐帧记录加入当前 RS 或 EVENT 分组。"""
+        """把统一逐帧记录加入当前 GT RS 或 GT EVENT 分组。
+
+        ``event_acc_when_rs_correct`` 只以实际触发 Q2 的帧为分母；abnormal_acc 则覆盖
+        分组内所有帧，RS gate 失败导致无 EVENT 输出时不会被当成正确。
+        """
 
         self.frames += 1
         self.rs_correct += int(bool(row.get("rs_gate_correct", row.get("q1_rs_correct"))))
@@ -459,7 +493,7 @@ class _GroupCounts:
             self.q2_event_correct += int(bool(row.get("q2_event_correct")))
 
     def summary(self) -> Dict[str, Any]:
-        """返回该分组的样本量、Q1 准确率和 conditional Q2 准确率。"""
+        """返回该分组样本量、RS/family 准确率以及 RS gate 后的 conditional Q2 准确率。"""
 
         return {
             "frames": self.frames,
@@ -479,7 +513,7 @@ class StudentMetricsAccumulator:
     """
 
     def __init__(self) -> None:
-        """初始化总体、边界、Q2 条件指标和端到端指标的独立计数器。"""
+        """初始化总体分类、变化边界、conditional Q2、端到端与 memory 依赖计数器。"""
 
         # 总帧、Q1 RS 和 reset 计数使用所有评估帧作为分母。
         self.frames = 0
@@ -527,8 +561,14 @@ class StudentMetricsAccumulator:
         self.per_event: Dict[str, _GroupCounts] = defaultdict(_GroupCounts)
 
     def update(self, row: Mapping[str, Any]) -> None:
-        """消费一帧 eval/probe 记录，并更新总体、边界、条件和端到端计数。"""
+        """消费一帧统一记录，并更新所有流式计数器。
 
+        调用方每个实际评估 frame 必须恰好调用一次。更新顺序为：全帧 RS/memory 指标 →
+        边界指标 → 全量 UE/RE 分母 → conditional Q2 → per-label 分组。这里不保存 row，
+        所以全量 eval 的内存不会随帧数增长。
+        """
+
+        # normal/abnormal 不再来自单独问答，而由 EVENT canonical label 是否为 U-E* 推出。
         gt_abnormal = bool(row.get("gt_abnormal"))
         pred_abnormal_raw = row.get("pred_event_is_ue", row.get("pred_abnormal"))
         pred_abnormal = None if pred_abnormal_raw is None else bool(pred_abnormal_raw)
@@ -557,6 +597,8 @@ class StudentMetricsAccumulator:
         self.event_memory_unknown += int(bool(row.get("memory_event_input_unknown")))
         self.event_memory_copied_when_wrong += int(bool(row.get("memory_event_copied_when_wrong")))
         self.event_memory_recovered += int(bool(row.get("memory_event_recovered")))
+        # abnormal_binary 是端到端 family 指标：RS gate 失败时 pred_abnormal=None，按
+        # invalid/漏检处理；q2_binary 则只在下方 q2_triggered 分支更新。
         self.abnormal_binary.update(gt_abnormal, pred_abnormal)
         if bool(row.get("rs_transition")):
             self.rs_transition_frames += 1
@@ -570,6 +612,7 @@ class StudentMetricsAccumulator:
                 pred_abnormal is not None and pred_abnormal == gt_abnormal
             )
         if bool(row.get("transition_pair_evaluated")):
+            # 三类变化分别建混淆矩阵，不能用“当前帧分类正确”替代边界检测正确。
             pred_rs_change_raw = row.get("pred_rs_change")
             pred_ue_entry_raw = row.get("pred_ue_entry")
             pred_ue_exit_raw = row.get("pred_ue_exit")
@@ -591,6 +634,8 @@ class StudentMetricsAccumulator:
         self.all_ue_total += int(gt_abnormal)
         self.all_re_total += int(not gt_abnormal)
         if q2_triggered:
+            # conditional Q2 回答“上游 RS 已正确时 EVENT 本身学得怎样”；具体 UE 标签
+            # event_ok 与 family pred_event_is_ue 同时保留，前者更严格。
             self.q2_triggered += 1
             pred_event_is_ue_raw = row.get("pred_event_is_ue")
             pred_event_is_ue = None if pred_event_is_ue_raw is None else bool(pred_event_is_ue_raw)
@@ -615,7 +660,11 @@ class StudentMetricsAccumulator:
         self.per_event[event_key].update(row)
 
     def summary(self) -> Dict[str, Any]:
-        """物化当前累计结果，并附带机器可读的指标含义与方向。"""
+        """物化累计计数、扁平指标、分组指标和机器可读定义。
+
+        返回值同时保留 ``metrics`` 子字典和顶层同名标量，兼容旧画图脚本；混淆矩阵与
+        样本量也一并输出，避免只比较 F1 而忽略分母。调用本函数不会清空累计状态。
+        """
 
         abnormal = self.abnormal_binary.summary()
         q2 = self.q2_binary.summary()
@@ -734,7 +783,11 @@ class StudentMetricsAccumulator:
 
 
 def summarize_student_predictions(frame_logs: List[Mapping[str, Any]]) -> Dict[str, Any]:
-    """从 probe/eval 的统一逐帧字段生成完整学生指标。"""
+    """便捷地从逐帧记录列表生成完整学生指标。
+
+    大规模流式 eval 可直接持有 :class:`StudentMetricsAccumulator` 并逐条 ``update``；
+    probe 已有小型 frame list 时使用本 helper 更方便，两条路径结果完全相同。
+    """
 
     accumulator = StudentMetricsAccumulator()
     for row in frame_logs:
@@ -747,7 +800,11 @@ def build_transition_report(
     *,
     summary: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """生成小样本变化帧对比报告，不保存 prompt/logits 等大对象。"""
+    """生成小样本变化帧对比报告。
+
+    ``summary`` 已计算时可传入避免重复汇总；未传则现场计算。报告只保存状态、outcome、
+    混淆矩阵和定义，不复制 prompt/logits/RGB，因此适合长期留作错帧审计产物。
+    """
 
     resolved_summary = dict(summary or summarize_student_predictions(frame_logs))
     cases = [case for row in frame_logs if (case := transition_case_from_row(row)) is not None]

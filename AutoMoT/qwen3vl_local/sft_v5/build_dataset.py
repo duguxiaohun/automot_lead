@@ -10,6 +10,10 @@
     --collection-dir keyframe_filter/collection_output \
     --data-root lead_data \
     --output-dir checkpoints/sft_v5_data
+
+处理链路是：发现 scenario result → route 级完整性过滤 → frame 级坐标/图像/标签解析 →
+固定本帧 EVENT 字母映射 → 以 route 为单位切 train/val。由于 memory 是连续状态，一条
+route 中任一帧缺证据时整条跳过，不能删除中间帧后继续拼接成伪连续序列。
 """
 
 from __future__ import annotations
@@ -45,19 +49,24 @@ from qwen3vl_local.sft_v5.labels import (  # noqa: E402
 
 import numpy as np  # noqa: E402
 
+# LEAD 数据按 4 Hz 落盘；这里取连续 4 帧，即每个训练 frame 最多看到约 0.75 秒历史。
 RGB_HISTORY_COUNT = 4
 RGB_HISTORY_STEP = 1
 
 
 def _read_json(path: pathlib.Path) -> Any:
-    """读取 JSON 文件；单独包一层便于后续替换 streaming reader。"""
+    """以 UTF-8 读取一个 collection result JSON。
+
+    单独封装便于以后加入 schema 校验或 streaming reader；当前异常直接向上抛出，避免
+    损坏的标注文件被静默当作空 scenario。
+    """
 
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
-    """容错 int 转换。"""
+    """容错转换为 ``int``；失败时返回调用者指定的哨兵值而不中断整批构建。"""
 
     try:
         return int(value)
@@ -66,7 +75,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
-    """容错 float 转换，用于 XML weather progress。"""
+    """容错转换为 ``float``，主要用于 XML weather progress 与数值属性。"""
 
     try:
         return float(value)
@@ -75,7 +84,12 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 
 def _history_rgb_paths(run_dir: pathlib.Path, frame_id: int) -> List[str]:
-    """构造 4 帧历史 RGB 路径，历史不足时 left-pad 到 frame 0。"""
+    """构造按旧到新排列的 4 帧 stitched RGB 路径。
+
+    route 开头历史不足时把负 frame 截到 0，实现与在线/LeadMoT 一致的 left-pad；若
+    文件名不是标准四位数字，则尝试用排序后的文件列表兼容。这里只返回路径，存在性
+    在 ``_build_frame_row`` 统一检查。
+    """
 
     rgb_dir = run_dir / "rgb"
     rgb_files = sorted(rgb_dir.glob("*.jpg")) if rgb_dir.exists() else []
@@ -96,7 +110,11 @@ def _history_rgb_paths(run_dir: pathlib.Path, frame_id: int) -> List[str]:
 
 
 def _meta_path_for_frame(run_dir: pathlib.Path, automot_root: pathlib.Path, ann: Mapping[str, Any], frame_id: int) -> pathlib.Path:
-    """解析当前帧 meta 路径；旧 result 没写时按 `metas/%04d.pkl` 回退。"""
+    """解析当前帧 meta 路径；旧 result 没写时按 ``metas/%04d.pkl`` 回退。
+
+    标注中的相对路径可能相对 run，也可能相对 AutoMoT 根目录：优先采用实际存在的
+    run-relative 路径，否则保留 automot-relative 候选交给后续存在性检查。
+    """
 
     raw = ann.get("meta_path")
     if raw:
@@ -111,10 +129,16 @@ def _meta_path_for_frame(run_dir: pathlib.Path, automot_root: pathlib.Path, ann:
 
 
 def _inverse_conversion_2d(point: np.ndarray, translation: np.ndarray, yaw: float) -> np.ndarray:
-    """把 world-frame 点转换到当前 ego frame，与 v3/v4/LeadMoT 的 final_goal 公式一致。"""
+    """把 world-frame 点转换到当前 ego frame。
+
+    先减去自车 world translation，再旋转 ``-yaw``；输出约定为 ``x_forward, y_left``。
+    该公式与 v3/v4/LeadMoT final_goal 完全一致，不能替换成图像坐标或 CARLA 的
+    ``y_right`` 约定。
+    """
 
     pt = np.asarray(point, dtype=np.float32).reshape(2)
     tr = np.asarray(translation, dtype=np.float32).reshape(2)
+    # world 点平移到以自车为原点，然后用逆朝向旋到自车坐标系。
     delta = pt - tr
     c = float(np.cos(-yaw))
     s = float(np.sin(-yaw))
@@ -145,7 +169,11 @@ def _extract_final_goal_ego_from_meta(meta: Mapping[str, Any]) -> Tuple[float, f
 
 
 def _load_ego_to_goal_xy(meta_path: pathlib.Path) -> Optional[Tuple[float, float]]:
-    """读取当前帧目的地相对坐标；失败返回 None 并让该 route 被跳过。"""
+    """读取当前帧 meta 并提取目的地相对坐标。
+
+    LEAD meta 常用 lzma 压缩但历史文件也可能是普通 pickle，因此按压缩/非压缩顺序尝试。
+    任一步失败都返回 ``None``，由 route 构建层丢弃整条序列，绝不填 ``UNKNOWN`` 或零点。
+    """
 
     try:
         with lzma.open(meta_path, "rb") as f:
@@ -163,7 +191,7 @@ def _load_ego_to_goal_xy(meta_path: pathlib.Path) -> Optional[Tuple[float, float
 
 
 def _xml_path_from_route(route: Mapping[str, Any], automot_root: pathlib.Path) -> Optional[pathlib.Path]:
-    """从 route result 中取 XML 路径，兼容绝对/相对路径。"""
+    """从 route result 中取 XML 路径，并把相对路径解析到 AutoMoT 根目录。"""
 
     raw = route.get("xml_path")
     if not raw:
@@ -175,7 +203,7 @@ def _xml_path_from_route(route: Mapping[str, Any], automot_root: pathlib.Path) -
 
 
 def _parse_weather_node(node: ET.Element) -> Dict[str, Any]:
-    """解析 XML `<weather .../>` 属性为 dict。"""
+    """解析 XML ``<weather .../>`` 属性，数值能转换时保存为浮点。"""
 
     out: Dict[str, Any] = {}
     for key, value in node.attrib.items():
@@ -187,7 +215,11 @@ def _parse_weather_node(node: ET.Element) -> Dict[str, Any]:
 
 
 def _load_xml_weathers(xml_path: Optional[pathlib.Path]) -> List[Dict[str, Any]]:
-    """读取 route XML 里的 weather 列表。"""
+    """读取 route XML 中所有 weather 节点；缺失或解析失败返回空列表。
+
+    weather 只用于 privileged teacher 描述，不决定样本标签，因此这里允许空值继续；
+    与 RGB/meta/逐帧 annotation 的硬缺失策略不同。
+    """
 
     if xml_path is None or not xml_path.exists():
         return []
@@ -201,8 +233,9 @@ def _load_xml_weathers(xml_path: Optional[pathlib.Path]) -> List[Dict[str, Any]]
 def _weather_for_frame(ann: Mapping[str, Any], xml_weathers: List[Dict[str, Any]]) -> Dict[str, Any]:
     """选择当前帧 weather。
 
-    新标定结果通常已经在 `evidence.xml_weather` 里保存了按 route progress 选择后的
-    weather；旧结果没有时退回 XML 第一段 weather。
+    新标定结果通常已经在 ``evidence.xml_weather`` 里保存了按 route progress 选择后的
+    weather；旧结果没有时，在 XML weather 列表里选择进度最接近的一段。若 XML 只有
+    一个节点，该规则自然等价于使用第一段。
     """
 
     evidence = ann.get("evidence") or {}
@@ -217,7 +250,7 @@ def _weather_for_frame(ann: Mapping[str, Any], xml_weathers: List[Dict[str, Any]
     )
 
     def _weather_progress(item: Mapping[str, Any]) -> float:
-        """统一读取新旧 XML weather 节点里的 route 进度字段。"""
+        """统一读取新旧 XML weather 节点里的 route 进度字段，缺失时按起点处理。"""
 
         return _safe_float(item.get("route_percentage", item.get("route_progress", 0.0)), 0.0)
 
@@ -225,7 +258,11 @@ def _weather_for_frame(ann: Mapping[str, Any], xml_weathers: List[Dict[str, Any]
 
 
 def _skip_sets(result: Mapping[str, Any]) -> Tuple[set[str], set[str]]:
-    """从顶层 result 读取异常时长和数据缺失 skip route。"""
+    """从 result 顶层提取异常时长与数据缺失 route ID 集合。
+
+    两类集合分开返回，使 summary 能分别统计跳过原因；同时兼容旧字段 ``run_id``。
+    ``review_required`` 不属于 skip 集合，它仍正常参与训练。
+    """
 
     abnormal = {
         str(x.get("route_id") or x.get("run_id"))
@@ -246,8 +283,14 @@ def _build_frame_row(
     xml_weathers: List[Dict[str, Any]],
     automot_root: pathlib.Path,
 ) -> Optional[Dict[str, Any]]:
-    """把一帧完整 annotation 压缩成 v5 训练需要的字段。"""
+    """把一帧完整 annotation 转成 v5 sequence index frame。
 
+    返回 ``None`` 表示证据链不完整：frame ID、两类逐帧 annotation、meta 目的地或任一
+    RGB 缺失。成功时会同时保存 canonical 目标、原始候选、展示候选和字母映射，后续
+    训练/eval 不需要再次读取 collection result 或重新随机候选。
+    """
+
+    # 先做所有硬依赖检查，再解析标签；任一失败由 route 层升级为整条 route 跳过。
     frame_id = _safe_int(ann.get("frame_id"), -1)
     if frame_id < 0:
         return None
@@ -264,6 +307,7 @@ def _build_frame_row(
     history = _history_rgb_paths(run_dir, frame_id)
     if not history or any(not pathlib.Path(path).exists() for path in history):
         return None
+    # 标签解析集中在 labels.py：RS 双标签按置信度稳定选一，EVENT regular 折叠为 RE。
     rs_target = resolve_rs_target(ann)
     event_target = resolve_event_target(ann)
     # Q2 候选优先取 frame_event_annotation.allowed_events；只有旧数据缺失时才 fallback。
@@ -291,6 +335,7 @@ def _build_frame_row(
         # regular_event_codes 供 RE 文案兜底。collapse_regular_to_re 会统一加入一个
         # RE 负类选项，但不伪造原始 R-E* 审计 code。
         regular_event_codes = list(event_target.regular_event_codes)
+    # source 保留定位原始证据所需的最小信息，不把整个大 annotation 复制进 jsonl。
     return {
         "frame_id": frame_id,
         "frame_time_s": ann.get("frame_time_s", round(frame_id * 0.25, 3)),
@@ -333,7 +378,12 @@ def _build_route_row(
     option_seed: int,
     max_frames_per_route: int,
 ) -> Optional[Dict[str, Any]]:
-    """把单条 route result 转成 sequence row。"""
+    """把单条 route result 转成一个连续 sequence row。
+
+    v5 的 dataset row 与训练 sampler 单元都是 route。函数只接受 ``status=success`` 且
+    XML 存在的 route；可用 ``max_frames_per_route`` 做 smoke 截断，但不能在正式构建中
+    删除任意中间坏帧后继续，因为这会改变 memory 的真实前后关系。
+    """
 
     # 只有结构完整的 success route 进入训练。review_required=true 是正常训练样本，
     # 不在这里过滤；真正跳过的只有 noScenarios、异常时长、数据缺失、XML/RGB/meta 缺失。
@@ -381,7 +431,11 @@ def _build_route_row(
 
 
 def _split_rows(rows: List[Dict[str, Any]], *, val_ratio: float, seed: int) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """按 route 粒度稳定切分 train/val。"""
+    """按 route 粒度稳定随机切分 train/val。
+
+    同一 route 的所有帧始终位于同一 split，避免相邻画面和 memory 轨迹跨集合泄漏。
+    先用 seed 打乱 key，再按原 ``rows`` 顺序输出，兼顾可复现和源文件顺序审计。
+    """
 
     rng = random.Random(seed)
     shuffled = list(rows)
@@ -402,7 +456,7 @@ def _split_rows(rows: List[Dict[str, Any]], *, val_ratio: float, seed: int) -> T
 
 
 def _write_jsonl(path: pathlib.Path, rows: Iterable[Mapping[str, Any]]) -> int:
-    """写 jsonl，返回行数。"""
+    """把 route rows 逐行写成 UTF-8 JSONL，并返回实际写入的 route 数量。"""
 
     count = 0
     with open(path, "w", encoding="utf-8") as f:
@@ -413,7 +467,12 @@ def _write_jsonl(path: pathlib.Path, rows: Iterable[Mapping[str, Any]]) -> int:
 
 
 def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
-    """主构建逻辑。"""
+    """执行完整数据构建并返回 summary。
+
+    路径参数既支持绝对路径，也支持相对 AutoMoT 根目录。输出包含 train、val、all 三份
+    route-level index 与 summary.json；本函数只写 ``output_dir``，不会修改 collection
+    标注和 LEAD 原始数据。
+    """
 
     automot_root = pathlib.Path(args.automot_root).resolve()
     collection_dir = pathlib.Path(args.collection_dir)
@@ -427,6 +486,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         output_dir = automot_root / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # 三类 counter 既用于人工检查样本分布，也能快速发现某个过滤条件意外吃掉全量数据。
     rows: List[Dict[str, Any]] = []
     skip_counter: Counter[str] = Counter()
     rs_counter: Counter[str] = Counter()
@@ -479,6 +539,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
                 rs_counter[str(frame.get("rs_label"))] += 1
                 event_counter[str(frame.get("event_label"))] += 1
 
+    # 直到所有 route 构建完成后再切分，保证 val_ratio 以有效 route 为分母。
     train_rows, val_rows = _split_rows(rows, val_ratio=float(args.val_ratio), seed=int(args.seed))
     train_path = output_dir / "train_sequence_index.jsonl"
     val_path = output_dir / "val_sequence_index.jsonl"
@@ -506,7 +567,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def parse_args() -> argparse.Namespace:
-    """解析 CLI 参数。"""
+    """定义并解析数据构建 CLI；``0`` 个数限制均表示不限制，适用于正式全量构建。"""
 
     p = argparse.ArgumentParser(description="Build SFT v5 RS/EVENT sequence dataset")
     p.add_argument("--automot-root", type=str, default=str(_AUTOMOT_ROOT))
@@ -523,7 +584,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """CLI 入口。"""
+    """CLI 入口：调用主构建函数，并打印有效 route/frame 规模和 train/val index 路径。"""
 
     summary = build_dataset(parse_args())
     print(

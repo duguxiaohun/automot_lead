@@ -4,7 +4,8 @@
 
 1. DataLoader 每次读取若干条 route sequence；
 2. collate 阶段只做本 rank local padding，主训练进程再 all-reduce 得到 global T；
-3. 稳定 RS 每 4 个 4Hz 帧运行一次 RS_SLOW，中间帧只复用 RS memory；
+3. 稳定 RS 默认以 4 帧为中心、在 3/4/5 个 4Hz 帧中可复现随机选择下一次
+   RS_SLOW 间隔，中间帧只复用 RS memory；
 4. EVENT_FAST 在每个 RS gate 正确的帧直接从显式 [RE | REGULAR] /
    [UE | UNUSUAL] 混合候选中选择；RS
    错误/UNKNOWN 时立即切回逐帧 RS recovery，并在 RS 恢复前跳过 EVENT；
@@ -40,6 +41,9 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+# 直接执行本文件时，Python 默认只把 ``sft_v5/`` 放进模块搜索路径。这里补入
+# AutoMoT 根目录和仓库根目录，使 ``qwen3vl_local`` 与项目内共享模块都能按包导入；
+# 只在路径尚未存在时插入，避免反复 import 本模块时不断改变模块解析优先级。
 _THIS_FILE = pathlib.Path(__file__).resolve()
 _AUTOMOT_ROOT = _THIS_FILE.parents[2]
 _PROJECT_ROOT = _THIS_FILE.parents[3]
@@ -47,6 +51,8 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+# 训练服务器上的 Qwen 权重必须只读本地 checkpoint。使用 ``setdefault`` 是为了尊重
+# launcher/用户已经显式设置的值，同时让直接运行 train.py 也不会意外访问网络。
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
@@ -108,6 +114,7 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     parse_q2_output,
     prepare_training_memory,
     reset_memory_for_frame,
+    rs_slow_interval_for_state,
     should_run_rs_slow,
     should_trigger_q2,
     target_spans_q1,
@@ -121,17 +128,26 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
 
 @dataclass
 class FrameRow:
-    """训练时使用的单帧轻量对象。"""
+    """训练循环消费的单帧轻量对象。
 
+    ``build_dataset.py`` 生成的原始 frame 字典字段较多；这里把热路径反复读取的字段
+    提前规范成有类型属性，减少内层 timestep 中的字符串解析。``raw`` 仍保存完整行，
+    用于 RS 置信度、多标签 EVENT 和 probe 审计，不参与跨帧 memory 共享。
+    """
+
+    # 帧定位与四张历史 RGB；history 的时间顺序已经由数据构建器固定。
     frame_id: int
     history_rgb_paths: List[str]
+    # teacher 可见天气描述与 student 可见终点相对坐标。
     weather_text: str
     ego_to_goal_xy: Optional[Tuple[float, float]]
+    # Q1 的 canonical RS 标签/选项，以及 Q2 的折叠标签和原始事件代码。
     rs_label: str
     rs_option: str
     event_label: str
     event_code: str
     abnormal: bool
+    # EVENT 选项字母到 RE/UE 事件标签的映射；regular codes 只用于解释 RE 含义。
     event_option_map: Dict[str, str]
     regular_event_codes: List[str]
     raw: Dict[str, Any]
@@ -139,7 +155,11 @@ class FrameRow:
 
 @dataclass
 class SequenceRow:
-    """一条 route sequence。"""
+    """一条 route 的有序训练序列。
+
+    DataLoader 以 route 为 item，``frames`` 必须保持采集时间顺序；训练时每条 route
+    拥有独立的 ``Memory`` / ``MemoryCurriculumState``，不同 route 之间绝不串状态。
+    """
 
     scenario: str
     route_id: str
@@ -208,7 +228,11 @@ class OptimizerWindow:
     timesteps: int = 0
 
     def reset(self) -> None:
-        """optimizer step 后清空窗口，但不影响各 route 的离散 memory。"""
+        """optimizer step 后清空梯度窗口计数。
+
+        本对象只描述“多少帧贡献了当前参数梯度”，不拥有 route memory；因此更新参数
+        后只归零计数，不能重置正在进行的 RS/EVENT 时间状态。
+        """
 
         self.local_frames = 0
         self.global_frames = 0
@@ -239,13 +263,25 @@ class RouteSequenceDataset(Dataset):
     """
 
     def __init__(self, path: pathlib.Path, *, max_routes: int = 0, max_frames_per_route: int = 0):
-        """加载并规范化 JSONL；过滤不满足当前导航输入合同的旧帧。"""
+        """加载并规范化 route JSONL。
+
+        参数:
+            path: ``build_dataset.py`` 输出的 train/val sequence index。
+            max_routes: 大于 0 时只读取前 N 条有效 route，供 smoke/check 使用。
+            max_frames_per_route: 大于 0 时截断每条 route 的前 N 帧。
+
+        解析阶段会丢弃缺失 ``EGO_TO_GOAL_XY`` 的旧帧；如果一条 route 因此没有任何
+        可用帧，则整条 route 不进入 sampler。返回对象本身不打开图片，RGB 完整性由
+        训练热路径在实际消费帧前检查。
+        """
 
         self.path = pathlib.Path(path)
         if not self.path.exists():
             raise FileNotFoundError(f"sequence index not found: {self.path}")
         rows: List[SequenceRow] = []
         with open(self.path, "r", encoding="utf-8") as f:
+            # JSONL 一行就是一个 route；在这里保留 route 边界，后续才能模拟在线
+            # memory 的逐帧演进，而不是把所有帧随机打散成独立样本。
             for line in f:
                 line = line.strip()
                 if not line:
@@ -295,12 +331,20 @@ class RouteSequenceDataset(Dataset):
         self.rows = rows
 
     def __len__(self) -> int:
-        """返回可训练 route 数，而不是帧数。"""
+        """返回过滤/截断后的可训练 route 数。
+
+        DataLoader 据此计算的是 route batch 数，而不是总帧数；scheduler 的
+        streaming_frames 模式会另行按每条 route 的 frame 数估算 optimizer step。
+        """
 
         return len(self.rows)
 
     def __getitem__(self, idx: int) -> SequenceRow:
-        """按 DataLoader 索引返回一条完整 route sequence。"""
+        """按索引返回一条保持时间顺序的完整 route。
+
+        返回内存中的轻量 ``SequenceRow``，不在 worker 中打开图片或初始化 memory；
+        这些有状态操作统一留给主训练进程。
+        """
 
         return self.rows[idx]
 
@@ -327,7 +371,12 @@ class LengthBalancedDistributedSampler(Sampler[int]):
         shuffle: bool = True,
         seed: int = 0,
     ) -> None:
-        """保存 rank 拓扑和可复现 shuffle 参数，并计算每 rank 固定 route 数。"""
+        """保存分布式拓扑并计算每 rank 固定 route 配额。
+
+        ``num_samples=ceil(N/world_size)`` 与 PyTorch DistributedSampler 一致，数据
+        不能整除时后续用短 route 补齐。固定 route 数保证所有 rank 的 DataLoader
+        batch 数和 timestep collective 外层次数一致。
+        """
 
         self.dataset = dataset
         self.num_replicas = int(num_replicas)
@@ -339,17 +388,30 @@ class LengthBalancedDistributedSampler(Sampler[int]):
         self.total_size = self.num_samples * max(1, self.num_replicas)
 
     def __len__(self) -> int:
-        """返回当前 rank 每个 epoch 必须消费的 route 数。"""
+        """返回当前 rank 每个 epoch 的固定 route 配额。
+
+        该值在各 rank 完全相同；即使原始数据不能整除 world size，也通过补样本保持
+        DataLoader 迭代次数一致。
+        """
 
         return self.num_samples
 
     def set_epoch(self, epoch: int) -> None:
-        """与 PyTorch DistributedSampler 同款接口，保证每个 epoch 排布不同。"""
+        """设置当前 epoch，参与下一次可复现随机排列的种子。
+
+        训练主循环必须在每个 epoch 开始时调用；相同 seed+epoch 会得到相同全局排列，
+        所有 rank 再从同一排列执行确定性的长度均衡分配。
+        """
 
         self.epoch = int(epoch)
 
     def __iter__(self) -> Iterable[int]:
-        """生成当前 rank 的 route 索引，并保持所有 rank 迭代次数一致。"""
+        """生成当前 rank 的长度均衡 route 索引序列。
+
+        算法先随机打散作同长度 tie-breaker，再按 frame 数降序把 route 贪心放到当前
+        负载最小且未满配额的 rank；最后用全局短 route 补齐。返回顺序只影响当前
+        epoch 采样，不修改 dataset。
+        """
 
         n = len(self.dataset)
         if n == 0:
@@ -391,13 +453,22 @@ class LengthBalancedDistributedSampler(Sampler[int]):
         return iter(rank_indices[self.rank][: self.num_samples])
 
     def local_epoch_frame_count(self) -> int:
-        """返回当前 epoch 本 rank sampler 分到的 frame 数，用于启动日志审计。"""
+        """统计当前 epoch 本 rank 分配索引对应的总 frame 数。
+
+        会按当前 seed/epoch 重新构造同一确定性索引，仅用于 sampler min/max/avg 日志，
+        不消费 DataLoader iterator，也不改变采样状态。
+        """
 
         return sum(len(self.dataset.rows[idx].frames) for idx in list(iter(self)))
 
 
 def _global_max_int(value: int) -> int:
-    """torchrun 多进程下对一个 int 做 all_reduce max；单进程直接返回。"""
+    """返回所有 rank 输入整数的最大值。
+
+    用途主要是把本 rank 的 ``max_T_local`` 提升为共同 ``max_T_global``，保证每个
+    rank 执行相同数量的 timestep collective。collective tensor 放在当前 CUDA 设备，
+    避免 NCCL 后端收到 CPU tensor；单进程时不创建临时 tensor。
+    """
 
     if dist.is_available() and dist.is_initialized():
         device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
@@ -408,7 +479,11 @@ def _global_max_int(value: int) -> int:
 
 
 def _global_min_int(value: int) -> int:
-    """torchrun 多进程下对一个 int 做 all_reduce min；单进程直接返回。"""
+    """返回所有 rank 输入整数的最小值。
+
+    当前用于 sampler 负载审计，与 ``_global_max_int`` 一起显示最短/最长 rank 的
+    frame 总量；它不参与 loss 或数据裁剪。
+    """
 
     if dist.is_available() and dist.is_initialized():
         device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
@@ -426,6 +501,8 @@ def collate_route_sequences(batch: List[SequenceRow]) -> Dict[str, Any]:
     计算，避免 `num_workers>0` 时在 worker 进程触碰 distributed runtime。
     """
 
+    # 第一层 padding 只对齐当前 rank 当前 batch。此时 DataLoader worker 不知道其它
+    # rank 的长度，也不应发 distributed collective。
     local_max = max((len(row.frames) for row in batch), default=0)
     padded: List[List[Optional[FrameRow]]] = []
     valid: List[List[bool]] = []
@@ -446,7 +523,12 @@ def collate_route_sequences(batch: List[SequenceRow]) -> Dict[str, Any]:
 
 
 def pad_batch_to_global_length(batch: Dict[str, Any]) -> Dict[str, Any]:
-    """主训练进程把 local padded batch 右侧补齐到所有 rank 的 global max_T。"""
+    """把 local padded batch 继续右补到所有 rank 的共同时间长度。
+
+    输入是 ``collate_route_sequences`` 的字典，返回同一个原地更新的字典，并新增
+    ``max_T_global``。补位统一使用 ``None``/False：训练主循环仍会走过该 timestep，
+    但不会读图、生成 token、更新 memory 或累计 frame loss。
+    """
 
     local_max = int(batch.get("max_T_local", 0))
     global_max = _global_max_int(local_max)
@@ -468,7 +550,12 @@ def pad_batch_to_global_length(batch: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def setup_distributed() -> Tuple[int, int, int]:
-    """初始化 torch.distributed。"""
+    """读取 torchrun 拓扑并按需初始化进程组。
+
+    返回 ``(rank, world_size, local_rank)``。GPU 多进程使用 NCCL，CPU 调试使用 Gloo；
+    单进程不初始化 process group。这里的六小时 timeout 是为长 Qwen rollout 保留，
+    不能把某个 rank 的正常慢帧误判为短超时，但 collective 次序仍必须由主循环保证。
+    """
 
     rank = int(os.environ.get("RANK", "0"))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
@@ -492,7 +579,11 @@ def setup_distributed() -> Tuple[int, int, int]:
 
 
 def distributed_barrier() -> None:
-    """DDP/torchrun 下带 device_id 的 barrier，避免 NCCL 设备映射警告。"""
+    """让所有训练进程在当前代码边界会合。
+
+    CUDA 分支显式传当前卡号，避免 NCCL 猜错 rank-device 映射；单进程为空操作。
+    probe、checkpoint 等只有 rank0 执行的旁路工作必须在前后成对调用该函数。
+    """
 
     if not (dist.is_available() and dist.is_initialized()):
         return
@@ -503,7 +594,11 @@ def distributed_barrier() -> None:
 
 
 def cleanup_distributed() -> None:
-    """清理 DDP process group。"""
+    """销毁已初始化的 process group。
+
+    单进程或已经销毁时为空操作，因此正常路径和最外层 ``finally`` 可以重复调用；
+    这里只释放 distributed runtime，不处理 CUDA allocator，后者由统一 cleanup 完成。
+    """
 
     if dist.is_available() and dist.is_initialized():
         dist.destroy_process_group()
@@ -532,13 +627,21 @@ def cleanup_runtime_resources() -> None:
 
 
 def _load_images(paths: List[str]) -> List[Image.Image]:
-    """读取 4 帧 RGB history；缺文件时抛错，由外层 frame skip 记录。"""
+    """按输入顺序读取一帧样本的历史 RGB，并统一转换为三通道图像。
+
+    函数不吞掉 ``FileNotFoundError``：调用方需要带 route/frame 上下文记录坏数据。
+    返回 PIL 对象供 Qwen processor 使用，不在这里 resize 或重排时间顺序。
+    """
 
     return [Image.open(path).convert("RGB") for path in paths]
 
 
 def _frame_images_exist(frame: FrameRow) -> bool:
-    """只做轻量路径存在性检查，用于 loss 归一化和 batch 前跳过坏帧。"""
+    """检查 frame 声明的全部历史图路径是否存在。
+
+    这里只做文件系统存在性检查，不解码 JPEG；结果用于计算真正可产生 loss 的 frame
+    分母，并在进入 Qwen 前提前跳过明显坏帧。解码错误仍由 ``_load_images`` 抛出。
+    """
 
     return all(pathlib.Path(path).exists() for path in frame.history_rgb_paths)
 
@@ -560,7 +663,12 @@ def _parse_goal_xy(value: Any) -> Optional[Tuple[float, float]]:
 
 
 def _messages(images: List[Image.Image], user_prompt: str) -> List[Dict[str, Any]]:
-    """构造 Qwen structured chat messages。"""
+    """把历史图和单轮问题封装成 Qwen3-VL structured messages。
+
+    参数 ``images`` 保持历史帧顺序，``user_prompt`` 可以是 Q1 RS_SLOW、串行 Q2 或
+    fresh EVENT_FAST prompt。返回值可直接交给 processor/chat-template helper；固定
+    system prompt 在这里集中注入，避免各训练分支出现协议漂移。
+    """
 
     # Qwen3-VL processor 需要 structured message：4 张历史图先放，再放同一个 user prompt。
     # system prompt 固定为 v5 协议，确保 train/eval/probe 的图文输入完全一致。
@@ -573,7 +681,11 @@ def _messages(images: List[Image.Image], user_prompt: str) -> List[Dict[str, Any
 
 
 def _select_batch_tensor(value: torch.Tensor, rows: torch.Tensor) -> torch.Tensor:
-    """按 batch 维选择 tensor 行；rows 必须已经在 value 所在设备或可搬过去。"""
+    """按第 0 维选择 batched state 的若干行。
+
+    ``rows`` 表示仍在生成的样本索引，返回 tensor 保持原 dtype/device。该 helper 被
+    KV、attention mask、next logits 共用，统一 active-batch 缩减的索引语义。
+    """
 
     # 所有 KVState 成员都约定 batch 维在第 0 维；index_select 比高级索引更稳定，
     # 也更容易保持 dtype/device 不被隐式改变。
@@ -646,7 +758,11 @@ def _normalize_rope_deltas_batch(rope: Any, batch_size: int) -> Any:
 
 
 def _slice_rope_deltas_batch(rope: Any, rows: torch.Tensor, batch_size: int) -> Any:
-    """按 batch 行切 `rope_deltas`，并保持 `(new_batch, 1)` 内部契约。"""
+    """按 batch 行切 ``rope_deltas``，并保持 ``(new_batch, 1)`` 内部契约。
+
+    ``batch_size`` 是切片前 state 的 batch 大小，用于先识别上游返回的是
+    ``(B,1)`` 还是 ``(1,B)``；无法识别的非 tensor 元数据原样传回。
+    """
 
     rd = _normalize_rope_deltas_batch(rope, batch_size)
     if not hasattr(rd, "detach") or getattr(rd, "ndim", 0) == 0:
@@ -657,7 +773,12 @@ def _slice_rope_deltas_batch(rope: Any, rows: torch.Tensor, batch_size: int) -> 
 
 
 def _slice_kv_state_batch(state: KVState, rows: Sequence[int]) -> KVState:
-    """从 batched KVState 中切出一个子 batch，保持 Cache 类型不退化。"""
+    """从 batched ``KVState`` 中切出仍活跃的子 batch。
+
+    所有 tensor、Cache 和 M-RoPE delta 使用同一行序；返回的是独立 state，避免
+    ``DynamicCache.reorder_cache`` 的原地修改污染上一轮状态。生成循环在部分样本
+    提前 EOS 时依赖这个函数缩小 batch。
+    """
 
     device = state.cache_input_ids.device
     row_tensor = torch.tensor(list(rows), device=device, dtype=torch.long)
@@ -891,7 +1012,11 @@ def _append_token_ids_padded_rollout(bundle: Any, state: KVState, suffix_ids: to
 
 
 def _apply_repetition_penalty_batch(bundle: Any, logits: torch.Tensor, seen_ids: List[torch.Tensor], penalty: float) -> torch.Tensor:
-    """逐样本施加 repetition penalty，避免把不同 frame 的历史 token 混在一起惩罚。"""
+    """逐样本施加 HuggingFace 风格 repetition penalty。
+
+    ``seen_ids[row]`` 只包含该 frame 的真实 prompt/已生成 token；正 logits 做除法、
+    负 logits 做乘法。返回 clone 后的新 logits，不改写 state 持有的 next logits。
+    """
 
     if penalty == 1.0:
         return logits
@@ -1006,7 +1131,12 @@ def _student_generate_kv_batch(
 
 
 def _loss_positions(bundle: Any, text: str, span_fn: Any, weights: Mapping[str, float]) -> Dict[str, List[int]]:
-    """把字符 span 映射到 token 下标。"""
+    """把 prompt 协议定义的字符 span 映射成 rollout token 下标。
+
+    ``span_fn``（Q1/Q2 各自的 ``target_spans_*``）返回字符区间，``weights`` 决定
+    需要哪些监督键。结果字典把 analysis/RS/EVENT 等键映射到 token 位置；不存在的
+    字段保留空列表，使异常 student 输出能安全得到 graph-connected zero loss。
+    """
 
     enc = bundle.tokenizer(text or "", return_offsets_mapping=True, add_special_tokens=False)
     offsets = [(int(a), int(b)) for a, b in enc["offset_mapping"]]
@@ -1022,7 +1152,11 @@ def _loss_positions(bundle: Any, text: str, span_fn: Any, weights: Mapping[str, 
 
 
 def _select_logits_at_positions(logits: torch.Tensor, positions: List[int]) -> Optional[torch.Tensor]:
-    """只保留需要监督的 token 位置，尽早释放完整 vocab logits。"""
+    """从 ``(B,L,V)`` logits 抽取监督位置并折叠成 ``(N,V)``。
+
+    空 positions 返回 ``None``，由上层跳过该 loss part。尽早裁剪可避免 Qwen 大词表
+    的完整 logits 在 teacher/student 两侧同时常驻显存。
+    """
 
     if not positions:
         return None
@@ -1031,7 +1165,11 @@ def _select_logits_at_positions(logits: torch.Tensor, positions: List[int]) -> O
 
 
 def _kl_selected_logits(student_logits: torch.Tensor, teacher_logits: torch.Tensor, *, temperature: float) -> torch.Tensor:
-    """对已经裁剪到监督位置的 logits 计算 forward-KL。"""
+    """计算 teacher→student 的温度缩放 forward-KL。
+
+    teacher 分布先 ``detach``，梯度只流入 student LoRA；乘 ``T²`` 保持不同蒸馏温度
+    下梯度量级可比。输入已经裁到相同 student token 位置，不包含 prompt/padding。
+    """
 
     temp = max(float(temperature), 1e-6)
     return F.kl_div(
@@ -1215,7 +1353,12 @@ def _append_token_ids_padded_no_logits(
 
 
 def _render_user_turn_ids(bundle: Any, user_text: str) -> torch.Tensor:
-    """把“关闭上一轮 assistant + 新 user turn + generation prompt”渲染成 token ids。"""
+    """把串行 Q2 user turn 渲染成可直接追加到 Q1 KV 的 token ids。
+
+    前置 ``<|im_end|>`` 显式关闭当前 Q1 assistant，随后接 Q2 user 和新的 assistant
+    generation prompt。返回的不是一段完整新对话，因此不能用它做 fresh prefill；
+    它只适合追加到同一当前帧的 Q1-after state。
+    """
 
     suffix = bundle.processor.apply_chat_template(
         [{"role": "user", "content": user_text}],
@@ -1364,7 +1507,12 @@ def _opsd_loss(
     weights: Mapping[str, float],
     temperature: float,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """在同一批 student rollout token 上比较 teacher/student logits。"""
+    """计算单样本 on-policy self-distillation loss。
+
+    ``student_state`` 与 ``teacher_state`` 分别来自公开 prompt 和 privileged prompt，
+    但两边都消费完全相同的 ``rollout_ids``。函数返回带梯度的加权总 loss，以及供
+    日志使用的各 span 未加权 KL；student 没生成可解析字段时返回可 backward 的零。
+    """
 
     zero = _trainable_graph_zero(bundle, student_state.next_logits)
     if rollout_ids.numel() == 0:
@@ -1411,7 +1559,11 @@ def _opsd_loss(
 
 
 def _rs_target_from_frame(frame: FrameRow) -> RSTarget:
-    """把 FrameRow 还原成 RSTarget。"""
+    """把压缩的 ``FrameRow`` 还原成 Q1 teacher 所需 ``RSTarget``。
+
+    canonical label 决定正确选项；置信度、secondary/candidates 从 ``raw`` 恢复，只供
+    privileged teacher 解释和审计，绝不会写进 student memory。
+    """
 
     return RSTarget(
         label=frame.rs_label,
@@ -1426,7 +1578,9 @@ def _rs_target_from_frame(frame: FrameRow) -> RSTarget:
 def _event_target_from_frame(frame: FrameRow, student_event: Optional[str] = None) -> EventTarget:
     """从压缩 frame row 解析 EventTarget。
 
-    frame.raw 已保留 event_labels_raw，resolve_event_target 会按 v5 的多标签规则处理。
+    frame.raw 已保留 event_labels_raw，``resolve_event_target`` 会按 v5 的多标签规则
+    处理。可选 ``student_event`` 用于“一帧多个可接受 UE”时选择与 student 输出一致
+    的 teacher 解释目标；它不会把本来错误的候选改判为正确。
     """
 
     raw = dict(frame.raw)
@@ -1436,7 +1590,11 @@ def _event_target_from_frame(frame: FrameRow, student_event: Optional[str] = Non
 
 
 def _accepted_event_labels(frame: FrameRow) -> set[str]:
-    """返回该帧按 v5 多标签容错规则允许的 EVENT memory 标签。"""
+    """返回该帧允许视为正确的 EVENT memory 标签集合。
+
+    一帧存在多个 UE 标注时全部接受；没有 UE 时统一折叠为 ``{"RE"}``。该集合用于
+    判断旧 EVENT memory 是否错误，以及生成 corruption 候选，不改变当前选择题真值。
+    """
 
     target = _event_target_from_frame(frame)
     unusual = {str(code) for code in target.raw_events if str(code).startswith("U-E")}
@@ -1449,14 +1607,20 @@ def _q1_memory_diagnostics(
     *,
     student_rs: Optional[str],
 ) -> Dict[str, Any]:
-    """统计 RS_SLOW 是否在错误/UNKNOWN RS memory 上复制或纠偏。"""
+    """比较 Q1 输入 memory、GT 与 student 输出，生成 RS 纠偏诊断字段。
+
+    返回值只用于训练日志/TensorBoard：区分已知但错误、UNKNOWN、照抄错误 memory、
+    以及依靠当前 RGB 恢复正确 RS。函数本身不修改 memory。
+    """
 
     input_known = memory.rs_label in RS_LABEL_TO_OPTION
     input_wrong = bool(input_known and memory.rs_label != frame.rs_label)
     input_unknown = not input_known
     return {
+        "memory_rs_input_aligned": bool(input_known and not input_wrong),
         "memory_rs_input_known_wrong": input_wrong,
         "memory_rs_input_unknown": input_unknown,
+        "memory_rs_input_age_frames": int(memory.rs_age_frames),
         "memory_rs_copied_when_wrong": bool(input_wrong and student_rs == memory.rs_label),
         "memory_rs_recovered": bool((input_wrong or input_unknown) and student_rs == frame.rs_label),
     }
@@ -1468,7 +1632,12 @@ def _q2_memory_diagnostics(
     *,
     student_event: Optional[str],
 ) -> Dict[str, Any]:
-    """统计 Q2 是否在错误/UNKNOWN EVENT memory 上复制、纠偏及 UE/RE 混淆矩阵。"""
+    """生成 EVENT memory 依赖诊断与当帧 UE/RE 混淆矩阵。
+
+    ``memory_after_q1`` 是 Q2 真正读到的 memory，``student_event`` 是当前 RGB 上重新
+    选择的结果。多标签帧按 accepted set 判对；UE/RE TP/FP/TN/FN 则按最终折叠结果
+    统计，取代已经删除的独立 NORMAL/ABNORMAL 问题。
+    """
 
     accepted = _accepted_event_labels(frame)
     input_known = memory_after_q1.event_label == "RE" or memory_after_q1.event_label.startswith("U-E")
@@ -1477,8 +1646,10 @@ def _q2_memory_diagnostics(
     gt_ue = bool(frame.abnormal)
     pred_ue = None if student_event is None else student_event != "RE"
     return {
+        "memory_event_input_aligned": bool(input_known and not input_wrong),
         "memory_event_input_known_wrong": input_wrong,
         "memory_event_input_unknown": input_unknown,
+        "memory_event_input_age_frames": int(memory_after_q1.event_age_frames),
         "memory_event_copied_when_wrong": bool(
             input_wrong and student_event == memory_after_q1.event_label
         ),
@@ -1498,7 +1669,12 @@ def _finalize_memory_curriculum_frame(
     stats: Dict[str, Any],
     before_audit: Mapping[str, object],
 ) -> bool:
-    """把单帧 rollout 结果写回延迟修复状态，并把完整审计字段并入 stats。"""
+    """在一帧完成后推进延迟修复 curriculum。
+
+    ``before_audit`` 来自帧开始时的 corruption/repair 注入，``stats`` 来自 student
+    rollout；二者合并后交给 ``observe_training_memory`` 更新连续错误 streak。返回值
+    表示是否存在待复核修复，用于日志，不会在这里立刻用 GT 覆盖 student memory。
+    """
 
     stats.update(dict(before_audit))
     after_audit = observe_training_memory(
@@ -1508,13 +1684,21 @@ def _finalize_memory_curriculum_frame(
         rs_checked=bool(stats.get("q1_triggered")),
         event_checked=bool(stats.get("q2_triggered")),
         event_correct=bool(stats.get("q2_event_correct")),
+        # repair 在帧开始前已经改写了输入 memory；若不显式传入，模型复制 repair 后的
+        # 值会被误算成“在脚本干预前自主恢复”，夸大纠偏能力。
+        rs_forced_repair=bool(before_audit.get("memory_rs_forced_repair", False)),
+        event_forced_repair=bool(before_audit.get("memory_event_forced_repair", False)),
     )
     stats.update(after_audit)
     return bool(after_audit["memory_any_repair_pending"])
 
 
 def _reset_memory_for_frame_row(frame: FrameRow) -> Memory:
-    """按当前帧 GT RS + 当前帧目的地坐标重置 v5 memory。"""
+    """构造以当前帧 GT RS 为起点的 v5 memory，主要供 check/smoke 使用。
+
+    正式训练 route 首帧走 ``prepare_training_memory`` 的概率初始化，不能调用本函数
+    绕过 UNKNOWN/no-prior 数据增强。
+    """
 
     return reset_memory_for_frame(_rs_target_from_frame(frame), ego_to_goal_xy=frame.ego_to_goal_xy)
 
@@ -1735,6 +1919,10 @@ def _run_event_only_frame(
     该路径不生成、不监督 RS，也不伪造一段 Q1 assistant 文本。EVENT prompt 直接以
     system + 当前 RGB + road/event memory 做 fresh prefill；RE 即 normal，任意 UE 即
     abnormal。只有 ``memory.rs_label`` 已与当前帧 RS 对齐时才允许调用。
+
+    可选的 ``q2_text/q2_ids`` 来自 grouped no-grad rollout；提供时函数只重建精确
+    单样本 state 并计算 KL，不重复采样。返回 ``(loss, stats, next_memory, invalid)``，
+    其中 next_memory 只更新 EVENT，RS 保持沿用。
     """
 
     if memory.rs_label != frame.rs_label:
@@ -1819,10 +2007,17 @@ def _run_event_only_chunk_parallel_kl(
     q2_rollouts: Sequence[Optional[Tuple[Optional[KVState], str, torch.Tensor]]],
     temperature: float,
 ) -> Tuple[torch.Tensor, List[Tuple[int, Dict[str, Any], Memory, bool, float]]]:
-    """并行计算一组稳定 RS fast frame 的 EVENT_FAST OPSD loss。"""
+    """并行计算一组稳定 RS fast frame 的 EVENT_FAST OPSD loss。
+
+    ``chunk`` 与 ``q2_rollouts`` 必须严格同序；函数为 student/teacher 分别重建 fresh
+    当前帧图文 prompt，再在相同 student Q2 token 上打分。返回总 loss graph 和逐帧
+    统计/memory，外层负责按 frame normalizer backward 以及 delayed repair 观察。
+    """
 
     if not chunk or len(chunk) != len(q2_rollouts) or any(item is None for item in q2_rollouts):
         raise ValueError("EVENT_FAST parallel KL requires one rollout per frame")
+    # fast frame 没有 Q1 上下文，student/teacher 两侧都从同一组当前帧 RGB fresh
+    # prefill；memory 的 EVENT 只是 unverified hypothesis，不能代替图像判断。
     images_per_frame = [_load_images(frame.history_rgb_paths) for _b, _route, frame, _memory in chunk]
     student_messages: List[List[Dict[str, Any]]] = []
     teacher_messages: List[List[Dict[str, Any]]] = []
@@ -2125,7 +2320,12 @@ def _run_single_q1_rollout_from_images(
     *,
     max_new_tokens_q1: int,
 ) -> Tuple[KVState, str, KVState, torch.Tensor]:
-    """单样本 Q1 rollout；供 grouped 路径中的 singleton group 复用。"""
+    """执行单样本 RS_SLOW student rollout。
+
+    返回 Q1 prompt state、生成文本、生成后 state 与精确 token ids。前后两个 state
+    都在 no-grad 下创建：前者用于重放 student KL，后者只允许承接同一当前帧 Q2，
+    不会跨帧存入 memory。
+    """
 
     with torch.no_grad():
         state = _kv_start_state(bundle, _messages(images, build_q1_student_prompt(memory)))
@@ -2234,7 +2434,11 @@ def _run_q1_rollout_batch(
     *,
     max_new_tokens_q1: int,
 ) -> List[Tuple[Optional[KVState], str, Optional[KVState], torch.Tensor]]:
-    """兼容旧调用：只返回 rollouts，不返回 grouped 统计。"""
+    """兼容旧测试/调用方的 Q1 批量采样接口。
+
+    内部完整走 ``_run_q1_rollout_grouped``，只是丢弃并行度与长度直方图统计；新训练
+    主循环应优先使用 grouped 返回值，以便审计 QWEN_BATCH_SIZE 是否真正生效。
+    """
 
     return _run_q1_rollout_grouped(
         bundle,
@@ -2435,7 +2639,12 @@ def _run_q2_rollout_grouped(
 
 
 def _trainable_param_groups(bundle: Any, args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[nn.Parameter], List[nn.Parameter]]:
-    """按语言/视觉 LoRA 分组，复用 v2/v3 的视觉保险口径。"""
+    """枚举可训练参数并拆成语言/视觉 LoRA optimizer 组。
+
+    返回 ``(optimizer_groups, language_params, vision_params)``。视觉组使用
+    ``learning_rate * vision_lr_scale``，两个参数列表还会用于独立 clip norm 和手动
+    gradient all-reduce；冻结 base 参数不会进入任何一个列表。
+    """
 
     language: List[nn.Parameter] = []
     vision: List[nn.Parameter] = []
@@ -2457,13 +2666,21 @@ def _trainable_param_groups(bundle: Any, args: argparse.Namespace) -> Tuple[List
 
 
 def _all_trainable_params(language_params: List[nn.Parameter], vision_params: List[nn.Parameter]) -> List[nn.Parameter]:
-    """返回当前需要手动同步的 LoRA 参数列表。"""
+    """按稳定顺序拼接全部需要手动同步的 LoRA 参数。
+
+    顺序会决定 gradient bucket 边界和 NCCL collective 次序，所以所有 rank 必须从
+    相同模型结构调用，不能按本地 ``grad is None`` 再过滤。
+    """
 
     return [p for p in [*language_params, *vision_params] if p.requires_grad]
 
 
 def _broadcast_trainable_params(params: List[nn.Parameter], *, src: int = 0) -> None:
-    """启动时从 rank0 广播 LoRA 初始参数，确保各 rank 起点完全一致。"""
+    """从 ``src`` rank 广播 LoRA 初始参数。
+
+    PEFT 注入可能在各进程独立随机初始化 LoRA；训练前逐参数广播可消除初始化漂移。
+    这里只同步参数值，真正每步梯度同步由 bucketed all-reduce 完成。
+    """
 
     if not (dist.is_available() and dist.is_initialized()):
         return
@@ -2493,7 +2710,11 @@ def _streaming_update_reason(
 
 
 def _gradient_rescale_factor(*, backward_normalizer: int, global_frames: int) -> float:
-    """返回从“按固定 normalizer backward”到全局逐帧平均梯度的修正系数。"""
+    """计算固定 backward 分母到真实全局 frame 均值的修正系数。
+
+    每帧先除 ``backward_normalizer`` 反传；窗口结束后 SUM 梯度再乘本函数结果，
+    最终严格等于全局全部有效帧梯度之和除以 ``global_frames``。
+    """
 
     if int(backward_normalizer) <= 0:
         raise ValueError("backward_normalizer must be positive")
@@ -2588,7 +2809,11 @@ def _sync_trainable_grads_by_global_frames(
 
 
 def _ddp_sum_int(value: int) -> int:
-    """把一个 int 在所有 rank 上求和；单进程直接返回。"""
+    """对所有 rank 的整数做 SUM all-reduce。
+
+    用于每个完整 timestep 汇总实际完成 backward 的 frame 数。返回值在所有 rank
+    相同，因此可以共同决定 optimizer step，不能只在 rank0 调用。
+    """
 
     if not (dist.is_available() and dist.is_initialized()):
         return int(value)
@@ -2599,7 +2824,11 @@ def _ddp_sum_int(value: int) -> int:
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
-    """识别 CUDA OOM，避免 OOM 后静默 fallback 到不稳定的单样本路径。"""
+    """判断异常是否为可识别的 CUDA 显存不足。
+
+    同时兼容 PyTorch 专用异常类型和不同版本的错误字符串。只有 forward 尚未
+    backward 的 KL 微批允许据此二分；已经写入部分梯度后绝不能整块重放。
+    """
 
     if isinstance(exc, torch.cuda.OutOfMemoryError):
         return True
@@ -2644,7 +2873,12 @@ def _run_parallel_kl_microbatches(
     oom_splits = 0
 
     def run_slice(start_idx: int, end_idx: int) -> None:
-        """训练一个连续子片；仅 forward OOM 可以在尚未 backward 时安全二分。"""
+        """训练 ``[start_idx,end_idx)`` 连续 KL 子片。
+
+        成功时立即按固定 normalizer backward 并记录逐帧结果；forward OOM 且 size>1
+        时递归二分。连续切片保持 rollout/result 顺序，方便外层按 route index 写回
+        memory；backward 异常不在重试块内。
+        """
 
         nonlocal detached_loss_sum, oom_splits
         size = int(end_idx - start_idx)
@@ -2711,7 +2945,12 @@ def _run_event_fast_parallel_kl_microbatches(
     backward_normalizer: int,
     microbatch_size: int,
 ) -> ParallelKLMicrobatchResult:
-    """对 EVENT_FAST rollout 做可二分 OOM 的 parallel-KL 微批训练。"""
+    """对 EVENT_FAST rollout 做可二分 OOM 的 parallel-KL 微批训练。
+
+    与慢帧微批 helper 相同，rollout batch 大小和带 autograd 的 scoring 大小彼此独立；
+    每个成功子片立刻按固定 frame normalizer backward。仅 forward OOM 会递归二分，
+    单帧仍 OOM或 backward OOM 会直接上抛，避免梯度重复累计。
+    """
 
     if len(chunk) == 0:
         return ParallelKLMicrobatchResult([], 0.0, [], 0)
@@ -2723,7 +2962,11 @@ def _run_event_fast_parallel_kl_microbatches(
     oom_splits = 0
 
     def run_slice(start_idx: int, end_idx: int) -> None:
-        """训练一个 EVENT_FAST 子片；forward OOM 时安全二分。"""
+        """训练 ``[start_idx,end_idx)`` EVENT_FAST KL 子片。
+
+        子片内所有样本都沿用正确 RS、仅监督 Q2；成功后立刻 backward 并保存新的
+        EVENT memory。仅在还未写梯度的 forward OOM 时递归二分。
+        """
 
         nonlocal detached_loss_sum, oom_splits
         size = int(end_idx - start_idx)
@@ -2770,7 +3013,11 @@ def _run_event_fast_parallel_kl_microbatches(
 
 
 def _cuda_memory_text() -> str:
-    """返回当前 rank 的 CUDA 显存摘要，供长时间训练心跳日志使用。"""
+    """返回当前 rank 的 CUDA allocator 摘要字符串。
+
+    allocated 表示活跃 tensor，reserved 表示 PyTorch 缓存池，peak 是历史真实分配
+    高水位；CPU 模式返回 ``cuda_mem=NA``。该函数只读状态，不触发同步或清缓存。
+    """
 
     if not torch.cuda.is_available():
         return "cuda_mem=NA"
@@ -2782,7 +3029,12 @@ def _cuda_memory_text() -> str:
 
 
 def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespace) -> None:
-    """保存 LoRA adapter 与可复现实验所需的 v5 元数据。"""
+    """保存 LoRA delta 和可复现当前 v5 状态机的元数据。
+
+    base Qwen 不会写入输出目录；``save_pretrained`` 只持久化 PEFT adapter。额外 JSON
+    固化 rollout token 上限、memory corruption/repair 阈值、streaming window 以及
+    gradient sync 口径，使 eval/probe 和后续审计无需依赖启动时环境变量。
+    """
 
     output_dir.mkdir(parents=True, exist_ok=True)
     model = bundle.unwrap() if hasattr(bundle, "unwrap") else bundle.model
@@ -2797,14 +3049,19 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "temperature": float(args.temperature),
         "memory_curriculum": {
             "rs_slow_interval": int(getattr(args, "rs_slow_interval", 4)),
+            "rs_slow_interval_jitter": int(
+                getattr(args, "rs_slow_interval_jitter", 1)
+            ),
             "rs_error_patience": int(getattr(args, "rs_error_patience", 4)),
             "event_error_patience": int(getattr(args, "event_error_patience", 3)),
             "rs_repair_interval": int(getattr(args, "rs_repair_interval", 2)),
             "event_repair_interval": int(getattr(args, "event_repair_interval", 1)),
-            "rs_memory_corrupt_prob": float(getattr(args, "rs_memory_corrupt_prob", 0.06)),
-            "rs_memory_unknown_prob": float(getattr(args, "rs_memory_unknown_prob", 0.02)),
-            "event_memory_corrupt_prob": float(getattr(args, "event_memory_corrupt_prob", 0.10)),
-            "event_memory_unknown_prob": float(getattr(args, "event_memory_unknown_prob", 0.05)),
+            "rs_repair_mode": str(getattr(args, "rs_repair_mode", "ground_truth")),
+            "event_repair_mode": str(getattr(args, "event_repair_mode", "ground_truth")),
+            "rs_memory_corrupt_prob": float(getattr(args, "rs_memory_corrupt_prob", 0.05)),
+            "rs_memory_unknown_prob": float(getattr(args, "rs_memory_unknown_prob", 0.07)),
+            "event_memory_corrupt_prob": float(getattr(args, "event_memory_corrupt_prob", 0.20)),
+            "event_memory_unknown_prob": float(getattr(args, "event_memory_unknown_prob", 0.25)),
             "rs_initial_gt_prob": float(getattr(args, "rs_initial_gt_prob", 0.5)),
             "event_initial_gt_prob": float(getattr(args, "event_initial_gt_prob", 0.5)),
             "event_fast_merges_normal_abnormal": True,
@@ -2836,7 +3093,12 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
 
 
 def _update_probe_comparison(output_dir: pathlib.Path, record: Mapping[str, Any]) -> None:
-    """原子更新一个 run 内 base/checkpoint/final probe 的对比索引。"""
+    """原子更新一个 run 内 base/checkpoint/final probe 的对比索引。
+
+    同名记录会被新结果替换，排序固定为 base→checkpoint→final。先写 ``.tmp`` 再
+    ``replace``，避免训练中断时留下半截 JSON；旧索引损坏时只重建旁路索引，不影响
+    已保存 adapter。
+    """
 
     probes_dir = output_dir / "probes"
     probes_dir.mkdir(parents=True, exist_ok=True)
@@ -2914,6 +3176,11 @@ def _run_probe_with_training_bundle(
         max_new_tokens_q1=int(args.checkpoint_probe_max_new_tokens_q1),
         max_new_tokens_q2=int(args.checkpoint_probe_max_new_tokens_q2),
         rs_slow_interval=int(args.rs_slow_interval),
+        rs_slow_interval_jitter=int(args.rs_slow_interval_jitter),
+        # 自动 base/checkpoint/final 对照必须使用真实可部署口径；不能因为验证集有 GT
+        # 就提前知道何时 RS 错，也不能在 route 首帧把正确 RS 填给 student。
+        initial_memory="unknown",
+        rs_schedule_policy="deployable",
     )
     started = time.time()
     summary = dump_probe(
@@ -2944,7 +3211,12 @@ def _run_probe_with_training_bundle(
 
 
 def run_check(loader: DataLoader, *, max_batches: int = 2) -> None:
-    """轻量检查 dataset 和 DDP padding，不加载模型。"""
+    """抽查 route 数据、global padding 和 prompt 所需标签，不加载 Qwen。
+
+    ``max_batches`` 限制打印批数；每批先执行与正式训练相同的 global-T 对齐，再展示
+    前两条 route 的首帧 RS/EVENT memory。此模式不打开 RGB、不生成 token、不保存
+    checkpoint，适合先验证 sequence index 和 torchrun collective。
+    """
 
     for batch_idx, batch in enumerate(loader):
         batch = pad_batch_to_global_length(batch)
@@ -2973,9 +3245,20 @@ _TRAIN_WINDOW_KEYS = (
     "q2_loss_event_sum",
     "q1_triggered",
     "q1_rs_correct",
+    "q1_memory_aligned",
+    "q1_memory_omission",
+    "q1_memory_contradiction",
+    "q1_memory_rs_age_sum",
+    "rs_periodic_interval_sum",
+    "rs_periodic_interval_sq_sum",
+    "rs_periodic_interval_count",
     "rs_gate_correct",
     "rs_reused_fast_frames",
     "q2_triggered",
+    "q2_memory_aligned",
+    "q2_memory_omission",
+    "q2_memory_contradiction",
+    "q2_memory_event_age_sum",
     "q2_skipped_rs_wrong",
     "q2_event_correct",
     "q2_invalid_output",
@@ -2996,8 +3279,14 @@ _TRAIN_WINDOW_KEYS = (
     "memory_event_injected_unknown",
     "memory_rs_forced_repair",
     "memory_event_forced_repair",
+    "memory_rs_repaired_to_unknown",
+    "memory_rs_repaired_to_ground_truth",
+    "memory_event_repaired_to_unknown",
+    "memory_event_repaired_to_ground_truth",
     "memory_rs_self_recovered_after_streak",
     "memory_event_self_recovered_after_streak",
+    "memory_rs_recovered_after_forced_repair",
+    "memory_event_recovered_after_forced_repair",
     "memory_rs_error_streak_sum",
     "memory_event_error_streak_sum",
     "q2_ue_tp",
@@ -3043,7 +3332,11 @@ _TRAIN_WINDOW_KEYS = (
 
 
 def _new_train_window_stats() -> Dict[str, float]:
-    """创建一个 logging window 内的 on-policy 采样/训练统计容器。"""
+    """创建一个 logging window 的零初始化统计字典。
+
+    key 顺序由 ``_TRAIN_WINDOW_KEYS`` 固定，确保所有 rank 在
+    ``_ddp_sum_train_stats`` 中构造完全相同的 collective tensor。
+    """
 
     return {key: 0.0 for key in _TRAIN_WINDOW_KEYS}
 
@@ -3078,7 +3371,12 @@ def _add_frame_rollout_stats(
     max_new_tokens_q1: int,
     max_new_tokens_q2: int,
 ) -> None:
-    """累计一个有效 frame 的 on-policy rollout 统计。"""
+    """把一个已完成 backward 的有效 frame 计入当前日志窗口。
+
+    ``frame_stats`` 汇总 Q1/Q2、memory 与时延信息；``need_reset`` 实际表示 delayed
+    repair pending（保留旧字段名兼容日志）。token cap 命中、错误 streak 等分母在此
+    按对应 Q1/Q2 是否真正触发来累计，padding/缺图帧不会调用本函数。
+    """
 
     stats["frames"] += 1.0
     q1_parts = frame_stats.get("q1_parts") or {}
@@ -3091,9 +3389,45 @@ def _add_frame_rollout_stats(
         stats["q2_loss_event_sum"] += float(q2_parts.get("event", 0.0) or 0.0)
     stats["q1_triggered"] += float(bool(frame_stats.get("q1_triggered", False)))
     stats["q1_rs_correct"] += float(bool(frame_stats.get("q1_rs_correct", False)))
+    if bool(frame_stats.get("q1_triggered", False)):
+        # relation 只在真正产生 Q1 loss 的 RS_SLOW 上计数。快帧虽然也携带
+        # RS memory 供 Q2 解释候选，但不应用它稀释“RS 训练样本比例”。
+        stats["q1_memory_aligned"] += float(
+            bool(frame_stats.get("memory_rs_input_aligned", False))
+        )
+        stats["q1_memory_omission"] += float(
+            bool(frame_stats.get("memory_rs_input_unknown", False))
+        )
+        stats["q1_memory_contradiction"] += float(
+            bool(frame_stats.get("memory_rs_input_known_wrong", False))
+        )
+        stats["q1_memory_rs_age_sum"] += float(
+            frame_stats.get("memory_rs_input_age_frames", 0) or 0
+        )
+        if str(frame_stats.get("rs_slow_reason", "")) == "periodic":
+            interval_draw = float(frame_stats.get("rs_slow_interval_draw", 0) or 0)
+            if interval_draw > 0:
+                stats["rs_periodic_interval_sum"] += interval_draw
+                stats["rs_periodic_interval_sq_sum"] += interval_draw * interval_draw
+                stats["rs_periodic_interval_count"] += 1.0
     stats["rs_gate_correct"] += float(bool(frame_stats.get("rs_gate_correct", False)))
     stats["rs_reused_fast_frames"] += float(not bool(frame_stats.get("q1_triggered", False)))
     stats["q2_triggered"] += float(bool(frame_stats.get("q2_triggered", False)))
+    if bool(frame_stats.get("q2_triggered", False)):
+        # Q2 每个 gate 正确帧都有 loss，因此这三项就是 EVENT_FAST 真正吃到的
+        # aligned / no-prior omission / stale contradiction 分布。
+        stats["q2_memory_aligned"] += float(
+            bool(frame_stats.get("memory_event_input_aligned", False))
+        )
+        stats["q2_memory_omission"] += float(
+            bool(frame_stats.get("memory_event_input_unknown", False))
+        )
+        stats["q2_memory_contradiction"] += float(
+            bool(frame_stats.get("memory_event_input_known_wrong", False))
+        )
+        stats["q2_memory_event_age_sum"] += float(
+            frame_stats.get("memory_event_input_age_frames", 0) or 0
+        )
     stats["q2_skipped_rs_wrong"] += float(not bool(frame_stats.get("rs_gate_correct", False)))
     stats["q2_event_correct"] += float(bool(frame_stats.get("q2_event_correct", False)))
     stats["q2_invalid_output"] += float(bool(frame_stats.get("q2_invalid_output", False)))
@@ -3115,8 +3449,14 @@ def _add_frame_rollout_stats(
         "memory_event_injected_unknown",
         "memory_rs_forced_repair",
         "memory_event_forced_repair",
+        "memory_rs_repaired_to_unknown",
+        "memory_rs_repaired_to_ground_truth",
+        "memory_event_repaired_to_unknown",
+        "memory_event_repaired_to_ground_truth",
         "memory_rs_self_recovered_after_streak",
         "memory_event_self_recovered_after_streak",
+        "memory_rs_recovered_after_forced_repair",
+        "memory_event_recovered_after_forced_repair",
         "q2_ue_tp",
         "q2_ue_fp",
         "q2_ue_tn",
@@ -3153,7 +3493,11 @@ def _add_frame_rollout_stats(
 
 
 def _add_q1_grouped_stats(stats: Dict[str, float], grouped: Q1GroupedRolloutResult) -> None:
-    """累计 Q1 grouped rollout 的真实并行程度。"""
+    """累计 Q1 grouped rollout 的真实并行程度和 processor 开销。
+
+    grouped frame 只表示进入批处理尝试，batched frame 才表示同一次 Qwen forward
+    同时处理至少两帧；两者分开记录，避免把 singleton/fallback 误报成加速收益。
+    """
 
     # q1_grouped_frames 是“尝试过 grouped 路径”的 frame 数；
     # q1_batched_frames 是真正 size>=2 batched rollout 的 frame 数。二者的比值只代表
@@ -3168,7 +3512,11 @@ def _add_q1_grouped_stats(stats: Dict[str, float], grouped: Q1GroupedRolloutResu
 
 
 def _add_q2_grouped_stats(stats: Dict[str, float], grouped: Q2GroupedRolloutResult) -> None:
-    """累计 Q2 grouped rollout 的真实并行程度。"""
+    """累计串行 Q2 或 EVENT_FAST grouped rollout 的并行度统计。
+
+    该函数只处理采样阶段的长度/耗时，不统计 KL 微批；parallel-KL 指标由外层在
+    backward 完成后单独写入。
+    """
 
     stats["q2_grouped_chunks"] += 1.0
     stats["q2_grouped_frames"] += float(len(grouped.rollouts))
@@ -3180,7 +3528,11 @@ def _add_q2_grouped_stats(stats: Dict[str, float], grouped: Q2GroupedRolloutResu
 
 
 def _ddp_sum_train_stats(stats: Mapping[str, float]) -> Dict[str, float]:
-    """把各 rank 的 logging window 统计按 sum 聚合到所有 rank。"""
+    """把各 rank 当前 logging window 按固定 key 顺序求和。
+
+    使用 float64 减少大规模 frame/token 计数的累计误差。collective 结果在所有 rank
+    都返回，保证每个进程能同步清零 window；只有 rank0 负责显示和写 TensorBoard。
+    """
 
     values = [float(stats.get(key, 0.0)) for key in _TRAIN_WINDOW_KEYS]
     if not (dist.is_available() and dist.is_initialized()):
@@ -3192,7 +3544,12 @@ def _ddp_sum_train_stats(stats: Mapping[str, float]) -> Dict[str, float]:
 
 
 def _window_binary_metrics(stats: Mapping[str, float], prefix: str) -> Dict[str, float]:
-    """从训练窗口 TP/FP/TN/FN 计算 precision/recall/F1，空分母返回 0 供 TB 使用。"""
+    """从训练窗口混淆计数计算 precision、recall 和 F1。
+
+    ``prefix`` 当前为 ``q2_ue``，因此正类代表 UNUSUAL EVENT；TN 虽不直接进入三个
+    公式，仍在原统计中保留。空分母用 1/极小值保护并返回 0，保证日志和 TensorBoard
+    不出现 NaN。
+    """
 
     tp = float(stats.get(f"{prefix}_tp", 0.0))
     fp = float(stats.get(f"{prefix}_fp", 0.0))
@@ -3204,7 +3561,12 @@ def _window_binary_metrics(stats: Mapping[str, float], prefix: str) -> Dict[str,
 
 
 def _format_train_window(stats: Mapping[str, float]) -> str:
-    """把聚合后的 on-policy 统计格式化成一行日志。"""
+    """把跨 rank 聚合统计格式化成一行人可读训练摘要。
+
+    各指标使用语义匹配的分母：RS 准确率只除 Q1 触发数，EVENT 准确率只除 Q2
+    触发数，padding rate 使用 valid+padding slots。``max(1)`` 仅防日志除零，不会
+    回写统计或改变训练 loss。
+    """
 
     frames = max(1.0, float(stats.get("frames", 0.0)))
     q1 = max(1.0, float(stats.get("q1_triggered", 0.0)))
@@ -3221,6 +3583,15 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
     event_prf = _window_binary_metrics(stats, "q2_ue")
     rs_wrong = max(1.0, float(stats.get("memory_rs_input_known_wrong", 0.0)))
     event_wrong = max(1.0, float(stats.get("memory_event_input_known_wrong", 0.0)))
+    # repair_total 表示课程已介入；gt 是正式默认的延迟硬修复，unk 是
+    # 软擦除消融。self 和 after 分开显示，防止把“给了干预之后答对”
+    # 误报成模型自己从连续错误中恢复。
+    rs_repair_total = float(stats.get("memory_rs_forced_repair", 0.0))
+    event_repair_total = float(stats.get("memory_event_forced_repair", 0.0))
+    interval_count = max(1.0, float(stats.get("rs_periodic_interval_count", 0.0)))
+    interval_mean = float(stats.get("rs_periodic_interval_sum", 0.0)) / interval_count
+    interval_second = float(stats.get("rs_periodic_interval_sq_sum", 0.0)) / interval_count
+    interval_std = math.sqrt(max(0.0, interval_second - interval_mean * interval_mean))
     return (
         f"loss/frame={float(stats.get('loss_sum', 0.0)) / frames:.4f} "
         f"q1_loss={{a:{float(stats.get('q1_loss_analysis_sum', 0.0)) / q1:.3f},"
@@ -3234,6 +3605,15 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"q2_skip_rs={float(stats.get('q2_skipped_rs_wrong', 0.0)) / frames:.3f} "
         f"rs_acc={float(stats.get('q1_rs_correct', 0.0)) / q1:.3f} "
         f"event_acc={float(stats.get('q2_event_correct', 0.0)) / q2:.3f} "
+        f"q1_rel={{a:{float(stats.get('q1_memory_aligned', 0.0)) / q1:.3f},"
+        f"o:{float(stats.get('q1_memory_omission', 0.0)) / q1:.3f},"
+        f"c:{float(stats.get('q1_memory_contradiction', 0.0)) / q1:.3f}}} "
+        f"q2_rel={{a:{float(stats.get('q2_memory_aligned', 0.0)) / q2:.3f},"
+        f"o:{float(stats.get('q2_memory_omission', 0.0)) / q2:.3f},"
+        f"c:{float(stats.get('q2_memory_contradiction', 0.0)) / q2:.3f}}} "
+        f"mem_age={{rs:{float(stats.get('q1_memory_rs_age_sum', 0.0)) / q1:.2f},"
+        f"event:{float(stats.get('q2_memory_event_age_sum', 0.0)) / q2:.2f}}} "
+        f"rs_interval={interval_mean:.2f}±{interval_std:.2f} "
         f"invalid={int(stats.get('q2_invalid_output', 0.0))} "
         f"repair_pending={int(stats.get('memory_repair_pending', 0.0))} "
         f"event_ue_prf={{{event_prf['precision']:.3f}/{event_prf['recall']:.3f}/{event_prf['f1']:.3f}}} "
@@ -3245,6 +3625,14 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
         f"bad_rate:{(float(stats.get('memory_event_input_known_wrong', 0.0)) + float(stats.get('memory_event_input_unknown', 0.0))) / q2:.3f},"
         f"copy:{float(stats.get('memory_event_copied_when_wrong', 0.0)) / event_wrong:.3f},"
         f"recover:{float(stats.get('memory_event_recovered', 0.0)) / max(1.0, float(stats.get('memory_event_input_known_wrong', 0.0)) + float(stats.get('memory_event_input_unknown', 0.0))):.3f}}} "
+        f"repair={{rs:{int(rs_repair_total)}(unk:{int(stats.get('memory_rs_repaired_to_unknown', 0.0))},"
+        f"gt:{int(stats.get('memory_rs_repaired_to_ground_truth', 0.0))}),"
+        f"event:{int(event_repair_total)}(unk:{int(stats.get('memory_event_repaired_to_unknown', 0.0))},"
+        f"gt:{int(stats.get('memory_event_repaired_to_ground_truth', 0.0))})}} "
+        f"streak_recover={{self_rs:{int(stats.get('memory_rs_self_recovered_after_streak', 0.0))},"
+        f"after_repair_rs:{int(stats.get('memory_rs_recovered_after_forced_repair', 0.0))},"
+        f"self_event:{int(stats.get('memory_event_self_recovered_after_streak', 0.0))},"
+        f"after_repair_event:{int(stats.get('memory_event_recovered_after_forced_repair', 0.0))}}} "
         f"tok/frame={rollout_tokens / frames:.1f} "
         f"cap_hit={{q1:{float(stats.get('q1_token_cap_hits', 0.0)) / q1:.3f},"
         f"q2:{float(stats.get('q2_token_cap_hits', 0.0)) / q2:.3f}}} "
@@ -3272,13 +3660,20 @@ def _format_train_window(stats: Mapping[str, float]) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    """解析训练参数。"""
+    """定义并解析 v5 训练命令行参数。
+
+    参数分为数据/LoRA、RS-EVENT memory curriculum、Qwen rollout/KL、streaming
+    optimizer、checkpoint probe 和日志六组。``train.sh`` 会用环境变量映射这些参数，
+    直接运行 Python 时则使用这里的默认值；跨字段合法性在 ``main`` 开头统一校验。
+    """
 
     p = argparse.ArgumentParser(description="Train SFT v5 RS/EVENT OPSD")
+    # 数据、base model 与输出位置。train index 是 route-level JSONL，不是平铺帧表。
     p.add_argument("--train-index", type=str, required=True)
     p.add_argument("--val-index", type=str, default=None)
     p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
     p.add_argument("--output-dir", type=str, required=True)
+    # 基础优化器与 LoRA 容量；视觉 LoRA 默认关闭，开启时使用独立低 LR/clip norm。
     p.add_argument("--num-epochs", type=int, default=1)
     p.add_argument("--per-device-batch-size", type=int, default=1)
     p.add_argument(
@@ -3298,20 +3693,42 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--strict-vision-scope", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--language-clip-norm", type=float, default=1.0)
     p.add_argument("--vision-clip-norm", type=float, default=0.3)
+    # on-policy 生成与 memory curriculum。Q1 是低频 RS_SLOW，Q2 是每个 gate 正确帧
+    # 都运行的 EVENT_FAST；repair interval 与 slow interval 是两个独立时钟。
     p.add_argument("--max-new-tokens-q1", type=int, default=1024)
     p.add_argument("--max-new-tokens-q2", type=int, default=1024)
     p.add_argument("--temperature", type=float, default=1.0)
-    p.add_argument("--rs-slow-interval", type=int, default=4, help="RS 正确稳定时每隔多少有效帧运行一次 RS_SLOW；数据为 4Hz，默认 4 即约 1Hz")
+    p.add_argument("--rs-slow-interval", type=int, default=4, help="RS 随机复核间隔中心；4Hz 下默认 4 即平均约 1Hz")
+    p.add_argument(
+        "--rs-slow-interval-jitter",
+        type=int,
+        default=1,
+        help="RS 复核间隔在 center±jitter 中可复现采样；默认 3/4/5 帧，0 恢复固定间隔",
+    )
     p.add_argument("--rs-error-patience", type=int, default=4, help="RS 连续错误多少帧后才申请训练期强制修复；错误期间每帧仍运行 Q1")
     p.add_argument("--event-error-patience", type=int, default=3, help="EVENT 连续错误多少次 Q2 后才申请训练期强制修复")
     p.add_argument("--rs-repair-interval", type=int, default=2, help="RS 强制修复申请每隔多少有效帧复核一次；只控制 pending 兜底，recovery 期间仍逐帧思考")
     p.add_argument("--event-repair-interval", type=int, default=1, help="EVENT 强制修复申请每隔多少有效帧复核一次；EVENT 快变量默认每帧")
-    p.add_argument("--rs-memory-corrupt-prob", type=float, default=0.06, help="正确 RS memory 在单帧开头被替换成其它 RS 的概率")
-    p.add_argument("--rs-memory-unknown-prob", type=float, default=0.02, help="正确 RS memory 在单帧开头变成 UNKNOWN 的概率")
-    p.add_argument("--event-memory-corrupt-prob", type=float, default=0.10, help="正确 EVENT memory 在单帧开头被替换成其它 EVENT 的概率")
-    p.add_argument("--event-memory-unknown-prob", type=float, default=0.05, help="正确 EVENT memory 在单帧开头变成 UNKNOWN 的概率")
+    p.add_argument(
+        "--rs-repair-mode",
+        choices=("unknown", "ground_truth"),
+        default="ground_truth",
+        help="RS patience+review 耗尽后的修复值；默认延迟写回 GT 以保证恢复，unknown 仅作软擦除消融",
+    )
+    p.add_argument(
+        "--event-repair-mode",
+        choices=("unknown", "ground_truth"),
+        default="ground_truth",
+        help="EVENT patience+review 耗尽后默认延迟写回 GT；unknown 仅作软擦除消融",
+    )
+    p.add_argument("--rs-memory-corrupt-prob", type=float, default=0.05, help="正确 RS memory 注入错误/陈旧 RS（contradiction）的条件概率")
+    p.add_argument("--rs-memory-unknown-prob", type=float, default=0.07, help="正确 RS memory 移除为 UNKNOWN/no-prior（omission）的条件概率")
+    p.add_argument("--event-memory-corrupt-prob", type=float, default=0.20, help="正确 EVENT memory 注入错误/陈旧 EVENT（contradiction）的条件概率")
+    p.add_argument("--event-memory-unknown-prob", type=float, default=0.25, help="正确 EVENT memory 移除为 UNKNOWN/no-prior（omission）的条件概率")
     p.add_argument("--rs-initial-gt-prob", type=float, default=0.5, help="route 首帧 RS memory 使用 GT 的概率；其余为 UNKNOWN/no-prior")
     p.add_argument("--event-initial-gt-prob", type=float, default=0.5, help="route 首帧 EVENT memory 使用 GT 的概率；其余为 UNKNOWN/no-prior")
+    # 数据 smoke、route sampler 和 Qwen 采样并行。QWEN_BATCH_SIZE 只控制 no-grad
+    # rollout；有梯度 KL scoring 使用后面的独立 microbatch 上限。
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
     p.add_argument("--num-workers", type=int, default=0)
@@ -3324,6 +3741,8 @@ def parse_args() -> argparse.Namespace:
         default=2,
         help="有 autograd graph 的 parallel-KL 微批上限；默认 2，forward OOM 时会继续二分到单帧，Q1/Q2 rollout batch 不受影响",
     )
+    # streaming optimizer 在完整 global timestep 边界触发；这保证不同 rank 即使 Q2
+    # 分支数不同，也按完全一致的 collective 次序更新参数。
     p.add_argument(
         "--update-mode",
         type=str,
@@ -3343,6 +3762,7 @@ def parse_args() -> argparse.Namespace:
         default=32,
         help="streaming_frames 最多等待多少个 global timestep；0 表示只按 frame 阈值触发",
     )
+    # checkpoint/probe 是 rank0 旁路工作，主训练会用 barrier 包住它们。
     p.add_argument("--logging-steps", type=int, default=1)
     p.add_argument("--save-steps", type=int, default=40)
     p.add_argument("--max-steps", type=int, default=0)
@@ -3397,6 +3817,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--checkpoint-probe-max-new-tokens-q1", type=int, default=256)
     p.add_argument("--checkpoint-probe-max-new-tokens-q2", type=int, default=192)
+    # 心跳与纯数据检查。check 模式在加载 Qwen/LoRA 之前退出。
     p.add_argument("--progress-frames", type=int, default=5, help="rank0 每处理多少个本地有效 frame 打一次进度；0 表示关闭逐帧进度")
     p.add_argument("--heartbeat-seconds", type=float, default=120.0, help="rank0 长操作超过多少秒补一条心跳；0 表示关闭按时间心跳")
     p.add_argument("--check", action="store_true")
@@ -3407,9 +3828,20 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """训练主入口。"""
+    """组织 SFT v5 的完整同步 on-policy 训练生命周期。
+
+    主流程按以下边界推进：解析并校验配置 → 初始化 torchrun/route DataLoader → 加载
+    LoRA → 逐 global timestep 执行 RS_SLOW 或 EVENT_FAST rollout/KL → 按全局有效帧
+    同步梯度并 optimizer step → 保存 adapter/probe。route memory 跨帧保留，但任何
+    Qwen KV 都只属于当前帧；Q2 只续接同一帧 Q1，绝不复用快帧或上一帧分析。
+
+    本函数不返回训练产物对象；checkpoint 写入 ``args.output_dir``。异常由最外层
+    ``finally`` 统一释放 NCCL/CUDA 资源，避免把真实错误隐藏为清理异常。
+    """
 
     args = parse_args()
+    # 先拒绝会破坏梯度归一化、窗口触发或 probe 采样的不合法值；在初始化 NCCL/Qwen
+    # 前失败可避免其它 rank 长时间等待一个已经退出的进程。
     if int(args.grad_accum) <= 0:
         raise ValueError("--grad-accum must be >= 1")
     if int(args.target_global_frames_per_step) <= 0:
@@ -3418,12 +3850,17 @@ def main() -> None:
         raise ValueError("--max-timesteps-per-step must be >= 0")
     if int(args.parallel_kl_microbatch_size) <= 0:
         raise ValueError("--parallel-kl-microbatch-size must be >= 1")
+    # 把 CLI 参数收拢成 prompt/state-machine 共享配置。train/eval/probe 依赖同一套字段
+    # 名称，保存 adapter 时也会逐项落盘，避免恢复模型后丢失 memory 分布口径。
     curriculum_config = MemoryCurriculumConfig(
         rs_slow_interval=int(args.rs_slow_interval),
+        rs_slow_interval_jitter=int(args.rs_slow_interval_jitter),
         rs_error_patience=int(args.rs_error_patience),
         event_error_patience=int(args.event_error_patience),
         rs_repair_interval=int(args.rs_repair_interval),
         event_repair_interval=int(args.event_repair_interval),
+        rs_repair_mode=str(args.rs_repair_mode),
+        event_repair_mode=str(args.event_repair_mode),
         rs_corrupt_prob=float(args.rs_memory_corrupt_prob),
         rs_unknown_prob=float(args.rs_memory_unknown_prob),
         event_corrupt_prob=float(args.event_memory_corrupt_prob),
@@ -3442,9 +3879,13 @@ def main() -> None:
         raise ValueError("--checkpoint-probe-sequence-length must be >= 1")
     if int(args.checkpoint_probe_max_new_tokens_q1) <= 0 or int(args.checkpoint_probe_max_new_tokens_q2) <= 0:
         raise ValueError("checkpoint probe max-new-tokens must be >= 1")
+    # 每个 rank 使用同一基础随机种子；memory corruption 还会混入 route/frame/epoch key，
+    # 因而既可复现，又不会让所有 route 在同一 ordinal 注入完全相同的错误。
     torch.manual_seed(int(args.seed))
     rank, world_size, local_rank = setup_distributed()
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    # Dataset 保留 route 时间边界；sampler 只分配整条 route，绝不能让一条 route 的
+    # memory 前后段落到不同 rank。
     train_ds = RouteSequenceDataset(
         pathlib.Path(args.train_index),
         max_routes=int(args.max_routes),
@@ -3469,6 +3910,8 @@ def main() -> None:
             sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True, seed=int(args.seed))
     else:
         sampler = None
+    # collate 只做本 rank local-T padding。global-T all-reduce 必须留在主进程消费 batch
+    # 时执行，尤其 num_workers>0 时不能让 worker 接触 process group。
     loader = DataLoader(
         train_ds,
         batch_size=int(args.per_device_batch_size),
@@ -3515,10 +3958,21 @@ def main() -> None:
         tb.add_scalar("run/checkpoint_probe_num_cases", float(args.checkpoint_probe_num_cases), 0)
         tb.add_scalar("run/checkpoint_probe_num_routes", float(args.checkpoint_probe_num_routes), 0)
         tb.add_scalar("run/rs_slow_interval", float(args.rs_slow_interval), 0)
+        tb.add_scalar(
+            "run/rs_slow_interval_jitter",
+            float(args.rs_slow_interval_jitter),
+            0,
+        )
         tb.add_scalar("run/rs_error_patience", float(args.rs_error_patience), 0)
         tb.add_scalar("run/event_error_patience", float(args.event_error_patience), 0)
         tb.add_scalar("run/rs_repair_interval", float(args.rs_repair_interval), 0)
         tb.add_scalar("run/event_repair_interval", float(args.event_repair_interval), 0)
+        tb.add_scalar("run/rs_repair_mode_unknown", float(args.rs_repair_mode == "unknown"), 0)
+        tb.add_scalar("run/event_repair_mode_unknown", float(args.event_repair_mode == "unknown"), 0)
+        # 两个 one-hot tag 都写入 TB，读旧 run 时不必根据“unknown=0”猜测
+        # 当时是延迟 GT 还是未知的未来模式。
+        tb.add_scalar("run/rs_repair_mode_ground_truth", float(args.rs_repair_mode == "ground_truth"), 0)
+        tb.add_scalar("run/event_repair_mode_ground_truth", float(args.event_repair_mode == "ground_truth"), 0)
         tb.add_scalar("run/rs_memory_corrupt_prob", float(args.rs_memory_corrupt_prob), 0)
         tb.add_scalar("run/rs_memory_unknown_prob", float(args.rs_memory_unknown_prob), 0)
         tb.add_scalar("run/event_memory_corrupt_prob", float(args.event_memory_corrupt_prob), 0)
@@ -3556,6 +4010,9 @@ def main() -> None:
                     f"checkpoint_probe_context_radius: {args.checkpoint_probe_context_radius}",
                     f"checkpoint_probe_sequence_length: {args.checkpoint_probe_sequence_length}",
                     f"rs_slow_interval: {args.rs_slow_interval}",
+                    f"rs_slow_interval_jitter: {args.rs_slow_interval_jitter}",
+                    f"rs_repair_mode: {args.rs_repair_mode}",
+                    f"event_repair_mode: {args.event_repair_mode}",
                     f"checkpoint_probe_artifact_level: {args.checkpoint_probe_artifact_level}",
                     f"lora_vision_scope: {args.lora_vision_scope}",
                 ]
@@ -3564,6 +4021,8 @@ def main() -> None:
         )
         tb.flush()
 
+    # 每个 rank 独立加载同一份只读 base Qwen 并注入 LoRA；随后显式广播 LoRA 初值。
+    # 模型不包 DDP，因为动态 Q2 分支的 forward 次数在 rank 间不一致。
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
         device=device,
@@ -3604,6 +4063,9 @@ def main() -> None:
             flush=True,
         )
 
+    # ------------------------- 运行期可变状态 -------------------------
+    # global_step 只在真正 optimizer.step 后增长；processed_local_frames 是心跳横轴；
+    # window_stats 是日志窗口，OptimizerWindow 则是决定 collective/update 的数学窗口。
     global_step = 0
     # batch 模式下 micro_step 仍表示累计 DataLoader batch 数；流式模式的真实窗口
     # 状态由 optimizer_window 维护，避免再把“batch”和“optimizer step”混为一谈。
@@ -3616,7 +4078,11 @@ def main() -> None:
     bundle.model.train()
 
     def rank0_log(message: str) -> None:
-        """rank0 统一日志出口，flush=True 保证 tee/log.txt 里能实时看到。"""
+        """从 rank0 输出实时日志；其它 rank 调用时为空操作。
+
+        ``flush=True`` 对长时间 Qwen 生成尤其重要：即使几分钟没有 optimizer step，
+        ``tee/log.txt`` 仍能及时展示心跳和当前 collective 边界。
+        """
 
         if rank == 0:
             print(message, flush=True)
@@ -3624,9 +4090,11 @@ def main() -> None:
     rank0_log(
         "[memory-curriculum] "
         f"rs_slow_interval={curriculum_config.rs_slow_interval} "
+        f"rs_slow_jitter={curriculum_config.rs_slow_interval_jitter} "
         f"rs_patience={curriculum_config.rs_error_patience} "
         f"event_patience={curriculum_config.event_error_patience} "
         f"repair_interval=rs:{curriculum_config.rs_repair_interval}/event:{curriculum_config.event_repair_interval} "
+        f"repair_mode=rs:{curriculum_config.rs_repair_mode}/event:{curriculum_config.event_repair_mode} "
         f"corrupt=rs:{curriculum_config.rs_corrupt_prob:.3f}/event:{curriculum_config.event_corrupt_prob:.3f} "
         f"unknown=rs:{curriculum_config.rs_unknown_prob:.3f}/event:{curriculum_config.event_unknown_prob:.3f} "
         f"init_gt=rs:{curriculum_config.rs_initial_gt_prob:.3f}/event:{curriculum_config.event_initial_gt_prob:.3f}"
@@ -3705,7 +4173,11 @@ def main() -> None:
         distributed_barrier()
 
     def should_log_frame() -> bool:
-        """判断本地 frame 心跳是否应该输出。"""
+        """按本 rank 已完成 frame 数判断是否打印逐帧心跳。
+
+        前三帧无条件打印，方便确认进程已经越过模型加载并进入真实 OPSD；之后按
+        ``progress_frames`` 取模。该判断不含 collective，不要求各 rank 同步。
+        """
 
         interval = int(args.progress_frames)
         if interval <= 0:
@@ -3714,7 +4186,11 @@ def main() -> None:
         return processed_local_frames < 3 or processed_local_frames % interval == 0
 
     def should_time_heartbeat(now: Optional[float] = None) -> bool:
-        """判断距离上次日志是否已经超过 heartbeat 秒。"""
+        """判断 rank0 距离上次可见日志是否超过时间阈值。
+
+        ``now`` 可由调用方复用已经取得的时间，避免日志分支中重复计时；阈值小于等于
+        0 时关闭。它只影响输出频率，不改变 chunk/timestep 划分。
+        """
 
         interval = float(args.heartbeat_seconds)
         if interval <= 0:
@@ -3793,6 +4269,8 @@ def main() -> None:
             local_frames=step_local_frames,
             global_frames=step_global_frames,
         )
+        # 所有 rank 必须以相同参数顺序进入这次 bucketed collective。某 rank 没有某个
+        # 参数梯度时 helper 会补零，而不是跳过参数/collective。
         grad_bucket_count = _sync_trainable_grads_by_global_frames(
             trainable_params,
             global_frames=step_global_frames,
@@ -3810,6 +4288,8 @@ def main() -> None:
             local_frames=step_local_frames,
             global_frames=step_global_frames,
         )
+        # 梯度先完成全局逐帧平均，再分别裁剪语言/视觉组；这样 clip 阈值不受 world size
+        # 或各 rank 本地有效帧数量影响。
         if language_params:
             torch.nn.utils.clip_grad_norm_(language_params, float(args.language_clip_norm))
         if vision_params:
@@ -3842,6 +4322,8 @@ def main() -> None:
                 tb.add_scalar("memory/max_reserved_gb", torch.cuda.max_memory_reserved() / (1024 ** 3), global_step)
         log_every = max(1, int(args.logging_steps))
         if global_step % log_every == 0:
+            # 日志统计本身也要跨 rank 求和。此 collective 与梯度同步分离，便于通过
+            # LOGGING_STEPS 降低日志开销而不改变 optimizer 的同步频率。
             reduced_stats = _ddp_sum_train_stats(window_stats)
             # 所有 rank 都必须在 collective 后清零窗口；只有 rank0 负责输出人可读日志。
             window_stats = _new_train_window_stats()
@@ -3866,6 +4348,51 @@ def main() -> None:
                     tb.add_scalar("train/rs_reuse_fast_rate", reduced_stats["rs_reused_fast_frames"] / frames, global_step)
                     tb.add_scalar("train/q1_rs_acc_window", reduced_stats["q1_rs_correct"] / q1, global_step)
                     tb.add_scalar("train/q2_event_acc_window", reduced_stats["q2_event_correct"] / q2, global_step)
+                    # 这六个 tag 直接回答“模型实际训练时看到多少正确/缺失/矛盾
+                    # memory”，不再只用配置概率推测。closed-loop 持续错误会使实测
+                    # omission/contradiction 高于单帧注入概率，这正是需要监控的暴露偏差。
+                    for relation in ("aligned", "omission", "contradiction"):
+                        tb.add_scalar(
+                            f"memory/q1_relation_{relation}_rate",
+                            reduced_stats[f"q1_memory_{relation}"] / q1,
+                            global_step,
+                        )
+                        tb.add_scalar(
+                            f"memory/q2_relation_{relation}_rate",
+                            reduced_stats[f"q2_memory_{relation}"] / q2,
+                            global_step,
+                        )
+                    tb.add_scalar(
+                        "memory/q1_rs_age_frames_mean",
+                        reduced_stats["q1_memory_rs_age_sum"] / q1,
+                        global_step,
+                    )
+                    tb.add_scalar(
+                        "memory/q2_event_age_frames_mean",
+                        reduced_stats["q2_memory_event_age_sum"] / q2,
+                        global_step,
+                    )
+                    interval_count = max(
+                        1.0, reduced_stats["rs_periodic_interval_count"]
+                    )
+                    interval_mean = (
+                        reduced_stats["rs_periodic_interval_sum"] / interval_count
+                    )
+                    interval_second = (
+                        reduced_stats["rs_periodic_interval_sq_sum"] / interval_count
+                    )
+                    tb.add_scalar(
+                        "memory/rs_periodic_interval_mean",
+                        interval_mean,
+                        global_step,
+                    )
+                    tb.add_scalar(
+                        "memory/rs_periodic_interval_std",
+                        math.sqrt(
+                            max(0.0, interval_second - interval_mean * interval_mean)
+                        ),
+                        global_step,
+                    )
                     tb.add_scalar("train/q2_invalid_output", reduced_stats["q2_invalid_output"], global_step)
                     tb.add_scalar("train/reset_next", reduced_stats["reset_next"], global_step)
                     tb.add_scalar("memory/repair_pending", reduced_stats["memory_repair_pending"], global_step)
@@ -3875,6 +4402,23 @@ def main() -> None:
                     tb.add_scalar("memory/event_injected_unknown", reduced_stats["memory_event_injected_unknown"], global_step)
                     tb.add_scalar("memory/rs_forced_repair", reduced_stats["memory_rs_forced_repair"], global_step)
                     tb.add_scalar("memory/event_forced_repair", reduced_stats["memory_event_forced_repair"], global_step)
+                    # forced_repair 是总次数；下面进一步拆分软擦除 UNKNOWN 与延迟 GT
+                    # 硬修复，并区分“干预前自主恢复”和“干预后才答对”。
+                    for metric_name in (
+                        "memory_rs_repaired_to_unknown",
+                        "memory_rs_repaired_to_ground_truth",
+                        "memory_event_repaired_to_unknown",
+                        "memory_event_repaired_to_ground_truth",
+                        "memory_rs_self_recovered_after_streak",
+                        "memory_event_self_recovered_after_streak",
+                        "memory_rs_recovered_after_forced_repair",
+                        "memory_event_recovered_after_forced_repair",
+                    ):
+                        tb.add_scalar(
+                            f"memory/{metric_name.removeprefix('memory_')}",
+                            reduced_stats[metric_name],
+                            global_step,
+                        )
                     tb.add_scalar(
                         "memory/rs_input_anomaly_rate",
                         (reduced_stats["memory_rs_input_known_wrong"] + reduced_stats["memory_rs_input_unknown"]) / frames,
@@ -3986,6 +4530,7 @@ def main() -> None:
         start = time.time()
         last_heartbeat = start
 
+    # ------------------------- route/timestep 训练循环 -------------------------
     stop_training = False
     for epoch in range(int(args.num_epochs)):
         if sampler is not None:
@@ -4040,6 +4585,9 @@ def main() -> None:
             # 稳定 RS 默认约 1Hz 复核；其它帧只跑 EVENT_FAST。只要 RS memory 错误/
             # UNKNOWN 或上一轮 RS 回答错误，就立刻进入逐帧 RS recovery，RS 未恢复的
             # 当前帧不构造 EVENT 选择题。
+            # Memory 只是一条 route 的离散假设，不携带 Qwen KV。一个 DataLoader batch
+            # 结束后这些 route 已完整消费，状态随列表释放；新 batch 从各自首帧 curriculum
+            # 初始化，绝不会把前一 route 的 RS/EVENT 传给后一 route。
             memories: List[Optional[Memory]] = [None for _ in routes]
             curriculum_states = [MemoryCurriculumState() for _ in routes]
             memory_audits: List[Dict[str, object]] = [{} for _ in routes]
@@ -4061,6 +4609,8 @@ def main() -> None:
                             rank0_log(f"[warn] skip missing image paths route={route.route_id} frame={frame.frame_id}")
                         continue
                     event_target = _event_target_from_frame(frame)
+                    # 在构造当帧 prompt 之前处理首帧 UNKNOWN、随机 corruption 和到期的
+                    # delayed repair。返回的 audit 会在 rollout 后与纠偏结果合并。
                     memories[b], memory_audits[b] = prepare_training_memory(
                         memories[b],
                         curriculum_states[b],
@@ -4076,20 +4626,35 @@ def main() -> None:
                         seed=int(args.seed),
                     )
                     assert memories[b] is not None
+                    # 调度只决定本帧是否重新问 RS：稳定且正确时在 3/4/5 帧中
+                    # 按 route+上次 query 可复现采样，避免全数据锁在同一相位；错误、
+                    # UNKNOWN、recovery/pending 状态则不等随机时钟，立即恢复逐帧 RS_SLOW。
+                    rs_schedule_key = f"{route.scenario}/{route.route_id}/epoch={epoch}"
+                    scheduled_rs_interval = rs_slow_interval_for_state(
+                        curriculum_states[b],
+                        curriculum_config,
+                        schedule_key=rs_schedule_key,
+                        schedule_seed=int(args.seed),
+                    )
                     run_rs, rs_schedule_reason = should_run_rs_slow(
                         curriculum_states[b],
                         curriculum_config,
                         memory=memories[b],
                         gt_rs_label=frame.rs_label,
                         frame_ordinal=int(memory_audits[b].get("memory_frame_ordinal", t)),
+                        schedule_key=rs_schedule_key,
+                        schedule_seed=int(args.seed),
                     )
                     memory_audits[b]["rs_slow_triggered"] = bool(run_rs)
                     memory_audits[b]["rs_slow_reason"] = rs_schedule_reason
+                    memory_audits[b]["rs_slow_interval_draw"] = int(scheduled_rs_interval)
                     # 当前 timestep 的 prompt 读取的是上一帧写回的 student memory。采集
                     # 和训练不会在 route 间共享 memory；每条 route 的时间状态只存在
                     # `memories[b]` 这一格里。
                     target_list = slow_active_items if run_rs else fast_active_items
                     target_list.append((b, route, frame, memories[b]))
+                # slow/fast 分开组块，避免把需要 Q1→Q2 串行 KV 的帧与 fresh EVENT_FAST
+                # 帧混进同一次 prompt batch。chunk 上限仅由 QWEN_BATCH_SIZE 控制。
                 scheduled_chunks: List[Tuple[bool, List[Tuple[int, SequenceRow, FrameRow, Memory]]]] = []
                 for run_rs, items in ((True, slow_active_items), (False, fast_active_items)):
                     for chunk_start in range(0, len(items), qwen_batch_size):
@@ -4113,6 +4678,8 @@ def main() -> None:
                         _add_q2_grouped_stats(window_stats, fast_grouped)
                         if bool(args.parallel_kl) and len(chunk) > 1:
                             fast_parallel_start = time.time()
+                            # fast rollout 已经读取当前 RGB；此处为 teacher/student 各自
+                            # fresh prefill 后并行打分，不会从上一慢帧继承 Q1 cache。
                             fast_result = _run_event_fast_parallel_kl_microbatches(
                                 bundle,
                                 chunk,
@@ -4246,6 +4813,8 @@ def main() -> None:
                             # Q2 student rollout 也要为 singleton candidate 生成；否则某个
                             # chunk 里只有 1 个 Q1-correct frame 时，parallel KL 会因为缺
                             # q2_rollout 整块 fallback 到旧逐帧路径。
+                        # 只有当帧 Q1 解析出的 RS 与 GT gate 一致的样本才能进入 Q2。
+                        # Q1 错误样本保留错误 memory 供下一帧 recovery，并跳过当帧 EVENT。
                         q2_candidate_local_indices: List[int] = []
                         q2_candidate_frames: List[FrameRow] = []
                         q2_candidate_memories: List[Memory] = []
@@ -4454,6 +5023,8 @@ def main() -> None:
                                         "q2_ids": q2_ids,
                                     }
                                 )
+                            # `_run_frame` 即使拿到 grouped token，也会为本样本重建精确
+                            # unpadded KV；慢帧 Q2 只续接这一个当前帧的 q1_ids/Q1 cache。
                             loss, stats, next_mem, need_reset = _run_frame(
                                 bundle,
                                 memory_for_frame,
@@ -4551,6 +5122,8 @@ def main() -> None:
                     batch_global_processed_frames += int(timestep_global_frames)
 
                 if str(args.update_mode) == "streaming_frames":
+                    # 更新只能发生在完整 timestep 之后。到这里所有本地 Q1/Q2 动态分支
+                    # 都已结束，所有 rank 下一次 collective 类型/次序重新一致。
                     update_reason = _streaming_update_reason(
                         global_frames=optimizer_window.global_frames,
                         timesteps=optimizer_window.timesteps,
@@ -4598,6 +5171,8 @@ def main() -> None:
                 stop_training = True
         if stop_training:
             break
+    # ------------------------- 最终保存与清理 -------------------------
+    # rank0 写 adapter，其它 rank 在 probe barrier 等待；最终 probe 完成后再销毁进程组。
     final_dir = output_dir / "final"
     if rank == 0:
         _save_adapter(bundle, final_dir, args)

@@ -14,6 +14,13 @@
 小样本只保留三种直观模式：``random`` 随机完整 route ID，``rs_transition`` 查看同一次
 RS 变化前后，``ue_transition`` 查看同一次 UE 的进入、持续和退出。不传模型开关时
 只生成静态 prompt/target 合同。
+
+推理模式与大样本 eval 保持一致：每个连续窗口首帧只初始化
+一次 memory，后续 student 只由自己的 Q1/Q2 输出推进；reference
+只沿 GT 推演并用于比较。慢帧 Q2 续接当帧 Q1 KV，快帧 Q2
+使用当前 RGB fresh prefill。这些来源都落在 ``results.json`` 或
+逐帧 ``input/output/memory.json`` 中，可用来审计模型是否在沿用
+过期 memory，而不是真正重新看图。
 """
 
 from __future__ import annotations
@@ -47,14 +54,18 @@ from qwen3vl_local.sft_v5.prompts import (  # noqa: E402
     MemoryCurriculumConfig,
     MemoryCurriculumState,
     SYSTEM_PROMPT_V5,
+    advance_memory_age,
     build_q1_student_prompt,
     build_q1_teacher_prompt,
     build_q1_teacher_target,
     build_q2_student_prompt,
     build_q2_teacher_prompt,
     build_q2_teacher_target,
+    initialize_student_memory,
+    observe_inference_rs_schedule,
     parse_q1_output,
     parse_q2_output,
+    rs_slow_interval_for_state,
     should_run_rs_slow,
     should_run_event_fast,
     should_trigger_q2,
@@ -95,7 +106,11 @@ PROBE_REASON_DESCRIPTIONS = {
 
 
 def _safe_name(text: str, *, max_len: int = 96) -> str:
-    """把 scenario / route id 压成目录安全名称。"""
+    """把 scenario / route id 转成目录安全名称。
+
+    只替换非字母数字等字符并限长，不做随机化或哈希；这样
+    artifact 目录仍可以被人直接映射回原 scenario/route。
+    """
 
     # route_id 里通常已经包含 Town/route/time 等有用信息；这里只替换文件系统不友好
     # 的字符，不做哈希，方便人眼从目录名直接定位原始 route。
@@ -107,7 +122,12 @@ def _safe_name(text: str, *, max_len: int = 96) -> str:
 
 
 def _memory_json(memory: Any) -> Dict[str, Any]:
-    """把 Memory dataclass 转为 v3 probe 风格的可读 JSON。"""
+    """把 Memory 对象投影为稳定、可序列化的审计字段。
+
+    使用 ``getattr`` 是为了同时兼容 CLI eval bundle 与训练内自动
+    probe 传入的 memory 实现。返回两个离散 hypothesis、各自连续未变的
+    4Hz age 和逐帧更新的 goal 坐标，不会隐式填 GT 或自动纠错。
+    """
 
     return {
         "rs_label": getattr(memory, "rs_label", None),
@@ -115,6 +135,8 @@ def _memory_json(memory: Any) -> Dict[str, Any]:
         "event_label": getattr(memory, "event_label", None),
         "ego_to_goal_x": getattr(memory, "ego_to_goal_x", None),
         "ego_to_goal_y": getattr(memory, "ego_to_goal_y", None),
+        "rs_age_frames": int(getattr(memory, "rs_age_frames", 0) or 0),
+        "event_age_frames": int(getattr(memory, "event_age_frames", 0) or 0),
     }
 
 
@@ -128,6 +150,10 @@ def _compare_memory_states(
 
     Q2 双标签场景使用 ``accepted_event_labels`` 判断 EVENT 是否正确；展示的 reference
     仍保留 canonical 单标签，既能审计默认 GT，也不会把另一个合法 UE 误判为错误。
+
+    ``goal_matches`` 单独报告，因为 EGO_TO_GOAL_XY 是每帧外部刷新的
+    导航条件，不属于 RS/EVENT 自主恢复。``discrete_state_matches``
+    因此只合并 RS 与 EVENT，不让坐标浮点表示影响离散状态指标。
     """
 
     if student is None:
@@ -161,7 +187,12 @@ def _compare_memory_states(
 
 
 def _messages_json(copied_rgb: List[Dict[str, str]], user_prompt: str) -> List[Dict[str, Any]]:
-    """用可序列化形式展示真正送给 Qwen 的 system/user messages。"""
+    """用可序列化形式还原送给 Qwen 的 system/user messages。
+
+    artifact 中图像记录使用 ``file/source`` 而非 PIL 对象，既可读又能
+    回溯原始 JPEG。Q2 真实推理是 KV suffix；这个 helper 在 full
+    artifact 里提供展开视图，具体续接来源另由 frame record 标注。
+    """
 
     content: List[Dict[str, str]] = []
     for item in copied_rgb:
@@ -180,7 +211,11 @@ def _messages_json(copied_rgb: List[Dict[str, str]], user_prompt: str) -> List[D
 
 
 def _write_messages(frame_dir: pathlib.Path, name: str, copied_rgb: List[Dict[str, str]], user_prompt: str) -> None:
-    """写出 v3 风格的 system/user 分离会话视图。"""
+    """在 ``full`` 模式写出 system/user 分离会话视图。
+
+    同时写 TXT 与 JSON：TXT 方便人工 diff prompt，JSON 保留角色与图像
+    顺序，便于现有 v3/v4 审计脚本直接复用。
+    """
 
     (frame_dir / f"{name}_system_prompt.txt").write_text(SYSTEM_PROMPT_V5, encoding="utf-8")
     (frame_dir / f"{name}_user_prompt.txt").write_text(user_prompt or "", encoding="utf-8")
@@ -195,6 +230,8 @@ def _copy_rgb_inputs(frame: FrameRow, frame_dir: pathlib.Path) -> List[Dict[str,
 
     文件名前缀固定为 ``input_rgb``，明确表示这些 JPEG 是该帧 Q1
     student/teacher 共用的视觉输入，而不是模型输出或渲染图。
+    复制失败不中断 probe；返回记录会标明 ``copied/error``，让 prompt/
+    memory 合同仍可审计，同时不掩盖图像证据缺失。
     """
 
     copied: List[Dict[str, str]] = []
@@ -217,14 +254,23 @@ def _copy_rgb_inputs(frame: FrameRow, frame_dir: pathlib.Path) -> List[Dict[str,
 
 
 def _write_texts(frame_dir: pathlib.Path, files: Dict[str, str]) -> None:
-    """写出文本文件。"""
+    """批量写出 ``full`` 模式的 prompt/target/output 文本视图。
+
+    ``None``/空输出统一落成空文件，使每帧目录 schema 固定；人工
+    审计时可以区分“未触发”与“文件被遗漏”。
+    """
 
     for name, text in files.items():
         (frame_dir / name).write_text(text or "", encoding="utf-8")
 
 
 def _write_timeline_png(path: pathlib.Path, frame_logs: List[Dict[str, Any]]) -> None:
-    """写轻量时间线图，仿 v3：红色=RS 错/reset，蓝色=进入 Q2，灰色=普通帧。"""
+    """写轻量时间线图，仿 v3 快速定位门控错误。
+
+    红色表示实际 RS_SLOW 答错，蓝色表示进入 EVENT_FAST，绿色
+    表示无 student 模型的静态 teacher-forced 合同，灰色为其他帧。
+    图只是 full artifact 的导航索引，PIL 缺失时跳过不影响 JSON 真值。
+    """
 
     try:
         from PIL import Image, ImageDraw
@@ -257,7 +303,13 @@ def _write_timeline_png(path: pathlib.Path, frame_logs: List[Dict[str, Any]]) ->
 
 
 def _frame_labels(route: SequenceRow, frame: FrameRow) -> Dict[str, Any]:
-    """汇总单帧标签与候选池，供 labels/flags/manifest 复用。"""
+    """汇总单帧标签、候选池与数据源证据。
+
+    这份字典是 results/review/full 三种 artifact 的共同 GT schema。
+    ``event_code`` 和 raw candidate 只作审计；学生真正作答的是
+    ``event_option_map`` 中显式标明 REGULAR/UNUSUAL 的合并选择题。
+    weather 也标为 teacher-only，方便检查 privileged 信息是否泄漏。
+    """
 
     return {
         "scenario": route.scenario,
@@ -282,7 +334,12 @@ def _frame_labels(route: SequenceRow, frame: FrameRow) -> Dict[str, Any]:
 
 @dataclass(frozen=True)
 class ProbeSelection:
-    """一条被选中的小样本 probe 帧及其可审计原因。"""
+    """一条被选中的 probe 帧及其可审计原因。
+
+    ``primary_reason`` 决定目录/报告中的主分类，``reasons`` 同时保留
+    该帧与 UE、RS 边界或稳定 RE 的全部关系，避免多重语义在
+    选帧去重时丢失。
+    """
 
     route_index: int
     frame_index: int
@@ -300,8 +357,10 @@ def _probe_candidate_reasons(
 ) -> Dict[Tuple[int, int], Tuple[str, ...]]:
     """为所有帧标记 UE/RS 边界、邻帧和稳定 RE 对照类别。
 
-    `ue_nearby_re` 特意只标真实 RE 帧，它是检查假阳性的硬负例；UE span 内的帧由
+    ``ue_nearby_re`` 特意只标真实 RE 帧，它是检查假阳性的硬负例；UE span 内的帧由
     `ue_positive` 覆盖。`rs_nearby` 则保留变换点前后的视觉上下文。
+    该函数只打标不裁剪，真正的预算、route 轮询和完整 UE span
+    保留在 ``build_probe_selection_plan`` 中处理。
     """
 
     radius = max(0, int(context_radius))
@@ -377,7 +436,11 @@ def _route_round_robin_windows(
 
 
 def _rs_transition_windows(routes: Sequence[SequenceRow]) -> List[Tuple[int, int, int]]:
-    """列出 RS 变化点，``start=end`` 均指向新 RS 首帧。"""
+    """列出 RS 变化点，``start=end`` 均指向新 RS 首帧。
+
+    RS 是离散边界而非持续片段，因此这里只交付 anchor；前后
+    ``context_radius`` 由上层选帧计划扩展，以保持统一的预算规则。
+    """
 
     windows = []
     for route_idx, route in enumerate(routes):
@@ -388,7 +451,12 @@ def _rs_transition_windows(routes: Sequence[SequenceRow]) -> List[Tuple[int, int
 
 
 def _ue_transition_windows(routes: Sequence[SequenceRow]) -> List[Tuple[int, int, int]]:
-    """列出连续 UE span，优先返回同时具有进入前 RE 和退出后 RE 的完整片段。"""
+    """列出连续 UE span，优先返回两侧都有 RE 的完整片段。
+
+    一个 UE 持续段是不可分的 probe 单元：只看入口帧无法判断模型
+    是否在事件内稳定，也无法测 UE->RE 退出。route 边界导致缺
+    一侧 RE 的 partial span 仍保留，但排在可完整审计的 span 之后。
+    """
 
     complete: List[Tuple[int, int, int]] = []
     partial: List[Tuple[int, int, int]] = []
@@ -430,6 +498,11 @@ def build_probe_selection_plan(
 
     ``sequence_length`` 仅作为旧命令兼容参数保留，random 模式不再使用它截断 route。
     ``num_routes`` 只控制 random 抽取多少个完整 ID，默认 1。
+
+    返回的计划最终按 ``route_index/frame_index`` 恢复时间顺序。
+    这一步不只为可读性：student memory 必须按真实时序推进，
+    如果按“最重要 case 优先”的选择顺序直接推理，会制造不存在的
+    memory 跳转。
     """
 
     mode = str(sample_mode or "random").lower()
@@ -453,7 +526,12 @@ def build_probe_selection_plan(
         *,
         respect_limit: bool = True,
     ) -> None:
-        """去重追加帧；UE 完整 span 可显式绕过普通总帧上限。"""
+        """去重追加帧，并按模式解释总帧预算。
+
+        RS 专项把 ``num_cases`` 当硬上限；UE 专项为了不从中间截断
+        span，会使用 ``respect_limit=False`` 先收完当前窗口。random
+        按 route 数限制，所以同样不用 frame 上限。
+        """
 
         if (respect_limit and len(selected) >= limit) or key in selected_keys:
             return
@@ -560,6 +638,10 @@ def _probe_inference_context(bundle: Any, *, disable_adapter: bool) -> Any:
     训练的 rank0 PEFT 模型。后者必须在生成期间关闭 dropout，并在退出后恢复 train
     模式。base/teacher 对照还要进入 ``disable_adapter()``，从同一份 Qwen 权重得到
     纯 base 输出，避免为了对照再加载第二份 4B 模型而触发显存峰值。
+
+    上下文同时使用 ``torch.inference_mode()``，保证纯生成阶段不保留
+    autograd graph。退出时只恢复原先的 train/eval 模式，不更改
+    adapter 权重或 optimizer，因此可安全嵌入训练中 checkpoint probe。
     """
 
     import torch
@@ -582,7 +664,12 @@ def _probe_inference_context(bundle: Any, *, disable_adapter: bool) -> Any:
 
 
 def _ratio(numerator: int, denominator: int) -> Optional[float]:
-    """返回可审计比例；没有有效分母时写 null，而不是伪造 0。"""
+    """返回可审计比例；没有有效分母时写 ``null``。
+
+    例如因 RS gate 错误而没有任何 Q2 case 时，EVENT accuracy 是
+    “未定义”而不是 0%。保留 ``None`` 可防止下游 route macro 把缺失
+    分母错当成模型全错。
+    """
 
     if int(denominator) <= 0:
         return None
@@ -597,7 +684,15 @@ def summarize_probe(
     student_adapter_dir: Optional[str],
     student_disable_adapter: bool,
 ) -> Dict[str, Any]:
-    """把逐帧 flags 聚合成 base/checkpoint 可直接比较的 summary。"""
+    """把逐帧 flags 聚合成 base/checkpoint 可直接比较的 summary。
+
+    summary 同时保留三组口径：RS_SLOW 实际触发帧、经 RS gate
+    后实际进入的 EVENT_FAST 帧，以及 privileged base teacher 的独立
+    生成帧。它们的分母不可互换：否则 RS 复用帧会稀释慢思考
+    准确率，或被 RS 跳过的帧会错进 conditional EVENT 分母。
+    开启 student 时再调用共用 metrics 补全 precision/recall/F1、FP/FN、
+    end-to-end EVENT 和 memory 依赖指标。
+    """
 
     frames = len(frame_logs)
     student_frames = frames if student_enabled else 0
@@ -679,12 +774,21 @@ def build_memory_recovery_report(frame_logs: Sequence[Dict[str, Any]]) -> Dict[s
     每个变化点只在当前连续选帧窗口内向后搜索，并在下一次同类 GT 变化前停止。延迟 0
     表示学生在变化首帧立即改对；``recovered=false`` 表示直到观察窗口结束仍未与
     reference 对齐。该函数只读 probe 日志，不参与任何 memory 更新。
+
+    RS 恢复在 Q1 后判断，EVENT 恢复在 Q2 后判断。如果定向选帧
+    中间有 gap，窗口首帧会被标记 ``selection_gap_reset`` 并排除，
+    因为它没有真实的上一帧 student memory，无法表示自主跳转。
     """
 
     logs = list(frame_logs)
 
     def collect(kind: str) -> List[Dict[str, Any]]:
-        """收集一种变化的逐 case 恢复结果。"""
+        """收集一种变化的逐 case 恢复结果。
+
+        从变化首帧开始向后扫描，遇到 route/选帧窗口断点或下一个
+        同类 GT 变化即停止。这样不会把“后来真值又变了”错计为
+        对上一个目标的延迟恢复。
+        """
 
         cases: List[Dict[str, Any]] = []
         for start, row in enumerate(logs):
@@ -782,6 +886,20 @@ def dump_probe(
     临时关闭 adapter。默认 ``review`` 按 scenario/frame 分目录，每帧只写 RGB、
     input/output/memory 三个 JSON；``compact`` 只写汇总；``full`` 再展开旧式
     TXT/JSON/timeline 深度审计文件。
+
+    函数有三种使用方式：
+
+    1. 不传 bundle，且 CLI 不开 ``--with-model``：只验证选帧、prompt、
+       teacher target 和 memory 合同，不读图进 Qwen。
+    2. CLI ``--with-model``：加载 base 或 ``--adapter-dir`` student，运行
+       closed-loop RS_SLOW/EVENT_FAST。
+    3. 训练内传入 bundle：复用 rank0 现有 Qwen，通过
+       ``student_disable_adapter/teacher_disable_adapter`` 切换 base/LoRA 对照，
+       不另起进程或加载第二份权重。
+
+    返回的 summary 供 checkpoint ``comparison.json`` 聚合；更完整的
+    选帧、逐帧 CoT、teacher target、memory 和 transition 证据写入
+    ``results.json`` 及所选 artifact 目录。
     """
 
     out_dir = pathlib.Path(args.output_dir)
@@ -803,6 +921,9 @@ def dump_probe(
         )
     review_artifacts = artifact_level in {"review", "full"}
     full_artifacts = artifact_level == "full"
+    # 先固定选帧计划，再加载/调用模型。这样 base、checkpoint、
+    # final 可用同一 seed 和同一 route 作公平对照，也能在没有 GPU
+    # 时先发现选帧/prompt 合同问题。
     selection_plan = build_probe_selection_plan(
         ds.rows,
         num_cases=int(args.num_cases),
@@ -878,14 +999,26 @@ def dump_probe(
             merge_lora=True,
         )
 
+    # manifest/full 日志是展开的人工审计入口；compact_frames 是
+    # results.json 的统一 schema。all_frame_logs 只保留结构化 flags，供
+    # metrics/transition/recovery 聚合，不再复制图像或 KV。
     manifest: List[Dict[str, Any]] = []
     all_frame_logs: List[Dict[str, Any]] = []
     compact_frames: List[Dict[str, Any]] = []
     case_idx = 0
     rs_schedule_config = MemoryCurriculumConfig(
-        rs_slow_interval=int(getattr(args, "rs_slow_interval", 4))
+        rs_slow_interval=int(getattr(args, "rs_slow_interval", 4)),
+        rs_slow_interval_jitter=int(
+            getattr(args, "rs_slow_interval_jitter", 1)
+        ),
     )
+    # 自动 checkpoint probe 与手工 probe 默认都模拟真实无 GT 启动；oracle/GT 模式只
+    # 用于复现旧报告，策略会写进 results，避免和 deployable 指标误混。
+    rs_schedule_policy = str(getattr(args, "rs_schedule_policy", "deployable"))
+    initial_memory_mode = str(getattr(args, "initial_memory", "unknown"))
     for route_idx, route in enumerate(ds.rows):
+        # 未入选的 route 不创建目录、不读图。选中 route 仍按原
+        # frame_index 遍历，保证连续窗口的 memory 时序与真实数据一致。
         selected_frame_indices = {
             frame_idx
             for selected_route_idx, frame_idx in selection_by_key
@@ -931,27 +1064,47 @@ def dump_probe(
             previous_selected_frame_index = frame_index
             rs_target = _rs_target_from_frame(frame)
             event_target = _event_target_from_frame(frame)
-            memory_initialized_from_gt = memory is None
+            memory_initialized_this_frame = memory is None
+            memory_initialized_from_gt = bool(
+                memory_initialized_this_frame and initial_memory_mode == "ground_truth"
+            )
             if memory is None:
-                # 连续窗口没有历史输出，只能用当前 GT RS + RE 建立共同起点；该初始化
-                # 会写入审计字段，且只发生一次，不会在学生答错后再次触发。
-                memory = _reset_memory_for_frame_row(frame)
+                # student 默认以 UNKNOWN/no-prior 开始；reference 才使用 GT。这样首帧
+                # RS_SLOW 必须从 RGB 判断，不能靠 prompt 中预填的正确 RS 拿高分。
+                memory = initialize_student_memory(
+                    rs_target,
+                    ego_to_goal_xy=frame.ego_to_goal_xy,
+                    mode=initial_memory_mode,
+                )
                 reference_memory = _reset_memory_for_frame_row(frame)
             else:
                 # 导航坐标是逐帧外部输入，不属于标签纠错；RS/EVENT 保持学生上一帧结果。
+                memory = advance_memory_age(memory)
                 memory = update_memory_navigation(memory, frame.ego_to_goal_xy)
                 assert reference_memory is not None
+                reference_memory = advance_memory_age(reference_memory)
                 reference_memory = update_memory_navigation(
                     reference_memory,
                     frame.ego_to_goal_xy,
                 )
             assert reference_memory is not None
+            # 默认 deployable 调度不读取 GT：UNKNOWN/非法输出与 RS 标签变化触发确认，
+            # 稳定合法标签按周期复核。oracle 模式显式保留旧式 GT mismatch 触发。
+            schedule_key = f"{route.scenario}/{route.route_id}"
+            scheduled_rs_interval = rs_slow_interval_for_state(
+                rs_schedule_state,
+                rs_schedule_config,
+                schedule_key=schedule_key,
+                schedule_seed=int(getattr(args, "seed", 20260711)),
+            )
             run_rs_slow, rs_schedule_reason = should_run_rs_slow(
                 rs_schedule_state,
                 rs_schedule_config,
                 memory=memory,
-                gt_rs_label=frame.rs_label,
+                gt_rs_label=(frame.rs_label if rs_schedule_policy == "oracle" else None),
                 frame_ordinal=window_ordinal,
+                schedule_key=schedule_key,
+                schedule_seed=int(getattr(args, "seed", 20260711)),
             )
             memory_at_frame_start = memory
             memory_before = _memory_json(memory)
@@ -1015,7 +1168,12 @@ def dump_probe(
             images: Optional[List[Any]] = None
 
             def _images_for_generation() -> List[Any]:
-                """懒加载该帧 RGB，避免纯静态 probe 读图进入模型路径。"""
+                """懒加载并缓存该帧 RGB，仅供当帧生成共享。
+
+                静态 probe 完全不调用此 helper；启用 student/teacher 时，
+                同帧 Q1 和 fast Q2 可复用已解码的 PIL 图像，但缓存不跨帧，
+                所以 EVENT_FAST 仍明确读的是当前 RGB。
+                """
 
                 nonlocal images
                 if images is None:
@@ -1092,6 +1250,9 @@ def dump_probe(
                     )
                     q2_triggered = True
                     if run_rs_slow and q1_after is not None:
+                        # 慢帧已经在 Q1 KV 中编码了当前 RGB、RS prompt 和学生
+                        # 自己的 Q1 CoT/答案。Q2 只追加 EVENT user turn，保持真实
+                        # 两轮对话；不把 q1_text 重 tokenize，也不用 teacher/GT Q1 替换。
                         with _probe_inference_context(bundle, disable_adapter=student_disable_adapter):
                             q2_output, q2_after = _generate_next(
                                 bundle,
@@ -1103,6 +1264,9 @@ def dump_probe(
                         # 会把完整 Q2 KV 持有到下一帧，和下一次 prefill 叠加显存峰值。
                         del q2_after
                     else:
+                        # 稳定快帧没有本帧 Q1 state，因此 Q2 用当前 RGB fresh
+                        # prefill。禁止续接上个慢帧 KV，否则会把过期视觉和
+                        # analysis 伪装成 EVENT_FAST 的当前帧证据。
                         with _probe_inference_context(bundle, disable_adapter=student_disable_adapter):
                             q2_output, q2_after = _generate_start(
                                 bundle,
@@ -1179,6 +1343,9 @@ def dump_probe(
                     or (not run_rs_slow and memory_at_frame_start.rs_label == frame.rs_label)
                 )
                 if teacher_rs_gate_ok:
+                    # teacher 的 Q2 memory 由 teacher 自己的 Q1 解析结果构造。
+                    # 这能分开“base teacher 自身 RS 错”和“给定正确 RS 后 EVENT
+                    # 仍错”两种能力问题，也避免 teacher 暗中借用 student/GT KV。
                     teacher_memory_after_q1 = update_memory_after_q1(
                         memory_at_frame_start,
                         student_rs_label=(
@@ -1256,12 +1423,15 @@ def dump_probe(
                 # before/after 保留旧消费方入口；四个问答节点在 q1/q2 下提供完整细节。
                 "before": memory_before,
                 "after": student_memory_for_next_frame,
+                "rs_schedule_policy": rs_schedule_policy,
+                "student_initial_memory_mode": initial_memory_mode,
                 "window_initialized_from_ground_truth": memory_initialized_from_gt,
                 "reference_is_comparison_only": True,
                 "forced_correction_applied": False,
                 "q1": {
                     "triggered": run_rs_slow,
                     "schedule_reason": rs_schedule_reason,
+                    "scheduled_interval_frames": int(scheduled_rs_interval),
                     "input": _compare_memory_states(
                         memory_before,
                         reference_memory_before,
@@ -1350,14 +1520,27 @@ def dump_probe(
                 bundle is not None and (not rs_gate_ok or (q2_triggered and q2_invalid))
             )
             rs_schedule_state.frames_seen = window_ordinal + 1
-            observe_training_memory(
-                rs_schedule_state,
-                rs_schedule_config,
-                rs_correct=(q1_rs_ok if bundle is not None else run_rs_slow),
-                rs_checked=run_rs_slow,
-                event_checked=q2_triggered,
-                event_correct=(bool(q2_event_correct) if bundle is not None else q2_triggered),
-            )
+            if rs_schedule_policy == "oracle":
+                rs_schedule_after = observe_training_memory(
+                    rs_schedule_state,
+                    rs_schedule_config,
+                    rs_correct=(q1_rs_ok if bundle is not None else run_rs_slow),
+                    rs_checked=run_rs_slow,
+                    event_checked=q2_triggered,
+                    event_correct=(bool(q2_event_correct) if bundle is not None else q2_triggered),
+                )
+            else:
+                rs_schedule_after = observe_inference_rs_schedule(
+                    rs_schedule_state,
+                    rs_checked=run_rs_slow,
+                    memory_rs_label_before=memory_before.get("rs_label"),
+                    student_rs_label=(
+                        parsed_q1.get("rs_label")
+                        if bundle is not None
+                        else (frame.rs_label if run_rs_slow else None)
+                    ),
+                )
+            memory_trace["rs_schedule_after"] = rs_schedule_after
             window_ordinal += 1
             rs_memory_known_wrong = bool(
                 bundle is not None
@@ -1463,6 +1646,9 @@ def dump_probe(
                     json.dumps(memory_after, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
 
+            # pair_evaluated 要求 student 真正运行且本帧与上一选中帧连续。
+            # GT 边界仍从原 route frame_index-1 取；定向窗口的跳帧首帧
+            # 被记为 invalid/not-evaluated，不伪造 RS/UE 边界 TP/FP。
             transition_fields = build_transition_fields(
                 pair_evaluated=bool(bundle is not None and not selection_gap_reset),
                 previous_frame_id=(route.frames[frame_index - 1].frame_id if frame_index > 0 else None),
@@ -1513,6 +1699,9 @@ def dump_probe(
                 "parsed_teacher_q2": parsed_teacher_q2,
                 "q1_triggered": run_rs_slow,
                 "rs_slow_reason": rs_schedule_reason,
+                "rs_slow_interval_draw": int(scheduled_rs_interval),
+                "rs_schedule_policy": rs_schedule_policy,
+                "rs_schedule_after": rs_schedule_after,
                 "q1_rs_correct": q1_rs_ok,
                 "rs_gate_correct": rs_gate_ok,
                 "event_family_correct": bool(
@@ -1809,6 +1998,9 @@ def dump_probe(
         (out_dir / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+    # 顶层聚合分三层：summary 供版本快速对比，transition_report
+    # 专注 RS/UE 边界，memory_recovery_report 专注变化后多少帧自主对齐。
+    # 三者都只读 all_frame_logs，不可再改写 closed-loop memory。
     summary = summarize_probe(
         all_frame_logs,
         student_enabled=bundle is not None,
@@ -1820,6 +2012,20 @@ def dump_probe(
         key: value for key, value in selection_payload.items() if key != "cases"
     }
     summary["artifact_level"] = artifact_level
+    summary["student_initial_memory_mode"] = initial_memory_mode
+    summary["rs_schedule_policy"] = rs_schedule_policy
+    summary["rs_schedule_uses_ground_truth"] = rs_schedule_policy == "oracle"
+    summary["rs_slow_interval_center"] = int(rs_schedule_config.rs_slow_interval)
+    summary["rs_slow_interval_jitter"] = int(
+        rs_schedule_config.rs_slow_interval_jitter
+    )
+    summary["rs_schedule_seed"] = int(getattr(args, "seed", 20260711))
+    # probe 与 eval 保持同一评分边界：RS_SLOW 何时运行默认不看 GT，
+    # 但“RS 真错时跳过 EVENT”只能在离线带标签 probe 中用 GT 实现。
+    # 显式写入 results，避免将 deployable RS scheduler 误读成整条线上策略。
+    summary["event_gate_policy"] = "offline_ground_truth_rs_correctness"
+    summary["event_gate_uses_ground_truth"] = True
+    summary["fully_deployable_end_to_end"] = False
     summary["generation_limits"] = {
         "max_new_tokens_q1": int(args.max_new_tokens_q1),
         "max_new_tokens_q2": int(args.max_new_tokens_q2),
@@ -1860,7 +2066,7 @@ def dump_probe(
         for item in compact_frames
     ]
     results = {
-        "format_version": 2,
+        "format_version": 4,
         "artifact_level": artifact_level,
         "sampling": {key: value for key, value in selection_payload.items() if key != "cases"},
         "summary": summary,
@@ -1882,6 +2088,11 @@ def parse_args() -> argparse.Namespace:
 
     不传 ``--with-model`` 时只落盘静态合同；传 ``--with-model`` 才运行 student，
     ``--with-teacher-model`` 则额外运行无 LoRA 的 privileged base teacher。
+
+    ``random`` 的预算单位是完整 route，用 ``--num-routes`` 控制；
+    ``--num-cases`` 只控制 RS/UE 专项，且 UE 为了保留完整 span
+    可超过该最小预算。``review`` 是人工巡检默认，``compact`` 适合
+    静态合同快检，``full`` 只在需要拆分 prompt/时间线时使用。
     """
 
     p = argparse.ArgumentParser(description="Dump SFT v5 probe cases")
@@ -1938,11 +2149,35 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-new-tokens-q1", type=int, default=1024)
     p.add_argument("--max-new-tokens-q2", type=int, default=1024)
     p.add_argument("--rs-slow-interval", type=int, default=4)
+    p.add_argument(
+        "--rs-slow-interval-jitter",
+        type=int,
+        default=1,
+        help="复核间隔在 center±jitter 中按 route/seed 可复现采样；默认 3/4/5",
+    )
+    p.add_argument(
+        "--initial-memory",
+        choices=("unknown", "ground_truth"),
+        default="unknown",
+        help="student 连续窗口首帧 memory；unknown 为默认无先验，ground_truth 仅复现旧 probe",
+    )
+    p.add_argument(
+        "--rs-schedule-policy",
+        choices=("deployable", "oracle"),
+        default="deployable",
+        help="deployable 不看 GT；oracle 用 GT 错误触发逐帧 RS，仅作诊断对照",
+    )
     return p.parse_args()
 
 
 def main() -> None:
-    """CLI 入口：默认生成逐帧精简证据，按需展开 legacy 深度审计产物。"""
+    """CLI 入口：解析参数后生成 probe 证据与汇总。
+
+    默认 ``review`` 生成逐帧 RGB + input/output/memory JSON；需要
+    旧式拆分文件时显式选 ``full``。函数不负责比较多个
+    checkpoint，训练入口会收集每次 ``dump_probe`` 返回的 summary
+    并写 ``probes/comparison.json``。
+    """
 
     dump_probe(parse_args())
 
