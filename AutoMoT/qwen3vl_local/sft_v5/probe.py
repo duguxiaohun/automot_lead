@@ -708,6 +708,14 @@ def summarize_probe(
         for item in frame_logs
         if bool(item.get("q2_teacher_triggered")) and item.get("q2_teacher_event_correct") is not None
     ] if teacher_enabled else []
+    # q1_rs_correct 只描述真正运行 RS_SLOW 的 Q1 输出；快帧没有 Q1，不能把它当成
+    # 错误塞进每帧 RS 准确率。rs_gate_correct 才是“本帧最终使用的 RS 是否正确”，
+    # 与 metrics.py 的 rs_acc 口径一致。
+    rs_gate_correct_count = (
+        sum(bool(item.get("rs_gate_correct")) for item in frame_logs)
+        if student_enabled
+        else 0
+    )
     summary = {
         "frames": frames,
         "student_enabled": bool(student_enabled),
@@ -715,9 +723,11 @@ def summarize_probe(
         "student_adapter_dir": student_adapter_dir,
         "student_adapter_enabled": bool(student_enabled and not student_disable_adapter and student_adapter_dir),
         "student_base_mode": bool(student_enabled and (student_disable_adapter or not student_adapter_dir)),
-        "q1_rs_correct": sum(bool(item.get("q1_rs_correct")) for item in frame_logs) if student_enabled else 0,
-        "q1_rs_accuracy": _ratio(sum(bool(item.get("q1_rs_correct")) for item in frame_logs), student_frames),
-        "rs_gate_accuracy": _ratio(sum(bool(item.get("rs_gate_correct")) for item in frame_logs), student_frames),
+        # q1_* 是旧 comparison schema 的兼容名字；数值统一为每帧实际 RS gate 口径。
+        # 真正的低频 Q1 准确率由 rs_slow_accuracy 单独报告。
+        "q1_rs_correct": rs_gate_correct_count,
+        "q1_rs_accuracy": _ratio(rs_gate_correct_count, student_frames),
+        "rs_gate_accuracy": _ratio(rs_gate_correct_count, student_frames),
         "rs_slow_frames": len(rs_slow_logs),
         "rs_slow_trigger_rate": _ratio(len(rs_slow_logs), student_frames),
         "rs_slow_accuracy": _ratio(sum(bool(item.get("q1_rs_correct")) for item in rs_slow_logs), len(rs_slow_logs)),
@@ -755,7 +765,9 @@ def summarize_probe(
             len(teacher_q2_logs),
         ),
         "teacher_q2_frames": len(teacher_q2_logs),
-        "teacher_q2_trigger_rate": _ratio(len(teacher_q2_logs), len(teacher_q1_logs)),
+        # teacher Q2 同时覆盖慢帧（续接 teacher Q1 KV）与快帧（fresh RGB prefill），
+        # 因而必须除以全部 probe frame。若除以 teacher Q1 帧数，快帧较多时比率会大于 1。
+        "teacher_q2_trigger_rate": _ratio(len(teacher_q2_logs), frames if teacher_enabled else 0),
         "teacher_q2_event_accuracy": _ratio(
             sum(bool(item.get("q2_teacher_event_correct")) for item in teacher_q2_logs),
             len(teacher_q2_logs),
@@ -1432,6 +1444,13 @@ def dump_probe(
                     "triggered": run_rs_slow,
                     "schedule_reason": rs_schedule_reason,
                     "scheduled_interval_frames": int(scheduled_rs_interval),
+                    # EVENT 是 EVENT|RS。该布尔量让 review artifact 无需人工对比两份
+                    # JSON 就能确认：本帧 RS 变化是否触发了旧 EVENT 失效。
+                    "event_context_invalidated_by_rs_change": bool(
+                        run_rs_slow
+                        and student_memory_after_q1.get("rs_label")
+                        != memory_before.get("rs_label")
+                    ),
                     "input": _compare_memory_states(
                         memory_before,
                         reference_memory_before,
@@ -1444,7 +1463,11 @@ def dump_probe(
                 "q2": {
                     "triggered": q2_triggered if bundle is not None else None,
                     "input": _compare_memory_states(
-                        q2_student_memory_input if bundle is not None else None,
+                        # 静态 teacher-forced probe 虽然没有 student 输出，但确实构造并
+                        # 保存了 Q2 student prompt；因此输入 memory 也必须展示，才能
+                        # 审计 RS 变化后 EVENT 是否已变成 UNKNOWN/age=0。只有输出/正确性
+                        # 继续用 None 表示“未实际运行模型”。
+                        q2_student_memory_input,
                         reference_memory_after_q1,
                     ),
                     "after_student_output": _compare_memory_states(
@@ -1528,6 +1551,21 @@ def dump_probe(
                     rs_checked=run_rs_slow,
                     event_checked=q2_triggered,
                     event_correct=(bool(q2_event_correct) if bundle is not None else q2_triggered),
+                    event_context_reset=bool(
+                        run_rs_slow
+                        and (
+                            parsed_q1.get("rs_label")
+                            if bundle is not None
+                            else frame.rs_label
+                        )
+                        in RS_LABEL_TO_OPTION
+                        and (
+                            parsed_q1.get("rs_label")
+                            if bundle is not None
+                            else frame.rs_label
+                        )
+                        != memory_before.get("rs_label")
+                    ),
                 )
             else:
                 rs_schedule_after = observe_inference_rs_schedule(
@@ -2013,6 +2051,9 @@ def dump_probe(
     }
     summary["artifact_level"] = artifact_level
     summary["student_initial_memory_mode"] = initial_memory_mode
+    summary["event_memory_semantics"] = "event_conditioned_on_rs"
+    summary["rs_change_invalidates_event"] = True
+    summary["rs_change_resets_event_error_context"] = True
     summary["rs_schedule_policy"] = rs_schedule_policy
     summary["rs_schedule_uses_ground_truth"] = rs_schedule_policy == "oracle"
     summary["rs_slow_interval_center"] = int(rs_schedule_config.rs_slow_interval)

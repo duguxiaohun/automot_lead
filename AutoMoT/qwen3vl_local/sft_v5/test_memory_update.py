@@ -107,11 +107,14 @@ def main() -> None:
 
     mem = update_memory_after_q1(mem, student_rs_label="R4")
     assert mem.rs_label == "R4"
-    # RS_SLOW 不回答 EVENT family，也不能凭空写具体 U-E*；EVENT 只由 Q2 决定。
-    assert mem.event_label == "RE", "RS_SLOW 不应改写 EVENT memory"
+    # RS_SLOW 不回答 EVENT family，也不能凭空写具体 U-E*。但 EVENT 是 EVENT|RS：
+    # 从 R1 切到 R4 后，旧 R1 下的 RE 必须先失效，随后只允许由 Q2 重新建立。
+    assert mem.event_label == "UNKNOWN"
+    assert mem.event_age_frames == 0
 
     mem = update_memory_after_q2(mem, student_event_label="U-E6")
     assert mem.event_label == "U-E6"
+    assert mem.event_age_frames == 0
 
     mem2 = update_memory_after_q2(mem, student_event_label=None)
     assert mem2.event_label == "U-E6", "Q2 非法输出不能污染当前 memory"
@@ -133,12 +136,13 @@ def main() -> None:
         student_rs_label="R2",
     )
     assert corrected.rs_label == "R2", "RS 必须由后续 student Q1 输出自行改正"
-    assert corrected.rs_age_frames == 0, "RS label 变化后独立 age 必须归零"
-    assert corrected.event_age_frames == 1, "RS 变化不得误清空 EVENT age"
-    assert corrected.event_label == "U-E6", "RS_SLOW 必须保留原 EVENT 等待当帧 EVENT_FAST"
+    assert corrected.rs_age_frames == 0, "RS label 变化后 RS age 必须归零"
+    assert corrected.event_age_frames == 0, "RS 变化后条件 EVENT age 必须归零"
+    assert corrected.event_label == "UNKNOWN", "新 RS 不得继承旧 RS 下的 EVENT"
 
+    # 同一 RS 的周期复核不会失效 EVENT；只有 RS hypothesis 真正变化才清除上下文。
     mem = update_memory_after_q1(mem, student_rs_label="R4")
-    assert mem.event_label == "U-E6", "Q1 不得在 Q2 前脚本化清除错误 EVENT memory"
+    assert mem.event_label == "U-E6", "重复确认同一 RS 必须保留 EVENT"
     mem = update_memory_after_q2(mem, student_event_label="RE")
     assert mem.event_label == "RE", "EVENT 必须由 Q2 自己纠正"
 
@@ -210,6 +214,8 @@ def main() -> None:
     assert delayed.rs_label == "R1" and audit["memory_rs_forced_repair"] is True
     assert audit["memory_rs_repaired_to_ground_truth"] is True
     assert audit["memory_rs_input_age_frames"] == 0, "repair 真正改变 RS 时 age 应归零"
+    assert delayed.event_label == "UNKNOWN" and delayed.event_age_frames == 0
+    assert audit["memory_event_invalidated_by_rs_change"] is True
     repaired_after = observe_training_memory(
         state,
         config,
@@ -232,7 +238,7 @@ def main() -> None:
     )
     assert (defaults.rs_corrupt_prob, defaults.rs_unknown_prob) == (0.05, 0.07)
     assert (defaults.event_error_patience, defaults.event_repair_interval) == (3, 1)
-    assert (defaults.event_corrupt_prob, defaults.event_unknown_prob) == (0.20, 0.25)
+    assert (defaults.event_corrupt_prob, defaults.event_unknown_prob) == (0.20, 0.12)
 
     # 不传 schedule_key 是 legacy 固定周期单测：稳定 RS 每 4 帧复核，中间帧只跑
     # EVENT_FAST。正式 train/eval/probe 会传 key 并随机成 3/4/5；RS 错误/UNKNOWN
@@ -390,6 +396,8 @@ def main() -> None:
         rs_recovery_active=True,
         rs_error_streak=soft_config.rs_error_patience,
         rs_repair_pending=True,
+        event_error_streak=soft_config.event_error_patience,
+        event_repair_pending=True,
     )
     soft_mem, soft_audit = prepare_training_memory(
         Memory(rs_label="R4", event_label="RE"),
@@ -404,7 +412,26 @@ def main() -> None:
         seed=8,
     )
     assert soft_mem.rs_label == "UNKNOWN"
+    assert soft_mem.event_label == "UNKNOWN" and soft_mem.event_age_frames == 0
     assert soft_audit["memory_rs_repaired_to_unknown"] is True
+    assert soft_audit["memory_event_invalidated_by_rs_change"] is True
+    assert soft_state.event_error_streak == 0 and soft_state.event_repair_pending is False
+
+    # 如果新 RS 语境下的同帧 Q2 仍然答错，应从 streak=1 重新累计，不能继承旧 RS
+    # 语境已经耗尽的 patience 并立即触发修复。
+    context_state = MemoryCurriculumState(event_error_streak=9, event_repair_pending=True)
+    context_after = observe_training_memory(
+        context_state,
+        config,
+        rs_correct=True,
+        rs_checked=True,
+        event_checked=True,
+        event_correct=False,
+        event_context_reset=True,
+    )
+    assert context_after["memory_event_context_reset_by_rs_change"] is True
+    assert context_after["memory_event_error_streak_after"] == 1
+    assert context_after["memory_event_repair_pending"] is False
 
     # RS wrong 会让当前帧 EVENT gate 关闭，不能在同一帧再伪造一个未被 Q2 使用的
     # EVENT augmentation。
@@ -430,9 +457,10 @@ def main() -> None:
         epoch=0,
         seed=9,
     )
-    assert wrong.rs_label != "R4" and wrong.event_label == "U-E6"
+    assert wrong.rs_label != "R4" and wrong.event_label == "UNKNOWN"
     assert wrong_audit["memory_rs_injected_wrong"] is True
     assert wrong_audit["memory_event_injected_wrong"] is False
+    assert wrong_audit["memory_event_invalidated_by_rs_change"] is True
     assert wrong_audit["memory_event_gate_ready"] is False
 
     # RS 可用时，EVENT wrong 优先取本帧可见候选，并排除所有多标签可接受答案。

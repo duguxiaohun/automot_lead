@@ -21,6 +21,8 @@ from qwen3vl_local.sft_v5.labels import RSTarget, EventTarget
 from qwen3vl_local.sft_v5.prompts import (
     build_q1_teacher_target,
     build_q2_teacher_target,
+    parse_q1_output,
+    parse_q2_output,
     reset_memory_for_frame,
     target_spans_q1,
     target_spans_q2,
@@ -77,6 +79,25 @@ def main() -> None:
     q2_spans = target_spans_q2(q2)
     _assert_nonempty(q2, q2_spans, ["analysis", "event"])
     assert q2_spans["event"][1] - q2_spans["event"][0] == 1, "EVENT 高权重 span 只能覆盖 option token"
+
+    # base student 可能输出语义标签而不是本帧选项字母。它们必须继续被 parser 判为
+    # invalid，避免污染跨帧 memory；同时 loss span 要覆盖答案起始字符，让 privileged
+    # teacher 在这个生成位置直接推动合法选项，而不是只训练前面的 analysis。
+    invalid_q1 = "Scene Description: clear road\nRS: R4"
+    invalid_q1_spans = target_spans_q1(invalid_q1)
+    _assert_nonempty(invalid_q1, invalid_q1_spans, ["analysis", "rs"])
+    assert invalid_q1[invalid_q1_spans["rs"][0] : invalid_q1_spans["rs"][1]] == "R"
+    assert parse_q1_output(invalid_q1).get("rs_label") is None
+
+    invalid_q2 = "Scene Description: regular traffic\nEVENT: RE"
+    invalid_q2_spans = target_spans_q2(invalid_q2)
+    _assert_nonempty(invalid_q2, invalid_q2_spans, ["analysis", "event"])
+    assert invalid_q2[invalid_q2_spans["event"][0] : invalid_q2_spans["event"][1]] == "R"
+    assert parse_q2_output(invalid_q2, {"A": "RE"}).get("event_label") is None
+
+    # 连字段行都没有时不能猜测监督位置，否则正文里偶然出现 RS/EVENT 会被高权重训练。
+    assert "rs" not in target_spans_q1("Scene Description: the road may be R4")
+    assert "event" not in target_spans_q2("Reasoning on Intent: choose RE if regular")
     print("[check_loss_mask] ok")
 
 

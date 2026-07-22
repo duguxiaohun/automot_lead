@@ -539,7 +539,7 @@ class Memory:
     ego_to_goal_x: float | None
     ego_to_goal_y: float | None
     rs_age_frames: int   # RS hypothesis 连续未变化的 4Hz 帧数
-    event_age_frames: int  # EVENT hypothesis 连续未变化的 4Hz 帧数
+    event_age_frames: int  # 当前 RS 条件下 EVENT hypothesis 连续未变化的 4Hz 帧数
 ```
 
 UNKNOWN/no-prior：`Memory.rs_label/event_label` 允许内部值 `UNKNOWN`，prompt 显示
@@ -547,10 +547,14 @@ UNKNOWN/no-prior：`Memory.rs_label/event_label` 允许内部值 `UNKNOWN`，pro
 这里把“没有 memory”实现成固定 schema 内的 UNKNOWN/no-prior，而不是随机删除整个
 `[MEMORY]` block：两者都不泄漏答案，但固定 schema 不会额外制造 train/deploy 格式漂移。
 
-RS 与 EVENT age 独立维护。route 首帧 age=0；进入下一个真实有效帧时各自加 1；只有
-该维度 label 真正发生变化（包括学生修正、随机 corruption、UNKNOWN 注入和延迟 repair）
-才把对应 age 归零。周期复核后仍输出同一 label 不重置 age；padding、缺图 skip 和另一个
-维度的变化也不影响它。这样 age 表示“这条 hypothesis 已持续多久”，而不是“上次问了多久”。
+RS 与 EVENT age 在 RS 不变的普通帧中独立累加。route 首帧 age=0；进入下一个真实有效
+帧时各自加 1；对应 label 真正变化时对应 age 归零，周期复核后仍输出同一 label 不重置。
+但 EVENT 不是脱离道路结构的全局状态，而是条件状态 `EVENT | RS`：只要 RS hypothesis
+真正改变（学生 Q1、RS corruption、UNKNOWN 注入或 delayed repair），旧 RS 下的 EVENT
+立即失效为 `UNKNOWN, event_age_frames=0`；只有新 RS gate 下的 Q2 才能重新建立 EVENT。
+padding、缺图 skip 不累加 age。这样 `event_age_frames=46` 只表示“在同一 RS 条件下该
+EVENT 已连续 46 帧”，不会把旧道路结构的 46 帧错误带到新 RS；新 RS 同帧 Q2 重新确认
+后 age=0，下一真实帧 RS/EVENT 才一起变成 1。
 
 人工注入一个新错误 label 本身也是一次 memory 改变，因此该 contradiction 的 age 必须从
 0 开始，不能随机伪造为较大的“旧时间戳”。如果学生没有依据当前 RGB 纠正它，这个错误
@@ -564,8 +568,9 @@ hypothesis 会随后续真实帧自然累加成 age=1、2、3……的 stale 样
 - 当前 RS memory 原本正确时，以 0.05 概率替换成其它 R1-R5（contradiction/stale），
   以 0.07 概率改成 UNKNOWN/no-prior（omission）。
 - 当前 EVENT memory 原本正确时，以 0.20 概率替换成其它 RE/U-E（contradiction/stale），
-  以 0.25 概率改成 UNKNOWN/no-prior（omission）。这里 eligible 条件分布是
-  `55/25/20`，用于抵消 RS augmentation 在 Q1 前拦下部分 EVENT 注入的稀释效应。
+  以 0.12 概率额外改成 UNKNOWN/no-prior（omission），eligible 条件分布为
+  `68/12/20`。旧值 0.25 已下调：RS hypothesis 变化本身现在会自然失效 EVENT 为
+  UNKNOWN，继续使用 0.25 会重复制造 omission，把 Q2 omission 推到约 34%。
 - 三类关系按模型真正看到的 Q1/Q2 prompt 统计：`aligned` 是 memory 与当前 GT 一致，
   `omission` 是 UNKNOWN/no-prior，`contradiction` 是已知但错误/陈旧的 label。注入概率是
   “当前 memory 原本正确且通过上游 gate”的条件概率，不等于最终训练样本比例。
@@ -573,9 +578,10 @@ hypothesis 会随后续真实帧自然累加成 age=1、2、3……的 stale 样
   使 Q2 真能在“错误旧假设 vs 当前视觉证据”之间纠偏；单选题没有替代项时才退回
   全局 EVENT 表，表达一个已过期但当前候选不再允许的旧事件。双 UE 可接受集合中的
   另一个正确标签绝不能被审计成 wrong augmentation。
-- EVENT repair/augmentation 只在 RS memory 经过本帧 RS 扰动后仍与 GT 对齐时执行；
-  若 RS memory 已错误/UNKNOWN，本帧大概率会跳过 Q2，EVENT pending 与原 memory 都保留，
-  避免制造或修复一个学生根本没看到的 EVENT 样本。
+- EVENT repair/augmentation 只在 RS memory 经过本帧 RS 扰动后仍与 GT 对齐时执行。
+  若本帧 RS hypothesis 真正变为错误/UNKNOWN，旧 EVENT 失效为 UNKNOWN，同时清空旧
+  RS 语境下的 EVENT error streak/pending；若 RS 早已错误但本帧没有再次变化，则保持
+  当前 UNKNOWN，不反复重置 age，也不制造学生根本没看到的 EVENT augmentation。
 - 扰动只覆盖本帧输入；若学生复制错误 memory，错误会由 closed-loop 自然延续。已经
   错误/UNKNOWN 的 memory 不会每帧继续随机换标签，避免把连续纠偏任务退化成白噪声。
 - 所有 draw 使用 `seed + route + frame + epoch` 的稳定 SHA-256 映射，DDP 与重跑可复现。
@@ -622,21 +628,22 @@ precision、recall、F1、FP、FN，而不能只看 accuracy 的原因。
 学生能力都会改变结果，最终必须以 TensorBoard 为准。
 
 - “理想当帧纠偏”模拟中，Q1 触发率约 30.5%，即约 25.1 万个 RS 训练帧；Q1 真正
-  看到的 `aligned / omission / contradiction` 约为 `59.6% / 24.1% / 16.2%`，约
+  看到的 `aligned / omission / contradiction` 约为 `59.7% / 24.2% / 16.1%`，约
   `15.0 / 6.1 / 4.1` 万帧。Q1 异常 memory（后两类）约占 Q1 的 40.4%，不是简单的
   `5%+7%`，因为异常会额外触发 RS_SLOW。
-- 同一理想模拟中 Q2 gate 约 100%；受 RS augmentation 先行门控影响，Q2 实际关系约为
-  `60.2% / 22.4% / 17.4%`，约 `49.5 / 18.4 / 14.3` 万帧。配置中的 EVENT
-  `55/25/20` 是 eligible frame 的条件分布，专门校准成上述 gate 后最终分布。
+- 同一理想模拟中 Q2 gate 约 100%；Q2 实际关系约为
+  `59.6% / 23.0% / 17.4%`，约 `49.0 / 18.9 / 14.4` 万帧。配置中的 EVENT
+  `68/12/20` 是 eligible frame 的条件分布；额外 omission 来自 RS 变化时对条件
+  EVENT 的自然失效，因此最终仍接近目标 `60/23/17`。
 - “学生完全复制输入 memory，直到 patience/review 延迟 GT 兜底”的压力测试中，Q1
-  触发率约 55.4%（约 45.6 万帧），关系约 `35.3/39.1/25.6`；Q2 gate 约 64.2%
-  （约 52.8 万帧），Q2 关系约 `42.1/33.4/24.5`。这不是期望训练终态，而是验证
+  触发率约 55.5%（约 45.7 万帧），关系约 `35.2/39.4/25.4`；Q2 gate 约 64.0%
+  （约 52.7 万帧），Q2 关系约 `38.6/43.5/17.9`。这不是期望训练终态，而是验证
   delayed repair 不会让 EVENT 永久饿死的保守压力边界。
 
 训练必须同时观察关系、复制和门控，而不是只看单一 anomaly rate：
 
 - 健康目标带可接受波动：Q1 relation 大致落在 `50-70 / 18-30 / 12-22`，Q2 大致落在
-  `55-75 / 12-28 / 10-23`；Q1 trigger 通常约 28-35%，成熟模型的 Q2 trigger 应逐步
+  `50-70 / 18-30 / 12-23`；Q1 trigger 通常约 28-35%，成熟模型的 Q2 trigger 应逐步
   高于 80%。
 - 经过 warmup 后若 Q1 aligned 长期低于 45% 或 Q2 trigger 长期低于 70%，优先把 RS
   wrong/UNKNOWN 各下调 1-2 个百分点，或缩短 RS patience；不要提高 EVENT 噪声。
@@ -729,7 +736,8 @@ RS: <A|B|C|D|E>
 RS_SLOW parser：
 
 - `RS:` 读取第一个 `A-E`。
-- 缺失或非法时该项 loss 仍可对 generated tokens 做 teacher KL，但 memory 不更新。
+- `RS: R4` 等非法值仍不更新 memory，但答案值的第一个生成 token 会进入高权重
+  teacher-KL，让 privileged teacher 直接推动合法选项字母；整行缺失时不猜位置。
 
 ### 6.2 Q1 teacher prompt
 
@@ -793,6 +801,10 @@ Reasoning on Intent: <1-2 concise sentences explaining why the selected event is
 EVENT: <option letter>
 [/QUESTION_2]
 ```
+
+Q2 parser 只接受当前 `event_option_map` 中存在的选项字母。`EVENT: RE` / `EVENT: U-E*`
+仍按 invalid 进入 error streak 并保持原 EVENT memory；训练 loss 只额外选择冒号后答案
+值的第一个生成 token 做高权重格式纠偏，不会把语义标签当成合法 memory。
 
 ### 6.4 Q2 teacher prompt
 
@@ -867,12 +879,14 @@ Q1:
 
 - structured CoT lines (`Scene Description / Critical Object Description / Reasoning on Intent`): `0.2`
 - `RS` option letter 单 token: `1.2`
+- 非法但存在的 `RS:` 值：只取答案起始 token，权重 `1.2`；parser 仍判 invalid
 - formatting tokens / prompt tokens: `0`
 
 Q2:
 
 - structured CoT lines (`Scene Description / Critical Object Description / Reasoning on Intent`): `0.2`
 - `EVENT` option letter 单 token: `1.2`
+- 非法但存在的 `EVENT:` 值：只取答案起始 token，权重 `1.2`；parser 仍判 invalid
 - formatting tokens / prompt tokens: `0`
 
 默认总 loss：
@@ -1353,9 +1367,12 @@ EOS / `<|im_end|>` 自然停止 + 1024 token 安全上限”，不是完全无�
   RS_SLOW 间隔，中间帧复用 RS memory；`UNKNOWN`、memory 与当前 RS 不一致、上次
   RS 预测错误时立即进入逐帧 recovery。
 - RS_SLOW 错：增加 `rs_error_streak`，错误 student RS 原样进入下一有效帧，
-  下一帧继续慢思考；只有当前 RS gate 正确才运行 EVENT_FAST。
+  下一帧继续慢思考；若错误 RS 与输入 RS 不同，则旧条件 EVENT 同时失效为 UNKNOWN。
+  只有当前 RS gate 正确才运行 EVENT_FAST。
 - EVENT_FAST 每个 RS gate 正确的帧都重新读取 RGB 并预测 EVENT，不复用上帧
   normal/abnormal 或 EVENT 结果；EVENT 错时增加独立 `event_error_streak`。
+- RS hypothesis 改变时先清空旧 RS 语境的 EVENT streak/pending；若同帧 Q2 仍答错，
+  从新语境的 streak=1 重新累计，不能继承旧 pending 立即触发 GT repair。
 - streak 达到 patience 后只设置 repair pending；RS 默认每 2 帧检查脚本修复，EVENT 默认
   每帧检查。`rs_repair_interval` 仅控制兜底修复，不控制稳定期 `rs_slow_interval`。
 - 学生在 pending 真正执行前自行恢复时清空 pending，不再做多余 GT overwrite。
@@ -1632,6 +1649,10 @@ TOKENIZERS_PARALLELISM=false
   - LoRA vision scope
   - max_new_tokens
   - loss weights
+  - 完整 memory curriculum 概率、patience/review/repair mode
+  - `event_conditioned_on_rs=true`、`rs_change_invalidates_event=true`、
+    `rs_change_resets_event_error_context=true`
+  - streaming window、gradient sync 与 checkpoint probe 配置
 
 ---
 
@@ -1674,6 +1695,8 @@ TOKENIZERS_PARALLELISM=false
   但 EVENT_FAST
   仍必须重新分析当前 RGB。RS 错误只结束当前帧 EVENT_FAST，错误 memory 继续
   进入后续帧，下一帧恢复逐帧 RS 慢思考；超过 patience 且到 review 帧才兜底修复。
+  EVENT 是 `EVENT | RS`：RS hypothesis 变化时旧 EVENT 立即变为 UNKNOWN/age=0，
+  同一 RS 的周期确认则保留 EVENT 与 age；新 EVENT 只能由 gate 通过后的 Q2 重建。
   EVENT 使用更短 patience 和逐帧 review。正式
   eval/probe 不做任何 GT 纠错，而是继续学生闭环，以测量后续自主恢复能力。
 - Q2 候选优先使用每帧 `frame_event_annotation.allowed_events`；只有缺失时才 fallback

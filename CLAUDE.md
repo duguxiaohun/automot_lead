@@ -87,7 +87,7 @@
 | `AutoMoT/qwen3vl_local/sft_v3/` 子包（含 `__init__.py` / `SFT_V3_PLAN.md` / `SFT_V3_RUN.md` / `prompts.py` / `build_dataset.py` / `train.py` / `train.sh` / `eval.py` / `probe.py` / `check_loss_mask.py` / `test_memory_update.py` / `test_kv_reuse.py` / `test_gt_leak_filter.py`） | 按用户同意新增到白名单：SFT v3 代码已落地。训练单元为 sub-scenario 时间序列（`[f1-δ, f3]`），Memory 为学生自维护文本状态（场景/状态/子目标 + EGO_TO_GOAL_XY），每帧三步内循环（step1 纯视觉分析、step2 场景判断、step3 状态/子目标判断）并用 teacher/student 蒸馏；Phase B 每帧开头弱纠偏 scene=GT 反向学习“对的别改”；δ 允许 0 且只封顶 10，`EGO_TO_GOAL_XY` 严格来自 meta `next_target_points[-1]` 并在帧末预取下一帧，step3 触发统一走 `should_trigger_step3`。`train.sh` 默认 `ddp`（历史模式名），每卡默认 batch=1；多卡训练采用 work-stealing + local-SGD：不包 DDP、不静态分片、不截断尾部，通过 TCPStore 抢 episode，NCCL collective 前先 TCPStore rendezvous，先广播 rank0 LoRA 初始权重，按本轮 optimizer step 数加权平均 LoRA 参数，并且 `checkpoint-*` / `final/` 都在参数平均后保存；sync 日志/TB 记录 `all_rank_steps`、`round_eps`、`total_eps` 用于审计训练量；LoRA 视觉接口与 v2 同构并默认 `off`，保存 adapter delta + `sft_v3_adapter_config.json`。 |
 | `AutoMoT/qwen3vl_local/sft_v4/` 子包（含 `__init__.py` / `SFT_V4_PLAN.md` / `SFT_V4_RUN.md` / `prompts.py` / `build_dataset.py` / `train.py` / `train.sh` / `eval.py` / `probe.py` / `check_loss_mask.py` / `test_memory_update.py` / `test_kv_reuse.py` / `test_kv_vs_native.py` / `test_gt_leak_filter.py` / `replay.py` / `collect.py` / `learn.py` / `launch_offpolicy.sh` / `inspect_teacher.py`） | 按用户同意新增到白名单：SFT v4 是 sequence-memory OPD 的 off-policy actor-learner 路线；生产入口为 `launch_offpolicy.sh`，默认 4×H20 部署为 GPU0 跑单进程 learner、GPU1/GPU2/GPU3 各 1 个 collector；确认服务器允许单卡多 CUDA 进程后，可手动调 `COLLECTORS_PER_GPU=2/3`。collector 不进 DDP/NCCL，只异步用 LoRA snapshot rollout 并写 `replay/ready/*.jsonl`；learner 不进 DDP/NCCL，单进程随机读取 replay 做 teacher-forced loss/backward，并周期发布 `latest_lora/v_<step>/`。`learn.py` 日志/TB 记录 `replay_ready/replay_pending/replay_failed/wait_events/wait_total` 与 `train/replay/*`，用于判断 collector 和 learner 谁是吞吐瓶颈。`replay.py` 负责 trajectory schema、原子写、文件锁 counter、FIFO 驱逐；`collect.py` 负责 Phase A 50% 正确初始化、Phase B 0.15 噪声扰动、teacher/student generate 和 trajectory 写盘；`learn.py` 负责 replay 采样、无 generate 的 loss/backward、checkpoint/final/snapshot；`train.py` / `train.sh` 仅保留为 on-policy 兼容调试入口，生产训练不要走它。自定义 KV decode 已本地化到 `qwen3vl_local/mrope_utils.py`，`test_kv_vs_native.py` 对比本地增量 KV 与全量无 cache / 原生 generate；旧 bug 污染过的 v4 checkpoint 需作废后重训。三步 student prompt 与 teacher target 共用 `Scene Description` / `Critical Object Description` / `Reasoning on Intent` / `Memory Judgment` 四个公开 heading；step1 student 只读 road-only memory，step2/3 才读完整 memory，teacher 可看 answer 字段但 teacher prompt 不列 label 占位符，标签由脚本追加并清洗成学生视角。scene 训练标签使用 canonical 口径：`EnterActorFlowV2 -> EnterActorFlow`、`MergerIntoSlowTrafficV2 -> MergerIntoSlowTraffic`，原始 CARLA scenario 仅保留在 `scenario/raw_gt_scene` 元数据中。`inspect_teacher.py` 是离线老师抽检脚本：随机采样 episode × 帧 × 5 种 memory 模式（all_keep / rs_change / scene_change_same_rs / event_change / scene_change_cross_rs），先做 prompt contract 自检，再 lazy import torch/model runtime，全程 `disable_adapter` 走 frozen base Qwen，逐 step 记录 teacher-private prompt/raw、student-facing prompt、adapter-enabled student 初始输出、supervised target 与 token 统计，产物为 `teacher_report.md` + `teacher_report.jsonl`，供人工评估老师推理质量并指导 prompt 迭代。 |
 | `AutoMoT/qwen3vl_local/sft_v3/prompts.py` / `AutoMoT/qwen3vl_local/sft_v4/prompts.py` | v3/v4 prompt 同步硬约束：`sft_v4/prompts.py` 是唯一 prompt、Memory、状态机、target span 源；`sft_v3/prompts.py` 只能 re-export v4 并保留兼容别名。v3 是 offline on-policy OPSD：student rollout 更新 memory，`disable_adapter()` privileged teacher logits 对同一批 student step token 做 forward-KL 分布监督；v4 是 off-policy actor-learner/replay 路线。任何 prompt 或状态机改动必须同时验证 v3 和 v4。 |
-| `AutoMoT/qwen3vl_local/sft_v5/` 子包 | 按用户同意新增到白名单：SFT v5 是 RS_SLOW / EVENT_FAST 双频 OPSD 路线。Q1 判断慢变量 RS，Q2 在 `[RE | REGULAR]` / `[UE | UNUSUAL]` 混合候选中逐帧判断 EVENT，不再单问 ABNORMAL。memory 是带独立 RS/EVENT age 的不可信 hypothesis；稳定 RS 默认按 3/4/5 帧可复现随机间隔复核，错误/UNKNOWN 时恢复逐帧。训练采用 aligned/omission/contradiction 课程、延迟 repair、batched rollout + parallel-KL 微批和手动 LoRA 梯度 all-reduce。完整数据过滤、prompt、KV、padding、指标、probe 与注释合同以 `SFT_V5_PLAN.md` / `SFT_V5_RUN.md` / `SFT_V5_VISUALIZATION_RECORD.md` 为准。 |
+| `AutoMoT/qwen3vl_local/sft_v5/` 子包 | 按用户同意新增到白名单：SFT v5 是 RS_SLOW / EVENT_FAST 双频 OPSD 路线。Q1 判断慢变量 RS，Q2 在 `[RE | REGULAR]` / `[UE | UNUSUAL]` 混合候选中逐帧判断 EVENT，不再单问 ABNORMAL。memory 是带 RS/EVENT age 的不可信 hypothesis；EVENT 是 `EVENT | RS` 条件状态，RS 变化会使旧 EVENT 失效为 UNKNOWN/age=0。稳定 RS 默认按 3/4/5 帧可复现随机间隔复核，错误/UNKNOWN 时恢复逐帧。训练采用 aligned/omission/contradiction 课程、延迟 repair、batched rollout + parallel-KL 微批和手动 LoRA 梯度 all-reduce。完整数据过滤、prompt、KV、padding、指标、probe 与注释合同以 `SFT_V5_PLAN.md` / `SFT_V5_RUN.md` / `SFT_V5_VISUALIZATION_RECORD.md` 为准。 |
 | `AutoMoT/qwen3vl_local/sft_v5/` batched Qwen 补充约束 | Q1/Q2 student rollout 允许 mixed-length padded batch；padded `past_key_values` 只用于 no-grad 采样，不写回 memory。默认保持 `QWEN_BATCH_SIZE=8`，但有 autograd graph 的 parallel KL 使用独立 `PARALLEL_KL_MICROBATCH_SIZE=2`，即 8 路 rollout 后按 2+2+2+2 teacher/student scoring 并逐微批 backward。Q2 student rollout 与 Q2 KL 都必须按精确 `q1_ids` 续接 Q1 KV 后再追加 Q2 user turn，不允许用 `q1_ids -> q1_text -> full-dialog tokenizer` 回环替代，保证采样与 scoring 上下文一致。KL forward OOM 只允许在尚未 backward 时把当前 2 路微批二分为单帧，不降低 token 上限、不重新 rollout；backward OOM 或普通异常必须中止，避免部分梯度后 fallback 重复累计。`test_batched_qwen_smoke.py --check-parallel-kl` 必须对照 single-vs-batch 生成、Q2 续接、训练 logits 和 KL loss；`test_parallel_kl_microbatch.py` 必须验证微批与 OOM 二分后的梯度等价性。显存峰值按 `KL microbatch x context length` 审计，TensorBoard 必须记录 `parallel_kl/{microbatches_per_chunk,frames_per_microbatch,oom_splits}`。必须观察 `train/q1_token_cap_hit_rate` / `train/q2_token_cap_hit_rate`；student rollout 缺少可监督 span 时必须返回 graph-connected zero。只有 `actual_batched_group_sizes` / `actual_batched_frames` 能证明真实 rollout batch；强制验证时加 `--require-batched-group`。相关代码必须保留中文注释解释 padded rollout、单样本 KV 重建、last-valid logits、padding 排除、EOS active batch 移除、KL OOM 安全二分和 TensorBoard 分母口径；`rope_deltas` 必须兼容 `(batch,1)` / `(1,batch)`。 |
 | `AutoMoT/qwen3vl_local/sft_v5/` TensorBoard 补充约束 | 除 `train/loss_frame` 外，必须记录 `train/loss/{q1_analysis,q1_rs,q2_analysis,q2_event}`，其中 Q1 分项按实际触发 RS_SLOW 的 frame 平均，Q2 分项按实际进入 EVENT_FAST 的 frame 平均；还要记录 `train/rs_slow_trigger_rate` / `train/rs_reuse_fast_rate`。同时记录 `memory/{allocated,reserved,max_allocated,max_reserved}_gb`，长期显存风险以活跃引用 `allocated` 为主，不能只凭 `nvidia-smi` 或 allocator `reserved` 高水位判断泄漏。 |
 | `AutoMoT/qwen3vl_local/sft_v5/` 流式优化补充约束 | 正式训练默认 `UPDATE_MODE=streaming_frames`：每个完整 global timestep 后汇总实际有效 frame，累计 `TARGET_GLOBAL_FRAMES_PER_STEP=512` 或达到 `MAX_TIMESTEPS_PER_STEP=32` 时同步 LoRA 梯度并 optimizer step；不能在同一帧 Q1/Q2/KL 中间更新。梯度按窗口实际 global frame 数归一化，optimizer step 后保留 route memory；无本地 frame 的 rank 也必须补零参加 collective，epoch 尾窗口必须 flush。LoRA 梯度按 device/dtype 合并成约 64 MiB bucket 后再 all-reduce，禁止退回数百个小参数逐个 collective。`GRAD_ACCUM` 是流式窗口倍率，`UPDATE_MODE=batch` 只作旧实验兼容；默认 learning rate 为 `1e-5`。TensorBoard 还必须记录每步 global frame/timestep、更新原因、梯度同步 bucket 数、梯度同步和 optimizer 耗时；adapter 元数据必须同时记录原始与 effective 窗口阈值、LR 和梯度同步策略。 |
@@ -108,12 +108,14 @@
 SFT v5 的上表 `BELIEVED_*` 名称已废弃：Q1 使用
 `PREVIOUS_RS_HYPOTHESIS + PREVIOUS_RS_HYPOTHESIS_AGE + MEMORY_RELIABILITY + EGO_TO_GOAL_XY`，
 Q2 才额外加入 `PREVIOUS_EVENT_HYPOTHESIS + PREVIOUS_EVENT_HYPOTHESIS_AGE`；memory
-必须明确是可能过期或错误的 hypothesis。两个 age 各自在 label 改变时归零，否则每个
-真实 4Hz 帧持续增加；重复确认同一 label 不归零。训练 route 首帧 RS/EVENT 分别以
+必须明确是可能过期或错误的 hypothesis。普通帧两个 age 各自在对应 label 改变时归零，
+否则每个真实 4Hz 帧持续增加；重复确认同一 label 不归零。但 EVENT 是 `EVENT | RS`
+条件状态：RS hypothesis 真正改变时旧 EVENT 必须失效为 UNKNOWN/age=0，只能由新 RS
+gate 下的 Q2 重新建立。训练 route 首帧 RS/EVENT 分别以
 0.5 概率用 GT，否则为 UNKNOWN/no-prior。新注入的 wrong/UNKNOWN 因为刚改变
 hypothesis，age 必须从 0 开始；只有学生继续复制，才由后续真实帧自然形成 age>0 的
 stale 样本，不能随机伪造旧 age。正确 RS memory 默认按 0.05/0.07 注入
-contradiction/omission，EVENT 为 0.20/0.25。稳定正确 RS 默认以 4 帧为中心，在
+contradiction/omission，EVENT 额外注入为 0.20/0.12。稳定正确 RS 默认以 4 帧为中心，在
 3/4/5 帧中可复现随机选择下一次 RS_SLOW；中间快帧只复用 RS memory；EVENT_FAST
 每个 RS gate 正确的帧都重新
 分析当前 RGB。RS 错误只跳过本帧 EVENT，下一帧恢复逐帧 RS 分析，直到学生纠正
@@ -126,16 +128,19 @@ patience/review 后延迟写回 GT，`unknown` 软擦除只作消融；forced re
 ABNORMAL。EVENT wrong
 扰动优先从本帧 `event_option_map` 其它可见
 候选中选择，单选题无替代项时才回退全局 EVENT 表；EVENT repair/augmentation 只在
-RS memory 本帧扰动后仍正确时执行，RS 错误/UNKNOWN 时保留 EVENT 状态。参数必须可从 CLI/
-`train.sh` 覆盖并写入 adapter metadata。Q1/Q2 最终高权重 span 只监督单个选项字符；
+RS memory 本帧扰动后仍正确时执行。RS 变化导致 EVENT 失效时还必须清空旧 RS 语境的
+EVENT streak/pending；同帧 Q2 错误从新语境 streak=1 重新累计。参数必须可从 CLI/
+`train.sh` 覆盖并写入 adapter metadata。合法 Q1/Q2 最终高权重 span 只监督单个选项字符；
+若存在 `RS:`/`EVENT:` 行但值是 `R4`/`RE` 等非法语义标签，严格 parser 仍拒绝且不更新
+memory，但 loss 必须监督答案起始 token 以直接纠正选项格式；
 训练/TensorBoard 记录 wrong-memory copy、wrong/UNKNOWN recovery、注入、强制修复、
-Q1/Q2 aligned/omission/contradiction 比例、RS/EVENT age、随机 interval 均值/方差、
+Q1/Q2 aligned/omission/contradiction 比例、RS/EVENT age、RS 变化导致 EVENT 失效率、随机 interval 均值/方差、
 input anomaly rate、error streak、因 RS 错跳过 Q2 的比例，以及由 EVENT 折叠出的 UE/RE
 TP/FP/TN/FN 与 P/R/F1；eval/probe 同步输出 memory 依赖与 Q2 门控指标。
 数据量审计以 42 个有效场景、7241 route、914466 帧为上限；10% validation 后约
 82.3 万训练帧。恒定 GT、当帧自纠模拟中 Q1 trigger≈30.5%，Q1 relation≈
-59.6/24.1/16.2，Q2 relation≈60.2/22.4/17.4；纯 memory-copy 压力测试中
-Q1 trigger≈55.4%、Q2 gate≈64.2%。GT UE=15.55% 与 wrong/UNKNOWN memory 异常
+59.7/24.2/16.1，Q2 relation≈59.6/23.0/17.4；纯 memory-copy 压力测试中
+Q1 trigger≈55.5%、Q2 gate≈64.0%、Q2 relation≈38.6/43.5/17.9。GT UE=15.55% 与 wrong/UNKNOWN memory 异常
 不能直接相加，最终比例必须看 TensorBoard。
 
 **其它所有文件**（`lead/` 整个目录、`AutoMoT/` 其余文件、配置等）**不准动**——

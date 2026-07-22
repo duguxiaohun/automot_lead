@@ -279,12 +279,13 @@ COMMON_ARGS=(
   --event-repair-mode "${EVENT_REPAIR_MODE:-ground_truth}"
   # relation curriculum：RS 的 5% contradiction + 7% omission 会因额外触发慢问，
   # 在理想当帧纠偏下约映射为 Q1 60/24/16（aligned/omission/contradiction）。
-  # EVENT 的 eligible 比例为 55/25/20；受 RS pre-gate 影响，最终 Q2 理想值
-  # 约 60/22/17。closed-loop 实测比例以 TensorBoard 为准。
+  # EVENT 显式 eligible 比例为 68/12/20；RS hypothesis 变化还会把条件 EVENT
+  # 自然失效为 UNKNOWN，合并后的 Q2 理想值约 60/23/17。closed-loop 实测比例
+  # 以 TensorBoard 为准。
   --rs-memory-corrupt-prob "${RS_MEMORY_CORRUPT_PROB:-0.05}"
   --rs-memory-unknown-prob "${RS_MEMORY_UNKNOWN_PROB:-0.07}"
   --event-memory-corrupt-prob "${EVENT_MEMORY_CORRUPT_PROB:-0.20}"
-  --event-memory-unknown-prob "${EVENT_MEMORY_UNKNOWN_PROB:-0.25}"
+  --event-memory-unknown-prob "${EVENT_MEMORY_UNKNOWN_PROB:-0.12}"
   --rs-initial-gt-prob "${RS_INITIAL_GT_PROB:-0.5}"
   --event-initial-gt-prob "${EVENT_INITIAL_GT_PROB:-0.5}"
   --max-routes "${MAX_ROUTES:-0}"

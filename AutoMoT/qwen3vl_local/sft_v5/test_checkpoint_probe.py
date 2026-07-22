@@ -125,6 +125,57 @@ def test_summary_and_comparison_are_stable() -> None:
     assert summary["teacher_q1_rs_accuracy"] == 0.5
     assert summary["teacher_q2_trigger_rate"] == 0.5
     assert summary["teacher_q2_event_accuracy"] == 1.0
+
+    # teacher Q2 不只出现在慢帧：快帧会直接对当前 RGB fresh prefill。触发率分母必须
+    # 是全部 frame，不能除以 teacher Q1 帧数，否则结果可能大于 1。
+    teacher_rate_logs = [
+        {
+            "q1_teacher_rs_correct": True,
+            "q2_teacher_triggered": True,
+            "q2_teacher_event_correct": True,
+            "teacher_event_family_correct": True,
+        },
+        {
+            "q1_teacher_rs_correct": False,
+            "q2_teacher_triggered": False,
+            "q2_teacher_event_correct": None,
+            "teacher_event_family_correct": False,
+        },
+        {
+            # 快帧没有 teacher Q1，但仍会运行 teacher EVENT_FAST。
+            "q1_teacher_rs_correct": None,
+            "q2_teacher_triggered": True,
+            "q2_teacher_event_correct": True,
+            "teacher_event_family_correct": True,
+        },
+    ]
+    teacher_rate_summary = summarize_probe(
+        teacher_rate_logs,
+        student_enabled=False,
+        teacher_enabled=True,
+        student_adapter_dir=None,
+        student_disable_adapter=False,
+    )
+    assert teacher_rate_summary["teacher_q1_frames"] == 2
+    assert teacher_rate_summary["teacher_q2_frames"] == 2
+    assert teacher_rate_summary["teacher_q2_trigger_rate"] == 2.0 / 3.0
+
+    # 每帧 q1_rs_accuracy 是实际 RS gate 口径；快帧复用正确 memory 不能作为 Q1 错误。
+    rs_gate_logs = [
+        {"q1_triggered": True, "q1_rs_correct": True, "rs_gate_correct": True},
+        {"q1_triggered": True, "q1_rs_correct": False, "rs_gate_correct": False},
+        {"q1_triggered": False, "q1_rs_correct": False, "rs_gate_correct": True},
+    ]
+    rs_gate_summary = summarize_probe(
+        rs_gate_logs,
+        student_enabled=True,
+        teacher_enabled=False,
+        student_adapter_dir=None,
+        student_disable_adapter=False,
+    )
+    assert rs_gate_summary["q1_rs_correct"] == 2
+    assert rs_gate_summary["q1_rs_accuracy"] == 2.0 / 3.0
+    assert rs_gate_summary["rs_slow_accuracy"] == 0.5
     static_summary = summarize_probe(
         logs,
         student_enabled=False,
