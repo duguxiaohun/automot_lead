@@ -467,6 +467,19 @@
   memory 异常不能直接相加，最终比例必须看 TensorBoard。
   运行与可视化方法见
   `SFT_V5_RUN.md` / `SFT_V5_PLAN.md` / `SFT_V5_VISUALIZATION_RECORD.md`。）
+- `AutoMoT/qwen3vl_local/sft_base/`
+  （按用户同意新增到白名单：SFT v5 的直接监督基线。复用 v5 的 collection_output
+  数据构建、异常 route 剔除、4 帧 RGB history、`EGO_TO_GOAL_XY`、RS/EVENT 候选池和
+  串行 memory 状态；但训练不做 OPSD、不采 student rollout、不跑 privileged teacher、
+  不输出 CoT。Q1 target 只有 `RS: <A-E>` 与 `ABNORMAL: <YES|NO>`，Q2 target 只有
+  `EVENT: <option>`；Q2 option-letter 扰动使用 v5 seed namespace，同 route/frame/seed
+  下 A/B/C 字母映射与 v5 一致；训练为 teacher-forced weighted CE，memory 由 GT answer 更新，
+  作为干净直接监督 baseline，不宣称继承 v5 的 on-policy student memory 分布；eval
+  仍按学生输出自维护离散 memory，`EGO_TO_GOAL_XY` 每帧刷新为当前帧 ego-frame goal。
+  默认 `LORA_VISION_SCOPE=merger`，即默认微调视觉桥接层，并启用视觉 fuse guard；
+  eval 加载 adapter 前校验 `sft_base_adapter_config.json` 的 route/dataset/base-model/
+  vision-scope，避免误用 v2/v5 adapter；仍可用 `off/last4/all` 做对照。
+  运行见 `SFT_BASE_RUN.md` / `SFT_BASE_PLAN.md`。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md`
@@ -541,6 +554,7 @@ git add AutoMoT/qwen3vl_local/sft_v2/__init__.py AutoMoT/qwen3vl_local/sft_v2/SF
 git add AutoMoT/qwen3vl_local/sft_v3/__init__.py AutoMoT/qwen3vl_local/sft_v3/SFT_V3_PLAN.md AutoMoT/qwen3vl_local/sft_v3/SFT_V3_RUN.md AutoMoT/qwen3vl_local/sft_v3/prompts.py AutoMoT/qwen3vl_local/sft_v3/build_dataset.py AutoMoT/qwen3vl_local/sft_v3/train.py AutoMoT/qwen3vl_local/sft_v3/train.sh AutoMoT/qwen3vl_local/sft_v3/eval.py AutoMoT/qwen3vl_local/sft_v3/probe.py AutoMoT/qwen3vl_local/sft_v3/check_loss_mask.py AutoMoT/qwen3vl_local/sft_v3/test_memory_update.py AutoMoT/qwen3vl_local/sft_v3/test_kv_reuse.py AutoMoT/qwen3vl_local/sft_v3/test_gt_leak_filter.py
 git add AutoMoT/qwen3vl_local/sft_v4/__init__.py AutoMoT/qwen3vl_local/sft_v4/SFT_V4_PLAN.md AutoMoT/qwen3vl_local/sft_v4/SFT_V4_RUN.md AutoMoT/qwen3vl_local/sft_v4/prompts.py AutoMoT/qwen3vl_local/sft_v4/build_dataset.py AutoMoT/qwen3vl_local/sft_v4/train.py AutoMoT/qwen3vl_local/sft_v4/train.sh AutoMoT/qwen3vl_local/sft_v4/eval.py AutoMoT/qwen3vl_local/sft_v4/probe.py AutoMoT/qwen3vl_local/sft_v4/check_loss_mask.py AutoMoT/qwen3vl_local/sft_v4/test_memory_update.py AutoMoT/qwen3vl_local/sft_v4/test_kv_reuse.py AutoMoT/qwen3vl_local/sft_v4/test_kv_vs_native.py AutoMoT/qwen3vl_local/sft_v4/test_gt_leak_filter.py AutoMoT/qwen3vl_local/sft_v4/replay.py AutoMoT/qwen3vl_local/sft_v4/collect.py AutoMoT/qwen3vl_local/sft_v4/learn.py AutoMoT/qwen3vl_local/sft_v4/launch_offpolicy.sh AutoMoT/qwen3vl_local/sft_v4/inspect_teacher.py
 git add AutoMoT/qwen3vl_local/sft_v5/
+git add AutoMoT/qwen3vl_local/sft_base/
 git add AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V2.md AutoMoT/qwen3vl_local/goalgen/build_dataset.py AutoMoT/qwen3vl_local/goalgen/train.py AutoMoT/qwen3vl_local/goalgen/train.sh AutoMoT/qwen3vl_local/goalgen/eval.py AutoMoT/qwen3vl_local/goalgen/probe.py
 git add AutoMoT/qwen3vl_local/leadmot/__init__.py AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_PLAN.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md AutoMoT/qwen3vl_local/leadmot/build_dataset.py AutoMoT/qwen3vl_local/leadmot/train.py AutoMoT/qwen3vl_local/leadmot/train.sh AutoMoT/qwen3vl_local/leadmot/eval.py AutoMoT/qwen3vl_local/leadmot/probe.py AutoMoT/qwen3vl_local/leadmot/config.py AutoMoT/qwen3vl_local/leadmot/projectors.py AutoMoT/qwen3vl_local/leadmot/query_bank.py AutoMoT/qwen3vl_local/leadmot/heads.py AutoMoT/qwen3vl_local/leadmot/mot_block.py AutoMoT/qwen3vl_local/leadmot/decoder.py AutoMoT/qwen3vl_local/leadmot/subgoal_prompt.py
 git add AutoMoT/vae_standalone/train_patch_unpatch.py AutoMoT/vae_standalone/vae_reconstruct.py
