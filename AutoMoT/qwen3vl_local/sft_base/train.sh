@@ -114,6 +114,8 @@ case "${MODE}" in
     export MASTER_PORT="${MASTER_PORT:-$(find_free_master_port)}"
     # sft_base 使用普通 DDP + teacher-forced CE；这里仅负责进程数和 master 端口。
     export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
+    # NCCL RAS 在共享服务器上可能因默认端口冲突打印 bind failed；训练不依赖 RAS。
+    export NCCL_RAS_ENABLE="${NCCL_RAS_ENABLE:-0}"
     ;;
   *)
     echo "Unknown mode: ${MODE}. Use single/ddp/check." >&2
@@ -172,6 +174,7 @@ COMMON_ARGS=(
   --logging-steps "${LOGGING_STEPS:-5}"
   --save-steps "${SAVE_STEPS:-200}"
   --max-steps "${MAX_STEPS:-0}"
+  --frames-per-sync "${FRAMES_PER_SYNC:-64}"
   --seed "${SEED:-20260711}"
   "${EXTRA_ARGS[@]}"
 )
