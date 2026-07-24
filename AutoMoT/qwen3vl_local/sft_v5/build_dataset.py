@@ -25,9 +25,10 @@ import pathlib
 import pickle
 import random
 import sys
+import time
 import xml.etree.ElementTree as ET
 from collections import Counter
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
 _AUTOMOT_ROOT = _THIS_FILE.parents[2]
@@ -52,6 +53,100 @@ import numpy as np  # noqa: E402
 # LEAD 数据按 4 Hz 落盘；这里取连续 4 帧，即每个训练 frame 最多看到约 0.75 秒历史。
 RGB_HISTORY_COUNT = 4
 RGB_HISTORY_STEP = 1
+
+
+class _ProgressDisplay:
+    """在终端显示单行动态进度，在重定向日志中按低频率输出快照。
+
+    ``current`` 允许是浮点数，数据扫描阶段可把“当前 scenario 内 route/frame 的完成
+    比例”折算进 scenario 进度。每次 stage 变化都会重置速率与 ETA，避免把扫描速度和
+    JSONL 写盘速度混为一谈。
+    """
+
+    def __init__(self, *, enabled: bool = True, interval_s: float = 1.0) -> None:
+        """初始化显示器；非交互输出至少间隔 10 秒，避免远端日志被进度刷屏。"""
+
+        self.enabled = bool(enabled)
+        self.is_tty = bool(getattr(sys.stderr, "isatty", lambda: False)())
+        self.interval_s = max(0.1, float(interval_s))
+        if not self.is_tty:
+            self.interval_s = max(10.0, self.interval_s)
+        self.stage = ""
+        self.stage_started_at = time.monotonic()
+        self.last_emit_at = -1e30
+        self.last_line_len = 0
+
+    @staticmethod
+    def _format_seconds(seconds: Optional[float]) -> str:
+        """把秒数格式化为短时长；未知或非有限 ETA 显示 ``--:--``。"""
+
+        if seconds is None or not np.isfinite(seconds) or seconds < 0:
+            return "--:--"
+        total = int(round(seconds))
+        hours, remain = divmod(total, 3600)
+        minutes, secs = divmod(remain, 60)
+        if hours:
+            return f"{hours:d}:{minutes:02d}:{secs:02d}"
+        return f"{minutes:02d}:{secs:02d}"
+
+    def update(
+        self,
+        *,
+        stage: str,
+        current: float,
+        total: int,
+        detail: str = "",
+        force: bool = False,
+    ) -> None:
+        """刷新一个 stage 的进度条，并显示速率、耗时和估计剩余时间。"""
+
+        if not self.enabled:
+            return
+        now = time.monotonic()
+        if stage != self.stage:
+            if self.is_tty and self.last_line_len:
+                sys.stderr.write("\n")
+            self.stage = stage
+            self.stage_started_at = now
+            self.last_emit_at = -1e30
+            self.last_line_len = 0
+        if not force and now - self.last_emit_at < self.interval_s:
+            return
+
+        safe_total = max(0, int(total))
+        bounded_current = max(0.0, min(float(current), float(safe_total))) if safe_total else 0.0
+        ratio = bounded_current / safe_total if safe_total else 1.0
+        elapsed = max(0.0, now - self.stage_started_at)
+        rate = bounded_current / elapsed if elapsed > 1e-9 else 0.0
+        eta = (safe_total - bounded_current) / rate if rate > 1e-9 else None
+        width = 24
+        filled = min(width, int(round(ratio * width)))
+        bar = "=" * filled + "-" * (width - filled)
+        count_text = f"{bounded_current:.1f}/{safe_total}" if bounded_current % 1 else f"{int(bounded_current)}/{safe_total}"
+        message = (
+            f"[sft_v5 build] {stage} [{bar}] {ratio * 100:6.2f}% "
+            f"{count_text} rate={rate:.2f}/s elapsed={self._format_seconds(elapsed)} "
+            f"eta={self._format_seconds(eta)}"
+        )
+        if detail:
+            message += f" | {detail}"
+
+        if self.is_tty:
+            padding = " " * max(0, self.last_line_len - len(message))
+            sys.stderr.write("\r" + message + padding)
+            sys.stderr.flush()
+            self.last_line_len = len(message)
+        else:
+            print(message, file=sys.stderr, flush=True)
+        self.last_emit_at = now
+
+    def finish(self) -> None:
+        """结束最后一条动态进度行，保证后续摘要从新行开始。"""
+
+        if self.enabled and self.is_tty and self.last_line_len:
+            sys.stderr.write("\n")
+            sys.stderr.flush()
+        self.last_line_len = 0
 
 
 def _read_json(path: pathlib.Path) -> Any:
@@ -377,6 +472,7 @@ def _build_route_row(
     scenario_candidates: List[str],
     option_seed: int,
     max_frames_per_route: int,
+    frame_progress: Optional[Callable[[int, int], None]] = None,
 ) -> Optional[Dict[str, Any]]:
     """把单条 route result 转成一个连续 sequence row。
 
@@ -401,7 +497,8 @@ def _build_route_row(
     if max_frames_per_route > 0:
         annotations = annotations[:max_frames_per_route]
     frames: List[Dict[str, Any]] = []
-    for ann in annotations:
+    frame_total = len(annotations)
+    for frame_index, ann in enumerate(annotations, start=1):
         frame_row = _build_frame_row(
             ann=ann,
             run_dir=run_dir,
@@ -411,6 +508,8 @@ def _build_route_row(
             xml_weathers=xml_weathers,
             automot_root=automot_root,
         )
+        if frame_progress is not None:
+            frame_progress(frame_index, frame_total)
         if frame_row is None:
             # v5 的训练单元是整条 route sequence；任一帧证据链缺失都会破坏 memory 轨迹，
             # 所以这里选择丢整条 route，而不是只删中间一帧造成时间跳变。
@@ -455,14 +554,27 @@ def _split_rows(rows: List[Dict[str, Any]], *, val_ratio: float, seed: int) -> T
     return train, val
 
 
-def _write_jsonl(path: pathlib.Path, rows: Iterable[Mapping[str, Any]]) -> int:
-    """把 route rows 逐行写成 UTF-8 JSONL，并返回实际写入的 route 数量。"""
+def _write_jsonl(
+    path: pathlib.Path,
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    total: int = 0,
+    progress: Optional[_ProgressDisplay] = None,
+    stage: str = "write",
+) -> int:
+    """把 route rows 逐行写成 UTF-8 JSONL，并按 route 更新可选写盘进度。"""
 
     count = 0
+    if progress is not None:
+        progress.update(stage=stage, current=0, total=total, detail=str(path), force=True)
     with open(path, "w", encoding="utf-8") as f:
         for row in rows:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
             count += 1
+            if progress is not None:
+                progress.update(stage=stage, current=count, total=total, detail=path.name)
+    if progress is not None:
+        progress.update(stage=stage, current=count, total=total, detail=path.name, force=True)
     return count
 
 
@@ -485,6 +597,10 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     if not output_dir.is_absolute():
         output_dir = automot_root / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    progress = _ProgressDisplay(
+        enabled=bool(getattr(args, "progress", True)),
+        interval_s=float(getattr(args, "progress_interval", 1.0)),
+    )
 
     # 三类 counter 既用于人工检查样本分布，也能快速发现某个过滤条件意外吃掉全量数据。
     rows: List[Dict[str, Any]] = []
@@ -494,14 +610,25 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
 
     scenario_filter = {s.strip() for s in str(args.scenarios or "").split(",") if s.strip()}
     files = sorted(collection_dir.glob("*_result.json"))
-    for path in files:
+    scenario_total = len(files)
+    total_frames_built = 0
+    for scenario_index, path in enumerate(files, start=1):
         scenario = path.name[: -len("_result.json")]
+        progress.update(
+            stage="scan",
+            current=scenario_index - 1,
+            total=scenario_total,
+            detail=f"scenario={scenario} reading result",
+            force=True,
+        )
         if scenario == "noScenarios":
             # noScenarios 是用户明确要求排除的收集结果；它可能含可视证据，
             # 但不属于本轮 RS/EVENT OPSD 的训练分布。
             skip_counter["skip_noScenarios_file"] += 1
+            progress.update(stage="scan", current=scenario_index, total=scenario_total, detail="skip noScenarios", force=True)
             continue
         if scenario_filter and scenario not in scenario_filter:
+            progress.update(stage="scan", current=scenario_index, total=scenario_total, detail=f"skip filter: {scenario}", force=True)
             continue
         result = _read_json(path)
         scenario = str(result.get("scenario") or scenario)
@@ -510,17 +637,52 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         route_rows = list(result.get("routes") or [])
         if args.max_routes > 0:
             route_rows = route_rows[: args.max_routes]
-        for route in route_rows:
+        route_total = len(route_rows)
+        scenario_valid = 0
+        scenario_skipped = 0
+        for route_index, route in enumerate(route_rows, start=1):
             route_id = str(route.get("route_id", ""))
+            annotations = list(route.get("annotations") or [])
+            frame_total = min(len(annotations), int(args.max_frames_per_route)) if int(args.max_frames_per_route) > 0 else len(annotations)
+
+            def _report_frame(frame_index: int, current_frame_total: int) -> None:
+                """把当前 route 的帧进度折算为全局 scenario 文件进度。"""
+
+                route_fraction = (
+                    (route_index - 1) + frame_index / max(1, current_frame_total)
+                ) / max(1, route_total)
+                scan_current = (scenario_index - 1) + route_fraction
+                progress.update(
+                    stage="scan",
+                    current=scan_current,
+                    total=scenario_total,
+                    detail=(
+                        f"scenario={scenario} route={route_index}/{route_total} "
+                        f"frame={frame_index}/{current_frame_total} ok={len(rows)} "
+                        f"skip={sum(skip_counter.values())}"
+                    ),
+                )
+
+            progress.update(
+                stage="scan",
+                current=(scenario_index - 1) + (route_index - 1) / max(1, route_total),
+                total=scenario_total,
+                detail=(
+                    f"scenario={scenario} route={route_index}/{route_total} "
+                    f"frame=0/{frame_total} ok={len(rows)} skip={sum(skip_counter.values())}"
+                ),
+            )
             if route_id in abnormal_skips:
                 # lead_video_tools 的异常时长规则在 keyframe_filter 前置产物里已经记录；
                 # 这里再次执行，防止长异常 route 混入训练。
                 skip_counter["skip_abnormal_duration"] += 1
+                scenario_skipped += 1
                 continue
             if route_id in missing_skips:
                 # 数据结构缺失、RGB/meta/XML 不完整的 route 不训练；这和
                 # review_required=true 不同，后者只是需要人工关注但仍有完整证据链。
                 skip_counter["skip_data_missing"] += 1
+                scenario_skipped += 1
                 continue
             row = _build_route_row(
                 scenario=scenario,
@@ -530,23 +692,38 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
                 scenario_candidates=scenario_candidates,
                 option_seed=int(args.option_seed),
                 max_frames_per_route=int(args.max_frames_per_route),
+                frame_progress=_report_frame,
             )
             if row is None:
                 skip_counter["skip_empty_or_failed_route"] += 1
+                scenario_skipped += 1
                 continue
             rows.append(row)
+            scenario_valid += 1
+            total_frames_built += len(row["frames"])
             for frame in row["frames"]:
                 rs_counter[str(frame.get("rs_label"))] += 1
                 event_counter[str(frame.get("event_label"))] += 1
+        progress.update(
+            stage="scan",
+            current=scenario_index,
+            total=scenario_total,
+            detail=(
+                f"scenario={scenario} done routes={route_total} valid={scenario_valid} "
+                f"skip={scenario_skipped} total_valid={len(rows)} frames={total_frames_built}"
+            ),
+            force=True,
+        )
 
     # 直到所有 route 构建完成后再切分，保证 val_ratio 以有效 route 为分母。
     train_rows, val_rows = _split_rows(rows, val_ratio=float(args.val_ratio), seed=int(args.seed))
     train_path = output_dir / "train_sequence_index.jsonl"
     val_path = output_dir / "val_sequence_index.jsonl"
     all_path = output_dir / "sequence_index.jsonl"
-    _write_jsonl(train_path, train_rows)
-    _write_jsonl(val_path, val_rows)
-    _write_jsonl(all_path, rows)
+    _write_jsonl(train_path, train_rows, total=len(train_rows), progress=progress, stage="write train")
+    _write_jsonl(val_path, val_rows, total=len(val_rows), progress=progress, stage="write val")
+    _write_jsonl(all_path, rows, total=len(rows), progress=progress, stage="write all")
+    progress.finish()
 
     summary = {
         "dataset_version": DATASET_VERSION,
@@ -580,6 +757,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
     p.add_argument("--scenarios", type=str, default="", help="comma-separated scenario names for smoke/debug builds")
+    p.add_argument("--progress-interval", type=float, default=1.0, help="interactive progress refresh interval in seconds")
+    p.add_argument("--no-progress", dest="progress", action="store_false", help="disable scan/write progress display")
+    p.set_defaults(progress=True)
     return p.parse_args()
 
 
