@@ -21,6 +21,11 @@ python qwen3vl_local/sft_v5/build_dataset.py \
 meta 或逐帧 annotation 的 route；`review_required=true` 正常保留。Q2 优先使用逐帧
 `frame_event_annotation.allowed_events`，缺失时才使用静态候选表。
 
+构建过程默认显示动态进度：扫描阶段同时展示 scenario、route、当前 frame、累计有效/
+跳过 route、已构建帧数、速率、耗时和 ETA；随后分别显示 train/val/all 三份 JSONL
+写盘进度。终端输出被重定向到日志时会自动降低刷新频率，避免刷屏。可用
+`--progress-interval 2` 调整交互终端刷新秒数，或用 `--no-progress` 完全关闭。
+
 快速 smoke：
 
 ```bash
