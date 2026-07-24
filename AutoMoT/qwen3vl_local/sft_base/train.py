@@ -399,13 +399,26 @@ class StepStats:
     n_skipped: int = 0
 
 
-def run_batch(bundle: Any, batch: List[SequenceRow], *, max_length: int, loss_scale: float, sync_grads: bool) -> StepStats:
+def run_batch(
+    bundle: Any,
+    batch: List[SequenceRow],
+    *,
+    max_length: int,
+    loss_scale: float,
+    sync_grads: bool,
+    frames_per_sync: int = 0,
+) -> StepStats:
     """逐 route/frame 跑 teacher-forced CE，并累积梯度。
 
     函数分两段做事：先按 route 顺序生成每帧的 memory snapshot，再逐帧读图 forward。
     第一段每帧刷新 EGO_TO_GOAL_XY，然后用 GT answer teacher-forced 更新离散 memory；
     第二段只负责训练 loss。这样即使某帧图片读取失败，也不会改变同 route 后续帧的
     teacher-forced memory 轨迹。
+
+    多卡时每个 rank 拿到的是完整 route，route 帧数差异会很大。如果只在整条 route
+    结束后同步，短 route 的 rank 可能在 NCCL all-reduce 里等长 route 超过 10 分钟。
+    `frames_per_sync` 会把长 route 切成固定帧数 heartbeat：各 rank 按相同 collective
+    顺序同步累计梯度，已跑完本地 chunk 的 rank 继续带着已有平均梯度参与，避免超时。
     """
 
     stats = StepStats()
@@ -425,10 +438,68 @@ def run_batch(bundle: Any, batch: List[SequenceRow], *, max_length: int, loss_sc
             memory_after_q1 = update_memory_after_q1(memory, student_rs_label=rs_target.label, student_abnormal=event_target.abnormal)
             memory = update_memory_after_q2(memory_after_q1, student_event_label=event_target.label)
     if not work:
-        if sync_grads:
+        if sync_grads and int(frames_per_sync) > 0:
+            while True:
+                _sync_trainable_grads(bundle)
+                if _ddp_sum_float(0.0, bundle.device) <= 0.0:
+                    break
+        elif sync_grads:
             _sync_trainable_grads(bundle)
         return stats
 
+    if sync_grads and int(frames_per_sync) > 0:
+        chunk_size = max(1, int(frames_per_sync))
+        offset = 0
+        while True:
+            chunk = work[offset : offset + chunk_size]
+            offset += len(chunk)
+            chunk_stats = _run_work_items(
+                bundle,
+                chunk,
+                max_length=max_length,
+                loss_scale=loss_scale,
+                loss_normalizer=max(1, len(work)),
+            )
+            _merge_stats(stats, chunk_stats)
+            _sync_trainable_grads(bundle)
+            if _ddp_sum_float(1.0 if offset < len(work) else 0.0, bundle.device) <= 0.0:
+                break
+        return stats
+
+    chunk_stats = _run_work_items(
+        bundle,
+        work,
+        max_length=max_length,
+        loss_scale=loss_scale,
+        loss_normalizer=max(1, len(work)),
+    )
+    _merge_stats(stats, chunk_stats)
+    if sync_grads:
+        _sync_trainable_grads(bundle)
+    return stats
+
+
+def _merge_stats(dst: StepStats, src: StepStats) -> None:
+    """把 chunk 统计累加到 batch 统计。"""
+
+    dst.loss_sum += src.loss_sum
+    dst.n_samples += src.n_samples
+    dst.n_frames += src.n_frames
+    dst.n_q2 += src.n_q2
+    dst.n_skipped += src.n_skipped
+
+
+def _run_work_items(
+    bundle: Any,
+    work: List[Tuple[str, FrameRow, Memory]],
+    *,
+    max_length: int,
+    loss_scale: float,
+    loss_normalizer: int,
+) -> StepStats:
+    """执行一段 frame work，不在函数内部发起 DDP collective。"""
+
+    stats = StepStats()
     for route_id, frame, memory in work:
         try:
             images = _load_images(frame.history_rgb_paths)
@@ -447,13 +518,11 @@ def run_batch(bundle: Any, batch: List[SequenceRow], *, max_length: int, loss_sc
             # 所以不同 rank 的 route/frame 数量不同也不会造成 collective 次数漂移。
             bundle.model.train()
             loss = _loss_one_sample(bundle, packed)
-            (loss / float(len(work)) / max(loss_scale, 1.0)).backward()
+            (loss / float(max(1, loss_normalizer)) / max(loss_scale, 1.0)).backward()
         stats.loss_sum += float(loss.detach().item())
         stats.n_samples += 1
         stats.n_frames += 1
         stats.n_q2 += int(q2_included)
-    if sync_grads:
-        _sync_trainable_grads(bundle)
     return stats
 
 
@@ -633,6 +702,7 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "language_clip_norm": float(args.language_clip_norm),
         "vision_clip_norm": float(args.vision_clip_norm),
         "max_length": int(args.max_length),
+        "frames_per_sync": int(args.frames_per_sync),
     }
     (path / "sft_base_adapter_config.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -674,6 +744,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--eval-steps", type=int, default=200)
     p.add_argument("--max-eval-samples", type=int, default=256)
     p.add_argument("--max-steps", type=int, default=0)
+    p.add_argument("--frames-per-sync", type=int, default=64)
     p.add_argument("--check", action="store_true")
     p.add_argument("--no-grad-checkpoint", action="store_true")
     p.add_argument("--seed", type=int, default=20260724)
@@ -718,7 +789,10 @@ def main() -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
         print(f"[init] output_dir={output_dir} rank={rank} world={world_size} device={device} vision_scope={args.lora_vision_scope}")
     if dist.is_available() and dist.is_initialized():
-        dist.barrier()
+        if torch.cuda.is_available():
+            dist.barrier(device_ids=[local_rank])
+        else:
+            dist.barrier()
 
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
@@ -852,6 +926,7 @@ def main() -> None:
                 max_length=int(args.max_length),
                 loss_scale=float(max(1, int(args.grad_accum))),
                 sync_grads=sync_this,
+                frames_per_sync=int(args.frames_per_sync),
             )
             last_stats = stats
             accum_loss += stats.loss_sum
