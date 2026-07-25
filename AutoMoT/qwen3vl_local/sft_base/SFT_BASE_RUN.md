@@ -58,7 +58,59 @@ LORA_VISION_SCOPE=off GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
 VISION_GUARD_ENABLED=0 GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
 ```
 
-## 4. 评估
+## 4. TensorBoard 与日志
+
+训练脚本会在 rank0 写 TensorBoard events：
+
+```text
+checkpoints/sft_base_runs/run_<RUN_TAG>/tb/
+checkpoints/sft_base_runs/latest/tb/
+```
+
+远端从 `AutoMoT/` 目录启动：
+
+```bash
+bash qwen3vl_local/tb_serve.sh checkpoints/sft_base_runs/latest/tb
+```
+
+也可以把 logdir 指到 run 根目录，后续如果增加 `eval_tb/` 等子目录，TensorBoard 会在左侧 run 列表中分开展示：
+
+```bash
+bash qwen3vl_local/tb_serve.sh checkpoints/sft_base_runs/latest
+```
+
+`tb_serve.sh` 会自动选空闲端口、用 `--bind_all` 启动 TensorBoard，并在 stdout 打印本地浏览器 URL。常用覆盖：
+
+```bash
+TB_PORT=6007 bash qwen3vl_local/tb_serve.sh checkpoints/sft_base_runs/latest/tb
+TB_BIND=127.0.0.1 bash qwen3vl_local/tb_serve.sh checkpoints/sft_base_runs/latest/tb
+TB_EXTRA="--samples_per_plugin images=200" bash qwen3vl_local/tb_serve.sh checkpoints/sft_base_runs/latest/tb
+```
+
+优先查看：
+
+| Tag | 用途 |
+|---|---|
+| `train/loss` | optimizer step 后的全局平均训练 loss |
+| `train/q2_rate_last_batch` | 最近一次同步 batch 中包含 Q2 的帧比例 |
+| `train/grad_norm/language` | 语言 LoRA 梯度范数 |
+| `train/grad_norm/vision` | 视觉 LoRA/merger 相关梯度范数；`LORA_VISION_SCOPE=off` 时可能没有 |
+| `train/param_norm/lora_vision` | 视觉侧可训练参数范数，用于观察 fuse 是否异常漂移 |
+| `train/vision_guard_bad_steps` | 视觉 fuse guard 连续异常步数 |
+| `val/loss` | 评估间隔触发的 teacher-forced 验证 loss |
+| `val/samples` / `val/skipped` | 验证样本数与跳过帧数 |
+| `val/q2_rate` | 验证集中 Q2 监督帧比例 |
+
+训练 stdout/stderr 默认同步写到当前 run 的 `log.txt`，路径为：
+
+```text
+checkpoints/sft_base_runs/run_<RUN_TAG>/log.txt
+checkpoints/sft_base_runs/latest/log.txt
+```
+
+如果 TensorBoard 里只有 events header 没有曲线，先确认训练已经完成至少 1 个 optimizer step；`LOGGING_STEPS` 只影响写入频率，默认每 5 step 记录一次，step 1 也会记录。
+
+## 5. 评估
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
@@ -71,7 +123,7 @@ GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
 `eval.py` 会先校验 adapter 目录中的 `sft_base_adapter_config.json`。如果 route、
 dataset version、base model path 或 vision scope 不匹配，会直接报错。
 
-## 5. 维护检查
+## 6. 维护检查
 
 ```bash
 python -m py_compile qwen3vl_local/sft_base/*.py
