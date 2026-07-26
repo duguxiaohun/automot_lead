@@ -112,16 +112,78 @@ checkpoints/sft_base_runs/latest/log.txt
 
 ## 5. 评估
 
+评估分三类，并且完全不做脚本纠正：Q1 预测错 RS 时只跳过当前帧 Q2，下一帧继续沿用模型自己维护出的 memory；Q2 输出非法时也不重置。
+
+随机完整路线闭环测试：随机抽若干条 route，从起点跑到终点，看模型在自然路径里长期记忆是否漂移。
+
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
   --index checkpoints/sft_base_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_base_runs/latest/final \
-  --output-json checkpoints/sft_base_runs/latest/eval_metrics.json
+  --eval-mode full_route \
+  --sample-routes 16 \
+  --seed 20260724 \
+  --output-json checkpoints/sft_base_runs/latest/eval_full_route_metrics.json \
+  --output-jsonl checkpoints/sft_base_runs/latest/eval_full_route_frames.jsonl
+```
+
+RS 转折专项测试：只取 RS 变化点前后 `--transition-window` 帧，并用 `--transition-tolerance` 允许提前或滞后若干帧；重点看模型是否能在容忍窗口内切到正确 RS，而不是逐帧和数据标注完全同拍。
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --index checkpoints/sft_base_data/val_sequence_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --eval-mode rs_transition \
+  --transition-window 8 \
+  --transition-tolerance 3 \
+  --max-transition-cases 128 \
+  --seed 20260724 \
+  --output-json checkpoints/sft_base_runs/latest/eval_rs_transition_metrics.json \
+  --output-jsonl checkpoints/sft_base_runs/latest/eval_rs_transition_frames.jsonl
+```
+
+UE/RE/EVENT 转换专项测试：只取 EVENT 或 ABNORMAL 状态变化点前后窗口，检查模型是否能在容忍窗口内切到正确 EVENT；`event_transition_abnormal_hit_rate` 另看 Q1 的 YES/NO 是否先切对。
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --index checkpoints/sft_base_data/val_sequence_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --eval-mode event_transition \
+  --transition-window 8 \
+  --transition-tolerance 3 \
+  --max-transition-cases 128 \
+  --seed 20260724 \
+  --output-json checkpoints/sft_base_runs/latest/eval_event_transition_metrics.json \
+  --output-jsonl checkpoints/sft_base_runs/latest/eval_event_transition_frames.jsonl
 ```
 
 `eval.py` 会先校验 adapter 目录中的 `sft_base_adapter_config.json`。如果 route、
 dataset version、base model path 或 vision scope 不匹配，会直接报错。
+
+起始 memory 噪声只在每条完整 route 或每个转折窗口的第一帧注入，后续仍然不纠正，用来测模型能不能自己恢复：
+
+```bash
+--initial-memory-noise rs
+--initial-memory-noise event
+--initial-memory-noise both
+--initial-memory-noise random
+```
+
+常用指标口径：
+
+| 指标 | 含义 |
+|---|---|
+| `rs_acc` / `event_acc_when_rs_correct` | 全部评估帧上的 RS 准确率、RS 正确时的 EVENT 准确率 |
+| `q2_trigger_rate` | Q1 RS 正确后进入 Q2 的比例；RS 漂移会直接压低这个值 |
+| `script_resets` | 脚本纠偏审计字段；评测不允许纠偏，正常必须恒为 0 |
+| `rs_transition_hit_rate` | RS 转折 case 在容忍窗口内切到目标 RS 的比例 |
+| `event_transition_hit_rate` | UE/RE/EVENT 转换 case 在容忍窗口内切到目标 EVENT 的比例 |
+| `event_transition_abnormal_hit_rate` | UE/RE 转换 case 在容忍窗口内 Q1 YES/NO 切对的比例 |
+| `*_early_hits` / `*_on_time_hits` / `*_late_hits` | 命中发生在标注转折前、同帧或后几帧的数量 |
+| `output-jsonl` 每行 | 单帧复盘和 `transition_case_summary`，包含 route/frame、转折点、容忍窗口、GT/PRED RS、GT/PRED EVENT、原始生成文本 |
 
 ## 6. 维护检查
 

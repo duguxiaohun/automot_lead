@@ -28,6 +28,13 @@ EVENT: B
 
 eval 加载 adapter 前必须读 `sft_base_adapter_config.json`，校验 route、dataset version、base model path 与 vision scope，避免误拿 v2/v5/base adapter 产出无意义指标。
 
+## 评测口径
+
+- `eval.py` 固定分三类测试：`full_route` 随机完整路径闭环测试、`rs_transition` RS 转折专项测试、`event_transition` UE/RE/EVENT 转换专项测试。
+- 评测阶段完全不做脚本纠正：Q1 RS 错只跳过当前帧 Q2，下一帧继续沿用学生 memory；Q2 EVENT 非法只不更新 EVENT，也不能 reset。`script_resets` 只是审计字段，正常必须恒为 0。
+- 转折专项不要求预测和数据标注逐帧完全同拍；用 `--transition-tolerance` 设置容忍窗口，只要模型在转折点前后若干帧内切到目标 RS 或 EVENT，就算该 case 命中，并记录 early/on_time/late。
+- 起始 memory 噪声只允许注入在每条完整 route 或每个转折窗口的第一帧，用来测模型是否能自恢复；后续帧仍然不能纠正。
+
 ## 实现约束
 
 - `labels.py` 中 `DATASET_VERSION` 标识 sft_base 自己的训练协议；`OPTION_MAP_DATASET_VERSION` 固定为 v5，用来保证 Q2 字母扰动逐样本对齐。
