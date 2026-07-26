@@ -20,6 +20,8 @@ from qwen3vl_local.sft_base.labels import EventTarget, RSTarget
 from qwen3vl_local.sft_base.prompts import (
     build_q1_target,
     build_q2_target,
+    parse_q1_output,
+    parse_q2_output,
     reset_memory_for_frame,
     target_spans_q1,
     target_spans_q2,
@@ -46,9 +48,13 @@ def main() -> None:
     )
     event = EventTarget(label="U-E6", event_code="U-E6", abnormal=True, raw_events=("R-E4", "U-E6"))
     q1 = build_q1_target(rs_target=rs, event_target=event)
+    assert "SIGNAL_INTERSECTION" in q1 and "RS: D" not in q1
+    assert parse_q1_output(q1)["rs_label"] == "R4"
     _assert_nonempty(q1, target_spans_q1(q1), ["rs", "abnormal"])
     memory = reset_memory_for_frame(rs)
     q2 = build_q2_target(memory, option_map={"A": "RE", "B": "U-E6"}, event_target=event)
+    assert "RULE_VIOLATION" in q2 and "EVENT: B" not in q2
+    assert parse_q2_output(q2, {"A": "RE", "B": "U-E6"})["event_label"] == "U-E6"
     _assert_nonempty(q2, target_spans_q2(q2), ["event"])
     print("[sft_base check_loss_mask] ok")
 

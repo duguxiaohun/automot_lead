@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SFT base 训练 launcher：RS/EVENT 两问直接选项 SFT + true torch DDP。
+# SFT base 训练 launcher：RS/EVENT 两问直接 token SFT + true torch DDP。
 #
 # 从 AutoMoT/ 目录运行：
 #   GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
@@ -173,8 +173,13 @@ COMMON_ARGS=(
   --num-workers "${NUM_WORKERS:-0}"
   --logging-steps "${LOGGING_STEPS:-5}"
   --save-steps "${SAVE_STEPS:-200}"
+  --eval-steps "${EVAL_STEPS:-200}"
+  --max-eval-samples "${MAX_EVAL_SAMPLES:-256}"
   --max-steps "${MAX_STEPS:-0}"
   --frames-per-sync "${FRAMES_PER_SYNC:-64}"
+  --ue-event-loss-weight "${UE_EVENT_LOSS_WEIGHT:-3.0}"
+  --re-event-loss-weight "${RE_EVENT_LOSS_WEIGHT:-1.0}"
+  --ue-frame-repeat "${UE_FRAME_REPEAT:-2}"
   --seed "${SEED:-20260711}"
   "${EXTRA_ARGS[@]}"
 )
