@@ -4,6 +4,10 @@
 
 ## 1. 构建数据
 
+当前协议使用固定语义 token 作为答案，例如 `RS: SIGNAL_INTERSECTION`、
+`EVENT: RULE_VIOLATION`，不再输出 A/B/C 选项。`DATASET_VERSION` 已更新，
+旧 A/B/C adapter 不能直接用于这版评估；切换协议后需要重新构建数据并重新训练。
+
 ```bash
 python qwen3vl_local/sft_base/build_dataset.py \
   --collection-dir keyframe_filter/collection_output \
@@ -47,6 +51,15 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 默认输出到 `checkpoints/sft_base_runs/run_<RUN_TAG>/`，并维护 `checkpoints/sft_base_runs/latest`。默认 `LORA_VISION_SCOPE=merger`，并启用视觉 fuse guard；如果要纯语言 LoRA 对照：
 
 多卡训练默认 `FRAMES_PER_SYNC=64`，会在长 route 内按固定帧数做梯度同步 heartbeat，避免不同 rank 的 route 帧数差异导致 NCCL all-reduce 等待超时。排查时可调小到 `32`，或在确认单条 route 很短时设为 `0` 回到整条 route 结束后同步。
+
+针对 checkpoint-600 里 `ue_acc=0` 的问题，当前默认加强 UE 监督：
+
+```bash
+UE_EVENT_LOSS_WEIGHT=3.0 RE_EVENT_LOSS_WEIGHT=1.0 UE_FRAME_REPEAT=2 \
+GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
+```
+
+`UE_EVENT_LOSS_WEIGHT` 只加 Q2 的 UE EVENT token loss；`UE_FRAME_REPEAT` 只重复异常帧的训练样本，不改变 route memory 推进。训练日志和 TensorBoard 会写 `train/q2_ue_rate_last_batch`，用于确认本轮 batch 里确实喂到了 UE 监督。
 
 ```bash
 LORA_VISION_SCOPE=off GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
@@ -93,6 +106,7 @@ TB_EXTRA="--samples_per_plugin images=200" bash qwen3vl_local/tb_serve.sh checkp
 |---|---|
 | `train/loss` | optimizer step 后的全局平均训练 loss |
 | `train/q2_rate_last_batch` | 最近一次同步 batch 中包含 Q2 的帧比例 |
+| `train/q2_ue_rate_last_batch` | 最近一次 Q2 监督中 UE 帧比例，用于排查 UE 是否被 RE 淹没 |
 | `train/grad_norm/language` | 语言 LoRA 梯度范数 |
 | `train/grad_norm/vision` | 视觉 LoRA/merger 相关梯度范数；`LORA_VISION_SCOPE=off` 时可能没有 |
 | `train/param_norm/lora_vision` | 视觉侧可训练参数范数，用于观察 fuse 是否异常漂移 |
@@ -182,6 +196,9 @@ dataset version、base model path 或 vision scope 不匹配，会直接报错�
 | `rs_transition_hit_rate` | RS 转折 case 在容忍窗口内切到目标 RS 的比例 |
 | `event_transition_hit_rate` | UE/RE/EVENT 转换 case 在容忍窗口内切到目标 EVENT 的比例 |
 | `event_transition_abnormal_hit_rate` | UE/RE 转换 case 在容忍窗口内 Q1 YES/NO 切对的比例 |
+| `ue_q1_abnormal_acc` | 所有 UE 帧里 Q1 是否先报 `ABNORMAL=YES` |
+| `ue_pred_regular_rate` | UE 帧进入 Q2 后仍被判成 `REGULAR` 的比例 |
+| `*_hit_offset_avg` / `*_abs_hit_offset_avg` | 命中帧相对标注转折帧的平均偏移和平均绝对偏移，负数表示提前 |
 | `*_early_hits` / `*_on_time_hits` / `*_late_hits` | 命中发生在标注转折前、同帧或后几帧的数量 |
 | `output-jsonl` 每行 | 单帧复盘和 `transition_case_summary`，包含 route/frame、转折点、容忍窗口、GT/PRED RS、GT/PRED EVENT、原始生成文本 |
 

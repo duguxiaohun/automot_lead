@@ -13,17 +13,17 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-DATASET_VERSION = "sft_base_rs_event_direct"
+DATASET_VERSION = "sft_base_rs_event_token_choice"
 # DATASET_VERSION 描述的是本路线自己的样本协议：两问直接输出答案，不含 OPSD/CoT/teacher。
 #
-# EVENT 候选的“字母扰动”故意继续使用 v5 的 namespace。这样同一 route/frame/seed
-# 在 sft_base 与 sft_v5 中不仅候选集合一致，A/B/C 对应哪个 EVENT 也一致，便于做
-# 逐样本直接对照；同时 adapter config 仍记录 DATASET_VERSION，避免把两条训练路线混淆。
+# EVENT 候选顺序故意继续使用 v5 的 namespace。这样同一 route/frame/seed
+# 在 sft_base 与 sft_v5 中候选集合和展示顺序一致，便于做逐样本直接对照；
+# 同时 adapter config 仍记录 DATASET_VERSION，避免把两条训练路线混淆。
 OPTION_MAP_DATASET_VERSION = "sft_v5_rs_event_sequence"
 
 
 # ---------------------------------------------------------------------------
-# RS: Q1 中给学生看的 A-E 选择题。内部仍保留 R1-R5，便于和 keyframe_filter 对齐。
+# RS: Q1 中给学生看的固定语义 token。内部仍保留 R1-R5，便于和 keyframe_filter 对齐。
 # ---------------------------------------------------------------------------
 
 RS_OPTION_TO_LABEL: Dict[str, str] = {
@@ -34,6 +34,15 @@ RS_OPTION_TO_LABEL: Dict[str, str] = {
     "E": "R5",
 }
 RS_LABEL_TO_OPTION: Dict[str, str] = {v: k for k, v in RS_OPTION_TO_LABEL.items()}
+
+RS_LABEL_TO_TOKEN: Dict[str, str] = {
+    "R1": "ORDINARY_ROAD",
+    "R2": "BIDIRECTIONAL_NARROW",
+    "R3": "HIGHWAY_MERGE_EXIT",
+    "R4": "SIGNAL_INTERSECTION",
+    "R5": "PRIORITY_INTERSECTION",
+}
+RS_TOKEN_TO_LABEL: Dict[str, str] = {v: k for k, v in RS_LABEL_TO_TOKEN.items()}
 
 RS_OPTION_DESCRIPTIONS: Dict[str, str] = {
     "A": (
@@ -179,6 +188,19 @@ EVENT_DESCRIPTIONS: Dict[str, str] = {
     "RE": "No unusual event is currently interrupting the driving task; continue the regular behavior implied by the current road structure.",
 }
 
+EVENT_LABEL_TO_TOKEN: Dict[str, str] = {
+    "RE": "REGULAR",
+    "U-E1": "LEAD_BRAKE",
+    "U-E2": "STATIC_OBSTACLE",
+    "U-E3": "MOVING_CUT_IN",
+    "U-E4": "VULNERABLE_CROSSING",
+    "U-E5": "ONCOMING_INVASION",
+    "U-E6": "RULE_VIOLATION",
+    "U-E7": "RULE_UNCERTAIN",
+    "U-E8": "BLOCKED_SPACE",
+}
+EVENT_TOKEN_TO_LABEL: Dict[str, str] = {v: k for k, v in EVENT_LABEL_TO_TOKEN.items()}
+
 EVENT_ORDER: Tuple[str, ...] = (
     # 多标签没有置信度或 primary 不可用时，用这个全局顺序做确定性兜底。
     # 这样同一份数据在不同机器/不同 Python hash seed 下不会得到不同 teacher target。
@@ -191,8 +213,9 @@ EVENT_ORDER: Tuple[str, ...] = (
 class RSTarget:
     """单帧 RS 训练目标。
 
-    `option` 是学生输出的 A-E；`label` 是内部 R1-R5。`candidates` 保存原始打分，
-    方便后续 probe 回查“为什么双标签最后选了哪个”。
+    `option` 仅保留旧 A-E 映射用于描述索引；学生输出使用固定 token。
+    `label` 是内部 R1-R5。`candidates` 保存原始打分，方便后续 probe 回查
+    “为什么双标签最后选了哪个”。
     """
 
     label: str

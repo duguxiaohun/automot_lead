@@ -8,16 +8,20 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional, Sequence, Tuple
+import hashlib
+import random
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from qwen3vl_local.sft_base.labels import (
+    EVENT_LABEL_TO_TOKEN,
+    EVENT_TOKEN_TO_LABEL,
     RS_LABEL_TO_OPTION,
+    RS_LABEL_TO_TOKEN,
     RS_OPTION_DESCRIPTIONS,
-    RS_OPTION_TO_LABEL,
+    RS_TOKEN_TO_LABEL,
     EventTarget,
     RSTarget,
     event_description_for_display,
-    option_for_event,
 )
 
 
@@ -48,6 +52,10 @@ class Memory:
     def rs_option(self) -> str:
         return RS_LABEL_TO_OPTION.get(self.rs_label, "A")
 
+    @property
+    def rs_token(self) -> str:
+        return RS_LABEL_TO_TOKEN.get(self.rs_label, "ORDINARY_ROAD")
+
     def copy(self) -> "Memory":
         return Memory(
             rs_label=self.rs_label,
@@ -60,27 +68,41 @@ class Memory:
         # EGO_TO_GOAL_XY 是连续导航提示，不应像 RS/EVENT 那样跨帧沿用旧值；
         # train/eval 在每帧提问前都会 refresh_memory_goal，保证这里展示的是当前帧坐标。
         rs_opt = self.rs_option
+        rs_token = self.rs_token
         rs_desc = RS_OPTION_DESCRIPTIONS.get(rs_opt, RS_OPTION_DESCRIPTIONS["A"])
         event_desc = event_description_for_display(self.event_label, self.rs_label)
+        event_token = EVENT_LABEL_TO_TOKEN.get(self.event_label, self.event_label)
         if self.ego_to_goal_x is None or self.ego_to_goal_y is None:
             goal_text = "UNKNOWN"
         else:
             goal_text = f"({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m"
         return (
             "[MEMORY]\n"
-            f"BELIEVED_RS: {rs_opt} - {rs_desc}\n"
-            f"BELIEVED_EVENT: {self.event_label} - {event_desc}\n"
+            f"BELIEVED_RS: {rs_token} - {rs_desc}\n"
+            f"BELIEVED_EVENT: {event_token} - {event_desc}\n"
             f"EGO_TO_GOAL_XY: {goal_text}\n"
             "[/MEMORY]"
         )
 
 
-def rs_choices_block() -> str:
-    """渲染 Q1 的固定 RS A-E 选项。"""
+def _stable_shuffle(items: Sequence[str], seed_text: Optional[str]) -> List[str]:
+    """按 seed_text 稳定打乱展示顺序；None 时保持定义顺序。"""
+
+    out = list(items)
+    if seed_text:
+        seed = int(hashlib.sha256(seed_text.encode("utf-8")).hexdigest(), 16) % (2**31)
+        random.Random(seed).shuffle(out)
+    return out
+
+
+def rs_choices_block(choice_seed: Optional[str] = None) -> str:
+    """渲染 Q1 的固定 RS token 选项，展示顺序可稳定打乱。"""
 
     lines = ["[RS_CHOICES]"]
-    for option in ("A", "B", "C", "D", "E"):
-        lines.append(f"{option}. {RS_OPTION_DESCRIPTIONS[option]}")
+    for label in _stable_shuffle(list(RS_LABEL_TO_TOKEN), choice_seed):
+        option = RS_LABEL_TO_OPTION[label]
+        token = RS_LABEL_TO_TOKEN[label]
+        lines.append(f"{token}. {RS_OPTION_DESCRIPTIONS[option]}")
     lines.append("[/RS_CHOICES]")
     return "\n".join(lines)
 
@@ -90,30 +112,35 @@ def event_choices_block(
     rs_label: str,
     regular_event_codes: Optional[Sequence[str]] = None,
 ) -> str:
-    """渲染 Q2 的本帧随机 EVENT 选项。"""
+    """渲染 Q2 的本帧 EVENT token 选项。
 
-    lines = [f"[EVENT_CHOICES under RS={RS_LABEL_TO_OPTION.get(rs_label, 'A')}]"]
+    option_map 仍用于保存本帧候选展示顺序，但不再要求学生输出 A/B/C。
+    """
+
+    rs_token = RS_LABEL_TO_TOKEN.get(rs_label, "ORDINARY_ROAD")
+    lines = [f"[EVENT_CHOICES under RS={rs_token}]"]
     for letter in sorted(option_map):
         label = option_map[letter]
-        lines.append(f"{letter}. {event_description_for_display(label, rs_label, regular_event_codes)}")
+        token = EVENT_LABEL_TO_TOKEN.get(label, label)
+        lines.append(f"{token}. {event_description_for_display(label, rs_label, regular_event_codes)}")
     lines.append("[/EVENT_CHOICES]")
     return "\n".join(lines)
 
 
-def build_q1_prompt(memory: Memory) -> str:
+def build_q1_prompt(memory: Memory, *, choice_seed: Optional[str] = None) -> str:
     """Q1 student prompt：只问 RS 与 abnormal，禁止输出解释。"""
 
     return "\n\n".join(
         [
             memory.format_text(),
-            rs_choices_block(),
+            rs_choices_block(choice_seed),
             (
                 "[QUESTION_1]\n"
                 "Look at the latest frame in the RGB history and choose the current road-structure option. "
                 "Also decide whether an unusual event is currently active or still affecting the ego vehicle. "
                 "If the evidence is weak, keep the memory unless it is clearly contradicted.\n\n"
                 "Output exactly these two lines and nothing else:\n"
-                "RS: <A|B|C|D|E>\n"
+                "RS: <one RS token from RS_CHOICES>\n"
                 "ABNORMAL: <YES|NO>\n"
                 "[/QUESTION_1]"
             ),
@@ -125,7 +152,8 @@ def build_q1_target(*, rs_target: RSTarget, event_target: EventTarget) -> str:
     """Q1 直接监督答案。"""
 
     abnormal = "YES" if event_target.abnormal else "NO"
-    return f"RS: {rs_target.option}\nABNORMAL: {abnormal}"
+    token = RS_LABEL_TO_TOKEN.get(rs_target.label, "ORDINARY_ROAD")
+    return f"RS: {token}\nABNORMAL: {abnormal}"
 
 
 def build_q2_prompt(
@@ -140,12 +168,13 @@ def build_q2_prompt(
     if q1_abnormal:
         task = (
             "Question 1 said an unusual event may be active. Choose the listed event that best matches "
-            "the latest frame. If none of the unusual-event options is supported, choose the regular-event option."
+            "the latest frame. Choose REGULAR only if none of the listed unusual-event tokens is supported."
         )
     else:
         task = (
             "Question 1 said no unusual event is active. Still compare every listed option and choose the "
-            "one best supported by the latest frame."
+            "one best supported by the latest frame. Do not keep REGULAR when a listed unusual-event token "
+            "has clear visual evidence."
         )
     return "\n\n".join(
         [
@@ -155,7 +184,7 @@ def build_q2_prompt(
                 "[QUESTION_2]\n"
                 f"{task} Do not invent an event that is not listed.\n\n"
                 "Output exactly this line and nothing else:\n"
-                "EVENT: <option letter>\n"
+                "EVENT: <one EVENT token from EVENT_CHOICES>\n"
                 "[/QUESTION_2]"
             ),
         ]
@@ -172,15 +201,16 @@ def build_q2_target(
     """Q2 直接监督答案。"""
 
     del memory, regular_event_codes
-    option = option_for_event(event_target.label, option_map)
-    if option is None:
-        option = sorted(option_map)[0] if option_map else "A"
-    return f"EVENT: {option}"
+    labels = set(option_map.values())
+    label = event_target.label if event_target.label in labels else (sorted(labels)[0] if labels else "RE")
+    token = EVENT_LABEL_TO_TOKEN.get(label, label)
+    return f"EVENT: {token}"
 
 
-_Q1_RS_RE = re.compile(r"(?im)^\s*RS\s*:\s*([A-E])\b")
+_TOKEN_VALUE_RE = r"([A-Z][A-Z0-9_-]*)"
+_Q1_RS_RE = re.compile(rf"(?im)^\s*RS\s*:\s*{_TOKEN_VALUE_RE}\b")
 _Q1_ABNORMAL_RE = re.compile(r"(?im)^\s*ABNORMAL\s*:\s*(YES|NO)\b")
-_Q2_EVENT_RE = re.compile(r"(?im)^\s*EVENT\s*:\s*([A-Z])\b")
+_Q2_EVENT_RE = re.compile(rf"(?im)^\s*EVENT\s*:\s*{_TOKEN_VALUE_RE}\b")
 
 
 def parse_q1_output(text: str) -> Dict[str, Optional[str]]:
@@ -188,9 +218,11 @@ def parse_q1_output(text: str) -> Dict[str, Optional[str]]:
 
     rs_match = _Q1_RS_RE.search(text or "")
     abnormal_match = _Q1_ABNORMAL_RE.search(text or "")
+    token = rs_match.group(1).upper().replace("-", "_") if rs_match else None
     return {
-        "rs_option": rs_match.group(1).upper() if rs_match else None,
-        "rs_label": RS_OPTION_TO_LABEL.get(rs_match.group(1).upper()) if rs_match else None,
+        "rs_option": None,
+        "rs_token": token,
+        "rs_label": RS_TOKEN_TO_LABEL.get(token) if token else None,
         "abnormal": abnormal_match.group(1).upper() if abnormal_match else None,
     }
 
@@ -199,10 +231,15 @@ def parse_q2_output(text: str, option_map: Mapping[str, str]) -> Dict[str, Optio
     """解析 Q2 输出，并按本帧随机 option map 还原 EVENT label。"""
 
     match = _Q2_EVENT_RE.search(text or "")
-    option = match.group(1).upper() if match else None
+    token = match.group(1).upper().replace("-", "_") if match else None
+    label = EVENT_TOKEN_TO_LABEL.get(token) if token else None
+    allowed = set(option_map.values())
+    if label not in allowed:
+        label = None
     return {
-        "event_option": option,
-        "event_label": option_map.get(option) if option is not None else None,
+        "event_option": None,
+        "event_token": token,
+        "event_label": label,
     }
 
 

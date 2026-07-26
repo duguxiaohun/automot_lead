@@ -132,8 +132,8 @@ def _validate_adapter_config(adapter_dir: pathlib.Path, model_dir: pathlib.Path)
         )
     with open(cfg_path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
-    if cfg.get("route") != "sft_base_direct_choice":
-        raise ValueError(f"adapter route mismatch: expected sft_base_direct_choice, got {cfg.get('route')!r}")
+    if cfg.get("route") != "sft_base_token_choice":
+        raise ValueError(f"adapter route mismatch: expected sft_base_token_choice, got {cfg.get('route')!r}")
     if cfg.get("dataset_version") != DATASET_VERSION:
         raise ValueError(f"adapter dataset_version mismatch: expected {DATASET_VERSION}, got {cfg.get('dataset_version')!r}")
     saved_model_dir = cfg.get("base_model_dir")
@@ -420,11 +420,19 @@ def _score_transition_case(
         if hit_index is not None:
             counters["rs_transition_hit_cases"] += 1
             timing = _classify_hit_timing(hit_index, int(case.transition_index))
+            offset = hit_index - int(case.transition_index)
             counters[f"rs_transition_{timing}_hits"] += 1
+            counters["rs_transition_hit_offset_sum"] += offset
+            counters["rs_transition_abs_hit_offset_sum"] += abs(offset)
+            if offset < 0:
+                counters["rs_transition_max_early_lead"] = max(counters["rs_transition_max_early_lead"], abs(offset))
+            if offset > 0:
+                counters["rs_transition_max_late_lag"] = max(counters["rs_transition_max_late_lag"], offset)
             result.update(
                 {
                     "transition_case_hit": True,
                     "transition_hit_frame": hit_index,
+                    "transition_hit_offset": offset,
                     "transition_hit_timing": timing,
                 }
             )
@@ -448,11 +456,19 @@ def _score_transition_case(
     if event_hit is not None:
         counters["event_transition_hit_cases"] += 1
         timing = _classify_hit_timing(event_hit, int(case.transition_index))
+        offset = event_hit - int(case.transition_index)
         counters[f"event_transition_{timing}_hits"] += 1
+        counters["event_transition_hit_offset_sum"] += offset
+        counters["event_transition_abs_hit_offset_sum"] += abs(offset)
+        if offset < 0:
+            counters["event_transition_max_early_lead"] = max(counters["event_transition_max_early_lead"], abs(offset))
+        if offset > 0:
+            counters["event_transition_max_late_lag"] = max(counters["event_transition_max_late_lag"], offset)
         result.update(
             {
                 "transition_case_hit": True,
                 "transition_hit_frame": event_hit,
+                "transition_hit_offset": offset,
                 "transition_hit_timing": timing,
             }
         )
@@ -503,6 +519,7 @@ def _write_frame_record(
         "initial_memory_noise": args.initial_memory_noise,
         "gt_rs": frame.rs_label,
         "pred_rs": parsed_q1.get("rs_label"),
+        "pred_rs_token": parsed_q1.get("rs_token"),
         "rs_ok": q1_rs_ok,
         "gt_abnormal": bool(frame.abnormal),
         "pred_abnormal": parsed_q1.get("abnormal"),
@@ -510,6 +527,7 @@ def _write_frame_record(
         "abnormal_ok": q1_abnormal_ok,
         "gt_event": frame.event_label,
         "pred_event": parsed_q2.get("event_label") if parsed_q2 else None,
+        "pred_event_token": parsed_q2.get("event_token") if parsed_q2 else None,
         "event_ok": event_ok,
         "q1_text": q1_text,
         "q2_text": q2_text,
@@ -546,7 +564,12 @@ def _evaluate_case(
             memory = refresh_memory_goal(memory, frame.ego_to_goal_xy)
 
         images = _load_images(frame.history_rgb_paths)
-        q1_text, q1_after = _generate_start(bundle, images, build_q1_prompt(memory), int(args.max_new_tokens_q1))
+        q1_text, q1_after = _generate_start(
+            bundle,
+            images,
+            build_q1_prompt(memory, choice_seed=f"rs::{frame.frame_id}"),
+            int(args.max_new_tokens_q1),
+        )
         parsed_q1 = parse_q1_output(q1_text)
         q1_rs_ok = parsed_q1.get("rs_label") == frame.rs_label
         q1_abnormal = parsed_q1.get("abnormal") == "YES" if parsed_q1.get("abnormal") else None
@@ -556,6 +579,9 @@ def _evaluate_case(
         counters["q1_rs_correct"] += int(q1_rs_ok)
         counters["q1_rs_wrong"] += int(not q1_rs_ok)
         counters["q1_abnormal_correct"] += int(q1_abnormal_ok)
+        if frame.abnormal:
+            counters["ue_q1_abnormal_total"] += 1
+            counters["ue_q1_abnormal_correct"] += int(q1_abnormal is True)
         if case.transition_index is not None and abs_index >= case.transition_index:
             counters["transition_post_frames"] += 1
             counters["transition_post_rs_correct"] += int(q1_rs_ok)
@@ -607,6 +633,7 @@ def _evaluate_case(
         if frame.abnormal:
             counters["q2_ue_total"] += 1
             counters["q2_ue_correct"] += int(event_ok)
+            counters["q2_ue_pred_regular"] += int(parsed_q2.get("event_label") == "RE")
         else:
             counters["q2_re_total"] += 1
             counters["q2_re_correct"] += int(event_ok)
@@ -693,8 +720,11 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "q2_invalid_output": 0,
         "q2_ue_total": 0,
         "q2_ue_correct": 0,
+        "q2_ue_pred_regular": 0,
         "q2_re_total": 0,
         "q2_re_correct": 0,
+        "ue_q1_abnormal_total": 0,
+        "ue_q1_abnormal_correct": 0,
         "script_resets": 0,
         "rs_wrong_resets": 0,
         "initial_noise_cases": 0,
@@ -704,12 +734,20 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "rs_transition_early_hits": 0,
         "rs_transition_on_time_hits": 0,
         "rs_transition_late_hits": 0,
+        "rs_transition_hit_offset_sum": 0,
+        "rs_transition_abs_hit_offset_sum": 0,
+        "rs_transition_max_early_lead": 0,
+        "rs_transition_max_late_lag": 0,
         "event_transition_cases": 0,
         "event_transition_hit_cases": 0,
         "event_transition_abnormal_hit_cases": 0,
         "event_transition_early_hits": 0,
         "event_transition_on_time_hits": 0,
         "event_transition_late_hits": 0,
+        "event_transition_hit_offset_sum": 0,
+        "event_transition_abs_hit_offset_sum": 0,
+        "event_transition_max_early_lead": 0,
+        "event_transition_max_late_lag": 0,
         "transition_post_frames": 0,
         "transition_post_rs_correct": 0,
         "transition_post_abnormal_correct": 0,
@@ -743,12 +781,18 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "event_acc_when_rs_correct": counters["q2_event_correct"] / q2_total,
         "ue_acc": counters["q2_ue_correct"] / max(1, counters["q2_ue_total"]),
         "re_acc": counters["q2_re_correct"] / max(1, counters["q2_re_total"]),
+        "ue_q1_abnormal_acc": counters["ue_q1_abnormal_correct"] / max(1, counters["ue_q1_abnormal_total"]),
+        "ue_pred_regular_rate": counters["q2_ue_pred_regular"] / max(1, counters["q2_ue_total"]),
         "q2_trigger_rate": counters["q2_triggered"] / frames,
         "transition_post_rs_acc": counters["transition_post_rs_correct"] / transition_post_frames,
         "transition_post_abnormal_acc": counters["transition_post_abnormal_correct"] / transition_post_frames,
         "transition_post_event_acc": counters["transition_post_event_correct"] / transition_post_q2,
         "rs_transition_hit_rate": counters["rs_transition_hit_cases"] / max(1, counters["rs_transition_cases"]),
+        "rs_transition_hit_offset_avg": counters["rs_transition_hit_offset_sum"] / max(1, counters["rs_transition_hit_cases"]),
+        "rs_transition_abs_hit_offset_avg": counters["rs_transition_abs_hit_offset_sum"] / max(1, counters["rs_transition_hit_cases"]),
         "event_transition_hit_rate": counters["event_transition_hit_cases"] / max(1, counters["event_transition_cases"]),
+        "event_transition_hit_offset_avg": counters["event_transition_hit_offset_sum"] / max(1, counters["event_transition_hit_cases"]),
+        "event_transition_abs_hit_offset_avg": counters["event_transition_abs_hit_offset_sum"] / max(1, counters["event_transition_hit_cases"]),
         "event_transition_abnormal_hit_rate": counters["event_transition_abnormal_hit_cases"] / max(1, counters["event_transition_cases"]),
     }
 

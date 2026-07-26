@@ -1,4 +1,4 @@
-"""SFT base 训练入口：RS/EVENT 两问直接选项监督。
+"""SFT base 训练入口：RS/EVENT 两问直接 token 监督。
 
 和 sft_v5 相同：
 - 数据来自 route-level sequence index；
@@ -275,6 +275,7 @@ def _build_inputs(
     q1_target: str,
     q2_prompt: Optional[str],
     q2_target: Optional[str],
+    q2_loss_weights: Optional[Mapping[str, float]],
     max_length: int,
 ) -> Optional[Dict[str, Any]]:
     """构造模型输入，并只在答案值 token 上打 loss。
@@ -300,7 +301,7 @@ def _build_inputs(
         (q1_target, target_spans_q1, loss_weights_q1(), False),
     ]
     if q2_target is not None:
-        assistant_specs.append((q2_target, target_spans_q2, loss_weights_q2(), True))
+        assistant_specs.append((q2_target, target_spans_q2, q2_loss_weights or loss_weights_q2(), True))
     cursor = 0
     for turn_idx, (assistant_text, span_fn, span_weights, prefer_last) in enumerate(assistant_specs):
         assistant_ids, value_weights = _value_token_ids(bundle, assistant_text, span_fn, span_weights)
@@ -345,7 +346,26 @@ def _loss_one_sample(bundle: Any, packed: Mapping[str, Any]) -> torch.Tensor:
     return (per_tok * shift_weights[active]).sum() / shift_weights[active].sum().clamp_min(1e-6)
 
 
-def _frame_training_pack(bundle: Any, frame: FrameRow, memory: Memory, images: List[Image.Image], max_length: int) -> Tuple[Optional[Dict[str, Any]], Memory, bool]:
+def _event_loss_weights(event_target: EventTarget, *, ue_event_loss_weight: float, re_event_loss_weight: float) -> Dict[str, float]:
+    """按 EVENT 类型返回 Q2 token loss 权重。
+
+    UE 在自然分布里容易被 RE 淹没；只加 Q2 的 EVENT token，不改 Q1 RS/ABNORMAL。
+    """
+
+    weight = float(ue_event_loss_weight) if event_target.abnormal else float(re_event_loss_weight)
+    return {"event": max(0.0, weight)}
+
+
+def _frame_training_pack(
+    bundle: Any,
+    frame: FrameRow,
+    memory: Memory,
+    images: List[Image.Image],
+    max_length: int,
+    *,
+    ue_event_loss_weight: float,
+    re_event_loss_weight: float,
+) -> Tuple[Optional[Dict[str, Any]], Memory, bool]:
     """把一个 frame 转成 teacher-forced 训练输入。
 
     这是 sft_base 和 v5 on-policy 最大的区别：本函数直接使用 GT RS/ABNORMAL/EVENT
@@ -355,7 +375,7 @@ def _frame_training_pack(bundle: Any, frame: FrameRow, memory: Memory, images: L
 
     rs_target = _rs_target_from_frame(frame)
     event_target = _event_target_from_frame(frame)
-    q1_prompt = build_q1_prompt(memory)
+    q1_prompt = build_q1_prompt(memory, choice_seed=f"rs::{frame.frame_id}")
     q1_target = build_q1_target(rs_target=rs_target, event_target=event_target)
     memory_after_q1 = update_memory_after_q1(memory, student_rs_label=rs_target.label, student_abnormal=event_target.abnormal)
 
@@ -375,6 +395,13 @@ def _frame_training_pack(bundle: Any, frame: FrameRow, memory: Memory, images: L
             event_target=event_target,
             regular_event_codes=frame.regular_event_codes,
         )
+        q2_loss_weights = _event_loss_weights(
+            event_target,
+            ue_event_loss_weight=ue_event_loss_weight,
+            re_event_loss_weight=re_event_loss_weight,
+        )
+    else:
+        q2_loss_weights = None
     # 如果 EVENT 真值不在本帧候选表里，跳过 Q2 监督但仍训练 Q1；这种情况通常来自
     # 上游标注/候选池边界，不能强行把不存在的事件映射到某个字母。
     packed = _build_inputs(
@@ -384,6 +411,7 @@ def _frame_training_pack(bundle: Any, frame: FrameRow, memory: Memory, images: L
         q1_target=q1_target,
         q2_prompt=q2_prompt,
         q2_target=q2_target,
+        q2_loss_weights=q2_loss_weights,
         max_length=max_length,
     )
     next_memory = update_memory_after_q2(memory_after_q1, student_event_label=event_target.label)
@@ -396,6 +424,8 @@ class StepStats:
     n_samples: int = 0
     n_frames: int = 0
     n_q2: int = 0
+    n_q2_ue: int = 0
+    n_q2_re: int = 0
     n_skipped: int = 0
 
 
@@ -407,6 +437,9 @@ def run_batch(
     loss_scale: float,
     sync_grads: bool,
     frames_per_sync: int = 0,
+    ue_frame_repeat: int = 1,
+    ue_event_loss_weight: float = 3.0,
+    re_event_loss_weight: float = 1.0,
 ) -> StepStats:
     """逐 route/frame 跑 teacher-forced CE，并累积梯度。
 
@@ -433,7 +466,9 @@ def run_batch(
                 memory = refresh_memory_goal(memory, frame.ego_to_goal_xy)
             # 存 copy 而不是引用：后面会继续更新 memory，当前帧 prompt 必须看到
             # “提问前”的状态，而不是被后续帧改写后的状态。
-            work.append((route.route_id, frame, memory.copy()))
+            repeat = max(1, int(ue_frame_repeat)) if bool(frame.abnormal) else 1
+            for _ in range(repeat):
+                work.append((route.route_id, frame, memory.copy()))
             event_target = _event_target_from_frame(frame)
             memory_after_q1 = update_memory_after_q1(memory, student_rs_label=rs_target.label, student_abnormal=event_target.abnormal)
             memory = update_memory_after_q2(memory_after_q1, student_event_label=event_target.label)
@@ -459,6 +494,8 @@ def run_batch(
                 max_length=max_length,
                 loss_scale=loss_scale,
                 loss_normalizer=max(1, len(work)),
+                ue_event_loss_weight=float(ue_event_loss_weight),
+                re_event_loss_weight=float(re_event_loss_weight),
             )
             _merge_stats(stats, chunk_stats)
             _sync_trainable_grads(bundle)
@@ -472,6 +509,8 @@ def run_batch(
         max_length=max_length,
         loss_scale=loss_scale,
         loss_normalizer=max(1, len(work)),
+        ue_event_loss_weight=float(ue_event_loss_weight),
+        re_event_loss_weight=float(re_event_loss_weight),
     )
     _merge_stats(stats, chunk_stats)
     if sync_grads:
@@ -486,6 +525,8 @@ def _merge_stats(dst: StepStats, src: StepStats) -> None:
     dst.n_samples += src.n_samples
     dst.n_frames += src.n_frames
     dst.n_q2 += src.n_q2
+    dst.n_q2_ue += src.n_q2_ue
+    dst.n_q2_re += src.n_q2_re
     dst.n_skipped += src.n_skipped
 
 
@@ -496,6 +537,8 @@ def _run_work_items(
     max_length: int,
     loss_scale: float,
     loss_normalizer: int,
+    ue_event_loss_weight: float,
+    re_event_loss_weight: float,
 ) -> StepStats:
     """执行一段 frame work，不在函数内部发起 DDP collective。"""
 
@@ -507,7 +550,15 @@ def _run_work_items(
             print(f"[warn] image load failed {route_id} frame={frame.frame_id}: {exc}")
             stats.n_skipped += 1
             continue
-        packed, _next_memory, q2_included = _frame_training_pack(bundle, frame, memory, images, max_length)
+        packed, _next_memory, q2_included = _frame_training_pack(
+            bundle,
+            frame,
+            memory,
+            images,
+            max_length,
+            ue_event_loss_weight=float(ue_event_loss_weight),
+            re_event_loss_weight=float(re_event_loss_weight),
+        )
         if packed is None:
             stats.n_skipped += 1
             continue
@@ -523,6 +574,8 @@ def _run_work_items(
         stats.n_samples += 1
         stats.n_frames += 1
         stats.n_q2 += int(q2_included)
+        stats.n_q2_ue += int(q2_included and frame.abnormal)
+        stats.n_q2_re += int(q2_included and not frame.abnormal)
     return stats
 
 
@@ -547,7 +600,15 @@ def _sync_trainable_grads(bundle: Any) -> None:
 
 
 @torch.no_grad()
-def evaluate_loss(bundle: Any, loader: DataLoader, *, max_length: int, max_samples: int) -> Dict[str, float]:
+def evaluate_loss(
+    bundle: Any,
+    loader: DataLoader,
+    *,
+    max_length: int,
+    max_samples: int,
+    ue_event_loss_weight: float,
+    re_event_loss_weight: float,
+) -> Dict[str, float]:
     """计算 teacher-forced 验证 loss。"""
 
     bundle.model.eval()
@@ -568,7 +629,15 @@ def evaluate_loss(bundle: Any, loader: DataLoader, *, max_length: int, max_sampl
                     memory = refresh_memory_goal(memory, frame.ego_to_goal_xy)
                 try:
                     images = _load_images(frame.history_rgb_paths)
-                    packed, next_memory, q2_included = _frame_training_pack(bundle, frame, memory, images, max_length)
+                    packed, next_memory, q2_included = _frame_training_pack(
+                        bundle,
+                        frame,
+                        memory,
+                        images,
+                        max_length,
+                        ue_event_loss_weight=float(ue_event_loss_weight),
+                        re_event_loss_weight=float(re_event_loss_weight),
+                    )
                     memory = next_memory
                     if packed is None:
                         skipped += 1
@@ -688,7 +757,7 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
     vision_targets = [name for name in target_modules if _is_vision_module_name(name)]
     payload = {
         "schema_version": 1,
-        "route": "sft_base_direct_choice",
+        "route": "sft_base_token_choice",
         "dataset_version": DATASET_VERSION,
         "base_model_dir": str(args.model_dir),
         "base_model_mutated": False,
@@ -703,6 +772,9 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "vision_clip_norm": float(args.vision_clip_norm),
         "max_length": int(args.max_length),
         "frames_per_sync": int(args.frames_per_sync),
+        "ue_event_loss_weight": float(args.ue_event_loss_weight),
+        "re_event_loss_weight": float(args.re_event_loss_weight),
+        "ue_frame_repeat": int(args.ue_frame_repeat),
     }
     (path / "sft_base_adapter_config.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -710,7 +782,7 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
 def parse_args() -> argparse.Namespace:
     """解析训练参数。"""
 
-    p = argparse.ArgumentParser(description="Train SFT base direct RS/EVENT choice LoRA")
+    p = argparse.ArgumentParser(description="Train SFT base direct RS/EVENT token LoRA")
     p.add_argument("--train-index", type=str, required=True)
     p.add_argument("--val-index", type=str, default=None)
     p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
@@ -745,6 +817,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-eval-samples", type=int, default=256)
     p.add_argument("--max-steps", type=int, default=0)
     p.add_argument("--frames-per-sync", type=int, default=64)
+    p.add_argument("--ue-event-loss-weight", type=float, default=3.0)
+    p.add_argument("--re-event-loss-weight", type=float, default=1.0)
+    p.add_argument("--ue-frame-repeat", type=int, default=2)
     p.add_argument("--check", action="store_true")
     p.add_argument("--no-grad-checkpoint", action="store_true")
     p.add_argument("--seed", type=int, default=20260724)
@@ -883,9 +958,10 @@ def main() -> None:
         if rank == 0 and (global_step == 1 or global_step % int(args.logging_steps) == 0 or reason == "tail"):
             elapsed = (time.time() - start) / 60.0
             q2_rate = last_stats.n_q2 / max(1, last_stats.n_frames)
+            q2_ue_rate = last_stats.n_q2_ue / max(1, last_stats.n_q2)
             print(
                 f"[train] epoch={epoch} step={global_step}/{total_steps} loss={loss_avg:.4f} "
-                f"samples={int(global_samples)} q2_rate={q2_rate:.3f} "
+                f"samples={int(global_samples)} q2_rate={q2_rate:.3f} q2_ue_rate={q2_ue_rate:.3f} "
                 f"|g|_lang={float(lang_norm):.3f} |g|_vis={vis_norm_value:.3f} "
                 f"|w|_vis={vis_param_norm:.3f} guard_bad_steps={guard_bad_steps} "
                 f"{reason}=1 elapsed={elapsed:.1f}m"
@@ -893,6 +969,7 @@ def main() -> None:
             if tb is not None:
                 tb.add_scalar("train/loss", loss_avg, global_step)
                 tb.add_scalar("train/q2_rate_last_batch", q2_rate, global_step)
+                tb.add_scalar("train/q2_ue_rate_last_batch", q2_ue_rate, global_step)
                 tb.add_scalar("train/grad_norm/language", float(lang_norm), global_step)
                 if vision_params:
                     tb.add_scalar("train/grad_norm/vision", vis_norm_value, global_step)
@@ -903,7 +980,14 @@ def main() -> None:
         if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
             _save_adapter(output_dir / f"checkpoint-{global_step}", bundle, args)
         if val_loader is not None and int(args.eval_steps) > 0 and global_step % int(args.eval_steps) == 0:
-            metrics = evaluate_loss(bundle, val_loader, max_length=int(args.max_length), max_samples=int(args.max_eval_samples))
+            metrics = evaluate_loss(
+                bundle,
+                val_loader,
+                max_length=int(args.max_length),
+                max_samples=int(args.max_eval_samples),
+                ue_event_loss_weight=float(args.ue_event_loss_weight),
+                re_event_loss_weight=float(args.re_event_loss_weight),
+            )
             if rank == 0:
                 print(f"[eval@{global_step}] {metrics}")
                 if tb is not None:
@@ -927,6 +1011,9 @@ def main() -> None:
                 loss_scale=float(max(1, int(args.grad_accum))),
                 sync_grads=sync_this,
                 frames_per_sync=int(args.frames_per_sync),
+                ue_frame_repeat=int(args.ue_frame_repeat),
+                ue_event_loss_weight=float(args.ue_event_loss_weight),
+                re_event_loss_weight=float(args.re_event_loss_weight),
             )
             last_stats = stats
             accum_loss += stats.loss_sum
