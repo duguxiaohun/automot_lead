@@ -44,6 +44,7 @@ def _maybe_apply_gpu_ids() -> None:
 _maybe_apply_gpu_ids()
 
 import torch
+import torch.distributed as dist
 
 from qwen3vl_local.sft_base import DATASET_VERSION  # noqa: E402
 from qwen3vl_local.sft_base.labels import RS_LABEL_TO_OPTION, option_for_event  # noqa: E402
@@ -69,6 +70,56 @@ from qwen3vl_local.sft_v3.train import _append_user_turn, _kv_start_state, _stud
 
 
 _VISION_SCOPE_CHOICES = {"off", "merger", "last4", "all"}
+_EVAL_TASK_TO_MODE = {
+    "full": "full_route",
+    "full_route": "full_route",
+    "rs": "rs_transition",
+    "rs_transition": "rs_transition",
+    "event": "event_transition",
+    "event_transition": "event_transition",
+}
+
+
+def setup_distributed() -> tuple[int, int, int]:
+    """初始化可选 torchrun 多卡评测环境。
+
+    单进程评测时没有 `WORLD_SIZE`，函数只返回 `(0, 0, 1)`，保持旧行为。
+    多卡评测时由 torchrun 注入 `RANK/WORLD_SIZE/LOCAL_RANK`；每个进程只加载
+    一份模型到自己的 `cuda:LOCAL_RANK`，后续按 case index 分片评估。
+    """
+
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    if world_size > 1:
+        if not torch.cuda.is_available():
+            raise RuntimeError("sft_base multi-GPU eval requires CUDA.")
+        visible = [
+            part.strip()
+            for part in os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",")
+            if part.strip()
+        ]
+        if visible and world_size > len(visible):
+            raise ValueError(
+                f"WORLD_SIZE={world_size} but CUDA_VISIBLE_DEVICES only exposes "
+                f"{len(visible)} GPU(s): {os.environ.get('CUDA_VISIBLE_DEVICES')}"
+            )
+        dist.init_process_group(backend="nccl")
+        torch.cuda.set_device(local_rank)
+    return rank, local_rank, world_size
+
+
+def cleanup_distributed() -> None:
+    """关闭 torch.distributed，避免 torchrun 退出时残留通信组。"""
+
+    if dist.is_available() and dist.is_initialized():
+        dist.destroy_process_group()
+
+
+def is_rank0(rank: int) -> bool:
+    """rank0 负责打印汇总、写最终 metrics/jsonl。"""
+
+    return rank == 0
 
 
 @dataclass
@@ -683,30 +734,14 @@ def _evaluate_case(
         )
 
 
-def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
-    """执行自由生成评估。
+def _new_counters() -> Dict[str, int]:
+    """创建评估计数器。
 
-    离散 memory 在 eval 中由学生输出维护：Q1 更新 RS/ABNORMAL，Q2 更新 EVENT。
-    但 EGO_TO_GOAL_XY 是每帧连续量，所以即使没有 reset 也会在提问前刷新为当前帧。
-    默认不做脚本纠偏；如果 Q1 RS 错，只跳过本帧 Q2，让后续帧继续暴露漂移。
+    所有指标都先累积成整数计数；多卡时每个 rank 只更新自己的分片，最后用
+    `dist.all_reduce(SUM)` 合并，再由 rank0 统一计算比例指标。
     """
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    ds = RouteSequenceDataset(
-        pathlib.Path(args.index),
-        max_routes=0,
-        max_frames_per_route=int(args.max_frames_per_route),
-    )
-    if args.check:
-        return {"route_count": len(ds), "check_only": True}
-    bundle = load_eval_bundle(
-        pathlib.Path(args.model_dir),
-        pathlib.Path(args.adapter_dir) if args.adapter_dir else None,
-        device,
-        merge_lora=bool(args.merge_lora),
-    )
-    cases = _select_eval_cases(ds, args)
-    counters: Dict[str, int] = {
+    return {
         "cases": 0,
         "case_frames": 0,
         "evaluated_routes": 0,
@@ -754,17 +789,73 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "transition_post_q2_triggered": 0,
         "transition_post_event_correct": 0,
     }
-    jsonl_fp: Optional[TextIO] = None
-    if args.output_jsonl:
-        out_path = pathlib.Path(args.output_jsonl)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        jsonl_fp = open(out_path, "w", encoding="utf-8")
-    try:
-        for case in cases:
-            _evaluate_case(bundle, case, args, counters, jsonl_fp)
-    finally:
-        if jsonl_fp is not None:
-            jsonl_fp.close()
+
+
+def _sync_counters(counters: Dict[str, int], device: torch.device) -> Dict[str, int]:
+    """跨 rank 汇总整数 counters。"""
+
+    if not dist.is_available() or not dist.is_initialized():
+        return counters
+    sum_keys = [key for key in counters if "_max_" not in key]
+    max_keys = [key for key in counters if "_max_" in key]
+    synced = dict(counters)
+    if sum_keys:
+        # 大部分字段是计数或 offset sum，跨 rank 应该求和。
+        sum_tensor = torch.tensor(
+            [int(counters[k]) for k in sum_keys],
+            dtype=torch.long,
+            device=device,
+        )
+        dist.all_reduce(sum_tensor, op=dist.ReduceOp.SUM)
+        synced.update({key: int(value) for key, value in zip(sum_keys, sum_tensor.cpu().tolist())})
+    if max_keys:
+        # `*_max_early_lead` / `*_max_late_lag` 是极值，不能被 SUM 放大。
+        max_tensor = torch.tensor(
+            [int(counters[k]) for k in max_keys],
+            dtype=torch.long,
+            device=device,
+        )
+        dist.all_reduce(max_tensor, op=dist.ReduceOp.MAX)
+        synced.update({key: int(value) for key, value in zip(max_keys, max_tensor.cpu().tolist())})
+    return synced
+
+
+def _rank_jsonl_path(output_jsonl: str, rank: int, world_size: int) -> pathlib.Path:
+    """多卡时每个 rank 先写自己的 jsonl 分片，rank0 再合并。"""
+
+    out_path = pathlib.Path(output_jsonl)
+    if world_size <= 1:
+        return out_path
+    return out_path.with_suffix(out_path.suffix + f".rank{rank}")
+
+
+def _merge_rank_jsonl(output_jsonl: str, world_size: int) -> None:
+    """rank0 合并各 rank 的 jsonl 分片到用户指定的最终 output-jsonl。"""
+
+    if world_size <= 1:
+        return
+    out_path = pathlib.Path(output_jsonl)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as dst:
+        for rank in range(world_size):
+            shard_path = _rank_jsonl_path(output_jsonl, rank, world_size)
+            if not shard_path.exists():
+                continue
+            with open(shard_path, "r", encoding="utf-8") as src:
+                for line in src:
+                    dst.write(line)
+            shard_path.unlink(missing_ok=True)
+
+
+def _build_metrics(
+    *,
+    args: argparse.Namespace,
+    counters: Dict[str, int],
+    route_count: int,
+    selected_case_count: int,
+    world_size: int,
+) -> Dict[str, Any]:
+    """由合并后的 counters 计算最终 metrics JSON。"""
 
     frames = max(1, counters["frames"])
     q2_total = max(1, counters["q2_triggered"])
@@ -773,8 +864,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     return {
         "eval_mode": args.eval_mode,
         "script_correction": "none",
-        "route_count": len(ds),
-        "selected_case_count": len(cases),
+        "world_size": int(world_size),
+        "route_count": route_count,
+        "selected_case_count": selected_case_count,
         **counters,
         "rs_acc": counters["q1_rs_correct"] / frames,
         "abnormal_acc": counters["q1_abnormal_correct"] / frames,
@@ -797,13 +889,95 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     }
 
 
+def evaluate(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
+    """执行自由生成评估。
+
+    离散 memory 在 eval 中由学生输出维护：Q1 更新 RS/ABNORMAL，Q2 更新 EVENT。
+    但 EGO_TO_GOAL_XY 是每帧连续量，所以即使没有 reset 也会在提问前刷新为当前帧。
+    默认不做脚本纠偏；如果 Q1 RS 错，只跳过本帧 Q2，让后续帧继续暴露漂移。
+    """
+
+    rank, local_rank, world_size = setup_distributed()
+    try:
+        if world_size > 1 and torch.cuda.is_available():
+            device = torch.device(f"cuda:{local_rank}")
+        else:
+            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+        ds = RouteSequenceDataset(
+            pathlib.Path(args.index),
+            max_routes=0,
+            max_frames_per_route=int(args.max_frames_per_route),
+        )
+        if args.check:
+            metrics = {
+                "route_count": len(ds),
+                "check_only": True,
+                "world_size": int(world_size),
+                "rank": int(rank),
+            }
+            return metrics if is_rank0(rank) else None
+
+        bundle = load_eval_bundle(
+            pathlib.Path(args.model_dir),
+            pathlib.Path(args.adapter_dir) if args.adapter_dir else None,
+            device,
+            merge_lora=bool(args.merge_lora),
+        )
+        cases = _select_eval_cases(ds, args)
+        if is_rank0(rank):
+            print(
+                f"[eval] mode={args.eval_mode} world_size={world_size} "
+                f"selected_cases={len(cases)}"
+            )
+
+        counters = _new_counters()
+        jsonl_fp: Optional[TextIO] = None
+        jsonl_path: Optional[pathlib.Path] = None
+        if args.output_jsonl:
+            jsonl_path = _rank_jsonl_path(args.output_jsonl, rank, world_size)
+            jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+            jsonl_fp = open(jsonl_path, "w", encoding="utf-8")
+        try:
+            for case_idx, case in enumerate(cases):
+                # 多卡评测按 case 分片。full_route 模式下一条 case 是完整 route；
+                # transition 模式下一条 case 是一个转折窗口。这样每个片段内部的
+                # memory 仍按真实串行协议推进，不会被跨 rank 打断。
+                if world_size > 1 and (case_idx % world_size) != rank:
+                    continue
+                _evaluate_case(bundle, case, args, counters, jsonl_fp)
+        finally:
+            if jsonl_fp is not None:
+                jsonl_fp.close()
+
+        counters = _sync_counters(counters, device)
+        if world_size > 1 and dist.is_initialized():
+            dist.barrier()
+            if args.output_jsonl and is_rank0(rank):
+                _merge_rank_jsonl(args.output_jsonl, world_size)
+            dist.barrier()
+
+        if not is_rank0(rank):
+            return None
+        return _build_metrics(
+            args=args,
+            counters=counters,
+            route_count=len(ds),
+            selected_case_count=len(cases),
+            world_size=world_size,
+        )
+    finally:
+        cleanup_distributed()
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate SFT base direct-choice adapter")
-    p.add_argument("--index", type=str, required=True)
+    p.add_argument("--index", type=str, default="checkpoints/sft_base_data/val_sequence_index.jsonl")
     p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
-    p.add_argument("--adapter-dir", type=str, default=None)
+    p.add_argument("--adapter-dir", type=str, required=True)
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--output-jsonl", type=str, default=None)
+    p.add_argument("--task", choices=sorted(_EVAL_TASK_TO_MODE), required=True)
     p.add_argument("--eval-mode", choices=["full_route", "rs_transition", "event_transition"], default="full_route")
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--sample-routes", type=int, default=0)
@@ -817,12 +991,56 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-new-tokens-q2", type=int, default=24)
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--check", action="store_true")
-    return p.parse_args()
+    args = p.parse_args()
+    if args.task:
+        args.eval_mode = _EVAL_TASK_TO_MODE[args.task]
+    _apply_eval_defaults(args)
+    return args
+
+
+def _default_eval_output_root(adapter_dir: Optional[str]) -> pathlib.Path:
+    """根据 adapter 路径推断评估输出目录。"""
+
+    if adapter_dir:
+        path = pathlib.Path(adapter_dir)
+        # 常规 adapter 目录是 checkpoints/sft_base_runs/latest/final；
+        # 输出应该落到 latest/ 下，方便和训练日志放在一起。
+        if path.name == "final":
+            return path.parent
+        return path
+    return pathlib.Path("checkpoints/sft_base_runs/latest")
+
+
+def _apply_eval_defaults(args: argparse.Namespace) -> None:
+    """补齐日常评估默认值，让命令只需要改 GPU / 模型 / 任务。
+
+    - RS/EVENT transition 默认抽 128 个 case。
+    - full_route 默认随机抽 16 条 route。
+    - 未显式传 output-json/output-jsonl 时，按 eval_mode 自动写到 adapter run 目录。
+    """
+
+    if args.eval_mode == "full_route" and int(args.sample_routes) <= 0 and int(args.max_routes) <= 0:
+        args.sample_routes = 16
+    if args.eval_mode in {"rs_transition", "event_transition"} and int(args.max_transition_cases) <= 0:
+        args.max_transition_cases = 128
+
+    output_root = _default_eval_output_root(args.adapter_dir)
+    stem = {
+        "full_route": "eval_full_route",
+        "rs_transition": "eval_rs_transition",
+        "event_transition": "eval_event_transition",
+    }[args.eval_mode]
+    if not args.output_json:
+        args.output_json = str(output_root / f"{stem}_metrics.json")
+    if not args.output_jsonl:
+        args.output_jsonl = str(output_root / f"{stem}_frames.jsonl")
 
 
 def main() -> None:
     args = parse_args()
     metrics = evaluate(args)
+    if metrics is None:
+        return
     print(json.dumps(metrics, ensure_ascii=False, indent=2))
     if args.output_json:
         path = pathlib.Path(args.output_json)
