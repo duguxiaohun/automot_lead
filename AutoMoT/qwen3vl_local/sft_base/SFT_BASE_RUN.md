@@ -5,8 +5,32 @@
 ## 1. 构建数据
 
 当前协议使用固定语义 token 作为答案，例如 `RS: SIGNAL_INTERSECTION`、
-`EVENT: RULE_VIOLATION`，不再输出 A/B/C 选项。`DATASET_VERSION` 已更新，
-旧 A/B/C adapter 不能直接用于这版评估；切换协议后需要重新构建数据并重新训练。
+`EVENT: RULE_VIOLATION`。**代码里已经完全没有 A/B/C 选项字母**：Q2 候选在数据里
+就是有序 list `event_candidates_ordered`，顺序即 prompt 展示顺序。
+
+因此必须先重新构建数据，再重新训练：
+
+- 旧 index 里的 `rs_option` / `event_option_map` 两个字母字段已被删除。
+- `RouteSequenceDataset` 读到缺 `event_candidates_ordered` 的旧 index 会直接报错，
+  不做兼容降级 —— 静默兼容会让候选顺序悄悄变化，指标看着正常但训练分布已经错了。
+
+如果训练/评估时报：
+
+```text
+frame missing 'event_candidates_ordered' ... Rebuild it with the current build_dataset.py
+```
+
+说明 `--index` 指向的是旧 schema 数据，重跑下面的 build_dataset 即可。
+
+如果测试时报：
+
+```text
+adapter route mismatch: expected sft_base_token_choice, got 'sft_base_direct_choice'
+```
+
+说明 `--adapter-dir` 指向的是旧 ABC/direct-choice 权重，不是当前 token-choice 权重。
+不要用这类 checkpoint 跑当前评测，也不要为了通过校验去改 adapter config；应换成
+当前代码重新训练得到的 `sft_base_token_choice` adapter。
 
 ```bash
 python qwen3vl_local/sft_base/build_dataset.py \
@@ -136,6 +160,10 @@ checkpoints/sft_base_runs/latest/log.txt
 
 `--model-dir` 通常不用改，除非你换了 base 模型目录。
 
+`--adapter-dir` 必须指向当前 token-choice 协议训练出的 adapter。旧
+`sft_base_direct_choice` / ABC checkpoint 会被 eval 直接拒绝，这是为了避免旧输出协议
+和新语义 token prompt 混用后得到没有意义的指标。
+
 默认值：
 
 | 参数 | 默认 |
@@ -183,6 +211,21 @@ GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
 GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
   --adapter-dir checkpoints/sft_base_runs/run_20260728_120000/final \
   --task rs
+```
+
+检查某个 adapter 是否能用于当前评测：
+
+```bash
+cat checkpoints/sft_base_runs/latest/final/sft_base_adapter_config.json
+```
+
+其中必须包含：
+
+```json
+{
+  "route": "sft_base_token_choice",
+  "dataset_version": "sft_base_rs_event_token_choice"
+}
 ```
 
 换 base model：

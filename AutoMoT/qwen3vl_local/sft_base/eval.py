@@ -47,7 +47,7 @@ import torch
 import torch.distributed as dist
 
 from qwen3vl_local.sft_base import DATASET_VERSION  # noqa: E402
-from qwen3vl_local.sft_base.labels import RS_LABEL_TO_OPTION, option_for_event  # noqa: E402
+from qwen3vl_local.sft_base.labels import RS_LABELS, event_in_candidates  # noqa: E402
 from qwen3vl_local.sft_base.prompts import (  # noqa: E402
     Memory,
     build_q1_prompt,
@@ -184,7 +184,11 @@ def _validate_adapter_config(adapter_dir: pathlib.Path, model_dir: pathlib.Path)
     with open(cfg_path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
     if cfg.get("route") != "sft_base_token_choice":
-        raise ValueError(f"adapter route mismatch: expected sft_base_token_choice, got {cfg.get('route')!r}")
+        raise ValueError(
+            "adapter route mismatch: current eval is token-only and no longer supports "
+            f"ABC/direct-choice adapters. expected sft_base_token_choice, got {cfg.get('route')!r}. "
+            "Please evaluate a token-choice adapter or retrain with the current sft_base code."
+        )
     if cfg.get("dataset_version") != DATASET_VERSION:
         raise ValueError(f"adapter dataset_version mismatch: expected {DATASET_VERSION}, got {cfg.get('dataset_version')!r}")
     saved_model_dir = cfg.get("base_model_dir")
@@ -210,6 +214,12 @@ def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path
 
     from transformers import AutoProcessor
 
+    # 先校验 adapter 再加载大模型。这样用户误传旧 ABC/direct-choice checkpoint 时，
+    # 多卡评测不会先把 4 份 Qwen 都加载到显存里才报错，失败会更快也更清楚。
+    adapter_cfg: Optional[Dict[str, Any]] = None
+    if adapter_dir is not None:
+        adapter_cfg = _validate_adapter_config(adapter_dir, model_dir)
+
     try:
         from transformers import AutoModelForImageTextToText as ModelClass
     except ImportError:
@@ -226,7 +236,7 @@ def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path
     if adapter_dir is not None:
         from peft import PeftModel
 
-        cfg = _validate_adapter_config(adapter_dir, model_dir)
+        cfg = adapter_cfg or _validate_adapter_config(adapter_dir, model_dir)
         print(f"[adapter] validated sft_base adapter scope={cfg.get('lora_vision_scope')}")
         model = PeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False)
         if merge_lora and hasattr(model, "merge_and_unload"):
@@ -390,9 +400,9 @@ def _apply_initial_memory_noise(memory: Memory, frame: Any, args: argparse.Names
     rng = random.Random(_stable_case_seed(args, case))
     mem = memory.copy()
     if mode in {"rs", "both", "random"} and (mode != "random" or rng.random() < 0.5):
-        mem.rs_label = _pick_different(rng, mem.rs_label, list(RS_LABEL_TO_OPTION.keys()))
+        mem.rs_label = _pick_different(rng, mem.rs_label, list(RS_LABELS))
     if mode in {"event", "both", "random"}:
-        event_candidates = ["RE"] + [str(v) for v in frame.event_option_map.values()]
+        event_candidates = ["RE"] + [str(v) for v in frame.event_candidates]
         mem.event_label = _pick_different(rng, mem.event_label, event_candidates)
     return mem
 
@@ -666,17 +676,17 @@ def _evaluate_case(
 
         q2_prompt = build_q2_prompt(
             memory,
-            option_map=frame.event_option_map,
+            candidates=frame.event_candidates,
             q1_abnormal=bool(q1_abnormal),
             regular_event_codes=frame.regular_event_codes,
         )
         q2_text, _ = _generate_next(bundle, q1_after, q2_prompt, int(args.max_new_tokens_q2))
-        parsed_q2 = parse_q2_output(q2_text, frame.event_option_map)
+        parsed_q2 = parse_q2_output(q2_text, frame.event_candidates)
         target = _event_target_from_frame(frame, student_event=parsed_q2.get("event_label"))
         event_ok = parsed_q2.get("event_label") == target.label
 
         counters["q2_triggered"] += 1
-        counters["q2_candidate_mismatch"] += int(option_for_event(target.label, frame.event_option_map) is None)
+        counters["q2_candidate_mismatch"] += int(not event_in_candidates(target.label, frame.event_candidates))
         counters["q2_event_correct"] += int(event_ok)
         if case.transition_index is not None and abs_index >= case.transition_index:
             counters["transition_post_q2_triggered"] += 1
@@ -971,7 +981,7 @@ def evaluate(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Evaluate SFT base direct-choice adapter")
+    p = argparse.ArgumentParser(description="Evaluate SFT base token-choice adapter")
     p.add_argument("--index", type=str, default="checkpoints/sft_base_data/val_sequence_index.jsonl")
     p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
     p.add_argument("--adapter-dir", type=str, required=True)

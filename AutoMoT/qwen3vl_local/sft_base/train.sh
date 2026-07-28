@@ -194,4 +194,5 @@ else
 fi
 
 echo "[done] adapter under ${OUTPUT_DIR}"
-echo "[hint] eval: GPU_IDS=0 python qwen3vl_local/sft_base/eval.py --index ${VAL_INDEX} --model-dir ${MODEL_DIR} --adapter-dir ${OUTPUT_DIR}/final --output-json ${OUTPUT_DIR}/eval_metrics.json"
+# --task 是必填项（rs / event / full）；输出路径不传时会自动写到 adapter run 目录下。
+echo "[hint] eval: GPU_IDS=0 python qwen3vl_local/sft_base/eval.py --adapter-dir ${OUTPUT_DIR}/final --task rs"

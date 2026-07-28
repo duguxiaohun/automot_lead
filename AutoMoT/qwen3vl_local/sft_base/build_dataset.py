@@ -2,7 +2,7 @@
 
 输入是 `keyframe_filter/collection_output/*_result.json` 的标定结果，输出是
 `sequence_index.jsonl`。每行对应一条 route，内部包含该 route 的逐帧 RS/EVENT
-训练目标和 Q2 随机选项映射。
+训练目标和 Q2 候选展示顺序（`event_candidates_ordered`，有序 list）。
 
 典型用法（从 AutoMoT/ 目录运行）：
 
@@ -39,7 +39,7 @@ from qwen3vl_local.sft_base.labels import (  # noqa: E402
     resolve_event_target,
     resolve_rs_target,
     scenario_event_candidates_from_result,
-    stable_event_option_map,
+    stable_event_choice_order,
     weather_to_text,
 )
 
@@ -240,7 +240,7 @@ def _build_frame_row(
     run_dir: pathlib.Path,
     route_id: str,
     scenario_candidates: List[str],
-    option_seed: int,
+    choice_seed: int,
     xml_weathers: List[Dict[str, Any]],
     automot_root: pathlib.Path,
 ) -> Optional[Dict[str, Any]]:
@@ -265,21 +265,21 @@ def _build_frame_row(
     rs_target = resolve_rs_target(ann)
     event_target = resolve_event_target(ann)
     # Q2 候选优先取 frame_event_annotation.allowed_events；只有旧数据缺失时才 fallback。
-    # raw_candidates 仍保留 R-E*/U-E*，后面 display_candidates/option_map 才折叠 regular。
+    # raw_candidates 仍保留 R-E*/U-E*，后面 display_candidates / ordered_candidates 才折叠 regular。
     raw_candidates = q2_raw_candidates_for_frame(
         ann,
         scenario_candidates=scenario_candidates,
         rs_label=rs_target.label,
     )
-    # option_map 是本帧“字母 -> RE/U-E*”的唯一真相。训练/eval/probe 都保存它，
-    # 避免运行时重新随机导致 target 和 prompt 对不上。
-    option_map = stable_event_option_map(
+    # event_candidates_ordered 是本帧 Q2 候选与展示顺序的唯一真相。训练/eval/probe
+    # 都直接读它，避免运行时重新随机导致 target 和 prompt 对不上。
+    ordered_candidates = stable_event_choice_order(
         run_id=route_id,
         frame_id=frame_id,
         rs_label=rs_target.label,
         scenario_candidates=scenario_candidates,
         raw_candidates=raw_candidates,
-        seed=option_seed,
+        seed=choice_seed,
     )
     display_candidates = collapse_regular_to_re(raw_candidates, rs_target.label)
     weather = _weather_for_frame(ann, xml_weathers)
@@ -297,7 +297,6 @@ def _build_frame_row(
         "weather_text": weather_to_text(weather),
         "ego_to_goal_xy": [round(float(ego_to_goal_xy[0]), 4), round(float(ego_to_goal_xy[1]), 4)],
         "rs_label": rs_target.label,
-        "rs_option": rs_target.option,
         "rs_confidence": rs_target.confidence,
         "rs_secondary": list(rs_target.secondary),
         "rs_candidates": rs_target.candidates,
@@ -309,8 +308,8 @@ def _build_frame_row(
         "frame_allowed_events_raw": list(raw_candidates),
         "regular_event_codes": regular_event_codes,
         "event_candidate_codes": list(display_candidates),
-        "event_option_map": option_map,
-        "candidate_mismatch": event_target.label not in set(option_map.values()),
+        "event_candidates_ordered": list(ordered_candidates),
+        "candidate_mismatch": event_target.label not in set(ordered_candidates),
         "review_required": bool((ann.get("frame_rs_annotation") or {}).get("review_required")),
         "source": {
             "meta_path": str(meta_path),
@@ -327,7 +326,7 @@ def _build_route_row(
     data_root: pathlib.Path,
     automot_root: pathlib.Path,
     scenario_candidates: List[str],
-    option_seed: int,
+    choice_seed: int,
     max_frames_per_route: int,
 ) -> Optional[Dict[str, Any]]:
     """把单条 route result 转成 sequence row。"""
@@ -354,7 +353,7 @@ def _build_route_row(
             run_dir=run_dir,
             route_id=route_id,
             scenario_candidates=scenario_candidates,
-            option_seed=option_seed,
+            choice_seed=choice_seed,
             xml_weathers=xml_weathers,
             automot_root=automot_root,
         )
@@ -465,7 +464,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
                 data_root=data_root,
                 automot_root=automot_root,
                 scenario_candidates=scenario_candidates,
-                option_seed=int(args.option_seed),
+                choice_seed=int(args.choice_seed),
                 max_frames_per_route=int(args.max_frames_per_route),
             )
             if row is None:
@@ -512,7 +511,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", type=str, default="checkpoints/sft_base_data")
     p.add_argument("--val-ratio", type=float, default=0.1)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--option-seed", type=int, default=20260711)
+    # Q2 候选展示顺序的扰动种子。默认值必须与 sft_v5 build_dataset 的 `--option-seed`
+    # 保持一致，否则同一 route/frame 在两条路线里的候选顺序会错相，无法逐样本对照。
+    p.add_argument("--choice-seed", type=int, default=20260711)
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
     p.add_argument("--scenarios", type=str, default="", help="comma-separated scenario names for smoke/debug builds")

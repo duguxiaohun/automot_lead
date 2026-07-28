@@ -14,26 +14,22 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 DATASET_VERSION = "sft_base_rs_event_token_choice"
-# DATASET_VERSION 描述的是本路线自己的样本协议：两问直接输出答案，不含 OPSD/CoT/teacher。
+# DATASET_VERSION 描述的是本路线自己的样本协议：两问直接输出语义 token，不含
+# OPSD/CoT/teacher，也不再有任何 A/B/C 选项字母。数据 schema 里的 `rs_option` /
+# `event_option_map` 两个字母字段已被删除，Q2 候选改为有序 list
+# `event_candidates_ordered`；旧 schema 直接作废重建，不保留兼容读取。
 #
 # EVENT 候选顺序故意继续使用 v5 的 namespace。这样同一 route/frame/seed
 # 在 sft_base 与 sft_v5 中候选集合和展示顺序一致，便于做逐样本直接对照；
 # 同时 adapter config 仍记录 DATASET_VERSION，避免把两条训练路线混淆。
-OPTION_MAP_DATASET_VERSION = "sft_v5_rs_event_sequence"
+CHOICE_ORDER_DATASET_VERSION = "sft_v5_rs_event_sequence"
 
 
 # ---------------------------------------------------------------------------
 # RS: Q1 中给学生看的固定语义 token。内部仍保留 R1-R5，便于和 keyframe_filter 对齐。
 # ---------------------------------------------------------------------------
 
-RS_OPTION_TO_LABEL: Dict[str, str] = {
-    "A": "R1",
-    "B": "R2",
-    "C": "R3",
-    "D": "R4",
-    "E": "R5",
-}
-RS_LABEL_TO_OPTION: Dict[str, str] = {v: k for k, v in RS_OPTION_TO_LABEL.items()}
+RS_LABELS: Tuple[str, ...] = ("R1", "R2", "R3", "R4", "R5")
 
 RS_LABEL_TO_TOKEN: Dict[str, str] = {
     "R1": "ORDINARY_ROAD",
@@ -44,30 +40,32 @@ RS_LABEL_TO_TOKEN: Dict[str, str] = {
 }
 RS_TOKEN_TO_LABEL: Dict[str, str] = {v: k for k, v in RS_LABEL_TO_TOKEN.items()}
 
-RS_OPTION_DESCRIPTIONS: Dict[str, str] = {
-    "A": (
+RS_DESCRIPTIONS: Dict[str, str] = {
+    # 直接按内部 R1-R5 索引。旧版本这里按 A-E 索引，需要先 label -> letter 再取描述；
+    # token 协议下字母已经没有任何作用，多一层映射只会制造对不齐的机会。
+    "R1": (
         "Ordinary same-direction drivable road: the ego vehicle is mainly following, "
         "lane-keeping, making same-direction lane adjustments, or recovering on a normal "
         "drivable path; there is no dominant intersection rule, traffic-light control, "
         "highway merge/exit structure, or opposing-lane borrowing requirement."
     ),
-    "B": (
+    "R2": (
         "Bidirectional single-lane or opposing-lane-sharing road: the usable corridor is "
         "narrow enough that the oncoming lane affects the decision, including borrowing "
         "the opposing lane to pass a blockage or yielding because an oncoming vehicle "
         "invades the ego lane."
     ),
-    "C": (
+    "R3": (
         "Highway, ramp, merge, split, or exit structure: the ego vehicle is in a "
         "high-speed or ramp-like decision space where speed matching, gap selection, "
         "target-lane tracking, merging, diverging, or exiting dominates the driving rule."
     ),
-    "D": (
+    "R4": (
         "Signalized intersection: the ego vehicle is inside or approaching an intersection "
         "where working traffic lights are the main right-of-way rule, including red-light "
         "waiting, green-light crossing, and protected or permissive turning under signal control."
     ),
-    "E": (
+    "R5": (
         "Unsignalized or priority-controlled intersection: the ego vehicle is inside or "
         "approaching an intersection without a reliable traffic-light rule, so it must use "
         "stop/yield signs, priority, road geometry, cross traffic, pedestrians, or safe-gap "
@@ -213,13 +211,11 @@ EVENT_ORDER: Tuple[str, ...] = (
 class RSTarget:
     """单帧 RS 训练目标。
 
-    `option` 仅保留旧 A-E 映射用于描述索引；学生输出使用固定 token。
-    `label` 是内部 R1-R5。`candidates` 保存原始打分，方便后续 probe 回查
-    “为什么双标签最后选了哪个”。
+    `label` 是内部 R1-R5，学生实际输出的是 `RS_LABEL_TO_TOKEN[label]`。
+    `candidates` 保存原始打分，方便后续 probe 回查“为什么双标签最后选了哪个”。
     """
 
     label: str
-    option: str
     description: str
     confidence: float
     secondary: Tuple[str, ...]
@@ -290,26 +286,24 @@ def resolve_rs_target(frame: Mapping[str, Any]) -> RSTarget:
     candidates: Dict[str, float] = {}
     if isinstance(candidates_raw, Mapping):
         for key, value in candidates_raw.items():
-            if str(key) in RS_LABEL_TO_OPTION:
+            if str(key) in RS_LABELS:
                 candidates[str(key)] = _safe_float(value)
 
-    label = str(primary) if primary in RS_LABEL_TO_OPTION else "R1"
+    label = str(primary) if primary in RS_LABELS else "R1"
     if candidates:
         # RS 多标签只训练一个标签：优先最高置信度；置信度相同则按 R1-R5 稳定顺序。
         # 这里不采用 student 动态答案，是为了避免 Q1 的路结构监督变成多目标漂移。
         best_label, _ = max(
             candidates.items(),
-            key=lambda item: (item[1], -list(RS_OPTION_TO_LABEL.values()).index(item[0]) if item[0] in RS_OPTION_TO_LABEL.values() else -99),
+            key=lambda item: (item[1], -RS_LABELS.index(item[0]) if item[0] in RS_LABELS else -99),
         )
         label = best_label
 
-    option = RS_LABEL_TO_OPTION[label]
     rs_ann = frame.get("frame_rs_annotation") or {}
     secondary = tuple(str(x) for x in (rs_ann.get("secondary") or frame.get("secondary_road_structures") or []) if x)
     return RSTarget(
         label=label,
-        option=option,
-        description=RS_OPTION_DESCRIPTIONS[option],
+        description=RS_DESCRIPTIONS[label],
         confidence=_safe_float(rs_ann.get("confidence", frame.get("confidence", 0.0))),
         secondary=secondary,
         candidates=candidates,
@@ -503,7 +497,7 @@ def event_description_for_display(
     return UE_DESCRIPTIONS.get(label, label)
 
 
-def stable_event_option_map(
+def stable_event_choice_order(
     *,
     run_id: str,
     frame_id: int,
@@ -511,37 +505,40 @@ def stable_event_option_map(
     scenario_candidates: Sequence[str],
     raw_candidates: Optional[Sequence[str]] = None,
     seed: int = 0,
-    dataset_version: str = OPTION_MAP_DATASET_VERSION,
-) -> Dict[str, str]:
-    """为某一帧生成可复现随机的 Q2 选项字母映射。
+    dataset_version: str = CHOICE_ORDER_DATASET_VERSION,
+) -> List[str]:
+    """为某一帧生成可复现随机的 Q2 候选展示顺序。
 
     同一个 dataset_version + run_id + frame_id + seed 永远得到同样顺序；不同帧会
-    打乱，避免模型学到“A 总是 RE”这种捷径。默认 dataset_version 使用
-    OPTION_MAP_DATASET_VERSION，而不是本路线 DATASET_VERSION，是为了让 base/v5
-    在 option-letter 扰动上完全同相位。
+    打乱，避免模型学到“列在第一行的总是 REGULAR”这种位置捷径。默认 dataset_version
+    使用 CHOICE_ORDER_DATASET_VERSION，而不是本路线 DATASET_VERSION，是为了让
+    base/v5 在候选顺序扰动上完全同相位。
+
+    返回值是有序 list，不是字母 -> 标签的 dict：token 协议下学生直接输出语义 token，
+    候选字母没有任何作用，只有“第几个”这个展示顺序还需要保留。旧版返回的
+    `{"A": ..., "B": ...}` 按 index 分配字母，因此 `sorted(map)` 的遍历顺序就等于
+    这里的 list 顺序，两者渲染出的 prompt 完全一致。
     """
 
     raw = list(raw_candidates) if raw_candidates is not None else q2_raw_candidates(scenario_candidates, rs_label)
     display = collapse_regular_to_re(raw, rs_label)
-    # 随机只打乱“字母到标签”的映射，不改变本帧候选集合；seed 源里包含 dataset_version，
-    # 以后如果候选协议变化，可以自然得到一套新映射，避免旧缓存混用。
+    # 随机只打乱展示顺序，不改变本帧候选集合；seed 源里包含 dataset_version，
+    # 以后如果候选协议变化，可以自然得到一套新顺序，避免旧缓存混用。
     seed_src = f"{dataset_version}::{run_id}::{frame_id}::{seed}".encode("utf-8")
     rng_seed = int(hashlib.sha256(seed_src).hexdigest(), 16) % (2**31)
     items = list(display)
     random.Random(rng_seed).shuffle(items)
-    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    if len(items) > len(letters):
-        raise ValueError(f"too many Q2 event choices: {len(items)}")
-    return {letters[i]: item for i, item in enumerate(items)}
+    return items
 
 
-def option_for_event(label: str, option_map: Mapping[str, str]) -> Optional[str]:
-    """从 event label 反查本帧随机 option letter。"""
+def event_in_candidates(label: Optional[str], candidates: Sequence[str]) -> bool:
+    """判断某个 EVENT label 是否出现在本帧候选里。
 
-    for letter, value in option_map.items():
-        if value == label:
-            return str(letter)
-    return None
+    替代旧的 `option_for_event`：那时需要反查字母才能判断“在不在选项里”，现在
+    候选本身就是标签 list，成员判断即可。
+    """
+
+    return bool(label) and str(label) in {str(item) for item in candidates}
 
 
 def weather_to_text(weather: Mapping[str, Any] | None) -> str:

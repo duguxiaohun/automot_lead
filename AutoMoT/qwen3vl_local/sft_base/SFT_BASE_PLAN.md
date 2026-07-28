@@ -4,12 +4,12 @@
 
 ## 核心差异
 
-- 复用 `sft_v5` 的数据构建、异常 route 剔除、4 帧 stitched RGB history、`EGO_TO_GOAL_XY`、RS/EVENT 候选池与随机 EVENT 选项。
-- Q2 候选集合和展示顺序沿用 `sft_v5` 的 seed namespace，但 prompt 不再要求输出 A/B/C；学生只输出固定 EVENT token，避免学习字母位置捷径。
+- 复用 `sft_v5` 的数据构建、异常 route 剔除、4 帧 stitched RGB history、`EGO_TO_GOAL_XY`、RS/EVENT 候选池与随机候选顺序。
+- Q2 候选集合和展示顺序沿用 `sft_v5` 的 seed namespace，但本路线**已完全没有 A/B/C 选项字母**：候选在数据里就是有序 list，学生只输出固定 EVENT token，避免学习位置捷径。
 - Q1 仍判 `RS` 与 `ABNORMAL`，Q2 仍在串行上下文中判 `EVENT`。
 - 训练目标是普通 teacher-forced CE，不让 student 先 rollout，也不使用 privileged teacher logits。
 - 训练时 memory 由 GT answer teacher-forced 更新，用来提供干净直接监督；它不是 v5 的 on-policy student 自维护 memory 分布。`EGO_TO_GOAL_XY` 每帧刷新为当前帧 ego-frame goal；eval 仍按学生自己的 Q1/Q2 输出维护离散 memory。
-- Prompt 禁止 CoT；旧协议曾经输出 A/B/C 选项，当前协议只输出固定语义 token：
+- Prompt 禁止 CoT；协议只输出固定语义 token：
 
 ```text
 RS: SIGNAL_INTERSECTION
@@ -22,7 +22,7 @@ ABNORMAL: NO
 EVENT: RULE_VIOLATION
 ```
 
-RS/EVENT prompt 中的候选展示顺序可以稳定打乱；训练和评估只用 token 字典还原标签，不再依赖选项字母。
+RS/EVENT prompt 中的候选展示顺序可以稳定打乱；训练和评估只用 token 字典还原标签，代码里已经不存在任何选项字母。Q2 输出的 token 必须出现在本帧候选里，否则按非法处理：不更新 memory、不计正确。
 
 固定 token 字典：
 
@@ -60,8 +60,9 @@ eval 加载 adapter 前必须读 `sft_base_adapter_config.json`，校验 route�
 
 ## 实现约束
 
-- `labels.py` 中 `DATASET_VERSION` 标识 sft_base 自己的训练协议；`OPTION_MAP_DATASET_VERSION` 固定为 v5，用来保证 Q2 字母扰动逐样本对齐。
-- 当前 `DATASET_VERSION=sft_base_rs_event_token_choice`，adapter config 的 `route=sft_base_token_choice`；旧的 A/B/C adapter 会被 eval adapter config 校验拒绝。切到 token 协议后需要重新构建数据并重新训练。
+- `labels.py` 中 `DATASET_VERSION` 标识 sft_base 自己的训练协议；`CHOICE_ORDER_DATASET_VERSION` 固定为 v5 的 namespace，用来保证 Q2 候选顺序扰动与 v5 逐样本对齐。`build_dataset.py --choice-seed` 的默认值必须与 `sft_v5/build_dataset.py --option-seed` 相同，否则相位会错开。
+- 当前 `DATASET_VERSION=sft_base_rs_event_token_choice`，adapter config 的 `route=sft_base_token_choice`；旧的 A/B/C adapter 已完全废弃，会被 eval adapter config 校验拒绝。不要通过手动改 config 混跑旧权重。
+- 数据 schema 里**没有** `rs_option` / `event_option_map`：Q2 候选是 `event_candidates_ordered`（有序 list，顺序即展示顺序）。`RouteSequenceDataset` 读到缺该字段的旧 index 会直接报错要求重建，不做兼容降级——静默兼容会让候选顺序或集合悄悄变化，指标看起来正常但训练分布已经错了。
 - `train.py` 默认 `--ue-event-loss-weight 3.0 --re-event-loss-weight 1.0 --ue-frame-repeat 2`；若 UE 仍然学不动，可继续提高 UE 权重或重复次数，但要同步观察 `train/q2_ue_rate_last_batch` 和训练时长。
 - `prompts.py` 中 memory 的 RS/EVENT 可以跨帧延续，但 `EGO_TO_GOAL_XY` 必须在每帧 prompt 前刷新，不能沿用首帧坐标。
 - `train.py` 的 DDP 累积使用手动 `_sync_trainable_grads()`：每帧 forward/backward 都放在 `no_sync()` 内，本 micro-batch 末尾对所有 trainable LoRA 参数补零并 all-reduce 一次。

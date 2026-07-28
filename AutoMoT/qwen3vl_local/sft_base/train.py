@@ -55,11 +55,10 @@ except Exception:
 
 from qwen3vl_local.sft_base import DATASET_VERSION  # noqa: E402
 from qwen3vl_local.sft_base.labels import (  # noqa: E402
-    RS_LABEL_TO_OPTION,
-    RS_OPTION_DESCRIPTIONS,
+    RS_DESCRIPTIONS,
     EventTarget,
     RSTarget,
-    option_for_event,
+    event_in_candidates,
     resolve_event_target,
 )
 from qwen3vl_local.sft_base.prompts import (  # noqa: E402
@@ -100,11 +99,11 @@ class FrameRow:
     weather_text: str
     ego_to_goal_xy: Optional[Tuple[float, float]]
     rs_label: str
-    rs_option: str
     event_label: str
     event_code: str
     abnormal: bool
-    event_option_map: Dict[str, str]
+    # Q2 本帧候选与展示顺序，直接来自 build_dataset 的 `event_candidates_ordered`。
+    event_candidates: List[str]
     regular_event_codes: List[str]
     raw: Dict[str, Any]
 
@@ -140,6 +139,15 @@ class RouteSequenceDataset(Dataset):
                 obj = json.loads(line)
                 frames: List[FrameRow] = []
                 for fr in obj.get("frames", []):
+                    if "event_candidates_ordered" not in fr:
+                        # 旧 schema 用 `event_option_map` 存 {字母: 标签}。token 协议下字母
+                        # 已完全废弃，这里不做兼容读取：静默降级会让 Q2 候选顺序或候选集合
+                        # 悄悄变化，指标看起来正常但训练分布已经错了。
+                        raise ValueError(
+                            f"{self.path}: frame missing 'event_candidates_ordered'. "
+                            "This index was built by the old letter-choice schema and is no longer "
+                            "supported. Rebuild it with the current build_dataset.py."
+                        )
                     frames.append(
                         FrameRow(
                             frame_id=int(fr["frame_id"]),
@@ -147,11 +155,10 @@ class RouteSequenceDataset(Dataset):
                             weather_text=str(fr.get("weather_text", "")),
                             ego_to_goal_xy=_parse_goal_xy(fr.get("ego_to_goal_xy")),
                             rs_label=str(fr.get("rs_label", "R1")),
-                            rs_option=str(fr.get("rs_option", "A")),
                             event_label=str(fr.get("event_label", "RE")),
                             event_code=str(fr.get("event_code", "R-E1")),
                             abnormal=bool(fr.get("abnormal", False)),
-                            event_option_map={str(k): str(v) for k, v in (fr.get("event_option_map") or {}).items()},
+                            event_candidates=[str(x) for x in (fr.get("event_candidates_ordered") or [])],
                             regular_event_codes=[str(x) for x in fr.get("regular_event_codes", [])],
                             raw=fr,
                         )
@@ -199,11 +206,9 @@ def _load_images(paths: List[str]) -> List[Image.Image]:
 def _rs_target_from_frame(frame: FrameRow) -> RSTarget:
     """把 FrameRow 还原成 RSTarget。"""
 
-    option = RS_LABEL_TO_OPTION.get(frame.rs_label, frame.rs_option)
     return RSTarget(
         label=frame.rs_label,
-        option=option,
-        description=RS_OPTION_DESCRIPTIONS.get(option, ""),
+        description=RS_DESCRIPTIONS.get(frame.rs_label, ""),
         confidence=float(frame.raw.get("rs_confidence", 0.0) or 0.0),
         secondary=tuple(frame.raw.get("rs_secondary") or []),
         candidates={str(k): float(v) for k, v in (frame.raw.get("rs_candidates") or {}).items()},
@@ -381,17 +386,17 @@ def _frame_training_pack(
 
     q2_prompt: Optional[str] = None
     q2_target: Optional[str] = None
-    q2_included = option_for_event(event_target.label, frame.event_option_map) is not None
+    q2_included = event_in_candidates(event_target.label, frame.event_candidates)
     if q2_included:
         q2_prompt = build_q2_prompt(
             memory_after_q1,
-            option_map=frame.event_option_map,
+            candidates=frame.event_candidates,
             q1_abnormal=event_target.abnormal,
             regular_event_codes=frame.regular_event_codes,
         )
         q2_target = build_q2_target(
             memory_after_q1,
-            option_map=frame.event_option_map,
+            candidates=frame.event_candidates,
             event_target=event_target,
             regular_event_codes=frame.regular_event_codes,
         )
@@ -403,7 +408,7 @@ def _frame_training_pack(
     else:
         q2_loss_weights = None
     # 如果 EVENT 真值不在本帧候选表里，跳过 Q2 监督但仍训练 Q1；这种情况通常来自
-    # 上游标注/候选池边界，不能强行把不存在的事件映射到某个字母。
+    # 上游标注/候选池边界，不能强行把没列出来的事件当成 target 去监督。
     packed = _build_inputs(
         bundle,
         images=images,
