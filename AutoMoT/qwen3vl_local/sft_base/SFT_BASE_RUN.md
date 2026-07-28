@@ -128,50 +128,158 @@ checkpoints/sft_base_runs/latest/log.txt
 
 评估分三类，并且完全不做脚本纠正：Q1 预测错 RS 时只跳过当前帧 Q2，下一帧继续沿用模型自己维护出的 memory；Q2 输出非法时也不重置。
 
-随机完整路线闭环测试：随机抽若干条 route，从起点跑到终点，看模型在自然路径里长期记忆是否漂移。
+日常只需要改三类东西：
+
+1. `GPU_IDS`：指定用哪张卡或哪几张卡。
+2. `--adapter-dir`：每次必须显式指定要测哪个 adapter。
+3. `--task`：每次必须显式指定测 `rs`、`event`，或 `full`。
+
+`--model-dir` 通常不用改，除非你换了 base 模型目录。
+
+默认值：
+
+| 参数 | 默认 |
+|---|---|
+| `--index` | `checkpoints/sft_base_data/val_sequence_index.jsonl` |
+| `--model-dir` | `checkpoints/Qwen3-VL-4B-Instruct` |
+| `--adapter-dir` | 无默认值，每次必须指定 |
+| `--task` | 无默认值，每次必须指定；`full` 等价于 `--eval-mode full_route` |
+| RS/EVENT 转折 case 数 | `128` |
+| full_route 随机 route 数 | `16` |
+| 输出路径 | 自动写到 adapter run 目录下的 `eval_*_metrics.json` 和 `eval_*_frames.jsonl` |
+
+旧的 `--eval-mode full_route/rs_transition/event_transition` 仍然兼容；日常推荐用更短的
+`--task full/rs/event`。
+
+### 5.1 简易单卡测试
+
+RS 转折专项测试：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
-  --index checkpoints/sft_base_data/val_sequence_index.jsonl \
-  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_base_runs/latest/final \
-  --eval-mode full_route \
-  --sample-routes 16 \
-  --seed 20260724 \
-  --output-json checkpoints/sft_base_runs/latest/eval_full_route_metrics.json \
-  --output-jsonl checkpoints/sft_base_runs/latest/eval_full_route_frames.jsonl
+  --task rs
 ```
 
-RS 转折专项测试：只取 RS 变化点前后 `--transition-window` 帧，并用 `--transition-tolerance` 允许提前或滞后若干帧；重点看模型是否能在容忍窗口内切到正确 RS，而不是逐帧和数据标注完全同拍。
+EVENT 转换专项测试：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task event
+```
+
+随机完整路线闭环测试：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task full
+```
+
+换 adapter：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/run_20260728_120000/final \
+  --task rs
+```
+
+换 base model：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task event
+```
+
+### 5.2 简易多卡测试
+
+`sft_base/eval.py` 现在支持 `torchrun` 多卡分片评估。每个 rank 加载一份模型，
+按 `case_idx % WORLD_SIZE == RANK` 处理不同 case；full_route 模式里一个 case 是一条完整 route，
+RS/EVENT transition 模式里一个 case 是一个转折窗口。这样每个 case 内部的 memory 仍然串行推进，
+不会被跨卡切断。
+
+2 卡 RS 转折专项测试：
+
+```bash
+GPU_IDS=0,1 torchrun --standalone --nproc_per_node=2 \
+  qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task rs
+```
+
+4 卡 RS 转折专项测试：
+
+```bash
+GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 \
+  qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task rs
+```
+
+2 卡 EVENT 转换专项测试：
+
+```bash
+GPU_IDS=0,1 torchrun --standalone --nproc_per_node=2 \
+  qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task event
+```
+
+4 卡 EVENT 转换专项测试：
+
+```bash
+GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 \
+  qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task event
+```
+
+2 卡完整路线随机闭环测试：
+
+```bash
+GPU_IDS=0,1 torchrun --standalone --nproc_per_node=2 \
+  qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task full
+```
+
+4 卡完整路线随机闭环测试：
+
+```bash
+GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 \
+  qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task full
+```
+
+多卡输出规则：
+
+- `--output-json` 只由 rank0 写最终汇总指标，里面会记录 `world_size`。
+- `--output-jsonl` 每个 rank 先写临时分片，例如 `eval_rs_transition_frames.jsonl.rank0`；
+  rank0 在所有 rank 结束后合并成用户指定的最终 jsonl，并删除临时分片。
+- `GPU_IDS=4,5 torchrun --standalone --nproc_per_node=2 ...` 表示用物理 4、5 号卡；
+  进程内部分别看到 `cuda:0` 和 `cuda:1`，这是 `CUDA_VISIBLE_DEVICES` 的正常映射。
+- `--nproc_per_node` 必须和 `GPU_IDS` 里的卡数一致或小于它；常用写法是二者相同。
+
+### 5.3 全量参数 demo
+
+如果要临时改窗口大小、case 数、seed 或输出路径，可以展开成全量参数。例如 RS：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
   --index checkpoints/sft_base_data/val_sequence_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_base_runs/latest/final \
-  --eval-mode rs_transition \
+  --task rs \
   --transition-window 8 \
   --transition-tolerance 3 \
   --max-transition-cases 128 \
   --seed 20260724 \
   --output-json checkpoints/sft_base_runs/latest/eval_rs_transition_metrics.json \
   --output-jsonl checkpoints/sft_base_runs/latest/eval_rs_transition_frames.jsonl
-```
-
-UE/RE/EVENT 转换专项测试：只取 EVENT 或 ABNORMAL 状态变化点前后窗口，检查模型是否能在容忍窗口内切到正确 EVENT；`event_transition_abnormal_hit_rate` 另看 Q1 的 YES/NO 是否先切对。
-
-```bash
-GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
-  --index checkpoints/sft_base_data/val_sequence_index.jsonl \
-  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --adapter-dir checkpoints/sft_base_runs/latest/final \
-  --eval-mode event_transition \
-  --transition-window 8 \
-  --transition-tolerance 3 \
-  --max-transition-cases 128 \
-  --seed 20260724 \
-  --output-json checkpoints/sft_base_runs/latest/eval_event_transition_metrics.json \
-  --output-jsonl checkpoints/sft_base_runs/latest/eval_event_transition_frames.jsonl
 ```
 
 `eval.py` 会先校验 adapter 目录中的 `sft_base_adapter_config.json`。如果 route、
