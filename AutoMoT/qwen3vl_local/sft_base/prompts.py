@@ -10,14 +10,14 @@ import re
 from dataclasses import dataclass
 import hashlib
 import random
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from qwen3vl_local.sft_base.labels import (
     EVENT_LABEL_TO_TOKEN,
     EVENT_TOKEN_TO_LABEL,
-    RS_LABEL_TO_OPTION,
+    RS_DESCRIPTIONS,
     RS_LABEL_TO_TOKEN,
-    RS_OPTION_DESCRIPTIONS,
+    RS_LABELS,
     RS_TOKEN_TO_LABEL,
     EventTarget,
     RSTarget,
@@ -29,7 +29,7 @@ from qwen3vl_local.sft_base.labels import (
 # 这条短规则很重要：eval 时离散 memory 由学生输出自维护，如果 prompt 完全不约束
 # memory 更新倾向，模型在远处/遮挡/雾天画面里会更容易把 RS/EVENT 改漂。
 SYSTEM_PROMPT_BASE = """\
-You are an autonomous driving agent. Use the stitched RGB history as visual context, ordered from oldest to newest. Keep the current memory by default and change it only when clear visual evidence supports the change. Treat weak, distant, foggy, or occluded evidence as uncertain. Answer only with the requested option lines. Do not explain, do not use chain-of-thought, and do not mention ground truth, hidden labels, dataset rules, or scenario names."""
+You are an autonomous driving agent. Use the stitched RGB history as visual context, ordered from oldest to newest. Keep the current memory by default and change it only when clear visual evidence supports the change. Treat weak, distant, foggy, or occluded evidence as uncertain. Answer only with the requested lines, copying one token exactly as it is written in the choices. Do not explain, do not use chain-of-thought, and do not mention ground truth, hidden labels, dataset rules, or scenario names."""
 
 DEFAULT_W_RS = 1.2
 DEFAULT_W_ABNORMAL = 0.8
@@ -49,10 +49,6 @@ class Memory:
     ego_to_goal_y: Optional[float] = None
 
     @property
-    def rs_option(self) -> str:
-        return RS_LABEL_TO_OPTION.get(self.rs_label, "A")
-
-    @property
     def rs_token(self) -> str:
         return RS_LABEL_TO_TOKEN.get(self.rs_label, "ORDINARY_ROAD")
 
@@ -67,9 +63,8 @@ class Memory:
     def format_text(self) -> str:
         # EGO_TO_GOAL_XY 是连续导航提示，不应像 RS/EVENT 那样跨帧沿用旧值；
         # train/eval 在每帧提问前都会 refresh_memory_goal，保证这里展示的是当前帧坐标。
-        rs_opt = self.rs_option
         rs_token = self.rs_token
-        rs_desc = RS_OPTION_DESCRIPTIONS.get(rs_opt, RS_OPTION_DESCRIPTIONS["A"])
+        rs_desc = RS_DESCRIPTIONS.get(self.rs_label, RS_DESCRIPTIONS["R1"])
         event_desc = event_description_for_display(self.event_label, self.rs_label)
         event_token = EVENT_LABEL_TO_TOKEN.get(self.event_label, self.event_label)
         if self.ego_to_goal_x is None or self.ego_to_goal_y is None:
@@ -99,28 +94,27 @@ def rs_choices_block(choice_seed: Optional[str] = None) -> str:
     """渲染 Q1 的固定 RS token 选项，展示顺序可稳定打乱。"""
 
     lines = ["[RS_CHOICES]"]
-    for label in _stable_shuffle(list(RS_LABEL_TO_TOKEN), choice_seed):
-        option = RS_LABEL_TO_OPTION[label]
+    for label in _stable_shuffle(list(RS_LABELS), choice_seed):
         token = RS_LABEL_TO_TOKEN[label]
-        lines.append(f"{token}. {RS_OPTION_DESCRIPTIONS[option]}")
+        lines.append(f"{token}. {RS_DESCRIPTIONS[label]}")
     lines.append("[/RS_CHOICES]")
     return "\n".join(lines)
 
 
 def event_choices_block(
-    option_map: Mapping[str, str],
+    candidates: Sequence[str],
     rs_label: str,
     regular_event_codes: Optional[Sequence[str]] = None,
 ) -> str:
     """渲染 Q2 的本帧 EVENT token 选项。
 
-    option_map 仍用于保存本帧候选展示顺序，但不再要求学生输出 A/B/C。
+    `candidates` 是 build_dataset 存下来的有序候选 list（RE / U-E*），顺序即展示
+    顺序，本身就是本帧的可复现随机结果，这里不再二次排序。
     """
 
     rs_token = RS_LABEL_TO_TOKEN.get(rs_label, "ORDINARY_ROAD")
     lines = [f"[EVENT_CHOICES under RS={rs_token}]"]
-    for letter in sorted(option_map):
-        label = option_map[letter]
+    for label in candidates:
         token = EVENT_LABEL_TO_TOKEN.get(label, label)
         lines.append(f"{token}. {event_description_for_display(label, rs_label, regular_event_codes)}")
     lines.append("[/EVENT_CHOICES]")
@@ -136,7 +130,7 @@ def build_q1_prompt(memory: Memory, *, choice_seed: Optional[str] = None) -> str
             rs_choices_block(choice_seed),
             (
                 "[QUESTION_1]\n"
-                "Look at the latest frame in the RGB history and choose the current road-structure option. "
+                "Look at the latest frame in the RGB history and choose the current road-structure token. "
                 "Also decide whether an unusual event is currently active or still affecting the ego vehicle. "
                 "If the evidence is weak, keep the memory unless it is clearly contradicted.\n\n"
                 "Output exactly these two lines and nothing else:\n"
@@ -159,7 +153,7 @@ def build_q1_target(*, rs_target: RSTarget, event_target: EventTarget) -> str:
 def build_q2_prompt(
     memory: Memory,
     *,
-    option_map: Mapping[str, str],
+    candidates: Sequence[str],
     q1_abnormal: bool,
     regular_event_codes: Optional[Sequence[str]] = None,
 ) -> str:
@@ -172,14 +166,14 @@ def build_q2_prompt(
         )
     else:
         task = (
-            "Question 1 said no unusual event is active. Still compare every listed option and choose the "
+            "Question 1 said no unusual event is active. Still compare every listed token and choose the "
             "one best supported by the latest frame. Do not keep REGULAR when a listed unusual-event token "
             "has clear visual evidence."
         )
     return "\n\n".join(
         [
             memory.format_text(),
-            event_choices_block(option_map, memory.rs_label, regular_event_codes),
+            event_choices_block(candidates, memory.rs_label, regular_event_codes),
             (
                 "[QUESTION_2]\n"
                 f"{task} Do not invent an event that is not listed.\n\n"
@@ -194,15 +188,19 @@ def build_q2_prompt(
 def build_q2_target(
     memory: Memory,
     *,
-    option_map: Mapping[str, str],
+    candidates: Sequence[str],
     event_target: EventTarget,
     regular_event_codes: Optional[Sequence[str]] = None,
 ) -> str:
-    """Q2 直接监督答案。"""
+    """Q2 直接监督答案。
+
+    正常情况下调用方已经用 `event_in_candidates` 确认过真值在候选里；这里的兜底
+    只在候选非空时取展示顺序第一项，保证 target 一定是本帧 prompt 列出过的 token。
+    """
 
     del memory, regular_event_codes
-    labels = set(option_map.values())
-    label = event_target.label if event_target.label in labels else (sorted(labels)[0] if labels else "RE")
+    labels = [str(item) for item in candidates]
+    label = event_target.label if event_target.label in labels else (labels[0] if labels else "RE")
     token = EVENT_LABEL_TO_TOKEN.get(label, label)
     return f"EVENT: {token}"
 
@@ -220,24 +218,26 @@ def parse_q1_output(text: str) -> Dict[str, Optional[str]]:
     abnormal_match = _Q1_ABNORMAL_RE.search(text or "")
     token = rs_match.group(1).upper().replace("-", "_") if rs_match else None
     return {
-        "rs_option": None,
         "rs_token": token,
         "rs_label": RS_TOKEN_TO_LABEL.get(token) if token else None,
         "abnormal": abnormal_match.group(1).upper() if abnormal_match else None,
     }
 
 
-def parse_q2_output(text: str, option_map: Mapping[str, str]) -> Dict[str, Optional[str]]:
-    """解析 Q2 输出，并按本帧随机 option map 还原 EVENT label。"""
+def parse_q2_output(text: str, candidates: Sequence[str]) -> Dict[str, Optional[str]]:
+    """解析 Q2 输出，并校验 token 是否是本帧列出过的候选。
+
+    模型可能吐出一个合法的全局 EVENT token，但它并不在本帧候选里；这种情况按非法
+    处理（`event_label=None`），不更新 memory，也不计为正确。
+    """
 
     match = _Q2_EVENT_RE.search(text or "")
     token = match.group(1).upper().replace("-", "_") if match else None
     label = EVENT_TOKEN_TO_LABEL.get(token) if token else None
-    allowed = set(option_map.values())
+    allowed = {str(item) for item in candidates}
     if label not in allowed:
         label = None
     return {
-        "event_option": None,
         "event_token": token,
         "event_label": label,
     }
@@ -288,7 +288,7 @@ def update_memory_after_q1(
     """Q1 后更新 memory；非法 RS 不污染状态。"""
 
     mem = memory.copy()
-    if student_rs_label in RS_LABEL_TO_OPTION:
+    if student_rs_label in RS_LABELS:
         mem.rs_label = str(student_rs_label)
     if student_abnormal is False:
         mem.event_label = "RE"

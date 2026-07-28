@@ -7,6 +7,7 @@ parser 找到，避免 prompt 字段名改动后 loss 悄悄变成 0。
 from __future__ import annotations
 
 import pathlib
+import re
 import sys
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
@@ -28,6 +29,12 @@ from qwen3vl_local.sft_base.prompts import (
 )
 
 
+def _has_letter_answer(text: str, field: str) -> bool:
+    """检测 `RS: D` 这类旧 A/B/C 单字母答案是否复活。"""
+
+    return re.search(rf"(?im)^\s*{field}\s*:\s*[A-Z]\s*$", text or "") is not None
+
+
 def _assert_nonempty(text: str, spans: dict, keys: list[str]) -> None:
     for key in keys:
         if key not in spans:
@@ -40,7 +47,6 @@ def _assert_nonempty(text: str, spans: dict, keys: list[str]) -> None:
 def main() -> None:
     rs = RSTarget(
         label="R4",
-        option="D",
         description="Signalized intersection",
         confidence=0.9,
         secondary=(),
@@ -48,14 +54,21 @@ def main() -> None:
     )
     event = EventTarget(label="U-E6", event_code="U-E6", abnormal=True, raw_events=("R-E4", "U-E6"))
     q1 = build_q1_target(rs_target=rs, event_target=event)
-    assert "SIGNAL_INTERSECTION" in q1 and "RS: D" not in q1
+    # 答案必须是语义 token；任何单字母选项形式都视为回退到旧协议。
+    assert "SIGNAL_INTERSECTION" in q1
+    assert not _has_letter_answer(q1, "RS"), q1
     assert parse_q1_output(q1)["rs_label"] == "R4"
     _assert_nonempty(q1, target_spans_q1(q1), ["rs", "abnormal"])
     memory = reset_memory_for_frame(rs)
-    q2 = build_q2_target(memory, option_map={"A": "RE", "B": "U-E6"}, event_target=event)
-    assert "RULE_VIOLATION" in q2 and "EVENT: B" not in q2
-    assert parse_q2_output(q2, {"A": "RE", "B": "U-E6"})["event_label"] == "U-E6"
+    candidates = ["RE", "U-E6"]
+    q2 = build_q2_target(memory, candidates=candidates, event_target=event)
+    assert "RULE_VIOLATION" in q2
+    assert not _has_letter_answer(q2, "EVENT"), q2
+    assert parse_q2_output(q2, candidates)["event_label"] == "U-E6"
     _assert_nonempty(q2, target_spans_q2(q2), ["event"])
+
+    # 候选外的合法全局 token 必须被判为非法，否则 eval 会把 off-candidate 输出算成有效答案。
+    assert parse_q2_output("EVENT: LEAD_BRAKE", candidates)["event_label"] is None
     print("[sft_base check_loss_mask] ok")
 
 

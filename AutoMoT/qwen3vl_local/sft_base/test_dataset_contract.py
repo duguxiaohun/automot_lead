@@ -18,7 +18,7 @@ from qwen3vl_local.sft_base.labels import (
     collapse_regular_to_re,
     q2_raw_candidates_for_frame,
     q2_raw_candidates,
-    stable_event_option_map,
+    stable_event_choice_order,
 )
 from qwen3vl_local.sft_v5.labels import stable_event_option_map as stable_event_option_map_v5
 
@@ -41,10 +41,11 @@ def main() -> None:
     # R3 的正常 highway/ramp 行为可能有多个 R-E，但 prompt 里只训练一个 RE。
     assert collapse_regular_to_re(r3_raw, "R3") == ["RE"], "R3 只折叠 regular 为 RE，不开放 UE"
 
-    m1 = stable_event_option_map(run_id="route", frame_id=3, rs_label="R4", scenario_candidates=scenario_candidates, seed=7)
-    m2 = stable_event_option_map(run_id="route", frame_id=3, rs_label="R4", scenario_candidates=scenario_candidates, seed=7)
-    assert m1 == m2, "frame 级随机必须可复现"
-    assert set(m1.values()) == {"RE", "U-E4", "U-E6"}
+    o1 = stable_event_choice_order(run_id="route", frame_id=3, rs_label="R4", scenario_candidates=scenario_candidates, seed=7)
+    o2 = stable_event_choice_order(run_id="route", frame_id=3, rs_label="R4", scenario_candidates=scenario_candidates, seed=7)
+    assert o1 == o2, "frame 级随机必须可复现"
+    assert set(o1) == {"RE", "U-E4", "U-E6"}
+    assert len(o1) == len(set(o1)), "候选顺序里不能有重复项"
 
     frame = {
         "frame_event_annotation": {"allowed_events": ["R-E4", "U-E8"]},
@@ -56,7 +57,7 @@ def main() -> None:
     allowed_raw = q2_raw_candidates_for_frame(frame, scenario_candidates=scenario_candidates, rs_label="R4")
     assert allowed_raw == ["R-E4", "U-E8"], "逐帧 allowed_events 必须优先于 scenario fallback"
     assert collapse_regular_to_re(["R-E2", "U-E8"], "R4") == ["RE", "U-E8"], "逐帧 R-E 不能被当前 RS 静态表过滤"
-    m3 = stable_event_option_map(
+    o3 = stable_event_choice_order(
         run_id="route",
         frame_id=4,
         rs_label="R4",
@@ -64,7 +65,7 @@ def main() -> None:
         raw_candidates=allowed_raw,
         seed=7,
     )
-    assert set(m3.values()) == {"RE", "U-E8"}
+    assert set(o3) == {"RE", "U-E8"}
     m3_v5 = stable_event_option_map_v5(
         run_id="route",
         frame_id=4,
@@ -73,7 +74,10 @@ def main() -> None:
         raw_candidates=allowed_raw,
         seed=7,
     )
-    assert m3 == m3_v5, "sft_base 必须和 sft_v5 保持同帧 option-letter 扰动一致"
+    # sft_v5 仍是 A/B/C 选项协议，返回 {字母: 标签}；字母按 index 分配，所以按字母排序
+    # 展开就是它的展示顺序。sft_base 已经换成有序 list，但两边必须仍然同相位，
+    # 否则同一 route/frame 在两条路线里的候选顺序不同，无法逐样本对照。
+    assert o3 == [m3_v5[key] for key in sorted(m3_v5)], "sft_base 必须和 sft_v5 保持同帧候选顺序扰动一致"
 
     for rs, candidates in EVENT_CANDIDATES_BY_RS.items():
         # 静态表只允许原始 R-E*/U-E*，不能提前混入 prompt 展示用的 RE。
