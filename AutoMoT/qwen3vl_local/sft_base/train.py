@@ -427,7 +427,7 @@ def _frame_training_pack(
 
     q2_prompt: Optional[str] = None
     q2_target: Optional[str] = None
-    q2_included = event_in_candidates(event_target.label, frame.event_candidates)
+    q2_included = event_in_candidates(event_target.label, frame.event_candidates) and len(frame.event_candidates) > 1
     if q2_included:
         q2_prompt = build_q2_prompt(
             q2_memory,
@@ -447,8 +447,8 @@ def _frame_training_pack(
         )
     else:
         q2_loss_weights = None
-    # 如果 EVENT 真值不在本帧候选表里，跳过 Q2 监督但仍训练 Q1；这种情况通常来自
-    # 上游标注/候选池边界，不能强行把没列出来的事件当成 target 去监督。
+    # 如果 EVENT 真值不在候选表里，或 Q2 是单候选送分题，跳过 Q2 监督但仍训练 Q1。
+    # 单候选帧没有判别信息，只会稀释真正需要区分 RE/UE 的帧的梯度。
     packed = _build_inputs(
         bundle,
         images=images,
