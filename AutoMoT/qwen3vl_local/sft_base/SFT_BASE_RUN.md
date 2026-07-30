@@ -160,7 +160,7 @@ TB_EXTRA="--samples_per_plugin images=200" bash qwen3vl_local/tb_serve.sh checkp
 | `train/grad_norm/vision` | 视觉 LoRA/merger 相关梯度范数；`LORA_VISION_SCOPE=off` 时可能没有 |
 | `train/param_norm/lora_vision` | 视觉侧可训练参数范数，用于观察 fuse 是否异常漂移 |
 | `train/vision_guard_bad_steps` | 视觉 fuse guard 连续异常步数 |
-| `val/loss` | 评估间隔触发的 teacher-forced 验证 loss |
+| `val/loss` | 评估间隔触发的 teacher-forced 验证 loss；prompt memory 使用训练同款 anti-copy 扰动，seed 固定为 `SEED`，不随 rank 漂移 |
 | `val/samples` / `val/skipped` | 验证样本数与跳过帧数 |
 | `val/q2_rate` | 验证集中 Q2 监督帧比例 |
 
@@ -180,14 +180,17 @@ checkpoints/sft_base_runs/latest/log.txt
 日常只需要改三类东西：
 
 1. `GPU_IDS`：指定用哪张卡或哪几张卡。
-2. `--adapter-dir`：每次必须显式指定要测哪个 adapter。
+2. `--adapter-dir`：测 LoRA 时显式指定 adapter；不传则跑 base 零样本。
 3. `--task`：每次必须显式指定测 `rs`、`event`，或 `full`。
 
 `--model-dir` 通常不用改，除非你换了 base 模型目录。
 
-`--adapter-dir` 必须指向当前 token-choice 协议训练出的 adapter。旧
+测 LoRA 时，`--adapter-dir` 必须指向当前 token-choice 协议训练出的 adapter。旧
 `sft_base_direct_choice` / ABC checkpoint 会被 eval 直接拒绝，这是为了避免旧输出协议
 和新语义 token prompt 混用后得到没有意义的指标。
+
+测 base 零样本时可以省略 `--adapter-dir`，但必须手动给 `--output-dir`，否则默认输出根会落到
+`checkpoints/sft_base_runs/latest`，容易和训练 run 混在一起。
 
 默认值：
 
@@ -195,7 +198,7 @@ checkpoints/sft_base_runs/latest/log.txt
 |---|---|
 | `--index` | `checkpoints/sft_base_data/val_sequence_index.jsonl` |
 | `--model-dir` | `checkpoints/Qwen3-VL-4B-Instruct` |
-| `--adapter-dir` | 无默认值，每次必须指定 |
+| `--adapter-dir` | 默认 `None`；不传时评估 base 模型 |
 | `--task` | 无默认值，每次必须指定；`full` 等价于 `--eval-mode full_route` |
 | `--output-dir` | 默认自动生成；手动指定时会在该目录写 `metrics.json`、`frames.jsonl`、`summary.md` |
 | RS/EVENT 转折 case 数 | `128` |
@@ -212,6 +215,14 @@ checkpoints/sft_base_runs/latest/eval_results/rs_transition/20260730_143012/
 ├── metrics.json
 ├── frames.jsonl
 └── summary.md
+```
+
+base 零样本基线建议单独放目录：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --task full \
+  --output-dir checkpoints/sft_base_base_eval/full_original
 ```
 
 三个文件的用途：
@@ -405,6 +416,7 @@ dataset version、base model path 或 vision scope 不匹配，会直接报错�
 | `event_acc_multi_candidate` | 排除单候选送分题后的 EVENT 准确率 |
 | `event_pred_ue_rate_multi_candidate` | 排除单候选送分题后的 UE 输出比例 |
 | `ue_vs_re_f1_multi_candidate` | 排除单候选送分题后的 UE-vs-RE F1 |
+| `dataset_candidate_mismatch_rate` / `dataset_candidate_mismatch_ue_rate` | GT EVENT 不在 dataset 自己候选表中的比例；这些帧不进 EVENT 评分分母 |
 | `q2_single_candidate_rate` / `q2_multi_candidate_rate` | Q2 单候选送分题比例 / 真正需要判别的多候选比例 |
 | `rs_change_f1` | 相邻帧 RS 是否变化的 F1；同时约束该切和不该切 |
 | `re_to_ue_f1` / `ue_to_re_f1` | 相邻帧异常起始 / 异常结束检测 F1，拆开看漏检和持续误报 |
@@ -521,6 +533,15 @@ python qwen3vl_local/sft_base/test_eval_candidates.py
 python qwen3vl_local/sft_base/audit_eval_candidate_drift.py \
   --index checkpoints/sft_base_data/val_sequence_index.jsonl
 ```
+
+审计输出会分开列出：
+
+| 字段 | 含义 |
+|---|---|
+| `set_mismatch_examples` | eval 候选集合与 dataset 候选集合不同的样例 |
+| `unreachable_scoreable_examples` | dataset 候选本身可达，但 eval 候选不可达的样例 |
+| `dataset_candidate_mismatch_examples` | GT EVENT 不在 dataset 自己候选表中的上游数据缺陷样例 |
+| `dataset_candidate_mismatch_ue_rate` | UE 帧中这类数据缺陷的占比 |
 
 `test_dataset_contract.py` 会检查 sft_base 与 sft_v5 的 Q2 候选顺序是否保持一致。
 `test_eval_candidates.py` 会检查 eval 侧候选构造不会过滤跨 RS 的 regular 例外、

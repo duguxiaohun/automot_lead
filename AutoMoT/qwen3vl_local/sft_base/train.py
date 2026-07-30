@@ -697,10 +697,15 @@ def evaluate_loss(
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
     memory_noise_seed: int = 20260724,
+    first_frame_memory_unknown: bool = True,
+    memory_rs_wrong_prob: float = 0.30,
+    memory_rs_unknown_prob: float = 0.40,
     event_wrong_prob: float = 0.35,
     event_unknown_prob: float = 0.35,
+    rs_wrong_event_unknown_prob: float = 0.25,
+    memory_dropout_prob: float = 0.15,
 ) -> Dict[str, float]:
-    """计算 teacher-forced 验证 loss。"""
+    """计算 teacher-forced 验证 loss，并使用训练同款 memory 扰动。"""
 
     bundle.model.eval()
     losses: List[float] = []
@@ -721,10 +726,24 @@ def evaluate_loss(
                 try:
                     images = _load_images(frame.history_rgb_paths)
                     clean_event_memory_label = "UNKNOWN" if frame_pos == 0 else str(memory.event_label)
-                    packed, next_memory, q2_included = _frame_training_pack(
+                    prompt_memory = _maybe_corrupt_memory(
+                        memory,
+                        frame=frame,
+                        route_id=route.route_id,
+                        frame_pos=frame_pos,
+                        seed=int(memory_noise_seed),
+                        first_frame_unknown=bool(first_frame_memory_unknown),
+                        rs_wrong_prob=float(memory_rs_wrong_prob),
+                        rs_unknown_prob=float(memory_rs_unknown_prob),
+                        event_wrong_prob=float(event_wrong_prob),
+                        event_unknown_prob=float(event_unknown_prob),
+                        rs_wrong_event_unknown_prob=float(rs_wrong_event_unknown_prob),
+                        memory_dropout_prob=float(memory_dropout_prob),
+                    )
+                    packed, _next_memory, q2_included = _frame_training_pack(
                         bundle,
                         frame,
-                        memory,
+                        prompt_memory,
                         images,
                         max_length,
                         route_id=route.route_id,
@@ -735,7 +754,9 @@ def evaluate_loss(
                         event_unknown_prob=float(event_unknown_prob),
                         clean_event_memory_label=clean_event_memory_label,
                     )
-                    memory = next_memory
+                    event_target = _event_target_from_frame(frame)
+                    memory_after_q1 = update_memory_after_q1(memory, student_rs_label=rs_target.label)
+                    memory = update_memory_after_q2(memory_after_q1, student_event_label=event_target.label)
                     if packed is None:
                         skipped += 1
                         continue
@@ -1102,9 +1123,14 @@ def main() -> None:
                 max_samples=int(args.max_eval_samples),
                 ue_event_loss_weight=float(args.ue_event_loss_weight),
                 re_event_loss_weight=float(args.re_event_loss_weight),
-                memory_noise_seed=int(args.seed) + rank,
+                memory_noise_seed=int(args.seed),
+                first_frame_memory_unknown=bool(args.first_frame_memory_unknown),
+                memory_rs_wrong_prob=float(args.memory_rs_wrong_prob),
+                memory_rs_unknown_prob=float(args.memory_rs_unknown_prob),
                 event_wrong_prob=float(args.memory_event_wrong_prob),
                 event_unknown_prob=float(args.memory_event_unknown_prob),
+                rs_wrong_event_unknown_prob=float(args.rs_wrong_event_unknown_prob),
+                memory_dropout_prob=float(args.memory_dropout_prob),
             )
             if rank == 0:
                 print(f"[eval@{global_step}] {metrics}")
