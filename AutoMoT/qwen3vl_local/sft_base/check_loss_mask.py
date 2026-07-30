@@ -1,6 +1,6 @@
 """静态检查 SFT base 的直接答案监督 span。
 
-本脚本不加载模型，只验证 Q1/Q2 target 中的 RS/ABNORMAL/EVENT 值 span 能被
+本脚本不加载模型，只验证 Q1/Q2 target 中的 RS/EVENT 值 span 能被
 parser 找到，避免 prompt 字段名改动后 loss 悄悄变成 0。
 """
 
@@ -19,6 +19,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 
 from qwen3vl_local.sft_base.labels import EventTarget, RSTarget
 from qwen3vl_local.sft_base.prompts import (
+    Memory,
     build_q1_target,
     build_q2_target,
     parse_q1_output,
@@ -58,7 +59,7 @@ def main() -> None:
     assert "SIGNAL_INTERSECTION" in q1
     assert not _has_letter_answer(q1, "RS"), q1
     assert parse_q1_output(q1)["rs_label"] == "R4"
-    _assert_nonempty(q1, target_spans_q1(q1), ["rs", "abnormal"])
+    _assert_nonempty(q1, target_spans_q1(q1), ["rs"])
     memory = reset_memory_for_frame(rs)
     candidates = ["RE", "U-E6"]
     q2 = build_q2_target(memory, candidates=candidates, event_target=event)
@@ -69,6 +70,9 @@ def main() -> None:
 
     # 候选外的合法全局 token 必须被判为非法，否则 eval 会把 off-candidate 输出算成有效答案。
     assert parse_q2_output("EVENT: LEAD_BRAKE", candidates)["event_label"] is None
+    hidden = Memory(rs_label="R4", event_label="U-E6", hide_priors=True).format_text()
+    assert "BELIEVED_RS" not in hidden and "BELIEVED_EVENT" not in hidden, hidden
+    assert "EGO_TO_GOAL_XY" in hidden, hidden
     print("[sft_base check_loss_mask] ok")
 
 

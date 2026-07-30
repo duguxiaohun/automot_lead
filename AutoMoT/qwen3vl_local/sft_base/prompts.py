@@ -32,7 +32,6 @@ SYSTEM_PROMPT_BASE = """\
 You are an autonomous driving agent. Use the stitched RGB history as visual context, ordered from oldest to newest. Keep the current memory by default and change it only when clear visual evidence supports the change. Treat weak, distant, foggy, or occluded evidence as uncertain. Answer only with the requested lines, copying one token exactly as it is written in the choices. Do not explain, do not use chain-of-thought, and do not mention ground truth, hidden labels, dataset rules, or scenario names."""
 
 DEFAULT_W_RS = 1.2
-DEFAULT_W_ABNORMAL = 0.8
 DEFAULT_W_EVENT = 1.2
 
 
@@ -47,6 +46,7 @@ class Memory:
     event_label: str = "RE"
     ego_to_goal_x: Optional[float] = None
     ego_to_goal_y: Optional[float] = None
+    hide_priors: bool = False
 
     @property
     def rs_token(self) -> str:
@@ -60,9 +60,10 @@ class Memory:
             event_label=self.event_label,
             ego_to_goal_x=self.ego_to_goal_x,
             ego_to_goal_y=self.ego_to_goal_y,
+            hide_priors=self.hide_priors,
         )
 
-    def format_text(self) -> str:
+    def format_text(self, *, include_event: bool = True) -> str:
         # EGO_TO_GOAL_XY 是连续导航提示，不应像 RS/EVENT 那样跨帧沿用旧值；
         # train/eval 在每帧提问前都会 refresh_memory_goal，保证这里展示的是当前帧坐标。
         rs_token = self.rs_token
@@ -75,11 +76,18 @@ class Memory:
             goal_text = "UNKNOWN"
         else:
             goal_text = f"({self.ego_to_goal_x:+.1f}, {self.ego_to_goal_y:+.1f}) m"
+        if self.hide_priors:
+            return (
+                "[MEMORY]\n"
+                "PRIOR_STATE: HIDDEN_FOR_VISUAL_CHECK - classify from the RGB history, not from memory.\n"
+                f"EGO_TO_GOAL_XY: {goal_text}\n"
+                "[/MEMORY]"
+            )
         return (
             "[MEMORY]\n"
             f"BELIEVED_RS: {rs_token} - {rs_desc}\n"
-            f"BELIEVED_EVENT: {event_token} - {event_desc}\n"
-            f"EGO_TO_GOAL_XY: {goal_text}\n"
+            + (f"BELIEVED_EVENT: {event_token} - {event_desc}\n" if include_event else "")
+            + f"EGO_TO_GOAL_XY: {goal_text}\n"
             "[/MEMORY]"
         )
 
@@ -126,20 +134,18 @@ def event_choices_block(
 
 
 def build_q1_prompt(memory: Memory, *, choice_seed: Optional[str] = None) -> str:
-    """Q1 student prompt：只问 RS 与 abnormal，禁止输出解释。"""
+    """Q1 student prompt：只问 RS，禁止输出解释。"""
 
     return "\n\n".join(
         [
-            memory.format_text(),
+            memory.format_text(include_event=False),
             rs_choices_block(choice_seed),
             (
                 "[QUESTION_1]\n"
                 "Look at the latest frame in the RGB history and choose the current road-structure token. "
-                "Also decide whether an unusual event is currently active or still affecting the ego vehicle. "
                 "If the evidence is weak, keep the memory unless it is clearly contradicted.\n\n"
-                "Output exactly these two lines and nothing else:\n"
+                "Output exactly this line and nothing else:\n"
                 "RS: <one RS token from RS_CHOICES>\n"
-                "ABNORMAL: <YES|NO>\n"
                 "[/QUESTION_1]"
             ),
         ]
@@ -149,38 +155,28 @@ def build_q1_prompt(memory: Memory, *, choice_seed: Optional[str] = None) -> str
 def build_q1_target(*, rs_target: RSTarget, event_target: EventTarget) -> str:
     """Q1 直接监督答案。"""
 
-    abnormal = "YES" if event_target.abnormal else "NO"
+    del event_target
     token = RS_LABEL_TO_TOKEN.get(rs_target.label, "ORDINARY_ROAD")
-    return f"RS: {token}\nABNORMAL: {abnormal}"
+    return f"RS: {token}"
 
 
 def build_q2_prompt(
     memory: Memory,
     *,
     candidates: Sequence[str],
-    q1_abnormal: bool,
     regular_event_codes: Optional[Sequence[str]] = None,
 ) -> str:
     """Q2 student prompt：只问 EVENT 选项。"""
 
-    if q1_abnormal:
-        task = (
-            "Question 1 said an unusual event may be active. Choose the listed event that best matches "
-            "the latest frame. Choose REGULAR only if none of the listed unusual-event tokens is supported."
-        )
-    else:
-        task = (
-            "Question 1 said no unusual event is active. Still compare every listed token and choose the "
-            "one best supported by the latest frame. Do not keep REGULAR when a listed unusual-event token "
-            "has clear visual evidence."
-        )
     return "\n\n".join(
         [
-            memory.format_text(),
+            memory.format_text(include_event=True),
             event_choices_block(candidates, memory.rs_label, regular_event_codes),
             (
                 "[QUESTION_2]\n"
-                f"{task} Do not invent an event that is not listed.\n\n"
+                "Choose the listed event token best supported by the latest frame. "
+                "Choose REGULAR only if none of the listed unusual-event tokens is supported. "
+                "Do not invent an event that is not listed.\n\n"
                 "Output exactly this line and nothing else:\n"
                 "EVENT: <one EVENT token from EVENT_CHOICES>\n"
                 "[/QUESTION_2]"
@@ -211,7 +207,6 @@ def build_q2_target(
 
 _TOKEN_VALUE_RE = r"([A-Z][A-Z0-9_-]*)"
 _Q1_RS_RE = re.compile(rf"(?im)^\s*RS\s*:\s*{_TOKEN_VALUE_RE}\b")
-_Q1_ABNORMAL_RE = re.compile(r"(?im)^\s*ABNORMAL\s*:\s*(YES|NO)\b")
 _Q2_EVENT_RE = re.compile(rf"(?im)^\s*EVENT\s*:\s*{_TOKEN_VALUE_RE}\b")
 
 
@@ -219,12 +214,10 @@ def parse_q1_output(text: str) -> Dict[str, Optional[str]]:
     """解析 Q1 输出。"""
 
     rs_match = _Q1_RS_RE.search(text or "")
-    abnormal_match = _Q1_ABNORMAL_RE.search(text or "")
     token = rs_match.group(1).upper().replace("-", "_") if rs_match else None
     return {
         "rs_token": token,
         "rs_label": RS_TOKEN_TO_LABEL.get(token) if token else None,
-        "abnormal": abnormal_match.group(1).upper() if abnormal_match else None,
     }
 
 
@@ -256,15 +249,12 @@ def _line_value_span(text: str, label: str) -> Optional[Tuple[int, int]]:
 
 
 def target_spans_q1(text: str) -> Dict[str, Tuple[int, int]]:
-    """Q1 只监督 RS 与 ABNORMAL 的值。"""
+    """Q1 只监督 RS 的值。"""
 
     spans: Dict[str, Tuple[int, int]] = {}
     rs_span = _line_value_span(text, "RS")
-    abnormal_span = _line_value_span(text, "ABNORMAL")
     if rs_span is not None:
         spans["rs"] = rs_span
-    if abnormal_span is not None:
-        spans["abnormal"] = abnormal_span
     return spans
 
 
@@ -276,7 +266,7 @@ def target_spans_q2(text: str) -> Dict[str, Tuple[int, int]]:
 
 
 def loss_weights_q1() -> Dict[str, float]:
-    return {"rs": DEFAULT_W_RS, "abnormal": DEFAULT_W_ABNORMAL}
+    return {"rs": DEFAULT_W_RS}
 
 
 def loss_weights_q2() -> Dict[str, float]:
@@ -287,15 +277,14 @@ def update_memory_after_q1(
     memory: Memory,
     *,
     student_rs_label: Optional[str],
-    student_abnormal: Optional[bool],
 ) -> Memory:
-    """Q1 后更新 memory；非法 RS 不污染状态。"""
+    """Q1 后更新 memory；RS hypothesis 改变时旧 EVENT 失效。"""
 
     mem = memory.copy()
     if student_rs_label in RS_LABELS:
+        if str(student_rs_label) != mem.rs_label:
+            mem.event_label = "UNKNOWN"
         mem.rs_label = str(student_rs_label)
-    if student_abnormal is False:
-        mem.event_label = "RE"
     return mem
 
 
