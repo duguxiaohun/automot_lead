@@ -565,6 +565,8 @@ def _score_adjacent_changes(counters: Dict[str, int], records: List[Dict[str, An
             pred_changed=None if pred_rs_dir == "INVALID" else pred_rs_dir != "NO_CHANGE",
         )
 
+        if not bool(prev.get("event_score_valid")) or not bool(cur.get("event_score_valid")):
+            continue
         gt_event_dir = _transition_direction(prev.get("gt_event"), cur.get("gt_event"), _EVENT_LABELS)
         pred_event_dir = _transition_direction(prev.get("pred_event"), cur.get("pred_event"), _EVENT_LABELS)
         counters[f"event_transition_dir_cm_{gt_event_dir}_{pred_event_dir}"] += 1
@@ -642,10 +644,10 @@ def _score_transition_case(
             )
         return result
 
-    counters["event_transition_cases"] += 1
     event_hit = _first_hit(records, "pred_event", case.target_event, lo, hi)
     abnormal_hit = _first_bool_hit(records, "pred_abnormal_bool", case.target_abnormal, lo, hi)
     left_edge = _record_at_or_after(records, lo)
+    target_edge = _record_at_or_after(records, int(case.transition_index))
     result.update(
         {
             "transition_source": case.source_event,
@@ -655,8 +657,13 @@ def _score_transition_case(
             "transition_test_field": "event",
             "abnormal_hit_frame": abnormal_hit,
             "transition_already_at_target": bool(left_edge is not None and left_edge.get("pred_event") == case.target_event),
+            "transition_score_valid": not bool(target_edge is not None and not target_edge.get("event_score_valid", True)),
         }
     )
+    if target_edge is not None and not target_edge.get("event_score_valid", True):
+        counters["event_transition_dataset_candidate_mismatch_cases"] += 1
+        return result
+    counters["event_transition_cases"] += 1
     if abnormal_hit is not None:
         counters["event_transition_abnormal_hit_cases"] += 1
     if event_hit is not None:
@@ -697,6 +704,7 @@ def _write_frame_record(
     q2_candidate_source: str,
     q2_candidates: Optional[List[str]],
     event_reachable_under_pred_rs: bool,
+    dataset_candidate_mismatch: bool,
     args: argparse.Namespace,
 ) -> None:
     """把每帧自由生成结果写成 jsonl，便于定位转折处是否自行纠正。"""
@@ -740,6 +748,8 @@ def _write_frame_record(
         "q2_candidate_source": q2_candidate_source,
         "q2_candidates": q2_candidates,
         "event_reachable_under_pred_rs": bool(event_reachable_under_pred_rs),
+        "dataset_candidate_mismatch": bool(dataset_candidate_mismatch),
+        "event_score_valid": not bool(dataset_candidate_mismatch),
         "q1_text": q1_text,
         "q2_text": q2_text,
     }
@@ -816,7 +826,16 @@ def _evaluate_case(
         is_multi_candidate = len(q2_candidates) > 1
         counters["q2_single_candidate"] += int(not is_multi_candidate)
         counters["q2_multi_candidate"] += int(is_multi_candidate)
-        counters["event_unreachable_due_to_rs"] += int(not event_reachable)
+        dataset_candidate_mismatch = not event_in_candidates(frame.event_label, frame.event_candidates)
+        counters["dataset_candidate_mismatch"] += int(dataset_candidate_mismatch)
+        counters["dataset_candidate_mismatch_ue"] += int(dataset_candidate_mismatch and bool(frame.abnormal))
+        counters["dataset_candidate_mismatch_re"] += int(dataset_candidate_mismatch and not bool(frame.abnormal))
+        counters["event_gt_ue_frames"] += int(bool(frame.abnormal))
+        counters["event_gt_re_frames"] += int(not bool(frame.abnormal))
+        event_score_valid = not dataset_candidate_mismatch
+        counters["event_score_valid_frames"] += int(event_score_valid)
+        counters["q2_multi_candidate_scored"] += int(event_score_valid and is_multi_candidate)
+        counters["event_unreachable_due_to_rs"] += int(event_score_valid and not event_reachable)
 
         q2_prompt = build_q2_prompt(
             memory,
@@ -826,60 +845,62 @@ def _evaluate_case(
         q2_text, _ = _generate_next(bundle, q1_after, q2_prompt, int(args.max_new_tokens_q2))
         parsed_q2 = parse_q2_output(q2_text, q2_candidates)
         target = _event_target_from_frame(frame, student_event=parsed_q2.get("event_label"))
-        event_ok = bool(event_reachable) and parsed_q2.get("event_label") == target.label
+        event_ok = (bool(event_reachable) and parsed_q2.get("event_label") == target.label) if event_score_valid else None
         pred_event_label = parsed_q2.get("event_label") or "INVALID"
-        cm_pred_event = pred_event_label if event_reachable else "UNREACHABLE"
-        counters[f"event_cm_{target.label}_{cm_pred_event}"] += 1
         pred_ue = pred_event_label not in {"RE", "INVALID"}
         gt_ue = bool(frame.abnormal)
-        if pred_ue and gt_ue:
-            counters["ue_binary_tp"] += 1
-        elif pred_ue and not gt_ue:
-            counters["ue_binary_fp"] += 1
-        elif (not pred_ue) and gt_ue:
-            counters["ue_binary_fn"] += 1
-        else:
-            counters["ue_binary_tn"] += 1
-        if is_multi_candidate:
-            counters["q2_event_correct_multi_candidate"] += int(event_ok)
-            if parsed_q2.get("event_label") == "RE":
-                counters["q2_pred_re_multi_candidate"] += 1
-            elif parsed_q2.get("event_label") is None:
-                counters["q2_pred_invalid_multi_candidate"] += 1
-            else:
-                counters["q2_pred_ue_multi_candidate"] += 1
+        if event_score_valid:
+            cm_pred_event = pred_event_label if event_reachable else "UNREACHABLE"
+            counters[f"event_cm_{target.label}_{cm_pred_event}"] += 1
             if pred_ue and gt_ue:
-                counters["ue_binary_tp_multi_candidate"] += 1
+                counters["ue_binary_tp"] += 1
             elif pred_ue and not gt_ue:
-                counters["ue_binary_fp_multi_candidate"] += 1
+                counters["ue_binary_fp"] += 1
             elif (not pred_ue) and gt_ue:
-                counters["ue_binary_fn_multi_candidate"] += 1
+                counters["ue_binary_fn"] += 1
             else:
-                counters["ue_binary_tn_multi_candidate"] += 1
+                counters["ue_binary_tn"] += 1
+            if is_multi_candidate:
+                counters["q2_event_correct_multi_candidate"] += int(bool(event_ok))
+                if parsed_q2.get("event_label") == "RE":
+                    counters["q2_pred_re_multi_candidate"] += 1
+                elif parsed_q2.get("event_label") is None:
+                    counters["q2_pred_invalid_multi_candidate"] += 1
+                else:
+                    counters["q2_pred_ue_multi_candidate"] += 1
+                if pred_ue and gt_ue:
+                    counters["ue_binary_tp_multi_candidate"] += 1
+                elif pred_ue and not gt_ue:
+                    counters["ue_binary_fp_multi_candidate"] += 1
+                elif (not pred_ue) and gt_ue:
+                    counters["ue_binary_fn_multi_candidate"] += 1
+                else:
+                    counters["ue_binary_tn_multi_candidate"] += 1
 
         counters["q2_triggered"] += 1
-        counters["q2_candidate_mismatch"] += int(not event_reachable)
-        counters["q2_event_correct"] += int(event_ok)
-        counters["q2_when_rs_correct"] += int(q1_rs_ok)
-        counters["q2_event_correct_when_rs_correct"] += int(q1_rs_ok and event_ok)
-        counters["q2_gt_re_when_rs_correct"] += int(q1_rs_ok and target.label == "RE")
-        counters["q2_gt_re_total"] += int(target.label == "RE")
-        if parsed_q2.get("event_label") == "RE":
-            counters["q2_pred_re"] += 1
-        elif parsed_q2.get("event_label") is None:
-            counters["q2_pred_invalid"] += 1
-        else:
-            counters["q2_pred_ue"] += 1
-        if case.transition_index is not None and abs_index >= case.transition_index:
-            counters["transition_post_q2_triggered"] += 1
-            counters["transition_post_event_correct"] += int(event_ok)
-        if frame.abnormal:
-            counters["q2_ue_total"] += 1
-            counters["q2_ue_correct"] += int(event_ok)
-            counters["q2_ue_pred_regular"] += int(parsed_q2.get("event_label") == "RE")
-        else:
-            counters["q2_re_total"] += 1
-            counters["q2_re_correct"] += int(event_ok)
+        counters["q2_candidate_mismatch"] += int(event_score_valid and not event_reachable)
+        if event_score_valid:
+            counters["q2_event_correct"] += int(bool(event_ok))
+            counters["q2_when_rs_correct"] += int(q1_rs_ok)
+            counters["q2_event_correct_when_rs_correct"] += int(q1_rs_ok and bool(event_ok))
+            counters["q2_gt_re_when_rs_correct"] += int(q1_rs_ok and target.label == "RE")
+            counters["q2_gt_re_total"] += int(target.label == "RE")
+            if parsed_q2.get("event_label") == "RE":
+                counters["q2_pred_re"] += 1
+            elif parsed_q2.get("event_label") is None:
+                counters["q2_pred_invalid"] += 1
+            else:
+                counters["q2_pred_ue"] += 1
+            if case.transition_index is not None and abs_index >= case.transition_index:
+                counters["transition_post_q2_triggered"] += 1
+                counters["transition_post_event_correct"] += int(bool(event_ok))
+            if frame.abnormal:
+                counters["q2_ue_total"] += 1
+                counters["q2_ue_correct"] += int(bool(event_ok))
+                counters["q2_ue_pred_regular"] += int(parsed_q2.get("event_label") == "RE")
+            else:
+                counters["q2_re_total"] += 1
+                counters["q2_re_correct"] += int(bool(event_ok))
 
         memory = update_memory_after_q2(memory, student_event_label=parsed_q2.get("event_label"))
         if parsed_q2.get("event_label") is None:
@@ -890,9 +911,10 @@ def _evaluate_case(
                 "gt_rs": frame.rs_label,
                 "gt_event": target.label,
                 "gt_abnormal": bool(frame.abnormal),
+                "event_score_valid": event_score_valid,
                 "pred_rs": parsed_q1.get("rs_label"),
                 "pred_abnormal_bool": pred_ue,
-                "pred_event": parsed_q2.get("event_label") if event_reachable else None,
+                "pred_event": parsed_q2.get("event_label") if event_score_valid and event_reachable else None,
             }
         )
         _write_frame_record(
@@ -909,6 +931,7 @@ def _evaluate_case(
             candidate_source,
             q2_candidates,
             event_reachable,
+            dataset_candidate_mismatch,
             args,
         )
     _score_adjacent_changes(counters, case_records)
@@ -963,6 +986,12 @@ def _new_counters() -> Dict[str, int]:
         "rs_locked_cases": 0,
         "rs_locked_eq_first_gt_cases": 0,
         "q2_triggered": 0,
+        "event_score_valid_frames": 0,
+        "event_gt_ue_frames": 0,
+        "event_gt_re_frames": 0,
+        "dataset_candidate_mismatch": 0,
+        "dataset_candidate_mismatch_ue": 0,
+        "dataset_candidate_mismatch_re": 0,
         "q2_event_correct": 0,
         "q2_when_rs_correct": 0,
         "q2_event_correct_when_rs_correct": 0,
@@ -984,6 +1013,7 @@ def _new_counters() -> Dict[str, int]:
         "q2_candidate_source_invalid_rs_fallback": 0,
         "q2_single_candidate": 0,
         "q2_multi_candidate": 0,
+        "q2_multi_candidate_scored": 0,
         "q2_event_correct_multi_candidate": 0,
         "q2_pred_re_multi_candidate": 0,
         "q2_pred_ue_multi_candidate": 0,
@@ -1022,6 +1052,7 @@ def _new_counters() -> Dict[str, int]:
         "rs_transition_max_early_lead": 0,
         "rs_transition_max_late_lag": 0,
         "event_transition_cases": 0,
+        "event_transition_dataset_candidate_mismatch_cases": 0,
         "event_transition_hit_cases": 0,
         "event_transition_abnormal_hit_cases": 0,
         "event_transition_already_at_target_hits": 0,
@@ -1277,8 +1308,8 @@ def _build_metrics(
     """由合并后的 counters 计算最终 metrics JSON。"""
 
     frames = max(1, counters["frames"])
-    q2_total = max(1, counters["q2_triggered"])
-    q2_multi_total = max(1, counters["q2_multi_candidate"])
+    q2_total = max(1, counters["event_score_valid_frames"])
+    q2_multi_total = max(1, counters["q2_multi_candidate_scored"])
     q2_rs_correct_total = max(1, counters["q2_when_rs_correct"])
     transition_post_frames = max(1, counters["transition_post_frames"])
     transition_post_q2 = max(1, counters["transition_post_q2_triggered"])
@@ -1343,10 +1374,15 @@ def _build_metrics(
         "event_pred_re_rate_multi_candidate": counters["q2_pred_re_multi_candidate"] / q2_multi_total,
         "event_pred_ue_rate_multi_candidate": counters["q2_pred_ue_multi_candidate"] / q2_multi_total,
         "event_pred_invalid_rate_multi_candidate": counters["q2_pred_invalid_multi_candidate"] / q2_multi_total,
-        "event_unreachable_due_to_rs_rate": counters["event_unreachable_due_to_rs"] / frames,
+        "dataset_candidate_mismatch_rate": counters["dataset_candidate_mismatch"] / frames,
+        "dataset_candidate_mismatch_ue_rate": counters["dataset_candidate_mismatch_ue"] / max(1, counters["event_gt_ue_frames"]),
+        "dataset_candidate_mismatch_re_rate": counters["dataset_candidate_mismatch_re"] / max(1, counters["event_gt_re_frames"]),
+        "event_score_valid_rate": counters["event_score_valid_frames"] / frames,
+        "event_unreachable_due_to_rs_rate": counters["event_unreachable_due_to_rs"] / q2_total,
         "q2_candidates_from_pred_rs_rate": counters["q2_candidates_from_pred_rs"] / frames,
         "q2_single_candidate_rate": counters["q2_single_candidate"] / frames,
         "q2_multi_candidate_rate": counters["q2_multi_candidate"] / frames,
+        "q2_multi_candidate_scored_rate": counters["q2_multi_candidate_scored"] / frames,
         "event_confusion_report": event_report,
         "ue_acc": counters["q2_ue_correct"] / max(1, counters["q2_ue_total"]),
         "re_acc": counters["q2_re_correct"] / max(1, counters["q2_re_total"]),
@@ -1478,7 +1514,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate SFT base token-choice adapter")
     p.add_argument("--index", type=str, default="checkpoints/sft_base_data/val_sequence_index.jsonl")
     p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
-    p.add_argument("--adapter-dir", type=str, required=True)
+    p.add_argument("--adapter-dir", type=str, default=None)
     p.add_argument("--output-dir", type=str, default=None)
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--output-jsonl", type=str, default=None)
@@ -1567,6 +1603,8 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
         ("event_pred_ue_rate_multi_candidate", "排除单候选送分题后的 UE 输出比例"),
         ("ue_vs_re_f1", "由 EVENT 折叠出的 UE-vs-RE 二分类 F1"),
         ("ue_vs_re_f1_multi_candidate", "排除单候选送分题后的 UE-vs-RE 二分类 F1"),
+        ("dataset_candidate_mismatch_rate", "GT EVENT 不在 dataset 自己候选表中的帧比例；这些帧不进 EVENT 评分"),
+        ("dataset_candidate_mismatch_ue_rate", "UE 帧中 GT EVENT 不在 dataset 候选表中的比例"),
         ("re_to_ue_f1", "相邻帧 RE->UE 起始检测 F1，重点看异常起始漏检/延迟"),
         ("re_to_ue_false_transition_rate_when_gt_stable", "GT 未发生 RE->UE 时预测假异常起始的比例"),
         ("ue_to_re_f1", "相邻帧 UE->RE 结束检测 F1，衡量异常解除时机"),
