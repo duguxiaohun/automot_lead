@@ -172,12 +172,41 @@ checkpoints/sft_base_runs/latest/log.txt
 | `--model-dir` | `checkpoints/Qwen3-VL-4B-Instruct` |
 | `--adapter-dir` | 无默认值，每次必须指定 |
 | `--task` | 无默认值，每次必须指定；`full` 等价于 `--eval-mode full_route` |
+| `--output-dir` | 默认自动生成；手动指定时会在该目录写 `metrics.json`、`frames.jsonl`、`summary.md` |
 | RS/EVENT 转折 case 数 | `128` |
 | full_route 随机 route 数 | `16` |
-| 输出路径 | 自动写到 adapter run 目录下的 `eval_*_metrics.json` 和 `eval_*_frames.jsonl` |
+| 输出路径 | 自动写到 adapter run 目录下的 `eval_results/<task>/<YYYYMMDD_HHMMSS>/` |
 
 旧的 `--eval-mode full_route/rs_transition/event_transition` 仍然兼容；日常推荐用更短的
 `--task full/rs/event`。
+
+默认不需要手写输出路径。每次评测都会按任务和时间自动保存，不会覆盖上一次结果。例如：
+
+```text
+checkpoints/sft_base_runs/latest/eval_results/rs_transition/20260730_143012/
+├── metrics.json
+├── frames.jsonl
+└── summary.md
+```
+
+三个文件的用途：
+
+| 文件 | 用途 |
+|---|---|
+| `metrics.json` | 汇总指标，适合后续脚本读取和横向对比 |
+| `frames.jsonl` | 逐帧复盘，包含 GT/PRED RS、GT/PRED EVENT、原始生成文本、转折窗口和 case summary |
+| `summary.md` | 中文摘要，包含本次任务、adapter、保存路径、关键指标和指标解释 |
+
+评估结束后，rank0 终端会打印：
+
+```text
+[eval] saved metrics=...
+[eval] saved frames=...
+[eval] saved summary=...
+```
+
+多卡评测时，每个 rank 会先写自己的 `frames.jsonl.rank*` 临时分片，rank0 结束后自动合并成最终
+`frames.jsonl`，并删除临时分片。
 
 ### 5.1 简易单卡测试
 
@@ -301,7 +330,7 @@ GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 \
 多卡输出规则：
 
 - `--output-json` 只由 rank0 写最终汇总指标，里面会记录 `world_size`。
-- `--output-jsonl` 每个 rank 先写临时分片，例如 `eval_rs_transition_frames.jsonl.rank0`；
+- `--output-jsonl` 每个 rank 先写临时分片，例如 `frames.jsonl.rank0`；
   rank0 在所有 rank 结束后合并成用户指定的最终 jsonl，并删除临时分片。
 - `GPU_IDS=4,5 torchrun --standalone --nproc_per_node=2 ...` 表示用物理 4、5 号卡；
   进程内部分别看到 `cuda:0` 和 `cuda:1`，这是 `CUDA_VISIBLE_DEVICES` 的正常映射。
@@ -309,7 +338,7 @@ GPU_IDS=0,1,2,3 torchrun --standalone --nproc_per_node=4 \
 
 ### 5.3 全量参数 demo
 
-如果要临时改窗口大小、case 数、seed 或输出路径，可以展开成全量参数。例如 RS：
+如果要临时改窗口大小、case 数、seed 或输出目录，可以展开成全量参数。例如 RS：
 
 ```bash
 GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
@@ -321,8 +350,7 @@ GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
   --transition-tolerance 3 \
   --max-transition-cases 128 \
   --seed 20260724 \
-  --output-json checkpoints/sft_base_runs/latest/eval_rs_transition_metrics.json \
-  --output-jsonl checkpoints/sft_base_runs/latest/eval_rs_transition_frames.jsonl
+  --output-dir checkpoints/sft_base_runs/latest/eval_results/manual_rs_debug
 ```
 
 `eval.py` 会先校验 adapter 目录中的 `sft_base_adapter_config.json`。如果 route、
@@ -353,6 +381,19 @@ dataset version、base model path 或 vision scope 不匹配，会直接报错�
 | `*_early_hits` / `*_on_time_hits` / `*_late_hits` | 命中发生在标注转折前、同帧或后几帧的数量 |
 | `output-jsonl` 每行 | 单帧复盘和 `transition_case_summary`，包含 route/frame、转折点、容忍窗口、GT/PRED RS、GT/PRED EVENT、原始生成文本 |
 
+快速查看最近一次 RS 测试摘要：
+
+```bash
+ls -td checkpoints/sft_base_runs/latest/eval_results/rs_transition/* | head -1
+cat $(ls -td checkpoints/sft_base_runs/latest/eval_results/rs_transition/* | head -1)/summary.md
+```
+
+快速查看 EVENT 测试里预测错的帧，可以先从 `frames.jsonl` 里 grep：
+
+```bash
+grep '"event_ok": false' checkpoints/sft_base_runs/latest/eval_results/event_transition/*/frames.jsonl | head
+```
+
 ## 6. 维护检查
 
 ```bash
@@ -361,6 +402,6 @@ python qwen3vl_local/sft_base/check_loss_mask.py
 python qwen3vl_local/sft_base/test_dataset_contract.py
 ```
 
-`test_dataset_contract.py` 会检查 sft_base 与 sft_v5 的 Q2 option-letter 映射是否保持一致。
+`test_dataset_contract.py` 会检查 sft_base 与 sft_v5 的 Q2 候选顺序是否保持一致。
 多卡训练相关改动需要额外关注 `train.py` 中 `_sync_trainable_grads()` 与
 `run_batch(..., sync_grads=True)` 的调用边界，确保每个 rank 的 collective 次数一致。
