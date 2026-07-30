@@ -1,7 +1,7 @@
 """SFT base 自由生成评估入口。
 
-评估按真实串行协议执行：Q1 直接生成 RS/ABNORMAL，RS 正确才沿 Q1 KV
-继续问 Q2 EVENT。这里不使用 teacher，也不做 CoT。
+评估按真实串行协议执行：Q1 直接生成 RS，随后总是沿 Q1 KV 继续问 Q2 EVENT。
+Q2 候选按学生预测/维护的 RS 生成，不再用 GT RS gate 美化结果。
 """
 
 from __future__ import annotations
@@ -50,6 +50,7 @@ import torch
 import torch.distributed as dist
 
 from qwen3vl_local.sft_base import DATASET_VERSION  # noqa: E402
+from qwen3vl_local.sft_base.eval_candidates import q2_candidates_for_student_rs  # noqa: E402
 from qwen3vl_local.sft_base.labels import RS_LABELS, event_in_candidates  # noqa: E402
 from qwen3vl_local.sft_base.prompts import (  # noqa: E402
     Memory,
@@ -81,6 +82,11 @@ _EVAL_TASK_TO_MODE = {
     "event": "event_transition",
     "event_transition": "event_transition",
 }
+_EVENT_LABELS = ("RE", "U-E1", "U-E2", "U-E3", "U-E4", "U-E5", "U-E6", "U-E7", "U-E8")
+_RS_CM_LABELS = (*RS_LABELS, "INVALID")
+_EVENT_CM_LABELS = (*_EVENT_LABELS, "INVALID", "UNREACHABLE")
+_RS_TRANSITION_LABELS = tuple(f"{src}->{dst}" for src in RS_LABELS for dst in RS_LABELS if src != dst) + ("NO_CHANGE", "INVALID")
+_EVENT_TRANSITION_LABELS = tuple(f"{src}->{dst}" for src in _EVENT_LABELS for dst in _EVENT_LABELS if src != dst) + ("NO_CHANGE", "INVALID")
 
 
 def setup_distributed() -> tuple[int, int, int]:
@@ -398,7 +404,7 @@ def _apply_initial_memory_noise(memory: Memory, frame: Any, args: argparse.Names
     """按配置只在评估片段第一帧注入 memory 噪声。"""
 
     mode = str(args.initial_memory_noise)
-    if mode == "none":
+    if mode in {"none", "unknown"}:
         return memory
     rng = random.Random(_stable_case_seed(args, case))
     mem = memory.copy()
@@ -408,6 +414,16 @@ def _apply_initial_memory_noise(memory: Memory, frame: Any, args: argparse.Names
         event_candidates = ["RE"] + [str(v) for v in frame.event_candidates]
         mem.event_label = _pick_different(rng, mem.event_label, event_candidates)
     return mem
+
+
+def _initial_memory_for_frame(frame: Any, args: argparse.Namespace, case: EvalCase) -> Memory:
+    """创建评估片段首帧 memory，默认 UNKNOWN 冷启动。"""
+
+    if str(args.initial_memory_noise) == "unknown":
+        return refresh_memory_goal(Memory(rs_label="UNKNOWN", event_label="UNKNOWN"), frame.ego_to_goal_xy)
+    rs_target = _rs_target_from_frame(frame)
+    memory = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
+    return _apply_initial_memory_noise(memory, frame, args, case)
 
 
 def _image_ablation_seed(args: argparse.Namespace, case: EvalCase, frame: Any, image_idx: int) -> int:
@@ -476,6 +492,19 @@ def _first_bool_hit(records: List[Dict[str, Any]], key: str, target: Optional[bo
     return None
 
 
+def _record_at_or_after(records: List[Dict[str, Any]], index: int) -> Optional[Dict[str, Any]]:
+    """返回 index 处或之后的第一条记录，用于判断窗口左边界是否已在目标值。"""
+
+    best: Optional[Dict[str, Any]] = None
+    for rec in records:
+        frame_index = int(rec["frame_index"])
+        if frame_index < index:
+            continue
+        if best is None or frame_index < int(best["frame_index"]):
+            best = rec
+    return best
+
+
 def _classify_hit_timing(hit_index: int, transition_index: int) -> str:
     """把命中帧分类为提前、准点或滞后。"""
 
@@ -484,6 +513,79 @@ def _classify_hit_timing(hit_index: int, transition_index: int) -> str:
     if hit_index > transition_index:
         return "late"
     return "on_time"
+
+
+def _event_is_ue(label: Optional[str]) -> Optional[bool]:
+    """把 EVENT label 折叠成 UE/RE；非法或不可达返回 None。"""
+
+    if label not in _EVENT_LABELS:
+        return None
+    return label != "RE"
+
+
+def _update_change_confusion(counters: Dict[str, int], prefix: str, *, gt_changed: bool, pred_changed: Optional[bool]) -> None:
+    """更新相邻帧变化检测的 TP/FP/FN/TN/invalid。"""
+
+    if pred_changed is None:
+        counters[f"{prefix}_invalid"] += 1
+        if gt_changed:
+            counters[f"{prefix}_fn"] += 1
+        return
+    if gt_changed and pred_changed:
+        counters[f"{prefix}_tp"] += 1
+    elif (not gt_changed) and pred_changed:
+        counters[f"{prefix}_fp"] += 1
+    elif gt_changed and not pred_changed:
+        counters[f"{prefix}_fn"] += 1
+    else:
+        counters[f"{prefix}_tn"] += 1
+
+
+def _transition_direction(prev_label: Optional[str], label: Optional[str], valid_labels: tuple[str, ...]) -> str:
+    """把相邻两帧标签压成 source->target / NO_CHANGE / INVALID。"""
+
+    if prev_label not in valid_labels or label not in valid_labels:
+        return "INVALID"
+    if prev_label == label:
+        return "NO_CHANGE"
+    return f"{prev_label}->{label}"
+
+
+def _score_adjacent_changes(counters: Dict[str, int], records: List[Dict[str, Any]]) -> None:
+    """在完整相邻帧上统计变化检测 precision/recall/F1 所需的混淆计数。"""
+
+    for prev, cur in zip(records, records[1:]):
+        gt_rs_dir = _transition_direction(prev.get("gt_rs"), cur.get("gt_rs"), RS_LABELS)
+        pred_rs_dir = _transition_direction(prev.get("pred_rs"), cur.get("pred_rs"), RS_LABELS)
+        counters[f"rs_transition_dir_cm_{gt_rs_dir}_{pred_rs_dir}"] += 1
+        _update_change_confusion(
+            counters,
+            "rs_change",
+            gt_changed=gt_rs_dir != "NO_CHANGE",
+            pred_changed=None if pred_rs_dir == "INVALID" else pred_rs_dir != "NO_CHANGE",
+        )
+
+        gt_event_dir = _transition_direction(prev.get("gt_event"), cur.get("gt_event"), _EVENT_LABELS)
+        pred_event_dir = _transition_direction(prev.get("pred_event"), cur.get("pred_event"), _EVENT_LABELS)
+        counters[f"event_transition_dir_cm_{gt_event_dir}_{pred_event_dir}"] += 1
+        prev_gt_ue = bool(prev.get("gt_abnormal"))
+        cur_gt_ue = bool(cur.get("gt_abnormal"))
+        prev_pred_ue = _event_is_ue(prev.get("pred_event"))
+        cur_pred_ue = _event_is_ue(cur.get("pred_event"))
+        pred_re_to_ue = None if prev_pred_ue is None or cur_pred_ue is None else ((not prev_pred_ue) and cur_pred_ue)
+        pred_ue_to_re = None if prev_pred_ue is None or cur_pred_ue is None else (prev_pred_ue and (not cur_pred_ue))
+        _update_change_confusion(
+            counters,
+            "re_to_ue",
+            gt_changed=(not prev_gt_ue) and cur_gt_ue,
+            pred_changed=pred_re_to_ue,
+        )
+        _update_change_confusion(
+            counters,
+            "ue_to_re",
+            gt_changed=prev_gt_ue and (not cur_gt_ue),
+            pred_changed=pred_ue_to_re,
+        )
 
 
 def _score_transition_case(
@@ -508,15 +610,19 @@ def _score_transition_case(
     if case.transition_kind == "rs":
         counters["rs_transition_cases"] += 1
         hit_index = _first_hit(records, "pred_rs", case.target_rs, lo, hi)
+        left_edge = _record_at_or_after(records, lo)
         result.update(
             {
                 "transition_source": case.source_rs,
                 "transition_target": case.target_rs,
                 "transition_test_field": "rs",
+                "transition_already_at_target": bool(left_edge is not None and left_edge.get("pred_rs") == case.target_rs),
             }
         )
         if hit_index is not None:
             counters["rs_transition_hit_cases"] += 1
+            if left_edge is not None and left_edge.get("pred_rs") == case.target_rs:
+                counters["rs_transition_already_at_target_hits"] += 1
             timing = _classify_hit_timing(hit_index, int(case.transition_index))
             offset = hit_index - int(case.transition_index)
             counters[f"rs_transition_{timing}_hits"] += 1
@@ -539,6 +645,7 @@ def _score_transition_case(
     counters["event_transition_cases"] += 1
     event_hit = _first_hit(records, "pred_event", case.target_event, lo, hi)
     abnormal_hit = _first_bool_hit(records, "pred_abnormal_bool", case.target_abnormal, lo, hi)
+    left_edge = _record_at_or_after(records, lo)
     result.update(
         {
             "transition_source": case.source_event,
@@ -547,12 +654,15 @@ def _score_transition_case(
             "transition_target_abnormal": case.target_abnormal,
             "transition_test_field": "event",
             "abnormal_hit_frame": abnormal_hit,
+            "transition_already_at_target": bool(left_edge is not None and left_edge.get("pred_event") == case.target_event),
         }
     )
     if abnormal_hit is not None:
         counters["event_transition_abnormal_hit_cases"] += 1
     if event_hit is not None:
         counters["event_transition_hit_cases"] += 1
+        if left_edge is not None and left_edge.get("pred_event") == case.target_event:
+            counters["event_transition_already_at_target_hits"] += 1
         timing = _classify_hit_timing(event_hit, int(case.transition_index))
         offset = event_hit - int(case.transition_index)
         counters[f"event_transition_{timing}_hits"] += 1
@@ -583,15 +693,16 @@ def _write_frame_record(
     q1_text: str,
     q2_text: Optional[str],
     q1_rs_ok: bool,
-    q1_abnormal_ok: bool,
     event_ok: Optional[bool],
+    q2_candidate_source: str,
+    q2_candidates: Optional[List[str]],
+    event_reachable_under_pred_rs: bool,
     args: argparse.Namespace,
 ) -> None:
     """把每帧自由生成结果写成 jsonl，便于定位转折处是否自行纠正。"""
 
     if fp is None:
         return
-    pred_abnormal_bool = parsed_q1.get("abnormal") == "YES" if parsed_q1.get("abnormal") else None
     hit_lo = hit_hi = None
     if case.transition_index is not None:
         hit_lo, hit_hi = _transition_window_bounds(case, args)
@@ -621,13 +732,14 @@ def _write_frame_record(
         "pred_rs_token": parsed_q1.get("rs_token"),
         "rs_ok": q1_rs_ok,
         "gt_abnormal": bool(frame.abnormal),
-        "pred_abnormal": parsed_q1.get("abnormal"),
-        "pred_abnormal_bool": pred_abnormal_bool,
-        "abnormal_ok": q1_abnormal_ok,
         "gt_event": frame.event_label,
         "pred_event": parsed_q2.get("event_label") if parsed_q2 else None,
         "pred_event_token": parsed_q2.get("event_token") if parsed_q2 else None,
         "event_ok": event_ok,
+        "pred_abnormal_bool": (parsed_q2.get("event_label") not in {None, "RE"}) if parsed_q2 else None,
+        "q2_candidate_source": q2_candidate_source,
+        "q2_candidates": q2_candidates,
+        "event_reachable_under_pred_rs": bool(event_reachable_under_pred_rs),
         "q1_text": q1_text,
         "q2_text": q2_text,
     }
@@ -643,8 +755,8 @@ def _evaluate_case(
 ) -> None:
     """执行单个评估片段。
 
-    no-correction：Q1 错只跳过当前帧 Q2，Q2 非法只不更新 EVENT，下一帧
-    继续沿用学生输出维护出的 memory；评测阶段不允许脚本纠偏。
+    no-correction：Q1 错也继续问 Q2，但 Q2 候选必须按学生预测/维护的 RS 生成；
+    Q2 非法只不更新 EVENT，下一帧继续沿用学生输出维护出的 memory。
     """
 
     memory: Optional[Memory] = None
@@ -653,14 +765,13 @@ def _evaluate_case(
     counters["case_frames"] += len(case.frames)
     counters["evaluated_routes"] += int(case.start_index == 0 and case.transition_index is None)
     first_gt_rs = case.frames[0].rs_label if case.frames else None
+    first_pred_rs: Optional[str] = None
     prev_gt_rs: Optional[str] = None
     prev_pred_rs: Optional[str] = None
     for pos, frame in enumerate(case.frames):
         abs_index = case.start_index + pos
-        rs_target = _rs_target_from_frame(frame)
         if memory is None:
-            memory = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
-            memory = _apply_initial_memory_noise(memory, frame, args, case)
+            memory = _initial_memory_for_frame(frame, args, case)
             counters["initial_noise_cases"] += int(args.initial_memory_noise != "none")
         else:
             memory = refresh_memory_goal(memory, frame.ego_to_goal_xy)
@@ -673,75 +784,67 @@ def _evaluate_case(
             int(args.max_new_tokens_q1),
         )
         parsed_q1 = parse_q1_output(q1_text)
+        if first_pred_rs is None:
+            first_pred_rs = parsed_q1.get("rs_label")
         q1_rs_ok = parsed_q1.get("rs_label") == frame.rs_label
-        q1_abnormal = parsed_q1.get("abnormal") == "YES" if parsed_q1.get("abnormal") else None
-        q1_abnormal_ok = q1_abnormal == frame.abnormal if q1_abnormal is not None else False
 
         counters["frames"] += 1
         counters["q1_rs_correct"] += int(q1_rs_ok)
         counters["q1_rs_wrong"] += int(not q1_rs_ok)
-        counters["q1_abnormal_correct"] += int(q1_abnormal_ok)
+        pred_rs_label = parsed_q1.get("rs_label") if parsed_q1.get("rs_label") in RS_LABELS else "INVALID"
+        counters[f"rs_cm_{frame.rs_label}_{pred_rs_label}"] += 1
         counters["rs_first_gt_baseline_correct"] += int(first_gt_rs is not None and frame.rs_label == first_gt_rs)
-        if parsed_q1.get("abnormal") == "YES":
-            counters["q1_abnormal_yes_pred"] += 1
-        elif parsed_q1.get("abnormal") == "NO":
-            counters["q1_abnormal_no_pred"] += 1
-        else:
-            counters["q1_abnormal_invalid_pred"] += 1
+        counters["rs_first_pred_baseline_correct"] += int(first_pred_rs is not None and frame.rs_label == first_pred_rs)
         if prev_gt_rs is not None:
             counters["rs_change_denominator"] += 1
             counters["rs_gt_change_count"] += int(frame.rs_label != prev_gt_rs)
             counters["rs_pred_change_count"] += int(parsed_q1.get("rs_label") != prev_pred_rs)
         prev_gt_rs = frame.rs_label
         prev_pred_rs = parsed_q1.get("rs_label")
-        if frame.abnormal:
-            counters["ue_q1_abnormal_total"] += 1
-            counters["ue_q1_abnormal_correct"] += int(q1_abnormal is True)
         if case.transition_index is not None and abs_index >= case.transition_index:
             counters["transition_post_frames"] += 1
             counters["transition_post_rs_correct"] += int(q1_rs_ok)
-            counters["transition_post_abnormal_correct"] += int(q1_abnormal_ok)
 
-        memory = update_memory_after_q1(memory, student_rs_label=parsed_q1.get("rs_label"), student_abnormal=q1_abnormal)
-        if not q1_rs_ok:
-            case_records.append(
-                {
-                    "frame_index": abs_index,
-                    "pred_rs": parsed_q1.get("rs_label"),
-                    "pred_abnormal_bool": q1_abnormal,
-                    "pred_event": None,
-                }
-            )
-            _write_frame_record(
-                jsonl_fp,
-                case,
-                frame,
-                abs_index,
-                parsed_q1,
-                None,
-                q1_text,
-                None,
-                q1_rs_ok,
-                q1_abnormal_ok,
-                None,
-                args,
-            )
-            continue
+        memory = update_memory_after_q1(memory, student_rs_label=parsed_q1.get("rs_label"))
+        q2_candidates, regular_codes, candidate_source, event_reachable = q2_candidates_for_student_rs(
+            frame,
+            memory.rs_label if memory.rs_label in RS_LABELS else parsed_q1.get("rs_label"),
+            seed=int(args.seed),
+        )
+        counters[f"q2_candidate_source_{candidate_source}"] += 1
+        counters["q2_candidates_from_pred_rs"] += int(candidate_source in {"pred_rs_allowed_events", "pred_rs_static_candidates"})
+        counters["q2_single_candidate"] += int(len(q2_candidates) == 1)
+        counters["event_unreachable_due_to_rs"] += int(not event_reachable)
 
         q2_prompt = build_q2_prompt(
             memory,
-            candidates=frame.event_candidates,
-            q1_abnormal=bool(q1_abnormal),
-            regular_event_codes=frame.regular_event_codes,
+            candidates=q2_candidates,
+            regular_event_codes=regular_codes,
         )
         q2_text, _ = _generate_next(bundle, q1_after, q2_prompt, int(args.max_new_tokens_q2))
-        parsed_q2 = parse_q2_output(q2_text, frame.event_candidates)
+        parsed_q2 = parse_q2_output(q2_text, q2_candidates)
         target = _event_target_from_frame(frame, student_event=parsed_q2.get("event_label"))
-        event_ok = parsed_q2.get("event_label") == target.label
+        event_ok = bool(event_reachable) and parsed_q2.get("event_label") == target.label
+        pred_event_label = parsed_q2.get("event_label") or "INVALID"
+        cm_pred_event = pred_event_label if event_reachable else "UNREACHABLE"
+        counters[f"event_cm_{target.label}_{cm_pred_event}"] += 1
+        pred_ue = pred_event_label not in {"RE", "INVALID"}
+        gt_ue = bool(frame.abnormal)
+        if pred_ue and gt_ue:
+            counters["ue_binary_tp"] += 1
+        elif pred_ue and not gt_ue:
+            counters["ue_binary_fp"] += 1
+        elif (not pred_ue) and gt_ue:
+            counters["ue_binary_fn"] += 1
+        else:
+            counters["ue_binary_tn"] += 1
 
         counters["q2_triggered"] += 1
-        counters["q2_candidate_mismatch"] += int(not event_in_candidates(target.label, frame.event_candidates))
+        counters["q2_candidate_mismatch"] += int(not event_reachable)
         counters["q2_event_correct"] += int(event_ok)
+        counters["q2_when_rs_correct"] += int(q1_rs_ok)
+        counters["q2_event_correct_when_rs_correct"] += int(q1_rs_ok and event_ok)
+        counters["q2_gt_re_when_rs_correct"] += int(q1_rs_ok and target.label == "RE")
         counters["q2_gt_re_total"] += int(target.label == "RE")
         if parsed_q2.get("event_label") == "RE":
             counters["q2_pred_re"] += 1
@@ -766,9 +869,12 @@ def _evaluate_case(
         case_records.append(
             {
                 "frame_index": abs_index,
+                "gt_rs": frame.rs_label,
+                "gt_event": target.label,
+                "gt_abnormal": bool(frame.abnormal),
                 "pred_rs": parsed_q1.get("rs_label"),
-                "pred_abnormal_bool": q1_abnormal,
-                "pred_event": parsed_q2.get("event_label"),
+                "pred_abnormal_bool": pred_ue,
+                "pred_event": parsed_q2.get("event_label") if event_reachable else None,
             }
         )
         _write_frame_record(
@@ -781,10 +887,13 @@ def _evaluate_case(
             q1_text,
             q2_text,
             q1_rs_ok,
-            q1_abnormal_ok,
             event_ok,
+            candidate_source,
+            q2_candidates,
+            event_reachable,
             args,
         )
+    _score_adjacent_changes(counters, case_records)
     transition_result = _score_transition_case(case, args, counters, case_records)
     pred_rs_values = [rec.get("pred_rs") for rec in case_records if rec.get("pred_rs") is not None]
     if pred_rs_values and len(set(pred_rs_values)) == 1:
@@ -816,25 +925,30 @@ def _new_counters() -> Dict[str, int]:
     `dist.all_reduce(SUM)` 合并，再由 rank0 统一计算比例指标。
     """
 
-    return {
+    counters: Dict[str, int] = {
         "cases": 0,
         "case_frames": 0,
         "evaluated_routes": 0,
         "frames": 0,
         "q1_rs_correct": 0,
         "q1_rs_wrong": 0,
-        "q1_abnormal_correct": 0,
-        "q1_abnormal_yes_pred": 0,
-        "q1_abnormal_no_pred": 0,
-        "q1_abnormal_invalid_pred": 0,
         "rs_first_gt_baseline_correct": 0,
+        "rs_first_pred_baseline_correct": 0,
         "rs_pred_change_count": 0,
         "rs_gt_change_count": 0,
         "rs_change_denominator": 0,
+        "rs_change_tp": 0,
+        "rs_change_fp": 0,
+        "rs_change_fn": 0,
+        "rs_change_tn": 0,
+        "rs_change_invalid": 0,
         "rs_locked_cases": 0,
         "rs_locked_eq_first_gt_cases": 0,
         "q2_triggered": 0,
         "q2_event_correct": 0,
+        "q2_when_rs_correct": 0,
+        "q2_event_correct_when_rs_correct": 0,
+        "q2_gt_re_when_rs_correct": 0,
         "q2_candidate_mismatch": 0,
         "q2_invalid_output": 0,
         "q2_ue_total": 0,
@@ -846,14 +960,33 @@ def _new_counters() -> Dict[str, int]:
         "q2_pred_re": 0,
         "q2_pred_ue": 0,
         "q2_pred_invalid": 0,
-        "ue_q1_abnormal_total": 0,
-        "ue_q1_abnormal_correct": 0,
+        "q2_candidates_from_pred_rs": 0,
+        "q2_candidate_source_pred_rs_allowed_events": 0,
+        "q2_candidate_source_pred_rs_static_candidates": 0,
+        "q2_candidate_source_invalid_rs_fallback": 0,
+        "q2_single_candidate": 0,
+        "event_unreachable_due_to_rs": 0,
+        "ue_binary_tp": 0,
+        "ue_binary_fp": 0,
+        "ue_binary_fn": 0,
+        "ue_binary_tn": 0,
+        "re_to_ue_tp": 0,
+        "re_to_ue_fp": 0,
+        "re_to_ue_fn": 0,
+        "re_to_ue_tn": 0,
+        "re_to_ue_invalid": 0,
+        "ue_to_re_tp": 0,
+        "ue_to_re_fp": 0,
+        "ue_to_re_fn": 0,
+        "ue_to_re_tn": 0,
+        "ue_to_re_invalid": 0,
         "script_resets": 0,
         "rs_wrong_resets": 0,
         "initial_noise_cases": 0,
         "transition_cases": 0,
         "rs_transition_cases": 0,
         "rs_transition_hit_cases": 0,
+        "rs_transition_already_at_target_hits": 0,
         "rs_transition_early_hits": 0,
         "rs_transition_on_time_hits": 0,
         "rs_transition_late_hits": 0,
@@ -864,6 +997,7 @@ def _new_counters() -> Dict[str, int]:
         "event_transition_cases": 0,
         "event_transition_hit_cases": 0,
         "event_transition_abnormal_hit_cases": 0,
+        "event_transition_already_at_target_hits": 0,
         "event_transition_early_hits": 0,
         "event_transition_on_time_hits": 0,
         "event_transition_late_hits": 0,
@@ -873,10 +1007,22 @@ def _new_counters() -> Dict[str, int]:
         "event_transition_max_late_lag": 0,
         "transition_post_frames": 0,
         "transition_post_rs_correct": 0,
-        "transition_post_abnormal_correct": 0,
         "transition_post_q2_triggered": 0,
         "transition_post_event_correct": 0,
     }
+    for gt in _RS_CM_LABELS:
+        for pred in _RS_CM_LABELS:
+            counters[f"rs_cm_{gt}_{pred}"] = 0
+    for gt in _EVENT_LABELS:
+        for pred in _EVENT_CM_LABELS:
+            counters[f"event_cm_{gt}_{pred}"] = 0
+    for gt in _RS_TRANSITION_LABELS:
+        for pred in _RS_TRANSITION_LABELS:
+            counters[f"rs_transition_dir_cm_{gt}_{pred}"] = 0
+    for gt in _EVENT_TRANSITION_LABELS:
+        for pred in _EVENT_TRANSITION_LABELS:
+            counters[f"event_transition_dir_cm_{gt}_{pred}"] = 0
+    return counters
 
 
 def _sync_counters(counters: Dict[str, int], device: torch.device) -> Dict[str, int]:
@@ -1015,6 +1161,84 @@ def _prepare_eval_outputs(args: argparse.Namespace, *, rank: int, world_size: in
     pathlib.Path(args.output_summary).parent.mkdir(parents=True, exist_ok=True)
 
 
+def _prf(tp: int, fp: int, fn: int) -> Dict[str, float]:
+    """由 TP/FP/FN 计算 P/R/F1。"""
+
+    precision = float(tp) / max(float(tp + fp), 1.0)
+    recall = float(tp) / max(float(tp + fn), 1.0)
+    f1 = 0.0 if precision + recall <= 0 else 2.0 * precision * recall / (precision + recall)
+    return {"precision": precision, "recall": recall, "f1": f1}
+
+
+def _multiclass_report(counters: Dict[str, int], *, prefix: str, labels: tuple[str, ...], pred_labels: tuple[str, ...]) -> Dict[str, Any]:
+    """从 counters 中的混淆矩阵字段生成 per-class 与 macro 指标。"""
+
+    matrix: Dict[str, Dict[str, int]] = {
+        gt: {pred: int(counters.get(f"{prefix}_cm_{gt}_{pred}", 0)) for pred in pred_labels}
+        for gt in labels
+    }
+    per_class: Dict[str, Dict[str, float]] = {}
+    support_total = 0
+    correct_total = 0
+    for label in labels:
+        tp = matrix[label].get(label, 0)
+        fp = sum(matrix[gt].get(label, 0) for gt in labels if gt != label)
+        fn = sum(count for pred, count in matrix[label].items() if pred != label)
+        support = sum(matrix[label].values())
+        support_total += support
+        correct_total += tp
+        per_class[label] = {
+            **_prf(tp, fp, fn),
+            "support": float(support),
+            "predicted": float(sum(matrix[gt].get(label, 0) for gt in labels)),
+        }
+    macro_f1 = sum(v["f1"] for v in per_class.values()) / max(len(per_class), 1)
+    return {
+        "confusion_matrix": matrix,
+        "per_class": per_class,
+        "macro_f1": macro_f1,
+        "micro_acc": float(correct_total) / max(float(support_total), 1.0),
+    }
+
+
+def _change_report(counters: Dict[str, int], prefix: str) -> Dict[str, float]:
+    """生成相邻帧变化检测报告，FP/TN 侧对应不该切时是否乱切。"""
+
+    tp = int(counters.get(f"{prefix}_tp", 0))
+    fp = int(counters.get(f"{prefix}_fp", 0))
+    fn = int(counters.get(f"{prefix}_fn", 0))
+    tn = int(counters.get(f"{prefix}_tn", 0))
+    invalid = int(counters.get(f"{prefix}_invalid", 0))
+    prf = _prf(tp, fp, fn)
+    return {
+        "precision": prf["precision"],
+        "recall": prf["recall"],
+        "f1": prf["f1"],
+        "false_transition_rate_when_gt_stable": float(fp) / max(float(fp + tn), 1.0),
+        "invalid_rate": float(invalid) / max(float(tp + fp + fn + tn + invalid), 1.0),
+    }
+
+
+def _sparse_transition_direction_report(
+    counters: Dict[str, int],
+    *,
+    prefix: str,
+    labels: tuple[str, ...],
+) -> Dict[str, Dict[str, int]]:
+    """输出非零的转折方向混淆矩阵，避免 metrics.json 被大量 0 占满。"""
+
+    report: Dict[str, Dict[str, int]] = {}
+    for gt in labels:
+        row: Dict[str, int] = {}
+        for pred in labels:
+            count = int(counters.get(f"{prefix}_transition_dir_cm_{gt}_{pred}", 0))
+            if count:
+                row[pred] = count
+        if row:
+            report[gt] = row
+    return report
+
+
 def _build_metrics(
     *,
     args: argparse.Namespace,
@@ -1027,48 +1251,96 @@ def _build_metrics(
 
     frames = max(1, counters["frames"])
     q2_total = max(1, counters["q2_triggered"])
+    q2_rs_correct_total = max(1, counters["q2_when_rs_correct"])
     transition_post_frames = max(1, counters["transition_post_frames"])
     transition_post_q2 = max(1, counters["transition_post_q2_triggered"])
-    rs_first_baseline = counters["rs_first_gt_baseline_correct"] / frames
+    rs_first_gt_baseline = counters["rs_first_gt_baseline_correct"] / frames
+    rs_first_pred_baseline = counters["rs_first_pred_baseline_correct"] / frames
     rs_acc = counters["q1_rs_correct"] / frames
     event_regular_baseline_q2 = counters["q2_gt_re_total"] / q2_total
     event_acc_q2 = counters["q2_event_correct"] / q2_total
+    event_regular_baseline_rs_correct = counters["q2_gt_re_when_rs_correct"] / q2_rs_correct_total
+    event_acc_rs_correct = counters["q2_event_correct_when_rs_correct"] / q2_rs_correct_total
     change_den = max(1, counters["rs_change_denominator"])
+    ue_binary = _prf(counters["ue_binary_tp"], counters["ue_binary_fp"], counters["ue_binary_fn"])
+    rs_report = _multiclass_report(counters, prefix="rs", labels=RS_LABELS, pred_labels=_RS_CM_LABELS)
+    event_report = _multiclass_report(counters, prefix="event", labels=_EVENT_LABELS, pred_labels=_EVENT_CM_LABELS)
+    rs_change = _change_report(counters, "rs_change")
+    re_to_ue = _change_report(counters, "re_to_ue")
+    ue_to_re = _change_report(counters, "ue_to_re")
+    false_fp = counters["rs_change_fp"] + counters["re_to_ue_fp"] + counters["ue_to_re_fp"]
+    false_tn = counters["rs_change_tn"] + counters["re_to_ue_tn"] + counters["ue_to_re_tn"]
+    public_counters = {key: value for key, value in counters.items() if "_transition_dir_cm_" not in key}
     return {
         "eval_mode": args.eval_mode,
         "image_ablation": str(getattr(args, "image_ablation", "none")),
         "script_correction": "none",
+        "initial_memory": str(args.initial_memory_noise),
+        "event_gate_uses_ground_truth": False,
+        "q2_candidates_use_predicted_rs": True,
         "world_size": int(world_size),
         "route_count": route_count,
         "selected_case_count": selected_case_count,
-        **counters,
+        **public_counters,
         "rs_acc": rs_acc,
-        "rs_first_gt_lock_baseline_acc": rs_first_baseline,
-        "rs_visual_gain_over_first_gt_lock": rs_acc - rs_first_baseline,
+        "rs_first_gt_lock_baseline_acc": rs_first_gt_baseline,
+        "rs_first_pred_lock_baseline_acc": rs_first_pred_baseline,
+        "rs_visual_gain_over_first_gt_lock": rs_acc - rs_first_gt_baseline,
+        "rs_visual_gain_over_first_pred_lock": rs_acc - rs_first_pred_baseline,
         "rs_pred_change_rate": counters["rs_pred_change_count"] / change_den,
         "rs_gt_change_rate": counters["rs_gt_change_count"] / change_den,
+        "rs_change_precision": rs_change["precision"],
+        "rs_change_recall": rs_change["recall"],
+        "rs_change_f1": rs_change["f1"],
+        "rs_false_transition_rate_when_gt_stable": rs_change["false_transition_rate_when_gt_stable"],
+        "rs_change_invalid_rate": rs_change["invalid_rate"],
         "rs_locked_case_rate": counters["rs_locked_cases"] / max(1, counters["cases"]),
         "rs_locked_eq_first_gt_rate": counters["rs_locked_eq_first_gt_cases"] / max(1, counters["rs_locked_cases"]),
-        "abnormal_acc": counters["q1_abnormal_correct"] / frames,
-        "abnormal_yes_pred_rate": counters["q1_abnormal_yes_pred"] / frames,
-        "event_acc_when_rs_correct": event_acc_q2,
-        "event_regular_baseline_when_rs_correct": event_regular_baseline_q2,
+        "rs_confusion_report": rs_report,
+        "rs_transition_direction_confusion": _sparse_transition_direction_report(counters, prefix="rs", labels=_RS_TRANSITION_LABELS),
+        "event_acc_end_to_end": event_acc_q2,
+        "event_acc_when_rs_correct": event_acc_rs_correct,
+        "event_regular_baseline_end_to_end": event_regular_baseline_q2,
+        "event_regular_baseline_when_rs_correct": event_regular_baseline_rs_correct,
         "event_visual_gain_over_regular_baseline": event_acc_q2 - event_regular_baseline_q2,
         "event_pred_re_rate": counters["q2_pred_re"] / q2_total,
         "event_pred_ue_rate": counters["q2_pred_ue"] / q2_total,
         "event_pred_invalid_rate": counters["q2_pred_invalid"] / q2_total,
+        "event_unreachable_due_to_rs_rate": counters["event_unreachable_due_to_rs"] / frames,
+        "q2_candidates_from_pred_rs_rate": counters["q2_candidates_from_pred_rs"] / frames,
+        "q2_single_candidate_rate": counters["q2_single_candidate"] / frames,
+        "event_confusion_report": event_report,
         "ue_acc": counters["q2_ue_correct"] / max(1, counters["q2_ue_total"]),
         "re_acc": counters["q2_re_correct"] / max(1, counters["q2_re_total"]),
-        "ue_q1_abnormal_acc": counters["ue_q1_abnormal_correct"] / max(1, counters["ue_q1_abnormal_total"]),
         "ue_pred_regular_rate": counters["q2_ue_pred_regular"] / max(1, counters["q2_ue_total"]),
+        "ue_vs_re_tp": counters["ue_binary_tp"],
+        "ue_vs_re_fp": counters["ue_binary_fp"],
+        "ue_vs_re_fn": counters["ue_binary_fn"],
+        "ue_vs_re_tn": counters["ue_binary_tn"],
+        "ue_vs_re_precision": ue_binary["precision"],
+        "ue_vs_re_recall": ue_binary["recall"],
+        "ue_vs_re_f1": ue_binary["f1"],
+        "re_to_ue_precision": re_to_ue["precision"],
+        "re_to_ue_recall": re_to_ue["recall"],
+        "re_to_ue_f1": re_to_ue["f1"],
+        "re_to_ue_false_transition_rate_when_gt_stable": re_to_ue["false_transition_rate_when_gt_stable"],
+        "re_to_ue_invalid_rate": re_to_ue["invalid_rate"],
+        "ue_to_re_precision": ue_to_re["precision"],
+        "ue_to_re_recall": ue_to_re["recall"],
+        "ue_to_re_f1": ue_to_re["f1"],
+        "ue_to_re_false_transition_rate_when_gt_stable": ue_to_re["false_transition_rate_when_gt_stable"],
+        "ue_to_re_invalid_rate": ue_to_re["invalid_rate"],
+        "false_transition_rate_when_gt_stable": float(false_fp) / max(float(false_fp + false_tn), 1.0),
+        "event_transition_direction_confusion": _sparse_transition_direction_report(counters, prefix="event", labels=_EVENT_TRANSITION_LABELS),
         "q2_trigger_rate": counters["q2_triggered"] / frames,
         "transition_post_rs_acc": counters["transition_post_rs_correct"] / transition_post_frames,
-        "transition_post_abnormal_acc": counters["transition_post_abnormal_correct"] / transition_post_frames,
         "transition_post_event_acc": counters["transition_post_event_correct"] / transition_post_q2,
         "rs_transition_hit_rate": counters["rs_transition_hit_cases"] / max(1, counters["rs_transition_cases"]),
+        "rs_transition_already_at_target_rate": counters["rs_transition_already_at_target_hits"] / max(1, counters["rs_transition_hit_cases"]),
         "rs_transition_hit_offset_avg": counters["rs_transition_hit_offset_sum"] / max(1, counters["rs_transition_hit_cases"]),
         "rs_transition_abs_hit_offset_avg": counters["rs_transition_abs_hit_offset_sum"] / max(1, counters["rs_transition_hit_cases"]),
         "event_transition_hit_rate": counters["event_transition_hit_cases"] / max(1, counters["event_transition_cases"]),
+        "event_transition_already_at_target_rate": counters["event_transition_already_at_target_hits"] / max(1, counters["event_transition_hit_cases"]),
         "event_transition_hit_offset_avg": counters["event_transition_hit_offset_sum"] / max(1, counters["event_transition_hit_cases"]),
         "event_transition_abs_hit_offset_avg": counters["event_transition_abs_hit_offset_sum"] / max(1, counters["event_transition_hit_cases"]),
         "event_transition_abnormal_hit_rate": counters["event_transition_abnormal_hit_cases"] / max(1, counters["event_transition_cases"]),
@@ -1078,7 +1350,7 @@ def _build_metrics(
 def evaluate(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
     """执行自由生成评估。
 
-    离散 memory 在 eval 中由学生输出维护：Q1 更新 RS/ABNORMAL，Q2 更新 EVENT。
+    离散 memory 在 eval 中由学生输出维护：Q1 更新 RS，Q2 更新 EVENT。
     但 EGO_TO_GOAL_XY 是每帧连续量，所以即使没有 reset 也会在提问前刷新为当前帧。
     默认不做脚本纠偏；如果 Q1 RS 错，只跳过本帧 Q2，让后续帧继续暴露漂移。
     """
@@ -1174,7 +1446,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--transition-window", type=int, default=8)
     p.add_argument("--transition-tolerance", type=int, default=3)
     p.add_argument("--max-transition-cases", type=int, default=0)
-    p.add_argument("--initial-memory-noise", choices=["none", "rs", "event", "both", "random"], default="none")
+    p.add_argument("--initial-memory-noise", choices=["unknown", "none", "rs", "event", "both", "random"], default="unknown")
     p.add_argument("--image-ablation", choices=["none", "black", "random"], default="none")
     p.add_argument("--seed", type=int, default=20260724)
     p.add_argument("--max-new-tokens-q1", type=int, default=32)
@@ -1222,6 +1494,10 @@ def _metric_value(metrics: Dict[str, Any], key: str) -> str:
     if value is None:
         return "NA"
     if isinstance(value, float):
+        if "_offset" in key:
+            return f"{value:.2f} frames"
+        if key.endswith("_per_100_frames"):
+            return f"{value:.2f}"
         return f"{value * 100:.2f}%"
     return str(value)
 
@@ -1231,24 +1507,31 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
 
     common = [
         ("rs_acc", "全部评估帧上的 RS token 准确率"),
-        ("rs_first_gt_lock_baseline_acc", "零视觉基线：首帧 GT RS 锁死不变的准确率"),
-        ("rs_visual_gain_over_first_gt_lock", "RS 相对锁死首帧基线的净增益"),
+        ("rs_first_pred_lock_baseline_acc", "零视觉基线：模型首帧预测 RS 锁死不变的准确率"),
+        ("rs_visual_gain_over_first_pred_lock", "RS 相对锁死首帧预测基线的净增益"),
         ("rs_pred_change_rate", "预测 RS 帧间变化率"),
         ("rs_gt_change_rate", "GT RS 帧间变化率"),
+        ("rs_change_f1", "相邻帧 RS 变化检测 F1，衡量该切与不该切是否都判断对"),
+        ("rs_false_transition_rate_when_gt_stable", "GT RS 未变化时预测假转折的比例，越低越好"),
         ("rs_locked_case_rate", "整段预测 RS 完全不变的 case 比例"),
-        ("abnormal_acc", "全部评估帧上的 ABNORMAL YES/NO 准确率"),
-        ("abnormal_yes_pred_rate", "Q1 输出 ABNORMAL=YES 的比例"),
-        ("event_acc_when_rs_correct", "Q1 RS 正确后，Q2 EVENT token 的准确率"),
-        ("event_regular_baseline_when_rs_correct", "零视觉基线：进入 Q2 后恒定 REGULAR 的准确率"),
+        ("event_acc_end_to_end", "端到端 Q2 EVENT token 准确率，每帧都问 Q2"),
+        ("event_regular_baseline_end_to_end", "零视觉基线：恒定 REGULAR 的端到端准确率"),
         ("event_visual_gain_over_regular_baseline", "EVENT 相对恒定 REGULAR 基线的净增益"),
         ("event_pred_ue_rate", "Q2 输出 UE token 的比例"),
-        ("q2_trigger_rate", "Q1 RS 正确、进入 Q2 的比例"),
-        ("ue_q1_abnormal_acc", "UE 帧中 Q1 是否先判断为 ABNORMAL=YES"),
+        ("ue_vs_re_f1", "由 EVENT 折叠出的 UE-vs-RE 二分类 F1"),
+        ("re_to_ue_f1", "相邻帧 RE->UE 起始检测 F1，重点看异常起始漏检/延迟"),
+        ("re_to_ue_false_transition_rate_when_gt_stable", "GT 未发生 RE->UE 时预测假异常起始的比例"),
+        ("ue_to_re_f1", "相邻帧 UE->RE 结束检测 F1，衡量异常解除时机"),
+        ("event_unreachable_due_to_rs_rate", "GT EVENT 在学生 RS 候选下不可达的比例"),
+        ("q2_single_candidate_rate", "Q2 只有一个候选的帧比例"),
+        ("q2_candidates_from_pred_rs_rate", "因学生 RS 与 GT RS 不同而重建 Q2 候选的比例"),
+        ("q2_trigger_rate", "进入 Q2 的比例；新协议应接近 100%"),
         ("ue_pred_regular_rate", "UE 帧进入 Q2 后仍被预测为 REGULAR 的比例，越低越好"),
     ]
     if eval_mode == "rs_transition":
         return [
             ("rs_transition_hit_rate", "RS 转折 case 在容忍窗口内切到目标 RS 的比例"),
+            ("rs_transition_already_at_target_rate", "RS 命中 case 中窗口左边界已经等于目标 RS 的比例，越高越像锁死撞上"),
             ("rs_transition_hit_offset_avg", "RS 命中帧相对标注转折帧的平均偏移，负数表示提前"),
             ("rs_transition_abs_hit_offset_avg", "RS 命中帧相对标注转折帧的平均绝对偏移"),
             ("transition_post_rs_acc", "转折点后所有帧的 RS 准确率"),
@@ -1257,7 +1540,8 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
     if eval_mode == "event_transition":
         return [
             ("event_transition_hit_rate", "EVENT 转换 case 在容忍窗口内切到目标 EVENT 的比例"),
-            ("event_transition_abnormal_hit_rate", "EVENT 转换 case 在容忍窗口内 Q1 ABNORMAL 是否切对"),
+            ("event_transition_abnormal_hit_rate", "EVENT 转换 case 在容忍窗口内由 Q2 折叠出的 UE/RE 是否切对"),
+            ("event_transition_already_at_target_rate", "EVENT 命中 case 中窗口左边界已经等于目标 EVENT 的比例，越高越像锁死撞上"),
             ("event_transition_hit_offset_avg", "EVENT 命中帧相对标注转折帧的平均偏移，负数表示提前"),
             ("event_transition_abs_hit_offset_avg", "EVENT 命中帧相对标注转折帧的平均绝对偏移"),
             ("transition_post_event_acc", "转折点后、且进入 Q2 的 EVENT 准确率"),
@@ -1265,9 +1549,11 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
         ]
     return [
         ("rs_acc", "随机完整路线中所有帧的 RS token 准确率"),
-        ("abnormal_acc", "随机完整路线中所有帧的 ABNORMAL YES/NO 准确率"),
-        ("event_acc_when_rs_correct", "RS 正确后 Q2 EVENT token 的准确率"),
-        ("q2_trigger_rate", "完整路线中进入 Q2 的比例"),
+        ("event_acc_end_to_end", "随机完整路线中所有帧的端到端 EVENT token 准确率"),
+        ("q2_trigger_rate", "完整路线中进入 Q2 的比例；新协议应接近 100%"),
+        ("rs_change_f1", "完整路线相邻帧 RS 变化检测 F1"),
+        ("re_to_ue_f1", "完整路线相邻帧 RE->UE 起始检测 F1"),
+        ("false_transition_rate_when_gt_stable", "RS/RE->UE/UE->RE 合并后的 GT 稳定帧假转折比例，越低越好"),
         ("ue_acc", "UE 帧进入 Q2 后的 EVENT 准确率"),
         ("re_acc", "RE 帧进入 Q2 后的 EVENT 准确率"),
     ]
@@ -1287,6 +1573,9 @@ def _write_summary(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.N
         f"- Index：`{args.index}`",
         f"- 多卡数：`{metrics.get('world_size')}`",
         f"- 图像消融：`{metrics.get('image_ablation')}`",
+        f"- 首帧 memory：`{metrics.get('initial_memory')}`",
+        f"- Q2 GT gate：`{metrics.get('event_gate_uses_ground_truth')}`",
+        f"- Q2 候选按学生 RS：`{metrics.get('q2_candidates_use_predicted_rs')}`",
         f"- 选中 case 数：`{metrics.get('selected_case_count')}`",
         f"- 实际评估帧数：`{metrics.get('frames')}`",
         "",
@@ -1309,9 +1598,9 @@ def _write_summary(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.N
             "## 读数提醒",
             "",
             "- `frames.jsonl` 是最重要的排查文件：每一行包含 GT/PRED RS、GT/PRED EVENT、原始生成文本和转折窗口信息。",
-            "- `q2_trigger_rate` 低通常说明 Q1 RS 漂移严重，因为当前评测只有 RS 正确才继续问 Q2。",
-            "- 黑图/随机图测试下若 `rs_visual_gain_over_first_gt_lock` 和 `event_visual_gain_over_regular_baseline` 仍接近原图，说明模型主要依赖 memory/语言捷径。",
-            "- `event_pred_ue_rate` 或 `abnormal_yes_pred_rate` 长期接近 0，是 EVENT/ABNORMAL 坍缩到 REGULAR/NO 的直接信号。",
+            "- 新协议里 Q2 每帧都问；`q2_trigger_rate` 应接近 100%，`event_unreachable_due_to_rs_rate` 才反映 RS 错导致 EVENT 不可达。",
+            "- 黑图/随机图测试下若 `rs_visual_gain_over_first_pred_lock` 和 `event_visual_gain_over_regular_baseline` 仍接近原图，说明模型主要依赖 memory/语言捷径。",
+            "- `event_pred_ue_rate` 长期接近 0，是 EVENT 坍缩到 REGULAR 的直接信号；ABNORMAL 已从 Q1 协议删除。",
             "- `*_hit_offset_avg` 为负表示模型提前切换，为正表示滞后切换。",
             "- `script_correction` 应为 `none`，表示评测没有脚本纠偏。",
             "",

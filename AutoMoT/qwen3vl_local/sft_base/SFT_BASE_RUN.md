@@ -72,37 +72,39 @@ GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 ```
 
-默认输出到 `checkpoints/sft_base_runs/run_<RUN_TAG>/`，并维护 `checkpoints/sft_base_runs/latest`。默认 `LORA_VISION_SCOPE=merger`，并启用视觉 fuse guard；如果要纯语言 LoRA 对照：
+默认输出到 `checkpoints/sft_base_runs/run_<RUN_TAG>/`，并维护 `checkpoints/sft_base_runs/latest`。默认 `LORA_VISION_SCOPE=last4`、`LORA_RANK=32`、`LORA_ALPHA=64`，保持 LoRA scaling 为 2，并启用视觉 fuse guard；如果要纯语言 LoRA 对照：
 
 多卡训练默认 `FRAMES_PER_SYNC=64`，会在长 route 内按固定帧数做梯度同步 heartbeat，避免不同 rank 的 route 帧数差异导致 NCCL all-reduce 等待超时。排查时可调小到 `32`，或在确认单条 route 很短时设为 `0` 回到整条 route 结束后同步。
 
 针对 `ue_acc=0` 和 memory-copy shortcut，当前训练默认做几件事：
 
 - 首帧 memory 使用 `UNKNOWN`，不再白送 GT RS。
-- 训练 prompt 中的 `BELIEVED_RS/BELIEVED_EVENT` 会按小概率置错或置为 `UNKNOWN`，让抄 memory 不再稳定拿高分。
-- `RE->UE`、`UE->RE`、RS 变化帧及其前后 1 帧会被重点重复训练。
-- Q1 的 `ABNORMAL=YES` 会加权，Q2 的 UE loss 提高，同时 RE loss 降低但不置零。
+- 训练 prompt 中的 `BELIEVED_RS/BELIEVED_EVENT` 会按高概率置错或置为 `UNKNOWN`，让抄 memory 不再稳定拿高分；Q1 只显示 `BELIEVED_RS`，Q2 才显示并使用 `BELIEVED_EVENT`。
+- 另有 `MEMORY_DROPOUT_PROB` 会作为独立第一层整块隐藏离散先验，只保留 `EGO_TO_GOAL_XY`，制造必须看图的帧；route 首帧固定 UNKNOWN/UNKNOWN，不参与 dropout 或 EVENT 扰动。
+- Q1 用 GT RS 更新后，训练侧会为 Q2 在当前 RS 池里单独重采 EVENT memory；keep 分支沿用进入本帧前的干净 EVENT memory（上一帧 GT），防止“扰动 RS 被纠正回 GT”把 Q2 EVENT memory 大量失效成 UNKNOWN，也防止 EVENT 转折帧把本帧答案写进 prompt。
+- `RE->UE`、`UE->RE`、RS 变化帧及其前后 3 帧会被重点重复训练。
+- Q1 只监督 RS；Q2 的 UE loss 提高，同时 RE loss 降低但不置零。
 
 当前默认值：
 
 | 环境变量 | 默认 | 用途 |
 |---|---:|---|
 | `FIRST_FRAME_MEMORY_UNKNOWN` | `1` | 首帧 memory 是否置为 UNKNOWN |
-| `MEMORY_RS_WRONG_PROB` | `0.15` | 非首帧把 RS memory 改成错误 RS 的概率 |
-| `MEMORY_RS_UNKNOWN_PROB` | `0.10` | 非首帧把 RS memory 置为 UNKNOWN 的概率 |
-| `MEMORY_EVENT_WRONG_PROB` | `0.20` | 非首帧把 EVENT memory 改成错误 EVENT 的概率 |
-| `MEMORY_EVENT_UNKNOWN_PROB` | `0.10` | 非首帧把 EVENT memory 置为 UNKNOWN 的概率 |
-| `TRANSITION_FRAME_REPEAT` | `12` | 转折邻域帧最少重复次数 |
-| `TRANSITION_FRAME_WINDOW` | `1` | 转折点前后纳入重复的窗口半径 |
+| `MEMORY_RS_WRONG_PROB` | `0.30` | 非首帧把 RS memory 改成错误 RS 的概率 |
+| `MEMORY_RS_UNKNOWN_PROB` | `0.40` | 非首帧把 RS memory 置为 UNKNOWN 的概率 |
+| `MEMORY_EVENT_WRONG_PROB` | `0.35` | 非首帧把 EVENT memory 改成错误 EVENT 的概率 |
+| `MEMORY_EVENT_UNKNOWN_PROB` | `0.35` | 非首帧把 EVENT memory 置为 UNKNOWN 的概率 |
+| `RS_WRONG_EVENT_UNKNOWN_PROB` | `0.25` | RS 被置错时，EVENT 置 UNKNOWN 而不是从新 RS 候选池抽错项的概率 |
+| `MEMORY_DROPOUT_PROB` | `0.15` | 非首帧独立触发隐藏 RS/EVENT memory、只保留导航 goal 的概率 |
+| `TRANSITION_FRAME_REPEAT` | `4` | 转折邻域帧最少重复次数 |
+| `TRANSITION_FRAME_WINDOW` | `3` | 转折点前后纳入重复的窗口半径 |
 | `UE_EVENT_LOSS_WEIGHT` | `4.0` | Q2 UE token loss 权重 |
 | `RE_EVENT_LOSS_WEIGHT` | `0.5` | Q2 RE token loss 权重；不建议设为 0 |
-| `ABNORMAL_YES_LOSS_WEIGHT` | `4.0` | Q1 ABNORMAL=YES loss 权重 |
-| `ABNORMAL_NO_LOSS_WEIGHT` | `1.0` | Q1 ABNORMAL=NO loss 权重 |
 
 如果要更激进地打断 memory-copy，可以临时提高扰动：
 
 ```bash
-MEMORY_RS_WRONG_PROB=0.25 MEMORY_EVENT_WRONG_PROB=0.30 TRANSITION_FRAME_REPEAT=16 \
+MEMORY_DROPOUT_PROB=0.25 MEMORY_RS_UNKNOWN_PROB=0.50 MEMORY_RS_WRONG_PROB=0.35 \
 GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
 ```
 
@@ -392,15 +394,21 @@ dataset version、base model path 或 vision scope 不匹配，会直接报错�
 
 | 指标 | 含义 |
 |---|---|
-| `rs_acc` / `event_acc_when_rs_correct` | 全部评估帧上的 RS 准确率、RS 正确时的 EVENT 准确率 |
-| `q2_trigger_rate` | Q1 RS 正确后进入 Q2 的比例；RS 漂移会直接压低这个值 |
+| `rs_acc` / `event_acc_end_to_end` | 全部评估帧上的 RS 准确率、每帧都问 Q2 的端到端 EVENT 准确率 |
+| `q2_trigger_rate` | 进入 Q2 的比例；新协议应接近 100% |
 | `script_resets` | 脚本纠偏审计字段；评测不允许纠偏，正常必须恒为 0 |
 | `rs_transition_hit_rate` | RS 转折 case 在容忍窗口内切到目标 RS 的比例 |
 | `event_transition_hit_rate` | UE/RE/EVENT 转换 case 在容忍窗口内切到目标 EVENT 的比例 |
-| `event_transition_abnormal_hit_rate` | UE/RE 转换 case 在容忍窗口内 Q1 YES/NO 切对的比例 |
-| `ue_q1_abnormal_acc` | 所有 UE 帧里 Q1 是否先报 `ABNORMAL=YES` |
+| `rs_transition_already_at_target_rate` / `event_transition_already_at_target_rate` | 命中 case 中窗口左边界已经等于目标值的比例；越高越说明 hit_rate 被锁死模型污染 |
+| `event_unreachable_due_to_rs_rate` | GT EVENT 在学生 RS 候选下不可达的比例 |
+| `ue_vs_re_f1` | 由 Q2 EVENT 折叠得到的 UE-vs-RE 二分类 F1 |
+| `rs_change_f1` | 相邻帧 RS 是否变化的 F1；同时约束该切和不该切 |
+| `re_to_ue_f1` / `ue_to_re_f1` | 相邻帧异常起始 / 异常结束检测 F1，拆开看漏检和持续误报 |
+| `false_transition_rate_when_gt_stable` | RS、RE->UE、UE->RE 合并后的 GT 稳定帧假转折比例 |
+| `rs_transition_direction_confusion` / `event_transition_direction_confusion` | `(gt_source->gt_target) vs (pred_source->pred_target)` 的 sparse 转折方向混淆 |
+| `rs_confusion_report` / `event_confusion_report` | RS 5 类与 EVENT 9 类混淆矩阵、per-class P/R/F1 |
 | `ue_pred_regular_rate` | UE 帧进入 Q2 后仍被判成 `REGULAR` 的比例 |
-| `*_hit_offset_avg` / `*_abs_hit_offset_avg` | 命中帧相对标注转折帧的平均偏移和平均绝对偏移，负数表示提前 |
+| `*_hit_offset_avg` / `*_abs_hit_offset_avg` | 命中帧相对标注转折帧的平均偏移和平均绝对偏移，单位是 frame，负数表示提前 |
 | `*_early_hits` / `*_on_time_hits` / `*_late_hits` | 命中发生在标注转折前、同帧或后几帧的数量 |
 | `output-jsonl` 每行 | 单帧复盘和 `transition_case_summary`，包含 route/frame、转折点、容忍窗口、GT/PRED RS、GT/PRED EVENT、原始生成文本 |
 
@@ -471,12 +479,26 @@ eval_results/event_transition_random/<时间>/
 
 | 指标 | 判断 |
 |---|---|
-| `rs_visual_gain_over_first_gt_lock` | RS 相对“抄首帧 GT 并锁死”的净增益；黑图/随机图下如果几乎不变，说明视觉贡献很弱 |
+| `rs_visual_gain_over_first_pred_lock` | RS 相对“模型首帧预测锁死”的净增益；黑图/随机图下如果几乎不变，说明视觉贡献很弱 |
 | `event_visual_gain_over_regular_baseline` | EVENT 相对“恒定 REGULAR”的净增益；接近 0 说明 EVENT 坍缩 |
 | `rs_pred_change_rate` vs `rs_gt_change_rate` | 预测变化率远低于 GT 变化率，说明 RS 被 memory 锁死 |
 | `rs_locked_case_rate` | 整段 RS 预测完全不变的 case 比例 |
-| `abnormal_yes_pred_rate` | 长期接近 0 表示 Q1 ABNORMAL 坍缩到 NO |
 | `event_pred_ue_rate` | 长期接近 0 表示 Q2 EVENT 坍缩到 REGULAR |
+| `rs_change_f1` | 原图下也接近 0 表示模型没有学到 RS 变化；黑图下应明显更差 |
+| `re_to_ue_f1` | 原图下也接近 0 表示模型没有学到异常起始；黑图下应明显更差 |
+| `false_transition_rate_when_gt_stable` | 过高说明模型乱切；过低但 `*_change_f1` 接近 0 说明模型锁死 |
+
+建议验收门槛：
+
+| 指标 | 门槛 |
+|---|---:|
+| `rs_visual_gain_over_first_pred_lock` 原图 - 黑图 | > +10pt |
+| `event_pred_ue_rate` | > 5% |
+| `rs_locked_case_rate` | < 20% |
+| `rs_confusion_report.per_class.R3.predicted` | > 0 |
+| `ue_vs_re_f1` | > 0.35 |
+| `rs_change_f1` | > 0.15 |
+| `re_to_ue_f1` | > 0.20 |
 
 ## 6. 维护检查
 
@@ -484,6 +506,15 @@ eval_results/event_transition_random/<时间>/
 python -m py_compile qwen3vl_local/sft_base/*.py
 python qwen3vl_local/sft_base/check_loss_mask.py
 python qwen3vl_local/sft_base/test_dataset_contract.py
+python qwen3vl_local/sft_base/test_memory_curriculum.py
+python qwen3vl_local/sft_base/test_eval_candidates.py
+```
+
+候选过滤偏差审计：
+
+```bash
+python qwen3vl_local/sft_base/audit_eval_candidate_drift.py \
+  --index checkpoints/sft_base_data/val_sequence_index.jsonl
 ```
 
 `test_dataset_contract.py` 会检查 sft_base 与 sft_v5 的 Q2 候选顺序是否保持一致。
