@@ -13,6 +13,7 @@ import pathlib
 import random
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, List, Optional, TextIO
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
@@ -857,6 +858,76 @@ def _merge_rank_jsonl(output_jsonl: str, world_size: int) -> None:
             shard_path.unlink(missing_ok=True)
 
 
+def _eval_stem(eval_mode: str) -> str:
+    """把 eval_mode 统一映射成文件/目录名。
+
+    日常命令只传 `--task rs/event/full`，内部会展开成 eval_mode；所有自动输出
+    都复用这个 stem，保证不同任务的结果不会互相覆盖。
+    """
+
+    return {
+        "full_route": "full_route",
+        "rs_transition": "rs_transition",
+        "event_transition": "event_transition",
+    }[eval_mode]
+
+
+def _dist_broadcast_text(value: Optional[str], *, rank: int, world_size: int) -> Optional[str]:
+    """把 rank0 生成的字符串广播到所有 rank。
+
+    自动输出目录里带时间戳。多卡 torchrun 时每个进程都会独立 parse args，如果各自
+    `datetime.now()`，就可能因为秒级差异写到不同目录。这里由 rank0 生成一次目录，
+    再广播给其它 rank，确保 jsonl 分片和最终合并落在同一个地方。
+    """
+
+    if world_size <= 1:
+        return value
+    values: List[Optional[str]] = [value if rank == 0 else None]
+    dist.broadcast_object_list(values, src=0)
+    return values[0]
+
+
+def _prepare_eval_outputs(args: argparse.Namespace, *, rank: int, world_size: int) -> None:
+    """补齐本次评测的输出路径。
+
+    默认目录结构：
+
+    `adapter_run/eval_results/<task>/<YYYYMMDD_HHMMSS>/`
+
+    目录内固定写三类文件：
+    - `metrics.json`：汇总指标，适合脚本读。
+    - `frames.jsonl`：逐帧/逐 case 复盘，适合排查错误样本。
+    - `summary.md`：中文说明和关键指标，适合人工快速看。
+    """
+
+    explicit_output_dir = getattr(args, "output_dir", None)
+    if explicit_output_dir:
+        output_dir = pathlib.Path(explicit_output_dir)
+    elif not args.output_json and not args.output_jsonl:
+        if rank == 0:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = _default_eval_output_root(args.adapter_dir) / "eval_results" / _eval_stem(args.eval_mode) / timestamp
+            output_dir_text: Optional[str] = str(output_dir)
+        else:
+            output_dir_text = None
+        output_dir = pathlib.Path(str(_dist_broadcast_text(output_dir_text, rank=rank, world_size=world_size)))
+    elif args.output_json:
+        output_dir = pathlib.Path(args.output_json).parent
+    else:
+        output_dir = pathlib.Path(args.output_jsonl).parent
+
+    args.output_dir = str(output_dir)
+    if not args.output_json:
+        args.output_json = str(output_dir / "metrics.json")
+    if not args.output_jsonl:
+        args.output_jsonl = str(output_dir / "frames.jsonl")
+    if not getattr(args, "output_summary", None):
+        args.output_summary = str(output_dir / "summary.md")
+    pathlib.Path(args.output_json).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(args.output_jsonl).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(args.output_summary).parent.mkdir(parents=True, exist_ok=True)
+
+
 def _build_metrics(
     *,
     args: argparse.Namespace,
@@ -928,6 +999,7 @@ def evaluate(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
             }
             return metrics if is_rank0(rank) else None
 
+        _prepare_eval_outputs(args, rank=rank, world_size=world_size)
         bundle = load_eval_bundle(
             pathlib.Path(args.model_dir),
             pathlib.Path(args.adapter_dir) if args.adapter_dir else None,
@@ -938,7 +1010,7 @@ def evaluate(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
         if is_rank0(rank):
             print(
                 f"[eval] mode={args.eval_mode} world_size={world_size} "
-                f"selected_cases={len(cases)}"
+                f"selected_cases={len(cases)} output_dir={args.output_dir}"
             )
 
         counters = _new_counters()
@@ -985,8 +1057,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--index", type=str, default="checkpoints/sft_base_data/val_sequence_index.jsonl")
     p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
     p.add_argument("--adapter-dir", type=str, required=True)
+    p.add_argument("--output-dir", type=str, default=None)
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--output-jsonl", type=str, default=None)
+    p.add_argument("--output-summary", type=str, default=None)
     p.add_argument("--task", choices=sorted(_EVAL_TASK_TO_MODE), required=True)
     p.add_argument("--eval-mode", choices=["full_route", "rs_transition", "event_transition"], default="full_route")
     p.add_argument("--max-routes", type=int, default=0)
@@ -1026,7 +1100,7 @@ def _apply_eval_defaults(args: argparse.Namespace) -> None:
 
     - RS/EVENT transition 默认抽 128 个 case。
     - full_route 默认随机抽 16 条 route。
-    - 未显式传 output-json/output-jsonl 时，按 eval_mode 自动写到 adapter run 目录。
+    - 输出路径在 evaluate() 里根据 rank0 时间戳统一补齐，避免多卡进程各写各的。
     """
 
     if args.eval_mode == "full_route" and int(args.sample_routes) <= 0 and int(args.max_routes) <= 0:
@@ -1034,16 +1108,99 @@ def _apply_eval_defaults(args: argparse.Namespace) -> None:
     if args.eval_mode in {"rs_transition", "event_transition"} and int(args.max_transition_cases) <= 0:
         args.max_transition_cases = 128
 
-    output_root = _default_eval_output_root(args.adapter_dir)
-    stem = {
-        "full_route": "eval_full_route",
-        "rs_transition": "eval_rs_transition",
-        "event_transition": "eval_event_transition",
-    }[args.eval_mode]
-    if not args.output_json:
-        args.output_json = str(output_root / f"{stem}_metrics.json")
-    if not args.output_jsonl:
-        args.output_jsonl = str(output_root / f"{stem}_frames.jsonl")
+
+def _metric_value(metrics: Dict[str, Any], key: str) -> str:
+    """把指标格式化成人看的字符串，比例指标按百分比显示。"""
+
+    value = metrics.get(key)
+    if value is None:
+        return "NA"
+    if isinstance(value, float):
+        return f"{value * 100:.2f}%"
+    return str(value)
+
+
+def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
+    """按任务选择 summary.md 中优先展示的指标。"""
+
+    common = [
+        ("rs_acc", "全部评估帧上的 RS token 准确率"),
+        ("abnormal_acc", "全部评估帧上的 ABNORMAL YES/NO 准确率"),
+        ("event_acc_when_rs_correct", "Q1 RS 正确后，Q2 EVENT token 的准确率"),
+        ("q2_trigger_rate", "Q1 RS 正确、进入 Q2 的比例"),
+        ("ue_q1_abnormal_acc", "UE 帧中 Q1 是否先判断为 ABNORMAL=YES"),
+        ("ue_pred_regular_rate", "UE 帧进入 Q2 后仍被预测为 REGULAR 的比例，越低越好"),
+    ]
+    if eval_mode == "rs_transition":
+        return [
+            ("rs_transition_hit_rate", "RS 转折 case 在容忍窗口内切到目标 RS 的比例"),
+            ("rs_transition_hit_offset_avg", "RS 命中帧相对标注转折帧的平均偏移，负数表示提前"),
+            ("rs_transition_abs_hit_offset_avg", "RS 命中帧相对标注转折帧的平均绝对偏移"),
+            ("transition_post_rs_acc", "转折点后所有帧的 RS 准确率"),
+            *common,
+        ]
+    if eval_mode == "event_transition":
+        return [
+            ("event_transition_hit_rate", "EVENT 转换 case 在容忍窗口内切到目标 EVENT 的比例"),
+            ("event_transition_abnormal_hit_rate", "EVENT 转换 case 在容忍窗口内 Q1 ABNORMAL 是否切对"),
+            ("event_transition_hit_offset_avg", "EVENT 命中帧相对标注转折帧的平均偏移，负数表示提前"),
+            ("event_transition_abs_hit_offset_avg", "EVENT 命中帧相对标注转折帧的平均绝对偏移"),
+            ("transition_post_event_acc", "转折点后、且进入 Q2 的 EVENT 准确率"),
+            *common,
+        ]
+    return [
+        ("rs_acc", "随机完整路线中所有帧的 RS token 准确率"),
+        ("abnormal_acc", "随机完整路线中所有帧的 ABNORMAL YES/NO 准确率"),
+        ("event_acc_when_rs_correct", "RS 正确后 Q2 EVENT token 的准确率"),
+        ("q2_trigger_rate", "完整路线中进入 Q2 的比例"),
+        ("ue_acc", "UE 帧进入 Q2 后的 EVENT 准确率"),
+        ("re_acc", "RE 帧进入 Q2 后的 EVENT 准确率"),
+    ]
+
+
+def _write_summary(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.Namespace) -> None:
+    """写中文 Markdown 总结，方便不用打开 JSON 也能快速判断结果。"""
+
+    rows = _summary_metric_rows(str(metrics.get("eval_mode", args.eval_mode)))
+    lines = [
+        "# SFT Base Eval Summary",
+        "",
+        f"- 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- 任务：`{getattr(args, 'task', '')}` / `{metrics.get('eval_mode')}`",
+        f"- Adapter：`{args.adapter_dir}`",
+        f"- Base model：`{args.model_dir}`",
+        f"- Index：`{args.index}`",
+        f"- 多卡数：`{metrics.get('world_size')}`",
+        f"- 选中 case 数：`{metrics.get('selected_case_count')}`",
+        f"- 实际评估帧数：`{metrics.get('frames')}`",
+        "",
+        "## 保存文件",
+        "",
+        f"- 汇总指标 JSON：`{args.output_json}`",
+        f"- 逐帧复盘 JSONL：`{args.output_jsonl}`",
+        f"- 中文摘要：`{args.output_summary}`",
+        "",
+        "## 关键指标",
+        "",
+        "| 指标 | 数值 | 含义 |",
+        "|---|---:|---|",
+    ]
+    for key, meaning in rows:
+        lines.append(f"| `{key}` | {_metric_value(metrics, key)} | {meaning} |")
+    lines.extend(
+        [
+            "",
+            "## 读数提醒",
+            "",
+            "- `frames.jsonl` 是最重要的排查文件：每一行包含 GT/PRED RS、GT/PRED EVENT、原始生成文本和转折窗口信息。",
+            "- `q2_trigger_rate` 低通常说明 Q1 RS 漂移严重，因为当前评测只有 RS 正确才继续问 Q2。",
+            "- `*_hit_offset_avg` 为负表示模型提前切换，为正表示滞后切换。",
+            "- `script_correction` 应为 `none`，表示评测没有脚本纠偏。",
+            "",
+        ]
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def main() -> None:
@@ -1051,12 +1208,24 @@ def main() -> None:
     metrics = evaluate(args)
     if metrics is None:
         return
+    metrics = {
+        **metrics,
+        "output_dir": args.output_dir,
+        "output_json": args.output_json,
+        "output_jsonl": args.output_jsonl,
+        "output_summary": args.output_summary,
+    }
     print(json.dumps(metrics, ensure_ascii=False, indent=2))
     if args.output_json:
         path = pathlib.Path(args.output_json)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(metrics, f, ensure_ascii=False, indent=2)
+    if args.output_summary:
+        _write_summary(pathlib.Path(args.output_summary), metrics, args)
+        print(f"[eval] saved metrics={args.output_json}")
+        print(f"[eval] saved frames={args.output_jsonl}")
+        print(f"[eval] saved summary={args.output_summary}")
 
 
 if __name__ == "__main__":
