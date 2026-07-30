@@ -76,14 +76,37 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 
 多卡训练默认 `FRAMES_PER_SYNC=64`，会在长 route 内按固定帧数做梯度同步 heartbeat，避免不同 rank 的 route 帧数差异导致 NCCL all-reduce 等待超时。排查时可调小到 `32`，或在确认单条 route 很短时设为 `0` 回到整条 route 结束后同步。
 
-针对 checkpoint-600 里 `ue_acc=0` 的问题，当前默认加强 UE 监督：
+针对 `ue_acc=0` 和 memory-copy shortcut，当前训练默认做几件事：
+
+- 首帧 memory 使用 `UNKNOWN`，不再白送 GT RS。
+- 训练 prompt 中的 `BELIEVED_RS/BELIEVED_EVENT` 会按小概率置错或置为 `UNKNOWN`，让抄 memory 不再稳定拿高分。
+- `RE->UE`、`UE->RE`、RS 变化帧及其前后 1 帧会被重点重复训练。
+- Q1 的 `ABNORMAL=YES` 会加权，Q2 的 UE loss 提高，同时 RE loss 降低但不置零。
+
+当前默认值：
+
+| 环境变量 | 默认 | 用途 |
+|---|---:|---|
+| `FIRST_FRAME_MEMORY_UNKNOWN` | `1` | 首帧 memory 是否置为 UNKNOWN |
+| `MEMORY_RS_WRONG_PROB` | `0.15` | 非首帧把 RS memory 改成错误 RS 的概率 |
+| `MEMORY_RS_UNKNOWN_PROB` | `0.10` | 非首帧把 RS memory 置为 UNKNOWN 的概率 |
+| `MEMORY_EVENT_WRONG_PROB` | `0.20` | 非首帧把 EVENT memory 改成错误 EVENT 的概率 |
+| `MEMORY_EVENT_UNKNOWN_PROB` | `0.10` | 非首帧把 EVENT memory 置为 UNKNOWN 的概率 |
+| `TRANSITION_FRAME_REPEAT` | `12` | 转折邻域帧最少重复次数 |
+| `TRANSITION_FRAME_WINDOW` | `1` | 转折点前后纳入重复的窗口半径 |
+| `UE_EVENT_LOSS_WEIGHT` | `4.0` | Q2 UE token loss 权重 |
+| `RE_EVENT_LOSS_WEIGHT` | `0.5` | Q2 RE token loss 权重；不建议设为 0 |
+| `ABNORMAL_YES_LOSS_WEIGHT` | `4.0` | Q1 ABNORMAL=YES loss 权重 |
+| `ABNORMAL_NO_LOSS_WEIGHT` | `1.0` | Q1 ABNORMAL=NO loss 权重 |
+
+如果要更激进地打断 memory-copy，可以临时提高扰动：
 
 ```bash
-UE_EVENT_LOSS_WEIGHT=3.0 RE_EVENT_LOSS_WEIGHT=1.0 UE_FRAME_REPEAT=2 \
+MEMORY_RS_WRONG_PROB=0.25 MEMORY_EVENT_WRONG_PROB=0.30 TRANSITION_FRAME_REPEAT=16 \
 GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
 ```
 
-`UE_EVENT_LOSS_WEIGHT` 只加 Q2 的 UE EVENT token loss；`UE_FRAME_REPEAT` 只重复异常帧的训练样本，不改变 route memory 推进。训练日志和 TensorBoard 会写 `train/q2_ue_rate_last_batch`，用于确认本轮 batch 里确实喂到了 UE 监督。
+`UE_EVENT_LOSS_WEIGHT` 不建议无限拉高，`RE_EVENT_LOSS_WEIGHT` 也不建议直接设为 0；否则模型可能从“全 REGULAR”翻到“全 UE”。更关键的是转折邻域重复和 memory 扰动。训练日志和 TensorBoard 会写 `train/q2_ue_rate_last_batch`，用于确认本轮 batch 里确实喂到了 UE 监督。
 
 ```bash
 LORA_VISION_SCOPE=off GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
@@ -393,6 +416,67 @@ cat $(ls -td checkpoints/sft_base_runs/latest/eval_results/rs_transition/* | hea
 ```bash
 grep '"event_ok": false' checkpoints/sft_base_runs/latest/eval_results/event_transition/*/frames.jsonl | head
 ```
+
+### 5.4 黑图 / 随机图诊断
+
+这个测试用于判断模型到底有没有用视觉。它只替换 RGB history，不改 prompt、memory、
+候选、adapter 或解析逻辑。
+
+黑图 RS：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task rs \
+  --image-ablation black
+```
+
+随机图 RS：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task rs \
+  --image-ablation random
+```
+
+黑图 EVENT：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task event \
+  --image-ablation black
+```
+
+随机图 EVENT：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --adapter-dir checkpoints/sft_base_runs/latest/final \
+  --task event \
+  --image-ablation random
+```
+
+输出会分到不同目录：
+
+```text
+eval_results/rs_transition_black/<时间>/
+eval_results/rs_transition_random/<时间>/
+eval_results/event_transition_black/<时间>/
+eval_results/event_transition_random/<时间>/
+```
+
+重点看 `summary.md` 或 `metrics.json` 里的这些指标：
+
+| 指标 | 判断 |
+|---|---|
+| `rs_visual_gain_over_first_gt_lock` | RS 相对“抄首帧 GT 并锁死”的净增益；黑图/随机图下如果几乎不变，说明视觉贡献很弱 |
+| `event_visual_gain_over_regular_baseline` | EVENT 相对“恒定 REGULAR”的净增益；接近 0 说明 EVENT 坍缩 |
+| `rs_pred_change_rate` vs `rs_gt_change_rate` | 预测变化率远低于 GT 变化率，说明 RS 被 memory 锁死 |
+| `rs_locked_case_rate` | 整段 RS 预测完全不变的 case 比例 |
+| `abnormal_yes_pred_rate` | 长期接近 0 表示 Q1 ABNORMAL 坍缩到 NO |
+| `event_pred_ue_rate` | 长期接近 0 表示 Q2 EVENT 坍缩到 REGULAR |
 
 ## 6. 维护检查
 

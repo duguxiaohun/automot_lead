@@ -50,6 +50,8 @@ class Memory:
 
     @property
     def rs_token(self) -> str:
+        if self.rs_label == "UNKNOWN":
+            return "UNKNOWN"
         return RS_LABEL_TO_TOKEN.get(self.rs_label, "ORDINARY_ROAD")
 
     def copy(self) -> "Memory":
@@ -64,9 +66,11 @@ class Memory:
         # EGO_TO_GOAL_XY 是连续导航提示，不应像 RS/EVENT 那样跨帧沿用旧值；
         # train/eval 在每帧提问前都会 refresh_memory_goal，保证这里展示的是当前帧坐标。
         rs_token = self.rs_token
-        rs_desc = RS_DESCRIPTIONS.get(self.rs_label, RS_DESCRIPTIONS["R1"])
+        rs_desc = "unknown previous road-structure prior; rely on the latest visual evidence"
+        if self.rs_label in RS_DESCRIPTIONS:
+            rs_desc = RS_DESCRIPTIONS[self.rs_label]
         event_desc = event_description_for_display(self.event_label, self.rs_label)
-        event_token = EVENT_LABEL_TO_TOKEN.get(self.event_label, self.event_label)
+        event_token = "UNKNOWN" if self.event_label == "UNKNOWN" else EVENT_LABEL_TO_TOKEN.get(self.event_label, self.event_label)
         if self.ego_to_goal_x is None or self.ego_to_goal_y is None:
             goal_text = "UNKNOWN"
         else:

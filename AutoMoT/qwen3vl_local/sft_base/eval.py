@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TextIO
 
+from PIL import Image
+
 _THIS_FILE = pathlib.Path(__file__).resolve()
 _AUTOMOT_ROOT = _THIS_FILE.parents[2]
 _PROJECT_ROOT = _THIS_FILE.parents[3]
@@ -408,6 +410,40 @@ def _apply_initial_memory_noise(memory: Memory, frame: Any, args: argparse.Names
     return mem
 
 
+def _image_ablation_seed(args: argparse.Namespace, case: EvalCase, frame: Any, image_idx: int) -> int:
+    """为随机图 ablation 生成稳定种子。"""
+
+    return int(args.seed) + case.route_index * 100003 + int(frame.frame_id) * 9176 + image_idx * 137
+
+
+def _apply_image_ablation(images: List[Any], args: argparse.Namespace, case: EvalCase, frame: Any) -> List[Any]:
+    """把输入 RGB history 替换成黑图或随机噪声图。
+
+    这个诊断只改变图像，不改变 prompt、memory、候选和输出解析。如果黑图/随机图下
+    RS/EVENT 指标几乎不变，说明模型主要在走语言 memory 捷径；如果明显变差或变乱，
+    才能说明视觉通路至少参与了当前决策。
+    """
+
+    mode = str(getattr(args, "image_ablation", "none"))
+    if mode == "none":
+        return images
+    out: List[Any] = []
+    for idx, image in enumerate(images):
+        size = getattr(image, "size", None) or (1152, 384)
+        if mode == "black":
+            out.append(Image.new("RGB", size, (0, 0, 0)))
+            continue
+        if mode == "random":
+            width, height = int(size[0]), int(size[1])
+            generator = torch.Generator(device="cpu")
+            generator.manual_seed(_image_ablation_seed(args, case, frame, idx))
+            payload = torch.randint(0, 256, (height, width, 3), dtype=torch.uint8, generator=generator).numpy().tobytes()
+            out.append(Image.frombytes("RGB", (width, height), payload))
+            continue
+        raise ValueError(f"unknown image_ablation mode: {mode}")
+    return out
+
+
 def _transition_window_bounds(case: EvalCase, args: argparse.Namespace) -> tuple[int, int]:
     """返回转折命中容忍窗口的绝对帧下标范围。"""
 
@@ -579,6 +615,7 @@ def _write_frame_record(
         "transition_source_abnormal": case.source_abnormal,
         "transition_target_abnormal": case.target_abnormal,
         "initial_memory_noise": args.initial_memory_noise,
+        "image_ablation": getattr(args, "image_ablation", "none"),
         "gt_rs": frame.rs_label,
         "pred_rs": parsed_q1.get("rs_label"),
         "pred_rs_token": parsed_q1.get("rs_token"),
@@ -615,6 +652,9 @@ def _evaluate_case(
     counters["cases"] += 1
     counters["case_frames"] += len(case.frames)
     counters["evaluated_routes"] += int(case.start_index == 0 and case.transition_index is None)
+    first_gt_rs = case.frames[0].rs_label if case.frames else None
+    prev_gt_rs: Optional[str] = None
+    prev_pred_rs: Optional[str] = None
     for pos, frame in enumerate(case.frames):
         abs_index = case.start_index + pos
         rs_target = _rs_target_from_frame(frame)
@@ -625,7 +665,7 @@ def _evaluate_case(
         else:
             memory = refresh_memory_goal(memory, frame.ego_to_goal_xy)
 
-        images = _load_images(frame.history_rgb_paths)
+        images = _apply_image_ablation(_load_images(frame.history_rgb_paths), args, case, frame)
         q1_text, q1_after = _generate_start(
             bundle,
             images,
@@ -641,6 +681,19 @@ def _evaluate_case(
         counters["q1_rs_correct"] += int(q1_rs_ok)
         counters["q1_rs_wrong"] += int(not q1_rs_ok)
         counters["q1_abnormal_correct"] += int(q1_abnormal_ok)
+        counters["rs_first_gt_baseline_correct"] += int(first_gt_rs is not None and frame.rs_label == first_gt_rs)
+        if parsed_q1.get("abnormal") == "YES":
+            counters["q1_abnormal_yes_pred"] += 1
+        elif parsed_q1.get("abnormal") == "NO":
+            counters["q1_abnormal_no_pred"] += 1
+        else:
+            counters["q1_abnormal_invalid_pred"] += 1
+        if prev_gt_rs is not None:
+            counters["rs_change_denominator"] += 1
+            counters["rs_gt_change_count"] += int(frame.rs_label != prev_gt_rs)
+            counters["rs_pred_change_count"] += int(parsed_q1.get("rs_label") != prev_pred_rs)
+        prev_gt_rs = frame.rs_label
+        prev_pred_rs = parsed_q1.get("rs_label")
         if frame.abnormal:
             counters["ue_q1_abnormal_total"] += 1
             counters["ue_q1_abnormal_correct"] += int(q1_abnormal is True)
@@ -689,6 +742,13 @@ def _evaluate_case(
         counters["q2_triggered"] += 1
         counters["q2_candidate_mismatch"] += int(not event_in_candidates(target.label, frame.event_candidates))
         counters["q2_event_correct"] += int(event_ok)
+        counters["q2_gt_re_total"] += int(target.label == "RE")
+        if parsed_q2.get("event_label") == "RE":
+            counters["q2_pred_re"] += 1
+        elif parsed_q2.get("event_label") is None:
+            counters["q2_pred_invalid"] += 1
+        else:
+            counters["q2_pred_ue"] += 1
         if case.transition_index is not None and abs_index >= case.transition_index:
             counters["transition_post_q2_triggered"] += 1
             counters["transition_post_event_correct"] += int(event_ok)
@@ -726,6 +786,10 @@ def _evaluate_case(
             args,
         )
     transition_result = _score_transition_case(case, args, counters, case_records)
+    pred_rs_values = [rec.get("pred_rs") for rec in case_records if rec.get("pred_rs") is not None]
+    if pred_rs_values and len(set(pred_rs_values)) == 1:
+        counters["rs_locked_cases"] += 1
+        counters["rs_locked_eq_first_gt_cases"] += int(first_gt_rs is not None and pred_rs_values[0] == first_gt_rs)
     if jsonl_fp is not None and transition_result:
         jsonl_fp.write(
             json.dumps(
@@ -760,6 +824,15 @@ def _new_counters() -> Dict[str, int]:
         "q1_rs_correct": 0,
         "q1_rs_wrong": 0,
         "q1_abnormal_correct": 0,
+        "q1_abnormal_yes_pred": 0,
+        "q1_abnormal_no_pred": 0,
+        "q1_abnormal_invalid_pred": 0,
+        "rs_first_gt_baseline_correct": 0,
+        "rs_pred_change_count": 0,
+        "rs_gt_change_count": 0,
+        "rs_change_denominator": 0,
+        "rs_locked_cases": 0,
+        "rs_locked_eq_first_gt_cases": 0,
         "q2_triggered": 0,
         "q2_event_correct": 0,
         "q2_candidate_mismatch": 0,
@@ -769,6 +842,10 @@ def _new_counters() -> Dict[str, int]:
         "q2_ue_pred_regular": 0,
         "q2_re_total": 0,
         "q2_re_correct": 0,
+        "q2_gt_re_total": 0,
+        "q2_pred_re": 0,
+        "q2_pred_ue": 0,
+        "q2_pred_invalid": 0,
         "ue_q1_abnormal_total": 0,
         "ue_q1_abnormal_correct": 0,
         "script_resets": 0,
@@ -872,6 +949,16 @@ def _eval_stem(eval_mode: str) -> str:
     }[eval_mode]
 
 
+def _eval_result_group(args: argparse.Namespace) -> str:
+    """生成自动输出的任务目录名，图像消融会单独分目录。"""
+
+    stem = _eval_stem(args.eval_mode)
+    ablation = str(getattr(args, "image_ablation", "none"))
+    if ablation != "none":
+        return f"{stem}_{ablation}"
+    return stem
+
+
 def _dist_broadcast_text(value: Optional[str], *, rank: int, world_size: int) -> Optional[str]:
     """把 rank0 生成的字符串广播到所有 rank。
 
@@ -906,7 +993,7 @@ def _prepare_eval_outputs(args: argparse.Namespace, *, rank: int, world_size: in
     elif not args.output_json and not args.output_jsonl:
         if rank == 0:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = _default_eval_output_root(args.adapter_dir) / "eval_results" / _eval_stem(args.eval_mode) / timestamp
+            output_dir = _default_eval_output_root(args.adapter_dir) / "eval_results" / _eval_result_group(args) / timestamp
             output_dir_text: Optional[str] = str(output_dir)
         else:
             output_dir_text = None
@@ -942,16 +1029,34 @@ def _build_metrics(
     q2_total = max(1, counters["q2_triggered"])
     transition_post_frames = max(1, counters["transition_post_frames"])
     transition_post_q2 = max(1, counters["transition_post_q2_triggered"])
+    rs_first_baseline = counters["rs_first_gt_baseline_correct"] / frames
+    rs_acc = counters["q1_rs_correct"] / frames
+    event_regular_baseline_q2 = counters["q2_gt_re_total"] / q2_total
+    event_acc_q2 = counters["q2_event_correct"] / q2_total
+    change_den = max(1, counters["rs_change_denominator"])
     return {
         "eval_mode": args.eval_mode,
+        "image_ablation": str(getattr(args, "image_ablation", "none")),
         "script_correction": "none",
         "world_size": int(world_size),
         "route_count": route_count,
         "selected_case_count": selected_case_count,
         **counters,
-        "rs_acc": counters["q1_rs_correct"] / frames,
+        "rs_acc": rs_acc,
+        "rs_first_gt_lock_baseline_acc": rs_first_baseline,
+        "rs_visual_gain_over_first_gt_lock": rs_acc - rs_first_baseline,
+        "rs_pred_change_rate": counters["rs_pred_change_count"] / change_den,
+        "rs_gt_change_rate": counters["rs_gt_change_count"] / change_den,
+        "rs_locked_case_rate": counters["rs_locked_cases"] / max(1, counters["cases"]),
+        "rs_locked_eq_first_gt_rate": counters["rs_locked_eq_first_gt_cases"] / max(1, counters["rs_locked_cases"]),
         "abnormal_acc": counters["q1_abnormal_correct"] / frames,
-        "event_acc_when_rs_correct": counters["q2_event_correct"] / q2_total,
+        "abnormal_yes_pred_rate": counters["q1_abnormal_yes_pred"] / frames,
+        "event_acc_when_rs_correct": event_acc_q2,
+        "event_regular_baseline_when_rs_correct": event_regular_baseline_q2,
+        "event_visual_gain_over_regular_baseline": event_acc_q2 - event_regular_baseline_q2,
+        "event_pred_re_rate": counters["q2_pred_re"] / q2_total,
+        "event_pred_ue_rate": counters["q2_pred_ue"] / q2_total,
+        "event_pred_invalid_rate": counters["q2_pred_invalid"] / q2_total,
         "ue_acc": counters["q2_ue_correct"] / max(1, counters["q2_ue_total"]),
         "re_acc": counters["q2_re_correct"] / max(1, counters["q2_re_total"]),
         "ue_q1_abnormal_acc": counters["ue_q1_abnormal_correct"] / max(1, counters["ue_q1_abnormal_total"]),
@@ -1070,6 +1175,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--transition-tolerance", type=int, default=3)
     p.add_argument("--max-transition-cases", type=int, default=0)
     p.add_argument("--initial-memory-noise", choices=["none", "rs", "event", "both", "random"], default="none")
+    p.add_argument("--image-ablation", choices=["none", "black", "random"], default="none")
     p.add_argument("--seed", type=int, default=20260724)
     p.add_argument("--max-new-tokens-q1", type=int, default=32)
     p.add_argument("--max-new-tokens-q2", type=int, default=24)
@@ -1125,8 +1231,17 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
 
     common = [
         ("rs_acc", "全部评估帧上的 RS token 准确率"),
+        ("rs_first_gt_lock_baseline_acc", "零视觉基线：首帧 GT RS 锁死不变的准确率"),
+        ("rs_visual_gain_over_first_gt_lock", "RS 相对锁死首帧基线的净增益"),
+        ("rs_pred_change_rate", "预测 RS 帧间变化率"),
+        ("rs_gt_change_rate", "GT RS 帧间变化率"),
+        ("rs_locked_case_rate", "整段预测 RS 完全不变的 case 比例"),
         ("abnormal_acc", "全部评估帧上的 ABNORMAL YES/NO 准确率"),
+        ("abnormal_yes_pred_rate", "Q1 输出 ABNORMAL=YES 的比例"),
         ("event_acc_when_rs_correct", "Q1 RS 正确后，Q2 EVENT token 的准确率"),
+        ("event_regular_baseline_when_rs_correct", "零视觉基线：进入 Q2 后恒定 REGULAR 的准确率"),
+        ("event_visual_gain_over_regular_baseline", "EVENT 相对恒定 REGULAR 基线的净增益"),
+        ("event_pred_ue_rate", "Q2 输出 UE token 的比例"),
         ("q2_trigger_rate", "Q1 RS 正确、进入 Q2 的比例"),
         ("ue_q1_abnormal_acc", "UE 帧中 Q1 是否先判断为 ABNORMAL=YES"),
         ("ue_pred_regular_rate", "UE 帧进入 Q2 后仍被预测为 REGULAR 的比例，越低越好"),
@@ -1171,6 +1286,7 @@ def _write_summary(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.N
         f"- Base model：`{args.model_dir}`",
         f"- Index：`{args.index}`",
         f"- 多卡数：`{metrics.get('world_size')}`",
+        f"- 图像消融：`{metrics.get('image_ablation')}`",
         f"- 选中 case 数：`{metrics.get('selected_case_count')}`",
         f"- 实际评估帧数：`{metrics.get('frames')}`",
         "",
@@ -1194,6 +1310,8 @@ def _write_summary(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.N
             "",
             "- `frames.jsonl` 是最重要的排查文件：每一行包含 GT/PRED RS、GT/PRED EVENT、原始生成文本和转折窗口信息。",
             "- `q2_trigger_rate` 低通常说明 Q1 RS 漂移严重，因为当前评测只有 RS 正确才继续问 Q2。",
+            "- 黑图/随机图测试下若 `rs_visual_gain_over_first_gt_lock` 和 `event_visual_gain_over_regular_baseline` 仍接近原图，说明模型主要依赖 memory/语言捷径。",
+            "- `event_pred_ue_rate` 或 `abnormal_yes_pred_rate` 长期接近 0，是 EVENT/ABNORMAL 坍缩到 REGULAR/NO 的直接信号。",
             "- `*_hit_offset_avg` 为负表示模型提前切换，为正表示滞后切换。",
             "- `script_correction` 应为 `none`，表示评测没有脚本纠偏。",
             "",

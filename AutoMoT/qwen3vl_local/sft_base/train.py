@@ -55,6 +55,7 @@ except Exception:
 
 from qwen3vl_local.sft_base import DATASET_VERSION  # noqa: E402
 from qwen3vl_local.sft_base.labels import (  # noqa: E402
+    EVENT_ORDER,
     RS_DESCRIPTIONS,
     EventTarget,
     RSTarget,
@@ -203,6 +204,100 @@ def _load_images(paths: List[str]) -> List[Image.Image]:
     return [Image.open(path).convert("RGB") for path in paths]
 
 
+def _stable_frame_seed(*, route_id: str, frame_id: int, seed: int, salt: str) -> int:
+    """为某个 route/frame 生成跨进程稳定随机种子。
+
+    训练中的 memory 扰动不能使用 Python 内置 hash，因为不同进程/机器会随机化 hash
+    seed；用 json 文本转成字符序列足够稳定，也避免额外依赖。
+    """
+
+    text = f"{route_id}::{frame_id}::{seed}::{salt}"
+    value = 0
+    for ch in text:
+        value = (value * 131 + ord(ch)) % (2**31 - 1)
+    return value
+
+
+def _pick_different(rng: random.Random, current: str, candidates: List[str]) -> str:
+    """从候选中挑一个不同于 current 的值，候选为空时保持原值。"""
+
+    pool = [item for item in candidates if item and item != current]
+    if not pool:
+        return current
+    return rng.choice(sorted(set(pool)))
+
+
+def _maybe_corrupt_memory(
+    memory: Memory,
+    *,
+    frame: FrameRow,
+    route_id: str,
+    frame_pos: int,
+    seed: int,
+    first_frame_unknown: bool,
+    rs_wrong_prob: float,
+    rs_unknown_prob: float,
+    event_wrong_prob: float,
+    event_unknown_prob: float,
+) -> Memory:
+    """训练时把 prompt 里的 memory 从“答案”降级成“不可靠先验”。
+
+    旧逻辑每帧都把上一帧 GT 写进 BELIEVED_RS/BELIEVED_EVENT，模型只要抄 memory
+    就能拿到很高分。这里在构造当前帧 prompt 前做两类扰动：
+
+    - UNKNOWN：模拟冷启动或缺失先验，逼模型从图像判断。
+    - wrong：模拟先验与画面冲突，逼模型学会推翻 memory。
+
+    如果 RS 被置错或 UNKNOWN，同时把 EVENT 置为 UNKNOWN，避免构造出
+    “错误 RS + 旧 EVENT”的物理不一致组合。
+    """
+
+    mem = memory.copy()
+    if first_frame_unknown and frame_pos == 0:
+        mem.rs_label = "UNKNOWN"
+        mem.event_label = "UNKNOWN"
+        return refresh_memory_goal(mem, frame.ego_to_goal_xy)
+
+    rng = random.Random(_stable_frame_seed(route_id=route_id, frame_id=frame.frame_id, seed=seed, salt="memory"))
+    rs_draw = rng.random()
+    rs_changed = False
+    if rs_draw < max(0.0, float(rs_unknown_prob)):
+        mem.rs_label = "UNKNOWN"
+        rs_changed = True
+    elif rs_draw < max(0.0, float(rs_unknown_prob)) + max(0.0, float(rs_wrong_prob)):
+        mem.rs_label = _pick_different(rng, mem.rs_label, list(RS_DESCRIPTIONS))
+        rs_changed = True
+
+    event_draw = rng.random()
+    if rs_changed or event_draw < max(0.0, float(event_unknown_prob)):
+        mem.event_label = "UNKNOWN"
+    elif event_draw < max(0.0, float(event_unknown_prob)) + max(0.0, float(event_wrong_prob)):
+        event_pool = ["RE"] + [code for code in EVENT_ORDER if code in set(frame.event_candidates)]
+        mem.event_label = _pick_different(rng, mem.event_label, event_pool)
+    return refresh_memory_goal(mem, frame.ego_to_goal_xy)
+
+
+def _transition_positions(frames: List[FrameRow], *, radius: int) -> set[int]:
+    """找出 RS/EVENT 发生变化的帧及其邻域，用于重点重复训练。
+
+    真正需要看图的样本主要集中在 RE->UE、UE->RE 和 RS 改变的附近；整段 UE
+    过采样会大量重复“抄 memory 也能对”的帧，所以这里单独放大转折邻域。
+    """
+
+    positions: set[int] = set()
+    rad = max(0, int(radius))
+    for idx in range(1, len(frames)):
+        prev = frames[idx - 1]
+        cur = frames[idx]
+        changed = prev.rs_label != cur.rs_label or prev.event_label != cur.event_label or bool(prev.abnormal) != bool(cur.abnormal)
+        if not changed:
+            continue
+        lo = max(0, idx - rad)
+        hi = min(len(frames) - 1, idx + rad)
+        positions.update(range(lo, hi + 1))
+    return positions
+
+
 def _rs_target_from_frame(frame: FrameRow) -> RSTarget:
     """把 FrameRow 还原成 RSTarget。"""
 
@@ -278,6 +373,7 @@ def _build_inputs(
     images: List[Image.Image],
     q1_prompt: str,
     q1_target: str,
+    q1_loss_weights: Optional[Mapping[str, float]],
     q2_prompt: Optional[str],
     q2_target: Optional[str],
     q2_loss_weights: Optional[Mapping[str, float]],
@@ -303,7 +399,7 @@ def _build_inputs(
     asst_header_ids = list(bundle.tokenizer("<|im_start|>assistant\n", add_special_tokens=False)["input_ids"])
 
     assistant_specs = [
-        (q1_target, target_spans_q1, loss_weights_q1(), False),
+        (q1_target, target_spans_q1, q1_loss_weights or loss_weights_q1(), False),
     ]
     if q2_target is not None:
         assistant_specs.append((q2_target, target_spans_q2, q2_loss_weights or loss_weights_q2(), True))
@@ -370,6 +466,8 @@ def _frame_training_pack(
     *,
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
+    abnormal_yes_loss_weight: float,
+    abnormal_no_loss_weight: float,
 ) -> Tuple[Optional[Dict[str, Any]], Memory, bool]:
     """把一个 frame 转成 teacher-forced 训练输入。
 
@@ -382,6 +480,10 @@ def _frame_training_pack(
     event_target = _event_target_from_frame(frame)
     q1_prompt = build_q1_prompt(memory, choice_seed=f"rs::{frame.frame_id}")
     q1_target = build_q1_target(rs_target=rs_target, event_target=event_target)
+    q1_loss_weights = loss_weights_q1()
+    q1_loss_weights["abnormal"] = q1_loss_weights.get("abnormal", 1.0) * (
+        float(abnormal_yes_loss_weight) if event_target.abnormal else float(abnormal_no_loss_weight)
+    )
     memory_after_q1 = update_memory_after_q1(memory, student_rs_label=rs_target.label, student_abnormal=event_target.abnormal)
 
     q2_prompt: Optional[str] = None
@@ -414,6 +516,7 @@ def _frame_training_pack(
         images=images,
         q1_prompt=q1_prompt,
         q1_target=q1_target,
+        q1_loss_weights=q1_loss_weights,
         q2_prompt=q2_prompt,
         q2_target=q2_target,
         q2_loss_weights=q2_loss_weights,
@@ -443,8 +546,18 @@ def run_batch(
     sync_grads: bool,
     frames_per_sync: int = 0,
     ue_frame_repeat: int = 1,
-    ue_event_loss_weight: float = 3.0,
-    re_event_loss_weight: float = 1.0,
+    transition_frame_repeat: int = 1,
+    transition_frame_window: int = 1,
+    ue_event_loss_weight: float = 4.0,
+    re_event_loss_weight: float = 0.5,
+    abnormal_yes_loss_weight: float = 4.0,
+    abnormal_no_loss_weight: float = 1.0,
+    first_frame_memory_unknown: bool = True,
+    memory_rs_wrong_prob: float = 0.15,
+    memory_rs_unknown_prob: float = 0.10,
+    memory_event_wrong_prob: float = 0.20,
+    memory_event_unknown_prob: float = 0.10,
+    memory_noise_seed: int = 20260724,
 ) -> StepStats:
     """逐 route/frame 跑 teacher-forced CE，并累积梯度。
 
@@ -463,7 +576,8 @@ def run_batch(
     work: List[Tuple[str, FrameRow, Memory]] = []
     for route in batch:
         memory: Optional[Memory] = None
-        for frame in route.frames:
+        transition_pos = _transition_positions(list(route.frames), radius=int(transition_frame_window))
+        for frame_pos, frame in enumerate(route.frames):
             rs_target = _rs_target_from_frame(frame)
             if memory is None:
                 memory = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
@@ -471,9 +585,23 @@ def run_batch(
                 memory = refresh_memory_goal(memory, frame.ego_to_goal_xy)
             # 存 copy 而不是引用：后面会继续更新 memory，当前帧 prompt 必须看到
             # “提问前”的状态，而不是被后续帧改写后的状态。
+            prompt_memory = _maybe_corrupt_memory(
+                memory,
+                frame=frame,
+                route_id=route.route_id,
+                frame_pos=frame_pos,
+                seed=int(memory_noise_seed),
+                first_frame_unknown=bool(first_frame_memory_unknown),
+                rs_wrong_prob=float(memory_rs_wrong_prob),
+                rs_unknown_prob=float(memory_rs_unknown_prob),
+                event_wrong_prob=float(memory_event_wrong_prob),
+                event_unknown_prob=float(memory_event_unknown_prob),
+            )
             repeat = max(1, int(ue_frame_repeat)) if bool(frame.abnormal) else 1
+            if frame_pos in transition_pos:
+                repeat = max(repeat, max(1, int(transition_frame_repeat)))
             for _ in range(repeat):
-                work.append((route.route_id, frame, memory.copy()))
+                work.append((route.route_id, frame, prompt_memory.copy()))
             event_target = _event_target_from_frame(frame)
             memory_after_q1 = update_memory_after_q1(memory, student_rs_label=rs_target.label, student_abnormal=event_target.abnormal)
             memory = update_memory_after_q2(memory_after_q1, student_event_label=event_target.label)
@@ -501,6 +629,8 @@ def run_batch(
                 loss_normalizer=max(1, len(work)),
                 ue_event_loss_weight=float(ue_event_loss_weight),
                 re_event_loss_weight=float(re_event_loss_weight),
+                abnormal_yes_loss_weight=float(abnormal_yes_loss_weight),
+                abnormal_no_loss_weight=float(abnormal_no_loss_weight),
             )
             _merge_stats(stats, chunk_stats)
             _sync_trainable_grads(bundle)
@@ -516,6 +646,8 @@ def run_batch(
         loss_normalizer=max(1, len(work)),
         ue_event_loss_weight=float(ue_event_loss_weight),
         re_event_loss_weight=float(re_event_loss_weight),
+        abnormal_yes_loss_weight=float(abnormal_yes_loss_weight),
+        abnormal_no_loss_weight=float(abnormal_no_loss_weight),
     )
     _merge_stats(stats, chunk_stats)
     if sync_grads:
@@ -544,6 +676,8 @@ def _run_work_items(
     loss_normalizer: int,
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
+    abnormal_yes_loss_weight: float,
+    abnormal_no_loss_weight: float,
 ) -> StepStats:
     """执行一段 frame work，不在函数内部发起 DDP collective。"""
 
@@ -563,6 +697,8 @@ def _run_work_items(
             max_length,
             ue_event_loss_weight=float(ue_event_loss_weight),
             re_event_loss_weight=float(re_event_loss_weight),
+            abnormal_yes_loss_weight=float(abnormal_yes_loss_weight),
+            abnormal_no_loss_weight=float(abnormal_no_loss_weight),
         )
         if packed is None:
             stats.n_skipped += 1
@@ -613,6 +749,8 @@ def evaluate_loss(
     max_samples: int,
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
+    abnormal_yes_loss_weight: float,
+    abnormal_no_loss_weight: float,
 ) -> Dict[str, float]:
     """计算 teacher-forced 验证 loss。"""
 
@@ -642,6 +780,8 @@ def evaluate_loss(
                         max_length,
                         ue_event_loss_weight=float(ue_event_loss_weight),
                         re_event_loss_weight=float(re_event_loss_weight),
+                        abnormal_yes_loss_weight=float(abnormal_yes_loss_weight),
+                        abnormal_no_loss_weight=float(abnormal_no_loss_weight),
                     )
                     memory = next_memory
                     if packed is None:
@@ -780,6 +920,15 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "ue_event_loss_weight": float(args.ue_event_loss_weight),
         "re_event_loss_weight": float(args.re_event_loss_weight),
         "ue_frame_repeat": int(args.ue_frame_repeat),
+        "transition_frame_repeat": int(args.transition_frame_repeat),
+        "transition_frame_window": int(args.transition_frame_window),
+        "abnormal_yes_loss_weight": float(args.abnormal_yes_loss_weight),
+        "abnormal_no_loss_weight": float(args.abnormal_no_loss_weight),
+        "first_frame_memory_unknown": bool(args.first_frame_memory_unknown),
+        "memory_rs_wrong_prob": float(args.memory_rs_wrong_prob),
+        "memory_rs_unknown_prob": float(args.memory_rs_unknown_prob),
+        "memory_event_wrong_prob": float(args.memory_event_wrong_prob),
+        "memory_event_unknown_prob": float(args.memory_event_unknown_prob),
     }
     (path / "sft_base_adapter_config.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -822,9 +971,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-eval-samples", type=int, default=256)
     p.add_argument("--max-steps", type=int, default=0)
     p.add_argument("--frames-per-sync", type=int, default=64)
-    p.add_argument("--ue-event-loss-weight", type=float, default=3.0)
-    p.add_argument("--re-event-loss-weight", type=float, default=1.0)
+    p.add_argument("--ue-event-loss-weight", type=float, default=4.0)
+    p.add_argument("--re-event-loss-weight", type=float, default=0.5)
     p.add_argument("--ue-frame-repeat", type=int, default=2)
+    p.add_argument("--transition-frame-repeat", type=int, default=12)
+    p.add_argument("--transition-frame-window", type=int, default=1)
+    p.add_argument("--abnormal-yes-loss-weight", type=float, default=4.0)
+    p.add_argument("--abnormal-no-loss-weight", type=float, default=1.0)
+    p.add_argument("--first-frame-memory-unknown", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--memory-rs-wrong-prob", type=float, default=0.15)
+    p.add_argument("--memory-rs-unknown-prob", type=float, default=0.10)
+    p.add_argument("--memory-event-wrong-prob", type=float, default=0.20)
+    p.add_argument("--memory-event-unknown-prob", type=float, default=0.10)
     p.add_argument("--check", action="store_true")
     p.add_argument("--no-grad-checkpoint", action="store_true")
     p.add_argument("--seed", type=int, default=20260724)
@@ -992,6 +1150,8 @@ def main() -> None:
                 max_samples=int(args.max_eval_samples),
                 ue_event_loss_weight=float(args.ue_event_loss_weight),
                 re_event_loss_weight=float(args.re_event_loss_weight),
+                abnormal_yes_loss_weight=float(args.abnormal_yes_loss_weight),
+                abnormal_no_loss_weight=float(args.abnormal_no_loss_weight),
             )
             if rank == 0:
                 print(f"[eval@{global_step}] {metrics}")
@@ -1017,8 +1177,18 @@ def main() -> None:
                 sync_grads=sync_this,
                 frames_per_sync=int(args.frames_per_sync),
                 ue_frame_repeat=int(args.ue_frame_repeat),
+                transition_frame_repeat=int(args.transition_frame_repeat),
+                transition_frame_window=int(args.transition_frame_window),
                 ue_event_loss_weight=float(args.ue_event_loss_weight),
                 re_event_loss_weight=float(args.re_event_loss_weight),
+                abnormal_yes_loss_weight=float(args.abnormal_yes_loss_weight),
+                abnormal_no_loss_weight=float(args.abnormal_no_loss_weight),
+                first_frame_memory_unknown=bool(args.first_frame_memory_unknown),
+                memory_rs_wrong_prob=float(args.memory_rs_wrong_prob),
+                memory_rs_unknown_prob=float(args.memory_rs_unknown_prob),
+                memory_event_wrong_prob=float(args.memory_event_wrong_prob),
+                memory_event_unknown_prob=float(args.memory_event_unknown_prob),
+                memory_noise_seed=int(args.seed) + rank,
             )
             last_stats = stats
             accum_loss += stats.loss_sum

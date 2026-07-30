@@ -177,12 +177,26 @@ COMMON_ARGS=(
   --max-eval-samples "${MAX_EVAL_SAMPLES:-256}"
   --max-steps "${MAX_STEPS:-0}"
   --frames-per-sync "${FRAMES_PER_SYNC:-64}"
-  --ue-event-loss-weight "${UE_EVENT_LOSS_WEIGHT:-3.0}"
-  --re-event-loss-weight "${RE_EVENT_LOSS_WEIGHT:-1.0}"
+  --ue-event-loss-weight "${UE_EVENT_LOSS_WEIGHT:-4.0}"
+  --re-event-loss-weight "${RE_EVENT_LOSS_WEIGHT:-0.5}"
   --ue-frame-repeat "${UE_FRAME_REPEAT:-2}"
+  --transition-frame-repeat "${TRANSITION_FRAME_REPEAT:-12}"
+  --transition-frame-window "${TRANSITION_FRAME_WINDOW:-1}"
+  --abnormal-yes-loss-weight "${ABNORMAL_YES_LOSS_WEIGHT:-4.0}"
+  --abnormal-no-loss-weight "${ABNORMAL_NO_LOSS_WEIGHT:-1.0}"
+  --memory-rs-wrong-prob "${MEMORY_RS_WRONG_PROB:-0.15}"
+  --memory-rs-unknown-prob "${MEMORY_RS_UNKNOWN_PROB:-0.10}"
+  --memory-event-wrong-prob "${MEMORY_EVENT_WRONG_PROB:-0.20}"
+  --memory-event-unknown-prob "${MEMORY_EVENT_UNKNOWN_PROB:-0.10}"
   --seed "${SEED:-20260711}"
   "${EXTRA_ARGS[@]}"
 )
+
+if [[ "${FIRST_FRAME_MEMORY_UNKNOWN:-1}" == "1" ]]; then
+  COMMON_ARGS+=("--first-frame-memory-unknown")
+else
+  COMMON_ARGS+=("--no-first-frame-memory-unknown")
+fi
 
 if [[ "${NPROC}" -gt 1 ]]; then
   torchrun --nproc_per_node="${NPROC}" \
