@@ -7,8 +7,8 @@
 - 复用 `sft_v5` 的数据构建、异常 route 剔除、4 帧 stitched RGB history、`EGO_TO_GOAL_XY`、RS/EVENT 候选池与随机候选顺序。
 - Q2 候选集合和展示顺序沿用 `sft_v5` 的 seed namespace，但本路线**已完全没有 A/B/C 选项字母**：候选在数据里就是有序 list，学生只输出固定 EVENT token，避免学习位置捷径。
 - Q1 仍判 `RS` 与 `ABNORMAL`，Q2 仍在串行上下文中判 `EVENT`。
-- 训练目标是普通 teacher-forced CE，不让 student 先 rollout，也不使用 privileged teacher logits。
-- 训练时 memory 由 GT answer teacher-forced 更新，用来提供干净直接监督；它不是 v5 的 on-policy student 自维护 memory 分布。`EGO_TO_GOAL_XY` 每帧刷新为当前帧 ego-frame goal；eval 仍按学生自己的 Q1/Q2 输出维护离散 memory。
+- 训练目标仍是普通 teacher-forced CE，不让 student 先 rollout，也不使用 privileged teacher logits。
+- 训练时 route 内的离散 memory 仍按 GT answer 推进，但进入 prompt 前会做 anti-copy curriculum：首帧默认 `UNKNOWN`，非首帧按概率把 `BELIEVED_RS/BELIEVED_EVENT` 置错或置为 `UNKNOWN`。这样 memory 是不可靠先验，不再是可直接抄的答案。`EGO_TO_GOAL_XY` 每帧刷新为当前帧 ego-frame goal；eval 仍按学生自己的 Q1/Q2 输出维护离散 memory。
 - Prompt 禁止 CoT；协议只输出固定语义 token：
 
 ```text
@@ -55,15 +55,16 @@ eval 加载 adapter 前必须读 `sft_base_adapter_config.json`，校验 route�
 - 评测阶段完全不做脚本纠正：Q1 RS 错只跳过当前帧 Q2，下一帧继续沿用学生 memory；Q2 EVENT 非法只不更新 EVENT，也不能 reset。`script_resets` 只是审计字段，正常必须恒为 0。
 - 转折专项不要求预测和数据标注逐帧完全同拍；用 `--transition-tolerance` 设置容忍窗口，只要模型在转折点前后若干帧内切到目标 RS 或 EVENT，就算该 case 命中，并记录 early/on_time/late。
 - 起始 memory 噪声只允许注入在每条完整 route 或每个转折窗口的第一帧，用来测模型是否能自恢复；后续帧仍然不能纠正。
-- 针对 checkpoint-600 暴露的 `ue_acc=0`，训练默认提高 UE 的 Q2 EVENT token 权重，并对 UE 帧做轻量重复采样；这只强化异常 EVENT 监督，不改 Q1 RS/ABNORMAL 的损失定义，也不改变 route 内 teacher-forced memory 推进。
-- 评估额外返回 `ue_q1_abnormal_acc`、`ue_pred_regular_rate`、`*_hit_offset_avg`、`*_abs_hit_offset_avg`、`*_max_early_lead` 和 `*_max_late_lag`，用于拆分 UE 是卡在 Q1 还是 Q2，以及 RS early 是合理提前还是过早抢跑。
+- 针对 checkpoint-600 暴露的 `ue_acc=0` 和 memory-copy shortcut，训练默认同时使用首帧 UNKNOWN、memory wrong/UNKNOWN 扰动、转折邻域重复、Q1 ABNORMAL=YES 加权、Q2 UE 加权和 RE 降权。RE loss 不置零，避免模型从全 REGULAR 坍缩到全 UE。
+- `eval.py` 支持 `--image-ablation black/random`，用于黑图/随机图诊断；如果消融后 `rs_visual_gain_over_first_gt_lock` 或 `event_visual_gain_over_regular_baseline` 基本不变，说明模型主要依赖 memory/语言捷径而不是视觉。
+- 评估额外返回零视觉基线、净视觉增益、预测变化率、锁死 case 比例、ABNORMAL YES 率、UE 输出率、`*_hit_offset_avg`、`*_abs_hit_offset_avg`、`*_max_early_lead` 和 `*_max_late_lag`，避免 `re_acc` 或表面 transition hit rate 继续误导。
 
 ## 实现约束
 
 - `labels.py` 中 `DATASET_VERSION` 标识 sft_base 自己的训练协议；`CHOICE_ORDER_DATASET_VERSION` 固定为 v5 的 namespace，用来保证 Q2 候选顺序扰动与 v5 逐样本对齐。`build_dataset.py --choice-seed` 的默认值必须与 `sft_v5/build_dataset.py --option-seed` 相同，否则相位会错开。
 - 当前 `DATASET_VERSION=sft_base_rs_event_token_choice`，adapter config 的 `route=sft_base_token_choice`；旧的 A/B/C adapter 已完全废弃，会被 eval adapter config 校验拒绝。不要通过手动改 config 混跑旧权重。
 - 数据 schema 里**没有** `rs_option` / `event_option_map`：Q2 候选是 `event_candidates_ordered`（有序 list，顺序即展示顺序）。`RouteSequenceDataset` 读到缺该字段的旧 index 会直接报错要求重建，不做兼容降级——静默兼容会让候选顺序或集合悄悄变化，指标看起来正常但训练分布已经错了。
-- `train.py` 默认 `--ue-event-loss-weight 3.0 --re-event-loss-weight 1.0 --ue-frame-repeat 2`；若 UE 仍然学不动，可继续提高 UE 权重或重复次数，但要同步观察 `train/q2_ue_rate_last_batch` 和训练时长。
+- `train.py` 默认 `--first-frame-memory-unknown --memory-rs-wrong-prob 0.15 --memory-rs-unknown-prob 0.10 --memory-event-wrong-prob 0.20 --memory-event-unknown-prob 0.10 --transition-frame-repeat 12 --transition-frame-window 1 --ue-event-loss-weight 4.0 --re-event-loss-weight 0.5 --ue-frame-repeat 2 --abnormal-yes-loss-weight 4.0`；若 UE 仍然学不动，优先调高转折邻域重复和 memory 扰动，不建议把 RE loss 直接设为 0。
 - `prompts.py` 中 memory 的 RS/EVENT 可以跨帧延续，但 `EGO_TO_GOAL_XY` 必须在每帧 prompt 前刷新，不能沿用首帧坐标。
 - `train.py` 的 DDP 累积使用手动 `_sync_trainable_grads()`：每帧 forward/backward 都放在 `no_sync()` 内，本 micro-batch 末尾对所有 trainable LoRA 参数补零并 all-reduce 一次。
-- `train.py` 里的 memory 更新是 teacher-forced baseline 逻辑；如果要测 v5 on-policy student memory 分布，应回到 `sft_v5` 或另开路线，不在 base 内混用。
+- `train.py` 里的 memory 主轨迹仍是 teacher-forced，但 prompt memory 已加入 anti-copy curriculum；如果要测 v5 on-policy student memory 分布，应回到 `sft_v5` 或另开路线，不在 base 内混用。
