@@ -83,7 +83,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 - 另有 `MEMORY_DROPOUT_PROB` 会作为独立第一层整块隐藏离散先验，只保留 `EGO_TO_GOAL_XY`，制造必须看图的帧；route 首帧固定 UNKNOWN/UNKNOWN，不参与 dropout 或 EVENT 扰动。
 - Q1 用 GT RS 更新后，训练侧会为 Q2 在当前 RS 池里单独重采 EVENT memory；keep 分支沿用进入本帧前的干净 EVENT memory（上一帧 GT），防止“扰动 RS 被纠正回 GT”把 Q2 EVENT memory 大量失效成 UNKNOWN，也防止 EVENT 转折帧把本帧答案写进 prompt。
 - `RE->UE`、`UE->RE`、RS 变化帧及其前后 3 帧会被重点重复训练。
-- Q1 只监督 RS；Q2 的 UE loss 提高，同时 RE loss 降低但不置零。
+- Q1 只监督 RS；Q2 的 UE loss 提高，同时 RE loss 降低但不置零；单候选 Q2 帧跳过 Q2 turn，不消耗 loss 分母。
 
 当前默认值：
 
@@ -402,6 +402,10 @@ dataset version、base model path 或 vision scope 不匹配，会直接报错�
 | `rs_transition_already_at_target_rate` / `event_transition_already_at_target_rate` | 命中 case 中窗口左边界已经等于目标值的比例；越高越说明 hit_rate 被锁死模型污染 |
 | `event_unreachable_due_to_rs_rate` | GT EVENT 在学生 RS 候选下不可达的比例 |
 | `ue_vs_re_f1` | 由 Q2 EVENT 折叠得到的 UE-vs-RE 二分类 F1 |
+| `event_acc_multi_candidate` | 排除单候选送分题后的 EVENT 准确率 |
+| `event_pred_ue_rate_multi_candidate` | 排除单候选送分题后的 UE 输出比例 |
+| `ue_vs_re_f1_multi_candidate` | 排除单候选送分题后的 UE-vs-RE F1 |
+| `q2_single_candidate_rate` / `q2_multi_candidate_rate` | Q2 单候选送分题比例 / 真正需要判别的多候选比例 |
 | `rs_change_f1` | 相邻帧 RS 是否变化的 F1；同时约束该切和不该切 |
 | `re_to_ue_f1` / `ue_to_re_f1` | 相邻帧异常起始 / 异常结束检测 F1，拆开看漏检和持续误报 |
 | `false_transition_rate_when_gt_stable` | RS、RE->UE、UE->RE 合并后的 GT 稳定帧假转折比例 |
@@ -483,7 +487,8 @@ eval_results/event_transition_random/<时间>/
 | `event_visual_gain_over_regular_baseline` | EVENT 相对“恒定 REGULAR”的净增益；接近 0 说明 EVENT 坍缩 |
 | `rs_pred_change_rate` vs `rs_gt_change_rate` | 预测变化率远低于 GT 变化率，说明 RS 被 memory 锁死 |
 | `rs_locked_case_rate` | 整段 RS 预测完全不变的 case 比例 |
-| `event_pred_ue_rate` | 长期接近 0 表示 Q2 EVENT 坍缩到 REGULAR |
+| `event_pred_ue_rate_multi_candidate` | 排除单候选后仍长期接近 0，表示 Q2 EVENT 坍缩到 REGULAR |
+| `ue_vs_re_f1_multi_candidate` | 排除单候选后的 UE-vs-RE 判别能力；比全量 F1 更接近真实能力 |
 | `rs_change_f1` | 原图下也接近 0 表示模型没有学到 RS 变化；黑图下应明显更差 |
 | `re_to_ue_f1` | 原图下也接近 0 表示模型没有学到异常起始；黑图下应明显更差 |
 | `false_transition_rate_when_gt_stable` | 过高说明模型乱切；过低但 `*_change_f1` 接近 0 说明模型锁死 |
@@ -493,10 +498,10 @@ eval_results/event_transition_random/<时间>/
 | 指标 | 门槛 |
 |---|---:|
 | `rs_visual_gain_over_first_pred_lock` 原图 - 黑图 | > +10pt |
-| `event_pred_ue_rate` | > 5% |
+| `event_pred_ue_rate_multi_candidate` | > 5% |
 | `rs_locked_case_rate` | < 20% |
 | `rs_confusion_report.per_class.R3.predicted` | > 0 |
-| `ue_vs_re_f1` | > 0.35 |
+| `ue_vs_re_f1_multi_candidate` | > 0.35 |
 | `rs_change_f1` | > 0.15 |
 | `re_to_ue_f1` | > 0.20 |
 
@@ -518,5 +523,7 @@ python qwen3vl_local/sft_base/audit_eval_candidate_drift.py \
 ```
 
 `test_dataset_contract.py` 会检查 sft_base 与 sft_v5 的 Q2 候选顺序是否保持一致。
+`test_eval_candidates.py` 会检查 eval 侧候选构造不会过滤跨 RS 的 regular 例外、
+集合相同时会复用 dataset 顺序。
 多卡训练相关改动需要额外关注 `train.py` 中 `_sync_trainable_grads()` 与
 `run_batch(..., sync_grads=True)` 的调用边界，确保每个 rank 的 collective 次数一致。

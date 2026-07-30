@@ -813,7 +813,9 @@ def _evaluate_case(
         )
         counters[f"q2_candidate_source_{candidate_source}"] += 1
         counters["q2_candidates_from_pred_rs"] += int(candidate_source in {"pred_rs_allowed_events", "pred_rs_static_candidates"})
-        counters["q2_single_candidate"] += int(len(q2_candidates) == 1)
+        is_multi_candidate = len(q2_candidates) > 1
+        counters["q2_single_candidate"] += int(not is_multi_candidate)
+        counters["q2_multi_candidate"] += int(is_multi_candidate)
         counters["event_unreachable_due_to_rs"] += int(not event_reachable)
 
         q2_prompt = build_q2_prompt(
@@ -838,6 +840,22 @@ def _evaluate_case(
             counters["ue_binary_fn"] += 1
         else:
             counters["ue_binary_tn"] += 1
+        if is_multi_candidate:
+            counters["q2_event_correct_multi_candidate"] += int(event_ok)
+            if parsed_q2.get("event_label") == "RE":
+                counters["q2_pred_re_multi_candidate"] += 1
+            elif parsed_q2.get("event_label") is None:
+                counters["q2_pred_invalid_multi_candidate"] += 1
+            else:
+                counters["q2_pred_ue_multi_candidate"] += 1
+            if pred_ue and gt_ue:
+                counters["ue_binary_tp_multi_candidate"] += 1
+            elif pred_ue and not gt_ue:
+                counters["ue_binary_fp_multi_candidate"] += 1
+            elif (not pred_ue) and gt_ue:
+                counters["ue_binary_fn_multi_candidate"] += 1
+            else:
+                counters["ue_binary_tn_multi_candidate"] += 1
 
         counters["q2_triggered"] += 1
         counters["q2_candidate_mismatch"] += int(not event_reachable)
@@ -965,11 +983,20 @@ def _new_counters() -> Dict[str, int]:
         "q2_candidate_source_pred_rs_static_candidates": 0,
         "q2_candidate_source_invalid_rs_fallback": 0,
         "q2_single_candidate": 0,
+        "q2_multi_candidate": 0,
+        "q2_event_correct_multi_candidate": 0,
+        "q2_pred_re_multi_candidate": 0,
+        "q2_pred_ue_multi_candidate": 0,
+        "q2_pred_invalid_multi_candidate": 0,
         "event_unreachable_due_to_rs": 0,
         "ue_binary_tp": 0,
         "ue_binary_fp": 0,
         "ue_binary_fn": 0,
         "ue_binary_tn": 0,
+        "ue_binary_tp_multi_candidate": 0,
+        "ue_binary_fp_multi_candidate": 0,
+        "ue_binary_fn_multi_candidate": 0,
+        "ue_binary_tn_multi_candidate": 0,
         "re_to_ue_tp": 0,
         "re_to_ue_fp": 0,
         "re_to_ue_fn": 0,
@@ -1251,6 +1278,7 @@ def _build_metrics(
 
     frames = max(1, counters["frames"])
     q2_total = max(1, counters["q2_triggered"])
+    q2_multi_total = max(1, counters["q2_multi_candidate"])
     q2_rs_correct_total = max(1, counters["q2_when_rs_correct"])
     transition_post_frames = max(1, counters["transition_post_frames"])
     transition_post_q2 = max(1, counters["transition_post_q2_triggered"])
@@ -1263,6 +1291,11 @@ def _build_metrics(
     event_acc_rs_correct = counters["q2_event_correct_when_rs_correct"] / q2_rs_correct_total
     change_den = max(1, counters["rs_change_denominator"])
     ue_binary = _prf(counters["ue_binary_tp"], counters["ue_binary_fp"], counters["ue_binary_fn"])
+    ue_binary_multi = _prf(
+        counters["ue_binary_tp_multi_candidate"],
+        counters["ue_binary_fp_multi_candidate"],
+        counters["ue_binary_fn_multi_candidate"],
+    )
     rs_report = _multiclass_report(counters, prefix="rs", labels=RS_LABELS, pred_labels=_RS_CM_LABELS)
     event_report = _multiclass_report(counters, prefix="event", labels=_EVENT_LABELS, pred_labels=_EVENT_CM_LABELS)
     rs_change = _change_report(counters, "rs_change")
@@ -1306,9 +1339,14 @@ def _build_metrics(
         "event_pred_re_rate": counters["q2_pred_re"] / q2_total,
         "event_pred_ue_rate": counters["q2_pred_ue"] / q2_total,
         "event_pred_invalid_rate": counters["q2_pred_invalid"] / q2_total,
+        "event_acc_multi_candidate": counters["q2_event_correct_multi_candidate"] / q2_multi_total,
+        "event_pred_re_rate_multi_candidate": counters["q2_pred_re_multi_candidate"] / q2_multi_total,
+        "event_pred_ue_rate_multi_candidate": counters["q2_pred_ue_multi_candidate"] / q2_multi_total,
+        "event_pred_invalid_rate_multi_candidate": counters["q2_pred_invalid_multi_candidate"] / q2_multi_total,
         "event_unreachable_due_to_rs_rate": counters["event_unreachable_due_to_rs"] / frames,
         "q2_candidates_from_pred_rs_rate": counters["q2_candidates_from_pred_rs"] / frames,
         "q2_single_candidate_rate": counters["q2_single_candidate"] / frames,
+        "q2_multi_candidate_rate": counters["q2_multi_candidate"] / frames,
         "event_confusion_report": event_report,
         "ue_acc": counters["q2_ue_correct"] / max(1, counters["q2_ue_total"]),
         "re_acc": counters["q2_re_correct"] / max(1, counters["q2_re_total"]),
@@ -1320,6 +1358,13 @@ def _build_metrics(
         "ue_vs_re_precision": ue_binary["precision"],
         "ue_vs_re_recall": ue_binary["recall"],
         "ue_vs_re_f1": ue_binary["f1"],
+        "ue_vs_re_tp_multi_candidate": counters["ue_binary_tp_multi_candidate"],
+        "ue_vs_re_fp_multi_candidate": counters["ue_binary_fp_multi_candidate"],
+        "ue_vs_re_fn_multi_candidate": counters["ue_binary_fn_multi_candidate"],
+        "ue_vs_re_tn_multi_candidate": counters["ue_binary_tn_multi_candidate"],
+        "ue_vs_re_precision_multi_candidate": ue_binary_multi["precision"],
+        "ue_vs_re_recall_multi_candidate": ue_binary_multi["recall"],
+        "ue_vs_re_f1_multi_candidate": ue_binary_multi["f1"],
         "re_to_ue_precision": re_to_ue["precision"],
         "re_to_ue_recall": re_to_ue["recall"],
         "re_to_ue_f1": re_to_ue["f1"],
@@ -1518,12 +1563,16 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
         ("event_regular_baseline_end_to_end", "零视觉基线：恒定 REGULAR 的端到端准确率"),
         ("event_visual_gain_over_regular_baseline", "EVENT 相对恒定 REGULAR 基线的净增益"),
         ("event_pred_ue_rate", "Q2 输出 UE token 的比例"),
+        ("event_acc_multi_candidate", "排除单候选送分题后的 EVENT 准确率"),
+        ("event_pred_ue_rate_multi_candidate", "排除单候选送分题后的 UE 输出比例"),
         ("ue_vs_re_f1", "由 EVENT 折叠出的 UE-vs-RE 二分类 F1"),
+        ("ue_vs_re_f1_multi_candidate", "排除单候选送分题后的 UE-vs-RE 二分类 F1"),
         ("re_to_ue_f1", "相邻帧 RE->UE 起始检测 F1，重点看异常起始漏检/延迟"),
         ("re_to_ue_false_transition_rate_when_gt_stable", "GT 未发生 RE->UE 时预测假异常起始的比例"),
         ("ue_to_re_f1", "相邻帧 UE->RE 结束检测 F1，衡量异常解除时机"),
         ("event_unreachable_due_to_rs_rate", "GT EVENT 在学生 RS 候选下不可达的比例"),
         ("q2_single_candidate_rate", "Q2 只有一个候选的帧比例"),
+        ("q2_multi_candidate_rate", "Q2 有多个候选、真正需要判别的帧比例"),
         ("q2_candidates_from_pred_rs_rate", "因学生 RS 与 GT RS 不同而重建 Q2 候选的比例"),
         ("q2_trigger_rate", "进入 Q2 的比例；新协议应接近 100%"),
         ("ue_pred_regular_rate", "UE 帧进入 Q2 后仍被预测为 REGULAR 的比例，越低越好"),
@@ -1554,6 +1603,9 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
         ("rs_change_f1", "完整路线相邻帧 RS 变化检测 F1"),
         ("re_to_ue_f1", "完整路线相邻帧 RE->UE 起始检测 F1"),
         ("false_transition_rate_when_gt_stable", "RS/RE->UE/UE->RE 合并后的 GT 稳定帧假转折比例，越低越好"),
+        ("event_acc_multi_candidate", "排除单候选送分题后的 EVENT 准确率"),
+        ("event_pred_ue_rate_multi_candidate", "排除单候选送分题后的 UE 输出比例"),
+        ("ue_vs_re_f1_multi_candidate", "排除单候选送分题后的 UE-vs-RE F1"),
         ("ue_acc", "UE 帧进入 Q2 后的 EVENT 准确率"),
         ("re_acc", "RE 帧进入 Q2 后的 EVENT 准确率"),
     ]
