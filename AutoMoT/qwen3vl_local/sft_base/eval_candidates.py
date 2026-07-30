@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import Any, List, Optional, Tuple
 
 from qwen3vl_local.sft_base.labels import (
-    EVENT_CANDIDATES_BY_RS,
     EVENT_ORDER,
     RS_LABELS,
     allowed_events_from_frame,
@@ -29,22 +28,15 @@ def _dataset_event_candidates(frame: Any, raw_dict: dict[str, Any]) -> List[str]
 
 
 def _filter_allowed_events_for_pred_rs(allowed: List[str], pred_rs: str) -> List[str]:
-    """按学生 RS 过滤逐帧 allowed_events。
+    """采用逐帧 allowed_events，不再用学生 RS 静态表二次过滤。
 
-    逐帧 allowed_events 里的 regular code 已经是 collector clamp / overlay 的最终结果，
-    不再用静态 RS 表过滤；所有 R-E* 都保留并在 prompt 中折成 RE。UE 才是真正与
-    RS 语境绑定的候选，只对 U-E* 做静态表 gate。
+    allowed_events 是 collector 给出的帧级事实，可能包含静态表没有覆盖的真实组合
+    （如路口静止障碍、窄路行人横穿）。只要它存在，就完整保留；只有缺失时才在
+    调用方回落到 `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[pred_rs]`。
     """
 
-    pred_rs_raw_set = set(EVENT_CANDIDATES_BY_RS.get(str(pred_rs), []))
-    raw: List[str] = []
-    for code in allowed:
-        text = str(code)
-        if text.startswith("R-E"):
-            raw.append(text)
-        elif text.startswith("U-E") and text in pred_rs_raw_set:
-            raw.append(text)
-    return raw
+    del pred_rs
+    return [str(code) for code in allowed]
 
 
 def q2_candidates_for_student_rs(
@@ -53,7 +45,7 @@ def q2_candidates_for_student_rs(
     *,
     seed: int,
 ) -> Tuple[List[str], List[str], str, bool]:
-    """按学生 RS 生成 Q2 候选，避免 GT RS 候选泄漏。"""
+    """生成 Q2 候选：逐帧 allowed_events 优先，缺失时按学生 RS 静态表 fallback。"""
 
     if pred_rs not in RS_LABELS:
         return ["RE"], [], "invalid_rs_fallback", False
