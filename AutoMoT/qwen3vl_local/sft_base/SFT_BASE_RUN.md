@@ -544,7 +544,7 @@ python qwen3vl_local/sft_base/audit_eval_candidate_drift.py \
 | `dataset_candidate_mismatch_ue_rate` | UE 帧中这类数据缺陷的占比 |
 
 `test_dataset_contract.py` 会检查 sft_base 与 sft_v5 的 Q2 候选顺序是否保持一致。
-`test_eval_candidates.py` 会检查 eval 侧候选构造不会过滤跨 RS 的 regular 例外、
-集合相同时会复用 dataset 顺序。
+`test_eval_candidates.py` 会检查 eval 侧候选构造不会用静态 RS 表过滤逐帧
+allowed_events 事实、集合相同时会复用 dataset 顺序。
 多卡训练相关改动需要额外关注 `train.py` 中 `_sync_trainable_grads()` 与
 `run_batch(..., sync_grads=True)` 的调用边界，确保每个 rank 的 collective 次数一致。
