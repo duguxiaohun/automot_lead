@@ -8,6 +8,10 @@
 脚本不加载模型，只读取标注 JSON，用于检查 `EVENT_CANDIDATES_BY_RS` 是否漏掉真实
 数据里已经出现的 RS/UE 组合。R3 默认允许保持纯 RE；若数据里出现 R3+UE，本脚本会
 把它列进 missing_combinations，交给人工决定是补表还是当作数据异常处理。
+
+默认阈值是严格方案 A：count >= 20 且占该 RS 帧数 rate >= 0.1%。脚本同时报告
+missing（数据显著存在但静态表没有）和 spurious（静态表有但数据低于阈值或为 0），
+避免只看 audit examples 单向补表。
 """
 
 from __future__ import annotations
@@ -71,6 +75,7 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
 
     collection_dir = pathlib.Path(args.collection_dir)
     min_count = max(1, int(args.min_count))
+    min_rate = max(0.0, float(args.min_rate))
     rs_totals = {rs: 0 for rs in RS_LABELS}
     ue_totals = {rs: {code: 0 for code in EVENT_CANDIDATES_BY_RS.get(rs, []) if str(code).startswith("U-E")} for rs in RS_LABELS}
     all_ue_by_rs: Dict[str, Dict[str, int]] = {rs: {} for rs in RS_LABELS}
@@ -115,21 +120,40 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
 
     static_sets = {rs: {code for code in EVENT_CANDIDATES_BY_RS.get(rs, []) if str(code).startswith("U-E")} for rs in RS_LABELS}
     missing = []
-    low_count = []
+    low_rate_missing = []
     for rs in RS_LABELS:
         for ue, count in sorted(all_ue_by_rs[rs].items()):
+            rate = count / max(1, rs_totals[rs])
             row = {
                 "rs": rs,
                 "event": ue,
                 "count": count,
-                "rs_frame_rate": count / max(1, rs_totals[rs]),
+                "rs_frame_rate": rate,
                 "in_static_table": ue in static_sets[rs],
             }
             if ue not in static_sets[rs]:
-                if count >= min_count:
+                if count >= min_count and rate >= min_rate:
                     missing.append(row)
                 else:
-                    low_count.append(row)
+                    low_rate_missing.append(row)
+    spurious = []
+    for rs in RS_LABELS:
+        if rs_totals[rs] <= 0:
+            continue
+        observed = all_ue_by_rs.get(rs, {})
+        for ue in sorted(static_sets[rs]):
+            count = int(observed.get(ue, 0))
+            rate = count / max(1, rs_totals[rs])
+            if count < min_count or rate < min_rate:
+                spurious.append(
+                    {
+                        "rs": rs,
+                        "event": ue,
+                        "count": count,
+                        "rs_frame_rate": rate,
+                        "in_static_table": True,
+                    }
+                )
     report = {
         "collection_dir": str(collection_dir),
         "result_files": result_files,
@@ -139,11 +163,13 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
         "skipped_routes_abnormal_or_missing": skipped_routes_abnormal_or_missing,
         "skipped_routes_failed": skipped_routes_failed,
         "min_count": min_count,
+        "min_rate": min_rate,
         "rs_totals": rs_totals,
         "ue_by_rs": all_ue_by_rs,
         "static_ue_by_rs": {rs: sorted(static_sets[rs]) for rs in RS_LABELS},
         "missing_combinations": missing,
-        "low_count_missing_combinations": low_count,
+        "low_rate_missing_combinations": low_rate_missing,
+        "spurious_combinations": spurious,
         "candidate_count_after_static_table": {
             rs: len({code for code in EVENT_CANDIDATES_BY_RS.get(rs, []) if str(code).startswith("U-E")}) + 1
             for rs in RS_LABELS
@@ -159,6 +185,7 @@ def main() -> None:
     p.add_argument("--collection-dir", type=str, default="keyframe_filter/collection_output")
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--min-count", type=int, default=20)
+    p.add_argument("--min-rate", type=float, default=0.001)
     args = p.parse_args()
     report = audit(args)
     text = json.dumps(report, ensure_ascii=False, indent=2)

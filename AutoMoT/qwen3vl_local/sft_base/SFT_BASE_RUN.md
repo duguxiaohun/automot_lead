@@ -58,8 +58,16 @@ python qwen3vl_local/sft_base/build_dataset.py \
 ```bash
 python qwen3vl_local/sft_base/audit_rs_event_cooccurrence.py \
   --collection-dir keyframe_filter/collection_output \
+  --min-rate 0.001 \
   --output-json checkpoints/sft_base_data/rs_event_cooccurrence.json
 ```
+
+静态 RS×UE 表采用严格方案 A：先按 `build_dataset.py` 同款口径剔除 `noScenarios`、
+异常时长 route、数据缺失 route 和失败 route，再只保留 `count >= 20` 且
+`rs_frame_rate >= 0.1%` 的组合。当前候选数为 R1=6、R2=4、R3=1、R4=5、R5=5
+（均为折叠到 prompt 后的数量，含 `RE`）。低频被拒绝的 GT 组合用
+`audit_eval_candidate_drift.py --expect-mismatch-combinations` 守住组合类型，不再
+静默混进所有该 RS 的干扰项，也不把全量帧数误套到 val split。
 
 ## 2. 静态检查
 
@@ -266,7 +274,7 @@ GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
 
 `metrics.json` 里还会写 `q2_candidate_count_report` 与
 `q2_rs_candidate_count_report`，分别按候选数、RS×候选数分层统计 EVENT acc 与
-UE-vs-RE P/R/F1；R3 单选题和 R4/R5 的 6 选 1 不会再混在一个 event_acc 里。
+UE-vs-RE P/R/F1；R3 单选题、R1 的 6 选 1 与 R4/R5 的 5 选 1 不会再混在一个 event_acc 里。
 
 评估结束后，rank0 终端会打印：
 
@@ -570,7 +578,8 @@ python qwen3vl_local/sft_base/test_eval_candidates.py
 
 ```bash
 python qwen3vl_local/sft_base/audit_eval_candidate_drift.py \
-  --index checkpoints/sft_base_data/val_sequence_index.jsonl
+  --index checkpoints/sft_base_data/val_sequence_index.jsonl \
+  --expect-mismatch-combinations
 ```
 
 审计输出会分开列出：
@@ -581,6 +590,8 @@ python qwen3vl_local/sft_base/audit_eval_candidate_drift.py \
 | `unreachable_scoreable_examples` | dataset 候选本身可达，但 eval 候选不可达的样例 |
 | `dataset_candidate_mismatch_examples` | GT EVENT 不在 dataset 自己候选表中的上游数据缺陷样例 |
 | `dataset_candidate_mismatch_ue_rate` | UE 帧中这类数据缺陷的占比 |
+| `gt_static_candidate_mismatch_combinations` | GT EVENT 不在 GT RS 静态全集内的低频组合分布 |
+| `unexpected_gt_static_candidate_mismatch_combinations` | 不在已知低频拒绝组合白名单内的新缺口；非空才是真问题 |
 
 `test_dataset_contract.py` 会检查 sft_base 与 sft_v5 的 Q2 候选顺序是否保持一致。
 `test_eval_candidates.py` 会检查 eval 侧候选构造不会用静态 RS 表过滤逐帧

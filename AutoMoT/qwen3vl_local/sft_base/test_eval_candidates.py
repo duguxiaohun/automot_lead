@@ -41,13 +41,13 @@ def main() -> None:
         },
     )
     candidates, _regular, source, reachable = q2_candidates_for_student_rs(frame, "R4", seed=7)
-    assert set(candidates) == {"RE", "U-E2", "U-E4", "U-E6", "U-E7", "U-E8"}, (candidates, source)
+    assert set(candidates) == {"RE", "U-E4", "U-E6", "U-E7", "U-E8"}, (candidates, source)
     assert source == "pred_rs_static_candidates"
     assert reachable is True
 
     # 学生 RS 猜错时，候选随学生 RS 语境切换；正确答案不在该语境候选里时才不可达。
     candidates, _regular, source, reachable = q2_candidates_for_student_rs(frame, "R1", seed=7)
-    assert set(candidates) == {"RE", "U-E1", "U-E2", "U-E3", "U-E4"}, (candidates, source)
+    assert set(candidates) == {"RE", "U-E1", "U-E2", "U-E3", "U-E4", "U-E5"}, (candidates, source)
     assert source == "pred_rs_static_candidates"
     assert reachable is False
 
@@ -57,7 +57,7 @@ def main() -> None:
     assert source == "pred_rs_static_candidates"
     assert reachable is False
 
-    # 静态表已补入真实数据确认过的 R4 + U-E2 组合。
+    # R4 + U-E2 在全量共现审计中低于严格阈值，保留为 GT 静态表缺口审计项。
     r4_static_obstacle = DummyFrame(
         frame_id=7,
         rs_label="R4",
@@ -70,9 +70,9 @@ def main() -> None:
         },
     )
     candidates, _regular, source, reachable = q2_candidates_for_student_rs(r4_static_obstacle, "R4", seed=7)
-    assert set(candidates) == {"RE", "U-E2", "U-E4", "U-E6", "U-E7", "U-E8"}, (candidates, source)
+    assert set(candidates) == {"RE", "U-E4", "U-E6", "U-E7", "U-E8"}, (candidates, source)
     assert source == "pred_rs_static_candidates"
-    assert reachable is True
+    assert reachable is False
 
     # 静态表已补入真实数据确认过的 R2 + U-E4 组合。
     r2_vulnerable_crossing = DummyFrame(

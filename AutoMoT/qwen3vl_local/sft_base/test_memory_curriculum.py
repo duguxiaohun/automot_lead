@@ -283,6 +283,38 @@ def main() -> None:
     assert 0.25 <= _ratio(sum(1 for x in event_modes if x == "wrong"), len(event_modes)) <= 0.45, event_modes[:20]
     assert 0.30 <= _ratio(sum(1 for x in event_modes if x == "unknown"), len(event_modes)) <= 0.50, event_modes[:20]
 
+    duration_corruptor = RouteMemoryCorruptor(
+        route_id="duration-route",
+        seed=20260724,
+        first_frame_unknown=False,
+        rs_wrong_prob=0.30,
+        rs_unknown_prob=0.40,
+        event_wrong_prob=0.35,
+        event_unknown_prob=0.35,
+        rs_wrong_event_unknown_prob=0.25,
+        memory_dropout_prob=0.0,
+        duration_min=4,
+        duration_max=4,
+    )
+    rs_remaining: List[int] = []
+    event_remaining: List[int] = []
+    q2_event_remaining: List[int] = []
+    for idx in range(40):
+        gt_rs = rs_stream[idx % len(rs_stream)]
+        gt_event = _GT_EVENT_BY_RS[gt_rs]
+        frame = _make_frame(idx + 1, gt_rs, gt_event)
+        base = Memory(rs_label=gt_rs, event_label=gt_event)
+        mem = duration_corruptor.corrupt(base, frame=frame, frame_pos=idx + 1)
+        after_q1 = update_memory_after_q1(mem, student_rs_label=gt_rs)
+        duration_corruptor.resample_event_for_q2(after_q1, frame=frame, keep_event_label=gt_event)
+        rs_remaining.append(duration_corruptor.rs_state.remaining)
+        event_remaining.append(duration_corruptor.event_state.remaining)
+        q2_event_remaining.append(duration_corruptor.q2_event_state.remaining)
+    expected_remaining = [3, 2, 1, 0] * 10
+    assert rs_remaining == expected_remaining, rs_remaining
+    assert event_remaining == expected_remaining, event_remaining
+    assert q2_event_remaining == expected_remaining, q2_event_remaining
+
     # 转折帧不能把“本帧答案”塞进 prompt memory。RS keep 应沿用上一帧 RS；
     # Q2 EVENT keep 应沿用上一帧 EVENT，只允许 wrong 分支偶然撞上当前答案。
     rs_answer_leak = 0

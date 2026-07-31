@@ -29,11 +29,11 @@ def main() -> None:
 
     r1_raw = q2_raw_candidates(scenario_candidates, "R1")
     assert set(r1_raw) == set(EVENT_CANDIDATES_BY_RS["R1"])
-    assert collapse_regular_to_re(r1_raw, "R1") == ["RE", "U-E1", "U-E2", "U-E3", "U-E4"]
+    assert collapse_regular_to_re(r1_raw, "R1") == ["RE", "U-E1", "U-E2", "U-E3", "U-E4", "U-E5"]
 
     r4_raw = q2_raw_candidates(scenario_candidates, "R4")
     assert set(r4_raw) == set(EVENT_CANDIDATES_BY_RS["R4"])
-    assert collapse_regular_to_re(r4_raw, "R4") == ["RE", "U-E2", "U-E4", "U-E6", "U-E7", "U-E8"]
+    assert collapse_regular_to_re(r4_raw, "R4") == ["RE", "U-E4", "U-E6", "U-E7", "U-E8"]
 
     r3_raw = q2_raw_candidates(scenario_candidates, "R3")
     assert set(r3_raw) == set(EVENT_CANDIDATES_BY_RS["R3"])
@@ -43,7 +43,7 @@ def main() -> None:
     o1 = stable_event_choice_order(run_id="route", frame_id=3, rs_label="R4", scenario_candidates=scenario_candidates, seed=7)
     o2 = stable_event_choice_order(run_id="route", frame_id=3, rs_label="R4", scenario_candidates=scenario_candidates, seed=7)
     assert o1 == o2, "frame 级随机必须可复现"
-    assert set(o1) == {"RE", "U-E2", "U-E4", "U-E6", "U-E7", "U-E8"}
+    assert set(o1) == {"RE", "U-E4", "U-E6", "U-E7", "U-E8"}
     assert len(o1) == len(set(o1)), "候选顺序里不能有重复项"
 
     frame = {
@@ -62,7 +62,7 @@ def main() -> None:
         raw_candidates=allowed_raw,
         seed=7,
     )
-    assert set(o3) == {"RE", "U-E2", "U-E4", "U-E6", "U-E7", "U-E8"}
+    assert set(o3) == {"RE", "U-E4", "U-E6", "U-E7", "U-E8"}
 
     for rs, candidates in EVENT_CANDIDATES_BY_RS.items():
         # 静态表只允许原始 R-E*/U-E*，不能提前混入 prompt 展示用的 RE。
