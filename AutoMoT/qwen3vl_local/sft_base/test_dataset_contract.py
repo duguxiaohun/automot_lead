@@ -20,43 +20,40 @@ from qwen3vl_local.sft_base.labels import (
     q2_raw_candidates,
     stable_event_choice_order,
 )
-from qwen3vl_local.sft_v5.labels import stable_event_option_map as stable_event_option_map_v5
 
 
 def main() -> None:
-    # scenario_candidates 模拟 collection_output 顶层候选：它描述这条 scenario
-    # 理论上可能出现哪些原始事件；真正进入 Q2 前还要按当前 RS 过滤。
+    # scenario_candidates 模拟 collection_output 顶层候选。sft_base 当前协议下它只
+    # 保留为旧接口兼容；真正 Q2 候选固定取当前 RS 的静态全集。
     scenario_candidates = ["R-E1", "R-E2", "R-E4", "R-E5", "U-E4", "U-E6"]
 
     r1_raw = q2_raw_candidates(scenario_candidates, "R1")
-    assert set(r1_raw) == {"R-E1", "R-E2", "U-E4"}
-    assert collapse_regular_to_re(r1_raw, "R1") == ["RE", "U-E4"]
+    assert set(r1_raw) == set(EVENT_CANDIDATES_BY_RS["R1"])
+    assert collapse_regular_to_re(r1_raw, "R1") == ["RE", "U-E1", "U-E2", "U-E3", "U-E4"]
 
     r4_raw = q2_raw_candidates(scenario_candidates, "R4")
-    assert set(r4_raw) == {"R-E4", "U-E4", "U-E6"}
-    assert collapse_regular_to_re(r4_raw, "R4") == ["RE", "U-E4", "U-E6"]
+    assert set(r4_raw) == set(EVENT_CANDIDATES_BY_RS["R4"])
+    assert collapse_regular_to_re(r4_raw, "R4") == ["RE", "U-E2", "U-E4", "U-E6", "U-E7", "U-E8"]
 
     r3_raw = q2_raw_candidates(scenario_candidates, "R3")
-    assert set(r3_raw) == {"R-E1", "R-E2"}
+    assert set(r3_raw) == set(EVENT_CANDIDATES_BY_RS["R3"])
     # R3 的正常 highway/ramp 行为可能有多个 R-E，但 prompt 里只训练一个 RE。
     assert collapse_regular_to_re(r3_raw, "R3") == ["RE"], "R3 只折叠 regular 为 RE，不开放 UE"
 
     o1 = stable_event_choice_order(run_id="route", frame_id=3, rs_label="R4", scenario_candidates=scenario_candidates, seed=7)
     o2 = stable_event_choice_order(run_id="route", frame_id=3, rs_label="R4", scenario_candidates=scenario_candidates, seed=7)
     assert o1 == o2, "frame 级随机必须可复现"
-    assert set(o1) == {"RE", "U-E4", "U-E6"}
+    assert set(o1) == {"RE", "U-E2", "U-E4", "U-E6", "U-E7", "U-E8"}
     assert len(o1) == len(set(o1)), "候选顺序里不能有重复项"
 
     frame = {
         "frame_event_annotation": {"allowed_events": ["R-E4", "U-E8"]},
         "event_evidence": {"allowed_events": ["R-E4", "U-E6"]},
     }
-    # 用户明确要求逐帧 allowed_events 优先；即使 event_evidence 或静态 scenario 表里
-    # 有不同 UE，也不能覆盖 frame_event_annotation.allowed_events。
+    # allowed_events 仍按优先级读取，但只用于 GT 解析/审计，不参与 Q2 候选构造。
     assert allowed_events_from_frame(frame) == ["R-E4", "U-E8"]
     allowed_raw = q2_raw_candidates_for_frame(frame, scenario_candidates=scenario_candidates, rs_label="R4")
-    assert allowed_raw == ["R-E4", "U-E8"], "逐帧 allowed_events 必须优先于 scenario fallback"
-    assert collapse_regular_to_re(["R-E2", "U-E8"], "R4") == ["RE", "U-E8"], "逐帧 R-E 不能被当前 RS 静态表过滤"
+    assert set(allowed_raw) == set(EVENT_CANDIDATES_BY_RS["R4"]), "Q2 候选必须来自 RS 静态全集"
     o3 = stable_event_choice_order(
         run_id="route",
         frame_id=4,
@@ -65,19 +62,7 @@ def main() -> None:
         raw_candidates=allowed_raw,
         seed=7,
     )
-    assert set(o3) == {"RE", "U-E8"}
-    m3_v5 = stable_event_option_map_v5(
-        run_id="route",
-        frame_id=4,
-        rs_label="R4",
-        scenario_candidates=scenario_candidates,
-        raw_candidates=allowed_raw,
-        seed=7,
-    )
-    # sft_v5 仍是 A/B/C 选项协议，返回 {字母: 标签}；字母按 index 分配，所以按字母排序
-    # 展开就是它的展示顺序。sft_base 已经换成有序 list，但两边必须仍然同相位，
-    # 否则同一 route/frame 在两条路线里的候选顺序不同，无法逐样本对照。
-    assert o3 == [m3_v5[key] for key in sorted(m3_v5)], "sft_base 必须和 sft_v5 保持同帧候选顺序扰动一致"
+    assert set(o3) == {"RE", "U-E2", "U-E4", "U-E6", "U-E7", "U-E8"}
 
     for rs, candidates in EVENT_CANDIDATES_BY_RS.items():
         # 静态表只允许原始 R-E*/U-E*，不能提前混入 prompt 展示用的 RE。

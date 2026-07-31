@@ -41,6 +41,7 @@ from qwen3vl_local.sft_base.labels import (  # noqa: E402
     scenario_event_candidates_from_result,
     stable_event_choice_order,
     weather_to_text,
+    allowed_events_from_frame,
 )
 
 import numpy as np  # noqa: E402
@@ -264,7 +265,8 @@ def _build_frame_row(
         return None
     rs_target = resolve_rs_target(ann)
     event_target = resolve_event_target(ann)
-    # Q2 候选优先取 frame_event_annotation.allowed_events；只有旧数据缺失时才 fallback。
+    # Q2 候选固定取当前 GT RS 的静态全集；逐帧 allowed_events 只作为 GT 解析和
+    # 审计字段保留，不能再用来缩窄 prompt 候选，否则候选长度会泄漏异常标签。
     # raw_candidates 仍保留 R-E*/U-E*，后面 display_candidates / ordered_candidates 才折叠 regular。
     raw_candidates = q2_raw_candidates_for_frame(
         ann,
@@ -284,10 +286,7 @@ def _build_frame_row(
     display_candidates = collapse_regular_to_re(raw_candidates, rs_target.label)
     weather = _weather_for_frame(ann, xml_weathers)
     regular_event_codes = [code for code in raw_candidates if code.startswith("R-E")]
-    if not regular_event_codes:
-        # 如果 allowed_events 只有 UE，没有显式 regular code，仍保存 event_target 里的
-        # regular_event_codes 供 RE 文案兜底；这只影响解释文本，不强塞负例候选。
-        regular_event_codes = list(event_target.regular_event_codes)
+    frame_allowed_events_raw = allowed_events_from_frame(ann)
     return {
         "frame_id": frame_id,
         "frame_time_s": ann.get("frame_time_s", round(frame_id * 0.25, 3)),
@@ -305,7 +304,7 @@ def _build_frame_row(
         "event_code": event_target.event_code,
         "abnormal": bool(event_target.abnormal),
         "scenario_event_candidates": list(scenario_candidates),
-        "frame_allowed_events_raw": list(raw_candidates),
+        "frame_allowed_events_raw": list(frame_allowed_events_raw),
         "regular_event_codes": regular_event_codes,
         "event_candidate_codes": list(display_candidates),
         "event_candidates_ordered": list(ordered_candidates),

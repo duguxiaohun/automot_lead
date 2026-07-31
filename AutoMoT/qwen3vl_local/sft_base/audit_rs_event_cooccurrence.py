@@ -1,0 +1,173 @@
+"""审计 collection_output 里的 RS x UE 共现矩阵。
+
+用法（从 AutoMoT/ 目录）：
+  python qwen3vl_local/sft_base/audit_rs_event_cooccurrence.py \
+    --collection-dir keyframe_filter/collection_output \
+    --output-json checkpoints/sft_base_data/rs_event_cooccurrence.json
+
+脚本不加载模型，只读取标注 JSON，用于检查 `EVENT_CANDIDATES_BY_RS` 是否漏掉真实
+数据里已经出现的 RS/UE 组合。R3 默认允许保持纯 RE；若数据里出现 R3+UE，本脚本会
+把它列进 missing_combinations，交给人工决定是补表还是当作数据异常处理。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import pathlib
+import sys
+from typing import Any, Dict, Iterable, Mapping
+
+_THIS_FILE = pathlib.Path(__file__).resolve()
+_AUTOMOT_ROOT = _THIS_FILE.parents[2]
+_PROJECT_ROOT = _THIS_FILE.parents[3]
+for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from qwen3vl_local.sft_base.labels import (  # noqa: E402
+    EVENT_CANDIDATES_BY_RS,
+    RS_LABELS,
+    resolve_event_target,
+    resolve_rs_target,
+)
+from qwen3vl_local.sft_base.build_dataset import _skip_sets  # noqa: E402
+
+
+def _iter_result_paths(collection_dir: pathlib.Path) -> Iterable[pathlib.Path]:
+    """遍历 collection_output 下的 result JSON。"""
+
+    for path in sorted(collection_dir.glob("*_result.json")):
+        if path.name == "noScenarios_result.json":
+            continue
+        yield path
+
+
+def _iter_route_frames(result: Mapping[str, Any]) -> Iterable[tuple[str, Mapping[str, Any]]]:
+    """按 build_dataset 口径过滤 route 后产出 frame annotation。"""
+
+    routes = result.get("routes") or result.get("route_results") or []
+    if isinstance(routes, Mapping):
+        routes = routes.values()
+    abnormal_skips, missing_skips = _skip_sets(result)
+    for route in routes:
+        if not isinstance(route, Mapping):
+            continue
+        route_id = str(route.get("route_id") or route.get("run_id") or "")
+        if route_id in abnormal_skips or route_id in missing_skips:
+            continue
+        if route.get("status") not in {None, "success"}:
+            continue
+        frames = route.get("frames") or route.get("frame_annotations") or route.get("annotations") or []
+        if isinstance(frames, Mapping):
+            frames = frames.values()
+        for frame in frames:
+            if isinstance(frame, Mapping):
+                yield route_id, frame
+
+
+def audit(args: argparse.Namespace) -> Dict[str, Any]:
+    """执行 RS x UE 共现审计。"""
+
+    collection_dir = pathlib.Path(args.collection_dir)
+    min_count = max(1, int(args.min_count))
+    rs_totals = {rs: 0 for rs in RS_LABELS}
+    ue_totals = {rs: {code: 0 for code in EVENT_CANDIDATES_BY_RS.get(rs, []) if str(code).startswith("U-E")} for rs in RS_LABELS}
+    all_ue_by_rs: Dict[str, Dict[str, int]] = {rs: {} for rs in RS_LABELS}
+    skipped = 0
+    total_frames = 0
+    abnormal_frames = 0
+    result_files = 0
+    skipped_routes_abnormal_or_missing = 0
+    skipped_routes_failed = 0
+    for path in _iter_result_paths(collection_dir):
+        result_files += 1
+        try:
+            result = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            skipped += 1
+            continue
+        abnormal_skips, missing_skips = _skip_sets(result)
+        skipped_routes_abnormal_or_missing += len(abnormal_skips) + len(missing_skips)
+        routes = result.get("routes") or result.get("route_results") or []
+        if isinstance(routes, Mapping):
+            routes = routes.values()
+        skipped_routes_failed += sum(1 for route in routes if isinstance(route, Mapping) and route.get("status") not in {None, "success"})
+        for _route_id, frame in _iter_route_frames(result):
+            try:
+                rs = resolve_rs_target(frame).label
+                event = resolve_event_target(frame)
+            except Exception:
+                skipped += 1
+                continue
+            if rs not in RS_LABELS:
+                skipped += 1
+                continue
+            total_frames += 1
+            rs_totals[rs] += 1
+            if not event.abnormal:
+                continue
+            abnormal_frames += 1
+            label = str(event.label)
+            all_ue_by_rs[rs][label] = all_ue_by_rs[rs].get(label, 0) + 1
+            if label in ue_totals[rs]:
+                ue_totals[rs][label] += 1
+
+    static_sets = {rs: {code for code in EVENT_CANDIDATES_BY_RS.get(rs, []) if str(code).startswith("U-E")} for rs in RS_LABELS}
+    missing = []
+    low_count = []
+    for rs in RS_LABELS:
+        for ue, count in sorted(all_ue_by_rs[rs].items()):
+            row = {
+                "rs": rs,
+                "event": ue,
+                "count": count,
+                "rs_frame_rate": count / max(1, rs_totals[rs]),
+                "in_static_table": ue in static_sets[rs],
+            }
+            if ue not in static_sets[rs]:
+                if count >= min_count:
+                    missing.append(row)
+                else:
+                    low_count.append(row)
+    report = {
+        "collection_dir": str(collection_dir),
+        "result_files": result_files,
+        "total_frames": total_frames,
+        "abnormal_frames": abnormal_frames,
+        "skipped_items": skipped,
+        "skipped_routes_abnormal_or_missing": skipped_routes_abnormal_or_missing,
+        "skipped_routes_failed": skipped_routes_failed,
+        "min_count": min_count,
+        "rs_totals": rs_totals,
+        "ue_by_rs": all_ue_by_rs,
+        "static_ue_by_rs": {rs: sorted(static_sets[rs]) for rs in RS_LABELS},
+        "missing_combinations": missing,
+        "low_count_missing_combinations": low_count,
+        "candidate_count_after_static_table": {
+            rs: len({code for code in EVENT_CANDIDATES_BY_RS.get(rs, []) if str(code).startswith("U-E")}) + 1
+            for rs in RS_LABELS
+        },
+    }
+    return report
+
+
+def main() -> None:
+    """CLI 入口。"""
+
+    p = argparse.ArgumentParser(description="Audit RS x UE co-occurrence against static EVENT_CANDIDATES_BY_RS")
+    p.add_argument("--collection-dir", type=str, default="keyframe_filter/collection_output")
+    p.add_argument("--output-json", type=str, default=None)
+    p.add_argument("--min-count", type=int, default=20)
+    args = p.parse_args()
+    report = audit(args)
+    text = json.dumps(report, ensure_ascii=False, indent=2)
+    print(text)
+    if args.output_json:
+        out = pathlib.Path(args.output_json)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text + "\n", encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

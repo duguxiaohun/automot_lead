@@ -62,6 +62,7 @@ from qwen3vl_local.sft_base.labels import (  # noqa: E402
     resolve_event_target,
 )
 from qwen3vl_local.sft_base.memory_curriculum import (  # noqa: E402
+    RouteMemoryCorruptor,
     maybe_corrupt_memory as _maybe_corrupt_memory,
     resample_event_memory_for_q2,
 )
@@ -182,6 +183,11 @@ class RouteSequenceDataset(Dataset):
                 if max_routes > 0 and len(rows) >= max_routes:
                     break
         self.rows = rows
+        event_label_counts: Dict[str, int] = {}
+        for row in rows:
+            for frame in row.frames:
+                event_label_counts[frame.event_label] = event_label_counts.get(frame.event_label, 0) + 1
+        self.event_label_counts = event_label_counts
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -377,14 +383,57 @@ def _loss_one_sample(bundle: Any, packed: Mapping[str, Any]) -> torch.Tensor:
     return (per_tok * shift_weights[active]).sum() / shift_weights[active].sum().clamp_min(1e-6)
 
 
-def _event_loss_weights(event_target: EventTarget, *, ue_event_loss_weight: float, re_event_loss_weight: float) -> Dict[str, float]:
-    """按 EVENT 类型返回 Q2 token loss 权重。
+def _event_loss_weights(
+    event_target: EventTarget,
+    *,
+    n_candidates: int,
+    ue_event_loss_weight: float,
+    re_event_loss_weight: float,
+    single_candidate_re_scale: float,
+) -> Dict[str, float]:
+    """按 EVENT 类型和候选难度返回 Q2 token loss 权重。
 
-    UE 在自然分布里容易被 RE 淹没；只加 Q2 的 EVENT token，不改 Q1 RS。
+    单候选 RE 是格式/分布保温样本，权重要低；多候选 RE 是压 UE 假阳性的硬负样本，
+    不能再和单候选送分题混为一档。
     """
 
-    weight = float(ue_event_loss_weight) if event_target.abnormal else float(re_event_loss_weight)
+    if event_target.abnormal:
+        weight = float(ue_event_loss_weight)
+    elif int(n_candidates) <= 1:
+        weight = float(re_event_loss_weight) * max(0.0, float(single_candidate_re_scale))
+    else:
+        weight = float(re_event_loss_weight)
     return {"event": max(0.0, weight)}
+
+
+def _ue_repeat_for_frame(
+    frame: FrameRow,
+    *,
+    event_label_counts: Optional[Mapping[str, int]],
+    ue_frame_repeat: int,
+    ue_repeat_mode: str,
+    ue_repeat_max: int,
+) -> int:
+    """按 UE 子类频次计算重复次数。
+
+    fixed 模式保留旧行为；inverse_sqrt 模式在旧 UE_FRAME_REPEAT 基础上按
+    sqrt(median/count[label]) 调整，长尾 UE 子类得到更多重复，常见 UE 可降到 1。
+    """
+
+    if not bool(frame.abnormal):
+        return 1
+    base = max(1, int(ue_frame_repeat))
+    mode = str(ue_repeat_mode).lower()
+    if mode != "inverse_sqrt":
+        return base
+    counts = {str(k): int(v) for k, v in (event_label_counts or {}).items() if str(k).startswith("U-E") and int(v) > 0}
+    current = counts.get(str(frame.event_label), 0)
+    if current <= 0 or not counts:
+        return base
+    values = sorted(counts.values())
+    median = float(values[len(values) // 2])
+    repeat = int(round(float(base) * math.sqrt(max(median, 1.0) / float(current))))
+    return max(1, min(max(1, int(ue_repeat_max)), repeat))
 
 
 def _frame_training_pack(
@@ -398,9 +447,11 @@ def _frame_training_pack(
     memory_noise_seed: int,
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
+    single_candidate_re_scale: float,
     event_wrong_prob: float,
     event_unknown_prob: float,
     clean_event_memory_label: str,
+    q2_memory_override: Optional[Memory] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Memory, bool]:
     """把一个 frame 转成 teacher-forced 训练输入。
 
@@ -415,19 +466,22 @@ def _frame_training_pack(
     q1_target = build_q1_target(rs_target=rs_target, event_target=event_target)
     q1_loss_weights = loss_weights_q1()
     memory_after_q1 = update_memory_after_q1(memory, student_rs_label=rs_target.label)
-    q2_memory = resample_event_memory_for_q2(
-        memory_after_q1,
-        frame=frame,
-        route_id=route_id,
-        seed=int(memory_noise_seed),
-        event_wrong_prob=float(event_wrong_prob),
-        event_unknown_prob=float(event_unknown_prob),
-        keep_event_label=str(clean_event_memory_label),
-    )
+    if q2_memory_override is not None:
+        q2_memory = q2_memory_override.copy()
+    else:
+        q2_memory = resample_event_memory_for_q2(
+            memory_after_q1,
+            frame=frame,
+            route_id=route_id,
+            seed=int(memory_noise_seed),
+            event_wrong_prob=float(event_wrong_prob),
+            event_unknown_prob=float(event_unknown_prob),
+            keep_event_label=str(clean_event_memory_label),
+        )
 
     q2_prompt: Optional[str] = None
     q2_target: Optional[str] = None
-    q2_included = event_in_candidates(event_target.label, frame.event_candidates) and len(frame.event_candidates) > 1
+    q2_included = event_in_candidates(event_target.label, frame.event_candidates)
     if q2_included:
         q2_prompt = build_q2_prompt(
             q2_memory,
@@ -442,13 +496,15 @@ def _frame_training_pack(
         )
         q2_loss_weights = _event_loss_weights(
             event_target,
+            n_candidates=len(frame.event_candidates),
             ue_event_loss_weight=ue_event_loss_weight,
             re_event_loss_weight=re_event_loss_weight,
+            single_candidate_re_scale=single_candidate_re_scale,
         )
     else:
         q2_loss_weights = None
-    # 如果 EVENT 真值不在候选表里，或 Q2 是单候选送分题，跳过 Q2 监督但仍训练 Q1。
-    # 单候选帧没有判别信息，只会稀释真正需要区分 RE/UE 的帧的梯度。
+    # 如果 EVENT 真值不在候选表里，跳过 Q2 监督但仍训练 Q1；单候选帧也训练，
+    # 只是单候选 RE 会在 loss 权重里降权，避免送分题淹没硬负样本。
     packed = _build_inputs(
         bundle,
         images=images,
@@ -473,6 +529,8 @@ class StepStats:
     n_q2_ue: int = 0
     n_q2_re: int = 0
     n_skipped: int = 0
+    q2_ue_weight_sum: float = 0.0
+    q2_re_weight_sum: float = 0.0
 
 
 def run_batch(
@@ -487,7 +545,11 @@ def run_batch(
     transition_frame_repeat: int = 1,
     transition_frame_window: int = 1,
     ue_event_loss_weight: float = 4.0,
-    re_event_loss_weight: float = 0.5,
+    re_event_loss_weight: float = 1.0,
+    single_candidate_re_scale: float = 0.1,
+    event_label_counts: Optional[Mapping[str, int]] = None,
+    ue_repeat_mode: str = "inverse_sqrt",
+    ue_repeat_max: int = 8,
     first_frame_memory_unknown: bool = True,
     memory_rs_wrong_prob: float = 0.30,
     memory_rs_unknown_prob: float = 0.40,
@@ -496,6 +558,9 @@ def run_batch(
     rs_wrong_event_unknown_prob: float = 0.25,
     memory_dropout_prob: float = 0.15,
     memory_noise_seed: int = 20260724,
+    memory_perturbation_mode: str = "route_state",
+    memory_perturb_duration_min: int = 3,
+    memory_perturb_duration_max: int = 5,
 ) -> StepStats:
     """逐 route/frame 跑 teacher-forced CE，并累积梯度。
 
@@ -511,9 +576,24 @@ def run_batch(
     """
 
     stats = StepStats()
-    work: List[Tuple[str, FrameRow, Memory, str]] = []
+    work: List[Tuple[str, FrameRow, Memory, Optional[Memory], str]] = []
     for route in batch:
         memory: Optional[Memory] = None
+        route_corruptor: Optional[RouteMemoryCorruptor] = None
+        if str(memory_perturbation_mode) == "route_state":
+            route_corruptor = RouteMemoryCorruptor(
+                route_id=route.route_id,
+                seed=int(memory_noise_seed),
+                first_frame_unknown=bool(first_frame_memory_unknown),
+                rs_wrong_prob=float(memory_rs_wrong_prob),
+                rs_unknown_prob=float(memory_rs_unknown_prob),
+                event_wrong_prob=float(memory_event_wrong_prob),
+                event_unknown_prob=float(memory_event_unknown_prob),
+                rs_wrong_event_unknown_prob=float(rs_wrong_event_unknown_prob),
+                memory_dropout_prob=float(memory_dropout_prob),
+                duration_min=int(memory_perturb_duration_min),
+                duration_max=int(memory_perturb_duration_max),
+            )
         transition_pos = _transition_positions(list(route.frames), radius=int(transition_frame_window))
         for frame_pos, frame in enumerate(route.frames):
             rs_target = _rs_target_from_frame(frame)
@@ -523,26 +603,51 @@ def run_batch(
                 memory = refresh_memory_goal(memory, frame.ego_to_goal_xy)
             # 存 copy 而不是引用：后面会继续更新 memory，当前帧 prompt 必须看到
             # “提问前”的状态，而不是被后续帧改写后的状态。
-            prompt_memory = _maybe_corrupt_memory(
-                memory,
-                frame=frame,
-                route_id=route.route_id,
-                frame_pos=frame_pos,
-                seed=int(memory_noise_seed),
-                first_frame_unknown=bool(first_frame_memory_unknown),
-                rs_wrong_prob=float(memory_rs_wrong_prob),
-                rs_unknown_prob=float(memory_rs_unknown_prob),
-                event_wrong_prob=float(memory_event_wrong_prob),
-                event_unknown_prob=float(memory_event_unknown_prob),
-                rs_wrong_event_unknown_prob=float(rs_wrong_event_unknown_prob),
-                memory_dropout_prob=float(memory_dropout_prob),
+            if route_corruptor is not None:
+                prompt_memory = route_corruptor.corrupt(memory, frame=frame, frame_pos=frame_pos)
+            else:
+                prompt_memory = _maybe_corrupt_memory(
+                    memory,
+                    frame=frame,
+                    route_id=route.route_id,
+                    frame_pos=frame_pos,
+                    seed=int(memory_noise_seed),
+                    first_frame_unknown=bool(first_frame_memory_unknown),
+                    rs_wrong_prob=float(memory_rs_wrong_prob),
+                    rs_unknown_prob=float(memory_rs_unknown_prob),
+                    event_wrong_prob=float(memory_event_wrong_prob),
+                    event_unknown_prob=float(memory_event_unknown_prob),
+                    rs_wrong_event_unknown_prob=float(rs_wrong_event_unknown_prob),
+                    memory_dropout_prob=float(memory_dropout_prob),
+                )
+            repeat = _ue_repeat_for_frame(
+                frame,
+                event_label_counts=event_label_counts,
+                ue_frame_repeat=int(ue_frame_repeat),
+                ue_repeat_mode=str(ue_repeat_mode),
+                ue_repeat_max=int(ue_repeat_max),
             )
-            repeat = max(1, int(ue_frame_repeat)) if bool(frame.abnormal) else 1
             if frame_pos in transition_pos:
                 repeat = max(repeat, max(1, int(transition_frame_repeat)))
             clean_event_memory_label = "UNKNOWN" if frame_pos == 0 else str(memory.event_label)
+            q2_memory_override: Optional[Memory] = None
+            if route_corruptor is not None:
+                q2_seed_memory = update_memory_after_q1(prompt_memory, student_rs_label=rs_target.label)
+                q2_memory_override = route_corruptor.resample_event_for_q2(
+                    q2_seed_memory,
+                    frame=frame,
+                    keep_event_label=clean_event_memory_label,
+                )
             for _ in range(repeat):
-                work.append((route.route_id, frame, prompt_memory.copy(), clean_event_memory_label))
+                work.append(
+                    (
+                        route.route_id,
+                        frame,
+                        prompt_memory.copy(),
+                        q2_memory_override.copy() if q2_memory_override is not None else None,
+                        clean_event_memory_label,
+                    )
+                )
             event_target = _event_target_from_frame(frame)
             memory_after_q1 = update_memory_after_q1(memory, student_rs_label=rs_target.label)
             memory = update_memory_after_q2(memory_after_q1, student_event_label=event_target.label)
@@ -570,6 +675,7 @@ def run_batch(
                 loss_normalizer=max(1, len(work)),
                 ue_event_loss_weight=float(ue_event_loss_weight),
                 re_event_loss_weight=float(re_event_loss_weight),
+                single_candidate_re_scale=float(single_candidate_re_scale),
                 memory_noise_seed=int(memory_noise_seed),
                 event_wrong_prob=float(memory_event_wrong_prob),
                 event_unknown_prob=float(memory_event_unknown_prob),
@@ -588,6 +694,7 @@ def run_batch(
         loss_normalizer=max(1, len(work)),
         ue_event_loss_weight=float(ue_event_loss_weight),
         re_event_loss_weight=float(re_event_loss_weight),
+        single_candidate_re_scale=float(single_candidate_re_scale),
         memory_noise_seed=int(memory_noise_seed),
         event_wrong_prob=float(memory_event_wrong_prob),
         event_unknown_prob=float(memory_event_unknown_prob),
@@ -608,17 +715,20 @@ def _merge_stats(dst: StepStats, src: StepStats) -> None:
     dst.n_q2_ue += src.n_q2_ue
     dst.n_q2_re += src.n_q2_re
     dst.n_skipped += src.n_skipped
+    dst.q2_ue_weight_sum += src.q2_ue_weight_sum
+    dst.q2_re_weight_sum += src.q2_re_weight_sum
 
 
 def _run_work_items(
     bundle: Any,
-    work: List[Tuple[str, FrameRow, Memory, str]],
+    work: List[Tuple[str, FrameRow, Memory, Optional[Memory], str]],
     *,
     max_length: int,
     loss_scale: float,
     loss_normalizer: int,
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
+    single_candidate_re_scale: float,
     memory_noise_seed: int,
     event_wrong_prob: float,
     event_unknown_prob: float,
@@ -626,7 +736,7 @@ def _run_work_items(
     """执行一段 frame work，不在函数内部发起 DDP collective。"""
 
     stats = StepStats()
-    for route_id, frame, memory, clean_event_memory_label in work:
+    for route_id, frame, memory, q2_memory_override, clean_event_memory_label in work:
         try:
             images = _load_images(frame.history_rgb_paths)
         except (FileNotFoundError, OSError) as exc:
@@ -643,9 +753,11 @@ def _run_work_items(
             memory_noise_seed=int(memory_noise_seed),
             ue_event_loss_weight=float(ue_event_loss_weight),
             re_event_loss_weight=float(re_event_loss_weight),
+            single_candidate_re_scale=float(single_candidate_re_scale),
             event_wrong_prob=float(event_wrong_prob),
             event_unknown_prob=float(event_unknown_prob),
             clean_event_memory_label=clean_event_memory_label,
+            q2_memory_override=q2_memory_override,
         )
         if packed is None:
             stats.n_skipped += 1
@@ -664,6 +776,18 @@ def _run_work_items(
         stats.n_q2 += int(q2_included)
         stats.n_q2_ue += int(q2_included and frame.abnormal)
         stats.n_q2_re += int(q2_included and not frame.abnormal)
+        if q2_included:
+            weight = _event_loss_weights(
+                _event_target_from_frame(frame),
+                n_candidates=len(frame.event_candidates),
+                ue_event_loss_weight=ue_event_loss_weight,
+                re_event_loss_weight=re_event_loss_weight,
+                single_candidate_re_scale=single_candidate_re_scale,
+            ).get("event", 0.0)
+            if frame.abnormal:
+                stats.q2_ue_weight_sum += float(weight)
+            else:
+                stats.q2_re_weight_sum += float(weight)
     return stats
 
 
@@ -696,6 +820,7 @@ def evaluate_loss(
     max_samples: int,
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
+    single_candidate_re_scale: float,
     memory_noise_seed: int = 20260724,
     first_frame_memory_unknown: bool = True,
     memory_rs_wrong_prob: float = 0.30,
@@ -704,6 +829,9 @@ def evaluate_loss(
     event_unknown_prob: float = 0.35,
     rs_wrong_event_unknown_prob: float = 0.25,
     memory_dropout_prob: float = 0.15,
+    memory_perturbation_mode: str = "route_state",
+    memory_perturb_duration_min: int = 3,
+    memory_perturb_duration_max: int = 5,
 ) -> Dict[str, float]:
     """计算 teacher-forced 验证 loss，并使用训练同款 memory 扰动。"""
 
@@ -715,6 +843,21 @@ def evaluate_loss(
     for batch in loader:
         for route in batch:
             memory: Optional[Memory] = None
+            route_corruptor: Optional[RouteMemoryCorruptor] = None
+            if str(memory_perturbation_mode) == "route_state":
+                route_corruptor = RouteMemoryCorruptor(
+                    route_id=route.route_id,
+                    seed=int(memory_noise_seed),
+                    first_frame_unknown=bool(first_frame_memory_unknown),
+                    rs_wrong_prob=float(memory_rs_wrong_prob),
+                    rs_unknown_prob=float(memory_rs_unknown_prob),
+                    event_wrong_prob=float(event_wrong_prob),
+                    event_unknown_prob=float(event_unknown_prob),
+                    rs_wrong_event_unknown_prob=float(rs_wrong_event_unknown_prob),
+                    memory_dropout_prob=float(memory_dropout_prob),
+                    duration_min=int(memory_perturb_duration_min),
+                    duration_max=int(memory_perturb_duration_max),
+                )
             for frame_pos, frame in enumerate(route.frames):
                 if max_samples > 0 and len(losses) >= max_samples:
                     break
@@ -726,20 +869,30 @@ def evaluate_loss(
                 try:
                     images = _load_images(frame.history_rgb_paths)
                     clean_event_memory_label = "UNKNOWN" if frame_pos == 0 else str(memory.event_label)
-                    prompt_memory = _maybe_corrupt_memory(
-                        memory,
-                        frame=frame,
-                        route_id=route.route_id,
-                        frame_pos=frame_pos,
-                        seed=int(memory_noise_seed),
-                        first_frame_unknown=bool(first_frame_memory_unknown),
-                        rs_wrong_prob=float(memory_rs_wrong_prob),
-                        rs_unknown_prob=float(memory_rs_unknown_prob),
-                        event_wrong_prob=float(event_wrong_prob),
-                        event_unknown_prob=float(event_unknown_prob),
-                        rs_wrong_event_unknown_prob=float(rs_wrong_event_unknown_prob),
-                        memory_dropout_prob=float(memory_dropout_prob),
-                    )
+                    if route_corruptor is not None:
+                        prompt_memory = route_corruptor.corrupt(memory, frame=frame, frame_pos=frame_pos)
+                        q2_seed_memory = update_memory_after_q1(prompt_memory, student_rs_label=rs_target.label)
+                        q2_memory_override = route_corruptor.resample_event_for_q2(
+                            q2_seed_memory,
+                            frame=frame,
+                            keep_event_label=clean_event_memory_label,
+                        )
+                    else:
+                        prompt_memory = _maybe_corrupt_memory(
+                            memory,
+                            frame=frame,
+                            route_id=route.route_id,
+                            frame_pos=frame_pos,
+                            seed=int(memory_noise_seed),
+                            first_frame_unknown=bool(first_frame_memory_unknown),
+                            rs_wrong_prob=float(memory_rs_wrong_prob),
+                            rs_unknown_prob=float(memory_rs_unknown_prob),
+                            event_wrong_prob=float(event_wrong_prob),
+                            event_unknown_prob=float(event_unknown_prob),
+                            rs_wrong_event_unknown_prob=float(rs_wrong_event_unknown_prob),
+                            memory_dropout_prob=float(memory_dropout_prob),
+                        )
+                        q2_memory_override = None
                     packed, _next_memory, q2_included = _frame_training_pack(
                         bundle,
                         frame,
@@ -750,9 +903,11 @@ def evaluate_loss(
                         memory_noise_seed=int(memory_noise_seed),
                         ue_event_loss_weight=float(ue_event_loss_weight),
                         re_event_loss_weight=float(re_event_loss_weight),
+                        single_candidate_re_scale=float(single_candidate_re_scale),
                         event_wrong_prob=float(event_wrong_prob),
                         event_unknown_prob=float(event_unknown_prob),
                         clean_event_memory_label=clean_event_memory_label,
+                        q2_memory_override=q2_memory_override,
                     )
                     event_target = _event_target_from_frame(frame)
                     memory_after_q1 = update_memory_after_q1(memory, student_rs_label=rs_target.label)
@@ -892,7 +1047,10 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "frames_per_sync": int(args.frames_per_sync),
         "ue_event_loss_weight": float(args.ue_event_loss_weight),
         "re_event_loss_weight": float(args.re_event_loss_weight),
+        "single_candidate_re_scale": float(args.single_candidate_re_scale),
         "ue_frame_repeat": int(args.ue_frame_repeat),
+        "ue_repeat_mode": str(args.ue_repeat_mode),
+        "ue_repeat_max": int(args.ue_repeat_max),
         "transition_frame_repeat": int(args.transition_frame_repeat),
         "transition_frame_window": int(args.transition_frame_window),
         "first_frame_memory_unknown": bool(args.first_frame_memory_unknown),
@@ -902,6 +1060,9 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "memory_event_unknown_prob": float(args.memory_event_unknown_prob),
         "rs_wrong_event_unknown_prob": float(args.rs_wrong_event_unknown_prob),
         "memory_dropout_prob": float(args.memory_dropout_prob),
+        "memory_perturbation_mode": str(args.memory_perturbation_mode),
+        "memory_perturb_duration_min": int(args.memory_perturb_duration_min),
+        "memory_perturb_duration_max": int(args.memory_perturb_duration_max),
     }
     (path / "sft_base_adapter_config.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -945,8 +1106,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-steps", type=int, default=0)
     p.add_argument("--frames-per-sync", type=int, default=64)
     p.add_argument("--ue-event-loss-weight", type=float, default=4.0)
-    p.add_argument("--re-event-loss-weight", type=float, default=0.5)
+    p.add_argument("--re-event-loss-weight", type=float, default=1.0)
+    p.add_argument("--single-candidate-re-scale", type=float, default=0.1)
     p.add_argument("--ue-frame-repeat", type=int, default=2)
+    p.add_argument("--ue-repeat-mode", choices=["fixed", "inverse_sqrt"], default="inverse_sqrt")
+    p.add_argument("--ue-repeat-max", type=int, default=8)
     p.add_argument("--transition-frame-repeat", type=int, default=4)
     p.add_argument("--transition-frame-window", type=int, default=3)
     p.add_argument("--first-frame-memory-unknown", action=argparse.BooleanOptionalAction, default=True)
@@ -956,6 +1120,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--memory-event-unknown-prob", type=float, default=0.35)
     p.add_argument("--rs-wrong-event-unknown-prob", type=float, default=0.25)
     p.add_argument("--memory-dropout-prob", type=float, default=0.15)
+    p.add_argument("--memory-perturbation-mode", choices=["frame", "route_state"], default="route_state")
+    p.add_argument("--memory-perturb-duration-min", type=int, default=3)
+    p.add_argument("--memory-perturb-duration-max", type=int, default=5)
     p.add_argument("--check", action="store_true")
     p.add_argument("--no-grad-checkpoint", action="store_true")
     p.add_argument("--seed", type=int, default=20260724)
@@ -1095,9 +1262,12 @@ def main() -> None:
             elapsed = (time.time() - start) / 60.0
             q2_rate = last_stats.n_q2 / max(1, last_stats.n_frames)
             q2_ue_rate = last_stats.n_q2_ue / max(1, last_stats.n_q2)
+            q2_weight_total = last_stats.q2_ue_weight_sum + last_stats.q2_re_weight_sum
+            q2_ue_weight_share = last_stats.q2_ue_weight_sum / max(1e-6, q2_weight_total)
             print(
                 f"[train] epoch={epoch} step={global_step}/{total_steps} loss={loss_avg:.4f} "
                 f"samples={int(global_samples)} q2_rate={q2_rate:.3f} q2_ue_rate={q2_ue_rate:.3f} "
+                f"q2_ue_weight_share={q2_ue_weight_share:.3f} "
                 f"|g|_lang={float(lang_norm):.3f} |g|_vis={vis_norm_value:.3f} "
                 f"|w|_vis={vis_param_norm:.3f} guard_bad_steps={guard_bad_steps} "
                 f"{reason}=1 elapsed={elapsed:.1f}m"
@@ -1106,6 +1276,9 @@ def main() -> None:
                 tb.add_scalar("train/loss", loss_avg, global_step)
                 tb.add_scalar("train/q2_rate_last_batch", q2_rate, global_step)
                 tb.add_scalar("train/q2_ue_rate_last_batch", q2_ue_rate, global_step)
+                tb.add_scalar("train/q2_ue_weight_share_last_batch", q2_ue_weight_share, global_step)
+                tb.add_scalar("train/q2_ue_weight_sum_last_batch", last_stats.q2_ue_weight_sum, global_step)
+                tb.add_scalar("train/q2_re_weight_sum_last_batch", last_stats.q2_re_weight_sum, global_step)
                 tb.add_scalar("train/grad_norm/language", float(lang_norm), global_step)
                 if vision_params:
                     tb.add_scalar("train/grad_norm/vision", vis_norm_value, global_step)
@@ -1123,6 +1296,7 @@ def main() -> None:
                 max_samples=int(args.max_eval_samples),
                 ue_event_loss_weight=float(args.ue_event_loss_weight),
                 re_event_loss_weight=float(args.re_event_loss_weight),
+                single_candidate_re_scale=float(args.single_candidate_re_scale),
                 memory_noise_seed=int(args.seed),
                 first_frame_memory_unknown=bool(args.first_frame_memory_unknown),
                 memory_rs_wrong_prob=float(args.memory_rs_wrong_prob),
@@ -1131,6 +1305,9 @@ def main() -> None:
                 event_unknown_prob=float(args.memory_event_unknown_prob),
                 rs_wrong_event_unknown_prob=float(args.rs_wrong_event_unknown_prob),
                 memory_dropout_prob=float(args.memory_dropout_prob),
+                memory_perturbation_mode=str(args.memory_perturbation_mode),
+                memory_perturb_duration_min=int(args.memory_perturb_duration_min),
+                memory_perturb_duration_max=int(args.memory_perturb_duration_max),
             )
             if rank == 0:
                 print(f"[eval@{global_step}] {metrics}")
@@ -1156,10 +1333,14 @@ def main() -> None:
                 sync_grads=sync_this,
                 frames_per_sync=int(args.frames_per_sync),
                 ue_frame_repeat=int(args.ue_frame_repeat),
+                event_label_counts=getattr(train_ds, "event_label_counts", None),
+                ue_repeat_mode=str(args.ue_repeat_mode),
+                ue_repeat_max=int(args.ue_repeat_max),
                 transition_frame_repeat=int(args.transition_frame_repeat),
                 transition_frame_window=int(args.transition_frame_window),
                 ue_event_loss_weight=float(args.ue_event_loss_weight),
                 re_event_loss_weight=float(args.re_event_loss_weight),
+                single_candidate_re_scale=float(args.single_candidate_re_scale),
                 first_frame_memory_unknown=bool(args.first_frame_memory_unknown),
                 memory_rs_wrong_prob=float(args.memory_rs_wrong_prob),
                 memory_rs_unknown_prob=float(args.memory_rs_unknown_prob),
@@ -1168,6 +1349,9 @@ def main() -> None:
                 rs_wrong_event_unknown_prob=float(args.rs_wrong_event_unknown_prob),
                 memory_dropout_prob=float(args.memory_dropout_prob),
                 memory_noise_seed=int(args.seed) + rank,
+                memory_perturbation_mode=str(args.memory_perturbation_mode),
+                memory_perturb_duration_min=int(args.memory_perturb_duration_min),
+                memory_perturb_duration_max=int(args.memory_perturb_duration_max),
             )
             last_stats = stats
             accum_loss += stats.loss_sum
