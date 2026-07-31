@@ -74,6 +74,7 @@ python qwen3vl_local/sft_base/audit_rs_event_cooccurrence.py \
 ```bash
 python qwen3vl_local/sft_base/check_loss_mask.py
 python qwen3vl_local/sft_base/test_dataset_contract.py
+python qwen3vl_local/sft_base/test_eval_metrics.py
 GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh check
 ```
 
@@ -572,6 +573,7 @@ python qwen3vl_local/sft_base/check_loss_mask.py
 python qwen3vl_local/sft_base/test_dataset_contract.py
 python qwen3vl_local/sft_base/test_memory_curriculum.py
 python qwen3vl_local/sft_base/test_eval_candidates.py
+python qwen3vl_local/sft_base/test_eval_metrics.py
 ```
 
 候选过滤偏差审计：
