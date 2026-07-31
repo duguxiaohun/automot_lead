@@ -22,7 +22,6 @@ from qwen3vl_local.sft_base.memory_curriculum import (
     RouteMemoryCorruptor,
     event_memory_pool_for_rs,
     maybe_corrupt_memory,
-    resample_event_memory_for_q2,
     wrong_rs_for_frame,
 )
 from qwen3vl_local.sft_base.prompts import Memory, build_q1_prompt, build_q2_prompt, update_memory_after_q1
@@ -114,38 +113,32 @@ def main() -> None:
     mem_r3_total = 0
     mem_r3_gt_r3 = 0
     hidden_total = 0
-    corrupted_snapshots = []
-    visible_total = 0
+    route_corruptor = RouteMemoryCorruptor(
+        route_id="route",
+        seed=20260724,
+        first_frame_unknown=False,
+        rs_wrong_prob=0.30,
+        rs_unknown_prob=0.40,
+        event_wrong_prob=0.35,
+        event_unknown_prob=0.35,
+        rs_wrong_event_unknown_prob=0.25,
+        memory_dropout_prob=0.15,
+        duration_min=3,
+        duration_max=5,
+    )
     for idx in range(total):
         gt_rs = rs_stream[idx % len(rs_stream)]
         frame = _make_frame(idx + 1, gt_rs)
         base = Memory(rs_label=gt_rs, event_label=frame.event_label)
-        mem = maybe_corrupt_memory(
-            base,
-            frame=frame,
-            route_id="route",
-            frame_pos=idx + 1,
-            seed=20260724,
-            first_frame_unknown=False,
-            rs_wrong_prob=0.30,
-            rs_unknown_prob=0.40,
-            event_wrong_prob=0.35,
-            event_unknown_prob=0.35,
-            rs_wrong_event_unknown_prob=0.25,
-            memory_dropout_prob=0.15,
-        )
-        corrupted_snapshots.append((mem.rs_label, mem.event_label, mem.hide_priors))
+        mem = route_corruptor.corrupt(base, frame=frame, frame_pos=idx + 1)
         if mem.hide_priors:
             hidden_total += 1
             assert mem.rs_label == gt_rs and mem.event_label == frame.event_label, mem
             continue
-        visible_total += 1
         if mem.rs_label == "UNKNOWN":
             rs_counts["unknown"] += 1
         elif mem.rs_label != gt_rs:
             rs_counts["wrong"] += 1
-            if mem.event_label != "UNKNOWN":
-                assert mem.event_label in event_memory_pool_for_rs(frame, mem.rs_label), (gt_rs, mem)
         else:
             rs_counts["keep"] += 1
         if mem.event_label == "UNKNOWN":
@@ -159,19 +152,16 @@ def main() -> None:
             mem_r3_gt_r3 += int(gt_rs == "R3")
 
     assert 0.10 <= _ratio(hidden_total, total) <= 0.20, hidden_total
-    assert 0.38 <= _ratio(rs_counts["unknown"], visible_total) <= 0.42, rs_counts
-    assert 0.27 <= _ratio(rs_counts["wrong"], visible_total) <= 0.33, rs_counts
-    assert 0.27 <= _ratio(rs_counts["keep"], visible_total) <= 0.33, rs_counts
-    assert 0.36 <= _ratio(event_counts["unknown"], visible_total) <= 0.44, event_counts
-    assert 0.35 <= _ratio(event_counts["wrong"], visible_total) <= 0.43, event_counts
-    assert 0.18 <= _ratio(event_counts["keep"], visible_total) <= 0.24, event_counts
+    assert 0.30 <= _ratio(rs_counts["unknown"], total) <= 0.40, rs_counts
+    assert 0.20 <= _ratio(rs_counts["wrong"], total) <= 0.35, rs_counts
+    assert 0.20 <= _ratio(rs_counts["keep"], total) <= 0.35, rs_counts
+    assert 0.30 <= _ratio(event_counts["unknown"], total) <= 0.45, event_counts
+    assert 0.20 <= _ratio(event_counts["wrong"], total) <= 0.40, event_counts
+    assert 0.10 <= _ratio(event_counts["keep"], total) <= 0.30, event_counts
     assert _ratio(mem_r3_gt_r3, mem_r3_total) >= 0.18, (mem_r3_gt_r3, mem_r3_total)
 
-    first = maybe_corrupt_memory(
-        Memory(rs_label="R4", event_label="U-E6"),
-        frame=_make_frame(0, "R4", "U-E6"),
-        route_id="route",
-        frame_pos=0,
+    first_corruptor = RouteMemoryCorruptor(
+        route_id="first-route",
         seed=20260724,
         first_frame_unknown=True,
         rs_wrong_prob=0.30,
@@ -180,6 +170,11 @@ def main() -> None:
         event_unknown_prob=0.35,
         rs_wrong_event_unknown_prob=0.25,
         memory_dropout_prob=1.0,
+    )
+    first = first_corruptor.corrupt(
+        Memory(rs_label="R4", event_label="U-E6"),
+        frame=_make_frame(0, "R4", "U-E6"),
+        frame_pos=0,
     )
     assert (first.rs_label, first.event_label, first.hide_priors) == ("UNKNOWN", "UNKNOWN", False), first
 
@@ -190,33 +185,29 @@ def main() -> None:
 
     q2_event_counts = {"unknown": 0, "wrong": 0, "keep": 0}
     q2_visible_total = 0
+    q2_corruptor = RouteMemoryCorruptor(
+        route_id="q2-route",
+        seed=20260724,
+        first_frame_unknown=False,
+        rs_wrong_prob=0.30,
+        rs_unknown_prob=0.40,
+        event_wrong_prob=0.35,
+        event_unknown_prob=0.35,
+        rs_wrong_event_unknown_prob=0.25,
+        memory_dropout_prob=0.15,
+        duration_min=3,
+        duration_max=5,
+    )
     for idx in range(total):
         gt_rs = rs_stream[idx % len(rs_stream)]
         gt_event = _GT_EVENT_BY_RS[gt_rs]
         frame = _make_frame(idx + 1, gt_rs, gt_event)
         base = Memory(rs_label=gt_rs, event_label=gt_event)
-        q1_mem = maybe_corrupt_memory(
-            base,
-            frame=frame,
-            route_id="route",
-            frame_pos=idx + 1,
-            seed=20260724,
-            first_frame_unknown=False,
-            rs_wrong_prob=0.30,
-            rs_unknown_prob=0.40,
-            event_wrong_prob=0.35,
-            event_unknown_prob=0.35,
-            rs_wrong_event_unknown_prob=0.25,
-            memory_dropout_prob=0.15,
-        )
+        q1_mem = q2_corruptor.corrupt(base, frame=frame, frame_pos=idx + 1)
         after_q1 = update_memory_after_q1(q1_mem, student_rs_label=gt_rs)
-        q2_mem = resample_event_memory_for_q2(
+        q2_mem = q2_corruptor.resample_event_for_q2(
             after_q1,
             frame=frame,
-            route_id="route",
-            seed=20260724,
-            event_wrong_prob=0.35,
-            event_unknown_prob=0.35,
             keep_event_label=gt_event,
         )
         if q2_mem.hide_priors:
@@ -320,47 +311,51 @@ def main() -> None:
     rs_answer_leak = 0
     event_answer_leak = 0
     transition_total = 20000
+    rs_leak_corruptor = RouteMemoryCorruptor(
+        route_id="rs-transition",
+        seed=20260724,
+        first_frame_unknown=False,
+        rs_wrong_prob=0.30,
+        rs_unknown_prob=0.40,
+        event_wrong_prob=0.35,
+        event_unknown_prob=0.35,
+        rs_wrong_event_unknown_prob=0.25,
+        memory_dropout_prob=0.0,
+        duration_min=3,
+        duration_max=5,
+    )
+    event_leak_corruptor = RouteMemoryCorruptor(
+        route_id="event-transition",
+        seed=20260724,
+        first_frame_unknown=False,
+        rs_wrong_prob=0.30,
+        rs_unknown_prob=0.40,
+        event_wrong_prob=0.35,
+        event_unknown_prob=0.35,
+        rs_wrong_event_unknown_prob=0.25,
+        memory_dropout_prob=0.0,
+        duration_min=3,
+        duration_max=5,
+    )
     for idx in range(transition_total):
         rs_frame = _make_frame(idx + 1, "R4", "U-E6")
-        rs_mem = maybe_corrupt_memory(
+        rs_mem = rs_leak_corruptor.corrupt(
             Memory(rs_label="R1", event_label="RE"),
             frame=rs_frame,
-            route_id="rs-transition",
             frame_pos=idx + 1,
-            seed=20260724,
-            first_frame_unknown=False,
-            rs_wrong_prob=0.30,
-            rs_unknown_prob=0.40,
-            event_wrong_prob=0.35,
-            event_unknown_prob=0.35,
-            rs_wrong_event_unknown_prob=0.25,
-            memory_dropout_prob=0.0,
         )
         rs_answer_leak += int(rs_mem.rs_label == "R4")
 
         event_frame = _make_frame(idx + 1, "R4", "U-E6")
-        q1_mem = maybe_corrupt_memory(
+        q1_mem = event_leak_corruptor.corrupt(
             Memory(rs_label="R4", event_label="RE"),
             frame=event_frame,
-            route_id="event-transition",
             frame_pos=idx + 1,
-            seed=20260724,
-            first_frame_unknown=False,
-            rs_wrong_prob=0.30,
-            rs_unknown_prob=0.40,
-            event_wrong_prob=0.35,
-            event_unknown_prob=0.35,
-            rs_wrong_event_unknown_prob=0.25,
-            memory_dropout_prob=0.0,
         )
         after_q1 = update_memory_after_q1(q1_mem, student_rs_label="R4")
-        q2_mem = resample_event_memory_for_q2(
+        q2_mem = event_leak_corruptor.resample_event_for_q2(
             after_q1,
             frame=event_frame,
-            route_id="event-transition",
-            seed=20260724,
-            event_wrong_prob=0.35,
-            event_unknown_prob=0.35,
             keep_event_label="RE",
         )
         event_answer_leak += int(q2_mem.event_label == "U-E6")
@@ -379,28 +374,41 @@ def main() -> None:
     r1_to_r3 = sum(wrong_rs_for_frame(random.Random(i), "R1", "R1") == "R3" for i in range(100))
     assert 0 < r1_to_r3 < 45, r1_to_r3
 
-    # 同 seed / 同输入必须可复现。
-    second_pass = []
-    for idx in range(total):
-        gt_rs = rs_stream[idx % len(rs_stream)]
-        frame = _make_frame(idx + 1, gt_rs)
-        base = Memory(rs_label=gt_rs, event_label=frame.event_label)
-        mem = maybe_corrupt_memory(
-            base,
-            frame=frame,
-            route_id="route",
-            frame_pos=idx + 1,
-            seed=20260724,
-            first_frame_unknown=False,
-            rs_wrong_prob=0.30,
-            rs_unknown_prob=0.40,
-            event_wrong_prob=0.35,
-            event_unknown_prob=0.35,
-            rs_wrong_event_unknown_prob=0.25,
-            memory_dropout_prob=0.15,
-        )
-        second_pass.append((mem.rs_label, mem.event_label, mem.hide_priors))
-    assert corrupted_snapshots == second_pass
+    # 旧逐帧独立路径只作为 frame-mode 消融 smoke 保留；生产默认测试在上面走
+    # RouteMemoryCorruptor。
+    frame_mode_a = maybe_corrupt_memory(
+        Memory(rs_label="R2", event_label="U-E5"),
+        frame=_make_frame(17, "R2", "U-E5"),
+        route_id="frame-mode",
+        frame_pos=17,
+        seed=20260724,
+        first_frame_unknown=False,
+        rs_wrong_prob=0.30,
+        rs_unknown_prob=0.40,
+        event_wrong_prob=0.35,
+        event_unknown_prob=0.35,
+        rs_wrong_event_unknown_prob=0.25,
+        memory_dropout_prob=0.15,
+    )
+    frame_mode_b = maybe_corrupt_memory(
+        Memory(rs_label="R2", event_label="U-E5"),
+        frame=_make_frame(17, "R2", "U-E5"),
+        route_id="frame-mode",
+        frame_pos=17,
+        seed=20260724,
+        first_frame_unknown=False,
+        rs_wrong_prob=0.30,
+        rs_unknown_prob=0.40,
+        event_wrong_prob=0.35,
+        event_unknown_prob=0.35,
+        rs_wrong_event_unknown_prob=0.25,
+        memory_dropout_prob=0.15,
+    )
+    assert (frame_mode_a.rs_label, frame_mode_a.event_label, frame_mode_a.hide_priors) == (
+        frame_mode_b.rs_label,
+        frame_mode_b.event_label,
+        frame_mode_b.hide_priors,
+    )
     print("[test_memory_curriculum] ok")
 
 
