@@ -121,7 +121,8 @@ def event_choices_block(
     """渲染 Q2 的本帧 EVENT token 选项。
 
     `candidates` 是 build_dataset 存下来的有序候选 list（RE / U-E*），顺序即展示
-    顺序，本身就是本帧的可复现随机结果，这里不再二次排序。
+    顺序，本身就是本帧的可复现随机结果，这里不再二次排序。`regular_event_codes`
+    只保留兼容旧调用；RE 文案始终按当前 RS 的静态 regular 语义渲染，避免帧级泄漏。
     """
 
     rs_token = RS_LABEL_TO_TOKEN.get(rs_label, "ORDINARY_ROAD")

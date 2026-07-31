@@ -75,7 +75,7 @@ RS_DESCRIPTIONS: Dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# EVENT: Q2 首选逐帧 allowed_events；旧数据缺字段时才退回 scenario ∩ 当前 RS。
+# EVENT: Q2 候选由当前 RS 的静态全集决定；allowed_events 只用于解析/审计 GT。
 # ---------------------------------------------------------------------------
 
 EVENT_CANDIDATES_BY_RS: Dict[str, List[str]] = {
@@ -83,9 +83,9 @@ EVENT_CANDIDATES_BY_RS: Dict[str, List[str]] = {
     # 原因是 build_dataset 还需要保存 event_code / regular_event_codes 供审计；
     # 真正给学生看的选项会在 collapse_regular_to_re 里把所有 R-E* 折成一个 RE。
     "R1": ["R-E1", "R-E2", "U-E1", "U-E2", "U-E3", "U-E4"],
-    "R2": ["R-E1", "R-E2", "U-E2", "U-E5"],
+    "R2": ["R-E1", "R-E2", "U-E2", "U-E4", "U-E5"],
     "R3": ["R-E1", "R-E2", "R-E3"],
-    "R4": ["R-E4", "U-E4", "U-E6", "U-E7", "U-E8"],
+    "R4": ["R-E4", "U-E2", "U-E4", "U-E6", "U-E7", "U-E8"],
     "R5": ["R-E5", "U-E4", "U-E5", "U-E6", "U-E7", "U-E8"],
 }
 
@@ -386,8 +386,8 @@ def resolve_event_target(
 def scenario_event_candidates_from_result(result: Mapping[str, Any]) -> List[str]:
     """读取单场景 result 顶层 event_candidates。
 
-    如果旧文件缺少该字段，就返回全量 EVENT_ORDER 作为保守兜底；真正进入 Q2 前仍会
-    与当前 RS 的候选池取交集，所以不会把其它 RS 的事件放进选项。
+    如果旧文件缺少该字段，就返回全量 EVENT_ORDER 作为审计兜底。sft_base 当前
+    Q2 出题不再用 scenario 级候选缩窄，只按当前 RS 的静态候选全集生成选项。
     """
 
     raw = result.get("event_candidates") or []
@@ -400,10 +400,14 @@ def scenario_event_candidates_from_result(result: Mapping[str, Any]) -> List[str
 
 
 def q2_raw_candidates(scenario_candidates: Sequence[str], rs_label: str) -> List[str]:
-    """计算 Q2 fallback 原始候选：scenario 候选与当前 RS 候选的交集。"""
+    """按当前 RS 返回 Q2 原始候选全集。
 
-    scenario_set = {str(x) for x in scenario_candidates}
-    return [code for code in EVENT_CANDIDATES_BY_RS.get(rs_label, []) if code in scenario_set]
+    `scenario_candidates` 只保留在签名里兼容旧调用；当前协议下 Q2 选项不再由帧级
+    或 scenario 级候选缩窄，避免候选长度直接泄漏“这帧有没有异常”。
+    """
+
+    del scenario_candidates
+    return list(EVENT_CANDIDATES_BY_RS.get(rs_label, []))
 
 
 def allowed_events_from_frame(frame: Mapping[str, Any]) -> List[str]:
@@ -438,27 +442,18 @@ def q2_raw_candidates_for_frame(
     scenario_candidates: Sequence[str],
     rs_label: str,
 ) -> List[str]:
-    """按 v5 口径得到 Q2 原始候选。
+    """得到 Q2 原始候选。
 
-    首选逐帧 allowed_events；只有缺失时才 fallback 到
-    `scenario_event_candidates ∩ EVENT_CANDIDATES_BY_RS[current_rs]`。
+    sft_base 当前协议使用 RS 条件全集出题：allowed_events 只保留为 GT 解析和审计
+    字段，不参与候选构造。
     """
 
-    allowed = allowed_events_from_frame(frame)
-    if allowed:
-        # allowed_events 是逐帧最终候选，已经融合了 keyframe_filter 的 clamp/overlay。
-        # 只要存在就直接采用，不能再用静态表强行改写，否则会把人工修正的候选冲掉。
-        return allowed
+    del frame
     return q2_raw_candidates(scenario_candidates, rs_label)
 
 
 def collapse_regular_to_re(candidates: Sequence[str], rs_label: str) -> List[str]:
-    """把逐帧 allowed candidates 里的所有 regular 分支折叠成 prompt 里的 RE。
-
-    逐帧 `allowed_events` 已经包含 collector 的最终 clamp / overlay 结果，不能再
-    用当前 RS 的静态 regular 表二次过滤；否则会丢掉 final clamp 或 interrupted
-    overlay 留下的例外 regular code。
-    """
+    """把原始 R-E* regular 分支折叠成 prompt 里的 RE。"""
 
     out: List[str] = []
     if any(str(code).startswith("R-E") for code in candidates):
@@ -483,16 +478,15 @@ def event_description_for_display(
     if label == "RE":
         base = RE_DESCRIPTIONS_BY_RS.get(rs_label, EVENT_DESCRIPTIONS["RE"])
         codes: List[str] = []
-        raw_codes = list(regular_event_codes or []) if regular_event_codes is not None else []
-        if regular_event_codes is not None and not raw_codes:
-            raw_codes = RS_REGULAR_EVENTS.get(rs_label, [])
+        del regular_event_codes
+        raw_codes = RS_REGULAR_EVENTS.get(rs_label, [])
         for item in raw_codes:
             code = normalize_event_code(item)
             if code and code.startswith("R-E") and code not in codes:
                 codes.append(code)
         details = [REGULAR_EVENT_DESCRIPTIONS[code] for code in codes if code in REGULAR_EVENT_DESCRIPTIONS]
         if details:
-            return f"{base} Regular modes allowed for this frame include: {'; '.join(details)}."
+            return f"{base} Regular modes under this road structure include: {'; '.join(details)}."
         return base
     return UE_DESCRIPTIONS.get(label, label)
 

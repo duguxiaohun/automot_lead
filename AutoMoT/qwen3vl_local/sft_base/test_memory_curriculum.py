@@ -19,6 +19,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _p)
 
 from qwen3vl_local.sft_base.memory_curriculum import (
+    RouteMemoryCorruptor,
     event_memory_pool_for_rs,
     maybe_corrupt_memory,
     resample_event_memory_for_q2,
@@ -72,6 +73,25 @@ def _ratio(count: int, total: int) -> float:
     """安全比例。"""
 
     return float(count) / max(float(total), 1.0)
+
+
+def _mean_non_keep_run(labels: List[str]) -> float:
+    """计算非 keep 状态的平均连续段长度。"""
+
+    runs: List[int] = []
+    current = None
+    length = 0
+    for label in labels:
+        if label != current:
+            if current not in {None, "keep"} and length > 0:
+                runs.append(length)
+            current = label
+            length = 1
+        else:
+            length += 1
+    if current not in {None, "keep"} and length > 0:
+        runs.append(length)
+    return sum(runs) / max(1, len(runs))
 
 
 _GT_EVENT_BY_RS = {
@@ -213,6 +233,55 @@ def main() -> None:
     assert 0.30 <= _ratio(q2_event_counts["unknown"], q2_visible_total) <= 0.40, q2_event_counts
     assert 0.30 <= _ratio(q2_event_counts["wrong"], q2_visible_total) <= 0.40, q2_event_counts
     assert 0.25 <= _ratio(q2_event_counts["keep"], q2_visible_total) <= 0.35, q2_event_counts
+
+    def run_stateful_sequence() -> List[Tuple[str, str, str]]:
+        """跑一条 route_state 序列，返回可复现快照。"""
+
+        corruptor = RouteMemoryCorruptor(
+            route_id="state-route",
+            seed=20260724,
+            first_frame_unknown=True,
+            rs_wrong_prob=0.30,
+            rs_unknown_prob=0.40,
+            event_wrong_prob=0.35,
+            event_unknown_prob=0.35,
+            rs_wrong_event_unknown_prob=0.25,
+            memory_dropout_prob=0.0,
+            duration_min=3,
+            duration_max=5,
+        )
+        snapshots: List[Tuple[str, str, str]] = []
+        for idx in range(2000):
+            gt_rs = rs_stream[idx % len(rs_stream)]
+            gt_event = _GT_EVENT_BY_RS[gt_rs]
+            frame = _make_frame(idx, gt_rs, gt_event)
+            base = Memory(rs_label=gt_rs, event_label=gt_event)
+            mem = corruptor.corrupt(base, frame=frame, frame_pos=idx)
+            after_q1 = update_memory_after_q1(mem, student_rs_label=gt_rs)
+            q2_mem = corruptor.resample_event_for_q2(after_q1, frame=frame, keep_event_label=gt_event)
+            if idx == 0:
+                assert (mem.rs_label, mem.event_label, mem.hide_priors) == ("UNKNOWN", "UNKNOWN", False), mem
+            assert q2_mem.event_label == "UNKNOWN" or q2_mem.event_label in event_memory_pool_for_rs(frame, q2_mem.rs_label), q2_mem
+            if idx == 0:
+                rs_mode = "unknown"
+                event_mode = "unknown"
+            else:
+                rs_mode = corruptor.rs_state.mode
+                event_mode = corruptor.q2_event_state.mode
+            snapshots.append((rs_mode, event_mode, q2_mem.event_label))
+        return snapshots
+
+    stateful_a = run_stateful_sequence()
+    stateful_b = run_stateful_sequence()
+    assert stateful_a == stateful_b, "route_state memory 必须同 route/seed 可复现"
+    rs_modes = [item[0] for item in stateful_a[1:]]
+    event_modes = [item[1] for item in stateful_a[1:]]
+    assert 3.0 <= _mean_non_keep_run(rs_modes) <= 10.0, _mean_non_keep_run(rs_modes)
+    assert 3.0 <= _mean_non_keep_run(event_modes) <= 10.0, _mean_non_keep_run(event_modes)
+    assert 0.25 <= _ratio(sum(1 for x in rs_modes if x == "wrong"), len(rs_modes)) <= 0.40, rs_modes[:20]
+    assert 0.30 <= _ratio(sum(1 for x in rs_modes if x == "unknown"), len(rs_modes)) <= 0.50, rs_modes[:20]
+    assert 0.25 <= _ratio(sum(1 for x in event_modes if x == "wrong"), len(event_modes)) <= 0.45, event_modes[:20]
+    assert 0.30 <= _ratio(sum(1 for x in event_modes if x == "unknown"), len(event_modes)) <= 0.50, event_modes[:20]
 
     # 转折帧不能把“本帧答案”塞进 prompt memory。RS keep 应沿用上一帧 RS；
     # Q2 EVENT keep 应沿用上一帧 EVENT，只允许 wrong 分支偶然撞上当前答案。

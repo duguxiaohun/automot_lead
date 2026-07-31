@@ -6,7 +6,9 @@
 
 当前协议使用固定语义 token 作为答案，例如 `RS: SIGNAL_INTERSECTION`、
 `EVENT: RULE_VIOLATION`。**代码里已经完全没有 A/B/C 选项字母**：Q2 候选在数据里
-就是有序 list `event_candidates_ordered`，顺序即 prompt 展示顺序。
+就是有序 list `event_candidates_ordered`，顺序即 prompt 展示顺序。当前协议下
+Q2 候选固定来自当前 RS 的静态候选全集；逐帧 `allowed_events` 只保留为 GT 解析和
+audit 字段，不参与出题，避免候选长度直接泄漏“本帧有没有异常”。
 
 因此必须先重新构建数据，再重新训练：
 
@@ -50,6 +52,15 @@ python qwen3vl_local/sft_base/build_dataset.py \
   --max-frames-per-route 4
 ```
 
+重建数据前可先扫一遍 RS x UE 共现，检查静态候选表是否漏掉真实组合。该脚本复用
+`build_dataset.py` 的异常时长 / 数据缺失 route 过滤口径：
+
+```bash
+python qwen3vl_local/sft_base/audit_rs_event_cooccurrence.py \
+  --collection-dir keyframe_filter/collection_output \
+  --output-json checkpoints/sft_base_data/rs_event_cooccurrence.json
+```
+
 ## 2. 静态检查
 
 ```bash
@@ -81,9 +92,10 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 - 首帧 memory 使用 `UNKNOWN`，不再白送 GT RS。
 - 训练 prompt 中的 `BELIEVED_RS/BELIEVED_EVENT` 会按高概率置错或置为 `UNKNOWN`，让抄 memory 不再稳定拿高分；Q1 只显示 `BELIEVED_RS`，Q2 才显示并使用 `BELIEVED_EVENT`。
 - 另有 `MEMORY_DROPOUT_PROB` 会作为独立第一层整块隐藏离散先验，只保留 `EGO_TO_GOAL_XY`，制造必须看图的帧；route 首帧固定 UNKNOWN/UNKNOWN，不参与 dropout 或 EVENT 扰动。
+- 默认 `MEMORY_PERTURBATION_MODE=route_state`：wrong/UNKNOWN 会在同一 route 内连续保持 3-5 个真实帧，到期恢复干净 GT 轨迹；`frame` 模式保留旧逐帧独立扰动，主要作消融。
 - Q1 用 GT RS 更新后，训练侧会为 Q2 在当前 RS 池里单独重采 EVENT memory；keep 分支沿用进入本帧前的干净 EVENT memory（上一帧 GT），防止“扰动 RS 被纠正回 GT”把 Q2 EVENT memory 大量失效成 UNKNOWN，也防止 EVENT 转折帧把本帧答案写进 prompt。
 - `RE->UE`、`UE->RE`、RS 变化帧及其前后 3 帧会被重点重复训练。
-- Q1 只监督 RS；Q2 的 UE loss 提高，同时 RE loss 降低但不置零；单候选 Q2 帧跳过 Q2 turn，不消耗 loss 分母。
+- Q1 只监督 RS；Q2 训练所有 GT 在候选表里的帧。单候选 RE 低权重保温，多候选 RE 保留为压 UE 假阳性的硬负样本，UE 保持高权重。
 
 当前默认值：
 
@@ -96,10 +108,16 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 | `MEMORY_EVENT_UNKNOWN_PROB` | `0.35` | 非首帧把 EVENT memory 置为 UNKNOWN 的概率 |
 | `RS_WRONG_EVENT_UNKNOWN_PROB` | `0.25` | RS 被置错时，EVENT 置 UNKNOWN 而不是从新 RS 候选池抽错项的概率 |
 | `MEMORY_DROPOUT_PROB` | `0.15` | 非首帧独立触发隐藏 RS/EVENT memory、只保留导航 goal 的概率 |
+| `MEMORY_PERTURBATION_MODE` | `route_state` | route 级块状扰动；设 `frame` 可回到旧逐帧独立扰动 |
+| `MEMORY_PERTURB_DURATION_MIN/MAX` | `3` / `5` | wrong/UNKNOWN/keep 段的真实帧长度采样范围 |
 | `TRANSITION_FRAME_REPEAT` | `4` | 转折邻域帧最少重复次数 |
 | `TRANSITION_FRAME_WINDOW` | `3` | 转折点前后纳入重复的窗口半径 |
 | `UE_EVENT_LOSS_WEIGHT` | `4.0` | Q2 UE token loss 权重 |
-| `RE_EVENT_LOSS_WEIGHT` | `0.5` | Q2 RE token loss 权重；不建议设为 0 |
+| `RE_EVENT_LOSS_WEIGHT` | `1.0` | Q2 多候选 RE 硬负样本 token loss 权重；不建议设为 0 |
+| `SINGLE_CANDIDATE_RE_SCALE` | `0.1` | 单候选 RE 相对 `RE_EVENT_LOSS_WEIGHT` 的缩放，默认有效权重 0.1 |
+| `UE_FRAME_REPEAT` | `2` | UE 子类重复训练的基础倍率 |
+| `UE_REPEAT_MODE` | `inverse_sqrt` | UE repeat 模式；`inverse_sqrt` 按子类逆频率放大长尾，`fixed` 保留旧固定 repeat |
+| `UE_REPEAT_MAX` | `8` | UE 子类逆频率重复次数上限 |
 
 如果要更激进地打断 memory-copy，可以临时提高扰动：
 
@@ -108,7 +126,7 @@ MEMORY_DROPOUT_PROB=0.25 MEMORY_RS_UNKNOWN_PROB=0.50 MEMORY_RS_WRONG_PROB=0.35 \
 GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
 ```
 
-`UE_EVENT_LOSS_WEIGHT` 不建议无限拉高，`RE_EVENT_LOSS_WEIGHT` 也不建议直接设为 0；否则模型可能从“全 REGULAR”翻到“全 UE”。更关键的是转折邻域重复和 memory 扰动。训练日志和 TensorBoard 会写 `train/q2_ue_rate_last_batch`，用于确认本轮 batch 里确实喂到了 UE 监督。
+`UE_EVENT_LOSS_WEIGHT` 不建议无限拉高，`RE_EVENT_LOSS_WEIGHT` 也不建议直接设为 0；否则模型可能从“全 REGULAR”翻到“全 UE”。多候选 RE 是最重要的硬负样本，用来约束“候选里有 UE 但画面不支持 UE”的假阳性。训练日志和 TensorBoard 会写 `train/q2_ue_rate_last_batch`，用于确认本轮 batch 里确实喂到了 UE 监督。
 
 ```bash
 LORA_VISION_SCOPE=off GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
@@ -156,6 +174,7 @@ TB_EXTRA="--samples_per_plugin images=200" bash qwen3vl_local/tb_serve.sh checkp
 | `train/loss` | optimizer step 后的全局平均训练 loss |
 | `train/q2_rate_last_batch` | 最近一次同步 batch 中包含 Q2 的帧比例 |
 | `train/q2_ue_rate_last_batch` | 最近一次 Q2 监督中 UE 帧比例，用于排查 UE 是否被 RE 淹没 |
+| `train/q2_ue_weight_share_last_batch` | 最近一次 Q2 监督中 UE loss 权重占比；配合 `ue_fp_on_multi_candidate_re_rate` 判断 RE 权重是否压得过低 |
 | `train/grad_norm/language` | 语言 LoRA 梯度范数 |
 | `train/grad_norm/vision` | 视觉 LoRA/merger 相关梯度范数；`LORA_VISION_SCOPE=off` 时可能没有 |
 | `train/param_norm/lora_vision` | 视觉侧可训练参数范数，用于观察 fuse 是否异常漂移 |
@@ -175,7 +194,7 @@ checkpoints/sft_base_runs/latest/log.txt
 
 ## 5. 评估
 
-评估分三类，并且完全不做脚本纠正：Q1 预测错 RS 时只跳过当前帧 Q2，下一帧继续沿用模型自己维护出的 memory；Q2 输出非法时也不重置。
+评估分三类，并且完全不做脚本纠正：Q1 预测错 RS 时仍按学生 RS 静态候选全集构造并继续询问当前帧 Q2，下一帧继续沿用模型自己维护出的 memory；Q2 输出非法时也不重置。
 
 日常只需要改三类东西：
 
@@ -200,6 +219,8 @@ checkpoints/sft_base_runs/latest/log.txt
 | `--model-dir` | `checkpoints/Qwen3-VL-4B-Instruct` |
 | `--adapter-dir` | 默认 `None`；不传时评估 base 模型 |
 | `--task` | 无默认值，每次必须指定；`full` 等价于 `--eval-mode full_route` |
+| `--image-ablation` | `none`；可设 `black/random` 做视觉消融 |
+| `--ablate-goal` | `False`；设为 true 时隐藏 `EGO_TO_GOAL_XY`，可与黑图组合测导航文本捷径 |
 | `--output-dir` | 默认自动生成；手动指定时会在该目录写 `metrics.json`、`frames.jsonl`、`summary.md` |
 | RS/EVENT 转折 case 数 | `128` |
 | full_route 随机 route 数 | `16` |
@@ -225,6 +246,16 @@ GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
   --output-dir checkpoints/sft_base_base_eval/full_original
 ```
 
+黑图 + no-goal 消融建议单独放目录，和原图结果成对比较：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
+  --task full \
+  --image-ablation black \
+  --ablate-goal \
+  --output-dir checkpoints/sft_base_base_eval/full_black_no_goal
+```
+
 三个文件的用途：
 
 | 文件 | 用途 |
@@ -232,6 +263,10 @@ GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
 | `metrics.json` | 汇总指标，适合后续脚本读取和横向对比 |
 | `frames.jsonl` | 逐帧复盘，包含 GT/PRED RS、GT/PRED EVENT、原始生成文本、转折窗口和 case summary |
 | `summary.md` | 中文摘要，包含本次任务、adapter、保存路径、关键指标和指标解释 |
+
+`metrics.json` 里还会写 `q2_candidate_count_report` 与
+`q2_rs_candidate_count_report`，分别按候选数、RS×候选数分层统计 EVENT acc 与
+UE-vs-RE P/R/F1；R3 单选题和 R4/R5 的 6 选 1 不会再混在一个 event_acc 里。
 
 评估结束后，rank0 终端会打印：
 
@@ -416,6 +451,10 @@ dataset version、base model path 或 vision scope 不匹配，会直接报错�
 | `event_acc_multi_candidate` | 排除单候选送分题后的 EVENT 准确率 |
 | `event_pred_ue_rate_multi_candidate` | 排除单候选送分题后的 UE 输出比例 |
 | `ue_vs_re_f1_multi_candidate` | 排除单候选送分题后的 UE-vs-RE F1 |
+| `event_acc_single_re` / `event_acc_single_ue` | 单候选 RE/UE 的 EVENT 准确率 |
+| `event_acc_multi_re` / `event_acc_multi_ue` | 多候选 RE 硬负样本 / UE 硬正样本的 EVENT 准确率 |
+| `ue_fp_on_multi_candidate_re_rate` | 多候选 RE 帧被误报成 UE 的比例，越低越好 |
+| `single_candidate_invalid_rate` | 单候选题输出候选外 token 的比例 |
 | `dataset_candidate_mismatch_rate` / `dataset_candidate_mismatch_ue_rate` | GT EVENT 不在 dataset 自己候选表中的比例；这些帧不进 EVENT 评分分母 |
 | `q2_single_candidate_rate` / `q2_multi_candidate_rate` | Q2 单候选送分题比例 / 真正需要判别的多候选比例 |
 | `rs_change_f1` | 相邻帧 RS 是否变化的 F1；同时约束该切和不该切 |

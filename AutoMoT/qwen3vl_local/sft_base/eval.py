@@ -416,13 +416,22 @@ def _apply_initial_memory_noise(memory: Memory, frame: Any, args: argparse.Names
     return mem
 
 
+def _eval_goal_xy(frame: Any, args: argparse.Namespace) -> Optional[List[float]]:
+    """按 eval 消融设置返回学生可见的导航目标。"""
+
+    if bool(getattr(args, "ablate_goal", False)):
+        return None
+    return frame.ego_to_goal_xy
+
+
 def _initial_memory_for_frame(frame: Any, args: argparse.Namespace, case: EvalCase) -> Memory:
     """创建评估片段首帧 memory，默认 UNKNOWN 冷启动。"""
 
+    goal_xy = _eval_goal_xy(frame, args)
     if str(args.initial_memory_noise) == "unknown":
-        return refresh_memory_goal(Memory(rs_label="UNKNOWN", event_label="UNKNOWN"), frame.ego_to_goal_xy)
+        return refresh_memory_goal(Memory(rs_label="UNKNOWN", event_label="UNKNOWN"), goal_xy)
     rs_target = _rs_target_from_frame(frame)
-    memory = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
+    memory = reset_memory_for_frame(rs_target, ego_to_goal_xy=goal_xy)
     return _apply_initial_memory_noise(memory, frame, args, case)
 
 
@@ -735,6 +744,7 @@ def _write_frame_record(
         "transition_target_abnormal": case.target_abnormal,
         "initial_memory_noise": args.initial_memory_noise,
         "image_ablation": getattr(args, "image_ablation", "none"),
+        "goal_ablation": bool(getattr(args, "ablate_goal", False)),
         "gt_rs": frame.rs_label,
         "pred_rs": parsed_q1.get("rs_label"),
         "pred_rs_token": parsed_q1.get("rs_token"),
@@ -784,7 +794,7 @@ def _evaluate_case(
             memory = _initial_memory_for_frame(frame, args, case)
             counters["initial_noise_cases"] += int(args.initial_memory_noise != "none")
         else:
-            memory = refresh_memory_goal(memory, frame.ego_to_goal_xy)
+            memory = refresh_memory_goal(memory, _eval_goal_xy(frame, args))
 
         images = _apply_image_ablation(_load_images(frame.history_rgb_paths), args, case, frame)
         q1_text, q1_after = _generate_start(
@@ -822,7 +832,7 @@ def _evaluate_case(
             seed=int(args.seed),
         )
         counters[f"q2_candidate_source_{candidate_source}"] += 1
-        counters["q2_candidates_from_pred_rs"] += int(candidate_source in {"pred_rs_allowed_events", "pred_rs_static_candidates"})
+        counters["q2_candidates_from_pred_rs"] += int(candidate_source == "pred_rs_static_candidates")
         is_multi_candidate = len(q2_candidates) > 1
         counters["q2_single_candidate"] += int(not is_multi_candidate)
         counters["q2_multi_candidate"] += int(is_multi_candidate)
@@ -850,8 +860,39 @@ def _evaluate_case(
         pred_ue = pred_event_label not in {"RE", "INVALID"}
         gt_ue = bool(frame.abnormal)
         if event_score_valid:
+            candidate_count_bucket = min(10, max(1, len(q2_candidates)))
+            bucket_prefix = f"q2_candidate_count_{candidate_count_bucket}"
+            counters[f"{bucket_prefix}_total"] += 1
+            counters[f"{bucket_prefix}_correct"] += int(bool(event_ok))
+            if pred_ue and gt_ue:
+                counters[f"{bucket_prefix}_ue_tp"] += 1
+            elif pred_ue and not gt_ue:
+                counters[f"{bucket_prefix}_ue_fp"] += 1
+            elif (not pred_ue) and gt_ue:
+                counters[f"{bucket_prefix}_ue_fn"] += 1
+            else:
+                counters[f"{bucket_prefix}_ue_tn"] += 1
+            rs_bucket_prefix = f"q2_rs_{frame.rs_label}_candidate_count_{candidate_count_bucket}"
+            counters[f"{rs_bucket_prefix}_total"] += 1
+            counters[f"{rs_bucket_prefix}_correct"] += int(bool(event_ok))
+            if pred_ue and gt_ue:
+                counters[f"{rs_bucket_prefix}_ue_tp"] += 1
+            elif pred_ue and not gt_ue:
+                counters[f"{rs_bucket_prefix}_ue_fp"] += 1
+            elif (not pred_ue) and gt_ue:
+                counters[f"{rs_bucket_prefix}_ue_fn"] += 1
+            else:
+                counters[f"{rs_bucket_prefix}_ue_tn"] += 1
             cm_pred_event = pred_event_label if event_reachable else "UNREACHABLE"
             counters[f"event_cm_{target.label}_{cm_pred_event}"] += 1
+            cell_prefix = "q2_multi" if is_multi_candidate else "q2_single"
+            gt_prefix = "ue" if gt_ue else "re"
+            counters[f"{cell_prefix}_{gt_prefix}_total"] += 1
+            counters[f"{cell_prefix}_{gt_prefix}_correct"] += int(bool(event_ok))
+            if (not is_multi_candidate) and parsed_q2.get("event_label") is None:
+                counters["q2_single_candidate_invalid"] += 1
+            if is_multi_candidate and (not gt_ue) and pred_ue:
+                counters["ue_fp_on_multi_candidate_re"] += 1
             if pred_ue and gt_ue:
                 counters["ue_binary_tp"] += 1
             elif pred_ue and not gt_ue:
@@ -1008,7 +1049,6 @@ def _new_counters() -> Dict[str, int]:
         "q2_pred_ue": 0,
         "q2_pred_invalid": 0,
         "q2_candidates_from_pred_rs": 0,
-        "q2_candidate_source_pred_rs_allowed_events": 0,
         "q2_candidate_source_pred_rs_static_candidates": 0,
         "q2_candidate_source_invalid_rs_fallback": 0,
         "q2_single_candidate": 0,
@@ -1018,6 +1058,16 @@ def _new_counters() -> Dict[str, int]:
         "q2_pred_re_multi_candidate": 0,
         "q2_pred_ue_multi_candidate": 0,
         "q2_pred_invalid_multi_candidate": 0,
+        "q2_single_re_total": 0,
+        "q2_single_re_correct": 0,
+        "q2_single_ue_total": 0,
+        "q2_single_ue_correct": 0,
+        "q2_multi_re_total": 0,
+        "q2_multi_re_correct": 0,
+        "q2_multi_ue_total": 0,
+        "q2_multi_ue_correct": 0,
+        "q2_single_candidate_invalid": 0,
+        "ue_fp_on_multi_candidate_re": 0,
         "event_unreachable_due_to_rs": 0,
         "ue_binary_tp": 0,
         "ue_binary_fp": 0,
@@ -1080,6 +1130,22 @@ def _new_counters() -> Dict[str, int]:
     for gt in _EVENT_TRANSITION_LABELS:
         for pred in _EVENT_TRANSITION_LABELS:
             counters[f"event_transition_dir_cm_{gt}_{pred}"] = 0
+    for n in range(1, 11):
+        prefix = f"q2_candidate_count_{n}"
+        counters[f"{prefix}_total"] = 0
+        counters[f"{prefix}_correct"] = 0
+        counters[f"{prefix}_ue_tp"] = 0
+        counters[f"{prefix}_ue_fp"] = 0
+        counters[f"{prefix}_ue_fn"] = 0
+        counters[f"{prefix}_ue_tn"] = 0
+        for rs in RS_LABELS:
+            rs_prefix = f"q2_rs_{rs}_candidate_count_{n}"
+            counters[f"{rs_prefix}_total"] = 0
+            counters[f"{rs_prefix}_correct"] = 0
+            counters[f"{rs_prefix}_ue_tp"] = 0
+            counters[f"{rs_prefix}_ue_fp"] = 0
+            counters[f"{rs_prefix}_ue_fn"] = 0
+            counters[f"{rs_prefix}_ue_tn"] = 0
     return counters
 
 
@@ -1157,9 +1223,14 @@ def _eval_result_group(args: argparse.Namespace) -> str:
     """生成自动输出的任务目录名，图像消融会单独分目录。"""
 
     stem = _eval_stem(args.eval_mode)
+    suffixes: List[str] = []
     ablation = str(getattr(args, "image_ablation", "none"))
     if ablation != "none":
-        return f"{stem}_{ablation}"
+        suffixes.append(ablation)
+    if bool(getattr(args, "ablate_goal", False)):
+        suffixes.append("no_goal")
+    if suffixes:
+        return f"{stem}_{'_'.join(suffixes)}"
     return stem
 
 
@@ -1329,6 +1400,57 @@ def _build_metrics(
     )
     rs_report = _multiclass_report(counters, prefix="rs", labels=RS_LABELS, pred_labels=_RS_CM_LABELS)
     event_report = _multiclass_report(counters, prefix="event", labels=_EVENT_LABELS, pred_labels=_EVENT_CM_LABELS)
+    rs_gt_r3_total = sum(counters.get(f"rs_cm_R3_{pred}", 0) for pred in _RS_CM_LABELS)
+    rs_pred_r3_total = sum(counters.get(f"rs_cm_{gt}_R3", 0) for gt in _RS_CM_LABELS)
+    rs_r3_tp = counters.get("rs_cm_R3_R3", 0)
+    candidate_count_report: Dict[str, Dict[str, Any]] = {}
+    rs_candidate_count_report: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for n in range(1, 11):
+        prefix = f"q2_candidate_count_{n}"
+        total = counters.get(f"{prefix}_total", 0)
+        if total <= 0:
+            continue
+        prf = _prf(
+            counters.get(f"{prefix}_ue_tp", 0),
+            counters.get(f"{prefix}_ue_fp", 0),
+            counters.get(f"{prefix}_ue_fn", 0),
+        )
+        candidate_count_report[str(n)] = {
+            "total": total,
+            "accuracy": counters.get(f"{prefix}_correct", 0) / max(1, total),
+            "ue_vs_re_tp": counters.get(f"{prefix}_ue_tp", 0),
+            "ue_vs_re_fp": counters.get(f"{prefix}_ue_fp", 0),
+            "ue_vs_re_fn": counters.get(f"{prefix}_ue_fn", 0),
+            "ue_vs_re_tn": counters.get(f"{prefix}_ue_tn", 0),
+            "ue_vs_re_precision": prf["precision"],
+            "ue_vs_re_recall": prf["recall"],
+            "ue_vs_re_f1": prf["f1"],
+        }
+    for rs in RS_LABELS:
+        rs_report_by_count: Dict[str, Dict[str, Any]] = {}
+        for n in range(1, 11):
+            prefix = f"q2_rs_{rs}_candidate_count_{n}"
+            total = counters.get(f"{prefix}_total", 0)
+            if total <= 0:
+                continue
+            prf = _prf(
+                counters.get(f"{prefix}_ue_tp", 0),
+                counters.get(f"{prefix}_ue_fp", 0),
+                counters.get(f"{prefix}_ue_fn", 0),
+            )
+            rs_report_by_count[str(n)] = {
+                "total": total,
+                "accuracy": counters.get(f"{prefix}_correct", 0) / max(1, total),
+                "ue_vs_re_tp": counters.get(f"{prefix}_ue_tp", 0),
+                "ue_vs_re_fp": counters.get(f"{prefix}_ue_fp", 0),
+                "ue_vs_re_fn": counters.get(f"{prefix}_ue_fn", 0),
+                "ue_vs_re_tn": counters.get(f"{prefix}_ue_tn", 0),
+                "ue_vs_re_precision": prf["precision"],
+                "ue_vs_re_recall": prf["recall"],
+                "ue_vs_re_f1": prf["f1"],
+            }
+        if rs_report_by_count:
+            rs_candidate_count_report[rs] = rs_report_by_count
     rs_change = _change_report(counters, "rs_change")
     re_to_ue = _change_report(counters, "re_to_ue")
     ue_to_re = _change_report(counters, "ue_to_re")
@@ -1338,6 +1460,7 @@ def _build_metrics(
     return {
         "eval_mode": args.eval_mode,
         "image_ablation": str(getattr(args, "image_ablation", "none")),
+        "goal_ablation": bool(getattr(args, "ablate_goal", False)),
         "script_correction": "none",
         "initial_memory": str(args.initial_memory_noise),
         "event_gate_uses_ground_truth": False,
@@ -1353,6 +1476,9 @@ def _build_metrics(
         "rs_visual_gain_over_first_pred_lock": rs_acc - rs_first_pred_baseline,
         "rs_pred_change_rate": counters["rs_pred_change_count"] / change_den,
         "rs_gt_change_rate": counters["rs_gt_change_count"] / change_den,
+        "rs_gt_r3_rate": rs_gt_r3_total / frames,
+        "rs_pred_r3_rate": rs_pred_r3_total / frames,
+        "rs_r3_precision": rs_r3_tp / max(1, rs_pred_r3_total),
         "rs_change_precision": rs_change["precision"],
         "rs_change_recall": rs_change["recall"],
         "rs_change_f1": rs_change["f1"],
@@ -1374,6 +1500,12 @@ def _build_metrics(
         "event_pred_re_rate_multi_candidate": counters["q2_pred_re_multi_candidate"] / q2_multi_total,
         "event_pred_ue_rate_multi_candidate": counters["q2_pred_ue_multi_candidate"] / q2_multi_total,
         "event_pred_invalid_rate_multi_candidate": counters["q2_pred_invalid_multi_candidate"] / q2_multi_total,
+        "event_acc_single_re": counters["q2_single_re_correct"] / max(1, counters["q2_single_re_total"]),
+        "event_acc_single_ue": counters["q2_single_ue_correct"] / max(1, counters["q2_single_ue_total"]),
+        "event_acc_multi_re": counters["q2_multi_re_correct"] / max(1, counters["q2_multi_re_total"]),
+        "event_acc_multi_ue": counters["q2_multi_ue_correct"] / max(1, counters["q2_multi_ue_total"]),
+        "single_candidate_invalid_rate": counters["q2_single_candidate_invalid"] / max(1, counters["q2_single_re_total"] + counters["q2_single_ue_total"]),
+        "ue_fp_on_multi_candidate_re_rate": counters["ue_fp_on_multi_candidate_re"] / max(1, counters["q2_multi_re_total"]),
         "dataset_candidate_mismatch_rate": counters["dataset_candidate_mismatch"] / frames,
         "dataset_candidate_mismatch_ue_rate": counters["dataset_candidate_mismatch_ue"] / max(1, counters["event_gt_ue_frames"]),
         "dataset_candidate_mismatch_re_rate": counters["dataset_candidate_mismatch_re"] / max(1, counters["event_gt_re_frames"]),
@@ -1383,6 +1515,8 @@ def _build_metrics(
         "q2_single_candidate_rate": counters["q2_single_candidate"] / frames,
         "q2_multi_candidate_rate": counters["q2_multi_candidate"] / frames,
         "q2_multi_candidate_scored_rate": counters["q2_multi_candidate_scored"] / frames,
+        "q2_candidate_count_report": candidate_count_report,
+        "q2_rs_candidate_count_report": rs_candidate_count_report,
         "event_confusion_report": event_report,
         "ue_acc": counters["q2_ue_correct"] / max(1, counters["q2_ue_total"]),
         "re_acc": counters["q2_re_correct"] / max(1, counters["q2_re_total"]),
@@ -1529,6 +1663,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-transition-cases", type=int, default=0)
     p.add_argument("--initial-memory-noise", choices=["unknown", "none", "rs", "event", "both", "random"], default="unknown")
     p.add_argument("--image-ablation", choices=["none", "black", "random"], default="none")
+    p.add_argument("--ablate-goal", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--seed", type=int, default=20260724)
     p.add_argument("--max-new-tokens-q1", type=int, default=32)
     p.add_argument("--max-new-tokens-q2", type=int, default=24)
@@ -1592,6 +1727,9 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
         ("rs_visual_gain_over_first_pred_lock", "RS 相对锁死首帧预测基线的净增益"),
         ("rs_pred_change_rate", "预测 RS 帧间变化率"),
         ("rs_gt_change_rate", "GT RS 帧间变化率"),
+        ("rs_pred_r3_rate", "预测为 R3 的帧比例，用于监控高速/匝道 shortcut"),
+        ("rs_gt_r3_rate", "GT 为 R3 的帧比例"),
+        ("rs_r3_precision", "预测 R3 时真正为 R3 的比例，越低越说明 R3 假阳性严重"),
         ("rs_change_f1", "相邻帧 RS 变化检测 F1，衡量该切与不该切是否都判断对"),
         ("rs_false_transition_rate_when_gt_stable", "GT RS 未变化时预测假转折的比例，越低越好"),
         ("rs_locked_case_rate", "整段预测 RS 完全不变的 case 比例"),
@@ -1601,6 +1739,12 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
         ("event_pred_ue_rate", "Q2 输出 UE token 的比例"),
         ("event_acc_multi_candidate", "排除单候选送分题后的 EVENT 准确率"),
         ("event_pred_ue_rate_multi_candidate", "排除单候选送分题后的 UE 输出比例"),
+        ("event_acc_single_re", "单候选 RE 帧 EVENT 准确率，主要检查格式/抄唯一候选能力"),
+        ("event_acc_single_ue", "单候选 UE 帧 EVENT 准确率，检查纯 UE 正样本是否被学到"),
+        ("event_acc_multi_re", "多候选 RE 硬负样本准确率，越低越说明 UE 假阳性严重"),
+        ("event_acc_multi_ue", "多候选 UE 硬正样本准确率"),
+        ("ue_fp_on_multi_candidate_re_rate", "多候选 RE 帧被误报成 UE 的比例，越低越好"),
+        ("single_candidate_invalid_rate", "单候选题输出候选外 token 的比例"),
         ("ue_vs_re_f1", "由 EVENT 折叠出的 UE-vs-RE 二分类 F1"),
         ("ue_vs_re_f1_multi_candidate", "排除单候选送分题后的 UE-vs-RE 二分类 F1"),
         ("dataset_candidate_mismatch_rate", "GT EVENT 不在 dataset 自己候选表中的帧比例；这些帧不进 EVENT 评分"),
@@ -1611,7 +1755,7 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
         ("event_unreachable_due_to_rs_rate", "GT EVENT 在学生 RS 候选下不可达的比例"),
         ("q2_single_candidate_rate", "Q2 只有一个候选的帧比例"),
         ("q2_multi_candidate_rate", "Q2 有多个候选、真正需要判别的帧比例"),
-        ("q2_candidates_from_pred_rs_rate", "因学生 RS 与 GT RS 不同而重建 Q2 候选的比例"),
+        ("q2_candidates_from_pred_rs_rate", "按有效学生 RS 生成静态 Q2 候选的比例"),
         ("q2_trigger_rate", "进入 Q2 的比例；新协议应接近 100%"),
         ("ue_pred_regular_rate", "UE 帧进入 Q2 后仍被预测为 REGULAR 的比例，越低越好"),
     ]
@@ -1643,6 +1787,9 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
         ("false_transition_rate_when_gt_stable", "RS/RE->UE/UE->RE 合并后的 GT 稳定帧假转折比例，越低越好"),
         ("event_acc_multi_candidate", "排除单候选送分题后的 EVENT 准确率"),
         ("event_pred_ue_rate_multi_candidate", "排除单候选送分题后的 UE 输出比例"),
+        ("event_acc_multi_re", "多候选 RE 硬负样本准确率"),
+        ("event_acc_multi_ue", "多候选 UE 硬正样本准确率"),
+        ("ue_fp_on_multi_candidate_re_rate", "多候选 RE 帧被误报成 UE 的比例"),
         ("ue_vs_re_f1_multi_candidate", "排除单候选送分题后的 UE-vs-RE F1"),
         ("ue_acc", "UE 帧进入 Q2 后的 EVENT 准确率"),
         ("re_acc", "RE 帧进入 Q2 后的 EVENT 准确率"),
@@ -1663,6 +1810,7 @@ def _write_summary(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.N
         f"- Index：`{args.index}`",
         f"- 多卡数：`{metrics.get('world_size')}`",
         f"- 图像消融：`{metrics.get('image_ablation')}`",
+        f"- 目标坐标消融：`{metrics.get('goal_ablation')}`",
         f"- 首帧 memory：`{metrics.get('initial_memory')}`",
         f"- Q2 GT gate：`{metrics.get('event_gate_uses_ground_truth')}`",
         f"- Q2 候选按学生 RS：`{metrics.get('q2_candidates_use_predicted_rs')}`",
@@ -1688,8 +1836,8 @@ def _write_summary(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.N
             "## 读数提醒",
             "",
             "- `frames.jsonl` 是最重要的排查文件：每一行包含 GT/PRED RS、GT/PRED EVENT、原始生成文本和转折窗口信息。",
-            "- 新协议里 Q2 每帧都问；`q2_trigger_rate` 应接近 100%，`event_unreachable_due_to_rs_rate` 才反映 RS 错导致 EVENT 不可达。",
-            "- 黑图/随机图测试下若 `rs_visual_gain_over_first_pred_lock` 和 `event_visual_gain_over_regular_baseline` 仍接近原图，说明模型主要依赖 memory/语言捷径。",
+            "- 新协议里 Q2 候选由学生 RS 的静态全集决定，逐帧 allowed_events 只用于 GT/审计；`q2_candidate_count_report` 和 `q2_rs_candidate_count_report` 可查看不同候选数量/RS 下的判别能力。",
+            "- 黑图/随机图/no-goal 测试下若 `rs_visual_gain_over_first_pred_lock` 和 `event_visual_gain_over_regular_baseline` 仍接近原图，说明模型主要依赖 memory/语言捷径。",
             "- `event_pred_ue_rate` 长期接近 0，是 EVENT 坍缩到 REGULAR 的直接信号；ABNORMAL 已从 Q1 协议删除。",
             "- `*_hit_offset_avg` 为负表示模型提前切换，为正表示滞后切换。",
             "- `script_correction` 应为 `none`，表示评测没有脚本纠偏。",

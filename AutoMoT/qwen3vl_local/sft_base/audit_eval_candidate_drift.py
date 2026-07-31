@@ -4,8 +4,9 @@
   python qwen3vl_local/sft_base/audit_eval_candidate_drift.py \
     --index checkpoints/sft_base_data/val_sequence_index.jsonl
 
-脚本不加载模型，只假设 pred_rs == gt_rs，比较 eval 当前候选构造与 build_dataset
-写入的 `event_candidates_ordered` 是否一致，用于决定是否需要把训练侧也统一成同一过滤口径。
+脚本不加载模型，只假设 pred_rs == gt_rs，比较 eval 当前静态 RS 候选构造与
+build_dataset 写入的 `event_candidates_ordered` 是否一致。正常情况下 set/order
+mismatch 与 scoreable unreachable 都应接近 0；逐帧 allowed_events 只作为 GT/审计字段。
 """
 
 from __future__ import annotations
