@@ -82,11 +82,14 @@ EVENT_CANDIDATES_BY_RS: Dict[str, List[str]] = {
     # 这里保留原始 R-E*/U-E* 候选表，而不是直接写 prompt 里的 RE。
     # 原因是 build_dataset 还需要保存 event_code / regular_event_codes 供审计；
     # 真正给学生看的选项会在 collapse_regular_to_re 里把所有 R-E* 折成一个 RE。
-    "R1": ["R-E1", "R-E2", "U-E1", "U-E2", "U-E3", "U-E4"],
+    # UE 静态表按 2026-07 全量共现审计的严格口径维护：过滤异常/缺失 route 后，
+    # 仅保留 count >= 20 且占该 RS 帧数 rate >= 0.1% 的 RS x UE 组合。低频/零频
+    # 组合交给 dataset_candidate_mismatch 剔除，不作为所有该 RS 帧的永久干扰项。
+    "R1": ["R-E1", "R-E2", "U-E1", "U-E2", "U-E3", "U-E4", "U-E5"],
     "R2": ["R-E1", "R-E2", "U-E2", "U-E4", "U-E5"],
     "R3": ["R-E1", "R-E2", "R-E3"],
-    "R4": ["R-E4", "U-E2", "U-E4", "U-E6", "U-E7", "U-E8"],
-    "R5": ["R-E5", "U-E4", "U-E5", "U-E6", "U-E7", "U-E8"],
+    "R4": ["R-E4", "U-E4", "U-E6", "U-E7", "U-E8"],
+    "R5": ["R-E5", "U-E4", "U-E5", "U-E7", "U-E8"],
 }
 
 RS_REGULAR_EVENTS: Dict[str, List[str]] = {
