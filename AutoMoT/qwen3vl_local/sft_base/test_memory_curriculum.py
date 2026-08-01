@@ -364,8 +364,17 @@ def main() -> None:
 
     q1_prompt = build_q1_prompt(Memory(rs_label="R4", event_label="U-E6"))
     q2_prompt = build_q2_prompt(Memory(rs_label="R4", event_label="U-E6"), candidates=["R-E4", "U-E6"])
+    r3_q2_prompt = build_q2_prompt(Memory(rs_label="R3", event_label="R-E1"), candidates=["R-E1", "R-E3", "R-E2"])
     assert "BELIEVED_EVENT" not in q1_prompt, q1_prompt
     assert "BELIEVED_EVENT" in q2_prompt, q2_prompt
+    assert "BELIEVED_RS: SIGNAL_INTERSECTION\n" in q2_prompt, q2_prompt
+    assert "BELIEVED_EVENT: RULE_VIOLATION\n" in q2_prompt, q2_prompt
+    assert "Regular traffic-light compliance" in q2_prompt, q2_prompt
+    assert "BELIEVED_EVENT: RULE_VIOLATION - Regular traffic-light compliance" not in q2_prompt, q2_prompt
+    assert "Choose a regular-driving token only if none" in q2_prompt, q2_prompt
+    assert "Choose a regular-driving token only if none" not in r3_q2_prompt, r3_q2_prompt
+    assert "Use HIGHWAY_MANEUVER when lateral motion happens as part of a highway branch action" in r3_q2_prompt, r3_q2_prompt
+    assert "Use LANE_CHANGE only for an ordinary adjacent-lane move on the mainline" in r3_q2_prompt, r3_q2_prompt
 
     # R1->R3 不能是确定性规则；R3->R1 必须保留为定向对抗。
     import random

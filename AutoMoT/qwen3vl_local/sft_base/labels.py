@@ -47,32 +47,28 @@ RS_DESCRIPTIONS: Dict[str, str] = {
     # 直接按内部 R1-R5 索引。旧版本这里按 A-E 索引，需要先 label -> letter 再取描述；
     # token 协议下字母已经没有任何作用，多一层映射只会制造对不齐的机会。
     "R1": (
-        "Ordinary same-direction drivable road: the ego vehicle is mainly following, "
-        "lane-keeping, making same-direction lane adjustments, or recovering on a normal "
-        "drivable path; there is no dominant intersection rule, traffic-light control, "
-        "highway merge/exit structure, or opposing-lane borrowing requirement."
+        "Ordinary same-direction road: continuous lanes in the same travel direction, "
+        "with parallel lane markings or road edges extending ahead and no nearby junction "
+        "control, branch connector, ramp, or opposing-lane-sharing constraint."
     ),
     "R2": (
-        "Bidirectional single-lane or opposing-lane-sharing road: the usable corridor is "
-        "narrow enough that the oncoming lane affects the decision, including borrowing "
-        "the opposing lane to pass a blockage or yielding because an oncoming vehicle "
-        "invades the ego lane."
+        "Bidirectional narrow or opposing-lane-sharing road: a tight corridor where the "
+        "oncoming lane is part of the usable space, with little separation between ego "
+        "and opposite-direction traffic."
     ),
     "R3": (
-        "Highway, ramp, merge, split, or exit structure: the ego vehicle is in a "
-        "high-speed or ramp-like decision space where speed matching, gap selection, "
-        "target-lane tracking, merging, diverging, or exiting dominates the driving rule."
+        "Highway, ramp, lane-join, split, or exit structure: a high-speed road geometry with "
+        "ramps, acceleration/deceleration lanes, gore areas, lane splits, lane joins, "
+        "or entry/exit connectors."
     ),
     "R4": (
-        "Signalized intersection: the ego vehicle is inside or approaching an intersection "
-        "where working traffic lights are the main right-of-way rule, including red-light "
-        "waiting, green-light crossing, and protected or permissive turning under signal control."
+        "Signalized intersection: an intersection approach or interior where visible, "
+        "working traffic lights define the right-of-way structure."
     ),
     "R5": (
-        "Unsignalized or priority-controlled intersection: the ego vehicle is inside or "
-        "approaching an intersection without a reliable traffic-light rule, so it must use "
-        "stop/yield signs, priority, road geometry, cross traffic, pedestrians, or safe-gap "
-        "reasoning to proceed."
+        "Unsignalized or priority-controlled intersection: an intersection approach or "
+        "interior without a working traffic-light rule, using stop/yield signs, priority "
+        "layout, or road geometry for right-of-way."
     ),
 }
 
@@ -108,24 +104,29 @@ RS_REGULAR_EVENTS: Dict[str, List[str]] = {
 
 REGULAR_EVENT_DESCRIPTIONS: Dict[str, str] = {
     "R-E1": (
-        "Regular lane following: keep lane, follow traffic, maintain safe distance, or match speed "
-        "without a visible short-horizon interruption."
+        "Regular lane following: the ego vehicle stays stably within its current lane or path, "
+        "with no visible lane-line crossing, ramp/exit branch selection, or short-horizon conflict."
     ),
     "R-E2": (
-        "Regular lane-change or recovery maneuver: move toward the target lane, return to lane, "
-        "or finish a normal path adjustment on clear drivable space."
+        "Regular lane change or recovery: the latest frames show lateral movement across lane "
+        "markings or between adjacent lanes, returning to a lane, or completing a normal path "
+        "adjustment on clear drivable space."
     ),
     "R-E3": (
-        "Regular highway/ramp maneuver: merge, diverge, split, exit, select a gap, or track the "
-        "target lane without an unusual blocking event."
+        "Regular highway/ramp maneuver: the ego vehicle is actively taking a highway branch "
+        "action, such as entering a connector, leaving the mainline through an exit or "
+        "deceleration lane, joining the mainline from an acceleration lane, or choosing a split "
+        "branch, without an unusual blocking event."
     ),
     "R-E4": (
-        "Regular traffic-light compliance: wait on red, proceed on green, or turn under signal "
-        "control when no unusual road user is interrupting."
+        "Regular traffic-light compliance: at a working signalized intersection, the ego vehicle "
+        "waits, proceeds, or turns according to the visible signal control without an unusual "
+        "road-user conflict."
     ),
     "R-E5": (
-        "Regular priority negotiation: use stop/yield, right-of-way, cross-traffic, and safe-gap "
-        "reasoning at an unsignalized or priority-controlled intersection."
+        "Regular priority negotiation: at an unsignalized or priority-controlled intersection, "
+        "the ego vehicle follows stop/yield, priority layout, or safe-gap reasoning without an "
+        "unusual road-user conflict."
     ),
 }
 

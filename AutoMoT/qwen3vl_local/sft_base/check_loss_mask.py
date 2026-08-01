@@ -17,7 +17,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from qwen3vl_local.sft_base.labels import EventTarget, RSTarget
+from qwen3vl_local.sft_base.labels import EventTarget, RSTarget, RS_DESCRIPTIONS
 from qwen3vl_local.sft_base.prompts import (
     Memory,
     build_q1_target,
@@ -45,7 +45,36 @@ def _assert_nonempty(text: str, spans: dict, keys: list[str]) -> None:
             raise AssertionError(f"empty span {key} in {text!r}")
 
 
+def _assert_rs_descriptions_are_geometry_only() -> None:
+    """守住 RS=环境、EVENT=动作的 prompt 分工。"""
+
+    banned_action_phrases = [
+        "wait on red",
+        "green-light crossing",
+        "proceed on green",
+        "turn under signal",
+        "lane change",
+        "lane-change",
+        "following",
+        "follow traffic",
+        "speed matching",
+        "gap selection",
+        "target-lane tracking",
+        "merging",
+        "diverging",
+        "joining the mainline",
+        "leaving the mainline",
+        "choosing a split",
+    ]
+    for rs, desc in RS_DESCRIPTIONS.items():
+        lower = desc.lower()
+        hits = [phrase for phrase in banned_action_phrases if phrase in lower]
+        if hits:
+            raise AssertionError(f"RS description {rs} leaks EVENT action phrase(s): {hits}; {desc!r}")
+
+
 def main() -> None:
+    _assert_rs_descriptions_are_geometry_only()
     rs = RSTarget(
         label="R4",
         description="Signalized intersection",

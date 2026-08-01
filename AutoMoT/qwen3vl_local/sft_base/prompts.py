@@ -23,6 +23,7 @@ from qwen3vl_local.sft_base.labels import (
     RSTarget,
     default_regular_event_for_rs,
     event_description_for_display,
+    is_unusual,
 )
 
 
@@ -68,10 +69,6 @@ class Memory:
         # EGO_TO_GOAL_XY 是连续导航提示，不应像 RS/EVENT 那样跨帧沿用旧值；
         # train/eval 在每帧提问前都会 refresh_memory_goal，保证这里展示的是当前帧坐标。
         rs_token = self.rs_token
-        rs_desc = "unknown previous road-structure prior; rely on the latest visual evidence"
-        if self.rs_label in RS_DESCRIPTIONS:
-            rs_desc = RS_DESCRIPTIONS[self.rs_label]
-        event_desc = event_description_for_display(self.event_label, self.rs_label)
         event_token = "UNKNOWN" if self.event_label == "UNKNOWN" else EVENT_LABEL_TO_TOKEN.get(self.event_label, self.event_label)
         if self.ego_to_goal_x is None or self.ego_to_goal_y is None:
             goal_text = "UNKNOWN"
@@ -86,8 +83,8 @@ class Memory:
             )
         return (
             "[MEMORY]\n"
-            f"BELIEVED_RS: {rs_token} - {rs_desc}\n"
-            + (f"BELIEVED_EVENT: {event_token} - {event_desc}\n" if include_event else "")
+            f"BELIEVED_RS: {rs_token}\n"
+            + (f"BELIEVED_EVENT: {event_token}\n" if include_event else "")
             + f"EGO_TO_GOAL_XY: {goal_text}\n"
             "[/MEMORY]"
         )
@@ -169,19 +166,45 @@ def build_q2_prompt(
 ) -> str:
     """Q2 student prompt：只问 EVENT 选项。"""
 
+    has_unusual_candidate = any(is_unusual(str(label)) for label in candidates)
+    if has_unusual_candidate:
+        question = (
+            "[QUESTION_2]\n"
+            "Choose the listed event token best supported by the latest frame. "
+            "Choose a regular-driving token only if none of the listed unusual-event tokens is supported. "
+            "Do not invent an event that is not listed.\n\n"
+            "Output exactly this line and nothing else:\n"
+            "EVENT: <one EVENT token from EVENT_CHOICES>\n"
+            "[/QUESTION_2]"
+        )
+    elif memory.rs_label == "R3" and {"R-E1", "R-E2", "R-E3"}.issubset({str(label) for label in candidates}):
+        question = (
+            "[QUESTION_2]\n"
+            "Choose the listed regular-driving token best matching the visible road geometry and ego motion "
+            "in the latest frame. Use HIGHWAY_MANEUVER when lateral motion happens as part of a highway "
+            "branch action such as joining from an acceleration lane, exiting to a ramp, taking a connector, "
+            "or choosing a split. Use LANE_CHANGE only for an ordinary adjacent-lane move on the mainline "
+            "without a ramp, connector, or split action. Use LANE_FOLLOWING when the ego stays stably in "
+            "its current lane/path. Do not invent an event that is not listed.\n\n"
+            "Output exactly this line and nothing else:\n"
+            "EVENT: <one EVENT token from EVENT_CHOICES>\n"
+            "[/QUESTION_2]"
+        )
+    else:
+        question = (
+            "[QUESTION_2]\n"
+            "Choose the listed regular-driving token best matching the visible road geometry and ego motion "
+            "in the latest frame. Separate stable lane following, visible lateral lane change, and "
+            "highway/ramp/merge/exit structure when they are listed. Do not invent an event that is not listed.\n\n"
+            "Output exactly this line and nothing else:\n"
+            "EVENT: <one EVENT token from EVENT_CHOICES>\n"
+            "[/QUESTION_2]"
+        )
     return "\n\n".join(
         [
             memory.format_text(include_event=True),
             event_choices_block(candidates, memory.rs_label, regular_event_codes),
-            (
-                "[QUESTION_2]\n"
-                "Choose the listed event token best supported by the latest frame. "
-                "Choose a regular-driving token only if none of the listed unusual-event tokens is supported. "
-                "Do not invent an event that is not listed.\n\n"
-                "Output exactly this line and nothing else:\n"
-                "EVENT: <one EVENT token from EVENT_CHOICES>\n"
-                "[/QUESTION_2]"
-            ),
+            question,
         ]
     )
 
