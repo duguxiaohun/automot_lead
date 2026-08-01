@@ -46,7 +46,7 @@ def _make_frame(idx: int, rs_label: str, event_label: str = "U-E2") -> DummyFram
         frame_id=idx,
         rs_label=rs_label,
         event_label=event_label,
-        event_candidates=["RE", "U-E1", "U-E2", "U-E3", "U-E4", "U-E5", "U-E6", "U-E7", "U-E8"],
+        event_candidates=["R-E1", "R-E2", "R-E3", "R-E4", "R-E5", "U-E1", "U-E2", "U-E3", "U-E4", "U-E5", "U-E6", "U-E7", "U-E8"],
         ego_to_goal_xy=(10.0, 0.0),
         raw={
             "scenario_event_candidates": [
@@ -340,7 +340,7 @@ def main() -> None:
     for idx in range(transition_total):
         rs_frame = _make_frame(idx + 1, "R4", "U-E6")
         rs_mem = rs_leak_corruptor.corrupt(
-            Memory(rs_label="R1", event_label="RE"),
+            Memory(rs_label="R1", event_label="R-E1"),
             frame=rs_frame,
             frame_pos=idx + 1,
         )
@@ -348,7 +348,7 @@ def main() -> None:
 
         event_frame = _make_frame(idx + 1, "R4", "U-E6")
         q1_mem = event_leak_corruptor.corrupt(
-            Memory(rs_label="R4", event_label="RE"),
+            Memory(rs_label="R4", event_label="R-E4"),
             frame=event_frame,
             frame_pos=idx + 1,
         )
@@ -356,14 +356,14 @@ def main() -> None:
         q2_mem = event_leak_corruptor.resample_event_for_q2(
             after_q1,
             frame=event_frame,
-            keep_event_label="RE",
+            keep_event_label="R-E4",
         )
         event_answer_leak += int(q2_mem.event_label == "U-E6")
     assert _ratio(rs_answer_leak, transition_total) < 0.15, rs_answer_leak
     assert _ratio(event_answer_leak, transition_total) < 0.15, event_answer_leak
 
     q1_prompt = build_q1_prompt(Memory(rs_label="R4", event_label="U-E6"))
-    q2_prompt = build_q2_prompt(Memory(rs_label="R4", event_label="U-E6"), candidates=["RE", "U-E6"])
+    q2_prompt = build_q2_prompt(Memory(rs_label="R4", event_label="U-E6"), candidates=["R-E4", "U-E6"])
     assert "BELIEVED_EVENT" not in q1_prompt, q1_prompt
     assert "BELIEVED_EVENT" in q2_prompt, q2_prompt
 

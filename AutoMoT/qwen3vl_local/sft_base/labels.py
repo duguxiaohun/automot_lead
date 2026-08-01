@@ -13,11 +13,12 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-DATASET_VERSION = "sft_base_rs_event_token_choice"
+DATASET_VERSION = "sft_base_rs_event_token_choice_re_expanded"
 # DATASET_VERSION 描述的是本路线自己的样本协议：两问直接输出语义 token，不含
 # OPSD/CoT/teacher，也不再有任何 A/B/C 选项字母。数据 schema 里的 `rs_option` /
 # `event_option_map` 两个字母字段已被删除，Q2 候选改为有序 list
-# `event_candidates_ordered`；旧 schema 直接作废重建，不保留兼容读取。
+# `event_candidates_ordered`；regular EVENT 不再折叠成单个 RE，而是直接监督
+# R-E1..R-E5 对应的语义 token。旧 schema 直接作废重建，不保留兼容读取。
 #
 # EVENT 候选顺序故意继续使用 v5 的 namespace。这样同一 route/frame/seed
 # 在 sft_base 与 sft_v5 中候选集合和展示顺序一致，便于做逐样本直接对照；
@@ -79,9 +80,9 @@ RS_DESCRIPTIONS: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 EVENT_CANDIDATES_BY_RS: Dict[str, List[str]] = {
-    # 这里保留原始 R-E*/U-E* 候选表，而不是直接写 prompt 里的 RE。
-    # 原因是 build_dataset 还需要保存 event_code / regular_event_codes 供审计；
-    # 真正给学生看的选项会在 collapse_regular_to_re 里把所有 R-E* 折成一个 RE。
+    # 这里直接保留原始 R-E*/U-E* 候选表。旧协议会把所有 R-E* 折成一个 RE；
+    # 新协议把 regular 也展开成可监督 token，避免 R3 这类“纯 regular RS”退化成
+    # 单候选送分题。
     # UE 静态表按 2026-07 全量共现审计的严格口径维护：过滤异常/缺失 route 后，
     # 仅保留 count >= 20 且占该 RS 帧数 rate >= 0.1% 的 RS x UE 组合。低频/零频
     # 组合交给 dataset_candidate_mismatch 剔除，不作为所有该 RS 帧的永久干扰项。
@@ -103,49 +104,26 @@ RS_REGULAR_EVENTS: Dict[str, List[str]] = {
     "R5": ["R-E5"],
 }
 
-RE_DESCRIPTIONS_BY_RS: Dict[str, str] = {
-    "R1": (
-        "No unusual event; continue ordinary same-direction lane keeping, following, "
-        "safe-distance keeping, same-direction lane adjustment, or recovery after a completed maneuver."
-    ),
-    "R2": (
-        "No unusual event; continue along the bidirectional narrow-road space while keeping "
-        "safe clearance from oncoming traffic, without an active blockage or invading oncoming vehicle."
-    ),
-    "R3": (
-        "No unusual event; continue normal highway, ramp, merge, split, or exit behavior such "
-        "as speed matching, gap keeping, target-lane tracking, merging, or exiting."
-    ),
-    "R4": (
-        "No unusual event; obey normal traffic-light intersection rules such as stopping for "
-        "red, proceeding on green, or turning under signal control."
-    ),
-    "R5": (
-        "No unusual event; negotiate the unsignalized or priority intersection using stop/yield "
-        "rules, right-of-way, and safe-gap reasoning."
-    ),
-}
-
 REGULAR_EVENT_DESCRIPTIONS: Dict[str, str] = {
     "R-E1": (
-        "regular following, lane keeping, safe-distance keeping, or speed matching "
-        "without a short-horizon conflict"
+        "Regular lane following: keep lane, follow traffic, maintain safe distance, or match speed "
+        "without a visible short-horizon interruption."
     ),
     "R-E2": (
-        "regular target-directed lane change, return-to-lane, or completed recovery "
-        "maneuver on a drivable path"
+        "Regular lane-change or recovery maneuver: move toward the target lane, return to lane, "
+        "or finish a normal path adjustment on clear drivable space."
     ),
     "R-E3": (
-        "regular highway or ramp behavior such as merging, diverging, splitting, "
-        "exiting, or tracking the target lane"
+        "Regular highway/ramp maneuver: merge, diverge, split, exit, select a gap, or track the "
+        "target lane without an unusual blocking event."
     ),
     "R-E4": (
-        "regular traffic-light intersection behavior, including red-light waiting, "
-        "green-light crossing, or signal-controlled turning"
+        "Regular traffic-light compliance: wait on red, proceed on green, or turn under signal "
+        "control when no unusual road user is interrupting."
     ),
     "R-E5": (
-        "regular unsignalized or priority-intersection behavior using stop, yield, "
-        "right-of-way, cross-traffic, and safe-gap reasoning"
+        "Regular priority negotiation: use stop/yield, right-of-way, cross-traffic, and safe-gap "
+        "reasoning at an unsignalized or priority-controlled intersection."
     ),
 }
 
@@ -185,12 +163,16 @@ UE_DESCRIPTIONS: Dict[str, str] = {
 }
 
 EVENT_DESCRIPTIONS: Dict[str, str] = {
+    **REGULAR_EVENT_DESCRIPTIONS,
     **UE_DESCRIPTIONS,
-    "RE": "No unusual event is currently interrupting the driving task; continue the regular behavior implied by the current road structure.",
 }
 
 EVENT_LABEL_TO_TOKEN: Dict[str, str] = {
-    "RE": "REGULAR",
+    "R-E1": "LANE_FOLLOWING",
+    "R-E2": "LANE_CHANGE",
+    "R-E3": "HIGHWAY_MANEUVER",
+    "R-E4": "SIGNAL_COMPLIANCE",
+    "R-E5": "PRIORITY_NEGOTIATION",
     "U-E1": "LEAD_BRAKE",
     "U-E2": "STATIC_OBSTACLE",
     "U-E3": "MOVING_CUT_IN",
@@ -201,6 +183,8 @@ EVENT_LABEL_TO_TOKEN: Dict[str, str] = {
     "U-E8": "BLOCKED_SPACE",
 }
 EVENT_TOKEN_TO_LABEL: Dict[str, str] = {v: k for k, v in EVENT_LABEL_TO_TOKEN.items()}
+EVENT_LABELS: Tuple[str, ...] = tuple(EVENT_LABEL_TO_TOKEN.keys())
+REGULAR_EVENT_LABELS: Tuple[str, ...] = ("R-E1", "R-E2", "R-E3", "R-E4", "R-E5")
 
 EVENT_ORDER: Tuple[str, ...] = (
     # 多标签没有置信度或 primary 不可用时，用这个全局顺序做确定性兜底。
@@ -229,8 +213,8 @@ class RSTarget:
 class EventTarget:
     """单帧 EVENT 训练目标。
 
-    `label` 是 v5 监督用标签：RE 或 U-E*。`event_code` 保留原始 R-E*/U-E*，
-    即使 regular 被折叠成 RE，也可以从这里知道标定原来是哪一种 regular。
+    `label` 是监督用标签：R-E* 或 U-E*。旧版会把所有 regular 折叠成 RE；
+    新版直接监督具体 R-E 子类，让高速/匝道等纯 regular 场景也有非唯一答案。
     """
 
     label: str
@@ -262,6 +246,19 @@ def is_unusual(code: str) -> bool:
     """判断某个 EVENT code 是否是 UE。"""
 
     return str(code).startswith("U-E")
+
+
+def is_regular_event(code: str) -> bool:
+    """判断某个 EVENT code 是否是 regular R-E。"""
+
+    return str(code).startswith("R-E")
+
+
+def default_regular_event_for_rs(rs_label: str) -> str:
+    """返回某个 RS 下 memory/非法兜底用的默认 regular EVENT。"""
+
+    values = RS_REGULAR_EVENTS.get(str(rs_label), [])
+    return values[0] if values else "R-E1"
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -344,13 +341,13 @@ def resolve_event_target(
     *,
     student_event: Optional[str] = None,
 ) -> EventTarget:
-    """把可能多标签的原始 EVENT 解析成 v5 单标签目标。
+    """把可能多标签的原始 EVENT 解析成单标签目标。
 
     规则对应 plan §4.3：
     - 有 UE 时 UE 优先；
     - 多个 UE 时，如果 student 输出是其中之一，teacher target 采用 student 输出；
       否则用 primary_event / 稳定顺序；
-    - 全 regular 时折叠为 RE，但 `event_code` 保留具体 R-E*。
+    - 全 regular 时返回具体 R-E*，不再折叠成 RE。
     """
 
     raw_events = raw_events_from_frame(frame)
@@ -375,15 +372,14 @@ def resolve_event_target(
         )
 
     if student in regular:
-        # 全 regular 的双标签会折叠成 RE；event_code 仍记住具体 R-E*。
-        # 若 student 选中了 raw regular 之一，teacher target 使用该 regular 作为审计 code，
-        # 否则按 primary/稳定顺序选一个，不影响最终监督 label=RE。
+        # 全 regular 的多标签帧允许 student 选 raw regular 之一；否则按
+        # primary/稳定顺序确定一个训练标签，保证直接监督仍是单标签。
         chosen_re = str(student)
     else:
         primary = normalize_event_code((frame.get("frame_event_annotation") or {}).get("label") or frame.get("primary_event"))
         chosen_re = str(primary) if primary in regular else _stable_first(regular or ["R-E1"])
     regular_codes = tuple(regular or [chosen_re])
-    return EventTarget(label="RE", event_code=chosen_re, abnormal=False, raw_events=tuple(raw_events), regular_event_codes=regular_codes)
+    return EventTarget(label=chosen_re, event_code=chosen_re, abnormal=False, raw_events=tuple(raw_events), regular_event_codes=regular_codes)
 
 
 def scenario_event_candidates_from_result(result: Mapping[str, Any]) -> List[str]:
@@ -456,18 +452,19 @@ def q2_raw_candidates_for_frame(
 
 
 def collapse_regular_to_re(candidates: Sequence[str], rs_label: str) -> List[str]:
-    """把原始 R-E* regular 分支折叠成 prompt 里的 RE。"""
+    """返回 Q2 展示候选。
+
+    函数名保留旧调用兼容；当前协议已经不再 collapse regular。输出会保留
+    R-E1..R-E5 具体标签，并只做去重与空候选兜底。
+    """
 
     out: List[str] = []
-    if any(str(code).startswith("R-E") for code in candidates):
-        out.append("RE")
     for code in candidates:
-        if is_unusual(code) and code not in out:
-            out.append(code)
+        norm = normalize_event_code(code)
+        if norm and norm != "RE" and norm not in out:
+            out.append(norm)
     if not out:
-        # 兜底：如果某个 scenario_candidates 漏了当前 RS regular，仍给一个 RE，
-        # 避免 Q2 出现空选项导致训练无法继续。
-        out.append("RE")
+        out.append(default_regular_event_for_rs(rs_label))
     return out
 
 
@@ -478,19 +475,9 @@ def event_description_for_display(
 ) -> str:
     """返回 Q2 选项展示文本。"""
 
-    if label == "RE":
-        base = RE_DESCRIPTIONS_BY_RS.get(rs_label, EVENT_DESCRIPTIONS["RE"])
-        codes: List[str] = []
-        del regular_event_codes
-        raw_codes = RS_REGULAR_EVENTS.get(rs_label, [])
-        for item in raw_codes:
-            code = normalize_event_code(item)
-            if code and code.startswith("R-E") and code not in codes:
-                codes.append(code)
-        details = [REGULAR_EVENT_DESCRIPTIONS[code] for code in codes if code in REGULAR_EVENT_DESCRIPTIONS]
-        if details:
-            return f"{base} Regular modes under this road structure include: {'; '.join(details)}."
-        return base
+    del rs_label, regular_event_codes
+    if is_regular_event(label):
+        return REGULAR_EVENT_DESCRIPTIONS.get(label, label)
     return UE_DESCRIPTIONS.get(label, label)
 
 

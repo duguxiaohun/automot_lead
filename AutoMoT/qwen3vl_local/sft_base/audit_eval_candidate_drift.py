@@ -28,7 +28,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _p)
 
 from qwen3vl_local.sft_base.eval_candidates import q2_candidates_for_student_rs
-from qwen3vl_local.sft_base.labels import event_in_candidates
+from qwen3vl_local.sft_base.labels import event_in_candidates, is_unusual
 
 KNOWN_LOW_RATE_GT_STATIC_MISMATCH_COMBINATIONS: Set[Tuple[str, str]] = {
     ("R4", "U-E2"),
@@ -67,8 +67,8 @@ def _iter_frames(index_path: pathlib.Path, max_frames: int) -> Any:
                 yield FrameView(
                     frame_id=int(frame.get("frame_id", 0)),
                     rs_label=str(frame.get("rs_label") or frame.get("road_structure")),
-                    event_label=str(frame.get("event_label") or "RE"),
-                    abnormal=bool(frame.get("abnormal", str(frame.get("event_label") or "RE") != "RE")),
+                    event_label=str(frame.get("event_label") or "R-E1"),
+                    abnormal=bool(frame.get("abnormal", is_unusual(str(frame.get("event_label") or "R-E1")))),
                     raw=raw,
                 )
                 seen += 1

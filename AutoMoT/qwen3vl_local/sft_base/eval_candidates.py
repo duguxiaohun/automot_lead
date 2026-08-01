@@ -10,6 +10,7 @@ from typing import Any, List, Optional, Tuple
 from qwen3vl_local.sft_base.labels import (
     RS_LABELS,
     collapse_regular_to_re,
+    default_regular_event_for_rs,
     event_in_candidates,
     q2_raw_candidates,
     stable_event_choice_order,
@@ -39,7 +40,7 @@ def q2_candidates_for_student_rs(
     """
 
     if pred_rs not in RS_LABELS:
-        return ["RE"], [], "invalid_rs_fallback", False
+        return [default_regular_event_for_rs("R1")], [], "invalid_rs_fallback", False
     raw_dict = getattr(frame, "raw", frame if isinstance(frame, dict) else {})
     scenario_candidates = [str(code) for code in (raw_dict.get("scenario_event_candidates") or [])]
     dataset_candidates = _dataset_event_candidates(frame, raw_dict)

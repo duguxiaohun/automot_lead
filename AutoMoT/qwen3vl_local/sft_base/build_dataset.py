@@ -267,7 +267,7 @@ def _build_frame_row(
     event_target = resolve_event_target(ann)
     # Q2 候选固定取当前 GT RS 的静态全集；逐帧 allowed_events 只作为 GT 解析和
     # 审计字段保留，不能再用来缩窄 prompt 候选，否则候选长度会泄漏异常标签。
-    # raw_candidates 仍保留 R-E*/U-E*，后面 display_candidates / ordered_candidates 才折叠 regular。
+    # raw_candidates 保留 R-E*/U-E*；当前协议不再把 R-E* 折叠成单个 RE。
     raw_candidates = q2_raw_candidates_for_frame(
         ann,
         scenario_candidates=scenario_candidates,

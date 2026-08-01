@@ -59,6 +59,8 @@ from qwen3vl_local.sft_base.labels import (  # noqa: E402
     EventTarget,
     RSTarget,
     event_in_candidates,
+    is_regular_event,
+    is_unusual,
     resolve_event_target,
 )
 from qwen3vl_local.sft_base.memory_curriculum import (  # noqa: E402
@@ -142,6 +144,11 @@ class RouteSequenceDataset(Dataset):
                 if not line:
                     continue
                 obj = json.loads(line)
+                if obj.get("dataset_version") != DATASET_VERSION:
+                    raise ValueError(
+                        f"{self.path}: dataset_version mismatch. expected {DATASET_VERSION}, "
+                        f"got {obj.get('dataset_version')!r}. Rebuild the sequence index with current build_dataset.py."
+                    )
                 frames: List[FrameRow] = []
                 for fr in obj.get("frames", []):
                     if "event_candidates_ordered" not in fr:
@@ -160,7 +167,7 @@ class RouteSequenceDataset(Dataset):
                             weather_text=str(fr.get("weather_text", "")),
                             ego_to_goal_xy=_parse_goal_xy(fr.get("ego_to_goal_xy")),
                             rs_label=str(fr.get("rs_label", "R1")),
-                            event_label=str(fr.get("event_label", "RE")),
+                            event_label=str(fr.get("event_label", "R-E1")),
                             event_code=str(fr.get("event_code", "R-E1")),
                             abnormal=bool(fr.get("abnormal", False)),
                             event_candidates=[str(x) for x in (fr.get("event_candidates_ordered") or [])],
@@ -184,10 +191,14 @@ class RouteSequenceDataset(Dataset):
                     break
         self.rows = rows
         event_label_counts: Dict[str, int] = {}
+        rs_event_label_counts: Dict[str, Dict[str, int]] = {}
         for row in rows:
             for frame in row.frames:
                 event_label_counts[frame.event_label] = event_label_counts.get(frame.event_label, 0) + 1
+                rs_counts = rs_event_label_counts.setdefault(frame.rs_label, {})
+                rs_counts[frame.event_label] = rs_counts.get(frame.event_label, 0) + 1
         self.event_label_counts = event_label_counts
+        self.rs_event_label_counts = rs_event_label_counts
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -216,7 +227,7 @@ def _load_images(paths: List[str]) -> List[Image.Image]:
 def _transition_positions(frames: List[FrameRow], *, radius: int) -> set[int]:
     """找出 RS/EVENT 发生变化的帧及其邻域，用于重点重复训练。
 
-    真正需要看图的样本主要集中在 RE->UE、UE->RE 和 RS 改变的附近；整段 UE
+    真正需要看图的样本主要集中在 regular->UE、UE->regular 和 RS 改变的附近；整段 UE
     过采样会大量重复“抄 memory 也能对”的帧，所以这里单独放大转折邻域。
     """
 
@@ -386,23 +397,47 @@ def _loss_one_sample(bundle: Any, packed: Mapping[str, Any]) -> torch.Tensor:
 def _event_loss_weights(
     event_target: EventTarget,
     *,
+    rs_label: str,
     n_candidates: int,
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
     single_candidate_re_scale: float,
+    event_label_counts: Optional[Mapping[str, int]] = None,
+    rs_event_label_counts: Optional[Mapping[str, Mapping[str, int]]] = None,
 ) -> Dict[str, float]:
     """按 EVENT 类型和候选难度返回 Q2 token loss 权重。
 
-    单候选 RE 是格式/分布保温样本，权重要低；多候选 RE 是压 UE 假阳性的硬负样本，
-    不能再和单候选送分题混为一档。
+    UE 按 RS 条件发生率做 inverse-sqrt 缩放，避免模型学成“R2 就猜 UE、
+    R4/R5 就猜 regular”的先验；regular 内部也按全局频次做 inverse-sqrt，
+    让 LANE_CHANGE/HIGHWAY_MANEUVER 等长尾 regular 不被 LANE_FOLLOWING 淹没。
     """
 
     if event_target.abnormal:
         weight = float(ue_event_loss_weight)
+        all_counts = {str(k): int(v) for k, v in (event_label_counts or {}).items() if int(v) > 0}
+        total = sum(all_counts.values())
+        ue_total = sum(v for k, v in all_counts.items() if is_unusual(k))
+        rs_counts = {str(k): int(v) for k, v in (rs_event_label_counts or {}).get(str(rs_label), {}).items() if int(v) > 0}
+        rs_total = sum(rs_counts.values())
+        rs_ue_total = sum(v for k, v in rs_counts.items() if is_unusual(k))
+        if total > 0 and ue_total > 0 and rs_total > 0 and rs_ue_total > 0:
+            global_rate = float(ue_total) / float(total)
+            rs_rate = float(rs_ue_total) / float(rs_total)
+            weight *= math.sqrt(max(global_rate, 1e-6) / max(rs_rate, 1e-6))
     elif int(n_candidates) <= 1:
         weight = float(re_event_loss_weight) * max(0.0, float(single_candidate_re_scale))
     else:
         weight = float(re_event_loss_weight)
+        regular_counts = [
+            int(v)
+            for k, v in (event_label_counts or {}).items()
+            if is_regular_event(str(k)) and int(v) > 0
+        ]
+        current = int((event_label_counts or {}).get(str(event_target.label), 0) or 0)
+        if regular_counts and current > 0:
+            regular_counts = sorted(regular_counts)
+            median = float(regular_counts[len(regular_counts) // 2])
+            weight *= math.sqrt(max(median, 1.0) / float(current))
     return {"event": max(0.0, weight)}
 
 
@@ -448,6 +483,8 @@ def _frame_training_pack(
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
     single_candidate_re_scale: float,
+    event_label_counts: Optional[Mapping[str, int]],
+    rs_event_label_counts: Optional[Mapping[str, Mapping[str, int]]],
     event_wrong_prob: float,
     event_unknown_prob: float,
     clean_event_memory_label: str,
@@ -496,15 +533,18 @@ def _frame_training_pack(
         )
         q2_loss_weights = _event_loss_weights(
             event_target,
+            rs_label=frame.rs_label,
             n_candidates=len(frame.event_candidates),
             ue_event_loss_weight=ue_event_loss_weight,
             re_event_loss_weight=re_event_loss_weight,
             single_candidate_re_scale=single_candidate_re_scale,
+            event_label_counts=event_label_counts,
+            rs_event_label_counts=rs_event_label_counts,
         )
     else:
         q2_loss_weights = None
     # 如果 EVENT 真值不在候选表里，跳过 Q2 监督但仍训练 Q1；单候选帧也训练，
-    # 只是单候选 RE 会在 loss 权重里降权，避免送分题淹没硬负样本。
+    # 只是单候选 regular 会在 loss 权重里降权，避免送分题淹没硬负样本。
     packed = _build_inputs(
         bundle,
         images=images,
@@ -548,6 +588,7 @@ def run_batch(
     re_event_loss_weight: float = 1.0,
     single_candidate_re_scale: float = 0.1,
     event_label_counts: Optional[Mapping[str, int]] = None,
+    rs_event_label_counts: Optional[Mapping[str, Mapping[str, int]]] = None,
     ue_repeat_mode: str = "inverse_sqrt",
     ue_repeat_max: int = 8,
     first_frame_memory_unknown: bool = True,
@@ -676,6 +717,8 @@ def run_batch(
                 ue_event_loss_weight=float(ue_event_loss_weight),
                 re_event_loss_weight=float(re_event_loss_weight),
                 single_candidate_re_scale=float(single_candidate_re_scale),
+                event_label_counts=event_label_counts,
+                rs_event_label_counts=rs_event_label_counts,
                 memory_noise_seed=int(memory_noise_seed),
                 event_wrong_prob=float(memory_event_wrong_prob),
                 event_unknown_prob=float(memory_event_unknown_prob),
@@ -695,6 +738,8 @@ def run_batch(
         ue_event_loss_weight=float(ue_event_loss_weight),
         re_event_loss_weight=float(re_event_loss_weight),
         single_candidate_re_scale=float(single_candidate_re_scale),
+        event_label_counts=event_label_counts,
+        rs_event_label_counts=rs_event_label_counts,
         memory_noise_seed=int(memory_noise_seed),
         event_wrong_prob=float(memory_event_wrong_prob),
         event_unknown_prob=float(memory_event_unknown_prob),
@@ -729,6 +774,8 @@ def _run_work_items(
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
     single_candidate_re_scale: float,
+    event_label_counts: Optional[Mapping[str, int]],
+    rs_event_label_counts: Optional[Mapping[str, Mapping[str, int]]],
     memory_noise_seed: int,
     event_wrong_prob: float,
     event_unknown_prob: float,
@@ -754,6 +801,8 @@ def _run_work_items(
             ue_event_loss_weight=float(ue_event_loss_weight),
             re_event_loss_weight=float(re_event_loss_weight),
             single_candidate_re_scale=float(single_candidate_re_scale),
+            event_label_counts=event_label_counts,
+            rs_event_label_counts=rs_event_label_counts,
             event_wrong_prob=float(event_wrong_prob),
             event_unknown_prob=float(event_unknown_prob),
             clean_event_memory_label=clean_event_memory_label,
@@ -779,10 +828,13 @@ def _run_work_items(
         if q2_included:
             weight = _event_loss_weights(
                 _event_target_from_frame(frame),
+                rs_label=frame.rs_label,
                 n_candidates=len(frame.event_candidates),
                 ue_event_loss_weight=ue_event_loss_weight,
                 re_event_loss_weight=re_event_loss_weight,
                 single_candidate_re_scale=single_candidate_re_scale,
+                event_label_counts=event_label_counts,
+                rs_event_label_counts=rs_event_label_counts,
             ).get("event", 0.0)
             if frame.abnormal:
                 stats.q2_ue_weight_sum += float(weight)
@@ -821,6 +873,8 @@ def evaluate_loss(
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
     single_candidate_re_scale: float,
+    event_label_counts: Optional[Mapping[str, int]] = None,
+    rs_event_label_counts: Optional[Mapping[str, Mapping[str, int]]] = None,
     memory_noise_seed: int = 20260724,
     first_frame_memory_unknown: bool = True,
     memory_rs_wrong_prob: float = 0.30,
@@ -904,6 +958,8 @@ def evaluate_loss(
                         ue_event_loss_weight=float(ue_event_loss_weight),
                         re_event_loss_weight=float(re_event_loss_weight),
                         single_candidate_re_scale=float(single_candidate_re_scale),
+                        event_label_counts=event_label_counts,
+                        rs_event_label_counts=rs_event_label_counts,
                         event_wrong_prob=float(event_wrong_prob),
                         event_unknown_prob=float(event_unknown_prob),
                         clean_event_memory_label=clean_event_memory_label,
@@ -1048,6 +1104,8 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "ue_event_loss_weight": float(args.ue_event_loss_weight),
         "re_event_loss_weight": float(args.re_event_loss_weight),
         "single_candidate_re_scale": float(args.single_candidate_re_scale),
+        "rs_conditional_ue_loss": True,
+        "regular_event_loss_reweight": "inverse_sqrt",
         "ue_frame_repeat": int(args.ue_frame_repeat),
         "ue_repeat_mode": str(args.ue_repeat_mode),
         "ue_repeat_max": int(args.ue_repeat_max),
@@ -1297,6 +1355,8 @@ def main() -> None:
                 ue_event_loss_weight=float(args.ue_event_loss_weight),
                 re_event_loss_weight=float(args.re_event_loss_weight),
                 single_candidate_re_scale=float(args.single_candidate_re_scale),
+                event_label_counts=getattr(val_ds, "event_label_counts", None),
+                rs_event_label_counts=getattr(val_ds, "rs_event_label_counts", None),
                 memory_noise_seed=int(args.seed),
                 first_frame_memory_unknown=bool(args.first_frame_memory_unknown),
                 memory_rs_wrong_prob=float(args.memory_rs_wrong_prob),
@@ -1334,6 +1394,7 @@ def main() -> None:
                 frames_per_sync=int(args.frames_per_sync),
                 ue_frame_repeat=int(args.ue_frame_repeat),
                 event_label_counts=getattr(train_ds, "event_label_counts", None),
+                rs_event_label_counts=getattr(train_ds, "rs_event_label_counts", None),
                 ue_repeat_mode=str(args.ue_repeat_mode),
                 ue_repeat_max=int(args.ue_repeat_max),
                 transition_frame_repeat=int(args.transition_frame_repeat),

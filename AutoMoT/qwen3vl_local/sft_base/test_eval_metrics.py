@@ -11,7 +11,7 @@ import pathlib
 
 
 def main() -> None:
-    """验证 EVENT 指标同时按候选数和 RS×候选数分层输出。"""
+    """验证 EVENT 指标同时按候选数、RS×候选数和 regular 子类分层输出。"""
 
     eval_py = pathlib.Path(__file__).with_name("eval.py")
     src = eval_py.read_text(encoding="utf-8")
@@ -20,7 +20,9 @@ def main() -> None:
         'rs_prefix = f"q2_rs_{rs}_candidate_count_{n}"',
         'rs_candidate_count_report[rs] = rs_report_by_count',
         '"q2_rs_candidate_count_report": rs_candidate_count_report',
-        "`q2_candidate_count_report` 和 `q2_rs_candidate_count_report`",
+        '"joint_acc": counters["q2_joint_correct"] / q2_total',
+        '"regular_internal_confusion_report": regular_report',
+        '"ue_fp_on_multi_candidate_re_by_rs": ue_fp_on_multi_candidate_re_by_rs',
     ]
     for needle in required:
         assert needle in src, needle
