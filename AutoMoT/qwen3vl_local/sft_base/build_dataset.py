@@ -264,7 +264,7 @@ def _build_frame_row(
     if not history or any(not pathlib.Path(path).exists() for path in history):
         return None
     rs_target = resolve_rs_target(ann)
-    event_target = resolve_event_target(ann)
+    event_target = resolve_event_target(ann, rs_label=rs_target.label)
     # Q2 候选固定取当前 GT RS 的静态全集；逐帧 allowed_events 只作为 GT 解析和
     # 审计字段保留，不能再用来缩窄 prompt 候选，否则候选长度会泄漏异常标签。
     # raw_candidates 保留 R-E*/U-E*；当前协议不再把 R-E* 折叠成单个 RE。
@@ -285,7 +285,7 @@ def _build_frame_row(
     )
     display_candidates = collapse_regular_to_re(raw_candidates, rs_target.label)
     weather = _weather_for_frame(ann, xml_weathers)
-    regular_event_codes = [code for code in raw_candidates if code.startswith("R-E")]
+    regular_event_codes = list(event_target.regular_event_codes)
     frame_allowed_events_raw = allowed_events_from_frame(ann)
     return {
         "frame_id": frame_id,
@@ -302,6 +302,7 @@ def _build_frame_row(
         "event_labels_raw": list(event_target.raw_events),
         "event_label": event_target.label,
         "event_code": event_target.event_code,
+        "event_code_raw": event_target.event_code,
         "abnormal": bool(event_target.abnormal),
         "scenario_event_candidates": list(scenario_candidates),
         "frame_allowed_events_raw": list(frame_allowed_events_raw),

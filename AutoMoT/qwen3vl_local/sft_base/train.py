@@ -263,7 +263,8 @@ def _event_target_from_frame(frame: FrameRow, student_event: Optional[str] = Non
     raw = dict(frame.raw)
     if "events" not in raw:
         raw["events"] = raw.get("event_labels_raw") or [frame.event_code]
-    return resolve_event_target(raw, student_event=student_event)
+    raw["primary_event"] = raw.get("event_code_raw") or frame.event_code
+    return resolve_event_target(raw, student_event=student_event, rs_label=frame.rs_label)
 
 
 def _messages(images: List[Image.Image], q1_prompt: str, q1_target: str, q2_prompt: Optional[str], q2_target: Optional[str]) -> List[Dict[str, Any]]:

@@ -10,9 +10,17 @@
 Q2 候选固定来自当前 RS 的静态候选全集；逐帧 `allowed_events` 只保留为 GT 解析和
 audit 字段，不参与出题，避免候选长度直接泄漏“本帧有没有异常”。
 
+regular EVENT 以 RS 为准做 canonical 映射：R4 下任意 regular 都监督
+`SIGNAL_COMPLIANCE`，R5 下任意 regular 都监督 `PRIORITY_NEGOTIATION`；
+R1/R2/R3 下不属于本 RS 静态表的路口通行类 regular 映射回默认
+`LANE_FOLLOWING`。原始 regular code 仍写入 `event_code_raw` /
+`regular_event_codes` / `event_labels_raw` 供审计。
+
 因此必须先重新构建数据，再重新训练：
 
 - 旧 index 里的 `rs_option` / `event_option_map` 两个字母字段已被删除。
+- 旧 `sft_base_rs_event_token_choice_re_expanded` index 没有做 RS regular 映射，
+  会被当前 `DATASET_VERSION=sft_base_rs_event_token_choice_rs_regular_mapped` 拒绝。
 - `RouteSequenceDataset` 读到缺 `event_candidates_ordered` 的旧 index 会直接报错，
   不做兼容降级 —— 静默兼容会让候选顺序悄悄变化，指标看着正常但训练分布已经错了。
 
@@ -68,10 +76,11 @@ python qwen3vl_local/sft_base/audit_rs_event_cooccurrence.py \
 | 字段 | 含义 |
 |---|---|
 | `missing_ue_combinations` / `spurious_ue_combinations` | UE 侧静态表是否漏/多了高频组合 |
-| `missing_regular_combinations` / `spurious_regular_combinations` | regular 侧静态表是否漏/多了高频组合 |
-| `regular_static_mismatch_total` / `regular_static_mismatch_rate_by_rs` | GT regular 不在当前 RS 静态候选表里的总量和分 RS 比例 |
-| `regular_static_mismatch_breakdown` | 表外 regular 组合按 scenario 和 route 的 top-k 归因 |
-| `focus_combo_top_routes` | 默认聚焦 `R5:R-E4`，用于判断 R5 下 `SIGNAL_COMPLIANCE` 是否集中在少数 route |
+| `missing_regular_combinations` / `spurious_regular_combinations` | 映射后的 regular 侧静态表是否漏/多了高频组合；新协议应为空 |
+| `regular_static_mismatch_total` / `regular_static_mismatch_rate_by_rs` | 映射后 GT regular 不在当前 RS 静态候选表里的比例；新协议应接近 0 |
+| `raw_regular_by_rs` | 映射前原始 regular 分布，用于复盘标注噪声 |
+| `raw_regular_remap_total` / `raw_regular_remap_breakdown` | 原始 regular 被 RS canonical 映射的总量与 scenario/route 归因 |
+| `focus_combo_top_routes` | 默认聚焦原始 `R5:R-E4`，用于保留 R5 下 `SIGNAL_COMPLIANCE` 标注冲突证据 |
 
 如果要改聚焦组合：
 
@@ -84,11 +93,18 @@ python qwen3vl_local/sft_base/audit_rs_event_cooccurrence.py \
 
 静态 UE 表采用严格方案 A：先按 `build_dataset.py` 同款口径剔除 `noScenarios`、
 异常时长 route、数据缺失 route 和失败 route，再只保留 `count >= 20` 且
-`rs_frame_rate >= 0.1%` 的组合。regular 不再折叠成 `RE`；当前 regular 表仍是
-语义保守版，审计若发现 `missing_regular_combinations` 里存在高频组合，需要先看
-`regular_static_mismatch_breakdown` 判断它们是集中标注噪声还是系统性语义重叠，再决定
-是否按同一阈值扩表。定表前不要把 `audit_eval_candidate_drift.py --expect-mismatch-combinations`
-当成通过门禁；它的低频组合白名单只适合候选表已经固定后的回归检查。
+`rs_frame_rate >= 0.1%` 的组合。regular 表采用 RS canonical 映射后的语义保守版：
+R1/R2 只保留 `R-E1/R-E2`，R3 保留 `R-E1/R-E2/R-E3`，R4 固定 `R-E4`，
+R5 固定 `R-E5`。重建数据后验证点：
+
+```text
+single_candidate_rate                    -> 0
+regular_static_mismatch_total            -> 0
+missing_regular_combinations             -> []
+spurious_regular_combinations            -> []
+gt_static_candidate_mismatch             -> 只剩低频 UE 组合，约等于全量 163 帧在 val split 的对应子集
+R3 regular 分布                          -> R-E1/R-E3/R-E2 都存在，保持 3 选 1 判别
+```
 
 ## 2. 静态检查
 
@@ -354,7 +370,7 @@ cat checkpoints/sft_base_runs/latest/final/sft_base_adapter_config.json
 ```json
 {
   "route": "sft_base_token_choice",
-  "dataset_version": "sft_base_rs_event_token_choice_re_expanded"
+  "dataset_version": "sft_base_rs_event_token_choice_rs_regular_mapped"
 }
 ```
 
