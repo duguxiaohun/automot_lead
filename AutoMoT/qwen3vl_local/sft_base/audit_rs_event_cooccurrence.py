@@ -152,8 +152,11 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
     all_ue_by_rs: Dict[str, Dict[str, int]] = {rs: {} for rs in RS_LABELS}
     all_regular_by_rs: Dict[str, Dict[str, int]] = {rs: {} for rs in RS_LABELS}
     raw_regular_by_rs: Dict[str, Dict[str, int]] = {rs: {} for rs in RS_LABELS}
-    multi_regular_frames_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
-    regular_frame_total_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
+    pure_raw_regular_by_rs: Dict[str, Dict[str, int]] = {rs: {} for rs in RS_LABELS}
+    multi_regular_annotation_frames_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
+    multi_pure_regular_frames_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
+    frames_with_regular_annotation_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
+    pure_regular_frames_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
     regular_static_mismatch_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
     raw_regular_remap_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
     raw_regular_remap_combo_counts: Counter[str] = Counter()
@@ -194,23 +197,30 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
             rs_totals[rs] += 1
             regular_codes = [code for code in event.raw_events if is_regular_event(code)]
             if regular_codes:
-                regular_frame_total_by_rs[rs] += 1
+                frames_with_regular_annotation_by_rs[rs] += 1
             if len(set(regular_codes)) > 1:
-                multi_regular_frames_by_rs[rs] += 1
+                multi_regular_annotation_frames_by_rs[rs] += 1
             for code in regular_codes:
                 raw_regular_by_rs[rs][code] = raw_regular_by_rs[rs].get(code, 0) + 1
-                if code != event.label:
-                    raw_regular_remap_by_rs[rs] += 1
-                    combo_key = f"{rs}:{code}"
-                    route_key = f"{frame_scenario}/{route_id}"
-                    raw_regular_remap_combo_counts[combo_key] += 1
-                    raw_regular_remap_scenario_counts[combo_key][frame_scenario] += 1
-                    raw_regular_remap_route_counts[combo_key][route_key] += 1
-                    if args.focus_combo and combo_key == str(args.focus_combo):
-                        focus_combo_counts[route_key] += 1
             if not event.abnormal:
                 label = str(event.label)
                 if is_regular_event(label):
+                    pure_regular_frames_by_rs[rs] += 1
+                    if len(set(regular_codes)) > 1:
+                        multi_pure_regular_frames_by_rs[rs] += 1
+                    raw_event = str(event.event_code)
+                    pure_raw_regular_by_rs[rs][raw_event] = pure_raw_regular_by_rs[rs].get(raw_event, 0) + 1
+                    mapped_event = canonical_regular_event_for_rs(rs, raw_event)
+                    if raw_event != mapped_event:
+                        assert raw_event != mapped_event
+                        raw_regular_remap_by_rs[rs] += 1
+                        combo_key = f"{rs}:{raw_event}"
+                        route_key = f"{frame_scenario}/{route_id}"
+                        raw_regular_remap_combo_counts[combo_key] += 1
+                        raw_regular_remap_scenario_counts[combo_key][frame_scenario] += 1
+                        raw_regular_remap_route_counts[combo_key][route_key] += 1
+                        if args.focus_combo and combo_key == str(args.focus_combo):
+                            focus_combo_counts[route_key] += 1
                     all_regular_by_rs[rs][label] = all_regular_by_rs[rs].get(label, 0) + 1
                     if label not in static_regular_sets.get(rs, set()):
                         regular_static_mismatch_by_rs[rs] += 1
@@ -261,10 +271,24 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
         "ue_by_rs": all_ue_by_rs,
         "regular_by_rs": all_regular_by_rs,
         "raw_regular_by_rs": raw_regular_by_rs,
-        "regular_frame_total_by_rs": regular_frame_total_by_rs,
-        "multi_regular_frames_by_rs": multi_regular_frames_by_rs,
+        "pure_raw_regular_by_rs": pure_raw_regular_by_rs,
+        "frames_with_regular_annotation_by_rs": frames_with_regular_annotation_by_rs,
+        "pure_regular_frames_by_rs": pure_regular_frames_by_rs,
+        # 兼容旧 JSON consumer：从本版本起该字段改为最终 GT 为 regular 的帧数。
+        "regular_frame_total_by_rs": pure_regular_frames_by_rs,
+        "multi_regular_annotation_frames_by_rs": multi_regular_annotation_frames_by_rs,
+        "multi_pure_regular_frames_by_rs": multi_pure_regular_frames_by_rs,
+        "multi_regular_frames_by_rs": multi_pure_regular_frames_by_rs,
+        "multi_regular_annotation_frame_rate_by_rs": {
+            rs: multi_regular_annotation_frames_by_rs[rs] / max(1, frames_with_regular_annotation_by_rs[rs])
+            for rs in RS_LABELS
+        },
+        "multi_pure_regular_frame_rate_by_rs": {
+            rs: multi_pure_regular_frames_by_rs[rs] / max(1, pure_regular_frames_by_rs[rs])
+            for rs in RS_LABELS
+        },
         "multi_regular_frame_rate_by_rs": {
-            rs: multi_regular_frames_by_rs[rs] / max(1, regular_frame_total_by_rs[rs])
+            rs: multi_pure_regular_frames_by_rs[rs] / max(1, pure_regular_frames_by_rs[rs])
             for rs in RS_LABELS
         },
         "static_ue_by_rs": {rs: sorted(static_ue_sets[rs]) for rs in RS_LABELS},
@@ -291,9 +315,14 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
         },
         "raw_regular_remap_total": sum(raw_regular_remap_by_rs.values()),
         "raw_regular_remap_rate": sum(raw_regular_remap_by_rs.values()) / max(1, total_frames),
+        "raw_regular_remap_rate_over_pure_regular": sum(raw_regular_remap_by_rs.values()) / max(1, sum(pure_regular_frames_by_rs.values())),
         "raw_regular_remap_by_rs": raw_regular_remap_by_rs,
         "raw_regular_remap_rate_by_rs": {
             rs: raw_regular_remap_by_rs[rs] / max(1, rs_totals[rs])
+            for rs in RS_LABELS
+        },
+        "raw_regular_remap_rate_over_pure_regular_by_rs": {
+            rs: raw_regular_remap_by_rs[rs] / max(1, pure_regular_frames_by_rs[rs])
             for rs in RS_LABELS
         },
         "raw_regular_remap_breakdown": raw_regular_remap_breakdown,
