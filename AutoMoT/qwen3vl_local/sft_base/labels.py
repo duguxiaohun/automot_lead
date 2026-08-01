@@ -13,12 +13,14 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-DATASET_VERSION = "sft_base_rs_event_token_choice_re_expanded"
+DATASET_VERSION = "sft_base_rs_event_token_choice_rs_regular_mapped"
 # DATASET_VERSION 描述的是本路线自己的样本协议：两问直接输出语义 token，不含
 # OPSD/CoT/teacher，也不再有任何 A/B/C 选项字母。数据 schema 里的 `rs_option` /
 # `event_option_map` 两个字母字段已被删除，Q2 候选改为有序 list
-# `event_candidates_ordered`；regular EVENT 不再折叠成单个 RE，而是直接监督
-# R-E1..R-E5 对应的语义 token。旧 schema 直接作废重建，不保留兼容读取。
+# `event_candidates_ordered`；regular EVENT 不再折叠成单个 RE。当前标签以 RS
+# 为准做 canonical regular 映射：路口通行类 R-E4/R-E5 由 R4/R5 决定，非路口
+# 越界 regular 映射回该 RS 默认 regular。旧 schema / 旧未映射 index 直接作废
+# 重建，不保留兼容读取。
 #
 # EVENT 候选顺序故意继续使用 v5 的 namespace。这样同一 route/frame/seed
 # 在 sft_base 与 sft_v5 中候选集合和展示顺序一致，便于做逐样本直接对照；
@@ -213,8 +215,9 @@ class RSTarget:
 class EventTarget:
     """单帧 EVENT 训练目标。
 
-    `label` 是监督用标签：R-E* 或 U-E*。旧版会把所有 regular 折叠成 RE；
-    新版直接监督具体 R-E 子类，让高速/匝道等纯 regular 场景也有非唯一答案。
+    `label` 是监督用标签：R-E* 或 U-E*。UE 保留原始异常标签；regular 会按
+    当前 RS 映射到 canonical R-E 标签。`event_code` 保留映射前选中的原始 code，
+    便于重建数据后继续审计 RS / regular 原标注是否互相矛盾。
     """
 
     label: str
@@ -259,6 +262,29 @@ def default_regular_event_for_rs(rs_label: str) -> str:
 
     values = RS_REGULAR_EVENTS.get(str(rs_label), [])
     return values[0] if values else "R-E1"
+
+
+def canonical_regular_event_for_rs(rs_label: str, event_code: str) -> str:
+    """按 RS 把原始 regular EVENT 映射成训练/评估使用的 canonical 标签。
+
+    远端全量归因显示，R-E4/R-E5 在路口类型上不稳定：R5 里大量出现
+    SIGNAL_COMPLIANCE，且分散在 NonSignalizedJunctionRightTurn、
+    PriorityAtJunction 等明确无信号/优先权 scenario。这里采用“RS 更可信”的口径：
+    - R4 下任意 regular 都映射为 R-E4；
+    - R5 下任意 regular 都映射为 R-E5；
+    - R1/R2/R3 只保留各自静态表内的道路行为 regular，越界项映射为默认 R-E1。
+
+    映射只改变监督标签；原始 code 会继续写入 event_code / regular_event_codes 审计字段。
+    """
+
+    code = normalize_event_code(event_code)
+    rs = str(rs_label)
+    if not code or not is_regular_event(code):
+        return default_regular_event_for_rs(rs)
+    allowed = RS_REGULAR_EVENTS.get(rs, [])
+    if code in allowed:
+        return code
+    return default_regular_event_for_rs(rs)
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -340,6 +366,7 @@ def resolve_event_target(
     frame: Mapping[str, Any],
     *,
     student_event: Optional[str] = None,
+    rs_label: Optional[str] = None,
 ) -> EventTarget:
     """把可能多标签的原始 EVENT 解析成单标签目标。
 
@@ -347,10 +374,11 @@ def resolve_event_target(
     - 有 UE 时 UE 优先；
     - 多个 UE 时，如果 student 输出是其中之一，teacher target 采用 student 输出；
       否则用 primary_event / 稳定顺序；
-    - 全 regular 时返回具体 R-E*，不再折叠成 RE。
+    - 全 regular 时先确定原始 R-E*，再按 RS 映射到 canonical regular 标签。
     """
 
     raw_events = raw_events_from_frame(frame)
+    rs_for_mapping = str(rs_label) if rs_label in RS_LABELS else resolve_rs_target(frame).label
     student = normalize_event_code(student_event)
     ue = [code for code in raw_events if is_unusual(code)]
     regular = [code for code in raw_events if code.startswith("R-E")]
@@ -379,7 +407,8 @@ def resolve_event_target(
         primary = normalize_event_code((frame.get("frame_event_annotation") or {}).get("label") or frame.get("primary_event"))
         chosen_re = str(primary) if primary in regular else _stable_first(regular or ["R-E1"])
     regular_codes = tuple(regular or [chosen_re])
-    return EventTarget(label=chosen_re, event_code=chosen_re, abnormal=False, raw_events=tuple(raw_events), regular_event_codes=regular_codes)
+    mapped_re = canonical_regular_event_for_rs(rs_for_mapping, chosen_re)
+    return EventTarget(label=mapped_re, event_code=chosen_re, abnormal=False, raw_events=tuple(raw_events), regular_event_codes=regular_codes)
 
 
 def scenario_event_candidates_from_result(result: Mapping[str, Any]) -> List[str]:

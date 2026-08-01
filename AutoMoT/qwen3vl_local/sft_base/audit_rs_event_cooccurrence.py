@@ -7,8 +7,8 @@
 
 脚本不加载模型，只读取标注 JSON，用于检查 `EVENT_CANDIDATES_BY_RS` 是否漏掉真实
 数据里已经出现的 RS/UE 或 RS/R-E 组合，同时统计 regular 子类分布、多 regular
-标签比例，以及候选表外 regular 组合的 scenario/route 归因。RE 展开后，R3 是否
-真的有足够 R-E1/R-E2/R-E3 区分度，以及 R5+R-E4 这类冲突是否集中，都先看这里。
+标签比例，以及 raw regular 被 RS canonical 映射的 scenario/route 归因。RE 展开后，
+R3 是否真的有足够 R-E1/R-E2/R-E3 区分度，以及 R5+R-E4 这类冲突是否集中，都先看这里。
 
 默认阈值是严格方案 A：count >= 20 且占该 RS 帧数 rate >= 0.1%。脚本同时报告
 missing（数据显著存在但静态表没有）和 spurious（静态表有但数据低于阈值或为 0），
@@ -34,6 +34,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 from qwen3vl_local.sft_base.labels import (  # noqa: E402
     EVENT_CANDIDATES_BY_RS,
     RS_LABELS,
+    canonical_regular_event_for_rs,
     is_regular_event,
     resolve_event_target,
     resolve_rs_target,
@@ -150,12 +151,14 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
     rs_totals = {rs: 0 for rs in RS_LABELS}
     all_ue_by_rs: Dict[str, Dict[str, int]] = {rs: {} for rs in RS_LABELS}
     all_regular_by_rs: Dict[str, Dict[str, int]] = {rs: {} for rs in RS_LABELS}
+    raw_regular_by_rs: Dict[str, Dict[str, int]] = {rs: {} for rs in RS_LABELS}
     multi_regular_frames_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
     regular_frame_total_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
     regular_static_mismatch_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
-    regular_mismatch_combo_counts: Counter[str] = Counter()
-    regular_mismatch_scenario_counts: Dict[str, Counter[str]] = defaultdict(Counter)
-    regular_mismatch_route_counts: Dict[str, Counter[str]] = defaultdict(Counter)
+    raw_regular_remap_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
+    raw_regular_remap_combo_counts: Counter[str] = Counter()
+    raw_regular_remap_scenario_counts: Dict[str, Counter[str]] = defaultdict(Counter)
+    raw_regular_remap_route_counts: Dict[str, Counter[str]] = defaultdict(Counter)
     focus_combo_counts: Counter[str] = Counter()
     skipped = 0
     total_frames = 0
@@ -180,7 +183,7 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
         for frame_scenario, route_id, frame in _iter_route_frames(result, scenario):
             try:
                 rs = resolve_rs_target(frame).label
-                event = resolve_event_target(frame)
+                event = resolve_event_target(frame, rs_label=rs)
             except Exception:
                 skipped += 1
                 continue
@@ -195,17 +198,22 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
             if len(set(regular_codes)) > 1:
                 multi_regular_frames_by_rs[rs] += 1
             for code in regular_codes:
-                all_regular_by_rs[rs][code] = all_regular_by_rs[rs].get(code, 0) + 1
-                if code not in static_regular_sets.get(rs, set()):
-                    regular_static_mismatch_by_rs[rs] += 1
+                raw_regular_by_rs[rs][code] = raw_regular_by_rs[rs].get(code, 0) + 1
+                if code != event.label:
+                    raw_regular_remap_by_rs[rs] += 1
                     combo_key = f"{rs}:{code}"
                     route_key = f"{frame_scenario}/{route_id}"
-                    regular_mismatch_combo_counts[combo_key] += 1
-                    regular_mismatch_scenario_counts[combo_key][frame_scenario] += 1
-                    regular_mismatch_route_counts[combo_key][route_key] += 1
+                    raw_regular_remap_combo_counts[combo_key] += 1
+                    raw_regular_remap_scenario_counts[combo_key][frame_scenario] += 1
+                    raw_regular_remap_route_counts[combo_key][route_key] += 1
                     if args.focus_combo and combo_key == str(args.focus_combo):
                         focus_combo_counts[route_key] += 1
             if not event.abnormal:
+                label = str(event.label)
+                if is_regular_event(label):
+                    all_regular_by_rs[rs][label] = all_regular_by_rs[rs].get(label, 0) + 1
+                    if label not in static_regular_sets.get(rs, set()):
+                        regular_static_mismatch_by_rs[rs] += 1
                 continue
             abnormal_frames += 1
             label = str(event.label)
@@ -225,17 +233,18 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
         min_count=min_count,
         min_rate=min_rate,
     )
-    regular_static_mismatch_breakdown = []
-    for combo_key, count in regular_mismatch_combo_counts.most_common():
+    raw_regular_remap_breakdown = []
+    for combo_key, count in raw_regular_remap_combo_counts.most_common():
         rs, event = combo_key.split(":", 1)
-        regular_static_mismatch_breakdown.append(
+        raw_regular_remap_breakdown.append(
             {
                 "rs": rs,
-                "event": event,
+                "raw_event": event,
+                "mapped_event": canonical_regular_event_for_rs(rs, event),
                 "count": int(count),
                 "rs_frame_rate": int(count) / max(1, rs_totals.get(rs, 0)),
-                "top_scenarios": _top_counter_rows(regular_mismatch_scenario_counts[combo_key], top_k),
-                "top_routes": _top_counter_rows(regular_mismatch_route_counts[combo_key], top_k),
+                "top_scenarios": _top_counter_rows(raw_regular_remap_scenario_counts[combo_key], top_k),
+                "top_routes": _top_counter_rows(raw_regular_remap_route_counts[combo_key], top_k),
             }
         )
     report = {
@@ -251,6 +260,7 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
         "rs_totals": rs_totals,
         "ue_by_rs": all_ue_by_rs,
         "regular_by_rs": all_regular_by_rs,
+        "raw_regular_by_rs": raw_regular_by_rs,
         "regular_frame_total_by_rs": regular_frame_total_by_rs,
         "multi_regular_frames_by_rs": multi_regular_frames_by_rs,
         "multi_regular_frame_rate_by_rs": {
@@ -279,7 +289,14 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
             rs: regular_static_mismatch_by_rs[rs] / max(1, rs_totals[rs])
             for rs in RS_LABELS
         },
-        "regular_static_mismatch_breakdown": regular_static_mismatch_breakdown,
+        "raw_regular_remap_total": sum(raw_regular_remap_by_rs.values()),
+        "raw_regular_remap_rate": sum(raw_regular_remap_by_rs.values()) / max(1, total_frames),
+        "raw_regular_remap_by_rs": raw_regular_remap_by_rs,
+        "raw_regular_remap_rate_by_rs": {
+            rs: raw_regular_remap_by_rs[rs] / max(1, rs_totals[rs])
+            for rs in RS_LABELS
+        },
+        "raw_regular_remap_breakdown": raw_regular_remap_breakdown,
         "focus_combo": str(args.focus_combo or ""),
         "focus_combo_top_routes": _top_counter_rows(focus_combo_counts, top_k),
         "candidate_count_after_static_table": {

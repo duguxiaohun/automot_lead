@@ -18,6 +18,7 @@ from qwen3vl_local.sft_base.labels import (
     collapse_regular_to_re,
     q2_raw_candidates_for_frame,
     q2_raw_candidates,
+    resolve_event_target,
     stable_event_choice_order,
 )
 
@@ -67,6 +68,41 @@ def main() -> None:
     for rs, candidates in EVENT_CANDIDATES_BY_RS.items():
         # 静态表只允许原始 R-E*/U-E*，不能混入旧 prompt 展示用的 RE。
         assert all(code.startswith("R-E") or code.startswith("U-E") for code in candidates), rs
+
+    # regular 原始标注以 RS 为准做 canonical 映射：训练标签进入静态候选表，
+    # 原始 code 仍保留在 event_code / regular_event_codes 里供审计。
+    r5_signal_raw = {
+        "frame_rs_annotation": {"label": "R5"},
+        "frame_event_annotation": {"events": ["R-E4"], "label": "R-E4"},
+    }
+    target = resolve_event_target(r5_signal_raw, rs_label="R5")
+    assert target.label == "R-E5"
+    assert target.event_code == "R-E4"
+    assert target.regular_event_codes == ("R-E4",)
+
+    r4_priority_raw = {
+        "frame_rs_annotation": {"label": "R4"},
+        "frame_event_annotation": {"events": ["R-E5"], "label": "R-E5"},
+    }
+    target = resolve_event_target(r4_priority_raw, rs_label="R4")
+    assert target.label == "R-E4"
+    assert target.event_code == "R-E5"
+
+    r3_highway_raw = {
+        "frame_rs_annotation": {"label": "R3"},
+        "frame_event_annotation": {"events": ["R-E3"], "label": "R-E3"},
+    }
+    target = resolve_event_target(r3_highway_raw, rs_label="R3")
+    assert target.label == "R-E3"
+    assert target.event_code == "R-E3"
+
+    r3_signal_raw = {
+        "frame_rs_annotation": {"label": "R3"},
+        "frame_event_annotation": {"events": ["R-E4"], "label": "R-E4"},
+    }
+    target = resolve_event_target(r3_signal_raw, rs_label="R3")
+    assert target.label == "R-E1"
+    assert target.event_code == "R-E4"
     print("[test_dataset_contract] ok")
 
 
