@@ -6,8 +6,9 @@
     --output-json checkpoints/sft_base_data/rs_event_cooccurrence.json
 
 脚本不加载模型，只读取标注 JSON，用于检查 `EVENT_CANDIDATES_BY_RS` 是否漏掉真实
-数据里已经出现的 RS/UE 组合，同时统计 RS/R-E regular 子类分布与多 regular 标签
-比例。RE 展开后，R3 是否真的有足够 R-E1/R-E2/R-E3 区分度要先看这里。
+数据里已经出现的 RS/UE 或 RS/R-E 组合，同时统计 regular 子类分布、多 regular
+标签比例，以及候选表外 regular 组合的 scenario/route 归因。RE 展开后，R3 是否
+真的有足够 R-E1/R-E2/R-E3 区分度，以及 R5+R-E4 这类冲突是否集中，都先看这里。
 
 默认阈值是严格方案 A：count >= 20 且占该 RS 帧数 rate >= 0.1%。脚本同时报告
 missing（数据显著存在但静态表没有）和 spurious（静态表有但数据低于阈值或为 0），
@@ -20,6 +21,7 @@ import argparse
 import json
 import pathlib
 import sys
+from collections import Counter, defaultdict
 from typing import Any, Dict, Iterable, Mapping
 
 _THIS_FILE = pathlib.Path(__file__).resolve()
@@ -48,7 +50,7 @@ def _iter_result_paths(collection_dir: pathlib.Path) -> Iterable[pathlib.Path]:
         yield path
 
 
-def _iter_route_frames(result: Mapping[str, Any]) -> Iterable[tuple[str, Mapping[str, Any]]]:
+def _iter_route_frames(result: Mapping[str, Any], scenario: str) -> Iterable[tuple[str, str, Mapping[str, Any]]]:
     """按 build_dataset 口径过滤 route 后产出 frame annotation。"""
 
     routes = result.get("routes") or result.get("route_results") or []
@@ -68,7 +70,73 @@ def _iter_route_frames(result: Mapping[str, Any]) -> Iterable[tuple[str, Mapping
             frames = frames.values()
         for frame in frames:
             if isinstance(frame, Mapping):
-                yield route_id, frame
+                yield scenario, route_id, frame
+
+
+def _split_static_sets() -> tuple[Dict[str, set[str]], Dict[str, set[str]]]:
+    """把静态 EVENT 表拆成 UE 与 regular 两套集合。"""
+
+    static_ue = {
+        rs: {code for code in EVENT_CANDIDATES_BY_RS.get(rs, []) if str(code).startswith("U-E")}
+        for rs in RS_LABELS
+    }
+    static_regular = {
+        rs: {code for code in EVENT_CANDIDATES_BY_RS.get(rs, []) if is_regular_event(str(code))}
+        for rs in RS_LABELS
+    }
+    return static_ue, static_regular
+
+
+def _combo_rows(
+    *,
+    observed_by_rs: Mapping[str, Mapping[str, int]],
+    static_sets: Mapping[str, set[str]],
+    rs_totals: Mapping[str, int],
+    min_count: int,
+    min_rate: float,
+) -> tuple[list[Dict[str, Any]], list[Dict[str, Any]], list[Dict[str, Any]]]:
+    """对某一族 EVENT 做 missing / low-rate missing / spurious 双向审计。"""
+
+    missing: list[Dict[str, Any]] = []
+    low_rate_missing: list[Dict[str, Any]] = []
+    spurious: list[Dict[str, Any]] = []
+    for rs in RS_LABELS:
+        for event, count in sorted((observed_by_rs.get(rs) or {}).items()):
+            rate = count / max(1, int(rs_totals.get(rs, 0)))
+            row = {
+                "rs": rs,
+                "event": event,
+                "count": int(count),
+                "rs_frame_rate": rate,
+                "in_static_table": event in static_sets.get(rs, set()),
+            }
+            if event not in static_sets.get(rs, set()):
+                if count >= min_count and rate >= min_rate:
+                    missing.append(row)
+                else:
+                    low_rate_missing.append(row)
+        if int(rs_totals.get(rs, 0)) <= 0:
+            continue
+        for event in sorted(static_sets.get(rs, set())):
+            count = int((observed_by_rs.get(rs) or {}).get(event, 0))
+            rate = count / max(1, int(rs_totals.get(rs, 0)))
+            if count < min_count or rate < min_rate:
+                spurious.append(
+                    {
+                        "rs": rs,
+                        "event": event,
+                        "count": count,
+                        "rs_frame_rate": rate,
+                        "in_static_table": True,
+                    }
+                )
+    return missing, low_rate_missing, spurious
+
+
+def _top_counter_rows(counter: Counter[str], limit: int) -> list[Dict[str, Any]]:
+    """把 Counter 转成 JSON 友好的 top-k rows。"""
+
+    return [{"key": key, "count": int(count)} for key, count in counter.most_common(max(0, int(limit)))]
 
 
 def audit(args: argparse.Namespace) -> Dict[str, Any]:
@@ -77,12 +145,18 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
     collection_dir = pathlib.Path(args.collection_dir)
     min_count = max(1, int(args.min_count))
     min_rate = max(0.0, float(args.min_rate))
+    top_k = max(0, int(args.top_k))
+    static_ue_sets, static_regular_sets = _split_static_sets()
     rs_totals = {rs: 0 for rs in RS_LABELS}
-    ue_totals = {rs: {code: 0 for code in EVENT_CANDIDATES_BY_RS.get(rs, []) if str(code).startswith("U-E")} for rs in RS_LABELS}
     all_ue_by_rs: Dict[str, Dict[str, int]] = {rs: {} for rs in RS_LABELS}
     all_regular_by_rs: Dict[str, Dict[str, int]] = {rs: {} for rs in RS_LABELS}
     multi_regular_frames_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
     regular_frame_total_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
+    regular_static_mismatch_by_rs: Dict[str, int] = {rs: 0 for rs in RS_LABELS}
+    regular_mismatch_combo_counts: Counter[str] = Counter()
+    regular_mismatch_scenario_counts: Dict[str, Counter[str]] = defaultdict(Counter)
+    regular_mismatch_route_counts: Dict[str, Counter[str]] = defaultdict(Counter)
+    focus_combo_counts: Counter[str] = Counter()
     skipped = 0
     total_frames = 0
     abnormal_frames = 0
@@ -96,13 +170,14 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
         except Exception:
             skipped += 1
             continue
+        scenario = str(result.get("scenario") or path.name[: -len("_result.json")])
         abnormal_skips, missing_skips = _skip_sets(result)
         skipped_routes_abnormal_or_missing += len(abnormal_skips) + len(missing_skips)
         routes = result.get("routes") or result.get("route_results") or []
         if isinstance(routes, Mapping):
             routes = routes.values()
         skipped_routes_failed += sum(1 for route in routes if isinstance(route, Mapping) and route.get("status") not in {None, "success"})
-        for _route_id, frame in _iter_route_frames(result):
+        for frame_scenario, route_id, frame in _iter_route_frames(result, scenario):
             try:
                 rs = resolve_rs_target(frame).label
                 event = resolve_event_target(frame)
@@ -121,50 +196,48 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
                 multi_regular_frames_by_rs[rs] += 1
             for code in regular_codes:
                 all_regular_by_rs[rs][code] = all_regular_by_rs[rs].get(code, 0) + 1
+                if code not in static_regular_sets.get(rs, set()):
+                    regular_static_mismatch_by_rs[rs] += 1
+                    combo_key = f"{rs}:{code}"
+                    route_key = f"{frame_scenario}/{route_id}"
+                    regular_mismatch_combo_counts[combo_key] += 1
+                    regular_mismatch_scenario_counts[combo_key][frame_scenario] += 1
+                    regular_mismatch_route_counts[combo_key][route_key] += 1
+                    if args.focus_combo and combo_key == str(args.focus_combo):
+                        focus_combo_counts[route_key] += 1
             if not event.abnormal:
                 continue
             abnormal_frames += 1
             label = str(event.label)
             all_ue_by_rs[rs][label] = all_ue_by_rs[rs].get(label, 0) + 1
-            if label in ue_totals[rs]:
-                ue_totals[rs][label] += 1
 
-    static_sets = {rs: {code for code in EVENT_CANDIDATES_BY_RS.get(rs, []) if str(code).startswith("U-E")} for rs in RS_LABELS}
-    missing = []
-    low_rate_missing = []
-    for rs in RS_LABELS:
-        for ue, count in sorted(all_ue_by_rs[rs].items()):
-            rate = count / max(1, rs_totals[rs])
-            row = {
+    missing_ue, low_rate_missing_ue, spurious_ue = _combo_rows(
+        observed_by_rs=all_ue_by_rs,
+        static_sets=static_ue_sets,
+        rs_totals=rs_totals,
+        min_count=min_count,
+        min_rate=min_rate,
+    )
+    missing_regular, low_rate_missing_regular, spurious_regular = _combo_rows(
+        observed_by_rs=all_regular_by_rs,
+        static_sets=static_regular_sets,
+        rs_totals=rs_totals,
+        min_count=min_count,
+        min_rate=min_rate,
+    )
+    regular_static_mismatch_breakdown = []
+    for combo_key, count in regular_mismatch_combo_counts.most_common():
+        rs, event = combo_key.split(":", 1)
+        regular_static_mismatch_breakdown.append(
+            {
                 "rs": rs,
-                "event": ue,
-                "count": count,
-                "rs_frame_rate": rate,
-                "in_static_table": ue in static_sets[rs],
+                "event": event,
+                "count": int(count),
+                "rs_frame_rate": int(count) / max(1, rs_totals.get(rs, 0)),
+                "top_scenarios": _top_counter_rows(regular_mismatch_scenario_counts[combo_key], top_k),
+                "top_routes": _top_counter_rows(regular_mismatch_route_counts[combo_key], top_k),
             }
-            if ue not in static_sets[rs]:
-                if count >= min_count and rate >= min_rate:
-                    missing.append(row)
-                else:
-                    low_rate_missing.append(row)
-    spurious = []
-    for rs in RS_LABELS:
-        if rs_totals[rs] <= 0:
-            continue
-        observed = all_ue_by_rs.get(rs, {})
-        for ue in sorted(static_sets[rs]):
-            count = int(observed.get(ue, 0))
-            rate = count / max(1, rs_totals[rs])
-            if count < min_count or rate < min_rate:
-                spurious.append(
-                    {
-                        "rs": rs,
-                        "event": ue,
-                        "count": count,
-                        "rs_frame_rate": rate,
-                        "in_static_table": True,
-                    }
-                )
+        )
     report = {
         "collection_dir": str(collection_dir),
         "result_files": result_files,
@@ -184,10 +257,31 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
             rs: multi_regular_frames_by_rs[rs] / max(1, regular_frame_total_by_rs[rs])
             for rs in RS_LABELS
         },
-        "static_ue_by_rs": {rs: sorted(static_sets[rs]) for rs in RS_LABELS},
-        "missing_combinations": missing,
-        "low_rate_missing_combinations": low_rate_missing,
-        "spurious_combinations": spurious,
+        "static_ue_by_rs": {rs: sorted(static_ue_sets[rs]) for rs in RS_LABELS},
+        "static_regular_by_rs": {rs: sorted(static_regular_sets[rs]) for rs in RS_LABELS},
+        "missing_ue_combinations": missing_ue,
+        "low_rate_missing_ue_combinations": low_rate_missing_ue,
+        "spurious_ue_combinations": spurious_ue,
+        "missing_regular_combinations": missing_regular,
+        "low_rate_missing_regular_combinations": low_rate_missing_regular,
+        "spurious_regular_combinations": spurious_regular,
+        # 旧字段名保留为 UE-only，兼容之前的 shell/json 解析。
+        "missing_combinations": missing_ue,
+        "low_rate_missing_combinations": low_rate_missing_ue,
+        "spurious_combinations": spurious_ue,
+        "missing_combinations_all": missing_ue + missing_regular,
+        "low_rate_missing_combinations_all": low_rate_missing_ue + low_rate_missing_regular,
+        "spurious_combinations_all": spurious_ue + spurious_regular,
+        "regular_static_mismatch_total": sum(regular_static_mismatch_by_rs.values()),
+        "regular_static_mismatch_rate": sum(regular_static_mismatch_by_rs.values()) / max(1, total_frames),
+        "regular_static_mismatch_by_rs": regular_static_mismatch_by_rs,
+        "regular_static_mismatch_rate_by_rs": {
+            rs: regular_static_mismatch_by_rs[rs] / max(1, rs_totals[rs])
+            for rs in RS_LABELS
+        },
+        "regular_static_mismatch_breakdown": regular_static_mismatch_breakdown,
+        "focus_combo": str(args.focus_combo or ""),
+        "focus_combo_top_routes": _top_counter_rows(focus_combo_counts, top_k),
         "candidate_count_after_static_table": {
             rs: len(EVENT_CANDIDATES_BY_RS.get(rs, []))
             for rs in RS_LABELS
@@ -199,11 +293,18 @@ def audit(args: argparse.Namespace) -> Dict[str, Any]:
 def main() -> None:
     """CLI 入口。"""
 
-    p = argparse.ArgumentParser(description="Audit RS x UE co-occurrence against static EVENT_CANDIDATES_BY_RS")
+    p = argparse.ArgumentParser(description="Audit RS x EVENT co-occurrence against static EVENT_CANDIDATES_BY_RS")
     p.add_argument("--collection-dir", type=str, default="keyframe_filter/collection_output")
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--min-count", type=int, default=20)
     p.add_argument("--min-rate", type=float, default=0.001)
+    p.add_argument("--top-k", type=int, default=20, help="Top scenario/route rows kept for regular mismatch attribution")
+    p.add_argument(
+        "--focus-combo",
+        type=str,
+        default="R5:R-E4",
+        help="Optional RS:EVENT combo whose top routes are copied to focus_combo_top_routes",
+    )
     args = p.parse_args()
     report = audit(args)
     text = json.dumps(report, ensure_ascii=False, indent=2)
