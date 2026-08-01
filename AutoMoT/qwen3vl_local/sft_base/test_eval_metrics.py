@@ -21,8 +21,13 @@ def main() -> None:
         'rs_candidate_count_report[rs] = rs_report_by_count',
         '"q2_rs_candidate_count_report": rs_candidate_count_report',
         '"joint_acc": counters["q2_joint_correct"] / q2_total',
+        '"event_regular_baseline_expected_full_data": REGULAR_ZERO_INFO_BASELINE_END_TO_END',
+        '"event_oracle_majority_regular_baseline_end_to_end": event_regular_baseline_oracle_majority_q2',
+        'baseline_target = _event_target_from_frame(frame)',
+        'counters["regular_majority_static_correct"] += int(baseline_target.label == baseline_label)',
         '"regular_internal_confusion_report": regular_report',
         '"ue_fp_on_multi_candidate_re_by_rs": ue_fp_on_multi_candidate_re_by_rs',
+        "event_report = _multiclass_report(counters, prefix=\"event\", labels=_EVENT_LABELS, pred_labels=_EVENT_CM_LABELS)",
     ]
     for needle in required:
         assert needle in src, needle

@@ -78,8 +78,11 @@ python qwen3vl_local/sft_base/audit_rs_event_cooccurrence.py \
 | `missing_ue_combinations` / `spurious_ue_combinations` | UE 侧静态表是否漏/多了高频组合 |
 | `missing_regular_combinations` / `spurious_regular_combinations` | 映射后的 regular 侧静态表是否漏/多了高频组合；新协议应为空 |
 | `regular_static_mismatch_total` / `regular_static_mismatch_rate_by_rs` | 映射后 GT regular 不在当前 RS 静态候选表里的比例；新协议应接近 0 |
-| `raw_regular_by_rs` | 映射前原始 regular 分布，用于复盘标注噪声 |
-| `raw_regular_remap_total` / `raw_regular_remap_breakdown` | 原始 regular 被 RS canonical 映射的总量与 scenario/route 归因 |
+| `raw_regular_by_rs` | 所有带 regular annotation 的原始分布，包含最终 GT 为 UE 的帧，用于复盘标注噪声 |
+| `frames_with_regular_annotation_by_rs` | 带 regular annotation 的帧数；UE 帧同时带 R-E 标注时会进入这里 |
+| `pure_regular_frames_by_rs` / `regular_frame_total_by_rs` | 最终 GT 为 regular 的帧数；`regular_frame_total_by_rs` 保留为兼容别名 |
+| `raw_regular_remap_total` / `raw_regular_remap_breakdown` | 只在 pure regular 帧上统计原始 regular 被 RS canonical 映射的总量与 scenario/route 归因；UE 帧直接跳过 |
+| `raw_regular_remap_rate` / `raw_regular_remap_rate_over_pure_regular` | 前者除全部有效帧，后者除 pure regular 帧；避免把“影响全库多少”和“影响 regular 内部多少”混作一个数 |
 | `focus_combo_top_routes` | 默认聚焦原始 `R5:R-E4`，用于保留 R5 下 `SIGNAL_COMPLIANCE` 标注冲突证据 |
 
 如果要改聚焦组合：
@@ -98,12 +101,14 @@ R1/R2 只保留 `R-E1/R-E2`，R3 保留 `R-E1/R-E2/R-E3`，R4 固定 `R-E4`，
 R5 固定 `R-E5`。重建数据后验证点：
 
 ```text
-single_candidate_rate                    -> 0
-regular_static_mismatch_total            -> 0
-missing_regular_combinations             -> []
-spurious_regular_combinations            -> []
-gt_static_candidate_mismatch             -> 只剩低频 UE 组合，约等于全量 163 帧在 val split 的对应子集
-R3 regular 分布                          -> R-E1/R-E3/R-E2 都存在，保持 3 选 1 判别
+single_candidate_rate                         -> 0
+regular_static_mismatch_total                 -> 0
+missing_regular_combinations                  -> []
+spurious_regular_combinations                 -> []
+raw_regular_remap_breakdown                   -> 不应出现 raw_event == mapped_event 的行
+pure_regular_frames_by_rs                     -> 等于各 RS 总帧 - UE 帧
+gt_static_candidate_mismatch                  -> 只剩低频 UE 组合，约等于全量 163 帧在 val split 的对应子集
+R3 regular 分布                               -> R-E1/R-E3/R-E2 都存在，保持 3 选 1 判别
 ```
 
 ## 2. 静态检查
@@ -111,6 +116,7 @@ R3 regular 分布                          -> R-E1/R-E3/R-E2 都存在，保持 
 ```bash
 python qwen3vl_local/sft_base/check_loss_mask.py
 python qwen3vl_local/sft_base/test_dataset_contract.py
+python qwen3vl_local/sft_base/test_regular_remap.py
 python qwen3vl_local/sft_base/test_eval_metrics.py
 GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh check
 ```
@@ -141,7 +147,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 - 默认 `MEMORY_PERTURBATION_MODE=route_state`：wrong/UNKNOWN 会在同一 route 内连续保持 3-5 个真实帧，到期恢复干净 GT 轨迹；`frame` 模式保留旧逐帧独立扰动，主要作消融。
 - Q1 用 GT RS 更新后，训练侧会为 Q2 在当前 RS 池里单独重采 EVENT memory；keep 分支沿用进入本帧前的干净 EVENT memory（上一帧 GT），防止“扰动 RS 被纠正回 GT”把 Q2 EVENT memory 大量失效成 UNKNOWN，也防止 EVENT 转折帧把本帧答案写进 prompt。
 - `regular->UE`、`UE->regular`、RS 变化帧及其前后 3 帧会被重点重复训练。
-- Q1 只监督 RS；Q2 训练所有 GT 在候选表里的帧。regular 展开为 5 个语义 token，R3 不再是单候选；UE loss 会按 RS 条件 UE 率缩放，regular loss 会按 R-E 子类频次缩放。
+- Q1 只监督 RS；Q2 训练所有 GT 在候选表里的帧。regular 展开为 5 个语义 token，R3 不再是单候选；UE loss 会按 RS 条件 UE 率缩放，regular loss 会按 R-E 子类频次缩放，regular 帧 repeat 也按 R-E 子类逆频率做轻量上采样。
 
 当前默认值：
 
@@ -164,6 +170,9 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 | `UE_FRAME_REPEAT` | `2` | UE 子类重复训练的基础倍率 |
 | `UE_REPEAT_MODE` | `inverse_sqrt` | UE repeat 模式；`inverse_sqrt` 按子类逆频率放大长尾，`fixed` 保留旧固定 repeat |
 | `UE_REPEAT_MAX` | `8` | UE 子类逆频率重复次数上限 |
+| `REGULAR_FRAME_REPEAT` | `1` | regular 子类重复训练的基础倍率；配合 inverse-sqrt 时 R-E2/R-E3 等长尾会自动得到更多曝光 |
+| `REGULAR_REPEAT_MODE` | `inverse_sqrt` | regular repeat 模式；`fixed` 只按基础倍率重复 |
+| `REGULAR_REPEAT_MAX` | `6` | regular 子类逆频率重复次数上限 |
 
 如果要更激进地打断 memory-copy，可以临时提高扰动：
 
@@ -584,7 +593,7 @@ eval_results/event_transition_random/<时间>/
 | 指标 | 判断 |
 |---|---|
 | `rs_visual_gain_over_first_pred_lock` | RS 相对“模型首帧预测锁死”的净增益；黑图/随机图下如果几乎不变，说明视觉贡献很弱 |
-| `event_visual_gain_over_regular_baseline` | EVENT 相对“按 GT RS 答多数 regular 子类”的净增益；接近 0 说明 EVENT 坍缩 |
+| `event_visual_gain_over_regular_baseline` | EVENT 相对“按 GT RS 固定答全量最高频 regular 子类”的净增益；全量映射后零信息参考约 76.85%，接近 0 说明 EVENT 坍缩 |
 | `rs_pred_change_rate` vs `rs_gt_change_rate` | 预测变化率远低于 GT 变化率，说明 RS 被 memory 锁死 |
 | `rs_locked_case_rate` | 整段 RS 预测完全不变的 case 比例 |
 | `event_pred_ue_rate_multi_candidate` | 排除单候选后仍长期接近 0，表示 Q2 EVENT 坍缩到 regular |
@@ -611,6 +620,7 @@ eval_results/event_transition_random/<时间>/
 python -m py_compile qwen3vl_local/sft_base/*.py
 python qwen3vl_local/sft_base/check_loss_mask.py
 python qwen3vl_local/sft_base/test_dataset_contract.py
+python qwen3vl_local/sft_base/test_regular_remap.py
 python qwen3vl_local/sft_base/test_memory_curriculum.py
 python qwen3vl_local/sft_base/test_eval_candidates.py
 python qwen3vl_local/sft_base/test_eval_metrics.py

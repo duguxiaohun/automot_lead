@@ -188,6 +188,25 @@ EVENT_TOKEN_TO_LABEL: Dict[str, str] = {v: k for k, v in EVENT_LABEL_TO_TOKEN.it
 EVENT_LABELS: Tuple[str, ...] = tuple(EVENT_LABEL_TO_TOKEN.keys())
 REGULAR_EVENT_LABELS: Tuple[str, ...] = ("R-E1", "R-E2", "R-E3", "R-E4", "R-E5")
 
+# 全量映射后数据上的“零信息”EVENT baseline：只看 GT RS，永远回答该 RS 下最高频
+# regular 子类；UE 帧自然计 0。eval 使用这套固定策略，而不是在当前评估子集上
+# 事后挑多数类，避免小样本/专项评估把 baseline 算得过于乐观。
+REGULAR_MAJORITY_EVENT_BY_RS: Dict[str, str] = {
+    "R1": "R-E1",
+    "R2": "R-E1",
+    "R3": "R-E1",
+    "R4": "R-E4",
+    "R5": "R-E5",
+}
+REGULAR_ZERO_INFO_BASELINE_BY_RS: Dict[str, float] = {
+    "R1": 0.805,
+    "R2": 0.535,
+    "R3": 0.589,
+    "R4": 0.901,
+    "R5": 0.813,
+}
+REGULAR_ZERO_INFO_BASELINE_END_TO_END = 0.7685
+
 EVENT_ORDER: Tuple[str, ...] = (
     # 多标签没有置信度或 primary 不可用时，用这个全局顺序做确定性兜底。
     # 这样同一份数据在不同机器/不同 Python hash seed 下不会得到不同 teacher target。

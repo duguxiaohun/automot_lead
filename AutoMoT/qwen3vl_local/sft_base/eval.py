@@ -53,7 +53,10 @@ from qwen3vl_local.sft_base import DATASET_VERSION  # noqa: E402
 from qwen3vl_local.sft_base.eval_candidates import q2_candidates_for_student_rs  # noqa: E402
 from qwen3vl_local.sft_base.labels import (  # noqa: E402
     EVENT_LABELS,
+    REGULAR_MAJORITY_EVENT_BY_RS,
     REGULAR_EVENT_LABELS,
+    REGULAR_ZERO_INFO_BASELINE_BY_RS,
+    REGULAR_ZERO_INFO_BASELINE_END_TO_END,
     RS_LABELS,
     event_in_candidates,
     is_regular_event,
@@ -862,6 +865,7 @@ def _evaluate_case(
         )
         q2_text, _ = _generate_next(bundle, q1_after, q2_prompt, int(args.max_new_tokens_q2))
         parsed_q2 = parse_q2_output(q2_text, q2_candidates)
+        baseline_target = _event_target_from_frame(frame)
         target = _event_target_from_frame(frame, student_event=parsed_q2.get("event_label"))
         event_ok = (bool(event_reachable) and parsed_q2.get("event_label") == target.label) if event_score_valid else None
         pred_event_label = parsed_q2.get("event_label") or "INVALID"
@@ -896,6 +900,10 @@ def _evaluate_case(
             cm_pred_event = pred_event_label if event_reachable else "UNREACHABLE"
             counters[f"event_cm_{target.label}_{cm_pred_event}"] += 1
             if not gt_ue:
+                baseline_label = REGULAR_MAJORITY_EVENT_BY_RS.get(frame.rs_label)
+                counters["regular_majority_static_correct"] += int(baseline_target.label == baseline_label)
+                counters[f"regular_majority_static_by_rs_{frame.rs_label}_total"] += 1
+                counters[f"regular_majority_static_by_rs_{frame.rs_label}_correct"] += int(baseline_target.label == baseline_label)
                 if not event_reachable:
                     regular_pred_bucket = "UNREACHABLE"
                 elif parsed_q2.get("event_label") is None:
@@ -905,9 +913,9 @@ def _evaluate_case(
                 else:
                     regular_pred_bucket = "UE"
                 counters[f"regular_cm_{target.label}_{regular_pred_bucket}"] += 1
-                counters[f"regular_gt_by_rs_{frame.rs_label}_{target.label}"] += 1
+                counters[f"regular_gt_by_rs_{frame.rs_label}_{baseline_target.label}"] += 1
                 if q1_rs_ok:
-                    counters[f"regular_gt_by_rs_when_rs_correct_{frame.rs_label}_{target.label}"] += 1
+                    counters[f"regular_gt_by_rs_when_rs_correct_{frame.rs_label}_{baseline_target.label}"] += 1
             cell_prefix = "q2_multi" if is_multi_candidate else "q2_single"
             gt_prefix = "ue" if gt_ue else "re"
             counters[f"{cell_prefix}_{gt_prefix}_total"] += 1
@@ -1062,6 +1070,7 @@ def _new_counters() -> Dict[str, int]:
         "q2_event_correct_when_rs_correct": 0,
         "q2_event_correct_when_rs_wrong": 0,
         "q2_gt_re_when_rs_correct": 0,
+        "regular_majority_static_correct": 0,
         "q2_candidate_mismatch": 0,
         "q2_invalid_output": 0,
         "q2_ue_total": 0,
@@ -1153,6 +1162,8 @@ def _new_counters() -> Dict[str, int]:
         for pred in _REGULAR_CM_LABELS:
             counters[f"regular_cm_{gt}_{pred}"] = 0
     for rs in RS_LABELS:
+        counters[f"regular_majority_static_by_rs_{rs}_total"] = 0
+        counters[f"regular_majority_static_by_rs_{rs}_correct"] = 0
         for label in REGULAR_EVENT_LABELS:
             counters[f"regular_gt_by_rs_{rs}_{label}"] = 0
             counters[f"regular_gt_by_rs_when_rs_correct_{rs}_{label}"] = 0
@@ -1422,6 +1433,7 @@ def _build_metrics(
     regular_majority_correct = 0
     regular_majority_correct_rs = 0
     regular_majority_by_rs: Dict[str, Dict[str, Any]] = {}
+    regular_majority_static_by_rs: Dict[str, Dict[str, Any]] = {}
     for rs in RS_LABELS:
         counts = {label: int(counters.get(f"regular_gt_by_rs_{rs}_{label}", 0)) for label in REGULAR_EVENT_LABELS}
         correct = max(counts.values()) if counts else 0
@@ -1434,7 +1446,17 @@ def _build_metrics(
             "majority_count": correct,
             "regular_counts": counts,
         }
-    event_regular_baseline_q2 = regular_majority_correct / q2_total
+        static_total = int(counters.get(f"regular_majority_static_by_rs_{rs}_total", 0))
+        static_correct = int(counters.get(f"regular_majority_static_by_rs_{rs}_correct", 0))
+        regular_majority_static_by_rs[rs] = {
+            "majority_regular_label": REGULAR_MAJORITY_EVENT_BY_RS.get(rs),
+            "regular_correct": static_correct,
+            "regular_total": static_total,
+            "regular_accuracy": static_correct / max(1, static_total),
+            "full_data_regular_accuracy_reference": REGULAR_ZERO_INFO_BASELINE_BY_RS.get(rs),
+        }
+    event_regular_baseline_oracle_majority_q2 = regular_majority_correct / q2_total
+    event_regular_baseline_q2 = counters["regular_majority_static_correct"] / q2_total
     event_acc_q2 = counters["q2_event_correct"] / q2_total
     event_regular_baseline_rs_correct = regular_majority_correct_rs / q2_rs_correct_total
     event_acc_rs_correct = counters["q2_event_correct_when_rs_correct"] / q2_rs_correct_total
@@ -1554,10 +1576,13 @@ def _build_metrics(
         "event_acc_when_rs_wrong": counters["q2_event_correct_when_rs_wrong"] / max(1, counters["event_score_valid_frames"] - counters["q2_when_rs_correct"]),
         "event_acc_when_rs_correct": event_acc_rs_correct,
         "event_regular_baseline_end_to_end": event_regular_baseline_q2,
+        "event_regular_baseline_expected_full_data": REGULAR_ZERO_INFO_BASELINE_END_TO_END,
         "event_any_regular_rate_end_to_end": counters["q2_gt_re_total"] / q2_total,
         "event_majority_regular_baseline_end_to_end": event_regular_baseline_q2,
+        "event_oracle_majority_regular_baseline_end_to_end": event_regular_baseline_oracle_majority_q2,
         "event_regular_baseline_when_rs_correct": event_regular_baseline_rs_correct,
         "event_majority_regular_baseline_by_rs": regular_majority_by_rs,
+        "event_static_regular_baseline_by_rs": regular_majority_static_by_rs,
         "event_visual_gain_over_regular_baseline": event_acc_q2 - event_regular_baseline_q2,
         "event_pred_re_rate": counters["q2_pred_re"] / q2_total,
         "event_pred_ue_rate": counters["q2_pred_ue"] / q2_total,

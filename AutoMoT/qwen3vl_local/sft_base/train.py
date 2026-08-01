@@ -472,6 +472,37 @@ def _ue_repeat_for_frame(
     return max(1, min(max(1, int(ue_repeat_max)), repeat))
 
 
+def _regular_repeat_for_frame(
+    frame: FrameRow,
+    *,
+    event_label_counts: Optional[Mapping[str, int]],
+    regular_frame_repeat: int,
+    regular_repeat_mode: str,
+    regular_repeat_max: int,
+) -> int:
+    """按 regular 子类频次计算重复次数。
+
+    UE 已有独立 repeat；这里只处理最终 GT 为 regular 的帧。默认 inverse_sqrt 会
+    让 R-E2/R-E3 这类长尾 regular 得到额外曝光，但常见 R-E1/R-E4/R-E5 仍保持
+    约 1 倍，避免把总训练量粗暴放大。
+    """
+
+    if bool(frame.abnormal) or not is_regular_event(str(frame.event_label)):
+        return 1
+    base = max(1, int(regular_frame_repeat))
+    mode = str(regular_repeat_mode).lower()
+    if mode != "inverse_sqrt":
+        return base
+    counts = {str(k): int(v) for k, v in (event_label_counts or {}).items() if is_regular_event(str(k)) and int(v) > 0}
+    current = counts.get(str(frame.event_label), 0)
+    if current <= 0 or not counts:
+        return base
+    values = sorted(counts.values())
+    median = float(values[len(values) // 2])
+    repeat = int(round(float(base) * math.sqrt(max(median, 1.0) / float(current))))
+    return max(1, min(max(1, int(regular_repeat_max)), repeat))
+
+
 def _frame_training_pack(
     bundle: Any,
     frame: FrameRow,
@@ -592,6 +623,9 @@ def run_batch(
     rs_event_label_counts: Optional[Mapping[str, Mapping[str, int]]] = None,
     ue_repeat_mode: str = "inverse_sqrt",
     ue_repeat_max: int = 8,
+    regular_frame_repeat: int = 1,
+    regular_repeat_mode: str = "inverse_sqrt",
+    regular_repeat_max: int = 6,
     first_frame_memory_unknown: bool = True,
     memory_rs_wrong_prob: float = 0.30,
     memory_rs_unknown_prob: float = 0.40,
@@ -669,6 +703,17 @@ def run_batch(
                 ue_repeat_mode=str(ue_repeat_mode),
                 ue_repeat_max=int(ue_repeat_max),
             )
+            if not bool(frame.abnormal):
+                repeat = max(
+                    repeat,
+                    _regular_repeat_for_frame(
+                        frame,
+                        event_label_counts=event_label_counts,
+                        regular_frame_repeat=int(regular_frame_repeat),
+                        regular_repeat_mode=str(regular_repeat_mode),
+                        regular_repeat_max=int(regular_repeat_max),
+                    ),
+                )
             if frame_pos in transition_pos:
                 repeat = max(repeat, max(1, int(transition_frame_repeat)))
             clean_event_memory_label = "UNKNOWN" if frame_pos == 0 else str(memory.event_label)
@@ -1110,6 +1155,9 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "ue_frame_repeat": int(args.ue_frame_repeat),
         "ue_repeat_mode": str(args.ue_repeat_mode),
         "ue_repeat_max": int(args.ue_repeat_max),
+        "regular_frame_repeat": int(args.regular_frame_repeat),
+        "regular_repeat_mode": str(args.regular_repeat_mode),
+        "regular_repeat_max": int(args.regular_repeat_max),
         "transition_frame_repeat": int(args.transition_frame_repeat),
         "transition_frame_window": int(args.transition_frame_window),
         "first_frame_memory_unknown": bool(args.first_frame_memory_unknown),
@@ -1170,6 +1218,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--ue-frame-repeat", type=int, default=2)
     p.add_argument("--ue-repeat-mode", choices=["fixed", "inverse_sqrt"], default="inverse_sqrt")
     p.add_argument("--ue-repeat-max", type=int, default=8)
+    p.add_argument("--regular-frame-repeat", type=int, default=1)
+    p.add_argument("--regular-repeat-mode", choices=["fixed", "inverse_sqrt"], default="inverse_sqrt")
+    p.add_argument("--regular-repeat-max", type=int, default=6)
     p.add_argument("--transition-frame-repeat", type=int, default=4)
     p.add_argument("--transition-frame-window", type=int, default=3)
     p.add_argument("--first-frame-memory-unknown", action=argparse.BooleanOptionalAction, default=True)
@@ -1398,6 +1449,9 @@ def main() -> None:
                 rs_event_label_counts=getattr(train_ds, "rs_event_label_counts", None),
                 ue_repeat_mode=str(args.ue_repeat_mode),
                 ue_repeat_max=int(args.ue_repeat_max),
+                regular_frame_repeat=int(args.regular_frame_repeat),
+                regular_repeat_mode=str(args.regular_repeat_mode),
+                regular_repeat_max=int(args.regular_repeat_max),
                 transition_frame_repeat=int(args.transition_frame_repeat),
                 transition_frame_window=int(args.transition_frame_window),
                 ue_event_loss_weight=float(args.ue_event_loss_weight),
