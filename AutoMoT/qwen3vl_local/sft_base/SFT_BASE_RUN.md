@@ -64,8 +64,8 @@ python qwen3vl_local/sft_base/audit_rs_event_cooccurrence.py \
 
 静态 RS×UE 表采用严格方案 A：先按 `build_dataset.py` 同款口径剔除 `noScenarios`、
 异常时长 route、数据缺失 route 和失败 route，再只保留 `count >= 20` 且
-`rs_frame_rate >= 0.1%` 的组合。当前候选数为 R1=6、R2=4、R3=1、R4=5、R5=5
-（均为折叠到 prompt 后的数量，含 `RE`）。低频被拒绝的 GT 组合用
+`rs_frame_rate >= 0.1%` 的组合。regular 不再折叠成 `RE`，当前候选数为
+R1=7、R2=5、R3=3、R4=5、R5=5。低频被拒绝的 GT 组合用
 `audit_eval_candidate_drift.py --expect-mismatch-combinations` 守住组合类型，不再
 静默混进所有该 RS 的干扰项，也不把全量帧数误套到 val split。
 
@@ -103,8 +103,8 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 - 另有 `MEMORY_DROPOUT_PROB` 会作为独立第一层整块隐藏离散先验，只保留 `EGO_TO_GOAL_XY`，制造必须看图的帧；route 首帧固定 UNKNOWN/UNKNOWN，不参与 dropout 或 EVENT 扰动。
 - 默认 `MEMORY_PERTURBATION_MODE=route_state`：wrong/UNKNOWN 会在同一 route 内连续保持 3-5 个真实帧，到期恢复干净 GT 轨迹；`frame` 模式保留旧逐帧独立扰动，主要作消融。
 - Q1 用 GT RS 更新后，训练侧会为 Q2 在当前 RS 池里单独重采 EVENT memory；keep 分支沿用进入本帧前的干净 EVENT memory（上一帧 GT），防止“扰动 RS 被纠正回 GT”把 Q2 EVENT memory 大量失效成 UNKNOWN，也防止 EVENT 转折帧把本帧答案写进 prompt。
-- `RE->UE`、`UE->RE`、RS 变化帧及其前后 3 帧会被重点重复训练。
-- Q1 只监督 RS；Q2 训练所有 GT 在候选表里的帧。单候选 RE 低权重保温，多候选 RE 保留为压 UE 假阳性的硬负样本，UE 保持高权重。
+- `regular->UE`、`UE->regular`、RS 变化帧及其前后 3 帧会被重点重复训练。
+- Q1 只监督 RS；Q2 训练所有 GT 在候选表里的帧。regular 展开为 5 个语义 token，R3 不再是单候选；UE loss 会按 RS 条件 UE 率缩放，regular loss 会按 R-E 子类频次缩放。
 
 当前默认值：
 
@@ -122,8 +122,8 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 | `TRANSITION_FRAME_REPEAT` | `4` | 转折邻域帧最少重复次数 |
 | `TRANSITION_FRAME_WINDOW` | `3` | 转折点前后纳入重复的窗口半径 |
 | `UE_EVENT_LOSS_WEIGHT` | `4.0` | Q2 UE token loss 权重 |
-| `RE_EVENT_LOSS_WEIGHT` | `1.0` | Q2 多候选 RE 硬负样本 token loss 权重；不建议设为 0 |
-| `SINGLE_CANDIDATE_RE_SCALE` | `0.1` | 单候选 RE 相对 `RE_EVENT_LOSS_WEIGHT` 的缩放，默认有效权重 0.1 |
+| `RE_EVENT_LOSS_WEIGHT` | `1.0` | Q2 regular 硬负样本 token loss 基础权重；会按 R-E 子类频次 inverse-sqrt 缩放 |
+| `SINGLE_CANDIDATE_RE_SCALE` | `0.1` | 单候选 regular 相对 `RE_EVENT_LOSS_WEIGHT` 的缩放；新协议正常应几乎用不到 |
 | `UE_FRAME_REPEAT` | `2` | UE 子类重复训练的基础倍率 |
 | `UE_REPEAT_MODE` | `inverse_sqrt` | UE repeat 模式；`inverse_sqrt` 按子类逆频率放大长尾，`fixed` 保留旧固定 repeat |
 | `UE_REPEAT_MAX` | `8` | UE 子类逆频率重复次数上限 |
@@ -135,7 +135,7 @@ MEMORY_DROPOUT_PROB=0.25 MEMORY_RS_UNKNOWN_PROB=0.50 MEMORY_RS_WRONG_PROB=0.35 \
 GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
 ```
 
-`UE_EVENT_LOSS_WEIGHT` 不建议无限拉高，`RE_EVENT_LOSS_WEIGHT` 也不建议直接设为 0；否则模型可能从“全 REGULAR”翻到“全 UE”。多候选 RE 是最重要的硬负样本，用来约束“候选里有 UE 但画面不支持 UE”的假阳性。训练日志和 TensorBoard 会写 `train/q2_ue_rate_last_batch`，用于确认本轮 batch 里确实喂到了 UE 监督。
+`UE_EVENT_LOSS_WEIGHT` 不建议无限拉高，`RE_EVENT_LOSS_WEIGHT` 也不建议直接设为 0；否则模型可能从“全 regular”翻到“全 UE”。多候选 regular 是最重要的硬负样本，用来约束“候选里有 UE 但画面不支持 UE”的假阳性。训练日志和 TensorBoard 会写 `train/q2_ue_rate_last_batch`，用于确认本轮 batch 里确实喂到了 UE 监督。
 
 ```bash
 LORA_VISION_SCOPE=off GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh single
@@ -182,8 +182,8 @@ TB_EXTRA="--samples_per_plugin images=200" bash qwen3vl_local/tb_serve.sh checkp
 |---|---|
 | `train/loss` | optimizer step 后的全局平均训练 loss |
 | `train/q2_rate_last_batch` | 最近一次同步 batch 中包含 Q2 的帧比例 |
-| `train/q2_ue_rate_last_batch` | 最近一次 Q2 监督中 UE 帧比例，用于排查 UE 是否被 RE 淹没 |
-| `train/q2_ue_weight_share_last_batch` | 最近一次 Q2 监督中 UE loss 权重占比；配合 `ue_fp_on_multi_candidate_re_rate` 判断 RE 权重是否压得过低 |
+| `train/q2_ue_rate_last_batch` | 最近一次 Q2 监督中 UE 帧比例，用于排查 UE 是否被 regular 淹没 |
+| `train/q2_ue_weight_share_last_batch` | 最近一次 Q2 监督中 UE loss 权重占比；配合 `ue_fp_on_multi_candidate_re_rate` 判断 regular 权重是否压得过低 |
 | `train/grad_norm/language` | 语言 LoRA 梯度范数 |
 | `train/grad_norm/vision` | 视觉 LoRA/merger 相关梯度范数；`LORA_VISION_SCOPE=off` 时可能没有 |
 | `train/param_norm/lora_vision` | 视觉侧可训练参数范数，用于观察 fuse 是否异常漂移 |
@@ -275,7 +275,7 @@ GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
 
 `metrics.json` 里还会写 `q2_candidate_count_report` 与
 `q2_rs_candidate_count_report`，分别按候选数、RS×候选数分层统计 EVENT acc 与
-UE-vs-RE P/R/F1；R3 单选题、R1 的 6 选 1 与 R4/R5 的 5 选 1 不会再混在一个 event_acc 里。
+UE-vs-regular P/R/F1；R3 的 3 个 regular 候选、R1 的 7 选 1 与 R4/R5 的 5 选 1 不会再混在一个 event_acc 里。`regular_internal_confusion_report` 单独展示 R-E 子类混淆。
 
 评估结束后，rank0 终端会打印：
 
@@ -333,7 +333,7 @@ cat checkpoints/sft_base_runs/latest/final/sft_base_adapter_config.json
 ```json
 {
   "route": "sft_base_token_choice",
-  "dataset_version": "sft_base_rs_event_token_choice"
+  "dataset_version": "sft_base_rs_event_token_choice_re_expanded"
 }
 ```
 
@@ -450,28 +450,31 @@ dataset version、base model path 或 vision scope 不匹配，会直接报错�
 | 指标 | 含义 |
 |---|---|
 | `rs_acc` / `event_acc_end_to_end` | 全部评估帧上的 RS 准确率、每帧都问 Q2 的端到端 EVENT 准确率 |
+| `joint_acc` | 真实串行主指标：RS 正确且 EVENT 正确的比例 |
 | `q2_trigger_rate` | 进入 Q2 的比例；新协议应接近 100% |
 | `script_resets` | 脚本纠偏审计字段；评测不允许纠偏，正常必须恒为 0 |
 | `rs_transition_hit_rate` | RS 转折 case 在容忍窗口内切到目标 RS 的比例 |
-| `event_transition_hit_rate` | UE/RE/EVENT 转换 case 在容忍窗口内切到目标 EVENT 的比例 |
+| `event_transition_hit_rate` | UE/regular/EVENT 转换 case 在容忍窗口内切到目标 EVENT 的比例 |
 | `rs_transition_already_at_target_rate` / `event_transition_already_at_target_rate` | 命中 case 中窗口左边界已经等于目标值的比例；越高越说明 hit_rate 被锁死模型污染 |
 | `event_unreachable_due_to_rs_rate` | GT EVENT 在学生 RS 候选下不可达的比例 |
-| `ue_vs_re_f1` | 由 Q2 EVENT 折叠得到的 UE-vs-RE 二分类 F1 |
+| `ue_vs_re_f1` | 由 Q2 EVENT 折叠得到的 UE-vs-regular 二分类 F1 |
 | `event_acc_multi_candidate` | 排除单候选送分题后的 EVENT 准确率 |
 | `event_pred_ue_rate_multi_candidate` | 排除单候选送分题后的 UE 输出比例 |
-| `ue_vs_re_f1_multi_candidate` | 排除单候选送分题后的 UE-vs-RE F1 |
-| `event_acc_single_re` / `event_acc_single_ue` | 单候选 RE/UE 的 EVENT 准确率 |
-| `event_acc_multi_re` / `event_acc_multi_ue` | 多候选 RE 硬负样本 / UE 硬正样本的 EVENT 准确率 |
-| `ue_fp_on_multi_candidate_re_rate` | 多候选 RE 帧被误报成 UE 的比例，越低越好 |
+| `ue_vs_re_f1_multi_candidate` | 排除单候选送分题后的 UE-vs-regular F1 |
+| `event_acc_single_re` / `event_acc_single_ue` | 单候选 regular/UE 的 EVENT 准确率 |
+| `event_acc_multi_re` / `event_acc_multi_ue` | 多候选 regular 硬负样本 / UE 硬正样本的 EVENT 准确率 |
+| `ue_fp_on_multi_candidate_re_rate` | 多候选 regular 帧被误报成 UE 的比例，越低越好 |
+| `ue_fp_on_multi_candidate_re_by_rs` | 上一项按 RS 分组的明细，避免 R2 假阳性被全局均值掩盖 |
 | `single_candidate_invalid_rate` | 单候选题输出候选外 token 的比例 |
 | `dataset_candidate_mismatch_rate` / `dataset_candidate_mismatch_ue_rate` | GT EVENT 不在 dataset 自己候选表中的比例；这些帧不进 EVENT 评分分母 |
 | `q2_single_candidate_rate` / `q2_multi_candidate_rate` | Q2 单候选送分题比例 / 真正需要判别的多候选比例 |
 | `rs_change_f1` | 相邻帧 RS 是否变化的 F1；同时约束该切和不该切 |
 | `re_to_ue_f1` / `ue_to_re_f1` | 相邻帧异常起始 / 异常结束检测 F1，拆开看漏检和持续误报 |
-| `false_transition_rate_when_gt_stable` | RS、RE->UE、UE->RE 合并后的 GT 稳定帧假转折比例 |
+| `false_transition_rate_when_gt_stable` | RS、regular->UE、UE->regular 合并后的 GT 稳定帧假转折比例 |
 | `rs_transition_direction_confusion` / `event_transition_direction_confusion` | `(gt_source->gt_target) vs (pred_source->pred_target)` 的 sparse 转折方向混淆 |
-| `rs_confusion_report` / `event_confusion_report` | RS 5 类与 EVENT 9 类混淆矩阵、per-class P/R/F1 |
-| `ue_pred_regular_rate` | UE 帧进入 Q2 后仍被判成 `REGULAR` 的比例 |
+| `rs_confusion_report` / `event_confusion_report` | RS 5 类与 EVENT 13 类混淆矩阵、per-class P/R/F1 |
+| `regular_internal_confusion_report` | 只看 R-E1..R-E5 目标帧时，regular 子类被预测成哪类 |
+| `ue_pred_regular_rate` | UE 帧进入 Q2 后仍被判成 regular 子类的比例 |
 | `*_hit_offset_avg` / `*_abs_hit_offset_avg` | 命中帧相对标注转折帧的平均偏移和平均绝对偏移，单位是 frame，负数表示提前 |
 | `*_early_hits` / `*_on_time_hits` / `*_late_hits` | 命中发生在标注转折前、同帧或后几帧的数量 |
 | `output-jsonl` 每行 | 单帧复盘和 `transition_case_summary`，包含 route/frame、转折点、容忍窗口、GT/PRED RS、GT/PRED EVENT、原始生成文本 |
@@ -544,11 +547,11 @@ eval_results/event_transition_random/<时间>/
 | 指标 | 判断 |
 |---|---|
 | `rs_visual_gain_over_first_pred_lock` | RS 相对“模型首帧预测锁死”的净增益；黑图/随机图下如果几乎不变，说明视觉贡献很弱 |
-| `event_visual_gain_over_regular_baseline` | EVENT 相对“恒定 REGULAR”的净增益；接近 0 说明 EVENT 坍缩 |
+| `event_visual_gain_over_regular_baseline` | EVENT 相对“按 GT RS 答多数 regular 子类”的净增益；接近 0 说明 EVENT 坍缩 |
 | `rs_pred_change_rate` vs `rs_gt_change_rate` | 预测变化率远低于 GT 变化率，说明 RS 被 memory 锁死 |
 | `rs_locked_case_rate` | 整段 RS 预测完全不变的 case 比例 |
-| `event_pred_ue_rate_multi_candidate` | 排除单候选后仍长期接近 0，表示 Q2 EVENT 坍缩到 REGULAR |
-| `ue_vs_re_f1_multi_candidate` | 排除单候选后的 UE-vs-RE 判别能力；比全量 F1 更接近真实能力 |
+| `event_pred_ue_rate_multi_candidate` | 排除单候选后仍长期接近 0，表示 Q2 EVENT 坍缩到 regular |
+| `ue_vs_re_f1_multi_candidate` | 排除单候选后的 UE-vs-regular 判别能力；比全量 F1 更接近真实能力 |
 | `rs_change_f1` | 原图下也接近 0 表示模型没有学到 RS 变化；黑图下应明显更差 |
 | `re_to_ue_f1` | 原图下也接近 0 表示模型没有学到异常起始；黑图下应明显更差 |
 | `false_transition_rate_when_gt_stable` | 过高说明模型乱切；过低但 `*_change_f1` 接近 0 说明模型锁死 |

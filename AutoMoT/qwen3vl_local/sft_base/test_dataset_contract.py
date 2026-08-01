@@ -29,21 +29,21 @@ def main() -> None:
 
     r1_raw = q2_raw_candidates(scenario_candidates, "R1")
     assert set(r1_raw) == set(EVENT_CANDIDATES_BY_RS["R1"])
-    assert collapse_regular_to_re(r1_raw, "R1") == ["RE", "U-E1", "U-E2", "U-E3", "U-E4", "U-E5"]
+    assert collapse_regular_to_re(r1_raw, "R1") == ["R-E1", "R-E2", "U-E1", "U-E2", "U-E3", "U-E4", "U-E5"]
 
     r4_raw = q2_raw_candidates(scenario_candidates, "R4")
     assert set(r4_raw) == set(EVENT_CANDIDATES_BY_RS["R4"])
-    assert collapse_regular_to_re(r4_raw, "R4") == ["RE", "U-E4", "U-E6", "U-E7", "U-E8"]
+    assert collapse_regular_to_re(r4_raw, "R4") == ["R-E4", "U-E4", "U-E6", "U-E7", "U-E8"]
 
     r3_raw = q2_raw_candidates(scenario_candidates, "R3")
     assert set(r3_raw) == set(EVENT_CANDIDATES_BY_RS["R3"])
-    # R3 的正常 highway/ramp 行为可能有多个 R-E，但 prompt 里只训练一个 RE。
-    assert collapse_regular_to_re(r3_raw, "R3") == ["RE"], "R3 只折叠 regular 为 RE，不开放 UE"
+    # R3 的正常 highway/ramp 行为展开成多个 regular 候选，避免单候选送分。
+    assert collapse_regular_to_re(r3_raw, "R3") == ["R-E1", "R-E2", "R-E3"], "R3 必须保留 3 个 regular EVENT"
 
     o1 = stable_event_choice_order(run_id="route", frame_id=3, rs_label="R4", scenario_candidates=scenario_candidates, seed=7)
     o2 = stable_event_choice_order(run_id="route", frame_id=3, rs_label="R4", scenario_candidates=scenario_candidates, seed=7)
     assert o1 == o2, "frame 级随机必须可复现"
-    assert set(o1) == {"RE", "U-E4", "U-E6", "U-E7", "U-E8"}
+    assert set(o1) == {"R-E4", "U-E4", "U-E6", "U-E7", "U-E8"}
     assert len(o1) == len(set(o1)), "候选顺序里不能有重复项"
 
     frame = {
@@ -62,10 +62,10 @@ def main() -> None:
         raw_candidates=allowed_raw,
         seed=7,
     )
-    assert set(o3) == {"RE", "U-E4", "U-E6", "U-E7", "U-E8"}
+    assert set(o3) == {"R-E4", "U-E4", "U-E6", "U-E7", "U-E8"}
 
     for rs, candidates in EVENT_CANDIDATES_BY_RS.items():
-        # 静态表只允许原始 R-E*/U-E*，不能提前混入 prompt 展示用的 RE。
+        # 静态表只允许原始 R-E*/U-E*，不能混入旧 prompt 展示用的 RE。
         assert all(code.startswith("R-E") or code.startswith("U-E") for code in candidates), rs
     print("[test_dataset_contract] ok")
 

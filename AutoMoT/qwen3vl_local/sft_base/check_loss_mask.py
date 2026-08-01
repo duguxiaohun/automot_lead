@@ -61,7 +61,7 @@ def main() -> None:
     assert parse_q1_output(q1)["rs_label"] == "R4"
     _assert_nonempty(q1, target_spans_q1(q1), ["rs"])
     memory = reset_memory_for_frame(rs)
-    candidates = ["RE", "U-E6"]
+    candidates = ["R-E4", "U-E6"]
     q2 = build_q2_target(memory, candidates=candidates, event_target=event)
     assert "RULE_VIOLATION" in q2
     assert not _has_letter_answer(q2, "EVENT"), q2

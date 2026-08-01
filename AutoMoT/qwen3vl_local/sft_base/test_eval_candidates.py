@@ -41,19 +41,19 @@ def main() -> None:
         },
     )
     candidates, _regular, source, reachable = q2_candidates_for_student_rs(frame, "R4", seed=7)
-    assert set(candidates) == {"RE", "U-E4", "U-E6", "U-E7", "U-E8"}, (candidates, source)
+    assert set(candidates) == {"R-E4", "U-E4", "U-E6", "U-E7", "U-E8"}, (candidates, source)
     assert source == "pred_rs_static_candidates"
     assert reachable is True
 
     # 学生 RS 猜错时，候选随学生 RS 语境切换；正确答案不在该语境候选里时才不可达。
     candidates, _regular, source, reachable = q2_candidates_for_student_rs(frame, "R1", seed=7)
-    assert set(candidates) == {"RE", "U-E1", "U-E2", "U-E3", "U-E4", "U-E5"}, (candidates, source)
+    assert set(candidates) == {"R-E1", "R-E2", "U-E1", "U-E2", "U-E3", "U-E4", "U-E5"}, (candidates, source)
     assert source == "pred_rs_static_candidates"
     assert reachable is False
 
-    # R3 按用户拍板保持纯 RE；不会因为逐帧 allowed_events 有 UE 就开放 UE。
+    # R3 不开放 UE，但会保留 3 个 regular 子类，避免单候选送分题。
     candidates, _regular, source, reachable = q2_candidates_for_student_rs(frame, "R3", seed=7)
-    assert candidates == ["RE"], (candidates, source)
+    assert set(candidates) == {"R-E1", "R-E2", "R-E3"}, (candidates, source)
     assert source == "pred_rs_static_candidates"
     assert reachable is False
 
@@ -66,11 +66,11 @@ def main() -> None:
             "run_id": "route",
             "scenario_event_candidates": ["R-E4", "U-E2", "U-E6"],
             "frame_event_annotation": {"allowed_events": ["R-E4", "U-E2"]},
-            "event_candidates_ordered": ["RE", "U-E2"],
+            "event_candidates_ordered": ["R-E4", "U-E2"],
         },
     )
     candidates, _regular, source, reachable = q2_candidates_for_student_rs(r4_static_obstacle, "R4", seed=7)
-    assert set(candidates) == {"RE", "U-E4", "U-E6", "U-E7", "U-E8"}, (candidates, source)
+    assert set(candidates) == {"R-E4", "U-E4", "U-E6", "U-E7", "U-E8"}, (candidates, source)
     assert source == "pred_rs_static_candidates"
     assert reachable is False
 
@@ -83,11 +83,11 @@ def main() -> None:
             "run_id": "route",
             "scenario_event_candidates": ["R-E2", "U-E2", "U-E4"],
             "frame_event_annotation": {"allowed_events": ["R-E2", "U-E4"]},
-            "event_candidates_ordered": ["RE", "U-E4"],
+            "event_candidates_ordered": ["R-E2", "U-E4"],
         },
     )
     candidates, _regular, source, reachable = q2_candidates_for_student_rs(r2_vulnerable_crossing, "R2", seed=7)
-    assert set(candidates) == {"RE", "U-E2", "U-E4", "U-E5"}, (candidates, source)
+    assert set(candidates) == {"R-E1", "R-E2", "U-E2", "U-E4", "U-E5"}, (candidates, source)
     assert source == "pred_rs_static_candidates"
     assert reachable is True
 
@@ -101,16 +101,16 @@ def main() -> None:
             "run_id": "route",
             "scenario_event_candidates": ["R-E2", "U-E2", "U-E5"],
             "frame_event_annotation": {"allowed_events": ["R-E2", "U-E5"]},
-            "event_candidates_ordered": ["U-E5", "U-E2", "RE", "U-E4"],
+            "event_candidates_ordered": ["U-E5", "U-E2", "R-E1", "R-E2", "U-E4"],
         },
     )
     candidates, _regular, source, reachable = q2_candidates_for_student_rs(ordered_frame, "R2", seed=12345)
-    assert candidates == ["U-E5", "U-E2", "RE", "U-E4"], (candidates, source)
+    assert candidates == ["U-E5", "U-E2", "R-E1", "R-E2", "U-E4"], (candidates, source)
     assert source == "pred_rs_static_candidates"
     assert reachable is True
 
     candidates, _regular, source, reachable = q2_candidates_for_student_rs(frame, None, seed=7)
-    assert candidates == ["RE"]
+    assert candidates == ["R-E1"]
     assert source == "invalid_rs_fallback"
     assert reachable is False
     print("[test_eval_candidates] ok")

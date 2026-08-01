@@ -4,4 +4,4 @@
 teacher-forced CE：没有 OPSD、没有 CoT、没有 privileged teacher。
 """
 
-DATASET_VERSION = "sft_base_rs_event_token_choice"
+DATASET_VERSION = "sft_base_rs_event_token_choice_re_expanded"

@@ -21,6 +21,7 @@ from qwen3vl_local.sft_base.labels import (
     RS_TOKEN_TO_LABEL,
     EventTarget,
     RSTarget,
+    default_regular_event_for_rs,
     event_description_for_display,
 )
 
@@ -43,7 +44,7 @@ class Memory:
     """
 
     rs_label: str
-    event_label: str = "RE"
+    event_label: str = "R-E1"
     ego_to_goal_x: Optional[float] = None
     ego_to_goal_y: Optional[float] = None
     hide_priors: bool = False
@@ -120,9 +121,8 @@ def event_choices_block(
 ) -> str:
     """渲染 Q2 的本帧 EVENT token 选项。
 
-    `candidates` 是 build_dataset 存下来的有序候选 list（RE / U-E*），顺序即展示
-    顺序，本身就是本帧的可复现随机结果，这里不再二次排序。`regular_event_codes`
-    只保留兼容旧调用；RE 文案始终按当前 RS 的静态 regular 语义渲染，避免帧级泄漏。
+    `candidates` 是 build_dataset 存下来的有序候选 list（R-E* / U-E*），顺序即展示
+    顺序，本身就是本帧的可复现随机结果，这里不再二次排序。
     """
 
     rs_token = RS_LABEL_TO_TOKEN.get(rs_label, "ORDINARY_ROAD")
@@ -176,7 +176,7 @@ def build_q2_prompt(
             (
                 "[QUESTION_2]\n"
                 "Choose the listed event token best supported by the latest frame. "
-                "Choose REGULAR only if none of the listed unusual-event tokens is supported. "
+                "Choose a regular-driving token only if none of the listed unusual-event tokens is supported. "
                 "Do not invent an event that is not listed.\n\n"
                 "Output exactly this line and nothing else:\n"
                 "EVENT: <one EVENT token from EVENT_CHOICES>\n"
@@ -199,9 +199,9 @@ def build_q2_target(
     只在候选非空时取展示顺序第一项，保证 target 一定是本帧 prompt 列出过的 token。
     """
 
-    del memory, regular_event_codes
+    del regular_event_codes
     labels = [str(item) for item in candidates]
-    label = event_target.label if event_target.label in labels else (labels[0] if labels else "RE")
+    label = event_target.label if event_target.label in labels else (labels[0] if labels else default_regular_event_for_rs(memory.rs_label))
     token = EVENT_LABEL_TO_TOKEN.get(label, label)
     return f"EVENT: {token}"
 
@@ -320,6 +320,6 @@ def refresh_memory_goal(memory: Memory, ego_to_goal_xy: Optional[Sequence[float]
 
 
 def reset_memory_for_frame(rs_target: RSTarget, ego_to_goal_xy: Optional[Sequence[float]] = None) -> Memory:
-    """首帧或 reset 后恢复 GT RS + RE。"""
+    """首帧或 reset 后恢复 GT RS + 当前 RS 的默认 regular EVENT。"""
 
-    return refresh_memory_goal(Memory(rs_label=rs_target.label, event_label="RE"), ego_to_goal_xy)
+    return refresh_memory_goal(Memory(rs_label=rs_target.label, event_label=default_regular_event_for_rs(rs_target.label)), ego_to_goal_xy)

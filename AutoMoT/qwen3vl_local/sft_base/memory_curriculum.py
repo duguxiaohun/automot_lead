@@ -16,6 +16,7 @@ from qwen3vl_local.sft_base.labels import (
     EVENT_ORDER,
     RS_DESCRIPTIONS,
     collapse_regular_to_re,
+    default_regular_event_for_rs,
 )
 from qwen3vl_local.sft_base.prompts import Memory, refresh_memory_goal
 
@@ -59,7 +60,7 @@ def event_memory_pool_for_rs(frame: Any, rs_label: str) -> List[str]:
 
     del frame
     if rs_label not in RS_DESCRIPTIONS:
-        return ["RE"]
+        return [default_regular_event_for_rs("R1")]
     raw = list(EVENT_CANDIDATES_BY_RS.get(rs_label, []))
     return collapse_regular_to_re(raw, rs_label)
 
@@ -281,7 +282,9 @@ def maybe_corrupt_memory(
         else:
             mem.event_label = pick_different(rng, mem.event_label, event_memory_pool_for_rs(frame, mem.rs_label))
     elif event_draw < max(0.0, float(event_unknown_prob)) + max(0.0, float(event_wrong_prob)):
-        event_pool = ["RE"] + [code for code in EVENT_ORDER if code in set(getattr(frame, "event_candidates", []))]
+        event_pool = [code for code in EVENT_ORDER if code in set(getattr(frame, "event_candidates", []))]
+        if not event_pool:
+            event_pool = event_memory_pool_for_rs(frame, mem.rs_label)
         mem.event_label = pick_different(rng, mem.event_label, event_pool)
     return refresh_memory_goal(mem, getattr(frame, "ego_to_goal_xy", None))
 
