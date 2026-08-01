@@ -725,6 +725,8 @@ def _write_frame_record(
     q2_candidates: Optional[List[str]],
     event_reachable_under_pred_rs: bool,
     dataset_candidate_mismatch: bool,
+    gt_event_code_raw: Optional[str],
+    gt_regular_remapped: bool,
     args: argparse.Namespace,
 ) -> None:
     """把每帧自由生成结果写成 jsonl，便于定位转折处是否自行纠正。"""
@@ -762,6 +764,8 @@ def _write_frame_record(
         "rs_ok": q1_rs_ok,
         "gt_abnormal": bool(frame.abnormal),
         "gt_event": frame.event_label,
+        "gt_event_code_raw": gt_event_code_raw,
+        "gt_regular_remapped": bool(gt_regular_remapped),
         "pred_event": parsed_q2.get("event_label") if parsed_q2 else None,
         "pred_event_token": parsed_q2.get("event_token") if parsed_q2 else None,
         "event_ok": event_ok,
@@ -867,6 +871,7 @@ def _evaluate_case(
         parsed_q2 = parse_q2_output(q2_text, q2_candidates)
         baseline_target = _event_target_from_frame(frame)
         target = _event_target_from_frame(frame, student_event=parsed_q2.get("event_label"))
+        gt_regular_remapped = (not bool(frame.abnormal)) and str(baseline_target.event_code) != str(baseline_target.label)
         event_ok = (bool(event_reachable) and parsed_q2.get("event_label") == target.label) if event_score_valid else None
         pred_event_label = parsed_q2.get("event_label") or "INVALID"
         pred_ue = is_unusual(str(pred_event_label))
@@ -900,6 +905,16 @@ def _evaluate_case(
             cm_pred_event = pred_event_label if event_reachable else "UNREACHABLE"
             counters[f"event_cm_{target.label}_{cm_pred_event}"] += 1
             if not gt_ue:
+                remap_group = "remapped" if gt_regular_remapped else "unchanged"
+                counters[f"event_raw_regular_{remap_group}_total"] += 1
+                counters[f"event_raw_regular_{remap_group}_correct"] += int(bool(event_ok))
+                counters[f"event_raw_regular_{remap_group}_ue_fp"] += int(pred_ue)
+                counters[f"event_raw_regular_by_rs_{frame.rs_label}_{remap_group}_total"] += 1
+                counters[f"event_raw_regular_by_rs_{frame.rs_label}_{remap_group}_correct"] += int(bool(event_ok))
+                counters[f"event_raw_regular_by_rs_{frame.rs_label}_{remap_group}_ue_fp"] += int(pred_ue)
+                counters[f"event_raw_regular_combo_{frame.rs_label}_{baseline_target.event_code}_{baseline_target.label}_total"] += 1
+                counters[f"event_raw_regular_combo_{frame.rs_label}_{baseline_target.event_code}_{baseline_target.label}_correct"] += int(bool(event_ok))
+                counters[f"event_raw_regular_combo_{frame.rs_label}_{baseline_target.event_code}_{baseline_target.label}_ue_fp"] += int(pred_ue)
                 baseline_label = REGULAR_MAJORITY_EVENT_BY_RS.get(frame.rs_label)
                 counters["regular_majority_static_correct"] += int(baseline_target.label == baseline_label)
                 counters[f"regular_majority_static_by_rs_{frame.rs_label}_total"] += 1
@@ -924,6 +939,17 @@ def _evaluate_case(
                 counters["q2_single_candidate_invalid"] += 1
             if is_multi_candidate and (not gt_ue) and pred_ue:
                 counters["ue_fp_on_multi_candidate_re"] += 1
+            if is_multi_candidate and not gt_ue:
+                counters[f"q2_rs_{frame.rs_label}_multi_re_total"] += 1
+                counters[f"q2_rs_{frame.rs_label}_multi_re_correct"] += int(bool(event_ok))
+                counters[f"q2_rs_{frame.rs_label}_multi_re_ue_fp"] += int(pred_ue)
+                counters[f"q2_rs_{frame.rs_label}_multi_re_regular_tn"] += int(bool(parsed_q2.get("event_label") and is_regular_event(str(parsed_q2.get("event_label")))))
+                counters[f"q2_rs_{frame.rs_label}_multi_re_invalid"] += int(parsed_q2.get("event_label") is None)
+            if is_multi_candidate and gt_ue:
+                counters[f"q2_rs_{frame.rs_label}_multi_ue_total"] += 1
+                counters[f"q2_rs_{frame.rs_label}_multi_ue_correct"] += int(bool(event_ok))
+                counters[f"q2_rs_{frame.rs_label}_multi_ue_pred_regular"] += int(bool(parsed_q2.get("event_label") and is_regular_event(str(parsed_q2.get("event_label")))))
+                counters[f"q2_rs_{frame.rs_label}_multi_ue_pred_invalid"] += int(parsed_q2.get("event_label") is None)
             if pred_ue and gt_ue:
                 counters["ue_binary_tp"] += 1
             elif pred_ue and not gt_ue:
@@ -982,6 +1008,8 @@ def _evaluate_case(
                 "frame_index": abs_index,
                 "gt_rs": frame.rs_label,
                 "gt_event": target.label,
+                "gt_event_code_raw": baseline_target.event_code,
+                "gt_regular_remapped": gt_regular_remapped,
                 "gt_abnormal": bool(frame.abnormal),
                 "event_score_valid": event_score_valid,
                 "pred_rs": parsed_q1.get("rs_label"),
@@ -1004,6 +1032,8 @@ def _evaluate_case(
             q2_candidates,
             event_reachable,
             dataset_candidate_mismatch,
+            baseline_target.event_code,
+            gt_regular_remapped,
             args,
         )
     _score_adjacent_changes(counters, case_records)
@@ -1071,6 +1101,12 @@ def _new_counters() -> Dict[str, int]:
         "q2_event_correct_when_rs_wrong": 0,
         "q2_gt_re_when_rs_correct": 0,
         "regular_majority_static_correct": 0,
+        "event_raw_regular_remapped_total": 0,
+        "event_raw_regular_remapped_correct": 0,
+        "event_raw_regular_remapped_ue_fp": 0,
+        "event_raw_regular_unchanged_total": 0,
+        "event_raw_regular_unchanged_correct": 0,
+        "event_raw_regular_unchanged_ue_fp": 0,
         "q2_candidate_mismatch": 0,
         "q2_invalid_output": 0,
         "q2_ue_total": 0,
@@ -1164,9 +1200,27 @@ def _new_counters() -> Dict[str, int]:
     for rs in RS_LABELS:
         counters[f"regular_majority_static_by_rs_{rs}_total"] = 0
         counters[f"regular_majority_static_by_rs_{rs}_correct"] = 0
+        counters[f"q2_rs_{rs}_multi_re_total"] = 0
+        counters[f"q2_rs_{rs}_multi_re_correct"] = 0
+        counters[f"q2_rs_{rs}_multi_re_ue_fp"] = 0
+        counters[f"q2_rs_{rs}_multi_re_regular_tn"] = 0
+        counters[f"q2_rs_{rs}_multi_re_invalid"] = 0
+        counters[f"q2_rs_{rs}_multi_ue_total"] = 0
+        counters[f"q2_rs_{rs}_multi_ue_correct"] = 0
+        counters[f"q2_rs_{rs}_multi_ue_pred_regular"] = 0
+        counters[f"q2_rs_{rs}_multi_ue_pred_invalid"] = 0
+        for remap_group in ("remapped", "unchanged"):
+            counters[f"event_raw_regular_by_rs_{rs}_{remap_group}_total"] = 0
+            counters[f"event_raw_regular_by_rs_{rs}_{remap_group}_correct"] = 0
+            counters[f"event_raw_regular_by_rs_{rs}_{remap_group}_ue_fp"] = 0
         for label in REGULAR_EVENT_LABELS:
             counters[f"regular_gt_by_rs_{rs}_{label}"] = 0
             counters[f"regular_gt_by_rs_when_rs_correct_{rs}_{label}"] = 0
+        for raw in REGULAR_EVENT_LABELS:
+            for mapped in REGULAR_EVENT_LABELS:
+                counters[f"event_raw_regular_combo_{rs}_{raw}_{mapped}_total"] = 0
+                counters[f"event_raw_regular_combo_{rs}_{raw}_{mapped}_correct"] = 0
+                counters[f"event_raw_regular_combo_{rs}_{raw}_{mapped}_ue_fp"] = 0
     for gt in _RS_TRANSITION_LABELS:
         for pred in _RS_TRANSITION_LABELS:
             counters[f"rs_transition_dir_cm_{gt}_{pred}"] = 0
@@ -1522,18 +1576,87 @@ def _build_metrics(
         if rs_report_by_count:
             rs_candidate_count_report[rs] = rs_report_by_count
     ue_fp_on_multi_candidate_re_by_rs: Dict[str, Dict[str, Any]] = {}
+    q2_multi_re_by_rs_report: Dict[str, Dict[str, Any]] = {}
+    q2_multi_ue_by_rs_report: Dict[str, Dict[str, Any]] = {}
     for rs in RS_LABELS:
-        fp = 0
-        tn = 0
-        for n in range(2, 11):
-            prefix = f"q2_rs_{rs}_candidate_count_{n}"
-            fp += int(counters.get(f"{prefix}_ue_fp", 0))
-            tn += int(counters.get(f"{prefix}_ue_tn", 0))
+        total_re = int(counters.get(f"q2_rs_{rs}_multi_re_total", 0))
+        correct_re = int(counters.get(f"q2_rs_{rs}_multi_re_correct", 0))
+        fp = int(counters.get(f"q2_rs_{rs}_multi_re_ue_fp", 0))
+        tn = int(counters.get(f"q2_rs_{rs}_multi_re_regular_tn", 0))
+        invalid_re = int(counters.get(f"q2_rs_{rs}_multi_re_invalid", 0))
         ue_fp_on_multi_candidate_re_by_rs[rs] = {
+            "regular_total": total_re,
             "ue_fp": fp,
             "regular_tn": tn,
-            "rate": float(fp) / max(float(fp + tn), 1.0),
+            "invalid": invalid_re,
+            "rate": float(fp) / max(float(total_re), 1.0),
         }
+        q2_multi_re_by_rs_report[rs] = {
+            "total": total_re,
+            "accuracy": correct_re / max(1, total_re),
+            "ue_fp": fp,
+            "pred_regular": tn,
+            "pred_invalid": invalid_re,
+            "ue_fp_rate": float(fp) / max(float(total_re), 1.0),
+        }
+        total_ue = int(counters.get(f"q2_rs_{rs}_multi_ue_total", 0))
+        correct_ue = int(counters.get(f"q2_rs_{rs}_multi_ue_correct", 0))
+        pred_regular = int(counters.get(f"q2_rs_{rs}_multi_ue_pred_regular", 0))
+        pred_invalid = int(counters.get(f"q2_rs_{rs}_multi_ue_pred_invalid", 0))
+        q2_multi_ue_by_rs_report[rs] = {
+            "total": total_ue,
+            "accuracy": correct_ue / max(1, total_ue),
+            "pred_regular": pred_regular,
+            "pred_invalid": pred_invalid,
+            "pred_regular_rate": float(pred_regular) / max(float(total_ue), 1.0),
+            "pred_invalid_rate": float(pred_invalid) / max(float(total_ue), 1.0),
+        }
+    raw_regular_remap_groups: Dict[str, Dict[str, Any]] = {}
+    for group in ("unchanged", "remapped"):
+        total = int(counters.get(f"event_raw_regular_{group}_total", 0))
+        correct = int(counters.get(f"event_raw_regular_{group}_correct", 0))
+        ue_fp = int(counters.get(f"event_raw_regular_{group}_ue_fp", 0))
+        raw_regular_remap_groups[group] = {
+            "total": total,
+            "accuracy": correct / max(1, total),
+            "ue_fp": ue_fp,
+            "ue_fp_rate": float(ue_fp) / max(float(total), 1.0),
+        }
+    raw_regular_remap_by_rs: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for rs in RS_LABELS:
+        raw_regular_remap_by_rs[rs] = {}
+        for group in ("unchanged", "remapped"):
+            total = int(counters.get(f"event_raw_regular_by_rs_{rs}_{group}_total", 0))
+            correct = int(counters.get(f"event_raw_regular_by_rs_{rs}_{group}_correct", 0))
+            ue_fp = int(counters.get(f"event_raw_regular_by_rs_{rs}_{group}_ue_fp", 0))
+            raw_regular_remap_by_rs[rs][group] = {
+                "total": total,
+                "accuracy": correct / max(1, total),
+                "ue_fp": ue_fp,
+                "ue_fp_rate": float(ue_fp) / max(float(total), 1.0),
+            }
+    raw_regular_remap_combo_report: list[Dict[str, Any]] = []
+    for rs in RS_LABELS:
+        for raw in REGULAR_EVENT_LABELS:
+            for mapped in REGULAR_EVENT_LABELS:
+                total = int(counters.get(f"event_raw_regular_combo_{rs}_{raw}_{mapped}_total", 0))
+                if total <= 0:
+                    continue
+                correct = int(counters.get(f"event_raw_regular_combo_{rs}_{raw}_{mapped}_correct", 0))
+                ue_fp = int(counters.get(f"event_raw_regular_combo_{rs}_{raw}_{mapped}_ue_fp", 0))
+                raw_regular_remap_combo_report.append(
+                    {
+                        "rs": rs,
+                        "event_code_raw": raw,
+                        "event_label": mapped,
+                        "remapped": raw != mapped,
+                        "total": total,
+                        "accuracy": correct / max(1, total),
+                        "ue_fp": ue_fp,
+                        "ue_fp_rate": float(ue_fp) / max(float(total), 1.0),
+                    }
+                )
+    raw_regular_remap_combo_report.sort(key=lambda row: (-int(row["total"]), str(row["rs"]), str(row["event_code_raw"]), str(row["event_label"])))
     rs_change = _change_report(counters, "rs_change")
     re_to_ue = _change_report(counters, "re_to_ue")
     ue_to_re = _change_report(counters, "ue_to_re")
@@ -1608,9 +1731,16 @@ def _build_metrics(
         "q2_multi_candidate_scored_rate": counters["q2_multi_candidate_scored"] / frames,
         "q2_candidate_count_report": candidate_count_report,
         "q2_rs_candidate_count_report": rs_candidate_count_report,
+        "q2_multi_re_by_rs_report": q2_multi_re_by_rs_report,
+        "q2_multi_ue_by_rs_report": q2_multi_ue_by_rs_report,
         "event_confusion_report": event_report,
         "regular_internal_confusion_report": regular_report,
         "ue_fp_on_multi_candidate_re_by_rs": ue_fp_on_multi_candidate_re_by_rs,
+        "event_raw_regular_remap_report": {
+            "groups": raw_regular_remap_groups,
+            "by_rs": raw_regular_remap_by_rs,
+            "combos": raw_regular_remap_combo_report,
+        },
         "ue_acc": counters["q2_ue_correct"] / max(1, counters["q2_ue_total"]),
         "re_acc": counters["q2_re_correct"] / max(1, counters["q2_re_total"]),
         "ue_pred_regular_rate": counters["q2_ue_pred_regular"] / max(1, counters["q2_ue_total"]),

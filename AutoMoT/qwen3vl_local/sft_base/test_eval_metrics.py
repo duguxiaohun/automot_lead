@@ -11,7 +11,7 @@ import pathlib
 
 
 def main() -> None:
-    """验证 EVENT 指标同时按候选数、RS×候选数和 regular 子类分层输出。"""
+    """验证 EVENT 指标同时按候选数、RS、regular 子类和 remap 口径分层输出。"""
 
     eval_py = pathlib.Path(__file__).with_name("eval.py")
     src = eval_py.read_text(encoding="utf-8")
@@ -26,7 +26,14 @@ def main() -> None:
         'baseline_target = _event_target_from_frame(frame)',
         'counters["regular_majority_static_correct"] += int(baseline_target.label == baseline_label)',
         '"regular_internal_confusion_report": regular_report',
+        'counters[f"q2_rs_{frame.rs_label}_multi_re_ue_fp"] += int(pred_ue)',
+        '"q2_multi_re_by_rs_report": q2_multi_re_by_rs_report',
+        '"q2_multi_ue_by_rs_report": q2_multi_ue_by_rs_report',
         '"ue_fp_on_multi_candidate_re_by_rs": ue_fp_on_multi_candidate_re_by_rs',
+        '"gt_event_code_raw": gt_event_code_raw',
+        '"gt_regular_remapped": bool(gt_regular_remapped)',
+        '"event_raw_regular_remap_report": {',
+        '"combos": raw_regular_remap_combo_report',
         "event_report = _multiclass_report(counters, prefix=\"event\", labels=_EVENT_LABELS, pred_labels=_EVENT_CM_LABELS)",
     ]
     for needle in required:

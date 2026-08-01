@@ -16,6 +16,10 @@ R1/R2/R3 下不属于本 RS 静态表的路口通行类 regular 映射回默认
 `LANE_FOLLOWING`。原始 regular code 仍写入 `event_code_raw` /
 `regular_event_codes` / `event_labels_raw` 供审计。
 
+Prompt 合同也同步收紧：RS 解释只描述静态道路几何，EVENT 解释描述本帧动态或规则行为；
+memory 只展示 `BELIEVED_RS` / `BELIEVED_EVENT` token，不重复长解释。R3 纯 regular
+候选会使用 regular 间区分指令，重点区分稳定车道内行驶、可见横向跨线、匝道/汇入/分流/出口几何。
+
 因此必须先重新构建数据，再重新训练：
 
 - 旧 index 里的 `rs_option` / `event_option_map` 两个字母字段已被删除。
@@ -118,7 +122,20 @@ python qwen3vl_local/sft_base/check_loss_mask.py
 python qwen3vl_local/sft_base/test_dataset_contract.py
 python qwen3vl_local/sft_base/test_regular_remap.py
 python qwen3vl_local/sft_base/test_eval_metrics.py
+python qwen3vl_local/sft_base/test_prompt_snapshots.py
 GPU_IDS=0 bash qwen3vl_local/sft_base/train.sh check
+```
+
+可打印真实 Q2 prompt 做一次人工检查：
+
+```bash
+python - <<'PY'
+from qwen3vl_local.sft_base.prompts import Memory, build_q2_prompt
+print(build_q2_prompt(Memory(rs_label="R3", event_label="R-E1", ego_to_goal_x=8.0, ego_to_goal_y=-2.0), candidates=["R-E1", "R-E3", "R-E2"]))
+print()
+print("########## R4 ##########")
+print(build_q2_prompt(Memory(rs_label="R4", event_label="R-E4", ego_to_goal_x=5.0, ego_to_goal_y=1.0), candidates=["R-E4", "U-E4", "U-E6", "U-E7", "U-E8"]))
+PY
 ```
 
 ## 3. 训练
@@ -321,7 +338,13 @@ GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
 
 `metrics.json` 里还会写 `q2_candidate_count_report` 与
 `q2_rs_candidate_count_report`，分别按候选数、RS×候选数分层统计 EVENT acc 与
-UE-vs-regular P/R/F1；R3 的 3 个 regular 候选、R1 的 7 选 1 与 R4/R5 的 5 选 1 不会再混在一个 event_acc 里。`regular_internal_confusion_report` 单独展示 R-E 子类混淆。
+UE-vs-regular P/R/F1；R3 的 3 个 regular 候选、R1 的 7 选 1 与 R4/R5 的 5 选 1 不会再混在一个 event_acc 里。
+`q2_multi_re_by_rs_report` 直接按 RS 统计多候选 regular 帧的 UE 假阳性，
+`q2_multi_ue_by_rs_report` 对应看多候选 UE 帧漏判成 regular 的方向，避免 R2 假阳性和
+R4/R5 UE 漏检被全局均值互相抵消。`event_raw_regular_remap_report` 会把 pure regular
+帧分成 `remapped` / `unchanged`，并按 `event_code_raw -> event_label` 组合列出准确率和
+UE 假阳性率，用于诊断 RS canonical 映射是否引入噪声。`regular_internal_confusion_report`
+单独展示 R-E 子类混淆。
 
 评估结束后，rank0 终端会打印：
 
@@ -510,7 +533,10 @@ dataset version、base model path 或 vision scope 不匹配，会直接报错�
 | `event_acc_single_re` / `event_acc_single_ue` | 单候选 regular/UE 的 EVENT 准确率 |
 | `event_acc_multi_re` / `event_acc_multi_ue` | 多候选 regular 硬负样本 / UE 硬正样本的 EVENT 准确率 |
 | `ue_fp_on_multi_candidate_re_rate` | 多候选 regular 帧被误报成 UE 的比例，越低越好 |
-| `ue_fp_on_multi_candidate_re_by_rs` | 上一项按 RS 分组的明细，避免 R2 假阳性被全局均值掩盖 |
+| `ue_fp_on_multi_candidate_re_by_rs` | 上一项按 RS 分组的明细，直接用多候选 regular 分母，避免 R2 假阳性被全局均值掩盖 |
+| `q2_multi_re_by_rs_report` | 多候选 regular 帧按 RS 的 total/accuracy/ue_fp/ue_fp_rate，判断 RS 条件权重是否把 hard negative 压住 |
+| `q2_multi_ue_by_rs_report` | 多候选 UE 帧按 RS 的 total/accuracy/pred_regular_rate，重点看 R4/R5 是否仍然 UE recall 为 0 |
+| `event_raw_regular_remap_report` | pure regular 帧按 `event_code_raw != event_label` 分组和 raw->mapped 组合诊断；remapped 明显低于 unchanged 时回查对应 RS 标注质量 |
 | `single_candidate_invalid_rate` | 单候选题输出候选外 token 的比例 |
 | `dataset_candidate_mismatch_rate` / `dataset_candidate_mismatch_ue_rate` | GT EVENT 不在 dataset 自己候选表中的比例；这些帧不进 EVENT 评分分母 |
 | `q2_single_candidate_rate` / `q2_multi_candidate_rate` | Q2 单候选送分题比例 / 真正需要判别的多候选比例 |
@@ -624,6 +650,7 @@ python qwen3vl_local/sft_base/test_regular_remap.py
 python qwen3vl_local/sft_base/test_memory_curriculum.py
 python qwen3vl_local/sft_base/test_eval_candidates.py
 python qwen3vl_local/sft_base/test_eval_metrics.py
+python qwen3vl_local/sft_base/test_prompt_snapshots.py
 ```
 
 候选过滤偏差审计：

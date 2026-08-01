@@ -1,0 +1,214 @@
+### Q1 R1
+[MEMORY]
+BELIEVED_RS: ORDINARY_ROAD
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[RS_CHOICES]
+ORDINARY_ROAD. Ordinary same-direction road: continuous lanes in the same travel direction, with parallel lane markings or road edges extending ahead and no nearby junction control, branch connector, ramp, or opposing-lane-sharing constraint.
+BIDIRECTIONAL_NARROW. Bidirectional narrow or opposing-lane-sharing road: a tight corridor where the oncoming lane is part of the usable space, with little separation between ego and opposite-direction traffic.
+HIGHWAY_MERGE_EXIT. Highway, ramp, lane-join, split, or exit structure: a high-speed road geometry with ramps, acceleration/deceleration lanes, gore areas, lane splits, lane joins, or entry/exit connectors.
+SIGNAL_INTERSECTION. Signalized intersection: an intersection approach or interior where visible, working traffic lights define the right-of-way structure.
+PRIORITY_INTERSECTION. Unsignalized or priority-controlled intersection: an intersection approach or interior without a working traffic-light rule, using stop/yield signs, priority layout, or road geometry for right-of-way.
+[/RS_CHOICES]
+
+[QUESTION_1]
+Look at the latest frame in the RGB history and choose the current road-structure token. If the evidence is weak, keep the memory unless it is clearly contradicted.
+
+Output exactly this line and nothing else:
+RS: <one RS token from RS_CHOICES>
+[/QUESTION_1]
+
+### Q2 R1
+[MEMORY]
+BELIEVED_RS: ORDINARY_ROAD
+BELIEVED_EVENT: LANE_FOLLOWING
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[EVENT_CHOICES under RS=ORDINARY_ROAD]
+LANE_FOLLOWING. Regular lane following: the ego vehicle stays stably within its current lane or path, with no visible lane-line crossing, ramp/exit branch selection, or short-horizon conflict.
+LANE_CHANGE. Regular lane change or recovery: the latest frames show lateral movement across lane markings or between adjacent lanes, returning to a lane, or completing a normal path adjustment on clear drivable space.
+LEAD_BRAKE. A lead vehicle suddenly brakes or decelerates, requiring the ego vehicle to react with reduced speed or increased following distance.
+STATIC_OBSTACLE. A static obstacle, accident, construction object, parked vehicle, open door, or blocked lane occupies the ego path and forces avoidance, stopping, or borrowing space.
+MOVING_CUT_IN. A moving vehicle cuts in, pulls out, or dynamically occupies the ego path, creating a short-horizon conflict.
+VULNERABLE_CROSSING. A pedestrian, cyclist, or small vulnerable road user crosses or laterally enters the ego vehicle's intended path.
+ONCOMING_INVASION. An oncoming vehicle abnormally invades the ego lane or priority space, forcing the ego vehicle to yield or adjust.
+[/EVENT_CHOICES]
+
+[QUESTION_2]
+Choose the listed event token best supported by the latest frame. Choose a regular-driving token only if none of the listed unusual-event tokens is supported. Do not invent an event that is not listed.
+
+Output exactly this line and nothing else:
+EVENT: <one EVENT token from EVENT_CHOICES>
+[/QUESTION_2]
+
+### Q1 R2
+[MEMORY]
+BELIEVED_RS: BIDIRECTIONAL_NARROW
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[RS_CHOICES]
+ORDINARY_ROAD. Ordinary same-direction road: continuous lanes in the same travel direction, with parallel lane markings or road edges extending ahead and no nearby junction control, branch connector, ramp, or opposing-lane-sharing constraint.
+BIDIRECTIONAL_NARROW. Bidirectional narrow or opposing-lane-sharing road: a tight corridor where the oncoming lane is part of the usable space, with little separation between ego and opposite-direction traffic.
+HIGHWAY_MERGE_EXIT. Highway, ramp, lane-join, split, or exit structure: a high-speed road geometry with ramps, acceleration/deceleration lanes, gore areas, lane splits, lane joins, or entry/exit connectors.
+SIGNAL_INTERSECTION. Signalized intersection: an intersection approach or interior where visible, working traffic lights define the right-of-way structure.
+PRIORITY_INTERSECTION. Unsignalized or priority-controlled intersection: an intersection approach or interior without a working traffic-light rule, using stop/yield signs, priority layout, or road geometry for right-of-way.
+[/RS_CHOICES]
+
+[QUESTION_1]
+Look at the latest frame in the RGB history and choose the current road-structure token. If the evidence is weak, keep the memory unless it is clearly contradicted.
+
+Output exactly this line and nothing else:
+RS: <one RS token from RS_CHOICES>
+[/QUESTION_1]
+
+### Q2 R2
+[MEMORY]
+BELIEVED_RS: BIDIRECTIONAL_NARROW
+BELIEVED_EVENT: LANE_FOLLOWING
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[EVENT_CHOICES under RS=BIDIRECTIONAL_NARROW]
+LANE_FOLLOWING. Regular lane following: the ego vehicle stays stably within its current lane or path, with no visible lane-line crossing, ramp/exit branch selection, or short-horizon conflict.
+LANE_CHANGE. Regular lane change or recovery: the latest frames show lateral movement across lane markings or between adjacent lanes, returning to a lane, or completing a normal path adjustment on clear drivable space.
+STATIC_OBSTACLE. A static obstacle, accident, construction object, parked vehicle, open door, or blocked lane occupies the ego path and forces avoidance, stopping, or borrowing space.
+VULNERABLE_CROSSING. A pedestrian, cyclist, or small vulnerable road user crosses or laterally enters the ego vehicle's intended path.
+ONCOMING_INVASION. An oncoming vehicle abnormally invades the ego lane or priority space, forcing the ego vehicle to yield or adjust.
+[/EVENT_CHOICES]
+
+[QUESTION_2]
+Choose the listed event token best supported by the latest frame. Choose a regular-driving token only if none of the listed unusual-event tokens is supported. Do not invent an event that is not listed.
+
+Output exactly this line and nothing else:
+EVENT: <one EVENT token from EVENT_CHOICES>
+[/QUESTION_2]
+
+### Q1 R3
+[MEMORY]
+BELIEVED_RS: HIGHWAY_MERGE_EXIT
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[RS_CHOICES]
+ORDINARY_ROAD. Ordinary same-direction road: continuous lanes in the same travel direction, with parallel lane markings or road edges extending ahead and no nearby junction control, branch connector, ramp, or opposing-lane-sharing constraint.
+BIDIRECTIONAL_NARROW. Bidirectional narrow or opposing-lane-sharing road: a tight corridor where the oncoming lane is part of the usable space, with little separation between ego and opposite-direction traffic.
+HIGHWAY_MERGE_EXIT. Highway, ramp, lane-join, split, or exit structure: a high-speed road geometry with ramps, acceleration/deceleration lanes, gore areas, lane splits, lane joins, or entry/exit connectors.
+SIGNAL_INTERSECTION. Signalized intersection: an intersection approach or interior where visible, working traffic lights define the right-of-way structure.
+PRIORITY_INTERSECTION. Unsignalized or priority-controlled intersection: an intersection approach or interior without a working traffic-light rule, using stop/yield signs, priority layout, or road geometry for right-of-way.
+[/RS_CHOICES]
+
+[QUESTION_1]
+Look at the latest frame in the RGB history and choose the current road-structure token. If the evidence is weak, keep the memory unless it is clearly contradicted.
+
+Output exactly this line and nothing else:
+RS: <one RS token from RS_CHOICES>
+[/QUESTION_1]
+
+### Q2 R3
+[MEMORY]
+BELIEVED_RS: HIGHWAY_MERGE_EXIT
+BELIEVED_EVENT: LANE_FOLLOWING
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[EVENT_CHOICES under RS=HIGHWAY_MERGE_EXIT]
+LANE_FOLLOWING. Regular lane following: the ego vehicle stays stably within its current lane or path, with no visible lane-line crossing, ramp/exit branch selection, or short-horizon conflict.
+LANE_CHANGE. Regular lane change or recovery: the latest frames show lateral movement across lane markings or between adjacent lanes, returning to a lane, or completing a normal path adjustment on clear drivable space.
+HIGHWAY_MANEUVER. Regular highway/ramp maneuver: the ego vehicle is actively taking a highway branch action, such as entering a connector, leaving the mainline through an exit or deceleration lane, joining the mainline from an acceleration lane, or choosing a split branch, without an unusual blocking event.
+[/EVENT_CHOICES]
+
+[QUESTION_2]
+Choose the listed regular-driving token best matching the visible road geometry and ego motion in the latest frame. Use HIGHWAY_MANEUVER when lateral motion happens as part of a highway branch action such as joining from an acceleration lane, exiting to a ramp, taking a connector, or choosing a split. Use LANE_CHANGE only for an ordinary adjacent-lane move on the mainline without a ramp, connector, or split action. Use LANE_FOLLOWING when the ego stays stably in its current lane/path. Do not invent an event that is not listed.
+
+Output exactly this line and nothing else:
+EVENT: <one EVENT token from EVENT_CHOICES>
+[/QUESTION_2]
+
+### Q1 R4
+[MEMORY]
+BELIEVED_RS: SIGNAL_INTERSECTION
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[RS_CHOICES]
+ORDINARY_ROAD. Ordinary same-direction road: continuous lanes in the same travel direction, with parallel lane markings or road edges extending ahead and no nearby junction control, branch connector, ramp, or opposing-lane-sharing constraint.
+BIDIRECTIONAL_NARROW. Bidirectional narrow or opposing-lane-sharing road: a tight corridor where the oncoming lane is part of the usable space, with little separation between ego and opposite-direction traffic.
+HIGHWAY_MERGE_EXIT. Highway, ramp, lane-join, split, or exit structure: a high-speed road geometry with ramps, acceleration/deceleration lanes, gore areas, lane splits, lane joins, or entry/exit connectors.
+SIGNAL_INTERSECTION. Signalized intersection: an intersection approach or interior where visible, working traffic lights define the right-of-way structure.
+PRIORITY_INTERSECTION. Unsignalized or priority-controlled intersection: an intersection approach or interior without a working traffic-light rule, using stop/yield signs, priority layout, or road geometry for right-of-way.
+[/RS_CHOICES]
+
+[QUESTION_1]
+Look at the latest frame in the RGB history and choose the current road-structure token. If the evidence is weak, keep the memory unless it is clearly contradicted.
+
+Output exactly this line and nothing else:
+RS: <one RS token from RS_CHOICES>
+[/QUESTION_1]
+
+### Q2 R4
+[MEMORY]
+BELIEVED_RS: SIGNAL_INTERSECTION
+BELIEVED_EVENT: SIGNAL_COMPLIANCE
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[EVENT_CHOICES under RS=SIGNAL_INTERSECTION]
+SIGNAL_COMPLIANCE. Regular traffic-light compliance: at a working signalized intersection, the ego vehicle waits, proceeds, or turns according to the visible signal control without an unusual road-user conflict.
+VULNERABLE_CROSSING. A pedestrian, cyclist, or small vulnerable road user crosses or laterally enters the ego vehicle's intended path.
+RULE_VIOLATION. Another vehicle violates the expected intersection rule, such as running a red light or crossing against the ego vehicle's priority, creating conflict.
+RULE_UNCERTAIN. The intersection rule source is unreliable or failed, such as defective traffic lights or ambiguous priority, so normal right-of-way reasoning is broken.
+BLOCKED_SPACE. The forward road or intersection space is temporarily blocked or reopening, requiring waiting, queue handling, or cautious release.
+[/EVENT_CHOICES]
+
+[QUESTION_2]
+Choose the listed event token best supported by the latest frame. Choose a regular-driving token only if none of the listed unusual-event tokens is supported. Do not invent an event that is not listed.
+
+Output exactly this line and nothing else:
+EVENT: <one EVENT token from EVENT_CHOICES>
+[/QUESTION_2]
+
+### Q1 R5
+[MEMORY]
+BELIEVED_RS: PRIORITY_INTERSECTION
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[RS_CHOICES]
+ORDINARY_ROAD. Ordinary same-direction road: continuous lanes in the same travel direction, with parallel lane markings or road edges extending ahead and no nearby junction control, branch connector, ramp, or opposing-lane-sharing constraint.
+BIDIRECTIONAL_NARROW. Bidirectional narrow or opposing-lane-sharing road: a tight corridor where the oncoming lane is part of the usable space, with little separation between ego and opposite-direction traffic.
+HIGHWAY_MERGE_EXIT. Highway, ramp, lane-join, split, or exit structure: a high-speed road geometry with ramps, acceleration/deceleration lanes, gore areas, lane splits, lane joins, or entry/exit connectors.
+SIGNAL_INTERSECTION. Signalized intersection: an intersection approach or interior where visible, working traffic lights define the right-of-way structure.
+PRIORITY_INTERSECTION. Unsignalized or priority-controlled intersection: an intersection approach or interior without a working traffic-light rule, using stop/yield signs, priority layout, or road geometry for right-of-way.
+[/RS_CHOICES]
+
+[QUESTION_1]
+Look at the latest frame in the RGB history and choose the current road-structure token. If the evidence is weak, keep the memory unless it is clearly contradicted.
+
+Output exactly this line and nothing else:
+RS: <one RS token from RS_CHOICES>
+[/QUESTION_1]
+
+### Q2 R5
+[MEMORY]
+BELIEVED_RS: PRIORITY_INTERSECTION
+BELIEVED_EVENT: PRIORITY_NEGOTIATION
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[EVENT_CHOICES under RS=PRIORITY_INTERSECTION]
+PRIORITY_NEGOTIATION. Regular priority negotiation: at an unsignalized or priority-controlled intersection, the ego vehicle follows stop/yield, priority layout, or safe-gap reasoning without an unusual road-user conflict.
+VULNERABLE_CROSSING. A pedestrian, cyclist, or small vulnerable road user crosses or laterally enters the ego vehicle's intended path.
+ONCOMING_INVASION. An oncoming vehicle abnormally invades the ego lane or priority space, forcing the ego vehicle to yield or adjust.
+RULE_UNCERTAIN. The intersection rule source is unreliable or failed, such as defective traffic lights or ambiguous priority, so normal right-of-way reasoning is broken.
+BLOCKED_SPACE. The forward road or intersection space is temporarily blocked or reopening, requiring waiting, queue handling, or cautious release.
+[/EVENT_CHOICES]
+
+[QUESTION_2]
+Choose the listed event token best supported by the latest frame. Choose a regular-driving token only if none of the listed unusual-event tokens is supported. Do not invent an event that is not listed.
+
+Output exactly this line and nothing else:
+EVENT: <one EVENT token from EVENT_CHOICES>
+[/QUESTION_2]
