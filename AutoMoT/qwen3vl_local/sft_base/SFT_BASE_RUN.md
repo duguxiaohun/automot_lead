@@ -52,8 +52,9 @@ python qwen3vl_local/sft_base/build_dataset.py \
   --max-frames-per-route 4
 ```
 
-重建数据前可先扫一遍 RS x UE 共现，检查静态候选表是否漏掉真实组合。该脚本复用
-`build_dataset.py` 的异常时长 / 数据缺失 route 过滤口径：
+重建数据前可先扫一遍 RS x EVENT 共现，检查静态候选表是否漏掉真实组合。该脚本复用
+`build_dataset.py` 的异常时长 / 数据缺失 route 过滤口径，并同时报告 UE 与 regular
+两侧的 missing / low-rate / spurious：
 
 ```bash
 python qwen3vl_local/sft_base/audit_rs_event_cooccurrence.py \
@@ -62,12 +63,32 @@ python qwen3vl_local/sft_base/audit_rs_event_cooccurrence.py \
   --output-json checkpoints/sft_base_data/rs_event_cooccurrence.json
 ```
 
-静态 RS×UE 表采用严格方案 A：先按 `build_dataset.py` 同款口径剔除 `noScenarios`、
+重点看这些字段：
+
+| 字段 | 含义 |
+|---|---|
+| `missing_ue_combinations` / `spurious_ue_combinations` | UE 侧静态表是否漏/多了高频组合 |
+| `missing_regular_combinations` / `spurious_regular_combinations` | regular 侧静态表是否漏/多了高频组合 |
+| `regular_static_mismatch_total` / `regular_static_mismatch_rate_by_rs` | GT regular 不在当前 RS 静态候选表里的总量和分 RS 比例 |
+| `regular_static_mismatch_breakdown` | 表外 regular 组合按 scenario 和 route 的 top-k 归因 |
+| `focus_combo_top_routes` | 默认聚焦 `R5:R-E4`，用于判断 R5 下 `SIGNAL_COMPLIANCE` 是否集中在少数 route |
+
+如果要改聚焦组合：
+
+```bash
+python qwen3vl_local/sft_base/audit_rs_event_cooccurrence.py \
+  --collection-dir keyframe_filter/collection_output \
+  --focus-combo R2:R-E4 \
+  --top-k 30
+```
+
+静态 UE 表采用严格方案 A：先按 `build_dataset.py` 同款口径剔除 `noScenarios`、
 异常时长 route、数据缺失 route 和失败 route，再只保留 `count >= 20` 且
-`rs_frame_rate >= 0.1%` 的组合。regular 不再折叠成 `RE`，当前候选数为
-R1=7、R2=5、R3=3、R4=5、R5=5。低频被拒绝的 GT 组合用
-`audit_eval_candidate_drift.py --expect-mismatch-combinations` 守住组合类型，不再
-静默混进所有该 RS 的干扰项，也不把全量帧数误套到 val split。
+`rs_frame_rate >= 0.1%` 的组合。regular 不再折叠成 `RE`；当前 regular 表仍是
+语义保守版，审计若发现 `missing_regular_combinations` 里存在高频组合，需要先看
+`regular_static_mismatch_breakdown` 判断它们是集中标注噪声还是系统性语义重叠，再决定
+是否按同一阈值扩表。定表前不要把 `audit_eval_candidate_drift.py --expect-mismatch-combinations`
+当成通过门禁；它的低频组合白名单只适合候选表已经固定后的回归检查。
 
 ## 2. 静态检查
 
