@@ -20,6 +20,7 @@ import math
 import os
 import pathlib
 import random
+import re
 import sys
 import time
 from contextlib import nullcontext
@@ -1170,8 +1171,235 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "memory_perturbation_mode": str(args.memory_perturbation_mode),
         "memory_perturb_duration_min": int(args.memory_perturb_duration_min),
         "memory_perturb_duration_max": int(args.memory_perturb_duration_max),
+        "learning_rate": float(args.learning_rate),
+        "weight_decay": float(args.weight_decay),
+        "warmup_ratio": float(args.warmup_ratio),
+        "grad_accum": int(args.grad_accum),
+        "save_steps": int(args.save_steps),
+        "eval_steps": int(args.eval_steps),
+        "max_eval_samples": int(args.max_eval_samples),
+        "num_epochs": int(args.num_epochs),
     }
     (path / "sft_base_adapter_config.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _resume_step_from_path(path: pathlib.Path) -> int:
+    """从 checkpoint 目录名里解析 step；旧 checkpoint 没 state 时用它兜底。"""
+
+    match = re.search(r"checkpoint-(\d+)$", path.name)
+    return int(match.group(1)) if match else 0
+
+
+def _read_resume_config(path: pathlib.Path) -> Dict[str, Any]:
+    """读取 checkpoint 自描述配置，并确认它属于当前 sft_base 协议。"""
+
+    config_path = path / "sft_base_adapter_config.json"
+    if not config_path.exists():
+        raise FileNotFoundError(f"resume checkpoint missing sft_base_adapter_config.json: {path}")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    if config.get("route") != "sft_base_token_choice":
+        raise RuntimeError(f"resume checkpoint route mismatch: {config.get('route')!r}")
+    if config.get("dataset_version") != DATASET_VERSION:
+        raise RuntimeError(
+            "resume checkpoint dataset_version mismatch: "
+            f"{config.get('dataset_version')!r} != {DATASET_VERSION!r}"
+        )
+    return config
+
+
+def _apply_resume_config(args: argparse.Namespace, config: Mapping[str, Any]) -> None:
+    """把 checkpoint 内记录的训练/LoRA 参数写回 args，避免手动续训时配错。"""
+
+    mapping = {
+        "lora_rank": "lora_rank",
+        "lora_alpha": "lora_alpha",
+        "lora_dropout": "lora_dropout",
+        "lora_vision_scope": "lora_vision_scope",
+        "vision_lr_scale": "vision_lr_scale",
+        "language_clip_norm": "language_clip_norm",
+        "vision_clip_norm": "vision_clip_norm",
+        "max_length": "max_length",
+        "frames_per_sync": "frames_per_sync",
+        "ue_event_loss_weight": "ue_event_loss_weight",
+        "re_event_loss_weight": "re_event_loss_weight",
+        "single_candidate_re_scale": "single_candidate_re_scale",
+        "ue_frame_repeat": "ue_frame_repeat",
+        "ue_repeat_mode": "ue_repeat_mode",
+        "ue_repeat_max": "ue_repeat_max",
+        "regular_frame_repeat": "regular_frame_repeat",
+        "regular_repeat_mode": "regular_repeat_mode",
+        "regular_repeat_max": "regular_repeat_max",
+        "transition_frame_repeat": "transition_frame_repeat",
+        "transition_frame_window": "transition_frame_window",
+        "first_frame_memory_unknown": "first_frame_memory_unknown",
+        "memory_rs_wrong_prob": "memory_rs_wrong_prob",
+        "memory_rs_unknown_prob": "memory_rs_unknown_prob",
+        "memory_event_wrong_prob": "memory_event_wrong_prob",
+        "memory_event_unknown_prob": "memory_event_unknown_prob",
+        "rs_wrong_event_unknown_prob": "rs_wrong_event_unknown_prob",
+        "memory_dropout_prob": "memory_dropout_prob",
+        "memory_perturbation_mode": "memory_perturbation_mode",
+        "memory_perturb_duration_min": "memory_perturb_duration_min",
+        "memory_perturb_duration_max": "memory_perturb_duration_max",
+        "learning_rate": "learning_rate",
+        "weight_decay": "weight_decay",
+        "warmup_ratio": "warmup_ratio",
+        "grad_accum": "grad_accum",
+        "save_steps": "save_steps",
+        "eval_steps": "eval_steps",
+        "max_eval_samples": "max_eval_samples",
+    }
+    for key, attr in mapping.items():
+        if key in config:
+            setattr(args, attr, config[key])
+
+
+def _load_adapter_weights(bundle: Any, checkpoint_dir: pathlib.Path) -> None:
+    """把 adapter checkpoint 权重加载到刚注入的 PEFT LoRA 模型中。"""
+
+    safetensors_path = checkpoint_dir / "adapter_model.safetensors"
+    bin_path = checkpoint_dir / "adapter_model.bin"
+    if safetensors_path.exists():
+        from safetensors.torch import load_file
+
+        state_dict = load_file(str(safetensors_path), device=str(bundle.device))
+    elif bin_path.exists():
+        state_dict = torch.load(bin_path, map_location=bundle.device)
+    else:
+        raise FileNotFoundError(f"resume checkpoint has no adapter_model.safetensors/bin: {checkpoint_dir}")
+    from peft import set_peft_model_state_dict
+
+    incompatible = set_peft_model_state_dict(bundle.unwrap(), state_dict)
+    missing = list(getattr(incompatible, "missing_keys", []) or [])
+    unexpected = list(getattr(incompatible, "unexpected_keys", []) or [])
+    if missing or unexpected:
+        print(f"[resume][warn] adapter load missing={len(missing)} unexpected={len(unexpected)}")
+
+
+def _trainer_state_path(checkpoint_dir: pathlib.Path) -> pathlib.Path:
+    """返回本项目自用的训练状态文件路径。"""
+
+    return checkpoint_dir / "trainer_state.pt"
+
+
+def _rng_state() -> Dict[str, Any]:
+    """采集可恢复的随机状态。"""
+
+    state: Dict[str, Any] = {
+        "python_random_state": random.getstate(),
+        "torch_random_state": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["cuda_random_state_all"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def _restore_rng_state(state: Mapping[str, Any]) -> None:
+    """恢复 checkpoint 中保存的随机状态；旧 checkpoint 没有则跳过。"""
+
+    if "python_random_state" in state:
+        random.setstate(state["python_random_state"])
+    if "torch_random_state" in state:
+        torch.set_rng_state(state["torch_random_state"])
+    if torch.cuda.is_available() and "cuda_random_state_all" in state:
+        torch.cuda.set_rng_state_all(state["cuda_random_state_all"])
+
+
+def _save_trainer_state(
+    path: pathlib.Path,
+    *,
+    global_step: int,
+    optimizer: torch.optim.Optimizer,
+    scheduler: Any,
+    guard_bad_steps: int,
+    total_steps: int,
+    args: argparse.Namespace,
+) -> None:
+    """保存 optimizer/scheduler/step/RNG，使新 checkpoint 可完整断点续训。"""
+
+    payload = {
+        "schema_version": 1,
+        "global_step": int(global_step),
+        "guard_bad_steps": int(guard_bad_steps),
+        "total_steps": int(total_steps),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "args": vars(args),
+        **_rng_state(),
+    }
+    torch.save(payload, path)
+
+
+def _load_trainer_state(checkpoint_dir: pathlib.Path, *, device: torch.device) -> Optional[Dict[str, Any]]:
+    """读取 trainer_state.pt；旧 checkpoint 没有该文件时返回 None。"""
+
+    state_path = _trainer_state_path(checkpoint_dir)
+    if not state_path.exists():
+        return None
+    try:
+        return torch.load(state_path, map_location=device, weights_only=False)
+    except TypeError:
+        return torch.load(state_path, map_location=device)
+
+
+def _trim_tensorboard_for_resume(tb_dir: pathlib.Path, *, resume_step: int) -> None:
+    """断点续训前修剪 TensorBoard 事件，归档 step 边界之后的旧曲线。
+
+    用户从 `checkpoint-200` 接着跑时，旧 run 目录里可能已经有 200-300 的
+    event。TensorBoard 会把同一 logdir 下所有 event 合并显示，导致新旧曲线重叠。
+    这里只把含有 `step > resume_step` 的 event 文件移到归档目录，并把其中
+    `step <= resume_step` 的事件重写回 `tb/`，让新训练自然从 200 后接上。
+    """
+
+    if resume_step <= 0 or not tb_dir.exists():
+        return
+    event_files = sorted(p for p in tb_dir.glob("events.out.tfevents.*") if p.is_file())
+    if not event_files:
+        return
+    try:
+        from tensorboard.backend.event_processing.event_file_loader import EventFileLoader
+        from tensorboard.summary.writer.event_file_writer import EventFileWriter
+    except Exception as exc:
+        print(f"[resume][warn] TensorBoard trim skipped: cannot import tensorboard writer/loader: {exc}")
+        return
+
+    rewrite: List[Tuple[pathlib.Path, List[Any], int]] = []
+    for event_file in event_files:
+        kept_events: List[Any] = []
+        dropped = 0
+        try:
+            for event in EventFileLoader(str(event_file)).Load():
+                if int(getattr(event, "step", 0)) <= int(resume_step):
+                    kept_events.append(event)
+                else:
+                    dropped += 1
+        except Exception as exc:
+            print(f"[resume][warn] TensorBoard trim skipped for {event_file}: {exc}")
+            continue
+        if dropped:
+            rewrite.append((event_file, kept_events, dropped))
+    if not rewrite:
+        print(f"[resume] TensorBoard already has no events after step {resume_step}")
+        return
+
+    archive_dir = tb_dir.parent / "tb_resume_archive" / f"from_step_{resume_step}_{time.strftime('%Y%m%d_%H%M%S')}"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    writer = EventFileWriter(str(tb_dir))
+    kept_total = 0
+    dropped_total = 0
+    try:
+        for event_file, kept_events, dropped in rewrite:
+            for event in kept_events:
+                writer.add_event(event)
+            kept_total += len(kept_events)
+            dropped_total += int(dropped)
+            event_file.replace(archive_dir / event_file.name)
+    finally:
+        writer.close()
+    print(
+        f"[resume] TensorBoard trimmed at step {resume_step}: "
+        f"kept={kept_total} dropped={dropped_total} archived={archive_dir}"
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -1181,7 +1409,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--train-index", type=str, required=True)
     p.add_argument("--val-index", type=str, default=None)
     p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
-    p.add_argument("--output-dir", type=str, required=True)
+    p.add_argument("--output-dir", type=str, default=None)
+    p.add_argument("--resume-from-checkpoint", type=str, default=None)
+    p.add_argument("--resume-tb-trim", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--num-epochs", type=int, default=1)
     p.add_argument("--per-device-batch-size", type=int, default=1)
     p.add_argument("--grad-accum", type=int, default=4)
@@ -1248,6 +1478,21 @@ def main() -> None:
     random.seed(int(args.seed) + rank)
     torch.manual_seed(int(args.seed) + rank)
 
+    resume_dir = pathlib.Path(args.resume_from_checkpoint).expanduser().resolve() if args.resume_from_checkpoint else None
+    resume_config: Optional[Dict[str, Any]] = None
+    if resume_dir is not None:
+        if not resume_dir.exists() or not resume_dir.is_dir():
+            raise FileNotFoundError(f"--resume-from-checkpoint is not a directory: {resume_dir}")
+        resume_config = _read_resume_config(resume_dir)
+        _apply_resume_config(args, resume_config)
+        if not args.output_dir:
+            args.output_dir = str(resume_dir.parent)
+        if rank == 0:
+            print(f"[resume] checkpoint={resume_dir}")
+            print(f"[resume] continuing output_dir={args.output_dir}")
+    if not args.output_dir:
+        raise ValueError("--output-dir is required unless --resume-from-checkpoint is provided")
+
     if args.lora_vision and str(args.lora_vision_scope).lower() == "off":
         args.lora_vision_scope = "all"
     validate_safety_args(args)
@@ -1292,6 +1537,10 @@ def main() -> None:
         strict_vision_scope=bool(args.strict_vision_scope),
         gradient_checkpointing=not bool(args.no_grad_checkpoint),
     )
+    if resume_dir is not None:
+        _load_adapter_weights(bundle, resume_dir)
+        if rank == 0:
+            print(f"[resume] adapter weights loaded from {resume_dir}")
     if world_size > 1:
         bundle.model = torch.nn.parallel.DistributedDataParallel(
             bundle.model,
@@ -1303,11 +1552,12 @@ def main() -> None:
     groups, language_params, vision_params = _trainable_param_groups(bundle, args)
     optimizer = torch.optim.AdamW(groups, lr=float(args.learning_rate), weight_decay=float(args.weight_decay), betas=(0.9, 0.95))
     steps_per_epoch = max(1, math.ceil(len(train_loader) / max(1, int(args.grad_accum))))
-    total_steps = int(args.max_steps) if int(args.max_steps) > 0 else steps_per_epoch * int(args.num_epochs)
+    resume_step = _resume_step_from_path(resume_dir) if resume_dir is not None else 0
+    planned_new_steps = int(args.max_steps) if int(args.max_steps) > 0 else steps_per_epoch * int(args.num_epochs)
+    total_steps = resume_step + planned_new_steps
     scheduler = make_scheduler(optimizer, total_steps, int(total_steps * float(args.warmup_ratio)))
-    tb = SummaryWriter(str(output_dir / "tb")) if rank == 0 and _TB_AVAILABLE else None
 
-    global_step = 0
+    global_step = resume_step
     micro_step = 0
     accum_loss = 0.0
     accum_samples = 0
@@ -1316,6 +1566,37 @@ def main() -> None:
     stop = False
     fuse_stopped = False
     guard_bad_steps = 0
+    trainer_state = _load_trainer_state(resume_dir, device=device) if resume_dir is not None else None
+    if trainer_state is not None:
+        optimizer.load_state_dict(trainer_state["optimizer"])
+        scheduler.load_state_dict(trainer_state["scheduler"])
+        global_step = int(trainer_state.get("global_step", global_step))
+        guard_bad_steps = int(trainer_state.get("guard_bad_steps", 0))
+        _restore_rng_state(trainer_state)
+        if rank == 0:
+            print(f"[resume] trainer_state restored at global_step={global_step}")
+    elif resume_dir is not None and rank == 0:
+        print(
+            "[resume][warn] trainer_state.pt not found; resumed adapter weights and "
+            f"global_step={global_step} from directory name, optimizer/scheduler are fresh."
+        )
+    if rank == 0 and resume_dir is not None and bool(args.resume_tb_trim):
+        _trim_tensorboard_for_resume(output_dir / "tb", resume_step=int(global_step))
+    tb = SummaryWriter(str(output_dir / "tb")) if rank == 0 and _TB_AVAILABLE else None
+
+    def save_checkpoint(path: pathlib.Path) -> None:
+        """保存 adapter 和训练状态，供后续从同一 step 无缝续训。"""
+
+        _save_adapter(path, bundle, args)
+        _save_trainer_state(
+            _trainer_state_path(path),
+            global_step=global_step,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            guard_bad_steps=guard_bad_steps,
+            total_steps=total_steps,
+            args=args,
+        )
 
     def finish_optimizer_step(reason: str, last_stats: StepStats) -> None:
         """完成一次梯度同步后的 optimizer step。
@@ -1356,7 +1637,7 @@ def main() -> None:
             fuse_stopped = True
             if rank == 0:
                 emergency_dir = output_dir / f"fuse_stop_step_{global_step + 1}"
-                _save_adapter(emergency_dir, bundle, args)
+                save_checkpoint(emergency_dir)
                 (emergency_dir / "fuse_reason.txt").write_text(guard_reason + "\n", encoding="utf-8")
                 print(f"[fuse-stop] {guard_reason}")
                 print(f"[fuse-stop] emergency adapter -> {emergency_dir}")
@@ -1397,7 +1678,7 @@ def main() -> None:
         accum_loss = 0.0
         accum_samples = 0
         if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
-            _save_adapter(output_dir / f"checkpoint-{global_step}", bundle, args)
+            save_checkpoint(output_dir / f"checkpoint-{global_step}")
         if val_loader is not None and int(args.eval_steps) > 0 and global_step % int(args.eval_steps) == 0:
             metrics = evaluate_loss(
                 bundle,
@@ -1426,7 +1707,7 @@ def main() -> None:
                 if tb is not None:
                     for key, value in metrics.items():
                         tb.add_scalar(f"val/{key}", value, global_step)
-        if int(args.max_steps) > 0 and global_step >= int(args.max_steps):
+        if global_step >= total_steps:
             stop = True
 
     for epoch in range(int(args.num_epochs)):
@@ -1487,7 +1768,7 @@ def main() -> None:
             break
 
     if rank == 0 and not fuse_stopped:
-        _save_adapter(output_dir / "final", bundle, args)
+        save_checkpoint(output_dir / "final")
         print(f"[done] final adapter -> {output_dir / 'final'}")
     elif rank == 0 and fuse_stopped:
         print("[done] skipped final adapter because vision fuse guard stopped training early")
