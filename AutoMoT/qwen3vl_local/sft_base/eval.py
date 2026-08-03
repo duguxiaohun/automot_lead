@@ -53,6 +53,7 @@ from qwen3vl_local.sft_base import DATASET_VERSION  # noqa: E402
 from qwen3vl_local.sft_base.eval_candidates import q2_candidates_for_student_rs  # noqa: E402
 from qwen3vl_local.sft_base.labels import (  # noqa: E402
     EVENT_LABELS,
+    EVENT_LABEL_TO_TOKEN,
     REGULAR_MAJORITY_EVENT_BY_RS,
     REGULAR_EVENT_LABELS,
     REGULAR_ZERO_INFO_BASELINE_BY_RS,
@@ -96,6 +97,8 @@ _EVENT_LABELS = EVENT_LABELS
 _RS_CM_LABELS = (*RS_LABELS, "INVALID")
 _EVENT_CM_LABELS = (*_EVENT_LABELS, "INVALID", "UNREACHABLE")
 _REGULAR_CM_LABELS = (*REGULAR_EVENT_LABELS, "UE", "INVALID", "UNREACHABLE")
+_GLOBAL_EVENT_MAJORITY_LABEL = "R-E1"
+_GLOBAL_EVENT_MAJORITY_TOKEN = EVENT_LABEL_TO_TOKEN[_GLOBAL_EVENT_MAJORITY_LABEL]
 _RS_TRANSITION_LABELS = tuple(f"{src}->{dst}" for src in RS_LABELS for dst in RS_LABELS if src != dst) + ("NO_CHANGE", "INVALID")
 _EVENT_TRANSITION_LABELS = tuple(f"{src}->{dst}" for src in _EVENT_LABELS for dst in _EVENT_LABELS if src != dst) + ("NO_CHANGE", "INVALID")
 
@@ -902,6 +905,7 @@ def _evaluate_case(
                 counters[f"{rs_bucket_prefix}_ue_fn"] += 1
             else:
                 counters[f"{rs_bucket_prefix}_ue_tn"] += 1
+            counters["event_global_majority_correct"] += int(target.label == _GLOBAL_EVENT_MAJORITY_LABEL)
             cm_pred_event = pred_event_label if event_reachable else "UNREACHABLE"
             counters[f"event_cm_{target.label}_{cm_pred_event}"] += 1
             if not gt_ue:
@@ -1100,6 +1104,7 @@ def _new_counters() -> Dict[str, int]:
         "q2_event_correct_when_rs_correct": 0,
         "q2_event_correct_when_rs_wrong": 0,
         "q2_gt_re_when_rs_correct": 0,
+        "event_global_majority_correct": 0,
         "regular_majority_static_correct": 0,
         "event_raw_regular_remapped_total": 0,
         "event_raw_regular_remapped_correct": 0,
@@ -1510,7 +1515,8 @@ def _build_metrics(
             "full_data_regular_accuracy_reference": REGULAR_ZERO_INFO_BASELINE_BY_RS.get(rs),
         }
     event_regular_baseline_oracle_majority_q2 = regular_majority_correct / q2_total
-    event_regular_baseline_q2 = counters["regular_majority_static_correct"] / q2_total
+    event_regular_baseline_given_gt_rs = counters["regular_majority_static_correct"] / q2_total
+    event_global_majority_baseline = counters["event_global_majority_correct"] / q2_total
     event_acc_q2 = counters["q2_event_correct"] / q2_total
     event_regular_baseline_rs_correct = regular_majority_correct_rs / q2_rs_correct_total
     event_acc_rs_correct = counters["q2_event_correct_when_rs_correct"] / q2_rs_correct_total
@@ -1698,15 +1704,23 @@ def _build_metrics(
         "joint_acc": counters["q2_joint_correct"] / q2_total,
         "event_acc_when_rs_wrong": counters["q2_event_correct_when_rs_wrong"] / max(1, counters["event_score_valid_frames"] - counters["q2_when_rs_correct"]),
         "event_acc_when_rs_correct": event_acc_rs_correct,
-        "event_regular_baseline_end_to_end": event_regular_baseline_q2,
+        "event_global_majority_baseline": event_global_majority_baseline,
+        "event_global_majority_baseline_label": _GLOBAL_EVENT_MAJORITY_LABEL,
+        "event_global_majority_baseline_token": _GLOBAL_EVENT_MAJORITY_TOKEN,
+        "event_regular_baseline_given_gt_rs": event_regular_baseline_given_gt_rs,
+        "event_regular_baseline_given_gt_rs_expected_full_data": REGULAR_ZERO_INFO_BASELINE_END_TO_END,
+        "event_regular_baseline_end_to_end": event_regular_baseline_given_gt_rs,
         "event_regular_baseline_expected_full_data": REGULAR_ZERO_INFO_BASELINE_END_TO_END,
         "event_any_regular_rate_end_to_end": counters["q2_gt_re_total"] / q2_total,
-        "event_majority_regular_baseline_end_to_end": event_regular_baseline_q2,
+        "event_majority_regular_baseline_end_to_end": event_regular_baseline_given_gt_rs,
         "event_oracle_majority_regular_baseline_end_to_end": event_regular_baseline_oracle_majority_q2,
         "event_regular_baseline_when_rs_correct": event_regular_baseline_rs_correct,
         "event_majority_regular_baseline_by_rs": regular_majority_by_rs,
         "event_static_regular_baseline_by_rs": regular_majority_static_by_rs,
-        "event_visual_gain_over_regular_baseline": event_acc_q2 - event_regular_baseline_q2,
+        "event_visual_gain_over_global_majority_baseline": event_acc_q2 - event_global_majority_baseline,
+        "event_visual_gain_over_regular_baseline": event_acc_q2 - event_global_majority_baseline,
+        "event_gap_to_given_gt_rs_regular_baseline": event_acc_q2 - event_regular_baseline_given_gt_rs,
+        "event_visual_gain_over_given_gt_rs_regular_baseline": event_acc_q2 - event_regular_baseline_given_gt_rs,
         "event_pred_re_rate": counters["q2_pred_re"] / q2_total,
         "event_pred_ue_rate": counters["q2_pred_ue"] / q2_total,
         "event_pred_invalid_rate": counters["q2_pred_invalid"] / q2_total,
@@ -1953,13 +1967,15 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
         ("rs_pred_r3_rate", "预测为 R3 的帧比例，用于监控高速/匝道 shortcut"),
         ("rs_gt_r3_rate", "GT 为 R3 的帧比例"),
         ("rs_r3_precision", "预测 R3 时真正为 R3 的比例，越低越说明 R3 假阳性严重"),
-        ("rs_change_f1", "相邻帧 RS 变化检测 F1，衡量该切与不该切是否都判断对"),
+        ("rs_change_f1", "相邻帧 RS 变化检测 F1，必须和预测/GT 变化率一起读"),
         ("rs_false_transition_rate_when_gt_stable", "GT RS 未变化时预测假转折的比例，越低越好"),
         ("rs_locked_case_rate", "整段预测 RS 完全不变的 case 比例"),
         ("joint_acc", "真实串行主指标：RS 正确且 EVENT 正确的比例"),
         ("event_acc_end_to_end", "端到端 Q2 EVENT token 准确率，每帧都问 Q2"),
-        ("event_regular_baseline_end_to_end", "零视觉基线：按 GT RS 永远答多数 regular 子类的准确率"),
-        ("event_visual_gain_over_regular_baseline", "EVENT 相对多数 regular 基线的净增益"),
+        ("event_global_majority_baseline", "端到端零信息下界：永远答全局最高频 regular token 的准确率"),
+        ("event_visual_gain_over_global_majority_baseline", "EVENT 相对端到端全局多数类下界的净增益"),
+        ("event_regular_baseline_given_gt_rs", "GT-RS oracle 参照：已知正确 RS 时永远答该 RS 多数 regular 的准确率"),
+        ("event_gap_to_given_gt_rs_regular_baseline", "EVENT 相对 GT-RS oracle 参照的差值，通常不是端到端门槛"),
         ("event_pred_ue_rate", "Q2 输出 UE token 的比例"),
         ("event_acc_multi_candidate", "排除单候选送分题后的 EVENT 准确率"),
         ("event_pred_ue_rate_multi_candidate", "排除单候选送分题后的 UE 输出比例"),
@@ -2007,7 +2023,12 @@ def _summary_metric_rows(eval_mode: str) -> List[tuple[str, str]]:
         ("joint_acc", "随机完整路线真实串行主指标：RS 正确且 EVENT 正确"),
         ("event_acc_end_to_end", "随机完整路线中所有帧的端到端 EVENT token 准确率"),
         ("q2_trigger_rate", "完整路线中进入 Q2 的比例；新协议应接近 100%"),
-        ("rs_change_f1", "完整路线相邻帧 RS 变化检测 F1"),
+        ("rs_pred_change_rate", "预测 RS 帧间变化率，需接近 GT 而不是只看 change F1"),
+        ("rs_gt_change_rate", "GT RS 帧间变化率"),
+        ("rs_change_f1", "完整路线相邻帧 RS 变化检测 F1，低切换率下可能虚高"),
+        ("event_global_majority_baseline", "端到端零信息下界：永远答全局最高频 regular token"),
+        ("event_visual_gain_over_global_majority_baseline", "EVENT 相对端到端全局多数类下界的净增益"),
+        ("event_regular_baseline_given_gt_rs", "GT-RS oracle 参照：已知正确 RS 时的多数 regular 准确率"),
         ("re_to_ue_f1", "完整路线相邻帧 regular->UE 起始检测 F1"),
         ("false_transition_rate_when_gt_stable", "RS/regular->UE/UE->regular 合并后的 GT 稳定帧假转折比例，越低越好"),
         ("event_acc_multi_candidate", "排除单候选送分题后的 EVENT 准确率"),
@@ -2063,7 +2084,9 @@ def _write_summary(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.N
             "- `frames.jsonl` 是最重要的排查文件：每一行包含 GT/PRED RS、GT/PRED EVENT、原始生成文本和转折窗口信息。",
             "- 新协议里 Q2 候选由学生 RS 的静态全集决定，并把 R-E1..R-E5 regular 子类展开；逐帧 allowed_events 只用于 GT/审计。",
             "- `joint_acc` 是更真实的串行主指标；Q1 错但 Q2 蒙对的帧不会被算作 joint 成功。",
-            "- 黑图/随机图/no-goal 测试下若 `rs_visual_gain_over_first_pred_lock` 和 `event_visual_gain_over_regular_baseline` 仍接近原图，说明模型主要依赖 memory/语言捷径。",
+            "- `event_global_majority_baseline` 才是端到端零信息下界；`event_regular_baseline_given_gt_rs` 假设 GT RS 已知，只能当 oracle 参照，不应作为 `event_acc_end_to_end` 门槛。",
+            "- `rs_change_f1` 必须和 `rs_pred_change_rate` / `rs_gt_change_rate` 一起读；预测几乎不切换时 F1 可能偶然虚高。",
+            "- 黑图/随机图/no-goal 测试下若 `rs_visual_gain_over_first_pred_lock` 和 `event_visual_gain_over_global_majority_baseline` 仍接近原图，说明模型主要依赖 memory/语言捷径。",
             "- `event_pred_ue_rate` 长期接近 0，是 EVENT 坍缩到 regular 子类的直接信号；ABNORMAL 已从 Q1 协议删除。",
             "- `*_hit_offset_avg` 为负表示模型提前切换，为正表示滞后切换。",
             "- `script_correction` 应为 `none`，表示评测没有脚本纠偏。",

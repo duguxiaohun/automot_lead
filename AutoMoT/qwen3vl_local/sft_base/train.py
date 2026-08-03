@@ -1208,7 +1208,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num-workers", type=int, default=0)
     p.add_argument("--logging-steps", type=int, default=5)
     p.add_argument("--save-steps", type=int, default=200)
-    p.add_argument("--eval-steps", type=int, default=200)
+    p.add_argument("--eval-steps", type=int, default=10)
     p.add_argument("--max-eval-samples", type=int, default=256)
     p.add_argument("--max-steps", type=int, default=0)
     p.add_argument("--frames-per-sync", type=int, default=64)

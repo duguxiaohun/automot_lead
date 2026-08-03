@@ -173,7 +173,7 @@ COMMON_ARGS=(
   --num-workers "${NUM_WORKERS:-0}"
   --logging-steps "${LOGGING_STEPS:-5}"
   --save-steps "${SAVE_STEPS:-200}"
-  --eval-steps "${EVAL_STEPS:-200}"
+  --eval-steps "${EVAL_STEPS:-10}"
   --max-eval-samples "${MAX_EVAL_SAMPLES:-256}"
   --max-steps "${MAX_STEPS:-0}"
   --frames-per-sync "${FRAMES_PER_SYNC:-64}"
