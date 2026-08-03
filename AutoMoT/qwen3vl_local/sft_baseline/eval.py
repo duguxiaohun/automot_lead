@@ -50,6 +50,13 @@ _maybe_apply_gpu_ids()
 
 import torch
 import torch.distributed as dist
+try:
+    from torch.utils.tensorboard import SummaryWriter
+
+    _TB_AVAILABLE = True
+except Exception:
+    SummaryWriter = None  # type: ignore[assignment]
+    _TB_AVAILABLE = False
 
 from qwen3vl_local.sft_baseline import DATASET_VERSION  # noqa: E402
 from qwen3vl_local.sft_baseline.labels import (  # noqa: E402
@@ -590,9 +597,12 @@ def _prepare_eval_outputs(args: argparse.Namespace, *, rank: int, world_size: in
     args.output_json = args.output_json or str(output_dir / "metrics.json")
     args.output_jsonl = args.output_jsonl or str(output_dir / "frames.jsonl")
     args.output_summary = args.output_summary or str(output_dir / "summary.md")
+    args.output_tb = args.output_tb or (str(output_dir / "tb") if bool(args.write_tb) else None)
     pathlib.Path(args.output_json).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(args.output_jsonl).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(args.output_summary).parent.mkdir(parents=True, exist_ok=True)
+    if args.output_tb:
+        pathlib.Path(args.output_tb).mkdir(parents=True, exist_ok=True)
 
 
 def _build_metrics(args: argparse.Namespace, counters: Dict[str, int], *, route_count: int, selected_case_count: int, world_size: int) -> Dict[str, Any]:
@@ -706,6 +716,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--output-jsonl", type=str, default=None)
     p.add_argument("--output-summary", type=str, default=None)
+    p.add_argument("--output-tb", type=str, default=None)
+    p.add_argument("--write-tb", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--task", choices=sorted(_EVAL_TASK_TO_MODE), required=True)
     p.add_argument("--eval-mode", choices=["full_route", "road_transition", "event_transition"], default="full_route")
     p.add_argument("--max-routes", type=int, default=0)
@@ -755,6 +767,81 @@ def _write_summary(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.N
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _confusion_matrix_markdown(title: str, report: Dict[str, Any]) -> str:
+    """把二分类 confusion matrix 渲染成 TensorBoard text 可读 Markdown。"""
+
+    matrix = report.get("confusion_matrix") or {}
+    labels = [str(report.get("positive", "POS")), str(report.get("negative", "NEG"))]
+    pred_labels = [*labels, "INVALID"]
+    lines = [
+        f"### {title}",
+        "",
+        "| GT \\ Pred | " + " | ".join(pred_labels) + " |",
+        "|---|" + "|".join("---:" for _ in pred_labels) + "|",
+    ]
+    for gt in labels:
+        row = matrix.get(gt, {})
+        values = [str(int(row.get(pred, 0) or 0)) for pred in pred_labels]
+        lines.append(f"| {gt} | " + " | ".join(values) + " |")
+    return "\n".join(lines)
+
+
+def _write_tensorboard(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.Namespace) -> None:
+    """写一个轻量 eval TensorBoard：核心 scalar + 两个二分类混淆矩阵文本。"""
+
+    if not _TB_AVAILABLE:
+        print("[tb][warn] tensorboard is not available; skip eval TensorBoard")
+        return
+    path.mkdir(parents=True, exist_ok=True)
+    writer = SummaryWriter(str(path))
+    try:
+        scalar_keys = [
+            "road_acc",
+            "event_acc",
+            "joint_acc",
+            "highway_precision",
+            "highway_recall",
+            "highway_f1",
+            "ue_precision",
+            "ue_recall",
+            "ue_f1",
+            "road_invalid_rate",
+            "event_invalid_rate",
+            "road_change_precision",
+            "road_change_recall",
+            "road_change_f1",
+            "event_change_precision",
+            "event_change_recall",
+            "event_change_f1",
+            "transition_hit_rate",
+            "transition_post_acc",
+        ]
+        for key in scalar_keys:
+            value = metrics.get(key)
+            if isinstance(value, (int, float)):
+                writer.add_scalar(f"eval/{key}", float(value), 0)
+        writer.add_scalar("eval/frames", float(metrics.get("frames", 0) or 0), 0)
+        writer.add_scalar("eval/cases", float(metrics.get("cases", 0) or 0), 0)
+        writer.add_text("eval/road_confusion_matrix", _confusion_matrix_markdown("ROAD Confusion Matrix", metrics.get("road_report") or {}), 0)
+        writer.add_text("eval/event_confusion_matrix", _confusion_matrix_markdown("EVENT Confusion Matrix", metrics.get("event_report") or {}), 0)
+        writer.add_text(
+            "eval/run",
+            "\n".join(
+                [
+                    f"- task: `{args.task}` / `{metrics.get('eval_mode')}`",
+                    f"- adapter: `{args.adapter_dir}`",
+                    f"- index: `{args.index}`",
+                    f"- frames: `{metrics.get('frames')}`",
+                    f"- output_jsonl: `{args.output_jsonl}`",
+                ]
+            ),
+            0,
+        )
+    finally:
+        writer.flush()
+        writer.close()
+
+
 def main() -> None:
     """CLI 入口。"""
 
@@ -772,6 +859,7 @@ def main() -> None:
         "output_json": args.output_json,
         "output_jsonl": args.output_jsonl,
         "output_summary": args.output_summary,
+        "output_tb": args.output_tb,
     }
     print(json.dumps(metrics, ensure_ascii=False, indent=2))
     if args.output_json:
@@ -781,6 +869,8 @@ def main() -> None:
             json.dump(metrics, f, ensure_ascii=False, indent=2)
     if args.output_summary:
         _write_summary(pathlib.Path(args.output_summary), metrics, args)
+    if args.output_tb:
+        _write_tensorboard(pathlib.Path(args.output_tb), metrics, args)
 
 
 if __name__ == "__main__":
