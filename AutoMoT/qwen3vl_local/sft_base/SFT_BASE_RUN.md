@@ -297,7 +297,7 @@ checkpoints/sft_base_runs/latest/log.txt
 | `--task` | 无默认值，每次必须指定；`full` 等价于 `--eval-mode full_route` |
 | `--image-ablation` | `none`；可设 `black/random` 做视觉消融 |
 | `--ablate-goal` | `False`；设为 true 时隐藏 `EGO_TO_GOAL_XY`，可与黑图组合测导航文本捷径 |
-| `--output-dir` | 默认自动生成；手动指定时会在该目录写 `metrics.json`、`frames.jsonl`、`summary.md` |
+| `--output-dir` | 默认自动生成；手动指定时会在该目录写 `metrics.json`、`frames.jsonl`、`summary.md`、`report.html` |
 | RS/EVENT 转折 case 数 | `128` |
 | full_route 随机 route 数 | `16` |
 | 输出路径 | 自动写到 adapter run 目录下的 `eval_results/<task>/<YYYYMMDD_HHMMSS>/` |
@@ -311,7 +311,8 @@ checkpoints/sft_base_runs/latest/log.txt
 checkpoints/sft_base_runs/latest/eval_results/rs_transition/20260730_143012/
 ├── metrics.json
 ├── frames.jsonl
-└── summary.md
+├── summary.md
+└── report.html
 ```
 
 base 零样本基线建议单独放目录：
@@ -332,13 +333,14 @@ GPU_IDS=0 python qwen3vl_local/sft_base/eval.py \
   --output-dir checkpoints/sft_base_base_eval/full_black_no_goal
 ```
 
-三个文件的用途：
+四个文件的用途：
 
 | 文件 | 用途 |
 |---|---|
 | `metrics.json` | 汇总指标，适合后续脚本读取和横向对比 |
 | `frames.jsonl` | 逐帧复盘，包含 GT/PRED RS、GT/PRED EVENT、原始生成文本、转折窗口和 case summary |
 | `summary.md` | 中文摘要，包含本次任务、adapter、保存路径、关键指标和指标解释 |
+| `report.html` | 单文件可视化报告；内嵌本次 metrics 数据，直接打开即可看 RS/EVENT/regular/UE-vs-RE 矩阵图，不依赖外部 JSON |
 
 `metrics.json` 里还会写 `q2_candidate_count_report` 与
 `q2_rs_candidate_count_report`，分别按候选数、RS×候选数分层统计 EVENT acc 与
@@ -356,6 +358,7 @@ UE 假阳性率，用于诊断 RS canonical 映射是否引入噪声。`regular_
 [eval] saved metrics=...
 [eval] saved frames=...
 [eval] saved summary=...
+[eval] saved html=...
 ```
 
 多卡评测时，每个 rank 会先写自己的 `frames.jsonl.rank*` 临时分片，rank0 结束后自动合并成最终
