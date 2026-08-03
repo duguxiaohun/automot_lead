@@ -1,0 +1,124 @@
+### JOINT R1
+[MEMORY]
+PREVIOUS_ROAD: NON_HIGHWAY
+PREVIOUS_EVENT: RE
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[ROAD_CHOICES]
+HIGHWAY. High-speed road context: highway mainline, ramp, acceleration/deceleration lane, merge, split, exit, connector, or lane-join geometry.
+NON_HIGHWAY. Non-highway context: ordinary urban or suburban road, rural/unstructured local road, narrow bidirectional road, signalized intersection, unsignalized intersection, or priority-controlled junction.
+[/ROAD_CHOICES]
+
+[EVENT_CHOICES]
+RE. Regular expected driving state: lane following, normal lane change/recovery, normal highway/ramp maneuver, traffic-light compliance, or priority/yield negotiation without a short-horizon hazard.
+UE. Unusual event: lead braking, static/parked/construction obstacle, moving cut-in, pedestrian/cyclist crossing, oncoming invasion, traffic-rule violation, failed or ambiguous control, blocked space, or another short-horizon hazard.
+[/EVENT_CHOICES]
+
+[QUESTION]
+Look at the latest frame in the RGB history. First decide whether the current scene is a high-speed highway/ramp/merge/exit context or a non-highway context. Then decide whether the current state is regular expected driving (RE) or an unusual event (UE). Use the previous memory only as a weak prior; visual evidence in the latest frame wins.
+
+Output exactly these two lines and nothing else:
+ROAD: <HIGHWAY or NON_HIGHWAY>
+EVENT: <RE or UE>
+[/QUESTION]
+
+### JOINT R2
+[MEMORY]
+PREVIOUS_ROAD: NON_HIGHWAY
+PREVIOUS_EVENT: RE
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[ROAD_CHOICES]
+HIGHWAY. High-speed road context: highway mainline, ramp, acceleration/deceleration lane, merge, split, exit, connector, or lane-join geometry.
+NON_HIGHWAY. Non-highway context: ordinary urban or suburban road, rural/unstructured local road, narrow bidirectional road, signalized intersection, unsignalized intersection, or priority-controlled junction.
+[/ROAD_CHOICES]
+
+[EVENT_CHOICES]
+RE. Regular expected driving state: lane following, normal lane change/recovery, normal highway/ramp maneuver, traffic-light compliance, or priority/yield negotiation without a short-horizon hazard.
+UE. Unusual event: lead braking, static/parked/construction obstacle, moving cut-in, pedestrian/cyclist crossing, oncoming invasion, traffic-rule violation, failed or ambiguous control, blocked space, or another short-horizon hazard.
+[/EVENT_CHOICES]
+
+[QUESTION]
+Look at the latest frame in the RGB history. First decide whether the current scene is a high-speed highway/ramp/merge/exit context or a non-highway context. Then decide whether the current state is regular expected driving (RE) or an unusual event (UE). Use the previous memory only as a weak prior; visual evidence in the latest frame wins.
+
+Output exactly these two lines and nothing else:
+ROAD: <HIGHWAY or NON_HIGHWAY>
+EVENT: <RE or UE>
+[/QUESTION]
+
+### JOINT R3
+[MEMORY]
+PREVIOUS_ROAD: HIGHWAY
+PREVIOUS_EVENT: UE
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[ROAD_CHOICES]
+HIGHWAY. High-speed road context: highway mainline, ramp, acceleration/deceleration lane, merge, split, exit, connector, or lane-join geometry.
+NON_HIGHWAY. Non-highway context: ordinary urban or suburban road, rural/unstructured local road, narrow bidirectional road, signalized intersection, unsignalized intersection, or priority-controlled junction.
+[/ROAD_CHOICES]
+
+[EVENT_CHOICES]
+RE. Regular expected driving state: lane following, normal lane change/recovery, normal highway/ramp maneuver, traffic-light compliance, or priority/yield negotiation without a short-horizon hazard.
+UE. Unusual event: lead braking, static/parked/construction obstacle, moving cut-in, pedestrian/cyclist crossing, oncoming invasion, traffic-rule violation, failed or ambiguous control, blocked space, or another short-horizon hazard.
+[/EVENT_CHOICES]
+
+[QUESTION]
+Look at the latest frame in the RGB history. First decide whether the current scene is a high-speed highway/ramp/merge/exit context or a non-highway context. Then decide whether the current state is regular expected driving (RE) or an unusual event (UE). Use the previous memory only as a weak prior; visual evidence in the latest frame wins.
+
+Output exactly these two lines and nothing else:
+ROAD: <HIGHWAY or NON_HIGHWAY>
+EVENT: <RE or UE>
+[/QUESTION]
+
+### JOINT R4
+[MEMORY]
+PREVIOUS_ROAD: NON_HIGHWAY
+PREVIOUS_EVENT: RE
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[ROAD_CHOICES]
+HIGHWAY. High-speed road context: highway mainline, ramp, acceleration/deceleration lane, merge, split, exit, connector, or lane-join geometry.
+NON_HIGHWAY. Non-highway context: ordinary urban or suburban road, rural/unstructured local road, narrow bidirectional road, signalized intersection, unsignalized intersection, or priority-controlled junction.
+[/ROAD_CHOICES]
+
+[EVENT_CHOICES]
+RE. Regular expected driving state: lane following, normal lane change/recovery, normal highway/ramp maneuver, traffic-light compliance, or priority/yield negotiation without a short-horizon hazard.
+UE. Unusual event: lead braking, static/parked/construction obstacle, moving cut-in, pedestrian/cyclist crossing, oncoming invasion, traffic-rule violation, failed or ambiguous control, blocked space, or another short-horizon hazard.
+[/EVENT_CHOICES]
+
+[QUESTION]
+Look at the latest frame in the RGB history. First decide whether the current scene is a high-speed highway/ramp/merge/exit context or a non-highway context. Then decide whether the current state is regular expected driving (RE) or an unusual event (UE). Use the previous memory only as a weak prior; visual evidence in the latest frame wins.
+
+Output exactly these two lines and nothing else:
+ROAD: <HIGHWAY or NON_HIGHWAY>
+EVENT: <RE or UE>
+[/QUESTION]
+
+### JOINT R5
+[MEMORY]
+PREVIOUS_ROAD: NON_HIGHWAY
+PREVIOUS_EVENT: RE
+EGO_TO_GOAL_XY: (+8.0, -2.0) m
+[/MEMORY]
+
+[ROAD_CHOICES]
+HIGHWAY. High-speed road context: highway mainline, ramp, acceleration/deceleration lane, merge, split, exit, connector, or lane-join geometry.
+NON_HIGHWAY. Non-highway context: ordinary urban or suburban road, rural/unstructured local road, narrow bidirectional road, signalized intersection, unsignalized intersection, or priority-controlled junction.
+[/ROAD_CHOICES]
+
+[EVENT_CHOICES]
+RE. Regular expected driving state: lane following, normal lane change/recovery, normal highway/ramp maneuver, traffic-light compliance, or priority/yield negotiation without a short-horizon hazard.
+UE. Unusual event: lead braking, static/parked/construction obstacle, moving cut-in, pedestrian/cyclist crossing, oncoming invasion, traffic-rule violation, failed or ambiguous control, blocked space, or another short-horizon hazard.
+[/EVENT_CHOICES]
+
+[QUESTION]
+Look at the latest frame in the RGB history. First decide whether the current scene is a high-speed highway/ramp/merge/exit context or a non-highway context. Then decide whether the current state is regular expected driving (RE) or an unusual event (UE). Use the previous memory only as a weak prior; visual evidence in the latest frame wins.
+
+Output exactly these two lines and nothing else:
+ROAD: <HIGHWAY or NON_HIGHWAY>
+EVENT: <RE or UE>
+[/QUESTION]
