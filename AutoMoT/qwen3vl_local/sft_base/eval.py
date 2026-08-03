@@ -7,6 +7,7 @@ Q2 候选按学生预测/维护的 RS 生成，不再用 GT RS gate 美化结果
 from __future__ import annotations
 
 import argparse
+import html as html_lib
 import json
 import os
 import pathlib
@@ -1362,6 +1363,7 @@ def _prepare_eval_outputs(args: argparse.Namespace, *, rank: int, world_size: in
     - `metrics.json`：汇总指标，适合脚本读。
     - `frames.jsonl`：逐帧/逐 case 复盘，适合排查错误样本。
     - `summary.md`：中文说明和关键指标，适合人工快速看。
+    - `report.html`：内嵌 metrics 数据的单文件可视化报告，适合直接打开看矩阵。
     """
 
     explicit_output_dir = getattr(args, "output_dir", None)
@@ -1387,9 +1389,12 @@ def _prepare_eval_outputs(args: argparse.Namespace, *, rank: int, world_size: in
         args.output_jsonl = str(output_dir / "frames.jsonl")
     if not getattr(args, "output_summary", None):
         args.output_summary = str(output_dir / "summary.md")
+    if not getattr(args, "output_html", None):
+        args.output_html = str(output_dir / "report.html")
     pathlib.Path(args.output_json).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(args.output_jsonl).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(args.output_summary).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(args.output_html).parent.mkdir(parents=True, exist_ok=True)
 
 
 def _prf(tp: int, fp: int, fn: int) -> Dict[str, float]:
@@ -1890,6 +1895,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--output-jsonl", type=str, default=None)
     p.add_argument("--output-summary", type=str, default=None)
+    p.add_argument("--output-html", type=str, default=None)
     p.add_argument("--task", choices=sorted(_EVAL_TASK_TO_MODE), required=True)
     p.add_argument("--eval-mode", choices=["full_route", "rs_transition", "event_transition"], default="full_route")
     p.add_argument("--max-routes", type=int, default=0)
@@ -2068,6 +2074,7 @@ def _write_summary(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.N
         f"- 汇总指标 JSON：`{args.output_json}`",
         f"- 逐帧复盘 JSONL：`{args.output_jsonl}`",
         f"- 中文摘要：`{args.output_summary}`",
+        f"- 可视化 HTML：`{args.output_html}`",
         "",
         "## 关键指标",
         "",
@@ -2097,6 +2104,281 @@ def _write_summary(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.N
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _write_html_report(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.Namespace) -> None:
+    """写单文件 HTML 可视化报告，所有数据内嵌，打开文件即可查看。"""
+
+    metrics_payload = json.dumps(metrics, ensure_ascii=False).replace("</", "<\\/")
+    event_token_payload = json.dumps(EVENT_LABEL_TO_TOKEN, ensure_ascii=False).replace("</", "<\\/")
+    title = f"SFT Base Eval Report - {metrics.get('eval_mode', args.eval_mode)}"
+    html = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html_lib.escape(title)}</title>
+  <style>
+    :root {{
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #667085;
+      --line: #d9dee8;
+      --blue: #2563eb;
+      --good: #0f766e;
+      --warn: #b45309;
+      --bad: #b91c1c;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      line-height: 1.45;
+    }}
+    header {{
+      padding: 24px 28px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }}
+    h1 {{ margin: 0 0 8px; font-size: 24px; }}
+    h2 {{ margin: 0 0 14px; font-size: 18px; }}
+    h3 {{ margin: 20px 0 10px; font-size: 15px; }}
+    .meta {{ color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 8px 18px; }}
+    main {{ padding: 22px 28px 40px; max-width: 1800px; margin: 0 auto; }}
+    section {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      margin-bottom: 18px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    }}
+    .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }}
+    .card {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcff; }}
+    .card .label {{ color: var(--muted); font-size: 12px; margin-bottom: 6px; }}
+    .card .value {{ font-size: 22px; font-weight: 700; }}
+    .hint {{ color: var(--muted); font-size: 13px; margin-top: 8px; }}
+    .grid2 {{ display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr); gap: 16px; align-items: start; }}
+    .matrix-wrap {{ overflow: auto; border: 1px solid var(--line); border-radius: 8px; }}
+    table {{ border-collapse: collapse; width: 100%; font-size: 12px; }}
+    th, td {{ border: 1px solid var(--line); padding: 6px 8px; text-align: right; vertical-align: middle; }}
+    th {{ background: #f1f4f9; color: #344054; font-weight: 650; white-space: nowrap; }}
+    td.row-label, th.row-label {{ text-align: left; position: sticky; left: 0; background: #f8fafc; z-index: 1; }}
+    td.cell {{ min-width: 74px; font-variant-numeric: tabular-nums; }}
+    .cell .count {{ font-weight: 700; }}
+    .cell .pct {{ color: #475467; font-size: 11px; }}
+    .diag {{ outline: 2px solid rgba(15, 118, 110, 0.35); outline-offset: -2px; }}
+    .table-small td, .table-small th {{ padding: 5px 7px; }}
+    .pill {{ display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; background: #fff; color: #475467; }}
+    .danger {{ color: var(--bad); }}
+    .ok {{ color: var(--good); }}
+    @media (max-width: 980px) {{
+      header {{ position: static; }}
+      .grid2 {{ grid-template-columns: 1fr; }}
+      main {{ padding: 16px; }}
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SFT Base Eval Report</h1>
+    <div id="meta" class="meta"></div>
+  </header>
+  <main>
+    <section>
+      <h2>关键指标</h2>
+      <div id="kpis" class="cards"></div>
+      <div class="hint">`event_global_majority_baseline` 是端到端零信息下界；`event_regular_baseline_given_gt_rs` 是已知 GT RS 的 oracle 参照。</div>
+    </section>
+    <section>
+      <h2>RS Confusion Matrix</h2>
+      <div class="grid2">
+        <div id="rsMatrix"></div>
+        <div id="rsPerClass"></div>
+      </div>
+    </section>
+    <section>
+      <h2>EVENT Confusion Matrix</h2>
+      <div class="grid2">
+        <div id="eventMatrix"></div>
+        <div id="eventPerClass"></div>
+      </div>
+    </section>
+    <section>
+      <h2>Regular Internal Confusion</h2>
+      <div class="grid2">
+        <div id="regularMatrix"></div>
+        <div id="regularPerClass"></div>
+      </div>
+    </section>
+    <section>
+      <h2>UE vs Regular</h2>
+      <div class="grid2">
+        <div id="ueMatrix"></div>
+        <div id="ueMultiMatrix"></div>
+      </div>
+    </section>
+    <section>
+      <h2>RS 分组诊断</h2>
+      <div class="grid2">
+        <div id="multiReByRs"></div>
+        <div id="multiUeByRs"></div>
+      </div>
+      <div id="remapGroups" style="margin-top:16px"></div>
+    </section>
+  </main>
+  <script>
+    const DATA = {metrics_payload};
+    const EVENT_TOKEN = {event_token_payload};
+
+    function labelName(label) {{
+      if (EVENT_TOKEN[label]) return `${{EVENT_TOKEN[label]}} (${{label}})`;
+      return label;
+    }}
+    function fmt(value) {{
+      if (value === null || value === undefined) return "NA";
+      if (typeof value === "number") return Number.isInteger(value) ? String(value) : (value * 100).toFixed(2) + "%";
+      return String(value);
+    }}
+    function intFmt(value) {{
+      return Number(value || 0).toLocaleString("en-US");
+    }}
+    function pct(value) {{
+      return (Number(value || 0) * 100).toFixed(1) + "%";
+    }}
+    function metric(key) {{ return DATA[key]; }}
+    function htmlEscape(value) {{
+      const map = {{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}};
+      return String(value).replace(/[&<>"']/g, ch => map[ch]);
+    }}
+    function cellColor(count, maxCount, isDiag) {{
+      if (!maxCount) return "#fff";
+      const t = Math.min(1, Number(count || 0) / maxCount);
+      const hue = isDiag ? 173 : 217;
+      const sat = isDiag ? 46 : 78;
+      const light = 96 - t * 38;
+      return `hsl(${{hue}} ${{sat}}% ${{light}}%)`;
+    }}
+    function matrixLabels(matrix) {{
+      const rows = Object.keys(matrix || {{}});
+      const cols = [];
+      for (const row of rows) {{
+        for (const col of Object.keys(matrix[row] || {{}})) {{
+          if (!cols.includes(col)) cols.push(col);
+        }}
+      }}
+      return [rows, cols];
+    }}
+    function renderMatrix(id, title, reportOrMatrix) {{
+      const target = document.getElementById(id);
+      const matrix = reportOrMatrix.confusion_matrix || reportOrMatrix || {{}};
+      const [rows, cols] = matrixLabels(matrix);
+      const maxCount = Math.max(0, ...rows.flatMap(r => cols.map(c => Number((matrix[r] || {{}})[c] || 0))));
+      let out = `<h3>${{htmlEscape(title)}}</h3><div class="matrix-wrap"><table><thead><tr><th class="row-label">GT \\\\ Pred</th>`;
+      for (const col of cols) out += `<th>${{htmlEscape(labelName(col))}}</th>`;
+      out += `</tr></thead><tbody>`;
+      for (const row of rows) {{
+        const rowTotal = cols.reduce((s, c) => s + Number((matrix[row] || {{}})[c] || 0), 0);
+        out += `<tr><td class="row-label">${{htmlEscape(labelName(row))}} <span class="pill">n=${{intFmt(rowTotal)}}</span></td>`;
+        for (const col of cols) {{
+          const count = Number((matrix[row] || {{}})[col] || 0);
+          const rp = rowTotal ? count / rowTotal : 0;
+          const diag = row === col;
+          out += `<td class="cell ${{diag ? "diag" : ""}}" style="background:${{cellColor(count, maxCount, diag)}}"><div class="count">${{intFmt(count)}}</div><div class="pct">${{pct(rp)}}</div></td>`;
+        }}
+        out += `</tr>`;
+      }}
+      out += `</tbody></table></div>`;
+      target.innerHTML = out;
+    }}
+    function renderPerClass(id, title, report) {{
+      const target = document.getElementById(id);
+      const per = report.per_class || {{}};
+      let out = `<h3>${{htmlEscape(title)}}</h3><div class="matrix-wrap"><table class="table-small"><thead><tr><th>class</th><th>support</th><th>pred</th><th>P</th><th>R</th><th>F1</th></tr></thead><tbody>`;
+      for (const [label, row] of Object.entries(per)) {{
+        out += `<tr><td style="text-align:left">${{htmlEscape(labelName(label))}}</td><td>${{intFmt(row.support)}}</td><td>${{intFmt(row.predicted)}}</td><td>${{pct(row.precision)}}</td><td>${{pct(row.recall)}}</td><td>${{pct(row.f1)}}</td></tr>`;
+      }}
+      out += `</tbody></table></div><div class="hint">macro_f1=${{pct(report.macro_f1)}} / micro_acc=${{pct(report.micro_acc)}}</div>`;
+      target.innerHTML = out;
+    }}
+    function binaryMatrix(tpKey, fpKey, fnKey, tnKey) {{
+      return {{
+        "UE": {{"UE": Number(metric(tpKey) || 0), "REGULAR": Number(metric(fnKey) || 0)}},
+        "REGULAR": {{"UE": Number(metric(fpKey) || 0), "REGULAR": Number(metric(tnKey) || 0)}},
+      }};
+    }}
+    function renderDictTable(id, title, rows, columns) {{
+      const target = document.getElementById(id);
+      let out = `<h3>${{htmlEscape(title)}}</h3><div class="matrix-wrap"><table class="table-small"><thead><tr><th style="text-align:left">RS</th>`;
+      for (const [key, label] of columns) out += `<th>${{htmlEscape(label)}}</th>`;
+      out += `</tr></thead><tbody>`;
+      for (const [name, row] of Object.entries(rows || {{}})) {{
+        out += `<tr><td style="text-align:left">${{htmlEscape(name)}}</td>`;
+        for (const [key] of columns) out += `<td>${{fmt(row[key])}}</td>`;
+        out += `</tr>`;
+      }}
+      out += `</tbody></table></div>`;
+      target.innerHTML = out;
+    }}
+    function renderKpis() {{
+      const items = [
+        ["RS acc", "rs_acc"],
+        ["RS macro F1", "rs_confusion_report.macro_f1"],
+        ["EVENT acc", "event_acc_end_to_end"],
+        ["Joint acc", "joint_acc"],
+        ["Global baseline", "event_global_majority_baseline"],
+        ["GT-RS baseline", "event_regular_baseline_given_gt_rs"],
+        ["UE pred multi", "event_pred_ue_rate_multi_candidate"],
+        ["UE-vs-RE F1 multi", "ue_vs_re_f1_multi_candidate"],
+        ["RS change pred", "rs_pred_change_rate"],
+        ["RS change GT", "rs_gt_change_rate"],
+      ];
+      function get(path) {{
+        return path.split(".").reduce((obj, key) => obj && obj[key], DATA);
+      }}
+      document.getElementById("kpis").innerHTML = items.map(([label, key]) => `<div class="card"><div class="label">${{htmlEscape(label)}}</div><div class="value">${{fmt(get(key))}}</div></div>`).join("");
+    }}
+    function renderMeta() {{
+      const fields = [
+        ["task", DATA.eval_mode],
+        ["adapter", DATA.adapter_dir || "base"],
+        ["frames", intFmt(DATA.frames)],
+        ["routes", intFmt(DATA.route_count)],
+        ["image", DATA.image_ablation],
+        ["goal_ablation", DATA.goal_ablation],
+        ["generated", new Date().toLocaleString()],
+      ];
+      document.getElementById("meta").innerHTML = fields.map(([k, v]) => `<span><b>${{htmlEscape(k)}}:</b> ${{htmlEscape(v)}}</span>`).join("");
+    }}
+    function main() {{
+      renderMeta();
+      renderKpis();
+      renderMatrix("rsMatrix", "GT RS × Pred RS", DATA.rs_confusion_report || {{}});
+      renderPerClass("rsPerClass", "RS per-class", DATA.rs_confusion_report || {{}});
+      renderMatrix("eventMatrix", "GT EVENT × Pred EVENT", DATA.event_confusion_report || {{}});
+      renderPerClass("eventPerClass", "EVENT per-class", DATA.event_confusion_report || {{}});
+      renderMatrix("regularMatrix", "GT regular × Pred regular/UE", DATA.regular_internal_confusion_report || {{}});
+      renderPerClass("regularPerClass", "Regular per-class", DATA.regular_internal_confusion_report || {{}});
+      renderMatrix("ueMatrix", "UE-vs-Regular full", binaryMatrix("ue_vs_re_tp", "ue_vs_re_fp", "ue_vs_re_fn", "ue_vs_re_tn"));
+      renderMatrix("ueMultiMatrix", "UE-vs-Regular multi-candidate", binaryMatrix("ue_vs_re_tp_multi_candidate", "ue_vs_re_fp_multi_candidate", "ue_vs_re_fn_multi_candidate", "ue_vs_re_tn_multi_candidate"));
+      renderDictTable("multiReByRs", "Multi-candidate regular by RS", DATA.q2_multi_re_by_rs_report, [["total", "total"], ["accuracy", "acc"], ["ue_fp", "UE FP"], ["ue_fp_rate", "UE FP rate"]]);
+      renderDictTable("multiUeByRs", "Multi-candidate UE by RS", DATA.q2_multi_ue_by_rs_report, [["total", "total"], ["accuracy", "acc"], ["pred_regular", "pred RE"], ["pred_regular_rate", "pred RE rate"]]);
+      const remap = (DATA.event_raw_regular_remap_report || {{}}).groups || {{}};
+      renderDictTable("remapGroups", "Raw regular remap groups", remap, [["total", "total"], ["accuracy", "acc"], ["ue_fp", "UE FP"], ["ue_fp_rate", "UE FP rate"]]);
+    }}
+    main();
+  </script>
+</body>
+</html>
+"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(html, encoding="utf-8")
+
+
 def main() -> None:
     args = parse_args()
     metrics = evaluate(args)
@@ -2104,10 +2386,15 @@ def main() -> None:
         return
     metrics = {
         **metrics,
+        "task": args.task,
+        "adapter_dir": args.adapter_dir,
+        "model_dir": args.model_dir,
+        "index": args.index,
         "output_dir": args.output_dir,
         "output_json": args.output_json,
         "output_jsonl": args.output_jsonl,
         "output_summary": args.output_summary,
+        "output_html": args.output_html,
     }
     print(json.dumps(metrics, ensure_ascii=False, indent=2))
     if args.output_json:
@@ -2117,9 +2404,15 @@ def main() -> None:
             json.dump(metrics, f, ensure_ascii=False, indent=2)
     if args.output_summary:
         _write_summary(pathlib.Path(args.output_summary), metrics, args)
+    if args.output_html:
+        _write_html_report(pathlib.Path(args.output_html), metrics, args)
+    if args.output_summary or args.output_html:
         print(f"[eval] saved metrics={args.output_json}")
         print(f"[eval] saved frames={args.output_jsonl}")
-        print(f"[eval] saved summary={args.output_summary}")
+        if args.output_summary:
+            print(f"[eval] saved summary={args.output_summary}")
+        if args.output_html:
+            print(f"[eval] saved html={args.output_html}")
 
 
 if __name__ == "__main__":
