@@ -158,6 +158,22 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 
 默认 `SAVE_STEPS=200` 只控制 adapter checkpoint 落盘；`EVAL_STEPS=10` 会更频繁地跑 teacher-forced validation loss，方便早期观察 train/val 是否背离。若验证拖慢训练，可临时设 `EVAL_STEPS=50/100/200`。
 
+断点续训直接传 checkpoint 目录即可，训练会复用该 checkpoint 所在的 run 目录、继续 append 同一个 `log.txt` 和 `tb/`，后续 checkpoint 也继续保存到同一层目录：
+
+```bash
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp \
+  checkpoints/sft_base_runs/run_<RUN_TAG>/checkpoint-200
+```
+
+也可以用环境变量：
+
+```bash
+RESUME_FROM_CHECKPOINT=checkpoints/sft_base_runs/run_<RUN_TAG>/checkpoint-200 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
+```
+
+`MAX_STEPS` 在断点续训时表示“从当前 checkpoint 之后额外训练多少 optimizer step”；不设置时按 `NUM_EPOCHS` 再跑对应步数。默认 `RESUME_TB_TRIM=1`：如果同一 run 的 `tb/` 里已有 step 大于 checkpoint step 的旧曲线，会先把原 event 文件归档到 `tb_resume_archive/from_step_<N>_*`，并把 step≤N 的事件重写回 `tb/`，让新曲线从 N 后干净接上；设 `RESUME_TB_TRIM=0` 可关闭。新保存的 checkpoint 会写 `trainer_state.pt`，下次可恢复 optimizer/scheduler/RNG/step；旧 checkpoint 如果没有该文件，会从 adapter 权重和 `checkpoint-<N>` 目录名恢复 `global_step=N`，但 optimizer/scheduler 会重新初始化。
+
 针对 `ue_acc=0` 和 memory-copy shortcut，当前训练默认做几件事：
 
 - 首帧 memory 使用 `UNKNOWN`，不再白送 GT RS。
@@ -194,6 +210,8 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 | `REGULAR_REPEAT_MAX` | `6` | regular 子类逆频率重复次数上限 |
 | `SAVE_STEPS` | `200` | adapter checkpoint 保存间隔 |
 | `EVAL_STEPS` | `10` | 训练中 teacher-forced validation loss 评估间隔 |
+| `RESUME_FROM_CHECKPOINT` | 空 | 指向 `checkpoint-<N>` 或 `final` adapter 目录时，在原 run 目录内断点续训 |
+| `RESUME_TB_TRIM` | `1` | 断点续训时归档并修剪同一 run 里 step>N 的旧 TensorBoard event，避免 200-300 旧曲线污染续训 |
 
 如果要更激进地打断 memory-copy，可以临时提高扰动：
 
@@ -663,6 +681,7 @@ python qwen3vl_local/sft_base/test_memory_curriculum.py
 python qwen3vl_local/sft_base/test_eval_candidates.py
 python qwen3vl_local/sft_base/test_eval_metrics.py
 python qwen3vl_local/sft_base/test_prompt_snapshots.py
+python qwen3vl_local/sft_base/test_train_resume.py
 ```
 
 候选过滤偏差审计：

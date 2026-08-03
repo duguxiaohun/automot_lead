@@ -11,7 +11,14 @@ set -euo pipefail
 # 禁用 core dump，避免失败的训练/工具进程在仓库里留下 core.* 大文件。
 ulimit -S -c 0 2>/dev/null || true
 
-MODE="${1:-${MODE:-ddp}}"
+MODE_ARG="${1:-${MODE:-ddp}}"
+RESUME_FROM_CHECKPOINT="${2:-${RESUME_FROM_CHECKPOINT:-}}"
+if [[ "${MODE_ARG}" != "single" && "${MODE_ARG}" != "ddp" && "${MODE_ARG}" != "check" ]]; then
+  RESUME_FROM_CHECKPOINT="${MODE_ARG}"
+  MODE="${MODE:-ddp}"
+else
+  MODE="${MODE_ARG}"
+fi
 
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
@@ -24,7 +31,20 @@ MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_base_runs}"
 OUTPUT_DIR_BASE="${OUTPUT_DIR}"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
-if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
+if [[ -n "${RESUME_FROM_CHECKPOINT}" ]]; then
+  RESUME_FROM_CHECKPOINT="$(
+    python - "${RESUME_FROM_CHECKPOINT}" <<'PY'
+import pathlib
+import sys
+print(pathlib.Path(sys.argv[1]).expanduser().resolve())
+PY
+  )"
+  OUTPUT_DIR="$(dirname "${RESUME_FROM_CHECKPOINT}")"
+  OUTPUT_DIR_BASE="$(dirname "${OUTPUT_DIR}")"
+  RUN_TAG="$(basename "${OUTPUT_DIR}")"
+  if [[ "${RUN_TAG}" == run_* ]]; then RUN_TAG="${RUN_TAG#run_}"; fi
+  NO_RUN_SUBDIR=1
+elif [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
   # 防覆盖约定：用户给的是 base OUTPUT_DIR，真实训练产物落到 run_<RUN_TAG>/。
   # base 层的 latest 软链始终指向最近一次 run，方便 eval/probe 文档写稳定路径。
   OUTPUT_DIR="${OUTPUT_DIR_BASE}/run_${RUN_TAG}"
@@ -44,6 +64,10 @@ fi
 if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
   ln -sfn "run_${RUN_TAG}" "${OUTPUT_DIR_BASE}/latest"
   echo "[run] OUTPUT_DIR=${OUTPUT_DIR}  (latest -> run_${RUN_TAG})"
+elif [[ -n "${RESUME_FROM_CHECKPOINT}" ]]; then
+  ln -sfn "$(basename "${OUTPUT_DIR}")" "${OUTPUT_DIR_BASE}/latest"
+  echo "[resume] RESUME_FROM_CHECKPOINT=${RESUME_FROM_CHECKPOINT}"
+  echo "[resume] OUTPUT_DIR=${OUTPUT_DIR}  (latest -> $(basename "${OUTPUT_DIR}"))"
 fi
 
 pick_idle_gpus() {
@@ -139,6 +163,12 @@ else
   EXTRA_ARGS+=("--no-vision-guard-enabled")
 fi
 
+if [[ "${RESUME_TB_TRIM:-1}" == "1" ]]; then
+  EXTRA_ARGS+=("--resume-tb-trim")
+else
+  EXTRA_ARGS+=("--no-resume-tb-trim")
+fi
+
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
 
@@ -205,6 +235,10 @@ if [[ "${FIRST_FRAME_MEMORY_UNKNOWN:-1}" == "1" ]]; then
   COMMON_ARGS+=("--first-frame-memory-unknown")
 else
   COMMON_ARGS+=("--no-first-frame-memory-unknown")
+fi
+
+if [[ -n "${RESUME_FROM_CHECKPOINT}" ]]; then
+  COMMON_ARGS+=("--resume-from-checkpoint" "${RESUME_FROM_CHECKPOINT}")
 fi
 
 if [[ "${NPROC}" -gt 1 ]]; then
