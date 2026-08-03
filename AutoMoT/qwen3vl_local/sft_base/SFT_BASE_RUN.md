@@ -156,6 +156,8 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 
 多卡训练默认 `FRAMES_PER_SYNC=64`，会在长 route 内按固定帧数做梯度同步 heartbeat，避免不同 rank 的 route 帧数差异导致 NCCL all-reduce 等待超时。排查时可调小到 `32`，或在确认单条 route 很短时设为 `0` 回到整条 route 结束后同步。
 
+默认 `SAVE_STEPS=200` 只控制 adapter checkpoint 落盘；`EVAL_STEPS=10` 会更频繁地跑 teacher-forced validation loss，方便早期观察 train/val 是否背离。若验证拖慢训练，可临时设 `EVAL_STEPS=50/100/200`。
+
 针对 `ue_acc=0` 和 memory-copy shortcut，当前训练默认做几件事：
 
 - 首帧 memory 使用 `UNKNOWN`，不再白送 GT RS。
@@ -190,6 +192,8 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_base/train.sh ddp
 | `REGULAR_FRAME_REPEAT` | `1` | regular 子类重复训练的基础倍率；配合 inverse-sqrt 时 R-E2/R-E3 等长尾会自动得到更多曝光 |
 | `REGULAR_REPEAT_MODE` | `inverse_sqrt` | regular repeat 模式；`fixed` 只按基础倍率重复 |
 | `REGULAR_REPEAT_MAX` | `6` | regular 子类逆频率重复次数上限 |
+| `SAVE_STEPS` | `200` | adapter checkpoint 保存间隔 |
+| `EVAL_STEPS` | `10` | 训练中 teacher-forced validation loss 评估间隔 |
 
 如果要更激进地打断 memory-copy，可以临时提高扰动：
 
@@ -619,12 +623,14 @@ eval_results/event_transition_random/<时间>/
 | 指标 | 判断 |
 |---|---|
 | `rs_visual_gain_over_first_pred_lock` | RS 相对“模型首帧预测锁死”的净增益；黑图/随机图下如果几乎不变，说明视觉贡献很弱 |
-| `event_visual_gain_over_regular_baseline` | EVENT 相对“按 GT RS 固定答全量最高频 regular 子类”的净增益；全量映射后零信息参考约 76.85%，接近 0 说明 EVENT 坍缩 |
+| `event_global_majority_baseline` | 端到端零信息下界：永远答全局最高频 regular（当前 `LANE_FOLLOWING`）的准确率 |
+| `event_visual_gain_over_global_majority_baseline` | EVENT 相对端到端全局多数类下界的净增益；base/黑图应接近 0 |
+| `event_regular_baseline_given_gt_rs` | GT-RS oracle 参照：已知正确 RS 时按该 RS 最高频 regular 作答；全量参考约 76.85%，不能作为端到端门槛 |
 | `rs_pred_change_rate` vs `rs_gt_change_rate` | 预测变化率远低于 GT 变化率，说明 RS 被 memory 锁死 |
 | `rs_locked_case_rate` | 整段 RS 预测完全不变的 case 比例 |
 | `event_pred_ue_rate_multi_candidate` | 排除单候选后仍长期接近 0，表示 Q2 EVENT 坍缩到 regular |
 | `ue_vs_re_f1_multi_candidate` | 排除单候选后的 UE-vs-regular 判别能力；比全量 F1 更接近真实能力 |
-| `rs_change_f1` | 原图下也接近 0 表示模型没有学到 RS 变化；黑图下应明显更差 |
+| `rs_change_f1` | 必须和 `rs_pred_change_rate` / `rs_gt_change_rate` 一起读；预测几乎不切换时 F1 可能虚高 |
 | `re_to_ue_f1` | 原图下也接近 0 表示模型没有学到异常起始；黑图下应明显更差 |
 | `false_transition_rate_when_gt_stable` | 过高说明模型乱切；过低但 `*_change_f1` 接近 0 说明模型锁死 |
 
@@ -635,9 +641,12 @@ eval_results/event_transition_random/<时间>/
 | `rs_visual_gain_over_first_pred_lock` 原图 - 黑图 | > +10pt |
 | `event_pred_ue_rate_multi_candidate` | > 5% |
 | `rs_locked_case_rate` | < 20% |
-| `rs_confusion_report.per_class.R3.predicted` | > 0 |
+| `rs_confusion_report.macro_f1` | > 0.45 |
+| `rs_confusion_report.per_class.R2.predicted` / `R3.predicted` | > 0 |
 | `ue_vs_re_f1_multi_candidate` | > 0.35 |
-| `rs_change_f1` | > 0.15 |
+| `joint_acc` | > 45% |
+| `event_acc_end_to_end` | > 55%，对比 `event_global_majority_baseline`，不是 76.85% oracle 参照 |
+| `rs_pred_change_rate` | 接近 `rs_gt_change_rate`；不要只看 `rs_change_f1` |
 | `re_to_ue_f1` | > 0.20 |
 
 ## 6. 维护检查
