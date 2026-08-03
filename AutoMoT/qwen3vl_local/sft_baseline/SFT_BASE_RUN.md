@@ -111,6 +111,14 @@ checkpoints/sft_baseline_runs/latest/eval_results/<full_route|road_transition|ev
   metrics.json
   frames.jsonl
   summary.md
+  tb/
+```
+
+`tb/` 是简易 TensorBoard eval 日志，包含核心 scalar、ROAD 二分类 confusion matrix
+文本、EVENT 二分类 confusion matrix 文本。训练日志仍写在 run 目录的 `tb/` 下；统一查看：
+
+```bash
+bash qwen3vl_local/tb_serve.sh checkpoints/sft_baseline_runs/latest
 ```
 
 关键指标看：
