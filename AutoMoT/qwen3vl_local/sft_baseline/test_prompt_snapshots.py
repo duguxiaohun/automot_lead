@@ -45,6 +45,11 @@ def main() -> None:
         "prompt snapshot mismatch; review the new prompt text and update "
         "qwen3vl_local/sft_baseline/prompt_snapshots.txt if intentional"
     )
+    hidden = Memory(rs_label="UNKNOWN", event_label="UNKNOWN", ego_to_goal_x=8.0, ego_to_goal_y=-2.0, hide_priors=True)
+    hidden_prompt = build_q1_prompt(hidden)
+    assert "PREVIOUS_ROAD" not in hidden_prompt and "PREVIOUS_EVENT" not in hidden_prompt
+    assert "previous memory" not in hidden_prompt.lower()
+    assert "hidden for this visual check" in hidden_prompt
     print("[test_prompt_snapshots] ok")
 
 

@@ -49,7 +49,17 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
 
 ```bash
 OUTPUT_DIR=checkpoints/sft_baseline_runs \
-UE_EVENT_LOSS_WEIGHT=4.0 \
+TRAIN_SAMPLING_MODE=transition_segments \
+SEGMENT_LENGTH=24 \
+SEGMENTS_PER_ROUTE=4 \
+NEGATIVE_SEGMENT_RATIO=0.25 \
+TRANSITION_LABEL_MODE=binary \
+TRANSITION_REPEAT_MODE=add \
+ROAD_LOSS_BALANCE_MODE=inverse_sqrt \
+JOINT_BALANCE_REPEAT_MODE=inverse_sqrt \
+JOINT_BALANCE_REPEAT_COMBINE=add \
+JOINT_BALANCE_DROP_MAJORITY=1 \
+UE_EVENT_LOSS_WEIGHT=2.0 \
 RE_EVENT_LOSS_WEIGHT=1.0 \
 MEMORY_RS_WRONG_PROB=0.30 \
 MEMORY_RS_UNKNOWN_PROB=0.40 \
@@ -57,6 +67,40 @@ MEMORY_EVENT_WRONG_PROB=0.35 \
 MEMORY_EVENT_UNKNOWN_PROB=0.35 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
 ```
+
+当前 launcher 默认已经使用上面的小片段均衡策略。若要复现旧整条 route 训练：
+
+```bash
+TRAIN_SAMPLING_MODE=full_route \
+TRANSITION_LABEL_MODE=fine \
+TRANSITION_REPEAT_MODE=max \
+ROAD_LOSS_BALANCE_MODE=none \
+JOINT_BALANCE_REPEAT_MODE=none \
+JOINT_BALANCE_DROP_MAJORITY=0 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
+```
+
+纯视觉 no-memory 基线：
+
+```bash
+PROMPT_MEMORY_MODE=hidden \
+TRAIN_SAMPLING_MODE=transition_segments \
+LORA_VISION_SCOPE=merger \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
+```
+
+每隔 N 个 optimizer step 跑 5-10 条 validation route 的 closed-loop probe：
+
+```bash
+CLOSED_LOOP_PROBE_STEPS=50 \
+CLOSED_LOOP_PROBE_ROUTES=8 \
+CLOSED_LOOP_PROBE_WRITE_FRAMES=0 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
+```
+
+probe 会由 rank0 临时保存当前 adapter，然后调用 `eval.py --task full`；其它 rank
+等待 barrier，失败会中止训练。输出位于当前 run 的
+`closed_loop_probe/step_<STEP>/eval_full/`。
 
 默认 `LORA_VISION_SCOPE=off`，只训练语言侧 LoRA，不微调视觉塔。需要做视觉 LoRA
 消融时再显式加 `LORA_VISION_SCOPE=merger|last4|all`。
@@ -104,6 +148,18 @@ GPU_IDS=0 python qwen3vl_local/sft_baseline/eval.py \
   --ablate-goal
 ```
 
+no-memory adapter 评估时要使用同款 prompt：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_baseline/eval.py \
+  --adapter-dir checkpoints/sft_baseline_runs/latest/final \
+  --task full \
+  --prompt-memory-mode hidden
+```
+
+eval 会校验 adapter config 里的 `prompt_memory_mode`。如果 hidden/no-memory adapter
+忘记加 `--prompt-memory-mode hidden`，会直接报错，避免混用 prompt 得到无意义指标。
+
 默认输出：
 
 ```text
@@ -133,3 +189,18 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_baseline_runs/latest
 - `joint_acc`
 - `road_change_f1`
 - `event_change_f1`
+
+训练 TB 额外关注：
+
+- `train/unweighted_loss`：不带类别权重的 teacher-forced loss，便于和历史曲线对照
+- `train/tf_road_acc_last_batch` / `train/tf_event_acc_last_batch`
+- `train/tf_highway_recall_last_batch` / `train/tf_ue_recall_last_batch`
+- `train/selected_frame_rate_last_batch`：片段采样实际选中帧比例
+- `train/road_highway_rate_last_batch` / `train/event_ue_rate_last_batch`
+
+第一批训练日志优先看：
+
+- `selected_frame_rate_last_batch`：接近 1.0 说明片段采样覆盖过宽
+- `road_highway_rate_last_batch` / `event_ue_rate_last_batch`：检查采样是否接近预期长尾增强
+- `event_ue_weight_share_last_batch`：若仍接近 0.7，可继续把 `UE_EVENT_LOSS_WEIGHT` 往 1.5 降
+- `tf_ue_recall_last_batch` 对比 closed-loop eval 的 `ue_recall`：差值就是 exposure bias

@@ -151,7 +151,7 @@ def _resolve_model_path(path: pathlib.Path) -> pathlib.Path:
     return path.resolve()
 
 
-def _validate_adapter_config(adapter_dir: pathlib.Path, model_dir: pathlib.Path) -> Dict[str, Any]:
+def _validate_adapter_config(adapter_dir: pathlib.Path, model_dir: pathlib.Path, *, prompt_memory_mode: str = "memory") -> Dict[str, Any]:
     """读取并校验 baseline adapter 自描述配置。"""
 
     cfg_path = pathlib.Path(adapter_dir) / "sft_baseline_adapter_config.json"
@@ -171,17 +171,31 @@ def _validate_adapter_config(adapter_dir: pathlib.Path, model_dir: pathlib.Path)
     scope = str(cfg.get("lora_vision_scope", ""))
     if scope not in _VISION_SCOPE_CHOICES:
         raise ValueError(f"adapter lora_vision_scope invalid: {scope!r}")
+    saved_prompt_memory_mode = str(cfg.get("prompt_memory_mode", "memory"))
+    if saved_prompt_memory_mode != str(prompt_memory_mode):
+        raise ValueError(
+            "adapter prompt_memory_mode mismatch: "
+            f"checkpoint={saved_prompt_memory_mode!r}, eval={str(prompt_memory_mode)!r}. "
+            "Use --prompt-memory-mode to match the training prompt."
+        )
     return cfg
 
 
-def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path], device: torch.device, *, merge_lora: bool) -> EvalBundle:
+def load_eval_bundle(
+    model_dir: pathlib.Path,
+    adapter_dir: Optional[pathlib.Path],
+    device: torch.device,
+    *,
+    merge_lora: bool,
+    prompt_memory_mode: str = "memory",
+) -> EvalBundle:
     """加载 base Qwen 和可选 LoRA adapter。"""
 
     from transformers import AutoProcessor
 
     adapter_cfg: Optional[Dict[str, Any]] = None
     if adapter_dir is not None:
-        adapter_cfg = _validate_adapter_config(adapter_dir, model_dir)
+        adapter_cfg = _validate_adapter_config(adapter_dir, model_dir, prompt_memory_mode=prompt_memory_mode)
     try:
         from transformers import AutoModelForImageTextToText as ModelClass
     except ImportError:
@@ -198,7 +212,7 @@ def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path
     if adapter_dir is not None:
         from peft import PeftModel
 
-        cfg = adapter_cfg or _validate_adapter_config(adapter_dir, model_dir)
+        cfg = adapter_cfg or _validate_adapter_config(adapter_dir, model_dir, prompt_memory_mode=prompt_memory_mode)
         print(f"[adapter] validated sft_baseline adapter scope={cfg.get('lora_vision_scope')}")
         model = PeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False)
         if merge_lora and hasattr(model, "merge_and_unload"):
@@ -307,6 +321,25 @@ def _initial_memory(frame: Any, args: argparse.Namespace) -> Memory:
     if str(args.initial_memory_noise) == "unknown":
         return refresh_memory_goal(Memory(rs_label="UNKNOWN", event_label="UNKNOWN"), _eval_goal_xy(frame, args))
     return refresh_memory_goal(Memory(rs_label=frame.rs_label, event_label=frame.event_label), _eval_goal_xy(frame, args))
+
+
+def _prompt_memory_for_mode(memory: Memory, args: argparse.Namespace) -> Memory:
+    """按 eval 开关决定 prompt 是否展示离散 memory。"""
+
+    out = memory.copy()
+    mode = str(getattr(args, "prompt_memory_mode", "memory")).lower()
+    if mode == "memory":
+        return out
+    if mode == "unknown":
+        out.rs_label = "UNKNOWN"
+        out.event_label = "UNKNOWN"
+        return out
+    if mode == "hidden":
+        out.rs_label = "UNKNOWN"
+        out.event_label = "UNKNOWN"
+        out.hide_priors = True
+        return out
+    raise ValueError(f"unknown prompt_memory_mode: {mode}")
 
 
 def _eval_goal_xy(frame: Any, args: argparse.Namespace) -> Optional[List[float]]:
@@ -453,7 +486,8 @@ def _evaluate_case(bundle: EvalBundle, case: EvalCase, args: argparse.Namespace,
             memory = refresh_memory_goal(memory, _eval_goal_xy(frame, args))
 
         images = _apply_image_ablation(_load_images(frame.history_rgb_paths), args, case, frame)
-        prompt = build_q1_prompt(memory, choice_seed=f"joint::{frame.frame_id}")
+        prompt_memory = _prompt_memory_for_mode(memory, args)
+        prompt = build_q1_prompt(prompt_memory, choice_seed=f"joint::{frame.frame_id}")
         text = _generate_once(bundle, images, prompt, int(args.max_new_tokens))
         parsed = parse_q1_output(text)
         pred_road = parsed.get("road")
@@ -596,12 +630,16 @@ def _prepare_eval_outputs(args: argparse.Namespace, *, rank: int, world_size: in
         output_dir = pathlib.Path(args.output_jsonl).parent
     args.output_dir = str(output_dir)
     args.output_json = args.output_json or str(output_dir / "metrics.json")
-    args.output_jsonl = args.output_jsonl or str(output_dir / "frames.jsonl")
+    if bool(args.write_frames):
+        args.output_jsonl = args.output_jsonl or str(output_dir / "frames.jsonl")
+    else:
+        args.output_jsonl = None
     args.output_summary = args.output_summary or str(output_dir / "summary.md")
     args.output_html = args.output_html or str(output_dir / "report.html")
     args.output_tb = args.output_tb or (str(output_dir / "tb") if bool(args.write_tb) else None)
     pathlib.Path(args.output_json).parent.mkdir(parents=True, exist_ok=True)
-    pathlib.Path(args.output_jsonl).parent.mkdir(parents=True, exist_ok=True)
+    if args.output_jsonl:
+        pathlib.Path(args.output_jsonl).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(args.output_summary).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(args.output_html).parent.mkdir(parents=True, exist_ok=True)
     if args.output_tb:
@@ -625,6 +663,7 @@ def _build_metrics(args: argparse.Namespace, counters: Dict[str, int], *, route_
         "image_ablation": str(args.image_ablation),
         "goal_ablation": bool(args.ablate_goal),
         "initial_memory": str(args.initial_memory_noise),
+        "prompt_memory_mode": str(args.prompt_memory_mode),
         "script_correction": "none",
         **counters,
         "road_acc": counters["road_correct"] / frames,
@@ -670,6 +709,7 @@ def evaluate(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
             pathlib.Path(args.adapter_dir) if args.adapter_dir else None,
             device,
             merge_lora=bool(args.merge_lora),
+            prompt_memory_mode=str(args.prompt_memory_mode),
         )
         cases = _select_eval_cases(ds, args)
         if rank == 0:
@@ -723,6 +763,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-summary", type=str, default=None)
     p.add_argument("--output-html", type=str, default=None)
     p.add_argument("--output-tb", type=str, default=None)
+    p.add_argument("--write-frames", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--write-tb", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--task", choices=sorted(_EVAL_TASK_TO_MODE), required=True)
     p.add_argument("--eval-mode", choices=["full_route", "road_transition", "event_transition"], default="full_route")
@@ -732,6 +773,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--transition-window", type=int, default=8)
     p.add_argument("--max-transition-cases", type=int, default=0)
     p.add_argument("--initial-memory-noise", choices=["unknown", "none"], default="unknown")
+    p.add_argument("--prompt-memory-mode", choices=["memory", "hidden", "unknown"], default="memory")
     p.add_argument("--image-ablation", choices=["none", "black", "random"], default="none")
     p.add_argument("--ablate-goal", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--save-prompts", action=argparse.BooleanOptionalAction, default=False)
