@@ -20,6 +20,7 @@ import os
 import pathlib
 import random
 import re
+import subprocess
 import sys
 import time
 from contextlib import nullcontext
@@ -58,8 +59,10 @@ from qwen3vl_local.sft_baseline.labels import (  # noqa: E402
     RS_DESCRIPTIONS,
     EventTarget,
     RSTarget,
+    event_family_from_label,
     is_regular_event,
     is_unusual,
+    road_label_from_rs,
     resolve_event_target,
 )
 from qwen3vl_local.sft_baseline.memory_curriculum import (  # noqa: E402
@@ -188,13 +191,25 @@ class RouteSequenceDataset(Dataset):
                     break
         self.rows = rows
         event_label_counts: Dict[str, int] = {}
+        event_family_counts: Dict[str, int] = {}
+        road_label_counts: Dict[str, int] = {}
+        joint_label_counts: Dict[str, int] = {}
         rs_event_label_counts: Dict[str, Dict[str, int]] = {}
         for row in rows:
             for frame in row.frames:
                 event_label_counts[frame.event_label] = event_label_counts.get(frame.event_label, 0) + 1
+                road_label = _frame_road_label(frame)
+                event_family = _frame_event_family(frame)
+                road_label_counts[road_label] = road_label_counts.get(road_label, 0) + 1
+                event_family_counts[event_family] = event_family_counts.get(event_family, 0) + 1
+                joint_key = f"{road_label}:{event_family}"
+                joint_label_counts[joint_key] = joint_label_counts.get(joint_key, 0) + 1
                 rs_counts = rs_event_label_counts.setdefault(frame.rs_label, {})
                 rs_counts[frame.event_label] = rs_counts.get(frame.event_label, 0) + 1
         self.event_label_counts = event_label_counts
+        self.event_family_counts = event_family_counts
+        self.road_label_counts = road_label_counts
+        self.joint_label_counts = joint_label_counts
         self.rs_event_label_counts = rs_event_label_counts
 
     def __len__(self) -> int:
@@ -221,25 +236,112 @@ def _load_images(paths: List[str]) -> List[Image.Image]:
     return [Image.open(path).convert("RGB") for path in paths]
 
 
-def _transition_positions(frames: List[FrameRow], *, radius: int) -> set[int]:
-    """找出 RS/EVENT 发生变化的帧及其邻域，用于重点重复训练。
+def _frame_road_label(frame: FrameRow) -> str:
+    """返回当前帧折叠后的 ROAD 二分类标签。"""
 
-    真正需要看图的样本主要集中在 regular->UE、UE->regular 和 RS 改变的附近；整段 UE
-    过采样会大量重复“抄 memory 也能对”的帧，所以这里单独放大转折邻域。
-    """
+    return road_label_from_rs(str(frame.rs_label))
+
+
+def _frame_event_family(frame: FrameRow) -> str:
+    """返回当前帧折叠后的 EVENT family 标签。"""
+
+    return event_family_from_label(str(frame.event_label))
+
+
+def _transition_changed(prev: FrameRow, cur: FrameRow, *, label_mode: str) -> bool:
+    """按指定粒度判断相邻帧是否发生训练目标相关变化。"""
+
+    mode = str(label_mode).lower()
+    if mode == "binary":
+        return _frame_road_label(prev) != _frame_road_label(cur) or _frame_event_family(prev) != _frame_event_family(cur)
+    if mode == "road_event":
+        return _frame_road_label(prev) != _frame_road_label(cur) or bool(prev.abnormal) != bool(cur.abnormal)
+    if mode == "fine":
+        return prev.rs_label != cur.rs_label or prev.event_label != cur.event_label or bool(prev.abnormal) != bool(cur.abnormal)
+    raise ValueError(f"unknown transition label mode: {label_mode}")
+
+
+def _transition_centers(frames: List[FrameRow], *, label_mode: str) -> List[int]:
+    """返回发生 transition 的当前帧位置。"""
+
+    centers: List[int] = []
+    for idx in range(1, len(frames)):
+        if _transition_changed(frames[idx - 1], frames[idx], label_mode=label_mode):
+            centers.append(idx)
+    return centers
+
+
+def _expand_positions(centers: List[int], *, n_frames: int, radius: int) -> set[int]:
+    """把 transition center 展开成邻域位置集合。"""
 
     positions: set[int] = set()
     rad = max(0, int(radius))
-    for idx in range(1, len(frames)):
-        prev = frames[idx - 1]
-        cur = frames[idx]
-        changed = prev.rs_label != cur.rs_label or prev.event_label != cur.event_label or bool(prev.abnormal) != bool(cur.abnormal)
-        if not changed:
-            continue
-        lo = max(0, idx - rad)
-        hi = min(len(frames) - 1, idx + rad)
+    for idx in centers:
+        lo = max(0, int(idx) - rad)
+        hi = min(int(n_frames) - 1, int(idx) + rad)
         positions.update(range(lo, hi + 1))
     return positions
+
+
+def _transition_positions(frames: List[FrameRow], *, radius: int, label_mode: str = "binary") -> set[int]:
+    """找出 ROAD/EVENT 发生变化的帧及其邻域，用于重点重复训练。
+
+    真正需要看图的样本主要集中在 regular->UE、UE->regular 和 RS 改变的附近；整段 UE
+    过采样会大量重复“抄 memory 也能对”的帧，所以这里单独放大转折邻域。默认按
+    折叠后的二分类标签判变化，避免把 R1->R2 或 R-E1->R-E4 这类目标不变的帧
+    错当成 HIGHWAY/NON_HIGHWAY、RE/UE 的起跳样本。
+    """
+
+    return _expand_positions(_transition_centers(frames, label_mode=label_mode), n_frames=len(frames), radius=radius)
+
+
+def _segment_positions(
+    frames: List[FrameRow],
+    *,
+    centers: List[int],
+    route_id: str,
+    seed: int,
+    segment_length: int,
+    segments_per_route: int,
+    negative_segment_ratio: float,
+) -> set[int]:
+    """按 transition 邻域抽取训练片段，同时补少量纯负片段。
+
+    片段采样只决定哪些帧进入 loss；route memory 仍沿完整 route 顺序 teacher-forced
+    推进。这样既能提高起跳帧密度，又不会把片段首帧统一变成 UNKNOWN 分布。
+    """
+
+    n = len(frames)
+    if n <= 0:
+        return set()
+    length = max(1, int(segment_length))
+    half = length // 2
+    rng = random.Random(f"{route_id}::{seed}::segments")
+    picked_centers = list(dict.fromkeys(int(x) for x in centers))
+    rng.shuffle(picked_centers)
+    if int(segments_per_route) > 0:
+        picked_centers = picked_centers[: int(segments_per_route)]
+    out: set[int] = set()
+    for center in picked_centers:
+        start = max(0, min(n - 1, center) - half)
+        end = min(n, start + length)
+        start = max(0, end - length)
+        out.update(range(start, end))
+
+    n_neg = int(math.ceil(max(0.0, float(negative_segment_ratio)) * max(1, len(picked_centers))))
+    if not picked_centers and n_neg <= 0:
+        n_neg = 1
+    transition_neighborhood = _expand_positions(picked_centers, n_frames=n, radius=max(half, 1))
+    stable_centers = [idx for idx in range(n) if idx not in transition_neighborhood]
+    if not stable_centers:
+        stable_centers = list(range(n))
+    rng.shuffle(stable_centers)
+    for center in stable_centers[:n_neg]:
+        start = max(0, int(center) - half)
+        end = min(n, start + length)
+        start = max(0, end - length)
+        out.update(range(start, end))
+    return out
 
 
 def _rs_target_from_frame(frame: FrameRow) -> RSTarget:
@@ -288,7 +390,7 @@ def _messages(images: List[Image.Image], q1_prompt: str, q1_target: str, q2_prom
     return messages
 
 
-def _value_token_ids(bundle: Any, assistant_text: str, span_fn: Any, weights_by_name: Mapping[str, float]) -> Tuple[List[int], List[float]]:
+def _value_token_ids(bundle: Any, assistant_text: str, span_fn: Any, weights_by_name: Mapping[str, float]) -> Tuple[List[int], List[float], List[int]]:
     """对 assistant turn 生成 token 级 loss 权重。
 
     这里先用字符 span 找到 `ROAD:`/`EVENT:` 后面的值，再通过 tokenizer
@@ -301,14 +403,17 @@ def _value_token_ids(bundle: Any, assistant_text: str, span_fn: Any, weights_by_
     offsets = [(int(a), int(b)) for a, b in enc["offset_mapping"]]
     spans = span_fn(assistant_text)
     weights: List[float] = [0.0 for _ in token_ids]
+    component_ids: List[int] = [0 for _ in token_ids]
     for name, (lo, hi) in spans.items():
         weight = float(weights_by_name.get(name, 0.0))
         if weight <= 0:
             continue
+        component_id = 1 if str(name) == "road" else 2
         for i, (a, b) in enumerate(offsets):
             if a < hi and b > lo:
                 weights[i] = max(weights[i], weight)
-    return token_ids, weights
+                component_ids[i] = component_id
+    return token_ids, weights, component_ids
 
 
 def _build_inputs(
@@ -338,6 +443,7 @@ def _build_inputs(
         return None
     labels = input_ids.clone()
     weights = torch.zeros_like(input_ids, dtype=torch.float32)
+    component_ids = torch.zeros_like(input_ids, dtype=torch.long)
     expanded_ids = [int(x) for x in input_ids.tolist()]
     asst_header_ids = list(bundle.tokenizer("<|im_start|>assistant\n", add_special_tokens=False)["input_ids"])
 
@@ -348,12 +454,13 @@ def _build_inputs(
         assistant_specs.append((q2_target, target_spans_q2, q2_loss_weights or loss_weights_q2(), True))
     cursor = 0
     for turn_idx, (assistant_text, span_fn, span_weights, prefer_last) in enumerate(assistant_specs):
-        assistant_ids, value_weights = _value_token_ids(bundle, assistant_text, span_fn, span_weights)
+        assistant_ids, value_weights, value_component_ids = _value_token_ids(bundle, assistant_text, span_fn, span_weights)
         pos = _find_subsequence(expanded_ids, assistant_ids, cursor, last=prefer_last)
         _assert_inside_assistant_turn(expanded_ids, pos, asst_header_ids, turn_idx)
         for j, weight in enumerate(value_weights):
             if weight > 0:
                 weights[pos + j] = float(weight)
+                component_ids[pos + j] = int(value_component_ids[j])
         cursor = pos + len(assistant_ids)
 
     extra = {k: v for k, v in inputs.items() if k not in ("input_ids", "attention_mask")}
@@ -362,13 +469,27 @@ def _build_inputs(
         "attention_mask": torch.ones_like(input_ids),
         "labels": labels,
         "loss_weights": weights,
+        "loss_component_ids": component_ids,
         "vision": extra,
         "chat_text": chat_text,
     }
 
 
-def _loss_one_sample(bundle: Any, packed: Mapping[str, Any]) -> torch.Tensor:
-    """单样本 weighted CE。"""
+def _loss_weight_sum(packed: Mapping[str, Any]) -> float:
+    """返回本样本有效监督 token 的权重和。"""
+
+    weights = packed["loss_weights"]
+    if int(weights.numel()) <= 1:
+        return 0.0
+    return float(weights[1:].sum().item())
+
+
+def _loss_parts_one_sample(bundle: Any, packed: Mapping[str, Any]) -> Tuple[torch.Tensor, float, float, bool, bool]:
+    """返回未归一化 weighted loss、权重和、unweighted loss 与 teacher-forced 正确性。
+
+    类别均衡必须在 batch/chunk 级别做 `sum(w*CE) / sum(w)`；如果先把每帧除以
+    自己的权重和，HIGHWAY/UE 的跨帧权重会被抵消成“每帧一样重”。
+    """
 
     kwargs: Dict[str, Any] = {
         "input_ids": packed["input_ids"].unsqueeze(0).to(bundle.device),
@@ -376,6 +497,8 @@ def _loss_one_sample(bundle: Any, packed: Mapping[str, Any]) -> torch.Tensor:
     }
     labels = packed["labels"].unsqueeze(0).to(bundle.device)
     weights = packed["loss_weights"].unsqueeze(0).to(bundle.device)
+    comp_ids = packed.get("loss_component_ids")
+    comp_ids_t = comp_ids.unsqueeze(0).to(bundle.device) if isinstance(comp_ids, torch.Tensor) else torch.zeros_like(weights, dtype=torch.long)
     for k, v in packed["vision"].items():
         kwargs[k] = v.to(bundle.device) if isinstance(v, torch.Tensor) else v
     out = bundle.model(**kwargs, use_cache=False, return_dict=True)
@@ -383,11 +506,21 @@ def _loss_one_sample(bundle: Any, packed: Mapping[str, Any]) -> torch.Tensor:
     shift_logits = logits[:, :-1, :].contiguous()
     shift_labels = labels[:, 1:].contiguous()
     shift_weights = weights[:, 1:].contiguous()
+    shift_comp_ids = comp_ids_t[:, 1:].contiguous()
     active = shift_weights.gt(0)
     if not bool(active.any()):
-        return shift_logits.sum() * 0.0
+        zero = shift_logits.sum() * 0.0
+        return zero, 0.0, 0.0, False, False
     per_tok = F.cross_entropy(shift_logits[active], shift_labels[active], reduction="none")
-    return (per_tok * shift_weights[active]).sum() / shift_weights[active].sum().clamp_min(1e-6)
+    numerator = (per_tok * shift_weights[active]).sum()
+    denom = float(shift_weights[active].sum().detach().item())
+    unweighted = float(per_tok.detach().mean().item())
+    pred = shift_logits.argmax(dim=-1)
+    road_mask = active & shift_comp_ids.eq(1)
+    event_mask = active & shift_comp_ids.eq(2)
+    road_ok = bool(road_mask.any() and torch.equal(pred[road_mask], shift_labels[road_mask]))
+    event_ok = bool(event_mask.any() and torch.equal(pred[event_mask], shift_labels[event_mask]))
+    return numerator, denom, unweighted, road_ok, event_ok
 
 
 def _event_loss_weights(
@@ -397,7 +530,7 @@ def _event_loss_weights(
     n_candidates: int,
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
-    single_candidate_re_scale: float,
+    single_candidate_re_scale: float = 0.1,
     event_label_counts: Optional[Mapping[str, int]] = None,
     rs_event_label_counts: Optional[Mapping[str, Mapping[str, int]]] = None,
 ) -> Dict[str, float]:
@@ -498,6 +631,115 @@ def _regular_repeat_for_frame(
     return max(1, min(max(1, int(regular_repeat_max)), repeat))
 
 
+def _balance_scale(counts: Optional[Mapping[str, int]], key: str, *, mode: str) -> float:
+    """按类别频次返回一个温和的均衡倍率。"""
+
+    mode = str(mode).lower()
+    if mode == "none":
+        return 1.0
+    values = sorted(int(v) for v in (counts or {}).values() if int(v) > 0)
+    current = int((counts or {}).get(str(key), 0) or 0)
+    if current <= 0 or not values:
+        return 1.0
+    mid = len(values) // 2
+    median = float(values[mid]) if len(values) % 2 == 1 else (float(values[mid - 1]) + float(values[mid])) * 0.5
+    if mode == "inverse_sqrt":
+        return math.sqrt(max(median, 1.0) / float(current))
+    if mode == "inverse":
+        return max(median, 1.0) / float(current)
+    raise ValueError(f"unknown balance mode: {mode}")
+
+
+def _road_loss_weight(
+    frame: FrameRow,
+    *,
+    road_label_counts: Optional[Mapping[str, int]],
+    road_loss_balance_mode: str,
+    highway_road_loss_weight: float,
+    non_highway_road_loss_weight: float,
+) -> float:
+    """计算 ROAD 值 token 权重，支持 HIGHWAY/NON_HIGHWAY 类别均衡。"""
+
+    road_label = _frame_road_label(frame)
+    base = float(highway_road_loss_weight) if road_label == "HIGHWAY" else float(non_highway_road_loss_weight)
+    scale = _balance_scale(road_label_counts, road_label, mode=str(road_loss_balance_mode))
+    return max(0.0, base * scale)
+
+
+def _joint_balance_repeat_for_frame(
+    frame: FrameRow,
+    *,
+    joint_label_counts: Optional[Mapping[str, int]],
+    joint_balance_repeat_mode: str,
+    joint_balance_repeat_max: int,
+) -> int:
+    """按 ROAD x EVENT 四格频次提高长尾组合曝光。"""
+
+    mode = str(joint_balance_repeat_mode).lower()
+    if mode == "none":
+        return 1
+    key = f"{_frame_road_label(frame)}:{_frame_event_family(frame)}"
+    scale = _balance_scale(joint_label_counts, key, mode=mode)
+    repeat = int(round(scale))
+    return max(1, min(max(1, int(joint_balance_repeat_max)), repeat))
+
+
+def _joint_balance_keep_prob(
+    frame: FrameRow,
+    *,
+    joint_label_counts: Optional[Mapping[str, int]],
+    joint_balance_repeat_mode: str,
+    drop_majority: bool,
+) -> float:
+    """返回多数类欠采样概率；长尾类始终保留。"""
+
+    if not bool(drop_majority):
+        return 1.0
+    key = f"{_frame_road_label(frame)}:{_frame_event_family(frame)}"
+    scale = _balance_scale(joint_label_counts, key, mode=str(joint_balance_repeat_mode))
+    return max(0.0, min(1.0, float(scale)))
+
+
+def _apply_transition_repeat(base_repeat: int, transition_repeat: int, *, mode: str) -> int:
+    """把 transition repeat 合入已有类别 repeat。"""
+
+    base = max(1, int(base_repeat))
+    trans = max(1, int(transition_repeat))
+    mode = str(mode).lower()
+    if mode == "max":
+        return max(base, trans)
+    if mode == "add":
+        return base + trans - 1
+    if mode == "multiply":
+        return base * trans
+    raise ValueError(f"unknown transition repeat mode: {mode}")
+
+
+def _combine_repeat(base_repeat: int, extra_repeat: int, *, mode: str) -> int:
+    """合并两类 repeat，供 transition/joint balance 共用。"""
+
+    return _apply_transition_repeat(base_repeat, extra_repeat, mode=mode)
+
+
+def _prompt_memory_for_mode(memory: Memory, *, mode: str) -> Memory:
+    """按训练/评估开关渲染 memory：正常、UNKNOWN 或隐藏先验。"""
+
+    out = memory.copy()
+    mode = str(mode).lower()
+    if mode == "memory":
+        return out
+    if mode == "unknown":
+        out.rs_label = "UNKNOWN"
+        out.event_label = "UNKNOWN"
+        return out
+    if mode == "hidden":
+        out.rs_label = "UNKNOWN"
+        out.event_label = "UNKNOWN"
+        out.hide_priors = True
+        return out
+    raise ValueError(f"unknown prompt memory mode: {mode}")
+
+
 def _frame_training_pack(
     bundle: Any,
     frame: FrameRow,
@@ -509,7 +751,11 @@ def _frame_training_pack(
     memory_noise_seed: int,
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
-    single_candidate_re_scale: float,
+    road_label_counts: Optional[Mapping[str, int]],
+    road_loss_balance_mode: str,
+    highway_road_loss_weight: float,
+    non_highway_road_loss_weight: float,
+    single_candidate_re_scale: float = 0.1,
     event_label_counts: Optional[Mapping[str, int]],
     rs_event_label_counts: Optional[Mapping[str, Mapping[str, int]]],
     event_wrong_prob: float,
@@ -531,6 +777,13 @@ def _frame_training_pack(
     q1_prompt = build_q1_prompt(memory, choice_seed=f"joint::{frame.frame_id}")
     q1_target = build_q1_target(rs_target=rs_target, event_target=event_target)
     q1_loss_weights = loss_weights_q1()
+    q1_loss_weights["road"] = _road_loss_weight(
+        frame,
+        road_label_counts=road_label_counts,
+        road_loss_balance_mode=road_loss_balance_mode,
+        highway_road_loss_weight=highway_road_loss_weight,
+        non_highway_road_loss_weight=non_highway_road_loss_weight,
+    )
     q1_loss_weights["event"] = float(ue_event_loss_weight) if event_target.abnormal else float(re_event_loss_weight)
     memory_after_q1 = update_memory_after_q1(memory, student_rs_label=rs_target.label)
     packed = _build_inputs(
@@ -551,12 +804,27 @@ def _frame_training_pack(
 @dataclass
 class StepStats:
     loss_sum: float = 0.0
+    loss_weight_sum: float = 0.0
+    unweighted_loss_sum: float = 0.0
     n_samples: int = 0
     n_frames: int = 0
+    n_route_frames: int = 0
+    n_selected_unique_frames: int = 0
+    n_transition_centers: int = 0
     n_joint: int = 0
+    n_tf_road_correct: int = 0
+    n_tf_event_correct: int = 0
+    n_tf_highway_total: int = 0
+    n_tf_highway_correct: int = 0
+    n_tf_ue_total: int = 0
+    n_tf_ue_correct: int = 0
+    n_road_highway: int = 0
+    n_road_non_highway: int = 0
     n_event_ue: int = 0
     n_event_re: int = 0
     n_skipped: int = 0
+    road_highway_weight_sum: float = 0.0
+    road_non_highway_weight_sum: float = 0.0
     event_ue_weight_sum: float = 0.0
     event_re_weight_sum: float = 0.0
 
@@ -572,16 +840,32 @@ def run_batch(
     ue_frame_repeat: int = 1,
     transition_frame_repeat: int = 1,
     transition_frame_window: int = 1,
-    ue_event_loss_weight: float = 4.0,
+    transition_label_mode: str = "binary",
+    transition_repeat_mode: str = "add",
+    ue_event_loss_weight: float = 2.0,
     re_event_loss_weight: float = 1.0,
+    highway_road_loss_weight: float = 1.0,
+    non_highway_road_loss_weight: float = 1.0,
+    road_loss_balance_mode: str = "inverse_sqrt",
     single_candidate_re_scale: float = 0.1,
     event_label_counts: Optional[Mapping[str, int]] = None,
+    road_label_counts: Optional[Mapping[str, int]] = None,
+    joint_label_counts: Optional[Mapping[str, int]] = None,
     rs_event_label_counts: Optional[Mapping[str, Mapping[str, int]]] = None,
     ue_repeat_mode: str = "inverse_sqrt",
     ue_repeat_max: int = 8,
     regular_frame_repeat: int = 1,
     regular_repeat_mode: str = "inverse_sqrt",
     regular_repeat_max: int = 6,
+    joint_balance_repeat_mode: str = "inverse_sqrt",
+    joint_balance_repeat_max: int = 8,
+    joint_balance_repeat_combine: str = "add",
+    joint_balance_drop_majority: bool = True,
+    train_sampling_mode: str = "full_route",
+    segment_length: int = 24,
+    segments_per_route: int = 4,
+    negative_segment_ratio: float = 0.25,
+    prompt_memory_mode: str = "memory",
     first_frame_memory_unknown: bool = True,
     memory_rs_wrong_prob: float = 0.30,
     memory_rs_unknown_prob: float = 0.40,
@@ -626,8 +910,27 @@ def run_batch(
                 duration_min=int(memory_perturb_duration_min),
                 duration_max=int(memory_perturb_duration_max),
             )
-        transition_pos = _transition_positions(list(route.frames), radius=int(transition_frame_window))
-        for frame_pos, frame in enumerate(route.frames):
+        route_frames = list(route.frames)
+        transition_centers = _transition_centers(route_frames, label_mode=str(transition_label_mode))
+        transition_pos = _expand_positions(transition_centers, n_frames=len(route_frames), radius=int(transition_frame_window))
+        if str(train_sampling_mode).lower() == "full_route":
+            selected_pos: Optional[set[int]] = None
+        elif str(train_sampling_mode).lower() == "transition_segments":
+            selected_pos = _segment_positions(
+                route_frames,
+                centers=transition_centers,
+                route_id=route.route_id,
+                seed=int(memory_noise_seed),
+                segment_length=int(segment_length),
+                segments_per_route=int(segments_per_route),
+                negative_segment_ratio=float(negative_segment_ratio),
+            )
+        else:
+            raise ValueError(f"unknown train sampling mode: {train_sampling_mode}")
+        stats.n_route_frames += len(route_frames)
+        stats.n_selected_unique_frames += len(route_frames) if selected_pos is None else len(selected_pos)
+        stats.n_transition_centers += len(transition_centers)
+        for frame_pos, frame in enumerate(route_frames):
             rs_target = _rs_target_from_frame(frame)
             if memory is None:
                 memory = reset_memory_for_frame(rs_target, ego_to_goal_xy=frame.ego_to_goal_xy)
@@ -652,6 +955,7 @@ def run_batch(
                     rs_wrong_event_unknown_prob=float(rs_wrong_event_unknown_prob),
                     memory_dropout_prob=float(memory_dropout_prob),
                 )
+            prompt_memory = _prompt_memory_for_mode(prompt_memory, mode=str(prompt_memory_mode))
             repeat = _ue_repeat_for_frame(
                 frame,
                 event_label_counts=event_label_counts,
@@ -670,8 +974,15 @@ def run_batch(
                         regular_repeat_max=int(regular_repeat_max),
                     ),
                 )
+            joint_repeat = _joint_balance_repeat_for_frame(
+                frame,
+                joint_label_counts=joint_label_counts,
+                joint_balance_repeat_mode=str(joint_balance_repeat_mode),
+                joint_balance_repeat_max=int(joint_balance_repeat_max),
+            )
+            repeat = _combine_repeat(repeat, joint_repeat, mode=str(joint_balance_repeat_combine))
             if frame_pos in transition_pos:
-                repeat = max(repeat, max(1, int(transition_frame_repeat)))
+                repeat = _apply_transition_repeat(repeat, int(transition_frame_repeat), mode=str(transition_repeat_mode))
             clean_event_memory_label = "UNKNOWN" if frame_pos == 0 else str(memory.event_label)
             q2_memory_override: Optional[Memory] = None
             if route_corruptor is not None:
@@ -681,31 +992,64 @@ def run_batch(
                     frame=frame,
                     keep_event_label=clean_event_memory_label,
                 )
-            for _ in range(repeat):
-                work.append(
-                    (
-                        route.route_id,
-                        frame,
-                        prompt_memory.copy(),
-                        q2_memory_override.copy() if q2_memory_override is not None else None,
-                        clean_event_memory_label,
-                    )
+            keep_frame = selected_pos is None or frame_pos in selected_pos
+            if keep_frame and frame_pos not in transition_pos:
+                keep_prob = _joint_balance_keep_prob(
+                    frame,
+                    joint_label_counts=joint_label_counts,
+                    joint_balance_repeat_mode=str(joint_balance_repeat_mode),
+                    drop_majority=bool(joint_balance_drop_majority),
                 )
+                if keep_prob < 1.0:
+                    keep_rng = random.Random(f"{route.route_id}::{frame.frame_id}::{memory_noise_seed}::joint_keep")
+                    keep_frame = keep_rng.random() < keep_prob
+            if keep_frame:
+                for _ in range(repeat):
+                    work.append(
+                        (
+                            route.route_id,
+                            frame,
+                            prompt_memory.copy(),
+                            q2_memory_override.copy() if q2_memory_override is not None else None,
+                            clean_event_memory_label,
+                        )
+                    )
             event_target = _event_target_from_frame(frame)
             memory_after_q1 = update_memory_after_q1(memory, student_rs_label=rs_target.label)
             memory = update_memory_after_q2(memory_after_q1, student_event_label=event_target.label)
+    use_global_loss_denominator = dist.is_available() and dist.is_initialized()
+    divide_synced_grads_by_world = True
     if not work:
         if sync_grads and int(frames_per_sync) > 0:
             while True:
-                _sync_trainable_grads(bundle)
+                if dist.is_available() and dist.is_initialized():
+                    _ddp_sum_float(0.0, bundle.device)
+                _sync_trainable_grads(bundle, divide_by_world=divide_synced_grads_by_world)
                 if _ddp_sum_float(0.0, bundle.device) <= 0.0:
                     break
         elif sync_grads:
-            _sync_trainable_grads(bundle)
+            if dist.is_available() and dist.is_initialized():
+                _ddp_sum_float(0.0, bundle.device)
+            _sync_trainable_grads(bundle, divide_by_world=divide_synced_grads_by_world)
+        elif dist.is_available() and dist.is_initialized():
+            _ddp_sum_float(0.0, bundle.device)
         return stats
+
+    # 在切 chunk 前打乱整个 work 列表，而不是只在 chunk 内打乱。这样同一帧 repeat
+    # 和同一 transition 片段不会连续占满若干个 64-frame chunk，chunk 级
+    # sum(w*CE)/sum(w) 才不会退化成“全 UE chunk”和“全 RE chunk”等权。
+    random.Random(int(memory_noise_seed)).shuffle(work)
 
     if sync_grads and int(frames_per_sync) > 0:
         chunk_size = max(1, int(frames_per_sync))
+        local_chunk_count = max(1, int(math.ceil(float(len(work)) / float(chunk_size))))
+        # frames_per_sync 只是 heartbeat，不应改变 micro-batch loss 量纲；
+        # 每个 chunk 反传自己的加权均值后再除以全局最大 chunk 数，近似等价于
+        # 未切分 micro-batch 的一次均值 loss，同时保持所有 rank collective 次数一致。
+        chunk_loss_scale = float(loss_scale) * max(
+            1.0,
+            _max_across_ranks([float(local_chunk_count)], bundle.device)[0],
+        )
         offset = 0
         while True:
             chunk = work[offset : offset + chunk_size]
@@ -714,19 +1058,23 @@ def run_batch(
                 bundle,
                 chunk,
                 max_length=max_length,
-                loss_scale=loss_scale,
-                loss_normalizer=max(1, len(work)),
+                loss_scale=chunk_loss_scale,
                 ue_event_loss_weight=float(ue_event_loss_weight),
                 re_event_loss_weight=float(re_event_loss_weight),
+                highway_road_loss_weight=float(highway_road_loss_weight),
+                non_highway_road_loss_weight=float(non_highway_road_loss_weight),
+                road_loss_balance_mode=str(road_loss_balance_mode),
                 single_candidate_re_scale=float(single_candidate_re_scale),
                 event_label_counts=event_label_counts,
+                road_label_counts=road_label_counts,
                 rs_event_label_counts=rs_event_label_counts,
                 memory_noise_seed=int(memory_noise_seed),
                 event_wrong_prob=float(memory_event_wrong_prob),
                 event_unknown_prob=float(memory_event_unknown_prob),
+                use_global_loss_denominator=use_global_loss_denominator,
             )
             _merge_stats(stats, chunk_stats)
-            _sync_trainable_grads(bundle)
+            _sync_trainable_grads(bundle, divide_by_world=divide_synced_grads_by_world)
             if _ddp_sum_float(1.0 if offset < len(work) else 0.0, bundle.device) <= 0.0:
                 break
         return stats
@@ -736,19 +1084,23 @@ def run_batch(
         work,
         max_length=max_length,
         loss_scale=loss_scale,
-        loss_normalizer=max(1, len(work)),
         ue_event_loss_weight=float(ue_event_loss_weight),
         re_event_loss_weight=float(re_event_loss_weight),
+        highway_road_loss_weight=float(highway_road_loss_weight),
+        non_highway_road_loss_weight=float(non_highway_road_loss_weight),
+        road_loss_balance_mode=str(road_loss_balance_mode),
         single_candidate_re_scale=float(single_candidate_re_scale),
         event_label_counts=event_label_counts,
+        road_label_counts=road_label_counts,
         rs_event_label_counts=rs_event_label_counts,
         memory_noise_seed=int(memory_noise_seed),
         event_wrong_prob=float(memory_event_wrong_prob),
         event_unknown_prob=float(memory_event_unknown_prob),
+        use_global_loss_denominator=use_global_loss_denominator,
     )
     _merge_stats(stats, chunk_stats)
     if sync_grads:
-        _sync_trainable_grads(bundle)
+        _sync_trainable_grads(bundle, divide_by_world=divide_synced_grads_by_world)
     return stats
 
 
@@ -756,12 +1108,27 @@ def _merge_stats(dst: StepStats, src: StepStats) -> None:
     """把 chunk 统计累加到 batch 统计。"""
 
     dst.loss_sum += src.loss_sum
+    dst.loss_weight_sum += src.loss_weight_sum
+    dst.unweighted_loss_sum += src.unweighted_loss_sum
     dst.n_samples += src.n_samples
     dst.n_frames += src.n_frames
+    dst.n_route_frames += src.n_route_frames
+    dst.n_selected_unique_frames += src.n_selected_unique_frames
+    dst.n_transition_centers += src.n_transition_centers
     dst.n_joint += src.n_joint
+    dst.n_tf_road_correct += src.n_tf_road_correct
+    dst.n_tf_event_correct += src.n_tf_event_correct
+    dst.n_tf_highway_total += src.n_tf_highway_total
+    dst.n_tf_highway_correct += src.n_tf_highway_correct
+    dst.n_tf_ue_total += src.n_tf_ue_total
+    dst.n_tf_ue_correct += src.n_tf_ue_correct
+    dst.n_road_highway += src.n_road_highway
+    dst.n_road_non_highway += src.n_road_non_highway
     dst.n_event_ue += src.n_event_ue
     dst.n_event_re += src.n_event_re
     dst.n_skipped += src.n_skipped
+    dst.road_highway_weight_sum += src.road_highway_weight_sum
+    dst.road_non_highway_weight_sum += src.road_non_highway_weight_sum
     dst.event_ue_weight_sum += src.event_ue_weight_sum
     dst.event_re_weight_sum += src.event_re_weight_sum
 
@@ -772,19 +1139,24 @@ def _run_work_items(
     *,
     max_length: int,
     loss_scale: float,
-    loss_normalizer: int,
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
+    highway_road_loss_weight: float,
+    non_highway_road_loss_weight: float,
+    road_loss_balance_mode: str,
     single_candidate_re_scale: float,
     event_label_counts: Optional[Mapping[str, int]],
+    road_label_counts: Optional[Mapping[str, int]],
     rs_event_label_counts: Optional[Mapping[str, Mapping[str, int]]],
     memory_noise_seed: int,
     event_wrong_prob: float,
     event_unknown_prob: float,
+    use_global_loss_denominator: bool,
 ) -> StepStats:
     """执行一段 frame work，不在函数内部发起 DDP collective。"""
 
     stats = StepStats()
+    prepared: List[Tuple[str, FrameRow, Dict[str, Any], bool]] = []
     for route_id, frame, memory, q2_memory_override, clean_event_memory_label in work:
         try:
             images = _load_images(frame.history_rgb_paths)
@@ -802,6 +1174,10 @@ def _run_work_items(
             memory_noise_seed=int(memory_noise_seed),
             ue_event_loss_weight=float(ue_event_loss_weight),
             re_event_loss_weight=float(re_event_loss_weight),
+            road_label_counts=road_label_counts,
+            road_loss_balance_mode=str(road_loss_balance_mode),
+            highway_road_loss_weight=float(highway_road_loss_weight),
+            non_highway_road_loss_weight=float(non_highway_road_loss_weight),
             single_candidate_re_scale=float(single_candidate_re_scale),
             event_label_counts=event_label_counts,
             rs_event_label_counts=rs_event_label_counts,
@@ -813,21 +1189,60 @@ def _run_work_items(
         if packed is None:
             stats.n_skipped += 1
             continue
+        weight_sum = _loss_weight_sum(packed)
+        if weight_sum <= 0:
+            stats.n_skipped += 1
+            continue
+        prepared.append((route_id, frame, packed, bool(joint_included)))
+        stats.loss_weight_sum += float(weight_sum)
+
+    if bool(use_global_loss_denominator) and dist.is_available() and dist.is_initialized():
+        # 各 rank 的 HIGHWAY/UE 权重和可能不同；用全局分母才能得到
+        # sum_all(w * grad) / sum_all(w)。这里保留 _sync_trainable_grads 里的
+        # div(world)，所以分母使用全局权重均值；多次 frames_per_sync heartbeat
+        # 同步累计梯度时，已同步的全局梯度不会在下一次 all-reduce 被重复放大。
+        world = float(dist.get_world_size())
+        loss_denominator = max(_ddp_sum_float(float(stats.loss_weight_sum), bundle.device) / max(world, 1.0), 1e-6)
+    else:
+        loss_denominator = max(float(stats.loss_weight_sum), 1e-6)
+    for route_id, frame, packed, joint_included in prepared:
         sync_ctx = bundle.model.no_sync() if hasattr(bundle.model, "no_sync") else nullcontext()
         with sync_ctx:
             # DDP no_sync 必须同时包住 forward 和 backward。这里每帧都只在本 rank
             # 累积梯度，micro-batch 末尾由 _sync_trainable_grads 手动 all-reduce 一次，
             # 所以不同 rank 的 route/frame 数量不同也不会造成 collective 次数漂移。
             bundle.model.train()
-            loss = _loss_one_sample(bundle, packed)
-            (loss / float(max(1, loss_normalizer)) / max(loss_scale, 1.0)).backward()
-        stats.loss_sum += float(loss.detach().item())
+            loss_num, weight_sum, unweighted_loss, road_ok, event_ok = _loss_parts_one_sample(bundle, packed)
+            (loss_num / loss_denominator / max(loss_scale, 1.0)).backward()
+        stats.loss_sum += float(loss_num.detach().item())
+        stats.unweighted_loss_sum += float(unweighted_loss)
         stats.n_samples += 1
         stats.n_frames += 1
         stats.n_joint += int(joint_included)
+        road_label = _frame_road_label(frame)
+        event_family = _frame_event_family(frame)
+        stats.n_tf_road_correct += int(road_ok)
+        stats.n_tf_event_correct += int(event_ok)
+        stats.n_tf_highway_total += int(road_label == "HIGHWAY")
+        stats.n_tf_highway_correct += int(road_label == "HIGHWAY" and road_ok)
+        stats.n_tf_ue_total += int(event_family == "UE")
+        stats.n_tf_ue_correct += int(event_family == "UE" and event_ok)
+        stats.n_road_highway += int(joint_included and road_label == "HIGHWAY")
+        stats.n_road_non_highway += int(joint_included and road_label == "NON_HIGHWAY")
         stats.n_event_ue += int(joint_included and frame.abnormal)
         stats.n_event_re += int(joint_included and not frame.abnormal)
         if joint_included:
+            road_weight = _road_loss_weight(
+                frame,
+                road_label_counts=road_label_counts,
+                road_loss_balance_mode=road_loss_balance_mode,
+                highway_road_loss_weight=highway_road_loss_weight,
+                non_highway_road_loss_weight=non_highway_road_loss_weight,
+            )
+            if road_label == "HIGHWAY":
+                stats.road_highway_weight_sum += float(road_weight)
+            else:
+                stats.road_non_highway_weight_sum += float(road_weight)
             weight = _event_loss_weights(
                 _event_target_from_frame(frame),
                 rs_label=frame.rs_label,
@@ -845,11 +1260,13 @@ def _run_work_items(
     return stats
 
 
-def _sync_trainable_grads(bundle: Any) -> None:
+def _sync_trainable_grads(bundle: Any, *, divide_by_world: bool = True) -> None:
     """DDP 下手动同步所有 LoRA 可训练参数梯度。
 
     即使某个 rank 当前 micro-batch 没有有效 frame，也会为 trainable 参数补零梯度并
-    参与同一组 all-reduce，避免 rank 间 collective 数量或参数顺序不一致。
+    参与同一组 all-reduce，避免 rank 间 collective 数量或参数顺序不一致。训练侧
+    全局 loss denominator 使用 `sum_all(w) / world`，因此这里仍保留 DDP 平均；
+    这能兼容 frames_per_sync 多次 heartbeat 同步累计梯度。
     """
 
     if not (dist.is_available() and dist.is_initialized()):
@@ -862,7 +1279,8 @@ def _sync_trainable_grads(bundle: Any) -> None:
         if param.grad is None:
             param.grad = torch.zeros_like(param)
         dist.all_reduce(param.grad, op=dist.ReduceOp.SUM)
-        param.grad.div_(world)
+        if bool(divide_by_world):
+            param.grad.div_(world)
 
 
 @torch.no_grad()
@@ -874,9 +1292,14 @@ def evaluate_loss(
     max_samples: int,
     ue_event_loss_weight: float,
     re_event_loss_weight: float,
+    highway_road_loss_weight: float = 1.0,
+    non_highway_road_loss_weight: float = 1.0,
+    road_loss_balance_mode: str = "inverse_sqrt",
     single_candidate_re_scale: float,
+    road_label_counts: Optional[Mapping[str, int]] = None,
     event_label_counts: Optional[Mapping[str, int]] = None,
     rs_event_label_counts: Optional[Mapping[str, Mapping[str, int]]] = None,
+    prompt_memory_mode: str = "memory",
     memory_noise_seed: int = 20260724,
     first_frame_memory_unknown: bool = True,
     memory_rs_wrong_prob: float = 0.30,
@@ -892,10 +1315,19 @@ def evaluate_loss(
     """计算 teacher-forced 验证 loss，并使用训练同款 memory 扰动。"""
 
     bundle.model.eval()
-    losses: List[float] = []
+    weighted_loss_sum = 0.0
+    loss_weight_sum = 0.0
+    unweighted_loss_sum = 0.0
+    samples = 0
     skipped = 0
     joint_count = 0
     frame_count = 0
+    road_correct = 0
+    event_correct = 0
+    highway_total = 0
+    highway_correct = 0
+    ue_total = 0
+    ue_correct = 0
     for batch in loader:
         for route in batch:
             memory: Optional[Memory] = None
@@ -915,7 +1347,7 @@ def evaluate_loss(
                     duration_max=int(memory_perturb_duration_max),
                 )
             for frame_pos, frame in enumerate(route.frames):
-                if max_samples > 0 and len(losses) >= max_samples:
+                if max_samples > 0 and samples >= max_samples:
                     break
                 rs_target = _rs_target_from_frame(frame)
                 if memory is None:
@@ -949,6 +1381,7 @@ def evaluate_loss(
                             memory_dropout_prob=float(memory_dropout_prob),
                         )
                         q2_memory_override = None
+                    prompt_memory = _prompt_memory_for_mode(prompt_memory, mode=str(prompt_memory_mode))
                     packed, _next_memory, joint_included = _frame_training_pack(
                         bundle,
                         frame,
@@ -959,6 +1392,10 @@ def evaluate_loss(
                         memory_noise_seed=int(memory_noise_seed),
                         ue_event_loss_weight=float(ue_event_loss_weight),
                         re_event_loss_weight=float(re_event_loss_weight),
+                        road_label_counts=road_label_counts,
+                        road_loss_balance_mode=str(road_loss_balance_mode),
+                        highway_road_loss_weight=float(highway_road_loss_weight),
+                        non_highway_road_loss_weight=float(non_highway_road_loss_weight),
                         single_candidate_re_scale=float(single_candidate_re_scale),
                         event_label_counts=event_label_counts,
                         rs_event_label_counts=rs_event_label_counts,
@@ -973,23 +1410,62 @@ def evaluate_loss(
                     if packed is None:
                         skipped += 1
                         continue
-                    losses.append(float(_loss_one_sample(bundle, packed).item()))
+                    loss_num, weight_sum, unweighted_loss, road_ok, event_ok = _loss_parts_one_sample(bundle, packed)
+                    if weight_sum <= 0:
+                        skipped += 1
+                        continue
+                    weighted_loss_sum += float(loss_num.item())
+                    loss_weight_sum += float(weight_sum)
+                    unweighted_loss_sum += float(unweighted_loss)
+                    samples += 1
                     joint_count += int(joint_included)
                     frame_count += 1
+                    road_label = _frame_road_label(frame)
+                    event_family = _frame_event_family(frame)
+                    road_correct += int(road_ok)
+                    event_correct += int(event_ok)
+                    highway_total += int(road_label == "HIGHWAY")
+                    highway_correct += int(road_label == "HIGHWAY" and road_ok)
+                    ue_total += int(event_family == "UE")
+                    ue_correct += int(event_family == "UE" and event_ok)
                 except (FileNotFoundError, OSError):
                     skipped += 1
-            if max_samples > 0 and len(losses) >= max_samples:
+            if max_samples > 0 and samples >= max_samples:
                 break
-        if max_samples > 0 and len(losses) >= max_samples:
+        if max_samples > 0 and samples >= max_samples:
             break
-    values = torch.tensor([sum(losses), len(losses), skipped, joint_count, frame_count], device=bundle.device, dtype=torch.float64)
+    values = torch.tensor(
+        [
+            weighted_loss_sum,
+            loss_weight_sum,
+            unweighted_loss_sum,
+            samples,
+            skipped,
+            joint_count,
+            frame_count,
+            road_correct,
+            event_correct,
+            highway_total,
+            highway_correct,
+            ue_total,
+            ue_correct,
+        ],
+        device=bundle.device,
+        dtype=torch.float64,
+    )
     if dist.is_available() and dist.is_initialized():
         dist.all_reduce(values, op=dist.ReduceOp.SUM)
+    sample_count = max(float(values[3].item()), 1.0)
     return {
-        "loss": float(values[0].item()) / max(float(values[1].item()), 1.0),
-        "samples": float(values[1].item()),
-        "skipped": float(values[2].item()),
-        "joint_rate": float(values[3].item()) / max(float(values[4].item()), 1.0),
+        "loss": float(values[0].item()) / max(float(values[1].item()), 1e-6),
+        "unweighted_loss": float(values[2].item()) / sample_count,
+        "samples": float(values[3].item()),
+        "skipped": float(values[4].item()),
+        "joint_rate": float(values[5].item()) / max(float(values[6].item()), 1.0),
+        "tf_road_acc": float(values[7].item()) / sample_count,
+        "tf_event_acc": float(values[8].item()) / sample_count,
+        "tf_highway_recall": float(values[10].item()) / max(float(values[9].item()), 1.0),
+        "tf_ue_recall": float(values[12].item()) / max(float(values[11].item()), 1.0),
     }
 
 
@@ -1103,8 +1579,16 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "vision_clip_norm": float(args.vision_clip_norm),
         "max_length": int(args.max_length),
         "frames_per_sync": int(args.frames_per_sync),
+        "train_sampling_mode": str(args.train_sampling_mode),
+        "segment_length": int(args.segment_length),
+        "segments_per_route": int(args.segments_per_route),
+        "negative_segment_ratio": float(args.negative_segment_ratio),
+        "prompt_memory_mode": str(args.prompt_memory_mode),
         "ue_event_loss_weight": float(args.ue_event_loss_weight),
         "re_event_loss_weight": float(args.re_event_loss_weight),
+        "highway_road_loss_weight": float(args.highway_road_loss_weight),
+        "non_highway_road_loss_weight": float(args.non_highway_road_loss_weight),
+        "road_loss_balance_mode": str(args.road_loss_balance_mode),
         "single_candidate_re_scale": float(args.single_candidate_re_scale),
         "target_protocol": "single_question_highway_reue",
         "road_target": "HIGHWAY iff RS == R3 else NON_HIGHWAY",
@@ -1116,8 +1600,14 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "regular_frame_repeat": int(args.regular_frame_repeat),
         "regular_repeat_mode": str(args.regular_repeat_mode),
         "regular_repeat_max": int(args.regular_repeat_max),
+        "joint_balance_repeat_mode": str(args.joint_balance_repeat_mode),
+        "joint_balance_repeat_max": int(args.joint_balance_repeat_max),
+        "joint_balance_repeat_combine": str(args.joint_balance_repeat_combine),
+        "joint_balance_drop_majority": bool(args.joint_balance_drop_majority),
         "transition_frame_repeat": int(args.transition_frame_repeat),
         "transition_frame_window": int(args.transition_frame_window),
+        "transition_label_mode": str(args.transition_label_mode),
+        "transition_repeat_mode": str(args.transition_repeat_mode),
         "first_frame_memory_unknown": bool(args.first_frame_memory_unknown),
         "memory_rs_wrong_prob": float(args.memory_rs_wrong_prob),
         "memory_rs_unknown_prob": float(args.memory_rs_unknown_prob),
@@ -1135,6 +1625,9 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "save_steps": int(args.save_steps),
         "eval_steps": int(args.eval_steps),
         "max_eval_samples": int(args.max_eval_samples),
+        "closed_loop_probe_steps": int(args.closed_loop_probe_steps),
+        "closed_loop_probe_routes": int(args.closed_loop_probe_routes),
+        "closed_loop_probe_write_frames": bool(args.closed_loop_probe_write_frames),
         "num_epochs": int(args.num_epochs),
     }
     (path / "sft_baseline_adapter_config.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1177,8 +1670,16 @@ def _apply_resume_config(args: argparse.Namespace, config: Mapping[str, Any]) ->
         "vision_clip_norm": "vision_clip_norm",
         "max_length": "max_length",
         "frames_per_sync": "frames_per_sync",
+        "train_sampling_mode": "train_sampling_mode",
+        "segment_length": "segment_length",
+        "segments_per_route": "segments_per_route",
+        "negative_segment_ratio": "negative_segment_ratio",
+        "prompt_memory_mode": "prompt_memory_mode",
         "ue_event_loss_weight": "ue_event_loss_weight",
         "re_event_loss_weight": "re_event_loss_weight",
+        "highway_road_loss_weight": "highway_road_loss_weight",
+        "non_highway_road_loss_weight": "non_highway_road_loss_weight",
+        "road_loss_balance_mode": "road_loss_balance_mode",
         "single_candidate_re_scale": "single_candidate_re_scale",
         "ue_frame_repeat": "ue_frame_repeat",
         "ue_repeat_mode": "ue_repeat_mode",
@@ -1186,8 +1687,14 @@ def _apply_resume_config(args: argparse.Namespace, config: Mapping[str, Any]) ->
         "regular_frame_repeat": "regular_frame_repeat",
         "regular_repeat_mode": "regular_repeat_mode",
         "regular_repeat_max": "regular_repeat_max",
+        "joint_balance_repeat_mode": "joint_balance_repeat_mode",
+        "joint_balance_repeat_max": "joint_balance_repeat_max",
+        "joint_balance_repeat_combine": "joint_balance_repeat_combine",
+        "joint_balance_drop_majority": "joint_balance_drop_majority",
         "transition_frame_repeat": "transition_frame_repeat",
         "transition_frame_window": "transition_frame_window",
+        "transition_label_mode": "transition_label_mode",
+        "transition_repeat_mode": "transition_repeat_mode",
         "first_frame_memory_unknown": "first_frame_memory_unknown",
         "memory_rs_wrong_prob": "memory_rs_wrong_prob",
         "memory_rs_unknown_prob": "memory_rs_unknown_prob",
@@ -1205,6 +1712,9 @@ def _apply_resume_config(args: argparse.Namespace, config: Mapping[str, Any]) ->
         "save_steps": "save_steps",
         "eval_steps": "eval_steps",
         "max_eval_samples": "max_eval_samples",
+        "closed_loop_probe_steps": "closed_loop_probe_steps",
+        "closed_loop_probe_routes": "closed_loop_probe_routes",
+        "closed_loop_probe_write_frames": "closed_loop_probe_write_frames",
     }
     for key, attr in mapping.items():
         if key in config:
@@ -1231,6 +1741,51 @@ def _load_adapter_weights(bundle: Any, checkpoint_dir: pathlib.Path) -> None:
     unexpected = list(getattr(incompatible, "unexpected_keys", []) or [])
     if missing or unexpected:
         print(f"[resume][warn] adapter load missing={len(missing)} unexpected={len(unexpected)}")
+
+
+def _run_closed_loop_probe(
+    *,
+    output_dir: pathlib.Path,
+    global_step: int,
+    bundle: Any,
+    args: argparse.Namespace,
+) -> int:
+    """保存当前 adapter 并调用 eval.py 跑小规模 closed-loop probe。"""
+
+    if not args.val_index:
+        print("[closed-loop-probe][warn] skipped: --val-index is empty")
+        return 0
+    probe_root = output_dir / "closed_loop_probe" / f"step_{int(global_step):06d}"
+    adapter_dir = probe_root / "adapter"
+    eval_dir = probe_root / "eval_full"
+    _save_adapter(adapter_dir, bundle, args)
+    cmd = [
+        sys.executable,
+        "qwen3vl_local/sft_baseline/eval.py",
+        "--index",
+        str(args.val_index),
+        "--model-dir",
+        str(args.model_dir),
+        "--adapter-dir",
+        str(adapter_dir),
+        "--task",
+        "full",
+        "--sample-routes",
+        str(int(args.closed_loop_probe_routes)),
+        "--output-dir",
+        str(eval_dir),
+        "--prompt-memory-mode",
+        str(args.prompt_memory_mode),
+        "--seed",
+        str(int(args.seed)),
+    ]
+    if not bool(args.closed_loop_probe_write_frames):
+        cmd.append("--no-write-frames")
+    print(f"[closed-loop-probe] step={global_step} routes={int(args.closed_loop_probe_routes)} -> {eval_dir}")
+    result = subprocess.run(cmd, cwd=str(_AUTOMOT_ROOT), check=False)
+    if int(result.returncode) != 0:
+        print(f"[closed-loop-probe][error] eval.py exited with code {int(result.returncode)}")
+    return int(result.returncode)
 
 
 def _trainer_state_path(checkpoint_dir: pathlib.Path) -> pathlib.Path:
@@ -1397,10 +1952,21 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--save-steps", type=int, default=200)
     p.add_argument("--eval-steps", type=int, default=10)
     p.add_argument("--max-eval-samples", type=int, default=256)
+    p.add_argument("--closed-loop-probe-steps", type=int, default=0)
+    p.add_argument("--closed-loop-probe-routes", type=int, default=8)
+    p.add_argument("--closed-loop-probe-write-frames", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--max-steps", type=int, default=0)
     p.add_argument("--frames-per-sync", type=int, default=64)
-    p.add_argument("--ue-event-loss-weight", type=float, default=4.0)
+    p.add_argument("--train-sampling-mode", choices=["full_route", "transition_segments"], default="full_route")
+    p.add_argument("--segment-length", type=int, default=24)
+    p.add_argument("--segments-per-route", type=int, default=4)
+    p.add_argument("--negative-segment-ratio", type=float, default=0.25)
+    p.add_argument("--prompt-memory-mode", choices=["memory", "hidden", "unknown"], default="memory")
+    p.add_argument("--ue-event-loss-weight", type=float, default=2.0)
     p.add_argument("--re-event-loss-weight", type=float, default=1.0)
+    p.add_argument("--highway-road-loss-weight", type=float, default=1.4)
+    p.add_argument("--non-highway-road-loss-weight", type=float, default=1.4)
+    p.add_argument("--road-loss-balance-mode", choices=["none", "inverse_sqrt", "inverse"], default="inverse_sqrt")
     p.add_argument("--single-candidate-re-scale", type=float, default=0.1)
     p.add_argument("--ue-frame-repeat", type=int, default=2)
     p.add_argument("--ue-repeat-mode", choices=["fixed", "inverse_sqrt"], default="inverse_sqrt")
@@ -1408,8 +1974,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--regular-frame-repeat", type=int, default=1)
     p.add_argument("--regular-repeat-mode", choices=["fixed", "inverse_sqrt"], default="inverse_sqrt")
     p.add_argument("--regular-repeat-max", type=int, default=6)
+    p.add_argument("--joint-balance-repeat-mode", choices=["none", "inverse_sqrt", "inverse"], default="inverse_sqrt")
+    p.add_argument("--joint-balance-repeat-max", type=int, default=8)
+    p.add_argument("--joint-balance-repeat-combine", choices=["max", "add", "multiply"], default="add")
+    p.add_argument("--joint-balance-drop-majority", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--transition-frame-repeat", type=int, default=4)
     p.add_argument("--transition-frame-window", type=int, default=3)
+    p.add_argument("--transition-label-mode", choices=["binary", "road_event", "fine"], default="binary")
+    p.add_argument("--transition-repeat-mode", choices=["max", "add", "multiply"], default="add")
     p.add_argument("--first-frame-memory-unknown", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--memory-rs-wrong-prob", type=float, default=0.30)
     p.add_argument("--memory-rs-unknown-prob", type=float, default=0.40)
@@ -1517,6 +2089,8 @@ def main() -> None:
     global_step = resume_step
     micro_step = 0
     accum_loss = 0.0
+    accum_loss_weight = 0.0
+    accum_unweighted_loss = 0.0
     accum_samples = 0
     start = time.time()
     optimizer.zero_grad(set_to_none=True)
@@ -1564,12 +2138,16 @@ def main() -> None:
         不满 grad_accum 的梯度留在显存里没有更新。
         """
 
-        nonlocal global_step, accum_loss, accum_samples, stop, fuse_stopped, guard_bad_steps
+        nonlocal global_step, accum_loss, accum_loss_weight, accum_unweighted_loss, accum_samples, stop, fuse_stopped, guard_bad_steps
         global_samples = _ddp_sum_float(float(accum_samples), device)
         global_loss_sum = _ddp_sum_float(float(accum_loss), device)
+        global_loss_weight = _ddp_sum_float(float(accum_loss_weight), device)
+        global_unweighted_loss_sum = _ddp_sum_float(float(accum_unweighted_loss), device)
         if global_samples <= 0:
             optimizer.zero_grad(set_to_none=True)
             accum_loss = 0.0
+            accum_loss_weight = 0.0
+            accum_unweighted_loss = 0.0
             accum_samples = 0
             return
         if language_params:
@@ -1599,22 +2177,38 @@ def main() -> None:
                 print(f"[fuse-stop] {guard_reason}")
                 print(f"[fuse-stop] emergency adapter -> {emergency_dir}")
             accum_loss = 0.0
+            accum_loss_weight = 0.0
+            accum_unweighted_loss = 0.0
             accum_samples = 0
             return
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad(set_to_none=True)
         global_step += 1
-        loss_avg = global_loss_sum / max(global_samples, 1.0)
+        loss_avg = global_loss_sum / max(global_loss_weight, 1e-6)
+        unweighted_loss_avg = global_unweighted_loss_sum / max(global_samples, 1.0)
         if rank == 0 and (global_step == 1 or global_step % int(args.logging_steps) == 0 or reason == "tail"):
             elapsed = (time.time() - start) / 60.0
             joint_rate = last_stats.n_joint / max(1, last_stats.n_frames)
+            selected_frame_rate = last_stats.n_selected_unique_frames / max(1, last_stats.n_route_frames)
+            road_highway_rate = last_stats.n_road_highway / max(1, last_stats.n_joint)
             event_ue_rate = last_stats.n_event_ue / max(1, last_stats.n_joint)
+            road_weight_total = last_stats.road_highway_weight_sum + last_stats.road_non_highway_weight_sum
+            road_highway_weight_share = last_stats.road_highway_weight_sum / max(1e-6, road_weight_total)
             event_weight_total = last_stats.event_ue_weight_sum + last_stats.event_re_weight_sum
             event_ue_weight_share = last_stats.event_ue_weight_sum / max(1e-6, event_weight_total)
+            tf_road_acc = last_stats.n_tf_road_correct / max(1, last_stats.n_joint)
+            tf_event_acc = last_stats.n_tf_event_correct / max(1, last_stats.n_joint)
+            tf_highway_recall = last_stats.n_tf_highway_correct / max(1, last_stats.n_tf_highway_total)
+            tf_ue_recall = last_stats.n_tf_ue_correct / max(1, last_stats.n_tf_ue_total)
             print(
                 f"[train] epoch={epoch} step={global_step}/{total_steps} loss={loss_avg:.4f} "
-                f"samples={int(global_samples)} joint_rate={joint_rate:.3f} event_ue_rate={event_ue_rate:.3f} "
+                f"unweighted_loss={unweighted_loss_avg:.4f} samples={int(global_samples)} "
+                f"joint_rate={joint_rate:.3f} selected_frame_rate={selected_frame_rate:.3f} "
+                f"road_highway_rate={road_highway_rate:.3f} event_ue_rate={event_ue_rate:.3f} "
+                f"tf_road_acc={tf_road_acc:.3f} tf_event_acc={tf_event_acc:.3f} "
+                f"tf_highway_recall={tf_highway_recall:.3f} tf_ue_recall={tf_ue_recall:.3f} "
+                f"road_highway_weight_share={road_highway_weight_share:.3f} "
                 f"event_ue_weight_share={event_ue_weight_share:.3f} "
                 f"|g|_lang={float(lang_norm):.3f} |g|_vis={vis_norm_value:.3f} "
                 f"|w|_vis={vis_param_norm:.3f} guard_bad_steps={guard_bad_steps} "
@@ -1622,8 +2216,19 @@ def main() -> None:
             )
             if tb is not None:
                 tb.add_scalar("train/loss", loss_avg, global_step)
+                tb.add_scalar("train/unweighted_loss", unweighted_loss_avg, global_step)
                 tb.add_scalar("train/joint_rate_last_batch", joint_rate, global_step)
+                tb.add_scalar("train/selected_frame_rate_last_batch", selected_frame_rate, global_step)
+                tb.add_scalar("train/transition_centers_last_batch", float(last_stats.n_transition_centers), global_step)
+                tb.add_scalar("train/road_highway_rate_last_batch", road_highway_rate, global_step)
                 tb.add_scalar("train/event_ue_rate_last_batch", event_ue_rate, global_step)
+                tb.add_scalar("train/tf_road_acc_last_batch", tf_road_acc, global_step)
+                tb.add_scalar("train/tf_event_acc_last_batch", tf_event_acc, global_step)
+                tb.add_scalar("train/tf_highway_recall_last_batch", tf_highway_recall, global_step)
+                tb.add_scalar("train/tf_ue_recall_last_batch", tf_ue_recall, global_step)
+                tb.add_scalar("train/road_highway_weight_share_last_batch", road_highway_weight_share, global_step)
+                tb.add_scalar("train/road_highway_weight_sum_last_batch", last_stats.road_highway_weight_sum, global_step)
+                tb.add_scalar("train/road_non_highway_weight_sum_last_batch", last_stats.road_non_highway_weight_sum, global_step)
                 tb.add_scalar("train/event_ue_weight_share_last_batch", event_ue_weight_share, global_step)
                 tb.add_scalar("train/event_ue_weight_sum_last_batch", last_stats.event_ue_weight_sum, global_step)
                 tb.add_scalar("train/event_re_weight_sum_last_batch", last_stats.event_re_weight_sum, global_step)
@@ -1633,6 +2238,8 @@ def main() -> None:
                     tb.add_scalar("train/param_norm/lora_vision", vis_param_norm, global_step)
                     tb.add_scalar("train/vision_guard_bad_steps", float(guard_bad_steps), global_step)
         accum_loss = 0.0
+        accum_loss_weight = 0.0
+        accum_unweighted_loss = 0.0
         accum_samples = 0
         if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
             save_checkpoint(output_dir / f"checkpoint-{global_step}")
@@ -1644,9 +2251,14 @@ def main() -> None:
                 max_samples=int(args.max_eval_samples),
                 ue_event_loss_weight=float(args.ue_event_loss_weight),
                 re_event_loss_weight=float(args.re_event_loss_weight),
+                highway_road_loss_weight=float(args.highway_road_loss_weight),
+                non_highway_road_loss_weight=float(args.non_highway_road_loss_weight),
+                road_loss_balance_mode=str(args.road_loss_balance_mode),
                 single_candidate_re_scale=float(args.single_candidate_re_scale),
-                event_label_counts=getattr(val_ds, "event_label_counts", None),
-                rs_event_label_counts=getattr(val_ds, "rs_event_label_counts", None),
+                road_label_counts=getattr(train_ds, "road_label_counts", None),
+                event_label_counts=getattr(train_ds, "event_label_counts", None),
+                rs_event_label_counts=getattr(train_ds, "rs_event_label_counts", None),
+                prompt_memory_mode=str(args.prompt_memory_mode),
                 memory_noise_seed=int(args.seed),
                 first_frame_memory_unknown=bool(args.first_frame_memory_unknown),
                 memory_rs_wrong_prob=float(args.memory_rs_wrong_prob),
@@ -1664,6 +2276,24 @@ def main() -> None:
                 if tb is not None:
                     for key, value in metrics.items():
                         tb.add_scalar(f"val/{key}", value, global_step)
+        if int(args.closed_loop_probe_steps) > 0 and global_step % int(args.closed_loop_probe_steps) == 0:
+            if dist.is_available() and dist.is_initialized():
+                dist.barrier()
+            probe_code = 0
+            if rank == 0:
+                probe_code = _run_closed_loop_probe(
+                    output_dir=output_dir,
+                    global_step=global_step,
+                    bundle=bundle,
+                    args=args,
+                )
+            if dist.is_available() and dist.is_initialized():
+                code_tensor = torch.tensor([int(probe_code)], device=device, dtype=torch.int64)
+                dist.broadcast(code_tensor, src=0)
+                dist.barrier()
+                probe_code = int(code_tensor.item())
+            if int(probe_code) != 0:
+                raise RuntimeError(f"closed-loop probe failed with exit code {int(probe_code)}")
         if global_step >= total_steps:
             stop = True
 
@@ -1684,16 +2314,32 @@ def main() -> None:
                 frames_per_sync=int(args.frames_per_sync),
                 ue_frame_repeat=int(args.ue_frame_repeat),
                 event_label_counts=getattr(train_ds, "event_label_counts", None),
+                road_label_counts=getattr(train_ds, "road_label_counts", None),
+                joint_label_counts=getattr(train_ds, "joint_label_counts", None),
                 rs_event_label_counts=getattr(train_ds, "rs_event_label_counts", None),
                 ue_repeat_mode=str(args.ue_repeat_mode),
                 ue_repeat_max=int(args.ue_repeat_max),
                 regular_frame_repeat=int(args.regular_frame_repeat),
                 regular_repeat_mode=str(args.regular_repeat_mode),
                 regular_repeat_max=int(args.regular_repeat_max),
+                joint_balance_repeat_mode=str(args.joint_balance_repeat_mode),
+                joint_balance_repeat_max=int(args.joint_balance_repeat_max),
+                joint_balance_repeat_combine=str(args.joint_balance_repeat_combine),
+                joint_balance_drop_majority=bool(args.joint_balance_drop_majority),
                 transition_frame_repeat=int(args.transition_frame_repeat),
                 transition_frame_window=int(args.transition_frame_window),
+                transition_label_mode=str(args.transition_label_mode),
+                transition_repeat_mode=str(args.transition_repeat_mode),
+                train_sampling_mode=str(args.train_sampling_mode),
+                segment_length=int(args.segment_length),
+                segments_per_route=int(args.segments_per_route),
+                negative_segment_ratio=float(args.negative_segment_ratio),
+                prompt_memory_mode=str(args.prompt_memory_mode),
                 ue_event_loss_weight=float(args.ue_event_loss_weight),
                 re_event_loss_weight=float(args.re_event_loss_weight),
+                highway_road_loss_weight=float(args.highway_road_loss_weight),
+                non_highway_road_loss_weight=float(args.non_highway_road_loss_weight),
+                road_loss_balance_mode=str(args.road_loss_balance_mode),
                 single_candidate_re_scale=float(args.single_candidate_re_scale),
                 first_frame_memory_unknown=bool(args.first_frame_memory_unknown),
                 memory_rs_wrong_prob=float(args.memory_rs_wrong_prob),
@@ -1709,6 +2355,8 @@ def main() -> None:
             )
             last_stats = stats
             accum_loss += stats.loss_sum
+            accum_loss_weight += stats.loss_weight_sum
+            accum_unweighted_loss += stats.unweighted_loss_sum
             accum_samples += stats.n_samples
             micro_step += 1
             if not sync_this:

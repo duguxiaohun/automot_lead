@@ -150,6 +150,30 @@ def event_family_choices_block(choice_seed: Optional[str] = None) -> str:
     return "\n".join(lines)
 
 
+def _q1_question(memory: Memory) -> str:
+    """按 memory 可见性渲染单问任务说明。"""
+
+    memory_sentence = (
+        "Prior state is hidden for this visual check; classify from the RGB history and current goal only."
+        if memory.hide_priors
+        else "Use the previous memory only as a weak prior; visual evidence across the RGB history wins."
+    )
+    return (
+        "[QUESTION]\n"
+        "Use all 4 frames in the RGB history, ordered from oldest to newest. Compare object positions, "
+        "relative motion, braking/closing speed, lateral entry, and lane/road geometry, then classify "
+        "the latest frame. First decide whether the current scene is a high-speed highway/ramp/merge/exit "
+        "context or a non-highway context. Then decide whether the ego can continue the expected driving "
+        "plan (RE) or must react to a short-horizon hazard, blocked path, traffic conflict, or unsafe "
+        "relative motion (UE). "
+        f"{memory_sentence}\n\n"
+        "Output exactly these two lines and nothing else:\n"
+        "ROAD: <HIGHWAY or NON_HIGHWAY>\n"
+        "EVENT: <RE or UE>\n"
+        "[/QUESTION]"
+    )
+
+
 def event_choices_block(
     candidates: Sequence[str],
     rs_label: str,
@@ -178,17 +202,7 @@ def build_q1_prompt(memory: Memory, *, choice_seed: Optional[str] = None) -> str
             memory.format_text(include_event=True),
             road_choices_block(choice_seed),
             event_family_choices_block(choice_seed),
-            (
-                "[QUESTION]\n"
-                "Look at the latest frame in the RGB history. First decide whether the current scene is a "
-                "high-speed highway/ramp/merge/exit context or a non-highway context. Then decide whether "
-                "the current state is regular expected driving (RE) or an unusual event (UE). Use the "
-                "previous memory only as a weak prior; visual evidence in the latest frame wins.\n\n"
-                "Output exactly these two lines and nothing else:\n"
-                "ROAD: <HIGHWAY or NON_HIGHWAY>\n"
-                "EVENT: <RE or UE>\n"
-                "[/QUESTION]"
-            ),
+            _q1_question(memory),
         ]
     )
 

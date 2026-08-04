@@ -163,6 +163,18 @@ else
   EXTRA_ARGS+=("--no-vision-guard-enabled")
 fi
 
+if [[ "${JOINT_BALANCE_DROP_MAJORITY:-1}" == "1" ]]; then
+  EXTRA_ARGS+=("--joint-balance-drop-majority")
+else
+  EXTRA_ARGS+=("--no-joint-balance-drop-majority")
+fi
+
+if [[ "${CLOSED_LOOP_PROBE_WRITE_FRAMES:-1}" == "1" ]]; then
+  EXTRA_ARGS+=("--closed-loop-probe-write-frames")
+else
+  EXTRA_ARGS+=("--no-closed-loop-probe-write-frames")
+fi
+
 if [[ "${RESUME_TB_TRIM:-1}" == "1" ]]; then
   EXTRA_ARGS+=("--resume-tb-trim")
 else
@@ -180,7 +192,7 @@ COMMON_ARGS=(
   --model-dir "${MODEL_DIR}"
   --output-dir "${OUTPUT_DIR}"
   --per-device-batch-size "${PER_DEVICE_BATCH_SIZE:-${PER_DEVICE_BS:-1}}"
-  --grad-accum "${GRAD_ACCUM:-1}"
+  --grad-accum "${GRAD_ACCUM:-2}"
   --num-epochs "${NUM_EPOCHS:-1}"
   --learning-rate "${LEARNING_RATE:-${LR:-3e-5}}"
   --weight-decay "${WEIGHT_DECAY:-0.05}"
@@ -205,10 +217,20 @@ COMMON_ARGS=(
   --save-steps "${SAVE_STEPS:-200}"
   --eval-steps "${EVAL_STEPS:-10}"
   --max-eval-samples "${MAX_EVAL_SAMPLES:-256}"
+  --closed-loop-probe-steps "${CLOSED_LOOP_PROBE_STEPS:-0}"
+  --closed-loop-probe-routes "${CLOSED_LOOP_PROBE_ROUTES:-8}"
   --max-steps "${MAX_STEPS:-0}"
   --frames-per-sync "${FRAMES_PER_SYNC:-64}"
-  --ue-event-loss-weight "${UE_EVENT_LOSS_WEIGHT:-4.0}"
+  --train-sampling-mode "${TRAIN_SAMPLING_MODE:-transition_segments}"
+  --segment-length "${SEGMENT_LENGTH:-24}"
+  --segments-per-route "${SEGMENTS_PER_ROUTE:-4}"
+  --negative-segment-ratio "${NEGATIVE_SEGMENT_RATIO:-0.25}"
+  --prompt-memory-mode "${PROMPT_MEMORY_MODE:-memory}"
+  --ue-event-loss-weight "${UE_EVENT_LOSS_WEIGHT:-2.0}"
   --re-event-loss-weight "${RE_EVENT_LOSS_WEIGHT:-1.0}"
+  --highway-road-loss-weight "${HIGHWAY_ROAD_LOSS_WEIGHT:-1.4}"
+  --non-highway-road-loss-weight "${NON_HIGHWAY_ROAD_LOSS_WEIGHT:-1.4}"
+  --road-loss-balance-mode "${ROAD_LOSS_BALANCE_MODE:-inverse_sqrt}"
   --single-candidate-re-scale "${SINGLE_CANDIDATE_RE_SCALE:-0.1}"
   --ue-frame-repeat "${UE_FRAME_REPEAT:-2}"
   --ue-repeat-mode "${UE_REPEAT_MODE:-inverse_sqrt}"
@@ -216,8 +238,13 @@ COMMON_ARGS=(
   --regular-frame-repeat "${REGULAR_FRAME_REPEAT:-1}"
   --regular-repeat-mode "${REGULAR_REPEAT_MODE:-inverse_sqrt}"
   --regular-repeat-max "${REGULAR_REPEAT_MAX:-6}"
+  --joint-balance-repeat-mode "${JOINT_BALANCE_REPEAT_MODE:-inverse_sqrt}"
+  --joint-balance-repeat-max "${JOINT_BALANCE_REPEAT_MAX:-8}"
+  --joint-balance-repeat-combine "${JOINT_BALANCE_REPEAT_COMBINE:-add}"
   --transition-frame-repeat "${TRANSITION_FRAME_REPEAT:-4}"
   --transition-frame-window "${TRANSITION_FRAME_WINDOW:-3}"
+  --transition-label-mode "${TRANSITION_LABEL_MODE:-binary}"
+  --transition-repeat-mode "${TRANSITION_REPEAT_MODE:-add}"
   --memory-rs-wrong-prob "${MEMORY_RS_WRONG_PROB:-0.30}"
   --memory-rs-unknown-prob "${MEMORY_RS_UNKNOWN_PROB:-0.40}"
   --memory-event-wrong-prob "${MEMORY_EVENT_WRONG_PROB:-0.35}"

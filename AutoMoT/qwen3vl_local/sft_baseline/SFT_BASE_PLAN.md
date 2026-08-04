@@ -47,7 +47,24 @@ memory 是弱先验，不是答案；system/user prompt 明确要求视觉证据
 - 首帧默认 `UNKNOWN/UNKNOWN`；
 - route_state 扰动仍按连续 3-5 帧块状保持，模拟错误 memory 持续后再恢复。
 
-UE/RE loss reweight 继续生效：`EVENT` 值 token 在 UE 帧按 `--ue-event-loss-weight` 加权，在 RE 帧按 `--re-event-loss-weight` 加权。
+ckpt-200 诊断后，训练采样从“整条 route 均匀吃完”改为可配置的短片段均衡路线：
+
+- launcher 默认 `TRAIN_SAMPLING_MODE=transition_segments`：围绕折叠后 `ROAD` 或 `EVENT` 发生变化的帧抽 24 帧片段，并补少量纯负片段。Python 入口仍可显式 `--train-sampling-mode full_route` 复现旧行为。
+- transition 判定默认按折叠后的二分类标签：`HIGHWAY/NON_HIGHWAY` 与 `RE/UE`。旧细粒度 `R1->R2` 或 `R-E1->R-E4` 不再被当作二分类起跳帧；需要复现旧逻辑时设 `TRANSITION_LABEL_MODE=fine`。
+- transition repeat 默认用 `add` 合入已有 UE/regular/joint repeat，而不是旧的 `max`。这样 UE 起跳帧会在 UE 过采样之外额外加权。
+- loss 归一化使用 chunk 内 `sum(w * CE) / sum(w)`，不再先对每帧除以自己的权重和；DDP 下分母会跨 rank all-reduce 成 `sum_all(w) / world`，并保留梯度 all-reduce 后的 `div(world)`，因此 ROAD/UE 权重能真正改变跨帧梯度份额且不改变学习率量纲。
+- 切 chunk 前用稳定 seed 打乱整个 work 列表，避免同一帧 repeat 和同一 transition 片段连续落进同质 chunk 后再次抵消类别权重；`frames_per_sync` 只作为 heartbeat，chunk loss 会再除以全局最大 chunk 数，避免切分后梯度随 chunk 数放大。
+- ROAD 值 token 支持 `ROAD_LOSS_BALANCE_MODE=inverse_sqrt|inverse|none`，默认 `inverse_sqrt`，补偿 HIGHWAY 稀少问题。基础 ROAD 权重默认保持 `1.4`，与 prompt 侧常量一致。
+- 训练帧 repeat 支持 `JOINT_BALANCE_REPEAT_MODE=inverse_sqrt|inverse|none`，默认 `inverse_sqrt`，按 `(ROAD, EVENT)` 四格提高长尾组合曝光；`JOINT_BALANCE_REPEAT_COMBINE=add` 避免被 UE repeat 吞掉；`JOINT_BALANCE_DROP_MAJORITY=1` 会按同一 scale 稳定丢弃部分多数类非 transition 帧。
+- `SEGMENTS_PER_ROUTE` 默认 4，避免 transition 多的 route 覆盖回整条 route。训练日志/TB 输出 `selected_frame_rate`、`road_highway_rate`、`event_ue_rate`、teacher-forced ROAD/EVENT accuracy 与 HIGHWAY/UE recall，用来判断采样和监督是否真的对准目标。
+
+UE/RE loss reweight 继续生效：`EVENT` 值 token 在 UE 帧按 `--ue-event-loss-weight` 加权，在 RE 帧按 `--re-event-loss-weight` 加权。默认 `UE_EVENT_LOSS_WEIGHT=2.0`，因为当前采样已经把 UE 帧显著拉高；继续用旧 4.0 容易把 EVENT loss 推得过度偏向 UE。
+
+纯视觉上限实验使用 `PROMPT_MEMORY_MODE=hidden`：prompt 仍显示当前 `EGO_TO_GOAL_XY`，但隐藏 `PREVIOUS_ROAD/PREVIOUS_EVENT`，用于判断视觉信息本身是否足够支撑 ROAD/EVENT。
+
+Prompt 已改为显式比较 4 帧 history 中的相对运动、减速/closing speed、横向进入和道路几何，不再只要求看最新单帧；hidden-memory 模式下 QUESTION 段不会再提示使用不存在的 previous memory。
+
+可选 closed-loop probe：`CLOSED_LOOP_PROBE_STEPS=N` 时，rank0 每 N 个 optimizer step 保存临时 adapter 并调用 `eval.py --task full --sample-routes CLOSED_LOOP_PROBE_ROUTES`，其它 rank barrier 等待，用于把 teacher-forced 指标和 closed-loop 指标放在同一训练曲线上对照。默认关闭，避免无意中放慢长训。
 
 ## 4. Eval
 
