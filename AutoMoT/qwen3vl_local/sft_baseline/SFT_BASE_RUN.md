@@ -97,12 +97,15 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
 CLOSED_LOOP_PROBE_STEPS=50 \
 CLOSED_LOOP_PROBE_ROUTES=8 \
 CLOSED_LOOP_PROBE_WRITE_FRAMES=0 \
+CLOSED_LOOP_PROBE_GPU_IDS=0 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
 ```
 
 probe 会由 rank0 临时保存当前 adapter，然后调用 `eval.py --task full`；其它 rank
 等待 barrier，失败会中止训练。输出位于当前 run 的
-`closed_loop_probe/step_<STEP>/eval_full/`。
+`closed_loop_probe/step_<STEP>/eval_full/`。probe subprocess 会清掉 torchrun 的
+`WORLD_SIZE/RANK/LOCAL_RANK/MASTER_*` 等分布式环境，强制按单进程 eval 跑；
+`CLOSED_LOOP_PROBE_GPU_IDS` 可用于把 probe 固定到指定可见 GPU。
 
 ROAD route 采样冒烟：
 

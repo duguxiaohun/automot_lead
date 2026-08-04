@@ -219,6 +219,7 @@ COMMON_ARGS=(
   --max-eval-samples "${MAX_EVAL_SAMPLES:-256}"
   --closed-loop-probe-steps "${CLOSED_LOOP_PROBE_STEPS:-0}"
   --closed-loop-probe-routes "${CLOSED_LOOP_PROBE_ROUTES:-8}"
+  --closed-loop-probe-gpu-ids "${CLOSED_LOOP_PROBE_GPU_IDS:-}"
   --max-steps "${MAX_STEPS:-0}"
   --frames-per-sync "${FRAMES_PER_SYNC:-64}"
   --train-sampling-mode "${TRAIN_SAMPLING_MODE:-transition_segments}"

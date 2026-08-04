@@ -1703,6 +1703,7 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "closed_loop_probe_steps": int(args.closed_loop_probe_steps),
         "closed_loop_probe_routes": int(args.closed_loop_probe_routes),
         "closed_loop_probe_write_frames": bool(args.closed_loop_probe_write_frames),
+        "closed_loop_probe_gpu_ids": str(args.closed_loop_probe_gpu_ids),
         "num_epochs": int(args.num_epochs),
     }
     (path / "sft_baseline_adapter_config.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1791,6 +1792,7 @@ def _apply_resume_config(args: argparse.Namespace, config: Mapping[str, Any]) ->
         "closed_loop_probe_steps": "closed_loop_probe_steps",
         "closed_loop_probe_routes": "closed_loop_probe_routes",
         "closed_loop_probe_write_frames": "closed_loop_probe_write_frames",
+        "closed_loop_probe_gpu_ids": "closed_loop_probe_gpu_ids",
     }
     for key, attr in mapping.items():
         if key in config:
@@ -1857,8 +1859,32 @@ def _run_closed_loop_probe(
     ]
     if not bool(args.closed_loop_probe_write_frames):
         cmd.append("--no-write-frames")
+    child_env = os.environ.copy()
+    for key in (
+        "RANK",
+        "WORLD_SIZE",
+        "LOCAL_RANK",
+        "LOCAL_WORLD_SIZE",
+        "GROUP_RANK",
+        "GROUP_WORLD_SIZE",
+        "ROLE_RANK",
+        "ROLE_WORLD_SIZE",
+        "MASTER_ADDR",
+        "MASTER_PORT",
+        "TORCHELASTIC_RUN_ID",
+        "TORCHELASTIC_RESTART_COUNT",
+        "TORCHELASTIC_MAX_RESTARTS",
+    ):
+        child_env.pop(key, None)
+    child_env["WORLD_SIZE"] = "1"
+    child_env["RANK"] = "0"
+    child_env["LOCAL_RANK"] = "0"
+    probe_gpu_ids = str(getattr(args, "closed_loop_probe_gpu_ids", "") or "").strip()
+    if probe_gpu_ids:
+        child_env["GPU_IDS"] = probe_gpu_ids
+        child_env["CUDA_VISIBLE_DEVICES"] = probe_gpu_ids
     print(f"[closed-loop-probe] step={global_step} routes={int(args.closed_loop_probe_routes)} -> {eval_dir}")
-    result = subprocess.run(cmd, cwd=str(_AUTOMOT_ROOT), check=False)
+    result = subprocess.run(cmd, cwd=str(_AUTOMOT_ROOT), env=child_env, check=False)
     if int(result.returncode) != 0:
         print(f"[closed-loop-probe][error] eval.py exited with code {int(result.returncode)}")
     return int(result.returncode)
@@ -2031,6 +2057,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--closed-loop-probe-steps", type=int, default=0)
     p.add_argument("--closed-loop-probe-routes", type=int, default=8)
     p.add_argument("--closed-loop-probe-write-frames", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--closed-loop-probe-gpu-ids", type=str, default="")
     p.add_argument("--max-steps", type=int, default=0)
     p.add_argument("--frames-per-sync", type=int, default=64)
     p.add_argument("--train-sampling-mode", choices=["full_route", "transition_segments"], default="full_route")
