@@ -133,7 +133,15 @@ class RouteSequenceDataset(Dataset):
     大量 PIL 对象常驻内存。
     """
 
-    def __init__(self, path: pathlib.Path, *, max_routes: int = 0, max_frames_per_route: int = 0):
+    def __init__(
+        self,
+        path: pathlib.Path,
+        *,
+        max_routes: int = 0,
+        max_frames_per_route: int = 0,
+        highway_route_sample_target: float = 0.0,
+        route_sampling_seed: int = 20260724,
+    ):
         self.path = pathlib.Path(path)
         if not self.path.exists():
             raise FileNotFoundError(f"sequence index not found: {self.path}")
@@ -195,10 +203,13 @@ class RouteSequenceDataset(Dataset):
         road_label_counts: Dict[str, int] = {}
         joint_label_counts: Dict[str, int] = {}
         rs_event_label_counts: Dict[str, Dict[str, int]] = {}
+        route_has_highway: List[bool] = []
         for row in rows:
+            has_highway = False
             for frame in row.frames:
                 event_label_counts[frame.event_label] = event_label_counts.get(frame.event_label, 0) + 1
                 road_label = _frame_road_label(frame)
+                has_highway = has_highway or road_label == "HIGHWAY"
                 event_family = _frame_event_family(frame)
                 road_label_counts[road_label] = road_label_counts.get(road_label, 0) + 1
                 event_family_counts[event_family] = event_family_counts.get(event_family, 0) + 1
@@ -206,17 +217,80 @@ class RouteSequenceDataset(Dataset):
                 joint_label_counts[joint_key] = joint_label_counts.get(joint_key, 0) + 1
                 rs_counts = rs_event_label_counts.setdefault(frame.rs_label, {})
                 rs_counts[frame.event_label] = rs_counts.get(frame.event_label, 0) + 1
+            route_has_highway.append(bool(has_highway))
+        sample_indices, route_sampling_report = self._build_sample_indices(
+            route_has_highway,
+            target_highway_rate=float(highway_route_sample_target),
+            seed=int(route_sampling_seed),
+        )
+        self.route_has_highway = route_has_highway
+        self.sample_indices = sample_indices
+        self.route_sampling_report = route_sampling_report
         self.event_label_counts = event_label_counts
         self.event_family_counts = event_family_counts
         self.road_label_counts = road_label_counts
         self.joint_label_counts = joint_label_counts
         self.rs_event_label_counts = rs_event_label_counts
 
+    @staticmethod
+    def _build_sample_indices(route_has_highway: List[bool], *, target_highway_rate: float, seed: int) -> Tuple[List[int], Dict[str, Any]]:
+        """按 route 级 HIGHWAY 目标占比构造采样索引表。
+
+        HIGHWAY 在当前数据里几乎是 route-level 常量；帧级 repeat/loss balance 只能在
+        route 内部调比例，无法降低“整步没有 ROAD 正例”的概率。这里通过重复含
+        HIGHWAY 的 route 索引，把目标占比温和推到 20-25% 一档，同时不改
+        DistributedSampler 的分片逻辑。
+        """
+
+        n_routes = len(route_has_highway)
+        n_highway = sum(1 for x in route_has_highway if x)
+        n_non_highway = n_routes - n_highway
+        natural_rate = float(n_highway) / max(1.0, float(n_routes))
+        target = max(0.0, min(0.95, float(target_highway_rate)))
+        if n_routes <= 0 or n_highway <= 0 or n_non_highway <= 0 or target <= natural_rate:
+            indices = list(range(n_routes))
+            return indices, {
+                "enabled": False,
+                "target_highway_route_rate": float(target),
+                "natural_highway_route_rate": float(natural_rate),
+                "sampled_highway_route_rate": float(natural_rate),
+                "raw_routes": int(n_routes),
+                "sampled_routes": int(len(indices)),
+                "highway_routes": int(n_highway),
+                "highway_repeat_base": 1,
+                "highway_repeat_extra_prob": 0.0,
+            }
+
+        exact_repeat = target * float(n_non_highway) / max(1e-6, float(n_highway) * (1.0 - target))
+        base_repeat = max(1, int(math.floor(exact_repeat)))
+        extra_prob = max(0.0, min(1.0, float(exact_repeat) - float(base_repeat)))
+        rng = random.Random(f"{seed}::highway_route_sampling::{n_routes}::{n_highway}")
+        indices: List[int] = []
+        sampled_highway = 0
+        for idx, has_highway in enumerate(route_has_highway):
+            repeat = 1
+            if has_highway:
+                repeat = base_repeat + int(rng.random() < extra_prob)
+                sampled_highway += repeat
+            indices.extend([idx] * repeat)
+        sampled_rate = float(sampled_highway) / max(1.0, float(len(indices)))
+        return indices, {
+            "enabled": True,
+            "target_highway_route_rate": float(target),
+            "natural_highway_route_rate": float(natural_rate),
+            "sampled_highway_route_rate": float(sampled_rate),
+            "raw_routes": int(n_routes),
+            "sampled_routes": int(len(indices)),
+            "highway_routes": int(n_highway),
+            "highway_repeat_base": int(base_repeat),
+            "highway_repeat_extra_prob": float(extra_prob),
+        }
+
     def __len__(self) -> int:
-        return len(self.rows)
+        return len(self.sample_indices)
 
     def __getitem__(self, idx: int) -> SequenceRow:
-        return self.rows[idx]
+        return self.rows[int(self.sample_indices[int(idx)])]
 
 
 def _parse_goal_xy(value: Any) -> Optional[Tuple[float, float]]:
@@ -846,7 +920,7 @@ def run_batch(
     re_event_loss_weight: float = 1.0,
     highway_road_loss_weight: float = 1.0,
     non_highway_road_loss_weight: float = 1.0,
-    road_loss_balance_mode: str = "inverse_sqrt",
+    road_loss_balance_mode: str = "none",
     single_candidate_re_scale: float = 0.1,
     event_label_counts: Optional[Mapping[str, int]] = None,
     road_label_counts: Optional[Mapping[str, int]] = None,
@@ -1294,7 +1368,7 @@ def evaluate_loss(
     re_event_loss_weight: float,
     highway_road_loss_weight: float = 1.0,
     non_highway_road_loss_weight: float = 1.0,
-    road_loss_balance_mode: str = "inverse_sqrt",
+    road_loss_balance_mode: str = "none",
     single_candidate_re_scale: float,
     road_label_counts: Optional[Mapping[str, int]] = None,
     event_label_counts: Optional[Mapping[str, int]] = None,
@@ -1583,6 +1657,7 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "segment_length": int(args.segment_length),
         "segments_per_route": int(args.segments_per_route),
         "negative_segment_ratio": float(args.negative_segment_ratio),
+        "highway_route_sample_target": float(args.highway_route_sample_target),
         "prompt_memory_mode": str(args.prompt_memory_mode),
         "ue_event_loss_weight": float(args.ue_event_loss_weight),
         "re_event_loss_weight": float(args.re_event_loss_weight),
@@ -1674,6 +1749,7 @@ def _apply_resume_config(args: argparse.Namespace, config: Mapping[str, Any]) ->
         "segment_length": "segment_length",
         "segments_per_route": "segments_per_route",
         "negative_segment_ratio": "negative_segment_ratio",
+        "highway_route_sample_target": "highway_route_sample_target",
         "prompt_memory_mode": "prompt_memory_mode",
         "ue_event_loss_weight": "ue_event_loss_weight",
         "re_event_loss_weight": "re_event_loss_weight",
@@ -1961,12 +2037,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--segment-length", type=int, default=24)
     p.add_argument("--segments-per-route", type=int, default=4)
     p.add_argument("--negative-segment-ratio", type=float, default=0.25)
+    p.add_argument("--highway-route-sample-target", type=float, default=0.25)
     p.add_argument("--prompt-memory-mode", choices=["memory", "hidden", "unknown"], default="memory")
     p.add_argument("--ue-event-loss-weight", type=float, default=2.0)
     p.add_argument("--re-event-loss-weight", type=float, default=1.0)
     p.add_argument("--highway-road-loss-weight", type=float, default=1.4)
     p.add_argument("--non-highway-road-loss-weight", type=float, default=1.4)
-    p.add_argument("--road-loss-balance-mode", choices=["none", "inverse_sqrt", "inverse"], default="inverse_sqrt")
+    p.add_argument("--road-loss-balance-mode", choices=["none", "inverse_sqrt", "inverse"], default="none")
     p.add_argument("--single-candidate-re-scale", type=float, default=0.1)
     p.add_argument("--ue-frame-repeat", type=int, default=2)
     p.add_argument("--ue-repeat-mode", choices=["fixed", "inverse_sqrt"], default="inverse_sqrt")
@@ -2026,7 +2103,13 @@ def main() -> None:
         args.lora_vision_scope = "all"
     validate_safety_args(args)
 
-    train_ds = RouteSequenceDataset(pathlib.Path(args.train_index), max_routes=int(args.max_routes), max_frames_per_route=int(args.max_frames_per_route))
+    train_ds = RouteSequenceDataset(
+        pathlib.Path(args.train_index),
+        max_routes=int(args.max_routes),
+        max_frames_per_route=int(args.max_frames_per_route),
+        highway_route_sample_target=float(args.highway_route_sample_target),
+        route_sampling_seed=int(args.seed),
+    )
     val_ds = RouteSequenceDataset(pathlib.Path(args.val_index), max_routes=int(args.max_routes), max_frames_per_route=int(args.max_frames_per_route)) if args.val_index else None
     if world_size > 1:
         from torch.utils.data.distributed import DistributedSampler
@@ -2043,6 +2126,7 @@ def main() -> None:
 
     if args.check:
         print(f"[check] routes={len(train_ds)} first={train_ds.rows[0].scenario + '/' + train_ds.rows[0].route_id if train_ds.rows else 'NA'}")
+        print(f"[check] route_sampling={json.dumps(train_ds.route_sampling_report, ensure_ascii=False)}")
         cleanup_distributed()
         return
 
@@ -2050,6 +2134,7 @@ def main() -> None:
     if rank == 0:
         output_dir.mkdir(parents=True, exist_ok=True)
         print(f"[init] output_dir={output_dir} rank={rank} world={world_size} device={device} vision_scope={args.lora_vision_scope}")
+        print(f"[init] route_sampling={json.dumps(train_ds.route_sampling_report, ensure_ascii=False)}")
     if dist.is_available() and dist.is_initialized():
         if torch.cuda.is_available():
             dist.barrier(device_ids=[local_rank])
