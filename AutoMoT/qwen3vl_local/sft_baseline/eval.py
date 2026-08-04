@@ -14,6 +14,7 @@ EVENT: RE|UE
 from __future__ import annotations
 
 import argparse
+import html as html_lib
 import json
 import os
 import pathlib
@@ -597,10 +598,12 @@ def _prepare_eval_outputs(args: argparse.Namespace, *, rank: int, world_size: in
     args.output_json = args.output_json or str(output_dir / "metrics.json")
     args.output_jsonl = args.output_jsonl or str(output_dir / "frames.jsonl")
     args.output_summary = args.output_summary or str(output_dir / "summary.md")
+    args.output_html = args.output_html or str(output_dir / "report.html")
     args.output_tb = args.output_tb or (str(output_dir / "tb") if bool(args.write_tb) else None)
     pathlib.Path(args.output_json).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(args.output_jsonl).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(args.output_summary).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(args.output_html).parent.mkdir(parents=True, exist_ok=True)
     if args.output_tb:
         pathlib.Path(args.output_tb).mkdir(parents=True, exist_ok=True)
 
@@ -637,6 +640,8 @@ def _build_metrics(args: argparse.Namespace, counters: Dict[str, int], *, route_
         "ue_f1": event_report["f1"],
         "road_report": road_report,
         "event_report": event_report,
+        "road_confusion_report": road_report,
+        "event_confusion_report": event_report,
         "road_change_precision": road_change["precision"],
         "road_change_recall": road_change["recall"],
         "road_change_f1": road_change["f1"],
@@ -716,6 +721,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--output-jsonl", type=str, default=None)
     p.add_argument("--output-summary", type=str, default=None)
+    p.add_argument("--output-html", type=str, default=None)
     p.add_argument("--output-tb", type=str, default=None)
     p.add_argument("--write-tb", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--task", choices=sorted(_EVAL_TASK_TO_MODE), required=True)
@@ -842,6 +848,200 @@ def _write_tensorboard(path: pathlib.Path, metrics: Dict[str, Any], args: argpar
         writer.close()
 
 
+def _write_html_report(path: pathlib.Path, metrics: Dict[str, Any], args: argparse.Namespace) -> None:
+    """写单文件 HTML 可视化报告，按 sft_base 风格直接展示 confusion matrix。"""
+
+    metrics_payload = json.dumps(metrics, ensure_ascii=False).replace("</", "<\\/")
+    title = f"SFT Baseline Eval Report - {metrics.get('eval_mode', args.eval_mode)}"
+    html = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html_lib.escape(title)}</title>
+  <style>
+    :root {{
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --text: #182033;
+      --muted: #667085;
+      --line: #d9dee8;
+      --accent: #1d4ed8;
+      --good: #0f766e;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      line-height: 1.45;
+    }}
+    header {{
+      padding: 22px 28px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }}
+    h1 {{ margin: 0 0 8px; font-size: 24px; }}
+    h2 {{ margin: 0 0 14px; font-size: 18px; }}
+    h3 {{ margin: 16px 0 10px; font-size: 15px; }}
+    main {{ padding: 22px 28px 40px; max-width: 1500px; margin: 0 auto; }}
+    section {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      margin-bottom: 18px;
+    }}
+    .meta {{ color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 8px 18px; }}
+    .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }}
+    .card {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcff; }}
+    .card .label {{ color: var(--muted); font-size: 12px; margin-bottom: 6px; }}
+    .card .value {{ font-size: 22px; font-weight: 700; }}
+    .grid2 {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; align-items: start; }}
+    .matrix-wrap {{ overflow: auto; border: 1px solid var(--line); border-radius: 8px; }}
+    table {{ border-collapse: collapse; width: 100%; font-size: 12px; }}
+    th, td {{ border: 1px solid var(--line); padding: 7px 9px; text-align: right; vertical-align: middle; }}
+    th {{ background: #f1f4f9; color: #344054; font-weight: 650; white-space: nowrap; }}
+    td.row-label, th.row-label {{ text-align: left; background: #f8fafc; }}
+    td.cell {{ min-width: 78px; font-variant-numeric: tabular-nums; }}
+    .cell .count {{ font-weight: 700; }}
+    .cell .pct {{ color: #475467; font-size: 11px; }}
+    .diag {{ outline: 2px solid rgba(15, 118, 110, 0.35); outline-offset: -2px; }}
+    .hint {{ color: var(--muted); font-size: 13px; margin-top: 8px; }}
+    .pill {{ display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; background: #fff; color: #475467; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SFT Baseline Eval Report</h1>
+    <div id="meta" class="meta"></div>
+  </header>
+  <main>
+    <section>
+      <h2>关键指标</h2>
+      <div id="kpis" class="cards"></div>
+      <div class="hint">ROAD 是 HIGHWAY/NON_HIGHWAY 二分类；EVENT 是 UE/RE 二分类。</div>
+    </section>
+    <section>
+      <h2>Confusion Matrix</h2>
+      <div class="grid2">
+        <div id="roadMatrix"></div>
+        <div id="eventMatrix"></div>
+      </div>
+    </section>
+    <section>
+      <h2>Change Detection</h2>
+      <div id="changeMatrix" class="grid2"></div>
+    </section>
+  </main>
+  <script>
+    const DATA = {metrics_payload};
+
+    function htmlEscape(value) {{
+      const map = {{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}};
+      return String(value).replace(/[&<>"']/g, ch => map[ch]);
+    }}
+    function intFmt(value) {{ return Number(value || 0).toLocaleString("en-US"); }}
+    function pct(value) {{ return (Number(value || 0) * 100).toFixed(2) + "%"; }}
+    function fmt(value) {{
+      if (value === null || value === undefined) return "NA";
+      if (typeof value === "number") return Math.abs(value) <= 1 ? pct(value) : intFmt(value);
+      return String(value);
+    }}
+    function get(path) {{ return path.split(".").reduce((obj, key) => obj && obj[key], DATA); }}
+    function matrixLabels(matrix) {{
+      const rows = Object.keys(matrix || {{}});
+      const cols = [];
+      for (const row of rows) {{
+        for (const col of Object.keys(matrix[row] || {{}})) {{
+          if (!cols.includes(col)) cols.push(col);
+        }}
+      }}
+      return [rows, cols];
+    }}
+    function cellColor(count, maxCount, isDiag) {{
+      if (!maxCount) return "#fff";
+      const t = Math.min(1, Number(count || 0) / maxCount);
+      const hue = isDiag ? 173 : 217;
+      const sat = isDiag ? 46 : 76;
+      const light = 96 - t * 38;
+      return `hsl(${{hue}} ${{sat}}% ${{light}}%)`;
+    }}
+    function renderMatrix(id, title, reportOrMatrix) {{
+      const target = document.getElementById(id);
+      const matrix = reportOrMatrix.confusion_matrix || reportOrMatrix || {{}};
+      const [rows, cols] = matrixLabels(matrix);
+      const maxCount = Math.max(0, ...rows.flatMap(r => cols.map(c => Number((matrix[r] || {{}})[c] || 0))));
+      let out = `<h3>${{htmlEscape(title)}}</h3><div class="matrix-wrap"><table><thead><tr><th class="row-label">GT \\\\ Pred</th>`;
+      for (const col of cols) out += `<th>${{htmlEscape(col)}}</th>`;
+      out += `</tr></thead><tbody>`;
+      for (const row of rows) {{
+        const rowTotal = cols.reduce((s, c) => s + Number((matrix[row] || {{}})[c] || 0), 0);
+        out += `<tr><td class="row-label">${{htmlEscape(row)}} <span class="pill">n=${{intFmt(rowTotal)}}</span></td>`;
+        for (const col of cols) {{
+          const count = Number((matrix[row] || {{}})[col] || 0);
+          const diag = row === col;
+          const rowPct = rowTotal ? count / rowTotal : 0;
+          out += `<td class="cell ${{diag ? "diag" : ""}}" style="background:${{cellColor(count, maxCount, diag)}}"><div class="count">${{intFmt(count)}}</div><div class="pct">${{pct(rowPct)}}</div></td>`;
+        }}
+        out += `</tr>`;
+      }}
+      out += `</tbody></table></div>`;
+      target.innerHTML = out;
+    }}
+    function renderKpis() {{
+      const items = [
+        ["ROAD acc", "road_acc"],
+        ["HIGHWAY F1", "highway_f1"],
+        ["EVENT acc", "event_acc"],
+        ["UE F1", "ue_f1"],
+        ["Joint acc", "joint_acc"],
+        ["ROAD invalid", "road_invalid_rate"],
+        ["EVENT invalid", "event_invalid_rate"],
+        ["ROAD change F1", "road_change_f1"],
+        ["EVENT change F1", "event_change_f1"],
+      ];
+      document.getElementById("kpis").innerHTML = items.map(([label, key]) => `<div class="card"><div class="label">${{htmlEscape(label)}}</div><div class="value">${{fmt(get(key))}}</div></div>`).join("");
+    }}
+    function changeMatrix(prefix) {{
+      return {{
+        "CHANGE": {{"CHANGE": Number(DATA[`${{prefix}}_tp`] || 0), "STABLE": Number(DATA[`${{prefix}}_fn`] || 0)}},
+        "STABLE": {{"CHANGE": Number(DATA[`${{prefix}}_fp`] || 0), "STABLE": Number(DATA[`${{prefix}}_tn`] || 0)}},
+      }};
+    }}
+    function renderMeta() {{
+      const fields = [
+        ["task", `${{DATA.task || ""}} / ${{DATA.eval_mode || ""}}`],
+        ["adapter", DATA.adapter_dir || "base"],
+        ["frames", intFmt(DATA.frames)],
+        ["routes", intFmt(DATA.route_count)],
+        ["image", DATA.image_ablation],
+        ["goal_ablation", DATA.goal_ablation],
+      ];
+      document.getElementById("meta").innerHTML = fields.map(([k, v]) => `<span><b>${{htmlEscape(k)}}:</b> ${{htmlEscape(v)}}</span>`).join("");
+    }}
+    function main() {{
+      renderMeta();
+      renderKpis();
+      renderMatrix("roadMatrix", "GT ROAD × Pred ROAD", DATA.road_confusion_report || {{}});
+      renderMatrix("eventMatrix", "GT EVENT × Pred EVENT", DATA.event_confusion_report || {{}});
+      document.getElementById("changeMatrix").innerHTML = `<div id="roadChange"></div><div id="eventChange"></div>`;
+      renderMatrix("roadChange", "ROAD change", changeMatrix("road_change"));
+      renderMatrix("eventChange", "EVENT change", changeMatrix("event_change"));
+    }}
+    main();
+  </script>
+</body>
+</html>
+"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(html, encoding="utf-8")
+
+
 def main() -> None:
     """CLI 入口。"""
 
@@ -859,6 +1059,7 @@ def main() -> None:
         "output_json": args.output_json,
         "output_jsonl": args.output_jsonl,
         "output_summary": args.output_summary,
+        "output_html": args.output_html,
         "output_tb": args.output_tb,
     }
     print(json.dumps(metrics, ensure_ascii=False, indent=2))
@@ -869,6 +1070,8 @@ def main() -> None:
             json.dump(metrics, f, ensure_ascii=False, indent=2)
     if args.output_summary:
         _write_summary(pathlib.Path(args.output_summary), metrics, args)
+    if args.output_html:
+        _write_html_report(pathlib.Path(args.output_html), metrics, args)
     if args.output_tb:
         _write_tensorboard(pathlib.Path(args.output_tb), metrics, args)
 
