@@ -54,7 +54,7 @@ ckpt-200 诊断后，训练采样从“整条 route 均匀吃完”改为可配�
 - transition repeat 默认用 `add` 合入已有 UE/regular/joint repeat，而不是旧的 `max`。这样 UE 起跳帧会在 UE 过采样之外额外加权。
 - loss 归一化使用 chunk 内 `sum(w * CE) / sum(w)`，不再先对每帧除以自己的权重和；DDP 下分母会跨 rank all-reduce 成 `sum_all(w) / world`，并保留梯度 all-reduce 后的 `div(world)`，因此 ROAD/UE 权重能真正改变跨帧梯度份额且不改变学习率量纲。
 - 切 chunk 前用稳定 seed 打乱整个 work 列表，避免同一帧 repeat 和同一 transition 片段连续落进同质 chunk 后再次抵消类别权重；`frames_per_sync` 只作为 heartbeat，chunk loss 会再除以全局最大 chunk 数，避免切分后梯度随 chunk 数放大。
-- ROAD 值 token 支持 `ROAD_LOSS_BALANCE_MODE=inverse_sqrt|inverse|none`，默认 `inverse_sqrt`，补偿 HIGHWAY 稀少问题。基础 ROAD 权重默认保持 `1.4`，与 prompt 侧常量一致。
+- ROAD 是近似 route-level 属性：launcher 默认 `HIGHWAY_ROUTE_SAMPLE_TARGET=0.25`，通过重复含 HIGHWAY 的 route 索引把采样占比从自然分布约 7% 温和推到 20-25%，降低整步没有 ROAD 正例的概率。对应地 `ROAD_LOSS_BALANCE_MODE` 默认改为 `none`，避免 route 采样和帧级 ROAD loss 权重叠加后继续推高 HIGHWAY 先验。基础 ROAD 权重默认保持 `1.4`，与 prompt 侧常量一致。
 - 训练帧 repeat 支持 `JOINT_BALANCE_REPEAT_MODE=inverse_sqrt|inverse|none`，默认 `inverse_sqrt`，按 `(ROAD, EVENT)` 四格提高长尾组合曝光；`JOINT_BALANCE_REPEAT_COMBINE=add` 避免被 UE repeat 吞掉；`JOINT_BALANCE_DROP_MAJORITY=1` 会按同一 scale 稳定丢弃部分多数类非 transition 帧。
 - `SEGMENTS_PER_ROUTE` 默认 4，避免 transition 多的 route 覆盖回整条 route。训练日志/TB 输出 `selected_frame_rate`、`road_highway_rate`、`event_ue_rate`、teacher-forced ROAD/EVENT accuracy 与 HIGHWAY/UE recall，用来判断采样和监督是否真的对准目标。
 

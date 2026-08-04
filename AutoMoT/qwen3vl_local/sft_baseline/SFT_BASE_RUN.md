@@ -55,7 +55,8 @@ SEGMENTS_PER_ROUTE=4 \
 NEGATIVE_SEGMENT_RATIO=0.25 \
 TRANSITION_LABEL_MODE=binary \
 TRANSITION_REPEAT_MODE=add \
-ROAD_LOSS_BALANCE_MODE=inverse_sqrt \
+HIGHWAY_ROUTE_SAMPLE_TARGET=0.25 \
+ROAD_LOSS_BALANCE_MODE=none \
 JOINT_BALANCE_REPEAT_MODE=inverse_sqrt \
 JOINT_BALANCE_REPEAT_COMBINE=add \
 JOINT_BALANCE_DROP_MAJORITY=1 \
@@ -75,6 +76,7 @@ TRAIN_SAMPLING_MODE=full_route \
 TRANSITION_LABEL_MODE=fine \
 TRANSITION_REPEAT_MODE=max \
 ROAD_LOSS_BALANCE_MODE=none \
+HIGHWAY_ROUTE_SAMPLE_TARGET=0 \
 JOINT_BALANCE_REPEAT_MODE=none \
 JOINT_BALANCE_DROP_MAJORITY=0 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
@@ -101,6 +103,22 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
 probe 会由 rank0 临时保存当前 adapter，然后调用 `eval.py --task full`；其它 rank
 等待 barrier，失败会中止训练。输出位于当前 run 的
 `closed_loop_probe/step_<STEP>/eval_full/`。
+
+ROAD route 采样冒烟：
+
+```bash
+OUTPUT_DIR=checkpoints/sft_baseline_smoke \
+MAX_STEPS=20 SAVE_STEPS=20 EVAL_STEPS=10 LOGGING_STEPS=1 \
+MAX_EVAL_SAMPLES=64 \
+HIGHWAY_ROUTE_SAMPLE_TARGET=0.25 \
+ROAD_LOSS_BALANCE_MODE=none \
+CLOSED_LOOP_PROBE_STEPS=0 \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
+```
+
+启动日志会打印 `route_sampling`，训练日志重点看 `road_highway_rate` 均值是否在
+0.20-0.30，零 HIGHWAY step 是否明显下降；同时确认 `event_ue_rate` 仍在约
+0.35-0.55，避免 ROAD route 采样把 EVENT 分布带偏。
 
 默认 `LORA_VISION_SCOPE=off`，只训练语言侧 LoRA，不微调视觉塔。需要做视觉 LoRA
 消融时再显式加 `LORA_VISION_SCOPE=merger|last4|all`。
