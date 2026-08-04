@@ -480,6 +480,20 @@
   eval 加载 adapter 前校验 `sft_base_adapter_config.json` 的 route/dataset/base-model/
   vision-scope，避免误用 v2/v5 adapter；仍可用 `off/last4/all` 做对照。
   运行见 `SFT_BASE_RUN.md` / `SFT_BASE_PLAN.md`。）
+- `AutoMoT/qwen3vl_local/sft_baseline/`
+  （按用户同意新增到白名单：从 `sft_base` 复制后降维的简化单问 baseline。输入仍为
+  LEAD stitched RGB history + `EGO_TO_GOAL_XY` + 轻量 memory；每帧只输出两行
+  `ROAD: HIGHWAY|NON_HIGHWAY` 与 `EVENT: RE|UE`，其中 `HIGHWAY` 只对应内部 RS=R3
+  的高速/匝道/merge/split/exit/connector/lane-join 结构，`NON_HIGHWAY` 覆盖城市/
+  郊区/乡村非结构化 local road、窄双向路、红绿灯路口、无灯/优先权路口等非高速场景；
+  `RE` 折叠 regular `R-E*`，`UE` 折叠 unusual `U-E*`。训练是 teacher-forced
+  weighted CE，不做 OPSD、不跑 privileged teacher、不输出 CoT；保留训练时
+  wrong/UNKNOWN/dropout memory curriculum，但 wrong ROAD 必须跨 HIGHWAY/NON_HIGHWAY
+  边界、wrong EVENT 必须跨 RE/UE 边界。默认 `LORA_VISION_SCOPE=off`，只训练语言侧
+  LoRA；视觉 LoRA 仅作显式消融。eval 按学生输出 closed-loop 自维护 memory，输出
+  `metrics.json` / `frames.jsonl` / `summary.md` / 自包含 `report.html` / 简易 TB；
+  `report.html` 不依赖本地数据、外部 JSON/CSS/JS，直接内嵌 ROAD/EVENT 二分类
+  confusion matrix 与 change matrix。运行见 `SFT_BASE_RUN.md` / `SFT_BASE_PLAN.md`。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md`
@@ -555,6 +569,7 @@ git add AutoMoT/qwen3vl_local/sft_v3/__init__.py AutoMoT/qwen3vl_local/sft_v3/SF
 git add AutoMoT/qwen3vl_local/sft_v4/__init__.py AutoMoT/qwen3vl_local/sft_v4/SFT_V4_PLAN.md AutoMoT/qwen3vl_local/sft_v4/SFT_V4_RUN.md AutoMoT/qwen3vl_local/sft_v4/prompts.py AutoMoT/qwen3vl_local/sft_v4/build_dataset.py AutoMoT/qwen3vl_local/sft_v4/train.py AutoMoT/qwen3vl_local/sft_v4/train.sh AutoMoT/qwen3vl_local/sft_v4/eval.py AutoMoT/qwen3vl_local/sft_v4/probe.py AutoMoT/qwen3vl_local/sft_v4/check_loss_mask.py AutoMoT/qwen3vl_local/sft_v4/test_memory_update.py AutoMoT/qwen3vl_local/sft_v4/test_kv_reuse.py AutoMoT/qwen3vl_local/sft_v4/test_kv_vs_native.py AutoMoT/qwen3vl_local/sft_v4/test_gt_leak_filter.py AutoMoT/qwen3vl_local/sft_v4/replay.py AutoMoT/qwen3vl_local/sft_v4/collect.py AutoMoT/qwen3vl_local/sft_v4/learn.py AutoMoT/qwen3vl_local/sft_v4/launch_offpolicy.sh AutoMoT/qwen3vl_local/sft_v4/inspect_teacher.py
 git add AutoMoT/qwen3vl_local/sft_v5/
 git add AutoMoT/qwen3vl_local/sft_base/
+git add AutoMoT/qwen3vl_local/sft_baseline/
 git add AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V2.md AutoMoT/qwen3vl_local/goalgen/build_dataset.py AutoMoT/qwen3vl_local/goalgen/train.py AutoMoT/qwen3vl_local/goalgen/train.sh AutoMoT/qwen3vl_local/goalgen/eval.py AutoMoT/qwen3vl_local/goalgen/probe.py
 git add AutoMoT/qwen3vl_local/leadmot/__init__.py AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_PLAN.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md AutoMoT/qwen3vl_local/leadmot/build_dataset.py AutoMoT/qwen3vl_local/leadmot/train.py AutoMoT/qwen3vl_local/leadmot/train.sh AutoMoT/qwen3vl_local/leadmot/eval.py AutoMoT/qwen3vl_local/leadmot/probe.py AutoMoT/qwen3vl_local/leadmot/config.py AutoMoT/qwen3vl_local/leadmot/projectors.py AutoMoT/qwen3vl_local/leadmot/query_bank.py AutoMoT/qwen3vl_local/leadmot/heads.py AutoMoT/qwen3vl_local/leadmot/mot_block.py AutoMoT/qwen3vl_local/leadmot/decoder.py AutoMoT/qwen3vl_local/leadmot/subgoal_prompt.py
 git add AutoMoT/vae_standalone/train_patch_unpatch.py AutoMoT/vae_standalone/vae_reconstruct.py
