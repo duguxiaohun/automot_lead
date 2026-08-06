@@ -1702,6 +1702,7 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "max_eval_samples": int(args.max_eval_samples),
         "closed_loop_probe_steps": int(args.closed_loop_probe_steps),
         "closed_loop_probe_routes": int(args.closed_loop_probe_routes),
+        "closed_loop_probe_transition_cases": int(args.closed_loop_probe_transition_cases),
         "closed_loop_probe_write_frames": bool(args.closed_loop_probe_write_frames),
         "closed_loop_probe_gpu_ids": str(args.closed_loop_probe_gpu_ids),
         "num_epochs": int(args.num_epochs),
@@ -1791,6 +1792,7 @@ def _apply_resume_config(args: argparse.Namespace, config: Mapping[str, Any]) ->
         "max_eval_samples": "max_eval_samples",
         "closed_loop_probe_steps": "closed_loop_probe_steps",
         "closed_loop_probe_routes": "closed_loop_probe_routes",
+        "closed_loop_probe_transition_cases": "closed_loop_probe_transition_cases",
         "closed_loop_probe_write_frames": "closed_loop_probe_write_frames",
         "closed_loop_probe_gpu_ids": "closed_loop_probe_gpu_ids",
     }
@@ -1835,30 +1837,7 @@ def _run_closed_loop_probe(
         return 0
     probe_root = output_dir / "closed_loop_probe" / f"step_{int(global_step):06d}"
     adapter_dir = probe_root / "adapter"
-    eval_dir = probe_root / "eval_full"
     _save_adapter(adapter_dir, bundle, args)
-    cmd = [
-        sys.executable,
-        "qwen3vl_local/sft_baseline/eval.py",
-        "--index",
-        str(args.val_index),
-        "--model-dir",
-        str(args.model_dir),
-        "--adapter-dir",
-        str(adapter_dir),
-        "--task",
-        "full",
-        "--sample-routes",
-        str(int(args.closed_loop_probe_routes)),
-        "--output-dir",
-        str(eval_dir),
-        "--prompt-memory-mode",
-        str(args.prompt_memory_mode),
-        "--seed",
-        str(int(args.seed)),
-    ]
-    if not bool(args.closed_loop_probe_write_frames):
-        cmd.append("--no-write-frames")
     child_env = os.environ.copy()
     for key in (
         "RANK",
@@ -1883,11 +1862,43 @@ def _run_closed_loop_probe(
     if probe_gpu_ids:
         child_env["GPU_IDS"] = probe_gpu_ids
         child_env["CUDA_VISIBLE_DEVICES"] = probe_gpu_ids
-    print(f"[closed-loop-probe] step={global_step} routes={int(args.closed_loop_probe_routes)} -> {eval_dir}")
-    result = subprocess.run(cmd, cwd=str(_AUTOMOT_ROOT), env=child_env, check=False)
-    if int(result.returncode) != 0:
-        print(f"[closed-loop-probe][error] eval.py exited with code {int(result.returncode)}")
-    return int(result.returncode)
+    tasks = [
+        ("full", "eval_full", ["--sample-routes", str(int(args.closed_loop_probe_routes))]),
+        ("road", "eval_road", ["--max-transition-cases", str(int(args.closed_loop_probe_transition_cases))]),
+        ("event", "eval_event", ["--max-transition-cases", str(int(args.closed_loop_probe_transition_cases))]),
+    ]
+    print(
+        f"[closed-loop-probe] step={global_step} routes={int(args.closed_loop_probe_routes)} "
+        f"transition_cases={int(args.closed_loop_probe_transition_cases)} -> {probe_root}"
+    )
+    for task, dirname, extra in tasks:
+        eval_dir = probe_root / dirname
+        cmd = [
+            sys.executable,
+            "qwen3vl_local/sft_baseline/eval.py",
+            "--index",
+            str(args.val_index),
+            "--model-dir",
+            str(args.model_dir),
+            "--adapter-dir",
+            str(adapter_dir),
+            "--task",
+            task,
+            "--output-dir",
+            str(eval_dir),
+            "--prompt-memory-mode",
+            str(args.prompt_memory_mode),
+            "--seed",
+            str(int(args.seed)),
+            *extra,
+        ]
+        if not bool(args.closed_loop_probe_write_frames):
+            cmd.append("--no-write-frames")
+        result = subprocess.run(cmd, cwd=str(_AUTOMOT_ROOT), env=child_env, check=False)
+        if int(result.returncode) != 0:
+            print(f"[closed-loop-probe][error] task={task} eval.py exited with code {int(result.returncode)}")
+            return int(result.returncode)
+    return 0
 
 
 def _trainer_state_path(checkpoint_dir: pathlib.Path) -> pathlib.Path:
@@ -2056,6 +2067,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-eval-samples", type=int, default=256)
     p.add_argument("--closed-loop-probe-steps", type=int, default=0)
     p.add_argument("--closed-loop-probe-routes", type=int, default=8)
+    p.add_argument("--closed-loop-probe-transition-cases", type=int, default=64)
     p.add_argument("--closed-loop-probe-write-frames", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--closed-loop-probe-gpu-ids", type=str, default="")
     p.add_argument("--max-steps", type=int, default=0)

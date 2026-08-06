@@ -64,7 +64,14 @@ UE/RE loss reweight 继续生效：`EVENT` 值 token 在 UE 帧按 `--ue-event-l
 
 Prompt 已改为显式比较 4 帧 history 中的相对运动、减速/closing speed、横向进入和道路几何，不再只要求看最新单帧；hidden-memory 模式下 QUESTION 段不会再提示使用不存在的 previous memory。
 
-可选 closed-loop probe：`CLOSED_LOOP_PROBE_STEPS=N` 时，rank0 每 N 个 optimizer step 保存临时 adapter 并调用 `eval.py --task full --sample-routes CLOSED_LOOP_PROBE_ROUTES`，其它 rank barrier 等待，用于把 teacher-forced 指标和 closed-loop 指标放在同一训练曲线上对照。probe 子进程会清掉 torchrun 的分布式环境变量，避免误入 4 卡 eval；需要固定 probe 用卡时设 `CLOSED_LOOP_PROBE_GPU_IDS`。默认关闭，避免无意中放慢长训。
+可选 closed-loop probe：`CLOSED_LOOP_PROBE_STEPS=N` 时，rank0 每 N 个 optimizer step
+保存临时 adapter 并连续调用三路 eval：`full` 自然分布 route、
+`road_transition` HIGHWAY/NON_HIGHWAY 变化窗口、`event_transition` RE/UE 变化窗口。
+原因是 HIGHWAY route 自然率只有约 7%，小样本 full probe 很容易没有 HIGHWAY 正例，
+无法判断 ROAD 召回；三路 probe 能把自然分布准确率、ROAD 变化和 EVENT 变化拆开看。
+其它 rank barrier 等待，任一任务失败都会中止训练。probe 子进程会清掉 torchrun 的
+分布式环境变量，避免误入 4 卡 eval；需要固定 probe 用卡时设
+`CLOSED_LOOP_PROBE_GPU_IDS`。默认关闭，避免无意中放慢长训。
 
 ## 4. Eval
 
@@ -81,6 +88,11 @@ Prompt 已改为显式比较 4 帧 history 中的相对运动、减速/closing s
 - `event_change_f1`
 
 逐帧 `frames.jsonl` 保存 GT/PRED ROAD、GT/PRED EVENT、原始生成文本和可选 prompt。
+
+阈值诊断：`eval.py --prediction-mode score` 会对四个 `ROAD x EVENT` 组合做
+teacher-forced 值 token log-prob 打分，然后用 `--road-logit-bias` /
+`--event-logit-bias` 选择输出。该模式仍按学生预测 closed-loop 更新 memory，
+用于区分“模型有判别力但阈值偏保守/偏激进”和“图像判别力本身不足”。
 
 ## 5. Compatibility
 

@@ -22,7 +22,7 @@ import random
 import sys
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TextIO
+from typing import Any, Dict, List, Optional, TextIO, Tuple
 
 from PIL import Image
 
@@ -74,7 +74,7 @@ from qwen3vl_local.sft_baseline.prompts import (  # noqa: E402
     update_memory_after_q1,
     update_memory_after_q2,
 )
-from qwen3vl_local.sft_baseline.train import RouteSequenceDataset, _load_images, _messages  # noqa: E402
+from qwen3vl_local.sft_baseline.train import RouteSequenceDataset, _build_inputs, _load_images, _messages  # noqa: E402
 from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
 
 
@@ -235,6 +235,85 @@ def _generate_once(bundle: EvalBundle, images: List[Any], prompt: str, max_new_t
         state = _kv_start_state(bundle, _q_messages(images, prompt))
         text, _, _ = _student_generate_kv(bundle, state, max_new_tokens)
     return text
+
+
+def _score_q1_target(bundle: EvalBundle, images: List[Any], prompt: str, target: str, max_length: int) -> Optional[Tuple[float, float]]:
+    """teacher-forced 计算一个 ROAD/EVENT 组合的值 token 平均 log-prob。
+
+    这个分数不用于训练，只用于阈值/PR 诊断：它回答“在同一个 prompt 下，
+    模型更愿意补哪个 ROAD/EVENT 值”。相比只看自由生成文本，分数可以通过
+    `--road-logit-bias` / `--event-logit-bias` 做闭环阈值扫描。
+    """
+
+    packed = _build_inputs(
+        bundle,
+        images=images,
+        q1_prompt=prompt,
+        q1_target=target,
+        q1_loss_weights={"road": 1.0, "event": 1.0},
+        q2_prompt=None,
+        q2_target=None,
+        q2_loss_weights=None,
+        max_length=int(max_length),
+    )
+    if packed is None:
+        return None
+    kwargs: Dict[str, Any] = {
+        "input_ids": packed["input_ids"].unsqueeze(0).to(bundle.device),
+        "attention_mask": packed["attention_mask"].unsqueeze(0).to(bundle.device),
+    }
+    labels = packed["labels"].unsqueeze(0).to(bundle.device)
+    weights = packed["loss_weights"].unsqueeze(0).to(bundle.device)
+    comp_ids = packed["loss_component_ids"].unsqueeze(0).to(bundle.device)
+    for key, value in packed["vision"].items():
+        kwargs[key] = value.to(bundle.device) if isinstance(value, torch.Tensor) else value
+    with torch.inference_mode():
+        out = bundle.model(**kwargs, use_cache=False, return_dict=True)
+        log_probs = torch.log_softmax(out.logits[:, :-1, :].float(), dim=-1)
+        shift_labels = labels[:, 1:]
+        shift_weights = weights[:, 1:]
+        shift_comp_ids = comp_ids[:, 1:]
+        token_logp = log_probs.gather(-1, shift_labels.unsqueeze(-1)).squeeze(-1)
+        road_mask = shift_weights.gt(0) & shift_comp_ids.eq(1)
+        event_mask = shift_weights.gt(0) & shift_comp_ids.eq(2)
+        if not bool(road_mask.any() and event_mask.any()):
+            return None
+        road_score = float(token_logp[road_mask].mean().item())
+        event_score = float(token_logp[event_mask].mean().item())
+    return road_score, event_score
+
+
+def _score_q1_options(bundle: EvalBundle, images: List[Any], prompt: str, args: argparse.Namespace) -> Dict[str, Any]:
+    """对四个 ROAD/EVENT 二分类组合打分并返回带 bias 的预测。"""
+
+    joint_scores: Dict[Tuple[str, str], float] = {}
+    for road in ROAD_LABELS:
+        for event in EVENT_FAMILY_LABELS:
+            target = f"ROAD: {road}\nEVENT: {event}"
+            scores = _score_q1_target(bundle, images, prompt, target, int(args.max_length))
+            if scores is None:
+                joint_scores[(road, event)] = float("-inf")
+                continue
+            road_score, event_score = scores
+            joint_scores[(road, event)] = road_score + event_score
+    highway_score = max(joint_scores[("HIGHWAY", event)] for event in EVENT_FAMILY_LABELS)
+    non_highway_score = max(joint_scores[("NON_HIGHWAY", event)] for event in EVENT_FAMILY_LABELS)
+    ue_score = max(joint_scores[(road, "UE")] for road in ROAD_LABELS)
+    re_score = max(joint_scores[(road, "RE")] for road in ROAD_LABELS)
+    road_delta = highway_score - non_highway_score
+    event_delta = ue_score - re_score
+    pred_road = "HIGHWAY" if road_delta + float(args.road_logit_bias) >= 0.0 else "NON_HIGHWAY"
+    pred_event = "UE" if event_delta + float(args.event_logit_bias) >= 0.0 else "RE"
+    return {
+        "pred_road": pred_road,
+        "pred_event": pred_event,
+        "road_score_delta": road_delta,
+        "event_score_delta": event_delta,
+        "road_logit_bias": float(args.road_logit_bias),
+        "event_logit_bias": float(args.event_logit_bias),
+        "joint_scores": {f"{road}/{event}": score for (road, event), score in joint_scores.items()},
+        "raw_text": f"ROAD: {pred_road}\nEVENT: {pred_event}",
+    }
 
 
 def _route_name(route: Any) -> str:
@@ -488,10 +567,17 @@ def _evaluate_case(bundle: EvalBundle, case: EvalCase, args: argparse.Namespace,
         images = _apply_image_ablation(_load_images(frame.history_rgb_paths), args, case, frame)
         prompt_memory = _prompt_memory_for_mode(memory, args)
         prompt = build_q1_prompt(prompt_memory, choice_seed=f"joint::{frame.frame_id}")
-        text = _generate_once(bundle, images, prompt, int(args.max_new_tokens))
-        parsed = parse_q1_output(text)
-        pred_road = parsed.get("road")
-        pred_event = parsed.get("event")
+        score_payload: Optional[Dict[str, Any]] = None
+        if str(args.prediction_mode) == "score":
+            score_payload = _score_q1_options(bundle, images, prompt, args)
+            text = str(score_payload["raw_text"])
+            pred_road = score_payload["pred_road"]
+            pred_event = score_payload["pred_event"]
+        else:
+            text = _generate_once(bundle, images, prompt, int(args.max_new_tokens))
+            parsed = parse_q1_output(text)
+            pred_road = parsed.get("road")
+            pred_event = parsed.get("event")
         gt_road = _frame_road(frame)
         gt_event = _frame_event(frame)
         road_ok = pred_road == gt_road
@@ -534,6 +620,8 @@ def _evaluate_case(bundle: EvalBundle, case: EvalCase, args: argparse.Namespace,
             "event_ok": event_ok,
             "joint_ok": road_ok and event_ok,
             "raw_text": text,
+            "prediction_mode": str(args.prediction_mode),
+            "score": score_payload,
             "prompt": prompt if bool(args.save_prompts) else None,
         }
         records.append(rec)
@@ -664,6 +752,9 @@ def _build_metrics(args: argparse.Namespace, counters: Dict[str, int], *, route_
         "goal_ablation": bool(args.ablate_goal),
         "initial_memory": str(args.initial_memory_noise),
         "prompt_memory_mode": str(args.prompt_memory_mode),
+        "prediction_mode": str(args.prediction_mode),
+        "road_logit_bias": float(args.road_logit_bias),
+        "event_logit_bias": float(args.event_logit_bias),
         "script_correction": "none",
         **counters,
         "road_acc": counters["road_correct"] / frames,
@@ -774,11 +865,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-transition-cases", type=int, default=0)
     p.add_argument("--initial-memory-noise", choices=["unknown", "none"], default="unknown")
     p.add_argument("--prompt-memory-mode", choices=["memory", "hidden", "unknown"], default="memory")
+    p.add_argument("--prediction-mode", choices=["generate", "score"], default="generate")
+    p.add_argument("--road-logit-bias", type=float, default=0.0)
+    p.add_argument("--event-logit-bias", type=float, default=0.0)
     p.add_argument("--image-ablation", choices=["none", "black", "random"], default="none")
     p.add_argument("--ablate-goal", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--save-prompts", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--seed", type=int, default=20260724)
     p.add_argument("--max-new-tokens", type=int, default=32)
+    p.add_argument("--max-length", type=int, default=8192)
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--check", action="store_true")
     args = p.parse_args()

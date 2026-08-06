@@ -96,14 +96,18 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
 ```bash
 CLOSED_LOOP_PROBE_STEPS=50 \
 CLOSED_LOOP_PROBE_ROUTES=8 \
+CLOSED_LOOP_PROBE_TRANSITION_CASES=64 \
 CLOSED_LOOP_PROBE_WRITE_FRAMES=0 \
 CLOSED_LOOP_PROBE_GPU_IDS=0 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/train.sh ddp
 ```
 
-probe 会由 rank0 临时保存当前 adapter，然后调用 `eval.py --task full`；其它 rank
-等待 barrier，失败会中止训练。输出位于当前 run 的
-`closed_loop_probe/step_<STEP>/eval_full/`。probe subprocess 会清掉 torchrun 的
+probe 会由 rank0 临时保存当前 adapter，然后连续调用 `eval.py --task full/road/event`；
+其它 rank 等待 barrier，任一任务失败都会中止训练。输出位于当前 run 的
+`closed_loop_probe/step_<STEP>/{eval_full,eval_road,eval_event}/`。其中 full 使用
+`CLOSED_LOOP_PROBE_ROUTES` 条自然分布 route，road/event 使用
+`CLOSED_LOOP_PROBE_TRANSITION_CASES` 个变化窗口，避免自然抽样漏掉 HIGHWAY 或 UE 起跳。
+probe subprocess 会清掉 torchrun 的
 `WORLD_SIZE/RANK/LOCAL_RANK/MASTER_*` 等分布式环境，强制按单进程 eval 跑；
 `CLOSED_LOOP_PROBE_GPU_IDS` 可用于把 probe 固定到指定可见 GPU。
 
@@ -168,6 +172,57 @@ GPU_IDS=0 python qwen3vl_local/sft_baseline/eval.py \
   --image-ablation black \
   --ablate-goal
 ```
+
+阈值/PR 诊断（不重训）：`prediction-mode=score` 会对四个
+`ROAD x EVENT` 组合做 teacher-forced 值 token 打分，再按 bias 选择二分类输出。
+它仍是 closed-loop，下一帧 memory 来自当前 bias 下的预测。
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_baseline/eval.py \
+  --adapter-dir checkpoints/sft_baseline_runs/latest/final \
+  --task event \
+  --prediction-mode score \
+  --event-logit-bias 0.0 \
+  --max-transition-cases 128 \
+  --no-write-frames \
+  --output-dir checkpoints/sft_baseline_runs/latest/eval_results/event_score_bias_0
+```
+
+扫 EVENT bias：
+
+```bash
+CKPT=checkpoints/sft_baseline_runs/latest/final
+for B in -4 -3 -2 -1 0 1 2 3 4; do
+  GPU_IDS=0 python qwen3vl_local/sft_baseline/eval.py \
+    --adapter-dir "$CKPT" \
+    --task event \
+    --prediction-mode score \
+    --event-logit-bias "$B" \
+    --max-transition-cases 128 \
+    --no-write-frames \
+    --output-dir "checkpoints/sft_baseline_runs/latest/eval_results/event_score_bias_${B}"
+done
+```
+
+扫 ROAD bias 时把 `--task road` 和 `--road-logit-bias "$B"` 配对使用。
+
+也可以直接跑一键诊断脚本，它会把 full/road/event、黑图消融和两组 bias sweep
+集中写到同一个 `triage_eval_<timestamp>/` 目录，并生成 `triage_summary.csv` /
+`triage_summary.md`：
+
+```bash
+CKPT=checkpoints/sft_baseline_runs/run_v3_event_cooldown_probe3/final \
+GPU_IDS=0 bash qwen3vl_local/sft_baseline/run_triage_eval.sh
+```
+
+4 卡评估更快，脚本会按 `GPU_IDS` 数量自动改用 `torchrun`：
+
+```bash
+CKPT=checkpoints/sft_baseline_runs/run_v3_event_cooldown_probe3/final \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_baseline/run_triage_eval.sh
+```
+
+脚本结束时会打印对应的 `tar -czf ...` 打包命令。
 
 no-memory adapter 评估时要使用同款 prompt：
 
