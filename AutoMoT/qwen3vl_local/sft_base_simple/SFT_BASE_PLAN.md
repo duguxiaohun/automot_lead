@@ -57,7 +57,7 @@ memory curriculum 保留 baseline 基础比例：
 
 新增 early-UE 课程：当前帧处在连续 UE span 的前 `MEMORY_EARLY_UE_FRAMES=4` 帧时，提高 EVENT memory 的 wrong/UNKNOWN/dropout 概率，并更频繁重采 EVENT 扰动段。这样 UE 刚触发时不会总是看到 `PREVIOUS_EVENT=UE`，模型必须从 RGB history 里学触发证据。
 
-early-UE 的 EVENT wrong/UNKNOWN 放大后会显式归一化，保证 wrong+UNKNOWN 不超过 1；训练启动会打印 effective wrong/UNKNOWN/dropout 概率。训练日志和 TensorBoard 同时记录 early-UE prompt memory 的真实 EVENT 分布：`memory/early_ue_event_re_rate_last_batch`、`memory/early_ue_event_ue_rate_last_batch`、`memory/early_ue_event_unknown_rate_last_batch`、`memory/early_ue_event_hidden_rate_last_batch`。
+early-UE 的 EVENT wrong/UNKNOWN 放大后 cap 在 0.85（保留 >=15% keep 地板），非 early-UE 归一化上限仍为 1.0。early-UE resample guard 改为 post-perturbation：先应用扰动，再检查结果是否落在 UE family，如果是则按 `early_ue_resample_prob` 强制推离为 RE 或 UNKNOWN。训练启动会打印 effective wrong/UNKNOWN/dropout 概率。训练日志和 TensorBoard 同时记录 early-UE prompt memory 的真实 EVENT 分布：`memory/early_ue_event_re_rate_last_batch`、`memory/early_ue_event_ue_rate_last_batch`、`memory/early_ue_event_unknown_rate_last_batch`、`memory/early_ue_event_hidden_rate_last_batch`。
 
 默认只训练语言侧 LoRA：`LORA_VISION_SCOPE=off`。视觉 LoRA 仍可作为显式消融设为 `merger/last4/all`。
 

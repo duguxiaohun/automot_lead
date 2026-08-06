@@ -187,7 +187,9 @@ def main() -> None:
     # P0 fix: age=0 should never push memory to UE (RE prior is preserved)
     assert age0_ue == 0, f"age=0 PREVIOUS_EVENT landed on UE {age0_ue}/{age0_total} times - keep floor broken"
     # age=8 should still have some UE leakage through keep + sampling luck
-    assert 0 <= _ratio(age8_ue, age8_total) <= 0.15, f"age=8 UE rate too high: {_ratio(age8_ue, age8_total)}"
+    # age=8 is outside early_ue_frames=4, so post-perturbation guard is off.
+    # keep mode (30%) should preserve UE, giving ~23% of non-hidden results.
+    assert 0.15 <= _ratio(age8_ue, age8_total) <= 0.35, f"age=8 UE rate unexpected: {_ratio(age8_ue, age8_total)}"
 
     first_corruptor = RouteMemoryCorruptor(
         route_id="first-route",
