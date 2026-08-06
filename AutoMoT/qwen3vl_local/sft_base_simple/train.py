@@ -1310,16 +1310,9 @@ def _run_work_items(
                 stats.road_highway_weight_sum += float(road_weight)
             else:
                 stats.road_non_highway_weight_sum += float(road_weight)
-            weight = _event_loss_weights(
-                _event_target_from_frame(frame),
-                rs_label=frame.rs_label,
-                n_candidates=len(frame.event_candidates),
-                ue_event_loss_weight=ue_event_loss_weight,
-                re_event_loss_weight=re_event_loss_weight,
-                single_candidate_re_scale=single_candidate_re_scale,
-                event_label_counts=event_label_counts,
-                rs_event_label_counts=rs_event_label_counts,
-            ).get("event", 0.0)
+            # 统计处用真实训练路径的扁平权重，与 line 842 完全一致。
+            # 不再走旧 _event_loss_weights 的 inverse-sqrt / single_candidate_re_scale。
+            weight = float(ue_event_loss_weight) if frame.abnormal else float(re_event_loss_weight)
             if frame.abnormal:
                 stats.event_ue_weight_sum += float(weight)
             else:
