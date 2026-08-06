@@ -494,6 +494,24 @@
   `metrics.json` / `frames.jsonl` / `summary.md` / 自包含 `report.html` / 简易 TB；
   `report.html` 不依赖本地数据、外部 JSON/CSS/JS，直接内嵌 ROAD/EVENT 二分类
   confusion matrix 与 change matrix。运行见 `SFT_BASE_RUN.md` / `SFT_BASE_PLAN.md`。）
+- `AutoMoT/qwen3vl_local/sft_base_simple/`
+  （按用户同意新增到白名单：从 `sft_baseline` 继续简化的 HIGHWAY/NON_HIGHWAY + RE/UE
+  单问直接监督基线。显式 transition 采样/API 已撤掉，训练默认先跨 route 聚合
+  `FOURBIN_ROUTES_PER_BATCH=16` 条 route，再按当前帧 GT 四格 `HIGHWAY:UE` /
+  `HIGHWAY:RE` / `NON_HIGHWAY:UE` / `NON_HIGHWAY:RE` 做 exact balance，默认
+  `JOINT_TARGET_BALANCE_COUNT=8`、`UE_FRAME_REPEAT=1`、`UE_EVENT_LOSS_WEIGHT=1.0`、
+  repeat mode 为 `none`，避免四格均衡后再向 UE 重复倾斜；eval 默认同样按当前帧 GT
+  四格随机均衡，但 joint case 会按 route 顺序闭环 rollout 到最远受评帧，只在抽中帧计
+  ROAD/EVENT/JOIN accuracy，change matrix 来自 rollout 相邻帧，`--initial-memory-noise none`
+  与 joint eval 组合会被拒绝防止 GT memory 泄漏。transition 帧只作为普通当前帧落入
+  对应四格，不再单独抽样或 repeat。训练日志/TB 记录 balance 后四桶实际样本数与
+  early-UE prompt memory 的 `RE/UE/UNKNOWN/HIDDEN` 分布。基础 RS/EVENT
+  memory wrong/UNKNOWN/dropout 概率沿用 baseline，连续 UE span 前
+  `MEMORY_EARLY_UE_FRAMES=4` 帧额外提高 EVENT memory wrong/UNKNOWN/dropout 与重采概率，
+  放大后 wrong+UNKNOWN 显式归一化并在启动日志打印 effective 概率，避免模型靠
+  `PREVIOUS_EVENT=UE` 续答 UE。当前 `DATASET_VERSION=sft_base_simple_highway_reue_fourbin_v1`，
+  adapter route 为
+  `sft_base_simple_highway_reue_fourbin_random`，运行见 `SFT_BASE_RUN.md` / `SFT_BASE_PLAN.md`。）
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md`
 - `AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md`
@@ -570,6 +588,7 @@ git add AutoMoT/qwen3vl_local/sft_v4/__init__.py AutoMoT/qwen3vl_local/sft_v4/SF
 git add AutoMoT/qwen3vl_local/sft_v5/
 git add AutoMoT/qwen3vl_local/sft_base/
 git add AutoMoT/qwen3vl_local/sft_baseline/
+git add AutoMoT/qwen3vl_local/sft_base_simple/
 git add AutoMoT/qwen3vl_local/goalgen/GOALGEN_PLAN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_RUN.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V1.md AutoMoT/qwen3vl_local/goalgen/GOALGEN_V2.md AutoMoT/qwen3vl_local/goalgen/build_dataset.py AutoMoT/qwen3vl_local/goalgen/train.py AutoMoT/qwen3vl_local/goalgen/train.sh AutoMoT/qwen3vl_local/goalgen/eval.py AutoMoT/qwen3vl_local/goalgen/probe.py
 git add AutoMoT/qwen3vl_local/leadmot/__init__.py AutoMoT/qwen3vl_local/leadmot/ARCHITECTURE.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_PLAN.md AutoMoT/qwen3vl_local/leadmot/LEADMOT_RUN.md AutoMoT/qwen3vl_local/leadmot/build_dataset.py AutoMoT/qwen3vl_local/leadmot/train.py AutoMoT/qwen3vl_local/leadmot/train.sh AutoMoT/qwen3vl_local/leadmot/eval.py AutoMoT/qwen3vl_local/leadmot/probe.py AutoMoT/qwen3vl_local/leadmot/config.py AutoMoT/qwen3vl_local/leadmot/projectors.py AutoMoT/qwen3vl_local/leadmot/query_bank.py AutoMoT/qwen3vl_local/leadmot/heads.py AutoMoT/qwen3vl_local/leadmot/mot_block.py AutoMoT/qwen3vl_local/leadmot/decoder.py AutoMoT/qwen3vl_local/leadmot/subgoal_prompt.py
 git add AutoMoT/vae_standalone/train_patch_unpatch.py AutoMoT/vae_standalone/vae_reconstruct.py
