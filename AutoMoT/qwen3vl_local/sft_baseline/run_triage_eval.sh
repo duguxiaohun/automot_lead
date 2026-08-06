@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SFT baseline 诊断评估脚本：集中跑 full/road/event、黑图消融和 ROAD/EVENT bias sweep。
+# SFT baseline 诊断评估脚本：默认只跑快速均衡评估；TRIAGE_PROFILE=full 时跑完整诊断。
 #
 # 从远端 AutoMoT/ 目录运行：
 #   GPU_IDS=0 bash qwen3vl_local/sft_baseline/run_triage_eval.sh
@@ -9,6 +9,9 @@
 #   OUT_ROOT=checkpoints/sft_baseline_runs/run_xxx/triage_eval
 #   SAMPLE_ROUTES=60
 #   TRANSITION_CASES=128
+#   BALANCED_CASES_PER_BIN=128
+#   TRIAGE_PROFILE=fast|full
+#   RUN_BALANCED_FULL=0|1
 #   SEED=20260804
 
 set -euo pipefail
@@ -22,10 +25,13 @@ STAMP="${TRIAGE_TAG:-$(date +%Y%m%d_%H%M%S)}"
 OUT_ROOT="${OUT_ROOT:-${RUN_DIR}/triage_eval_${STAMP}}"
 SAMPLE_ROUTES="${SAMPLE_ROUTES:-60}"
 TRANSITION_CASES="${TRANSITION_CASES:-128}"
+BALANCED_CASES_PER_BIN="${BALANCED_CASES_PER_BIN:-128}"
 SEED="${SEED:-20260804}"
 GPU_IDS="${GPU_IDS:-0}"
 EVENT_BIASES="${EVENT_BIASES:-0 0.5 1 1.5 2 2.5 3}"
 ROAD_BIASES="${ROAD_BIASES:--4 -3 -2 -1 0 1 2}"
+TRIAGE_PROFILE="${TRIAGE_PROFILE:-fast}"
+RUN_BALANCED_FULL="${RUN_BALANCED_FULL:-1}"
 
 count_gpus() {
   local visible="$1"
@@ -53,8 +59,10 @@ exec > >(tee -a "${OUT_ROOT}/run.log") 2>&1
 
 echo "[triage] ckpt=${CKPT}"
 echo "[triage] out=${OUT_ROOT}"
-echo "[triage] sample_routes=${SAMPLE_ROUTES} transition_cases=${TRANSITION_CASES} seed=${SEED}"
+echo "[triage] sample_routes=${SAMPLE_ROUTES} transition_cases=${TRANSITION_CASES} balanced_cases_per_bin=${BALANCED_CASES_PER_BIN} seed=${SEED}"
 echo "[triage] gpu_ids=${GPU_IDS} gpu_count=${GPU_COUNT}"
+echo "[triage] profile=${TRIAGE_PROFILE}"
+echo "[triage] run_balanced_full=${RUN_BALANCED_FULL}"
 
 run_eval() {
   local name="$1"
@@ -78,45 +86,61 @@ run_eval() {
   fi
 }
 
-run_eval "full_60" \
-  --task full \
-  --sample-routes "${SAMPLE_ROUTES}"
+if [[ "${TRIAGE_PROFILE}" == "full" ]]; then
+  run_eval "full_60" \
+    --task full \
+    --sample-routes "${SAMPLE_ROUTES}"
+fi
+
+if [[ "${RUN_BALANCED_FULL}" == "1" ]]; then
+  run_eval "full_balanced_joint" \
+    --task full \
+    --full-balance-mode joint \
+    --full-balance-cases-per-bin "${BALANCED_CASES_PER_BIN}" \
+    --no-write-frames
+fi
 
 run_eval "road_transition_128" \
   --task road \
-  --max-transition-cases "${TRANSITION_CASES}"
+  --max-transition-cases "${TRANSITION_CASES}" \
+  --transition-balance-mode label
 
 run_eval "event_transition_128" \
   --task event \
-  --max-transition-cases "${TRANSITION_CASES}"
+  --max-transition-cases "${TRANSITION_CASES}" \
+  --transition-balance-mode label
 
-run_eval "full_60_black_nogoal" \
-  --task full \
-  --sample-routes "${SAMPLE_ROUTES}" \
-  --image-ablation black \
-  --ablate-goal
+if [[ "${TRIAGE_PROFILE}" == "full" ]]; then
+  run_eval "full_60_black_nogoal" \
+    --task full \
+    --sample-routes "${SAMPLE_ROUTES}" \
+    --image-ablation black \
+    --ablate-goal
 
-for bias in ${EVENT_BIASES}; do
-  safe_bias="${bias//-/_neg_}"
-  safe_bias="${safe_bias//./p}"
-  run_eval "event_score_bias_${safe_bias}" \
-    --task event \
-    --prediction-mode score \
-    --event-logit-bias "${bias}" \
-    --max-transition-cases "${TRANSITION_CASES}" \
-    --no-write-frames
-done
+  for bias in ${EVENT_BIASES}; do
+    safe_bias="${bias//-/_neg_}"
+    safe_bias="${safe_bias//./p}"
+    run_eval "event_score_bias_${safe_bias}" \
+      --task event \
+      --prediction-mode score \
+      --event-logit-bias "${bias}" \
+      --max-transition-cases "${TRANSITION_CASES}" \
+      --transition-balance-mode label \
+      --no-write-frames
+  done
 
-for bias in ${ROAD_BIASES}; do
-  safe_bias="${bias//-/_neg_}"
-  safe_bias="${safe_bias//./p}"
-  run_eval "road_score_bias_${safe_bias}" \
-    --task road \
-    --prediction-mode score \
-    --road-logit-bias "${bias}" \
-    --max-transition-cases "${TRANSITION_CASES}" \
-    --no-write-frames
-done
+  for bias in ${ROAD_BIASES}; do
+    safe_bias="${bias//-/_neg_}"
+    safe_bias="${safe_bias//./p}"
+    run_eval "road_score_bias_${safe_bias}" \
+      --task road \
+      --prediction-mode score \
+      --road-logit-bias "${bias}" \
+      --max-transition-cases "${TRANSITION_CASES}" \
+      --transition-balance-mode label \
+      --no-write-frames
+  done
+fi
 
 python - "${OUT_ROOT}" <<'PY'
 import csv
@@ -145,6 +169,10 @@ keys = [
     "transition_hit_rate",
     "transition_post_acc",
     "prediction_mode",
+    "full_balance_mode",
+    "full_balance_cases_per_bin",
+    "transition_balance_mode",
+    "transition_balance_cases_per_label",
     "road_logit_bias",
     "event_logit_bias",
     "image_ablation",

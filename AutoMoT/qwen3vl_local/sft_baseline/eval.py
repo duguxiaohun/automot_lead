@@ -337,6 +337,37 @@ def _frame_event(frame: Any) -> str:
 def _select_full_route_cases(ds: RouteSequenceDataset, args: argparse.Namespace) -> List[EvalCase]:
     """选择完整 route case。"""
 
+    if str(args.full_balance_mode) == "joint":
+        groups: Dict[str, List[EvalCase]] = {f"{road}:{event}": [] for road in ROAD_LABELS for event in EVENT_FAMILY_LABELS}
+        for route_index, route in enumerate(ds.rows):
+            for frame_index, frame in enumerate(route.frames):
+                road = _frame_road(frame)
+                event = _frame_event(frame)
+                key = f"{road}:{event}"
+                groups.setdefault(key, []).append(
+                    EvalCase(
+                        case_id=f"balanced:{key}:{route_index}:{_route_name(route)}:{frame_index}",
+                        route=route,
+                        route_index=route_index,
+                        frames=[frame],
+                        start_index=frame_index,
+                    )
+                )
+        nonempty = [items for items in groups.values() if items]
+        if not nonempty:
+            return []
+        per_bin = int(args.full_balance_cases_per_bin)
+        if per_bin <= 0:
+            per_bin = min(len(items) for items in nonempty)
+        rng = random.Random(int(args.seed))
+        cases: List[EvalCase] = []
+        for key in sorted(groups):
+            items = list(groups[key])
+            rng.shuffle(items)
+            cases.extend(items[: min(per_bin, len(items))])
+        rng.shuffle(cases)
+        return cases
+
     items = list(enumerate(ds.rows))
     if int(args.sample_routes) > 0:
         rng = random.Random(int(args.seed))
@@ -354,6 +385,55 @@ def _select_transition_cases(ds: RouteSequenceDataset, args: argparse.Namespace)
 
     wanted = "road" if args.eval_mode == "road_transition" else "event"
     window = max(1, int(args.transition_window))
+    if str(args.transition_balance_mode) == "label":
+        labels = ROAD_LABELS if wanted == "road" else EVENT_FAMILY_LABELS
+        groups: Dict[str, List[EvalCase]] = {label: [] for label in labels}
+        seen: set[Tuple[int, int, str]] = set()
+        items = list(enumerate(ds.rows))
+        if int(args.max_routes) > 0:
+            items = items[: int(args.max_routes)]
+        for route_index, route in items:
+            frames = list(route.frames)
+            for idx in range(1, len(frames)):
+                prev = _frame_road(frames[idx - 1]) if wanted == "road" else _frame_event(frames[idx - 1])
+                cur = _frame_road(frames[idx]) if wanted == "road" else _frame_event(frames[idx])
+                if prev == cur:
+                    continue
+                start = max(0, idx - window)
+                end = min(len(frames), idx + window + 1)
+                for frame_index in range(start, end):
+                    label = _frame_road(frames[frame_index]) if wanted == "road" else _frame_event(frames[frame_index])
+                    key = (route_index, frame_index, label)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    groups.setdefault(label, []).append(
+                        EvalCase(
+                            case_id=f"transition_balanced:{wanted}:{label}:{route_index}:{_route_name(route)}:{frame_index}",
+                            route=route,
+                            route_index=route_index,
+                            frames=[frames[frame_index]],
+                            start_index=frame_index,
+                            transition_kind=wanted,
+                        )
+                    )
+        nonempty = [items for items in groups.values() if items]
+        if not nonempty:
+            return []
+        per_label = int(args.transition_balance_cases_per_label)
+        if per_label <= 0 and int(args.max_transition_cases) > 0:
+            per_label = max(1, int(args.max_transition_cases) // len(nonempty))
+        if per_label <= 0:
+            per_label = min(len(items) for items in nonempty)
+        rng = random.Random(int(args.seed))
+        cases: List[EvalCase] = []
+        for label in sorted(groups):
+            items = list(groups[label])
+            rng.shuffle(items)
+            cases.extend(items[: min(per_label, len(items))])
+        rng.shuffle(cases)
+        return cases
+
     cases: List[EvalCase] = []
     items = list(enumerate(ds.rows))
     if int(args.max_routes) > 0:
@@ -753,6 +833,10 @@ def _build_metrics(args: argparse.Namespace, counters: Dict[str, int], *, route_
         "initial_memory": str(args.initial_memory_noise),
         "prompt_memory_mode": str(args.prompt_memory_mode),
         "prediction_mode": str(args.prediction_mode),
+        "full_balance_mode": str(args.full_balance_mode),
+        "full_balance_cases_per_bin": int(args.full_balance_cases_per_bin),
+        "transition_balance_mode": str(args.transition_balance_mode),
+        "transition_balance_cases_per_label": int(args.transition_balance_cases_per_label),
         "road_logit_bias": float(args.road_logit_bias),
         "event_logit_bias": float(args.event_logit_bias),
         "script_correction": "none",
@@ -860,9 +944,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--eval-mode", choices=["full_route", "road_transition", "event_transition"], default="full_route")
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--sample-routes", type=int, default=0)
+    p.add_argument("--full-balance-mode", choices=["none", "joint"], default="none")
+    p.add_argument("--full-balance-cases-per-bin", type=int, default=0)
     p.add_argument("--max-frames-per-route", type=int, default=0)
     p.add_argument("--transition-window", type=int, default=8)
     p.add_argument("--max-transition-cases", type=int, default=0)
+    p.add_argument("--transition-balance-mode", choices=["none", "label"], default="none")
+    p.add_argument("--transition-balance-cases-per-label", type=int, default=0)
     p.add_argument("--initial-memory-noise", choices=["unknown", "none"], default="unknown")
     p.add_argument("--prompt-memory-mode", choices=["memory", "hidden", "unknown"], default="memory")
     p.add_argument("--prediction-mode", choices=["generate", "score"], default="generate")
