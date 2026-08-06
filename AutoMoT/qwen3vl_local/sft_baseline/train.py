@@ -795,6 +795,63 @@ def _combine_repeat(base_repeat: int, extra_repeat: int, *, mode: str) -> int:
     return _apply_transition_repeat(base_repeat, extra_repeat, mode=mode)
 
 
+def _joint_work_key(item: Tuple[str, FrameRow, Memory, Optional[Memory], str]) -> str:
+    """返回训练 work item 的 ROAD x EVENT 二分类格子。"""
+
+    frame = item[1]
+    return f"{_frame_road_label(frame)}:{_frame_event_family(frame)}"
+
+
+def _balance_work_by_joint_target(
+    work: List[Tuple[str, FrameRow, Memory, Optional[Memory], str]],
+    *,
+    mode: str,
+    target_per_bin: int,
+    seed: int,
+) -> List[Tuple[str, FrameRow, Memory, Optional[Memory], str]]:
+    """按 ROAD x EVENT 四格把最终训练 work list 拉到等量。
+
+    这是帧级训练数据均衡，不是 loss 权重。`exact` 模式会对已有格子做可复现
+    下采样/重复采样，使 HIGHWAY/NON_HIGHWAY 与 UE/RE 的边际分布都尽量接近 1:1。
+    如果当前 batch/route 缺某个格子，函数不会凭空造类别；这种情况需要配合
+    route 级 HIGHWAY 采样和 transition segment 抽样改善。
+    """
+
+    mode = str(mode).lower()
+    if mode == "none" or not work:
+        return work
+    if mode != "exact":
+        raise ValueError(f"unknown joint target balance mode: {mode}")
+    groups: Dict[str, List[Tuple[str, FrameRow, Memory, Optional[Memory], str]]] = {
+        f"{road}:{event}": [] for road in ("HIGHWAY", "NON_HIGHWAY") for event in ("UE", "RE")
+    }
+    for item in work:
+        groups.setdefault(_joint_work_key(item), []).append(item)
+    nonempty_sizes = [len(items) for items in groups.values() if items]
+    if not nonempty_sizes:
+        return work
+    if int(target_per_bin) > 0:
+        target = int(target_per_bin)
+    else:
+        target = min(nonempty_sizes)
+    target = max(1, target)
+    rng = random.Random(f"{seed}::joint_target_balance::{len(work)}::{target}")
+    balanced: List[Tuple[str, FrameRow, Memory, Optional[Memory], str]] = []
+    for key in sorted(groups):
+        items = list(groups[key])
+        if not items:
+            continue
+        rng.shuffle(items)
+        if len(items) >= target:
+            balanced.extend(items[:target])
+            continue
+        repeats = [items[idx % len(items)] for idx in range(target)]
+        rng.shuffle(repeats)
+        balanced.extend(repeats)
+    rng.shuffle(balanced)
+    return balanced
+
+
 def _prompt_memory_for_mode(memory: Memory, *, mode: str) -> Memory:
     """按训练/评估开关渲染 memory：正常、UNKNOWN 或隐藏先验。"""
 
@@ -935,6 +992,8 @@ def run_batch(
     joint_balance_repeat_max: int = 8,
     joint_balance_repeat_combine: str = "add",
     joint_balance_drop_majority: bool = True,
+    joint_target_balance_mode: str = "none",
+    joint_target_balance_count: int = 0,
     train_sampling_mode: str = "full_route",
     segment_length: int = 24,
     segments_per_route: int = 4,
@@ -1108,6 +1167,13 @@ def run_batch(
         elif dist.is_available() and dist.is_initialized():
             _ddp_sum_float(0.0, bundle.device)
         return stats
+
+    work = _balance_work_by_joint_target(
+        work,
+        mode=str(joint_target_balance_mode),
+        target_per_bin=int(joint_target_balance_count),
+        seed=int(memory_noise_seed),
+    )
 
     # 在切 chunk 前打乱整个 work 列表，而不是只在 chunk 内打乱。这样同一帧 repeat
     # 和同一 transition 片段不会连续占满若干个 64-frame chunk，chunk 级
@@ -1679,6 +1745,8 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
         "joint_balance_repeat_max": int(args.joint_balance_repeat_max),
         "joint_balance_repeat_combine": str(args.joint_balance_repeat_combine),
         "joint_balance_drop_majority": bool(args.joint_balance_drop_majority),
+        "joint_target_balance_mode": str(args.joint_target_balance_mode),
+        "joint_target_balance_count": int(args.joint_target_balance_count),
         "transition_frame_repeat": int(args.transition_frame_repeat),
         "transition_frame_window": int(args.transition_frame_window),
         "transition_label_mode": str(args.transition_label_mode),
@@ -1769,6 +1837,8 @@ def _apply_resume_config(args: argparse.Namespace, config: Mapping[str, Any]) ->
         "joint_balance_repeat_max": "joint_balance_repeat_max",
         "joint_balance_repeat_combine": "joint_balance_repeat_combine",
         "joint_balance_drop_majority": "joint_balance_drop_majority",
+        "joint_target_balance_mode": "joint_target_balance_mode",
+        "joint_target_balance_count": "joint_target_balance_count",
         "transition_frame_repeat": "transition_frame_repeat",
         "transition_frame_window": "transition_frame_window",
         "transition_label_mode": "transition_label_mode",
@@ -1864,8 +1934,26 @@ def _run_closed_loop_probe(
         child_env["CUDA_VISIBLE_DEVICES"] = probe_gpu_ids
     tasks = [
         ("full", "eval_full", ["--sample-routes", str(int(args.closed_loop_probe_routes))]),
-        ("road", "eval_road", ["--max-transition-cases", str(int(args.closed_loop_probe_transition_cases))]),
-        ("event", "eval_event", ["--max-transition-cases", str(int(args.closed_loop_probe_transition_cases))]),
+        (
+            "road",
+            "eval_road",
+            [
+                "--max-transition-cases",
+                str(int(args.closed_loop_probe_transition_cases)),
+                "--transition-balance-mode",
+                "label",
+            ],
+        ),
+        (
+            "event",
+            "eval_event",
+            [
+                "--max-transition-cases",
+                str(int(args.closed_loop_probe_transition_cases)),
+                "--transition-balance-mode",
+                "label",
+            ],
+        ),
     ]
     print(
         f"[closed-loop-probe] step={global_step} routes={int(args.closed_loop_probe_routes)} "
@@ -2094,6 +2182,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--joint-balance-repeat-max", type=int, default=8)
     p.add_argument("--joint-balance-repeat-combine", choices=["max", "add", "multiply"], default="add")
     p.add_argument("--joint-balance-drop-majority", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--joint-target-balance-mode", choices=["none", "exact"], default="none")
+    p.add_argument("--joint-target-balance-count", type=int, default=0)
     p.add_argument("--transition-frame-repeat", type=int, default=4)
     p.add_argument("--transition-frame-window", type=int, default=3)
     p.add_argument("--transition-label-mode", choices=["binary", "road_event", "fine"], default="binary")
@@ -2450,6 +2540,8 @@ def main() -> None:
                 joint_balance_repeat_max=int(args.joint_balance_repeat_max),
                 joint_balance_repeat_combine=str(args.joint_balance_repeat_combine),
                 joint_balance_drop_majority=bool(args.joint_balance_drop_majority),
+                joint_target_balance_mode=str(args.joint_target_balance_mode),
+                joint_target_balance_count=int(args.joint_target_balance_count),
                 transition_frame_repeat=int(args.transition_frame_repeat),
                 transition_frame_window=int(args.transition_frame_window),
                 transition_label_mode=str(args.transition_label_mode),

@@ -54,8 +54,9 @@ ckpt-200 诊断后，训练采样从“整条 route 均匀吃完”改为可配�
 - transition repeat 默认用 `add` 合入已有 UE/regular/joint repeat，而不是旧的 `max`。这样 UE 起跳帧会在 UE 过采样之外额外加权。
 - loss 归一化使用 chunk 内 `sum(w * CE) / sum(w)`，不再先对每帧除以自己的权重和；DDP 下分母会跨 rank all-reduce 成 `sum_all(w) / world`，并保留梯度 all-reduce 后的 `div(world)`，因此 ROAD/UE 权重能真正改变跨帧梯度份额且不改变学习率量纲。
 - 切 chunk 前用稳定 seed 打乱整个 work 列表，避免同一帧 repeat 和同一 transition 片段连续落进同质 chunk 后再次抵消类别权重；`frames_per_sync` 只作为 heartbeat，chunk loss 会再除以全局最大 chunk 数，避免切分后梯度随 chunk 数放大。
-- ROAD 是近似 route-level 属性：launcher 默认 `HIGHWAY_ROUTE_SAMPLE_TARGET=0.25`，通过重复含 HIGHWAY 的 route 索引把采样占比从自然分布约 7% 温和推到 20-25%，降低整步没有 ROAD 正例的概率。对应地 `ROAD_LOSS_BALANCE_MODE` 默认改为 `none`，避免 route 采样和帧级 ROAD loss 权重叠加后继续推高 HIGHWAY 先验。基础 ROAD 权重默认保持 `1.4`，与 prompt 侧常量一致。
+- ROAD 是近似 route-level 属性：launcher 默认 `HIGHWAY_ROUTE_SAMPLE_TARGET=0.5`，优先把含 HIGHWAY 的 route 采样概率拉到 1:1 口径，降低整步没有 ROAD 正例的概率。对应地 `ROAD_LOSS_BALANCE_MODE` 默认改为 `none`，避免 route 采样和帧级 ROAD loss 权重叠加后继续推高 HIGHWAY 先验。基础 ROAD 权重默认保持 `1.4`，与 prompt 侧常量一致。
 - 训练帧 repeat 支持 `JOINT_BALANCE_REPEAT_MODE=inverse_sqrt|inverse|none`，默认 `inverse_sqrt`，按 `(ROAD, EVENT)` 四格提高长尾组合曝光；`JOINT_BALANCE_REPEAT_COMBINE=add` 避免被 UE repeat 吞掉；`JOINT_BALANCE_DROP_MAJORITY=1` 会按同一 scale 稳定丢弃部分多数类非 transition 帧。
+- 最终 work list 默认再经过 `JOINT_TARGET_BALANCE_MODE=exact`，对已有的 `HIGHWAY/NON_HIGHWAY x UE/RE` 四格做可复现下采样/重复采样，使训练帧的 ROAD 边际和 EVENT 边际都尽量接近 1:1。`JOINT_TARGET_BALANCE_COUNT=0` 表示下采样到当前非空四格的最小数量；显式给正数时才会过采样到指定每格数量。它不会凭空造缺失类别，因此仍需配合 route-level HIGHWAY 采样和 transition segment 抽样。
 - `SEGMENTS_PER_ROUTE` 默认 4，避免 transition 多的 route 覆盖回整条 route。训练日志/TB 输出 `selected_frame_rate`、`road_highway_rate`、`event_ue_rate`、teacher-forced ROAD/EVENT accuracy 与 HIGHWAY/UE recall，用来判断采样和监督是否真的对准目标。
 
 UE/RE loss reweight 继续生效：`EVENT` 值 token 在 UE 帧按 `--ue-event-loss-weight` 加权，在 RE 帧按 `--re-event-loss-weight` 加权。默认 `UE_EVENT_LOSS_WEIGHT=2.0`，因为当前采样已经把 UE 帧显著拉高；继续用旧 4.0 容易把 EVENT loss 推得过度偏向 UE。
@@ -75,7 +76,7 @@ Prompt 已改为显式比较 4 帧 history 中的相对运动、减速/closing s
 
 ## 4. Eval
 
-`eval.py` 每帧 fresh prefill 生成一次两行答案，并用学生输出维护下一帧 memory，不做脚本纠偏。
+`eval.py` 每帧 fresh prefill 生成一次两行答案，并用学生输出维护下一帧 memory，不做脚本纠偏。自然 full eval 保留部署分布诊断；新增 `--full-balance-mode joint` 会按 `HIGHWAY/NON_HIGHWAY x UE/RE` 四格均衡抽单帧 case，用来判断模型是否真的学会 HIGHWAY 和 UE，而不是被自然分布里的 NON_HIGHWAY/RE 多数类掩盖。`road_transition` / `event_transition` 可加 `--transition-balance-mode label`，只在转折邻域采样，但分别强制 `HIGHWAY/NON_HIGHWAY` 或 `UE/RE` 正负接近 1:1。
 
 主指标：
 
