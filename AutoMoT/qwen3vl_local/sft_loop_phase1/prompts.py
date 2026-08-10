@@ -64,7 +64,8 @@ This question includes vehicle/path conflicts such as a red-light-running or onc
 VULNERABLE:
 Look specifically for pedestrians, cyclists, scooter riders, wheelchair users, or other unprotected road users. YES only if one is in the ego path, crossing it, approaching the conflict zone, emerging from occlusion, or close enough to affect ego's current decision.
 Use the history to check lateral movement and whether the person's/bicycle's path intersects ego's path. Crosswalk users, cyclists entering from a side street, and pedestrians close to a turning path can be YES.
-Do not require the person or bicycle to already be inside the ego lane. A cyclist or pedestrian near the curb, sidewalk edge, side lane, crosswalk, or turning conflict zone is VULNERABLE=YES when ego may soon pass, turn, or merge near them, especially if they are oriented toward the roadway or partly entering from the side.
+Do not require the person or bicycle to already be inside the ego lane. A cyclist or pedestrian near the curb, sidewalk edge, side lane, crosswalk, or turning conflict zone is VULNERABLE=YES when ego may soon pass, turn, or merge near them, especially if they are oriented toward the roadway, standing near a crosswalk, walking beside the road, or partly entering from the side.
+For the first loop question, treat active unprotected people/bicycles near the upcoming junction, sidewalk corner, shoulder, or curb as decision-relevant unless they are clearly far away or separated by a barrier. A standing pedestrian beside a crosswalk and a cyclist on the sidewalk edge near ego's forward/turning path are YES, not NO, even before they step into the lane.
 NO for a distant sidewalk pedestrian, a person standing safely behind a barrier, a person far outside ego's conflict zone, a parked bicycle, a bicycle rack, a sign/billboard image, reflection, or a human-shaped object that is not an active road user.
 Do not mark VULNERABLE just because there is a traffic light or another vehicle conflict; this question is only about unprotected road users.
 
@@ -74,12 +75,14 @@ YES requires the signal/control system itself to be visibly unreliable, broken, 
 - conflicting approaches or incompatible movements visibly permitted at the same time while vehicles are released through the shared conflict area;
 - several signal heads on different arms of the same cross junction show green at the same time for directions that would cross or collide; answer YES even if ego's own signal is green and appears bright/normal;
 - all-visible-green, all-visible-red, or mixed red/green states that cannot be a normal phase for the same conflict point;
+- if the same intersection conflict area shows green lights on the ego approach AND green lights on crossing/merging approaches in the same newest frame, this is TRAFFIC_LIGHT_ABNORMAL=YES. This includes four-way crosses, T-junctions, angled junctions, and multi-arm junctions. Do not call it a "consistent green phase across all arms"; synchronized green across conflicting directions is the defect.
 - the ego-governing signal head is present but dark/off/broken when it should control the junction;
 - impossible flashing, stuck, or inconsistent signal behavior across the short history;
 - abnormal all-red/all-green or red/green combinations that would authorize a collision, not merely different phases for different approaches.
 NO traps:
-- ordinary red/yellow/green lights, normal phase changes, a normal red light with ego waiting, RedLightWithoutLeadVehicle behavior, non-signalized junctions, absent lights, unreadable tiny/distant lamps, fog/rain/glare, or different colors for different approaches when that is normal phasing;
+- ordinary red/yellow/green lights, normal phase changes, a normal red light with ego waiting, RedLightWithoutLeadVehicle behavior, non-signalized junctions, absent lights, unreadable tiny/distant lamps, fog/rain/glare, or different colors for non-conflicting lanes when that is normal phasing;
 - another vehicle running a red light, taking priority, blocking an intersection, or crossing ego's path. That may be OBSTACLE=YES, but TRAFFIC_LIGHT_ABNORMAL=NO if the lights themselves look normal.
+Never answer TRAFFIC_LIGHT_ABNORMAL=NO after observing "all visible traffic lights are green" at the same cross junction; that observation is direct YES evidence.
 Do not infer a signal fault from a scenario name, event label, ego waiting, or the presence of a traffic light.
 [/DECISION_RULES]
 """.strip()
