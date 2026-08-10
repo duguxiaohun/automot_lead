@@ -16,6 +16,7 @@ import shutil
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 _THIS = pathlib.Path(__file__).resolve()
@@ -339,11 +340,29 @@ def _prepare_output_dir(output_dir: pathlib.Path, *, overwrite: bool) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
 
+def _resolve_output_dir(base_dir: pathlib.Path, *, timestamp_output: bool, rank: int, world_size: int) -> pathlib.Path:
+    """可选在输出目录下追加一个由 rank0 统一生成的时间戳子目录。"""
+
+    if not timestamp_output:
+        return base_dir
+    tag = datetime.now().strftime("%Y%m%d_%H%M%S") if rank == 0 else None
+    if world_size > 1:
+        holder = [tag]
+        dist.broadcast_object_list(holder, src=0)
+        tag = str(holder[0])
+    return base_dir / str(tag)
+
+
 def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     """评估主流程。"""
 
     rank, local_rank, world_size = setup_distributed()
-    output_dir = pathlib.Path(args.output_dir)
+    output_dir = _resolve_output_dir(
+        pathlib.Path(args.output_dir),
+        timestamp_output=bool(args.timestamp_output),
+        rank=rank,
+        world_size=world_size,
+    )
     if rank == 0:
         _prepare_output_dir(output_dir, overwrite=bool(args.overwrite))
     if world_size > 1:
@@ -498,6 +517,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "adapter_dir": str(args.adapter_dir) if args.adapter_dir else None,
         "audit_prompt": bool(args.audit_prompt),
         "sampling_contract": "Four independent task modules. In each module, that task's GT YES/NO cases are sampled 1:1; the model still answers all four questions.",
+        "output_dir": str(output_dir),
         "total_cases": total,
         "exact_match_accuracy": float(exact) / max(1, total),
         "per_question": per_key,
@@ -592,6 +612,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--save-error-rgb", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--save-all-rgb", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--timestamp-output", action=argparse.BooleanOptionalAction, default=False, help="write results under --output-dir/YYYYmmdd_HHMMSS")
     p.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--seed", type=int, default=20260810)
     return p.parse_args()
