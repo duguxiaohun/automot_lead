@@ -88,7 +88,7 @@ TRAFFIC_LIGHT_ABNORMAL:YES
 TRAFFIC_LIGHT_ABNORMAL:NO
 ```
 
-训练集和测试集都按两层 exact balance：
+训练集、验证集和测试集都按 route 互斥，并在各自 split 内按两层 exact balance：
 
 1. 四个 `focus_question` 之间 `1:1:1:1`。
 2. 每个 `focus_question` 内部 `YES:NO = 1:1`。
@@ -98,16 +98,23 @@ TRAFFIC_LIGHT_ABNORMAL:NO
 `OBSTACLE`、`VULNERABLE`、`TRAFFIC_LIGHT_ABNORMAL` 同理。这样可以避免为了平衡高速而破坏其它
 问题的真实共现关系，同时让四个问题都有同等训练/测试压力。
 
-实现采样时优先按 route 分组后再抽帧，防止同一 route 的相邻帧同时进入 train/test 或在某个
-YES 桶里重复过多。推荐流程：
+实现采样时优先按 route 分组后再抽帧，防止同一 route 的相邻帧同时进入 train/val/test
+或在某个 YES 桶里重复过多。推荐流程：
 
 1. 先从最终 `phase1_four_question_answer_table.json` 解析 `scenario × RS × EVENT` 四问答案，
    排除 `noScenarios` 和异常时长/data-missing route。
-2. 按 route 做稳定随机 split；同一个 route 只能出现在 train 或 validation/test 的一侧。
+2. 按 route 做稳定随机 split；同一个 route 只能出现在 train、validation、test 的一侧。
 3. 在各 split 内为每帧生成 4 个候选 focus 视图，分别归入上述 8 桶。
 4. 每个 batch 或每个 epoch 目标集合按 8 桶取同样数量；桶不足时可在桶内稳定 repeat，
    但日志必须打印每桶原始数、repeat 后数、route 数和 scenario 数。
-5. eval 默认也用 8 桶均衡集报告，同时另存 full-distribution 指标，避免只看均衡集误判真实部署比例。
+5. 训练中 periodic validation 使用 validation split 的 8 桶小均衡集，只看 teacher-forced
+   loss 和答案 token accuracy，用来判断是否过拟合。
+6. 正式 eval 默认也用 test split 的 8 桶均衡集报告，同时另存 full-distribution 指标，
+   避免只看均衡集误判真实部署比例。
+
+当前 `build_dataset.py` 默认 `test_ratio=0.10`、`val_ratio=0.05`。如果旧
+`frame_index.jsonl` 是在 `val_ratio=0.00` 下生成的，必须重构一次数据索引，否则训练中
+没有独立 validation 曲线，只能训练后再跑完整 eval。
 
 ## RGB-first 审计
 

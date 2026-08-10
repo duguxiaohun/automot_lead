@@ -77,7 +77,14 @@ case "${MODE}" in
   check)
     export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
     NPROC=1
-    EXTRA_ARGS+=(--max-frames "${CHECK_MAX_FRAMES:-64}" --max-steps "${CHECK_MAX_STEPS:-2}" --focus-balance-count "${CHECK_FOCUS_BALANCE_COUNT:-2}" --no-tb)
+    EXTRA_ARGS+=(
+      --max-frames "${CHECK_MAX_FRAMES:-64}"
+      --max-steps "${CHECK_MAX_STEPS:-2}"
+      --focus-balance-count "${CHECK_FOCUS_BALANCE_COUNT:-2}"
+      --eval-steps 0
+      --save-steps 0
+      --no-tb
+    )
     ;;
   ddp)
     DDP_GPU_COUNT="${DDP_GPU_COUNT:-${NPROC_PER_NODE:-4}}"
@@ -94,8 +101,14 @@ COMMON_ARGS=(
   --model-dir "${MODEL_DIR}"
   --index "${INDEX}"
   --output-dir "${OUTPUT_DIR}"
-  --max-steps "${MAX_STEPS:-1000}"
-  --focus-balance-count "${FOCUS_BALANCE_COUNT:-256}"
+  --num-epochs "${NUM_EPOCHS:-3}"
+  --max-steps "${MAX_STEPS:-0}"
+  --focus-balance-count "${FOCUS_BALANCE_COUNT:-512}"
+  --eval-split "${EVAL_SPLIT:-val}"
+  --eval-steps "${EVAL_STEPS:-100}"
+  --eval-balance-count "${EVAL_BALANCE_COUNT:-16}"
+  --max-eval-frames "${MAX_EVAL_FRAMES:-0}"
+  --save-steps "${SAVE_STEPS:-500}"
   --max-length "${MAX_LENGTH:-8192}"
   --learning-rate "${LEARNING_RATE:-${LR:-1e-5}}"
   --grad-accum "${GRAD_ACCUM:-1}"
