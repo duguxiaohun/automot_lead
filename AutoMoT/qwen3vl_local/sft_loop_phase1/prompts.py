@@ -33,7 +33,7 @@ def build_phase1_prompt(*, audit: bool = False) -> str:
 [/PROMPT_NAME]
 
 [VISUAL_CHECK_ORDER]
-Classify the newest frame, but use the short history to confirm motion and visibility. First scan left/front/right for road layout and lane topology. Then trace the ego vehicle's drivable corridor for the next few seconds. Then inspect traffic lights that govern ego, nearby vehicles, and vulnerable road users. Answer each question independently; one YES does not force another YES.
+Classify the newest frame, but use the short history to confirm motion and visibility. First scan left/front/right for road layout and lane topology. Then trace the ego vehicle's drivable corridor for the next few seconds. Make one dedicated close-target pass over every history frame: the ego lane, the junction box, crosswalks, curb corners, sidewalks, shoulders, and the left/right camera edges. This pass is for small pedestrians, bicycles, vehicle noses, doors, cones, and signal heads that are easy to miss in a broad scene summary. Then inspect traffic lights that govern ego, nearby vehicles, and vulnerable road users. Answer each question independently; one YES does not force another YES.
 [/VISUAL_CHECK_ORDER]
 
 [DECISION_RULES]
@@ -57,12 +57,14 @@ Trace the ego lane/path in the newest frame and the short distance ahead. YES on
 YES examples: crashed vehicle, stalled/parked/construction vehicle in lane, construction object, open vehicle door protruding into lane, vehicle pulling out or cutting in, static car intruding from the side, oncoming vehicle invading ego lane, queue or blocked intersection physically preventing ego from clearing the lane/junction, or a vehicle violating right-of-way into ego's conflict zone.
 For blocked-intersection/accident/construction scenes, do not require a dramatic crash shape. A stopped or very slow vehicle/queue directly in the ego lane or inside the intersection is OBSTACLE=YES when it makes ego brake, wait, or unable to clear the junction, even if the visible object looks like an ordinary car.
 In fog/rain/night, use the short history and brake lights/vehicle spacing: if the nearest visible vehicle or queue is close enough to constrain the ego corridor, answer YES instead of dismissing it as normal traffic.
+Use a path-overlap test, not a dramatic-appearance test: a vehicle, ambulance, construction board, cone line, door, or queue is already a YES when any visible part intrudes into the lane, junction box, turning arc, or only practical gap that ego must use. A side vehicle whose front moves across the lane or crosswalk can be YES before it completely fills the lane. Inspect all four frames because the intrusion may be clearest in only one of them.
 Use older frames for partly occluded static obstacles only when they clearly show the same object still constraining ego's path.
 NO examples: a normal lead vehicle at safe gap, ordinary traffic flow, a vehicle in its own lane, traffic separated by a median/barrier, a distant object, safely parked roadside/background cars, residual accident vehicles after ego's path is open, or a queue visible far away but not blocking ego's usable corridor.
 This question includes vehicle/path conflicts such as a red-light-running or oncoming vehicle; that is an obstacle/conflict, not a traffic-light fault.
 
 VULNERABLE:
 Look specifically for pedestrians, cyclists, scooter riders, wheelchair users, or other unprotected road users. YES only if one is in the ego path, crossing it, approaching the conflict zone, emerging from occlusion, or close enough to affect ego's current decision.
+Before answering, deliberately inspect every crosswalk, curb corner, sidewalk edge, shoulder, bus-stop area, and left/right image edge in all four history frames. A person or bicycle may be small, partly hidden, or visible clearly in only one frame; one clear frame is enough for YES when that person can enter ego's forward or turning conflict area.
 Use the history to check lateral movement and whether the person's/bicycle's path intersects ego's path. Crosswalk users, cyclists entering from a side street, and pedestrians close to a turning path can be YES.
 Do not require the person or bicycle to already be inside the ego lane. A cyclist or pedestrian near the curb, sidewalk edge, side lane, crosswalk, or turning conflict zone is VULNERABLE=YES when ego may soon pass, turn, or merge near them, especially if they are oriented toward the roadway, standing near a crosswalk, walking beside the road, or partly entering from the side.
 For the first loop question, treat active unprotected people/bicycles near the upcoming junction, sidewalk corner, shoulder, or curb as decision-relevant unless they are clearly far away or separated by a barrier. A standing pedestrian beside a crosswalk and a cyclist on the sidewalk edge near ego's forward/turning path are YES, not NO, even before they step into the lane.
@@ -71,11 +73,13 @@ Do not mark VULNERABLE just because there is a traffic light or another vehicle 
 
 TRAFFIC_LIGHT_ABNORMAL:
 First identify the signal heads around the same junction and compare left/front/right views. Decide whether the signal system at the ego conflict point is self-consistent, not only whether the ego-facing lamp is green. Separate this junction from distant junctions and pedestrian-only signals.
+Use a visual-witness test before deciding YES: locate one junction box, assign each readable illuminated head to an approach or movement, and look for a witness pair of GREEN heads that authorize paths through the same conflict box. A red head plus a green head is normal by default. Two lights at different or distant junctions are not a pair. Do not call a fault from colors alone unless their approaches/movements visibly conflict.
 YES requires the signal/control system itself to be visibly unreliable, broken, or contradictory at the same conflict point. Positive patterns include:
 - conflicting approaches or incompatible movements visibly permitted at the same time while vehicles are released through the shared conflict area;
 - several signal heads on different arms of the same cross junction show green at the same time for directions that would cross or collide; answer YES even if ego's own signal is green and appears bright/normal;
 - all-visible-green, all-visible-red, or mixed red/green states that cannot be a normal phase for the same conflict point;
 - if the same intersection conflict area shows green lights on the ego approach AND green lights on crossing/merging approaches in the same newest frame, this is TRAFFIC_LIGHT_ABNORMAL=YES. This includes four-way crosses, T-junctions, angled junctions, and multi-arm junctions. Do not call it a "consistent green phase across all arms"; synchronized green across conflicting directions is the defect.
+- one clear witness frame is sufficient. If an older history frame clearly shows two crossing approaches green, answer YES even if the newest frame is partially occluded, foggy, or one signal head has moved out of view. Conversely, do not infer YES from a defect scenario when no history frame contains a readable contradictory signal witness.
 - the ego-governing signal head is present but dark/off/broken when it should control the junction;
 - impossible flashing, stuck, or inconsistent signal behavior across the short history;
 - abnormal all-red/all-green or red/green combinations that would authorize a collision, not merely different phases for different approaches.
@@ -90,7 +94,7 @@ Do not infer a signal fault from a scenario name, event label, ego waiting, or t
     if audit:
         output = """
 [AUDIT_OUTPUT]
-For each item, write one short, externally checkable visual observation (not hidden reasoning), then the answer. Mention only what is visible in the RGB history. If the answer is NO, name the main rejected false-positive cue when useful, such as "wide straight city road but no ramp/access control" or "vehicle violates signal but lamps look normal".
+For each item, write one short, externally checkable visual observation (not hidden reasoning), then the answer. Mention only what is visible in the RGB history. For a small/brief object or signal, name the history-frame position where it is clearest. For TRAFFIC_LIGHT_ABNORMAL=YES, name the two visibly conflicting green approaches or the broken head. For TRAFFIC_LIGHT_ABNORMAL=NO, state that no readable conflicting same-junction witness pair was seen, rather than merely calling the phase normal. If the answer is NO, name the main rejected false-positive cue when useful, such as "wide straight city road but no ramp/access control" or "vehicle violates signal but lamps look normal".
 EVIDENCE_HIGHWAY: <short visible road-topology evidence>
 EVIDENCE_OBSTACLE: <short visible object/path evidence>
 EVIDENCE_VULNERABLE: <short visible vulnerable-road-user evidence>
