@@ -12,6 +12,14 @@ TRAFFIC_LIGHT_ABNORMAL: YES|NO
 所有命令都从 `AutoMoT/` 目录运行。默认只读本地
 `checkpoints/Qwen3-VL-4B-Instruct`，不会联网下载。
 
+正式输出约定：
+
+- 数据索引写到 `checkpoints/sft_loop_phase1_data/`。
+- base/LoRA eval 结果写到 `checkpoints/sft_loop_phase1_eval/<run_name>/`。
+- 训练结果写到 `checkpoints/sft_loop_phase1_runs/`。
+- 不建议把正式 eval 写到仓库根目录的 `sft_loop_phase1_eval/`；如果命令显式传
+  `--output-dir sft_loop_phase1_eval/...`，脚本会按你给的路径写到根目录，这只适合临时调试。
+
 ## 1. 构建数据
 
 ```bash
@@ -137,6 +145,19 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt_4gpu \
   --cases-per-bin 64 \
   --audit-prompt
+```
+
+根据 base 错例修过 prompt 后的复测，也放在 `checkpoints/` 下另起目录：
+
+```bash
+GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
+  qwen3vl_local/sft_loop_phase1/eval.py \
+  --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt_after_feedback_4gpu \
+  --cases-per-bin 64 \
+  --audit-prompt \
+  --overwrite
 ```
 
 多卡 eval 会写 `cases_rank0.jsonl`、`cases_rank1.jsonl` ...，rank0 汇总
