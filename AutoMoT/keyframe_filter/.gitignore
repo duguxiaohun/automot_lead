@@ -1,5 +1,24 @@
 # Local generated research/audit artifacts. Keep them on disk, do not commit.
-collection_output/
+#
+# Exception: Phase1 four-question lightweight label artifacts are allowed to be
+# committed because they are the canonical scenario × RS × EVENT supervision
+# labels. RGB contact sheets, per-route summaries, and other bulky/reproducible
+# evidence under collection_output remain ignored.
+collection_output/*
+!collection_output/phase1_four_question_audit/
+collection_output/phase1_four_question_audit/*
+!collection_output/phase1_four_question_audit/answer_table_partial.json
+!collection_output/phase1_four_question_audit/phase1_four_question_answer_table.json
+!collection_output/phase1_four_question_audit/manual_visual_audit_notes.jsonl
+!collection_output/phase1_four_question_audit/*_batch/
+collection_output/phase1_four_question_audit/*_batch/*
+!collection_output/phase1_four_question_audit/*_batch/phase1_four_question_matrix.json
+collection_output/phase1_four_question_audit/no_scenarios_batch/
+collection_output/phase1_four_question_audit/no_scenarios_batch/*
+!collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/
+collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/*
+!collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/manual_full_sheet_notes_20260809.jsonl
+!collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/manual_table_gap_combo_notes_20260810.jsonl
 rgb_r4_r5_audit_results/
 keyframes_all_scenarios.json
 R2_ROUTE_RGB_REVIEW_INDEX_*.csv

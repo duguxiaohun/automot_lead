@@ -1,0 +1,2701 @@
+{
+  "format": "phase1_four_question_audit_v1",
+  "questions": [
+    "highway",
+    "obstacle",
+    "vulnerable",
+    "traffic_light_abnormal"
+  ],
+  "samples_per_town": 3,
+  "scenarios_filter": [
+    "OppositeVehicleRunningRedLight",
+    "PriorityAtJunction",
+    "RedLightWithoutLeadVehicle",
+    "SignalizedJunctionLeftTurn",
+    "SignalizedJunctionLeftTurnEnterFlow",
+    "SignalizedJunctionRightTurn",
+    "T_Junction"
+  ],
+  "group_count": 16,
+  "groups": [
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "rs": "R1",
+      "event": "R-E1",
+      "frame_count": 2733,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town06",
+        "Town07",
+        "Town10HD",
+        "Town12",
+        "Town13"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario8_10_route0_01_09_00_02_37",
+          "frame_id": 150,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_10_route0_01_09_00_02_37/rgb/0150.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario8_39_route0_01_11_13_30_45",
+          "frame_id": 63,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_39_route0_01_11_13_30_45/rgb/0063.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario8_63_route0_01_10_02_39_29",
+          "frame_id": 161,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_63_route0_01_10_02_39_29/rgb/0161.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario8_21_route0_01_08_21_02_36",
+          "frame_id": 54,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town02_Rep0_Town02_Scenario8_21_route0_01_08_21_02_36/rgb/0054.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario8_5_route0_01_10_14_40_03",
+          "frame_id": 62,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town02_Rep0_Town02_Scenario8_5_route0_01_10_14_40_03/rgb/0062.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario8_8_route0_01_09_01_17_09",
+          "frame_id": 63,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town02_Rep0_Town02_Scenario8_8_route0_01_09_01_17_09/rgb/0063.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario8_10_route0_01_10_06_28_47",
+          "frame_id": 52,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_10_route0_01_10_06_28_47/rgb/0052.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario8_52_route0_01_08_07_01_49",
+          "frame_id": 66,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_52_route0_01_08_07_01_49/rgb/0066.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario8_8_route0_01_10_11_50_10",
+          "frame_id": 63,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_8_route0_01_10_11_50_10/rgb/0063.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario8_102_route0_01_09_17_16_49",
+          "frame_id": 54,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_102_route0_01_09_17_16_49/rgb/0054.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario8_36_route0_01_09_22_04_55",
+          "frame_id": 56,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_36_route0_01_09_22_04_55/rgb/0056.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario8_90_route0_01_10_06_46_37",
+          "frame_id": 68,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_90_route0_01_10_06_46_37/rgb/0068.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario8_102_route0_01_10_15_09_22",
+          "frame_id": 59,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town05_Rep0_Town05_Scenario8_102_route0_01_10_15_09_22/rgb/0059.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario8_186_route0_01_10_19_08_39",
+          "frame_id": 67,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town05_Rep0_Town05_Scenario8_186_route0_01_10_19_08_39/rgb/0067.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario8_90_route0_01_09_05_58_41",
+          "frame_id": 72,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town05_Rep0_Town05_Scenario8_90_route0_01_09_05_58_41/rgb/0072.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario8_2_route0_01_10_10_15_06",
+          "frame_id": 45,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town06_Rep0_Town06_Scenario8_2_route0_01_10_10_15_06/rgb/0045.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario8_82_route0_01_08_13_18_42",
+          "frame_id": 43,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town06_Rep0_Town06_Scenario8_82_route0_01_08_13_18_42/rgb/0043.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario8_9_route0_01_10_13_50_48",
+          "frame_id": 59,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town06_Rep0_Town06_Scenario8_9_route0_01_10_13_50_48/rgb/0059.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario8_0_route0_01_11_01_14_03",
+          "frame_id": 43,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_0_route0_01_11_01_14_03/rgb/0043.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario8_31_route0_01_10_04_01_39",
+          "frame_id": 66,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_31_route0_01_10_04_01_39/rgb/0066.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario8_4_route0_01_07_23_40_51",
+          "frame_id": 128,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_4_route0_01_07_23_40_51/rgb/0128.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario8_15_route0_01_08_19_36_13",
+          "frame_id": 68,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town10HD_Rep0_Town10HD_Scenario8_15_route0_01_08_19_36_13/rgb/0068.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario8_37_route0_01_09_07_11_44",
+          "frame_id": 163,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town10HD_Rep0_Town10HD_Scenario8_37_route0_01_09_07_11_44/rgb/0163.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario8_52_route0_01_09_10_31_17",
+          "frame_id": 219,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town10HD_Rep0_Town10HD_Scenario8_52_route0_01_09_10_31_17/rgb/0219.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_1130_0_route0_01_10_00_15_07",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town12_Rep0_1130_0_route0_01_10_00_15_07/rgb/0000.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_3590_0_route0_01_10_03_32_51",
+          "frame_id": 1,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town12_Rep0_3590_0_route0_01_10_03_32_51/rgb/0001.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_877_0_route0_01_09_08_07_25",
+          "frame_id": 82,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town12_Rep0_877_0_route0_01_09_08_07_25/rgb/0082.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1047_0_route0_01_10_16_28_42",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town13_Rep0_1047_0_route0_01_10_16_28_42/rgb/0000.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1088_3_route0_01_08_19_41_46",
+          "frame_id": 94,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town13_Rep0_1088_3_route0_01_08_19_41_46/rgb/0094.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_7_5_route0_01_09_06_02_55",
+          "frame_id": 87,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town13_Rep0_7_5_route0_01_09_06_02_55/rgb/0087.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/001_OppositeVehicleRunningRedLight__R1__R-E1.jpg"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "rs": "R4",
+      "event": "R-E4",
+      "frame_count": 18819,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town06",
+        "Town07",
+        "Town10HD",
+        "Town12",
+        "Town13"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario8_10_route0_01_09_00_02_37",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_10_route0_01_09_00_02_37/rgb/0000.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario8_37_route0_01_10_04_36_32",
+          "frame_id": 86,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_37_route0_01_10_04_36_32/rgb/0086.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario8_71_route0_01_10_03_42_51",
+          "frame_id": 65,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_71_route0_01_10_03_42_51/rgb/0065.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario8_15_route0_01_08_12_51_42",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town02_Rep0_Town02_Scenario8_15_route0_01_08_12_51_42/rgb/0000.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario8_30_route0_01_08_16_48_32",
+          "frame_id": 84,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town02_Rep0_Town02_Scenario8_30_route0_01_08_16_48_32/rgb/0084.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario8_8_route0_01_09_01_17_09",
+          "frame_id": 56,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town02_Rep0_Town02_Scenario8_8_route0_01_09_01_17_09/rgb/0056.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario8_101_route0_01_09_13_15_56",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_101_route0_01_09_13_15_56/rgb/0000.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario8_51_route0_01_08_06_18_42",
+          "frame_id": 64,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_51_route0_01_08_06_18_42/rgb/0064.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario8_98_route0_01_10_15_31_06",
+          "frame_id": 308,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_98_route0_01_10_15_31_06/rgb/0308.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario8_102_route0_01_09_17_16_49",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_102_route0_01_09_17_16_49/rgb/0000.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario8_50_route0_01_09_23_32_10",
+          "frame_id": 70,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_50_route0_01_09_23_32_10/rgb/0070.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario8_99_route0_01_11_02_35_08",
+          "frame_id": 69,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_99_route0_01_11_02_35_08/rgb/0069.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario8_0_route0_01_10_17_59_38",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town05_Rep0_Town05_Scenario8_0_route0_01_10_17_59_38/rgb/0000.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario8_179_route0_01_08_17_18_06",
+          "frame_id": 8,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town05_Rep0_Town05_Scenario8_179_route0_01_08_17_18_06/rgb/0008.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario8_99_route0_01_11_02_35_30",
+          "frame_id": 69,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town05_Rep0_Town05_Scenario8_99_route0_01_11_02_35_30/rgb/0069.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario8_2_route0_01_10_10_15_06",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town06_Rep0_Town06_Scenario8_2_route0_01_10_10_15_06/rgb/0000.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario8_70_route0_01_08_19_37_10",
+          "frame_id": 36,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town06_Rep0_Town06_Scenario8_70_route0_01_08_19_37_10/rgb/0036.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario8_9_route0_01_10_13_50_48",
+          "frame_id": 53,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town06_Rep0_Town06_Scenario8_9_route0_01_10_13_50_48/rgb/0053.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario8_0_route0_01_11_01_14_03",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_0_route0_01_11_01_14_03/rgb/0000.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario8_20_route0_01_08_07_47_27",
+          "frame_id": 43,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_20_route0_01_08_07_47_27/rgb/0043.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario8_8_route0_01_10_21_38_23",
+          "frame_id": 70,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_8_route0_01_10_21_38_23/rgb/0070.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario8_15_route0_01_08_19_36_13",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town10HD_Rep0_Town10HD_Scenario8_15_route0_01_08_19_36_13/rgb/0000.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario8_37_route0_01_09_07_11_44",
+          "frame_id": 155,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town10HD_Rep0_Town10HD_Scenario8_37_route0_01_09_07_11_44/rgb/0155.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario8_6_route0_01_09_02_29_34",
+          "frame_id": 57,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town10HD_Rep0_Town10HD_Scenario8_6_route0_01_09_02_29_34/rgb/0057.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_1130_0_route0_01_10_00_15_07",
+          "frame_id": 17,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town12_Rep0_1130_0_route0_01_10_00_15_07/rgb/0017.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_3590_0_route0_01_10_03_32_51",
+          "frame_id": 50,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town12_Rep0_3590_0_route0_01_10_03_32_51/rgb/0050.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_877_0_route0_01_09_08_07_25",
+          "frame_id": 73,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town12_Rep0_877_0_route0_01_09_08_07_25/rgb/0073.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1047_0_route0_01_10_16_28_42",
+          "frame_id": 14,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town13_Rep0_1047_0_route0_01_10_16_28_42/rgb/0014.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1088_1_route0_01_08_01_34_28",
+          "frame_id": 83,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town13_Rep0_1088_1_route0_01_08_01_34_28/rgb/0083.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_7_5_route0_01_09_06_02_55",
+          "frame_id": 76,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town13_Rep0_7_5_route0_01_09_06_02_55/rgb/0076.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/002_OppositeVehicleRunningRedLight__R4__R-E4.jpg"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "rs": "R4",
+      "event": "U-E6",
+      "frame_count": 6613,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town06",
+        "Town07",
+        "Town10HD",
+        "Town12",
+        "Town13"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario8_10_route0_01_09_00_02_37",
+          "frame_id": 95,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_10_route0_01_09_00_02_37/rgb/0095.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario8_37_route0_01_10_04_36_32",
+          "frame_id": 115,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_37_route0_01_10_04_36_32/rgb/0115.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario8_71_route0_01_10_03_42_51",
+          "frame_id": 41,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_71_route0_01_10_03_42_51/rgb/0041.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario8_15_route0_01_08_12_51_42",
+          "frame_id": 21,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town02_Rep0_Town02_Scenario8_15_route0_01_08_12_51_42/rgb/0021.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario8_30_route0_01_08_16_48_32",
+          "frame_id": 54,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town02_Rep0_Town02_Scenario8_30_route0_01_08_16_48_32/rgb/0054.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario8_8_route0_01_09_01_17_09",
+          "frame_id": 43,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town02_Rep0_Town02_Scenario8_8_route0_01_09_01_17_09/rgb/0043.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario8_101_route0_01_09_13_15_56",
+          "frame_id": 26,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_101_route0_01_09_13_15_56/rgb/0026.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario8_49_route0_01_09_12_44_14",
+          "frame_id": 29,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_49_route0_01_09_12_44_14/rgb/0029.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario8_98_route0_01_10_15_31_06",
+          "frame_id": 77,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_98_route0_01_10_15_31_06/rgb/0077.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario8_102_route0_01_09_17_16_49",
+          "frame_id": 22,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_102_route0_01_09_17_16_49/rgb/0022.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario8_48_route0_01_10_16_23_02",
+          "frame_id": 36,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_48_route0_01_10_16_23_02/rgb/0036.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario8_99_route0_01_11_02_35_08",
+          "frame_id": 42,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_99_route0_01_11_02_35_08/rgb/0042.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario8_0_route0_01_10_17_59_38",
+          "frame_id": 93,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town05_Rep0_Town05_Scenario8_0_route0_01_10_17_59_38/rgb/0093.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario8_186_route0_01_10_19_08_39",
+          "frame_id": 28,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town05_Rep0_Town05_Scenario8_186_route0_01_10_19_08_39/rgb/0028.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario8_99_route0_01_11_02_35_30",
+          "frame_id": 49,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town05_Rep0_Town05_Scenario8_99_route0_01_11_02_35_30/rgb/0049.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario8_63_route0_01_08_08_24_19",
+          "frame_id": 32,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town06_Rep0_Town06_Scenario8_63_route0_01_08_08_24_19/rgb/0032.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario8_70_route0_01_08_19_37_10",
+          "frame_id": 79,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town06_Rep0_Town06_Scenario8_70_route0_01_08_19_37_10/rgb/0079.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario8_9_route0_01_10_13_50_48",
+          "frame_id": 41,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town06_Rep0_Town06_Scenario8_9_route0_01_10_13_50_48/rgb/0041.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario8_0_route0_01_11_01_14_03",
+          "frame_id": 5,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_0_route0_01_11_01_14_03/rgb/0005.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario8_20_route0_01_08_07_47_27",
+          "frame_id": 32,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_20_route0_01_08_07_47_27/rgb/0032.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario8_8_route0_01_10_21_38_23",
+          "frame_id": 45,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_8_route0_01_10_21_38_23/rgb/0045.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario8_15_route0_01_08_19_36_13",
+          "frame_id": 39,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town10HD_Rep0_Town10HD_Scenario8_15_route0_01_08_19_36_13/rgb/0039.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario8_45_route0_01_10_20_02_45",
+          "frame_id": 48,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town10HD_Rep0_Town10HD_Scenario8_45_route0_01_10_20_02_45/rgb/0048.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario8_6_route0_01_09_02_29_34",
+          "frame_id": 26,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town10HD_Rep0_Town10HD_Scenario8_6_route0_01_09_02_29_34/rgb/0026.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_1130_0_route0_01_10_00_15_07",
+          "frame_id": 47,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town12_Rep0_1130_0_route0_01_10_00_15_07/rgb/0047.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_3189_0_route0_01_09_07_32_17",
+          "frame_id": 45,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town12_Rep0_3189_0_route0_01_09_07_32_17/rgb/0045.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_877_0_route0_01_09_08_07_25",
+          "frame_id": 61,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town12_Rep0_877_0_route0_01_09_08_07_25/rgb/0061.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1047_0_route0_01_10_16_28_42",
+          "frame_id": 65,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town13_Rep0_1047_0_route0_01_10_16_28_42/rgb/0065.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1088_1_route0_01_08_01_34_28",
+          "frame_id": 65,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town13_Rep0_1088_1_route0_01_08_01_34_28/rgb/0065.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_7_5_route0_01_09_06_02_55",
+          "frame_id": 61,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/OppositeVehicleRunningRedLight/Town13_Rep0_7_5_route0_01_09_06_02_55/rgb/0061.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/003_OppositeVehicleRunningRedLight__R4__U-E6.jpg"
+    },
+    {
+      "scenario": "PriorityAtJunction",
+      "rs": "R1",
+      "event": "R-E1",
+      "frame_count": 6431,
+      "towns_seen": [
+        "Town12",
+        "Town13"
+      ],
+      "samples": [
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_1094_0_route0_01_08_19_47_16",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town12_Rep0_1094_0_route0_01_08_19_47_16/rgb/0000.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_2818_0_route0_01_08_19_21_48",
+          "frame_id": 37,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town12_Rep0_2818_0_route0_01_08_19_21_48/rgb/0037.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_878_0_route0_01_09_02_51_12",
+          "frame_id": 82,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town12_Rep0_878_0_route0_01_09_02_51_12/rgb/0082.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1022_0_route0_01_09_13_30_13",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town13_Rep0_1022_0_route0_01_09_13_30_13/rgb/0000.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1095_3_route0_01_08_05_51_52",
+          "frame_id": 77,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town13_Rep0_1095_3_route0_01_08_05_51_52/rgb/0077.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_41_2_route0_01_09_12_38_02",
+          "frame_id": 97,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town13_Rep0_41_2_route0_01_09_12_38_02/rgb/0097.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/004_PriorityAtJunction__R1__R-E1.jpg"
+    },
+    {
+      "scenario": "PriorityAtJunction",
+      "rs": "R4",
+      "event": "R-E4",
+      "frame_count": 3271,
+      "towns_seen": [
+        "Town12",
+        "Town13"
+      ],
+      "samples": [
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_1094_0_route0_01_08_19_47_16",
+          "frame_id": 1,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town12_Rep0_1094_0_route0_01_08_19_47_16/rgb/0001.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_3228_0_route0_01_09_22_29_51",
+          "frame_id": 48,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town12_Rep0_3228_0_route0_01_09_22_29_51/rgb/0048.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_878_0_route0_01_09_02_51_12",
+          "frame_id": 69,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town12_Rep0_878_0_route0_01_09_02_51_12/rgb/0069.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1022_0_route0_01_09_13_30_13",
+          "frame_id": 1,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town13_Rep0_1022_0_route0_01_09_13_30_13/rgb/0001.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1095_0_route0_01_09_00_30_08",
+          "frame_id": 40,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town13_Rep0_1095_0_route0_01_09_00_30_08/rgb/0040.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_41_2_route0_01_09_12_38_02",
+          "frame_id": 71,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/PriorityAtJunction/Town13_Rep0_41_2_route0_01_09_12_38_02/rgb/0071.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/005_PriorityAtJunction__R4__R-E4.jpg"
+    },
+    {
+      "scenario": "RedLightWithoutLeadVehicle",
+      "rs": "R1",
+      "event": "R-E1",
+      "frame_count": 3915,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town06",
+        "Town07",
+        "Town10HD",
+        "Town12",
+        "Town13"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_0_route0_01_09_15_32_55",
+          "frame_id": 160,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town01_Rep0_Town01_Scenario7_0_route0_01_09_15_32_55/rgb/0160.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_40_route0_01_09_07_39_53",
+          "frame_id": 165,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town01_Rep0_Town01_Scenario7_40_route0_01_09_07_39_53/rgb/0165.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_6_route0_01_10_04_26_01",
+          "frame_id": 169,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town01_Rep0_Town01_Scenario7_6_route0_01_10_04_26_01/rgb/0169.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_10_route0_01_07_23_04_30",
+          "frame_id": 158,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town02_Rep0_Town02_Scenario7_10_route0_01_07_23_04_30/rgb/0158.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_2_route0_01_10_00_11_29",
+          "frame_id": 59,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town02_Rep0_Town02_Scenario7_2_route0_01_10_00_11_29/rgb/0059.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_45_route0_01_09_10_03_10",
+          "frame_id": 65,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town02_Rep0_Town02_Scenario7_45_route0_01_09_10_03_10/rgb/0065.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_104_route0_01_09_03_43_12",
+          "frame_id": 79,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town03_Rep0_Town03_Scenario7_104_route0_01_09_03_43_12/rgb/0079.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_46_route0_01_10_04_53_55",
+          "frame_id": 74,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town03_Rep0_Town03_Scenario7_46_route0_01_10_04_53_55/rgb/0074.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_77_route0_01_10_10_13_20",
+          "frame_id": 168,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town03_Rep0_Town03_Scenario7_77_route0_01_10_10_13_20/rgb/0168.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_103_route0_01_10_17_32_06",
+          "frame_id": 75,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town04_Rep0_Town04_Scenario7_103_route0_01_10_17_32_06/rgb/0075.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_37_route0_01_08_23_45_47",
+          "frame_id": 165,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town04_Rep0_Town04_Scenario7_37_route0_01_08_23_45_47/rgb/0165.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_98_route0_01_09_05_42_42",
+          "frame_id": 166,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town04_Rep0_Town04_Scenario7_98_route0_01_09_05_42_42/rgb/0166.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_104_route0_01_10_05_51_35",
+          "frame_id": 242,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town05_Rep0_Town05_Scenario7_104_route0_01_10_05_51_35/rgb/0242.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_167_route0_01_09_18_12_33",
+          "frame_id": 244,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town05_Rep0_Town05_Scenario7_167_route0_01_09_18_12_33/rgb/0244.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_85_route0_01_09_20_16_37",
+          "frame_id": 73,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town05_Rep0_Town05_Scenario7_85_route0_01_09_20_16_37/rgb/0073.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario9_10_route0_01_09_23_04_58",
+          "frame_id": 88,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town06_Rep0_Town06_Scenario9_10_route0_01_09_23_04_58/rgb/0088.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario9_29_route0_01_08_11_30_46",
+          "frame_id": 156,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town06_Rep0_Town06_Scenario9_29_route0_01_08_11_30_46/rgb/0156.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario9_77_route0_01_08_17_09_36",
+          "frame_id": 159,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town06_Rep0_Town06_Scenario9_77_route0_01_08_17_09_36/rgb/0159.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario9_18_route0_01_10_18_12_09",
+          "frame_id": 231,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town07_Rep0_Town07_Scenario9_18_route0_01_10_18_12_09/rgb/0231.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario9_5_route0_01_09_18_10_43",
+          "frame_id": 84,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town07_Rep0_Town07_Scenario9_5_route0_01_09_18_10_43/rgb/0084.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario9_9_route0_01_10_14_57_07",
+          "frame_id": 259,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town07_Rep0_Town07_Scenario9_9_route0_01_10_14_57_07/rgb/0259.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_22_route0_01_09_18_45_23",
+          "frame_id": 287,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town10HD_Rep0_Town10HD_Scenario7_22_route0_01_09_18_45_23/rgb/0287.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_09_17_07_24",
+          "frame_id": 57,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_09_17_07_24/rgb/0057.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_9_route0_01_10_13_43_40",
+          "frame_id": 98,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town10HD_Rep0_Town10HD_Scenario7_9_route0_01_10_13_43_40/rgb/0098.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_002963_route0_01_10_00_07_18",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town12_Rep0_route_002963_route0_01_10_00_07_18/rgb/0000.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_002989_route0_01_10_00_22_18",
+          "frame_id": 13,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town12_Rep0_route_002989_route0_01_10_00_22_18/rgb/0013.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_003012_route0_01_10_11_33_14",
+          "frame_id": 254,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town12_Rep0_route_003012_route0_01_10_11_33_14/rgb/0254.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003313_route0_01_09_12_12_39",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town13_Rep0_route_003313_route0_01_09_12_12_39/rgb/0000.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003339_route0_01_11_00_05_11",
+          "frame_id": 94,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town13_Rep0_route_003339_route0_01_11_00_05_11/rgb/0094.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003362_route0_01_10_02_34_32",
+          "frame_id": 175,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town13_Rep0_route_003362_route0_01_10_02_34_32/rgb/0175.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/006_RedLightWithoutLeadVehicle__R1__R-E1.jpg"
+    },
+    {
+      "scenario": "RedLightWithoutLeadVehicle",
+      "rs": "R4",
+      "event": "R-E4",
+      "frame_count": 44395,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town06",
+        "Town07",
+        "Town10HD",
+        "Town12",
+        "Town13"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_0_route0_01_09_15_32_55",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town01_Rep0_Town01_Scenario7_0_route0_01_09_15_32_55/rgb/0000.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_42_route0_01_09_02_28_40",
+          "frame_id": 10,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town01_Rep0_Town01_Scenario7_42_route0_01_09_02_28_40/rgb/0010.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_6_route0_01_10_04_26_01",
+          "frame_id": 160,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town01_Rep0_Town01_Scenario7_6_route0_01_10_04_26_01/rgb/0160.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_10_route0_01_07_23_04_30",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town02_Rep0_Town02_Scenario7_10_route0_01_07_23_04_30/rgb/0000.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_26_route0_01_09_12_05_39",
+          "frame_id": 146,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town02_Rep0_Town02_Scenario7_26_route0_01_09_12_05_39/rgb/0146.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_45_route0_01_09_10_03_10",
+          "frame_id": 56,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town02_Rep0_Town02_Scenario7_45_route0_01_09_10_03_10/rgb/0056.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_102_route0_01_10_01_04_10",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town03_Rep0_Town03_Scenario7_102_route0_01_10_01_04_10/rgb/0000.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_61_route0_01_08_19_27_07",
+          "frame_id": 115,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town03_Rep0_Town03_Scenario7_61_route0_01_08_19_27_07/rgb/0115.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_95_route0_01_08_13_03_05",
+          "frame_id": 90,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town03_Rep0_Town03_Scenario7_95_route0_01_08_13_03_05/rgb/0090.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_103_route0_01_10_17_32_06",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town04_Rep0_Town04_Scenario7_103_route0_01_10_17_32_06/rgb/0000.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_43_route0_01_08_03_15_21",
+          "frame_id": 172,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town04_Rep0_Town04_Scenario7_43_route0_01_08_03_15_21/rgb/0172.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_98_route0_01_09_05_42_42",
+          "frame_id": 154,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town04_Rep0_Town04_Scenario7_98_route0_01_09_05_42_42/rgb/0154.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_104_route0_01_10_05_51_35",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town05_Rep0_Town05_Scenario7_104_route0_01_10_05_51_35/rgb/0000.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_183_route0_01_09_10_17_41",
+          "frame_id": 229,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town05_Rep0_Town05_Scenario7_183_route0_01_09_10_17_41/rgb/0229.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_9_route0_01_11_03_57_04",
+          "frame_id": 172,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town05_Rep0_Town05_Scenario7_9_route0_01_11_03_57_04/rgb/0172.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario9_10_route0_01_09_23_04_58",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town06_Rep0_Town06_Scenario9_10_route0_01_09_23_04_58/rgb/0000.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario9_29_route0_01_08_11_30_46",
+          "frame_id": 102,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town06_Rep0_Town06_Scenario9_29_route0_01_08_11_30_46/rgb/0102.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario9_78_route0_01_10_02_17_01",
+          "frame_id": 64,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town06_Rep0_Town06_Scenario9_78_route0_01_10_02_17_01/rgb/0064.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario9_15_route0_01_09_11_43_39",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town07_Rep0_Town07_Scenario9_15_route0_01_09_11_43_39/rgb/0000.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario9_32_route0_01_08_21_56_34",
+          "frame_id": 147,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town07_Rep0_Town07_Scenario9_32_route0_01_08_21_56_34/rgb/0147.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario9_9_route0_01_10_14_57_07",
+          "frame_id": 247,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town07_Rep0_Town07_Scenario9_9_route0_01_10_14_57_07/rgb/0247.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_10_route0_01_09_14_40_19",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town10HD_Rep0_Town10HD_Scenario7_10_route0_01_09_14_40_19/rgb/0000.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_23_route0_01_08_09_13_28",
+          "frame_id": 15,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town10HD_Rep0_Town10HD_Scenario7_23_route0_01_08_09_13_28/rgb/0015.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_9_route0_01_10_13_43_40",
+          "frame_id": 90,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town10HD_Rep0_Town10HD_Scenario7_9_route0_01_10_13_43_40/rgb/0090.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_002963_route0_01_10_00_07_18",
+          "frame_id": 15,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town12_Rep0_route_002963_route0_01_10_00_07_18/rgb/0015.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_002987_route0_01_10_02_45_52",
+          "frame_id": 114,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town12_Rep0_route_002987_route0_01_10_02_45_52/rgb/0114.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_003012_route0_01_10_11_33_14",
+          "frame_id": 233,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town12_Rep0_route_003012_route0_01_10_11_33_14/rgb/0233.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003313_route0_01_09_12_12_39",
+          "frame_id": 8,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town13_Rep0_route_003313_route0_01_09_12_12_39/rgb/0008.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003338_route0_01_10_14_25_50",
+          "frame_id": 49,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town13_Rep0_route_003338_route0_01_10_14_25_50/rgb/0049.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003362_route0_01_10_02_34_32",
+          "frame_id": 154,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/RedLightWithoutLeadVehicle/Town13_Rep0_route_003362_route0_01_10_02_34_32/rgb/0154.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/007_RedLightWithoutLeadVehicle__R4__R-E4.jpg"
+    },
+    {
+      "scenario": "SignalizedJunctionLeftTurn",
+      "rs": "R1",
+      "event": "R-E1",
+      "frame_count": 3720,
+      "towns_seen": [
+        "Town01",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town06",
+        "Town07",
+        "Town12",
+        "Town13",
+        "Town15"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002516_route0_01_08_10_14_49",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town01_Rep0_route_002516_route0_01_08_10_14_49/rgb/0000.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002522_route0_01_10_20_51_07",
+          "frame_id": 9,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town01_Rep0_route_002522_route0_01_10_20_51_07/rgb/0009.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002525_route0_01_10_00_03_01",
+          "frame_id": 74,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town01_Rep0_route_002525_route0_01_10_00_03_01/rgb/0074.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002436_route0_01_10_02_58_36",
+          "frame_id": 142,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town03_Rep0_route_002436_route0_01_10_02_58_36/rgb/0142.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002442_route0_01_09_03_05_42",
+          "frame_id": 71,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town03_Rep0_route_002442_route0_01_09_03_05_42/rgb/0071.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002452_route0_01_10_15_31_08",
+          "frame_id": 76,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town03_Rep0_route_002452_route0_01_10_15_31_08/rgb/0076.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002467_route0_01_10_12_25_34",
+          "frame_id": 36,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town04_Rep0_route_002467_route0_01_10_12_25_34/rgb/0036.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002480_route0_01_09_19_37_49",
+          "frame_id": 59,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town04_Rep0_route_002480_route0_01_09_19_37_49/rgb/0059.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002495_route0_01_08_00_48_04",
+          "frame_id": 46,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town04_Rep0_route_002495_route0_01_08_00_48_04/rgb/0046.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_route_002366_route0_01_11_02_32_05",
+          "frame_id": 59,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town05_Rep0_route_002366_route0_01_11_02_32_05/rgb/0059.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_route_002380_route0_01_10_00_40_59",
+          "frame_id": 106,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town05_Rep0_route_002380_route0_01_10_00_40_59/rgb/0106.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_route_002387_route0_01_09_06_08_41",
+          "frame_id": 74,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town05_Rep0_route_002387_route0_01_09_06_08_41/rgb/0074.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario7_24_route0_01_08_08_44_11",
+          "frame_id": 58,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town06_Rep0_Town06_Scenario7_24_route0_01_08_08_44_11/rgb/0058.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario7_56_route0_01_10_21_23_30",
+          "frame_id": 101,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town06_Rep0_Town06_Scenario7_56_route0_01_10_21_23_30/rgb/0101.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario7_89_route0_01_08_21_00_08",
+          "frame_id": 102,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town06_Rep0_Town06_Scenario7_89_route0_01_08_21_00_08/rgb/0102.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario7_21_route0_01_08_19_30_19",
+          "frame_id": 41,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town07_Rep0_Town07_Scenario7_21_route0_01_08_19_30_19/rgb/0041.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario7_29_route0_01_10_10_09_56",
+          "frame_id": 212,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town07_Rep0_Town07_Scenario7_29_route0_01_10_10_09_56/rgb/0212.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario7_30_route0_01_09_16_40_21",
+          "frame_id": 40,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town07_Rep0_Town07_Scenario7_30_route0_01_09_16_40_21/rgb/0040.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_1002_0_route0_01_10_05_18_33",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town12_Rep0_1002_0_route0_01_10_05_18_33/rgb/0000.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_2681_0_route0_01_10_15_18_16",
+          "frame_id": 53,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town12_Rep0_2681_0_route0_01_10_15_18_16/rgb/0053.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_999_0_route0_01_08_00_31_43",
+          "frame_id": 91,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town12_Rep0_999_0_route0_01_08_00_31_43/rgb/0091.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1004_0_route0_01_10_14_59_12",
+          "frame_id": 54,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town13_Rep0_1004_0_route0_01_10_14_59_12/rgb/0054.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1166_1_route0_01_09_10_15_07",
+          "frame_id": 7,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town13_Rep0_1166_1_route0_01_09_10_15_07/rgb/0007.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_9_2_route0_01_09_13_50_57",
+          "frame_id": 72,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town13_Rep0_9_2_route0_01_09_13_50_57/rgb/0072.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002402_route0_01_09_03_57_13",
+          "frame_id": 39,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town15_Rep0_route_002402_route0_01_09_03_57_13/rgb/0039.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002460_route0_01_08_14_53_21",
+          "frame_id": 64,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town15_Rep0_route_002460_route0_01_08_14_53_21/rgb/0064.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002542_route0_01_11_01_57_44",
+          "frame_id": 65,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town15_Rep0_route_002542_route0_01_11_01_57_44/rgb/0065.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/008_SignalizedJunctionLeftTurn__R1__R-E1.jpg"
+    },
+    {
+      "scenario": "SignalizedJunctionLeftTurn",
+      "rs": "R4",
+      "event": "R-E4",
+      "frame_count": 18682,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town06",
+        "Town07",
+        "Town10HD",
+        "Town12",
+        "Town13",
+        "Town15"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002516_route0_01_08_10_14_49",
+          "frame_id": 16,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town01_Rep0_route_002516_route0_01_08_10_14_49/rgb/0016.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002521_route0_01_10_05_39_31",
+          "frame_id": 56,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town01_Rep0_route_002521_route0_01_10_05_39_31/rgb/0056.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002525_route0_01_10_00_03_01",
+          "frame_id": 38,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town01_Rep0_route_002525_route0_01_10_00_03_01/rgb/0038.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002544_route0_01_09_16_53_09",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town02_Rep0_route_002544_route0_01_09_16_53_09/rgb/0000.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002547_route0_01_09_22_58_25",
+          "frame_id": 24,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town02_Rep0_route_002547_route0_01_09_22_58_25/rgb/0024.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002551_route0_01_09_23_04_29",
+          "frame_id": 43,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town02_Rep0_route_002551_route0_01_09_23_04_29/rgb/0043.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002435_route0_01_10_17_57_38",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town03_Rep0_route_002435_route0_01_10_17_57_38/rgb/0000.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002444_route0_01_08_01_32_19",
+          "frame_id": 59,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town03_Rep0_route_002444_route0_01_08_01_32_19/rgb/0059.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002456_route0_01_08_15_59_04",
+          "frame_id": 47,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town03_Rep0_route_002456_route0_01_08_15_59_04/rgb/0047.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002467_route0_01_10_12_25_34",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town04_Rep0_route_002467_route0_01_10_12_25_34/rgb/0000.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002484_route0_01_09_03_27_48",
+          "frame_id": 116,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town04_Rep0_route_002484_route0_01_09_03_27_48/rgb/0116.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002498_route0_01_10_11_47_06",
+          "frame_id": 46,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town04_Rep0_route_002498_route0_01_10_11_47_06/rgb/0046.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_route_002357_route0_01_10_01_20_29",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town05_Rep0_route_002357_route0_01_10_01_20_29/rgb/0000.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_route_002375_route0_01_08_20_40_36",
+          "frame_id": 9,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town05_Rep0_route_002375_route0_01_08_20_40_36/rgb/0009.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_route_002399_route0_01_08_22_17_08",
+          "frame_id": 70,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town05_Rep0_route_002399_route0_01_08_22_17_08/rgb/0070.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario7_14_route0_01_09_06_56_16",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town06_Rep0_Town06_Scenario7_14_route0_01_09_06_56_16/rgb/0000.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario7_46_route0_01_09_07_50_10",
+          "frame_id": 75,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town06_Rep0_Town06_Scenario7_46_route0_01_09_07_50_10/rgb/0075.jpg"
+        },
+        {
+          "town": "Town06",
+          "route_id": "Town06_Rep0_Town06_Scenario7_89_route0_01_08_21_00_08",
+          "frame_id": 92,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town06_Rep0_Town06_Scenario7_89_route0_01_08_21_00_08/rgb/0092.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario7_12_route0_01_11_03_44_03",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town07_Rep0_Town07_Scenario7_12_route0_01_11_03_44_03/rgb/0000.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_Town07_Scenario7_7_route0_01_08_07_37_35",
+          "frame_id": 144,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town07_Rep0_Town07_Scenario7_7_route0_01_08_07_37_35/rgb/0144.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002425_route0_01_10_09_14_33",
+          "frame_id": 59,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town07_Rep0_route_002425_route0_01_10_09_14_33/rgb/0059.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_route_002508_route0_01_10_17_04_43",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town10HD_Rep0_route_002508_route0_01_10_17_04_43/rgb/0000.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_route_002510_route0_01_08_05_19_35",
+          "frame_id": 29,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town10HD_Rep0_route_002510_route0_01_08_05_19_35/rgb/0029.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_route_002514_route0_01_09_19_55_15",
+          "frame_id": 47,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town10HD_Rep0_route_002514_route0_01_09_19_55_15/rgb/0047.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_1002_0_route0_01_10_05_18_33",
+          "frame_id": 16,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town12_Rep0_1002_0_route0_01_10_05_18_33/rgb/0016.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_2681_1_route0_01_08_10_17_00",
+          "frame_id": 33,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town12_Rep0_2681_1_route0_01_08_10_17_00/rgb/0033.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_999_0_route0_01_08_00_31_43",
+          "frame_id": 70,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town12_Rep0_999_0_route0_01_08_00_31_43/rgb/0070.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1004_0_route0_01_10_14_59_12",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town13_Rep0_1004_0_route0_01_10_14_59_12/rgb/0000.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1166_1_route0_01_09_10_15_07",
+          "frame_id": 21,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town13_Rep0_1166_1_route0_01_09_10_15_07/rgb/0021.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_9_2_route0_01_09_13_50_57",
+          "frame_id": 53,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town13_Rep0_9_2_route0_01_09_13_50_57/rgb/0053.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002402_route0_01_09_03_57_13",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town15_Rep0_route_002402_route0_01_09_03_57_13/rgb/0000.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002464_route0_01_10_17_28_38",
+          "frame_id": 60,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town15_Rep0_route_002464_route0_01_10_17_28_38/rgb/0060.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002543_route0_01_08_02_21_03",
+          "frame_id": 74,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurn/Town15_Rep0_route_002543_route0_01_08_02_21_03/rgb/0074.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/009_SignalizedJunctionLeftTurn__R4__R-E4.jpg"
+    },
+    {
+      "scenario": "SignalizedJunctionLeftTurnEnterFlow",
+      "rs": "R1",
+      "event": "R-E1",
+      "frame_count": 2490,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town07",
+        "Town12",
+        "Town13",
+        "Town15"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002329_route0_01_08_23_56_14",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town01_Rep0_route_002329_route0_01_08_23_56_14/rgb/0000.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002336_route0_01_08_09_35_03",
+          "frame_id": 72,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town01_Rep0_route_002336_route0_01_08_09_35_03/rgb/0072.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002338_route0_01_09_11_46_42",
+          "frame_id": 85,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town01_Rep0_route_002338_route0_01_09_11_46_42/rgb/0085.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002349_route0_01_09_11_00_36",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town02_Rep0_route_002349_route0_01_09_11_00_36/rgb/0000.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002354_route0_01_10_23_42_33",
+          "frame_id": 1,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town02_Rep0_route_002354_route0_01_10_23_42_33/rgb/0001.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002356_route0_01_11_04_16_07",
+          "frame_id": 25,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town02_Rep0_route_002356_route0_01_11_04_16_07/rgb/0025.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002268_route0_01_08_21_24_37",
+          "frame_id": 142,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town03_Rep0_route_002268_route0_01_08_21_24_37/rgb/0142.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002275_route0_01_09_13_30_17",
+          "frame_id": 41,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town03_Rep0_route_002275_route0_01_09_13_30_17/rgb/0041.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002281_route0_01_10_16_16_40",
+          "frame_id": 51,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town03_Rep0_route_002281_route0_01_10_16_16_40/rgb/0051.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002290_route0_01_10_02_42_46",
+          "frame_id": 34,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town04_Rep0_route_002290_route0_01_10_02_42_46/rgb/0034.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002320_route0_01_11_03_24_03",
+          "frame_id": 133,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town04_Rep0_route_002320_route0_01_11_03_24_03/rgb/0133.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002320_route0_01_11_03_24_03",
+          "frame_id": 186,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town04_Rep0_route_002320_route0_01_11_03_24_03/rgb/0186.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002260_route0_01_08_00_48_26",
+          "frame_id": 38,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town07_Rep0_route_002260_route0_01_08_00_48_26/rgb/0038.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002260_route0_01_08_00_48_26",
+          "frame_id": 45,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town07_Rep0_route_002260_route0_01_08_00_48_26/rgb/0045.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002260_route0_01_08_00_48_26",
+          "frame_id": 52,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town07_Rep0_route_002260_route0_01_08_00_48_26/rgb/0052.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_002913_route0_01_08_13_14_14",
+          "frame_id": 53,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town12_Rep0_route_002913_route0_01_08_13_14_14/rgb/0053.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_002936_route0_01_09_23_02_00",
+          "frame_id": 11,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town12_Rep0_route_002936_route0_01_09_23_02_00/rgb/0011.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_002962_route0_01_10_01_07_37",
+          "frame_id": 83,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town12_Rep0_route_002962_route0_01_10_01_07_37/rgb/0083.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003263_route0_01_08_02_22_51",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town13_Rep0_route_003263_route0_01_08_02_22_51/rgb/0000.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003286_route0_01_11_15_40_33",
+          "frame_id": 65,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town13_Rep0_route_003286_route0_01_11_15_40_33/rgb/0065.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003312_route0_01_09_14_37_17",
+          "frame_id": 75,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town13_Rep0_route_003312_route0_01_09_14_37_17/rgb/0075.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002342_route0_01_10_05_46_36",
+          "frame_id": 39,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town15_Rep0_route_002342_route0_01_10_05_46_36/rgb/0039.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002344_route0_01_10_10_14_06",
+          "frame_id": 38,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town15_Rep0_route_002344_route0_01_10_10_14_06/rgb/0038.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002346_route0_01_09_09_52_14",
+          "frame_id": 156,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town15_Rep0_route_002346_route0_01_09_09_52_14/rgb/0156.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/010_SignalizedJunctionLeftTurnEnterFlow__R1__R-E1.jpg"
+    },
+    {
+      "scenario": "SignalizedJunctionLeftTurnEnterFlow",
+      "rs": "R4",
+      "event": "R-E4",
+      "frame_count": 10394,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town07",
+        "Town10HD",
+        "Town12",
+        "Town13",
+        "Town15"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002329_route0_01_08_23_56_14",
+          "frame_id": 15,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town01_Rep0_route_002329_route0_01_08_23_56_14/rgb/0015.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002332_route0_01_09_14_54_11",
+          "frame_id": 40,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town01_Rep0_route_002332_route0_01_09_14_54_11/rgb/0040.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002338_route0_01_09_11_46_42",
+          "frame_id": 49,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town01_Rep0_route_002338_route0_01_09_11_46_42/rgb/0049.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002349_route0_01_09_11_00_36",
+          "frame_id": 14,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town02_Rep0_route_002349_route0_01_09_11_00_36/rgb/0014.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002352_route0_01_10_15_19_04",
+          "frame_id": 22,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town02_Rep0_route_002352_route0_01_10_15_19_04/rgb/0022.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002356_route0_01_11_04_16_07",
+          "frame_id": 43,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town02_Rep0_route_002356_route0_01_11_04_16_07/rgb/0043.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002267_route0_01_09_05_40_40",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town03_Rep0_route_002267_route0_01_09_05_40_40/rgb/0000.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002276_route0_01_09_03_32_41",
+          "frame_id": 13,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town03_Rep0_route_002276_route0_01_09_03_32_41/rgb/0013.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002288_route0_01_08_20_11_57",
+          "frame_id": 47,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town03_Rep0_route_002288_route0_01_08_20_11_57/rgb/0047.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002290_route0_01_10_02_42_46",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town04_Rep0_route_002290_route0_01_10_02_42_46/rgb/0000.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002309_route0_01_09_18_38_18",
+          "frame_id": 155,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town04_Rep0_route_002309_route0_01_09_18_38_18/rgb/0155.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002321_route0_01_08_11_58_53",
+          "frame_id": 52,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town04_Rep0_route_002321_route0_01_08_11_58_53/rgb/0052.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_route_002218_route0_01_10_20_47_30",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town05_Rep0_route_002218_route0_01_10_20_47_30/rgb/0000.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_route_002236_route0_01_10_11_24_36",
+          "frame_id": 35,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town05_Rep0_route_002236_route0_01_10_11_24_36/rgb/0035.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_route_002257_route0_01_10_20_24_38",
+          "frame_id": 62,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town05_Rep0_route_002257_route0_01_10_20_24_38/rgb/0062.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002259_route0_01_09_01_13_59",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town07_Rep0_route_002259_route0_01_09_01_13_59/rgb/0000.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002265_route0_01_10_01_47_57",
+          "frame_id": 26,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town07_Rep0_route_002265_route0_01_10_01_47_57/rgb/0026.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002266_route0_01_09_11_49_36",
+          "frame_id": 62,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town07_Rep0_route_002266_route0_01_09_11_49_36/rgb/0062.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_route_002322_route0_01_08_16_54_40",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town10HD_Rep0_route_002322_route0_01_08_16_54_40/rgb/0000.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_route_002324_route0_01_09_12_53_58",
+          "frame_id": 29,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town10HD_Rep0_route_002324_route0_01_09_12_53_58/rgb/0029.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_route_002328_route0_01_10_23_10_27",
+          "frame_id": 48,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town10HD_Rep0_route_002328_route0_01_10_23_10_27/rgb/0048.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_002913_route0_01_08_13_14_14",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town12_Rep0_route_002913_route0_01_08_13_14_14/rgb/0000.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_002936_route0_01_09_23_02_00",
+          "frame_id": 79,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town12_Rep0_route_002936_route0_01_09_23_02_00/rgb/0079.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_route_002962_route0_01_10_01_07_37",
+          "frame_id": 60,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town12_Rep0_route_002962_route0_01_10_01_07_37/rgb/0060.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003263_route0_01_08_02_22_51",
+          "frame_id": 8,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town13_Rep0_route_003263_route0_01_08_02_22_51/rgb/0008.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003282_route0_01_09_00_44_53",
+          "frame_id": 35,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town13_Rep0_route_003282_route0_01_09_00_44_53/rgb/0035.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_route_003312_route0_01_09_14_37_17",
+          "frame_id": 59,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town13_Rep0_route_003312_route0_01_09_14_37_17/rgb/0059.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002342_route0_01_10_05_46_36",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town15_Rep0_route_002342_route0_01_10_05_46_36/rgb/0000.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002346_route0_01_09_09_52_14",
+          "frame_id": 12,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town15_Rep0_route_002346_route0_01_09_09_52_14/rgb/0012.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002346_route0_01_09_09_52_14",
+          "frame_id": 141,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionLeftTurnEnterFlow/Town15_Rep0_route_002346_route0_01_09_09_52_14/rgb/0141.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/011_SignalizedJunctionLeftTurnEnterFlow__R4__R-E4.jpg"
+    },
+    {
+      "scenario": "SignalizedJunctionRightTurn",
+      "rs": "R1",
+      "event": "R-E1",
+      "frame_count": 2615,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town07",
+        "Town10HD",
+        "Town12",
+        "Town13",
+        "Town15"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario9_14_route0_01_08_21_46_06",
+          "frame_id": 34,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town01_Rep0_Town01_Scenario9_14_route0_01_08_21_46_06/rgb/0034.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario9_50_route0_01_09_12_42_43",
+          "frame_id": 41,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town01_Rep0_Town01_Scenario9_50_route0_01_09_12_42_43/rgb/0041.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002637_route0_01_09_13_09_33",
+          "frame_id": 57,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town01_Rep0_route_002637_route0_01_09_13_09_33/rgb/0057.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario9_0_route0_01_09_07_10_56",
+          "frame_id": 37,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town02_Rep0_Town02_Scenario9_0_route0_01_09_07_10_56/rgb/0037.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002655_route0_01_07_23_18_18",
+          "frame_id": 35,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town02_Rep0_route_002655_route0_01_07_23_18_18/rgb/0035.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002656_route0_01_09_03_36_38",
+          "frame_id": 43,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town02_Rep0_route_002656_route0_01_09_03_36_38/rgb/0043.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario9_12_route0_01_11_05_34_56",
+          "frame_id": 45,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town03_Rep0_Town03_Scenario9_12_route0_01_11_05_34_56/rgb/0045.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario9_81_route0_01_09_07_10_48",
+          "frame_id": 44,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town03_Rep0_Town03_Scenario9_81_route0_01_09_07_10_48/rgb/0044.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002600_route0_01_09_09_47_17",
+          "frame_id": 52,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town03_Rep0_route_002600_route0_01_09_09_47_17/rgb/0052.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario9_101_route0_01_09_09_21_42",
+          "frame_id": 35,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town04_Rep0_Town04_Scenario9_101_route0_01_09_09_21_42/rgb/0035.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario9_39_route0_01_10_02_52_37",
+          "frame_id": 40,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town04_Rep0_Town04_Scenario9_39_route0_01_10_02_52_37/rgb/0040.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario9_94_route0_01_10_16_38_34",
+          "frame_id": 39,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town04_Rep0_Town04_Scenario9_94_route0_01_10_16_38_34/rgb/0039.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario9_101_route0_01_08_17_16_07",
+          "frame_id": 40,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town05_Rep0_Town05_Scenario9_101_route0_01_08_17_16_07/rgb/0040.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario9_48_route0_01_10_20_00_50",
+          "frame_id": 142,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town05_Rep0_Town05_Scenario9_48_route0_01_10_20_00_50/rgb/0142.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_route_002552_route0_01_09_00_27_04",
+          "frame_id": 41,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town05_Rep0_route_002552_route0_01_09_00_27_04/rgb/0041.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002583_route0_01_09_12_58_34",
+          "frame_id": 44,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town07_Rep0_route_002583_route0_01_09_12_58_34/rgb/0044.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002583_route0_01_09_12_58_34",
+          "frame_id": 52,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town07_Rep0_route_002583_route0_01_09_12_58_34/rgb/0052.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002583_route0_01_09_12_58_34",
+          "frame_id": 60,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town07_Rep0_route_002583_route0_01_09_12_58_34/rgb/0060.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario9_17_route0_01_09_23_16_25",
+          "frame_id": 132,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town10HD_Rep0_Town10HD_Scenario9_17_route0_01_09_23_16_25/rgb/0132.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario9_56_route0_01_10_06_56_22",
+          "frame_id": 33,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town10HD_Rep0_Town10HD_Scenario9_56_route0_01_10_06_56_22/rgb/0033.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario9_5_route0_01_10_12_02_59",
+          "frame_id": 50,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town10HD_Rep0_Town10HD_Scenario9_5_route0_01_10_12_02_59/rgb/0050.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_132_0_route0_01_09_19_00_00",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town12_Rep0_132_0_route0_01_09_19_00_00/rgb/0000.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_3742_0_route0_01_10_10_35_05",
+          "frame_id": 8,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town12_Rep0_3742_0_route0_01_10_10_35_05/rgb/0008.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_86_0_route0_01_11_04_05_37",
+          "frame_id": 67,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town12_Rep0_86_0_route0_01_11_04_05_37/rgb/0067.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1014_0_route0_01_09_05_53_40",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town13_Rep0_1014_0_route0_01_09_05_53_40/rgb/0000.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1082_0_route0_01_10_06_04_17",
+          "frame_id": 50,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town13_Rep0_1082_0_route0_01_10_06_04_17/rgb/0050.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_2_1_route0_01_10_16_47_41",
+          "frame_id": 71,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town13_Rep0_2_1_route0_01_10_16_47_41/rgb/0071.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002561_route0_01_11_01_39_24",
+          "frame_id": 34,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town15_Rep0_route_002561_route0_01_11_01_39_24/rgb/0034.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002593_route0_01_09_17_37_50",
+          "frame_id": 49,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town15_Rep0_route_002593_route0_01_09_17_37_50/rgb/0049.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002650_route0_01_09_18_51_57",
+          "frame_id": 65,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town15_Rep0_route_002650_route0_01_09_18_51_57/rgb/0065.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/012_SignalizedJunctionRightTurn__R1__R-E1.jpg"
+    },
+    {
+      "scenario": "SignalizedJunctionRightTurn",
+      "rs": "R4",
+      "event": "R-E4",
+      "frame_count": 17051,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town07",
+        "Town10HD",
+        "Town12",
+        "Town13",
+        "Town15"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario9_14_route0_01_08_21_46_06",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town01_Rep0_Town01_Scenario9_14_route0_01_08_21_46_06/rgb/0000.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario9_60_route0_01_10_22_11_05",
+          "frame_id": 2,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town01_Rep0_Town01_Scenario9_60_route0_01_10_22_11_05/rgb/0002.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_route_002640_route0_01_10_17_56_04",
+          "frame_id": 59,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town01_Rep0_route_002640_route0_01_10_17_56_04/rgb/0059.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario9_0_route0_01_09_07_10_56",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town02_Rep0_Town02_Scenario9_0_route0_01_09_07_10_56/rgb/0000.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario9_42_route0_01_11_03_55_03",
+          "frame_id": 11,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town02_Rep0_Town02_Scenario9_42_route0_01_11_03_55_03/rgb/0011.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_route_002657_route0_01_10_10_11_26",
+          "frame_id": 57,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town02_Rep0_route_002657_route0_01_10_10_11_26/rgb/0057.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario9_0_route0_01_10_14_37_36",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town03_Rep0_Town03_Scenario9_0_route0_01_10_14_37_36/rgb/0000.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario9_53_route0_01_10_19_41_08",
+          "frame_id": 38,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town03_Rep0_Town03_Scenario9_53_route0_01_10_19_41_08/rgb/0038.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_route_002600_route0_01_09_09_47_17",
+          "frame_id": 37,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town03_Rep0_route_002600_route0_01_09_09_47_17/rgb/0037.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario9_101_route0_01_09_09_21_42",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town04_Rep0_Town04_Scenario9_101_route0_01_09_09_21_42/rgb/0000.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario9_66_route0_01_08_13_21_45",
+          "frame_id": 2,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town04_Rep0_Town04_Scenario9_66_route0_01_08_13_21_45/rgb/0002.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_route_002614_route0_01_09_22_57_58",
+          "frame_id": 40,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town04_Rep0_route_002614_route0_01_09_22_57_58/rgb/0040.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario9_101_route0_01_08_17_16_07",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town05_Rep0_Town05_Scenario9_101_route0_01_08_17_16_07/rgb/0000.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario9_48_route0_01_10_20_00_50",
+          "frame_id": 47,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town05_Rep0_Town05_Scenario9_48_route0_01_10_20_00_50/rgb/0047.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_route_002560_route0_01_10_11_14_37",
+          "frame_id": 49,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town05_Rep0_route_002560_route0_01_10_11_14_37/rgb/0049.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002583_route0_01_09_12_58_34",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town07_Rep0_route_002583_route0_01_09_12_58_34/rgb/0000.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002583_route0_01_09_12_58_34",
+          "frame_id": 22,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town07_Rep0_route_002583_route0_01_09_12_58_34/rgb/0022.jpg"
+        },
+        {
+          "town": "Town07",
+          "route_id": "Town07_Rep0_route_002583_route0_01_09_12_58_34",
+          "frame_id": 43,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town07_Rep0_route_002583_route0_01_09_12_58_34/rgb/0043.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario9_0_route0_01_08_02_57_12",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town10HD_Rep0_Town10HD_Scenario9_0_route0_01_08_02_57_12/rgb/0000.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario9_35_route0_01_09_04_46_16",
+          "frame_id": 55,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town10HD_Rep0_Town10HD_Scenario9_35_route0_01_09_04_46_16/rgb/0055.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_route_002628_route0_01_09_00_07_01",
+          "frame_id": 45,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town10HD_Rep0_route_002628_route0_01_09_00_07_01/rgb/0045.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_1069_0_route0_01_10_20_55_15",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town12_Rep0_1069_0_route0_01_10_20_55_15/rgb/0000.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_3636_0_route0_01_08_08_06_09",
+          "frame_id": 16,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town12_Rep0_3636_0_route0_01_08_08_06_09/rgb/0016.jpg"
+        },
+        {
+          "town": "Town12",
+          "route_id": "Town12_Rep0_86_0_route0_01_11_04_05_37",
+          "frame_id": 53,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town12_Rep0_86_0_route0_01_11_04_05_37/rgb/0053.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1014_0_route0_01_09_05_53_40",
+          "frame_id": 7,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town13_Rep0_1014_0_route0_01_09_05_53_40/rgb/0007.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_1121_0_route0_01_09_20_04_43",
+          "frame_id": 55,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town13_Rep0_1121_0_route0_01_09_20_04_43/rgb/0055.jpg"
+        },
+        {
+          "town": "Town13",
+          "route_id": "Town13_Rep0_2_1_route0_01_10_16_47_41",
+          "frame_id": 59,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town13_Rep0_2_1_route0_01_10_16_47_41/rgb/0059.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002561_route0_01_11_01_39_24",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town15_Rep0_route_002561_route0_01_11_01_39_24/rgb/0000.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002592_route0_01_08_08_41_59",
+          "frame_id": 37,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town15_Rep0_route_002592_route0_01_08_08_41_59/rgb/0037.jpg"
+        },
+        {
+          "town": "Town15",
+          "route_id": "Town15_Rep0_route_002650_route0_01_09_18_51_57",
+          "frame_id": 46,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/SignalizedJunctionRightTurn/Town15_Rep0_route_002650_route0_01_09_18_51_57/rgb/0046.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/013_SignalizedJunctionRightTurn__R4__R-E4.jpg"
+    },
+    {
+      "scenario": "T_Junction",
+      "rs": "R1",
+      "event": "R-E1",
+      "frame_count": 2048,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town10HD"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_0_route0_01_07_23_32_40",
+          "frame_id": 153,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town01_Rep0_Town01_Scenario7_0_route0_01_07_23_32_40/rgb/0153.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_40_route0_01_08_22_56_09",
+          "frame_id": 158,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town01_Rep0_Town01_Scenario7_40_route0_01_08_22_56_09/rgb/0158.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_6_route0_01_08_00_13_40",
+          "frame_id": 163,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town01_Rep0_Town01_Scenario7_6_route0_01_08_00_13_40/rgb/0163.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_10_route0_01_10_05_04_32",
+          "frame_id": 138,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town02_Rep0_Town02_Scenario7_10_route0_01_10_05_04_32/rgb/0138.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_2_route0_01_11_02_29_13",
+          "frame_id": 40,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town02_Rep0_Town02_Scenario7_2_route0_01_11_02_29_13/rgb/0040.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_45_route0_01_09_01_33_06",
+          "frame_id": 40,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town02_Rep0_Town02_Scenario7_45_route0_01_09_01_33_06/rgb/0040.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_102_route0_01_10_18_00_29",
+          "frame_id": 43,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town03_Rep0_Town03_Scenario7_102_route0_01_10_18_00_29/rgb/0043.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_46_route0_01_10_06_11_05",
+          "frame_id": 54,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town03_Rep0_Town03_Scenario7_46_route0_01_10_06_11_05/rgb/0054.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_94_route0_01_08_03_23_42",
+          "frame_id": 168,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town03_Rep0_Town03_Scenario7_94_route0_01_08_03_23_42/rgb/0168.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_103_route0_01_08_21_20_06",
+          "frame_id": 89,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town04_Rep0_Town04_Scenario7_103_route0_01_08_21_20_06/rgb/0089.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_4_route0_01_09_17_30_37",
+          "frame_id": 173,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town04_Rep0_Town04_Scenario7_4_route0_01_09_17_30_37/rgb/0173.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_9_route0_01_09_02_59_59",
+          "frame_id": 109,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town04_Rep0_Town04_Scenario7_9_route0_01_09_02_59_59/rgb/0109.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_104_route0_01_09_01_19_38",
+          "frame_id": 211,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town05_Rep0_Town05_Scenario7_104_route0_01_09_01_19_38/rgb/0211.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_183_route0_01_10_09_52_11",
+          "frame_id": 221,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town05_Rep0_Town05_Scenario7_183_route0_01_10_09_52_11/rgb/0221.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_9_route0_01_10_02_27_34",
+          "frame_id": 167,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town05_Rep0_Town05_Scenario7_9_route0_01_10_02_27_34/rgb/0167.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_10_route0_01_09_20_03_24",
+          "frame_id": 150,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_10_route0_01_09_20_03_24/rgb/0150.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04",
+          "frame_id": 58,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04/rgb/0058.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_9_route0_01_08_12_18_11",
+          "frame_id": 108,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_9_route0_01_08_12_18_11/rgb/0108.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/014_T_Junction__R1__R-E1.jpg"
+    },
+    {
+      "scenario": "T_Junction",
+      "rs": "R4",
+      "event": "R-E4",
+      "frame_count": 29374,
+      "towns_seen": [
+        "Town01",
+        "Town02",
+        "Town03",
+        "Town04",
+        "Town05",
+        "Town10HD"
+      ],
+      "samples": [
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_0_route0_01_07_23_32_40",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town01_Rep0_Town01_Scenario7_0_route0_01_07_23_32_40/rgb/0000.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_42_route0_01_08_11_07_40",
+          "frame_id": 76,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town01_Rep0_Town01_Scenario7_42_route0_01_08_11_07_40/rgb/0076.jpg"
+        },
+        {
+          "town": "Town01",
+          "route_id": "Town01_Rep0_Town01_Scenario7_7_route0_01_11_03_19_28",
+          "frame_id": 55,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town01_Rep0_Town01_Scenario7_7_route0_01_11_03_19_28/rgb/0055.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_10_route0_01_10_05_04_32",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town02_Rep0_Town02_Scenario7_10_route0_01_10_05_04_32/rgb/0000.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_26_route0_01_08_13_36_48",
+          "frame_id": 230,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town02_Rep0_Town02_Scenario7_26_route0_01_08_13_36_48/rgb/0230.jpg"
+        },
+        {
+          "town": "Town02",
+          "route_id": "Town02_Rep0_Town02_Scenario7_45_route0_01_09_01_33_06",
+          "frame_id": 33,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town02_Rep0_Town02_Scenario7_45_route0_01_09_01_33_06/rgb/0033.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_102_route0_01_10_18_00_29",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town03_Rep0_Town03_Scenario7_102_route0_01_10_18_00_29/rgb/0000.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_61_route0_01_09_01_09_44",
+          "frame_id": 151,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town03_Rep0_Town03_Scenario7_61_route0_01_09_01_09_44/rgb/0151.jpg"
+        },
+        {
+          "town": "Town03",
+          "route_id": "Town03_Rep0_Town03_Scenario7_94_route0_01_08_03_23_42",
+          "frame_id": 152,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town03_Rep0_Town03_Scenario7_94_route0_01_08_03_23_42/rgb/0152.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_103_route0_01_08_21_20_06",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town04_Rep0_Town04_Scenario7_103_route0_01_08_21_20_06/rgb/0000.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_5_route0_01_10_21_06_46",
+          "frame_id": 23,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town04_Rep0_Town04_Scenario7_5_route0_01_10_21_06_46/rgb/0023.jpg"
+        },
+        {
+          "town": "Town04",
+          "route_id": "Town04_Rep0_Town04_Scenario7_9_route0_01_09_02_59_59",
+          "frame_id": 103,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town04_Rep0_Town04_Scenario7_9_route0_01_09_02_59_59/rgb/0103.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_104_route0_01_09_01_19_38",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town05_Rep0_Town05_Scenario7_104_route0_01_09_01_19_38/rgb/0000.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_188_route0_01_08_09_43_36",
+          "frame_id": 79,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town05_Rep0_Town05_Scenario7_188_route0_01_08_09_43_36/rgb/0079.jpg"
+        },
+        {
+          "town": "Town05",
+          "route_id": "Town05_Rep0_Town05_Scenario7_9_route0_01_10_02_27_34",
+          "frame_id": 155,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town05_Rep0_Town05_Scenario7_9_route0_01_10_02_27_34/rgb/0155.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_10_route0_01_09_20_03_24",
+          "frame_id": 0,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_10_route0_01_09_20_03_24/rgb/0000.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_23_route0_01_10_12_22_21",
+          "frame_id": 3,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_23_route0_01_10_12_22_21/rgb/0003.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_9_route0_01_08_12_18_11",
+          "frame_id": 99,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_9_route0_01_08_12_18_11/rgb/0099.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/015_T_Junction__R4__R-E4.jpg"
+    },
+    {
+      "scenario": "T_Junction",
+      "rs": "R5",
+      "event": "R-E5",
+      "frame_count": 76,
+      "towns_seen": [
+        "Town10HD"
+      ],
+      "samples": [
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04",
+          "frame_id": 15,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04/rgb/0015.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_29_route0_01_10_00_09_36",
+          "frame_id": 15,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_29_route0_01_10_00_09_36/rgb/0015.jpg"
+        },
+        {
+          "town": "Town10HD",
+          "route_id": "Town10HD_Rep0_Town10HD_Scenario7_29_route0_01_10_00_09_36",
+          "frame_id": 52,
+          "rgb_path": "/home/codon/automot_lead/AutoMoT/lead_data/T_Junction/Town10HD_Rep0_Town10HD_Scenario7_29_route0_01_10_00_09_36/rgb/0052.jpg"
+        }
+      ],
+      "answers": {
+        "highway": null,
+        "obstacle": null,
+        "vulnerable": null,
+        "traffic_light_abnormal": null
+      },
+      "review_status": "pending_visual_review",
+      "label_source": "must_be_current_frame_RGB_review; rs_event_only_are_strata_not_answers",
+      "evidence_sheet": "AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/sheets/016_T_Junction__R5__R-E5.jpg"
+    }
+  ]
+}
