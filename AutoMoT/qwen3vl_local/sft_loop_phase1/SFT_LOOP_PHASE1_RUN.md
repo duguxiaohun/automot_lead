@@ -27,7 +27,9 @@ python qwen3vl_local/sft_loop_phase1/build_dataset.py \
   --collection-dir keyframe_filter/collection_output \
   --data-root lead_data \
   --answer-table keyframe_filter/collection_output/phase1_four_question_audit/phase1_four_question_answer_table.json \
-  --output-dir checkpoints/sft_loop_phase1_data
+  --output-dir checkpoints/sft_loop_phase1_data \
+  --test-ratio 0.10 \
+  --val-ratio 0.05
 ```
 
 这基本是一次性命令：同一个 `frame_index.jsonl` 可以反复用于 base Qwen 测试、LoRA 训练和
@@ -44,8 +46,32 @@ LoRA 复测。只有下面情况需要重建：
 - `checkpoints/sft_loop_phase1_data/frame_index.jsonl`
 - `checkpoints/sft_loop_phase1_data/manifest.json`
 
-脚本按 route 稳定 split，默认 `test_ratio=0.10`，并剔除 `noScenarios`、异常时长 route
-和 data-missing route。
+脚本按 route 稳定 split，默认 `test_ratio=0.10`、`val_ratio=0.05`，并剔除
+`noScenarios`、异常时长 route 和 data-missing route。train / val / test 按 route
+互斥，避免同一路线相邻帧泄漏。训练中定期验证依赖 `val` split；如果你之前是在
+`val_ratio=0.00` 的旧默认下构建的数据，需要按上面的命令重建一次。
+
+### 是否需要重构数据集
+
+这次需要重构一次。原因是训练脚本已经从“固定 1000 step 快跑”改成“多 epoch +
+训练中定期 val”，而旧数据大概率是在 `val_ratio=0.00` 下构建的，`frame_index.jsonl`
+里没有 `split=val` 的样本。没有 val split 时训练仍能跑，但会跳过训练中的验证曲线，
+看不出是否过拟合。
+
+重构只会重写 `checkpoints/sft_loop_phase1_data/frame_index.jsonl` 和 `manifest.json`，
+不会改 RGB，也不会改人工四问答案表。重构后建议先确认 manifest 里有三类 split：
+
+```bash
+python - <<'PY'
+import json
+m=json.load(open("checkpoints/sft_loop_phase1_data/manifest.json"))
+print(m["counts"])
+print(m["route_counts"])
+PY
+```
+
+如果能看到 `frames/train`、`frames/val`、`frames/test`，就可以开始训练。后续只要
+answer table、RS/EVENT 标注、异常 route 过滤或 split 参数不变，就不需要再次重构。
 
 ## 2. 先测原始 Qwen
 
@@ -165,7 +191,25 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 
 ## 3. 训练 LoRA
 
-默认 LoRA 只挂语言侧，视觉侧保持 frozen。单卡：
+默认 LoRA 只挂语言侧，视觉侧保持 frozen。训练采样和测试采样保持同一个口径：
+四个主问题各自 `YES:NO = 1:1`，也就是八个桶
+`HIGHWAY:YES/NO`、`OBSTACLE:YES/NO`、`VULNERABLE:YES/NO`、
+`TRAFFIC_LIGHT_ABNORMAL:YES/NO` 每轮取同样数量。
+
+现在默认更接近正式训练，不再是 1000 step 快跑：
+
+```text
+FOCUS_BALANCE_COUNT=512  # 每个桶每个 epoch 512 条，全局每 epoch 4096 个 work item
+NUM_EPOCHS=3             # MAX_STEPS=0 时完整跑 3 个 epoch
+EVAL_STEPS=100           # 每 100 个本 rank train step 做一次轻量 val
+EVAL_BALANCE_COUNT=16    # val 每个桶 16 条，全局 128 条，用来看 loss/acc 曲线
+SAVE_STEPS=500           # 额外保存 checkpoint-<step>，final 始终保存
+```
+
+这里的训练中验证是 teacher-forced 的 `val/loss` 和四问答案 token accuracy，适合频繁观察是否过拟合；
+完整自由生成的 TP/FP/FN/TN、precision、recall、F1 仍然用第 4 节的 `eval.py` 跑。
+
+单卡：
 
 ```bash
 GPU_IDS=0 bash qwen3vl_local/sft_loop_phase1/train.sh single
@@ -196,6 +240,8 @@ GPU_IDS=0 bash qwen3vl_local/sft_loop_phase1/train.sh check
 ```bash
 MAX_STEPS=2 \
 FOCUS_BALANCE_COUNT=2 \
+EVAL_STEPS=0 \
+SAVE_STEPS=0 \
 GPU_IDS=0,1 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 ```
 
@@ -204,6 +250,8 @@ GPU_IDS=0,1 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 ```bash
 MAX_STEPS=2 \
 FOCUS_BALANCE_COUNT=2 \
+EVAL_STEPS=0 \
+SAVE_STEPS=0 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 ```
 
@@ -212,8 +260,11 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 1 卡：
 
 ```bash
-MAX_STEPS=3000 \
+NUM_EPOCHS=5 \
+MAX_STEPS=0 \
 FOCUS_BALANCE_COUNT=512 \
+EVAL_STEPS=100 \
+EVAL_BALANCE_COUNT=16 \
 LR=1e-5 \
 LORA_RANK=16 \
 LORA_VISION_SCOPE=off \
@@ -223,8 +274,11 @@ GPU_IDS=0 bash qwen3vl_local/sft_loop_phase1/train.sh single
 2 卡：
 
 ```bash
-MAX_STEPS=3000 \
+NUM_EPOCHS=5 \
+MAX_STEPS=0 \
 FOCUS_BALANCE_COUNT=512 \
+EVAL_STEPS=100 \
+EVAL_BALANCE_COUNT=16 \
 LR=1e-5 \
 LORA_RANK=16 \
 LORA_VISION_SCOPE=off \
@@ -234,13 +288,20 @@ GPU_IDS=0,1 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 4 卡：
 
 ```bash
-MAX_STEPS=3000 \
+NUM_EPOCHS=5 \
+MAX_STEPS=0 \
 FOCUS_BALANCE_COUNT=512 \
+EVAL_STEPS=100 \
+EVAL_BALANCE_COUNT=16 \
 LR=1e-5 \
 LORA_RANK=16 \
 LORA_VISION_SCOPE=off \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 ```
+
+如果你想严格指定总训练步数，可以设置 `MAX_STEPS>0`；这会覆盖 `NUM_EPOCHS` 的总步数，
+适合快速 ablation。正式训练更建议保持 `MAX_STEPS=0`，用 `NUM_EPOCHS` 控制，让模型完整多看几轮
+均衡后的训练数据。
 
 训练采样同样按四个主任务各自 YES/NO 1:1。每个 work item 有一个不可见
 `focus_question`，但 loss 默认监督同一 assistant target 的四个 YES/NO 值 token；
@@ -250,6 +311,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 - `checkpoints/sft_loop_phase1_runs/latest/final/adapter_model.safetensors`
 - `checkpoints/sft_loop_phase1_runs/latest/final/adapter_config.json`
 - `checkpoints/sft_loop_phase1_runs/latest/final/sft_loop_phase1_adapter_config.json`
+- `checkpoints/sft_loop_phase1_runs/latest/checkpoint-<step>/`
 - `checkpoints/sft_loop_phase1_runs/latest/tb/`
 - `checkpoints/sft_loop_phase1_runs/latest/train_balance.json`
 
@@ -259,6 +321,15 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 checkpoints/sft_loop_phase1_runs/run_<RUN_TAG>/
 checkpoints/sft_loop_phase1_runs/latest -> run_<RUN_TAG>
 ```
+
+训练时可以用 TensorBoard 看 `train/loss`、`val/loss`、`val/focus_*_acc`：
+
+```bash
+bash qwen3vl_local/tb_serve.sh checkpoints/sft_loop_phase1_runs/latest/tb
+```
+
+中间的 `checkpoint-<step>/` 也可以直接作为 `--adapter-dir` 跑第 4 节完整 eval。如果
+`val/loss` 后期上升，或者某个 checkpoint 的完整 F1 明显好于 `final/`，就优先用那个 checkpoint。
 
 ## 4. 测试训练后的 LoRA
 

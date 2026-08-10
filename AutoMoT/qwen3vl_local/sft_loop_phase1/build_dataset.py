@@ -215,7 +215,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--scenarios", default="all")
     p.add_argument("--split-seed", type=int, default=20260810)
     p.add_argument("--test-ratio", type=float, default=0.10)
-    p.add_argument("--val-ratio", type=float, default=0.00)
+    p.add_argument("--val-ratio", type=float, default=0.05)
     p.add_argument("--max-routes", type=int, default=0, help="debug only; 0 means all routes")
     return p.parse_args()
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import pathlib
 import random
@@ -277,10 +278,88 @@ def _loss_one(bundle: Any, packed: Mapping[str, Any]) -> Tuple[torch.Tensor, Dic
     return loss, stats
 
 
-def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespace, *, step: int) -> pathlib.Path:
+def _split_work_for_rank(work: Sequence[Tuple[FrameRow, str]], *, rank: int, world_size: int) -> List[Tuple[FrameRow, str]]:
+    """按 rank 切分同一个均衡全集。"""
+
+    if int(world_size) <= 1:
+        return list(work)
+    shard = list(work)[int(rank) :: int(world_size)]
+    if not shard:
+        raise ValueError(f"rank {rank} got empty work shard; reduce WORLD_SIZE or increase balance count")
+    return shard
+
+
+@torch.no_grad()
+def evaluate_loss(
+    bundle: Any,
+    work: Sequence[Tuple[FrameRow, str]],
+    *,
+    prompt: str,
+    max_length: int,
+    device: torch.device,
+    world_size: int,
+) -> Dict[str, float]:
+    """在独立 val split 上跑 teacher-forced loss 和四问 token accuracy。"""
+
+    was_training = bool(bundle.model.training)
+    bundle.model.eval()
+    loss_sum = 0.0
+    samples = 0
+    skipped = 0
+    token_acc_sum = 0.0
+    component_ok = {key: 0.0 for key in ANSWER_KEYS}
+    focus_ok = {key: 0.0 for key in ANSWER_KEYS}
+    focus_count = {key: 0.0 for key in ANSWER_KEYS}
+    for row, focus in work:
+        images = _load_images(row.history_rgb_paths)
+        target = build_phase1_target(row.answers)
+        packed = _build_inputs(bundle, images=images, prompt=prompt, target=target, max_length=int(max_length))
+        if packed is None:
+            skipped += 1
+            continue
+        loss, stats = _loss_one(bundle, packed)
+        loss_value = float(loss.detach().item())
+        loss_sum += loss_value
+        samples += 1
+        token_acc_sum += float(stats.get("token_acc", 0.0))
+        for key in ANSWER_KEYS:
+            ok = float(stats.get(f"{key.lower()}_ok", 0.0))
+            component_ok[key] += ok
+            if key == focus:
+                focus_ok[key] += ok
+                focus_count[key] += 1.0
+    values = [loss_sum, float(samples), float(skipped), token_acc_sum]
+    values.extend(component_ok[key] for key in ANSWER_KEYS)
+    values.extend(focus_ok[key] for key in ANSWER_KEYS)
+    values.extend(focus_count[key] for key in ANSWER_KEYS)
+    tensor = torch.tensor(values, dtype=torch.float64, device=device)
+    if int(world_size) > 1:
+        dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+    vals = [float(x) for x in tensor.detach().cpu().tolist()]
+    total_samples = max(1.0, vals[1])
+    offset = 4
+    metrics: Dict[str, float] = {
+        "loss": vals[0] / total_samples,
+        "samples": vals[1],
+        "skipped": vals[2],
+        "token_acc": vals[3] / total_samples,
+    }
+    for idx, key in enumerate(ANSWER_KEYS):
+        metrics[f"{key.lower()}_acc"] = vals[offset + idx] / total_samples
+    offset += len(ANSWER_KEYS)
+    for idx, key in enumerate(ANSWER_KEYS):
+        denom = max(1.0, vals[offset + len(ANSWER_KEYS) + idx])
+        metrics[f"focus_{key.lower()}_acc"] = vals[offset + idx] / denom
+        metrics[f"focus_{key.lower()}_samples"] = vals[offset + len(ANSWER_KEYS) + idx]
+    if was_training:
+        bundle.model.train()
+    return metrics
+
+
+def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespace, *, step: int, name: str = "final") -> pathlib.Path:
     """保存 LoRA adapter 和 Phase1 自描述配置。"""
 
-    final_dir = output_dir / "final"
+    final_dir = output_dir / str(name)
     final_dir.mkdir(parents=True, exist_ok=True)
     bundle.unwrap().save_pretrained(str(final_dir))
     cfg = {
@@ -293,6 +372,12 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "lora_target_modules": list(bundle.lora_target_modules),
         "answer_order": list(ANSWER_KEYS),
         "global_step": int(step),
+        "num_epochs": int(args.num_epochs),
+        "max_steps": int(args.max_steps),
+        "focus_balance_count": int(args.focus_balance_count),
+        "eval_split": str(args.eval_split),
+        "eval_steps": int(args.eval_steps),
+        "eval_balance_count": int(args.eval_balance_count),
     }
     (final_dir / "sft_loop_phase1_adapter_config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     return final_dir
@@ -307,25 +392,52 @@ def train(args: argparse.Namespace) -> None:
     else:
         device = torch.device(args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
     rows = _read_rows(pathlib.Path(args.index), split=str(args.split), max_frames=int(args.max_frames))
-    work = _balanced_work(rows, target_per_bin=int(args.focus_balance_count), seed=int(args.seed))
-    if not work:
+    full_work = _balanced_work(rows, target_per_bin=int(args.focus_balance_count), seed=int(args.seed))
+    if not full_work:
         raise ValueError("balanced work list is empty")
-    if world_size > 1:
-        # 每个 rank 使用同一个八桶均衡全集的 rank::world_size 分片。所有 rank 的
-        # max_steps 相同，DDP backward 次数一致；rank0 保存全集 balance 供审计。
-        work = work[rank::world_size]
-        if not work:
-            raise ValueError(f"rank {rank} got empty work shard; reduce WORLD_SIZE or increase focus_balance_count")
+    # 每个 rank 使用同一个八桶均衡全集的 rank::world_size 分片。rank0 保存全集
+    # balance 供审计；训练 epoch 会在每个 rank 的 shard 内 shuffle。
+    work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
     output_dir = pathlib.Path(args.output_dir)
+
+    eval_work: List[Tuple[FrameRow, str]] = []
+    eval_error = ""
+    if int(args.eval_steps) > 0 and int(args.eval_balance_count) > 0:
+        try:
+            eval_rows = _read_rows(pathlib.Path(args.index), split=str(args.eval_split), max_frames=int(args.max_eval_frames))
+            full_eval_work = _balanced_work(eval_rows, target_per_bin=int(args.eval_balance_count), seed=int(args.seed) + 1009)
+            eval_work = _split_work_for_rank(full_eval_work, rank=rank, world_size=world_size)
+        except Exception as exc:
+            eval_error = str(exc)
+            eval_work = []
     if rank == 0:
         output_dir.mkdir(parents=True, exist_ok=True)
-        full_work = _balanced_work(rows, target_per_bin=int(args.focus_balance_count), seed=int(args.seed))
+        val_balance = {}
+        if eval_work:
+            eval_rows_for_audit = _read_rows(pathlib.Path(args.index), split=str(args.eval_split), max_frames=int(args.max_eval_frames))
+            full_eval_work_for_audit = _balanced_work(eval_rows_for_audit, target_per_bin=int(args.eval_balance_count), seed=int(args.seed) + 1009)
+            val_balance = {
+                "global": dict(Counter(_focus_key(row, focus) for row, focus in full_eval_work_for_audit)),
+                "rank0_shard": dict(Counter(_focus_key(row, focus) for row, focus in eval_work)),
+            }
+        elif eval_error:
+            print(f"[warn] skip periodic eval: {eval_error}")
         (output_dir / "train_balance.json").write_text(
             json.dumps(
                 {
                     "world_size": int(world_size),
-                    "global": dict(Counter(_focus_key(row, focus) for row, focus in full_work)),
-                    "rank0_shard": dict(Counter(_focus_key(row, focus) for row, focus in work)),
+                    "train": {
+                        "split": str(args.split),
+                        "focus_balance_count": int(args.focus_balance_count),
+                        "global": dict(Counter(_focus_key(row, focus) for row, focus in full_work)),
+                        "rank0_shard": dict(Counter(_focus_key(row, focus) for row, focus in work)),
+                    },
+                    "eval": {
+                        "split": str(args.eval_split),
+                        "eval_steps": int(args.eval_steps),
+                        "eval_balance_count": int(args.eval_balance_count),
+                        **val_balance,
+                    },
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -349,8 +461,10 @@ def train(args: argparse.Namespace) -> None:
         bundle.model = DDP(bundle.model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
     params = [p for p in bundle.model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(params, lr=float(args.learning_rate), weight_decay=float(args.weight_decay), betas=(0.9, 0.95))
-    total_steps = int(args.max_steps)
-    scheduler = make_scheduler(optimizer, total_steps=total_steps, warmup_steps=int(args.warmup_steps))
+    steps_per_epoch = len(work)
+    total_steps = int(args.max_steps) if int(args.max_steps) > 0 else max(1, steps_per_epoch * max(1, int(args.num_epochs)))
+    total_optimizer_steps = max(1, math.ceil(total_steps / max(1, int(args.grad_accum))))
+    scheduler = make_scheduler(optimizer, total_steps=total_optimizer_steps, warmup_steps=int(args.warmup_steps))
     writer = SummaryWriter(str(output_dir / "tb")) if rank == 0 and _TB_AVAILABLE and not bool(args.no_tb) else None
     prompt = build_phase1_prompt(audit=False)
 
@@ -359,8 +473,16 @@ def train(args: argparse.Namespace) -> None:
     skipped = 0
     t0 = time.time()
     bundle.model.train()
+    if rank == 0:
+        print(
+            f"[data] train_rows={len(rows)} train_work_global={len(full_work)} train_work_rank={len(work)} "
+            f"steps_per_epoch_rank={steps_per_epoch} num_epochs={int(args.num_epochs)} max_steps={int(args.max_steps)} "
+            f"total_steps_rank={total_steps} eval_work_rank={len(eval_work)}"
+        )
+    epoch = 0
     while global_step < total_steps:
         rng.shuffle(work)
+        epoch_start_step = global_step
         for row, focus in work:
             images = _load_images(row.history_rgb_paths)
             target = build_phase1_target(row.answers)
@@ -383,13 +505,40 @@ def train(args: argparse.Namespace) -> None:
                     writer.add_scalar(f"train/{key}", value, global_step)
             if rank == 0 and global_step % int(args.log_steps) == 0:
                 print(
-                    f"step={global_step}/{total_steps} loss={float(loss.detach().item()):.4f} "
+                    f"epoch={epoch + 1} step={global_step}/{total_steps} loss={float(loss.detach().item()):.4f} "
                     f"focus={focus}:{'YES' if row.answers[focus] else 'NO'} skipped={skipped} world={world_size} "
                     f"elapsed={time.time() - t0:.1f}s"
                 )
             global_step += 1
+            if eval_work and int(args.eval_steps) > 0 and global_step % int(args.eval_steps) == 0:
+                metrics = evaluate_loss(
+                    bundle,
+                    eval_work,
+                    prompt=prompt,
+                    max_length=int(args.max_length),
+                    device=device,
+                    world_size=world_size,
+                )
+                if writer:
+                    for key, value in metrics.items():
+                        writer.add_scalar(f"val/{key}", float(value), global_step)
+                if rank == 0:
+                    print(
+                        f"[eval] step={global_step}/{total_steps} split={args.eval_split} "
+                        f"loss={metrics['loss']:.4f} token_acc={metrics['token_acc']:.4f} "
+                        f"focus_highway={metrics.get('focus_highway_acc', 0.0):.4f} "
+                        f"focus_obstacle={metrics.get('focus_obstacle_acc', 0.0):.4f} "
+                        f"focus_vulnerable={metrics.get('focus_vulnerable_acc', 0.0):.4f} "
+                        f"focus_light={metrics.get('focus_traffic_light_abnormal_acc', 0.0):.4f}"
+                    )
+            if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
+                ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name=f"checkpoint-{global_step}")
+                print(f"[save] step={global_step} adapter={ckpt_dir}")
             if global_step >= total_steps:
                 break
+        if global_step == epoch_start_step:
+            raise RuntimeError("no train steps were completed in an epoch; check max_length and input data")
+        epoch += 1
 
     if world_size > 1:
         dist.barrier()
@@ -411,8 +560,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--split", default="train")
     p.add_argument("--device", default="auto")
     p.add_argument("--max-frames", type=int, default=0)
-    p.add_argument("--focus-balance-count", type=int, default=256)
-    p.add_argument("--max-steps", type=int, default=1000)
+    p.add_argument("--focus-balance-count", type=int, default=512)
+    p.add_argument("--num-epochs", type=int, default=3)
+    p.add_argument("--max-steps", type=int, default=0, help="0 means train num_epochs over the balanced work list")
+    p.add_argument("--eval-split", default="val")
+    p.add_argument("--eval-steps", type=int, default=100)
+    p.add_argument("--eval-balance-count", type=int, default=16)
+    p.add_argument("--max-eval-frames", type=int, default=0)
+    p.add_argument("--save-steps", type=int, default=500)
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--learning-rate", type=float, default=1e-5)
     p.add_argument("--weight-decay", type=float, default=0.0)
