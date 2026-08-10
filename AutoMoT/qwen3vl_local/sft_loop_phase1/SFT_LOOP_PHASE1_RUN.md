@@ -56,7 +56,9 @@ python qwen3vl_local/sft_loop_phase1/eval.py \
   --audit-prompt
 ```
 
-评估集按 8 桶 exact balance：
+评估集按四个主任务分别做 YES/NO 1:1。也就是说 HIGHWAY 模块只保证
+`HIGHWAY:YES / HIGHWAY:NO` 均衡，OBSTACLE 模块只保证
+`OBSTACLE:YES / OBSTACLE:NO` 均衡，以此类推：
 
 ```text
 HIGHWAY:YES / HIGHWAY:NO
@@ -65,15 +67,41 @@ VULNERABLE:YES / VULNERABLE:NO
 TRAFFIC_LIGHT_ABNORMAL:YES / TRAFFIC_LIGHT_ABNORMAL:NO
 ```
 
-每个样本仍回答全部四个问题；`focus_question` 只用于采样和统计，不进入 prompt。
+每个样本仍回答全部四个问题；`focus_question` / `task` 只用于采样和统计，不进入 prompt。
+例如 HIGHWAY 模块的主问题是“是否高速”，该模块会记录 HIGHWAY 的
+TP/FP/FN/TN、precision/recall/F1，同时顺带记录这批 HIGHWAY 1:1 样本上
+OBSTACLE / VULNERABLE / TRAFFIC_LIGHT_ABNORMAL 的结果；这些副问题在该模块里不要求
+YES/NO 均衡。其它三个模块同理。
 
 输出：
 
-- `metrics.json`：总体 exact match、每个问题 accuracy、8 桶计数。
-- `cases.jsonl`：每个 case 的 prompt、RGB 路径、GT、parsed、raw output、ok_by_key。
-- `summary.md`：简短结果。
-- `error_cases/`：错例的 `case.json` 和 4 帧 RGB history。把这个目录或其中若干错例给我看，
-  就可以继续分析到底是高速判据、障碍路径、弱势参与者，还是信号灯异常描述没教明白。
+- `metrics.json`：总结果 + `task_reports.{HIGHWAY,OBSTACLE,VULNERABLE,TRAFFIC_LIGHT_ABNORMAL}`。
+  每个 task report 都有主问题 1:1 balance、TP/FP/FN/TN、precision/recall/F1 和副问题统计。
+- `cases.jsonl`：所有 case 放在一起，含 prompt、RGB 路径、GT、parsed、raw output、ok_by_key。
+- `task_cases/<TASK>/cases.jsonl`：按主任务拆开的 case 记录，方便只看某一类问题。
+- `summary.md`：四个主任务模块的简短 Markdown 报告。
+- `error_cases/<TASK>/case_*/rgb/`：主问题答错的 4 帧 RGB history，父目录明确区分来自哪个主任务。
+- `rgb_cases/<TASK>/case_*/rgb/`：只有显式加 `--save-all-rgb` 时才复制所有受评 RGB；默认不复制全量 RGB，
+  避免输出太大。
+
+你后续给我分析时，优先打包这些轻量文件即可，不需要传全量 RGB：
+
+```bash
+tar -czf /tmp/base_zero_shot_prompt_records.tgz \
+  checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/metrics.json \
+  checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/summary.md \
+  checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/cases.jsonl \
+  checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/task_cases
+```
+
+如果某个主任务表现很差，再只补充该主任务的少量 RGB 错例，例如：
+
+```bash
+tar -czf /tmp/base_highway_error_rgb_sample.tgz \
+  checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/error_cases/HIGHWAY
+```
+
+不建议第一次就传 `rgb_cases/`，除非你专门加了 `--save-all-rgb` 并且只想给我一个很小 smoke。
 
 如果只想跑很小 smoke：
 
@@ -112,7 +140,7 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 ```
 
 多卡 eval 会写 `cases_rank0.jsonl`、`cases_rank1.jsonl` ...，rank0 汇总
-`metrics.json` / `summary.md`。
+`metrics.json` / `summary.md`；同时 `task_cases/<TASK>/` 下也会按 rank 拆分。
 
 ## 3. 训练 LoRA
 
@@ -193,8 +221,9 @@ LORA_VISION_SCOPE=off \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 ```
 
-训练采样同样按 8 桶 exact balance。每个 work item 有一个不可见
-`focus_question`，但 loss 默认监督同一 assistant target 的四个 YES/NO 值 token。
+训练采样同样按四个主任务各自 YES/NO 1:1。每个 work item 有一个不可见
+`focus_question`，但 loss 默认监督同一 assistant target 的四个 YES/NO 值 token；
+也就是训练和测试都保持“主问题均衡，副问题顺带记录/监督”的口径。
 训练产物：
 
 - `checkpoints/sft_loop_phase1_runs/latest/final/adapter_model.safetensors`

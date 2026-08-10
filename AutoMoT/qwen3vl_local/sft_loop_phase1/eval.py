@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """评估 sft_loop_phase1 的 base Qwen 或 LoRA adapter。
 
-默认使用 8 桶均衡抽样，并保存 `cases.jsonl`、`metrics.json`、`summary.md` 和错例
-RGB/输入输出，便于人工分析 prompt 失败原因。
+默认对四个主任务分别做 YES/NO 1:1 抽样，并保存 `cases.jsonl`、`metrics.json`、
+`summary.md` 和按主任务分目录的错例 RGB/输入输出，便于人工分析 prompt 失败原因。
 """
 
 from __future__ import annotations
@@ -152,7 +152,11 @@ def _focus_key(row: FrameRow, focus: str) -> str:
 
 
 def _balanced_cases(rows: Sequence[FrameRow], *, cases_per_bin: int, seed: int) -> List[Tuple[FrameRow, str]]:
-    """按四问题 x YES/NO 采样评估 case。"""
+    """按四个主问题各自 YES/NO 1:1 采样评估 case。
+
+    返回值里的第二项是主任务/focus。每个 case 仍要求模型回答全部四个问题；只是在
+    `focus` 对应的主任务模块里，该主问题的 GT YES/NO 是严格均衡的。
+    """
 
     groups: Dict[str, List[Tuple[FrameRow, str]]] = {f"{key}:{value}": [] for key in ANSWER_KEYS for value in ("YES", "NO")}
     for row in rows:
@@ -253,8 +257,67 @@ def _bool_text(value: bool) -> str:
     return "YES" if bool(value) else "NO"
 
 
-def _copy_error_case(case_dir: pathlib.Path, row: FrameRow, payload: Mapping[str, Any]) -> None:
-    """保存错例 RGB 和 JSON，便于后续人工看图改 prompt。"""
+def _binary_report(counter: Mapping[str, int]) -> Dict[str, Any]:
+    """生成 YES 正类的二分类 TP/FP/TN/FN 和混淆矩阵。"""
+
+    tp = int(counter.get("cm/YES/YES", 0))
+    fp = int(counter.get("cm/NO/YES", 0))
+    fn = int(counter.get("cm/YES/NO", 0)) + int(counter.get("cm/YES/INVALID", 0))
+    tn = int(counter.get("cm/NO/NO", 0))
+    total = int(counter.get("total", 0))
+    correct = int(counter.get("correct", 0))
+    precision = float(tp) / max(1.0, float(tp + fp))
+    recall = float(tp) / max(1.0, float(tp + fn))
+    f1 = 0.0 if precision + recall <= 0.0 else 2.0 * precision * recall / (precision + recall)
+    return {
+        "positive": "YES",
+        "negative": "NO",
+        "total": total,
+        "accuracy": float(correct) / max(1.0, float(total)),
+        "invalid_rate": float(counter.get("pred/INVALID", 0)) / max(1.0, float(total)),
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "confusion_matrix": {
+            "YES": {
+                "YES": int(counter.get("cm/YES/YES", 0)),
+                "NO": int(counter.get("cm/YES/NO", 0)),
+                "INVALID": int(counter.get("cm/YES/INVALID", 0)),
+            },
+            "NO": {
+                "YES": int(counter.get("cm/NO/YES", 0)),
+                "NO": int(counter.get("cm/NO/NO", 0)),
+                "INVALID": int(counter.get("cm/NO/INVALID", 0)),
+            },
+        },
+        "counts": dict(counter),
+    }
+
+
+def _update_binary_counter(counter: Counter[str], gt_value: str, pred_value: Optional[str]) -> None:
+    """累计一个 YES/NO/INVALID 二分类观测。"""
+
+    pred = pred_value if pred_value in ("YES", "NO") else "INVALID"
+    counter[f"gt/{gt_value}"] += 1
+    counter[f"pred/{pred}"] += 1
+    counter[f"cm/{gt_value}/{pred}"] += 1
+    counter["correct"] += int(pred == gt_value)
+    counter["total"] += 1
+
+
+def _task_case_dir(root: pathlib.Path, focus: str, case_idx: int, row: FrameRow) -> pathlib.Path:
+    """按主任务组织 RGB/case 输出目录。"""
+
+    safe_scenario = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in row.scenario)
+    return root / focus / f"case_{case_idx:05d}_{safe_scenario}_f{row.frame_id}"
+
+
+def _copy_case_rgb(case_dir: pathlib.Path, row: FrameRow, payload: Mapping[str, Any]) -> None:
+    """保存 case JSON 和 4 帧 RGB history，便于后续人工看图改 prompt。"""
 
     case_dir.mkdir(parents=True, exist_ok=True)
     (case_dir / "case.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -292,56 +355,90 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     total = 0
     exact = 0
     answer_counts: Dict[str, Counter[str]] = {key: Counter() for key in ANSWER_KEYS}
+    task_counts: Dict[str, Counter[str]] = {key: Counter() for key in ANSWER_KEYS}
+    task_answer_counts: Dict[str, Dict[str, Counter[str]]] = {
+        focus: {key: Counter() for key in ANSWER_KEYS} for focus in ANSWER_KEYS
+    }
     focus_counts: Counter[str] = Counter()
     case_path = output_dir / (f"cases_rank{rank}.jsonl" if world_size > 1 else "cases.jsonl")
+    task_case_root = output_dir / "task_cases"
+    task_case_paths = {
+        focus: task_case_root / focus / (f"cases_rank{rank}.jsonl" if world_size > 1 else "cases.jsonl")
+        for focus in ANSWER_KEYS
+    }
     error_root = output_dir / "error_cases"
+    rgb_root = output_dir / "rgb_cases"
+    task_fps = {}
+    for focus, task_path in task_case_paths.items():
+        task_path.parent.mkdir(parents=True, exist_ok=True)
+        task_fps[focus] = task_path.open("w", encoding="utf-8")
     with case_path.open("w", encoding="utf-8") as f:
-        for local_idx, (row, focus) in enumerate(local_cases):
-            case_idx = rank + local_idx * max(1, world_size)
-            images = _load_images(row.history_rgb_paths)
-            raw = _generate(bundle, images, prompt, int(args.max_new_tokens))
-            parsed = parse_phase1_output(raw)
-            gt = {key: _bool_text(row.answers[key]) for key in ANSWER_KEYS}
-            ok_by_key = {key: parsed.get(key) == gt[key] for key in ANSWER_KEYS}
-            all_ok = all(ok_by_key.values())
-            total += 1
-            exact += int(all_ok)
-            focus_counts[_focus_key(row, focus)] += 1
-            for key in ANSWER_KEYS:
-                answer_counts[key][f"gt/{gt[key]}"] += 1
-                answer_counts[key][f"pred/{parsed.get(key) or 'INVALID'}"] += 1
-                answer_counts[key]["correct"] += int(ok_by_key[key])
-                answer_counts[key]["total"] += 1
-                answer_counts[key][f"focus_correct/{focus}"] += int(focus == key and ok_by_key[key])
-                answer_counts[key][f"focus_total/{focus}"] += int(focus == key)
-            payload = {
-                "case_index": case_idx,
-                "focus_question": focus,
-                "focus_bucket": _focus_key(row, focus),
-                "scenario": row.scenario,
-                "town": row.town,
-                "route_id": row.route_id,
-                "frame_id": row.frame_id,
-                "rs": row.rs,
-                "event": row.event,
-                "history_rgb_paths": row.history_rgb_paths,
-                "gt": gt,
-                "parsed": parsed,
-                "ok_by_key": ok_by_key,
-                "all_ok": all_ok,
-                "raw_output": raw,
-                "prompt": prompt if bool(args.save_prompts) else None,
-            }
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-            if not all_ok and bool(args.save_error_rgb):
-                _copy_error_case(error_root / f"rank{rank}_{case_idx:05d}_{focus}_{row.scenario}_f{row.frame_id}", row, payload)
+        try:
+            for local_idx, (row, focus) in enumerate(local_cases):
+                case_idx = rank + local_idx * max(1, world_size)
+                images = _load_images(row.history_rgb_paths)
+                raw = _generate(bundle, images, prompt, int(args.max_new_tokens))
+                parsed = parse_phase1_output(raw)
+                gt = {key: _bool_text(row.answers[key]) for key in ANSWER_KEYS}
+                ok_by_key = {key: parsed.get(key) == gt[key] for key in ANSWER_KEYS}
+                all_ok = all(ok_by_key.values())
+                total += 1
+                exact += int(all_ok)
+                focus_counts[_focus_key(row, focus)] += 1
+                task_counts[focus]["total"] += 1
+                task_counts[focus]["exact"] += int(all_ok)
+                task_counts[focus][f"main_gt/{gt[focus]}"] += 1
+                task_counts[focus][f"main_pred/{parsed.get(focus) or 'INVALID'}"] += 1
+                task_counts[focus]["main_correct"] += int(ok_by_key[focus])
+                for key in ANSWER_KEYS:
+                    _update_binary_counter(answer_counts[key], gt[key], parsed.get(key))
+                    _update_binary_counter(task_answer_counts[focus][key], gt[key], parsed.get(key))
+                    if key == focus:
+                        task_counts[focus][f"main_cm/{gt[key]}/{parsed.get(key) or 'INVALID'}"] += 1
+                payload = {
+                    "case_index": case_idx,
+                    "task": focus,
+                    "focus_question": focus,
+                    "focus_bucket": _focus_key(row, focus),
+                    "scenario": row.scenario,
+                    "town": row.town,
+                    "route_id": row.route_id,
+                    "frame_id": row.frame_id,
+                    "rs": row.rs,
+                    "event": row.event,
+                    "history_rgb_paths": row.history_rgb_paths,
+                    "latest_rgb_path": row.latest_rgb_path,
+                    "gt": gt,
+                    "parsed": parsed,
+                    "ok_by_key": ok_by_key,
+                    "main_question_ok": ok_by_key[focus],
+                    "all_ok": all_ok,
+                    "raw_output": raw,
+                    "prompt": prompt if bool(args.save_prompts) else None,
+                }
+                encoded = json.dumps(payload, ensure_ascii=False)
+                f.write(encoded + "\n")
+                task_fps[focus].write(encoded + "\n")
+                if not ok_by_key[focus] and bool(args.save_error_rgb):
+                    _copy_case_rgb(_task_case_dir(error_root, focus, case_idx, row), row, payload)
+                if bool(args.save_all_rgb):
+                    _copy_case_rgb(_task_case_dir(rgb_root, focus, case_idx, row), row, payload)
+        finally:
+            for fp in task_fps.values():
+                fp.close()
 
     local_payload = {
         "total": total,
         "exact": exact,
         "answer_counts": {key: dict(counter) for key, counter in answer_counts.items()},
+        "task_counts": {key: dict(counter) for key, counter in task_counts.items()},
+        "task_answer_counts": {
+            focus: {key: dict(counter) for key, counter in counters.items()}
+            for focus, counters in task_answer_counts.items()
+        },
         "focus_counts": dict(focus_counts),
         "case_path": str(case_path),
+        "task_case_paths": {key: str(path) for key, path in task_case_paths.items()},
     }
     gathered: List[Dict[str, Any]] = [local_payload]
     if world_size > 1:
@@ -354,30 +451,61 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     total = sum(int(item.get("total", 0)) for item in gathered)
     exact = sum(int(item.get("exact", 0)) for item in gathered)
     answer_counts = {key: Counter() for key in ANSWER_KEYS}
+    task_counts = {key: Counter() for key in ANSWER_KEYS}
+    task_answer_counts = {focus: {key: Counter() for key in ANSWER_KEYS} for focus in ANSWER_KEYS}
     focus_counts = Counter()
     for item in gathered:
         for key in ANSWER_KEYS:
             answer_counts[key].update(item.get("answer_counts", {}).get(key, {}))
+            task_counts[key].update(item.get("task_counts", {}).get(key, {}))
+        for focus in ANSWER_KEYS:
+            for key in ANSWER_KEYS:
+                task_answer_counts[focus][key].update(item.get("task_answer_counts", {}).get(focus, {}).get(key, {}))
         focus_counts.update(item.get("focus_counts", {}))
 
     per_key = {}
     for key, counter in answer_counts.items():
-        total_key = int(counter.get("total", 0))
-        per_key[key] = {
-            "accuracy": float(counter.get("correct", 0)) / max(1, total_key),
-            "total": total_key,
-            "counts": dict(counter),
+        per_key[key] = _binary_report(counter)
+    task_reports = {}
+    for focus in ANSWER_KEYS:
+        main_report = _binary_report(task_answer_counts[focus][focus])
+        task_total = int(task_counts[focus].get("total", 0))
+        side_reports = {key: _binary_report(task_answer_counts[focus][key]) for key in ANSWER_KEYS}
+        task_reports[focus] = {
+            "task": focus,
+            "sampling_contract": f"{focus}:YES and {focus}:NO are sampled 1:1; side questions are measured on the same cases without balancing.",
+            "cases": task_total,
+            "exact_match_accuracy": float(task_counts[focus].get("exact", 0)) / max(1.0, float(task_total)),
+            "main_question": main_report,
+            "side_questions": side_reports,
+            "sampled_balance": {
+                "YES": int(task_counts[focus].get("main_gt/YES", 0)),
+                "NO": int(task_counts[focus].get("main_gt/NO", 0)),
+            },
+            "counts": dict(task_counts[focus]),
         }
     metrics = {
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
         "adapter_dir": str(args.adapter_dir) if args.adapter_dir else None,
         "audit_prompt": bool(args.audit_prompt),
+        "sampling_contract": "Four independent task modules. In each module, that task's GT YES/NO cases are sampled 1:1; the model still answers all four questions.",
         "total_cases": total,
         "exact_match_accuracy": float(exact) / max(1, total),
         "per_question": per_key,
+        "task_reports": task_reports,
         "focus_counts": dict(focus_counts),
         "cases_jsonl": str(case_path) if world_size == 1 else [str(item.get("case_path")) for item in gathered],
+        "task_cases_jsonl": (
+            {key: str(path) for key, path in task_case_paths.items()}
+            if world_size == 1
+            else {
+                key: [str((output_dir / "task_cases" / key / f"cases_rank{rank_idx}.jsonl")) for rank_idx in range(world_size)]
+                for key in ANSWER_KEYS
+            }
+        ),
+        "error_rgb_layout": "error_cases/<TASK>/case_<id>_<scenario>_f<frame>/rgb/history_*.jpg",
+        "all_rgb_layout": "rgb_cases/<TASK>/case_<id>_<scenario>_f<frame>/rgb/history_*.jpg when --save-all-rgb is enabled",
         "world_size": int(world_size),
     }
     (output_dir / "metrics.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -388,15 +516,50 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         f"- adapter: `{args.adapter_dir or 'BASE_QWEN'}`",
         f"- cases: {total}",
         f"- exact_match_accuracy: {metrics['exact_match_accuracy']:.4f}",
+        f"- sampling: `{metrics['sampling_contract']}`",
         "",
-        "| question | accuracy | total |",
-        "|---|---:|---:|",
+        "## Global Four-Question Metrics",
+        "",
+        "| question | accuracy | precision_yes | recall_yes | f1_yes | total |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for key in ANSWER_KEYS:
-        lines.append(f"| {key} | {per_key[key]['accuracy']:.4f} | {per_key[key]['total']} |")
+        report = per_key[key]
+        lines.append(
+            f"| {key} | {report['accuracy']:.4f} | {report['precision']:.4f} | "
+            f"{report['recall']:.4f} | {report['f1']:.4f} | {report['total']} |"
+        )
+    lines.append("")
+    lines.append("## Task Modules")
+    lines.append("")
+    for focus in ANSWER_KEYS:
+        task = task_reports[focus]
+        main = task["main_question"]
+        balance = task["sampled_balance"]
+        lines.extend(
+            [
+                f"### {focus}",
+                "",
+                f"- cases: {task['cases']} (YES={balance['YES']}, NO={balance['NO']})",
+                f"- main_accuracy: {main['accuracy']:.4f}",
+                f"- main_precision_yes: {main['precision']:.4f}",
+                f"- main_recall_yes: {main['recall']:.4f}",
+                f"- main_f1_yes: {main['f1']:.4f}",
+                f"- TP/FP/FN/TN: {main['tp']} / {main['fp']} / {main['fn']} / {main['tn']}",
+                "",
+                "| measured_question_on_this_task_set | accuracy | f1_yes | total |",
+                "|---|---:|---:|---:|",
+            ]
+        )
+        for key in ANSWER_KEYS:
+            side = task["side_questions"][key]
+            lines.append(f"| {key} | {side['accuracy']:.4f} | {side['f1']:.4f} | {side['total']} |")
+        lines.append("")
     lines.append("")
     lines.append(f"Cases: `{case_path.name}`")
-    lines.append("Wrong examples with RGB are under `error_cases/` when enabled.")
+    lines.append("Task-split case JSONL files are under `task_cases/<TASK>/`.")
+    lines.append("Main-question wrong examples with RGB are under `error_cases/<TASK>/` when enabled.")
+    lines.append("All evaluated RGB histories are copied under `rgb_cases/<TASK>/` only when `--save-all-rgb` is enabled.")
     (output_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"[done] metrics={output_dir / 'metrics.json'} cases={case_path}")
     cleanup_distributed()
@@ -419,6 +582,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--audit-prompt", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--save-prompts", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--save-error-rgb", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--save-all-rgb", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--seed", type=int, default=20260810)
