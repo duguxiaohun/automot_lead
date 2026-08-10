@@ -825,8 +825,27 @@ route 级结果还会写入：
 才能把对应规则标成 final complete。
 
 `collection_output/` 是本地自动调研输出目录，包含 map trace、RGB contact sheet、
-meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；后续需要共享的结论应整理进
-本 README、ROAD_STRUCTURE/ROAD_EVENT 方案文档或小型规则配置。
+meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；唯一例外是 Phase1 四问标签
+轻量 JSON/JSONL：`phase1_four_question_answer_table.json`、`answer_table_partial.json`、
+`manual_visual_audit_notes.jsonl`、`除 no_scenarios_batch 外的 *_batch/phase1_four_question_matrix.json`、
+`full_route_rgb_label_review_20260809/manual_full_sheet_notes_20260809.jsonl` 和
+`full_route_rgb_label_review_20260809/manual_table_gap_combo_notes_20260810.jsonl`。这些是
+scenario × RS × EVENT 四问监督标签/人工审计 notes，可精确 add 和 push；RGB contact sheet、
+montage、candidate anomalies、route/town/scenario/global summary 等证据产物仍留本地。
+Phase1 相关目录索引和复用规则见
+[`PHASE1_COLLECTION_OUTPUT_INDEX.md`](PHASE1_COLLECTION_OUTPUT_INDEX.md)：后续复核必须优先复用
+`full_route_rgb_label_review_20260809/` 和已有 notes，不要每次重新生成一批 RGB 文件夹。
+后续需要共享的新结论应整理进本 README、ROAD_STRUCTURE/ROAD_EVENT 方案文档或小型规则配置。
+
+2026-08-09 追加完成 `phase1_four_question_answer_table.json` 的全量人工 RGB + 原始标签复核：
+详见 [`PHASE1_FOUR_QUESTION_RGB_AUDIT_20260809.md`](PHASE1_FOUR_QUESTION_RGB_AUDIT_20260809.md)；
+目录去重/legacy 关系见 [`PHASE1_COLLECTION_OUTPUT_INDEX.md`](PHASE1_COLLECTION_OUTPUT_INDEX.md)。
+`noScenarios` 已排除；四问口径固定为 `HIGHWAY / OBSTACLE / VULNERABLE / TRAFFIC_LIGHT_ABNORMAL`。
+关键纠偏是：`EnterActorFlow/R1/R-E1` 与 `EnterActorFlowV2/R1/R-E1` 虽然 RS 为 R1，但 RGB 显示高速/快速路
+actor-flow/merge 拓扑，四问 `HIGHWAY=YES`；`InterurbanActorFlow/R3/R-E1` 虽然 RS 为 R3，但 RGB 仍是城际/郊区普通路或路口附近，
+四问 `HIGHWAY=NO`。后续给 Qwen 的提示词必须强调：不能把直道、宽路、空旷路或单独护栏误判成高速；高速需要匝道、出入口、
+导流 gore、连续隔离/受控通行等拓扑证据。`ParkedObstacle × U-E2` 保持组合级 `OBSTACLE=YES`，但 `ParkedObstacle`
+存在 Town12 highway-like 子组，若以后拆 `Town/route topology subgroup` 应单独表达。
 
 规则族结论：
 
@@ -1001,7 +1020,8 @@ python AutoMoT/keyframe_filter/rgb_blind_rs_event_audit.py \
 ## 版本控制边界
 
 默认只把代码、规则文档、README、HTML/CSS/JS、verification 工具和手写说明纳入 git。
-以下内容是本地数据/审计/证据产物，不再进入 push 范围：
+以下内容是本地数据/审计/证据产物，不再进入 push 范围；Phase1 四问标签轻量 JSON/JSONL
+按上文例外处理：
 
 - `collection_output/`
 - `rgb_r4_r5_audit_results/`
@@ -1009,6 +1029,9 @@ python AutoMoT/keyframe_filter/rgb_blind_rs_event_audit.py \
 - `R2_ROUTE_RGB_REVIEW_INDEX_*.csv`
 - `ROAD_EVENT_INTERRUPTED_OVERLAY_*_IDS_*.csv`
 - `ROAD_EVENT_INTERRUPTED_OVERLAY_IDS_SUMMARY_*.json`
+
+Phase1 四问的轻量标签例外、RGB 证据缓存和 legacy/superseded 目录关系，以
+[`PHASE1_COLLECTION_OUTPUT_INDEX.md`](PHASE1_COLLECTION_OUTPUT_INDEX.md) 为准。
 
 SFT v5 训练需要的是 `collection_output/*_result.json` 作为数据源；这类 result 应按数据
 同步方式传到远程机器，或在远程重新运行 `annotate-rs` 生成，不通过 git 仓库携带。

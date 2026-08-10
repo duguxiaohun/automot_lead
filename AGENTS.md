@@ -183,10 +183,23 @@
   是用户人工调研的道路结构与事件分类草案；`ROAD_EVENT_CLASSIFICATION_PLAN.md`
   是 ROAD/EVENT canonical 总方案，已合并 ROAD_STRUCTURE 调研协议、runtime 门控和错帧回查流程；
   `ROAD_EVENT_CANDIDATE_MAPPING.md` 保留为 Qwen/probe 可解析的候选表。
-  **按用户同意扩展为 clean push 白名单，但明确排除输出产物**：
+  **按用户同意扩展为 clean push 白名单，但默认排除输出产物**：
   `AutoMoT/keyframe_filter/` 下代码、方案文档、规则配置、README、HTML/CSS/JS、
   verification 工具和手写说明允许修改、追踪、commit 和 push。
-  但 `AutoMoT/keyframe_filter/collection_output/`、`rgb_r4_r5_audit_results/`、
+  `AutoMoT/keyframe_filter/collection_output/` 默认仍是本地数据/审计/证据产物，
+  不入库、不 push；**唯一例外**是 Phase1 四问标签的轻量 JSON/JSONL：
+  `collection_output/phase1_four_question_audit/phase1_four_question_answer_table.json`、
+  `answer_table_partial.json`、`manual_visual_audit_notes.jsonl`、
+  `除 no_scenarios_batch 外的 *_batch/phase1_four_question_matrix.json`、
+  `full_route_rgb_label_review_20260809/manual_full_sheet_notes_20260809.jsonl`、
+  `full_route_rgb_label_review_20260809/manual_table_gap_combo_notes_20260810.jsonl`。
+  这些文件是 scenario × RS × EVENT 四问监督标签/人工审计笔记，可精确 add 和 push；
+  但 `sheets/*.jpg`、contact sheet、montage、candidate anomalies、route/town/scenario/global
+  summary 等 RGB/可再生证据产物仍不入库。Phase1 `collection_output` 目录主入口、
+  legacy/superseded 关系和复用流程以
+  `AutoMoT/keyframe_filter/PHASE1_COLLECTION_OUTPUT_INDEX.md` 为准；后续类似复核必须先复用
+  `full_route_rgb_label_review_20260809/` 与已有 notes，不要重新批量生成重复 RGB 文件夹。
+  `rgb_r4_r5_audit_results/`、
   `keyframes_all_scenarios.json`、`R2_ROUTE_RGB_REVIEW_INDEX_*.csv`、
   `ROAD_EVENT_INTERRUPTED_OVERLAY_*_IDS_*.csv`、
   `ROAD_EVENT_INTERRUPTED_OVERLAY_IDS_SUMMARY_*.json` 都是本地数据/审计/证据产物，
@@ -534,7 +547,12 @@
 - `0026.json`
 - 仓库根目录或 `AutoMoT/lead_data` 下的 `keyframes_all_scenarios.json` 数据参考文件
 - `AutoMoT/keyframe_filter/collection_output/`
-  （本地自动调研输出目录，已从白名单移除；不入库、不 push，保留在本机即可）
+  （本地自动调研输出目录，默认不入库、不 push，保留在本机即可；Phase1 四问标签轻量
+  JSON/JSONL 例外：`phase1_four_question_answer_table.json`、`answer_table_partial.json`、
+  `manual_visual_audit_notes.jsonl`、`除 no_scenarios_batch 外的 *_batch/phase1_four_question_matrix.json`、
+  `full_route_rgb_label_review_20260809/manual_full_sheet_notes_20260809.jsonl`、
+  `full_route_rgb_label_review_20260809/manual_table_gap_combo_notes_20260810.jsonl`
+  可以精确 add；RGB/contact sheet/summary 等证据产物仍禁止入库）
   （`AutoMoT/keyframe_filter/` 下的同名文件属于该目录白名单，不按这里的只读参考文件处理）
 
 如果确实需要改白名单外文件，先在对话里说明原因并等待用户确认。
@@ -566,6 +584,7 @@
 - `git add keyframes_all_scenarios.json`
 - `git add AutoMoT/lead_data/keyframes_all_scenarios.json`
 - `git add AutoMoT/keyframe_filter/collection_output`
+  （禁止整目录 add；只允许精确 add Phase1 四问标签白名单 JSON/JSONL）
 
 只精确 add 白名单文件。例如：
 
@@ -577,7 +596,10 @@ git add AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py
 git add AutoMoT/leaderboard/team_code/automot_utils.py AutoMoT/Automot/team_code/automot_utils.py AutoMoT/Automot/mot/evaluation/inference.py AutoMoT/Automot/mot/modeling/automot/automot.py AutoMoT/leaderboard/team_code/mot_b2d_agent.py AutoMoT/leaderboard/team_code/display_interface.py AutoMoT/Automot/team_code/display_interface.py
 git add AutoMoT/qwen3vl_local/eval_carla/__init__.py AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_PLAN.md AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md AutoMoT/qwen3vl_local/eval_carla/agent.py AutoMoT/qwen3vl_local/eval_carla/safety.py AutoMoT/qwen3vl_local/eval_carla/video_recorder.py AutoMoT/qwen3vl_local/eval_carla/visualizer.py AutoMoT/qwen3vl_local/eval_carla/scenario_picker.py AutoMoT/qwen3vl_local/eval_carla/aggregate.py AutoMoT/qwen3vl_local/eval_carla/run_eval.sh AutoMoT/qwen3vl_local/eval_carla/webapp/__init__.py AutoMoT/qwen3vl_local/eval_carla/webapp/app.py AutoMoT/qwen3vl_local/eval_carla/webapp/templates/index.html AutoMoT/qwen3vl_local/eval_carla/webapp/static/style.css
 git add AutoMoT/lead_video_tools/__init__.py AutoMoT/lead_video_tools/abnormal_duration_filter.py AutoMoT/lead_video_tools/rgb_to_video.py AutoMoT/lead_video_tools/LEAD_VIDEO_RUN.md
-git add AutoMoT/keyframe_filter/  # 依赖 AutoMoT/keyframe_filter/.gitignore，禁止单独 add collection_output/
+git add AutoMoT/keyframe_filter/  # 依赖 AutoMoT/keyframe_filter/.gitignore，只会带入代码/文档和 Phase1 四问标签轻量 JSON/JSONL，不带 RGB/contact sheet
+git add AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/phase1_four_question_answer_table.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/answer_table_partial.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/manual_visual_audit_notes.jsonl
+git add AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/critical_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/highway_flow_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/motion_parking_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/obstacle_single_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/obstacle_twoways_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/remaining_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/vehicle_turning_batch/phase1_four_question_matrix.json
+git add AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/manual_full_sheet_notes_20260809.jsonl AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/manual_table_gap_combo_notes_20260810.jsonl
 git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/mrope_utils.py AutoMoT/qwen3vl_local/prompt_pipeline.py AutoMoT/qwen3vl_local/run_log.py AutoMoT/qwen3vl_local/tb_serve.sh
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
 git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
@@ -602,9 +624,10 @@ git status
 
 如果 status 里出现白名单外改动，停下来问用户。
 
-`AutoMoT/keyframe_filter/` 是目录白名单，但 `AutoMoT/keyframe_filter/collection_output/`
-已明确移出白名单；目录下代码、方案文档、规则配置和手写说明可精确 add，自动调研输出
-只能留本地。不要和仓库根目录或 `AutoMoT/lead_data` 下的只读参考 JSON 混淆。
+`AutoMoT/keyframe_filter/` 是目录白名单；`AutoMoT/keyframe_filter/collection_output/`
+默认仍不是白名单，但 Phase1 四问标签轻量 JSON/JSONL 是明确例外。目录下代码、方案文档、
+规则配置和手写说明可精确 add；RGB/contact sheet、summary 和其它自动调研输出只能留本地。
+不要和仓库根目录或 `AutoMoT/lead_data` 下的只读参考 JSON 混淆。
 
 push 前也问用户，不要替用户决定是否 push 到 main。
 
