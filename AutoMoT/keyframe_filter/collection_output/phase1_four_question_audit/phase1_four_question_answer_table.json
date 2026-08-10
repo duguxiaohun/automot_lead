@@ -1,5 +1,5 @@
 {
-  "format": "phase1_four_question_answer_table_v2",
+  "format": "phase1_four_question_answer_table",
   "answer_order": [
     "HIGHWAY",
     "OBSTACLE",

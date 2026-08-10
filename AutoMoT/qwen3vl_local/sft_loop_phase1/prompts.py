@@ -11,7 +11,7 @@ import re
 from typing import Dict, Optional
 
 
-PROMPT_VERSION = "sft_loop_phase1_visible_fact_prompt_v3"
+PROMPT_NAME = "sft_loop_phase1_zero_shot_prompt"
 
 ANSWER_KEYS = ("HIGHWAY", "OBSTACLE", "VULNERABLE", "TRAFFIC_LIGHT_ABNORMAL")
 ANSWER_VALUES = ("YES", "NO")
@@ -28,9 +28,9 @@ def build_phase1_prompt(*, audit: bool = False) -> str:
     """
 
     criteria = f"""
-[PROMPT_VERSION]
-{PROMPT_VERSION}
-[/PROMPT_VERSION]
+[PROMPT_NAME]
+{PROMPT_NAME}
+[/PROMPT_NAME]
 
 [VISUAL_CHECK_ORDER]
 Classify the newest frame, but use the short history to confirm motion and visibility. First scan left/front/right for road layout and lane topology. Then trace the ego vehicle's drivable corridor for the next few seconds. Then inspect traffic lights that govern ego, nearby vehicles, and vulnerable road users. Answer each question independently; one YES does not force another YES.

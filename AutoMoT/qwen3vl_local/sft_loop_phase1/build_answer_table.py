@@ -19,7 +19,7 @@ def _load_manifest(path: pathlib.Path) -> Dict[str, Any]:
     """读取并验证一个 phase1 审计 manifest。"""
 
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("format") != "phase1_four_question_audit_v1":
+    if payload.get("format") != "phase1_four_question_audit":
         raise ValueError(f"unsupported phase1 manifest: {path}")
     return payload
 
@@ -84,7 +84,7 @@ def build_answer_table(
             )
     rows.sort(key=lambda row: (row["scenario"], row["rs"], row["event"]))
     return {
-        "format": "phase1_four_question_answer_table_v2",
+        "format": "phase1_four_question_answer_table",
         "answer_order": ["HIGHWAY", "OBSTACLE", "VULNERABLE", "TRAFFIC_LIGHT_ABNORMAL"],
         "group_count": len(rows),
         "excluded_scenarios": sorted(excluded),

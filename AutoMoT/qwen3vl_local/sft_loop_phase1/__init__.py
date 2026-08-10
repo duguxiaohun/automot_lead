@@ -5,4 +5,4 @@
 观察结果作为下一轮问题的输入。
 """
 
-DATASET_VERSION = "sft_loop_phase1_four_visible_facts_v3_prompt_balance_contract"
+DATASET_NAME = "sft_loop_phase1_four_visible_facts_current"

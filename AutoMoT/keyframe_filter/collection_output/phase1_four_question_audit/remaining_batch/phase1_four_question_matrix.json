@@ -1,5 +1,5 @@
 {
-  "format": "phase1_four_question_audit_v1",
+  "format": "phase1_four_question_audit",
   "questions": [
     "highway",
     "obstacle",

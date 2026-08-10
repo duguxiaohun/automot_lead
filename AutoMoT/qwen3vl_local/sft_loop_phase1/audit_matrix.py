@@ -292,7 +292,7 @@ def build_audit_matrix(
             }
         )
     manifest = {
-        "format": "phase1_four_question_audit_v1",
+        "format": "phase1_four_question_audit",
         "questions": list(QUESTION_KEYS),
         "samples_per_town": samples_per_town,
         "frames_per_route": frames_per_route,
@@ -319,7 +319,7 @@ def merge_audit_matrices(input_dirs: Sequence[pathlib.Path], output_dir: pathlib
     for input_dir in input_dirs:
         matrix_path = input_dir / "phase1_four_question_matrix.json"
         payload = json.loads(matrix_path.read_text(encoding="utf-8"))
-        if payload.get("format") != "phase1_four_question_audit_v1":
+        if payload.get("format") != "phase1_four_question_audit":
             raise ValueError(f"unsupported phase1 audit manifest: {matrix_path}")
         samples_per_town.add(int(payload.get("samples_per_town", 0)))
         for group in payload.get("groups", []):
@@ -332,7 +332,7 @@ def merge_audit_matrices(input_dirs: Sequence[pathlib.Path], output_dir: pathlib
         raise ValueError(f"cannot merge different --samples-per-town values: {sorted(samples_per_town)}")
     groups.sort(key=lambda item: (str(item["scenario"]), str(item["rs"]), str(item["event"])))
     manifest = {
-        "format": "phase1_four_question_audit_v1",
+        "format": "phase1_four_question_audit",
         "questions": list(QUESTION_KEYS),
         "samples_per_town": next(iter(samples_per_town), 0),
         "merged_from": [str(path) for path in input_dirs],

@@ -45,10 +45,10 @@ import torch
 import torch.distributed as dist
 from PIL import Image
 
-from qwen3vl_local.sft_loop_phase1 import DATASET_VERSION  # noqa: E402
+from qwen3vl_local.sft_loop_phase1 import DATASET_NAME  # noqa: E402
 from qwen3vl_local.sft_loop_phase1.prompts import (  # noqa: E402
     ANSWER_KEYS,
-    PROMPT_VERSION,
+    PROMPT_NAME,
     SYSTEM_PROMPT,
     build_phase1_prompt,
     parse_phase1_output,
@@ -118,8 +118,9 @@ def _read_rows(path: pathlib.Path, split: str, max_frames: int = 0) -> List[Fram
             if not line.strip():
                 continue
             obj = json.loads(line)
-            if obj.get("dataset_version") != DATASET_VERSION:
-                raise ValueError(f"dataset_version mismatch: {obj.get('dataset_version')!r}")
+            row_dataset = obj.get("dataset_name")
+            if row_dataset != DATASET_NAME:
+                raise ValueError(f"dataset_name mismatch: {row_dataset!r}")
             if str(obj.get("split")) != str(split):
                 continue
             rows.append(
@@ -198,10 +199,12 @@ def _validate_phase1_adapter(adapter_dir: pathlib.Path, model_dir: pathlib.Path)
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     if cfg.get("route") != "sft_loop_phase1_four_visible_facts":
         raise ValueError(f"adapter route mismatch: {cfg.get('route')!r}")
-    if cfg.get("dataset_version") != DATASET_VERSION:
-        raise ValueError(f"adapter dataset_version mismatch: {cfg.get('dataset_version')!r}")
-    if cfg.get("prompt_version") != PROMPT_VERSION:
-        raise ValueError(f"adapter prompt_version mismatch: {cfg.get('prompt_version')!r}")
+    adapter_dataset = cfg.get("dataset_name")
+    if adapter_dataset != DATASET_NAME:
+        raise ValueError(f"adapter dataset_name mismatch: {adapter_dataset!r}")
+    adapter_prompt = cfg.get("prompt_name")
+    if adapter_prompt != PROMPT_NAME:
+        raise ValueError(f"adapter prompt_name mismatch: {adapter_prompt!r}")
     return cfg
 
 
@@ -366,8 +369,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             "counts": dict(counter),
         }
     metrics = {
-        "dataset_version": DATASET_VERSION,
-        "prompt_version": PROMPT_VERSION,
+        "dataset_name": DATASET_NAME,
+        "prompt_name": PROMPT_NAME,
         "adapter_dir": str(args.adapter_dir) if args.adapter_dir else None,
         "audit_prompt": bool(args.audit_prompt),
         "total_cases": total,
@@ -381,7 +384,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     lines = [
         "# sft_loop_phase1 eval",
         "",
-        f"- prompt_version: `{PROMPT_VERSION}`",
+        f"- prompt_name: `{PROMPT_NAME}`",
         f"- adapter: `{args.adapter_dir or 'BASE_QWEN'}`",
         f"- cases: {total}",
         f"- exact_match_accuracy: {metrics['exact_match_accuracy']:.4f}",
@@ -407,7 +410,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase1_data/frame_index.jsonl"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument("--adapter-dir", default="")
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase1_eval/base_prompt_v3"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt"))
     p.add_argument("--split", default="test")
     p.add_argument("--device", default="auto")
     p.add_argument("--max-frames", type=int, default=0)

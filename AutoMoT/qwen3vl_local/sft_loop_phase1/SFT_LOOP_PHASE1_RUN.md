@@ -51,7 +51,7 @@ GPU_IDS=0 \
 python qwen3vl_local/sft_loop_phase1/eval.py \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_loop_phase1_eval/base_prompt_v3 \
+  --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt \
   --cases-per-bin 64 \
   --audit-prompt
 ```
@@ -94,7 +94,7 @@ GPU_IDS=0,1 torchrun --nproc_per_node=2 \
   qwen3vl_local/sft_loop_phase1/eval.py \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_loop_phase1_eval/base_prompt_v3_2gpu \
+  --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt_2gpu \
   --cases-per-bin 64 \
   --audit-prompt
 ```
@@ -106,7 +106,7 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase1/eval.py \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_loop_phase1_eval/base_prompt_v3_4gpu \
+  --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt_4gpu \
   --cases-per-bin 64 \
   --audit-prompt
 ```
@@ -220,7 +220,7 @@ python qwen3vl_local/sft_loop_phase1/eval.py \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
-  --output-dir checkpoints/sft_loop_phase1_eval/lora_final_prompt_v3 \
+  --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt \
   --cases-per-bin 64 \
   --audit-prompt
 ```
@@ -233,7 +233,7 @@ GPU_IDS=0,1 torchrun --nproc_per_node=2 \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
-  --output-dir checkpoints/sft_loop_phase1_eval/lora_final_prompt_v3_2gpu \
+  --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt_2gpu \
   --cases-per-bin 64 \
   --audit-prompt
 ```
@@ -246,15 +246,15 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
-  --output-dir checkpoints/sft_loop_phase1_eval/lora_final_prompt_v3_4gpu \
+  --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt_4gpu \
   --cases-per-bin 64 \
   --audit-prompt
 ```
 
 建议保留 base 和 LoRA 两份结果：
 
-- `checkpoints/sft_loop_phase1_eval/base_prompt_v3/`
-- `checkpoints/sft_loop_phase1_eval/lora_final_prompt_v3/`
+- `checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/`
+- `checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt/`
 
 这样可以直接比较：
 
