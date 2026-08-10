@@ -10,6 +10,8 @@ VULNERABLE: YES|NO
 TRAFFIC_LIGHT_ABNORMAL: YES|NO
 ```
 
+训练、原始 Qwen 测试和 LoRA 复测命令见 `SFT_LOOP_PHASE1_RUN.md`。
+
 `YES` 的语义均为“当前最新帧、结合最多几帧短历史，能看见且会影响或足以影响 ego 当前
 驾驶决策”。这避免把某个 scenario 中已离开/尚未出现的对象，错误扩散到全场景。
 
