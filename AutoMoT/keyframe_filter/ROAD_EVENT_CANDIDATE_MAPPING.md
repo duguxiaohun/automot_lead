@@ -321,7 +321,10 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
   切入/行人/汇入分别由 U-E3/U-E4/R-E2 表达，灯控/无灯路口段仍分别优先 R4/R5。
 - `R4/R5` 路口/T 形路口必须是一段连续窗口。4Hz 下少于 4 帧的 R4/R5 即使有瞬时灯态、
   bbox traffic_light 或 XODR junction hint，也按扰动并回邻近稳定 RS。
-- `EnterActorFlow*`、`HighwayExit`、`MergerIntoSlowTrafficV2` 是稳定无灯控的高速/快速路背景场景，
+- `EnterActorFlow*` 是稳定无灯控的高速/快速路 actor-flow/merge 背景，但 RS 仍保留 R1/R3：
+  远离汇入控制区的普通跟车/远端段可为 R1，近汇入/匝道/导流区切 R3；2026-08-09 四问 RGB 复核确认
+  `EnterActorFlow/R1/R-E1` 与 `EnterActorFlowV2/R1/R-E1` 的 `HIGHWAY=YES`，因为四问看真实道路拓扑，
+  不能机械按 RS=R1 答非高速。`HighwayExit`、`MergerIntoSlowTrafficV2` 是稳定高速/快速路背景，
   候选池不开放 R1/R4；EVENT 按 R3 高速/合流规则空间收窄。`HighwayCutIn` 与
   `MergerIntoSlowTraffic` 在 2026-07-04 全量逐帧 RGB 审计中发现少量真实灯控子集，因此恢复 R4
   候选，但 R4 必须由逐帧 RGB/meta/bbox 灯控证据触发，匝道/导流线/停车线不能单独制造 R4/R5。
@@ -329,7 +332,10 @@ LEAD route 通常不是只有 scenario 核心片段；很多 route 在进入/离
   `StaticCutIn`、`ParkingCutIn` 必须先按 route RGB 分桶；高速/快速路桶候选收敛为 R3/R4，
   非高速桶保留 R1/R4/R5。当前逐 id 均匀 5 帧 RGB 复核结果：HardBreakRoute 16/97 与 StaticCutIn 44/100
   进入高速桶；InterurbanActorFlow、InterurbanAdvancedActorFlow、ParkingCutIn 高速桶为空。
-  `Town12_Rep0_258_0_route0_01_08_09_35_42` 是 HardBreakRoute 非高速反例。
+  2026-08-09 四问复核进一步确认 `InterurbanActorFlow/R3/R-E1` 不能仅凭 R3/直宽道路答 highway，
+  应答 `HIGHWAY=NO`。`Town12_Rep0_258_0_route0_01_08_09_35_42` 是 HardBreakRoute 非高速反例。
+  `ParkedObstacle` 存在 Town12 highway-like fast-road 子组；当前聚合表不全局翻转，若后续拆
+  `Town/route topology subgroup`，该子组应单独给 `HIGHWAY=YES`。
 - route 级 EVENT 后处理之后必须再次执行 scenario event 候选白名单与当前 primary RS event 候选池的交集 clamp；
   若后处理把非候选事件写入 primary event，则回退到当前 RS 的 regular event 或 R-E1。
   R3 的 regular event 是 R-E1，不是 R-E3；R-E3 只用于合流/驶出/actor-flow 核心。

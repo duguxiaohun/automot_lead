@@ -448,12 +448,13 @@ U-E6 仅作为 secondary 事件；`ParkingCutIn/StaticCutIn` 不再因普通减�
 - `*_TwoWays` 候选 RS 删除 R1；`AccidentTwoWays` 全量为 R2 80.8%，EVENT 保留
   U-E2 29.0% 与 R-E2 17.4%。如果 R2 core 与 R4/R5 路口边界重叠，EVENT 层使用
   R2 overlay，U-E2/R-E2 优先于 R-E4/R-E5。
-- 详细场景分布与命令见 `ROAD_EVENT_RS_SYNC_AUDIT_20260706.md`。
+- 详细场景分布与命令见
+  [`ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md`](ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md)。
 - 旧 R6 删除后的高风险停车/开门/停放障碍场景已重跑全量逐帧审计，详见
-  `ROAD_EVENT_NO_R6_RGB_AUDIT_20260706.md`：7 个场景、895 条可标注 route、106471 帧；
+  [`ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md`](ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md)：7 个场景、895 条可标注 route、106471 帧；
   runtime 枚举、候选池和本轮输出中均无 R6 类别，RS 候选越界 0，当前 RS allowed events 越界 0。
 - 少量 `U-E1/U-E2/U-E3/U-E4` 或静态障碍 `U-E2 -> R-E2` 恢复链被 R4/R5 突然接管的边界现在走 interrupted overlay，详见
-  `ROAD_EVENT_INTERRUPTED_OVERLAY_AUDIT_20260706.md`。primary RS 保持 R4/R5，但 EVENT 同帧保留
+  [`ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md`](ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md)。primary RS 保持 R4/R5，但 EVENT 同帧保留
   `R-E4/R-E5 + U-E*` 或 `R-E4/R-E5 + R-E2`，并把被截断突发事件的 base RS 同步写入
   专用 `road_structure_overlay` / `frame_rs_annotation.overlay`，同时兼容性写入
   `secondary_road_structures` / `frame_rs_annotation.secondary`。普通 secondary 也可能表示候选冲突或不确定性，
@@ -832,6 +833,8 @@ meta/XML/XODR 摘要和中间 JSON。该目录默认不入库、不 push；唯�
 `full_route_rgb_label_review_20260809/manual_table_gap_combo_notes_20260810.jsonl`。这些是
 scenario × RS × EVENT 四问监督标签/人工审计 notes，可精确 add 和 push；RGB contact sheet、
 montage、candidate anomalies、route/town/scenario/global summary 等证据产物仍留本地。
+整个 `collection_output/` 的目录用途、代码读取关系、清理边界和白名单例外见
+[`COLLECTION_OUTPUT_INDEX.md`](COLLECTION_OUTPUT_INDEX.md)。
 Phase1 相关目录索引和复用规则见
 [`PHASE1_COLLECTION_OUTPUT_INDEX.md`](PHASE1_COLLECTION_OUTPUT_INDEX.md)：后续复核必须优先复用
 `full_route_rgb_label_review_20260809/` 和已有 notes，不要每次重新生成一批 RGB 文件夹。
@@ -1021,7 +1024,7 @@ python AutoMoT/keyframe_filter/rgb_blind_rs_event_audit.py \
 
 默认只把代码、规则文档、README、HTML/CSS/JS、verification 工具和手写说明纳入 git。
 以下内容是本地数据/审计/证据产物，不再进入 push 范围；Phase1 四问标签轻量 JSON/JSONL
-按上文例外处理：
+按上文例外处理。以下顶层旧证据/旧索引已经清理；若后续重生，也不要恢复入库：
 
 - `collection_output/`
 - `rgb_r4_r5_audit_results/`
@@ -1047,3 +1050,8 @@ SFT v5 训练需要的是 `collection_output/*_result.json` 作为数据源；�
 - `web_app.py`：Web 可视化
 - `ROAD_EVENT_CLASSIFICATION_PLAN.md`：ROAD/EVENT 总方案 + ROAD_STRUCTURE 调研/实现协议
 - `ROAD_EVENT_CANDIDATE_MAPPING.md`：ROAD/EVENT 候选映射
+- `ROAD_STRUCTURE_PER_SCENARIO_RULES.md`：逐场景 RS 规则、阈值、证据口径
+- `COLLECTION_OUTPUT_INDEX.md`：`collection_output/` 大产物、代码读取关系和白名单边界
+- `ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md`：2026-07 RGB/RS/EVENT 审计记录归档
+- `PHASE1_COLLECTION_OUTPUT_INDEX.md`：Phase1 四问 collection_output 主入口和复用规则
+- `PHASE1_FOUR_QUESTION_RGB_AUDIT_20260809.md`：Phase1 四问人工 RGB 复核摘要
