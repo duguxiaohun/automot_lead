@@ -78,6 +78,12 @@ answer table、RS/EVENT 标注、异常 route 过滤或 split 参数不变，就
 这是 prompt 迭代最重要的一步。默认使用 `audit=True` prompt，因此模型会输出
 `EVIDENCE_*` 和四个答案；parser 仍只解析四个 YES/NO。
 
+最近一次 RGB 错例复核见
+[`SFT_LOOP_PHASE1_RGB_ERROR_AUDIT_20260810.md`](SFT_LOOP_PHASE1_RGB_ERROR_AUDIT_20260810.md)。
+它区分了模型确实漏看了的视觉证据，和仅凭当前四帧 RGB 无法回答的 scenario/RS/EVENT
+标签。修 prompt 后必须先在同一份固定 test index 上复测；不要把“故障场景但故障尚未出现”
+的正标签误当作模型应该从不可见 RGB 猜出的知识。
+
 1 卡测原始 Qwen：
 
 ```bash
