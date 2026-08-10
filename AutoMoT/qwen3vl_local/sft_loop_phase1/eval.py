@@ -329,15 +329,23 @@ def _copy_case_rgb(case_dir: pathlib.Path, row: FrameRow, payload: Mapping[str, 
             shutil.copy2(src_path, rgb_dir / f"history_{idx}_{src_path.name}")
 
 
+def _prepare_output_dir(output_dir: pathlib.Path, *, overwrite: bool) -> None:
+    """准备 eval 输出目录；overwrite 时清掉旧 rank/case/RGB 残留。"""
+
+    if output_dir.exists() and any(output_dir.iterdir()):
+        if not overwrite:
+            raise FileExistsError(f"output dir is not empty: {output_dir}; pass --overwrite or remove it first")
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+
 def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     """评估主流程。"""
 
     rank, local_rank, world_size = setup_distributed()
     output_dir = pathlib.Path(args.output_dir)
-    if rank == 0 and output_dir.exists() and any(output_dir.iterdir()) and not bool(args.overwrite):
-        raise FileExistsError(f"output dir is not empty: {output_dir}")
     if rank == 0:
-        output_dir.mkdir(parents=True, exist_ok=True)
+        _prepare_output_dir(output_dir, overwrite=bool(args.overwrite))
     if world_size > 1:
         dist.barrier()
     rows = _read_rows(pathlib.Path(args.index), split=str(args.split), max_frames=int(args.max_frames))
