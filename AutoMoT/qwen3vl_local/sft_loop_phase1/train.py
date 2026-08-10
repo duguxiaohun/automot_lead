@@ -45,10 +45,10 @@ except Exception:
     SummaryWriter = None  # type: ignore[assignment]
     _TB_AVAILABLE = False
 
-from qwen3vl_local.sft_loop_phase1 import DATASET_VERSION  # noqa: E402
+from qwen3vl_local.sft_loop_phase1 import DATASET_NAME  # noqa: E402
 from qwen3vl_local.sft_loop_phase1.prompts import (  # noqa: E402
     ANSWER_KEYS,
-    PROMPT_VERSION,
+    PROMPT_NAME,
     SYSTEM_PROMPT,
     build_phase1_prompt,
     build_phase1_target,
@@ -107,8 +107,9 @@ def _read_rows(path: pathlib.Path, split: str, max_frames: int = 0) -> List[Fram
             if not line.strip():
                 continue
             obj = json.loads(line)
-            if obj.get("dataset_version") != DATASET_VERSION:
-                raise ValueError(f"dataset_version mismatch in {path}: {obj.get('dataset_version')!r}")
+            row_dataset = obj.get("dataset_name")
+            if row_dataset != DATASET_NAME:
+                raise ValueError(f"dataset_name mismatch in {path}: {row_dataset!r}")
             if str(obj.get("split")) != str(split):
                 continue
             rows.append(
@@ -283,10 +284,10 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
     final_dir.mkdir(parents=True, exist_ok=True)
     bundle.unwrap().save_pretrained(str(final_dir))
     cfg = {
-        "schema_version": 1,
+        "schema": "sft_loop_phase1_adapter_config",
         "route": "sft_loop_phase1_four_visible_facts",
-        "dataset_version": DATASET_VERSION,
-        "prompt_version": PROMPT_VERSION,
+        "dataset_name": DATASET_NAME,
+        "prompt_name": PROMPT_NAME,
         "base_model_dir": str(args.model_dir),
         "lora_vision_scope": str(args.lora_vision_scope),
         "lora_target_modules": list(bundle.lora_target_modules),

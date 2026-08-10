@@ -47,7 +47,9 @@ RS/EVENT 是分层审计键，不是四问的答案。下面的对应关系只�
 - 正常红黄绿灯、另一进口的灯、闯红灯车辆不算灯异常；只有控制 ego 的灯矛盾、坏灭或短历史
   中不可信闪烁才算。
 
-当前 prompt 版本为 `sft_loop_phase1_visible_fact_prompt_v3`。v3 从
+当前 prompt 名称为 `sft_loop_phase1_zero_shot_prompt`。这是尚未跑过 base Qwen 纠偏的
+zero-shot 四问 prompt；后续如果基于真实 eval 错例继续修 prompt，再另起清晰的实验名称。
+该 prompt 从
 `PHASE1_FOUR_QUESTION_RGB_AUDIT_20260809.md`、最终 answer table、全帧 manual notes 和代表性
 RGB sheet 中补入以下强约束：
 
@@ -145,7 +147,7 @@ python -m qwen3vl_local.sft_loop_phase1.fullframe_rgb_label_review \
 用户已确认的统一口径只适用于完成 RGB 复核后的视觉子组，而不再适用于未经验证的初始
 `scenario × RS × EVENT`。矩阵的 RGB 联系表用于发现需要拆分的 town/route/时间段；最终答案表
 必须保存原始组键、视觉子组键、覆盖的 towns/routes、逐帧审阅状态和人工确认的四项答案。当前
-v2 答案表的默认行已由全帧复核冻结；唯一已发现的混合拓扑通过
+最终答案表的默认行已由全帧复核冻结；唯一已发现的混合拓扑通过
 `parked_obstacle_town12_limited_access_fast_road` 明示，且必须由 route-level RGB topology 标注触发。
 `U-E2` 的已确认静态占道子组即使在少数边界帧被遮挡，也统一是 `OBSTACLE=YES`；这不授权把
 没有障碍证据的其它初始组也映射为 YES。审计输出是可再生 evidence，按项目规则不入库。

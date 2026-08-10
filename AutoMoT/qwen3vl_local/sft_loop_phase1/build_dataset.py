@@ -25,7 +25,7 @@ for _p in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _p)
 
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
-from qwen3vl_local.sft_loop_phase1 import DATASET_VERSION  # noqa: E402
+from qwen3vl_local.sft_loop_phase1 import DATASET_NAME  # noqa: E402
 from qwen3vl_local.sft_loop_phase1.audit_matrix import _iter_routes_stream, _rgb_path  # noqa: E402
 from qwen3vl_local.sft_loop_phase1.prompts import ANSWER_KEYS  # noqa: E402
 
@@ -71,7 +71,7 @@ def _load_answer_table(path: pathlib.Path) -> Dict[Tuple[str, str, str], Dict[st
     """读取最终四问答案表。"""
 
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("format") != "phase1_four_question_answer_table_v2":
+    if payload.get("format") != "phase1_four_question_answer_table":
         raise ValueError(f"unsupported answer table: {path}")
     table: Dict[Tuple[str, str, str], Dict[str, bool]] = {}
     for row in payload.get("rows", []):
@@ -141,7 +141,7 @@ def iter_frame_rows(
                 if history is None:
                     continue
                 yield {
-                    "dataset_version": DATASET_VERSION,
+                    "dataset_name": DATASET_NAME,
                     "scenario": scenario,
                     "route_id": route_id,
                     "town": _town(ann, route),
@@ -189,8 +189,8 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
                 answer_counters[key][f"{split}/{'YES' if row['answers'][key] else 'NO'}"] += 1
 
     manifest = {
-        "format": "sft_loop_phase1_frame_index_v1",
-        "dataset_version": DATASET_VERSION,
+        "format": "sft_loop_phase1_frame_index",
+        "dataset_name": DATASET_NAME,
         "frame_index": str(out_path),
         "answer_table": str(args.answer_table),
         "split_seed": int(args.split_seed),

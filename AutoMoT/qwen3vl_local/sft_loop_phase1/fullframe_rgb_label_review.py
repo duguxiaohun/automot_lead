@@ -130,7 +130,7 @@ def build_review(*, table_path: pathlib.Path, collection_dir: pathlib.Path, data
 
     targets, source_rows = _load_targets(table_path, scenarios)
     report: dict[str, Any] = {
-        "format": "phase1_fullframe_rgb_label_review_v1",
+        "format": "phase1_fullframe_rgb_label_review",
         "source_answer_table": str(table_path),
         "source_annotation": "collection_output original route annotations; no runtime reclassification",
         "excluded_scenarios": ["noScenarios"],
