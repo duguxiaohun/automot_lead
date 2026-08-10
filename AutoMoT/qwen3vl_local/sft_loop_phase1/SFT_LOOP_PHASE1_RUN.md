@@ -262,6 +262,15 @@ checkpoints/sft_loop_phase1_runs/latest -> run_<RUN_TAG>
 
 ## 4. 测试训练后的 LoRA
 
+训练后的正式 eval 建议开启 `--timestamp-output`。这样每次测试会写到：
+
+```text
+checkpoints/sft_loop_phase1_eval/<eval_name>/YYYYmmdd_HHMMSS/
+```
+
+多卡时 timestamp 由 rank0 生成并广播，所有 rank 会写进同一个时间戳目录；不需要手动
+`--overwrite`，也不会覆盖上一次测试。
+
 单卡：
 
 ```bash
@@ -272,7 +281,8 @@ python qwen3vl_local/sft_loop_phase1/eval.py \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
   --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt \
   --cases-per-bin 64 \
-  --audit-prompt
+  --audit-prompt \
+  --timestamp-output
 ```
 
 2 卡：
@@ -285,7 +295,8 @@ GPU_IDS=0,1 torchrun --nproc_per_node=2 \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
   --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt_2gpu \
   --cases-per-bin 64 \
-  --audit-prompt
+  --audit-prompt \
+  --timestamp-output
 ```
 
 4 卡：
@@ -298,13 +309,14 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
   --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt_4gpu \
   --cases-per-bin 64 \
-  --audit-prompt
+  --audit-prompt \
+  --timestamp-output
 ```
 
 建议保留 base 和 LoRA 两份结果：
 
-- `checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/`
-- `checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt/`
+- `checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt*/<timestamp>/`
+- `checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt*/<timestamp>/`
 
 这样可以直接比较：
 
