@@ -926,7 +926,8 @@ Web 验收页面必须展示三层信息：
 这也是后续“代码 → 小样本可视化 → 查错帧 → 修正规则/阈值 → 再跑 smoke”的闭环入口；
 不能只看候选 RS 分布或平均置信度来判断规则正确。
 
-2026-07-06 RS 更新后的 EVENT 同步回归见 `ROAD_EVENT_RS_SYNC_AUDIT_20260706.md`：
+2026-07-06 RS 更新后的 EVENT 同步回归已归档到
+[`ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md`](ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md)：
 全量覆盖 43 个 scenario、8614 条 route、1062401 帧，当前 primary RS allowed events 违规数为 0。
 该历史审计当时采用“R3 regular fallback=R-E1、核心窗口才 R-E3”的旧口径；2026-07-08 起
 EnterActorFlow* / MergerIntoSlowTraffic* 改为准备汇入段保持 R-E3、真实变道切 R-E2，
@@ -935,8 +936,8 @@ U-E2 29.0% 与 R-E2 17.4%，没有被 R4/R5 regular 全部吞掉。
 2026-07-09 又对 EnterActorFlow* 全量回归 123 条 route / 13490 帧：`R1=3866, R3=9624`，
 EVENT 为 `R-E1=6214, R-E2=1613, R-E3=5663`；R-E2 连续段最短长度 EnterActorFlow=7 帧、
 EnterActorFlowV2=11 帧，1-3 帧短碎片为 0。
-旧 R6 删除后的停车/开门/停放障碍高风险场景审计见
-`ROAD_EVENT_NO_R6_RGB_AUDIT_20260706.md`：7 个场景、895 条可标注 route、106471 帧，
+旧 R6 删除后的停车/开门/停放障碍高风险场景审计也见
+[`ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md`](ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md)：7 个场景、895 条可标注 route、106471 帧，
 runtime 枚举、候选池和本轮输出中均无 R6 类别，RS 候选越界 0，当前 RS allowed events 越界 0。
 少量 `U-E1/U-E2/U-E3/U-E4` 或静态障碍 `U-E2 -> R-E2` 恢复链被 R4/R5 路口控制源突然接管的边界，采用 interrupted overlay：
 primary RS 保持 R4/R5，EVENT 同帧保留 `R-E4/R-E5 + U-E*` 或恢复 `R-E4/R-E5 + R-E2`，
@@ -948,7 +949,7 @@ overlay 必须优先看 `road_structure_overlay.active=true`，例如 `R4 + seco
 最长 24 帧，恢复 `R-E2` 子阶段最长 12 帧；U-E4 中距离横穿/转弯冲突仅短续 10 帧。
 2026-07-07 全量 R1 突发事件场景审计覆盖 3552 route / 526001 帧；修复同向障碍直道
 stop/yield 伪 R5 后，触发 99 route / 1472 帧。详见
-`ROAD_EVENT_INTERRUPTED_OVERLAY_AUDIT_20260706.md`。
+[`ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md`](ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md)。
 
 ### 9.2 调研包完成标准
 
@@ -1269,6 +1270,13 @@ provenance 后才能进入 high-confidence runtime。
 - `route_projection_error_m > 5m` 时，无论候选分数多高，都必须 `review_required=true`。
 - `complete=true` 只能解释为 auto input complete；文档和代码字段应区分
   `auto_input_complete` / `manual_final_complete`。
+
+2026-08-09 又完成 Phase1 四问答案表的全量人工 RGB + 原始标签复核，摘要见
+[`PHASE1_FOUR_QUESTION_RGB_AUDIT_20260809.md`](PHASE1_FOUR_QUESTION_RGB_AUDIT_20260809.md)。
+该复核面向 `HIGHWAY / OBSTACLE / VULNERABLE / TRAFFIC_LIGHT_ABNORMAL` 四个下游问题，
+不是替代 ROAD_STRUCTURE/EVENT 标签本身。关键约束：`HIGHWAY` 必须看受控通行/匝道/出入口/导流/连续隔离等拓扑，
+不能由直道、宽路或 RS=R3 机械推出；`EnterActorFlow*/R1/R-E1` 四问仍为 `HIGHWAY=YES`，
+而 `InterurbanActorFlow/R3/R-E1` 四问为 `HIGHWAY=NO`。
 
 扩展 smoke test 又抽了 9 个高风险场景，每个 scenario 先跑 1 条 route：
 

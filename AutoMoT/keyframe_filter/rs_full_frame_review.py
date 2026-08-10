@@ -495,6 +495,7 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
     scenarios = sorted(SCENARIO_TO_ROAD_STRUCTURE) if args.scenario.lower() == "all" else [
         item.strip() for item in args.scenario.split(",") if item.strip()
     ]
+    requested_towns = {item.strip() for item in str(args.town).split(",") if item.strip()}
     invalid = [scenario for scenario in scenarios if scenario not in SCENARIO_TO_ROAD_STRUCTURE]
     if invalid:
         raise ValueError(f"未知场景: {invalid}")
@@ -536,6 +537,15 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
             continue
         scenario_summary: Dict[str, Any] = {"towns": {}, "scenario": scenario}
         runs_by_town = _scenario_runs_by_town(lead_data_root, scenario)
+        if requested_towns:
+            missing_towns = sorted(requested_towns.difference(runs_by_town))
+            if missing_towns:
+                print(f"  requested towns unavailable for {scenario}: {missing_towns}", flush=True)
+            runs_by_town = {
+                town: town_runs
+                for town, town_runs in runs_by_town.items()
+                if town in requested_towns
+            }
         for town, town_runs in runs_by_town.items():
             sampled_runs = _select_research_runs(town_runs, args.samples_per_town)
             if args.max_routes_per_town > 0:
@@ -674,6 +684,11 @@ def _run_review(args: argparse.Namespace) -> Dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Full-frame ROAD_STRUCTURE RGB review")
     parser.add_argument("--scenario", default="all", help="Scenario name, comma list, or all")
+    parser.add_argument(
+        "--town",
+        default="",
+        help="Optional town name or comma list. Run one town at a time for resumable full-frame review.",
+    )
     parser.add_argument("--samples-per-town", type=int, default=5)
     parser.add_argument("--max-routes-per-town", type=int, default=0, help="Debug cap; 0 means no extra cap")
     parser.add_argument("--max-scenarios", type=int, default=0, help="Debug cap; 0 means all selected scenarios")
