@@ -39,10 +39,11 @@ Classify the newest frame, but use the short history to confirm motion and visib
 [DECISION_RULES]
 HIGHWAY:
 Ask: "Can I SEE that the ego path is on a limited-access fast road or a ramp/connector, where ordinary street access and crossings are restricted right now?"
-YES needs a visible topology chain, not one isolated clue. Strong positive cues include:
+YES needs a visible topology chain, not one isolated clue. A ramp/merge/exit is sufficient but NOT required: a highway or expressway mainline can be YES when the current view shows a controlled high-speed corridor. Strong positive cues include:
 - highway/expressway mainline, on-ramp, off-ramp, connector, merge, split, exit, acceleration lane, deceleration lane, gore area, lane divergence, or lane convergence;
 - physically separated carriageways, median/barrier/guardrail separating directions, long controlled corridor, or several same-direction lanes with shoulders/edge barriers;
 - absence of ordinary surface-street access along the ego path: no storefront/driveway access, no normal at-grade intersection controlling ego, no crosswalk governing ego, no pedestrian-facing street edge.
+If the newest frame shows multiple same-direction lanes, continuous metal/concrete guardrails or barriers, no sidewalks/crosswalks/driveways/intersections, and an open controlled corridor, answer HIGHWAY=YES even if no ramp, merge, exit sign, or speed-limit sign is visible in this exact frame.
 Open land, grass, trees, few buildings, and a far view can support YES only when the limited-access/ramp/merge chain is also visible. They are never enough alone.
 NO traps from the reviewed RGB:
 - R3-like or highway-looking geometry is still NO if it is a country/interurban surface road with trees/grass, a double-yellow opposing-traffic centreline, or ordinary two-way access;
@@ -54,6 +55,8 @@ Never infer HIGHWAY from a dataset road label, event code, town, scenario name, 
 OBSTACLE:
 Trace the ego lane/path in the newest frame and the short distance ahead. YES only if a physical object occupies, enters, blocks, or sharply compresses that usable corridor so ego may need braking, yielding, stopping, or avoidance now.
 YES examples: crashed vehicle, stalled/parked/construction vehicle in lane, construction object, open vehicle door protruding into lane, vehicle pulling out or cutting in, static car intruding from the side, oncoming vehicle invading ego lane, queue or blocked intersection physically preventing ego from clearing the lane/junction, or a vehicle violating right-of-way into ego's conflict zone.
+For blocked-intersection/accident/construction scenes, do not require a dramatic crash shape. A stopped or very slow vehicle/queue directly in the ego lane or inside the intersection is OBSTACLE=YES when it makes ego brake, wait, or unable to clear the junction, even if the visible object looks like an ordinary car.
+In fog/rain/night, use the short history and brake lights/vehicle spacing: if the nearest visible vehicle or queue is close enough to constrain the ego corridor, answer YES instead of dismissing it as normal traffic.
 Use older frames for partly occluded static obstacles only when they clearly show the same object still constraining ego's path.
 NO examples: a normal lead vehicle at safe gap, ordinary traffic flow, a vehicle in its own lane, traffic separated by a median/barrier, a distant object, safely parked roadside/background cars, residual accident vehicles after ego's path is open, or a queue visible far away but not blocking ego's usable corridor.
 This question includes vehicle/path conflicts such as a red-light-running or oncoming vehicle; that is an obstacle/conflict, not a traffic-light fault.
@@ -61,13 +64,16 @@ This question includes vehicle/path conflicts such as a red-light-running or onc
 VULNERABLE:
 Look specifically for pedestrians, cyclists, scooter riders, wheelchair users, or other unprotected road users. YES only if one is in the ego path, crossing it, approaching the conflict zone, emerging from occlusion, or close enough to affect ego's current decision.
 Use the history to check lateral movement and whether the person's/bicycle's path intersects ego's path. Crosswalk users, cyclists entering from a side street, and pedestrians close to a turning path can be YES.
+Do not require the person or bicycle to already be inside the ego lane. A cyclist or pedestrian near the curb, sidewalk edge, side lane, crosswalk, or turning conflict zone is VULNERABLE=YES when ego may soon pass, turn, or merge near them, especially if they are oriented toward the roadway or partly entering from the side.
 NO for a distant sidewalk pedestrian, a person standing safely behind a barrier, a person far outside ego's conflict zone, a parked bicycle, a bicycle rack, a sign/billboard image, reflection, or a human-shaped object that is not an active road user.
 Do not mark VULNERABLE just because there is a traffic light or another vehicle conflict; this question is only about unprotected road users.
 
 TRAFFIC_LIGHT_ABNORMAL:
-First identify the signal head or signal system that actually governs ego's movement. Separate it from lights for cross traffic, opposite traffic, turn-only lanes, pedestrian crossings, or a distant junction.
+First identify the signal heads around the same junction and compare left/front/right views. Decide whether the signal system at the ego conflict point is self-consistent, not only whether the ego-facing lamp is green. Separate this junction from distant junctions and pedestrian-only signals.
 YES requires the signal/control system itself to be visibly unreliable, broken, or contradictory at the same conflict point. Positive patterns include:
 - conflicting approaches or incompatible movements visibly permitted at the same time while vehicles are released through the shared conflict area;
+- several signal heads on different arms of the same cross junction show green at the same time for directions that would cross or collide; answer YES even if ego's own signal is green and appears bright/normal;
+- all-visible-green, all-visible-red, or mixed red/green states that cannot be a normal phase for the same conflict point;
 - the ego-governing signal head is present but dark/off/broken when it should control the junction;
 - impossible flashing, stuck, or inconsistent signal behavior across the short history;
 - abnormal all-red/all-green or red/green combinations that would authorize a collision, not merely different phases for different approaches.
