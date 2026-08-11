@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Dict, Optional
 
@@ -56,10 +57,10 @@ OBSTACLE:
 Trace the ego lane/path in the newest frame and the short distance ahead. YES only if a physical object occupies, enters, blocks, or sharply compresses that usable corridor so ego may need braking, yielding, stopping, or avoidance now.
 YES examples: crashed vehicle, stalled/parked/construction vehicle in lane, construction object, open vehicle door protruding into lane, vehicle pulling out or cutting in, static car intruding from the side, oncoming vehicle invading ego lane, queue or blocked intersection physically preventing ego from clearing the lane/junction, or a vehicle violating right-of-way into ego's conflict zone.
 For blocked-intersection/accident/construction scenes, do not require a dramatic crash shape. A stopped or very slow vehicle/queue directly in the ego lane or inside the intersection is OBSTACLE=YES when it makes ego brake, wait, or unable to clear the junction, even if the visible object looks like an ordinary car.
-In fog/rain/night, use the short history, but do not promote an ordinary lead vehicle to YES from brake lights, a short-looking gap, or slow traffic alone. It is YES only when the history shows the ego lane/junction is actually closed or sharply constrained: for example a stopped queue prevents clearing the junction, a vehicle has stopped in the usable lane, or an object is visibly moving into that corridor.
-Use a path-overlap test, not a dramatic-appearance test: a vehicle, ambulance, construction board, cone line, door, or queue is a YES when it crosses into or occupies the lane, junction box, turning arc, or only practical gap that ego must use. Do not treat a vehicle as an intrusion merely because it is beside the lane, parked in a curb/parking bay, travelling normally ahead in the same lane, or its front is visually near a lane boundary. A side vehicle can be YES before it fills the lane only when its body/nose is visibly crossing the lane boundary or its motion is entering ego's path. Inspect all four frames because a real intrusion may be clearest in only one of them.
+In fog/rain/night, use the short history. Brake lights, a short-looking gap, or slow traffic in one frame alone do not make an ordinary lead vehicle a YES. It is YES when the four frames show a lead/queue stopping or growing clearly larger and closer so ego must brake now, when it prevents ego clearing a junction, or when it visibly enters the usable corridor.
+Use a path-overlap test, not a dramatic-appearance test: a vehicle, ambulance, construction board, cone line, door, or queue is a YES when it crosses into or occupies the lane, junction box, turning arc, or only practical gap that ego must use. Do not treat a vehicle as an intrusion merely because it is beside the lane, clearly inside a marked parking bay, travelling ahead at a stable separation, or its front is visually near a lane boundary. A parked vehicle beside a curb is still YES when there is no clear parking bay and its body occupies the travel lane or forces ego to leave that lane. A side vehicle can be YES before it fills the lane only when its body/nose is visibly crossing the lane boundary or its motion is entering ego's path. Inspect all four frames because a real intrusion may be clearest in only one of them.
 Use older frames for partly occluded static obstacles only when they clearly show the same object still constraining ego's path.
-NO examples: a normal lead vehicle, including one braking or travelling slowly in ordinary flow; a vehicle in its own/oncoming lane; traffic separated by a median/barrier; a distant object; safely parked roadside/background cars; residual accident vehicles after ego's path is open; or a queue visible far away but not blocking ego's usable corridor.
+NO examples: a normal lead vehicle at a stable safe separation, including ordinary braking/slow flow without a clearly closing gap; a vehicle in its own/oncoming lane; traffic separated by a median/barrier; a distant object; a vehicle clearly within a marked parking bay; residual accident vehicles after ego's path is open; or a queue visible far away but not blocking ego's usable corridor.
 This question includes vehicle/path conflicts such as a red-light-running or oncoming vehicle; that is an obstacle/conflict, not a traffic-light fault.
 
 VULNERABLE:
@@ -73,19 +74,19 @@ Do not mark VULNERABLE just because there is a traffic light or another vehicle 
 
 TRAFFIC_LIGHT_ABNORMAL:
 First identify the signal heads around the same junction and compare left/front/right views. Decide whether the signal system at the ego conflict point is self-consistent, not only whether the ego-facing lamp is green. Separate this junction from distant junctions and pedestrian-only signals.
-Use a visual-witness test before deciding YES: locate one junction box, assign each readable illuminated head to an approach or movement, and find two GREEN heads that authorize vehicle paths which would cross in that same box. A red head plus a green head is normal by default. Two heads serving the same approach, different lanes with compatible turns, or different/distant junctions are not a conflicting pair. If the camera view does not let you map the green heads to conflicting approaches, there is no readable fault witness; do not infer a fault from green color alone.
+Use a visual-witness test before deciding YES: locate one junction box and compare readable illuminated heads across left/front/right views. At a clear wide cross, T-junction, angled junction, or multi-arm junction, two GREEN heads visibly facing different approach arms are sufficient YES evidence when those arms feed the same broad conflict area. Do not require an exact lane-by-lane reconstruction or visible moving cars before recognizing this pattern. A red head plus a green head is normal by default. Two heads clearly serving the same approach, compatible turn lanes, or different/distant junctions are not a conflicting pair.
 YES requires the signal/control system itself to be visibly unreliable, broken, or contradictory at the same conflict point. Positive patterns include:
 - conflicting approaches or incompatible movements visibly permitted at the same time while vehicles are released through the shared conflict area;
-- several signal heads on different arms of the same cross junction show green at the same time for directions that would cross or collide; answer YES even if ego's own signal is green and appears bright/normal;
-- if readable green heads on the ego approach and a crossing/merging approach both authorize paths through the same conflict area, this is TRAFFIC_LIGHT_ABNORMAL=YES. This includes four-way crosses, T-junctions, angled junctions, and multi-arm junctions. The required fact is conflicting permitted movements, not simply several green pixels.
+- several signal heads on visibly different arms of the same cross junction show green at the same time; answer YES even if ego's own signal is green and appears bright/normal;
+- if readable green heads on the ego/front approach and a left/right crossing or merging approach are visible in one broad conflict area, this is TRAFFIC_LIGHT_ABNORMAL=YES. This includes four-way crosses, T-junctions, angled junctions, and multi-arm junctions. Do not dismiss these as a "consistent green phase" merely because exact turn-lane geometry is small in the image.
 - one clear witness frame is sufficient. If an older history frame clearly shows two crossing approaches green, answer YES even if the newest frame is partially occluded, foggy, or one signal head has moved out of view. Conversely, do not infer YES from a defect scenario when no history frame contains a readable contradictory signal witness.
 - the ego-governing signal head is present but dark/off/broken when it should control the junction;
 - impossible flashing, stuck, or inconsistent signal behavior across the short history;
-- an all-red/all-green or mixed-color pattern only when the readable approach mapping proves that it authorizes a collision, not merely different phases for different approaches.
+- a clear all-green pattern across visibly different approach arms of one junction. Do not use all-red or mixed red/green alone: those can be normal phasing.
 NO traps:
 - ordinary red/yellow/green lights, normal phase changes, a normal red light with ego waiting, RedLightWithoutLeadVehicle behavior, non-signalized junctions, absent lights, unreadable tiny/distant lamps, fog/rain/glare, or different colors for non-conflicting lanes when that is normal phasing;
 - another vehicle running a red light, taking priority, blocking an intersection, or crossing ego's path. That may be OBSTACLE=YES, but TRAFFIC_LIGHT_ABNORMAL=NO if the lights themselves look normal.
-Several visible green heads are not sufficient by themselves: first verify that they govern crossing movements in the same junction. When that mapping is unreadable because of angle, distance, fog, glare, or occlusion, do not invent a fault.
+Several visible green heads are not sufficient only when they are clearly on one approach/same gantry, serve compatible lanes, or belong to different junctions. When a clear wide junction shows green heads facing distinct left/front/right approach arms, treat it as a visible fault witness; do not reject it merely because the exact lane mapping is small.
 Do not infer a signal fault from a scenario name, event label, ego waiting, or the presence of a traffic light.
 [/DECISION_RULES]
 """.strip()
@@ -93,7 +94,7 @@ Do not infer a signal fault from a scenario name, event label, ego waiting, or t
     if audit:
         output = """
 [AUDIT_OUTPUT]
-For each item, write one short, externally checkable visual observation (not hidden reasoning), then the answer. Mention only what is visible in the RGB history. For a small/brief object or signal, name the history-frame position where it is clearest. For TRAFFIC_LIGHT_ABNORMAL=YES, name the two visibly conflicting green approaches or the broken head. For TRAFFIC_LIGHT_ABNORMAL=NO, state that no readable conflicting same-junction witness pair was seen, rather than merely calling the phase normal. If the answer is NO, name the main rejected false-positive cue when useful, such as "wide straight city road but no ramp/access control" or "vehicle violates signal but lamps look normal".
+For each item, write one short, externally checkable visual observation (not hidden reasoning), then the answer. Mention only what is visible in the RGB history. For a small/brief object or signal, name the history-frame position where it is clearest. For TRAFFIC_LIGHT_ABNORMAL=YES, name the two visibly distinct approach arms with green heads or the broken head; do not invent exact lane details. For TRAFFIC_LIGHT_ABNORMAL=NO, state the main reason a visible cue is normal, such as red-versus-green normal phasing, same-arm lights, or no readable signal. If the answer is NO, name the main rejected false-positive cue when useful, such as "wide straight city road but no ramp/access control" or "vehicle violates signal but lamps look normal".
 EVIDENCE_HIGHWAY: <short visible road-topology evidence>
 EVIDENCE_OBSTACLE: <short visible object/path evidence>
 EVIDENCE_VULNERABLE: <short visible vulnerable-road-user evidence>
@@ -115,6 +116,13 @@ TRAFFIC_LIGHT_ABNORMAL: <YES or NO>
 [/OUTPUT]
 """.strip()
     return f"{criteria}\n\n{output}"
+
+
+def phase1_prompt_sha256(*, audit: bool = False) -> str:
+    """返回实际送入模型的 system + user prompt 内容指纹。"""
+
+    payload = f"{SYSTEM_PROMPT}\n\0{build_phase1_prompt(audit=audit)}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 _ANSWER_RE = re.compile(r"(?im)^\s*([A-Z_]+)\s*:\s*(YES|NO)\b")

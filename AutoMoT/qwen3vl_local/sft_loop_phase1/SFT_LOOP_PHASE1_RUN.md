@@ -75,14 +75,49 @@ answer table、RS/EVENT 标注、异常 route 过滤或 split 参数不变，就
 
 ## 2. 先测原始 Qwen
 
-这是 prompt 迭代最重要的一步。默认使用 `audit=True` prompt，因此模型会输出
-`EVIDENCE_*` 和四个答案；parser 仍只解析四个 YES/NO。
+这是 prompt 迭代最重要的一步。默认使用和训练/部署完全一致的 production prompt，模型只输出
+四个 YES/NO。只有显式传 `--audit-prompt` 才会要求 `EVIDENCE_*`；parser 仍只解析四个
+YES/NO。
 
 最近一次 RGB 错例复核见
 [`SFT_LOOP_PHASE1_RGB_ERROR_AUDIT_20260810.md`](SFT_LOOP_PHASE1_RGB_ERROR_AUDIT_20260810.md)。
 它区分了模型确实漏看了的视觉证据，和仅凭当前四帧 RGB 无法回答的 scenario/RS/EVENT
 标签。修 prompt 后必须先在同一份固定 test index 上复测；不要把“故障场景但故障尚未出现”
 的正标签误当作模型应该从不可见 RGB 猜出的知识。
+
+### Prompt 与 LoRA 的正确比较顺序
+
+提示词本身也是模型输入。已有 LoRA 如果是在旧提示词上训练，它对新提示词的结果同时混合了
+视觉能力、答案格式能力和输入措辞分布漂移；这类评测只用于检查旧 adapter 是否兼容，**不能**
+单独决定新提示词好坏。
+
+1. 修改 prompt 后，先用没有经过本任务训练的 base Qwen，在不变的
+   `frame_index.jsonl` 上跑完整 1:1 四任务评测，作为 prompt-only 选择依据。
+2. 再拿旧 LoRA 跑同一 index，只记录它对新措辞的兼容性和 RGB 错例，不把它当作新 prompt 的
+   最终性能。
+3. 选定 prompt 后，直接用原来的 `frame_index.jsonl` 重训一个新的 LoRA；`train.py` 会在训练
+   时动态调用 `build_phase1_prompt(audit=False)`，所以只改提示词、answer table、split 和索引
+   都不变时，**无需重构数据集**。
+4. 用新 LoRA 和同一版本 prompt 再做 base/LoRA 对照，才判断训练是否真正提高视觉性能。
+
+正式 F1/TP/FP/FN/TN 只比较 `prompt_mode=production` 的结果。`--audit-prompt` 是同一固定
+case index 的第二个诊断 run，用来保存模型可见证据和错例 RGB；它多了一段用户输入，不能和
+production 的指标直接横比。每个 `summary.md` 和 `metrics.json` 都会记录 prompt mode。
+新训练 adapter 还会记录 production prompt 的 SHA-256；eval 会同时写当前内容指纹和
+`adapter_prompt_matches_current_production`。旧 adapter 没有该字段时显示 `unknown`，仍可
+用于兼容性诊断，但不能冒充 prompt-aligned 对照。
+
+例如本轮中间边界 prompt 的 4 卡 base 评测应单独留存：
+
+```bash
+GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
+  qwen3vl_local/sft_loop_phase1/eval.py \
+  --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --output-dir checkpoints/sft_loop_phase1_eval/base_rgb_middle_boundary_4gpu \
+  --cases-per-bin 64 \
+  --timestamp-output
+```
 
 1 卡测原始 Qwen：
 
@@ -92,8 +127,7 @@ python qwen3vl_local/sft_loop_phase1/eval.py \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt \
-  --cases-per-bin 64 \
-  --audit-prompt
+  --cases-per-bin 64
 ```
 
 评估集按四个主任务分别做 YES/NO 1:1。也就是说 HIGHWAY 模块只保证
@@ -163,8 +197,7 @@ GPU_IDS=0,1 torchrun --nproc_per_node=2 \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt_2gpu \
-  --cases-per-bin 64 \
-  --audit-prompt
+  --cases-per-bin 64
 ```
 
 4 卡测原始 Qwen：
@@ -175,8 +208,7 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt_4gpu \
-  --cases-per-bin 64 \
-  --audit-prompt
+  --cases-per-bin 64
 ```
 
 根据 base 错例修过 prompt 后的复测，也放在 `checkpoints/` 下另起目录：
@@ -188,12 +220,16 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt_after_feedback_4gpu \
   --cases-per-bin 64 \
-  --audit-prompt \
   --overwrite
 ```
 
 多卡 eval 会写 `cases_rank0.jsonl`、`cases_rank1.jsonl` ...，rank0 汇总
 `metrics.json` / `summary.md`；同时 `task_cases/<TASK>/` 下也会按 rank 拆分。
+
+需要分析错因时，在上面**同一个模型和同一个 index**的命令额外加
+`--audit-prompt`，但输出目录必须另起名（例如
+`checkpoints/sft_loop_phase1_eval/base_rgb_middle_boundary_audit_4gpu`）。诊断 run 的
+`EVIDENCE_*` 可交给我配合 `error_cases/<TASK>/` RGB 看，正式结果仍以 production run 为准。
 
 ## 3. 训练 LoRA
 
@@ -230,6 +266,14 @@ GPU_IDS=0,1 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 4 卡 DDP：
 
 ```bash
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
+```
+
+选定本轮 prompt 后重训时，请显式使用新的 run 名，避免 `latest` 覆盖而看不出 adapter
+是否见过当前提示词：
+
+```bash
+RUN_TAG=rgb_middle_boundary \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 ```
 
@@ -358,7 +402,6 @@ python qwen3vl_local/sft_loop_phase1/eval.py \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
   --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt \
   --cases-per-bin 64 \
-  --audit-prompt \
   --timestamp-output
 ```
 
@@ -372,7 +415,6 @@ GPU_IDS=0,1 torchrun --nproc_per_node=2 \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
   --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt_2gpu \
   --cases-per-bin 64 \
-  --audit-prompt \
   --timestamp-output
 ```
 
@@ -386,7 +428,6 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
   --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt_4gpu \
   --cases-per-bin 64 \
-  --audit-prompt \
   --timestamp-output
 ```
 

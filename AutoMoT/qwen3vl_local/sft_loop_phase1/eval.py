@@ -53,6 +53,7 @@ from qwen3vl_local.sft_loop_phase1.prompts import (  # noqa: E402
     SYSTEM_PROMPT,
     build_phase1_prompt,
     parse_phase1_output,
+    phase1_prompt_sha256,
 )
 from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
 
@@ -371,6 +372,11 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     cases = _balanced_cases(rows, cases_per_bin=int(args.cases_per_bin), seed=int(args.seed))
     local_cases = cases[rank::world_size]
     device = torch.device(f"cuda:{local_rank}") if world_size > 1 else torch.device(args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
+    adapter_cfg = (
+        _validate_phase1_adapter(pathlib.Path(args.adapter_dir), pathlib.Path(args.model_dir))
+        if args.adapter_dir
+        else None
+    )
     bundle = load_eval_bundle(
         pathlib.Path(args.model_dir),
         pathlib.Path(args.adapter_dir) if args.adapter_dir else None,
@@ -514,7 +520,18 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     metrics = {
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
+        "prompt_mode": "audit" if bool(args.audit_prompt) else "production",
+        "production_prompt_sha256": phase1_prompt_sha256(audit=False),
+        "eval_prompt_sha256": phase1_prompt_sha256(audit=bool(args.audit_prompt)),
         "adapter_dir": str(args.adapter_dir) if args.adapter_dir else None,
+        "adapter_production_prompt_sha256": (
+            adapter_cfg.get("production_prompt_sha256") if adapter_cfg is not None else None
+        ),
+        "adapter_prompt_matches_current_production": (
+            adapter_cfg.get("production_prompt_sha256") == phase1_prompt_sha256(audit=False)
+            if adapter_cfg is not None and adapter_cfg.get("production_prompt_sha256")
+            else None
+        ),
         "audit_prompt": bool(args.audit_prompt),
         "sampling_contract": "Four independent task modules. In each module, that task's GT YES/NO cases are sampled 1:1; the model still answers all four questions.",
         "output_dir": str(output_dir),
@@ -541,7 +558,11 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "# sft_loop_phase1 eval",
         "",
         f"- prompt_name: `{PROMPT_NAME}`",
+        f"- prompt_mode: `{'audit' if bool(args.audit_prompt) else 'production'}`",
+        f"- eval_prompt_sha256: `{metrics['eval_prompt_sha256']}`",
         f"- adapter: `{args.adapter_dir or 'BASE_QWEN'}`",
+        f"- adapter_production_prompt_sha256: `{metrics['adapter_production_prompt_sha256'] or 'unknown (legacy adapter)'}`",
+        f"- adapter_prompt_matches_current_production: `{metrics['adapter_prompt_matches_current_production']}`",
         f"- cases: {total}",
         f"- exact_match_accuracy: {metrics['exact_match_accuracy']:.4f}",
         f"- sampling: `{metrics['sampling_contract']}`",
@@ -607,7 +628,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-frames", type=int, default=0)
     p.add_argument("--cases-per-bin", type=int, default=64)
     p.add_argument("--max-new-tokens", type=int, default=256)
-    p.add_argument("--audit-prompt", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--audit-prompt", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--save-prompts", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--save-error-rgb", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--save-all-rgb", action=argparse.BooleanOptionalAction, default=False)
