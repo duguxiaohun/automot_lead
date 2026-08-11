@@ -55,6 +55,34 @@ contract, but they must be tagged `not_observable` before any final RGB-only
 benchmark is interpreted. Do not manufacture a positive visual cue from the
 scenario name to make such rows easier.
 
+## 2026-08-12 Base Review
+
+The first static-schema base runs use the same fixed eight-bin test index. The
+production prompt has `STATIC_OBSTACLE` F1 `0.390` on its dedicated 64/64 task
+module; the diagnostic audit prompt reaches `0.650`. The audit output makes the
+model inspect the image before emitting the four answers, so it is useful for
+finding evidence but is not a production score.
+
+The RGB review identified two focused prompt additions, without changing the
+label policy:
+
+- A trailer-mounted temporary lane-arrow board, yellow construction base, or
+  cone-guided lane diversion is construction equipment. When it occupies the
+  traced ego corridor, it is a static obstacle even if it is not a crashed car.
+- Apparent enlargement across four frames is caused by ego motion as well as by
+  a fixed object. A car must remain road-fixed, rather than cut in, pull out,
+  turn, cross, or advance relative to lane markings, before it can be called
+  static.
+
+The current user-approved supervision remains the inexpensive proxy
+`primary_event == U-E2`; no extra frame-level labels and no non-U-E2 positive
+events are added in this phase. Therefore a U-E2 overlap where the obstacle has
+not appeared, has been passed, or is obscured remains unavoidable label noise.
+It must be reported as a limitation of the visual benchmark, not repaired by
+making the model guess from a scenario name. After the two prompt additions,
+rerun base once, then train a new prompt-aligned LoRA rather than repeatedly
+lengthening the prompt.
+
 ## Implementation Contract
 
 - `prompts.py` emits `STATIC_OBSTACLE`, never the legacy `OBSTACLE` key.
