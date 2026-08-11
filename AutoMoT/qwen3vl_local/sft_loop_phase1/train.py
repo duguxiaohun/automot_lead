@@ -141,6 +141,35 @@ def _focus_key(row: FrameRow, focus: str) -> str:
     return f"{focus}:{'YES' if row.answers[focus] else 'NO'}"
 
 
+def _expected_focus_bins() -> List[str]:
+    """返回四个主任务的固定 YES/NO 八桶顺序。"""
+
+    return [f"{key}:{value}" for key in ANSWER_KEYS for value in ("YES", "NO")]
+
+
+def _assert_exact_focus_balance(work: Sequence[Tuple[FrameRow, str]], *, target: int, context: str) -> None:
+    """确保完整 work list 的八桶全部存在且每桶严格等量。"""
+
+    counts = Counter(_focus_key(row, focus) for row, focus in work)
+    expected = int(target)
+    invalid = {key: int(counts.get(key, 0)) for key in _expected_focus_bins() if int(counts.get(key, 0)) != expected}
+    if invalid:
+        raise RuntimeError(
+            f"{context} violates exact 1:1:1:1 and YES/NO 1:1 balance; "
+            f"expected every bin={expected}, got={dict(counts)}, invalid={invalid}"
+        )
+
+
+def _raw_focus_bin_counts(rows: Sequence[FrameRow]) -> Dict[str, int]:
+    """统计 split 中可用的原始八桶计数，供 balance artifact 审计。"""
+
+    counts: Counter[str] = Counter()
+    for row in rows:
+        for focus in ANSWER_KEYS:
+            counts[_focus_key(row, focus)] += 1
+    return {key: int(counts.get(key, 0)) for key in _expected_focus_bins()}
+
+
 def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) -> List[Tuple[FrameRow, str]]:
     """构建八桶 exact-balance work list。"""
 
@@ -148,9 +177,14 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
     for row in rows:
         for focus in ANSWER_KEYS:
             groups[_focus_key(row, focus)].append((row, focus))
-    nonempty = [len(v) for v in groups.values() if v]
-    if not nonempty:
-        return []
+    raw_counts = {key: len(items) for key, items in groups.items()}
+    missing = [key for key in _expected_focus_bins() if raw_counts[key] == 0]
+    if missing:
+        raise ValueError(
+            "cannot build exact 1:1 Phase1 training work: required focus bins are empty; "
+            f"missing={missing} raw_counts={raw_counts}. Rebuild/check the dataset split or reduce filtering."
+        )
+    nonempty = list(raw_counts.values())
     target = int(target_per_bin) if int(target_per_bin) > 0 else min(nonempty)
     target = max(1, target)
     rng = random.Random(f"{seed}:phase1_balance:{len(rows)}:{target}")
@@ -167,6 +201,7 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
             rng.shuffle(repeated)
             work.extend(repeated)
     rng.shuffle(work)
+    _assert_exact_focus_balance(work, target=target, context="training work")
     return work
 
 
@@ -365,7 +400,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
     bundle.unwrap().save_pretrained(str(final_dir))
     cfg = {
         "schema": "sft_loop_phase1_adapter_config",
-        "route": "sft_loop_phase1_four_visible_facts",
+        "route": "sft_loop_phase1_static_obstacle_visible_facts",
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
         "production_prompt_sha256": phase1_prompt_sha256(audit=False),
@@ -402,28 +437,28 @@ def train(args: argparse.Namespace) -> None:
     work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
     output_dir = pathlib.Path(args.output_dir)
 
+    eval_rows: List[FrameRow] = []
+    full_eval_work: List[Tuple[FrameRow, str]] = []
     eval_work: List[Tuple[FrameRow, str]] = []
-    eval_error = ""
     if int(args.eval_steps) > 0 and int(args.eval_balance_count) > 0:
         try:
             eval_rows = _read_rows(pathlib.Path(args.index), split=str(args.eval_split), max_frames=int(args.max_eval_frames))
             full_eval_work = _balanced_work(eval_rows, target_per_bin=int(args.eval_balance_count), seed=int(args.seed) + 1009)
             eval_work = _split_work_for_rank(full_eval_work, rank=rank, world_size=world_size)
         except Exception as exc:
-            eval_error = str(exc)
-            eval_work = []
+            raise RuntimeError(
+                "periodic validation was requested but its split cannot satisfy the exact eight-bin balance. "
+                "Rebuild/fix the dataset instead of silently training without validation."
+            ) from exc
     if rank == 0:
         output_dir.mkdir(parents=True, exist_ok=True)
         val_balance = {}
         if eval_work:
-            eval_rows_for_audit = _read_rows(pathlib.Path(args.index), split=str(args.eval_split), max_frames=int(args.max_eval_frames))
-            full_eval_work_for_audit = _balanced_work(eval_rows_for_audit, target_per_bin=int(args.eval_balance_count), seed=int(args.seed) + 1009)
             val_balance = {
-                "global": dict(Counter(_focus_key(row, focus) for row, focus in full_eval_work_for_audit)),
+                "raw_available": _raw_focus_bin_counts(eval_rows),
+                "global_sampled": dict(Counter(_focus_key(row, focus) for row, focus in full_eval_work)),
                 "rank0_shard": dict(Counter(_focus_key(row, focus) for row, focus in eval_work)),
             }
-        elif eval_error:
-            print(f"[warn] skip periodic eval: {eval_error}")
         (output_dir / "train_balance.json").write_text(
             json.dumps(
                 {
@@ -431,7 +466,8 @@ def train(args: argparse.Namespace) -> None:
                     "train": {
                         "split": str(args.split),
                         "focus_balance_count": int(args.focus_balance_count),
-                        "global": dict(Counter(_focus_key(row, focus) for row, focus in full_work)),
+                        "raw_available": _raw_focus_bin_counts(rows),
+                        "global_sampled": dict(Counter(_focus_key(row, focus) for row, focus in full_work)),
                         "rank0_shard": dict(Counter(_focus_key(row, focus) for row, focus in work)),
                     },
                     "eval": {
@@ -529,7 +565,7 @@ def train(args: argparse.Namespace) -> None:
                         f"[eval] step={global_step}/{total_steps} split={args.eval_split} "
                         f"loss={metrics['loss']:.4f} token_acc={metrics['token_acc']:.4f} "
                         f"focus_highway={metrics.get('focus_highway_acc', 0.0):.4f} "
-                        f"focus_obstacle={metrics.get('focus_obstacle_acc', 0.0):.4f} "
+                        f"focus_static_obstacle={metrics.get('focus_static_obstacle_acc', 0.0):.4f} "
                         f"focus_vulnerable={metrics.get('focus_vulnerable_acc', 0.0):.4f} "
                         f"focus_light={metrics.get('focus_traffic_light_abnormal_acc', 0.0):.4f}"
                     )

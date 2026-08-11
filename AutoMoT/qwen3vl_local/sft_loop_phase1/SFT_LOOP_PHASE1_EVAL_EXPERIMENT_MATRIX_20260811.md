@@ -1,5 +1,9 @@
 # Phase1 Evaluation Experiment Matrix
 
+> Historical note: every `OBSTACLE` result below belongs to the retired mixed static/dynamic task. The current
+> first-loop output is `STATIC_OBSTACLE` and is true only for U-E2. These historical values explain the split
+> decision but are not a baseline F1 for the new task.
+
 ## Scope And Rules
 
 This record summarizes every completed Phase1 four-question evaluation found on

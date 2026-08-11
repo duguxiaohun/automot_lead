@@ -4,7 +4,7 @@
 
 ```text
 HIGHWAY: YES|NO
-OBSTACLE: YES|NO
+STATIC_OBSTACLE: YES|NO
 VULNERABLE: YES|NO
 TRAFFIC_LIGHT_ABNORMAL: YES|NO
 ```
@@ -32,7 +32,7 @@ python qwen3vl_local/sft_loop_phase1/build_dataset.py \
   --val-ratio 0.05
 ```
 
-这基本是一次性命令：同一个 `frame_index.jsonl` 可以反复用于 base Qwen 测试、LoRA 训练和
+同一个 `frame_index.jsonl` 可以反复用于同一任务语义下的 base Qwen 测试、LoRA 训练和
 LoRA 复测。只有下面情况需要重建：
 
 - `phase1_four_question_answer_table.json` 更新了；
@@ -40,6 +40,7 @@ LoRA 复测。只有下面情况需要重建：
 - 异常 route 过滤逻辑或 `lead_data` 内容变了；
 - 想改变 `--split-seed` / `--test-ratio` / `--val-ratio`；
 - `build_dataset.py` 的字段 schema 改了。
+- 四问的语义变了，例如本轮从混合 `OBSTACLE` 拆成只问 `STATIC_OBSTACLE`。
 
 输出：
 
@@ -53,10 +54,8 @@ LoRA 复测。只有下面情况需要重建：
 
 ### 是否需要重构数据集
 
-这次需要重构一次。原因是训练脚本已经从“固定 1000 step 快跑”改成“多 epoch +
-训练中定期 val”，而旧数据大概率是在 `val_ratio=0.00` 下构建的，`frame_index.jsonl`
-里没有 `split=val` 的样本。没有 val split 时训练仍能跑，但会跳过训练中的验证曲线，
-看不出是否过拟合。
+这次需要重构一次。当前第一轮已从混合 `OBSTACLE` 改为 `STATIC_OBSTACLE`，训练真值严格是
+`primary EVENT == U-E2`；旧索引和旧 LoRA 都不兼容。重建也会保留 `val` split，供训练中定期验证。
 
 重构只会重写 `checkpoints/sft_loop_phase1_data/frame_index.jsonl` 和 `manifest.json`，
 不会改 RGB，也不会改人工四问答案表。重构后建议先确认 manifest 里有三类 split：
@@ -97,11 +96,10 @@ YES/NO。
    道路、目标物和信号证据。这是 prompt 的视觉诊断，不是 production 指标。
 2. 再用 production prompt 跑 base Qwen，确认四行格式、解析和没有训练时的保守下限。未训练的
    base 可能几乎全答 `NO`，不能据此否定一个需要 LoRA 才能学会输出 YES 的视觉规则。
-3. 旧 LoRA 跑同一 production prompt时，只记录其对新措辞的兼容性；它没有见过当前 prompt
-   内容，不能作为新 prompt 的最终性能。
-4. 选定 prompt 后，直接用原来的 `frame_index.jsonl` 重训一个新的 LoRA；`train.py` 会在训练
-   时动态调用 `build_phase1_prompt(audit=False)`，所以只改提示词、answer table、split 和索引
-   都不变时，**无需重构数据集**。
+3. 旧 LoRA 是混合动静态 `OBSTACLE` 任务，schema 会被拒绝加载；它只能保留作历史参考，不能
+   测新静态问题。
+4. 选定 prompt 后，使用本节重建的 `frame_index.jsonl` 训练新的 LoRA；`train.py` 会在训练时
+   动态调用 `build_phase1_prompt(audit=False)`。在新的静态 schema 内只改提示词时无需再次重构。
 5. 用新 LoRA 和同一 production prompt 做正式 1:1 四任务评测；随后用同一 adapter 的 audit
    run 回查错例 RGB，才判断训练是否真正提高 answer-only loop 的视觉性能。
 
@@ -114,14 +112,14 @@ YES/NO。
 `adapter_prompt_matches_current_production`。旧 adapter 没有该字段时显示 `unknown`，仍可
 用于兼容性诊断，但不能冒充 prompt-aligned 对照。
 
-例如本轮中间边界 prompt 的 4 卡 base 评测应单独留存：
+本轮静态障碍 prompt 的 4 卡 base 评测应单独留存：
 
 ```bash
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase1/eval.py \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_loop_phase1_eval/base_rgb_middle_boundary_4gpu \
+  --output-dir checkpoints/sft_loop_phase1_eval/base_static_obstacle_4gpu \
   --cases-per-bin 64 \
   --timestamp-output
 ```
@@ -133,30 +131,33 @@ GPU_IDS=0 \
 python qwen3vl_local/sft_loop_phase1/eval.py \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt \
+  --output-dir checkpoints/sft_loop_phase1_eval/base_static_obstacle \
   --cases-per-bin 64
 ```
 
 评估集按四个主任务分别做 YES/NO 1:1。也就是说 HIGHWAY 模块只保证
-`HIGHWAY:YES / HIGHWAY:NO` 均衡，OBSTACLE 模块只保证
-`OBSTACLE:YES / OBSTACLE:NO` 均衡，以此类推：
+`HIGHWAY:YES / HIGHWAY:NO` 均衡，STATIC_OBSTACLE 模块只保证
+`STATIC_OBSTACLE:YES / STATIC_OBSTACLE:NO` 均衡，以此类推：
 
 ```text
 HIGHWAY:YES / HIGHWAY:NO
-OBSTACLE:YES / OBSTACLE:NO
+STATIC_OBSTACLE:YES / STATIC_OBSTACLE:NO
 VULNERABLE:YES / VULNERABLE:NO
 TRAFFIC_LIGHT_ABNORMAL:YES / TRAFFIC_LIGHT_ABNORMAL:NO
 ```
 
 每个样本仍回答全部四个问题；`focus_question` / `task` 只用于采样和统计，不进入 prompt。
+构建时 `manifest.json.focus_bin_availability` 必须显示 train/test 的八桶均为正数（开启 val 时 val 也必须如此）；
+否则 `build_dataset.py` 会失败且不替换旧索引。训练/评测随后断言八个最终桶严格同数，任何缺桶或计数不等都会失败，
+不会静默降级为不均衡测试。
 例如 HIGHWAY 模块的主问题是“是否高速”，该模块会记录 HIGHWAY 的
 TP/FP/FN/TN、precision/recall/F1，同时顺带记录这批 HIGHWAY 1:1 样本上
-OBSTACLE / VULNERABLE / TRAFFIC_LIGHT_ABNORMAL 的结果；这些副问题在该模块里不要求
+STATIC_OBSTACLE / VULNERABLE / TRAFFIC_LIGHT_ABNORMAL 的结果；这些副问题在该模块里不要求
 YES/NO 均衡。其它三个模块同理。
 
 输出：
 
-- `metrics.json`：总结果 + `task_reports.{HIGHWAY,OBSTACLE,VULNERABLE,TRAFFIC_LIGHT_ABNORMAL}`。
+- `metrics.json`：总结果 + `task_reports.{HIGHWAY,STATIC_OBSTACLE,VULNERABLE,TRAFFIC_LIGHT_ABNORMAL}`。
   每个 task report 都有主问题 1:1 balance、TP/FP/FN/TN、precision/recall/F1 和副问题统计。
 - `cases.jsonl`：所有 case 放在一起，含 prompt、RGB 路径、GT、parsed、raw output、ok_by_key。
 - `task_cases/<TASK>/cases.jsonl`：按主任务拆开的 case 记录，方便只看某一类问题。
@@ -168,18 +169,18 @@ YES/NO 均衡。其它三个模块同理。
 你后续给我分析时，优先打包这些轻量文件即可，不需要传全量 RGB：
 
 ```bash
-tar -czf /tmp/base_zero_shot_prompt_records.tgz \
-  checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/metrics.json \
-  checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/summary.md \
-  checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/cases.jsonl \
-  checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/task_cases
+tar -czf /tmp/base_static_obstacle_records.tgz \
+  checkpoints/sft_loop_phase1_eval/base_static_obstacle/<timestamp>/metrics.json \
+  checkpoints/sft_loop_phase1_eval/base_static_obstacle/<timestamp>/summary.md \
+  checkpoints/sft_loop_phase1_eval/base_static_obstacle/<timestamp>/cases.jsonl \
+  checkpoints/sft_loop_phase1_eval/base_static_obstacle/<timestamp>/task_cases
 ```
 
 如果某个主任务表现很差，再只补充该主任务的少量 RGB 错例，例如：
 
 ```bash
 tar -czf /tmp/base_highway_error_rgb_sample.tgz \
-  checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt/error_cases/HIGHWAY
+  checkpoints/sft_loop_phase1_eval/base_static_obstacle/<timestamp>/error_cases/HIGHWAY
 ```
 
 不建议第一次就传 `rgb_cases/`，除非你专门加了 `--save-all-rgb` 并且只想给我一个很小 smoke。
@@ -203,7 +204,7 @@ GPU_IDS=0,1 torchrun --nproc_per_node=2 \
   qwen3vl_local/sft_loop_phase1/eval.py \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt_2gpu \
+  --output-dir checkpoints/sft_loop_phase1_eval/base_static_obstacle_2gpu \
   --cases-per-bin 64
 ```
 
@@ -214,7 +215,7 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase1/eval.py \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt_4gpu \
+  --output-dir checkpoints/sft_loop_phase1_eval/base_static_obstacle_4gpu \
   --cases-per-bin 64
 ```
 
@@ -225,7 +226,7 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase1/eval.py \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt_after_feedback_4gpu \
+  --output-dir checkpoints/sft_loop_phase1_eval/base_static_obstacle_refined_4gpu \
   --cases-per-bin 64 \
   --overwrite
 ```
@@ -235,14 +236,14 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 
 需要分析错因时，在上面**同一个模型和同一个 index**的命令额外加
 `--audit-prompt`，但输出目录必须另起名（例如
-`checkpoints/sft_loop_phase1_eval/base_rgb_middle_boundary_audit_4gpu`）。诊断 run 的
+`checkpoints/sft_loop_phase1_eval/base_static_obstacle_audit_4gpu`）。诊断 run 的
 `EVIDENCE_*` 可交给我配合 `error_cases/<TASK>/` RGB 看，正式结果仍以 production run 为准。
 
 ## 3. 训练 LoRA
 
 默认 LoRA 只挂语言侧，视觉侧保持 frozen。训练采样和测试采样保持同一个口径：
 四个主问题各自 `YES:NO = 1:1`，也就是八个桶
-`HIGHWAY:YES/NO`、`OBSTACLE:YES/NO`、`VULNERABLE:YES/NO`、
+`HIGHWAY:YES/NO`、`STATIC_OBSTACLE:YES/NO`、`VULNERABLE:YES/NO`、
 `TRAFFIC_LIGHT_ABNORMAL:YES/NO` 每轮取同样数量。
 
 现在默认更接近正式训练，不再是 1000 step 快跑：
@@ -280,7 +281,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 是否见过当前提示词：
 
 ```bash
-RUN_TAG=rgb_middle_boundary \
+RUN_TAG=static_obstacle \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 ```
 
@@ -363,6 +364,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 训练采样同样按四个主任务各自 YES/NO 1:1。每个 work item 有一个不可见
 `focus_question`，但 loss 默认监督同一 assistant target 的四个 YES/NO 值 token；
 也就是训练和测试都保持“主问题均衡，副问题顺带记录/监督”的口径。
+当 `EVAL_STEPS>0` 时，val split 同样必须八桶完整；缺桶会终止训练，绝不会只打印 warning 后跳过验证。
 训练产物：
 
 - `checkpoints/sft_loop_phase1_runs/latest/final/adapter_model.safetensors`
@@ -407,7 +409,7 @@ python qwen3vl_local/sft_loop_phase1/eval.py \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
-  --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt \
+  --output-dir checkpoints/sft_loop_phase1_eval/lora_static_obstacle \
   --cases-per-bin 64 \
   --timestamp-output
 ```
@@ -420,7 +422,7 @@ GPU_IDS=0,1 torchrun --nproc_per_node=2 \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
-  --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt_2gpu \
+  --output-dir checkpoints/sft_loop_phase1_eval/lora_static_obstacle_2gpu \
   --cases-per-bin 64 \
   --timestamp-output
 ```
@@ -433,15 +435,15 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
-  --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt_4gpu \
+  --output-dir checkpoints/sft_loop_phase1_eval/lora_static_obstacle_4gpu \
   --cases-per-bin 64 \
   --timestamp-output
 ```
 
 建议保留 base 和 LoRA 两份结果：
 
-- `checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt*/<timestamp>/`
-- `checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt*/<timestamp>/`
+- `checkpoints/sft_loop_phase1_eval/base_static_obstacle*/<timestamp>/`
+- `checkpoints/sft_loop_phase1_eval/lora_static_obstacle*/<timestamp>/`
 
 这样可以直接比较：
 

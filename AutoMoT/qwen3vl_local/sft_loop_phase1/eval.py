@@ -153,6 +153,35 @@ def _focus_key(row: FrameRow, focus: str) -> str:
     return f"{focus}:{'YES' if row.answers[focus] else 'NO'}"
 
 
+def _expected_focus_bins() -> List[str]:
+    """返回四个主任务的固定 YES/NO 八桶顺序。"""
+
+    return [f"{key}:{value}" for key in ANSWER_KEYS for value in ("YES", "NO")]
+
+
+def _assert_exact_focus_balance(work: Sequence[Tuple[FrameRow, str]], *, target: int, context: str) -> None:
+    """确保完整评测集的八桶全部存在且每桶严格等量。"""
+
+    counts = Counter(_focus_key(row, focus) for row, focus in work)
+    expected = int(target)
+    invalid = {key: int(counts.get(key, 0)) for key in _expected_focus_bins() if int(counts.get(key, 0)) != expected}
+    if invalid:
+        raise RuntimeError(
+            f"{context} violates exact 1:1:1:1 and YES/NO 1:1 balance; "
+            f"expected every bin={expected}, got={dict(counts)}, invalid={invalid}"
+        )
+
+
+def _raw_focus_bin_counts(rows: Sequence[FrameRow]) -> Dict[str, int]:
+    """统计测试 split 的原始八桶可用性，区别于最终抽样计数。"""
+
+    counts: Counter[str] = Counter()
+    for row in rows:
+        for focus in ANSWER_KEYS:
+            counts[_focus_key(row, focus)] += 1
+    return {key: int(counts.get(key, 0)) for key in _expected_focus_bins()}
+
+
 def _balanced_cases(rows: Sequence[FrameRow], *, cases_per_bin: int, seed: int) -> List[Tuple[FrameRow, str]]:
     """按四个主问题各自 YES/NO 1:1 采样评估 case。
 
@@ -164,6 +193,13 @@ def _balanced_cases(rows: Sequence[FrameRow], *, cases_per_bin: int, seed: int) 
     for row in rows:
         for focus in ANSWER_KEYS:
             groups[_focus_key(row, focus)].append((row, focus))
+    raw_counts = {key: len(items) for key, items in groups.items()}
+    missing = [key for key in _expected_focus_bins() if raw_counts[key] == 0]
+    if missing:
+        raise ValueError(
+            "cannot build exact 1:1 Phase1 evaluation cases: required focus bins are empty; "
+            f"missing={missing} raw_counts={raw_counts}. Rebuild/check the requested split or reduce filtering."
+        )
     rng = random.Random(f"{seed}:phase1_eval_balance:{len(rows)}:{cases_per_bin}")
     out: List[Tuple[FrameRow, str]] = []
     for key in sorted(groups):
@@ -179,6 +215,7 @@ def _balanced_cases(rows: Sequence[FrameRow], *, cases_per_bin: int, seed: int) 
             rng.shuffle(repeated)
             out.extend(repeated)
     rng.shuffle(out)
+    _assert_exact_focus_balance(out, target=target, context="evaluation cases")
     return out
 
 
@@ -203,7 +240,7 @@ def _validate_phase1_adapter(adapter_dir: pathlib.Path, model_dir: pathlib.Path)
     if not cfg_path.exists():
         raise FileNotFoundError(f"missing phase1 adapter config: {cfg_path}")
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    if cfg.get("route") != "sft_loop_phase1_four_visible_facts":
+    if cfg.get("route") != "sft_loop_phase1_static_obstacle_visible_facts":
         raise ValueError(f"adapter route mismatch: {cfg.get('route')!r}")
     adapter_dataset = cfg.get("dataset_name")
     if adapter_dataset != DATASET_NAME:
@@ -369,6 +406,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     if world_size > 1:
         dist.barrier()
     rows = _read_rows(pathlib.Path(args.index), split=str(args.split), max_frames=int(args.max_frames))
+    raw_focus_bin_availability = _raw_focus_bin_counts(rows)
     cases = _balanced_cases(rows, cases_per_bin=int(args.cases_per_bin), seed=int(args.seed))
     local_cases = cases[rank::world_size]
     device = torch.device(f"cuda:{local_rank}") if world_size > 1 else torch.device(args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -503,6 +541,13 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     for focus in ANSWER_KEYS:
         main_report = _binary_report(task_answer_counts[focus][focus])
         task_total = int(task_counts[focus].get("total", 0))
+        yes_count = int(task_counts[focus].get("main_gt/YES", 0))
+        no_count = int(task_counts[focus].get("main_gt/NO", 0))
+        if yes_count <= 0 or yes_count != no_count:
+            raise RuntimeError(
+                f"aggregated evaluation lost {focus} 1:1 balance: YES={yes_count} NO={no_count}; "
+                "do not use this result."
+            )
         side_reports = {key: _binary_report(task_answer_counts[focus][key]) for key in ANSWER_KEYS}
         task_reports[focus] = {
             "task": focus,
@@ -512,8 +557,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             "main_question": main_report,
             "side_questions": side_reports,
             "sampled_balance": {
-                "YES": int(task_counts[focus].get("main_gt/YES", 0)),
-                "NO": int(task_counts[focus].get("main_gt/NO", 0)),
+                "YES": yes_count,
+                "NO": no_count,
             },
             "counts": dict(task_counts[focus]),
         }
@@ -534,6 +579,11 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         ),
         "audit_prompt": bool(args.audit_prompt),
         "sampling_contract": "Four independent task modules. In each module, that task's GT YES/NO cases are sampled 1:1; the model still answers all four questions.",
+        "sampling_verification": {
+            "raw_focus_bin_availability": raw_focus_bin_availability,
+            "sampled_exact_eight_bin_balance": True,
+            "target_cases_per_bin": int(args.cases_per_bin),
+        },
         "output_dir": str(output_dir),
         "total_cases": total,
         "exact_match_accuracy": float(exact) / max(1, total),
@@ -622,7 +672,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase1_data/frame_index.jsonl"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument("--adapter-dir", default="")
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase1_eval/base_static_obstacle"))
     p.add_argument("--split", default="test")
     p.add_argument("--device", default="auto")
     p.add_argument("--max-frames", type=int, default=0)
