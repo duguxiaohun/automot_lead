@@ -28,6 +28,8 @@ unbalanced side-question metrics.
 | D | Existing LoRA | Same RGB-feedback rules | audit | 0.7148 | 0.9385 | 0.7037 | 0.8673 | 0.5055 |
 | E | Existing LoRA | Over-tight boundary: exact signal topology proof and stricter ordinary-lead exclusion | audit | 0.6797 | 0.9385 | 0.6408 | 0.8393 | 0.1972 |
 | F | Base Qwen | Corrected middle boundary | production | 0.5000 | 0.1714 | 0.0000 | 0.7810 | 0.0000 |
+| G | Base Qwen | Corrected middle boundary | audit | 0.5527 | 0.8960 | 0.2892 | 0.7379 | 0.0000 |
+| H | Existing LoRA | Corrected middle boundary | production | 0.7598 | 0.9333 | 0.5556 | 0.8496 | 0.6800 |
 
 Run directories:
 
@@ -37,6 +39,8 @@ Run directories:
 - D: `sft_loop_phase1_eval/lora_zero_shot_prompt_4gpu/20260811_092904/`
 - E: `sft_loop_phase1_eval/lora_rgb_boundary_refined_4gpu/20260811_122138/`
 - F: `sft_loop_phase1_eval/base_rgb_middle_boundary_4gpu/20260811_125440/`
+- G: `sft_loop_phase1_eval_new/base_rgb_middle_boundary_audit_4gpu/20260811_160335/`
+- H: `sft_loop_phase1_eval_new/lora_legacy_middle_production_4gpu/20260811_211331/`
 
 The old LoRA is the adapter under
 `checkpoints/sft_loop_phase1_runs/latest/final`, trained before the current
@@ -96,6 +100,34 @@ gives it more autoregressive test-time computation. Production intentionally
 does not request that scratchpad. Therefore F cannot be compared numerically
 with A/C, and it must not decide whether the visual rules are good.
 
+### 5. The Legacy LoRA Proves That Answer-Only SFT Works
+
+H fills the first missing production cell: the legacy adapter receives the same
+current middle-boundary production prompt as F and is evaluated on the same 512
+fixed cases. Its adapter lacks a prompt-content SHA-256 because it predates that
+metadata, so this remains a compatibility result rather than a prompt-aligned
+final score. It is nevertheless decisive evidence about the answer-only route:
+
+| Primary task | Base production F1 (F) | Legacy LoRA production F1 (H) | Main TP / FP / FN / TN in H |
+| --- | ---: | ---: | --- |
+| HIGHWAY | 0.1714 | 0.9333 | 56 / 0 / 8 / 64 |
+| OBSTACLE | 0.0000 | 0.5556 | 25 / 1 / 39 / 63 |
+| VULNERABLE | 0.7810 | 0.8496 | 48 / 1 / 16 / 63 |
+| TRAFFIC_LIGHT_ABNORMAL | 0.0000 | 0.6800 | 34 / 2 / 30 / 62 |
+
+Exact match rises `0.5000 -> 0.7598`. Relative to the base under the same
+production prompt, the adapter restores 65 highway positives, 29 obstacle
+positives, and 34 signal-light positives that the frozen model answered `NO`.
+Thus four-line answer-only SFT can learn the required positive decisions; an
+audit scratchpad is useful for diagnosis, but is not required in deployment.
+
+G is intentionally not used to select the final production prompt. Frozen base
+audit F1 is respectable for highway and vulnerable road users, but its obstacle
+and light recall are lower than the earlier RGB-feedback audit runs. H shows
+that the LoRA, not the frozen base, is the relevant decision model for the
+answer-only loop. Keep the corrected middle boundary now; do not make another
+prompt edit before measuring a prompt-aligned adapter.
+
 ## Evidence Supervision Status
 
 Current training calls `build_phase1_prompt(audit=False)` and supervises only
@@ -109,17 +141,14 @@ no loss. Consequently:
 
 ## Missing Experiments And Decision Rule
 
-There is currently **no** completed run for either of these critical cells:
-
-1. existing legacy LoRA + current middle-boundary `production` prompt;
-2. newly trained, prompt-aligned LoRA + the same `production` prompt.
-
-Run cell 1 next as a cheap answer-only compatibility check. Then train a new
-adapter with the unchanged `frame_index.jsonl` and current production prompt;
-no dataset rebuild is needed for that text-only change. Cell 2 is the first
-valid formal result for the answer-only loop. Run the same new adapter again
-with `--audit-prompt` only to inspect RGB failures; do not compare that audit
-F1 to its production F1.
+Cell 1, existing legacy LoRA + current middle-boundary `production` prompt, is
+now complete as H. The only missing critical experiment is a newly trained,
+prompt-aligned LoRA + that same `production` prompt. Freeze the current middle
+boundary and train a new adapter with the unchanged `frame_index.jsonl`; no
+dataset rebuild is needed for that text-only change. This new production run is
+the first valid formal result for the answer-only loop. Run the same new adapter
+again with `--audit-prompt` only to inspect RGB failures; do not compare that
+audit F1 to its production F1.
 
 Before a larger data iteration, add per-question frame-level
 `visible_yes` / `visible_no` / `not_observable` status. The answer table is
