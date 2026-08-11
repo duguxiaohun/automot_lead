@@ -133,13 +133,15 @@ an active scenario state that is invisible in their current four frames (for
 example vulnerable case 408 is almost black; several traffic-light rows show
 only a normal phase or no readable signal head).
 
-Do not start another long LoRA run on the present labels yet. First retain the
-fixed evaluation index and add per-question `visible_yes` / `visible_no` /
-`not_observable` status to its current-frame samples, starting with the 128
-primary signal-light cases and then the obstacle/vulnerable error cases. The
-next training set should only balance observable YES/NO samples for its focused
-task. This is a label-schema refinement, not a wholesale replacement of the
-scenario + RS + EVENT answer table.
+Do not enlarge the data/epoch budget or treat a result as final on the present
+labels yet. A prompt-aligned LoRA run on the existing fixed index is still
+needed to measure the answer-only loop, but it must be followed by
+per-question `visible_yes` / `visible_no` / `not_observable` status for its
+current-frame samples, starting with the 128 primary signal-light cases and
+then the obstacle/vulnerable error cases. The next larger training set should
+only balance observable YES/NO samples for its focused task. This is a
+label-schema refinement, not a wholesale replacement of the scenario + RS +
+EVENT answer table.
 
 ## Over-Tightening Check (2026-08-11)
 
@@ -175,8 +177,32 @@ clearly marked parking bay, but accepts visible range closing, a stopped queue,
 or a vehicle occupying the travel lane.
 
 Next protocol: run base Qwen with the corrected middle prompt first; retain the
-old adapter run only as a compatibility note; then train a new adapter on this
-same prompt and unchanged index before treating LoRA F1 as a prompt-quality
-result. No dataset rebuild is required for that prompt-aligned training. The
-separate `visible_yes` / `visible_no` / `not_observable` audit remains required
-before the next larger dataset/label iteration.
+base audit run as the visual prompt-diagnosis tool, and treat the base
+production run only as an answer-only lower bound. Retain the old adapter run
+only as a compatibility note; then train a new adapter on this same production
+prompt and unchanged index before treating LoRA F1 as a prompt-quality result.
+No dataset rebuild is required for that prompt-aligned training. The separate
+`visible_yes` / `visible_no` / `not_observable` audit remains required before
+the next larger dataset/label iteration.
+
+## Production Base Lower Bound (2026-08-11)
+
+`sft_loop_phase1_eval/base_rgb_middle_boundary_4gpu/20260811_125440` runs the
+corrected middle prompt in `prompt_mode=production`: four YES/NO lines only,
+with no `EVIDENCE_*` request. All 512 responses parse correctly, so this is not
+a formatting failure, but the untrained base is extremely conservative:
+
+| Primary task | TP / FP / FN / TN | F1 |
+| --- | --- | ---: |
+| HIGHWAY | 6 / 0 / 58 / 64 | 0.1714 |
+| OBSTACLE | 0 / 0 / 64 / 64 | 0.0000 |
+| VULNERABLE | 41 / 0 / 23 / 64 | 0.7810 |
+| TRAFFIC_LIGHT_ABNORMAL | 0 / 0 / 64 / 64 | 0.0000 |
+
+The earlier base runs used the longer audit/evidence prompt and therefore must
+not be compared numerically with this production run. The evidence scaffold
+elicits visual inspection from the frozen base; the four-line production prompt
+is the answer-only task that the LoRA must learn. Treat this result as the
+untrained answer-only floor and parser contract. The decisive next result is a
+new LoRA trained with this exact production prompt, followed by a separate
+audit run of that same adapter for RGB error analysis.
