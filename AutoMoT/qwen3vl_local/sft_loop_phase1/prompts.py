@@ -12,9 +12,9 @@ import re
 from typing import Dict, Optional
 
 
-PROMPT_NAME = "sft_loop_phase1_zero_shot_prompt"
+PROMPT_NAME = "sft_loop_phase1_static_obstacle_prompt"
 
-ANSWER_KEYS = ("HIGHWAY", "OBSTACLE", "VULNERABLE", "TRAFFIC_LIGHT_ABNORMAL")
+ANSWER_KEYS = ("HIGHWAY", "STATIC_OBSTACLE", "VULNERABLE", "TRAFFIC_LIGHT_ABNORMAL")
 ANSWER_VALUES = ("YES", "NO")
 
 
@@ -53,15 +53,22 @@ NO traps from the reviewed RGB:
 - after an exit, answer NO once ego has reached a normal surface street.
 Never infer HIGHWAY from a dataset road label, event code, town, scenario name, speed, or a single guardrail.
 
-OBSTACLE:
-Trace the ego lane/path in the newest frame and the short distance ahead. YES only if a physical object occupies, enters, blocks, or sharply compresses that usable corridor so ego may need braking, yielding, stopping, or avoidance now.
-YES examples: crashed vehicle, stalled/parked/construction vehicle in lane, construction object, open vehicle door protruding into lane, vehicle pulling out or cutting in, static car intruding from the side, oncoming vehicle invading ego lane, queue or blocked intersection physically preventing ego from clearing the lane/junction, or a vehicle violating right-of-way into ego's conflict zone.
-For blocked-intersection/accident/construction scenes, do not require a dramatic crash shape. A stopped or very slow vehicle/queue directly in the ego lane or inside the intersection is OBSTACLE=YES when it makes ego brake, wait, or unable to clear the junction, even if the visible object looks like an ordinary car.
-In fog/rain/night, use the short history. Brake lights, a short-looking gap, or slow traffic in one frame alone do not make an ordinary lead vehicle a YES. It is YES when the four frames show a lead/queue stopping or growing clearly larger and closer so ego must brake now, when it prevents ego clearing a junction, or when it visibly enters the usable corridor.
-Use a path-overlap test, not a dramatic-appearance test: a vehicle, ambulance, construction board, cone line, door, or queue is a YES when it crosses into or occupies the lane, junction box, turning arc, or only practical gap that ego must use. Do not treat a vehicle as an intrusion merely because it is beside the lane, clearly inside a marked parking bay, travelling ahead at a stable separation, or its front is visually near a lane boundary. A parked vehicle beside a curb is still YES when there is no clear parking bay and its body occupies the travel lane or forces ego to leave that lane. A side vehicle can be YES before it fills the lane only when its body/nose is visibly crossing the lane boundary or its motion is entering ego's path. Inspect all four frames because a real intrusion may be clearest in only one of them.
-Use older frames for partly occluded static obstacles only when they clearly show the same object still constraining ego's path.
-NO examples: a normal lead vehicle at a stable safe separation, including ordinary braking/slow flow without a clearly closing gap; a vehicle in its own/oncoming lane; traffic separated by a median/barrier; a distant object; a vehicle clearly within a marked parking bay; residual accident vehicles after ego's path is open; or a queue visible far away but not blocking ego's usable corridor.
-This question includes vehicle/path conflicts such as a red-light-running or oncoming vehicle; that is an obstacle/conflict, not a traffic-light fault.
+STATIC_OBSTACLE:
+Ask only: "Is a non-moving physical object currently occupying or closing the ego vehicle's usable corridor?" This is NOT the general hazard question. Do not answer YES for an object merely because it is nearby, looks dangerous, or might move later.
+Trace the ego lane and intended turning/through corridor from the newest frame a short distance ahead. YES only when the object is stationary across the four-frame history, or clearly remains fixed relative to the road, AND its body, door, debris, cones, barrier, or work equipment occupies the lane, turning arc, or the only practical passable gap so ego must stop or steer around it now.
+RGB-grounded YES patterns from the reviewed static-obstacle routes:
+- a crashed, disabled, or parked car is stopped partly in the travel lane or diagonally across it; the lane line runs underneath/along its body, or there is no remaining ego-width passage without moving around it;
+- a construction board, cone/barrier line, roadwork object, or work vehicle closes the forward lane, narrows it to an unusable gap, or forces ego around the work zone; a small cone at the curb alone is not enough;
+- a curbside car has an open door protruding into the travel lane, or its fixed body extends out of an unmarked shoulder into ego's corridor;
+- a stationary vehicle remains in the same road position in the history while ego approaches, and it blocks the only usable lane or the intended turn. It can be an ordinary-looking car: the required evidence is fixed occupation of the path, not a dramatic crash shape.
+Use the four frames correctly. Compare the object against lane markings, curb, road edge, and background. A true static obstacle stays road-fixed while ego closes distance or drives around it. In fog, rain, glare, or night, one older frame may establish that the same fixed car, barrier, cone line, or open door still blocks the corridor. Do not invent a static object when the history is unreadable.
+NO traps from the reviewed RGB:
+- a normal lead vehicle, stopped traffic queue, ambulance, or car waiting at a junction; even if ego must brake, it belongs to the later dynamic-obstacle question unless it is visibly disabled/parked and road-fixed;
+- a vehicle cutting in, pulling out, crossing, driving the wrong way, or running a red light; those are dynamic conflicts for the next loop, not STATIC_OBSTACLE;
+- a car moving in its own lane, oncoming traffic in its proper lane, or traffic separated by a median/barrier;
+- a curbside car fully inside a marked parking bay/shoulder, a background parked car that leaves the lane open, or a residual accident vehicle after ego has already passed and the corridor is clear;
+- a distant object, an object only at the image edge with no path overlap, brake lights, a short gap, slow traffic, or a dark/foggy view where a fixed obstruction cannot be seen.
+When uncertain between static and dynamic, answer STATIC_OBSTACLE=NO. The next loop is responsible for asking about moving vehicles and dynamic intrusions. Never infer this answer from a scenario name, event label, town, road type, or a previous route state.
 
 VULNERABLE:
 Look specifically for pedestrians, cyclists, scooter riders, wheelchair users, or other unprotected road users. YES only if one is in the ego path, crossing it, approaching the conflict zone, emerging from occlusion, or close enough to affect ego's current decision.
@@ -85,7 +92,7 @@ YES requires the signal/control system itself to be visibly unreliable, broken, 
 - a clear all-green pattern across visibly different approach arms of one junction. Do not use all-red or mixed red/green alone: those can be normal phasing.
 NO traps:
 - ordinary red/yellow/green lights, normal phase changes, a normal red light with ego waiting, RedLightWithoutLeadVehicle behavior, non-signalized junctions, absent lights, unreadable tiny/distant lamps, fog/rain/glare, or different colors for non-conflicting lanes when that is normal phasing;
-- another vehicle running a red light, taking priority, blocking an intersection, or crossing ego's path. That may be OBSTACLE=YES, but TRAFFIC_LIGHT_ABNORMAL=NO if the lights themselves look normal.
+- another vehicle running a red light, taking priority, blocking an intersection, or crossing ego's path. That is a later dynamic-conflict question, but TRAFFIC_LIGHT_ABNORMAL=NO if the lights themselves look normal.
 Several visible green heads are not sufficient only when they are clearly on one approach/same gantry, serve compatible lanes, or belong to different junctions. When a clear wide junction shows green heads facing distinct left/front/right approach arms, treat it as a visible fault witness; do not reject it merely because the exact lane mapping is small.
 Do not infer a signal fault from a scenario name, event label, ego waiting, or the presence of a traffic light.
 [/DECISION_RULES]
@@ -96,11 +103,11 @@ Do not infer a signal fault from a scenario name, event label, ego waiting, or t
 [AUDIT_OUTPUT]
 For each item, write one short, externally checkable visual observation (not hidden reasoning), then the answer. Mention only what is visible in the RGB history. For a small/brief object or signal, name the history-frame position where it is clearest. For TRAFFIC_LIGHT_ABNORMAL=YES, name the two visibly distinct approach arms with green heads or the broken head; do not invent exact lane details. For TRAFFIC_LIGHT_ABNORMAL=NO, state the main reason a visible cue is normal, such as red-versus-green normal phasing, same-arm lights, or no readable signal. If the answer is NO, name the main rejected false-positive cue when useful, such as "wide straight city road but no ramp/access control" or "vehicle violates signal but lamps look normal".
 EVIDENCE_HIGHWAY: <short visible road-topology evidence>
-EVIDENCE_OBSTACLE: <short visible object/path evidence>
+EVIDENCE_STATIC_OBSTACLE: <short visible fixed object/path evidence>
 EVIDENCE_VULNERABLE: <short visible vulnerable-road-user evidence>
 EVIDENCE_TRAFFIC_LIGHT_ABNORMAL: <short visible signal evidence>
 HIGHWAY: <YES or NO>
-OBSTACLE: <YES or NO>
+STATIC_OBSTACLE: <YES or NO>
 VULNERABLE: <YES or NO>
 TRAFFIC_LIGHT_ABNORMAL: <YES or NO>
 [/AUDIT_OUTPUT]
@@ -110,7 +117,7 @@ TRAFFIC_LIGHT_ABNORMAL: <YES or NO>
 [OUTPUT]
 Output exactly these four lines and nothing else:
 HIGHWAY: <YES or NO>
-OBSTACLE: <YES or NO>
+STATIC_OBSTACLE: <YES or NO>
 VULNERABLE: <YES or NO>
 TRAFFIC_LIGHT_ABNORMAL: <YES or NO>
 [/OUTPUT]

@@ -136,5 +136,5 @@ else
   python qwen3vl_local/sft_loop_phase1/train.py "${COMMON_ARGS[@]}"
 fi
 
-echo "[hint] eval base: GPU_IDS=0 python qwen3vl_local/sft_loop_phase1/eval.py --output-dir checkpoints/sft_loop_phase1_eval/base_zero_shot_prompt --timestamp-output"
-echo "[hint] eval lora: GPU_IDS=0 python qwen3vl_local/sft_loop_phase1/eval.py --adapter-dir ${OUTPUT_DIR}/final --output-dir checkpoints/sft_loop_phase1_eval/lora_zero_shot_prompt --timestamp-output"
+echo "[hint] eval base: GPU_IDS=0 python qwen3vl_local/sft_loop_phase1/eval.py --output-dir checkpoints/sft_loop_phase1_eval/base_static_obstacle --timestamp-output"
+echo "[hint] eval lora: GPU_IDS=0 python qwen3vl_local/sft_loop_phase1/eval.py --adapter-dir ${OUTPUT_DIR}/final --output-dir checkpoints/sft_loop_phase1_eval/lora_static_obstacle --timestamp-output"

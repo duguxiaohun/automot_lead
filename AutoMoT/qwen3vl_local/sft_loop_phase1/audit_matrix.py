@@ -28,7 +28,7 @@ if str(_AUTOMOT_ROOT) not in sys.path:
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
 
 
-QUESTION_KEYS = ("highway", "obstacle", "vulnerable", "traffic_light_abnormal")
+QUESTION_KEYS = ("highway", "static_obstacle", "vulnerable", "traffic_light_abnormal")
 
 
 @dataclass(frozen=True)

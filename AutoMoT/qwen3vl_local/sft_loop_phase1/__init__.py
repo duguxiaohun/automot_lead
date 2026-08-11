@@ -5,4 +5,4 @@
 观察结果作为下一轮问题的输入。
 """
 
-DATASET_NAME = "sft_loop_phase1_four_visible_facts_current"
+DATASET_NAME = "sft_loop_phase1_static_obstacle_visible_facts"

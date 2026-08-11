@@ -11,11 +11,11 @@ from __future__ import annotations
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 
-ANSWER_KEYS = ("HIGHWAY", "OBSTACLE", "VULNERABLE", "TRAFFIC_LIGHT_ABNORMAL")
+ANSWER_KEYS = ("HIGHWAY", "STATIC_OBSTACLE", "VULNERABLE", "TRAFFIC_LIGHT_ABNORMAL")
 
-# 这些 EVENT 都表示会占用/侵入/急剧压缩 ego 可行驶空间的动态或静态交通对象。
-# U-E4 不并入这里：行人/自行车由独立 VULNERABLE 问题学习，避免两个问题退化成同义重复。
-OBSTACLE_EVENTS = frozenset({"U-E1", "U-E2", "U-E3", "U-E5", "U-E6", "U-E8"})
+# Phase1 的第一轮只识别静态占道物。动态切入、对向侵入、违规抢行和前车急刹
+# 必须留给后续动态障碍 loop，不能继续和 U-E2 混为一个视觉答案。
+STATIC_OBSTACLE_EVENTS = frozenset({"U-E2"})
 VULNERABLE_EVENTS = frozenset({"U-E4"})
 
 
@@ -122,8 +122,8 @@ def resolve_group_answers(
     """返回一个已定义组合的四项统一 YES/NO 答案。
 
     - HIGHWAY 只由实图复核过的 scenario/RS 对给出；R3 不是充分条件。
-    - U-E1/2/3/5/6/8 是可影响 ego 的动态或静态交通障碍；用户指定 U-E2 不因边界帧
-      遮挡而降为 NO。
+    - U-E2 是静态占道物；它包括事故/停放车辆、施工物和开门突出物。U-E1/U-E3/U-E5/U-E6/U-E8
+      仍是可影响 ego 的动态事件，但不属于本轮静态问题。
     - U-E4 独立回答弱势参与者。
     - U-E7 既可能是灯故障，也可能只是无灯路权不可靠；只有已经逐帧 RGB 审计为信号灯
       缺陷的 CrossJunctionDefectTrafficLight 才回答交通灯异常。
@@ -131,7 +131,7 @@ def resolve_group_answers(
 
     answers = {
         "HIGHWAY": _highway_default(str(scenario), str(rs)),
-        "OBSTACLE": str(event) in OBSTACLE_EVENTS,
+        "STATIC_OBSTACLE": str(event) in STATIC_OBSTACLE_EVENTS,
         "VULNERABLE": str(event) in VULNERABLE_EVENTS,
         "TRAFFIC_LIGHT_ABNORMAL": str(scenario) == "CrossJunctionDefectTrafficLight" and str(event) == "U-E7",
     }
@@ -155,7 +155,11 @@ def answer_rationale(scenario: str, rs: str, event: str) -> Dict[str, str]:
     )
     return {
         "HIGHWAY": highway_reason,
-        "OBSTACLE": f"{event}：该组合定义为可影响 ego 的动态/静态交通障碍" if answers["OBSTACLE"] else f"{event}：没有该组合级的可交互障碍语义",
+        "STATIC_OBSTACLE": (
+            "U-E2：RGB 审计后的静态占道物；事故/停放车辆、施工物或打开车门阻断 ego 路径"
+            if answers["STATIC_OBSTACLE"]
+            else f"{event}：不是本轮的静态占道物；动态冲突留给后续动态障碍问题"
+        ),
         "VULNERABLE": "U-E4：行人/骑行者等弱势参与者横穿或进入冲突区" if answers["VULNERABLE"] else f"{event}：没有弱势参与者冲突语义",
         "TRAFFIC_LIGHT_ABNORMAL": (
             "CrossJunctionDefectTrafficLight/U-E7：RGB 审计后的受控路口信号失效/矛盾语义"

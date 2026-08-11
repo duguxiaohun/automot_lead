@@ -1,5 +1,10 @@
 # Phase1 RGB Error Audit
 
+> Historical note: this document audits the retired mixed `OBSTACLE` task, whose positive label included
+> static U-E2 and dynamic U-E1/U-E3/U-E5/U-E6/U-E8 events. The current first-loop task is
+> `STATIC_OBSTACLE`, supervised only by U-E2. Keep the RGB findings, but do not compare the old OBSTACLE F1
+> numerically with the new static-obstacle evaluation.
+
 ## Scope
 
 This audit reviews every main-question error exported by the LoRA evaluation at

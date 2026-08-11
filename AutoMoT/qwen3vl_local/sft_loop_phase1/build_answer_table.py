@@ -85,7 +85,7 @@ def build_answer_table(
     rows.sort(key=lambda row: (row["scenario"], row["rs"], row["event"]))
     return {
         "format": "phase1_four_question_answer_table",
-        "answer_order": ["HIGHWAY", "OBSTACLE", "VULNERABLE", "TRAFFIC_LIGHT_ABNORMAL"],
+        "answer_order": ["HIGHWAY", "STATIC_OBSTACLE", "VULNERABLE", "TRAFFIC_LIGHT_ABNORMAL"],
         "group_count": len(rows),
         "excluded_scenarios": sorted(excluded),
         "review_contract": (

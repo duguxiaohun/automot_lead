@@ -33,6 +33,39 @@ from qwen3vl_local.sft_loop_phase1.prompts import ANSWER_KEYS  # noqa: E402
 RGB_HISTORY_COUNT = 4
 
 
+def _focus_bin_availability(answer_counters: Mapping[str, Counter[str]]) -> Dict[str, Dict[str, int]]:
+    """把每个 split 的四问 YES/NO 原始帧数整理为固定八桶。"""
+
+    return {
+        split: {
+            f"{key}:{value}": int(answer_counters[key][f"{split}/{value}"])
+            for key in ANSWER_KEYS
+            for value in ("YES", "NO")
+        }
+        for split in ("train", "val", "test")
+    }
+
+
+def _assert_required_split_coverage(
+    availability: Mapping[str, Mapping[str, int]], *, val_ratio: float
+) -> None:
+    """拒绝无法组成八桶 1:1 训练/测试集的 route split。"""
+
+    required_splits = ["train", "test"]
+    if float(val_ratio) > 0.0:
+        required_splits.append("val")
+    missing = {
+        split: [key for key, count in availability.get(split, {}).items() if int(count) <= 0]
+        for split in required_splits
+    }
+    missing = {split: keys for split, keys in missing.items() if keys}
+    if missing:
+        raise ValueError(
+            "route-disjoint split cannot provide all required Phase1 focus bins; "
+            f"missing={missing}. Use a different --split-seed or inspect the route-level labels."
+        )
+
+
 def _stable_unit(seed_text: str) -> float:
     """把字符串稳定映射到 [0, 1)，用于 route split。"""
 
@@ -68,7 +101,12 @@ def _history_rgb_paths(run_dir: pathlib.Path, frame_id: int) -> Optional[List[st
 
 
 def _load_answer_table(path: pathlib.Path) -> Dict[Tuple[str, str, str], Dict[str, bool]]:
-    """读取最终四问答案表。"""
+    """读取最终四问答案表，并把静态障碍从已审计 EVENT 语义显式拆出。
+
+    旧表的 ``OBSTACLE`` 是动态/静态混合历史任务，不能直接复用为本轮监督。旧表仍保留
+    作为 RGB 审计来源；新索引严格以 ``U-E2`` 生成 ``STATIC_OBSTACLE``。未来若答案表
+    已重建为新字段，也要求它与该事件合同一致，防止人工表与训练语义漂移。
+    """
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("format") != "phase1_four_question_answer_table":
@@ -76,7 +114,25 @@ def _load_answer_table(path: pathlib.Path) -> Dict[Tuple[str, str, str], Dict[st
     table: Dict[Tuple[str, str, str], Dict[str, bool]] = {}
     for row in payload.get("rows", []):
         scenario, rs, event = str(row.get("scenario")), str(row.get("rs")), str(row.get("event"))
-        answers = {key: bool((row.get("answers") or {}).get(key, False)) for key in ANSWER_KEYS}
+        source_answers = row.get("answers") or {}
+        if "STATIC_OBSTACLE" in source_answers:
+            static_obstacle = bool(source_answers["STATIC_OBSTACLE"])
+            expected_static_obstacle = event == "U-E2"
+            if static_obstacle != expected_static_obstacle:
+                raise ValueError(
+                    f"static-obstacle answer mismatch for {(scenario, rs, event)}: "
+                    f"table={static_obstacle} expected={expected_static_obstacle}"
+                )
+        elif "OBSTACLE" in source_answers:
+            static_obstacle = event == "U-E2"
+        else:
+            raise ValueError(f"answer table has neither STATIC_OBSTACLE nor legacy OBSTACLE for {(scenario, rs, event)}")
+        answers = {
+            "HIGHWAY": bool(source_answers.get("HIGHWAY", False)),
+            "STATIC_OBSTACLE": static_obstacle,
+            "VULNERABLE": bool(source_answers.get("VULNERABLE", False)),
+            "TRAFFIC_LIGHT_ABNORMAL": bool(source_answers.get("TRAFFIC_LIGHT_ABNORMAL", False)),
+        }
         table[(scenario, rs, event)] = answers
     return table
 
@@ -166,39 +222,54 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     scenarios = None if str(args.scenarios) == "all" else {x.strip() for x in str(args.scenarios).split(",") if x.strip()}
 
     out_path = output_dir / "frame_index.jsonl"
+    temp_out_path = output_dir / ".frame_index.jsonl.tmp"
+    temp_out_path.unlink(missing_ok=True)
     counters: Counter[str] = Counter()
     answer_counters: Dict[str, Counter[str]] = {key: Counter() for key in ANSWER_KEYS}
     route_ids: Dict[str, set[str]] = defaultdict(set)
-    with out_path.open("w", encoding="utf-8") as f:
-        for row in iter_frame_rows(
-            collection_dir=collection_dir,
-            data_root=data_root,
-            answer_table=answer_table,
-            split_seed=int(args.split_seed),
-            test_ratio=float(args.test_ratio),
-            val_ratio=float(args.val_ratio),
-            scenarios=scenarios,
-            max_routes=int(args.max_routes),
-        ):
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
-            split = str(row["split"])
-            counters[f"frames/{split}"] += 1
-            counters[f"frames/{split}/{row['scenario']}"] += 1
-            route_ids[split].add(f"{row['scenario']}/{row['route_id']}")
-            for key in ANSWER_KEYS:
-                answer_counters[key][f"{split}/{'YES' if row['answers'][key] else 'NO'}"] += 1
+    try:
+        with temp_out_path.open("w", encoding="utf-8") as f:
+            for row in iter_frame_rows(
+                collection_dir=collection_dir,
+                data_root=data_root,
+                answer_table=answer_table,
+                split_seed=int(args.split_seed),
+                test_ratio=float(args.test_ratio),
+                val_ratio=float(args.val_ratio),
+                scenarios=scenarios,
+                max_routes=int(args.max_routes),
+            ):
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                split = str(row["split"])
+                counters[f"frames/{split}"] += 1
+                counters[f"frames/{split}/{row['scenario']}"] += 1
+                route_ids[split].add(f"{row['scenario']}/{row['route_id']}")
+                for key in ANSWER_KEYS:
+                    answer_counters[key][f"{split}/{'YES' if row['answers'][key] else 'NO'}"] += 1
 
+        focus_bin_availability = _focus_bin_availability(answer_counters)
+        _assert_required_split_coverage(focus_bin_availability, val_ratio=float(args.val_ratio))
+    except Exception:
+        temp_out_path.unlink(missing_ok=True)
+        raise
+    temp_out_path.replace(out_path)
     manifest = {
         "format": "sft_loop_phase1_frame_index",
         "dataset_name": DATASET_NAME,
         "frame_index": str(out_path),
         "answer_table": str(args.answer_table),
+        "static_obstacle_label_contract": "STATIC_OBSTACLE is true exactly for primary EVENT U-E2; legacy mixed OBSTACLE values are never used as its target.",
         "split_seed": int(args.split_seed),
         "test_ratio": float(args.test_ratio),
         "val_ratio": float(args.val_ratio),
         "counts": dict(counters),
         "route_counts": {split: len(values) for split, values in sorted(route_ids.items())},
         "answer_counts": {key: dict(counter) for key, counter in answer_counters.items()},
+        "focus_bin_availability": focus_bin_availability,
+        "focus_bin_coverage_contract": (
+            "train/test (and val when val_ratio>0) each contain every focus YES/NO bin at least once; "
+            "train.py/eval.py then repeat/sample inside each non-empty bin to exact equality."
+        ),
     }
     (output_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest
