@@ -103,6 +103,13 @@ YES/NO。
 5. 用新 LoRA 和同一 production prompt 做正式 1:1 四任务评测；随后用同一 adapter 的 audit
    run 回查错例 RGB，才判断训练是否真正提高 answer-only loop 的视觉性能。
 
+当前静态障碍仍以低成本代理 `primary_event == U-E2` 监督：不新增逐帧人工标签，也不把其它 EVENT
+加入静态正例。因此 U-E2 的事件前后重叠、已驶过或严重遮挡帧会保留不可消除的视觉标签噪声；正式分析
+必须把它与模型漏看真实施工物/固定占道物分开。2026-08-12 base 错例已据 RGB 补强两项判据：
+临时箭头拖车/导流施工设施占道为 YES，短历史中自身仍在切入/转向/横穿/前进的车辆为 NO。详见
+`SFT_LOOP_PHASE1_STATIC_OBSTACLE_RGB_AUDIT_20260811.md`。本轮不再继续堆长规则：复测新的 base
+production prompt 后，直接训练与该 prompt SHA 对齐的新 LoRA。
+
 正式 F1/TP/FP/FN/TN 只比较 **prompt-aligned LoRA** 的 `prompt_mode=production` 结果。
 `--audit-prompt` 是同一固定 case index 的第二个诊断 run，用来保存模型可见证据和错例 RGB；
 它多了一段用户输入，不能和 production 的指标直接横比。未训练 base 的 production run 是
