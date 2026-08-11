@@ -81,6 +81,8 @@ YES/NO。
 
 最近一次 RGB 错例复核见
 [`SFT_LOOP_PHASE1_RGB_ERROR_AUDIT_20260810.md`](SFT_LOOP_PHASE1_RGB_ERROR_AUDIT_20260810.md)。
+已完成 base/LoRA、audit/production 和提示词边界的实验矩阵见
+[`SFT_LOOP_PHASE1_EVAL_EXPERIMENT_MATRIX_20260811.md`](SFT_LOOP_PHASE1_EVAL_EXPERIMENT_MATRIX_20260811.md)。
 它区分了模型确实漏看了的视觉证据，和仅凭当前四帧 RGB 无法回答的 scenario/RS/EVENT
 标签。修 prompt 后必须先在同一份固定 test index 上复测；不要把“故障场景但故障尚未出现”
 的正标签误当作模型应该从不可见 RGB 猜出的知识。
@@ -91,18 +93,23 @@ YES/NO。
 视觉能力、答案格式能力和输入措辞分布漂移；这类评测只用于检查旧 adapter 是否兼容，**不能**
 单独决定新提示词好坏。
 
-1. 修改 prompt 后，先用没有经过本任务训练的 base Qwen，在不变的
-   `frame_index.jsonl` 上跑完整 1:1 四任务评测，作为 prompt-only 选择依据。
-2. 再拿旧 LoRA 跑同一 index，只记录它对新措辞的兼容性和 RGB 错例，不把它当作新 prompt 的
-   最终性能。
-3. 选定 prompt 后，直接用原来的 `frame_index.jsonl` 重训一个新的 LoRA；`train.py` 会在训练
+1. 先用 base Qwen 的 `--audit-prompt` 跑固定 index，观察它是否能在 RGB 中找出提示词要求的
+   道路、目标物和信号证据。这是 prompt 的视觉诊断，不是 production 指标。
+2. 再用 production prompt 跑 base Qwen，确认四行格式、解析和没有训练时的保守下限。未训练的
+   base 可能几乎全答 `NO`，不能据此否定一个需要 LoRA 才能学会输出 YES 的视觉规则。
+3. 旧 LoRA 跑同一 production prompt时，只记录其对新措辞的兼容性；它没有见过当前 prompt
+   内容，不能作为新 prompt 的最终性能。
+4. 选定 prompt 后，直接用原来的 `frame_index.jsonl` 重训一个新的 LoRA；`train.py` 会在训练
    时动态调用 `build_phase1_prompt(audit=False)`，所以只改提示词、answer table、split 和索引
    都不变时，**无需重构数据集**。
-4. 用新 LoRA 和同一版本 prompt 再做 base/LoRA 对照，才判断训练是否真正提高视觉性能。
+5. 用新 LoRA 和同一 production prompt 做正式 1:1 四任务评测；随后用同一 adapter 的 audit
+   run 回查错例 RGB，才判断训练是否真正提高 answer-only loop 的视觉性能。
 
-正式 F1/TP/FP/FN/TN 只比较 `prompt_mode=production` 的结果。`--audit-prompt` 是同一固定
-case index 的第二个诊断 run，用来保存模型可见证据和错例 RGB；它多了一段用户输入，不能和
-production 的指标直接横比。每个 `summary.md` 和 `metrics.json` 都会记录 prompt mode。
+正式 F1/TP/FP/FN/TN 只比较 **prompt-aligned LoRA** 的 `prompt_mode=production` 结果。
+`--audit-prompt` 是同一固定 case index 的第二个诊断 run，用来保存模型可见证据和错例 RGB；
+它多了一段用户输入，不能和 production 的指标直接横比。未训练 base 的 production run 是
+格式/下限检查，也不能代替 prompt-aligned LoRA 的正式结果。每个 `summary.md` 和
+`metrics.json` 都会记录 prompt mode。
 新训练 adapter 还会记录 production prompt 的 SHA-256；eval 会同时写当前内容指纹和
 `adapter_prompt_matches_current_production`。旧 adapter 没有该字段时显示 `unknown`，仍可
 用于兼容性诊断，但不能冒充 prompt-aligned 对照。
