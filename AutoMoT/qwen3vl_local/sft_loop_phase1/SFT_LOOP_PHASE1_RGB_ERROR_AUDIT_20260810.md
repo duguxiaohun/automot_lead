@@ -25,7 +25,7 @@ supervision for a frame where the needed visual evidence is absent.
 | OBSTACLE | The model predicted `YES` when the annotation is `NO`, but a construction board visibly blocks the ego lane. | 348 | High-confidence label error for this frame. Cases 70 and 215 need a tighter lane/path check, not broad nearby-vehicle positives. |
 | VULNERABLE | Clear small people occur at a corner/crosswalk or close sidewalk edge, often visible in only one frame. | 132, 325, 372 | Add a deliberate second pass over crosswalks, curb corners, sidewalks, and image edges; one clear frame is enough. |
 | VULNERABLE | The positive scenario is not visually supported in this short history, especially at night; several frames show only vehicles or an empty road. | 3, 18, 67, 127, 178, 195, 228, 274, 326, 413, 490, 503 | Current frame labels need an observable/unknown state rather than scenario-wide `YES`. |
-| VULNERABLE | A person is visibly present near the right-side sidewalk, while the frame annotation says `NO`. | 458 | High-confidence label error for this frame. |
+| VULNERABLE | A person-shaped roadside target is visible near the right-side sidewalk, but it is outside the immediate forward/turning conflict area in the reviewed frame. | 458 | Do not count mere visibility as a label error; this is a boundary case for the decision-relevance rule. |
 | TRAFFIC_LIGHT_ABNORMAL | Clear true model false negatives: two or more heads governing crossing approaches are green at the same junction. The model often described these images as a “consistent normal green phase”. | 6, 24, 72, 118, 124, 142, 257, 303, 317, 320, 352, 388, 392, 410, 436, 472, 484 | Force a same-junction witness-pair check. A visible pair of crossing green approaches is `YES`, even when only one history frame is clear. |
 | TRAFFIC_LIGHT_ABNORMAL | Signal-fault `YES` is not visually provable in the current history: lamps are unreadable from fog/glare/night, only one head is seen, or no relevant head is visible. | 13, 55, 81, 90, 104, 116, 176, 204, 242, 246, 248, 269, 318, 319, 327, 342, 347, 449, 451, 453, 491 | This is the largest source of irreducible light-task error. It is not valid RGB-only supervision unless the task is redefined as “scenario fault active”, which the prompt intentionally must not infer. |
 | TRAFFIC_LIGHT_ABNORMAL | The model called a normal red/green phase abnormal because it did not map the heads to crossing movements. | 205, 281, 289 | `YES` now requires a visible conflicting GREEN witness pair or a clearly broken head; red plus green alone remains normal by default. |
@@ -74,9 +74,69 @@ for each question, for example `visible_yes`, `visible_no`, or
 - retain the original scenario/RS/EVENT answer as route-state metadata for
   later memory or non-visual tasks;
 - manually correct high-confidence reversed rows, beginning with obstacle case
-  348 and vulnerable case 458.
+  348; keep vulnerable case 458 as a decision-distance boundary example unless
+  a fuller route review proves it enters ego's conflict area.
 
 The next evaluation should compare the current prompt with this change on the
 same fixed test index and separately report metrics after excluding
 `not_observable` labels. Otherwise the light, obstacle, and vulnerable F1s
 continue to mix perception errors with unanswerable frames.
+
+## Prompt-Delta Evaluation (2026-08-11)
+
+The follow-up comparison uses the exact same 512 fixed evaluation cases and
+the same LoRA adapter. The prior run is
+`sft_loop_phase1_eval_old/lora_zero_shot_prompt_4gpu/20260810_211451`; the
+RGB-feedback run is
+`sft_loop_phase1_eval/lora_zero_shot_prompt_4gpu/20260811_092904`.
+
+| Primary task | Prior F1 | RGB-feedback F1 | TP / FP / FN / TN change | RGB conclusion |
+| --- | ---: | ---: | --- | --- |
+| HIGHWAY | 0.9385 | 0.9385 | unchanged: 61 / 5 / 3 / 59 | The highway topology rules are stable. Do not perturb them. |
+| OBSTACLE | 0.6863 | 0.7037 | 35 / 3 / 29 / 61 -> 38 / 6 / 26 / 58 | The path-overlap pass recovered three real positives, but also turned normal following/roadside parking into three false positives. |
+| VULNERABLE | 0.8496 | 0.8673 | 48 / 1 / 16 / 63 -> 49 / 0 / 15 / 64 | The close-target pass helped. The remaining night example 408 is visually too dark to verify from RGB. |
+| TRAFFIC_LIGHT_ABNORMAL | 0.4598 | 0.5055 | 20 / 3 / 44 / 61 -> 23 / 4 / 41 / 60 | The witness wording recovered three positives, but the adapter still does not reliably connect its written evidence to the final answer. |
+
+Overall four-answer exact match increased from `0.6992` to `0.7148`.
+
+### New Obstacle Boundary
+
+The regression cases are visually specific rather than abstract:
+
+- 350: a yellow taxi is parked at the curb/parking side, outside the ego lane;
+- 446: a white car with brake lights is a normal same-lane lead vehicle;
+- 463: parked/oncoming cars compress the visual street view but do not occupy
+  ego's usable lane;
+- 480: a black SUV ahead is ordinary following traffic with a usable gap.
+
+The new positive 221 shows the complementary rule: a white sedan occupies the
+marked turn/ego corridor at the junction, so it remains an obstacle even though
+it resembles a parked car. The prompt therefore now requires *actual crossing
+or occupation of the usable corridor*, rather than any nearby body, brake light,
+or apparent short gap.
+
+### New Signal Boundary
+
+Some signal improvements are real: cases 72, 142, 392, 410, and 484 became
+positive after the multi-view check. But the model also outputs statements such
+as "no conflicting green" followed by a final `YES`, or describes several
+green heads without proving their approaches conflict. Conversely, it misses
+examples where an older history frame is the only clear contradictory frame.
+
+The prompt is therefore tightened to a single operational test: `YES` requires
+a readable pair of green heads that authorize crossing paths in one identifiable
+junction, or an obviously broken governing head. Multiple green lights, an
+all-red/all-green appearance, or a scenario name alone is not evidence until
+their approach geometry is readable. This is deliberately more faithful to the
+RGB task, but it exposes the remaining label problem: many `YES` rows describe
+an active scenario state that is invisible in their current four frames (for
+example vulnerable case 408 is almost black; several traffic-light rows show
+only a normal phase or no readable signal head).
+
+Do not start another long LoRA run on the present labels yet. First retain the
+fixed evaluation index and add per-question `visible_yes` / `visible_no` /
+`not_observable` status to its current-frame samples, starting with the 128
+primary signal-light cases and then the obstacle/vulnerable error cases. The
+next training set should only balance observable YES/NO samples for its focused
+task. This is a label-schema refinement, not a wholesale replacement of the
+scenario + RS + EVENT answer table.
