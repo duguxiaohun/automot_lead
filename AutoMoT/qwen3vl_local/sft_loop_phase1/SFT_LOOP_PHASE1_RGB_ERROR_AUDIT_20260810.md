@@ -140,3 +140,43 @@ primary signal-light cases and then the obstacle/vulnerable error cases. The
 next training set should only balance observable YES/NO samples for its focused
 task. This is a label-schema refinement, not a wholesale replacement of the
 scenario + RS + EVENT answer table.
+
+## Over-Tightening Check (2026-08-11)
+
+The existing LoRA was trained with an earlier prompt, then evaluated with the
+strict witness/ordinary-lead wording above at
+`sft_loop_phase1_eval/lora_rgb_boundary_refined_4gpu/20260811_122138`. It is
+therefore a prompt-compatibility regression, not a valid measurement of how a
+LoRA trained on that wording would perform. The fixed 512-case comparison is
+still useful because it exposes where the instruction became too hard:
+
+| Primary task | RGB-feedback F1 | Over-tight F1 | TP / FP / FN / TN change |
+| --- | ---: | ---: | --- |
+| HIGHWAY | 0.9385 | 0.9385 | unchanged: 61 / 5 / 3 / 59 |
+| OBSTACLE | 0.7037 | 0.6408 | 38 / 6 / 26 / 58 -> 33 / 6 / 31 / 58 |
+| VULNERABLE | 0.8673 | 0.8393 | 49 / 0 / 15 / 64 -> 47 / 1 / 17 / 63 |
+| TRAFFIC_LIGHT_ABNORMAL | 0.5055 | 0.1972 | 23 / 4 / 41 / 60 -> 7 / 0 / 57 / 64 |
+
+The signal rule collapsed to almost-always `NO`: it removed four false
+positives, but discarded sixteen true positives. In case 142, the four RGB
+frames visibly show simultaneous green heads on distinct arms of a broad
+intersection, yet the model writes "no conflicting green" and answers `NO`.
+It cannot reliably perform an exact lane-by-lane topology proof from this
+stitched view. The corrected middle rule therefore accepts a clear pair of
+green heads facing distinct approach arms in one broad conflict area, while
+still rejecting red-versus-green normal phasing, same-arm/same-gantry heads,
+and separate junctions.
+
+The obstacle rule had the same failure mode. Case 97 shows a braking lead
+growing closer through the fog history, and case 338 shows a parked orange
+vehicle occupying an unmarked travel lane. Both affect ego immediately and
+must remain `YES`. The corrected rule rejects a single brake-light frame or a
+clearly marked parking bay, but accepts visible range closing, a stopped queue,
+or a vehicle occupying the travel lane.
+
+Next protocol: run base Qwen with the corrected middle prompt first; retain the
+old adapter run only as a compatibility note; then train a new adapter on this
+same prompt and unchanged index before treating LoRA F1 as a prompt-quality
+result. No dataset rebuild is required for that prompt-aligned training. The
+separate `visible_yes` / `visible_no` / `not_observable` audit remains required
+before the next larger dataset/label iteration.

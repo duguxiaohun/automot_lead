@@ -53,6 +53,7 @@ from qwen3vl_local.sft_loop_phase1.prompts import (  # noqa: E402
     SYSTEM_PROMPT,
     build_phase1_prompt,
     build_phase1_target,
+    phase1_prompt_sha256,
 )
 from qwen3vl_local.sft_v2.train import (  # noqa: E402
     _assert_inside_assistant_turn,
@@ -367,6 +368,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "route": "sft_loop_phase1_four_visible_facts",
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
+        "production_prompt_sha256": phase1_prompt_sha256(audit=False),
         "base_model_dir": str(args.model_dir),
         "lora_vision_scope": str(args.lora_vision_scope),
         "lora_target_modules": list(bundle.lora_target_modules),
