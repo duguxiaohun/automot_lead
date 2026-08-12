@@ -47,6 +47,14 @@ import torch.distributed as dist
 from PIL import Image
 
 from qwen3vl_local.sft_loop_phase1 import DATASET_NAME  # noqa: E402
+from qwen3vl_local.sft_loop_phase1.history_rgb import (  # noqa: E402
+    DEFAULT_HISTORY_RGB_MODE,
+    HISTORY_RGB_MODES,
+    history_rgb_indices,
+    history_rgb_mode_tag,
+    select_history_rgb_paths,
+    validate_history_rgb_mode,
+)
 from qwen3vl_local.sft_loop_phase1.prompts import (  # noqa: E402
     ANSWER_KEYS,
     PROMPT_NAME,
@@ -251,6 +259,23 @@ def _validate_phase1_adapter(adapter_dir: pathlib.Path, model_dir: pathlib.Path)
     return cfg
 
 
+def _resolve_history_rgb_mode(
+    requested_mode: Optional[str], adapter_cfg: Optional[Mapping[str, Any]]
+) -> Tuple[str, str]:
+    """Resolve the RGB input contract, with LoRA configuration as the authority."""
+
+    if adapter_cfg is None:
+        return validate_history_rgb_mode(requested_mode or DEFAULT_HISTORY_RGB_MODE), "base_cli"
+    if requested_mode is not None:
+        raise ValueError(
+            "--history-rgb-mode is only for base-Qwen evaluation. LoRA evaluation reads the "
+            "persisted history_rgb_mode from sft_loop_phase1_adapter_config.json."
+        )
+    persisted = adapter_cfg.get("history_rgb_mode", DEFAULT_HISTORY_RGB_MODE)
+    source = "adapter_config" if "history_rgb_mode" in adapter_cfg else "legacy_adapter_default_4rgb"
+    return validate_history_rgb_mode(str(persisted)), source
+
+
 def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path], device: torch.device, *, merge_lora: bool) -> EvalBundle:
     """加载 base Qwen 和可选 Phase1 LoRA。"""
 
@@ -355,17 +380,19 @@ def _task_case_dir(root: pathlib.Path, focus: str, case_idx: int, row: FrameRow)
     return root / focus / f"case_{case_idx:05d}_{safe_scenario}_f{row.frame_id}"
 
 
-def _copy_case_rgb(case_dir: pathlib.Path, row: FrameRow, payload: Mapping[str, Any]) -> None:
-    """保存 case JSON 和 4 帧 RGB history，便于后续人工看图改 prompt。"""
+def _copy_case_rgb(case_dir: pathlib.Path, payload: Mapping[str, Any]) -> None:
+    """保存 case JSON 和实际送入模型的 RGB，便于审计输入合同。"""
 
     case_dir.mkdir(parents=True, exist_ok=True)
     (case_dir / "case.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     rgb_dir = case_dir / "rgb"
     rgb_dir.mkdir(exist_ok=True)
-    for idx, src in enumerate(row.history_rgb_paths):
+    selected_indices = payload.get("history_rgb_selected_indices") or []
+    selected_paths = payload.get("history_rgb_paths_used") or []
+    for source_idx, src in zip(selected_indices, selected_paths):
         src_path = pathlib.Path(src)
         if src_path.exists():
-            shutil.copy2(src_path, rgb_dir / f"history_{idx}_{src_path.name}")
+            shutil.copy2(src_path, rgb_dir / f"history_source_{source_idx}_{src_path.name}")
 
 
 def _prepare_output_dir(output_dir: pathlib.Path, *, overwrite: bool) -> None:
@@ -395,6 +422,14 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     """评估主流程。"""
 
     rank, local_rank, world_size = setup_distributed()
+    adapter_cfg = (
+        _validate_phase1_adapter(pathlib.Path(args.adapter_dir), pathlib.Path(args.model_dir))
+        if args.adapter_dir
+        else None
+    )
+    history_rgb_mode, history_rgb_mode_source = _resolve_history_rgb_mode(
+        args.history_rgb_mode, adapter_cfg
+    )
     output_dir = _resolve_output_dir(
         pathlib.Path(args.output_dir),
         timestamp_output=bool(args.timestamp_output),
@@ -410,18 +445,15 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     cases = _balanced_cases(rows, cases_per_bin=int(args.cases_per_bin), seed=int(args.seed))
     local_cases = cases[rank::world_size]
     device = torch.device(f"cuda:{local_rank}") if world_size > 1 else torch.device(args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
-    adapter_cfg = (
-        _validate_phase1_adapter(pathlib.Path(args.adapter_dir), pathlib.Path(args.model_dir))
-        if args.adapter_dir
-        else None
-    )
     bundle = load_eval_bundle(
         pathlib.Path(args.model_dir),
         pathlib.Path(args.adapter_dir) if args.adapter_dir else None,
         device,
         merge_lora=bool(args.merge_lora),
     )
-    prompt = build_phase1_prompt(audit=bool(args.audit_prompt))
+    prompt = build_phase1_prompt(
+        audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode
+    )
 
     total = 0
     exact = 0
@@ -447,7 +479,10 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         try:
             for local_idx, (row, focus) in enumerate(local_cases):
                 case_idx = rank + local_idx * max(1, world_size)
-                images = _load_images(row.history_rgb_paths)
+                used_history_rgb_paths = select_history_rgb_paths(
+                    row.history_rgb_paths, history_rgb_mode
+                )
+                images = _load_images(used_history_rgb_paths)
                 raw = _generate(bundle, images, prompt, int(args.max_new_tokens))
                 parsed = parse_phase1_output(raw)
                 gt = {key: _bool_text(row.answers[key]) for key in ANSWER_KEYS}
@@ -477,7 +512,11 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     "frame_id": row.frame_id,
                     "rs": row.rs,
                     "event": row.event,
-                    "history_rgb_paths": row.history_rgb_paths,
+                    "history_rgb_mode": history_rgb_mode,
+                    "history_rgb_count": len(history_rgb_indices(history_rgb_mode)),
+                    "history_rgb_selected_indices": list(history_rgb_indices(history_rgb_mode)),
+                    "history_rgb_paths_used": used_history_rgb_paths,
+                    "history_rgb_paths_all4": row.history_rgb_paths,
                     "latest_rgb_path": row.latest_rgb_path,
                     "gt": gt,
                     "parsed": parsed,
@@ -491,9 +530,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 f.write(encoded + "\n")
                 task_fps[focus].write(encoded + "\n")
                 if not ok_by_key[focus] and bool(args.save_error_rgb):
-                    _copy_case_rgb(_task_case_dir(error_root, focus, case_idx, row), row, payload)
+                    _copy_case_rgb(_task_case_dir(error_root, focus, case_idx, row), payload)
                 if bool(args.save_all_rgb):
-                    _copy_case_rgb(_task_case_dir(rgb_root, focus, case_idx, row), row, payload)
+                    _copy_case_rgb(_task_case_dir(rgb_root, focus, case_idx, row), payload)
         finally:
             for fp in task_fps.values():
                 fp.close()
@@ -566,14 +605,23 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
         "prompt_mode": "audit" if bool(args.audit_prompt) else "production",
-        "production_prompt_sha256": phase1_prompt_sha256(audit=False),
-        "eval_prompt_sha256": phase1_prompt_sha256(audit=bool(args.audit_prompt)),
+        "history_rgb_mode": history_rgb_mode,
+        "history_rgb_mode_source": history_rgb_mode_source,
+        "history_rgb_count": len(history_rgb_indices(history_rgb_mode)),
+        "history_rgb_selected_indices": list(history_rgb_indices(history_rgb_mode)),
+        "production_prompt_sha256": phase1_prompt_sha256(
+            audit=False, history_rgb_mode=history_rgb_mode
+        ),
+        "eval_prompt_sha256": phase1_prompt_sha256(
+            audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode
+        ),
         "adapter_dir": str(args.adapter_dir) if args.adapter_dir else None,
         "adapter_production_prompt_sha256": (
             adapter_cfg.get("production_prompt_sha256") if adapter_cfg is not None else None
         ),
         "adapter_prompt_matches_current_production": (
-            adapter_cfg.get("production_prompt_sha256") == phase1_prompt_sha256(audit=False)
+            adapter_cfg.get("production_prompt_sha256")
+            == phase1_prompt_sha256(audit=False, history_rgb_mode=history_rgb_mode)
             if adapter_cfg is not None and adapter_cfg.get("production_prompt_sha256")
             else None
         ),
@@ -599,8 +647,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 for key in ANSWER_KEYS
             }
         ),
-        "error_rgb_layout": "error_cases/<TASK>/case_<id>_<scenario>_f<frame>/rgb/history_*.jpg",
-        "all_rgb_layout": "rgb_cases/<TASK>/case_<id>_<scenario>_f<frame>/rgb/history_*.jpg when --save-all-rgb is enabled",
+        "error_rgb_layout": "error_cases/<TASK>/case_<id>_<scenario>_f<frame>/rgb/history_source_<original_index>_*.jpg",
+        "all_rgb_layout": "rgb_cases/<TASK>/case_<id>_<scenario>_f<frame>/rgb/history_source_<original_index>_*.jpg when --save-all-rgb is enabled",
         "world_size": int(world_size),
     }
     (output_dir / "metrics.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -609,6 +657,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "",
         f"- prompt_name: `{PROMPT_NAME}`",
         f"- prompt_mode: `{'audit' if bool(args.audit_prompt) else 'production'}`",
+        f"- history_rgb_mode: `{history_rgb_mode}` ({len(history_rgb_indices(history_rgb_mode))} images; original indices {list(history_rgb_indices(history_rgb_mode))})",
+        f"- history_rgb_mode_source: `{history_rgb_mode_source}`",
         f"- eval_prompt_sha256: `{metrics['eval_prompt_sha256']}`",
         f"- adapter: `{args.adapter_dir or 'BASE_QWEN'}`",
         f"- adapter_production_prompt_sha256: `{metrics['adapter_production_prompt_sha256'] or ('n/a (base)' if not args.adapter_dir else 'unknown (legacy adapter)')}`",
@@ -658,6 +708,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     lines.append(f"Cases: `{case_path.name}`")
     lines.append("Task-split case JSONL files are under `task_cases/<TASK>/`.")
     lines.append("Main-question wrong examples with RGB are under `error_cases/<TASK>/` when enabled.")
+    lines.append("Copied RGB files are exactly the images fed to the model; their filenames retain original four-frame indices.")
     lines.append("All evaluated RGB histories are copied under `rgb_cases/<TASK>/` only when `--save-all-rgb` is enabled.")
     (output_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"[done] metrics={output_dir / 'metrics.json'} cases={case_path}")
@@ -672,8 +723,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase1_data/frame_index.jsonl"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument("--adapter-dir", default="")
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase1_eval/base_static_obstacle"))
+    p.add_argument(
+        "--output-dir",
+        default="",
+        help="optional override; otherwise selects the fixed final base/LoRA result directory",
+    )
     p.add_argument("--split", default="test")
+    p.add_argument(
+        "--history-rgb-mode",
+        choices=HISTORY_RGB_MODES,
+        default=None,
+        help="base Qwen only: 4rgb uses source frames [0,1,2,3]; 2rgb_endpoints uses [0,3]. LoRA reads its checkpoint config.",
+    )
     p.add_argument("--device", default="auto")
     p.add_argument("--max-frames", type=int, default=0)
     p.add_argument("--cases-per-bin", type=int, default=64)
@@ -683,10 +744,23 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--save-error-rgb", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--save-all-rgb", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--timestamp-output", action=argparse.BooleanOptionalAction, default=False, help="write results under --output-dir/YYYYmmdd_HHMMSS")
+    p.add_argument("--timestamp-output", action=argparse.BooleanOptionalAction, default=True, help="write results under --output-dir/YYYYmmdd_HHMMSS")
     p.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--seed", type=int, default=20260810)
-    return p.parse_args()
+    args = p.parse_args()
+    adapter_cfg = (
+        _validate_phase1_adapter(pathlib.Path(args.adapter_dir), pathlib.Path(args.model_dir))
+        if args.adapter_dir
+        else None
+    )
+    history_rgb_mode, _ = _resolve_history_rgb_mode(args.history_rgb_mode, adapter_cfg)
+    if not args.output_dir:
+        name = "lora_static_obstacle_final" if args.adapter_dir else "base_static_obstacle_final"
+        name += f"_{history_rgb_mode_tag(history_rgb_mode)}"
+        if args.audit_prompt:
+            name += "_audit"
+        args.output_dir = str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase1_eval" / name)
+    return args
 
 
 def main() -> None:

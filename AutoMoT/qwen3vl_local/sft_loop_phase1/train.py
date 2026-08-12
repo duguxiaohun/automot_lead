@@ -47,6 +47,14 @@ except Exception:
     _TB_AVAILABLE = False
 
 from qwen3vl_local.sft_loop_phase1 import DATASET_NAME  # noqa: E402
+from qwen3vl_local.sft_loop_phase1.history_rgb import (  # noqa: E402
+    DEFAULT_HISTORY_RGB_MODE,
+    HISTORY_RGB_MODES,
+    history_rgb_indices,
+    history_rgb_mode_tag,
+    select_history_rgb_paths,
+    validate_history_rgb_mode,
+)
 from qwen3vl_local.sft_loop_phase1.prompts import (  # noqa: E402
     ANSWER_KEYS,
     PROMPT_NAME,
@@ -206,7 +214,7 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
 
 
 def _load_images(paths: Sequence[str]) -> List[Image.Image]:
-    """读取 4 帧 RGB history。"""
+    """读取当前 RGB-history 合同选择出的图片。"""
 
     return [Image.open(path).convert("RGB") for path in paths]
 
@@ -331,6 +339,7 @@ def evaluate_loss(
     work: Sequence[Tuple[FrameRow, str]],
     *,
     prompt: str,
+    history_rgb_mode: str,
     max_length: int,
     device: torch.device,
     world_size: int,
@@ -347,7 +356,7 @@ def evaluate_loss(
     focus_ok = {key: 0.0 for key in ANSWER_KEYS}
     focus_count = {key: 0.0 for key in ANSWER_KEYS}
     for row, focus in work:
-        images = _load_images(row.history_rgb_paths)
+        images = _load_images(select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode))
         target = build_phase1_target(row.answers)
         packed = _build_inputs(bundle, images=images, prompt=prompt, target=target, max_length=int(max_length))
         if packed is None:
@@ -403,7 +412,10 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "route": "sft_loop_phase1_static_obstacle_visible_facts",
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
-        "production_prompt_sha256": phase1_prompt_sha256(audit=False),
+        "production_prompt_sha256": phase1_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
+        "history_rgb_mode": str(args.history_rgb_mode),
+        "history_rgb_count": len(history_rgb_indices(args.history_rgb_mode)),
+        "history_rgb_selected_indices": list(history_rgb_indices(args.history_rgb_mode)),
         "base_model_dir": str(args.model_dir),
         "lora_vision_scope": str(args.lora_vision_scope),
         "lora_target_modules": list(bundle.lora_target_modules),
@@ -463,6 +475,9 @@ def train(args: argparse.Namespace) -> None:
             json.dumps(
                 {
                     "world_size": int(world_size),
+                    "history_rgb_mode": str(args.history_rgb_mode),
+                    "history_rgb_count": len(history_rgb_indices(args.history_rgb_mode)),
+                    "history_rgb_selected_indices": list(history_rgb_indices(args.history_rgb_mode)),
                     "train": {
                         "split": str(args.split),
                         "focus_balance_count": int(args.focus_balance_count),
@@ -504,7 +519,7 @@ def train(args: argparse.Namespace) -> None:
     total_optimizer_steps = max(1, math.ceil(total_steps / max(1, int(args.grad_accum))))
     scheduler = make_scheduler(optimizer, total_steps=total_optimizer_steps, warmup_steps=int(args.warmup_steps))
     writer = SummaryWriter(str(output_dir / "tb")) if rank == 0 and _TB_AVAILABLE and not bool(args.no_tb) else None
-    prompt = build_phase1_prompt(audit=False)
+    prompt = build_phase1_prompt(audit=False, history_rgb_mode=args.history_rgb_mode)
 
     rng = random.Random(int(args.seed))
     global_step = 0
@@ -515,14 +530,15 @@ def train(args: argparse.Namespace) -> None:
         print(
             f"[data] train_rows={len(rows)} train_work_global={len(full_work)} train_work_rank={len(work)} "
             f"steps_per_epoch_rank={steps_per_epoch} num_epochs={int(args.num_epochs)} max_steps={int(args.max_steps)} "
-            f"total_steps_rank={total_steps} eval_work_rank={len(eval_work)}"
+            f"total_steps_rank={total_steps} eval_work_rank={len(eval_work)} "
+            f"history_rgb_mode={args.history_rgb_mode} history_rgb_count={len(history_rgb_indices(args.history_rgb_mode))}"
         )
     epoch = 0
     while global_step < total_steps:
         rng.shuffle(work)
         epoch_start_step = global_step
         for row, focus in work:
-            images = _load_images(row.history_rgb_paths)
+            images = _load_images(select_history_rgb_paths(row.history_rgb_paths, args.history_rgb_mode))
             target = build_phase1_target(row.answers)
             packed = _build_inputs(bundle, images=images, prompt=prompt, target=target, max_length=int(args.max_length))
             if packed is None:
@@ -553,6 +569,7 @@ def train(args: argparse.Namespace) -> None:
                     bundle,
                     eval_work,
                     prompt=prompt,
+                    history_rgb_mode=args.history_rgb_mode,
                     max_length=int(args.max_length),
                     device=device,
                     world_size=world_size,
@@ -594,8 +611,12 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train sft_loop_phase1 four-question LoRA")
     p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase1_data/frame_index.jsonl"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase1"))
+    p.add_argument(
+        "--output-dir",
+        default="",
+    )
     p.add_argument("--split", default="train")
+    p.add_argument("--history-rgb-mode", choices=HISTORY_RGB_MODES, default=DEFAULT_HISTORY_RGB_MODE)
     p.add_argument("--device", default="auto")
     p.add_argument("--max-frames", type=int, default=0)
     p.add_argument("--focus-balance-count", type=int, default=512)
@@ -621,7 +642,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=20260810)
     p.add_argument("--log-steps", type=int, default=10)
     p.add_argument("--no-tb", action="store_true")
-    return p.parse_args()
+    args = p.parse_args()
+    args.history_rgb_mode = validate_history_rgb_mode(args.history_rgb_mode)
+    if not args.output_dir:
+        args.output_dir = str(
+            _AUTOMOT_ROOT
+            / "checkpoints/sft_loop_phase1_runs"
+            / f"run_static_obstacle_final_{history_rgb_mode_tag(args.history_rgb_mode)}"
+        )
+    return args
 
 
 def main() -> None:

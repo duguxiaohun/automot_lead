@@ -4,6 +4,7 @@
 # 从 AutoMoT/ 目录运行：
 #   GPU_IDS=0 bash qwen3vl_local/sft_loop_phase1/train.sh single
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
+# 默认使用四帧；HISTORY_RGB_MODE=2rgb_endpoints 时只喂第 1 帧和第 4 帧。
 
 set -euo pipefail
 
@@ -22,16 +23,27 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 INDEX="${INDEX:-checkpoints/sft_loop_phase1_data/frame_index.jsonl}"
-OUTPUT_DIR_BASE="${OUTPUT_DIR:-checkpoints/sft_loop_phase1_runs}"
-RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
-if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
-  OUTPUT_DIR="${OUTPUT_DIR_BASE}/run_${RUN_TAG}"
+HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-4rgb}"
+case "${HISTORY_RGB_MODE}" in
+  4rgb|2rgb_endpoints) HISTORY_RGB_TAG="${HISTORY_RGB_MODE}" ;;
+  *)
+    echo "Unknown HISTORY_RGB_MODE=${HISTORY_RGB_MODE}. Use 4rgb or 2rgb_endpoints." >&2
+    exit 1
+    ;;
+esac
+OUTPUT_DIR_BASE="checkpoints/sft_loop_phase1_runs"
+FINAL_RUN_NAME="run_static_obstacle_final_${HISTORY_RGB_TAG}"
+CHECK_RUN_NAME="check_static_obstacle_final_${HISTORY_RGB_TAG}"
+FINAL_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${FINAL_RUN_NAME}"
+CHECK_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${CHECK_RUN_NAME}"
+if [[ "${MODE}" == "check" ]]; then
+  OUTPUT_DIR="${CHECK_OUTPUT_DIR}"
 else
-  OUTPUT_DIR="${OUTPUT_DIR_BASE}"
+  OUTPUT_DIR="${FINAL_OUTPUT_DIR}"
 fi
 mkdir -p "${OUTPUT_DIR}"
-if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
-  ln -sfn "run_${RUN_TAG}" "${OUTPUT_DIR_BASE}/latest"
+if [[ "${MODE}" != "check" ]]; then
+  ln -sfn "${FINAL_RUN_NAME}" "${OUTPUT_DIR_BASE}/latest"
 fi
 
 pick_idle_gpus() {
@@ -101,6 +113,7 @@ COMMON_ARGS=(
   --model-dir "${MODEL_DIR}"
   --index "${INDEX}"
   --output-dir "${OUTPUT_DIR}"
+  --history-rgb-mode "${HISTORY_RGB_MODE}"
   --num-epochs "${NUM_EPOCHS:-3}"
   --max-steps "${MAX_STEPS:-0}"
   --focus-balance-count "${FOCUS_BALANCE_COUNT:-512}"
@@ -123,7 +136,7 @@ COMMON_ARGS=(
   "${EXTRA_ARGS[@]}"
 )
 
-echo "[run] MODE=${MODE} OUTPUT_DIR=${OUTPUT_DIR}"
+echo "[run] MODE=${MODE} HISTORY_RGB_MODE=${HISTORY_RGB_MODE} OUTPUT_DIR=${OUTPUT_DIR}"
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
 
@@ -136,5 +149,5 @@ else
   python qwen3vl_local/sft_loop_phase1/train.py "${COMMON_ARGS[@]}"
 fi
 
-echo "[hint] eval base: GPU_IDS=0 python qwen3vl_local/sft_loop_phase1/eval.py --output-dir checkpoints/sft_loop_phase1_eval/base_static_obstacle --timestamp-output"
-echo "[hint] eval lora: GPU_IDS=0 python qwen3vl_local/sft_loop_phase1/eval.py --adapter-dir ${OUTPUT_DIR}/final --output-dir checkpoints/sft_loop_phase1_eval/lora_static_obstacle --timestamp-output"
+echo "[hint] eval base: GPU_IDS=0 python qwen3vl_local/sft_loop_phase1/eval.py"
+echo "[hint] eval lora: GPU_IDS=0 python qwen3vl_local/sft_loop_phase1/eval.py --adapter-dir ${OUTPUT_DIR}/final"

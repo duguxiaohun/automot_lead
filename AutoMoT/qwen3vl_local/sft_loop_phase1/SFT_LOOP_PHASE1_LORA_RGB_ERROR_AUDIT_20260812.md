@@ -102,3 +102,20 @@ limited to: scan the ego lane from near pavement through the vanishing point,
 recognize the raised board/base/cone/trailer structure, and require road-relative
 self-motion before calling that object dynamic. It does not relax ordinary-
 vehicle or unreadable-scene negatives.
+
+## Final Prompt Selection
+
+The v3 follow-up wording was evaluated with a newly trained, prompt-aligned LoRA
+on the same fixed 512-case test index. It did not repair either production target:
+`case_00201` and `case_00246` remained `STATIC_OBSTACLE=NO`. The focused static
+result changed from v2 `TP/FP/FN/TN = 39/1/25/63`, F1 `0.7500`, to v3
+`38/0/26/64`, F1 `0.7451`. Exact four-answer accuracy also changed from `0.8496`
+to `0.8457`; traffic-light F1 fell from `0.8571` to `0.8364`.
+
+Therefore the final Phase1 production prompt is the v2 content, with production
+SHA-256 `827b59181b391657c7bd3c97640241902d8905f4cada90861ebb37d931bb633a`.
+The v3 near-to-horizon and trailer-structure wording remains a documented
+experiment, not a deployed rule. Freeze the current v2 prompt, retain only a
+prompt-aligned final adapter, and move future static-obstacle gains to a separate
+visual-label, crop/attention, or evidence-supervised experiment rather than
+lengthening this answer-only prompt.
