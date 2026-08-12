@@ -105,10 +105,30 @@ YES/NO。
 
 当前静态障碍仍以低成本代理 `primary_event == U-E2` 监督：不新增逐帧人工标签，也不把其它 EVENT
 加入静态正例。因此 U-E2 的事件前后重叠、已驶过或严重遮挡帧会保留不可消除的视觉标签噪声；正式分析
-必须把它与模型漏看真实施工物/固定占道物分开。2026-08-12 base 错例已据 RGB 补强两项判据：
-临时箭头拖车/导流施工设施占道为 YES，短历史中自身仍在切入/转向/横穿/前进的车辆为 NO。详见
-`SFT_LOOP_PHASE1_STATIC_OBSTACLE_RGB_AUDIT_20260811.md`。本轮不再继续堆长规则：复测新的 base
-production prompt 后，直接训练与该 prompt SHA 对齐的新 LoRA。
+必须把它与模型漏看真实施工物/固定占道物分开。2026-08-12 的逐帧审计已据 RGB 补强三项判据：
+临时箭头拖车/导流施工设施占道为 YES；短历史中自身仍在切入/转向/横穿/前进的车辆为 NO；远处但
+连续可辨、固定在 ego 车道内的橙黄封道设施为 YES。详见
+`SFT_LOOP_PHASE1_STATIC_OBSTACLE_RGB_AUDIT_20260811.md` 和
+`SFT_LOOP_PHASE1_LORA_RGB_ERROR_AUDIT_20260812.md`。这次只改 production prompt，数据索引不需重建；
+必须训练新的 prompt-aligned LoRA，再在固定 test index 上正式复测。
+
+这次的可见施工封道边界使用独立 run 名，按以下顺序做 4 卡对比。两条命令都复用现有
+`frame_index.jsonl`，不要重构数据集：
+
+```bash
+# 先只复测新的 base production prompt；它是提示词的下限，不是 LoRA 成绩。
+GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
+  qwen3vl_local/sft_loop_phase1/eval.py \
+  --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
+  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+  --output-dir checkpoints/sft_loop_phase1_eval/base_static_obstacle_distant_closure_4gpu \
+  --cases-per-bin 64 \
+  --timestamp-output
+
+# 再训练与这个 prompt SHA 对齐的新 adapter。
+RUN_TAG=static_obstacle_distant_closure \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
+```
 
 正式 F1/TP/FP/FN/TN 只比较 **prompt-aligned LoRA** 的 `prompt_mode=production` 结果。
 `--audit-prompt` 是同一固定 case index 的第二个诊断 run，用来保存模型可见证据和错例 RGB；
@@ -288,7 +308,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 是否见过当前提示词：
 
 ```bash
-RUN_TAG=static_obstacle \
+RUN_TAG=static_obstacle_distant_closure \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 ```
 
@@ -442,7 +462,7 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
   --model-dir checkpoints/Qwen3-VL-4B-Instruct \
   --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
-  --output-dir checkpoints/sft_loop_phase1_eval/lora_static_obstacle_4gpu \
+  --output-dir checkpoints/sft_loop_phase1_eval/lora_static_obstacle_distant_closure_4gpu \
   --cases-per-bin 64 \
   --timestamp-output
 ```

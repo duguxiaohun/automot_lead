@@ -1,0 +1,70 @@
+# Phase1 Prompt-Aligned LoRA RGB Error Audit
+
+## Scope
+
+This review uses the prompt-aligned production LoRA evaluation at
+`lora_static_obstacle_refined_4gpu/20260812_091804`. It reads the saved four-frame
+RGB error cases before changing a prompt. Scenario and event names are used only to
+locate samples; every conclusion below is based on the visible sequence.
+
+Focused 1:1 production results were `HIGHWAY` F1 `0.9508`, `STATIC_OBSTACLE` F1
+`0.7500`, `VULNERABLE` F1 `0.8966`, and `TRAFFIC_LIGHT_ABNORMAL` F1 `0.8468`.
+The remaining errors are asymmetric: all four focused tasks have zero false
+positives except `STATIC_OBSTACLE`, which has one. Therefore this iteration must
+improve recall without broadly relaxing the YES boundary.
+
+## Static Obstacle Review
+
+The 25 focused static-obstacle false negatives do not form one visual class.
+Many histories are nighttime, heavy fog, normal moving traffic, an event that is
+no longer ahead of ego, or a scene where path overlap cannot be recovered from
+RGB. Examples include parked/accident cases `00041`, `00059`, `00062`, `00067`,
+`00091`, `00196`, `00356`, `00362`, `00412`, `00432`, `00452`, `00478`, and
+`00497`. They are expected limits of the inexpensive `U-E2` route-state proxy;
+they are not evidence for asking the model to guess a static obstacle from a
+scenario prior.
+
+One repeated, readable pattern is different:
+
+- `case_00201_ConstructionObstacleTwoWays_f58`: all four frames show an
+  orange/yellow work-zone closure object fixed in the forward lane. It remains
+  small because it is far away, but its road position and lane diversion are
+  visible.
+- `case_00246_ConstructionObstacle_f36`: all four frames show the same
+  orange/yellow lane-closure facility centered in the ego corridor. It remains
+  road-fixed while the nearby blue vehicle changes its relative position.
+
+These are genuine visual false negatives, not label-only positives. The old
+negative rule grouped all distant objects together. The production prompt now
+draws the needed boundary: a distant object stays NO only when its path overlap
+cannot be seen; a readable, road-fixed orange/yellow lane-closure facility that
+occupies or diverts the traced ego lane is YES.
+
+The sole focused false positive, `case_00163_DynamicObjectCrossing_f107`, shows
+ordinary vehicles in a night scene rather than a visible fixed lane closure. It
+does not repeat as a separate appearance pattern, so no additional NO wording is
+added in this pass.
+
+## Traffic-Light Review
+
+All 17 focused traffic-light false negatives are U-E7 rows. Their RGB histories
+include dense fog, darkness, tiny signal heads, signal heads outside the camera
+views, and normal-looking red-versus-green phasing. Some broad daytime junctions
+show lights, but do not expose two readable conflicting approach arms in the
+same conflict area. There is no single visible witness pattern that can be
+expanded safely without turning normal phasing into false positives.
+
+The traffic-light rule is therefore unchanged. The current model must continue
+to require a readable contradictory or broken-signal witness instead of using a
+U-E7/scenario prior. These rows document observability noise in the current
+route-state proxy, not a prompt rule to loosen.
+
+## Decision
+
+Only the narrowly evidenced distant-but-readable construction-closure boundary
+changes. `answer_policy.py`, the `U-E2` supervision contract, frame index,
+route-disjoint split, and eight balanced 1:1 bins are unchanged. Because this is
+only a production-prompt change, do not rebuild the dataset. Train a new LoRA
+with the new prompt SHA, then compare it with the current adapter using the same
+fixed index and a production (non-audit) evaluation. Run a separate audit prompt
+only for RGB evidence review.
