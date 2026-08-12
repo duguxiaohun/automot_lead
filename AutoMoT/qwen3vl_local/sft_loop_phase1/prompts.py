@@ -11,6 +11,13 @@ import hashlib
 import re
 from typing import Dict, Optional
 
+from qwen3vl_local.sft_loop_phase1.history_rgb import (
+    DEFAULT_HISTORY_RGB_MODE,
+    HISTORY_RGB_MODE_ALL4,
+    history_rgb_prompt_description,
+    validate_history_rgb_mode,
+)
+
 
 PROMPT_NAME = "sft_loop_phase1_static_obstacle_prompt"
 
@@ -22,11 +29,19 @@ SYSTEM_PROMPT = """You are the perception first step of an autonomous-driving ag
 The input is a stitched three-camera RGB history, ordered from oldest to newest. Classify only the newest moment. Inspect the complete scene across left/front/right views: road topology, lane markings, shoulders, ramps, exits, merges, crossings, traffic lights, vehicles, pedestrians, cyclists, and objects that can affect the ego vehicle. Use older frames only to confirm motion, visibility, occlusion, or a changing signal. Do not use scenario names, dataset labels, maps, hidden metadata, or memory. Be conservative: a broad, straight, empty, open, foggy, tree-lined, or fast-looking road is not a highway unless limited-access topology is visible; another road user violating a normal signal is not a traffic-light fault."""
 
 
-def build_phase1_prompt(*, audit: bool = False) -> str:
+def build_phase1_prompt(*, audit: bool = False, history_rgb_mode: str = DEFAULT_HISTORY_RGB_MODE) -> str:
     """构造不含 memory 的第一轮问题。
 
     ``audit`` 仅用于人工改 prompt 时查看可见依据；训练和部署都应使用默认严格答案。
+    ``history_rgb_mode`` 必须和实际送给模型的图片子集完全一致。
     """
+
+    history_rgb_mode = validate_history_rgb_mode(history_rgb_mode)
+    history_description = history_rgb_prompt_description(history_rgb_mode)
+    static_history_rule = "four-frame history" if history_rgb_mode == HISTORY_RGB_MODE_ALL4 else history_description
+    static_frame_rule = "Use the four frames correctly." if history_rgb_mode == HISTORY_RGB_MODE_ALL4 else "Use the two endpoint frames correctly."
+    vulnerable_history_rule = "all four history frames" if history_rgb_mode == HISTORY_RGB_MODE_ALL4 else "both endpoint frames"
+    endpoint_notice = "" if history_rgb_mode == HISTORY_RGB_MODE_ALL4 else " This input contains only the first and fourth frames from the original four-frame history; do not assume intermediate evidence exists."
 
     criteria = f"""
 [PROMPT_NAME]
@@ -34,7 +49,7 @@ def build_phase1_prompt(*, audit: bool = False) -> str:
 [/PROMPT_NAME]
 
 [VISUAL_CHECK_ORDER]
-Classify the newest frame, but use the short history to confirm motion and visibility. First scan left/front/right for road layout and lane topology. Then trace the ego vehicle's drivable corridor for the next few seconds. Make one dedicated near-to-horizon lane-closure pass over every history frame: follow the ego lane from nearby pavement to the vanishing point, then inspect the junction box, crosswalks, curb corners, sidewalks, shoulders, and the left/right camera edges. This pass is for small pedestrians, bicycles, vehicle noses, doors, cones, roadwork boards/trailers, and signal heads that are easy to miss in a broad scene summary. Then inspect traffic lights that govern ego, nearby vehicles, and vulnerable road users. Answer each question independently; one YES does not force another YES.
+Classify the newest frame, but use the short history to confirm motion and visibility. First scan left/front/right for road layout and lane topology. Then trace the ego vehicle's drivable corridor for the next few seconds. Make one dedicated close-target pass over every history frame: the ego lane, the junction box, crosswalks, curb corners, sidewalks, shoulders, and the left/right camera edges. This pass is for small pedestrians, bicycles, vehicle noses, doors, cones, and signal heads that are easy to miss in a broad scene summary. Then inspect traffic lights that govern ego, nearby vehicles, and vulnerable road users.{endpoint_notice} Answer each question independently; one YES does not force another YES.
 [/VISUAL_CHECK_ORDER]
 
 [DECISION_RULES]
@@ -55,14 +70,14 @@ Never infer HIGHWAY from a dataset road label, event code, town, scenario name, 
 
 STATIC_OBSTACLE:
 Ask only: "Is a non-moving physical object currently occupying or closing the ego vehicle's usable corridor?" This is NOT the general hazard question. Do not answer YES for an object merely because it is nearby, looks dangerous, or might move later.
-Trace the ego lane and intended turning/through corridor from the newest frame a short distance ahead. YES only when the object is stationary across the four-frame history, or clearly remains fixed relative to the road, AND its body, door, debris, cones, barrier, or work equipment occupies the lane, turning arc, or the only practical passable gap so ego must stop or steer around it now.
+Trace the ego lane and intended turning/through corridor from the newest frame a short distance ahead. YES only when the object is stationary across the {static_history_rule}, or clearly remains fixed relative to the road, AND its body, door, debris, cones, barrier, or work equipment occupies the lane, turning arc, or the only practical passable gap so ego must stop or steer around it now.
 RGB-grounded YES patterns from the reviewed static-obstacle routes:
 - a crashed, disabled, or parked car is stopped partly in the travel lane or diagonally across it; the lane line runs underneath/along its body, or there is no remaining ego-width passage without moving around it;
 - a construction board, cone/barrier line, roadwork object, or work vehicle closes the forward lane, narrows it to an unusable gap, or forces ego around the work zone. A trailer-mounted temporary lane-arrow board with a yellow base, flashing lamps, an arrow panel, or cones around it is roadwork equipment: answer YES when it occupies the traced ego lane or diverts that lane. A small cone at the curb alone is not enough;
 - a small but readable orange/yellow lane-closure board, barricade, cone cluster, or work-zone trailer remains in the same road position across the history and sits inside the traced ego lane. It is still YES when far ahead if its lane overlap or lane diversion is visible. Do not reject it merely because it is distant; reject it only when its path overlap cannot be seen;
 - a curbside car has an open door protruding into the travel lane, or its fixed body extends out of an unmarked shoulder into ego's corridor;
 - a stationary vehicle remains in the same road position in the history while ego approaches, and it blocks the only usable lane or the intended turn. It can be an ordinary-looking car: the required evidence is fixed occupation of the path, not a dramatic crash shape.
-Before calling an orange/yellow object a moving vehicle, identify its visible structure. A mobile roadwork trailer/closure normally has a raised rectangular board or arrow panel above a compact base, often with a cone cluster, narrow support, lamps, or small trailer wheels; it is not an ordinary road-going car merely because its base is orange/yellow. Compare the object against lane markings, curb, road edge, and background. Ego approaching makes every stationary object shift or grow in the image; size growth, a changing pixel box, or apparent closing distance alone is NOT proof that it is moving toward ego. Call it dynamic only when its own road-relative position changes: for example it advances, crosses, turns, pulls out, changes lanes, or changes lateral alignment against lane markings/background independently of ego motion. A true static obstacle stays road-fixed while ego closes distance or drives around it. In fog, rain, glare, or night, one older frame may establish that the same fixed car, barrier, cone line, trailer-arrow board, or open door still blocks the corridor. Do not invent a static object when the history is unreadable.
+{static_frame_rule} Compare the object against lane markings, curb, road edge, and background. Ego approaching makes every object grow in the image; growth alone is NOT evidence that a vehicle is fixed. A true static obstacle stays road-fixed while ego closes distance or drives around it, without its own forward, lateral, turning, pull-out, or crossing motion relative to lane markings and nearby vehicles. In fog, rain, glare, or night, one older frame may establish that the same fixed car, barrier, cone line, trailer-arrow board, or open door still blocks the corridor. Do not invent a static object when the history is unreadable.
 NO traps from the reviewed RGB:
 - a normal lead vehicle, stopped traffic queue, ambulance, or car waiting at a junction; even if ego must brake, it belongs to the later dynamic-obstacle question unless it is visibly disabled/parked and road-fixed. A vehicle that only looks still for this short history, but is advancing, turning, cutting in, pulling out, crossing, or changing road-relative position, is NO;
 - a vehicle cutting in, pulling out, crossing, driving the wrong way, or running a red light; those are dynamic conflicts for the next loop, not STATIC_OBSTACLE;
@@ -73,7 +88,7 @@ When uncertain between static and dynamic, answer STATIC_OBSTACLE=NO. The next l
 
 VULNERABLE:
 Look specifically for pedestrians, cyclists, scooter riders, wheelchair users, or other unprotected road users. YES only if one is in the ego path, crossing it, approaching the conflict zone, emerging from occlusion, or close enough to affect ego's current decision.
-Before answering, deliberately inspect every crosswalk, curb corner, sidewalk edge, shoulder, bus-stop area, and left/right image edge in all four history frames. A person or bicycle may be small, partly hidden, or visible clearly in only one frame; one clear frame is enough for YES when that person can enter ego's forward or turning conflict area.
+Before answering, deliberately inspect every crosswalk, curb corner, sidewalk edge, shoulder, bus-stop area, and left/right image edge in {vulnerable_history_rule}. A person or bicycle may be small, partly hidden, or visible clearly in only one frame; one clear frame is enough for YES when that person can enter ego's forward or turning conflict area.
 Use the history to check lateral movement and whether the person's/bicycle's path intersects ego's path. Crosswalk users, cyclists entering from a side street, and pedestrians close to a turning path can be YES.
 Do not require the person or bicycle to already be inside the ego lane. A cyclist or pedestrian near the curb, sidewalk edge, side lane, crosswalk, or turning conflict zone is VULNERABLE=YES when ego may soon pass, turn, or merge near them, especially if they are oriented toward the roadway, standing near a crosswalk, walking beside the road, or partly entering from the side.
 For the first loop question, treat active unprotected people/bicycles near the upcoming junction, sidewalk corner, shoulder, or curb as decision-relevant unless they are clearly far away or separated by a barrier. A standing pedestrian beside a crosswalk and a cyclist on the sidewalk edge near ego's forward/turning path are YES, not NO, even before they step into the lane.
@@ -126,10 +141,10 @@ TRAFFIC_LIGHT_ABNORMAL: <YES or NO>
     return f"{criteria}\n\n{output}"
 
 
-def phase1_prompt_sha256(*, audit: bool = False) -> str:
+def phase1_prompt_sha256(*, audit: bool = False, history_rgb_mode: str = DEFAULT_HISTORY_RGB_MODE) -> str:
     """返回实际送入模型的 system + user prompt 内容指纹。"""
 
-    payload = f"{SYSTEM_PROMPT}\n\0{build_phase1_prompt(audit=audit)}".encode("utf-8")
+    payload = f"{SYSTEM_PROMPT}\n\0{build_phase1_prompt(audit=audit, history_rgb_mode=history_rgb_mode)}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 

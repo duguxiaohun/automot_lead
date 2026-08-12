@@ -15,10 +15,14 @@ TRAFFIC_LIGHT_ABNORMAL: YES|NO
 正式输出约定：
 
 - 数据索引写到 `checkpoints/sft_loop_phase1_data/`。
-- base/LoRA eval 结果写到 `checkpoints/sft_loop_phase1_eval/<run_name>/`。
-- 训练结果写到 `checkpoints/sft_loop_phase1_runs/`。
-- 不建议把正式 eval 写到仓库根目录的 `sft_loop_phase1_eval/`；如果命令显式传
-  `--output-dir sft_loop_phase1_eval/...`，脚本会按你给的路径写到根目录，这只适合临时调试。
+- 原始数据索引始终保存同一组时序四帧；RGB 输入模式是运行时合同，不改索引也不重构数据集。
+  `4rgb`（默认）送入第 1/2/3/4 帧；`2rgb_endpoints` 只送入首尾两帧，即第 1 帧和第 4 帧、原始索引 `[0, 3]`。
+- 正式训练分别写到 `checkpoints/sft_loop_phase1_runs/run_static_obstacle_final_4rgb/` 或
+  `checkpoints/sft_loop_phase1_runs/run_static_obstacle_final_2rgb_endpoints/`；`latest` 只指向本次实际训练的模式。
+- eval 默认按 base/LoRA/audit 和 RGB 模式自动写到
+  `checkpoints/sft_loop_phase1_eval/*_static_obstacle_final_{4rgb|2rgb_endpoints}/<timestamp>/`；
+  默认带时间戳，不会覆盖旧结果。
+- `--output-dir` 只保留给临时 debug，不是正式流程参数。
 
 ## 1. 构建数据
 
@@ -54,8 +58,9 @@ LoRA 复测。只有下面情况需要重建：
 
 ### 是否需要重构数据集
 
-这次需要重构一次。当前第一轮已从混合 `OBSTACLE` 改为 `STATIC_OBSTACLE`，训练真值严格是
-`primary EVENT == U-E2`；旧索引和旧 LoRA 都不兼容。重建也会保留 `val` split，供训练中定期验证。
+只有仍在使用“混合 `OBSTACLE`”旧 schema 的索引时才需要重构。当前第一轮训练真值是
+`STATIC_OBSTACLE`（`primary EVENT == U-E2`），旧索引和旧 LoRA 与这个语义不兼容；重构后的索引
+会保留 `val` split，供训练中定期验证。已有当前 `STATIC_OBSTACLE` 四帧索引时无需重构。
 
 重构只会重写 `checkpoints/sft_loop_phase1_data/frame_index.jsonl` 和 `manifest.json`，
 不会改 RGB，也不会改人工四问答案表。重构后建议先确认 manifest 里有三类 split：
@@ -71,6 +76,13 @@ PY
 
 如果能看到 `frames/train`、`frames/val`、`frames/test`，就可以开始训练。后续只要
 answer table、RS/EVENT 标注、异常 route 过滤或 split 参数不变，就不需要再次重构。
+
+### 四帧与首尾两帧不需要重构
+
+`history_rgb_paths` 在现有索引中固定为按时间排序的四张 RGB。`4rgb` 和 `2rgb_endpoints` 只是在训练/评测
+运行时选择 `[0,1,2,3]` 或 `[0,3]`；八个 `问题 x YES/NO` 均衡桶、route split 和标签完全不变。
+因此切换这两个模式时**不要**运行 `build_dataset.py`。它们是两种不同视觉输入分布，必须各自训练
+LoRA，不能把 4RGB LoRA 当作 2RGB LoRA 正式评测或部署。
 
 ## 2. 先测原始 Qwen
 
@@ -105,29 +117,35 @@ YES/NO。
 
 当前静态障碍仍以低成本代理 `primary_event == U-E2` 监督：不新增逐帧人工标签，也不把其它 EVENT
 加入静态正例。因此 U-E2 的事件前后重叠、已驶过或严重遮挡帧会保留不可消除的视觉标签噪声；正式分析
-必须把它与模型漏看真实施工物/固定占道物分开。2026-08-12 的逐帧审计已据 RGB 补强四项判据：
+必须把它与模型漏看真实施工物/固定占道物分开。2026-08-12 的逐帧审计已据 RGB 补强三项判据：
 临时箭头拖车/导流施工设施占道为 YES；短历史中自身仍在切入/转向/横穿/前进的车辆为 NO；远处但
-连续可辨、固定在 ego 车道内的橙黄封道设施为 YES；对远小的橙黄目标，必须扫描至地平线，并以
-牌板/支架/锥桶/拖车结构和相对道路自身运动区分施工设施与普通车辆。详见
+连续可辨、固定在 ego 车道内的橙黄封道设施为 YES。详见
 `SFT_LOOP_PHASE1_STATIC_OBSTACLE_RGB_AUDIT_20260811.md` 和
-`SFT_LOOP_PHASE1_LORA_RGB_ERROR_AUDIT_20260812.md`。这次只改 production prompt，数据索引不需重建；
-必须训练新的 prompt-aligned LoRA，再在固定 test index 上正式复测。
+`SFT_LOOP_PHASE1_LORA_RGB_ERROR_AUDIT_20260812.md`。经过同一固定 1:1 test index 的 v2/v3
+prompt-aligned LoRA 对比，v2 是最终 production prompt：`STATIC_OBSTACLE` F1 `0.7500` 高于 v3 的
+`0.7451`，且 `TRAFFIC_LIGHT_ABNORMAL` F1 `0.8571` 高于 v3 的 `0.8364`。最终 production prompt SHA
+为 `827b59181b391657c7bd3c97640241902d8905f4cada90861ebb37d931bb633a`；v3 的
+`334388...` adapter 不作为部署候选。这次只切回已验证的 production prompt，数据索引不需重建。
 
-这次的可见施工封道边界使用独立 run 名，按以下顺序做 4 卡对比。两条命令都复用现有
-`frame_index.jsonl`，不要重构数据集：
+最终 prompt 已冻结。下面命令复用现有 `frame_index.jsonl`，不要重构数据集；模型、索引、1:1
+采样、时间戳输出都由脚本默认处理。
 
 ```bash
-# 先只复测新的 base production prompt；它是提示词的下限，不是 LoRA 成绩。
+# 先测固定 final prompt 下的四帧 base Qwen；它是下限，不是 LoRA 成绩。
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase1/eval.py \
-  --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
-  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --output-dir checkpoints/sft_loop_phase1_eval/base_static_obstacle_distant_closure_v3_4gpu \
-  --cases-per-bin 64 \
-  --timestamp-output
+  --history-rgb-mode 4rgb
 
-# 再训练与这个 prompt SHA 对齐的新 adapter。
-RUN_TAG=static_obstacle_distant_closure_v3 \
+# 单独测首尾两帧的 base Qwen。这里只能在 base eval 显式选模式。
+GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
+  qwen3vl_local/sft_loop_phase1/eval.py \
+  --history-rgb-mode 2rgb_endpoints
+
+# 训练四帧 final LoRA；无需 RUN_TAG。
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
+
+# 训练首尾两帧 final LoRA；只送第 1 帧和第 4 帧。
+HISTORY_RGB_MODE=2rgb_endpoints \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 ```
 
@@ -135,7 +153,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 `--audit-prompt` 是同一固定 case index 的第二个诊断 run，用来保存模型可见证据和错例 RGB；
 它多了一段用户输入，不能和 production 的指标直接横比。未训练 base 的 production run 是
 格式/下限检查，也不能代替 prompt-aligned LoRA 的正式结果。每个 `summary.md` 和
-`metrics.json` 都会记录 prompt mode。
+`metrics.json` 都会记录 prompt mode、`history_rgb_mode`、实际图片数量和原始帧索引。
 新训练 adapter 还会记录 production prompt 的 SHA-256；eval 会同时写当前内容指纹和
 `adapter_prompt_matches_current_production`。旧 adapter 没有该字段时显示 `unknown`，仍可
 用于兼容性诊断，但不能冒充 prompt-aligned 对照。
@@ -187,10 +205,12 @@ YES/NO 均衡。其它三个模块同理。
 
 - `metrics.json`：总结果 + `task_reports.{HIGHWAY,STATIC_OBSTACLE,VULNERABLE,TRAFFIC_LIGHT_ABNORMAL}`。
   每个 task report 都有主问题 1:1 balance、TP/FP/FN/TN、precision/recall/F1 和副问题统计。
-- `cases.jsonl`：所有 case 放在一起，含 prompt、RGB 路径、GT、parsed、raw output、ok_by_key。
+- `cases.jsonl`：所有 case 放在一起，含 prompt、`history_rgb_paths_all4`、实际输入的
+  `history_rgb_paths_used`、GT、parsed、raw output、ok_by_key。
 - `task_cases/<TASK>/cases.jsonl`：按主任务拆开的 case 记录，方便只看某一类问题。
 - `summary.md`：四个主任务模块的简短 Markdown 报告。
-- `error_cases/<TASK>/case_*/rgb/`：主问题答错的 4 帧 RGB history，父目录明确区分来自哪个主任务。
+- `error_cases/<TASK>/case_*/rgb/`：主问题答错时模型实际看见的 RGB；文件名保留原始四帧索引，
+  所以 `2rgb_endpoints` 只会有 `history_source_0_*` 和 `history_source_3_*`。
 - `rgb_cases/<TASK>/case_*/rgb/`：只有显式加 `--save-all-rgb` 时才复制所有受评 RGB；默认不复制全量 RGB，
   避免输出太大。
 
@@ -274,6 +294,12 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 `HIGHWAY:YES/NO`、`STATIC_OBSTACLE:YES/NO`、`VULNERABLE:YES/NO`、
 `TRAFFIC_LIGHT_ABNORMAL:YES/NO` 每轮取同样数量。
 
+RGB 输入模式是 adapter 的一部分：`train.sh` 默认 `HISTORY_RGB_MODE=4rgb`，输出 `4rgb` 目录；
+显式 `HISTORY_RGB_MODE=2rgb_endpoints` 只送第 1/4 帧，输出 `2rgb_endpoints` 目录。训练中 val 也会使用同一
+选择，因此 TensorBoard 曲线与正式 eval 的视觉输入一致。保存的
+`sft_loop_phase1_adapter_config.json` 会固化 `history_rgb_mode`、`history_rgb_count` 和
+`history_rgb_selected_indices`。
+
 现在默认更接近正式训练，不再是 1000 step 快跑：
 
 ```text
@@ -305,11 +331,9 @@ GPU_IDS=0,1 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 ```
 
-选定本轮 prompt 后重训时，请显式使用新的 run 名，避免 `latest` 覆盖而看不出 adapter
-是否见过当前提示词：
+最终 prompt 已固定，正式重训不再需要 `RUN_TAG` 或版本名：
 
 ```bash
-RUN_TAG=static_obstacle_distant_closure_v3 \
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 ```
 
@@ -402,11 +426,12 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase1/train.sh ddp
 - `checkpoints/sft_loop_phase1_runs/latest/tb/`
 - `checkpoints/sft_loop_phase1_runs/latest/train_balance.json`
 
-默认防覆盖目录与 `sft_base_simple` 类似：
+正式训练输出固定为：
 
 ```text
-checkpoints/sft_loop_phase1_runs/run_<RUN_TAG>/
-checkpoints/sft_loop_phase1_runs/latest -> run_<RUN_TAG>
+checkpoints/sft_loop_phase1_runs/run_static_obstacle_final_4rgb/
+checkpoints/sft_loop_phase1_runs/run_static_obstacle_final_2rgb_endpoints/
+checkpoints/sft_loop_phase1_runs/latest -> the mode trained most recently
 ```
 
 训练时可以用 TensorBoard 看 `train/loss`、`val/loss`、`val/focus_*_acc`：
@@ -420,7 +445,7 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_loop_phase1_runs/latest/tb
 
 ## 4. 测试训练后的 LoRA
 
-训练后的正式 eval 建议开启 `--timestamp-output`。这样每次测试会写到：
+训练后的正式 eval 默认开启时间戳。每次测试会写到：
 
 ```text
 checkpoints/sft_loop_phase1_eval/<eval_name>/YYYYmmdd_HHMMSS/
@@ -429,17 +454,17 @@ checkpoints/sft_loop_phase1_eval/<eval_name>/YYYYmmdd_HHMMSS/
 多卡时 timestamp 由 rank0 生成并广播，所有 rank 会写进同一个时间戳目录；不需要手动
 `--overwrite`，也不会覆盖上一次测试。
 
+LoRA eval **不要传** `--history-rgb-mode`：脚本会从
+`<adapter>/sft_loop_phase1_adapter_config.json` 自动读取模式，随后自动把目录命名成 `4rgb` 或
+`2rgb_endpoints`。旧 adapter 没有该字段时按历史兼容口径视为 `4rgb`，并在结果中标注
+`legacy_adapter_default_4rgb`。
+
 单卡：
 
 ```bash
 GPU_IDS=0 \
 python qwen3vl_local/sft_loop_phase1/eval.py \
-  --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
-  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
-  --output-dir checkpoints/sft_loop_phase1_eval/lora_static_obstacle \
-  --cases-per-bin 64 \
-  --timestamp-output
+  --adapter-dir checkpoints/sft_loop_phase1_runs/run_static_obstacle_final_2rgb_endpoints/final
 ```
 
 2 卡：
@@ -447,12 +472,7 @@ python qwen3vl_local/sft_loop_phase1/eval.py \
 ```bash
 GPU_IDS=0,1 torchrun --nproc_per_node=2 \
   qwen3vl_local/sft_loop_phase1/eval.py \
-  --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
-  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
-  --output-dir checkpoints/sft_loop_phase1_eval/lora_static_obstacle_2gpu \
-  --cases-per-bin 64 \
-  --timestamp-output
+  --adapter-dir checkpoints/sft_loop_phase1_runs/run_static_obstacle_final_4rgb/final
 ```
 
 4 卡：
@@ -460,18 +480,15 @@ GPU_IDS=0,1 torchrun --nproc_per_node=2 \
 ```bash
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase1/eval.py \
-  --index checkpoints/sft_loop_phase1_data/frame_index.jsonl \
-  --model-dir checkpoints/Qwen3-VL-4B-Instruct \
-  --adapter-dir checkpoints/sft_loop_phase1_runs/latest/final \
-  --output-dir checkpoints/sft_loop_phase1_eval/lora_static_obstacle_distant_closure_v3_4gpu \
-  --cases-per-bin 64 \
-  --timestamp-output
+  --adapter-dir checkpoints/sft_loop_phase1_runs/run_static_obstacle_final_2rgb_endpoints/final
 ```
 
 建议保留 base 和 LoRA 两份结果：
 
-- `checkpoints/sft_loop_phase1_eval/base_static_obstacle*/<timestamp>/`
-- `checkpoints/sft_loop_phase1_eval/lora_static_obstacle*/<timestamp>/`
+- `checkpoints/sft_loop_phase1_eval/base_static_obstacle_final_4rgb/<timestamp>/`
+- `checkpoints/sft_loop_phase1_eval/base_static_obstacle_final_2rgb_endpoints/<timestamp>/`
+- `checkpoints/sft_loop_phase1_eval/lora_static_obstacle_final_4rgb/<timestamp>/`
+- `checkpoints/sft_loop_phase1_eval/lora_static_obstacle_final_2rgb_endpoints/<timestamp>/`
 
 这样可以直接比较：
 
