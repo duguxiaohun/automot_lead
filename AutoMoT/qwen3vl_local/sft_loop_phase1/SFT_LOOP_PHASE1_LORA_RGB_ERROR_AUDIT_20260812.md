@@ -68,3 +68,37 @@ only a production-prompt change, do not rebuild the dataset. Train a new LoRA
 with the new prompt SHA, then compare it with the current adapter using the same
 fixed index and a production (non-audit) evaluation. Run a separate audit prompt
 only for RGB evidence review.
+
+## Follow-Up Audit: New Prompt-Aligned LoRA
+
+The later audit run at
+`lora_static_obstacle_distant_closure_v2_audit_4gpu/20260812_161058` uses an
+adapter aligned with the prior distant-closure prompt revision. Its
+`STATIC_OBSTACLE` audit recall is `46/64`, but the production model still misses
+the two original readable construction cases. The four RGB frames were reread:
+
+- `case_00201_ConstructionObstacleTwoWays_f58` contains a small orange/yellow
+  roadwork trailer/board in the centre of the ego lane in every frame. The audit
+  text sees the orange object but calls it a slowly approaching vehicle. Its
+  claimed motion is not supported by the road-fixed image sequence.
+- `case_00246_ConstructionObstacle_f36` contains a small orange/yellow closure
+  facility aligned with the ego lane in every frame. The audit text instead says
+  that there is no cone, barrier, or parked vehicle ahead, so this is a
+  near-horizon object miss.
+
+The same audit can correctly identify a similar yellow trailer plus cones as a
+stationary lane closure (`ConstructionObstacleTwoWays`, case `013`, frame `38`),
+so the model has the concept. The failure boundary is specifically distant
+search and trailer-versus-vehicle identification, not lack of a construction
+category.
+
+All ten audit-only static false positives were then reread across all four RGB
+frames: `053`, `055`, `117`, `163`, `174`, `270`, `316`, `368`, `460`, and `499`.
+They are ordinary lead/parked vehicles, a yellow taxi, a blue van, an emergency
+vehicle visibly crossing a junction, or dark/foggy traffic whose static state is
+not readable. None is a small orange/yellow roadwork trailer or lane-closure
+board fixed in the ego lane. The next production prompt revision is consequently
+limited to: scan the ego lane from near pavement through the vanishing point,
+recognize the raised board/base/cone/trailer structure, and require road-relative
+self-motion before calling that object dynamic. It does not relax ordinary-
+vehicle or unreadable-scene negatives.
