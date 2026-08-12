@@ -2,11 +2,13 @@
 # 顺序运行 Phase1 的完整 4rgb / 2rgb_endpoints 对照：
 # base production/audit -> LoRA train -> LoRA production/audit。
 #
-# 从任意目录运行均可。默认就是四卡 GPU 0,1,2,3：
+# 默认从 AutoMoT/ 主目录运行，默认就是四卡 GPU 0,1,2,3：
+#   bash qwen3vl_local/sft_loop_phase1/run_rgb_mode_matrix.sh
+# 如在 AutoMoT/ 的上级目录运行，才使用：
 #   bash AutoMoT/qwen3vl_local/sft_loop_phase1/run_rgb_mode_matrix.sh
 # 可选覆盖为单卡或两卡：
-#   GPU_IDS=0 bash AutoMoT/qwen3vl_local/sft_loop_phase1/run_rgb_mode_matrix.sh
-#   GPU_IDS=0,1 bash AutoMoT/qwen3vl_local/sft_loop_phase1/run_rgb_mode_matrix.sh
+#   GPU_IDS=0 bash qwen3vl_local/sft_loop_phase1/run_rgb_mode_matrix.sh
+#   GPU_IDS=0,1 bash qwen3vl_local/sft_loop_phase1/run_rgb_mode_matrix.sh
 
 set -euo pipefail
 
