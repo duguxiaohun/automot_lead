@@ -321,6 +321,12 @@ def _bool_text(value: bool) -> str:
     return "YES" if bool(value) else "NO"
 
 
+def _parsed_text(value: Optional[bool]) -> Optional[str]:
+    """把严格 parser 的 bool 输出转换到评测使用的 YES/NO 文本域。"""
+
+    return None if value is None else _bool_text(value)
+
+
 def _binary_report(counter: Mapping[str, int]) -> Dict[str, Any]:
     """生成 YES 正类的二分类 TP/FP/TN/FN 和混淆矩阵。"""
 
@@ -484,7 +490,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 )
                 images = _load_images(used_history_rgb_paths)
                 raw = _generate(bundle, images, prompt, int(args.max_new_tokens))
-                parsed = parse_phase2_output(raw)
+                parsed_bool = parse_phase2_output(raw)
+                parsed = {key: _parsed_text(parsed_bool.get(key)) for key in ANSWER_KEYS}
                 gt = {key: _bool_text(row.answers[key]) for key in ANSWER_KEYS}
                 ok_by_key = {key: parsed.get(key) == gt[key] for key in ANSWER_KEYS}
                 all_ok = all(ok_by_key.values())
