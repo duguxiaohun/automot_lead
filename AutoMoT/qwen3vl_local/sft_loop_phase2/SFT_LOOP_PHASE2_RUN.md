@@ -16,6 +16,24 @@ R3 不在本轮单独提问，因为 Phase1 已经负责 `HIGHWAY`。可见的 R
 以下所有命令均从 `AutoMoT/` 目录运行，只读取本地
 `checkpoints/Qwen3-VL-4B-Instruct`。
 
+## 当前提示词审计结论
+
+`PHASE2_BASE_ERROR_RGB_AUDIT_20260813.md` 记录了本轮 base Qwen production 错例的实际四帧 RGB
+抽查、原始 LEAD RGB 路径与已有全帧审计的交叉核对。当前提示词已经据此固定以下判别顺序：
+
+```text
+RS4（可见灯具控制） -> RS5（可见无灯优先/STOP/YIELD 路口）
+-> RS2（未分隔且直接相关的对向通行约束） -> RS1（普通地面道路兜底）
+```
+
+四项全 `NO` 只允许在有正向可见高速/匝道/merge/gore 结构证据时输出；夜雨、雾、黑暗或看不清细节本身
+不能把普通地面道路变成全 `NO`。这次只修改运行时提示词，不改 RS 原标签，也不要求重新构建索引。
+重新构建索引只在要将后续人工确认的 `visual_label_risk` 窗口纳入/剔除时才需要。
+
+提示词正文变化后，旧 LoRA 没有见过这份输入分布。`eval.py` 会在结果中写
+`adapter_prompt_matches_current_production=false`，这种旧 adapter 评测只能作兼容性诊断，不能与新
+base 或新 LoRA 作正式优劣比较。正确顺序是先复测 base，再训练一份新 LoRA，最后正式评测新 LoRA。
+
 ## 1. 审计并构建索引
 
 仓库内随 Phase2 代码提交了轻量覆盖证明 `phase2_rgb_audit_coverage.json`，其中只有
