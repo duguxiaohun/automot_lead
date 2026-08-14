@@ -35,7 +35,7 @@ def build_phase2_prompt(*, audit: bool = False, history_rgb_mode: str = DEFAULT_
 [/PROMPT_NAME]
 
 [VISUAL_CHECK_ORDER]
-Classify the newest frame using the {history}. First trace the ego vehicle's usable corridor and its lane boundaries. Then inspect whether an opposing direction must participate, whether a junction conflict area is already being approached or entered, and whether traffic-signal hardware at that same junction is the active right-of-way rule. Scan the full left/front/right scene for a side road, cross street, stop/yield sign, signal mast or overhead arm, stop line, crosswalk, median, oncoming lane, and lane split. Answer the four questions from what is visibly present now. Use older frames only to confirm a cue that is visible in the newest moment; never invent a hidden junction or road topology.{endpoint_notice}
+Classify the newest frame using the {history}. First trace the ego vehicle's usable corridor and its lane boundaries. Then inspect whether an opposing direction must participate, whether a junction conflict area is already being approached or entered, and whether traffic-signal hardware at that same junction is the active right-of-way rule. Scan the full left/front/right scene for a side road, cross street, stop/yield sign, signal mast or overhead arm, stop line, crosswalk, median, oncoming lane, and lane split. Answer RS1, RS2, RS4, and RS5 independently from their own definitions and the visible RGB evidence. Do not make one answer a prerequisite, exclusion rule, or correction for another answer. Use older frames only to confirm a cue that is visible in the newest moment; never invent a hidden junction or road topology.{endpoint_notice}
 [/VISUAL_CHECK_ORDER]
 
 [DECISION_RULES]
@@ -60,13 +60,10 @@ YES when a cross street, T-junction, angled junction, side-road merge, stop/yiel
 NO for ordinary road bends, driveways, parking exits, a far side street with no immediate conflict, a roundabout, or a junction visibly governed by traffic-signal hardware (RS4). Do not turn RS5 into a catch-all for any turn, any braking, any crosswalk, or a missing/too-small signal in fog.
 
 HIGHWAY/RAMP ROBUSTNESS:
-A limited-access highway mainline, ramp, merge, split, exit, connector, gore area, or controlled high-speed corridor is not RS1, RS2, RS4, or RS5 for this loop. On such a frame the correct four answers can all be NO. This is a consequence of the four definitions, not a separate shortcut: do not answer RS1 just because the highway has ordinary lane markings; do not answer RS2 just because another carriageway is visible behind a barrier; do not answer RS4/RS5 merely from a distant lamp or bridge.
+A limited-access highway mainline, ramp, merge, split, exit, connector, gore area, or controlled high-speed corridor is a visual road type to distinguish from an ordinary surface road: several same-direction high-speed lanes with continuous guardrails/barriers, a merge/split/gore/exit, or a grade-separated connector are useful positive clues. Apply each RS definition independently on such a scene. Do not infer a highway merely from an answer pattern such as four NO, and do not infer RS1 merely because a highway has ordinary lane markings. Do not infer RS2 from another carriageway behind a barrier, or RS4/RS5 from a distant lamp or bridge.
 
-MUTUAL-EXCLUSIVITY CHECK:
-For a visibly ordinary surface road, exactly one of RS1/RS2/RS4/RS5 should normally be YES. All four NO requires positive limited-access highway/ramp/merge/split/exit/grade-separated connector evidence; darkness, fog, rain, a straight road, an empty road, a distant light, or uncertainty is not enough. Do not infer RS1 merely because a road has continuing lane markings when a visible traffic signal, stop/yield junction, or undivided opposing corridor governs the scene.
-
-FINAL ANSWER CONSISTENCY:
-Before writing the four lines, count the provisional YES answers. If there is no YES, output four NO only after finding the positive limited-access evidence above. Otherwise, when a continuous ordinary surface-road corridor is visible and no RS2/RS4/RS5 cue is visible, set RS1 to YES. If more than one is YES, resolve only that visible conflict: a locally signal-governed junction is RS4; a local unlit stop/yield/priority junction is RS5; a non-junction undivided opposing corridor is RS2; otherwise it is RS1. Output one YES, not two or more.
+INDEPENDENT ANSWER CHECK:
+Output the answer supported by the RGB for each question. Multiple YES answers and four NO answers are both allowed when the independently visible evidence supports them. Do not force exactly one YES, do not change an answer to match another answer, and do not use the final four-line pattern to infer hidden road topology.
 [/DECISION_RULES]
 """.strip()
     if audit:

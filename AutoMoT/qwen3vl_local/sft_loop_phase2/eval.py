@@ -161,8 +161,8 @@ def _focus_key(row: FrameRow, focus: str) -> str:
     return f"{focus}:{'YES' if row.answers[focus] else 'NO'}"
 
 
-def _answer_topology(values: Mapping[str, Optional[str]]) -> str:
-    """将四个二元回答归为单一 RS、全 NO、多 YES 或解析失败。"""
+def _answer_pattern(values: Mapping[str, Optional[str]]) -> str:
+    """将独立四问的答案仅作模式统计，不参与生成、loss 或评分修正。"""
 
     normalized = {key: values.get(key) for key in ANSWER_KEYS}
     if any(value not in ("YES", "NO") for value in normalized.values()):
@@ -175,8 +175,8 @@ def _answer_topology(values: Mapping[str, Optional[str]]) -> str:
     return "MULTI:" + "+".join(positive)
 
 
-def _topology_diagnostics(counter: Counter[str], total: int) -> Dict[str, Any]:
-    """汇总四问一热结构，单独暴露全 NO 收缩和多 YES 冲突。"""
+def _answer_pattern_diagnostics(counter: Counter[str], total: int) -> Dict[str, Any]:
+    """汇总四问答案模式，仅供分析模型输出偏置。"""
 
     gt_counts = {name: int(counter.get(f"gt/{name}", 0)) for name in (*ANSWER_KEYS, "ALL_NO")}
     pred_counts = {
@@ -191,14 +191,14 @@ def _topology_diagnostics(counter: Counter[str], total: int) -> Dict[str, Any]:
     correct_all_no = int(counter.get("pair/ALL_NO=>ALL_NO", 0))
     predicted_all_no = int(counter.get("pred/ALL_NO", 0))
     return {
-        "ground_truth_topology_counts": gt_counts,
-        "predicted_topology_counts": pred_counts,
+        "ground_truth_pattern_counts": gt_counts,
+        "predicted_pattern_counts": pred_counts,
         "predicted_multiple_yes_counts": multi_counts,
         "predicted_multiple_yes_total": sum(multi_counts.values()),
         "predicted_all_no": predicted_all_no,
-        "correct_all_no": correct_all_no,
-        "incorrect_all_no": predicted_all_no - correct_all_no,
-        "topology_exact_accuracy": float(sum(counter.get(f"pair/{name}=>{name}", 0) for name in (*ANSWER_KEYS, "ALL_NO"))) / max(1, total),
+        "all_no_matches_ground_truth": correct_all_no,
+        "all_no_nonmatches_ground_truth": predicted_all_no - correct_all_no,
+        "pattern_exact_accuracy": float(sum(counter.get(f"pair/{name}=>{name}", 0) for name in (*ANSWER_KEYS, "ALL_NO"))) / max(1, total),
     }
 
 
@@ -510,7 +510,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         focus: {key: Counter() for key in ANSWER_KEYS} for focus in ANSWER_KEYS
     }
     focus_counts: Counter[str] = Counter()
-    topology_counts: Counter[str] = Counter()
+    pattern_counts: Counter[str] = Counter()
     case_path = output_dir / (f"cases_rank{rank}.jsonl" if world_size > 1 else "cases.jsonl")
     task_case_root = output_dir / "task_cases"
     task_case_paths = {
@@ -535,16 +535,16 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 parsed_bool = parse_phase2_output(raw)
                 parsed = {key: _parsed_text(parsed_bool.get(key)) for key in ANSWER_KEYS}
                 gt = {key: _bool_text(row.answers[key]) for key in ANSWER_KEYS}
-                gt_topology = _answer_topology(gt)
-                pred_topology = _answer_topology(parsed)
+                gt_pattern = _answer_pattern(gt)
+                pred_pattern = _answer_pattern(parsed)
                 ok_by_key = {key: parsed.get(key) == gt[key] for key in ANSWER_KEYS}
                 all_ok = all(ok_by_key.values())
                 total += 1
                 exact += int(all_ok)
                 focus_counts[_focus_key(row, focus)] += 1
-                topology_counts[f"gt/{gt_topology}"] += 1
-                topology_counts[f"pred/{pred_topology}"] += 1
-                topology_counts[f"pair/{gt_topology}=>{pred_topology}"] += 1
+                pattern_counts[f"gt/{gt_pattern}"] += 1
+                pattern_counts[f"pred/{pred_pattern}"] += 1
+                pattern_counts[f"pair/{gt_pattern}=>{pred_pattern}"] += 1
                 task_counts[focus]["total"] += 1
                 task_counts[focus]["exact"] += int(all_ok)
                 task_counts[focus][f"main_gt/{gt[focus]}"] += 1
@@ -574,8 +574,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     "latest_rgb_path": row.latest_rgb_path,
                     "gt": gt,
                     "parsed": parsed,
-                    "gt_topology": gt_topology,
-                    "pred_topology": pred_topology,
+                    "gt_answer_pattern": gt_pattern,
+                    "pred_answer_pattern": pred_pattern,
                     "ok_by_key": ok_by_key,
                     "main_question_ok": ok_by_key[focus],
                     "all_ok": all_ok,
@@ -603,7 +603,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             for focus, counters in task_answer_counts.items()
         },
         "focus_counts": dict(focus_counts),
-        "topology_counts": dict(topology_counts),
+        "pattern_counts": dict(pattern_counts),
         "case_path": str(case_path),
         "task_case_paths": {key: str(path) for key, path in task_case_paths.items()},
     }
@@ -621,7 +621,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     task_counts = {key: Counter() for key in ANSWER_KEYS}
     task_answer_counts = {focus: {key: Counter() for key in ANSWER_KEYS} for focus in ANSWER_KEYS}
     focus_counts = Counter()
-    topology_counts = Counter()
+    pattern_counts = Counter()
     for item in gathered:
         for key in ANSWER_KEYS:
             answer_counts[key].update(item.get("answer_counts", {}).get(key, {}))
@@ -630,12 +630,12 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             for key in ANSWER_KEYS:
                 task_answer_counts[focus][key].update(item.get("task_answer_counts", {}).get(focus, {}).get(key, {}))
         focus_counts.update(item.get("focus_counts", {}))
-        topology_counts.update(item.get("topology_counts", {}))
+        pattern_counts.update(item.get("pattern_counts", {}))
 
     per_key = {}
     for key, counter in answer_counts.items():
         per_key[key] = _binary_report(counter)
-    topology_report = _topology_diagnostics(topology_counts, total)
+    pattern_report = _answer_pattern_diagnostics(pattern_counts, total)
     task_reports = {}
     for focus in ANSWER_KEYS:
         main_report = _binary_report(task_answer_counts[focus][focus])
@@ -696,7 +696,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "total_cases": total,
         "exact_match_accuracy": float(exact) / max(1, total),
         "per_question": per_key,
-        "topology_diagnostics": topology_report,
+        "answer_pattern_diagnostics": pattern_report,
         "task_reports": task_reports,
         "focus_counts": dict(focus_counts),
         "cases_jsonl": str(case_path) if world_size == 1 else [str(item.get("case_path")) for item in gathered],
@@ -742,14 +742,15 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     lines.extend(
         [
             "",
-            "## Four-Answer Topology Diagnostics",
+            "## Four Independent Answer Pattern Diagnostics",
             "",
-            f"- predicted_all_no: {topology_report['predicted_all_no']} (correct={topology_report['correct_all_no']}, incorrect={topology_report['incorrect_all_no']})",
-            f"- predicted_multiple_yes_total: {topology_report['predicted_multiple_yes_total']}",
-            f"- topology_exact_accuracy: {topology_report['topology_exact_accuracy']:.4f}",
-            f"- ground_truth_topology_counts: `{topology_report['ground_truth_topology_counts']}`",
-            f"- predicted_topology_counts: `{topology_report['predicted_topology_counts']}`",
-            f"- predicted_multiple_yes_counts: `{topology_report['predicted_multiple_yes_counts']}`",
+            "- Diagnostic only: these counts never constrain generation, parsing, loss, or scoring.",
+            f"- predicted_all_no: {pattern_report['predicted_all_no']} (matches_ground_truth={pattern_report['all_no_matches_ground_truth']}, nonmatches_ground_truth={pattern_report['all_no_nonmatches_ground_truth']})",
+            f"- predicted_multiple_yes_total: {pattern_report['predicted_multiple_yes_total']}",
+            f"- pattern_exact_accuracy: {pattern_report['pattern_exact_accuracy']:.4f}",
+            f"- ground_truth_pattern_counts: `{pattern_report['ground_truth_pattern_counts']}`",
+            f"- predicted_pattern_counts: `{pattern_report['predicted_pattern_counts']}`",
+            f"- predicted_multiple_yes_counts: `{pattern_report['predicted_multiple_yes_counts']}`",
         ]
     )
     lines.append("")
