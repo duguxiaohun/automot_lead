@@ -153,3 +153,40 @@ bash qwen3vl_local/sft_loop_phase2/run_rgb_mode_matrix.sh
 ```
 
 该脚本顺序执行 base production/audit、两种 RGB 模式的 LoRA 训练，以及对应的 LoRA production/audit。仅在需要换卡时覆盖，例如：`GPU_IDS=4,5 bash qwen3vl_local/sft_loop_phase2/run_rgb_mode_matrix.sh`。
+
+## 4. 训练过程 TensorBoard
+
+正式 `single` 或 `ddp` 训练默认启用 TensorBoard；只有快速检查命令
+`train.sh check` 会显式传入 `--no-tb`。四卡训练启动后，rank 0 会把 event 文件写到对应训练目录的
+`tb/`：
+
+```text
+checkpoints/sft_loop_phase2_runs/run_rs_four_binary_final_4rgb/tb/
+checkpoints/sft_loop_phase2_runs/run_rs_four_binary_final_2rgb_endpoints/tb/
+```
+
+另开一个终端，在 `AutoMoT/` 目录启动通用 TensorBoard 服务。不要把 logdir 指到 `tb/` 以外的旧目录：
+
+```bash
+# 查看正在进行或已经完成的 4rgb 正式训练。
+bash qwen3vl_local/tb_serve.sh \
+  checkpoints/sft_loop_phase2_runs/run_rs_four_binary_final_4rgb
+
+# 查看 2rgb_endpoints 的独立 LoRA 训练。
+bash qwen3vl_local/tb_serve.sh \
+  checkpoints/sft_loop_phase2_runs/run_rs_four_binary_final_2rgb_endpoints
+```
+
+脚本会自动选空闲端口并打印浏览器地址；VSCode Remote 已转发端口时，直接打开它打印的
+`http://localhost:<port>`。集群需要 SSH 隧道时可限制为本机监听，例如：
+
+```bash
+TB_PORT=6006 TB_BIND=127.0.0.1 \
+bash qwen3vl_local/tb_serve.sh \
+  checkpoints/sft_loop_phase2_runs/run_rs_four_binary_final_4rgb
+```
+
+重点查看 `train/loss`、`train/skipped_too_long`、`train/focus/*` 与 `val/loss`、
+`val/token_acc`、`val/focus_rs{1,2,4,5}_acc`。Phase2 的周期 val 与训练 event 写在同一个 `tb/`
+run，不会额外生成 `eval_tb/`；训练默认每 `10,000` 个 step 写一次 val 指标。按 `Ctrl-C` 只会关闭
+TensorBoard 服务，不会停止另一个终端中的训练。
