@@ -38,19 +38,11 @@ def build_phase2_prompt(*, audit: bool = False, history_rgb_mode: str = DEFAULT_
 Classify the newest frame using the {history}. First trace the ego vehicle's usable corridor and its lane boundaries. Then inspect whether an opposing direction must participate, whether a junction conflict area is already being approached or entered, and whether traffic-signal hardware at that same junction is the active right-of-way rule. Scan the full left/front/right scene for a side road, cross street, stop/yield sign, signal mast or overhead arm, stop line, crosswalk, median, oncoming lane, and lane split. Answer RS1, RS2, RS4, and RS5 independently from their own definitions and the visible RGB evidence. Do not make one answer a prerequisite, exclusion rule, or correction for another answer. Use older frames only to confirm a cue that is visible in the newest moment; never invent a hidden junction or road topology.{endpoint_notice}
 [/VISUAL_CHECK_ORDER]
 
-[QUESTION_LOCAL_VISUAL_SCANS]
-Before answering RS1, inspect the newest front view for a continuing ordinary same-direction lane, usable road edges or curbs, and ordinary lane keeping/following space.
-Before answering RS2, inspect the newest front and side views specifically for a centre line without a median, the front or headlights of a vehicle in the adjacent opposing direction, and parked vehicles, a door, or a fixed obstruction narrowing the usable passage.
-Before answering RS4, inspect the upper front and both side views specifically for physical signal heads, masts, or overhead arms together with a local stop line, crosswalk, turning pocket, cross street, or junction opening.
-Before answering RS5, inspect both road sides and the near front specifically for a side/cross road, T-junction opening, STOP/YIELD sign or marking, priority conflict, crossing traffic, or junction box without working traffic-signal hardware.
-Each scan is only for its named question. Do not use the result of one scan to select, suppress, or revise another answer.
-[/QUESTION_LOCAL_VISUAL_SCANS]
-
 [DECISION_RULES]
 RS1:
 Ask: "Is the ego currently on an ordinary same-direction drivable road, outside a controlling junction, opposing-lane-sharing constraint, and highway/ramp decision structure?"
 YES when the usable path is an ordinary lane or ordinary same-direction roadway: lane markings or road edges continue ahead, ordinary following/lane keeping/ordinary lane change is the main rule, and there is no active junction control or need to negotiate an opposing lane. This includes local, urban, suburban, rural, parking-side, roundabout, and ordinary surface-road segments.
-NO when an unseparated opposing direction governs the usable corridor, local signal/priority intersection control governs the ego path, or the road is a limited-access highway/ramp/merge/exit structure. Do not call a road RS1 merely because it is straight, empty, wide, rainy, foggy, or has a lead vehicle. A roundabout is RS1 unless a separate signal/priority junction visibly governs the ego path.
+NO when an unseparated opposing direction governs the usable corridor, local signal/priority intersection control governs the ego path, or the road is a limited-access highway/ramp/merge/exit structure. Several same-direction lanes with continuous guardrails or barriers along both road sides are a controlled high-speed corridor and are RS1=NO even when this four-frame window shows no merge arrow, exit sign, or gore. Do not call a road RS1 merely because it is straight, empty, wide, rainy, foggy, or has a lead vehicle. A roundabout is RS1 unless a separate signal/priority junction visibly governs the ego path.
 
 RS2:
 Ask: "Does the opposing direction currently constrain the ego's usable corridor, so the ego may need to share, borrow, yield around, or reason about the oncoming lane?"
