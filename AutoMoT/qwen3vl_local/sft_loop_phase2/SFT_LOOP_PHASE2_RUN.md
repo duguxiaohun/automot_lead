@@ -117,6 +117,8 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 ```
 
 结果会按时间戳写入 `checkpoints/sft_loop_phase2_eval/` 下，不会覆盖旧结果。`metrics.json` 包含全局逐问题指标，以及四个主任务模块的均衡主问题 `TP/FP/FN/TN`。每个模块的 case 记录在 `task_cases/<RS>/`；只有主问题错误时才会把模型实际看到的 RGB 复制到 `error_cases/<RS>/`。
+`topology_diagnostics` 还会单独记录四项全 `NO` 中真正高速负例与错误收缩的数量，以及多个 `YES`
+的冲突组合；这两个数用于判断提示词是否把普通路口/普通道路错误压成全 NO，不能用 audit 分数代替。
 
 ## 3. 训练并复测 LoRA
 

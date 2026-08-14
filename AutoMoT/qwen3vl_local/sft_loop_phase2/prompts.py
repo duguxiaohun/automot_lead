@@ -64,6 +64,9 @@ A limited-access highway mainline, ramp, merge, split, exit, connector, gore are
 
 MUTUAL-EXCLUSIVITY CHECK:
 For a visibly ordinary surface road, exactly one of RS1/RS2/RS4/RS5 should normally be YES. All four NO requires positive limited-access highway/ramp/merge/split/exit/grade-separated connector evidence; darkness, fog, rain, a straight road, an empty road, a distant light, or uncertainty is not enough. Do not infer RS1 merely because a road has continuing lane markings when a visible traffic signal, stop/yield junction, or undivided opposing corridor governs the scene.
+
+FINAL ANSWER CONSISTENCY:
+Before writing the four lines, count the provisional YES answers. If there is no YES, output four NO only after finding the positive limited-access evidence above. Otherwise, when a continuous ordinary surface-road corridor is visible and no RS2/RS4/RS5 cue is visible, set RS1 to YES. If more than one is YES, resolve only that visible conflict: a locally signal-governed junction is RS4; a local unlit stop/yield/priority junction is RS5; a non-junction undivided opposing corridor is RS2; otherwise it is RS1. Output one YES, not two or more.
 [/DECISION_RULES]
 """.strip()
     if audit:
