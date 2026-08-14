@@ -431,6 +431,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "eval_split": str(args.eval_split),
         "eval_steps": int(args.eval_steps),
         "eval_balance_count": int(args.eval_balance_count),
+        "save_best_val": bool(args.save_best_val),
     }
     (final_dir / "sft_loop_phase2_adapter_config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     return final_dir
@@ -532,6 +533,7 @@ def train(args: argparse.Namespace) -> None:
 
     global_step = 0
     skipped = 0
+    best_val_loss = math.inf
     t0 = time.time()
     bundle.model.train()
     if rank == 0:
@@ -604,6 +606,24 @@ def train(args: argparse.Namespace) -> None:
                         f"focus_rs4={metrics.get('focus_rs4_acc', 0.0):.4f} "
                         f"focus_rs5={metrics.get('focus_rs5_acc', 0.0):.4f}"
                     )
+                    if bool(args.save_best_val) and float(metrics["loss"]) < best_val_loss:
+                        best_val_loss = float(metrics["loss"])
+                        best_dir = _save_adapter(bundle, output_dir, args, step=global_step, name="best_val")
+                        (output_dir / "best_val.json").write_text(
+                            json.dumps(
+                                {
+                                    "step": global_step,
+                                    "val_split": str(args.eval_split),
+                                    "val_loss": best_val_loss,
+                                    "token_acc": float(metrics["token_acc"]),
+                                    "history_rgb_mode": str(args.history_rgb_mode),
+                                },
+                                ensure_ascii=False,
+                                indent=2,
+                            ),
+                            encoding="utf-8",
+                        )
+                        print(f"[best-val] step={global_step} loss={best_val_loss:.4f} adapter={best_dir}")
             if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
                 ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name=f"checkpoint-{global_step}")
                 print(f"[save] step={global_step} adapter={ckpt_dir}")
@@ -649,7 +669,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--eval-steps",
         type=int,
-        default=10_000,
+        default=2_000,
         help="validate every N optimizer steps; 0 disables periodic validation",
     )
     p.add_argument("--eval-balance-count", type=int, default=16)
@@ -669,6 +689,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--gradient-checkpointing", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--seed", type=int, default=20260810)
     p.add_argument("--log-steps", type=int, default=10)
+    p.add_argument(
+        "--save-best-val",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="save output_dir/best_val whenever periodic validation loss improves",
+    )
     p.add_argument("--no-tb", action="store_true")
     args = p.parse_args()
     args.history_rgb_mode = validate_history_rgb_mode(args.history_rgb_mode)

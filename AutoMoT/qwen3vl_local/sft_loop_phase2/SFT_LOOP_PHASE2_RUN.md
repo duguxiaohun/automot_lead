@@ -85,7 +85,7 @@ RS5:YES / RS5:NO
 
 正式训练默认 `FOCUS_BALANCE_COUNT=0`：每个 epoch 自动取最少原始桶的全部样本作为每桶目标，因此当前索引中每桶为 `62,208`，全局每 epoch 为 `497,664` 个 case。默认训练 3 个 epoch，合计约 `1,492,992` 个全局 case。富余桶会在每个 epoch 使用不同稳定随机种子重新抽样；最少桶会被完整使用。若显式将 `FOCUS_BALANCE_COUNT` 设得高于某桶的原始量，该稀缺桶会自动重复采样，仍保持八桶严格相等。
 
-这是正式训练规模，不再沿用小样本 smoke 的频率：默认每 `10,000` 个 rank-local step 做一次固定均衡 val、每 `20,000` step 保存一个 checkpoint，并用前 `2,000` step warmup。需要试跑时使用 `train.sh check`；需要改变正式频率时可覆盖 `EVAL_STEPS`、`SAVE_STEPS`、`WARMUP_STEPS`。
+这是正式训练规模。默认每 `2,000` 个 rank-local step 在独立 val split 上做一次固定八桶均衡的 teacher-forced 验证；它记录 `val/loss`、`val/token_acc` 与四个 `val/focus_rs*_acc`，用于持续观察训练/验证是否背离。每次 `val/loss` 创新低会自动覆盖保存 `best_val/`，并写入 `best_val.json`；每 `20,000` step 仍保存普通 checkpoint，并用前 `2,000` step warmup。完整自由生成的 YES/NO、TP/FP/FN/F1 仍由 checkpoint 或 final 的 `eval.py` 产生，避免频繁生成评测明显拖慢四卡训练。需要试跑时使用 `train.sh check`；需要改变正式频率时可覆盖 `EVAL_STEPS`、`SAVE_STEPS`、`WARMUP_STEPS`。
 
 ## 2. 先测 Base Qwen 的提示词
 
@@ -169,4 +169,5 @@ bash qwen3vl_local/tb_serve.sh \
 ```
 
 打开脚本打印的地址即可。看 `train/loss`、`val/loss`、`val/token_acc` 和
-`val/focus_rs*_acc`；val 默认每 `10,000` step 记录一次。
+`val/focus_rs*_acc`；val 默认每 `2,000` step 记录一次。训练中选模型使用 `best_val/`，不要反复使用
+test split；test 的正式 F1/TP/FP 只在训练后用于最终泛化确认。

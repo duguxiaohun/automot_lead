@@ -118,7 +118,7 @@ COMMON_ARGS=(
   --max-steps "${MAX_STEPS:-0}"
   --focus-balance-count "${FOCUS_BALANCE_COUNT:-0}"
   --eval-split "${EVAL_SPLIT:-val}"
-  --eval-steps "${EVAL_STEPS:-10000}"
+  --eval-steps "${EVAL_STEPS:-2000}"
   --eval-balance-count "${EVAL_BALANCE_COUNT:-16}"
   --max-eval-frames "${MAX_EVAL_FRAMES:-0}"
   --save-steps "${SAVE_STEPS:-20000}"
