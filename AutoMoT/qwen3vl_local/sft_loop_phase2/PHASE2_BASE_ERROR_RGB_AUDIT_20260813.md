@@ -85,3 +85,9 @@
 
 后续 eval 会自动写出 `answer_pattern_diagnostics`：GT/预测的答案模式分布、全 NO 与多 YES 组合，便于
 把真正的 prompt 收缩与上述视觉标签时间边界分开统计；该统计不参与模型输出、loss 或评分。
+
+## 独立问答合同复核
+
+Phase2 提示词不使用任何 `RSx=YES -> RSy=NO`、互斥、优先级、四选一或“四个 NO 即高速”的表述。
+RS1/RS2/RS4/RS5 的每个 YES/NO 都只由本题的可见 RGB 定义决定；多 YES 或四个 NO 保持模型原始输出。
+训练对四个答案 token 分别计算 loss，评测按四题逐项计分；答案模式统计只用于后续审计。
