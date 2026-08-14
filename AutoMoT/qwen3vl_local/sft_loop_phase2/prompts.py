@@ -38,6 +38,14 @@ def build_phase2_prompt(*, audit: bool = False, history_rgb_mode: str = DEFAULT_
 Classify the newest frame using the {history}. First trace the ego vehicle's usable corridor and its lane boundaries. Then inspect whether an opposing direction must participate, whether a junction conflict area is already being approached or entered, and whether traffic-signal hardware at that same junction is the active right-of-way rule. Scan the full left/front/right scene for a side road, cross street, stop/yield sign, signal mast or overhead arm, stop line, crosswalk, median, oncoming lane, and lane split. Answer RS1, RS2, RS4, and RS5 independently from their own definitions and the visible RGB evidence. Do not make one answer a prerequisite, exclusion rule, or correction for another answer. Use older frames only to confirm a cue that is visible in the newest moment; never invent a hidden junction or road topology.{endpoint_notice}
 [/VISUAL_CHECK_ORDER]
 
+[QUESTION_LOCAL_VISUAL_SCANS]
+Before answering RS1, inspect the newest front view for a continuing ordinary same-direction lane, usable road edges or curbs, and ordinary lane keeping/following space.
+Before answering RS2, inspect the newest front and side views specifically for a centre line without a median, the front or headlights of a vehicle in the adjacent opposing direction, and parked vehicles, a door, or a fixed obstruction narrowing the usable passage.
+Before answering RS4, inspect the upper front and both side views specifically for physical signal heads, masts, or overhead arms together with a local stop line, crosswalk, turning pocket, cross street, or junction opening.
+Before answering RS5, inspect both road sides and the near front specifically for a side/cross road, T-junction opening, STOP/YIELD sign or marking, priority conflict, crossing traffic, or junction box without working traffic-signal hardware.
+Each scan is only for its named question. Do not use the result of one scan to select, suppress, or revise another answer.
+[/QUESTION_LOCAL_VISUAL_SCANS]
+
 [DECISION_RULES]
 RS1:
 Ask: "Is the ego currently on an ordinary same-direction drivable road, outside a controlling junction, opposing-lane-sharing constraint, and highway/ramp decision structure?"
@@ -63,7 +71,7 @@ HIGHWAY/RAMP ROBUSTNESS:
 A limited-access highway mainline, ramp, merge, split, exit, connector, gore area, or controlled high-speed corridor is a visual road type to distinguish from an ordinary surface road: several same-direction high-speed lanes with continuous guardrails/barriers, a merge/split/gore/exit, or a grade-separated connector are useful positive clues. Decide whether this road type is present only from those RGB clues, not from the answers to other questions. Do not call it an ordinary same-direction road merely because it has lane markings. Do not treat another carriageway behind a barrier as an opposing-lane constraint, or a distant lamp or bridge as a local junction control.
 
 INDEPENDENT ANSWER CHECK:
-For each question, output only the YES or NO supported by that question's RGB evidence. Do not revise one answer because of another answer, and do not use the final four-line answer pattern to infer hidden road topology.
+For each question, output only the YES or NO supported by that question's RGB evidence. Do not revise one answer because of another answer.
 [/DECISION_RULES]
 """.strip()
     if audit:
