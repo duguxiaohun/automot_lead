@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """训练 sft_loop_phase1 四问 LoRA adapter。
 
-训练目标是四行 YES/NO 的值 token。采样时每帧展开成四个不可见 focus 视图，并按
-`问题 x YES/NO` 八桶 exact balance；prompt 中不出现 focus，模型每次仍回答四项。
+训练目标是四行 YES/NO 的语义 token，并以低权重监督字段格式和 assistant 结束符。
+采样时每帧展开成四个不可见 focus 视图，并按 `问题 x YES/NO` 八桶 exact balance；
+prompt 中不出现 focus，模型每次仍回答四项。
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import sys
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 _THIS = pathlib.Path(__file__).resolve()
@@ -61,6 +63,7 @@ from qwen3vl_local.sft_loop_phase1.prompts import (  # noqa: E402
     SYSTEM_PROMPT,
     build_phase1_prompt,
     build_phase1_target,
+    parse_phase1_output,
     phase1_prompt_sha256,
 )
 from qwen3vl_local.sft_v2.train import (  # noqa: E402
@@ -69,6 +72,10 @@ from qwen3vl_local.sft_v2.train import (  # noqa: E402
     load_model_with_lora,
     make_scheduler,
 )
+from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
+
+
+FORMAT_COMPONENT_ID = -1
 
 
 def setup_distributed() -> Tuple[int, int, int]:
@@ -240,14 +247,19 @@ def _line_value_span(text: str, key: str) -> Tuple[int, int]:
     return match.start(1), match.end(1)
 
 
-def _target_value_weights(bundle: Any, target: str) -> Tuple[List[int], List[float], List[int]]:
-    """把四个 YES/NO 字符 span 映射到 token loss 权重。"""
+def _target_token_weights(
+    bundle: Any,
+    target: str,
+    *,
+    format_loss_weight: float,
+) -> Tuple[List[int], List[float], List[int]]:
+    """映射四行输出的语义与格式 token 权重。"""
 
     enc = bundle.tokenizer(target, return_offsets_mapping=True, add_special_tokens=False)
     token_ids = [int(x) for x in enc["input_ids"]]
     offsets = [(int(a), int(b)) for a, b in enc["offset_mapping"]]
-    weights = [0.0 for _ in token_ids]
-    component_ids = [0 for _ in token_ids]
+    weights = [float(format_loss_weight) for _ in token_ids]
+    component_ids = [FORMAT_COMPONENT_ID for _ in token_ids]
     for component_id, key in enumerate(ANSWER_KEYS, start=1):
         lo, hi = _line_value_span(target, key)
         for i, (a, b) in enumerate(offsets):
@@ -257,8 +269,31 @@ def _target_value_weights(bundle: Any, target: str) -> Tuple[List[int], List[flo
     return token_ids, weights, component_ids
 
 
-def _build_inputs(bundle: Any, *, images: List[Image.Image], prompt: str, target: str, max_length: int) -> Optional[Dict[str, Any]]:
-    """构造模型输入，只监督四个答案值 token。"""
+def _assistant_end_token_ids(bundle: Any) -> set[int]:
+    """返回 chat template 中可作为 assistant turn 结束符的 token id。"""
+
+    ids: set[int] = set()
+    eos = getattr(bundle.tokenizer, "eos_token_id", None)
+    if isinstance(eos, (list, tuple, set)):
+        ids.update(int(x) for x in eos)
+    elif eos is not None:
+        ids.add(int(eos))
+    im_end = bundle.tokenizer.convert_tokens_to_ids("<|im_end|>")
+    if isinstance(im_end, int) and im_end >= 0:
+        ids.add(int(im_end))
+    return ids
+
+
+def _build_inputs(
+    bundle: Any,
+    *,
+    images: List[Image.Image],
+    prompt: str,
+    target: str,
+    max_length: int,
+    format_loss_weight: float,
+) -> Optional[Dict[str, Any]]:
+    """构造模型输入，主监督答案值并低权重监督四行格式与结束符。"""
 
     messages = _messages(images, prompt, target)
     chat_text = bundle.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
@@ -270,14 +305,24 @@ def _build_inputs(bundle: Any, *, images: List[Image.Image], prompt: str, target
     weights = torch.zeros_like(input_ids, dtype=torch.float32)
     component_ids = torch.zeros_like(input_ids, dtype=torch.long)
     expanded = [int(x) for x in input_ids.tolist()]
-    target_ids, value_weights, value_components = _target_value_weights(bundle, target)
+    target_ids, token_weights, token_components = _target_token_weights(
+        bundle,
+        target,
+        format_loss_weight=float(format_loss_weight),
+    )
     pos = _find_subsequence(expanded, target_ids, 0)
     asst_header_ids = list(bundle.tokenizer("<|im_start|>assistant\n", add_special_tokens=False)["input_ids"])
     _assert_inside_assistant_turn(expanded, pos, asst_header_ids, 0)
-    for j, weight in enumerate(value_weights):
+    for j, weight in enumerate(token_weights):
         if weight > 0:
             weights[pos + j] = float(weight)
-            component_ids[pos + j] = int(value_components[j])
+            component_ids[pos + j] = int(token_components[j])
+    end_ids = _assistant_end_token_ids(bundle)
+    for end_pos in range(pos + len(target_ids), min(len(expanded), pos + len(target_ids) + 4)):
+        if expanded[end_pos] in end_ids:
+            weights[end_pos] = float(format_loss_weight)
+            component_ids[end_pos] = FORMAT_COMPONENT_ID
+            break
     extra = {k: v for k, v in inputs.items() if k not in ("input_ids", "attention_mask")}
     return {
         "input_ids": input_ids,
@@ -315,7 +360,14 @@ def _loss_one(bundle: Any, packed: Mapping[str, Any]) -> Tuple[torch.Tensor, Dic
     denom = shift_weights[active].sum().clamp_min(1.0)
     loss = numerator / denom
     pred = logits.argmax(dim=-1)
-    stats: Dict[str, float] = {"denom": float(denom.detach().item()), "token_acc": float(torch.equal(pred[active], shift_labels[active]))}
+    value_active = active & shift_comp.gt(0)
+    format_active = active & shift_comp.eq(FORMAT_COMPONENT_ID)
+    stats: Dict[str, float] = {
+        "denom": float(denom.detach().item()),
+        "token_acc": float(torch.equal(pred[active], shift_labels[active])),
+        "value_token_acc": float(bool(value_active.any()) and torch.equal(pred[value_active], shift_labels[value_active])),
+        "format_token_acc": float(bool(format_active.any()) and torch.equal(pred[format_active], shift_labels[format_active])),
+    }
     for component_id, key in enumerate(ANSWER_KEYS, start=1):
         mask = active & shift_comp.eq(component_id)
         stats[f"{key.lower()}_ok"] = float(bool(mask.any() and torch.equal(pred[mask], shift_labels[mask])))
@@ -341,6 +393,7 @@ def evaluate_loss(
     prompt: str,
     history_rgb_mode: str,
     max_length: int,
+    format_loss_weight: float,
     device: torch.device,
     world_size: int,
 ) -> Dict[str, float]:
@@ -352,13 +405,22 @@ def evaluate_loss(
     samples = 0
     skipped = 0
     token_acc_sum = 0.0
+    value_token_acc_sum = 0.0
+    format_token_acc_sum = 0.0
     component_ok = {key: 0.0 for key in ANSWER_KEYS}
     focus_ok = {key: 0.0 for key in ANSWER_KEYS}
     focus_count = {key: 0.0 for key in ANSWER_KEYS}
     for row, focus in work:
         images = _load_images(select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode))
         target = build_phase1_target(row.answers)
-        packed = _build_inputs(bundle, images=images, prompt=prompt, target=target, max_length=int(max_length))
+        packed = _build_inputs(
+            bundle,
+            images=images,
+            prompt=prompt,
+            target=target,
+            max_length=int(max_length),
+            format_loss_weight=float(format_loss_weight),
+        )
         if packed is None:
             skipped += 1
             continue
@@ -367,13 +429,15 @@ def evaluate_loss(
         loss_sum += loss_value
         samples += 1
         token_acc_sum += float(stats.get("token_acc", 0.0))
+        value_token_acc_sum += float(stats.get("value_token_acc", 0.0))
+        format_token_acc_sum += float(stats.get("format_token_acc", 0.0))
         for key in ANSWER_KEYS:
             ok = float(stats.get(f"{key.lower()}_ok", 0.0))
             component_ok[key] += ok
             if key == focus:
                 focus_ok[key] += ok
                 focus_count[key] += 1.0
-    values = [loss_sum, float(samples), float(skipped), token_acc_sum]
+    values = [loss_sum, float(samples), float(skipped), token_acc_sum, value_token_acc_sum, format_token_acc_sum]
     values.extend(component_ok[key] for key in ANSWER_KEYS)
     values.extend(focus_ok[key] for key in ANSWER_KEYS)
     values.extend(focus_count[key] for key in ANSWER_KEYS)
@@ -382,12 +446,14 @@ def evaluate_loss(
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
     vals = [float(x) for x in tensor.detach().cpu().tolist()]
     total_samples = max(1.0, vals[1])
-    offset = 4
+    offset = 6
     metrics: Dict[str, float] = {
         "loss": vals[0] / total_samples,
         "samples": vals[1],
         "skipped": vals[2],
         "token_acc": vals[3] / total_samples,
+        "value_token_acc": vals[4] / total_samples,
+        "format_token_acc": vals[5] / total_samples,
     }
     for idx, key in enumerate(ANSWER_KEYS):
         metrics[f"{key.lower()}_acc"] = vals[offset + idx] / total_samples
@@ -398,6 +464,86 @@ def evaluate_loss(
         metrics[f"focus_{key.lower()}_samples"] = vals[offset + len(ANSWER_KEYS) + idx]
     if was_training:
         bundle.model.train()
+    return metrics
+
+
+def _generation_messages(images: List[Image.Image], user_prompt: str) -> List[Dict[str, Any]]:
+    """构造不含 target 的生产式 chat，用于检查实际自由生成格式。"""
+
+    content: List[Dict[str, Any]] = [{"type": "image", "image": image} for image in images]
+    content.append({"type": "text", "text": user_prompt})
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": content},
+    ]
+
+
+@torch.no_grad()
+def evaluate_generation_probe(
+    bundle: Any,
+    work: Sequence[Tuple[FrameRow, str]],
+    *,
+    prompt: str,
+    history_rgb_mode: str,
+    max_new_tokens: int,
+    record_path: Optional[pathlib.Path] = None,
+    step: int = 0,
+) -> Dict[str, float]:
+    """在固定独立 val 样本上以真实 greedy generation 检查四行格式。"""
+
+    model = bundle.unwrap()
+    was_training = bool(model.training)
+    model.eval()
+    runtime = SimpleNamespace(model=model, processor=bundle.processor, tokenizer=bundle.tokenizer, device=bundle.device)
+    samples = 0.0
+    valid = 0.0
+    exact = 0.0
+    focus_ok = {key: 0.0 for key in ANSWER_KEYS}
+    focus_count = {key: 0.0 for key in ANSWER_KEYS}
+    records: List[Dict[str, Any]] = []
+    for row, focus in work:
+        images = _load_images(select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode))
+        state = _kv_start_state(runtime, _generation_messages(images, prompt))
+        raw, _, _ = _student_generate_kv(runtime, state, int(max_new_tokens))
+        parsed = parse_phase1_output(raw)
+        is_valid = all(parsed[key] in ("YES", "NO") for key in ANSWER_KEYS)
+        samples += 1.0
+        valid += float(is_valid)
+        if is_valid:
+            exact += float(all(parsed[key] == ("YES" if row.answers[key] else "NO") for key in ANSWER_KEYS))
+        if parsed[focus] in ("YES", "NO"):
+            focus_ok[focus] += float(parsed[focus] == ("YES" if row.answers[focus] else "NO"))
+        focus_count[focus] += 1.0
+        records.append(
+            {
+                "step": int(step),
+                "scenario": row.scenario,
+                "route_id": row.route_id,
+                "town": row.town,
+                "frame_id": row.frame_id,
+                "focus": focus,
+                "answers": row.answers,
+                "parsed": parsed,
+                "format_valid": is_valid,
+                "raw_output": raw,
+                "history_rgb_paths_used": select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode),
+            }
+        )
+    if was_training:
+        model.train()
+    metrics: Dict[str, float] = {
+        "samples": samples,
+        "format_valid_rate": valid / max(1.0, samples),
+        "exact_accuracy": exact / max(1.0, samples),
+    }
+    for key in ANSWER_KEYS:
+        metrics[f"focus_{key.lower()}_acc"] = focus_ok[key] / max(1.0, focus_count[key])
+        metrics[f"focus_{key.lower()}_samples"] = focus_count[key]
+    if record_path is not None:
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        with record_path.open("a", encoding="utf-8") as f:
+            for record in records:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
     return metrics
 
 
@@ -427,6 +573,10 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "eval_split": str(args.eval_split),
         "eval_steps": int(args.eval_steps),
         "eval_balance_count": int(args.eval_balance_count),
+        "format_loss_weight": float(args.format_loss_weight),
+        "generation_eval_steps": int(args.generation_eval_steps),
+        "generation_eval_balance_count": int(args.generation_eval_balance_count),
+        "generation_eval_max_new_tokens": int(args.generation_eval_max_new_tokens),
     }
     (final_dir / "sft_loop_phase1_adapter_config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     return final_dir
@@ -452,11 +602,18 @@ def train(args: argparse.Namespace) -> None:
     eval_rows: List[FrameRow] = []
     full_eval_work: List[Tuple[FrameRow, str]] = []
     eval_work: List[Tuple[FrameRow, str]] = []
+    full_generation_eval_work: List[Tuple[FrameRow, str]] = []
     if int(args.eval_steps) > 0 and int(args.eval_balance_count) > 0:
         try:
             eval_rows = _read_rows(pathlib.Path(args.index), split=str(args.eval_split), max_frames=int(args.max_eval_frames))
             full_eval_work = _balanced_work(eval_rows, target_per_bin=int(args.eval_balance_count), seed=int(args.seed) + 1009)
             eval_work = _split_work_for_rank(full_eval_work, rank=rank, world_size=world_size)
+            if int(args.generation_eval_steps) > 0 and int(args.generation_eval_balance_count) > 0:
+                full_generation_eval_work = _balanced_work(
+                    eval_rows,
+                    target_per_bin=int(args.generation_eval_balance_count),
+                    seed=int(args.seed) + 2017,
+                )
         except Exception as exc:
             raise RuntimeError(
                 "periodic validation was requested but its split cannot satisfy the exact eight-bin balance. "
@@ -490,6 +647,13 @@ def train(args: argparse.Namespace) -> None:
                         "eval_steps": int(args.eval_steps),
                         "eval_balance_count": int(args.eval_balance_count),
                         **val_balance,
+                    },
+                    "generation_eval": {
+                        "steps": int(args.generation_eval_steps),
+                        "balance_count": int(args.generation_eval_balance_count),
+                        "max_new_tokens": int(args.generation_eval_max_new_tokens),
+                        "global_sampled": dict(Counter(_focus_key(row, focus) for row, focus in full_generation_eval_work)),
+                        "rank0_only": True,
                     },
                 },
                 ensure_ascii=False,
@@ -531,6 +695,7 @@ def train(args: argparse.Namespace) -> None:
             f"[data] train_rows={len(rows)} train_work_global={len(full_work)} train_work_rank={len(work)} "
             f"steps_per_epoch_rank={steps_per_epoch} num_epochs={int(args.num_epochs)} max_steps={int(args.max_steps)} "
             f"total_steps_rank={total_steps} eval_work_rank={len(eval_work)} "
+            f"generation_eval_global={len(full_generation_eval_work)} "
             f"history_rgb_mode={args.history_rgb_mode} history_rgb_count={len(history_rgb_indices(args.history_rgb_mode))}"
         )
     epoch = 0
@@ -540,7 +705,14 @@ def train(args: argparse.Namespace) -> None:
         for row, focus in work:
             images = _load_images(select_history_rgb_paths(row.history_rgb_paths, args.history_rgb_mode))
             target = build_phase1_target(row.answers)
-            packed = _build_inputs(bundle, images=images, prompt=prompt, target=target, max_length=int(args.max_length))
+            packed = _build_inputs(
+                bundle,
+                images=images,
+                prompt=prompt,
+                target=target,
+                max_length=int(args.max_length),
+                format_loss_weight=float(args.format_loss_weight),
+            )
             if packed is None:
                 skipped += 1
                 continue
@@ -571,6 +743,7 @@ def train(args: argparse.Namespace) -> None:
                     prompt=prompt,
                     history_rgb_mode=args.history_rgb_mode,
                     max_length=int(args.max_length),
+                    format_loss_weight=float(args.format_loss_weight),
                     device=device,
                     world_size=world_size,
                 )
@@ -580,12 +753,38 @@ def train(args: argparse.Namespace) -> None:
                 if rank == 0:
                     print(
                         f"[eval] step={global_step}/{total_steps} split={args.eval_split} "
-                        f"loss={metrics['loss']:.4f} token_acc={metrics['token_acc']:.4f} "
+                        f"loss={metrics['loss']:.4f} value_acc={metrics['value_token_acc']:.4f} "
+                        f"format_acc={metrics['format_token_acc']:.4f} "
                         f"focus_highway={metrics.get('focus_highway_acc', 0.0):.4f} "
                         f"focus_static_obstacle={metrics.get('focus_static_obstacle_acc', 0.0):.4f} "
                         f"focus_vulnerable={metrics.get('focus_vulnerable_acc', 0.0):.4f} "
                         f"focus_light={metrics.get('focus_traffic_light_abnormal_acc', 0.0):.4f}"
                     )
+                run_generation_eval = bool(full_generation_eval_work) and global_step % int(args.generation_eval_steps) == 0
+                if run_generation_eval and rank == 0:
+                    generation_metrics = evaluate_generation_probe(
+                        bundle,
+                        full_generation_eval_work,
+                        prompt=prompt,
+                        history_rgb_mode=args.history_rgb_mode,
+                        max_new_tokens=int(args.generation_eval_max_new_tokens),
+                        record_path=output_dir / "generation_val_cases.jsonl",
+                        step=global_step,
+                    )
+                    if writer:
+                        for key, value in generation_metrics.items():
+                            writer.add_scalar(f"val_generation/{key}", float(value), global_step)
+                    print(
+                        f"[generation-val] step={global_step}/{total_steps} "
+                        f"format_valid={generation_metrics['format_valid_rate']:.4f} "
+                        f"exact={generation_metrics['exact_accuracy']:.4f} "
+                        f"focus_highway={generation_metrics.get('focus_highway_acc', 0.0):.4f} "
+                        f"focus_static_obstacle={generation_metrics.get('focus_static_obstacle_acc', 0.0):.4f} "
+                        f"focus_vulnerable={generation_metrics.get('focus_vulnerable_acc', 0.0):.4f} "
+                        f"focus_light={generation_metrics.get('focus_traffic_light_abnormal_acc', 0.0):.4f}"
+                    )
+                if run_generation_eval and world_size > 1:
+                    dist.barrier()
             if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
                 ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name=f"checkpoint-{global_step}")
                 print(f"[save] step={global_step} adapter={ckpt_dir}")
@@ -626,6 +825,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--eval-steps", type=int, default=100)
     p.add_argument("--eval-balance-count", type=int, default=16)
     p.add_argument("--max-eval-frames", type=int, default=0)
+    p.add_argument(
+        "--format-loss-weight",
+        type=float,
+        default=0.25,
+        help="low loss weight for answer field names, separators, newlines, and assistant end token; YES/NO values always use 1.0",
+    )
+    p.add_argument(
+        "--generation-eval-steps",
+        type=int,
+        default=1_000,
+        help="run rank0 free-generation validation every N teacher-forced validation steps; 0 disables it",
+    )
+    p.add_argument("--generation-eval-balance-count", type=int, default=2)
+    p.add_argument("--generation-eval-max-new-tokens", type=int, default=64)
     p.add_argument("--save-steps", type=int, default=500)
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--learning-rate", type=float, default=1e-5)
@@ -644,6 +857,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no-tb", action="store_true")
     args = p.parse_args()
     args.history_rgb_mode = validate_history_rgb_mode(args.history_rgb_mode)
+    if not 0.0 < float(args.format_loss_weight) <= 1.0:
+        raise ValueError("--format-loss-weight must be in (0, 1]")
+    if int(args.generation_eval_steps) > 0:
+        if int(args.eval_steps) <= 0 or int(args.eval_balance_count) <= 0:
+            raise ValueError("free-generation validation requires --eval-steps and --eval-balance-count to be positive")
+        if int(args.generation_eval_steps) % int(args.eval_steps) != 0:
+            raise ValueError("--generation-eval-steps must be a multiple of --eval-steps")
+        if int(args.generation_eval_balance_count) <= 0:
+            raise ValueError("--generation-eval-balance-count must be positive when generation validation is enabled")
     if not args.output_dir:
         args.output_dir = str(
             _AUTOMOT_ROOT
