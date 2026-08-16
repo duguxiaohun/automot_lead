@@ -90,7 +90,9 @@ RS5:YES / RS5:NO
 
 正式训练默认 `FOCUS_BALANCE_COUNT=0`：每个 epoch 自动取最少原始桶的全部样本作为每桶目标，因此当前索引中每桶为 `62,208`，全局每 epoch 为 `497,664` 个 case。默认训练 3 个 epoch，合计约 `1,492,992` 个全局 case。富余桶会在每个 epoch 使用不同稳定随机种子重新抽样；最少桶会被完整使用。若显式将 `FOCUS_BALANCE_COUNT` 设得高于某桶的原始量，该稀缺桶会自动重复采样，仍保持八桶严格相等。
 
-这是正式训练规模。默认每 `2,000` 个 rank-local step 在独立 val split 上做一次固定八桶均衡的 teacher-forced 验证；它记录 `val/loss`、`val/token_acc` 与四个 `val/focus_rs*_acc`，用于持续观察训练/验证是否背离。每次 `val/loss` 创新低会自动覆盖保存 `best_val/`，并写入 `best_val.json`；每 `20,000` step 仍保存普通 checkpoint，并用前 `2,000` step warmup。完整自由生成的 YES/NO、TP/FP/FN/F1 仍由 checkpoint 或 final 的 `eval.py` 产生，避免频繁生成评测明显拖慢四卡训练。需要试跑时使用 `train.sh check`；需要改变正式频率时可覆盖 `EVAL_STEPS`、`SAVE_STEPS`、`WARMUP_STEPS`。
+这是正式训练规模。答案 `YES/NO` 的 loss 权重固定为 `1.0`；字段名、冒号、换行与 assistant 结束符只用 `0.25` 的格式 loss，格式监督不表示四题互斥，也不会把四个 `NO` 解释成高速。
+
+默认每 `2,000` 个 rank-local step 在独立 val split 上做一次固定八桶均衡的 teacher-forced 验证，记录 `val/loss`、`val/value_token_acc`、`val/format_token_acc` 与四个 `val/focus_rs*_acc`。同时每 `2,000` step 由 rank0 在另一个固定的 16-case 八桶均衡 val 子集上真实 greedy 生成，记录 `val_generation/format_valid_rate`、`val_generation/exact_accuracy` 与四个 `val_generation/focus_rs*_acc`。每轮的 GT、解析结果、原始输出与 RGB 原路径会追加到运行目录的 `generation_val_cases.jsonl`，无需复制 RGB 就能先诊断格式退化。这一步专门防止“teacher-forced 很好但自由生成格式退化”。`best_val/` 只会在生成格式有效率达到 `1.0` 的验证点按最低 `val/loss` 保存；每 `20,000` step 仍保存普通 checkpoint，并用前 `2,000` step warmup。`train.sh check` 会关闭验证与生成验证，只用于链路 smoke；正式训练不要关闭生成验证。频率可覆盖 `EVAL_STEPS`、`GENERATION_EVAL_STEPS`、`SAVE_STEPS`、`WARMUP_STEPS`，其中 `GENERATION_EVAL_STEPS` 必须是 `EVAL_STEPS` 的整数倍。
 
 ## 2. 先测 Base Qwen 的提示词
 
@@ -145,11 +147,11 @@ adapter 会保存 `sft_loop_phase2_adapter_config.json`，其中包含提示词 
 # 4rgb LoRA 的正式 production 评测，再做 audit 诊断
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase2/eval.py \
-  --adapter-dir checkpoints/sft_loop_phase2_runs/run_rs_four_binary_final_4rgb/final
+  --adapter-dir checkpoints/sft_loop_phase2_runs/run_rs_four_binary_format_supervised_4rgb/final
 
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase2/eval.py \
-  --adapter-dir checkpoints/sft_loop_phase2_runs/run_rs_four_binary_final_4rgb/final \
+  --adapter-dir checkpoints/sft_loop_phase2_runs/run_rs_four_binary_format_supervised_4rgb/final \
   --audit-prompt
 ```
 
@@ -168,13 +170,14 @@ bash qwen3vl_local/sft_loop_phase2/run_rgb_mode_matrix.sh
 ```bash
 # 4rgb
 bash qwen3vl_local/tb_serve.sh \
-  checkpoints/sft_loop_phase2_runs/run_rs_four_binary_final_4rgb
+  checkpoints/sft_loop_phase2_runs/run_rs_four_binary_format_supervised_4rgb
 
 # 2rgb_endpoints
 bash qwen3vl_local/tb_serve.sh \
-  checkpoints/sft_loop_phase2_runs/run_rs_four_binary_final_2rgb_endpoints
+  checkpoints/sft_loop_phase2_runs/run_rs_four_binary_format_supervised_2rgb_endpoints
 ```
 
-打开脚本打印的地址即可。看 `train/loss`、`val/loss`、`val/token_acc` 和
-`val/focus_rs*_acc`；val 默认每 `2,000` step 记录一次。训练中选模型使用 `best_val/`，不要反复使用
-test split；test 的正式 F1/TP/FP 只在训练后用于最终泛化确认。
+打开脚本打印的地址即可。看 `train/loss`、`val/loss`、`val/value_token_acc`、
+`val/format_token_acc`、`val/focus_rs*_acc`，以及最关键的 `val_generation/format_valid_rate` 和
+`val_generation/exact_accuracy`；两类 val 默认每 `2,000` step 记录一次。训练中优先使用通过格式闸门的
+`best_val/`，不要反复使用 test split；test 的正式 F1/TP/FP 只在训练后用于最终泛化确认。

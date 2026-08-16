@@ -32,8 +32,8 @@ case "${HISTORY_RGB_MODE}" in
     ;;
 esac
 OUTPUT_DIR_BASE="checkpoints/sft_loop_phase2_runs"
-FINAL_RUN_NAME="run_rs_four_binary_final_${HISTORY_RGB_TAG}"
-CHECK_RUN_NAME="check_rs_four_binary_final_${HISTORY_RGB_TAG}"
+FINAL_RUN_NAME="run_rs_four_binary_format_supervised_${HISTORY_RGB_TAG}"
+CHECK_RUN_NAME="check_rs_four_binary_format_supervised_${HISTORY_RGB_TAG}"
 FINAL_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${FINAL_RUN_NAME}"
 CHECK_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${CHECK_RUN_NAME}"
 if [[ "${MODE}" == "check" ]]; then
@@ -94,6 +94,7 @@ case "${MODE}" in
       --max-steps "${CHECK_MAX_STEPS:-2}"
       --focus-balance-count "${CHECK_FOCUS_BALANCE_COUNT:-2}"
       --eval-steps 0
+      --generation-eval-steps 0
       --save-steps 0
       --no-tb
     )
@@ -121,6 +122,11 @@ COMMON_ARGS=(
   --eval-steps "${EVAL_STEPS:-2000}"
   --eval-balance-count "${EVAL_BALANCE_COUNT:-16}"
   --max-eval-frames "${MAX_EVAL_FRAMES:-0}"
+  --format-loss-weight "${FORMAT_LOSS_WEIGHT:-0.25}"
+  --generation-eval-steps "${GENERATION_EVAL_STEPS:-2000}"
+  --generation-eval-balance-count "${GENERATION_EVAL_BALANCE_COUNT:-2}"
+  --generation-eval-max-new-tokens "${GENERATION_EVAL_MAX_NEW_TOKENS:-64}"
+  --generation-eval-min-valid-rate "${GENERATION_EVAL_MIN_VALID_RATE:-1.0}"
   --save-steps "${SAVE_STEPS:-20000}"
   --max-length "${MAX_LENGTH:-8192}"
   --learning-rate "${LEARNING_RATE:-${LR:-1e-5}}"

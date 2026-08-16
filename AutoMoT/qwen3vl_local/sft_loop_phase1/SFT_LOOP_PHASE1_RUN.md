@@ -310,7 +310,7 @@ EVAL_BALANCE_COUNT=16    # val 每个桶 16 条，全局 128 条，用来看 los
 SAVE_STEPS=500           # 额外保存 checkpoint-<step>，final 始终保存
 ```
 
-这里的训练中验证是 teacher-forced 的 `val/loss` 和四问答案 token accuracy，适合频繁观察是否过拟合；
+这里的训练中验证同时覆盖两种口径：每 `100` step 的 teacher-forced `val/loss`、`val/value_token_acc`、`val/format_token_acc` 和四问 token accuracy；每 `1,000` step 的 rank0 自由生成小验证集会记录 `val_generation/format_valid_rate`、`val_generation/exact_accuracy` 与四问 focus accuracy，并将原始输出、GT、解析结果和 RGB 原路径追加到运行目录的 `generation_val_cases.jsonl`。YES/NO 的 loss 权重固定 `1.0`，字段名、冒号、换行和 assistant 结束符只用 `0.25` 的格式权重；这只训练输出语法，绝不让四问互相约束。`train.sh check` 为快速链路检查，会关闭两种验证；正式训练不要关闭自由生成验证。
 完整自由生成的 TP/FP/FN/TN、precision、recall、F1 仍然用第 4 节的 `eval.py` 跑。
 
 单卡：

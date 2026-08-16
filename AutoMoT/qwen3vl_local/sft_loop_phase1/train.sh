@@ -94,6 +94,7 @@ case "${MODE}" in
       --max-steps "${CHECK_MAX_STEPS:-2}"
       --focus-balance-count "${CHECK_FOCUS_BALANCE_COUNT:-2}"
       --eval-steps 0
+      --generation-eval-steps 0
       --save-steps 0
       --no-tb
     )
@@ -121,6 +122,10 @@ COMMON_ARGS=(
   --eval-steps "${EVAL_STEPS:-100}"
   --eval-balance-count "${EVAL_BALANCE_COUNT:-16}"
   --max-eval-frames "${MAX_EVAL_FRAMES:-0}"
+  --format-loss-weight "${FORMAT_LOSS_WEIGHT:-0.25}"
+  --generation-eval-steps "${GENERATION_EVAL_STEPS:-1000}"
+  --generation-eval-balance-count "${GENERATION_EVAL_BALANCE_COUNT:-2}"
+  --generation-eval-max-new-tokens "${GENERATION_EVAL_MAX_NEW_TOKENS:-64}"
   --save-steps "${SAVE_STEPS:-500}"
   --max-length "${MAX_LENGTH:-8192}"
   --learning-rate "${LEARNING_RATE:-${LR:-1e-5}}"
