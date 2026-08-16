@@ -90,7 +90,8 @@ case "${MODE}" in
     export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
     NPROC=1
     EXTRA_ARGS+=(
-      --max-frames "${CHECK_MAX_FRAMES:-64}"
+      # 严格八桶均衡必须先看到每个桶；只读 index 的前 64 行会因文件顺序漏桶。
+      --max-frames "${CHECK_MAX_FRAMES:-0}"
       --max-steps "${CHECK_MAX_STEPS:-2}"
       --focus-balance-count "${CHECK_FOCUS_BALANCE_COUNT:-2}"
       --eval-steps 0
