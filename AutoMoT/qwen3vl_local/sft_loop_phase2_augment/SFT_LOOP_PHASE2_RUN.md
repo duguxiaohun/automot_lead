@@ -66,6 +66,22 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 `answer_pattern_diagnostics` 会单独报告 subset 的全 NO 是否发生在高速/非高速 GT、
 多 YES、invalid 和未被问到的 RS 行泄漏，防止把 subset 全 NO 重新误读成高速。
 
+### 2.1 只抽小样本错例审计
+
+如果全量 `error_cases/` 搬运后 RGB 损坏或太大，不需要重跑 Qwen。可以直接读取
+eval 目录里的 `case.json`，再从本机 `lead_data` 补真实 RGB，按错误类型抽一个小目录：
+
+```bash
+python qwen3vl_local/sft_loop_phase2_augment/audit_eval_cases.py \
+  --eval-dir checkpoints/sft_loop_phase2_augment_eval/base_rs_augmented_final_4rgb/20260817_172821 \
+  --output-dir checkpoints/sft_loop_phase2_augment_audit_samples/base_4rgb_20260817 \
+  --per-target 12 \
+  --overwrite
+```
+
+默认抽 `rs2_fn/highway_fn/rs1_fp/rs4_fn/rs5_fn/multi_yes` 六类，每个 case 目录包含
+`case.json`、`audit_note.md` 和实际输入的 RGB。这个脚本只做文件整理，不运行模型。
+
 ## 3. 训练与 LoRA 评测
 
 ```bash
