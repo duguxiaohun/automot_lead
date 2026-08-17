@@ -38,13 +38,15 @@ CHECK_RUN_NAME="check_rs_augmented_format_supervised_${HISTORY_RGB_TAG}"
 FINAL_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${FINAL_RUN_NAME}"
 CHECK_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${CHECK_RUN_NAME}"
 if [[ "${MODE}" == "check" ]]; then
-  OUTPUT_DIR="${CHECK_OUTPUT_DIR}"
+  OUTPUT_DIR="${OUTPUT_DIR:-${CHECK_OUTPUT_DIR}}"
 else
-  OUTPUT_DIR="${FINAL_OUTPUT_DIR}"
+  OUTPUT_DIR="${OUTPUT_DIR:-${FINAL_OUTPUT_DIR}}"
 fi
 mkdir -p "${OUTPUT_DIR}"
+mkdir -p "${OUTPUT_DIR_BASE}"
 if [[ "${MODE}" != "check" ]]; then
-  ln -sfn "${FINAL_RUN_NAME}" "${OUTPUT_DIR_BASE}/latest"
+  LATEST_TARGET="$(python -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "${OUTPUT_DIR}")"
+  ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/latest"
 fi
 
 pick_idle_gpus() {
@@ -118,6 +120,7 @@ COMMON_ARGS=(
   --output-dir "${OUTPUT_DIR}"
   --history-rgb-mode "${HISTORY_RGB_MODE}"
   --num-epochs "${NUM_EPOCHS:-3}"
+  --max-frames "${MAX_FRAMES:-0}"
   --max-steps "${MAX_STEPS:-0}"
   --focus-balance-count "${FOCUS_BALANCE_COUNT:-0}"
   --eval-split "${EVAL_SPLIT:-val}"
