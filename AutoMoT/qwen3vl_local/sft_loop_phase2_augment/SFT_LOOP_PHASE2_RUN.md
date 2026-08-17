@@ -92,6 +92,20 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   --adapter-dir checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_format_supervised_4rgb/final
 ```
 
+训练启动时会先读取 `frame_index.jsonl` 并构造增强采样 work list，然后才加载 Qwen。
+为了避免默认全量均衡在 CPU 阶段等待太久，建议先用固定桶大小快速进入训练：
+
+```bash
+GPU_IDS=0,1,2,3 \
+FOCUS_BALANCE_COUNT=1024 \
+EVAL_STEPS=0 \
+GENERATION_EVAL_STEPS=0 \
+bash qwen3vl_local/sft_loop_phase2_augment/train.sh ddp
+```
+
+确认 loss 正常下降后，再开启周期验证；`FOCUS_BALANCE_COUNT=0` 表示按训练 split 中最小
+原始桶做全量均衡，适合最终长训，不适合第一次 smoke。
+
 `train.sh check` 是链路 smoke，会关闭周期验证和生成验证：
 
 ```bash

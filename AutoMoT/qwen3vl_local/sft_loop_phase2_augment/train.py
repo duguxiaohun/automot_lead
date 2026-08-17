@@ -20,7 +20,7 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 _THIS = pathlib.Path(__file__).resolve()
 _AUTOMOT_ROOT = _THIS.parents[2]
@@ -400,6 +400,24 @@ def _hierarchical_key_targets(keys: Sequence[str], total: int) -> Dict[str, int]
     return {key: int(value) for key, value in chosen.items() if int(value) > 0}
 
 
+def _iter_candidate_items(rows: Sequence[FrameRow], *, seed: int) -> Iterable[WorkItem]:
+    """逐个生成增强候选，避免一次性物化全量 WorkItem。
+
+    Phase2 augment 每帧最多会展开出数十个候选。全量训练集上先构造
+    ``groups[key] -> List[WorkItem]`` 会在加载 Qwen 前消耗大量 CPU 内存；这里改为
+    流式 yield，后续用 reservoir sampling 只保留本轮实际要训练的样本。
+    """
+
+    for row in rows:
+        for focus in ANSWER_KEYS:
+            yield _make_all_item(row, focus, seed=seed)
+            for count in SUBSET_COUNTS:
+                yield _make_subset_item(row, focus, count, seed=seed)
+        for group_id in GROUP_DEFINITIONS:
+            for detail_key in ANSWER_KEYS:
+                yield _make_hier_item(row, group_id, detail_key, seed=seed)
+
+
 def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) -> List[WorkItem]:
     """构建三类增强的 deterministic-balance work list。
 
@@ -408,25 +426,9 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
     各自等量；C 的组问题和细问题组合各自等量。
     """
 
-    groups: Dict[str, List[WorkItem]] = {}
-    for row in rows:
-        for focus in ANSWER_KEYS:
-            item = _make_all_item(row, focus, seed=seed)
-            groups.setdefault(item.balance_key, []).append(item)
-            for count in SUBSET_COUNTS:
-                subset_item = _make_subset_item(row, focus, count, seed=seed)
-                groups.setdefault(subset_item.balance_key, []).append(subset_item)
-        for group_id in GROUP_DEFINITIONS:
-            for detail_key in ANSWER_KEYS:
-                hier_item = _make_hier_item(row, group_id, detail_key, seed=seed)
-                groups.setdefault(hier_item.balance_key, []).append(hier_item)
-    raw_counts = {key: len(items) for key, items in groups.items()}
-    missing = [key for key, value in raw_counts.items() if value == 0]
-    if missing:
-        raise ValueError(
-            "cannot build Phase2 augment training work: required bins are empty; "
-            f"missing={missing} raw_counts={raw_counts}. Rebuild/check the dataset split or reduce filtering."
-        )
+    raw_counts: Counter[str] = Counter()
+    for item in _iter_candidate_items(rows, seed=seed):
+        raw_counts[item.balance_key] += 1
     focus_counts = _raw_focus_bin_counts(rows)
     target = int(target_per_bin) if int(target_per_bin) > 0 else min(focus_counts.values())
     target = max(1, target)
@@ -439,7 +441,7 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
     }
     per_balance_key_targets: Dict[str, int] = {}
     for variant, total in variant_total_targets.items():
-        keys = [key for key in sorted(groups) if key.split("/", 1)[0] == variant]
+        keys = [key for key in sorted(raw_counts) if key.split("/", 1)[0] == variant]
         if not keys:
             continue
         if variant == "subset_random":
@@ -452,11 +454,10 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
         remainder = max(0, int(total) - base * len(keys))
         for idx, key in enumerate(keys):
             per_balance_key_targets[key] = base + int(idx < remainder)
-    work: List[WorkItem] = []
-    for key in sorted(groups):
-        items = list(groups[key])
-        if not items:
-            continue
+    selected: Dict[str, List[WorkItem]] = defaultdict(list)
+    seen: Counter[str] = Counter()
+    for item in _iter_candidate_items(rows, seed=seed):
+        key = item.balance_key
         variant = key.split("/", 1)[0]
         per_key_target = int(
             per_balance_key_targets.get(
@@ -466,7 +467,22 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
         )
         if per_key_target <= 0:
             continue
-        rng.shuffle(items)
+        seen[key] += 1
+        bucket = selected[key]
+        if len(bucket) < per_key_target:
+            bucket.append(item)
+            continue
+        # Deterministic reservoir sampling: same seed/rows give the same sampled work,
+        # but memory stays bounded by the final work size rather than all candidates.
+        replace_idx = rng.randrange(int(seen[key]))
+        if replace_idx < per_key_target:
+            bucket[replace_idx] = item
+    work: List[WorkItem] = []
+    for key in sorted(per_balance_key_targets):
+        per_key_target = int(per_balance_key_targets[key])
+        items = selected.get(key, [])
+        if not items:
+            continue
         if len(items) >= per_key_target:
             work.extend(items[:per_key_target])
         else:
@@ -1050,13 +1066,29 @@ def train(args: argparse.Namespace) -> None:
         device = torch.device(f"cuda:{local_rank}")
     else:
         device = torch.device(args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
+    if rank == 0:
+        print(
+            f"[startup] world_size={world_size} device={device} index={args.index} "
+            f"split={args.split} focus_balance_count={args.focus_balance_count} "
+            f"eval_steps={args.eval_steps} generation_eval_steps={args.generation_eval_steps}",
+            flush=True,
+        )
+        print("[startup] reading train rows...", flush=True)
     rows = _read_rows(pathlib.Path(args.index), split=str(args.split), max_frames=int(args.max_frames))
+    if rank == 0:
+        print(f"[startup] train rows loaded: {len(rows)}", flush=True)
     raw_focus_counts = _raw_focus_bin_counts(rows)
     effective_focus_target_per_raw_rs_bin = (
         int(args.focus_balance_count) if int(args.focus_balance_count) > 0 else min(raw_focus_counts.values())
     )
     # 第一个 epoch 的全局 work；后续 epoch 会以不同 seed 重建，富余桶不会固定重复
     # 同一小批样本，稀缺桶则按需要循环重采样以保持八桶严格相等。
+    if rank == 0:
+        print(
+            f"[startup] building train work target_per_raw_rs_bin={effective_focus_target_per_raw_rs_bin} "
+            "(streaming candidate sampler)...",
+            flush=True,
+        )
     full_work = _balanced_work(rows, target_per_bin=int(args.focus_balance_count), seed=int(args.seed))
     if not full_work:
         raise ValueError("balanced work list is empty")
@@ -1071,10 +1103,19 @@ def train(args: argparse.Namespace) -> None:
     full_generation_eval_work: List[Tuple[FrameRow, str]] = []
     if int(args.eval_steps) > 0 and int(args.eval_balance_count) > 0:
         try:
+            if rank == 0:
+                print("[startup] reading validation rows...", flush=True)
             eval_rows = _read_rows(pathlib.Path(args.index), split=str(args.eval_split), max_frames=int(args.max_eval_frames))
+            if rank == 0:
+                print(
+                    f"[startup] validation rows loaded: {len(eval_rows)}; building validation work...",
+                    flush=True,
+                )
             full_eval_work = _balanced_work(eval_rows, target_per_bin=int(args.eval_balance_count), seed=int(args.seed) + 1009)
             eval_work = _split_work_for_rank(full_eval_work, rank=rank, world_size=world_size)
             if int(args.generation_eval_steps) > 0 and int(args.generation_eval_balance_count) > 0:
+                if rank == 0:
+                    print("[startup] building generation validation work...", flush=True)
                 full_generation_eval_work = _balanced_work(
                     eval_rows,
                     target_per_bin=int(args.generation_eval_balance_count),
@@ -1136,6 +1177,8 @@ def train(args: argparse.Namespace) -> None:
     if world_size > 1:
         dist.barrier()
 
+    if rank == 0:
+        print("[startup] loading Qwen + LoRA...", flush=True)
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
         device=device,
@@ -1148,6 +1191,8 @@ def train(args: argparse.Namespace) -> None:
     )
     if world_size > 1:
         bundle.model = DDP(bundle.model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
+    if rank == 0:
+        print("[startup] model loaded; starting optimizer setup...", flush=True)
     params = [p for p in bundle.model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(params, lr=float(args.learning_rate), weight_decay=float(args.weight_decay), betas=(0.9, 0.95))
     steps_per_epoch = len(work)
