@@ -9,6 +9,7 @@ HIGHWAY+组级+细项三连问。
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
 import os
@@ -177,6 +178,94 @@ def _expected_focus_bins() -> List[str]:
     """返回四个主任务的固定 YES/NO 八桶顺序。"""
 
     return [f"{key}:{value}" for key in ANSWER_KEYS for value in ("YES", "NO")]
+
+
+def _canonical_answer_sets() -> List[Dict[str, bool]]:
+    """返回 R1/R2/R3/R4/R5 的合法四问答案原型。"""
+
+    answer_sets: List[Dict[str, bool]] = []
+    for rs in ("R1", "R2", "R3", "R4", "R5"):
+        answers = {key: False for key in ANSWER_KEYS}
+        if rs != "R3":
+            answers[f"RS{rs[1]}"] = True
+        answer_sets.append(answers)
+    return answer_sets
+
+
+def _expected_all_balance_keys() -> List[str]:
+    """返回 all-random-order 增强的固定 balance key 空间。"""
+
+    return [f"all_random_order/{key}:{value}" for key in ANSWER_KEYS for value in ("YES", "NO")]
+
+
+def _expected_subset_balance_keys() -> List[str]:
+    """返回 subset-random 增强在合法 RS 标签下可能出现的 balance key。"""
+
+    keys: set[str] = set()
+    answer_sets = _canonical_answer_sets()
+    for count in SUBSET_COUNTS:
+        for subset in itertools.permutations(ANSWER_KEYS, int(count)):
+            for answers in answer_sets:
+                balance_items = ",".join(f"{key}:{_answer_text(answers[key])}" for key in subset)
+                keys.add(f"subset_random/q{int(count)}/items/{balance_items}")
+    return sorted(keys)
+
+
+def _expected_hierarchical_balance_keys() -> List[str]:
+    """返回 hierarchical-probe 增强在合法 RS 标签下可能出现的 balance key。"""
+
+    keys: set[str] = set()
+    for answers in _canonical_answer_sets():
+        rs = "R3"
+        positives = [key for key in ANSWER_KEYS if answers[key]]
+        if positives:
+            rs = positives[0].replace("RS", "R")
+        highway = _answer_text(rs == "R3")
+        for group_id, group_def in GROUP_DEFINITIONS.items():
+            group_rs = set(group_def[3])
+            group_answer = _answer_text(rs in group_rs)
+            for detail_key in ANSWER_KEYS:
+                detail_answer = _answer_text(bool(answers[detail_key]))
+                keys.add(
+                    f"hierarchical_probe/highway:{highway}"
+                    f"/group/{group_id}:{group_answer}"
+                    f"/detail/{detail_key}:{detail_answer}"
+                )
+    return sorted(keys)
+
+
+def _sample_candidate_rows_for_fixed_target(rows: Sequence[FrameRow], *, target: int, seed: int) -> List[FrameRow]:
+    """为固定桶训练抽一个轻量 row pool，避免每个 epoch 展开全量候选。"""
+
+    per_focus_bin = max(int(target) * 8, 128)
+    rng = random.Random(f"{seed}:phase2_candidate_rows:{len(rows)}:{int(target)}")
+    buckets: Dict[str, List[FrameRow]] = {key: [] for key in _expected_focus_bins()}
+    seen: Counter[str] = Counter()
+    for row in rows:
+        for focus in ANSWER_KEYS:
+            key = _focus_key(row, focus)
+            seen[key] += 1
+            bucket = buckets[key]
+            if len(bucket) < per_focus_bin:
+                bucket.append(row)
+                continue
+            replace_idx = rng.randrange(int(seen[key]))
+            if replace_idx < per_focus_bin:
+                bucket[replace_idx] = row
+
+    selected: List[FrameRow] = []
+    selected_ids: set[int] = set()
+    for key in _expected_focus_bins():
+        bucket = list(buckets.get(key, []))
+        rng.shuffle(bucket)
+        for row in bucket:
+            row_id = id(row)
+            if row_id in selected_ids:
+                continue
+            selected_ids.add(row_id)
+            selected.append(row)
+    rng.shuffle(selected)
+    return selected or list(rows)
 
 
 def _work_item_seed(row: FrameRow, *parts: object) -> str:
@@ -426,22 +515,37 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
     各自等量；C 的组问题和细问题组合各自等量。
     """
 
-    raw_counts: Counter[str] = Counter()
-    for item in _iter_candidate_items(rows, seed=seed):
-        raw_counts[item.balance_key] += 1
     focus_counts = _raw_focus_bin_counts(rows)
-    target = int(target_per_bin) if int(target_per_bin) > 0 else min(focus_counts.values())
+    fixed_target = int(target_per_bin) > 0
+    target = int(target_per_bin) if fixed_target else min(focus_counts.values())
     target = max(1, target)
     rng = random.Random(f"{seed}:phase2_balance:{len(rows)}:{target}")
+    candidate_rows: Sequence[FrameRow] = (
+        _sample_candidate_rows_for_fixed_target(rows, target=target, seed=seed) if fixed_target else rows
+    )
     base_units = len(ANSWER_KEYS) * 2 * len(SUBSET_COUNTS)
     variant_total_targets = {
         "all_random_order": int(target) * base_units * int(VARIANT_WEIGHTS["all_random_order"]),
         "subset_random": int(target) * base_units * int(VARIANT_WEIGHTS["subset_random"]),
         "hierarchical_probe": int(target) * base_units * int(VARIANT_WEIGHTS["hierarchical_probe"]),
     }
+    if fixed_target:
+        keys_by_variant = {
+            "all_random_order": _expected_all_balance_keys(),
+            "subset_random": _expected_subset_balance_keys(),
+            "hierarchical_probe": _expected_hierarchical_balance_keys(),
+        }
+    else:
+        raw_counts: Counter[str] = Counter()
+        for item in _iter_candidate_items(candidate_rows, seed=seed):
+            raw_counts[item.balance_key] += 1
+        keys_by_variant = {
+            variant: [key for key in sorted(raw_counts) if key.split("/", 1)[0] == variant]
+            for variant in variant_total_targets
+        }
     per_balance_key_targets: Dict[str, int] = {}
     for variant, total in variant_total_targets.items():
-        keys = [key for key in sorted(raw_counts) if key.split("/", 1)[0] == variant]
+        keys = list(keys_by_variant.get(variant, []))
         if not keys:
             continue
         if variant == "subset_random":
@@ -456,7 +560,9 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
             per_balance_key_targets[key] = base + int(idx < remainder)
     selected: Dict[str, List[WorkItem]] = defaultdict(list)
     seen: Counter[str] = Counter()
-    for item in _iter_candidate_items(rows, seed=seed):
+    active_target_keys = {key for key, value in per_balance_key_targets.items() if int(value) > 0}
+    satisfied_keys: set[str] = set()
+    for item in _iter_candidate_items(candidate_rows, seed=seed):
         key = item.balance_key
         variant = key.split("/", 1)[0]
         per_key_target = int(
@@ -471,12 +577,20 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
         bucket = selected[key]
         if len(bucket) < per_key_target:
             bucket.append(item)
+            if fixed_target and len(bucket) >= per_key_target:
+                satisfied_keys.add(key)
+                if satisfied_keys >= active_target_keys:
+                    break
             continue
         # Deterministic reservoir sampling: same seed/rows give the same sampled work,
         # but memory stays bounded by the final work size rather than all candidates.
         replace_idx = rng.randrange(int(seen[key]))
         if replace_idx < per_key_target:
             bucket[replace_idx] = item
+        if fixed_target and len(bucket) >= per_key_target:
+            satisfied_keys.add(key)
+            if satisfied_keys >= active_target_keys:
+                break
     work: List[WorkItem] = []
     for key in sorted(per_balance_key_targets):
         per_key_target = int(per_balance_key_targets[key])
