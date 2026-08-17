@@ -102,8 +102,8 @@ GPU_IDS=0 \
 CHECK_MAX_FRAMES=2000 \
 CHECK_FOCUS_BALANCE_COUNT=2 \
 CHECK_MAX_STEPS=2 \
-bash qwen3vl_local/sft_loop_phase2_augment/train.sh check \
-  2>&1 | tee checkpoints/sft_loop_phase2_augment_runs/check_rs_augmented_4rgb.log
+RUN_LOG=checkpoints/sft_loop_phase2_augment_runs/check_rs_augmented_4rgb.log \
+bash qwen3vl_local/sft_loop_phase2_augment/train.sh check
 ```
 
 确认能看到 `[startup] loading Qwen + LoRA...` 且 loss 正常打印后，再启动正式训练。
@@ -119,8 +119,9 @@ GPU_IDS=0,1,2,3 \
 FOCUS_BALANCE_COUNT=1024 \
 EVAL_STEPS=0 \
 GENERATION_EVAL_STEPS=0 \
-bash qwen3vl_local/sft_loop_phase2_augment/train.sh ddp \
-  2>&1 | tee checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_4rgb.log
+OUTPUT_DIR=checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_4rgb \
+RUN_LOG=checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_4rgb.log \
+bash qwen3vl_local/sft_loop_phase2_augment/train.sh ddp
 ```
 
 adapter 保存 `sft_loop_phase2_augment_adapter_config.json`，LoRA eval 会从该配置读取

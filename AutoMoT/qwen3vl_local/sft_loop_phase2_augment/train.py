@@ -96,9 +96,23 @@ def setup_distributed() -> Tuple[int, int, int]:
     if world_size > 1:
         if not torch.cuda.is_available():
             raise RuntimeError("sft_loop_phase2_augment DDP requires CUDA.")
-        dist.init_process_group(backend="nccl")
         torch.cuda.set_device(local_rank)
+        try:
+            dist.init_process_group(backend="nccl", device_id=torch.device(f"cuda:{local_rank}"))
+        except TypeError:
+            dist.init_process_group(backend="nccl")
     return rank, local_rank, world_size
+
+
+def ddp_barrier(local_rank: int) -> None:
+    """在当前 rank 绑定的 GPU 上执行 barrier，避免 NCCL 猜测设备映射。"""
+
+    if not (dist.is_available() and dist.is_initialized()):
+        return
+    try:
+        dist.barrier(device_ids=[int(local_rank)])
+    except TypeError:
+        dist.barrier()
 
 
 def cleanup_distributed() -> None:
@@ -1289,7 +1303,7 @@ def train(args: argparse.Namespace) -> None:
             encoding="utf-8",
         )
     if world_size > 1:
-        dist.barrier()
+        ddp_barrier(local_rank)
 
     if rank == 0:
         print("[startup] loading Qwen + LoRA...", flush=True)
@@ -1425,7 +1439,7 @@ def train(args: argparse.Namespace) -> None:
                         f"hier_valid={generation_metrics.get('variant/hierarchical_probe_valid', 0.0):.4f}"
                     )
                 if run_generation_eval and world_size > 1:
-                    dist.barrier()
+                    ddp_barrier(local_rank)
                 if rank == 0:
                     eligible_for_best = not bool(full_generation_eval_work) or run_generation_eval
                     format_gate_ok = (
@@ -1472,7 +1486,7 @@ def train(args: argparse.Namespace) -> None:
         epoch += 1
 
     if world_size > 1:
-        dist.barrier()
+        ddp_barrier(local_rank)
     final_dir = _save_adapter(bundle, output_dir, args, step=global_step) if rank == 0 else None
     if writer:
         writer.close()

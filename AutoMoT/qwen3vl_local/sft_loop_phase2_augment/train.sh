@@ -48,6 +48,12 @@ if [[ "${MODE}" != "check" ]]; then
   LATEST_TARGET="$(python -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "${OUTPUT_DIR}")"
   ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/latest"
 fi
+if [[ "${RUN_LOG:-}" != "0" ]]; then
+  RUN_LOG="${RUN_LOG:-${OUTPUT_DIR}.log}"
+  mkdir -p "$(dirname "${RUN_LOG}")"
+  # 脚本内部 tee 一份日志，避免外层漏写 tee 时找不到训练记录。
+  exec > >(tee -a "${RUN_LOG}") 2>&1
+fi
 
 pick_idle_gpus() {
   local want_count="$1"
@@ -148,6 +154,9 @@ COMMON_ARGS=(
 )
 
 echo "[run] MODE=${MODE} HISTORY_RGB_MODE=${HISTORY_RGB_MODE} OUTPUT_DIR=${OUTPUT_DIR}"
+if [[ "${RUN_LOG:-0}" != "0" ]]; then
+  echo "[run] RUN_LOG=${RUN_LOG}"
+fi
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
 
