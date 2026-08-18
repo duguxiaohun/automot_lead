@@ -84,9 +84,23 @@ def setup_distributed() -> Tuple[int, int, int]:
     if world_size > 1:
         if not torch.cuda.is_available():
             raise RuntimeError("sft_loop_phase2_augment multi-GPU eval requires CUDA.")
-        dist.init_process_group(backend="nccl")
         torch.cuda.set_device(local_rank)
+        try:
+            dist.init_process_group(backend="nccl", device_id=torch.device(f"cuda:{local_rank}"))
+        except TypeError:
+            dist.init_process_group(backend="nccl")
     return rank, local_rank, world_size
+
+
+def ddp_barrier(local_rank: int) -> None:
+    """在当前 rank 绑定的 GPU 上执行 barrier，避免 NCCL 猜测设备映射。"""
+
+    if not (dist.is_available() and dist.is_initialized()):
+        return
+    try:
+        dist.barrier(device_ids=[int(local_rank)])
+    except TypeError:
+        dist.barrier()
 
 
 def cleanup_distributed() -> None:
@@ -599,6 +613,43 @@ def _validate_phase2_adapter(adapter_dir: pathlib.Path, model_dir: pathlib.Path)
     return cfg
 
 
+def _adapter_config_path(adapter_dir: pathlib.Path) -> pathlib.Path:
+    """返回 Phase2 augment adapter 配置文件路径。"""
+
+    return adapter_dir / "sft_loop_phase2_augment_adapter_config.json"
+
+
+def _resolve_adapter_dir(adapter_dir: pathlib.Path) -> Tuple[pathlib.Path, str]:
+    """允许传 run/latest 目录，自动选择 best_val，否则回退 final。"""
+
+    path = pathlib.Path(adapter_dir)
+    checked = []
+    direct = _adapter_config_path(path)
+    checked.append(str(direct))
+    if direct.exists():
+        return path, "exact_adapter_dir"
+
+    for child in ("best_val", "final"):
+        candidate = path / child
+        cfg_path = _adapter_config_path(candidate)
+        checked.append(str(cfg_path))
+        if cfg_path.exists():
+            return candidate, f"run_dir_{child}"
+
+    if path.name == "best_val":
+        fallback = path.parent / "final"
+        cfg_path = _adapter_config_path(fallback)
+        checked.append(str(cfg_path))
+        if cfg_path.exists():
+            return fallback, "missing_best_val_fallback_final"
+
+    raise FileNotFoundError(
+        "cannot resolve Phase2 augment adapter. Pass either an adapter dir, "
+        "or a run dir such as checkpoints/sft_loop_phase2_augment_runs/latest. "
+        f"Checked: {checked}"
+    )
+
+
 def _resolve_history_rgb_mode(
     requested_mode: Optional[str], adapter_cfg: Optional[Mapping[str, Any]]
 ) -> Tuple[str, str]:
@@ -785,7 +836,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     if rank == 0:
         _prepare_output_dir(output_dir, overwrite=bool(args.overwrite))
     if world_size > 1:
-        dist.barrier()
+        ddp_barrier(local_rank)
     rows = _read_rows(pathlib.Path(args.index), split=str(args.split), max_frames=int(args.max_frames))
     raw_focus_bin_availability = _raw_focus_bin_counts(rows)
     cases = _balanced_cases(rows, cases_per_bin=int(args.cases_per_bin), seed=int(args.seed))
@@ -951,6 +1002,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode
         ),
         "adapter_dir": str(args.adapter_dir) if args.adapter_dir else None,
+        "adapter_dir_resolve_source": getattr(args, "adapter_dir_resolve_source", None) if args.adapter_dir else None,
         "adapter_production_prompt_sha256": (
             adapter_cfg.get("production_prompt_sha256") if adapter_cfg is not None else None
         ),
@@ -998,6 +1050,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         f"- history_rgb_mode_source: `{history_rgb_mode_source}`",
         f"- eval_prompt_sha256: `{metrics['eval_prompt_sha256']}`",
         f"- adapter: `{args.adapter_dir or 'BASE_QWEN'}`",
+        f"- adapter_dir_resolve_source: `{metrics['adapter_dir_resolve_source'] or 'n/a'}`",
         f"- adapter_production_prompt_sha256: `{metrics['adapter_production_prompt_sha256'] or ('n/a (base)' if not args.adapter_dir else 'unknown (legacy adapter)')}`",
         f"- adapter_prompt_matches_current_production: `{metrics['adapter_prompt_matches_current_production'] if args.adapter_dir else 'n/a (base)'}`",
         f"- cases: {total}",
@@ -1076,6 +1129,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--seed", type=int, default=20260810)
     args = p.parse_args()
+    if args.adapter_dir:
+        resolved_adapter_dir, resolve_source = _resolve_adapter_dir(pathlib.Path(args.adapter_dir))
+        args.adapter_dir = str(resolved_adapter_dir)
+        args.adapter_dir_resolve_source = resolve_source
+    else:
+        args.adapter_dir_resolve_source = "base"
     adapter_cfg = (
         _validate_phase2_adapter(pathlib.Path(args.adapter_dir), pathlib.Path(args.model_dir))
         if args.adapter_dir

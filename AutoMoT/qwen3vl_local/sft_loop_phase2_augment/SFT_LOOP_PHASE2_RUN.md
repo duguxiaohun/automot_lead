@@ -123,16 +123,16 @@ LoRA eval 会从 adapter 配置自动读取 `history_rgb_mode`，不要再传 `-
 # production
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase2_augment/eval.py \
-  --adapter-dir checkpoints/sft_loop_phase2_augment_runs/latest/best_val
+  --adapter-dir checkpoints/sft_loop_phase2_augment_runs/latest
 
 # audit
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase2_augment/eval.py \
-  --adapter-dir checkpoints/sft_loop_phase2_augment_runs/latest/best_val \
+  --adapter-dir checkpoints/sft_loop_phase2_augment_runs/latest \
   --audit-prompt
 ```
 
-如果训练没有生成 `best_val/`，再评测 `final/`：
+`eval.py` 会自动优先使用 `latest/best_val`，如果不存在则回退 `latest/final`。也可以显式指定：
 
 ```bash
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
