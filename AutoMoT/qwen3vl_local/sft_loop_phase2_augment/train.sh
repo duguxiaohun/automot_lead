@@ -152,8 +152,14 @@ COMMON_ARGS=(
   --log-steps "${LOG_STEPS:-10}"
   "${EXTRA_ARGS[@]}"
 )
+if [[ "${SAVE_BEST_VAL:-1}" == "0" ]]; then
+  COMMON_ARGS+=(--no-save-best-val)
+else
+  COMMON_ARGS+=(--save-best-val)
+fi
 
 echo "[run] MODE=${MODE} HISTORY_RGB_MODE=${HISTORY_RGB_MODE} OUTPUT_DIR=${OUTPUT_DIR}"
+echo "[run] TB_DIR=${OUTPUT_DIR}/tb"
 if [[ "${RUN_LOG:-0}" != "0" ]]; then
   echo "[run] RUN_LOG=${RUN_LOG}"
 fi
