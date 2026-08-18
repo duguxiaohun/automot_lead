@@ -167,6 +167,8 @@ def _write_run_metadata(
         "output_dir": str(output_dir),
         "tb_dir": str(output_dir / "tb"),
         "run_log": os.environ.get("RUN_LOG", ""),
+        "run_name": os.environ.get("RUN_NAME", ""),
+        "run_timestamp": os.environ.get("RUN_TIMESTAMP", ""),
         "model_dir": str(args.model_dir),
         "index": str(args.index),
         "split": str(args.split),

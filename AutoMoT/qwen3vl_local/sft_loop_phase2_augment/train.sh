@@ -35,25 +35,34 @@ esac
 OUTPUT_DIR_BASE="checkpoints/sft_loop_phase2_augment_runs"
 FINAL_RUN_NAME="run_rs_augmented_format_supervised_${HISTORY_RGB_TAG}"
 CHECK_RUN_NAME="check_rs_augmented_format_supervised_${HISTORY_RGB_TAG}"
-FINAL_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${FINAL_RUN_NAME}"
-CHECK_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${CHECK_RUN_NAME}"
+RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
+FINAL_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${FINAL_RUN_NAME}/${RUN_TIMESTAMP}"
+CHECK_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${CHECK_RUN_NAME}/${RUN_TIMESTAMP}"
 if [[ "${MODE}" == "check" ]]; then
+  RUN_NAME="${CHECK_RUN_NAME}"
   OUTPUT_DIR="${OUTPUT_DIR:-${CHECK_OUTPUT_DIR}}"
 else
+  RUN_NAME="${FINAL_RUN_NAME}"
   OUTPUT_DIR="${OUTPUT_DIR:-${FINAL_OUTPUT_DIR}}"
 fi
 mkdir -p "${OUTPUT_DIR}"
 mkdir -p "${OUTPUT_DIR_BASE}"
-if [[ "${MODE}" != "check" ]]; then
-  LATEST_TARGET="$(python -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "${OUTPUT_DIR}")"
+LATEST_TARGET="$(python -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "${OUTPUT_DIR}")"
+mkdir -p "${OUTPUT_DIR_BASE}/${RUN_NAME}"
+ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/${RUN_NAME}/latest"
+if [[ "${MODE}" == "check" ]]; then
+  ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/latest_check"
+else
   ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/latest"
 fi
 if [[ "${RUN_LOG:-}" != "0" ]]; then
-  RUN_LOG="${RUN_LOG:-${OUTPUT_DIR}.log}"
+  RUN_LOG="${RUN_LOG:-${OUTPUT_DIR}/train.log}"
+  export RUN_LOG
   mkdir -p "$(dirname "${RUN_LOG}")"
   # 脚本内部 tee 一份日志，避免外层漏写 tee 时找不到训练记录。
   exec > >(tee -a "${RUN_LOG}") 2>&1
 fi
+export RUN_NAME RUN_TIMESTAMP
 
 pick_idle_gpus() {
   local want_count="$1"
@@ -128,7 +137,7 @@ COMMON_ARGS=(
   --num-epochs "${NUM_EPOCHS:-3}"
   --max-frames "${MAX_FRAMES:-0}"
   --max-steps "${MAX_STEPS:-0}"
-  --focus-balance-count "${FOCUS_BALANCE_COUNT:-0}"
+  --focus-balance-count "${FOCUS_BALANCE_COUNT:-1024}"
   --eval-split "${EVAL_SPLIT:-val}"
   --eval-steps "${EVAL_STEPS:-2000}"
   --eval-balance-count "${EVAL_BALANCE_COUNT:-16}"
@@ -159,7 +168,9 @@ else
 fi
 
 echo "[run] MODE=${MODE} HISTORY_RGB_MODE=${HISTORY_RGB_MODE} OUTPUT_DIR=${OUTPUT_DIR}"
+echo "[run] RUN_NAME=${RUN_NAME} RUN_TIMESTAMP=${RUN_TIMESTAMP}"
 echo "[run] TB_DIR=${OUTPUT_DIR}/tb"
+echo "[run] LATEST=${OUTPUT_DIR_BASE}/$([[ "${MODE}" == "check" ]] && echo latest_check || echo latest)"
 if [[ "${RUN_LOG:-0}" != "0" ]]; then
   echo "[run] RUN_LOG=${RUN_LOG}"
 fi
