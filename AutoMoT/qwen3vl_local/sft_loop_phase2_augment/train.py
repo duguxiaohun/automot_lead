@@ -122,6 +122,109 @@ def cleanup_distributed() -> None:
         dist.destroy_process_group()
 
 
+def _append_jsonl(path: pathlib.Path, payload: Mapping[str, Any]) -> None:
+    """向运行目录追加一行 JSON 指标，便于不用 TensorBoard 也能审计。"""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _tb_tag(key: str) -> str:
+    """把内部 metric key 转成稳定 TensorBoard tag。"""
+
+    return str(key).replace(":", "/").replace(" ", "_")
+
+
+def _write_scalar_dict(writer: Any, prefix: str, metrics: Mapping[str, Any], step: int) -> None:
+    """批量写 TensorBoard scalar，并统一规整 tag。"""
+
+    if writer is None:
+        return
+    for key, value in metrics.items():
+        if isinstance(value, (int, float)):
+            writer.add_scalar(f"{prefix}/{_tb_tag(key)}", float(value), int(step))
+
+
+def _write_run_metadata(
+    writer: Any,
+    output_dir: pathlib.Path,
+    args: argparse.Namespace,
+    *,
+    world_size: int,
+    train_rows: int,
+    train_work_global: int,
+    train_work_rank: int,
+    eval_work_rank: int,
+    generation_eval_global: int,
+    total_steps: int,
+) -> None:
+    """写入 TB 和 JSON manifest，保证训练目录、TB、日志路径互相可追。"""
+
+    payload = {
+        "dataset_name": DATASET_NAME,
+        "prompt_name": PROMPT_NAME,
+        "output_dir": str(output_dir),
+        "tb_dir": str(output_dir / "tb"),
+        "run_log": os.environ.get("RUN_LOG", ""),
+        "model_dir": str(args.model_dir),
+        "index": str(args.index),
+        "split": str(args.split),
+        "eval_split": str(args.eval_split),
+        "world_size": int(world_size),
+        "history_rgb_mode": str(args.history_rgb_mode),
+        "history_rgb_count": len(history_rgb_indices(args.history_rgb_mode)),
+        "history_rgb_selected_indices": list(history_rgb_indices(args.history_rgb_mode)),
+        "train_rows": int(train_rows),
+        "train_work_global": int(train_work_global),
+        "train_work_rank": int(train_work_rank),
+        "eval_steps": int(args.eval_steps),
+        "eval_balance_count": int(args.eval_balance_count),
+        "eval_work_rank": int(eval_work_rank),
+        "generation_eval_steps": int(args.generation_eval_steps),
+        "generation_eval_balance_count": int(args.generation_eval_balance_count),
+        "generation_eval_global": int(generation_eval_global),
+        "save_best_val": bool(args.save_best_val),
+        "save_steps": int(args.save_steps),
+        "total_steps_rank": int(total_steps),
+        "focus_balance_count": int(args.focus_balance_count),
+        "production_prompt_sha256": phase2_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
+    }
+    (output_dir / "train_run_manifest.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    if writer is None:
+        return
+    writer.add_text(
+        "run/summary",
+        "\n".join(
+            [
+                f"output_dir: `{payload['output_dir']}`",
+                f"tb_dir: `{payload['tb_dir']}`",
+                f"run_log: `{payload['run_log'] or 'not set'}`",
+                f"train: rows={train_rows}, global_work={train_work_global}, rank_work={train_work_rank}",
+                f"val: eval_steps={args.eval_steps}, eval_work_rank={eval_work_rank}",
+                f"generation: steps={args.generation_eval_steps}, global_cases={generation_eval_global}",
+                f"prompt_sha256: `{payload['production_prompt_sha256']}`",
+            ]
+        ),
+        0,
+    )
+    for key in (
+        "world_size",
+        "history_rgb_count",
+        "train_rows",
+        "train_work_global",
+        "train_work_rank",
+        "eval_work_rank",
+        "generation_eval_global",
+        "total_steps_rank",
+        "focus_balance_count",
+    ):
+        writer.add_scalar(f"setup/{key}", float(payload[key]), 0)
+
+
 @dataclass
 class FrameRow:
     """一帧训练样本。"""
@@ -1328,10 +1431,31 @@ def train(args: argparse.Namespace) -> None:
     total_optimizer_steps = max(1, math.ceil(total_steps / max(1, int(args.grad_accum))))
     scheduler = make_scheduler(optimizer, total_steps=total_optimizer_steps, warmup_steps=int(args.warmup_steps))
     writer = SummaryWriter(str(output_dir / "tb")) if rank == 0 and _TB_AVAILABLE and not bool(args.no_tb) else None
+    if rank == 0:
+        _write_run_metadata(
+            writer,
+            output_dir,
+            args,
+            world_size=world_size,
+            train_rows=len(rows),
+            train_work_global=len(full_work),
+            train_work_rank=len(work),
+            eval_work_rank=len(eval_work),
+            generation_eval_global=len(full_generation_eval_work),
+            total_steps=total_steps,
+        )
 
     global_step = 0
     skipped = 0
     best_val_loss = math.inf
+    train_metrics_path = output_dir / "train_metrics.jsonl"
+    eval_metrics_path = output_dir / "train_eval_metrics.jsonl"
+    window_loss_sum = 0.0
+    window_samples = 0
+    window_variants: Counter[str] = Counter()
+    window_stats: Counter[str] = Counter()
+    window_metric_ok: Counter[str] = Counter()
+    window_metric_count: Counter[str] = Counter()
     t0 = time.time()
     bundle.model.train()
     if rank == 0:
@@ -1375,6 +1499,17 @@ def train(args: argparse.Namespace) -> None:
                 skipped += 1
                 continue
             loss, stats = _loss_one(bundle, packed, spec)
+            loss_value = float(loss.detach().item())
+            window_loss_sum += loss_value
+            window_samples += 1
+            window_variants[spec.variant] += 1
+            for key, value in stats.items():
+                window_stats[key] += float(value)
+            for output_key, metric_key, _ in spec_metric_items(spec):
+                stat_key = f"answer/{output_key.lower()}_ok"
+                if stat_key in stats:
+                    window_metric_ok[metric_key] += float(stats[stat_key])
+                    window_metric_count[metric_key] += 1
             (loss / max(1, int(args.grad_accum))).backward()
             if (global_step + 1) % max(1, int(args.grad_accum)) == 0:
                 torch.nn.utils.clip_grad_norm_(params, float(args.max_grad_norm))
@@ -1382,17 +1517,47 @@ def train(args: argparse.Namespace) -> None:
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
             if writer:
-                writer.add_scalar("train/loss", float(loss.detach().item()), global_step)
+                writer.add_scalar("train/loss", loss_value, global_step)
+                writer.add_scalar("train/lr", float(scheduler.get_last_lr()[0]), global_step)
                 writer.add_scalar("train/skipped_too_long", skipped, global_step)
                 writer.add_scalar(f"train/variant/{spec.variant}", 1, global_step)
                 for key, value in stats.items():
                     writer.add_scalar(f"train/{key}", value, global_step)
             if rank == 0 and global_step % int(args.log_steps) == 0:
+                window_den = max(1, int(window_samples))
+                window_payload: Dict[str, Any] = {
+                    "step": int(global_step),
+                    "epoch": int(epoch + 1),
+                    "samples": int(window_samples),
+                    "loss_mean": float(window_loss_sum / window_den),
+                    "last_loss": loss_value,
+                    "lr": float(scheduler.get_last_lr()[0]),
+                    "skipped_too_long_total": int(skipped),
+                    "variant_counts": dict(window_variants),
+                    "balance_key": item.balance_key,
+                }
+                for variant in VARIANT_ORDER:
+                    window_payload[f"variant_rate/{variant}"] = float(window_variants[variant]) / float(window_den)
+                for key, value in window_stats.items():
+                    window_payload[f"mean/{key}"] = float(value) / float(window_den)
+                for key in [*ANSWER_KEYS, "HIGHWAY", *[f"GROUP:{group_id}" for group_id in GROUP_DEFINITIONS]]:
+                    denom = max(1.0, float(window_metric_count[key]))
+                    window_payload[f"answer_acc/{key}"] = float(window_metric_ok[key]) / denom
+                    window_payload[f"answer_samples/{key}"] = float(window_metric_count[key])
+                _append_jsonl(train_metrics_path, window_payload)
+                _write_scalar_dict(writer, "train_window", window_payload, global_step)
                 print(
-                    f"epoch={epoch + 1} step={global_step}/{total_steps} loss={float(loss.detach().item()):.4f} "
+                    f"epoch={epoch + 1} step={global_step}/{total_steps} loss={loss_value:.4f} "
+                    f"win_loss={window_payload['loss_mean']:.4f} "
                     f"variant={spec.variant} bin={item.balance_key} skipped={skipped} world={world_size} "
                     f"elapsed={time.time() - t0:.1f}s"
                 )
+                window_loss_sum = 0.0
+                window_samples = 0
+                window_variants.clear()
+                window_stats.clear()
+                window_metric_ok.clear()
+                window_metric_count.clear()
             global_step += 1
             if eval_work and int(args.eval_steps) > 0 and global_step % int(args.eval_steps) == 0:
                 metrics = evaluate_loss(
@@ -1408,6 +1573,15 @@ def train(args: argparse.Namespace) -> None:
                     for key, value in metrics.items():
                         writer.add_scalar(f"val/{key}", float(value), global_step)
                 if rank == 0:
+                    _append_jsonl(
+                        eval_metrics_path,
+                        {
+                            "step": int(global_step),
+                            "kind": "teacher_forced",
+                            "split": str(args.eval_split),
+                            **{key: float(value) for key, value in metrics.items()},
+                        },
+                    )
                     print(
                         f"[eval] step={global_step}/{total_steps} split={args.eval_split} "
                         f"loss={metrics['loss']:.4f} value_acc={metrics['value_token_acc']:.4f} "
@@ -1430,6 +1604,15 @@ def train(args: argparse.Namespace) -> None:
                     if writer:
                         for key, value in generation_metrics.items():
                             writer.add_scalar(f"val_generation/{key}", float(value), global_step)
+                    _append_jsonl(
+                        eval_metrics_path,
+                        {
+                            "step": int(global_step),
+                            "kind": "free_generation",
+                            "split": str(args.eval_split),
+                            **{key: float(value) for key, value in generation_metrics.items()},
+                        },
+                    )
                     print(
                         f"[generation-val] step={global_step}/{total_steps} "
                         f"format_valid={generation_metrics['format_valid_rate']:.4f} "
