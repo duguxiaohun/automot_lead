@@ -72,6 +72,19 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 
 ## 3. LoRA 训练
 
+默认输出到：
+
+```text
+checkpoints/sft_loop_phase2_augment_runs/<run_name>/<YYYYmmdd_HHMMSS>/
+```
+
+`train.log`、`tb/`、`train_run_manifest.json` 都在同一个时间目录下。launcher 同时维护：
+
+```text
+checkpoints/sft_loop_phase2_augment_runs/latest
+checkpoints/sft_loop_phase2_augment_runs/latest_check
+```
+
 链路 smoke 只确认加载、DDP、loss、保存是否正常：
 
 ```bash
@@ -79,23 +92,13 @@ GPU_IDS=0 \
 CHECK_MAX_FRAMES=2000 \
 CHECK_FOCUS_BALANCE_COUNT=2 \
 CHECK_MAX_STEPS=2 \
-RUN_LOG=checkpoints/sft_loop_phase2_augment_runs/check_rs_augmented_4rgb.log \
 bash qwen3vl_local/sft_loop_phase2_augment/train.sh check
 ```
 
 正式四卡训练保留 val 与 free-generation probe：
 
 ```bash
-GPU_IDS=0,1,2,3 \
-FOCUS_BALANCE_COUNT=1024 \
-EVAL_STEPS=2000 \
-EVAL_BALANCE_COUNT=16 \
-GENERATION_EVAL_STEPS=2000 \
-GENERATION_EVAL_BALANCE_COUNT=2 \
-SAVE_BEST_VAL=1 \
-OUTPUT_DIR=checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_4rgb \
-RUN_LOG=checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_4rgb.log \
-bash qwen3vl_local/sft_loop_phase2_augment/train.sh ddp
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase2_augment/train.sh ddp
 ```
 
 训练目录关键产物：
@@ -109,7 +112,8 @@ bash qwen3vl_local/sft_loop_phase2_augment/train.sh ddp
 - `best_val/`：通过 generation 格式闸门后的最低 val loss adapter。
 - `checkpoint-*` / `final/`：周期保存与最终 adapter。
 
-正式训练不要关闭 `EVAL_STEPS` / `GENERATION_EVAL_STEPS`；只在定位吞吐或显存问题时临时关闭。
+默认 `FOCUS_BALANCE_COUNT=1024`，`EVAL_STEPS=2000`，`GENERATION_EVAL_STEPS=2000`，
+`SAVE_BEST_VAL=1`。正式训练不要关闭 eval；只在定位吞吐或显存问题时临时覆盖这些变量。
 
 ## 4. LoRA 测试
 
@@ -119,12 +123,12 @@ LoRA eval 会从 adapter 配置自动读取 `history_rgb_mode`，不要再传 `-
 # production
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase2_augment/eval.py \
-  --adapter-dir checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_4rgb/best_val
+  --adapter-dir checkpoints/sft_loop_phase2_augment_runs/latest/best_val
 
 # audit
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase2_augment/eval.py \
-  --adapter-dir checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_4rgb/best_val \
+  --adapter-dir checkpoints/sft_loop_phase2_augment_runs/latest/best_val \
   --audit-prompt
 ```
 
@@ -133,7 +137,7 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 ```bash
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   qwen3vl_local/sft_loop_phase2_augment/eval.py \
-  --adapter-dir checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_4rgb/final
+  --adapter-dir checkpoints/sft_loop_phase2_augment_runs/latest/final
 ```
 
 ## 5. 错例抽样 Audit
@@ -159,7 +163,7 @@ python qwen3vl_local/sft_loop_phase2_augment/audit_eval_cases.py \
 
 ```bash
 bash qwen3vl_local/tb_serve.sh \
-  checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_4rgb
+  checkpoints/sft_loop_phase2_augment_runs/latest
 ```
 
 重点看：

@@ -38,6 +38,16 @@ run_train() {
   fi
 }
 
+adapter_dir_for_mode() {
+  local history_rgb_mode="$1"
+  local run_root="checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_format_supervised_${history_rgb_mode}/latest"
+  if [[ -d "${run_root}/best_val" ]]; then
+    echo "${run_root}/best_val"
+  else
+    echo "${run_root}/final"
+  fi
+}
+
 echo "[matrix] AutoMoT root: ${AUTOMOT_ROOT}"
 echo "[matrix] GPU_IDS=${GPU_IDS}, processes=${NPROC}"
 echo "[matrix] 2rgb_endpoints always uses source frames [0,3] (first and fourth)."
@@ -48,12 +58,14 @@ run_eval "3/10 base 2rgb_endpoints production" --history-rgb-mode 2rgb_endpoints
 run_eval "4/10 base 2rgb_endpoints audit" --history-rgb-mode 2rgb_endpoints --audit-prompt
 
 run_train "5/10 train 4rgb LoRA" 4rgb
-run_eval "6/10 LoRA 4rgb production" --adapter-dir checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_format_supervised_4rgb/final
-run_eval "7/10 LoRA 4rgb audit" --adapter-dir checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_format_supervised_4rgb/final --audit-prompt
+LORA_4RGB_DIR="$(adapter_dir_for_mode 4rgb)"
+run_eval "6/10 LoRA 4rgb production" --adapter-dir "${LORA_4RGB_DIR}"
+run_eval "7/10 LoRA 4rgb audit" --adapter-dir "${LORA_4RGB_DIR}" --audit-prompt
 
 run_train "8/10 train 2rgb_endpoints LoRA" 2rgb_endpoints
-run_eval "9/10 LoRA 2rgb_endpoints production" --adapter-dir checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_format_supervised_2rgb_endpoints/final
-run_eval "10/10 LoRA 2rgb_endpoints audit" --adapter-dir checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_format_supervised_2rgb_endpoints/final --audit-prompt
+LORA_2RGB_DIR="$(adapter_dir_for_mode 2rgb_endpoints)"
+run_eval "9/10 LoRA 2rgb_endpoints production" --adapter-dir "${LORA_2RGB_DIR}"
+run_eval "10/10 LoRA 2rgb_endpoints audit" --adapter-dir "${LORA_2RGB_DIR}" --audit-prompt
 
 echo
 echo "[done] results are timestamped under checkpoints/sft_loop_phase2_augment_eval/."
