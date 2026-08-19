@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """从 Phase2 augment eval 产物中抽取少量错例并补齐真实 RGB。
 
-本脚本不运行 Qwen，也不依赖可能被截断的 cases_rank*.jsonl。它只读取
-`error_cases/**/case.json`，按常见错误类型抽样，再从原始 `lead_data` 路径复制
-模型实际输入的 4 帧 RGB，生成一个适合人工快速审计的小目录。
+本脚本不运行 Qwen。它优先读取 `error_cases/**/case.json`；如果 eval 包里没有
+`error_cases/`，则从 `cases_rank*.jsonl` / `cases.jsonl` 筛出 `all_ok=false` 的行。
+随后按常见错误类型抽样，再从原始 `lead_data` 路径复制模型实际输入的 RGB history，
+生成一个适合人工快速审计的小目录。
 """
 
 from __future__ import annotations
@@ -24,11 +25,17 @@ DEFAULT_EVAL_DIR = _AUTOMOT_ROOT / "checkpoints/sft_loop_phase2_augment_eval/bas
 DEFAULT_OUTPUT_DIR = _AUTOMOT_ROOT / "checkpoints/sft_loop_phase2_augment_audit_samples/base_4rgb_20260817"
 
 TARGETS = (
-    "rs2_fn",
-    "highway_fn",
+    "invalid_answer",
+    "rs1_fn",
     "rs1_fp",
+    "rs2_fn",
+    "rs2_fp",
     "rs4_fn",
+    "rs4_fp",
     "rs5_fn",
+    "rs5_fp",
+    "highway_fn",
+    "highway_fp",
     "multi_yes",
 )
 RS_KEYS = ("RS1", "RS2", "RS4", "RS5")
@@ -49,6 +56,27 @@ def _iter_case_jsons(eval_dir: pathlib.Path) -> Iterable[pathlib.Path]:
     yield from sorted((eval_dir / "error_cases").glob("*/*/case.json"))
 
 
+def _iter_error_payloads(eval_dir: pathlib.Path) -> Iterable[Mapping[str, Any] | None]:
+    """优先读取 error_cases；缺失时从 cases_rank*.jsonl 里筛 all_ok=false。"""
+
+    case_paths = list(_iter_case_jsons(eval_dir))
+    if case_paths:
+        for case_path in case_paths:
+            yield _read_json(case_path)
+        return
+    for case_jsonl in sorted(eval_dir.glob("cases_rank*.jsonl")) + sorted(eval_dir.glob("cases.jsonl")):
+        for line in case_jsonl.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except Exception:
+                yield None
+                continue
+            if not bool(payload.get("all_ok", False)):
+                yield payload
+
+
 def _yes_count(values: Mapping[str, Any], keys: Sequence[str]) -> int:
     """统计指定 RS 键中预测为 YES 的个数。"""
 
@@ -61,16 +89,28 @@ def _target_matches(payload: Mapping[str, Any]) -> List[str]:
     gt = payload.get("gt") or {}
     parsed = payload.get("parsed") or {}
     matched: List[str] = []
-    if gt.get("RS2") == "YES" and parsed.get("RS2") != "YES":
-        matched.append("rs2_fn")
-    if gt.get("HIGHWAY") == "YES" and parsed.get("HIGHWAY") != "YES":
-        matched.append("highway_fn")
+    if any(key in gt and parsed.get(key) not in ("YES", "NO") for key in tuple(RS_KEYS) + ("HIGHWAY", "GROUP", "DETAIL")):
+        matched.append("invalid_answer")
+    if gt.get("RS1") == "YES" and parsed.get("RS1") != "YES":
+        matched.append("rs1_fn")
     if gt.get("RS1") == "NO" and parsed.get("RS1") == "YES":
         matched.append("rs1_fp")
+    if gt.get("RS2") == "YES" and parsed.get("RS2") != "YES":
+        matched.append("rs2_fn")
+    if gt.get("RS2") == "NO" and parsed.get("RS2") == "YES":
+        matched.append("rs2_fp")
     if gt.get("RS4") == "YES" and parsed.get("RS4") != "YES":
         matched.append("rs4_fn")
+    if gt.get("RS4") == "NO" and parsed.get("RS4") == "YES":
+        matched.append("rs4_fp")
     if gt.get("RS5") == "YES" and parsed.get("RS5") != "YES":
         matched.append("rs5_fn")
+    if gt.get("RS5") == "NO" and parsed.get("RS5") == "YES":
+        matched.append("rs5_fp")
+    if gt.get("HIGHWAY") == "YES" and parsed.get("HIGHWAY") != "YES":
+        matched.append("highway_fn")
+    if gt.get("HIGHWAY") == "NO" and parsed.get("HIGHWAY") == "YES":
+        matched.append("highway_fp")
     if _yes_count(parsed, RS_KEYS) > 1:
         matched.append("multi_yes")
     return matched
@@ -175,8 +215,8 @@ def build_audit_samples(args: argparse.Namespace) -> Dict[str, Any]:
     scan_counts: Counter[str] = Counter()
     bad_json = 0
 
-    for case_path in _iter_case_jsons(eval_dir):
-        payload = _read_json(case_path)
+    source_mode = "error_cases" if any(_iter_case_jsons(eval_dir)) else "cases_jsonl_errors"
+    for payload in _iter_error_payloads(eval_dir):
         if payload is None:
             bad_json += 1
             continue
@@ -216,6 +256,7 @@ def build_audit_samples(args: argparse.Namespace) -> Dict[str, Any]:
         "seed": int(args.seed),
         "per_target": int(args.per_target),
         "targets": selected_targets,
+        "source_mode": source_mode,
         "bad_json": bad_json,
         "scan_counts": dict(scan_counts),
         "selected": len(manifest_rows),
@@ -237,6 +278,7 @@ def _render_summary(summary: Mapping[str, Any]) -> str:
         f"- eval_dir: `{summary['eval_dir']}`",
         f"- selected: `{summary['selected']}`",
         f"- rgb_missing_cases: `{summary['rgb_missing_cases']}`",
+        f"- source_mode: `{summary.get('source_mode', 'unknown')}`",
         "",
         "## Selected By Target",
         "",
@@ -259,7 +301,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
     p.add_argument("--per-target", type=int, default=12)
     p.add_argument("--seed", type=int, default=20260817)
-    p.add_argument("--targets", default="rs2_fn,highway_fn,rs1_fp,rs4_fn,rs5_fn,multi_yes")
+    p.add_argument(
+        "--targets",
+        default="invalid_answer,rs1_fn,rs1_fp,rs2_fn,rs2_fp,rs4_fn,rs4_fp,rs5_fn,rs5_fp,highway_fn,highway_fp,multi_yes",
+    )
     p.add_argument("--overwrite", action="store_true")
     return p.parse_args()
 
