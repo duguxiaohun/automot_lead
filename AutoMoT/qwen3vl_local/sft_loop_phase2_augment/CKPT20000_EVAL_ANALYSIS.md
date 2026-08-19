@@ -129,3 +129,25 @@
 - 若目标是可审计输出，应把 audit 的证据输出限长，并强制最后答案行完整；当前 audit 下降主要是格式/冗长问题。
 - 针对 `RS1` 增加“普通车道线不等于 RS1”的反例，特别是双向窄路、转弯场景、事故/施工/动态目标场景。
 - 针对 `HIGHWAY` 增加局部帧高速正例：没有清晰 gore/merge/split 但仍处于 limited-access mainline/ramp 的样本。
+
+## 7. 追加 RGB 复核与代码调整
+
+按上述结论追加查看了 `checkpoint-20000` 的 production 四问错例和 audit 抽样 RGB：
+
+- `ControlLoss/Town13_Rep0_1274_0.../f68`：夜雨多车道、路侧护栏明显，但仍像普通连续道路；不能继续把“有护栏/低可见度”硬压成高速，否则会伤 `RS1` 正例。
+- `MergerIntoSlowTraffic/Town13_Rep0_1230_6.../f147`：多条同向高速车道、连续隔离/护栏和分离车行道清楚；这是 `R3`，模型误报 `RS1`，需要强调 high-speed lane + separated carriageway/shoulder/barrier 的组合。
+- `AccidentTwoWays/Town12_Rep0_487_0.../f22`：雾中可见未隔离双向走廊和迎面/占道车辆；这是 `RS2` 正例，不能要求 ego 已经跨线才算 opposing-lane constraint。
+- `RedLightWithoutLeadVehicle/Town13_Rep0_route_003320.../f96`：有双黄线和路边停放车，但 ego 车道仍打开；这是 `RS2` 负例，不能把中心线/停放车单独当正证据。
+- `Accident/Town10HD_Rep0_route_001821.../f58-f61`：极暗雨夜下当前 RGB 难以确认信号灯/路口结构；这类 `RS4` 标签更像低可见度标签风险，不应继续靠 prompt 猜场景。
+- `VehicleTurningRoute/Town03_Rep0_Town03_Scenario4_6.../f95`：局部 turning conflict/road mouth 有一定证据，但雾中不强；`RS5` 可以补充 side-road mouth/curb break，但仍不能把普通弯道、行人或车辆事件当成 RS5。
+
+已据此将 prompt 合同升级到 `sft_loop_phase2_rs_augmented_visual_v2`：
+
+- `RS1`：区分普通路侧护栏/低可见度与真正 limited-access 高速走廊，避免两头误伤。
+- `RS2`：同时补强正负边界；迎面车头/车灯占据相邻对向通行空间可算正证据，但中心线、雾、路边停放车且 ego lane 完整打开不能单独算正。
+- `RS5`：补充可见 side-road mouth / curb break / local turning conflict，但明确车辆/行人事件和普通弯道不是 catch-all。
+- audit 输出改为先写所有 `KEY: YES/NO`，再写每题一行短证据，避免 evidence-first 的长文本重复导致答案行缺失。
+- 训练保存新增 `best_generation/`：按 free-generation exact 选择，并用 `all_random_order` exact 作 tie-breaker；`eval.py` 解析 run/latest 时优先 `best_generation/`，再 `best_val/`，最后 `final/`。
+- 错例抽样默认 target 扩为 `invalid_answer`、四个 RS 的 FP/FN、`HIGHWAY` FP/FN 与 `multi_yes`，避免只审计旧的少数错误桶；同时在 eval 包缺少 `error_cases/` 时自动从 `cases_rank*.jsonl` 筛 `all_ok=false` 后复制 RGB，修复 production 抽样 `selected=0` 的问题。
+
+注意：v2 改动会改变 production prompt hash，旧 `checkpoint-20000` 是 v1 adapter，不能把它和 v2 prompt 当作同一合同直接横比；后续应重训/继续训练一版 v2，再按 production full eval 和 `all_random_order` exact 选 checkpoint。

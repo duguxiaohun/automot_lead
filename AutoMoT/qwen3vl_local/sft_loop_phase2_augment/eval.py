@@ -620,7 +620,7 @@ def _adapter_config_path(adapter_dir: pathlib.Path) -> pathlib.Path:
 
 
 def _resolve_adapter_dir(adapter_dir: pathlib.Path) -> Tuple[pathlib.Path, str]:
-    """允许传 run/latest 目录，自动选择 best_val，否则回退 final。"""
+    """允许传 run/latest 目录，自动选择 best_generation/best_val/final。"""
 
     path = pathlib.Path(adapter_dir)
     checked = []
@@ -629,19 +629,22 @@ def _resolve_adapter_dir(adapter_dir: pathlib.Path) -> Tuple[pathlib.Path, str]:
     if direct.exists():
         return path, "exact_adapter_dir"
 
-    for child in ("best_val", "final"):
+    for child in ("best_generation", "best_val", "final"):
         candidate = path / child
         cfg_path = _adapter_config_path(candidate)
         checked.append(str(cfg_path))
         if cfg_path.exists():
             return candidate, f"run_dir_{child}"
 
-    if path.name == "best_val":
-        fallback = path.parent / "final"
-        cfg_path = _adapter_config_path(fallback)
-        checked.append(str(cfg_path))
-        if cfg_path.exists():
-            return fallback, "missing_best_val_fallback_final"
+    if path.name in {"best_generation", "best_val"}:
+        for child in ("best_val", "final"):
+            fallback = path.parent / child
+            if fallback == path:
+                continue
+            cfg_path = _adapter_config_path(fallback)
+            checked.append(str(cfg_path))
+            if cfg_path.exists():
+                return fallback, f"missing_{path.name}_fallback_{child}"
 
     raise FileNotFoundError(
         "cannot resolve Phase2 augment adapter. Pass either an adapter dir, "

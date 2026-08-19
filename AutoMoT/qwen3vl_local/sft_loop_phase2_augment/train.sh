@@ -166,6 +166,11 @@ if [[ "${SAVE_BEST_VAL:-1}" == "0" ]]; then
 else
   COMMON_ARGS+=(--save-best-val)
 fi
+if [[ "${SAVE_BEST_GENERATION:-1}" == "0" ]]; then
+  COMMON_ARGS+=(--no-save-best-generation)
+else
+  COMMON_ARGS+=(--save-best-generation)
+fi
 
 echo "[run] MODE=${MODE} HISTORY_RGB_MODE=${HISTORY_RGB_MODE} OUTPUT_DIR=${OUTPUT_DIR}"
 echo "[run] RUN_NAME=${RUN_NAME} RUN_TIMESTAMP=${RUN_TIMESTAMP}"
@@ -187,4 +192,4 @@ else
 fi
 
 echo "[hint] eval base: GPU_IDS=0 python qwen3vl_local/sft_loop_phase2_augment/eval.py"
-echo "[hint] eval lora: GPU_IDS=0 python qwen3vl_local/sft_loop_phase2_augment/eval.py --adapter-dir ${OUTPUT_DIR}/final"
+echo "[hint] eval lora: GPU_IDS=0 python qwen3vl_local/sft_loop_phase2_augment/eval.py --adapter-dir ${OUTPUT_DIR}"

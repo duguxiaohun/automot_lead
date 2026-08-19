@@ -187,6 +187,7 @@ def _write_run_metadata(
         "generation_eval_balance_count": int(args.generation_eval_balance_count),
         "generation_eval_global": int(generation_eval_global),
         "save_best_val": bool(args.save_best_val),
+        "save_best_generation": bool(args.save_best_generation),
         "save_steps": int(args.save_steps),
         "total_steps_rank": int(total_steps),
         "focus_balance_count": int(args.focus_balance_count),
@@ -208,6 +209,7 @@ def _write_run_metadata(
                 f"train: rows={train_rows}, global_work={train_work_global}, rank_work={train_work_rank}",
                 f"val: eval_steps={args.eval_steps}, eval_work_rank={eval_work_rank}",
                 f"generation: steps={args.generation_eval_steps}, global_cases={generation_eval_global}",
+                f"best_generation: `{payload['save_best_generation']}`",
                 f"prompt_sha256: `{payload['production_prompt_sha256']}`",
             ]
         ),
@@ -1286,6 +1288,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "generation_eval_max_new_tokens": int(args.generation_eval_max_new_tokens),
         "generation_eval_min_valid_rate": float(args.generation_eval_min_valid_rate),
         "save_best_val": bool(args.save_best_val),
+        "save_best_generation": bool(args.save_best_generation),
     }
     (final_dir / "sft_loop_phase2_augment_adapter_config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     return final_dir
@@ -1450,6 +1453,7 @@ def train(args: argparse.Namespace) -> None:
     global_step = 0
     skipped = 0
     best_val_loss = math.inf
+    best_generation_score = (-math.inf, -math.inf)
     train_metrics_path = output_dir / "train_metrics.jsonl"
     eval_metrics_path = output_dir / "train_eval_metrics.jsonl"
     window_loss_sum = 0.0
@@ -1661,6 +1665,37 @@ def train(args: argparse.Namespace) -> None:
                             f"generation format_valid={generation_metrics['format_valid_rate']:.4f} "
                             f"< required {args.generation_eval_min_valid_rate:.4f}"
                         )
+                    if bool(args.save_best_generation) and run_generation_eval and format_gate_ok and generation_metrics is not None:
+                        gen_score = (
+                            float(generation_metrics.get("exact_accuracy", 0.0)),
+                            float(generation_metrics.get("pattern/all_random_order_pattern_exact", 0.0)),
+                        )
+                        if gen_score > best_generation_score:
+                            best_generation_score = gen_score
+                            best_gen_dir = _save_adapter(bundle, output_dir, args, step=global_step, name="best_generation")
+                            (output_dir / "best_generation.json").write_text(
+                                json.dumps(
+                                    {
+                                        "step": global_step,
+                                        "val_split": str(args.eval_split),
+                                        "selection": "max_free_generation_exact_then_all_random_order",
+                                        "generation_exact_accuracy": gen_score[0],
+                                        "generation_all_random_order_exact": gen_score[1],
+                                        "teacher_forced_loss": float(metrics["loss"]),
+                                        "teacher_forced_value_token_acc": float(metrics["value_token_acc"]),
+                                        "teacher_forced_format_token_acc": float(metrics["format_token_acc"]),
+                                        "generation": generation_metrics,
+                                        "history_rgb_mode": str(args.history_rgb_mode),
+                                    },
+                                    ensure_ascii=False,
+                                    indent=2,
+                                ),
+                                encoding="utf-8",
+                            )
+                            print(
+                                f"[best-generation] step={global_step} exact={gen_score[0]:.4f} "
+                                f"all_random={gen_score[1]:.4f} adapter={best_gen_dir}"
+                            )
             if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
                 ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name=f"checkpoint-{global_step}")
                 print(f"[save] step={global_step} adapter={ckpt_dir}")
@@ -1746,6 +1781,12 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="save output_dir/best_val whenever periodic validation loss improves",
+    )
+    p.add_argument(
+        "--save-best-generation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="save output_dir/best_generation by free-generation exact, with all_random_order exact as tie-breaker",
     )
     p.add_argument("--no-tb", action="store_true")
     args = p.parse_args()

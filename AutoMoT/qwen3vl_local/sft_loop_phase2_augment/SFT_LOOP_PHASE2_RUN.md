@@ -47,7 +47,8 @@ python qwen3vl_local/sft_loop_phase2_augment/build_dataset.py \
 
 ## 2. Base Qwen 测试
 
-先测 production，再测 audit。audit 只用于看证据输出，不能和 production 分数直接横比。
+先测 production，再测 audit。audit 只用于看证据输出，不能和 production 分数直接横比；
+audit 模板会先输出所有答案行，再输出短证据行，避免证据文本过长导致答案缺失。
 
 ```bash
 # production
@@ -109,11 +110,12 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase2_augment/train.sh ddp
 - `train_metrics.jsonl`：每个 log window 的 loss、LR、variant 比例、训练 token acc。
 - `train_eval_metrics.jsonl`：训练中 teacher-forced val 与 free-generation val 指标。
 - `generation_val_cases.jsonl`：训练中 free-generation raw output 与解析结果。
-- `best_val/`：通过 generation 格式闸门后的最低 val loss adapter。
+- `best_generation/`：通过 generation 格式闸门后，按 free-generation exact 最高保存；并用 `all_random_order` exact 打破平分。
+- `best_val/`：通过 generation 格式闸门后的最低 val loss adapter；只作辅助参考。
 - `checkpoint-*` / `final/`：周期保存与最终 adapter。
 
 默认 `FOCUS_BALANCE_COUNT=1024`，`EVAL_STEPS=2000`，`GENERATION_EVAL_STEPS=2000`，
-`SAVE_BEST_VAL=1`。正式训练不要关闭 eval；只在定位吞吐或显存问题时临时覆盖这些变量。
+`SAVE_BEST_GENERATION=1`，`SAVE_BEST_VAL=1`。正式训练不要关闭 eval；只在定位吞吐或显存问题时临时覆盖这些变量。
 
 ## 4. LoRA 测试
 
@@ -132,7 +134,8 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
   --audit-prompt
 ```
 
-`eval.py` 会自动优先使用 `latest/best_val`，如果不存在则回退 `latest/final`。也可以显式指定：
+`eval.py` 会自动优先使用 `latest/best_generation`，如果不存在则回退
+`latest/best_val`，再回退 `latest/final`。也可以显式指定：
 
 ```bash
 GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
@@ -142,7 +145,8 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 
 ## 5. 错例抽样 Audit
 
-全量 production / audit eval 后，从 `error_cases/` 抽小样本并从 `lead_data` 补真实 RGB：
+全量 production / audit eval 后抽小样本并从 `lead_data` 补真实 RGB；脚本优先读
+`error_cases/`，如果 eval 包里没有该目录，则自动从 `cases_rank*.jsonl` 筛 `all_ok=false`：
 
 ```bash
 python qwen3vl_local/sft_loop_phase2_augment/audit_eval_cases.py \
@@ -156,7 +160,7 @@ python qwen3vl_local/sft_loop_phase2_augment/audit_eval_cases.py \
 `base_rs_augmented_final_4rgb_audit`、`lora_rs_augmented_final_4rgb`、
 `lora_rs_augmented_final_4rgb_audit`。
 
-默认抽 `rs2_fn/highway_fn/rs1_fp/rs4_fn/rs5_fn/multi_yes`。每个 case 目录包含
+默认抽 `invalid_answer`、四个 RS 的 FP/FN、`highway` FP/FN 和 `multi_yes`。每个 case 目录包含
 `case.json`、`audit_note.md`、`rgb/`。这个脚本不运行模型。
 
 ## 6. TensorBoard
@@ -179,7 +183,7 @@ bash qwen3vl_local/tb_serve.sh \
 - `val_generation/metric/*_acc`
 - `val_generation/pattern/*`
 
-训练中优先使用 `best_val/`；test split 只用于最终泛化确认。
+训练中优先使用 `best_generation/`；`best_val/` 只用于排查 loss 曲线，test split 只用于最终泛化确认。
 
 ## 7. RGB 模式矩阵
 

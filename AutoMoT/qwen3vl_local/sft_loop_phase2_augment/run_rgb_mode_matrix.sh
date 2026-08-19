@@ -41,7 +41,9 @@ run_train() {
 adapter_dir_for_mode() {
   local history_rgb_mode="$1"
   local run_root="checkpoints/sft_loop_phase2_augment_runs/run_rs_augmented_format_supervised_${history_rgb_mode}/latest"
-  if [[ -d "${run_root}/best_val" ]]; then
+  if [[ -d "${run_root}/best_generation" ]]; then
+    echo "${run_root}/best_generation"
+  elif [[ -d "${run_root}/best_val" ]]; then
     echo "${run_root}/best_val"
   else
     echo "${run_root}/final"
