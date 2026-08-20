@@ -9,6 +9,14 @@ RGB history，输出只回答当前 prompt 中被问到的答案行。
 - `subset_random`：只问 `1/2/3` 个 RS 细问题；全 `NO` 只表示被问到的题都不是，不代表高速。
 - `hierarchical_probe`：依次问 `HIGHWAY`、`GROUP`、`DETAIL`。
 
+当前 prompt v3 来自 2026-08-20 对
+`checkpoints/audit_bundle/audit_lora_production` 错例 RGB 的逐帧审计：
+补强 highway 与 surface-road guardrail 的边界、RS1 的 higher-priority 排除顺序、
+RS2 的未压线对向约束、RS4 的信号灯硬件 vs 车灯/路灯反光、RS5 的近处
+无信号冲突 vs 远处 driveway/field entrance。评估采样仍保持
+`all_random_order:subset_random:hierarchical_probe = 2:1:1` 以便横向比较；
+训练采样改为 `4:1:1`，增加 all-random 下四个 RS 问题互相竞争的样本。
+
 示例输出：
 
 ```text
@@ -208,4 +216,6 @@ bash qwen3vl_local/sft_loop_phase2_augment/eval.sh
 时才覆盖。输出到 `checkpoints/sft_loop_phase2_augment_eval_review/<timestamp>/`，
 压缩包为 `sft_loop_phase2_augment_audit_bundle.tar.gz`。包内包含
 metrics/report/case JSONL、adapter/run-root 小型元信息（不含权重），以及按错误
-variant/target 分层抽样的降采样 error RGB，供代码与 prompt 审计。
+variant/target 分层抽样的降采样 error RGB，供代码与 prompt 审计。包内
+`.jsonl` 文本最多复制 500 行并追加截断标记；完整评估口径以 `metrics.json`
+和 `report.md` 为准。

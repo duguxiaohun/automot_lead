@@ -221,11 +221,16 @@ def build_attempt(case_limit: int, audit_limit: int, max_side: int, quality: int
         "image_max_side": max_side,
         "image_quality": quality,
         "error_case_limit_per_group": case_limit,
+        "jsonl_copy_policy": "copy at most 500 lines per jsonl and append a truncation marker; metrics.json/report.md remain the full-run source of truth",
         "adapter_metadata_policy": "copy adapter/run-root text metadata only; exclude weights, checkpoints, TensorBoard, and binary artifacts",
         "bundle_contract": "metrics/reports/case jsonl plus sampled downscaled error RGB; designed for prompt/code audit under 30MB",
     }
     (bundle / "BUNDLE_README.md").write_text(
-        f"# {phase} eval audit bundle\n\n- source_root: `{root}`\n- adapter_dir: `{adapter_dir}`\n",
+        f"# {phase} eval audit bundle\n\n"
+        f"- source_root: `{root}`\n"
+        f"- adapter_dir: `{adapter_dir}`\n"
+        "- metrics.json/report.md are full-run summaries.\n"
+        "- copied .jsonl files are capped at 500 lines with a truncation marker.\n",
         encoding="utf-8",
     )
     for src in root.rglob("*"):
