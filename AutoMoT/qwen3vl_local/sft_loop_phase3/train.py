@@ -191,6 +191,10 @@ def _write_run_metadata(
         "save_steps": int(args.save_steps),
         "total_steps_global": int(total_steps),
         "focus_balance_count": int(args.focus_balance_count),
+        "ue1_focus_multiplier": float(args.ue1_focus_multiplier),
+        "ue3_focus_multiplier": float(args.ue3_focus_multiplier),
+        "ue5_focus_multiplier": float(args.ue5_focus_multiplier),
+        "ue6_focus_multiplier": float(args.ue6_focus_multiplier),
         "regular_focus_multiplier": float(args.regular_focus_multiplier),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "production_prompt_sha256": phase3_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
@@ -227,6 +231,10 @@ def _write_run_metadata(
         "generation_eval_global",
         "total_steps_global",
         "focus_balance_count",
+        "ue1_focus_multiplier",
+        "ue3_focus_multiplier",
+        "ue5_focus_multiplier",
+        "ue6_focus_multiplier",
         "regular_focus_multiplier",
         "invalid_focus_multiplier",
     ):
@@ -360,14 +368,26 @@ def _balance_target_for_key(
     key: str,
     *,
     target_per_bin: int,
+    ue1_multiplier: float,
+    ue3_multiplier: float,
+    ue5_multiplier: float,
+    ue6_multiplier: float,
     regular_multiplier: float,
     invalid_multiplier: float,
 ) -> int:
-    """返回训练采样目标；UE 正类保持等量，RE/invalid 可单独加权。"""
+    """返回训练采样目标；可按审计结论对稀缺/高漏报类别温和加权。"""
 
     target = int(target_per_bin)
     if target <= 0:
         return target
+    if key.endswith("/class/UE1"):
+        return max(1, int(round(float(target) * float(ue1_multiplier))))
+    if key.endswith("/class/UE3"):
+        return max(1, int(round(float(target) * float(ue3_multiplier))))
+    if key.endswith("/class/UE5"):
+        return max(1, int(round(float(target) * float(ue5_multiplier))))
+    if key.endswith("/class/UE6"):
+        return max(1, int(round(float(target) * float(ue6_multiplier))))
     if key.endswith("/class/RE"):
         return max(1, int(round(float(target) * float(regular_multiplier))))
     if key.endswith("/class/INVALID"):
@@ -380,6 +400,10 @@ def _balanced_work(
     *,
     target_per_bin: int,
     seed: int,
+    ue1_multiplier: float = 1.0,
+    ue3_multiplier: float = 1.0,
+    ue5_multiplier: float = 1.0,
+    ue6_multiplier: float = 1.0,
     regular_multiplier: float = 1.0,
     invalid_multiplier: float = 1.0,
 ) -> List[WorkItem]:
@@ -387,8 +411,9 @@ def _balanced_work(
 
     数据索引已按 split 保证 UE1/UE3/UE5/UE6、RE、invalid 的目标比例；
     这里在 target_per_bin>0 时按各 class 截取/循环，用于快速 check 或固定步数训练。
-    UE1/UE3/UE5/UE6 始终共享同一个目标数；RE 和 invalid 可独立倍率放大，
-    用于补强 hard negative，同时保持 UE 正类 1:1:1:1。
+    默认 UE1/UE3/UE5/UE6 仍共享同一个目标数；当 error audit 显示某个类别
+    系统性漏报时，可只放大该正类，避免为了找回 recall 全局降低 RE hard
+    negative 强度。
     """
 
     groups: Dict[str, List[WorkItem]] = defaultdict(list)
@@ -398,6 +423,8 @@ def _balanced_work(
         return []
     rng = random.Random(
         f"{seed}:phase3_balance:{len(rows)}:{int(target_per_bin)}:"
+        f"{float(ue1_multiplier):.6f}:{float(ue3_multiplier):.6f}:"
+        f"{float(ue5_multiplier):.6f}:{float(ue6_multiplier):.6f}:"
         f"{float(regular_multiplier):.6f}:{float(invalid_multiplier):.6f}"
     )
     work: List[WorkItem] = []
@@ -407,6 +434,10 @@ def _balanced_work(
         target = _balance_target_for_key(
             key,
             target_per_bin=int(target_per_bin),
+            ue1_multiplier=float(ue1_multiplier),
+            ue3_multiplier=float(ue3_multiplier),
+            ue5_multiplier=float(ue5_multiplier),
+            ue6_multiplier=float(ue6_multiplier),
             regular_multiplier=float(regular_multiplier),
             invalid_multiplier=float(invalid_multiplier),
         )
@@ -1049,6 +1080,10 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "num_epochs": int(args.num_epochs),
         "max_steps": int(args.max_steps),
         "focus_balance_count": int(args.focus_balance_count),
+        "ue1_focus_multiplier": float(args.ue1_focus_multiplier),
+        "ue3_focus_multiplier": float(args.ue3_focus_multiplier),
+        "ue5_focus_multiplier": float(args.ue5_focus_multiplier),
+        "ue6_focus_multiplier": float(args.ue6_focus_multiplier),
         "regular_focus_multiplier": float(args.regular_focus_multiplier),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "eval_split": str(args.eval_split),
@@ -1078,6 +1113,8 @@ def train(args: argparse.Namespace) -> None:
         print(
             f"[startup] world_size={world_size} device={device} index={args.index} "
             f"split={args.split} focus_balance_count={args.focus_balance_count} "
+            f"ue_multipliers=({args.ue1_focus_multiplier},{args.ue3_focus_multiplier},"
+            f"{args.ue5_focus_multiplier},{args.ue6_focus_multiplier}) "
             f"regular_focus_multiplier={args.regular_focus_multiplier} "
             f"invalid_focus_multiplier={args.invalid_focus_multiplier} "
             f"eval_steps={args.eval_steps} generation_eval_steps={args.generation_eval_steps}",
@@ -1103,6 +1140,10 @@ def train(args: argparse.Namespace) -> None:
         rows,
         target_per_bin=int(args.focus_balance_count),
         seed=int(args.seed),
+        ue1_multiplier=float(args.ue1_focus_multiplier),
+        ue3_multiplier=float(args.ue3_focus_multiplier),
+        ue5_multiplier=float(args.ue5_focus_multiplier),
+        ue6_multiplier=float(args.ue6_focus_multiplier),
         regular_multiplier=float(args.regular_focus_multiplier),
         invalid_multiplier=float(args.invalid_focus_multiplier),
     )
@@ -1161,6 +1202,10 @@ def train(args: argparse.Namespace) -> None:
                     "train": {
                         "split": str(args.split),
                         "focus_balance_count": int(args.focus_balance_count),
+                        "ue1_focus_multiplier": float(args.ue1_focus_multiplier),
+                        "ue3_focus_multiplier": float(args.ue3_focus_multiplier),
+                        "ue5_focus_multiplier": float(args.ue5_focus_multiplier),
+                        "ue6_focus_multiplier": float(args.ue6_focus_multiplier),
                         "regular_focus_multiplier": float(args.regular_focus_multiplier),
                         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
                         "effective_focus_target_per_raw_rs_bin": int(effective_focus_target_per_raw_rs_bin),
@@ -1255,6 +1300,8 @@ def train(args: argparse.Namespace) -> None:
         print(
             f"[data] train_rows={len(rows)} train_work_global={len(full_work)} train_work_rank={len(work)} "
             f"effective_focus_target_per_raw_rs_bin={effective_focus_target_per_raw_rs_bin} resample_each_epoch=True "
+            f"ue_multipliers=({float(args.ue1_focus_multiplier):.3f},{float(args.ue3_focus_multiplier):.3f},"
+            f"{float(args.ue5_focus_multiplier):.3f},{float(args.ue6_focus_multiplier):.3f}) "
             f"regular_focus_multiplier={float(args.regular_focus_multiplier):.3f} "
             f"invalid_focus_multiplier={float(args.invalid_focus_multiplier):.3f} "
             f"steps_per_epoch_global={steps_per_epoch} num_epochs={int(args.num_epochs)} max_steps={int(args.max_steps)} "
@@ -1270,6 +1317,10 @@ def train(args: argparse.Namespace) -> None:
                 rows,
                 target_per_bin=int(args.focus_balance_count),
                 seed=epoch_seed,
+                ue1_multiplier=float(args.ue1_focus_multiplier),
+                ue3_multiplier=float(args.ue3_focus_multiplier),
+                ue5_multiplier=float(args.ue5_focus_multiplier),
+                ue6_multiplier=float(args.ue6_focus_multiplier),
                 regular_multiplier=float(args.regular_focus_multiplier),
                 invalid_multiplier=float(args.invalid_focus_multiplier),
             )
@@ -1592,13 +1643,37 @@ def parse_args() -> argparse.Namespace:
         "--regular-focus-multiplier",
         type=float,
         default=2.0,
-        help="training-only multiplier for the RE/all-NO balance bin; UE positive bins remain 1:1:1:1",
+        help="training-only multiplier for the RE/all-NO balance bin; UE bins can be adjusted with --ue*-focus-multiplier",
     )
     p.add_argument(
         "--invalid-focus-multiplier",
         type=float,
-        default=1.0,
+        default=1.25,
         help="training-only multiplier for wrong-RS invalid samples",
+    )
+    p.add_argument(
+        "--ue1-focus-multiplier",
+        type=float,
+        default=1.0,
+        help="training-only multiplier for UE1 positives after audit; default keeps UE1 at the base UE bucket",
+    )
+    p.add_argument(
+        "--ue3-focus-multiplier",
+        type=float,
+        default=1.0,
+        help="training-only multiplier for UE3 positives after audit; default keeps UE3 at the base UE bucket",
+    )
+    p.add_argument(
+        "--ue5-focus-multiplier",
+        type=float,
+        default=1.0,
+        help="training-only multiplier for UE5 positives after audit; default keeps UE5 at the base UE bucket",
+    )
+    p.add_argument(
+        "--ue6-focus-multiplier",
+        type=float,
+        default=1.5,
+        help="training-only multiplier for UE6 positives; latest RGB audit shows UE6 FN dominates remaining junction errors",
     )
     p.add_argument("--num-epochs", type=int, default=3)
     p.add_argument("--max-steps", type=int, default=0, help="0 means train num_epochs over the balanced work list")
@@ -1671,6 +1746,9 @@ def parse_args() -> argparse.Namespace:
         raise ValueError("--regular-focus-multiplier must be non-negative")
     if float(args.invalid_focus_multiplier) < 0.0:
         raise ValueError("--invalid-focus-multiplier must be non-negative")
+    for name in ("ue1_focus_multiplier", "ue3_focus_multiplier", "ue5_focus_multiplier", "ue6_focus_multiplier"):
+        if float(getattr(args, name)) < 0.0:
+            raise ValueError(f"--{name.replace('_', '-')} must be non-negative")
     if not args.output_dir:
         args.output_dir = str(
             _AUTOMOT_ROOT
