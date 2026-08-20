@@ -192,3 +192,20 @@ bash qwen3vl_local/tb_serve.sh \
 ```bash
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase2_augment/run_rgb_mode_matrix.sh
 ```
+
+## 8. 独立评测打包
+
+给定一个 LoRA adapter/run 目录，直接跑 base + LoRA production/audit-prompt eval、
+错例 RGB audit、visual audit manifest，并生成不超过 `30MB` 的审计压缩包：
+
+```bash
+ADAPTER_DIR=checkpoints/sft_loop_phase2_augment_runs/latest/best_generation \
+bash qwen3vl_local/sft_loop_phase2_augment/eval.sh
+```
+
+默认四卡 `GPU_IDS=0,1,2,3`。base eval 默认从 adapter config 读取同一个
+`history_rgb_mode`，确保 base/LoRA 输入合同一致；显式设置 `HISTORY_RGB_MODE=...`
+时才覆盖。输出到 `checkpoints/sft_loop_phase2_augment_eval_review/<timestamp>/`，
+压缩包为 `sft_loop_phase2_augment_audit_bundle.tar.gz`。包内包含
+metrics/report/case JSONL、adapter/run-root 小型元信息（不含权重），以及按错误
+variant/target 分层抽样的降采样 error RGB，供代码与 prompt 审计。

@@ -495,3 +495,21 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 - base Qwen 是不是已经会答某些问题；
 - LoRA 是否只修正了答案格式，还是确实改善了视觉判据；
 - 错例 evidence 是否暴露 prompt 仍然含糊，例如把直路/护栏误判高速，或把他车闯红灯误判灯异常。
+
+## 4.1 独立评测打包
+
+给定一个 LoRA adapter/run 目录，直接跑 base + LoRA production/audit-prompt eval、
+轻量 label/RGB audit matrix，并从 eval 自带 `error_cases/` 抽取适量 RGB，生成不超过
+`30MB` 的审计压缩包：
+
+```bash
+ADAPTER_DIR=checkpoints/sft_loop_phase1_runs/run_static_obstacle_final_4rgb/final \
+bash qwen3vl_local/sft_loop_phase1/eval.sh
+```
+
+默认四卡 `GPU_IDS=0,1,2,3`。base eval 默认从 adapter config 读取同一个
+`history_rgb_mode`，确保 base/LoRA 输入合同一致；显式设置 `HISTORY_RGB_MODE=...`
+时才覆盖。输出到 `checkpoints/sft_loop_phase1_eval_review/<timestamp>/`，压缩包为
+`sft_loop_phase1_audit_bundle.tar.gz`。包内包含 metrics/report/case JSONL、
+adapter/run-root 小型元信息（不含权重）、少量 label audit sheet，以及按错误 task
+分层抽样的降采样 error RGB，供代码与 prompt 审计。
