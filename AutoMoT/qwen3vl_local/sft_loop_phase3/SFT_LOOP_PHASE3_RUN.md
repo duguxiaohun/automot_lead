@@ -60,10 +60,15 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 
 默认训练节奏与 `sft_loop_phase2_augment` 对齐：`NUM_EPOCHS=3`、
 `FOCUS_BALANCE_COUNT=1024`、`EVAL_STEPS=2000`、`GENERATION_EVAL_STEPS=2000`、
-`SAVE_STEPS=20000`、`GRAD_ACCUM=1`。这比旧 `sft_loop_phase2` 的全量八桶训练轻，
-但 phase3 只学 RS gate 下的 `UE1/UE3/UE5/UE6/INVALID` 二值事件判断，默认强度先按
-augment 路线走；想进一步充分训练可显式加大 `FOCUS_BALANCE_COUNT` 或设置
-`MAX_STEPS` 固定总步数。
+`SAVE_STEPS=20000`、`GRAD_ACCUM=1`。phase3 只学 RS gate 下的
+`UE1/UE3/UE5/UE6/INVALID` 二值事件判断，默认强度先按 augment 路线走；
+UE1/UE3/UE5/UE6 正类保持 `1:1:1:1`，但训练默认把 `RE` all-NO 桶放大为单个 UE 桶
+的 `2.0x`（`REGULAR_FOCUS_MULTIPLIER=2.0`），用于压低复杂普通交通被误报成 UE 的
+false positive；eval/generation 仍保持均衡口径，不受这个训练倍率影响。
+
+想进一步充分训练可显式加大 `FOCUS_BALANCE_COUNT` 或设置 `MAX_STEPS` 固定总步数。
+若 UE recall 明显不足，可临时调低 `REGULAR_FOCUS_MULTIPLIER=1.0`；若 RE 仍大量误报
+为 UE3/UE6，可提高到 `2.5` 或 `3.0` 后对比 validation FP/FN。
 
 Smoke：
 
@@ -78,6 +83,15 @@ bash qwen3vl_local/sft_loop_phase3/train.sh check
 
 ```bash
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase3/train.sh ddp
+```
+
+更充分训练示例：
+
+```bash
+GPU_IDS=0,1,2,3 \
+FOCUS_BALANCE_COUNT=2048 \
+REGULAR_FOCUS_MULTIPLIER=2.0 \
+bash qwen3vl_local/sft_loop_phase3/train.sh ddp
 ```
 
 默认输出到：
@@ -165,3 +179,17 @@ bash qwen3vl_local/tb_serve.sh \
 重点看 `train_window/answer_acc/*`、`val/per_question` 对应 scalar、
 `val/invalid_joint_token_ok_rate`、`val_generation/exact_accuracy`、
 `val_generation/format_valid_rate` 和 `val_generation/invalid/*joint_ok_rate`。
+
+## 7. 当前 pipeline 结果解读口径
+
+`checkpoints/sft_loop_phase3_pipeline/20260820_003925` 显示 base Qwen 基本是 all-NO
+基线，LoRA 后 production exact 约 `0.77`，格式合法率为 `1.0`，说明输出合同和训练链路
+已经正常。主要剩余错误集中在：
+
+- `RE` 被误报成 `UE3/UE6`：普通路口转弯/横穿车辆、事故/夜间复杂交通容易被当成动态占道或违规冲突。
+- 弱证据正样本漏报：早期帧、left-pad 历史、夜间/雾天中 UE1 hard-brake、UE3 cut-in、UE6 red-light/right-of-way violation 的视觉证据不足。
+- `INVALID_RS_CONTEXT` 与低能见度/拥堵场景混淆：invalid 应只表示 RS gate 明显不适用，不能因为 fog/night/blocked traffic 或没看到 UE 就报 YES。
+
+因此当前默认使用 prompt `sft_loop_phase3_event_gate_visual_v2`：输出格式不变，但更强调
+“证据弱则 RE/all-NO”、普通路口车辆不等于 UE6、事故/静态拥堵不等于 UE3、invalid 只看
+RS gate 明显错误。旧 v1 adapter 建议按本文件重新训练后再比较。
