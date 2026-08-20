@@ -2,8 +2,8 @@
 """训练 sft_loop_phase2_augment 的随机 ROAD_STRUCTURE 二元问题 LoRA adapter。
 
 训练目标是当前增强 prompt 中出现的 YES/NO 语义 token，并以低权重监督字段格式和
-assistant 结束符。三类问法按 2:1:1 采样：四题乱序、1/2/3 题子集、以及
-HIGHWAY+组级+细项三连问。
+assistant 结束符。评估三类问法保持 2:1:1；训练提高四题乱序占比，让模型更多练习
+所有 RS 问题同时竞争时的排他判别。
 """
 
 from __future__ import annotations
@@ -64,6 +64,7 @@ from qwen3vl_local.sft_loop_phase2_augment.prompts import (  # noqa: E402
     PROMPT_NAME,
     SUBSET_COUNTS,
     SYSTEM_PROMPT,
+    TRAIN_VARIANT_WEIGHTS,
     VARIANT_ORDER,
     VARIANT_WEIGHTS,
     PromptSpec,
@@ -628,12 +629,18 @@ def _iter_candidate_items(rows: Sequence[FrameRow], *, seed: int) -> Iterable[Wo
                 yield _make_hier_item(row, group_id, detail_key, seed=seed)
 
 
-def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) -> List[WorkItem]:
+def _balanced_work(
+    rows: Sequence[FrameRow],
+    *,
+    target_per_bin: int,
+    seed: int,
+    variant_weights: Mapping[str, int] = VARIANT_WEIGHTS,
+) -> List[WorkItem]:
     """构建三类增强的 deterministic-balance work list。
 
     ``target_per_bin=0`` 使用最少原始桶的全量样本。目标高于某桶原始量时，
-    该桶会确定性循环重采样。A:B:C 总体配额为 2:1:1；B 的 1/2/3 题数
-    各自等量；C 的组问题和细问题组合各自等量。
+    该桶会确定性循环重采样。三类增强的总体配额由 ``variant_weights``
+    指定；B 的 1/2/3 题数各自等量；C 的组问题和细问题组合各自等量。
     """
 
     focus_counts = _raw_focus_bin_counts(rows)
@@ -646,9 +653,9 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
     )
     base_units = len(ANSWER_KEYS) * 2 * len(SUBSET_COUNTS)
     variant_total_targets = {
-        "all_random_order": int(target) * base_units * int(VARIANT_WEIGHTS["all_random_order"]),
-        "subset_random": int(target) * base_units * int(VARIANT_WEIGHTS["subset_random"]),
-        "hierarchical_probe": int(target) * base_units * int(VARIANT_WEIGHTS["hierarchical_probe"]),
+        "all_random_order": int(target) * base_units * int(variant_weights["all_random_order"]),
+        "subset_random": int(target) * base_units * int(variant_weights["subset_random"]),
+        "hierarchical_probe": int(target) * base_units * int(variant_weights["hierarchical_probe"]),
     }
     if fixed_target:
         keys_by_variant = {
@@ -1265,7 +1272,9 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "prompt_name": PROMPT_NAME,
         "production_prompt_sha256": phase2_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
         "augment_variants": list(VARIANT_ORDER),
-        "augment_variant_weights": dict(VARIANT_WEIGHTS),
+        "augment_variant_weights": dict(TRAIN_VARIANT_WEIGHTS),
+        "train_augment_variant_weights": dict(TRAIN_VARIANT_WEIGHTS),
+        "eval_augment_variant_weights": dict(VARIANT_WEIGHTS),
         "subset_question_counts": list(SUBSET_COUNTS),
         "hierarchical_group_ids": list(GROUP_DEFINITIONS.keys()),
         "history_rgb_mode": str(args.history_rgb_mode),
@@ -1325,7 +1334,12 @@ def train(args: argparse.Namespace) -> None:
             "(streaming candidate sampler)...",
             flush=True,
         )
-    full_work = _balanced_work(rows, target_per_bin=int(args.focus_balance_count), seed=int(args.seed))
+    full_work = _balanced_work(
+        rows,
+        target_per_bin=int(args.focus_balance_count),
+        seed=int(args.seed),
+        variant_weights=TRAIN_VARIANT_WEIGHTS,
+    )
     if not full_work:
         raise ValueError("balanced work list is empty")
     # 每个 rank 使用同一个八桶均衡全集的 rank::world_size 分片。rank0 保存第一个
@@ -1347,7 +1361,12 @@ def train(args: argparse.Namespace) -> None:
                     f"[startup] validation rows loaded: {len(eval_rows)}; building validation work...",
                     flush=True,
                 )
-            full_eval_work = _balanced_work(eval_rows, target_per_bin=int(args.eval_balance_count), seed=int(args.seed) + 1009)
+            full_eval_work = _balanced_work(
+                eval_rows,
+                target_per_bin=int(args.eval_balance_count),
+                seed=int(args.seed) + 1009,
+                variant_weights=VARIANT_WEIGHTS,
+            )
             eval_work = _split_work_for_rank(full_eval_work, rank=rank, world_size=world_size)
             if int(args.generation_eval_steps) > 0 and int(args.generation_eval_balance_count) > 0:
                 if rank == 0:
@@ -1356,6 +1375,7 @@ def train(args: argparse.Namespace) -> None:
                     eval_rows,
                     target_per_bin=int(args.generation_eval_balance_count),
                     seed=int(args.seed) + 2017,
+                    variant_weights=VARIANT_WEIGHTS,
                 )
         except Exception as exc:
             raise RuntimeError(
@@ -1388,7 +1408,8 @@ def train(args: argparse.Namespace) -> None:
                         "global_sampled": dict(Counter(item.balance_key for item in full_work)),
                         "rank0_shard": dict(Counter(item.balance_key for item in work)),
                         "variant_counts": dict(Counter(item.spec.variant for item in full_work)),
-                        "variant_ratio_target": dict(VARIANT_WEIGHTS),
+                        "variant_ratio_target": dict(TRAIN_VARIANT_WEIGHTS),
+                        "eval_variant_ratio_target": dict(VARIANT_WEIGHTS),
                     },
                     "eval": {
                         "split": str(args.eval_split),
@@ -1481,6 +1502,7 @@ def train(args: argparse.Namespace) -> None:
                 rows,
                 target_per_bin=int(args.focus_balance_count),
                 seed=epoch_seed,
+                variant_weights=TRAIN_VARIANT_WEIGHTS,
             )
             work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
         rng = random.Random(int(args.seed) + epoch * 1_000_003 + rank)

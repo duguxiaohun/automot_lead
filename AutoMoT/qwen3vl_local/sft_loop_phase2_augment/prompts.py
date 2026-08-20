@@ -7,6 +7,8 @@
    “被问到的题都不是”，不再暗含高速。
 3. ``hierarchical_probe``：先问 HIGHWAY，再问一个组级几何问题，最后问一个
    RS 细问题；组级问题使用专门的视觉定义，避免把两个 RS prompt 简单拼接。
+
+评估采样保持 2:1:1 以便跨版本比较；训练可单独使用更高的 all-random 权重。
 """
 
 from __future__ import annotations
@@ -27,10 +29,14 @@ from qwen3vl_local.sft_loop_phase2_augment.history_rgb import (
 )
 
 
-PROMPT_NAME = "sft_loop_phase2_rs_augmented_visual_v2"
+PROMPT_NAME = "sft_loop_phase2_rs_augmented_visual_v3"
 ANSWER_KEYS = ("RS1", "RS2", "RS4", "RS5")
 ANSWER_VALUES = ("YES", "NO")
+# Evaluation keeps the original public contract so v2/v3 metrics remain comparable.
 VARIANT_WEIGHTS = {"all_random_order": 2, "subset_random": 1, "hierarchical_probe": 1}
+# Training emphasizes the all-random variant because the 2026-08-20 RGB audit
+# showed most residual mistakes occur when all RS questions compete at once.
+TRAIN_VARIANT_WEIGHTS = {"all_random_order": 4, "subset_random": 1, "hierarchical_probe": 1}
 VARIANT_ORDER = tuple(VARIANT_WEIGHTS.keys())
 SUBSET_COUNTS = (1, 2, 3)
 
@@ -68,20 +74,20 @@ class PromptSpec:
 RS_DEFINITIONS = {
     "RS1": """RS1:
 Ask: "Is the ego currently on an ordinary same-direction drivable road, outside a controlling junction, opposing-lane-sharing constraint, and highway/ramp decision structure?"
-YES when the usable path is an ordinary surface-road lane or ordinary same-direction roadway: lane markings or road edges continue ahead, ordinary following/lane keeping/ordinary lane change is the main rule, and there is no active junction control or need to negotiate an opposing lane. This includes local, urban, suburban, rural, parking-side, roundabout, and ordinary surface-road segments. Roadside rails, walls, trees, or darkness do not by themselves make an ordinary road non-RS1.
-NO when an unseparated opposing direction governs the usable corridor, local signal/priority intersection control governs the ego path, or the road is a limited-access highway/ramp/merge/exit structure. Several same-direction high-speed lanes with continuous shoulders, medians, guardrails/barriers, grade-separated edges, or another separated carriageway are a controlled high-speed corridor and are RS1=NO even when this four-frame window shows no merge arrow, exit sign, or gore. Do not call a road RS1 merely because it is straight, empty, wide, rainy, foggy, or has a lead vehicle. A roundabout is RS1 unless a separate signal/priority junction visibly governs the ego path.""",
+YES when the usable path is an ordinary surface-road lane or ordinary same-direction roadway: lane markings or road edges continue ahead, ordinary following/lane keeping/ordinary lane change is the main rule, and there is no active junction control or need to negotiate an opposing lane. This includes local, urban, suburban, rural, parking-side, roundabout, and ordinary surface-road segments. Center lines, curbside parked cars, lead/event vehicles, pedestrians, bends, fog, darkness, wet roads, roadside rails, fences, walls, trees, or a weak/far side road do not by themselves make an open ordinary road non-RS1.
+NO when an unseparated opposing direction governs the usable corridor, local signal/priority intersection control governs the ego path, or the road is a limited-access highway/ramp/merge/exit structure. Several same-direction high-speed lanes with continuous shoulders, medians, guardrails/barriers, grade-separated edges, or another separated carriageway are a controlled high-speed corridor and are RS1=NO even when this four-frame window shows no merge arrow, exit sign, or gore. Do not call a road RS1 merely because it is straight, empty, wide, rainy, foggy, or has a lead vehicle. Do not let lane continuation override a local signalized/priority junction, a narrow opposing-sharing constraint, or visible highway/ramp topology. A roundabout is RS1 unless a separate signal/priority junction visibly governs the ego path.""",
     "RS2": """RS2:
 Ask: "Does the opposing direction currently constrain the ego's usable corridor, so the ego may need to share, borrow, yield around, or reason about the oncoming lane?"
-YES needs visible road-layout evidence, not a scenario name or a nearby parked car. Strong evidence is a narrow two-way corridor with a centre line and little physical separation, an oncoming vehicle/vehicle front or headlight line occupying the adjacent opposing space immediately ahead, or a fixed obstruction/parked vehicles/door leaving only a passage that requires entering or yielding to the opposite lane. A narrow street with recurring opposing headlights/vehicle fronts across its centre line and parked vehicles at the curb is RS2 even when ego has not yet crossed the line. Four nominal lanes can still be RS2 when parked vehicles or obstacles remove the side lanes so that the remaining usable space is effectively one lane each way.
-NO for a normal same-direction multi-lane road, ordinary traffic in a separate opposing carriageway behind a median/barrier, a curbside parked vehicle that leaves ego's lane open, or a road where the opposite lane is visible but clearly does not constrain ego's current usable space. A double-yellow line, fog, parked cars beside a fully open ego lane, or a vehicle merely turning/crossing ahead is not enough without an immediate opposing-lane sharing or yielding decision.""",
+YES needs visible road-layout evidence, not a scenario name or a nearby parked car. Strong evidence is a narrow two-way corridor with a centre line and little physical separation, an oncoming vehicle/bus/vehicle front or headlight line occupying the adjacent opposing space immediately ahead, or a fixed obstruction/parked vehicles/door leaving only a passage that requires entering or yielding to the opposite lane. Ego does not need to have crossed the centre line yet: if the usable corridor is effectively narrowed/shared and ego must reason about oncoming or opposite-direction priority, RS2 is YES. A narrow street with recurring opposing headlights/vehicle fronts across its centre line and parked vehicles at the curb is RS2. Four nominal lanes can still be RS2 when parked vehicles or obstacles remove the side lanes so that the remaining usable space is effectively one lane each way.
+NO for a normal same-direction multi-lane road, ordinary traffic in a separate opposing carriageway behind a median/barrier, a curbside parked vehicle that leaves ego's lane open, or a road where the opposite lane is visible but clearly does not constrain ego's current usable space. A painted/double-yellow centre line, an opposite lane merely visible, fog, parked cars beside a fully open ego lane, vehicles inside a parking lot or side road, or a vehicle merely turning/crossing ahead is not enough without an immediate opposing-lane sharing or yielding decision.""",
     "RS4": """RS4:
 Ask: "Is the ego in the approach, stop line, conflict area, or immediate exit of an intersection where traffic-signal hardware is the governing right-of-way rule?"
-YES when the current visible junction has readable signal heads/masts/overhead signal arms controlling the ego approach or the intersecting approaches, together with local junction geometry such as a cross street, T-junction, turning pocket, stop line, crosswalk, median opening, or crossing traffic. A signal head/arm plus a local stop line or crosswalk is sufficient even when rain or fog partly hides the cross street. Actively inspect the upper front view and both side views: the physical signal head/arm can be small, high, partly masked, or on the far side. A failed, dark, flashing, or contradictory signal system is still RS4 when visible traffic-signal hardware is the rule source at this junction; Phase1 handles whether it is abnormal.
-NO for a distant tiny signal that does not govern the current junction, a traffic light seen down another road, a normal road with a far signal but no local junction geometry, a pedestrian signal only, a signalized junction already clearly left behind, or a vehicle running a normal red light. Do not infer RS4 from a scenario name, a light reflection, a green/red pixel, or an at-grade road alone.""",
+YES when the current visible junction has readable signal heads/masts/overhead signal arms controlling the ego approach or the intersecting approaches, together with local junction geometry such as a cross street, T-junction, turning pocket, stop line, crosswalk, median opening, or crossing traffic. A signal head/arm plus a local stop line or crosswalk is sufficient even when rain or fog partly hides the cross street. Actively inspect the upper front view and both side views: the physical signal head/arm can be small, high, partly masked, side-mounted, or on the far side. If traffic-signal hardware governs this local junction, RS4 overrides RS5 and RS1 even when the lane continues through it. A failed, dark, flashing, or contradictory signal system is still RS4 when visible traffic-signal hardware is the rule source at this junction; Phase1 handles whether it is abnormal.
+NO for a distant tiny signal that does not govern the current junction, a traffic light seen down another road, a normal road with a far signal but no local junction geometry, a pedestrian signal only, a signalized junction already clearly left behind, or a vehicle running a normal red light. Do not infer RS4 from a scenario name, a light reflection, a green/red pixel, vehicle brake/rear lights, street lamps, wet-road glow, overhead signs, utility poles/arms, crosswalk paint alone, or an at-grade road alone.""",
     "RS5": """RS5:
 Ask: "Is the ego in the approach, conflict area, or immediate exit of an intersection whose rule is priority, stop/yield, gap acceptance, or geometry rather than a working traffic signal?"
-YES when a cross street, T-junction, angled junction, side-road mouth, curb break into another road, stop/yield control, STOP marking, visible priority conflict, crossing traffic, or clear junction box is local to ego and no working traffic-signal rule governs that conflict. A readable STOP or yield sign beside the ego approach is a strong RS5 cue when the road visibly meets/crosses another road, even in fog. T-shaped intersections and unsignalized local turning conflicts count when the road connection itself is visible. The vehicle may be turning or going straight; the deciding evidence is the local no-signal/priority junction structure.
-NO for ordinary road bends, driveways, parking exits, a far side street with no immediate conflict, a roundabout, or a junction visibly governed by working traffic-signal hardware. Do not turn RS5 into a catch-all for any turn, any braking, any pedestrian/vehicle event, any crosswalk, or a missing/too-small signal in fog.""",
+YES when a cross street, T-junction, angled junction, side-road mouth, curb break into another road, lane widening/turn pocket, painted channelization, traffic island/bollards, stop/yield control, STOP marking, visible priority conflict, crossing traffic, unsignalized merge, or clear junction box is local to ego and no working traffic-signal rule governs that conflict. A readable STOP or yield sign beside the ego approach is a strong RS5 cue when the road visibly meets/crosses another road, even in fog. T-shaped intersections, unsignalized local turning conflicts, and immediate gap-acceptance conflicts count when the road connection itself is visible. The vehicle may be turning or going straight; the deciding evidence is the local no-signal/priority junction structure.
+NO for ordinary road bends, driveways, parking exits, field entrances, a far side street with no immediate conflict, a distant/faint junction-like shape, a speed-limit sign, a roundabout, or a junction visibly governed by working traffic-signal hardware. Do not turn RS5 into a catch-all for any turn, any braking, any pedestrian/vehicle event, any crosswalk, curbside object, road edge opening, or a missing/too-small signal in fog.""",
 }
 
 
@@ -337,8 +343,11 @@ Classify the newest frame using the {history}. First trace the ego vehicle's usa
 [DECISION_RULES]
 {chr(10).join(definition_blocks)}
 
+ROAD STRUCTURE PRIORITY:
+First decide whether a higher-priority visual structure governs the newest moment: limited-access highway/ramp topology, then an immediate opposing-lane sharing constraint, then a local signalized junction, then a local no-signal priority/gap-acceptance junction. RS1 is YES only after those local structures are ruled out. However, weak visibility, rain, darkness, parked cars, ordinary event vehicles, a centre line, a road bend, or a far/minor side opening must not by themselves defeat RS1 when the ego corridor remains open and continuous.
+
 HIGHWAY/RAMP ROBUSTNESS:
-A limited-access highway mainline, ramp, merge, split, exit, connector, gore area, or controlled high-speed corridor is a visual road type. Positive clues include several same-direction high-speed lanes with continuous guardrails/barriers/shoulders, grade separation, lane convergence/divergence, gore, exit/merge structure, or no ordinary surface-street access. Do not call it ordinary RS1 merely because lane markings continue. Do not treat another carriageway behind a barrier as an opposing-lane constraint, or a distant lamp/bridge as a local junction.
+A limited-access highway mainline, ramp, merge, split, exit, connector, gore area, or controlled high-speed corridor is a visual road type. Positive clues include several same-direction high-speed lanes with continuous shoulders, medians, grade separation, lane convergence/divergence, gore, exit/merge structure, separated carriageways, and no ordinary surface-street access. Guardrails, barriers, a wide straight road, darkness, fog, rain, trees, open shoulders, or high-speed-looking lane markings are not sufficient alone. If the scene shows surface-street access, sidewalks, crosswalks, traffic lights, curbside parking, ordinary local obstacles, construction, accident activity, or local driveways, keep HIGHWAY/RS3 as NO unless controlled-access topology is visible. Do not call a limited-access road ordinary RS1 merely because lane markings continue. Do not treat another carriageway behind a barrier as an opposing-lane constraint, or a distant lamp/bridge as a local junction.
 
 INDEPENDENT ANSWER CHECK:
 For each listed question, output only the YES or NO supported by that question's RGB evidence. Do not answer unlisted RS questions. Do not fill in missing RS labels from an all-NO pattern.
@@ -411,7 +420,8 @@ def phase2_prompt_sha256(
     stable_contract = {
         "prompt_name": PROMPT_NAME,
         "variant_order": list(VARIANT_ORDER),
-        "variant_weights": dict(VARIANT_WEIGHTS),
+        "eval_variant_weights": dict(VARIANT_WEIGHTS),
+        "train_variant_weights": dict(TRAIN_VARIANT_WEIGHTS),
         "subset_counts": list(SUBSET_COUNTS),
         "system_prompt": SYSTEM_PROMPT,
         "rs_definitions": dict(RS_DEFINITIONS),
