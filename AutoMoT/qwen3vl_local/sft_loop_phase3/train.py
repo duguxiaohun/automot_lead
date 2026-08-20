@@ -191,6 +191,8 @@ def _write_run_metadata(
         "save_steps": int(args.save_steps),
         "total_steps_global": int(total_steps),
         "focus_balance_count": int(args.focus_balance_count),
+        "regular_focus_multiplier": float(args.regular_focus_multiplier),
+        "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "production_prompt_sha256": phase3_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
     }
     (output_dir / "train_run_manifest.json").write_text(
@@ -225,6 +227,8 @@ def _write_run_metadata(
         "generation_eval_global",
         "total_steps_global",
         "focus_balance_count",
+        "regular_focus_multiplier",
+        "invalid_focus_multiplier",
     ):
         writer.add_scalar(f"setup/{key}", float(payload[key]), 0)
 
@@ -352,11 +356,39 @@ def _iter_candidate_items(rows: Sequence[FrameRow], *, seed: int) -> Iterable[Wo
         yield _make_all_item(row, _target_class(row), seed=seed)
 
 
-def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) -> List[WorkItem]:
+def _balance_target_for_key(
+    key: str,
+    *,
+    target_per_bin: int,
+    regular_multiplier: float,
+    invalid_multiplier: float,
+) -> int:
+    """返回训练采样目标；UE 正类保持等量，RE/invalid 可单独加权。"""
+
+    target = int(target_per_bin)
+    if target <= 0:
+        return target
+    if key.endswith("/class/RE"):
+        return max(1, int(round(float(target) * float(regular_multiplier))))
+    if key.endswith("/class/INVALID"):
+        return max(1, int(round(float(target) * float(invalid_multiplier))))
+    return target
+
+
+def _balanced_work(
+    rows: Sequence[FrameRow],
+    *,
+    target_per_bin: int,
+    seed: int,
+    regular_multiplier: float = 1.0,
+    invalid_multiplier: float = 1.0,
+) -> List[WorkItem]:
     """按 phase3 class 构建 deterministic work list。
 
     数据索引已按 split 保证 UE1/UE3/UE5/UE6、RE、invalid 的目标比例；
-    这里在 target_per_bin>0 时只按各 class 截取/循环，用于快速 check 或固定步数训练。
+    这里在 target_per_bin>0 时按各 class 截取/循环，用于快速 check 或固定步数训练。
+    UE1/UE3/UE5/UE6 始终共享同一个目标数；RE 和 invalid 可独立倍率放大，
+    用于补强 hard negative，同时保持 UE 正类 1:1:1:1。
     """
 
     groups: Dict[str, List[WorkItem]] = defaultdict(list)
@@ -364,12 +396,20 @@ def _balanced_work(rows: Sequence[FrameRow], *, target_per_bin: int, seed: int) 
         groups[item.balance_key].append(item)
     if not groups:
         return []
-    rng = random.Random(f"{seed}:phase3_balance:{len(rows)}:{int(target_per_bin)}")
+    rng = random.Random(
+        f"{seed}:phase3_balance:{len(rows)}:{int(target_per_bin)}:"
+        f"{float(regular_multiplier):.6f}:{float(invalid_multiplier):.6f}"
+    )
     work: List[WorkItem] = []
     for key in sorted(groups):
         items = list(groups[key])
         rng.shuffle(items)
-        target = int(target_per_bin)
+        target = _balance_target_for_key(
+            key,
+            target_per_bin=int(target_per_bin),
+            regular_multiplier=float(regular_multiplier),
+            invalid_multiplier=float(invalid_multiplier),
+        )
         if target <= 0:
             work.extend(items)
         elif len(items) >= target:
@@ -1009,6 +1049,8 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "num_epochs": int(args.num_epochs),
         "max_steps": int(args.max_steps),
         "focus_balance_count": int(args.focus_balance_count),
+        "regular_focus_multiplier": float(args.regular_focus_multiplier),
+        "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "eval_split": str(args.eval_split),
         "eval_steps": int(args.eval_steps),
         "eval_balance_count": int(args.eval_balance_count),
@@ -1036,6 +1078,8 @@ def train(args: argparse.Namespace) -> None:
         print(
             f"[startup] world_size={world_size} device={device} index={args.index} "
             f"split={args.split} focus_balance_count={args.focus_balance_count} "
+            f"regular_focus_multiplier={args.regular_focus_multiplier} "
+            f"invalid_focus_multiplier={args.invalid_focus_multiplier} "
             f"eval_steps={args.eval_steps} generation_eval_steps={args.generation_eval_steps}",
             flush=True,
         )
@@ -1055,7 +1099,13 @@ def train(args: argparse.Namespace) -> None:
             "(streaming candidate sampler)...",
             flush=True,
         )
-    full_work = _balanced_work(rows, target_per_bin=int(args.focus_balance_count), seed=int(args.seed))
+    full_work = _balanced_work(
+        rows,
+        target_per_bin=int(args.focus_balance_count),
+        seed=int(args.seed),
+        regular_multiplier=float(args.regular_focus_multiplier),
+        invalid_multiplier=float(args.invalid_focus_multiplier),
+    )
     if not full_work:
         raise ValueError("balanced work list is empty")
     # 训练用同一个全局 work 序列按 global step 对齐取样；rank0 仍保存第一轮
@@ -1111,6 +1161,8 @@ def train(args: argparse.Namespace) -> None:
                     "train": {
                         "split": str(args.split),
                         "focus_balance_count": int(args.focus_balance_count),
+                        "regular_focus_multiplier": float(args.regular_focus_multiplier),
+                        "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
                         "effective_focus_target_per_raw_rs_bin": int(effective_focus_target_per_raw_rs_bin),
                         "resample_each_epoch": True,
                         "epoch_seed_formula": "seed + epoch * 1000003",
@@ -1203,6 +1255,8 @@ def train(args: argparse.Namespace) -> None:
         print(
             f"[data] train_rows={len(rows)} train_work_global={len(full_work)} train_work_rank={len(work)} "
             f"effective_focus_target_per_raw_rs_bin={effective_focus_target_per_raw_rs_bin} resample_each_epoch=True "
+            f"regular_focus_multiplier={float(args.regular_focus_multiplier):.3f} "
+            f"invalid_focus_multiplier={float(args.invalid_focus_multiplier):.3f} "
             f"steps_per_epoch_global={steps_per_epoch} num_epochs={int(args.num_epochs)} max_steps={int(args.max_steps)} "
             f"total_steps_global={total_steps} eval_work_rank={len(eval_work)} "
             f"generation_eval_global={len(full_generation_eval_work)} "
@@ -1216,6 +1270,8 @@ def train(args: argparse.Namespace) -> None:
                 rows,
                 target_per_bin=int(args.focus_balance_count),
                 seed=epoch_seed,
+                regular_multiplier=float(args.regular_focus_multiplier),
+                invalid_multiplier=float(args.invalid_focus_multiplier),
             )
             work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
         order_rng = random.Random(int(args.seed) + epoch * 1_000_003)
@@ -1532,6 +1588,18 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="per augment balance bin; 0 uses the smallest raw bin in full each epoch, positive values set a fixed target and repeat scarce bins when needed",
     )
+    p.add_argument(
+        "--regular-focus-multiplier",
+        type=float,
+        default=2.0,
+        help="training-only multiplier for the RE/all-NO balance bin; UE positive bins remain 1:1:1:1",
+    )
+    p.add_argument(
+        "--invalid-focus-multiplier",
+        type=float,
+        default=1.0,
+        help="training-only multiplier for wrong-RS invalid samples",
+    )
     p.add_argument("--num-epochs", type=int, default=3)
     p.add_argument("--max-steps", type=int, default=0, help="0 means train num_epochs over the balanced work list")
     p.add_argument("--eval-split", default="val")
@@ -1599,6 +1667,10 @@ def parse_args() -> argparse.Namespace:
             raise ValueError("--generation-eval-balance-count must be positive when generation validation is enabled")
     if not 0.0 <= float(args.generation_eval_min_valid_rate) <= 1.0:
         raise ValueError("--generation-eval-min-valid-rate must be in [0, 1]")
+    if float(args.regular_focus_multiplier) < 0.0:
+        raise ValueError("--regular-focus-multiplier must be non-negative")
+    if float(args.invalid_focus_multiplier) < 0.0:
+        raise ValueError("--invalid-focus-multiplier must be non-negative")
     if not args.output_dir:
         args.output_dir = str(
             _AUTOMOT_ROOT
