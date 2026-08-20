@@ -181,3 +181,21 @@ bash qwen3vl_local/tb_serve.sh \
 `val/format_token_acc`、`val/focus_rs*_acc`，以及最关键的 `val_generation/format_valid_rate` 和
 `val_generation/exact_accuracy`；两类 val 默认每 `2,000` step 记录一次。训练中优先使用通过格式闸门的
 `best_val/`，不要反复使用 test split；test 的正式 F1/TP/FP 只在训练后用于最终泛化确认。
+
+## 5. 独立评测打包
+
+给定一个 LoRA adapter/run 目录，直接跑 base + LoRA production/audit-prompt eval、
+visual audit manifest，并从 eval 自带 `error_cases/` 抽取适量 RGB，生成不超过 `30MB`
+的审计压缩包：
+
+```bash
+ADAPTER_DIR=checkpoints/sft_loop_phase2_runs/run_rs_four_binary_format_supervised_4rgb/final \
+bash qwen3vl_local/sft_loop_phase2/eval.sh
+```
+
+默认四卡 `GPU_IDS=0,1,2,3`。base eval 默认从 adapter config 读取同一个
+`history_rgb_mode`，确保 base/LoRA 输入合同一致；显式设置 `HISTORY_RGB_MODE=...`
+时才覆盖。输出到 `checkpoints/sft_loop_phase2_eval_review/<timestamp>/`，压缩包为
+`sft_loop_phase2_audit_bundle.tar.gz`。包内包含 metrics/report/case JSONL、
+adapter/run-root 小型元信息（不含权重），以及按错误 task 分层抽样的降采样 error RGB，
+供代码与 prompt 审计。
