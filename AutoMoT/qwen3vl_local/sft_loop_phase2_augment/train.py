@@ -16,6 +16,7 @@ import os
 import pathlib
 import random
 import re
+import subprocess
 import sys
 import time
 from collections import Counter, defaultdict
@@ -86,6 +87,32 @@ from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # 
 
 
 FORMAT_COMPONENT_ID = -1
+
+
+def _git_metadata() -> Dict[str, Any]:
+    """记录训练时的代码版本；失败时保留空字段，不影响训练。"""
+
+    def run(args: Sequence[str]) -> Optional[str]:
+        try:
+            return subprocess.run(
+                ["git", *args],
+                cwd=_PROJECT_ROOT,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            ).stdout.strip()
+        except Exception:
+            return None
+
+    status = run(["status", "--short"]) or ""
+    return {
+        "root": str(_PROJECT_ROOT),
+        "branch": run(["rev-parse", "--abbrev-ref", "HEAD"]),
+        "commit": run(["rev-parse", "HEAD"]),
+        "dirty": bool(status),
+        "status_short": status.splitlines()[:300],
+    }
 
 
 def setup_distributed() -> Tuple[int, int, int]:
@@ -165,6 +192,9 @@ def _write_run_metadata(
     payload = {
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "train_script": str(_THIS),
+        "git": _git_metadata(),
         "output_dir": str(output_dir),
         "tb_dir": str(output_dir / "tb"),
         "run_log": os.environ.get("RUN_LOG", ""),
@@ -1271,6 +1301,9 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
         "production_prompt_sha256": phase2_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
+        "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "train_script": str(_THIS),
+        "git": _git_metadata(),
         "augment_variants": list(VARIANT_ORDER),
         "augment_variant_weights": dict(TRAIN_VARIANT_WEIGHTS),
         "train_augment_variant_weights": dict(TRAIN_VARIANT_WEIGHTS),
