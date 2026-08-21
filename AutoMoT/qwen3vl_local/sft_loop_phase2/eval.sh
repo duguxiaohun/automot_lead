@@ -31,6 +31,7 @@ RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL:-1}"
 TIMESTAMP="${TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-checkpoints/sft_loop_phase2_eval_review/${TIMESTAMP}}"
 BUNDLE_MAX_MB="${BUNDLE_MAX_MB:-30}"
+BUNDLE_BASENAME="${BUNDLE_BASENAME:-${PHASE_NAME}_${TIMESTAMP}_audit_bundle}"
 ADAPTER_INPUT="${ADAPTER_DIR:-${CKPT_DIR:-${1:-}}}"
 
 if [[ -z "${ADAPTER_INPUT}" ]]; then
@@ -118,16 +119,23 @@ run_eval() {
 
 build_bundle() {
   PHASE_NAME="${PHASE_NAME}" OUTPUT_ROOT="${OUTPUT_ROOT}" ADAPTER_DIR="${ADAPTER_DIR}" \
-  BUNDLE_MAX_MB="${BUNDLE_MAX_MB}" python - <<'PY'
-import json, os, pathlib, shutil, tarfile
+  ADAPTER_INPUT="${ADAPTER_INPUT}" ADAPTER_CONFIG_NAME="${ADAPTER_CONFIG_NAME}" \
+  BUNDLE_MAX_MB="${BUNDLE_MAX_MB}" BUNDLE_BASENAME="${BUNDLE_BASENAME}" \
+  TIMESTAMP="${TIMESTAMP}" MODEL_DIR="${MODEL_DIR}" INDEX="${INDEX}" SPLIT="${SPLIT}" \
+  HISTORY_RGB_MODE="${BASE_HISTORY_RGB_MODE}" EVAL_SCRIPT="${EVAL_PY}" python - <<'PY'
+import datetime, json, os, pathlib, shutil, subprocess, tarfile
 
 root = pathlib.Path(os.environ["OUTPUT_ROOT"])
 phase = os.environ["PHASE_NAME"]
+run_timestamp = os.environ["TIMESTAMP"]
 adapter_dir = os.environ["ADAPTER_DIR"]
+adapter_input = os.environ.get("ADAPTER_INPUT", "")
+adapter_config_name = os.environ.get("ADAPTER_CONFIG_NAME", "")
 adapter_path = pathlib.Path(adapter_dir)
 limit_bytes = int(float(os.environ.get("BUNDLE_MAX_MB", "30")) * 1024 * 1024)
-archive = root / f"{phase}_audit_bundle.tar.gz"
-bundle = root / "audit_bundle"
+bundle_name = os.environ["BUNDLE_BASENAME"]
+archive = root / f"{bundle_name}.tar.gz"
+bundle = root / bundle_name
 text_suffixes = {".json", ".jsonl", ".md", ".txt", ".log", ".csv"}
 weight_suffixes = {".safetensors", ".bin", ".pt", ".pth", ".ckpt"}
 
@@ -135,6 +143,124 @@ try:
     from PIL import Image
 except Exception:
     Image = None
+
+def _git(args: list[str]) -> str | None:
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=pathlib.Path.cwd(),
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        ).stdout.strip()
+    except Exception:
+        return None
+
+def git_metadata() -> dict:
+    status = _git(["status", "--short"]) or ""
+    return {
+        "root": _git(["rev-parse", "--show-toplevel"]),
+        "branch": _git(["rev-parse", "--abbrev-ref", "HEAD"]),
+        "commit": _git(["rev-parse", "HEAD"]),
+        "dirty": bool(status),
+        "status_short": status.splitlines()[:300],
+    }
+
+def read_json(path: pathlib.Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def adapter_identity() -> dict:
+    cfg_path = adapter_path / adapter_config_name if adapter_config_name else None
+    if cfg_path is None or not cfg_path.is_file():
+        candidates = sorted(adapter_path.glob("*_adapter_config.json"))
+        cfg_path = candidates[0] if candidates else None
+    cfg = read_json(cfg_path) if cfg_path is not None and cfg_path.is_file() else {}
+    weight_files = []
+    if adapter_path.is_dir():
+        weight_files = [
+            str(path.relative_to(adapter_path))
+            for path in sorted(adapter_path.iterdir())
+            if path.is_file() and path.suffix.lower() in weight_suffixes
+        ]
+    weight_slot = adapter_path.name if adapter_path.name in {"best_generation", "best_val", "final"} else "direct_adapter_dir"
+    run_root = adapter_path.parent if weight_slot != "direct_adapter_dir" else adapter_path
+    return {
+        "input": adapter_input,
+        "resolved_dir": adapter_dir,
+        "run_root": str(run_root),
+        "weight_slot": weight_slot,
+        "weight_files": weight_files,
+        "config_path": str(cfg_path) if cfg_path is not None else None,
+        "config_schema": cfg.get("schema"),
+        "prompt_name": cfg.get("prompt_name"),
+        "production_prompt_sha256": cfg.get("production_prompt_sha256"),
+        "global_step": cfg.get("global_step"),
+        "base_model_dir": cfg.get("base_model_dir"),
+        "history_rgb_mode": cfg.get("history_rgb_mode"),
+    }
+
+def eval_identity() -> dict:
+    wanted = (
+        "prompt_name",
+        "prompt_mode",
+        "production_prompt_sha256",
+        "eval_prompt_sha256",
+        "adapter_dir",
+        "adapter_dir_resolve_source",
+        "adapter_production_prompt_sha256",
+        "adapter_prompt_matches_current_production",
+        "history_rgb_mode",
+        "exact_match_accuracy",
+        "total_cases",
+    )
+    per_eval = {}
+    for eval_name in ("base_production", "base_audit_prompt", "lora_production", "lora_audit_prompt"):
+        metrics_path = root / eval_name / "metrics.json"
+        if metrics_path.is_file():
+            data = read_json(metrics_path)
+            per_eval[eval_name] = {key: data.get(key) for key in wanted if key in data}
+    prompt_names = sorted({str(item["prompt_name"]) for item in per_eval.values() if item.get("prompt_name")})
+    production_hashes = sorted({str(item["production_prompt_sha256"]) for item in per_eval.values() if item.get("production_prompt_sha256")})
+    return {
+        "prompt_name": prompt_names[0] if len(prompt_names) == 1 else prompt_names,
+        "production_prompt_sha256": production_hashes[0] if len(production_hashes) == 1 else production_hashes,
+        "per_eval": per_eval,
+    }
+
+def bundle_identity() -> dict:
+    adapter = adapter_identity()
+    eval_meta = eval_identity()
+    return {
+        "phase": phase,
+        "run_timestamp": run_timestamp,
+        "created_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "bundle_name": bundle_name,
+        "archive": str(archive),
+        "source_root": str(root),
+        "eval_script": os.environ.get("EVAL_SCRIPT", ""),
+        "model_dir": os.environ.get("MODEL_DIR", ""),
+        "index": os.environ.get("INDEX", ""),
+        "split": os.environ.get("SPLIT", ""),
+        "history_rgb_mode": os.environ.get("HISTORY_RGB_MODE", ""),
+        "prompt_name": eval_meta.get("prompt_name") or adapter.get("prompt_name"),
+        "production_prompt_sha256": eval_meta.get("production_prompt_sha256") or adapter.get("production_prompt_sha256"),
+        "adapter": adapter,
+        "eval": eval_meta,
+        "git": git_metadata(),
+    }
+
+def skip_existing_bundle_artifact(src: pathlib.Path) -> bool:
+    if not src.is_file() or bundle in src.parents or src == archive:
+        return True
+    try:
+        first = src.relative_to(root).parts[0]
+    except Exception:
+        return False
+    return first == "audit_bundle" or first.endswith("_audit_bundle") or src.name.endswith("_audit_bundle.tar.gz")
 
 def copy_text(src: pathlib.Path, dst: pathlib.Path, max_jsonl_lines: int = 500) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -204,9 +330,7 @@ def build_attempt(case_limit: int, max_side: int, quality: int) -> int:
         shutil.rmtree(bundle)
     bundle.mkdir(parents=True)
     manifest = {
-        "phase": phase,
-        "source_root": str(root),
-        "adapter_dir": adapter_dir,
+        **bundle_identity(),
         "case_limit_per_eval": case_limit,
         "image_max_side": max_side,
         "image_quality": quality,
@@ -215,11 +339,19 @@ def build_attempt(case_limit: int, max_side: int, quality: int) -> int:
         "bundle_contract": "metrics/reports/case jsonl plus sampled downscaled error RGB; designed for prompt/code audit under 30MB",
     }
     (bundle / "BUNDLE_README.md").write_text(
-        f"# {phase} eval audit bundle\n\n- source_root: `{root}`\n- adapter_dir: `{adapter_dir}`\n",
+        f"# {bundle_name}\n\n"
+        f"- phase: `{phase}`\n"
+        f"- test_time: `{run_timestamp}`\n"
+        f"- source_root: `{root}`\n"
+        f"- adapter_input: `{adapter_input}`\n"
+        f"- adapter_dir: `{adapter_dir}`\n"
+        f"- prompt_name: `{manifest.get('prompt_name')}`\n"
+        f"- production_prompt_sha256: `{manifest.get('production_prompt_sha256')}`\n"
+        f"- git_commit: `{manifest.get('git', {}).get('commit')}`\n",
         encoding="utf-8",
     )
     for src in root.rglob("*"):
-        if not src.is_file() or bundle in src.parents or src == archive:
+        if skip_existing_bundle_artifact(src):
             continue
         if src.suffix.lower() in text_suffixes and "/rgb/" not in src.as_posix():
             copy_text(src, bundle / src.relative_to(root))
@@ -294,4 +426,4 @@ build_bundle
 
 echo
 echo "[done] eval root: ${OUTPUT_ROOT}"
-echo "[done] audit bundle: ${OUTPUT_ROOT}/${PHASE_NAME}_audit_bundle.tar.gz"
+echo "[done] audit bundle: ${OUTPUT_ROOT}/${BUNDLE_BASENAME}.tar.gz"
