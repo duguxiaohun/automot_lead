@@ -25,7 +25,7 @@ from qwen3vl_local.sft_loop_phase3.history_rgb import (
 )
 
 
-PROMPT_NAME = "sft_loop_phase3_event_gate_visual_v3"
+PROMPT_NAME = "sft_loop_phase3_event_gate_visual_v2"
 EVENT_KEYS = ("UE1", "UE3", "UE5", "UE6")
 INVALID_KEY = "INVALID_RS_CONTEXT"
 ANSWER_KEYS = (*EVENT_KEYS, INVALID_KEY)
@@ -77,13 +77,13 @@ class PromptSpec:
 
 EVENT_DEFINITIONS = {
     "UE1": """UE1 - lead vehicle hard braking / sudden slowdown:
-YES only when a vehicle already in ego's forward path or same-lane following relation visibly brakes or slows enough to interrupt normal following. Use brake lights plus rapid closing distance, a newly formed queue in ego's lane, or clear ego-path deceleration cues. NO for brake lights alone, ordinary steady following, normal red-light queueing, a static obstacle, a side-crossing vehicle, an early/ambiguous history with no motion cue, or a distant slow vehicle with no sudden interaction. If the main interrupter is entering from the side or crossing the lane, answer UE3 rather than UE1.""",
+YES only when a vehicle already in ego's forward path or same-lane following relation visibly brakes or slows enough to interrupt normal following. Use brake lights, rapid closing distance across the history, a newly formed queue in ego's lane, or clear ego-path deceleration cues. NO for ordinary steady following, normal red-light queueing, a static obstacle, a side-crossing vehicle, an early/ambiguous history with no motion cue, or a distant slow vehicle with no sudden interaction.""",
     "UE3": """UE3 - dynamic vehicle cut-in / dynamic occupation:
-YES only when another vehicle is moving into, cutting across, pulling out into, or already occupying ego's immediate future corridor, forcing ego to yield, slow, or stop. Use lateral motion across frames, vehicle nose/body entering ego lane, parking-side pull-out, side-lane cut-in, or a cross-traffic vehicle that has reached the ego path. NO for ego's own planned lane change/merge, stopped accident or blocked-traffic scenes, ordinary adjacent-lane traffic, distant vehicles, a bus/car close to the side but still outside the ego lane, dark/weak evidence with no visible path entry, or a vehicle that remains outside the ego corridor.""",
+YES only when another vehicle is moving into, cutting across, pulling out into, or about to occupy ego's immediate future corridor, forcing ego to yield, slow, or stop. Use lateral motion across frames, vehicle nose/body entering ego lane, parking-side pull-out, side-lane cut-in, or dynamic crossing into the path. NO for ego's own planned lane change/merge, stopped accident or blocked-traffic scenes, ordinary adjacent-lane traffic, distant vehicles, dark/weak evidence with no visible path entry, or a vehicle that remains outside the ego corridor.""",
     "UE5": """UE5 - abnormal oncoming invasion:
-YES only when an oncoming/opposite-direction vehicle intrudes into ego's lane or usable corridor and ego must yield or wait. On narrow or rural two-way roads, count it as YES when the oncoming vehicle crosses the center/usable boundary or blocks the only drivable corridor. The key evidence is the other vehicle invading ego's side, not ego borrowing the opposite lane to pass an obstacle. NO for normal oncoming traffic in its own lane, ego's own TwoWays detour, ordinary narrow-road sharing without invasion, very distant headlights without corridor intrusion, or a signal/priority conflict at an intersection.""",
+YES only when an oncoming/opposite-direction vehicle intrudes into ego's lane or usable corridor and ego must yield or wait. The key evidence is the other vehicle invading ego's side, not ego borrowing the opposite lane to pass an obstacle. NO for normal oncoming traffic in its own lane, ego's own TwoWays detour, ordinary narrow-road sharing without invasion, or a signal/priority conflict at an intersection.""",
     "UE6": """UE6 - rule-violating vehicle conflict at an intersection:
-YES only inside a local R4/R5 junction gate when ego should have priority or a legal phase but another vehicle violates the rule and occupies the conflict path. Look for a crossing/oncoming/turning vehicle entering against the signal or right-of-way, especially a body/headlights moving laterally across ego's intended path over the history or already blocking the conflict zone. Low light or fog does not make this NO if the conflicting vehicle is visible and has entered the path. NO for ordinary turning/crossing vehicles that follow their lane or yield, normal red-light waiting, normal yielding, blocked traffic queue, pedestrian/cyclist crossing, defective signal hardware alone, a vehicle merely present or waiting in the junction, or non-junction cut-in.""",
+YES only inside a local R4/R5 junction gate when ego should have priority or a legal phase but another vehicle violates the rule and occupies the conflict path. Look for a crossing/oncoming/turning vehicle entering against the signal or right-of-way and forcing ego to stop despite priority. NO for ordinary turning/crossing vehicles that follow their lane or yield, normal red-light waiting, normal yielding, blocked traffic queue, pedestrian/cyclist crossing, defective signal hardware, a vehicle merely present in the junction, or non-junction cut-in.""",
 }
 
 
@@ -305,13 +305,13 @@ Classify the newest frame using the {history}. First verify whether the previous
 DECISION ORDER:
 1. If the RS gate is clearly inapplicable, answer every UE line NO and {INVALID_KEY}: YES.
 2. If the RS gate is visually plausible, keep {INVALID_KEY}: NO and judge only the listed UE questions.
-3. Prefer RE/all-NO when object motion, priority violation, lane intrusion, or hard-braking evidence is weak in RGB; do not use this caution to ignore a vehicle already occupying ego's corridor or intersection conflict path.
+3. Prefer RE/all-NO when motion, priority violation, lane intrusion, or hard-braking evidence is weak in RGB.
 
 RE / REGULAR:
 If none of the listed UE questions is visibly true and the RS gate is applicable, answer all UE lines NO and {INVALID_KEY}: NO. Do not classify which regular event it is in this phase.
 
 INVALID_RS_CONTEXT:
-Answer {INVALID_KEY}: YES only when the previous RS gate is clearly incompatible with the newest RGB road layout. Examples: the context says RS1/RS2 but the newest frame clearly shows a local intersection, or the context says RS4/RS5 but the newest frame clearly shows a plain road, highway, ramp, guardrail-separated fast road, or no local junction control. Use this label cautiously. A hard case, fog/night, blocked traffic, unusual congestion, ordinary red light, or absence of a UE event is not enough by itself; however, fog/night should not override a clearly visible road topology mismatch. When {INVALID_KEY}: YES, all UE lines must be NO because the event question was asked under the wrong gate.
+Answer {INVALID_KEY}: YES only when the previous RS gate is clearly incompatible with the newest RGB. Examples: the context says RS1/RS2 but the newest frame is a highway/ramp or a local intersection, or the context says RS4/RS5 but the newest frame is a plain road/highway with no local junction control. Use this label cautiously. A hard case, fog/night, blocked traffic, unusual congestion, ordinary red light, or absence of a UE event is not enough. When {INVALID_KEY}: YES, all UE lines must be NO because the event question was asked under the wrong gate.
 
 BOUNDARIES:
 UE2 static obstacles, UE4 pedestrians/cyclists, UE7 defective traffic lights, and UE8 blocked intersections are not target abnormal classes here. Treat them as RE for this phase unless the wrong RS gate itself is visibly inapplicable.

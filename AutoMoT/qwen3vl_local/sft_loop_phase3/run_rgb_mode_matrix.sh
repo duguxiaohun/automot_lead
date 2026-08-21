@@ -60,7 +60,6 @@ adapter_dir_for_mode() {
 echo "[matrix] AutoMoT root: ${AUTOMOT_ROOT}"
 echo "[matrix] fixed four-card DDP: GPU_IDS=${GPU_IDS}, processes=${NPROC}"
 echo "[matrix] 2rgb_endpoints always uses source frames [0,3] (first and fourth)."
-echo "[matrix] train multipliers: REGULAR=${REGULAR_FOCUS_MULTIPLIER:-2.0} INVALID=${INVALID_FOCUS_MULTIPLIER:-1.25} UE1=${UE1_FOCUS_MULTIPLIER:-1.0} UE3=${UE3_FOCUS_MULTIPLIER:-1.0} UE5=${UE5_FOCUS_MULTIPLIER:-1.0} UE6=${UE6_FOCUS_MULTIPLIER:-1.5}"
 
 run_eval "1/10 base 4rgb production" --history-rgb-mode 4rgb
 run_eval "2/10 base 4rgb audit" --history-rgb-mode 4rgb --audit-prompt

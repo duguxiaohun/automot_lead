@@ -64,11 +64,7 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 `UE1/UE3/UE5/UE6/INVALID` 二值事件判断，默认强度先按 augment 路线走；
 UE1/UE3/UE5/UE6 正类保持 `1:1:1:1`，但训练默认把 `RE` all-NO 桶放大为单个 UE 桶
 的 `2.0x`（`REGULAR_FOCUS_MULTIPLIER=2.0`），用于压低复杂普通交通被误报成 UE 的
-false positive。2026-08-20 对 `audit_bundle/audit_lora_production` 的逐帧 RGB 审计显示
-UE6 FN 是最大剩余错误、invalid FN 高于 FP，因此默认另外使用
-`UE6_FOCUS_MULTIPLIER=1.5` 和 `INVALID_FOCUS_MULTIPLIER=1.25`；UE1/UE3/UE5 仍默认
-`1.0`，需要消融时可分别设置 `UE1_FOCUS_MULTIPLIER` / `UE3_FOCUS_MULTIPLIER` /
-`UE5_FOCUS_MULTIPLIER`。eval/generation 仍保持均衡口径，不受这些训练倍率影响。
+false positive；eval/generation 仍保持均衡口径，不受这个训练倍率影响。
 
 想进一步充分训练可显式加大 `FOCUS_BALANCE_COUNT` 或设置 `MAX_STEPS` 固定总步数。
 若 UE recall 明显不足，可临时调低 `REGULAR_FOCUS_MULTIPLIER=1.0`；若 RE 仍大量误报
@@ -95,8 +91,6 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_loop_phase3/train.sh ddp
 GPU_IDS=0,1,2,3 \
 FOCUS_BALANCE_COUNT=2048 \
 REGULAR_FOCUS_MULTIPLIER=2.0 \
-INVALID_FOCUS_MULTIPLIER=1.25 \
-UE6_FOCUS_MULTIPLIER=1.5 \
 bash qwen3vl_local/sft_loop_phase3/train.sh ddp
 ```
 
@@ -207,16 +201,12 @@ bash qwen3vl_local/tb_serve.sh \
 
 `checkpoints/sft_loop_phase3_pipeline/20260820_003925` 显示 base Qwen 基本是 all-NO
 基线，LoRA 后 production exact 约 `0.77`，格式合法率为 `1.0`，说明输出合同和训练链路
-已经正常。`checkpoints/audit_bundle` 的 v2 复训结果 production exact 约 `0.7786`，
-相对旧 v1 小幅提升，并把 `INVALID_RS_CONTEXT` FP 从 14 降到 4、`UE3` FP 从 13 降到 6，
-但 `UE6` FN 从 12 升到 20、invalid FN 从 10 升到 15。逐帧 RGB 审计后的主要剩余错误是：
+已经正常。主要剩余错误集中在：
 
 - `RE` 被误报成 `UE3/UE6`：普通路口转弯/横穿车辆、事故/夜间复杂交通容易被当成动态占道或违规冲突。
-- 弱证据正样本漏报：早期帧、left-pad 历史、夜间/雾天中 UE1 hard-brake、UE3 cut-in、UE5 oncoming invasion、UE6 red-light/right-of-way violation 的视觉证据不足。
-- `INVALID_RS_CONTEXT` 与低能见度/拥堵场景混淆：invalid 应只表示 RS gate 明显不适用，不能因为 fog/night/blocked traffic 或没看到 UE 就报 YES；但当道路拓扑本身清楚显示 highway/plain road/local junction mismatch 时，fog/night 也不应阻止 invalid。
-- 一部分 invalid FP 在 RGB 上反而像上游 RS/GT 可疑样本，例如 GT 为 R1 但画面清楚显示信号灯/斑马线路口；这类需要回流到 Phase2/标签复核，不要单靠 phase3 prompt 压掉。
+- 弱证据正样本漏报：早期帧、left-pad 历史、夜间/雾天中 UE1 hard-brake、UE3 cut-in、UE6 red-light/right-of-way violation 的视觉证据不足。
+- `INVALID_RS_CONTEXT` 与低能见度/拥堵场景混淆：invalid 应只表示 RS gate 明显不适用，不能因为 fog/night/blocked traffic 或没看到 UE 就报 YES。
 
-因此当前默认使用 prompt `sft_loop_phase3_event_gate_visual_v3`：输出格式不变，在 v2
-“证据弱则 RE/all-NO”的基础上，补强了三点：UE6 对已进入冲突区的横向车辆不因夜雾直接
-降为 NO；UE1/UE3 通过“同车道急减速 vs 侧向进入 ego corridor”拆开；invalid 通过道路拓扑
-而不是事件难度判定。旧 v1/v2 adapter 建议按本文件重新训练后再比较。
+因此当前默认使用 prompt `sft_loop_phase3_event_gate_visual_v2`：输出格式不变，但更强调
+“证据弱则 RE/all-NO”、普通路口车辆不等于 UE6、事故/静态拥堵不等于 UE3、invalid 只看
+RS gate 明显错误。旧 v1 adapter 建议按本文件重新训练后再比较。
