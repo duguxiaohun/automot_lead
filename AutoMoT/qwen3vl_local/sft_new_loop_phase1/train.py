@@ -631,90 +631,48 @@ def _assign_specs_to_focus_pairs(
     seed: int,
     variant_weights: Mapping[str, int],
 ) -> List[WorkItem]:
-    """为已均衡的 focus pairs 贪心选择 Phase2 spec，减少增强问题偏斜。"""
+    """为已均衡的 focus pairs 流式选择 spec，硬控 variant 并压低 augment-key 偏差。"""
 
-    per_key_targets = _augment_key_targets(len(pairs), variant_weights)
-    variant_targets = _augment_target_counts(len(pairs), variant_weights)
-    label_targets: Counter[str] = Counter()
-    all_total = int(variant_targets.get("all_random_order", 0))
-    for key in PHASE2_ANSWER_KEYS:
-        label_targets[f"all/{key}:YES"] = all_total // 2
-        label_targets[f"all/{key}:NO"] = all_total - label_targets[f"all/{key}:YES"]
-    subset_total = int(variant_targets.get("subset_random", 0))
-    for count in SUBSET_COUNTS:
-        count_total = subset_total // len(SUBSET_COUNTS) + int((int(count) - 1) < subset_total % len(SUBSET_COUNTS))
-        asked_per_rs = (count_total * int(count)) // len(PHASE2_ANSWER_KEYS)
-        yes_per_rs = min(asked_per_rs // 2, count_total // len(PHASE2_ANSWER_KEYS))
-        no_per_rs = max(0, asked_per_rs - yes_per_rs)
-        for rs in PHASE2_ANSWER_KEYS:
-            label_targets[f"subset_q{count}/{rs}:YES"] = yes_per_rs
-            label_targets[f"subset_q{count}/{rs}:NO"] = no_per_rs
-    hier_total = int(variant_targets.get("hierarchical_probe", 0))
-    label_targets["highway:YES"] = hier_total // 2
-    label_targets["highway:NO"] = hier_total - label_targets["highway:YES"]
-    for bins in (
-        [f"group/{group_id}:{answer}" for group_id in GROUP_DEFINITIONS for answer in ("YES", "NO")],
-        [f"detail/{detail_key}:{answer}" for detail_key in PHASE2_ANSWER_KEYS for answer in ("YES", "NO")],
-    ):
-        base = hier_total // len(bins) if bins else 0
-        remainder = hier_total - base * len(bins)
-        for idx, label in enumerate(bins):
-            label_targets[label] = base + int(idx < remainder)
+    targets = Counter(_augment_key_targets(len(pairs), variant_weights))
+    variant_targets = Counter(_augment_target_counts(len(pairs), variant_weights))
     key_counts: Counter[str] = Counter()
-    label_counts: Counter[str] = Counter()
     variant_counts: Counter[str] = Counter()
     out: List[WorkItem] = []
     for slot, (row, focus) in enumerate(pairs):
         candidates = list(_candidate_specs_for_row(row, seed=seed + slot, focus=focus))
+        if not candidates:
+            raise RuntimeError(f"no augment candidates for focus={focus} row={row.scenario}/{row.route_id}/f{row.frame_id}")
         best: Optional[WorkItem] = None
         best_score = -10**18
         for candidate in candidates:
             variant = candidate.spec.variant
-            if variant_counts[variant] >= variant_targets.get(variant, 0):
+            variant_deficit = variant_targets[variant] - variant_counts[variant]
+            if variant_deficit <= 0:
                 continue
-            key_target = int(per_key_targets.get(candidate.augment_balance_key, 0))
-            key_deficit = key_target - key_counts[candidate.augment_balance_key]
-            variant_deficit = variant_targets.get(variant, 0) - variant_counts[variant]
-            if variant == "hierarchical_probe":
-                labels = _hierarchical_key_labels(candidate.augment_balance_key)
-            elif variant == "subset_random":
-                labels = _subset_key_labels(candidate.augment_balance_key)
-            else:
-                labels = tuple(
-                    f"all/{q.question_id}:{_answer_text(q.answer)}"
-                    for q in candidate.spec.phase2_spec.questions
-                    if q.question_id in PHASE2_ANSWER_KEYS
-                )
-            label_score = 0.0
-            for label in labels:
-                deficit = label_targets[label] - label_counts[label]
-                weight = 100.0 / max(1.0, float(label_targets[label]))
-                label_score += deficit * weight
-                if deficit <= 0:
-                    label_score += deficit * weight * 2.0
-            score = label_score * 100 + key_deficit * 10 + variant_deficit
+            key = candidate.augment_balance_key
+            key_deficit = targets[key] - key_counts[key]
+            score = (
+                10_000.0 * float(variant_deficit) / max(1.0, float(variant_targets[variant]))
+                + 100.0 * float(key_deficit) / max(1.0, float(targets[key]))
+                + float(targets[key])
+            )
             if key_deficit <= 0:
-                score += key_deficit * 20
+                score += 200.0 * float(key_deficit)
             if score > best_score:
                 best = candidate
                 best_score = score
         if best is None:
-            best = candidates[slot % len(candidates)]
-        if best.spec.variant == "hierarchical_probe":
-            best_labels = _hierarchical_key_labels(best.augment_balance_key)
-        elif best.spec.variant == "subset_random":
-            best_labels = _subset_key_labels(best.augment_balance_key)
-        else:
-            best_labels = tuple(
-                f"all/{q.question_id}:{_answer_text(q.answer)}"
-                for q in best.spec.phase2_spec.questions
-                if q.question_id in PHASE2_ANSWER_KEYS
+            best = max(
+                candidates,
+                key=lambda candidate: (
+                    variant_targets[candidate.spec.variant] - variant_counts[candidate.spec.variant],
+                    targets[candidate.augment_balance_key] - key_counts[candidate.augment_balance_key],
+                    candidate.augment_balance_key,
+                ),
             )
-        for label in best_labels:
-            label_counts[label] += 1
+        out.append(best)
         key_counts[best.augment_balance_key] += 1
         variant_counts[best.spec.variant] += 1
-        out.append(best)
     return out
 
 
@@ -775,6 +733,129 @@ def _repeat_report(work: Sequence[WorkItem]) -> Dict[str, Any]:
             for key, value in counts.most_common(20)
         ],
     }
+
+
+def _counter_dict(counter: Mapping[str, int]) -> Dict[str, int]:
+    """稳定排序 counter，方便 JSON 审计 diff。"""
+
+    return {str(key): int(counter[key]) for key in sorted(counter)}
+
+
+def _target_deviation_report(actual: Mapping[str, int], targets: Mapping[str, int]) -> Dict[str, Any]:
+    """对比实际计数与目标计数，返回偏差摘要和 top-k 明细。"""
+
+    keys = sorted(set(actual) | set(targets))
+    rows = [
+        {
+            "key": str(key),
+            "actual": int(actual.get(key, 0)),
+            "target": int(targets.get(key, 0)),
+            "delta": int(actual.get(key, 0)) - int(targets.get(key, 0)),
+        }
+        for key in keys
+    ]
+    off = [row for row in rows if int(row["delta"]) != 0]
+    return {
+        "exact": not off,
+        "keys": int(len(keys)),
+        "off_target_keys": int(len(off)),
+        "max_abs_delta": int(max((abs(int(row["delta"])) for row in rows), default=0)),
+        "total_abs_delta": int(sum(abs(int(row["delta"])) for row in rows)),
+        "underfull_top": sorted(off, key=lambda row: (int(row["delta"]), row["key"]))[:20],
+        "overfull_top": sorted(off, key=lambda row: (-int(row["delta"]), row["key"]))[:20],
+    }
+
+
+def _work_balance_report(
+    work: Sequence[WorkItem],
+    *,
+    rows: Sequence[FrameRow],
+    split: str,
+    focus_balance_count: int,
+    seed: int,
+    variant_weights: Mapping[str, int],
+    world_size: int,
+    rank_work: Optional[Sequence[WorkItem]] = None,
+) -> Dict[str, Any]:
+    """生成一次 sampled work 的完整均衡审计。"""
+
+    augment_actual = Counter(item.augment_balance_key for item in work)
+    phase_counts = Counter(focus_phase(item.focus) for item in work)
+    augment_targets: Counter[str] = Counter()
+    variant_targets: Counter[str] = Counter()
+    for phase in sorted(phase_counts):
+        count = int(phase_counts[phase])
+        augment_targets.update(_augment_key_targets(count, variant_weights))
+        variant_targets.update(_augment_target_counts(count, variant_weights))
+    variant_actual = Counter(item.spec.variant for item in work)
+    payload: Dict[str, Any] = {
+        "split": str(split),
+        "seed": int(seed),
+        "focus_balance_count": int(focus_balance_count),
+        "world_size": int(world_size),
+        "raw_available": _raw_focus_bin_counts(rows),
+        "global_sampled": _counter_dict(Counter(item.balance_key for item in work)),
+        "augment_global_sampled": _counter_dict(augment_actual),
+        "augment_target_sampled": _counter_dict(augment_targets),
+        "augment_target_deviation": _target_deviation_report(augment_actual, augment_targets),
+        "variant_sampled": _counter_dict(variant_actual),
+        "variant_target_sampled": _counter_dict(variant_targets),
+        "variant_target_deviation": _target_deviation_report(variant_actual, variant_targets),
+        "phase_group_sampled": _counter_dict(Counter(focus_phase(item.focus) for item in work)),
+        "phase_group_answer_sampled": _counter_dict(
+            Counter(f"{focus_phase(item.focus)}:{'YES' if item.row.answers[item.focus] else 'NO'}" for item in work)
+        ),
+        "repeat_audit": _repeat_report(work),
+    }
+    if rank_work is not None:
+        payload["rank0_shard"] = _counter_dict(Counter(item.balance_key for item in rank_work))
+        payload["rank0_augment_shard"] = _counter_dict(Counter(item.augment_balance_key for item in rank_work))
+    return payload
+
+
+def _write_epoch_balance_report(
+    output_dir: pathlib.Path,
+    *,
+    epoch: int,
+    work: Sequence[WorkItem],
+    rows: Sequence[FrameRow],
+    split: str,
+    focus_balance_count: int,
+    seed: int,
+    variant_weights: Mapping[str, int],
+    world_size: int,
+) -> pathlib.Path:
+    """每个重采样 epoch 写一份完整 train balance 审计。"""
+
+    report = _work_balance_report(
+        work,
+        rows=rows,
+        split=split,
+        focus_balance_count=focus_balance_count,
+        seed=seed,
+        variant_weights=variant_weights,
+        world_size=world_size,
+    )
+    report["epoch"] = int(epoch)
+    balance_dir = output_dir / "balance"
+    balance_dir.mkdir(parents=True, exist_ok=True)
+    path = balance_dir / f"epoch_{int(epoch):03d}.json"
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    _append_jsonl(
+        balance_dir / "epochs.jsonl",
+        {
+            "epoch": int(epoch),
+            "path": str(path.relative_to(output_dir)),
+            "seed": int(seed),
+            "cases": int(len(work)),
+            "augment_exact": bool(report["augment_target_deviation"]["exact"]),
+            "augment_off_target_keys": int(report["augment_target_deviation"]["off_target_keys"]),
+            "augment_max_abs_delta": int(report["augment_target_deviation"]["max_abs_delta"]),
+            "max_repeat": int(report["repeat_audit"]["max_repeat"]),
+            "mean_repeat": float(report["repeat_audit"]["mean_repeat"]),
+        },
+    )
+    return path
 
 
 def _balanced_work(
@@ -1471,20 +1552,40 @@ def train(args: argparse.Namespace) -> None:
             ) from exc
     if rank == 0:
         output_dir.mkdir(parents=True, exist_ok=True)
+        epoch0_balance_path = _write_epoch_balance_report(
+            output_dir,
+            epoch=0,
+            work=full_work,
+            rows=rows,
+            split=str(args.split),
+            focus_balance_count=int(args.focus_balance_count),
+            seed=int(args.seed),
+            variant_weights=TRAIN_VARIANT_WEIGHTS,
+            world_size=world_size,
+        )
         val_balance = {}
         if eval_work:
-            val_balance = {
-                "raw_available": _raw_focus_bin_counts(eval_rows),
-                "global_sampled": dict(Counter(item.balance_key for item in full_eval_work)),
-                "augment_global_sampled": dict(Counter(item.augment_balance_key for item in full_eval_work)),
-                "variant_sampled": dict(Counter(item.spec.variant for item in full_eval_work)),
-                "phase_group_sampled": dict(Counter(focus_phase(item.focus) for item in full_eval_work)),
-                "phase_group_answer_sampled": dict(
-                    Counter(f"{focus_phase(item.focus)}:{'YES' if item.row.answers[item.focus] else 'NO'}" for item in full_eval_work)
-                ),
-                "rank0_shard": dict(Counter(item.balance_key for item in eval_work)),
-                "repeat_audit": _repeat_report(full_eval_work),
-            }
+            val_balance = _work_balance_report(
+                full_eval_work,
+                rows=eval_rows,
+                split=str(args.eval_split),
+                focus_balance_count=int(args.eval_balance_count),
+                seed=int(args.seed) + 1009,
+                variant_weights=VARIANT_WEIGHTS,
+                world_size=world_size,
+                rank_work=eval_work,
+            )
+        generation_balance = {}
+        if full_generation_eval_work:
+            generation_balance = _work_balance_report(
+                full_generation_eval_work,
+                rows=eval_rows,
+                split=str(args.eval_split),
+                focus_balance_count=int(args.generation_eval_balance_count),
+                seed=int(args.seed) + 2017,
+                variant_weights=VARIANT_WEIGHTS,
+                world_size=1,
+            )
         (output_dir / "train_balance.json").write_text(
             json.dumps(
                 {
@@ -1497,17 +1598,18 @@ def train(args: argparse.Namespace) -> None:
                         "focus_balance_count": int(args.focus_balance_count),
                         "resample_each_epoch": True,
                         "epoch_seed_formula": "seed + epoch * 1000003",
-                        "raw_available": _raw_focus_bin_counts(rows),
-                        "global_sampled": dict(Counter(item.balance_key for item in full_work)),
-                        "augment_global_sampled": dict(Counter(item.augment_balance_key for item in full_work)),
-                        "variant_sampled": dict(Counter(item.spec.variant for item in full_work)),
-                        "phase_group_sampled": dict(Counter(focus_phase(item.focus) for item in full_work)),
-                        "phase_group_answer_sampled": dict(
-                            Counter(f"{focus_phase(item.focus)}:{'YES' if item.row.answers[item.focus] else 'NO'}" for item in full_work)
+                        "epoch_balance_dir": "balance",
+                        "epoch0_balance_path": str(epoch0_balance_path.relative_to(output_dir)),
+                        **_work_balance_report(
+                            full_work,
+                            rows=rows,
+                            split=str(args.split),
+                            focus_balance_count=int(args.focus_balance_count),
+                            seed=int(args.seed),
+                            variant_weights=TRAIN_VARIANT_WEIGHTS,
+                            world_size=world_size,
+                            rank_work=work,
                         ),
-                        "rank0_shard": dict(Counter(item.balance_key for item in work)),
-                        "rank0_augment_shard": dict(Counter(item.augment_balance_key for item in work)),
-                        "repeat_audit": _repeat_report(full_work),
                     },
                     "eval": {
                         "split": str(args.eval_split),
@@ -1519,11 +1621,7 @@ def train(args: argparse.Namespace) -> None:
                         "steps": int(args.generation_eval_steps),
                         "balance_count": int(args.generation_eval_balance_count),
                         "max_new_tokens": int(args.generation_eval_max_new_tokens),
-                        "global_sampled": dict(Counter(item.balance_key for item in full_generation_eval_work)),
-                        "augment_global_sampled": dict(Counter(item.augment_balance_key for item in full_generation_eval_work)),
-                        "variant_sampled": dict(Counter(item.spec.variant for item in full_generation_eval_work)),
-                        "phase_group_sampled": dict(Counter(focus_phase(item.focus) for item in full_generation_eval_work)),
-                        "repeat_audit": _repeat_report(full_generation_eval_work),
+                        **generation_balance,
                         "rank0_only": True,
                     },
                 },
@@ -1593,6 +1691,18 @@ def train(args: argparse.Namespace) -> None:
                 variant_weights=TRAIN_VARIANT_WEIGHTS,
             )
             work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
+            if rank == 0:
+                _write_epoch_balance_report(
+                    output_dir,
+                    epoch=epoch,
+                    work=full_work,
+                    rows=rows,
+                    split=str(args.split),
+                    focus_balance_count=int(args.focus_balance_count),
+                    seed=epoch_seed,
+                    variant_weights=TRAIN_VARIANT_WEIGHTS,
+                    world_size=world_size,
+                )
         rng.shuffle(work)
         epoch_start_step = global_step
         for item in work:
@@ -1661,6 +1771,11 @@ def train(args: argparse.Namespace) -> None:
                             key.removeprefix("variant/"): int(value)
                             for key, value in sorted(train_window.items())
                             if key.startswith("variant/")
+                        },
+                        "augment_counts": {
+                            key.removeprefix("augment/"): int(value)
+                            for key, value in sorted(train_window.items())
+                            if key.startswith("augment/")
                         },
                     },
                 )
@@ -1782,7 +1897,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num-epochs", type=int, default=3)
     p.add_argument("--max-steps", type=int, default=0, help="0 means train num_epochs over the balanced work list")
     p.add_argument("--eval-split", default="val")
-    p.add_argument("--eval-steps", type=int, default=100)
+    p.add_argument("--eval-steps", type=int, default=2_000)
     p.add_argument("--eval-balance-count", type=int, default=16)
     p.add_argument("--max-eval-frames", type=int, default=0)
     p.add_argument(
@@ -1794,13 +1909,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--generation-eval-steps",
         type=int,
-        default=1_000,
+        default=2_000,
         help="run rank0 free-generation validation every N teacher-forced validation steps; 0 disables it",
     )
     p.add_argument("--generation-eval-balance-count", type=int, default=16)
     p.add_argument("--generation-eval-max-new-tokens", type=int, default=64)
     p.add_argument("--generation-format-valid-gate", type=float, default=0.99)
-    p.add_argument("--save-steps", type=int, default=500)
+    p.add_argument("--save-steps", type=int, default=20_000)
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--learning-rate", type=float, default=1e-5)
     p.add_argument("--weight-decay", type=float, default=0.0)

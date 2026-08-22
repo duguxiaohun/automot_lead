@@ -256,10 +256,12 @@
   (`RS1/RS2/RS4/RS5`) 也各自 YES:NO=1:1，并在此前提下迁移 `sft_loop_phase2_augment`
   的 all/subset/hierarchical augment balance key、多边际配额、variant report、
   answer-pattern diagnostics、subset 未问行泄漏检查、`RS_HIGHWAY` 与 `GROUP:<id>` 指标；
-  四个 Phase1 focus 与四个 Phase2 focus 总量 1:1；manifest/train_balance/metrics 必须记录
-  这些比例与重复率审计。默认 `FOCUS_BALANCE_COUNT=9216`，对应每轮 147,456 sampled cases，
-  与旧 Phase2 augment 总 case 数对齐；训练期 generation eval 默认
-  `generation_eval_balance_count=16`，避免小样本漏审 subset/hierarchical。冲突或不确定处以 Phase2 最新 RS 定义为 ROAD_STRUCTURE 权威，同时保留
+  all/subset/hierarchical 三类 variant 总量是硬约束，具体 augment key 逐桶偏差必须写入
+  deviation report；四个 Phase1 focus 与四个 Phase2 focus 总量 1:1；manifest/train_balance/metrics 必须记录
+  这些比例、每 epoch `balance/epoch_*.json`、窗口 `augment_counts` 与重复率审计。
+  默认 `FOCUS_BALANCE_COUNT=9216`，对应每轮 147,456 sampled cases，与旧 Phase2 augment
+  总 case 数对齐；训练期 teacher/generation eval 与 checkpoint 默认步频为 2000/2000/20000，
+  generation eval 默认 `generation_eval_balance_count=16`，避免小样本漏审 subset/hierarchical。冲突或不确定处以 Phase2 最新 RS 定义为 ROAD_STRUCTURE 权威，同时保留
   Phase1 审计标签作为对应可见事实标签。训练/eval/checkpoint 大产物仍写入 `AutoMoT/checkpoints/`
   或本地输出目录，不随目录白名单入库。）
 - `AutoMoT/qwen3vl_local/sft_loop_phase3/`
