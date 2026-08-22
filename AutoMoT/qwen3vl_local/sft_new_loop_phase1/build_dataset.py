@@ -99,15 +99,10 @@ def _coerce_subgroups(value: Any) -> List[str]:
 
 
 def _extract_override_route_ids(override: Mapping[str, Any]) -> List[str]:
-    """从 override 的显式 evidence 文本里提取已人工审计 route id。"""
+    """保留旧 manifest 字段，但禁止从自由文本 evidence 推断 route 覆盖。"""
 
-    text = str(override.get("audit_evidence") or "")
-    route_ids: List[str] = []
-    marker = "/ParkedObstacle/Town12/{"
-    if marker in text and "}" in text:
-        inside = text.split(marker, 1)[1].split("}", 1)[0]
-        route_ids.extend(item.strip() for item in inside.split(",") if item.strip())
-    return route_ids
+    _ = override
+    return []
 
 
 def _load_manual_subgroup_notes(paths: Sequence[pathlib.Path]) -> Dict[Tuple[str, str], List[str]]:
@@ -195,8 +190,7 @@ def _apply_visual_subgroup_overrides(
     for override in overrides:
         override_id = str(override.get("id") or "")
         subgroup = str(override.get("topology_subgroup") or "")
-        explicit_routes = {str(item) for item in override.get("explicit_route_ids", [])}
-        route_marked = bool(subgroup and subgroup in known_subgroups) or route_id in explicit_routes
+        route_marked = bool(subgroup and subgroup in known_subgroups)
         if not route_marked:
             continue
         if str(override.get("scenario")) != scenario:
@@ -409,7 +403,8 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         "manual_note_paths": [item for item in str(args.manual_note_paths).split(",") if item.strip()],
         "visual_subgroup_override_contract": (
             "Top-level answer-table visual_subgroup_overrides are applied only when a route/frame carries "
-            "the explicit subgroup in RGB audit notes/annotations, or when the override lists an explicit reviewed route id."
+            "the explicit subgroup in structured RGB audit notes/annotations. Free-text audit_evidence is never parsed "
+            "as a route-level label source."
         ),
         "full_frame_rgb_review_coverage": {
             "review_root": str(args.review_root),

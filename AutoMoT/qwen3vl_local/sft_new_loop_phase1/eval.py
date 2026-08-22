@@ -635,7 +635,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         task_total = int(task_counts[focus].get("total", 0))
         yes_count = int(task_counts[focus].get("main_gt/YES", 0))
         no_count = int(task_counts[focus].get("main_gt/NO", 0))
-        if task_total > 0 and yes_count > 0 and no_count > 0 and yes_count != no_count:
+        if task_total > 0 and (yes_count <= 0 or no_count <= 0 or yes_count != no_count):
             raise RuntimeError(
                 f"aggregated evaluation lost {focus} 1:1 balance: YES={yes_count} NO={no_count}; "
                 "do not use this result."
