@@ -32,13 +32,16 @@ YES:NO = 1:1，Phase1 四问与 Phase2 四问总量也是 1:1。默认还会检�
 ## 0. 目录与产物
 
 以下命令都从 `AutoMoT/` 目录运行，路径不要再加 `AutoMoT/` 前缀。
-所有 shell 入口不额外指定时都默认四卡：`GPU_IDS=0,1,2,3` 或自动选 4 张空闲卡。
-需要单卡时显式传 `GPU_IDS=0`，训练还要显式传 `single` 或 `check`。
+所有 shell 入口不额外指定时都默认四卡。`train.sh` 和 `run_full_pipeline.sh`
+默认自动选 4 张空闲卡；`eval.sh` 和 `run_rgb_mode_matrix.sh` 默认使用
+`GPU_IDS=0,1,2,3`。需要单卡时显式传 `GPU_IDS=0`，训练还要显式传 `single`
+或 `check`。
 
 常用产物路径：
 
 - 数据集：`checkpoints/sft_new_loop_phase1_data/frame_index.jsonl`
 - 训练 run：`checkpoints/sft_new_loop_phase1_runs/run_<RUN_TAG>_combined_phase1_phase2_<rgb_mode>/`
+- check run：`checkpoints/sft_new_loop_phase1_runs/check_<RUN_TAG>_combined_phase1_phase2_<rgb_mode>/`
 - 一键 eval：`checkpoints/sft_new_loop_phase1_eval_review/<timestamp>/`
 - 一键 pipeline：`checkpoints/sft_new_loop_phase1_pipeline/<timestamp>/`
 - RGB 模式矩阵：`checkpoints/sft_new_loop_phase1_eval_matrix/<timestamp>/`
@@ -90,6 +93,8 @@ DATA_ROOT=/path/to/lead_data GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase1/tr
 ```
 
 check 模式默认只跑很少 step，但仍从完整 index 里构造均衡桶，不靠文件前几行取样。
+每次 check 默认写入带时间戳的新目录，并更新
+`checkpoints/sft_new_loop_phase1_runs/check_latest`，避免重复 smoke 混用旧 JSONL/TB。
 
 ## 3. 正式训练
 
@@ -107,6 +112,8 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase1/train.sh
 
 `train.sh` 不传模式时默认 `ddp`，也就是默认四卡；如果只想单卡训练，需要显式传
 `single`。
+直接运行 `train.sh` 会把 stdout/stderr 同步写到当前 run 的 `train.log`；通过
+`run_full_pipeline.sh` 启动时，外层还会额外记录 `pipeline.log`。
 
 两帧端点输入对照：
 
@@ -125,7 +132,12 @@ HISTORY_RGB_MODE=2rgb_endpoints GPU_IDS=0,1,2,3 \
 - `GENERATION_EVAL_BALANCE_COUNT=16`
 - `SAVE_STEPS=20000`
 - `WARMUP_STEPS=2000`
+- `GRAD_ACCUM=1`
 - `HISTORY_RGB_MODE=4rgb`
+
+如果显式把 `GRAD_ACCUM` 调大，teacher eval、generation eval 和 checkpoint 会在达到
+触发 step 后延迟到下一次 optimizer step 执行，避免保存尚未应用当前累积梯度的 adapter。
+延迟保存的周期 checkpoint 名称会写成 `checkpoint-<trigger_step>-applied-<step>`。
 
 训练产物会写入 `checkpoints/sft_new_loop_phase1_runs/`，非 check run 会更新
 `checkpoints/sft_new_loop_phase1_runs/latest` 软链接。
@@ -241,7 +253,7 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_new_loop_phase1_runs/latest
 - `train/focus/*`
 - `train/variant/*`
 - `train/augment/*`
-- `val/exact_match_accuracy`
+- `val/value_token_acc`
 - `val_generation/exact_accuracy`
 
 ## 8. RGB 模式矩阵

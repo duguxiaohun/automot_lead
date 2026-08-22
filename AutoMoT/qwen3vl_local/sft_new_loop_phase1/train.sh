@@ -37,7 +37,7 @@ esac
 OUTPUT_DIR_BASE="checkpoints/sft_new_loop_phase1_runs"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
 FINAL_RUN_NAME="run_${RUN_TAG}_combined_phase1_phase2_${HISTORY_RGB_TAG}"
-CHECK_RUN_NAME="check_combined_phase1_phase2_${HISTORY_RGB_TAG}"
+CHECK_RUN_NAME="check_${RUN_TAG}_combined_phase1_phase2_${HISTORY_RGB_TAG}"
 FINAL_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${FINAL_RUN_NAME}"
 CHECK_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${CHECK_RUN_NAME}"
 if [[ "${MODE}" == "check" ]]; then
@@ -48,7 +48,11 @@ fi
 mkdir -p "${OUTPUT_DIR}"
 if [[ "${MODE}" != "check" ]]; then
   ln -sfn "${FINAL_RUN_NAME}" "${OUTPUT_DIR_BASE}/latest"
+else
+  ln -sfn "${CHECK_RUN_NAME}" "${OUTPUT_DIR_BASE}/check_latest"
 fi
+LOG_PATH="${LOG_PATH:-${OUTPUT_DIR}/train.log}"
+exec > >(tee -a "${LOG_PATH}") 2>&1
 
 pick_idle_gpus() {
   local want_count="$1"
@@ -149,6 +153,7 @@ COMMON_ARGS=(
 )
 
 echo "[run] MODE=${MODE} HISTORY_RGB_MODE=${HISTORY_RGB_MODE} OUTPUT_DIR=${OUTPUT_DIR}"
+echo "[log] ${LOG_PATH}"
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
 
