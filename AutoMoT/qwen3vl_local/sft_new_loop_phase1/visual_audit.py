@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Build the RGB audit manifest used by fused Phase1+Phase2 dataset creation.
+"""生成 fused Phase1+Phase2 数据构建使用的 RGB 审计 manifest。
 
-The visual-risk rules are intentionally inherited from the latest
-`sft_loop_phase2_augment` implementation. This local wrapper keeps the fused
-package operationally self-contained while preserving Phase2 as the ROAD_STRUCTURE
-authority.
+visual-risk 规则故意继承最新 `sft_loop_phase2_augment` 实现。这个本地 wrapper
+让 fused 包具备自己的运行入口，同时继续以 Phase2 的 ROAD_STRUCTURE 定义为权威。
 """
 
 from __future__ import annotations
@@ -54,12 +52,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--coverage-manifest",
         default=str(DEFAULT_COVERAGE_MANIFEST),
-        help="bundled compact Phase2 coverage proof used when local RGB audit artifacts are absent",
+        help="本地 RGB 审计大产物不存在时使用的紧凑 Phase2 覆盖证明",
     )
     p.add_argument(
         "--scan-frame-risks",
         action="store_true",
-        help="also stream every result.json frame to summarize risks; build_dataset.py performs this during index construction",
+        help="额外流式扫描每个 result.json 帧并汇总风险；build_dataset.py 构建索引时也会执行这一类检查",
     )
     return p.parse_args()
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Run the fused Phase1+Phase2 4rgb / 2rgb_endpoints comparison matrix:
-# base production/audit -> train -> LoRA production/audit for each RGB mode.
+# fused Phase1+Phase2 的 4rgb / 2rgb_endpoints 对照矩阵：
+# 每个 RGB 模式依次跑 base production/audit -> train -> LoRA production/audit。
 #
-# From the AutoMoT/ directory:
+# 从 AutoMoT/ 主目录运行：
 #   bash qwen3vl_local/sft_new_loop_phase1/run_rgb_mode_matrix.sh
 #
-# Useful overrides:
+# 常用覆盖：
 #   GPU_IDS=0
 #   DATA_ROOT=/path/to/lead_data
 #   CASES_PER_BIN=64
@@ -99,30 +99,30 @@ adapter_dir_for_mode() {
   fi
 }
 
-echo "[matrix] AutoMoT root: ${AUTOMOT_ROOT}"
-echo "[matrix] GPU_IDS=${GPU_IDS}, processes=${NPROC}"
+echo "[matrix] AutoMoT 根目录: ${AUTOMOT_ROOT}"
+echo "[matrix] GPU_IDS=${GPU_IDS}, 进程数=${NPROC}"
 echo "[matrix] MODEL_DIR=${MODEL_DIR}"
 echo "[matrix] INDEX=${INDEX}"
 echo "[matrix] DATA_ROOT=${DATA_ROOT}"
 echo "[matrix] EVAL_ROOT=${EVAL_ROOT}"
-echo "[matrix] 2rgb_endpoints uses source frames [0,3] (first and fourth)."
+echo "[matrix] 2rgb_endpoints 固定使用源帧 [0,3]，也就是第 1 帧和第 4 帧。"
 
 mkdir -p "${EVAL_ROOT}"
 
 run_eval "1/10 base 4rgb production" "${EVAL_ROOT}/01_base_4rgb_production" --history-rgb-mode 4rgb
-run_eval "2/10 base 4rgb audit" "${EVAL_ROOT}/02_base_4rgb_audit" --history-rgb-mode 4rgb --audit-prompt
+run_eval "2/10 base 4rgb audit-prompt" "${EVAL_ROOT}/02_base_4rgb_audit" --history-rgb-mode 4rgb --audit-prompt
 run_eval "3/10 base 2rgb_endpoints production" "${EVAL_ROOT}/03_base_2rgb_endpoints_production" --history-rgb-mode 2rgb_endpoints
-run_eval "4/10 base 2rgb_endpoints audit" "${EVAL_ROOT}/04_base_2rgb_endpoints_audit" --history-rgb-mode 2rgb_endpoints --audit-prompt
+run_eval "4/10 base 2rgb_endpoints audit-prompt" "${EVAL_ROOT}/04_base_2rgb_endpoints_audit" --history-rgb-mode 2rgb_endpoints --audit-prompt
 
-run_train "5/10 train 4rgb LoRA" 4rgb
+run_train "5/10 训练 4rgb LoRA" 4rgb
 LORA_4RGB_DIR="$(adapter_dir_for_mode 4rgb)"
 run_eval "6/10 LoRA 4rgb production" "${EVAL_ROOT}/06_lora_4rgb_production" --adapter-dir "${LORA_4RGB_DIR}"
-run_eval "7/10 LoRA 4rgb audit" "${EVAL_ROOT}/07_lora_4rgb_audit" --adapter-dir "${LORA_4RGB_DIR}" --audit-prompt
+run_eval "7/10 LoRA 4rgb audit-prompt" "${EVAL_ROOT}/07_lora_4rgb_audit" --adapter-dir "${LORA_4RGB_DIR}" --audit-prompt
 
-run_train "8/10 train 2rgb_endpoints LoRA" 2rgb_endpoints
+run_train "8/10 训练 2rgb_endpoints LoRA" 2rgb_endpoints
 LORA_2RGB_DIR="$(adapter_dir_for_mode 2rgb_endpoints)"
 run_eval "9/10 LoRA 2rgb_endpoints production" "${EVAL_ROOT}/09_lora_2rgb_endpoints_production" --adapter-dir "${LORA_2RGB_DIR}"
-run_eval "10/10 LoRA 2rgb_endpoints audit" "${EVAL_ROOT}/10_lora_2rgb_endpoints_audit" --adapter-dir "${LORA_2RGB_DIR}" --audit-prompt
+run_eval "10/10 LoRA 2rgb_endpoints audit-prompt" "${EVAL_ROOT}/10_lora_2rgb_endpoints_audit" --adapter-dir "${LORA_2RGB_DIR}" --audit-prompt
 
 echo
-echo "[done] matrix results: ${EVAL_ROOT}"
+echo "[done] 矩阵评测产物: ${EVAL_ROOT}"
