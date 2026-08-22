@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Fused Phase1+Phase2 一键评测：base production/audit -> LoRA production/audit -> <=30MB 审计包。
+# fused Phase1+Phase2 一键评测：base production/audit -> LoRA production/audit -> 错例 RGB 抽样 -> <=30MB 审计包。
 #
 # 从 AutoMoT/ 目录运行：
-#   ADAPTER_DIR=checkpoints/sft_new_loop_phase1_runs/run_combined_phase1_phase2_4rgb/final bash qwen3vl_local/sft_new_loop_phase1/eval.sh
+#   ADAPTER_DIR=checkpoints/sft_new_loop_phase1_runs/latest/final bash qwen3vl_local/sft_new_loop_phase1/eval.sh
 # 或：
-#   bash qwen3vl_local/sft_new_loop_phase1/eval.sh checkpoints/sft_new_loop_phase1_runs/run_combined_phase1_phase2_4rgb/final
+#   bash qwen3vl_local/sft_new_loop_phase1/eval.sh checkpoints/sft_new_loop_phase1_runs/latest
 
 set -euo pipefail
 
@@ -16,6 +16,7 @@ cd "${AUTOMOT_ROOT}"
 
 PHASE_NAME="sft_new_loop_phase1"
 EVAL_PY="qwen3vl_local/sft_new_loop_phase1/eval.py"
+AUDIT_PY="qwen3vl_local/sft_new_loop_phase1/audit_eval_cases.py"
 LABEL_AUDIT_PY="qwen3vl_local/sft_loop_phase1/audit_matrix.py"
 ADAPTER_CONFIG_NAME="sft_new_loop_phase1_adapter_config.json"
 
@@ -28,6 +29,8 @@ SPLIT="${SPLIT:-test}"
 CASES_PER_BIN="${CASES_PER_BIN:-64}"
 MAX_EVAL_FRAMES="${MAX_EVAL_FRAMES:-0}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-256}"
+RUN_AUDIT_CASES="${RUN_AUDIT_CASES:-1}"
+AUDIT_PER_TARGET="${AUDIT_PER_TARGET:-8}"
 RUN_LABEL_AUDIT="${RUN_LABEL_AUDIT:-0}"
 LABEL_AUDIT_SAMPLES_PER_TOWN="${LABEL_AUDIT_SAMPLES_PER_TOWN:-1}"
 LABEL_AUDIT_FRAMES_PER_ROUTE="${LABEL_AUDIT_FRAMES_PER_ROUTE:-1}"
@@ -117,6 +120,23 @@ run_eval() {
     --master_addr="${MASTER_ADDR:-127.0.0.1}" \
     --master_port="$(find_free_master_port)" \
     "${EVAL_PY}" "$@"
+}
+
+run_audit_cases() {
+  local title="$1"
+  local eval_dir="$2"
+  local output_dir="$3"
+  if [[ "${RUN_AUDIT_CASES}" != "1" ]]; then
+    return
+  fi
+  echo
+  echo "========== ${title} =========="
+  python "${AUDIT_PY}" \
+    --eval-dir "${eval_dir}" \
+    --output-dir "${output_dir}" \
+    --data-root "${DATA_ROOT}" \
+    --per-target "${AUDIT_PER_TARGET}" \
+    --overwrite
 }
 
 build_bundle() {
@@ -416,6 +436,7 @@ run_eval "base production" \
   --history-rgb-mode "${BASE_HISTORY_RGB_MODE}" --cases-per-bin "${CASES_PER_BIN}" \
   --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
   --output-dir "${BASE_EVAL_DIR}" --no-timestamp-output --overwrite --save-error-rgb --no-save-all-rgb
+run_audit_cases "base production 错例 RGB 抽样" "${BASE_EVAL_DIR}" "${OUTPUT_ROOT}/audit_base_production"
 
 if [[ "${RUN_AUDIT_PROMPT_EVAL}" == "1" ]]; then
   run_eval "base audit-prompt" \
@@ -430,6 +451,7 @@ run_eval "LoRA production" \
   --adapter-dir "${ADAPTER_DIR}" --cases-per-bin "${CASES_PER_BIN}" \
   --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
   --output-dir "${LORA_EVAL_DIR}" --no-timestamp-output --overwrite --save-error-rgb --no-save-all-rgb
+run_audit_cases "LoRA production 错例 RGB 抽样" "${LORA_EVAL_DIR}" "${OUTPUT_ROOT}/audit_lora_production"
 
 if [[ "${RUN_AUDIT_PROMPT_EVAL}" == "1" ]]; then
   run_eval "LoRA audit-prompt" \

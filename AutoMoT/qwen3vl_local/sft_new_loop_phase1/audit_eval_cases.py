@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Sample fused Phase1+Phase2 eval errors and copy the RGB inputs.
+"""从 fused Phase1+Phase2 评测产物中抽取错例，并复制模型实际看到的 RGB。
 
-This script does not run Qwen. It reads an eval output directory, prefers
-`error_cases/**/case.json`, and falls back to `cases_rank*.jsonl` / `cases.jsonl`
-with `all_ok=false`. It then buckets common fused error types and copies the RGB
-history that the model actually saw into a small review directory.
+本脚本不运行 Qwen。它读取 eval 输出目录，优先使用 `error_cases/**/case.json`，
+如果没有该目录，则从 `cases_rank*.jsonl` / `cases.jsonl` 里筛选 `all_ok=false`
+的行。随后按 fused 常见错误类型分桶，并把对应 RGB history 复制到一个小型人工审计目录。
 """
 
 from __future__ import annotations
@@ -339,7 +338,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--targets",
         default=",".join(TARGETS),
-        help="Comma-separated target buckets to sample.",
+        help="逗号分隔的错例类型列表。",
     )
     p.add_argument("--overwrite", action="store_true")
     return p.parse_args()
