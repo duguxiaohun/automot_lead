@@ -39,6 +39,15 @@ GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase1/eval.py \
   --adapter-dir checkpoints/sft_new_loop_phase1_runs/latest/final
 ```
 
+`build_dataset.py` stores `history_rgb_paths` relative to `--data-root`
+(`lead_data` by default). Train/eval resolve those relative paths with
+`--data-root`, and also remap legacy absolute paths containing `lead_data`.
+On a remote machine with a different checkout or data mount, set only:
+
+```bash
+DATA_ROOT=/path/to/lead_data GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase1/train.sh check
+```
+
 Balance artifacts:
 
 - `checkpoints/sft_new_loop_phase1_data/manifest.json`
@@ -53,10 +62,14 @@ Balance artifacts:
 The sampling contract has two layers. The Phase1 half is exact over the four
 Phase1 focus keys with YES:NO = 1:1. The Phase2 half is also exact over
 `RS1/RS2/RS4/RS5` with YES:NO = 1:1, then assigns all/subset/hierarchical
-augment specs under the Phase2 train/eval ratios. Focus balance and the three
-variant totals are hard constraints; concrete `augment_balance_key` buckets are
-target-driven and each epoch records exact deviation reports. It records
-`augment_balance_key` counts, variant reports, answer-pattern diagnostics,
-subset unasked-line leakage, `RS_HIGHWAY`, and all `GROUP:<id>` metrics. The
-combined work keeps Phase1-focus and Phase2-focus cases 1:1.
+augment specs under the Phase2 train/eval ratios. Focus balance, the three
+variant totals, Phase2 `(focus_bucket, variant)` quotas, and all
+`all_random_order/RS*:YES|NO` buckets are hard constraints. Phase1 focus buckets
+are secondarily spread across `R1`-`R5` where the data allows, so the Phase2
+augment surface is not starved by rare Phase1 positives. Subset/hierarchical
+`augment_balance_key` buckets are target-driven and each epoch records exact
+deviation reports. It records `augment_balance_key` counts, focus-variant
+counts, all-random deviation, Phase2 focus-variant deviation, variant reports,
+answer-pattern diagnostics, subset unasked-line leakage, `RS_HIGHWAY`, and all
+`GROUP:<id>` metrics. The combined work keeps Phase1-focus and Phase2-focus cases 1:1.
 `train_metrics.jsonl` includes per-window `augment_counts`.

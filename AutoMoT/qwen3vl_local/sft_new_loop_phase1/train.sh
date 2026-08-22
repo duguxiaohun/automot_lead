@@ -23,6 +23,7 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 INDEX="${INDEX:-checkpoints/sft_new_loop_phase1_data/frame_index.jsonl}"
+DATA_ROOT="${DATA_ROOT:-lead_data}"
 HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-4rgb}"
 case "${HISTORY_RGB_MODE}" in
   4rgb|2rgb_endpoints) HISTORY_RGB_TAG="${HISTORY_RGB_MODE}" ;;
@@ -115,6 +116,7 @@ esac
 COMMON_ARGS=(
   --model-dir "${MODEL_DIR}"
   --index "${INDEX}"
+  --data-root "${DATA_ROOT}"
   --output-dir "${OUTPUT_DIR}"
   --history-rgb-mode "${HISTORY_RGB_MODE}"
   --num-epochs "${NUM_EPOCHS:-3}"
