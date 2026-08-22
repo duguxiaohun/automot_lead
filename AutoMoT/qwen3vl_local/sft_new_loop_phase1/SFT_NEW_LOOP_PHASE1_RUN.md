@@ -32,6 +32,8 @@ YES:NO = 1:1，Phase1 四问与 Phase2 四问总量也是 1:1。默认还会检�
 ## 0. 目录与产物
 
 以下命令都从 `AutoMoT/` 目录运行，路径不要再加 `AutoMoT/` 前缀。
+所有 shell 入口不额外指定时都默认四卡：`GPU_IDS=0,1,2,3` 或自动选 4 张空闲卡。
+需要单卡时显式传 `GPU_IDS=0`，训练还要显式传 `single` 或 `check`。
 
 常用产物路径：
 
@@ -100,8 +102,11 @@ GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase1/train.sh single
 四卡 DDP：
 
 ```bash
-GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase1/train.sh ddp
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase1/train.sh
 ```
+
+`train.sh` 不传模式时默认 `ddp`，也就是默认四卡；如果只想单卡训练，需要显式传
+`single`。
 
 两帧端点输入对照：
 
@@ -119,6 +124,7 @@ HISTORY_RGB_MODE=2rgb_endpoints GPU_IDS=0,1,2,3 \
 - `GENERATION_EVAL_STEPS=2000`
 - `GENERATION_EVAL_BALANCE_COUNT=16`
 - `SAVE_STEPS=20000`
+- `WARMUP_STEPS=2000`
 - `HISTORY_RGB_MODE=4rgb`
 
 训练产物会写入 `checkpoints/sft_new_loop_phase1_runs/`，非 check run 会更新
@@ -231,11 +237,12 @@ bash qwen3vl_local/tb_serve.sh checkpoints/sft_new_loop_phase1_runs/latest
 重点看：
 
 - `train/loss`
-- `eval/exact_match_accuracy`
-- `generation_eval/exact_match_accuracy`
-- `focus/*`
-- `variant/*`
-- `augment/*`
+- `train/learning_rate`
+- `train/focus/*`
+- `train/variant/*`
+- `train/augment/*`
+- `val/exact_match_accuracy`
+- `val_generation/exact_accuracy`
 
 ## 8. RGB 模式矩阵
 

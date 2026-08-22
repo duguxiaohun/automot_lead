@@ -12,6 +12,7 @@ import argparse
 import json
 import pathlib
 import random
+import re
 import shutil
 from collections import Counter, defaultdict
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Sequence
@@ -102,6 +103,9 @@ def _yes_count(values: Mapping[str, Any], keys: Sequence[str]) -> int:
 
 def _expected_output_keys(payload: Mapping[str, Any], gt: Mapping[str, Any]) -> set[str]:
     spec = payload.get("prompt_spec") or payload.get("augment_spec") or {}
+    fused_output_keys = spec.get("fused_output_keys")
+    if isinstance(fused_output_keys, list):
+        return {str(key) for key in fused_output_keys}
     output_keys = spec.get("output_keys")
     if isinstance(output_keys, list):
         return {str(key) for key in output_keys}
@@ -131,12 +135,18 @@ def _target_matches(payload: Mapping[str, Any]) -> List[str]:
     if _yes_count(parsed, PHASE2_RS_KEYS) > 1:
         matched.append("multi_yes_phase2")
 
+    raw_output = str(payload.get("raw_output") or "")
+    raw_extra_answer_keys = [
+        key
+        for key in PHASE2_RS_KEYS + HIERARCHICAL_KEYS
+        if key not in expected_keys and re.search(rf"(?im)^\s*{re.escape(key)}\s*:\s*(YES|NO)\s*$", raw_output)
+    ]
     extra_answer_keys = [
         key
         for key, value in parsed.items()
         if key in ANSWER_KEYS and key not in expected_keys and value in ("YES", "NO")
     ]
-    if extra_answer_keys:
+    if raw_extra_answer_keys or extra_answer_keys:
         matched.append("subset_unasked_line_leak")
     return matched
 

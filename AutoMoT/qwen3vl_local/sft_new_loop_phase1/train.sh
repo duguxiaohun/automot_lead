@@ -2,15 +2,17 @@
 # sft_new_loop_phase1 训练 launcher：八问题 x YES/NO exact balance + 可选 torch DDP。
 #
 # 从 AutoMoT/ 目录运行：
+#   bash qwen3vl_local/sft_new_loop_phase1/train.sh
 #   GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase1/train.sh single
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase1/train.sh ddp
 # 默认使用四帧；HISTORY_RGB_MODE=2rgb_endpoints 时只喂第 1 帧和第 4 帧。
+# 不传模式时默认四卡 DDP；需要单卡 smoke 时显式传 single 或 check。
 
 set -euo pipefail
 
 ulimit -S -c 0 2>/dev/null || true
 
-MODE="${1:-${MODE:-single}}"
+MODE="${1:-${MODE:-ddp}}"
 if [[ "${MODE}" != "single" && "${MODE}" != "ddp" && "${MODE}" != "check" ]]; then
   echo "Unknown mode: ${MODE}. Use single/ddp/check." >&2
   exit 1
@@ -136,7 +138,7 @@ COMMON_ARGS=(
   --learning-rate "${LEARNING_RATE:-${LR:-1e-5}}"
   --grad-accum "${GRAD_ACCUM:-1}"
   --weight-decay "${WEIGHT_DECAY:-0.0}"
-  --warmup-steps "${WARMUP_STEPS:-50}"
+  --warmup-steps "${WARMUP_STEPS:-2000}"
   --lora-rank "${LORA_RANK:-16}"
   --lora-alpha "${LORA_ALPHA:-32}"
   --lora-dropout "${LORA_DROPOUT:-0.05}"
