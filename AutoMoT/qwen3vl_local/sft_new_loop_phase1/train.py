@@ -20,7 +20,7 @@ import re
 import subprocess
 import sys
 import time
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -191,6 +191,7 @@ def _write_run_metadata(
         "save_steps": int(args.save_steps),
         "total_steps_rank": int(total_steps),
         "focus_balance_count": int(args.focus_balance_count),
+        "max_train_frame_repeat": int(args.max_train_frame_repeat),
         "train_variant_weights": dict(TRAIN_VARIANT_WEIGHTS),
         "eval_variant_weights": dict(VARIANT_WEIGHTS),
         "resample_each_epoch": True,
@@ -680,6 +681,169 @@ def _balance_key_variant_targets(
     return quotas
 
 
+def _frame_key(row: FrameRow) -> Tuple[str, str, int]:
+    """Return a stable frame identity shared by sampling/repeat audits."""
+
+    return row.scenario, row.route_id, int(row.frame_id)
+
+
+def _exact_all_random_assignments(
+    pairs: Sequence[Tuple[FrameRow, str]],
+    *,
+    targets: Mapping[str, int],
+    seed: int,
+) -> Tuple[List[WorkItem], set[int]]:
+    """Assign the all-random slots exactly with a small RS-to-question max flow."""
+
+    all_targets = {
+        str(key): int(value)
+        for key, value in targets.items()
+        if str(key).startswith("all_random_order/") and int(value) > 0
+    }
+    if not all_targets:
+        return [], set()
+    slots_by_rs: Dict[str, List[int]] = defaultdict(list)
+    for slot, (row, _) in enumerate(pairs):
+        slots_by_rs[row.rs].append(slot)
+    rng = random.Random(f"{seed}:exact_all_random:{len(pairs)}")
+    for slots in slots_by_rs.values():
+        rng.shuffle(slots)
+
+    selected: List[WorkItem] = []
+    used_slots: set[int] = set()
+
+    def add_slot(slot: int, question: str, expected_key: str) -> None:
+        row, main_focus = pairs[slot]
+        candidate = _make_all_item(row, question, seed=seed + slot)
+        item = WorkItem(
+            row=row,
+            focus=main_focus,
+            spec=candidate.spec,
+            balance_key=_focus_key(row, main_focus),
+            augment_balance_key=candidate.augment_balance_key,
+        )
+        if item.augment_balance_key != expected_key:
+            raise RuntimeError(
+                f"all-random assignment mismatch: expected={expected_key} actual={item.augment_balance_key}"
+            )
+        selected.append(item)
+        used_slots.add(slot)
+
+    # YES is possible only on the matching one-hot RS state, so reserve it first.
+    for question in PHASE2_ANSWER_KEYS:
+        rs = question.replace("RS", "R")
+        key = f"all_random_order/{question}:YES"
+        need = int(all_targets.get(key, 0))
+        available = [slot for slot in slots_by_rs.get(rs, []) if slot not in used_slots]
+        if len(available) < need:
+            raise RuntimeError(
+                f"insufficient Phase1 rows for exact {key}: need={need} available={len(available)}; "
+                "repair Phase1 secondary RS coverage without cycling rare per-focus subgroups"
+            )
+        for slot in available[:need]:
+            add_slot(slot, question, key)
+
+    # Allocate the remaining NO quotas with a tiny integral max-flow problem.
+    remaining_by_rs = {
+        rs: [slot for slot in slots if slot not in used_slots]
+        for rs, slots in slots_by_rs.items()
+    }
+    no_demands = {
+        question: int(all_targets.get(f"all_random_order/{question}:NO", 0))
+        for question in PHASE2_ANSWER_KEYS
+    }
+    state_names = sorted(remaining_by_rs)
+    question_names = list(PHASE2_ANSWER_KEYS)
+    source = 0
+    state_offset = 1
+    question_offset = state_offset + len(state_names)
+    sink = question_offset + len(question_names)
+    graph: List[List[List[int]]] = [[] for _ in range(sink + 1)]
+
+    def add_edge(src: int, dst: int, capacity: int) -> List[int]:
+        forward = [dst, len(graph[dst]), int(capacity)]
+        reverse = [src, len(graph[src]), 0]
+        graph[src].append(forward)
+        graph[dst].append(reverse)
+        return forward
+
+    flow_edges: Dict[Tuple[str, str], List[int]] = {}
+    for state_idx, rs in enumerate(state_names):
+        add_edge(source, state_offset + state_idx, len(remaining_by_rs[rs]))
+        for question_idx, question in enumerate(question_names):
+            if rs == question.replace("RS", "R"):
+                continue
+            flow_edges[(rs, question)] = add_edge(
+                state_offset + state_idx,
+                question_offset + question_idx,
+                len(remaining_by_rs[rs]),
+            )
+    for question_idx, question in enumerate(question_names):
+        add_edge(question_offset + question_idx, sink, no_demands[question])
+
+    total_demand = sum(no_demands.values())
+    total_flow = 0
+    while True:
+        level = [-1] * len(graph)
+        level[source] = 0
+        queue = deque([source])
+        while queue:
+            node = queue.popleft()
+            for dst, _, capacity in graph[node]:
+                if capacity > 0 and level[dst] < 0:
+                    level[dst] = level[node] + 1
+                    queue.append(dst)
+        if level[sink] < 0:
+            break
+        cursor = [0] * len(graph)
+
+        def send(node: int, pushed: int) -> int:
+            if node == sink:
+                return pushed
+            while cursor[node] < len(graph[node]):
+                edge = graph[node][cursor[node]]
+                dst, reverse_idx, capacity = edge
+                if capacity > 0 and level[dst] == level[node] + 1:
+                    amount = send(dst, min(pushed, capacity))
+                    if amount > 0:
+                        edge[2] -= amount
+                        graph[dst][reverse_idx][2] += amount
+                        return amount
+                cursor[node] += 1
+            return 0
+
+        while True:
+            pushed = send(source, 10**9)
+            if pushed <= 0:
+                break
+            total_flow += pushed
+    if total_flow != total_demand:
+        supply = {rs: len(slots) for rs, slots in remaining_by_rs.items()}
+        raise RuntimeError(
+            f"cannot satisfy exact all-random NO quotas: flow={total_flow} demand={total_demand} "
+            f"supply={supply}"
+        )
+    for rs in state_names:
+        slots = list(remaining_by_rs[rs])
+        cursor = 0
+        for question in question_names:
+            edge = flow_edges.get((rs, question))
+            if edge is None:
+                continue
+            # The reverse residual capacity equals the realized flow.
+            dst, reverse_idx, _ = edge
+            count = int(graph[dst][reverse_idx][2])
+            key = f"all_random_order/{question}:NO"
+            for slot in slots[cursor : cursor + count]:
+                add_slot(slot, question, key)
+            cursor += count
+    if len(selected) != sum(all_targets.values()):
+        raise RuntimeError(
+            f"exact all-random assignment count mismatch: selected={len(selected)} target={sum(all_targets.values())}"
+        )
+    return selected, used_slots
+
+
 def _assign_specs_to_focus_pairs(
     pairs: Sequence[Tuple[FrameRow, str]],
     *,
@@ -710,46 +874,16 @@ def _assign_specs_to_focus_pairs(
     ordered_pairs = list(pairs)
     used_slots: set[int] = set()
     if not hard_focus_variant:
-        all_targets = {
-            key: int(value)
-            for key, value in targets.items()
-            if key.startswith("all_random_order/")
-        }
-        all_key_order = sorted(
-            all_targets,
-            key=lambda key: (
-                0 if key.endswith(":YES") else 1,
-                key,
-            ),
+        all_items, used_slots = _exact_all_random_assignments(
+            ordered_pairs,
+            targets=targets,
+            seed=seed,
         )
-        candidates_by_all_key: Dict[str, List[Tuple[int, WorkItem]]] = defaultdict(list)
-        for slot, (row, focus) in enumerate(ordered_pairs):
-            for candidate in _candidate_specs_for_row(row, seed=seed + slot, focus=focus):
-                if candidate.spec.variant == "all_random_order":
-                    candidates_by_all_key[candidate.augment_balance_key].append((slot, candidate))
-        for key in all_key_order:
-            need = max(0, int(all_targets[key]) - int(key_counts[key]))
-            if need <= 0:
-                continue
-            candidates = list(candidates_by_all_key.get(key, []))
-            candidates.sort(
-                key=lambda item: hashlib.sha256(
-                    _work_item_seed(item[1].row, seed, item[1].focus, item[1].augment_balance_key).encode("utf-8")
-                ).hexdigest()
-            )
-            for slot, candidate in candidates:
-                if need <= 0:
-                    break
-                if slot in used_slots:
-                    continue
-                if variant_counts["all_random_order"] >= variant_targets["all_random_order"]:
-                    break
-                out.append(candidate)
-                used_slots.add(slot)
-                key_counts[candidate.augment_balance_key] += 1
-                variant_counts[candidate.spec.variant] += 1
-                balance_variant_counts[f"{candidate.balance_key}|{candidate.spec.variant}"] += 1
-                need -= 1
+        out.extend(all_items)
+        for item in all_items:
+            key_counts[item.augment_balance_key] += 1
+            variant_counts[item.spec.variant] += 1
+            balance_variant_counts[f"{item.balance_key}|{item.spec.variant}"] += 1
     for slot, (row, focus) in enumerate(ordered_pairs):
         if slot in used_slots:
             continue
@@ -820,9 +954,9 @@ def _balanced_focus_pairs(
     target: int,
     seed: int,
     context: str,
-    secondary_rs_balance: bool = False,
+    secondary_rs_minimums: Optional[Mapping[str, int]] = None,
 ) -> List[Tuple[FrameRow, str]]:
-    """按给定 focus keys 抽取 YES/NO 严格等量的 row/focus pairs。"""
+    """按 focus 抽取严格等量 pairs，并按全局容量修复必要的二级 RS 覆盖。"""
 
     groups: Dict[str, List[Tuple[FrameRow, str]]] = {
         f"{key}:{value}": [] for key in keys for value in ("YES", "NO")
@@ -838,37 +972,86 @@ def _balanced_focus_pairs(
             f"missing={missing} raw_counts={raw_counts}. Rebuild/check the dataset split or reduce filtering."
         )
     rng = random.Random(f"{seed}:{context}:{len(rows)}:{target}")
-    pairs: List[Tuple[FrameRow, str]] = []
+    selected_by_group: Dict[str, List[Tuple[FrameRow, str]]] = {}
     for key in sorted(groups):
         items = list(groups[key])
         rng.shuffle(items)
-        if secondary_rs_balance:
-            by_rs: Dict[str, List[Tuple[FrameRow, str]]] = defaultdict(list)
-            for item in items:
-                by_rs[item[0].rs].append(item)
-            rs_values = [rs for rs in ("R1", "R2", "R3", "R4", "R5") if by_rs.get(rs)]
-            selected = []
-            if rs_values:
-                base = int(target) // len(rs_values)
-                remainder = int(target) - base * len(rs_values)
-                for idx, rs in enumerate(rs_values):
-                    bucket = list(by_rs[rs])
-                    rng.shuffle(bucket)
-                    quota = base + int(idx < remainder)
-                    if len(bucket) >= quota:
-                        selected.extend(bucket[:quota])
-                    else:
-                        selected.extend(bucket[i % len(bucket)] for i in range(quota))
-            if len(selected) < int(target):
-                selected.extend(items[idx % len(items)] for idx in range(int(target) - len(selected)))
-            rng.shuffle(selected)
-            selected = selected[: int(target)]
-        elif len(items) >= int(target):
+        if len(items) >= int(target):
             selected = items[: int(target)]
         else:
             selected = [items[idx % len(items)] for idx in range(int(target))]
             rng.shuffle(selected)
-        pairs.extend(selected)
+        selected_by_group[key] = selected
+
+    if secondary_rs_minimums:
+        rs_counts = Counter(item[0].rs for selected in selected_by_group.values() for item in selected)
+        frame_counts = Counter(_frame_key(item[0]) for selected in selected_by_group.values() for item in selected)
+        for desired_rs, raw_minimum in sorted(secondary_rs_minimums.items()):
+            minimum = max(0, int(raw_minimum))
+            deficit = minimum - int(rs_counts[desired_rs])
+            if deficit <= 0:
+                continue
+            group_order = sorted(
+                groups,
+                key=lambda group_key: sum(1 for item in groups[group_key] if item[0].rs == desired_rs),
+                reverse=True,
+            )
+            for group_key in group_order:
+                if deficit <= 0:
+                    break
+                selected = selected_by_group[group_key]
+                selected_frames = {_frame_key(item[0]) for item in selected}
+                extras = [
+                    item
+                    for item in groups[group_key]
+                    if item[0].rs == desired_rs and _frame_key(item[0]) not in selected_frames
+                ]
+                extras.sort(
+                    key=lambda item: (
+                        frame_counts[_frame_key(item[0])],
+                        hashlib.sha256(
+                            f"{seed}:{group_key}:{desired_rs}:{_frame_key(item[0])}".encode("utf-8")
+                        ).hexdigest(),
+                    )
+                )
+                donor_indices = [
+                    idx
+                    for idx, item in enumerate(selected)
+                    if item[0].rs != desired_rs
+                    and int(rs_counts[item[0].rs]) > int(secondary_rs_minimums.get(item[0].rs, 0))
+                ]
+                donor_indices.sort(
+                    key=lambda idx: (
+                        -(int(rs_counts[selected[idx][0].rs]) - int(secondary_rs_minimums.get(selected[idx][0].rs, 0))),
+                        -frame_counts[_frame_key(selected[idx][0])],
+                    )
+                )
+                extra_idx = 0
+                for donor_idx in donor_indices:
+                    if deficit <= 0 or extra_idx >= len(extras):
+                        break
+                    donor = selected[donor_idx]
+                    donor_rs = donor[0].rs
+                    donor_minimum = int(secondary_rs_minimums.get(donor_rs, 0))
+                    if donor_rs == desired_rs or int(rs_counts[donor_rs]) <= donor_minimum:
+                        continue
+                    extra = extras[extra_idx]
+                    extra_idx += 1
+                    donor_frame = _frame_key(donor[0])
+                    extra_frame = _frame_key(extra[0])
+                    selected[donor_idx] = extra
+                    rs_counts[donor_rs] -= 1
+                    rs_counts[desired_rs] += 1
+                    frame_counts[donor_frame] -= 1
+                    frame_counts[extra_frame] += 1
+                    deficit -= 1
+            if deficit > 0:
+                raise RuntimeError(
+                    f"cannot repair global Phase1 RS coverage for {desired_rs}: "
+                    f"minimum={minimum} actual={rs_counts[desired_rs]} without cycling rare subgroups"
+                )
+
+    pairs = [item for key in sorted(selected_by_group) for item in selected_by_group[key]]
     rng.shuffle(pairs)
     return pairs
 
@@ -892,6 +1075,20 @@ def _repeat_report(work: Sequence[WorkItem]) -> Dict[str, Any]:
             for key, value in counts.most_common(20)
         ],
     }
+
+
+def _assert_repeat_limit(work: Sequence[WorkItem], *, max_repeat: int, context: str) -> None:
+    """Refuse a sampled epoch when a small secondary subgroup is being memorized."""
+
+    if int(max_repeat) <= 0:
+        return
+    report = _repeat_report(work)
+    if int(report["max_repeat"]) > int(max_repeat):
+        raise RuntimeError(
+            f"{context} exceeds --max-train-frame-repeat={int(max_repeat)}: "
+            f"max_repeat={report['max_repeat']} mean_repeat={report['mean_repeat']:.4f} "
+            f"top_repeated={report['top_repeated'][:10]}"
+        )
 
 
 def _counter_dict(counter: Mapping[str, int]) -> Dict[str, int]:
@@ -1073,13 +1270,20 @@ def _balanced_work(
     target = int(target_per_bin) if int(target_per_bin) > 0 else min(relevant_counts)
     target = max(1, target)
     rng = random.Random(f"{seed}:phase1_balance:{len(rows)}:{target}")
+    phase1_total = len(PHASE1_ANSWER_KEYS) * 2 * target
+    phase1_augment_targets = _augment_key_targets(phase1_total, variant_weights)
+    secondary_rs_minimums = {
+        key.replace("all_random_order/RS", "R").removesuffix(":YES"): int(value)
+        for key, value in phase1_augment_targets.items()
+        if key.startswith("all_random_order/RS") and key.endswith(":YES")
+    }
     phase1_pairs = _balanced_focus_pairs(
         rows,
         keys=PHASE1_ANSWER_KEYS,
         target=target,
         seed=seed,
         context="Phase1-focus training work",
-        secondary_rs_balance=True,
+        secondary_rs_minimums=secondary_rs_minimums,
     )
     phase1_work = _assign_specs_to_focus_pairs(
         phase1_pairs,
@@ -1110,6 +1314,23 @@ def _balanced_work(
     if not phase2_work:
         raise ValueError("cannot build Phase2 focus-balanced work; no active Phase2 buckets were sampled")
     work = [*phase1_work, *phase2_work]
+    variant_actual = Counter(item.spec.variant for item in work)
+    variant_target = Counter()
+    all_actual = Counter()
+    all_target = Counter()
+    for phase_work in (phase1_work, phase2_work):
+        variant_target.update(_augment_target_counts(len(phase_work), variant_weights))
+        phase_targets = _augment_key_targets(len(phase_work), variant_weights)
+        all_target.update({key: value for key, value in phase_targets.items() if key.startswith("all_random_order/")})
+    all_actual.update(
+        item.augment_balance_key
+        for item in work
+        if item.augment_balance_key.startswith("all_random_order/")
+    )
+    if variant_actual != variant_target:
+        raise RuntimeError(f"combined work lost exact variant quotas: actual={variant_actual} target={variant_target}")
+    if all_actual != all_target:
+        raise RuntimeError(f"combined work lost exact all-random quotas: actual={all_actual} target={all_target}")
     rng.shuffle(work)
     return work
 
@@ -1696,6 +1917,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "num_epochs": int(args.num_epochs),
         "max_steps": int(args.max_steps),
         "focus_balance_count": int(args.focus_balance_count),
+        "max_train_frame_repeat": int(args.max_train_frame_repeat),
         "eval_split": str(args.eval_split),
         "eval_steps": int(args.eval_steps),
         "eval_balance_count": int(args.eval_balance_count),
@@ -1728,6 +1950,11 @@ def train(args: argparse.Namespace) -> None:
         target_per_bin=int(args.focus_balance_count),
         seed=int(args.seed),
         variant_weights=TRAIN_VARIANT_WEIGHTS,
+    )
+    _assert_repeat_limit(
+        full_work,
+        max_repeat=int(args.max_train_frame_repeat),
+        context="initial train work",
     )
     if not full_work:
         raise ValueError("balanced work list is empty")
@@ -1906,6 +2133,11 @@ def train(args: argparse.Namespace) -> None:
                 target_per_bin=int(args.focus_balance_count),
                 seed=epoch_seed,
                 variant_weights=TRAIN_VARIANT_WEIGHTS,
+            )
+            _assert_repeat_limit(
+                full_work,
+                max_repeat=int(args.max_train_frame_repeat),
+                context=f"train epoch {epoch}",
             )
             work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
             if rank == 0:
@@ -2112,6 +2344,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--device", default="auto")
     p.add_argument("--max-frames", type=int, default=0)
     p.add_argument("--focus-balance-count", type=int, default=9216)
+    p.add_argument(
+        "--max-train-frame-repeat",
+        type=int,
+        default=10,
+        help="abort before model training when one sampled frame appears more than this many times; <=0 disables",
+    )
     p.add_argument("--num-epochs", type=int, default=3)
     p.add_argument("--max-steps", type=int, default=0, help="0 means train num_epochs over the balanced work list")
     p.add_argument("--eval-split", default="val")

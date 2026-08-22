@@ -17,7 +17,9 @@ highway/R3 question and is intentionally separate from the audited Phase1
 `HIGHWAY` line. Full training defaults to `FOCUS_BALANCE_COUNT=9216`, which
 gives 147,456 sampled cases per epoch across the eight focus keys and matches
 the old Phase2 augment epoch case count; `train_balance.json` records repeat
-audits so rare positives are not silently overused. The default validation and
+audits so rare positives are not silently overused. Training also defaults to
+`MAX_TRAIN_FRAME_REPEAT=10`: sampling aborts before the model is loaded if any
+one frame exceeds that per-epoch reuse limit. The default validation and
 checkpoint cadence is sized for the larger epoch: teacher-forced eval every
 2,000 steps, generation eval every 2,000 steps, and checkpoint save every
 20,000 steps.
@@ -65,8 +67,11 @@ Phase1 focus keys with YES:NO = 1:1. The Phase2 half is also exact over
 augment specs under the Phase2 train/eval ratios. Focus balance, the three
 variant totals, Phase2 `(focus_bucket, variant)` quotas, and all
 `all_random_order/RS*:YES|NO` buckets are hard constraints. Phase1 focus buckets
-are secondarily spread across `R1`-`R5` where the data allows, so the Phase2
-augment surface is not starved by rare Phase1 positives. Subset/hierarchical
+are sampled naturally first; only missing global `R1/R2/R4/R5` capacity needed
+by exact all-random quotas is repaired from unused rows in a compatible focus
+bucket. The sampler never cycles a rare per-focus RS subgroup to make a
+secondary distribution look uniform. All-random YES slots are reserved first,
+and its NO slots are assigned by an exact capacity matching step. Subset/hierarchical
 `augment_balance_key` buckets are target-driven and each epoch records exact
 deviation reports. It records `augment_balance_key` counts, focus-variant
 counts, all-random deviation, Phase2 focus-variant deviation, variant reports,

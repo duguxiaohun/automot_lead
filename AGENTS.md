@@ -264,7 +264,10 @@
   manifest/train_balance/metrics 必须记录这些比例、每 epoch `balance/epoch_*.json`、窗口
   `augment_counts`、`all_random_order_target_deviation`、`phase2_focus_variant_*` 与重复率审计。
   默认 `FOCUS_BALANCE_COUNT=9216`，对应每轮 147,456 sampled cases，与旧 Phase2 augment
-  总 case 数对齐；训练期 teacher/generation eval 与 checkpoint 默认步频为 2000/2000/20000，
+  总 case 数对齐；Phase1 桶先自然抽样，只按 all-random 的全局 RS 缺口从兼容 focus 的未用样本
+  换入，不允许为了二级 RS 均匀而循环稀缺子桶；all-random 用容量匹配精确分配 YES/NO。
+  默认 `MAX_TRAIN_FRAME_REPEAT=10`，任一 sampled frame 单轮复用超限必须在模型加载前中止。
+  训练期 teacher/generation eval 与 checkpoint 默认步频为 2000/2000/20000，
   generation eval 默认 `generation_eval_balance_count=16`，避免小样本漏审 subset/hierarchical。冲突或不确定处以 Phase2 最新 RS 定义为 ROAD_STRUCTURE 权威，同时保留
   Phase1 审计标签作为对应可见事实标签。训练/eval/checkpoint 大产物仍写入 `AutoMoT/checkpoints/`
   或本地输出目录，不随目录白名单入库。）

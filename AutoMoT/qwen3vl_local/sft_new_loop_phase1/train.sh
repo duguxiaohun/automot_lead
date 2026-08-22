@@ -122,6 +122,7 @@ COMMON_ARGS=(
   --num-epochs "${NUM_EPOCHS:-3}"
   --max-steps "${MAX_STEPS:-0}"
   --focus-balance-count "${FOCUS_BALANCE_COUNT:-9216}"
+  --max-train-frame-repeat "${MAX_TRAIN_FRAME_REPEAT:-10}"
   --eval-split "${EVAL_SPLIT:-val}"
   --eval-steps "${EVAL_STEPS:-2000}"
   --eval-balance-count "${EVAL_BALANCE_COUNT:-16}"
