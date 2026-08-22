@@ -17,7 +17,10 @@ highway/R3 question and is intentionally separate from the audited Phase1
 `HIGHWAY` line. Full training defaults to `FOCUS_BALANCE_COUNT=9216`, which
 gives 147,456 sampled cases per epoch across the eight focus keys and matches
 the old Phase2 augment epoch case count; `train_balance.json` records repeat
-audits so rare positives are not silently overused.
+audits so rare positives are not silently overused. The default validation and
+checkpoint cadence is sized for the larger epoch: teacher-forced eval every
+2,000 steps, generation eval every 2,000 steps, and checkpoint save every
+20,000 steps.
 
 The dataset builder follows the latest Phase2 filtering: abnormal LEAD routes
 are removed, full-frame RGB review coverage is checked, and visual-risk frames
@@ -40,6 +43,8 @@ Balance artifacts:
 
 - `checkpoints/sft_new_loop_phase1_data/manifest.json`
 - `checkpoints/sft_new_loop_phase1_runs/.../train_balance.json`
+- `checkpoints/sft_new_loop_phase1_runs/.../balance/epoch_*.json`
+- `checkpoints/sft_new_loop_phase1_runs/.../balance/epochs.jsonl`
 - `checkpoints/sft_new_loop_phase1_runs/.../train_run_manifest.json`
 - `checkpoints/sft_new_loop_phase1_runs/.../train_metrics.jsonl`
 - `checkpoints/sft_new_loop_phase1_runs/.../train_eval_metrics.jsonl`
@@ -48,7 +53,10 @@ Balance artifacts:
 The sampling contract has two layers. The Phase1 half is exact over the four
 Phase1 focus keys with YES:NO = 1:1. The Phase2 half is also exact over
 `RS1/RS2/RS4/RS5` with YES:NO = 1:1, then assigns all/subset/hierarchical
-augment specs under the Phase2 train/eval ratios. It records
+augment specs under the Phase2 train/eval ratios. Focus balance and the three
+variant totals are hard constraints; concrete `augment_balance_key` buckets are
+target-driven and each epoch records exact deviation reports. It records
 `augment_balance_key` counts, variant reports, answer-pattern diagnostics,
 subset unasked-line leakage, `RS_HIGHWAY`, and all `GROUP:<id>` metrics. The
 combined work keeps Phase1-focus and Phase2-focus cases 1:1.
+`train_metrics.jsonl` includes per-window `augment_counts`.
