@@ -17,7 +17,7 @@ import json
 import pathlib
 import sys
 from collections import Counter, defaultdict
-from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 _THIS = pathlib.Path(__file__).resolve()
 _AUTOMOT_ROOT = _THIS.parents[2]
@@ -83,7 +83,62 @@ def _town(annotation: Mapping[str, Any], route: Mapping[str, Any]) -> str:
     return str((annotation.get("evidence") or {}).get("xml_town") or route.get("xml_town") or "UNKNOWN")
 
 
-def _load_answer_table(path: pathlib.Path) -> Dict[Tuple[str, str, str], Dict[str, bool]]:
+def _coerce_subgroups(value: Any) -> List[str]:
+    """把 notes/annotation 里的 subgroup 字段规整成字符串列表。"""
+
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, (list, tuple, set)):
+        out: List[str] = []
+        for item in value:
+            out.extend(_coerce_subgroups(item))
+        return out
+    return []
+
+
+def _extract_override_route_ids(override: Mapping[str, Any]) -> List[str]:
+    """从 override 的显式 evidence 文本里提取已人工审计 route id。"""
+
+    text = str(override.get("audit_evidence") or "")
+    route_ids: List[str] = []
+    marker = "/ParkedObstacle/Town12/{"
+    if marker in text and "}" in text:
+        inside = text.split(marker, 1)[1].split("}", 1)[0]
+        route_ids.extend(item.strip() for item in inside.split(",") if item.strip())
+    return route_ids
+
+
+def _load_manual_subgroup_notes(paths: Sequence[pathlib.Path]) -> Dict[Tuple[str, str], List[str]]:
+    """读取 route/frame 级人工 RGB notes 中的显式 visual/topology subgroup 标记。"""
+
+    out: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+    for path in paths:
+        if not path.exists():
+            continue
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                scenario = str(obj.get("scenario") or "")
+                route_id = str(obj.get("run_id") or obj.get("route_id") or "")
+                if not scenario or not route_id:
+                    continue
+                subgroups: List[str] = []
+                for key in ("topology_subgroup", "visual_subgroup", "visual_subgroups", "route_visual_subgroups"):
+                    subgroups.extend(_coerce_subgroups(obj.get(key)))
+                for subgroup in subgroups:
+                    if subgroup not in out[(scenario, route_id)]:
+                        out[(scenario, route_id)].append(subgroup)
+    return out
+
+
+def _load_answer_table(path: pathlib.Path) -> Tuple[Dict[Tuple[str, str, str], Dict[str, bool]], List[Dict[str, Any]]]:
     """Load the finalized Phase1 answer table and enforce STATIC_OBSTACLE=U-E2."""
 
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -108,7 +163,56 @@ def _load_answer_table(path: pathlib.Path) -> Dict[Tuple[str, str, str], Dict[st
             "VULNERABLE": bool(source.get("VULNERABLE", False)),
             "TRAFFIC_LIGHT_ABNORMAL": bool(source.get("TRAFFIC_LIGHT_ABNORMAL", False)),
         }
-    return table
+    overrides: List[Dict[str, Any]] = []
+    for raw in payload.get("visual_subgroup_overrides", []) or []:
+        item = dict(raw)
+        item["explicit_route_ids"] = _extract_override_route_ids(item)
+        overrides.append(item)
+    return table, overrides
+
+
+def _apply_visual_subgroup_overrides(
+    answers: Mapping[str, bool],
+    *,
+    overrides: Sequence[Mapping[str, Any]],
+    note_subgroups: Mapping[Tuple[str, str], Sequence[str]],
+    annotation: Mapping[str, Any],
+    scenario: str,
+    route_id: str,
+    town: str,
+    rs: str,
+    counters: Counter[str],
+) -> Tuple[Dict[str, bool], List[str]]:
+    """按显式 RGB subgroup 审计 patch Phase1 答案。"""
+
+    patched = dict(answers)
+    applied: List[str] = []
+    annotation_subgroups: List[str] = []
+    for key in ("topology_subgroup", "visual_subgroup", "visual_subgroups", "route_visual_subgroups"):
+        annotation_subgroups.extend(_coerce_subgroups(annotation.get(key)))
+    known_subgroups = set(annotation_subgroups)
+    known_subgroups.update(note_subgroups.get((scenario, route_id), []))
+    for override in overrides:
+        override_id = str(override.get("id") or "")
+        subgroup = str(override.get("topology_subgroup") or "")
+        explicit_routes = {str(item) for item in override.get("explicit_route_ids", [])}
+        route_marked = bool(subgroup and subgroup in known_subgroups) or route_id in explicit_routes
+        if not route_marked:
+            continue
+        if str(override.get("scenario")) != scenario:
+            continue
+        towns = {str(item) for item in override.get("towns", [])}
+        if towns and town not in towns:
+            continue
+        rs_values = {str(item) for item in override.get("rs_values", [])}
+        if rs_values and rs not in rs_values:
+            continue
+        for key, value in (override.get("answers_patch") or {}).items():
+            if key in patched:
+                patched[key] = bool(value)
+        applied.append(override_id)
+        counters[f"visual_subgroup_override/{override_id}"] += 1
+    return patched, applied
 
 
 def _phase2_answers(rs: str) -> Dict[str, bool]:
@@ -148,7 +252,9 @@ def _assert_required_coverage(availability: Mapping[str, Mapping[str, int]], *, 
 def iter_rows(args: argparse.Namespace, risk_stats: Optional[Counter[str]] = None) -> Iterable[Dict[str, Any]]:
     """Yield fused per-frame rows."""
 
-    answer_table = _load_answer_table(pathlib.Path(args.answer_table))
+    answer_table, visual_overrides = _load_answer_table(pathlib.Path(args.answer_table))
+    note_paths = [pathlib.Path(item) for item in str(args.manual_note_paths).split(",") if item.strip()]
+    note_subgroups = _load_manual_subgroup_notes(note_paths)
     collection_dir = pathlib.Path(args.collection_dir)
     data_root = pathlib.Path(args.data_root)
     selected = None if args.scenarios == "all" else {item.strip() for item in args.scenarios.split(",") if item.strip()}
@@ -196,13 +302,25 @@ def iter_rows(args: argparse.Namespace, risk_stats: Optional[Counter[str]] = Non
                 history = _history(run_dir, frame_id)
                 if history is None:
                     continue
+                town = _town(ann, route)
+                phase1, applied_overrides = _apply_visual_subgroup_overrides(
+                    phase1,
+                    overrides=visual_overrides,
+                    note_subgroups=note_subgroups,
+                    annotation=ann,
+                    scenario=scenario,
+                    route_id=route_id,
+                    town=town,
+                    rs=rs,
+                    counters=risk_stats if risk_stats is not None else Counter(),
+                )
                 phase2 = _phase2_answers(rs)
                 answers = {**phase1, **phase2}
                 yield {
                     "dataset_name": DATASET_NAME,
                     "scenario": scenario,
                     "route_id": route_id,
-                    "town": _town(ann, route),
+                    "town": town,
                     "split": split,
                     "frame_id": frame_id,
                     "rs": rs,
@@ -217,6 +335,8 @@ def iter_rows(args: argparse.Namespace, risk_stats: Optional[Counter[str]] = Non
                     },
                     "visual_label_risk": risk,
                     "visual_label_risk_reasons": reasons,
+                    "visual_subgroup_overrides_applied": applied_overrides,
+                    "manual_note_subgroups": list(note_subgroups.get((scenario, route_id), [])),
                     "history_rgb_paths": history,
                     "latest_rgb_path": history[-1],
                 }
@@ -286,6 +406,11 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         "phase_group_focus_availability": {split: dict(counter) for split, counter in phase_group_focus_counts.items()},
         "cross_phase_highway_r3_consistency_counts": dict(cross_phase),
         "visual_label_risk_counts": dict(sorted(risk_stats.items())),
+        "manual_note_paths": [item for item in str(args.manual_note_paths).split(",") if item.strip()],
+        "visual_subgroup_override_contract": (
+            "Top-level answer-table visual_subgroup_overrides are applied only when a route/frame carries "
+            "the explicit subgroup in RGB audit notes/annotations, or when the override lists an explicit reviewed route id."
+        ),
         "full_frame_rgb_review_coverage": {
             "review_root": str(args.review_root),
             "coverage_manifest": str(args.coverage_manifest),
@@ -318,6 +443,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase1_data"))
     p.add_argument("--review-root", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809"))
     p.add_argument("--coverage-manifest", default=str(DEFAULT_COVERAGE_MANIFEST))
+    p.add_argument(
+        "--manual-note-paths",
+        default=",".join(
+            [
+                str(_AUTOMOT_ROOT / "keyframe_filter/collection_output/phase1_four_question_audit/manual_visual_audit_notes.jsonl"),
+                str(_AUTOMOT_ROOT / "keyframe_filter/collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/manual_full_sheet_notes_20260809.jsonl"),
+                str(_AUTOMOT_ROOT / "keyframe_filter/collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/manual_table_gap_combo_notes_20260810.jsonl"),
+            ]
+        ),
+    )
     p.add_argument("--scenarios", default="all")
     p.add_argument("--split-seed", type=int, default=20260813)
     p.add_argument("--test-ratio", type=float, default=0.10)

@@ -10,8 +10,11 @@ one of the Phase2 augment variants:
 - Phase2 `hierarchical_probe`: `RS_HIGHWAY`, `GROUP`, and one concrete RS detail
 
 Training uses the Phase2 augment train ratio `4:1:1`; eval/generation uses the
-Phase2 eval ratio `2:1:1`. `RS_HIGHWAY` is the Phase2 hierarchical highway/R3
-question and is intentionally separate from the audited Phase1 `HIGHWAY` line.
+Phase2 eval ratio `2:1:1`. Generation validation defaults to
+`GENERATION_EVAL_BALANCE_COUNT=16` so subset/hierarchical diagnostics have
+enough samples to expose imbalance. `RS_HIGHWAY` is the Phase2 hierarchical
+highway/R3 question and is intentionally separate from the audited Phase1
+`HIGHWAY` line.
 
 The dataset builder follows the latest Phase2 filtering: abnormal LEAD routes
 are removed, full-frame RGB review coverage is checked, and visual-risk frames
@@ -32,8 +35,14 @@ Balance artifacts:
 
 - `checkpoints/sft_new_loop_phase1_data/manifest.json`
 - `checkpoints/sft_new_loop_phase1_runs/.../train_balance.json`
+- `checkpoints/sft_new_loop_phase1_runs/.../train_run_manifest.json`
+- `checkpoints/sft_new_loop_phase1_runs/.../train_metrics.jsonl`
+- `checkpoints/sft_new_loop_phase1_runs/.../train_eval_metrics.jsonl`
 - eval `metrics.json`
 
-The sampling contract is exact per split: every focus answer key has YES:NO =
-1:1 in the focused work list. Since there are four Phase1 focus keys and four
-Phase2 focus keys, Phase1-focus and Phase2-focus cases are also 1:1.
+The sampling contract has two layers. The Phase1 half is exact over the four
+Phase1 focus keys with YES:NO = 1:1. The Phase2 half uses the latest
+`sft_loop_phase2_augment` balance keys for all/subset/hierarchical prompts and
+records `augment_balance_key` counts, variant reports, answer-pattern
+diagnostics, subset unasked-line leakage, `RS_HIGHWAY`, and all `GROUP:<id>`
+metrics. The combined work keeps Phase1-focus and Phase2-focus cases 1:1.
