@@ -77,6 +77,20 @@ def _history(run_dir: pathlib.Path, frame_id: int) -> Optional[list[str]]:
     return paths
 
 
+def _relative_history_paths(paths: Sequence[str], data_root: pathlib.Path) -> List[str]:
+    """Store RGB paths relative to data_root so the index can move between machines."""
+
+    root = data_root.expanduser().absolute()
+    rel_paths: List[str] = []
+    for raw in paths:
+        path = pathlib.Path(raw).expanduser().absolute()
+        try:
+            rel_paths.append(str(path.relative_to(root)))
+        except ValueError as exc:
+            raise ValueError(f"RGB path {path} is not under data_root {root}") from exc
+    return rel_paths
+
+
 def _town(annotation: Mapping[str, Any], route: Mapping[str, Any]) -> str:
     """Read the XML town used by the RGB audit coverage checks."""
 
@@ -250,7 +264,7 @@ def iter_rows(args: argparse.Namespace, risk_stats: Optional[Counter[str]] = Non
     note_paths = [pathlib.Path(item) for item in str(args.manual_note_paths).split(",") if item.strip()]
     note_subgroups = _load_manual_subgroup_notes(note_paths)
     collection_dir = pathlib.Path(args.collection_dir)
-    data_root = pathlib.Path(args.data_root)
+    data_root = pathlib.Path(args.data_root).expanduser().resolve()
     selected = None if args.scenarios == "all" else {item.strip() for item in args.scenarios.split(",") if item.strip()}
     seen = 0
     for result_path in sorted(collection_dir.glob("*_result.json")):
@@ -293,9 +307,10 @@ def iter_rows(args: argparse.Namespace, risk_stats: Optional[Counter[str]] = Non
                     continue
                 if risk and risk_stats is not None:
                     risk_stats["risk_frames_retained"] += 1
-                history = _history(run_dir, frame_id)
-                if history is None:
+                history_abs = _history(run_dir, frame_id)
+                if history_abs is None:
                     continue
+                history = _relative_history_paths(history_abs, data_root)
                 town = _town(ann, route)
                 phase1, applied_overrides = _apply_visual_subgroup_overrides(
                     phase1,
@@ -389,6 +404,11 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         "format": "sft_new_loop_phase1_frame_index",
         "dataset_name": DATASET_NAME,
         "frame_index": str(target),
+        "data_root": str(pathlib.Path(args.data_root)),
+        "rgb_path_contract": (
+            "history_rgb_paths/latest_rgb_path are stored relative to --data-root "
+            "(normally lead_data) so train/eval can remap the index on another machine."
+        ),
         "answer_table": str(args.answer_table),
         "split_seed": int(args.split_seed),
         "test_ratio": float(args.test_ratio),

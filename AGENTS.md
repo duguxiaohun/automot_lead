@@ -251,14 +251,18 @@
   eval/generation 2:1:1 融入同一轮输出。数据构建复用 Phase2 最新异常 route
   剔除、full-frame RGB review 覆盖检查和默认视觉风险过滤；Phase1 标签来自已审计四问答案表，
   且只有结构化 RGB audit notes/annotations 中的 visual/topology subgroup 能触发覆盖，
-  不能从自由文本 `audit_evidence` 推断 route 标签；Phase2 标签来自逐帧 RS 标注。训练/eval
+  不能从自由文本 `audit_evidence` 推断 route 标签；JSONL 的 RGB 路径默认保存为相对
+  `--data-root` 的路径，train/eval 支持 `--data-root` 重映射旧绝对 `lead_data` 路径；
+  Phase2 标签来自逐帧 RS 标注。训练/eval
   使用双层采样审计：Phase1 四个 focus 问题各自 YES:NO=1:1，Phase2 四个 focus
   (`RS1/RS2/RS4/RS5`) 也各自 YES:NO=1:1，并在此前提下迁移 `sft_loop_phase2_augment`
   的 all/subset/hierarchical augment balance key、多边际配额、variant report、
   answer-pattern diagnostics、subset 未问行泄漏检查、`RS_HIGHWAY` 与 `GROUP:<id>` 指标；
-  all/subset/hierarchical 三类 variant 总量是硬约束，具体 augment key 逐桶偏差必须写入
-  deviation report；四个 Phase1 focus 与四个 Phase2 focus 总量 1:1；manifest/train_balance/metrics 必须记录
-  这些比例、每 epoch `balance/epoch_*.json`、窗口 `augment_counts` 与重复率审计。
+  all/subset/hierarchical 三类 variant 总量、Phase2 `(focus_bucket, variant)` 配额和
+  `all_random_order/RS*:YES|NO` 桶都是硬约束，subset/hierarchical 具体 augment key
+  逐桶偏差必须写入 deviation report；四个 Phase1 focus 与四个 Phase2 focus 总量 1:1；
+  manifest/train_balance/metrics 必须记录这些比例、每 epoch `balance/epoch_*.json`、窗口
+  `augment_counts`、`all_random_order_target_deviation`、`phase2_focus_variant_*` 与重复率审计。
   默认 `FOCUS_BALANCE_COUNT=9216`，对应每轮 147,456 sampled cases，与旧 Phase2 augment
   总 case 数对齐；训练期 teacher/generation eval 与 checkpoint 默认步频为 2000/2000/20000，
   generation eval 默认 `generation_eval_balance_count=16`，避免小样本漏审 subset/hierarchical。冲突或不确定处以 Phase2 最新 RS 定义为 ROAD_STRUCTURE 权威，同时保留

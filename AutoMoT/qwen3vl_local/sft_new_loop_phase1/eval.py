@@ -148,9 +148,28 @@ class EvalBundle:
         return getattr(self.model, "module", self.model)
 
 
-def _read_rows(path: pathlib.Path, split: str, max_frames: int = 0) -> List[FrameRow]:
+def _resolve_rgb_path(raw: str, data_root: pathlib.Path) -> str:
+    """Resolve relative RGB paths and remap old absolute lead_data paths."""
+
+    value = str(raw)
+    root = data_root.expanduser()
+    path = pathlib.Path(value).expanduser()
+    if not path.is_absolute():
+        return str(root / path)
+    parts = path.parts
+    if "lead_data" in parts:
+        idx = parts.index("lead_data")
+        rel = pathlib.Path(*parts[idx + 1 :])
+        remapped = root / rel
+        if remapped.exists() or not path.exists():
+            return str(remapped)
+    return str(path)
+
+
+def _read_rows(path: pathlib.Path, split: str, max_frames: int = 0, data_root: Optional[pathlib.Path] = None) -> List[FrameRow]:
     """读取 frame_index.jsonl。"""
 
+    root = pathlib.Path(data_root) if data_root is not None else (_AUTOMOT_ROOT / "lead_data")
     rows: List[FrameRow] = []
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -172,8 +191,8 @@ def _read_rows(path: pathlib.Path, split: str, max_frames: int = 0) -> List[Fram
                     rs=str(obj.get("rs")),
                     event=str(obj.get("event")),
                     split=str(obj.get("split")),
-                    history_rgb_paths=[str(x) for x in obj.get("history_rgb_paths", [])],
-                    latest_rgb_path=str(obj.get("latest_rgb_path")),
+                    history_rgb_paths=[_resolve_rgb_path(str(x), root) for x in obj.get("history_rgb_paths", [])],
+                    latest_rgb_path=_resolve_rgb_path(str(obj.get("latest_rgb_path")), root),
                     answers={key: bool((obj.get("answers") or {}).get(key, False)) for key in ANSWER_KEYS},
                 )
             )
@@ -474,7 +493,12 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         _prepare_output_dir(output_dir, overwrite=bool(args.overwrite))
     if world_size > 1:
         dist.barrier()
-    rows = _read_rows(pathlib.Path(args.index), split=str(args.split), max_frames=int(args.max_frames))
+    rows = _read_rows(
+        pathlib.Path(args.index),
+        split=str(args.split),
+        max_frames=int(args.max_frames),
+        data_root=pathlib.Path(args.data_root),
+    )
     raw_focus_bin_availability = _raw_focus_bin_counts(rows)
     cases = _balanced_cases(rows, cases_per_bin=int(args.cases_per_bin), seed=int(args.seed))
     local_cases = cases[rank::world_size]
@@ -786,6 +810,7 @@ def parse_args() -> argparse.Namespace:
 
     p = argparse.ArgumentParser(description="Evaluate base Qwen or fused Phase1+Phase2 LoRA on balanced eight-question cases")
     p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase1_data/frame_index.jsonl"))
+    p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"), help="root used to resolve relative RGB paths or remap old absolute lead_data paths")
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument("--adapter-dir", default="")
     p.add_argument(

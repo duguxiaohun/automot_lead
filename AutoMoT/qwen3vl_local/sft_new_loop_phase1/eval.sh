@@ -123,7 +123,7 @@ build_bundle() {
   PHASE_NAME="${PHASE_NAME}" OUTPUT_ROOT="${OUTPUT_ROOT}" ADAPTER_DIR="${ADAPTER_DIR}" \
   ADAPTER_INPUT="${ADAPTER_INPUT}" ADAPTER_CONFIG_NAME="${ADAPTER_CONFIG_NAME}" \
   BUNDLE_MAX_MB="${BUNDLE_MAX_MB}" BUNDLE_BASENAME="${BUNDLE_BASENAME}" \
-  TIMESTAMP="${TIMESTAMP}" MODEL_DIR="${MODEL_DIR}" INDEX="${INDEX}" SPLIT="${SPLIT}" \
+  TIMESTAMP="${TIMESTAMP}" MODEL_DIR="${MODEL_DIR}" INDEX="${INDEX}" DATA_ROOT="${DATA_ROOT}" SPLIT="${SPLIT}" \
   HISTORY_RGB_MODE="${BASE_HISTORY_RGB_MODE}" EVAL_SCRIPT="${EVAL_PY}" python - <<'PY'
 import datetime, json, os, pathlib, shutil, subprocess, tarfile
 
@@ -246,6 +246,7 @@ def bundle_identity() -> dict:
         "eval_script": os.environ.get("EVAL_SCRIPT", ""),
         "model_dir": os.environ.get("MODEL_DIR", ""),
         "index": os.environ.get("INDEX", ""),
+        "data_root": os.environ.get("DATA_ROOT", ""),
         "split": os.environ.get("SPLIT", ""),
         "history_rgb_mode": os.environ.get("HISTORY_RGB_MODE", ""),
         "prompt_name": eval_meta.get("prompt_name") or adapter.get("prompt_name"),
@@ -411,28 +412,28 @@ LORA_EVAL_DIR="${OUTPUT_ROOT}/lora_production"
 LORA_AUDIT_EVAL_DIR="${OUTPUT_ROOT}/lora_audit_prompt"
 
 run_eval "base production" \
-  --model-dir "${MODEL_DIR}" --index "${INDEX}" --split "${SPLIT}" \
+  --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
   --history-rgb-mode "${BASE_HISTORY_RGB_MODE}" --cases-per-bin "${CASES_PER_BIN}" \
   --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
   --output-dir "${BASE_EVAL_DIR}" --no-timestamp-output --overwrite --save-error-rgb --no-save-all-rgb
 
 if [[ "${RUN_AUDIT_PROMPT_EVAL}" == "1" ]]; then
   run_eval "base audit-prompt" \
-    --model-dir "${MODEL_DIR}" --index "${INDEX}" --split "${SPLIT}" \
+    --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
     --history-rgb-mode "${BASE_HISTORY_RGB_MODE}" --cases-per-bin "${CASES_PER_BIN}" \
     --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
     --audit-prompt --output-dir "${BASE_AUDIT_EVAL_DIR}" --no-timestamp-output --overwrite --save-error-rgb --no-save-all-rgb
 fi
 
 run_eval "LoRA production" \
-  --model-dir "${MODEL_DIR}" --index "${INDEX}" --split "${SPLIT}" \
+  --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
   --adapter-dir "${ADAPTER_DIR}" --cases-per-bin "${CASES_PER_BIN}" \
   --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
   --output-dir "${LORA_EVAL_DIR}" --no-timestamp-output --overwrite --save-error-rgb --no-save-all-rgb
 
 if [[ "${RUN_AUDIT_PROMPT_EVAL}" == "1" ]]; then
   run_eval "LoRA audit-prompt" \
-    --model-dir "${MODEL_DIR}" --index "${INDEX}" --split "${SPLIT}" \
+    --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
     --adapter-dir "${ADAPTER_DIR}" --cases-per-bin "${CASES_PER_BIN}" \
     --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
     --audit-prompt --output-dir "${LORA_AUDIT_EVAL_DIR}" --no-timestamp-output --overwrite --save-error-rgb --no-save-all-rgb

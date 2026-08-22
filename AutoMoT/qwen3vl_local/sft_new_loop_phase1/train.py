@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import itertools
 import json
 import math
@@ -171,6 +172,7 @@ def _write_run_metadata(
         "tb_dir": str(output_dir / "tb"),
         "model_dir": str(args.model_dir),
         "index": str(args.index),
+        "data_root": str(args.data_root),
         "split": str(args.split),
         "eval_split": str(args.eval_split),
         "world_size": int(world_size),
@@ -228,9 +230,28 @@ class WorkItem:
     augment_balance_key: str
 
 
-def _read_rows(path: pathlib.Path, split: str, max_frames: int = 0) -> List[FrameRow]:
+def _resolve_rgb_path(raw: str, data_root: pathlib.Path) -> str:
+    """Resolve relative RGB paths and remap old absolute lead_data paths."""
+
+    value = str(raw)
+    root = data_root.expanduser()
+    path = pathlib.Path(value).expanduser()
+    if not path.is_absolute():
+        return str(root / path)
+    parts = path.parts
+    if "lead_data" in parts:
+        idx = parts.index("lead_data")
+        rel = pathlib.Path(*parts[idx + 1 :])
+        remapped = root / rel
+        if remapped.exists() or not path.exists():
+            return str(remapped)
+    return str(path)
+
+
+def _read_rows(path: pathlib.Path, split: str, max_frames: int = 0, data_root: Optional[pathlib.Path] = None) -> List[FrameRow]:
     """读取 frame_index.jsonl。"""
 
+    root = pathlib.Path(data_root) if data_root is not None else (_AUTOMOT_ROOT / "lead_data")
     rows: List[FrameRow] = []
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -251,8 +272,8 @@ def _read_rows(path: pathlib.Path, split: str, max_frames: int = 0) -> List[Fram
                     rs=str(obj.get("rs")),
                     event=str(obj.get("event")),
                     split=str(obj.get("split")),
-                    history_rgb_paths=[str(x) for x in obj.get("history_rgb_paths", [])],
-                    latest_rgb_path=str(obj.get("latest_rgb_path")),
+                    history_rgb_paths=[_resolve_rgb_path(str(x), root) for x in obj.get("history_rgb_paths", [])],
+                    latest_rgb_path=_resolve_rgb_path(str(obj.get("latest_rgb_path")), root),
                     answers={key: bool((obj.get("answers") or {}).get(key, False)) for key in ANSWER_KEYS},
                 )
             )
@@ -625,20 +646,113 @@ def _augment_key_targets(total_items: int, variant_weights: Mapping[str, int]) -
     return per_key_targets
 
 
+def _balance_key_variant_targets(
+    pairs: Sequence[Tuple[FrameRow, str]],
+    *,
+    variant_weights: Mapping[str, int],
+    seed: int,
+) -> Dict[Tuple[str, str], int]:
+    """Distribute variant quotas across main focus buckets without losing totals."""
+
+    balance_counts = Counter(_focus_key(row, focus) for row, focus in pairs)
+    total = sum(balance_counts.values())
+    if total <= 0:
+        return {}
+    variant_totals = _augment_target_counts(total, variant_weights)
+    quotas: Dict[Tuple[str, str], int] = {}
+    balance_keys = sorted(balance_counts)
+    for variant, variant_total in variant_totals.items():
+        floors: Dict[str, int] = {}
+        remainders: List[Tuple[float, str, str]] = []
+        floor_sum = 0
+        for balance_key in balance_keys:
+            raw = float(variant_total) * float(balance_counts[balance_key]) / float(total)
+            floor = int(math.floor(raw))
+            floors[balance_key] = floor
+            floor_sum += floor
+            jitter = hashlib.sha256(f"{seed}:{variant}:{balance_key}".encode("utf-8")).hexdigest()
+            remainders.append((raw - floor, jitter, balance_key))
+        for _, _, balance_key in sorted(remainders, reverse=True)[: max(0, int(variant_total) - floor_sum)]:
+            floors[balance_key] += 1
+        for balance_key, count in floors.items():
+            if count > 0:
+                quotas[(balance_key, variant)] = int(count)
+    return quotas
+
+
 def _assign_specs_to_focus_pairs(
     pairs: Sequence[Tuple[FrameRow, str]],
     *,
     seed: int,
     variant_weights: Mapping[str, int],
+    hard_focus_variant: bool = True,
 ) -> List[WorkItem]:
-    """为已均衡的 focus pairs 流式选择 spec，硬控 variant 并压低 augment-key 偏差。"""
+    """为已均衡的 focus pairs 选择 spec，并压低 Phase2 augment-key 偏差。"""
 
     targets = Counter(_augment_key_targets(len(pairs), variant_weights))
     variant_targets = Counter(_augment_target_counts(len(pairs), variant_weights))
+    balance_variant_targets = Counter()
+    if hard_focus_variant:
+        balance_variant_targets = Counter(
+            {
+                f"{balance_key}|{variant}": count
+                for (balance_key, variant), count in _balance_key_variant_targets(
+                    pairs,
+                    variant_weights=variant_weights,
+                    seed=seed,
+                ).items()
+            }
+        )
     key_counts: Counter[str] = Counter()
     variant_counts: Counter[str] = Counter()
+    balance_variant_counts: Counter[str] = Counter()
     out: List[WorkItem] = []
-    for slot, (row, focus) in enumerate(pairs):
+    ordered_pairs = list(pairs)
+    used_slots: set[int] = set()
+    if not hard_focus_variant:
+        all_targets = {
+            key: int(value)
+            for key, value in targets.items()
+            if key.startswith("all_random_order/")
+        }
+        all_key_order = sorted(
+            all_targets,
+            key=lambda key: (
+                0 if key.endswith(":YES") else 1,
+                key,
+            ),
+        )
+        candidates_by_all_key: Dict[str, List[Tuple[int, WorkItem]]] = defaultdict(list)
+        for slot, (row, focus) in enumerate(ordered_pairs):
+            for candidate in _candidate_specs_for_row(row, seed=seed + slot, focus=focus):
+                if candidate.spec.variant == "all_random_order":
+                    candidates_by_all_key[candidate.augment_balance_key].append((slot, candidate))
+        for key in all_key_order:
+            need = max(0, int(all_targets[key]) - int(key_counts[key]))
+            if need <= 0:
+                continue
+            candidates = list(candidates_by_all_key.get(key, []))
+            candidates.sort(
+                key=lambda item: hashlib.sha256(
+                    _work_item_seed(item[1].row, seed, item[1].focus, item[1].augment_balance_key).encode("utf-8")
+                ).hexdigest()
+            )
+            for slot, candidate in candidates:
+                if need <= 0:
+                    break
+                if slot in used_slots:
+                    continue
+                if variant_counts["all_random_order"] >= variant_targets["all_random_order"]:
+                    break
+                out.append(candidate)
+                used_slots.add(slot)
+                key_counts[candidate.augment_balance_key] += 1
+                variant_counts[candidate.spec.variant] += 1
+                balance_variant_counts[f"{candidate.balance_key}|{candidate.spec.variant}"] += 1
+                need -= 1
+    for slot, (row, focus) in enumerate(ordered_pairs):
+        if slot in used_slots:
+            continue
         candidates = list(_candidate_specs_for_row(row, seed=seed + slot, focus=focus))
         if not candidates:
             raise RuntimeError(f"no augment candidates for focus={focus} row={row.scenario}/{row.route_id}/f{row.frame_id}")
@@ -649,15 +763,23 @@ def _assign_specs_to_focus_pairs(
             variant_deficit = variant_targets[variant] - variant_counts[variant]
             if variant_deficit <= 0:
                 continue
+            balance_variant_key = f"{candidate.balance_key}|{variant}"
+            balance_variant_deficit = 0
+            if hard_focus_variant:
+                balance_variant_deficit = balance_variant_targets[balance_variant_key] - balance_variant_counts[balance_variant_key]
+                if balance_variant_deficit <= 0:
+                    continue
             key = candidate.augment_balance_key
             key_deficit = targets[key] - key_counts[key]
             score = (
-                10_000.0 * float(variant_deficit) / max(1.0, float(variant_targets[variant]))
-                + 100.0 * float(key_deficit) / max(1.0, float(targets[key]))
+                1_000.0 * float(variant_deficit) / max(1.0, float(variant_targets[variant]))
+                + 200.0 * float(key_deficit) / max(1.0, float(targets[key]))
                 + float(targets[key])
             )
+            if hard_focus_variant:
+                score += 20_000.0 * float(balance_variant_deficit) / max(1.0, float(balance_variant_targets[balance_variant_key]))
             if key_deficit <= 0:
-                score += 200.0 * float(key_deficit)
+                score += 500.0 * float(key_deficit)
             if score > best_score:
                 best = candidate
                 best_score = score
@@ -665,14 +787,29 @@ def _assign_specs_to_focus_pairs(
             best = max(
                 candidates,
                 key=lambda candidate: (
-                    variant_targets[candidate.spec.variant] - variant_counts[candidate.spec.variant],
+                    (
+                        balance_variant_targets[f"{candidate.balance_key}|{candidate.spec.variant}"]
+                        - balance_variant_counts[f"{candidate.balance_key}|{candidate.spec.variant}"]
+                    )
+                    if hard_focus_variant
+                    else 0,
                     targets[candidate.augment_balance_key] - key_counts[candidate.augment_balance_key],
+                    variant_targets[candidate.spec.variant] - variant_counts[candidate.spec.variant],
                     candidate.augment_balance_key,
                 ),
             )
         out.append(best)
         key_counts[best.augment_balance_key] += 1
         variant_counts[best.spec.variant] += 1
+        balance_variant_counts[f"{best.balance_key}|{best.spec.variant}"] += 1
+    if hard_focus_variant:
+        unmet = {
+            key: int(target) - int(balance_variant_counts.get(key, 0))
+            for key, target in balance_variant_targets.items()
+            if int(balance_variant_counts.get(key, 0)) != int(target)
+        }
+        if unmet:
+            raise RuntimeError(f"failed to satisfy focus/label/variant quotas: {unmet}")
     return out
 
 
@@ -683,6 +820,7 @@ def _balanced_focus_pairs(
     target: int,
     seed: int,
     context: str,
+    secondary_rs_balance: bool = False,
 ) -> List[Tuple[FrameRow, str]]:
     """按给定 focus keys 抽取 YES/NO 严格等量的 row/focus pairs。"""
 
@@ -704,7 +842,28 @@ def _balanced_focus_pairs(
     for key in sorted(groups):
         items = list(groups[key])
         rng.shuffle(items)
-        if len(items) >= int(target):
+        if secondary_rs_balance:
+            by_rs: Dict[str, List[Tuple[FrameRow, str]]] = defaultdict(list)
+            for item in items:
+                by_rs[item[0].rs].append(item)
+            rs_values = [rs for rs in ("R1", "R2", "R3", "R4", "R5") if by_rs.get(rs)]
+            selected = []
+            if rs_values:
+                base = int(target) // len(rs_values)
+                remainder = int(target) - base * len(rs_values)
+                for idx, rs in enumerate(rs_values):
+                    bucket = list(by_rs[rs])
+                    rng.shuffle(bucket)
+                    quota = base + int(idx < remainder)
+                    if len(bucket) >= quota:
+                        selected.extend(bucket[:quota])
+                    else:
+                        selected.extend(bucket[i % len(bucket)] for i in range(quota))
+            if len(selected) < int(target):
+                selected.extend(items[idx % len(items)] for idx in range(int(target) - len(selected)))
+            rng.shuffle(selected)
+            selected = selected[: int(target)]
+        elif len(items) >= int(target):
             selected = items[: int(target)]
         else:
             selected = [items[idx % len(items)] for idx in range(int(target))]
@@ -788,6 +947,35 @@ def _work_balance_report(
         augment_targets.update(_augment_key_targets(count, variant_weights))
         variant_targets.update(_augment_target_counts(count, variant_weights))
     variant_actual = Counter(item.spec.variant for item in work)
+    all_random_actual = Counter(
+        {key: value for key, value in augment_actual.items() if str(key).startswith("all_random_order/")}
+    )
+    all_random_targets = Counter(
+        {key: value for key, value in augment_targets.items() if str(key).startswith("all_random_order/")}
+    )
+    focus_variant_actual = Counter(f"{item.balance_key}|{item.spec.variant}" for item in work)
+    focus_variant_targets = Counter(
+        {
+            f"{balance_key}|{variant}": count
+            for (balance_key, variant), count in _balance_key_variant_targets(
+                [(item.row, item.focus) for item in work],
+                variant_weights=variant_weights,
+                seed=seed,
+            ).items()
+        }
+    )
+    phase2_items = [item for item in work if item.focus in PHASE2_ANSWER_KEYS]
+    phase2_focus_variant_actual = Counter(f"{item.balance_key}|{item.spec.variant}" for item in phase2_items)
+    phase2_focus_variant_targets = Counter(
+        {
+            f"{balance_key}|{variant}": count
+            for (balance_key, variant), count in _balance_key_variant_targets(
+                [(item.row, item.focus) for item in phase2_items],
+                variant_weights=variant_weights,
+                seed=seed,
+            ).items()
+        }
+    )
     payload: Dict[str, Any] = {
         "split": str(split),
         "seed": int(seed),
@@ -798,9 +986,16 @@ def _work_balance_report(
         "augment_global_sampled": _counter_dict(augment_actual),
         "augment_target_sampled": _counter_dict(augment_targets),
         "augment_target_deviation": _target_deviation_report(augment_actual, augment_targets),
+        "all_random_order_target_deviation": _target_deviation_report(all_random_actual, all_random_targets),
         "variant_sampled": _counter_dict(variant_actual),
         "variant_target_sampled": _counter_dict(variant_targets),
         "variant_target_deviation": _target_deviation_report(variant_actual, variant_targets),
+        "focus_variant_sampled": _counter_dict(focus_variant_actual),
+        "focus_variant_target_sampled": _counter_dict(focus_variant_targets),
+        "focus_variant_target_deviation": _target_deviation_report(focus_variant_actual, focus_variant_targets),
+        "phase2_focus_variant_sampled": _counter_dict(phase2_focus_variant_actual),
+        "phase2_focus_variant_target_sampled": _counter_dict(phase2_focus_variant_targets),
+        "phase2_focus_variant_target_deviation": _target_deviation_report(phase2_focus_variant_actual, phase2_focus_variant_targets),
         "phase_group_sampled": _counter_dict(Counter(focus_phase(item.focus) for item in work)),
         "phase_group_answer_sampled": _counter_dict(
             Counter(f"{focus_phase(item.focus)}:{'YES' if item.row.answers[item.focus] else 'NO'}" for item in work)
@@ -851,6 +1046,12 @@ def _write_epoch_balance_report(
             "augment_exact": bool(report["augment_target_deviation"]["exact"]),
             "augment_off_target_keys": int(report["augment_target_deviation"]["off_target_keys"]),
             "augment_max_abs_delta": int(report["augment_target_deviation"]["max_abs_delta"]),
+            "all_random_exact": bool(report["all_random_order_target_deviation"]["exact"]),
+            "all_random_max_abs_delta": int(report["all_random_order_target_deviation"]["max_abs_delta"]),
+            "focus_variant_exact": bool(report["focus_variant_target_deviation"]["exact"]),
+            "focus_variant_max_abs_delta": int(report["focus_variant_target_deviation"]["max_abs_delta"]),
+            "phase2_focus_variant_exact": bool(report["phase2_focus_variant_target_deviation"]["exact"]),
+            "phase2_focus_variant_max_abs_delta": int(report["phase2_focus_variant_target_deviation"]["max_abs_delta"]),
             "max_repeat": int(report["repeat_audit"]["max_repeat"]),
             "mean_repeat": float(report["repeat_audit"]["mean_repeat"]),
         },
@@ -878,8 +1079,14 @@ def _balanced_work(
         target=target,
         seed=seed,
         context="Phase1-focus training work",
+        secondary_rs_balance=True,
     )
-    phase1_work = _assign_specs_to_focus_pairs(phase1_pairs, seed=seed, variant_weights=variant_weights)
+    phase1_work = _assign_specs_to_focus_pairs(
+        phase1_pairs,
+        seed=seed,
+        variant_weights=variant_weights,
+        hard_focus_variant=False,
+    )
     _assert_exact_focus_balance(
         phase1_work,
         target=target,
@@ -1510,7 +1717,12 @@ def train(args: argparse.Namespace) -> None:
         device = torch.device(f"cuda:{local_rank}")
     else:
         device = torch.device(args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
-    rows = _read_rows(pathlib.Path(args.index), split=str(args.split), max_frames=int(args.max_frames))
+    rows = _read_rows(
+        pathlib.Path(args.index),
+        split=str(args.split),
+        max_frames=int(args.max_frames),
+        data_root=pathlib.Path(args.data_root),
+    )
     full_work = _balanced_work(
         rows,
         target_per_bin=int(args.focus_balance_count),
@@ -1530,7 +1742,12 @@ def train(args: argparse.Namespace) -> None:
     full_generation_eval_work: List[WorkItem] = []
     if int(args.eval_steps) > 0 and int(args.eval_balance_count) > 0:
         try:
-            eval_rows = _read_rows(pathlib.Path(args.index), split=str(args.eval_split), max_frames=int(args.max_eval_frames))
+            eval_rows = _read_rows(
+                pathlib.Path(args.index),
+                split=str(args.eval_split),
+                max_frames=int(args.max_eval_frames),
+                data_root=pathlib.Path(args.data_root),
+            )
             full_eval_work = _balanced_work(
                 eval_rows,
                 target_per_bin=int(args.eval_balance_count),
@@ -1884,6 +2101,7 @@ def parse_args() -> argparse.Namespace:
 
     p = argparse.ArgumentParser(description="Train sft_new_loop_phase1 fused eight-question LoRA")
     p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase1_data/frame_index.jsonl"))
+    p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"), help="root used to resolve relative RGB paths or remap old absolute lead_data paths")
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument(
         "--output-dir",
