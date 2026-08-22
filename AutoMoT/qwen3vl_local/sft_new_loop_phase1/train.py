@@ -78,6 +78,7 @@ from qwen3vl_local.sft_new_loop_phase1.prompts import (  # noqa: E402
     make_prompt_spec,
     parse_phase1_output,
     phase1_prompt_sha256,
+    phase2_output_keys,
     prompt_spec_to_json,
     spec_metric_items,
 )
@@ -1674,8 +1675,11 @@ def _update_pattern_counters(
 ) -> None:
     """累计增强问法的答案模式与未问字段泄漏诊断。"""
 
-    gt_pattern = _dynamic_answer_pattern(gt)
-    pred_pattern = _dynamic_answer_pattern(parsed)
+    phase2_keys = phase2_output_keys(spec)
+    phase2_gt = {key: gt[key] for key in phase2_keys if key in gt}
+    phase2_parsed = {key: parsed.get(key) for key in phase2_keys}
+    gt_pattern = _dynamic_answer_pattern(phase2_gt)
+    pred_pattern = _dynamic_answer_pattern(phase2_parsed)
     variant = spec.variant
     counter[f"{variant}/total"] += 1
     counter[f"{variant}/gt_pattern/{gt_pattern}"] += 1
@@ -1693,7 +1697,7 @@ def _update_pattern_counters(
             counter[f"subset_random/gt_all_no/{highway_bucket}"] += 1
         if pred_pattern == "ALL_NO":
             counter[f"subset_random/pred_all_no/{highway_bucket}"] += 1
-        asked = set(spec.output_keys)
+        asked = set(phase2_keys)
         leaked = []
         for key in PHASE2_ANSWER_KEYS:
             if key in asked:
@@ -2185,7 +2189,9 @@ def train(args: argparse.Namespace) -> None:
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
             if writer:
+                current_lr = float(optimizer.param_groups[0].get("lr", 0.0))
                 writer.add_scalar("train/loss", float(loss.detach().item()), global_step)
+                writer.add_scalar("train/learning_rate", current_lr, global_step)
                 writer.add_scalar("train/skipped_too_long", skipped, global_step)
                 writer.add_scalar(f"train/focus/{focus.lower()}", 1, global_step)
                 for key, value in stats.items():
@@ -2200,12 +2206,14 @@ def train(args: argparse.Namespace) -> None:
                 train_window[f"{key}_sum"] += float(stats.get(key, 0.0))
             if rank == 0 and global_step % int(args.log_steps) == 0:
                 samples_window = max(1.0, float(train_window.get("samples", 0)))
+                current_lr = float(optimizer.param_groups[0].get("lr", 0.0))
                 _append_jsonl(
                     output_dir / "train_metrics.jsonl",
                     {
                         "step": int(global_step),
                         "epoch": int(epoch + 1),
                         "samples": int(train_window.get("samples", 0)),
+                        "learning_rate": current_lr,
                         "loss": float(train_window.get("loss_sum", 0.0)) / samples_window,
                         "token_acc": float(train_window.get("token_acc_sum", 0.0)) / samples_window,
                         "value_token_acc": float(train_window.get("value_token_acc_sum", 0.0)) / samples_window,
@@ -2231,6 +2239,7 @@ def train(args: argparse.Namespace) -> None:
                 train_window.clear()
                 print(
                     f"epoch={epoch + 1} step={global_step}/{total_steps} loss={float(loss.detach().item()):.4f} "
+                    f"lr={current_lr:.6g} "
                     f"focus={focus}:{'YES' if row.answers[focus] else 'NO'} skipped={skipped} world={world_size} "
                     f"elapsed={time.time() - t0:.1f}s"
                 )
@@ -2375,7 +2384,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--learning-rate", type=float, default=1e-5)
     p.add_argument("--weight-decay", type=float, default=0.0)
-    p.add_argument("--warmup-steps", type=int, default=50)
+    p.add_argument("--warmup-steps", type=int, default=2000)
     p.add_argument("--max-length", type=int, default=8192)
     p.add_argument("--max-grad-norm", type=float, default=1.0)
     p.add_argument("--lora-rank", type=int, default=16)

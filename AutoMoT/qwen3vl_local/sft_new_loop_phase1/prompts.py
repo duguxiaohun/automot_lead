@@ -340,6 +340,12 @@ def _phase2_answer_map(spec: PromptSpec) -> Dict[str, bool]:
     return {_fused_question_output_key(q): bool(q.answer) for q in spec.phase2_spec.questions}
 
 
+def phase2_output_keys(spec: PromptSpec) -> Tuple[str, ...]:
+    """返回当前 fused prompt 中真正属于 Phase2 的输出行。"""
+
+    return tuple(_fused_question_output_key(q) for q in spec.phase2_spec.questions)
+
+
 def build_phase1_target(answers: Dict[str, bool], *, spec: Optional[PromptSpec] = None) -> str:
     """Render the fused supervised target for this variant."""
 

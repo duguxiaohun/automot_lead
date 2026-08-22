@@ -72,6 +72,7 @@ from qwen3vl_local.sft_new_loop_phase1.prompts import (  # noqa: E402
     make_prompt_spec,
     parse_phase1_output,
     phase1_prompt_sha256,
+    phase2_output_keys,
     prompt_spec_to_json,
     spec_metric_items,
 )
@@ -80,6 +81,7 @@ from qwen3vl_local.sft_new_loop_phase1.train import (  # noqa: E402
     _metric_names,
     _pattern_report,
     _update_pattern_counters,
+    _work_balance_report,
 )
 from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
 
@@ -514,6 +516,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     answer_counts: Dict[str, Counter[str]] = defaultdict(Counter)
     task_counts: Dict[str, Counter[str]] = {key: Counter() for key in ANSWER_KEYS}
     task_answer_counts: Dict[str, Dict[str, Counter[str]]] = {focus: defaultdict(Counter) for focus in ANSWER_KEYS}
+    variant_counts: Dict[str, Counter[str]] = {key: Counter() for key in VARIANT_ORDER}
     focus_counts: Counter[str] = Counter()
     pattern_counts: Counter[str] = Counter()
     case_path = output_dir / (f"cases_rank{rank}.jsonl" if world_size > 1 else "cases.jsonl")
@@ -547,6 +550,11 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 total += 1
                 exact += int(all_ok)
                 focus_counts[_focus_key(row, focus)] += 1
+                variant_counts[spec.variant]["total"] += 1
+                variant_counts[spec.variant]["exact"] += int(all_ok)
+                variant_counts[spec.variant]["format_valid"] += int(
+                    all(parsed.get(key) in ("YES", "NO") for key in spec.output_keys)
+                )
                 task_counts[focus]["total"] += 1
                 task_counts[focus]["exact"] += int(all_ok)
                 main_output_key = focus if focus in spec.output_keys else "DETAIL" if "DETAIL" in spec.output_keys else focus
@@ -565,8 +573,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     pattern_counts,
                     spec=spec,
                     row=row,
-                    gt=gt,
-                    parsed={key: parsed.get(key) for key in spec.output_keys},
+                    gt={key: gt[key] for key in phase2_output_keys(spec) if key in gt},
+                    parsed={key: parsed.get(key) for key in phase2_output_keys(spec)},
                     raw_output=raw,
                 )
                 payload = {
@@ -614,6 +622,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "exact": exact,
         "answer_counts": {key: dict(counter) for key, counter in answer_counts.items()},
         "task_counts": {key: dict(counter) for key, counter in task_counts.items()},
+        "variant_counts": {key: dict(counter) for key, counter in variant_counts.items()},
         "task_answer_counts": {
             focus: {key: dict(counter) for key, counter in counters.items()}
             for focus, counters in task_answer_counts.items()
@@ -637,6 +646,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     answer_counts = {key: Counter() for key in metric_names}
     task_counts = {key: Counter() for key in ANSWER_KEYS}
     task_answer_counts = {focus: {key: Counter() for key in metric_names} for focus in ANSWER_KEYS}
+    variant_counts = {key: Counter() for key in VARIANT_ORDER}
     focus_counts = Counter()
     pattern_counts = Counter()
     for item in gathered:
@@ -644,6 +654,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             answer_counts[key].update(item.get("answer_counts", {}).get(key, {}))
         for key in ANSWER_KEYS:
             task_counts[key].update(item.get("task_counts", {}).get(key, {}))
+        for key in VARIANT_ORDER:
+            variant_counts[key].update(item.get("variant_counts", {}).get(key, {}))
         for focus in ANSWER_KEYS:
             for key in metric_names:
                 task_answer_counts[focus][key].update(item.get("task_answer_counts", {}).get(focus, {}).get(key, {}))
@@ -679,6 +691,25 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             },
             "counts": dict(task_counts[focus]),
         }
+    variant_reports = {}
+    for variant in VARIANT_ORDER:
+        counter = variant_counts[variant]
+        cases_n = int(counter.get("total", 0))
+        variant_reports[variant] = {
+            "cases": cases_n,
+            "exact_match_accuracy": float(counter.get("exact", 0)) / max(1.0, float(cases_n)),
+            "format_valid_rate": float(counter.get("format_valid", 0)) / max(1.0, float(cases_n)),
+            "counts": dict(counter),
+        }
+    balance_report = _work_balance_report(
+        cases,
+        rows=rows,
+        split=str(args.split),
+        focus_balance_count=int(args.cases_per_bin),
+        seed=int(args.seed),
+        variant_weights=VARIANT_WEIGHTS,
+        world_size=int(world_size),
+    )
     metrics = {
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
@@ -719,12 +750,14 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             "phase_group_answer_sampled": dict(
                 Counter(f"{focus_phase(item.focus)}:{'YES' if item.row.answers[item.focus] else 'NO'}" for item in cases)
             ),
+            "balance_report": balance_report,
         },
         "output_dir": str(output_dir),
         "total_cases": total,
         "exact_match_accuracy": float(exact) / max(1, total),
         "per_question": per_key,
         "task_reports": task_reports,
+        "variant_reports": variant_reports,
         "focus_counts": dict(focus_counts),
         "answer_pattern_diagnostics": _pattern_report(pattern_counts),
         "cases_jsonl": str(case_path) if world_size == 1 else [str(item.get("case_path")) for item in gathered],

@@ -91,10 +91,6 @@ GPU_IDS="${GPU_IDS:-0,1,2,3}"
 export GPU_IDS
 export CUDA_VISIBLE_DEVICES="${GPU_IDS}"
 NPROC="$(awk -F',' '{print NF}' <<< "${GPU_IDS}")"
-if [[ "${NPROC}" -ne 4 ]]; then
-  echo "eval.sh defaults to four-card evaluation; set exactly four GPU ids, got GPU_IDS=${GPU_IDS}" >&2
-  exit 2
-fi
 
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
@@ -116,10 +112,14 @@ run_eval() {
   shift
   echo
   echo "========== ${title} =========="
-  torchrun --nproc_per_node=4 \
-    --master_addr="${MASTER_ADDR:-127.0.0.1}" \
-    --master_port="$(find_free_master_port)" \
-    "${EVAL_PY}" "$@"
+  if [[ "${NPROC}" -gt 1 ]]; then
+    torchrun --nproc_per_node="${NPROC}" \
+      --master_addr="${MASTER_ADDR:-127.0.0.1}" \
+      --master_port="$(find_free_master_port)" \
+      "${EVAL_PY}" "$@"
+  else
+    python "${EVAL_PY}" "$@"
+  fi
 }
 
 run_audit_cases() {

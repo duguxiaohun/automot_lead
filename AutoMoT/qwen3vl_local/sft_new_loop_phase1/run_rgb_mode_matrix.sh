@@ -13,6 +13,8 @@
 
 set -euo pipefail
 
+ulimit -S -c 0 2>/dev/null || true
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUTOMOT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${AUTOMOT_ROOT}"
