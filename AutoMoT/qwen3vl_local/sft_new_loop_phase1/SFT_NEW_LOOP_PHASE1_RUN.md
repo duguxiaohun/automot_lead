@@ -14,12 +14,17 @@ Phase2 eval ratio `2:1:1`. Generation validation defaults to
 `GENERATION_EVAL_BALANCE_COUNT=16` so subset/hierarchical diagnostics have
 enough samples to expose imbalance. `RS_HIGHWAY` is the Phase2 hierarchical
 highway/R3 question and is intentionally separate from the audited Phase1
-`HIGHWAY` line.
+`HIGHWAY` line. Full training defaults to `FOCUS_BALANCE_COUNT=9216`, which
+gives 147,456 sampled cases per epoch across the eight focus keys and matches
+the old Phase2 augment epoch case count; `train_balance.json` records repeat
+audits so rare positives are not silently overused.
 
 The dataset builder follows the latest Phase2 filtering: abnormal LEAD routes
 are removed, full-frame RGB review coverage is checked, and visual-risk frames
 are excluded unless `--include-visual-risk` is set. Phase1 labels come from the
-audited answer table; Phase2 labels come from per-frame RS annotations.
+audited answer table; Phase2 labels come from per-frame RS annotations. Visual
+subgroup overrides only apply from structured RGB audit notes/annotations, not
+from free-text `audit_evidence`.
 
 Run from `AutoMoT/`:
 
@@ -41,8 +46,9 @@ Balance artifacts:
 - eval `metrics.json`
 
 The sampling contract has two layers. The Phase1 half is exact over the four
-Phase1 focus keys with YES:NO = 1:1. The Phase2 half uses the latest
-`sft_loop_phase2_augment` balance keys for all/subset/hierarchical prompts and
-records `augment_balance_key` counts, variant reports, answer-pattern
-diagnostics, subset unasked-line leakage, `RS_HIGHWAY`, and all `GROUP:<id>`
-metrics. The combined work keeps Phase1-focus and Phase2-focus cases 1:1.
+Phase1 focus keys with YES:NO = 1:1. The Phase2 half is also exact over
+`RS1/RS2/RS4/RS5` with YES:NO = 1:1, then assigns all/subset/hierarchical
+augment specs under the Phase2 train/eval ratios. It records
+`augment_balance_key` counts, variant reports, answer-pattern diagnostics,
+subset unasked-line leakage, `RS_HIGHWAY`, and all `GROUP:<id>` metrics. The
+combined work keeps Phase1-focus and Phase2-focus cases 1:1.

@@ -325,17 +325,6 @@ def _work_item_seed(row: FrameRow, *parts: object) -> str:
     )
 
 
-def _variant_for_slot(slot: int, weights: Mapping[str, int]) -> str:
-    """按 phase2 权重把 slot 映射到增强 variant。"""
-
-    schedule: List[str] = []
-    for name, weight in weights.items():
-        schedule.extend([str(name)] * max(0, int(weight)))
-    if not schedule:
-        raise ValueError("empty variant weights")
-    return schedule[int(slot) % len(schedule)]
-
-
 def _canonical_phase2_answer_sets() -> List[Dict[str, bool]]:
     """返回 R1/R2/R3/R4/R5 的合法 Phase2 四问答案原型。"""
 
@@ -513,49 +502,6 @@ def _hierarchical_key_targets(keys: Sequence[str], total: int) -> Dict[str, int]
     return {key: int(value) for key, value in chosen.items() if int(value) > 0}
 
 
-def _make_spec(row: FrameRow, focus: str, *, seed: int, slot: int, weights: Mapping[str, int]) -> PromptSpec:
-    """为当前 focus 构造一个融合 Phase2 augment spec。"""
-
-    variant = _variant_for_slot(slot, weights)
-    phase2_focus = focus if focus in {"RS1", "RS2", "RS4", "RS5"} else ["RS1", "RS2", "RS4", "RS5"][slot % 4]
-    subset_count = SUBSET_COUNTS[slot % len(SUBSET_COUNTS)]
-    group_ids = sorted(GROUP_DEFINITIONS.keys())
-    group_id = group_ids[slot % len(group_ids)]
-    detail_key = phase2_focus if phase2_focus in {"RS1", "RS2", "RS4", "RS5"} else ["RS1", "RS2", "RS4", "RS5"][slot % 4]
-    return make_prompt_spec(
-        variant=variant,
-        answers=row.answers,
-        seed_key=f"{seed}:{row.scenario}:{row.route_id}:{row.frame_id}:{focus}:{slot}",
-        focus=phase2_focus,
-        subset_count=int(subset_count),
-        group_id=group_id,
-        detail_key=detail_key,
-    )
-
-
-def _augment_balance_key(spec: PromptSpec, *, fallback_focus: str) -> str:
-    """返回 Phase2 原版风格的增强 balance key，用于实际问题均衡审计。"""
-
-    variant = spec.variant
-    if variant == "all_random_order":
-        focus = fallback_focus if fallback_focus in PHASE2_ANSWER_KEYS else spec.phase2_spec.questions[0].question_id
-        answer = next((bool(q.answer) for q in spec.phase2_spec.questions if q.question_id == focus), False)
-        return f"all_random_order/{focus}:{_answer_text(answer)}"
-    if variant == "subset_random":
-        items = ",".join(f"{q.question_id}:{_answer_text(q.answer)}" for q in spec.phase2_spec.questions)
-        return f"subset_random/q{len(spec.phase2_spec.questions)}/items/{items}"
-    if variant == "hierarchical_probe":
-        answers = {q.output_key: bool(q.answer) for q in spec.phase2_spec.questions}
-        group = next(q.metric_key.split(":", 1)[1] for q in spec.phase2_spec.questions if q.metric_key.startswith("GROUP:"))
-        detail = next(q.question_id for q in spec.phase2_spec.questions if q.question_id in PHASE2_ANSWER_KEYS)
-        return (
-            f"hierarchical_probe/highway:{_answer_text(answers['HIGHWAY'])}"
-            f"/group/{group}:{_answer_text(answers['GROUP'])}"
-            f"/detail/{detail}:{_answer_text(answers['DETAIL'])}"
-        )
-    raise ValueError(f"unknown variant: {variant}")
-
-
 def _make_all_item(row: FrameRow, focus: str, *, seed: int) -> WorkItem:
     """构造 Phase2 all_random_order 候选。"""
 
@@ -618,19 +564,6 @@ def _make_hier_item(row: FrameRow, group_id: str, detail_key: str, *, seed: int)
     )
 
 
-def _iter_phase2_candidate_items(rows: Sequence[FrameRow], *, seed: int) -> Iterable[WorkItem]:
-    """按 Phase2 原版 augment surface 流式生成候选。"""
-
-    for row in rows:
-        for focus in PHASE2_ANSWER_KEYS:
-            yield _make_all_item(row, focus, seed=seed)
-            for count in SUBSET_COUNTS:
-                yield _make_subset_item(row, focus, int(count), seed=seed)
-        for group_id in GROUP_DEFINITIONS:
-            for detail_key in PHASE2_ANSWER_KEYS:
-                yield _make_hier_item(row, group_id, detail_key, seed=seed)
-
-
 def _augment_target_counts(total: int, weights: Mapping[str, int]) -> Dict[str, int]:
     """把 Phase2 半边总样本数按 variant 权重拆成整数配额。"""
 
@@ -647,81 +580,18 @@ def _augment_target_counts(total: int, weights: Mapping[str, int]) -> Dict[str, 
     return counts
 
 
-def _phase2_balanced_work(
-    rows: Sequence[FrameRow],
-    *,
-    total_items: int,
-    seed: int,
-    variant_weights: Mapping[str, int],
-) -> List[WorkItem]:
-    """按 Phase2 augment 的实际问题多边际配额抽样。"""
-
-    rng = random.Random(f"{seed}:fused_phase2_augment_balance:{len(rows)}:{int(total_items)}")
-    variant_targets = _augment_target_counts(int(total_items), variant_weights)
-    keys_by_variant = {
-        "all_random_order": _expected_all_augment_keys(),
-        "subset_random": _expected_subset_augment_keys(),
-        "hierarchical_probe": _expected_hierarchical_augment_keys(),
-    }
-    per_key_targets: Dict[str, int] = {}
-    for variant, total in variant_targets.items():
-        keys = list(keys_by_variant.get(variant, []))
-        if not keys or int(total) <= 0:
-            continue
-        if variant == "subset_random":
-            per_key_targets.update(_subset_key_targets(keys, int(total)))
-            continue
-        if variant == "hierarchical_probe":
-            per_key_targets.update(_hierarchical_key_targets(keys, int(total)))
-            continue
-        base = int(total) // len(keys)
-        remainder = int(total) - base * len(keys)
-        for idx, key in enumerate(keys):
-            value = base + int(idx < remainder)
-            if value > 0:
-                per_key_targets[key] = value
-    selected: Dict[str, List[WorkItem]] = defaultdict(list)
-    seen: Counter[str] = Counter()
-    for item in _iter_phase2_candidate_items(rows, seed=seed):
-        key = item.augment_balance_key
-        per_key_target = int(per_key_targets.get(key, 0))
-        if per_key_target <= 0:
-            continue
-        seen[key] += 1
-        bucket = selected[key]
-        if len(bucket) < per_key_target:
-            bucket.append(item)
-            continue
-        replace_idx = rng.randrange(int(seen[key]))
-        if replace_idx < per_key_target:
-            bucket[replace_idx] = item
-    work: List[WorkItem] = []
-    for key in sorted(per_key_targets):
-        target = int(per_key_targets[key])
-        items = selected.get(key, [])
-        if not items:
-            continue
-        if len(items) >= target:
-            work.extend(items[:target])
-        else:
-            repeated = [items[idx % len(items)] for idx in range(target)]
-            rng.shuffle(repeated)
-            work.extend(repeated)
-    rng.shuffle(work)
-    return work
-
-
 def _candidate_specs_for_row(row: FrameRow, *, seed: int, focus: str) -> Iterable[WorkItem]:
     """为一个已选 Phase1-focus row 生成所有可用 Phase2 augment spec 候选。"""
 
-    for phase2_focus in PHASE2_ANSWER_KEYS:
+    phase2_focus_keys = (focus,) if focus in PHASE2_ANSWER_KEYS else PHASE2_ANSWER_KEYS
+    for phase2_focus in phase2_focus_keys:
         item = _make_all_item(row, phase2_focus, seed=seed)
         yield WorkItem(row=row, focus=focus, spec=item.spec, balance_key=_focus_key(row, focus), augment_balance_key=item.augment_balance_key)
         for count in SUBSET_COUNTS:
             item = _make_subset_item(row, phase2_focus, int(count), seed=seed)
             yield WorkItem(row=row, focus=focus, spec=item.spec, balance_key=_focus_key(row, focus), augment_balance_key=item.augment_balance_key)
     for group_id in GROUP_DEFINITIONS:
-        for detail_key in PHASE2_ANSWER_KEYS:
+        for detail_key in phase2_focus_keys:
             item = _make_hier_item(row, group_id, detail_key, seed=seed)
             yield WorkItem(row=row, focus=focus, spec=item.spec, balance_key=_focus_key(row, focus), augment_balance_key=item.augment_balance_key)
 
@@ -755,13 +625,13 @@ def _augment_key_targets(total_items: int, variant_weights: Mapping[str, int]) -
     return per_key_targets
 
 
-def _assign_phase1_specs(
+def _assign_specs_to_focus_pairs(
     pairs: Sequence[Tuple[FrameRow, str]],
     *,
     seed: int,
     variant_weights: Mapping[str, int],
 ) -> List[WorkItem]:
-    """为 Phase1-focus pairs 贪心选择 Phase2 spec，减少实际增强问题偏斜。"""
+    """为已均衡的 focus pairs 贪心选择 Phase2 spec，减少增强问题偏斜。"""
 
     per_key_targets = _augment_key_targets(len(pairs), variant_weights)
     variant_targets = _augment_target_counts(len(pairs), variant_weights)
@@ -848,6 +718,65 @@ def _assign_phase1_specs(
     return out
 
 
+def _balanced_focus_pairs(
+    rows: Sequence[FrameRow],
+    *,
+    keys: Sequence[str],
+    target: int,
+    seed: int,
+    context: str,
+) -> List[Tuple[FrameRow, str]]:
+    """按给定 focus keys 抽取 YES/NO 严格等量的 row/focus pairs。"""
+
+    groups: Dict[str, List[Tuple[FrameRow, str]]] = {
+        f"{key}:{value}": [] for key in keys for value in ("YES", "NO")
+    }
+    for row in rows:
+        for focus in keys:
+            groups[_focus_key(row, focus)].append((row, focus))
+    raw_counts = {key: len(items) for key, items in groups.items()}
+    missing = [key for key in groups if raw_counts[key] == 0]
+    if missing:
+        raise ValueError(
+            f"cannot build exact 1:1 {context}: required focus bins are empty; "
+            f"missing={missing} raw_counts={raw_counts}. Rebuild/check the dataset split or reduce filtering."
+        )
+    rng = random.Random(f"{seed}:{context}:{len(rows)}:{target}")
+    pairs: List[Tuple[FrameRow, str]] = []
+    for key in sorted(groups):
+        items = list(groups[key])
+        rng.shuffle(items)
+        if len(items) >= int(target):
+            selected = items[: int(target)]
+        else:
+            selected = [items[idx % len(items)] for idx in range(int(target))]
+            rng.shuffle(selected)
+        pairs.extend(selected)
+    rng.shuffle(pairs)
+    return pairs
+
+
+def _repeat_report(work: Sequence[WorkItem]) -> Dict[str, Any]:
+    """统计均衡重采样的重复率，避免大 target 静默过度复用稀缺正样本。"""
+
+    counts: Counter[str] = Counter(
+        f"{item.row.scenario}/{item.row.route_id}/f{item.row.frame_id}" for item in work
+    )
+    total = len(work)
+    unique = len(counts)
+    return {
+        "total_cases": int(total),
+        "unique_frames": int(unique),
+        "mean_repeat": float(total) / max(1.0, float(unique)),
+        "max_repeat": int(max(counts.values(), default=0)),
+        "frames_repeated": int(sum(1 for value in counts.values() if int(value) > 1)),
+        "top_repeated": [
+            {"frame": key, "count": int(value)}
+            for key, value in counts.most_common(20)
+        ],
+    }
+
+
 def _balanced_work(
     rows: Sequence[FrameRow],
     *,
@@ -857,50 +786,41 @@ def _balanced_work(
 ) -> List[WorkItem]:
     """构建 Phase1 focus 半边 + Phase2 augment 半边的融合 work list。"""
 
-    groups: Dict[str, List[Tuple[FrameRow, str]]] = {f"{key}:{value}": [] for key in PHASE1_ANSWER_KEYS for value in ("YES", "NO")}
-    for row in rows:
-        for focus in PHASE1_ANSWER_KEYS:
-            groups[_focus_key(row, focus)].append((row, focus))
-    raw_counts = {key: len(items) for key, items in groups.items()}
-    expected_phase1_bins = [f"{key}:{value}" for key in PHASE1_ANSWER_KEYS for value in ("YES", "NO")]
-    missing = [key for key in expected_phase1_bins if raw_counts[key] == 0]
-    if missing:
-        raise ValueError(
-            "cannot build exact 1:1 Phase1-focus training work: required focus bins are empty; "
-            f"missing={missing} raw_counts={raw_counts}. Rebuild/check the dataset split or reduce filtering."
-        )
-    nonempty = list(raw_counts.values())
-    target = int(target_per_bin) if int(target_per_bin) > 0 else min(nonempty)
+    focus_counts = _raw_focus_bin_counts(rows)
+    relevant_counts = [focus_counts[f"{key}:{value}"] for key in ANSWER_KEYS for value in ("YES", "NO")]
+    target = int(target_per_bin) if int(target_per_bin) > 0 else min(relevant_counts)
     target = max(1, target)
     rng = random.Random(f"{seed}:phase1_balance:{len(rows)}:{target}")
-    phase1_pairs: List[Tuple[FrameRow, str]] = []
-    for key in sorted(groups):
-        items = list(groups[key])
-        if not items:
-            continue
-        rng.shuffle(items)
-        if len(items) >= target:
-            selected = items[:target]
-        else:
-            selected = [items[i % len(items)] for i in range(target)]
-            rng.shuffle(selected)
-        phase1_pairs.extend(selected)
-    rng.shuffle(phase1_pairs)
-    phase1_work = _assign_phase1_specs(phase1_pairs, seed=seed, variant_weights=variant_weights)
+    phase1_pairs = _balanced_focus_pairs(
+        rows,
+        keys=PHASE1_ANSWER_KEYS,
+        target=target,
+        seed=seed,
+        context="Phase1-focus training work",
+    )
+    phase1_work = _assign_specs_to_focus_pairs(phase1_pairs, seed=seed, variant_weights=variant_weights)
     _assert_exact_focus_balance(
         phase1_work,
         target=target,
         context="Phase1-focus training work",
         keys=PHASE1_ANSWER_KEYS,
     )
-    phase2_work = _phase2_balanced_work(
+    phase2_pairs = _balanced_focus_pairs(
         rows,
-        total_items=len(phase1_work),
-        seed=seed,
-        variant_weights=variant_weights,
+        keys=PHASE2_ANSWER_KEYS,
+        target=target,
+        seed=seed + 17,
+        context="Phase2-focus training work",
+    )
+    phase2_work = _assign_specs_to_focus_pairs(phase2_pairs, seed=seed + 31, variant_weights=variant_weights)
+    _assert_exact_focus_balance(
+        phase2_work,
+        target=target,
+        context="Phase2-focus training work",
+        keys=PHASE2_ANSWER_KEYS,
     )
     if not phase2_work:
-        raise ValueError("cannot build Phase2 augment-balanced work; no active augment buckets were sampled")
+        raise ValueError("cannot build Phase2 focus-balanced work; no active Phase2 buckets were sampled")
     work = [*phase1_work, *phase2_work]
     rng.shuffle(work)
     return work
@@ -1081,18 +1001,38 @@ def _split_work_for_rank(work: Sequence[WorkItem], *, rank: int, world_size: int
     return shard
 
 
-def _zero_loss_for_all_trainable_params(bundle: Any) -> torch.Tensor:
-    """超长样本跳过时仍让 DDP 对所有可训练参数完成一次零梯度 backward。"""
+def _dummy_ddp_forward_zero_loss(
+    bundle: Any,
+    *,
+    image: Image.Image,
+    max_length: int,
+    format_loss_weight: float,
+) -> Tuple[torch.Tensor, Dict[str, float]]:
+    """超长样本跳过时跑一个短图文 DDP forward，并把 logits loss 归零。"""
 
-    total: Optional[torch.Tensor] = None
-    for param in bundle.model.parameters():
-        if not param.requires_grad:
-            continue
-        term = param.float().sum() * 0.0
-        total = term if total is None else total + term
-    if total is None:
-        raise RuntimeError("no trainable parameters for zero-loss DDP step")
-    return total
+    prompt = (
+        "[OUTPUT]\n"
+        "Output exactly this line and nothing else:\n"
+        "HIGHWAY: <YES or NO>\n"
+        "[/OUTPUT]"
+    )
+    target = "HIGHWAY: NO"
+    packed = _build_inputs(
+        bundle,
+        images=[image],
+        prompt=prompt,
+        target=target,
+        output_keys=["HIGHWAY"],
+        max_length=max(int(max_length), 128),
+        format_loss_weight=float(format_loss_weight),
+    )
+    if packed is None:
+        raise RuntimeError(
+            "dummy DDP forward also exceeded max_length; increase --max-length so skipped samples can still synchronize DDP"
+        )
+    loss, _ = _loss_one(bundle, packed)
+    zero = loss * 0.0
+    return zero, {"denom": 0.0, "token_acc": 0.0, "value_token_acc": 0.0, "format_token_acc": 0.0}
 
 
 @torch.no_grad()
@@ -1543,6 +1483,7 @@ def train(args: argparse.Namespace) -> None:
                     Counter(f"{focus_phase(item.focus)}:{'YES' if item.row.answers[item.focus] else 'NO'}" for item in full_eval_work)
                 ),
                 "rank0_shard": dict(Counter(item.balance_key for item in eval_work)),
+                "repeat_audit": _repeat_report(full_eval_work),
             }
         (output_dir / "train_balance.json").write_text(
             json.dumps(
@@ -1566,6 +1507,7 @@ def train(args: argparse.Namespace) -> None:
                         ),
                         "rank0_shard": dict(Counter(item.balance_key for item in work)),
                         "rank0_augment_shard": dict(Counter(item.augment_balance_key for item in work)),
+                        "repeat_audit": _repeat_report(full_work),
                     },
                     "eval": {
                         "split": str(args.eval_split),
@@ -1581,6 +1523,7 @@ def train(args: argparse.Namespace) -> None:
                         "augment_global_sampled": dict(Counter(item.augment_balance_key for item in full_generation_eval_work)),
                         "variant_sampled": dict(Counter(item.spec.variant for item in full_generation_eval_work)),
                         "phase_group_sampled": dict(Counter(focus_phase(item.focus) for item in full_generation_eval_work)),
+                        "repeat_audit": _repeat_report(full_generation_eval_work),
                         "rank0_only": True,
                     },
                 },
@@ -1668,8 +1611,12 @@ def train(args: argparse.Namespace) -> None:
             )
             if packed is None:
                 skipped += 1
-                loss = _zero_loss_for_all_trainable_params(bundle)
-                stats = {"denom": 0.0, "token_acc": 0.0, "value_token_acc": 0.0, "format_token_acc": 0.0}
+                loss, stats = _dummy_ddp_forward_zero_loss(
+                    bundle,
+                    image=images[-1],
+                    max_length=int(args.max_length),
+                    format_loss_weight=float(args.format_loss_weight),
+                )
             else:
                 loss, stats = _loss_one(bundle, packed)
             (loss / max(1, int(args.grad_accum))).backward()
@@ -1831,7 +1778,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--history-rgb-mode", choices=HISTORY_RGB_MODES, default=DEFAULT_HISTORY_RGB_MODE)
     p.add_argument("--device", default="auto")
     p.add_argument("--max-frames", type=int, default=0)
-    p.add_argument("--focus-balance-count", type=int, default=512)
+    p.add_argument("--focus-balance-count", type=int, default=9216)
     p.add_argument("--num-epochs", type=int, default=3)
     p.add_argument("--max-steps", type=int, default=0, help="0 means train num_epochs over the balanced work list")
     p.add_argument("--eval-split", default="val")

@@ -250,11 +250,15 @@
   并把 Phase2 的 `all_random_order` / `subset_random` / `hierarchical_probe` 按训练 4:1:1、
   eval/generation 2:1:1 融入同一轮输出。数据构建复用 Phase2 最新异常 route
   剔除、full-frame RGB review 覆盖检查和默认视觉风险过滤；Phase1 标签来自已审计四问答案表，
-  Phase2 标签来自逐帧 RS 标注。训练/eval 使用双层采样审计：Phase1 四个 focus 问题各自
-  YES:NO=1:1，Phase2 半边迁移 `sft_loop_phase2_augment` 的 all/subset/hierarchical
-  augment balance key、多边际配额、variant report、answer-pattern diagnostics、subset
-  未问行泄漏检查、`RS_HIGHWAY` 与 `GROUP:<id>` 指标；四个 Phase1 focus 与四个 Phase2 focus
-  总量 1:1；manifest/train_balance/metrics 必须记录这些比例。训练期 generation eval 默认
+  且只有结构化 RGB audit notes/annotations 中的 visual/topology subgroup 能触发覆盖，
+  不能从自由文本 `audit_evidence` 推断 route 标签；Phase2 标签来自逐帧 RS 标注。训练/eval
+  使用双层采样审计：Phase1 四个 focus 问题各自 YES:NO=1:1，Phase2 四个 focus
+  (`RS1/RS2/RS4/RS5`) 也各自 YES:NO=1:1，并在此前提下迁移 `sft_loop_phase2_augment`
+  的 all/subset/hierarchical augment balance key、多边际配额、variant report、
+  answer-pattern diagnostics、subset 未问行泄漏检查、`RS_HIGHWAY` 与 `GROUP:<id>` 指标；
+  四个 Phase1 focus 与四个 Phase2 focus 总量 1:1；manifest/train_balance/metrics 必须记录
+  这些比例与重复率审计。默认 `FOCUS_BALANCE_COUNT=9216`，对应每轮 147,456 sampled cases，
+  与旧 Phase2 augment 总 case 数对齐；训练期 generation eval 默认
   `generation_eval_balance_count=16`，避免小样本漏审 subset/hierarchical。冲突或不确定处以 Phase2 最新 RS 定义为 ROAD_STRUCTURE 权威，同时保留
   Phase1 审计标签作为对应可见事实标签。训练/eval/checkpoint 大产物仍写入 `AutoMoT/checkpoints/`
   或本地输出目录，不随目录白名单入库。）
