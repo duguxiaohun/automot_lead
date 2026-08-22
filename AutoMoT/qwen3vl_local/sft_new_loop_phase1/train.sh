@@ -32,7 +32,8 @@ case "${HISTORY_RGB_MODE}" in
     ;;
 esac
 OUTPUT_DIR_BASE="checkpoints/sft_new_loop_phase1_runs"
-FINAL_RUN_NAME="run_combined_phase1_phase2_${HISTORY_RGB_TAG}"
+RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
+FINAL_RUN_NAME="run_${RUN_TAG}_combined_phase1_phase2_${HISTORY_RGB_TAG}"
 CHECK_RUN_NAME="check_combined_phase1_phase2_${HISTORY_RGB_TAG}"
 FINAL_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${FINAL_RUN_NAME}"
 CHECK_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${CHECK_RUN_NAME}"
@@ -125,7 +126,7 @@ COMMON_ARGS=(
   --max-eval-frames "${MAX_EVAL_FRAMES:-0}"
   --format-loss-weight "${FORMAT_LOSS_WEIGHT:-0.25}"
   --generation-eval-steps "${GENERATION_EVAL_STEPS:-1000}"
-  --generation-eval-balance-count "${GENERATION_EVAL_BALANCE_COUNT:-2}"
+  --generation-eval-balance-count "${GENERATION_EVAL_BALANCE_COUNT:-16}"
   --generation-eval-max-new-tokens "${GENERATION_EVAL_MAX_NEW_TOKENS:-64}"
   --save-steps "${SAVE_STEPS:-500}"
   --max-length "${MAX_LENGTH:-8192}"

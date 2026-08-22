@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import random
+import re
 import shutil
 import sys
 from collections import Counter, defaultdict
@@ -58,9 +59,11 @@ from qwen3vl_local.sft_new_loop_phase1.history_rgb import (  # noqa: E402
 from qwen3vl_local.sft_new_loop_phase1.prompts import (  # noqa: E402
     ANSWER_KEYS,
     GROUP_DEFINITIONS,
+    PHASE2_ANSWER_KEYS,
     PROMPT_NAME,
     SUBSET_COUNTS,
     SYSTEM_PROMPT,
+    VARIANT_ORDER,
     VARIANT_WEIGHTS,
     PromptSpec,
     build_phase1_prompt,
@@ -70,6 +73,13 @@ from qwen3vl_local.sft_new_loop_phase1.prompts import (  # noqa: E402
     parse_phase1_output,
     phase1_prompt_sha256,
     prompt_spec_to_json,
+    spec_metric_items,
+)
+from qwen3vl_local.sft_new_loop_phase1.train import (  # noqa: E402
+    _balanced_work as _build_fused_balanced_work,
+    _metric_names,
+    _pattern_report,
+    _update_pattern_counters,
 )
 from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
 
@@ -120,6 +130,7 @@ class WorkItem:
     focus: str
     spec: PromptSpec
     balance_key: str
+    augment_balance_key: str
 
 
 @dataclass
@@ -238,44 +249,16 @@ def _make_spec(row: FrameRow, focus: str, *, seed: int, slot: int) -> PromptSpec
 
 
 def _balanced_cases(rows: Sequence[FrameRow], *, cases_per_bin: int, seed: int) -> List[WorkItem]:
-    """按八个主问题各自 YES/NO 1:1 采样评估 case。
+    """按 Phase1 focus 与 Phase2 augment 双合同抽样评估 case。"""
 
-    返回值里的第二项是主任务/focus。每个 case 仍要求模型回答全部八个问题；只是在
-    `focus` 对应的主任务模块里，该主问题的 GT YES/NO 是严格均衡的。
-    """
-
-    groups: Dict[str, List[Tuple[FrameRow, str]]] = {f"{key}:{value}": [] for key in ANSWER_KEYS for value in ("YES", "NO")}
-    for row in rows:
-        for focus in ANSWER_KEYS:
-            groups[_focus_key(row, focus)].append((row, focus))
-    raw_counts = {key: len(items) for key, items in groups.items()}
-    missing = [key for key in _expected_focus_bins() if raw_counts[key] == 0]
-    if missing:
-        raise ValueError(
-            "cannot build exact 1:1 Phase1 evaluation cases: required focus bins are empty; "
-            f"missing={missing} raw_counts={raw_counts}. Rebuild/check the requested split or reduce filtering."
+    return list(
+        _build_fused_balanced_work(
+            rows,
+            target_per_bin=int(cases_per_bin),
+            seed=int(seed),
+            variant_weights=VARIANT_WEIGHTS,
         )
-    rng = random.Random(f"{seed}:phase1_eval_balance:{len(rows)}:{cases_per_bin}")
-    out: List[WorkItem] = []
-    global_slot = 0
-    for key in sorted(groups):
-        items = list(groups[key])
-        if not items:
-            continue
-        rng.shuffle(items)
-        target = max(1, int(cases_per_bin))
-        if len(items) >= target:
-            selected = items[:target]
-        else:
-            selected = [items[i % len(items)] for i in range(target)]
-            rng.shuffle(selected)
-        for slot, (row, focus) in enumerate(selected):
-            spec = _make_spec(row, focus, seed=seed, slot=global_slot)
-            out.append(WorkItem(row=row, focus=focus, spec=spec, balance_key=_focus_key(row, focus)))
-            global_slot += 1
-    rng.shuffle(out)
-    _assert_exact_focus_balance(out, target=target, context="evaluation cases")
-    return out
+    )
 
 
 def _load_images(paths: Sequence[str]) -> List[Image.Image]:
@@ -508,6 +491,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     task_counts: Dict[str, Counter[str]] = {key: Counter() for key in ANSWER_KEYS}
     task_answer_counts: Dict[str, Dict[str, Counter[str]]] = {focus: defaultdict(Counter) for focus in ANSWER_KEYS}
     focus_counts: Counter[str] = Counter()
+    pattern_counts: Counter[str] = Counter()
     case_path = output_dir / (f"cases_rank{rank}.jsonl" if world_size > 1 else "cases.jsonl")
     task_case_root = output_dir / "task_cases"
     task_case_paths = {
@@ -546,19 +530,27 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 task_counts[focus][f"main_gt/{main_gt_value}"] += 1
                 task_counts[focus][f"main_pred/{parsed.get(main_output_key) or 'INVALID'}"] += 1
                 task_counts[focus]["main_correct"] += int(ok_by_key.get(main_output_key, False))
-                for key in spec.output_keys:
-                    _update_binary_counter(answer_counts[key], gt[key], parsed.get(key))
-                    _update_binary_counter(task_answer_counts[focus][key], gt[key], parsed.get(key))
-                    if key == main_output_key:
-                        task_counts[focus][f"main_cm/{gt[key]}/{parsed.get(key) or 'INVALID'}"] += 1
-                if main_output_key != focus and focus in ANSWER_KEYS and main_output_key in gt:
-                    _update_binary_counter(answer_counts[focus], gt[main_output_key], parsed.get(main_output_key))
-                    _update_binary_counter(task_answer_counts[focus][focus], gt[main_output_key], parsed.get(main_output_key))
+                for output_key, metric_key, _ in spec_metric_items(spec):
+                    if output_key not in gt:
+                        continue
+                    _update_binary_counter(answer_counts[metric_key], gt[output_key], parsed.get(output_key))
+                    _update_binary_counter(task_answer_counts[focus][metric_key], gt[output_key], parsed.get(output_key))
+                    if output_key == main_output_key:
+                        task_counts[focus][f"main_cm/{gt[output_key]}/{parsed.get(output_key) or 'INVALID'}"] += 1
+                _update_pattern_counters(
+                    pattern_counts,
+                    spec=spec,
+                    row=row,
+                    gt=gt,
+                    parsed={key: parsed.get(key) for key in spec.output_keys},
+                    raw_output=raw,
+                )
                 payload = {
                     "case_index": case_idx,
                     "task": focus,
                     "prompt_spec": prompt_spec_to_json(spec),
                     "augment_variant": spec.variant,
+                    "augment_balance_key": item.augment_balance_key,
                     "focus_question": focus,
                     "focus_bucket": item.balance_key,
                     "scenario": row.scenario,
@@ -585,7 +577,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 encoded = json.dumps(payload, ensure_ascii=False)
                 f.write(encoded + "\n")
                 task_fps[focus].write(encoded + "\n")
-                if not ok_by_key[focus] and bool(args.save_error_rgb):
+                if not all_ok and bool(args.save_error_rgb):
                     _copy_case_rgb(_task_case_dir(error_root, focus, case_idx, row), payload)
                 if bool(args.save_all_rgb):
                     _copy_case_rgb(_task_case_dir(rgb_root, focus, case_idx, row), payload)
@@ -603,6 +595,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             for focus, counters in task_answer_counts.items()
         },
         "focus_counts": dict(focus_counts),
+        "pattern_counts": dict(pattern_counts),
         "case_path": str(case_path),
         "task_case_paths": {key: str(path) for key, path in task_case_paths.items()},
     }
@@ -616,18 +609,22 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
 
     total = sum(int(item.get("total", 0)) for item in gathered)
     exact = sum(int(item.get("exact", 0)) for item in gathered)
-    answer_counts = {key: Counter() for key in ANSWER_KEYS}
+    metric_names = _metric_names()
+    answer_counts = {key: Counter() for key in metric_names}
     task_counts = {key: Counter() for key in ANSWER_KEYS}
-    task_answer_counts = {focus: {key: Counter() for key in ANSWER_KEYS} for focus in ANSWER_KEYS}
+    task_answer_counts = {focus: {key: Counter() for key in metric_names} for focus in ANSWER_KEYS}
     focus_counts = Counter()
+    pattern_counts = Counter()
     for item in gathered:
-        for key in ANSWER_KEYS:
+        for key in metric_names:
             answer_counts[key].update(item.get("answer_counts", {}).get(key, {}))
+        for key in ANSWER_KEYS:
             task_counts[key].update(item.get("task_counts", {}).get(key, {}))
         for focus in ANSWER_KEYS:
-            for key in ANSWER_KEYS:
+            for key in metric_names:
                 task_answer_counts[focus][key].update(item.get("task_answer_counts", {}).get(focus, {}).get(key, {}))
         focus_counts.update(item.get("focus_counts", {}))
+        pattern_counts.update(item.get("pattern_counts", {}))
 
     per_key = {}
     for key, counter in answer_counts.items():
@@ -638,12 +635,12 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         task_total = int(task_counts[focus].get("total", 0))
         yes_count = int(task_counts[focus].get("main_gt/YES", 0))
         no_count = int(task_counts[focus].get("main_gt/NO", 0))
-        if yes_count <= 0 or yes_count != no_count:
+        if task_total > 0 and yes_count > 0 and no_count > 0 and yes_count != no_count:
             raise RuntimeError(
                 f"aggregated evaluation lost {focus} 1:1 balance: YES={yes_count} NO={no_count}; "
                 "do not use this result."
             )
-        side_reports = {key: _binary_report(task_answer_counts[focus][key]) for key in ANSWER_KEYS}
+        side_reports = {key: _binary_report(task_answer_counts[focus][key]) for key in metric_names}
         task_reports[focus] = {
             "task": focus,
             "sampling_contract": f"{focus}:YES and {focus}:NO are sampled 1:1; side questions are measured on the same cases without balancing.",
@@ -693,6 +690,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             "sampled_exact_focus_bin_balance": True,
             "target_cases_per_bin": int(args.cases_per_bin),
             "variant_sampled": dict(Counter(item.spec.variant for item in cases)),
+            "augment_balance_sampled": dict(Counter(item.augment_balance_key for item in cases)),
             "phase_group_sampled": dict(Counter(focus_phase(item.focus) for item in cases)),
             "phase_group_answer_sampled": dict(
                 Counter(f"{focus_phase(item.focus)}:{'YES' if item.row.answers[item.focus] else 'NO'}" for item in cases)
@@ -704,6 +702,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "per_question": per_key,
         "task_reports": task_reports,
         "focus_counts": dict(focus_counts),
+        "answer_pattern_diagnostics": _pattern_report(pattern_counts),
         "cases_jsonl": str(case_path) if world_size == 1 else [str(item.get("case_path")) for item in gathered],
         "task_cases_jsonl": (
             {key: str(path) for key, path in task_case_paths.items()}
@@ -733,12 +732,12 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         f"- exact_match_accuracy: {metrics['exact_match_accuracy']:.4f}",
         f"- sampling: `{metrics['sampling_contract']}`",
         "",
-        "## Global Eight-Question Metrics",
+        "## Global Answer Metrics",
         "",
         "| question | accuracy | precision_yes | recall_yes | f1_yes | total |",
         "|---|---:|---:|---:|---:|---:|",
     ]
-    for key in ANSWER_KEYS:
+    for key in metric_names:
         report = per_key[key]
         lines.append(
             f"| {key} | {report['accuracy']:.4f} | {report['precision']:.4f} | "
@@ -766,14 +765,14 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 "|---|---:|---:|---:|",
             ]
         )
-        for key in ANSWER_KEYS:
+        for key in metric_names:
             side = task["side_questions"][key]
             lines.append(f"| {key} | {side['accuracy']:.4f} | {side['f1']:.4f} | {side['total']} |")
         lines.append("")
     lines.append("")
     lines.append(f"Cases: `{case_path.name}`")
     lines.append("Task-split case JSONL files are under `task_cases/<TASK>/`.")
-    lines.append("Main-question wrong examples with RGB are under `error_cases/<TASK>/` when enabled.")
+    lines.append("Any-output wrong examples with RGB are under `error_cases/<TASK>/` when enabled.")
     lines.append("Copied RGB files are exactly the images fed to the model; their filenames retain original four-frame indices.")
     lines.append("All evaluated RGB histories are copied under `rgb_cases/<TASK>/` only when `--save-all-rgb` is enabled.")
     (output_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

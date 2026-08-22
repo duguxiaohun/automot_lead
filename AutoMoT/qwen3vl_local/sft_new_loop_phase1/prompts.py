@@ -52,6 +52,7 @@ class PromptSpec:
     """一次 fused forward 的 Phase2 增强 spec。"""
 
     phase2_spec: phase2_prompts.PromptSpec
+    phase1_answers: Tuple[Tuple[str, bool], ...] = tuple()
 
     @property
     def variant(self) -> str:
@@ -64,6 +65,12 @@ class PromptSpec:
         """返回本次 assistant 必须输出的行顺序。"""
 
         return PHASE1_ANSWER_KEYS + tuple(_fused_question_output_key(q) for q in self.phase2_spec.questions)
+
+    @property
+    def phase1_answer_map(self) -> Dict[str, bool]:
+        """返回构造 spec 时绑定的 Phase1 四问 GT。"""
+
+        return {key: bool(value) for key, value in self.phase1_answers}
 
 
 def _extract_decision_rules(text: str) -> str:
@@ -112,7 +119,8 @@ def make_prompt_spec(
         group_id=group_id,
         detail_key=detail_key,
     )
-    return PromptSpec(phase2_spec=spec)
+    phase1_answers = tuple((key, bool(answers.get(key, False))) for key in PHASE1_ANSWER_KEYS)
+    return PromptSpec(phase2_spec=spec, phase1_answers=phase1_answers)
 
 
 def prompt_spec_to_json(spec: PromptSpec) -> Dict[str, object]:
@@ -250,12 +258,18 @@ def phase1_prompt_sha256(*, audit: bool = False, history_rgb_mode: str = DEFAULT
     parts.append(json.dumps(stable_contract, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     for order in itertools.permutations(PHASE2_ANSWER_KEYS):
         phase2_questions = tuple(phase2_prompts._rs_question(key, {key: False for key in PHASE2_ANSWER_KEYS}) for key in order)
-        spec = PromptSpec(phase2_spec=phase2_prompts.PromptSpec("all_random_order", phase2_questions, "fingerprint"))
+        spec = PromptSpec(
+            phase2_spec=phase2_prompts.PromptSpec("all_random_order", phase2_questions, "fingerprint"),
+            phase1_answers=tuple((key, False) for key in PHASE1_ANSWER_KEYS),
+        )
         parts.append(build_phase1_prompt(spec=spec, audit=audit, history_rgb_mode=history_rgb_mode))
     for count in SUBSET_COUNTS:
         for subset in itertools.permutations(PHASE2_ANSWER_KEYS, int(count)):
             phase2_questions = tuple(phase2_prompts._rs_question(key, {key: False for key in PHASE2_ANSWER_KEYS}) for key in subset)
-            spec = PromptSpec(phase2_spec=phase2_prompts.PromptSpec("subset_random", phase2_questions, "fingerprint"))
+            spec = PromptSpec(
+                phase2_spec=phase2_prompts.PromptSpec("subset_random", phase2_questions, "fingerprint"),
+                phase1_answers=tuple((key, False) for key in PHASE1_ANSWER_KEYS),
+            )
             parts.append(build_phase1_prompt(spec=spec, audit=audit, history_rgb_mode=history_rgb_mode))
     for group_id in GROUP_DEFINITIONS:
         for detail_key in PHASE2_ANSWER_KEYS:
@@ -348,10 +362,12 @@ def build_phase1_target(answers: Dict[str, bool], *, spec: Optional[PromptSpec] 
 def spec_metric_items(spec: PromptSpec) -> Iterable[Tuple[str, str, bool]]:
     """Yield (output_key, metric_key, gt_bool) for metrics."""
 
+    phase1_answers = spec.phase1_answer_map
     for key in PHASE1_ANSWER_KEYS:
-        yield key, key, False
+        yield key, key, bool(phase1_answers.get(key, False))
     for q in spec.phase2_spec.questions:
-        yield _fused_question_output_key(q), q.metric_key, bool(q.answer)
+        metric_key = "RS_HIGHWAY" if q.metric_key == "HIGHWAY" else q.metric_key
+        yield _fused_question_output_key(q), metric_key, bool(q.answer)
 
 
 def focus_phase(key: str) -> str:

@@ -250,9 +250,12 @@
   并把 Phase2 的 `all_random_order` / `subset_random` / `hierarchical_probe` 按训练 4:1:1、
   eval/generation 2:1:1 融入同一轮输出。数据构建复用 Phase2 最新异常 route
   剔除、full-frame RGB review 覆盖检查和默认视觉风险过滤；Phase1 标签来自已审计四问答案表，
-  Phase2 标签来自逐帧 RS 标注。训练/eval 复用 Phase1 不可见 focus 采样，八个 focus 问题各自
-  YES:NO=1:1，且四个 Phase1 focus 与四个 Phase2 focus 总量 1:1；manifest/train_balance/metrics
-  必须记录这些比例。冲突或不确定处以 Phase2 最新 RS 定义为 ROAD_STRUCTURE 权威，同时保留
+  Phase2 标签来自逐帧 RS 标注。训练/eval 使用双层采样审计：Phase1 四个 focus 问题各自
+  YES:NO=1:1，Phase2 半边迁移 `sft_loop_phase2_augment` 的 all/subset/hierarchical
+  augment balance key、多边际配额、variant report、answer-pattern diagnostics、subset
+  未问行泄漏检查、`RS_HIGHWAY` 与 `GROUP:<id>` 指标；四个 Phase1 focus 与四个 Phase2 focus
+  总量 1:1；manifest/train_balance/metrics 必须记录这些比例。训练期 generation eval 默认
+  `generation_eval_balance_count=16`，避免小样本漏审 subset/hierarchical。冲突或不确定处以 Phase2 最新 RS 定义为 ROAD_STRUCTURE 权威，同时保留
   Phase1 审计标签作为对应可见事实标签。训练/eval/checkpoint 大产物仍写入 `AutoMoT/checkpoints/`
   或本地输出目录，不随目录白名单入库。）
 - `AutoMoT/qwen3vl_local/sft_loop_phase3/`
