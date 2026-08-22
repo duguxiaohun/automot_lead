@@ -2128,6 +2128,101 @@ def train(args: argparse.Namespace) -> None:
             f"generation_eval_global={len(full_generation_eval_work)} "
             f"history_rgb_mode={args.history_rgb_mode} history_rgb_count={len(history_rgb_indices(args.history_rgb_mode))}"
         )
+
+    def run_scheduled_after_optimizer_step(
+        *,
+        teacher_trigger_step: int,
+        generation_trigger_step: int,
+        checkpoint_trigger_step: int,
+    ) -> None:
+        """在 optimizer step 后执行延迟的评测/保存，避免保存未应用梯度的 adapter。"""
+
+        nonlocal best_val_score, best_generation_score
+        if eval_work and int(args.eval_steps) > 0 and teacher_trigger_step > 0:
+            metrics = evaluate_loss(
+                bundle,
+                eval_work,
+                history_rgb_mode=args.history_rgb_mode,
+                max_length=int(args.max_length),
+                format_loss_weight=float(args.format_loss_weight),
+                device=device,
+                world_size=world_size,
+            )
+            if writer:
+                for key, value in metrics.items():
+                    writer.add_scalar(f"val/{key}", float(value), global_step)
+            if rank == 0:
+                event_record = {"step": int(global_step), "type": "teacher_forced", **metrics}
+                if teacher_trigger_step != global_step:
+                    event_record["trigger_step"] = int(teacher_trigger_step)
+                    event_record["delayed_until_optimizer_step"] = True
+                _append_jsonl(output_dir / "train_eval_metrics.jsonl", event_record)
+                val_score = float(metrics.get("value_token_acc", 0.0))
+                if val_score > best_val_score:
+                    best_val_score = val_score
+                    ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name="best_val")
+                    print(f"[best-val] step={global_step} value_token_acc={val_score:.4f} adapter={ckpt_dir}")
+                delay_note = "" if teacher_trigger_step == global_step else f" delayed_from={teacher_trigger_step}"
+                print(
+                    f"[eval] step={global_step}/{total_steps}{delay_note} split={args.eval_split} "
+                    f"loss={metrics['loss']:.4f} value_acc={metrics['value_token_acc']:.4f} "
+                    f"format_acc={metrics['format_token_acc']:.4f} "
+                    f"focus_highway={metrics.get('focus_highway_acc', 0.0):.4f} "
+                    f"focus_static_obstacle={metrics.get('focus_static_obstacle_acc', 0.0):.4f} "
+                    f"focus_vulnerable={metrics.get('focus_vulnerable_acc', 0.0):.4f} "
+                    f"focus_light={metrics.get('focus_traffic_light_abnormal_acc', 0.0):.4f}"
+                )
+        run_generation_eval = bool(full_generation_eval_work) and generation_trigger_step > 0
+        if run_generation_eval and rank == 0:
+            generation_metrics = evaluate_generation_probe(
+                bundle,
+                full_generation_eval_work,
+                history_rgb_mode=args.history_rgb_mode,
+                max_new_tokens=int(args.generation_eval_max_new_tokens),
+                record_path=output_dir / "generation_val_cases.jsonl",
+                step=global_step,
+            )
+            if writer:
+                for key, value in generation_metrics.items():
+                    writer.add_scalar(f"val_generation/{key}", float(value), global_step)
+            generation_record = {"step": int(global_step), "type": "generation", **generation_metrics}
+            if generation_trigger_step != global_step:
+                generation_record["trigger_step"] = int(generation_trigger_step)
+                generation_record["delayed_until_optimizer_step"] = True
+            _append_jsonl(output_dir / "train_eval_metrics.jsonl", generation_record)
+            generation_score = float(generation_metrics.get("exact_accuracy", 0.0))
+            generation_valid = float(generation_metrics.get("format_valid_rate", 0.0))
+            if generation_valid >= float(args.generation_format_valid_gate) and generation_score > best_generation_score:
+                best_generation_score = generation_score
+                ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name="best_generation")
+                print(
+                    f"[best-generation] step={global_step} exact={generation_score:.4f} "
+                    f"format_valid={generation_valid:.4f} adapter={ckpt_dir}"
+                )
+            delay_note = "" if generation_trigger_step == global_step else f" delayed_from={generation_trigger_step}"
+            print(
+                f"[generation-val] step={global_step}/{total_steps}{delay_note} "
+                f"format_valid={generation_metrics['format_valid_rate']:.4f} "
+                f"exact={generation_metrics['exact_accuracy']:.4f} "
+                f"focus_highway={generation_metrics.get('focus_highway_acc', 0.0):.4f} "
+                f"focus_static_obstacle={generation_metrics.get('focus_static_obstacle_acc', 0.0):.4f} "
+                f"focus_vulnerable={generation_metrics.get('focus_vulnerable_acc', 0.0):.4f} "
+                f"focus_light={generation_metrics.get('focus_traffic_light_abnormal_acc', 0.0):.4f}"
+            )
+        if run_generation_eval and world_size > 1:
+            dist.barrier()
+        if rank == 0 and checkpoint_trigger_step > 0:
+            if checkpoint_trigger_step == global_step:
+                ckpt_name = f"checkpoint-{global_step}"
+            else:
+                ckpt_name = f"checkpoint-{checkpoint_trigger_step}-applied-{global_step}"
+            ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name=ckpt_name)
+            delay_note = "" if checkpoint_trigger_step == global_step else f" delayed_from={checkpoint_trigger_step}"
+            print(f"[save] step={global_step}{delay_note} adapter={ckpt_dir}")
+
+    pending_teacher_eval_step = 0
+    pending_generation_eval_step = 0
+    pending_checkpoint_step = 0
     epoch = 0
     while global_step < total_steps:
         if epoch > 0:
@@ -2183,11 +2278,13 @@ def train(args: argparse.Namespace) -> None:
             else:
                 loss, stats = _loss_one(bundle, packed)
             (loss / max(1, int(args.grad_accum))).backward()
+            optimizer_stepped = False
             if (global_step + 1) % max(1, int(args.grad_accum)) == 0:
                 torch.nn.utils.clip_grad_norm_(params, float(args.max_grad_norm))
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
+                optimizer_stepped = True
             if writer:
                 current_lr = float(optimizer.param_groups[0].get("lr", 0.0))
                 writer.add_scalar("train/loss", float(loss.detach().item()), global_step)
@@ -2245,77 +2342,24 @@ def train(args: argparse.Namespace) -> None:
                 )
             global_step += 1
             if eval_work and int(args.eval_steps) > 0 and global_step % int(args.eval_steps) == 0:
-                metrics = evaluate_loss(
-                    bundle,
-                    eval_work,
-                    history_rgb_mode=args.history_rgb_mode,
-                    max_length=int(args.max_length),
-                    format_loss_weight=float(args.format_loss_weight),
-                    device=device,
-                    world_size=world_size,
+                pending_teacher_eval_step = global_step
+            if (
+                full_generation_eval_work
+                and int(args.generation_eval_steps) > 0
+                and global_step % int(args.generation_eval_steps) == 0
+            ):
+                pending_generation_eval_step = global_step
+            if int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
+                pending_checkpoint_step = global_step
+            if optimizer_stepped and (pending_teacher_eval_step or pending_generation_eval_step or pending_checkpoint_step):
+                run_scheduled_after_optimizer_step(
+                    teacher_trigger_step=pending_teacher_eval_step,
+                    generation_trigger_step=pending_generation_eval_step,
+                    checkpoint_trigger_step=pending_checkpoint_step,
                 )
-                if writer:
-                    for key, value in metrics.items():
-                        writer.add_scalar(f"val/{key}", float(value), global_step)
-                if rank == 0:
-                    _append_jsonl(
-                        output_dir / "train_eval_metrics.jsonl",
-                        {"step": int(global_step), "type": "teacher_forced", **metrics},
-                    )
-                    val_score = float(metrics.get("value_token_acc", 0.0))
-                    if val_score > best_val_score:
-                        best_val_score = val_score
-                        ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name="best_val")
-                        print(f"[best-val] step={global_step} value_token_acc={val_score:.4f} adapter={ckpt_dir}")
-                    print(
-                        f"[eval] step={global_step}/{total_steps} split={args.eval_split} "
-                        f"loss={metrics['loss']:.4f} value_acc={metrics['value_token_acc']:.4f} "
-                        f"format_acc={metrics['format_token_acc']:.4f} "
-                        f"focus_highway={metrics.get('focus_highway_acc', 0.0):.4f} "
-                        f"focus_static_obstacle={metrics.get('focus_static_obstacle_acc', 0.0):.4f} "
-                        f"focus_vulnerable={metrics.get('focus_vulnerable_acc', 0.0):.4f} "
-                        f"focus_light={metrics.get('focus_traffic_light_abnormal_acc', 0.0):.4f}"
-                    )
-                run_generation_eval = bool(full_generation_eval_work) and global_step % int(args.generation_eval_steps) == 0
-                if run_generation_eval and rank == 0:
-                    generation_metrics = evaluate_generation_probe(
-                        bundle,
-                        full_generation_eval_work,
-                        history_rgb_mode=args.history_rgb_mode,
-                        max_new_tokens=int(args.generation_eval_max_new_tokens),
-                        record_path=output_dir / "generation_val_cases.jsonl",
-                        step=global_step,
-                    )
-                    if writer:
-                        for key, value in generation_metrics.items():
-                            writer.add_scalar(f"val_generation/{key}", float(value), global_step)
-                    _append_jsonl(
-                        output_dir / "train_eval_metrics.jsonl",
-                        {"step": int(global_step), "type": "generation", **generation_metrics},
-                    )
-                    generation_score = float(generation_metrics.get("exact_accuracy", 0.0))
-                    generation_valid = float(generation_metrics.get("format_valid_rate", 0.0))
-                    if generation_valid >= float(args.generation_format_valid_gate) and generation_score > best_generation_score:
-                        best_generation_score = generation_score
-                        ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name="best_generation")
-                        print(
-                            f"[best-generation] step={global_step} exact={generation_score:.4f} "
-                            f"format_valid={generation_valid:.4f} adapter={ckpt_dir}"
-                        )
-                    print(
-                        f"[generation-val] step={global_step}/{total_steps} "
-                        f"format_valid={generation_metrics['format_valid_rate']:.4f} "
-                        f"exact={generation_metrics['exact_accuracy']:.4f} "
-                        f"focus_highway={generation_metrics.get('focus_highway_acc', 0.0):.4f} "
-                        f"focus_static_obstacle={generation_metrics.get('focus_static_obstacle_acc', 0.0):.4f} "
-                        f"focus_vulnerable={generation_metrics.get('focus_vulnerable_acc', 0.0):.4f} "
-                        f"focus_light={generation_metrics.get('focus_traffic_light_abnormal_acc', 0.0):.4f}"
-                    )
-                if run_generation_eval and world_size > 1:
-                    dist.barrier()
-            if rank == 0 and int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0:
-                ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name=f"checkpoint-{global_step}")
-                print(f"[save] step={global_step} adapter={ckpt_dir}")
+                pending_teacher_eval_step = 0
+                pending_generation_eval_step = 0
+                pending_checkpoint_step = 0
             if global_step >= total_steps:
                 break
         if global_step == epoch_start_step:
@@ -2327,6 +2371,15 @@ def train(args: argparse.Namespace) -> None:
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad(set_to_none=True)
+        if pending_teacher_eval_step or pending_generation_eval_step or pending_checkpoint_step:
+            run_scheduled_after_optimizer_step(
+                teacher_trigger_step=pending_teacher_eval_step,
+                generation_trigger_step=pending_generation_eval_step,
+                checkpoint_trigger_step=pending_checkpoint_step,
+            )
+            pending_teacher_eval_step = 0
+            pending_generation_eval_step = 0
+            pending_checkpoint_step = 0
     if world_size > 1:
         dist.barrier()
     final_dir = _save_adapter(bundle, output_dir, args, step=global_step) if rank == 0 else None
