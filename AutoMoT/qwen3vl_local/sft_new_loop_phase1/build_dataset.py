@@ -28,7 +28,7 @@ for _path in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
 
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
 from qwen3vl_local.sft_loop_phase1.audit_matrix import _iter_routes_stream, _rgb_path  # noqa: E402
-from qwen3vl_local.sft_loop_phase2_augment.visual_audit import (  # noqa: E402
+from qwen3vl_local.sft_new_loop_phase1.visual_audit import (  # noqa: E402
     DEFAULT_COVERAGE_MANIFEST,
     frame_visual_risk,
     load_review_coverage,

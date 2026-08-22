@@ -31,14 +31,26 @@ audited answer table; Phase2 labels come from per-frame RS annotations. Visual
 subgroup overrides only apply from structured RGB audit notes/annotations, not
 from free-text `audit_evidence`.
 
-Run from `AutoMoT/`:
+## 0. Run Layout
+
+Run every command below from `AutoMoT/`. The directory intentionally mirrors
+`sft_loop_phase2_augment`: dataset build, base eval, LoRA training, LoRA eval,
+error RGB sampling, TensorBoard, and RGB-mode matrix all have local entries.
+
+Default important paths:
+
+- dataset: `checkpoints/sft_new_loop_phase1_data/frame_index.jsonl`
+- train runs: `checkpoints/sft_new_loop_phase1_runs/run_<RUN_TAG>_combined_phase1_phase2_<rgb_mode>/`
+- eval review runs: `checkpoints/sft_new_loop_phase1_eval_review/<timestamp>/`
+- matrix runs: `checkpoints/sft_new_loop_phase1_eval_matrix/<timestamp>/`
+- audit samples: `checkpoints/sft_new_loop_phase1_audit_samples/`
+- bundled RGB coverage proof: `qwen3vl_local/sft_new_loop_phase1/phase2_rgb_audit_coverage.json`
+
+## 1. Build Dataset
 
 ```bash
+python qwen3vl_local/sft_new_loop_phase1/visual_audit.py
 python qwen3vl_local/sft_new_loop_phase1/build_dataset.py
-GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase1/train.sh check
-GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase1/train.sh single
-GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase1/eval.py \
-  --adapter-dir checkpoints/sft_new_loop_phase1_runs/latest/final
 ```
 
 `build_dataset.py` stores `history_rgb_paths` relative to `--data-root`
@@ -48,6 +60,168 @@ On a remote machine with a different checkout or data mount, set only:
 
 ```bash
 DATA_ROOT=/path/to/lead_data GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase1/train.sh check
+```
+
+If the dataset was built on another machine before relative paths were added,
+rebuild it on the target machine instead of editing the 1GB JSONL by hand.
+
+Acceptance checks after build:
+
+- `visual_audit_manifest.json` is written under `checkpoints/sft_new_loop_phase1_data/`.
+- `manifest.json` has non-empty train/val/test splits.
+- All 16 focus buckets exist for train/val/test.
+- `visual_risk` filtered count matches expectation.
+- Town12 free-text HIGHWAY override count remains 0.
+- Random RGB path probes resolve through `--data-root`.
+
+## 2. Base Qwen Eval
+
+Production prompt:
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase1/eval.py \
+  --history-rgb-mode 4rgb \
+  --split test \
+  --cases-per-bin 64
+```
+
+Audit prompt:
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase1/eval.py \
+  --history-rgb-mode 4rgb \
+  --audit-prompt \
+  --split test \
+  --cases-per-bin 64
+```
+
+For a four-GPU eval:
+
+```bash
+GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
+  qwen3vl_local/sft_new_loop_phase1/eval.py \
+  --history-rgb-mode 4rgb \
+  --split test \
+  --cases-per-bin 64
+```
+
+## 3. LoRA Training
+
+Smoke check:
+
+```bash
+GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase1/train.sh check
+```
+
+Single GPU:
+
+```bash
+GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase1/train.sh single
+```
+
+Four-GPU DDP:
+
+```bash
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase1/train.sh ddp
+```
+
+Important defaults:
+
+- `FOCUS_BALANCE_COUNT=9216`
+- `MAX_TRAIN_FRAME_REPEAT=10`
+- `GENERATION_EVAL_BALANCE_COUNT=16`
+- `EVAL_STEPS=2000`
+- `GENERATION_EVAL_STEPS=2000`
+- `SAVE_STEPS=20000`
+- `HISTORY_RGB_MODE=4rgb`
+
+Use `HISTORY_RGB_MODE=2rgb_endpoints` for the two-frame endpoint input.
+
+## 4. LoRA Eval
+
+`eval.sh` resolves a run directory or adapter directory, then runs base
+production/audit and LoRA production/audit, and writes a compact audit bundle.
+
+```bash
+ADAPTER_DIR=checkpoints/sft_new_loop_phase1_runs/latest/final \
+  bash qwen3vl_local/sft_new_loop_phase1/eval.sh
+```
+
+Passing the run root is also supported:
+
+```bash
+bash qwen3vl_local/sft_new_loop_phase1/eval.sh \
+  checkpoints/sft_new_loop_phase1_runs/latest
+```
+
+For direct eval without the review bundle:
+
+```bash
+GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase1/eval.py \
+  --adapter-dir checkpoints/sft_new_loop_phase1_runs/latest/final \
+  --split test \
+  --cases-per-bin 64
+```
+
+## 5. Error RGB Audit Samples
+
+After an eval, sample common fused error types and copy the RGB history used by
+the model:
+
+```bash
+python qwen3vl_local/sft_new_loop_phase1/audit_eval_cases.py \
+  --eval-dir checkpoints/sft_new_loop_phase1_eval_review/<timestamp>/lora_production \
+  --output-dir checkpoints/sft_new_loop_phase1_audit_samples/<tag> \
+  --data-root lead_data \
+  --per-target 12 \
+  --overwrite
+```
+
+The sampler covers Phase1 false positives/false negatives, Phase2 RS errors,
+hierarchical `RS_HIGHWAY` / `GROUP` errors, invalid answers, multi-YES Phase2
+outputs, and subset unasked-line leakage.
+
+## 6. TensorBoard
+
+```bash
+bash qwen3vl_local/tb_serve.sh checkpoints/sft_new_loop_phase1_runs/latest
+```
+
+Useful streams:
+
+- `train/loss`
+- `eval/exact_match_accuracy`
+- `generation_eval/exact_match_accuracy`
+- `focus/*`
+- `variant/*`
+- `augment/*`
+
+## 7. RGB Mode Matrix
+
+Run the phase2-style 10-step comparison for fused prompts:
+
+```bash
+bash qwen3vl_local/sft_new_loop_phase1/run_rgb_mode_matrix.sh
+```
+
+It runs:
+
+1. base 4rgb production
+2. base 4rgb audit
+3. base 2rgb_endpoints production
+4. base 2rgb_endpoints audit
+5. train 4rgb LoRA
+6. LoRA 4rgb production
+7. LoRA 4rgb audit
+8. train 2rgb_endpoints LoRA
+9. LoRA 2rgb_endpoints production
+10. LoRA 2rgb_endpoints audit
+
+Common overrides:
+
+```bash
+GPU_IDS=0 DATA_ROOT=/path/to/lead_data CASES_PER_BIN=64 \
+  bash qwen3vl_local/sft_new_loop_phase1/run_rgb_mode_matrix.sh
 ```
 
 Balance artifacts:
