@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import itertools
 import json
@@ -94,6 +95,21 @@ from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # 
 FORMAT_COMPONENT_ID = -1
 
 
+def _env_int(name: str, default: int) -> int:
+    """读取正整数环境变量；非法值直接报错，避免 DDP 超时配置静默失效。"""
+
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return int(default)
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be positive, got {value}")
+    return value
+
+
 def _git_metadata() -> Dict[str, Any]:
     """记录训练时的代码版本；失败时保留空字段，不影响训练。"""
 
@@ -129,9 +145,73 @@ def setup_distributed() -> Tuple[int, int, int]:
     if world_size > 1:
         if not torch.cuda.is_available():
             raise RuntimeError("sft_new_loop_phase1 DDP requires CUDA.")
-        dist.init_process_group(backend="nccl")
         torch.cuda.set_device(local_rank)
+        timeout = datetime.timedelta(seconds=_env_int("DDP_TIMEOUT_SECONDS", 7200))
+        try:
+            dist.init_process_group(
+                backend="nccl",
+                timeout=timeout,
+                device_id=torch.device(f"cuda:{local_rank}"),
+            )
+        except TypeError:
+            dist.init_process_group(backend="nccl", timeout=timeout)
     return rank, local_rank, world_size
+
+
+def _ddp_barrier(local_rank: int) -> None:
+    """执行短同步 barrier，并显式绑定本 rank GPU，避免 NCCL 推断设备。"""
+
+    if not (dist.is_available() and dist.is_initialized()):
+        return
+    try:
+        dist.barrier(device_ids=[int(local_rank)])
+    except TypeError:
+        dist.barrier()
+
+
+def _write_sync_file(path: pathlib.Path, payload: Mapping[str, Any]) -> None:
+    """原子写入 rank0 同步文件，供其它 rank 在长 generation eval 时轮询。"""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _read_sync_payload(path: pathlib.Path) -> Optional[Dict[str, Any]]:
+    """读取同步文件；写入中的临时状态返回 None，由调用方继续等待。"""
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError:
+        return None
+
+
+def _wait_for_rank0_sync(
+    done_path: pathlib.Path,
+    error_path: pathlib.Path,
+    *,
+    timeout_seconds: int,
+    sync_token: str,
+) -> None:
+    """等待 rank0 完成长耗时 generation eval；等待期间不占用 NCCL collective。"""
+
+    deadline = time.monotonic() + float(timeout_seconds)
+    while True:
+        done_payload = _read_sync_payload(done_path)
+        if done_payload and done_payload.get("sync_token") == sync_token:
+            return
+        error_payload = _read_sync_payload(error_path)
+        if error_payload and error_payload.get("sync_token") == sync_token:
+            raise RuntimeError(f"rank0 generation eval failed before sync: {error_payload}")
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"timed out waiting for rank0 generation eval sync file {done_path} "
+                f"after {timeout_seconds} seconds; sync_token={sync_token}"
+            )
+        time.sleep(5.0)
 
 
 def cleanup_distributed() -> None:
@@ -2079,7 +2159,7 @@ def train(args: argparse.Namespace) -> None:
             encoding="utf-8",
         )
     if world_size > 1:
-        dist.barrier()
+        _ddp_barrier(local_rank)
 
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
@@ -2173,44 +2253,83 @@ def train(args: argparse.Namespace) -> None:
                     f"focus_light={metrics.get('focus_traffic_light_abnormal_acc', 0.0):.4f}"
                 )
         run_generation_eval = bool(full_generation_eval_work) and generation_trigger_step > 0
-        if run_generation_eval and rank == 0:
-            generation_metrics = evaluate_generation_probe(
-                bundle,
-                full_generation_eval_work,
-                history_rgb_mode=args.history_rgb_mode,
-                max_new_tokens=int(args.generation_eval_max_new_tokens),
-                record_path=output_dir / "generation_val_cases.jsonl",
-                step=global_step,
+        if run_generation_eval:
+            sync_dir = output_dir / ".dist_sync"
+            sync_done = sync_dir / f"generation_eval_step_{global_step}.done.json"
+            sync_error = sync_dir / f"generation_eval_step_{global_step}.error.json"
+            sync_token = (
+                f"{os.environ.get('MASTER_ADDR', '')}:"
+                f"{os.environ.get('MASTER_PORT', '')}:"
+                f"{os.environ.get('TORCHELASTIC_RESTART_COUNT', '0')}:"
+                f"{global_step}"
             )
-            if writer:
-                for key, value in generation_metrics.items():
-                    writer.add_scalar(f"val_generation/{key}", float(value), global_step)
-            generation_record = {"step": int(global_step), "type": "generation", **generation_metrics}
-            if generation_trigger_step != global_step:
-                generation_record["trigger_step"] = int(generation_trigger_step)
-                generation_record["delayed_until_optimizer_step"] = True
-            _append_jsonl(output_dir / "train_eval_metrics.jsonl", generation_record)
-            generation_score = float(generation_metrics.get("exact_accuracy", 0.0))
-            generation_valid = float(generation_metrics.get("format_valid_rate", 0.0))
-            if generation_valid >= float(args.generation_format_valid_gate) and generation_score > best_generation_score:
-                best_generation_score = generation_score
-                ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name="best_generation")
-                print(
-                    f"[best-generation] step={global_step} exact={generation_score:.4f} "
-                    f"format_valid={generation_valid:.4f} adapter={ckpt_dir}"
+            if rank == 0:
+                try:
+                    generation_metrics = evaluate_generation_probe(
+                        bundle,
+                        full_generation_eval_work,
+                        history_rgb_mode=args.history_rgb_mode,
+                        max_new_tokens=int(args.generation_eval_max_new_tokens),
+                        record_path=output_dir / "generation_val_cases.jsonl",
+                        step=global_step,
+                    )
+                    if writer:
+                        for key, value in generation_metrics.items():
+                            writer.add_scalar(f"val_generation/{key}", float(value), global_step)
+                    generation_record = {"step": int(global_step), "type": "generation", **generation_metrics}
+                    if generation_trigger_step != global_step:
+                        generation_record["trigger_step"] = int(generation_trigger_step)
+                        generation_record["delayed_until_optimizer_step"] = True
+                    _append_jsonl(output_dir / "train_eval_metrics.jsonl", generation_record)
+                    generation_score = float(generation_metrics.get("exact_accuracy", 0.0))
+                    generation_valid = float(generation_metrics.get("format_valid_rate", 0.0))
+                    if generation_valid >= float(args.generation_format_valid_gate) and generation_score > best_generation_score:
+                        best_generation_score = generation_score
+                        ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name="best_generation")
+                        print(
+                            f"[best-generation] step={global_step} exact={generation_score:.4f} "
+                            f"format_valid={generation_valid:.4f} adapter={ckpt_dir}"
+                        )
+                    delay_note = "" if generation_trigger_step == global_step else f" delayed_from={generation_trigger_step}"
+                    print(
+                        f"[generation-val] step={global_step}/{total_steps}{delay_note} "
+                        f"format_valid={generation_metrics['format_valid_rate']:.4f} "
+                        f"exact={generation_metrics['exact_accuracy']:.4f} "
+                        f"focus_highway={generation_metrics.get('focus_highway_acc', 0.0):.4f} "
+                        f"focus_static_obstacle={generation_metrics.get('focus_static_obstacle_acc', 0.0):.4f} "
+                        f"focus_vulnerable={generation_metrics.get('focus_vulnerable_acc', 0.0):.4f} "
+                        f"focus_light={generation_metrics.get('focus_traffic_light_abnormal_acc', 0.0):.4f}"
+                    )
+                    _write_sync_file(
+                        sync_done,
+                        {
+                            "sync_token": sync_token,
+                            "step": int(global_step),
+                            "trigger_step": int(generation_trigger_step),
+                            "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                        },
+                    )
+                except BaseException as exc:
+                    _write_sync_file(
+                        sync_error,
+                        {
+                            "sync_token": sync_token,
+                            "step": int(global_step),
+                            "trigger_step": int(generation_trigger_step),
+                            "error_type": type(exc).__name__,
+                            "error": str(exc),
+                        },
+                    )
+                    raise
+            else:
+                _wait_for_rank0_sync(
+                    sync_done,
+                    sync_error,
+                    timeout_seconds=_env_int("GENERATION_EVAL_SYNC_TIMEOUT_SECONDS", 7200),
+                    sync_token=sync_token,
                 )
-            delay_note = "" if generation_trigger_step == global_step else f" delayed_from={generation_trigger_step}"
-            print(
-                f"[generation-val] step={global_step}/{total_steps}{delay_note} "
-                f"format_valid={generation_metrics['format_valid_rate']:.4f} "
-                f"exact={generation_metrics['exact_accuracy']:.4f} "
-                f"focus_highway={generation_metrics.get('focus_highway_acc', 0.0):.4f} "
-                f"focus_static_obstacle={generation_metrics.get('focus_static_obstacle_acc', 0.0):.4f} "
-                f"focus_vulnerable={generation_metrics.get('focus_vulnerable_acc', 0.0):.4f} "
-                f"focus_light={generation_metrics.get('focus_traffic_light_abnormal_acc', 0.0):.4f}"
-            )
-        if run_generation_eval and world_size > 1:
-            dist.barrier()
+            if world_size > 1:
+                _ddp_barrier(local_rank)
         if rank == 0 and checkpoint_trigger_step > 0:
             if checkpoint_trigger_step == global_step:
                 ckpt_name = f"checkpoint-{global_step}"
@@ -2381,7 +2500,7 @@ def train(args: argparse.Namespace) -> None:
             pending_generation_eval_step = 0
             pending_checkpoint_step = 0
     if world_size > 1:
-        dist.barrier()
+        _ddp_barrier(local_rank)
     final_dir = _save_adapter(bundle, output_dir, args, step=global_step) if rank == 0 else None
     if writer:
         writer.close()
