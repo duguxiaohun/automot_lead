@@ -116,6 +116,8 @@ case "${MODE}" in
     export MASTER_PORT="${MASTER_PORT:-$(find_free_master_port)}"
     export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
     export NCCL_RAS_ENABLE="${NCCL_RAS_ENABLE:-0}"
+    export DDP_TIMEOUT_SECONDS="${DDP_TIMEOUT_SECONDS:-7200}"
+    export GENERATION_EVAL_SYNC_TIMEOUT_SECONDS="${GENERATION_EVAL_SYNC_TIMEOUT_SECONDS:-7200}"
     ;;
 esac
 

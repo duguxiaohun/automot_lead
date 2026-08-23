@@ -139,6 +139,11 @@ HISTORY_RGB_MODE=2rgb_endpoints GPU_IDS=0,1,2,3 \
 触发 step 后延迟到下一次 optimizer step 执行，避免保存尚未应用当前累积梯度的 adapter。
 延迟保存的周期 checkpoint 名称会写成 `checkpoint-<trigger_step>-applied-<step>`。
 
+四卡 DDP 下，generation eval 只在 rank0 上做自由生成。该阶段可能超过 PyTorch/NCCL
+默认 600 秒 watchdog，因此训练器会让其它 rank 通过 `.dist_sync/` 文件轮询等待
+rank0 完成，再进入一次短 DDP barrier。默认 `DDP_TIMEOUT_SECONDS=7200`、
+`GENERATION_EVAL_SYNC_TIMEOUT_SECONDS=7200`；如果远程机器自由生成更慢，可以显式调大。
+
 训练产物会写入 `checkpoints/sft_new_loop_phase1_runs/`，非 check run 会更新
 `checkpoints/sft_new_loop_phase1_runs/latest` 软链接。
 
