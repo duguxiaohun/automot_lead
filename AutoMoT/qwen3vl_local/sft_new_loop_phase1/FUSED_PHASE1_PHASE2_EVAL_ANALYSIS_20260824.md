@@ -7,6 +7,11 @@
 > checkpoint global step：`24000`
 > 正式输入：`4rgb`，原始 history 索引 `[0, 1, 2, 3]`
 > production prompt：`sft_new_loop_phase1_phase1_phase2_combined_v1`
+>
+> 后续代码状态：当前 prompt 已升级为
+> `sft_new_loop_phase1_phase1_phase2_combined_v3_random_phase1_order`；v3 仅把 Phase1 四个
+> 输出行改为训练/测试共用的可复现随机顺序，不改变本报告所分析的 v1 历史分数，也不改变
+> 四问定义、标签、采样或 loss。
 
 ## 1. 结论摘要
 

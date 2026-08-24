@@ -26,7 +26,7 @@ from qwen3vl_local.sft_new_loop_phase1.history_rgb import (
 )
 
 
-PROMPT_NAME = "sft_new_loop_phase1_phase1_phase2_combined_v2_rgb_error_refined"
+PROMPT_NAME = "sft_new_loop_phase1_phase1_phase2_combined_v3_random_phase1_order"
 PHASE1_ANSWER_KEYS = (
     "HIGHWAY",
     "STATIC_OBSTACLE",
@@ -49,10 +49,19 @@ The input is a stitched three-camera RGB history, ordered from oldest to newest.
 
 @dataclass(frozen=True)
 class PromptSpec:
-    """一次 fused forward 的 Phase2 增强 spec。"""
+    """一次 fused forward 的 Phase1 随机顺序 + Phase2 增强 spec。"""
 
     phase2_spec: phase2_prompts.PromptSpec
     phase1_answers: Tuple[Tuple[str, bool], ...] = tuple()
+    phase1_output_keys: Tuple[str, ...] = PHASE1_ANSWER_KEYS
+
+    def __post_init__(self) -> None:
+        """确保随机顺序仍严格包含且只包含四个 Phase1 键。"""
+
+        if len(self.phase1_output_keys) != len(PHASE1_ANSWER_KEYS) or set(self.phase1_output_keys) != set(
+            PHASE1_ANSWER_KEYS
+        ):
+            raise ValueError(f"invalid Phase1 output order: {self.phase1_output_keys!r}")
 
     @property
     def variant(self) -> str:
@@ -64,7 +73,7 @@ class PromptSpec:
     def output_keys(self) -> Tuple[str, ...]:
         """返回本次 assistant 必须输出的行顺序。"""
 
-        return PHASE1_ANSWER_KEYS + tuple(_fused_question_output_key(q) for q in self.phase2_spec.questions)
+        return self.phase1_output_keys + tuple(_fused_question_output_key(q) for q in self.phase2_spec.questions)
 
     @property
     def phase1_answer_map(self) -> Dict[str, bool]:
@@ -96,6 +105,17 @@ def _fused_question_output_key(q: phase2_prompts.QuestionSpec) -> str:
     return _fused_output_key(q.output_key)
 
 
+def _phase1_output_order(seed_key: str) -> Tuple[str, ...]:
+    """按 case seed 生成稳定、可复现的 Phase1 四问随机排列。"""
+
+    return tuple(
+        sorted(
+            PHASE1_ANSWER_KEYS,
+            key=lambda key: hashlib.sha256(f"{seed_key}:phase1_order_v1:{key}".encode("utf-8")).digest(),
+        )
+    )
+
+
 def make_prompt_spec(
     *,
     variant: str,
@@ -120,7 +140,11 @@ def make_prompt_spec(
         detail_key=detail_key,
     )
     phase1_answers = tuple((key, bool(answers.get(key, False))) for key in PHASE1_ANSWER_KEYS)
-    return PromptSpec(phase2_spec=spec, phase1_answers=phase1_answers)
+    return PromptSpec(
+        phase2_spec=spec,
+        phase1_answers=phase1_answers,
+        phase1_output_keys=_phase1_output_order(seed_key),
+    )
 
 
 def prompt_spec_to_json(spec: PromptSpec) -> Dict[str, object]:
@@ -128,7 +152,7 @@ def prompt_spec_to_json(spec: PromptSpec) -> Dict[str, object]:
 
     payload = phase2_prompts.prompt_spec_to_json(spec.phase2_spec)
     payload["fused_output_keys"] = list(spec.output_keys)
-    payload["phase1_output_keys"] = list(PHASE1_ANSWER_KEYS)
+    payload["phase1_output_keys"] = list(spec.phase1_output_keys)
     return payload
 
 
@@ -243,6 +267,7 @@ def phase1_prompt_sha256(*, audit: bool = False, history_rgb_mode: str = DEFAULT
         "prompt_name": PROMPT_NAME,
         "system_prompt": SYSTEM_PROMPT,
         "phase1_answer_keys": list(PHASE1_ANSWER_KEYS),
+        "phase1_output_ordering": "deterministic_sha256_rank_per_case_v1",
         "phase2_answer_keys": list(PHASE2_ANSWER_KEYS),
         "variant_order": list(VARIANT_ORDER),
         "eval_variant_weights": dict(VARIANT_WEIGHTS),
@@ -261,6 +286,7 @@ def phase1_prompt_sha256(*, audit: bool = False, history_rgb_mode: str = DEFAULT
         spec = PromptSpec(
             phase2_spec=phase2_prompts.PromptSpec("all_random_order", phase2_questions, "fingerprint"),
             phase1_answers=tuple((key, False) for key in PHASE1_ANSWER_KEYS),
+            phase1_output_keys=PHASE1_ANSWER_KEYS,
         )
         parts.append(build_phase1_prompt(spec=spec, audit=audit, history_rgb_mode=history_rgb_mode))
     for count in SUBSET_COUNTS:
@@ -269,6 +295,7 @@ def phase1_prompt_sha256(*, audit: bool = False, history_rgb_mode: str = DEFAULT
             spec = PromptSpec(
                 phase2_spec=phase2_prompts.PromptSpec("subset_random", phase2_questions, "fingerprint"),
                 phase1_answers=tuple((key, False) for key in PHASE1_ANSWER_KEYS),
+                phase1_output_keys=PHASE1_ANSWER_KEYS,
             )
             parts.append(build_phase1_prompt(spec=spec, audit=audit, history_rgb_mode=history_rgb_mode))
     for group_id in GROUP_DEFINITIONS:
@@ -283,6 +310,7 @@ def phase1_prompt_sha256(*, audit: bool = False, history_rgb_mode: str = DEFAULT
             parts.append(build_phase1_prompt(spec=spec, audit=audit, history_rgb_mode=history_rgb_mode))
     payload = {
         "surface_parts": parts,
+        "phase1_output_orders": [list(order) for order in itertools.permutations(PHASE1_ANSWER_KEYS)],
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -434,7 +462,7 @@ def spec_metric_items(spec: PromptSpec) -> Iterable[Tuple[str, str, bool]]:
     """Yield (output_key, metric_key, gt_bool) for metrics."""
 
     phase1_answers = spec.phase1_answer_map
-    for key in PHASE1_ANSWER_KEYS:
+    for key in spec.phase1_output_keys:
         yield key, key, bool(phase1_answers.get(key, False))
     for q in spec.phase2_spec.questions:
         metric_key = "RS_HIGHWAY" if q.metric_key == "HIGHWAY" else q.metric_key

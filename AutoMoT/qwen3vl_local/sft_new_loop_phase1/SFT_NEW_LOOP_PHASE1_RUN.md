@@ -35,10 +35,14 @@ v1 虽然 focus case 严格 1:1，但同一 target
 YES:NO=1:1，并检查派生键权重没有异常极值。
 
 当前 prompt 名为
-`sft_new_loop_phase1_phase1_phase2_combined_v2_rgb_error_refined`。v2 没有放宽标签边界，
+`sft_new_loop_phase1_phase1_phase2_combined_v3_random_phase1_order`。v3 仅在 v2 基础上把
+Phase1 四个输出行改为按 case seed 可复现随机排列；四问始终全部出现，问题定义、答案、
+focus 采样和 loss 均不变。训练、teacher/generation validation 与正式 test 都通过同一个
+`make_prompt_spec` 生成顺序，`prompt_spec.phase1_output_keys` 会保存每条 case 的真实排列。
+v2 没有放宽标签边界，
 只根据逐帧 RGB 错例加入：道路结构与事件主体分两遍判断、小而短暂目标的四帧二次扫描、
-RS1 limited-access 复核、RS5 paired witness 和灯异常 readable-witness 复核。v1 adapter
-与 v2 prompt fingerprint 不兼容，应重新训练，不能强行跨 prompt 加载。
+RS1 limited-access 复核、RS5 paired witness 和灯异常 readable-witness 复核。v1/v2 adapter
+与 v3 prompt fingerprint 不兼容，应重新训练，不能强行跨 prompt 加载。
 
 数据构建沿用 Phase2 最新过滤：剔除异常时长 route、检查 full-frame RGB review 覆盖，
 默认排除 visual-risk 帧。Phase1 标签来自已审计四问答案表；Phase2 标签来自逐帧 RS
