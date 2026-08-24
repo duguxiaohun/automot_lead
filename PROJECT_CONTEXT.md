@@ -10,17 +10,21 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 
 主要战场：
 
-- `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py`
-- `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
-- `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`
 - `qwen3vl_local/`（从 `AutoMoT/` 当前目录看）
+- `AutoMoT/keyframe_filter/`
+- `PROJECT_CONTEXT.md`
+
+`AutoMoT/Automot/` 与 `AutoMoT/leaderboard/team_code/` 仅作为本地参考源码，
+不再由本仓库追踪或推送；下文涉及其中实现的内容只表示技术背景，不表示 Git 白名单。
 
 ## 1. 目录角色
 
 | 目录/文件 | 角色 |
 |---|---|
 | `lead/` | 数据采集、训练、闭环评测参考仓库。只读 |
-| `AutoMoT/` | 在线驾驶仓库；当前本地改造主要放这里 |
+| `AutoMoT/` | 在线驾驶仓库；本仓库只追踪明确列入白名单的本地改造 |
+| `AutoMoT/Automot/` | AutoMoT 原始实现的本地只读参考；不修改、不追踪、不 push |
+| `AutoMoT/leaderboard/team_code/` | leaderboard agent/runner 的本地只读参考；不修改、不追踪、不 push |
 | `AutoMoT/lead_data` | 远端 LEAD 数据软链接入口，等价于用户在 `AutoMoT/` 下执行 `ln -s /datashare/IOL4SGH/data/data/* lead_data/` 后的目录；运行命令里用相对路径 `lead_data` / `lead_data/keyframes_all_scenarios.json` |
 | `AutoMoT/data/lead` | `lead_data` 对应的 route XML 根目录，由 `AutoMoT/data/data_routes` 提取整理而来；命名规范固定为 `data/lead/<Scenario>/<Town>_<route_key>.xml`。旧数字 route 使用 `Town03_route_001783.xml`，新版子编号使用 `Town12_route_1054_0.xml`，命名本身带 Town 的 legacy key 使用 `Town06_route_Town06_13.xml`，legacy key 内部带 route 编号时保留完整 key，如 `Town12_route_Town12_route15.xml`。从 `lead_data/<Scenario>/<run_id>` 找 XML 时，`Scenario` 必须取 run 的父目录；run_id 先剥末尾 `MM_DD_HH_MM_SS` 时间戳，再只在存在时剥尾部采集后缀 `_route0`，剩余部分就是 route_key；`Town12_route15` 这类 legacy key 本体里的 `route15` 不能剥，也不能要求它带 `_route0`。XML 文件名公式：`route_key` 以 `route_` 开头时用 `<Town>_<route_key>.xml`，否则用 `<Town>_route_<route_key>.xml`。2026-07-03 全量核对：`lead_data` 9715 个 run 去重后 9294 个 `(Scenario,Town,route_key)`，`data/lead` 正好 9294 个 XML，缺失 0、冗余 0、命名不规范 0、XML 解析失败 0、内容结构异常 0；XML 内 `<weathis_juncer>` 拼写已统一修正为 `<weather>`。40 个 XML 的 `data_routes` 源文件位于不同 scenario 目录（36 个 `noScenarios`、4 个 `ConstructionObstacleTwoWays`），不是缺失；另有 `ParkedObstacle/Town12_route_Town12_route15.xml` 覆盖有效并与 `lead_data/ParkedObstacle/Town12_Rep0_Town12_route15_*` 对应，但未在 `AutoMoT/data/data_routes` 找到直接源文件。使用时以 `lead_data` / `data/lead` 的 scenario 目录为准，不能把该项当作 XML 缺失。 |
 | `AutoMoT/lead_video_tools/` | 按用户同意新增：LEAD 离线 RGB 视频转换工具。只读 `/datashare/IOL4SGH/data/data/<Scenario>/<run_id>/rgb/*.jpg`，按 4Hz 生成 `/data/lead_video/<Scenario>/<run_id>/{input,left,front,right}.mp4`（默认 input，`--views` 可选三视角裁剪），默认在左上角写 frame id，支持异常 route 剔除、断点续跑、ffprobe 完整性检查和 `--workers` route 级 CPU 并行（`--workers 0` 自动按 CPU 估计）；`rgb_to_video.py` 普通转换默认剔除异常时长 route；`abnormal_duration_filter.py` 按硬规则输出异常采集名单到 `lead_video_tools/abnormal_duration_filter/`：4Hz 下 `frames >= 361`（严格大于 1 分 30 秒 / 90s）且不在白名单内的 route 全部视为异常并写入 `abnormal_confirmed_over_90s.txt`；`BlockedIntersection` 与 `ControlLoss` 是唯一时长白名单不写入名单；`Accident`、`park*`、`dynamic*` 不再有 90-100 秒存疑段豁免；`abnormal_possible_90s_to_100s.txt` 只为旧接口兼容保留，正常应为空。凡是 `AutoMoT/keyframe_filter`、`AutoMoT/qwen3vl_local` 或其它入口使用 LEAD 数据集，都必须在构建样本、调研、probe 前先剔除这些异常 route；筛选时打印 discover + route 级进度条，两个 txt 名单只保留 `Scenario/run_id`，帧数/秒数/RGB 路径/视频目录保留在 `abnormal_duration_summary.json`；只有显式传 `rgb_to_video.py --abnormal-route-list-dir ...` 才只对筛选目录里的异常 route 生成巡检视频 |
@@ -506,7 +510,7 @@ DDP 选卡：Python 内部 rank0 选卡，写临时文件，其它 rank 读取�
 
 ## 10. GPU 选址统一规则
 
-适用：SFT、GoalGen、LeadMoT、VAE patch/unpatch、白名单 runner 的训练、
+适用：SFT、GoalGen、LeadMoT 与 VAE patch/unpatch 的训练、
 eval、probe、teacher / 推理入口。
 
 - 默认调用 `nvidia-smi` 自动挑空闲 GPU，并覆盖外层残留的 `CUDA_VISIBLE_DEVICES`。

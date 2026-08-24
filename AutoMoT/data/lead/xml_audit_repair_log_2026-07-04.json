@@ -1,0 +1,62 @@
+{
+  "audit_date": "2026-07-04",
+  "target_root": "AutoMoT/data/lead",
+  "source_root": "AutoMoT/data/data_routes",
+  "method": [
+    "Parsed every target XML under AutoMoT/data/lead.",
+    "Indexed source routes under AutoMoT/data/data_routes by scenario, town, and source file key, with global town/key fallback for known cross-scenario source layout.",
+    "Compared normalized route content; source tag weathis_juncer is normalized to weather before comparison, so known source typo does not create a false mismatch.",
+    "Treated delete as only valid for target XMLs that are abnormal and cannot be repaired from source."
+  ],
+  "summary": {
+    "target_xml_count": 9294,
+    "source_route_count": 9893,
+    "normalized_source_matches": 9293,
+    "source_found": 9293,
+    "source_missing_or_ambiguous": 1,
+    "repaired_xml_count": 0,
+    "deleted_xml_count": 0,
+    "kept_with_source_traceability_note": 1
+  },
+  "deleted_xml": [],
+  "repaired_xml": [],
+  "kept_with_notes": [
+    {
+      "target": "AutoMoT/data/lead/ParkedObstacle/Town12_route_Town12_route15.xml",
+      "decision": "kept",
+      "reason": "source key Town12_route15 is absent in AutoMoT/data/data_routes, but target XML parses cleanly and its route geometry/scenario content matches multiple Town12 route id=18 ParkedObstacle source candidates; this is source-traceability ambiguity, not an abnormal target XML.",
+      "matching_source_candidates": [
+        "AutoMoT/data/data_routes/50x38_Town12/ParkedObstacle/1006_0.xml#route[0]",
+        "AutoMoT/data/data_routes/50x38_Town12/ParkedObstacle/1006_1.xml#route[0]",
+        "AutoMoT/data/data_routes/50x38_Town12/ParkedObstacle/Town12.xml#route[0]",
+        "AutoMoT/data/data_routes/50x38_Town12/ParkedObstacle/Town12.xml#route[15]"
+      ],
+      "route_waypoints": [
+        [
+          -2255.0,
+          3658.3
+        ],
+        [
+          -2134.9,
+          3497.6
+        ]
+      ]
+    }
+  ],
+  "raw_issue_rows_before_manual_review": [
+    {
+      "target": "AutoMoT/data/lead/ParkedObstacle/Town12_route_Town12_route15.xml",
+      "scenario": "ParkedObstacle",
+      "stem_town": "Town12",
+      "route_key": "Town12_route15",
+      "status": "needs_review_or_repair",
+      "issues": [
+        "ambiguous_scenario_town_route_id"
+      ],
+      "source": null,
+      "source_match": "ambiguous_scenario_town_route_id",
+      "route_town": "Town12",
+      "route_id": "18"
+    }
+  ]
+}

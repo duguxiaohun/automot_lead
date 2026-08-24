@@ -68,15 +68,6 @@
 | 文件 | 用途 |
 |---|---|
 | `PROJECT_CONTEXT.md` | 项目说明文档，需要随代码修改持续更新 |
-| `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py` | 用户主战场：把 LEAD 数据离线喂给 AutoMoT 推理的桥接脚本。`LeadOfflineMoTRunner` 加载 ckpt 时按 `decoder_config.use_bev` / `use_subgoal` / `use_final_goal` 自描述切换分支：use_subgoal=True ckpt 必须在 `lead_clip` 里塞 `subgoal_rgb_path/subgoal_scenario/subgoal_status/subgoal_event`，由 `build_clip_from_real_lead_route(..., subgoal_*=...)` 写入；runner 的 `main()` 在加载 ckpt 后按 use_subgoal 自动调 `--keyframes` 反查 anchor 对应 STATUS → SUBGOAL → SUBGOAL keyframe RGB，无需用户额外指定 |
-| `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py` | 范式 A 对照脚本，保留 automot/qwen 双 backend |
-| `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py` | standalone Qwen3-VL-4B-Instruct 范式 A 脚本 |
-| `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py` | 子目标 latent 生成新路线 runner（teacher-forced prefill → DiT-MoT → flow matching，详见 PROJECT_CONTEXT.md §15） |
-| `AutoMoT/leaderboard/team_code/automot_utils.py` | 按用户同意纳入白名单：AutoMoT legacy prompt helper；`build_cleaned_prompt_and_modes` 必须接收 7 元 `[speed,tp,ntp,final_goal]` 并在 prompt 写入 final destination |
-| `AutoMoT/Automot/team_code/automot_utils.py` | 按用户同意纳入白名单：AutoMoT 原始副本 prompt helper；必须与 `AutoMoT/leaderboard/team_code/automot_utils.py` 的 7 元 final destination prompt 保持同步 |
-| `AutoMoT/Automot/mot/evaluation/inference.py` / `AutoMoT/Automot/mot/modeling/automot/automot.py` | 按用户同意纳入白名单：AutoMoT 原始副本中的 prompt 示例注释；涉及 target_point / next_target_point 的 prompt 示例必须包含 final destination，并与 2s 规划视野同步 |
-| `AutoMoT/leaderboard/team_code/mot_b2d_agent.py` | 按用户同意纳入白名单：legacy AutoMoT 在线 agent；涉及 wp/nwp prompt 时必须同步按 `max(speed*lookahead_s, 5m)` 弧长生成 tp/ntp，生成局部 final_goal 并传入 `automot_utils.build_cleaned_prompt_and_modes` |
-| `AutoMoT/leaderboard/team_code/display_interface.py` / `AutoMoT/Automot/team_code/display_interface.py` | 按用户同意纳入白名单：AutoMoT 显示层；decision 三元组只表示 now/+1s/+2s，不要再沿用旧 3s 命名 |
 | `AutoMoT/qwen3vl_local/eval_carla/` | LeadMoT 闭环评测子包（全部白名单内）：实时 agent + 5 路视频 + 投影 overlay + scenario 反向映射 + 聚合 + Flask webapp。`agent.py` 直接复用 `LeadOfflineMoTRunner`；target_point / next_target_point 与训练同走 `max(speed*lookahead_s, 5m)` route 弧长前推，默认 tp=1.0s / ntp=2.0s；final_goal 为 route 真实终点：训练取 LEAD 采集保存的 `meta["next_target_points"][-1]` 转 ego，在线 eval_carla 取 `scenario_picker.py` 对应 route XML 最后一个 waypoint 转 ego，不能再用 `meta["route"][-1]` 或固定局部 horizon；warmup 为 LEAD 风格 left-pad 复制 frame 0 立即推理；按 ckpt `decoder_config.use_bev` 决定是否声明/读取 LiDAR/radar；ckpt `decoder_config.use_subgoal=True` 当前不支持闭环，agent.py 加载时立即 `raise NotImplementedError` 并留 `TODO(subgoal)` 接口；其余细节以 `EVAL_CARLA_PLAN.md` / `EVAL_CARLA_RUN.md` 为准。 |
 | `AutoMoT/lead_video_tools/` | 按用户同意新增到白名单：LEAD 离线 RGB 视频转换工具；只读 `/datashare/IOL4SGH/data/data/<Scenario>/<run_id>/rgb/*.jpg`，按 4Hz 生成 `/data/lead_video/<Scenario>/<run_id>/{input,left,front,right}.mp4`（默认 input，`--views` 可选三视角裁剪），默认在左上角写 frame id，支持异常 route 剔除、断点续跑、ffprobe 完整性检查、运行文档和 `--workers` route 级 CPU 并行（`--workers 0` 自动按 CPU 估计）；`rgb_to_video.py` 普通转换默认剔除异常时长 route；`abnormal_duration_filter.py` 按硬规则输出异常采集名单：4Hz 下 `frames >= 361`（严格大于 1 分 30 秒 / 90s）且不在白名单内的 route 全部视为异常并写入 `abnormal_confirmed_over_90s.txt`；`BlockedIntersection` 与 `ControlLoss` 是唯一时长白名单不写入名单；`Accident`、`park*`、`dynamic*` 不再有 90-100 秒存疑段豁免；`abnormal_possible_90s_to_100s.txt` 只为旧接口兼容保留，正常应为空。**凡是 AutoMoT/keyframe_filter、AutoMoT/qwen3vl_local 或其它入口使用 LEAD 数据集，都必须在构建样本/调研/probe 前先剔除这些异常 route**；筛选时打印 discover + route 级进度条，两个 txt 名单只保留 `Scenario/run_id`，详情保留在 `abnormal_duration_summary.json`；只有显式传 `rgb_to_video.py --abnormal-route-list-dir` 才复用筛选目录只转名单 route。 |
 | `AutoMoT/data/lead/` | 按用户同意纳入白名单：`lead_data` 对应 route XML 根目录，由 `AutoMoT/data/data_routes` 提取整理而来。命名规范固定为 `data/lead/<Scenario>/<Town>_<route_key>.xml`：旧数字 route 为 `Town03_route_001783.xml`，新版子编号为 `Town12_route_1054_0.xml`，命名本身带 Town 的 legacy key 为 `Town06_route_Town06_13.xml`，legacy key 内部带 route 编号时保留完整 key，如 `Town12_route_Town12_route15.xml`。从 `lead_data/<Scenario>/<run_id>` 找 XML 时，`Scenario` 必须取 run 的父目录；run_id 先剥末尾 `MM_DD_HH_MM_SS` 时间戳，再只在存在时剥尾部采集后缀 `_route0`；`Town12_route15` 这类 legacy key 本体里的 `route15` 不能剥，也不能要求它带 `_route0`。XML 文件名公式：`route_key` 以 `route_` 开头时用 `<Town>_<route_key>.xml`，否则用 `<Town>_route_<route_key>.xml`。2026-07-03 全量核对结果：`lead_data` 9715 个 run 去重后 9294 个 `(Scenario,Town,route_key)`，`data/lead` 正好 9294 个 XML，缺失 0、冗余 0、命名不规范 0、XML 解析失败 0、内容结构异常 0；XML 内 `<weathis_juncer>` 拼写已统一修正为 `<weather>`。40 个 XML 的 `data_routes` 源文件位于不同 scenario 目录（36 个 `noScenarios`、4 个 `ConstructionObstacleTwoWays`），不是缺失；另有 `ParkedObstacle/Town12_route_Town12_route15.xml` 覆盖有效并与 `lead_data/ParkedObstacle/Town12_Rep0_Town12_route15_*` 对应，但未在 `AutoMoT/data/data_routes` 找到直接源文件。使用时以 `lead_data` / `data/lead` 的 scenario 目录为准，不能把该项当作 XML 缺失。 |
@@ -150,6 +141,10 @@ TP/FP/TN/FN 与 P/R/F1；eval/probe 同步输出 memory 依赖与 Q2 门控指�
 Q1 trigger≈55.5%、Q2 gate≈64.0%、Q2 relation≈38.6/43.5/17.9。GT UE=15.55% 与 wrong/UNKNOWN memory 异常
 不能直接相加，最终比例必须看 TensorBoard。
 
+`AutoMoT/Automot/` 与 `AutoMoT/leaderboard/team_code/` 整个目录只作为本地参考源码使用，
+不属于修改或 Git 追踪白名单；即使其中某个文件过去被单独列入过白名单，也以本条最新规则
+为准：禁止 add、commit、push。远程仓库不保存这两个目录的文件，本地副本保留不删。
+
 **其它所有文件**（`lead/` 整个目录、`AutoMoT/` 其余文件、配置等）**不准动**——
 它们是用户从远程服务器同步下来的参考源码，作只读资料用。
 
@@ -188,17 +183,6 @@ Q1 trigger≈55.5%、Q2 gate≈64.0%、Q2 relation≈38.6/43.5/17.9。GT UE=15.5
 - `PROJECT_CONTEXT.md`
 - `CLAUDE.md`
 - `AGENTS.md`
-- `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py`
-- `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
-- `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py`
-- `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`
-- `AutoMoT/leaderboard/team_code/automot_utils.py`
-- `AutoMoT/Automot/team_code/automot_utils.py`
-- `AutoMoT/Automot/mot/evaluation/inference.py`
-- `AutoMoT/Automot/mot/modeling/automot/automot.py`
-- `AutoMoT/leaderboard/team_code/mot_b2d_agent.py`
-- `AutoMoT/leaderboard/team_code/display_interface.py`
-- `AutoMoT/Automot/team_code/display_interface.py`
 - `AutoMoT/qwen3vl_local/eval_carla/__init__.py`
 - `AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_PLAN.md`
 - `AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md`
@@ -217,6 +201,7 @@ Q1 trigger≈55.5%、Q2 gate≈64.0%、Q2 relation≈38.6/43.5/17.9。GT UE=15.5
 - `AutoMoT/lead_video_tools/abnormal_duration_filter.py`
 - `AutoMoT/lead_video_tools/rgb_to_video.py`
 - `AutoMoT/lead_video_tools/LEAD_VIDEO_RUN.md`
+- `AutoMoT/data/lead/`（目录白名单：route XML 与同目录轻量审计记录）
 - `AutoMoT/keyframe_filter/`（目录白名单；`collection_output/` 默认排除，但 Phase1 四问标签轻量 JSON/JSONL 例外）
 - `AutoMoT/qwen3vl_local/__init__.py`
 - `AutoMoT/qwen3vl_local/cache_utils.py`
@@ -309,6 +294,8 @@ Q1 trigger≈55.5%、Q2 gate≈64.0%、Q2 relation≈38.6/43.5/17.9。GT UE=15.5
 
 - **禁止** `git add .` / `git add -A` / `git add *`，会污染仓库
 - **禁止** `git add lead/` / `git add AutoMoT/`（除了白名单里那一个具体路径）
+- **禁止** `git add AutoMoT/Automot/` 或其中任何文件；该目录只保留本地，不进远程
+- **禁止** `git add AutoMoT/leaderboard/team_code/` 或其中任何文件；该目录只保留本地，不进远程
 - **禁止** `git add 0026.json`——它是 LEAD meta 参考样本，永远只读、永远不入库
 - **禁止** `git add keyframes_all_scenarios.json` 或 `AutoMoT/lead_data/keyframes_all_scenarios.json`；
   `AutoMoT/keyframe_filter/` 下的旧同名副本已清理，不再恢复或 add
@@ -331,7 +318,7 @@ git status
 
 # 2. 精确 add 白名单文件（举例）
 git add PROJECT_CONTEXT.md
-git add AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py
+git add AutoMoT/data/lead/
 git add AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/phase1_four_question_answer_table.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/answer_table_partial.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/manual_visual_audit_notes.jsonl
 git add AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/critical_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/highway_flow_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/motion_parking_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/obstacle_single_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/obstacle_twoways_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/remaining_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/vehicle_turning_batch/phase1_four_question_matrix.json
 git add AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/manual_full_sheet_notes_20260809.jsonl AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/manual_table_gap_combo_notes_20260810.jsonl
@@ -380,7 +367,7 @@ git push
 - **不要替用户决定是否 push**——commit 可以自己做，push 之前问一下
   （push 一旦发到 main，外部可见，难撤回）
 - **不要在运行文档里直接写 `CUDA_VISIBLE_DEVICES=...` 这种裸 shell 选卡片段**。
-  SFT、GoalGen、LeadMoT、VAE patch/unpatch 以及白名单 runner 的训练、eval、probe、teacher / 推理
+  SFT、GoalGen、LeadMoT 与 VAE patch/unpatch 的训练、eval、probe、teacher / 推理
   入口默认都自动寻找空闲 GPU，并覆盖已有 mask。
   唯一允许的 pin 写法：`GPU_IDS=0` / `GPU_IDS=0,1,2,3` 前置环境变量（白名单训练入口在
   `GPU_IDS` 非空时跳过 nvidia-smi 自动选址，直接用给定卡号）。
@@ -390,10 +377,8 @@ git push
 
 ## 5. 工作流提示
 
-- 改 `mot_lead_offline_runner.py` 前先看 PROJECT_CONTEXT.md §7（lead vs AutoMoT
-  对照表）+ §8（runner 当前不匹配点列表）
-- 改完 runner 后**同步更新** PROJECT_CONTEXT.md §8 的相应条目（标记为已修复，
-  或把新的不匹配点加进去）
+- `AutoMoT/Automot/` 与 `AutoMoT/leaderboard/team_code/` 只可作为本地参考源码读取；
+  不要修改、暂存或推送这两个目录。
 - 写或改 SFT / GoalGen / LeadMoT / VAE 运行命令时，保持 GPU 选址规则一致：
   单进程默认 `nvidia-smi` 自动挑 1 张空闲 GPU，并覆盖已有 mask；
   `torchrun --nproc_per_node=N` 默认自动挑 N 张最空闲 GPU，并覆盖已有 mask；
