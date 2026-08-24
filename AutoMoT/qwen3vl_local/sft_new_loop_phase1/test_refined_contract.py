@@ -13,6 +13,8 @@ from qwen3vl_local.sft_new_loop_phase1.prompts import (
     make_prompt_spec,
     parse_phase1_audit_output,
     parse_phase1_output,
+    phase2_output_keys,
+    prompt_spec_to_json,
 )
 from qwen3vl_local.sft_new_loop_phase1.train import (
     FrameRow,
@@ -58,6 +60,35 @@ def _row() -> FrameRow:
 
 
 class RefinedContractTest(unittest.TestCase):
+    def test_phase1_order_is_randomized_reproducibly_for_train_and_eval_specs(self) -> None:
+        specs = [
+            make_prompt_spec(
+                variant="all_random_order",
+                answers=_answers(),
+                seed_key=f"case:{index}",
+                focus="RS1",
+            )
+            for index in range(512)
+        ]
+        orders = {spec.phase1_output_keys for spec in specs}
+        self.assertEqual(len(orders), 24)
+        self.assertEqual(
+            specs[17].phase1_output_keys,
+            make_prompt_spec(
+                variant="all_random_order",
+                answers=_answers(),
+                seed_key="case:17",
+                focus="RS1",
+            ).phase1_output_keys,
+        )
+        for spec in specs:
+            self.assertEqual(set(spec.phase1_output_keys), set(PHASE1_ANSWER_KEYS))
+            self.assertEqual(spec.output_keys[:4], spec.phase1_output_keys)
+            self.assertEqual(spec.output_keys[4:], phase2_output_keys(spec))
+            self.assertEqual(prompt_spec_to_json(spec)["phase1_output_keys"], list(spec.phase1_output_keys))
+            target_keys = tuple(line.split(":", 1)[0] for line in build_phase1_target(_answers(), spec=spec).splitlines())
+            self.assertEqual(target_keys, spec.output_keys)
+
     def test_audit_evidence_yes_no_is_not_parsed_as_unknown_answer(self) -> None:
         spec = make_prompt_spec(
             variant="subset_random",

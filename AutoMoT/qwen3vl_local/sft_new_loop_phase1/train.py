@@ -275,6 +275,7 @@ def _write_run_metadata(
         "save_steps": int(args.save_steps),
         "total_steps_rank": int(total_steps),
         "focus_balance_count": int(args.focus_balance_count),
+        "phase1_output_ordering": "deterministic_random_per_case",
         "semantic_supervision": SEMANTIC_SUPERVISION,
         "max_train_frame_repeat": int(args.max_train_frame_repeat),
         "train_variant_weights": dict(TRAIN_VARIANT_WEIGHTS),
@@ -1369,6 +1370,10 @@ def _work_balance_report(
         "semantic_class_weights": {
             key: float(value) for key, value in sorted(_semantic_class_weights(work).items())
         },
+        "phase1_output_ordering": "deterministic_random_per_case",
+        "phase1_output_order_sampled": _counter_dict(
+            Counter("|".join(item.spec.phase1_output_keys) for item in work)
+        ),
         "repeat_audit": _repeat_report(work),
     }
     if rank_work is not None:
@@ -2106,6 +2111,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "lora_vision_scope": str(args.lora_vision_scope),
         "lora_target_modules": list(bundle.lora_target_modules),
         "answer_order": list(ANSWER_KEYS),
+        "phase1_output_ordering": "deterministic_random_per_case",
         "answer_phase": {key: focus_phase(key) for key in ANSWER_KEYS},
         "augment_variants": list(VARIANT_ORDER),
         "train_augment_variant_weights": dict(TRAIN_VARIANT_WEIGHTS),
