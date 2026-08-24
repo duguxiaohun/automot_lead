@@ -24,6 +24,22 @@ YES/NO 问答里。每个样本固定包含 Phase1 四问：
 YES:NO = 1:1，Phase1 四问与 Phase2 四问总量也是 1:1。默认还会检查
 `MAX_TRAIN_FRAME_REPEAT=10`，任一帧在单轮采样里复用超过上限会在加载模型前中止。
 
+从 2026-08-24 的 v2 修订开始，`focus` 不写入 prompt，但会决定主任务语义 loss：八个
+主问题只对当前 focus 的 YES/NO 值 token 使用 `1.0` 权重，非 focus 主问题的值 token
+权重为 0；所有输出行的字段/换行/结束符仍使用 `FORMAT_LOSS_WEIGHT`，hierarchical 的
+`RS_HIGHWAY/GROUP` 派生值继续监督，并按当轮实际 YES/NO 数量计算等质量类别权重。原因是
+v1 虽然 focus case 严格 1:1，但同一 target
+其它行中的自然 NO 仍全部反向传播，实际把 VULNERABLE、RS5、灯异常等任务重新压成严重
+负类偏置。每个 balance JSON 现在同时记录 `emitted_answer_counts` 与
+`semantic_answer_counts` 和 `semantic_class_weights`，训练前必须检查前者的八个主任务均为
+YES:NO=1:1，并检查派生键权重没有异常极值。
+
+当前 prompt 名为
+`sft_new_loop_phase1_phase1_phase2_combined_v2_rgb_error_refined`。v2 没有放宽标签边界，
+只根据逐帧 RGB 错例加入：道路结构与事件主体分两遍判断、小而短暂目标的四帧二次扫描、
+RS1 limited-access 复核、RS5 paired witness 和灯异常 readable-witness 复核。v1 adapter
+与 v2 prompt fingerprint 不兼容，应重新训练，不能强行跨 prompt 加载。
+
 数据构建沿用 Phase2 最新过滤：剔除异常时长 route、检查 full-frame RGB review 覆盖，
 默认排除 visual-risk 帧。Phase1 标签来自已审计四问答案表；Phase2 标签来自逐帧 RS
 标注。视觉子组覆盖只允许来自结构化 RGB audit notes / annotations，不能从自由文本
@@ -135,6 +151,10 @@ HISTORY_RGB_MODE=2rgb_endpoints GPU_IDS=0,1,2,3 \
 - `GRAD_ACCUM=1`
 - `HISTORY_RGB_MODE=4rgb`
 
+如果 generation validation 在最佳点后连续下降，可以像 2026-08-24 的 v1 训练一样主动
+停止并使用 `best_generation/`。当时 24k/26k/28k exact 为
+`81.64% / 81.25% / 75.00%`，在 29,090 step 停止是过拟合控制，不是训练故障。
+
 如果显式把 `GRAD_ACCUM` 调大，teacher eval、generation eval 和 checkpoint 会在达到
 触发 step 后延迟到下一次 optimizer step 执行，避免保存尚未应用当前累积梯度的 adapter。
 延迟保存的周期 checkpoint 名称会写成 `checkpoint-<trigger_step>-applied-<step>`。
@@ -167,6 +187,12 @@ GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase1/eval.py \
   --split test \
   --cases-per-bin 64
 ```
+
+audit parser 会先匹配 `EVIDENCE_*`，再匹配普通答案行；因此
+`EVIDENCE_HIGHWAY: NO readable ramp cue` 不会再被误当成未知 answer key。parser 仍然严格：
+重复/缺失 answer 会影响答案语义；未知/缺失/重复 evidence 或其它额外行会使 audit contract
+invalid，但 `eval.py` 会把 `exact_match_accuracy` 与 `audit_parser_diagnostics` 分开统计，不再
+用 evidence 格式错误清空已经合法的答案。
 
 四卡评测：
 

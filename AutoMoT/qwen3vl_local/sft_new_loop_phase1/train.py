@@ -3,7 +3,9 @@
 
 训练目标是 Phase1 四问 + Phase2 四个 RS 问题的 YES/NO 语义 token，并以低权重
 监督字段格式和 assistant 结束符。采样时每帧展开成八个不可见 focus 视图，
-按 `问题 x YES/NO` exact balance；prompt 中不出现 focus，模型每次仍回答八项。
+按 `问题 x YES/NO` exact balance；prompt 中不出现 focus，模型仍输出当前 spec 的
+全部行，但八个主任务只对当前 focus 行施加语义值 loss。这样不会让同一 target 中
+大量自然 NO 的非 focus 行破坏采样器声明的 1:1；RS_HIGHWAY/GROUP 派生行继续监督。
 """
 
 from __future__ import annotations
@@ -93,6 +95,7 @@ from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # 
 
 
 FORMAT_COMPONENT_ID = -1
+SEMANTIC_SUPERVISION = "focus_main_plus_class_balanced_derived"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -272,6 +275,7 @@ def _write_run_metadata(
         "save_steps": int(args.save_steps),
         "total_steps_rank": int(total_steps),
         "focus_balance_count": int(args.focus_balance_count),
+        "semantic_supervision": SEMANTIC_SUPERVISION,
         "max_train_frame_repeat": int(args.max_train_frame_repeat),
         "train_variant_weights": dict(TRAIN_VARIANT_WEIGHTS),
         "eval_variant_weights": dict(VARIANT_WEIGHTS),
@@ -310,6 +314,78 @@ class WorkItem:
     spec: PromptSpec
     balance_key: str
     augment_balance_key: str
+
+
+def _semantic_output_keys(item: WorkItem) -> Tuple[str, ...]:
+    """返回训练时施加 YES/NO 语义 loss 的输出行。
+
+    八个主任务仅监督不可见的 focus 行；hierarchical 的 RS_HIGHWAY/GROUP
+    没有独立 focus 桶，因此继续监督，并由当轮类别权重修正其 YES/NO 数量差。
+    """
+
+    if item.focus not in item.spec.output_keys:
+        raise RuntimeError(
+            f"focus {item.focus!r} is absent from prompt output keys {item.spec.output_keys!r}"
+        )
+    keys = [item.focus]
+    for output_key, metric_key, _ in spec_metric_items(item.spec):
+        if metric_key not in ANSWER_KEYS and output_key not in keys:
+            keys.append(output_key)
+    return tuple(keys)
+
+
+def _semantic_class_weights(work: Sequence[WorkItem]) -> Dict[str, float]:
+    """按实际语义监督行计算每个 metric 的 YES/NO 等质量权重。"""
+
+    counts: Counter[str] = Counter()
+    metrics: set[str] = set()
+    for item in work:
+        semantic_keys = set(_semantic_output_keys(item))
+        for output_key, metric_key, answer in spec_metric_items(item.spec):
+            if output_key in semantic_keys:
+                metrics.add(metric_key)
+                counts[f"{metric_key}:{_answer_text(answer)}"] += 1
+    weights: Dict[str, float] = {}
+    for metric_key in sorted(metrics):
+        yes_key = f"{metric_key}:YES"
+        no_key = f"{metric_key}:NO"
+        yes = int(counts.get(yes_key, 0))
+        no = int(counts.get(no_key, 0))
+        if yes <= 0 or no <= 0:
+            if metric_key in ANSWER_KEYS:
+                raise RuntimeError(
+                    f"semantic supervision requires both YES and NO for {metric_key}: YES={yes} NO={no}"
+                )
+            # Tiny smoke/eval work may expose only one class for a derived
+            # hierarchical metric.  Keep its observed class neutral instead
+            # of inventing a missing class or aborting an otherwise valid check.
+            if yes > 0:
+                weights[yes_key] = 1.0
+            if no > 0:
+                weights[no_key] = 1.0
+            continue
+        total = float(yes + no)
+        weights[yes_key] = total / (2.0 * float(yes))
+        weights[no_key] = total / (2.0 * float(no))
+    return weights
+
+
+def _semantic_output_weights(
+    item: WorkItem,
+    class_weights: Mapping[str, float],
+) -> Dict[str, float]:
+    """把 metric-level 类别权重映射到当前 target 的输出键。"""
+
+    semantic_keys = set(_semantic_output_keys(item))
+    weights: Dict[str, float] = {}
+    for output_key, metric_key, answer in spec_metric_items(item.spec):
+        if output_key not in semantic_keys:
+            continue
+        label = f"{metric_key}:{_answer_text(answer)}"
+        if label not in class_weights:
+            raise RuntimeError(f"missing semantic class weight for {label}")
+        weights[output_key] = float(class_weights[label])
+    return weights
 
 
 def _resolve_rgb_path(raw: str, data_root: pathlib.Path) -> str:
@@ -1254,6 +1330,15 @@ def _work_balance_report(
             ).items()
         }
     )
+    emitted_answer_counts: Counter[str] = Counter()
+    semantic_answer_counts: Counter[str] = Counter()
+    for item in work:
+        semantic_keys = set(_semantic_output_keys(item))
+        for output_key, metric_key, answer in spec_metric_items(item.spec):
+            label = f"{metric_key}:{_answer_text(answer)}"
+            emitted_answer_counts[label] += 1
+            if output_key in semantic_keys:
+                semantic_answer_counts[label] += 1
     payload: Dict[str, Any] = {
         "split": str(split),
         "seed": int(seed),
@@ -1278,6 +1363,12 @@ def _work_balance_report(
         "phase_group_answer_sampled": _counter_dict(
             Counter(f"{focus_phase(item.focus)}:{'YES' if item.row.answers[item.focus] else 'NO'}" for item in work)
         ),
+        "semantic_supervision": SEMANTIC_SUPERVISION,
+        "emitted_answer_counts": _counter_dict(emitted_answer_counts),
+        "semantic_answer_counts": _counter_dict(semantic_answer_counts),
+        "semantic_class_weights": {
+            key: float(value) for key, value in sorted(_semantic_class_weights(work).items())
+        },
         "repeat_audit": _repeat_report(work),
     }
     if rank_work is not None:
@@ -1448,20 +1539,36 @@ def _target_token_weights(
     target: str,
     *,
     output_keys: Sequence[str],
+    semantic_output_keys: Optional[Sequence[str]],
+    semantic_output_weights: Optional[Mapping[str, float]],
     format_loss_weight: float,
 ) -> Tuple[List[int], List[float], List[int]]:
-    """映射当前 spec 输出行的语义与格式 token 权重。"""
+    """映射当前 spec 输出行的语义与格式 token 权重。
+
+    ``semantic_output_keys=None`` 表示评估所有答案值。训练只传当前
+    focus 与派生层级键，非 focus 主任务的值 token 权重为零。
+    """
 
     enc = bundle.tokenizer(target, return_offsets_mapping=True, add_special_tokens=False)
     token_ids = [int(x) for x in enc["input_ids"]]
     offsets = [(int(a), int(b)) for a, b in enc["offset_mapping"]]
     weights = [float(format_loss_weight) for _ in token_ids]
     component_ids = [FORMAT_COMPONENT_ID for _ in token_ids]
+    semantic = set(output_keys if semantic_output_keys is None else semantic_output_keys)
+    unknown = semantic.difference(output_keys)
+    if unknown:
+        raise ValueError(f"semantic output keys are absent from target: {sorted(unknown)}")
+    value_weights = {key: 1.0 for key in semantic}
+    if semantic_output_weights is not None:
+        unknown_weights = set(semantic_output_weights).difference(semantic)
+        if unknown_weights:
+            raise ValueError(f"semantic weights supplied for disabled keys: {sorted(unknown_weights)}")
+        value_weights.update({key: float(value) for key, value in semantic_output_weights.items()})
     for component_id, key in enumerate(output_keys, start=1):
         lo, hi = _line_value_span(target, key)
         for i, (a, b) in enumerate(offsets):
             if a < hi and b > lo:
-                weights[i] = 1.0
+                weights[i] = float(value_weights[key]) if key in semantic else 0.0
                 component_ids[i] = component_id
     return token_ids, weights, component_ids
 
@@ -1488,6 +1595,8 @@ def _build_inputs(
     prompt: str,
     target: str,
     output_keys: Sequence[str],
+    semantic_output_keys: Optional[Sequence[str]],
+    semantic_output_weights: Optional[Mapping[str, float]],
     max_length: int,
     format_loss_weight: float,
 ) -> Optional[Dict[str, Any]]:
@@ -1507,6 +1616,8 @@ def _build_inputs(
         bundle,
         target,
         output_keys=output_keys,
+        semantic_output_keys=semantic_output_keys,
+        semantic_output_weights=semantic_output_weights,
         format_loss_weight=float(format_loss_weight),
     )
     pos = _find_subsequence(expanded, target_ids, 0)
@@ -1613,6 +1724,8 @@ def _dummy_ddp_forward_zero_loss(
         prompt=prompt,
         target=target,
         output_keys=["HIGHWAY"],
+        semantic_output_keys=["HIGHWAY"],
+        semantic_output_weights=None,
         max_length=max(int(max_length), 128),
         format_loss_weight=float(format_loss_weight),
     )
@@ -1662,6 +1775,8 @@ def evaluate_loss(
             prompt=prompt,
             target=target,
             output_keys=spec.output_keys,
+            semantic_output_keys=None,
+            semantic_output_weights=None,
             max_length=int(max_length),
             format_loss_weight=float(format_loss_weight),
         )
@@ -2001,6 +2116,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "num_epochs": int(args.num_epochs),
         "max_steps": int(args.max_steps),
         "focus_balance_count": int(args.focus_balance_count),
+        "semantic_supervision": SEMANTIC_SUPERVISION,
         "max_train_frame_repeat": int(args.max_train_frame_repeat),
         "eval_split": str(args.eval_split),
         "eval_steps": int(args.eval_steps),
@@ -2042,6 +2158,7 @@ def train(args: argparse.Namespace) -> None:
     )
     if not full_work:
         raise ValueError("balanced work list is empty")
+    semantic_class_weights = _semantic_class_weights(full_work)
     # 每个 rank 使用同一个八桶均衡全集的 rank::world_size 分片。rank0 保存全集
     # balance 供审计；训练 epoch 会在每个 rank 的 shard 内 shuffle。
     work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
@@ -2352,6 +2469,7 @@ def train(args: argparse.Namespace) -> None:
                 seed=epoch_seed,
                 variant_weights=TRAIN_VARIANT_WEIGHTS,
             )
+            semantic_class_weights = _semantic_class_weights(full_work)
             _assert_repeat_limit(
                 full_work,
                 max_repeat=int(args.max_train_frame_repeat),
@@ -2383,6 +2501,8 @@ def train(args: argparse.Namespace) -> None:
                 prompt=prompt,
                 target=target,
                 output_keys=spec.output_keys,
+                semantic_output_keys=_semantic_output_keys(item),
+                semantic_output_weights=_semantic_output_weights(item, semantic_class_weights),
                 max_length=int(args.max_length),
                 format_loss_weight=float(args.format_loss_weight),
             )
@@ -2541,7 +2661,10 @@ def parse_args() -> argparse.Namespace:
         "--format-loss-weight",
         type=float,
         default=0.25,
-        help="low loss weight for answer field names, separators, newlines, and assistant end token; YES/NO values always use 1.0",
+        help=(
+            "low loss weight for answer field names, separators, newlines, and assistant end token; "
+            "the current focus YES/NO and hierarchical derived values use 1.0, while non-focus main values use 0"
+        ),
     )
     p.add_argument(
         "--generation-eval-steps",
