@@ -28,10 +28,21 @@
 6. Phase2 的 `subset_random` 提升明显，但 `hierarchical_probe` 从旧模型的
    `97.1%` 降到 `91.80%`，说明融合训练对原本极强的层级决策树能力有一定稀释。
 7. bundle 中 LoRA audit exact `58.98%` 不是实际语义能力下降，而是 audit parser
-   的解析顺序缺陷导致大量合法输出被整条判为 invalid。仅重新解析答案行后，audit
-   联合 exact 恢复为 `77.54%`，与 production 完全相同。
-8. 当前训练并未完成计划的 3 个 epoch：日志停在 `29090 / 110592`，甚至没有完成
-   第一个 epoch。step-24000 是当前中途训练里的最佳 checkpoint，不代表完整收敛上限。
+   的解析顺序缺陷导致大量合法输出被整条判为 invalid。宽松地仅提取 expected answer
+   可得 `77.54%`；新 v2 分离解析器保留重复答案等语义严格性后为 `77.25%`，同时单独报告
+   evidence 合同合法率 `97.75%`。两种口径都说明 audit prompt 没有实质破坏问答能力。
+8. 当前训练没有跑满计划的 3 个 epoch，是因为观察到过拟合迹象后主动在
+   `29090 / 110592` 停止并转入测试，不是训练异常退出。generation exact 在
+   step-24000 达到 `81.64%`，随后 step-26000 为 `81.25%`、step-28000 降到
+   `75.00%`；因此 step-24000 是有验证依据的 early-stop checkpoint。
+9. 逐帧 RGB 复核与训练 work 重放发现：低召回不能只归因于 prompt。epoch-0 实际
+   emitted label 严重偏 NO，例如 `VULNERABLE=14198:133258`、
+   `RS5=18816:97514`、`TRAFFIC_LIGHT_ABNORMAL=9633:137823`（YES:NO）。
+   这解释了当前“precision 很高、recall 偏低”的共同形态。
+10. 已据此形成 v2 修订：只对当前不可见 focus 主任务施加 YES/NO 语义 loss，保留
+    层级派生键监督；prompt 只加入逐帧证据支持的两遍扫描和三个窄边界复核；同时修复
+    audit evidence 被误判为 answer 的解析顺序。该修订需要重新训练后评测，不能把
+    本报告 v1 checkpoint 的分数当成 v2 效果。
 
 综合判断：融合路线值得保留。它扩大了问法覆盖，同时带来中等幅度的整体净提升；
 当前需要优先处理的是 audit 解析器、`VULNERABLE` 漏检、`RS1/RS5` 边界和评测采样口径，
@@ -470,7 +481,8 @@ HIGHWAY: NO
 EVIDENCE_HIGHWAY: NO
 ```
 
-`EVIDENCE_HIGHWAY: NO` 对人类来说是格式正确但信息不足的 evidence；当前 parser 的处理顺序是：
+`EVIDENCE_HIGHWAY: NO` 对人类来说是格式正确但信息不足的 evidence；生成该 bundle 时的 v1
+parser 处理顺序是：
 
 1. 先用通用答案正则匹配 `KEY: YES|NO`；
 2. `EVIDENCE_HIGHWAY: NO` 会先被匹配成答案键 `EVIDENCE_HIGHWAY`；
@@ -510,9 +522,25 @@ LoRA audit 共 1024 个 case：
 
 这与 production 一致，说明 evidence prompt 本身没有明显损伤答案语义。
 
+v2 代码采用更严格且可解释的双通道口径：答案缺失/重复仍会影响语义分；evidence 缺失、重复、
+未知行或额外结束标记只影响 audit contract，不再把已合法的答案擦除。对同一批 1024 条 raw
+output 重放得到：
+
+| v2 parser 指标 | 结果 |
+|---|---:|
+| 联合 semantic exact | 77.25% |
+| Phase1-only semantic exact | 89.06% |
+| Phase2-only semantic exact | 83.79% |
+| answers valid | 99.22% |
+| evidence complete | 98.54% |
+| audit contract valid | 97.75% |
+
+宽松提取的 `77.54%` 与严格语义的 `77.25%` 相差仅 3/1024，差异来自重复/异常答案行是否仍
+处罚；正式代码采用后者。
+
 ### 7.5 Audit 结论
 
-当前 `58.98%` 不应继续用于：
+bundle 中固化的 `58.98%` 不应继续用于：
 
 - 判断融合是否失败；
 - 与原 Phase1 audit 分数比较；
@@ -520,10 +548,9 @@ LoRA audit 共 1024 个 case：
 - 选择 checkpoint；
 - 据此继续修改 production prompt。
 
-在修复 parser 前，audit 只能作为人工查看 evidence 的材料，不能作为可靠自动指标。
-
-建议 parser 先匹配 `EVIDENCE_` 行，再匹配普通 answer 行；或者明确让 answer regex 排除
-`EVIDENCE_` 前缀。修复后应直接复用现有 1024 个 raw outputs 重算，无需重新跑模型即可验证。
+v2 parser 已改为先匹配 `EVIDENCE_` 行，再匹配普通 answer 行，并保留对未知 evidence、
+重复 answer 和其它额外行的严格拒绝；回归测试覆盖 bare `EVIDENCE_*: YES|NO`。旧 bundle 的
+summary 不会自动改写，阅读时应使用第 7.4 节的离线重算结果；新 audit 可直接使用修复后的 parser。
 
 ---
 
@@ -547,11 +574,9 @@ LoRA audit 共 1024 个 case：
 epoch=1 step=29090/110592 ...
 ```
 
-也就是说：
-
-- 只跑到总计划的 `26.30%`；
-- 第一个 epoch 约完成 `78.91%`；
-- 未完成第一轮，更没有完成计划的三轮。
+也就是说训练只跑到总计划的 `26.30%`，第一个 epoch 约完成 `78.91%`。这是用户在
+观察到验证集生成指标从 24k 平台转为下降后主动停止并开始正式测试，属于人工 early stop，
+不能写成意外中断，也不能用“没有跑满三轮”反推模型应该继续训练。
 
 ### 8.3 best-generation 选择
 
@@ -576,11 +601,11 @@ step-24000 是已运行区间内最高 generation exact，因此 `best_generatio
 - 每次 generation validation 只有 256 个 case，单 focus 只有 32 个；
 - 24k validation 中 `VULNERABLE=100%`，正式 128-case focus 测试只有 `83.59%`，说明
   小 validation 对单任务波动非常敏感；
-- 28k 明显下降，可能是采样波动，也可能是中途训练不稳定；
+- 28k 明显下降，是用户停止继续训练的直接依据；其幅度也可能混有小验证集波动；
 - 正式 test 联合 exact `77.54%`，比 24k validation 低 `4.10 pp`。
 
-所以 step-24000 可作为“当前已跑区间的最佳 checkpoint”，但不能宣称融合训练已经收敛，
-也不能据此确定继续训练一定提升或一定退化。
+所以 step-24000 是当前已跑区间里合理的 early-stop checkpoint。现有证据不支持从 29k
+继续盲目训练；后续应从修正后的 loss 合同重新训练，并继续按 generation validation 选择最优点。
 
 ---
 
@@ -618,6 +643,40 @@ step-24000 是已运行区间内最高 generation exact，因此 `best_generatio
 后续若要做严格新旧归因，建议额外构建一个固定 Phase2 variant、固定 frame list 的 Phase1 paired
 eval；或者让 Phase1 `(focus, label, variant)` 也成为硬约束。
 
+### 9.3 focus 平衡没有传递到实际语义 loss
+
+用本次 `frame_index.jsonl`、训练 seed 和 `4:1:1` variant 配额重放 epoch-0 的 147,456 条
+work item，再统计每个 target 实际输出的答案行，得到：
+
+| 主任务 | emitted YES | emitted NO | YES 占比 |
+|---|---:|---:|---:|
+| HIGHWAY | 17,776 | 129,680 | 12.06% |
+| STATIC_OBSTACLE | 18,897 | 128,559 | 12.82% |
+| VULNERABLE | 14,198 | 133,258 | 9.63% |
+| TRAFFIC_LIGHT_ABNORMAL | 9,633 | 137,823 | 6.53% |
+| RS1 | 41,013 | 75,416 | 35.23% |
+| RS2 | 31,517 | 85,048 | 27.04% |
+| RS4 | 29,196 | 90,789 | 24.33% |
+| RS5 | 18,816 | 97,514 | 16.14% |
+
+原因不是 focus sampler 失效，而是 v1 训练代码对 target 中所有输出行都赋予 `1.0` 的答案值
+loss。一个样本虽然只属于一个平衡 focus 桶，但其它 4--7 个非 focus 主任务仍反向传播；原始
+数据中的自然 NO 因而绕过 focus 平衡重新进入梯度。低 YES 占比与本次测试的低召回桶高度一致：
+
+- VULNERABLE：precision 100%，recall 67.19%；
+- RS5：precision 92.00%，recall 71.88%；
+- LIGHT：precision 100%，仍有 13 个 FN。
+
+这不是单靠追加提示词能够修复的问题。v2 训练合同改为：八个主任务只监督当前不可见 focus
+行；非 focus 值 token 权重为 0，但字段、换行和结束符仍按低权重学习；没有独立 focus 的
+`RS_HIGHWAY/GROUP` 继续监督，并按当轮实际 YES/NO 数量做等质量类别加权。训练 balance JSON
+同时新增 `emitted_answer_counts`、`semantic_answer_counts` 和 `semantic_class_weights`，
+避免以后再次把 focus case 平衡误认为实际 token loss 平衡。
+
+完整 epoch-0 dry-run 已验证：八个主任务的 semantic YES/NO 都是 `9216/9216`、权重均为
+`1.0/1.0`；派生层级权重范围为 `0.7243--1.6143`，属于温和校正，重点补偿本次退化最大的
+`GROUP:PLAIN_LANE_FOLLOWING_CORRIDOR` 正类，而不是使用失控的大倍率 rare-positive 权重。
+
 ---
 
 ## 10. 错误分布和后续优先级
@@ -632,14 +691,12 @@ eval；或者让 Phase1 `(focus, label, variant)` 也成为硬约束。
 - 21 个 FN，0 个 FP；
 - 相对原 Phase1 F1 下降 `8.33 pp`。
 
-建议：
-
-1. 先审计 21 个 focus FN 的四帧 RGB，不要直接继续扩 prompt；
-2. 按位置拆分：front/left/right、画面边缘、远近、遮挡；
-3. 按对象拆分：pedestrian/cyclist/scooter；
-4. 区分视觉不可读、标签边界、模型漏检；
-5. 如果多数是小目标不可读，再考虑视觉 LoRA 小范围实验；
-6. 如果多数目标可读但模型认为“不影响当前决策”，应调整正例监督或简化 decision-relevant 边界。
+逐帧复核结果：抽查的 FN 中，多数夜间/雾天帧看不到可确认行人或骑行者，不能为了追 GT
+把“场景像有行人”“有 crosswalk”“黑暗处可能有人”写成 YES。明确可教的例子是
+`PedestrianCrossing` 一组：小行人在较早帧的路口/右侧区域可见、最新帧更难辨认。这支持
+“对四帧做独立第二遍小目标扫描、一个仍与当前决策相关的清晰较早帧可作证”，但不支持扩张
+VULNERABLE 的空间边界。v2 只加入这个窄提醒，主要修复仍交给 focus-only 语义 loss；若重训后
+清晰小目标仍漏检，再做受控 vision LoRA，而不是现在直接开启。
 
 ### 10.2 第二优先级：RS1
 
@@ -649,16 +706,12 @@ eval；或者让 Phase1 `(focus, label, variant)` 也成为硬约束。
 - 16 FP、15 FN；
 - 是 Phase2 最大主问题错误源。
 
-建议把错误分成互斥边界：
-
-- RS1 vs RS2；
-- RS1 vs RS4；
-- RS1 vs RS5；
-- RS1 vs R3/highway；
-- RS1 + event object，但道路结构本身仍普通。
-
-不要继续添加泛化的“普通道路”描述；应从每一类边界各选可见证据充分的 hard positive / hard
-negative 做小规模对照实验。
+逐帧复核同时看到两类情况：一类是真实模型错误——普通 surface corridor 中出现 cyclist、
+pedestrian、事故/施工车辆后，模型把事件参与者错误地当成道路结构；另一类是 GT/时间边界风险——
+标成 R1 的帧已出现清晰 crossroad 或连续护栏、多车道 controlled corridor，或标成 R3/R4/R5
+但 RGB 仍明显像普通 surface road。v2 因而只强化“先不看事件主体判断道路拓扑”和
+“连续 access-controlled 多车道+barrier corridor 不能判 RS1”，不增加通用 RS1 fallback，
+也不按 projection-error 字段一刀切过滤，因为已看到 projection error 但 RGB 的 R1 仍成立的样本。
 
 ### 10.3 第三优先级：RS5
 
@@ -670,13 +723,10 @@ negative 做小规模对照实验。
 - 18 个 FN；
 - `VehicleTurningRoute` 占 10 个错误。
 
-建议重点区分：
-
-- visible road mouth / curb break / T-junction；
-- 普通弯道；
-- driveway / parking exit；
-- 只有事件车辆、但没有局部 junction structure；
-- 路口已经进入 immediate exit 的边界。
+逐帧复核中真正清晰的 FN 共同模式是 `STOP` 标志与本地道路开口/横向冲突同时可见，且侧视
+区域比正前方更容易看到道路连接；这应判 RS5。其余多个 FN 只有黑暗、普通弯道、事件车辆或
+连续道路，RGB 不足以支持 RS5。v2 因而要求 paired witness，并明确 bend、turning actor、
+darkness 或“看不见 signal”都不能单独触发 RS5。
 
 ### 10.4 第四优先级：hierarchical plain-lane group
 
@@ -685,26 +735,30 @@ hierarchical 总体仍强，不应整体重写。优先检查
 
 ### 10.5 第五优先级：STATIC 和灯异常 recall
 
-这两项已经显著可用，并且几乎无 FP。后续应以提高 recall 为目标，避免为了多抓少数正例破坏
-当前高 precision：
+这两项已经显著可用，并且几乎无 FP。逐帧检查 STATIC FN 时，少数样本能看到较小但持续占据
+可用车道的物体；更多样本只见正常停车位车辆、运动队列、正常对向车，或夜间完全不可读，说明
+存在明显 temporal/label-risk。灯异常 FN 也有类似分裂：清晰路口中可读的暗灯/冲突灯值得学习，
+但多组 GT=YES 帧根本没有可读信号硬件。现有 Phase1 规则已覆盖这些边界，因此 v2 不再放宽
+STATIC/LIGHT 定义，只使用两遍逐帧扫描并修复 loss 失衡：
 
 - STATIC：13 FN、1 FP；
 - LIGHT：13 FN、0 FP。
 
 ---
 
-## 11. 推荐的下一步验证顺序
+## 11. 已落地修订与下一轮验证顺序
 
-### P0：修正 audit 评测口径
+### P0（已完成）：修正 audit 评测口径
 
-1. 调整 parser：evidence 优先于 answer 匹配；
-2. 用现有 raw output 离线重算，无需重新推理；
-3. 单独报告：
+1. parser 已改为 evidence 优先于 answer 匹配；
+2. 现有 raw output 已离线重算：宽松 expected-answer exact 为 `77.54%`，v2 严格语义
+   exact 为 `77.25%`，audit contract valid 为 `97.75%`；
+3. 后续 audit 应单独报告：
    - answer semantic exact；
    - evidence format valid；
    - evidence non-trivial rate；
    - unexpected-line rate；
-4. 不再让 evidence 格式错误把所有答案语义清零。
+4. 新 regression test 覆盖 `EVIDENCE_HIGHWAY: NO ...`，不再让合法 evidence 把所有答案清零。
 
 ### P1：构建严格 paired comparison
 
@@ -716,17 +770,15 @@ hierarchical 总体仍强，不应整体重写。优先检查
 
 这样才能把数据变化、prompt 变化和训练变化真正分开。
 
-### P2：逐题 RGB 错例审计
+### P2（已完成首轮）：逐题 RGB 错例审计
 
-推荐顺序：
+已按 VULNERABLE、RS1、RS5、STATIC/LIGHT 的四帧历史复核形成第 10 节结论。审计导出模板
+新增 `label_support / newest_frame_witness / older_frame_witness / temporal_relevance /
+error_source / recommended_action` 等结构化字段，后续不再把自动导出的 GT/pred note 当成人工
+视觉结论。下一轮应继续补齐 hierarchical plain-lane group，并把人工 verdict 保存成轻量表，
+不要根据 scenario 名或自由文本 evidence 反推标签。
 
-1. VULNERABLE FN；
-2. RS1 FP/FN；
-3. RS5 FN；
-4. hierarchical plain-lane group；
-5. STATIC/LIGHT FN。
-
-### P3：补做 checkpoint 稳定性测试
+### P3：固定样本复核 early-stop 稳定性
 
 对 20k、22k、24k、26k、28k 使用同一份固定 1024-case test index，比较：
 
@@ -737,13 +789,15 @@ hierarchical 总体仍强，不应整体重写。优先检查
 - 三种 variant exact；
 - 关键错误集合的 paired flip。
 
-不要只依赖每次 256-case、每 focus 32-case 的 generation validation。
+这不是要求恢复已停止的旧训练；只在 checkpoint 仍可用时做离线 paired eval，用来量化用户已观察到的
+过拟合转折。不要只依赖每次 256-case、每 focus 32-case 的 generation validation。
 
-### P4：再决定是否继续训练或启用视觉 LoRA
+### P4：先重训 v2 loss 合同，再决定视觉 LoRA
 
-只有在完成 P0-P3 后再判断：
+下一轮先用 v2 prompt + focus-only semantic loss 做短程训练，并重点观察正类 recall、联合 exact、
+hierarchical exact 与 format valid。只有在这之后再判断：
 
-- 如果 26k/28k 在固定测试集确实下降，应优先处理训练稳定性或 checkpoint 选择；
+- 如果 generation exact 再次连续下降，应沿用本次主动 early stop；
 - 如果 VULNERABLE 错例多数肉眼清晰，先调监督和采样；
 - 如果多数是细小、遮挡、远距目标，才值得做受控的 vision LoRA scope 实验；
 - 不建议仅依据当前错误直接扩大 prompt，因为现有 prompt 已很长，继续追加规则可能加剧多任务竞争。
@@ -788,8 +842,11 @@ hierarchical 总体仍强，不应整体重写。优先检查
 
 ### 当前 checkpoint 是否可以作为最终模型？
 
-它可以作为当前已训练区间内的 best checkpoint 和后续 paired audit 基线，但不能视为完整收敛模型。
-训练仅完成计划总 step 的约四分之一，且 generation validation 样本偏小、后期存在波动。
+它可以作为 v1 已训练区间内的 best checkpoint 和后续 paired audit 基线。没有跑满三轮是基于
+验证回落的主动 early stop，不是缺陷；但它也暴露了 actual semantic token 失衡，不能再从该点
+原样续训并期待 recall 自动恢复。
 
-最终建议：保留融合架构和 production prompt；先修正评测，再围绕 VULNERABLE、RS1、RS5
-做逐帧证据审计和固定样本 checkpoint 对照，之后才决定继续训练、调整采样或开启受控视觉 LoRA。
+最终建议：保留融合架构，采用已经落地的 v2 窄 prompt 修订、focus-only 主任务语义 loss、
+严格 audit parser 和结构化 RGB verdict 模板重新做短程训练。先验证 VULNERABLE/RS5/LIGHT
+recall 是否在 precision 可控的前提下恢复，以及 hierarchical 是否停止下滑；只有肉眼清晰的小目标
+在新合同下仍持续漏检时，才开启受控视觉 LoRA。

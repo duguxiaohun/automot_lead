@@ -70,6 +70,7 @@ from qwen3vl_local.sft_new_loop_phase1.prompts import (  # noqa: E402
     build_phase1_target,
     focus_phase,
     make_prompt_spec,
+    parse_phase1_audit_output,
     parse_phase1_output,
     phase1_prompt_sha256,
     phase2_output_keys,
@@ -519,6 +520,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     variant_counts: Dict[str, Counter[str]] = {key: Counter() for key in VARIANT_ORDER}
     focus_counts: Counter[str] = Counter()
     pattern_counts: Counter[str] = Counter()
+    audit_counts: Counter[str] = Counter()
     case_path = output_dir / (f"cases_rank{rank}.jsonl" if world_size > 1 else "cases.jsonl")
     task_case_root = output_dir / "task_cases"
     task_case_paths = {
@@ -542,7 +544,17 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 images = _load_images(used_history_rgb_paths)
                 prompt = build_phase1_prompt(spec=spec, audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode)
                 raw = _generate(bundle, images, prompt, int(args.max_new_tokens))
-                parsed = parse_phase1_output(raw, spec=spec, audit=bool(args.audit_prompt))
+                audit_diagnostics = None
+                if bool(args.audit_prompt):
+                    parsed, audit_diagnostics = parse_phase1_audit_output(raw, spec=spec)
+                    audit_counts["total"] += 1
+                    for key in ("answers_valid", "evidence_complete", "contract_valid"):
+                        audit_counts[key] += int(bool(audit_diagnostics.get(key, False)))
+                    audit_counts["unexpected_lines"] += len(audit_diagnostics.get("unexpected_lines", []))
+                    audit_counts["missing_evidence_keys"] += len(audit_diagnostics.get("missing_evidence_keys", []))
+                    audit_counts["duplicate_evidence_keys"] += len(audit_diagnostics.get("duplicate_evidence_keys", []))
+                else:
+                    parsed = parse_phase1_output(raw, spec=spec, audit=False)
                 target = dict(line.split(": ", 1) for line in build_phase1_target(row.answers, spec=spec).splitlines())
                 gt = {key: target[key] for key in spec.output_keys}
                 ok_by_key = {key: parsed.get(key) == gt[key] for key in spec.output_keys}
@@ -552,9 +564,12 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 focus_counts[_focus_key(row, focus)] += 1
                 variant_counts[spec.variant]["total"] += 1
                 variant_counts[spec.variant]["exact"] += int(all_ok)
-                variant_counts[spec.variant]["format_valid"] += int(
-                    all(parsed.get(key) in ("YES", "NO") for key in spec.output_keys)
+                format_valid = (
+                    bool(audit_diagnostics.get("contract_valid", False))
+                    if audit_diagnostics is not None
+                    else all(parsed.get(key) in ("YES", "NO") for key in spec.output_keys)
                 )
+                variant_counts[spec.variant]["format_valid"] += int(format_valid)
                 task_counts[focus]["total"] += 1
                 task_counts[focus]["exact"] += int(all_ok)
                 main_output_key = focus if focus in spec.output_keys else "DETAIL" if "DETAIL" in spec.output_keys else focus
@@ -599,6 +614,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     "latest_rgb_path": row.latest_rgb_path,
                     "gt": gt,
                     "parsed": parsed,
+                    "audit_diagnostics": audit_diagnostics,
                     "ok_by_key": ok_by_key,
                     "main_output_key": main_output_key,
                     "main_question_ok": ok_by_key.get(main_output_key, False),
@@ -629,6 +645,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         },
         "focus_counts": dict(focus_counts),
         "pattern_counts": dict(pattern_counts),
+        "audit_counts": dict(audit_counts),
         "case_path": str(case_path),
         "task_case_paths": {key: str(path) for key, path in task_case_paths.items()},
     }
@@ -649,6 +666,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     variant_counts = {key: Counter() for key in VARIANT_ORDER}
     focus_counts = Counter()
     pattern_counts = Counter()
+    audit_counts = Counter()
     for item in gathered:
         for key in metric_names:
             answer_counts[key].update(item.get("answer_counts", {}).get(key, {}))
@@ -661,6 +679,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 task_answer_counts[focus][key].update(item.get("task_answer_counts", {}).get(focus, {}).get(key, {}))
         focus_counts.update(item.get("focus_counts", {}))
         pattern_counts.update(item.get("pattern_counts", {}))
+        audit_counts.update(item.get("audit_counts", {}))
 
     per_key = {}
     for key, counter in answer_counts.items():
@@ -760,6 +779,19 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "variant_reports": variant_reports,
         "focus_counts": dict(focus_counts),
         "answer_pattern_diagnostics": _pattern_report(pattern_counts),
+        "audit_parser_diagnostics": (
+            {
+                **dict(audit_counts),
+                "answers_valid_rate": float(audit_counts.get("answers_valid", 0))
+                / max(1.0, float(audit_counts.get("total", 0))),
+                "evidence_complete_rate": float(audit_counts.get("evidence_complete", 0))
+                / max(1.0, float(audit_counts.get("total", 0))),
+                "contract_valid_rate": float(audit_counts.get("contract_valid", 0))
+                / max(1.0, float(audit_counts.get("total", 0))),
+            }
+            if bool(args.audit_prompt)
+            else None
+        ),
         "cases_jsonl": str(case_path) if world_size == 1 else [str(item.get("case_path")) for item in gathered],
         "task_cases_jsonl": (
             {key: str(path) for key, path in task_case_paths.items()}
@@ -788,12 +820,25 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         f"- cases: {total}",
         f"- exact_match_accuracy: {metrics['exact_match_accuracy']:.4f}",
         f"- sampling: `{metrics['sampling_contract']}`",
-        "",
-        "## Global Answer Metrics",
-        "",
-        "| question | accuracy | precision_yes | recall_yes | f1_yes | total |",
-        "|---|---:|---:|---:|---:|---:|",
     ]
+    if bool(args.audit_prompt):
+        audit_report = metrics["audit_parser_diagnostics"] or {}
+        lines.extend(
+            [
+                f"- audit_answers_valid_rate: {float(audit_report.get('answers_valid_rate', 0.0)):.4f}",
+                f"- audit_evidence_complete_rate: {float(audit_report.get('evidence_complete_rate', 0.0)):.4f}",
+                f"- audit_contract_valid_rate: {float(audit_report.get('contract_valid_rate', 0.0)):.4f}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## Global Answer Metrics",
+            "",
+            "| question | accuracy | precision_yes | recall_yes | f1_yes | total |",
+            "|---|---:|---:|---:|---:|---:|",
+        ]
+    )
     for key in metric_names:
         report = per_key[key]
         lines.append(

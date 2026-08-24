@@ -26,7 +26,7 @@ from qwen3vl_local.sft_new_loop_phase1.history_rgb import (
 )
 
 
-PROMPT_NAME = "sft_new_loop_phase1_phase1_phase2_combined_v1"
+PROMPT_NAME = "sft_new_loop_phase1_phase1_phase2_combined_v2_rgb_error_refined"
 PHASE1_ANSWER_KEYS = (
     "HIGHWAY",
     "STATIC_OBSTACLE",
@@ -202,7 +202,7 @@ def build_phase1_prompt(
 [/PROMPT_NAME]
 
 [VISUAL_CHECK_ORDER]
-Classify the newest frame using the {history}. First scan left/front/right for visible road topology and the ego vehicle's usable corridor. Then inspect close targets, vulnerable road users, and traffic-signal hardware across the short history. Older frames may confirm motion, visibility, occlusion, fixed objects, or changing lights, but the answer is for the newest moment.{endpoint_notice}{audit_notice}
+Classify the newest frame using the {history}. Use two independent passes. First scan left/front/right for visible road topology and trace the ego vehicle's usable corridor without letting pedestrians, cyclists, event vehicles, or obstacles decide the road-structure answers. Second scan every available frame again for small or briefly visible vulnerable users, fixed lane obstructions, and readable traffic-signal hardware. One clear older-frame witness may confirm a still-relevant target, but darkness, fog, a scenario-like setting, a crosswalk alone, or an unreadable object is not a witness. Before output, recheck three error-prone boundaries: a continuous access-controlled multi-lane/barrier corridor is not RS1; RS5 needs a local road opening/conflict together with stop/yield/priority or gap-acceptance evidence rather than a bend or turning actor alone; and TRAFFIC_LIGHT_ABNORMAL needs readable abnormal signal hardware at the same junction. The answer is for the newest moment.{endpoint_notice}{audit_notice}
 [/VISUAL_CHECK_ORDER]
 
 [AUGMENT_VARIANT]
@@ -296,6 +296,12 @@ _EVIDENCE_LINE_RE = re.compile(r"^\s*EVIDENCE_([A-Z0-9_]+)\s*:\s*\S.*$", re.IGNO
 def parse_phase1_output(text: str, *, spec: Optional[PromptSpec] = None, audit: bool = False) -> Dict[str, Optional[str]]:
     """Parse expected YES/NO lines; duplicate/missing/extra lines are invalid."""
 
+    if audit:
+        answers, diagnostics = parse_phase1_audit_output(text, spec=spec)
+        if diagnostics["contract_valid"]:
+            return answers
+        return {key: None for key in answers}
+
     keys = tuple(spec.output_keys) if spec is not None else ANSWER_KEYS
     found: Dict[str, Optional[str]] = {key: None for key in keys}
     duplicate = set()
@@ -304,6 +310,18 @@ def parse_phase1_output(text: str, *, spec: Optional[PromptSpec] = None, audit: 
     for raw_line in (text or "").splitlines():
         line = raw_line.strip()
         if not line:
+            continue
+        # Audit evidence lines can end in YES/NO (for example
+        # ``EVIDENCE_HIGHWAY: NO readable ramp cue``).  Match the more
+        # specific namespace first so it cannot be mistaken for an unknown
+        # answer key and invalidate an otherwise correct audit response.
+        evidence_match = _EVIDENCE_LINE_RE.match(line)
+        if audit and evidence_match:
+            key = evidence_match.group(1).upper()
+            if key in found and key not in evidence_seen:
+                evidence_seen.add(key)
+                continue
+            extra = True
             continue
         answer_match = _ANSWER_LINE_RE.match(line)
         if answer_match:
@@ -315,14 +333,6 @@ def parse_phase1_output(text: str, *, spec: Optional[PromptSpec] = None, audit: 
                 duplicate.add(key)
             found[key] = value
             continue
-        evidence_match = _EVIDENCE_LINE_RE.match(line)
-        if audit and evidence_match:
-            key = evidence_match.group(1).upper()
-            if key in found and key not in evidence_seen:
-                evidence_seen.add(key)
-                continue
-            extra = True
-            continue
         extra = True
     for key in duplicate:
         found[key] = None
@@ -332,6 +342,61 @@ def parse_phase1_output(text: str, *, spec: Optional[PromptSpec] = None, audit: 
     for key in duplicate:
         found[key] = None
     return found
+
+
+def parse_phase1_audit_output(
+    text: str,
+    *,
+    spec: Optional[PromptSpec] = None,
+) -> Tuple[Dict[str, Optional[str]], Dict[str, object]]:
+    """分别解析 audit 的答案语义与 evidence/整体格式合同。
+
+    Evidence 缺失、重复或额外结束标记会使 ``contract_valid=False``，但不会
+    擦除已经合法解析的答案。eval 因而能分别报告问答能力和审计格式质量。
+    """
+
+    keys = tuple(spec.output_keys) if spec is not None else ANSWER_KEYS
+    found: Dict[str, Optional[str]] = {key: None for key in keys}
+    answer_duplicates = set()
+    evidence_counts: Dict[str, int] = {key: 0 for key in keys}
+    unexpected_lines = []
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        evidence_match = _EVIDENCE_LINE_RE.match(line)
+        if evidence_match:
+            key = evidence_match.group(1).upper()
+            if key in evidence_counts:
+                evidence_counts[key] += 1
+            else:
+                unexpected_lines.append(line)
+            continue
+        answer_match = _ANSWER_LINE_RE.match(line)
+        if answer_match:
+            key, value = answer_match.group(1).upper(), answer_match.group(2).upper()
+            if key not in found:
+                unexpected_lines.append(line)
+                continue
+            if found[key] is not None:
+                answer_duplicates.add(key)
+            found[key] = value
+            continue
+        unexpected_lines.append(line)
+    for key in answer_duplicates:
+        found[key] = None
+    answers_valid = all(found[key] in ANSWER_VALUES for key in keys)
+    evidence_complete = all(evidence_counts[key] == 1 for key in keys)
+    diagnostics: Dict[str, object] = {
+        "answers_valid": bool(answers_valid),
+        "evidence_complete": bool(evidence_complete),
+        "contract_valid": bool(answers_valid and evidence_complete and not unexpected_lines),
+        "missing_evidence_keys": [key for key in keys if evidence_counts[key] == 0],
+        "duplicate_evidence_keys": [key for key in keys if evidence_counts[key] > 1],
+        "duplicate_answer_keys": sorted(answer_duplicates),
+        "unexpected_lines": unexpected_lines,
+    }
+    return found, diagnostics
 
 
 def _phase2_answer_map(spec: PromptSpec) -> Dict[str, bool]:
