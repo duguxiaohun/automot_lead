@@ -271,6 +271,27 @@
   generation eval 默认 `generation_eval_balance_count=16`，避免小样本漏审 subset/hierarchical。冲突或不确定处以 Phase2 最新 RS 定义为 ROAD_STRUCTURE 权威，同时保留
   Phase1 审计标签作为对应可见事实标签。训练/eval/checkpoint 大产物仍写入 `AutoMoT/checkpoints/`
   或本地输出目录，不随目录白名单入库。）
+- `AutoMoT/qwen3vl_local/sft_new_loop_phase2/`
+  （按用户同意新增到白名单：融合 Phase1 后使用的单轮 EVENT YES/NO 子包。从
+  `sft_loop_phase3` 迁移数据过滤、LoRA DDP、频繁 eval/TensorBoard 和审计框架，但彻底移除
+  synthetic Phase2 RS user/assistant 与 KV 前缀；模型输入只有 RGB 和当前 EVENT prompt，内部
+  `question_domain` 只用于采样与审计，绝不渲染成已回答 RS。`ROAD_CORRIDOR` 问 UE1/UE3/UE5，
+  `LOCAL_JUNCTION` 问 UE6，每题保留 `INVALID_EVENT_CONTEXT`；UE 正类在 train/val/test 保持
+  1:1:1:1，RE 默认等于一个 UE 桶，其中默认 25% 为 R3/highway valid all-NO hard negatives，
+  invalid 默认约 20% 且只由清晰的跨问题域错配构造，所有 UE 必须为 NO。RGB 路径按
+  `--data-root` 相对保存和重映射；训练期 teacher-forced loss eval / generation eval 与 checkpoint 默认步频为
+  2000/2000/20000，generation eval 默认 balance count=16。自由生成完整输出必须做
+  顺序/行数/无额外文本严格解析，格式违规时整条
+  format/exact 同时失败；adapter 加载前硬校验 production prompt hash、history RGB mode 和
+  解析后的 base-model 路径；数据构建把实际扫描 scenario/Town 与 RGB review coverage 做差集；
+  train/eval 要求 UE1/UE3/UE5/UE6/RE/INVALID 六桶齐全，`focus_balance_count=0` 只取六桶最小值；
+  `invalid_source` 必须贯穿 train/eval，采样继续按 source class 及其联合
+  `source+true_rs+wrong-domain` 签名分层轮转，train balance/TB、generation eval 与独立 eval
+  必须统计 source class、true RS、错误问题域和联合签名的数量、guard 与 exact；eval 的
+  `cases_per_bin=0` 保留全量行但仍强制 INVALID 签名/覆盖校验，错例 audit manifest、summary
+  和单例 note 必须直接携带 INVALID 子组。
+  代码、prompt、训练/eval/audit 脚本、测试和运行文档允许修改、追踪、commit 和 push；训练/eval/checkpoint 大产物仍写入
+  `AutoMoT/checkpoints/` 或本地输出目录。）
 - `AutoMoT/qwen3vl_local/sft_loop_phase3/`
   （按用户同意新增到白名单：Phase3 事件级 RS-gated 二值问答子包。复用 Phase2 风格构造已回答且默认正确的 RS context，并在训练/eval 中渲染成上一轮 assistant answer 作为 KV 前缀；`build_phase3_prompt` 默认只表示实际后一轮 user turn，不 inline Phase2，单串审计视图才显式开启 inline；eval case 必须保存实际多轮 messages 或拆开的 phase2 user / phase2 assistant / phase3 user prompt，避免 audit 误读 inline RS context；RS1/RS2 只问 UE1/UE3/UE5，RS4/RS5 只问 UE6，RE 统一为所有 UE=NO；UE2/UE4/UE7 由 Phase1 处理，UE8 默认并入 regular/RE。数据构建需剔除异常时长 route，训练/验证/测试保持 UE1:UE3:UE5:UE6 为 1:1:1:1，并默认加入约 20% wrong-RS invalid/not-applicable 样本；invalid 按 source_class / true_rs / fake_rs 均衡，R3/highway invalid 同时展开到 RS1/RS2/RS4/RS5，要求所有 UE=NO 且 `INVALID_RS_CONTEXT=YES`，eval/TB 必须记录 invalid joint/all-UE-NO 指标；prompt v2 强调弱 RGB 证据时保持 RE/all-NO、普通路口车辆不等于 UE6、事故/静态拥堵不等于 UE3、invalid 只表示 RS gate 明显不适用；训练默认 `REGULAR_FOCUS_MULTIPLIER=2.0` 只放大 RE hard negatives，UE 正类仍为 1:1:1:1，eval/generation 仍用均衡口径；DDP 训练必须按 global step 对齐各 rank，skip/超长样本跑短图文 DDP forward 并用 logits zero loss backward，避免 reducer、barrier 和 eval 分叉；`GRAD_ACCUM>1` 结尾残余梯度必须 flush，`SAVE_STEPS` 落在累积窗口中间时 checkpoint 延迟到下一次 optimizer step 后保存；训练/eval/probe/audit 脚本、prompt、运行文档允许修改、追踪、commit 和 push，训练/eval/checkpoint 等大产物仍写入 `AutoMoT/checkpoints/` 或本地输出目录。）
 - `AutoMoT/qwen3vl_local/sft_v2/__init__.py`
@@ -641,6 +662,7 @@ git add AutoMoT/qwen3vl_local/sft_v3/__init__.py AutoMoT/qwen3vl_local/sft_v3/SF
 git add AutoMoT/qwen3vl_local/sft_v4/__init__.py AutoMoT/qwen3vl_local/sft_v4/SFT_V4_PLAN.md AutoMoT/qwen3vl_local/sft_v4/SFT_V4_RUN.md AutoMoT/qwen3vl_local/sft_v4/prompts.py AutoMoT/qwen3vl_local/sft_v4/build_dataset.py AutoMoT/qwen3vl_local/sft_v4/train.py AutoMoT/qwen3vl_local/sft_v4/train.sh AutoMoT/qwen3vl_local/sft_v4/eval.py AutoMoT/qwen3vl_local/sft_v4/probe.py AutoMoT/qwen3vl_local/sft_v4/check_loss_mask.py AutoMoT/qwen3vl_local/sft_v4/test_memory_update.py AutoMoT/qwen3vl_local/sft_v4/test_kv_reuse.py AutoMoT/qwen3vl_local/sft_v4/test_kv_vs_native.py AutoMoT/qwen3vl_local/sft_v4/test_gt_leak_filter.py AutoMoT/qwen3vl_local/sft_v4/replay.py AutoMoT/qwen3vl_local/sft_v4/collect.py AutoMoT/qwen3vl_local/sft_v4/learn.py AutoMoT/qwen3vl_local/sft_v4/launch_offpolicy.sh AutoMoT/qwen3vl_local/sft_v4/inspect_teacher.py
 git add AutoMoT/qwen3vl_local/sft_loop_phase2_augment/
 git add AutoMoT/qwen3vl_local/sft_new_loop_phase1/
+git add AutoMoT/qwen3vl_local/sft_new_loop_phase2/
 git add AutoMoT/qwen3vl_local/sft_loop_phase3/
 git add AutoMoT/qwen3vl_local/sft_v5/
 git add AutoMoT/qwen3vl_local/sft_base/
