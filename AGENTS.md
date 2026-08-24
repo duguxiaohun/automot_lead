@@ -16,7 +16,9 @@
 1. `CLAUDE.md`：Claude Code 自动加载的镜像规则入口；Codex 也要读，确保两边规则一致。
 2. `AGENTS.md`：当前通用 agent 入口；Claude 读到 `CLAUDE.md` 后也要读本文件。
 3. `PROJECT_CONTEXT.md`：核心技术背景，包含 `lead/` 与 `AutoMoT/` 的数据、推理、BEV、RGB、LiDAR 对齐结论。
-4. 当前任务相关源码：通常优先看 `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py`，必要时再查 `lead/` 或 `AutoMoT/` 中的参考源码。
+4. 当前任务相关源码：通常优先看 `AutoMoT/qwen3vl_local/` 或
+   `AutoMoT/keyframe_filter/` 中的白名单实现，必要时再查 `lead/`、
+   `AutoMoT/Automot/` 或 `AutoMoT/leaderboard/team_code/` 中的本地只读参考源码。
 
 不要跳过 `PROJECT_CONTEXT.md` 直接从源码重新推断。这个项目里很多结论来自多轮核对，重新凭印象推断很容易犯错。
 
@@ -34,8 +36,8 @@
 
 当前主要战场：
 
-- `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py`
-- `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
+- `AutoMoT/qwen3vl_local/`
+- `AutoMoT/keyframe_filter/`
 - `PROJECT_CONTEXT.md`
 
 ---
@@ -66,34 +68,6 @@
 - `AGENTS.md`
 - `CLAUDE.md`
 - `PROJECT_CONTEXT.md`
-- `AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py`
-  （LeadOfflineMoTRunner 加载 ckpt 时按 `decoder_config.use_bev` / `use_subgoal` /
-  `use_final_goal` 自描述切换分支；use_subgoal=True ckpt 必须在 `lead_clip`
-  里塞 `subgoal_rgb_path/subgoal_scenario/subgoal_status/subgoal_event`，由
-  `build_clip_from_real_lead_route(..., subgoal_*=...)` 写入；runner 的 `main()`
-  加载 ckpt 后按 use_subgoal 自动调 `--keyframes` 反查 anchor 对应 STATUS →
-  SUBGOAL → SUBGOAL keyframe RGB）
-- `AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py`
-- `AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py`
-- `AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py`
-- `AutoMoT/leaderboard/team_code/automot_utils.py`
-  （按用户同意纳入白名单：AutoMoT legacy prompt helper；`build_cleaned_prompt_and_modes`
-  必须接收 7 元 `[speed,tp,ntp,final_goal]` 并在 prompt 写入 final destination）
-- `AutoMoT/Automot/team_code/automot_utils.py`
-  （按用户同意纳入白名单：AutoMoT 原始副本 prompt helper；必须与
-  `AutoMoT/leaderboard/team_code/automot_utils.py` 的 7 元 final destination prompt 保持同步）
-- `AutoMoT/Automot/mot/evaluation/inference.py`
-- `AutoMoT/Automot/mot/modeling/automot/automot.py`
-  （按用户同意纳入白名单：AutoMoT 原始副本中的 prompt 示例注释；涉及 target_point /
-  next_target_point 的 prompt 示例必须包含 final destination，并与 2s 规划视野同步）
-- `AutoMoT/leaderboard/team_code/mot_b2d_agent.py`
-  （按用户同意纳入白名单：legacy AutoMoT 在线 agent；涉及 wp/nwp prompt 时必须同步
-  按 `max(speed*lookahead_s, 5m)` 弧长生成 tp/ntp，生成局部 final_goal 并传入
-  `automot_utils.build_cleaned_prompt_and_modes`）
-- `AutoMoT/leaderboard/team_code/display_interface.py`
-- `AutoMoT/Automot/team_code/display_interface.py`
-  （按用户同意纳入白名单：AutoMoT 显示层；decision 三元组只表示 now/+1s/+2s，
-  不要再沿用旧 3s 命名）
 - `AutoMoT/qwen3vl_local/eval_carla/`（LeadMoT 闭环评测子包，全部子文件白名单内）
   - `__init__.py` / `EVAL_CARLA_PLAN.md` / `EVAL_CARLA_RUN.md`
   - `agent.py`
@@ -597,6 +571,8 @@
 其它文件默认只读，尤其是：
 
 - `lead/` 整个目录
+- `AutoMoT/Automot/` 整个目录（只保留本地参考，禁止修改、追踪或 push）
+- `AutoMoT/leaderboard/team_code/` 整个目录（只保留本地参考，禁止修改、追踪或 push）
 - `AutoMoT/` 中除上述白名单外的源码、配置、权重、数据
 - `0026.json`
 - 仓库根目录或 `AutoMoT/lead_data` 下的 `keyframes_all_scenarios.json` 数据参考文件
@@ -633,6 +609,8 @@
 - `git add *`
 - `git add lead/`
 - `git add AutoMoT/`
+- `git add AutoMoT/Automot/` 或其中任何文件
+- `git add AutoMoT/leaderboard/team_code/` 或其中任何文件
 - `git add 0026.json`
 - `git add keyframes_all_scenarios.json`
 - `git add AutoMoT/lead_data/keyframes_all_scenarios.json`
@@ -643,19 +621,15 @@
 
 ```bash
 git add AGENTS.md CLAUDE.md PROJECT_CONTEXT.md
-git add AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py
-git add AutoMoT/leaderboard/team_code/vlm_paradigm_a_runner.py
-git add AutoMoT/leaderboard/team_code/qwen3vl_instruct_paradigm_a_runner.py
-git add AutoMoT/leaderboard/team_code/automot_utils.py AutoMoT/Automot/team_code/automot_utils.py AutoMoT/Automot/mot/evaluation/inference.py AutoMoT/Automot/mot/modeling/automot/automot.py AutoMoT/leaderboard/team_code/mot_b2d_agent.py AutoMoT/leaderboard/team_code/display_interface.py AutoMoT/Automot/team_code/display_interface.py
 git add AutoMoT/qwen3vl_local/eval_carla/__init__.py AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_PLAN.md AutoMoT/qwen3vl_local/eval_carla/EVAL_CARLA_RUN.md AutoMoT/qwen3vl_local/eval_carla/agent.py AutoMoT/qwen3vl_local/eval_carla/safety.py AutoMoT/qwen3vl_local/eval_carla/video_recorder.py AutoMoT/qwen3vl_local/eval_carla/visualizer.py AutoMoT/qwen3vl_local/eval_carla/scenario_picker.py AutoMoT/qwen3vl_local/eval_carla/aggregate.py AutoMoT/qwen3vl_local/eval_carla/run_eval.sh AutoMoT/qwen3vl_local/eval_carla/webapp/__init__.py AutoMoT/qwen3vl_local/eval_carla/webapp/app.py AutoMoT/qwen3vl_local/eval_carla/webapp/templates/index.html AutoMoT/qwen3vl_local/eval_carla/webapp/static/style.css
 git add AutoMoT/lead_video_tools/__init__.py AutoMoT/lead_video_tools/abnormal_duration_filter.py AutoMoT/lead_video_tools/rgb_to_video.py AutoMoT/lead_video_tools/LEAD_VIDEO_RUN.md
+git add AutoMoT/data/lead/  # 目录白名单：route XML 与同目录轻量审计记录
 git add AutoMoT/keyframe_filter/  # 依赖 AutoMoT/keyframe_filter/.gitignore，只会带入代码/文档和 Phase1 四问标签轻量 JSON/JSONL，不带 RGB/contact sheet
 git add AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/phase1_four_question_answer_table.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/answer_table_partial.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/manual_visual_audit_notes.jsonl
 git add AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/critical_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/highway_flow_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/motion_parking_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/obstacle_single_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/obstacle_twoways_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/remaining_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/signal_control_batch/phase1_four_question_matrix.json AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/vehicle_turning_batch/phase1_four_question_matrix.json
 git add AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/manual_full_sheet_notes_20260809.jsonl AutoMoT/keyframe_filter/collection_output/phase1_four_question_audit/full_route_rgb_label_review_20260809/manual_table_gap_combo_notes_20260810.jsonl
 git add AutoMoT/qwen3vl_local/__init__.py AutoMoT/qwen3vl_local/cache_utils.py AutoMoT/qwen3vl_local/engine.py AutoMoT/qwen3vl_local/image_io.py AutoMoT/qwen3vl_local/mrope_utils.py AutoMoT/qwen3vl_local/prompt_pipeline.py AutoMoT/qwen3vl_local/run_log.py AutoMoT/qwen3vl_local/tb_serve.sh
 git add AutoMoT/qwen3vl_local/goalgen/__init__.py AutoMoT/qwen3vl_local/goalgen/vae.py AutoMoT/qwen3vl_local/goalgen/prompt.py AutoMoT/qwen3vl_local/goalgen/qwen_kv.py AutoMoT/qwen3vl_local/goalgen/keyframes.py AutoMoT/qwen3vl_local/goalgen/dit.py AutoMoT/qwen3vl_local/goalgen/flow.py
-git add AutoMoT/leaderboard/team_code/qwen3vl_dit_goalgen_runner.py
 git add AutoMoT/qwen3vl_local/sft/__init__.py AutoMoT/qwen3vl_local/sft/SFT_PLAN.md AutoMoT/qwen3vl_local/sft/SFT_RUN.md AutoMoT/qwen3vl_local/sft/build_dataset.py AutoMoT/qwen3vl_local/sft/build_teacher.py AutoMoT/qwen3vl_local/sft/train.py AutoMoT/qwen3vl_local/sft/train.sh AutoMoT/qwen3vl_local/sft/eval.py AutoMoT/qwen3vl_local/sft/probe.py AutoMoT/qwen3vl_local/sft/check_loss_mask.py AutoMoT/qwen3vl_local/sft/inspect_teacher_outputs.py
 git add AutoMoT/qwen3vl_local/sft_v2/__init__.py AutoMoT/qwen3vl_local/sft_v2/SFT_V2_PLAN.md AutoMoT/qwen3vl_local/sft_v2/SFT_V2_RUN.md AutoMoT/qwen3vl_local/sft_v2/prompts.py AutoMoT/qwen3vl_local/sft_v2/build_dataset.py AutoMoT/qwen3vl_local/sft_v2/train.py AutoMoT/qwen3vl_local/sft_v2/train.sh AutoMoT/qwen3vl_local/sft_v2/eval.py AutoMoT/qwen3vl_local/sft_v2/probe.py AutoMoT/qwen3vl_local/sft_v2/check_loss_mask.py
 git add AutoMoT/qwen3vl_local/sft_v3/__init__.py AutoMoT/qwen3vl_local/sft_v3/SFT_V3_PLAN.md AutoMoT/qwen3vl_local/sft_v3/SFT_V3_RUN.md AutoMoT/qwen3vl_local/sft_v3/prompts.py AutoMoT/qwen3vl_local/sft_v3/build_dataset.py AutoMoT/qwen3vl_local/sft_v3/train.py AutoMoT/qwen3vl_local/sft_v3/train.sh AutoMoT/qwen3vl_local/sft_v3/eval.py AutoMoT/qwen3vl_local/sft_v3/probe.py AutoMoT/qwen3vl_local/sft_v3/check_loss_mask.py AutoMoT/qwen3vl_local/sft_v3/test_memory_update.py AutoMoT/qwen3vl_local/sft_v3/test_kv_reuse.py AutoMoT/qwen3vl_local/sft_v3/test_gt_leak_filter.py
@@ -726,7 +700,7 @@ push 前也问用户，不要替用户决定是否 push 到 main。
 
 GPU 运行入口统一规则：
 
-- SFT、GoalGen、LeadMoT、VAE patch/unpatch 以及白名单 runner 的训练、eval、probe、teacher / 推理入口默认都要自动寻找空闲 GPU。
+- SFT、GoalGen、LeadMoT 与 VAE patch/unpatch 的训练、eval、probe、teacher / 推理入口默认都要自动寻找空闲 GPU。
 - 文档示例不要写裸的 `export CUDA_VISIBLE_DEVICES=...` 选卡片段。**唯一允许的 pin 写法**：前置 `GPU_IDS=0` / `GPU_IDS=0,1,2,3`（白名单训练入口在 `GPU_IDS` 非空时跳过 nvidia-smi 选址，直接当 `CUDA_VISIBLE_DEVICES` 用）。
 - 白名单内所有 GPU 运行入口默认自动选址：单进程入口默认用 `nvidia-smi` 自动挑 1 张最空闲 GPU，并覆盖已有 mask；`torchrun --nproc_per_node=N` 入口默认自动挑 N 张最空闲 GPU，并覆盖已有 mask，再按 `LOCAL_RANK` pin 到对应可见卡。`GPU_IDS` 显式 pin 时覆盖以上自动选址，卡数从 `GPU_IDS` 逗号数推断。
 - 训练 launcher 的 `DDP_GPU_COUNT=N` / `NPROC_PER_NODE=N` 只表示默认自动选址时需要 N 张卡；具体卡号默认由脚本自动挑最空闲的 N 张。`GPU_IDS` 非空时，SFT / GoalGen / LeadMoT 这类 bash launcher 的卡数从 `GPU_IDS` 推断并忽略 `DDP_GPU_COUNT`；直接 `torchrun` 的 VAE 示例仍要让 `--nproc_per_node` 与 `GPU_IDS` 数量一致。

@@ -1,0 +1,295 @@
+{
+  "summary": {
+    "cache_total": 9294,
+    "lead_total": 9254,
+    "cache_minus_lead": 40,
+    "lead_minus_cache": 0,
+    "found_elsewhere_in_data": 0,
+    "still_missing_after_full_research": 40,
+    "lead_unparsed_xml_count": 0
+  },
+  "still_missing": [
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "town": "Town12",
+      "id": "001439",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "town": "Town12",
+      "id": "001485",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "town": "Town12",
+      "id": "001542",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "town": "Town12",
+      "id": "001554",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town04",
+      "id": "Town04_Scenario8_20",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town04",
+      "id": "Town04_Scenario8_78",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town04",
+      "id": "Town04_Scenario8_79",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town04",
+      "id": "Town04_Scenario9_15",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town04",
+      "id": "Town04_Scenario9_17",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town04",
+      "id": "Town04_Scenario9_18",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town04",
+      "id": "Town04_Scenario9_72",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town05",
+      "id": "Town05_Scenario8_164",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town05",
+      "id": "Town05_Scenario8_165",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "002199",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "002200",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "002201",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "002202",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "002203",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "002204",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "002205",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "002206",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "002207",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "002208",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "Town06_Scenario8_3",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "Town06_Scenario8_33",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "Town06_Scenario8_34",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "Town06_Scenario8_36",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "Town06_Scenario8_4",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "Town06_Scenario8_5",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "Town06_Scenario8_6",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town06",
+      "id": "Town06_Scenario8_7",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town07",
+      "id": "Town07_Scenario8_1",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town07",
+      "id": "Town07_Scenario8_34",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town07",
+      "id": "Town07_Scenario8_40",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town07",
+      "id": "Town07_Scenario9_2",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town07",
+      "id": "Town07_Scenario9_33",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town07",
+      "id": "Town07_Scenario9_39",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town10HD",
+      "id": "Town10HD_Scenario8_3",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town10HD",
+      "id": "Town10HD_Scenario8_4",
+      "near_towns": [],
+      "near_paths": []
+    },
+    {
+      "scenario": "noScenarios",
+      "town": "Town10HD",
+      "id": "Town10HD_Scenario9_30",
+      "near_towns": [],
+      "near_paths": []
+    }
+  ],
+  "found_elsewhere": [],
+  "lead_unparsed": []
+}
