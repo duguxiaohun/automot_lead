@@ -1,0 +1,795 @@
+# SFT New Loop Phase1：Phase1 + Phase2 融合训练完整评测分析
+
+> 分析日期：2026-08-24
+> 评测 bundle：`AutoMoT/checkpoints/sft_new_loop_phase1_20260824_103639_audit_bundle`
+> 模型：Qwen3-VL-4B-Instruct base + `sft_new_loop_phase1` LoRA
+> LoRA 权重：`checkpoints/sft_new_loop_phase1_runs/latest/best_generation`
+> checkpoint global step：`24000`
+> 正式输入：`4rgb`，原始 history 索引 `[0, 1, 2, 3]`
+> production prompt：`sft_new_loop_phase1_phase1_phase2_combined_v1`
+
+## 1. 结论摘要
+
+本次 Phase1 + Phase2 融合训练整体成功，没有出现多任务融合后整体能力下降。
+
+核心结论如下：
+
+1. 融合 LoRA 的 production 联合 exact 为 `77.54%`，相对 base 的 `26.37%`
+   提升 `51.17` 个百分点；production 格式合法率为 `100%`。
+2. 从逐例输出中拆开计算：
+   - Phase1 四问单独 exact 为 `89.75%`，高于原 Phase1 4RGB LoRA 的 `84.77%`；
+   - Phase2 当前变体问题单独 exact 为 `84.47%`，高于原 Phase2 augment
+     checkpoint-20000 的 `82.8%`。
+3. Phase1 的净提升主要来自 `STATIC_OBSTACLE`，F1 从 `73.79%` 提升到
+   `87.93%`；`HIGHWAY` 和 `TRAFFIC_LIGHT_ABNORMAL` 也有小幅提升。
+4. Phase1 的主要退化是 `VULNERABLE`，F1 从 `88.70%` 降到 `80.37%`，
+   当前仍有明显的正例漏检。
+5. Phase2 的 `RS2`、`RS4`、`RS1` 均有提升；`RS5` 小幅下降。
+6. Phase2 的 `subset_random` 提升明显，但 `hierarchical_probe` 从旧模型的
+   `97.1%` 降到 `91.80%`，说明融合训练对原本极强的层级决策树能力有一定稀释。
+7. bundle 中 LoRA audit exact `58.98%` 不是实际语义能力下降，而是 audit parser
+   的解析顺序缺陷导致大量合法输出被整条判为 invalid。仅重新解析答案行后，audit
+   联合 exact 恢复为 `77.54%`，与 production 完全相同。
+8. 当前训练并未完成计划的 3 个 epoch：日志停在 `29090 / 110592`，甚至没有完成
+   第一个 epoch。step-24000 是当前中途训练里的最佳 checkpoint，不代表完整收敛上限。
+
+综合判断：融合路线值得保留。它扩大了问法覆盖，同时带来中等幅度的整体净提升；
+当前需要优先处理的是 audit 解析器、`VULNERABLE` 漏检、`RS1/RS5` 边界和评测采样口径，
+而不是推翻融合 prompt。
+
+---
+
+## 2. 分析对象与数据来源
+
+### 2.1 融合模型结果
+
+本报告读取以下正式产物：
+
+- `bundle_manifest.json`：base/LoRA、production/audit 四组总指标；
+- `base_production/metrics.json`；
+- `base_audit_prompt/metrics.json`；
+- `lora_production/metrics.json`；
+- `lora_audit_prompt/metrics.json`；
+- 四组结果各自的 `cases_rank0.jsonl` 到 `cases_rank3.jsonl`；
+- `adapter_metadata/adapter/sft_new_loop_phase1_adapter_config.json`；
+- `adapter_metadata/run_root/train_run_manifest.json`；
+- `adapter_metadata/run_root/train.log`；
+- `adapter_metadata/run_root/train_eval_metrics.jsonl`。
+
+### 2.2 原 Phase1 对照
+
+主要对照：
+
+- `sft_loop_phase1/SFT_LOOP_PHASE1_EVAL_REPORT_20260813.md`；
+- 原 Phase1 4RGB production LoRA；
+- 512 个评测 case；
+- 四个固定输出：`HIGHWAY / STATIC_OBSTACLE / VULNERABLE /
+  TRAFFIC_LIGHT_ABNORMAL`。
+
+### 2.3 原 Phase2 对照
+
+主要对照：
+
+- `sft_loop_phase2_augment/CKPT20000_EVAL_ANALYSIS.md`；
+- 原 Phase2 augment checkpoint-20000；
+- 6144 个评测 case；
+- `all_random_order / subset_random / hierarchical_probe` 三类问法。
+
+### 2.4 可比性边界
+
+以下差异意味着新旧结果不是严格 paired test：
+
+- 原 Phase1、新 Phase1+Phase2 使用的数据索引和过滤条件并不完全相同；
+- 新融合数据沿用了 Phase2 最新异常 route 剔除、full-frame RGB review 覆盖检查和
+  visual-risk 默认过滤；
+- 新评测每个 prompt 固定包含四个 Phase1 问题，并额外包含当前 Phase2 variant 的输出；
+- 原 Phase1 exact 只要求四个答案全部正确；新联合 exact 最多要求八个答案同时正确；
+- 原 Phase2 报告和新融合报告的样本规模不同；
+- 新融合测试对八个 focus task 分别做 YES:NO 平衡，原报告的全局指标不一定使用完全相同的
+  focus sampling 口径。
+
+因此，本报告把结果分成三类：
+
+1. 同一 bundle 内的 base → LoRA：最可靠；
+2. 从融合逐例结果重算的 Phase1-only / Phase2-only：比联合 exact 更适合与旧模型比较；
+3. 新旧任务 F1 对比：用于判断方向，但不能当作严格同样本显著性检验。
+
+---
+
+## 3. 融合代码和提示词设计分析
+
+### 3.1 融合任务结构
+
+每个样本固定询问四个 Phase1 visible-fact 问题：
+
+- `HIGHWAY`
+- `STATIC_OBSTACLE`
+- `VULNERABLE`
+- `TRAFFIC_LIGHT_ABNORMAL`
+
+随后加入当前 Phase2 ROAD_STRUCTURE variant：
+
+- `all_random_order`：RS1/RS2/RS4/RS5 全部询问并随机顺序；
+- `subset_random`：随机询问其中一部分；
+- `hierarchical_probe`：按 `RS_HIGHWAY -> GROUP -> DETAIL` 做层级拆问。
+
+训练 variant 比例为 `4:1:1`，正式 eval/generation eval 为 `2:1:1`。训练默认
+`FOCUS_BALANCE_COUNT=9216`，每轮构造 `147456` 个 sampled cases。
+
+### 3.2 正向设计
+
+#### 3.2.1 复用已验证的两套语义定义
+
+融合 prompt 没有重新发明标签含义，而是：
+
+- 从最终 Phase1 prompt 中提取完整 visible-fact 决策规则；
+- 从最新 Phase2 prompt 中渲染当前 ROAD_STRUCTURE 问题和规则；
+- Phase1 负责可见交通事实；
+- Phase2 负责当前驾驶规则对应的道路结构。
+
+这减少了重新改写 prompt 带来的标签漂移风险。
+
+#### 3.2.2 显式处理 Phase1/Phase2 语义重叠
+
+融合 prompt 增加两组关键约束：
+
+1. `ROAD STRUCTURE PRIORITY`
+   - limited-access highway/ramp；
+   - opposing-lane sharing constraint；
+   - local signalized junction；
+   - local no-signal priority junction；
+   - 最后才允许 `RS1=YES`。
+2. `INDEPENDENT ANSWER CHECK`
+   - Phase1 的 YES/NO 不得直接强制 RS 输出；
+   - 每一行必须按照自己的视觉定义独立判断；
+   - Phase2 定义对 RS 输出具有最终权威。
+
+这对解决 `RS1` catch-all、道路事件干扰结构判断、Phase1/Phase2 逻辑泄漏都有直接价值。
+
+#### 3.2.3 解决 HIGHWAY 键名冲突
+
+Phase1 的 `HIGHWAY` 是人工审计后的可见 limited-access 事实；Phase2 hierarchical 中的
+高速判断原本也叫 `HIGHWAY`。融合代码把后者改为 `RS_HIGHWAY`，避免同一个输出中出现
+两个相同 key，也降低解析和监督冲突。
+
+#### 3.2.4 问法增强抑制固定位置记忆
+
+随机顺序、随机子集和层级问答让模型不能只学习固定四行的位置映射。融合结果中：
+
+- production 格式合法率达到 `100%`；
+- subset 未询问 RS 行泄漏率为 `0`；
+- all-random/subset 没有异常 multi-YES pattern；
+- subset Phase2-only exact 明显高于旧模型。
+
+这些结果说明模型较好地学习了问题 key 与视觉语义，而不是只依赖固定输出位置。
+
+### 3.3 设计风险
+
+#### 3.3.1 prompt 和输出长度显著增加
+
+新 prompt 同时包含：
+
+- 完整 Phase1 四问长规则；
+- 当前 Phase2 问题；
+- 当前 Phase2 规则；
+- ROAD_STRUCTURE 优先级；
+- 独立回答约束；
+- 最多八个答案行。
+
+这会增加 instruction-following 和生成联合正确的难度。因此，不能直接把新联合 exact
+`77.54%` 与旧 Phase1 四答案 exact `84.77%` 比较。
+
+#### 3.3.2 两套高速语义仍可能竞争模型容量
+
+虽然输出 key 已拆成 `HIGHWAY` 和 `RS_HIGHWAY`，prompt 也明确了各自定义，但二者仍共享
+相似的高速、匝道、护栏和 controlled corridor 视觉特征。如果标签边界在少数帧上不同，
+语言侧 LoRA 仍然需要学习两套相近但不完全相同的决策边界。
+
+#### 3.3.3 只训练语言侧 LoRA
+
+本次 adapter 配置为：
+
+- `lora_vision_scope = off`；
+- LoRA 注入语言模型各层 attention/MLP；
+- base 视觉编码器保持冻结。
+
+因此，本次提升主要表示模型更会：
+
+- 读取已有视觉 token；
+- 执行规则；
+- 区分问法；
+- 输出正确的结构化结果。
+
+它不等价于视觉编码器对小目标、遮挡和低可见度获得了新表征。`VULNERABLE` 是最依赖
+小行人、骑行者、画面边缘和遮挡细节的任务，恰好成为融合后的主要退化项，这与训练范围一致。
+
+#### 3.3.4 多任务 token 监督并非简单的八任务等权
+
+每个样本固定监督四个 Phase1 值；Phase2 根据 variant 监督 1 到 4 个细问，或三层层级值。
+虽然 focus module 总量按 Phase1:Phase2=`1:1` 控制，但每个样本实际产生的答案 token 数不同。
+训练损失中的答案值 token 与格式 token 权重也不同，因此“focus case 平衡”不代表所有问题获得
+完全相等的梯度预算。
+
+---
+
+## 4. 融合 bundle 总体结果
+
+### 4.1 官方联合 exact
+
+| 模型/模式 | cases | 联合 exact | 说明 |
+|---|---:|---:|---|
+| Base production | 1024 | 26.37% | 原始 Qwen，答案行模式 |
+| Base audit | 1024 | 24.12% | 原始 Qwen，额外要求 evidence |
+| LoRA production | 1024 | **77.54%** | 当前正式可用指标 |
+| LoRA audit（官方 parser） | 1024 | 58.98% | 被 parser 缺陷严重低估 |
+
+LoRA 相对 base 的 production 联合 exact 提升：
+
+`77.54% - 26.37% = 51.17 pp`
+
+这是同一套 1024-case 评测中的直接对照，是本报告最可靠的训练有效性证据。
+
+### 4.2 从逐例结果重算的任务族 exact
+
+重算规则：
+
+- Phase1-only exact：四个 Phase1 key 全部正确；
+- Phase2-only exact：当前 prompt 中实际询问的所有 Phase2 key 全部正确；
+- 不要求另一任务族同时正确。
+
+| 模型 | 联合 exact | Phase1-only exact | Phase2-only exact | 格式合法率 |
+|---|---:|---:|---:|---:|
+| Base production | 26.37% | 66.60% | 32.13% | 99.51% |
+| LoRA production | **77.54%** | **89.75%** | **84.47%** | **100.00%** |
+| LoRA 增益 | **+51.17 pp** | **+23.14 pp** | **+52.34 pp** | +0.49 pp |
+
+这个拆分说明：
+
+- LoRA 同时学会了 Phase1 和 Phase2；
+- 联合 exact 较低主要来自多行联合事件，而不是某一任务族完全失效；
+- Phase2 不是靠 Phase1 的固定答案“带分”，其自身 exact 从 `32.13%` 提升到 `84.47%`。
+
+### 4.3 按 variant 拆分
+
+#### 4.3.1 联合 exact
+
+| variant | cases | Base | LoRA | 提升 |
+|---|---:|---:|---:|---:|
+| all_random_order | 512 | 30.47% | **71.09%** | +40.62 pp |
+| subset_random | 256 | 23.44% | **79.69%** | +56.25 pp |
+| hierarchical_probe | 256 | 21.09% | **88.28%** | +67.19 pp |
+
+#### 4.3.2 LoRA 内部拆分 exact
+
+| variant | Phase1-only | Phase2-only | 联合 exact |
+|---|---:|---:|---:|
+| all_random_order | 88.67% | 78.91% | 71.09% |
+| subset_random | 88.67% | 88.28% | 79.69% |
+| hierarchical_probe | 92.97% | 91.80% | 88.28% |
+
+all-random 一次需要输出四个 Phase1 + 四个 RS，总共八行，联合 exact 最低是合理的。
+hierarchical 的输出更具结构约束，而且 Phase1-only 也更高，因此联合 exact 最高。
+
+---
+
+## 5. Phase1 与原模型对比
+
+### 5.1 总体对比
+
+原 Phase1 4RGB LoRA：
+
+- Macro F1：`86.03%`；
+- 四答案 exact：`84.77%`。
+
+融合 LoRA：
+
+- Phase1 focus Macro F1：`88.66%`；
+- Phase1-only exact：`89.75%`。
+
+方向性变化：
+
+- Macro F1：`+2.63 pp`；
+- Phase1-only exact：`+4.98 pp`。
+
+### 5.2 逐问题对比
+
+| Phase1 问题 | 原 4RGB LoRA F1 | 融合 LoRA F1 | 变化 |
+|---|---:|---:|---:|
+| HIGHWAY | 95.93% | **97.64%** | +1.71 pp |
+| STATIC_OBSTACLE | 73.79% | **87.93%** | **+14.14 pp** |
+| VULNERABLE | **88.70%** | 80.37% | **-8.33 pp** |
+| TRAFFIC_LIGHT_ABNORMAL | 85.71% | **88.70%** | +2.99 pp |
+| Macro F1 | 86.03% | **88.66%** | **+2.63 pp** |
+
+### 5.3 融合模型 Phase1 confusion matrix
+
+| 问题 | Accuracy | Precision | Recall | F1 | TP / FP / FN / TN |
+|---|---:|---:|---:|---:|---:|
+| HIGHWAY | 97.66% | 98.41% | 96.88% | 97.64% | 62 / 1 / 2 / 63 |
+| STATIC_OBSTACLE | 89.06% | 98.08% | 79.69% | 87.93% | 51 / 1 / 13 / 63 |
+| VULNERABLE | 83.59% | 100.00% | 67.19% | 80.37% | 43 / 0 / 21 / 64 |
+| TRAFFIC_LIGHT_ABNORMAL | 89.84% | 100.00% | 79.69% | 88.70% | 51 / 0 / 13 / 64 |
+
+### 5.4 Phase1 结论
+
+#### HIGHWAY
+
+当前已经接近饱和：只有 1 个 FP 和 2 个 FN。融合 Phase2 的 highway/road structure
+监督没有破坏 Phase1 高速判断，反而略有提升。
+
+#### STATIC_OBSTACLE
+
+这是本次融合最大的收益项。可能原因包括：
+
+- Phase2 的 usable corridor / opposing constraint / junction structure 帮助模型更准确地追踪
+  ego 可用路径；
+- Phase1 prompt 强调 road-fixed、lane occupation 和四帧历史；
+- 融合训练中更多道路结构变化降低了“附近物体 = 占道”的误判。
+
+当前主要问题是 recall：仍漏掉 13 个正例，但误报仅 1 个。
+
+#### VULNERABLE
+
+这是最明确的退化项：
+
+- F1 下降 `8.33 pp`；
+- 64 个正例漏掉 21 个；
+- 没有 FP，说明模型明显偏保守。
+
+错误主要集中在：
+
+- `VehicleTurningRoute`；
+- `VehicleTurningRoutePedestrian`；
+- `DynamicObjectCrossing`；
+- `HazardAtSideLaneTwoWays`；
+- `PedestrianCrossing`。
+
+可能原因：
+
+- 冻结视觉编码器对小目标的可辨性有限；
+- 长 prompt 和多任务监督让模型更依赖道路结构主线；
+- 行人/骑行者在侧视图边缘、路口转弯区或遮挡中的证据容易被忽略；
+- 当前定义要求“decision-relevant”，模型可能把临近但未进入车道的 VRU 判得过于保守。
+
+#### TRAFFIC_LIGHT_ABNORMAL
+
+融合后小幅提升，且保持零 FP；13 个错误全部是 FN，集中在
+`CrossJunctionDefectTrafficLight`。模型没有把普通红绿灯误报为异常，但在信号头较小、跨视角
+对应关系不清晰时仍容易漏掉同一冲突区的 contradictory green witness。
+
+---
+
+## 6. Phase2 与原 augment 模型对比
+
+### 6.1 总体和 variant 对比
+
+| Phase2 指标 | 原 Phase2 ckpt-20000 | 融合 LoRA | 变化 |
+|---|---:|---:|---:|
+| 综合 exact | 82.8% | **84.47%** | +1.67 pp |
+| all_random_order | 76.5% | **78.91%** | +2.41 pp |
+| subset_random | 81.1% | **88.28%** | **+7.18 pp** |
+| hierarchical_probe | **97.1%** | 91.80% | **-5.30 pp** |
+
+融合的主要价值仍然是增强问法覆盖：
+
+- all-random 略有提升；
+- subset 泛化显著提升；
+- hierarchy 仍然很高，但没有保持旧模型接近满分的专项表现。
+
+### 6.2 逐问题 F1 对比
+
+| 问题 | 原 Phase2 F1 | 融合 LoRA F1 | 变化 |
+|---|---:|---:|---:|
+| RS1 | 72.4% | **75.97%** | +3.57 pp |
+| RS2 | 84.3% | **91.73%** | **+7.43 pp** |
+| RS4 | 87.4% | **90.63%** | +3.23 pp |
+| RS5 | **81.8%** | 80.70% | -1.10 pp |
+| Macro F1 | 81.48% | **84.76%** | **+3.28 pp** |
+
+注意：原报告这里是对应问题的 production 全局指标，新报告采用每个 focus task 的 64 YES +
+64 NO 主问题指标。两者适合看方向，不是完全同口径复现。
+
+### 6.3 融合模型 Phase2 confusion matrix
+
+| 问题 | Accuracy | Precision | Recall | F1 | TP / FP / FN / TN |
+|---|---:|---:|---:|---:|---:|
+| RS1 | 75.78% | 75.38% | 76.56% | 75.97% | 49 / 16 / 15 / 48 |
+| RS2 | 91.41% | 88.41% | 95.31% | 91.73% | 61 / 8 / 3 / 56 |
+| RS4 | 90.63% | 90.63% | 90.63% | 90.63% | 58 / 6 / 6 / 58 |
+| RS5 | 82.81% | 92.00% | 71.88% | 80.70% | 46 / 4 / 18 / 60 |
+
+### 6.4 Phase2 结论
+
+#### RS1
+
+RS1 仍是最难问题：31 个主问题错误，FP 和 FN 基本对称。错误主要集中在施工、动态穿越、
+转弯、interurban 场景。它仍然容易在以下边界混淆：
+
+- 普通 same-direction corridor；
+- 双向/对向共享约束；
+- 局部路口控制；
+- limited-access 高速拓扑；
+- 事件目标存在但道路本身仍属于 RS1。
+
+虽然 F1 比旧模型提高，但距离稳定可用仍有空间。
+
+#### RS2
+
+这是 Phase2 最大提升项，recall 达到 `95.31%`。模型已经能较好识别对向车道和共享/受限走廊，
+剩余问题主要是 8 个 FP：可能把路边停放车、中心线或道路狭窄过度解释为 opposing constraint。
+
+#### RS4
+
+precision 和 recall 都为 `90.63%`，表现最均衡。融合 Phase1 灯异常监督并没有把“灯异常”与
+“信号灯控制路口”混为一谈，说明独立回答约束基本有效。
+
+#### RS5
+
+模型偏保守：precision `92.00%`，recall `71.88%`。错误集中在
+`VehicleTurningRoute`，模型容易把可见 road mouth / local turning conflict 判成普通弯道或 RS1。
+
+#### hierarchical_probe
+
+融合后的层级指标仍然很强：
+
+- `RS_HIGHWAY` F1：`96.45%`；
+- `PLAIN_LANE_FOLLOWING_CORRIDOR` group F1：`82.05%`；
+- `OPEN_SURFACE_PATH`：`92.86%`；
+- `JUNCTION_CONTROL_ZONE`：`96.30%`；
+- `LOCAL_RIGHT_OF_WAY_RULE`：`100%`；
+- `CONSTRAINED_SHARED_SPACE`：`96.30%`。
+
+hierarchical Phase2-only exact 的下降主要不是高速顶层失效，而更可能来自 plain-lane group
+和 detail 联合正确率下降。融合训练扩大任务覆盖后，旧模型高度专项化的 hierarchy 优势有所稀释。
+
+---
+
+## 7. Audit prompt 结果与 parser 缺陷
+
+### 7.1 官方表面结果
+
+| 模型 | Production exact | Audit exact | 表面变化 | Audit format valid |
+|---|---:|---:|---:|---:|
+| Base | 26.37% | 24.12% | -2.25 pp | 100.00% |
+| LoRA | 77.54% | 58.98% | -18.55 pp | 75.88% |
+
+如果只读 summary，会误以为 evidence prompt 严重破坏 LoRA 的问答能力。
+
+### 7.2 parser 的具体缺陷
+
+audit 要求先输出答案行，再输出：
+
+```text
+EVIDENCE_<KEY>: <one short RGB cue; max 12 words>
+```
+
+模型经常生成：
+
+```text
+HIGHWAY: NO
+EVIDENCE_HIGHWAY: NO
+```
+
+`EVIDENCE_HIGHWAY: NO` 对人类来说是格式正确但信息不足的 evidence；当前 parser 的处理顺序是：
+
+1. 先用通用答案正则匹配 `KEY: YES|NO`；
+2. `EVIDENCE_HIGHWAY: NO` 会先被匹配成答案键 `EVIDENCE_HIGHWAY`；
+3. 该键不在 expected answer keys 中，于是设置 `extra=True`；
+4. 最终把该 case 的所有 parsed answers 全部置为 `None`；
+5. 只有答案正则没有命中时，代码才检查 evidence 正则。
+
+因此，合法的 bare YES/NO evidence 会触发整条无效。
+
+### 7.3 invalid 统计
+
+LoRA audit 共 1024 个 case：
+
+- invalid：247；
+- 其中包含 bare `EVIDENCE_*: YES|NO`：231；
+- 包含 `[END]` / `[END OF OUTPUT]`：5；
+- evidence key 拼写或残缺：5；
+- 其它额外行：6。
+
+231/247，也就是 `93.52%` 的 invalid，直接由 bare evidence 与 parser 匹配顺序冲突导致。
+
+### 7.4 修正口径后的 audit
+
+仅提取 expected answer keys，忽略 evidence 行和结束标记后重算：
+
+| 指标 | Production | Audit 重新解析 | 差异 |
+|---|---:|---:|---:|
+| 联合 exact | 77.54% | **77.54%** | 0.00 pp |
+| Phase1-only exact | 89.75% | 89.55% | -0.20 pp |
+| Phase2-only exact | 84.47% | 84.18% | -0.29 pp |
+
+只在官方 parser 判定为 valid 的 777 个 audit case 中：
+
+- 联合 exact：`77.73%`；
+- Phase1-only exact：`89.06%`；
+- Phase2-only exact：`84.04%`。
+
+这与 production 一致，说明 evidence prompt 本身没有明显损伤答案语义。
+
+### 7.5 Audit 结论
+
+当前 `58.98%` 不应继续用于：
+
+- 判断融合是否失败；
+- 与原 Phase1 audit 分数比较；
+- 与原 Phase2 audit 分数比较；
+- 选择 checkpoint；
+- 据此继续修改 production prompt。
+
+在修复 parser 前，audit 只能作为人工查看 evidence 的材料，不能作为可靠自动指标。
+
+建议 parser 先匹配 `EVIDENCE_` 行，再匹配普通 answer 行；或者明确让 answer regex 排除
+`EVIDENCE_` 前缀。修复后应直接复用现有 1024 个 raw outputs 重算，无需重新跑模型即可验证。
+
+---
+
+## 8. 训练过程和 checkpoint 可靠性
+
+### 8.1 计划训练量
+
+训练 manifest：
+
+- train rows：`581051`；
+- 每轮 global sampled work：`147456`；
+- 每 rank 每轮：`36864`；
+- epochs：`3`；
+- 每 rank 计划总 step：`110592`。
+
+### 8.2 实际训练终点
+
+日志最后一行：
+
+```text
+epoch=1 step=29090/110592 ...
+```
+
+也就是说：
+
+- 只跑到总计划的 `26.30%`；
+- 第一个 epoch 约完成 `78.91%`；
+- 未完成第一轮，更没有完成计划的三轮。
+
+### 8.3 best-generation 选择
+
+generation validation 每次只有 256 个样本，即每个 focus 32 个。关键节点：
+
+| step | generation-val exact | format valid |
+|---:|---:|---:|
+| 2000 | 57.03% | 非最终稳定状态 |
+| 8000 | 73.83% | 逐步提高 |
+| 12000 | 76.95% | 接近平台 |
+| 18000 | 76.95% | 波动 |
+| 20000 | 78.52% | 提高 |
+| 22000 | 80.08% | 提高 |
+| **24000** | **81.64%** | **100%** |
+| 26000 | 81.25% | 100% |
+| 28000 | 75.00% | 100% |
+
+step-24000 是已运行区间内最高 generation exact，因此 `best_generation` 的选择有依据。
+但需要注意：
+
+- 24000 与 26000 只差 `0.39 pp`；
+- 每次 generation validation 只有 256 个 case，单 focus 只有 32 个；
+- 24k validation 中 `VULNERABLE=100%`，正式 128-case focus 测试只有 `83.59%`，说明
+  小 validation 对单任务波动非常敏感；
+- 28k 明显下降，可能是采样波动，也可能是中途训练不稳定；
+- 正式 test 联合 exact `77.54%`，比 24k validation 低 `4.10 pp`。
+
+所以 step-24000 可作为“当前已跑区间的最佳 checkpoint”，但不能宣称融合训练已经收敛，
+也不能据此确定继续训练一定提升或一定退化。
+
+---
+
+## 9. 评测采样审计
+
+### 9.1 已满足的硬约束
+
+正式测试满足：
+
+- 八个 focus task 各 128 个 case；
+- 每个 focus YES=64、NO=64；
+- Phase1 focus 总量与 Phase2 focus 总量相等；
+- Phase2 `(focus, label, variant)` 配额精确；
+- 总 variant 数量符合 eval `2:1:1`；
+- 1024 个 case 中有 1014 个 unique frame；
+- 单帧最大重复次数为 2；
+- subset 未问 RS 行泄漏为 0。
+
+### 9.2 Phase1 focus × variant 偏差
+
+`focus_variant_target_deviation` 显示：
+
+- `max_abs_delta = 35`；
+- 共有 23 个组合偏离目标；
+- Phase2 focus×variant 的最大偏差为 0；
+- 偏差主要发生在 Phase1 focus 的 label 与 variant 组合。
+
+例如某些 Phase1 YES 桶几乎不进入 all-random，却大量进入 hierarchy。虽然每个 Phase1 focus
+总体仍保持 64:64，但 variant 难度与标签发生相关，会产生评测混杂：
+
+- 某任务的 YES 可能主要在更容易或更难的 variant；
+- 当前 main F1 仍是平衡二分类结果，但不再代表三种 variant 中同等难度的平均；
+- 与原 Phase1 单一固定 prompt 的比较会混入 variant distribution 差异。
+
+后续若要做严格新旧归因，建议额外构建一个固定 Phase2 variant、固定 frame list 的 Phase1 paired
+eval；或者让 Phase1 `(focus, label, variant)` 也成为硬约束。
+
+---
+
+## 10. 错误分布和后续优先级
+
+### 10.1 第一优先级：VULNERABLE
+
+现状：
+
+- F1 `80.37%`；
+- precision `100%`；
+- recall `67.19%`；
+- 21 个 FN，0 个 FP；
+- 相对原 Phase1 F1 下降 `8.33 pp`。
+
+建议：
+
+1. 先审计 21 个 focus FN 的四帧 RGB，不要直接继续扩 prompt；
+2. 按位置拆分：front/left/right、画面边缘、远近、遮挡；
+3. 按对象拆分：pedestrian/cyclist/scooter；
+4. 区分视觉不可读、标签边界、模型漏检；
+5. 如果多数是小目标不可读，再考虑视觉 LoRA 小范围实验；
+6. 如果多数目标可读但模型认为“不影响当前决策”，应调整正例监督或简化 decision-relevant 边界。
+
+### 10.2 第二优先级：RS1
+
+现状：
+
+- F1 `75.97%`；
+- 16 FP、15 FN；
+- 是 Phase2 最大主问题错误源。
+
+建议把错误分成互斥边界：
+
+- RS1 vs RS2；
+- RS1 vs RS4；
+- RS1 vs RS5；
+- RS1 vs R3/highway；
+- RS1 + event object，但道路结构本身仍普通。
+
+不要继续添加泛化的“普通道路”描述；应从每一类边界各选可见证据充分的 hard positive / hard
+negative 做小规模对照实验。
+
+### 10.3 第三优先级：RS5
+
+现状：
+
+- F1 `80.70%`；
+- precision `92.00%`；
+- recall `71.88%`；
+- 18 个 FN；
+- `VehicleTurningRoute` 占 10 个错误。
+
+建议重点区分：
+
+- visible road mouth / curb break / T-junction；
+- 普通弯道；
+- driveway / parking exit；
+- 只有事件车辆、但没有局部 junction structure；
+- 路口已经进入 immediate exit 的边界。
+
+### 10.4 第四优先级：hierarchical plain-lane group
+
+hierarchical 总体仍强，不应整体重写。优先检查
+`GROUP:PLAIN_LANE_FOLLOWING_CORRIDOR`，因为它的 F1 `82.05%` 明显低于其它 group。
+
+### 10.5 第五优先级：STATIC 和灯异常 recall
+
+这两项已经显著可用，并且几乎无 FP。后续应以提高 recall 为目标，避免为了多抓少数正例破坏
+当前高 precision：
+
+- STATIC：13 FN、1 FP；
+- LIGHT：13 FN、0 FP。
+
+---
+
+## 11. 推荐的下一步验证顺序
+
+### P0：修正 audit 评测口径
+
+1. 调整 parser：evidence 优先于 answer 匹配；
+2. 用现有 raw output 离线重算，无需重新推理；
+3. 单独报告：
+   - answer semantic exact；
+   - evidence format valid；
+   - evidence non-trivial rate；
+   - unexpected-line rate；
+4. 不再让 evidence 格式错误把所有答案语义清零。
+
+### P1：构建严格 paired comparison
+
+固定同一批 RGB frame、同一 variant、同一 output keys，对以下 adapter 同时跑：
+
+- 原 Phase1 4RGB LoRA；
+- 原 Phase2 checkpoint-20000；
+- 融合 step-24000。
+
+这样才能把数据变化、prompt 变化和训练变化真正分开。
+
+### P2：逐题 RGB 错例审计
+
+推荐顺序：
+
+1. VULNERABLE FN；
+2. RS1 FP/FN；
+3. RS5 FN；
+4. hierarchical plain-lane group；
+5. STATIC/LIGHT FN。
+
+### P3：补做 checkpoint 稳定性测试
+
+对 20k、22k、24k、26k、28k 使用同一份固定 1024-case test index，比较：
+
+- 联合 exact；
+- Phase1-only exact；
+- Phase2-only exact；
+- 八个 focus F1；
+- 三种 variant exact；
+- 关键错误集合的 paired flip。
+
+不要只依赖每次 256-case、每 focus 32-case 的 generation validation。
+
+### P4：再决定是否继续训练或启用视觉 LoRA
+
+只有在完成 P0-P3 后再判断：
+
+- 如果 26k/28k 在固定测试集确实下降，应优先处理训练稳定性或 checkpoint 选择；
+- 如果 VULNERABLE 错例多数肉眼清晰，先调监督和采样；
+- 如果多数是细小、遮挡、远距目标，才值得做受控的 vision LoRA scope 实验；
+- 不建议仅依据当前错误直接扩大 prompt，因为现有 prompt 已很长，继续追加规则可能加剧多任务竞争。
+
+---
+
+## 12. 最终判断
+
+### 是否提升整体问答能力？
+
+是，整体提升。
+
+最强证据是同 bundle base → LoRA：
+
+- 联合 exact：`26.37% -> 77.54%`；
+- Phase1-only exact：`66.60% -> 89.75%`；
+- Phase2-only exact：`32.13% -> 84.47%`；
+- production 格式合法率达到 `100%`。
+
+### 是否超过原 Phase1？
+
+总体超过：
+
+- Phase1-only exact 方向性提高约 `4.98 pp`；
+- Macro F1 提高约 `2.63 pp`；
+- STATIC 提升最大；
+- 但 VULNERABLE 明显下降，需要专项修复。
+
+### 是否超过原 Phase2 augment？
+
+综合略微超过：
+
+- Phase2-only exact 提高约 `1.67 pp`；
+- subset、RS2、RS4 提升明显；
+- RS5 小幅下降；
+- hierarchical 专项能力下降约 `5.30 pp`，但仍维持较高水平。
+
+### audit 是否说明模型不稳定？
+
+不能。官方 audit `58.98%` 主要是 parser 缺陷。重新解析答案行后，audit 联合 exact 为
+`77.54%`，与 production 相同。
+
+### 当前 checkpoint 是否可以作为最终模型？
+
+它可以作为当前已训练区间内的 best checkpoint 和后续 paired audit 基线，但不能视为完整收敛模型。
+训练仅完成计划总 step 的约四分之一，且 generation validation 样本偏小、后期存在波动。
+
+最终建议：保留融合架构和 production prompt；先修正评测，再围绕 VULNERABLE、RS1、RS5
+做逐帧证据审计和固定样本 checkpoint 对照，之后才决定继续训练、调整采样或开启受控视觉 LoRA。
