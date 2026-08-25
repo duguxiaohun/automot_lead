@@ -222,6 +222,13 @@ GPU_IDS=0,1,2,3 torchrun --nproc_per_node=4 \
 5. production 错例 RGB 抽样
 6. 小型审计 tar 包
 
+只要指定 checkpoint/run，`eval.sh` 就强制从其中的
+`sft_new_loop_phase1_adapter_config.json` 读取 `history_rgb_mode`，调用时不再设置
+`HISTORY_RGB_MODE`。配置缺字段或不是 `4rgb/2rgb_endpoints` 会直接失败。最终压缩包名称、
+`BUNDLE_README.md`、`bundle_manifest.json`、adapter 配置副本和各组 metrics 都记录模式；
+manifest 还记录 `history_rgb_count` 与 `history_rgb_selected_indices`，所以下载后可以明确区分
+四帧 `[0,1,2,3]` 和首尾两帧 `[0,3]` 的结果。
+
 推荐传 run 根目录：
 
 ```bash
@@ -326,15 +333,22 @@ GPU_IDS=0 DATA_ROOT=/path/to/lead_data CASES_PER_BIN=64 \
 
 1. 生成 `visual_audit_manifest.json`
 2. 构建 fused 数据集
-3. base production / audit-prompt eval
-4. 训练 LoRA
-5. LoRA production / audit-prompt eval
-6. 对 base 和 LoRA production 错例做 RGB 抽样
+3. 训练 LoRA
+4. 调用本目录 `eval.sh` 跑 base/LoRA production 与 audit-prompt eval
+5. 对 base 和 LoRA production 错例做 RGB 抽样
+6. 按 checkpoint 的 RGB mode 生成硬上限 30MB 的审计压缩包
 
 默认只跑 `4rgb`：
 
 ```bash
 bash qwen3vl_local/sft_new_loop_phase1/run_full_pipeline.sh
+```
+
+只跑首帧+最新帧的 `2rgb_endpoints`：
+
+```bash
+HISTORY_RGB_MODES=2rgb_endpoints \
+  bash qwen3vl_local/sft_new_loop_phase1/run_full_pipeline.sh
 ```
 
 同时跑 4rgb 和 2rgb_endpoints：
@@ -356,7 +370,7 @@ GPU_IDS=0,1,2,3 \
 只构建数据，不训练不评测：
 
 ```bash
-RUN_BASE_EVAL=0 RUN_TRAIN=0 RUN_LORA_EVAL=0 RUN_AUDIT_CASES=0 \
+RUN_EVAL_SH=0 RUN_BASE_EVAL=0 RUN_TRAIN=0 RUN_LORA_EVAL=0 RUN_AUDIT_CASES=0 \
   bash qwen3vl_local/sft_new_loop_phase1/run_full_pipeline.sh
 ```
 
@@ -365,8 +379,12 @@ RUN_BASE_EVAL=0 RUN_TRAIN=0 RUN_LORA_EVAL=0 RUN_AUDIT_CASES=0 \
 - `PIPELINE_TIMESTAMP`：控制 pipeline 输出目录名。
 - `PIPELINE_ROOT`：覆盖 pipeline 输出根目录。
 - `HISTORY_RGB_MODES`：空格分隔的 RGB 模式列表。
-- `RUN_VISUAL_AUDIT/RUN_BUILD/RUN_BASE_EVAL/RUN_TRAIN/RUN_LORA_EVAL/RUN_AUDIT_CASES`
+- `RUN_VISUAL_AUDIT/RUN_BUILD/RUN_TRAIN/RUN_EVAL_SH/RUN_BASE_EVAL/RUN_LORA_EVAL/RUN_AUDIT_CASES`
   控制各阶段开关。
+- `RUN_EVAL_SH=1` 为默认值；此时旧内联 base/LoRA eval 默认关闭，避免把相同模型重复测两遍。
+- `BUNDLE_MAX_MB=30` 是默认硬上限。包内保留四组 metrics/报告、截断后的 case JSONL、
+  Phase1/Phase2 专项采样诊断、adapter 与数据 manifest，以及按错误桶抽样压缩的真实 RGB；
+  不复制权重、checkpoint 或 TensorBoard 大产物。
 - `TRAIN_FOCUS_BALANCE_COUNT`：默认继承 `FOCUS_BALANCE_COUNT=9216`。
 - `TRAIN_MAX_FRAME_REPEAT`：默认继承 `MAX_TRAIN_FRAME_REPEAT=10`。
 - `BASE_CASES_PER_BIN/LORA_CASES_PER_BIN`：默认 64。

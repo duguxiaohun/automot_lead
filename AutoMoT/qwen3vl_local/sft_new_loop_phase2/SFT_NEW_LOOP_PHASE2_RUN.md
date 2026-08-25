@@ -23,10 +23,25 @@ TensorBoard、错例 RGB 审计与一键脚本，但彻底删除 synthetic Phase
 高速/R3 是 ROAD_CORRIDOR 的 valid hard negative：正常输出 UE1/UE3/UE5 全 NO、
 `INVALID_EVENT_CONTEXT=NO`。路口内没有 UE6 也是 valid RE，不是 invalid。
 
+production prompt v2 又根据 2026-08-25 训练错例的逐帧 RGB 复核补了四条边界：
+
+- 最后一帧决定事件是否仍在发生；旧帧用于确认运动。交互及其即时影响都已结束时不能靠场景
+  历史续标；目标刚驶离但 ego 仍明显因该冲突停车/避让时可以保持 YES；
+- 同一交互中，前车纵向突然减速是 UE1，侧向进入 future corridor 是 UE3，不能只凭刹车灯或
+  单帧距离同时打开两者；停着的斜车身姿态本身也不是 UE3；
+- UE5 要求最后一帧仍看得到对向车侵入，空的锥桶路段或只在旧帧出现的车辆不够；
+- UE6 要同时看得到冲突车辆与违规/优先权证据，普通转弯、横穿、已经驶离的路口车辆不够。
+
+夜间、雾、眩光或遮挡下看不清事件证据时，对相应 UE 保守回答 NO；只要道路布局仍与问题域
+相容，就仍是 valid，而不是 invalid。v2 改变了 production prompt hash，v1 adapter 会在加载
+权重前被硬拒绝，必须用新 prompt 重训。
+
 这些边界来自 `keyframe_filter/ROAD_EVENT_CLASSIFICATION_PLAN.md`、
 `ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md` 和旧 Phase3 的
 `EVAL_PROMPT_V2_V3_20260821.md`。数据构建仍要求每个 scenario/Town 至少已有一条
 完整逐帧 RGB review，并默认排除 visual-risk 帧和异常时长 route。
+本次指标、代表性错帧及“证据→prompt/代码”的逐项映射见
+`PROMPT_V2_RGB_AUDIT_20260825.md`。
 
 ## 2. 构建数据
 
@@ -67,9 +82,10 @@ true RS 和错误 question domain 轮转，避免大场景支配。
 bash qwen3vl_local/sft_new_loop_phase2/train.sh check
 ```
 
-单卡与四卡：
+默认四卡、显式单卡与显式四卡：
 
 ```bash
+bash qwen3vl_local/sft_new_loop_phase2/train.sh
 bash qwen3vl_local/sft_new_loop_phase2/train.sh single
 GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase2/train.sh single
 
@@ -149,13 +165,36 @@ GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase2/eval.py \
 ## 5. 一键流程与 RGB 模式矩阵
 
 ```bash
+# 默认 4RGB + 自动选择四张空闲 GPU
 bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh
-GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh
+
+# 只用原 history 的首帧和最新帧
+HISTORY_RGB_MODES=2rgb_endpoints \
+  bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh
+
+# 分别训练/评测 4RGB 与首尾 2RGB
+HISTORY_RGB_MODES="4rgb 2rgb_endpoints" \
+  bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh
 ```
 
 未设置 `GPU_IDS` 时，所有 launcher 都会通过 `nvidia-smi` 覆盖选择空闲 GPU；显式设置
 `GPU_IDS` 时按列表长度推断进程数。`eval.sh` 和 RGB mode matrix 默认分别通过
 `EVAL_GPU_COUNT=4` / `DDP_GPU_COUNT=4` 自动选择四张卡，不再固定物理卡 0–3。
+
+`run_full_pipeline.sh` 现在默认在训练后直接调用本目录 `eval.sh`，完成 base/LoRA 的
+production 与 audit-prompt 测试、错例 RGB 抽样、全量 visual-risk 统计，并在
+`${PIPELINE_ROOT}/<rgb_mode>/eval_review/` 生成硬上限 30MB 的 `.tar.gz` 审计包。
+因此默认把旧的内联 `RUN_BASE_EVAL` / `RUN_LORA_EVAL` 关掉，避免重复评测；可用
+`RUN_EVAL_SH=0 RUN_BASE_EVAL=1 RUN_LORA_EVAL=1` 恢复旧式分段调试。压缩包上限可通过
+`BUNDLE_MAX_MB` 调整，默认仍为 30；超过上限时脚本会逐级减少/压缩 RGB，仍超限则硬失败。
+
+指定 checkpoint 后，`eval.sh` 只从
+`sft_new_loop_phase2_adapter_config.json` 读取 `history_rgb_mode`，不接受调用方覆盖。
+压缩包文件名、顶层 README、bundle manifest、adapter 配置副本和四组 metrics 都保存该模式；
+manifest 还保存 `history_rgb_count/history_rgb_selected_indices`，可直接区分 4RGB 的
+`[0,1,2,3]` 与首尾 2RGB 的 `[0,3]`。包内重点保留 UE1/UE3/UE5/UE6、RE highway/local、
+INVALID 联合 guard/子组指标、production/audit 差异、数据/视觉风险 manifest 和分桶错例 RGB，
+不包含 adapter 权重、checkpoint 或 TensorBoard 大产物。
 
 只复评现有 adapter：
 
@@ -191,4 +230,7 @@ bash qwen3vl_local/sft_new_loop_phase2/eval.sh
 
 人工看图时优先检查：UE1 是否把普通队列当急刹、UE3 是否遗漏“即将进入路径”的早期帧、
 UE5 是否混入 ego 主动借道、UE6 是否把普通路口车辆当违规，以及 invalid 是否误伤高速、
-低能见度或 valid RE。
+低能见度或 valid RE。每个 `audit_note.md` 已包含 newest-frame、标签可见性、模型/标签责任和
+UE1/UE3、UE5、UE6 专项检查项，避免只按目录名确认错误。`eval.sh` 默认传
+`--scan-frame-risks`，所以 bundle 中的 `visual_audit_manifest.json` 不再只是 coverage 摘要，
+还会统计数据构建真正使用的 RS/EVENT review-risk 原因。

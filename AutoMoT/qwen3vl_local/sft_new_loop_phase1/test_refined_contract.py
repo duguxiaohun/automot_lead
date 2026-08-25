@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import pathlib
 import unittest
 
+from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
 from qwen3vl_local.sft_new_loop_phase1.prompts import (
     ANSWER_KEYS,
     PHASE1_ANSWER_KEYS,
@@ -60,6 +62,31 @@ def _row() -> FrameRow:
 
 
 class RefinedContractTest(unittest.TestCase):
+    def test_rgb_modes_are_all_four_or_first_latest_endpoints(self) -> None:
+        """2RGB 固定是首帧+最新帧，不允许退化为任意相邻两帧。"""
+
+        self.assertEqual(history_rgb_indices("4rgb"), (0, 1, 2, 3))
+        self.assertEqual(history_rgb_indices("2rgb_endpoints"), (0, 3))
+
+    def test_pipeline_and_eval_own_rgb_mode_contract(self) -> None:
+        """训练入口展示 4/2RGB；最终 eval 只能相信 checkpoint 配置。"""
+
+        root = pathlib.Path(__file__).parent
+        pipeline = (root / "run_full_pipeline.sh").read_text(encoding="utf-8")
+        eval_sh = (root / "eval.sh").read_text(encoding="utf-8")
+        self.assertIn('HISTORY_RGB_MODES="${HISTORY_RGB_MODES:-4rgb}"', pipeline)
+        self.assertIn('DDP_GPU_COUNT="${DDP_GPU_COUNT:-${NPROC_PER_NODE:-4}}"', pipeline)
+        self.assertIn("HISTORY_RGB_MODES=2rgb_endpoints", pipeline)
+        self.assertIn('RUN_EVAL_SH="${RUN_EVAL_SH:-1}"', pipeline)
+        final_eval_block = pipeline.split('if [[ "${RUN_EVAL_SH}" == "1" ]]', 1)[1]
+        self.assertIn("bash qwen3vl_local/sft_new_loop_phase1/eval.sh", final_eval_block)
+        self.assertNotIn('HISTORY_RGB_MODE="${HISTORY_RGB_MODE}"', final_eval_block)
+        self.assertNotIn("REQUESTED_HISTORY_RGB_MODE", eval_sh)
+        self.assertIn('BASE_HISTORY_RGB_MODE="$(read_adapter_history_rgb_mode', eval_sh)
+        self.assertIn("history_rgb_selected_indices", eval_sh)
+        self.assertIn('${PHASE_NAME}_${TIMESTAMP}_${BASE_HISTORY_RGB_MODE}_audit_bundle', eval_sh)
+        self.assertIn("validated_expected_files", eval_sh)
+
     def test_phase1_order_is_randomized_reproducibly_for_train_and_eval_specs(self) -> None:
         specs = [
             make_prompt_spec(

@@ -5,9 +5,10 @@
 UE1/UE3/UE5，局部路口问 UE6。问题组与图像道路布局明显不相容时，所有 UE
 必须回答 NO，并把 ``INVALID_EVENT_CONTEXT`` 回答为 YES。
 
-事件边界直接复用 2026-07 全帧 RGB 审计和旧 Phase3 prompt v2 的已验证口径：
-UE3 保留 “about to occupy / dynamic crossing” 的早期可见交互，不收紧为已经完全
-进入 ego path；低能见度、拥堵、普通红灯等待或单纯没有 UE 都不能触发 invalid。
+事件边界直接复用 2026-07 全帧 RGB 审计和旧 Phase3 prompt v2 的已验证口径，并结合
+2026-08-25 new Phase2 错例 RGB 复核补齐“最后一帧仍成立”和 UE1/UE3/UE5/UE6
+互斥证据边界。UE3 保留 “about to occupy / dynamic crossing” 的早期可见交互，不收紧为
+已经完全进入 ego path；低能见度、拥堵、普通红灯等待或单纯没有 UE 都不能触发 invalid。
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from qwen3vl_local.sft_new_loop_phase2.history_rgb import (
 )
 
 
-PROMPT_NAME = "sft_new_loop_phase2_direct_event_visual_v1"
+PROMPT_NAME = "sft_new_loop_phase2_direct_event_visual_v2"
 EVENT_KEYS = ("UE1", "UE3", "UE5", "UE6")
 INVALID_KEY = "INVALID_EVENT_CONTEXT"
 ANSWER_KEYS = (*EVENT_KEYS, INVALID_KEY)
@@ -48,7 +49,7 @@ DOMAIN_ANSWER_KEYS = {
 
 
 SYSTEM_PROMPT = """You are the event-perception step of an autonomous-driving agent.
-The input is a stitched three-camera RGB history ordered from oldest to newest. Classify only the newest moment. Answer the listed event questions directly from visible RGB evidence. No previous ROAD_STRUCTURE answer is provided or implied. Do not use scenario names, dataset labels, maps, hidden metadata, or future frames."""
+The input is a stitched three-camera RGB history ordered from oldest to newest. Classify only the newest moment. An event is active only when its defining actor or immediate ongoing effect is still visibly supported at that moment. Answer the listed event questions directly from visible RGB evidence. No previous ROAD_STRUCTURE answer is provided or implied. Do not use scenario names, dataset labels, maps, hidden signal state, or future frames."""
 
 
 @dataclass(frozen=True)
@@ -81,13 +82,13 @@ class PromptSpec:
 
 EVENT_DEFINITIONS = {
     "UE1": """UE1 - lead vehicle hard braking / sudden slowdown:
-YES only when a vehicle already in ego's forward path or same-lane following relation visibly brakes or slows enough to interrupt normal following. Use brake lights, rapid closing distance across the history, a newly formed queue in ego's lane, or clear ego-path deceleration cues. NO for ordinary steady following, normal red-light queueing, a static obstacle, a side-crossing vehicle, an early or ambiguous history with no motion cue, or a distant slow vehicle with no sudden interaction.""",
+YES only when the same vehicle is already in ego's forward path or same-lane following relation and visibly brakes or suddenly slows enough to interrupt normal following. Use brake lights, rapid closing or lead-gap reduction across the history, a newly formed queue in ego's lane, or other clear ego-path deceleration cues; do not require every cue at once. NO for an ordinary lead vehicle that remains steady, a queue already present throughout the history, normal red-light queueing, a static obstacle, a side-crossing or laterally entering vehicle, an early or ambiguous history with no motion cue, or a distant slow vehicle with no sudden interaction.""",
     "UE3": """UE3 - dynamic vehicle cut-in / dynamic occupation:
-YES when another vehicle is moving into, cutting across, pulling out into, or visibly about to occupy ego's immediate future corridor, forcing ego to yield, slow, or stop. Use lateral motion across frames, vehicle nose or body entering ego lane, parking-side pull-out, side-lane cut-in, or dynamic crossing into the path. Do not require the vehicle to be fully centered in ego's lane. NO for ego's own planned lane change or merge, stopped accident or blocked-traffic scenes, ordinary adjacent-lane traffic, distant vehicles, weak evidence with no visible path entry, or a vehicle that remains outside the ego corridor.""",
+YES when another vehicle is moving into, cutting across, pulling out into, or visibly about to occupy ego's immediate future corridor, forcing ego to yield, slow, or stop. Use lateral displacement across frames, a lane-boundary crossing, or a vehicle nose/body already encroaching or progressively entering ego's corridor. Parking-side pull-out, side-lane cut-in, and dynamic crossing count before the vehicle is fully centered in ego's lane. Do not require a complete lane entry or multiple motion cues. A parked angle or side-facing pose alone is insufficient when the vehicle remains outside the immediate corridor. NO for ego's own planned lane change or merge, stopped accident or blocked-traffic scenes, ordinary adjacent-lane traffic, distant vehicles, weak evidence with no visible path entry, or a vehicle that remains outside the ego corridor.""",
     "UE5": """UE5 - abnormal oncoming invasion:
-YES only when an oncoming or opposite-direction vehicle intrudes into ego's lane or usable corridor and ego must yield or wait. The key evidence is the other vehicle invading ego's side, not ego borrowing the opposite lane to pass an obstacle. NO for normal oncoming traffic in its own lane, ego's own TwoWays detour, ordinary narrow-road sharing without invasion, distant headlights, or a signal or priority conflict at an intersection.""",
+YES only when an oncoming or opposite-direction vehicle is still visibly intruding into ego's lane or usable corridor at the newest moment and ego must yield or wait. A just-cleared actor may remain YES when ego is visibly still yielding because of that immediate invasion. The key evidence is the other vehicle invading ego's side, not ego borrowing the opposite lane to pass an obstacle. NO when the invading actor is only visible in older frames and both the invasion and its effect have ended, and NO for an empty coned corridor, normal oncoming traffic in its own lane, ego's own TwoWays detour, ordinary narrow-road sharing without invasion, distant headlights, or a signal or priority conflict at an intersection.""",
     "UE6": """UE6 - rule-violating vehicle conflict at an intersection:
-YES only at a visible local junction when ego should have priority or a legal phase but another vehicle violates the rule and occupies the conflict path. Look for a crossing, oncoming, or turning vehicle entering against the signal or right-of-way and forcing ego to stop despite priority. NO for ordinary turning or crossing vehicles that follow their lane or yield, normal red-light waiting, normal yielding, blocked traffic queue, pedestrian or cyclist crossing, defective signal hardware, a vehicle merely present in the junction, or a non-junction cut-in.""",
+YES only at a visible local junction when both parts are supported across the RGB history: another vehicle occupies or enters ego's conflict path, and a visible signal, lane, priority, or motion cue shows that vehicle is violating the rule while ego should have priority. A vehicle that has just cleared may remain YES when ego is visibly still stopped or yielding because of that immediate conflict. A vehicle merely crossing, turning, or present in the junction is not enough. If no signal, right-of-way, or conflicting-motion cue is visible, do not infer a violation from the junction or vehicle type. NO for ordinary turning or crossing vehicles that follow their lane or yield, normal red-light waiting, normal yielding, blocked traffic queue, pedestrian or cyclist crossing, defective signal hardware, a non-junction cut-in, or a history-only conflict whose effect has ended.""",
 }
 
 DOMAIN_DESCRIPTIONS = {
@@ -233,7 +234,7 @@ def build_event_prompt(
     if audit:
         answer_lines = "\n".join(f"{q.output_key}: <YES or NO>" for q in spec.questions)
         evidence_lines = "\n".join(
-            f"EVIDENCE_{q.output_key}: <one short RGB cue; max 14 words>" for q in spec.questions
+            f"EVIDENCE_{q.output_key}: <newest-state or temporal RGB cue; max 14 words>" for q in spec.questions
         )
         output_lines = f"{answer_lines}\n{evidence_lines}"
     else:
@@ -247,6 +248,10 @@ def build_event_prompt(
 [VISUAL_CHECK_ORDER]
 Use the {history}. First decide whether the listed question set is applicable to the newest frame's visible road layout. Then answer the listed UE questions directly. Use older frames only to confirm motion, suddenness, relative movement, or whether a conflict is entering the ego corridor.{endpoint_notice}
 [/VISUAL_CHECK_ORDER]
+
+[OBSERVABILITY_AND_TIMING]
+The newest frame decides whether an event is active; older frames establish how the newest state developed. If the defining actor appeared earlier and the newest frame shows that both the interaction and its immediate effect have ended, answer that UE NO. A just-cleared actor can still support YES when ego is visibly still yielding or stopped because of that conflict. Do not turn apparent scale change caused only by ego motion into another actor's braking or lateral motion. Darkness, fog, glare, or occlusion lowers confidence in a UE: answer the UE NO when its defining evidence is not visible, but do not mark the question set invalid merely because visibility is poor.
+[/OBSERVABILITY_AND_TIMING]
 
 [QUESTION_SCOPE]
 {DOMAIN_DESCRIPTIONS[spec.question_domain]}
@@ -264,11 +269,14 @@ DECISION ORDER:
 2. If the scope is visually plausible, keep {INVALID_KEY}: NO and judge the listed UE questions.
 3. Prefer valid RE/all-NO when motion, priority violation, lane intrusion, or hard-braking evidence is weak.
 
+ROAD-CORRIDOR MUTUAL BOUNDARIES:
+For one actor and one interaction, choose the evidence type that defines it. A same-lane lead vehicle that suddenly slows is UE1. A side, adjacent-lane, or parked vehicle moving laterally into ego's future corridor is UE3. An opposite-facing vehicle crossing the center boundary into ego's usable corridor is UE5. Do not answer both UE1 and UE3 from the same brake lights or the same single-frame proximity cue.
+
 RE / REGULAR / HIGHWAY HARD NEGATIVE:
 If the scope is applicable but no listed UE is visibly true, answer all UE lines NO and {INVALID_KEY}: NO. Do not classify which regular event it is. Highways and ramps are valid ROAD_CORRIDOR negatives and must not become invalid only because all UE answers are NO.
 
 INVALID_EVENT_CONTEXT:
-Use {INVALID_KEY}: YES only for a clear geometry mismatch between the requested question set and the newest frame. A ROAD_CORRIDOR set is invalid on a clearly local junction conflict frame; a LOCAL_JUNCTION set is invalid on a clear continuous road or highway frame with no local junction context. Use this label cautiously. Fog, night, occlusion, congestion, a static crash, an ordinary queue, ordinary red-light waiting, hard visual ambiguity, or absence of a target UE is not enough. When invalid is YES, all UE lines must be NO.
+Use {INVALID_KEY}: YES only for a clear geometry mismatch between the requested question set and the newest frame. A ROAD_CORRIDOR set is invalid on a clearly local junction conflict frame; a LOCAL_JUNCTION set is invalid on a clear continuous road or highway frame with no local junction context. Use this label cautiously. If night, fog, glare, or occlusion still leaves the requested layout plausible, keep the context valid. Congestion, a static crash, an ordinary queue, ordinary red-light waiting, hard event ambiguity, or absence of a target UE is not enough. When invalid is YES, all UE lines must be NO.
 
 BOUNDARIES:
 UE2 static obstacles, UE4 pedestrians or cyclists, UE7 defective traffic lights, and UE8 blocked intersections are not target abnormal classes here. Treat them as valid RE/all-NO when the question scope itself still matches the visible road layout.
