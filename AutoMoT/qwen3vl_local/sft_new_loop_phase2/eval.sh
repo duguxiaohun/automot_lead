@@ -23,18 +23,18 @@ ADAPTER_CONFIG_NAME="sft_new_loop_phase2_adapter_config.json"
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 INDEX="${INDEX:-checkpoints/sft_new_loop_phase2_data/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
-REQUESTED_HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-}"
 SPLIT="${SPLIT:-test}"
 CASES_PER_BIN="${CASES_PER_BIN:-64}"
 MAX_EVAL_FRAMES="${MAX_EVAL_FRAMES:-0}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-256}"
 AUDIT_PER_TARGET="${AUDIT_PER_TARGET:-8}"
 RUN_VISUAL_AUDIT="${RUN_VISUAL_AUDIT:-1}"
+SCAN_VISUAL_RISKS="${SCAN_VISUAL_RISKS:-1}"
 RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL:-1}"
 TIMESTAMP="${TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-checkpoints/sft_new_loop_phase2_eval_review/${TIMESTAMP}}"
 BUNDLE_MAX_MB="${BUNDLE_MAX_MB:-30}"
-BUNDLE_BASENAME="${BUNDLE_BASENAME:-${PHASE_NAME}_${TIMESTAMP}_audit_bundle}"
+REQUESTED_BUNDLE_BASENAME="${BUNDLE_BASENAME:-}"
 ADAPTER_INPUT="${ADAPTER_DIR:-${CKPT_DIR:-${1:-}}}"
 
 if [[ -z "${ADAPTER_INPUT}" ]]; then
@@ -66,17 +66,17 @@ read_adapter_history_rgb_mode() {
   python - "${adapter_dir}" <<'PY'
 import json, pathlib, sys
 adapter = pathlib.Path(sys.argv[1])
-for name in ("sft_new_loop_phase2_adapter_config.json",):
-    path = adapter / name
-    if path.is_file():
-        print(str(json.loads(path.read_text(encoding="utf-8")).get("history_rgb_mode", "4rgb")))
-        break
-else:
-    print("4rgb")
+path = adapter / "sft_new_loop_phase2_adapter_config.json"
+if not path.is_file():
+    raise SystemExit(f"missing adapter config: {path}")
+config = json.loads(path.read_text(encoding="utf-8"))
+if not config.get("history_rgb_mode"):
+    raise SystemExit(f"adapter config has no history_rgb_mode: {path}")
+print(str(config["history_rgb_mode"]))
 PY
 }
 
-BASE_HISTORY_RGB_MODE="${REQUESTED_HISTORY_RGB_MODE:-$(read_adapter_history_rgb_mode "${ADAPTER_DIR}")}"
+BASE_HISTORY_RGB_MODE="$(read_adapter_history_rgb_mode "${ADAPTER_DIR}")"
 case "${BASE_HISTORY_RGB_MODE}" in
   4rgb|2rgb_endpoints) ;;
   *)
@@ -84,6 +84,7 @@ case "${BASE_HISTORY_RGB_MODE}" in
     exit 2
     ;;
 esac
+BUNDLE_BASENAME="${REQUESTED_BUNDLE_BASENAME:-${PHASE_NAME}_${TIMESTAMP}_${BASE_HISTORY_RGB_MODE}_audit_bundle}"
 
 pick_idle_gpus() {
   local want_count="$1"
@@ -148,7 +149,8 @@ build_bundle() {
   ADAPTER_INPUT="${ADAPTER_INPUT}" ADAPTER_CONFIG_NAME="${ADAPTER_CONFIG_NAME}" \
   BUNDLE_MAX_MB="${BUNDLE_MAX_MB}" BUNDLE_BASENAME="${BUNDLE_BASENAME}" \
   TIMESTAMP="${TIMESTAMP}" MODEL_DIR="${MODEL_DIR}" INDEX="${INDEX}" SPLIT="${SPLIT}" \
-  HISTORY_RGB_MODE="${BASE_HISTORY_RGB_MODE}" EVAL_SCRIPT="${EVAL_PY}" python - <<'PY'
+  HISTORY_RGB_MODE="${BASE_HISTORY_RGB_MODE}" EVAL_SCRIPT="${EVAL_PY}" \
+  RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL}" RUN_VISUAL_AUDIT="${RUN_VISUAL_AUDIT}" python - <<'PY'
 import datetime, json, os, pathlib, shutil, subprocess, tarfile
 from typing import Iterable
 
@@ -200,6 +202,27 @@ def read_json(path: pathlib.Path) -> dict:
     except Exception:
         return {}
 
+def validate_expected_artifacts() -> list[str]:
+    """审计包必须覆盖 direct EVENT 评测真正要复核的结果。"""
+
+    expected = [
+        "base_production/metrics.json",
+        "lora_production/metrics.json",
+        "audit_base_production/summary.json",
+        "audit_lora_production/summary.json",
+    ]
+    if os.environ.get("RUN_AUDIT_PROMPT_EVAL", "1") == "1":
+        expected.extend([
+            "base_audit_prompt/metrics.json",
+            "lora_audit_prompt/metrics.json",
+        ])
+    if os.environ.get("RUN_VISUAL_AUDIT", "1") == "1":
+        expected.append("visual_audit_manifest.json")
+    missing = [rel for rel in expected if not (root / rel).is_file()]
+    if missing:
+        raise SystemExit(f"refuse incomplete new Phase2 audit bundle; missing={missing}")
+    return expected
+
 def adapter_identity() -> dict:
     cfg_path = adapter_path / adapter_config_name if adapter_config_name else None
     if cfg_path is None or not cfg_path.is_file():
@@ -215,6 +238,9 @@ def adapter_identity() -> dict:
         ]
     weight_slot = adapter_path.name if adapter_path.name in {"best_generation", "best_val", "final"} else "direct_adapter_dir"
     run_root = adapter_path.parent if weight_slot != "direct_adapter_dir" else adapter_path
+    history_mode = cfg.get("history_rgb_mode")
+    default_indices = {"4rgb": [0, 1, 2, 3], "2rgb_endpoints": [0, 3]}.get(history_mode)
+    selected_indices = cfg.get("history_rgb_selected_indices") or default_indices
     return {
         "input": adapter_input,
         "resolved_dir": adapter_dir,
@@ -227,7 +253,9 @@ def adapter_identity() -> dict:
         "production_prompt_sha256": cfg.get("production_prompt_sha256"),
         "global_step": cfg.get("global_step"),
         "base_model_dir": cfg.get("base_model_dir"),
-        "history_rgb_mode": cfg.get("history_rgb_mode"),
+        "history_rgb_mode": history_mode,
+        "history_rgb_count": cfg.get("history_rgb_count") or (len(selected_indices) if selected_indices else None),
+        "history_rgb_selected_indices": selected_indices,
     }
 
 def eval_identity() -> dict:
@@ -252,6 +280,16 @@ def eval_identity() -> dict:
             per_eval[eval_name] = {key: data.get(key) for key in wanted if key in data}
     prompt_names = sorted({str(item["prompt_name"]) for item in per_eval.values() if item.get("prompt_name")})
     production_hashes = sorted({str(item["production_prompt_sha256"]) for item in per_eval.values() if item.get("production_prompt_sha256")})
+    expected_mode = os.environ.get("HISTORY_RGB_MODE", "")
+    mismatched_modes = {
+        name: item.get("history_rgb_mode")
+        for name, item in per_eval.items()
+        if item.get("history_rgb_mode") != expected_mode
+    }
+    if mismatched_modes:
+        raise SystemExit(
+            f"refuse mixed-RGB-mode Phase2 bundle: expected={expected_mode} got={mismatched_modes}"
+        )
     return {
         "prompt_name": prompt_names[0] if len(prompt_names) == 1 else prompt_names,
         "production_prompt_sha256": production_hashes[0] if len(production_hashes) == 1 else production_hashes,
@@ -339,6 +377,20 @@ def copy_adapter_metadata() -> list[str]:
             copied.append(str(rel))
     return copied
 
+def copy_dataset_metadata() -> list[str]:
+    """保留六类采样、RE/INVALID 与视觉风险统计，不复制大 frame index。"""
+
+    copied: list[str] = []
+    index_path = pathlib.Path(os.environ.get("INDEX", ""))
+    for name in ("manifest.json", "visual_audit_manifest.json"):
+        src = index_path.parent / name
+        if not src.is_file():
+            continue
+        rel = pathlib.Path("dataset_metadata") / name
+        copy_text(src, bundle / rel)
+        copied.append(str(rel))
+    return copied
+
 def selected_case_dirs(case_limit: int, audit_limit: int) -> list[pathlib.Path]:
     selected: list[pathlib.Path] = []
     for eval_name in ("base_production", "base_audit_prompt", "lora_production", "lora_audit_prompt"):
@@ -364,6 +416,17 @@ def build_attempt(case_limit: int, audit_limit: int, max_side: int, quality: int
     bundle.mkdir(parents=True)
     manifest = {
         **bundle_identity(),
+        "validated_expected_files": validate_expected_artifacts(),
+        "bundle_max_bytes": limit_bytes,
+        "review_focus": [
+            "production exact/format and base-to-LoRA delta",
+            "UE1/UE3/UE5/UE6 per-question precision recall F1 and class exact",
+            "applicable RE with highway R3 and local-junction hard-negative slices",
+            "INVALID all-UE-NO joint guard plus source/true-RS/wrong-domain/joint-signature exact",
+            "production versus audit-prompt consistency and strict evidence format",
+            "sampled RGB errors with newest-frame and model-versus-label adjudication",
+            "adapter prompt hash, base model, checkpoint step, and checkpoint-owned RGB mode",
+        ],
         "case_limit_per_eval": case_limit,
         "audit_limit_per_target": audit_limit,
         "image_max_side": max_side,
@@ -381,6 +444,9 @@ def build_attempt(case_limit: int, audit_limit: int, max_side: int, quality: int
         f"- adapter_dir: `{adapter_dir}`\n"
         f"- prompt_name: `{manifest.get('prompt_name')}`\n"
         f"- production_prompt_sha256: `{manifest.get('production_prompt_sha256')}`\n"
+        f"- history_rgb_mode_from_ckpt: `{manifest.get('history_rgb_mode')}`\n"
+        f"- history_rgb_selected_indices: `{manifest.get('adapter', {}).get('history_rgb_selected_indices')}`\n"
+        f"- bundle_max_bytes: `{limit_bytes}`\n"
         f"- git_commit: `{manifest.get('git', {}).get('commit')}`\n"
         f"- image_max_side: `{max_side}`\n- image_quality: `{quality}`\n",
         encoding="utf-8",
@@ -391,6 +457,7 @@ def build_attempt(case_limit: int, audit_limit: int, max_side: int, quality: int
         if src.suffix.lower() in text_suffixes and "/rgb/" not in src.as_posix():
             copy_text(src, bundle / src.relative_to(root))
     manifest["adapter_metadata_files"] = copy_adapter_metadata()
+    manifest["dataset_metadata_files"] = copy_dataset_metadata()
     cases = selected_case_dirs(case_limit, audit_limit)
     manifest["selected_rgb_case_dirs"] = [str(p.relative_to(root)) for p in cases if p.exists()]
     for case in cases:
@@ -421,7 +488,7 @@ PY
 echo "[eval] phase=${PHASE_NAME}"
 echo "[eval] output_root=${OUTPUT_ROOT}"
 echo "[eval] adapter_dir=${ADAPTER_DIR}"
-echo "[eval] base_history_rgb_mode=${BASE_HISTORY_RGB_MODE}"
+echo "[eval] history_rgb_mode=${BASE_HISTORY_RGB_MODE} (authoritative adapter config)"
 echo "[eval] GPU_IDS=${GPU_IDS} NPROC=${NPROC} source=${GPU_SELECTION_SOURCE} (EVAL_GPU_COUNT only controls automatic selection)"
 echo "[eval] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
@@ -464,7 +531,11 @@ python "${AUDIT_PY}" --eval-dir "${LORA_EVAL_DIR}" --output-dir "${OUTPUT_ROOT}/
   --data-root "${DATA_ROOT}" --per-target "${AUDIT_PER_TARGET}" --overwrite
 
 if [[ "${RUN_VISUAL_AUDIT}" == "1" ]]; then
-  python "${VISUAL_AUDIT_PY}" --output "${OUTPUT_ROOT}/visual_audit_manifest.json"
+  VISUAL_AUDIT_ARGS=(--output "${OUTPUT_ROOT}/visual_audit_manifest.json")
+  if [[ "${SCAN_VISUAL_RISKS}" == "1" ]]; then
+    VISUAL_AUDIT_ARGS+=(--scan-frame-risks)
+  fi
+  python "${VISUAL_AUDIT_PY}" "${VISUAL_AUDIT_ARGS[@]}"
 fi
 
 build_bundle

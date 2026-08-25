@@ -24,9 +24,9 @@ if str(_AUTOMOT_ROOT) not in sys.path:
 from qwen3vl_local.sft_loop_phase1.audit_matrix import _iter_routes_stream  # noqa: E402
 
 
-# These reasons say the annotation itself requests RGB confirmation for the exact
-# visual distinction this event phase learns. They are retained in the index but excluded
-# from the clean default pool unless --include-visual-risk is requested.
+# These RS reasons say the annotation itself requests RGB confirmation for a geometry
+# distinction used by this event phase. Explicit EVENT review flags are handled separately
+# below: unlike RS, every event-review request is directly relevant to EVENT supervision.
 VISUAL_RISK_REASONS = {
     "r2_lacks_xodr_opposite_lane_confirmation",
     "r4_bbox_tl_without_strong_context_requires_rgb_confirmation",
@@ -48,7 +48,29 @@ def frame_visual_risk(annotation: Mapping[str, Any]) -> Tuple[bool, list[str]]:
     for item in fired:
         if item in VISUAL_RISK_REASONS or item.endswith("_without_strong_context_review"):
             reasons.append(item)
-    unique = sorted(set(reason for reason in reasons if reason in VISUAL_RISK_REASONS or reason.endswith("_without_strong_context_review")))
+    selected = {
+        f"rs:{reason}"
+        for reason in reasons
+        if reason in VISUAL_RISK_REASONS or reason.endswith("_without_strong_context_review")
+    }
+
+    # result.json keeps the same event audit both as a compact frame annotation and,
+    # in some versions, as a sibling evidence block. Deduplicate the reasons, but do
+    # not silently ignore an explicit review_required flag with an empty reason list.
+    event_review_seen = False
+    event_reason_seen = False
+    for key in ("frame_event_annotation", "event_evidence"):
+        event_ann = annotation.get(key) or {}
+        if not isinstance(event_ann, Mapping):
+            continue
+        event_review_seen = event_review_seen or bool(event_ann.get("review_required", False))
+        for reason in event_ann.get("review_reasons", []) or []:
+            event_reason_seen = True
+            selected.add(f"event:{reason}")
+    if event_review_seen and not event_reason_seen:
+        selected.add("event:review_required_without_reason")
+
+    unique = sorted(selected)
     return bool(unique), unique
 
 
@@ -149,7 +171,7 @@ def build_visual_audit_manifest(args: argparse.Namespace) -> Dict[str, Any]:
         "frame_risk_scan_enabled": bool(args.scan_frame_risks),
         "visual_risk_reason_counts": dict(sorted(risk_counts.items())),
         "per_scenario_frame_counts": by_scenario,
-        "visual_risk_contract": "Risk flags retain the original primary RS; they do not rewrite labels. build_dataset.py records them and defaults to clean-only rows.",
+        "visual_risk_contract": "Risk flags retain the original primary RS/EVENT; they do not rewrite labels. Explicit EVENT review requests and selected RS geometry risks are recorded, and build_dataset.py defaults to clean-only rows.",
     }
     if missing:
         raise ValueError(f"missing completed RGB review for scenario/Town pairs: {missing[:20]}")

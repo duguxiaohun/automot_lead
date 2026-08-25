@@ -13,6 +13,8 @@ from qwen3vl_local.sft_new_loop_phase2 import build_dataset as dataset
 from qwen3vl_local.sft_new_loop_phase2 import audit_eval_cases as event_audit
 from qwen3vl_local.sft_new_loop_phase2 import eval as event_eval
 from qwen3vl_local.sft_new_loop_phase2 import train as event_train
+from qwen3vl_local.sft_new_loop_phase2 import visual_audit
+from qwen3vl_local.sft_new_loop_phase2.history_rgb import history_rgb_indices
 from qwen3vl_local.sft_new_loop_phase2.prompts import (
     DOMAIN_ANSWER_KEYS,
     EVENT_KEYS,
@@ -22,6 +24,7 @@ from qwen3vl_local.sft_new_loop_phase2.prompts import (
     ROAD_DOMAIN,
     PROMPT_NAME,
     build_event_messages,
+    build_event_prompt,
     build_event_target,
     event_prompt_sha256,
     make_prompt_spec,
@@ -115,6 +118,45 @@ class DirectEventContractTest(unittest.TestCase):
         rendered = repr(messages)
         for forbidden in ("CTX_R", "RS1:", "RS2:", "RS4:", "RS5:", "synthetic_rs_context"):
             self.assertNotIn(forbidden, rendered)
+
+    def test_rgb_modes_are_all_four_or_first_latest_endpoints(self) -> None:
+        """2RGB 固定选原 history 的首帧和最新帧。"""
+
+        self.assertEqual(history_rgb_indices("4rgb"), (0, 1, 2, 3))
+        self.assertEqual(history_rgb_indices("2rgb_endpoints"), (0, 3))
+
+    def test_prompt_v2_encodes_observed_rgb_error_boundaries(self) -> None:
+        """逐帧错例归纳出的 newest/UE 互斥/低能见度边界必须留在生产合同中。"""
+
+        answers = {key: False for key in EVENT_KEYS}
+        answers[DOMAIN_ANSWER_KEYS[ROAD_DOMAIN]] = True
+        answers[INVALID_KEY] = False
+        spec = make_prompt_spec(variant="all_random_order", answers=answers, seed_key="rgb-v2")
+        prompt = build_event_prompt(spec=spec)
+        self.assertTrue(PROMPT_NAME.endswith("visual_v2"))
+        self.assertIn("The newest frame decides whether an event is active", prompt)
+        self.assertIn("same-lane lead vehicle that suddenly slows is UE1", prompt)
+        self.assertIn("moving laterally into ego's future corridor is UE3", prompt)
+        self.assertIn("both the invasion and its effect have ended", prompt)
+        self.assertIn("do not mark the question set invalid merely because visibility is poor", prompt)
+
+    def test_explicit_event_review_is_visual_risk(self) -> None:
+        """EVENT 标注自身要求 RGB 复核时，默认 clean pool 不能继续静默纳入。"""
+
+        annotation = {
+            "frame_rs_annotation": {"review_reasons": []},
+            "frame_event_annotation": {
+                "review_required": True,
+                "review_reasons": ["event_boundary_requires_rgb_confirmation"],
+            },
+            "event_evidence": {
+                "review_required": True,
+                "review_reasons": ["event_boundary_requires_rgb_confirmation"],
+            },
+        }
+        risk, reasons = visual_audit.frame_visual_risk(annotation)
+        self.assertTrue(risk)
+        self.assertEqual(reasons, ["event:event_boundary_requires_rgb_confirmation"])
 
     def test_highway_is_valid_road_regular(self) -> None:
         """R3/highway 是 ROAD_CORRIDOR all-NO hard negative，不是 invalid。"""
@@ -359,6 +401,29 @@ class DirectEventContractTest(unittest.TestCase):
             note_text = note.read_text(encoding="utf-8")
             self.assertIn(signature, note_text)
             self.assertIn('"source_class": "UE6"', note_text)
+            self.assertIn("defining actor visible in newest frame", note_text)
+            self.assertIn("error owner: `MODEL / LABEL_OR_BOUNDARY / BOTH / FORMAT`", note_text)
+
+    def test_full_pipeline_delegates_final_eval_and_bounded_bundle(self) -> None:
+        """full pipeline 默认必须进入 eval.sh，且透传 30MB bundle 上限。"""
+
+        pipeline_path = pathlib.Path(__file__).with_name("run_full_pipeline.sh")
+        pipeline = pipeline_path.read_text(encoding="utf-8")
+        eval_sh = pipeline_path.with_name("eval.sh").read_text(encoding="utf-8")
+        train_sh = pipeline_path.with_name("train.sh").read_text(encoding="utf-8")
+        self.assertIn('RUN_EVAL_SH="${RUN_EVAL_SH:-1}"', pipeline)
+        self.assertIn('DDP_GPU_COUNT="${DDP_GPU_COUNT:-${NPROC_PER_NODE:-4}}"', pipeline)
+        self.assertIn("HISTORY_RGB_MODES=2rgb_endpoints", pipeline)
+        self.assertIn("bash qwen3vl_local/sft_new_loop_phase2/eval.sh", pipeline)
+        self.assertIn('BUNDLE_MAX_MB="${BUNDLE_MAX_MB:-30}"', pipeline)
+        final_eval_block = pipeline.split('if [[ "${RUN_EVAL_SH}" == "1" ]]', 1)[1]
+        self.assertNotIn('HISTORY_RGB_MODE="${HISTORY_RGB_MODE}"', final_eval_block)
+        self.assertIn('MODE="${1:-${MODE:-ddp}}"', train_sh)
+        self.assertNotIn("REQUESTED_HISTORY_RGB_MODE", eval_sh)
+        self.assertIn('BASE_HISTORY_RGB_MODE="$(read_adapter_history_rgb_mode', eval_sh)
+        self.assertIn("history_rgb_selected_indices", eval_sh)
+        self.assertIn('${PHASE_NAME}_${TIMESTAMP}_${BASE_HISTORY_RGB_MODE}_audit_bundle', eval_sh)
+        self.assertIn("validated_expected_files", eval_sh)
 
     def test_adapter_validation_rejects_prompt_or_base_model_mismatch(self) -> None:
         """旧 prompt adapter 和错误 base model 都必须在加载权重前硬失败。"""

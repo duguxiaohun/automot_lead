@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# 新 Phase2 单轮 EVENT 一键流程：build dataset -> base eval -> train -> LoRA eval -> audit samples。
+# 新 Phase2 单轮 EVENT 一键流程：build dataset -> train -> eval.sh 完整评测 -> <=30MB 审计包。
 #
 # 从 AutoMoT/ 主目录运行：
+#   # 默认：4 张 RGB（四帧全用）+ 自动选择 4 张空闲 GPU
 #   bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh
+#   # 2 张 RGB：只用原四帧 history 的首帧和最新帧
+#   HISTORY_RGB_MODES=2rgb_endpoints bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh
+#   # 分别训练/评测 4RGB 与首尾 2RGB
+#   HISTORY_RGB_MODES="4rgb 2rgb_endpoints" bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh
 #
 # 常用覆盖：
 #   GPU_IDS=0,1,2,3 HISTORY_RGB_MODES="4rgb 2rgb_endpoints" bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh
@@ -30,9 +35,16 @@ PIPELINE_LOG="${PIPELINE_LOG:-${PIPELINE_ROOT}/pipeline.log}"
 exec > >(tee -a "${PIPELINE_LOG}") 2>&1
 
 RUN_BUILD="${RUN_BUILD:-1}"
-RUN_BASE_EVAL="${RUN_BASE_EVAL:-1}"
 RUN_TRAIN="${RUN_TRAIN:-1}"
-RUN_LORA_EVAL="${RUN_LORA_EVAL:-1}"
+RUN_EVAL_SH="${RUN_EVAL_SH:-1}"
+# eval.sh 已覆盖 base/LoRA production+audit 与错例抽样。默认关闭旧的内联评测，避免
+# 同一模型重复跑两遍；需要调试某一段时仍可显式 RUN_BASE_EVAL=1/RUN_LORA_EVAL=1。
+if [[ -z "${RUN_BASE_EVAL+x}" ]]; then
+  RUN_BASE_EVAL="$([[ "${RUN_EVAL_SH}" == "1" ]] && echo 0 || echo 1)"
+fi
+if [[ -z "${RUN_LORA_EVAL+x}" ]]; then
+  RUN_LORA_EVAL="$([[ "${RUN_EVAL_SH}" == "1" ]] && echo 0 || echo 1)"
+fi
 RUN_AUDIT_CASES="${RUN_AUDIT_CASES:-1}"
 RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL:-1}"
 
@@ -126,6 +138,21 @@ adapter_dir_for_train_output() {
   fi
 }
 
+adapter_history_rgb_mode() {
+  local adapter_dir="$1"
+  python - "${adapter_dir}" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1]) / "sft_new_loop_phase2_adapter_config.json"
+if not path.is_file():
+    raise SystemExit(f"missing adapter config: {path}")
+config = json.loads(path.read_text(encoding="utf-8"))
+mode = str(config.get("history_rgb_mode", ""))
+if mode not in {"4rgb", "2rgb_endpoints"}:
+    raise SystemExit(f"invalid history_rgb_mode={mode!r} in {path}")
+print(mode)
+PY
+}
+
 echo "[pipeline] AutoMoT root: ${AUTOMOT_ROOT}"
 echo "[pipeline] PIPELINE_ROOT=${PIPELINE_ROOT}"
 echo "[pipeline] PIPELINE_LOG=${PIPELINE_LOG}"
@@ -135,6 +162,7 @@ echo "[pipeline] TRAIN_FOCUS_BALANCE_COUNT=${TRAIN_FOCUS_BALANCE_COUNT}"
 echo "[pipeline] TRAIN_REGULAR_FOCUS_MULTIPLIER=${TRAIN_REGULAR_FOCUS_MULTIPLIER}"
 echo "[pipeline] TRAIN_INVALID_FOCUS_MULTIPLIER=${TRAIN_INVALID_FOCUS_MULTIPLIER}"
 echo "[pipeline] TRAIN_NUM_EPOCHS=${TRAIN_NUM_EPOCHS} TRAIN_MAX_STEPS=${TRAIN_MAX_STEPS}"
+echo "[pipeline] RUN_EVAL_SH=${RUN_EVAL_SH} RUN_BASE_EVAL=${RUN_BASE_EVAL} RUN_LORA_EVAL=${RUN_LORA_EVAL}"
 
 if [[ "${RUN_BUILD}" == "1" ]]; then
   echo
@@ -255,6 +283,42 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
         --no-timestamp-output \
         --overwrite
     fi
+  fi
+
+  if [[ "${RUN_EVAL_SH}" == "1" ]]; then
+    if [[ ! -d "${LORA_ADAPTER_DIR}" ]]; then
+      echo "LoRA adapter not found for final eval.sh: ${LORA_ADAPTER_DIR}" >&2
+      echo "Set ADAPTER_DIR=... or run with RUN_TRAIN=1." >&2
+      exit 1
+    fi
+    ADAPTER_RGB_MODE="$(adapter_history_rgb_mode "${LORA_ADAPTER_DIR}")"
+    if [[ "${RUN_TRAIN}" == "1" && "${ADAPTER_RGB_MODE}" != "${HISTORY_RGB_MODE}" ]]; then
+      echo "trained adapter RGB mode mismatch: loop=${HISTORY_RGB_MODE} config=${ADAPTER_RGB_MODE}" >&2
+      exit 1
+    fi
+    FINAL_EVAL_ROOT="${PIPELINE_ROOT}/${ADAPTER_RGB_MODE}/eval_review"
+    MODE_BUNDLE_BASENAME="${FINAL_BUNDLE_BASENAME:-sft_new_loop_phase2_${PIPELINE_TIMESTAMP}_${ADAPTER_RGB_MODE}_audit_bundle}"
+    echo
+    echo "========== eval.sh + <=${BUNDLE_MAX_MB:-30}MB audit bundle ${ADAPTER_RGB_MODE} (from ckpt) =========="
+    GPU_IDS="${GPU_IDS}" \
+    EVAL_GPU_COUNT="${NPROC}" \
+    MODEL_DIR="${MODEL_DIR}" \
+    INDEX="${INDEX}" \
+    DATA_ROOT="${DATA_ROOT}" \
+    ADAPTER_DIR="${LORA_ADAPTER_DIR}" \
+    SPLIT="${FINAL_EVAL_SPLIT:-test}" \
+    CASES_PER_BIN="${FINAL_CASES_PER_BIN:-${LORA_CASES_PER_BIN:-64}}" \
+    MAX_EVAL_FRAMES="${FINAL_MAX_EVAL_FRAMES:-${LORA_MAX_EVAL_FRAMES:-0}}" \
+    AUDIT_PER_TARGET="${FINAL_AUDIT_PER_TARGET:-${AUDIT_PER_TARGET:-8}}" \
+    RUN_VISUAL_AUDIT="${RUN_VISUAL_AUDIT:-1}" \
+    SCAN_VISUAL_RISKS="${SCAN_VISUAL_RISKS:-1}" \
+    RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL}" \
+    BUNDLE_MAX_MB="${BUNDLE_MAX_MB:-30}" \
+    BUNDLE_BASENAME="${MODE_BUNDLE_BASENAME}" \
+    TIMESTAMP="${PIPELINE_TIMESTAMP}" \
+    OUTPUT_ROOT="${FINAL_EVAL_ROOT}" \
+    bash qwen3vl_local/sft_new_loop_phase2/eval.sh
+    echo "[pipeline] audit bundle: ${FINAL_EVAL_ROOT}/${MODE_BUNDLE_BASENAME}.tar.gz"
   fi
 done
 
