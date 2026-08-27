@@ -26,7 +26,7 @@ from qwen3vl_local.sft_new_loop_phase1.history_rgb import (
 )
 
 
-PROMPT_NAME = "sft_new_loop_phase1_phase1_phase2_combined_v3_random_phase1_order"
+PROMPT_NAME = "sft_new_loop_phase1_phase1_phase2_combined_v4_rgb_audited_rs_highway"
 PHASE1_ANSWER_KEYS = (
     "HIGHWAY",
     "STATIC_OBSTACLE",
@@ -42,6 +42,15 @@ TRAIN_VARIANT_WEIGHTS = dict(phase2_prompts.TRAIN_VARIANT_WEIGHTS)
 VARIANT_ORDER = tuple(phase2_prompts.VARIANT_ORDER)
 SUBSET_COUNTS = tuple(phase2_prompts.SUBSET_COUNTS)
 GROUP_DEFINITIONS = phase2_prompts.GROUP_DEFINITIONS
+
+# 2026-08-27 的 4RGB/2RGB 错例逐帧复核发现，hierarchical_probe 会单独询问
+# RS_HIGHWAY，但原 fused prompt 只渲染 GROUP/DETAIL 定义，没有把 Phase2 的
+# highway robustness 规则带进来。这里仅补齐缺失的派生问题定义，不改变四个
+# canonical RS 定义，也不把 Phase1 HIGHWAY 标签硬绑定到 RS_HIGHWAY。
+RS_HIGHWAY_DEFINITION = """RS_HIGHWAY:
+Ask: "Is the ego path visibly a limited-access highway/ramp/merge/exit or controlled high-speed corridor now?"
+YES needs a visible controlled-access topology chain such as separated carriageways, several same-direction lanes with continuous shoulders or edge barriers, grade separation, ramp/merge/split/exit/gore geometry, and no ordinary surface-street access.
+NO for an unseparated interurban or country surface road with a painted/double-yellow opposing-traffic centreline, ordinary roadside access, lamps, trees, or local traffic. Darkness, fog, rain, a guardrail, a wide straight road, or highway-looking lane markings are not sufficient alone. Decide this line from its own RGB evidence; do not copy the Phase1 HIGHWAY answer or infer it from an all-NO RS pattern."""
 
 SYSTEM_PROMPT = """You are a perception step of an autonomous-driving agent.
 The input is a stitched three-camera RGB history, ordered from oldest to newest. Classify only the newest moment. Inspect the complete left/front/right scene and use older frames only to confirm road geometry, motion, visibility, occlusion, or signal changes. Do not use scenario names, dataset labels, maps, hidden metadata, or memory. Answer each listed question independently from visible RGB evidence. Phase1 questions ask visible traffic facts; Phase2 questions ask the driving-rule road structure visible now."""
@@ -165,6 +174,8 @@ def _phase2_questions_and_rules(spec: PromptSpec) -> Tuple[str, str]:
     )
     definition_ids = []
     for q in spec.phase2_spec.questions:
+        if q.metric_key == "HIGHWAY" and "RS_HIGHWAY" not in definition_ids:
+            definition_ids.append("RS_HIGHWAY")
         if q.question_id in phase2_prompts.RS_DEFINITIONS and q.question_id not in definition_ids:
             definition_ids.append(q.question_id)
         if q.metric_key.startswith("GROUP:"):
@@ -173,7 +184,9 @@ def _phase2_questions_and_rules(spec: PromptSpec) -> Tuple[str, str]:
                 definition_ids.append(group_id)
     blocks = []
     for item in definition_ids:
-        if item in phase2_prompts.RS_DEFINITIONS:
+        if item == "RS_HIGHWAY":
+            blocks.append(RS_HIGHWAY_DEFINITION)
+        elif item in phase2_prompts.RS_DEFINITIONS:
             blocks.append(phase2_prompts.RS_DEFINITIONS[item])
         elif item in phase2_prompts.GROUP_DEFINITIONS:
             blocks.append(phase2_prompts.GROUP_DEFINITIONS[item][2])
@@ -214,7 +227,11 @@ def build_phase1_prompt(
         evidence_lines = "\n".join(f"EVIDENCE_{key}: <one short RGB cue; max 12 words>" for key in spec.output_keys)
         output_lines = f"{answer_lines}\n{evidence_lines}"
         output_tag = "AUDIT_OUTPUT"
-        audit_notice = " Write exactly the requested answer lines first, then one short visible evidence line for each requested answer."
+        audit_notice = (
+            " Write exactly the requested answer lines first, then one short visible evidence line for each "
+            "requested answer. Every evidence line must keep its EVIDENCE_<ANSWER_KEY>: prefix. Once evidence "
+            "starts, never emit or repeat an answer line, and stop after the final requested evidence line."
+        )
     else:
         output_lines = answer_lines
         output_tag = "OUTPUT"

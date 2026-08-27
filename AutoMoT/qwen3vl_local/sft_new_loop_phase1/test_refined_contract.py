@@ -17,13 +17,16 @@ from qwen3vl_local.sft_new_loop_phase1.prompts import (
     parse_phase1_output,
     phase2_output_keys,
     prompt_spec_to_json,
+    spec_metric_items,
 )
 from qwen3vl_local.sft_new_loop_phase1.train import (
     FrameRow,
     WorkItem,
     _line_value_span,
+    _semantic_base_weights,
     _semantic_class_weights,
     _semantic_output_keys,
+    _semantic_output_weights,
     _target_token_weights,
 )
 
@@ -168,7 +171,33 @@ class RefinedContractTest(unittest.TestCase):
         ):
             self.assertIn(phrase, prompt)
 
-    def test_main_semantic_loss_is_focus_only(self) -> None:
+    def test_hierarchical_prompt_defines_rgb_audited_rs_highway_boundary(self) -> None:
+        spec = make_prompt_spec(
+            variant="hierarchical_probe",
+            answers=_answers(),
+            seed_key="rs-highway-rgb-audit",
+            focus="RS1",
+            group_id="PLAIN_LANE_FOLLOWING_CORRIDOR",
+            detail_key="RS1",
+        )
+        prompt = build_phase1_prompt(spec=spec)
+        self.assertIn("RS_HIGHWAY:\nAsk:", prompt)
+        self.assertIn("painted/double-yellow opposing-traffic centreline", prompt)
+        self.assertIn("do not copy the Phase1 HIGHWAY answer", prompt)
+
+    def test_audit_prompt_forbids_evidence_prefix_loss_and_answer_repetition(self) -> None:
+        spec = make_prompt_spec(
+            variant="subset_random",
+            answers=_answers(),
+            seed_key="audit-contract",
+            focus="RS5",
+            subset_count=1,
+        )
+        prompt = build_phase1_prompt(spec=spec, audit=True)
+        self.assertIn("Every evidence line must keep its EVIDENCE_<ANSWER_KEY>: prefix", prompt)
+        self.assertIn("never emit or repeat an answer line", prompt)
+
+    def test_zero_non_focus_weight_preserves_legacy_focus_only_contract(self) -> None:
         spec = make_prompt_spec(
             variant="all_random_order",
             answers=_answers(),
@@ -176,7 +205,7 @@ class RefinedContractTest(unittest.TestCase):
             focus="RS5",
         )
         item = WorkItem(_row(), "VULNERABLE", spec, "VULNERABLE:YES", "unit")
-        semantic_keys = _semantic_output_keys(item)
+        semantic_keys = _semantic_output_keys(item, 0.0)
         self.assertEqual(semantic_keys, ("VULNERABLE",))
         target = build_phase1_target(_answers(), spec=spec)
         _, weights, _ = _target_token_weights(
@@ -192,6 +221,25 @@ class RefinedContractTest(unittest.TestCase):
             expected = 1.0 if key == "VULNERABLE" else 0.0
             self.assertTrue(all(weights[i] == expected for i in range(lo, hi)), key)
 
+    def test_default_non_focus_main_values_receive_small_balanced_loss(self) -> None:
+        spec = make_prompt_spec(
+            variant="all_random_order",
+            answers=_answers(),
+            seed_key="scaled-side-loss",
+            focus="RS5",
+        )
+        item = WorkItem(_row(), "VULNERABLE", spec, "VULNERABLE:YES", "unit")
+        class_weights = {
+            f"{metric_key}:{'YES' if answer else 'NO'}": 1.0
+            for _, metric_key, answer in spec_metric_items(spec)
+        }
+        weights = _semantic_output_weights(item, class_weights, 0.1)
+        self.assertEqual(set(weights), set(spec.output_keys))
+        self.assertEqual(weights["VULNERABLE"], 1.0)
+        for key in spec.output_keys:
+            if key != "VULNERABLE":
+                self.assertAlmostEqual(weights[key], 0.1)
+
     def test_hierarchical_derived_lines_keep_semantic_loss(self) -> None:
         spec = make_prompt_spec(
             variant="hierarchical_probe",
@@ -202,8 +250,16 @@ class RefinedContractTest(unittest.TestCase):
             detail_key="RS5",
         )
         item = WorkItem(_row(), "RS5", spec, "RS5:YES", "unit")
-        self.assertEqual(set(_semantic_output_keys(item)), {"RS5", "RS_HIGHWAY", "GROUP"})
-        self.assertTrue(set(PHASE1_ANSWER_KEYS).isdisjoint(_semantic_output_keys(item)))
+        class_weights = {
+            f"{metric_key}:{'YES' if answer else 'NO'}": 1.0
+            for _, metric_key, answer in spec_metric_items(spec)
+        }
+        weights = _semantic_output_weights(item, class_weights, 0.1)
+        self.assertEqual(weights["RS5"], 1.0)
+        self.assertEqual(weights["RS_HIGHWAY"], 1.0)
+        self.assertEqual(weights["GROUP"], 1.0)
+        for key in PHASE1_ANSWER_KEYS:
+            self.assertAlmostEqual(weights[key], 0.1)
 
     def test_focus_class_weights_are_equal_when_focus_bins_are_equal(self) -> None:
         yes_spec = make_prompt_spec(
@@ -225,8 +281,31 @@ class RefinedContractTest(unittest.TestCase):
             WorkItem(_row(), "VULNERABLE", yes_spec, "VULNERABLE:YES", "unit/yes"),
             WorkItem(no_row, "VULNERABLE", no_spec, "VULNERABLE:NO", "unit/no"),
         ]
-        weights = _semantic_class_weights(work)
+        weights = _semantic_class_weights(work, 0.0)
         self.assertEqual(weights, {"VULNERABLE:NO": 1.0, "VULNERABLE:YES": 1.0})
+
+    def test_scaled_non_focus_class_weights_equalize_effective_yes_no_mass(self) -> None:
+        work = []
+        for value in (False, True):
+            answers = {key: value for key in ANSWER_KEYS}
+            row = _row()
+            row.answers = answers
+            spec = make_prompt_spec(
+                variant="all_random_order",
+                answers=answers,
+                seed_key=f"effective-mass:{value}",
+                focus="RS1",
+            )
+            work.append(WorkItem(row, "RS1", spec, f"RS1:{'YES' if value else 'NO'}", "unit"))
+        class_weights = _semantic_class_weights(work, 0.1)
+        mass: dict[str, float] = {}
+        for item in work:
+            base = _semantic_base_weights(item, 0.1)
+            for output_key, metric_key, answer in spec_metric_items(item.spec):
+                label = f"{metric_key}:{'YES' if answer else 'NO'}"
+                mass[label] = mass.get(label, 0.0) + base[output_key] * class_weights[label]
+        for metric_key in ANSWER_KEYS:
+            self.assertAlmostEqual(mass[f"{metric_key}:YES"], mass[f"{metric_key}:NO"])
 
 
 if __name__ == "__main__":
