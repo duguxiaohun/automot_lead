@@ -28,6 +28,7 @@ from qwen3vl_local.sft_new_loop_phase2.prompts import (
     build_event_target,
     event_prompt_sha256,
     make_prompt_spec,
+    parse_event_answer_lines,
     parse_event_output,
 )
 
@@ -125,20 +126,22 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertEqual(history_rgb_indices("4rgb"), (0, 1, 2, 3))
         self.assertEqual(history_rgb_indices("2rgb_endpoints"), (0, 3))
 
-    def test_prompt_v2_encodes_observed_rgb_error_boundaries(self) -> None:
+    def test_prompt_v3_encodes_observed_rgb_error_boundaries(self) -> None:
         """逐帧错例归纳出的 newest/UE 互斥/低能见度边界必须留在生产合同中。"""
 
         answers = {key: False for key in EVENT_KEYS}
         answers[DOMAIN_ANSWER_KEYS[ROAD_DOMAIN]] = True
         answers[INVALID_KEY] = False
-        spec = make_prompt_spec(variant="all_random_order", answers=answers, seed_key="rgb-v2")
+        spec = make_prompt_spec(variant="all_random_order", answers=answers, seed_key="rgb-v3")
         prompt = build_event_prompt(spec=spec)
-        self.assertTrue(PROMPT_NAME.endswith("visual_v2"))
+        self.assertTrue(PROMPT_NAME.endswith("visual_v3"))
         self.assertIn("The newest frame decides whether an event is active", prompt)
         self.assertIn("same-lane lead vehicle that suddenly slows is UE1", prompt)
         self.assertIn("moving laterally into ego's future corridor is UE3", prompt)
         self.assertIn("both the invasion and its effect have ended", prompt)
         self.assertIn("do not mark the question set invalid merely because visibility is poor", prompt)
+        self.assertIn("ego passes it is not lateral motion", prompt)
+        self.assertIn("stationary crash or construction actors", prompt)
 
     def test_explicit_event_review_is_visual_risk(self) -> None:
         """EVENT 标注自身要求 RGB 复核时，默认 clean pool 不能继续静默纳入。"""
@@ -227,6 +230,20 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertTrue(all(value is not None for value in parsed.values()))
         malformed = f"{target}\n{evidence}\nextra"
         self.assertTrue(all(value is None for value in parse_event_output(malformed, spec=spec, audit=True).values()))
+
+        blank_evidence = "\n".join(
+            f"EVIDENCE_{key}: {'visible junction cue' if index else ''}"
+            for index, key in enumerate(spec.output_keys)
+        )
+        raw = f"{target}\n{blank_evidence}"
+        self.assertTrue(
+            all(value is None for value in parse_event_output(raw, spec=spec, audit=True).values())
+        )
+        expected_answers = {q.output_key: bool(q.answer) for q in spec.questions}
+        self.assertEqual(parse_event_answer_lines(raw, spec=spec), expected_answers)
+        audit_prompt = build_event_prompt(spec=spec, audit=True)
+        self.assertIn("Every EVIDENCE line is mandatory", audit_prompt)
+        self.assertIn("never leave text after the colon blank", audit_prompt)
 
     def test_train_and_eval_balancers_preserve_required_margins(self) -> None:
         """训练和独立评测都守住 UE 1:1:1:1 与 RE highway 25%。"""

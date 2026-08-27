@@ -6,9 +6,10 @@ UE1/UE3/UE5，局部路口问 UE6。问题组与图像道路布局明显不相�
 必须回答 NO，并把 ``INVALID_EVENT_CONTEXT`` 回答为 YES。
 
 事件边界直接复用 2026-07 全帧 RGB 审计和旧 Phase3 prompt v2 的已验证口径，并结合
-2026-08-25 new Phase2 错例 RGB 复核补齐“最后一帧仍成立”和 UE1/UE3/UE5/UE6
+2026-08-25/27 new Phase2 错例 RGB 复核补齐“最后一帧仍成立”和 UE1/UE3/UE5/UE6
 互斥证据边界。UE3 保留 “about to occupy / dynamic crossing” 的早期可见交互，不收紧为
-已经完全进入 ego path；低能见度、拥堵、普通红灯等待或单纯没有 UE 都不能触发 invalid。
+已经完全进入 ego path；但静态事故、路边停车和 ego 前进视差不能伪装成横向进入。
+低能见度、拥堵、普通红灯等待或单纯没有 UE 都不能触发 invalid。
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from qwen3vl_local.sft_new_loop_phase2.history_rgb import (
 )
 
 
-PROMPT_NAME = "sft_new_loop_phase2_direct_event_visual_v2"
+PROMPT_NAME = "sft_new_loop_phase2_direct_event_visual_v3"
 EVENT_KEYS = ("UE1", "UE3", "UE5", "UE6")
 INVALID_KEY = "INVALID_EVENT_CONTEXT"
 ANSWER_KEYS = (*EVENT_KEYS, INVALID_KEY)
@@ -84,7 +85,7 @@ EVENT_DEFINITIONS = {
     "UE1": """UE1 - lead vehicle hard braking / sudden slowdown:
 YES only when the same vehicle is already in ego's forward path or same-lane following relation and visibly brakes or suddenly slows enough to interrupt normal following. Use brake lights, rapid closing or lead-gap reduction across the history, a newly formed queue in ego's lane, or other clear ego-path deceleration cues; do not require every cue at once. NO for an ordinary lead vehicle that remains steady, a queue already present throughout the history, normal red-light queueing, a static obstacle, a side-crossing or laterally entering vehicle, an early or ambiguous history with no motion cue, or a distant slow vehicle with no sudden interaction.""",
     "UE3": """UE3 - dynamic vehicle cut-in / dynamic occupation:
-YES when another vehicle is moving into, cutting across, pulling out into, or visibly about to occupy ego's immediate future corridor, forcing ego to yield, slow, or stop. Use lateral displacement across frames, a lane-boundary crossing, or a vehicle nose/body already encroaching or progressively entering ego's corridor. Parking-side pull-out, side-lane cut-in, and dynamic crossing count before the vehicle is fully centered in ego's lane. Do not require a complete lane entry or multiple motion cues. A parked angle or side-facing pose alone is insufficient when the vehicle remains outside the immediate corridor. NO for ego's own planned lane change or merge, stopped accident or blocked-traffic scenes, ordinary adjacent-lane traffic, distant vehicles, weak evidence with no visible path entry, or a vehicle that remains outside the ego corridor.""",
+YES when another vehicle is moving into, cutting across, pulling out into, or visibly about to occupy ego's immediate future corridor, forcing ego to yield, slow, or stop. Use lateral displacement across frames, a lane-boundary crossing, or a vehicle nose/body already encroaching or progressively entering ego's corridor. Parking-side pull-out, side-lane cut-in, and dynamic crossing count before the vehicle is fully centered in ego's lane. Do not require a complete lane entry or multiple motion cues. A parked angle or side-facing pose alone is insufficient when the vehicle remains outside the immediate corridor. With endpoint-only history, an actor appearing larger, shifting in the image, or entering view as ego passes it is not lateral motion unless its relation to a visible lane boundary or ego corridor also changes. NO for ego's own planned lane change or merge, stopped accident or blocked-traffic scenes, stationary crash or construction actors, ego passing parked or queued vehicles, ordinary adjacent-lane traffic, distant vehicles, weak evidence with no visible path entry, or a vehicle that remains outside the ego corridor.""",
     "UE5": """UE5 - abnormal oncoming invasion:
 YES only when an oncoming or opposite-direction vehicle is still visibly intruding into ego's lane or usable corridor at the newest moment and ego must yield or wait. A just-cleared actor may remain YES when ego is visibly still yielding because of that immediate invasion. The key evidence is the other vehicle invading ego's side, not ego borrowing the opposite lane to pass an obstacle. NO when the invading actor is only visible in older frames and both the invasion and its effect have ended, and NO for an empty coned corridor, normal oncoming traffic in its own lane, ego's own TwoWays detour, ordinary narrow-road sharing without invasion, distant headlights, or a signal or priority conflict at an intersection.""",
     "UE6": """UE6 - rule-violating vehicle conflict at an intersection:
@@ -237,8 +238,14 @@ def build_event_prompt(
             f"EVIDENCE_{q.output_key}: <newest-state or temporal RGB cue; max 14 words>" for q in spec.questions
         )
         output_lines = f"{answer_lines}\n{evidence_lines}"
+        audit_contract = f"""
+
+[AUDIT_EVIDENCE_CONTRACT]
+Every EVIDENCE line is mandatory and must contain a non-empty visible cue, including for a NO answer. For NO, state the visible absence or boundary, such as "no lateral entry visible"; never leave text after the colon blank. For {INVALID_KEY}, describe either the visible layout mismatch for YES or why the requested layout remains visually plausible for NO. Keep every cue at 14 words or fewer.
+[/AUDIT_EVIDENCE_CONTRACT]"""
     else:
         output_lines = "\n".join(f"{q.output_key}: <YES or NO>" for q in spec.questions)
+        audit_contract = ""
     output_label = "AUDIT_OUTPUT" if audit else "OUTPUT"
     text = f"""
 [PROMPT_NAME]
@@ -281,6 +288,7 @@ Use {INVALID_KEY}: YES only for a clear geometry mismatch between the requested 
 BOUNDARIES:
 UE2 static obstacles, UE4 pedestrians or cyclists, UE7 defective traffic lights, and UE8 blocked intersections are not target abnormal classes here. Treat them as valid RE/all-NO when the question scope itself still matches the visible road layout.
 [/DECISION_RULES]
+{audit_contract}
 
 [{output_label}]
 Output exactly these lines and nothing else:
@@ -322,6 +330,32 @@ def build_event_target(spec: PromptSpec) -> str:
     return "\n".join(f"{q.output_key}: {'YES' if bool(q.answer) else 'NO'}" for q in spec.questions)
 
 
+def parse_event_answer_lines(
+    text: str,
+    *,
+    spec: PromptSpec,
+) -> Dict[str, Optional[bool]]:
+    """只解析开头的严格答案行，供 audit 区分语义答案与 evidence 格式。
+
+    该函数不会替代正式评分：它允许答案行后继续存在 evidence，但答案本身仍必须
+    严格按 ``spec.output_keys`` 顺序写成 ``KEY: YES|NO``。缺行、换序或前置解释
+    仍会返回全 ``None``。
+    """
+
+    invalid: Dict[str, Optional[bool]] = {q.output_key: None for q in spec.questions}
+    lines = (text or "").strip().splitlines()
+    answer_count = len(spec.questions)
+    if len(lines) < answer_count:
+        return invalid
+    parsed: Dict[str, Optional[bool]] = {}
+    for line, question in zip(lines[:answer_count], spec.questions):
+        match = re.fullmatch(rf"{re.escape(question.output_key)}: (YES|NO)", line)
+        if match is None:
+            return invalid
+        parsed[question.output_key] = match.group(1) == "YES"
+    return parsed
+
+
 def parse_event_output(
     text: str,
     *,
@@ -343,12 +377,9 @@ def parse_event_output(
     if len(lines) != expected_count:
         return invalid
 
-    parsed: Dict[str, Optional[bool]] = {}
-    for line, question in zip(lines[:answer_count], spec.questions):
-        match = re.fullmatch(rf"{re.escape(question.output_key)}: (YES|NO)", line)
-        if match is None:
-            return invalid
-        parsed[question.output_key] = match.group(1) == "YES"
+    parsed = parse_event_answer_lines(text, spec=spec)
+    if any(value is None for value in parsed.values()):
+        return invalid
 
     if audit:
         for line, question in zip(lines[answer_count:], spec.questions):
