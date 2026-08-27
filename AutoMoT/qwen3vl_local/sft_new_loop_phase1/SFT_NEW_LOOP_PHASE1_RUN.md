@@ -24,25 +24,30 @@ YES/NO 问答里。每个样本固定包含 Phase1 四问：
 YES:NO = 1:1，Phase1 四问与 Phase2 四问总量也是 1:1。默认还会检查
 `MAX_TRAIN_FRAME_REPEAT=10`，任一帧在单轮采样里复用超过上限会在加载模型前中止。
 
-从 2026-08-24 的 v2 修订开始，`focus` 不写入 prompt，但会决定主任务语义 loss：八个
-主问题只对当前 focus 的 YES/NO 值 token 使用 `1.0` 权重，非 focus 主问题的值 token
-权重为 0；所有输出行的字段/换行/结束符仍使用 `FORMAT_LOSS_WEIGHT`，hierarchical 的
-`RS_HIGHWAY/GROUP` 派生值继续监督，并按当轮实际 YES/NO 数量计算等质量类别权重。原因是
-v1 虽然 focus case 严格 1:1，但同一 target
-其它行中的自然 NO 仍全部反向传播，实际把 VULNERABLE、RS5、灯异常等任务重新压成严重
-负类偏置。每个 balance JSON 现在同时记录 `emitted_answer_counts` 与
-`semantic_answer_counts` 和 `semantic_class_weights`，训练前必须检查前者的八个主任务均为
-YES:NO=1:1，并检查派生键权重没有异常极值。
+从 2026-08-27 的 v4 修订开始，`focus` 不写入 prompt，但会决定主任务语义 loss：当前
+focus 的 YES/NO 值 token 使用 `1.0` 基础权重；同一输出里的其它主答案默认使用
+`NON_FOCUS_SEMANTIC_LOSS_WEIGHT=0.1`；hierarchical 的 `RS_HIGHWAY/GROUP` 派生值仍使用
+`1.0`。类别权重不是按原始行数计算，而是按上述基础权重累积出的有效语义质量分别平衡
+YES/NO，避免 0.1 副行中的自然 NO 重新压过 1:1 focus 监督。所有输出行的字段、冒号、换行
+和结束符仍使用 `FORMAT_LOSS_WEIGHT`。如需复现实验前的 focus-only 合同，可显式设置
+`NON_FOCUS_SEMANTIC_LOSS_WEIGHT=0`。
+
+这一折中来自 2026-08-27 的真实 RGB 错例审计：两套 1024-case eval 中，约 18% 样本是
+focus 行正确但其它请求行仍有错；但又观察到 Phase1 HIGHWAY 与 Phase2 RS 标签存在少量
+独立标注冲突，因此没有恢复 v1 的“所有答案值都以 1.0 反传”。每个 balance JSON 会记录
+`emitted_answer_counts`、`semantic_answer_counts`、`semantic_answer_base_mass`、
+`semantic_class_weights` 和 `non_focus_semantic_loss_weight`，应重点检查有效质量与类别权重，
+不能只看原始答案行数。
 
 当前 prompt 名为
-`sft_new_loop_phase1_phase1_phase2_combined_v3_random_phase1_order`。v3 仅在 v2 基础上把
-Phase1 四个输出行改为按 case seed 可复现随机排列；四问始终全部出现，问题定义、答案、
-focus 采样和 loss 均不变。训练、teacher/generation validation 与正式 test 都通过同一个
-`make_prompt_spec` 生成顺序，`prompt_spec.phase1_output_keys` 会保存每条 case 的真实排列。
-v2 没有放宽标签边界，
-只根据逐帧 RGB 错例加入：道路结构与事件主体分两遍判断、小而短暂目标的四帧二次扫描、
-RS1 limited-access 复核、RS5 paired witness 和灯异常 readable-witness 复核。v1/v2 adapter
-与 v3 prompt fingerprint 不兼容，应重新训练，不能强行跨 prompt 加载。
+`sft_new_loop_phase1_phase1_phase2_combined_v4_rgb_audited_rs_highway`。v4 保留 v3 的 Phase1
+四行按 case seed 可复现随机排列和既有决策边界，只修复一个经 4RGB/2RGB 逐帧错例确认的
+缺口：`hierarchical_probe` 原来询问 `RS_HIGHWAY`，但 fused prompt 没有渲染它自己的定义。
+现在明确要求 limited-access 拓扑链，并把双黄线、普通双向城际道路、黑暗、雾、单一护栏
+列为不足证据。audit prompt 还明确要求每行保持 `EVIDENCE_<ANSWER_KEY>:` 前缀、证据开始后
+不再重复答案行。没有放宽 VULNERABLE、STATIC、RS1、RS5 或灯异常规则；对应审计见
+`FUSION_V3_4RGB_2RGB_ERROR_AUDIT_20260827.md`。所有旧 adapter 的 prompt fingerprint 与 v4
+不兼容，必须重训后评测，不能把旧权重强行挂到新 prompt 上。
 
 数据构建沿用 Phase2 最新过滤：剔除异常时长 route、检查 full-frame RGB review 覆盖，
 默认排除 visual-risk 帧。Phase1 标签来自已审计四问答案表；Phase2 标签来自逐帧 RS
@@ -146,6 +151,7 @@ HISTORY_RGB_MODE=2rgb_endpoints GPU_IDS=0,1,2,3 \
 
 - `FOCUS_BALANCE_COUNT=9216`
 - `MAX_TRAIN_FRAME_REPEAT=10`
+- `NON_FOCUS_SEMANTIC_LOSS_WEIGHT=0.1`
 - `NUM_EPOCHS=3`
 - `EVAL_STEPS=2000`
 - `GENERATION_EVAL_STEPS=2000`

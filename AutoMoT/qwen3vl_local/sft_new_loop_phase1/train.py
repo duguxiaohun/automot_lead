@@ -95,7 +95,8 @@ from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # 
 
 
 FORMAT_COMPONENT_ID = -1
-SEMANTIC_SUPERVISION = "focus_main_plus_class_balanced_derived"
+DEFAULT_NON_FOCUS_SEMANTIC_LOSS_WEIGHT = 0.1
+SEMANTIC_SUPERVISION = "focus_plus_scaled_class_balanced_nonfocus_and_derived_v2"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -277,6 +278,7 @@ def _write_run_metadata(
         "focus_balance_count": int(args.focus_balance_count),
         "phase1_output_ordering": "deterministic_random_per_case",
         "semantic_supervision": SEMANTIC_SUPERVISION,
+        "non_focus_semantic_loss_weight": float(args.non_focus_semantic_loss_weight),
         "max_train_frame_repeat": int(args.max_train_frame_repeat),
         "train_variant_weights": dict(TRAIN_VARIANT_WEIGHTS),
         "eval_variant_weights": dict(VARIANT_WEIGHTS),
@@ -317,41 +319,68 @@ class WorkItem:
     augment_balance_key: str
 
 
-def _semantic_output_keys(item: WorkItem) -> Tuple[str, ...]:
-    """返回训练时施加 YES/NO 语义 loss 的输出行。
+def _semantic_base_weights(
+    item: WorkItem,
+    non_focus_semantic_loss_weight: float = DEFAULT_NON_FOCUS_SEMANTIC_LOSS_WEIGHT,
+) -> Dict[str, float]:
+    """返回每个语义答案行在类别再平衡前的角色权重。"""
 
-    八个主任务仅监督不可见的 focus 行；hierarchical 的 RS_HIGHWAY/GROUP
-    没有独立 focus 桶，因此继续监督，并由当轮类别权重修正其 YES/NO 数量差。
-    """
-
+    non_focus_weight = float(non_focus_semantic_loss_weight)
+    if not 0.0 <= non_focus_weight <= 1.0:
+        raise ValueError("non_focus_semantic_loss_weight must be in [0, 1]")
     if item.focus not in item.spec.output_keys:
         raise RuntimeError(
             f"focus {item.focus!r} is absent from prompt output keys {item.spec.output_keys!r}"
         )
-    keys = [item.focus]
+    weights: Dict[str, float] = {}
     for output_key, metric_key, _ in spec_metric_items(item.spec):
-        if metric_key not in ANSWER_KEYS and output_key not in keys:
-            keys.append(output_key)
-    return tuple(keys)
+        if output_key == item.focus:
+            weights[output_key] = 1.0
+        elif metric_key not in ANSWER_KEYS:
+            # hierarchical 的 RS_HIGHWAY/GROUP 没有独立 focus 桶，继续完整监督。
+            weights[output_key] = 1.0
+        elif non_focus_weight > 0.0:
+            # RGB 审计显示联合输出常出现 focus 正确、副行错误；只给小权重，避免
+            # 自然 NO 和局部跨阶段标签冲突重新压过均衡 focus 监督。
+            weights[output_key] = non_focus_weight
+    return weights
 
 
-def _semantic_class_weights(work: Sequence[WorkItem]) -> Dict[str, float]:
-    """按实际语义监督行计算每个 metric 的 YES/NO 等质量权重。"""
+def _semantic_output_keys(
+    item: WorkItem,
+    non_focus_semantic_loss_weight: float = DEFAULT_NON_FOCUS_SEMANTIC_LOSS_WEIGHT,
+) -> Tuple[str, ...]:
+    """返回训练时施加 YES/NO 语义 loss 的输出行。
+
+    focus 主行完整监督；其它主答案行使用可配置的小权重；hierarchical 的
+    RS_HIGHWAY/GROUP 没有独立 focus 桶，因此继续完整监督。所有行随后再按
+    当轮有效语义质量修正 YES/NO 数量差。
+    """
+
+    base_weights = _semantic_base_weights(item, non_focus_semantic_loss_weight)
+    return tuple(key for key in item.spec.output_keys if key in base_weights)
+
+
+def _semantic_class_weights(
+    work: Sequence[WorkItem],
+    non_focus_semantic_loss_weight: float = DEFAULT_NON_FOCUS_SEMANTIC_LOSS_WEIGHT,
+) -> Dict[str, float]:
+    """按 focus/non-focus 基础质量计算每个 metric 的 YES/NO 等质量权重。"""
 
     counts: Counter[str] = Counter()
     metrics: set[str] = set()
     for item in work:
-        semantic_keys = set(_semantic_output_keys(item))
+        base_weights = _semantic_base_weights(item, non_focus_semantic_loss_weight)
         for output_key, metric_key, answer in spec_metric_items(item.spec):
-            if output_key in semantic_keys:
+            if output_key in base_weights:
                 metrics.add(metric_key)
-                counts[f"{metric_key}:{_answer_text(answer)}"] += 1
+                counts[f"{metric_key}:{_answer_text(answer)}"] += float(base_weights[output_key])
     weights: Dict[str, float] = {}
     for metric_key in sorted(metrics):
         yes_key = f"{metric_key}:YES"
         no_key = f"{metric_key}:NO"
-        yes = int(counts.get(yes_key, 0))
-        no = int(counts.get(no_key, 0))
+        yes = float(counts.get(yes_key, 0.0))
+        no = float(counts.get(no_key, 0.0))
         if yes <= 0 or no <= 0:
             if metric_key in ANSWER_KEYS:
                 raise RuntimeError(
@@ -365,27 +394,28 @@ def _semantic_class_weights(work: Sequence[WorkItem]) -> Dict[str, float]:
             if no > 0:
                 weights[no_key] = 1.0
             continue
-        total = float(yes + no)
-        weights[yes_key] = total / (2.0 * float(yes))
-        weights[no_key] = total / (2.0 * float(no))
+        total = yes + no
+        weights[yes_key] = total / (2.0 * yes)
+        weights[no_key] = total / (2.0 * no)
     return weights
 
 
 def _semantic_output_weights(
     item: WorkItem,
     class_weights: Mapping[str, float],
+    non_focus_semantic_loss_weight: float = DEFAULT_NON_FOCUS_SEMANTIC_LOSS_WEIGHT,
 ) -> Dict[str, float]:
     """把 metric-level 类别权重映射到当前 target 的输出键。"""
 
-    semantic_keys = set(_semantic_output_keys(item))
+    base_weights = _semantic_base_weights(item, non_focus_semantic_loss_weight)
     weights: Dict[str, float] = {}
     for output_key, metric_key, answer in spec_metric_items(item.spec):
-        if output_key not in semantic_keys:
+        if output_key not in base_weights:
             continue
         label = f"{metric_key}:{_answer_text(answer)}"
         if label not in class_weights:
             raise RuntimeError(f"missing semantic class weight for {label}")
-        weights[output_key] = float(class_weights[label])
+        weights[output_key] = float(base_weights[output_key]) * float(class_weights[label])
     return weights
 
 
@@ -1290,6 +1320,7 @@ def _work_balance_report(
     variant_weights: Mapping[str, int],
     world_size: int,
     rank_work: Optional[Sequence[WorkItem]] = None,
+    non_focus_semantic_loss_weight: float = DEFAULT_NON_FOCUS_SEMANTIC_LOSS_WEIGHT,
 ) -> Dict[str, Any]:
     """生成一次 sampled work 的完整均衡审计。"""
 
@@ -1333,13 +1364,15 @@ def _work_balance_report(
     )
     emitted_answer_counts: Counter[str] = Counter()
     semantic_answer_counts: Counter[str] = Counter()
+    semantic_answer_base_mass: Counter[str] = Counter()
     for item in work:
-        semantic_keys = set(_semantic_output_keys(item))
+        base_weights = _semantic_base_weights(item, non_focus_semantic_loss_weight)
         for output_key, metric_key, answer in spec_metric_items(item.spec):
             label = f"{metric_key}:{_answer_text(answer)}"
             emitted_answer_counts[label] += 1
-            if output_key in semantic_keys:
+            if output_key in base_weights:
                 semantic_answer_counts[label] += 1
+                semantic_answer_base_mass[label] += float(base_weights[output_key])
     payload: Dict[str, Any] = {
         "split": str(split),
         "seed": int(seed),
@@ -1365,10 +1398,17 @@ def _work_balance_report(
             Counter(f"{focus_phase(item.focus)}:{'YES' if item.row.answers[item.focus] else 'NO'}" for item in work)
         ),
         "semantic_supervision": SEMANTIC_SUPERVISION,
+        "non_focus_semantic_loss_weight": float(non_focus_semantic_loss_weight),
         "emitted_answer_counts": _counter_dict(emitted_answer_counts),
         "semantic_answer_counts": _counter_dict(semantic_answer_counts),
+        "semantic_answer_base_mass": {
+            key: float(value) for key, value in sorted(semantic_answer_base_mass.items())
+        },
         "semantic_class_weights": {
-            key: float(value) for key, value in sorted(_semantic_class_weights(work).items())
+            key: float(value)
+            for key, value in sorted(
+                _semantic_class_weights(work, non_focus_semantic_loss_weight).items()
+            )
         },
         "phase1_output_ordering": "deterministic_random_per_case",
         "phase1_output_order_sampled": _counter_dict(
@@ -1393,6 +1433,7 @@ def _write_epoch_balance_report(
     seed: int,
     variant_weights: Mapping[str, int],
     world_size: int,
+    non_focus_semantic_loss_weight: float = DEFAULT_NON_FOCUS_SEMANTIC_LOSS_WEIGHT,
 ) -> pathlib.Path:
     """每个重采样 epoch 写一份完整 train balance 审计。"""
 
@@ -1404,6 +1445,7 @@ def _write_epoch_balance_report(
         seed=seed,
         variant_weights=variant_weights,
         world_size=world_size,
+        non_focus_semantic_loss_weight=non_focus_semantic_loss_weight,
     )
     report["epoch"] = int(epoch)
     balance_dir = output_dir / "balance"
@@ -2123,6 +2165,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "max_steps": int(args.max_steps),
         "focus_balance_count": int(args.focus_balance_count),
         "semantic_supervision": SEMANTIC_SUPERVISION,
+        "non_focus_semantic_loss_weight": float(args.non_focus_semantic_loss_weight),
         "max_train_frame_repeat": int(args.max_train_frame_repeat),
         "eval_split": str(args.eval_split),
         "eval_steps": int(args.eval_steps),
@@ -2164,7 +2207,10 @@ def train(args: argparse.Namespace) -> None:
     )
     if not full_work:
         raise ValueError("balanced work list is empty")
-    semantic_class_weights = _semantic_class_weights(full_work)
+    semantic_class_weights = _semantic_class_weights(
+        full_work,
+        float(args.non_focus_semantic_loss_weight),
+    )
     # 每个 rank 使用同一个八桶均衡全集的 rank::world_size 分片。rank0 保存全集
     # balance 供审计；训练 epoch 会在每个 rank 的 shard 内 shuffle。
     work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
@@ -2213,6 +2259,7 @@ def train(args: argparse.Namespace) -> None:
             seed=int(args.seed),
             variant_weights=TRAIN_VARIANT_WEIGHTS,
             world_size=world_size,
+            non_focus_semantic_loss_weight=float(args.non_focus_semantic_loss_weight),
         )
         val_balance = {}
         if eval_work:
@@ -2225,6 +2272,7 @@ def train(args: argparse.Namespace) -> None:
                 variant_weights=VARIANT_WEIGHTS,
                 world_size=world_size,
                 rank_work=eval_work,
+                non_focus_semantic_loss_weight=float(args.non_focus_semantic_loss_weight),
             )
         generation_balance = {}
         if full_generation_eval_work:
@@ -2236,6 +2284,7 @@ def train(args: argparse.Namespace) -> None:
                 seed=int(args.seed) + 2017,
                 variant_weights=VARIANT_WEIGHTS,
                 world_size=1,
+                non_focus_semantic_loss_weight=float(args.non_focus_semantic_loss_weight),
             )
         (output_dir / "train_balance.json").write_text(
             json.dumps(
@@ -2260,6 +2309,7 @@ def train(args: argparse.Namespace) -> None:
                             variant_weights=TRAIN_VARIANT_WEIGHTS,
                             world_size=world_size,
                             rank_work=work,
+                            non_focus_semantic_loss_weight=float(args.non_focus_semantic_loss_weight),
                         ),
                     },
                     "eval": {
@@ -2475,7 +2525,10 @@ def train(args: argparse.Namespace) -> None:
                 seed=epoch_seed,
                 variant_weights=TRAIN_VARIANT_WEIGHTS,
             )
-            semantic_class_weights = _semantic_class_weights(full_work)
+            semantic_class_weights = _semantic_class_weights(
+                full_work,
+                float(args.non_focus_semantic_loss_weight),
+            )
             _assert_repeat_limit(
                 full_work,
                 max_repeat=int(args.max_train_frame_repeat),
@@ -2493,6 +2546,7 @@ def train(args: argparse.Namespace) -> None:
                     seed=epoch_seed,
                     variant_weights=TRAIN_VARIANT_WEIGHTS,
                     world_size=world_size,
+                    non_focus_semantic_loss_weight=float(args.non_focus_semantic_loss_weight),
                 )
         rng.shuffle(work)
         epoch_start_step = global_step
@@ -2507,8 +2561,15 @@ def train(args: argparse.Namespace) -> None:
                 prompt=prompt,
                 target=target,
                 output_keys=spec.output_keys,
-                semantic_output_keys=_semantic_output_keys(item),
-                semantic_output_weights=_semantic_output_weights(item, semantic_class_weights),
+                semantic_output_keys=_semantic_output_keys(
+                    item,
+                    float(args.non_focus_semantic_loss_weight),
+                ),
+                semantic_output_weights=_semantic_output_weights(
+                    item,
+                    semantic_class_weights,
+                    float(args.non_focus_semantic_loss_weight),
+                ),
                 max_length=int(args.max_length),
                 format_loss_weight=float(args.format_loss_weight),
             )
@@ -2669,7 +2730,17 @@ def parse_args() -> argparse.Namespace:
         default=0.25,
         help=(
             "low loss weight for answer field names, separators, newlines, and assistant end token; "
-            "the current focus YES/NO and hierarchical derived values use 1.0, while non-focus main values use 0"
+            "YES/NO value weights are controlled separately by semantic supervision and "
+            "--non-focus-semantic-loss-weight"
+        ),
+    )
+    p.add_argument(
+        "--non-focus-semantic-loss-weight",
+        type=float,
+        default=DEFAULT_NON_FOCUS_SEMANTIC_LOSS_WEIGHT,
+        help=(
+            "semantic YES/NO loss scale for requested main-answer lines other than the balanced focus line; "
+            "focus and hierarchical derived lines keep base scale 1.0"
         ),
     )
     p.add_argument(
@@ -2701,6 +2772,8 @@ def parse_args() -> argparse.Namespace:
     args.history_rgb_mode = validate_history_rgb_mode(args.history_rgb_mode)
     if not 0.0 < float(args.format_loss_weight) <= 1.0:
         raise ValueError("--format-loss-weight must be in (0, 1]")
+    if not 0.0 <= float(args.non_focus_semantic_loss_weight) <= 1.0:
+        raise ValueError("--non-focus-semantic-loss-weight must be in [0, 1]")
     if int(args.generation_eval_steps) > 0:
         if int(args.eval_steps) <= 0 or int(args.eval_balance_count) <= 0:
             raise ValueError("free-generation validation requires --eval-steps and --eval-balance-count to be positive")

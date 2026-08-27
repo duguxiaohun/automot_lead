@@ -136,6 +136,7 @@ COMMON_ARGS=(
   --eval-balance-count "${EVAL_BALANCE_COUNT:-16}"
   --max-eval-frames "${MAX_EVAL_FRAMES:-0}"
   --format-loss-weight "${FORMAT_LOSS_WEIGHT:-0.25}"
+  --non-focus-semantic-loss-weight "${NON_FOCUS_SEMANTIC_LOSS_WEIGHT:-0.1}"
   --generation-eval-steps "${GENERATION_EVAL_STEPS:-2000}"
   --generation-eval-balance-count "${GENERATION_EVAL_BALANCE_COUNT:-16}"
   --generation-eval-max-new-tokens "${GENERATION_EVAL_MAX_NEW_TOKENS:-64}"
