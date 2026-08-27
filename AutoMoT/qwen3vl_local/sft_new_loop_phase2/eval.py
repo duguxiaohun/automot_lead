@@ -174,6 +174,7 @@ from qwen3vl_local.sft_new_loop_phase2.prompts import (  # noqa: E402
     build_event_messages,
     build_event_prompt,
     make_prompt_spec,
+    parse_event_answer_lines,
     parse_event_output,
     event_prompt_sha256,
     prompt_spec_to_json,
@@ -871,6 +872,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     )
     total = 0
     exact = 0
+    answer_only_exact = 0
+    answer_only_format_valid = 0
     metric_names = list(ANSWER_KEYS)
     metric_counts: Dict[str, Counter[str]] = {key: Counter() for key in metric_names}
     variant_counts: Dict[str, Counter[str]] = {key: Counter() for key in VARIANT_ORDER}
@@ -914,12 +917,25 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     max_new_tokens=int(args.max_new_tokens),
                 )
                 parsed_bool = parse_event_output(raw, spec=spec, audit=bool(args.audit_prompt))
+                answer_only_bool = parse_event_answer_lines(raw, spec=spec)
                 parsed = {key: _parsed_text(parsed_bool.get(key)) for key in spec.output_keys}
+                answer_only_parsed = {
+                    key: _parsed_text(answer_only_bool.get(key)) for key in spec.output_keys
+                }
                 gt = {q.output_key: _bool_text(q.answer) for q in spec.questions}
                 ok_by_key = {key: parsed.get(key) == gt[key] for key in spec.output_keys}
                 all_ok = all(ok_by_key.values())
+                answer_only_ok_by_key = {
+                    key: answer_only_parsed.get(key) == gt[key] for key in spec.output_keys
+                }
+                answer_only_all_ok = all(answer_only_ok_by_key.values())
+                answer_only_is_valid = all(
+                    value is not None for value in answer_only_bool.values()
+                )
                 total += 1
                 exact += int(all_ok)
+                answer_only_exact += int(answer_only_all_ok)
+                answer_only_format_valid += int(answer_only_is_valid)
                 slice_name = (
                     "invalid"
                     if _target_class(row) == "INVALID"
@@ -976,6 +992,10 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     "parsed": parsed,
                     "ok_by_key": ok_by_key,
                     "all_ok": all_ok,
+                    "answer_only_parsed": answer_only_parsed,
+                    "answer_only_ok_by_key": answer_only_ok_by_key,
+                    "answer_only_all_ok": answer_only_all_ok,
+                    "answer_only_format_valid": answer_only_is_valid,
                     "raw_output": raw,
                     "event_user_prompt": prompt if bool(args.save_prompts) else None,
                     "actual_chat_messages": (
@@ -1011,6 +1031,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     local_payload = {
         "total": total,
         "exact": exact,
+        "answer_only_exact": answer_only_exact,
+        "answer_only_format_valid": answer_only_format_valid,
         "metric_counts": {key: dict(counter) for key, counter in metric_counts.items()},
         "variant_counts": {key: dict(counter) for key, counter in variant_counts.items()},
         "balance_counts": dict(balance_counts),
@@ -1030,6 +1052,10 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
 
     total = sum(int(item.get("total", 0)) for item in gathered)
     exact = sum(int(item.get("exact", 0)) for item in gathered)
+    answer_only_exact = sum(int(item.get("answer_only_exact", 0)) for item in gathered)
+    answer_only_format_valid = sum(
+        int(item.get("answer_only_format_valid", 0)) for item in gathered
+    )
     metric_counts = {key: Counter() for key in metric_names}
     variant_counts = {key: Counter() for key in VARIANT_ORDER}
     balance_counts = Counter()
@@ -1122,6 +1148,12 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "output_dir": str(output_dir),
         "total_cases": total,
         "exact_match_accuracy": float(exact) / max(1, total),
+        "answer_only_diagnostics": {
+            "non_scoring": True,
+            "format_valid_rate": float(answer_only_format_valid) / max(1, total),
+            "exact_match_accuracy": float(answer_only_exact) / max(1, total),
+            "contract": "Parse only the ordered YES/NO prefix; ignore later evidence completeness. Strict exact_match_accuracy remains the production score.",
+        },
         "slice_reports": {
             name: {
                 "cases": int(slice_counts.get(f"{name}/total", 0)),
@@ -1163,6 +1195,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         f"- adapter_prompt_matches_current_production: `{metrics['adapter_prompt_matches_current_production'] if args.adapter_dir else 'n/a (base)'}`",
         f"- cases: {total}",
         f"- exact_match_accuracy: {metrics['exact_match_accuracy']:.4f}",
+        f"- answer_only_format_valid_rate (diagnostic, non-scoring): {metrics['answer_only_diagnostics']['format_valid_rate']:.4f}",
+        f"- answer_only_exact_match_accuracy (diagnostic, non-scoring): {metrics['answer_only_diagnostics']['exact_match_accuracy']:.4f}",
         f"- sampling: `{metrics['sampling_contract']}`",
         f"- invalid_joint_ok_rate: {invalid_contract_report.get('all_random_order', {}).get('invalid_joint_ok_rate', 0.0):.4f}",
         f"- invalid_ue_all_no_rate: {invalid_contract_report.get('all_random_order', {}).get('invalid_ue_all_no_rate', 0.0):.4f}",

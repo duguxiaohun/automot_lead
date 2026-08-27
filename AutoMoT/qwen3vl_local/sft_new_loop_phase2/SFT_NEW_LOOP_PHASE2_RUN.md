@@ -23,7 +23,7 @@ TensorBoard、错例 RGB 审计与一键脚本，但彻底删除 synthetic Phase
 高速/R3 是 ROAD_CORRIDOR 的 valid hard negative：正常输出 UE1/UE3/UE5 全 NO、
 `INVALID_EVENT_CONTEXT=NO`。路口内没有 UE6 也是 valid RE，不是 invalid。
 
-production prompt v2 又根据 2026-08-25 训练错例的逐帧 RGB 复核补了四条边界：
+production prompt v2 根据 2026-08-25 训练错例的逐帧 RGB 复核补了四条边界：
 
 - 最后一帧决定事件是否仍在发生；旧帧用于确认运动。交互及其即时影响都已结束时不能靠场景
   历史续标；目标刚驶离但 ego 仍明显因该冲突停车/避让时可以保持 YES；
@@ -33,15 +33,20 @@ production prompt v2 又根据 2026-08-25 训练错例的逐帧 RGB 复核补了
 - UE6 要同时看得到冲突车辆与违规/优先权证据，普通转弯、横穿、已经驶离的路口车辆不够。
 
 夜间、雾、眩光或遮挡下看不清事件证据时，对相应 UE 保守回答 NO；只要道路布局仍与问题域
-相容，就仍是 valid，而不是 invalid。v2 改变了 production prompt hash，v1 adapter 会在加载
-权重前被硬拒绝，必须用新 prompt 重训。
+相容，就仍是 valid，而不是 invalid。
+
+production prompt v3 只在 2026-08-27 的 69 个 2RGB production 错例全量复核后追加一条
+UE3 边界：静态事故/施工、路边停车、队列车辆以及 ego 前进视差造成的图像位置变化，不等于
+他车横向进入；仍保留 v2 的 `about to occupy`，不要求完整入道。UE5、UE6 和 INVALID 中大量
+错例缺少最新帧可观察证据，因此不为追标签放宽原规则。v3 改变 production prompt hash，旧
+adapter 会在加载权重前被硬拒绝，必须用 v3 重训。
 
 这些边界来自 `keyframe_filter/ROAD_EVENT_CLASSIFICATION_PLAN.md`、
 `ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md` 和旧 Phase3 的
 `EVAL_PROMPT_V2_V3_20260821.md`。数据构建仍要求每个 scenario/Town 至少已有一条
 完整逐帧 RGB review，并默认排除 visual-risk 帧和异常时长 route。
 本次指标、代表性错帧及“证据→prompt/代码”的逐项映射见
-`PROMPT_V2_RGB_AUDIT_20260825.md`。
+`PROMPT_V2_RGB_AUDIT_20260825.md` 与 `FUSION_2RGB_ENDPOINTS_AUDIT_20260827.md`。
 
 ## 2. 构建数据
 
@@ -155,6 +160,10 @@ GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase2/eval.py \
 
 生产 prompt 只输出 YES/NO。`--audit-prompt` 会额外要求每题一条短 RGB evidence，
 仅用于人工诊断，不能与生产指标混为一谈。
+
+eval 同时写入非评分的 `answer_only_diagnostics`：它只严格解析输出开头的有序 YES/NO 行，
+忽略后续 evidence 是否完整，用于区分“事件答案错误”和“证据行格式错误”。正式成绩仍是完整
+字符串合同下的 `exact_match_accuracy`，不能用 answer-only 指标替代。
 
 自由生成解析使用完整字符串合同：答案必须严格按当前 prompt 规定的行顺序输出，不能缺行、
 重复、换序或夹带解释；audit 模式只额外允许同顺序的 `EVIDENCE_*` 行。任意格式违规都会让
