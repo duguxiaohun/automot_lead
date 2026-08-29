@@ -35,18 +35,22 @@ production prompt v2 根据 2026-08-25 训练错例的逐帧 RGB 复核补了四
 夜间、雾、眩光或遮挡下看不清事件证据时，对相应 UE 保守回答 NO；只要道路布局仍与问题域
 相容，就仍是 valid，而不是 invalid。
 
-production prompt v3 只在 2026-08-27 的 69 个 2RGB production 错例全量复核后追加一条
-UE3 边界：静态事故/施工、路边停车、队列车辆以及 ego 前进视差造成的图像位置变化，不等于
-他车横向进入；仍保留 v2 的 `about to occupy`，不要求完整入道。UE5、UE6 和 INVALID 中大量
-错例缺少最新帧可观察证据，因此不为追标签放宽原规则。v3 改变 production prompt hash，旧
-adapter 会在加载权重前被硬拒绝，必须用 v3 重训。
+production prompt v3 在 2026-08-27 的 69 个 2RGB production 错例复核后补了静态事故/
+施工、路边停车、队列车辆和 ego 视差不等于横向进入。重训后 production 只从
+`315/384` 到 `316/384`，但 UE3 recall 从 `81.25%` 降到 `71.88%`。2026-08-29 再对
+v3 全部 68 个错例的 272 张四帧 RGB 逐帧复核后，production prompt v4 只修 UE3：
+静态/视差排除仍保留，但停车位或路边车在 oldest-to-newest 之间持续跨向车道边界或侵入
+usable corridor 时仍是 UE3，即使最新帧看起来仍像停车姿态。UE1、UE5、UE6、INVALID
+没有可证实的统一 prompt 问题，不改。v4 改变 production prompt hash，旧 adapter 会在加载
+权重前被硬拒绝，必须重训。
 
 这些边界来自 `keyframe_filter/ROAD_EVENT_CLASSIFICATION_PLAN.md`、
 `ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md` 和旧 Phase3 的
 `EVAL_PROMPT_V2_V3_20260821.md`。数据构建仍要求每个 scenario/Town 至少已有一条
 完整逐帧 RGB review，并默认排除 visual-risk 帧和异常时长 route。
 本次指标、代表性错帧及“证据→prompt/代码”的逐项映射见
-`PROMPT_V2_RGB_AUDIT_20260825.md` 与 `FUSION_2RGB_ENDPOINTS_AUDIT_20260827.md`。
+`PROMPT_V2_RGB_AUDIT_20260825.md`、`FUSION_2RGB_ENDPOINTS_AUDIT_20260827.md` 与
+`V3_RETRAIN_RGB_AUDIT_20260829.md`。
 
 ## 2. 构建数据
 
@@ -103,7 +107,8 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase2/train.sh ddp
 ```bash
 EVAL_STEPS=2000 \
 GENERATION_EVAL_STEPS=2000 \
-GENERATION_EVAL_BALANCE_COUNT=16 \
+GENERATION_EVAL_BALANCE_COUNT=32 \
+GENERATION_EVAL_MIN_UE3_TARGET_RECALL=0.625 \
 SAVE_STEPS=20000 \
 FOCUS_BALANCE_COUNT=1024 \
 REGULAR_FOCUS_MULTIPLIER=2.0 \
@@ -112,8 +117,9 @@ bash qwen3vl_local/sft_new_loop_phase2/train.sh ddp
 ```
 
 训练默认每 2000 optimizer step 跑 teacher-forced val 和固定均衡的自由生成 val，
-每 20000 step 保存 checkpoint；generation eval 每个 UE/RE/invalid class 默认 16 条，
-避免旧 Phase3 仅 2 条/桶带来的 checkpoint 选择噪声。训练会输出：
+每 20000 step 保存 checkpoint；generation eval 每个 UE/RE/invalid class 默认 32 条。
+`best_generation` 优先要求 UE3 正类 target recall 达到 `0.625`，达标后按总 exact 选优；
+若所有 step 都不达标，则明示保留 UE3 recall 最高的 fallback。训练会输出：
 
 - `train_balance.json`：class、question domain、true RS、highway/local RE，以及 invalid 四维子类别采样；
 - `balance/epoch_*.json`：每轮 invalid 的 source class、true RS、错误问题域、联合签名与均衡 guard；
