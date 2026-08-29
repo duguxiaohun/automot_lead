@@ -126,15 +126,15 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertEqual(history_rgb_indices("4rgb"), (0, 1, 2, 3))
         self.assertEqual(history_rgb_indices("2rgb_endpoints"), (0, 3))
 
-    def test_prompt_v3_encodes_observed_rgb_error_boundaries(self) -> None:
+    def test_prompt_v4_encodes_observed_rgb_error_boundaries(self) -> None:
         """逐帧错例归纳出的 newest/UE 互斥/低能见度边界必须留在生产合同中。"""
 
         answers = {key: False for key in EVENT_KEYS}
         answers[DOMAIN_ANSWER_KEYS[ROAD_DOMAIN]] = True
         answers[INVALID_KEY] = False
-        spec = make_prompt_spec(variant="all_random_order", answers=answers, seed_key="rgb-v3")
+        spec = make_prompt_spec(variant="all_random_order", answers=answers, seed_key="rgb-v4")
         prompt = build_event_prompt(spec=spec)
-        self.assertTrue(PROMPT_NAME.endswith("visual_v3"))
+        self.assertTrue(PROMPT_NAME.endswith("visual_v4"))
         self.assertIn("The newest frame decides whether an event is active", prompt)
         self.assertIn("same-lane lead vehicle that suddenly slows is UE1", prompt)
         self.assertIn("moving laterally into ego's future corridor is UE3", prompt)
@@ -142,6 +142,38 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertIn("do not mark the question set invalid merely because visibility is poor", prompt)
         self.assertIn("ego passes it is not lateral motion", prompt)
         self.assertIn("stationary crash or construction actors", prompt)
+        self.assertIn("parking-side or roadside vehicle advancing", prompt)
+        self.assertIn("truly stationary parked or queued vehicles", prompt)
+
+    def test_generation_checkpoint_score_guards_ue3_recall(self) -> None:
+        """UE3 正例 recall 达标优先；全部未达标时也优先较高 recall。"""
+
+        guarded = event_train.generation_checkpoint_score(
+            {
+                "slice/ue3_target_recall": 0.625,
+                "exact_accuracy": 0.80,
+                "pattern/all_random_order_pattern_exact": 0.80,
+            },
+            min_ue3_target_recall=0.625,
+        )
+        high_exact_but_regressed = event_train.generation_checkpoint_score(
+            {
+                "slice/ue3_target_recall": 0.50,
+                "exact_accuracy": 0.90,
+                "pattern/all_random_order_pattern_exact": 0.90,
+            },
+            min_ue3_target_recall=0.625,
+        )
+        lower_failed = event_train.generation_checkpoint_score(
+            {
+                "slice/ue3_target_recall": 0.25,
+                "exact_accuracy": 0.95,
+                "pattern/all_random_order_pattern_exact": 0.95,
+            },
+            min_ue3_target_recall=0.625,
+        )
+        self.assertGreater(guarded, high_exact_but_regressed)
+        self.assertGreater(high_exact_but_regressed, lower_failed)
 
     def test_explicit_event_review_is_visual_risk(self) -> None:
         """EVENT 标注自身要求 RGB 复核时，默认 clean pool 不能继续静默纳入。"""
@@ -436,6 +468,8 @@ class DirectEventContractTest(unittest.TestCase):
         final_eval_block = pipeline.split('if [[ "${RUN_EVAL_SH}" == "1" ]]', 1)[1]
         self.assertNotIn('HISTORY_RGB_MODE="${HISTORY_RGB_MODE}"', final_eval_block)
         self.assertIn('MODE="${1:-${MODE:-ddp}}"', train_sh)
+        self.assertIn('GENERATION_EVAL_BALANCE_COUNT:-32', train_sh)
+        self.assertIn('GENERATION_EVAL_MIN_UE3_TARGET_RECALL:-0.625', train_sh)
         self.assertNotIn("REQUESTED_HISTORY_RGB_MODE", eval_sh)
         self.assertIn('BASE_HISTORY_RGB_MODE="$(read_adapter_history_rgb_mode', eval_sh)
         self.assertIn("history_rgb_selected_indices", eval_sh)

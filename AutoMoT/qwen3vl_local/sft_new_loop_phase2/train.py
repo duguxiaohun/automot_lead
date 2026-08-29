@@ -222,6 +222,7 @@ def _write_run_metadata(
         "eval_work_rank": int(eval_work_rank),
         "generation_eval_steps": int(args.generation_eval_steps),
         "generation_eval_balance_count": int(args.generation_eval_balance_count),
+        "generation_eval_min_ue3_target_recall": float(args.generation_eval_min_ue3_target_recall),
         "generation_eval_global": int(generation_eval_global),
         "save_best_val": bool(args.save_best_val),
         "save_best_generation": bool(args.save_best_generation),
@@ -1084,18 +1085,21 @@ def evaluate_generation_probe(
             all_ok = all(bool(parsed[key]) == gt[key] for key in spec.output_keys)
             exact += float(all_ok)
             variant_exact[spec.variant] += int(all_ok)
+        target_class = _target_class(row)
         slice_name = (
             "invalid"
-            if _target_class(row) == "INVALID"
+            if target_class == "INVALID"
             else "highway_regular"
-            if _target_class(row) == "RE" and row.true_rs == "R3"
+            if target_class == "RE" and row.true_rs == "R3"
             else "applicable_regular"
-            if _target_class(row) == "RE"
-            else _target_class(row).lower()
+            if target_class == "RE"
+            else target_class.lower()
         )
         slice_counts[f"{slice_name}/total"] += 1
         slice_counts[f"{slice_name}/exact"] += int(all_ok)
-        if _target_class(row) == "INVALID":
+        if target_class in EVENT_KEYS:
+            slice_counts[f"{slice_name}/target_yes"] += int(parsed.get(target_class) is True)
+        if target_class == "INVALID":
             for dimension, value in invalid_subgroup_keys(row):
                 invalid_subgroup_counts[f"{dimension}/{value}/total"] += 1
                 invalid_subgroup_counts[f"{dimension}/{value}/exact"] += int(all_ok)
@@ -1147,6 +1151,10 @@ def evaluate_generation_probe(
         count = float(slice_counts.get(f"{name}/total", 0))
         metrics[f"slice/{name}_samples"] = count
         metrics[f"slice/{name}_exact"] = float(slice_counts.get(f"{name}/exact", 0)) / max(1.0, count)
+        if name in {"ue1", "ue3", "ue5", "ue6"}:
+            metrics[f"slice/{name}_target_recall"] = (
+                float(slice_counts.get(f"{name}/target_yes", 0)) / max(1.0, count)
+            )
     for key, count in sorted(invalid_subgroup_counts.items()):
         if not key.endswith("/total"):
             continue
@@ -1203,6 +1211,27 @@ def evaluate_generation_probe(
     return metrics
 
 
+def generation_checkpoint_score(
+    metrics: Mapping[str, float],
+    *,
+    min_ue3_target_recall: float,
+) -> Tuple[float, float, float, float]:
+    """构造自由生成 checkpoint 选优分数。
+
+    2026-08-27 的 v3 训练虽然总 exact 略高，但 UE3 正例切片明显退化。
+    因此先要求 UE3 正例 recall 达到已验证 v2 checkpoint 的底线，达标后再按
+    总 exact 和 answer-pattern exact 选优。若所有 step 都未达标，则先保留
+    UE3 recall 最高的 fallback，避免训练目录没有 ``best_generation``。
+    """
+
+    ue3_recall = float(metrics.get("slice/ue3_target_recall", metrics.get("slice/ue3_exact", 0.0)))
+    exact = float(metrics.get("exact_accuracy", 0.0))
+    pattern_exact = float(metrics.get("pattern/all_random_order_pattern_exact", 0.0))
+    if ue3_recall >= float(min_ue3_target_recall):
+        return (1.0, exact, pattern_exact, ue3_recall)
+    return (0.0, ue3_recall, exact, pattern_exact)
+
+
 def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespace, *, step: int, name: str = "final") -> pathlib.Path:
     """保存 LoRA adapter 和新 Phase2 自描述配置。"""
 
@@ -1246,6 +1275,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "generation_eval_balance_count": int(args.generation_eval_balance_count),
         "generation_eval_max_new_tokens": int(args.generation_eval_max_new_tokens),
         "generation_eval_min_valid_rate": float(args.generation_eval_min_valid_rate),
+        "generation_eval_min_ue3_target_recall": float(args.generation_eval_min_ue3_target_recall),
         "save_best_val": bool(args.save_best_val),
         "save_best_generation": bool(args.save_best_generation),
     }
@@ -1393,6 +1423,7 @@ def train(args: argparse.Namespace) -> None:
                         "balance_count": int(args.generation_eval_balance_count),
                         "max_new_tokens": int(args.generation_eval_max_new_tokens),
                         "min_format_valid_rate": float(args.generation_eval_min_valid_rate),
+                        "min_ue3_target_recall": float(args.generation_eval_min_ue3_target_recall),
                         "global_sampled": dict(Counter(item.balance_key for item in full_generation_eval_work)),
                         "global_invalid_subgroups": invalid_subgroup_report(full_generation_eval_work),
                         "rank0_only": True,
@@ -1449,7 +1480,7 @@ def train(args: argparse.Namespace) -> None:
     pending_checkpoint_step: Optional[int] = None
     skipped = 0
     best_val_loss = math.inf
-    best_generation_score = (-math.inf, -math.inf)
+    best_generation_score = (-math.inf, -math.inf, -math.inf, -math.inf)
     train_metrics_path = output_dir / "train_metrics.jsonl"
     eval_metrics_path = output_dir / "train_eval_metrics.jsonl"
     window_loss_sum = 0.0
@@ -1730,21 +1761,29 @@ def train(args: argparse.Namespace) -> None:
                             f"< required {args.generation_eval_min_valid_rate:.4f}"
                         )
                     if bool(args.save_best_generation) and run_generation_eval and format_gate_ok and generation_metrics is not None:
-                        gen_score = (
-                            float(generation_metrics.get("exact_accuracy", 0.0)),
-                            float(generation_metrics.get("pattern/all_random_order_pattern_exact", 0.0)),
+                        gen_score = generation_checkpoint_score(
+                            generation_metrics,
+                            min_ue3_target_recall=float(args.generation_eval_min_ue3_target_recall),
                         )
                         if gen_score > best_generation_score:
                             best_generation_score = gen_score
+                            ue3_target_recall = float(generation_metrics.get("slice/ue3_target_recall", 0.0))
+                            ue3_guard_ok = ue3_target_recall >= float(args.generation_eval_min_ue3_target_recall)
                             best_gen_dir = _save_adapter(bundle, output_dir, args, step=global_step, name="best_generation")
                             (output_dir / "best_generation.json").write_text(
                                 json.dumps(
                                     {
                                         "step": global_step,
                                         "val_split": str(args.eval_split),
-                                        "selection": "max_free_generation_exact_then_all_random_order",
-                                        "generation_exact_accuracy": gen_score[0],
-                                        "generation_all_random_order_exact": gen_score[1],
+                                        "selection": "ue3_target_recall_guard_then_max_free_generation_exact",
+                                        "selection_score": list(gen_score),
+                                        "ue3_target_recall_guard_ok": bool(ue3_guard_ok),
+                                        "generation_min_ue3_target_recall": float(args.generation_eval_min_ue3_target_recall),
+                                        "generation_ue3_target_recall": ue3_target_recall,
+                                        "generation_exact_accuracy": float(generation_metrics.get("exact_accuracy", 0.0)),
+                                        "generation_all_random_order_exact": float(
+                                            generation_metrics.get("pattern/all_random_order_pattern_exact", 0.0)
+                                        ),
                                         "teacher_forced_loss": float(metrics["loss"]),
                                         "teacher_forced_value_token_acc": float(metrics["value_token_acc"]),
                                         "teacher_forced_format_token_acc": float(metrics["format_token_acc"]),
@@ -1757,8 +1796,9 @@ def train(args: argparse.Namespace) -> None:
                                 encoding="utf-8",
                             )
                             print(
-                                f"[best-generation] step={global_step} exact={gen_score[0]:.4f} "
-                                f"all_random={gen_score[1]:.4f} adapter={best_gen_dir}"
+                                f"[best-generation] step={global_step} "
+                                f"ue3_target_recall={ue3_target_recall:.4f} guard_ok={ue3_guard_ok} "
+                                f"exact={generation_metrics.get('exact_accuracy', 0.0):.4f} adapter={best_gen_dir}"
                             )
             checkpoint_due = int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0
             if checkpoint_due and not saved_deferred_checkpoint:
@@ -1876,9 +1916,15 @@ def parse_args() -> argparse.Namespace:
         default=2_000,
         help="run rank0 free-generation validation every N optimizer steps; must be a multiple of --eval-steps; 0 disables it",
     )
-    p.add_argument("--generation-eval-balance-count", type=int, default=16)
+    p.add_argument("--generation-eval-balance-count", type=int, default=32)
     p.add_argument("--generation-eval-max-new-tokens", type=int, default=64)
     p.add_argument("--generation-eval-min-valid-rate", type=float, default=1.0)
+    p.add_argument(
+        "--generation-eval-min-ue3-target-recall",
+        type=float,
+        default=0.625,
+        help="prefer checkpoints meeting this UE3-positive recall floor; below-floor fallback ranks UE3 recall first",
+    )
     p.add_argument("--save-steps", type=int, default=20_000)
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--learning-rate", type=float, default=1e-5)
@@ -1920,6 +1966,8 @@ def parse_args() -> argparse.Namespace:
             raise ValueError("--generation-eval-balance-count must be positive when generation validation is enabled")
     if not 0.0 <= float(args.generation_eval_min_valid_rate) <= 1.0:
         raise ValueError("--generation-eval-min-valid-rate must be in [0, 1]")
+    if not 0.0 <= float(args.generation_eval_min_ue3_target_recall) <= 1.0:
+        raise ValueError("--generation-eval-min-ue3-target-recall must be in [0, 1]")
     if float(args.regular_focus_multiplier) < 0.0:
         raise ValueError("--regular-focus-multiplier must be non-negative")
     if float(args.invalid_focus_multiplier) < 0.0:
