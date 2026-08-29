@@ -40,14 +40,33 @@ focus 行正确但其它请求行仍有错；但又观察到 Phase1 HIGHWAY 与 
 不能只看原始答案行数。
 
 当前 prompt 名为
-`sft_new_loop_phase1_phase1_phase2_combined_v4_rgb_audited_rs_highway`。v4 保留 v3 的 Phase1
-四行按 case seed 可复现随机排列和既有决策边界，只修复一个经 4RGB/2RGB 逐帧错例确认的
-缺口：`hierarchical_probe` 原来询问 `RS_HIGHWAY`，但 fused prompt 没有渲染它自己的定义。
-现在明确要求 limited-access 拓扑链，并把双黄线、普通双向城际道路、黑暗、雾、单一护栏
-列为不足证据。audit prompt 还明确要求每行保持 `EVIDENCE_<ANSWER_KEY>:` 前缀、证据开始后
-不再重复答案行。没有放宽 VULNERABLE、STATIC、RS1、RS5 或灯异常规则；对应审计见
-`FUSION_V3_4RGB_2RGB_ERROR_AUDIT_20260827.md`。所有旧 adapter 的 prompt fingerprint 与 v4
+`sft_new_loop_phase1_phase1_phase2_combined_v5_rgb_audited_rs4_hardware`。v5 完整保留 v4 的
+Phase1/Phase2 决策规则、RS_HIGHWAY RGB 边界和 audit 输出合同，只根据 2026-08-29 的
+2RGB RS4 错帧增加一条硬件辨识边界：装饰/向下照明路灯、裸杆/灯臂和车辆灯光不是可识别的
+交通信号头，不能单独触发 RS4。没有根据灯异常标签回退去放宽
+`TRAFFIC_LIGHT_ABNORMAL`；逐帧 RGB 显示这批回退多数只有正常红/绿相位或根本没有可读信号头。
+完整结果与逐帧记录见 `FUSION_V4_4RGB_2RGB_RESULT_RGB_AUDIT_20260829.md`。
+
+v4 相对 v3 的既有修订继续保留：Phase1 四行按 case seed 可复现随机排列；
+`hierarchical_probe` 渲染独立 `RS_HIGHWAY` 定义，要求 limited-access 拓扑链，并把双黄线、
+普通双向城际道路、黑暗、雾、单一护栏列为不足证据；audit prompt 强制每行保持
+`EVIDENCE_<ANSWER_KEY>:` 前缀且证据开始后不再重复答案行。对应旧审计见
+`FUSION_V3_4RGB_2RGB_ERROR_AUDIT_20260827.md`。所有旧 adapter 的 prompt fingerprint 与 v5
 不兼容，必须重训后评测，不能把旧权重强行挂到新 prompt 上。
+
+训练仍保存联合 exact 最优的 `best_generation/`，同时额外保存
+`best_generation_balanced/`：在 generation format gate 通过后，先最大化八个 focus 中的
+最低 accuracy，再比较联合 exact 和 focus macro accuracy。它不替换历史目录；正式 test 应
+同时比较“最高联合 exact”和“最弱任务受保护”两个 checkpoint，避免单一联合 exact 掩盖某个
+任务的回退。
+
+评测 balanced 候选时必须显式传 adapter 子目录，run root 默认仍优先解析历史
+`best_generation/`：
+
+```bash
+ADAPTER_DIR=checkpoints/sft_new_loop_phase1_runs/<run>/best_generation_balanced \
+  bash qwen3vl_local/sft_new_loop_phase1/eval.sh
+```
 
 数据构建沿用 Phase2 最新过滤：剔除异常时长 route、检查 full-frame RGB review 覆盖，
 默认排除 visual-risk 帧。Phase1 标签来自已审计四问答案表；Phase2 标签来自逐帧 RS

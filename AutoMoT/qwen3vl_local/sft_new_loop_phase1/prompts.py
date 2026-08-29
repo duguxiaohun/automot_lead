@@ -26,7 +26,7 @@ from qwen3vl_local.sft_new_loop_phase1.history_rgb import (
 )
 
 
-PROMPT_NAME = "sft_new_loop_phase1_phase1_phase2_combined_v4_rgb_audited_rs_highway"
+PROMPT_NAME = "sft_new_loop_phase1_phase1_phase2_combined_v5_rgb_audited_rs4_hardware"
 PHASE1_ANSWER_KEYS = (
     "HIGHWAY",
     "STATIC_OBSTACLE",
@@ -243,7 +243,7 @@ def build_phase1_prompt(
 [/PROMPT_NAME]
 
 [VISUAL_CHECK_ORDER]
-Classify the newest frame using the {history}. Use two independent passes. First scan left/front/right for visible road topology and trace the ego vehicle's usable corridor without letting pedestrians, cyclists, event vehicles, or obstacles decide the road-structure answers. Second scan every available frame again for small or briefly visible vulnerable users, fixed lane obstructions, and readable traffic-signal hardware. One clear older-frame witness may confirm a still-relevant target, but darkness, fog, a scenario-like setting, a crosswalk alone, or an unreadable object is not a witness. Before output, recheck three error-prone boundaries: a continuous access-controlled multi-lane/barrier corridor is not RS1; RS5 needs a local road opening/conflict together with stop/yield/priority or gap-acceptance evidence rather than a bend or turning actor alone; and TRAFFIC_LIGHT_ABNORMAL needs readable abnormal signal hardware at the same junction. The answer is for the newest moment.{endpoint_notice}{audit_notice}
+Classify the newest frame using the {history}. Use two independent passes. First scan left/front/right for visible road topology and trace the ego vehicle's usable corridor without letting pedestrians, cyclists, event vehicles, or obstacles decide the road-structure answers. Second scan every available frame again for small or briefly visible vulnerable users, fixed lane obstructions, and readable traffic-signal hardware. One clear older-frame witness may confirm a still-relevant target, but darkness, fog, a scenario-like setting, a crosswalk alone, or an unreadable object is not a witness. Before output, recheck four error-prone boundaries: a continuous access-controlled multi-lane/barrier corridor is not RS1; RS5 needs a local road opening/conflict together with stop/yield/priority or gap-acceptance evidence rather than a bend or turning actor alone; RS4 needs a recognizable traffic-signal head governing the local junction, while a decorative/downward streetlamp, bare pole or arm, or vehicle lamp is not signal hardware; and TRAFFIC_LIGHT_ABNORMAL needs readable abnormal signal hardware at the same junction. The answer is for the newest moment.{endpoint_notice}{audit_notice}
 [/VISUAL_CHECK_ORDER]
 
 [AUGMENT_VARIANT]
