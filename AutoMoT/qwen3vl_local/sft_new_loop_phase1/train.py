@@ -4,8 +4,8 @@
 训练目标是 Phase1 四问 + Phase2 四个 RS 问题的 YES/NO 语义 token，并以低权重
 监督字段格式和 assistant 结束符。采样时每帧展开成八个不可见 focus 视图，
 按 `问题 x YES/NO` exact balance；prompt 中不出现 focus，模型仍输出当前 spec 的
-全部行，但八个主任务只对当前 focus 行施加语义值 loss。这样不会让同一 target 中
-大量自然 NO 的非 focus 行破坏采样器声明的 1:1；RS_HIGHWAY/GROUP 派生行继续监督。
+全部行；当前 focus 行使用完整语义权重，其他主答案行使用小权重，避免同一 target 中
+大量自然 NO 的非 focus 行破坏采样器声明的 1:1；RS_HIGHWAY/GROUP 派生行继续完整监督。
 """
 
 from __future__ import annotations
@@ -97,6 +97,7 @@ from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # 
 FORMAT_COMPONENT_ID = -1
 DEFAULT_NON_FOCUS_SEMANTIC_LOSS_WEIGHT = 0.1
 SEMANTIC_SUPERVISION = "focus_plus_scaled_class_balanced_nonfocus_and_derived_v2"
+GENERATION_FOCUS_METRIC_KEYS = tuple(f"focus_{key.lower()}_acc" for key in ANSWER_KEYS)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -2160,6 +2161,14 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "eval_augment_variant_weights": dict(VARIANT_WEIGHTS),
         "subset_question_counts": list(SUBSET_COUNTS),
         "hierarchical_group_ids": list(GROUP_DEFINITIONS.keys()),
+        "checkpoint_slot": str(name),
+        "checkpoint_selection_policy": (
+            "min_focus_accuracy_then_joint_exact_then_focus_macro"
+            if str(name) == "best_generation_balanced"
+            else "joint_exact_after_format_gate"
+            if str(name) == "best_generation"
+            else "not_generation_selected"
+        ),
         "global_step": int(step),
         "num_epochs": int(args.num_epochs),
         "max_steps": int(args.max_steps),
@@ -2178,6 +2187,18 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
     }
     (final_dir / "sft_new_loop_phase1_adapter_config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     return final_dir
+
+
+def _balanced_generation_selection_key(metrics: Mapping[str, float]) -> Tuple[float, float, float]:
+    """按最弱 focus、联合 exact、focus 宏平均选择额外的稳健 checkpoint。
+
+    ``best_generation`` 仍保持历史的联合 exact 主指标；这个 key 只用于额外保存
+    ``best_generation_balanced``，防止八问联合 exact 掩盖单个 focus 明显塌陷。
+    """
+
+    focus_values = [float(metrics.get(key, 0.0)) for key in GENERATION_FOCUS_METRIC_KEYS]
+    focus_macro = sum(focus_values) / max(1, len(focus_values))
+    return min(focus_values), float(metrics.get("exact_accuracy", 0.0)), focus_macro
 
 
 def train(args: argparse.Namespace) -> None:
@@ -2371,6 +2392,7 @@ def train(args: argparse.Namespace) -> None:
     train_window: Counter[str] = Counter()
     best_val_score = -1.0
     best_generation_score = -1.0
+    best_generation_balanced_key: Optional[Tuple[float, float, float]] = None
     t0 = time.time()
     bundle.model.train()
     if rank == 0:
@@ -2390,7 +2412,7 @@ def train(args: argparse.Namespace) -> None:
     ) -> None:
         """在 optimizer step 后执行延迟的评测/保存，避免保存未应用梯度的 adapter。"""
 
-        nonlocal best_val_score, best_generation_score
+        nonlocal best_val_score, best_generation_score, best_generation_balanced_key
         if eval_work and int(args.eval_steps) > 0 and teacher_trigger_step > 0:
             metrics = evaluate_loss(
                 bundle,
@@ -2462,6 +2484,25 @@ def train(args: argparse.Namespace) -> None:
                         print(
                             f"[best-generation] step={global_step} exact={generation_score:.4f} "
                             f"format_valid={generation_valid:.4f} adapter={ckpt_dir}"
+                        )
+                    balanced_key = _balanced_generation_selection_key(generation_metrics)
+                    if (
+                        generation_valid >= float(args.generation_format_valid_gate)
+                        and (best_generation_balanced_key is None or balanced_key > best_generation_balanced_key)
+                    ):
+                        best_generation_balanced_key = balanced_key
+                        balanced_dir = _save_adapter(
+                            bundle,
+                            output_dir,
+                            args,
+                            step=global_step,
+                            name="best_generation_balanced",
+                        )
+                        print(
+                            f"[best-generation-balanced] step={global_step} "
+                            f"min_focus={balanced_key[0]:.4f} exact={balanced_key[1]:.4f} "
+                            f"focus_macro={balanced_key[2]:.4f} format_valid={generation_valid:.4f} "
+                            f"adapter={balanced_dir}"
                         )
                     delay_note = "" if generation_trigger_step == global_step else f" delayed_from={generation_trigger_step}"
                     print(

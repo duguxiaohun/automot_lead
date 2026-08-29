@@ -22,6 +22,7 @@ from qwen3vl_local.sft_new_loop_phase1.prompts import (
 from qwen3vl_local.sft_new_loop_phase1.train import (
     FrameRow,
     WorkItem,
+    _balanced_generation_selection_key,
     _line_value_span,
     _semantic_base_weights,
     _semantic_class_weights,
@@ -87,6 +88,7 @@ class RefinedContractTest(unittest.TestCase):
         self.assertNotIn("REQUESTED_HISTORY_RGB_MODE", eval_sh)
         self.assertIn('BASE_HISTORY_RGB_MODE="$(read_adapter_history_rgb_mode', eval_sh)
         self.assertIn("history_rgb_selected_indices", eval_sh)
+        self.assertIn('"best_generation_balanced"', eval_sh)
         self.assertIn('${PHASE_NAME}_${TIMESTAMP}_${BASE_HISTORY_RGB_MODE}_audit_bundle', eval_sh)
         self.assertIn("validated_expected_files", eval_sh)
 
@@ -167,9 +169,34 @@ class RefinedContractTest(unittest.TestCase):
             "small or briefly visible vulnerable users",
             "continuous access-controlled multi-lane/barrier corridor is not RS1",
             "RS5 needs a local road opening/conflict",
+            "RS4 needs a recognizable traffic-signal head",
+            "decorative/downward streetlamp, bare pole or arm, or vehicle lamp is not signal hardware",
             "TRAFFIC_LIGHT_ABNORMAL needs readable abnormal signal hardware",
         ):
             self.assertIn(phrase, prompt)
+
+    def test_balanced_generation_checkpoint_protects_weakest_focus(self) -> None:
+        """额外稳健 ckpt 优先避免单任务塌陷，不替换原 exact 最优目录。"""
+
+        metric_keys = (
+            "focus_highway_acc",
+            "focus_static_obstacle_acc",
+            "focus_vulnerable_acc",
+            "focus_traffic_light_abnormal_acc",
+            "focus_rs1_acc",
+            "focus_rs2_acc",
+            "focus_rs4_acc",
+            "focus_rs5_acc",
+        )
+        balanced = {key: 0.85 for key in metric_keys}
+        balanced["exact_accuracy"] = 0.78
+        collapsed = dict(balanced)
+        collapsed["focus_traffic_light_abnormal_acc"] = 0.70
+        collapsed["exact_accuracy"] = 0.81
+        self.assertGreater(
+            _balanced_generation_selection_key(balanced),
+            _balanced_generation_selection_key(collapsed),
+        )
 
     def test_hierarchical_prompt_defines_rgb_audited_rs_highway_boundary(self) -> None:
         spec = make_prompt_spec(

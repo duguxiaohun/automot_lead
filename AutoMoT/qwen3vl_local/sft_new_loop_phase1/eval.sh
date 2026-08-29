@@ -230,7 +230,9 @@ def adapter_identity() -> dict:
             for path in sorted(adapter_path.iterdir())
             if path.is_file() and path.suffix.lower() in weight_suffixes
         ]
-    weight_slot = adapter_path.name if adapter_path.name in {"best_generation", "best_val", "final"} else "direct_adapter_dir"
+    weight_slot = adapter_path.name if adapter_path.name in {
+        "best_generation", "best_generation_balanced", "best_val", "final"
+    } else "direct_adapter_dir"
     run_root = adapter_path.parent if weight_slot != "direct_adapter_dir" else adapter_path
     history_mode = cfg.get("history_rgb_mode")
     default_indices = {"4rgb": [0, 1, 2, 3], "2rgb_endpoints": [0, 3]}.get(history_mode)
