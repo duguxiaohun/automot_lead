@@ -38,6 +38,9 @@ RUN_VISUAL_AUDIT="${RUN_VISUAL_AUDIT:-1}"
 RUN_BUILD="${RUN_BUILD:-1}"
 RUN_TRAIN="${RUN_TRAIN:-1}"
 RUN_EVAL_SH="${RUN_EVAL_SH:-1}"
+# 正式 eval 默认同时覆盖 overall-exact 与 weakest-focus-balanced 两个候选。
+# 两个目录权重完全相同时自动跳过 balanced，避免重复跑 base/LoRA 四组评测。
+RUN_BALANCED_EVAL="${RUN_BALANCED_EVAL:-1}"
 # eval.sh 已覆盖 base/LoRA production+audit、错例抽样和审计打包。默认关闭旧的
 # 内联评测以避免重复；显式关闭 RUN_EVAL_SH 时恢复原来的两个内联 eval 默认值。
 if [[ -z "${RUN_BASE_EVAL+x}" ]]; then
@@ -157,6 +160,57 @@ print(mode)
 PY
 }
 
+adapters_have_same_weights() {
+  local left="$1"
+  local right="$2"
+  local weight_name
+  for weight_name in adapter_model.safetensors adapter_model.bin; do
+    if [[ -f "${left}/${weight_name}" && -f "${right}/${weight_name}" ]]; then
+      cmp -s "${left}/${weight_name}" "${right}/${weight_name}"
+      return
+    fi
+  done
+  return 1
+}
+
+run_final_eval_bundle() {
+  local adapter_dir="$1"
+  local eval_root="$2"
+  local bundle_basename="$3"
+  local label="$4"
+  local adapter_rgb_mode
+  adapter_rgb_mode="$(adapter_history_rgb_mode "${adapter_dir}")"
+  if [[ "${adapter_rgb_mode}" != "${HISTORY_RGB_MODE}" ]]; then
+    echo "${label} adapter RGB mode 不一致: loop=${HISTORY_RGB_MODE} config=${adapter_rgb_mode}" >&2
+    exit 1
+  fi
+
+  echo
+  echo "========== eval.sh + <=${BUNDLE_MAX_MB:-30}MB 审计包 ${adapter_rgb_mode}（${label}） =========="
+  GPU_IDS="${GPU_IDS}" \
+  MODEL_DIR="${MODEL_DIR}" \
+  INDEX="${INDEX}" \
+  COLLECTION_DIR="${COLLECTION_DIR}" \
+  DATA_ROOT="${DATA_ROOT}" \
+  ADAPTER_DIR="${adapter_dir}" \
+  SPLIT="${FINAL_EVAL_SPLIT:-${SPLIT:-test}}" \
+  CASES_PER_BIN="${FINAL_CASES_PER_BIN:-${LORA_CASES_PER_BIN:-64}}" \
+  MAX_EVAL_FRAMES="${FINAL_MAX_EVAL_FRAMES:-${LORA_MAX_EVAL_FRAMES:-0}}" \
+  MAX_NEW_TOKENS="${FINAL_MAX_NEW_TOKENS:-${LORA_MAX_NEW_TOKENS:-256}}" \
+  RUN_AUDIT_CASES="${RUN_AUDIT_CASES}" \
+  AUDIT_PER_TARGET="${FINAL_AUDIT_PER_TARGET:-${AUDIT_PER_TARGET:-8}}" \
+  RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL}" \
+  RUN_LABEL_AUDIT="${RUN_LABEL_AUDIT:-0}" \
+  LABEL_AUDIT_SAMPLES_PER_TOWN="${LABEL_AUDIT_SAMPLES_PER_TOWN:-1}" \
+  LABEL_AUDIT_FRAMES_PER_ROUTE="${LABEL_AUDIT_FRAMES_PER_ROUTE:-1}" \
+  BUNDLE_MAX_MB="${BUNDLE_MAX_MB:-30}" \
+  BUNDLE_BASENAME="${bundle_basename}" \
+  TIMESTAMP="${PIPELINE_TIMESTAMP}" \
+  OUTPUT_ROOT="${eval_root}" \
+  bash qwen3vl_local/sft_new_loop_phase1/eval.sh
+  echo "[pipeline] ${label} 审计包: ${eval_root}/${bundle_basename}.tar.gz"
+}
+
 echo "[pipeline] AutoMoT 根目录: ${AUTOMOT_ROOT}"
 echo "[pipeline] 输出目录: ${PIPELINE_ROOT}"
 echo "[pipeline] 日志: ${PIPELINE_LOG}"
@@ -166,6 +220,7 @@ echo "[pipeline] TRAIN_FOCUS_BALANCE_COUNT=${TRAIN_FOCUS_BALANCE_COUNT}"
 echo "[pipeline] TRAIN_MAX_FRAME_REPEAT=${TRAIN_MAX_FRAME_REPEAT}"
 echo "[pipeline] TRAIN_NUM_EPOCHS=${TRAIN_NUM_EPOCHS} TRAIN_MAX_STEPS=${TRAIN_MAX_STEPS}"
 echo "[pipeline] RUN_EVAL_SH=${RUN_EVAL_SH} RUN_BASE_EVAL=${RUN_BASE_EVAL} RUN_LORA_EVAL=${RUN_LORA_EVAL}"
+echo "[pipeline] RUN_BALANCED_EVAL=${RUN_BALANCED_EVAL}"
 
 if [[ "${RUN_VISUAL_AUDIT}" == "1" ]]; then
   echo
@@ -316,36 +371,31 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
       exit 1
     fi
     ADAPTER_RGB_MODE="$(adapter_history_rgb_mode "${LORA_ADAPTER_DIR}")"
-    if [[ "${RUN_TRAIN}" == "1" && "${ADAPTER_RGB_MODE}" != "${HISTORY_RGB_MODE}" ]]; then
-      echo "训练 adapter RGB mode 不一致: loop=${HISTORY_RGB_MODE} config=${ADAPTER_RGB_MODE}" >&2
-      exit 1
-    fi
     FINAL_EVAL_ROOT="${PIPELINE_ROOT}/${ADAPTER_RGB_MODE}/eval_review"
     MODE_BUNDLE_BASENAME="${FINAL_BUNDLE_BASENAME:-sft_new_loop_phase1_${PIPELINE_TIMESTAMP}_${ADAPTER_RGB_MODE}_audit_bundle}"
-    echo
-    echo "========== eval.sh + <=${BUNDLE_MAX_MB:-30}MB 审计包 ${ADAPTER_RGB_MODE}（来自 ckpt） =========="
-    GPU_IDS="${GPU_IDS}" \
-    MODEL_DIR="${MODEL_DIR}" \
-    INDEX="${INDEX}" \
-    COLLECTION_DIR="${COLLECTION_DIR}" \
-    DATA_ROOT="${DATA_ROOT}" \
-    ADAPTER_DIR="${LORA_ADAPTER_DIR}" \
-    SPLIT="${FINAL_EVAL_SPLIT:-${SPLIT:-test}}" \
-    CASES_PER_BIN="${FINAL_CASES_PER_BIN:-${LORA_CASES_PER_BIN:-64}}" \
-    MAX_EVAL_FRAMES="${FINAL_MAX_EVAL_FRAMES:-${LORA_MAX_EVAL_FRAMES:-0}}" \
-    MAX_NEW_TOKENS="${FINAL_MAX_NEW_TOKENS:-${LORA_MAX_NEW_TOKENS:-256}}" \
-    RUN_AUDIT_CASES="${RUN_AUDIT_CASES}" \
-    AUDIT_PER_TARGET="${FINAL_AUDIT_PER_TARGET:-${AUDIT_PER_TARGET:-8}}" \
-    RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL}" \
-    RUN_LABEL_AUDIT="${RUN_LABEL_AUDIT:-0}" \
-    LABEL_AUDIT_SAMPLES_PER_TOWN="${LABEL_AUDIT_SAMPLES_PER_TOWN:-1}" \
-    LABEL_AUDIT_FRAMES_PER_ROUTE="${LABEL_AUDIT_FRAMES_PER_ROUTE:-1}" \
-    BUNDLE_MAX_MB="${BUNDLE_MAX_MB:-30}" \
-    BUNDLE_BASENAME="${MODE_BUNDLE_BASENAME}" \
-    TIMESTAMP="${PIPELINE_TIMESTAMP}" \
-    OUTPUT_ROOT="${FINAL_EVAL_ROOT}" \
-    bash qwen3vl_local/sft_new_loop_phase1/eval.sh
-    echo "[pipeline] 审计包: ${FINAL_EVAL_ROOT}/${MODE_BUNDLE_BASENAME}.tar.gz"
+    run_final_eval_bundle \
+      "${LORA_ADAPTER_DIR}" \
+      "${FINAL_EVAL_ROOT}" \
+      "${MODE_BUNDLE_BASENAME}" \
+      "primary $(basename "${LORA_ADAPTER_DIR}")"
+
+    PRIMARY_WEIGHT_SLOT="$(basename "${LORA_ADAPTER_DIR}")"
+    BALANCED_ADAPTER_DIR="$(dirname "${LORA_ADAPTER_DIR}")/best_generation_balanced"
+    if [[ "${RUN_BALANCED_EVAL}" == "1" && "${PRIMARY_WEIGHT_SLOT}" == "best_generation" ]]; then
+      if [[ ! -f "${BALANCED_ADAPTER_DIR}/sft_new_loop_phase1_adapter_config.json" ]]; then
+        echo "[pipeline] 未找到 balanced adapter，跳过: ${BALANCED_ADAPTER_DIR}"
+      elif adapters_have_same_weights "${LORA_ADAPTER_DIR}" "${BALANCED_ADAPTER_DIR}"; then
+        echo "[pipeline] exact 与 balanced 权重相同，跳过重复评测: ${BALANCED_ADAPTER_DIR}"
+      else
+        BALANCED_EVAL_ROOT="${PIPELINE_ROOT}/${ADAPTER_RGB_MODE}/eval_review_balanced"
+        BALANCED_BUNDLE_BASENAME="${FINAL_BALANCED_BUNDLE_BASENAME:-sft_new_loop_phase1_${PIPELINE_TIMESTAMP}_${ADAPTER_RGB_MODE}_balanced_audit_bundle}"
+        run_final_eval_bundle \
+          "${BALANCED_ADAPTER_DIR}" \
+          "${BALANCED_EVAL_ROOT}" \
+          "${BALANCED_BUNDLE_BASENAME}" \
+          "balanced candidate"
+      fi
+    fi
   fi
 done
 
