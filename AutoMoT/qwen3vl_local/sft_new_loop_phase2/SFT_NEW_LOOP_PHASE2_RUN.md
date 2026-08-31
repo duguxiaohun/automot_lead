@@ -54,12 +54,10 @@ production prompt v3 在 2026-08-27 的 69 个 2RGB production 错例复核后�
 
 ## 2. 构建数据
 
-从 `AutoMoT/` 目录运行：
-
-如果只想直接执行下一轮正式实验，不需要分别运行本页后续命令：
+如果只想直接执行下一轮正式实验，从当前仓库主目录运行，不需要分别运行本页后续命令：
 
 ```bash
-bash qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh
+bash AutoMoT/qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh
 ```
 
 该脚本会自动完成“缺失时构建数据 → 冻结集合预检 → 3 seed 训练 → validation 选优 →
@@ -70,7 +68,7 @@ bash qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh
 脚本坚持离线运行，默认要求本地模型已经位于 `checkpoints/Qwen3-VL-4B-Instruct`；若训练机
 使用其它本地路径，可在脚本开头的 `MODEL_DIR` 默认值处统一修改一次。
 
-下面是各阶段的独立命令，主要用于排障。
+下面是各阶段的独立命令，主要用于排障；这些独立命令从 `AutoMoT/` 目录运行。
 
 ```bash
 python qwen3vl_local/sft_new_loop_phase2/build_dataset.py \
