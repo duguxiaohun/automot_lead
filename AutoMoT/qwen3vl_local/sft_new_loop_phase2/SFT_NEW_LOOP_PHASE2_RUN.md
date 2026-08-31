@@ -56,6 +56,22 @@ production prompt v3 在 2026-08-27 的 69 个 2RGB production 错例复核后�
 
 从 `AutoMoT/` 目录运行：
 
+如果只想直接执行下一轮正式实验，不需要分别运行本页后续命令：
+
+```bash
+bash qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh
+```
+
+该脚本会自动完成“缺失时构建数据 → 冻结集合预检 → 3 seed 训练 → validation 选优 →
+一次性 unseen-456 验收”，支持训练中断后用同一条命令复用已完成 seed。若
+`unseen_acceptance.json` 已存在，脚本只显示原结论并拒绝再次评测。默认正式实验 ID 固定为
+`v3_frozen_3seed_unseen456_20260831`；只有确实需要新建独立实验时才显式设置
+`EXPERIMENT_ID=<new_id>`，不要因 unseen 结果不理想而换 ID 重测。
+脚本坚持离线运行，默认要求本地模型已经位于 `checkpoints/Qwen3-VL-4B-Instruct`；若训练机
+使用其它本地路径，可在脚本开头的 `MODEL_DIR` 默认值处统一修改一次。
+
+下面是各阶段的独立命令，主要用于排障。
+
 ```bash
 python qwen3vl_local/sft_new_loop_phase2/build_dataset.py \
   --collection-dir keyframe_filter/collection_output \
