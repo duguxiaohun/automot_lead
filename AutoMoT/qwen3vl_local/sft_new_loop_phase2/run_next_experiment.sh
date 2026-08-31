@@ -7,26 +7,21 @@
 #   3. 顺序训练 3 个 seed，只按 validation 门槛选 checkpoint；
 #   4. 对剩余 456 条 unseen 只评测一次并写验收结论。
 #
-# 默认从当前仓库主目录运行：
-#   bash AutoMoT/qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh
+# 默认当前目录已经是 AutoMoT/：
+#   bash qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh
 
 set -euo pipefail
 
 ulimit -S -c 0 2>/dev/null || true
 
-# 默认把执行命令时的当前目录当作主目录；也兼容当前目录已经是 AutoMoT/。
-LAUNCH_ROOT="${PROJECT_ROOT:-$(pwd)}"
-if [[ -d "${LAUNCH_ROOT}/AutoMoT/qwen3vl_local" ]]; then
-  PROJECT_ROOT="$(cd "${LAUNCH_ROOT}" && pwd)"
-  AUTOMOT_ROOT="${PROJECT_ROOT}/AutoMoT"
-elif [[ -d "${LAUNCH_ROOT}/qwen3vl_local" && -d "${LAUNCH_ROOT}/keyframe_filter" ]]; then
-  AUTOMOT_ROOT="$(cd "${LAUNCH_ROOT}" && pwd)"
-  PROJECT_ROOT="$(cd "${AUTOMOT_ROOT}/.." && pwd)"
-else
-  echo "Current directory is neither the repository root nor AutoMoT/: ${LAUNCH_ROOT}" >&2
-  echo "Run this script from the current repository root, or set PROJECT_ROOT explicitly." >&2
+# 默认执行命令时已经位于 AutoMoT/，相对路径全部以当前目录为准。
+AUTOMOT_ROOT="${AUTOMOT_ROOT:-$(pwd)}"
+if [[ ! -d "${AUTOMOT_ROOT}/qwen3vl_local" || ! -d "${AUTOMOT_ROOT}/keyframe_filter" ]]; then
+  echo "Current directory is not AutoMoT/: ${AUTOMOT_ROOT}" >&2
+  echo "cd AutoMoT first, or set AUTOMOT_ROOT explicitly." >&2
   exit 2
 fi
+AUTOMOT_ROOT="$(cd "${AUTOMOT_ROOT}" && pwd)"
 cd "${AUTOMOT_ROOT}"
 
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
@@ -52,7 +47,6 @@ mkdir -p "${EXPERIMENT_ROOT}"
 LOG_PATH="${EXPERIMENT_ROOT}/run_next_experiment.log"
 exec > >(tee -a "${LOG_PATH}") 2>&1
 
-echo "[one-click] project root=${PROJECT_ROOT}"
 echo "[one-click] AutoMoT root=${AUTOMOT_ROOT}"
 echo "[one-click] experiment_id=${EXPERIMENT_ID}"
 echo "[one-click] experiment_root=${EXPERIMENT_ROOT}"

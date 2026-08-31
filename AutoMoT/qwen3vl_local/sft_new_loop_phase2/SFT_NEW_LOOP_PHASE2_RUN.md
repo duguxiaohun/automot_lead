@@ -54,10 +54,10 @@ production prompt v3 在 2026-08-27 的 69 个 2RGB production 错例复核后�
 
 ## 2. 构建数据
 
-如果只想直接执行下一轮正式实验，从当前仓库主目录运行，不需要分别运行本页后续命令：
+如果只想直接执行下一轮正式实验，默认当前目录已经是 `AutoMoT/`，不需要分别运行本页后续命令：
 
 ```bash
-bash AutoMoT/qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh
+bash qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh
 ```
 
 该脚本会自动完成“缺失时构建数据 → 冻结集合预检 → 3 seed 训练 → validation 选优 →
