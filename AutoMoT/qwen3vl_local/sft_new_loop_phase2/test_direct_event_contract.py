@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import unittest
 from collections import Counter
 import json
@@ -108,6 +109,20 @@ def _balance_rows(module: object) -> list[object]:
 
 class DirectEventContractTest(unittest.TestCase):
     """守住用户要求的无伪 RS、highway valid 和 invalid all-NO 合同。"""
+
+    def test_portable_frozen_dev_manifest_contract(self) -> None:
+        """冻结 384-case 身份清单必须轻量、唯一且内容不可漂移。"""
+
+        path = pathlib.Path(__file__).with_name("frozen_dev_cases_v3_384.jsonl")
+        payload = path.read_bytes()
+        keys, files = event_eval._read_excluded_case_keys([path])
+        self.assertEqual(files, [str(path.resolve())])
+        self.assertEqual(len(keys), 384)
+        self.assertEqual(len(payload.splitlines()), 384)
+        self.assertEqual(
+            hashlib.sha256(payload).hexdigest(),
+            "748a8e032b951187afc4aaa32394e6a9df78a53520f86f24f678299765e619ac",
+        )
 
     def test_messages_have_no_synthetic_rs_turn(self) -> None:
         """模型输入只能是 system + 单个 image/text user turn。"""

@@ -112,7 +112,7 @@ if [[ "${ACTION}" == "train" || "${ACTION}" == "all" ]]; then
 fi
 
 if [[ "${ACTION}" == "unseen" || "${ACTION}" == "all" ]]; then
-  DEV_CASES_JSONL="${DEV_CASES_JSONL:-checkpoints/sft_new_loop_phase2_20260827_144749_2rgb_endpoints_audit_bundle/lora_production}"
+  DEV_CASES_JSONL="${DEV_CASES_JSONL:-qwen3vl_local/sft_new_loop_phase2/frozen_dev_cases_v3_384.jsonl}"
   UNSEEN_ROOT="${UNSEEN_ROOT:-${EXPERIMENT_ROOT}/unseen_456}"
   ACCEPTANCE_JSON="${ACCEPTANCE_JSON:-${UNSEEN_ROOT}/unseen_acceptance.json}"
   if [[ -e "${ACCEPTANCE_JSON}" && "${ALLOW_UNSEEN_RERUN:-0}" != "1" ]]; then
