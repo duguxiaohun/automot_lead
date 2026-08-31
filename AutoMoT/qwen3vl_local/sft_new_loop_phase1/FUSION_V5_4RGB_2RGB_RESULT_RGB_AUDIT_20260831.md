@@ -176,11 +176,133 @@ checkpoint 的 raw F1 波动不够作为改词依据。
 
 ## 7. 下一步验收建议
 
-1. 若远端仍保留本次 2RGB run 的 `best_generation_balanced/step-28000` 权重，优先直接补跑
-   balanced test，不需要重训；本地只有 audit bundle 元数据，没有该 adapter 权重，无法代跑。
-2. 使用同一个 frozen 1024-case test 身份比较 step-40000 exact 与 step-28000 balanced，至少
-   报告联合 exact、八个 focus F1、minimum focus、Phase1/Phase2 macro、三类 variant exact。
-3. 选择 production checkpoint 时，不只看联合 exact：若 balanced 能显著恢复 2RGB 灯异常
-   且联合 exact 下降小于约 1pp，应优先考虑 balanced；最终仍以正式 test 和逐帧错例为准。
-4. 当前不建议立即开启新一轮训练。先补齐 balanced test，确认问题来自 checkpoint 选择还是
-   整轮训练分布，再决定是否需要新 seed/重训。
+以下建议已由同日 2RGB 补测闭环，正式结果见第 8 节。补测前的验收原则仍保留为记录：必须在
+同一个 frozen 1024-case 身份上比较 step-40000 exact 与 step-28000 balanced，并同时查看联合
+exact、八个 focus、minimum focus、Phase1/Phase2、三类 variant 和逐帧 RGB，而不能只看
+validation 的单一选优分数。
+
+## 8. 2RGB primary / balanced 补测审计
+
+### 8.1 可比性与候选身份
+
+补测输入：
+
+- `sft_new_loop_phase1_20260831_144428_2rgb_endpoints_audit_bundle`
+- `sft_new_loop_phase1_20260831_144428_2rgb_endpoints_balanced_audit_bundle`
+
+两包均使用 v5 production prompt、相同 production prompt hash、`2rgb_endpoints` 的 `[0,3]`
+帧位、同一个 frozen 1024-case test 集。逐条核对后，1024 个 case id 以及
+`scenario/route/frame/focus/variant/四帧路径` 身份全部一致，可以做严格配对比较。区别只有权重：
+
+- primary：`best_generation/step-40000`
+- balanced：`best_generation_balanced/step-28000`
+
+两包 base production/audit 的逐例结果一致，因此下面的 LoRA 差异不是测试集或 base 漂移造成。
+
+### 8.2 总体与阶段结果
+
+| 指标 | primary step-40000 | balanced step-28000 | balanced - primary |
+|---|---:|---:|---:|
+| 联合严格 exact | **784/1024 = 76.563%** | 774/1024 = 75.586% | **-0.977 pp** |
+| Phase1 requested-lines exact | **920/1024 = 89.844%** | 908/1024 = 88.672% | **-1.172 pp** |
+| Phase2 requested-lines exact | **857/1024 = 83.691%** | 846/1024 = 82.617% | **-1.074 pp** |
+| focus accuracy | **916/1024 = 89.453%** | 914/1024 = 89.258% | -0.195 pp |
+| 八 focus macro F1 | 88.649% | **88.853%** | +0.205 pp |
+| 最弱 focus accuracy | 78.906% | **81.250%** | **+2.344 pp** |
+
+严格配对的联合 exact 切换为：primary 错、balanced 对 67 例；primary 对、balanced 错 77 例，
+净减少 10 例。balanced 确实完成了“抬高最弱桶”的目标，但代价是联合 exact、Phase1 exact
+和 Phase2 exact 同时下降；macro F1 的小幅上升不足以抵消完整问答严格正确率的下降。
+
+### 8.3 八个 focus 的迁移
+
+每个 focus 恰有 128 个 YES:NO 平衡样本：
+
+| focus | primary accuracy / F1 | balanced accuracy / F1 | 主要变化 |
+|---|---:|---:|---|
+| HIGHWAY | 99.219% / 99.213% | 99.219% / 99.213% | 不变 |
+| STATIC_OBSTACLE | **89.063% / 87.931%** | 87.500% / 87.692% | recall 上升，但 FP 1→9，accuracy 下降 |
+| VULNERABLE | **89.063% / 87.719%** | 85.938% / 83.636% | TP 50→46，继续偏保守 |
+| TRAFFIC_LIGHT_ABNORMAL | 86.719% / 84.685% | **92.188% / 91.525%** | TP 47→54 且仍为 0 FP，明确改善 |
+| RS1 | 78.906% / 77.311% | **81.250% / 80.952%** | 最弱桶改善，TP 46→51、FP 9→11 |
+| RS2 | **88.281% / 88.550%** | 86.719% / 87.218% | FP 9→11，回退 |
+| RS4 | **92.969% / 93.023%** | 92.188% / 92.063% | raw 小幅回退，RGB 归因见下 |
+| RS5 | **91.406% / 90.756%** | 89.063% / 88.525% | FP 1→4，回退 |
+
+balanced 的优势高度集中在 `TRAFFIC_LIGHT_ABNORMAL` 和 `RS1`；与此同时
+`STATIC_OBSTACLE`、`VULNERABLE`、`RS2`、`RS5` 均下降。因此它不是整体视觉问答能力提升，
+而是 checkpoint 早期状态在不同任务间重新分配了偏置。
+
+### 8.4 variant 与 audit 输出合同
+
+| variant | primary exact | balanced exact | 配对净变化 |
+|---|---:|---:|---:|
+| `all_random_order`（512） | **72.461%** | 69.922% | 37 修复 / 50 回退，净 -13 |
+| `subset_random`（256） | 78.516% | **81.250%** | 21 修复 / 14 回退，净 +7 |
+| `hierarchical_probe`（256） | **82.813%** | 81.250% | 9 修复 / 13 回退，净 -4 |
+
+production 格式合法率两者都是 100%。audit prompt 下，balanced 的语义 exact 从 76.660%
+降至 74.609%，但输出合同明显更稳定：answer-valid `1021→1024`、evidence-complete
+`1011→1017`、contract-valid `1001→1017`，unexpected answer `14→1`、missing evidence
+`49→10`、duplicate answer `15→0`。这说明 balanced 更会遵守 audit 格式，但不能把格式改善
+等同于语义问答提升。
+
+### 8.5 关键切换 case 的逐帧 RGB 归因
+
+以下只把人工实际查看过的四帧写入结论；未查看的切换 case 不做视觉推断。
+
+#### TRAFFIC_LIGHT_ABNORMAL
+
+- balanced 的 8 个 focus 修复中，case 72、104、330、450、521、532、658 都能在至少一帧
+  读到同一宽交叉口不同方向的红/绿灯，其中 case 104/450/521 是同一路段连续窗口，属于真实
+  能力改善但存在重复计权；case 832 四帧没有可读信号，属于 GT/当前可见性冲突。
+- 唯一 raw 回退 case 158 是极暗雨雾道路，四帧都没有可辨认信号灯头或矛盾灯态；balanced
+  输出 NO 反而符合 RGB 证据。
+
+所以该桶的提升不仅是 raw 指标改善，也有明确视觉支持；按独立 route 计仍需扣除重复窗口影响。
+
+#### RS4
+
+- case 415/723：primary 把车辆灯、雾中照明或装饰灯杆当成信号硬件，balanced 改为 NO，是真实修复。
+- case 77/898：raw GT 为 YES，但四帧没有可辨认信号灯头；balanced 的 NO 是视觉上合理的
+  “表面回退”。
+- case 326：清楚的分隔多车道桥面/高速走廊，没有局部交叉口或交通信号硬件；balanced 改成
+  YES 是真实新增假阳性。
+
+因此 RS4 raw F1 小降不能直接解释为硬件辨识退化；balanced 更少把弱灯光当硬件，但仍产生了
+新的道路结构幻觉。现有 v5 边界无需改写。
+
+#### STATIC_OBSTACLE（抽样切换）
+
+- raw 修复 case 342/708 都处于极暗场景，看不到固定物占用 ego corridor；case 557 的车辆跨帧
+  横向移动并离开，不是静态障碍。这 3 个 YES 更像标签拟合，不能作为放宽 prompt 的依据。
+- raw 回退 case 404/489/516 都只有道路相对运动中的车辆，没有可辨认固定占道物；case 575
+  的红色 SUV 从停车区动态驶出。balanced 的 YES 均为真实假阳性。
+
+这与全 requested-lines 指标一致：balanced 虽把 STATIC TP `110→122`，同时把 FP
+`11→40`，F1 `86.614%→82.712%`。它明显放松了 STATIC 判定，视觉上不如 primary 稳健。
+
+#### VULNERABLE（全部 8 个 focus 切换）
+
+- 两个修复 case 796/613 均有清楚视觉证据：前者雾中路口有多名行人，后者右侧人行道边有
+  骑行者，balanced 的 YES 是真实修复。
+- 六个 raw 回退中，case 36/739 四帧近乎全黑且没有可辨认 vulnerable witness，balanced 的
+  NO 与 RGB 一致；case 391 右侧路口边缘有行人，case 657 左侧路口有骑行者，case 755 右侧
+  近处有清楚骑行者，属于真实漏检；case 606 只在最右边缘出现被裁切的人体，证据较弱但按
+  当前“边缘/旧帧 witness”定义仍应警惕。
+
+所以 raw 的 2 修复 / 6 回退包含标签可见性冲突，但至少 3 个、连同边缘 case 606 至多 4 个
+回退是实际小目标漏检。balanced 在 VULNERABLE 上确实更保守，不能用 LIGHT/RS1 的收益掩盖。
+
+### 8.6 最终 checkpoint 与 prompt 决策
+
+1. **production 继续使用 `best_generation/step-40000`。** 它在同一 1024-case 集上联合 exact
+   高 0.977 pp，Phase1/Phase2 strict exact 都高约 1.1 pp，且 STATIC、VULNERABLE、RS2、RS5
+   更稳。`best_generation_balanced/step-28000` 不晋升为全局 production。
+2. balanced 可保留为诊断候选：它证明较早 checkpoint 对弱光灯异常和 RS1 有更好状态，且
+   audit 合同更干净；但这是任务间 trade-off，不是整体能力提升。
+3. **不修改 v5 prompt，也不因此重训。** LIGHT 的规则本来已经覆盖真实修复，STATIC/VULNERABLE
+   的问题是 checkpoint 偏置、小目标/弱光视觉稳定性和部分标签冲突；继续堆同义提示词会扩大误报。
+4. 下一轮若修改 checkpoint 选优，应给 minimum focus 增益增加联合/阶段守门条件，例如要求
+   联合 exact 的下降显著小于本次 0.977 pp，并限制 Phase1、Phase2 strict exact 以及任一关键
+   focus 的回退；不能只最大化 minimum focus 后直接晋升。

@@ -79,6 +79,14 @@ ADAPTER_DIR=checkpoints/sft_new_loop_phase1_runs/<run>/best_generation_balanced 
 `RUN_BALANCED_EVAL=0`。这一流程只扩大正式候选覆盖，不改变训练选优或覆盖
 `best_generation/`。
 
+2026-08-31 的同集 2RGB 补测已经比较 `best_generation/step-40000` 与
+`best_generation_balanced/step-28000`：balanced 把最弱 focus accuracy 从 78.906% 提到
+81.250%，并明显改善 `TRAFFIC_LIGHT_ABNORMAL` 和 RS1，但联合 strict exact 从 76.563% 降到
+75.586%，Phase1/Phase2 exact 也分别下降 1.172/1.074 pp，STATIC、VULNERABLE、RS2、RS5
+同时回退。逐帧 RGB 还确认 balanced 的 STATIC 误报增加和部分 vulnerable 小目标漏检是真实问题。
+因此当前 production 仍使用 `best_generation/step-40000`，balanced 只作为诊断候选；完整配对
+指标与逐帧归因见 `FUSION_V5_4RGB_2RGB_RESULT_RGB_AUDIT_20260831.md` 第 8 节。
+
 数据构建沿用 Phase2 最新过滤：剔除异常时长 route、检查 full-frame RGB review 覆盖，
 默认排除 visual-risk 帧。Phase1 标签来自已审计四问答案表；Phase2 标签来自逐帧 RS
 标注。视觉子组覆盖只允许来自结构化 RGB audit notes / annotations，不能从自由文本
