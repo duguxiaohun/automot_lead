@@ -46,6 +46,10 @@ Phase1/Phase2 决策规则、RS_HIGHWAY RGB 边界和 audit 输出合同，只�
 交通信号头，不能单独触发 RS4。没有根据灯异常标签回退去放宽
 `TRAFFIC_LIGHT_ABNORMAL`；逐帧 RGB 显示这批回退多数只有正常红/绿相位或根本没有可读信号头。
 完整结果与逐帧记录见 `FUSION_V4_4RGB_2RGB_RESULT_RGB_AUDIT_20260829.md`。
+2026-08-31 对 v5 两个正式 bundle 的二次逐帧核查表明：raw exact 整体提升，但 RS4 收益中
+混有 RGB 与 GT 冲突，2RGB 灯异常和 4RGB vulnerable 的部分回退也来自不可见/冲突标签。
+因此当前保留 v5，不继续堆提示词；完整对比、逐帧 case 归因和 balanced 补测决策见
+`FUSION_V5_4RGB_2RGB_RESULT_RGB_AUDIT_20260831.md`。
 
 v4 相对 v3 的既有修订继续保留：Phase1 四行按 case seed 可复现随机排列；
 `hierarchical_probe` 渲染独立 `RS_HIGHWAY` 定义，要求 limited-access 拓扑链，并把双黄线、
@@ -60,13 +64,20 @@ v4 相对 v3 的既有修订继续保留：Phase1 四行按 case seed 可复现�
 同时比较“最高联合 exact”和“最弱任务受保护”两个 checkpoint，避免单一联合 exact 掩盖某个
 任务的回退。
 
-评测 balanced 候选时必须显式传 adapter 子目录，run root 默认仍优先解析历史
-`best_generation/`：
+单独调用 `eval.sh` 评测 balanced 候选时，仍必须显式传 adapter 子目录；run root 默认优先
+解析历史 `best_generation/`：
 
 ```bash
 ADAPTER_DIR=checkpoints/sft_new_loop_phase1_runs/<run>/best_generation_balanced \
   bash qwen3vl_local/sft_new_loop_phase1/eval.sh
 ```
+
+`run_full_pipeline.sh` 则默认设置 `RUN_BALANCED_EVAL=1`：primary 为
+`best_generation/` 且同一 run 下存在不同权重的 `best_generation_balanced/` 时，会在 primary
+审计包之后自动生成独立的 `eval_review_balanced/` 与 `*_balanced_audit_bundle.tar.gz`。若两个
+目录的 adapter 权重逐字节相同则自动跳过，避免重复评测；需要临时只测 primary 时显式设置
+`RUN_BALANCED_EVAL=0`。这一流程只扩大正式候选覆盖，不改变训练选优或覆盖
+`best_generation/`。
 
 数据构建沿用 Phase2 最新过滤：剔除异常时长 route、检查 full-frame RGB review 覆盖，
 默认排除 visual-risk 帧。Phase1 标签来自已审计四问答案表；Phase2 标签来自逐帧 RS
@@ -359,9 +370,10 @@ GPU_IDS=0 DATA_ROOT=/path/to/lead_data CASES_PER_BIN=64 \
 1. 生成 `visual_audit_manifest.json`
 2. 构建 fused 数据集
 3. 训练 LoRA
-4. 调用本目录 `eval.sh` 跑 base/LoRA production 与 audit-prompt eval
+4. 调用本目录 `eval.sh` 跑 primary 的 base/LoRA production 与 audit-prompt eval
 5. 对 base 和 LoRA production 错例做 RGB 抽样
 6. 按 checkpoint 的 RGB mode 生成硬上限 30MB 的审计压缩包
+7. 若 `best_generation_balanced/` 与 primary 权重不同，默认再独立评测并打包 balanced 候选
 
 默认只跑 `4rgb`：
 
@@ -407,6 +419,8 @@ RUN_EVAL_SH=0 RUN_BASE_EVAL=0 RUN_TRAIN=0 RUN_LORA_EVAL=0 RUN_AUDIT_CASES=0 \
 - `RUN_VISUAL_AUDIT/RUN_BUILD/RUN_TRAIN/RUN_EVAL_SH/RUN_BASE_EVAL/RUN_LORA_EVAL/RUN_AUDIT_CASES`
   控制各阶段开关。
 - `RUN_EVAL_SH=1` 为默认值；此时旧内联 base/LoRA eval 默认关闭，避免把相同模型重复测两遍。
+- `RUN_BALANCED_EVAL=1` 为默认值；只在 primary 是 `best_generation/`、balanced adapter
+  存在且权重不同时追加完整 balanced 评测。设为 `0` 可关闭。
 - `BUNDLE_MAX_MB=30` 是默认硬上限。包内保留四组 metrics/报告、截断后的 case JSONL、
   Phase1/Phase2 专项采样诊断、adapter 与数据 manifest，以及按错误桶抽样压缩的真实 RGB；
   不复制权重、checkpoint 或 TensorBoard 大产物。
