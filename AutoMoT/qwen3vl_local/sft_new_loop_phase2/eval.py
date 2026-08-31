@@ -320,6 +320,92 @@ def _read_rows(
     return rows
 
 
+def _case_identity_fields(obj: Mapping[str, Any]) -> Tuple[str, str, int, str, str, str]:
+    """构造跨 index/eval bundle 稳定的 case 身份，用于冻结 holdout 排除。"""
+
+    return (
+        str(obj.get("scenario", "")),
+        str(obj.get("route_id", "")),
+        int(obj.get("frame_id", -1)),
+        str(obj.get("question_domain", "")),
+        str(obj.get("event", "")),
+        str(obj.get("invalid_source") or ""),
+    )
+
+
+def _frame_row_identity(row: FrameRow) -> Tuple[str, str, int, str, str, str]:
+    """返回 ``FrameRow`` 对应的冻结 case 身份。"""
+
+    return (
+        row.scenario,
+        row.route_id,
+        int(row.frame_id),
+        row.question_domain,
+        row.event,
+        row.invalid_source,
+    )
+
+
+def _read_excluded_case_keys(paths: Sequence[pathlib.Path]) -> Tuple[set[Tuple[str, str, int, str, str, str]], List[str]]:
+    """读取旧 eval case JSONL；目录只扫描其顶层 ``cases*.jsonl``，避免 variant 重复。"""
+
+    keys: set[Tuple[str, str, int, str, str, str]] = set()
+    files: List[pathlib.Path] = []
+    for path in paths:
+        candidate = pathlib.Path(path)
+        if candidate.is_dir():
+            files.extend(sorted(candidate.glob("cases*.jsonl")))
+        elif candidate.is_file():
+            files.append(candidate)
+        else:
+            raise FileNotFoundError(f"excluded case path not found: {candidate}")
+    unique_files = list(dict.fromkeys(path.resolve() for path in files))
+    if paths and not unique_files:
+        raise ValueError("excluded case inputs resolved to no top-level cases*.jsonl files")
+    for path in unique_files:
+        with path.open("r", encoding="utf-8") as handle:
+            for line_no, line in enumerate(handle, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    obj = json.loads(line)
+                    keys.add(_case_identity_fields(obj))
+                except Exception as exc:
+                    raise ValueError(f"invalid excluded case JSONL: {path}:{line_no}") from exc
+    return keys, [str(path) for path in unique_files]
+
+
+def _exclude_prior_cases(
+    rows: Sequence[FrameRow],
+    paths: Sequence[pathlib.Path],
+    *,
+    expected_excluded_cases: int = 0,
+) -> Tuple[List[FrameRow], Dict[str, Any]]:
+    """从当前 split 排除既有 dev/audit cases，并对命中数做可选硬校验。"""
+
+    keys, files = _read_excluded_case_keys(paths)
+    if not keys:
+        return list(rows), {"enabled": False, "files": [], "unique_keys": 0, "matched": 0, "remaining": len(rows)}
+    row_keys = {_frame_row_identity(row) for row in rows}
+    matched_keys = row_keys & keys
+    if int(expected_excluded_cases) > 0 and len(matched_keys) != int(expected_excluded_cases):
+        raise ValueError(
+            "frozen holdout exclusion count mismatch: "
+            f"matched={len(matched_keys)} expected={int(expected_excluded_cases)} files={files}"
+        )
+    filtered = [row for row in rows if _frame_row_identity(row) not in keys]
+    if not filtered:
+        raise ValueError("excluded cases removed every row from the requested split")
+    return filtered, {
+        "enabled": True,
+        "files": files,
+        "unique_keys": len(keys),
+        "matched": len(matched_keys),
+        "unmatched_keys": len(keys - row_keys),
+        "remaining": len(filtered),
+    }
+
+
 def _work_item_seed(row: FrameRow, *parts: object) -> str:
     """返回增强 spec 的稳定种子字段。"""
 
@@ -522,7 +608,7 @@ def _adapter_config_path(adapter_dir: pathlib.Path) -> pathlib.Path:
 
 
 def _resolve_adapter_dir(adapter_dir: pathlib.Path) -> Tuple[pathlib.Path, str]:
-    """允许传 run/latest 目录，自动选择 best_generation/best_val/final。"""
+    """允许传精确 adapter 或 run 目录；run 目录只自动选择正式 best_generation。"""
 
     path = pathlib.Path(adapter_dir)
     checked = []
@@ -531,26 +617,16 @@ def _resolve_adapter_dir(adapter_dir: pathlib.Path) -> Tuple[pathlib.Path, str]:
     if direct.exists():
         return path, "exact_adapter_dir"
 
-    for child in ("best_generation", "best_val", "final"):
-        candidate = path / child
-        cfg_path = _adapter_config_path(candidate)
-        checked.append(str(cfg_path))
-        if cfg_path.exists():
-            return candidate, f"run_dir_{child}"
-
-    if path.name in {"best_generation", "best_val"}:
-        for child in ("best_val", "final"):
-            fallback = path.parent / child
-            if fallback == path:
-                continue
-            cfg_path = _adapter_config_path(fallback)
-            checked.append(str(cfg_path))
-            if cfg_path.exists():
-                return fallback, f"missing_{path.name}_fallback_{child}"
+    candidate = path / "best_generation"
+    cfg_path = _adapter_config_path(candidate)
+    checked.append(str(cfg_path))
+    if cfg_path.exists():
+        return candidate, "run_dir_best_generation"
 
     raise FileNotFoundError(
         "cannot resolve new Phase2 adapter. Pass either an adapter dir, "
-        "or a run dir such as checkpoints/sft_new_loop_phase2_runs/latest. "
+        "or a run dir containing production-ready best_generation. Pass best_val/final/"
+        "fallback_generation explicitly for diagnostic evaluation. "
         f"Checked: {checked}"
     )
 
@@ -855,6 +931,12 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         max_frames=int(args.max_frames),
         data_root=pathlib.Path(args.data_root),
     )
+    split_rows_before_exclusion = len(rows)
+    rows, exclusion_report = _exclude_prior_cases(
+        rows,
+        [pathlib.Path(path) for path in args.exclude_cases_jsonl],
+        expected_excluded_cases=int(args.expected_excluded_cases),
+    )
     raw_focus_bin_availability = _raw_focus_bin_counts(rows)
     cases = _balanced_cases(
         rows,
@@ -862,6 +944,12 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         seed=int(args.seed),
         highway_regular_fraction=float(args.highway_regular_fraction),
     )
+    if int(args.expected_total_cases) > 0 and len(cases) != int(args.expected_total_cases):
+        raise ValueError(
+            "frozen eval case count mismatch: "
+            f"sampled={len(cases)} expected={int(args.expected_total_cases)} "
+            f"exclusion={exclusion_report}"
+        )
     local_cases = cases[rank::world_size]
     device = torch.device(f"cuda:{local_rank}") if world_size > 1 else torch.device(args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
     bundle = load_eval_bundle(
@@ -1136,6 +1224,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "audit_prompt": bool(args.audit_prompt),
         "sampling_contract": "Single-turn direct EVENT eval: UE1/UE3/UE5/UE6 positives are 1:1:1:1; RE contains applicable local and explicit R3/highway all-NO negatives; cross-domain invalid rows use the configured ratio. No synthetic RS or assistant prefix is present.",
         "sampling_verification": {
+            "split_rows_before_exclusion": int(split_rows_before_exclusion),
+            "exclusion": exclusion_report,
             "raw_focus_bin_availability": raw_focus_bin_availability,
             "raw_invalid_subgroups": invalid_subgroup_report(rows),
             "target_cases_per_bin": int(args.cases_per_bin),
@@ -1194,6 +1284,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         f"- adapter_production_prompt_sha256: `{metrics['adapter_production_prompt_sha256'] or ('n/a (base)' if not args.adapter_dir else 'unknown (legacy adapter)')}`",
         f"- adapter_prompt_matches_current_production: `{metrics['adapter_prompt_matches_current_production'] if args.adapter_dir else 'n/a (base)'}`",
         f"- cases: {total}",
+        f"- frozen_exclusion: `{exclusion_report}`",
         f"- exact_match_accuracy: {metrics['exact_match_accuracy']:.4f}",
         f"- answer_only_format_valid_rate (diagnostic, non-scoring): {metrics['answer_only_diagnostics']['format_valid_rate']:.4f}",
         f"- answer_only_exact_match_accuracy (diagnostic, non-scoring): {metrics['answer_only_diagnostics']['exact_match_accuracy']:.4f}",
@@ -1288,9 +1379,29 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--timestamp-output", action=argparse.BooleanOptionalAction, default=True, help="write results under --output-dir/YYYYmmdd_HHMMSS")
     p.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--seed", type=int, default=20260810)
+    p.add_argument(
+        "--exclude-cases-jsonl",
+        action="append",
+        default=[],
+        help="repeatable prior eval cases JSONL or directory; matching cases are removed before balancing",
+    )
+    p.add_argument(
+        "--expected-excluded-cases",
+        type=int,
+        default=0,
+        help="positive value hard-checks how many unique rows were excluded from the requested split",
+    )
+    p.add_argument(
+        "--expected-total-cases",
+        type=int,
+        default=0,
+        help="positive value hard-checks final sampled case count before model loading",
+    )
     args = p.parse_args()
     if int(args.cases_per_bin) < 0:
         raise ValueError("--cases-per-bin must be >= 0")
+    if int(args.expected_excluded_cases) < 0 or int(args.expected_total_cases) < 0:
+        raise ValueError("--expected-excluded-cases/--expected-total-cases must be >= 0")
     if not 0.0 <= float(args.highway_regular_fraction) <= 1.0:
         raise ValueError("--highway-regular-fraction must be in [0, 1]")
     if args.adapter_dir:

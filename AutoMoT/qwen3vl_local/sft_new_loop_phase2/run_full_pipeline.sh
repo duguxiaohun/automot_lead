@@ -131,10 +131,12 @@ adapter_dir_for_train_output() {
   local train_output_dir="$1"
   if [[ -d "${train_output_dir}/best_generation" ]]; then
     echo "${train_output_dir}/best_generation"
-  elif [[ -d "${train_output_dir}/best_val" ]]; then
-    echo "${train_output_dir}/best_val"
+  elif [[ "${ALLOW_FALLBACK_ADAPTER:-0}" == "1" && -d "${train_output_dir}/fallback_generation" ]]; then
+    echo "${train_output_dir}/fallback_generation"
   else
-    echo "${train_output_dir}/final"
+    echo "No production-ready best_generation under ${train_output_dir}." >&2
+    echo "Inspect generation_selection_status.json; set ALLOW_FALLBACK_ADAPTER=1 only for diagnostic eval." >&2
+    return 1
   fi
 }
 
@@ -246,6 +248,11 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
     INVALID_FOCUS_MULTIPLIER="${TRAIN_INVALID_FOCUS_MULTIPLIER}" \
     NUM_EPOCHS="${TRAIN_NUM_EPOCHS}" \
     MAX_STEPS="${TRAIN_MAX_STEPS}" \
+    SEED="${TRAIN_SEED:-${SEED:-20260810}}" \
+    GENERATION_EVAL_MIN_UE3_TARGET_RECALL="${GENERATION_EVAL_MIN_UE3_TARGET_RECALL:-0.625}" \
+    GENERATION_EVAL_MIN_UE6_TARGET_RECALL="${GENERATION_EVAL_MIN_UE6_TARGET_RECALL:-0.80}" \
+    GENERATION_EVAL_MIN_INVALID_EXACT="${GENERATION_EVAL_MIN_INVALID_EXACT:-0.80}" \
+    GENERATION_EVAL_MIN_APPLICABLE_REGULAR_EXACT="${GENERATION_EVAL_MIN_APPLICABLE_REGULAR_EXACT:-0.50}" \
     bash qwen3vl_local/sft_new_loop_phase2/train.sh "${TRAIN_MODE}"
     LORA_ADAPTER_DIR="$(adapter_dir_for_train_output "${MODE_TRAIN_OUTPUT_DIR}")"
   else
@@ -308,6 +315,9 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
     ADAPTER_DIR="${LORA_ADAPTER_DIR}" \
     SPLIT="${FINAL_EVAL_SPLIT:-test}" \
     CASES_PER_BIN="${FINAL_CASES_PER_BIN:-${LORA_CASES_PER_BIN:-64}}" \
+    EXCLUDE_CASES_JSONL="${FINAL_EXCLUDE_CASES_JSONL:-}" \
+    EXPECTED_EXCLUDED_CASES="${FINAL_EXPECTED_EXCLUDED_CASES:-0}" \
+    EXPECTED_TOTAL_CASES="${FINAL_EXPECTED_TOTAL_CASES:-0}" \
     MAX_EVAL_FRAMES="${FINAL_MAX_EVAL_FRAMES:-${LORA_MAX_EVAL_FRAMES:-0}}" \
     AUDIT_PER_TARGET="${FINAL_AUDIT_PER_TARGET:-${AUDIT_PER_TARGET:-8}}" \
     RUN_VISUAL_AUDIT="${RUN_VISUAL_AUDIT:-1}" \

@@ -36,13 +36,13 @@ production prompt v2 根据 2026-08-25 训练错例的逐帧 RGB 复核补了四
 相容，就仍是 valid，而不是 invalid。
 
 production prompt v3 在 2026-08-27 的 69 个 2RGB production 错例复核后补了静态事故/
-施工、路边停车、队列车辆和 ego 视差不等于横向进入。重训后 production 只从
-`315/384` 到 `316/384`，但 UE3 recall 从 `81.25%` 降到 `71.88%`。2026-08-29 再对
-v3 全部 68 个错例的 272 张四帧 RGB 逐帧复核后，production prompt v4 只修 UE3：
-静态/视差排除仍保留，但停车位或路边车在 oldest-to-newest 之间持续跨向车道边界或侵入
-usable corridor 时仍是 UE3，即使最新帧看起来仍像停车姿态。UE1、UE5、UE6、INVALID
-没有可证实的统一 prompt 问题，不改。v4 改变 production prompt hash，旧 adapter 会在加载
-权重前被硬拒绝，必须重训。
+施工、路边停车、队列车辆和 ego 视差不等于横向进入。对应重训 bundle 的 production
+达到 `316/384=82.29%`，是当前严格可比 v2/v3/v4 中总 exact 与 audit exact 最优版本。
+2026-08-29 曾在逐帧复核 v3 全部 68 个错例后试验 prompt v4，只放宽停车位/路边车持续
+跨向车道边界的 UE3 判定；v4 虽将 UE3 recall 从 `71.88%` 恢复到 `79.69%`，但 production
+降至 `308/384=80.21%`，UE6 recall 同时降至 `76.56%`。因此当前 production prompt 已按
+总体最优口径回退为 v3；使用时必须搭配 prompt hash 一致的 v3 adapter，不能与 v4 adapter
+混用。
 
 这些边界来自 `keyframe_filter/ROAD_EVENT_CLASSIFICATION_PLAN.md`、
 `ROAD_EVENT_RGB_AUDIT_ARCHIVE_202607.md` 和旧 Phase3 的
@@ -109,6 +109,9 @@ EVAL_STEPS=2000 \
 GENERATION_EVAL_STEPS=2000 \
 GENERATION_EVAL_BALANCE_COUNT=32 \
 GENERATION_EVAL_MIN_UE3_TARGET_RECALL=0.625 \
+GENERATION_EVAL_MIN_UE6_TARGET_RECALL=0.80 \
+GENERATION_EVAL_MIN_INVALID_EXACT=0.80 \
+GENERATION_EVAL_MIN_APPLICABLE_REGULAR_EXACT=0.50 \
 SAVE_STEPS=20000 \
 FOCUS_BALANCE_COUNT=1024 \
 REGULAR_FOCUS_MULTIPLIER=2.0 \
@@ -118,14 +121,17 @@ bash qwen3vl_local/sft_new_loop_phase2/train.sh ddp
 
 训练默认每 2000 optimizer step 跑 teacher-forced val 和固定均衡的自由生成 val，
 每 20000 step 保存 checkpoint；generation eval 每个 UE/RE/invalid class 默认 32 条。
-`best_generation` 优先要求 UE3 正类 target recall 达到 `0.625`，达标后按总 exact 选优；
-若所有 step 都不达标，则明示保留 UE3 recall 最高的 fallback。训练会输出：
+`best_generation` 必须同时满足 UE3 recall `>=0.625`、UE6 recall `>=0.80`、INVALID
+exact `>=0.80` 与 applicable RE exact `>=0.50`，达标后再按总 exact 选优。未全部达标的
+权重只写入 `fallback_generation/`，不会被 full pipeline 自动当作 production checkpoint；fallback
+先按通过门槛数、最差归一化达标比例和总 exact 排序，避免只救一个问题类。训练会输出：
 
 - `train_balance.json`：class、question domain、true RS、highway/local RE，以及 invalid 四维子类别采样；
 - `balance/epoch_*.json`：每轮 invalid 的 source class、true RS、错误问题域、联合签名与均衡 guard；
 - `train_eval_metrics.jsonl` / generation records；
 - `tb/`：loss、每个问题准确率、invalid joint/all-UE-NO、invalid 四维子类别、highway/local/UE slice；
-- `best_val/`、`best_generation/`、`checkpoint-*`、`final/`；
+- `best_val/`、通过全部门槛时的 `best_generation/`、仅诊断用的 `fallback_generation/`、
+  `generation_selection_status.json`、`checkpoint-*`、`final/`；
 - `sft_new_loop_phase2_adapter_config.json`：prompt hash、history mode、sampling 与单轮输入合同。
 
 ## 4. 独立评测
@@ -163,6 +169,31 @@ GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase2/eval.py \
 签名一致性以及五种 source、R1-R5、两个错误问题域的完整覆盖守卫，不能借全量模式绕过。
 `audit_eval_cases.py` 生成的 `manifest.jsonl`、`summary.json/summary.md` 和每例
 `audit_note.md` 也会直接展示 INVALID source class、true RS、错误问题域和联合签名。
+
+### 4.1 冻结 prompt、多 seed 与一次性 unseen 验收
+
+当前停止继续改 prompt，固定 v3 名称与 production hash
+`cd564634257fe0f072de70947200a820d6dd2b43375981b60120a1fe2296dd7f`。标准实验先训练
+3 个 seed，只使用 validation 和上述四项门槛选一个正式 checkpoint；随后从 840 条 test 中
+精确排除历史 384 条 dev/audit cases，对剩余 456 条一次性验收：
+
+```bash
+# 只训练 3 个 seed，并按 validation 选优；不读取 test/unseen 指标
+bash qwen3vl_local/sft_new_loop_phase2/run_frozen_protocol.sh train
+
+# 确认 seed_selection.json 后，只执行一次 456 条 unseen 验收
+EXPERIMENT_ID=<与训练相同的实验 id> \
+bash qwen3vl_local/sft_new_loop_phase2/run_frozen_protocol.sh unseen
+```
+
+也可用 `all` 连续执行；生产实验更推荐分成两条命令，中间先核对所有 seed 的
+`generation_selection_status.json`。默认 unseen 硬门槛为总 exact/UE3 recall/UE6 recall/
+INVALID recall 分别 `0.80/0.80/0.80/0.80`、format valid `1.0`、applicable RE exact
+`0.50`。结果写入 `unseen_acceptance.json`；文件已存在时脚本拒绝重跑，防止依据 unseen
+结果继续调 prompt。只有基础设施失败才可显式 `ALLOW_UNSEEN_RERUN=1`。
+
+底层 `eval.py` 也支持重复传 `--exclude-cases-jsonl <file-or-eval-dir>`，并通过
+`--expected-excluded-cases 384 --expected-total-cases 456` 在模型加载前硬校验冻结集合。
 
 生产 prompt 只输出 YES/NO。`--audit-prompt` 会额外要求每题一条短 RGB evidence，
 仅用于人工诊断，不能与生产指标混为一谈。

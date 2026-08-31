@@ -254,11 +254,15 @@
   1:1:1:1，RE 默认等于一个 UE 桶，其中默认 25% 为 R3/highway valid all-NO hard negatives，
   invalid 默认约 20% 且只由清晰的跨问题域错配构造，所有 UE 必须为 NO。RGB 路径按
   `--data-root` 相对保存和重映射；训练期 teacher-forced loss eval / generation eval 与 checkpoint 默认步频为
-  2000/2000/20000，generation eval 默认 balance count=32；`best_generation` 先守 UE3 正类
-  target recall `>=0.625` 底线再按总 exact 选优，全部 step 未达标时保留 UE3 recall
-  最高 fallback。当前 production prompt v4 来自 2026-08-29 对 v3 全部 68 个 production 错例
-  的 272 张四帧 RGB 全量复核：真正静态路边车/事故/施工和 ego 视差仍不是 UE3，
-  但停车位/路边车跨帧持续跨向车道边界或侵入 usable corridor 仍是 UE3。自由生成完整输出必须做
+  2000/2000/20000，generation eval 默认 balance count=32；`best_generation` 必须同时守住
+  UE3 recall `>=0.625`、UE6 recall `>=0.80`、INVALID exact `>=0.80` 与 applicable RE
+  exact `>=0.50`，达标后按总 exact 选优；未全达标只保存 `fallback_generation`，full pipeline
+  不自动晋升。`run_frozen_protocol.sh` 默认训练 3 个 seed，只按 validation 选择通过门槛的
+  checkpoint，再从 840 条 test 中精确排除历史 384 条，对剩余 456 条做一次性 unseen 验收；
+  eval 通过 exclusion case 身份及期望 `384/456` 计数在模型加载前硬校验。当前 production prompt 已按严格可比 bundle 的总体最优结果回退为 v3：
+  v3 production/audit exact 为 `316/384` / `314/384`；2026-08-29 的 v4 实验虽恢复部分
+  UE3 recall，但 production 降至 `308/384` 且 UE6 明显退化，因此不作为当前默认。
+  v3 保留真正静态路边车/事故/施工和 ego 视差不是 UE3 的边界。自由生成完整输出必须做
   顺序/行数/无额外文本严格解析，格式违规时整条
   format/exact 同时失败；adapter 加载前硬校验 production prompt hash、history RGB mode 和
   解析后的 base-model 路径；数据构建把实际扫描 scenario/Town 与 RGB review coverage 做差集；
