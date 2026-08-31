@@ -257,7 +257,8 @@
   2000/2000/20000，generation eval 默认 balance count=32；`best_generation` 必须同时守住
   UE3 recall `>=0.625`、UE6 recall `>=0.80`、INVALID exact `>=0.80` 与 applicable RE
   exact `>=0.50`，达标后按总 exact 选优；未全达标只保存 `fallback_generation`，full pipeline
-  不自动晋升。`run_frozen_protocol.sh` 默认训练 3 个 seed，只按 validation 选择通过门槛的
+  不自动晋升。`run_next_experiment.sh` 是下一轮正式实验一键入口，自动构建/预检冻结数据、
+  调用 `run_frozen_protocol.sh` 训练 3 个 seed，只按 validation 选择通过门槛的
   checkpoint，再从 840 条 test 中精确排除历史 384 条，对剩余 456 条做一次性 unseen 验收；
   eval 通过 exclusion case 身份及期望 `384/456` 计数在模型加载前硬校验。当前 production prompt 已按严格可比 bundle 的总体最优结果回退为 v3：
   v3 production/audit exact 为 `316/384` / `314/384`；2026-08-29 的 v4 实验虽恢复部分
