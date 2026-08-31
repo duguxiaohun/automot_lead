@@ -65,6 +65,9 @@ bash qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh
 `unseen_acceptance.json` 已存在，脚本只显示原结论并拒绝再次评测。默认正式实验 ID 固定为
 `v3_frozen_3seed_unseen456_20260831`；只有确实需要新建独立实验时才显式设置
 `EXPERIMENT_ID=<new_id>`，不要因 unseen 结果不理想而换 ID 重测。
+历史 dev 集不再依赖未入库的 checkpoints audit bundle；仓库内
+`frozen_dev_cases_v3_384.jsonl` 只保存 384 条 case 身份，不含 RGB、模型输出或权重，脚本会
+用它与新建 index 做 `840/384/456` 交集硬校验。
 脚本坚持离线运行，默认要求本地模型已经位于 `checkpoints/Qwen3-VL-4B-Instruct`；若训练机
 使用其它本地路径，可在脚本开头的 `MODEL_DIR` 默认值处统一修改一次。
 
