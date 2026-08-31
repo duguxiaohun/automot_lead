@@ -10,8 +10,10 @@ import pathlib
 import tempfile
 
 from qwen3vl_local.sft_new_loop_phase2 import build_dataset as dataset
+from qwen3vl_local.sft_new_loop_phase2 import check_acceptance
 from qwen3vl_local.sft_new_loop_phase2 import audit_eval_cases as event_audit
 from qwen3vl_local.sft_new_loop_phase2 import eval as event_eval
+from qwen3vl_local.sft_new_loop_phase2 import select_seed_checkpoint
 from qwen3vl_local.sft_new_loop_phase2 import train as event_train
 from qwen3vl_local.sft_new_loop_phase2 import visual_audit
 from qwen3vl_local.sft_new_loop_phase2.history_rgb import history_rgb_indices
@@ -126,15 +128,15 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertEqual(history_rgb_indices("4rgb"), (0, 1, 2, 3))
         self.assertEqual(history_rgb_indices("2rgb_endpoints"), (0, 3))
 
-    def test_prompt_v4_encodes_observed_rgb_error_boundaries(self) -> None:
+    def test_prompt_v3_encodes_observed_rgb_error_boundaries(self) -> None:
         """逐帧错例归纳出的 newest/UE 互斥/低能见度边界必须留在生产合同中。"""
 
         answers = {key: False for key in EVENT_KEYS}
         answers[DOMAIN_ANSWER_KEYS[ROAD_DOMAIN]] = True
         answers[INVALID_KEY] = False
-        spec = make_prompt_spec(variant="all_random_order", answers=answers, seed_key="rgb-v4")
+        spec = make_prompt_spec(variant="all_random_order", answers=answers, seed_key="rgb-v3")
         prompt = build_event_prompt(spec=spec)
-        self.assertTrue(PROMPT_NAME.endswith("visual_v4"))
+        self.assertTrue(PROMPT_NAME.endswith("visual_v3"))
         self.assertIn("The newest frame decides whether an event is active", prompt)
         self.assertIn("same-lane lead vehicle that suddenly slows is UE1", prompt)
         self.assertIn("moving laterally into ego's future corridor is UE3", prompt)
@@ -142,38 +144,168 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertIn("do not mark the question set invalid merely because visibility is poor", prompt)
         self.assertIn("ego passes it is not lateral motion", prompt)
         self.assertIn("stationary crash or construction actors", prompt)
-        self.assertIn("parking-side or roadside vehicle advancing", prompt)
-        self.assertIn("truly stationary parked or queued vehicles", prompt)
+        self.assertIn("ego passing parked or queued vehicles", prompt)
+        self.assertNotIn("parking-side or roadside vehicle advancing", prompt)
 
-    def test_generation_checkpoint_score_guards_ue3_recall(self) -> None:
-        """UE3 正例 recall 达标优先；全部未达标时也优先较高 recall。"""
+    def test_generation_checkpoint_score_guards_all_critical_slices(self) -> None:
+        """正式最优点必须同时守住 UE3/UE6/INVALID/RE，不能单类换总分。"""
 
         guarded = event_train.generation_checkpoint_score(
             {
                 "slice/ue3_target_recall": 0.625,
+                "slice/ue6_target_recall": 0.875,
+                "slice/invalid_exact": 0.85,
+                "slice/applicable_regular_exact": 0.60,
                 "exact_accuracy": 0.80,
                 "pattern/all_random_order_pattern_exact": 0.80,
             },
             min_ue3_target_recall=0.625,
+            min_ue6_target_recall=0.80,
+            min_invalid_exact=0.80,
+            min_applicable_regular_exact=0.50,
         )
         high_exact_but_regressed = event_train.generation_checkpoint_score(
             {
-                "slice/ue3_target_recall": 0.50,
+                "slice/ue3_target_recall": 0.70,
+                "slice/ue6_target_recall": 0.70,
+                "slice/invalid_exact": 0.90,
+                "slice/applicable_regular_exact": 0.70,
                 "exact_accuracy": 0.90,
                 "pattern/all_random_order_pattern_exact": 0.90,
             },
             min_ue3_target_recall=0.625,
+            min_ue6_target_recall=0.80,
+            min_invalid_exact=0.80,
+            min_applicable_regular_exact=0.50,
         )
         lower_failed = event_train.generation_checkpoint_score(
             {
                 "slice/ue3_target_recall": 0.25,
+                "slice/ue6_target_recall": 0.60,
+                "slice/invalid_exact": 0.90,
+                "slice/applicable_regular_exact": 0.70,
                 "exact_accuracy": 0.95,
                 "pattern/all_random_order_pattern_exact": 0.95,
             },
             min_ue3_target_recall=0.625,
+            min_ue6_target_recall=0.80,
+            min_invalid_exact=0.80,
+            min_applicable_regular_exact=0.50,
         )
         self.assertGreater(guarded, high_exact_but_regressed)
         self.assertGreater(high_exact_but_regressed, lower_failed)
+        report = event_train.generation_checkpoint_guards(
+            {
+                "slice/ue3_target_recall": 0.70,
+                "slice/ue6_target_recall": 0.70,
+                "slice/invalid_exact": 0.90,
+                "slice/applicable_regular_exact": 0.70,
+            },
+            min_ue3_target_recall=0.625,
+            min_ue6_target_recall=0.80,
+            min_invalid_exact=0.80,
+            min_applicable_regular_exact=0.50,
+        )
+        self.assertFalse(report["all_ok"])
+        self.assertFalse(report["passed"]["ue6_target_recall"])
+
+    def test_frozen_holdout_excludes_prior_eval_cases_exactly(self) -> None:
+        """旧 dev cases 必须按稳定身份从 test split 精确排除。"""
+
+        rows = _balance_rows(event_eval)
+        with tempfile.TemporaryDirectory() as tmp:
+            case_dir = pathlib.Path(tmp)
+            payloads = []
+            for row in rows[:2]:
+                payloads.append(
+                    {
+                        "scenario": row.scenario,
+                        "route_id": row.route_id,
+                        "frame_id": row.frame_id,
+                        "question_domain": row.question_domain,
+                        "event": row.event,
+                        "invalid_source": row.invalid_source,
+                    }
+                )
+            (case_dir / "cases_rank0.jsonl").write_text(
+                "".join(json.dumps(item) + "\n" for item in payloads), encoding="utf-8"
+            )
+            filtered, report = event_eval._exclude_prior_cases(
+                rows, [case_dir], expected_excluded_cases=2
+            )
+            self.assertEqual(len(filtered), len(rows) - 2)
+            self.assertEqual(report["matched"], 2)
+            with self.assertRaises(ValueError):
+                event_eval._exclude_prior_cases(rows, [case_dir], expected_excluded_cases=3)
+
+    def test_seed_selection_rejects_fallback_only_runs(self) -> None:
+        """多 seed 选择只能读取通过全部 validation 门槛的 best_generation。"""
+
+        base = {
+            "prompt_name": PROMPT_NAME,
+            "production_prompt_sha256": "hash",
+            "history_rgb_mode": "2rgb_endpoints",
+            "status": {},
+            "fallback_generation": {"generation_exact_accuracy": 0.99},
+        }
+        fallback_only = [{**base, "run_root": "/tmp/a", "seed": 1, "best_generation": None}]
+        with self.assertRaises(ValueError):
+            select_seed_checkpoint.select_checkpoint(fallback_only, required_seeds=1)
+        eligible = [
+            {
+                **base,
+                "run_root": "/tmp/a",
+                "seed": 1,
+                "best_generation": {
+                    "generation_guards_ok": True,
+                    "generation_exact_accuracy": 0.81,
+                    "generation": {"pattern/all_random_order_pattern_exact": 0.81},
+                },
+            },
+            {
+                **base,
+                "run_root": "/tmp/b",
+                "seed": 2,
+                "best_generation": {
+                    "generation_guards_ok": True,
+                    "generation_exact_accuracy": 0.83,
+                    "generation": {"pattern/all_random_order_pattern_exact": 0.83},
+                },
+            },
+        ]
+        selected = select_seed_checkpoint.select_checkpoint(eligible, required_seeds=2)
+        self.assertEqual(selected["selected_seed"], 2)
+
+    def test_unseen_acceptance_requires_every_frozen_floor(self) -> None:
+        """总分达标但 UE6 退化时，unseen 验收必须失败。"""
+
+        metrics = {
+            "total_cases": 456,
+            "exact_match_accuracy": 0.82,
+            "variant_reports": {"all_random_order": {"format_valid_rate": 1.0}},
+            "slice_reports": {"applicable_regular": {"exact_match_accuracy": 0.60}},
+            "per_question": {
+                "UE3": {"recall": 0.82},
+                "UE6": {"recall": 0.75},
+                "INVALID_EVENT_CONTEXT": {"recall": 0.82},
+            },
+        }
+        args = type(
+            "Args",
+            (),
+            {
+                "metrics": "metrics.json",
+                "min_overall_exact": 0.80,
+                "min_format_valid_rate": 1.0,
+                "min_ue3_recall": 0.80,
+                "min_ue6_recall": 0.80,
+                "min_invalid_recall": 0.80,
+                "min_applicable_regular_exact": 0.50,
+            },
+        )()
+        result = check_acceptance.evaluate_acceptance(metrics, args)
+        self.assertFalse(result["accepted"])
+        self.assertFalse(result["passed"]["ue6_recall"])
 
     def test_explicit_event_review_is_visual_risk(self) -> None:
         """EVENT 标注自身要求 RGB 复核时，默认 clean pool 不能继续静默纳入。"""

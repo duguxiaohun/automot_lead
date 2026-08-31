@@ -155,6 +155,9 @@ COMMON_ARGS=(
   --generation-eval-max-new-tokens "${GENERATION_EVAL_MAX_NEW_TOKENS:-64}"
   --generation-eval-min-valid-rate "${GENERATION_EVAL_MIN_VALID_RATE:-1.0}"
   --generation-eval-min-ue3-target-recall "${GENERATION_EVAL_MIN_UE3_TARGET_RECALL:-0.625}"
+  --generation-eval-min-ue6-target-recall "${GENERATION_EVAL_MIN_UE6_TARGET_RECALL:-0.80}"
+  --generation-eval-min-invalid-exact "${GENERATION_EVAL_MIN_INVALID_EXACT:-0.80}"
+  --generation-eval-min-applicable-regular-exact "${GENERATION_EVAL_MIN_APPLICABLE_REGULAR_EXACT:-0.50}"
   --save-steps "${SAVE_STEPS:-20000}"
   --max-length "${MAX_LENGTH:-8192}"
   --learning-rate "${LEARNING_RATE:-${LR:-1e-5}}"
@@ -167,6 +170,7 @@ COMMON_ARGS=(
   --lora-vision-scope "${LORA_VISION_SCOPE:-off}"
   --max-grad-norm "${MAX_GRAD_NORM:-1.0}"
   --log-steps "${LOG_STEPS:-10}"
+  --seed "${SEED:-20260810}"
   "${EXTRA_ARGS[@]}"
 )
 if [[ "${SAVE_BEST_VAL:-1}" == "0" ]]; then
