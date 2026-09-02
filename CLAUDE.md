@@ -101,6 +101,7 @@
 | `AutoMoT/vae_standalone/train_patch_unpatch.py` | patch / unpatch 端到端图像重建训练脚本：image→VAE.encode→patch→unpatch→VAE.decode→image，VAE 冻结；产物 `patch_unpatch_*.safetensors` 可被 `DiTMoT.load_patch_unpatch` 直接加载并默认冻结。`AutoMoT/vae_standalone/` 下其它原始文件（vwm/、config/、weights/ 等）仍为只读参考，除非已单独列入白名单 |
 | `AutoMoT/vae_standalone/vae_reconstruct.py` | 按用户同意新增到白名单：VAE / patch-unpatch 诊断脚本，支持 VAE-only 与 VAE+patch/unpatch 两种重建链路、批量 loss、TensorBoard 与随机小批量 PNG 对比可视化 |
 | `AutoMoT/qwen3vl_local/sft_new_loop_phase2/frozen_dev_cases_v3_384.jsonl` | New Phase2 一次性 unseen 协议的轻量冻结 dev 身份清单；固定 384 条，仅含 scenario/route/frame/question-domain/event/invalid-source，不含 RGB、模型输出或权重。`run_next_experiment.sh` / `run_frozen_protocol.sh` 必须默认读取该入库文件，不得依赖训练机未同步的 checkpoints audit bundle。 |
+| `AutoMoT/qwen3vl_local/sft_new_loop_phase2/build_ue3_validation_rgb_audit.py` | New Phase2 多 seed 均未通过时的只读 RGB 审计入口：按每个 seed 的 fallback step 收集 UE3 validation 假阴性，补齐 index 四帧，生成原图、contact sheet、逐例模板、汇总和 tar.gz；不运行模型、不打开 unseen，prompt/标签修改前必须逐帧查看，禁止按 scenario 名倒推。 |
 | `CLAUDE.md` | 本规则文件（仅在调整规则时修改） |
 | `AGENTS.md` | 通用 AI / coding agent 入口说明文件 |
 

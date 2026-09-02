@@ -68,6 +68,10 @@ bash qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh
 历史 dev 集不再依赖未入库的 checkpoints audit bundle；仓库内
 `frozen_dev_cases_v3_384.jsonl` 只保存 384 条 case 身份，不含 RGB、模型输出或权重，脚本会
 用它与新建 index 做 `840/384/456` 交集硬校验。
+如果三个 seed 都未通过选优，脚本不会打开 unseen，而会自动调用
+`build_ue3_validation_rgb_audit.py`：按各 seed 的 fallback step 收集 UE3 假阴性，补齐 index
+中的四帧 RGB，生成逐例原图、2×2 contact sheet、`audit_note.md`、汇总 JSON/MD 和 tar.gz。
+任何 prompt/标签修改都必须先逐例填写该审计模板，不能按 scenario 名直接推断。
 脚本坚持离线运行，默认要求本地模型已经位于 `checkpoints/Qwen3-VL-4B-Instruct`；若训练机
 使用其它本地路径，可在脚本开头的 `MODEL_DIR` 默认值处统一修改一次。
 
