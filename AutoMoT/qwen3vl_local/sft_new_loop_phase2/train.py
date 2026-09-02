@@ -82,6 +82,10 @@ from qwen3vl_local.sft_new_loop_phase2.prompts import (  # noqa: E402
     prompt_spec_to_json,
     spec_metric_items,
 )
+from qwen3vl_local.sft_new_loop_phase2.sampling import (  # noqa: E402
+    route_diverse_sample,
+    route_diversity_report,
+)
 from qwen3vl_local.sft_v2.train import (  # noqa: E402
     _assert_inside_assistant_turn,
     _find_subsequence,
@@ -223,6 +227,8 @@ def _write_run_metadata(
         "eval_work_rank": int(eval_work_rank),
         "generation_eval_steps": int(args.generation_eval_steps),
         "generation_eval_balance_count": int(args.generation_eval_balance_count),
+        "generation_eval_route_diverse": bool(args.generation_eval_route_diverse),
+        "generation_eval_sampling_seed": int(args.generation_eval_sampling_seed),
         "generation_eval_min_ue3_target_recall": float(args.generation_eval_min_ue3_target_recall),
         "generation_eval_min_ue6_target_recall": float(args.generation_eval_min_ue6_target_recall),
         "generation_eval_min_invalid_exact": float(args.generation_eval_min_invalid_exact),
@@ -460,6 +466,7 @@ def _balanced_work(
     regular_multiplier: float = 1.0,
     invalid_multiplier: float = 1.0,
     highway_regular_fraction: float = 0.25,
+    route_diverse: bool = False,
 ) -> List[WorkItem]:
     """按直接 EVENT class 构建 deterministic work list。
 
@@ -515,12 +522,16 @@ def _balanced_work(
                 raise ValueError("RE balance requires applicable local rows but none are available")
             for bucket, count in ((highway, highway_target), (local, local_target)):
                 rng.shuffle(bucket)
-                if len(bucket) >= count:
+                if route_diverse:
+                    work.extend(route_diverse_sample(bucket, target=count, rng=rng))
+                elif len(bucket) >= count:
                     work.extend(bucket[:count])
                 else:
                     work.extend(bucket[i % len(bucket)] for i in range(count))
         elif key.endswith("/class/INVALID"):
             work.extend(balanced_invalid_items(items, target=target, rng=rng))
+        elif route_diverse:
+            work.extend(route_diverse_sample(items, target=target, rng=rng))
         elif len(items) >= target:
             work.extend(items[:target])
         else:
@@ -1331,6 +1342,8 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "format_loss_weight": float(args.format_loss_weight),
         "generation_eval_steps": int(args.generation_eval_steps),
         "generation_eval_balance_count": int(args.generation_eval_balance_count),
+        "generation_eval_route_diverse": bool(args.generation_eval_route_diverse),
+        "generation_eval_sampling_seed": int(args.generation_eval_sampling_seed),
         "generation_eval_max_new_tokens": int(args.generation_eval_max_new_tokens),
         "generation_eval_min_valid_rate": float(args.generation_eval_min_valid_rate),
         "generation_eval_min_ue3_target_recall": float(args.generation_eval_min_ue3_target_recall),
@@ -1429,8 +1442,9 @@ def train(args: argparse.Namespace) -> None:
                 full_generation_eval_work = _balanced_work(
                     eval_rows,
                     target_per_bin=int(args.generation_eval_balance_count),
-                    seed=int(args.seed) + 2017,
+                    seed=int(args.generation_eval_sampling_seed),
                     highway_regular_fraction=float(args.highway_regular_fraction),
+                    route_diverse=bool(args.generation_eval_route_diverse),
                 )
         except Exception as exc:
             raise RuntimeError(
@@ -1484,6 +1498,9 @@ def train(args: argparse.Namespace) -> None:
                     "generation_eval": {
                         "steps": int(args.generation_eval_steps),
                         "balance_count": int(args.generation_eval_balance_count),
+                        "route_diverse": bool(args.generation_eval_route_diverse),
+                        "sampling_seed": int(args.generation_eval_sampling_seed),
+                        "route_diversity": route_diversity_report(full_generation_eval_work),
                         "max_new_tokens": int(args.generation_eval_max_new_tokens),
                         "min_format_valid_rate": float(args.generation_eval_min_valid_rate),
                         "min_ue3_target_recall": float(args.generation_eval_min_ue3_target_recall),
@@ -2023,6 +2040,18 @@ def parse_args() -> argparse.Namespace:
         help="run rank0 free-generation validation every N optimizer steps; must be a multiple of --eval-steps; 0 disables it",
     )
     p.add_argument("--generation-eval-balance-count", type=int, default=32)
+    p.add_argument(
+        "--generation-eval-sampling-seed",
+        type=int,
+        default=20260831,
+        help="fixed validation sampling seed shared by every training seed for fair checkpoint comparison",
+    )
+    p.add_argument(
+        "--generation-eval-route-diverse",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="sample each EVENT class by rotating routes before taking another frame from the same route",
+    )
     p.add_argument("--generation-eval-max-new-tokens", type=int, default=64)
     p.add_argument("--generation-eval-min-valid-rate", type=float, default=1.0)
     p.add_argument(
