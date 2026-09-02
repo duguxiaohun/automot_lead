@@ -102,6 +102,17 @@ contact sheet 和逐例填写模板。只看假阴性不足以修改 prompt；�
 当 `run_route_diverse_validation_rescore.sh` 新跑并且无 seed 过 guard 时，脚本也会在保持
 unseen 未触碰的同时自动构建该审计包。
 
+完成逐帧审计后，可用入库的 32-case 决策表生成诊断性子集指标：
+
+```bash
+python qwen3vl_local/sft_new_loop_phase2/rescore_ue3_rgb_decisions.py \
+  --audit-root checkpoints/ue3_route_diverse_full_rgb_audit
+```
+
+输出 `decision_rescore.json/md`。该结果明确标记 `official_metric=false`，只用于区分
+模型责任与 PRE/POST/DOMAIN/2RGB/AMBIGUOUS 标签责任；不修改 frame index、不参与
+checkpoint 选优、不能触发 unseen。完整结论见 `V3_ROUTE_DIVERSE_FULL_UE3_RGB_AUDIT_20260902.md`。
+
 复评输出写入原实验目录的 `route_diverse_validation_rescore/`，原 frozen 指标不覆盖。训练期
 generation validation 后续也默认采用 route-diverse 采样，并使用与训练 seed 无关的固定
 `GENERATION_EVAL_SAMPLING_SEED=20260831`，保证不同 seed 真正比较同一 validation case 集。
