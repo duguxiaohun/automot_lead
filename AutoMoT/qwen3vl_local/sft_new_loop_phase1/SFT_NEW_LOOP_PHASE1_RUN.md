@@ -51,6 +51,28 @@ Phase1/Phase2 决策规则、RS_HIGHWAY RGB 边界和 audit 输出合同，只�
 因此当前保留 v5，不继续堆提示词；完整对比、逐帧 case 归因和 balanced 补测决策见
 `FUSION_V5_4RGB_2RGB_RESULT_RGB_AUDIT_20260831.md`。
 
+### 冻结基线（2026-09-02）
+
+2026-09-02 的同协议重复训练再次确认：2RGB 联合 exact 为 76.074%，相对上一轮 76.562%
+净退化 5/1024；4RGB 为 73.047%，相对上一轮 77.930% 净退化 50/1024。新旧同 mode 的
+prompt/hash、1024 个 case 和 base 逐例输出完全一致，且代表性错例已经逐帧查看 RGB，因此本轮
+变化归因于 adapter/checkpoint 波动，不归因于 v5 prompt。
+
+从本节起冻结以下 production 基线：
+
+- prompt 固定为当前 v5，不创建 v6，也不回退 v4；
+- 质量优先使用 `run_20260829_235223_4rgb_combined_phase1_phase2_4rgb/best_generation`
+  的 step-40000（strict joint exact 77.930%）；
+- 显存/时延优先使用
+  `run_20260829_235241_2rgb_endpoints_combined_phase1_phase2_2rgb_endpoints/best_generation`
+  的 step-40000（strict joint exact 76.562%）；
+- `best_generation_balanced` 保留为诊断候选，不晋升为 production；
+- 不再根据当前固定 1024-case test 的零散错误迭代 prompt。只有独立 unseen 集上的可复现退化、
+  至少两个 seed 的同类回退、逐帧 RGB 证明的系统性规则缺失，或实现合同 bug 才能解冻。
+
+完整指标、配对翻转、RGB 证据、核心代码 SHA256 指纹和解冻条件见
+`FUSION_V5_REPEAT_RUN_AUDIT_AND_FREEZE_20260902.md`。
+
 v4 相对 v3 的既有修订继续保留：Phase1 四行按 case seed 可复现随机排列；
 `hierarchical_probe` 渲染独立 `RS_HIGHWAY` 定义，要求 limited-access 拓扑链，并把双黄线、
 普通双向城际道路、黑暗、雾、单一护栏列为不足证据；audit prompt 强制每行保持
@@ -58,11 +80,12 @@ v4 相对 v3 的既有修订继续保留：Phase1 四行按 case seed 可复现�
 `FUSION_V3_4RGB_2RGB_ERROR_AUDIT_20260827.md`。所有旧 adapter 的 prompt fingerprint 与 v5
 不兼容，必须重训后评测，不能把旧权重强行挂到新 prompt 上。
 
-训练仍保存联合 exact 最优的 `best_generation/`，同时额外保存
+训练代码仍保存联合 exact 最优的 `best_generation/`，同时额外保存
 `best_generation_balanced/`：在 generation format gate 通过后，先最大化八个 focus 中的
 最低 accuracy，再比较联合 exact 和 focus macro accuracy。它不替换历史目录；正式 test 应
 同时比较“最高联合 exact”和“最弱任务受保护”两个 checkpoint，避免单一联合 exact 掩盖某个
-任务的回退。
+任务的回退。该流程用于研究性新实验；冻结 production 不会因为新 run 自动改指向，只有满足
+上面的解冻条件才重新晋升权重或修改协议。
 
 单独调用 `eval.sh` 评测 balanced 候选时，仍必须显式传 adapter 子目录；run root 默认优先
 解析历史 `best_generation/`：
