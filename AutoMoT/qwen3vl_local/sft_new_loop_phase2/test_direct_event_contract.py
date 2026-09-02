@@ -21,6 +21,7 @@ from qwen3vl_local.sft_new_loop_phase2 import audit_eval_cases as event_audit
 from qwen3vl_local.sft_new_loop_phase2 import eval as event_eval
 from qwen3vl_local.sft_new_loop_phase2 import select_seed_checkpoint
 from qwen3vl_local.sft_new_loop_phase2 import sampling
+from qwen3vl_local.sft_new_loop_phase2 import rescore_ue3_rgb_decisions
 from qwen3vl_local.sft_new_loop_phase2 import train as event_train
 from qwen3vl_local.sft_new_loop_phase2 import visual_audit
 from qwen3vl_local.sft_new_loop_phase2.history_rgb import history_rgb_indices
@@ -274,6 +275,44 @@ class DirectEventContractTest(unittest.TestCase):
                 {tuple(sorted(case["prediction_pattern"].values())) for case in cases},
                 {("TP", "TP"), ("FN", "TP")},
             )
+
+    def test_ue3_rgb_decision_rescore_is_diagnostic_and_identity_strict(self) -> None:
+        """RGB 决策重算不能冒充正式指标，也不能漏 case。"""
+
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            root = pathlib.Path(raw_tmp)
+            manifest = root / "manifest.jsonl"
+            decisions = root / "decisions.jsonl"
+            cases = [
+                {
+                    "scenario": "S",
+                    "route_id": "r1",
+                    "frame_id": 1,
+                    "question_domain": ROAD_DOMAIN,
+                    "prediction_pattern": {"seed_1": "TP", "seed_2": "FN"},
+                },
+                {
+                    "scenario": "S",
+                    "route_id": "r2",
+                    "frame_id": 2,
+                    "question_domain": ROAD_DOMAIN,
+                    "prediction_pattern": {"seed_1": "FN", "seed_2": "FN"},
+                },
+            ]
+            labels = [
+                {**{key: cases[0][key] for key in ("scenario", "route_id", "frame_id", "question_domain")}, "visual_class": "VISIBLE_ACTIVE"},
+                {**{key: cases[1][key] for key in ("scenario", "route_id", "frame_id", "question_domain")}, "visual_class": "PRE_EVENT"},
+            ]
+            manifest.write_text("".join(json.dumps(row) + "\n" for row in cases), encoding="utf-8")
+            decisions.write_text("".join(json.dumps(row) + "\n" for row in labels), encoding="utf-8")
+            report = rescore_ue3_rgb_decisions.build_report(manifest, decisions)
+            self.assertFalse(report["official_metric"])
+            self.assertEqual(report["visual_class_counts"], {"PRE_EVENT": 1, "VISIBLE_ACTIVE": 1})
+            self.assertEqual(report["visible_active"]["seed_1"]["frame_recall"], 1.0)
+            self.assertEqual(report["visible_active"]["seed_2"]["frame_recall"], 0.0)
+            decisions.write_text(json.dumps(labels[0]) + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                rescore_ue3_rgb_decisions.build_report(manifest, decisions)
 
     def test_messages_have_no_synthetic_rs_turn(self) -> None:
         """模型输入只能是 system + 单个 image/text user turn。"""
