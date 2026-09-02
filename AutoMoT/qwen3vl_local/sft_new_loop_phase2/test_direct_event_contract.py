@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import random
 import unittest
 from collections import Counter
 import json
@@ -19,6 +20,7 @@ from qwen3vl_local.sft_new_loop_phase2 import check_acceptance
 from qwen3vl_local.sft_new_loop_phase2 import audit_eval_cases as event_audit
 from qwen3vl_local.sft_new_loop_phase2 import eval as event_eval
 from qwen3vl_local.sft_new_loop_phase2 import select_seed_checkpoint
+from qwen3vl_local.sft_new_loop_phase2 import sampling
 from qwen3vl_local.sft_new_loop_phase2 import train as event_train
 from qwen3vl_local.sft_new_loop_phase2 import visual_audit
 from qwen3vl_local.sft_new_loop_phase2.history_rgb import history_rgb_indices
@@ -527,6 +529,61 @@ class DirectEventContractTest(unittest.TestCase):
             self.assertTrue(
                 invalid_report["guards"]["joint_signature_within_source_max_deviation_le_1"]
             )
+
+    def test_route_diverse_sampler_rotates_routes_before_consecutive_frames(self) -> None:
+        """小 validation 桶必须先覆盖不同 route，不能先抽同一 span 的连续帧。"""
+
+        items = []
+        for route_id, count in (("long-span", 9), ("route-b", 2), ("route-c", 1)):
+            for frame_id in range(count):
+                row = SimpleNamespace(
+                    scenario="DynamicObjectCrossing",
+                    route_id=route_id,
+                    frame_id=frame_id,
+                )
+                items.append(SimpleNamespace(row=row))
+        selected = sampling.route_diverse_sample(
+            items,
+            target=5,
+            rng=random.Random(7),
+        )
+        first_round = {(item.row.scenario, item.row.route_id) for item in selected[:3]}
+        counts = Counter(item.row.route_id for item in selected)
+        self.assertEqual(len(first_round), 3)
+        self.assertEqual(max(counts.values()), 2)
+        self.assertEqual(selected, sampling.route_diverse_sample(items, target=5, rng=random.Random(7)))
+        self.assertEqual(sampling.route_diversity_report(selected)["unique_routes"], 3)
+
+    def test_generation_eval_route_diversity_is_opt_in_to_shared_balancer(self) -> None:
+        """generation validation 开关启用后，同类先覆盖 route；普通训练采样接口仍兼容。"""
+
+        rows = _balance_rows(event_train)
+        ue3_template = next(row for row in rows if event_train._target_class(row) == "UE3")
+        rows = [row for row in rows if event_train._target_class(row) != "UE3"]
+        for route_id, count in (("ue3-long", 8), ("ue3-b", 2), ("ue3-c", 1)):
+            for frame_id in range(count):
+                rows.append(
+                    event_train.FrameRow(
+                        **{
+                            **ue3_template.__dict__,
+                            "route_id": route_id,
+                            "frame_id": frame_id,
+                        }
+                    )
+                )
+        work = event_train._balanced_work(
+            rows,
+            target_per_bin=3,
+            seed=11,
+            regular_multiplier=1.0,
+            invalid_multiplier=1.0,
+            highway_regular_fraction=0.0,
+            route_diverse=True,
+        )
+        ue3_routes = {
+            item.row.route_id for item in work if event_train._target_class(item.row) == "UE3"
+        }
+        self.assertEqual(ue3_routes, {"ue3-long", "ue3-b", "ue3-c"})
 
     def test_balancers_reject_missing_class_and_zero_uses_smallest_bucket(self) -> None:
         """截断索引缺桶必须失败；train target=0 必须真的按最小桶均衡。"""

@@ -72,6 +72,29 @@ bash qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh
 `build_ue3_validation_rgb_audit.py`：按各 seed 的 fallback step 收集 UE3 假阴性，补齐 index
 中的四帧 RGB，生成逐例原图、2×2 contact sheet、`audit_note.md`、汇总 JSON/MD 和 tar.gz。
 任何 prompt/标签修改都必须先逐例填写该审计模板，不能按 scenario 名直接推断。
+`v3_frozen_3seed_unseen456_20260831` 的 25 个 UE3 假阴性已经完成四帧人工复核，见
+`V3_FROZEN_3SEED_UE3_VALIDATION_RGB_AUDIT_20260902.md`。该审计发现 32 条 UE3 小切片被
+同一 route 的连续 9 帧明显过度加权，所以不能把原始 UE3 guard 失败直接归因为 prompt。
+
+先不要重训。复用三个现有 `final` adapter、对每个 class 按 `(scenario, route_id)` 轮转抽取同一组
+validation cases；所有 guard 通过时脚本才会继续一次性 unseen-456：
+
+```bash
+bash qwen3vl_local/sft_new_loop_phase2/run_route_diverse_validation_rescore.sh
+```
+
+只想复评、不自动打开 unseen 时：
+
+```bash
+RUN_UNSEEN=0 \
+  bash qwen3vl_local/sft_new_loop_phase2/run_route_diverse_validation_rescore.sh
+```
+
+复评输出写入原实验目录的 `route_diverse_validation_rescore/`，原 frozen 指标不覆盖。训练期
+generation validation 后续也默认采用 route-diverse 采样，并使用与训练 seed 无关的固定
+`GENERATION_EVAL_SAMPLING_SEED=20260831`，保证不同 seed 真正比较同一 validation case 集。
+历史独立 eval 为保持可比性仍默认关闭该选项；需要新口径时显式设
+`ROUTE_DIVERSE_SAMPLING=1` 或传 `eval.py --route-diverse-sampling`。
 脚本坚持离线运行，默认要求本地模型已经位于 `checkpoints/Qwen3-VL-4B-Instruct`；若训练机
 使用其它本地路径，可在脚本开头的 `MODEL_DIR` 默认值处统一修改一次。
 

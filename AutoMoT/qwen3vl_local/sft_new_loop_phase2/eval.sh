@@ -25,6 +25,7 @@ INDEX="${INDEX:-checkpoints/sft_new_loop_phase2_data/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 SPLIT="${SPLIT:-test}"
 CASES_PER_BIN="${CASES_PER_BIN:-64}"
+ROUTE_DIVERSE_SAMPLING="${ROUTE_DIVERSE_SAMPLING:-0}"
 EXCLUDE_CASES_JSONL="${EXCLUDE_CASES_JSONL:-}"
 EXPECTED_EXCLUDED_CASES="${EXPECTED_EXCLUDED_CASES:-0}"
 EXPECTED_TOTAL_CASES="${EXPECTED_TOTAL_CASES:-0}"
@@ -50,6 +51,12 @@ EXCLUSION_ARGS+=(
   --expected-excluded-cases "${EXPECTED_EXCLUDED_CASES}"
   --expected-total-cases "${EXPECTED_TOTAL_CASES}"
 )
+ROUTE_DIVERSE_ARGS=()
+if [[ "${ROUTE_DIVERSE_SAMPLING}" == "1" ]]; then
+  ROUTE_DIVERSE_ARGS+=(--route-diverse-sampling)
+else
+  ROUTE_DIVERSE_ARGS+=(--no-route-diverse-sampling)
+fi
 
 if [[ -z "${ADAPTER_INPUT}" ]]; then
   echo "Usage: ADAPTER_DIR=<lora-adapter-or-run-dir> bash qwen3vl_local/sft_new_loop_phase2/eval.sh" >&2
@@ -505,6 +512,7 @@ echo "[eval] output_root=${OUTPUT_ROOT}"
 echo "[eval] adapter_dir=${ADAPTER_DIR}"
 echo "[eval] history_rgb_mode=${BASE_HISTORY_RGB_MODE} (authoritative adapter config)"
 echo "[eval] exclude_cases_jsonl=${EXCLUDE_CASES_JSONL:-none} expected_excluded=${EXPECTED_EXCLUDED_CASES} expected_total=${EXPECTED_TOTAL_CASES}"
+echo "[eval] route_diverse_sampling=${ROUTE_DIVERSE_SAMPLING}"
 echo "[eval] GPU_IDS=${GPU_IDS} NPROC=${NPROC} source=${GPU_SELECTION_SOURCE} (EVAL_GPU_COUNT only controls automatic selection)"
 echo "[eval] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
@@ -516,6 +524,7 @@ LORA_AUDIT_EVAL_DIR="${OUTPUT_ROOT}/lora_audit_prompt"
 run_eval "base production" \
   --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
   --history-rgb-mode "${BASE_HISTORY_RGB_MODE}" --cases-per-bin "${CASES_PER_BIN}" \
+  "${ROUTE_DIVERSE_ARGS[@]}" \
   "${EXCLUSION_ARGS[@]}" \
   --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
   --output-dir "${BASE_EVAL_DIR}" --no-timestamp-output --overwrite --save-error-rgb --no-save-all-rgb
@@ -524,6 +533,7 @@ if [[ "${RUN_AUDIT_PROMPT_EVAL}" == "1" ]]; then
   run_eval "base audit-prompt" \
     --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
     --history-rgb-mode "${BASE_HISTORY_RGB_MODE}" --cases-per-bin "${CASES_PER_BIN}" \
+    "${ROUTE_DIVERSE_ARGS[@]}" \
     "${EXCLUSION_ARGS[@]}" \
     --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
     --audit-prompt --output-dir "${BASE_AUDIT_EVAL_DIR}" --no-timestamp-output --overwrite --save-error-rgb --no-save-all-rgb
@@ -532,6 +542,7 @@ fi
 run_eval "LoRA production" \
   --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
   --adapter-dir "${ADAPTER_DIR}" --cases-per-bin "${CASES_PER_BIN}" \
+  "${ROUTE_DIVERSE_ARGS[@]}" \
   "${EXCLUSION_ARGS[@]}" \
   --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
   --output-dir "${LORA_EVAL_DIR}" --no-timestamp-output --overwrite --save-error-rgb --no-save-all-rgb
@@ -540,6 +551,7 @@ if [[ "${RUN_AUDIT_PROMPT_EVAL}" == "1" ]]; then
   run_eval "LoRA audit-prompt" \
     --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
     --adapter-dir "${ADAPTER_DIR}" --cases-per-bin "${CASES_PER_BIN}" \
+    "${ROUTE_DIVERSE_ARGS[@]}" \
     "${EXCLUSION_ARGS[@]}" \
     --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
     --audit-prompt --output-dir "${LORA_AUDIT_EVAL_DIR}" --no-timestamp-output --overwrite --save-error-rgb --no-save-all-rgb

@@ -180,6 +180,10 @@ from qwen3vl_local.sft_new_loop_phase2.prompts import (  # noqa: E402
     prompt_spec_to_json,
     spec_metric_items,
 )
+from qwen3vl_local.sft_new_loop_phase2.sampling import (  # noqa: E402
+    route_diverse_sample,
+    route_diversity_report,
+)
 from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
 
 
@@ -475,6 +479,7 @@ def _balanced_cases(
     cases_per_bin: int,
     seed: int,
     highway_regular_fraction: float = 0.25,
+    route_diverse: bool = False,
 ) -> List[WorkItem]:
     """按直接 EVENT class 抽样评估 case。"""
 
@@ -516,10 +521,14 @@ def _balanced_cases(
                 raise ValueError("RE eval balance requires applicable local rows but none are available")
             for bucket, count in ((highway, highway_target), (local, local_target)):
                 rng.shuffle(bucket)
-                if len(bucket) >= count:
+                if route_diverse:
+                    out.extend(route_diverse_sample(bucket, target=count, rng=rng))
+                elif len(bucket) >= count:
                     out.extend(bucket[:count])
                 else:
                     out.extend(bucket[i % len(bucket)] for i in range(count))
+        elif route_diverse:
+            out.extend(route_diverse_sample(items, target=target, rng=rng))
         elif len(items) >= target:
             out.extend(items[:target])
         else:
@@ -943,6 +952,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         cases_per_bin=int(args.cases_per_bin),
         seed=int(args.seed),
         highway_regular_fraction=float(args.highway_regular_fraction),
+        route_diverse=bool(args.route_diverse_sampling),
     )
     if int(args.expected_total_cases) > 0 and len(cases) != int(args.expected_total_cases):
         raise ValueError(
@@ -1222,13 +1232,15 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             else None
         ),
         "audit_prompt": bool(args.audit_prompt),
-        "sampling_contract": "Single-turn direct EVENT eval: UE1/UE3/UE5/UE6 positives are 1:1:1:1; RE contains applicable local and explicit R3/highway all-NO negatives; cross-domain invalid rows use the configured ratio. No synthetic RS or assistant prefix is present.",
+        "sampling_contract": "Single-turn direct EVENT eval: UE1/UE3/UE5/UE6 positives are 1:1:1:1; optional route-diverse sampling rotates (scenario, route_id) before taking another frame from one route; RE contains applicable local and explicit R3/highway all-NO negatives; cross-domain invalid rows use the configured ratio. No synthetic RS or assistant prefix is present.",
         "sampling_verification": {
             "split_rows_before_exclusion": int(split_rows_before_exclusion),
             "exclusion": exclusion_report,
             "raw_focus_bin_availability": raw_focus_bin_availability,
             "raw_invalid_subgroups": invalid_subgroup_report(rows),
             "target_cases_per_bin": int(args.cases_per_bin),
+            "route_diverse_sampling": bool(args.route_diverse_sampling),
+            "route_diversity": route_diversity_report(cases),
             "highway_regular_fraction": float(args.highway_regular_fraction),
             "variant_target_weights": dict(VARIANT_WEIGHTS),
             "sampled_variant_counts": variant_total_counts,
@@ -1370,6 +1382,12 @@ def parse_args() -> argparse.Namespace:
         help="positive: sampled cases per class; 0: keep all rows while still validating INVALID signatures/subgroups",
     )
     p.add_argument("--highway-regular-fraction", type=float, default=0.25)
+    p.add_argument(
+        "--route-diverse-sampling",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="rotate routes before selecting another frame from the same route; opt-in keeps historical eval comparable",
+    )
     p.add_argument("--max-new-tokens", type=int, default=256)
     p.add_argument("--audit-prompt", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--save-prompts", action=argparse.BooleanOptionalAction, default=True)

@@ -152,6 +152,7 @@ COMMON_ARGS=(
   --format-loss-weight "${FORMAT_LOSS_WEIGHT:-0.25}"
   --generation-eval-steps "${GENERATION_EVAL_STEPS:-2000}"
   --generation-eval-balance-count "${GENERATION_EVAL_BALANCE_COUNT:-32}"
+  --generation-eval-sampling-seed "${GENERATION_EVAL_SAMPLING_SEED:-20260831}"
   --generation-eval-max-new-tokens "${GENERATION_EVAL_MAX_NEW_TOKENS:-64}"
   --generation-eval-min-valid-rate "${GENERATION_EVAL_MIN_VALID_RATE:-1.0}"
   --generation-eval-min-ue3-target-recall "${GENERATION_EVAL_MIN_UE3_TARGET_RECALL:-0.625}"
@@ -173,6 +174,11 @@ COMMON_ARGS=(
   --seed "${SEED:-20260810}"
   "${EXTRA_ARGS[@]}"
 )
+if [[ "${GENERATION_EVAL_ROUTE_DIVERSE:-1}" == "0" ]]; then
+  COMMON_ARGS+=(--no-generation-eval-route-diverse)
+else
+  COMMON_ARGS+=(--generation-eval-route-diverse)
+fi
 if [[ "${SAVE_BEST_VAL:-1}" == "0" ]]; then
   COMMON_ARGS+=(--no-save-best-val)
 else
