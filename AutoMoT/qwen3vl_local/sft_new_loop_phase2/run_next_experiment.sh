@@ -198,7 +198,19 @@ print("FINAL_DECISION=" + ("ACCEPT" if payload.get("accepted") else "REJECT"))
 PY
 else
   echo "[one-click] no unseen acceptance was produced." >&2
-  echo "If training finished, inspect generation_selection_status.json and fallback_generation.json." >&2
+  echo "[one-click] building UE3 four-frame validation RGB audit without touching unseen..." >&2
+  UE3_AUDIT_SUMMARY="${EXPERIMENT_ROOT}/ue3_validation_rgb_audit/summary.json"
+  if [[ -f "${UE3_AUDIT_SUMMARY}" ]]; then
+    echo "[one-click] reuse existing UE3 RGB audit: ${UE3_AUDIT_SUMMARY}" >&2
+  elif python qwen3vl_local/sft_new_loop_phase2/build_ue3_validation_rgb_audit.py \
+    --experiment-root "${EXPERIMENT_ROOT}" \
+    --index "${INDEX}" \
+    --data-root "${DATA_ROOT}"; then
+    echo "[one-click] UE3 RGB audit: ${EXPERIMENT_ROOT}/ue3_validation_rgb_audit" >&2
+    echo "[one-click] archive: ${EXPERIMENT_ROOT}/ue3_validation_rgb_audit.tar.gz" >&2
+  else
+    echo "[one-click] UE3 RGB audit generation also failed; inspect fallback_generation.json manually." >&2
+  fi
 fi
 
 exit "${protocol_status}"

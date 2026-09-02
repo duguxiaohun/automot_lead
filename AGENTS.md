@@ -262,6 +262,9 @@
   checkpoint，再从 840 条 test 中精确排除历史 384 条，对剩余 456 条做一次性 unseen 验收；
   历史 dev 身份默认读取同目录已入库的轻量 `frozen_dev_cases_v3_384.jsonl`，不得依赖未同步的
   checkpoints audit bundle；该清单不含 RGB、模型输出或权重。
+  三个 seed 均未通过时不得打开 unseen；`run_next_experiment.sh` 自动调用
+  `build_ue3_validation_rgb_audit.py`，按各 seed fallback step 生成 UE3 四帧原图/contact sheet/
+  逐例审计模板和压缩包，prompt/标签修改前必须看 RGB，不能按 scenario 名倒推。
   eval 通过 exclusion case 身份及期望 `384/456` 计数在模型加载前硬校验。当前 production prompt 已按严格可比 bundle 的总体最优结果回退为 v3：
   v3 production/audit exact 为 `316/384` / `314/384`；2026-08-29 的 v4 实验虽恢复部分
   UE3 recall，但 production 降至 `308/384` 且 UE6 明显退化，因此不作为当前默认。

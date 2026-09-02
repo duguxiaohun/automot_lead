@@ -9,8 +9,12 @@ from collections import Counter
 import json
 import pathlib
 import tempfile
+from types import SimpleNamespace
+
+from PIL import Image
 
 from qwen3vl_local.sft_new_loop_phase2 import build_dataset as dataset
+from qwen3vl_local.sft_new_loop_phase2 import build_ue3_validation_rgb_audit as ue3_rgb_audit
 from qwen3vl_local.sft_new_loop_phase2 import check_acceptance
 from qwen3vl_local.sft_new_loop_phase2 import audit_eval_cases as event_audit
 from qwen3vl_local.sft_new_loop_phase2 import eval as event_eval
@@ -123,6 +127,70 @@ class DirectEventContractTest(unittest.TestCase):
             hashlib.sha256(payload).hexdigest(),
             "748a8e032b951187afc4aaa32394e6a9df78a53520f86f24f678299765e619ac",
         )
+
+    def test_ue3_validation_rgb_audit_uses_fallback_step_and_all_four_frames(self) -> None:
+        """选优失败审计必须只读 fallback step，并从 index 补回四帧。"""
+
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            root = pathlib.Path(raw_tmp)
+            experiment = root / "experiment"
+            seed_dir = experiment / "train_runs" / "seed_1"
+            data_root = root / "lead_data"
+            output_dir = experiment / "audit"
+            seed_dir.mkdir(parents=True)
+            data_root.mkdir()
+            rgb_paths = []
+            for index in range(4):
+                path = data_root / f"frame_{index}.jpg"
+                Image.new("RGB", (48, 16), color=(index * 30, 20, 10)).save(path)
+                rgb_paths.append(path.name)
+            index_path = root / "frame_index.jsonl"
+            index_row = {
+                "split": "val",
+                "scenario": "DynamicObjectCrossing",
+                "route_id": "route-1",
+                "frame_id": 8,
+                "question_domain": ROAD_DOMAIN,
+                "history_rgb_paths": rgb_paths,
+            }
+            index_path.write_text(json.dumps(index_row) + "\n", encoding="utf-8")
+            (seed_dir / "fallback_generation.json").write_text(
+                json.dumps({"step": 4000}), encoding="utf-8"
+            )
+            selected = {
+                "step": 4000,
+                "scenario": "DynamicObjectCrossing",
+                "route_id": "route-1",
+                "frame_id": 8,
+                "question_domain": ROAD_DOMAIN,
+                "balance_key": "all_random_order/class/UE3",
+                "answers": {"UE3": True},
+                "parsed": {"UE3": False},
+                "raw_output": "UE3: NO",
+            }
+            ignored = {**selected, "step": 2000}
+            (seed_dir / "generation_val_cases.jsonl").write_text(
+                json.dumps(ignored) + "\n" + json.dumps(selected) + "\n",
+                encoding="utf-8",
+            )
+            summary = ue3_rgb_audit.build_audit(
+                SimpleNamespace(
+                    experiment_root=str(experiment),
+                    index=str(index_path),
+                    data_root=str(data_root),
+                    output_dir=str(output_dir),
+                    copy_originals=True,
+                    archive=False,
+                    overwrite=False,
+                )
+            )
+            self.assertEqual(summary["sampled_ue3_by_seed"], {"seed_1": 1})
+            self.assertEqual(summary["false_negatives_by_seed"], {"seed_1": 1})
+            self.assertEqual(summary["unique_failure_cases"], 1)
+            case = json.loads(next((output_dir / "cases").glob("*/case.json")).read_text(encoding="utf-8"))
+            self.assertEqual(len(case["history_rgb_paths_all4"]), 4)
+            self.assertEqual(len(case["copied_rgb_paths"]), 4)
+            self.assertTrue(pathlib.Path(case["contact_sheet"]).is_file())
 
     def test_messages_have_no_synthetic_rs_turn(self) -> None:
         """模型输入只能是 system + 单个 image/text user turn。"""
