@@ -61,6 +61,11 @@ LeadMoT 闭环评测一键操作手册。架构与对齐细节见 [`EVAL_CARLA_P
 > route 视频、leaderboard json 共享同一个 ckpt signature 目录（断点续跑），
 > 但本次的 scenario 聚合结果写到 `runs/<RUN_LABEL>/` 下，**互不污染**。
 
+如果 LeadMoT checkpoint 是用 `QWEN_ADAPTER_DIR` 训练的，agent 会从 checkpoint 的
+`qwen_backbone` 自动恢复同一份 LoRA，并在模型加载前校验 adapter SHA256。adapter 目录
+搬家后，在原命令前加 `QWEN_ADAPTER_DIR=checkpoints/new/path/to/adapter`；哈希不一致会
+直接中止。旧 checkpoint 没有该合同，只允许 base Qwen，不能在闭环时临时挂 LoRA。
+
 ### 1.1 全量 220 路线（默认）
 
 推荐写法（全量 + 只录 input/bev_debug + 默认开断点续跑）：

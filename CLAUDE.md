@@ -102,6 +102,8 @@
 | `AutoMoT/vae_standalone/vae_reconstruct.py` | 按用户同意新增到白名单：VAE / patch-unpatch 诊断脚本，支持 VAE-only 与 VAE+patch/unpatch 两种重建链路、批量 loss、TensorBoard 与随机小批量 PNG 对比可视化 |
 | `AutoMoT/qwen3vl_local/sft_new_loop_phase2/frozen_dev_cases_v3_384.jsonl` | New Phase2 一次性 unseen 协议的轻量冻结 dev 身份清单；固定 384 条，仅含 scenario/route/frame/question-domain/event/invalid-source，不含 RGB、模型输出或权重。`run_next_experiment.sh` / `run_frozen_protocol.sh` 必须默认读取该入库文件，不得依赖训练机未同步的 checkpoints audit bundle。 |
 | `AutoMoT/qwen3vl_local/sft_new_loop_phase2/build_ue3_validation_rgb_audit.py` | New Phase2 多 seed 均未通过时的只读 RGB 审计入口：按每个 seed 的 fallback step 收集 UE3 validation 假阴性，补齐 index 四帧，生成原图、contact sheet、逐例模板、汇总和 tar.gz；不运行模型、不打开 unseen，prompt/标签修改前必须逐帧查看，禁止按 scenario 名倒推。 |
+| `AutoMoT/qwen3vl_local/sft_new_loop_phase2/run_leadmot_qwen_ab.sh` / `compare_leadmot_qwen_ab.py` | Phase2 v3 seed 20260810 的自动下游收口实验：不改 prompt、不打开 unseen；先校验 prompt/hash/2RGB/seed，再分别训练 base-Qwen 与 LoRA-Qwen 的 LeadMoT decoder；全量 eval 同 case 配对并按 route cluster bootstrap，只有 route/waypoint ADE/FDE 四项 95% CI 上界均小于 0 才允许进入 CARLA。产物写 `AutoMoT/checkpoints/leadmot_qwen_adapter_ab/`，不入库。 |
+| LeadMoT frozen Qwen adapter 合同 | `leadmot/train.py` 支持 `--qwen-adapter-dir`，`train.sh` 支持 `QWEN_ADAPTER_DIR`；LoRA merge 到内存中的 frozen Qwen 后仍只训练 decoder。checkpoint `qwen_backbone` 绑定 base config 与 adapter 实际权重 SHA256，eval/probe/eval_carla 自动恢复并拒绝错配；旧 checkpoint 没有该合同时只允许 base。base/LoRA A/B 必须用同 seed 分别训练 decoder，不能临时切换 prefix。 |
 | `CLAUDE.md` | 本规则文件（仅在调整规则时修改） |
 | `AGENTS.md` | 通用 AI / coding agent 入口说明文件 |
 

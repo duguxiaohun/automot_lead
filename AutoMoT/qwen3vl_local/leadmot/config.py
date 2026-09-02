@@ -14,8 +14,209 @@ RoPE 模式：
 - ``none``：生成 token 不加 RoPE。
 """
 
+import hashlib
+import json
 from dataclasses import dataclass
-from typing import Tuple
+from pathlib import Path
+from typing import Any, Mapping, Tuple
+
+
+QWEN_BACKBONE_CONTRACT_SCHEMA = "leadmot_qwen_backbone_v1"
+_ADAPTER_WEIGHT_NAMES = ("adapter_model.safetensors", "adapter_model.bin")
+_SFT_ADAPTER_CONFIG_NAMES = (
+    "sft_new_loop_phase2_adapter_config.json",
+    "sft_v5_adapter_config.json",
+    "sft_v4_adapter_config.json",
+    "sft_v3_adapter_config.json",
+    "sft_v2_adapter_config.json",
+)
+
+
+def _sha256_file(path: Path) -> str:
+    """流式计算文件 SHA256，避免把 adapter 权重整体读进内存。"""
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            block = handle.read(8 * 1024 * 1024)
+            if not block:
+                break
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _find_adapter_weight(adapter_dir: Path) -> Path:
+    """定位 PEFT adapter 权重文件。"""
+
+    for name in _ADAPTER_WEIGHT_NAMES:
+        candidate = adapter_dir / name
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(
+        f"adapter weights not found under {adapter_dir}; expected one of {_ADAPTER_WEIGHT_NAMES}"
+    )
+
+
+def _find_sft_adapter_config(adapter_dir: Path) -> Path | None:
+    """返回当前 adapter 的项目级自描述配置（如果存在）。"""
+
+    for name in _SFT_ADAPTER_CONFIG_NAMES:
+        candidate = adapter_dir / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _adapter_fingerprint(adapter_dir: Path) -> tuple[str, dict[str, str], Path | None]:
+    """对 PEFT 配置、权重和项目自描述配置生成稳定组合指纹。"""
+
+    peft_config = adapter_dir / "adapter_config.json"
+    if not peft_config.is_file():
+        raise FileNotFoundError(f"adapter_config.json not found under {adapter_dir}")
+    weight = _find_adapter_weight(adapter_dir)
+    sft_config = _find_sft_adapter_config(adapter_dir)
+    files = [peft_config, weight]
+    if sft_config is not None:
+        files.append(sft_config)
+    per_file = {path.name: _sha256_file(path) for path in files}
+    digest = hashlib.sha256()
+    for name, value in sorted(per_file.items()):
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(value.encode("ascii"))
+        digest.update(b"\0")
+    return digest.hexdigest(), per_file, sft_config
+
+
+def build_qwen_backbone_contract(
+    model_dir: str | Path,
+    adapter_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """构建 LeadMoT checkpoint 绑定的 frozen Qwen/base+LoRA 合同。
+
+    合同使用 base ``config.json`` 与 adapter 实际权重指纹，不用绝对路径充当身份，
+    因而 checkpoint 搬到另一台机器后仍可通过显式新路径恢复同一组权重。
+    """
+
+    model_path = Path(model_dir).expanduser().resolve()
+    if not model_path.is_dir():
+        raise FileNotFoundError(f"Qwen model directory not found: {model_path}")
+    model_config = model_path / "config.json"
+    if not model_config.is_file():
+        raise FileNotFoundError(f"Qwen config.json not found: {model_config}")
+    contract: dict[str, Any] = {
+        "schema": QWEN_BACKBONE_CONTRACT_SCHEMA,
+        "base_model_dir": str(model_path),
+        "base_config_sha256": _sha256_file(model_config),
+        "adapter_enabled": False,
+        "adapter_dir": "",
+        "adapter_sha256": "",
+        "adapter_file_sha256": {},
+        "adapter_metadata": {},
+    }
+    raw_adapter = "" if adapter_dir is None else str(adapter_dir).strip()
+    if not raw_adapter or raw_adapter.lower() in {"none", "base"}:
+        return contract
+
+    adapter_path = Path(raw_adapter).expanduser().resolve()
+    if not adapter_path.is_dir():
+        raise FileNotFoundError(f"Qwen adapter directory not found: {adapter_path}")
+    fingerprint, per_file, sft_config_path = _adapter_fingerprint(adapter_path)
+    metadata: dict[str, Any] = {}
+    if sft_config_path is not None:
+        raw = json.loads(sft_config_path.read_text(encoding="utf-8"))
+        keep = (
+            "schema",
+            "route",
+            "dataset_name",
+            "prompt_name",
+            "production_prompt_sha256",
+            "history_rgb_mode",
+            "history_rgb_count",
+            "history_rgb_selected_indices",
+            "base_model_dir",
+            "lora_vision_scope",
+            "global_step",
+            "seed",
+        )
+        metadata = {key: raw[key] for key in keep if key in raw}
+        metadata["config_file"] = sft_config_path.name
+    contract.update(
+        {
+            "adapter_enabled": True,
+            "adapter_dir": str(adapter_path),
+            "adapter_sha256": fingerprint,
+            "adapter_file_sha256": per_file,
+            "adapter_metadata": metadata,
+        }
+    )
+    return contract
+
+
+def resolve_qwen_adapter_dir(
+    requested: str | Path | None,
+    expected_contract: Mapping[str, Any] | None,
+) -> str:
+    """按 checkpoint 合同解析 eval/CARLA 的 adapter 路径。
+
+    ``auto`` 优先恢复 checkpoint 记录的路径；模型搬家后由调用方显式传新路径，
+    后续 SHA256 校验仍会保证它是同一份 adapter。
+    """
+
+    raw = "auto" if requested is None else str(requested).strip()
+    auto = raw.lower() in {"", "auto"}
+    expected_enabled = bool(expected_contract and expected_contract.get("adapter_enabled", False))
+    if expected_enabled:
+        candidate = str(expected_contract.get("adapter_dir", "")) if auto else raw
+        if not candidate:
+            raise ValueError(
+                "checkpoint requires a Qwen adapter but records no usable path; "
+                "pass --qwen-adapter-dir explicitly"
+            )
+        path = Path(candidate).expanduser().resolve()
+        if not path.is_dir():
+            raise FileNotFoundError(
+                f"checkpoint Qwen adapter path is unavailable: {path}; "
+                "pass --qwen-adapter-dir with the relocated adapter"
+            )
+        return str(path)
+    if auto:
+        return ""
+    return str(Path(raw).expanduser().resolve())
+
+
+def require_qwen_backbone_match(
+    expected_contract: Mapping[str, Any] | None,
+    actual_contract: Mapping[str, Any],
+    source: str | Path,
+) -> None:
+    """拒绝用错误的 base/LoRA prefix 分布加载 LeadMoT decoder checkpoint。"""
+
+    actual_adapter = bool(actual_contract.get("adapter_enabled", False))
+    if not expected_contract:
+        if actual_adapter:
+            raise ValueError(
+                f"{source} is a legacy checkpoint without qwen_backbone metadata; "
+                "refusing to attach a Qwen adapter because its prefix distribution is unknown"
+            )
+        return
+    if expected_contract.get("schema") != QWEN_BACKBONE_CONTRACT_SCHEMA:
+        raise ValueError(f"{source} has unsupported qwen_backbone schema: {expected_contract.get('schema')!r}")
+    checks = (
+        "base_config_sha256",
+        "adapter_enabled",
+        "adapter_sha256",
+    )
+    mismatches = {
+        key: {"expected": expected_contract.get(key), "actual": actual_contract.get(key)}
+        for key in checks
+        if expected_contract.get(key) != actual_contract.get(key)
+    }
+    if mismatches:
+        raise ValueError(
+            f"Qwen backbone mismatch for {source}: "
+            f"{json.dumps(mismatches, ensure_ascii=False, sort_keys=True)}"
+        )
 
 
 @dataclass

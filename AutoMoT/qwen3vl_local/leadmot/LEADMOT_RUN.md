@@ -23,6 +23,10 @@
 >   会按 checkpoint 的 `decoder_config.use_subgoal` 严格拒绝跨开关加载。
 >   eval / probe / offline runner 会从 checkpoint 自动恢复该开关；eval_carla 在线闭环
 >   暂不支持 `use_subgoal=True` ckpt，会在 agent 加载时直接报错并保留 TODO 接口。
+> - `QWEN_ADAPTER_DIR`（默认空）：可把一份 PEFT LoRA merge 到内存中的 frozen Qwen
+>   后再训练 decoder。checkpoint 会保存 base `config.json` 与 adapter 实际权重 SHA256；
+>   eval/probe/CARLA 自动恢复并硬拒绝 base/LoRA 或 adapter 版本错配。base 与 LoRA 的
+>   decoder 必须分别从同 seed 初始化并各自训练，不能拿同一个 decoder 临时切 prefix。
 
 ## 1. 构建训练索引
 
@@ -261,6 +265,7 @@ IMAGE_LOG_SAMPLES=4
 IMAGE_LOG_SEED=20260101
 USE_BEV=1
 USE_SUBGOAL=0
+QWEN_ADAPTER_DIR=
 ```
 
 只有 LeadMoT decoder 更新参数；Qwen3-VL-Instruct 与 LeadBEVEncoder 都是 frozen eval。不传位置参数时 `bash qwen3vl_local/leadmot/train.sh` 默认走 `ddp`（与 GoalGen 一致）。保存逻辑对齐 GoalGen，共 4 类产物：`best.pt`/`best.json`（val 最优）、`latest.pt`（每 `SAVE_STEPS` 步覆盖 + epoch 末）、`checkpoint-epochNN.pt`（epoch 末池，保留最近 `KEEP_RECENT_CHECKPOINTS` 份）、`step-checkpoint-NNNNNN.pt`（每 `STEP_SAVE_EVERY` 步独立池，保留最近 `KEEP_RECENT_STEP_CHECKPOINTS` 份）。epoch 池与 step 池互不淘汰；`best.pt` / `latest.pt` 永远保留。
@@ -268,6 +273,30 @@ USE_SUBGOAL=0
 DDP 训练中的 validation 会按 `VAL_MAX_SAMPLES` 截断后在所有 rank 间分片，每张卡各跑自己的 Qwen/BEV/decoder forward，再 all-reduce 聚合 loss / ADE / FDE，避免 rank0 串行扫 val、其它 rank 空等。开 EMA 时 val 会跑两遍（raw + EMA），TB 上分别记到 `val/*` 和 `val_ema/*`，best.pt 选 EMA val/loss 作为指标。
 val 子集不是固定取 jsonl 头部，而是用 `VAL_SAMPLE_SEED` 从 val 全量中确定性抽样，减少场景分布偏置。
 DDP 加载 Qwen 时默认按 `LOCAL_RANK * QWEN_LOAD_STAGGER_S` 错峰，降低多 rank 同时读 4B checkpoint 对共享文件系统的压力。
+adapter 权重 SHA256 只由 rank0 读取并广播，避免 DDP rank 同时扫描共享盘大文件。
+
+### 5.a Frozen Qwen LoRA A/B
+
+普通训练默认仍使用 base Qwen。显式接入 LoRA：
+
+```bash
+QWEN_ADAPTER_DIR=checkpoints/path/to/adapter \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/leadmot/train.sh ddp
+```
+
+LoRA 会 `merge_and_unload` 到当前进程内存中的 Qwen，随后所有 Qwen 参数保持 frozen；
+base checkpoint 不会被写回。新 LeadMoT checkpoint 的 `qwen_backbone` 同时记录
+`base_config_sha256`、`adapter_sha256` 和 adapter 自描述 metadata。eval/probe 默认
+`--qwen-adapter-dir auto`，按 checkpoint 记录路径恢复；如果 adapter 搬家，显式传新路径：
+
+```bash
+GPU_IDS=0 python qwen3vl_local/leadmot/eval.py \
+  --checkpoint checkpoints/path/to/leadmot/best.pt \
+  --qwen-adapter-dir checkpoints/relocated/adapter
+```
+
+SHA256 不一致会在 Qwen 模型加载前中止。旧 checkpoint 没有 `qwen_backbone` 时只允许
+base Qwen，不能事后挂 LoRA。
 
 `IMAGE_LOG_EVERY` 步触发一次 rank0 渲染：从 val 抽 `IMAGE_LOG_SAMPLES` 条画 pred vs gt 拼图贴到 TB（`samples/planning_overlay_raw` 与开 EMA 时的 `samples/planning_overlay_ema`），便于训练过程肉眼看模型质量进化。设 `IMAGE_LOG_EVERY=0` 关闭，check 模式默认关闭。
 

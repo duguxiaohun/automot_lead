@@ -44,6 +44,10 @@ from mot_lead_offline_runner import (  # noqa: E402
 )
 import mot_lead_offline_runner as mot_runner  # noqa: E402
 from qwen3vl_local.leadmot import LeadMoTPlanningDecoder, LeadMoTPlanningDecoderConfig  # noqa: E402
+from qwen3vl_local.leadmot.config import (  # noqa: E402
+    build_qwen_backbone_contract,
+    require_qwen_backbone_match,
+)
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -87,6 +91,7 @@ def _dump_invocation(output_dir: Path, rank: int = 0) -> None:
             "HF_HOME",
             "HF_HUB_OFFLINE",
             "TRANSFORMERS_OFFLINE",
+            "QWEN_ADAPTER_DIR",
             "LEADMOT_CUDNN_BENCHMARK",
             "LEADMOT_NCCL_TIMEOUT_MIN",
         )
@@ -168,6 +173,44 @@ def _barrier() -> None:
             except TypeError:
                 pass
         dist.barrier()
+
+
+def _distributed_qwen_backbone_contract(
+    args: argparse.Namespace,
+    rank: int,
+) -> dict[str, Any]:
+    """只让 rank0 计算大 adapter 权重哈希，再把合同广播给全部 rank。
+
+    LoRA 权重通常数百 MB；每个 DDP rank 同时从共享盘做 SHA256 会制造无意义的
+    I/O 峰值。异常也先包装后广播，保证所有 rank 一起失败而不是卡在 collective。
+    """
+
+    box: list[Any] = [None]
+    if rank == 0:
+        try:
+            box[0] = {
+                "ok": True,
+                "contract": build_qwen_backbone_contract(
+                    args.model_dir,
+                    getattr(args, "qwen_adapter_dir", ""),
+                ),
+            }
+        except Exception as exc:
+            box[0] = {
+                "ok": False,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+    if dist.is_available() and dist.is_initialized():
+        dist.broadcast_object_list(box, src=0)
+    payload = box[0]
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        payload = payload if isinstance(payload, dict) else {"error": repr(payload)}
+        raise RuntimeError(
+            "failed to build Qwen backbone contract: "
+            f"{payload.get('error_type', 'Error')}: {payload.get('error', '')}"
+        )
+    return dict(payload["contract"])
 
 
 def _dtype(name: str) -> torch.dtype:
@@ -532,9 +575,23 @@ class LeadMoTTrainRuntime:
         self.runner._ensure_leadmot_qwen_engine()
         if self.runner.leadmot_qwen_engine is None:
             raise RuntimeError("LeadMoT Qwen engine was not initialized")
+        self.qwen_backbone_contract = dict(
+            getattr(args, "qwen_backbone_contract", None)
+            or build_qwen_backbone_contract(qwen_dir, getattr(args, "qwen_adapter_dir", ""))
+        )
+        if bool(self.qwen_backbone_contract.get("adapter_enabled", False)):
+            adapter_dir = str(self.qwen_backbone_contract.get("adapter_dir", ""))
+            # LeadMoT 只训练 decoder；LoRA 在内存中 merge 后也保持 frozen，既不产生
+            # PEFT 额外分支开销，也确保 train/eval/CARLA 得到完全同一组 prefix K/V。
+            self.runner.leadmot_qwen_engine.attach_lora_adapter(adapter_dir, merge=True)
         self.runner.leadmot_qwen_engine.model.eval()
         for param in self.runner.leadmot_qwen_engine.model.parameters():
             param.requires_grad_(False)
+        print(
+            "[LeadMoT] frozen Qwen backbone: "
+            f"adapter={int(bool(self.qwen_backbone_contract.get('adapter_enabled', False)))} "
+            f"sha256={str(self.qwen_backbone_contract.get('adapter_sha256', ''))[:12] or '<base>'}"
+        )
 
     def _build_clip(self, sample: dict[str, Any]):
         """为一个 JSONL 样本构建 runner 实际使用的 clip dict。"""
@@ -901,11 +958,12 @@ def _save_checkpoint(
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f".{path.name}.tmp.{os.getpid()}")
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "decoder": module.state_dict(),
         "optimizer": optimizer.state_dict(),
         "scheduler": scheduler.state_dict(),
         "decoder_config": asdict(decoder_config),
+        "qwen_backbone": dict(getattr(args, "qwen_backbone_contract", {})),
         "args": vars(args),
         "epoch": epoch,
         "step": step,
@@ -981,14 +1039,17 @@ def _load_checkpoint(
     scheduler: torch.optim.lr_scheduler.LRScheduler,
     ema: "_DecoderEMA | None" = None,
     requested_use_subgoal: bool = False,
+    qwen_backbone_contract: dict[str, Any] | None = None,
 ) -> tuple[int, int, float | None]:
     """恢复 decoder、optimizer、scheduler 和可选 EMA 状态。"""
     state = torch.load(path, map_location="cpu")
     _require_final_goal_checkpoint(state, path)
     _require_subgoal_match(state, path, requested_use_subgoal)
+    if qwen_backbone_contract is not None:
+        require_qwen_backbone_match(state.get("qwen_backbone"), qwen_backbone_contract, path)
     schema = int(state.get("schema_version", 0))
-    if schema != 1:
-        print(f"[resume] warning: checkpoint schema_version={schema} != 1, fields may have drifted: {path}")
+    if schema not in {1, 2}:
+        print(f"[resume] warning: unsupported checkpoint schema_version={schema}: {path}")
     module = decoder.module if hasattr(decoder, "module") else decoder
     module.load_state_dict(state["decoder"], strict=True)
     optimizer.load_state_dict(state["optimizer"])
@@ -1004,11 +1065,18 @@ def _load_checkpoint(
     return int(state.get("epoch", 0)), int(state.get("step", 0)), state.get("best_val")
 
 
-def _load_decoder_only(path: Path, decoder: torch.nn.Module, requested_use_subgoal: bool = False) -> None:
+def _load_decoder_only(
+    path: Path,
+    decoder: torch.nn.Module,
+    requested_use_subgoal: bool = False,
+    qwen_backbone_contract: dict[str, Any] | None = None,
+) -> None:
     """只加载 decoder 权重，不加载 optimizer/scheduler，用于 init-from-ckpt。"""
     state = torch.load(path, map_location="cpu")
     _require_final_goal_checkpoint(state, path)
     _require_subgoal_match(state, path, requested_use_subgoal)
+    if qwen_backbone_contract is not None:
+        require_qwen_backbone_match(state.get("qwen_backbone"), qwen_backbone_contract, path)
     state_dict = state["decoder"] if isinstance(state, dict) and "decoder" in state else state
     module = decoder.module if hasattr(decoder, "module") else decoder
     module.load_state_dict(state_dict, strict=True)
@@ -1270,6 +1338,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-jsonl", default="checkpoints/leadmot_v1_data/val.jsonl")
     parser.add_argument("--output-dir", default="checkpoints/leadmot_v1_decoder")
     parser.add_argument("--model-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
+    parser.add_argument(
+        "--qwen-adapter-dir",
+        default="",
+        help="Optional frozen PEFT adapter merged into Qwen before LeadMoT prefix prefill.",
+    )
     parser.add_argument("--lead-bev-ckpt", default=str(LEAD_BEV_CKPT_PATH))
     parser.add_argument("--resume", default="")
     parser.add_argument("--init-from-ckpt", default="", help="Load decoder weights only and reset optimizer/scheduler.")
@@ -1431,6 +1504,10 @@ def main() -> None:
             )
         raise ValueError("no training samples found")
 
+    # decoder 初始化、resume/init 校验和 runtime 加载必须共享同一份权重指纹。
+    # DDP 下只由 rank0 扫 adapter 大文件，合同随后广播给全部 rank。
+    args.qwen_backbone_contract = _distributed_qwen_backbone_contract(args, rank)
+
     usable = (len(train_rows) // world_size) * world_size
     if usable == 0:
         raise ValueError(f"train samples ({len(train_rows)}) fewer than world_size ({world_size})")
@@ -1453,7 +1530,12 @@ def main() -> None:
     )
     decoder = LeadMoTPlanningDecoder(decoder_config).to(device=device, dtype=decoder_dtype)
     if args.init_from_ckpt:
-        _load_decoder_only(Path(args.init_from_ckpt), decoder, requested_use_subgoal=bool(args.use_subgoal))
+        _load_decoder_only(
+            Path(args.init_from_ckpt),
+            decoder,
+            requested_use_subgoal=bool(args.use_subgoal),
+            qwen_backbone_contract=args.qwen_backbone_contract,
+        )
     optimizer = torch.optim.AdamW(
         _optimizer_param_groups(decoder, args.weight_decay),
         lr=args.learning_rate,
@@ -1477,6 +1559,7 @@ def main() -> None:
         start_epoch, global_step, best_val = _load_checkpoint(
             Path(args.resume), decoder, optimizer, scheduler, ema=ema,
             requested_use_subgoal=bool(args.use_subgoal),
+            qwen_backbone_contract=args.qwen_backbone_contract,
         )
 
     runtime = LeadMoTTrainRuntime(args, device)
@@ -1524,6 +1607,7 @@ def main() -> None:
             "ema_decay": float(args.ema_decay) if args.ema else None,
             "image_log_every": int(args.image_log_every),
             "use_subgoal": bool(args.use_subgoal),
+            "qwen_backbone": args.qwen_backbone_contract,
             "subgoal_filter": subgoal_filter_stats,
             "label_semantics": "absolute ego-frame route/future_waypoints; decoder heads cumsum internal deltas",
             **_param_breakdown(decoder, runtime),

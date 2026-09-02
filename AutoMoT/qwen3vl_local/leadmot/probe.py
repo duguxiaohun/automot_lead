@@ -21,6 +21,11 @@ if str(AUTOMOT_ROOT) not in sys.path:
     sys.path.insert(0, str(AUTOMOT_ROOT))
 
 from qwen3vl_local.leadmot import LeadMoTPlanningDecoder, LeadMoTPlanningDecoderConfig
+from qwen3vl_local.leadmot.config import (
+    build_qwen_backbone_contract,
+    require_qwen_backbone_match,
+    resolve_qwen_adapter_dir,
+)
 from qwen3vl_local.leadmot.train import (
     LEAD_BEV_CKPT_PATH,
     LeadMoTTrainRuntime,
@@ -159,6 +164,7 @@ def _load_decoder(
             print("[leadmot] WARN: --use-ema set but checkpoint has no ema_state_dict; using raw decoder weights")
         decoder.load_state_dict(state_dict, strict=True)
     decoder.eval()
+    decoder._qwen_backbone_contract = state.get("qwen_backbone")  # type: ignore[attr-defined]
     return decoder, config
 
 
@@ -266,6 +272,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-root", default="", help="GoalGen-style root; case dumps go to <save-root>/eval_cases when --output-dir is omitted.")
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--model-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
+    parser.add_argument(
+        "--qwen-adapter-dir",
+        default="auto",
+        help="auto restores the adapter bound into the LeadMoT checkpoint; pass a path after relocation.",
+    )
     parser.add_argument("--lead-bev-ckpt", default=str(LEAD_BEV_CKPT_PATH))
     parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=2026)
@@ -319,6 +330,17 @@ def main() -> None:
     decoder_dtype = _dtype(args.decoder_dtype)
     checkpoint_path = _resolve_checkpoint(args.checkpoint, args.save_root)
     decoder, decoder_config = _load_decoder(checkpoint_path, device, decoder_dtype, use_ema=args.use_ema)
+    expected_qwen_backbone = getattr(decoder, "_qwen_backbone_contract", None)
+    args.qwen_adapter_dir = resolve_qwen_adapter_dir(args.qwen_adapter_dir, expected_qwen_backbone)
+    args.qwen_backbone_contract = build_qwen_backbone_contract(
+        args.model_dir,
+        args.qwen_adapter_dir,
+    )
+    require_qwen_backbone_match(
+        expected_qwen_backbone,
+        args.qwen_backbone_contract,
+        checkpoint_path,
+    )
     subgoal_filter_stats: dict[str, int] | None = None
     if bool(getattr(decoder_config, "use_subgoal", False)):
         rows, subgoal_filter_stats = _filter_subgoal_rows(rows)
@@ -389,6 +411,7 @@ def main() -> None:
                 "jsonl": str(Path(args.jsonl)),
                 "use_ema": bool(args.use_ema),
                 "use_subgoal": bool(getattr(decoder_config, "use_subgoal", False)),
+                "qwen_backbone": args.qwen_backbone_contract,
                 "subgoal_filter": subgoal_filter_stats,
                 "num_cases": len(index_rows),
             },

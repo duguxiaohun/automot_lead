@@ -29,6 +29,7 @@ target_point / next_target_point 语义
 环境变量
     LEADMOT_CKPT      [必填] LeadMoT decoder checkpoint
     LEADMOT_ROPE      默认 mrope
+    QWEN_ADAPTER_DIR  默认 auto；按 ckpt qwen_backbone 恢复，搬家时显式覆盖
     SENSOR_PROFILE    "3cam"（默认且唯一支持的 LEAD 传感器档）
     STEP_STRIDE       默认 5（即 4Hz 推理）
     RECORD_INPUT/RECORD_DEBUG/RECORD_DEMO/RECORD_GRID   "1"/"0"，默认 1
@@ -83,6 +84,12 @@ from filterpy.kalman import UnscentedKalmanFilter as UKF
 
 # 推理引擎（含 Qwen prefill + LeadBEVEncoder + LeadMoT decoder）
 from team_code.mot_lead_offline_runner import LeadOfflineMoTRunner
+from team_code import mot_lead_offline_runner as _mot_lead_runner
+from qwen3vl_local.leadmot.config import (
+    build_qwen_backbone_contract,
+    require_qwen_backbone_match,
+    resolve_qwen_adapter_dir,
+)
 
 # 本子包内部：视频/可视化/安全兜底。
 # leaderboard 通过 importlib.spec_from_file_location 把 agent.py 当成顶层 module
@@ -525,6 +532,38 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         )
         self.runner._ensure_leadmot_qwen_engine()
         self.runner._ensure_leadmot_decoder()
+        checkpoint_payload = self.runner._read_leadmot_checkpoint(self.leadmot_ckpt_path)
+        expected_qwen_backbone = (
+            checkpoint_payload.get("qwen_backbone")
+            if isinstance(checkpoint_payload, dict)
+            else None
+        )
+        requested_qwen_adapter = os.environ.get("QWEN_ADAPTER_DIR", "auto")
+        resolved_qwen_adapter = resolve_qwen_adapter_dir(
+            requested_qwen_adapter,
+            expected_qwen_backbone,
+        )
+        self.qwen_backbone_contract = build_qwen_backbone_contract(
+            _mot_lead_runner._QWEN_INSTRUCT_CHECKPOINT_DIR,
+            resolved_qwen_adapter,
+        )
+        require_qwen_backbone_match(
+            expected_qwen_backbone,
+            self.qwen_backbone_contract,
+            self.leadmot_ckpt_path,
+        )
+        if bool(self.qwen_backbone_contract.get("adapter_enabled", False)):
+            if self.runner.leadmot_qwen_engine is None:
+                raise RuntimeError("LeadMoT Qwen engine was not initialized")
+            self.runner.leadmot_qwen_engine.attach_lora_adapter(
+                resolved_qwen_adapter,
+                merge=True,
+            )
+        print(
+            "[MOTLeadAgent] Qwen adapter="
+            f"{int(bool(self.qwen_backbone_contract.get('adapter_enabled', False)))} "
+            f"sha256={str(self.qwen_backbone_contract.get('adapter_sha256', ''))[:12] or '<base>'}"
+        )
         self.use_bev = bool(self.runner.leadmot_config.use_bev)
         # ===== subgoal 模式接口占位 =====
         # ckpt decoder_config.use_subgoal 由 LeadOfflineMoTRunner 自动从 ckpt 读出来；
@@ -571,6 +610,7 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
             "requires_lidar": self.need_lidar,
             "rope_type": rope_type,
             "use_ema": _LEADMOT_USE_EMA,
+            "qwen_backbone": self.qwen_backbone_contract,
             "sensor_profile": self.sensor_profile,
             "step_stride": self.step_stride,
             "history_seconds": (self.clip_len - 1) * self.step_stride / 20.0,

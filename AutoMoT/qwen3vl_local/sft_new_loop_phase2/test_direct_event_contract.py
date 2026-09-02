@@ -14,9 +14,15 @@ from types import SimpleNamespace
 
 from PIL import Image
 
+from qwen3vl_local.leadmot.config import (
+    build_qwen_backbone_contract,
+    require_qwen_backbone_match,
+    resolve_qwen_adapter_dir,
+)
 from qwen3vl_local.sft_new_loop_phase2 import build_dataset as dataset
 from qwen3vl_local.sft_new_loop_phase2 import build_ue3_validation_rgb_audit as ue3_rgb_audit
 from qwen3vl_local.sft_new_loop_phase2 import check_acceptance
+from qwen3vl_local.sft_new_loop_phase2 import compare_leadmot_qwen_ab
 from qwen3vl_local.sft_new_loop_phase2 import audit_eval_cases as event_audit
 from qwen3vl_local.sft_new_loop_phase2 import eval as event_eval
 from qwen3vl_local.sft_new_loop_phase2 import select_seed_checkpoint
@@ -313,6 +319,90 @@ class DirectEventContractTest(unittest.TestCase):
             decisions.write_text(json.dumps(labels[0]) + "\n", encoding="utf-8")
             with self.assertRaises(ValueError):
                 rescore_ue3_rgb_decisions.build_report(manifest, decisions)
+
+    def test_leadmot_qwen_backbone_contract_binds_real_adapter_bytes(self) -> None:
+        """LeadMoT checkpoint 合同必须区分 base、正确 LoRA 和被替换的 LoRA。"""
+
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            root = pathlib.Path(raw_tmp)
+            model = root / "model"
+            adapter = root / "adapter"
+            model.mkdir()
+            adapter.mkdir()
+            (model / "config.json").write_text('{"model_type":"qwen3_vl"}', encoding="utf-8")
+            (adapter / "adapter_config.json").write_text(
+                json.dumps({"target_modules": ["q_proj", "v_proj"]}), encoding="utf-8"
+            )
+            (adapter / "adapter_model.bin").write_bytes(b"adapter-v1")
+            (adapter / "sft_new_loop_phase2_adapter_config.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "sft_new_loop_phase2_adapter_config",
+                        "prompt_name": PROMPT_NAME,
+                        "history_rgb_mode": "2rgb_endpoints",
+                        "seed": 20260810,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            base_contract = build_qwen_backbone_contract(model)
+            lora_contract = build_qwen_backbone_contract(model, adapter)
+            self.assertFalse(base_contract["adapter_enabled"])
+            self.assertTrue(lora_contract["adapter_enabled"])
+            self.assertEqual(
+                resolve_qwen_adapter_dir("auto", lora_contract),
+                str(adapter.resolve()),
+            )
+            require_qwen_backbone_match(lora_contract, lora_contract, "ckpt.pt")
+            with self.assertRaises(ValueError):
+                require_qwen_backbone_match(lora_contract, base_contract, "ckpt.pt")
+            require_qwen_backbone_match(None, base_contract, "legacy.pt")
+            with self.assertRaises(ValueError):
+                require_qwen_backbone_match(None, lora_contract, "legacy.pt")
+            old_hash = lora_contract["adapter_sha256"]
+            (adapter / "adapter_model.bin").write_bytes(b"adapter-v2")
+            self.assertNotEqual(
+                old_hash,
+                build_qwen_backbone_contract(model, adapter)["adapter_sha256"],
+            )
+
+    def test_leadmot_ab_uses_paired_route_cluster_gate(self) -> None:
+        """A/B 只有在同 case、多 route 的四个规划距离都显著下降时才放行。"""
+
+        base_rows = []
+        lora_rows = []
+        for index in range(12):
+            shared = {"index": index, "route_dir": f"route_{index}", "anchor": index}
+            base_rows.append(
+                {
+                    **shared,
+                    **{metric: 2.0 for metric in compare_leadmot_qwen_ab.METRICS},
+                }
+            )
+            lora_rows.append(
+                {
+                    **shared,
+                    **{metric: 1.0 for metric in compare_leadmot_qwen_ab.METRICS},
+                }
+            )
+        report = compare_leadmot_qwen_ab.compare_rows(
+            base_rows,
+            lora_rows,
+            bootstrap_samples=100,
+            min_routes=10,
+        )
+        self.assertEqual(report["decision"], "LORA_OFFLINE_WIN")
+        self.assertTrue(report["carla_allowed"])
+        no_gain = compare_leadmot_qwen_ab.compare_rows(
+            base_rows,
+            base_rows,
+            bootstrap_samples=100,
+            min_routes=10,
+        )
+        self.assertEqual(no_gain["decision"], "INSUFFICIENT_OR_NO_IMPROVEMENT")
+        self.assertFalse(no_gain["carla_allowed"])
+        with self.assertRaises(ValueError):
+            compare_leadmot_qwen_ab.compare_rows(base_rows, lora_rows[:-1])
 
     def test_messages_have_no_synthetic_rs_turn(self) -> None:
         """模型输入只能是 system + 单个 image/text user turn。"""
