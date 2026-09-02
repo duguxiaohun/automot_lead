@@ -113,6 +113,36 @@ python qwen3vl_local/sft_new_loop_phase2/rescore_ue3_rgb_decisions.py \
 模型责任与 PRE/POST/DOMAIN/2RGB/AMBIGUOUS 标签责任；不修改 frame index、不参与
 checkpoint 选优、不能触发 unseen。完整结论见 `V3_ROUTE_DIVERSE_FULL_UE3_RGB_AUDIT_20260902.md`。
 
+### 下游自动 A/B（当前收口实验）
+
+完整逐帧 RGB 审计不支持继续修改 v3 prompt；三个 seed 也都未通过 UE3 guard，因此
+不再重训本 Phase2，且不打开 unseen-456。只保留 seed 20260810 作为研究候选，测试它的
+LoRA 是否能改善 LeadMoT 规划。整个下游流程不需要人工复核：
+
+```bash
+# 1. 只核对 model/dataset/adapter/prompt/hash/2RGB/seed 合同，不加载 GPU
+bash qwen3vl_local/sft_new_loop_phase2/run_leadmot_qwen_ab.sh preflight
+
+# 2. 两臂各 2 step + 同 8 case eval，只检查端到端链路
+GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase2/run_leadmot_qwen_ab.sh smoke
+
+# 3. smoke 通过后，base 与 LoRA 分别从同 seed 训练 decoder，再做全量 paired eval
+GPU_IDS=0,1,2,3 TRAIN_LAUNCH_MODE=ddp \
+  bash qwen3vl_local/sft_new_loop_phase2/run_leadmot_qwen_ab.sh train
+```
+
+默认 LoRA 是 frozen protocol 的 `seed_20260810/final`；搬家时用 `ADAPTER_DIR=...` 覆盖。
+每个 LeadMoT checkpoint 都绑定 base/adapter 真实 SHA256，eval/CARLA 自动恢复并拒绝错配。
+`comparison.json/md` 对同一 validation case 严格配对，并按 route 做 cluster bootstrap；
+只有 route/waypoint 的 ADE/FDE 四项 95% CI 上界全部小于 0，才写
+`carla_allowed=true`。否则实验在离线阶段停止，不再改 Phase2 prompt 或继续训练。
+若只想重跑一轮已完成实验的 eval，必须把原目录显式传回，避免时间戳生成空目录：
+
+```bash
+AB_ROOT=checkpoints/leadmot_qwen_adapter_ab/<原实验目录> \
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase2/run_leadmot_qwen_ab.sh eval
+```
+
 复评输出写入原实验目录的 `route_diverse_validation_rescore/`，原 frozen 指标不覆盖。训练期
 generation validation 后续也默认采用 route-diverse 采样，并使用与训练 seed 无关的固定
 `GENERATION_EVAL_SAMPLING_SEED=20260831`，保证不同 seed 真正比较同一 validation case 集。

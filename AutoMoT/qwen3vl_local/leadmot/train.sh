@@ -44,11 +44,13 @@ if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
 fi
 
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+QWEN_ADAPTER_DIR="${QWEN_ADAPTER_DIR:-}"
 LEAD_BEV_CKPT="${LEAD_BEV_CKPT:-checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth}"
 RESUME="${RESUME:-}"
 INIT_FROM_CKPT="${INIT_FROM_CKPT:-}"
 
 LR="${LR:-2e-4}"
+SEED="${SEED:-2026}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
 WARMUP_RATIO="${WARMUP_RATIO:-0.05}"
 NUM_EPOCHS="${NUM_EPOCHS:-3}"
@@ -186,6 +188,7 @@ common_args=(
   --val-jsonl "${VAL_JSONL}"
   --output-dir "${OUTPUT_DIR}"
   --model-dir "${MODEL_DIR}"
+  --seed "${SEED}"
   --lead-bev-ckpt "${LEAD_BEV_CKPT}"
   --learning-rate "${LR}"
   --weight-decay "${WEIGHT_DECAY}"
@@ -220,6 +223,10 @@ common_args=(
   --target-point-lookahead-s "${TP_LOOKAHEAD_S}"
   --next-target-point-lookahead-s "${NTP_LOOKAHEAD_S}"
 )
+
+if [[ -n "${QWEN_ADAPTER_DIR}" ]]; then
+  common_args+=(--qwen-adapter-dir "${QWEN_ADAPTER_DIR}")
+fi
 
 if [[ -n "${RESUME}" ]]; then
   common_args+=(--resume "${RESUME}")
@@ -330,4 +337,3 @@ if [[ "${MODE}" != "check" ]]; then
   echo "  GPU_IDS=0 python qwen3vl_local/leadmot/probe.py --save-root ${OUTPUT_DIR}"
   echo "============================================================"
 fi
-

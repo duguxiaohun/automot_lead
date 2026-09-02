@@ -223,7 +223,13 @@ def _inspect_lora_adapter(adapter_path: pathlib.Path) -> Dict[str, Any]:
     state_has_vision = any(_name_has_vision_marker(key) for key in state_keys)
 
     sft_config_path = adapter_path / "sft_v2_adapter_config.json"
-    for candidate in ("sft_v4_adapter_config.json", "sft_v3_adapter_config.json", "sft_v2_adapter_config.json"):
+    for candidate in (
+        "sft_new_loop_phase2_adapter_config.json",
+        "sft_v5_adapter_config.json",
+        "sft_v4_adapter_config.json",
+        "sft_v3_adapter_config.json",
+        "sft_v2_adapter_config.json",
+    ):
         candidate_path = adapter_path / candidate
         if candidate_path.exists():
             sft_config_path = candidate_path
@@ -234,7 +240,11 @@ def _inspect_lora_adapter(adapter_path: pathlib.Path) -> Dict[str, Any]:
     sft_has_vision = sft_config.get("lora_vision", None)
     if sft_has_vision is None and "lora_vision_scope" in sft_config:
         sft_has_vision = str(sft_config.get("lora_vision_scope", "off")).lower() != "off"
-    sft_targets = _as_list(sft_config.get("target_modules")) if sft_config else []
+    sft_targets = (
+        _as_list(sft_config.get("target_modules", sft_config.get("lora_target_modules")))
+        if sft_config
+        else []
+    )
     if sft_targets and not _target_modules_compatible(sft_targets, target_modules):
         missing_from_peft = sorted(set(sft_targets) - set(target_modules))[:8]
         extra_in_peft = sorted(set(target_modules) - set(sft_targets))[:8]
@@ -436,8 +446,9 @@ class LocalQwen3VLInstructEngine:
         必须先 self.load()：PeftModel.from_pretrained 需要一个已经加载到设备上的 base
         model 才能包；忘记 load 会把 None 传给 PEFT 直接崩。
 
-        加载前会先读取 adapter_config.json / sft_v2 或 sft_v3 adapter config，确认普通语言
-        LoRA 与视觉+语言 LoRA 的配置和权重 key 一致。PEFT 随后按配置实例化 adapter；
+        加载前会先读取 adapter_config.json / 对应 SFT adapter config（包括
+        sft_new_loop_phase2），确认普通语言 LoRA 与视觉+语言 LoRA 的配置和权重 key
+        一致。PEFT 随后按配置实例化 adapter；
         原始 checkpoint 目录里的 Qwen base 权重始终不写回、不覆盖。
 
         merge=True 时调用 model.merge_and_unload()：把 LoRA 权重合并进当前内存中的
