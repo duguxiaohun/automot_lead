@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""把多 seed 选优失败后的 UE3 validation 假阴性整理成四帧 RGB 审计包。"""
+"""把多 seed 的 UE3 validation 正例整理成四帧 RGB 审计包。
+
+默认保留旧行为：从训练期 fallback step 只导出至少一个 seed 漏判的 case。
+``--source-mode eval --include-correct`` 则从独立 eval ``cases*.jsonl`` 导出同一
+采样集的全部 UE3 正例，用于同时对比稳定答对与稳定答错的 RGB 证据。
+"""
 
 from __future__ import annotations
 
@@ -16,6 +21,37 @@ from PIL import Image, ImageDraw
 
 
 Identity = Tuple[str, str, int, str]
+
+
+def _is_yes(value: Any) -> bool:
+    """兼容训练 generation record 的 bool 与独立 eval 的 YES/NO 字符串。"""
+
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().upper() == "YES"
+
+
+def _record_balance_key(record: Mapping[str, Any]) -> str:
+    """读取训练期或独立 eval 的采样桶名。"""
+
+    return str(record.get("balance_key") or record.get("augment_balance_key") or "")
+
+
+def _record_ue3_gt(record: Mapping[str, Any]) -> bool:
+    """读取 UE3 真值，并兼容两种 case schema。"""
+
+    for field in ("answers", "event_answers", "gt"):
+        values = record.get(field)
+        if isinstance(values, Mapping) and "UE3" in values:
+            return _is_yes(values.get("UE3"))
+    return False
+
+
+def _record_ue3_prediction(record: Mapping[str, Any]) -> bool:
+    """读取 UE3 预测。格式失败/缺失按非 YES 处理，与 recall 口径一致。"""
+
+    values = record.get("parsed")
+    return isinstance(values, Mapping) and _is_yes(values.get("UE3"))
 
 
 def _read_json(path: pathlib.Path) -> Dict[str, Any]:
@@ -127,6 +163,7 @@ def _audit_note(case: Mapping[str, Any]) -> str:
             f"- scenario（仅索引，不是判定证据）: `{case['scenario']}`",
             f"- route/frame: `{case['route_id']}` / `{case['frame_id']}`",
             f"- failed seeds: `{case['failed_seeds']}`",
+            f"- correct seeds: `{case['correct_seeds']}`",
             f"- sampled seeds: `{case['sampled_seeds']}`",
             f"- model-visible frames: `{case['model_visible_indices']}`",
             "",
@@ -140,6 +177,7 @@ def _audit_note(case: Mapping[str, Any]) -> str:
             "- 四帧整体是否支持 UE3=YES：`YES / NO / AMBIGUOUS`",
             "- 是否只是 ego 前进视差、静态停车、事故、施工或既有队列：`YES / NO`",
             "- 是否属于事件 span 起止边界过宽：`YES / NO / AMBIGUOUS`",
+            "- visual class：`VISIBLE_ACTIVE / PRE_EVENT / POST_EVENT / DOMAIN_CONFLICT / 2RGB_UNOBSERVABLE / AMBIGUOUS`",
             "- error owner：`MODEL / LABEL_OR_SPAN / 2RGB_INFORMATION / AMBIGUOUS`",
             "- notes：`...`",
             "",
@@ -147,17 +185,8 @@ def _audit_note(case: Mapping[str, Any]) -> str:
     )
 
 
-def build_audit(args: argparse.Namespace) -> Dict[str, Any]:
-    """读取三个 seed 的 fallback step，构建去重的 UE3 四帧审计目录。"""
-
-    experiment_root = pathlib.Path(args.experiment_root)
-    train_root = experiment_root / "train_runs"
-    index = _load_index(pathlib.Path(args.index))
-    data_root = pathlib.Path(args.data_root)
-    output_dir = pathlib.Path(args.output_dir) if args.output_dir else experiment_root / "ue3_validation_rgb_audit"
-    if output_dir.exists() and any(output_dir.iterdir()) and not args.overwrite:
-        raise FileExistsError(f"output directory is not empty: {output_dir}; pass --overwrite to rebuild")
-    output_dir.mkdir(parents=True, exist_ok=True)
+def _load_fallback_records(train_root: pathlib.Path) -> Dict[Identity, Dict[str, Dict[str, Any]]]:
+    """读取各 seed fallback step 的 UE3 正例。"""
 
     sampled: Dict[Identity, Dict[str, Dict[str, Any]]] = defaultdict(dict)
     for seed_dir in sorted(train_root.glob("seed_*")):
@@ -168,18 +197,96 @@ def build_audit(args: argparse.Namespace) -> Dict[str, Any]:
         fallback = _read_json(fallback_path)
         selected_step = int(fallback["step"])
         seed = seed_dir.name
-        for record in _iter_jsonl(cases_path):
-            if int(record.get("step", -1)) != selected_step:
+        for source_record in _iter_jsonl(cases_path):
+            if int(source_record.get("step", -1)) != selected_step:
                 continue
-            if not str(record.get("balance_key", "")).endswith("/class/UE3"):
+            if not _record_balance_key(source_record).endswith("/class/UE3"):
                 continue
-            if record.get("answers", {}).get("UE3") is not True:
+            if not _record_ue3_gt(source_record):
                 continue
-            key = _identity(record)
-            record = dict(record)
+            record = dict(source_record)
             record["seed"] = seed
             record["selected_step"] = selected_step
-            sampled[key][seed] = record
+            sampled[_identity(record)][seed] = record
+    return sampled
+
+
+def _load_eval_records(eval_root: pathlib.Path) -> Dict[Identity, Dict[str, Dict[str, Any]]]:
+    """读取各 seed 独立 eval 的同一组 UE3 正例。"""
+
+    sampled: Dict[Identity, Dict[str, Dict[str, Any]]] = defaultdict(dict)
+    seed_identities: Dict[str, set[Identity]] = {}
+    seed_dirs = sorted(path for path in eval_root.glob("seed_*") if path.is_dir())
+    if not seed_dirs:
+        raise FileNotFoundError(f"no seed_* eval directories under {eval_root}")
+    for seed_dir in seed_dirs:
+        case_paths = sorted(seed_dir.glob("cases*.jsonl"))
+        if not case_paths:
+            raise FileNotFoundError(f"missing cases*.jsonl for {seed_dir}")
+        seed = seed_dir.name
+        identities: set[Identity] = set()
+        for cases_path in case_paths:
+            for source_record in _iter_jsonl(cases_path):
+                if not _record_balance_key(source_record).endswith("/class/UE3"):
+                    continue
+                if not _record_ue3_gt(source_record):
+                    continue
+                record = dict(source_record)
+                record["seed"] = seed
+                record["selected_step"] = "final"
+                key = _identity(record)
+                previous = sampled[key].get(seed)
+                if previous is not None and previous != record:
+                    raise ValueError(f"conflicting duplicate eval case for {seed}: {key}")
+                sampled[key][seed] = record
+                identities.add(key)
+        if not identities:
+            raise ValueError(f"no UE3 positive cases in {seed_dir}")
+        seed_identities[seed] = identities
+    reference_seed = sorted(seed_identities)[0]
+    reference = seed_identities[reference_seed]
+    mismatched = {
+        seed: {
+            "missing_vs_reference": len(reference - identities),
+            "extra_vs_reference": len(identities - reference),
+        }
+        for seed, identities in sorted(seed_identities.items())
+        if identities != reference
+    }
+    if mismatched:
+        raise ValueError(
+            "eval seeds did not score the same UE3 identities; refusing a biased TP/FN comparison: "
+            f"reference={reference_seed} cases={len(reference)} mismatched={mismatched}"
+        )
+    return sampled
+
+
+def build_audit(args: argparse.Namespace) -> Dict[str, Any]:
+    """读取多 seed UE3 预测，构建去重的四帧 RGB 审计目录。"""
+
+    experiment_root = pathlib.Path(args.experiment_root)
+    train_root = experiment_root / "train_runs"
+    index = _load_index(pathlib.Path(args.index))
+    data_root = pathlib.Path(args.data_root)
+    output_dir = pathlib.Path(args.output_dir) if args.output_dir else experiment_root / "ue3_validation_rgb_audit"
+    if output_dir.exists() and any(output_dir.iterdir()) and not args.overwrite:
+        raise FileExistsError(f"output directory is not empty: {output_dir}; pass --overwrite to rebuild")
+    if output_dir.exists() and args.overwrite:
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    source_mode = str(getattr(args, "source_mode", "fallback"))
+    if source_mode == "fallback":
+        sampled = _load_fallback_records(train_root)
+        source_root = train_root
+    elif source_mode == "eval":
+        eval_root_arg = str(getattr(args, "eval_root", "") or "")
+        source_root = pathlib.Path(eval_root_arg) if eval_root_arg else experiment_root / "route_diverse_validation_rescore"
+        sampled = _load_eval_records(source_root)
+    else:
+        raise ValueError(f"unsupported source_mode={source_mode!r}")
+    if not sampled:
+        raise ValueError(f"no UE3 positive records found in {source_root}")
 
     # generation_val_cases.jsonl 在断点恢复后可能重复出现同一 step；先按 identity+seed
     # 去重，再统计分母，避免恢复训练把同一 validation case 重复记账。
@@ -187,22 +294,45 @@ def build_audit(args: argparse.Namespace) -> Dict[str, Any]:
     per_seed_failures = Counter()
     per_seed_scenario_total: Dict[str, Counter[str]] = defaultdict(Counter)
     per_seed_scenario_failures: Dict[str, Counter[str]] = defaultdict(Counter)
+    per_seed_route_total: Dict[str, Counter[str]] = defaultdict(Counter)
+    per_seed_route_failures: Dict[str, Counter[str]] = defaultdict(Counter)
     for key, records in sampled.items():
+        route_key = f"{key[0]}/{key[1]}"
         for seed, record in records.items():
             per_seed[seed] += 1
             per_seed_scenario_total[seed][key[0]] += 1
-            if record.get("parsed", {}).get("UE3") is not True:
+            per_seed_route_total[seed][route_key] += 1
+            if not _record_ue3_prediction(record):
                 per_seed_failures[seed] += 1
                 per_seed_scenario_failures[seed][key[0]] += 1
+                per_seed_route_failures[seed][route_key] += 1
 
-    failure_keys = sorted(
+    route_reports = {
+        seed: {
+            route: {
+                "cases": int(total),
+                "false_negatives": int(per_seed_route_failures[seed][route]),
+                "recall": 1.0 - float(per_seed_route_failures[seed][route]) / max(1.0, float(total)),
+            }
+            for route, total in sorted(counts.items())
+        }
+        for seed, counts in sorted(per_seed_route_total.items())
+    }
+    route_macro_recall = {
+        seed: sum(float(report["recall"]) for report in routes.values()) / max(1, len(routes))
+        for seed, routes in sorted(route_reports.items())
+    }
+
+    failure_keys = {
         key
         for key, records in sampled.items()
-        if any(record.get("parsed", {}).get("UE3") is not True for record in records.values())
-    )
+        if any(not _record_ue3_prediction(record) for record in records.values())
+    }
+    include_correct = bool(getattr(args, "include_correct", False))
+    audit_keys = sorted(sampled if include_correct else failure_keys)
     manifest_rows = []
     missing_index = []
-    for key in failure_keys:
+    for key in audit_keys:
         source = index.get(key)
         if source is None:
             missing_index.append(key)
@@ -213,8 +343,9 @@ def build_audit(args: argparse.Namespace) -> Dict[str, Any]:
         paths = [_resolve_rgb_path(raw, data_root) for raw in raw_paths]
         records = sampled[key]
         failed_seeds = sorted(
-            seed for seed, record in records.items() if record.get("parsed", {}).get("UE3") is not True
+            seed for seed, record in records.items() if not _record_ue3_prediction(record)
         )
+        correct_seeds = sorted(seed for seed, record in records.items() if _record_ue3_prediction(record))
         sampled_seeds = sorted(records)
         case_name = _safe_case_name(key)
         case_dir = output_dir / "cases" / case_name
@@ -231,7 +362,10 @@ def build_audit(args: argparse.Namespace) -> Dict[str, Any]:
             paths,
             ["t0 oldest (visible)", "t1 audit-only", "t2 audit-only", "t3 newest (visible)"],
             sheet_path,
-            title=f"{key[0]} frame={key[2]} failed={','.join(failed_seeds)}",
+            title=(
+                f"{key[0]} frame={key[2]} "
+                f"TP={','.join(correct_seeds) or '-'} FN={','.join(failed_seeds) or '-'}"
+            ),
         )
         row = {
             "case_name": case_name,
@@ -240,7 +374,11 @@ def build_audit(args: argparse.Namespace) -> Dict[str, Any]:
             "frame_id": key[2],
             "question_domain": key[3],
             "failed_seeds": failed_seeds,
+            "correct_seeds": correct_seeds,
             "sampled_seeds": sampled_seeds,
+            "prediction_pattern": {
+                seed: "TP" if seed in correct_seeds else "FN" for seed in sampled_seeds
+            },
             "model_visible_indices": [0, 3],
             "history_rgb_paths_all4": [str(path) for path in paths],
             "copied_rgb_paths": copied_paths,
@@ -265,10 +403,16 @@ def build_audit(args: argparse.Namespace) -> Dict[str, Any]:
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in manifest_rows), encoding="utf-8"
     )
     unique_scenarios = Counter(row["scenario"] for row in manifest_rows)
-    failure_multiplicity = Counter(len(row["failed_seeds"]) for row in manifest_rows)
+    failure_rows = [row for row in manifest_rows if row["failed_seeds"]]
+    failure_scenarios = Counter(row["scenario"] for row in failure_rows)
+    failure_multiplicity = Counter(len(row["failed_seeds"]) for row in failure_rows)
+    all_correct_rows = [row for row in manifest_rows if not row["failed_seeds"]]
     summary = {
-        "format": "sft_new_loop_phase2_ue3_validation_rgb_audit_v1",
+        "format": "sft_new_loop_phase2_ue3_validation_rgb_audit_v2",
         "experiment_root": str(experiment_root),
+        "source_mode": source_mode,
+        "source_root": str(source_root),
+        "include_correct": include_correct,
         "index": str(args.index),
         "model_visible_indices": [0, 3],
         "audit_visible_indices": [0, 1, 2, 3],
@@ -283,8 +427,13 @@ def build_audit(args: argparse.Namespace) -> Dict[str, Any]:
         "scenario_false_negatives_by_seed": {
             seed: dict(sorted(counts.items())) for seed, counts in sorted(per_seed_scenario_failures.items())
         },
-        "unique_failure_cases": len(manifest_rows),
-        "unique_failure_cases_by_scenario": dict(sorted(unique_scenarios.items())),
+        "ue3_route_reports_by_seed": route_reports,
+        "ue3_route_macro_recall_by_seed": route_macro_recall,
+        "unique_audit_cases": len(manifest_rows),
+        "unique_audit_cases_by_scenario": dict(sorted(unique_scenarios.items())),
+        "unique_failure_cases": len(failure_rows),
+        "unique_failure_cases_by_scenario": dict(sorted(failure_scenarios.items())),
+        "unique_all_seed_correct_cases": len(all_correct_rows),
         "failed_seed_multiplicity": dict(sorted(failure_multiplicity.items())),
         "manifest": str(manifest_path),
         "contract": "Do not change prompt or labels from scenario names; inspect all four RGB frames and fill audit_note.md.",
@@ -294,8 +443,11 @@ def build_audit(args: argparse.Namespace) -> Dict[str, Any]:
         "# UE3 validation RGB audit",
         "",
         f"- unique failure cases: `{summary['unique_failure_cases']}`",
+        f"- unique all-seed-correct controls: `{summary['unique_all_seed_correct_cases']}`",
+        f"- unique audited cases: `{summary['unique_audit_cases']}`",
         f"- per-seed UE3 samples: `{summary['sampled_ue3_by_seed']}`",
         f"- per-seed false negatives: `{summary['false_negatives_by_seed']}`",
+        f"- per-seed route-macro UE3 recall: `{summary['ue3_route_macro_recall_by_seed']}`",
         f"- unique cases by scenario: `{summary['unique_failure_cases_by_scenario']}`",
         f"- failed-seed multiplicity: `{summary['failed_seed_multiplicity']}`",
         "",
@@ -324,6 +476,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--index", default="checkpoints/sft_new_loop_phase2_data/frame_index.jsonl")
     parser.add_argument("--data-root", default="lead_data")
     parser.add_argument("--output-dir", default="")
+    parser.add_argument("--source-mode", choices=("fallback", "eval"), default="fallback")
+    parser.add_argument(
+        "--eval-root",
+        default="",
+        help="source-mode=eval 时包含 seed_*/cases*.jsonl 的目录",
+    )
+    parser.add_argument(
+        "--include-correct",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="导出所有 UE3 正例，而不仅是至少一个 seed 的假阴性",
+    )
     parser.add_argument("--copy-originals", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--archive", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--overwrite", action="store_true")

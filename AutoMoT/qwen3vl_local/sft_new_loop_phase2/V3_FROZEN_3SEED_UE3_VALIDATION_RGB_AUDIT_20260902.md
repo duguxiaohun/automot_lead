@@ -134,3 +134,31 @@ production v3 保留，不改 hash。尤其不能做下面几种“为了过门�
    不直接参与 checkpoint 选优。
 5. 只有 route-balanced validation 仍通过 UE3、UE6、INVALID、RE 四项 guard，才对未触碰的 unseen-456
    做一次验收；否则停止当前路线，转为清洗事件时间窗/RS 问题域监督，而不是继续堆 prompt。
+
+## 8. final adapter route-diverse 复评结果
+
+2026-09-02 使用三个 `final` adapter 和固定采样 seed `20260831` 重跑了 validation-only
+route-diverse 复评。这次与第 2 节的 step-4000 fallback 不是同一 checkpoint，两组数字不能
+解释为单纯的采样方式 A/B。
+
+| seed | final overall exact | UE3 recall | UE6 recall | INVALID exact | applicable RE exact |
+|---|---:|---:|---:|---:|---:|
+| 20260810 | 0.8021 | 0.3438 FAIL | 0.9375 | 0.9062 | 0.6250 |
+| 20260811 | 0.7708 | 0.2188 FAIL | 0.9062 | 0.8750 | 0.6667 |
+| 20260812 | 0.7656 | 0.1875 FAIL | 0.9062 | 0.9062 | 0.6667 |
+
+三个 seed 仍然只在 UE3 guard 失败，`selected=null`、`ready_for_unseen=false`，unseen-456 继续保持
+未触碰。但“route-diverse”没有解决 UE3 样本源问题：32 条 UE3 候选本身就只有 5 条 route，
+其中 `StaticCutIn/Town12...1004_1` 仍占 15 帧，`DynamicObjectCrossing/Town02...Scenario3_3`
+仍占 9 帧。轮转抽样只能改变顺序，不能凭空增加新 route。
+
+因此当前证据只支持下面的改动：
+
+1. production prompt v3 继续冻结，hash 不变；
+2. 审计工具从“只看错例”改为同时导出 32 个 UE3 正例，包括稳定答对的对照组，
+   避免只看 error 导致确证偏差；
+3. 每例必须在四帧 RGB 上填写
+   `VISIBLE_ACTIVE/PRE_EVENT/POST_EVENT/DOMAIN_CONFLICT/2RGB_UNOBSERVABLE/AMBIGUOUS`；
+4. 完成 32 例审计前不改 prompt、不重训、不打开 unseen。完成后若稳定答错主要集中于
+   `PRE_EVENT/POST_EVENT/DOMAIN_CONFLICT/2RGB_UNOBSERVABLE`，优先修训练数据的事件 span/问题域；
+   只有多 route 的 `VISIBLE_ACTIVE` 稳定漏判才能触发窄范围 prompt 修改。

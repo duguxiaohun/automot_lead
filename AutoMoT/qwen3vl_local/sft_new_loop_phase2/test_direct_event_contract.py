@@ -194,6 +194,87 @@ class DirectEventContractTest(unittest.TestCase):
             self.assertEqual(len(case["copied_rgb_paths"]), 4)
             self.assertTrue(pathlib.Path(case["contact_sheet"]).is_file())
 
+    def test_ue3_full_eval_audit_includes_true_positive_controls(self) -> None:
+        """独立复评审计必须导出同一集合的 TP 对照和 FN，不能只看 error。"""
+
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            root = pathlib.Path(raw_tmp)
+            experiment = root / "experiment"
+            eval_root = experiment / "route_diverse_validation_rescore"
+            data_root = root / "lead_data"
+            output_dir = experiment / "full_audit"
+            data_root.mkdir(parents=True)
+            rgb_paths = []
+            for index in range(4):
+                path = data_root / f"frame_{index}.jpg"
+                Image.new("RGB", (48, 16), color=(index * 30, 20, 10)).save(path)
+                rgb_paths.append(path.name)
+            identities = [
+                ("DynamicObjectCrossing", "route-1", 8),
+                ("StaticCutIn", "route-2", 9),
+            ]
+            index_path = root / "frame_index.jsonl"
+            index_path.write_text(
+                "".join(
+                    json.dumps(
+                        {
+                            "split": "val",
+                            "scenario": scenario,
+                            "route_id": route_id,
+                            "frame_id": frame_id,
+                            "question_domain": ROAD_DOMAIN,
+                            "history_rgb_paths": rgb_paths,
+                        }
+                    )
+                    + "\n"
+                    for scenario, route_id, frame_id in identities
+                ),
+                encoding="utf-8",
+            )
+            for seed, predictions in (("seed_1", ("YES", "NO")), ("seed_2", ("YES", "YES"))):
+                seed_dir = eval_root / seed
+                seed_dir.mkdir(parents=True)
+                records = []
+                for (scenario, route_id, frame_id), prediction in zip(identities, predictions):
+                    records.append(
+                        {
+                            "scenario": scenario,
+                            "route_id": route_id,
+                            "frame_id": frame_id,
+                            "question_domain": ROAD_DOMAIN,
+                            "augment_balance_key": "all_random_order/class/UE3",
+                            "event_answers": {"UE3": "YES"},
+                            "parsed": {"UE3": prediction},
+                            "raw_output": f"UE3: {prediction}",
+                        }
+                    )
+                (seed_dir / "cases.jsonl").write_text(
+                    "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8"
+                )
+            summary = ue3_rgb_audit.build_audit(
+                SimpleNamespace(
+                    experiment_root=str(experiment),
+                    index=str(index_path),
+                    data_root=str(data_root),
+                    output_dir=str(output_dir),
+                    source_mode="eval",
+                    eval_root=str(eval_root),
+                    include_correct=True,
+                    copy_originals=True,
+                    archive=False,
+                    overwrite=False,
+                )
+            )
+            self.assertEqual(summary["unique_audit_cases"], 2)
+            self.assertEqual(summary["unique_failure_cases"], 1)
+            self.assertEqual(summary["unique_all_seed_correct_cases"], 1)
+            self.assertEqual(summary["ue3_route_macro_recall_by_seed"], {"seed_1": 0.5, "seed_2": 1.0})
+            cases = [json.loads(line) for line in (output_dir / "manifest.jsonl").read_text().splitlines()]
+            self.assertEqual(
+                {tuple(sorted(case["prediction_pattern"].values())) for case in cases},
+                {("TP", "TP"), ("FN", "TP")},
+            )
+
     def test_messages_have_no_synthetic_rs_turn(self) -> None:
         """模型输入只能是 system + 单个 image/text user turn。"""
 
