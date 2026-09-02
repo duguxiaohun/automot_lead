@@ -90,6 +90,18 @@ RUN_UNSEEN=0 \
   bash qwen3vl_local/sft_new_loop_phase2/run_route_diverse_validation_rescore.sh
 ```
 
+若复评已经跑完，只需从现有 `cases.jsonl` 生成全量 UE3 四帧 RGB 审计包，不重跑模型：
+
+```bash
+bash qwen3vl_local/sft_new_loop_phase2/run_ue3_full_validation_rgb_audit.sh
+```
+
+输出默认为 `ue3_route_diverse_full_rgb_audit/` 及同名 `tar.gz`。它会硬校验三个 seed
+是否评估了完全相同的 UE3 case 身份，并导出全部 32 个正例的 TP/FN 矩阵、四帧原图、
+contact sheet 和逐例填写模板。只看假阴性不足以修改 prompt；必须同时对比稳定答对的对照例。
+当 `run_route_diverse_validation_rescore.sh` 新跑并且无 seed 过 guard 时，脚本也会在保持
+unseen 未触碰的同时自动构建该审计包。
+
 复评输出写入原实验目录的 `route_diverse_validation_rescore/`，原 frozen 指标不覆盖。训练期
 generation validation 后续也默认采用 route-diverse 采样，并使用与训练 seed 无关的固定
 `GENERATION_EVAL_SAMPLING_SEED=20260831`，保证不同 seed 真正比较同一 validation case 集。

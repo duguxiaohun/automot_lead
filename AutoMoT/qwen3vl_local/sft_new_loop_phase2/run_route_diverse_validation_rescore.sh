@@ -86,7 +86,8 @@ for seed in ${SEEDS}; do
     --no-save-all-rgb
 done
 
-python - "${OUTPUT_ROOT}" "${SELECTION_JSON}" "${TRAIN_ROOT}" ${SEEDS} <<'PY'
+selection_status=0
+python - "${OUTPUT_ROOT}" "${SELECTION_JSON}" "${TRAIN_ROOT}" ${SEEDS} <<'PY' || selection_status=$?
 import json
 import pathlib
 import sys
@@ -150,6 +151,26 @@ print(json.dumps(payload, ensure_ascii=False, indent=2))
 if selected is None:
     raise SystemExit(2)
 PY
+
+if [[ "${selection_status}" -ne 0 ]]; then
+  if [[ "${selection_status}" -eq 2 ]]; then
+    audit_output="${EXPERIMENT_ROOT}/ue3_route_diverse_full_rgb_audit"
+    echo "[rescore] no seed passed all guards; unseen remains untouched"
+    echo "[rescore] building all-positive UE3 RGB audit (TP controls + FN)"
+    python qwen3vl_local/sft_new_loop_phase2/build_ue3_validation_rgb_audit.py \
+      --experiment-root "${EXPERIMENT_ROOT}" \
+      --index "${INDEX}" \
+      --data-root "${DATA_ROOT}" \
+      --source-mode eval \
+      --eval-root "${OUTPUT_ROOT}" \
+      --include-correct \
+      --output-dir "${audit_output}" \
+      --overwrite
+    echo "[rescore] UE3 full RGB audit=${audit_output}"
+    echo "[rescore] archive=${audit_output}.tar.gz"
+  fi
+  exit "${selection_status}"
+fi
 
 SELECTED_ADAPTER="$(python - "${SELECTION_JSON}" <<'PY'
 import json
