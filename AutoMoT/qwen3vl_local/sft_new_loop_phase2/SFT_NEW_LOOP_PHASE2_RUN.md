@@ -132,7 +132,11 @@ GPU_IDS=0,1,2,3 TRAIN_LAUNCH_MODE=ddp \
   bash qwen3vl_local/sft_new_loop_phase2/run_leadmot_qwen_ab.sh train
 ```
 
-默认 LoRA 是 frozen protocol 的 `seed_20260810/final`；搬家时用 `ADAPTER_DIR=...` 覆盖。
+默认 LoRA 是 frozen protocol 的 `seed_20260810/fallback_generation`（validation 选中的
+step 4000 研究候选）；不是训练结束于 step 10752 的 `final/`。`fallback_generation.json`
+与该目录下 adapter config 的 `global_step` 都必须为 4000。它没有通过 UE3 production guard，
+本 A/B 只回答“该视觉表征是否改善下游规划”，不能据此把 Phase2 晋升为 production。
+adapter 搬家时用 `ADAPTER_DIR=...` 覆盖，但仍会校验 step/prompt/hash/2RGB/seed 和实际权重 SHA256。
 默认规划索引是 `checkpoints/leadmot_v1_data/{train,val}.jsonl`。两者都不存在时脚本会从
 `DATA_ROOT=lead_data` 自动调用 `leadmot/build_dataset.py --no-with-subgoal-fields`：保留所有
 合法 anchor、按 route 切 train/val，并先剔除异常时长 route。只有一个文件存在时会中止，
