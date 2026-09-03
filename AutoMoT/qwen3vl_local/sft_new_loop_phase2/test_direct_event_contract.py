@@ -8,7 +8,9 @@ import random
 import unittest
 from collections import Counter
 import json
+import os
 import pathlib
+import subprocess
 import tempfile
 from types import SimpleNamespace
 
@@ -403,6 +405,73 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertFalse(no_gain["carla_allowed"])
         with self.assertRaises(ValueError):
             compare_leadmot_qwen_ab.compare_rows(base_rows, lora_rows[:-1])
+
+    def test_leadmot_ab_preflight_auto_builds_missing_dataset(self) -> None:
+        """一键 A/B 在 train/val 同时缺失时应从 LEAD route 自动构建 no-subgoal 索引。"""
+
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            root = pathlib.Path(raw_tmp)
+            model = root / "model"
+            adapter = root / "adapter"
+            data_root = root / "lead_data"
+            data_dir = root / "leadmot_data"
+            model.mkdir()
+            adapter.mkdir()
+            (model / "config.json").write_text('{"model_type":"qwen3_vl"}', encoding="utf-8")
+            (adapter / "adapter_config.json").write_text("{}", encoding="utf-8")
+            (adapter / "adapter_model.bin").write_bytes(b"adapter")
+            (adapter / "sft_new_loop_phase2_adapter_config.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "sft_new_loop_phase2_adapter_config",
+                        "route": "sft_new_loop_phase2_direct_event",
+                        "dataset_name": "sft_new_loop_phase2_direct_event",
+                        "prompt_name": PROMPT_NAME,
+                        "production_prompt_sha256": event_prompt_sha256(
+                            audit=False,
+                            history_rgb_mode="2rgb_endpoints",
+                        ),
+                        "history_rgb_mode": "2rgb_endpoints",
+                        "history_rgb_count": 2,
+                        "history_rgb_selected_indices": [0, 3],
+                        "global_step": 4000,
+                        "seed": 20260810,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            for route_name in ("route_a", "route_b"):
+                route = data_root / "Scenario" / route_name
+                for folder, suffix in (("rgb", ".jpg"), ("metas", ".pkl"), ("lidar", ".laz")):
+                    target = route / folder
+                    target.mkdir(parents=True)
+                    for frame in range(12):
+                        (target / f"{frame:04d}{suffix}").write_bytes(b"")
+
+            script = pathlib.Path(__file__).with_name("run_leadmot_qwen_ab.sh")
+            env = {
+                **dict(os.environ),
+                "MODEL_DIR": str(model),
+                "ADAPTER_DIR": str(adapter),
+                "DATA_ROOT": str(data_root),
+                "LEADMOT_DATA_DIR": str(data_dir),
+                "AB_ROOT": str(root / "ab"),
+            }
+            result = subprocess.run(
+                ["bash", str(script), "preflight"],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertIn("LeadMoT JSONL missing; building once", result.stdout)
+            self.assertIn('"preflight": "ok"', result.stdout)
+            self.assertTrue((data_dir / "train.jsonl").is_file())
+            self.assertTrue((data_dir / "val.jsonl").is_file())
+            stats = json.loads((data_dir / "stats.json").read_text(encoding="utf-8"))
+            self.assertFalse(stats["with_subgoal_fields"])
+            self.assertGreater(stats["train_rows"], 0)
+            self.assertGreater(stats["val_rows"], 0)
 
     def test_messages_have_no_synthetic_rs_turn(self) -> None:
         """模型输入只能是 system + 单个 image/text user turn。"""
