@@ -179,6 +179,12 @@ if [[ "${TRAIN_ROUTE_DIVERSE:-1}" == "0" ]]; then
 else
   COMMON_ARGS+=(--train-route-diverse)
 fi
+if [[ "${TRAIN_UE3_ROUTE_BALANCED:-1}" == "0" ]]; then
+  COMMON_ARGS+=(--no-train-ue3-route-balanced)
+else
+  COMMON_ARGS+=(--train-ue3-route-balanced)
+fi
+COMMON_ARGS+=(--max-train-ue3-frame-repeat "${MAX_TRAIN_UE3_FRAME_REPEAT:-10}")
 if [[ "${GENERATION_EVAL_ROUTE_DIVERSE:-1}" == "0" ]]; then
   COMMON_ARGS+=(--no-generation-eval-route-diverse)
 else

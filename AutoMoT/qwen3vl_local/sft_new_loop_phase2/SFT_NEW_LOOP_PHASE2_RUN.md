@@ -124,11 +124,14 @@ bash qwen3vl_local/sft_new_loop_phase2/run_ue3_label_alignment_audit.sh
 该命令不加载模型、不改标签、不触碰 unseen。当前联表表明 32 帧都来自同一条
 `event_dynamic_cutin_or_occupancy`，但该规则同时覆盖 VISIBLE_ACTIVE 与
 PRE/POST/DOMAIN/2RGB/AMBIGUOUS，因此不能凭规则名或单一距离阈值自动重标。
-数据构建现只对 train 启用 route-round-robin 抽样，减少单条连续 span 的过度权重；
-val/test 保留旧 sampler 以维持 frozen 身份。详见
+数据构建只对 train 启用 route-round-robin 抽样；val/test 保留旧 sampler 以维持 frozen
+身份。由于 UE3 是最小桶，数据 smoke 中 UE3 构成不变是预期现象，不能据此判定正式训练
+目标 2048 下的重复权重已经改善。详见
 `UE3_LABEL_ALIGNMENT_AND_ROUTE_DIVERSE_DATA_20260903.md`。
-训练入口也默认 `TRAIN_ROUTE_DIVERSE=1`，每个 epoch 重新按 route 轮转 UE/RE work；
-`balance/epoch_*.json` 保存实际 route 分布。只有复现旧训练口径时才设为 0。
+训练入口除 `TRAIN_ROUTE_DIVERSE=1` 外，只对 UE3 默认启用
+`TRAIN_UE3_ROUTE_BALANCED=1`：原始桶耗尽后仍按 route 轮转，并以
+`MAX_TRAIN_UE3_FRAME_REPEAT=10` 限制同一帧重复。其它类别不改变，
+`balance/epoch_*.json` 保存实际 route 和 UE3 frame-repeat 分布。
 
 完成联表后，用一条 CPU-only 命令重建到新目录并自动比较新旧 index；它不会训练：
 
@@ -136,7 +139,30 @@ val/test 保留旧 sampler 以维持 frozen 身份。详见
 bash qwen3vl_local/sft_new_loop_phase2/run_route_diverse_data_smoke.sh
 ```
 
-只有脚本最后输出 `passed: true` 才考虑后续单 seed 小训练；不要直接启动三 seed。
+该脚本的 `passed: true` 只证明 index/frozen split 合同成立。随后还必须运行真正对应
+训练目标 2048 的 CPU sampling smoke：
+
+```bash
+bash qwen3vl_local/sft_new_loop_phase2/run_ue3_train_route_balance_smoke.sh
+```
+
+它不加载模型、不改 prompt/标签/index、不触碰 unseen；输出到
+`checkpoints/ue3_train_route_balance_smoke/`。只有所有 guard 为 true 才运行单 seed pilot：
+
+```bash
+GPU_IDS=0,1,2,3 \
+HISTORY_RGB_MODE=2rgb_endpoints \
+INDEX=checkpoints/sft_new_loop_phase2_data/frame_index.jsonl \
+OUTPUT_DIR=checkpoints/sft_new_loop_phase2_ue3_route_balance_pilot/seed_20260810 \
+SEED=20260810 MAX_STEPS=4000 SAVE_STEPS=4000 \
+FOCUS_BALANCE_COUNT=2048 TRAIN_ROUTE_DIVERSE=1 \
+TRAIN_UE3_ROUTE_BALANCED=1 MAX_TRAIN_UE3_FRAME_REPEAT=10 \
+GENERATION_EVAL_ROUTE_DIVERSE=0 \
+bash qwen3vl_local/sft_new_loop_phase2/train.sh ddp
+```
+
+这里显式关闭 generation route-diverse，复用旧 seed 20260810 的 validation sampler；
+因此这轮唯一实验变量是 UE3 训练采样。不要直接启动三 seed，也不要打开 unseen-456。
 
 ### 下游自动 A/B（独立可选实验，非当前 Phase2 排障路径）
 
