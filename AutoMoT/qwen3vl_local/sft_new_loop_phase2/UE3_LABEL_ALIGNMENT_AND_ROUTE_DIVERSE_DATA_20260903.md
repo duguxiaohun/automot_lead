@@ -3,9 +3,11 @@
 ## 结论
 
 当前不修改 production prompt v3，也不按单一 metadata 阈值批量重标 UE3。
-本轮只修正 Phase2 的训练期 UE3 曝光：持续按 `(scenario, route_id)` 轮转，且单帧
-每个 epoch 最多重复 10 次；val/test 继续使用旧 deterministic sampler，保证 frozen
-case 身份可比。该修正只作用于 UE3，不把本次 RGB 结论外推到其它 EVENT 类别。
+强 route-balance v1 pilot 已证伪：它丢掉约 120 个原始 UE3 帧并放大稀疏 route，导致
+UE3 recall 从 0.40625 降至 0.3125。当前 sampler v2 改为先完整保留全部原始帧一次，
+只有额外曝光才按 `(scenario, route_id)` 轮转，且单帧每个 epoch 最多重复 10 次；
+val/test 继续使用旧 deterministic sampler，保证 frozen case 身份可比。该修正只作用于
+UE3，不把本次 RGB 结论外推到其它 EVENT 类别。
 
 该结论来自 `checkpoints/ue3_route_diverse_full_rgb_audit/` 的 32 个 UE3 正例四帧
 RGB，而不是由 scenario 名推断。复核分类为：
@@ -43,6 +45,22 @@ f75-f76、f80-f86 才暴露真实模型漏判。DynamicObjectCrossing/Town02 的
 
 所以当前证据只支持降低连续 span 的训练权重，不支持自动改 prompt 或 collector 阈值。
 
+## 强 route-balance v1 pilot 的逐帧反证
+
+seed 20260810、2RGB、v3 prompt、旧 frozen validation 都保持不变，只切换训练采样。
+step 4000 overall exact 从 0.8021 降至 0.7813，UE3 recall 从 0.40625 降至 0.3125；
+UE6 保持 1.0，INVALID/RE 虽改善，但没有通过 UE3 production guard。
+
+把新旧 UE3 输出联接到上述 32-case RGB decisions 后：12 个 `VISIBLE_ACTIVE` 中旧模型
+答 YES 11 个，v1 只答 7 个；20 个非 active/不可判 case 中旧模型误答 YES 2 个，v1
+误答 YES 3 个。具体退化集中于 StaticCutIn f81/f83/f85/f86 四个清晰 active 帧，且
+f77/f87 两个 post-event 反而转成 YES。因此 v1 不仅官方标签指标下降，RGB 对齐指标也
+从 29/32 降至 24/32，不能继续训练其它 seed，更不能据此修改 prompt。
+
+`train_balance.json` 解释了原因：v1 在 2048 次 UE3 曝光中只覆盖 961/1083 个唯一帧，
+第二个 epoch 也只有 963/1083；两条稀疏 route 的单帧被重复到 10 次。它虽然把最大
+route 曝光压到 12，却破坏了逐帧时序覆盖。
+
 ## 代码修正
 
 - `sampling.py` 的 route sampler 现在同时支持训练期对象和 dataset dict row。
@@ -50,10 +68,14 @@ f75-f76、f80-f86 才暴露真实模型漏判。DynamicObjectCrossing/Town02 的
 - 复核发现旧 `route_diverse_sample` 在 `FOCUS_BALANCE_COUNT=2048` 大于 UE3 原始
   1083 帧时，会先取完 1083 帧再循环整份结果；这仍会按原始 span 长度重复，不能视为
   真正的训练 route balance。
-- `sampling.py` 新增训练专用 `route_balanced_sample`：原始桶耗尽后仍按 route 轮转，
-  route 内先遍历不同帧再重复；单帧重复超过 10 次或总容量不足会直接失败。
+- `sampling.py` 的训练专用 sampler 升级为
+  `coverage_first_route_balanced_extras_v2`：先完整保留全部原始帧一次，只有超出原始桶的
+  曝光才按 route 轮转；route 内再轮转不同帧。单帧重复超过 10 次或总容量不足会失败。
 - `train.py` 只对 UE3 默认启用上述 sampler；其它 UE/RE 保留原 route-diverse 逻辑，
-  INVALID 保留联合签名分层逻辑。模型加载前硬校验 UE3 route 覆盖和单帧重复上限。
+  INVALID 保留联合签名分层逻辑。模型加载前硬校验 UE3 route 覆盖、全部原始帧覆盖和
+  单帧重复上限；run manifest/adapter config/epoch balance 记录 sampler version。
+- pilot 可设置 `SAVE_BEST_VAL=0 SAVE_STEPS=0 SAVE_FINAL=0`，只保留 generation 选中的
+  `best_generation/` 或 `fallback_generation/` 一份权重，避免同一步权重重复占用约 500MB。
 - manifest 新增 raw/sample 后的逐 class route 分布，包括 route 数和
   `max_cases_per_route`，后续不再只看帧数均衡。
 - `audit_ue3_label_alignment.py` 输出源规则、metric、U-E3 span、RGB 类别和可选旧 index
@@ -105,13 +127,15 @@ bash qwen3vl_local/sft_new_loop_phase2/run_ue3_train_route_balance_smoke.sh
 
 输出 `checkpoints/ue3_train_route_balance_smoke/{summary.json,summary.md}`，并比较相同
 1083 条 UE3 原始帧在目标 2048 下的两种重复方式。必须同时满足：v3/2RGB prompt hash
-未变、目标数正确、177 条 raw route 全保留、新 sampler 的最大 route 曝光严格小于旧
-整桶循环、任一帧重复不超过 10。任一 guard 失败都禁止训练。
+未变、目标数正确、177 条 raw route 和 1083 个 raw frame 全保留、965 次额外曝光在
+route 间最多相差 1、新 sampler 的最大 route 曝光严格小于旧整桶循环、任一帧重复不
+超过 10。任一 guard 失败都禁止训练。
 
 使用本次 `label_alignment_summary.json` 保存的真实 train route 计数做 CPU 投影：raw 为
 1083 cases / 177 routes / max 20 cases per route；旧整桶循环到 2048 后最大 route 曝光为
-31；候选 sampler 同为 2048 cases / 177 routes，但最大 route 曝光降到 12，最大单帧重复
-为 10。该投影只验证采样数学；训练机仍必须对完整 `frame_index.jsonl` 运行上述 smoke。
+31；v2 候选同为 2048 cases / 177 routes / 1083 unique frames，最大 route 曝光温和降到
+26，最大单帧重复为 7；额外 965 次曝光为每 route 5 或 6 次。该投影只验证采样数学；
+训练机仍必须对完整 `frame_index.jsonl` 运行上述 smoke。
 
 正式训练入口默认 `TRAIN_ROUTE_DIVERSE=1`、`TRAIN_UE3_ROUTE_BALANCED=1` 和
 `MAX_TRAIN_UE3_FRAME_REPEAT=10`。每个 epoch 的 `balance/epoch_*.json` 会记录实际
@@ -125,8 +149,8 @@ route 分布与 UE3 frame repeat；如需复现实验旧口径才关闭新开关
 GPU_IDS=0,1,2,3 \
 HISTORY_RGB_MODE=2rgb_endpoints \
 INDEX=checkpoints/sft_new_loop_phase2_data/frame_index.jsonl \
-OUTPUT_DIR=checkpoints/sft_new_loop_phase2_ue3_route_balance_pilot/seed_20260810 \
-SEED=20260810 MAX_STEPS=4000 SAVE_STEPS=4000 \
+OUTPUT_DIR=checkpoints/sft_new_loop_phase2_ue3_coverage_first_pilot/seed_20260810 \
+SEED=20260810 MAX_STEPS=4000 SAVE_STEPS=0 SAVE_BEST_VAL=0 SAVE_FINAL=0 \
 FOCUS_BALANCE_COUNT=2048 TRAIN_ROUTE_DIVERSE=1 \
 TRAIN_UE3_ROUTE_BALANCED=1 MAX_TRAIN_UE3_FRAME_REPEAT=10 \
 GENERATION_EVAL_ROUTE_DIVERSE=0 \
@@ -134,7 +158,8 @@ bash qwen3vl_local/sft_new_loop_phase2/train.sh ddp
 ```
 
 `GENERATION_EVAL_ROUTE_DIVERSE=0` 显式复用旧 seed 20260810 的 validation sampler，避免
-同时更换训练和选优 case。先比较 step 2000/4000 的 frozen validation。只有 UE3 recall
+同时更换训练和选优 case；三个 SAVE 开关只消除重复权重，不影响训练或选优。先比较
+step 2000/4000 的 frozen validation。只有 UE3 recall
 高于旧 seed 20260810 的
 `0.40625`，同时 UE6/INVALID/applicable RE 继续通过 `0.80/0.80/0.50` guard，才允许
 复制到另外两个 seed；否则停止这条路线，不改 prompt、不打开 unseen。

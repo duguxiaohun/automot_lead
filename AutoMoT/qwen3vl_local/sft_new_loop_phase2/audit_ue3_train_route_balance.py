@@ -22,10 +22,12 @@ from qwen3vl_local.sft_new_loop_phase2.prompts import (  # noqa: E402
     event_prompt_sha256,
 )
 from qwen3vl_local.sft_new_loop_phase2.sampling import (  # noqa: E402
+    UE3_TRAIN_SAMPLER_VERSION,
     frame_repetition_report,
     route_balanced_sample,
     route_diverse_sample,
     route_diversity_report,
+    route_extra_exposure_report,
 )
 
 
@@ -78,7 +80,9 @@ def build_report(
     raw_routes = route_diversity_report(source)
     legacy_routes = route_diversity_report(legacy)
     balanced_routes = route_diversity_report(balanced)
+    raw_repeats = frame_repetition_report(source)
     balanced_repeats = frame_repetition_report(balanced)
+    extra_route_report = route_extra_exposure_report(source, balanced)
     prompt_hash = event_prompt_sha256(history_rgb_mode=HISTORY_RGB_MODE_END2)
     guards = {
         "production_prompt_v3_frozen": (
@@ -87,6 +91,18 @@ def build_report(
         "sample_count_equal_target": len(balanced) == int(target),
         "all_raw_ue3_routes_preserved": (
             int(balanced_routes["unique_routes"]) == int(raw_routes["unique_routes"])
+        ),
+        "all_raw_ue3_frames_preserved_once_before_extra_sampling": (
+            int(target) < len(source)
+            or int(balanced_repeats["unique_frames"]) == int(raw_repeats["unique_frames"])
+        ),
+        "extra_route_exposure_max_deviation_le_1": (
+            int(target) < len(source)
+            or (
+                bool(extra_route_report["all_nonnegative"])
+                and int(extra_route_report["cases"]) == int(target) - len(source)
+                and int(extra_route_report["max_deviation"]) <= 1
+            )
         ),
         "max_route_exposure_strictly_reduced_vs_legacy": (
             int(balanced_routes["max_cases_per_route"])
@@ -98,7 +114,7 @@ def build_report(
         "index_prompt_labels_and_frozen_splits_not_mutated": True,
     }
     return {
-        "format": "sft_new_loop_phase2_ue3_train_route_balance_audit_v1",
+        "format": "sft_new_loop_phase2_ue3_train_route_balance_audit_v2",
         "official_metric": False,
         "mutation": False,
         "contract": (
@@ -109,6 +125,7 @@ def build_report(
         "seed": int(seed),
         "target": int(target),
         "max_frame_repeat": int(max_frame_repeat),
+        "sampler_version": UE3_TRAIN_SAMPLER_VERSION,
         "prompt": {
             "name": PROMPT_NAME,
             "history_rgb_mode": HISTORY_RGB_MODE_END2,
@@ -116,7 +133,7 @@ def build_report(
         },
         "raw": {
             "route_diversity": raw_routes,
-            "frame_repetition": frame_repetition_report(source),
+            "frame_repetition": raw_repeats,
         },
         "legacy_repeat_whole_bucket": {
             "route_diversity": legacy_routes,
@@ -125,6 +142,7 @@ def build_report(
         "candidate_ue3_route_balanced": {
             "route_diversity": balanced_routes,
             "frame_repetition": balanced_repeats,
+            "extra_route_exposure": extra_route_report,
         },
         "guards": guards,
         "passed": all(guards.values()),
@@ -144,6 +162,7 @@ def _markdown(report: Mapping[str, Any]) -> str:
         f"- passed: `{report['passed']}`",
         f"- prompt: `{report['prompt']['name']}` / `{report['prompt']['sha256']}`",
         f"- target: `{report['target']}`",
+        f"- sampler: `{report['sampler_version']}`",
         f"- max frame repeat cap: `{report['max_frame_repeat']}`",
         "",
         "| sampler | cases | routes | max cases/route | max frame repeat |",
@@ -155,7 +174,7 @@ def _markdown(report: Mapping[str, Any]) -> str:
             f"{report['legacy_repeat_whole_bucket']['frame_repetition']['max_frame_repeat']} |"
         ),
         (
-            "| candidate UE3 route-balanced | "
+            "| candidate coverage-first + balanced extras | "
             f"{candidate['cases']} | {candidate['unique_routes']} | "
             f"{candidate['max_cases_per_route']} | {repeats['max_frame_repeat']} |"
         ),
@@ -209,6 +228,7 @@ def main() -> None:
         "legacy": report["legacy_repeat_whole_bucket"]["route_diversity"],
         "candidate": report["candidate_ue3_route_balanced"]["route_diversity"],
         "candidate_frame_repetition": report["candidate_ue3_route_balanced"]["frame_repetition"],
+        "candidate_extra_route_exposure": report["candidate_ue3_route_balanced"]["extra_route_exposure"],
     }, ensure_ascii=False, indent=2))
     if not report["passed"]:
         raise SystemExit("UE3 train route-balanced smoke failed; do not train")

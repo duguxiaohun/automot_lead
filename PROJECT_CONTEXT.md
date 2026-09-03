@@ -67,9 +67,13 @@ prompt v3 保持不变。`sft_new_loop_phase2` 的数据构建只对 train 桶�
 val/test 保持旧 sampler 以守住 frozen 身份。进一步核对发现，旧训练 sampler 在正式
 `FOCUS_BALANCE_COUNT=2048` 大于 UE3 原始 1083 帧时，会取完全部帧后循环整桶，长 span
 仍按原始帧数成比例重复；因此训练现在额外只对 UE3 启用
-`TRAIN_UE3_ROUTE_BALANCED=1`，持续按 route 轮转并用
-`MAX_TRAIN_UE3_FRAME_REPEAT=10` 限制单帧重复。其它类别仍走原 route-diverse/invalid
-分层逻辑，不把 UE3 RGB 结论外推；validation/test 与 production prompt 完全不变。
+`TRAIN_UE3_ROUTE_BALANCED=1`。强均衡 v1 pilot 只覆盖 961/1083 个不同 UE3 帧，使旧 frozen
+validation 的 UE3 recall 从 0.40625 降至 0.3125；逐帧联表也显示 4 个清晰 active 帧退化，
+所以 v1 已停止。当前 `coverage_first_route_balanced_extras_v2` 先保留全部原始帧一次，仅对
+额外曝光按 route 轮转，并用 `MAX_TRAIN_UE3_FRAME_REPEAT=10` 限制单帧重复；真实 route
+计数投影为 2048 cases / 177 routes / 1083 unique frames / max 26 per route / max frame
+repeat 7。其它类别仍走原 route-diverse/invalid 分层逻辑，不把 UE3 RGB 结论外推；
+validation/test 与 production prompt 完全不变。
 训练前运行 `run_ue3_train_route_balance_smoke.sh`，必须看到所有 guard 通过，再做单 seed
 pilot；不得直接重跑三 seed 或打开 unseen。自动联表与旧数据 smoke 分别运行
 `run_ue3_label_alignment_audit.sh`、`run_route_diverse_data_smoke.sh`，详细证据见

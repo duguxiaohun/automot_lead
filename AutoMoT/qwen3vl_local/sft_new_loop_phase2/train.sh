@@ -200,6 +200,11 @@ if [[ "${SAVE_BEST_GENERATION:-1}" == "0" ]]; then
 else
   COMMON_ARGS+=(--save-best-generation)
 fi
+if [[ "${SAVE_FINAL:-1}" == "0" ]]; then
+  COMMON_ARGS+=(--no-save-final)
+else
+  COMMON_ARGS+=(--save-final)
+fi
 
 echo "[run] MODE=${MODE} HISTORY_RGB_MODE=${HISTORY_RGB_MODE} OUTPUT_DIR=${OUTPUT_DIR}"
 echo "[run] RUN_NAME=${RUN_NAME} RUN_TIMESTAMP=${RUN_TIMESTAMP}"

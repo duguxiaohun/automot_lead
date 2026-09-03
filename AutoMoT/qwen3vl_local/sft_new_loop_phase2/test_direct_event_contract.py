@@ -858,8 +858,8 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertEqual(report["unique_routes"], 3)
         self.assertEqual(report["max_cases_per_route"], 1)
 
-    def test_route_balanced_sampler_keeps_rotating_after_raw_bucket_exhaustion(self) -> None:
-        """训练 target 超过原始桶后，长 span 不能再按原始帧数成比例放大。"""
+    def test_route_balanced_sampler_preserves_raw_frames_then_balances_extras(self) -> None:
+        """训练 target 超过原始桶后，先保留全部帧，再均衡额外 route 曝光。"""
 
         items = []
         for route_id, count in (("long", 6), ("short-a", 1), ("short-b", 1)):
@@ -874,13 +874,19 @@ class DirectEventContractTest(unittest.TestCase):
                 )
         selected = sampling.route_balanced_sample(
             items,
-            target=12,
+            target=18,
             rng=random.Random(13),
             max_frame_repeat=10,
         )
+        raw_route_counts = Counter(row["route_id"] for row in items)
         route_counts = Counter(row["route_id"] for row in selected)
-        self.assertEqual(route_counts, {"long": 4, "short-a": 4, "short-b": 4})
-        self.assertEqual(sampling.frame_repetition_report(selected)["max_frame_repeat"], 4)
+        extra_counts = {
+            route_id: route_counts[route_id] - raw_route_counts[route_id]
+            for route_id in raw_route_counts
+        }
+        self.assertEqual(sampling.frame_repetition_report(selected)["unique_frames"], len(items))
+        self.assertLessEqual(max(extra_counts.values()) - min(extra_counts.values()), 1)
+        self.assertLessEqual(sampling.frame_repetition_report(selected)["max_frame_repeat"], 10)
         with self.assertRaisesRegex(ValueError, "capacity is insufficient"):
             sampling.route_balanced_sample(
                 items[:1],
@@ -1036,7 +1042,7 @@ class DirectEventContractTest(unittest.TestCase):
                 )
         work = event_train._balanced_work(
             rows,
-            target_per_bin=12,
+            target_per_bin=18,
             seed=17,
             regular_multiplier=1.0,
             invalid_multiplier=1.0,
@@ -1046,11 +1052,16 @@ class DirectEventContractTest(unittest.TestCase):
             max_ue3_frame_repeat=10,
         )
         ue3 = [item for item in work if event_train._target_class(item.row) == "UE3"]
+        raw_route_counts = Counter(
+            row.route_id for row in rows if event_train._target_class(row) == "UE3"
+        )
         route_counts = Counter(item.row.route_id for item in ue3)
-        self.assertEqual(route_counts["ue3-long"], 4)
-        self.assertEqual(route_counts["ue3-short-a"], 4)
-        self.assertEqual(route_counts["ue3-short-b"], 4)
-        self.assertEqual(sampling.frame_repetition_report(ue3)["max_frame_repeat"], 4)
+        extra_counts = {
+            route_id: route_counts[route_id] - raw_route_counts[route_id]
+            for route_id in raw_route_counts
+        }
+        self.assertEqual(sampling.frame_repetition_report(ue3)["unique_frames"], 8)
+        self.assertLessEqual(max(extra_counts.values()) - min(extra_counts.values()), 1)
 
     def test_train_launcher_enables_route_diversity_by_default(self) -> None:
         """正式 launcher 默认启用通用 route-diverse 与 UE3 专用 route-balanced。"""
@@ -1061,6 +1072,8 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertIn('TRAIN_UE3_ROUTE_BALANCED:-1', train_sh)
         self.assertIn('COMMON_ARGS+=(--train-ue3-route-balanced)', train_sh)
         self.assertIn('MAX_TRAIN_UE3_FRAME_REPEAT:-10', train_sh)
+        self.assertIn('SAVE_FINAL:-1', train_sh)
+        self.assertIn('COMMON_ARGS+=(--no-save-final)', train_sh)
 
     def test_ue3_train_sampling_audit_is_prompt_frozen_and_non_mutating(self) -> None:
         """CPU sampling audit 必须绑定 v3/2RGB，且输出明确禁止修改数据。"""
@@ -1084,7 +1097,7 @@ class DirectEventContractTest(unittest.TestCase):
             index.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
             report = ue3_train_balance.build_report(
                 index,
-                target=12,
+                target=18,
                 seed=19,
                 max_frame_repeat=10,
             )
@@ -1092,6 +1105,10 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertFalse(report["mutation"])
         self.assertEqual(report["prompt"]["name"], PROMPT_NAME)
         self.assertTrue(report["guards"]["production_prompt_v3_frozen"])
+        self.assertTrue(
+            report["guards"]["all_raw_ue3_frames_preserved_once_before_extra_sampling"]
+        )
+        self.assertTrue(report["guards"]["extra_route_exposure_max_deviation_le_1"])
         self.assertLess(
             report["candidate_ue3_route_balanced"]["route_diversity"]["max_cases_per_route"],
             report["legacy_repeat_whole_bucket"]["route_diversity"]["max_cases_per_route"],
