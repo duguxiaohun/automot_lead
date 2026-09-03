@@ -58,6 +58,17 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 | `0026.json` | LEAD meta 固定参考样本，只读，绝对不要入库 |
 | `keyframes_all_scenarios.json` | 仓库根目录或 `AutoMoT/lead_data` 下的远端数据参考，只读；`AutoMoT/keyframe_filter/` 下的旧副本已清理，不再恢复 |
 
+2026-09-03 Phase2 UE3 RGB 对齐补充：对 route-diverse validation 的 32 个 UE3 正例逐帧
+查看四帧 RGB 后，只有 12 例 `VISIBLE_ACTIVE`，其余为 PRE/POST/DOMAIN/2RGB/AMBIGUOUS；
+清晰正例又只覆盖 2 条 route。源标注联表显示 32 帧全部由
+`event_dynamic_cutin_or_occupancy` 产生，但该规则同时覆盖清晰正例与上述非清晰类别，
+距离、brake/hazard 等字段也存在重叠，因此当前不能按规则名或单一阈值自动重标，production
+prompt v3 保持不变。`sft_new_loop_phase2` 的数据构建只对 train 桶启用 route-round-robin，
+val/test 保持旧 sampler 以守住 frozen 身份；正式训练每个 epoch 的 UE/RE work 也默认
+`TRAIN_ROUTE_DIVERSE=1`。自动联表与数据 smoke 分别运行
+`run_ue3_label_alignment_audit.sh`、`run_route_diverse_data_smoke.sh`，详细证据见
+`UE3_LABEL_ALIGNMENT_AND_ROUTE_DIVERSE_DATA_20260903.md`。
+
 SFT v4 scene canonicalization rule: `EnterActorFlowV2 -> EnterActorFlow` and
 `MergerIntoSlowTrafficV2 -> MergerIntoSlowTraffic`. These raw CARLA scenario
 variants keep their original `scenario/raw_gt_scene` metadata, but student

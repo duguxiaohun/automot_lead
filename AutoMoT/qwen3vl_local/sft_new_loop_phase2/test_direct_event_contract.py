@@ -23,8 +23,10 @@ from qwen3vl_local.leadmot.config import (
 )
 from qwen3vl_local.sft_new_loop_phase2 import build_dataset as dataset
 from qwen3vl_local.sft_new_loop_phase2 import build_ue3_validation_rgb_audit as ue3_rgb_audit
+from qwen3vl_local.sft_new_loop_phase2 import audit_ue3_label_alignment as ue3_alignment
 from qwen3vl_local.sft_new_loop_phase2 import check_acceptance
 from qwen3vl_local.sft_new_loop_phase2 import compare_leadmot_qwen_ab
+from qwen3vl_local.sft_new_loop_phase2 import compare_dataset_route_diversity
 from qwen3vl_local.sft_new_loop_phase2 import audit_eval_cases as event_audit
 from qwen3vl_local.sft_new_loop_phase2 import eval as event_eval
 from qwen3vl_local.sft_new_loop_phase2 import select_seed_checkpoint
@@ -836,6 +838,122 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertEqual(selected, sampling.route_diverse_sample(items, target=5, rng=random.Random(7)))
         self.assertEqual(sampling.route_diversity_report(selected)["unique_routes"], 3)
 
+    def test_route_diverse_sampler_supports_dataset_dict_rows(self) -> None:
+        """dataset 构建阶段的 dict row 也必须先覆盖不同 route。"""
+
+        items = [
+            {"scenario": "StaticCutIn", "route_id": "long", "frame_id": frame_id}
+            for frame_id in range(8)
+        ]
+        items.extend(
+            [
+                {"scenario": "StaticCutIn", "route_id": "short-a", "frame_id": 1},
+                {"scenario": "DynamicObjectCrossing", "route_id": "short-b", "frame_id": 1},
+            ]
+        )
+        selected = dataset._sample_bucket(items, target=3, rng=random.Random(9))
+        self.assertEqual(len({(row["scenario"], row["route_id"]) for row in selected}), 3)
+        report = sampling.route_diversity_report(selected)
+        self.assertEqual(report["unique_routes"], 3)
+        self.assertEqual(report["max_cases_per_route"], 1)
+
+    def test_dataset_val_test_sampler_keeps_legacy_frame_shuffle(self) -> None:
+        """关闭 route-diverse 时必须保持旧 val/test shuffle+truncate 身份。"""
+
+        items = [
+            {"scenario": "StaticCutIn", "route_id": f"route-{index // 3}", "frame_id": index}
+            for index in range(9)
+        ]
+        expected = list(items)
+        random.Random(17).shuffle(expected)
+        selected = dataset._sample_bucket(
+            items,
+            target=5,
+            rng=random.Random(17),
+            route_diverse=False,
+        )
+        self.assertEqual(selected, expected[:5])
+
+    def test_ue3_alignment_rejects_rule_only_relabel_when_rgb_classes_conflict(self) -> None:
+        """同一规则覆盖 VISIBLE/PRE/POST 时，不能自动据规则名重标。"""
+
+        cases = [
+            {"visual_class": visual_class, "source_rules_fired": ["event_dynamic_cutin_or_occupancy"]}
+            for visual_class in ("VISIBLE_ACTIVE", "PRE_EVENT", "POST_EVENT")
+        ]
+        report = ue3_alignment._rules_report(cases)
+        item = report["by_rule_signature"]["event_dynamic_cutin_or_occupancy"]
+        self.assertTrue(item["conflicts_visible_vs_nonvisible"])
+        self.assertEqual(item["cases"], 3)
+
+    def test_ue3_alignment_builds_contiguous_source_spans(self) -> None:
+        """源 U-E3 连续滑窗必须按 frame id 分成可审计 span。"""
+
+        annotations = [
+            {"frame_id": frame_id, "primary_event": event}
+            for frame_id, event in (
+                (7, "U-E3"),
+                (8, "U-E3"),
+                (9, "R-E1"),
+                (12, "U-E3"),
+            )
+        ]
+        self.assertEqual(ue3_alignment._ue3_spans(annotations), [(7, 8, 2), (12, 12, 1)])
+
+    def test_dataset_route_comparison_preserves_frozen_and_improves_train(self) -> None:
+        """数据 smoke 必须同时守住 frozen 身份和 train route 集中度。"""
+
+        old_rows = []
+        new_rows = []
+        for split in ("val", "test"):
+            for index, target_class in enumerate(("UE1", "UE3", "UE5", "UE6", "RE", "INVALID")):
+                row = {
+                    "scenario": "Smoke",
+                    "route_id": f"{split}-{target_class}",
+                    "frame_id": index,
+                    "split": split,
+                    "question_domain": ROAD_DOMAIN,
+                    "target_event_class": target_class,
+                    "invalid_event_context": target_class == "INVALID",
+                    "invalid_source": "source=RE" if target_class == "INVALID" else "",
+                }
+                old_rows.append(row)
+                new_rows.append(dict(row))
+        for target_class in ("UE1", "UE3", "UE5", "UE6", "RE", "INVALID"):
+            for frame_id in range(2):
+                old_rows.append(
+                    {
+                        "scenario": "Smoke",
+                        "route_id": f"old-{target_class}",
+                        "frame_id": frame_id,
+                        "split": "train",
+                        "question_domain": ROAD_DOMAIN,
+                        "target_event_class": target_class,
+                        "invalid_event_context": target_class == "INVALID",
+                        "invalid_source": "source=RE" if target_class == "INVALID" else "",
+                    }
+                )
+                new_rows.append(
+                    {
+                        **old_rows[-1],
+                        "route_id": (
+                            f"new-{target_class}-{frame_id}"
+                            if target_class != "INVALID"
+                            else f"old-{target_class}"
+                        ),
+                    }
+                )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            old_path = root / "old.jsonl"
+            new_path = root / "new.jsonl"
+            old_path.write_text("".join(json.dumps(row) + "\n" for row in old_rows), encoding="utf-8")
+            new_path.write_text("".join(json.dumps(row) + "\n" for row in new_rows), encoding="utf-8")
+            report = compare_dataset_route_diversity.compare_indices(old_path, new_path)
+        self.assertTrue(report["passed"])
+        self.assertTrue(report["frozen_splits"]["val"]["identity_multiset_equal"])
+        self.assertEqual(report["train_classes"]["UE3"]["new"]["unique_routes"], 2)
+
     def test_generation_eval_route_diversity_is_opt_in_to_shared_balancer(self) -> None:
         """generation validation 开关启用后，同类先覆盖 route；普通训练采样接口仍兼容。"""
 
@@ -866,6 +984,13 @@ class DirectEventContractTest(unittest.TestCase):
             item.row.route_id for item in work if event_train._target_class(item.row) == "UE3"
         }
         self.assertEqual(ue3_routes, {"ue3-long", "ue3-b", "ue3-c"})
+
+    def test_train_launcher_enables_route_diversity_by_default(self) -> None:
+        """正式 train launcher 必须默认启用 route-diverse epoch sampler。"""
+
+        train_sh = (pathlib.Path(__file__).with_name("train.sh")).read_text(encoding="utf-8")
+        self.assertIn('TRAIN_ROUTE_DIVERSE:-1', train_sh)
+        self.assertIn('COMMON_ARGS+=(--train-route-diverse)', train_sh)
 
     def test_balancers_reject_missing_class_and_zero_uses_smallest_bucket(self) -> None:
         """截断索引缺桶必须失败；train target=0 必须真的按最小桶均衡。"""

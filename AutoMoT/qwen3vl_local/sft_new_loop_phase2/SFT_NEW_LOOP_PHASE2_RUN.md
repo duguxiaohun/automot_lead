@@ -113,7 +113,30 @@ python qwen3vl_local/sft_new_loop_phase2/rescore_ue3_rgb_decisions.py \
 模型责任与 PRE/POST/DOMAIN/2RGB/AMBIGUOUS 标签责任；不修改 frame index、不参与
 checkpoint 选优、不能触发 unseen。完整结论见 `V3_ROUTE_DIVERSE_FULL_UE3_RGB_AUDIT_20260902.md`。
 
-### 下游自动 A/B（当前收口实验）
+继续训练前先运行 RGB decision × source rule × index route 分布的自动联表审计：
+
+```bash
+bash qwen3vl_local/sft_new_loop_phase2/run_ue3_label_alignment_audit.sh
+```
+
+该命令不加载模型、不改标签、不触碰 unseen。当前联表表明 32 帧都来自同一条
+`event_dynamic_cutin_or_occupancy`，但该规则同时覆盖 VISIBLE_ACTIVE 与
+PRE/POST/DOMAIN/2RGB/AMBIGUOUS，因此不能凭规则名或单一距离阈值自动重标。
+数据构建现只对 train 启用 route-round-robin 抽样，减少单条连续 span 的过度权重；
+val/test 保留旧 sampler 以维持 frozen 身份。详见
+`UE3_LABEL_ALIGNMENT_AND_ROUTE_DIVERSE_DATA_20260903.md`。
+训练入口也默认 `TRAIN_ROUTE_DIVERSE=1`，每个 epoch 重新按 route 轮转 UE/RE work；
+`balance/epoch_*.json` 保存实际 route 分布。只有复现旧训练口径时才设为 0。
+
+完成联表后，用一条 CPU-only 命令重建到新目录并自动比较新旧 index；它不会训练：
+
+```bash
+bash qwen3vl_local/sft_new_loop_phase2/run_route_diverse_data_smoke.sh
+```
+
+只有脚本最后输出 `passed: true` 才考虑后续单 seed 小训练；不要直接启动三 seed。
+
+### 下游自动 A/B（独立可选实验，非当前 Phase2 排障路径）
 
 完整逐帧 RGB 审计不支持继续修改 v3 prompt；三个 seed 也都未通过 UE3 guard，因此
 不再重训本 Phase2，且不打开 unseen-456。只保留 seed 20260810 作为研究候选，测试它的

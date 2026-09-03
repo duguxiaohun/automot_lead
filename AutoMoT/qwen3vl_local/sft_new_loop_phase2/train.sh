@@ -174,6 +174,11 @@ COMMON_ARGS=(
   --seed "${SEED:-20260810}"
   "${EXTRA_ARGS[@]}"
 )
+if [[ "${TRAIN_ROUTE_DIVERSE:-1}" == "0" ]]; then
+  COMMON_ARGS+=(--no-train-route-diverse)
+else
+  COMMON_ARGS+=(--train-route-diverse)
+fi
 if [[ "${GENERATION_EVAL_ROUTE_DIVERSE:-1}" == "0" ]]; then
   COMMON_ARGS+=(--no-generation-eval-route-diverse)
 else

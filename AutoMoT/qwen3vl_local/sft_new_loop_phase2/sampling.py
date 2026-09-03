@@ -9,16 +9,18 @@ from __future__ import annotations
 
 import random
 from collections import Counter, defaultdict
-from typing import Any, Dict, List, Sequence, Tuple, TypeVar
+from typing import Any, Dict, List, Mapping, Sequence, Tuple, TypeVar
 
 
 T = TypeVar("T")
 
 
 def _route_key(item: Any) -> Tuple[str, str]:
-    """从 WorkItem 或 FrameRow 读取稳定 route 身份。"""
+    """从 dict、WorkItem 或 FrameRow 读取稳定 route 身份。"""
 
     row = getattr(item, "row", item)
+    if isinstance(row, Mapping):
+        return str(row.get("scenario", "")), str(row.get("route_id", ""))
     return str(row.scenario), str(row.route_id)
 
 
@@ -84,7 +86,7 @@ def route_diversity_report(items: Sequence[Any]) -> Dict[str, Any]:
     report = _route_counts_report(items)
     grouped: Dict[str, List[Any]] = defaultdict(list)
     for item in items:
-        key = getattr(item, "balance_key", "")
+        key = str(item.get("balance_key", "")) if isinstance(item, Mapping) else getattr(item, "balance_key", "")
         if key:
             grouped[str(key)].append(item)
     report["by_balance_key"] = {

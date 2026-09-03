@@ -241,6 +241,7 @@ def _write_run_metadata(
         "save_steps": int(args.save_steps),
         "total_steps_global": int(total_steps),
         "focus_balance_count": int(args.focus_balance_count),
+        "train_route_diverse": bool(args.train_route_diverse),
         "regular_focus_multiplier": float(args.regular_focus_multiplier),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "highway_regular_fraction": float(args.highway_regular_fraction),
@@ -1371,6 +1372,7 @@ def train(args: argparse.Namespace) -> None:
         print(
             f"[startup] world_size={world_size} device={device} index={args.index} "
             f"split={args.split} focus_balance_count={args.focus_balance_count} "
+            f"train_route_diverse={bool(args.train_route_diverse)} "
             f"regular_focus_multiplier={args.regular_focus_multiplier} "
             f"invalid_focus_multiplier={args.invalid_focus_multiplier} "
             f"eval_steps={args.eval_steps} generation_eval_steps={args.generation_eval_steps}",
@@ -1402,6 +1404,7 @@ def train(args: argparse.Namespace) -> None:
         regular_multiplier=float(args.regular_focus_multiplier),
         invalid_multiplier=float(args.invalid_focus_multiplier),
         highway_regular_fraction=float(args.highway_regular_fraction),
+        route_diverse=bool(args.train_route_diverse),
     )
     if not full_work:
         raise ValueError("balanced work list is empty")
@@ -1475,6 +1478,7 @@ def train(args: argparse.Namespace) -> None:
                         "regular_focus_multiplier": float(args.regular_focus_multiplier),
                         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
                         "highway_regular_fraction": float(args.highway_regular_fraction),
+                        "route_diverse": bool(args.train_route_diverse),
                         "effective_focus_target_per_class": int(effective_focus_target_per_class),
                         "resample_each_epoch": True,
                         "epoch_seed_formula": "seed + epoch * 1000003",
@@ -1482,6 +1486,7 @@ def train(args: argparse.Namespace) -> None:
                         "steps_per_epoch_global": int(math.ceil(len(full_work) / max(1, int(world_size)))),
                         "raw_available": raw_focus_counts,
                         "global_sampled": dict(Counter(item.balance_key for item in full_work)),
+                        "route_diversity": route_diversity_report(full_work),
                         "rank0_shard": dict(Counter(item.balance_key for item in work)),
                         "raw_invalid_subgroups": invalid_subgroup_report(rows),
                         "global_invalid_subgroups": invalid_subgroup_report(full_work),
@@ -1581,6 +1586,7 @@ def train(args: argparse.Namespace) -> None:
         print(
             f"[data] train_rows={len(rows)} train_work_global={len(full_work)} train_work_rank={len(work)} "
             f"effective_focus_target_per_class={effective_focus_target_per_class} resample_each_epoch=True "
+            f"train_route_diverse={bool(args.train_route_diverse)} "
             f"regular_focus_multiplier={float(args.regular_focus_multiplier):.3f} "
             f"invalid_focus_multiplier={float(args.invalid_focus_multiplier):.3f} "
             f"steps_per_epoch_global={steps_per_epoch} num_epochs={int(args.num_epochs)} max_steps={int(args.max_steps)} "
@@ -1599,6 +1605,7 @@ def train(args: argparse.Namespace) -> None:
                 regular_multiplier=float(args.regular_focus_multiplier),
                 invalid_multiplier=float(args.invalid_focus_multiplier),
                 highway_regular_fraction=float(args.highway_regular_fraction),
+                route_diverse=bool(args.train_route_diverse),
             )
             work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
         order_rng = random.Random(int(args.seed) + epoch * 1_000_003)
@@ -1614,6 +1621,8 @@ def train(args: argparse.Namespace) -> None:
                         "epoch": int(epoch + 1),
                         "seed": int(args.seed) + epoch * 1_000_003,
                         "class_counts": dict(Counter(_target_class(item.row) for item in full_work)),
+                        "route_diverse": bool(args.train_route_diverse),
+                        "route_diversity": route_diversity_report(full_work),
                         "invalid_subgroups": epoch_invalid_report,
                     },
                     ensure_ascii=False,
@@ -1997,6 +2006,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="per EVENT class; 0 uses only the smallest UE1/UE3/UE5/UE6/RE/INVALID class, positive values set a fixed target and repeat scarce bins when needed",
+    )
+    p.add_argument(
+        "--train-route-diverse",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="within each non-invalid train class, rotate routes before taking another frame from the same route",
     )
     p.add_argument(
         "--regular-focus-multiplier",
