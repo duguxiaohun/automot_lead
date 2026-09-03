@@ -83,6 +83,8 @@ from qwen3vl_local.sft_new_loop_phase2.prompts import (  # noqa: E402
     spec_metric_items,
 )
 from qwen3vl_local.sft_new_loop_phase2.sampling import (  # noqa: E402
+    frame_repetition_report,
+    route_balanced_sample,
     route_diverse_sample,
     route_diversity_report,
 )
@@ -242,6 +244,8 @@ def _write_run_metadata(
         "total_steps_global": int(total_steps),
         "focus_balance_count": int(args.focus_balance_count),
         "train_route_diverse": bool(args.train_route_diverse),
+        "train_ue3_route_balanced": bool(args.train_ue3_route_balanced),
+        "max_train_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
         "regular_focus_multiplier": float(args.regular_focus_multiplier),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "highway_regular_fraction": float(args.highway_regular_fraction),
@@ -468,6 +472,8 @@ def _balanced_work(
     invalid_multiplier: float = 1.0,
     highway_regular_fraction: float = 0.25,
     route_diverse: bool = False,
+    ue3_route_balanced: bool = False,
+    max_ue3_frame_repeat: int = 10,
 ) -> List[WorkItem]:
     """按直接 EVENT class 构建 deterministic work list。
 
@@ -531,6 +537,15 @@ def _balanced_work(
                     work.extend(bucket[i % len(bucket)] for i in range(count))
         elif key.endswith("/class/INVALID"):
             work.extend(balanced_invalid_items(items, target=target, rng=rng))
+        elif key.endswith("/class/UE3") and ue3_route_balanced:
+            work.extend(
+                route_balanced_sample(
+                    items,
+                    target=target,
+                    rng=rng,
+                    max_frame_repeat=int(max_ue3_frame_repeat),
+                )
+            )
         elif route_diverse:
             work.extend(route_diverse_sample(items, target=target, rng=rng))
         elif len(items) >= target:
@@ -1334,6 +1349,9 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "max_steps": int(args.max_steps),
         "seed": int(args.seed),
         "focus_balance_count": int(args.focus_balance_count),
+        "train_route_diverse": bool(args.train_route_diverse),
+        "train_ue3_route_balanced": bool(args.train_ue3_route_balanced),
+        "max_train_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
         "regular_focus_multiplier": float(args.regular_focus_multiplier),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "highway_regular_fraction": float(args.highway_regular_fraction),
@@ -1373,6 +1391,8 @@ def train(args: argparse.Namespace) -> None:
             f"[startup] world_size={world_size} device={device} index={args.index} "
             f"split={args.split} focus_balance_count={args.focus_balance_count} "
             f"train_route_diverse={bool(args.train_route_diverse)} "
+            f"train_ue3_route_balanced={bool(args.train_ue3_route_balanced)} "
+            f"max_train_ue3_frame_repeat={int(args.max_train_ue3_frame_repeat)} "
             f"regular_focus_multiplier={args.regular_focus_multiplier} "
             f"invalid_focus_multiplier={args.invalid_focus_multiplier} "
             f"eval_steps={args.eval_steps} generation_eval_steps={args.generation_eval_steps}",
@@ -1405,9 +1425,34 @@ def train(args: argparse.Namespace) -> None:
         invalid_multiplier=float(args.invalid_focus_multiplier),
         highway_regular_fraction=float(args.highway_regular_fraction),
         route_diverse=bool(args.train_route_diverse),
+        ue3_route_balanced=bool(args.train_ue3_route_balanced),
+        max_ue3_frame_repeat=int(args.max_train_ue3_frame_repeat),
     )
     if not full_work:
         raise ValueError("balanced work list is empty")
+    sampled_ue3 = [item for item in full_work if _target_class(item.row) == "UE3"]
+    ue3_repeat_report = frame_repetition_report(sampled_ue3)
+    if bool(args.train_ue3_route_balanced):
+        raw_ue3_routes = {
+            (row.scenario, row.route_id) for row in rows if _target_class(row) == "UE3"
+        }
+        sampled_ue3_routes = {
+            (item.row.scenario, item.row.route_id) for item in sampled_ue3
+        }
+        expected_route_count = min(len(raw_ue3_routes), len(sampled_ue3))
+        route_coverage_ok = len(sampled_ue3_routes) == expected_route_count
+        frame_repeat_ok = (
+            int(ue3_repeat_report["max_frame_repeat"])
+            <= int(args.max_train_ue3_frame_repeat)
+        )
+        if not route_coverage_ok or not frame_repeat_ok:
+            raise ValueError(
+                "UE3 route-balanced training guard failed before model load: "
+                f"route_coverage_ok={route_coverage_ok} "
+                f"raw_routes={len(raw_ue3_routes)} expected_routes={expected_route_count} "
+                f"sampled_routes={len(sampled_ue3_routes)} "
+                f"frame_repeat={ue3_repeat_report}"
+            )
     # 训练用同一个全局 work 序列按 global step 对齐取样；rank0 仍保存第一轮
     # rank shard 供审计，每个后续 epoch 重新采样富余桶。
     work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
@@ -1479,6 +1524,9 @@ def train(args: argparse.Namespace) -> None:
                         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
                         "highway_regular_fraction": float(args.highway_regular_fraction),
                         "route_diverse": bool(args.train_route_diverse),
+                        "ue3_route_balanced": bool(args.train_ue3_route_balanced),
+                        "max_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
+                        "ue3_frame_repetition": ue3_repeat_report,
                         "effective_focus_target_per_class": int(effective_focus_target_per_class),
                         "resample_each_epoch": True,
                         "epoch_seed_formula": "seed + epoch * 1000003",
@@ -1587,6 +1635,8 @@ def train(args: argparse.Namespace) -> None:
             f"[data] train_rows={len(rows)} train_work_global={len(full_work)} train_work_rank={len(work)} "
             f"effective_focus_target_per_class={effective_focus_target_per_class} resample_each_epoch=True "
             f"train_route_diverse={bool(args.train_route_diverse)} "
+            f"train_ue3_route_balanced={bool(args.train_ue3_route_balanced)} "
+            f"max_train_ue3_frame_repeat={int(args.max_train_ue3_frame_repeat)} "
             f"regular_focus_multiplier={float(args.regular_focus_multiplier):.3f} "
             f"invalid_focus_multiplier={float(args.invalid_focus_multiplier):.3f} "
             f"steps_per_epoch_global={steps_per_epoch} num_epochs={int(args.num_epochs)} max_steps={int(args.max_steps)} "
@@ -1606,6 +1656,8 @@ def train(args: argparse.Namespace) -> None:
                 invalid_multiplier=float(args.invalid_focus_multiplier),
                 highway_regular_fraction=float(args.highway_regular_fraction),
                 route_diverse=bool(args.train_route_diverse),
+                ue3_route_balanced=bool(args.train_ue3_route_balanced),
+                max_ue3_frame_repeat=int(args.max_train_ue3_frame_repeat),
             )
             work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
         order_rng = random.Random(int(args.seed) + epoch * 1_000_003)
@@ -1622,6 +1674,11 @@ def train(args: argparse.Namespace) -> None:
                         "seed": int(args.seed) + epoch * 1_000_003,
                         "class_counts": dict(Counter(_target_class(item.row) for item in full_work)),
                         "route_diverse": bool(args.train_route_diverse),
+                        "ue3_route_balanced": bool(args.train_ue3_route_balanced),
+                        "max_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
+                        "ue3_frame_repetition": frame_repetition_report(
+                            [item for item in full_work if _target_class(item.row) == "UE3"]
+                        ),
                         "route_diversity": route_diversity_report(full_work),
                         "invalid_subgroups": epoch_invalid_report,
                     },
@@ -2012,6 +2069,18 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="within each non-invalid train class, rotate routes before taking another frame from the same route",
+    )
+    p.add_argument(
+        "--train-ue3-route-balanced",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="training only: keep rotating UE3 routes even after the raw bucket is exhausted",
+    )
+    p.add_argument(
+        "--max-train-ue3-frame-repeat",
+        type=int,
+        default=10,
+        help="hard cap for one UE3 frame within an epoch's sampled work",
     )
     p.add_argument(
         "--regular-focus-multiplier",

@@ -24,6 +24,7 @@ from qwen3vl_local.leadmot.config import (
 from qwen3vl_local.sft_new_loop_phase2 import build_dataset as dataset
 from qwen3vl_local.sft_new_loop_phase2 import build_ue3_validation_rgb_audit as ue3_rgb_audit
 from qwen3vl_local.sft_new_loop_phase2 import audit_ue3_label_alignment as ue3_alignment
+from qwen3vl_local.sft_new_loop_phase2 import audit_ue3_train_route_balance as ue3_train_balance
 from qwen3vl_local.sft_new_loop_phase2 import check_acceptance
 from qwen3vl_local.sft_new_loop_phase2 import compare_leadmot_qwen_ab
 from qwen3vl_local.sft_new_loop_phase2 import compare_dataset_route_diversity
@@ -857,6 +858,37 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertEqual(report["unique_routes"], 3)
         self.assertEqual(report["max_cases_per_route"], 1)
 
+    def test_route_balanced_sampler_keeps_rotating_after_raw_bucket_exhaustion(self) -> None:
+        """训练 target 超过原始桶后，长 span 不能再按原始帧数成比例放大。"""
+
+        items = []
+        for route_id, count in (("long", 6), ("short-a", 1), ("short-b", 1)):
+            for frame_id in range(count):
+                items.append(
+                    {
+                        "scenario": "StaticCutIn",
+                        "route_id": route_id,
+                        "frame_id": frame_id,
+                        "question_domain": ROAD_DOMAIN,
+                    }
+                )
+        selected = sampling.route_balanced_sample(
+            items,
+            target=12,
+            rng=random.Random(13),
+            max_frame_repeat=10,
+        )
+        route_counts = Counter(row["route_id"] for row in selected)
+        self.assertEqual(route_counts, {"long": 4, "short-a": 4, "short-b": 4})
+        self.assertEqual(sampling.frame_repetition_report(selected)["max_frame_repeat"], 4)
+        with self.assertRaisesRegex(ValueError, "capacity is insufficient"):
+            sampling.route_balanced_sample(
+                items[:1],
+                target=11,
+                rng=random.Random(13),
+                max_frame_repeat=10,
+            )
+
     def test_dataset_val_test_sampler_keeps_legacy_frame_shuffle(self) -> None:
         """关闭 route-diverse 时必须保持旧 val/test shuffle+truncate 身份。"""
 
@@ -985,12 +1017,85 @@ class DirectEventContractTest(unittest.TestCase):
         }
         self.assertEqual(ue3_routes, {"ue3-long", "ue3-b", "ue3-c"})
 
+    def test_train_ue3_route_balance_does_not_change_other_class_sampler(self) -> None:
+        """严格 route balance 只作用于 UE3，避免把 RGB 结论外推到其它问题。"""
+
+        rows = _balance_rows(event_train)
+        ue3_template = next(row for row in rows if event_train._target_class(row) == "UE3")
+        rows = [row for row in rows if event_train._target_class(row) != "UE3"]
+        for route_id, count in (("ue3-long", 6), ("ue3-short-a", 1), ("ue3-short-b", 1)):
+            for frame_id in range(count):
+                rows.append(
+                    event_train.FrameRow(
+                        **{
+                            **ue3_template.__dict__,
+                            "route_id": route_id,
+                            "frame_id": frame_id,
+                        }
+                    )
+                )
+        work = event_train._balanced_work(
+            rows,
+            target_per_bin=12,
+            seed=17,
+            regular_multiplier=1.0,
+            invalid_multiplier=1.0,
+            highway_regular_fraction=0.0,
+            route_diverse=True,
+            ue3_route_balanced=True,
+            max_ue3_frame_repeat=10,
+        )
+        ue3 = [item for item in work if event_train._target_class(item.row) == "UE3"]
+        route_counts = Counter(item.row.route_id for item in ue3)
+        self.assertEqual(route_counts["ue3-long"], 4)
+        self.assertEqual(route_counts["ue3-short-a"], 4)
+        self.assertEqual(route_counts["ue3-short-b"], 4)
+        self.assertEqual(sampling.frame_repetition_report(ue3)["max_frame_repeat"], 4)
+
     def test_train_launcher_enables_route_diversity_by_default(self) -> None:
-        """正式 train launcher 必须默认启用 route-diverse epoch sampler。"""
+        """正式 launcher 默认启用通用 route-diverse 与 UE3 专用 route-balanced。"""
 
         train_sh = (pathlib.Path(__file__).with_name("train.sh")).read_text(encoding="utf-8")
         self.assertIn('TRAIN_ROUTE_DIVERSE:-1', train_sh)
         self.assertIn('COMMON_ARGS+=(--train-route-diverse)', train_sh)
+        self.assertIn('TRAIN_UE3_ROUTE_BALANCED:-1', train_sh)
+        self.assertIn('COMMON_ARGS+=(--train-ue3-route-balanced)', train_sh)
+        self.assertIn('MAX_TRAIN_UE3_FRAME_REPEAT:-10', train_sh)
+
+    def test_ue3_train_sampling_audit_is_prompt_frozen_and_non_mutating(self) -> None:
+        """CPU sampling audit 必须绑定 v3/2RGB，且输出明确禁止修改数据。"""
+
+        rows = []
+        for route_id, count in (("long", 6), ("short-a", 1), ("short-b", 1)):
+            for frame_id in range(count):
+                rows.append(
+                    {
+                        "scenario": "StaticCutIn",
+                        "route_id": route_id,
+                        "frame_id": frame_id,
+                        "question_domain": ROAD_DOMAIN,
+                        "target_event_class": "UE3",
+                        "invalid_event_context": False,
+                        "split": "train",
+                    }
+                )
+        with tempfile.TemporaryDirectory() as tmp:
+            index = pathlib.Path(tmp) / "index.jsonl"
+            index.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            report = ue3_train_balance.build_report(
+                index,
+                target=12,
+                seed=19,
+                max_frame_repeat=10,
+            )
+        self.assertTrue(report["passed"])
+        self.assertFalse(report["mutation"])
+        self.assertEqual(report["prompt"]["name"], PROMPT_NAME)
+        self.assertTrue(report["guards"]["production_prompt_v3_frozen"])
+        self.assertLess(
+            report["candidate_ue3_route_balanced"]["route_diversity"]["max_cases_per_route"],
+            report["legacy_repeat_whole_bucket"]["route_diversity"]["max_cases_per_route"],
+        )
 
     def test_ue3_alignment_launcher_resolves_frozen_audit_root(self) -> None:
         """联表入口必须兼容正式 frozen experiment 路径，不能只认顶层副本。"""
