@@ -42,6 +42,10 @@ from qwen3vl_local.sft_new_loop_phase2.prompts import (  # noqa: E402
     JUNCTION_DOMAIN,
     ROAD_DOMAIN,
 )
+from qwen3vl_local.sft_new_loop_phase2.sampling import (  # noqa: E402
+    route_diverse_sample,
+    route_diversity_report,
+)
 from qwen3vl_local.sft_new_loop_phase2.visual_audit import (  # noqa: E402
     DEFAULT_COVERAGE_MANIFEST,
     frame_visual_risk,
@@ -400,18 +404,26 @@ def _sample_bucket(
     *,
     target: int,
     rng: random.Random,
+    route_diverse: bool = True,
 ) -> List[Mapping[str, Any]]:
-    """从桶内确定性抽样；稀缺桶按需循环补齐。"""
+    """确定性抽样；train 可按 route 轮转，val/test 保持 frozen 身份。
+
+    EVENT span 会在同一 route 中产生连续滑窗。逐帧 RGB 审计已经确认，普通帧级
+    shuffle+truncate 会让单条长 span（包括 PRE/POST 边界噪声）占据过多权重。
+    这里先覆盖不同 ``(scenario, route_id)``，再取每条 route 的第二帧。
+    """
 
     if target <= 0:
         return []
     if not bucket:
         return []
     items = list(bucket)
+    if route_diverse:
+        return route_diverse_sample(items, target=target, rng=rng)
     rng.shuffle(items)
     if len(items) >= target:
         return items[:target]
-    repeated = [items[i % len(items)] for i in range(target)]
+    repeated = [items[index % len(items)] for index in range(target)]
     rng.shuffle(repeated)
     return repeated
 
@@ -458,7 +470,12 @@ def _balanced_rows_by_split(args: argparse.Namespace, risk_stats: Counter[str]) 
 
         sampled: List[Dict[str, Any]] = []
         for target_class in EVENT_KEYS:
-            for base in _sample_bucket(split_buckets[target_class], target=per_ue, rng=rng):
+            for base in _sample_bucket(
+                split_buckets[target_class],
+                target=per_ue,
+                rng=rng,
+                route_diverse=split == "train",
+            ):
                 sampled.append(
                     _make_row(
                         base=base,
@@ -481,8 +498,18 @@ def _balanced_rows_by_split(args: argparse.Namespace, risk_stats: Counter[str]) 
         if local_target > 0 and not local_regular:
             raise ValueError(f"split={split} lacks non-highway regular negatives")
         sampled_regular = [
-            *_sample_bucket(highway_regular, target=highway_target, rng=rng),
-            *_sample_bucket(local_regular, target=local_target, rng=rng),
+            *_sample_bucket(
+                highway_regular,
+                target=highway_target,
+                rng=rng,
+                route_diverse=split == "train",
+            ),
+            *_sample_bucket(
+                local_regular,
+                target=local_target,
+                rng=rng,
+                route_diverse=split == "train",
+            ),
         ]
         rng.shuffle(sampled_regular)
         for base in sampled_regular:
@@ -509,6 +536,13 @@ def _balanced_rows_by_split(args: argparse.Namespace, risk_stats: Counter[str]) 
         sampled.extend(invalid_rows)
         rng.shuffle(sampled)
         rows.extend(sampled)
+        sampled_by_class: Dict[str, List[Mapping[str, Any]]] = defaultdict(list)
+        for row in sampled:
+            sampled_by_class[str(row["target_event_class"])].append(row)
+        raw_by_class = {
+            key: route_diversity_report(split_buckets.get(key, []))
+            for key in TARGET_CLASSES
+        }
         balance_report[split] = {
             "raw_ue_counts": ue_counts,
             "raw_re_count": len(split_buckets.get("RE", [])),
@@ -519,6 +553,12 @@ def _balanced_rows_by_split(args: argparse.Namespace, risk_stats: Counter[str]) 
             "sampled_counts": dict(Counter(row["target_event_class"] for row in sampled)),
             "sampled_question_domain_counts": dict(Counter(row["question_domain"] for row in sampled)),
             "sampled_true_rs_counts": dict(Counter(row["true_rs"] for row in sampled)),
+            "route_diverse_sampling": split == "train",
+            "raw_route_diversity": raw_by_class,
+            "sampled_route_diversity": {
+                key: route_diversity_report(sampled_by_class.get(key, []))
+                for key in (*TARGET_CLASSES, "INVALID")
+            },
             "regular_hard_negative_counts": {
                 "highway_r3": sum(
                     1 for row in sampled if row["target_event_class"] == "RE" and row["true_rs"] == "R3"
@@ -613,7 +653,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         "event_label_contract": "Targets only UE1/UE3/UE5/UE6. UE2/UE4/UE7/UE8 and all R-E codes are folded into valid RE for this phase.",
         "input_contract": "The model receives one image+text user turn and directly answers UE plus INVALID_EVENT_CONTEXT. No synthetic ROAD_STRUCTURE user turn, assistant answer, RS token, or Phase2 KV prefix is rendered. Internal question_domain only selects ROAD_CORRIDOR versus LOCAL_JUNCTION questions.",
         "invalid_contract": "Invalid rows cross the ROAD_CORRIDOR/LOCAL_JUNCTION question domains, are balanced by source class and true RS, and require all UE=NO plus INVALID_EVENT_CONTEXT=YES. Low visibility, congestion, ordinary queues, and absence of UE remain valid.",
-        "balance_contract": "Within every split, UE1/UE3/UE5/UE6 positives are sampled 1:1:1:1. RE defaults to one UE bucket with an explicit R3/highway fraction. Invalid defaults to 20% of valid main data.",
+        "balance_contract": "Within every split, UE1/UE3/UE5/UE6 positives are sampled 1:1:1:1. Train uses route-round-robin selection before taking additional frames from the same route; val/test retain the legacy deterministic frame sampler so frozen case identities remain comparable. RE defaults to one UE bucket with an explicit R3/highway fraction. Invalid defaults to 20% of valid main data.",
         "target_per_ue": int(args.target_per_ue),
         "regular_multiplier": float(args.regular_multiplier),
         "highway_regular_fraction": float(args.highway_regular_fraction),
