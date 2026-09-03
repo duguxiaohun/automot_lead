@@ -5,8 +5,8 @@
 轮转：先从每条 route 取一帧，再取各 route 的第二帧，以此类推。
 
 ``route_diverse_sample`` 保留旧 validation 口径：不放回取完原始帧后，若目标仍
-不足则循环整个结果。``route_balanced_sample`` 仅供训练使用：每一轮每条 route
-最多贡献一帧，并限制单帧重复次数，避免训练目标大于原始桶时重新放大长 span。
+不足则循环整个结果。``route_balanced_sample`` 仅供训练使用：先完整保留所有原始
+帧一次，只有额外曝光才按 route 轮转，并限制单帧重复次数。
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Mapping, Sequence, Tuple, TypeVar
 
 
 T = TypeVar("T")
+UE3_TRAIN_SAMPLER_VERSION = "coverage_first_route_balanced_extras_v2"
 
 
 def _route_key(item: Any) -> Tuple[str, str]:
@@ -75,12 +76,13 @@ def route_balanced_sample(
     rng: random.Random,
     max_frame_repeat: int = 10,
 ) -> List[T]:
-    """按 route 均衡训练曝光，并限制任一帧的重复次数。
+    """先守住全部原始帧覆盖，再对额外曝光做 route 均衡。
 
     与 ``route_diverse_sample`` 的区别发生在 ``target > len(items)`` 时：这里继续
-    按 route 轮转，而不是循环整份原始结果。route 内先遍历打乱后的不同帧，耗尽后
-    才循环；任一帧最多出现 ``max_frame_repeat`` 次。容量不足时直接失败，禁止静默
-    退化为不受控的重复采样。
+    保留每个原始帧一次，但不会循环整份结果；只把剩余名额按 route 轮转分配。
+    route 内轮转不同帧，任一帧最多出现 ``max_frame_repeat`` 次。这样既不丢掉长
+    route 中逐帧 RGB 已证明有价值的时序变化，也不让额外重复继续偏向长 span。
+    容量不足时直接失败，禁止静默退化为不受控的重复采样。
     """
 
     source = list(items)
@@ -90,12 +92,31 @@ def route_balanced_sample(
         return source
     if repeat_cap <= 0:
         raise ValueError(f"max_frame_repeat must be positive, got {repeat_cap}")
-    capacity = len(source) * repeat_cap
+    unique_frame_count = len({_frame_key(item) for item in source})
+    capacity = unique_frame_count * repeat_cap
     if wanted > capacity:
         raise ValueError(
             "route-balanced sampling capacity is insufficient: "
-            f"target={wanted} source={len(source)} max_frame_repeat={repeat_cap} "
+            f"target={wanted} source={len(source)} unique_frames={unique_frame_count} "
+            f"max_frame_repeat={repeat_cap} "
             f"capacity={capacity}"
+        )
+
+    # target 不超过原始桶时沿用不放回的 route-diverse 截取；正式 UE3 训练目标
+    # 2048 大于原始 1083，因此会进入 coverage-first 分支并完整保留所有帧。
+    selected = route_diverse_sample(
+        source,
+        target=min(wanted, len(source)),
+        rng=rng,
+    )
+    if wanted <= len(selected):
+        return selected
+
+    frame_repeats = Counter(_frame_key(item) for item in selected)
+    if max(frame_repeats.values(), default=0) > repeat_cap:
+        raise ValueError(
+            "raw source already exceeds max_frame_repeat for a duplicated frame identity: "
+            f"max_raw_repeat={max(frame_repeats.values())} cap={repeat_cap}"
         )
 
     buckets: Dict[Tuple[str, str], List[T]] = defaultdict(list)
@@ -106,29 +127,26 @@ def route_balanced_sample(
     for key in route_keys:
         rng.shuffle(buckets[key])
 
-    selected: List[T] = []
     route_offsets = {key: 0 for key in route_keys}
-    frame_repeats = {key: [0] * len(buckets[key]) for key in route_keys}
     round_index = 0
     while len(selected) < wanted:
-        # 每轮旋转起始 route，避免最后一个不完整 round 总偏向同一批 route。
+        # 每轮旋转起始 route，确保额外曝光在 route 间的差值最多为 1。
         start = round_index % len(route_keys)
         ordered_keys = route_keys[start:] + route_keys[:start]
         added = False
         for key in ordered_keys:
             bucket = buckets[key]
-            repeats = frame_repeats[key]
             offset = route_offsets[key]
             chosen_index = None
             for delta in range(len(bucket)):
                 candidate = (offset + delta) % len(bucket)
-                if repeats[candidate] < repeat_cap:
+                if frame_repeats[_frame_key(bucket[candidate])] < repeat_cap:
                     chosen_index = candidate
                     break
             if chosen_index is None:
                 continue
             selected.append(bucket[chosen_index])
-            repeats[chosen_index] += 1
+            frame_repeats[_frame_key(bucket[chosen_index])] += 1
             route_offsets[key] = (chosen_index + 1) % len(bucket)
             added = True
             if len(selected) >= wanted:
@@ -173,6 +191,27 @@ def frame_repetition_report(items: Sequence[Any]) -> Dict[str, Any]:
         "repeat_histogram": {
             str(repeat): int(count) for repeat, count in sorted(histogram.items())
         },
+    }
+
+
+def route_extra_exposure_report(
+    source: Sequence[Any], sampled: Sequence[Any]
+) -> Dict[str, Any]:
+    """审计 sampled 相对 raw source 新增的逐 route 曝光。"""
+
+    raw_counts = Counter(_route_key(item) for item in source)
+    sampled_counts = Counter(_route_key(item) for item in sampled)
+    extra_counts = {
+        route: int(sampled_counts[route] - raw_counts[route]) for route in raw_counts
+    }
+    values = list(extra_counts.values())
+    return {
+        "cases": sum(values),
+        "unique_routes": sum(value > 0 for value in values),
+        "min_extra_cases_per_route": min(values, default=0),
+        "max_extra_cases_per_route": max(values, default=0),
+        "max_deviation": max(values, default=0) - min(values, default=0),
+        "all_nonnegative": all(value >= 0 for value in values),
     }
 
 

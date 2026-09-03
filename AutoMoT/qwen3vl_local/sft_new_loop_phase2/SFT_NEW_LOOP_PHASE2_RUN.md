@@ -130,7 +130,9 @@ PRE/POST/DOMAIN/2RGB/AMBIGUOUS，因此不能凭规则名或单一距离阈值�
 `UE3_LABEL_ALIGNMENT_AND_ROUTE_DIVERSE_DATA_20260903.md`。
 训练入口除 `TRAIN_ROUTE_DIVERSE=1` 外，只对 UE3 默认启用
 `TRAIN_UE3_ROUTE_BALANCED=1`：原始桶耗尽后仍按 route 轮转，并以
-`MAX_TRAIN_UE3_FRAME_REPEAT=10` 限制同一帧重复。其它类别不改变，
+`MAX_TRAIN_UE3_FRAME_REPEAT=10` 限制同一帧重复。强均衡 v1 pilot 因只保留
+961/1083 个不同 UE3 帧而使 recall 从 0.40625 降至 0.3125；当前 v2 会先保留全部
+1083 帧一次，仅对额外 965 次曝光做 route 均衡。其它类别不改变，
 `balance/epoch_*.json` 保存实际 route 和 UE3 frame-repeat 分布。
 
 完成联表后，用一条 CPU-only 命令重建到新目录并自动比较新旧 index；它不会训练：
@@ -153,8 +155,8 @@ bash qwen3vl_local/sft_new_loop_phase2/run_ue3_train_route_balance_smoke.sh
 GPU_IDS=0,1,2,3 \
 HISTORY_RGB_MODE=2rgb_endpoints \
 INDEX=checkpoints/sft_new_loop_phase2_data/frame_index.jsonl \
-OUTPUT_DIR=checkpoints/sft_new_loop_phase2_ue3_route_balance_pilot/seed_20260810 \
-SEED=20260810 MAX_STEPS=4000 SAVE_STEPS=4000 \
+OUTPUT_DIR=checkpoints/sft_new_loop_phase2_ue3_coverage_first_pilot/seed_20260810 \
+SEED=20260810 MAX_STEPS=4000 SAVE_STEPS=0 SAVE_BEST_VAL=0 SAVE_FINAL=0 \
 FOCUS_BALANCE_COUNT=2048 TRAIN_ROUTE_DIVERSE=1 \
 TRAIN_UE3_ROUTE_BALANCED=1 MAX_TRAIN_UE3_FRAME_REPEAT=10 \
 GENERATION_EVAL_ROUTE_DIVERSE=0 \
@@ -162,7 +164,9 @@ bash qwen3vl_local/sft_new_loop_phase2/train.sh ddp
 ```
 
 这里显式关闭 generation route-diverse，复用旧 seed 20260810 的 validation sampler；
-因此这轮唯一实验变量是 UE3 训练采样。不要直接启动三 seed，也不要打开 unseen-456。
+三个 SAVE 开关只保留 generation 选中的一份 adapter，避免 `best_val/checkpoint/final`
+重复占用空间。因此这轮唯一学习变量是 UE3 训练采样。不要直接启动三 seed，也不要打开
+unseen-456。
 
 ### 下游自动 A/B（独立可选实验，非当前 Phase2 排障路径）
 

@@ -83,10 +83,12 @@ from qwen3vl_local.sft_new_loop_phase2.prompts import (  # noqa: E402
     spec_metric_items,
 )
 from qwen3vl_local.sft_new_loop_phase2.sampling import (  # noqa: E402
+    UE3_TRAIN_SAMPLER_VERSION,
     frame_repetition_report,
     route_balanced_sample,
     route_diverse_sample,
     route_diversity_report,
+    route_extra_exposure_report,
 )
 from qwen3vl_local.sft_v2.train import (  # noqa: E402
     _assert_inside_assistant_turn,
@@ -240,11 +242,13 @@ def _write_run_metadata(
         "generation_eval_global": int(generation_eval_global),
         "save_best_val": bool(args.save_best_val),
         "save_best_generation": bool(args.save_best_generation),
+        "save_final": bool(args.save_final),
         "save_steps": int(args.save_steps),
         "total_steps_global": int(total_steps),
         "focus_balance_count": int(args.focus_balance_count),
         "train_route_diverse": bool(args.train_route_diverse),
         "train_ue3_route_balanced": bool(args.train_ue3_route_balanced),
+        "ue3_train_sampler_version": UE3_TRAIN_SAMPLER_VERSION,
         "max_train_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
         "regular_focus_multiplier": float(args.regular_focus_multiplier),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
@@ -1351,6 +1355,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "focus_balance_count": int(args.focus_balance_count),
         "train_route_diverse": bool(args.train_route_diverse),
         "train_ue3_route_balanced": bool(args.train_ue3_route_balanced),
+        "ue3_train_sampler_version": UE3_TRAIN_SAMPLER_VERSION,
         "max_train_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
         "regular_focus_multiplier": float(args.regular_focus_multiplier),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
@@ -1373,6 +1378,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         ),
         "save_best_val": bool(args.save_best_val),
         "save_best_generation": bool(args.save_best_generation),
+        "save_final": bool(args.save_final),
     }
     (final_dir / "sft_new_loop_phase2_adapter_config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     return final_dir
@@ -1431,7 +1437,10 @@ def train(args: argparse.Namespace) -> None:
     if not full_work:
         raise ValueError("balanced work list is empty")
     sampled_ue3 = [item for item in full_work if _target_class(item.row) == "UE3"]
+    raw_ue3 = [row for row in rows if _target_class(row) == "UE3"]
+    raw_ue3_repeat_report = frame_repetition_report(raw_ue3)
     ue3_repeat_report = frame_repetition_report(sampled_ue3)
+    ue3_extra_route_report = route_extra_exposure_report(raw_ue3, sampled_ue3)
     if bool(args.train_ue3_route_balanced):
         raw_ue3_routes = {
             (row.scenario, row.route_id) for row in rows if _target_class(row) == "UE3"
@@ -1445,12 +1454,35 @@ def train(args: argparse.Namespace) -> None:
             int(ue3_repeat_report["max_frame_repeat"])
             <= int(args.max_train_ue3_frame_repeat)
         )
-        if not route_coverage_ok or not frame_repeat_ok:
+        frame_coverage_ok = (
+            len(sampled_ue3) < len(raw_ue3)
+            or int(ue3_repeat_report["unique_frames"])
+            == int(raw_ue3_repeat_report["unique_frames"])
+        )
+        extra_route_balance_ok = (
+            len(sampled_ue3) < len(raw_ue3)
+            or (
+                bool(ue3_extra_route_report["all_nonnegative"])
+                and int(ue3_extra_route_report["cases"])
+                == len(sampled_ue3) - len(raw_ue3)
+                and int(ue3_extra_route_report["max_deviation"]) <= 1
+            )
+        )
+        if (
+            not route_coverage_ok
+            or not frame_coverage_ok
+            or not extra_route_balance_ok
+            or not frame_repeat_ok
+        ):
             raise ValueError(
                 "UE3 route-balanced training guard failed before model load: "
                 f"route_coverage_ok={route_coverage_ok} "
                 f"raw_routes={len(raw_ue3_routes)} expected_routes={expected_route_count} "
                 f"sampled_routes={len(sampled_ue3_routes)} "
+                f"frame_coverage_ok={frame_coverage_ok} "
+                f"extra_route_balance_ok={extra_route_balance_ok} "
+                f"extra_route_exposure={ue3_extra_route_report} "
+                f"raw_frame_repetition={raw_ue3_repeat_report} "
                 f"frame_repeat={ue3_repeat_report}"
             )
     # 训练用同一个全局 work 序列按 global step 对齐取样；rank0 仍保存第一轮
@@ -1525,8 +1557,11 @@ def train(args: argparse.Namespace) -> None:
                         "highway_regular_fraction": float(args.highway_regular_fraction),
                         "route_diverse": bool(args.train_route_diverse),
                         "ue3_route_balanced": bool(args.train_ue3_route_balanced),
+                        "ue3_train_sampler_version": UE3_TRAIN_SAMPLER_VERSION,
                         "max_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
+                        "raw_ue3_frame_repetition": raw_ue3_repeat_report,
                         "ue3_frame_repetition": ue3_repeat_report,
+                        "ue3_extra_route_exposure": ue3_extra_route_report,
                         "effective_focus_target_per_class": int(effective_focus_target_per_class),
                         "resample_each_epoch": True,
                         "epoch_seed_formula": "seed + epoch * 1000003",
@@ -1675,9 +1710,14 @@ def train(args: argparse.Namespace) -> None:
                         "class_counts": dict(Counter(_target_class(item.row) for item in full_work)),
                         "route_diverse": bool(args.train_route_diverse),
                         "ue3_route_balanced": bool(args.train_ue3_route_balanced),
+                        "ue3_train_sampler_version": UE3_TRAIN_SAMPLER_VERSION,
                         "max_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
                         "ue3_frame_repetition": frame_repetition_report(
                             [item for item in full_work if _target_class(item.row) == "UE3"]
+                        ),
+                        "ue3_extra_route_exposure": route_extra_exposure_report(
+                            raw_ue3,
+                            [item for item in full_work if _target_class(item.row) == "UE3"],
                         ),
                         "route_diversity": route_diversity_report(full_work),
                         "invalid_subgroups": epoch_invalid_report,
@@ -2016,7 +2056,11 @@ def train(args: argparse.Namespace) -> None:
 
     if world_size > 1:
         ddp_barrier(local_rank)
-    final_dir = _save_adapter(bundle, output_dir, args, step=global_step) if rank == 0 else None
+    final_dir = (
+        _save_adapter(bundle, output_dir, args, step=global_step)
+        if rank == 0 and bool(args.save_final)
+        else None
+    )
     if rank == 0:
         selection_status = {
             "best_generation_available": (output_dir / "best_generation.json").is_file(),
@@ -2039,7 +2083,13 @@ def train(args: argparse.Namespace) -> None:
     if writer:
         writer.close()
     if rank == 0:
-        print(f"[done] saved adapter to {final_dir}")
+        if final_dir is not None:
+            print(f"[done] saved adapter to {final_dir}")
+        else:
+            print(
+                "[done] final adapter disabled; retain best_generation or fallback_generation selected by validation",
+                flush=True,
+            )
     cleanup_distributed()
 
 
@@ -2074,7 +2124,7 @@ def parse_args() -> argparse.Namespace:
         "--train-ue3-route-balanced",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="training only: keep rotating UE3 routes even after the raw bucket is exhausted",
+        help="training only: preserve every raw UE3 frame once, then balance only extra exposures by route",
     )
     p.add_argument(
         "--max-train-ue3-frame-repeat",
@@ -2188,6 +2238,12 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="save output_dir/best_generation by free-generation exact, with all_random_order exact as tie-breaker",
+    )
+    p.add_argument(
+        "--save-final",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="save output_dir/final after training; disable for a bounded pilot that retains generation-selected adapter only",
     )
     p.add_argument("--no-tb", action="store_true")
     args = p.parse_args()
