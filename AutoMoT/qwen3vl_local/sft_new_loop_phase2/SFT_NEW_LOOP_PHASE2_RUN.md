@@ -120,7 +120,8 @@ checkpoint 选优、不能触发 unseen。完整结论见 `V3_ROUTE_DIVERSE_FULL
 LoRA 是否能改善 LeadMoT 规划。整个下游流程不需要人工复核：
 
 ```bash
-# 1. 只核对 model/dataset/adapter/prompt/hash/2RGB/seed 合同，不加载 GPU
+# 1. 核对 model/dataset/adapter/prompt/hash/2RGB/seed 合同，不加载 GPU；
+#    若默认 LeadMoT JSONL 不存在，会先从 lead_data 自动构建一次
 bash qwen3vl_local/sft_new_loop_phase2/run_leadmot_qwen_ab.sh preflight
 
 # 2. 两臂各 2 step + 同 8 case eval，只检查端到端链路
@@ -132,6 +133,11 @@ GPU_IDS=0,1,2,3 TRAIN_LAUNCH_MODE=ddp \
 ```
 
 默认 LoRA 是 frozen protocol 的 `seed_20260810/final`；搬家时用 `ADAPTER_DIR=...` 覆盖。
+默认规划索引是 `checkpoints/leadmot_v1_data/{train,val}.jsonl`。两者都不存在时脚本会从
+`DATA_ROOT=lead_data` 自动调用 `leadmot/build_dataset.py --no-with-subgoal-fields`：保留所有
+合法 anchor、按 route 切 train/val，并先剔除异常时长 route。只有一个文件存在时会中止，
+避免静默混用两次构建的 split；不希望自动构建可设 `AUTO_BUILD_LEADMOT_DATASET=0`。
+当前收口 A/B 固定 `USE_SUBGOAL=0`，这样获胜 checkpoint 才能进入 CARLA；`USE_BEV` 默认 1。
 每个 LeadMoT checkpoint 都绑定 base/adapter 真实 SHA256，eval/CARLA 自动恢复并拒绝错配。
 `comparison.json/md` 对同一 validation case 严格配对，并按 route 做 cluster bootstrap；
 只有 route/waypoint 的 ADE/FDE 四项 95% CI 上界全部小于 0，才写
