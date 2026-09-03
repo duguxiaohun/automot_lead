@@ -105,15 +105,17 @@ unseen 未触碰的同时自动构建该审计包。
 完成逐帧审计后，可用入库的 32-case 决策表生成诊断性子集指标：
 
 ```bash
-python qwen3vl_local/sft_new_loop_phase2/rescore_ue3_rgb_decisions.py \
-  --audit-root checkpoints/ue3_route_diverse_full_rgb_audit
+bash qwen3vl_local/sft_new_loop_phase2/run_ue3_label_alignment_audit.sh
 ```
 
-输出 `decision_rescore.json/md`。该结果明确标记 `official_metric=false`，只用于区分
+入口会优先使用正式 frozen experiment 下的
+`checkpoints/sft_new_loop_phase2_frozen_protocol/v3_frozen_3seed_unseen456_20260831/ue3_route_diverse_full_rgb_audit/`；
+若旧机器只保留了顶层副本，则按 32-case decisions 身份自动定位。也可以显式设置
+`AUDIT_ROOT=<包含 manifest.jsonl 的目录>`。输出 `decision_rescore.json/md`。该结果明确标记 `official_metric=false`，只用于区分
 模型责任与 PRE/POST/DOMAIN/2RGB/AMBIGUOUS 标签责任；不修改 frame index、不参与
 checkpoint 选优、不能触发 unseen。完整结论见 `V3_ROUTE_DIVERSE_FULL_UE3_RGB_AUDIT_20260902.md`。
 
-继续训练前先运行 RGB decision × source rule × index route 分布的自动联表审计：
+继续训练前运行 RGB decision × source rule × index route 分布的自动联表审计：
 
 ```bash
 bash qwen3vl_local/sft_new_loop_phase2/run_ue3_label_alignment_audit.sh

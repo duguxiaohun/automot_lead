@@ -62,11 +62,13 @@ f75-f76、f80-f86 才暴露真实模型漏判。DynamicObjectCrossing/Town02 的
 bash qwen3vl_local/sft_new_loop_phase2/run_ue3_label_alignment_audit.sh
 ```
 
-输出：
+脚本会按 32-case decisions 身份自动定位顶层副本或 frozen experiment 内的真实审计目录。
+如需强制指定，可设置 `AUDIT_ROOT=<包含 manifest.jsonl 的目录>`。输出位于解析后的
+`<AUDIT_ROOT>/label_alignment/`：
 
-- `checkpoints/ue3_route_diverse_full_rgb_audit/label_alignment/summary.json`
-- `checkpoints/ue3_route_diverse_full_rgb_audit/label_alignment/summary.md`
-- `checkpoints/ue3_route_diverse_full_rgb_audit/label_alignment/cases.jsonl`
+- `summary.json`
+- `summary.md`
+- `cases.jsonl`
 
 若训练机的 index 位于别处：
 

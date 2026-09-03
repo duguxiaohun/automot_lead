@@ -992,6 +992,16 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertIn('TRAIN_ROUTE_DIVERSE:-1', train_sh)
         self.assertIn('COMMON_ARGS+=(--train-route-diverse)', train_sh)
 
+    def test_ue3_alignment_launcher_resolves_frozen_audit_root(self) -> None:
+        """联表入口必须兼容正式 frozen experiment 路径，不能只认顶层副本。"""
+
+        launcher = (pathlib.Path(__file__).with_name("run_ue3_label_alignment_audit.sh")).read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("v3_frozen_3seed_unseen456_20260831/ue3_route_diverse_full_rgb_audit", launcher)
+        self.assertIn('if [[ ! -f "${AUDIT_ROOT}/manifest.jsonl" ]]', launcher)
+        self.assertIn("identities(manifest) == expected", launcher)
+
     def test_balancers_reject_missing_class_and_zero_uses_smallest_bucket(self) -> None:
         """截断索引缺桶必须失败；train target=0 必须真的按最小桶均衡。"""
 
