@@ -449,6 +449,9 @@ class DirectEventContractTest(unittest.TestCase):
                         (target / f"{frame:04d}{suffix}").write_bytes(b"")
 
             script = pathlib.Path(__file__).with_name("run_leadmot_qwen_ab.sh")
+            script_text = script.read_text(encoding="utf-8")
+            self.assertIn("seed_20260810/fallback_generation", script_text)
+            self.assertNotIn("seed_20260810/final}", script_text)
             env = {
                 **dict(os.environ),
                 "MODEL_DIR": str(model),

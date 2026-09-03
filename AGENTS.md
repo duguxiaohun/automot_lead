@@ -288,7 +288,9 @@
   `AutoMoT/checkpoints/` 或本地输出目录。）
 - `AutoMoT/qwen3vl_local/sft_new_loop_phase2/run_leadmot_qwen_ab.sh` /
   `compare_leadmot_qwen_ab.py`
-  （Phase2 v3 seed 20260810 的自动下游收口实验：不改 prompt、不打开 unseen；先校验
+  （Phase2 v3 seed 20260810 的 step-4000 `fallback_generation` 自动下游收口实验；它是
+  未通过 UE3 production guard 的研究候选，不能借下游结果晋升 Phase2 production。不改 prompt、
+  不打开 unseen；先校验
   prompt/hash/2RGB/seed；默认 LeadMoT train/val JSONL 同时缺失时从 `lead_data` 自动构建
   no-subgoal 索引并执行异常 route 剔除与 route-level split，单边缺失则拒绝；再分别训练
   base-Qwen 与 LoRA-Qwen 的 LeadMoT decoder；全量
