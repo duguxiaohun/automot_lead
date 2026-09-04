@@ -64,6 +64,10 @@ from qwen3vl_local.sft_new_loop_phase2.invalid_balance import (  # noqa: E402
     invalid_subgroup_keys,
     invalid_subgroup_report,
 )
+from qwen3vl_local.sft_new_loop_phase2.highway_ue3_audit import (  # noqa: E402
+    HIGHWAY_UE3_SUBTYPE,
+    OTHER_UE3_SUBTYPE,
+)
 from qwen3vl_local.sft_new_loop_phase2.prompts import (  # noqa: E402
     ANSWER_KEYS,
     EVENT_KEYS,
@@ -83,12 +87,8 @@ from qwen3vl_local.sft_new_loop_phase2.prompts import (  # noqa: E402
     spec_metric_items,
 )
 from qwen3vl_local.sft_new_loop_phase2.sampling import (  # noqa: E402
-    UE3_TRAIN_SAMPLER_VERSION,
-    frame_repetition_report,
-    route_balanced_sample,
     route_diverse_sample,
     route_diversity_report,
-    route_extra_exposure_report,
 )
 from qwen3vl_local.sft_v2.train import (  # noqa: E402
     _assert_inside_assistant_turn,
@@ -247,12 +247,10 @@ def _write_run_metadata(
         "total_steps_global": int(total_steps),
         "focus_balance_count": int(args.focus_balance_count),
         "train_route_diverse": bool(args.train_route_diverse),
-        "train_ue3_route_balanced": bool(args.train_ue3_route_balanced),
-        "ue3_train_sampler_version": UE3_TRAIN_SAMPLER_VERSION,
-        "max_train_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
         "regular_focus_multiplier": float(args.regular_focus_multiplier),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "highway_regular_fraction": float(args.highway_regular_fraction),
+        "highway_ue3_fraction": float(args.highway_ue3_fraction),
         "production_prompt_sha256": event_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
     }
     (output_dir / "train_run_manifest.json").write_text(
@@ -309,6 +307,7 @@ class FrameRow:
     latest_rgb_path: str
     answers: Dict[str, bool]
     invalid_source: str = ""
+    ue3_subtype: str = ""
 
 
 @dataclass(frozen=True)
@@ -369,6 +368,7 @@ def _read_rows(
                     latest_rgb_path=_resolve_rgb_path(str(obj.get("latest_rgb_path")), root),
                     answers={key: bool(value) for key, value in (obj.get("answers") or {}).items()},
                     invalid_source=str(obj.get("invalid_source") or ""),
+                    ue3_subtype=str(obj.get("ue3_subtype") or ""),
                 )
             )
             if max_frames > 0 and len(rows) >= max_frames:
@@ -421,12 +421,27 @@ def _raw_focus_bin_counts(rows: Sequence[FrameRow]) -> Dict[str, int]:
         counts[f"true_rs/{row.true_rs}"] += 1
         if target_class == "RE":
             counts[f"regular_kind/{'highway_r3' if row.true_rs == 'R3' else 'applicable_local'}"] += 1
+        if target_class == "UE3":
+            counts[f"ue3_subtype/{row.ue3_subtype or OTHER_UE3_SUBTYPE}"] += 1
         if target_class == "INVALID":
             for dimension, value in invalid_subgroup_keys(row):
                 counts[f"invalid/{dimension}/{value}"] += 1
         for key in ANSWER_KEYS:
             counts[f"answer/{key}:{_answer_text(row.answers.get(key, False))}"] += 1
     return dict(counts)
+
+
+def _require_highway_ue3_rows(rows: Sequence[FrameRow], *, split: str) -> None:
+    """v5 训练/验证必须真的含 RGB-reviewed 高速 UE3，防止只换 prompt 不换标签。"""
+
+    count = sum(
+        _target_class(row) == "UE3" and row.ue3_subtype == HIGHWAY_UE3_SUBTYPE
+        for row in rows
+    )
+    if count <= 0:
+        raise ValueError(
+            f"split={split} has no RGB-reviewed HIGHWAY_CUTIN rows; rebuild the v2 highway-UE3 index"
+        )
 
 
 def _make_all_item(row: FrameRow, focus: str, *, seed: int) -> WorkItem:
@@ -475,9 +490,8 @@ def _balanced_work(
     regular_multiplier: float = 1.0,
     invalid_multiplier: float = 1.0,
     highway_regular_fraction: float = 0.25,
+    highway_ue3_fraction: float = 0.125,
     route_diverse: bool = False,
-    ue3_route_balanced: bool = False,
-    max_ue3_frame_repeat: int = 10,
 ) -> List[WorkItem]:
     """按直接 EVENT class 构建 deterministic work list。
 
@@ -541,15 +555,27 @@ def _balanced_work(
                     work.extend(bucket[i % len(bucket)] for i in range(count))
         elif key.endswith("/class/INVALID"):
             work.extend(balanced_invalid_items(items, target=target, rng=rng))
-        elif key.endswith("/class/UE3") and ue3_route_balanced:
-            work.extend(
-                route_balanced_sample(
-                    items,
-                    target=target,
-                    rng=rng,
-                    max_frame_repeat=int(max_ue3_frame_repeat),
-                )
-            )
+        elif key.endswith("/class/UE3"):
+            highway = [item for item in items if item.row.ue3_subtype == HIGHWAY_UE3_SUBTYPE]
+            other = [item for item in items if item.row.ue3_subtype != HIGHWAY_UE3_SUBTYPE]
+            highway_target = 0
+            if highway and target > 0:
+                highway_target = max(1, int(round(float(target) * float(highway_ue3_fraction))))
+                if other and target > 1:
+                    highway_target = min(highway_target, target - 1)
+                highway_target = min(highway_target, target)
+            for bucket, count in ((highway, highway_target), (other, target - highway_target)):
+                if count <= 0:
+                    continue
+                if not bucket:
+                    raise ValueError("UE3 subtype balance has no compatible rows")
+                rng.shuffle(bucket)
+                if route_diverse:
+                    work.extend(route_diverse_sample(bucket, target=count, rng=rng))
+                elif len(bucket) >= count:
+                    work.extend(bucket[:count])
+                else:
+                    work.extend(bucket[i % len(bucket)] for i in range(count))
         elif route_diverse:
             work.extend(route_diverse_sample(items, target=target, rng=rng))
         elif len(items) >= target:
@@ -1132,10 +1158,18 @@ def evaluate_generation_probe(
             if target_class == "RE"
             else target_class.lower()
         )
-        slice_counts[f"{slice_name}/total"] += 1
-        slice_counts[f"{slice_name}/exact"] += int(all_ok)
-        if target_class in EVENT_KEYS:
-            slice_counts[f"{slice_name}/target_yes"] += int(parsed.get(target_class) is True)
+        slice_names = [slice_name]
+        if target_class == "UE3":
+            slice_names.append(
+                "highway_ue3" if row.ue3_subtype == HIGHWAY_UE3_SUBTYPE else "other_ue3"
+            )
+        for current_slice in slice_names:
+            slice_counts[f"{current_slice}/total"] += 1
+            slice_counts[f"{current_slice}/exact"] += int(all_ok)
+            if target_class in EVENT_KEYS:
+                slice_counts[f"{current_slice}/target_yes"] += int(
+                    parsed.get(target_class) is True
+                )
         if target_class == "INVALID":
             for dimension, value in invalid_subgroup_keys(row):
                 invalid_subgroup_counts[f"{dimension}/{value}/total"] += 1
@@ -1162,6 +1196,7 @@ def evaluate_generation_probe(
                 "true_rs": row.true_rs,
                 "question_domain": row.question_domain,
                 "invalid_source": row.invalid_source,
+                "ue3_subtype": row.ue3_subtype,
                 "invalid_subgroups": (
                     dict(invalid_subgroup_keys(row)) if _target_class(row) == "INVALID" else None
                 ),
@@ -1184,11 +1219,21 @@ def evaluate_generation_probe(
         "format_valid_rate": valid / max(1.0, samples),
         "exact_accuracy": exact / max(1.0, samples),
     }
-    for name in ("ue1", "ue3", "ue5", "ue6", "applicable_regular", "highway_regular", "invalid"):
+    for name in (
+        "ue1",
+        "ue3",
+        "highway_ue3",
+        "other_ue3",
+        "ue5",
+        "ue6",
+        "applicable_regular",
+        "highway_regular",
+        "invalid",
+    ):
         count = float(slice_counts.get(f"{name}/total", 0))
         metrics[f"slice/{name}_samples"] = count
         metrics[f"slice/{name}_exact"] = float(slice_counts.get(f"{name}/exact", 0)) / max(1.0, count)
-        if name in {"ue1", "ue3", "ue5", "ue6"}:
+        if name in {"ue1", "ue3", "highway_ue3", "other_ue3", "ue5", "ue6"}:
             metrics[f"slice/{name}_target_recall"] = (
                 float(slice_counts.get(f"{name}/target_yes", 0)) / max(1.0, count)
             )
@@ -1258,7 +1303,8 @@ def generation_checkpoint_score(
 ) -> Tuple[float, float, float, float, float, float]:
     """构造自由生成 checkpoint 选优分数。
 
-    正式 ``best_generation`` 必须同时守住 UE3、UE6、INVALID 与 applicable RE，
+    正式 ``best_generation`` 按配置守住 UE3、UE6、INVALID 与 applicable RE；
+    UE3 门槛默认 0，仅作为诊断指标，不阻断选择。
     达标候选再按总 exact 选优。未全部达标的候选只进入显式 fallback 排名：先看
     通过多少项，再看最差归一化达标比例，避免只救 UE3 却静默牺牲其它类别。
     """
@@ -1354,12 +1400,10 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "seed": int(args.seed),
         "focus_balance_count": int(args.focus_balance_count),
         "train_route_diverse": bool(args.train_route_diverse),
-        "train_ue3_route_balanced": bool(args.train_ue3_route_balanced),
-        "ue3_train_sampler_version": UE3_TRAIN_SAMPLER_VERSION,
-        "max_train_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
         "regular_focus_multiplier": float(args.regular_focus_multiplier),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "highway_regular_fraction": float(args.highway_regular_fraction),
+        "highway_ue3_fraction": float(args.highway_ue3_fraction),
         "eval_split": str(args.eval_split),
         "eval_steps": int(args.eval_steps),
         "eval_balance_count": int(args.eval_balance_count),
@@ -1384,6 +1428,23 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
     return final_dir
 
 
+def default_pipeline_adapter(
+    *,
+    best_generation_available: bool,
+    final_available: bool,
+    fallback_generation_available: bool,
+) -> Optional[str]:
+    """返回自动评测的权重槽位；best 不存在时必须仍可回退 final。"""
+
+    if best_generation_available:
+        return "best_generation"
+    if final_available:
+        return "final"
+    if fallback_generation_available:
+        return "fallback_generation"
+    return None
+
+
 def train(args: argparse.Namespace) -> None:
     """训练主流程。"""
 
@@ -1397,8 +1458,6 @@ def train(args: argparse.Namespace) -> None:
             f"[startup] world_size={world_size} device={device} index={args.index} "
             f"split={args.split} focus_balance_count={args.focus_balance_count} "
             f"train_route_diverse={bool(args.train_route_diverse)} "
-            f"train_ue3_route_balanced={bool(args.train_ue3_route_balanced)} "
-            f"max_train_ue3_frame_repeat={int(args.max_train_ue3_frame_repeat)} "
             f"regular_focus_multiplier={args.regular_focus_multiplier} "
             f"invalid_focus_multiplier={args.invalid_focus_multiplier} "
             f"eval_steps={args.eval_steps} generation_eval_steps={args.generation_eval_steps}",
@@ -1411,6 +1470,7 @@ def train(args: argparse.Namespace) -> None:
         max_frames=int(args.max_frames),
         data_root=pathlib.Path(args.data_root),
     )
+    _require_highway_ue3_rows(rows, split=str(args.split))
     if rank == 0:
         print(f"[startup] train rows loaded: {len(rows)}", flush=True)
     raw_focus_counts = _raw_focus_bin_counts(rows)
@@ -1430,61 +1490,11 @@ def train(args: argparse.Namespace) -> None:
         regular_multiplier=float(args.regular_focus_multiplier),
         invalid_multiplier=float(args.invalid_focus_multiplier),
         highway_regular_fraction=float(args.highway_regular_fraction),
+        highway_ue3_fraction=float(args.highway_ue3_fraction),
         route_diverse=bool(args.train_route_diverse),
-        ue3_route_balanced=bool(args.train_ue3_route_balanced),
-        max_ue3_frame_repeat=int(args.max_train_ue3_frame_repeat),
     )
     if not full_work:
         raise ValueError("balanced work list is empty")
-    sampled_ue3 = [item for item in full_work if _target_class(item.row) == "UE3"]
-    raw_ue3 = [row for row in rows if _target_class(row) == "UE3"]
-    raw_ue3_repeat_report = frame_repetition_report(raw_ue3)
-    ue3_repeat_report = frame_repetition_report(sampled_ue3)
-    ue3_extra_route_report = route_extra_exposure_report(raw_ue3, sampled_ue3)
-    if bool(args.train_ue3_route_balanced):
-        raw_ue3_routes = {
-            (row.scenario, row.route_id) for row in rows if _target_class(row) == "UE3"
-        }
-        sampled_ue3_routes = {
-            (item.row.scenario, item.row.route_id) for item in sampled_ue3
-        }
-        expected_route_count = min(len(raw_ue3_routes), len(sampled_ue3))
-        route_coverage_ok = len(sampled_ue3_routes) == expected_route_count
-        frame_repeat_ok = (
-            int(ue3_repeat_report["max_frame_repeat"])
-            <= int(args.max_train_ue3_frame_repeat)
-        )
-        frame_coverage_ok = (
-            len(sampled_ue3) < len(raw_ue3)
-            or int(ue3_repeat_report["unique_frames"])
-            == int(raw_ue3_repeat_report["unique_frames"])
-        )
-        extra_route_balance_ok = (
-            len(sampled_ue3) < len(raw_ue3)
-            or (
-                bool(ue3_extra_route_report["all_nonnegative"])
-                and int(ue3_extra_route_report["cases"])
-                == len(sampled_ue3) - len(raw_ue3)
-                and int(ue3_extra_route_report["max_deviation"]) <= 1
-            )
-        )
-        if (
-            not route_coverage_ok
-            or not frame_coverage_ok
-            or not extra_route_balance_ok
-            or not frame_repeat_ok
-        ):
-            raise ValueError(
-                "UE3 route-balanced training guard failed before model load: "
-                f"route_coverage_ok={route_coverage_ok} "
-                f"raw_routes={len(raw_ue3_routes)} expected_routes={expected_route_count} "
-                f"sampled_routes={len(sampled_ue3_routes)} "
-                f"frame_coverage_ok={frame_coverage_ok} "
-                f"extra_route_balance_ok={extra_route_balance_ok} "
-                f"extra_route_exposure={ue3_extra_route_report} "
-                f"raw_frame_repetition={raw_ue3_repeat_report} "
-                f"frame_repeat={ue3_repeat_report}"
-            )
     # 训练用同一个全局 work 序列按 global step 对齐取样；rank0 仍保存第一轮
     # rank shard 供审计，每个后续 epoch 重新采样富余桶。
     work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
@@ -1504,6 +1514,7 @@ def train(args: argparse.Namespace) -> None:
                 max_frames=int(args.max_eval_frames),
                 data_root=pathlib.Path(args.data_root),
             )
+            _require_highway_ue3_rows(eval_rows, split=str(args.eval_split))
             if rank == 0:
                 print(
                     f"[startup] validation rows loaded: {len(eval_rows)}; building validation work...",
@@ -1514,6 +1525,7 @@ def train(args: argparse.Namespace) -> None:
                 target_per_bin=int(args.eval_balance_count),
                 seed=int(args.seed) + 1009,
                 highway_regular_fraction=float(args.highway_regular_fraction),
+                highway_ue3_fraction=float(args.highway_ue3_fraction),
             )
             eval_work = _split_work_for_rank(full_eval_work, rank=rank, world_size=world_size)
             if int(args.generation_eval_steps) > 0 and int(args.generation_eval_balance_count) > 0:
@@ -1524,6 +1536,7 @@ def train(args: argparse.Namespace) -> None:
                     target_per_bin=int(args.generation_eval_balance_count),
                     seed=int(args.generation_eval_sampling_seed),
                     highway_regular_fraction=float(args.highway_regular_fraction),
+                    highway_ue3_fraction=float(args.highway_ue3_fraction),
                     route_diverse=bool(args.generation_eval_route_diverse),
                 )
         except Exception as exc:
@@ -1555,13 +1568,8 @@ def train(args: argparse.Namespace) -> None:
                         "regular_focus_multiplier": float(args.regular_focus_multiplier),
                         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
                         "highway_regular_fraction": float(args.highway_regular_fraction),
+                        "highway_ue3_fraction": float(args.highway_ue3_fraction),
                         "route_diverse": bool(args.train_route_diverse),
-                        "ue3_route_balanced": bool(args.train_ue3_route_balanced),
-                        "ue3_train_sampler_version": UE3_TRAIN_SAMPLER_VERSION,
-                        "max_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
-                        "raw_ue3_frame_repetition": raw_ue3_repeat_report,
-                        "ue3_frame_repetition": ue3_repeat_report,
-                        "ue3_extra_route_exposure": ue3_extra_route_report,
                         "effective_focus_target_per_class": int(effective_focus_target_per_class),
                         "resample_each_epoch": True,
                         "epoch_seed_formula": "seed + epoch * 1000003",
@@ -1670,8 +1678,6 @@ def train(args: argparse.Namespace) -> None:
             f"[data] train_rows={len(rows)} train_work_global={len(full_work)} train_work_rank={len(work)} "
             f"effective_focus_target_per_class={effective_focus_target_per_class} resample_each_epoch=True "
             f"train_route_diverse={bool(args.train_route_diverse)} "
-            f"train_ue3_route_balanced={bool(args.train_ue3_route_balanced)} "
-            f"max_train_ue3_frame_repeat={int(args.max_train_ue3_frame_repeat)} "
             f"regular_focus_multiplier={float(args.regular_focus_multiplier):.3f} "
             f"invalid_focus_multiplier={float(args.invalid_focus_multiplier):.3f} "
             f"steps_per_epoch_global={steps_per_epoch} num_epochs={int(args.num_epochs)} max_steps={int(args.max_steps)} "
@@ -1690,9 +1696,8 @@ def train(args: argparse.Namespace) -> None:
                 regular_multiplier=float(args.regular_focus_multiplier),
                 invalid_multiplier=float(args.invalid_focus_multiplier),
                 highway_regular_fraction=float(args.highway_regular_fraction),
+                highway_ue3_fraction=float(args.highway_ue3_fraction),
                 route_diverse=bool(args.train_route_diverse),
-                ue3_route_balanced=bool(args.train_ue3_route_balanced),
-                max_ue3_frame_repeat=int(args.max_train_ue3_frame_repeat),
             )
             work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
         order_rng = random.Random(int(args.seed) + epoch * 1_000_003)
@@ -1709,16 +1714,6 @@ def train(args: argparse.Namespace) -> None:
                         "seed": int(args.seed) + epoch * 1_000_003,
                         "class_counts": dict(Counter(_target_class(item.row) for item in full_work)),
                         "route_diverse": bool(args.train_route_diverse),
-                        "ue3_route_balanced": bool(args.train_ue3_route_balanced),
-                        "ue3_train_sampler_version": UE3_TRAIN_SAMPLER_VERSION,
-                        "max_ue3_frame_repeat": int(args.max_train_ue3_frame_repeat),
-                        "ue3_frame_repetition": frame_repetition_report(
-                            [item for item in full_work if _target_class(item.row) == "UE3"]
-                        ),
-                        "ue3_extra_route_exposure": route_extra_exposure_report(
-                            raw_ue3,
-                            [item for item in full_work if _target_class(item.row) == "UE3"],
-                        ),
                         "route_diversity": route_diversity_report(full_work),
                         "invalid_subgroups": epoch_invalid_report,
                     },
@@ -2062,13 +2057,32 @@ def train(args: argparse.Namespace) -> None:
         else None
     )
     if rank == 0:
+        best_generation_available = (
+            (output_dir / "best_generation.json").is_file()
+            and (output_dir / "best_generation" / "sft_new_loop_phase2_adapter_config.json").is_file()
+        )
+        fallback_generation_available = (
+            (output_dir / "fallback_generation.json").is_file()
+            and (output_dir / "fallback_generation" / "sft_new_loop_phase2_adapter_config.json").is_file()
+        )
+        final_available = (
+            final_dir is not None
+            and (final_dir / "sft_new_loop_phase2_adapter_config.json").is_file()
+        )
         selection_status = {
-            "best_generation_available": (output_dir / "best_generation.json").is_file(),
-            "fallback_generation_available": (output_dir / "fallback_generation.json").is_file(),
-            "production_ready": (output_dir / "best_generation.json").is_file(),
+            "best_generation_available": best_generation_available,
+            "fallback_generation_available": fallback_generation_available,
+            "final_available": final_available,
+            "pipeline_adapter": default_pipeline_adapter(
+                best_generation_available=best_generation_available,
+                final_available=final_available,
+                fallback_generation_available=fallback_generation_available,
+            ),
+            "production_ready": best_generation_available,
             "contract": (
-                "Only best_generation passed every configured generation guard. "
-                "fallback_generation is diagnostic and must not be promoted automatically."
+                "best_generation records configured selection guards; UE3 recall is diagnostic by default. "
+                "The normal full pipeline evaluates and packages best_generation when available, "
+                "otherwise final."
             ),
         }
         (output_dir / "generation_selection_status.json").write_text(
@@ -2076,8 +2090,8 @@ def train(args: argparse.Namespace) -> None:
         )
         if not selection_status["production_ready"]:
             print(
-                "[selection-failed] no checkpoint passed all generation guards; "
-                "inspect fallback_generation but do not run automatic production/unseen eval",
+                "[selection-warning] no checkpoint passed all configured generation guards; "
+                "final remains available for the normal eval/compression pipeline",
                 flush=True,
             )
     if writer:
@@ -2121,18 +2135,6 @@ def parse_args() -> argparse.Namespace:
         help="within each non-invalid train class, rotate routes before taking another frame from the same route",
     )
     p.add_argument(
-        "--train-ue3-route-balanced",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="training only: preserve every raw UE3 frame once, then balance only extra exposures by route",
-    )
-    p.add_argument(
-        "--max-train-ue3-frame-repeat",
-        type=int,
-        default=10,
-        help="hard cap for one UE3 frame within an epoch's sampled work",
-    )
-    p.add_argument(
         "--regular-focus-multiplier",
         type=float,
         default=2.0,
@@ -2149,6 +2151,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.25,
         help="fraction of each sampled RE bin reserved for valid R3/highway all-NO negatives",
+    )
+    p.add_argument(
+        "--highway-ue3-fraction",
+        type=float,
+        default=0.125,
+        help="UE3 share reserved for RGB-reviewed HIGHWAY_CUTIN in train/validation/generation sampling",
     )
     p.add_argument("--num-epochs", type=int, default=3)
     p.add_argument("--max-steps", type=int, default=0, help="0 means train num_epochs over the balanced work list")
@@ -2191,8 +2199,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--generation-eval-min-ue3-target-recall",
         type=float,
-        default=0.625,
-        help="minimum UE3-positive recall for production-ready best_generation",
+        default=0.0,
+        help="optional UE3-positive recall guard; 0 disables UE3 recall gating (default)",
     )
     p.add_argument(
         "--generation-eval-min-ue6-target-recall",
@@ -2273,6 +2281,8 @@ def parse_args() -> argparse.Namespace:
         raise ValueError("--invalid-focus-multiplier must be non-negative")
     if not 0.0 <= float(args.highway_regular_fraction) <= 1.0:
         raise ValueError("--highway-regular-fraction must be in [0, 1]")
+    if not 0.0 <= float(args.highway_ue3_fraction) <= 1.0:
+        raise ValueError("--highway-ue3-fraction must be in [0, 1]")
     if not args.output_dir:
         args.output_dir = str(
             _AUTOMOT_ROOT

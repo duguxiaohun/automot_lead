@@ -162,6 +162,10 @@ from qwen3vl_local.sft_new_loop_phase2.invalid_balance import (  # noqa: E402
     invalid_subgroup_keys,
     invalid_subgroup_report,
 )
+from qwen3vl_local.sft_new_loop_phase2.highway_ue3_audit import (  # noqa: E402
+    HIGHWAY_UE3_SUBTYPE,
+    OTHER_UE3_SUBTYPE,
+)
 from qwen3vl_local.sft_new_loop_phase2.prompts import (  # noqa: E402
     ANSWER_KEYS,
     EVENT_KEYS,
@@ -239,6 +243,7 @@ class FrameRow:
     latest_rgb_path: str
     answers: Dict[str, bool]
     invalid_source: str = ""
+    ue3_subtype: str = ""
 
 
 @dataclass(frozen=True)
@@ -315,6 +320,7 @@ def _read_rows(
                     latest_rgb_path=_resolve_rgb_path(str(obj.get("latest_rgb_path")), root),
                     answers={key: bool(value) for key, value in (obj.get("answers") or {}).items()},
                     invalid_source=str(obj.get("invalid_source") or ""),
+                    ue3_subtype=str(obj.get("ue3_subtype") or ""),
                 )
             )
             if max_frames > 0 and len(rows) >= max_frames:
@@ -453,12 +459,27 @@ def _raw_focus_bin_counts(rows: Sequence[FrameRow]) -> Dict[str, int]:
         counts[f"true_rs/{row.true_rs}"] += 1
         if target_class == "RE":
             counts[f"regular_kind/{'highway_r3' if row.true_rs == 'R3' else 'applicable_local'}"] += 1
+        if target_class == "UE3":
+            counts[f"ue3_subtype/{row.ue3_subtype or OTHER_UE3_SUBTYPE}"] += 1
         if target_class == "INVALID":
             for dimension, value in invalid_subgroup_keys(row):
                 counts[f"invalid/{dimension}/{value}"] += 1
         for key in ANSWER_KEYS:
             counts[f"answer/{key}:{_answer_text(row.answers.get(key, False))}"] += 1
     return dict(counts)
+
+
+def _require_highway_ue3_rows(rows: Sequence[FrameRow], *, split: str) -> None:
+    """v5 eval 必须包含 RGB-reviewed 高速 UE3，避免输出空子型伪统计。"""
+
+    count = sum(
+        _target_class(row) == "UE3" and row.ue3_subtype == HIGHWAY_UE3_SUBTYPE
+        for row in rows
+    )
+    if count <= 0:
+        raise ValueError(
+            f"split={split} has no RGB-reviewed HIGHWAY_CUTIN rows; rebuild the v2 highway-UE3 index"
+        )
 
 
 def _make_all_item(row: FrameRow, focus: str, *, seed: int) -> WorkItem:
@@ -479,6 +500,7 @@ def _balanced_cases(
     cases_per_bin: int,
     seed: int,
     highway_regular_fraction: float = 0.25,
+    highway_ue3_fraction: float = 0.125,
     route_diverse: bool = False,
 ) -> List[WorkItem]:
     """按直接 EVENT class 抽样评估 case。"""
@@ -520,6 +542,27 @@ def _balanced_cases(
             if local_target > 0 and not local:
                 raise ValueError("RE eval balance requires applicable local rows but none are available")
             for bucket, count in ((highway, highway_target), (local, local_target)):
+                rng.shuffle(bucket)
+                if route_diverse:
+                    out.extend(route_diverse_sample(bucket, target=count, rng=rng))
+                elif len(bucket) >= count:
+                    out.extend(bucket[:count])
+                else:
+                    out.extend(bucket[i % len(bucket)] for i in range(count))
+        elif key.endswith("/class/UE3"):
+            highway = [item for item in items if item.row.ue3_subtype == HIGHWAY_UE3_SUBTYPE]
+            other = [item for item in items if item.row.ue3_subtype != HIGHWAY_UE3_SUBTYPE]
+            highway_target = 0
+            if highway and target > 0:
+                highway_target = max(1, int(round(float(target) * float(highway_ue3_fraction))))
+                if other and target > 1:
+                    highway_target = min(highway_target, target - 1)
+                highway_target = min(highway_target, target)
+            for bucket, count in ((highway, highway_target), (other, target - highway_target)):
+                if count <= 0:
+                    continue
+                if not bucket:
+                    raise ValueError("UE3 subtype eval balance has no compatible rows")
                 rng.shuffle(bucket)
                 if route_diverse:
                     out.extend(route_diverse_sample(bucket, target=count, rng=rng))
@@ -617,7 +660,7 @@ def _adapter_config_path(adapter_dir: pathlib.Path) -> pathlib.Path:
 
 
 def _resolve_adapter_dir(adapter_dir: pathlib.Path) -> Tuple[pathlib.Path, str]:
-    """允许传精确 adapter 或 run 目录；run 目录只自动选择正式 best_generation。"""
+    """允许传精确 adapter 或 run 目录；优先使用通过 generation guard 的 best。"""
 
     path = pathlib.Path(adapter_dir)
     checked = []
@@ -626,16 +669,16 @@ def _resolve_adapter_dir(adapter_dir: pathlib.Path) -> Tuple[pathlib.Path, str]:
     if direct.exists():
         return path, "exact_adapter_dir"
 
-    candidate = path / "best_generation"
-    cfg_path = _adapter_config_path(candidate)
-    checked.append(str(cfg_path))
-    if cfg_path.exists():
-        return candidate, "run_dir_best_generation"
+    for slot in ("best_generation", "final", "fallback_generation"):
+        candidate = path / slot
+        cfg_path = _adapter_config_path(candidate)
+        checked.append(str(cfg_path))
+        if cfg_path.exists():
+            return candidate, f"run_dir_{slot}"
 
     raise FileNotFoundError(
         "cannot resolve new Phase2 adapter. Pass either an adapter dir, "
-        "or a run dir containing production-ready best_generation. Pass best_val/final/"
-        "fallback_generation explicitly for diagnostic evaluation. "
+        "or a run dir containing final, best_generation, or fallback_generation. "
         f"Checked: {checked}"
     )
 
@@ -946,12 +989,14 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         [pathlib.Path(path) for path in args.exclude_cases_jsonl],
         expected_excluded_cases=int(args.expected_excluded_cases),
     )
+    _require_highway_ue3_rows(rows, split=str(args.split))
     raw_focus_bin_availability = _raw_focus_bin_counts(rows)
     cases = _balanced_cases(
         rows,
         cases_per_bin=int(args.cases_per_bin),
         seed=int(args.seed),
         highway_regular_fraction=float(args.highway_regular_fraction),
+        highway_ue3_fraction=float(args.highway_ue3_fraction),
         route_diverse=bool(args.route_diverse_sampling),
     )
     if int(args.expected_total_cases) > 0 and len(cases) != int(args.expected_total_cases):
@@ -1043,8 +1088,20 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     if _target_class(row) == "RE"
                     else _target_class(row).lower()
                 )
-                slice_counts[f"{slice_name}/total"] += 1
-                slice_counts[f"{slice_name}/exact"] += int(all_ok)
+                slice_names = [slice_name]
+                if _target_class(row) == "UE3":
+                    slice_names.append(
+                        "highway_ue3"
+                        if row.ue3_subtype == HIGHWAY_UE3_SUBTYPE
+                        else "other_ue3"
+                    )
+                for current_slice in slice_names:
+                    slice_counts[f"{current_slice}/total"] += 1
+                    slice_counts[f"{current_slice}/exact"] += int(all_ok)
+                    if _target_class(row) == "UE3":
+                        slice_counts[f"{current_slice}/target_yes"] += int(
+                            parsed.get("UE3") == "YES"
+                        )
                 if _target_class(row) == "INVALID":
                     for dimension, value in invalid_subgroup_keys(row):
                         invalid_subgroup_counts[f"{dimension}/{value}/total"] += 1
@@ -1075,6 +1132,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     "true_rs": row.true_rs,
                     "question_domain": row.question_domain,
                     "invalid_source": row.invalid_source,
+                    "ue3_subtype": row.ue3_subtype,
                     "invalid_subgroups": (
                         dict(invalid_subgroup_keys(row)) if _target_class(row) == "INVALID" else None
                     ),
@@ -1232,7 +1290,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             else None
         ),
         "audit_prompt": bool(args.audit_prompt),
-        "sampling_contract": "Single-turn direct EVENT eval: UE1/UE3/UE5/UE6 positives are 1:1:1:1; optional route-diverse sampling rotates (scenario, route_id) before taking another frame from one route; RE contains applicable local and explicit R3/highway all-NO negatives; cross-domain invalid rows use the configured ratio. No synthetic RS or assistant prefix is present.",
+        "sampling_contract": "Single-turn direct EVENT eval: UE1/UE3/UE5/UE6 positives are 1:1:1:1; UE3 remains one target class while RGB-reviewed highway cut-in is reserved and reported as HIGHWAY_CUTIN; optional route-diverse sampling rotates (scenario, route_id) before taking another frame from one route; RE contains applicable local and explicit no-cutin R3/highway all-NO negatives; cross-domain invalid rows use the configured ratio. No synthetic RS or assistant prefix is present.",
         "sampling_verification": {
             "split_rows_before_exclusion": int(split_rows_before_exclusion),
             "exclusion": exclusion_report,
@@ -1242,6 +1300,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             "route_diverse_sampling": bool(args.route_diverse_sampling),
             "route_diversity": route_diversity_report(cases),
             "highway_regular_fraction": float(args.highway_regular_fraction),
+            "highway_ue3_fraction": float(args.highway_ue3_fraction),
             "variant_target_weights": dict(VARIANT_WEIGHTS),
             "sampled_variant_counts": variant_total_counts,
             "sampled_balance_keys": dict(balance_counts),
@@ -1261,8 +1320,26 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 "cases": int(slice_counts.get(f"{name}/total", 0)),
                 "exact_match_accuracy": float(slice_counts.get(f"{name}/exact", 0))
                 / max(1.0, float(slice_counts.get(f"{name}/total", 0))),
+                **(
+                    {
+                        "target_recall": float(slice_counts.get(f"{name}/target_yes", 0))
+                        / max(1.0, float(slice_counts.get(f"{name}/total", 0)))
+                    }
+                    if name in {"ue3", "highway_ue3", "other_ue3"}
+                    else {}
+                ),
             }
-            for name in ("ue1", "ue3", "ue5", "ue6", "applicable_regular", "highway_regular", "invalid")
+            for name in (
+                "ue1",
+                "ue3",
+                "highway_ue3",
+                "other_ue3",
+                "ue5",
+                "ue6",
+                "applicable_regular",
+                "highway_regular",
+                "invalid",
+            )
         },
         "per_question": per_key,
         "variant_reports": variant_reports,
@@ -1383,6 +1460,12 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--highway-regular-fraction", type=float, default=0.25)
     p.add_argument(
+        "--highway-ue3-fraction",
+        type=float,
+        default=0.125,
+        help="share of sampled UE3 reserved for RGB-reviewed HIGHWAY_CUTIN cases",
+    )
+    p.add_argument(
         "--route-diverse-sampling",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -1422,6 +1505,8 @@ def parse_args() -> argparse.Namespace:
         raise ValueError("--expected-excluded-cases/--expected-total-cases must be >= 0")
     if not 0.0 <= float(args.highway_regular_fraction) <= 1.0:
         raise ValueError("--highway-regular-fraction must be in [0, 1]")
+    if not 0.0 <= float(args.highway_ue3_fraction) <= 1.0:
+        raise ValueError("--highway-ue3-fraction must be in [0, 1]")
     if args.adapter_dir:
         resolved_adapter_dir, resolve_source = _resolve_adapter_dir(pathlib.Path(args.adapter_dir))
         args.adapter_dir = str(resolved_adapter_dir)

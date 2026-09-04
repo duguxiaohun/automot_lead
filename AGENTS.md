@@ -260,21 +260,23 @@
   1:1:1:1，RE 默认等于一个 UE 桶，其中默认 25% 为 R3/highway valid all-NO hard negatives，
   invalid 默认约 20% 且只由清晰的跨问题域错配构造，所有 UE 必须为 NO。RGB 路径按
   `--data-root` 相对保存和重映射；训练期 teacher-forced loss eval / generation eval 与 checkpoint 默认步频为
-  2000/2000/20000，generation eval 默认 balance count=32；`best_generation` 必须同时守住
-  UE3 recall `>=0.625`、UE6 recall `>=0.80`、INVALID exact `>=0.80` 与 applicable RE
-  exact `>=0.50`，达标后按总 exact 选优；未全达标只保存 `fallback_generation`，full pipeline
-  不自动晋升。`run_next_experiment.sh` 是下一轮正式实验一键入口，自动构建/预检冻结数据、
-  调用 `run_frozen_protocol.sh` 训练 3 个 seed，只按 validation 选择通过门槛的
-  checkpoint，再从 840 条 test 中精确排除历史 384 条，对剩余 456 条做一次性 unseen 验收；
-  历史 dev 身份默认读取同目录已入库的轻量 `frozen_dev_cases_v3_384.jsonl`，不得依赖未同步的
-  checkpoints audit bundle；该清单不含 RGB、模型输出或权重。
-  三个 seed 均未通过时不得打开 unseen；`run_next_experiment.sh` 自动调用
-  `build_ue3_validation_rgb_audit.py`，按各 seed fallback step 生成 UE3 四帧原图/contact sheet/
-  逐例审计模板和压缩包，prompt/标签修改前必须看 RGB，不能按 scenario 名倒推。
-  eval 通过 exclusion case 身份及期望 `384/456` 计数在模型加载前硬校验。当前 production prompt 已按严格可比 bundle 的总体最优结果回退为 v3：
-  v3 production/audit exact 为 `316/384` / `314/384`；2026-08-29 的 v4 实验虽恢复部分
-  UE3 recall，但 production 降至 `308/384` 且 UE6 明显退化，因此不作为当前默认。
-  v3 保留真正静态路边车/事故/施工和 ego 视差不是 UE3 的边界。自由生成完整输出必须做
+  2000/2000/20000，generation eval 默认 balance count=32；UE3 recall 默认门槛为 0，只统计
+  不阻断 checkpoint/流水线；其余 generation guard 仍用于 `best_generation` 诊断选优。
+  `run_full_pipeline.sh` 在有效的 `best_generation/`（含 adapter 配置）存在时优先使用它继续完整 eval 和压缩；
+  否则使用本轮 `final/`，即使没有 `best_generation` 也不得停在训练结束。旧 v3 冻结 multi-seed/unseen、UE3 rescore、专用 RGB 包、label-alignment、route-balance 与失败 adapter 的 LeadMoT A/B 可执行链已删除，避免与当前 v5 混用；历史成绩文档只作证据。
+  历史严格可比基线中，v3 production/audit exact 为 `316/384` / `314/384`；
+  2026-08-29 的 v4 实验虽恢复部分 UE3 recall，但 production 降至 `308/384` 且 UE6
+  明显退化。v3 保留真正静态路边车/事故/施工和 ego 视差不是 UE3 的边界；这些结果只作
+  历史基线，当前训练/评测合同已是 v5，必须重训后才能产生新的可比成绩。
+  **2026-09-04 高速 UE3 候选合同**：逐帧 RGB 已确认高速/匝道他车跨分道线进入 ego
+  当前通道仍属于原 UE3；`HIGHWAY_CUTIN` 只作 UE3 审计子型，不新增输出类别。数据构建
+  只能用 `highway_ue3_rgb_decisions_v1.jsonl` 的显式 RGB-YES span 覆盖，不能从 R3 或
+  scenario 名自动造正例；普通并行/稳定跟车/ego 超车仍是高速 all-NO。新 v5 prompt 必须
+  重训且不能混用旧 v3/v4 adapter；manifest、generation/独立 eval 与 RGB audit 同时报
+  UE3 总体和 HIGHWAY_CUTIN/OTHER_UE3。源 taxonomy 中显式 `U-E3` 的
+  DynamicObjectCrossing/ParkingCutIn/StaticCutIn 全部保留；即使它与 R4/R5 interrupted overlay
+  共存也必须通过 ROAD_CORRIDOR 问组监督，不能被 RS gate 静默丢弃。
+  自由生成完整输出必须做
   顺序/行数/无额外文本严格解析，格式违规时整条
   format/exact 同时失败；adapter 加载前硬校验 production prompt hash、history RGB mode 和
   解析后的 base-model 路径；数据构建把实际扫描 scenario/Town 与 RGB review coverage 做差集；
@@ -286,16 +288,6 @@
   和单例 note 必须直接携带 INVALID 子组。
   代码、prompt、训练/eval/audit 脚本、测试和运行文档允许修改、追踪、commit 和 push；训练/eval/checkpoint 大产物仍写入
   `AutoMoT/checkpoints/` 或本地输出目录。）
-- `AutoMoT/qwen3vl_local/sft_new_loop_phase2/run_leadmot_qwen_ab.sh` /
-  `compare_leadmot_qwen_ab.py`
-  （Phase2 v3 seed 20260810 的 step-4000 `fallback_generation` 自动下游收口实验；它是
-  未通过 UE3 production guard 的研究候选，不能借下游结果晋升 Phase2 production。不改 prompt、
-  不打开 unseen；先校验
-  prompt/hash/2RGB/seed；默认 LeadMoT train/val JSONL 同时缺失时从 `lead_data` 自动构建
-  no-subgoal 索引并执行异常 route 剔除与 route-level split，单边缺失则拒绝；再分别训练
-  base-Qwen 与 LoRA-Qwen 的 LeadMoT decoder；全量
-  eval 同 case 配对并按 route cluster bootstrap，只有 route/waypoint ADE/FDE 四项 95%
-  CI 上界均小于 0 才允许进入 CARLA。产物写 `AutoMoT/checkpoints/leadmot_qwen_adapter_ab/`，不入库。）
 - `AutoMoT/qwen3vl_local/sft_loop_phase3/`
   （按用户同意新增到白名单：Phase3 事件级 RS-gated 二值问答子包。复用 Phase2 风格构造已回答且默认正确的 RS context，并在训练/eval 中渲染成上一轮 assistant answer 作为 KV 前缀；`build_phase3_prompt` 默认只表示实际后一轮 user turn，不 inline Phase2，单串审计视图才显式开启 inline；eval case 必须保存实际多轮 messages 或拆开的 phase2 user / phase2 assistant / phase3 user prompt，避免 audit 误读 inline RS context；RS1/RS2 只问 UE1/UE3/UE5，RS4/RS5 只问 UE6，RE 统一为所有 UE=NO；UE2/UE4/UE7 由 Phase1 处理，UE8 默认并入 regular/RE。数据构建需剔除异常时长 route，训练/验证/测试保持 UE1:UE3:UE5:UE6 为 1:1:1:1，并默认加入约 20% wrong-RS invalid/not-applicable 样本；invalid 按 source_class / true_rs / fake_rs 均衡，R3/highway invalid 同时展开到 RS1/RS2/RS4/RS5，要求所有 UE=NO 且 `INVALID_RS_CONTEXT=YES`，eval/TB 必须记录 invalid joint/all-UE-NO 指标；prompt v2 强调弱 RGB 证据时保持 RE/all-NO、普通路口车辆不等于 UE6、事故/静态拥堵不等于 UE3、invalid 只表示 RS gate 明显不适用；训练默认 `REGULAR_FOCUS_MULTIPLIER=2.0` 只放大 RE hard negatives，UE 正类仍为 1:1:1:1，eval/generation 仍用均衡口径；DDP 训练必须按 global step 对齐各 rank，skip/超长样本跑短图文 DDP forward 并用 logits zero loss backward，避免 reducer、barrier 和 eval 分叉；`GRAD_ACCUM>1` 结尾残余梯度必须 flush，`SAVE_STEPS` 落在累积窗口中间时 checkpoint 延迟到下一次 optimizer step 后保存；训练/eval/probe/audit 脚本、prompt、运行文档允许修改、追踪、commit 和 push，训练/eval/checkpoint 等大产物仍写入 `AutoMoT/checkpoints/` 或本地输出目录。）
 - `AutoMoT/qwen3vl_local/sft_v2/__init__.py`

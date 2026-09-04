@@ -4,8 +4,10 @@
 输入沿用 `keyframe_filter/collection_output/*_result.json` 的逐帧 RS/EVENT 标注。
 构建流程会先剔除 noScenarios、异常时长 route、缺数据 route 和默认的视觉风险帧，
 再按 split 做确定性均衡：UE1/UE3/UE5/UE6 正类 1:1:1:1，RE 默认等于单个
-UE 桶，其中默认 25% 是 R3/highway hard negative；跨 ROAD_CORRIDOR / LOCAL_JUNCTION
-问题域的 invalid 默认占 valid 主数据 20%。索引中的 RGB 路径相对 data_root 保存。
+UE 桶，其中默认 25% 是无 cut-in 的 R3/highway hard negative；逐帧 RGB 人工确认的
+高速 cut-in 仍归入 UE3，并以 HIGHWAY_CUTIN 子型单独审计。跨 ROAD_CORRIDOR /
+LOCAL_JUNCTION 问题域的 invalid 默认占 valid 主数据 20%。索引中的 RGB 路径相对
+data_root 保存。
 """
 
 from __future__ import annotations
@@ -33,6 +35,12 @@ from qwen3vl_local.sft_new_loop_phase2.invalid_balance import (  # noqa: E402
     REQUIRED_SOURCE_CLASSES,
     REQUIRED_TRUE_RS,
     REQUIRED_WRONG_QUESTION_DOMAINS,
+)
+from qwen3vl_local.sft_new_loop_phase2.highway_ue3_audit import (  # noqa: E402
+    HIGHWAY_UE3_SUBTYPE,
+    OTHER_UE3_SUBTYPE,
+    load_highway_ue3_decisions,
+    ue3_subtype,
 )
 from qwen3vl_local.sft_new_loop_phase2.prompts import (  # noqa: E402
     ANSWER_KEYS,
@@ -108,10 +116,12 @@ def _target_class(rs: str, event_codes: Sequence[str]) -> Optional[str]:
     """把完整 EVENT taxonomy 折叠成四个 UE 正类与 RE。"""
 
     events = set(event_codes)
+    # U-E3 可作为 interrupted overlay 与 R4/R5 同时存在。这里保留显式源事件，
+    # 后续固定使用 ROAD_CORRIDOR 问法；仍禁止仅凭 RS/scenario 名称制造 UE3。
+    if "U-E3" in events:
+        return "UE3"
     if "U-E1" in events and rs in STRAIGHT_RS:
         return "UE1"
-    if "U-E3" in events and rs in STRAIGHT_RS:
-        return "UE3"
     if "U-E5" in events and rs in STRAIGHT_RS:
         return "UE5"
     if "U-E6" in events and rs in JUNCTION_RS:
@@ -119,6 +129,24 @@ def _target_class(rs: str, event_codes: Sequence[str]) -> Optional[str]:
     if rs in VALID_RS or rs == "R3":
         return "RE"
     return None
+
+
+def _target_question_domain(base: Mapping[str, Any], target_class: str) -> str:
+    """选择实际提问域；显式 U-E3 overlay 始终使用含 UE3 的道路问组。"""
+
+    if target_class == "UE3":
+        return ROAD_DOMAIN
+    return _native_question_domain(str(base["rs"]))
+
+
+def _can_construct_invalid_from(base: Mapping[str, Any]) -> bool:
+    """判断基础帧能否安全地产生跨域 INVALID，避免同图同问冲突。"""
+
+    rs = str(base["rs"])
+    target_class = str(base["target_event_class"])
+    if target_class == "UE3" and rs in JUNCTION_RS:
+        return False
+    return rs in VALID_RS or rs == "R3"
 
 
 def _history(run_dir: pathlib.Path, frame_id: int) -> Optional[List[str]]:
@@ -209,6 +237,11 @@ def _make_row(
         "event": base["primary_event"],
         "event_codes": list(event_codes),
         "target_event_class": target_class,
+        "ue3_subtype": ue3_subtype(
+            target_class=target_class,
+            explicit_subtype=str(base.get("ue3_subtype") or ""),
+        ),
+        "event_label_source": str(base.get("event_label_source") or "source_event_taxonomy"),
         "is_regular": target_class == "RE",
         "invalid_event_context": bool(invalid),
         "invalid_source": str(invalid_source),
@@ -329,6 +362,8 @@ def iter_base_frames(
     args: argparse.Namespace,
     risk_stats: Optional[Counter[str]] = None,
     observed_scenario_town_pairs: Optional[set[Tuple[str, str]]] = None,
+    highway_ue3_overrides: Optional[Mapping[Tuple[str, str, int], Mapping[str, Any]]] = None,
+    matched_highway_ue3_overrides: Optional[set[Tuple[str, str, int]]] = None,
 ) -> Iterable[Dict[str, Any]]:
     """流式遍历可用基础帧，并可记录本次实际扫描到的 route-level scenario/Town。"""
 
@@ -364,7 +399,18 @@ def iter_base_frames(
                     continue
                 rs = _rs_label(ann)
                 event_codes = _event_codes(ann)
-                target_class = _target_class(rs, event_codes)
+                decision_key = (scenario, route_id, frame_id)
+                highway_decision = (highway_ue3_overrides or {}).get(decision_key)
+                if highway_decision is not None:
+                    expected_split = str(highway_decision.get("expected_split") or "")
+                    if expected_split != split:
+                        raise ValueError(
+                            "highway UE3 RGB decision split drift: "
+                            f"case={decision_key} expected={expected_split} actual={split}"
+                        )
+                    target_class = "UE3"
+                else:
+                    target_class = _target_class(rs, event_codes)
                 if target_class is None:
                     continue
                 risk, reasons = frame_visual_risk(ann)
@@ -372,15 +418,19 @@ def iter_base_frames(
                     risk_stats["risk_frames_seen"] += 1
                     for reason in reasons:
                         risk_stats[f"reason/{reason}"] += 1
-                if risk and not args.include_visual_risk:
+                if risk and not args.include_visual_risk and highway_decision is None:
                     if risk_stats is not None:
                         risk_stats["risk_frames_excluded"] += 1
                     continue
                 if risk and risk_stats is not None:
                     risk_stats["risk_frames_retained"] += 1
+                    if highway_decision is not None:
+                        risk_stats["risk_frames_retained_by_highway_ue3_rgb_override"] += 1
                 history_abs = _history(run_dir, frame_id)
                 if history_abs is None:
                     continue
+                if highway_decision is not None and matched_highway_ue3_overrides is not None:
+                    matched_highway_ue3_overrides.add(decision_key)
                 history = _relative_history_paths(history_abs, data_root)
                 yield {
                     "scenario": scenario,
@@ -392,6 +442,12 @@ def iter_base_frames(
                     "primary_event": str(ann.get("primary_event") or "UNKNOWN"),
                     "event_codes": event_codes,
                     "target_event_class": target_class,
+                    "ue3_subtype": HIGHWAY_UE3_SUBTYPE if highway_decision is not None else "",
+                    "event_label_source": (
+                        "manual_highway_ue3_rgb_decision_v1"
+                        if highway_decision is not None
+                        else "source_event_taxonomy"
+                    ),
                     "visual_label_risk": risk,
                     "visual_label_risk_reasons": reasons,
                     "history_rgb_paths": history,
@@ -435,19 +491,46 @@ def _balanced_rows_by_split(args: argparse.Namespace, risk_stats: Counter[str]) 
     invalid_sources: Dict[str, List[Mapping[str, Any]]] = defaultdict(list)
     raw_counts: Counter[str] = Counter()
     actual_scenario_town_pairs: set[Tuple[str, str]] = set()
+    highway_ue3_overrides, highway_ue3_decision_report = load_highway_ue3_decisions(
+        pathlib.Path(args.highway_ue3_rgb_decisions)
+    )
+    matched_highway_ue3_overrides: set[Tuple[str, str, int]] = set()
     for base in iter_base_frames(
         args,
         risk_stats,
         observed_scenario_town_pairs=actual_scenario_town_pairs,
+        highway_ue3_overrides=highway_ue3_overrides,
+        matched_highway_ue3_overrides=matched_highway_ue3_overrides,
     ):
         split = str(base["split"])
         target_class = str(base["target_event_class"])
         actual_scenario_town_pairs.add((str(base["scenario"]), str(base["town"])))
         buckets[split][target_class].append(base)
         raw_counts[f"{split}/{target_class}"] += 1
+        if str(base.get("ue3_subtype") or "") == HIGHWAY_UE3_SUBTYPE:
+            raw_counts[f"{split}/UE3/{HIGHWAY_UE3_SUBTYPE}"] += 1
         rs = str(base["rs"])
-        if rs in VALID_RS or rs == "R3":
+        # R4/R5 interrupted overlay 的显式 U-E3 已把 ROAD_CORRIDOR 定义为本帧
+        # 的合法问题域；不能再把同图同问构造成 all-NO INVALID 冲突监督。
+        if _can_construct_invalid_from(base):
             invalid_sources[split].append(base)
+
+    selected_scenarios = (
+        None
+        if str(args.scenarios) == "all"
+        else {item.strip() for item in str(args.scenarios).split(",") if item.strip()}
+    )
+    expected_overrides = {
+        key
+        for key in highway_ue3_overrides
+        if selected_scenarios is None or key[0] in selected_scenarios
+    }
+    missing_overrides = sorted(expected_overrides - matched_highway_ue3_overrides)
+    if bool(args.require_highway_ue3_decisions) and int(args.max_routes) == 0 and missing_overrides:
+        raise ValueError(
+            "RGB-reviewed highway UE3 frames were not found in the usable data pool; "
+            f"missing={missing_overrides[:20]} total={len(missing_overrides)}"
+        )
 
     rows: List[Dict[str, Any]] = []
     balance_report: Dict[str, Any] = {}
@@ -470,16 +553,54 @@ def _balanced_rows_by_split(args: argparse.Namespace, risk_stats: Counter[str]) 
 
         sampled: List[Dict[str, Any]] = []
         for target_class in EVENT_KEYS:
-            for base in _sample_bucket(
-                split_buckets[target_class],
-                target=per_ue,
-                rng=rng,
-                route_diverse=split == "train",
-            ):
+            class_candidates = list(split_buckets[target_class])
+            if target_class == "UE3":
+                highway_candidates = [
+                    base
+                    for base in class_candidates
+                    if str(base.get("ue3_subtype") or "") == HIGHWAY_UE3_SUBTYPE
+                ]
+                other_candidates = [
+                    base
+                    for base in class_candidates
+                    if str(base.get("ue3_subtype") or "") != HIGHWAY_UE3_SUBTYPE
+                ]
+                highway_target = 0
+                if highway_candidates and per_ue > 0:
+                    highway_target = max(
+                        1,
+                        int(round(float(args.highway_ue3_fraction) * float(per_ue))),
+                    )
+                    if other_candidates and per_ue > 1:
+                        highway_target = min(highway_target, per_ue - 1)
+                    highway_target = min(highway_target, len(highway_candidates), per_ue)
+                selected_class = [
+                    *_sample_bucket(
+                        highway_candidates,
+                        target=highway_target,
+                        rng=rng,
+                        route_diverse=split == "train",
+                    ),
+                    *_sample_bucket(
+                        other_candidates,
+                        target=per_ue - highway_target,
+                        rng=rng,
+                        route_diverse=split == "train",
+                    ),
+                ]
+                rng.shuffle(selected_class)
+            else:
+                selected_class = _sample_bucket(
+                    class_candidates,
+                    target=per_ue,
+                    rng=rng,
+                    route_diverse=split == "train",
+                )
+            for base in selected_class:
                 sampled.append(
                     _make_row(
                         base=base,
-                        question_domain=_native_question_domain(str(base["rs"])),
+                        question_domain=_target_question_domain(base, target_class),
                         target_class=target_class,
                         invalid=False,
                     )
@@ -553,6 +674,39 @@ def _balanced_rows_by_split(args: argparse.Namespace, risk_stats: Counter[str]) 
             "sampled_counts": dict(Counter(row["target_event_class"] for row in sampled)),
             "sampled_question_domain_counts": dict(Counter(row["question_domain"] for row in sampled)),
             "sampled_true_rs_counts": dict(Counter(row["true_rs"] for row in sampled)),
+            "ue3_subtype_counts": {
+                "raw": dict(
+                    Counter(
+                        ue3_subtype(
+                            target_class="UE3",
+                            explicit_subtype=str(base.get("ue3_subtype") or ""),
+                        )
+                        for base in split_buckets.get("UE3", [])
+                    )
+                ),
+                "sampled": dict(
+                    Counter(
+                        str(row.get("ue3_subtype") or OTHER_UE3_SUBTYPE)
+                        for row in sampled
+                        if row["target_event_class"] == "UE3"
+                    )
+                ),
+            },
+            "ue3_scenario_counts": {
+                "raw": dict(
+                    Counter(
+                        str(base.get("scenario") or "UNKNOWN")
+                        for base in split_buckets.get("UE3", [])
+                    )
+                ),
+                "sampled": dict(
+                    Counter(
+                        str(row.get("scenario") or "UNKNOWN")
+                        for row in sampled
+                        if row["target_event_class"] == "UE3"
+                    )
+                ),
+            },
             "route_diverse_sampling": split == "train",
             "raw_route_diversity": raw_by_class,
             "sampled_route_diversity": {
@@ -576,6 +730,12 @@ def _balanced_rows_by_split(args: argparse.Namespace, risk_stats: Counter[str]) 
             {"scenario": scenario, "town": town}
             for scenario, town in sorted(actual_scenario_town_pairs)
         ],
+        "highway_ue3_rgb_decisions": {
+            **highway_ue3_decision_report,
+            "matched_positive_frames": len(matched_highway_ue3_overrides),
+            "missing_positive_frames": len(missing_overrides),
+            "missing_positive_examples": [list(key) for key in missing_overrides[:20]],
+        },
     }
 
 
@@ -647,16 +807,18 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         raise
     temporary.replace(target)
     manifest = {
-        "format": "sft_new_loop_phase2_frame_index_v1",
+        "format": "sft_new_loop_phase2_frame_index_v2_highway_ue3",
         "dataset_name": DATASET_NAME,
         "frame_index": str(target),
-        "event_label_contract": "Targets only UE1/UE3/UE5/UE6. UE2/UE4/UE7/UE8 and all R-E codes are folded into valid RE for this phase.",
+        "event_label_contract": "Targets only UE1/UE3/UE5/UE6. Every explicit source U-E3 is retained and asked through ROAD_CORRIDOR even when it is an R4/R5 interrupted overlay. RGB-reviewed highway cut-in remains UE3 and is audited as subtype HIGHWAY_CUTIN; an R3/scenario name alone remains RE. UE2/UE4/UE7/UE8 and all R-E codes are otherwise folded into valid RE for this phase.",
         "input_contract": "The model receives one image+text user turn and directly answers UE plus INVALID_EVENT_CONTEXT. No synthetic ROAD_STRUCTURE user turn, assistant answer, RS token, or Phase2 KV prefix is rendered. Internal question_domain only selects ROAD_CORRIDOR versus LOCAL_JUNCTION questions.",
         "invalid_contract": "Invalid rows cross the ROAD_CORRIDOR/LOCAL_JUNCTION question domains, are balanced by source class and true RS, and require all UE=NO plus INVALID_EVENT_CONTEXT=YES. Low visibility, congestion, ordinary queues, and absence of UE remain valid.",
-        "balance_contract": "Within every split, UE1/UE3/UE5/UE6 positives are sampled 1:1:1:1. Train uses route-round-robin selection before taking additional frames from the same route; val/test retain the legacy deterministic frame sampler so frozen case identities remain comparable. RE defaults to one UE bucket with an explicit R3/highway fraction. Invalid defaults to 20% of valid main data.",
+        "balance_contract": "Within every split, UE1/UE3/UE5/UE6 positives are sampled 1:1:1:1. UE3 reserves explicit RGB-reviewed HIGHWAY_CUTIN examples inside the same class. Train uses route-round-robin selection; val/test use deterministic subtype-aware sampling. Rebuilding this v2 index changes identities and must not be presented as the historical v3 frozen set. RE defaults to one UE bucket with an explicit no-cutin R3/highway fraction. Invalid defaults to 20% of valid main data.",
         "target_per_ue": int(args.target_per_ue),
         "regular_multiplier": float(args.regular_multiplier),
         "highway_regular_fraction": float(args.highway_regular_fraction),
+        "highway_ue3_fraction": float(args.highway_ue3_fraction),
+        "highway_ue3_rgb_decisions": balance["highway_ue3_rgb_decisions"],
         "invalid_ratio": float(args.invalid_ratio),
         "data_root": str(pathlib.Path(args.data_root)),
         "rgb_path_contract": "history_rgb_paths/latest_rgb_path are relative to --data-root; train/eval remap them with their own --data-root.",
@@ -711,6 +873,23 @@ def parse_args() -> argparse.Namespace:
         default=0.25,
         help="fraction of the RE bucket reserved for valid R3/highway all-NO hard negatives",
     )
+    p.add_argument(
+        "--highway-ue3-fraction",
+        type=float,
+        default=0.125,
+        help="fraction of each sampled UE3 bucket reserved for explicit RGB-reviewed highway cut-in frames",
+    )
+    p.add_argument(
+        "--highway-ue3-rgb-decisions",
+        default=str(_THIS.with_name("highway_ue3_rgb_decisions_v1.jsonl")),
+        help="source-controlled RGB-reviewed highway UE3 span decisions; scenario/R3 never auto-labels positives",
+    )
+    p.add_argument(
+        "--require-highway-ue3-decisions",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="require every selected positive decision frame to survive full dataset discovery",
+    )
     p.add_argument("--invalid-ratio", type=float, default=0.20, help="cross-domain invalid rows as a fraction of valid main rows")
     p.add_argument("--max-routes", type=int, default=0)
     p.add_argument("--progress-every-routes", type=int, default=100)
@@ -720,6 +899,8 @@ def parse_args() -> argparse.Namespace:
         raise ValueError("--regular-multiplier must be positive; RE is a required balance bucket")
     if not 0.0 <= float(args.highway_regular_fraction) <= 1.0:
         raise ValueError("--highway-regular-fraction must be in [0, 1]")
+    if not 0.0 <= float(args.highway_ue3_fraction) <= 1.0:
+        raise ValueError("--highway-ue3-fraction must be in [0, 1]")
     if not 0.0 < float(args.invalid_ratio) <= 1.0:
         raise ValueError("--invalid-ratio must be in (0, 1]; INVALID is a required balance bucket")
     return args

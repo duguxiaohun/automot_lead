@@ -29,6 +29,7 @@ TARGETS = (
     "ue1_fn",
     "ue1_fp",
     "ue3_fn",
+    "highway_ue3_fn",
     "ue3_fp",
     "ue5_fn",
     "ue5_fp",
@@ -97,6 +98,8 @@ def _target_matches(payload: Mapping[str, Any]) -> List[str]:
         lower = key.lower()
         if gt.get(key) == "YES" and parsed.get(key) != "YES":
             matched.append(f"{lower}_fn")
+            if key == "UE3" and str(payload.get("ue3_subtype") or "") == "HIGHWAY_CUTIN":
+                matched.append("highway_ue3_fn")
         if gt.get(key) == "NO" and parsed.get(key) == "YES":
             matched.append(f"{lower}_fp")
     if gt.get(INVALID_KEY) == "YES" and parsed.get(INVALID_KEY) != "YES":
@@ -167,6 +170,7 @@ def _copy_case(payload: Mapping[str, Any], *, target: str, index: int, output_di
         "true_rs": payload.get("true_rs"),
         "question_domain": payload.get("question_domain"),
         "invalid_source": payload.get("invalid_source"),
+        "ue3_subtype": payload.get("ue3_subtype"),
         "invalid_subgroups": payload.get("invalid_subgroups"),
         "event": payload.get("event"),
         "gt": payload.get("gt"),
@@ -193,6 +197,7 @@ def _render_note(row: Mapping[str, Any]) -> str:
             f"- frame: `{row['frame_id']}`",
             f"- true_rs/question_domain/event: `{row['true_rs']}` / `{row['question_domain']}` / `{row['event']}`",
             f"- invalid_source: `{row.get('invalid_source') or 'n/a'}`",
+            f"- UE3 audit subtype: `{row.get('ue3_subtype') or 'n/a'}`",
             f"- invalid_subgroups: `{json.dumps(row.get('invalid_subgroups') or {}, ensure_ascii=False)}`",
             f"- gt: `{json.dumps(row['gt'], ensure_ascii=False)}`",
             f"- parsed: `{json.dumps(row['parsed'], ensure_ascii=False)}`",
@@ -208,6 +213,8 @@ def _render_note(row: Mapping[str, Any]) -> str:
             "- road question-domain visually applicable: `YES / NO / AMBIGUOUS`",
             "- error owner: `MODEL / LABEL_OR_BOUNDARY / BOTH / FORMAT`",
             "- UE1 vs UE3 dominant cue: `LONGITUDINAL_SLOWDOWN / LATERAL_ENTRY / N/A`",
+            "- highway UE3 lane-divider relation t0→newest: `OUTSIDE / CROSSING_IN / SETTLED / N/A`",
+            "- highway UE3 false cue (parallel/following/ego overtaking): `YES / NO / N/A`",
             "- UE5 actor still invading at newest frame: `YES / NO / N/A`",
             "- UE6 visible violation cue, not mere junction presence: `YES / NO / N/A`",
             "- notes: `...`",
@@ -281,6 +288,13 @@ def build_audit_samples(args: argparse.Namespace) -> Dict[str, Any]:
         "scan_counts": dict(scan_counts),
         "selected": len(manifest_rows),
         "selected_by_target": dict(Counter(row["target"] for row in manifest_rows)),
+        "selected_ue3_subtypes": dict(
+            Counter(
+                str(row.get("ue3_subtype") or "OTHER_OR_NOT_UE3")
+                for row in manifest_rows
+                if row.get("target") in {"ue3_fn", "highway_ue3_fn", "ue3_fp"}
+            )
+        ),
         "selected_invalid_subgroups": {
             dimension: dict(sorted(counter.items()))
             for dimension, counter in sorted(invalid_subgroup_counts.items())
@@ -309,6 +323,14 @@ def _render_summary(summary: Mapping[str, Any]) -> str:
     ]
     for key, value in sorted((summary.get("selected_by_target") or {}).items()):
         lines.append(f"- `{key}`: {value}")
+    lines.extend(
+        [
+            "",
+            "## Selected UE3 Subtypes",
+            "",
+            f"- `{json.dumps(summary.get('selected_ue3_subtypes') or {}, ensure_ascii=False, sort_keys=True)}`",
+        ]
+    )
     lines.extend(["", "## Selected INVALID Subgroups", ""])
     invalid_subgroups = summary.get("selected_invalid_subgroups") or {}
     if not invalid_subgroups:
@@ -333,7 +355,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=20260819)
     p.add_argument(
         "--targets",
-        default="invalid_answer,ue1_fn,ue1_fp,ue3_fn,ue3_fp,ue5_fn,ue5_fp,ue6_fn,ue6_fp,invalid_context_fn,invalid_context_fp,invalid_context_not_all_no,multi_ue_yes",
+        default="invalid_answer,ue1_fn,ue1_fp,ue3_fn,highway_ue3_fn,ue3_fp,ue5_fn,ue5_fp,ue6_fn,ue6_fp,invalid_context_fn,invalid_context_fp,invalid_context_not_all_no,multi_ue_yes",
     )
     p.add_argument("--overwrite", action="store_true")
     return p.parse_args()

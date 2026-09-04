@@ -2,9 +2,9 @@
 # 新 Phase2 一键评测：base production/audit -> LoRA production/audit -> error audit -> <=30MB 审计包。
 #
 # 从 AutoMoT/ 目录运行：
-#   ADAPTER_DIR=checkpoints/sft_new_loop_phase2_runs/latest/best_generation bash qwen3vl_local/sft_new_loop_phase2/eval.sh
+#   ADAPTER_DIR=checkpoints/sft_new_loop_phase2_runs/latest/final bash qwen3vl_local/sft_new_loop_phase2/eval.sh
 # 或：
-#   bash qwen3vl_local/sft_new_loop_phase2/eval.sh checkpoints/sft_new_loop_phase2_runs/latest/best_generation
+#   bash qwen3vl_local/sft_new_loop_phase2/eval.sh checkpoints/sft_new_loop_phase2_runs/latest/final
 
 set -euo pipefail
 
@@ -25,6 +25,7 @@ INDEX="${INDEX:-checkpoints/sft_new_loop_phase2_data/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 SPLIT="${SPLIT:-test}"
 CASES_PER_BIN="${CASES_PER_BIN:-64}"
+HIGHWAY_UE3_FRACTION="${HIGHWAY_UE3_FRACTION:-0.125}"
 ROUTE_DIVERSE_SAMPLING="${ROUTE_DIVERSE_SAMPLING:-0}"
 EXCLUDE_CASES_JSONL="${EXCLUDE_CASES_JSONL:-}"
 EXPECTED_EXCLUDED_CASES="${EXPECTED_EXCLUDED_CASES:-0}"
@@ -66,14 +67,13 @@ fi
 resolve_adapter_dir() {
   local input="$1"
   local candidate
-  for candidate in "${input}/best_generation" "${input}"; do
+  for candidate in "${input}/best_generation" "${input}/final" "${input}/fallback_generation" "${input}"; do
     if [[ -f "${candidate}/${ADAPTER_CONFIG_NAME}" ]]; then
       echo "${candidate}"
       return 0
     fi
   done
-  echo "Cannot resolve ${PHASE_NAME} adapter from ${input}; pass an exact adapter or a run containing production-ready best_generation." >&2
-  echo "Pass best_val/final/fallback_generation explicitly only for diagnostic evaluation." >&2
+  echo "Cannot resolve ${PHASE_NAME} adapter from ${input}; expected best_generation, final, fallback_generation, or an exact adapter." >&2
   return 1
 }
 
@@ -404,7 +404,7 @@ def copy_dataset_metadata() -> list[str]:
 
     copied: list[str] = []
     index_path = pathlib.Path(os.environ.get("INDEX", ""))
-    for name in ("manifest.json", "visual_audit_manifest.json"):
+    for name in ("manifest.json", "visual_audit_manifest.json", "highway_ue3_audit.json"):
         src = index_path.parent / name
         if not src.is_file():
             continue
@@ -443,6 +443,7 @@ def build_attempt(case_limit: int, audit_limit: int, max_side: int, quality: int
         "review_focus": [
             "production exact/format and base-to-LoRA delta",
             "UE1/UE3/UE5/UE6 per-question precision recall F1 and class exact",
+            "UE3 overall plus RGB-reviewed HIGHWAY_CUTIN versus OTHER_UE3 subtype recall/exact",
             "applicable RE with highway R3 and local-junction hard-negative slices",
             "INVALID all-UE-NO joint guard plus source/true-RS/wrong-domain/joint-signature exact",
             "production versus audit-prompt consistency and strict evidence format",
@@ -524,6 +525,7 @@ LORA_AUDIT_EVAL_DIR="${OUTPUT_ROOT}/lora_audit_prompt"
 run_eval "base production" \
   --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
   --history-rgb-mode "${BASE_HISTORY_RGB_MODE}" --cases-per-bin "${CASES_PER_BIN}" \
+  --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION}" \
   "${ROUTE_DIVERSE_ARGS[@]}" \
   "${EXCLUSION_ARGS[@]}" \
   --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
@@ -533,6 +535,7 @@ if [[ "${RUN_AUDIT_PROMPT_EVAL}" == "1" ]]; then
   run_eval "base audit-prompt" \
     --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
     --history-rgb-mode "${BASE_HISTORY_RGB_MODE}" --cases-per-bin "${CASES_PER_BIN}" \
+    --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION}" \
     "${ROUTE_DIVERSE_ARGS[@]}" \
     "${EXCLUSION_ARGS[@]}" \
     --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
@@ -542,6 +545,7 @@ fi
 run_eval "LoRA production" \
   --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
   --adapter-dir "${ADAPTER_DIR}" --cases-per-bin "${CASES_PER_BIN}" \
+  --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION}" \
   "${ROUTE_DIVERSE_ARGS[@]}" \
   "${EXCLUSION_ARGS[@]}" \
   --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
@@ -551,6 +555,7 @@ if [[ "${RUN_AUDIT_PROMPT_EVAL}" == "1" ]]; then
   run_eval "LoRA audit-prompt" \
     --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" --split "${SPLIT}" \
     --adapter-dir "${ADAPTER_DIR}" --cases-per-bin "${CASES_PER_BIN}" \
+    --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION}" \
     "${ROUTE_DIVERSE_ARGS[@]}" \
     "${EXCLUSION_ARGS[@]}" \
     --max-frames "${MAX_EVAL_FRAMES}" --max-new-tokens "${MAX_NEW_TOKENS}" \
