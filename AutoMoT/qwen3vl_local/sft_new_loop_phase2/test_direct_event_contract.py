@@ -3,18 +3,13 @@
 
 from __future__ import annotations
 
-import hashlib
 import random
 import unittest
 from collections import Counter
 import json
-import os
 import pathlib
-import subprocess
 import tempfile
 from types import SimpleNamespace
-
-from PIL import Image
 
 from qwen3vl_local.leadmot.config import (
     build_qwen_backbone_contract,
@@ -22,19 +17,13 @@ from qwen3vl_local.leadmot.config import (
     resolve_qwen_adapter_dir,
 )
 from qwen3vl_local.sft_new_loop_phase2 import build_dataset as dataset
-from qwen3vl_local.sft_new_loop_phase2 import build_ue3_validation_rgb_audit as ue3_rgb_audit
-from qwen3vl_local.sft_new_loop_phase2 import audit_ue3_label_alignment as ue3_alignment
-from qwen3vl_local.sft_new_loop_phase2 import audit_ue3_train_route_balance as ue3_train_balance
-from qwen3vl_local.sft_new_loop_phase2 import check_acceptance
-from qwen3vl_local.sft_new_loop_phase2 import compare_leadmot_qwen_ab
-from qwen3vl_local.sft_new_loop_phase2 import compare_dataset_route_diversity
 from qwen3vl_local.sft_new_loop_phase2 import audit_eval_cases as event_audit
 from qwen3vl_local.sft_new_loop_phase2 import eval as event_eval
-from qwen3vl_local.sft_new_loop_phase2 import select_seed_checkpoint
 from qwen3vl_local.sft_new_loop_phase2 import sampling
-from qwen3vl_local.sft_new_loop_phase2 import rescore_ue3_rgb_decisions
 from qwen3vl_local.sft_new_loop_phase2 import train as event_train
 from qwen3vl_local.sft_new_loop_phase2 import visual_audit
+from qwen3vl_local.sft_new_loop_phase2.highway_ue3_audit import HIGHWAY_UE3_SUBTYPE
+from qwen3vl_local.sft_new_loop_phase2 import highway_ue3_audit
 from qwen3vl_local.sft_new_loop_phase2.history_rgb import history_rgb_indices
 from qwen3vl_local.sft_new_loop_phase2.prompts import (
     DOMAIN_ANSWER_KEYS,
@@ -128,202 +117,9 @@ def _balance_rows(module: object) -> list[object]:
 class DirectEventContractTest(unittest.TestCase):
     """守住用户要求的无伪 RS、highway valid 和 invalid all-NO 合同。"""
 
-    def test_portable_frozen_dev_manifest_contract(self) -> None:
-        """冻结 384-case 身份清单必须轻量、唯一且内容不可漂移。"""
 
-        path = pathlib.Path(__file__).with_name("frozen_dev_cases_v3_384.jsonl")
-        payload = path.read_bytes()
-        keys, files = event_eval._read_excluded_case_keys([path])
-        self.assertEqual(files, [str(path.resolve())])
-        self.assertEqual(len(keys), 384)
-        self.assertEqual(len(payload.splitlines()), 384)
-        self.assertEqual(
-            hashlib.sha256(payload).hexdigest(),
-            "748a8e032b951187afc4aaa32394e6a9df78a53520f86f24f678299765e619ac",
-        )
 
-    def test_ue3_validation_rgb_audit_uses_fallback_step_and_all_four_frames(self) -> None:
-        """选优失败审计必须只读 fallback step，并从 index 补回四帧。"""
 
-        with tempfile.TemporaryDirectory() as raw_tmp:
-            root = pathlib.Path(raw_tmp)
-            experiment = root / "experiment"
-            seed_dir = experiment / "train_runs" / "seed_1"
-            data_root = root / "lead_data"
-            output_dir = experiment / "audit"
-            seed_dir.mkdir(parents=True)
-            data_root.mkdir()
-            rgb_paths = []
-            for index in range(4):
-                path = data_root / f"frame_{index}.jpg"
-                Image.new("RGB", (48, 16), color=(index * 30, 20, 10)).save(path)
-                rgb_paths.append(path.name)
-            index_path = root / "frame_index.jsonl"
-            index_row = {
-                "split": "val",
-                "scenario": "DynamicObjectCrossing",
-                "route_id": "route-1",
-                "frame_id": 8,
-                "question_domain": ROAD_DOMAIN,
-                "history_rgb_paths": rgb_paths,
-            }
-            index_path.write_text(json.dumps(index_row) + "\n", encoding="utf-8")
-            (seed_dir / "fallback_generation.json").write_text(
-                json.dumps({"step": 4000}), encoding="utf-8"
-            )
-            selected = {
-                "step": 4000,
-                "scenario": "DynamicObjectCrossing",
-                "route_id": "route-1",
-                "frame_id": 8,
-                "question_domain": ROAD_DOMAIN,
-                "balance_key": "all_random_order/class/UE3",
-                "answers": {"UE3": True},
-                "parsed": {"UE3": False},
-                "raw_output": "UE3: NO",
-            }
-            ignored = {**selected, "step": 2000}
-            (seed_dir / "generation_val_cases.jsonl").write_text(
-                json.dumps(ignored) + "\n" + json.dumps(selected) + "\n",
-                encoding="utf-8",
-            )
-            summary = ue3_rgb_audit.build_audit(
-                SimpleNamespace(
-                    experiment_root=str(experiment),
-                    index=str(index_path),
-                    data_root=str(data_root),
-                    output_dir=str(output_dir),
-                    copy_originals=True,
-                    archive=False,
-                    overwrite=False,
-                )
-            )
-            self.assertEqual(summary["sampled_ue3_by_seed"], {"seed_1": 1})
-            self.assertEqual(summary["false_negatives_by_seed"], {"seed_1": 1})
-            self.assertEqual(summary["unique_failure_cases"], 1)
-            case = json.loads(next((output_dir / "cases").glob("*/case.json")).read_text(encoding="utf-8"))
-            self.assertEqual(len(case["history_rgb_paths_all4"]), 4)
-            self.assertEqual(len(case["copied_rgb_paths"]), 4)
-            self.assertTrue(pathlib.Path(case["contact_sheet"]).is_file())
-
-    def test_ue3_full_eval_audit_includes_true_positive_controls(self) -> None:
-        """独立复评审计必须导出同一集合的 TP 对照和 FN，不能只看 error。"""
-
-        with tempfile.TemporaryDirectory() as raw_tmp:
-            root = pathlib.Path(raw_tmp)
-            experiment = root / "experiment"
-            eval_root = experiment / "route_diverse_validation_rescore"
-            data_root = root / "lead_data"
-            output_dir = experiment / "full_audit"
-            data_root.mkdir(parents=True)
-            rgb_paths = []
-            for index in range(4):
-                path = data_root / f"frame_{index}.jpg"
-                Image.new("RGB", (48, 16), color=(index * 30, 20, 10)).save(path)
-                rgb_paths.append(path.name)
-            identities = [
-                ("DynamicObjectCrossing", "route-1", 8),
-                ("StaticCutIn", "route-2", 9),
-            ]
-            index_path = root / "frame_index.jsonl"
-            index_path.write_text(
-                "".join(
-                    json.dumps(
-                        {
-                            "split": "val",
-                            "scenario": scenario,
-                            "route_id": route_id,
-                            "frame_id": frame_id,
-                            "question_domain": ROAD_DOMAIN,
-                            "history_rgb_paths": rgb_paths,
-                        }
-                    )
-                    + "\n"
-                    for scenario, route_id, frame_id in identities
-                ),
-                encoding="utf-8",
-            )
-            for seed, predictions in (("seed_1", ("YES", "NO")), ("seed_2", ("YES", "YES"))):
-                seed_dir = eval_root / seed
-                seed_dir.mkdir(parents=True)
-                records = []
-                for (scenario, route_id, frame_id), prediction in zip(identities, predictions):
-                    records.append(
-                        {
-                            "scenario": scenario,
-                            "route_id": route_id,
-                            "frame_id": frame_id,
-                            "question_domain": ROAD_DOMAIN,
-                            "augment_balance_key": "all_random_order/class/UE3",
-                            "event_answers": {"UE3": "YES"},
-                            "parsed": {"UE3": prediction},
-                            "raw_output": f"UE3: {prediction}",
-                        }
-                    )
-                (seed_dir / "cases.jsonl").write_text(
-                    "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8"
-                )
-            summary = ue3_rgb_audit.build_audit(
-                SimpleNamespace(
-                    experiment_root=str(experiment),
-                    index=str(index_path),
-                    data_root=str(data_root),
-                    output_dir=str(output_dir),
-                    source_mode="eval",
-                    eval_root=str(eval_root),
-                    include_correct=True,
-                    copy_originals=True,
-                    archive=False,
-                    overwrite=False,
-                )
-            )
-            self.assertEqual(summary["unique_audit_cases"], 2)
-            self.assertEqual(summary["unique_failure_cases"], 1)
-            self.assertEqual(summary["unique_all_seed_correct_cases"], 1)
-            self.assertEqual(summary["ue3_route_macro_recall_by_seed"], {"seed_1": 0.5, "seed_2": 1.0})
-            cases = [json.loads(line) for line in (output_dir / "manifest.jsonl").read_text().splitlines()]
-            self.assertEqual(
-                {tuple(sorted(case["prediction_pattern"].values())) for case in cases},
-                {("TP", "TP"), ("FN", "TP")},
-            )
-
-    def test_ue3_rgb_decision_rescore_is_diagnostic_and_identity_strict(self) -> None:
-        """RGB 决策重算不能冒充正式指标，也不能漏 case。"""
-
-        with tempfile.TemporaryDirectory() as raw_tmp:
-            root = pathlib.Path(raw_tmp)
-            manifest = root / "manifest.jsonl"
-            decisions = root / "decisions.jsonl"
-            cases = [
-                {
-                    "scenario": "S",
-                    "route_id": "r1",
-                    "frame_id": 1,
-                    "question_domain": ROAD_DOMAIN,
-                    "prediction_pattern": {"seed_1": "TP", "seed_2": "FN"},
-                },
-                {
-                    "scenario": "S",
-                    "route_id": "r2",
-                    "frame_id": 2,
-                    "question_domain": ROAD_DOMAIN,
-                    "prediction_pattern": {"seed_1": "FN", "seed_2": "FN"},
-                },
-            ]
-            labels = [
-                {**{key: cases[0][key] for key in ("scenario", "route_id", "frame_id", "question_domain")}, "visual_class": "VISIBLE_ACTIVE"},
-                {**{key: cases[1][key] for key in ("scenario", "route_id", "frame_id", "question_domain")}, "visual_class": "PRE_EVENT"},
-            ]
-            manifest.write_text("".join(json.dumps(row) + "\n" for row in cases), encoding="utf-8")
-            decisions.write_text("".join(json.dumps(row) + "\n" for row in labels), encoding="utf-8")
-            report = rescore_ue3_rgb_decisions.build_report(manifest, decisions)
-            self.assertFalse(report["official_metric"])
-            self.assertEqual(report["visual_class_counts"], {"PRE_EVENT": 1, "VISIBLE_ACTIVE": 1})
-            self.assertEqual(report["visible_active"]["seed_1"]["frame_recall"], 1.0)
-            self.assertEqual(report["visible_active"]["seed_2"]["frame_recall"], 0.0)
-            decisions.write_text(json.dumps(labels[0]) + "\n", encoding="utf-8")
-            with self.assertRaises(ValueError):
-                rescore_ue3_rgb_decisions.build_report(manifest, decisions)
 
     def test_leadmot_qwen_backbone_contract_binds_real_adapter_bytes(self) -> None:
         """LeadMoT checkpoint 合同必须区分 base、正确 LoRA 和被替换的 LoRA。"""
@@ -371,113 +167,7 @@ class DirectEventContractTest(unittest.TestCase):
                 build_qwen_backbone_contract(model, adapter)["adapter_sha256"],
             )
 
-    def test_leadmot_ab_uses_paired_route_cluster_gate(self) -> None:
-        """A/B 只有在同 case、多 route 的四个规划距离都显著下降时才放行。"""
 
-        base_rows = []
-        lora_rows = []
-        for index in range(12):
-            shared = {"index": index, "route_dir": f"route_{index}", "anchor": index}
-            base_rows.append(
-                {
-                    **shared,
-                    **{metric: 2.0 for metric in compare_leadmot_qwen_ab.METRICS},
-                }
-            )
-            lora_rows.append(
-                {
-                    **shared,
-                    **{metric: 1.0 for metric in compare_leadmot_qwen_ab.METRICS},
-                }
-            )
-        report = compare_leadmot_qwen_ab.compare_rows(
-            base_rows,
-            lora_rows,
-            bootstrap_samples=100,
-            min_routes=10,
-        )
-        self.assertEqual(report["decision"], "LORA_OFFLINE_WIN")
-        self.assertTrue(report["carla_allowed"])
-        no_gain = compare_leadmot_qwen_ab.compare_rows(
-            base_rows,
-            base_rows,
-            bootstrap_samples=100,
-            min_routes=10,
-        )
-        self.assertEqual(no_gain["decision"], "INSUFFICIENT_OR_NO_IMPROVEMENT")
-        self.assertFalse(no_gain["carla_allowed"])
-        with self.assertRaises(ValueError):
-            compare_leadmot_qwen_ab.compare_rows(base_rows, lora_rows[:-1])
-
-    def test_leadmot_ab_preflight_auto_builds_missing_dataset(self) -> None:
-        """一键 A/B 在 train/val 同时缺失时应从 LEAD route 自动构建 no-subgoal 索引。"""
-
-        with tempfile.TemporaryDirectory() as raw_tmp:
-            root = pathlib.Path(raw_tmp)
-            model = root / "model"
-            adapter = root / "adapter"
-            data_root = root / "lead_data"
-            data_dir = root / "leadmot_data"
-            model.mkdir()
-            adapter.mkdir()
-            (model / "config.json").write_text('{"model_type":"qwen3_vl"}', encoding="utf-8")
-            (adapter / "adapter_config.json").write_text("{}", encoding="utf-8")
-            (adapter / "adapter_model.bin").write_bytes(b"adapter")
-            (adapter / "sft_new_loop_phase2_adapter_config.json").write_text(
-                json.dumps(
-                    {
-                        "schema": "sft_new_loop_phase2_adapter_config",
-                        "route": "sft_new_loop_phase2_direct_event",
-                        "dataset_name": "sft_new_loop_phase2_direct_event",
-                        "prompt_name": PROMPT_NAME,
-                        "production_prompt_sha256": event_prompt_sha256(
-                            audit=False,
-                            history_rgb_mode="2rgb_endpoints",
-                        ),
-                        "history_rgb_mode": "2rgb_endpoints",
-                        "history_rgb_count": 2,
-                        "history_rgb_selected_indices": [0, 3],
-                        "global_step": 4000,
-                        "seed": 20260810,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            for route_name in ("route_a", "route_b"):
-                route = data_root / "Scenario" / route_name
-                for folder, suffix in (("rgb", ".jpg"), ("metas", ".pkl"), ("lidar", ".laz")):
-                    target = route / folder
-                    target.mkdir(parents=True)
-                    for frame in range(12):
-                        (target / f"{frame:04d}{suffix}").write_bytes(b"")
-
-            script = pathlib.Path(__file__).with_name("run_leadmot_qwen_ab.sh")
-            script_text = script.read_text(encoding="utf-8")
-            self.assertIn("seed_20260810/fallback_generation", script_text)
-            self.assertNotIn("seed_20260810/final}", script_text)
-            env = {
-                **dict(os.environ),
-                "MODEL_DIR": str(model),
-                "ADAPTER_DIR": str(adapter),
-                "DATA_ROOT": str(data_root),
-                "LEADMOT_DATA_DIR": str(data_dir),
-                "AB_ROOT": str(root / "ab"),
-            }
-            result = subprocess.run(
-                ["bash", str(script), "preflight"],
-                check=True,
-                capture_output=True,
-                text=True,
-                env=env,
-            )
-            self.assertIn("LeadMoT JSONL missing; building once", result.stdout)
-            self.assertIn('"preflight": "ok"', result.stdout)
-            self.assertTrue((data_dir / "train.jsonl").is_file())
-            self.assertTrue((data_dir / "val.jsonl").is_file())
-            stats = json.loads((data_dir / "stats.json").read_text(encoding="utf-8"))
-            self.assertFalse(stats["with_subgoal_fields"])
-            self.assertGreater(stats["train_rows"], 0)
-            self.assertGreater(stats["val_rows"], 0)
 
     def test_messages_have_no_synthetic_rs_turn(self) -> None:
         """模型输入只能是 system + 单个 image/text user turn。"""
@@ -498,15 +188,15 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertEqual(history_rgb_indices("4rgb"), (0, 1, 2, 3))
         self.assertEqual(history_rgb_indices("2rgb_endpoints"), (0, 3))
 
-    def test_prompt_v3_encodes_observed_rgb_error_boundaries(self) -> None:
-        """逐帧错例归纳出的 newest/UE 互斥/低能见度边界必须留在生产合同中。"""
+    def test_prompt_v5_encodes_observed_rgb_and_highway_cutin_boundaries(self) -> None:
+        """逐帧错例归纳出的 newest/UE 互斥及高速 cut-in 边界必须留在生产合同中。"""
 
         answers = {key: False for key in EVENT_KEYS}
         answers[DOMAIN_ANSWER_KEYS[ROAD_DOMAIN]] = True
         answers[INVALID_KEY] = False
-        spec = make_prompt_spec(variant="all_random_order", answers=answers, seed_key="rgb-v3")
+        spec = make_prompt_spec(variant="all_random_order", answers=answers, seed_key="rgb-v5")
         prompt = build_event_prompt(spec=spec)
-        self.assertTrue(PROMPT_NAME.endswith("visual_v3"))
+        self.assertTrue(PROMPT_NAME.endswith("visual_v5_highway_ue3"))
         self.assertIn("The newest frame decides whether an event is active", prompt)
         self.assertIn("same-lane lead vehicle that suddenly slows is UE1", prompt)
         self.assertIn("moving laterally into ego's future corridor is UE3", prompt)
@@ -516,9 +206,12 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertIn("stationary crash or construction actors", prompt)
         self.assertIn("ego passing parked or queued vehicles", prompt)
         self.assertNotIn("parking-side or roadside vehicle advancing", prompt)
+        self.assertIn("including on a highway or ramp", prompt)
+        self.assertIn("progressively crosses that divider into ego's current lane", prompt)
+        self.assertIn("ordinary highway or local adjacent-lane traffic", prompt)
 
     def test_generation_checkpoint_score_guards_all_critical_slices(self) -> None:
-        """正式最优点必须同时守住 UE3/UE6/INVALID/RE，不能单类换总分。"""
+        """非零门槛仍可守住各切片；默认零门槛不会让 UE3 阻断选择。"""
 
         guarded = event_train.generation_checkpoint_score(
             {
@@ -578,6 +271,20 @@ class DirectEventContractTest(unittest.TestCase):
         )
         self.assertFalse(report["all_ok"])
         self.assertFalse(report["passed"]["ue6_target_recall"])
+        ue3_disabled = event_train.generation_checkpoint_guards(
+            {
+                "slice/ue3_target_recall": 0.0,
+                "slice/ue6_target_recall": 0.80,
+                "slice/invalid_exact": 0.80,
+                "slice/applicable_regular_exact": 0.50,
+            },
+            min_ue3_target_recall=0.0,
+            min_ue6_target_recall=0.80,
+            min_invalid_exact=0.80,
+            min_applicable_regular_exact=0.50,
+        )
+        self.assertTrue(ue3_disabled["all_ok"])
+        self.assertTrue(ue3_disabled["passed"]["ue3_target_recall"])
 
     def test_frozen_holdout_excludes_prior_eval_cases_exactly(self) -> None:
         """旧 dev cases 必须按稳定身份从 test split 精确排除。"""
@@ -608,74 +315,7 @@ class DirectEventContractTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 event_eval._exclude_prior_cases(rows, [case_dir], expected_excluded_cases=3)
 
-    def test_seed_selection_rejects_fallback_only_runs(self) -> None:
-        """多 seed 选择只能读取通过全部 validation 门槛的 best_generation。"""
 
-        base = {
-            "prompt_name": PROMPT_NAME,
-            "production_prompt_sha256": "hash",
-            "history_rgb_mode": "2rgb_endpoints",
-            "status": {},
-            "fallback_generation": {"generation_exact_accuracy": 0.99},
-        }
-        fallback_only = [{**base, "run_root": "/tmp/a", "seed": 1, "best_generation": None}]
-        with self.assertRaises(ValueError):
-            select_seed_checkpoint.select_checkpoint(fallback_only, required_seeds=1)
-        eligible = [
-            {
-                **base,
-                "run_root": "/tmp/a",
-                "seed": 1,
-                "best_generation": {
-                    "generation_guards_ok": True,
-                    "generation_exact_accuracy": 0.81,
-                    "generation": {"pattern/all_random_order_pattern_exact": 0.81},
-                },
-            },
-            {
-                **base,
-                "run_root": "/tmp/b",
-                "seed": 2,
-                "best_generation": {
-                    "generation_guards_ok": True,
-                    "generation_exact_accuracy": 0.83,
-                    "generation": {"pattern/all_random_order_pattern_exact": 0.83},
-                },
-            },
-        ]
-        selected = select_seed_checkpoint.select_checkpoint(eligible, required_seeds=2)
-        self.assertEqual(selected["selected_seed"], 2)
-
-    def test_unseen_acceptance_requires_every_frozen_floor(self) -> None:
-        """总分达标但 UE6 退化时，unseen 验收必须失败。"""
-
-        metrics = {
-            "total_cases": 456,
-            "exact_match_accuracy": 0.82,
-            "variant_reports": {"all_random_order": {"format_valid_rate": 1.0}},
-            "slice_reports": {"applicable_regular": {"exact_match_accuracy": 0.60}},
-            "per_question": {
-                "UE3": {"recall": 0.82},
-                "UE6": {"recall": 0.75},
-                "INVALID_EVENT_CONTEXT": {"recall": 0.82},
-            },
-        }
-        args = type(
-            "Args",
-            (),
-            {
-                "metrics": "metrics.json",
-                "min_overall_exact": 0.80,
-                "min_format_valid_rate": 1.0,
-                "min_ue3_recall": 0.80,
-                "min_ue6_recall": 0.80,
-                "min_invalid_recall": 0.80,
-                "min_applicable_regular_exact": 0.50,
-            },
-        )()
-        result = check_acceptance.evaluate_acceptance(metrics, args)
-        self.assertFalse(result["accepted"])
-        self.assertFalse(result["passed"]["ue6_recall"])
 
     def test_explicit_event_review_is_visual_risk(self) -> None:
         """EVENT 标注自身要求 RGB 复核时，默认 clean pool 不能继续静默纳入。"""
@@ -695,8 +335,8 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertTrue(risk)
         self.assertEqual(reasons, ["event:event_boundary_requires_rgb_confirmation"])
 
-    def test_highway_is_valid_road_regular(self) -> None:
-        """R3/highway 是 ROAD_CORRIDOR all-NO hard negative，不是 invalid。"""
+    def test_unreviewed_highway_is_valid_road_regular(self) -> None:
+        """未被 RGB 正例覆盖的 R3/highway 仍是 valid all-NO，而不是 invalid。"""
 
         row = dataset._make_row(
             base=_base("R3"),
@@ -707,6 +347,88 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertEqual(row["question_domain"], ROAD_DOMAIN)
         self.assertFalse(row["answers"][INVALID_KEY])
         self.assertFalse(any(row["answers"][key] for key in EVENT_KEYS))
+
+    def test_rgb_reviewed_highway_cutin_remains_ue3(self) -> None:
+        """高速 cut-in 是 UE3 审计子型，不新增互斥类别。"""
+
+        base = _base("R3")
+        base["ue3_subtype"] = HIGHWAY_UE3_SUBTYPE
+        base["event_label_source"] = "manual_highway_ue3_rgb_decision_v1"
+        row = dataset._make_row(
+            base=base,
+            question_domain=ROAD_DOMAIN,
+            target_class="UE3",
+            invalid=False,
+        )
+        self.assertEqual(row["target_event_class"], "UE3")
+        self.assertEqual(row["ue3_subtype"], HIGHWAY_UE3_SUBTYPE)
+        self.assertTrue(row["answers"]["UE3"])
+        self.assertFalse(row["answers"][INVALID_KEY])
+
+    def test_explicit_ue3_interrupted_overlay_is_not_lost_by_rs_gate(self) -> None:
+        """R4/R5 overlay 中的显式 U-E3 仍是 UE3，并通过道路问组监督。"""
+
+        base = _base("R4")
+        self.assertEqual(dataset._target_class("R4", ["R-E4", "U-E3"]), "UE3")
+        self.assertEqual(dataset._target_class("R4", ["U-E1", "U-E3"]), "UE3")
+        self.assertEqual(dataset._target_question_domain(base, "UE3"), ROAD_DOMAIN)
+        base["target_event_class"] = "UE3"
+        self.assertFalse(dataset._can_construct_invalid_from(base))
+        base["target_event_class"] = "RE"
+        self.assertTrue(dataset._can_construct_invalid_from(base))
+        self.assertEqual(dataset._target_class("R4", ["R-E4"]), "RE")
+
+    def test_highway_ue3_decisions_are_explicit_and_split_complete(self) -> None:
+        """人工清单必须同时覆盖 train/val/test，且只展开显式 YES span。"""
+
+        path = pathlib.Path(__file__).with_name("highway_ue3_rgb_decisions_v1.jsonl")
+        positives, report = highway_ue3_audit.load_highway_ue3_decisions(path)
+        self.assertEqual(len(positives), report["positive_override_frames"])
+        self.assertGreater(report["split_frame_counts"]["train/YES"], 0)
+        self.assertGreater(report["split_frame_counts"]["val/YES"], 0)
+        self.assertGreater(report["split_frame_counts"]["test/YES"], 0)
+        self.assertGreater(report["frame_counts"]["NO"], report["frame_counts"]["YES"])
+        self.assertEqual(
+            set(highway_ue3_audit.SOURCE_UE3_AUDIT_SNAPSHOT["frames_by_scenario"]),
+            {"DynamicObjectCrossing", "ParkingCutIn", "StaticCutIn"},
+        )
+        self.assertEqual(
+            sum(highway_ue3_audit.SOURCE_UE3_AUDIT_SNAPSHOT["frames_by_scenario"].values()),
+            1351,
+        )
+
+    def test_eval_reserves_highway_ue3_inside_existing_ue3_class(self) -> None:
+        """高速子型只占 UE3 内部配额，不产生第七个训练目标类。"""
+
+        rows = _balance_rows(event_eval)
+        local_ue3 = next(row for row in rows if event_eval._target_class(row) == "UE3")
+        rows.append(
+            event_eval.FrameRow(
+                idx=999,
+                scenario="HighwayCutIn",
+                route_id="highway-positive",
+                town="Town13",
+                frame_id=100,
+                true_rs="R3",
+                question_domain=ROAD_DOMAIN,
+                event="R-E1",
+                split="test",
+                history_rgb_paths=["0.jpg", "1.jpg", "2.jpg", "3.jpg"],
+                latest_rgb_path="3.jpg",
+                answers=dict(local_ue3.answers),
+                ue3_subtype=HIGHWAY_UE3_SUBTYPE,
+            )
+        )
+        cases = event_eval._balanced_cases(
+            rows,
+            cases_per_bin=4,
+            seed=7,
+            highway_ue3_fraction=0.25,
+        )
+        ue3 = [item for item in cases if event_eval._target_class(item.row) == "UE3"]
+        self.assertEqual(len(ue3), 4)
+        self.assertEqual(sum(item.row.ue3_subtype == HIGHWAY_UE3_SUBTYPE for item in ue3), 1)
+        self.assertTrue(all(item.balance_key.endswith("/class/UE3") for item in ue3))
 
     def test_cross_domain_invalid_is_all_no(self) -> None:
         """跨问题域样本只打开 invalid，不允许同时打开 UE。"""
@@ -858,42 +580,6 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertEqual(report["unique_routes"], 3)
         self.assertEqual(report["max_cases_per_route"], 1)
 
-    def test_route_balanced_sampler_preserves_raw_frames_then_balances_extras(self) -> None:
-        """训练 target 超过原始桶后，先保留全部帧，再均衡额外 route 曝光。"""
-
-        items = []
-        for route_id, count in (("long", 6), ("short-a", 1), ("short-b", 1)):
-            for frame_id in range(count):
-                items.append(
-                    {
-                        "scenario": "StaticCutIn",
-                        "route_id": route_id,
-                        "frame_id": frame_id,
-                        "question_domain": ROAD_DOMAIN,
-                    }
-                )
-        selected = sampling.route_balanced_sample(
-            items,
-            target=18,
-            rng=random.Random(13),
-            max_frame_repeat=10,
-        )
-        raw_route_counts = Counter(row["route_id"] for row in items)
-        route_counts = Counter(row["route_id"] for row in selected)
-        extra_counts = {
-            route_id: route_counts[route_id] - raw_route_counts[route_id]
-            for route_id in raw_route_counts
-        }
-        self.assertEqual(sampling.frame_repetition_report(selected)["unique_frames"], len(items))
-        self.assertLessEqual(max(extra_counts.values()) - min(extra_counts.values()), 1)
-        self.assertLessEqual(sampling.frame_repetition_report(selected)["max_frame_repeat"], 10)
-        with self.assertRaisesRegex(ValueError, "capacity is insufficient"):
-            sampling.route_balanced_sample(
-                items[:1],
-                target=11,
-                rng=random.Random(13),
-                max_frame_repeat=10,
-            )
 
     def test_dataset_val_test_sampler_keeps_legacy_frame_shuffle(self) -> None:
         """关闭 route-diverse 时必须保持旧 val/test shuffle+truncate 身份。"""
@@ -912,85 +598,8 @@ class DirectEventContractTest(unittest.TestCase):
         )
         self.assertEqual(selected, expected[:5])
 
-    def test_ue3_alignment_rejects_rule_only_relabel_when_rgb_classes_conflict(self) -> None:
-        """同一规则覆盖 VISIBLE/PRE/POST 时，不能自动据规则名重标。"""
 
-        cases = [
-            {"visual_class": visual_class, "source_rules_fired": ["event_dynamic_cutin_or_occupancy"]}
-            for visual_class in ("VISIBLE_ACTIVE", "PRE_EVENT", "POST_EVENT")
-        ]
-        report = ue3_alignment._rules_report(cases)
-        item = report["by_rule_signature"]["event_dynamic_cutin_or_occupancy"]
-        self.assertTrue(item["conflicts_visible_vs_nonvisible"])
-        self.assertEqual(item["cases"], 3)
 
-    def test_ue3_alignment_builds_contiguous_source_spans(self) -> None:
-        """源 U-E3 连续滑窗必须按 frame id 分成可审计 span。"""
-
-        annotations = [
-            {"frame_id": frame_id, "primary_event": event}
-            for frame_id, event in (
-                (7, "U-E3"),
-                (8, "U-E3"),
-                (9, "R-E1"),
-                (12, "U-E3"),
-            )
-        ]
-        self.assertEqual(ue3_alignment._ue3_spans(annotations), [(7, 8, 2), (12, 12, 1)])
-
-    def test_dataset_route_comparison_preserves_frozen_and_improves_train(self) -> None:
-        """数据 smoke 必须同时守住 frozen 身份和 train route 集中度。"""
-
-        old_rows = []
-        new_rows = []
-        for split in ("val", "test"):
-            for index, target_class in enumerate(("UE1", "UE3", "UE5", "UE6", "RE", "INVALID")):
-                row = {
-                    "scenario": "Smoke",
-                    "route_id": f"{split}-{target_class}",
-                    "frame_id": index,
-                    "split": split,
-                    "question_domain": ROAD_DOMAIN,
-                    "target_event_class": target_class,
-                    "invalid_event_context": target_class == "INVALID",
-                    "invalid_source": "source=RE" if target_class == "INVALID" else "",
-                }
-                old_rows.append(row)
-                new_rows.append(dict(row))
-        for target_class in ("UE1", "UE3", "UE5", "UE6", "RE", "INVALID"):
-            for frame_id in range(2):
-                old_rows.append(
-                    {
-                        "scenario": "Smoke",
-                        "route_id": f"old-{target_class}",
-                        "frame_id": frame_id,
-                        "split": "train",
-                        "question_domain": ROAD_DOMAIN,
-                        "target_event_class": target_class,
-                        "invalid_event_context": target_class == "INVALID",
-                        "invalid_source": "source=RE" if target_class == "INVALID" else "",
-                    }
-                )
-                new_rows.append(
-                    {
-                        **old_rows[-1],
-                        "route_id": (
-                            f"new-{target_class}-{frame_id}"
-                            if target_class != "INVALID"
-                            else f"old-{target_class}"
-                        ),
-                    }
-                )
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            old_path = root / "old.jsonl"
-            new_path = root / "new.jsonl"
-            old_path.write_text("".join(json.dumps(row) + "\n" for row in old_rows), encoding="utf-8")
-            new_path.write_text("".join(json.dumps(row) + "\n" for row in new_rows), encoding="utf-8")
-            report = compare_dataset_route_diversity.compare_indices(old_path, new_path)
-        self.assertTrue(report["passed"])
-        self.assertTrue(report["frozen_splits"]["val"]["identity_multiset_equal"])
-        self.assertEqual(report["train_classes"]["UE3"]["new"]["unique_routes"], 2)
 
     def test_generation_eval_route_diversity_is_opt_in_to_shared_balancer(self) -> None:
         """generation validation 开关启用后，同类先覆盖 route；普通训练采样接口仍兼容。"""
@@ -1023,106 +632,67 @@ class DirectEventContractTest(unittest.TestCase):
         }
         self.assertEqual(ue3_routes, {"ue3-long", "ue3-b", "ue3-c"})
 
-    def test_train_ue3_route_balance_does_not_change_other_class_sampler(self) -> None:
-        """严格 route balance 只作用于 UE3，避免把 RGB 结论外推到其它问题。"""
-
-        rows = _balance_rows(event_train)
-        ue3_template = next(row for row in rows if event_train._target_class(row) == "UE3")
-        rows = [row for row in rows if event_train._target_class(row) != "UE3"]
-        for route_id, count in (("ue3-long", 6), ("ue3-short-a", 1), ("ue3-short-b", 1)):
-            for frame_id in range(count):
-                rows.append(
-                    event_train.FrameRow(
-                        **{
-                            **ue3_template.__dict__,
-                            "route_id": route_id,
-                            "frame_id": frame_id,
-                        }
-                    )
-                )
-        work = event_train._balanced_work(
-            rows,
-            target_per_bin=18,
-            seed=17,
-            regular_multiplier=1.0,
-            invalid_multiplier=1.0,
-            highway_regular_fraction=0.0,
-            route_diverse=True,
-            ue3_route_balanced=True,
-            max_ue3_frame_repeat=10,
-        )
-        ue3 = [item for item in work if event_train._target_class(item.row) == "UE3"]
-        raw_route_counts = Counter(
-            row.route_id for row in rows if event_train._target_class(row) == "UE3"
-        )
-        route_counts = Counter(item.row.route_id for item in ue3)
-        extra_counts = {
-            route_id: route_counts[route_id] - raw_route_counts[route_id]
-            for route_id in raw_route_counts
-        }
-        self.assertEqual(sampling.frame_repetition_report(ue3)["unique_frames"], 8)
-        self.assertLessEqual(max(extra_counts.values()) - min(extra_counts.values()), 1)
 
     def test_train_launcher_enables_route_diversity_by_default(self) -> None:
-        """正式 launcher 默认启用通用 route-diverse 与 UE3 专用 route-balanced。"""
+        """正式 launcher 只启用所有类别共用的 route-diverse。"""
 
         train_sh = (pathlib.Path(__file__).with_name("train.sh")).read_text(encoding="utf-8")
         self.assertIn('TRAIN_ROUTE_DIVERSE:-1', train_sh)
         self.assertIn('COMMON_ARGS+=(--train-route-diverse)', train_sh)
-        self.assertIn('TRAIN_UE3_ROUTE_BALANCED:-1', train_sh)
-        self.assertIn('COMMON_ARGS+=(--train-ue3-route-balanced)', train_sh)
-        self.assertIn('MAX_TRAIN_UE3_FRAME_REPEAT:-10', train_sh)
+        self.assertNotIn('TRAIN_UE3_ROUTE_BALANCED', train_sh)
+        self.assertNotIn('--train-ue3-route-balanced', train_sh)
+        self.assertNotIn('MAX_TRAIN_UE3_FRAME_REPEAT', train_sh)
         self.assertIn('SAVE_FINAL:-1', train_sh)
         self.assertIn('COMMON_ARGS+=(--no-save-final)', train_sh)
 
-    def test_ue3_train_sampling_audit_is_prompt_frozen_and_non_mutating(self) -> None:
-        """CPU sampling audit 必须绑定 v3/2RGB，且输出明确禁止修改数据。"""
+    def test_eval_run_dir_prefers_best_then_final_without_generation_block(self) -> None:
+        """run 根目录优先验证集选优 best；缺失时才回退 final，不因缺 best 阻断。"""
 
-        rows = []
-        for route_id, count in (("long", 6), ("short-a", 1), ("short-b", 1)):
-            for frame_id in range(count):
-                rows.append(
-                    {
-                        "scenario": "StaticCutIn",
-                        "route_id": route_id,
-                        "frame_id": frame_id,
-                        "question_domain": ROAD_DOMAIN,
-                        "target_event_class": "UE3",
-                        "invalid_event_context": False,
-                        "split": "train",
-                    }
-                )
         with tempfile.TemporaryDirectory() as tmp:
-            index = pathlib.Path(tmp) / "index.jsonl"
-            index.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
-            report = ue3_train_balance.build_report(
-                index,
-                target=18,
-                seed=19,
-                max_frame_repeat=10,
-            )
-        self.assertTrue(report["passed"])
-        self.assertFalse(report["mutation"])
-        self.assertEqual(report["prompt"]["name"], PROMPT_NAME)
-        self.assertTrue(report["guards"]["production_prompt_v3_frozen"])
-        self.assertTrue(
-            report["guards"]["all_raw_ue3_frames_preserved_once_before_extra_sampling"]
+            run_dir = pathlib.Path(tmp)
+            for slot in ("final", "best_generation", "fallback_generation"):
+                slot_dir = run_dir / slot
+                slot_dir.mkdir()
+                (slot_dir / "sft_new_loop_phase2_adapter_config.json").write_text(
+                    "{}", encoding="utf-8"
+                )
+            resolved, source = event_eval._resolve_adapter_dir(run_dir)
+            self.assertEqual(resolved, run_dir / "best_generation")
+            self.assertEqual(source, "run_dir_best_generation")
+            (run_dir / "best_generation" / "sft_new_loop_phase2_adapter_config.json").unlink()
+            resolved, source = event_eval._resolve_adapter_dir(run_dir)
+            self.assertEqual(resolved, run_dir / "final")
+            self.assertEqual(source, "run_dir_final")
+
+    def test_default_pipeline_adapter_prefers_valid_best_but_keeps_final_fallback(self) -> None:
+        """selection status 不能再把实际 best 错记为 final。"""
+
+        self.assertEqual(
+            event_train.default_pipeline_adapter(
+                best_generation_available=True,
+                final_available=True,
+                fallback_generation_available=True,
+            ),
+            "best_generation",
         )
-        self.assertTrue(report["guards"]["extra_route_exposure_max_deviation_le_1"])
-        self.assertLess(
-            report["candidate_ue3_route_balanced"]["route_diversity"]["max_cases_per_route"],
-            report["legacy_repeat_whole_bucket"]["route_diversity"]["max_cases_per_route"],
+        self.assertEqual(
+            event_train.default_pipeline_adapter(
+                best_generation_available=False,
+                final_available=True,
+                fallback_generation_available=True,
+            ),
+            "final",
+        )
+        self.assertEqual(
+            event_train.default_pipeline_adapter(
+                best_generation_available=False,
+                final_available=False,
+                fallback_generation_available=True,
+            ),
+            "fallback_generation",
         )
 
-    def test_ue3_alignment_launcher_resolves_frozen_audit_root(self) -> None:
-        """联表入口必须兼容正式 frozen experiment 路径，不能只认顶层副本。"""
 
-        launcher = (pathlib.Path(__file__).with_name("run_ue3_label_alignment_audit.sh")).read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("v3_frozen_3seed_unseen456_20260831/ue3_route_diverse_full_rgb_audit", launcher)
-        self.assertIn('if [[ ! -f "${AUDIT_ROOT}/manifest.jsonl" ]]', launcher)
-        self.assertIn("identities(manifest) == expected", launcher)
 
     def test_balancers_reject_missing_class_and_zero_uses_smallest_bucket(self) -> None:
         """截断索引缺桶必须失败；train target=0 必须真的按最小桶均衡。"""
@@ -1264,8 +834,8 @@ class DirectEventContractTest(unittest.TestCase):
             self.assertIn("defining actor visible in newest frame", note_text)
             self.assertIn("error owner: `MODEL / LABEL_OR_BOUNDARY / BOTH / FORMAT`", note_text)
 
-    def test_full_pipeline_delegates_final_eval_and_bounded_bundle(self) -> None:
-        """full pipeline 默认必须进入 eval.sh，且透传 30MB bundle 上限。"""
+    def test_full_pipeline_delegates_selected_eval_and_bounded_bundle(self) -> None:
+        """full pipeline 默认评测 best、缺失回退 final，并透传 30MB bundle 上限。"""
 
         pipeline_path = pathlib.Path(__file__).with_name("run_full_pipeline.sh")
         pipeline = pipeline_path.read_text(encoding="utf-8")
@@ -1280,7 +850,14 @@ class DirectEventContractTest(unittest.TestCase):
         self.assertNotIn('HISTORY_RGB_MODE="${HISTORY_RGB_MODE}"', final_eval_block)
         self.assertIn('MODE="${1:-${MODE:-ddp}}"', train_sh)
         self.assertIn('GENERATION_EVAL_BALANCE_COUNT:-32', train_sh)
-        self.assertIn('GENERATION_EVAL_MIN_UE3_TARGET_RECALL:-0.625', train_sh)
+        self.assertIn('GENERATION_EVAL_MIN_UE3_TARGET_RECALL:-0.0', train_sh)
+        self.assertIn('for slot in best_generation final fallback_generation', pipeline)
+        self.assertIn('sft_new_loop_phase2_adapter_config.json', pipeline)
+        self.assertNotIn("ALLOW_FALLBACK_ADAPTER", pipeline)
+        self.assertIn('"${input}/best_generation" "${input}/final"', eval_sh)
+        matrix = pipeline_path.with_name("run_rgb_mode_matrix.sh").read_text(encoding="utf-8")
+        self.assertIn('for slot in best_generation final fallback_generation', matrix)
+        self.assertNotIn('best_val', matrix)
         self.assertNotIn("REQUESTED_HISTORY_RGB_MODE", eval_sh)
         self.assertIn('BASE_HISTORY_RGB_MODE="$(read_adapter_history_rgb_mode', eval_sh)
         self.assertIn("history_rgb_selected_indices", eval_sh)

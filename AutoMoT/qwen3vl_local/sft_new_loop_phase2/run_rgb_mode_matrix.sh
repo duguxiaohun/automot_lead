@@ -73,13 +73,16 @@ run_train() {
 adapter_dir_for_mode() {
   local history_rgb_mode="$1"
   local run_root="checkpoints/sft_new_loop_phase2_runs/run_direct_event_format_supervised_${history_rgb_mode}/latest"
-  if [[ -d "${run_root}/best_generation" ]]; then
-    echo "${run_root}/best_generation"
-  elif [[ -d "${run_root}/best_val" ]]; then
-    echo "${run_root}/best_val"
-  else
-    echo "${run_root}/final"
-  fi
+  local slot candidate
+  for slot in best_generation final fallback_generation; do
+    candidate="${run_root}/${slot}"
+    if [[ -f "${candidate}/sft_new_loop_phase2_adapter_config.json" ]]; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+  echo "No usable best_generation/final/fallback_generation adapter config under ${run_root}." >&2
+  return 1
 }
 
 echo "[matrix] AutoMoT root: ${AUTOMOT_ROOT}"

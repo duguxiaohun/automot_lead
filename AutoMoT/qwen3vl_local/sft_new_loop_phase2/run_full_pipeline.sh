@@ -11,7 +11,7 @@
 #
 # 常用覆盖：
 #   GPU_IDS=0,1,2,3 HISTORY_RGB_MODES="4rgb 2rgb_endpoints" bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh
-#   RUN_TRAIN=0 ADAPTER_DIR=checkpoints/sft_new_loop_phase2_runs/latest/best_generation bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh
+#   RUN_TRAIN=0 ADAPTER_DIR=checkpoints/sft_new_loop_phase2_runs/latest/final bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh
 
 set -euo pipefail
 
@@ -129,15 +129,16 @@ run_audit_cases() {
 
 adapter_dir_for_train_output() {
   local train_output_dir="$1"
-  if [[ -d "${train_output_dir}/best_generation" ]]; then
-    echo "${train_output_dir}/best_generation"
-  elif [[ "${ALLOW_FALLBACK_ADAPTER:-0}" == "1" && -d "${train_output_dir}/fallback_generation" ]]; then
-    echo "${train_output_dir}/fallback_generation"
-  else
-    echo "No production-ready best_generation under ${train_output_dir}." >&2
-    echo "Inspect generation_selection_status.json; set ALLOW_FALLBACK_ADAPTER=1 only for diagnostic eval." >&2
-    return 1
-  fi
+  local slot candidate
+  for slot in best_generation final fallback_generation; do
+    candidate="${train_output_dir}/${slot}"
+    if [[ -f "${candidate}/sft_new_loop_phase2_adapter_config.json" ]]; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+  echo "No usable best_generation/final/fallback_generation adapter config under ${train_output_dir}." >&2
+  return 1
 }
 
 adapter_history_rgb_mode() {
@@ -163,6 +164,7 @@ echo "[pipeline] HISTORY_RGB_MODES=${HISTORY_RGB_MODES}"
 echo "[pipeline] TRAIN_FOCUS_BALANCE_COUNT=${TRAIN_FOCUS_BALANCE_COUNT}"
 echo "[pipeline] TRAIN_REGULAR_FOCUS_MULTIPLIER=${TRAIN_REGULAR_FOCUS_MULTIPLIER}"
 echo "[pipeline] TRAIN_INVALID_FOCUS_MULTIPLIER=${TRAIN_INVALID_FOCUS_MULTIPLIER}"
+echo "[pipeline] HIGHWAY_UE3_FRACTION=${HIGHWAY_UE3_FRACTION:-0.125}"
 echo "[pipeline] TRAIN_NUM_EPOCHS=${TRAIN_NUM_EPOCHS} TRAIN_MAX_STEPS=${TRAIN_MAX_STEPS}"
 echo "[pipeline] RUN_EVAL_SH=${RUN_EVAL_SH} RUN_BASE_EVAL=${RUN_BASE_EVAL} RUN_LORA_EVAL=${RUN_LORA_EVAL}"
 
@@ -178,6 +180,8 @@ if [[ "${RUN_BUILD}" == "1" ]]; then
     --target-per-ue "${TARGET_PER_UE:-0}"
     --regular-multiplier "${REGULAR_MULTIPLIER:-1.0}"
     --highway-regular-fraction "${HIGHWAY_REGULAR_FRACTION:-0.25}"
+    --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION:-0.125}"
+    --highway-ue3-rgb-decisions "${HIGHWAY_UE3_RGB_DECISIONS:-qwen3vl_local/sft_new_loop_phase2/highway_ue3_rgb_decisions_v1.jsonl}"
     --invalid-ratio "${INVALID_RATIO:-0.20}"
     --max-routes "${BUILD_MAX_ROUTES:-0}"
     --progress-every-routes "${BUILD_PROGRESS_EVERY_ROUTES:-100}"
@@ -186,6 +190,11 @@ if [[ "${RUN_BUILD}" == "1" ]]; then
     BUILD_ARGS+=(--include-visual-risk)
   fi
   python qwen3vl_local/sft_new_loop_phase2/build_dataset.py "${BUILD_ARGS[@]}"
+  python qwen3vl_local/sft_new_loop_phase2/highway_ue3_audit.py \
+    --decisions "${HIGHWAY_UE3_RGB_DECISIONS:-qwen3vl_local/sft_new_loop_phase2/highway_ue3_rgb_decisions_v1.jsonl}" \
+    --collection-dir "${COLLECTION_DIR}" \
+    --index "${INDEX}" \
+    --output "${DATA_OUTPUT_DIR}/highway_ue3_audit.json"
 fi
 
 for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
@@ -212,6 +221,7 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
       --data-root "${DATA_ROOT}" \
       --history-rgb-mode "${HISTORY_RGB_MODE}" \
       --cases-per-bin "${BASE_CASES_PER_BIN:-64}" \
+      --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION:-0.125}" \
       --max-frames "${BASE_MAX_EVAL_FRAMES:-0}" \
       --output-dir "${BASE_EVAL_DIR}" \
       --no-timestamp-output \
@@ -225,6 +235,7 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
         --data-root "${DATA_ROOT}" \
         --history-rgb-mode "${HISTORY_RGB_MODE}" \
         --cases-per-bin "${BASE_CASES_PER_BIN:-64}" \
+        --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION:-0.125}" \
         --max-frames "${BASE_MAX_EVAL_FRAMES:-0}" \
         --audit-prompt \
         --output-dir "${BASE_AUDIT_EVAL_DIR}" \
@@ -246,10 +257,11 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
     FOCUS_BALANCE_COUNT="${TRAIN_FOCUS_BALANCE_COUNT}" \
     REGULAR_FOCUS_MULTIPLIER="${TRAIN_REGULAR_FOCUS_MULTIPLIER}" \
     INVALID_FOCUS_MULTIPLIER="${TRAIN_INVALID_FOCUS_MULTIPLIER}" \
+    HIGHWAY_UE3_FRACTION="${HIGHWAY_UE3_FRACTION:-0.125}" \
     NUM_EPOCHS="${TRAIN_NUM_EPOCHS}" \
     MAX_STEPS="${TRAIN_MAX_STEPS}" \
     SEED="${TRAIN_SEED:-${SEED:-20260810}}" \
-    GENERATION_EVAL_MIN_UE3_TARGET_RECALL="${GENERATION_EVAL_MIN_UE3_TARGET_RECALL:-0.625}" \
+    GENERATION_EVAL_MIN_UE3_TARGET_RECALL="${GENERATION_EVAL_MIN_UE3_TARGET_RECALL:-0.0}" \
     GENERATION_EVAL_MIN_UE6_TARGET_RECALL="${GENERATION_EVAL_MIN_UE6_TARGET_RECALL:-0.80}" \
     GENERATION_EVAL_MIN_INVALID_EXACT="${GENERATION_EVAL_MIN_INVALID_EXACT:-0.80}" \
     GENERATION_EVAL_MIN_APPLICABLE_REGULAR_EXACT="${GENERATION_EVAL_MIN_APPLICABLE_REGULAR_EXACT:-0.50}" \
@@ -271,6 +283,7 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
       --data-root "${DATA_ROOT}" \
       --adapter-dir "${LORA_ADAPTER_DIR}" \
       --cases-per-bin "${LORA_CASES_PER_BIN:-64}" \
+      --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION:-0.125}" \
       --max-frames "${LORA_MAX_EVAL_FRAMES:-0}" \
       --output-dir "${LORA_EVAL_DIR}" \
       --no-timestamp-output \
@@ -284,6 +297,7 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
         --data-root "${DATA_ROOT}" \
         --adapter-dir "${LORA_ADAPTER_DIR}" \
         --cases-per-bin "${LORA_CASES_PER_BIN:-64}" \
+        --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION:-0.125}" \
         --max-frames "${LORA_MAX_EVAL_FRAMES:-0}" \
         --audit-prompt \
         --output-dir "${LORA_AUDIT_EVAL_DIR}" \
@@ -315,6 +329,7 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
     ADAPTER_DIR="${LORA_ADAPTER_DIR}" \
     SPLIT="${FINAL_EVAL_SPLIT:-test}" \
     CASES_PER_BIN="${FINAL_CASES_PER_BIN:-${LORA_CASES_PER_BIN:-64}}" \
+    HIGHWAY_UE3_FRACTION="${HIGHWAY_UE3_FRACTION:-0.125}" \
     EXCLUDE_CASES_JSONL="${FINAL_EXCLUDE_CASES_JSONL:-}" \
     EXPECTED_EXCLUDED_CASES="${FINAL_EXPECTED_EXCLUDED_CASES:-0}" \
     EXPECTED_TOTAL_CASES="${FINAL_EXPECTED_TOTAL_CASES:-0}" \

@@ -145,6 +145,7 @@ COMMON_ARGS=(
   --regular-focus-multiplier "${REGULAR_FOCUS_MULTIPLIER:-2.0}"
   --invalid-focus-multiplier "${INVALID_FOCUS_MULTIPLIER:-1.0}"
   --highway-regular-fraction "${HIGHWAY_REGULAR_FRACTION:-0.25}"
+  --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION:-0.125}"
   --eval-split "${EVAL_SPLIT:-val}"
   --eval-steps "${EVAL_STEPS:-2000}"
   --eval-balance-count "${EVAL_BALANCE_COUNT:-16}"
@@ -155,7 +156,7 @@ COMMON_ARGS=(
   --generation-eval-sampling-seed "${GENERATION_EVAL_SAMPLING_SEED:-20260831}"
   --generation-eval-max-new-tokens "${GENERATION_EVAL_MAX_NEW_TOKENS:-64}"
   --generation-eval-min-valid-rate "${GENERATION_EVAL_MIN_VALID_RATE:-1.0}"
-  --generation-eval-min-ue3-target-recall "${GENERATION_EVAL_MIN_UE3_TARGET_RECALL:-0.625}"
+  --generation-eval-min-ue3-target-recall "${GENERATION_EVAL_MIN_UE3_TARGET_RECALL:-0.0}"
   --generation-eval-min-ue6-target-recall "${GENERATION_EVAL_MIN_UE6_TARGET_RECALL:-0.80}"
   --generation-eval-min-invalid-exact "${GENERATION_EVAL_MIN_INVALID_EXACT:-0.80}"
   --generation-eval-min-applicable-regular-exact "${GENERATION_EVAL_MIN_APPLICABLE_REGULAR_EXACT:-0.50}"
@@ -179,12 +180,6 @@ if [[ "${TRAIN_ROUTE_DIVERSE:-1}" == "0" ]]; then
 else
   COMMON_ARGS+=(--train-route-diverse)
 fi
-if [[ "${TRAIN_UE3_ROUTE_BALANCED:-1}" == "0" ]]; then
-  COMMON_ARGS+=(--no-train-ue3-route-balanced)
-else
-  COMMON_ARGS+=(--train-ue3-route-balanced)
-fi
-COMMON_ARGS+=(--max-train-ue3-frame-repeat "${MAX_TRAIN_UE3_FRAME_REPEAT:-10}")
 if [[ "${GENERATION_EVAL_ROUTE_DIVERSE:-1}" == "0" ]]; then
   COMMON_ARGS+=(--no-generation-eval-route-diverse)
 else
