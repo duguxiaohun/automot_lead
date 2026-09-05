@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+outputs/
+*.pt
+*.safetensors
+*.sqlite
+*.sqlite-*
+text_cache/
+audit/
+epoch_audit/
+validation/
+tb/

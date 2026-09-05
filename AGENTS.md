@@ -184,6 +184,14 @@
   修正规则/阈值 → 再跑 smoke”的闭环推进。push 前可精确执行 `git add AutoMoT/keyframe_filter/`，
   依赖该目录内 `.gitignore` 排除输出产物；若要提交新产物，必须先确认它不是可再生 evidence）
 - `AutoMoT/qwen3vl_local/`（含 `tb_serve.sh` 通用 TensorBoard launcher；`goalgen/` 子包详见 PROJECT_CONTEXT.md §15；`eval_carla/` 子包详见上）
+- `AutoMoT/qwen3vl_local/action_prior/`
+  （按用户同意新增：Phase1/2 先验 → 禁用所有 LoRA 的 base Qwen 三段短分析 → base KV + 冻结
+  LEAD BEV → 原 LeadMoT Linear+cumsum 轨迹头。自动选择仅接受 best_generation 并核验 prompt/hash/Git/RGB
+  与权重指纹；Phase1 做全问+RS 分层复核，Phase2 使用已训练的 EVENT 双域全问+域内续问，
+  不伪造未训练的 EVENT hierarchical 接口。invalid 字段留空但保留轨迹监督并统计原因。
+  frozen 问答/简述可按合同与实际图像缓存文本，最终 KV 每次由 base 完整 prefill；不接 Phase3。
+  全量4Hz索引、物理 route 分割、61 epoch 起始配置、DDP/EMA/TB/频繁验证和独立 eval/probe，
+  运行见 action_prior/run.md。代码/脚本/测试/文档可追踪；权重、SQLite、审计和训练输出不入库。）
 - `AutoMoT/qwen3vl_local/tb_serve.sh`
   （SFT / GoalGen / LeadMoT / VAE 共用 TensorBoard 启动器；从 `AutoMoT/` 目录下用
   `bash qwen3vl_local/tb_serve.sh <logdir>` 启动）
@@ -668,6 +676,7 @@ git add AutoMoT/qwen3vl_local/sft_loop_phase2_augment/
 git add AutoMoT/qwen3vl_local/sft_new_loop_phase1/
 git add AutoMoT/qwen3vl_local/sft_new_loop_phase2/
 git add AutoMoT/qwen3vl_local/sft_new_loop_phase3/
+git add AutoMoT/qwen3vl_local/action_prior/
 git add AutoMoT/qwen3vl_local/sft_loop_phase3/
 git add AutoMoT/qwen3vl_local/sft_v5/
 git add AutoMoT/qwen3vl_local/sft_base/

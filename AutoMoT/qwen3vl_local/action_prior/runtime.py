@@ -1,0 +1,262 @@
+"""复用 LeadMoT 预处理/BEV/decoder，只替换 frozen language condition。"""
+
+from __future__ import annotations
+import contextlib
+from pathlib import Path
+from qwen3vl_local.action_prior import prompts
+from qwen3vl_local.action_prior.priors import collect_priors
+from qwen3vl_local.sft_new_loop_phase1 import prompts as p1
+from qwen3vl_local.sft_new_loop_phase2 import prompts as p2
+from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
+
+
+class PriorEngine:
+    """共享一个 frozen base，两个独立 LoRA；不 merge，不混用不同 adapter 的 cache。"""
+
+    def __init__(self, engine, contract, analysis_tokens=160, text_cache=None):
+        from peft import PeftModel
+        from qwen3vl_local.engine import _inspect_lora_adapter
+
+        self.engine, self.contract = engine, contract
+        self.analysis_tokens = analysis_tokens
+        self.text_cache = text_cache
+        for key in ("phase1", "phase2"):
+            _inspect_lora_adapter(Path(contract[key]["path"]))
+        self.adapters = PeftModel.from_pretrained(
+            engine.model,
+            contract["phase1"]["path"],
+            adapter_name="phase1",
+            is_trainable=False,
+            local_files_only=True,
+        )
+        self.adapters.load_adapter(
+            contract["phase2"]["path"],
+            adapter_name="phase2",
+            is_trainable=False,
+            local_files_only=True,
+        )
+        # PEFT 仅管理启停；forward/decode 始终调用底层 Qwen 及本地 M-RoPE helper。
+        self.engine.model = self.adapters.get_base_model()
+        self.adapters.eval().requires_grad_(False)
+        self.last_audit = None
+
+    @contextlib.contextmanager
+    def mode(self, name):
+        """每次切换清除旧 cache；base 时整段生成都禁用所有 LoRA。"""
+        self.engine._last_decode_state = None
+        self.engine._system_prompt_cache = None
+        try:
+            if name == "base":
+                with self.adapters.disable_adapter():
+                    yield
+            else:
+                self.adapters.set_adapter(name)
+                self.adapters.requires_grad_(False)
+                yield
+        finally:
+            # PEFT enable_adapter_layers 在退出 disable 上下文时可能重新启用梯度。
+            self.adapters.requires_grad_(False)
+
+    def generate_messages(self, system, prompt, images, history=(), max_tokens=160):
+        """真实 assistant 后续问答，重做完整图文 prefill 保证多轮 M-RoPE 对齐。"""
+        from qwen3vl_local.engine import GenerationTrace
+
+        engine = self.engine
+        engine._last_decode_state = None
+        if history:
+            messages = engine.build_messages(system, history[0][0], images)
+            messages.append({"role": "assistant", "content": history[0][1]})
+            for user, assistant in history[1:]:
+                messages.extend(
+                    [
+                        {"role": "user", "content": user},
+                        {"role": "assistant", "content": assistant},
+                    ]
+                )
+            messages.append({"role": "user", "content": prompt})
+        else:
+            messages = engine.build_messages(system, prompt, images)
+        text = engine.apply_chat_template(messages)
+        inputs = engine.prepare_inputs(text, images)
+        trace = GenerationTrace(
+            chat_text=text,
+            input_summary={},
+            final_cache_summary={},
+            prefill_cache_summary={},
+        )
+        output = engine.prefill(inputs)
+        engine.max_gen_tokens = max_tokens
+        ids = engine.decode(inputs, output, trace)
+        return (
+            engine.processor.batch_decode(ids, skip_special_tokens=True)[0].strip(),
+            trace,
+        )
+
+    def condition(self, images, navigation, sample_key):
+        """返回纯 base 吃四张图+先验+生成分析后的 cache，不包含 LoRA 计算的 KV。"""
+        if len(images) != 4:
+            raise ValueError(
+                "action prior requires four chronological stitched RGB images"
+            )
+
+        def ask(phase, spec, history):
+            module = p1 if phase == 1 else p2
+            meta = self.contract[f"phase{phase}"]["metadata"]
+            mode = meta["history_rgb_mode"]
+            selected = [images[i] for i in history_rgb_indices(mode)]
+            prompt = (p1.build_phase1_prompt if phase == 1 else p2.build_event_prompt)(
+                spec=spec, history_rgb_mode=mode
+            )
+            with self.mode(f"phase{phase}"):
+                text, _ = self.generate_messages(
+                    module.SYSTEM_PROMPT, prompt, selected, history
+                )
+            return text, prompt
+
+        key = (
+            self.text_cache.key(
+                self.contract["identity"], images, navigation, sample_key
+            )
+            if self.text_cache
+            else None
+        )
+        saved = self.text_cache.get(key) if self.text_cache else None
+        cache_hit = saved is not None
+        if saved is None:
+            priors = collect_priors(ask, sample_key)
+        else:
+            priors = saved
+        with self.mode("base"):
+            if saved is None:
+                text, trace = self.generate_messages(
+                    prompts.SYSTEM_PROMPT,
+                    prompts.analysis_prompt(priors, navigation),
+                    images,
+                    max_tokens=self.analysis_tokens,
+                )
+                truncated = not any(s.is_eos for s in trace.decode_steps)
+                raw_analysis = text
+                fallback = truncated or not prompts.valid_analysis(text)
+                if fallback:
+                    text = prompts.fallback_analysis(priors)
+                priors = dict(
+                    priors,
+                    analysis=text,
+                    raw_analysis=raw_analysis,
+                    analysis_fallback=fallback,
+                    analysis_truncated=truncated,
+                )
+                if self.text_cache:
+                    self.text_cache.put(key, priors)
+            else:
+                text = saved["analysis"]
+            # 首次和缓存命中都完整重建相同 assistant transcript，保证 KV 分布完全一致。
+            self.engine._last_decode_state = None
+            messages = self.engine.build_messages(
+                prompts.SYSTEM_PROMPT,
+                prompts.analysis_prompt(priors, navigation),
+                images,
+            )
+            messages.append({"role": "assistant", "content": text})
+            chat = self.engine.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=False
+            )
+            inputs = self.engine.prepare_inputs(chat, images)
+            output = self.engine.prefill(inputs)
+            cache = output.past_key_values
+            length = int(inputs["input_ids"].shape[-1])
+            delta = output.rope_deltas
+            if delta is None:
+                raise RuntimeError("missing base Qwen M-RoPE delta")
+            offset = length + int(delta.reshape(-1)[0].item())
+        self.last_audit = dict(
+            priors,
+            contract_identity=self.contract["identity"],
+            text_cache_hit=cache_hit,
+            base_cache_tokens=length,
+            rope_position_offset=offset,
+        )
+        return cache, offset
+
+
+def make_runtime(args, device, contract):
+    """实例级 prefill 注入，不修改旧 runner 文件或其全局实现。"""
+    from qwen3vl_local.leadmot.train import LeadMoTTrainRuntime
+
+    class Runtime(LeadMoTTrainRuntime):
+        """沿用已有状态和 BEV 的 forward，显式复制 inference KV 供 autograd 使用。"""
+
+        def __init__(self):
+            import torch
+            from types import SimpleNamespace
+            from qwen3vl_local.leadmot import train as old
+
+            # 旧 backbone 构造硬写 pretrained=True；本入口已有完整 BEV 权重，禁止先下载 ImageNet。
+            original_timm = old.mot_runner.timm
+
+            def offline_create(*a, **kw):
+                kw["pretrained"] = False
+                return original_timm.create_model(*a, **kw)
+
+            old.mot_runner.timm = SimpleNamespace(create_model=offline_create)
+            try:
+                super().__init__(args, device)
+            finally:
+                old.mot_runner.timm = original_timm
+            weights = torch.load(
+                args.lead_bev_ckpt, map_location="cpu", weights_only=False
+            )
+            weights = weights.get("model", weights)
+            backbone = {
+                k[len("backbone.") :]: v
+                for k, v in weights.items()
+                if k.startswith("backbone.")
+            }
+            self.runner.bev_encoder.backbone.load_state_dict(
+                backbone or weights, strict=True
+            )
+            del weights, backbone
+            import os
+            from qwen3vl_local.action_prior.text_cache import TextCache
+
+            cache = (
+                TextCache(
+                    Path(args.output_dir)
+                    / "text_cache"
+                    / f"rank{os.environ.get('RANK','0')}.sqlite"
+                )
+                if args.cache_priors
+                else None
+            )
+            self.prior = PriorEngine(
+                self.runner.leadmot_qwen_engine, contract, args.analysis_tokens, cache
+            )
+            self.runner._run_leadmot_qwen_prefill = self.prefill_prior
+            self.sample_key = ""
+
+        def prefill_prior(self, rgb_pil_list, user_prompt):
+            """仅 navigation 作为公开输入，不把 sample 字典送入 Qwen。"""
+            return self.prior.condition(rgb_pil_list, user_prompt, self.sample_key)
+
+        def forward_sample(
+            self, sample, decoder, decoder_config, decoder_dtype, clip=None
+        ):
+            self.sample_key = f"{sample['scenario']}/{sample['run_id']}:{sample['anchor']}:{args.seed}"
+
+            def decoder_with_trainable_cache(**kwargs):
+                # inference tensor 不能被可训练 attention 保存给 backward；在 inference_mode 外 clone。
+                kwargs["pooled_kv"] = [
+                    (k.detach().clone(), v.detach().clone())
+                    for k, v in kwargs["pooled_kv"]
+                ]
+                return decoder(**kwargs)
+
+            return super().forward_sample(
+                sample,
+                decoder_with_trainable_cache,
+                decoder_config,
+                decoder_dtype,
+                clip,
+            )
+
+    return Runtime()
