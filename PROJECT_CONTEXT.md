@@ -602,3 +602,52 @@ eval、probe、teacher / 推理入口。
 | LEAD RGB 批量转视频 | `lead_video_tools/LEAD_VIDEO_RUN.md` |
 | 关键帧 / ROAD-EVENT 重标注 | `keyframe_filter/ROAD_EVENT_CLASSIFICATION_PLAN.md` |
 | 规则入口 | `AGENTS.md` / `CLAUDE.md` |
+
+
+## Phase3 映射与动作审计补充（2026-09-05）
+
+Phase3 v2 保持五动作；完整 RS 四问全 NO 恢复 R3，未问不作 NO，HIGHWAY 为独立事实；并发异常保留。普通无灯路口不自动 U-E7，原 U7 用既有灯故障答案表适配；新增 R5/R-E5 常规让行，与七异常及 R-E2/R-E3 共十个 context 1:1。R-E2 包含目标变道及绕障恢复，不按 24 帧截断，两条变道 NO 不清除恢复状态；最终目标 y 符号不决定变道侧。invalid 必须覆盖每个 asked context；未来轨迹只用于离线标签，默认异常 route/RGB 风险过滤。逐帧人工审计与机器覆盖分开记录；详见 sft_new_loop_phase3/MAPPING_AUDIT_20260905.md。
+
+本轮不修改 sft_new_loop_phase1/2 的代码、prompt、已审计答案表。原始 taxonomy 的
+OppositeVehicleTakingPriority/R5/U-E7 与 Phase1 TRAFFIC_LIGHT_ABNORMAL=NO 不一致，
+只在 Phase3 source_mapping 适配；ROAD_EVENT_CLASSIFICATION_PLAN 已注明历史语义差异。
+当前动作规则使用4Hz真实速度顺序、连续lane身份及完整观察窗口；跨road连接段暂不强标横向NO，
+planned route不作为原车道中心线真值。现有582条RGB审计缓存可复用，机器扫描不表示人工完整动作确认。
+
+2026-09-05 扩展复核覆盖197个scenario×Town连续图组（42场景、11 Town、7826个缩略帧格），
+不等于582条route全程人工确认。InvadingTurn/Town13的同road355 lane-id在98/128变化却未见
+RGB跨线，已加入Phase3精确横向未确认清单：FULL_MANEUVER跳过，纵向组保留并记录证据不足。
+同road+连续lane-id仍只是候选证据，原始xodr lane-section连通尚未核验。
+本轮诊断索引filtered_v5共1152条，三split各十context×32+64invalid；训练默认和定额eval均
+对齐invalid/valid=20%（总量16.7%）。详见Phase3映射审计报告及本地review.html，未训练模型。
+
+2026-09-05 后续边界审计：在上述记录上新增两轮52个连续图组条目及10条原图/补充图组
+记录，合计259条notes、244条不同route；仍不是582条路线全程人工确认。
+已查明 `expert.py` 保存的 road_id/lane_id 来自 LaneType.Any，InvadingTurn/Town13
+1777_0 的 f98–127 为 Shoulder，而另一遍 Driving 查询的 ego_lane_id 仍为-1。
+Phase3 横向监督要求完整 Driving 窗口，不混用缺少配套 road_id 的 ego_lane_id。
+动作规则 `ordered_speed_driving_lane_v5` 排除孤立加速峰值，并允许起步后在正常速度范围
+轻微回落；prompt 为 `v3_boundary_audited`，train/eval 显式拒绝旧规则索引。
+新增 Phase3 专用 ParkingCutIn/Town13 1008_0 f96–98 U3 正例，不写回Phase1/2；另隔离
+VehicleTurningRoute/Town04 的 f2–10 错误 R5/RE5 候选。最新诊断数据 filtered_v8 共
+12,928候选、1152平衡行。58项回归、三split实际train/eval采样20seed检查通过，无模型加载。
+`dispatch.py` 是保留并发UE/恢复状态并报告缺失RE gate的接口，尚未接入在线runner；
+`build_same_rs_challenge.py` 仅有1route/5题同RS错事件诊断，不是独立holdout，未并入训练。
+当前正式索引invalid仍只覆盖错误RS，不能宣称已具备全情境同RS事件纠错能力。
+后续入口：`sft_new_loop_phase3/BOUNDARY_AUDIT_20260905.md`；Phase1/2对HEAD仍无改动。
+
+
+### 2026-09-05 Phase3 后续落实：同 RS 负例与常规候选核对
+
+Phase1/2未改。本轮原图15路线84张，累计274 notes/248不同路线；不是全route确认。
+新增 `same_rs_invalid.py` 将9个route/anchor的34道人工同RS错事件候选接入主构建；
+train/eval保留invalid_reason、同RS已具备的asked-context覆盖，构建与运行时共用
+source/联合配额。`filtered_v12` 为582路线审核子集的12,896有效候选/1152均衡题；
+相比v8排除32个正候选（过早RE5 12、主路伪RE3 8、雾中U5提前段12）。
+三个split分别54/10、56/8、56/8个wrong-RS/same-RS invalid，七UE的同RS题跨三split
+均有；RE同RS覆盖不全，不凭空补负例。十个有效context仍各32、每split总384题。
+`dispatch.plan_candidate_requests/candidate_response` 提供常规候选核对，不把R3/R5
+当RE真值；未驳回且动作全NO不表示恢复完成，接口未接CARLA。五动作不变。
+prompt更新v4_context_recheck；动作规则仍Driving v5；训练/eval新增mapping_contract_hash
+校验绑定人工决定，旧索引必须重建。61项回归与三split各20seed实际采样通过；未训练。
+最新状态以 `sft_new_loop_phase3/BOUNDARY_AUDIT_20260905.md` 为准，v8及此前数字为历史。

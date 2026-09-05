@@ -288,6 +288,14 @@
   和单例 note 必须直接携带 INVALID 子组。
   代码、prompt、训练/eval/audit 脚本、测试和运行文档允许修改、追踪、commit 和 push；训练/eval/checkpoint 大产物仍写入
   `AutoMoT/checkpoints/` 或本地输出目录。）
+- `AutoMoT/qwen3vl_local/sft_new_loop_phase3/`
+  （按用户同意新增到白名单：Phase1/Phase2 之后的五动作 high-level LoRA 子包。动作固定为
+  `DECELERATE` / `STOP` / `RESUME` / `LANE_CHANGE_LEFT` / `LANE_CHANGE_RIGHT`；未来 meta
+  仅用于离线 expert-label（纵向速度窗、同 road 的 OpenDRIVE lane-id 切换），绝不能写入 prompt。
+  Phase3 v2 保持五动作；完整 RS 四问全 NO 恢复 R3，未问不作 NO，HIGHWAY 为独立事实；并发异常保留。普通无灯路口不自动 U-E7，原 U7 用既有灯故障答案表适配；新增 R5/R-E5 常规让行，与七异常及 R-E2/R-E3 共十个 context 1:1。R-E2 包含目标变道及绕障恢复，不按 24 帧截断，两条变道 NO 不清除恢复状态；最终目标 y 符号不决定变道侧。invalid 必须覆盖每个 asked context；未来轨迹只用于离线标签，默认异常 route/RGB 风险过滤。逐帧人工审计与机器覆盖分开记录；详见 sft_new_loop_phase3/MAPPING_AUDIT_20260905.md。
+  代码、prompt、训练/eval/probe/audit 脚本、测试和
+  运行文档允许修改、追踪、commit 和 push；训练/eval/checkpoint 与 RGB sheet 等大产物仍写
+  `AutoMoT/checkpoints/` 或本地输出目录，不入库。）
 - `AutoMoT/qwen3vl_local/sft_loop_phase3/`
   （按用户同意新增到白名单：Phase3 事件级 RS-gated 二值问答子包。复用 Phase2 风格构造已回答且默认正确的 RS context，并在训练/eval 中渲染成上一轮 assistant answer 作为 KV 前缀；`build_phase3_prompt` 默认只表示实际后一轮 user turn，不 inline Phase2，单串审计视图才显式开启 inline；eval case 必须保存实际多轮 messages 或拆开的 phase2 user / phase2 assistant / phase3 user prompt，避免 audit 误读 inline RS context；RS1/RS2 只问 UE1/UE3/UE5，RS4/RS5 只问 UE6，RE 统一为所有 UE=NO；UE2/UE4/UE7 由 Phase1 处理，UE8 默认并入 regular/RE。数据构建需剔除异常时长 route，训练/验证/测试保持 UE1:UE3:UE5:UE6 为 1:1:1:1，并默认加入约 20% wrong-RS invalid/not-applicable 样本；invalid 按 source_class / true_rs / fake_rs 均衡，R3/highway invalid 同时展开到 RS1/RS2/RS4/RS5，要求所有 UE=NO 且 `INVALID_RS_CONTEXT=YES`，eval/TB 必须记录 invalid joint/all-UE-NO 指标；prompt v2 强调弱 RGB 证据时保持 RE/all-NO、普通路口车辆不等于 UE6、事故/静态拥堵不等于 UE3、invalid 只表示 RS gate 明显不适用；训练默认 `REGULAR_FOCUS_MULTIPLIER=2.0` 只放大 RE hard negatives，UE 正类仍为 1:1:1:1，eval/generation 仍用均衡口径；DDP 训练必须按 global step 对齐各 rank，skip/超长样本跑短图文 DDP forward 并用 logits zero loss backward，避免 reducer、barrier 和 eval 分叉；`GRAD_ACCUM>1` 结尾残余梯度必须 flush，`SAVE_STEPS` 落在累积窗口中间时 checkpoint 延迟到下一次 optimizer step 后保存；训练/eval/probe/audit 脚本、prompt、运行文档允许修改、追踪、commit 和 push，训练/eval/checkpoint 等大产物仍写入 `AutoMoT/checkpoints/` 或本地输出目录。）
 - `AutoMoT/qwen3vl_local/sft_v2/__init__.py`
@@ -659,6 +667,7 @@ git add AutoMoT/qwen3vl_local/sft_v4/__init__.py AutoMoT/qwen3vl_local/sft_v4/SF
 git add AutoMoT/qwen3vl_local/sft_loop_phase2_augment/
 git add AutoMoT/qwen3vl_local/sft_new_loop_phase1/
 git add AutoMoT/qwen3vl_local/sft_new_loop_phase2/
+git add AutoMoT/qwen3vl_local/sft_new_loop_phase3/
 git add AutoMoT/qwen3vl_local/sft_loop_phase3/
 git add AutoMoT/qwen3vl_local/sft_v5/
 git add AutoMoT/qwen3vl_local/sft_base/

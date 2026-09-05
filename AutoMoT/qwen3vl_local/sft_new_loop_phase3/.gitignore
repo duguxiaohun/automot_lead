@@ -1,0 +1,5 @@
+# 可再生 RGB、索引、checkpoint 和 Python 缓存不入库。
+probe_output/
+__pycache__/
+.pytest_cache/
+*.pyc
