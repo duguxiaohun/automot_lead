@@ -1,0 +1,290 @@
+{
+  "format": "sft_new_loop_phase3_rgb_audit_coverage_v1",
+  "source": "Phase1 full-route RGB visual audit completed locally on 2026-08-09; reused unchanged by sft_new_loop_phase3 action supervision",
+  "scenarios": 42,
+  "scenario_town_pairs": 197,
+  "completed_routes": 582,
+  "coverage": {
+    "Accident": {
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town06": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "AccidentTwoWays": {
+      "Town01": 3,
+      "Town02": 3,
+      "Town05": 1,
+      "Town07": 3,
+      "Town12": 3,
+      "Town13": 3,
+      "Town15": 3
+    },
+    "BlockedIntersection": {
+      "Town06": 3,
+      "Town07": 3,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "ConstructionObstacle": {
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town06": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "ConstructionObstacleTwoWays": {
+      "Town01": 3,
+      "Town02": 3,
+      "Town05": 1,
+      "Town07": 3,
+      "Town12": 3,
+      "Town13": 3,
+      "Town15": 3
+    },
+    "ControlLoss": {
+      "Town01": 3,
+      "Town02": 3,
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town06": 3,
+      "Town07": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "CrossJunctionDefectTrafficLight": {
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town07": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3,
+      "Town15": 3
+    },
+    "CrossingBicycleFlow": {
+      "Town12": 3
+    },
+    "DynamicObjectCrossing": {
+      "Town01": 3,
+      "Town02": 3,
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town06": 3,
+      "Town07": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "EnterActorFlow": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "EnterActorFlowV2": {
+      "Town12": 3
+    },
+    "HardBreakRoute": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "HazardAtSideLane": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "HazardAtSideLaneTwoWays": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "HighwayCutIn": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "HighwayExit": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "InterurbanActorFlow": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "InterurbanAdvancedActorFlow": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "InvadingTurn": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "MergerIntoSlowTraffic": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "MergerIntoSlowTrafficV2": {
+      "Town06": 2,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "NonSignalizedJunctionLeftTurn": {
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town07": 3,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "NonSignalizedJunctionLeftTurnEnterFlow": {
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town07": 3,
+      "Town10HD": 1,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "NonSignalizedJunctionRightTurn": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "OppositeVehicleRunningRedLight": {
+      "Town01": 3,
+      "Town02": 3,
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town06": 3,
+      "Town07": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "OppositeVehicleTakingPriority": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "ParkedObstacle": {
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town06": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "ParkedObstacleTwoWays": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "ParkingCrossingPedestrian": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "ParkingCutIn": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "ParkingExit": {
+      "Town03": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3,
+      "Town15": 3
+    },
+    "PedestrianCrossing": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "PriorityAtJunction": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "RedLightWithoutLeadVehicle": {
+      "Town01": 3,
+      "Town02": 3,
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town06": 3,
+      "Town07": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "SignalizedJunctionLeftTurn": {
+      "Town01": 3,
+      "Town02": 3,
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town06": 3,
+      "Town07": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3,
+      "Town15": 3
+    },
+    "SignalizedJunctionLeftTurnEnterFlow": {
+      "Town01": 3,
+      "Town02": 3,
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town07": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3,
+      "Town15": 3
+    },
+    "SignalizedJunctionRightTurn": {
+      "Town01": 3,
+      "Town02": 3,
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town07": 1,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3,
+      "Town15": 3
+    },
+    "StaticCutIn": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "T_Junction": {
+      "Town01": 3,
+      "Town02": 3,
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town10HD": 3
+    },
+    "VehicleOpensDoorTwoWays": {
+      "Town12": 3,
+      "Town13": 3
+    },
+    "VehicleTurningRoute": {
+      "Town01": 3,
+      "Town02": 3,
+      "Town03": 3,
+      "Town04": 3,
+      "Town05": 3,
+      "Town06": 3,
+      "Town07": 3,
+      "Town10HD": 3,
+      "Town12": 3,
+      "Town13": 3
+    },
+    "VehicleTurningRoutePedestrian": {
+      "Town12": 3,
+      "Town13": 3
+    }
+  }
+}

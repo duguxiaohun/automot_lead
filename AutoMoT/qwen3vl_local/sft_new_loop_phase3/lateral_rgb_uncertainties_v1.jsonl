@@ -1,0 +1,1 @@
+{"scenario":"InvadingTurn","route_id":"Town13_Rep0_1777_0_route0_01_10_22_42_02","transition_frames":[98,128],"decision":"LATERAL_UNVERIFIED","original_rgb_frames":[86,96,97,98,99,116,127,128,129,130],"reason":"road355 lane -1/-2在98、128变化，但RGB仍位于同一黄色中心线和右侧边线内；98附近theta约0.175rad，轨迹平滑。编号切换不足以证明跨线，疑似lane-section或地图投影问题，未读取xodr确认。"}
