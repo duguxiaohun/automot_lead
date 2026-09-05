@@ -651,3 +651,32 @@ source/联合配额。`filtered_v12` 为582路线审核子集的12,896有效候�
 prompt更新v4_context_recheck；动作规则仍Driving v5；训练/eval新增mapping_contract_hash
 校验绑定人工决定，旧索引必须重建。61项回归与三split各20seed实际采样通过；未训练。
 最新状态以 `sft_new_loop_phase3/BOUNDARY_AUDIT_20260905.md` 为准，v8及此前数字为历史。
+
+
+## Action prior 轨迹训练（2026-09-05）
+
+新增 `qwen3vl_local/action_prior/`，运行入口 `run.md` / `run_full_pipeline.sh`。
+它冻结 Qwen3-VL-4B-Instruct、Phase1/2 LoRA 和 LEAD BEV，复用已有 LeadMoT
+Linear+cumsum 轨迹头、状态/导航、GT 和 loss，主要改变语言 KV 条件；不是扩散头。
+新 Phase1 已融合事实四问和 RS，先全问再四个 RS 分层复核；新 Phase2 没有训练
+hierarchical EVENT 接口，采用两个已有问题域全问和真实 assistant 后的同域续问复核。
+两次一致只是 condition 接受，不代表真实准确率；invalid 字段留空，样本继续参加轨迹训练。
+
+自动权重选择只在 `best_generation/` 内查实际权重，校验生产 prompt name/hash、Git commit、
+base 路径和 RGB 2/4图配置，并回查保存 step 的 generation 验证分数；没有 final 兜底。
+允许显式指定兼容 adapter；来源、完整权重指纹和代码指纹写入 config/selected_priors/checkpoint。
+两个 LoRA 共用 base 但独立启停，禁止 merge。所有最终图文+先验+三句分析 KV 在
+`disable_adapter()` 下完整 prefill；禁用上下文退出也强制冻结参数，防止 PEFT 自动恢复梯度。
+本入口还在构造 BEV 时禁用旧 timm pretrained 下载，随后 strict 导入本地 LEAD backbone。
+
+冻结问答/简述可按权重与代码合同、实际四图字节、导航和 sample seed 缓存压缩文本；
+首次和命中采用相同完整 assistant transcript 重建 base KV，不缓存 GPU KV 或图片。
+缓存命中样本的 invalid 仍计入每轮真实呈现计数；这不是 SFT teacher 离线物化机制。
+
+默认索引保留所有合法 4Hz anchor，先排除异常时长 route，按物理路线聚合 Rep/时间戳后
+约80/10/10划分。默认61 epoch、4卡×1clip×16累积、LR2e-4、5%warmup+cosine，
+每250 optimizer steps验证256帧，每完整epoch全量val选best.pt；实际数据量与步数写training_plan。
+此配置参考LEAD/现有LeadMoT，尚未针对新KV分布调参验证。支持DDP、EMA、TB、精确cursor/RNG
+断点恢复、独立eval/probe和CPU测试；尚未执行真实权重、多卡训练或闭环评测。
+新checkpoint使用独立qwen_backbone schema，旧LeadMoT/eval_carla明确拒绝，不得直接交给旧入口。
+Phase1/2/3源码均未修改；Phase3未接入。
