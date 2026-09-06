@@ -375,3 +375,38 @@ python qwen3vl_local/action_prior/audit_bundle.py --root checkpoints/action_prio
 协议参考：[Bench2Drive 官方仓库](https://github.com/Thinklab-SJTU/Bench2Drive)、
 [0.0.4 能力统计](https://github.com/Thinklab-SJTU/Bench2Drive/blob/0.0.4/tools/ability_benchmark.py)。
 这些入口目前完成 CPU/合成数据验证；实际 Qwen/BEV/adapter 加载、CARLA 闭环及论文分数尚未实跑。
+
+## 训练前对比 Phase1/2 LoRA 并打印推荐权重
+
+```bash
+# 默认与 action 训练一样扫描 checkpoints；打印每个 best_generation 的完整指标
+bash qwen3vl_local/action_prior/rank_loras.sh
+
+# 分别限定两组训练产物目录；也支持直接传某个 best_generation 目录
+bash qwen3vl_local/action_prior/rank_loras.sh \
+  --phase1-root checkpoints/sft_new_loop_phase1_runs \
+  --phase2-root checkpoints/sft_new_loop_phase2_runs
+
+# 只看 Phase2，命令行简表；report.json 仍保留全部指标
+bash qwen3vl_local/action_prior/rank_loras.sh --phase 2 --summary-only
+```
+
+这是 **已有验证指标的只读对比**，不用 GPU、不重新生成、不修改任何 adapter。
+默认输出 `checkpoints/action_prior_lora_audit/run_<时间>/report.json` 与 `log.txt`；
+可用 `--output-dir` 指定新的报告目录，已有目录拒绝覆盖。
+用 `--model-dir` 指定本地 Qwen 基座路径，用 `--checkpoint-root` 改统一扫描根目录。
+
+候选仅接受目录名严格为 `best_generation` 的 Phase1/2 权重；`final`、`best_val`、
+`fallback_generation`、`best_generation_balanced` 均不进入此次推荐。
+Phase1 按 adapter 的 global_step 精确回查同 run `train_eval_metrics.jsonl`，
+Phase2 读取同 run `best_generation.json` 的 generation/guard 记录；teacher-forced 也只取保存 step。
+命令行先显示 Exact/Format/样本数/Step/RGB 排名表，再列每题、RS、GROUP、variant、
+UE 各类与高速 UE3、INVALID 子组等**文件实际保存的所有指标**。未保存的指标为 N/A/缺失说明，
+不把最近 step 或独立 test 成绩拼接到此权重。旧 prompt/hash、Git 缺失、base/RGB 不符、
+缺权重或 guard/step 不符的候选保留诊断信息，但不推荐。
+
+推荐顺序与 `contracts.select_adapter` 相同：兼容 best_generation 的验证 exact 降序，
+同分依次按 saved_at 和路径降序；Phase1/2 分别推荐，最后打印可固定这两个权重的训练命令，
+**不自动执行训练**。指标明细供人工识别少数类退化，脚本不偷偷换成其它加权排名。
+不同 run 的验证样本/预算可能不同，因此只能称为现有记录下的推荐，不能当统一 holdout 的严格最优；
+Git 标记也不等于完整环境核验。任一请求 phase 无可推荐权重时仍输出完整报告，退出码为 2。
