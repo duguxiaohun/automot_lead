@@ -379,7 +379,7 @@ python qwen3vl_local/action_prior/audit_bundle.py --root checkpoints/action_prio
 ## 训练前对比 Phase1/2 LoRA 并打印推荐权重
 
 ```bash
-# 默认与 action 训练一样扫描 checkpoints；打印每个 best_generation 的完整指标
+# 扫描 checkpoints；打印 best_generation 指标及其它保存点/版本诊断
 bash qwen3vl_local/action_prior/rank_loras.sh
 
 # 分别限定两组训练产物目录；也支持直接传某个 best_generation 目录
@@ -410,3 +410,32 @@ UE 各类与高速 UE3、INVALID 子组等**文件实际保存的所有指标**�
 **不自动执行训练**。指标明细供人工识别少数类退化，脚本不偷偷换成其它加权排名。
 不同 run 的验证样本/预算可能不同，因此只能称为现有记录下的推荐，不能当统一 holdout 的严格最优；
 Git 标记也不等于完整环境核验。任一请求 phase 无可推荐权重时仍输出完整报告，退出码为 2。
+
+新版 `report.json` 使用 `action_prior_lora_ranking_v2`，增加发现层与合同层分开审计：
+
+- `discovery_status` 区分未发现、仅有非 best 保存点、best 全部被拒绝和成功推荐。
+  `discovery` 保存 Phase 目录入口、无法识别 phase 的保存点、压缩包、软链接及读取错误。
+  目录存在不代表其中有可加载权重；`adapter_metadata/adapter` 里的无权重副本标为
+  `audit_metadata_only`，压缩文件只列出，不自动解包。
+- `other_checkpoints` 展示 final/fallback/balanced/checkpoint-* 和旧版或缺失配置的保存点，
+  仅用于解释“为什么没被推荐”，不会成为 best 的兜底。Phase 目录名仅作发现线索，
+  旧 `sft_loop_phase2` 的道路结构 LoRA 不能因为名字带 Phase2 就充当新 Phase2 EVENT LoRA。
+- 每个保存点的 `checks` 同时给出 prompt 名称/哈希、Git、base、RGB、PEFT、权重文件、
+  保存 step 和选优 guard 的 `status/actual/expected/detail`，不再只返回第一个错误。
+  未知、失败和不适用分开记录，`--summary-only` 仍打印这些检查；旧配置版本会单列展示。
+- **Git 只要求训练 `git.commit` 非空，不要求等于当前 checkout 的 commit。**
+  prompt name/hash 必须对应当前 phase 和实际 RGB 模式；不能用当前 commit 填补历史来源，
+  或改旧 prompt 标记来让旧 adapter 通过。文件和指标校验不等于真实模型加载/准确率验证。
+- 审计跟随目录软链接、按真实路径去重并防循环，保留断链错误；链接名叫 `best_generation`
+  而实际指向 `final` 时仍只作非 best 审计。训练默认 `rglob` 不跟随目录软链接，
+  因此审计可能发现更多候选；应使用脚本打印的显式 adapter 路径固定推荐结果。
+
+服务器上目录明明存在但 Phase2 数量为 0 时，从 `AutoMoT/` 重跑：
+
+```bash
+bash qwen3vl_local/action_prior/rank_loras.sh \
+  --checkpoint-root /实际路径/AutoMoT/checkpoints --phase 2 --summary-only
+```
+
+返回码 2 表示这次没有可推荐 Phase2，报告仍完整写出。用新的 `report.json` 与 `log.txt`
+区分目录范围、审计包副本、配置缺失、版本不符和权重/指标不全，不从“候选数 0”推断 Git 不匹配。

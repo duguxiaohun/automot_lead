@@ -106,3 +106,135 @@ def test_cli_empty_reports_both_phases_no_gpu(tmp_path):
         r["recommended"] is None for r in data["phases"]
     )
     assert "无可推荐权重" in result.stdout and (out / "log.txt").is_file()
+
+
+def test_phase2_only_final_is_found_but_never_recommended(tmp_path, capsys):
+    path = fixture_adapter(tmp_path / "p2", 2, slot="final")
+    # best 的 generation 明细绝不能冒充 final 保存 step 的结果。
+    file = path.parent / "best_generation.json"
+    record = json.loads(file.read_text())
+    record.update(step=200, generation={"exact_accuracy": 1.0})
+    file.write_text(json.dumps(record))
+    result = scan(tmp_path, 2, tmp_path / "base")
+    assert result["discovery_status"] == "only_non_best_slots"
+    assert not result["candidates"] and result["recommended"] is None
+    assert result["other_checkpoints"][0]["generation"]["step"] == 100
+    show(result, summary_only=True)
+    assert "非 best_generation 保存点" in capsys.readouterr().out
+
+
+def test_all_contract_failures_are_reported_together(tmp_path, capsys):
+    path = fixture_adapter(tmp_path / "p2", 2)
+    file = path / "sft_new_loop_phase2_adapter_config.json"
+    cfg = json.loads(file.read_text())
+    cfg.update(prompt_name="old_v3", production_prompt_sha256="old_hash", git={"commit": None},
+               history_rgb_count=2, base_model_dir="/wrong/base")
+    file.write_text(json.dumps(cfg))
+    (path / "adapter_model.safetensors").unlink()
+    file = path.parent / "best_generation.json"
+    record = json.loads(file.read_text())
+    record.update(step=101, generation_guards_ok=False)
+    file.write_text(json.dumps(record))
+    result = scan(tmp_path, 2, tmp_path / "base")
+    row = result["candidates"][0]
+    checks = {c["name"]: c for c in row["checks"]}
+    for name in ("prompt_name", "prompt_hash", "training_git_commit", "rgb_count",
+                 "base_model_dir", "weight_files", "generation_guards", "selection_step"):
+        assert checks[name]["status"] == "fail"
+    assert checks["prompt_name"]["actual"] == "old_v3"
+    assert checks["prompt_name"]["expected"] != "old_v3"
+    assert result["discovery_status"] == "best_generation_rejected"
+    assert "generation" not in row  # 错 step 的高分也不展示成该 adapter 的分数。
+    show(result, summary_only=True)
+    output = capsys.readouterr().out
+    assert "[fail] prompt_name" in output and "[fail] training_git_commit" in output
+
+
+def test_different_training_commit_is_not_a_rejection(tmp_path):
+    path = fixture_adapter(tmp_path / "p2", 2)
+    result = scan(tmp_path, 2, tmp_path / "base")
+    assert result["recommended"] == str(path)
+    check = next(c for c in result["candidates"][0]["checks"] if c["name"] == "training_git_commit")
+    assert check["actual"] == "abcdef" and check["status"] == "pass"
+
+
+def test_missing_new_phase2_config_and_legacy_metadata_are_visible(tmp_path, capsys):
+    path = fixture_adapter(tmp_path / "sft_loop_phase2_old", 2)
+    file = path / "sft_new_loop_phase2_adapter_config.json"
+    file.rename(path / "sft_loop_phase2_adapter_config.json")
+    result = scan(tmp_path, 2, tmp_path / "base")
+    row = result["candidates"][0]
+    assert not row["expected_metadata_present"] and not row["eligible"]
+    assert "sft_loop_phase2_adapter_config.json" in row["alternative_metadata"]
+    assert row["checks"][0]["status"] == "fail"
+    show(result, summary_only=True)
+    assert "旧版元数据" in capsys.readouterr().out
+
+
+def test_external_directory_links_followed_deduplicated_and_cycles_stop(tmp_path):
+    root = tmp_path / "checkpoints"
+    root.mkdir()
+    path = fixture_adapter(tmp_path / "external" / "run", 2)
+    (root / "phase2_latest").symlink_to(path.parent, target_is_directory=True)
+    (root / "second_alias").symlink_to(path.parent, target_is_directory=True)
+    (path.parent / "cycle").symlink_to(root, target_is_directory=True)
+    (root / "broken_phase2").symlink_to(tmp_path / "absent", target_is_directory=True)
+    result = scan(root, 2, tmp_path / "external" / "base")
+    assert result["recommended"] == str(path)
+    assert len(result["candidates"]) == 1
+    assert result["discovery"]["visited_directories"] < 10
+    assert any(r["status"] == "unavailable" for r in result["discovery"]["links"])
+
+
+def test_link_alias_cannot_make_final_into_best_generation(tmp_path):
+    path = fixture_adapter(tmp_path / "external", 2, slot="final")
+    alias = tmp_path / "best_generation"
+    alias.symlink_to(path, target_is_directory=True)
+    result = scan(alias, 2, tmp_path / "base")
+    assert result["recommended"] is None and not result["candidates"]
+    assert result["other_checkpoints"][0]["path"] == str(path)
+
+
+def test_unknown_checkpoint_and_empty_phase2_directory_are_visible(tmp_path):
+    path = tmp_path / "sft_new_loop_phase2_runs" / "empty"
+    path.mkdir(parents=True)
+    unknown = tmp_path / "unlabelled" / "best_generation"
+    unknown.mkdir(parents=True)
+    (unknown / "adapter_config.json").write_text("{}")
+    result = scan(tmp_path, 2, tmp_path / "base")
+    assert str(path.parent) in result["discovery"]["phase_directories"]
+    assert result["discovery"]["unclassified_slots"][0]["path"] == str(unknown)
+    assert result["discovery_status"] == "no_phase_checkpoint_found"
+
+
+def test_bad_metadata_does_not_abort_remaining_candidates(tmp_path):
+    path = fixture_adapter(tmp_path / "a", 2)
+    (path / "sft_new_loop_phase2_adapter_config.json").write_text("[]")
+    best = fixture_adapter(tmp_path / "b", 2)
+    result = scan(tmp_path, 2, tmp_path / "base")
+    assert result["recommended"] == str(best)
+    assert len(result["candidates"]) == 2
+
+
+def test_scandir_permission_failure_is_reported(tmp_path, monkeypatch):
+    from qwen3vl_local.action_prior import lora_audit
+
+    def denied(path):
+        raise PermissionError("test access denied")
+
+    monkeypatch.setattr(lora_audit.os, "scandir", denied)
+    result = scan(tmp_path, 2, tmp_path / "base")
+    assert "test access denied" in result["discovery"]["errors"][0]["error"]
+    assert result["recommended"] is None
+
+
+def test_audit_metadata_copy_and_archive_are_not_loadable_weights(tmp_path):
+    path = fixture_adapter(tmp_path / "sft_new_loop_phase2_audit_bundle" / "adapter_metadata", 2,
+                           slot="adapter")
+    (path / "adapter_model.safetensors").unlink()
+    archive = tmp_path / "sft_new_loop_phase2_archive.zip"
+    archive.write_bytes(b"not opened or extracted")
+    result = scan(tmp_path, 2, tmp_path / "base")
+    assert result["other_checkpoints"][0]["artifact_kind"] == "audit_metadata_only"
+    assert result["discovery"]["archives"][0]["path"] == str(archive)
+    assert result["recommended"] is None
