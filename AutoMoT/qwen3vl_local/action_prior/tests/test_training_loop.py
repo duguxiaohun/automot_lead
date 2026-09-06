@@ -121,6 +121,9 @@ def test_interruption_resume_matches_uninterrupted(tmp_path, monkeypatch, failur
         "phase2": {"path": "two"},
     }
     monkeypatch.setattr(train, "build_contract", lambda args: contract)
+    # 本测试只替换昂贵模型与其文件 IO；真实复制/删除源/搬迁验证在 test_lora_bundle.py。
+    from qwen3vl_local.action_prior import lora_bundle
+    monkeypatch.setattr(lora_bundle, "preserve_for_training", lambda contract, out: contract)
     dataset = tmp_path / "data"
     dataset.mkdir()
     rows = {}

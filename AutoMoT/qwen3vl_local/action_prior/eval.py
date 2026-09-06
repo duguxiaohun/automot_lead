@@ -55,8 +55,14 @@ def main():
             "requires v2 FP32-master action_prior checkpoint; old language/precision contract is incompatible"
         )
     args = argparse.Namespace(**state["args"])
-    args.phase1_adapter = cli.phase1_adapter or state["qwen_backbone"]["phase1"]["path"]
-    args.phase2_adapter = cli.phase2_adapter or state["qwen_backbone"]["phase2"]["path"]
+    # 权重已由 checkpoint 固定；不依赖训练前选择清单的旧物理路径。
+    args.selection_manifest = ""
+    args.selection_output = ""
+    args.lora_bundle = ""
+    from qwen3vl_local.action_prior.lora_bundle import restore_paths
+    local_paths = restore_paths(state["qwen_backbone"], cli.checkpoint)
+    args.phase1_adapter = cli.phase1_adapter or local_paths["phase1"]
+    args.phase2_adapter = cli.phase2_adapter or local_paths["phase2"]
     for k in (
         "data_root",
         "data_dir",

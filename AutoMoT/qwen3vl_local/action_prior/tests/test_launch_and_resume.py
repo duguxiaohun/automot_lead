@@ -76,6 +76,10 @@ def test_resume_recovers_actual_config_and_selected_priors(
                 data_dir="index_original",
                 phase1_adapter="",
                 phase2_adapter="",
+                selection_policy="available",
+                selection_manifest="/unavailable/original/selection.json",
+                selection_output="/unavailable/original/selection.json",
+                checkpoint_roots=["/shared/server a", "/shared/server b"],
                 use_bev=True,
             )
         )
@@ -98,6 +102,10 @@ def test_resume_recovers_actual_config_and_selected_priors(
     assert command[command.index("--grad-accum-steps") + 1] == "5"
     assert command[command.index("--phase1-adapter") + 1] == "one/best_generation"
     assert "--output-dir" not in command
+    assert "--selection-manifest" not in command and "--selection-output" not in command
+    assert command[command.index("--checkpoint-roots") + 1:command.index("--checkpoint-roots") + 3] == [
+        "/shared/server a", "/shared/server b"]
+    assert command[command.index("--selection-policy") + 1] == "available"
 
 
 def test_tail_accumulation_keeps_mean_scale():

@@ -764,3 +764,25 @@ Git 只检查训练 commit 非空，不要求与当前 checkout 相等；不篡�
 包名与提示词版本分开：sft_new_loop_phase2 的 v3 仍属新 EVENT 包，只是与当前 v5 协议不同。
 143409 最新远程报告没有发现新 Phase2 adapter 配置；143428 有新 Phase2 的 12 个真实保存点
 和 1 个无权重副本，但没有 best_generation。旧包的两个 best 不应算作新 Phase2 候选。
+
+2026-09-06 用户随后明确授权先用现有模型训练 action：默认 `selection_policy=available`，
+支持 `--checkpoint-roots` 合并共享目录/软链接。新 Phase1 当前 v5 best 优先按 validation Exact；
+新 Phase2 优先兼容且 guard 通过的 best，没有时按 fallback validation Exact 选优，不使用 final。
+支持新 Phase2 v3 冻结 prompt（源 6c722de11，2/4 RGB 哈希与远程记录一致）及当前 v5，
+问组和运行文字按所选协议恢复；Git 缺失、原 fallback guard 失败只作警告，不篡改元数据。
+同名 Qwen3-VL-4B-Instruct 可跨服务器路径重映射，旧 base 字节同一性未证明；实际本地 base、
+BEV、LoRA 字节和真实执行代码进入合同。`strict` 保留原限制。完整 pipeline 预检打印候选与选择，
+保存 selection_$RUN_TAG.json 并固定传给训练，防止数据构建后重选；resume/eval 固定 checkpoint
+路径和哈希，不依赖原 manifest 物理路径。rank_loras 默认 available（独立报告 schema），strict
+仍输出 v3 审计。真实模型/GPU 训练未在本机运行；新代码改变旧 action 执行合同。
+
+2026-09-06 用户要求保存所选 LoRA 防止上游删除：训练 rank0 在模型加载前通过
+`lora_bundle.preserve_for_training` 实际复制所选权重/原配置/保存步指标/来源到 action run/lora，
+复制字节 SHA256 不变；checkpoint 合同记录本地相对路径。resume/eval/probe/闭环优先使用
+checkpoint 旁 lora 的核验副本，整个 run 可搬迁，缺失/损坏不静默重选。Qwen/BEV 仍外部准备。
+rank_loras 默认导出所选组合目录及 tar.gz+SHA256，逐文件复制校验、逐归档成员解压流校验；
+只含选中 slot 和必要旁车指标/配置/提示词依赖/训练与导出 Git，不含其它中间 checkpoint。
+输出包路径/每阶段模型/step/prompt/Exact，report.weight_bundle 保存清单；完整权重包不限30MB，
+原 audit.zip 仍限30MB且不装权重。`--no-export-bundle` 只审计，`--lora-bundle` 固定已认可组合，
+解压到目标 AutoMoT/checkpoints 后可直接预检/训练；仅有单阶段时可导出单阶段包用于合并搜索，
+不能冒称双阶段完整。CPU 已验证删除原模型、压缩迁移及 action run 搬迁恢复，不代表真实GPU已跑。

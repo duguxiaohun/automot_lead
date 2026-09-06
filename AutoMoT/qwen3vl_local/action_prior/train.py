@@ -287,7 +287,17 @@ def main():
     if args.models_only:
         if not args.preflight:
             raise ValueError("--models-only requires --preflight")
-        print(json.dumps(build_contract(args), indent=2, ensure_ascii=False))
+        contract = build_contract(args)
+        if args.selection_output:
+            selection_path = Path(args.selection_output)
+            selection_path.parent.mkdir(parents=True, exist_ok=True)
+            with selection_path.open("x", encoding="utf-8") as handle:
+                json.dump(dict(schema="action_prior_selection_v1", selection_policy=args.selection_policy,
+                               contract_identity=contract["identity"],
+                               phase1=contract["phase1"], phase2=contract["phase2"]),
+                          handle, indent=2, ensure_ascii=False)
+            print(f"[selection pinned] {selection_path}", flush=True)
+        print(json.dumps(contract, indent=2, ensure_ascii=False))
         return
     rows = {s: read_rows(args, s) for s in ("train", "val", "test")}
     plan = training_plan(args, rows, world)
@@ -323,8 +333,11 @@ def main():
     box = [None]
     if rank == 0:
         try:
+            from qwen3vl_local.action_prior.lora_bundle import preserve_for_training
+            selected_contract = build_contract(args)
+            selected_contract = preserve_for_training(selected_contract, out)
             box[0] = {
-                "contract": build_contract(args),
+                "contract": selected_contract,
                 "datasets": {
                     s: file_hash(Path(args.data_dir) / f"{s}.jsonl") for s in rows
                 },

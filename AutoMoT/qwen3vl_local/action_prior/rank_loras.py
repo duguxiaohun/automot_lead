@@ -253,6 +253,10 @@ def main():
     p.add_argument("--phase1-root", default="")
     p.add_argument("--phase2-root", default="")
     p.add_argument("--phase", choices=["1", "2", "both"], default="both")
+    p.add_argument("--selection-policy", choices=["available", "strict"], default="available")
+    p.add_argument("--checkpoint-roots", nargs="+", default=[], help="同时搜索两台服务器已共享的目录")
+    p.add_argument("--export-bundle", action=argparse.BooleanOptionalAction, default=True,
+                   help="默认导出本次推荐的真实 LoRA 权重包；只审计可 --no-export-bundle")
     p.add_argument(
         "--model-dir",
         default=os.environ.get("MODEL_DIR", "checkpoints/Qwen3-VL-4B-Instruct"),
@@ -278,11 +282,19 @@ def main():
 
     install_output_log(out)
     print(
-        "只读已有验证结果：不重新生成、不读取 test 选优、不回退 final/best_generation_balanced。"
+        "只读已有验证结果：不重新生成、不读取 test 选优。available 允许新 Phase2 fallback，strict 保持原硬门槛。"
     )
     phases = [1, 2] if args.phase == "both" else [int(args.phase)]
     results = []
     for phase in phases:
+        if args.selection_policy == "available":
+            from qwen3vl_local.action_prior.available_adapters import scan_available, show_available
+            phase_root = getattr(args, f"phase{phase}_root")
+            roots = [phase_root] if phase_root else args.checkpoint_roots or [args.checkpoint_root]
+            result = scan_available(roots, phase, args.model_dir)
+            results.append(result)
+            show_available(result, full_metrics=not args.summary_only)
+            continue
         result = scan(
             getattr(args, f"phase{phase}_root") or args.checkpoint_root,
             phase,
@@ -291,29 +303,76 @@ def main():
         results.append(result)
         show(result, args.summary_only)
     print(
-        "\n合同与排名规则沿用 action_prior：兼容 best_generation 的 validation exact 最大。"
+        f"\n选择策略: {args.selection_policy}；与相同 selection-policy 的 action 训练一致。"
     )
     print(
         "不同 run 可能使用不同验证样本/采样预算；此排名不代表统一 holdout 上的严格最优。Git 字段表示来源，不保证运行环境一致。"
     )
-    print("审计额外跟随目录软链接；训练默认扫描不跟随这些链接，使用下方显式 adapter 路径固定推荐结果。")
+    if args.selection_policy == "strict":
+        print("strict 审计额外跟随目录软链接；strict 训练扫描不跟随这些链接，请用下方显式路径固定结果。")
+    else:
+        print("available 审计和训练共用多目录/软链接发现；完整流水线会固定预检选出的两阶段权重。")
     if all(r["recommended"] for r in results):
         command = [
             "bash",
             "qwen3vl_local/action_prior/run_full_pipeline.sh",
             "--model-dir",
             args.model_dir,
+            "--selection-policy", args.selection_policy,
         ]
         for result in results:
             command += [f'--phase{result["phase"]}-adapter', result["recommended"]]
         print("\n固定推荐权重运行（仅打印，不执行）:\n" + shlex.join(command))
     report = dict(
-        schema="action_prior_lora_ranking_v3",
+        schema="action_prior_available_ranking_v1" if args.selection_policy == "available" else "action_prior_lora_ranking_v3",
+        selection_policy=args.selection_policy,
         model_dir=str(Path(args.model_dir).resolve()),
         phases=results,
         metrics_are_existing_validation=True,
         common_holdout_verified=False,
     )
+    if args.export_bundle:
+        try:
+            from qwen3vl_local.action_prior.available_adapters import candidate
+            from qwen3vl_local.action_prior.lora_bundle import create_bundle, archive_bundle
+            from qwen3vl_local.action_prior.contracts import digest
+            selected = {}
+            for result in results:
+                if not result["recommended"]:
+                    continue
+                phase = result["phase"]
+                item = candidate(result["recommended"], phase, args.model_dir)
+                scanned = next(r for r in result["candidates"] if r["path"] == result["recommended"])
+                if item["generation_exact"] != scanned["generation_exact"] or item["metadata"] != scanned["metadata"]:
+                    raise ValueError("candidate changed after ranking; rerun ranking before export")
+                selected[f"phase{phase}"] = item
+            if selected:
+                name = "action_prior_loras_" + digest({k: v["fingerprint"] for k, v in selected.items()})[:16]
+                directory = create_bundle(selected, out / name, args.selection_policy,
+                                          extra_provenance={"ranking_report": "../report.json"})
+                exported = archive_bundle(directory, out / f"{name}.tar.gz")
+                report["weight_bundle"] = exported
+                for key, item in exported["phases"].items():
+                    print(f'[打包 {key}] {item["source_path"]}; step={item["global_step"]}; '
+                          f'Exact={item["generation_exact"]:.6f}; prompt={item["prompt_name"]}')
+                print(f'\n权重迁移压缩包: {exported["path"]}\nSHA256: {exported["sha256"]}'
+                      f'\n大小: {exported["bytes"] / 1024**2:.2f} MiB（完整权重包，不限 30 MB）')
+                print("解压到另一台服务器 AutoMoT/checkpoints 后，保留完整目录结构。")
+                if set(selected) == {"phase1", "phase2"}:
+                    print("固定使用这组 LoRA 训练:\n" + shlex.join([
+                        "bash", "qwen3vl_local/action_prior/run_full_pipeline.sh", "--lora-bundle",
+                        f"checkpoints/{name}"]))
+                    print("本机直接使用导出目录:\n" + shlex.join([
+                        "bash", "qwen3vl_local/action_prior/run_full_pipeline.sh", "--lora-bundle", str(directory)]))
+                else:
+                    print("此包只含有推荐的单个阶段；可解压到共享 checkpoints 与另一阶段合并搜索，尚不能单独启动双阶段训练。")
+            else:
+                print("没有可推荐权重，不生成空的迁移包。")
+        except Exception as exc:
+            report["weight_bundle_error"] = str(exc)
+            (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+            print(f"权重包导出失败，未发布可用压缩包: {exc}", file=sys.stderr)
+            return 3
     (out / "report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
     )

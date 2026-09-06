@@ -106,7 +106,7 @@ def test_generation_identity_survives_same_index_remap_and_missing_source(
         ),
     )
     args = config.parser().parse_args(
-        ["--model-dir", str(base), "--lead-bev-ckpt", str(bev)]
+        ["--model-dir", str(base), "--lead-bev-ckpt", str(bev), "--selection-policy", "strict"]
     )
     automatic = config.build_contract(args)
     args.phase1_training_index = str(index)
