@@ -746,3 +746,9 @@ Traffic Signs 新口径只给未成功但合法过路口的路线补成功，不
 Comfort 沿用本地官方函数及其原始 angular_velocity 处理，采集10Hz与dt=.1对齐；指标版本、
 训练数据/传感器/安全兜底差异必须披露。缺记录DS/SR以planned分母列零贡献并标provisional，
 能力缺观测不给完整均值，不能用少于220条的已完成子集冒充完整得分。
+
+Action prior 新增 `rank_loras.py/.sh`：CPU 只读扫描 Phase1/2 `best_generation`，命令行
+打印保存 step 的全部 generation/teacher-forced/guard 指标及 prompt/Git/RGB/来源，分别推荐。
+复用 `inspect_adapter` / `selection_score` 与生产同序排名，不混入 final/balanced/test 或其它step；
+无推荐写报告后 exit 2。默认报告 `checkpoints/action_prior_lora_audit/run_<时间>/`，不入库。
+它是已有验证记录对比，不是重新评测，不证明不同run在共同holdout上可比；运行见 action_prior/run.md。
