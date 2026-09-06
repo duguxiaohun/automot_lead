@@ -9,6 +9,7 @@ from qwen3vl_local.sft_new_loop_phase1 import prompts as p1
 from qwen3vl_local.sft_new_loop_phase2 import prompts as p2
 from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
 from qwen3vl_local.action_prior.prompt_versions import prompt_module
+from qwen3vl_local.action_prior.progress import report
 
 
 class PriorEngine:
@@ -31,6 +32,7 @@ class PriorEngine:
         self.recheck_mode = recheck_mode
         for key in ("phase1", "phase2"):
             _inspect_lora_adapter(Path(contract[key]["path"]))
+        report("setup/load_phase1_lora", announce=True, phase1_path=contract["phase1"]["path"])
         self.adapters = PeftModel.from_pretrained(
             engine.model,
             contract["phase1"]["path"],
@@ -38,6 +40,7 @@ class PriorEngine:
             is_trainable=False,
             local_files_only=True,
         )
+        report("setup/load_phase2_lora", announce=True, phase2_path=contract["phase2"]["path"])
         self.adapters.load_adapter(
             contract["phase2"]["path"],
             adapter_name="phase2",
@@ -48,6 +51,7 @@ class PriorEngine:
         self.engine.model = self.adapters.get_base_model()
         self.adapters.eval().requires_grad_(False)
         self.last_audit = None
+        report("setup/loras_ready", announce=True)
 
     @contextlib.contextmanager
     def mode(self, name):
@@ -108,7 +112,13 @@ class PriorEngine:
                 "action prior requires four chronological stitched RGB images"
             )
 
+        question_count = 0
+
         def ask(phase, spec, history):
+            nonlocal question_count
+            question_count += 1
+            report(f"condition/phase{phase}_question", question_call=question_count,
+                   question_has_history=bool(history))
             meta = self.contract[f"phase{phase}"]["metadata"]
             module = prompt_module(phase, meta)
             mode = meta["history_rgb_mode"]
@@ -131,8 +141,10 @@ class PriorEngine:
         )
 
         def compute():
+            report("condition/cache_miss", text_cache_hit=False)
             priors = collect_priors(ask, sample_key, recheck_mode=self.recheck_mode,
                                     event_module=prompt_module(2, self.contract["phase2"]["metadata"]))
+            report("condition/base_analysis")
             with self.mode("base"):
                 text, trace = self.generate_messages(
                     prompts.SYSTEM_PROMPT,
@@ -145,6 +157,7 @@ class PriorEngine:
             review, review_raw = None, ""
             review_truncated = False
             if not truncated and prompts.analysis_format_valid(text):
+                report("condition/base_review")
                 # 第二次独立文本调用只审查蕴含关系；不继承生成 cache，也不重新看图分类。
                 with self.mode("base"):
                     review_raw, review_trace = self.generate_messages(
@@ -186,6 +199,8 @@ class PriorEngine:
                 analysis_semantic_guarantee=False,
             )
 
+        report("condition/cache_lookup_or_lock", sample_key=sample_key, text_cache_hit=None,
+               question_call=0)
         if self.text_cache:
             priors, cache_hit = self.text_cache.get_or_compute(key, compute)
         else:
@@ -206,6 +221,7 @@ class PriorEngine:
             raise ValueError(
                 "cached analysis lacks its paired review or valid fallback"
             )
+        report("condition/base_final_prefill", text_cache_hit=cache_hit)
         with self.mode("base"):
             text = priors["analysis"]
             # 首次和缓存命中都完整重建相同 assistant transcript，保证 KV 分布完全一致。
@@ -234,6 +250,7 @@ class PriorEngine:
             base_cache_tokens=length,
             rope_position_offset=offset,
         )
+        report("condition/base_kv_ready")
         return cache, offset
 
 
@@ -317,6 +334,7 @@ def make_runtime(args, device, contract):
             self.sample_key = f"{sample['scenario']}/{sample['run_id']}:{sample['anchor']}:{args.seed}"
 
             def decoder_with_trainable_cache(**kwargs):
+                report("train_or_eval/decoder_forward")
                 # inference tensor 不能被可训练 attention 保存给 backward；在 inference_mode 外 clone。
                 kwargs["pooled_kv"] = [
                     (k.detach().clone(), v.detach().clone())

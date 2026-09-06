@@ -169,7 +169,31 @@ resume、eval/probe、Bench2Drive 和在线 agent 优先按当前 action checkpo
 | 验证 | 每 250 optimizer steps 固定 256 val 帧；每完整 epoch 全量 val |
 | 选优 | `best.pt` 按 epoch 全量 val 的 EMA loss；周期小验证仅观察趋势 |
 | 保存 | 每 1000 optimizer steps 和 epoch 结束原子保存 latest.pt，保留 best.pt |
-| 日志 | 每 10 optimizer steps 全 rank 汇总均值；TB loss、ADE/FDE、LR、梯度、invalid、缓存命中 |
+| 日志 | 首次更新（含恢复后的首次更新）立即输出，其后每 10 optimizer steps 全 rank 汇总均值并刷新 TB；loss、ADE/FDE、LR、梯度、invalid、缓存命中 |
+
+训练/独立 eval 默认每 30 秒输出各 rank 当前阶段（模型/LoRA 加载、缓存读取或等待锁、
+Phase1/2 问答、base 分析与复核、最终 prefill、decoder、反向、参数更新、验证和保存）。
+每轮首个样本及每次验证首个样本展开阶段；首次更新前每个 micro-step 完成也立即输出。
+`train/micro_done` 只表示该 rank 完成一次样本反向，`train/update_done` 才表示参数已更新；
+`heartbeat_still_running` 只说明观察线程存活，不能当作 GPU/分布式任务未卡住的证明。
+`stage_elapsed_s` 是当前阶段墙钟时间，不是 CUDA kernel 性能计时。
+最新状态原子写入 `<run>/progress/train_rank<N>.json`；独立评测写入
+`<eval输出目录>/progress/eval_rank<N>.json`，异常退出记录最后阶段及错误。
+心跳不做 GPU 同步或跨 rank collective；首个全局 loss 仍要等所有 rank 完成一轮累积。
+CLI `--logging-steps 1` 或环境变量 `LOGGING_STEPS=1` 可每次更新打印 loss；
+`ACTION_PROGRESS_SECONDS=15` 可缩短心跳间隔（必须为有限正数）。例如从 AutoMoT 下运行：
+
+```bash
+ACTION_PROGRESS_SECONDS=15 LOGGING_STEPS=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh
+GPU_IDS=0,1,2,3 ACTION_PROGRESS_SECONDS=15 LOGGING_STEPS=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh
+```
+
+日志不会缩短每帧多轮生成的耗时，也不改变 batch、LR、61 epoch 或验证步频。
+本次日志修订修改了 `train.py/runtime.py` 等执行源码，因此依照现有完整源码合同，
+旧版本 checkpoint/文本缓存不能直接当作新版兼容产物使用；没有增加忽略合同的开关。
+正在运行的旧任务不会热加载日志更新，应保留原代码版本完成训练、恢复和评测；
+新启动的训练使用新版代码与新的 run 目录。CPU 测试验证了同版本断点恢复一致性，
+没有验证真实 GPU 吞吐或修复 DDP stride 性能警告。
 
 61 epoch / base LR 2e-4 / batch 64 的参考是 `lead/lead/training/config_training.py`；
 当前冻结 Qwen + 独立 decoder 的 loss、优化器 betas 和 warmup 参考已有 `leadmot/train.py`。

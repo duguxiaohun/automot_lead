@@ -19,6 +19,7 @@ from qwen3vl_local.action_prior.config import (
 )
 from qwen3vl_local.action_prior.contracts import file_hash, require_contract
 from qwen3vl_local.action_prior.metrics import grouped_counts
+from qwen3vl_local.action_prior.progress import current, observed, report
 
 
 def write_json(path, value):
@@ -133,6 +134,10 @@ def evaluate(
     selected = list(rows)
     if max_samples > 0 and len(selected) > max_samples:
         selected = random.Random(args.seed + 71).sample(selected, max_samples)
+    eval_started = time.monotonic()
+    progress = current()
+    report("validation/start", announce=True, evaluation_samples=len(selected),
+           rank_evaluated=0)
     loader, _ = old._make_loader(
         selected, args, rank=rank, world_size=world, shuffle=False, epoch_seed=args.seed
     )
@@ -142,6 +147,9 @@ def evaluate(
     decoder.eval()
     try:
         for idx, prepared in enumerate(loader):
+            if progress:
+                progress.detail = idx == 0
+            report("validation/forward", rank_evaluated=idx)
             if prepared.get("_error"):
                 raise RuntimeError(prepared["_error"])
             with torch.no_grad():
@@ -168,6 +176,10 @@ def evaluate(
                 **old._compute_planning_metrics(outputs, gt_r, gt_w),
             )
             totals.update(planning)
+            report("validation/sample_done", rank_evaluated=idx + 1,
+                   last_validation_loss=planning["loss"])
+            if progress:
+                progress.detail = False
             totals.update(
                 grouped_counts(runtime.prior.last_audit, prepared["sample"], planning)
             )
@@ -185,9 +197,17 @@ def evaluate(
                     gt_waypoints=gt_w.cpu().tolist(),
                 )
                 write_json(Path(dump_dir) / f"rank{rank}_case{idx:06d}.json", audit)
+            report("validation/data_wait")
     finally:
         decoder.train(was_training)
-    return metrics_from_counts(merge_counts(totals, world))
+        if progress:
+            progress.detail = False
+    report("validation/rank_merge", announce=True, rank_evaluated=int(totals["samples"]))
+    metrics = metrics_from_counts(merge_counts(totals, world))
+    report("validation/done", announce=True, evaluation_elapsed_s=round(time.monotonic() - eval_started, 1),
+           evaluation_samples=metrics["samples"], validation_loss=metrics["loss"],
+           route_ade_m=metrics.get("route_ade_m"), waypoint_ade_m=metrics.get("waypoint_ade_m"))
+    return metrics
 
 
 def save_checkpoint(
@@ -210,6 +230,7 @@ def save_checkpoint(
     import torch.distributed as dist
     from dataclasses import asdict
 
+    report("checkpoint/rng_rank_merge", announce=True, checkpoint=str(path), optimizer_step=step)
     rng = {
         "torch": torch.get_rng_state(),
         "cuda": torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
@@ -220,6 +241,7 @@ def save_checkpoint(
     else:
         states[0] = rng
     if rank == 0:
+        report("checkpoint/write", announce=True)
         payload = dict(
             schema="action_prior_checkpoint_v2",
             decoder=model.state_dict(),
@@ -239,6 +261,7 @@ def save_checkpoint(
         tmp = path.with_suffix(".tmp")
         torch.save(payload, tmp)
         tmp.replace(path)
+        report("checkpoint/saved", announce=True)
 
 
 def accumulation_state(micro, samples, accumulate):
@@ -258,6 +281,7 @@ def training_device(local_rank):
     return torch.device("cuda", local_rank)
 
 
+@observed
 def main():
     """先验证配置和数据，再加载模型；只优化轨迹 decoder。"""
     args = parser().parse_args()
@@ -329,6 +353,9 @@ def main():
         args.output_dir = str(prepare_run_directory(args.output_dir, args.resume))
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
+    if current():
+        current().configure(out)
+    report("setup/contract_and_lora_copy", announce=True)
     # 大模型哈希只由 rank0 做，错误包装后广播，避免其它 rank 无期限等待。
     box = [None]
     if rank == 0:
@@ -442,6 +469,7 @@ def main():
         if dist.is_initialized():
             dist.destroy_process_group()
         return
+    report("setup/frozen_models", announce=True)
     runtime = make_runtime(args, device, contract)
     if resume_rng:
         torch.set_rng_state(resume_rng["torch"])
@@ -449,6 +477,7 @@ def main():
             torch.cuda.set_rng_state(resume_rng["cuda"])
     else:
         torch.manual_seed(args.seed + rank)
+    report("setup/ddp", announce=True)
     decoder = (
         torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank])
         if world > 1
@@ -523,6 +552,7 @@ def main():
                 dist.destroy_process_group()
             return
     window = Counter()
+    first_update_step = step + 1
     log_started = time.monotonic()
     torch.cuda.reset_peak_memory_stats(device)
     optimizer.zero_grad(set_to_none=True)
@@ -548,8 +578,19 @@ def main():
         )
         dumped = Counter()
         decoder.train()
+        report("train/epoch_start", announce=True, epoch=epoch + 1, epochs=args.num_epochs,
+               optimizer_step=step, step_limit=plan["actual_step_limit"],
+               rank_completed_micro=start, rank_epoch_samples=len(rank_rows),
+               grad_accum_steps=args.grad_accum_steps,
+               logging_steps=args.logging_steps, val_steps=args.val_steps)
+        report("train/data_wait")
         for local_micro, prepared in enumerate(loader):
             micro = start + local_micro
+            if current():
+                current().detail = local_micro == 0
+            sample_started = time.monotonic()
+            report("train/forward", rank_completed_micro=micro,
+                   accumulation_micro=micro % args.grad_accum_steps + 1)
             if prepared.get("_error"):
                 raise RuntimeError(prepared["_error"])
             divisor, update = accumulation_state(
@@ -577,6 +618,7 @@ def main():
                 )
                 if not torch.isfinite(loss):
                     raise FloatingPointError("nonfinite training loss")
+                report("train/backward_sync" if update else "train/backward_accumulate")
                 (loss / divisor).backward()
             audit = runtime.prior.last_audit
             batch_counts = audit_counts(audit)
@@ -609,6 +651,12 @@ def main():
             )
             window.update(batch_counts)
             epoch_counts.update(batch_counts)
+            report("train/micro_done", announce=step < first_update_step,
+                   rank_completed_micro=micro + 1, last_sample_loss=batch_counts["loss"],
+                   text_cache_hit=bool(audit.get("text_cache_hit", False)),
+                   sample_elapsed_s=round(time.monotonic() - sample_started, 2))
+            if current():
+                current().detail = False
             signature = tuple(sorted(set(audit["invalid"].values()))) or ("accepted",)
             if dumped[signature] < (4 if signature == ("accepted",) else 20):
                 write_json(
@@ -617,7 +665,9 @@ def main():
                 )
                 dumped[signature] += 1
             if not update:
+                report("train/data_wait")
                 continue
+            report("train/optimizer")
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 model.parameters(), args.max_grad_norm, error_if_nonfinite=True
             )
@@ -626,6 +676,8 @@ def main():
             optimizer.zero_grad(set_to_none=True)
             ema.update(model)
             step += 1
+            report("train/update_done", announce=step == first_update_step,
+                   optimizer_step=step, lr=optimizer.param_groups[0]["lr"])
             full_epoch = micro + 1 == len(rank_rows)
             next_cursor = (
                 {"epoch": epoch + 1, "micro": 0}
@@ -638,7 +690,8 @@ def main():
                     validation_epoch=epoch,
                     full_epoch=full_epoch,
                 )
-            if step % args.logging_steps == 0:
+            if step == first_update_step or step % args.logging_steps == 0:
+                report("train/metrics_rank_merge")
                 values = metrics_from_counts(merge_counts(window, world))
                 if rank == 0:
                     values.update(
@@ -655,6 +708,7 @@ def main():
                     )
                     for k, v in values.items():
                         writer.add_scalar(f"train/{k}", v, step)
+                    writer.flush()
                 window.clear()
                 log_started = time.monotonic()
             if step % args.val_steps == 0:
@@ -704,6 +758,8 @@ def main():
                 )
             if step >= plan["actual_step_limit"]:
                 break
+            report("train/data_wait")
+        report("train/epoch_rank_merge")
         counts = merge_counts(epoch_counts, world)
         if rank == 0:
             write_json(

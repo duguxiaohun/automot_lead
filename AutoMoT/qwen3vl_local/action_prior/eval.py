@@ -7,8 +7,10 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from qwen3vl_local.action_prior.progress import current, observed, report
 
 
+@observed
 def main():
     """测试集只用于最终报告，不参与最优 checkpoint 选择。"""
     p = argparse.ArgumentParser(description=__doc__)
@@ -27,6 +29,9 @@ def main():
     p.add_argument("--dump-cases", action="store_true")
     p.add_argument("--raw", action="store_true", help="默认使用 EMA")
     cli = p.parse_args()
+    progress_out = Path(cli.output_dir or str(Path(cli.checkpoint).parent / f"eval_{cli.split}"))
+    current().configure(progress_out, "eval")
+    report("evaluation/checkpoint_and_contract", announce=True, split=cli.split)
     from qwen3vl_local.action_prior.launch import ensure_gpu
 
     ensure_gpu()
@@ -107,6 +112,7 @@ def main():
     checkpoint_step = state["step"]
     del state
     args.output_dir = str(Path(cli.checkpoint).resolve().parent)
+    report("evaluation/load_frozen_models", announce=True)
     runtime = make_runtime(args, device, contract)
     rows = read_rows(args, cli.split)
     from qwen3vl_local.action_prior.provenance import annotate_upstream
