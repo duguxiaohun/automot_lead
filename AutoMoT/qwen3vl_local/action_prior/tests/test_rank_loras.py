@@ -158,17 +158,44 @@ def test_different_training_commit_is_not_a_rejection(tmp_path):
     assert check["actual"] == "abcdef" and check["status"] == "pass"
 
 
-def test_missing_new_phase2_config_and_legacy_metadata_are_visible(tmp_path, capsys):
+def test_legacy_metadata_is_separate_from_new_phase_candidates(tmp_path, capsys):
     path = fixture_adapter(tmp_path / "sft_loop_phase2_old", 2)
     file = path / "sft_new_loop_phase2_adapter_config.json"
     file.rename(path / "sft_loop_phase2_adapter_config.json")
     result = scan(tmp_path, 2, tmp_path / "base")
-    row = result["candidates"][0]
-    assert not row["expected_metadata_present"] and not row["eligible"]
+    assert not result["candidates"] and not result["other_checkpoints"]
+    row = result["discovery"]["excluded_other_packages"][0]
+    assert not row["expected_metadata_present"]
     assert "sft_loop_phase2_adapter_config.json" in row["alternative_metadata"]
-    assert row["checks"][0]["status"] == "fail"
     show(result, summary_only=True)
-    assert "旧版元数据" in capsys.readouterr().out
+    assert "其它训练包保存点已排除 1 个" in capsys.readouterr().out
+
+
+def test_missing_metadata_in_new_package_still_reports_failure(tmp_path):
+    path = fixture_adapter(tmp_path / "sft_new_loop_phase2_runs", 2)
+    (path / "sft_new_loop_phase2_adapter_config.json").unlink()
+    result = scan(tmp_path, 2, tmp_path / "base")
+    assert len(result["candidates"]) == 1
+    assert result["candidates"][0]["checks"][0]["status"] == "fail"
+
+
+def test_metadata_identifies_new_package_in_custom_or_legacy_named_root(tmp_path):
+    path = fixture_adapter(tmp_path / "sft_loop_phase2_augment_runs", 2)
+    result = scan(tmp_path, 2, tmp_path / "base")
+    assert result["recommended"] == str(path)
+    assert not result["discovery"]["excluded_other_packages"]
+
+
+def test_combined_phase1_and_old_rs_are_never_new_event_candidates(tmp_path):
+    fixture_adapter(tmp_path / "sft_new_loop_phase1_runs" / "combined_phase1_phase2", 1)
+    path = fixture_adapter(tmp_path / "sft_loop_phase2_augment_runs", 2)
+    (path / "sft_new_loop_phase2_adapter_config.json").rename(
+        path / "sft_loop_phase2_augment_adapter_config.json")
+    result = scan(tmp_path, 2, tmp_path / "base")
+    assert not result["candidates"] and not result["other_checkpoints"]
+    assert len(result["discovery"]["excluded_other_packages"]) == 2
+    # 即使显式扫描旧包的 best 目录，也不能冒充新 Phase2。
+    assert not scan(path, 2, tmp_path / "base")["candidates"]
 
 
 def test_external_directory_links_followed_deduplicated_and_cycles_stop(tmp_path):

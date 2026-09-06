@@ -759,3 +759,8 @@ Git 只检查训练 commit 非空，不要求与当前 checkout 相等；不篡�
 生产合同通过的真实 best_generation；额外跟随链接发现的推荐需用显式 adapter 路径加载。
 本地已有四个 sft_new_loop_phase2 审计包含 adapter_metadata/adapter 元数据但无实际权重，
 这类副本可审计版本，不能作为可训练权重。两个远程服务器的实际目录需在对应服务器重跑新版确认。
+`rank_loras` v3 修正来源归类：仅精确新 Phase adapter 配置或完整新包目录线索进入该 Phase
+审计；旧 sft_loop_phase2_augment 等其它包只记录 excluded_other_packages，不计入候选/拒绝。
+包名与提示词版本分开：sft_new_loop_phase2 的 v3 仍属新 EVENT 包，只是与当前 v5 协议不同。
+143409 最新远程报告没有发现新 Phase2 adapter 配置；143428 有新 Phase2 的 12 个真实保存点
+和 1 个无权重副本，但没有 best_generation。旧包的两个 best 不应算作新 Phase2 候选。
