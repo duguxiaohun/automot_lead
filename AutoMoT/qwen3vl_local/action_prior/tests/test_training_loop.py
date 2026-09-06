@@ -199,8 +199,9 @@ def test_interruption_resume_matches_uninterrupted(tmp_path, monkeypatch, failur
     output = capsys.readouterr().out
     # 总共只有三次更新，仍必须立即输出第一次真实更新；不能等默认十步。
     assert "step=1/3 loss=" in output
-    assert '"stage": "train/micro_done"' in output
-    assert '"stage": "validation/done"' in output
+    assert "validation/done" in output
+    history = (baseline / "progress/train_rank0.jsonl").read_text()
+    assert '"stage": "train/micro_done"' in history
     progress_state = json.loads((baseline / "progress/train_rank0.json").read_text())
     assert progress_state["stage"] == "finished"
     assert progress_state["optimizer_step"] == 3

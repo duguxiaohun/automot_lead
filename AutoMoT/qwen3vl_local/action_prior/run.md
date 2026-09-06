@@ -2,6 +2,66 @@
 
 从远端 `AutoMoT/` 目录运行。入口是 `run_full_pipeline.sh`；Phase3 仍在训练时不加载它。
 
+## 快速运行：全流程、续训、测试与 TensorBoard
+
+以下命令都在 `AutoMoT/` 下运行，先激活已有训练环境，并准备本地 Qwen/BEV、
+`lead_data` 与已共享/解压到 `checkpoints/` 的 LoRA。自动搜索符合当前策略的最优 Phase1/2，
+打印并固定选择，复制到本次 run 的 `lora/`，无需写死上游 run 日期。
+
+```bash
+# 全流程：选 LoRA → 建索引 → action 训练/周期 val → 最终 test/probe → audit.zip
+bash qwen3vl_local/action_prior/run_full_pipeline.sh
+# 显式指定四卡；否则自动选卡。
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh
+
+# 更安静：每 60 秒一行 rank0 进度；不改变训练/TB/验证步频。
+ACTION_PROGRESS_SECONDS=60 bash qwen3vl_local/action_prior/run_full_pipeline.sh
+
+# 断点继续完整流程；必须替换为已有 latest.pt，并保留其原代码版本与配置。
+RESUME=checkpoints/action_prior/run_时间戳/latest.pt bash qwen3vl_local/action_prior/run_full_pipeline.sh
+GPU_IDS=0,1,2,3 RESUME=checkpoints/action_prior/run_时间戳/latest.pt bash qwen3vl_local/action_prior/run_full_pipeline.sh
+
+# 只续训，结束时不自动调用独立 test/probe。
+bash qwen3vl_local/action_prior/resume.sh checkpoints/action_prior/run_时间戳/latest.pt
+
+# 独立离线测试；默认自动选一张卡。
+bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/run_时间戳/best.pt
+GPU_IDS=0 bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/run_时间戳/best.pt
+
+# 另开终端启动 TensorBoard：指定 run 最稳妥，也可以把路径换成 checkpoints/action_prior/latest/tb。
+bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/run_时间戳/tb
+```
+
+TB 启动后按终端打印的地址/端口打开；也可用 `TB_PORT=6006` 指定端口。
+观察 `train/loss`、`train/route_loss`、`train/waypoint_loss`、`train/lr`、
+`train/prior/unconfirmed_samples` 和 `val/*` / `val_epoch/*`。
+首次参数更新后出现训练曲线，验证曲线必须等验证完成。
+全量周期 val 和最终离线 test 不等于 CARLA 闭环；正式 Bench2Drive 220 路线需已配置好
+CARLA 环境后用 `BENCH2DRIVE=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh`，
+显式四卡训练例为 `GPU_IDS=0,1,2,3 BENCH2DRIVE=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh`。
+闭环细节见本文后面的 Bench2Drive 章节。
+
+## 日志在哪里
+
+| 内容 | 默认位置 |
+| --- | --- |
+| 预检、建索引、训练、测试的完整终端输出 | `checkpoints/action_prior/logs/pipeline_<RUN_TAG>.log` |
+| run 内的流水线日志入口 | `<run>/pipeline.log`，链接到上述日志；搬迁时一并复制链接目标 |
+| 训练 stdout/stderr（含警告、异常） | `<run>/train.log`，续训追加 |
+| 独立测试 / probe stdout/stderr | `<eval输出目录>/eval.log` / `<probe输出目录>/probe.log` |
+| 各 rank 详细状态与采样历史 | `<run>/progress/train_rank<N>.json` / `.jsonl`；评测为 `eval_rank<N>` |
+| TensorBoard 事件 | `<run>/tb/` |
+| 验证与最终测试指标 | `<run>/validation/`、`<run>/test/` |
+| 轻量审计包 | `<run>/audit.zip`，不超过 30,000,000 字节；不保证装入全部日志 |
+
+入口会打印实际日志路径；`PIPELINE_LOG` 可覆盖完整流水线日志路径。
+新建训练 run 默认防覆盖，续训日志追加；预检失败时完整流水线日志仍在 `logs/` 中。
+正常训练终端每 30 秒只显示 rank0 的一行阶段、epoch、optimizer step、micro、loss 和 LR，
+不再展开权重路径/样本路径/JSON。rank0 时间窗口 loss 是已完成样本均值，
+与原有每 10 次更新的全卡平均 loss 分开标记；没有新样本时明确标为上次均值。
+其余 rank 的正常心跳只写文件，异常仍输出。模型初始化信息、原有全卡 loss、验证和保存完成提示保留。
+日志只反映进度，心跳存活不能证明模型没有卡住。运行中的旧进程不会热加载此调整。
+
 ## 本路线实际训练什么
 
 冻结本地 `Qwen3-VL-4B-Instruct`、Phase1/2 LoRA 和 LEAD BEV encoder，只训练已有 LeadMoT
@@ -171,14 +231,13 @@ resume、eval/probe、Bench2Drive 和在线 agent 优先按当前 action checkpo
 | 保存 | 每 1000 optimizer steps 和 epoch 结束原子保存 latest.pt，保留 best.pt |
 | 日志 | 首次更新（含恢复后的首次更新）立即输出，其后每 10 optimizer steps 全 rank 汇总均值并刷新 TB；loss、ADE/FDE、LR、梯度、invalid、缓存命中 |
 
-训练/独立 eval 默认每 30 秒输出各 rank 当前阶段（模型/LoRA 加载、缓存读取或等待锁、
-Phase1/2 问答、base 分析与复核、最终 prefill、decoder、反向、参数更新、验证和保存）。
-每轮首个样本及每次验证首个样本展开阶段；首次更新前每个 micro-step 完成也立即输出。
+训练/独立 eval 默认每 30 秒在终端输出 rank0 简洁状态；各 rank 的详细阶段写入文件。
+每轮首个样本及每次验证首个样本展开阶段记录；首次更新前每个 micro-step 完成也立即写记录。
 `train/micro_done` 只表示该 rank 完成一次样本反向，`train/update_done` 才表示参数已更新；
 `heartbeat_still_running` 只说明观察线程存活，不能当作 GPU/分布式任务未卡住的证明。
 `stage_elapsed_s` 是当前阶段墙钟时间，不是 CUDA kernel 性能计时。
 最新状态原子写入 `<run>/progress/train_rank<N>.json`；独立评测写入
-`<eval输出目录>/progress/eval_rank<N>.json`，异常退出记录最后阶段及错误。
+`<eval输出目录>/progress/eval_rank<N>.json`，同名 `.jsonl` 追加阶段历史，异常退出记录最后阶段及错误。
 心跳不做 GPU 同步或跨 rank collective；首个全局 loss 仍要等所有 rank 完成一轮累积。
 CLI `--logging-steps 1` 或环境变量 `LOGGING_STEPS=1` 可每次更新打印 loss；
 `ACTION_PROGRESS_SECONDS=15` 可缩短心跳间隔（必须为有限正数）。例如从 AutoMoT 下运行：
@@ -189,7 +248,7 @@ GPU_IDS=0,1,2,3 ACTION_PROGRESS_SECONDS=15 LOGGING_STEPS=1 bash qwen3vl_local/ac
 ```
 
 日志不会缩短每帧多轮生成的耗时，也不改变 batch、LR、61 epoch 或验证步频。
-本次日志修订修改了 `train.py/runtime.py` 等执行源码，因此依照现有完整源码合同，
+进度观察器 `progress.py` 也在现有完整源码合同的依赖集合中，因此日志代码版本改变时，
 旧版本 checkpoint/文本缓存不能直接当作新版兼容产物使用；没有增加忽略合同的开关。
 正在运行的旧任务不会热加载日志更新，应保留原代码版本完成训练、恢复和评测；
 新启动的训练使用新版代码与新的 run 目录。CPU 测试验证了同版本断点恢复一致性，
