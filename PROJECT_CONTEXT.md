@@ -752,3 +752,10 @@ Action prior 新增 `rank_loras.py/.sh`：CPU 只读扫描 Phase1/2 `best_genera
 复用 `inspect_adapter` / `selection_score` 与生产同序排名，不混入 final/balanced/test 或其它step；
 无推荐写报告后 exit 2。默认报告 `checkpoints/action_prior_lora_audit/run_<时间>/`，不入库。
 它是已有验证记录对比，不是重新评测，不证明不同run在共同holdout上可比；运行见 action_prior/run.md。
+2026-09-06 发现审计更新：`lora_audit.py` 跟随目录软链接并防循环去重，报告非 best 保存点、
+旧/缺失配置、未识别 phase、压缩包、审计元数据副本和读目录错误。`rank_loras` v2 报告分开
+记录发现状态与逐项合同 actual/expected，不再用第一个 prompt 错误遮住 Git/RGB/权重等问题。
+Git 只检查训练 commit 非空，不要求与当前 checkout 相等；不篡改旧权重来源。推荐仍严格只取
+生产合同通过的真实 best_generation；额外跟随链接发现的推荐需用显式 adapter 路径加载。
+本地已有四个 sft_new_loop_phase2 审计包含 adapter_metadata/adapter 元数据但无实际权重，
+这类副本可审计版本，不能作为可训练权重。两个远程服务器的实际目录需在对应服务器重跑新版确认。
