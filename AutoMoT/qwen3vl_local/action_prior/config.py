@@ -40,7 +40,11 @@ DEFAULTS = dict(
     seed=2026,
     num_workers=8,
     prefetch_factor=2,
-    analysis_tokens=160,
+    analysis_tokens=384,
+    recheck_mode="history",
+    condition_mode="prior",
+    phase1_training_index="",
+    phase2_training_index="",
     cache_priors=True,
     max_train_steps=0,
     resume="",
@@ -72,6 +76,20 @@ DEFAULTS = dict(
     waypoint_loss_weight=1.0,
     loss_type="l1",
     ema_decay=0.999,
+)
+
+
+INPUT_FIELDS = (
+    "rgb_frame_count",
+    "rgb_frame_step",
+    "bev_frame_count",
+    "bev_frame_step",
+    "frame_interval_s",
+    "target_point_lookahead_s",
+    "next_target_point_lookahead_s",
+    "tp_mode",
+    "tp_min_lookahead_m",
+    "use_final_goal",
 )
 
 
@@ -122,6 +140,9 @@ def read_rows(args, split):
                 blocked[key] = is_abnormal_lead_route(route, row["scenario"])[0]
             if blocked[key]:
                 continue
+            # 索引固定字段仅是构建记录；运行时导航由 CLI 统一决定，避免配置与输入不符。
+            for name in INPUT_FIELDS:
+                row[name] = getattr(args, name)
             row["route_dir"] = key
             ident = (key, int(row["anchor"]))
             if ident in seen:
@@ -147,6 +168,29 @@ def validate_args(args):
         raise ValueError(
             "requires base-only final KV, no subgoal, final_goal, 4 consecutive RGB, route lookahead"
         )
+    if args.bev_frame_count != 1 or args.bev_frame_step != 1:
+        raise ValueError(
+            "action_prior currently supports single-frame BEV only; multi-frame BEV is not implemented"
+        )
+    if (
+        args.frame_interval_s != 0.25
+        or args.route_points != 10
+        or args.waypoint_points != 8
+    ):
+        raise ValueError(
+            "fixed LEAD 4Hz / route10 / waypoint8 contract; rebuild the pipeline before changing these"
+        )
+    if args.recheck_mode not in ("history", "independent", "compare"):
+        raise ValueError("invalid recheck mode")
+    if args.condition_mode not in ("prior", "base"):
+        raise ValueError("condition mode must be prior/base")
+    for name in (
+        "target_point_lookahead_s",
+        "next_target_point_lookahead_s",
+        "tp_min_lookahead_m",
+    ):
+        if not math.isfinite(getattr(args, name)) or getattr(args, name) <= 0:
+            raise ValueError(f"{name} must be finite and positive")
     for name in (
         "num_epochs",
         "grad_accum_steps",
@@ -182,7 +226,17 @@ def build_contract(args):
         raise FileNotFoundError(f"{base}: no local Qwen weights")
     base_hashes = {
         p.name: file_hash(p)
-        for p in sorted(set([*base.glob("*.json"), *base.glob("*.txt"), *weights]))
+        for p in sorted(
+            set(
+                [
+                    *base.glob("*.json"),
+                    *base.glob("*.txt"),
+                    *base.glob("*.jinja"),
+                    *base.glob("*.model"),
+                    *weights,
+                ]
+            )
+        )
     }
     if args.use_bev:
         if not args.lead_bev_ckpt or not Path(args.lead_bev_ckpt).is_file():
@@ -192,9 +246,21 @@ def build_contract(args):
         bev_hash = file_hash(args.lead_bev_ckpt)
     else:
         bev_hash = None
-    code_hashes = {p.name: file_hash(p) for p in Path(__file__).parent.glob("*.py")}
+    from qwen3vl_local.action_prior.provenance import (
+        execution_fingerprint,
+        collect_upstream_sources,
+    )
+    from qwen3vl_local.action_prior.precision import PRECISION_POLICY
+
+    execution = execution_fingerprint()
+    upstream = collect_upstream_sources({"phase1": p1, "phase2": p2}, args)
     identity_payload = dict(
-        code=code_hashes,
+        execution=execution,
+        precision=PRECISION_POLICY,
+        qwen_dtype=args.qwen_dtype,
+        decoder_compute_dtype=args.decoder_dtype,
+        recheck_mode=args.recheck_mode,
+        condition_mode=args.condition_mode,
         base=base_hashes,
         phase1=p1["fingerprint"],
         phase2=p2["fingerprint"],
@@ -220,6 +286,8 @@ def build_contract(args):
     ).stdout.strip()
     return dict(
         git_commit=git,
+        upstream_sources=upstream,
+        audit_identity=digest(upstream),
         schema=SCHEMA,
         identity=digest(identity_payload),
         identity_payload=identity_payload,
@@ -245,6 +313,15 @@ def training_plan(args, rows, world):
         effective_batch=world * args.grad_accum_steps,
         world_size=world,
         micro_batch_per_gpu=1,
+        condition_mode=args.condition_mode,
+        cold_generations_per_unique_frame=(
+            0
+            if args.condition_mode == "base"
+            else 17 if args.recheck_mode == "compare" else 11
+        ),
+        final_base_prefills_per_presentation=1,
+        shared_text_cache=args.cache_priors,
+        budget_note="Epoch/LR are initial settings; measure cold and cached throughput with smoke before full training.",
         epochs=args.num_epochs,
         samples_per_epoch=usable,
         ddp_tail_per_epoch=len(rows["train"]) - usable,

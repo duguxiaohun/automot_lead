@@ -1,24 +1,25 @@
-"""冻结模型的可复用文本结果；不缓存 GPU KV，不保存 RGB。"""
+"""跨 rank 冻结文本缓存：分桶文件 + POSIX 锁 + 原子发布，不保存 RGB/GPU KV。"""
 
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
-import sqlite3
+from pathlib import Path
+import os
+import tempfile
 import zlib
 from qwen3vl_local.action_prior.contracts import digest
 
 
 class TextCache:
-    """每 rank 独立 SQLite，避免共享训练进程争写或 NFS 多写者锁。"""
+    """所有 rank 共用目录；同 key 首次生成在锁内二次检查，进程退出自动释放锁。"""
 
     def __init__(self, path):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path)
-        self.db.execute(
-            "CREATE TABLE IF NOT EXISTS results (key TEXT PRIMARY KEY, payload BLOB NOT NULL)"
-        )
+        self.path = Path(path)
+        self.path.mkdir(parents=True, exist_ok=True)
 
     def key(self, identity, images, navigation, sample_key):
-        """直接绑定四张解码 RGB 的字节与尺寸，换图不会误用旧先验。"""
+        """绑定实际四图、完整执行合同、导航和确定性问法 seed。"""
         rgb = [
             (im.size, im.mode, hashlib.sha256(im.tobytes()).hexdigest())
             for im in images
@@ -32,27 +33,65 @@ class TextCache:
             )
         )
 
+    def _file(self, key):
+        """限制桶数并拒绝非哈希文件名。"""
+        if len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
+            raise ValueError("cache key must be SHA256")
+        folder = self.path / key[:3]
+        folder.mkdir(exist_ok=True)
+        return folder / (key + ".json.z")
+
+    @contextmanager
+    def _lock(self, key):
+        """同桶可能等待；4096 个桶避免为每帧留下单独锁文件。"""
+        with (self._file(key).parent / ".lock").open("a+b") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
     def get(self, key):
-        """命中只返回文本/计数，KV 每次仍由 base 新 prefill。"""
-        result = self.db.execute(
-            "SELECT payload FROM results WHERE key=?", (key,)
-        ).fetchone()
-        return json.loads(zlib.decompress(result[0])) if result else None
+        """原子文件可无锁读取；损坏直接报错，不能悄悄换语言条件。"""
+        path = self._file(key)
+        try:
+            blob = path.read_bytes()
+        except FileNotFoundError:
+            return None
+        return json.loads(zlib.decompress(blob))
 
     def put(self, key, value):
-        """裁掉重复长 prompt，保留原始回答和 prompt 指纹供溯源。"""
+        """写临时文件后原子发布；保留原始回答但压缩重复长 prompt。"""
         value = dict(value)
         value["calls"] = [
             dict(
-                phase=c["phase"],
-                variant=c["variant"],
-                keys=c["keys"],
-                response=c["response"],
+                **{k: v for k, v in c.items() if k not in ("prompt", "history")},
                 prompt_sha256=hashlib.sha256(c["prompt"].encode()).hexdigest(),
                 history_responses=[h[1] for h in c["history"]],
             )
             for c in value["calls"]
         ]
-        blob = zlib.compress(json.dumps(value).encode(), level=3)
-        with self.db:
-            self.db.execute("INSERT OR REPLACE INTO results VALUES (?, ?)", (key, blob))
+        path = self._file(key)
+        fd, tmp = tempfile.mkstemp(prefix=".pending_", dir=path.parent)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(zlib.compress(json.dumps(value).encode(), level=3))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+
+    def get_or_compute(self, key, compute):
+        """跨进程 miss 只计算一次；命中也继续由调用方重建 base KV。"""
+        value = self.get(key)
+        if value is not None:
+            return value, True
+        with self._lock(key):
+            value = self.get(key)
+            if value is not None:
+                return value, True
+            value = compute()
+            self.put(key, value)
+            return value, False

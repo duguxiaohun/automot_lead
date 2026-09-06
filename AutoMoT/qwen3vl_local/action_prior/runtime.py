@@ -13,13 +13,21 @@ from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
 class PriorEngine:
     """共享一个 frozen base，两个独立 LoRA；不 merge，不混用不同 adapter 的 cache。"""
 
-    def __init__(self, engine, contract, analysis_tokens=160, text_cache=None):
+    def __init__(
+        self,
+        engine,
+        contract,
+        analysis_tokens=384,
+        text_cache=None,
+        recheck_mode="history",
+    ):
         from peft import PeftModel
         from qwen3vl_local.engine import _inspect_lora_adapter
 
         self.engine, self.contract = engine, contract
         self.analysis_tokens = analysis_tokens
         self.text_cache = text_cache
+        self.recheck_mode = recheck_mode
         for key in ("phase1", "phase2"):
             _inspect_lora_adapter(Path(contract[key]["path"]))
         self.adapters = PeftModel.from_pretrained(
@@ -120,36 +128,84 @@ class PriorEngine:
             if self.text_cache
             else None
         )
-        saved = self.text_cache.get(key) if self.text_cache else None
-        cache_hit = saved is not None
-        if saved is None:
-            priors = collect_priors(ask, sample_key)
-        else:
-            priors = saved
-        with self.mode("base"):
-            if saved is None:
+
+        def compute():
+            priors = collect_priors(ask, sample_key, recheck_mode=self.recheck_mode)
+            with self.mode("base"):
                 text, trace = self.generate_messages(
                     prompts.SYSTEM_PROMPT,
                     prompts.analysis_prompt(priors, navigation),
                     images,
                     max_tokens=self.analysis_tokens,
                 )
-                truncated = not any(s.is_eos for s in trace.decode_steps)
-                raw_analysis = text
-                fallback = truncated or not prompts.valid_analysis(text)
-                if fallback:
-                    text = prompts.fallback_analysis(priors)
-                priors = dict(
-                    priors,
-                    analysis=text,
-                    raw_analysis=raw_analysis,
-                    analysis_fallback=fallback,
-                    analysis_truncated=truncated,
-                )
-                if self.text_cache:
-                    self.text_cache.put(key, priors)
+            truncated = not any(s.is_eos for s in trace.decode_steps)
+            raw_analysis = text
+            review, review_raw = None, ""
+            review_truncated = False
+            if not truncated and prompts.analysis_format_valid(text):
+                # 第二次独立文本调用只审查蕴含关系；不继承生成 cache，也不重新看图分类。
+                with self.mode("base"):
+                    review_raw, review_trace = self.generate_messages(
+                        prompts.REVIEW_SYSTEM,
+                        prompts.review_prompt(priors, navigation, text),
+                        [],
+                        max_tokens=192,
+                    )
+                review_truncated = not any(s.is_eos for s in review_trace.decode_steps)
+                if not review_truncated:
+                    review = prompts.parse_review(review_raw)
+            fallback = not prompts.valid_analysis(text, priors, review)
+            if truncated:
+                rejection = "generation_truncated"
+            elif not prompts.analysis_format_valid(text):
+                rejection = "generation_format"
+            elif review_truncated or review is None:
+                rejection = "review_truncated" if review_truncated else "review_format"
+            elif not all(review.values()):
+                rejection = "review_rejected"
             else:
-                text = saved["analysis"]
+                rejection = "none"
+            if fallback:
+                text = prompts.fallback_analysis(priors, navigation)
+            from qwen3vl_local.action_prior.contracts import digest
+
+            return dict(
+                priors,
+                analysis=text,
+                raw_analysis=raw_analysis,
+                analysis_fallback=fallback,
+                analysis_truncated=truncated,
+                analysis_rejection=rejection,
+                analysis_review=review,
+                analysis_review_raw=review_raw,
+                analysis_review_truncated=review_truncated,
+                reviewed_analysis_sha256=digest(raw_analysis),
+                analysis_acceptance="fallback" if fallback else "base_model_review",
+                analysis_semantic_guarantee=False,
+            )
+
+        if self.text_cache:
+            priors, cache_hit = self.text_cache.get_or_compute(key, compute)
+        else:
+            priors, cache_hit = compute(), False
+        from qwen3vl_local.action_prior.contracts import digest
+
+        if priors["analysis_fallback"]:
+            accepted = priors["analysis"] == prompts.fallback_analysis(
+                priors, navigation
+            )
+        else:
+            accepted = priors.get("reviewed_analysis_sha256") == digest(
+                priors["analysis"]
+            ) and prompts.valid_analysis(
+                priors["analysis"], priors, priors.get("analysis_review")
+            )
+        if not accepted:
+            raise ValueError(
+                "cached analysis lacks its paired review or valid fallback"
+            )
+        with self.mode("base"):
+            text = priors["analysis"]
             # 首次和缓存命中都完整重建相同 assistant transcript，保证 KV 分布完全一致。
             self.engine._last_decode_state = None
             messages = self.engine.build_messages(
@@ -220,22 +276,37 @@ def make_runtime(args, device, contract):
             from qwen3vl_local.action_prior.text_cache import TextCache
 
             cache = (
-                TextCache(
-                    Path(args.output_dir)
-                    / "text_cache"
-                    / f"rank{os.environ.get('RANK','0')}.sqlite"
-                )
+                TextCache(Path(args.output_dir) / "text_cache" / "shared_v2")
                 if args.cache_priors
                 else None
             )
             self.prior = PriorEngine(
-                self.runner.leadmot_qwen_engine, contract, args.analysis_tokens, cache
+                self.runner.leadmot_qwen_engine,
+                contract,
+                args.analysis_tokens,
+                cache,
+                args.recheck_mode,
             )
+            self.base_prefill = self.runner._run_leadmot_qwen_prefill
             self.runner._run_leadmot_qwen_prefill = self.prefill_prior
             self.sample_key = ""
 
         def prefill_prior(self, rgb_pil_list, user_prompt):
             """仅 navigation 作为公开输入，不把 sample 字典送入 Qwen。"""
+            if args.condition_mode == "base":
+                # 同初始化/优化器/划分的原 base 条件消融，不能用同一个 decoder 临时切条件。
+                with self.prior.mode("base"):
+                    result = self.base_prefill(rgb_pil_list, user_prompt)
+                self.prior.last_audit = dict(
+                    conditions={},
+                    invalid={},
+                    calls=[],
+                    analysis="",
+                    analysis_truncated=False,
+                    analysis_fallback=False,
+                    condition_mode="base",
+                )
+                return result
             return self.prior.condition(rgb_pil_list, user_prompt, self.sample_key)
 
         def forward_sample(
@@ -249,13 +320,15 @@ def make_runtime(args, device, contract):
                     (k.detach().clone(), v.detach().clone())
                     for k, v in kwargs["pooled_kv"]
                 ]
-                return decoder(**kwargs)
+                from qwen3vl_local.action_prior.precision import decoder_forward
+
+                return decoder_forward(decoder, kwargs, decoder_dtype, self.device)
 
             return super().forward_sample(
                 sample,
                 decoder_with_trainable_cache,
                 decoder_config,
-                decoder_dtype,
+                __import__("torch").float32,
                 clip,
             )
 
