@@ -20,6 +20,8 @@ EXECUTION_SEEDS = (
             "text_cache",
             "config",
             "contracts",
+            "available_adapters",
+            "lora_bundle",
             "train",
             "build_dataset",
             "metrics",

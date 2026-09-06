@@ -24,6 +24,7 @@ def pack(root, output=None, max_bytes=LIMIT):
         "run_manifest.json",
         "config.json",
         "selected_priors.json",
+        "lora/bundle_manifest.json",
         "training_plan.json",
         "route_results.csv",
         "scenario_results.csv",

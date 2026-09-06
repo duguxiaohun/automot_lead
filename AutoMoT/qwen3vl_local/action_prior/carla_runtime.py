@@ -23,8 +23,13 @@ class ActionPriorRunner:
         if state.get("schema") != "action_prior_checkpoint_v2":
             raise ValueError("closed loop requires action_prior_checkpoint_v2")
         self.args = args = argparse.Namespace(**state["args"])
-        args.phase1_adapter = state["qwen_backbone"]["phase1"]["path"]
-        args.phase2_adapter = state["qwen_backbone"]["phase2"]["path"]
+        args.selection_manifest = ""
+        args.selection_output = ""
+        args.lora_bundle = ""
+        from qwen3vl_local.action_prior.lora_bundle import restore_paths
+        local_paths = restore_paths(state["qwen_backbone"], checkpoint)
+        args.phase1_adapter = local_paths["phase1"]
+        args.phase2_adapter = local_paths["phase2"]
         for key in (
             "model_dir",
             "lead_bev_ckpt",

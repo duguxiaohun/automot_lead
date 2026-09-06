@@ -8,6 +8,7 @@ from qwen3vl_local.action_prior.priors import collect_priors
 from qwen3vl_local.sft_new_loop_phase1 import prompts as p1
 from qwen3vl_local.sft_new_loop_phase2 import prompts as p2
 from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
+from qwen3vl_local.action_prior.prompt_versions import prompt_module
 
 
 class PriorEngine:
@@ -108,11 +109,11 @@ class PriorEngine:
             )
 
         def ask(phase, spec, history):
-            module = p1 if phase == 1 else p2
             meta = self.contract[f"phase{phase}"]["metadata"]
+            module = prompt_module(phase, meta)
             mode = meta["history_rgb_mode"]
             selected = [images[i] for i in history_rgb_indices(mode)]
-            prompt = (p1.build_phase1_prompt if phase == 1 else p2.build_event_prompt)(
+            prompt = (module.build_phase1_prompt if phase == 1 else module.build_event_prompt)(
                 spec=spec, history_rgb_mode=mode
             )
             with self.mode(f"phase{phase}"):
@@ -130,7 +131,8 @@ class PriorEngine:
         )
 
         def compute():
-            priors = collect_priors(ask, sample_key, recheck_mode=self.recheck_mode)
+            priors = collect_priors(ask, sample_key, recheck_mode=self.recheck_mode,
+                                    event_module=prompt_module(2, self.contract["phase2"]["metadata"]))
             with self.mode("base"):
                 text, trace = self.generate_messages(
                     prompts.SYSTEM_PROMPT,

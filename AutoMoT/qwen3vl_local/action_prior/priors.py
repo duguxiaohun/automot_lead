@@ -3,7 +3,7 @@
 from __future__ import annotations
 from collections import defaultdict
 from qwen3vl_local.sft_new_loop_phase1 import prompts as p1
-from qwen3vl_local.sft_new_loop_phase2 import prompts as p2
+from qwen3vl_local.sft_new_loop_phase2 import prompts as default_event_prompts
 
 PROTOCOL_VERSION = "rs_event_recheck_modes_v2"
 
@@ -37,7 +37,7 @@ def reconcile(first, second, keys):
     return values, invalid
 
 
-def collect_priors(ask, sample_key, recheck_mode="history"):
+def collect_priors(ask, sample_key, recheck_mode="history", event_module=None):
     """ask(phase, spec, history) 接受实际多轮历史，返回原始回答与 prompt。
 
     先遍历两个 EVENT 域，避免 RS 门控漏掉 interrupted junction 上的 UE3。
@@ -45,6 +45,7 @@ def collect_priors(ask, sample_key, recheck_mode="history"):
     """
     if recheck_mode not in ("history", "independent", "compare"):
         raise ValueError("recheck_mode must be history/independent/compare")
+    p2 = event_module or default_event_prompts
     calls, comparisons, mode_disagreements = [], [], []
 
     def query(phase, spec, history=()):

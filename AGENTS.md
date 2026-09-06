@@ -794,3 +794,20 @@ GPU 运行入口统一规则：
 运动学只供指标，禁止写入 policy。`audit.zip` 硬限制 30,000,000 字节，核心指标必须完整，
 可选案例/历史按预算选入并列遗漏；权重/缓存/完整视频/原始 TB 和运动学大产物不入包、不入库。
 正式 220 test 不参与训练期选优。CPU/合成检查不代表实际 CARLA 或真实模型已验证。
+### Action prior 现有权重训练授权（2026-09-06，覆盖此前仅 best/Git 非空限制）
+
+用户明确要求共享两服务器现有权重后自动搜索、打印选择并训练，不写死 run 日期。
+`action_prior` 默认 `selection_policy=available`：仅新 Phase1/2 训练包；Phase1 当前 v5 best，
+Phase2 优先兼容且 guard 通过的 best，没有时允许 fallback，分别按保存步 validation Exact 选优。
+支持新 Phase2 当前 v5 与冻结 v3 原提示词，原 Git 缺失/guard 失败如实警告，不篡改元数据；
+同名 Qwen3-VL-4B-Instruct 允许共享路径重映射，原服务器 base 字节一致性未证明，实际本地权重
+哈希进入 action 身份。未知 prompt、错 RGB、错 base family、缺权重/错 step 仍拒绝。
+`--checkpoint-roots` 支持多个共享根并跟随软链接；预检保存选择清单，训练固定此清单，
+resume/eval 固定 checkpoint 合同，不重新择优。`strict` 保留原 best/current-prompt/Git/path 规则。
+不使用旧 sft_loop_phase2_augment LoRA，不接 Phase3，最终 KV 仍是禁用所有 LoRA 的 base。
+详见 action_prior/run.md；新增选择代码/冻结 prompt/测试在现有代码白名单内，权重和输出不入库。
+用户进一步要求 LoRA 独立保存与迁移：action 训练前实际复制选中 LoRA/原配置/指标/Git 到 run/lora，
+禁止仅软/硬链接源文件；checkpoint 恢复/评测优先从旁边副本核验加载，缺失不重新搜索。
+rank_loras 默认导出最优组合 tar.gz+SHA256，包内仅选中两阶段 slot 与必要指标/配置/来源/提示词，
+逐文件和归档解压流校验；可用 --no-export-bundle 仅审计。--lora-bundle 固定包内组合训练。
+真实权重迁移包不受30MB审计包限制；权重、迁移包和 run/lora 均为本地产物，不入库。

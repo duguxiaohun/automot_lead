@@ -107,8 +107,13 @@ def validate_checkpoint(cli):
     if state.get("schema") != "action_prior_checkpoint_v2":
         raise ValueError("requires action_prior_checkpoint_v2")
     args = argparse.Namespace(**state["args"])
+    args.selection_manifest = ""
+    args.selection_output = ""
+    args.lora_bundle = ""
+    from qwen3vl_local.action_prior.lora_bundle import restore_paths
+    local_paths = restore_paths(state["qwen_backbone"], cli.checkpoint)
     for key in ("phase1", "phase2"):
-        setattr(args, key + "_adapter", state["qwen_backbone"][key]["path"])
+        setattr(args, key + "_adapter", local_paths[key])
     for key in (
         "model_dir",
         "lead_bev_ckpt",

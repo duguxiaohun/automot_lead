@@ -11,11 +11,13 @@ if [[ -n "${RESUME:-}" ]]; then
  bash "$HERE/resume.sh" "$RESUME" "$@"
 else
  # 先核验权重和 prompt 合同，缺权重时不先构建全量索引。
- ACTION_MODE=preflight bash "$HERE/train.sh" --models-only "$@"
+ SELECTION_FILE="$OUTPUT_DIR/selection_${RUN_TAG}.json"
+ ACTION_MODE=preflight bash "$HERE/train.sh" --models-only --selection-output "$SELECTION_FILE" "$@"
  if [[ ! -f "$DATA_DIR/manifest.json" ]]; then
   python "$HERE/build_dataset.py" --data-root "$DATA_ROOT" --output-dir "$DATA_DIR"
  fi
- bash "$HERE/train.sh" "$@"
+ # 数据构建期间即使上游产生新 best，也必须继续使用本次预检已展示的权重。
+ bash "$HERE/train.sh" "$@" --selection-manifest "$SELECTION_FILE"
 fi
 RUN_DIR="$OUTPUT_DIR/run_$RUN_TAG"
 [[ "${NO_RUN_SUBDIR:-0}" != 1 ]] || RUN_DIR="$OUTPUT_DIR"

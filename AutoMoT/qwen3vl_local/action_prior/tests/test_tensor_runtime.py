@@ -192,12 +192,17 @@ def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch, review
     engine.prefill = prefill
     contract = {f"phase{i}": {"path": str(tmp_path / f"p{i}")} for i in (1, 2)}
     contract["identity"] = "identity"
+    from qwen3vl_local.action_prior import phase2_v3_prompts as event_prompts
+    contract["phase2"]["metadata"] = dict(
+        prompt_name=event_prompts.PROMPT_NAME, history_rgb_mode="4rgb",
+        production_prompt_sha256=event_prompts.event_prompt_sha256(history_rgb_mode="4rgb"))
     runtime = PriorEngine(
         engine, contract, text_cache=TextCache(tmp_path / "text.sqlite")
     )
     counter = []
 
     def collect(ask, key, **kwargs):
+        assert kwargs["event_module"] is event_prompts
         counter.append(key)
         return {
             "conditions": {"ROAD_STRUCTURE": "R1", "UE3": "YES"},

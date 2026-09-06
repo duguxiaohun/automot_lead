@@ -53,29 +53,41 @@ fallback 的 planning 段也根据可解析的当前速度、目标方位及正�
 
 ## 权重选择
 
-必须有完整模型权重，只有 audit bundle 不够。默认递归搜索 `checkpoints/` 内的
-`best_generation/sft_new_loop_phase{1,2}_adapter_config.json`，并要求实际 adapter 权重存在。
+用户已授权先用两服务器现有模型训练 action，默认策略现为 `--selection-policy available`。
+必须共享完整模型目录和保存步指标，只有 report.json / audit bundle 不够。
+默认递归搜索 `checkpoints/` 并跟随目录软链接；可传 `--checkpoint-roots` 合并多个共享根。
+按精确 `sft_new_loop_phase{1,2}_adapter_config.json` 识别新训练包，不加载旧 RS Phase2 LoRA。
 
-- 自动只接受目录名精确为 `best_generation`；**没有 final / fallback_generation / best_generation_balanced 兜底**。
-- 校验当前生产 prompt name/hash、训练 Git commit、base 路径、RGB mode/count/indices。
+- Phase1 仅在兼容 `best_generation` 中选 validation Exact 最高者。
+- Phase2 优先兼容且 guard 通过的 `best_generation`；没有时允许 `fallback_generation`，
+  在 fallback 中按 validation Exact 降序选优。**不使用 final、best_val、balanced 或普通 checkpoint 兜底**。
+- 当前支持新 Phase1 当前 v5、新 Phase2 当前 v5 与冻结历史 v3。历史 v3 源码来自 Git
+  `6c722de11` 的新 Phase2 prompt，保存在 `phase2_v3_prompts.py`，两种 RGB 模式哈希已与远程元数据核对。
+  运行时问组、问题文字、system 和 hash 均使用选中版本；不把 v3 权重配上 v5 提示词。
+- 仍硬校验 prompt name/hash、RGB mode/count/indices、plain LoRA 和非空权重文件。
+  空训练 Git 变为来源警告，不篡改历史 commit。跨服务器 base 路径不同但均命名为
+  `Qwen3-VL-4B-Instruct` 时允许重映射到 `--model-dir`；这是假设共享同一基座，不能证明旧服务器
+  权重字节相同。实际本地 base/processor/BEV/adapter 字节均进入 action 合同。
 - Phase1 用 adapter 的 global_step 精确回查同 run 的 `train_eval_metrics.jsonl` generation 记录和 format gate。
-- Phase2 读取同 run 的 `best_generation.json`，核验 step 和 guards。
+- Phase2 读取同 run 对应 `best_generation.json` / `fallback_generation.json`，核验 step 和 format；
+  fallback 的原 guard 失败与指标原样记录，不改名为 best，也不声称 LoRA 质量已达标。
 - 多个兼容 run 按其已记录的 validation generation exact 降序，平分按保存时间、路径确定顺序。
   不同 run 可能评了不同样本，这只是自动选择策略，不能称为共同 holdout 上的严格排名。
-- 显式 `PHASE1_ADAPTER` / `PHASE2_ADAPTER` 可选其它 checkpoint，但仍硬校验合同，并记录为 explicit；不会冒称 best。
+- 可显式 `PHASE1_ADAPTER` / `PHASE2_ADAPTER` 固定上述合法保存点，仍执行同样兼容检查。
 - `selected_priors.json` 保存来源、版本、Git、选择分数、拒绝原因、实际权重 SHA256。
   checkpoint 内再次保存合同，旧 LeadMoT/eval_carla 会拒绝其新 schema；请使用本目录 eval。
 
 base、processor/tokenizer 文件、BEV、两个 adapter 均参与指纹。
 执行指纹使用 `provenance.EXECUTION_SEEDS` 声明真实 action/延迟入口，展开模块初始化时的本地 import 和 package initializer。
-当前核对48个源码文件，含共享 engine/M-RoPE/LeadMoT、实际 prompt 依赖、只读 runner 和其 BEV 工具；
+包含共享 engine/M-RoPE/LeadMoT、当前/冻结 prompt、选择逻辑、只读 runner 和其 BEV 工具；
 **不含 sft_new_loop_phase3**。不会递归扫描整个 qwen3vl_local，也不追踪未调用 CLI/GoalGen 分支。
 修改真实依赖会失效，修改未接入的 Phase3 不影响恢复；新增延迟执行路径时必须同步 seeds。
 参考源码只读哈希，不入库。依赖包版本也记录；Git 用于溯源，不把 commit 字段存在当环境兼容证明。
 驱动/硬件差异仍需实际数值验证。
 
-旧 prompt 权重必须用对应代码环境或重训，不能篡改 metadata hash 来绕过。
-模型迁移时保留 adapter 配置中 base 路径的等价软链接；当前实现严格按 resolve 后路径检查。
+未知历史 prompt 仍拒绝，不能篡改 metadata hash 绕过。可用 `SELECTION_POLICY=strict` 恢复
+此前仅当前 prompt + best + Git 非空 + base 路径一致的严格策略。此轮真实执行代码有变更，
+旧 action 合同不能直接续训；新任务 checkpoint、resume、eval/闭环均固定已选版本和权重指纹。
 
 先只核验模型，不构建数据、不加载 GPU 模型：
 
@@ -98,14 +110,49 @@ ACTION_MODE=preflight bash qwen3vl_local/action_prior/train.sh --models-only
 ## 全量训练
 
 ```bash
+# 两台服务器的完整 checkpoints 已共享/软链接在当前 checkpoints 下，自动合并搜索并训练
 bash qwen3vl_local/action_prior/run_full_pipeline.sh
 # 同一四卡命令的显式选卡示例
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh
+
+# 若共享在两个不同根目录，只给根目录，不需要任何 run 日期或具体权重路径
+bash qwen3vl_local/action_prior/run_full_pipeline.sh \
+  --checkpoint-roots /shared/server_a/checkpoints /shared/server_b/checkpoints
+# 同一多根命令的显式选卡示例
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh \
+  --checkpoint-roots /shared/server_a/checkpoints /shared/server_b/checkpoints
 ```
 
 默认请求四张 GPU，自动按显存占用/利用率选择；仍请在自己的训练资源范围内运行。
 `GPU_IDS` 非空时卡数由它决定；`DDP_GPU_COUNT=N` 只改变自动请求卡数。
 脚本先核验模型，再建全量索引，训练后用 `best.pt` 的 EMA 跑全量 test，并生成 24 个 probe case。
+模型预检在命令行打印候选、最终路径、RGB、验证 Exact 和来源/guard 警告，然后写
+`$OUTPUT_DIR/selection_$RUN_TAG.json`。正式训练通过 `--selection-manifest` 固定这对权重，
+上游新 best 出现也不重新换模型；权重或执行/base/BEV 身份变化立即中止。run 内仍保存
+`selected_priors.json`；resume 和 eval 从 checkpoint/原 run 恢复选中路径，不依赖原选择清单路径。
+
+实际训练在加载 Qwen/LoRA 前，由 rank0 将这对 LoRA **复制为独立文件**到当前 action run 下，
+不是软链接，也不是硬链接。复制后核验权重 SHA256 与原选择合同相同，所有 rank 从副本加载。
+
+```text
+checkpoints/action_prior/run_<tag>/
+  best.pt / latest.pt             # action decoder checkpoint
+  config.json / selected_priors.json
+  lora/
+    bundle_manifest.json         # 包内相对路径、文件 SHA256、原始 Git/来源
+    phase1/best_generation/       # 所选 LoRA 权重 + 两种 adapter 配置
+    phase1/train_eval_metrics.jsonl
+    phase1/source_provenance.json
+    phase2/best_generation/       # 或 fallback_generation，保留真实 slot 名
+    phase2/best_generation.json   # 或 fallback_generation.json
+    phase2/source_provenance.json
+    prompt_sources/              # 对应提示词与本地依赖源码，仅作审计
+```
+
+resume、eval/probe、Bench2Drive 和在线 agent 优先按当前 action checkpoint 旁的 `lora/`
+相对路径恢复并核验指纹，整个 run 目录搬迁也不依赖旧服务器的 LoRA 路径。删掉上游训练目录后
+仍可使用这份 run；但不能只搬走 best.pt 而漏掉 lora/。新 run 声明有副本却丢失时直接报错，
+不回退重新搜索。Qwen 基座、BEV 和数据仍由目标服务器准备，它们未重复复制到每个 action run。
 
 | 默认设置 | 值与口径 |
 |---|---|
@@ -378,6 +425,11 @@ python qwen3vl_local/action_prior/audit_bundle.py --root checkpoints/action_prio
 
 ## 训练前对比 Phase1/2 LoRA 并打印推荐权重
 
+`rank_loras.sh` 默认与训练一样使用 `available`，可自动合并两台共享服务器的候选，
+输出 `action_prior_available_ranking_v1` 报告，并默认导出所选真实 LoRA 权重迁移包；
+打印推荐、包路径和训练命令，不自动启动训练。
+真正一键搜索→固定→训练→测试使用上面的 `run_full_pipeline.sh`。
+
 ```bash
 # 扫描 checkpoints；打印 best_generation 指标及其它保存点/版本诊断
 bash qwen3vl_local/action_prior/rank_loras.sh
@@ -389,14 +441,56 @@ bash qwen3vl_local/action_prior/rank_loras.sh \
 
 # 只看 Phase2，命令行简表；report.json 仍保留全部指标
 bash qwen3vl_local/action_prior/rank_loras.sh --phase 2 --summary-only
+
+# 合并共享目录，不写死 run 日期
+bash qwen3vl_local/action_prior/rank_loras.sh \
+  --checkpoint-roots /shared/server_a/checkpoints /shared/server_b/checkpoints
+
+# 如需原先完整严格拒绝原因审计
+bash qwen3vl_local/action_prior/rank_loras.sh --selection-policy strict
+
+# 只读指标、不复制或压缩大权重
+bash qwen3vl_local/action_prior/rank_loras.sh --no-export-bundle
 ```
 
-这是 **已有验证指标的只读对比**，不用 GPU、不重新生成、不修改任何 adapter。
+这是 **已有验证指标的对比与所选权重导出**，不用 GPU、不重新生成、不修改源 adapter。
 默认输出 `checkpoints/action_prior_lora_audit/run_<时间>/report.json` 与 `log.txt`；
 可用 `--output-dir` 指定新的报告目录，已有目录拒绝覆盖。
 用 `--model-dir` 指定本地 Qwen 基座路径，用 `--checkpoint-root` 改统一扫描根目录。
 
-候选仅接受目录名严格为 `best_generation` 的 Phase1/2 权重；`final`、`best_val`、
+默认在报告目录内生成 `action_prior_loras_<组合指纹>/`、同名 `.tar.gz` 和 `.tar.gz.sha256`。
+包中只有选中的 Phase1/2 保存点、原 adapter 配置、保存步 generation/teacher-forced/guard
+记录和轻量训练来源、原始 Git、导出 Git、提示词源码与依赖、逐文件 SHA256；不会包含其它
+checkpoint、optimizer 或全训练日志。打包后逐成员解压流校验，全部匹配才发布压缩包。
+命令行打印每个阶段的源路径、slot、step、Exact、prompt，再打印压缩包路径和校验和。
+`report.json.weight_bundle` 同时记录这些信息。导出失败退出 3 并保存错误报告，不宣称导出成功。
+
+这是**完整 LoRA 权重迁移包**，大小按实际 LoRA 权重决定，不受 30 MB 限制。
+训练/评测原来的 `audit.zip` 仍限制 30 MB，只包含轻量指标和副本清单，不包含 LoRA 大权重。
+
+另一台服务器将该 tar.gz **完整解压到 `AutoMoT/checkpoints/`**，保留顶层目录，然后执行脚本
+打印的以下形式命令；只指定组合目录，不需要指定任何训练 run 日期：
+
+```bash
+bash qwen3vl_local/action_prior/run_full_pipeline.sh \
+  --lora-bundle checkpoints/action_prior_loras_<组合指纹>
+# 同一命令显式选卡
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh \
+  --lora-bundle checkpoints/action_prior_loras_<组合指纹>
+```
+
+`--lora-bundle` 逐文件验包，并固定包里的两个权重；即使目录里后来出现更高分模型也不会重选。
+不指定 bundle 时，默认搜索也能发现解压后的 LoRA，选优规则和 rank 相同；但要保证恰好使用
+人工认可的那一组，应使用脚本打印的 `--lora-bundle` 命令。目标服务器需同步含本功能的项目代码，
+准备本地 `Qwen3-VL-4B-Instruct` 和 BEV；历史 v3 prompt 由项目内冻结协议加载，包内源码只作
+溯源、不动态执行。源 adapter 的路径/Git/hash 不改写，跨服务器映射单列记录。
+
+如果一台服务器仅有可推荐 Phase1 或 Phase2，仍导出这个阶段的完整单阶段包并明确打印
+“尚不具备双阶段组合”；两台分别解压到共享 checkpoints 后可合并搜索，再导出双阶段包。
+单阶段包不能直接用 `--lora-bundle` 启动双阶段训练。没有可推荐模型不会生成空包。
+
+以下逐项拒绝与发现字段说明针对 `--selection-policy strict`；默认 available 使用上述已授权规则。
+严格候选仅接受目录名严格为 `best_generation` 的 Phase1/2 权重；`final`、`best_val`、
 `fallback_generation`、`best_generation_balanced` 均不进入此次推荐。
 Phase1 按 adapter 的 global_step 精确回查同 run `train_eval_metrics.jsonl`，
 Phase2 读取同 run `best_generation.json` 的 generation/guard 记录；teacher-forced 也只取保存 step。
@@ -411,7 +505,7 @@ UE 各类与高速 UE3、INVALID 子组等**文件实际保存的所有指标**�
 不同 run 的验证样本/预算可能不同，因此只能称为现有记录下的推荐，不能当统一 holdout 的严格最优；
 Git 标记也不等于完整环境核验。任一请求 phase 无可推荐权重时仍输出完整报告，退出码为 2。
 
-新版 `report.json` 使用 `action_prior_lora_ranking_v3`，发现层与合同层分开审计，
+strict 的 `report.json` 使用 `action_prior_lora_ranking_v3`，发现层与合同层分开审计，
 候选只属于 `sft_new_loop_phase1` / `sft_new_loop_phase2` 两个指定训练包：
 
 - `discovery_status` 区分未发现、仅有非 best 保存点、best 全部被拒绝和成功推荐。

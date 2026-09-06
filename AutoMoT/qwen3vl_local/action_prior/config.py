@@ -24,6 +24,11 @@ DEFAULTS = dict(
     data_dir="checkpoints/action_prior_data",
     output_dir="checkpoints/action_prior",
     checkpoint_root="checkpoints",
+    checkpoint_roots=[],
+    selection_policy="available",
+    selection_manifest="",
+    selection_output="",
+    lora_bundle="",
     phase1_adapter="",
     phase2_adapter="",
     lead_bev_ckpt="checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth",
@@ -97,6 +102,9 @@ def parser():
     """所有正式超参数均可 CLI 覆盖。"""
     p = argparse.ArgumentParser()
     for k, v in DEFAULTS.items():
+        if isinstance(v, list):
+            p.add_argument("--" + k.replace("_", "-"), nargs="+", default=[])
+            continue
         p.add_argument(
             "--" + k.replace("_", "-"),
             default=v,
@@ -156,6 +164,8 @@ def read_rows(args, split):
 
 def validate_args(args):
     """防止兼容参数改变该路线的核心条件。"""
+    if getattr(args, "selection_policy", "strict") not in ("available", "strict"):
+        raise ValueError("selection_policy must be available or strict")
     if (
         args.use_subgoal
         or args.qwen_adapter_dir
@@ -216,8 +226,43 @@ def validate_args(args):
 
 def build_contract(args):
     """冻结上游身份和运行协议；权重路径可迁移，权重字节不能变。"""
-    p1 = select_adapter(args.checkpoint_root, 1, args.model_dir, args.phase1_adapter)
-    p2 = select_adapter(args.checkpoint_root, 2, args.model_dir, args.phase2_adapter)
+    policy = getattr(args, "selection_policy", "strict")
+    manifest_path = getattr(args, "selection_manifest", "")
+    pinned = read_json(manifest_path) if manifest_path else None
+    if pinned and (pinned.get("schema") != "action_prior_selection_v1" or pinned["selection_policy"] != policy):
+        raise ValueError("selection manifest policy/schema mismatch")
+    roots = getattr(args, "checkpoint_roots", []) or [args.checkpoint_root]
+    bundle = getattr(args, "lora_bundle", "")
+    bundle_info, packaged_paths = None, {}
+    if bundle:
+        from qwen3vl_local.action_prior.lora_bundle import verify_bundle, bundle_paths
+        bundle_info = verify_bundle(bundle)
+        packaged_paths = bundle_paths(bundle)
+        if set(packaged_paths) != {"phase1", "phase2"}:
+            raise ValueError("training requires a bundle containing both Phase1 and Phase2")
+    selected = []
+    for phase in (1, 2):
+        explicit = getattr(args, f"phase{phase}_adapter")
+        if bundle:
+            if explicit and Path(explicit).resolve() != Path(packaged_paths[f"phase{phase}"]):
+                raise ValueError("explicit adapter conflicts with --lora-bundle")
+            explicit = packaged_paths[f"phase{phase}"]
+        if pinned:
+            # 显式重映射允许搬迁目录，但必须核验实际权重指纹；不得重新择优。
+            explicit = explicit or pinned[f"phase{phase}"]["path"]
+        if policy == "available":
+            from qwen3vl_local.action_prior.available_adapters import select_available
+            item = select_available(roots, phase, args.model_dir, explicit)
+        else:
+            if len(roots) != 1:
+                raise ValueError("strict policy uses one checkpoint root; put shared roots under one directory")
+            item = select_adapter(roots[0], phase, args.model_dir, explicit)
+        if pinned and item["fingerprint"] != pinned[f"phase{phase}"]["fingerprint"]:
+            raise ValueError(f"Phase{phase}: selected weight files changed after preflight")
+        if bundle_info and item["fingerprint"] != bundle_info["phases"][f"phase{phase}"]["fingerprint"]:
+            raise ValueError("bundle identity differs from loaded adapter")
+        selected.append(item)
+    p1, p2 = selected
     base = Path(args.model_dir).resolve()
     weights = sorted(base.glob("*.safetensors")) or sorted(
         base.glob("pytorch_model*.bin")
@@ -284,7 +329,7 @@ def build_contract(args):
     git = subprocess.run(
         ["git", "rev-parse", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
-    return dict(
+    contract = dict(
         git_commit=git,
         upstream_sources=upstream,
         audit_identity=digest(upstream),
@@ -295,7 +340,11 @@ def build_contract(args):
         phase2=p2,
         adapter_enabled=False,
         final_cache_model="base_without_any_adapter",
+        selection_policy=policy,
     )
+    if pinned and pinned.get("contract_identity") != contract["identity"]:
+        raise ValueError("selection manifest execution/base/BEV identity changed after preflight")
+    return contract
 
 
 def training_plan(args, rows, world):
