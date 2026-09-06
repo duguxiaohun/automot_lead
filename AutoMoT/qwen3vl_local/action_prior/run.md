@@ -411,15 +411,20 @@ UE 各类与高速 UE3、INVALID 子组等**文件实际保存的所有指标**�
 不同 run 的验证样本/预算可能不同，因此只能称为现有记录下的推荐，不能当统一 holdout 的严格最优；
 Git 标记也不等于完整环境核验。任一请求 phase 无可推荐权重时仍输出完整报告，退出码为 2。
 
-新版 `report.json` 使用 `action_prior_lora_ranking_v2`，增加发现层与合同层分开审计：
+新版 `report.json` 使用 `action_prior_lora_ranking_v3`，发现层与合同层分开审计，
+候选只属于 `sft_new_loop_phase1` / `sft_new_loop_phase2` 两个指定训练包：
 
 - `discovery_status` 区分未发现、仅有非 best 保存点、best 全部被拒绝和成功推荐。
   `discovery` 保存 Phase 目录入口、无法识别 phase 的保存点、压缩包、软链接及读取错误。
   目录存在不代表其中有可加载权重；`adapter_metadata/adapter` 里的无权重副本标为
   `audit_metadata_only`，压缩文件只列出，不自动解包。
-- `other_checkpoints` 展示 final/fallback/balanced/checkpoint-* 和旧版或缺失配置的保存点，
-  仅用于解释“为什么没被推荐”，不会成为 best 的兜底。Phase 目录名仅作发现线索，
-  旧 `sft_loop_phase2` 的道路结构 LoRA 不能因为名字带 Phase2 就充当新 Phase2 EVENT LoRA。
+- `other_checkpoints` 展示指定新训练包的 final/fallback/balanced/checkpoint-*、旧提示词版本或
+  缺失配置的保存点，仅用于解释“为什么没被推荐”，不会成为 best 的兜底。
+  精确 `sft_new_loop_phaseN_adapter_config.json` 识别训练包，允许自定义输出路径；
+  配置缺失时只用完整新包目录名提供线索，不再用泛化的 `phase2` 字样。
+  `sft_loop_phase2_augment` 等其它包独立记录到 `discovery.excluded_other_packages`，
+  **不进入候选、拒绝计数或排名表**，命令行仅打印排除数量。
+  新包里的 v3/v4 是该包历史提示词版本，仍属新包，不能误称为旧道路结构训练包。
 - 每个保存点的 `checks` 同时给出 prompt 名称/哈希、Git、base、RGB、PEFT、权重文件、
   保存 step 和选优 guard 的 `status/actual/expected/detail`，不再只返回第一个错误。
   未知、失败和不适用分开记录，`--summary-only` 仍打印这些检查；旧配置版本会单列展示。
@@ -435,6 +440,15 @@ Git 标记也不等于完整环境核验。任一请求 phase 无可推荐权重
 ```bash
 bash qwen3vl_local/action_prior/rank_loras.sh \
   --checkpoint-root /实际路径/AutoMoT/checkpoints --phase 2 --summary-only
+```
+
+两个新训练入口默认写 `checkpoints/sft_new_loop_phase1_runs/` 和
+`checkpoints/sft_new_loop_phase2_runs/`，可只检查这两个训练目录：
+
+```bash
+bash qwen3vl_local/action_prior/rank_loras.sh \
+  --phase1-root checkpoints/sft_new_loop_phase1_runs \
+  --phase2-root checkpoints/sft_new_loop_phase2_runs --summary-only
 ```
 
 返回码 2 表示这次没有可推荐 Phase2，报告仍完整写出。用新的 `report.json` 与 `log.txt`

@@ -170,6 +170,9 @@ def show(result, summary_only=False):
     phase = result["phase"]
     print(f'\nPhase{phase} — {result["root"]}')
     discovery = result["discovery"]
+    print(f'目标训练包: {discovery["expected_training_package"]}')
+    print(f'其它训练包保存点已排除 {len(discovery["excluded_other_packages"])} 个'
+          '（详情见 JSON discovery.excluded_other_packages；不计入本 Phase 排名/拒绝数）')
     print(f'发现状态: {result["discovery_status"]}; best_generation={len(result["candidates"])}; '
           f'其它保存点={len(result["other_checkpoints"])}; '
           f'Phase 压缩包={len(discovery["archives"])}; '
@@ -305,7 +308,7 @@ def main():
             command += [f'--phase{result["phase"]}-adapter', result["recommended"]]
         print("\n固定推荐权重运行（仅打印，不执行）:\n" + shlex.join(command))
     report = dict(
-        schema="action_prior_lora_ranking_v2",
+        schema="action_prior_lora_ranking_v3",
         model_dir=str(Path(args.model_dir).resolve()),
         phases=results,
         metrics_are_existing_validation=True,

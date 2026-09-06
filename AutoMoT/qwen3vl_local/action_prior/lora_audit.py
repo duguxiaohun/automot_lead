@@ -12,12 +12,12 @@ from qwen3vl_local.action_prior.contracts import (
 ERRORS = (ValueError, KeyError, OSError, TypeError, AttributeError, RuntimeError, OverflowError)
 
 
-def phase_hint(path):
-    """目录名只是发现线索，不能替代新 Phase2 EVENT 合同校验。"""
+def training_package(path):
+    """只识别训练包全名；combined_phase1_phase2、multi_yes_phase2 不作为来源。"""
     for part in reversed(Path(path).parts):
-        match = re.search(r"(?:^|[_-])phase([123])(?:$|[_-])", part.lower())
+        match = re.match(r"(sft_(?:new_loop|loop)_phase[123](?:_augment)?)(?:$|[_./-])", part)
         if match:
-            return int(match[1])
+            return match[1]
     return None
 
 
@@ -25,7 +25,9 @@ def discover(root, phase):
     """跟随目录软链接并按真实路径去重；暴露非 best、旧配置、断链与访问失败。"""
     root = Path(root).expanduser().absolute()
     expected = f"sft_new_loop_phase{phase}_adapter_config.json"
+    expected_package = f"sft_new_loop_phase{phase}"
     result = dict(slots=[], phase_directories=[], unclassified_slots=[], links=[], archives=[],
+                  excluded_other_packages=[], expected_training_package=expected_package,
                   errors=[], visited_directories=0, follows_directory_symlinks=True)
     pending, seen = [root], set()
     while pending:
@@ -39,15 +41,22 @@ def discover(root, phase):
                 entries = sorted(scan, key=lambda e: e.name)
             result["visited_directories"] += 1
             names = {e.name for e in entries}
-            # 精确元数据优先于目录命名；旧 sft_loop_phase2 仅作疑似项，不能自动改名加载。
+            # 元数据优先于目录命名；旧包独立归档，不进入新 Phase 的候选或拒绝计数。
             phases = [n for n in (1, 2, 3)
                       if f"sft_new_loop_phase{n}_adapter_config.json" in names]
-            hint = phase_hint(path) or phase_hint(resolved)
-            belongs = phase in phases if phases else hint == phase
-            # 只记录命名入口；不把一个审计包里的数万 case 子目录重复列为 Phase 目录。
-            if phase_hint(path.name) == phase or (path == root and belongs):
-                result["phase_directories"].append(str(path))
             configs = sorted(n for n in names if n.endswith("adapter_config.json"))
+            packages = {n.removesuffix("_adapter_config.json") for n in configs
+                        if n != "adapter_config.json"}
+            package = training_package(resolved) or training_package(path)
+            if packages:
+                belongs = expected_package in packages
+                foreign = not belongs
+            else:
+                belongs = package == expected_package
+                foreign = package is not None and not belongs
+            # 只记录命名入口；不把一个审计包里的数万 case 子目录重复列为 Phase 目录。
+            if training_package(path.name) == expected_package or (path == root and belongs):
+                result["phase_directories"].append(str(path))
             weights = sorted(n for n in names if n in (
                 "adapter_model.safetensors", "adapter_model.bin"))
             is_slot = (bool(configs or weights) or resolved.name in (
@@ -73,9 +82,13 @@ def discover(root, phase):
                                           and not weights else "adapter_slot"),
                            expected_metadata_present=expected in names,
                            phase_evidence="exact_metadata" if phase in phases else "directory_hint")
-                if belongs or (path == root and resolved.name == "best_generation" and not phases):
+                if belongs or (path == root and resolved.name == "best_generation" and not foreign):
                     result["slots"].append(row)
-                elif not phases and hint is None:
+                elif foreign:
+                    row.update(training_packages=sorted(packages) or [package],
+                               reason=f"不是 {expected_package} 训练包，不计入该 Phase 候选/拒绝/推荐")
+                    result["excluded_other_packages"].append(row)
+                else:
                     row["phase_evidence"] = "unknown"
                     result["unclassified_slots"].append(row)
             for entry in reversed(entries):
@@ -95,7 +108,7 @@ def discover(root, phase):
                     if entry.is_dir(follow_symlinks=True) and entry.name not in (
                         ".git", "__pycache__"):
                         pending.append(child)
-                    elif phase_hint(entry.name) == phase and entry.name.endswith((
+                    elif training_package(entry.name) == expected_package and entry.name.endswith((
                         ".zip", ".tar", ".tar.gz", ".tgz")):
                         result["archives"].append(dict(path=str(child),
                             reason="压缩文件仅列出，未解包；不能作为本地 adapter 目录加载"))
@@ -103,7 +116,7 @@ def discover(root, phase):
                     result["errors"].append(dict(path=str(child), error=str(exc)))
         except ERRORS as exc:
             result["errors"].append(dict(path=str(path), error=str(exc)))
-    for key in ("slots", "unclassified_slots", "links", "errors"):
+    for key in ("slots", "unclassified_slots", "excluded_other_packages", "links", "errors"):
         result[key].sort(key=lambda row: row["path"])
     return result
 
