@@ -93,7 +93,7 @@ def lightweight_old_helpers():
 
 
 @pytest.mark.parametrize("failure", ["mid_epoch", "final_validation"])
-def test_interruption_resume_matches_uninterrupted(tmp_path, monkeypatch, failure):
+def test_interruption_resume_matches_uninterrupted(tmp_path, monkeypatch, failure, capsys):
     old = lightweight_old_helpers()
     # 本机没有 TensorBoard；仅替换日志 IO，训练/恢复/EMA 仍执行真实循环。
     tb = ModuleType("torch.utils.tensorboard")
@@ -183,7 +183,7 @@ def test_interruption_resume_matches_uninterrupted(tmp_path, monkeypatch, failur
             "--save-steps",
             "1",
             "--logging-steps",
-            "1",
+            "10",
             "--decoder-dtype",
             "float32",
             "--qwen-dtype",
@@ -196,11 +196,22 @@ def test_interruption_resume_matches_uninterrupted(tmp_path, monkeypatch, failur
 
     baseline = tmp_path / "baseline"
     run(baseline)
+    output = capsys.readouterr().out
+    # 总共只有三次更新，仍必须立即输出第一次真实更新；不能等默认十步。
+    assert "step=1/3 loss=" in output
+    assert '"stage": "train/micro_done"' in output
+    assert '"stage": "validation/done"' in output
+    progress_state = json.loads((baseline / "progress/train_rank0.json").read_text())
+    assert progress_state["stage"] == "finished"
+    assert progress_state["optimizer_step"] == 3
     reference = torch.load(baseline / "latest.pt", weights_only=False)
     mode.update(failure=failure, calls=0)
     interrupted = tmp_path / "interrupted"
     with pytest.raises(RuntimeError, match="injected crash"):
         run(interrupted)
+    failed_state = json.loads((interrupted / "progress/train_rank0.json").read_text())
+    assert failed_state["stage"] == "failed"
+    assert "injected crash" in failed_state["error"]
     partial = torch.load(interrupted / "latest.pt", weights_only=False)
     assert partial["cursor"].get("validation_pending", False) == (
         failure == "final_validation"

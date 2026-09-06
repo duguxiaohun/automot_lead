@@ -73,6 +73,7 @@ def main():
     p.add_argument("mode", choices=["train", "eval", "probe", "preflight"])
     known, extra = p.parse_known_args()
     root = Path(__file__).resolve().parents[2]
+    os.environ["PYTHONUNBUFFERED"] = "1"
     os.environ["PYTHONPATH"] = str(root) + os.pathsep + os.environ.get("PYTHONPATH", "")
     module = "qwen3vl_local.action_prior." + (
         "train"
