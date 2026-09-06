@@ -5,7 +5,7 @@ from collections import defaultdict
 from qwen3vl_local.sft_new_loop_phase1 import prompts as p1
 from qwen3vl_local.sft_new_loop_phase2 import prompts as p2
 
-PROTOCOL_VERSION = "rs_full_hierarchy_event_domain_recheck_v1"
+PROTOCOL_VERSION = "rs_event_recheck_modes_v2"
 
 
 def strict_answers(text, keys):
@@ -37,13 +37,15 @@ def reconcile(first, second, keys):
     return values, invalid
 
 
-def collect_priors(ask, sample_key):
+def collect_priors(ask, sample_key, recheck_mode="history"):
     """ask(phase, spec, history) 接受实际多轮历史，返回原始回答与 prompt。
 
     先遍历两个 EVENT 域，避免 RS 门控漏掉 interrupted junction 上的 UE3。
     EVENT checkpoint 没有训练过 GROUP/DETAIL；复核使用它已训练的域内全问。
     """
-    calls = []
+    if recheck_mode not in ("history", "independent", "compare"):
+        raise ValueError("recheck_mode must be history/independent/compare")
+    calls, comparisons, mode_disagreements = [], [], []
 
     def query(phase, spec, history=()):
         text, prompt = ask(phase, spec, list(history))
@@ -57,6 +59,37 @@ def collect_priors(ask, sample_key):
         )
         calls.append(row)
         return strict_answers(text, spec.output_keys), (prompt, text)
+
+    def recheck(phase, spec, initial, turn, scope):
+        """compare 同时记录两种复核，condition 仍按 history 接受，不能当作正确率。"""
+        chosen = None
+        mode_answers = {}
+        modes = (
+            ("independent", "history") if recheck_mode == "compare" else (recheck_mode,)
+        )
+        for mode in modes:
+            answer, next_turn = query(phase, spec, [turn] if mode == "history" else [])
+            keys = [k for k in spec.output_keys if k in initial]
+            _, errors = reconcile(initial, answer, keys)
+            comparisons.append(
+                dict(
+                    scope=scope,
+                    mode=mode,
+                    keys=keys,
+                    errors=errors,
+                    compared_fields=len(keys),
+                    same_prompt=next_turn[0] == turn[0],
+                    accepted_fields=len(keys) - len(errors),
+                )
+            )
+            mode_answers[mode] = answer
+            chosen = answer
+        if recheck_mode == "compare":
+            _, cross_errors = reconcile(
+                mode_answers["independent"], mode_answers["history"], spec.output_keys
+            )
+            mode_disagreements.append(dict(scope=scope, errors=cross_errors))
+        return chosen
 
     spec = p1.make_prompt_spec(
         variant="all_random_order", answers={}, seed_key=sample_key
@@ -80,7 +113,7 @@ def collect_priors(ask, sample_key):
             group_id=group,
             detail_key=key,
         )
-        second, _ = query(1, hs, [first_turn])
+        second = recheck(1, hs, first, first_turn, key)
         values, errors = reconcile(first, second, (*p1.PHASE1_ANSWER_KEYS, key))
         for name, value in values.items():
             if name not in invalid:
@@ -127,7 +160,16 @@ def collect_priors(ask, sample_key):
             answers=answers,
             seed_key=f"{sample_key}:{domain}:recheck",
         )
-        b, _ = query(2, rs, [turn])
+        # 多题域尽量改变输出顺序；单题 UE6 域无合法的新排列，必须如实记录 same_prompt。
+        for attempt in range(16):
+            if rs.output_keys != es.output_keys:
+                break
+            rs = p2.make_prompt_spec(
+                variant="all_random_order",
+                answers=answers,
+                seed_key=f"{sample_key}:{domain}:recheck:{attempt}",
+            )
+        b = recheck(2, rs, a, turn, domain)
         values, errors = reconcile(a, b, es.output_keys)
         domain_key = f"{domain}/{p2.INVALID_KEY}"
         conditions[domain_key] = values.pop(p2.INVALID_KEY)
@@ -165,5 +207,14 @@ def collect_priors(ask, sample_key):
         invalid=invalid,
         invalid_counts=dict(counts),
         calls=calls,
+        recheck_mode=recheck_mode,
+        recheck_comparisons=comparisons,
+        recheck_mode_disagreements=mode_disagreements,
+        condition_acceptance_policy=(
+            "independent_consistency"
+            if recheck_mode == "independent"
+            else "history_consistency"
+        ),
+        compare_requires_consensus=False,
         consistency_is_accuracy=False,
     )

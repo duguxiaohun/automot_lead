@@ -19,6 +19,8 @@ def main():
     p.add_argument("--phase1-adapter", default="")
     p.add_argument("--phase2-adapter", default="")
     p.add_argument("--lead-bev-ckpt", default="")
+    p.add_argument("--phase1-training-index", default="")
+    p.add_argument("--phase2-training-index", default="")
     p.add_argument("--output-dir", default="")
     p.add_argument("--split", choices=["val", "test"], default="test")
     p.add_argument("--max-samples", type=int, default=0)
@@ -48,12 +50,21 @@ def main():
 
     rank, local, world = old._init_distributed()
     state = torch.load(cli.checkpoint, map_location="cpu", weights_only=False)
-    if state.get("schema") != "action_prior_checkpoint_v1":
-        raise ValueError("requires action_prior checkpoint")
+    if state.get("schema") != "action_prior_checkpoint_v2":
+        raise ValueError(
+            "requires v2 FP32-master action_prior checkpoint; old language/precision contract is incompatible"
+        )
     args = argparse.Namespace(**state["args"])
     args.phase1_adapter = cli.phase1_adapter or state["qwen_backbone"]["phase1"]["path"]
     args.phase2_adapter = cli.phase2_adapter or state["qwen_backbone"]["phase2"]["path"]
-    for k in ("data_root", "data_dir", "model_dir", "lead_bev_ckpt"):
+    for k in (
+        "data_root",
+        "data_dir",
+        "model_dir",
+        "lead_bev_ckpt",
+        "phase1_training_index",
+        "phase2_training_index",
+    ):
         if getattr(cli, k):
             setattr(args, k, getattr(cli, k))
     validate_args(args)
@@ -69,6 +80,11 @@ def main():
         raise ValueError(box[0]["error"])
     contract = box[0]["contract"]
     require_contract(state["qwen_backbone"], contract)
+    from qwen3vl_local.action_prior.provenance import audit_source_changes
+
+    audit_changes = audit_source_changes(
+        state["qwen_backbone"].get("upstream_sources", {}), contract["upstream_sources"]
+    )
     if (
         file_hash(Path(args.data_dir) / f"{cli.split}.jsonl")
         != state["dataset_hashes"][cli.split]
@@ -77,14 +93,19 @@ def main():
     config = LeadMoTPlanningDecoderConfig(**state["decoder_config"])
     device = torch.device("cuda", local)
     dtype = old._dtype(args.decoder_dtype)
-    model = LeadMoTPlanningDecoder(config).to(device=device, dtype=dtype)
+    model = LeadMoTPlanningDecoder(config).to(device=device, dtype=torch.float32)
     model.load_state_dict(state["decoder"], strict=True)
     if not cli.raw:
         model.load_state_dict(state["ema_state_dict"]["shadow"], strict=True)
+    dataset_hashes = state["dataset_hashes"]
+    checkpoint_step = state["step"]
     del state
     args.output_dir = str(Path(cli.checkpoint).resolve().parent)
     runtime = make_runtime(args, device, contract)
     rows = read_rows(args, cli.split)
+    from qwen3vl_local.action_prior.provenance import annotate_upstream
+
+    exposure = annotate_upstream(rows, contract["upstream_sources"])
     out = Path(cli.output_dir or str(Path(cli.checkpoint).parent / f"eval_{cli.split}"))
     metrics = evaluate(
         runtime,
@@ -108,9 +129,18 @@ def main():
                 ema=not cli.raw,
                 contract_identity=contract["identity"],
                 sample_limit=cli.max_samples,
+                upstream_training_pool_audit=exposure,
+                upstream_sources=contract["upstream_sources"],
+                upstream_source_changes=audit_changes,
+                audit_identity=contract["audit_identity"],
+                actual_upstream_seen_routes_verified=False,
+                dataset_hashes=dataset_hashes,
+                checkpoint_step=checkpoint_step,
             ),
         )
         print(json.dumps(metrics, indent=2))
+        from qwen3vl_local.action_prior.audit_bundle import pack
+        pack(out)
     if dist.is_initialized():
         dist.destroy_process_group()
 

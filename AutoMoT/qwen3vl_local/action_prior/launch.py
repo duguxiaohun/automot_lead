@@ -154,6 +154,9 @@ def main():
             check=True,
         )
 
+        from qwen3vl_local.action_prior.audit_bundle import pack
+        pack(directory)
+
 
 if __name__ == "__main__":
     main()

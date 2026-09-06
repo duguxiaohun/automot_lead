@@ -24,3 +24,15 @@ RUN_DIR="$OUTPUT_DIR/run_$RUN_TAG"
 test -f "$RUN_DIR/best.pt"
 bash "$HERE/eval.sh" --checkpoint "$RUN_DIR/best.pt" --split test --output-dir "$RUN_DIR/test"
 bash "$HERE/probe.sh" --checkpoint "$RUN_DIR/best.pt" --split test --output-dir "$RUN_DIR/probe"
+
+# 训练/验证历史 + 最终离线 test/probe 的轻量包；权重/文本缓存/视频不入包。
+python "$HERE/audit_bundle.py" --root "$RUN_DIR"
+# 正式 220 路线只用于最终报告；CARLA 环境上显式开启，不能替代训练期 val。
+if [[ "${BENCH2DRIVE:-0}" == 1 ]]; then
+ B2D_ARGS=()
+ if [[ -f "$RUN_DIR/bench2drive/run_manifest.json" ]]; then
+  B2D_ARGS+=(--resume)
+ fi
+ bash "$HERE/eval.sh" --bench2drive --checkpoint "$RUN_DIR/best.pt" \
+  --output-dir "$RUN_DIR/bench2drive" --num-gpus "${EVAL_GPU_COUNT:-1}" "${B2D_ARGS[@]}"
+fi

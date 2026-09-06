@@ -32,12 +32,24 @@ hierarchical spec 复核 RS1/2/4/5，每次保留事实四问；也检查 GROUP 
 两个域都问，避免 RS 门控漏掉路口 interrupted overlay 上的 UE3。
 这属于“域内复核”，不宣称是新增的 EVENT 分层模型；两次一致也不等于真实标注正确。
 
-单帧首次需要 5 次 Phase1、4 次 Phase2 问答和一次 base 简述，然后 base 完整 prefill。
+默认单帧首次需要5次 Phase1、4次 Phase2 问答、一次 base 简述和最多一次纯文本简述复核，然后 base 完整 prefill。
 每个 adapter 按自身配置选择 `4rgb=[0,1,2,3]` 或 `2rgb_endpoints=[0,3]`；最终 base 固定吃四张图。
 复核是真实多轮对话，完整重做图文 prefill；不同模型/adapter 之间绝不传递 KV。
-base 简述固定 Scene / Interaction / Planning context 三个短段，每段最多 25 词。
-截断或段落格式失败时使用三句保守模板，并记 `analysis_fallback`；语义忠实程度仍需看 probe。
-简述 prompt 只接收已接受条件、语义释义和当前导航，不接 GT event、未来位置或 Phase3 动作。
+base 使用自己的措辞生成 Scene / Interaction / Planning context 三个短段，每段最多60词。
+输入仅有四图、接受的条件及其语义释义和当前导航；**没有 VERIFIED_SUMMARY 或预制分析答案**。
+要求描述已知道路结构、覆盖正类事实/交互，负类可合并或省略但不能反转，null 不当 NO。
+Planning context 必须结合本帧实际速度、导航几何和事件条件，不能总写“使用当前导航”。不接 GT event、未来位置或 Phase3 动作。
+
+生成后，在禁用全部 LoRA 的同一基座上新开一次纯文本 prefill，独立复核五项：先验一致性/道路结构覆盖、
+正类覆盖、未知字段、无额外断言、导航依据。复核不继承生成 KV，也不重新从 RGB 判断先验。
+JSON 缺键、额外键、重复键、非布尔、截断或任一项 false 均不能接受。通过后保留生成原文，不归一成模板。
+**这是模型判定，不是语义保证**：同一基座可能在两次调用中重复误解，同源误判需用真实 RGB/人工标签审计。
+复核只能检查给定先验与导航，不能证明额外图像细节；`summary_model_accepted` 不应被称为人工验证正确。
+
+生成/复核失败才用完整保守 fallback，保留 Phase1 静态障碍/弱势参与者/异常信号与其余字段。
+fallback 的 planning 段也根据可解析的当前速度、目标方位及正类条件变化，但不冒充模型生成。
+日志保存 `raw_analysis`、`analysis_review_raw`、逐项布尔和失败原因；缓存将判定绑定对应草稿 SHA。
+命中时只检查已存判定与草稿配对，最终仍完整重建 base KV，复核文本和失败草稿不进入最终 transcript。
 
 ## 权重选择
 
@@ -54,7 +66,14 @@ base 简述固定 Scene / Interaction / Planning context 三个短段，每段�
 - `selected_priors.json` 保存来源、版本、Git、选择分数、拒绝原因、实际权重 SHA256。
   checkpoint 内再次保存合同，旧 LeadMoT/eval_carla 会拒绝其新 schema；请使用本目录 eval。
 
-base、processor/tokenizer 文件、BEV、两个 adapter 和本子包 Python 代码均参与指纹。
+base、processor/tokenizer 文件、BEV、两个 adapter 均参与指纹。
+执行指纹使用 `provenance.EXECUTION_SEEDS` 声明真实 action/延迟入口，展开模块初始化时的本地 import 和 package initializer。
+当前核对48个源码文件，含共享 engine/M-RoPE/LeadMoT、实际 prompt 依赖、只读 runner 和其 BEV 工具；
+**不含 sft_new_loop_phase3**。不会递归扫描整个 qwen3vl_local，也不追踪未调用 CLI/GoalGen 分支。
+修改真实依赖会失效，修改未接入的 Phase3 不影响恢复；新增延迟执行路径时必须同步 seeds。
+参考源码只读哈希，不入库。依赖包版本也记录；Git 用于溯源，不把 commit 字段存在当环境兼容证明。
+驱动/硬件差异仍需实际数值验证。
+
 旧 prompt 权重必须用对应代码环境或重训，不能篡改 metadata hash 来绕过。
 模型迁移时保留 adapter 配置中 base 路径的等价软链接；当前实现严格按 resolve 后路径检查。
 
@@ -98,7 +117,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh
 | batch | 每 GPU 1 个 clip，累积 16；四卡有效 batch=64 |
 | optimizer | AdamW，LR 2e-4，betas=(0.9,0.95)，weight_decay=.01，grad clip=1 |
 | 调度 | 5% warmup + cosine；不随卡数自动放大 LR |
-| 精度 | 默认 bf16；支持 fp32，拒绝没有 loss scaling 的 fp16 |
+| 精度 | decoder 参数、梯度、AdamW 状态和 EMA 为 FP32；默认仅 decoder 前向 BF16 autocast，轨迹 loss FP32；冻结 Qwen 单独按 qwen_dtype |
 | loss | .5×(route L1 + route末点 L1) + waypoint L1，均对 ego 累计点 |
 | 验证 | 每 250 optimizer steps 固定 256 val 帧；每完整 epoch 全量 val |
 | 选优 | `best.pt` 按 epoch 全量 val 的 EMA loss；周期小验证仅观察趋势 |
@@ -114,12 +133,15 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh
 四卡时每轮更新数为 `ceil(floor(N/4)/16)`。不能用旧 SFT 的 147456 balanced cases 代替 action 的实际全量 N。
 例如 N=800000，四卡每轮 12500 更新，61 轮 762500 更新、4880 万帧呈现；这只是算例，不是已扫描数据量。
 
-缓存默认开启：冻结问答与简述是确定性的，结果按合同、四张 RGB 字节、导航、sample seed 缓存在
-`text_cache/rankN.sqlite`。只保存压缩文本/原始回答/计数和 prompt hash；不缓存图片或 GPU KV。
-首次和命中都用 base 重建相同完整 transcript，训练条件不变。
-不同 rank 的缓存独立，epoch 重新分片时一帧可能在多个 rank 分别产生首次计算。
-`--no-cache-priors` 可关闭。即使命中，invalid 仍按本轮实际训练呈现次数重新计数。
-缓存可能较大，和所有训练产物一样只放 checkpoints，不入库；更换权重/图像/导航/代码后自动不命中。
+缓存默认开启：冻结问答与简述按完整执行合同、四张 RGB 字节、导航和 sample seed 缓存在
+`text_cache/shared_v2/<bucket>/<hash>.json.z`。各 rank 共用原子文本文件，4096 个桶的 POSIX 锁在 miss 后二次检查，
+同帧跨卡不再各生成一次；生成进程异常退出会释放锁，完整结果原子发布。要求所有 rank 看到同一支持
+POSIX 文件锁与原子 rename 的目录；默认面向单机多卡，不使用 NFS 多写者 SQLite/WAL。
+只保存压缩文本/原始回答/计数和 prompt hash，不缓存图片或 GPU KV。每次最终 base 完整 prefill 保持不变。
+`--no-cache-priors` 可关闭；缓存命中仍按每次呈现计数。旧 rankN.sqlite 不复用、不自动删除。
+更换权重/图像/导航/执行合同会产生新 key；依然需要磁盘容量预算，不入库。
+`training_plan.json` 同时报冷生成次数：history/independent 每个唯一帧最多11次，compare最多17次，base0次（含新增的纯文本简述复核）；
+所有模式每次呈现仍需一次最终 prefill。先测冷缓存/缓存命中吞吐，再决定61轮预算，不能从 LEAD 的 epoch 数推断耗时。
 
 先单卡 smoke：
 
@@ -159,6 +181,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/resume.sh checkpoints/action_pri
 也可 `RESUME=... bash qwen3vl_local/action_prior/run_full_pipeline.sh`，恢复完成后继续最终 eval/probe。
 checkpoint 保存 optimizer/scheduler/EMA、各 rank RNG、下一 epoch/micro cursor 和数据 SHA。
 未完成 epoch 的各 rank invalid/损失累积计数一起恢复；若在 epoch 验证中退出，恢复后先补验证和 best 选择。
+FP32 checkpoint 容器仍为 v2；自然语言分析协议为 v3，旧照抄模板和旧 BF16 参数合同明确拒绝 resume/eval，不能靠改 metadata 绕过。
 改变 world size、索引、调度或语言条件会拒绝 resume；坏样本/非有限 loss 直接失败，绝不静默“跳过训练成功”。
 累积窗口最后不足 16 帧时按实际帧数归一化并更新，不丢最后一组。
 
@@ -184,6 +207,69 @@ invalid 字段细分 `format/disagreement/group_format/group_disagreement/multip
 `epoch_audit/` 是全 rank 实际呈现计数；`audit/` 每个 rank/epoch 按 invalid 原因组合保留至多20例，
 accepted 组合保留4例。缓存命中样本保留原始回答与 prompt 指纹，首次 miss 的 dump 含完整 prompt。
 
+## 审查修订：复核、上游重叠与配对消融（2026-09-06）
+
+`--recheck-mode history` 保持最初授权的带答案续问；`independent` 对 Phase1 分层和 Phase2 域内均重新单轮问答；
+`compare` 同时执行两种，condition 仍由 history 接受，额外独立结果仅用于审计。
+即使两分支不一致也不要求共识：输出显式记录 `condition_acceptance_policy=history_consistency`、
+`compare_requires_consensus=false` 和跨模式分歧；这是观察工具，不是更严格的接受模式。复核次数/格式/分歧/接受字段/
+`same_prompt` 按 scope 和模式写入 TB/JSON。UE6 单题域没有合法新排列，独立 greedy 重问同一 prompt
+基本是重复计算，不是额外证据；带历史同样存在复制风险，一致率不是准确率。
+不训练 action 即可做24帧真实模型对照，保留所有原始回答和简述拒绝原因：
+
+```bash
+DATA_DIR=checkpoints/action_prior_data/已有索引目录 bash qwen3vl_local/action_prior/audit_priors.sh
+GPU_IDS=0 DATA_DIR=checkpoints/action_prior_data/已有索引目录 bash qwen3vl_local/action_prior/audit_priors.sh
+```
+
+该报告不计算 GT 筛错率；要判断谁筛出了错误，需对照实际 RGB/人工标签。本机未运行真实模型对照。
+
+导航 `--target-point-lookahead-s`、`--next-target-point-lookahead-s`、`--tp-min-lookahead-m`
+会覆盖旧索引同名值并传入实际 loader，训练/eval/resume 使用相同生效配置。
+BEV 帧数/步长目前必须1，4Hz间隔必须0.25，route10/waypoint8固定；其它值在模型加载前报错，
+不把尚未接通的多帧 BEV 当作可调实验参数。
+
+所选 adapter 同 run 的 `train_run_manifest.json` 指向实际 SFT index；若路径迁移，可显式传
+`--phase1-training-index` / `--phase2-training-index`（train、resume、eval/probe 都支持）。
+生成兼容 identity 与审计 `audit_identity` 分开：索引路径、自动/显式来源、可用状态和内容只进入独立审计记录，
+不改变模型/KV/文本缓存身份。同文件移动、显式重映射或暂时无法访问不会阻断相同生成条件的恢复。
+来源异常写 error/unknown，不默认为池外；内容变化单独记录 `same_content/changed_content/newly_available/current_unavailable`。
+续训沿用 checkpoint 的原审计路线快照，以免半个 epoch 的累计定义变化，同时保存新获取结果及差异；
+独立 eval 使用当前提供的审计来源，记录相对 checkpoint 的差异。来源无法获取时该次 eval 分组为 unknown。
+
+```bash
+bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/latest/best.pt \
+ --phase1-training-index checkpoints/relocated/phase1_index.jsonl \
+ --phase2-training-index checkpoints/relocated/phase2_index.jsonl
+GPU_IDS=0 bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/latest/best.pt \
+ --phase1-training-index checkpoints/relocated/phase1_index.jsonl \
+ --phase2-training-index checkpoints/relocated/phase2_index.jsonl
+```
+审计读取 index 的训练 split，将 action train/val/test 逐帧标为 `train_pool_overlap`、
+`outside_train_pool` 或 `unknown`；无法找到来源绝不按 seed 猜分割、也不默认为未见。
+SFT 没有完整逐 step 采样清单，训练候选池只是保守上界，结果带 `actual_sampled_routes_verified=false`。
+显式 index 是用户提供的来源声明，不能凭文件存在证明它确被该 adapter 使用。
+池外也可能用于上游 checkpoint 选优，因此 **这些分组都不能直接称为整个系统从未见过的 holdout**。
+
+轨迹 loss/ADE/FDE 保留 accepted/invalid 总组，但新增互斥确认状态：
+`confirmation/all_confirmed`（无 invalid）、`confirmation/expected_domain_only`（只有正常域外）、
+`confirmation/unconfirmed`（至少一个格式/分歧/域未知等实际未确认字段）。
+解释“复核失败时的轨迹能力”须看 unconfirmed，不能看混合 invalid 总组。
+另按 summary_model_accepted/fallback、各事件 YES/NO/UNKNOWN、上游池关系分组，
+每组用自己的样本数归一化。事件组来自模型接受的先验，不是 GT；可重叠，不能把组样本数相加当总量。
+`--condition-mode base` 复用原 runner 的 base 图文 prefill，无先验/简述；`prior` 使用新条件。
+禁止在同一 decoder checkpoint 上临时切换模式，两组须同 seed、索引、初始化、优化器和训练预算分别训练：
+
+```bash
+DATA_DIR=checkpoints/action_prior_data/已有索引目录 bash qwen3vl_local/action_prior/run_ablation.sh
+GPU_IDS=0,1,2,3 DATA_DIR=checkpoints/action_prior_data/已有索引目录 bash qwen3vl_local/action_prior/run_ablation.sh
+```
+
+脚本完成两组完整 test，再额外配对256帧（`ABLATION_EVAL_SAMPLES`）进行子组对照。
+`compare_ablation.py` 核对训练配置、预算、输入合同、split SHA、帧ID和GT，分组共同采用 prior 组的条件，
+输出 `prior_minus_base`；负 loss/ADE/FDE 差值表示这些帧误差降低。配对小样本不是全量事件效果证明。
+
+
 ## 参考与验证边界
 
 [AutoVLA 官方代码](https://github.com/ucla-mobility/AutoVLA) 把语言推理和离散动作 token 统一自回归生成；
@@ -196,3 +282,96 @@ CPU 循环测试替换模型、数据 IO 和 TensorBoard writer，不代表已�
 真实 Qwen3-VL、完整 BEV 权重、
 多 GPU DDP、全量数据训练与闭环成绩必须在有对应资源的远端运行 smoke/训练确认。
 当前不把这条新 checkpoint 接入旧 eval_carla，也没有接 Phase3。
+
+## 一键训练、频繁验证、30 MB 审计包与 Bench2Drive（2026-09-06）
+
+默认 `run_full_pipeline.sh` 已包含：模型 preflight → 数据索引 → 全量训练 →
+按全量 val loss 选择的 EMA `best.pt` → 全量离线 test → 24 帧 probe 可视化 → `audit.zip`。
+训练中每 **250 optimizer updates 验证 256 帧**，每完整 epoch 再跑全量 val；结果写
+`validation/step_*.json` / `validation/epoch_*.json` 和 TensorBoard。
+可用 `--val-steps 100 --val-max-samples 256` 提高验证频率；训练期反复使用的是 val，
+正式离线 test 与 Bench2Drive220 不参与 checkpoint 选择。
+
+```bash
+# 训练、频繁离线验证、最终离线 test/probe、压缩包
+bash qwen3vl_local/action_prior/run_full_pipeline.sh
+
+# 在已配好 CARLA 0.9.15 + 对应 Python API 的服务器：额外跑正式 220 条闭环
+BENCH2DRIVE=1 EVAL_GPU_COUNT=4 bash qwen3vl_local/action_prior/run_full_pipeline.sh
+
+# 单独离线 test；默认 EMA，保存 metrics.json 和 audit.zip
+bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/latest/best.pt
+
+# 单独正式 Bench2Drive；--bench2drive 必须是第一个参数
+bash qwen3vl_local/action_prior/eval.sh --bench2drive \
+  --checkpoint checkpoints/action_prior/latest/best.pt --num-gpus 4
+
+# 只核对正式 XML 计划，不加载模型、不启动 CARLA
+bash qwen3vl_local/action_prior/eval.sh --bench2drive \
+  --checkpoint checkpoints/action_prior/latest/best.pt --dry-run
+
+# 先在实际服务器做单路线 smoke，产物明确标为子集
+bash qwen3vl_local/action_prior/eval.sh --bench2drive \
+  --checkpoint checkpoints/action_prior/latest/best.pt --route-id 1773
+```
+
+`CARLA_ROOT` 必须指向已安装的 CARLA 0.9.15，Python 环境还需现有 leaderboard / scenario_runner
+及 Qwen/BEV 依赖；launcher 使用当前 Python，不隐式激活另一个 conda 环境。
+具体 GPU 可用 `GPU_IDS=0,1` pin；默认按空闲程度挑选 `--num-gpus` 张卡，每个 worker
+独立 RPC/TM 端口槽（默认 20000 起、间隔 50），每条路线日志保留在 `logs/route_<id>.log`。
+默认不录五路视频，避免全量视频成本；需要时用既有 `RECORD_INPUT=1` 等开关。
+闭环遵循同步仿真、4 Hz 调 action、20 Hz PID；每次 action 仍可能执行多轮 Qwen 生成，
+`latency.json` 报同步推理均值/P95，尚不保证实时 4 Hz。
+
+正式协议是 **220 条路线、44 类场景**，不是 220 类场景。
+路线及 scenario 直接读 `leaderboard/data/bench2drive220.xml`，不从训练路线名单拼测试集。
+专用 `carla_agent.py` / `carla_runtime.py` 恢复 action_prior 完整合同与 EMA，复用训练 forward，
+在线 clip 没有 GT；沿用现有 LEAD 传感器预处理、UKF、PID 和 SafetyMixin。
+导航终点取正式评测 XML，tp/ntp 时距取 checkpoint；最终 KV 仍来自禁用全部 LoRA 的 base。
+旧 `eval_carla/run_eval.sh` 仍是普通 LeadMoT 入口，action_prior 请用上述专用入口。
+
+每次闭环结果目录默认 `best.pt` 同目录下的 `bench2drive_<时间>/`；流水线固定为本次 run 的
+`bench2drive/`。其中保存：
+
+- `benchmark_report.json`：覆盖率、全局指标、缺失路线、指标缺失原因、代码/路线 SHA。
+- `route_results.csv`：220 条路线逐条 Driving Score、Route Completion、Infraction Score、
+  SR、各违规计数、效率和舒适性；失败与缺失分开记录。
+- `scenario_results.csv`：每类场景的路线数与上述得分。
+- `ability_results.csv`：Overtaking、Merging、Emergency_Brake、Give_Way、Traffic_Signs
+  的成功率及分母；`paper_table.md` 给出全局 DS/SR/Efficiency/Comfort 和五能力/均值。
+- `model_contract.json`、`run_manifest.json`、原始 `eval_per_route/*.json`、每路线运动学与
+  prior invalid 计数/有限案例、推理耗时；真实原始产物保留在本地。
+- `audit.zip`：**最多 30,000,000 字节**（比 30 MiB 更严格）。每次独立离线 eval/probe
+  也生成自己的包；流水线另生成包含训练配置、验证历史和最终离线指标的 run 级包。
+
+SR 使用 Completed/Perfect 且除 min_speed 外没有违规的官方判据。Traffic Signs 采用官方
+**0.0.4** 的一次计数加“失败路线已合法通过路口”补偿，避免本地旧工具重复计数；后者需要
+CARLA Python API 和静态 OpenDRIVE，通过 `carla.Map` 读取，不启动额外 CARLA。
+缺地图时该能力为 N/A，不能拿其余能力平均冒充五能力均值。
+Efficiency 沿用官方 min_speed 百分比规则并单报有效路线数；Comfort 直接调用本地官方
+`efficiency_smoothness_benchmark.py` 函数，运动学每 0.1s 采集，保留该实现对原始 CARLA
+angular_velocity 的处理（不暗中更换物理单位或修正公式）。这些测量只供指标，绝不送入 policy。
+本地 evaluator/scorer 可能与其它论文使用的版本不同，报告记录源码 SHA；训练数据、相机/LiDAR、
+PID/safety 与其它论文也未必相同，须随论文表披露，不能仅因同为 220 路线就声称完全公平可比。
+
+缺路线会标为 provisional：DS/SR 显示 planned 分母的零贡献，能力缺观测显示 N/A；
+`full_220_records` 只表示记录齐全，agent crash 等另列 `execution_failures`，不表示模型通过了 220 条。
+正式分数必须核对覆盖、运行失败与 `all_metrics_available`。完整测试不可通过反复重跑驾驶失败来择优。
+`--resume --output-dir <原闭环目录>` 校验 checkpoint/代码/XML/seed/EMA 一致后跳过已有终态结果，
+只补缺失/半截；不同 seed 用独立目录，论文需要多 seed 时分别完整运行后报告均值/方差。
+`--report-only --output-dir <目录>` 只重汇总已有结果和打包；其它参数仍提供 `--checkpoint`。
+模型搬家支持与离线 eval 同名的 `--model-dir` / `--lead-bev-ckpt` / 两个 `--phaseN-adapter`
+及 `--phaseN-training-index`，只改路径不跳过兼容检查。
+
+打包优先完整保留核心指标/配置；案例、图片、验证历史和日志按预算选入，
+`AUDIT_MANIFEST.json` 记录文件 SHA、遗漏数量及样例。权重、文本缓存、完整视频、原始 TB event
+和全程运动学不入包。核心文件本身超过预算时明确失败，不生成缺核心却声称完整的包；
+原文件始终不删除。可独立重打包：
+
+```bash
+python qwen3vl_local/action_prior/audit_bundle.py --root checkpoints/action_prior/latest
+```
+
+协议参考：[Bench2Drive 官方仓库](https://github.com/Thinklab-SJTU/Bench2Drive)、
+[0.0.4 能力统计](https://github.com/Thinklab-SJTU/Bench2Drive/blob/0.0.4/tools/ability_benchmark.py)。
+这些入口目前完成 CPU/合成数据验证；实际 Qwen/BEV/adapter 加载、CARLA 闭环及论文分数尚未实跑。

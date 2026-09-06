@@ -680,3 +680,69 @@ base 路径和 RGB 2/4图配置，并回查保存 step 的 generation 验证分�
 断点恢复、独立eval/probe和CPU测试；尚未执行真实权重、多卡训练或闭环评测。
 新checkpoint使用独立qwen_backbone schema，旧LeadMoT/eval_carla明确拒绝，不得直接交给旧入口。
 Phase1/2/3源码均未修改；Phase3未接入。
+
+
+### Action prior 首轮审查修订（2026-09-06，部分行为已由下节替代）
+
+用户审查指出直接 BF16 AdamW 小更新舍入、简述仅格式验收、CLI 被索引字段覆盖等问题。
+现可训练 decoder/AdamW/EMA 保持 FP32，仅 decoder 前向 autocast，预测转 FP32 再算 loss；
+受控三段简述完整表达全部 Phase1/RS/EVENT/域适用性 YES/NO/UNKNOWN，仅容忍空白变化，
+拒绝反义/遗漏/额外断言，失败用相同完整模板，原始输出只作审计，不声称自由文本语义验证能力。
+导航 CLI 在 read_rows 统一覆盖，单帧 BEV / 4Hz / route10 / waypoint8 非默认值直接拒绝。
+共享文件缓存跨 rank 复用，POSIX 锁与原子发布保证并发同 key 首次只计算一次；最终 KV 仍每次 base prefill。
+执行指纹覆盖共享 helper/LeadMoT/prompt 家族、只读 runner/BEV 源码及依赖版本，参考源码不入库。
+训练 Git 是溯源记录，实际代码哈希才参与兼容比较；不同驱动硬件仍需 smoke。新 checkpoint 为 v2，旧 v1 明确拒绝。
+
+复核保持 history 默认，提供 independent 和 compare（condition 仍按 history）的无训练 audit_priors 入口；
+显式统计 UE6 prompt 相同，不能把独立 greedy 重复或带历史一致当成筛错能力证据。
+从所选 adapter 同 run manifest 实际 index 读取训练候选池，缺失来源标 unknown；显式迁移 index 标记 override。
+报告 action 各 split 的物理路线池重叠/池外/未知；这不是实际 sampled route 追溯，池外也不等于整个系统未见。
+轨迹指标按预测事件条件、invalid、简述来源、上游池关系分别归一化；run_ablation.sh 同初始化/数据/预算分别训练
+原 base prefill 与 prior，两组完整 test 后再配对256帧子组比较，组归属统一采用 prior case，不能当 GT 事件指标。
+真实权重/生成质量/吞吐/多卡效果仍未验证，61 epoch 和 LR2e-4 仍是起始配置，不能据此直接推断成本与增益。
+
+
+### Action prior 后续需求对齐（2026-09-06，以本节为当前状态）
+
+撤掉 VERIFIED_SUMMARY/唯一模板验收。base 自行组织 Scene/Interaction/Planning context 三段简析，
+当前速度、导航几何和接受条件共同约束分析；随后同一禁用 LoRA 的 base 重新做纯文本 prefill，
+复核一致性/道路覆盖、正类覆盖、未知字段、额外断言和导航依据。严格解析五个布尔项，全部通过保留原文，
+失败才用完整 fallback；fallback 的 planning 也随已解析速度/目标方位/正类条件变化。
+这是模型审查而非确定性语义保证，同源误判仍可能发生；真实模型质量尚未验证。
+缓存保存草稿/复核及配对 SHA，最终 transcript 不包含复核或失败草稿，最终 KV 仍全由禁用 LoRA 的 base 计算。
+语言协议 v3，FP32 checkpoint 容器仍 v2；旧照抄模板合同不可混用。
+
+执行哈希由显式真实/延迟入口加模块初始化 import 展开，当前48个源码，未接入 Phase3 为0；
+修改无关 Phase3 不再影响 action 恢复，真实 engine/M-RoPE/decoder/runner/prompt 改动仍失效。
+新增延迟执行依赖须同步 seeds，参考源码只哈希不入库。上游训练索引审计的路径/获取模式/可用状态/
+内容与生成 identity 分离；eval/probe 支持两份 training-index 重映射，来源异常标 unknown 并记录错误。
+续训保留原审计路线快照使 epoch 累加口径稳定，同时报告新获取内容差异；独立 eval 使用当前来源，
+同内容移动、显式指定或暂时缺失不会阻断相同生成条件。来源变化仍不改变“非严格系统未见 holdout”的限制。
+轨迹分组新增 confirmation/all_confirmed、expected_domain_only、unconfirmed，避免正常域外被解读成复核失败。
+Phase2 compare 明确记录仅 history 接受、不要求共识、跨模式分歧；仍是观察工具，未证明能筛掉真实错误，
+也未伪造 EVENT hierarchical 接口。默认首次每帧至多11次生成（含纯文本复核），compare至多17次，另做最终 base prefill。
+
+
+### Action prior 闭环与审计包（2026-09-06）
+
+`action_prior/run_full_pipeline.sh` 默认训练+频繁 val+最终离线 test/probe+审计包；
+显式 `BENCH2DRIVE=1` 追加正式 220 路线闭环。`action_prior/eval.sh --bench2drive` 是独立闭环入口，
+不将 action checkpoint 交给旧 LeadMoT launcher。专用 agent 复用 eval_carla 的传感器/PID，
+通过 `_create_runner` 恢复训练同款 action runtime，`_route_endpoint` 读取正式 benchmark XML。
+闭环源代码与传感器配置另存评测身份，不绑定无关 Phase3。220 条/44 类结果包含 DS/SR/RC/IS、
+效率、舒适性、五能力与每场景明细；Traffic Signs 按官方 0.0.4 单次计数口径，缺地图/记录为 N/A。
+运动学只供指标，禁止写入 policy。`audit.zip` 硬限制 30,000,000 字节，核心指标必须完整，
+可选案例/历史按预算选入并列遗漏；权重/缓存/完整视频/原始 TB 和运动学大产物不入包、不入库。
+正式 220 test 不参与训练期选优。CPU/合成检查不代表实际 CARLA 或真实模型已验证。
+
+新增入口 `action_prior/bench2drive.py/.sh`、`carla_agent.py`、`carla_runtime.py`、
+`benchmark_report.py`、`audit_bundle.py`。训练期仍每250更新验证256帧、每轮全量val。
+原 action 段中“eval_carla 明确拒绝”仍指旧 launcher，专用 action 入口现已实现源码接入。
+闭环 launcher 默认完整220、支持 subset smoke/显式resume/report-only；运行前CPU合同校验，
+多GPU独立route与端口；使用当前Python，不改只读leaderboard/lead源码，不启动本地CARLA验证。
+`--dry-run` 已按本地正式 XML 核对220/44；真实模型/传感器/控制表现和论文分数尚未验证。
+官方 https://github.com/Thinklab-SJTU/Bench2Drive/blob/0.0.4/tools/ability_benchmark.py 的
+Traffic Signs 新口径只给未成功但合法过路口的路线补成功，不沿用本地旧脚本的重复计数。
+Comfort 沿用本地官方函数及其原始 angular_velocity 处理，采集10Hz与dt=.1对齐；指标版本、
+训练数据/传感器/安全兜底差异必须披露。缺记录DS/SR以planned分母列零贡献并标provisional，
+能力缺观测不给完整均值，不能用少于220条的已完成子集冒充完整得分。

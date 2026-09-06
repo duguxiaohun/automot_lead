@@ -192,6 +192,7 @@
   frozen 问答/简述可按合同与实际图像缓存文本，最终 KV 每次由 base 完整 prefill；不接 Phase3。
   全量4Hz索引、物理 route 分割、61 epoch 起始配置、DDP/EMA/TB/频繁验证和独立 eval/probe，
   运行见 action_prior/run.md。代码/脚本/测试/文档可追踪；权重、SQLite、审计和训练输出不入库。）
+  **2026-09-06 审查修订**：action_prior 可训练参数/AdamW/EMA 保持 FP32，BF16 仅用于 decoder autocast；base 按先验/当前速度/导航自行组织三段短分析，不提供标准答案；独立文本模型复核五项判定，通过保留原文，失败才 fallback，模型判定不保证语义正确；导航 CLI 覆盖索引，未接通的多帧 BEV 直接拒绝。跨 rank 共享原子文本缓存，执行指纹按真实入口依赖展开，覆盖共享 Qwen/LeadMoT/只读 runner 与 BEV 工具，排除未接入 Phase3；只读源码只计算哈希，不入库。提供 history/independent/compare 复核审计、上游训练候选池重叠/未知分组及同预算 base/prior 配对消融；审计来源与生成 identity 分离，来源移动/缺失不阻断恢复；续训沿用原审计快照，eval 支持来源重映射并单列内容变化。轨迹分组区分全部确认/仅正常域外/实际未确认；compare 仍按 history 接受且不要求跨模式共识，不把候选池重叠当实际采样命中、不把一致率当准确率。FP32 checkpoint 容器为 v2，语言协议为 v3；旧模板/旧 v1 合同不兼容。
 - `AutoMoT/qwen3vl_local/tb_serve.sh`
   （SFT / GoalGen / LeadMoT / VAE 共用 TensorBoard 启动器；从 `AutoMoT/` 目录下用
   `bash qwen3vl_local/tb_serve.sh <logdir>` 启动）
@@ -780,3 +781,16 @@ GPU 运行入口统一规则：
 - 代码注释可以用简体中文，变量名/函数名保持英文。
 - 不要把大段源码复制到文档里；文档写结论、边界、源码锚点。
 - 如果发现 `PROJECT_CONTEXT.md` 与源码不一致，核对后同步修正文档。
+
+
+### Action prior 闭环与审计包（2026-09-06）
+
+`action_prior/run_full_pipeline.sh` 默认训练+频繁 val+最终离线 test/probe+审计包；
+显式 `BENCH2DRIVE=1` 追加正式 220 路线闭环。`action_prior/eval.sh --bench2drive` 是独立闭环入口，
+不将 action checkpoint 交给旧 LeadMoT launcher。专用 agent 复用 eval_carla 的传感器/PID，
+通过 `_create_runner` 恢复训练同款 action runtime，`_route_endpoint` 读取正式 benchmark XML。
+闭环源代码与传感器配置另存评测身份，不绑定无关 Phase3。220 条/44 类结果包含 DS/SR/RC/IS、
+效率、舒适性、五能力与每场景明细；Traffic Signs 按官方 0.0.4 单次计数口径，缺地图/记录为 N/A。
+运动学只供指标，禁止写入 policy。`audit.zip` 硬限制 30,000,000 字节，核心指标必须完整，
+可选案例/历史按预算选入并列遗漏；权重/缓存/完整视频/原始 TB 和运动学大产物不入包、不入库。
+正式 220 test 不参与训练期选优。CPU/合成检查不代表实际 CARLA 或真实模型已验证。

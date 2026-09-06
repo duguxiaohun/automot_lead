@@ -57,7 +57,8 @@ def test_two_loras_disable_to_exact_base(tmp_path):
     assert not any(p.requires_grad for p in engine.model.parameters())
 
 
-def test_frozen_inference_kv_decoder_backward():
+@pytest.mark.parametrize("compute_dtype", [torch.float32, torch.bfloat16])
+def test_frozen_inference_kv_decoder_backward(compute_dtype):
     from qwen3vl_local.leadmot import (
         LeadMoTPlanningDecoder,
         LeadMoTPlanningDecoderConfig,
@@ -77,14 +78,21 @@ def test_frozen_inference_kv_decoder_backward():
     with torch.inference_mode():
         cached = [(torch.randn(1, 2, 6, 8), torch.randn(1, 2, 6, 8)) for _ in range(2)]
     kv = [(k.detach().clone(), v.detach().clone()) for k, v in cached]
-    out = model(
-        pooled_kv=kv,
-        bev=torch.randn(1, 4, 2, 2),
-        speed=torch.ones(1),
-        target_point=torch.ones(1, 2),
-        target_point_next=torch.ones(1, 2),
-        final_goal=torch.ones(1, 2),
-        rope_position_offset=9,
+    from qwen3vl_local.action_prior.precision import decoder_forward
+
+    out = decoder_forward(
+        model,
+        dict(
+            pooled_kv=kv,
+            bev=torch.randn(1, 4, 2, 2),
+            speed=torch.ones(1),
+            target_point=torch.ones(1, 2),
+            target_point_next=torch.ones(1, 2),
+            final_goal=torch.ones(1, 2),
+            rope_position_offset=9,
+        ),
+        compute_dtype,
+        torch.device("cpu"),
     )
     loss = (
         out["pred_route"].square().mean() + out["pred_future_waypoints"].square().mean()
@@ -105,8 +113,11 @@ def test_analysis_fallback_and_no_action_gt_leak():
         "raw": "private",
     }
     text = fallback_analysis(priors)
-    assert valid_analysis(text)
-    assert not valid_analysis("Scene: truncated")
+    from qwen3vl_local.action_prior.prompts import analysis_format_valid
+
+    assert analysis_format_valid(text)
+    assert not valid_analysis(text, priors)
+    assert not valid_analysis("Scene: truncated", priors)
     prompt = analysis_prompt(priors, "velocity=2. Predict the driving actions now")
     assert (
         "future_waypoints" not in prompt
@@ -142,11 +153,14 @@ def test_text_cache_image_and_contract_invalidation(tmp_path):
     assert cache.get(cache.key("contract1", images, "nav", "case")) is None
 
 
-def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch):
+@pytest.mark.parametrize("review_case", ["pass", "reject", "malformed"])
+def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch, review_case):
     from PIL import Image
     from peft import LoraConfig, get_peft_model
     from qwen3vl_local.action_prior.text_cache import TextCache
     import qwen3vl_local.action_prior.runtime as rt
+    from qwen3vl_local.action_prior import prompts
+    import json
 
     for i in (1, 2):
         m = get_peft_model(
@@ -183,22 +197,53 @@ def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch):
     )
     counter = []
 
-    def collect(ask, key):
+    def collect(ask, key, **kwargs):
         counter.append(key)
         return {
-            "conditions": {"ROAD_STRUCTURE": None},
-            "invalid": {"RS1": "format"},
+            "conditions": {"ROAD_STRUCTURE": "R1", "UE3": "YES"},
+            "invalid": {},
             "calls": [],
         }
 
     monkeypatch.setattr(rt, "collect_priors", collect)
-    runtime.generate_messages = lambda *a, **kw: (
-        fallback_analysis({"conditions": {}}),
-        SimpleNamespace(decode_steps=[SimpleNamespace(is_eos=True)]),
+    draft = (
+        "Scene: The accepted road structure is a lane-following surface corridor.\n"
+        "Interaction: A vehicle is entering the immediate ego corridor.\n"
+        "Planning context: At 4 m/s, the forward navigation target and accepted intrusion are relevant to the available corridor."
     )
+    generated_calls = []
+
+    def generate(system, prompt, images, **kwargs):
+        assert torch.equal(engine.model(torch.ones(1, 4)), TinyBase()(torch.ones(1, 4)))
+        generated_calls.append((system, prompt, len(images)))
+        if system == prompts.REVIEW_SYSTEM:
+            assert len(images) == 0 and draft in json.loads(
+                prompt.split("[DRAFT_JSON_STRING]\n")[1].split(
+                    "\n[/DRAFT_JSON_STRING]"
+                )[0]
+            )
+            checks = {k: True for k in prompts.REVIEW_KEYS}
+            if review_case == "reject":
+                checks["consistent"] = False
+            text = json.dumps(checks) if review_case != "malformed" else "PASS"
+        else:
+            assert "VERIFIED_SUMMARY" not in prompt and draft not in prompt
+            text = draft
+        return text, SimpleNamespace(decode_steps=[SimpleNamespace(is_eos=True)])
+
+    runtime.generate_messages = generate
     images = [Image.new("RGB", (3, 3)) for _ in range(4)]
     k1, o1 = runtime.condition(images, "nav", "case")
     k2, o2 = runtime.condition(images, "nav", "case")
     assert len(counter) == 1 and runtime.last_audit["text_cache_hit"]
+    assert len(generated_calls) == 2  # 命中不再次生成/复核。
+    assert runtime.last_audit["raw_analysis"] == draft
+    assert runtime.last_audit["analysis_semantic_guarantee"] is False
+    if review_case == "pass":
+        assert runtime.last_audit["analysis"] == draft
+        assert not runtime.last_audit["analysis_fallback"]
+    else:
+        assert runtime.last_audit["analysis_fallback"]
+        assert runtime.last_audit["analysis"] != draft
     assert len(calls) == 2 and torch.equal(k1, k2) and o1 == o2
     assert all(torch.equal(k, TinyBase()(torch.ones(1, 4))) for k in calls)

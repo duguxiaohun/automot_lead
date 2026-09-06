@@ -441,6 +441,53 @@ def _ckpt_signature(ckpt_path: pathlib.Path, use_bev: bool, use_ema: bool) -> st
 class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
     """LEAD 风格实时 agent + LeadMoT decoder + 4 路视频录制 + safety mixin。"""
 
+    def _route_endpoint(self, route_id):
+        """旧入口使用 LEAD XML；专用 benchmark 子类使用正式评测 XML。"""
+        return load_route_endpoint(route_id)
+
+    def _create_runner(self, device, rope_type):
+        """构建旧 LeadMoT 引擎；action_prior 子类覆盖此入口以恢复独立合同。"""
+        self.runner = LeadOfflineMoTRunner(
+            device=device,
+            leadmot_ckpt_path=str(self.leadmot_ckpt_path),
+            leadmot_rope_type=rope_type,
+            leadmot_use_ema=_LEADMOT_USE_EMA,
+        )
+        self.runner._ensure_leadmot_qwen_engine()
+        self.runner._ensure_leadmot_decoder()
+        checkpoint_payload = self.runner._read_leadmot_checkpoint(self.leadmot_ckpt_path)
+        expected_qwen_backbone = (
+            checkpoint_payload.get("qwen_backbone")
+            if isinstance(checkpoint_payload, dict)
+            else None
+        )
+        requested_qwen_adapter = os.environ.get("QWEN_ADAPTER_DIR", "auto")
+        resolved_qwen_adapter = resolve_qwen_adapter_dir(
+            requested_qwen_adapter,
+            expected_qwen_backbone,
+        )
+        self.qwen_backbone_contract = build_qwen_backbone_contract(
+            _mot_lead_runner._QWEN_INSTRUCT_CHECKPOINT_DIR,
+            resolved_qwen_adapter,
+        )
+        require_qwen_backbone_match(
+            expected_qwen_backbone,
+            self.qwen_backbone_contract,
+            self.leadmot_ckpt_path,
+        )
+        if bool(self.qwen_backbone_contract.get("adapter_enabled", False)):
+            if self.runner.leadmot_qwen_engine is None:
+                raise RuntimeError("LeadMoT Qwen engine was not initialized")
+            self.runner.leadmot_qwen_engine.attach_lora_adapter(
+                resolved_qwen_adapter,
+                merge=True,
+            )
+        print(
+            "[MOTLeadAgent] Qwen adapter="
+            f"{int(bool(self.qwen_backbone_contract.get('adapter_enabled', False)))} "
+            f"sha256={str(self.qwen_backbone_contract.get('adapter_sha256', ''))[:12] or '<base>'}"
+        )
+
     # ============================================================
     # leaderboard hooks
     # ============================================================
@@ -483,10 +530,10 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
                     print(f"[MOTLeadAgent] WARN invalid ROUTES_SUBSET for route_id fallback: {routes_subset!r}")
         self.final_goal_world: np.ndarray | None = None
         self.final_goal_source = "unavailable"
-        endpoint_info = load_route_endpoint(self.route_id) if self.route_id is not None else None
+        endpoint_info = self._route_endpoint(self.route_id) if self.route_id is not None else None
         if endpoint_info is not None:
             self.final_goal_world = np.asarray(endpoint_info["endpoint"], dtype=np.float32)
-            self.final_goal_source = "lead_route_xml_endpoint"
+            self.final_goal_source = endpoint_info.get("source", "lead_route_xml_endpoint")
             self.final_goal_endpoint_info = endpoint_info
             print(
                 "[MOTLeadAgent] final_goal endpoint from LEAD XML: "
@@ -524,46 +571,7 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
         print(f"[MOTLeadAgent] building LeadOfflineMoTRunner on {device}")
         print(f"[MOTLeadAgent]   ckpt = {self.leadmot_ckpt_path}")
-        self.runner = LeadOfflineMoTRunner(
-            device=device,
-            leadmot_ckpt_path=str(self.leadmot_ckpt_path),
-            leadmot_rope_type=rope_type,
-            leadmot_use_ema=_LEADMOT_USE_EMA,
-        )
-        self.runner._ensure_leadmot_qwen_engine()
-        self.runner._ensure_leadmot_decoder()
-        checkpoint_payload = self.runner._read_leadmot_checkpoint(self.leadmot_ckpt_path)
-        expected_qwen_backbone = (
-            checkpoint_payload.get("qwen_backbone")
-            if isinstance(checkpoint_payload, dict)
-            else None
-        )
-        requested_qwen_adapter = os.environ.get("QWEN_ADAPTER_DIR", "auto")
-        resolved_qwen_adapter = resolve_qwen_adapter_dir(
-            requested_qwen_adapter,
-            expected_qwen_backbone,
-        )
-        self.qwen_backbone_contract = build_qwen_backbone_contract(
-            _mot_lead_runner._QWEN_INSTRUCT_CHECKPOINT_DIR,
-            resolved_qwen_adapter,
-        )
-        require_qwen_backbone_match(
-            expected_qwen_backbone,
-            self.qwen_backbone_contract,
-            self.leadmot_ckpt_path,
-        )
-        if bool(self.qwen_backbone_contract.get("adapter_enabled", False)):
-            if self.runner.leadmot_qwen_engine is None:
-                raise RuntimeError("LeadMoT Qwen engine was not initialized")
-            self.runner.leadmot_qwen_engine.attach_lora_adapter(
-                resolved_qwen_adapter,
-                merge=True,
-            )
-        print(
-            "[MOTLeadAgent] Qwen adapter="
-            f"{int(bool(self.qwen_backbone_contract.get('adapter_enabled', False)))} "
-            f"sha256={str(self.qwen_backbone_contract.get('adapter_sha256', ''))[:12] or '<base>'}"
-        )
+        self._create_runner(device, rope_type)
         self.use_bev = bool(self.runner.leadmot_config.use_bev)
         # ===== subgoal 模式接口占位 =====
         # ckpt decoder_config.use_subgoal 由 LeadOfflineMoTRunner 自动从 ckpt 读出来；

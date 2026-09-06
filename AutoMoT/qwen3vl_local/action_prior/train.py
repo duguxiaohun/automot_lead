@@ -18,6 +18,7 @@ from qwen3vl_local.action_prior.config import (
     training_plan,
 )
 from qwen3vl_local.action_prior.contracts import file_hash, require_contract
+from qwen3vl_local.action_prior.metrics import grouped_counts
 
 
 def write_json(path, value):
@@ -42,9 +43,28 @@ def audit_counts(audit):
             "prior/text_cache_hit": int(audit.get("text_cache_hit", False)),
         }
     )
+    rejection = audit.get("analysis_rejection", "none")
+    if rejection != "none":
+        c[f"prior/analysis_rejection/{rejection}"] += 1
+    for criterion, passed in (audit.get("analysis_review") or {}).items():
+        c[f"prior/analysis_review/{criterion}/passed"] += int(passed)
+        c[f"prior/analysis_review/{criterion}/checked"] += 1
     for field, reason in audit["invalid"].items():
         c[f"prior/reason/{reason}"] += 1
         c[f"prior/field/{field}/{reason}"] += 1
+    for item in audit.get("recheck_comparisons", []):
+        prefix = f"recheck/{item['mode']}/{item['scope']}"
+        c[prefix + "/calls"] += 1
+        c[prefix + "/same_prompt"] += int(item["same_prompt"])
+        c[prefix + "/compared_fields"] += item["compared_fields"]
+        c[prefix + "/accepted_fields"] += item["accepted_fields"]
+        for reason in item["errors"].values():
+            c[prefix + "/" + reason] += 1
+    for item in audit.get("recheck_mode_disagreements", []):
+        c[f"recheck/cross_mode/{item['scope']}/cases"] += 1
+        c[f"recheck/cross_mode/{item['scope']}/unconfirmed_fields"] += len(
+            item["errors"]
+        )
     c["prior/unconfirmed_samples"] = int(
         any(r != "domain_inapplicable" for r in audit["invalid"].values())
     )
@@ -71,10 +91,24 @@ def metrics_from_counts(counts):
     n = counts["samples"]
     if not n:
         raise ValueError("no successfully evaluated samples")
-    result = {k: v / n for k, v in counts.items() if k != "samples"}
+    result = {
+        k: v / n
+        for k, v in counts.items()
+        if k != "samples" and not k.startswith("group/")
+    }
+    for key, value in counts.items():
+        if key.startswith("group/"):
+            prefix, metric = key.rsplit("/", 1)
+            result[key] = (
+                value if metric == "samples" else value / counts[prefix + "/samples"]
+            )
     result["samples"] = n
     result.update(
-        {f"count/{k}": v for k, v in counts.items() if k.startswith("prior/")}
+        {
+            f"count/{k}": v
+            for k, v in counts.items()
+            if k.startswith(("prior/", "recheck/"))
+        }
     )
     return result
 
@@ -127,18 +161,21 @@ def evaluate(
             if not torch.isfinite(loss):
                 raise FloatingPointError("nonfinite validation loss")
             totals.update(audit_counts(runtime.prior.last_audit))
+            planning = dict(
+                loss=loss.item(),
+                route_loss=rl.item(),
+                waypoint_loss=wl.item(),
+                **old._compute_planning_metrics(outputs, gt_r, gt_w),
+            )
+            totals.update(planning)
             totals.update(
-                dict(
-                    loss=loss.item(),
-                    route_loss=rl.item(),
-                    waypoint_loss=wl.item(),
-                    **old._compute_planning_metrics(outputs, gt_r, gt_w),
-                )
+                grouped_counts(runtime.prior.last_audit, prepared["sample"], planning)
             )
             if dump_dir is not None:
                 audit = dict(
                     runtime.prior.last_audit,
                     sample=prepared["sample"],
+                    metrics=planning,
                     pred_route=outputs["pred_route"].float().cpu().tolist(),
                     pred_waypoints=outputs["pred_future_waypoints"]
                     .float()
@@ -184,7 +221,7 @@ def save_checkpoint(
         states[0] = rng
     if rank == 0:
         payload = dict(
-            schema="action_prior_checkpoint_v1",
+            schema="action_prior_checkpoint_v2",
             decoder=model.state_dict(),
             decoder_config=asdict(model.config),
             optimizer=optimizer.state_dict(),
@@ -299,6 +336,8 @@ def main():
     if "error" in box[0]:
         raise ValueError(box[0]["error"])
     contract, dataset_hashes = box[0]["contract"], box[0]["datasets"]
+    from qwen3vl_local.action_prior.provenance import annotate_upstream
+
     torch.manual_seed(args.seed)
     config = LeadMoTPlanningDecoderConfig(
         num_route_queries=args.route_points,
@@ -310,7 +349,7 @@ def main():
         use_subgoal=False,
     )
     dtype = old._dtype(args.decoder_dtype)
-    model = LeadMoTPlanningDecoder(config).to(device=device, dtype=dtype)
+    model = LeadMoTPlanningDecoder(config).to(device=device, dtype=torch.float32)
     optimizer = torch.optim.AdamW(
         old._optimizer_param_groups(model, args.weight_decay),
         lr=args.learning_rate,
@@ -323,6 +362,10 @@ def main():
     cursor, step, best, resume_rng = {"epoch": 0, "micro": 0}, 0, math.inf, None
     if args.resume:
         state = torch.load(args.resume, map_location="cpu", weights_only=False)
+        if state.get("schema") != "action_prior_checkpoint_v2":
+            raise ValueError(
+                "requires v2 FP32-master checkpoint; old BF16 optimizer checkpoints cannot resume"
+            )
         require_contract(state["qwen_backbone"], contract)
         if state["dataset_hashes"] != dataset_hashes or state["world_size"] != world:
             raise ValueError("resume dataset/world size differs")
@@ -357,9 +400,26 @@ def main():
         ema.shadow = {
             name: value.to(device=device) for name, value in ema.shadow.items()
         }
+        from qwen3vl_local.action_prior.provenance import audit_source_changes
+
+        saved_sources = state["qwen_backbone"].get("upstream_sources", {})
+        contract["upstream_source_changes"] = audit_source_changes(
+            saved_sources, contract.get("upstream_sources", {})
+        )
+        contract["retrieved_upstream_sources"] = contract.get("upstream_sources", {})
+        # 断点续训沿用原审计路线快照，使半个 epoch 的分组累计仍属于同一套定义。
+        contract["upstream_sources"] = saved_sources
+        from qwen3vl_local.action_prior.contracts import digest
+
+        contract["audit_identity"] = digest(saved_sources)
         cursor, step, best = state["cursor"], state["step"], state["best_val"]
         resume_rng = state["rng_by_rank"][rank]
         del state
+    if contract.get("upstream_sources"):
+        plan["upstream_training_pool_audit"] = {
+            split: annotate_upstream(items, contract["upstream_sources"])
+            for split, items in rows.items()
+        }
     if rank == 0:
         write_json(out / "selected_priors.json", contract)
         write_json(out / "training_plan.json", plan)
@@ -513,6 +573,25 @@ def main():
                     route_loss=rl.item(),
                     waypoint_loss=wl.item(),
                     **old._compute_planning_metrics(outputs, gt_r, gt_w),
+                )
+            )
+            batch_counts.update(
+                grouped_counts(
+                    audit,
+                    prepared["sample"],
+                    {
+                        k: batch_counts[k]
+                        for k in (
+                            "loss",
+                            "route_loss",
+                            "waypoint_loss",
+                            "route_ade_m",
+                            "route_fde_m",
+                            "waypoint_ade_m",
+                            "waypoint_fde_m",
+                        )
+                        if k in batch_counts
+                    },
                 )
             )
             window.update(batch_counts)
