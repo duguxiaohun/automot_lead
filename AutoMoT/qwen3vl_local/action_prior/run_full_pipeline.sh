@@ -7,6 +7,13 @@ export RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
 export OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/action_prior}"
 export DATA_DIR="${DATA_DIR:-checkpoints/action_prior_data/run_${RUN_TAG}}"
 export DATA_ROOT="${DATA_ROOT:-lead_data}"
+# 预检在 run 创建前执行，完整日志先放根目录 logs；launcher 在 run 内建立入口链接。
+export PYTHONUNBUFFERED=1
+PIPELINE_LOG="${PIPELINE_LOG:-$OUTPUT_DIR/logs/pipeline_$RUN_TAG.log}"
+mkdir -p -- "$(dirname -- "$PIPELINE_LOG")"
+export ACTION_PIPELINE_LOG="$PIPELINE_LOG"
+exec > >(tee -a "$PIPELINE_LOG") 2>&1
+echo "[pipeline log] $PIPELINE_LOG"
 if [[ -n "${RESUME:-}" ]]; then
  bash "$HERE/resume.sh" "$RESUME" "$@"
 else

@@ -211,13 +211,16 @@ if stage == "train":
         'import runpy, sys\nfrom pathlib import Path\nsys.argv.insert(1,"audit")\n'
         'runpy.run_path(str(Path(__file__).with_name("record.py")), run_name="__main__")\n')
     env = os.environ.copy()
-    for key in ("RESUME", "NO_RUN_SUBDIR", "ACTION_MODE", "BENCH2DRIVE"):
+    for key in ("RESUME", "NO_RUN_SUBDIR", "ACTION_MODE", "BENCH2DRIVE", "PIPELINE_LOG"):
         env.pop(key, None)
     env.update(OUTPUT_DIR=str(tmp_path / "output"), RUN_TAG="test", DATA_DIR=str(data),
                TRACE_FILE=str(tmp_path / "trace.jsonl"))
     run = subprocess.run(["bash", str(tmp_path / pipeline.name), "--checkpoint-roots", "server a", "server b"],
                          env=env, capture_output=True, text=True)
     assert run.returncode == 0, run.stdout + run.stderr
+    pipeline_log = tmp_path / "output/logs/pipeline_test.log"
+    assert pipeline_log.is_file()
+    assert "[pipeline log]" in pipeline_log.read_text()
     calls = [json.loads(line) for line in (tmp_path / "trace.jsonl").read_text().splitlines()]
     assert [c[0] for c in calls] == ["train", "train", "eval", "probe", "audit"]
     assert calls[0][1] == "preflight" and calls[1][1] is None

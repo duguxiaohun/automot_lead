@@ -31,7 +31,7 @@ def test_launch_does_not_overwrite(tmp_path, monkeypatch, launch_env):
     monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "runs"))
     monkeypatch.setattr(sys, "argv", ["launch", "train", "--learning-rate", ".0001"])
     commands = []
-    monkeypatch.setattr(launch.subprocess, "run", lambda c, **kw: commands.append(c))
+    monkeypatch.setattr(launch, "run_logged", lambda c, path: commands.append(c))
     launch.main()
     assert (tmp_path / "runs/latest").resolve() == tmp_path / "runs/run_test"
     assert "--nproc_per_node=2" in commands[0]
@@ -59,6 +59,7 @@ def test_probe_does_not_overwrite_full_eval(tmp_path, monkeypatch, launch_env):
         sys, "argv", ["launch", "probe", "--checkpoint", str(tmp_path / "best.pt")]
     )
     commands = []
+    monkeypatch.setattr(launch, "run_logged", lambda c, path: commands.append(c))
     monkeypatch.setattr(launch.subprocess, "run", lambda c, **kw: commands.append(c))
     launch.main()
     assert str(tmp_path / "probe_test") in commands[0]
@@ -122,3 +123,18 @@ def test_tail_accumulation_keeps_mean_scale():
         (2, True),
     ]
     assert sum(1 / accumulation_state(i, 10, 4)[0] for i in (8, 9)) == 1
+
+
+def test_run_logged_appends_both_streams_and_propagates_failure(tmp_path, capsys):
+    import subprocess
+    path = tmp_path / "run with spaces" / "train.log"
+    launch.run_logged([sys.executable, "-c", "print('first run')"], path)
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        launch.run_logged([sys.executable, "-c",
+                           "import sys; print('second run'); print('failure detail', file=sys.stderr); sys.exit(7)"], path)
+    assert error.value.returncode == 7
+    saved = path.read_text()
+    assert "first run" in saved and "second run" in saved and "failure detail" in saved
+    assert "[exit] code=7" in saved
+    console = capsys.readouterr().out
+    assert "second run" in console and "failure detail" in console

@@ -27,6 +27,11 @@ class Progress:
         self.lock = threading.RLock()
         self.stop = threading.Event()
         self.last_print = self.stage_started = time.monotonic()
+        self.last_console = float("-inf")
+        self.loss_sum = 0.0
+        self.loss_count = 0
+        self.last_loss_console = None
+        self.update_announced = False
         self.thread = None
 
     def configure(self, out, label="train"):
@@ -40,6 +45,9 @@ class Progress:
         with self.lock:
             self.stage_started = time.monotonic()
             self.state.update(values, stage=stage)
+            if stage == "train/micro_done" and "last_sample_loss" in values:
+                self.loss_sum += values["last_sample_loss"]
+                self.loss_count += 1
             if announce or self.detail or time.monotonic() - self.last_print >= self.interval:
                 self._emit("event")
 
@@ -48,15 +56,60 @@ class Progress:
         now = time.monotonic()
         payload = dict(self.state, rank=self.rank, pid=os.getpid(), kind=kind,
                        timestamp=time.time(), stage_elapsed_s=round(now - self.stage_started, 1))
-        print("[progress] " + json.dumps(payload, ensure_ascii=False), flush=True)
+        stage = payload.get("stage", "startup")
+        # 详细阶段留在文件；终端仅 rank0 定时单行，错误仍由每个 rank 报告。
+        first_update = stage == "train/update_done" and not self.update_announced
+        essential = stage in ("startup", "train/epoch_start", "validation/start",
+                              "validation/done", "checkpoint/saved", "finished", "failed")
+        if stage == "train/update_done":
+            self.update_announced = True
+        if stage == "failed" or (self.rank == 0 and (
+                essential or first_update or now - self.last_console >= self.interval)):
+            print(self._console_line(payload), flush=True)
+            self.last_console = now
         self.last_print = now
         if self.path:
             tmp = self.path.with_suffix(f".{os.getpid()}.tmp")
             try:
                 tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
                 tmp.replace(self.path)
+                with self.path.with_suffix(".jsonl").open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
             except OSError as exc:
                 print(f"[progress IO warning] {exc}", flush=True)
+
+    def _console_line(self, payload):
+        """时间窗口 loss 是 rank0 已完成样本均值，不冒充全 rank optimizer loss。"""
+        stage = payload["stage"]
+        labels = {
+            "condition/phase1_question": "LoRA-Phase1", "condition/phase2_question": "LoRA-Phase2",
+            "condition/base_analysis": "base分析", "condition/base_review": "分析复核",
+            "condition/base_final_prefill": "base-prefill", "condition/cache_lookup_or_lock": "缓存读取/等待",
+            "train/backward_sync": "反向/同步", "train/backward_accumulate": "反向/累积",
+        }
+        parts = [time.strftime("%H:%M:%S"), f"[rank{self.rank}]", labels.get(stage, stage)]
+        if "epoch" in payload:
+            parts += [f"epoch={payload['epoch']}/{payload['epochs']}",
+                      f"step={payload.get('optimizer_step', 0)}/{payload['step_limit']}",
+                      f"micro={payload.get('rank_completed_micro', 0)}/{payload['rank_epoch_samples']}"]
+        if stage.startswith("validation/"):
+            parts.append(f"rank_samples={payload.get('rank_evaluated', 0)} total={payload.get('evaluation_samples', '?')}")
+            if stage == "validation/done":
+                parts.append(f"val_loss(global)={payload['validation_loss']:.4f}")
+        elif self.loss_count:
+            self.last_loss_console = self.loss_sum / self.loss_count
+            parts.append(f"loss(rank{self.rank},{self.loss_count}样本均值)={self.last_loss_console:.4f}")
+            self.loss_sum, self.loss_count = 0.0, 0
+        elif self.last_loss_console is not None:
+            parts.append(f"loss(上次rank{self.rank}均值)={self.last_loss_console:.4f} 本间隔无新样本")
+        else:
+            parts.append("loss=等待样本完成")
+        if "lr" in payload:
+            parts.append(f"lr={payload['lr']:.3e}")
+        parts.append(f"阶段耗时={payload['stage_elapsed_s']:.1f}s")
+        if payload.get("error"):
+            parts.append(payload["error"])
+        return " | ".join(parts)
 
     def _heartbeat(self):
         """主线程卡在生成/加载/同步时仍报告最后已知阶段，不伪造新进展。"""

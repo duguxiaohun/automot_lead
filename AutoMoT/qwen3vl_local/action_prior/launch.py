@@ -8,6 +8,36 @@ import subprocess
 import sys
 
 
+def run_logged(command, path):
+    """合并子进程 stdout/stderr，实时追加日志并保持原失败退出码。"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"[log] {path.resolve()}", flush=True)
+    with path.open("a", encoding="utf-8") as log:
+        log.write(f"\n[start] {datetime.datetime.now().isoformat()}\n")
+        log.flush()
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              text=True, encoding="utf-8", errors="replace", bufsize=1) as process:
+            try:
+                for line in process.stdout:
+                    log.write(line)
+                    log.flush()
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                code = process.wait()
+            except BaseException:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                raise
+        log.write(f"[exit] code={code}\n")
+        if code:
+            raise subprocess.CalledProcessError(code, command)
+
+
 def ensure_gpu(count=1):
     """GPU_IDS 显式选卡；torchrun 子进程继承同一 mask。"""
     if os.environ.get("ACTION_PRIOR_GPU_READY") == "1":
@@ -97,6 +127,12 @@ def main():
         base = Path(os.environ.get("OUTPUT_DIR", "checkpoints/action_prior"))
         resume = os.environ.get("RESUME", "")
         out = prepare_run_directory(base, resume)
+        log_path = out / "train.log"
+        pipeline_log = os.environ.get("ACTION_PIPELINE_LOG")
+        if pipeline_log:
+            link = out / "pipeline.log"
+            if not link.exists() and not link.is_symlink():
+                link.symlink_to(Path(pipeline_log).resolve())
         os.environ["ACTION_PRIOR_RUN_READY"] = "1"
         extra = [
             "--output-dir",
@@ -120,6 +156,14 @@ def main():
                 str(Path(probe_args.checkpoint).parent / f"probe_{probe_args.split}"),
             ]
         extra = ["--max-samples", "24", "--dump-cases", *extra]
+    if known.mode in ("eval", "probe"):
+        log_parser = argparse.ArgumentParser(add_help=False)
+        log_parser.add_argument("--checkpoint", required=True)
+        log_parser.add_argument("--output-dir", default="")
+        log_parser.add_argument("--split", default="test")
+        log_args, _ = log_parser.parse_known_args(extra)
+        log_dir = Path(log_args.output_dir or str(Path(log_args.checkpoint).parent / f"eval_{log_args.split}"))
+        log_path = log_dir / f"{known.mode}.log"
     command = (
         [
             sys.executable,
@@ -133,7 +177,7 @@ def main():
         if count > 1
         else [sys.executable, "-m", module]
     )
-    subprocess.run(command + extra, check=True)
+    run_logged(command + extra, log_path)
     if known.mode == "probe":
         ep = argparse.ArgumentParser(add_help=False)
         ep.add_argument("--checkpoint", required=True)
