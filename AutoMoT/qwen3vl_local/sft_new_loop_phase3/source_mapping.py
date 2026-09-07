@@ -21,7 +21,11 @@ EVENT_ADDITIONS = Path(__file__).with_name("event_rgb_additions_v1.jsonl")
 def mapping_contract_hash():
     """训练索引绑定实际语义决定；旧索引不能绕过新隔离/同 RS 负例规则。"""
     paths = (ANSWER_TABLE, HIGHWAY_DECISIONS, REVIEW_DECISIONS, EVENT_ADDITIONS,
-             Path(__file__).with_name('same_rs_invalid_review_v1.jsonl'))
+             Path(__file__).with_name('same_rs_invalid_review_v1.jsonl'),
+             Path(__file__).with_name('development_route_groups_20260907.json'),
+             *(Path(__file__).with_name(name) for name in
+               ('source_mapping.py', 'context_taxonomy.py', 'trajectory_action.py', 'lateral_rgb_audit.py',
+                'same_rs_invalid.py', 'build_dataset.py', 'invalid_balance.py', 'history_rgb.py', 'prompts.py')))
     digest = hashlib.sha256()
     for path in paths:
         digest.update(path.name.encode())

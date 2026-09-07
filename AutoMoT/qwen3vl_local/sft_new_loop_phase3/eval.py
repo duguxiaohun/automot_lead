@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """评估 sft_new_loop_phase3 的 base Qwen 或 LoRA adapter。
 
-默认按九个动作上下文与 INVALID 抽样，并保存 ``cases.jsonl``、``metrics.json``、
+默认按十个动作上下文与 INVALID 抽样，并保存 ``cases.jsonl``、``metrics.json``、
 ``summary.md`` 和错例 RGB/输入输出，便于人工分析 prompt 失败原因。
 """
 
@@ -249,6 +249,7 @@ class FrameRow:
     invalid_source: str = ""
     invalid_reason: str = ""
     context_detail: str = ""
+    current_speed_mps: float = 0.0
     mapping_evidence: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -314,6 +315,9 @@ def _read_rows(
             validate_action_rule(obj)
             from qwen3vl_local.sft_new_loop_phase3.source_mapping import validate_mapping_contract
             validate_mapping_contract(obj)
+            speed = float(obj["current_speed_mps"])
+            if not math.isfinite(speed) or speed < 0:
+                raise ValueError("current_speed_mps must be finite and nonnegative")
             goal = list(obj["goal_ego_xy"])
             if len(goal) != 2 or not all(math.isfinite(float(v)) for v in goal):
                 raise ValueError("goal_ego_xy requires two finite coordinates")
@@ -339,6 +343,7 @@ def _read_rows(
                     invalid_source=str(obj.get("invalid_source") or ""),
                     invalid_reason=str(obj.get("invalid_reason") or "wrong_road_structure"),
                     context_detail=str(obj.get("context_detail") or ""),
+                    current_speed_mps=float(obj["current_speed_mps"]),
                     mapping_evidence=dict(obj.get("mapping_evidence") or {}),
                 )
             )
@@ -465,7 +470,7 @@ def _raw_focus_bin_counts(rows: Sequence[FrameRow]) -> Dict[str, int]:
         if balance_class == "INVALID":
             for dimension, value in invalid_subgroup_keys(row).items():
                 counts[f"invalid/{dimension}/{value}"] += 1
-        for key in ANSWER_KEYS:
+        for key in (*CONTEXT_BY_ID[row.context_id].action_keys, INVALID_KEY):
             counts[f"answer/{key}:{_bool_text(row.answers.get(key, False))}"] += 1
     return dict(counts)
 
@@ -481,6 +486,7 @@ def _make_item(row: FrameRow, *, seed: int) -> WorkItem:
         road_structure=row.prompt_road_structure,
         goal_xy=row.goal_ego_xy,
         context_detail=row.context_detail,
+        current_speed_mps=row.current_speed_mps,
     )
     return WorkItem(row=row, spec=spec, balance_key=f"all_random_order/class/{_balance_class(row)}")
 
@@ -545,7 +551,8 @@ def _balanced_cases(
             selected.extend(items[i % len(items)] for i in range(shortfall))
         out.extend(selected)
     rng.shuffle(out)
-    return out
+    from qwen3vl_local.sft_new_loop_phase3.invalid_balance import unique_cases
+    return unique_cases(out)
 
 
 def _load_images(paths: Sequence[str]) -> List[Image.Image]:
@@ -583,6 +590,8 @@ def _validate_action_adapter(adapter_dir: pathlib.Path, model_dir: pathlib.Path)
     if cfg.get("prompt_name") != PROMPT_NAME:
         raise ValueError(f"adapter prompt_name mismatch: {cfg.get('prompt_name')!r}")
     history_rgb_mode = validate_history_rgb_mode(str(cfg.get("history_rgb_mode", "")))
+    from qwen3vl_local.sft_new_loop_phase3.source_mapping import validate_mapping_contract
+    validate_mapping_contract(cfg)
     saved_prompt_hash = str(cfg.get("production_prompt_sha256") or "")
     if not saved_prompt_hash:
         raise ValueError("adapter config missing production_prompt_sha256")
@@ -919,6 +928,12 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             slice_name = balance_class.lower()
             slice_counts[f"{slice_name}/total"] += 1
             slice_counts[f"{slice_name}/exact"] += int(all_ok)
+            if balance_class != "INVALID":
+                slice_counts["valid/total"] += 1
+                slice_counts["valid/exact"] += int(all_ok)
+                if row.action_signature == "NONE":
+                    slice_counts["no_action/total"] += 1
+                    slice_counts["no_action/exact"] += int(all_ok)
             signature_counts[f"{row.action_signature}/total"] += 1
             signature_counts[f"{row.action_signature}/exact"] += int(all_ok)
             for key in ACTION_KEYS:
@@ -1107,7 +1122,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         ),
         "audit_prompt": bool(args.audit_prompt),
         "sampling_contract": (
-            "Single-turn high-level action eval: the nine action contexts are sampled 1:1 and each context "
+            "Single-turn high-level action eval: ten contexts target 1:1; repeated inputs are deduplicated so actual counts can differ and each context "
             "is split as evenly as capacity allows over its action signatures; mismatched-context INVALID "
             "rows keep their source/true-RS/asked-context balance."
         ),
@@ -1138,7 +1153,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 "exact_match_accuracy": float(slice_counts.get(f"{name.lower()}/exact", 0))
                 / max(1.0, float(slice_counts.get(f"{name.lower()}/total", 0))),
             }
-            for name in BALANCE_CLASSES
+            for name in (*BALANCE_CLASSES, "valid", "no_action")
         },
         "action_reports": action_reports,
         "action_signature_reports": signature_reports,
@@ -1158,6 +1173,25 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "error_rgb_layout": "error_cases/<CONTEXT>/case_<id>_<scenario>_f<frame>/rgb/history_source_<original_index>_*.jpg",
         "world_size": int(world_size),
     }
+    from qwen3vl_local.sft_new_loop_phase3.quality_guards import generation_checkpoint_guards
+    flat = {f"slice/{key}_{field}": value
+            for key, report in metrics["slice_reports"].items()
+            for field, value in (("exact", report["exact_match_accuracy"]), ("samples", report["cases"]))}
+    for key, report in action_reports.items():
+        pr, rc = report["precision"], report["recall"]
+        report["f1"] = 2 * pr * rc / max(1e-12, pr + rc)
+        flat.update({f"action/{key.lower()}_{name}": value for name, value in report.items()})
+    flat["same_rs_unique_routes"] = invalid_subgroup_report(cases)["same_rs_unique_routes"]
+    flat["invalid_subgroup/reason/same_rs_wrong_event_exact"] = invalid_subgroup_accuracy.get(
+        "reason/same_rs_wrong_event", {}).get("exact_match_accuracy", 0.0)
+    cfg = adapter_cfg or {}
+    metrics["generation_guards"] = generation_checkpoint_guards(flat,
+        min_invalid_exact=float(cfg.get("generation_eval_min_invalid_exact", .8)),
+        min_lane_change_recall=float(cfg.get("generation_eval_min_lane_change_recall", .6)),
+        min_stop_recall=float(cfg.get("generation_eval_min_stop_recall", .8)),
+        min_no_action_exact=float(cfg.get("generation_eval_min_no_action_exact", .5)))
+    metrics["production_ready"] = bool(not args.audit_prompt and metrics["generation_guards"]["all_ok"]
+        and all(report.get("invalid_rate", 1) == 0 for report in per_key.values()))
     (output_dir / "metrics.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
     lines = [
         "# sft_new_loop_phase3 eval",
@@ -1222,7 +1256,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Evaluate base Qwen or new Phase3 LoRA on balanced high-level action cases"
     )
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v6/frame_index.jsonl"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument("--adapter-dir", default="")

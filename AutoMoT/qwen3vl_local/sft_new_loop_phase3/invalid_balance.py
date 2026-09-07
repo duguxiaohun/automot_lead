@@ -174,6 +174,18 @@ def invalid_subgroup_keys(row: Any) -> Dict[str, str]:
     }
 
 
+def case_identity(item: Any) -> tuple:
+    """输入语义身份不含采样序号；同帧不同问域或前提仍是不同题。"""
+    row = _row_of(item)
+    return tuple(getattr(row, key, "") for key in
+                 ("scenario", "route_id", "frame_id", "context_id", "prompt_road_structure", "invalid_reason"))
+
+
+def unique_cases(items: Sequence[_T]) -> List[_T]:
+    """评测不重复计分；训练可重复，但必须报告独立样本容量。"""
+    return list({case_identity(item): item for item in reversed(items)}.values())[::-1]
+
+
 def balanced_invalid_items(
     items: Sequence[_T],
     *,
@@ -213,6 +225,7 @@ def balanced_invalid_items(
     same_rs = [item for item in items if getattr(_row_of(item), 'invalid_reason', '') == 'same_rs_wrong_event']
     if same_rs:
         by_asked = defaultdict(list)
+        seeded_routes = set()
         for item in same_rs:
             by_asked[signature_for_row(_row_of(item)).asked_context].append(item)
         # 先照顾只有少量来源的题，再补有多个来源的题；已具备的同 RS 题覆盖必须保留。
@@ -225,7 +238,10 @@ def balanced_invalid_items(
             if not eligible:
                 raise ValueError(f'INVALID quota cannot retain reviewed same-RS context {asked}; increase balance count')
             rng.shuffle(eligible)
-            chosen = min(eligible, key=lambda item: source_used[signature_for_row(_row_of(item)).source_class])
+            chosen = min(eligible, key=lambda item: (
+                (getattr(_row_of(item), "scenario", ""), getattr(_row_of(item), "route_id", "")) in seeded_routes,
+                source_used[signature_for_row(_row_of(item)).source_class]))
+            seeded_routes.add((getattr(_row_of(chosen), "scenario", ""), getattr(_row_of(chosen), "route_id", "")))
             signature = signature_for_row(_row_of(chosen))
             sampled.append(chosen)
             source_used[signature.source_class] += 1
@@ -283,23 +299,48 @@ def balanced_invalid_items(
             additions[signature] += 1
         for signature in signature_order:
             sampled.extend(_cycle_sample(signature_buckets[signature], additions[signature], rng))
-    # 在不改变 source/RS/asked 联合配额的前提下，优先保留约 25% 同 RS 难负例。
-    # 容量不足时报告实际数量，不重复一个 source 去伪造全类覆盖。
+    # 同 RS 人工负例按独立输入无放回补入，不用25%目标循环稀有帧。
     same_by_signature = defaultdict(list)
-    for item in same_rs:
+    for item in unique_cases(same_rs):
         same_by_signature[signature_for_row(_row_of(item)).canonical].append(item)
-    desired = max(1, round(target * .25)) if same_rs else 0
-    used = sum(getattr(_row_of(item), 'invalid_reason', '') == 'same_rs_wrong_event' for item in sampled)
-    indices = list(range(len(sampled)))
-    rng.shuffle(indices)
-    for index in indices:
-        if used >= desired:
+    seen_same = set()
+    capacity_reallocations = 0
+    for index, item in enumerate(sampled):
+        if getattr(_row_of(item), "invalid_reason", "") != "same_rs_wrong_event":
+            continue
+        identity = case_identity(item)
+        if identity not in seen_same:
+            seen_same.add(identity)
+            continue
+        sig = signature_for_row(_row_of(item))
+        alternatives = [x for x in by_source[sig.source_class][sig.canonical]
+                        if getattr(_row_of(x), "invalid_reason", "") != "same_rs_wrong_event"
+                        or case_identity(x) not in seen_same]
+        if alternatives:
+            sampled[index] = rng.choice(alternatives)
+            if getattr(_row_of(sampled[index]), "invalid_reason", "") == "same_rs_wrong_event":
+                seen_same.add(case_identity(sampled[index]))
+        else:
+            # 稀有 same-RS 签名只有一帧时，保持 source 总配额，把多余配额移给
+            # 该 source 现有错道路负例。联合签名偏差显式报告，不循环人工帧。
+            alternatives = [x for bucket in by_source[sig.source_class].values() for x in bucket
+                            if getattr(_row_of(x), "invalid_reason", "") != "same_rs_wrong_event"]
+            if not alternatives:
+                raise ValueError(f"source {sig.source_class} cannot meet quota without repeating reviewed same-RS cases")
+            sampled[index] = rng.choice(alternatives)
+            capacity_reallocations += 1
+    desired = min(round(target * .25), len(unique_cases(same_rs)))
+    for index in rng.sample(range(len(sampled)), len(sampled)):
+        if len(seen_same) >= desired:
             break
         item = sampled[index]
-        bucket = same_by_signature.get(signature_for_row(_row_of(item)).canonical, [])
-        if bucket and getattr(_row_of(item), 'invalid_reason', '') != 'same_rs_wrong_event':
+        if getattr(_row_of(item), "invalid_reason", "") == "same_rs_wrong_event":
+            continue
+        bucket = [x for x in same_by_signature[signature_for_row(_row_of(item)).canonical]
+                  if case_identity(x) not in seen_same]
+        if bucket:
             sampled[index] = rng.choice(bucket)
-            used += 1
+            seen_same.add(case_identity(sampled[index]))
     rng.shuffle(sampled)
     if len(sampled) != int(target):
         raise AssertionError(f"INVALID sampler built {len(sampled)} rows, expected {target}")
@@ -312,8 +353,10 @@ def balanced_invalid_items(
         raise AssertionError(f"INVALID sampled coverage regressed: {report}")
     if not report["guards"]["source_class_max_deviation_le_1"]:
         raise AssertionError(f"INVALID source-class balance regressed: {report}")
-    if not report["guards"]["joint_signature_within_source_max_deviation_le_1"]:
+    if not capacity_reallocations and not report["guards"]["joint_signature_within_source_max_deviation_le_1"]:
         raise AssertionError(f"INVALID joint-signature balance regressed: {report}")
+    if report["same_rs_max_case_repeat"] > 1:
+        raise AssertionError("reviewed same-RS case repeat cap exceeded")
     return sampled
 
 
@@ -357,7 +400,12 @@ def invalid_subgroup_report(items: Sequence[Any]) -> Dict[str, Any]:
         source: _count_report(counter) for source, counter in sorted(per_source_signature_counts.items())
     }
     source_report = _count_report(source_counts)
+    same = [x for x in items if getattr(_row_of(x), "invalid_reason", "") == "same_rs_wrong_event"]
     return {
+        "unique_cases": len(unique_cases(items)),
+        "same_rs_unique_cases": len(unique_cases(same)),
+        "same_rs_unique_routes": len({(getattr(_row_of(x), "scenario", ""), getattr(_row_of(x), "route_id", "")) for x in same}),
+        "same_rs_max_case_repeat": max(Counter(case_identity(x) for x in same).values(), default=0),
         "total": int(sum(source_counts.values())),
         "source_class": source_report,
         "true_rs": _count_report(true_rs_counts),
@@ -365,6 +413,7 @@ def invalid_subgroup_report(items: Sequence[Any]) -> Dict[str, Any]:
         "joint_signature": _count_report(signature_counts),
         "reason": _count_report(reason_counts),
         "reason_asked_context": _count_report(reason_context_counts),
+        "same_rs_sampling_contract": "unique input repeat cap=1; source quotas preserved; joint signature capacity deviations reported",
         "same_rs_fraction": reason_counts['same_rs_wrong_event'] / max(1, sum(reason_counts.values())),
         "same_rs_missing_contexts": [key for key in CONTEXT_IDS if not reason_context_counts[f'same_rs_wrong_event/{key}']],
         "joint_signature_within_source": per_source,

@@ -817,3 +817,15 @@ unconfirmed/fallback 与字段原因次数；前三项为全 rank 日志窗口�
 invalid_any = domain_only + unconfirmed，正常 domain_inapplicable 不当失败。
 全局窗口 loss 与 rank0 心跳 loss 明确区分。执行代码指纹校验未放宽，
 旧 action checkpoint 续训/评测需原代码，本次更新用于新 run；运行细节见 action_prior/run.md。
+
+### 2026-09-07 Phase3 审计后动作合同修订
+
+`sft_new_loop_phase3` 使用 `current_wait_first_crossing_v6` 动作规则与 `v5_current_phase` prompt：
+当前确认等待优先于未来释放，增速后明显制动的混合窗隔离，横向预测第一次确认跨线。
+输入新增最新帧实测速度，未来轨迹仍只用于离线标签。新索引/adapter拒绝旧合同。
+按物理路线剥Rep/采集时间分组，旧审计258条路线固定train-only；同RS人工负例单轮同输入最多一次，
+自由生成/eval去重并报告实际覆盖。NONE守卫取真实全NO签名；新增纵向precision/recall与独立负例支持检查。
+逐帧隔离与新增负例以版本化JSONL为准，不可把场景/Town机器覆盖当全路线人工动作确认。
+Phase1/2/action_prior未改；训练只读完整本地Qwen权重，不下载。详见 `sft_new_loop_phase3/REPAIR_20260907.md`。
+
+Phase3本次最终重建14,832条（train/val/test=12,492/528/1,812），物理路线交叉0，79项回归和实际采样检查通过。已尝试pipeline训练入口，本机缺本地Qwen权重而中止，未训练新模型；不能宣称新成功率提升。最终索引位于`AutoMoT/checkpoints/sft_new_loop_phase3_data_v6/`。
