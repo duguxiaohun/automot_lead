@@ -201,18 +201,40 @@ hierarchical spec 复核 RS1/2/4/5，每次保留事实四问；也检查 GROUP 
 每个 adapter 按自身配置选择 `4rgb=[0,1,2,3]` 或 `2rgb_endpoints=[0,3]`；最终 base 固定吃四张图。
 复核是真实多轮对话，完整重做图文 prefill；不同模型/adapter 之间绝不传递 KV。
 base 使用自己的措辞生成 Scene / Interaction / Planning context 三个短段，每段最多60词。
-输入仅有四图、接受的条件及其语义释义和当前导航；**没有 VERIFIED_SUMMARY 或预制分析答案**。
+输入包含四图、接受的条件及其语义释义、按正类查表的简短规划经验和当前导航；**没有 VERIFIED_SUMMARY 或预制分析答案**。
 要求描述已知道路结构、覆盖正类事实/交互，负类可合并或省略但不能反转，null 不当 NO。
-Planning context 必须结合本帧实际速度、导航几何和事件条件，不能总写“使用当前导航”。不接 GT event、未来位置或 Phase3 动作。
+Planning context 必须结合本帧实际速度、导航几何和事件条件，不能总写“使用当前导航”。
+LoRA 模式用复核后的条件，dataset-priors 模式用标签展开并经可选噪声处理后的条件；不额外读取隐藏 GT、未来位置或逐帧 Phase3 动作。
+
+`prompts.py` 的 `PLANNING_EXPERIENCE` 摘要复用新 Phase3 七 UE 的高层经验，
+仅当对应接受字段为 YES 时放入 `[PLANNING_EXPERIENCE]`，无需额外开关或模型调用：
+
+| 接受字段 | 经验 | 简短规划方向 |
+| --- | --- | --- |
+| `UE1` | UE1 前车急减速 | 减速保留车距，必要时停车等待，前方允许后恢复 |
+| `STATIC_OBSTACLE` | UE2 静态障碍 | 占道时减速/等待，有安全合法空隙再变道绕行，适时回到路线车道并恢复 |
+| `UE3` | UE3 他车切入 | 减速留空间，必要时停车，前方空间足够后恢复；不自动要求自车变道 |
+| `VULNERABLE` | UE4 弱势参与者 | 影响通道时减速让行/停车；沿路骑行者可在间距和空隙允许时变道通过 |
+| `UE5` | UE5 对向侵入 | 减速或停车留空间，确认相关通道安全后恢复 |
+| `UE6` | UE6 路口违规冲突 | 即便有优先权也减速/停车避冲突，冲突路径允许后恢复 |
+| `TRAFFIC_LIGHT_ABNORMAL` | UE7 异常信号灯 | 不依赖灯色，观察各方向和适用优先规则，必要时停车，有安全空隙再通过 |
+
+这些是条件式经验，不是已判定的当前动作或必须逐帧重启的固定动作序列；不预设变道左右、
+空隙已出现或恢复阶段已开始。UE2/UE4 的通过方式结合车道边界、导航及空间，R2 另考虑对向来车；
+R3 本身不推出高速。并发 YES 全部保留、共同步骤可合并；不会按 RS 静默删除接受的 UE。
+Phase2 的 RE/all-NO 不覆盖 Phase1 的 UE2/UE4/UE7。没有特殊正类则按已知道路/导航正常驾驶，
+RE 视为整体，不加入 RE2/RE3/RE5 子类经验；null/未问仍未知，不能声称已确认 RE。
 
 生成后，在禁用全部 LoRA 的同一基座上新开一次纯文本 prefill，独立复核五项：先验一致性/道路结构覆盖、
 正类覆盖、未知字段、无额外断言、导航依据。复核不继承生成 KV，也不重新从 RGB 判断先验。
 JSON 缺键、额外键、重复键、非布尔、截断或任一项 false 均不能接受。通过后保留生成原文，不归一成模板。
 **这是模型判定，不是语义保证**：同一基座可能在两次调用中重复误解，同源误判需用真实 RGB/人工标签审计。
-复核只能检查给定先验与导航，不能证明额外图像细节；`summary_model_accepted` 不应被称为人工验证正确。
+复核使用相同经验表，允许有条件的高层建议，但拒绝将经验当作安全空隙、冲突已解除等事实。
+复核只能检查给定先验、经验与导航，不能证明额外图像细节；`summary_model_accepted` 不应被称为人工验证正确。
 
 生成/复核失败才用完整保守 fallback，保留 Phase1 静态障碍/弱势参与者/异常信号与其余字段。
-fallback 的 planning 段也根据可解析的当前速度、目标方位及正类条件变化，但不冒充模型生成。
+fallback 的 planning 段也根据可解析的当前速度、目标方位及正类条件变化，并保留对应经验；
+并发时合并共同步骤以保持 60 词限制，但不冒充模型生成。
 日志保存 `raw_analysis`、`analysis_review_raw`、逐项布尔和失败原因；缓存将判定绑定对应草稿 SHA。
 命中时只检查已存判定与草稿配对，最终仍完整重建 base KV，复核文本和失败草稿不进入最终 transcript。
 
@@ -416,7 +438,8 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/resume.sh checkpoints/action_pri
 也可 `RESUME=... bash qwen3vl_local/action_prior/run_full_pipeline.sh`，恢复完成后继续最终 eval/probe。
 checkpoint 保存 optimizer/scheduler/EMA、各 rank RNG、下一 epoch/micro cursor 和数据 SHA。
 未完成 epoch 的各 rank invalid/损失累积计数一起恢复；若在 epoch 验证中退出，恢复后先补验证和 best 选择。
-FP32 checkpoint 容器仍为 v2；自然语言分析协议为 v3，旧照抄模板和旧 BF16 参数合同明确拒绝 resume/eval，不能靠改 metadata 绕过。
+FP32 checkpoint 容器仍为 v2；自然语言分析协议为 v4（加入 UE 规划经验）。旧 v3 分析缓存和
+checkpoint 条件合同不兼容，需用新协议重新训练；旧照抄模板和旧 BF16 参数合同也明确拒绝 resume/eval，不能靠改 metadata 绕过。
 改变 world size、索引、调度或语言条件会拒绝 resume；坏样本/非有限 loss 直接失败，绝不静默“跳过训练成功”。
 累积窗口最后不足 16 帧时按实际帧数归一化并更新，不丢最后一组。
 

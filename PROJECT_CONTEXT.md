@@ -793,3 +793,15 @@ confusion 或 invalid。噪声率、invalid 占比和 seed 都进入先验合同
 eval/probe 默认沿用 checkpoint 记录的先验来源与噪声。dataset 标签搬迁后，run_full_pipeline resume 可只传
 `--prior-labels /新路径`，脚本从原 config.json 恢复 dataset 模式，并把新路径贯穿续训、最终 test 和 probe；
 闭环没有 dataset 标签，必须显式切回 LoRA 并披露条件迁移。
+
+### Action prior UE 规划经验（2026-09-07）
+
+`action_prior/prompts.py` 的语言协议更新为 v4：按最终接受条件的 YES 查七类 UE 经验表，
+`STATIC_OBSTACLE/VULNERABLE/TRAFFIC_LIGHT_ABNORMAL` 对应 UE2/UE4/UE7，其余来自 UE1/3/5/6。
+经验摘要依据新 Phase3 的 context/action 定义，但不 import Phase3、不加载其模型或逐帧动作标签。
+LoRA 与 dataset-priors（包括噪声后条件）共用 `[PLANNING_EXPERIENCE]`，生成、纯文本复核与
+最终 base transcript prefill 均使用同一块；fallback 也保留条件式经验，并发合并以保持 60 词。
+保留全部并发正类；缺失不当 NO，Phase2 RE 不覆盖 Phase1 特殊事实；没有特殊正类时按已知
+道路/导航正常驾驶，RE 不细分，不加入 RE2/RE3/RE5 经验。空隙、变道方向、恢复阶段均不由
+经验表自动确认为事实。新提示词进入执行/语言合同，旧 v3 action 缓存和 checkpoint 不兼容，
+需新协议训练；FP32 checkpoint 容器仍 v2。详见 `action_prior/run.md` 的经验映射表。
