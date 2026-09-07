@@ -41,7 +41,10 @@ class LeadBEVProjector(nn.Module):
         bev_feature = bev_feature.to(device=param.device, dtype=param.dtype)
         # 只摊平空间维度；channel 放到最后，交给 Linear 做投影。
         x = bev_feature.flatten(2).transpose(1, 2)
-        return self.proj(x) + self.pos_embed
+        # 用二维视图广播，反向时恢复参数自身的 batch 步长。否则 B=1 时，
+        # cat 的 BEV 梯度切片可能保留整段 142 token 的步长，引发 DDP 布局警告。
+        # 参数仍保存为 (1, H*W, hidden)，不改变 state_dict 形状或位置编码数值。
+        return self.proj(x) + self.pos_embed.squeeze(0)
 
 
 class WaypointInputAdaptor(nn.Module):

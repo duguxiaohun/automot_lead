@@ -805,3 +805,15 @@ LoRA 与 dataset-priors（包括噪声后条件）共用 `[PLANNING_EXPERIENCE]`
 道路/导航正常驾驶，RE 不细分，不加入 RE2/RE3/RE5 经验。空隙、变道方向、恢复阶段均不由
 经验表自动确认为事实。新提示词进入执行/语言合同，旧 v3 action 缓存和 checkpoint 不兼容，
 需新协议训练；FP32 checkpoint 容器仍 v2。详见 `action_prior/run.md` 的经验映射表。
+
+### Action prior DDP 梯度布局与日志（2026-09-07）
+
+`leadmot/projectors.py` 的 BEV `pos_embed` 参数仍为 `(1,120,1024)`，前向改用
+`squeeze(0)` 二维视图广播，避免 B=1 的 cat 反向将 142-token 步长带回参数。
+CPU Gloo 单 rank DDP 回归覆盖 B=1/2、FP32/BF16 autocast、no_sync 累积和清零，
+与原公式比较输出/参数梯度；不代表远端真实 GPU 多卡性能已验证。
+`action_prior/train.py` 保留旧 invalid_any 统计并增加 domain_only，终端同时显示
+unconfirmed/fallback 与字段原因次数；前三项为全 rank 日志窗口样本比例，
+invalid_any = domain_only + unconfirmed，正常 domain_inapplicable 不当失败。
+全局窗口 loss 与 rank0 心跳 loss 明确区分。执行代码指纹校验未放宽，
+旧 action checkpoint 续训/评测需原代码，本次更新用于新 run；运行细节见 action_prior/run.md。

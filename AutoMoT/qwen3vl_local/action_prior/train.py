@@ -74,7 +74,28 @@ def audit_counts(audit):
     c["prior/unconfirmed_samples"] = int(
         any(r != "domain_inapplicable" for r in audit["invalid"].values())
     )
+    c["prior/domain_only_samples"] = int(
+        bool(audit["invalid"]) and not c["prior/unconfirmed_samples"]
+    )
     return c
+
+
+def format_prior_metrics(values):
+    """显示全 rank 窗口的样本比例与字段原因计数，避免把正常域外当失败。"""
+    prefix = "count/prior/reason/"
+    # 原因按字段计数，一帧可有多个原因；不能把它们相加当样本比例。
+    reasons = {
+        key[len(prefix):]: int(value)
+        for key, value in sorted(values.items())
+        if key.startswith(prefix) and value
+    }
+    return (
+        f'invalid_any={values["prior/invalid_samples"]:.3f} '
+        f'domain_only={values["prior/domain_only_samples"]:.3f} '
+        f'unconfirmed={values["prior/unconfirmed_samples"]:.3f} '
+        f'fallback={values["prior/analysis_fallback"]:.3f} '
+        f'reason_fields={json.dumps(reasons, ensure_ascii=False, separators=(",", ":"))}'
+    )
 
 
 def merge_counts(local, world):
@@ -720,7 +741,9 @@ def main():
                         / 2**30,
                     )
                     print(
-                        f'epoch={epoch+1}/{args.num_epochs} step={step}/{plan["actual_step_limit"]} loss={values["loss"]:.4f} invalid={values["prior/invalid_samples"]:.3f}',
+                        f'epoch={epoch+1}/{args.num_epochs} step={step}/{plan["actual_step_limit"]} '
+                        f'loss(window_global,{values["samples"]}样本均值)={values["loss"]:.4f} '
+                        f'{format_prior_metrics(values)}',
                         flush=True,
                     )
                     for k, v in values.items():
