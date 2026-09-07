@@ -46,6 +46,24 @@ TB 启动后按终端打印的地址/端口打开；也可用 `TB_PORT=6006` 指
 观察 `train/loss`、`train/route_loss`、`train/waypoint_loss`、`train/lr`、
 `train/prior/unconfirmed_samples` 和 `val/*` / `val_epoch/*`。
 首次参数更新后出现训练曲线，验证曲线必须等验证完成。
+
+训练汇总行的 `loss(window_global,N样本均值)` 是本日志窗口全 rank 的样本均值，
+与心跳中的 rank0 最近样本 loss 口径不同。先验指标也使用同一全局窗口：
+`invalid_any` 表示任意字段缺失的样本比例；`domain_only` 表示仅含正常
+`domain_inapplicable` 的样本比例；`unconfirmed` 表示存在其它未确认原因的样本比例，
+满足 `invalid_any = domain_only + unconfirmed`。`fallback` 是分析使用兜底文本的比例，
+`reason_fields` 是各原因的**字段次数**，一帧可以贡献多次，不能当样本比例相加。
+正常域外也计入 `invalid_any`，所以它等于 1 不表示全部先验失败；结合
+`unconfirmed`、原因计数与 `audit/*.json` 判断。TB 保留原 `train/prior/invalid_samples`，
+新增 `train/prior/domain_only_samples`；这些样本仍参加轨迹监督。
+
+2026-09-07 BEV 梯度布局修正：位置编码以二维视图广播，避免 B=1 时拼接反向梯度
+保留整段 142 token 的步长而触发 DDP 警告。参数形状保持不变；CPU Gloo 单 rank DDP
+回归覆盖 B=1/2、FP32/BF16 autocast、梯度累积与清零，对照旧公式的输出和梯度。
+这不代表真实 GPU 多卡吞吐已经验证。**action_prior 的执行代码指纹仍严格校验**：
+本次 projector/训练日志修改会改变身份，旧 action checkpoint 的续训与评测应保留
+原代码版本；新代码使用新 run，不能仅因参数形状兼容就直接续旧 checkpoint，也不手改合同哈希。
+
 全量周期 val 和最终离线 test 不等于 CARLA 闭环；正式 Bench2Drive 220 路线需已配置好
 CARLA 环境后用 `BENCH2DRIVE=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh`，
 显式四卡训练例为 `GPU_IDS=0,1,2,3 BENCH2DRIVE=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh`。
