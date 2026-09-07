@@ -46,8 +46,13 @@ DEFAULTS = dict(
     num_workers=8,
     prefetch_factor=2,
     analysis_tokens=384,
+    analysis_review=True,
     recheck_mode="history",
     condition_mode="prior",
+    dataset_priors=False,
+    prior_labels="",
+    prior_noise=0.0,
+    prior_noise_invalid_share=0.25,
     phase1_training_index="",
     phase2_training_index="",
     cache_priors=True,
@@ -194,6 +199,23 @@ def validate_args(args):
         raise ValueError("invalid recheck mode")
     if args.condition_mode not in ("prior", "base"):
         raise ValueError("condition mode must be prior/base")
+    if getattr(args, "dataset_priors", False):
+        if args.condition_mode != "prior":
+            raise ValueError("--dataset-priors only replaces the prior source; keep --condition-mode prior")
+        if not args.prior_labels:
+            raise ValueError("--dataset-priors requires --prior-labels built by build_prior_labels.py")
+        if not Path(args.prior_labels).expanduser().is_file():
+            raise FileNotFoundError(args.prior_labels)
+    elif getattr(args, "prior_labels", ""):
+        raise ValueError("--prior-labels is only used together with --dataset-priors")
+    if not 0.0 <= getattr(args, "prior_noise", 0.0) <= 1.0 or not (
+        0.0 <= getattr(args, "prior_noise_invalid_share", 0.25) <= 1.0
+    ):
+        raise ValueError("prior noise rate/invalid share must be within [0, 1]")
+    if getattr(args, "prior_noise", 0.0) > 0 and not getattr(args, "dataset_priors", False):
+        raise ValueError(
+            "--prior-noise perturbs dataset ground-truth priors; LoRA priors already carry their own errors"
+        )
     for name in (
         "target_point_lookahead_s",
         "next_target_point_lookahead_s",
@@ -233,6 +255,19 @@ def build_contract(args):
         raise ValueError("selection manifest policy/schema mismatch")
     roots = getattr(args, "checkpoint_roots", []) or [args.checkpoint_root]
     bundle = getattr(args, "lora_bundle", "")
+    dataset = bool(getattr(args, "dataset_priors", False))
+    prior_labels = None
+    if dataset:
+        from qwen3vl_local.action_prior.dataset_labels import PriorNoise, label_source
+
+        if bundle or args.phase1_adapter or args.phase2_adapter or manifest_path:
+            raise ValueError(
+                "dataset priors never load a LoRA; drop --lora-bundle/--phaseN-adapter/--selection-manifest"
+            )
+        prior_labels = label_source(
+            args.prior_labels,
+            PriorNoise(args.prior_noise, args.prior_noise_invalid_share, args.seed),
+        )
     bundle_info, packaged_paths = None, {}
     if bundle:
         from qwen3vl_local.action_prior.lora_bundle import verify_bundle, bundle_paths
@@ -241,7 +276,7 @@ def build_contract(args):
         if set(packaged_paths) != {"phase1", "phase2"}:
             raise ValueError("training requires a bundle containing both Phase1 and Phase2")
     selected = []
-    for phase in (1, 2):
+    for phase in (1, 2) if not dataset else ():
         explicit = getattr(args, f"phase{phase}_adapter")
         if bundle:
             if explicit and Path(explicit).resolve() != Path(packaged_paths[f"phase{phase}"]):
@@ -262,7 +297,7 @@ def build_contract(args):
         if bundle_info and item["fingerprint"] != bundle_info["phases"][f"phase{phase}"]["fingerprint"]:
             raise ValueError("bundle identity differs from loaded adapter")
         selected.append(item)
-    p1, p2 = selected
+    p1, p2 = selected if selected else (None, None)
     base = Path(args.model_dir).resolve()
     weights = sorted(base.glob("*.safetensors")) or sorted(
         base.glob("pytorch_model*.bin")
@@ -298,7 +333,22 @@ def build_contract(args):
     from qwen3vl_local.action_prior.precision import PRECISION_POLICY
 
     execution = execution_fingerprint()
-    upstream = collect_upstream_sources({"phase1": p1, "phase2": p2}, args)
+    if dataset:
+        # 标定真值逐帧命中，没有 LoRA 训练候选池；只声明标签来源，不冒称路线未见。
+        upstream = {
+            "prior_labels": dict(
+                status="dataset_label_lookup",
+                routes=[],
+                source=prior_labels["path"],
+                source_sha256=prior_labels["file_sha256"],
+                labeled_frames=prior_labels["labeled_frames"],
+                injected_noise=prior_labels["noise"],
+                privileged_label_conditioning=True,
+                actual_sampled_routes_verified=False,
+            )
+        }
+    else:
+        upstream = collect_upstream_sources({"phase1": p1, "phase2": p2}, args)
     identity_payload = dict(
         execution=execution,
         precision=PRECISION_POLICY,
@@ -307,13 +357,14 @@ def build_contract(args):
         recheck_mode=args.recheck_mode,
         condition_mode=args.condition_mode,
         base=base_hashes,
-        phase1=p1["fingerprint"],
-        phase2=p2["fingerprint"],
+        phase1=p1["fingerprint"] if p1 else None,
+        phase2=p2["fingerprint"] if p2 else None,
         bev=bev_hash,
         protocol=PROTOCOL_VERSION,
         analysis=ANALYSIS_VERSION,
         system=SYSTEM_PROMPT,
         analysis_tokens=args.analysis_tokens,
+        analysis_review=args.analysis_review,
         navigation={
             k: getattr(args, k)
             for k in (
@@ -326,6 +377,12 @@ def build_contract(args):
             )
         },
     )
+    # 旧 LoRA run 的身份负载保持逐字节不变；数据集模式才追加先验来源字段。
+    if dataset:
+        identity_payload["prior_source"] = prior_labels["prior_source"]
+        identity_payload["prior_labels"] = prior_labels["fingerprint"]
+        if prior_labels["noise"]:
+            identity_payload["prior_noise"] = prior_labels["noise"]
     git = subprocess.run(
         ["git", "rev-parse", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
@@ -342,6 +399,10 @@ def build_contract(args):
         final_cache_model="base_without_any_adapter",
         selection_policy=policy,
     )
+    if dataset:
+        contract["prior_source"] = prior_labels["prior_source"]
+        contract["prior_labels"] = prior_labels
+        contract["lora_adapters_loaded"] = False
     if pinned and pinned.get("contract_identity") != contract["identity"]:
         raise ValueError("selection manifest execution/base/BEV identity changed after preflight")
     return contract
@@ -363,10 +424,22 @@ def training_plan(args, rows, world):
         world_size=world,
         micro_batch_per_gpu=1,
         condition_mode=args.condition_mode,
+        prior_source=(
+            "dataset_labels" if getattr(args, "dataset_priors", False) else "phase_loras"
+        ),
+        injected_prior_noise_rate=(
+            args.prior_noise if getattr(args, "dataset_priors", False) else 0.0
+        ),
+        independent_analysis_review=args.analysis_review,
         cold_generations_per_unique_frame=(
             0
             if args.condition_mode == "base"
-            else 17 if args.recheck_mode == "compare" else 11
+            else (
+                (2 if args.analysis_review else 1)
+                if getattr(args, "dataset_priors", False)
+                else (16 if args.recheck_mode == "compare" else 10)
+                + (1 if args.analysis_review else 0)
+            )
         ),
         final_base_prefills_per_presentation=1,
         shared_text_cache=args.cache_priors,

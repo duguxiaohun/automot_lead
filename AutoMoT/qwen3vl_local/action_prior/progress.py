@@ -83,6 +83,7 @@ class Progress:
         stage = payload["stage"]
         labels = {
             "condition/phase1_question": "LoRA-Phase1", "condition/phase2_question": "LoRA-Phase2",
+            "condition/dataset_labels": "数据集标定先验",
             "condition/base_analysis": "base分析", "condition/base_review": "分析复核",
             "condition/base_final_prefill": "base-prefill", "condition/cache_lookup_or_lock": "缓存读取/等待",
             "train/backward_sync": "反向/同步", "train/backward_accumulate": "反向/累积",

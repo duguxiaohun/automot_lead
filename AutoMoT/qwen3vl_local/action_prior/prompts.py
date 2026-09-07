@@ -105,11 +105,18 @@ def analysis_format_valid(text):
     )
 
 
-def valid_analysis(text, priors, review=None):
-    """格式合格且独立模型五项均通过；这是模型验收，不是忠实性的数学保证。"""
+def valid_analysis(text, priors, review=None, require_review=True):
+    """格式合格且独立模型五项均通过；这是模型验收，不是忠实性的数学保证。
+
+    ``require_review=False`` 时只做格式验收，base 每帧仅生成一次，语义一致性没有
+    任何二次检查；该选择必须由调用方显式记录，不能当成通过了复核。
+    """
+    if not analysis_format_valid(text):
+        return False
+    if not require_review:
+        return True
     return (
-        analysis_format_valid(text)
-        and isinstance(review, dict)
+        isinstance(review, dict)
         and set(review) == set(REVIEW_KEYS)
         and all(v is True for v in review.values())
     )

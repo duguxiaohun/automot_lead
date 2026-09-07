@@ -26,8 +26,28 @@ class ActionPriorRunner:
         args.selection_manifest = ""
         args.selection_output = ""
         args.lora_bundle = ""
+        trained_with_dataset_priors = bool(state["args"].get("dataset_priors", False))
+        switch = os.environ.get("ACTION_DATASET_PRIORS")
+        args.dataset_priors = (
+            trained_with_dataset_priors
+            if switch is None
+            else switch.strip().lower() not in ("", "0", "false", "no")
+        )
+        if args.dataset_priors:
+            raise ValueError(
+                "this checkpoint conditions on dataset ground-truth priors, which do not exist for live "
+                "CARLA frames; set ACTION_DATASET_PRIORS=0 to run the Phase1/Phase2 LoRA priors instead "
+                "and report the resulting condition shift"
+            )
+        prior_source_override = args.dataset_priors != trained_with_dataset_priors
+        args.prior_labels = ""
+        args.prior_noise = 0.0
         from qwen3vl_local.action_prior.lora_bundle import restore_paths
-        local_paths = restore_paths(state["qwen_backbone"], checkpoint)
+        local_paths = (
+            restore_paths(state["qwen_backbone"], checkpoint)
+            if state["qwen_backbone"].get("phase1")
+            else {"phase1": "", "phase2": ""}
+        )
         args.phase1_adapter = local_paths["phase1"]
         args.phase2_adapter = local_paths["phase2"]
         for key in (
@@ -43,7 +63,18 @@ class ActionPriorRunner:
                 setattr(args, key, override)
         validate_args(args)
         self.contract = build_contract(args)
-        require_contract(state["qwen_backbone"], self.contract)
+        require_contract(
+            state["qwen_backbone"],
+            self.contract,
+            allow_prior_source_change=prior_source_override,
+        )
+        # 先验来源可以被显式切换，但全部 route 必须用 launcher 预检那一次选中的权重。
+        pinned = os.environ.get("ACTION_PRIOR_CONTRACT_IDENTITY")
+        if pinned and pinned != self.contract["identity"]:
+            raise ValueError(
+                "route runtime resolved a different prior contract than the launcher preflight; "
+                "the selected Phase1/Phase2 weights changed during this benchmark"
+            )
         self.leadmot_config = LeadMoTPlanningDecoderConfig(**state["decoder_config"])
         if self.leadmot_config.use_subgoal:
             raise ValueError("online subgoal RGB unavailable")

@@ -53,6 +53,11 @@ def audit_counts(audit):
     for field, reason in audit["invalid"].items():
         c[f"prior/reason/{reason}"] += 1
         c[f"prior/field/{field}/{reason}"] += 1
+    # confusion 噪声不会进 invalid，必须单独计数才能核对实际注入率。
+    noise = (audit.get("dataset_label") or {}).get("noise")
+    c["prior/noise_samples"] = int(bool(noise))
+    if noise:
+        c[f"prior/noise/{noise['channel']}/{noise['mode']}"] += 1
     for item in audit.get("recheck_comparisons", []):
         prefix = f"recheck/{item['mode']}/{item['scope']}"
         c[prefix + "/calls"] += 1
@@ -112,6 +117,16 @@ def metrics_from_counts(counts):
         }
     )
     return result
+
+
+def add_dataset_coverage(plan, args, rows):
+    """标定先验必须先报命中率；缺帧的样本会退化成完全无条件，不能静默发生。"""
+    if not getattr(args, "dataset_priors", False):
+        return plan
+    from qwen3vl_local.action_prior.dataset_labels import PriorLabelIndex
+
+    plan["dataset_prior_coverage"] = PriorLabelIndex(args.prior_labels).coverage(rows)
+    return plan
 
 
 def evaluate(
@@ -331,7 +346,7 @@ def main():
             if os.environ.get("GPU_IDS")
             else int(os.environ.get("DDP_GPU_COUNT", "4"))
         )
-        plan = training_plan(args, rows, requested_world)
+        plan = add_dataset_coverage(training_plan(args, rows, requested_world), args, rows)
         contract = build_contract(args)
         print(
             json.dumps(dict(plan=plan, contract=contract), indent=2, ensure_ascii=False)
@@ -362,7 +377,8 @@ def main():
         try:
             from qwen3vl_local.action_prior.lora_bundle import preserve_for_training
             selected_contract = build_contract(args)
-            selected_contract = preserve_for_training(selected_contract, out)
+            if selected_contract.get("phase1"):
+                selected_contract = preserve_for_training(selected_contract, out)
             box[0] = {
                 "contract": selected_contract,
                 "datasets": {
@@ -461,6 +477,7 @@ def main():
             for split, items in rows.items()
         }
     if rank == 0:
+        add_dataset_coverage(plan, args, rows)
         write_json(out / "selected_priors.json", contract)
         write_json(out / "training_plan.json", plan)
         write_json(out / "config.json", vars(args))

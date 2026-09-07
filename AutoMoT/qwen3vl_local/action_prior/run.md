@@ -14,6 +14,9 @@ bash qwen3vl_local/action_prior/run_full_pipeline.sh
 # 显式指定四卡；否则自动选卡。
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh
 
+# 训练慢的主因是每帧两次 LoRA 问答；--dataset-priors 换成数据集标定真值，不加载 LoRA。
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+
 # 更安静：每 60 秒一行 rank0 进度；不改变训练/TB/验证步频。
 ACTION_PROGRESS_SECONDS=60 bash qwen3vl_local/action_prior/run_full_pipeline.sh
 
@@ -21,12 +24,19 @@ ACTION_PROGRESS_SECONDS=60 bash qwen3vl_local/action_prior/run_full_pipeline.sh
 RESUME=checkpoints/action_prior/run_时间戳/latest.pt bash qwen3vl_local/action_prior/run_full_pipeline.sh
 GPU_IDS=0,1,2,3 RESUME=checkpoints/action_prior/run_时间戳/latest.pt bash qwen3vl_local/action_prior/run_full_pipeline.sh
 
+# dataset-priors 续训时，标签搬迁只需传新路径；脚本会从原 config.json 恢复 dataset 模式，
+# 并把新路径继续传给最终 test/probe，即使 best.pt 仍是旧标签路径保存的 checkpoint。
+RESUME=checkpoints/action_prior/run_时间戳/latest.pt bash qwen3vl_local/action_prior/run_full_pipeline.sh \
+  --prior-labels /新位置/prior_labels.jsonl
+
 # 只续训，结束时不自动调用独立 test/probe。
 bash qwen3vl_local/action_prior/resume.sh checkpoints/action_prior/run_时间戳/latest.pt
 
-# 独立离线测试；默认自动选一张卡。
+# 独立离线测试；默认自动选一张卡，先验来源默认跟随 checkpoint 自己的记录。
 bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/run_时间戳/best.pt
 GPU_IDS=0 bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/run_时间戳/best.pt
+# 想改用 LoRA 推理测试必须显式关闭开关；latest 是最新 run 的软链接。
+bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/latest/best.pt --split test --no-dataset-priors
 
 # 另开终端启动 TensorBoard：指定 run 最稳妥，也可以把路径换成 checkpoints/action_prior/latest/tb。
 bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/run_时间戳/tb
@@ -40,6 +50,101 @@ TB 启动后按终端打印的地址/端口打开；也可用 `TB_PORT=6006` 指
 CARLA 环境后用 `BENCH2DRIVE=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh`，
 显式四卡训练例为 `GPU_IDS=0,1,2,3 BENCH2DRIVE=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh`。
 闭环细节见本文后面的 Bench2Drive 章节。
+
+## 用数据集标定真值替代两次 LoRA 问答
+
+`--dataset-priors` 把先验来源从「Phase1 LoRA + Phase2 LoRA 逐帧生成并复核」换成
+「直接读取上游已标定的 RS / Phase1 四事实 / EVENT 真值」。这时完全不加载任何 LoRA，
+并且默认关掉独立复核（标定真值不需要 base 再确认自己是否与先验矛盾）：未命中缓存的帧
+只剩 **1 次 base 生成 + 1 次最终 KV prefill**；缓存命中后只剩 prefill。
+
+| 模式 | 每帧冷启动生成次数 |
+| --- | ---: |
+| LoRA 先验（默认） | 9 次 LoRA + 1 次分析 + 1 次复核 = **11** |
+| LoRA 先验 + `--recheck-mode compare` | **17** |
+| `--dataset-priors`（默认无复核） | **1** |
+| `--dataset-priors ANALYSIS_REVIEW=1` | **2** |
+
+`ANALYSIS_REVIEW=1` / `--analysis-review` 可以把复核加回来。关掉复核后分析只做格式验收，
+`analysis_acceptance` 记为 `format_only`，语义一致性没有任何二次检查；该开关已进入合同身份。
+
+```bash
+# 1) 一次性构建全覆盖标签索引（写到 checkpoints/action_prior_labels/）
+python qwen3vl_local/action_prior/build_prior_labels.py
+
+# 2) 全流程：跳过 LoRA 选择/加载/问答，直接用标定真值训练
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+
+# 2b) 用另一份标签索引；自定义路径缺失时直接报错，不会静默去建默认索引
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --prior-labels /自定义/prior_labels.jsonl
+
+# 3) 先跑四个更新的 smoke，确认不加载 LoRA 的实际吞吐率
+DATASET_PRIORS=1 bash qwen3vl_local/action_prior/smoke.sh
+
+# 4) 只跑训练（不包含建索引/最终 test）
+DATASET_PRIORS=1 bash qwen3vl_local/action_prior/train.sh
+
+# 5) 测试：默认跟随模型自己的开关；第二条才是显式换回 LoRA 推理
+bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/latest/best.pt --split test
+bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/latest/best.pt --split test --no-dataset-priors
+```
+
+### 给标定真值加噪声（`--prior-noise`）
+
+标定真值本身没有误差，但部署时消费的是有误差的 LoRA 先验。`PRIOR_NOISE=0.1` 让 10% 的帧
+按已审计的错误方向把 **RS 或 EVENT** 改成错误值或 invalid，避免 decoder 把先验当成永远正确。
+
+```bash
+# 训练时注入 10% 噪声；PRIOR_NOISE_INVALID_SHARE 默认 0.25
+PRIOR_NOISE=0.1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+DATASET_PRIORS=1 PRIOR_NOISE=0.1 bash qwen3vl_local/action_prior/smoke.sh
+
+# 同一个模型的鲁棒性对照：默认沿用训练噪声，--prior-noise 0 是干净先验
+bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/latest/best.pt --split test
+bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/latest/best.pt --split test --prior-noise 0
+```
+
+- 命中的帧只破坏一个通道：RS 与 EVENT 来自两个独立 LoRA，真实失败也不同步。
+  通道 50/50，`--prior-noise-invalid-share`（默认 0.25）决定该次是 invalid 还是错误答案。
+- **错误答案**在标签层改写后再展开条件，所以仍是自洽的错误向量：错误 RS 只有一个 `YES`，
+  `RS_HIGHWAY` 与 R3 保持一致；错误 EVENT 仍落在该问题域的合法答案里。
+- **invalid** 复刻两种真实失败：RS 向量整体无法确认（`noise_rs_unresolved`），
+  或该 EVENT 域被误判为不适用（`{domain}/INVALID_EVENT_CONTEXT=YES`，事件转 `noise_event_domain_invalid`）。
+- 混淆方向按审计整形，不是均匀随机，也**不是实测转移矩阵**：RS1 边界最不稳定、RS2 过度解释
+  对向约束、RS5 常退成 RS4、R3/RS_HIGHWAY 最稳；EVENT 侧 UE3↔RE 最常见，其次 UE1/UE3 同屏互混，
+  UE5 最稳，junction 域只有 UE6/RE。依据见
+  `sft_new_loop_phase1/FUSED_PHASE1_PHASE2_EVAL_ANALYSIS_20260824.md` §5.3/§6.3 与
+  `sft_new_loop_phase2/V4_RETRAIN_RGB_COMPARATIVE_AUDIT_20260829.md` §5.2。
+- 噪声按 `(帧, seed)` 确定性抽样，跨 epoch 不变：分析文本缓存保存的正是该帧先验对应的 base
+  输出，逐 epoch 重抽会让缓存与条件不一致，也会退化成每 epoch 重新生成。换 `--seed` 才换一组噪声。
+- Phase1 四个事实（HIGHWAY/STATIC_OBSTACLE/VULNERABLE/TRAFFIC_LIGHT_ABNORMAL）当前不注入噪声。
+- 噪声率、invalid 占比和 seed 进入合同身份；`training_plan.json` 记 `injected_prior_noise_rate`，
+  指标里有 `prior/noise_samples` 与 `prior/noise/<channel>/<mode>`，case dump 的
+  `dataset_label.noise` / `clean_label` 能直接看到某帧注入了什么。
+
+- 标签索引来自 Phase1 全帧融合索引（RS 与四事实）加同一份 collection 标注重新折叠的
+  EVENT 目标类，并复用 Phase2 已 RGB 复核的 highway UE3 决策；**不使用** Phase2 训练索引，
+  因为那份索引为类别均衡做过下采样，无法覆盖全部帧。
+- `RS_HIGHWAY` 沿用上游 hierarchical probe 的定义（四个 RS 全 NO 即 R3 时为 YES）。
+- 未被标注的问题域、Phase1 索引丢弃的帧（视觉风险、RGB history 缺失、RS 未知）不会补默认
+  `NO`，而是保持 `UNKNOWN` 并计入 `prior/reason/dataset_domain_unlabeled`、
+  `prior/reason/dataset_label_missing`。训练前 `<run>/training_plan.json` 的
+  `dataset_prior_coverage` 会给出每个 split 的命中/缺失帧数，先看这项再开长训练。
+- 该开关写进 checkpoint 的 `args` 与合同身份（`identity_payload.prior_source`）。
+  `eval.sh` / `probe.sh` 默认按 checkpoint 自己的记录评测，无需重复传参；改用 LoRA 推理必须显式关闭，
+  属于显式条件迁移，`metrics.json` 会记录 `prior_source_override=true`，不能当同条件复现。
+- 闭环没有数据集标签：dataset-prior checkpoint 跑 Bench2Drive 会直接报错，必须显式换回 LoRA 先验：
+
+  ```bash
+  ACTION_DATASET_PRIORS=0 bash qwen3vl_local/action_prior/eval.sh --bench2drive \
+    --checkpoint checkpoints/action_prior/latest/best.pt
+  ```
+
+  这种 checkpoint 不随包 LoRA，launcher 预检会自动选一组并把路径与合同身份固定给所有 route
+  （`run_manifest.json` 的 `pinned_prior_adapters`）；上游中途产生新 best 也不会出现路线间混用。
+- 标定真值是特权标签条件化，`upstream_exposure` 记为 `dataset_label_lookup`；
+  和 LoRA 先验的结果不可直接互相引用为同一条件下的对照。
 
 ## 日志在哪里
 

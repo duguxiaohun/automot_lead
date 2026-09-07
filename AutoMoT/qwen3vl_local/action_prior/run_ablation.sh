@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# 在 AutoMoT/ 下直接复制执行：
+#   DATA_DIR=checkpoints/action_prior_data bash qwen3vl_local/action_prior/run_ablation.sh
+#   DATASET_PRIORS=1 DATA_DIR=checkpoints/action_prior_data bash qwen3vl_local/action_prior/run_ablation.sh
+# 开关只对 prior 臂生效，base 臂本来就没有先验。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,7 +15,11 @@ fi
 export RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
 ABLATION_DIR="${OUTPUT_DIR:-checkpoints/action_prior_ablation}"
 for mode in base prior; do
- OUTPUT_DIR="$ABLATION_DIR/$mode" bash "$HERE/train.sh" "$@" --condition-mode "$mode"
+ # base 消融本来就不产生先验；数据集标定真值只对 prior 臂有意义。
+ arm_dataset_priors=0
+ [[ "$mode" != prior ]] || arm_dataset_priors="${DATASET_PRIORS:-0}"
+ OUTPUT_DIR="$ABLATION_DIR/$mode" DATASET_PRIORS="$arm_dataset_priors" \
+  bash "$HERE/train.sh" "$@" --condition-mode "$mode"
  bash "$HERE/eval.sh" --checkpoint "$ABLATION_DIR/$mode/run_$RUN_TAG/best.pt" --split test
  bash "$HERE/eval.sh" --checkpoint "$ABLATION_DIR/$mode/run_$RUN_TAG/best.pt" --split test \
   --max-samples "${ABLATION_EVAL_SAMPLES:-256}" --dump-cases --output-dir "$ABLATION_DIR/$mode/run_$RUN_TAG/paired_test"

@@ -786,3 +786,10 @@ rank_loras 默认导出所选组合目录及 tar.gz+SHA256，逐文件复制校�
 原 audit.zip 仍限30MB且不装权重。`--no-export-bundle` 只审计，`--lora-bundle` 固定已认可组合，
 解压到目标 AutoMoT/checkpoints 后可直接预检/训练；仅有单阶段时可导出单阶段包用于合并搜索，
 不能冒称双阶段完整。CPU 已验证删除原模型、压缩迁移及 action run 搬迁恢复，不代表真实GPU已跑。
+
+2026-09-07 dataset-priors 模式可直接读取标定 RS/Phase1/EVENT 标签并默认关闭 analysis review，
+冷启动每帧为 1 次 base 分析生成 + 1 次最终 base KV prefill；可用 PRIOR_NOISE 注入 RS/EVENT
+confusion 或 invalid。噪声率、invalid 占比和 seed 都进入先验合同身份，因为 seed 会决定具体被破坏的帧；
+eval/probe 默认沿用 checkpoint 记录的先验来源与噪声。dataset 标签搬迁后，run_full_pipeline resume 可只传
+`--prior-labels /新路径`，脚本从原 config.json 恢复 dataset 模式，并把新路径贯穿续训、最终 test 和 probe；
+闭环没有 dataset 标签，必须显式切回 LoRA 并披露条件迁移。

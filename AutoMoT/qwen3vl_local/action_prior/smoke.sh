@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# 在 AutoMoT/ 下直接复制执行：
+#   bash qwen3vl_local/action_prior/smoke.sh
+#   DATASET_PRIORS=1 bash qwen3vl_local/action_prior/smoke.sh
+#   DATASET_PRIORS=1 PRIOR_NOISE=0.1 bash qwen3vl_local/action_prior/smoke.sh
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

@@ -97,8 +97,12 @@ def command(cli, rid, gpu, worker, output):
     ]
 
 
-def validate_checkpoint(cli):
-    """先在 CPU 核验模型来源合同，缺权重或错版时不要逐路线启动 CARLA 才失败。"""
+def validate_checkpoint(cli, pinned=None):
+    """先在 CPU 核验模型来源合同，缺权重或错版时不要逐路线启动 CARLA 才失败。
+
+    ``pinned`` 是同一 run 上一次已固定的 Phase1/Phase2 路径；断点恢复必须先用它们，
+    否则上游中途产生新 best 会让自动选权重变化并把本来合法的续跑卡掉。
+    """
     import torch
     from qwen3vl_local.action_prior.config import build_contract, validate_args
     from qwen3vl_local.action_prior.contracts import require_contract
@@ -110,10 +114,28 @@ def validate_checkpoint(cli):
     args.selection_manifest = ""
     args.selection_output = ""
     args.lora_bundle = ""
+    trained_with_dataset_priors = bool(state["args"].get("dataset_priors", False))
+    switch = os.environ.get("ACTION_DATASET_PRIORS")
+    args.dataset_priors = (
+        trained_with_dataset_priors
+        if switch is None
+        else switch.strip().lower() not in ("", "0", "false", "no")
+    )
+    if args.dataset_priors:
+        raise ValueError(
+            "closed-loop Bench2Drive has no dataset ground-truth priors; set ACTION_DATASET_PRIORS=0 "
+            "to fall back to the Phase1/Phase2 LoRA priors and report the condition shift"
+        )
+    args.prior_labels = ""
+    args.prior_noise = 0.0
     from qwen3vl_local.action_prior.lora_bundle import restore_paths
-    local_paths = restore_paths(state["qwen_backbone"], cli.checkpoint)
+    local_paths = (
+        restore_paths(state["qwen_backbone"], cli.checkpoint)
+        if state["qwen_backbone"].get("phase1")
+        else {"phase1": "", "phase2": ""}
+    )
     for key in ("phase1", "phase2"):
-        setattr(args, key + "_adapter", local_paths[key])
+        setattr(args, key + "_adapter", (pinned or {}).get(key) or local_paths[key])
     for key in (
         "model_dir",
         "lead_bev_ckpt",
@@ -126,8 +148,19 @@ def validate_checkpoint(cli):
             setattr(args, key, getattr(cli, key))
     validate_args(args)
     contract = build_contract(args)
-    require_contract(state["qwen_backbone"], contract)
-    return contract["identity"]
+    require_contract(
+        state["qwen_backbone"],
+        contract,
+        allow_prior_source_change=args.dataset_priors != trained_with_dataset_priors,
+    )
+    # dataset checkpoint 不随包 LoRA，切回 LoRA 后各 route 会各自自动选权重；
+    # 把预检这次选中的组合固定下来，上游中途产生新 best 也不会混用。
+    pinned = {
+        f"phase{phase}": contract[f"phase{phase}"]["path"]
+        for phase in (1, 2)
+        if contract.get(f"phase{phase}")
+    }
+    return contract["identity"], pinned
 
 
 def main():
@@ -223,9 +256,18 @@ def main():
     ):
         if getattr(cli, key):
             os.environ["ACTION_" + key.upper()] = str(Path(getattr(cli, key)).resolve())
-    generation_identity = validate_checkpoint(cli)
+    previous = (
+        json.loads((output / "run_manifest.json").read_text()) if cli.resume else {}
+    )
+    generation_identity, pinned_adapters = validate_checkpoint(
+        cli, previous.get("pinned_prior_adapters")
+    )
+    for key, path in pinned_adapters.items():
+        os.environ["ACTION_" + key.upper() + "_ADAPTER"] = path
+    os.environ["ACTION_PRIOR_CONTRACT_IDENTITY"] = generation_identity
     identity = dict(
         generation_identity=generation_identity,
+        pinned_prior_adapters=pinned_adapters,
         sensor_settings={
             key: os.environ.get(key, default)
             for key, default in {
@@ -266,7 +308,6 @@ def main():
         training_selection="best offline validation; formal routes are test only",
     )
     if cli.resume:
-        previous = json.loads((output / "run_manifest.json").read_text())
         if any(previous.get(k) != v for k, v in identity.items()):
             raise ValueError(
                 "resume benchmark identity differs; use a new output directory"
