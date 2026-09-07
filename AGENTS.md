@@ -1,5 +1,9 @@
 # AGENTS.md
 
+> 2026-09-07 action_prior 规划经验更新：语言协议 v4 按接受的 YES 条件加入七 UE 的条件式高层经验，
+> LoRA/数据集共用，RE 不细分，UNKNOWN 不当 NO；仅参考 Phase3 定义，不接其模型/逐帧动作。
+> 旧 v3 action 缓存/checkpoint 不兼容。入口见 PROJECT_CONTEXT.md「Action prior UE 规划经验」与 action_prior/run.md。
+
 > 给所有后续 AI / coding agent 的项目入口说明。
 > 目标是让新会话在改代码前快速知道：这个工作区在做什么、必须先读什么、哪些文件能动、哪些操作不要做。
 >
