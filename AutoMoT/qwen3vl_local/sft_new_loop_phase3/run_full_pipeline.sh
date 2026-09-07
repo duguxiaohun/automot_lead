@@ -81,6 +81,28 @@ else
 fi
 
 RUN_ROOT="checkpoints/sft_new_loop_phase3_runs/latest"
+
+adapter_history_rgb_mode() {
+  local adapter_input="$1"
+  python - "${adapter_input}" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+for candidate in (root / "best_generation", root / "final", root / "fallback_generation", root):
+    cfg_path = candidate / "sft_new_loop_phase3_adapter_config.json"
+    if cfg_path.is_file():
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        mode = str(cfg.get("history_rgb_mode", ""))
+        if mode not in {"4rgb", "2rgb_endpoints"}:
+            raise SystemExit(f"invalid history_rgb_mode={mode!r} in {cfg_path}")
+        print(mode)
+        raise SystemExit(0)
+raise SystemExit(f"missing sft_new_loop_phase3_adapter_config.json under {root}")
+PY
+}
+
 echo
 echo "========== 4/4 standalone eval + error audit =========="
 if [[ "${SKIP_EVAL}" == "1" ]]; then
@@ -88,9 +110,13 @@ if [[ "${SKIP_EVAL}" == "1" ]]; then
 elif [[ ! -e "${RUN_ROOT}" ]]; then
   echo "[skip] no trained run at ${RUN_ROOT}"
 else
+  ADAPTER_RGB_MODE="$(adapter_history_rgb_mode "${RUN_ROOT}")"
+  BUNDLE_NAME="${BUNDLE_BASENAME:-sft_new_loop_phase3_${TIMESTAMP}_${ADAPTER_RGB_MODE}_audit_bundle}"
   ADAPTER_DIR="${RUN_ROOT}" INDEX="${INDEX}" DATA_ROOT="${DATA_ROOT}" MODEL_DIR="${MODEL_DIR}" \
+  TIMESTAMP="${TIMESTAMP}" BUNDLE_BASENAME="${BUNDLE_NAME}" BUNDLE_MAX_MB="${BUNDLE_MAX_MB:-30}" \
   OUTPUT_ROOT="${PIPELINE_ROOT}/eval" \
     bash qwen3vl_local/sft_new_loop_phase3/eval.sh
+  echo "[phase3-pipeline] audit bundle: ${PIPELINE_ROOT}/eval/${BUNDLE_NAME}.tar.gz"
 fi
 
 echo

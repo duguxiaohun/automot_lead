@@ -606,7 +606,7 @@ eval、probe、teacher / 推理入口。
 
 ## Phase3 映射与动作审计补充（2026-09-05）
 
-Phase3 v2 保持五动作；完整 RS 四问全 NO 恢复 R3，未问不作 NO，HIGHWAY 为独立事实；并发异常保留。普通无灯路口不自动 U-E7，原 U7 用既有灯故障答案表适配；新增 R5/R-E5 常规让行，与七异常及 R-E2/R-E3 共十个 context 1:1。R-E2 包含目标变道及绕障恢复，不按 24 帧截断，两条变道 NO 不清除恢复状态；最终目标 y 符号不决定变道侧。invalid 必须覆盖每个 asked context；未来轨迹只用于离线标签，默认异常 route/RGB 风险过滤。逐帧人工审计与机器覆盖分开记录；详见 sft_new_loop_phase3/MAPPING_AUDIT_20260905.md。
+Phase3 v2 保持五动作；完整 RS 四问全 NO 恢复 R3，未问不作 NO，HIGHWAY 为独立事实；并发异常保留。普通无灯路口不自动 U-E7，原 U7 用既有灯故障答案表适配；新增 R5/R-E5 常规让行，与七异常及 R-E2/R-E3 共十个 context 1:1。R-E2 包含目标变道及绕障恢复，不按 24 帧截断，两条变道 NO 不清除恢复状态；最终目标 y 符号不决定变道侧。invalid 必须覆盖每个 asked context；未来轨迹只用于离线标签，默认异常 route/RGB 风险过滤。逐帧人工审计与机器覆盖分开记录；`sft_new_loop_phase3/eval.sh` 与 `run_full_pipeline.sh` 会在 eval 结束后生成默认不超过 30MB 的 `*_audit_bundle.tar.gz`，只包含 metrics/summary/manifest/adapter 文本元数据和抽样下采样 RGB，排除权重/checkpoint/TensorBoard。详见 sft_new_loop_phase3/MAPPING_AUDIT_20260905.md。
 
 本轮不修改 sft_new_loop_phase1/2 的代码、prompt、已审计答案表。原始 taxonomy 的
 OppositeVehicleTakingPriority/R5/U-E7 与 Phase1 TRAFFIC_LIGHT_ABNORMAL=NO 不一致，

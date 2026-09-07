@@ -257,7 +257,7 @@ GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase3/eval.py \
   --cases-per-bin 64
 ```
 
-一键 base + LoRA + audit prompt + 错例审计包：
+一键 base + LoRA + audit prompt + 不超过 30MB 的错例审计压缩包：
 
 ```bash
 ADAPTER_DIR=checkpoints/sft_new_loop_phase3_runs/latest \
@@ -269,10 +269,18 @@ ADAPTER_DIR=checkpoints/sft_new_loop_phase3_runs/latest \
 `sft_new_loop_phase3_adapter_config.json`，不会因残留空目录误选权重。
 adapter 的 `production_prompt_sha256` 与当前 prompt 不一致时会直接报错，
 避免拿不同 prompt 合同的 adapter 互相比较。
+`eval.sh` 结束时会生成
+`checkpoints/sft_new_loop_phase3_eval_review/<ts>/sft_new_loop_phase3_<ts>_<rgb_mode>_audit_bundle.tar.gz`
+（或 `OUTPUT_ROOT/<BUNDLE_BASENAME>.tar.gz`），并打印 `[phase3-eval] audit bundle: ...`。
+压缩包复制 metrics、summary、manifest、adapter 文本元数据和少量下采样 RGB 错例；
+权重、checkpoint、TensorBoard 和大 JSONL 不进入包内。可用
+`BUNDLE_MAX_MB=20` 或 `BUNDLE_BASENAME=<name>` 覆盖默认上限与文件名。
 
 ## 9. 错例 RGB 审计包
 
-`eval.sh` 最后会自动调用 `audit_eval_cases.py`；也可以单独对任意 eval 目录跑：
+`eval.sh` 最后会自动调用 `audit_eval_cases.py` 生成散目录
+`lora_production_audit_samples/`，随后再把关键评测文件和抽样 RGB 打成 `.tar.gz`；
+也可以单独对任意 eval 目录跑：
 
 ```bash
 python qwen3vl_local/sft_new_loop_phase3/audit_eval_cases.py \
