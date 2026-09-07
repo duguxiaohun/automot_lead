@@ -10,7 +10,7 @@ DECISIONS = Path(__file__).with_name('same_rs_invalid_review_v1.jsonl')
 
 
 def reviewed_invalid_rows(args, scanned_routes):
-    """只使用本次实际扫描路线；保留原 route split，并重读 meta/实际四帧路径。
+    """使用本次扫描路线；正式全量扫描也保留显式核验过的纯负例路线。
 
     source_context 是负例来源桶，不声称该事件真实发生。明确隔离的原 R-E3
     正例仍能通过人工决定成为负例，但绝不重回 valid 池。
@@ -18,13 +18,40 @@ def reviewed_invalid_rows(args, scanned_routes):
     from qwen3vl_local.sft_new_loop_phase3.build_dataset import _make_row, _split, _history
     root = Path(args.data_root).resolve()
     rows = []
+    # 正式全量扫描后重新平衡时，纯负例route可能不出现在正候选缓存。
+    # 只复用同目录全量manifest和逐字匹配的人工决定；不把任意小样本cache扩大为全量。
+    cached_reviewed = set()
+    cache = getattr(args, 'candidate_cache', '')
+    if cache:
+        parent = Path(cache).parent
+        manifest_path = parent / 'manifest.json'
+        negative_path = parent / 'same_rs_invalid_candidates.jsonl'
+        if manifest_path.is_file() and negative_path.is_file():
+            manifest = json.loads(manifest_path.read_text())
+            if manifest.get('source_scope') == 'collection_results':
+                for line in negative_path.read_text().splitlines():
+                    old = json.loads(line)
+                    review = old.get('mapping_evidence', {}).get('same_rs_rgb_review')
+                    if review:
+                        cached_reviewed.add(json.dumps(review, sort_keys=True))
     for line in DECISIONS.read_text().splitlines():
         if not line.strip():
             continue
         d = json.loads(line)
         key = (d['scenario'], d['route_id'])
-        if key not in scanned_routes:
-            continue
+        if key not in scanned_routes and json.dumps(d, sort_keys=True) not in cached_reviewed:
+            # 一条route没有可用正动作窗口，不等于人工确认的负例失效。
+            # 只在完整collection扫描且人工已核验该源route时允许；小样本/cache仍严格限定范围。
+            selected = getattr(args, 'scenarios', '')
+            full_source = (not getattr(args, 'candidate_cache', '')
+                           and not getattr(args, 'use_review_cache', False)
+                           and not getattr(args, 'max_routes', 0)
+                           and not getattr(args, 'max_routes_per_scenario', 0))
+            allowed = selected == 'all' or key[0] in selected.split(',')
+            source = Path(getattr(args, 'collection_dir', '')) / f'{key[0]}_result.json'
+            if not (full_source and allowed and d.get('collection_route_verified') is True
+                    and source.is_file()):
+                continue
         if d['decision'] != 'SAME_RS_EVENT_MISMATCH' or d['scope'] != 'training_and_evaluation_route_split':
             continue
         run = root / key[0] / key[1]

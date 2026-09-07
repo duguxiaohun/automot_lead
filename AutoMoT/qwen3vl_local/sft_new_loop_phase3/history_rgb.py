@@ -42,8 +42,8 @@ def history_rgb_prompt_description(mode: str) -> str:
     """描述可见时间证据，避免 prompt 提到不存在的帧。"""
 
     if validate_history_rgb_mode(mode) == HISTORY_RGB_MODE_ALL4:
-        return "four-frame history"
-    return "two endpoint frames (the first and fourth frames from the four-frame history)"
+        return "four-frame history at t-0.75 s, t-0.50 s, t-0.25 s and t=0 (missing early history repeats frame 0)"
+    return "two endpoint frames at t-0.75 s and t=0 (missing early history repeats frame 0)"
 
 
 def select_history_rgb_paths(paths: Sequence[str], mode: str) -> List[str]:

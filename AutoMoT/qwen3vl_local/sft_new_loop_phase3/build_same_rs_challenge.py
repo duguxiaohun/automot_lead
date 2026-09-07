@@ -34,7 +34,8 @@ def build(candidates: Path, decisions: Path, data_root: Path, output: Path):
         row['diagnostic_only'] = True
         spec = make_prompt_spec(variant='all_random_order', answers=row['answers'],
             seed_key=f"challenge:{row['route_id']}:{row['frame_id']}:{row['context_id']}",
-            context_id=row['context_id'], road_structure=row['true_rs'], goal_xy=row['goal_ego_xy'])
+            context_id=row['context_id'], road_structure=row['true_rs'], goal_xy=row['goal_ego_xy'],
+            current_speed_mps=row['current_speed_mps'])
         row['prompt'] = build_action_prompt(spec=spec)
         row['target'] = build_action_target(spec)
     output.mkdir(parents=True, exist_ok=True)

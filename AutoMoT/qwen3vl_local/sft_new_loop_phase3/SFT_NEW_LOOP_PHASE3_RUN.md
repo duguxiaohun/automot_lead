@@ -1,3 +1,5 @@
+> 2026-09-07：当前规则已升级为 current_wait_first_crossing_v6，prompt为v5_current_phase，旧索引/adapter不兼容。最新修订、逐帧证据和运行方式见 [REPAIR_20260907.md](REPAIR_20260907.md)；下文v5动作规则及旧成绩属于历史。
+
 # SFT New Loop Phase3 运行说明
 
 `sft_new_loop_phase3` 是 Phase1（RS + 三个可见事实）和 Phase2（EVENT）之后的

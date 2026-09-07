@@ -3,7 +3,7 @@
 
 训练目标是 ``DECELERATE / STOP / RESUME / LANE_CHANGE_LEFT / LANE_CHANGE_RIGHT``
 以及 ``INVALID_ACTION_CONTEXT`` 的 YES/NO 语义 token，并以低权重监督字段格式和
-assistant 结束符。数据构建阶段保证九个动作上下文 1:1、每个上下文内部按动作签名
+assistant 结束符。数据构建阶段保证十个动作上下文 1:1、每个上下文内部按动作签名
 尽量均分，并额外注入约 20% 的上下文错配 invalid 样本。
 
 输入是单轮 image+text：RGB history + Phase1/Phase2 已确定的道路结构与情境前提 +
@@ -14,6 +14,7 @@ code 文本。
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -101,6 +102,8 @@ from qwen3vl_local.sft_v2.train import (  # noqa: E402
 from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
 
 
+from qwen3vl_local.sft_new_loop_phase3.source_mapping import mapping_contract_hash
+
 FORMAT_COMPONENT_ID = -1
 BALANCE_CLASSES: Tuple[str, ...] = (*CONTEXT_IDS, "INVALID")
 
@@ -123,6 +126,8 @@ def _git_metadata() -> Dict[str, Any]:
 
     status = run(["status", "--short"]) or ""
     return {
+        "source_sha256": {str(path.relative_to(_AUTOMOT_ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
+                          for path in sorted(_THIS.parent.glob("*.py"))},
         "root": str(_PROJECT_ROOT),
         "branch": run(["rev-parse", "--abbrev-ref", "HEAD"]),
         "commit": run(["rev-parse", "HEAD"]),
@@ -212,6 +217,7 @@ class FrameRow:
     invalid_source: str = ""
     invalid_reason: str = ""
     context_detail: str = ""
+    current_speed_mps: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -261,6 +267,9 @@ def _read_rows(
             validate_action_rule(obj)
             from qwen3vl_local.sft_new_loop_phase3.source_mapping import validate_mapping_contract
             validate_mapping_contract(obj)
+            speed = float(obj["current_speed_mps"])
+            if not math.isfinite(speed) or speed < 0:
+                raise ValueError("current_speed_mps must be finite and nonnegative")
             goal = list(obj["goal_ego_xy"])
             if len(goal) != 2 or not all(math.isfinite(float(v)) for v in goal):
                 raise ValueError("goal_ego_xy requires two finite coordinates")
@@ -284,6 +293,7 @@ def _read_rows(
                     invalid_source=str(obj.get("invalid_source") or ""),
                     invalid_reason=str(obj.get("invalid_reason") or "wrong_road_structure"),
                     context_detail=str(obj.get("context_detail") or ""),
+                    current_speed_mps=float(obj["current_speed_mps"]),
                 )
             )
             if max_frames > 0 and len(rows) >= max_frames:
@@ -326,7 +336,7 @@ def _raw_focus_bin_counts(rows: Sequence[FrameRow]) -> Dict[str, int]:
         if balance_class == "INVALID":
             for dimension, value in invalid_subgroup_keys(row).items():
                 counts[f"invalid/{dimension}/{value}"] += 1
-        for key in ANSWER_KEYS:
+        for key in (*CONTEXT_BY_ID[row.context_id].action_keys, INVALID_KEY):
             counts[f"answer/{key}:{_answer_text(row.answers.get(key, False))}"] += 1
     return dict(counts)
 
@@ -342,6 +352,7 @@ def _make_item(row: FrameRow, *, seed: int) -> WorkItem:
         road_structure=row.prompt_road_structure,
         goal_xy=row.goal_ego_xy,
         context_detail=row.context_detail,
+        current_speed_mps=row.current_speed_mps,
     )
     return WorkItem(row=row, spec=spec, balance_key=f"all_random_order/class/{_balance_class(row)}")
 
@@ -562,12 +573,12 @@ def _loss_one(bundle: Any, packed: Mapping[str, Any], spec: PromptSpec) -> Tuple
     format_active = active & shift_comp.eq(FORMAT_COMPONENT_ID)
     stats: Dict[str, float] = {
         "denom": float(denom.detach().item()),
-        "token_acc": float(torch.equal(pred[active], shift_labels[active])),
+        "token_acc": float((pred[active] == shift_labels[active]).float().mean().item()),
         "value_token_acc": float(
-            bool(value_active.any()) and torch.equal(pred[value_active], shift_labels[value_active])
+            (pred[value_active] == shift_labels[value_active]).float().mean().item() if bool(value_active.any()) else 0.0
         ),
         "format_token_acc": float(
-            bool(format_active.any()) and torch.equal(pred[format_active], shift_labels[format_active])
+            (pred[format_active] == shift_labels[format_active]).float().mean().item() if bool(format_active.any()) else 0.0
         ),
     }
     for component_id, key in enumerate(spec.output_keys, start=1):
@@ -785,6 +796,10 @@ def evaluate_generation_probe(
 ) -> Dict[str, float]:
     """在固定独立 val 样本上以真实 greedy generation 检查输出行格式与语义。"""
 
+    from qwen3vl_local.sft_new_loop_phase3.invalid_balance import unique_cases
+    sampled_count = len(work)
+    work = unique_cases(work)
+    same_rs_routes = set()
     model = bundle.unwrap()
     was_training = bool(model.training)
     model.eval()
@@ -823,6 +838,14 @@ def evaluate_generation_probe(
         slice_name = balance_class.lower()
         slice_counts[f"{slice_name}/total"] += 1
         slice_counts[f"{slice_name}/exact"] += int(all_ok)
+        if balance_class != "INVALID":
+            slice_counts["valid/total"] += 1
+            slice_counts["valid/exact"] += int(all_ok)
+            if row.action_signature == "NONE":
+                slice_counts["no_action/total"] += 1
+                slice_counts["no_action/exact"] += int(all_ok)
+        elif row.invalid_reason == "same_rs_wrong_event":
+            same_rs_routes.add((row.scenario, row.route_id))
         for key in ACTION_KEYS:
             if key not in spec.output_keys:
                 continue
@@ -882,10 +905,12 @@ def evaluate_generation_probe(
         model.train()
     metrics: Dict[str, float] = {
         "samples": samples,
+        "sampled_before_dedup": float(sampled_count),
+        "same_rs_unique_routes": float(len(same_rs_routes)),
         "format_valid_rate": valid / max(1.0, samples),
         "exact_accuracy": exact / max(1.0, samples),
     }
-    for name in BALANCE_CLASSES:
+    for name in (*BALANCE_CLASSES, "valid", "no_action"):
         key = name.lower()
         count = float(slice_counts.get(f"{key}/total", 0))
         metrics[f"slice/{key}_samples"] = count
@@ -899,6 +924,10 @@ def evaluate_generation_probe(
         metrics[f"action/{key.lower()}_precision"] = float(
             action_counts.get(f"{key}/precision_hit", 0)
         ) / max(1.0, pred_yes)
+    for key in ACTION_KEYS:
+        prefix = f"action/{key.lower()}"
+        precision, recall = metrics[prefix + "_precision"], metrics[prefix + "_recall"]
+        metrics[prefix + "_f1"] = 2 * precision * recall / max(1e-12, precision + recall)
     for key, count in sorted(invalid_subgroup_counts.items()):
         if not key.endswith("/total"):
             continue
@@ -942,63 +971,8 @@ def evaluate_generation_probe(
     return metrics
 
 
-def generation_checkpoint_guards(
-    metrics: Mapping[str, float],
-    *,
-    min_invalid_exact: float,
-    min_lane_change_recall: float,
-    min_stop_recall: float,
-    min_no_action_exact: float,
-) -> Dict[str, Any]:
-    """返回 checkpoint 多指标门槛的逐项审计结果。"""
-
-    lane_change_recall = min(
-        float(metrics.get("action/lane_change_left_recall", 0.0)),
-        float(metrics.get("action/lane_change_right_recall", 0.0)),
-    )
-    values = {
-        "invalid_exact": float(metrics.get("slice/invalid_exact", 0.0)),
-        "lane_change_recall": lane_change_recall,
-        "stop_recall": float(metrics.get("action/stop_recall", 0.0)),
-        "no_action_context_exact": float(metrics.get("slice/ramp_merge_exit_exact", 0.0)),
-    }
-    floors = {
-        "invalid_exact": float(min_invalid_exact),
-        "lane_change_recall": float(min_lane_change_recall),
-        "stop_recall": float(min_stop_recall),
-        "no_action_context_exact": float(min_no_action_exact),
-    }
-    passed = {key: values[key] >= floors[key] for key in values}
-    return {"all_ok": all(passed.values()), "values": values, "floors": floors, "passed": passed}
-
-
-def generation_checkpoint_score(
-    metrics: Mapping[str, float],
-    *,
-    min_invalid_exact: float,
-    min_lane_change_recall: float,
-    min_stop_recall: float,
-    min_no_action_exact: float,
-) -> Tuple[float, float, float, float, float]:
-    """构造自由生成 checkpoint 选优分数；达标候选再按总 exact 选优。"""
-
-    report = generation_checkpoint_guards(
-        metrics,
-        min_invalid_exact=min_invalid_exact,
-        min_lane_change_recall=min_lane_change_recall,
-        min_stop_recall=min_stop_recall,
-        min_no_action_exact=min_no_action_exact,
-    )
-    exact = float(metrics.get("exact_accuracy", 0.0))
-    pattern_exact = float(metrics.get("pattern/pattern_exact", 0.0))
-    ratios = [
-        1.0 if report["floors"][key] <= 0.0 else report["values"][key] / report["floors"][key]
-        for key in report["values"]
-    ]
-    passed = list(report["passed"].values())
-    if report["all_ok"]:
-        return (1.0, exact, min(ratios), pattern_exact, float(sum(passed)))
-    return (0.0, float(sum(passed)) / float(len(passed)), min(ratios), exact, pattern_exact)
+from qwen3vl_local.sft_new_loop_phase3.quality_guards import (
+    generation_checkpoint_guards, generation_checkpoint_score)
 
 
 def _save_adapter(
@@ -1015,6 +989,7 @@ def _save_adapter(
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
         "production_prompt_sha256": action_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
+        "mapping_contract_hash": mapping_contract_hash(),
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "train_script": str(_THIS),
         "git": _git_metadata(),
@@ -1030,7 +1005,7 @@ def _save_adapter(
         "data_root": str(args.data_root),
         "input_contract": (
             "single image+text user turn: RGB history, the Phase1/Phase2 road structure and situation "
-            "premise, and the ego-frame route target (x forward, y negative left, y positive right)"
+            "premise, current measured speed, and the ego-frame route target (x forward, y negative left, y positive right)"
         ),
         "lora_vision_scope": str(args.lora_vision_scope),
         "lora_target_modules": list(bundle.lora_target_modules),
@@ -1131,6 +1106,7 @@ def _write_run_metadata(
         "train_route_diverse": bool(args.train_route_diverse),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "production_prompt_sha256": action_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
+        "mapping_contract_hash": mapping_contract_hash(),
     }
     (output_dir / "train_run_manifest.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
@@ -1171,6 +1147,9 @@ def train(args: argparse.Namespace) -> None:
     """训练主流程。"""
 
     validate_history_rgb_mode(args.history_rgb_mode)
+    from qwen3vl_local.sft_new_loop_phase3.preflight import check_index, check_model
+    check_index(args.index)
+    check_model(args.model_dir)
     rank, local_rank, world_size = setup_distributed()
     device = (
         torch.device(f"cuda:{local_rank}")
@@ -1727,7 +1706,7 @@ def parse_args() -> argparse.Namespace:
     """解析 CLI 参数。"""
 
     p = argparse.ArgumentParser(description="Train sft_new_loop_phase3 single-turn high-level action LoRA")
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v6/frame_index.jsonl"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_runs/manual"))

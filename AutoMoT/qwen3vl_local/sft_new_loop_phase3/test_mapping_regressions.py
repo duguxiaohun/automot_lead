@@ -63,7 +63,7 @@ def test_stationary_numerical_negative_is_not_missing_future():
 @pytest.mark.parametrize("speeds,expected", [
     ([6.8978, 6.3710, 3.0601, 3.3282, 1.8781, .2138, .3079, .3162, .3496], "STOP"),
     ([.6, .2, .1, .1, .5, 1, 2, 3, 4], "STOP"),
-    ([0, .2, .8, 1.5, 2, 3, 4, 5, 6], "RESUME"),
+    ([0, .2, .8, 1.5, 2, 3, 4, 5, 6], "STOP"),
     ([8, 6, 5, 5, 6, 7, 8, 9, 10], "DECELERATE"),
 ])
 def test_ordered_longitudinal_evidence(speeds, expected):
@@ -114,8 +114,8 @@ def test_past_shoulder_projection_does_not_flip_borrowed_lane_direction():
     ([6.157, 5.895, 7.166, 7.977, 6.547, 5.447, 5.686, 8.186, 6.912], None),
     ([8.145, 8.638, 8.239, 8.303, 8.564, 8.116, 8.798, 7.857, 6.357], "DECELERATE"),
     ([3.807, 2.896, 3.944, 5.453, 2.241, 4.222, 5.578, 7.461, 9.039], "DECELERATE"),
-    ([0, .002, 1.522, 2.845, 4.649, 5.584, 5.063, 4.819, 4.655], "RESUME"),
-    ([0, .002, 1.559, 2.927, 4.754, 5.825, 5.526, .462, 1.544], "RESUME"),
+    ([0, .002, 1.522, 2.845, 4.649, 5.584, 5.063, 4.819, 4.655], "STOP"),
+    ([0, .002, 1.559, 2.927, 4.754, 5.825, 5.526, .462, 1.544], "STOP"),
     ([0, 0, 3, .1, .1, 4, 5, 6, 7], "STOP"),
 ])
 def test_reviewed_speed_pulses_do_not_override_real_braking(speeds, expected):

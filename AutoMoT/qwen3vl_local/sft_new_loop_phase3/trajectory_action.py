@@ -16,10 +16,12 @@ HighwayExit / InvadingTurn 等 route 的逐帧 meta + RGB 复核：
 from __future__ import annotations
 
 import lzma
+import hashlib
 import math
 import pathlib
 import pickle
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
@@ -27,7 +29,13 @@ from qwen3vl_local.sft_new_loop_phase3.lateral_rgb_audit import lateral_uncertai
 
 
 FRAME_DT_SECONDS = 0.25
-ACTION_RULE_VERSION = "ordered_speed_driving_lane_v5"
+ACTION_RULE_VERSION = "current_wait_first_crossing_v6"
+
+
+@lru_cache(maxsize=1)
+def action_rule_sha256() -> str:
+    """规则源码指纹，阻止同一开发版本内修改算法后继续复用旧标签缓存。"""
+    return hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()
 
 
 def validate_action_rule(row: Mapping[str, Any]) -> None:
@@ -35,14 +43,15 @@ def validate_action_rule(row: Mapping[str, Any]) -> None:
     version = (row.get("action_evidence") or {}).get("rule_version")
     if version != ACTION_RULE_VERSION:
         raise ValueError(f"action rule mismatch: {version!r}; rebuild index from raw meta")
+    if (row.get("action_evidence") or {}).get("rule_code_sha256") != action_rule_sha256():
+        raise ValueError("action rule source mismatch; rebuild index from raw meta")
 
-# 纵向 horizon：STOP 用更短的即时窗，避免“已经停稳但马上起步”被判成继续停车。
+# 纵向 horizon：当前确认等待优先；未来释放不能回写为已经开始起步。
 IMMEDIATE_HORIZON_FRAMES = 6
 LONGITUDINAL_HORIZON_FRAMES = 8
 LATERAL_HORIZON_FRAMES = 12
 
 STOP_SPEED_MPS = 0.5
-STOP_RELEASE_SPEED_MPS = 2.0
 LONGITUDINAL_MIN_DELTA_MPS = 1.2
 LONGITUDINAL_RELATIVE_DELTA = 0.20
 LATERAL_MIN_SHIFT_M = 1.0
@@ -344,20 +353,31 @@ def label_actions(signals: Mapping[str, Any]) -> Optional[Dict[str, bool]]:
     immediate = speeds[:IMMEDIATE_HORIZON_FRAMES + 1]
     stopped_pairs = [i for i in range(len(immediate) - 1)
                      if max(immediate[i:i + 2]) <= STOP_SPEED_MPS]
-    # 当前已停但持续起步，与先刹到停再起步分开。速度极值不能表达这一区别。
-    release_at = next((i for i, v in enumerate(immediate)
-                       if v >= STOP_RELEASE_SPEED_MPS), None)
-    # 起步后 5.8→5.5 m/s 的巡航调节不是继续停车；旧严格单调条件会误标 STOP。
-    # 但重新跌回低速/停住仍保留 STOP。只看 1.5s 即时窗，不偷用远期释放。
-    pulling_away = (speed <= STOP_SPEED_MPS and release_at is not None
-                    and min(immediate[release_at:]) >= STOP_RELEASE_SPEED_MPS)
-    stop = bool(stopped_pairs) and not pulling_away
+    # RGB #14/#104/#147：当前及下一采样仍静止，随后起步不能回写成当前 RESUME。
+    # 仍用既有两采样确认与速度阈值；不根据 test 分数搜索新阈值。
+    stop = bool(stopped_pairs)
     decrease_at = next((i for i, v in enumerate(speeds[1:], 1) if speed - v >= threshold), 999)
     # RGB 复核 HardBreakRoute/Town13 f213：单帧速度峰值后前车制动、间距缩小，
     # 不应抢在真正减速前标 RESUME。加速需两个连续采样达到阈值；减速保留即时响应，
     # 防止窗口末端出现制动时因缺少下一帧确认被写成不减速。
     increase_at = next((i for i in range(1, len(speeds) - 1)
                         if min(speeds[i:i + 2]) - speed >= threshold), 999)
+    # RGB #13/#658：短暂增速后明显回落，单个 RESUME 无法表达反复启停。
+    # 当前等待有明确 STOP；其余增速先于减速/停车的混合窗留作边界审计，不写全 NO。
+    if not (stopped_pairs and stopped_pairs[0] == 0) and increase_at < decrease_at:
+        # 训练侧 AccidentTwoWays/Town01 001543 f93：5.36→11.50→10.16，
+        # RGB仍在持续通过障碍；峰后回调但保留显著净增速不应隔离。
+        # VehicleOpensDoorTwoWays/Town13 85_0 f126：起步、再次近停、再起步。
+        # 必须逐时刻更新已见峰值，不能让后面更高的峰掩盖前面已发生的回落。
+        peak = speed
+        reversal = False
+        for value in speeds[increase_at:]:
+            peak = max(peak, value)
+            if peak - value >= threshold and value - speed < threshold:
+                reversal = True
+                break
+        if reversal or (stopped_pairs and increase_at < stopped_pairs[0]):
+            return None
     decelerate = not stop and decrease_at < increase_at
     resume = not stop and increase_at < decrease_at
 
@@ -378,9 +398,12 @@ def action_evidence(signals: Mapping[str, Any]) -> Dict[str, Any]:
     return {
         "speed_mps": round(speed, 3),
         "future_speeds_mps": [round(float(v), 3) for v in signals.get("future_speeds", [])],
+        "future_speeds_exact_mps": [float(v) for v in signals.get("future_speeds", [])],
         "lateral_observation_complete": bool(signals.get("lateral_observation_complete")),
         "lateral_rgb_uncertainty": signals.get("lateral_rgb_uncertainty"),
         "rule_version": ACTION_RULE_VERSION,
+        "rule_code_sha256": action_rule_sha256(),
+        "temporal_semantics": "current_wait_precedes_future_release; first_confirmed_lane_crossing",
         "resume_confirmation_samples": 2,
         "lane_type_str": signals.get("lane_type_str"),
         "lateral_window_issue": signals.get("lateral_window_issue"),

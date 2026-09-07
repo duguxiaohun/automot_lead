@@ -25,7 +25,7 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
-INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data/frame_index.jsonl}"
+INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v6/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-4rgb}"
 case "${HISTORY_RGB_MODE}" in
@@ -48,6 +48,8 @@ else
   RUN_NAME="${FINAL_RUN_NAME}"
   OUTPUT_DIR="${OUTPUT_DIR:-${FINAL_OUTPUT_DIR}}"
 fi
+# 在写 latest 或创建运行目录前检查合同与完整本地权重。
+python qwen3vl_local/sft_new_loop_phase3/preflight.py --index "${INDEX}" --model-dir "${MODEL_DIR}"
 mkdir -p "${OUTPUT_DIR}" "${OUTPUT_DIR_BASE}/${RUN_NAME}"
 LATEST_TARGET="$(python -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "${OUTPUT_DIR}")"
 ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/${RUN_NAME}/latest"

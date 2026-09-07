@@ -18,8 +18,10 @@ import hashlib
 import json
 import pathlib
 import random
+import re
 import sys
 from collections import Counter, defaultdict
+from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 _THIS = pathlib.Path(__file__).resolve()
@@ -30,7 +32,8 @@ for _path in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _path)
 
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
-from qwen3vl_local.sft_loop_phase1.audit_matrix import _iter_routes_stream, _rgb_path  # noqa: E402
+from qwen3vl_local.sft_new_loop_phase3.collection_reader import iter_routes as _iter_routes_stream
+from qwen3vl_local.sft_loop_phase1.audit_matrix import _rgb_path  # noqa: E402
 from qwen3vl_local.sft_new_loop_phase3 import DATASET_NAME  # noqa: E402
 from qwen3vl_local.sft_new_loop_phase3.source_mapping import mapped_contexts, context_detail, mapping_contract_hash
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import (  # noqa: E402
@@ -58,6 +61,7 @@ from qwen3vl_local.sft_new_loop_phase3.trajectory_action import (  # noqa: E402
     action_evidence,
     label_actions,
     load_route_trajectory,
+    validate_action_rule,
 )
 from qwen3vl_local.sft_new_loop_phase3.visual_audit import (  # noqa: E402
     DEFAULT_COVERAGE_MANIFEST,
@@ -86,10 +90,27 @@ def _stable_unit(value: str) -> float:
     return int(hashlib.sha256(value.encode("utf-8")).hexdigest()[:12], 16) / float(16**12)
 
 
+def physical_route_group(scenario: str, route_id: str) -> str:
+    """同一物理路线的 Rep 与重复采集时间不能跨 split。"""
+    stem = re.sub(r"_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}$", "", route_id)
+    stem = re.sub(r"_route0$", "", stem)
+    stem = re.sub(r"_Rep\d+_", "_", stem)
+    return f"{scenario}/{stem}"
+
+
+@lru_cache(maxsize=1)
+def development_route_groups() -> frozenset:
+    """本次已用于规则开发的旧评测路线不再进入新val/test。"""
+    path = pathlib.Path(__file__).with_name("development_route_groups_20260907.json")
+    return frozenset(json.loads(path.read_text())["groups"])
+
+
 def _split(scenario: str, route_id: str, seed: int, test_ratio: float, val_ratio: float) -> str:
     """按 route 做 deterministic train/val/test 切分。"""
 
-    value = _stable_unit(f"{seed}:{scenario}:{route_id}")
+    if physical_route_group(scenario, route_id) in development_route_groups():
+        return "train"
+    value = _stable_unit(f"{seed}:{physical_route_group(scenario, route_id)}")
     return "test" if value < test_ratio else "val" if value < test_ratio + val_ratio else "train"
 
 
@@ -197,6 +218,8 @@ def _make_row(
         "mapping_contract_hash": mapping_contract_hash(),
         "scenario": base["scenario"],
         "route_id": base["route_id"],
+        "physical_route_group": physical_route_group(base["scenario"], base["route_id"]),
+        "current_speed_mps": float(base["action_evidence"]["speed_mps"]),
         "town": base["town"],
         "split": base["split"],
         "frame_id": int(base["frame_id"]),
@@ -253,13 +276,17 @@ def iter_base_frames(
 
     collection_dir = pathlib.Path(args.collection_dir)
     data_root = pathlib.Path(args.data_root).expanduser().resolve()
+    if int(getattr(args, "workers", 0)) > 0:
+        from qwen3vl_local.sft_new_loop_phase3.parallel_scan import parallel_frames
+        yield from parallel_frames(args, risk_stats, observed_scenario_town_pairs)
+        return
     if getattr(args, "candidate_cache", ""):
         # 审计专用：复用已标定的轨迹，再执行最新语义适配。禁止混入旧动作规则。
+        route_usable = {}
         with pathlib.Path(args.candidate_cache).open() as handle:
             for line in handle:
                 base = json.loads(line)
-                if base["action_evidence"].get("rule_version") != ACTION_RULE_VERSION:
-                    raise ValueError("candidate cache action rule mismatch; rebuild from meta")
+                validate_action_rule(base)
                 from qwen3vl_local.sft_new_loop_phase3.lateral_rgb_audit import lateral_uncertainty
                 lateral_review = lateral_uncertainty(base["scenario"], base["route_id"], base["frame_id"])
                 if lateral_review:
@@ -270,7 +297,9 @@ def iter_base_frames(
                     base["action_evidence"].update(lateral_observation_complete=False,
                         lane_change_direction="", lateral_rgb_uncertainty=lateral_review)
                 run = data_root / base["scenario"] / base["route_id"]
-                if not run.is_dir() or is_abnormal_lead_route(run, base["scenario"])[0]:
+                if run not in route_usable:
+                    route_usable[run] = run.is_dir() and not is_abnormal_lead_route(run, base["scenario"])[0]
+                if not route_usable[run]:
                     continue
                 contexts, evidence = mapped_contexts(base["scenario"], base["route_id"], base["frame_id"],
                     base["rs"], base["primary_event"], base["event_codes"])
@@ -341,6 +370,9 @@ def iter_base_frames(
                     continue
                 labels = label_actions(signals)
                 if labels is None:
+                    if risk_stats is not None:
+                        reason = "incomplete_speed_window" if signals["future_speed_count"] < 9 else "mixed_longitudinal_phase"
+                        risk_stats[f"action_excluded/{reason}"] += 1
                     continue
                 if (CONTEXT_BY_ID[context_id].question_domain == "FULL_MANEUVER"
                         and not signals["lateral_observation_complete"]):
@@ -669,7 +701,10 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     temporary.replace(target)
 
     manifest = {
-        "format": "sft_new_loop_phase3_frame_index_v2_high_level_action",
+        "format": "sft_new_loop_phase3_frame_index_v3_current_phase",
+        "split_contract": "physical_route_without_rep_or_collection_timestamp",
+        "development_route_groups": len(development_route_groups()),
+        "development_route_policy": "old audit pool is train-only; new val/test exclude these physical routes",
         "source_scope": ("candidate_cache" if getattr(args, "candidate_cache", "") else
                          "existing_review_cache" if getattr(args, "use_review_cache", False) else "collection_results"),
         "candidate_cache": str(getattr(args, "candidate_cache", "") or ""),
@@ -690,8 +725,8 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         "action_label_contract": (
             "Longitudinal labels come from the run's own future speed curve: STOP uses a 1.5 s immediate "
             "window, DECELERATE and RESUME use a 2 s window, and the three are mutually exclusive. "
-            "RESUME requires two consecutive speed samples above the gain threshold. "
-            "Lateral candidates require a Driving-waypoint identity change within 3 s on the same road, with "
+            "Current confirmed waiting is STOP even before a later release. RESUME requires two consecutive speed samples above the gain threshold; acceleration-then-braking mixed windows are excluded. "
+            "Lateral candidates predict the FIRST confirmed Driving-waypoint identity change within 3 s on the same road, with "
             "the direction resolved from the lane ordering and the lane ego entered the current continuous road visit in, "
             "so borrowing the opposing lane is LEFT and returning is RIGHT. Non-Driving or unknown waypoint "
             "windows cannot supervise lateral NO. Lane-section continuity still needs RGB/map confirmation. "
@@ -699,7 +734,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         ),
         "input_contract": (
             "The model receives one image+text user turn with the RGB history, the Phase1/Phase2 road "
-            "structure and situation as a premise, and the route target point in ego coordinates "
+            "structure and situation as a premise, newest-frame measured speed, and the route target point in ego coordinates "
             "(x forward, y negative left, y positive right)."
         ),
         "invalid_contract": (
@@ -752,7 +787,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--collection-dir", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v6"))
     p.add_argument(
         "--review-root",
         default=str(
@@ -782,6 +817,7 @@ def parse_args() -> argparse.Namespace:
         help="mismatched-context invalid rows as a fraction of valid main rows",
     )
     p.add_argument("--max-routes", type=int, default=0)
+    p.add_argument("--workers", type=int, default=0, help="parallel CPU scenario scans; 0 is serial")
     p.add_argument(
         "--require-invalid-true-rs-coverage",
         action=argparse.BooleanOptionalAction,

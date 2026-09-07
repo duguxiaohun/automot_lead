@@ -214,14 +214,14 @@ def test_stop_wins_over_decelerate_when_ego_comes_to_rest() -> None:
     assert labels["RESUME"] is False
 
 
-def test_already_stopped_but_pulling_away_is_resume_not_stop() -> None:
-    """已经停稳但即将起步时是 RESUME，不再继续 STOP。"""
+def test_current_confirmed_wait_precedes_later_resume() -> None:
+    """当前两采样仍近停时，未来释放不能覆盖当前 STOP。"""
 
     labels = label_actions(
         _signals(future_speeds=[0, .5, 1, 2, 3, 4, 5, 6, 6], speed=0.0, speed_min=0.0, speed_max=6.0, immediate_speed_min=0.0, immediate_speed_max=5.0)
     )
-    assert labels["STOP"] is False
-    assert labels["RESUME"] is True
+    assert labels["STOP"] is True
+    assert labels["RESUME"] is False
     assert labels["DECELERATE"] is False
 
 
@@ -254,6 +254,8 @@ def test_longitudinal_actions_stay_mutually_exclusive() -> None:
                 immediate_speed_max=rng.uniform(speed, high),
             )
         )
+        if labels is None:
+            continue  # 反复增速/制动的多阶段窗不生成硬标签。
         assert sum(int(labels[key]) for key in ("DECELERATE", "STOP", "RESUME")) <= 1
 
 
@@ -499,7 +501,7 @@ def test_invalid_builder_keeps_true_rs_and_wrong_context_coverage() -> None:
                 "action_labels": {key: False for key in ACTION_KEYS},
                 "goal_x": 20.0,
                 "goal_y": 0.0,
-                "action_evidence": {},
+                "action_evidence": {"speed_mps": 8.0},
                 "visual_label_risk": False,
                 "visual_label_risk_reasons": (),
                 "history_rgb_paths": ["x.jpg"] * 4,

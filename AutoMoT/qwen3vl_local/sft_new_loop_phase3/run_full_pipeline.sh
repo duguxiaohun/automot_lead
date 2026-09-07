@@ -22,7 +22,7 @@ export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
-DATA_DIR="${DATA_DIR:-checkpoints/sft_new_loop_phase3_data}"
+DATA_DIR="${DATA_DIR:-checkpoints/sft_new_loop_phase3_data_v6}"
 INDEX="${INDEX:-${DATA_DIR}/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
@@ -33,6 +33,8 @@ SKIP_TRAIN="${SKIP_TRAIN:-0}"
 SKIP_EVAL="${SKIP_EVAL:-0}"
 TIMESTAMP="${TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 PIPELINE_ROOT="${PIPELINE_ROOT:-checkpoints/sft_new_loop_phase3_pipeline/${TIMESTAMP}}"
+
+RUN_ROOT="${RUN_ROOT:-${OUTPUT_DIR:-${PIPELINE_ROOT}/train}}"
 
 mkdir -p "${PIPELINE_ROOT}"
 exec > >(tee -a "${PIPELINE_ROOT}/pipeline.log") 2>&1
@@ -50,6 +52,7 @@ if [[ "${SKIP_BUILD}" == "1" ]]; then
   echo "[skip] SKIP_BUILD=1; reusing ${INDEX}"
 else
   BUILD_ARGS=(
+    --workers "${BUILD_WORKERS:-0}"
     --data-root "${DATA_ROOT}"
     --output-dir "${DATA_DIR}"
     --scenarios "${SCENARIOS:-all}"
@@ -70,17 +73,22 @@ else
   python qwen3vl_local/sft_new_loop_phase3/build_dataset.py "${BUILD_ARGS[@]}"
 fi
 
+# 标签完整精度复算、RGB路径与split核验结果随pipeline保存，失败时不启动训练。
+python qwen3vl_local/sft_new_loop_phase3/audit_rebuilt_index.py \
+  --index "${INDEX}" --data-root "${DATA_ROOT}" \
+  --output "${PIPELINE_ROOT}/index_audit.json"
+
 echo
 echo "========== 3/4 train LoRA =========="
 if [[ "${SKIP_TRAIN}" == "1" ]]; then
   echo "[skip] SKIP_TRAIN=1"
 else
   INDEX="${INDEX}" DATA_ROOT="${DATA_ROOT}" MODEL_DIR="${MODEL_DIR}" \
-  HISTORY_RGB_MODE="${HISTORY_RGB_MODE}" \
+  HISTORY_RGB_MODE="${HISTORY_RGB_MODE}" OUTPUT_DIR="${RUN_ROOT}" \
     bash qwen3vl_local/sft_new_loop_phase3/train.sh "${TRAIN_MODE}"
 fi
 
-RUN_ROOT="checkpoints/sft_new_loop_phase3_runs/latest"
+
 
 adapter_history_rgb_mode() {
   local adapter_input="$1"
@@ -108,7 +116,8 @@ echo "========== 4/4 standalone eval + error audit =========="
 if [[ "${SKIP_EVAL}" == "1" ]]; then
   echo "[skip] SKIP_EVAL=1"
 elif [[ ! -e "${RUN_ROOT}" ]]; then
-  echo "[skip] no trained run at ${RUN_ROOT}"
+  echo "[error] no trained run at ${RUN_ROOT}; set RUN_ROOT when SKIP_TRAIN=1" >&2
+  exit 1
 else
   ADAPTER_RGB_MODE="$(adapter_history_rgb_mode "${RUN_ROOT}")"
   BUNDLE_NAME="${BUNDLE_BASENAME:-sft_new_loop_phase3_${TIMESTAMP}_${ADAPTER_RGB_MODE}_audit_bundle}"
