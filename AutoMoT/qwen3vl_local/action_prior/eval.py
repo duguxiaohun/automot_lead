@@ -24,6 +24,11 @@ def main():
     p.add_argument("--phase1-training-index", default="")
     p.add_argument("--phase2-training-index", default="")
     p.add_argument("--output-dir", default="")
+    # 默认跟随 checkpoint 自己的先验来源；只有显式关闭才回到 LoRA 推理。
+    p.add_argument("--dataset-priors", action=argparse.BooleanOptionalAction, default=None)
+    p.add_argument("--prior-labels", default="")
+    # 默认仍用训练时的注入噪声；--prior-noise 0 才是干净先验对照。
+    p.add_argument("--prior-noise", type=float, default=None)
     p.add_argument("--split", choices=["val", "test"], default="test")
     p.add_argument("--max-samples", type=int, default=0)
     p.add_argument("--dump-cases", action="store_true")
@@ -64,10 +69,32 @@ def main():
     args.selection_manifest = ""
     args.selection_output = ""
     args.lora_bundle = ""
-    from qwen3vl_local.action_prior.lora_bundle import restore_paths
-    local_paths = restore_paths(state["qwen_backbone"], cli.checkpoint)
-    args.phase1_adapter = cli.phase1_adapter or local_paths["phase1"]
-    args.phase2_adapter = cli.phase2_adapter or local_paths["phase2"]
+    trained_with_dataset_priors = bool(state["args"].get("dataset_priors", False))
+    args.dataset_priors = (
+        trained_with_dataset_priors if cli.dataset_priors is None else cli.dataset_priors
+    )
+    if cli.prior_labels:
+        args.prior_labels = cli.prior_labels
+    trained_prior_noise = float(state["args"].get("prior_noise", 0.0))
+    args.prior_noise = trained_prior_noise if cli.prior_noise is None else cli.prior_noise
+    prior_source_override = (
+        args.dataset_priors != trained_with_dataset_priors
+        or args.prior_noise != trained_prior_noise
+    )
+    if args.dataset_priors:
+        args.phase1_adapter = args.phase2_adapter = ""
+    else:
+        args.prior_labels = ""
+        args.prior_noise = 0.0
+        from qwen3vl_local.action_prior.lora_bundle import restore_paths
+
+        local_paths = (
+            restore_paths(state["qwen_backbone"], cli.checkpoint)
+            if state["qwen_backbone"].get("phase1")
+            else {"phase1": "", "phase2": ""}
+        )
+        args.phase1_adapter = cli.phase1_adapter or local_paths["phase1"]
+        args.phase2_adapter = cli.phase2_adapter or local_paths["phase2"]
     for k in (
         "data_root",
         "data_dir",
@@ -90,7 +117,17 @@ def main():
     if "error" in box[0]:
         raise ValueError(box[0]["error"])
     contract = box[0]["contract"]
-    require_contract(state["qwen_backbone"], contract)
+    contract_match = require_contract(
+        state["qwen_backbone"], contract, allow_prior_source_change=prior_source_override
+    )
+    if prior_source_override:
+        print(
+            "[prior source override] trained_with_dataset_priors="
+            f"{trained_with_dataset_priors} noise={trained_prior_noise} -> "
+            f"dataset_priors={args.dataset_priors} noise={args.prior_noise}; "
+            "this is a deliberate condition shift, not a same-condition reproduction",
+            flush=True,
+        )
     from qwen3vl_local.action_prior.provenance import audit_source_changes
 
     audit_changes = audit_source_changes(
@@ -140,6 +177,12 @@ def main():
                 split=cli.split,
                 ema=not cli.raw,
                 contract_identity=contract["identity"],
+                contract_match=contract_match,
+                prior_source=contract.get("prior_source", "phase_loras"),
+                trained_with_dataset_priors=trained_with_dataset_priors,
+                trained_prior_noise=trained_prior_noise,
+                evaluated_prior_noise=args.prior_noise,
+                prior_source_override=prior_source_override,
                 sample_limit=cli.max_samples,
                 upstream_training_pool_audit=exposure,
                 upstream_sources=contract["upstream_sources"],

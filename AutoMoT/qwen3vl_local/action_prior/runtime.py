@@ -13,7 +13,10 @@ from qwen3vl_local.action_prior.progress import report
 
 
 class PriorEngine:
-    """共享一个 frozen base，两个独立 LoRA；不 merge，不混用不同 adapter 的 cache。"""
+    """共享一个 frozen base，两个独立 LoRA；不 merge，不混用不同 adapter 的 cache。
+
+    传入 ``labels`` 表示改用数据集标定真值：完全不加载 LoRA，也不做任何先验问答。
+    """
 
     def __init__(
         self,
@@ -22,14 +25,25 @@ class PriorEngine:
         analysis_tokens=384,
         text_cache=None,
         recheck_mode="history",
+        labels=None,
+        analysis_review=True,
     ):
-        from peft import PeftModel
-        from qwen3vl_local.engine import _inspect_lora_adapter
-
         self.engine, self.contract = engine, contract
         self.analysis_tokens = analysis_tokens
         self.text_cache = text_cache
         self.recheck_mode = recheck_mode
+        self.labels = labels
+        self.analysis_review = bool(analysis_review)
+        self.adapters = None
+        self.last_audit = None
+        if labels is not None:
+            report("setup/dataset_prior_labels", announce=True,
+                   prior_labels=labels.path, labeled_frames=labels.rows,
+                   analysis_review=self.analysis_review)
+            return
+        from peft import PeftModel
+        from qwen3vl_local.engine import _inspect_lora_adapter
+
         for key in ("phase1", "phase2"):
             _inspect_lora_adapter(Path(contract[key]["path"]))
         report("setup/load_phase1_lora", announce=True, phase1_path=contract["phase1"]["path"])
@@ -50,7 +64,6 @@ class PriorEngine:
         # PEFT 仅管理启停；forward/decode 始终调用底层 Qwen 及本地 M-RoPE helper。
         self.engine.model = self.adapters.get_base_model()
         self.adapters.eval().requires_grad_(False)
-        self.last_audit = None
         report("setup/loras_ready", announce=True)
 
     @contextlib.contextmanager
@@ -58,6 +71,12 @@ class PriorEngine:
         """每次切换清除旧 cache；base 时整段生成都禁用所有 LoRA。"""
         self.engine._last_decode_state = None
         self.engine._system_prompt_cache = None
+        if self.adapters is None:
+            # 数据集先验从未加载 adapter，模型本身就是 frozen base。
+            if name != "base":
+                raise ValueError("dataset priors never run a LoRA adapter")
+            yield
+            return
         try:
             if name == "base":
                 with self.adapters.disable_adapter():
@@ -105,12 +124,14 @@ class PriorEngine:
             trace,
         )
 
-    def condition(self, images, navigation, sample_key):
+    def condition(self, images, navigation, sample_key, identity=None):
         """返回纯 base 吃四张图+先验+生成分析后的 cache，不包含 LoRA 计算的 KV。"""
         if len(images) != 4:
             raise ValueError(
                 "action prior requires four chronological stitched RGB images"
             )
+        if self.labels is not None and identity is None:
+            raise ValueError("dataset priors need the (scenario, run_id, frame) identity")
 
         question_count = 0
 
@@ -142,8 +163,12 @@ class PriorEngine:
 
         def compute():
             report("condition/cache_miss", text_cache_hit=False)
-            priors = collect_priors(ask, sample_key, recheck_mode=self.recheck_mode,
-                                    event_module=prompt_module(2, self.contract["phase2"]["metadata"]))
+            if self.labels is not None:
+                report("condition/dataset_labels")
+                priors = self.labels.priors(identity)
+            else:
+                priors = collect_priors(ask, sample_key, recheck_mode=self.recheck_mode,
+                                        event_module=prompt_module(2, self.contract["phase2"]["metadata"]))
             report("condition/base_analysis")
             with self.mode("base"):
                 text, trace = self.generate_messages(
@@ -156,7 +181,7 @@ class PriorEngine:
             raw_analysis = text
             review, review_raw = None, ""
             review_truncated = False
-            if not truncated and prompts.analysis_format_valid(text):
+            if self.analysis_review and not truncated and prompts.analysis_format_valid(text):
                 report("condition/base_review")
                 # 第二次独立文本调用只审查蕴含关系；不继承生成 cache，也不重新看图分类。
                 with self.mode("base"):
@@ -169,11 +194,16 @@ class PriorEngine:
                 review_truncated = not any(s.is_eos for s in review_trace.decode_steps)
                 if not review_truncated:
                     review = prompts.parse_review(review_raw)
-            fallback = not prompts.valid_analysis(text, priors, review)
+            # 截断文本即使恰好凑成三段也不能当完整分析，与复核开关无关。
+            fallback = truncated or not prompts.valid_analysis(
+                text, priors, review, require_review=self.analysis_review
+            )
             if truncated:
                 rejection = "generation_truncated"
             elif not prompts.analysis_format_valid(text):
                 rejection = "generation_format"
+            elif not self.analysis_review:
+                rejection = "none"
             elif review_truncated or review is None:
                 rejection = "review_truncated" if review_truncated else "review_format"
             elif not all(review.values()):
@@ -195,7 +225,12 @@ class PriorEngine:
                 analysis_review_raw=review_raw,
                 analysis_review_truncated=review_truncated,
                 reviewed_analysis_sha256=digest(raw_analysis),
-                analysis_acceptance="fallback" if fallback else "base_model_review",
+                analysis_review_enabled=self.analysis_review,
+                analysis_acceptance=(
+                    "fallback"
+                    if fallback
+                    else "base_model_review" if self.analysis_review else "format_only"
+                ),
                 analysis_semantic_guarantee=False,
             )
 
@@ -212,10 +247,16 @@ class PriorEngine:
                 priors, navigation
             )
         else:
-            accepted = priors.get("reviewed_analysis_sha256") == digest(
-                priors["analysis"]
-            ) and prompts.valid_analysis(
-                priors["analysis"], priors, priors.get("analysis_review")
+            accepted = (
+                not priors.get("analysis_truncated")
+                and priors.get("reviewed_analysis_sha256") == digest(priors["analysis"])
+                and priors.get("analysis_review_enabled", True) == self.analysis_review
+                and prompts.valid_analysis(
+                    priors["analysis"],
+                    priors,
+                    priors.get("analysis_review"),
+                    require_review=self.analysis_review,
+                )
             )
         if not accepted:
             raise ValueError(
@@ -299,16 +340,32 @@ def make_runtime(args, device, contract):
                 if args.cache_priors
                 else None
             )
+            labels = None
+            if getattr(args, "dataset_priors", False):
+                from qwen3vl_local.action_prior.dataset_labels import (
+                    PriorLabelIndex,
+                    PriorNoise,
+                )
+
+                labels = PriorLabelIndex(
+                    args.prior_labels,
+                    PriorNoise(
+                        args.prior_noise, args.prior_noise_invalid_share, args.seed
+                    ),
+                )
             self.prior = PriorEngine(
                 self.runner.leadmot_qwen_engine,
                 contract,
                 args.analysis_tokens,
                 cache,
                 args.recheck_mode,
+                labels,
+                args.analysis_review,
             )
             self.base_prefill = self.runner._run_leadmot_qwen_prefill
             self.runner._run_leadmot_qwen_prefill = self.prefill_prior
             self.sample_key = ""
+            self.sample_identity = None
 
         def prefill_prior(self, rgb_pil_list, user_prompt):
             """仅 navigation 作为公开输入，不把 sample 字典送入 Qwen。"""
@@ -326,12 +383,19 @@ def make_runtime(args, device, contract):
                     condition_mode="base",
                 )
                 return result
-            return self.prior.condition(rgb_pil_list, user_prompt, self.sample_key)
+            return self.prior.condition(
+                rgb_pil_list, user_prompt, self.sample_key, self.sample_identity
+            )
 
         def forward_sample(
             self, sample, decoder, decoder_config, decoder_dtype, clip=None
         ):
             self.sample_key = f"{sample['scenario']}/{sample['run_id']}:{sample['anchor']}:{args.seed}"
+            self.sample_identity = (
+                str(sample["scenario"]),
+                str(sample["run_id"]),
+                int(sample["anchor"]),
+            )
 
             def decoder_with_trainable_cache(**kwargs):
                 report("train_or_eval/decoder_forward")

@@ -169,11 +169,37 @@ def select_adapter(root, phase, model_dir, explicit=""):
     }
 
 
-def require_contract(expected, actual):
-    """resume/eval 必须恢复同样的 base、先验权重与分析协议。"""
-    if expected.get("schema") != SCHEMA or expected.get("identity") != actual.get(
-        "identity"
-    ):
+PRIOR_SOURCE_IDENTITY_FIELDS = (
+    "prior_source",
+    "prior_labels",
+    "prior_noise",
+    "phase1",
+    "phase2",
+)
+
+
+def decoder_identity(contract):
+    """去掉先验来源后的身份；只用于显式承认条件迁移的对照评测。"""
+    payload = contract.get("identity_payload")
+    if not payload:
+        raise ValueError("contract has no identity_payload; cannot compare prior sources")
+    return digest({k: v for k, v in payload.items() if k not in PRIOR_SOURCE_IDENTITY_FIELDS})
+
+
+def require_contract(expected, actual, allow_prior_source_change=False):
+    """resume/eval 必须恢复同样的 base、先验权重与分析协议。
+
+    ``allow_prior_source_change`` 只在调用方显式切换 dataset/LoRA 先验时放开先验字段；
+    其余执行代码、base、BEV、精度与分析协议仍必须逐位一致，且结果不能当同条件复现。
+    """
+    if expected.get("schema") != SCHEMA:
         raise ValueError(
             "action prior checkpoint contract mismatch; do not cross-load old LeadMoT or different priors"
         )
+    if expected.get("identity") == actual.get("identity"):
+        return "identical"
+    if allow_prior_source_change and decoder_identity(expected) == decoder_identity(actual):
+        return "prior_source_override"
+    raise ValueError(
+        "action prior checkpoint contract mismatch; do not cross-load old LeadMoT or different priors"
+    )

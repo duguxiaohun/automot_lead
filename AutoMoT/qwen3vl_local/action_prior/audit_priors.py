@@ -24,8 +24,11 @@ def main():
     p.add_argument("--split", choices=["val", "test"], default="val")
     args = p.parse_args()
     validate_args(args)
-    if args.max_samples <= 0 or args.condition_mode != "prior":
-        raise ValueError("audit requires prior mode and positive --max-samples")
+    if args.max_samples <= 0 or args.condition_mode != "prior" or args.dataset_priors:
+        raise ValueError(
+            "recheck audit compares two LoRA answers; it requires prior mode, "
+            "--no-dataset-priors and a positive --max-samples"
+        )
     for key in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
         os.environ[key] = "1"
     ensure_gpu()

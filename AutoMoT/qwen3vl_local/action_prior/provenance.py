@@ -21,6 +21,7 @@ EXECUTION_SEEDS = (
             "config",
             "contracts",
             "available_adapters",
+            "dataset_labels",
             "lora_bundle",
             "train",
             "build_dataset",
@@ -218,20 +219,30 @@ def annotate_upstream(rows, sources):
     for row in rows:
         exposure = {}
         for phase, source in sources.items():
+            status = source["status"]
             exposure[phase] = (
-                "unknown"
-                if source["status"] == "unknown"
+                # 数据集先验逐帧命中真值，不存在“训练池重叠”这个问题。
+                "dataset_label_lookup"
+                if status == "dataset_label_lookup"
                 else (
-                    "train_pool_overlap"
-                    if row["route_group"] in sets[phase]
-                    else "outside_train_pool"
+                    "unknown"
+                    if status == "unknown"
+                    else (
+                        "train_pool_overlap"
+                        if row["route_group"] in sets[phase]
+                        else "outside_train_pool"
+                    )
                 )
             )
-        values = exposure.values()
+        values = set(exposure.values())
         exposure["combined"] = (
-            "train_pool_overlap"
-            if "train_pool_overlap" in values
-            else "unknown" if "unknown" in values else "outside_both_train_pools"
+            "dataset_label_lookup"
+            if values == {"dataset_label_lookup"}
+            else (
+                "train_pool_overlap"
+                if "train_pool_overlap" in values
+                else "unknown" if "unknown" in values else "outside_both_train_pools"
+            )
         )
         row["upstream_exposure"] = exposure
         for phase, value in exposure.items():

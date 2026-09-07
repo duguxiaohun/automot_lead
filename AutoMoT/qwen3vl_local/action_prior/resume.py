@@ -20,10 +20,11 @@ def main():
     cfg = json.loads((checkpoint.parent / "config.json").read_text())
     plan = json.loads((checkpoint.parent / "training_plan.json").read_text())
     selected = json.loads((checkpoint.parent / "selected_priors.json").read_text())
-    from qwen3vl_local.action_prior.lora_bundle import restore_paths
-    local_paths = restore_paths(selected, checkpoint)
-    cfg["phase1_adapter"] = local_paths["phase1"]
-    cfg["phase2_adapter"] = local_paths["phase2"]
+    if selected.get("phase1"):
+        from qwen3vl_local.action_prior.lora_bundle import restore_paths
+        local_paths = restore_paths(selected, checkpoint)
+        cfg["phase1_adapter"] = local_paths["phase1"]
+        cfg["phase2_adapter"] = local_paths["phase2"]
     args = []
     for k, v in cfg.items():
         if k not in DEFAULTS or k in ("resume", "output_dir", "selection_output", "selection_manifest", "lora_bundle"):
