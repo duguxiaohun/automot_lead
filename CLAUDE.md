@@ -459,3 +459,8 @@ rank_loras 默认导出最优组合 tar.gz+SHA256，包内仅选中两阶段 slo
 自由生成/eval去重并报告实际覆盖。NONE守卫取真实全NO签名；新增纵向precision/recall与独立负例支持检查。
 逐帧隔离与新增负例以版本化JSONL为准，不可把场景/Town机器覆盖当全路线人工动作确认。
 Phase1/2/action_prior未改；训练只读完整本地Qwen权重，不下载。详见 `sft_new_loop_phase3/REPAIR_20260907.md`。
+
+2026-09-08 Phase3 DDP 验证等待：rank0 串行自由生成，其余 rank 等 barrier；
+`DDP_TIMEOUT_SECONDS` 默认3600秒，新增生成进度/耗时与同步日志。仅缓解等待超时，
+不表示验证加速或远端GPU已通过；见 PROJECT_CONTEXT.md「Phase3 DDP 验证超时缓解」
+与 `sft_new_loop_phase3/SFT_NEW_LOOP_PHASE3_RUN.md`。

@@ -829,3 +829,13 @@ invalid_any = domain_only + unconfirmed，正常 domain_inapplicable 不当失�
 Phase1/2/action_prior未改；训练只读完整本地Qwen权重，不下载。详见 `sft_new_loop_phase3/REPAIR_20260907.md`。
 
 Phase3本次最终重建14,832条（train/val/test=12,492/528/1,812），物理路线交叉0，79项回归和实际采样检查通过。已尝试pipeline训练入口，本机缺本地Qwen权重而中止，未训练新模型；不能宣称新成功率提升。最终索引位于`AutoMoT/checkpoints/sft_new_loop_phase3_data_v6/`。
+
+### 2026-09-08 Phase3 DDP 验证超时缓解
+
+Phase3 自由生成验证只在 rank0 串行运行，其余 rank 等 NCCL barrier；默认去重前约384题
+可能越过原600秒进程组超时。`train.py/train.sh` 新增 `--ddp-timeout-seconds` /
+`DDP_TIMEOUT_SECONDS`，默认3600秒，新旧初始化分支均显式传入；整个进程组共用该预算。
+新增生成开始/样本边界/完成数/耗时/ETA 与 barrier 日志，`GENERATION_EVAL_LOG_EVERY=1`
+可逐题定位，默认10；日志不是后台心跳。采样、prompt、评分和checkpoint guard不变。
+这是等待预算与可观测性缓解，不是多卡生成加速或卡死修复；本机仅合成/CPU回归，远端需
+跨过一次完整生成验证后确认恢复训练。运行和短验说明见 `sft_new_loop_phase3/SFT_NEW_LOOP_PHASE3_RUN.md`。

@@ -2,6 +2,37 @@
 
 # SFT New Loop Phase3 运行说明
 
+2026-09-08 DDP 验证超时缓解：teacher-forced val 后的自由生成只在 rank0 串行运行，
+其余 rank 等待 NCCL barrier。默认 balance count=32 对应去重前约384题，可能超过
+NCCL 原默认600秒。现在 `DDP_TIMEOUT_SECONDS` / `--ddp-timeout-seconds` 默认3600秒，
+新旧 PyTorch 初始化分支均显式传入；该预算影响整个进程组，真实通信故障也可能更晚报错。
+它只延长等待，不加速验证，也不能修复读图或 CUDA 卡死。
+
+更新代码后，在原训练命令前加以下变量即可（默认自动选4张空闲卡）：
+
+```bash
+DDP_TIMEOUT_SECONDS=3600 GENERATION_EVAL_LOG_EVERY=10 \
+  bash qwen3vl_local/sft_new_loop_phase3/train.sh ddp
+# 显式 pin 同一配置：
+GPU_IDS=0,1,2,3 DDP_TIMEOUT_SECONDS=3600 GENERATION_EVAL_LOG_EVERY=10 \
+  bash qwen3vl_local/sft_new_loop_phase3/train.sh ddp
+```
+
+`run_full_pipeline.sh` 同样继承这两个环境变量。日志显示 generation 开始时的抽样/去重数、
+样本边界的 route/frame、完成数/耗时/ETA 及各 rank barrier 进入/完成；耗时也写入指标。
+默认每10题或样本边界间隔30秒打印，首尾必打印；**不是后台心跳**，单题卡住时不会刷新。
+需要精确定位时用 `GENERATION_EVAL_LOG_EVERY=1`，最后一个 case 与其 progress 是否成对可定位问题。
+
+远端短验可在原配置前加 `MAX_STEPS=12 EVAL_STEPS=10 GENERATION_EVAL_STEPS=10`，
+确认出现 `generation-val-sync ... complete` 后继续到step11/12，再启动长训。
+保留原 INDEX、RGB mode、采样与完整验证规模，短验只检查执行链，不判断训练质量。
+若进度一直推进但仍超预算，按实测耗时加余量调大超时；若进度停住，应检查对应读图/推理，
+不要只无限加大预算。缩小 `GENERATION_EVAL_BALANCE_COUNT` 会改变验证覆盖和选优可比性，
+并可能触发 INVALID 覆盖硬校验；增加验证步频间隔不缩短单次等待。
+
+当前入口只保存 adapter，没有 optimizer/scheduler 的断点恢复接口；不要把已有 best adapter
+当成完整训练断点。若首次2000步尚未保存即退出，不能直接从step2000精确续训。
+
 `sft_new_loop_phase3` 是 Phase1（RS + 三个可见事实）和 Phase2（EVENT）之后的
 **high-level 动作决策**阶段。它把前两阶段已经确定的道路结构与异常事件标志当作
 待核对前提写进 prompt；R-E2/R-E3/R-E5 可由显式导航/历史 gate 或
