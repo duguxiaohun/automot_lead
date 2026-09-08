@@ -26,6 +26,7 @@ import sys
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
@@ -136,9 +137,11 @@ def _git_metadata() -> Dict[str, Any]:
     }
 
 
-def setup_distributed() -> Tuple[int, int, int]:
-    """初始化可选 torchrun DDP。"""
+def setup_distributed(timeout_seconds: int = 3600) -> Tuple[int, int, int]:
+    """初始化 DDP；超时预算须覆盖 rank0 串行生成验证的等待时间。"""
 
+    if timeout_seconds <= 0:
+        raise ValueError("--ddp-timeout-seconds must be positive")
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -147,9 +150,12 @@ def setup_distributed() -> Tuple[int, int, int]:
             raise RuntimeError("sft_new_loop_phase3 DDP requires CUDA.")
         torch.cuda.set_device(local_rank)
         try:
-            dist.init_process_group(backend="nccl", device_id=torch.device(f"cuda:{local_rank}"))
+            dist.init_process_group(
+                backend="nccl", device_id=torch.device(f"cuda:{local_rank}"),
+                timeout=timedelta(seconds=timeout_seconds),
+            )
         except TypeError:
-            dist.init_process_group(backend="nccl")
+            dist.init_process_group(backend="nccl", timeout=timedelta(seconds=timeout_seconds))
     return rank, local_rank, world_size
 
 
@@ -793,12 +799,19 @@ def evaluate_generation_probe(
     max_new_tokens: int,
     record_path: Optional[pathlib.Path] = None,
     step: int = 0,
+    log_every: int = 10,
 ) -> Dict[str, float]:
     """在固定独立 val 样本上以真实 greedy generation 检查输出行格式与语义。"""
 
     from qwen3vl_local.sft_new_loop_phase3.invalid_balance import unique_cases
     sampled_count = len(work)
     work = unique_cases(work)
+    started_at = time.monotonic()
+    last_progress_at = started_at
+    print(
+        f"[generation-val-start] step={step} sampled={sampled_count} unique_cases={len(work)} "
+        f"max_new_tokens={max_new_tokens}", flush=True,
+    )
     same_rs_routes = set()
     model = bundle.unwrap()
     was_training = bool(model.training)
@@ -816,9 +829,19 @@ def evaluate_generation_probe(
     invalid_subgroup_counts: Counter = Counter()
     pattern_counts: Counter = Counter()
     records: List[Dict[str, Any]] = []
-    for item in work:
+    for case_index, item in enumerate(work, 1):
         row = item.row
         spec = item.spec
+        now = time.monotonic()
+        # 边界日志在读图之前输出；需要逐条定位卡住样本时把 log_every 设为 1。
+        log_case = (case_index == 1 or case_index == len(work)
+                    or case_index % max(1, log_every) == 0 or now - last_progress_at >= 30)
+        if log_case:
+            print(
+                f"[generation-val-case] step={step} case={case_index}/{len(work)} "
+                f"route={row.scenario}/{row.route_id} frame={row.frame_id} "
+                f"elapsed={now - started_at:.1f}s", flush=True,
+            )
         images = _load_images(select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode))
         state = _kv_start_state(
             runtime,
@@ -901,6 +924,15 @@ def evaluate_generation_probe(
                 "history_rgb_paths_used": select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode),
             }
         )
+        if log_case:
+            now = time.monotonic()
+            elapsed = now - started_at
+            print(
+                f"[generation-val-progress] step={step} done={case_index}/{len(work)} "
+                f"elapsed={elapsed:.1f}s eta={elapsed / case_index * (len(work) - case_index):.1f}s",
+                flush=True,
+            )
+            last_progress_at = now
     if was_training:
         model.train()
     metrics: Dict[str, float] = {
@@ -968,6 +1000,7 @@ def evaluate_generation_probe(
                 )
                 + "\n"
             )
+    metrics["elapsed_seconds"] = time.monotonic() - started_at
     return metrics
 
 
@@ -1021,6 +1054,8 @@ def _save_adapter(
         "eval_balance_count": int(args.eval_balance_count),
         "format_loss_weight": float(args.format_loss_weight),
         "generation_eval_steps": int(args.generation_eval_steps),
+        "ddp_timeout_seconds": int(args.ddp_timeout_seconds),
+        "generation_eval_log_every": int(args.generation_eval_log_every),
         "generation_eval_balance_count": int(args.generation_eval_balance_count),
         "generation_eval_route_diverse": bool(args.generation_eval_route_diverse),
         "generation_eval_sampling_seed": int(args.generation_eval_sampling_seed),
@@ -1150,7 +1185,7 @@ def train(args: argparse.Namespace) -> None:
     from qwen3vl_local.sft_new_loop_phase3.preflight import check_index, check_model
     check_index(args.index)
     check_model(args.model_dir)
-    rank, local_rank, world_size = setup_distributed()
+    rank, local_rank, world_size = setup_distributed(int(args.ddp_timeout_seconds))
     device = (
         torch.device(f"cuda:{local_rank}")
         if world_size > 1
@@ -1161,7 +1196,8 @@ def train(args: argparse.Namespace) -> None:
     if rank == 0:
         print(
             f"[startup] world_size={world_size} device={device} index={args.index} split={args.split} "
-            f"focus_balance_count={args.focus_balance_count} eval_steps={args.eval_steps}",
+            f"focus_balance_count={args.focus_balance_count} eval_steps={args.eval_steps} "
+            f"ddp_timeout_seconds={args.ddp_timeout_seconds}",
             flush=True,
         )
     rows = _read_rows(
@@ -1524,6 +1560,7 @@ def train(args: argparse.Namespace) -> None:
                         max_new_tokens=int(args.generation_eval_max_new_tokens),
                         record_path=output_dir / "generation_val_cases.jsonl",
                         step=global_step,
+                        log_every=int(args.generation_eval_log_every),
                     )
                     if writer:
                         for key, value in generation_metrics.items():
@@ -1540,10 +1577,17 @@ def train(args: argparse.Namespace) -> None:
                     print(
                         f"[generation-val] step={global_step}/{total_steps} "
                         f"format_valid={generation_metrics['format_valid_rate']:.4f} "
-                        f"exact={generation_metrics['exact_accuracy']:.4f}"
+                        f"exact={generation_metrics['exact_accuracy']:.4f} "
+                        f"elapsed={generation_metrics['elapsed_seconds']:.1f}s", flush=True,
                     )
                 if run_generation_eval and world_size > 1:
+                    print(
+                        f"[generation-val-sync] rank={rank} step={global_step} "
+                        f"enter barrier; rank0 runs generation, timeout={args.ddp_timeout_seconds}s",
+                        flush=True,
+                    )
                     ddp_barrier(local_rank)
+                    print(f"[generation-val-sync] rank={rank} step={global_step} complete", flush=True)
                 if rank == 0:
                     eligible_for_best = not bool(full_generation_eval_work) or run_generation_eval
                     format_gate_ok = eligible_for_best and (
@@ -1713,6 +1757,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--split", default="train")
     p.add_argument("--history-rgb-mode", choices=HISTORY_RGB_MODES, default=DEFAULT_HISTORY_RGB_MODE)
     p.add_argument("--device", default="auto")
+    p.add_argument("--ddp-timeout-seconds", type=int, default=3600,
+                   help="NCCL collective timeout, including waiting for rank0 generation validation")
     p.add_argument("--max-frames", type=int, default=0)
     p.add_argument(
         "--focus-balance-count",
@@ -1752,6 +1798,7 @@ def parse_args() -> argparse.Namespace:
         "--generation-eval-route-diverse", action=argparse.BooleanOptionalAction, default=True
     )
     p.add_argument("--generation-eval-max-new-tokens", type=int, default=64)
+    p.add_argument("--generation-eval-log-every", type=int, default=10)
     p.add_argument("--generation-eval-min-valid-rate", type=float, default=1.0)
     p.add_argument("--generation-eval-min-invalid-exact", type=float, default=0.80)
     p.add_argument("--generation-eval-min-lane-change-recall", type=float, default=0.60)
@@ -1777,6 +1824,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=20260904)
     p.add_argument("--no-tb", action="store_true")
     args = p.parse_args()
+    if args.ddp_timeout_seconds <= 0 or args.generation_eval_log_every <= 0:
+        p.error("--ddp-timeout-seconds and --generation-eval-log-every must be positive")
     if int(args.generation_eval_steps) > 0 and int(args.eval_steps) > 0:
         if int(args.generation_eval_steps) % int(args.eval_steps) != 0:
             raise ValueError("--generation-eval-steps must be a multiple of --eval-steps")
