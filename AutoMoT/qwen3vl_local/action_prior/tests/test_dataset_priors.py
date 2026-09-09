@@ -73,11 +73,11 @@ def test_road_structure_and_facts_expand_without_default_no():
     }
 
 
-def test_r3_is_the_independent_rs_highway_truth():
+def test_r3_is_not_a_highway_fact():
     values, _, _ = conditions(rs="R3")
-    assert values["RS_HIGHWAY"] == "YES"
+    assert values["RS_HIGHWAY"] is None
     assert all(values[key] == "NO" for key in p1.PHASE2_ANSWER_KEYS)
-    assert conditions(rs="R1")[0]["RS_HIGHWAY"] == "NO"
+    assert conditions(rs="R1")[0]["RS_HIGHWAY"] is None
 
 
 def test_event_overlay_leaves_the_other_domain_unknown():
@@ -229,9 +229,9 @@ def test_confusion_noise_stays_a_well_formed_wrong_answer(tmp_path):
         if note["channel"] == "rs":
             rs = values["ROAD_STRUCTURE"]
             assert rs == note["corrupted"] and rs != r["road_structure"]
-            # 错误的 RS 仍然是自洽向量：单一 YES，RS_HIGHWAY 与 R3 一致。
+            # 错误的 RS 仍然是自洽向量：单一 YES；压缩标签没有独立 highway bit。
             assert sum(values[k] == "YES" for k in p1.PHASE2_ANSWER_KEYS) == (rs != "R3")
-            assert values["RS_HIGHWAY"] == ("YES" if rs == "R3" else "NO")
+            assert values["RS_HIGHWAY"] is None
         else:
             domain = r["question_domain"]
             answered = [k for k in p2.event_keys_for_domain(domain) if values[k] == "YES"]
@@ -346,10 +346,8 @@ def test_runtime_never_loads_a_lora_and_generates_once_without_review(tmp_path, 
                                               invalid_domain=p2.ROAD_DOMAIN)])
     )
     draft = (
-        "Scene: The accepted road structure is a signalised local junction control zone.\n"
-        "Interaction: A rule-violating vehicle conflict is accepted at that junction.\n"
-        "Planning context: At 4 m/s the forward navigation target and the accepted junction conflict "
-        "constrain the usable corridor."
+        "At a signalised local junction, a rule-violating crossing conflict is present; "
+        "at 4 m/s the forward target and available crossing space guide near-term planning."
     )
     images = [Image.new("RGB", (3, 3)) for _ in range(4)]
 
@@ -437,11 +435,7 @@ def test_truncated_analysis_always_falls_back(tmp_path, monkeypatch, analysis_re
     engine_prior = PriorEngine(
         engine, {"identity": "dataset"}, labels=index, analysis_review=analysis_review
     )
-    cut = (
-        "Scene: Ordinary same-direction surface corridor.\n"
-        "Interaction: No accepted event is active.\n"
-        "Planning context: The navigation target stays ahead and the"
-    )
+    cut = "The ordinary surface-road corridor continues toward the navigation target and the"
     assert prompts.analysis_format_valid(cut)
 
     def generate(system, prompt, images, **kwargs):

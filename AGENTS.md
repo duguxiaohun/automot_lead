@@ -1,8 +1,8 @@
 # AGENTS.md
 
-> 2026-09-07 action_prior 规划经验更新：语言协议 v4 按接受的 YES 条件加入七 UE 的条件式高层经验，
-> LoRA/数据集共用，RE 不细分，UNKNOWN 不当 NO；仅参考 Phase3 定义，不接其模型/逐帧动作。
-> 旧 v3 action 缓存/checkpoint 不兼容。入口见 PROJECT_CONTEXT.md「Action prior UE 规划经验」与 action_prior/run.md。
+> 2026-09-09 action_prior v5：最终 base KV 保留四图、简短自然 RS/EVENT 场景描述、导航与 base 摘要；
+> 不向下游注入 YES/NO/UNKNOWN、类别 JSON 或逐帧动作。轨迹 decoder 为联合轨迹条件 Flow Matching，
+> 从高斯噪声以 Euler 积分生成 route/waypoint；旧 Linear+cumsum 及逐点独立 FM checkpoint 不兼容。
 
 > 给所有后续 AI / coding agent 的项目入口说明。
 > 目标是让新会话在改代码前快速知道：这个工作区在做什么、必须先读什么、哪些文件能动、哪些操作不要做。
@@ -189,15 +189,18 @@
   依赖该目录内 `.gitignore` 排除输出产物；若要提交新产物，必须先确认它不是可再生 evidence）
 - `AutoMoT/qwen3vl_local/`（含 `tb_serve.sh` 通用 TensorBoard launcher；`goalgen/` 子包详见 PROJECT_CONTEXT.md §15；`eval_carla/` 子包详见上）
 - `AutoMoT/qwen3vl_local/action_prior/`
-  （按用户同意新增：Phase1/2 先验 → 禁用所有 LoRA 的 base Qwen 三段短分析 → base KV + 冻结
-  LEAD BEV → 原 LeadMoT Linear+cumsum 轨迹头。自动选择仅接受 best_generation 并核验 prompt/hash/Git/RGB
+  （按用户同意新增：Phase1/2 先验 → 禁用所有 LoRA 的 base Qwen 单段短分析 → 四图/自然场景先验/
+  导航/分析完整 KV + 冻结 LEAD BEV → 条件 Flow Matching 轨迹 decoder。自然先验只由确认的 RS/EVENT YES
+  查表组成，不泄露 NO/UNKNOWN 或类别 JSON；FM 联合 route(B,10,2)+waypoint(B,8,2)，训练回归直线流的向量场，
+  每步以小型 trajectory Transformer 让全部带噪点交互，推理从高斯噪声以默认10步 Euler 采样。自动选择仅接受 best_generation 并核验 prompt/hash/Git/RGB
   与权重指纹；Phase1 做全问+RS 分层复核，Phase2 使用已训练的 EVENT 双域全问+域内续问，
   不伪造未训练的 EVENT hierarchical 接口。invalid 字段留空但保留轨迹监督并统计原因。
   frozen 问答/简述可按合同与实际图像缓存文本，最终 KV 每次由 base 完整 prefill；不接 Phase3。
   全量4Hz索引、物理 route 分割、61 epoch 起始配置、DDP/EMA/TB/频繁验证和独立 eval/probe，
   运行见 action_prior/run.md。代码/脚本/测试/文档可追踪；权重、SQLite、审计和训练输出不入库。）
-  **2026-09-06 审查修订**：action_prior 可训练参数/AdamW/EMA 保持 FP32，BF16 仅用于 decoder autocast；base 按先验/当前速度/导航自行组织三段短分析，不提供标准答案；独立文本模型复核五项判定，通过保留原文，失败才 fallback，模型判定不保证语义正确；导航 CLI 覆盖索引，未接通的多帧 BEV 直接拒绝。跨 rank 共享原子文本缓存，执行指纹按真实入口依赖展开，覆盖共享 Qwen/LeadMoT/只读 runner 与 BEV 工具，排除未接入 Phase3；只读源码只计算哈希，不入库。提供 history/independent/compare 复核审计、上游训练候选池重叠/未知分组及同预算 base/prior 配对消融；审计来源与生成 identity 分离，来源移动/缺失不阻断恢复；续训沿用原审计快照，eval 支持来源重映射并单列内容变化。轨迹分组区分全部确认/仅正常域外/实际未确认；compare 仍按 history 接受且不要求跨模式共识，不把候选池重叠当实际采样命中、不把一致率当准确率。FP32 checkpoint 容器为 v2，语言协议为 v3；旧模板/旧 v1 合同不兼容。
-  **2026-09-07 dataset-priors 补充**：`--dataset-priors` 直接读取标定 RS/Phase1/EVENT 标签并默认关闭 analysis review，不加载 Phase1/2 LoRA；冷启动每帧为 1 次 base 分析生成 + 1 次最终 base KV prefill。`PRIOR_NOISE` 可注入 RS/EVENT confusion 或 invalid，噪声率、invalid 占比和 seed 均进入先验合同身份；eval/probe 默认沿用 checkpoint 记录。标签搬迁续训可只传 `--prior-labels /新路径`，pipeline 从旧 `config.json` 恢复 dataset 模式并贯穿最终 test/probe；闭环没有 dataset 标签，必须显式切回 LoRA 并披露条件迁移。
+  **2026-09-06 审查修订**：action_prior 可训练参数/AdamW/EMA 保持 FP32，BF16 仅用于 decoder autocast；base 按先验/当前速度/导航自行组织短分析，不提供标准答案；独立文本模型复核五项判定，通过保留原文，失败才 fallback，模型判定不保证语义正确；导航 CLI 覆盖索引，未接通的多帧 BEV 直接拒绝。跨 rank 共享原子文本缓存，执行指纹按真实入口依赖展开，覆盖共享 Qwen/LeadMoT/只读 runner 与 BEV 工具，排除未接入 Phase3；只读源码只计算哈希，不入库。提供 history/independent/compare 复核审计、上游训练候选池重叠/未知分组及同预算 base/prior 配对消融；审计来源与生成 identity 分离，来源移动/缺失不阻断恢复；续训沿用原审计快照，eval 支持来源重映射并单列内容变化。轨迹分组区分全部确认/仅正常域外/实际未确认；compare 仍按 history 接受且不要求跨模式共识，不把候选池重叠当实际采样命中、不把一致率当准确率。checkpoint 容器为 v4（联合轨迹 conditional Flow Matching）；旧模板、Linear+cumsum 与逐点独立 FM 合同不兼容。
+  **2026-09-07 dataset-priors 补充**：`--dataset-priors` 直接读取标定 RS/Phase1/EVENT 标签并默认关闭 analysis review，不加载 Phase1/2 LoRA；冷启动每帧为 1 次 base 分析生成 + 1 次最终 base KV prefill。`PRIOR_NOISE` 可注入 RS/EVENT confusion 或 invalid，噪声率、invalid 占比和 seed 均进入先验合同身份；eval/probe 默认沿用 checkpoint 记录。标签搬迁续训可只传 `--prior-labels /新路径`，pipeline 从旧 `config.json` 恢复 dataset 模式并贯穿最终 test/probe；闭环没有 dataset 标签，必须显式切回 LoRA 并披露条件迁移。**2026-09-09 修订**：`RS_HIGHWAY` 是独立 Phase1 事实，R3 不能反推高速；验证按样本身份固定 `eps/t` 和 Euler 初始噪声，并以从纯噪声 Euler 采样得到的加权 route/waypoint ADE 选取 best，FM MSE 仅作诊断。
+  **2026-09-09 采样修订**：训练默认仅计算向量场 MSE，不执行 ODE 诊断采样；只在显式 `TRAIN_SAMPLED_METRICS=1` 时采样，且轨迹 Transformer 的 dropout 会临时关闭。闭环由 `--policy-seed` / `ACTION_POLICY_SEED` 派生每条 route 的独立 FM 高斯序列，优先级固定为 CLI > 环境变量 > Traffic Manager `--seed`，记录在 benchmark manifest/model contract。CPU BF16 eval/no_grad 在轨迹 Transformer 内安全回退 FP32，CUDA 路径保持原生 autocast。
 - `AutoMoT/qwen3vl_local/tb_serve.sh`
   （SFT / GoalGen / LeadMoT / VAE 共用 TensorBoard 启动器；从 `AutoMoT/` 目录下用
   `bash qwen3vl_local/tb_serve.sh <logdir>` 启动）

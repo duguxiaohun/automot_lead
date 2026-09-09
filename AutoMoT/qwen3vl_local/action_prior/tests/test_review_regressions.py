@@ -49,16 +49,14 @@ def test_fp32_master_and_adamw_states_keep_small_bf16_updates():
     assert opt.state[p]["exp_avg_sq"].dtype == torch.float32
 
 
-@pytest.mark.parametrize(
-    "field", list(prompts.FACT_LABELS) + list(prompts.EVENT_LABELS)
-)
+@pytest.mark.parametrize("field", list(prompts.EVENT_DESCRIPTIONS))
 def test_fallback_keeps_every_positive_prior_and_requires_review_for_generated_text(
     field,
 ):
     value = {"conditions": {"ROAD_STRUCTURE": "R1", field: "YES"}}
     text = prompts.fallback_analysis(value)
-    label = (prompts.FACT_LABELS | prompts.EVENT_LABELS)[field]
-    assert f"{label}: YES" in text
+    label = prompts.EVENT_DESCRIPTIONS[field]
+    assert label in text
     assert prompts.analysis_format_valid(text)
     assert not prompts.valid_analysis(text, value)  # 格式不是语义通过。
     assert text not in prompts.analysis_prompt(value, "navigation")
@@ -66,9 +64,9 @@ def test_fallback_keeps_every_positive_prior_and_requires_review_for_generated_t
 
 def test_review_counterexample_is_rejected_and_unknown_not_negative():
     value = {"conditions": {"ROAD_STRUCTURE": "R1", "UE3": "YES", "VULNERABLE": None}}
-    bad = "Scene: This is a signal-controlled junction.\nInteraction: No vehicle is cutting in.\nPlanning context: Follow navigation."
+    bad = "This is a signal-controlled junction with no vehicle cutting in, so follow navigation."
     assert not prompts.valid_analysis(bad, value)
-    assert "vulnerable road user: UNKNOWN" in prompts.fallback_analysis(value)
+    assert "vulnerable road user" not in prompts.fallback_analysis(value).lower()
 
 
 @pytest.mark.parametrize(

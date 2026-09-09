@@ -13,15 +13,16 @@ class ActionPriorRunner:
         from qwen3vl_local.action_prior.config import build_contract, validate_args
         from qwen3vl_local.action_prior.contracts import require_contract
         from qwen3vl_local.action_prior.runtime import make_runtime
-        from qwen3vl_local.leadmot import (
-            LeadMoTPlanningDecoder,
-            LeadMoTPlanningDecoderConfig,
+        from qwen3vl_local.leadmot import LeadMoTPlanningDecoderConfig
+        from qwen3vl_local.action_prior.flow_matching import (
+            ConditionalFlowMatchingDecoder,
+            FlowMatchingConfig,
         )
         from qwen3vl_local.leadmot.train import _dtype
 
         state = torch.load(checkpoint, map_location="cpu", weights_only=False)
-        if state.get("schema") != "action_prior_checkpoint_v2":
-            raise ValueError("closed loop requires action_prior_checkpoint_v2")
+        if state.get("schema") != "action_prior_checkpoint_v4" or state.get("trajectory_decoder") != "conditional_joint_trajectory_flow_matching_v2":
+            raise ValueError("closed loop requires action_prior_checkpoint_v4 joint-trajectory Flow Matching")
         self.args = args = argparse.Namespace(**state["args"])
         args.selection_manifest = ""
         args.selection_output = ""
@@ -76,12 +77,13 @@ class ActionPriorRunner:
                 "the selected Phase1/Phase2 weights changed during this benchmark"
             )
         self.leadmot_config = LeadMoTPlanningDecoderConfig(**state["decoder_config"])
+        self.flow_config = FlowMatchingConfig(**state["flow_config"])
         if self.leadmot_config.use_subgoal:
             raise ValueError("online subgoal RGB unavailable")
         args.output_dir = str(Path(output_dir).resolve())
         args.cache_priors = False  # 在线图像通常不重复；不把测试轨迹缓存混入训练目录。
         self.runtime = make_runtime(args, torch.device(device), self.contract)
-        self.decoder = LeadMoTPlanningDecoder(self.leadmot_config).to(
+        self.decoder = ConditionalFlowMatchingDecoder(self.leadmot_config, self.flow_config).to(
             device=device, dtype=torch.float32
         )
         self.decoder.load_state_dict(
@@ -90,8 +92,20 @@ class ActionPriorRunner:
         )
         self.decoder.eval().requires_grad_(False)
         self.dtype = _dtype(args.decoder_dtype)
+        self.device = torch.device(device)
         self.index = 0
         self.latencies = []
+        self.route_key = os.environ.get("ROUTES_SUBSET", "online")
+        raw_policy_seed = os.environ.get("ACTION_POLICY_SEED", str(args.seed))
+        try:
+            self.policy_seed = int(raw_policy_seed)
+        except ValueError as exc:
+            raise ValueError("ACTION_POLICY_SEED must be a nonnegative integer") from exc
+        from qwen3vl_local.action_prior.flow_matching import route_policy_generator
+
+        self.policy_generator = route_policy_generator(
+            self.device, self.policy_seed, self.route_key
+        )
         # 多 GPU setup 同时写同一模型溯源，使用独立临时文件原子发布。
         import json
         import tempfile
@@ -105,11 +119,13 @@ class ActionPriorRunner:
                     contract=self.contract,
                     args=vars(args),
                     decoder_config=state["decoder_config"],
+                    flow_config=state["flow_config"],
+                    policy_seed=self.policy_seed,
+                    policy_noise="route_seeded_generator_v1",
                 ),
                 handle,
             )
         os.replace(temporary, Path(output_dir).parent / "model_contract.json")
-        self.route_key = os.environ.get("ROUTES_SUBSET", "online")
 
     def _align_lidar_points_to_anchor(self, *args, **kwargs):
         """沿用训练 runner 的坐标对齐实现。"""
@@ -125,8 +141,22 @@ class ActionPriorRunner:
 
         started = time.perf_counter()
         with torch.no_grad():
+            flow_sample_noise = torch.randn(
+                1,
+                self.leadmot_config.num_route_queries
+                + self.leadmot_config.num_waypoint_queries,
+                2,
+                generator=self.policy_generator,
+                device=self.device,
+                dtype=torch.float32,
+            )
             result = self.runtime.forward_sample(
-                sample, self.decoder, self.leadmot_config, self.dtype, clip=clip
+                sample,
+                self.decoder,
+                self.leadmot_config,
+                self.dtype,
+                clip=clip,
+                flow_sample_noise=flow_sample_noise,
             )
         outputs = [
             dict(

@@ -109,8 +109,9 @@ def _conditions(label):
         {key: ("YES" if key == positive else "NO") for key in p1.PHASE2_ANSWER_KEYS}
     )
     conditions["ROAD_STRUCTURE"] = rs
-    # 上游 hierarchical probe 把 RS_HIGHWAY 的真值定义为“四个 RS 全 NO”，即 R3。
-    conditions["RS_HIGHWAY"] = "YES" if rs == "R3" else "NO"
+    # R3 只是四个 RS 问题以外的剩余道路类，不能反推高速/匝道事实。这个压缩标签
+    # 没有独立 RS_HIGHWAY bit；保留 UNKNOWN，显式 HIGHWAY 仍来自 Phase1 原始标定。
+    conditions["RS_HIGHWAY"] = None
     invalid = {}
     for name in DOMAINS:
         domain_key = f"{name}/{p2.INVALID_KEY}"

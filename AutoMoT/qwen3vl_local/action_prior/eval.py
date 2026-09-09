@@ -53,16 +53,17 @@ def main():
     from qwen3vl_local.action_prior.runtime import make_runtime
     from qwen3vl_local.action_prior.train import evaluate, write_json
     from qwen3vl_local.leadmot import train as old
-    from qwen3vl_local.leadmot import (
-        LeadMoTPlanningDecoder,
-        LeadMoTPlanningDecoderConfig,
+    from qwen3vl_local.leadmot import LeadMoTPlanningDecoderConfig
+    from qwen3vl_local.action_prior.flow_matching import (
+        ConditionalFlowMatchingDecoder,
+        FlowMatchingConfig,
     )
 
     rank, local, world = old._init_distributed()
     state = torch.load(cli.checkpoint, map_location="cpu", weights_only=False)
-    if state.get("schema") != "action_prior_checkpoint_v2":
+    if state.get("schema") != "action_prior_checkpoint_v4" or state.get("trajectory_decoder") != "conditional_joint_trajectory_flow_matching_v2":
         raise ValueError(
-            "requires v2 FP32-master action_prior checkpoint; old language/precision contract is incompatible"
+            "requires action_prior v4 joint-trajectory Flow-Matching checkpoint; old independent/regression checkpoints are incompatible"
         )
     args = argparse.Namespace(**state["args"])
     # 权重已由 checkpoint 固定；不依赖训练前选择清单的旧物理路径。
@@ -139,9 +140,10 @@ def main():
     ):
         raise ValueError("evaluation dataset differs from checkpoint split")
     config = LeadMoTPlanningDecoderConfig(**state["decoder_config"])
+    flow_config = FlowMatchingConfig(**state["flow_config"])
     device = torch.device("cuda", local)
     dtype = old._dtype(args.decoder_dtype)
-    model = LeadMoTPlanningDecoder(config).to(device=device, dtype=torch.float32)
+    model = ConditionalFlowMatchingDecoder(config, flow_config).to(device=device, dtype=torch.float32)
     model.load_state_dict(state["decoder"], strict=True)
     if not cli.raw:
         model.load_state_dict(state["ema_state_dict"]["shadow"], strict=True)

@@ -223,7 +223,8 @@ def test_bench2drive_resume_reuses_the_pinned_adapters(tmp_path, monkeypatch):
 
     torch.save(
         dict(
-            schema="action_prior_checkpoint_v2",
+            schema="action_prior_checkpoint_v4",
+            trajectory_decoder="conditional_joint_trajectory_flow_matching_v2",
             args=dict(dataset_priors=True, prior_noise=0.0, prior_labels="labels.jsonl",
                       phase1_adapter="", phase2_adapter=""),
             qwen_backbone={"schema": contracts.SCHEMA, "identity": "trained"},

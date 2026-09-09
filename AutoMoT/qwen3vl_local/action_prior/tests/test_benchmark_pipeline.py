@@ -11,6 +11,20 @@ import pytest
 
 from qwen3vl_local.action_prior.audit_bundle import pack
 from qwen3vl_local.action_prior import benchmark_report as br
+from qwen3vl_local.action_prior import bench2drive
+
+
+def test_policy_seed_resolution_is_cli_then_environment_then_tm_seed(tmp_path, monkeypatch):
+    """launcher 不得覆盖用户单独设定的 ACTION_POLICY_SEED。"""
+    assert bench2drive.resolve_policy_seed(10, None, {}) == 10
+    assert bench2drive.resolve_policy_seed(10, None, {"ACTION_POLICY_SEED": "11"}) == 11
+    assert bench2drive.resolve_policy_seed(10, 12, {"ACTION_POLICY_SEED": "11"}) == 12
+    with pytest.raises(ValueError, match="nonnegative"):
+        bench2drive.resolve_policy_seed(10, None, {"ACTION_POLICY_SEED": "-1"})
+    # 子进程环境使用已经解析的最终值，而不是再回读父进程环境。
+    monkeypatch.setenv("CARLA_ROOT", str(tmp_path))
+    env = bench2drive.environment("0", tmp_path, tmp_path / "checkpoint.pt", 12)
+    assert env["ACTION_POLICY_SEED"] == "12"
 
 
 def test_archive_hard_cap_and_explicit_omissions(tmp_path):
@@ -143,10 +157,11 @@ def test_online_forward_uses_training_runtime_without_gt():
     runner = object.__new__(ActionPriorRunner)
     clip = {"rgb": "live", "speed": "current"}
 
-    def forward(sample, decoder, config, dtype, clip=None):
+    def forward(sample, decoder, config, dtype, clip=None, flow_sample_noise=None):
         assert set(sample) == {"scenario", "run_id", "anchor"}
         assert clip == {"rgb": "live", "speed": "current"}
         assert not torch.is_grad_enabled()
+        assert flow_sample_noise.shape == (1, 18, 2)
         return {
             "pred_route": torch.zeros(1, 10, 2),
             "pred_future_waypoints": torch.zeros(1, 8, 2),
@@ -157,8 +172,10 @@ def test_online_forward_uses_training_runtime_without_gt():
     runner.index = 0
     runner.route_key = "123"
     runner.decoder = None
-    runner.leadmot_config = None
+    runner.leadmot_config = SimpleNamespace(num_route_queries=10, num_waypoint_queries=8)
     runner.dtype = torch.bfloat16
+    runner.device = torch.device("cpu")
+    runner.policy_generator = torch.Generator().manual_seed(17)
     out = runner.run_clip(clip)
     assert runner.index == 1 and out[0]["leadmot_future_waypoints"].shape == (1, 8, 2)
 

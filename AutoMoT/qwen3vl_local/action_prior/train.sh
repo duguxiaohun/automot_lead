@@ -21,6 +21,16 @@ args=(--data-root "${DATA_ROOT:-lead_data}" --data-dir "${DATA_DIR:-checkpoints/
  --grad-accum-steps "${GRAD_ACCUM:-16}" --val-steps "${VAL_STEPS:-250}"
  --save-steps "${SAVE_STEPS:-1000}" --num-workers "${NUM_WORKERS:-8}")
 args+=(--logging-steps "${LOGGING_STEPS:-10}")
+# v5 条件 Flow Matching：10 步 Euler 是默认起点；坐标缩放/时间编码均写入 checkpoint 合同。
+args+=(--flow-sample-steps "${FLOW_SAMPLE_STEPS:-10}"
+ --flow-route-coordinate-scale-m "${FLOW_ROUTE_COORDINATE_SCALE_M:-30}"
+ --flow-waypoint-coordinate-scale-m "${FLOW_WAYPOINT_COORDINATE_SCALE_M:-20}"
+ --flow-time-embed-dim "${FLOW_TIME_EMBED_DIM:-64}"
+ --flow-trajectory-layers "${FLOW_TRAJECTORY_LAYERS:-2}"
+ --flow-trajectory-heads "${FLOW_TRAJECTORY_HEADS:-8}")
+if [[ "${TRAIN_SAMPLED_METRICS:-0}" == 1 ]]; then
+ args+=(--train-sampled-metrics)
+fi
 has_flag() { local flag="$1"; shift; [[ " $* " == *" $flag "* || " $* " == *" $flag="* ]]; }
 # 环境变量与命令行开关都要参与判断，否则直接调用 train.sh --dataset-priors 会退回 LoRA 默认。
 dataset="${DATASET_PRIORS:-0}"
