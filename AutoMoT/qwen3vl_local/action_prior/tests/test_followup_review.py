@@ -12,8 +12,8 @@ from qwen3vl_local.action_prior.train import metrics_from_counts
 @pytest.mark.parametrize(
     "draft",
     [
-        "Scene: The road is a same-direction surface corridor.\nInteraction: Another vehicle is cutting into the ego corridor.\nPlanning context: At 4 m/s the forward target and cut-in jointly constrain the available corridor.",
-        "Scene: Lane following is the accepted surface-road context.\nInteraction: A vehicle intrusion is present in the immediate path.\nPlanning context: Current motion is 4 m/s toward the target ahead, with the accepted intrusion relevant to that path.",
+        "The surface-road corridor continues ahead while another vehicle cuts into the immediate path; at 4 m/s, the forward target and reduced clearance jointly shape near-term planning.",
+        "Lane following remains the road context, but a vehicle intrusion occupies the immediate corridor; current motion toward the target should account for the available gap.",
     ],
 )
 def test_paraphrases_can_pass_without_template_match(draft):
@@ -51,7 +51,7 @@ def test_navigation_and_events_change_fallback_only_not_generation_answer():
     a, b = [prompts.fallback_analysis(priors, nav) for nav in (nav1, nav2)]
     assert a != b and "4 m/s" in a and "ahead and left" in a
     assert "0 m/s" in b and "ahead and right" in b
-    assert "UE3" in a
+    assert "vehicle is entering" in a
     assert a not in prompts.analysis_prompt(priors, nav1)
 
 

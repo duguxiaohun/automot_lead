@@ -17,6 +17,7 @@ EXECUTION_SEEDS = (
             "prompts",
             "priors",
             "precision",
+            "flow_matching",
             "text_cache",
             "config",
             "contracts",

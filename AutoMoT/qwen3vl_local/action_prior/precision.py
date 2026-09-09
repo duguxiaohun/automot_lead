@@ -13,5 +13,8 @@ def decoder_forward(decoder, kwargs, compute_dtype, device):
         enabled=compute_dtype == torch.bfloat16,
     ):
         result = decoder(**kwargs)
-    # L1/末点 loss 和轨迹指标使用 FP32；转换保持梯度连接。
-    return {k: v.float() if k.startswith("pred_") else v for k, v in result.items()}
+    # FM vector-field MSE、ODE 轨迹指标均使用 FP32；转换保持梯度连接。
+    return {
+        k: v.float() if k.startswith(("pred_", "flow_")) else v
+        for k, v in result.items()
+    }

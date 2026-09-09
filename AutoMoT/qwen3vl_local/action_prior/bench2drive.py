@@ -20,7 +20,22 @@ from qwen3vl_local.action_prior.benchmark_report import (
 from qwen3vl_local.action_prior.audit_bundle import pack
 
 
-def environment(gpu, output, checkpoint):
+def resolve_policy_seed(cli_seed, cli_policy_seed, environ=None):
+    """FM 噪声 seed 优先级：显式 CLI，其次环境，最后 Traffic Manager seed。"""
+    source = os.environ if environ is None else environ
+    value = cli_policy_seed
+    if value is None:
+        value = source.get("ACTION_POLICY_SEED", cli_seed)
+    try:
+        value = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("policy seed must be an integer") from exc
+    if value < 0:
+        raise ValueError("policy seed must be nonnegative")
+    return value
+
+
+def environment(gpu, output, checkpoint, policy_seed):
     """当前 Python 环境直接启动，不隐式切换到另一套 conda 包版本。"""
     env = os.environ.copy()
     paths = [
@@ -51,6 +66,7 @@ def environment(gpu, output, checkpoint):
         HF_HUB_OFFLINE="1",
         TRANSFORMERS_OFFLINE="1",
         HF_DATASETS_OFFLINE="1",
+        ACTION_POLICY_SEED=str(policy_seed),
     )
     for key in (
         "RECORD_INPUT",
@@ -108,8 +124,8 @@ def validate_checkpoint(cli, pinned=None):
     from qwen3vl_local.action_prior.contracts import require_contract
 
     state = torch.load(cli.checkpoint, map_location="cpu", weights_only=False)
-    if state.get("schema") != "action_prior_checkpoint_v2":
-        raise ValueError("requires action_prior_checkpoint_v2")
+    if state.get("schema") != "action_prior_checkpoint_v4" or state.get("trajectory_decoder") != "conditional_joint_trajectory_flow_matching_v2":
+        raise ValueError("requires action_prior_checkpoint_v4 joint-trajectory Flow Matching")
     args = argparse.Namespace(**state["args"])
     args.selection_manifest = ""
     args.selection_output = ""
@@ -177,6 +193,12 @@ def main():
     p.add_argument("--route-id", action="append", default=[])
     p.add_argument("--scenario", action="append", default=[])
     p.add_argument("--seed", type=int, default=3407)
+    p.add_argument(
+        "--policy-seed",
+        type=int,
+        default=None,
+        help="FM sampling seed; priority is CLI, ACTION_POLICY_SEED, then --seed",
+    )
     p.add_argument("--port", type=int, default=20000)
     p.add_argument("--timeout", type=float, default=1200)
     p.add_argument("--resume", action="store_true")
@@ -199,6 +221,10 @@ def main():
     cli = p.parse_args()
     if cli.num_gpus < 1 or cli.port < 1024 or cli.port + cli.num_gpus * 50 > 65535:
         p.error("invalid GPU count or port range")
+    try:
+        policy_seed = resolve_policy_seed(cli.seed, cli.policy_seed)
+    except ValueError as exc:
+        p.error(str(exc))
     catalog = routes(cli.routes)
     chosen = [
         rid
@@ -282,6 +308,7 @@ def main():
         routes_sha256=sha(cli.routes),
         route_ids=chosen,
         seed=cli.seed,
+        policy_seed=policy_seed,
         ema=not cli.raw,
         code={
             str(path.relative_to(ROOT)): sha(path)
@@ -339,7 +366,7 @@ def main():
 
     def worker(index, gpu):
         """各 worker 顺序处理本分片；失败留记录，其余路线继续。"""
-        env = environment(gpu, output, Path(cli.checkpoint).resolve())
+        env = environment(gpu, output, Path(cli.checkpoint).resolve(), policy_seed)
         env["ROUTES"] = str(Path(cli.routes).resolve())
         for rid in pending[index :: len(ids)]:
             env["ROUTES_SUBSET"] = rid

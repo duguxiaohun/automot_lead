@@ -656,8 +656,9 @@ prompt更新v4_context_recheck；动作规则仍Driving v5；训练/eval新增ma
 ## Action prior 轨迹训练（2026-09-05）
 
 新增 `qwen3vl_local/action_prior/`，运行入口 `run.md` / `run_full_pipeline.sh`。
-它冻结 Qwen3-VL-4B-Instruct、Phase1/2 LoRA 和 LEAD BEV，复用已有 LeadMoT
-Linear+cumsum 轨迹头、状态/导航、GT 和 loss，主要改变语言 KV 条件；不是扩散头。
+它冻结 Qwen3-VL-4B-Instruct、Phase1/2 LoRA 和 LEAD BEV；v5 将最终图文/分析 KV
+作为条件，使用条件 Flow Matching 生成连续轨迹。旧的 LeadMoT Linear+cumsum 轨迹头、
+坐标回归 loss 和 checkpoint 仅是历史实现，不能与 v5 混用。
 新 Phase1 已融合事实四问和 RS，先全问再四个 RS 分层复核；新 Phase2 没有训练
 hierarchical EVENT 接口，采用两个已有问题域全问和真实 assistant 后的同域续问复核。
 两次一致只是 condition 接受，不代表真实准确率；invalid 字段留空，样本继续参加轨迹训练。
@@ -665,7 +666,7 @@ hierarchical EVENT 接口，采用两个已有问题域全问和真实 assistant
 自动权重选择只在 `best_generation/` 内查实际权重，校验生产 prompt name/hash、Git commit、
 base 路径和 RGB 2/4图配置，并回查保存 step 的 generation 验证分数；没有 final 兜底。
 允许显式指定兼容 adapter；来源、完整权重指纹和代码指纹写入 config/selected_priors/checkpoint。
-两个 LoRA 共用 base 但独立启停，禁止 merge。所有最终图文+先验+三句分析 KV 在
+两个 LoRA 共用 base 但独立启停，禁止 merge。所有最终图文+自然场景先验+短摘要 KV 在
 `disable_adapter()` 下完整 prefill；禁用上下文退出也强制冻结参数，防止 PEFT 自动恢复梯度。
 本入口还在构造 BEV 时禁用旧 timm pretrained 下载，随后 strict 导入本地 LEAD backbone。
 
@@ -796,6 +797,8 @@ eval/probe 默认沿用 checkpoint 记录的先验来源与噪声。dataset 标�
 
 ### Action prior UE 规划经验（2026-09-07）
 
+> 历史 v4 记录。以下语言协议已由 2026-09-09 v5 替代。
+
 `action_prior/prompts.py` 的语言协议更新为 v4：按最终接受条件的 YES 查七类 UE 经验表，
 `STATIC_OBSTACLE/VULNERABLE/TRAFFIC_LIGHT_ABNORMAL` 对应 UE2/UE4/UE7，其余来自 UE1/3/5/6。
 经验摘要依据新 Phase3 的 context/action 定义，但不 import Phase3、不加载其模型或逐帧动作标签。
@@ -805,6 +808,38 @@ LoRA 与 dataset-priors（包括噪声后条件）共用 `[PLANNING_EXPERIENCE]`
 道路/导航正常驾驶，RE 不细分，不加入 RE2/RE3/RE5 经验。空隙、变道方向、恢复阶段均不由
 经验表自动确认为事实。新提示词进入执行/语言合同，旧 v3 action 缓存和 checkpoint 不兼容，
 需新协议训练；FP32 checkpoint 容器仍 v2。详见 `action_prior/run.md` 的经验映射表。
+
+### Action prior v5 自然场景先验与条件 Flow Matching（2026-09-09，当前）
+
+`action_prior/prompts.py` 不再把 `CONDITION_MEANINGS`、接受条件 JSON、
+`PLANNING_EXPERIENCE`、YES/NO/UNKNOWN 或类别词组塞入 Qwen 上下文。它只从最终接受的
+RS/EVENT **YES** 选择短的英文自然描述：道路结构、独立 highway 事实及每个当前正事件均可提供
+一条可用于近端规划的背景句；NO/null 不被渲染成反例或“正常”断言。罕见多事件并发会压成一条
+自然并列句，但不丢任何已接受正类。base 读取该短段、四张 chronological RGB、当前速度/导航，
+输出不超过 80 词的一段总结；fallback 也使用同一自然先验，不能退化成字段清单。最终 base prefill
+仍包含 system + 四图 + user 场景先验/导航 + assistant 摘要，所以 MoT 接到的是完整图像、提示词和
+分析 KV，而非仅分析 KV。
+
+轨迹 decoder 为 `ConditionalFlowMatchingDecoder`。将 route `(B,10,2)` 和 future waypoint
+`(B,8,2)` 分别按 30m/20m 缩放后拼成连续变量；训练采样
+`eps~N(0,I), t~U(0,1), x_t=(1-t)eps+t*x_gt`，回归向量场 `x_gt-eps` 的 route/waypoint 加权 MSE。
+评测与闭环从高斯噪声开始，默认以 10 步 Euler 积分 `x<-x+dt*v_theta(x,t|C)`，再反缩放回既有
+route/waypoint 接口；ADE/FDE 来自这个采样轨迹，不能用 GT 加噪重建替代。每个样本的 Qwen KV、BEV
+和 Prefix-KV 条件 block 只编码一次，ODE 多步只复用该条件跑轻量的联合 trajectory Transformer 向量场；
+每一步的全部当前带噪点可彼此交互，不能退化成逐点独立 MLP。`flow_config`（缩放、时间编码、步数、
+trajectory layers/heads）与 `trajectory_decoder=conditional_joint_trajectory_flow_matching_v2` 存进
+`action_prior_checkpoint_v4`；验证按 `(scenario, run_id, anchor, seed)` 固定 `eps/t` 与 ODE 初始噪声，
+best 按纯噪声 Euler 采样的加权 route/waypoint ADE 选取，FM MSE 仅作诊断。`RS_HIGHWAY` 必须来自独立
+确认事实，R3 不得反推高速。旧 Linear+cumsum、逐点 FM checkpoint、缓存和 resume/eval/closed-loop 均明确拒绝。真实模型训练、
+采样质量、吞吐和闭环表现仍未在此环境验证。
+
+训练默认只跑 vector-field MSE，不再为每个 micro-batch 额外执行 10 步 ODE；仅显式
+`TRAIN_SAMPLED_METRICS=1` 时记录训练采样指标，采样会暂时关闭 trajectory Transformer 的 dropout，
+固定噪声不消耗额外 dropout RNG。Bench2Drive 的 `--policy-seed`（默认沿用但独立记录 `--seed`）通过
+`ACTION_POLICY_SEED` 为每条 route 创建独立可重放的 FM 噪声 generator，写入 run manifest 和 model contract；
+policy seed 优先级为显式 `--policy-seed`、环境 `ACTION_POLICY_SEED`、最后才是 Traffic Manager `--seed`；
+后续多 seed 稳定性评测可只改变该 seed。PyTorch 2.3 CPU BF16 的 eval/no_grad Transformer fastpath 在
+轨迹块内部回退 FP32；CUDA BF16 没有被这一兼容分支降级。
 
 ### Action prior DDP 梯度布局与日志（2026-09-07）
 

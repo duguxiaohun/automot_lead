@@ -7,6 +7,7 @@ import json
 import math
 from pathlib import Path
 import sys
+from datetime import timedelta
 from types import ModuleType, SimpleNamespace
 import pytest
 import torch
@@ -40,10 +41,50 @@ class TinyDecoder(torch.nn.Module):
         return {"pred_route": x, "pred_future_waypoints": x[:, :8]}
 
 
+class TinyFlowDecoder(torch.nn.Module):
+    """保持真实 action FM loop 的 checkpoint/EMA/ODE-loss 接口，不构造 Prefix-KV。"""
+
+    def __init__(self, config, flow_config):
+        super().__init__()
+        self.config, self.flow_config = config, flow_config
+        self.weight = torch.nn.Parameter(torch.ones(1))
+        self.dropout = torch.nn.Dropout(config.dropout)
+
+    def forward(self, **kwargs):
+        base = self.dropout(self.weight.expand(1, 18, 2))
+        return {
+            "flow_velocity": base,
+            "pred_route": base[:, :10],
+            "pred_future_waypoints": base[:, 10:],
+        }
+
+
 class Loader(list):
     """模拟可设置独立 generator 的顺序 clip loader。"""
 
     generator = None
+
+
+def test_flow_config_of_accepts_real_cpu_gloo_ddp(tmp_path):
+    """DDP 不会转发 flow_config；训练循环必须显式从 module 读取它。"""
+    import torch.distributed as dist
+
+    if not dist.is_available() or not dist.is_gloo_available():
+        pytest.skip("requires CPU Gloo")
+    model = torch.nn.Linear(1, 1)
+    config = object()
+    model.flow_config = config
+    dist.init_process_group(
+        "gloo", init_method=(tmp_path / "flow_config_rendezvous").as_uri(),
+        rank=0, world_size=1, timeout=timedelta(seconds=30),
+    )
+    try:
+        ddp = torch.nn.parallel.DistributedDataParallel(model)
+        with pytest.raises(AttributeError):
+            _ = ddp.flow_config
+        assert train.flow_config_of(ddp) is config
+    finally:
+        dist.destroy_process_group()
 
 
 def lightweight_old_helpers():
@@ -107,6 +148,8 @@ def test_interruption_resume_matches_uninterrupted(tmp_path, monkeypatch, failur
     monkeypatch.setattr(leadmot, "train", old, raising=False)
     monkeypatch.setattr(leadmot, "LeadMoTPlanningDecoder", TinyDecoder)
     monkeypatch.setattr(leadmot, "LeadMoTPlanningDecoderConfig", TinyConfig)
+    import qwen3vl_local.action_prior.flow_matching as flow_matching
+    monkeypatch.setattr(flow_matching, "ConditionalFlowMatchingDecoder", TinyFlowDecoder)
     monkeypatch.setattr(train, "training_device", lambda local: torch.device("cpu"))
     monkeypatch.setattr(launch, "ensure_gpu", lambda: 1)
     monkeypatch.setenv("ACTION_PRIOR_RUN_READY", "1")
@@ -150,13 +193,16 @@ def test_interruption_resume_matches_uninterrupted(tmp_path, monkeypatch, failur
         def __init__(self):
             self.prior = SimpleNamespace(last_audit=None)
 
-        def forward_sample(self, sample, decoder, config, dtype, clip=None):
+        def forward_sample(self, sample, decoder, config, dtype, clip=None, **kwargs):
             if sample["split"] == "train":
+                assert kwargs["sample_trajectory"] is False
                 if mode["failure"] == "mid_epoch" and mode["calls"] == 2:
                     raise RuntimeError("injected crash")
                 mode["calls"] += 1
-            elif mode["failure"] == "final_validation":
-                raise RuntimeError("injected crash")
+            else:
+                assert kwargs["sample_trajectory"] is True
+                if mode["failure"] == "final_validation":
+                    raise RuntimeError("injected crash")
             self.prior.last_audit = {
                 "invalid": {"UE3": "disagreement"},
                 "analysis_truncated": False,

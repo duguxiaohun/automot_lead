@@ -150,6 +150,22 @@ def add_dataset_coverage(plan, args, rows):
     return plan
 
 
+def flow_config_of(decoder):
+    """DDP 不透传任意 Python 属性；统一读取未包装 decoder 的 FM 合同。"""
+    return getattr(decoder, "module", decoder).flow_config
+
+
+def sampled_trajectory_score(metrics, args):
+    """best.pt 只按实际 Euler 采样轨迹选优，FM loss 仅保留为诊断指标。"""
+    required = ("route_ade_m", "waypoint_ade_m")
+    if not all(math.isfinite(float(metrics[key])) for key in required):
+        raise FloatingPointError("nonfinite sampled trajectory metric")
+    return (
+        args.route_loss_weight * float(metrics["route_ade_m"])
+        + args.waypoint_loss_weight * float(metrics["waypoint_ade_m"])
+    )
+
+
 def evaluate(
     runtime,
     decoder,
@@ -166,6 +182,10 @@ def evaluate(
     import torch
     from collections import Counter
     from qwen3vl_local.leadmot import train as old
+    from qwen3vl_local.action_prior.flow_matching import (
+        flow_matching_loss,
+        make_evaluation_flow,
+    )
 
     selected = list(rows)
     if max_samples > 0 and len(selected) > max_samples:
@@ -189,28 +209,34 @@ def evaluate(
             if prepared.get("_error"):
                 raise RuntimeError(prepared["_error"])
             with torch.no_grad():
-                outputs = runtime.forward_sample(
-                    prepared["sample"], decoder, config, dtype, clip=prepared["clip"]
-                )
                 gt_r = prepared["gt_route"].unsqueeze(0).to(runtime.device)
                 gt_w = prepared["gt_waypoints"].unsqueeze(0).to(runtime.device)
-                loss, rl, wl = old._planning_loss(
+                flow = make_evaluation_flow(
+                    gt_r, gt_w, flow_config_of(decoder), prepared["sample"], args.seed
+                )
+                outputs = runtime.forward_sample(
+                    prepared["sample"], decoder, config, dtype, clip=prepared["clip"],
+                    flow_state=flow["flow_state"], flow_time=flow["flow_time"],
+                    flow_sample_noise=flow["flow_sample_noise"],
+                    sample_trajectory=True,
+                )
+                loss, rl, wl = flow_matching_loss(
                     outputs,
-                    gt_r,
-                    gt_w,
+                    flow["flow_target_velocity"],
+                    config.num_route_queries,
                     args.route_loss_weight,
                     args.waypoint_loss_weight,
-                    args.loss_type,
                 )
             if not torch.isfinite(loss):
                 raise FloatingPointError("nonfinite validation loss")
             totals.update(audit_counts(runtime.prior.last_audit))
             planning = dict(
                 loss=loss.item(),
-                route_loss=rl.item(),
-                waypoint_loss=wl.item(),
+                route_fm_mse=rl.item(),
+                waypoint_fm_mse=wl.item(),
                 **old._compute_planning_metrics(outputs, gt_r, gt_w),
             )
+            planning["sampled_trajectory_score"] = sampled_trajectory_score(planning, args)
             totals.update(planning)
             report("validation/sample_done", rank_evaluated=idx + 1,
                    last_validation_loss=planning["loss"])
@@ -279,9 +305,11 @@ def save_checkpoint(
     if rank == 0:
         report("checkpoint/write", announce=True)
         payload = dict(
-            schema="action_prior_checkpoint_v2",
+            schema="action_prior_checkpoint_v4",
+            trajectory_decoder="conditional_joint_trajectory_flow_matching_v2",
             decoder=model.state_dict(),
             decoder_config=asdict(model.config),
+            flow_config=asdict(model.flow_config),
             optimizer=optimizer.state_dict(),
             scheduler=scheduler.state_dict(),
             ema_state_dict=ema.state_dict(),
@@ -290,6 +318,10 @@ def save_checkpoint(
             dataset_hashes=dataset_hashes,
             cursor=cursor,
             step=step,
+            best_metric="weighted_sampled_route_waypoint_ade_m",
+            best_sampled_trajectory_score=best,
+            # 保留这个字段名只为 checkpoint 内部恢复代码稳定；v4 中它明确就是上面的
+            # 采样轨迹分数，绝不是 FM vector-field MSE。
             best_val=best,
             rng_by_rank=states,
             world_size=world,
@@ -378,8 +410,13 @@ def main():
     from collections import Counter
     from qwen3vl_local.leadmot import train as old
     from qwen3vl_local.leadmot import (
-        LeadMoTPlanningDecoder,
         LeadMoTPlanningDecoderConfig,
+    )
+    from qwen3vl_local.action_prior.flow_matching import (
+        ConditionalFlowMatchingDecoder,
+        FlowMatchingConfig,
+        flow_matching_loss,
+        make_training_flow,
     )
     from qwen3vl_local.action_prior.runtime import make_runtime
 
@@ -426,7 +463,15 @@ def main():
         use_subgoal=False,
     )
     dtype = old._dtype(args.decoder_dtype)
-    model = LeadMoTPlanningDecoder(config).to(device=device, dtype=torch.float32)
+    flow_config = FlowMatchingConfig(
+        route_coordinate_scale_m=args.flow_route_coordinate_scale_m,
+        waypoint_coordinate_scale_m=args.flow_waypoint_coordinate_scale_m,
+        time_embed_dim=args.flow_time_embed_dim,
+        sample_steps=args.flow_sample_steps,
+        trajectory_layers=args.flow_trajectory_layers,
+        trajectory_heads=args.flow_trajectory_heads,
+    )
+    model = ConditionalFlowMatchingDecoder(config, flow_config).to(device=device, dtype=torch.float32)
     optimizer = torch.optim.AdamW(
         old._optimizer_param_groups(model, args.weight_decay),
         lr=args.learning_rate,
@@ -439,9 +484,9 @@ def main():
     cursor, step, best, resume_rng = {"epoch": 0, "micro": 0}, 0, math.inf, None
     if args.resume:
         state = torch.load(args.resume, map_location="cpu", weights_only=False)
-        if state.get("schema") != "action_prior_checkpoint_v2":
+        if state.get("schema") != "action_prior_checkpoint_v4" or state.get("trajectory_decoder") != "conditional_joint_trajectory_flow_matching_v2":
             raise ValueError(
-                "requires v2 FP32-master checkpoint; old BF16 optimizer checkpoints cannot resume"
+                "requires action_prior v4 joint-trajectory Flow-Matching checkpoint; old independent/regression checkpoints are incompatible"
             )
         require_contract(state["qwen_backbone"], contract)
         if state["dataset_hashes"] != dataset_hashes or state["world_size"] != world:
@@ -457,6 +502,13 @@ def main():
             "ema_decay",
             "max_grad_norm",
             "loss_type",
+            "flow_route_coordinate_scale_m",
+            "flow_waypoint_coordinate_scale_m",
+            "flow_time_embed_dim",
+            "flow_sample_steps",
+            "flow_trajectory_layers",
+            "flow_trajectory_heads",
+            "train_sampled_metrics",
             "route_loss_weight",
             "waypoint_loss_weight",
             "smooth_route",
@@ -469,6 +521,8 @@ def main():
                 raise ValueError(f"resume schedule mismatch: {key}")
         if state["decoder_config"] != __import__("dataclasses").asdict(config):
             raise ValueError("resume decoder config mismatch")
+        if state.get("flow_config") != __import__("dataclasses").asdict(flow_config):
+            raise ValueError("resume flow-matching config mismatch")
         model.load_state_dict(state["decoder"], strict=True)
         optimizer.load_state_dict(state["optimizer"])
         scheduler.load_state_dict(state["scheduler"])
@@ -489,7 +543,9 @@ def main():
         from qwen3vl_local.action_prior.contracts import digest
 
         contract["audit_identity"] = digest(saved_sources)
-        cursor, step, best = state["cursor"], state["step"], state["best_val"]
+        if state.get("best_metric") != "weighted_sampled_route_waypoint_ade_m":
+            raise ValueError("resume checkpoint does not identify sampled trajectory ADE as its best metric")
+        cursor, step, best = state["cursor"], state["step"], state["best_sampled_trajectory_score"]
         resume_rng = state["rng_by_rank"][rank]
         del state
     if contract.get("upstream_sources"):
@@ -551,8 +607,8 @@ def main():
             )
             for k, v in metrics.items():
                 writer.add_scalar(f"val_epoch/{k}", v, step)
-        if metrics["loss"] < best:
-            best = metrics["loss"]
+        if sampled_trajectory_score(metrics, args) < best:
+            best = sampled_trajectory_score(metrics, args)
             save_checkpoint(
                 out / "best.pt",
                 model,
@@ -641,18 +697,21 @@ def main():
                 if world > 1 and not update
                 else contextlib.nullcontext()
             ):
-                outputs = runtime.forward_sample(
-                    prepared["sample"], decoder, config, dtype, clip=prepared["clip"]
-                )
                 gt_r = prepared["gt_route"].unsqueeze(0).to(device)
                 gt_w = prepared["gt_waypoints"].unsqueeze(0).to(device)
-                loss, rl, wl = old._planning_loss(
+                flow = make_training_flow(gt_r, gt_w, flow_config)
+                outputs = runtime.forward_sample(
+                    prepared["sample"], decoder, config, dtype, clip=prepared["clip"],
+                    flow_state=flow["flow_state"], flow_time=flow["flow_time"],
+                    flow_sample_noise=flow["flow_sample_noise"],
+                    sample_trajectory=args.train_sampled_metrics,
+                )
+                loss, rl, wl = flow_matching_loss(
                     outputs,
-                    gt_r,
-                    gt_w,
+                    flow["flow_target_velocity"],
+                    config.num_route_queries,
                     args.route_loss_weight,
                     args.waypoint_loss_weight,
-                    args.loss_type,
                 )
                 if not torch.isfinite(loss):
                     raise FloatingPointError("nonfinite training loss")
@@ -661,13 +720,10 @@ def main():
             audit = runtime.prior.last_audit
             batch_counts = audit_counts(audit)
             batch_counts.update(
-                dict(
-                    loss=loss.item(),
-                    route_loss=rl.item(),
-                    waypoint_loss=wl.item(),
-                    **old._compute_planning_metrics(outputs, gt_r, gt_w),
-                )
+                loss=loss.item(), route_fm_mse=rl.item(), waypoint_fm_mse=wl.item()
             )
+            if args.train_sampled_metrics:
+                batch_counts.update(old._compute_planning_metrics(outputs, gt_r, gt_w))
             batch_counts.update(
                 grouped_counts(
                     audit,
@@ -676,8 +732,8 @@ def main():
                         k: batch_counts[k]
                         for k in (
                             "loss",
-                            "route_loss",
-                            "waypoint_loss",
+                            "route_fm_mse",
+                            "waypoint_fm_mse",
                             "route_ade_m",
                             "route_fde_m",
                             "waypoint_ade_m",
@@ -827,8 +883,9 @@ def main():
             for k, v in metrics.items():
                 writer.add_scalar(f"val_epoch/{k}", v, step)
         next_cursor = {"epoch": next_cursor["epoch"], "micro": next_cursor["micro"]}
-        if metrics["loss"] < best:
-            best = metrics["loss"]
+        score = sampled_trajectory_score(metrics, args)
+        if score < best:
+            best = score
             save_checkpoint(
                 out / "best.pt",
                 model,

@@ -388,7 +388,16 @@ def make_runtime(args, device, contract):
             )
 
         def forward_sample(
-            self, sample, decoder, decoder_config, decoder_dtype, clip=None
+            self,
+            sample,
+            decoder,
+            decoder_config,
+            decoder_dtype,
+            clip=None,
+            flow_state=None,
+            flow_time=None,
+            flow_sample_noise=None,
+            sample_trajectory=True,
         ):
             self.sample_key = f"{sample['scenario']}/{sample['run_id']}:{sample['anchor']}:{args.seed}"
             self.sample_identity = (
@@ -406,6 +415,14 @@ def make_runtime(args, device, contract):
                 ]
                 from qwen3vl_local.action_prior.precision import decoder_forward
 
+                # action_prior v5 的 FM 训练传入 x_t/t；推理只给噪声，由 decoder 内部 Euler
+                # 采样。这里不改变冻结 Qwen/BEV 的一次性准备和完整 KV 条件边界。
+                if flow_state is not None:
+                    kwargs["flow_state"] = flow_state
+                    kwargs["flow_time"] = flow_time
+                if flow_sample_noise is not None:
+                    kwargs["flow_sample_noise"] = flow_sample_noise
+                kwargs["sample_trajectory"] = sample_trajectory
                 return decoder_forward(decoder, kwargs, decoder_dtype, self.device)
 
             return super().forward_sample(

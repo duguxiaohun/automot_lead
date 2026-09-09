@@ -106,6 +106,158 @@ def test_frozen_inference_kv_decoder_backward(compute_dtype):
     assert all(not k.requires_grad for k, v in kv)
 
 
+def test_conditional_flow_matching_uses_one_kv_conditioning_and_joint_point_interaction():
+    """每步 vector field 复用一次 KV 条件，但任一点 x_t 可影响其余点的速度。"""
+    from qwen3vl_local.action_prior.flow_matching import (
+        ConditionalFlowMatchingDecoder,
+        FlowMatchingConfig,
+        flow_matching_loss,
+        make_training_flow,
+    )
+    from qwen3vl_local.leadmot import LeadMoTPlanningDecoderConfig
+
+    config = LeadMoTPlanningDecoderConfig(
+        hidden_size=16, num_kv_heads=2, head_dim=8, num_heads=2, num_layers=2,
+        rope_type="none", bev_channels=4, bev_grid=(2, 2),
+    )
+    model = ConditionalFlowMatchingDecoder(
+        config, FlowMatchingConfig(time_embed_dim=8, sample_steps=3)
+    )
+    kv = [(torch.randn(1, 2, 6, 8), torch.randn(1, 2, 6, 8)) for _ in range(2)]
+    route, waypoint = torch.randn(1, 10, 2), torch.randn(1, 8, 2)
+    flow = make_training_flow(route, waypoint, model.flow_config)
+    calls, original = [0], model._conditioning
+
+    def counted(**kwargs):
+        calls[0] += 1
+        return original(**kwargs)
+
+    model._conditioning = counted
+    kwargs = dict(
+        pooled_kv=kv, bev=torch.randn(1, 4, 2, 2), speed=torch.ones(1),
+        target_point=torch.ones(1, 2), target_point_next=torch.ones(1, 2),
+        final_goal=torch.ones(1, 2), rope_position_offset=9,
+        flow_state=flow["flow_state"], flow_time=flow["flow_time"],
+        flow_sample_noise=torch.zeros(1, 18, 2),
+    )
+    outputs = model(**kwargs)
+    loss, route_mse, waypoint_mse = flow_matching_loss(
+        outputs, flow["flow_target_velocity"], 10, 0.5, 1.0
+    )
+    loss.backward()
+    assert calls == [1]
+    assert outputs["flow_velocity"].shape == (1, 18, 2)
+    assert outputs["pred_route"].shape == (1, 10, 2)
+    assert outputs["pred_future_waypoints"].shape == (1, 8, 2)
+    assert route_mse >= 0 and waypoint_mse >= 0
+    assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.parameters())
+    # 固定 conditioning，扰动 point 0 的当前 x_t 必须改变至少一个其它点的向量场。
+    model.eval()
+    with torch.no_grad():
+        conditioning = original(
+            pooled_kv=kv, bev=kwargs["bev"], speed=kwargs["speed"],
+            target_point=kwargs["target_point"], target_point_next=kwargs["target_point_next"],
+            final_goal=kwargs["final_goal"], rope_position_offset=9,
+        )
+        before = model._velocity(conditioning, flow["flow_state"], flow["flow_time"])
+        changed = flow["flow_state"].clone()
+        changed[:, 0, 0] += 1.0
+        after = model._velocity(conditioning, changed, flow["flow_time"])
+    assert not torch.allclose(before[:, 1:], after[:, 1:])
+
+
+def test_evaluation_flow_is_fixed_per_sample_and_isolated_from_global_rng():
+    """同一 sample/seed 在不同进程重算同一 eps、t、ODE 噪声，不消耗训练 RNG。"""
+    from qwen3vl_local.action_prior.flow_matching import FlowMatchingConfig, make_evaluation_flow
+
+    route, waypoint = torch.ones(1, 10, 2), torch.ones(1, 8, 2)
+    sample = dict(scenario="S", run_id="R", anchor=7)
+    config = FlowMatchingConfig(time_embed_dim=8)
+    torch.manual_seed(123)
+    state = torch.get_rng_state().clone()
+    first = make_evaluation_flow(route, waypoint, config, sample, 2026)
+    assert torch.equal(torch.get_rng_state(), state)
+    second = make_evaluation_flow(route, waypoint, config, sample, 2026)
+    assert all(torch.equal(first[key], second[key]) for key in first)
+    changed = make_evaluation_flow(route, waypoint, config, dict(sample, anchor=8), 2026)
+    assert not torch.equal(first["flow_sample_noise"], changed["flow_sample_noise"])
+
+
+def test_route_policy_generator_is_reproducible_and_isolated_from_global_rng():
+    """闭环每 route 的 FM 噪声是独立序列，不依赖 Traffic Manager 或 torch 全局 RNG。"""
+    from qwen3vl_local.action_prior.flow_matching import route_policy_generator
+
+    torch.manual_seed(123)
+    state = torch.get_rng_state().clone()
+    first = torch.randn(2, 18, 2, generator=route_policy_generator("cpu", 7, "42"))
+    second = torch.randn(2, 18, 2, generator=route_policy_generator("cpu", 7, "42"))
+    other = torch.randn(2, 18, 2, generator=route_policy_generator("cpu", 7, "43"))
+    assert torch.equal(torch.get_rng_state(), state)
+    assert torch.equal(first, second)
+    assert not torch.equal(first, other)
+
+
+def test_joint_fm_sampling_is_dropout_free_and_can_be_disabled_for_training():
+    """默认训练只回归向量场；显式诊断采样固定噪声时不额外消耗 dropout RNG。"""
+    from qwen3vl_local.action_prior.flow_matching import (
+        ConditionalFlowMatchingDecoder,
+        FlowMatchingConfig,
+    )
+    from qwen3vl_local.leadmot import LeadMoTPlanningDecoderConfig
+
+    config = LeadMoTPlanningDecoderConfig(
+        hidden_size=16, num_kv_heads=2, head_dim=8, num_heads=2, num_layers=1,
+        rope_type="none", bev_channels=4, bev_grid=(2, 2), dropout=0.4,
+    )
+    model = ConditionalFlowMatchingDecoder(config, FlowMatchingConfig(time_embed_dim=8, sample_steps=2))
+    model.train()
+    conditioning = torch.randn(1, 18, 16)
+    model._conditioning = lambda **kwargs: conditioning
+    state = torch.get_rng_state().clone()
+    first = model(flow_sample_noise=torch.zeros(1, 18, 2))
+    assert torch.equal(torch.get_rng_state(), state)
+    second = model(flow_sample_noise=torch.zeros(1, 18, 2))
+    assert torch.equal(first["pred_route"], second["pred_route"])
+    disabled = model(
+        flow_state=torch.zeros(1, 18, 2), flow_time=torch.zeros(1),
+        sample_trajectory=False,
+    )
+    assert "flow_velocity" in disabled and "pred_route" not in disabled
+
+
+def test_joint_fm_cpu_bf16_train_and_eval_paths_are_supported():
+    """CPU BF16 eval/no_grad 不走 PyTorch 2.3 的混合 dtype MHA fastpath 崩溃路径。"""
+    from qwen3vl_local.action_prior.flow_matching import (
+        ConditionalFlowMatchingDecoder,
+        FlowMatchingConfig,
+    )
+    from qwen3vl_local.action_prior.precision import decoder_forward
+    from qwen3vl_local.leadmot import LeadMoTPlanningDecoderConfig
+
+    config = LeadMoTPlanningDecoderConfig(
+        hidden_size=16, num_kv_heads=2, head_dim=8, num_heads=2, num_layers=1,
+        rope_type="none", bev_channels=4, bev_grid=(2, 2), dropout=0.1,
+    )
+    model = ConditionalFlowMatchingDecoder(config, FlowMatchingConfig(time_embed_dim=8, sample_steps=2))
+    kv = [(torch.randn(1, 2, 6, 8), torch.randn(1, 2, 6, 8))]
+    kwargs = dict(
+        pooled_kv=kv, bev=torch.randn(1, 4, 2, 2), speed=torch.ones(1),
+        target_point=torch.ones(1, 2), target_point_next=torch.ones(1, 2),
+        final_goal=torch.ones(1, 2), rope_position_offset=9,
+        flow_state=torch.zeros(1, 18, 2), flow_time=torch.zeros(1),
+        flow_sample_noise=torch.zeros(1, 18, 2),
+    )
+    model.train()
+    train_out = decoder_forward(model, kwargs, torch.bfloat16, torch.device("cpu"))
+    train_out["flow_velocity"].square().mean().backward()
+    assert any(p.grad is not None for p in model.parameters())
+    model.eval()
+    with torch.no_grad():
+        eval_out = decoder_forward(model, kwargs, torch.bfloat16, torch.device("cpu"))
+    assert eval_out["flow_velocity"].dtype == torch.float32
+    assert eval_out["pred_route"].shape == (1, 10, 2)
+
+
 def test_analysis_fallback_and_no_action_gt_leak():
     priors = {
         "conditions": {"ROAD_STRUCTURE": None, "UE3": None},
@@ -117,7 +269,7 @@ def test_analysis_fallback_and_no_action_gt_leak():
 
     assert analysis_format_valid(text)
     assert not valid_analysis(text, priors)
-    assert not valid_analysis("Scene: truncated", priors)
+    assert not valid_analysis("", priors)
     prompt = analysis_prompt(priors, "velocity=2. Predict the driving actions now")
     assert (
         "future_waypoints" not in prompt
@@ -212,9 +364,8 @@ def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch, review
 
     monkeypatch.setattr(rt, "collect_priors", collect)
     draft = (
-        "Scene: The accepted road structure is a lane-following surface corridor.\n"
-        "Interaction: A vehicle is entering the immediate ego corridor.\n"
-        "Planning context: At 4 m/s, the forward navigation target and accepted intrusion are relevant to the available corridor."
+        "The surface-road corridor continues ahead while another vehicle enters the immediate "
+        "path; at 4 m/s the forward navigation target and reduced clearance guide near-term planning."
     )
     generated_calls = []
 
@@ -223,8 +374,8 @@ def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch, review
         generated_calls.append((system, prompt, len(images)))
         if system == prompts.REVIEW_SYSTEM:
             assert len(images) == 0 and draft in json.loads(
-                prompt.split("[DRAFT_JSON_STRING]\n")[1].split(
-                    "\n[/DRAFT_JSON_STRING]"
+                prompt.split("[DRAFT_SUMMARY]\n")[1].split(
+                    "\n[/DRAFT_SUMMARY]"
                 )[0]
             )
             checks = {k: True for k in prompts.REVIEW_KEYS}

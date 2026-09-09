@@ -151,7 +151,7 @@ class LeadMoTPlanningDecoder(nn.Module):
                     f"(heads={self.config.num_kv_heads}, head_dim={self.config.head_dim})"
                 )
 
-    def forward(
+    def encode_conditioning(
         self,
         pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]],
         bev: Optional[torch.Tensor],
@@ -161,9 +161,11 @@ class LeadMoTPlanningDecoder(nn.Module):
         final_goal: Optional[torch.Tensor] = None,
         rope_position_offset: int | torch.Tensor | None = None,
     ) -> Dict[str, torch.Tensor]:
-        """返回 route 和 future-waypoint 预测。
+        """编码一次条件上下文并返回 route / waypoint query hidden。
 
-        final_goal: (B, 2) ego-frame route 终点；config.use_final_goal=True 时必传。
+        除原 Linear+cumsum head 外，条件 Flow Matching 也复用同一套 Qwen KV、BEV、
+        状态和 Prefix-KV blocks。将该边界显式化可让 ODE 的多个向量场步只重复轻量
+        head，而不会重复 Qwen-prefix attention。
         """
         self._check_pooled_kv(pooled_kv)
         gen_seq = self._build_gen_sequence(
@@ -191,7 +193,33 @@ class LeadMoTPlanningDecoder(nn.Module):
         wp_hidden = gen_seq[:, w_start:w_end, :]
 
         return {
-            "pred_route": self.route_head(route_hidden),
-            "pred_future_waypoints": self.waypoint_head(wp_hidden),
+            "route_hidden": route_hidden,
+            "waypoint_hidden": wp_hidden,
             "gen_hidden": gen_seq,
+        }
+
+    def forward(
+        self,
+        pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]],
+        bev: Optional[torch.Tensor],
+        speed: torch.Tensor,
+        target_point: torch.Tensor,
+        target_point_next: torch.Tensor,
+        final_goal: Optional[torch.Tensor] = None,
+        rope_position_offset: int | torch.Tensor | None = None,
+    ) -> Dict[str, torch.Tensor]:
+        """返回原有 Linear+cumsum route / future-waypoint 预测，保持 v1 接口。"""
+        encoded = self.encode_conditioning(
+            pooled_kv=pooled_kv,
+            bev=bev,
+            speed=speed,
+            target_point=target_point,
+            target_point_next=target_point_next,
+            final_goal=final_goal,
+            rope_position_offset=rope_position_offset,
+        )
+        return {
+            "pred_route": self.route_head(encoded["route_hidden"]),
+            "pred_future_waypoints": self.waypoint_head(encoded["waypoint_hidden"]),
+            "gen_hidden": encoded["gen_hidden"],
         }

@@ -45,7 +45,8 @@ DEFAULTS = dict(
     seed=2026,
     num_workers=8,
     prefetch_factor=2,
-    analysis_tokens=384,
+    # 短摘要最多 80 词；128 token 防截断又不会让失控生成拉长 final KV。
+    analysis_tokens=128,
     analysis_review=True,
     recheck_mode="history",
     condition_mode="prior",
@@ -84,7 +85,17 @@ DEFAULTS = dict(
     worker_multiprocessing_context="spawn",
     route_loss_weight=0.5,
     waypoint_loss_weight=1.0,
-    loss_type="l1",
+    # action_prior v5 使用标准 MSE vector-field regression，不再做坐标 L1 回归。
+    loss_type="mse",
+    flow_route_coordinate_scale_m=30.0,
+    flow_waypoint_coordinate_scale_m=20.0,
+    flow_time_embed_dim=64,
+    flow_sample_steps=10,
+    flow_trajectory_layers=2,
+    flow_trajectory_heads=8,
+    # 训练更新只回归向量场；采样 ADE/FDE 由确定性 validation 报告。显式开启才在
+    # 训练日志额外运行 ODE，不让诊断计算改变默认训练随机流或吞吐。
+    train_sampled_metrics=False,
     ema_decay=0.999,
 )
 
@@ -244,6 +255,18 @@ def validate_args(args):
         raise ValueError("step/sample/worker limits must be nonnegative")
     if args.learning_rate <= 0 or not 0 <= args.warmup_ratio < 1:
         raise ValueError("invalid LR/warmup")
+    if args.loss_type != "mse":
+        raise ValueError("action_prior Flow Matching requires --loss-type mse")
+    from qwen3vl_local.action_prior.flow_matching import FlowMatchingConfig
+
+    FlowMatchingConfig(
+        route_coordinate_scale_m=args.flow_route_coordinate_scale_m,
+        waypoint_coordinate_scale_m=args.flow_waypoint_coordinate_scale_m,
+        time_embed_dim=args.flow_time_embed_dim,
+        sample_steps=args.flow_sample_steps,
+        trajectory_layers=args.flow_trajectory_layers,
+        trajectory_heads=args.flow_trajectory_heads,
+    ).validate()
 
 
 def build_contract(args):
@@ -365,6 +388,16 @@ def build_contract(args):
         system=SYSTEM_PROMPT,
         analysis_tokens=args.analysis_tokens,
         analysis_review=args.analysis_review,
+        trajectory_decoder="conditional_joint_trajectory_flow_matching_v2",
+        flow_matching=dict(
+            route_coordinate_scale_m=args.flow_route_coordinate_scale_m,
+            waypoint_coordinate_scale_m=args.flow_waypoint_coordinate_scale_m,
+            time_embed_dim=args.flow_time_embed_dim,
+            sample_steps=args.flow_sample_steps,
+            trajectory_layers=args.flow_trajectory_layers,
+            trajectory_heads=args.flow_trajectory_heads,
+            train_sampled_metrics=args.train_sampled_metrics,
+        ),
         navigation={
             k: getattr(args, k)
             for k in (

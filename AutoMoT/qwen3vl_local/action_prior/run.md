@@ -43,7 +43,7 @@ bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/run_时间戳/tb
 ```
 
 TB 启动后按终端打印的地址/端口打开；也可用 `TB_PORT=6006` 指定端口。
-观察 `train/loss`、`train/route_loss`、`train/waypoint_loss`、`train/lr`、
+观察 `train/loss`（FM vector-field loss）、`train/route_fm_mse`、`train/waypoint_fm_mse`、`train/lr`、
 `train/prior/unconfirmed_samples` 和 `val/*` / `val_epoch/*`。
 首次参数更新后出现训练曲线，验证曲线必须等验证完成。
 
@@ -189,8 +189,9 @@ bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/la
 
 冻结本地 `Qwen3-VL-4B-Instruct`、Phase1/2 LoRA 和 LEAD BEV encoder，只训练已有 LeadMoT
 轨迹 decoder。这里的 **base** 指 Instruct 基座禁用全部 LoRA，不是另一个非 Instruct checkpoint。
-输出仍为 `route (B,10,2)`、`future_waypoints (B,8,2)`；head 是 **Linear+cumsum**，不是扩散模型。
-坐标、BEV 预处理、导航状态、轨迹 loss 沿用 `leadmot/`，只更换语言条件。
+输出仍为 `route (B,10,2)`、`future_waypoints (B,8,2)`，但 v5 head 是**条件 Flow Matching**，不再是
+Linear+cumsum 坐标回归。联合变量按 route 30m / waypoint 20m 缩放；训练用直线路径的向量场 MSE，
+评测和闭环从高斯噪声以默认 10 步 Euler 采样。坐标、BEV 预处理与导航状态仍沿用 `leadmot/`。
 
 ```mermaid
 flowchart LR
@@ -198,10 +199,10 @@ flowchart LR
   A --> C[Phase2 两个 EVENT 域全问与继续复核]
   B --> D[接受一致字段 / invalid 留空]
   C --> D
-  D --> E[禁用全部 LoRA 的 base Qwen：三句简述]
+  D --> E[禁用全部 LoRA 的 base Qwen：短总结]
   A --> E
   E --> F[base 完整 transcript KV]
-  F --> G[LeadMoT 轨迹 decoder]
+  F --> G[条件 Flow Matching decoder]
   H[冻结 LEAD BEV 与当前导航状态] --> G
 ```
 
@@ -218,13 +219,13 @@ hierarchical spec 复核 RS1/2/4/5，每次保留事实四问；也检查 GROUP 
 默认单帧首次需要5次 Phase1、4次 Phase2 问答、一次 base 简述和最多一次纯文本简述复核，然后 base 完整 prefill。
 每个 adapter 按自身配置选择 `4rgb=[0,1,2,3]` 或 `2rgb_endpoints=[0,3]`；最终 base 固定吃四张图。
 复核是真实多轮对话，完整重做图文 prefill；不同模型/adapter 之间绝不传递 KV。
-base 使用自己的措辞生成 Scene / Interaction / Planning context 三个短段，每段最多60词。
-输入包含四图、接受的条件及其语义释义、按正类查表的简短规划经验和当前导航；**没有 VERIFIED_SUMMARY 或预制分析答案**。
-要求描述已知道路结构、覆盖正类事实/交互，负类可合并或省略但不能反转，null 不当 NO。
-Planning context 必须结合本帧实际速度、导航几何和事件条件，不能总写“使用当前导航”。
+base 使用自己的措辞生成一个不超过80词的短总结。输入包含四图、由已确认 RS/EVENT YES 组成的
+自然场景描述和当前导航；**没有 VERIFIED_SUMMARY、条件 JSON、类别释义、NO/UNKNOWN 或预制分析答案**。
+道路/事件描述本身提供帮助性规划背景，但不宣称可用空隙、完成动作、控制指令或未来行为；null 不当 NO。
 LoRA 模式用复核后的条件，dataset-priors 模式用标签展开并经可选噪声处理后的条件；不额外读取隐藏 GT、未来位置或逐帧 Phase3 动作。
 
-`prompts.py` 的 `PLANNING_EXPERIENCE` 摘要复用新 Phase3 七 UE 的高层经验，
+历史 v4 的 `PLANNING_EXPERIENCE` 摘要已删除，以下表格仅保留旧合同审计背景；v5 使用自然场景句而不是经验 JSON。
+`prompts.py` 的 `PLANNING_EXPERIENCE` 摘要曾复用新 Phase3 七 UE 的高层经验，
 仅当对应接受字段为 YES 时放入 `[PLANNING_EXPERIENCE]`，无需额外开关或模型调用：
 
 | 接受字段 | 经验 | 简短规划方向 |
@@ -456,10 +457,17 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/resume.sh checkpoints/action_pri
 也可 `RESUME=... bash qwen3vl_local/action_prior/run_full_pipeline.sh`，恢复完成后继续最终 eval/probe。
 checkpoint 保存 optimizer/scheduler/EMA、各 rank RNG、下一 epoch/micro cursor 和数据 SHA。
 未完成 epoch 的各 rank invalid/损失累积计数一起恢复；若在 epoch 验证中退出，恢复后先补验证和 best 选择。
-FP32 checkpoint 容器仍为 v2；自然语言分析协议为 v4（加入 UE 规划经验）。旧 v3 分析缓存和
-checkpoint 条件合同不兼容，需用新协议重新训练；旧照抄模板和旧 BF16 参数合同也明确拒绝 resume/eval，不能靠改 metadata 绕过。
+checkpoint 容器为 `action_prior_checkpoint_v4`；自然语言分析协议为 v5，轨迹为联合条件 Flow
+Matching。验证的 `eps/t` 与 Euler 初始噪声按样本身份固定，best 仅按纯噪声采样后的加权 route/waypoint
+ADE 选取（checkpoint 明确记录 `best_metric=weighted_sampled_route_waypoint_ade_m`），FM MSE 只作诊断。R3 不是高速事实，`RS_HIGHWAY` 必须独立确认。旧 Linear+cumsum、逐点 FM、
+v3 分析缓存和 checkpoint 条件合同不兼容，需用新协议重新训练；旧照抄模板和旧 BF16 参数合同也明确拒绝 resume/eval，不能靠改 metadata 绕过。
 改变 world size、索引、调度或语言条件会拒绝 resume；坏样本/非有限 loss 直接失败，绝不静默“跳过训练成功”。
 累积窗口最后不足 16 帧时按实际帧数归一化并更新，不丢最后一组。
+
+训练默认不跑 Euler 诊断采样，只优化 FM vector-field MSE；验证/最终 eval 仍从固定纯噪声采样并报告 ADE/FDE。
+如需训练日志中的采样指标，显式设置 `TRAIN_SAMPLED_METRICS=1`，采样期间 trajectory Transformer 会关闭
+dropout。Bench2Drive 的 policy seed 优先级为 `--policy-seed K`、`ACTION_POLICY_SEED`、最后是 `--seed`；每条 route 使用由该值派生的
+独立 FM 噪声序列，保存进 benchmark manifest 和 `model_contract.json`，不与 Traffic Manager 随机性混淆。
 
 ## 测试、审计与 TensorBoard
 
