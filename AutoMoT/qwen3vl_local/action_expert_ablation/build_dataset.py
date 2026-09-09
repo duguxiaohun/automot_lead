@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# 构建共享索引（在 AutoMoT/ 下执行；只读 lead_data，不加载模型）：
+#   python qwen3vl_local/action_expert_ablation/build_dataset.py --data-root lead_data --output-dir checkpoints/action_prior_data
 """Build the shared action expert ablation dataset index."""
 
 from __future__ import annotations

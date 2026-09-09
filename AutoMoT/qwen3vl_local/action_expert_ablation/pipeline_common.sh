@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Shared full-pipeline launcher for action expert ablations.
-
+# 供两个 run_full_pipeline.sh source 的共享函数；完整运行请使用下列入口。
+# 运行示例（在 AutoMoT/ 下执行；默认自动选四张空闲 GPU）：
+#   bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh
+# 将 bev_only 换成 qwen_simple 即运行另一组消融。
+ulimit -S -c 0 2>/dev/null || true
 action_ablation_index_ready() {
   local data_dir="$1"
   [[ -s "$data_dir/train.jsonl" && -s "$data_dir/val.jsonl" && -s "$data_dir/test.jsonl" ]]

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Run from AutoMoT/:
+# 运行示例（在 AutoMoT/ 下执行；需已有共享数据索引）：
 #   bash qwen3vl_local/action_expert_ablation/bev_only/train.sh
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/train.sh
+# 续训（使用与 checkpoint 匹配的代码版本）：
+#   bash qwen3vl_local/action_expert_ablation/bev_only/train.sh --resume checkpoints/action_expert_ablation/bev_only/latest/latest.pt
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 export PYTHONUNBUFFERED=1
