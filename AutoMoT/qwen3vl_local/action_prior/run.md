@@ -2,6 +2,24 @@
 
 从远端 `AutoMoT/` 目录运行。入口是 `run_full_pipeline.sh`；Phase3 仍在训练时不加载它。
 
+## 与消融共用训练流程（2026-09-09）
+
+主线和 `action_expert_ablation/{qwen_simple,bev_only}` 现在共同使用
+[`training_core.py`](training_core.py) 的模型构造、AdamW/EMA、数据分片/累积、FM 训练、
+验证、best 选取、checkpoint 保存与恢复校验。主线的先验生成和 RS/EVENT 审计保留在
+`train.py`/runtime；消融只注入各自条件和核心指标，不复制训练循环。
+
+三组新增相同 TB tag：`train/samples_seen` 是累计训练 case 呈现数（含跨 epoch 重复，
+不含 val/test），`train/step_samples` 是本次 optimizer update 的实际 case 数；
+`train/samples` 仍是日志窗口样本数。默认四卡 × 16 累积为 64 case/完整 step，
+epoch 尾部按实际样本归一化。对比需同索引/卡数/累积/seed/优化和 FM 配置，
+以采样 ADE/FDE 及独立 test 判断最终效果，不能仅凭 FM loss 下降快认定效果更好。
+完整消融定义与对比要求见[消融运行文档](../action_expert_ablation/run.md)。
+
+续训打开 TB writer 前，共享函数归档 checkpoint step 之后的旧事件，保留该 step 及之前事件。
+模型结构及 checkpoint schema 不变，但本次执行源码指纹改变；旧 run 仍应使用原代码
+续训/评测，不能绕过合同检查。新实验用同一份代码分别训练。
+
 ## 快速运行：全流程、续训、测试与 TensorBoard
 
 以下命令都在 `AutoMoT/` 下运行，先激活已有训练环境，并准备本地 Qwen/BEV、
