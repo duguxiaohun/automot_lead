@@ -6,7 +6,45 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from qwen3vl_local.sft_new_loop_phase3 import train
+from qwen3vl_local.sft_new_loop_phase3 import eval, train
+
+
+def test_eval_raw_focus_counts_use_the_context_action_schema():
+    """评测侧统计必须按 context_taxonomy 的动作问题域展开。"""
+
+    row = eval.FrameRow(
+        idx=0,
+        scenario="synthetic",
+        route_id="route",
+        town="Town01",
+        frame_id=1,
+        true_rs="R1",
+        prompt_road_structure="R1",
+        context_id="LEAD_BRAKE",
+        question_domain="LONGITUDINAL_YIELD",
+        action_signature="DECELERATE",
+        event="U-E1",
+        split="test",
+        goal_ego_xy=(10.0, 0.0),
+        history_rgb_paths=["unused.jpg"] * 4,
+        latest_rgb_path="unused.jpg",
+        answers={
+            "DECELERATE": True,
+            "STOP": False,
+            "RESUME": False,
+            "LANE_CHANGE_LEFT": False,
+            "LANE_CHANGE_RIGHT": False,
+            "INVALID_ACTION_CONTEXT": False,
+        },
+        action_evidence={},
+    )
+
+    counts = eval._raw_focus_bin_counts([row])
+    assert counts["answer/DECELERATE:YES"] == 1
+    assert counts["answer/STOP:NO"] == 1
+    assert counts["answer/RESUME:NO"] == 1
+    assert counts["answer/INVALID_ACTION_CONTEXT:NO"] == 1
+    assert not any("LANE_CHANGE" in key for key in counts)
 
 
 @pytest.mark.parametrize("legacy", [False, True])

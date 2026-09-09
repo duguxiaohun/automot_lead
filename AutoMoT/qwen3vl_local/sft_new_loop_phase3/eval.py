@@ -147,6 +147,7 @@ from PIL import Image
 from qwen3vl_local.sft_new_loop_phase3 import DATASET_NAME  # noqa: E402
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import (  # noqa: E402
     ACTION_KEYS,
+    CONTEXT_BY_ID,
     CONTEXT_IDS,
 )
 from qwen3vl_local.sft_new_loop_phase3.history_rgb import (  # noqa: E402
