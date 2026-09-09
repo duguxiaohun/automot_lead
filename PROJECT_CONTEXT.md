@@ -663,6 +663,40 @@ prompt更新v4_context_recheck；动作规则仍Driving v5；训练/eval新增ma
 hierarchical EVENT 接口，采用两个已有问题域全问和真实 assistant 后的同域续问复核。
 两次一致只是 condition 接受，不代表真实准确率；invalid 字段留空，样本继续参加轨迹训练。
 
+新增 `qwen3vl_local/action_expert_ablation/` 作为 action expert 对照路线，不读取
+RS/EVENT 标定或 Phase1/2 LoRA。`qwen_simple/` 只使用四图 + LeadMoT 原简短导航 prompt
+的 base Qwen KV + frozen BEV；`bev_only/` 不初始化 Qwen，给 Prefix-KV attention
+传 zero-length prefix，保留 frozen LEAD BEV（当前 stitched RGB + LiDAR BEV 融合）、
+speed、target_point、next_target_point、final_goal 和 query token；它不是纯 LiDAR/完全无视觉。
+两者复用 action_prior 的 shared dataset index、联合轨迹
+Flow Matching decoder、FP32 AdamW/EMA、DDP/验证节奏和 step 样本预算；共享索引首次构建用
+`.build.lock` 文件配合 `flock` 加锁，进程退出自动释放，残留锁文件不阻塞后续启动，并在锁内重查 split 完整性，避免两个变体并发写同名 tmp；epoch 尾部不足
+完整累积窗口时只在同索引/同卡数/同累积/同 seed 下可比。full pipeline 训练前固定本次
+`RUN_TAG` 和真实 run dir，`--resume` 指向 `latest/latest.pt` 等软链接时先解析真实 checkpoint，
+最终 eval 直接读同一 run 的 `best.pt`；CLI `--data-root/--data-dir` 和显式
+`MODEL_DIR`/`--model-dir`、`LEAD_BEV_CKPT`/`--lead-bev-ckpt` 贯穿构建、训练和 eval。
+仅传 `--resume` 时训练入口先从 run `config.json` 恢复原 LR/epoch/梯度累积/索引等参数，
+launcher 在选 GPU 前从 `training_plan.json` 恢复原 `world_size` 默认值，`train.sh --resume`
+不注入脚本默认 LR/epoch/梯度累积/索引；显式 CLI 或环境变量覆盖仍优先生效。
+resume 会归档 TB 中 checkpoint step 之后的旧 event，并保留 checkpoint step。
+执行指纹覆盖消融入口、共享 action_prior/LeadMoT/BEV 依赖和关键运行库版本，但不绑定未使用的 Phase1/2 prompt。
+TB 只记录核心 FM/planning loss、ADE/FDE、LR、grad_norm、吞吐和显存，不记录 RS/EVENT/UNKNOWN 分桶。
+运行见 `qwen3vl_local/action_expert_ablation/run.md`。
+
+2026-09-09 共享训练重构：主线 `action_prior/train.py` 与消融 `common.py` 都调用
+`action_prior/training_core.py`，统一模型构造、FP32 AdamW/EMA、分片/累积、训练和验证、
+日志、best/最新 checkpoint 调度及恢复配置校验。入口只注入各自 runtime、条件合同和审计接口；
+主线保留先验分组，消融不产生 RS/EVENT 分组和先验 case 审计。
+后续修改公共训练行为必须落在共享模块，不能在消融复制循环。
+三组新增 `train/samples_seen` 累计训练呈现数与 `train/step_samples` 本次更新样本数；
+`train/samples` 仍是日志窗口计数。默认完整 step 为四卡×16=64 case，epoch 尾部按实际分母。
+`action_prior` 对 `qwen_simple` 衡量先验+分析+prompt 的整体变化，不能孤立归因于推理文字；
+`bev_only` 仍含 BEV RGB 融合。FM MSE 仅为训练诊断，最终比较同口径采样 ADE/FDE 与 test。
+共享循环兼容两种历史 pending cursor 字段，但代码指纹已改变，旧 run 仍需原代码恢复。
+CPU 回归覆盖同模拟条件三入口更新/指标一致、两个消融中途及验证中断恢复、预算完成后不超训；
+未运行真实 Qwen/BEV GPU/DDP、CARLA 或真实 TB event 恢复。
+
+
 自动权重选择只在 `best_generation/` 内查实际权重，校验生产 prompt name/hash、Git commit、
 base 路径和 RGB 2/4图配置，并回查保存 step 的 generation 验证分数；没有 final 兜底。
 允许显式指定兼容 adapter；来源、完整权重指纹和代码指纹写入 config/selected_priors/checkpoint。
