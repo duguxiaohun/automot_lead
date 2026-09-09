@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# 单卡运行示例（在 AutoMoT/ 下执行；多卡请用同目录 train.sh）：
+#   python qwen3vl_local/action_expert_ablation/bev_only/train.py
+#   GPU_IDS=0 python qwen3vl_local/action_expert_ablation/bev_only/train.py
 """Train the BEV-only action expert ablation."""
 
 from __future__ import annotations

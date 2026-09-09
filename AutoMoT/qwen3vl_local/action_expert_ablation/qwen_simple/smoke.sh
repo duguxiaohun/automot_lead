@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Four optimizer updates with the same per-step case budget as the full run.
+# 运行示例（在 AutoMoT/ 下执行；需已有共享数据索引）：
+# 默认四次 optimizer update，保持正式训练的每 step 样本预算。
+#   bash qwen3vl_local/action_expert_ablation/qwen_simple/smoke.sh
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/smoke.sh
+ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 MAX_TRAIN_STEPS="${MAX_TRAIN_STEPS:-4}"
 VAL_STEPS="${VAL_STEPS:-2}" \

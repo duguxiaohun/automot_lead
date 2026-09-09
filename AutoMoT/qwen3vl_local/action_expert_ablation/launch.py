@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# 运行示例（在 AutoMoT/ 下执行；--variant 可选 qwen_simple 或 bev_only）：
+#   python qwen3vl_local/action_expert_ablation/launch.py train --variant bev_only
+#   GPU_IDS=0,1,2,3 python qwen3vl_local/action_expert_ablation/launch.py train --variant bev_only
+#   python qwen3vl_local/action_expert_ablation/launch.py preflight --variant qwen_simple
+# preflight 只核验本地索引/权重合同，不启动训练；需先准备对应文件。
 """Launcher for action expert ablation train/eval jobs."""
 
 from __future__ import annotations
