@@ -8,6 +8,18 @@
 # DATASET_PRIORS=1 时不加载 LoRA，用 $PRIOR_LABELS 的标定真值，且默认关闭独立复核，
 # base 每帧只生成一次；ANALYSIS_REVIEW=1 可要求保留复核（每帧两次生成）。
 # PRIOR_NOISE=0.1：10% 的帧按审计错误方向把 RS 或 EVENT 先验改成错误值/invalid。
+# UE/特殊 RE 均衡采样（先按 run.md 构建 action index 和 v2 full map）：
+#   DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl bash qwen3vl_local/action_prior/train.sh --dataset-priors
+#   GPU_IDS=0,1,2,3 DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl bash qwen3vl_local/action_prior/train.sh --dataset-priors
+# 关闭采样开关：上面的命令追加 --sampling-mode uniform；恢复自然分布，保留 dataset-priors 选择。
+# 重复上限 EVENT_BALANCE_MAX_FRAME_REPEATS=8；自动 epoch 预算 EVENT_BALANCED_EPOCH_SAMPLES=0。
+# 可选 BEST_SELECTION_METRIC=event_balanced_ade 要求 val 全桶覆盖；默认 natural_ade。
+# 可选 EVENT_BALANCED_SCENE_PRIORS=1 只用于 dataset-priors + PRIOR_NOISE=0 的离线条件实验，闭环禁用。
+# 只检查配置/索引/模型文件合同，不加载模型或训练：
+#   ACTION_MODE=preflight DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl bash qwen3vl_local/action_prior/train.sh --dataset-priors
+# 单独场景先验（uniform 不重采样）：
+#   DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED_SCENE_PRIORS=1 EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl bash qwen3vl_local/action_prior/train.sh --dataset-priors
+#   GPU_IDS=0,1,2,3 DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED_SCENE_PRIORS=1 EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl bash qwen3vl_local/action_prior/train.sh --dataset-priors
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 export PYTHONUNBUFFERED=1
@@ -35,13 +47,14 @@ scene_priors_requested=0
 if [[ "${EVENT_BALANCED_SCENE_PRIORS:-0}" == 1 ]] || has_flag --event-balanced-scene-priors "$@"; then
  scene_priors_requested=1
 fi
+if has_flag --no-event-balanced-scene-priors "$@"; then scene_priors_requested=0; fi
 if has_value --sampling-mode event_balanced "$@" || { [[ "${EVENT_BALANCED:-0}" == 1 ]] && ! has_flag --sampling-mode "$@"; } || [[ "$scene_priors_requested" == 1 ]]; then
  if ! has_flag --event-balance-index "$@"; then
   : "${EVENT_BALANCE_INDEX:?set EVENT_BALANCE_INDEX to action_prior full_event_mapping.jsonl}"
   args+=(--event-balance-index "$EVENT_BALANCE_INDEX")
  fi
 fi
-if [[ "${EVENT_BALANCED_SCENE_PRIORS:-0}" == 1 ]] && ! has_flag --event-balanced-scene-priors "$@"; then
+if [[ "$scene_priors_requested" == 1 ]] && ! has_flag --event-balanced-scene-priors "$@"; then
  args+=(--event-balanced-scene-priors)
 fi
 if ! has_flag --event-balanced-epoch-samples "$@"; then

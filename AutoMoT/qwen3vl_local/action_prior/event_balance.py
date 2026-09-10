@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 import random
 from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
@@ -258,56 +259,62 @@ def _ordered_route_cycle(rows, rng, route_diverse):
     return result
 
 
-class _Dinic:
-    """小型整数 max-flow；bucket→共享 frame 的总 repeat cap 必须联合验证。"""
+class _MinCostFlow:
+    """用势函数和最短增广路求整数最小费用流；只在压缩后的事件归属图上运行。"""
+
     def __init__(self, nodes):
+        """初始化残量图；边记录终点、反向边位置、剩余容量和单位费用。"""
         self.graph = [[] for _ in range(nodes)]
 
-    def add(self, start, end, capacity):
-        forward = [end, len(self.graph[end]), int(capacity)]
-        backward = [start, len(self.graph[start]), 0]
+    def add(self, start, end, capacity, cost=0):
+        """添加正反向边，返回正向边位置供恢复分配使用。"""
+        forward = [end, len(self.graph[end]), int(capacity), int(cost)]
+        backward = [start, len(self.graph[start]), 0, -int(cost)]
         self.graph[start].append(forward)
         self.graph[end].append(backward)
         return len(self.graph[start]) - 1
 
-    def flow(self, source, sink):
-        from collections import deque
+    def flow(self, source, sink, requested):
+        """每次按整条路径瓶颈批量增广，避免逐个 presentation 求解。"""
+        from heapq import heappop, heappush
 
-        total = 0
-        while True:
-            level = [-1] * len(self.graph)
-            level[source] = 0
-            queue = deque([source])
+        potential = [0] * len(self.graph)
+        total = cost = 0
+        while total < requested:
+            distance = [math.inf] * len(self.graph)
+            previous = [None] * len(self.graph)
+            distance[source] = 0
+            queue = [(0, source)]
             while queue:
-                node = queue.popleft()
-                for target, _back, capacity in self.graph[node]:
-                    if capacity and level[target] < 0:
-                        level[target] = level[node] + 1
-                        queue.append(target)
-            if level[sink] < 0:
-                return total
-            cursor = [0] * len(self.graph)
-
-            def push(node, limit):
-                if node == sink:
-                    return limit
-                while cursor[node] < len(self.graph[node]):
-                    edge_index = cursor[node]
-                    target, back, capacity = self.graph[node][edge_index]
-                    if capacity and level[target] == level[node] + 1:
-                        sent = push(target, min(limit, capacity))
-                        if sent:
-                            self.graph[node][edge_index][2] -= sent
-                            self.graph[target][back][2] += sent
-                            return sent
-                    cursor[node] += 1
-                return 0
-
-            while True:
-                sent = push(source, 10**18)
-                if not sent:
-                    break
-                total += sent
+                current, node = heappop(queue)
+                if current != distance[node]:
+                    continue
+                for index, (target, _back, capacity, price) in enumerate(self.graph[node]):
+                    candidate = current + price + potential[node] - potential[target]
+                    if capacity and candidate < distance[target]:
+                        distance[target] = candidate
+                        previous[target] = (node, index)
+                        heappush(queue, (candidate, target))
+            if previous[sink] is None:
+                break
+            for node, value in enumerate(distance):
+                if value < math.inf:
+                    potential[node] += value
+            amount, node = requested - total, sink
+            while node != source:
+                parent, index = previous[node]
+                amount = min(amount, self.graph[parent][index][2])
+                node = parent
+            node = sink
+            while node != source:
+                parent, index = previous[node]
+                edge = self.graph[parent][index]
+                edge[2] -= amount
+                self.graph[node][edge[1]][2] += amount
+                cost += amount * edge[3]
+                node = parent
+            total += amount
+        return total, cost
 
 
 def _groups(rows):
@@ -324,61 +331,75 @@ def _groups(rows):
     return groups
 
 
-def _allocation_at_repeat_level(ordered, frame_rows, quotas, repeat_level):
-    """给定统一 frame 容量做一次完整全局 flow；残量网络可跨 bucket 重路由。"""
+def _joint_allocation(rows, quotas, *, repeat_cap, seed=0, route_diverse=True):
+    """固定配额和全局重复上限下，精确最大化整个 epoch 的唯一帧数。"""
+    if repeat_cap < 1:
+        raise ValueError("event_balance_max_frame_repeats must be positive")
+    groups = _groups(rows)
     keys = (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
+    frame_rows, memberships = {}, defaultdict(set)
+    for bucket in keys:
+        for row in groups[bucket]:
+            identity = _identity(row)
+            frame_rows[identity] = row
+            memberships[identity].add(bucket)
+    by_membership = defaultdict(list)
+    for identity, buckets in memberships.items():
+        by_membership[tuple(key for key in keys if key in buckets)].append(frame_rows[identity])
+
+    # 同一归属组的帧在配额约束下可以互换。压缩后至多 2^10-1 个 special 组加背景组，
+    # 无须为几十万帧逐个构造最小费用流节点；具体帧随后按 route 轮转展开。
+    rng = random.Random(f"event-balance-min-cost-v1:{seed}:{sum(quotas.values())}")
+    signatures = sorted(by_membership)
+    rng.shuffle(signatures)
     bucket_nodes = {key: index + 1 for index, key in enumerate(keys)}
-    frame_nodes = {
-        identity: 1 + len(keys) + index
-        for index, identity in enumerate(sorted(frame_rows))
-    }
-    sink = 1 + len(keys) + len(frame_nodes)
-    flow = _Dinic(sink + 1)
+    sink = 1 + len(keys) + len(signatures)
+    flow = _MinCostFlow(sink + 1)
     edges = []
     for bucket in keys:
         flow.add(0, bucket_nodes[bucket], quotas[bucket])
-        for row in ordered[bucket]:
-            identity = _identity(row)
-            edge = flow.add(bucket_nodes[bucket], frame_nodes[identity], repeat_level)
-            edges.append((bucket, identity, bucket_nodes[bucket], edge))
-    for identity, node in frame_nodes.items():
-        flow.add(node, sink, repeat_level)
-    if flow.flow(0, sink) != sum(quotas.values()):
+    for index, signature in enumerate(signatures):
+        node = 1 + len(keys) + index
+        count = len(by_membership[signature])
+        for bucket in signature:
+            edge = flow.add(bucket_nodes[bucket], node, quotas[bucket])
+            edges.append((bucket, signature, bucket_nodes[bucket], edge))
+        # 每帧首次使用免费，额外使用每次费用 1。固定总流量时，最小费用恰好
+        # 等价于最大化唯一帧覆盖；反向边允许跨桶撤销和重新分配共享帧。
+        flow.add(node, sink, count)
+        flow.add(node, sink, count * (repeat_cap - 1), cost=1)
+    total = sum(quotas.values())
+    sent, repeated = flow.flow(0, sink, total)
+    if sent != total:
         return None
+    group_assignments = defaultdict(dict)
+    for bucket, signature, node, edge in edges:
+        group_assignments[signature][bucket] = quotas[bucket] - flow.graph[node][edge][2]
     assigned = {key: Counter() for key in keys}
-    for bucket, identity, node, edge in edges:
-        amount = repeat_level - flow.graph[node][edge][2]
-        if amount:
-            assigned[bucket][identity] += amount
-    return assigned
-
-
-def _joint_allocation(rows, quotas, *, repeat_cap, seed=0, route_diverse=True):
-    """全局求解最小必要重复层，避免固定早期层后堵死共享 frame 的可行重分配。"""
-    groups = _groups(rows)
-    keys = (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
-    rng = random.Random(f"event-balance-flow:{seed}:{sum(quotas.values())}")
-    frame_rows = {}
-    ordered = {}
-    for bucket in keys:
-        ordered[bucket] = _ordered_route_cycle(groups[bucket], rng, route_diverse)
-        for row in ordered[bucket]:
-            frame_rows[_identity(row)] = row
-    # 从一帧一次开始，每次提升允许的总 frame repeat；每层均从零重解全局 flow，
-    # 所以前一层对共享 frame 的临时选择不会锁死下一层的重路由。
-    for repeat_level in range(1, repeat_cap + 1):
-        assigned = _allocation_at_repeat_level(
-            ordered, frame_rows, quotas, repeat_level
-        )
-        if assigned is not None:
-            return groups, frame_rows, assigned, repeat_level
-    return None
+    for signature in signatures:
+        ordered = _ordered_route_cycle(by_membership[signature], rng, route_diverse)
+        cursor = 0
+        # 同组内持续轮转，跨桶共享同一个 cursor：先覆盖所有不同帧再重复。
+        # 总组容量 <= len(ordered)*repeat_cap，因此展开后每帧也满足全局上限。
+        for bucket in signature:
+            amount = group_assignments[signature][bucket]
+            rounds, remainder = divmod(amount, len(ordered))
+            if rounds:
+                for row in ordered:
+                    assigned[bucket][_identity(row)] += rounds
+            for offset in range(remainder):
+                assigned[bucket][_identity(ordered[(cursor + offset) % len(ordered)])] += 1
+            cursor = (cursor + remainder) % len(ordered)
+    return groups, frame_rows, assigned, dict(
+        objective="maximize_global_unique_frames",
+        optimal_unique_frames=total - repeated,
+        repeat_presentations=repeated,
+        membership_groups=len(signatures),
+    )
 
 
 def event_balanced_total(rows: Sequence[Mapping[str, Any]], *, requested: int, repeat_cap: int, world: int) -> int:
     """预算在加载模型前用共享 frame 的联合 capacity 求解，保证 epoch 可实际抽出。"""
-    import math
-
     if repeat_cap < 1 or world < 1:
         raise ValueError("event_balance_max_frame_repeats and world must be positive")
     unit = sum(EVENT_BALANCE_WEIGHTS.values())
@@ -425,7 +446,7 @@ def build_event_balanced_epoch(rows: Sequence[Mapping[str, Any]], *, total: int,
     )
     if allocation is None:
         raise ValueError("event-balanced epoch quota is infeasible under shared-frame repeat caps")
-    _groups_value, frame_rows, assigned, minimum_repeat_level = allocation
+    _groups_value, frame_rows, assigned, allocation_audit = allocation
     selected = []
     for bucket, assignments in assigned.items():
         for identity, amount in assignments.items():
@@ -433,18 +454,22 @@ def build_event_balanced_epoch(rows: Sequence[Mapping[str, Any]], *, total: int,
                 item = dict(frame_rows[identity])
                 item["event_balance_bucket"] = bucket
                 selected.append(item)
-    rng = random.Random(f"event-balance-v3:{seed}:{total}")
+    rng = random.Random(f"event-balance-v4:{seed}:{total}")
     rng.shuffle(selected)
     used = Counter(_identity(row) for row in selected)
     repeats = Counter(used.values())
+    if len(used) != allocation_audit["optimal_unique_frames"] or max(used.values(), default=0) > repeat_cap:
+        raise AssertionError("event-balanced allocation expansion violated the global optimum/cap")
     return selected, dict(
-        schema="action_prior_event_balanced_epoch_v2", seed=int(seed), total=int(total), quotas=quotas,
+        schema="action_prior_event_balanced_epoch_v4", seed=int(seed), total=int(total), quotas=quotas,
         sampled=dict(Counter(row["event_balance_bucket"] for row in selected)), available=available_counts(rows),
         unique_frames=len(used), max_frame_repeats=max(used.values(), default=0),
         repeat_histogram={str(k): v for k, v in sorted(repeats.items())}, repeat_cap=int(repeat_cap),
         unique_routes={key: len({_route_key(row) for row in selected if row["event_balance_bucket"] == key}) for key in quotas},
         joint_allocation=True,
-        minimum_repeat_level=minimum_repeat_level,
+        **allocation_audit,
+        bucket_unique_frames={key: len(assigned[key]) for key in quotas},
+        bucket_max_frame_repeats={key: max(assigned[key].values(), default=0) for key in quotas},
         diversity_first=True,
         route_diverse=bool(route_diverse),
     )

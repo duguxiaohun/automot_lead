@@ -869,9 +869,13 @@ RS/EVENT **YES** 选择短的英文自然描述：道路结构、独立 highway 
 special-but-filtered 分开；只有确认常规进入权重 2 的 `REGULAR_BACKGROUND`，所以 candidate 因动作窗口/
 视觉风险过滤而缺席的 UE 不会被伪装为普通。每个 special bucket 权重 1，全局先配齐 `1:…:1:2`
 presentation 再切 DDP rank；单帧总重复受 epoch budget 和 `event_balance_max_frame_repeats` 硬限制，
-联合全局 max-flow 搜索最小必要的 frame repeat 层；每层从零重解并允许跨 bucket 重路由，候选充足时
-不会提前重复少数 UE 帧，也不会把早期共享 frame 选择锁死后续可行配额。
-`sampling/epoch_*.json` 记录精确配额、实际重复直方图、最大重复、唯一帧及 route 数。固定的全帧
+按事件归属压缩的小图使用全局最小费用流：每帧首次使用免费，重复使用费用为 1，
+在精确配额/全局 frame cap 下最大化整个 epoch 的唯一帧数；跨桶共享帧由残量网络统一重分配。
+同归属组按物理路线轮转展开，跨桶共用帧游标，先用完不同帧再重复；route 多样性是组内顺序偏好，不是路线硬配额。
+`sampling/epoch_*.json` v4 记录最优与实际唯一帧数、额外重复呈现数、各桶唯一帧/实际最大重复次数与压缩组数。
+七帧抽八次和充足共享帧不得无谓重复；CPU 小图穷举作为独立最优值参照。此次算法改变执行指纹，新代码用于新 run，
+旧 checkpoint 仍需原代码恢复；语义未变的 v2 full map 可复用。运行文档与 shell 入口开头提供预检、smoke、
+开启/关闭均衡、独立 scene-prior、续训/索引搬迁 demo。固定的全帧
 scene context 在 train/val/test 都附加，且 Phase3 规则开发 physical routes 强制 train-only。默认 `uniform`
 不读取该 source，保持原始全量 shuffle。索引 manifest/映射合同/内容 hash 进入 checkpoint identity，绝对路径
 只作审计；离线文件搬迁可在 eval/resume 用新 `--event-balance-index` 重映射，纯采样闭环不依赖它。

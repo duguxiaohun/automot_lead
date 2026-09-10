@@ -177,7 +177,9 @@ def test_global_repeat_solver_reroutes_shared_frames_when_repeats_are_required()
     }
     assert chosen["UE2"] == [1, 1]
     assert chosen["UE1"] == [2, 2]
-    assert audit["minimum_repeat_level"] == 2
+    assert audit["bucket_max_frame_repeats"]["UE2"] == 2
+    # UE1 原本有 A/B 两帧，但 A 被 UE2 独占后只能重复 B；检查实际使用次数。
+    assert audit["bucket_max_frame_repeats"]["UE1"] == 2
 
 
 def test_diversity_first_uses_distinct_frames_before_any_repeat_when_candidates_are_abundant():
@@ -202,8 +204,43 @@ def test_diversity_first_uses_distinct_frames_before_any_repeat_when_candidates_
     assert audit["sampled"] == audit["quotas"]
     assert audit["unique_frames"] == 96
     assert audit["max_frame_repeats"] == 1
-    assert audit["minimum_repeat_level"] == 1
+    assert audit["max_frame_repeats"] == 1
     assert audit["diversity_first"] is True
+
+
+def test_sparse_bucket_repeat_does_not_open_repeat_capacity_for_abundant_buckets():
+    """UE1 的单帧稀缺不能让其它有 100 个候选的桶也重复抽同一帧。"""
+    rows = [dict(
+        scenario="S", run_id="only_ue1", anchor=1, route_group="S/only_ue1",
+        event_balance_buckets=["UE1"], event_balance_status=balance.SPECIAL_ELIGIBLE,
+    )]
+    for bucket_index, bucket in enumerate(balance.SPECIAL_BUCKETS[1:], start=1):
+        for frame_index in range(100):
+            rows.append(dict(
+                scenario="S", run_id=f"{bucket}_{frame_index}",
+                anchor=bucket_index * 1000 + frame_index,
+                route_group=f"S/{bucket}_{frame_index}", event_balance_buckets=[bucket],
+                event_balance_status=balance.SPECIAL_ELIGIBLE,
+            ))
+    for frame_index in range(100):
+        rows.append(dict(
+            scenario="S", run_id=f"regular_{frame_index}", anchor=20000 + frame_index,
+            route_group=f"S/regular_{frame_index}", event_balance_buckets=[],
+            event_balance_status=balance.CONFIRMED_REGULAR,
+        ))
+    sampled, audit = balance.build_event_balanced_epoch(rows, total=96, seed=23, repeat_cap=8)
+    by_bucket = {
+        bucket: [balance._identity(row) for row in sampled if row["event_balance_bucket"] == bucket]
+        for bucket in audit["quotas"]
+    }
+    assert audit["sampled"] == audit["quotas"]
+    assert audit["unique_frames"] == 89
+    assert len(set(by_bucket["UE1"])) == 1
+    assert all(len(set(by_bucket[bucket])) == audit["quotas"][bucket]
+               for bucket in (*balance.SPECIAL_BUCKETS[1:], balance.REGULAR_BACKGROUND))
+    assert audit["bucket_max_frame_repeats"]["UE1"] == 8
+    assert all(audit["bucket_max_frame_repeats"][bucket] == 1
+               for bucket in (*balance.SPECIAL_BUCKETS[1:], balance.REGULAR_BACKGROUND))
 
 
 def test_stale_or_candidate_source_is_rejected(tmp_path):
@@ -317,3 +354,85 @@ def test_closed_loop_style_pure_sampling_args_can_drop_the_old_index_path():
     # carla_runtime/bench2drive deliberately clear event_balance_index but retain this identity.
     args.event_balance_index = ""
     validate_args(args)
+
+
+def _diversity_row(bucket, frame, *, buckets=None):
+    """构造每帧独立路线的候选，避免身份和路线混淆。"""
+    return dict(
+        scenario="S", run_id=f"{bucket}_{frame}", anchor=frame,
+        route_group=f"S/{bucket}_{frame}",
+        event_balance_buckets=list(buckets or ([bucket] if bucket != balance.REGULAR_BACKGROUND else [])),
+        event_balance_status=(balance.CONFIRMED_REGULAR if bucket == balance.REGULAR_BACKGROUND
+                              else balance.SPECIAL_ELIGIBLE),
+    )
+
+
+def test_seven_candidates_for_eight_presentations_cover_all_seven_frames():
+    rows = []
+    for bucket in (*balance.SPECIAL_BUCKETS, balance.REGULAR_BACKGROUND):
+        count = 7 if bucket == "UE2" else 16
+        rows.extend(_diversity_row(bucket, i) for i in range(count))
+    sampled, audit = balance.build_event_balanced_epoch(rows, total=96, seed=42, repeat_cap=8)
+    ue2 = [balance._identity(row) for row in sampled if row["event_balance_bucket"] == "UE2"]
+    assert len(ue2) == 8 and len(set(ue2)) == 7
+    assert audit["unique_frames"] == audit["optimal_unique_frames"] == 95
+    assert audit["repeat_presentations"] == 1
+
+
+@pytest.mark.parametrize("cap", [0, -1])
+def test_direct_sampler_rejects_nonpositive_repeat_cap(cap):
+    with pytest.raises(ValueError, match="must be positive"):
+        balance.build_event_balanced_epoch([], total=12, seed=0, repeat_cap=cap)
+
+
+def test_shared_candidates_are_not_repeated_across_buckets_when_distinct_assignment_exists():
+    rows = [_diversity_row("shared", i, buckets=["UE1", "UE2"]) for i in range(16)]
+    for bucket in (*balance.SPECIAL_BUCKETS[2:], balance.REGULAR_BACKGROUND):
+        rows.extend(_diversity_row(bucket, i) for i in range(16))
+    for seed in range(8):
+        sampled, audit = balance.build_event_balanced_epoch(rows, total=96, seed=seed, repeat_cap=8)
+        assert audit["unique_frames"] == audit["optimal_unique_frames"] == 96
+        assert audit["repeat_presentations"] == 0
+        assert audit["max_frame_repeats"] == 1
+        assert audit["sampled"] == audit["quotas"]
+        assert sampled == balance.build_event_balanced_epoch(rows, total=96, seed=seed, repeat_cap=8)[0]
+
+
+def test_compressed_flow_matches_exhaustive_frame_allocation():
+    """逐帧穷举小图作为独立 oracle，核对共享容量、可行性和全局唯一帧最优值。"""
+    from itertools import product
+    import random
+
+    focus = balance.SPECIAL_BUCKETS[:3]
+    for seed in range(30):
+        rng = random.Random(seed)
+        cap = 1 + seed % 3
+        memberships = [tuple(i for i in range(3) if rng.random() < 0.65) for _ in range(5)]
+        memberships = [m or (rng.randrange(3),) for m in memberships]
+        if set().union(*map(set, memberships)) != {0, 1, 2}:
+            continue
+        states = {(0, 0, 0): 0}
+        rows = []
+        for frame, membership in enumerate(memberships):
+            rows.append(_diversity_row("shared", frame, buckets=[focus[i] for i in membership]))
+            allocations = [values for values in product(range(cap + 1), repeat=3)
+                           if sum(values) <= cap and all(values[i] == 0 for i in range(3) if i not in membership)]
+            next_states = {}
+            for current, unique in states.items():
+                for values in allocations:
+                    target = tuple(a + b for a, b in zip(current, values))
+                    if max(target) <= 2:
+                        next_states[target] = max(next_states.get(target, -1), unique + int(any(values)))
+            states = next_states
+        for bucket in (*balance.SPECIAL_BUCKETS[3:], balance.REGULAR_BACKGROUND):
+            count = 4 if bucket == balance.REGULAR_BACKGROUND else 2
+            rows.extend(_diversity_row(bucket, i) for i in range(count))
+        optimum = states.get((2, 2, 2))
+        if optimum is None:
+            with pytest.raises(ValueError, match="infeasible"):
+                balance.build_event_balanced_epoch(rows, total=24, seed=seed, repeat_cap=cap)
+        else:
+            _, audit = balance.build_event_balanced_epoch(rows, total=24, seed=seed, repeat_cap=cap)
+            assert audit["sampled"] == audit["quotas"]
+            assert audit["max_frame_repeats"] <= cap
+            assert audit["unique_frames"] == audit["optimal_unique_frames"] == optimum + 18
