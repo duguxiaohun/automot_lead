@@ -27,6 +27,10 @@ def main():
     # 默认跟随 checkpoint 自己的先验来源；只有显式关闭才回到 LoRA 推理。
     p.add_argument("--dataset-priors", action=argparse.BooleanOptionalAction, default=None)
     p.add_argument("--prior-labels", default="")
+    p.add_argument(
+        "--event-balance-index", default="",
+        help="relocated current full_event_mapping.jsonl; path is audit-only when bytes match checkpoint contract",
+    )
     # 默认仍用训练时的注入噪声；--prior-noise 0 才是干净先验对照。
     p.add_argument("--prior-noise", type=float, default=None)
     p.add_argument("--split", choices=["val", "test"], default="test")
@@ -70,6 +74,10 @@ def main():
     args.selection_manifest = ""
     args.selection_output = ""
     args.lora_bundle = ""
+    # 映射文件路径可迁移；build_contract 比较的是 manifest/index 内容身份而不是绝对路径。
+    # 该 override 也让离线 val/test 获得和训练相同的固定 scene contexts。
+    if cli.event_balance_index:
+        args.event_balance_index = cli.event_balance_index
     trained_with_dataset_priors = bool(state["args"].get("dataset_priors", False))
     args.dataset_priors = (
         trained_with_dataset_priors if cli.dataset_priors is None else cli.dataset_priors
@@ -107,6 +115,8 @@ def main():
         if getattr(cli, k):
             setattr(args, k, getattr(cli, k))
     validate_args(args)
+    from qwen3vl_local.action_prior.event_balance import source_audit
+
     box = [None]
     if rank == 0:
         try:
@@ -186,6 +196,7 @@ def main():
                 evaluated_prior_noise=args.prior_noise,
                 prior_source_override=prior_source_override,
                 sample_limit=cli.max_samples,
+                event_balance_source_audit=source_audit(args),
                 upstream_training_pool_audit=exposure,
                 upstream_sources=contract["upstream_sources"],
                 upstream_source_changes=audit_changes,

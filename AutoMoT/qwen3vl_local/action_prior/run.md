@@ -82,6 +82,57 @@ TB 启动后按终端打印的地址/端口打开；也可用 `TB_PORT=6006` 指
 本次 projector/训练日志修改会改变身份，旧 action checkpoint 的续训与评测应保留
 原代码版本；新代码使用新 run，不能仅因参数形状兼容就直接续旧 checkpoint，也不手改合同哈希。
 
+## UE/特殊 RE 均衡课程
+
+默认 `--sampling-mode uniform` 保持全量自然分布 shuffle。均衡课程先从当前、完整的
+Phase3 candidate 和所有逐帧标注建立不可变的**全帧映射**：UE1–UE7、RE2、RE3、RE5
+各占一份，确认的普通常规帧占两份。candidate 缺席的特殊帧会单列为 `special_filtered`，
+未确认帧单列为 `unconfirmed`，两者都不会混入背景：
+
+```bash
+# 先固定本次 action 三 split；全帧 map 与它逐字节绑定，不能用另一个 run 的 index。
+python qwen3vl_local/action_prior/build_dataset.py \
+  --data-root lead_data --output-dir checkpoints/action_prior_data_event_v1
+
+# 在新的空目录构建；会校验 candidate 的 manifest、当前 mapping contract、counts 覆盖和 action split hash。
+python qwen3vl_local/action_prior/build_event_balance_index.py \
+  --candidate-index checkpoints/sft_new_loop_phase3_data_v7/candidate_frames.jsonl \
+  --action-data-dir checkpoints/action_prior_data_event_v1 \
+  --output-dir checkpoints/action_prior_event_balance_v2
+
+DATA_DIR=checkpoints/action_prior_data_event_v1 \
+EVENT_BALANCED=1 \
+EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl \
+bash qwen3vl_local/action_prior/run_full_pipeline.sh
+
+# 与上面等价的直接 CLI 形式。
+bash qwen3vl_local/action_prior/train.sh \
+  --data-dir checkpoints/action_prior_data_event_v1 \
+  --sampling-mode event_balanced \
+  --event-balance-index checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl
+```
+
+每个 epoch 会把全局 presentation 先配成 `UE1…UE7:RE2:RE3:RE5:REGULAR_BACKGROUND =
+1:…:1:2`，再按 rank 分片；桶内先按物理 route 轮转。`EVENT_BALANCED_EPOCH_SAMPLES=0`
+默认采用受 `EVENT_BALANCE_MAX_FRAME_REPEATS=8` 约束的安全上限；显式预算也不能越过该上限。
+`sampling/epoch_*.json` 记录精确配额、实际重复直方图、最大重复、唯一帧和路线数。全帧映射在
+train/val/test 都附加固定的多事实 scene context；Phase3 规则开发路线会强制留在 train。val/test
+报告自然分布总体指标、各真实桶 ADE/FDE 和状态覆盖。当前 source mapping 尚无“已绕障且恢复待执行”的
+可靠帧级证据，所以不会生成 `UE2_TO_RE2_RECOVERY` 专项或强 RE2 文案；该字段保留给未来接入审计状态后使用。
+联合分配从一帧一次开始搜索最小必要 repeat 层，并在每层从零重解允许跨 bucket 重路由；候选充足时不会
+为了填配额提前重复少数帧，也不会锁死共享 frame 的可行配额。v1 full map
+因普通背景规则不完整已被拒绝，必须重新生成 v2。可用 `BEST_SELECTION_METRIC=event_balanced_ade`
+按固定 1:…:1:2 验证分数选 best；它要求 val 每桶覆盖完整，且所有更新 `best.pt` 的验证都会强制遍历完整 val，
+否则在加载大模型前失败。索引内容身份而非绝对路径进入合同；搬迁后给 eval/resume 传新的
+`--event-balance-index` 即可。纯采样 checkpoint 在闭环不需要该离线文件。
+
+均衡采样默认不改 Qwen 输入。若研究离线的 action-context 文本条件，可额外传
+`--dataset-priors --event-balanced-scene-priors --event-balance-index ...`（且 `prior_noise=0`）。
+它只写入短自然场景句，不写 UE/RE 代码、YES/NO 或动作标签；当前 RE2 仅区分普通导航变道和早先障碍记录。
+“已通过障碍且恢复仍待完成”保留为未来有可靠帧级状态证据时的分支，当前绝不会从 RE2 编号推断。这是没有闭环可用
+history/transition 标签的特权条件，Bench2Drive/
+CARLA runtime 会明确拒绝该 checkpoint，不能把离线结果称为闭环表现。
+
 全量周期 val 和最终离线 test 不等于 CARLA 闭环；正式 Bench2Drive 220 路线需已配置好
 CARLA 环境后用 `BENCH2DRIVE=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh`，
 显式四卡训练例为 `GPU_IDS=0,1,2,3 BENCH2DRIVE=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh`。

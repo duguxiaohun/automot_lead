@@ -69,3 +69,28 @@ def test_generation_review_and_fallback_share_the_same_scene_prior_without_json_
         assert "[ACCEPTED_PERCEPTION_PRIORS]" not in value
         assert "[PLANNING_EXPERIENCE]" not in value
         assert "ROAD_STRUCTURE" not in value and "UE6" not in value
+
+
+@pytest.mark.parametrize(
+    "context, phrase",
+    [
+        ("RE2_NAVIGATION_TRANSITION", "Visible lane geometry and navigation"),
+        ("RE2_PRIOR_OBSTACLE", "prior static blockage is recorded"),
+        ("RE2_RECOVERY_PENDING", "static blockage has been passed"),
+        ("RE3", "ramp, merge, or exit transition"),
+        ("RE5", "unsignalized priority junction"),
+    ],
+)
+def test_explicit_special_regular_context_is_short_natural_and_has_no_category_leak(context, phrase):
+    priors = {"conditions": {"ROAD_STRUCTURE": "R1"}, "event_balanced_scene_contexts": [context]}
+    text = prompts.fallback_analysis(priors, NAVIGATION)
+    assert phrase in text
+    assert context not in text and "YES" not in text and "NO" not in text
+    assert prompts.analysis_format_valid(text)
+
+
+def test_navigation_re2_never_claims_a_bypass_or_static_obstacle():
+    text = prompts.scene_description(
+        {"ROAD_STRUCTURE": "R1"}, ["RE2_NAVIGATION_TRANSITION"]
+    )
+    assert "passed" not in text and "static blockage" not in text

@@ -54,6 +54,17 @@ DEFAULTS = dict(
     prior_labels="",
     prior_noise=0.0,
     prior_noise_invalid_share=0.25,
+    # 默认仍完整自然分布 shuffle。event_balanced 以全帧语义映射为课程来源：
+    # UE1-7、RE2、RE3、RE5 各一份，确认的常规背景池两份。
+    sampling_mode="uniform",
+    event_balance_index="",
+    event_balance_route_diverse=True,
+    event_balanced_epoch_samples=0,
+    event_balance_max_frame_repeats=8,
+    best_selection_metric="natural_ade",
+    # 采样本身不改 Qwen 输入。显式开启才把已审计的上下文转成短自然 scene prior；这是
+    # dataset-only 特权条件，闭环没有对应历史/transition 标签，不能静默带入。
+    event_balanced_scene_priors=False,
     phase1_training_index="",
     phase2_training_index="",
     cache_priors=True,
@@ -141,40 +152,59 @@ def read_rows(args, split):
 
     rows, seen, blocked = [], set(), {}
     root = Path(args.data_root).resolve()
-    with (Path(args.data_dir) / f"{split}.jsonl").open(encoding="utf-8") as f:
-        for line in f:
-            row = json.loads(line)
-            if row.get("schema") != "action_prior_data_v1" or row.get("split") != split:
-                raise ValueError(
-                    "wrong dataset schema/split; rebuild action_prior index"
-                )
-            if (
-                row.get("tp_mode") != "route_lookahead"
-                or row.get("rgb_frame_count") != 4
-                or row.get("rgb_frame_step") != 1
-            ):
-                raise ValueError(
-                    "future-truth navigation or incompatible RGB input is forbidden"
-                )
-            route = root / row["scenario"] / row["run_id"]
-            key = str(route)
-            if key not in blocked:
-                if not route.is_dir():
-                    raise FileNotFoundError(route)
-                blocked[key] = is_abnormal_lead_route(route, row["scenario"])[0]
-            if blocked[key]:
-                continue
-            # 索引固定字段仅是构建记录；运行时导航由 CLI 统一决定，避免配置与输入不符。
-            for name in INPUT_FIELDS:
-                row[name] = getattr(args, name)
-            row["route_dir"] = key
-            ident = (key, int(row["anchor"]))
-            if ident in seen:
-                raise ValueError(f"duplicate dataset frame: {ident}")
-            seen.add(ident)
-            rows.append(row)
+    event_active = (
+        getattr(args, "sampling_mode", "uniform") == "event_balanced"
+        or getattr(args, "event_balanced_scene_priors", False)
+    )
+    # Phase3 RGB/规则开发路线只能 train；为保持 physical route 隔离，原 val/test 文件中
+    # 的同组帧在训练读取时移入 train，holdout 读取时排除。
+    from qwen3vl_local.action_prior.event_balance import development_route_groups
+    development = development_route_groups() if event_active else frozenset()
+    source_splits = ("train", "val", "test") if event_active and split == "train" else (split,)
+    for source_split in source_splits:
+        with (Path(args.data_dir) / f"{source_split}.jsonl").open(encoding="utf-8") as f:
+            for line in f:
+                row = json.loads(line)
+                if row.get("schema") != "action_prior_data_v1" or row.get("split") != source_split:
+                    raise ValueError(
+                        "wrong dataset schema/split; rebuild action_prior index"
+                    )
+                original_split = source_split
+                target_split = "train" if row.get("route_group") in development else original_split
+                if target_split != split:
+                    continue
+                row["split"] = target_split
+                row["event_balance_original_split"] = original_split
+                if (
+                    row.get("tp_mode") != "route_lookahead"
+                    or row.get("rgb_frame_count") != 4
+                    or row.get("rgb_frame_step") != 1
+                ):
+                    raise ValueError(
+                        "future-truth navigation or incompatible RGB input is forbidden"
+                    )
+                route = root / row["scenario"] / row["run_id"]
+                key = str(route)
+                if key not in blocked:
+                    if not route.is_dir():
+                        raise FileNotFoundError(route)
+                    blocked[key] = is_abnormal_lead_route(route, row["scenario"])[0]
+                if blocked[key]:
+                    continue
+                # 索引固定字段仅是构建记录；运行时导航由 CLI 统一决定，避免配置与输入不符。
+                for name in INPUT_FIELDS:
+                    row[name] = getattr(args, name)
+                row["route_dir"] = key
+                ident = (key, int(row["anchor"]))
+                if ident in seen:
+                    raise ValueError(f"duplicate dataset frame: {ident}")
+                seen.add(ident)
+                rows.append(row)
     if not rows:
         raise ValueError(f"no valid {split} rows")
+    from qwen3vl_local.action_prior.event_balance import annotate_rows
+
+    annotate_rows(args, rows)
     return rows
 
 
@@ -210,6 +240,37 @@ def validate_args(args):
         raise ValueError("invalid recheck mode")
     if args.condition_mode not in ("prior", "base"):
         raise ValueError("condition mode must be prior/base")
+    from qwen3vl_local.action_prior.event_balance import (
+        SAMPLING_MODE_EVENT_BALANCED,
+        SAMPLING_MODES,
+    )
+
+    if args.sampling_mode not in SAMPLING_MODES:
+        raise ValueError(f"sampling_mode must be one of {SAMPLING_MODES}")
+    if (
+        args.sampling_mode == SAMPLING_MODE_EVENT_BALANCED
+        or args.event_balanced_scene_priors
+    ):
+        if not args.event_balance_index and not (
+            not args.event_balanced_scene_priors
+            and getattr(args, "event_balance_source_identity", None)
+        ):
+            raise ValueError(
+                "event-balanced sampling/scene priors require --event-balance-index "
+                "pointing to build_event_balance_index.py full_event_mapping.jsonl"
+            )
+        if args.event_balance_index and not Path(args.event_balance_index).expanduser().is_file():
+            raise FileNotFoundError(args.event_balance_index)
+    if args.event_balanced_scene_priors:
+        if args.condition_mode != "prior" or not args.dataset_priors:
+            raise ValueError(
+                "--event-balanced-scene-priors is a dataset-only privileged prior; "
+                "use --dataset-priors --condition-mode prior"
+            )
+        if args.prior_noise != 0.0:
+            raise ValueError(
+                "event-balanced scene priors reveal audited context; require --prior-noise 0"
+            )
     if getattr(args, "dataset_priors", False):
         if args.condition_mode != "prior":
             raise ValueError("--dataset-priors only replaces the prior source; keep --condition-mode prior")
@@ -253,6 +314,12 @@ def validate_args(args):
         )
     if args.max_train_steps < 0 or args.val_max_samples < 0 or args.num_workers < 0:
         raise ValueError("step/sample/worker limits must be nonnegative")
+    if args.event_balanced_epoch_samples < 0 or args.event_balance_max_frame_repeats < 1:
+        raise ValueError("event-balanced epoch samples must be nonnegative and repeat cap positive")
+    if args.best_selection_metric not in ("natural_ade", "event_balanced_ade"):
+        raise ValueError("best_selection_metric must be natural_ade/event_balanced_ade")
+    if args.best_selection_metric == "event_balanced_ade" and args.sampling_mode != "event_balanced":
+        raise ValueError("event_balanced_ade best selection requires --sampling-mode event_balanced")
     if args.learning_rate <= 0 or not 0 <= args.warmup_ratio < 1:
         raise ValueError("invalid LR/warmup")
     if args.loss_type != "mse":
@@ -410,6 +477,19 @@ def build_contract(args):
             )
         },
     )
+    from qwen3vl_local.action_prior.event_balance import source_contract
+
+    event_balance = source_contract(args)
+    if event_balance:
+        identity_payload["event_balanced_sampling"] = dict(
+            mode=args.sampling_mode,
+            source=event_balance,
+            route_diverse=bool(args.event_balance_route_diverse),
+            scene_priors=bool(args.event_balanced_scene_priors),
+            epoch_samples=int(args.event_balanced_epoch_samples),
+            max_frame_repeats=int(args.event_balance_max_frame_repeats),
+            best_selection_metric=args.best_selection_metric,
+        )
     # 旧 LoRA run 的身份负载保持逐字节不变；数据集模式才追加先验来源字段。
     if dataset:
         identity_payload["prior_source"] = prior_labels["prior_source"]
@@ -450,13 +530,75 @@ def training_plan(args, rows, world):
     for a, b in (("train", "val"), ("train", "test"), ("val", "test")):
         if groups[a] & groups[b]:
             raise ValueError(f"physical route leakage: {a}/{b}")
+    event_available = None
+    if args.sampling_mode == "event_balanced":
+        from qwen3vl_local.action_prior.event_balance import (
+            REGULAR_BACKGROUND,
+            SPECIAL_BUCKETS,
+            available_counts,
+            event_balanced_total,
+        )
+
+        event_available = available_counts(rows["train"])
+        missing = [
+            key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
+            if int(event_available.get(key, 0)) <= 0
+        ]
+        if missing:
+            raise ValueError(
+                "event-balanced sampling needs every UE1-7/RE2/RE3/RE5 bucket and "
+                f"a regular background pool; missing={missing} available={event_available}"
+            )
+        usable = event_balanced_total(
+            rows["train"], requested=args.event_balanced_epoch_samples,
+            repeat_cap=args.event_balance_max_frame_repeats, world=world,
+        )
     updates = math.ceil((usable // world) / args.grad_accum_steps)
+    sampling = dict(mode=args.sampling_mode)
+    if args.sampling_mode == "event_balanced":
+        from qwen3vl_local.action_prior.event_balance import (
+            REGULAR_BACKGROUND,
+            SPECIAL_BUCKETS,
+            available_counts,
+            source_contract,
+            source_audit,
+            weighted_quotas,
+        )
+
+        available = event_available
+        sampling.update(
+            event_balance_source=source_contract(args),
+            event_balance_source_audit=source_audit(args),
+            train_available=available,
+            epoch_quotas=weighted_quotas(usable),
+            route_diverse=bool(args.event_balance_route_diverse),
+            special_bucket_missing=[],
+            scene_priors=bool(args.event_balanced_scene_priors),
+            max_frame_repeats=int(args.event_balance_max_frame_repeats),
+            requested_epoch_samples=int(args.event_balanced_epoch_samples),
+            effective_epoch_samples=usable,
+            best_selection_metric=args.best_selection_metric,
+        )
+        val_available = available_counts(rows["val"])
+        val_missing = [
+            key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
+            if int(val_available.get(key, 0)) <= 0
+        ]
+        sampling["validation_available"] = val_available
+        sampling["validation_bucket_coverage_missing"] = val_missing
+        sampling["validation_bucket_coverage_complete"] = not val_missing
+        if args.best_selection_metric == "event_balanced_ade" and val_missing:
+            raise ValueError(
+                "event-balanced best selection needs every bucket in validation; "
+                f"missing={val_missing}. Use natural_ade or revise the route split/source."
+            )
     return dict(
         samples={s: len(v) for s, v in rows.items()},
         effective_batch=world * args.grad_accum_steps,
         world_size=world,
         micro_batch_per_gpu=1,
         condition_mode=args.condition_mode,
+        sampling=sampling,
         prior_source=(
             "dataset_labels" if getattr(args, "dataset_priors", False) else "phase_loras"
         ),

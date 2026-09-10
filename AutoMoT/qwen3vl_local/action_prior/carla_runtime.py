@@ -24,9 +24,19 @@ class ActionPriorRunner:
         if state.get("schema") != "action_prior_checkpoint_v4" or state.get("trajectory_decoder") != "conditional_joint_trajectory_flow_matching_v2":
             raise ValueError("closed loop requires action_prior_checkpoint_v4 joint-trajectory Flow Matching")
         self.args = args = argparse.Namespace(**state["args"])
+        if bool(state["args"].get("event_balanced_scene_priors", False)):
+            raise ValueError(
+                "this checkpoint used dataset-only event-balanced scene priors (including RE2 transition history); "
+                "live CARLA has no such audited context/memory. Train/evaluate with --no-event-balanced-scene-priors "
+                "for closed-loop compatibility."
+            )
         args.selection_manifest = ""
         args.selection_output = ""
         args.lora_bundle = ""
+        # 均衡课程只影响离线 presentation；闭环不读取或校验旧 full-map 路径。
+        # checkpoint 中已保存的内容 identity 仍由 build_contract 用于合同复现。
+        if getattr(args, "sampling_mode", "uniform") == "event_balanced":
+            args.event_balance_index = ""
         trained_with_dataset_priors = bool(state["args"].get("dataset_priors", False))
         switch = os.environ.get("ACTION_DATASET_PRIORS")
         args.dataset_priors = (
