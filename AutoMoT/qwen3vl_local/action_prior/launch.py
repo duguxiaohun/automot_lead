@@ -4,8 +4,28 @@ import argparse
 import datetime
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
+import threading
+
+
+def _signal_training_process(process, signum, *, torchrun=False):
+    """优先通知 torchrun 的 worker；单进程或 /proc 不可用时通知直接子进程。"""
+    children = []
+    if torchrun:
+        children_path = Path(f"/proc/{process.pid}/task/{process.pid}/children")
+        try:
+            children = [int(item) for item in children_path.read_text().split()]
+        except (OSError, ValueError):
+            children = []
+    targets = children or [process.pid]
+    for pid in targets:
+        try:
+            os.kill(pid, signum)
+        except ProcessLookupError:
+            pass
+    return targets
 
 
 def run_logged(command, path):
@@ -18,6 +38,21 @@ def run_logged(command, path):
         log.flush()
         with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True, encoding="utf-8", errors="replace", bufsize=1) as process:
+            forwarded_signal = 0
+            previous_handlers = {}
+            is_torchrun = "torch.distributed.run" in command
+
+            def forward_signal(signum, _frame):
+                nonlocal forwarded_signal
+                if forwarded_signal:
+                    return
+                forwarded_signal = int(signum)
+                _signal_training_process(process, signum, torchrun=is_torchrun)
+
+            if threading.current_thread() is threading.main_thread():
+                for signum in (signal.SIGTERM, signal.SIGINT):
+                    previous_handlers[signum] = signal.getsignal(signum)
+                    signal.signal(signum, forward_signal)
             try:
                 for line in process.stdout:
                     log.write(line)
@@ -33,6 +68,14 @@ def run_logged(command, path):
                     process.kill()
                     process.wait()
                 raise
+            finally:
+                for signum, handler in previous_handlers.items():
+                    signal.signal(signum, handler)
+            if forwarded_signal:
+                message = f"[launcher] forwarded {signal.Signals(forwarded_signal).name}\n"
+                log.write(message)
+                sys.stderr.write(message)
+                code = 128 + forwarded_signal
         log.write(f"[exit] code={code}\n")
         if code:
             raise subprocess.CalledProcessError(code, command)

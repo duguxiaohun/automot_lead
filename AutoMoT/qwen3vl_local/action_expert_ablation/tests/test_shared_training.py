@@ -1,6 +1,8 @@
 """CPU 小模型回归：真实入口共用同预算循环，不加载 Qwen/BEV 或数据集。"""
 from pathlib import Path
 import json
+import os
+import signal
 import sys
 from types import ModuleType, SimpleNamespace
 
@@ -10,6 +12,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from qwen3vl_local.action_expert_ablation import common
 from qwen3vl_local.action_prior import train, runtime, launch, flow_matching, lora_bundle
+from qwen3vl_local.action_prior.training_core import GracefulTerminationExit
 from qwen3vl_local.action_prior.tests.test_training_loop import (
     TinyConfig, TinyFlowDecoder, lightweight_old_helpers,
 )
@@ -63,11 +66,16 @@ def harness(tmp_path, monkeypatch):
                 assert kwargs["sample_trajectory"] is False
                 if state.failure == "mid_epoch" and len(state.train_cases) == 2:
                     raise RuntimeError("injected interruption")
+                if state.failure == "sigterm" and len(state.train_cases) == 2:
+                    os.kill(os.getpid(), signal.SIGTERM)
                 state.train_cases.append(sample["anchor"])
             else:
                 assert kwargs["sample_trajectory"] is True
                 if state.failure == "validation":
                     raise RuntimeError("injected interruption")
+                if state.failure == "sigterm_validation":
+                    state.failure = "sigterm_validation_sent"
+                    os.kill(os.getpid(), signal.SIGTERM)
                 state.eval_cases.append(sample["anchor"])
             return decoder(**kwargs)
     monkeypatch.setattr(common, "make_runtime", lambda *a: Runtime())
@@ -173,3 +181,59 @@ def test_real_tensorboard_resume_trimming(tmp_path):
     assert {p.name for p in archived} == {p.name for p in original}
     trim_tensorboard_for_resume(tb, 2)
     assert steps() == [1, 2]
+
+
+@pytest.mark.parametrize("variant", ["qwen_simple", "bev_only"])
+def test_sigterm_saves_safe_cursor_and_resumes_exactly(harness, tmp_path, variant):
+    """SIGTERM 完成当前累积窗后保存，以 143 退出，随后可从安全 cursor 精确恢复。"""
+    run, state = harness
+    baseline = tmp_path / "baseline"
+    reference = run(variant, baseline, val_steps=100)
+    state.train_cases.clear()
+    state.eval_cases.clear()
+    state.failure = "sigterm"
+    out = tmp_path / "terminated"
+    with pytest.raises(GracefulTerminationExit) as caught:
+        run(variant, out, val_steps=100)
+    assert caught.value.code == 128 + signal.SIGTERM
+
+    partial = torch.load(out / "latest.pt", weights_only=False)
+    marker = json.loads((out / "termination.json").read_text(encoding="utf-8"))
+    assert partial["step"] == marker["optimizer_step"] == 2
+    assert partial["cursor"] == marker["cursor"] == {"epoch": 0, "micro": 4}
+    assert marker["signal_name"] == "SIGTERM"
+
+    state.failure = None
+    restored = run(variant, out, resume=True, val_steps=100)
+    assert not (out / "termination.json").exists()
+    assert list((out / "termination_history").glob("termination_*.json"))
+    assert restored["cursor"] == reference["cursor"]
+    assert restored["step"] == reference["step"]
+    assert torch.equal(restored["decoder"]["weight"], reference["decoder"]["weight"])
+    assert torch.equal(
+        restored["ema_state_dict"]["shadow"]["weight"],
+        reference["ema_state_dict"]["shadow"]["weight"],
+    )
+
+
+def test_sigterm_during_validation_preserves_pre_validation_cursor(harness, tmp_path):
+    """验证中止不发布残缺指标，并从验证前已经完成的 optimizer cursor 恢复。"""
+    run, state = harness
+    baseline = tmp_path / "baseline_validation"
+    reference = run("bev_only", baseline, val_steps=1)
+    state.train_cases.clear()
+    state.eval_cases.clear()
+    state.failure = "sigterm_validation"
+    out = tmp_path / "terminated_validation"
+    with pytest.raises(GracefulTerminationExit):
+        run("bev_only", out, val_steps=1)
+    partial = torch.load(out / "latest.pt", weights_only=False)
+    assert partial["step"] == 1
+    assert partial["cursor"] == {"epoch": 0, "micro": 2}
+    assert not (out / "validation/step_00000001.json").exists()
+
+    state.failure = None
+    restored = run("bev_only", out, resume=True, val_steps=1)
+    assert restored["step"] == reference["step"]
+    assert restored["cursor"] == reference["cursor"]
+    assert torch.equal(restored["decoder"]["weight"], reference["decoder"]["weight"])

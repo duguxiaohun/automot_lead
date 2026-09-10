@@ -19,7 +19,8 @@ from qwen3vl_local.action_prior.contracts import file_hash, require_contract
 from qwen3vl_local.action_prior.metrics import grouped_counts
 from qwen3vl_local.action_prior.progress import current, observed, report
 from qwen3vl_local.action_prior.training_core import (
-    MetricHooks, write_json, merge_counts, flow_config_of, sampled_trajectory_score,
+    GracefulTerminationExit, MetricHooks, write_json, merge_counts, flow_config_of,
+    sampled_trajectory_score,
     accumulation_state, budget_complete, trim_tensorboard_for_resume,
     evaluate as evaluate_shared, run_training_loop,
     make_model_and_config, make_optimization, save_training_checkpoint, restore_training_state,
@@ -348,7 +349,7 @@ def main():
         if args.resume:
             trim_tensorboard_for_resume(out / "tb", step)
         writer = SummaryWriter(out / "tb")
-    run_training_loop(
+    termination_signal = run_training_loop(
         args=args, rows=rows, plan=plan, runtime=runtime, model=model, decoder=decoder,
         config=config, flow_config=flow_config, optimizer=optimizer, scheduler=scheduler,
         ema=ema, cursor=cursor, step=step, best=best, device=device, dtype=dtype,
@@ -358,6 +359,8 @@ def main():
             path, model, optimizer, scheduler, ema, args, contract, dataset_hashes,
             cursor, step, best, rank, world),
     )
+    if termination_signal:
+        raise GracefulTerminationExit(termination_signal)
 
 
 if __name__ == "__main__":

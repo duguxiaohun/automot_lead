@@ -696,6 +696,15 @@ TB 只记录核心 FM/planning loss、ADE/FDE、LR、grad_norm、吞吐和显存
 CPU 回归覆盖同模拟条件三入口更新/指标一致、两个消融中途及验证中断恢复、预算完成后不超训；
 未运行真实 Qwen/BEV GPU/DDP、CARLA 或真实 TB event 恢复。
 
+2026-09-10 训练终止恢复：共享 `training_core.py` 捕获 `SIGTERM/SIGINT` 时只置请求标记，
+在完整梯度累积窗口后的 optimizer 安全点跨 rank 同步，再由全部 rank 参与 RNG 汇总并原子保存
+`latest.pt`；validation 内信号会让各 rank 按带空轮的同步协议一起退出，不发布残缺 validation 指标。
+rank0 写 `termination.json`，checkpoint 落盘后 barrier，再以 143/130 退出阻止 full pipeline 继续 eval；
+resume 会归档旧终止标记。launcher 多卡时优先向 torchrun worker 转发信号，单卡直接通知训练进程；
+退出显式关闭已登记 DataLoader iterator，短期 validation loader 禁用 persistent workers。
+该机制无法处理 `SIGKILL`、节点掉电或永久卡死，届时仍回退周期 checkpoint。本次执行代码变化会改变
+主线和两个消融的严格指纹，旧 checkpoint 仍只能用对应旧代码恢复。
+
 
 自动权重选择只在 `best_generation/` 内查实际权重，校验生产 prompt name/hash、Git commit、
 base 路径和 RGB 2/4图配置，并回查保存 step 的 generation 验证分数；没有 final 兜底。

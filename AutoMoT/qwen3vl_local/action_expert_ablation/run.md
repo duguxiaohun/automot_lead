@@ -96,6 +96,29 @@ LR、epoch、梯度累积、数据索引等非默认参数；launcher 在选 GPU
 用于数据/Qwen/BEV 路径搬迁等场景。`train.sh --resume` 不会再自动注入脚本默认 LR、
 epoch、梯度累积或默认索引；只有用户实际传入的 CLI 参数或环境变量会作为覆盖传给 Python。
 
+## SIGTERM / SIGINT 安全停止
+
+训练进程捕获第一次 `SIGTERM` / `SIGINT` 时只记录请求。所有 DDP rank 在当前梯度累积窗口
+完成后的 optimizer 安全点同步请求，再共同原子保存 `latest.pt`；如果信号在 validation 中到达，
+则丢弃未完成的 validation 指标并保存验证前 cursor。rank0 同时写 `termination.json`，其中包含
+signal、optimizer step、cursor 与 checkpoint 路径。保存完成后进程以 `128 + signal`
+（`SIGTERM=143`、`SIGINT=130`）退出，因此 `run_full_pipeline.sh` 不会误跑后续 eval。
+
+launcher 在多卡时优先把外部信号转发给 torchrun workers，让 torchrun 等待安全保存；单卡时直接
+通知训练进程。退出时会显式关闭已登记的 DataLoader iterator；短生命周期 validation loader
+禁用 persistent workers，减少强制退出后的 semaphore 清理告警。`SIGKILL`、节点掉电、GPU/进程
+永久卡死无法由 Python 捕获，仍只能退回最近一次周期 checkpoint。
+
+恢复使用终止标记记录的 checkpoint：
+
+```bash
+bash qwen3vl_local/action_expert_ablation/bev_only/train.sh \
+  --resume checkpoints/action_expert_ablation/bev_only/latest/latest.pt
+```
+
+resume 开始时会把旧 `termination.json` 归档到 `termination_history/`。本机制修改了执行源码指纹；
+改动前生成的 checkpoint 仍须使用对应旧代码恢复，不能绕过严格合同。
+
 ## TensorBoard 对比
 
 ```bash
@@ -176,8 +199,8 @@ event，并保留 checkpoint step 本身的记录，避免续训曲线出现未�
 python -m pytest -q qwen3vl_local/action_expert_ablation/tests qwen3vl_local/action_prior/tests
 ```
 
-新增 CPU 小模型测试覆盖三入口的数据/更新/指标一致性，以及两个消融的中途、epoch 验证、
-截断预算验证中断后恢复；已完成预算再次续训不执行额外样本。
+新增 CPU 小模型测试覆盖三入口的数据/更新/指标一致性、两个消融的中途/epoch/截断预算恢复，
+以及训练和 validation 收到真实 `SIGTERM` 后的安全 cursor 保存与精确恢复；已完成预算再次续训不执行额外样本。
 测试还包含真实 TensorBoard event 裁剪检查，缺少 `tensorboard` 时会明确 skip；
 本机未执行这一真实文件路径。CPU 测试不能替代真实 GPU/DDP 或 Qwen/BEV 前向检查。
 远端首次运行可先使用上面的 `smoke.sh`，确认 loss 有限、best/latest 保存和独立 eval 可运行，

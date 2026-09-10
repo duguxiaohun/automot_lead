@@ -837,3 +837,12 @@ Phase1/2/action_prior未改；训练只读完整本地Qwen权重，不下载。�
 `DDP_TIMEOUT_SECONDS` 默认3600秒，新增生成进度/耗时与同步日志。仅缓解等待超时，
 不表示验证加速或远端GPU已通过；见 PROJECT_CONTEXT.md「Phase3 DDP 验证超时缓解」
 与 `sft_new_loop_phase3/SFT_NEW_LOOP_PHASE3_RUN.md`。
+
+### 2026-09-10 Action 训练安全终止
+
+`action_prior` 与 `action_expert_ablation` 的共享训练循环捕获 `SIGTERM/SIGINT` 后，只在
+optimizer 安全点跨 rank 同步并原子保存 `latest.pt` / `termination.json`；validation 中止不发布
+残缺指标，resume 归档旧终止标记，DataLoader iterator 显式清理。保存后以 143/130 退出，阻止
+full pipeline 继续 eval；`SIGKILL`、掉电或永久卡死仍只能退回周期 checkpoint。该变化属于严格
+执行指纹，旧 checkpoint 必须使用对应旧代码。细节见 `PROJECT_CONTEXT.md` 与
+`qwen3vl_local/action_expert_ablation/run.md`。
