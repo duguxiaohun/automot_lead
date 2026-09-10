@@ -69,6 +69,8 @@ from qwen3vl_local.sft_new_loop_phase3.visual_audit import (  # noqa: E402
     load_review_coverage,
 )
 
+from qwen3vl_local.sft_new_loop_phase3.annotation_repair import repair_annotation
+
 RGB_HISTORY_COUNT = 4
 NO_ACTION_SIGNATURE = "NONE"
 
@@ -102,7 +104,9 @@ def physical_route_group(scenario: str, route_id: str) -> str:
 def development_route_groups() -> frozenset:
     """本次已用于规则开发的旧评测路线不再进入新val/test。"""
     path = pathlib.Path(__file__).with_name("development_route_groups_20260907.json")
-    return frozenset(json.loads(path.read_text())["groups"])
+    groups = set(json.loads(path.read_text())["groups"])
+    groups.update(json.loads(path.with_name("development_route_groups_20260910.json").read_text())["groups"])
+    return frozenset(groups)
 
 
 def _split(scenario: str, route_id: str, seed: int, test_ratio: float, val_ratio: float) -> str:
@@ -287,6 +291,8 @@ def iter_base_frames(
             for line in handle:
                 base = json.loads(line)
                 validate_action_rule(base)
+                if base.get("mapping_contract_hash") != mapping_contract_hash():
+                    raise ValueError("candidate cache lacks current annotation repair contract; rebuild from collection")
                 from qwen3vl_local.sft_new_loop_phase3.lateral_rgb_audit import lateral_uncertainty
                 lateral_review = lateral_uncertainty(base["scenario"], base["route_id"], base["frame_id"])
                 if lateral_review:
@@ -305,6 +311,9 @@ def iter_base_frames(
                     base["rs"], base["primary_event"], base["event_codes"])
                 if base["context_id"] not in contexts:
                     continue
+                repair = base.get("mapping_evidence", {}).get("annotation_repair")
+                if repair is not None:
+                    evidence["annotation_repair"] = repair
                 base["mapping_evidence"] = evidence
                 base["split"] = _split(base["scenario"], base["route_id"], args.split_seed,
                                        args.test_ratio, args.val_ratio)
@@ -354,17 +363,23 @@ def iter_base_frames(
                     frame_id = int(ann.get("frame_id"))
                 except (TypeError, ValueError):
                     continue
-                contexts, mapping = mapped_contexts(
-                    scenario, route_id, frame_id, _rs_label(ann),
-                    str(ann.get("primary_event") or "UNKNOWN"), _event_codes(ann))
+                rs, primary, codes, repair = repair_annotation(scenario, route_id, frame_id,
+                    ann, _rs_label(ann), str(ann.get("primary_event") or "UNKNOWN"), _event_codes(ann))
+                if risk_stats is not None:
+                    for reason in repair["changes"]:
+                        risk_stats[f"annotation_repair/{reason}"] += 1
+                if rs == "UNKNOWN":
+                    continue
+                contexts, mapping = mapped_contexts(scenario, route_id, frame_id, rs, primary, codes)
+                mapping["annotation_repair"] = repair
                 for context_id in contexts:
-                    wanted.append((frame_id, ann, context_id, mapping))
+                    wanted.append((frame_id, ann, context_id, mapping, rs, primary, codes))
             if not wanted:
                 continue
             trajectory = load_route_trajectory(run_dir)
             if trajectory is None:
                 continue
-            for frame_id, ann, context_id, mapping in wanted:
+            for frame_id, ann, context_id, mapping, rs, primary, codes in wanted:
                 signals = trajectory.signals(frame_id)
                 if signals is None or not signals["goal_available"]:
                     continue
@@ -376,6 +391,9 @@ def iter_base_frames(
                     continue
                 if (CONTEXT_BY_ID[context_id].question_domain == "FULL_MANEUVER"
                         and not signals["lateral_observation_complete"]):
+                    if risk_stats is not None:
+                        reason = signals.get("lateral_window_issue") or "rgb_identity_conflict"
+                        risk_stats[f"action_excluded/lateral/{reason}"] += 1
                     continue
                 risk, reasons = frame_visual_risk(ann)
                 if risk and risk_stats is not None:
@@ -398,9 +416,10 @@ def iter_base_frames(
                     "town": _town(ann, route),
                     "split": split,
                     "frame_id": frame_id,
-                    "rs": _rs_label(ann),
-                    "primary_event": str(ann.get("primary_event") or "UNKNOWN"),
-                    "event_codes": _event_codes(ann),
+                    "rs": rs,
+                    "mapping_contract_hash": mapping_contract_hash(),
+                    "primary_event": primary,
+                    "event_codes": codes,
                     "context_id": context_id,
                     "context_detail": " ".join(filter(None, [
                         context_detail(context_id, gaps.get(frame_id)),
@@ -787,7 +806,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--collection-dir", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v6"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v7"))
     p.add_argument(
         "--review-root",
         default=str(

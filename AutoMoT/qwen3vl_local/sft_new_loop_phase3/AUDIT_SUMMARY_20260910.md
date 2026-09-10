@@ -14,6 +14,14 @@ base production 是 **207/767 = 26.99%**，LoRA 增益为 **34.29 个百分点**
 `sft_new_loop_phase3_high_level_action_v5_current_phase` prompt、4 张历史 RGB，
 权重槽为 final step 9216。完整身份见审计包的 `bundle_manifest.json`。
 
+**逐帧复核补充**：已实际查看 67 个错例窗口、54 条采集 run、948 张去重 RGB，
+覆盖包内 44 个精选错例；详见 [RGB 联合审计](EVAL_REVIEW_20260910.md) 和
+[逐 case 笔记](EVAL_RGB_REVIEW_20260910.jsonl)。已确认高速 R4 错前提与出口 lane-id
+伪变道，也确认模型存在提前归位、首跨方向混淆和跳过等待。其余失分还包括时间阈值、
+未来放行/近端导航信息不足和弱光。该抽检不是全数据噪声率估计，原始成绩保持不变。
+
+**代码修复进展**：9月10日已按上述 RGB 证据修复采集门控、Phase3 旧标注适配、横向不确定窗口与行为预测 prompt，并实际重建 v7 数据。训练因本机缺完整 Qwen 权重尚未启动；本页 61.28% 仍是旧模型成绩。执行状态与限制见 [修复记录](REPAIR_20260910.md)。
+
 ## 评测范围与可比性
 
 - 本次：767 题 = 640 个有效情境题（十个 context 各 64）+ 127 个 INVALID 题。
@@ -58,9 +66,11 @@ base production 是 **207/767 = 26.99%**，LoRA 增益为 **34.29 个百分点**
 
 1. **强项：信号、路口、前车制动。** `SIGNAL_FAILURE`、`JUNCTION_RULE_CONFLICT` 与
    `LEAD_BRAKE` 均超过 75%；前两者的 STOP / RESUME 判别较稳定。
-2. **DYNAMIC_CUTIN 是本次唯一低于 base 的有效 context。** 该桶 21 个真实 `NONE`
-   样本没有一个整题答对，表明 LoRA 在动态侵入前提下有过度触发动作的倾向，而不是单纯
-   漏检危险。
+2. **DYNAMIC_CUTIN 是本次唯一低于 base 的有效 context。** 该桶 21 个标注为 `NONE`
+   的样本没有一个整题答对，但其中 **13 个只答 INVALID、8 个才是动作误触发**。
+   前 13 个集中于同一 HighwayCutIn run 的 f44–56；逐帧 RGB 和源标注确认高速走廊被
+   `light_hazard` 规则选成 R4，Phase3 补入 UE3 后保留了错误 RS 前提。因此不能将
+   这 21 题全部归为 LoRA 过度触发动作。
 3. **VULNERABLE_CROSSING、RAMP_MERGE_EXIT 是最弱的有效情境。** 前者主要被减速和横向
    联合决策拖累；后者对需要的动作整体偏保守、偏漏报。
 4. **STATIC_BLOCKAGE 与 POST_BYPASS_RETURN 仍是横纵向联合难题。** 静态占道中
@@ -84,8 +94,8 @@ base production 是 **207/767 = 26.99%**，LoRA 增益为 **34.29 个百分点**
   RESUME 命中 7/19。
 - `POST_BYPASS_RETURN`：左、右变道分别命中 12/22、10/21，RESUME 命中 7/15。
 - `VULNERABLE_CROSSING`：DECELERATE 命中 9/18；左、右变道分别命中 12/22、15/21。
-- `DYNAMIC_CUTIN`：DECELERATE 与 STOP 的正例召回并非主要短板，但 `NONE` 误触发动作
-  直接拉低整题表现。
+- `DYNAMIC_CUTIN`：需分别统计 13 个错误 R4 前提下的 INVALID-only 失分与 8 个 `NONE`
+  动作误触发；两者需要不同修复，不能合并解释。
 
 ## Guard 与部署结论
 
@@ -107,16 +117,18 @@ base production 是 **207/767 = 26.99%**，LoRA 增益为 **34.29 个百分点**
 
 ## 建议的下一轮优先级
 
-1. 固定现有独立 holdout，针对 `DYNAMIC_CUTIN` 的真实 NONE 样本补充反例/错误归因，抑制
-   无危险时的动作过触发。
-2. 按首次横向跨线、当前等待、减速不停车、持续恢复四种时间阶段分层，优先补
+1. 优先处理已经逐帧确认的监督冲突：高速 R4 前提、#255 出口 lane-id 伪变道，以及
+   RE3 场景触发窗口与 active-ramp 文本的阶段一致性。#613 道路展宽处的横向真值另列待审。
+2. 明确未来实际行为与“应该做什么”的目标差异；按首次横向跨线、当前等待、
+   减速不停车、持续恢复四种时间阶段分层，优先补
    `RAMP_MERGE_EXIT`、`POST_BYPASS_RETURN` 与 `VULNERABLE_CROSSING` 的独立路线。
 3. 对横向弱例继续做 RGB + lane-section 连通性核验；不能只用 lane-id 或远端 target point
    的横向符号作为左右变道真值。
 4. 增加同 RS 错事件的独立 route 覆盖后再评估 INVALID；不要把当前 1/6 当成充分的
    能力估计。
 5. 若要说明规则、提示词或数据清理的因果贡献，必须以同一物理 split、同预算、同 seed
-   的配对消融验证；当前新旧包不具备该条件。
+   的配对消融验证；当前新旧包不具备该条件。本轮看过的 test 路线若用于下一轮开发，
+   应登记开发集合并补新的未看 holdout；旧 test 保留为固定回归集。
 
 ## 证据入口
 
@@ -126,3 +138,5 @@ base production 是 **207/767 = 26.99%**，LoRA 增益为 **34.29 个百分点**
 - 当前 base 对照：`base_production/metrics.json`
 - 旧包复核：`EVAL_REVIEW_20260907.md`
 - 新合同、标签修订和已知限制：`REPAIR_20260907.md`
+- 本轮实际 RGB、源标注和代码联合复核：[EVAL_REVIEW_20260910.md](EVAL_REVIEW_20260910.md)
+- 本轮逐 case 人工观察：[EVAL_RGB_REVIEW_20260910.jsonl](EVAL_RGB_REVIEW_20260910.jsonl)

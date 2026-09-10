@@ -55,7 +55,7 @@ from qwen3vl_local.sft_new_loop_phase3.history_rgb import (
 from qwen3vl_local.sft_new_loop_phase3.navigation_goal import render_navigation_goal
 
 
-PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v5_current_phase"
+PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v6_observed_behavior_forecast"
 INVALID_KEY = "INVALID_ACTION_CONTEXT"
 ANSWER_KEYS: Tuple[str, ...] = (*ACTION_KEYS, INVALID_KEY)
 ANSWER_VALUES = ("YES", "NO")
@@ -66,21 +66,21 @@ SUBSET_COUNTS: Tuple[int, ...] = ()
 GROUP_DEFINITIONS: Dict[str, Tuple[str, str, str, set]] = {}
 
 ACTION_HORIZON_TEXT = (
-    "The answer is a high-level plan for the next few seconds after the newest frame, "
-    "about two seconds for the speed lines and about three seconds for the lane lines."
+    "The answer is a forecast of the recorded driver's behavior for the next few seconds after the newest frame, "
+    "two seconds for the speed lines and three seconds for the lane lines. At 4 Hz, near-stop means two consecutive speed samples at or below 0.5 m/s within the immediate 1.5 seconds. A meaningful speed change is at least max(1.2 m/s, 20% of the current speed); a speed gain needs two consecutive samples, while a reduction uses the first qualifying sample. Use these definitions for the forecast; only the current speed and past RGB are observed."
 )
 
-SYSTEM_PROMPT = """You are the high-level decision step of an autonomous-driving agent.
-The input is a stitched three-camera RGB history ordered from oldest to newest, a road structure and driving situation proposed by an earlier perception or transition step for the newest frame, and the route target point in ego coordinates. Check the proposed context against the RGB before choosing the high-level actions ego should take next. Answer every listed action question independently from the visible RGB history, the given situation and the route target. Do not use scenario names, dataset labels, maps, hidden state, or future frames."""
+SYSTEM_PROMPT = """You forecast the recorded ego driver's near-term behavior from causal observations.
+The input is a stitched three-camera RGB history ordered from oldest to newest, a road structure and driving situation proposed by an earlier perception or transition step for the newest frame, and the route target point in ego coordinates. Check the proposed context against the RGB before predicting the high-level actions ego is likely to execute next. This is behavior prediction; the output does not certify that an action is safe or that a traffic obligation is satisfied. Answer every listed action question independently from the visible RGB history, the given situation and the route target. Do not use scenario names, dataset labels, maps, hidden state, or future frames."""
 
 
 ACTION_DEFINITIONS: Dict[str, str] = {
     "DECELERATE": """DECELERATE - clearly reduce speed without coming to rest:
 YES when the first meaningful speed change is a slowdown in the next about two seconds, without a sustained near-stop in the immediate one-and-a-half-second window. Examples include holding a safe lead gap, yielding to an intruding actor, and waiting for a usable lane-change gap. A possible stop beyond that immediate window does not by itself cancel DECELERATE. NO when STOP applies, acceleration comes first, or the speed only jitters around the same cruising value.""",
     "STOP": """STOP - come to rest, or stay at rest, and wait:
-YES when ego should reach a sustained near-stop within about one and a half seconds, or continue waiting at rest, including staying stopped while an obstacle, a queue, a crossing user or a conflicting vehicle still blocks the path. A stopped ego that still needs to wait now is STOP even if it can pull away later in this window. NO when ego only slows down but keeps rolling, or is already starting a continuous pull-away without further waiting.""",
+YES when ego is likely to reach a sustained near-stop within about one and a half seconds, or continue waiting at rest, including staying stopped while an obstacle, a queue, a crossing user or a conflicting vehicle still blocks the path. A stopped ego that continues waiting for the next sampled frame is STOP even if it can pull away later in this window. NO when ego only slows down but keeps rolling, or is already starting a continuous pull-away without further waiting.""",
     "RESUME": """RESUME - clearly build speed toward normal travel speed:
-YES when the available path permits a sustained speed gain in the next about two seconds. This includes pulling away from a standstill, gaining speed through a usable bypass gap, and recovering after a blocking actor or conflict clears enough. A previous stop or a completed yield is not implied. NO for a brief isolated speed pulse followed by renewed slowing, NO when a meaningful slowdown or a stop still comes first inside that window, and NO for steady cruising with no real speed gain. Starting to roll does not by itself prove a stop-sign obligation or a lane-change gap is satisfied.""",
+YES when ego is likely to make a sustained speed gain in the next about two seconds. This includes pulling away from a standstill, gaining speed through a usable bypass gap, and recovering after a blocking actor or conflict clears enough. A previous stop or a completed yield is not implied. NO for a brief isolated speed pulse followed by renewed slowing, NO when a meaningful slowdown or a stop still comes first inside that window, and NO for steady cruising with no real speed gain. Starting to roll does not by itself prove a stop-sign obligation or a lane-change gap is satisfied.""",
     "LANE_CHANGE_LEFT": """LANE_CHANGE_LEFT - move out of the current lane into the lane on ego's left:
 YES when the FIRST ego lane-boundary crossing within the next about three seconds is to the left. A later return crossing does not change this first direction. This includes borrowing the opposing lane to get around a blockage, moving left into a main-line lane while merging, and moving left back toward the route-target lane. Left is relative to ego's own heading, not to the image. NO when ego only follows a curved lane: a bend makes the steering angle, the vehicle heading and the lane markings sweep across the image while ego stays between the same two lane boundaries, and that is lane keeping, not a lane change. NO when ego stays inside its lane while passing a slower or stopped vehicle, when ego only follows a ramp or connecting road that physically becomes the next lane without crossing a lane boundary, and NO when another vehicle rather than ego is the one changing lane.""",
     "LANE_CHANGE_RIGHT": """LANE_CHANGE_RIGHT - move out of the current lane into the lane on ego's right:
@@ -134,11 +134,11 @@ class PromptSpec:
 
 
 ACTION_QUESTIONS: Dict[str, str] = {
-    "DECELERATE": "Should ego clearly reduce speed without stopping now?",
-    "STOP": "Should ego stop and wait now?",
-    "RESUME": "Should ego accelerate back toward normal travel speed now?",
-    "LANE_CHANGE_LEFT": "Should ego change into the lane on its left now?",
-    "LANE_CHANGE_RIGHT": "Should ego change into the lane on its right now?",
+    "DECELERATE": "Will the first meaningful speed change be a reduction, without an immediate sustained near-stop?",
+    "STOP": "Will ego reach or remain at a sustained near-stop in the immediate 1.5-second window?",
+    "RESUME": "Will the first meaningful speed change be a sustained speed gain within two seconds?",
+    "LANE_CHANGE_LEFT": "Will the FIRST lane-boundary crossing within three seconds be to ego's left?",
+    "LANE_CHANGE_RIGHT": "Will the FIRST lane-boundary crossing within three seconds be to ego's right?",
 }
 
 

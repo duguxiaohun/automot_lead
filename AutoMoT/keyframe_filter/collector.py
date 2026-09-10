@@ -36,6 +36,7 @@ _DEFAULT_XML_ROOT = _AUTOMOT_ROOT / "data" / "lead"
 _DEFAULT_CARLA_ROOT = _AUTOMOT_ROOT / "CARLA_0915"
 
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
+from keyframe_filter.evidence_guards import has_signal_support, merge_trigger_supported
 
 # ============================================================================
 # 辅助函数
@@ -1942,7 +1943,8 @@ class RoadEventRuleEngine:
         trigger_distance = _safe_float(evidence.get("trigger_distance_m"), default=math.inf)
         actor_flow_distance = _safe_float(evidence.get("actor_flow_distance_m"), default=math.inf)
         xodr = evidence.get("xodr") or {}
-        ramp_hint = bool(xodr.get("ramp_merge_split_hint", False))
+        ramp_hint = bool(xodr.get("ramp_merge_split_hint", False)
+                         and xodr.get("xodr_topology_trusted", False))
         scenario_active = _safe_bool(frame_data.get("scenario_active", False))
 
         trigger_core_m = {
@@ -1970,7 +1972,8 @@ class RoadEventRuleEngine:
             "MergerIntoSlowTrafficV2": 0.0,
         }.get(scenario_name, math.inf)
 
-        trigger_core = trigger_distance <= trigger_core_m
+        trigger_core = (trigger_distance <= trigger_core_m
+                        and merge_trigger_supported(scenario_name, ramp_hint))
         actor_core = (
             math.isfinite(actor_core_m)
             and actor_flow_distance <= actor_core_m
@@ -3166,12 +3169,14 @@ class RoadStructureRuleEngine:
                 self._add(scores, RoadStructure.R4, 0.78)
                 self._add(scores, RoadStructure.R1, 0.70)
                 rules.append("r4_bbox_tl_without_strong_context_review")
-        elif (not map_is_roundabout) and light_hazard and light_hazard_control_context:
+        elif (not map_is_roundabout) and light_hazard and light_hazard_control_context and has_signal_support(
+            has_tl_for_r4, bbox_traffic_light_for_r4, static_signal_near_for_r4
+        ):
             self._add(scores, RoadStructure.R4, 0.90)
             rules.append("r4_light_hazard")
         elif light_hazard:
             self._add(scores, RoadStructure.R1, 0.78)
-            rules.append("light_hazard_ignored_without_junction_context")
+            rules.append("light_hazard_ignored_without_independent_signal_and_control_context")
         elif (not map_is_roundabout) and static_signal_near_for_r4 and strong_control_context:
             self._add(scores, RoadStructure.R4, 0.74)
             rules.append("r4_static_xodr_signal_near")
