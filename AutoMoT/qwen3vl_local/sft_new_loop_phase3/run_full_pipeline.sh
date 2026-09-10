@@ -22,9 +22,10 @@ export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
-DATA_DIR="${DATA_DIR:-checkpoints/sft_new_loop_phase3_data_v6}"
+DATA_DIR="${DATA_DIR:-checkpoints/sft_new_loop_phase3_data_v7}"
 INDEX="${INDEX:-${DATA_DIR}/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
+COLLECTION_DIR="${COLLECTION_DIR:-keyframe_filter/collection_output}"
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-4rgb}"
 TRAIN_MODE="${TRAIN_MODE:-ddp}"
@@ -53,6 +54,7 @@ if [[ "${SKIP_BUILD}" == "1" ]]; then
 else
   BUILD_ARGS=(
     --workers "${BUILD_WORKERS:-0}"
+    --collection-dir "${COLLECTION_DIR}"
     --data-root "${DATA_ROOT}"
     --output-dir "${DATA_DIR}"
     --scenarios "${SCENARIOS:-all}"
@@ -79,6 +81,19 @@ python qwen3vl_local/sft_new_loop_phase3/audit_rebuilt_index.py \
   --output "${PIPELINE_ROOT}/index_audit.json"
 
 echo
+# 再从原始 meta 复算，不能只用索引自己保存的未来速度自证。
+python qwen3vl_local/sft_new_loop_phase3/audit_raw_index.py \
+  --index "${INDEX}" --data-root "${DATA_ROOT}" \
+  --output "${PIPELINE_ROOT}/raw_index_audit.json"
+
+python qwen3vl_local/sft_new_loop_phase3/audit_temporal_slices.py \
+  --index "${INDEX}" --output "${PIPELINE_ROOT}/temporal_slices.json"
+
+# 包括被隔离而未进入索引的源帧，保留修复前后字段便于继续逐帧回查。
+python qwen3vl_local/sft_new_loop_phase3/audit_annotation_repairs.py \
+  --data-root "${DATA_ROOT}" --collection-dir "${COLLECTION_DIR}" --scenarios "${SCENARIOS:-all}" \
+  --output-dir "${PIPELINE_ROOT}/annotation_repair_audit"
+
 echo "========== 3/4 train LoRA =========="
 if [[ "${SKIP_TRAIN}" == "1" ]]; then
   echo "[skip] SKIP_TRAIN=1"

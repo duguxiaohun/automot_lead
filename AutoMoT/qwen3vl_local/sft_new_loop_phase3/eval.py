@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -899,6 +900,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             spec = item.spec
             case_idx = rank + local_idx * max(1, world_size)
             used_history_rgb_paths = select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode)
+            rgb_sha256 = [hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
+                          for p in used_history_rgb_paths]
             images = _load_images(used_history_rgb_paths)
             prompt = build_action_prompt(
                 spec=spec, audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode
@@ -996,6 +999,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 "history_rgb_count": len(history_rgb_indices(history_rgb_mode)),
                 "history_rgb_selected_indices": list(history_rgb_indices(history_rgb_mode)),
                 "history_rgb_paths_used": used_history_rgb_paths,
+                "history_rgb_sha256": rgb_sha256,
                 "history_rgb_paths_all4": row.history_rgb_paths,
                 "latest_rgb_path": row.latest_rgb_path,
                 "action_answers": {key: _bool_text(row.answers.get(key, False)) for key in ANSWER_KEYS},
@@ -1257,7 +1261,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Evaluate base Qwen or new Phase3 LoRA on balanced high-level action cases"
     )
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v6/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v7/frame_index.jsonl"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument("--adapter-dir", default="")

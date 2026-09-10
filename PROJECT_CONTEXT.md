@@ -917,3 +917,17 @@ Phase3 自由生成验证只在 rank0 串行运行，其余 rank 等 NCCL barrie
 可逐题定位，默认10；日志不是后台心跳。采样、prompt、评分和checkpoint guard不变。
 这是等待预算与可观测性缓解，不是多卡生成加速或卡死修复；本机仅合成/CPU回归，远端需
 跨过一次完整生成验证后确认恢复训练。运行和短验说明见 `sft_new_loop_phase3/SFT_NEW_LOOP_PHASE3_RUN.md`。
+
+
+### 2026-09-10 Phase3 RGB 审计修复
+
+Phase3 默认索引为 `sft_new_loop_phase3_data_v7`，动作规则为
+`current_wait_first_crossing_v7_rgb_guard`，prompt 为 `v6_observed_behavior_forecast`。
+采集规则不允许 light_hazard 单独证明 R4，普通 trigger 不独立激活合流事件；
+Phase3 读旧 collection 时保留源字段并执行有指纹的修复，不覆盖 Phase1/2 原标签。
+横向 section 变化、同侧非相邻 lane-id 跳变及已审 RGB 冲突记未知，不能写为横向 NO；
+-1↔+1 的正常借道仍保留。本次 54 条 RGB 开发路线与此前名单共 312 组只进 train。
+prompt 与实际采集行为预测对齐，不把未来轨迹作为模型输入。评测逐例保存 RGB SHA256，
+base/LoRA 配对拒绝不同真值、缺样本及输入错配。实际训练因本地缺完整 Qwen 权重未启动；
+数据构建和原 meta 回读不等于新模型提升。用户已明确自行迁移后在另一台机器训练/测试，
+用户使用 GitHub 同步现有白名单源码；checkpoints 内产物不入库，远端 pipeline 重建 v7 索引后训练。详见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/REPAIR_20260910.md`。

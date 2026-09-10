@@ -20,7 +20,11 @@ EVENT_ADDITIONS = Path(__file__).with_name("event_rgb_additions_v1.jsonl")
 @lru_cache(maxsize=1)
 def mapping_contract_hash():
     """训练索引绑定实际语义决定；旧索引不能绕过新隔离/同 RS 负例规则。"""
-    paths = (ANSWER_TABLE, HIGHWAY_DECISIONS, REVIEW_DECISIONS, EVENT_ADDITIONS,
+    paths = (ROOT / "keyframe_filter/evidence_guards.py",
+             Path(__file__).with_name("annotation_repair.py"),
+             Path(__file__).with_name("annotation_repairs_20260910.json"),
+             Path(__file__).with_name("development_route_groups_20260910.json"),
+             Path(__file__).with_name("lateral_rgb_uncertainties_v1.jsonl"), ANSWER_TABLE, HIGHWAY_DECISIONS, REVIEW_DECISIONS, EVENT_ADDITIONS,
              Path(__file__).with_name('same_rs_invalid_review_v1.jsonl'),
              Path(__file__).with_name('development_route_groups_20260907.json'),
              *(Path(__file__).with_name(name) for name in

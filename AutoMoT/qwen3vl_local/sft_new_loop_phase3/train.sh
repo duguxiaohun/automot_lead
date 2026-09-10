@@ -25,7 +25,7 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
-INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v6/frame_index.jsonl}"
+INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v7/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-4rgb}"
 case "${HISTORY_RGB_MODE}" in

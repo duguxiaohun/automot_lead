@@ -29,7 +29,7 @@ from qwen3vl_local.sft_new_loop_phase3.lateral_rgb_audit import lateral_uncertai
 
 
 FRAME_DT_SECONDS = 0.25
-ACTION_RULE_VERSION = "current_wait_first_crossing_v6"
+ACTION_RULE_VERSION = "current_wait_first_crossing_v7_rgb_guard"
 
 
 @lru_cache(maxsize=1)
@@ -178,8 +178,18 @@ class RouteTrajectory:
                 return "non_driving_or_unknown_waypoint"
             if meta.get("road_id") != base.get("road_id"):
                 return "road_transition"
+            # 同 road 的 section 更换可能重新编号；无连接关系时不把它当横向真值。
+            if meta.get("section_id") != base.get("section_id"):
+                return "lane_section_transition"
             if meta.get("lane_id") in (None, 0):
                 return "missing_lane_identity"
+            if offset:
+                previous_lane = int(self.metas[int(frame_id) + offset - 1]["lane_id"])
+                current_lane = int(meta["lane_id"])
+                # 同侧一次跳过车道编号：可能是 section 重编号/漏采样，无法确认第一次跨线。
+                # -1 <-> +1 是相邻的中心线两侧，不能误伤正常借道与回归。
+                if previous_lane * current_lane > 0 and abs(current_lane - previous_lane) > 1:
+                    return "nonadjacent_lane_identity_jump"
         return None
 
     def has(self, frame_id: int) -> bool:

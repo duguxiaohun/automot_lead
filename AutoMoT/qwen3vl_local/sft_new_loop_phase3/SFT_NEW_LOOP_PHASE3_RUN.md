@@ -1,3 +1,5 @@
+> 2026-09-10：当前默认数据为 v7，行为预测 prompt 与旧 adapter 不兼容；修复、重建及训练状态见 [REPAIR_20260910.md](REPAIR_20260910.md)。旧成绩不表示新模型验证。
+
 > 2026-09-07：当前规则已升级为 current_wait_first_crossing_v6，prompt为v5_current_phase，旧索引/adapter不兼容。最新修订、逐帧证据和运行方式见 [REPAIR_20260907.md](REPAIR_20260907.md)；下文v5动作规则及旧成绩属于历史。
 
 # SFT New Loop Phase3 运行说明

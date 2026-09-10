@@ -21,7 +21,7 @@ VISUAL_AUDIT_PY="qwen3vl_local/sft_new_loop_phase3/visual_audit.py"
 ADAPTER_CONFIG_NAME="sft_new_loop_phase3_adapter_config.json"
 
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
-INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v6/frame_index.jsonl}"
+INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v7/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 SPLIT="${SPLIT:-test}"
 CASES_PER_BIN="${CASES_PER_BIN:-64}"
@@ -557,6 +557,13 @@ run_eval "lora production" "${COMMON_ARGS[@]}" \
   --adapter-dir "${ADAPTER_DIR}" \
   --no-audit-prompt \
   --output-dir "${OUTPUT_ROOT}/lora_production"
+
+# 固定同一生成样本逐项配对；真值或 RGB 身份不一致时拒绝比较。
+if [[ "${RUN_BASE_EVAL}" == "1" ]]; then
+  python qwen3vl_local/sft_new_loop_phase3/paired_eval.py \
+    --left "${OUTPUT_ROOT}/base_production" --right "${OUTPUT_ROOT}/lora_production" \
+    --output "${OUTPUT_ROOT}/paired_base_lora.json"
+fi
 
 if [[ "${RUN_AUDIT_PROMPT_EVAL}" == "1" ]]; then
   run_eval "lora audit prompt" "${COMMON_ARGS[@]}" \
