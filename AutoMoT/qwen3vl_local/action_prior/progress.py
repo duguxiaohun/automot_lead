@@ -59,8 +59,10 @@ class Progress:
         stage = payload.get("stage", "startup")
         # 详细阶段留在文件；终端仅 rank0 定时单行，错误仍由每个 rank 报告。
         first_update = stage == "train/update_done" and not self.update_announced
-        essential = stage in ("startup", "train/epoch_start", "validation/start",
-                              "validation/done", "checkpoint/saved", "finished", "failed")
+        essential = stage in (
+            "startup", "train/epoch_start", "validation/start", "validation/done",
+            "checkpoint/saved", "termination/checkpoint_saved", "finished", "terminated", "failed",
+        )
         if stage == "train/update_done":
             self.update_announced = True
         if stage == "failed" or (self.rank == 0 and (
@@ -129,9 +131,18 @@ class Progress:
         self.stop.set()
         self.thread.join(timeout=1)
         self.detail = False
-        self.set("failed" if exc else "finished", announce=True,
-                 last_stage=self.state.get("stage"),
-                 error=f"{typ.__name__}: {exc}" if exc else None)
+        graceful = bool(exc and getattr(exc, "graceful_termination", False))
+        stage = "terminated" if graceful else "failed" if exc else "finished"
+        self.set(
+            stage,
+            announce=True,
+            last_stage=self.state.get("stage"),
+            error=(
+                f"graceful signal exit: {getattr(exc, 'signum', '?')}"
+                if graceful
+                else f"{typ.__name__}: {exc}" if exc else None
+            ),
+        )
         _current.reset(self.token)
 
 

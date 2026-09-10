@@ -9,12 +9,106 @@ from collections import Counter
 from dataclasses import dataclass
 import json
 import math
+import os
 from pathlib import Path
 import random
+import signal
+import threading
 import time
 from typing import Callable
 
 from qwen3vl_local.action_prior.progress import current, report
+
+
+class GracefulTerminationExit(SystemExit):
+    """checkpoint 已安全落盘后，用标准 signal exit code 停止外层流水线。"""
+
+    graceful_termination = True
+
+    def __init__(self, signum: int):
+        self.signum = int(signum)
+        super().__init__(128 + self.signum)
+
+
+class _TerminationDuringValidation(RuntimeError):
+    """内部控制流：所有 rank 一起离开验证并回到可保存 cursor 的调用层。"""
+
+
+class TerminationCoordinator:
+    """只在安全点同步终止请求；signal handler 本身不接触 CUDA、NCCL 或文件。"""
+
+    def __init__(self):
+        self.signum = 0
+        self.received_at = 0.0
+        self._previous = {}
+        self._iterators = set()
+
+    def _handler(self, signum, _frame):
+        # Python signal handler 里只赋值；真正的同步、保存和日志都留给主循环安全点。
+        if not self.signum:
+            self.signum = int(signum)
+            self.received_at = time.time()
+
+    def __enter__(self):
+        if threading.current_thread() is not threading.main_thread():
+            return self
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            self._previous[signum] = signal.getsignal(signum)
+            signal.signal(signum, self._handler)
+        return self
+
+    def __exit__(self, *_exc):
+        for signum, handler in self._previous.items():
+            signal.signal(signum, handler)
+        self._previous.clear()
+
+    def register_iterator(self, iterator):
+        self._iterators.add(iterator)
+        return iterator
+
+    def close_iterator(self, iterator):
+        self._iterators.discard(iterator)
+        shutdown = getattr(iterator, "_shutdown_workers", None)
+        if shutdown is not None:
+            try:
+                shutdown()
+            except Exception as exc:
+                print(f"[worker cleanup warning] {exc}", flush=True)
+
+    def close_iterators(self):
+        for iterator in list(self._iterators):
+            self.close_iterator(iterator)
+
+    def sync_signal(self, world: int, device) -> int:
+        """让只收到 signal 的单个 rank 通知其余 rank；必须由所有 rank 同点调用。"""
+        if world == 1:
+            return self.signum
+        import torch
+        import torch.distributed as dist
+
+        value = torch.tensor(self.signum, dtype=torch.int32, device=device)
+        dist.all_reduce(value, op=dist.ReduceOp.MAX)
+        synced = int(value.item())
+        if synced and not self.signum:
+            self.signum = synced
+        return synced
+
+
+_ACTIVE_TERMINATION: TerminationCoordinator | None = None
+
+
+def _archive_stale_termination(out: Path, rank: int, world: int) -> None:
+    """resume 前归档上一次正常终止标记，避免旧标记冒充本次运行结果。"""
+    import torch.distributed as dist
+
+    marker = Path(out) / "termination.json"
+    if rank == 0 and marker.is_file():
+        archive = Path(out) / "termination_history"
+        archive.mkdir(parents=True, exist_ok=True)
+        target = archive / f"termination_{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}.json"
+        marker.replace(target)
+    if world > 1:
+        dist.barrier()
 
 
 @dataclass(frozen=True)
@@ -189,15 +283,46 @@ def evaluate(
     progress = current()
     report("validation/start", announce=True, evaluation_samples=len(selected),
            rank_evaluated=0)
+    # 这份 loader 每次验证后都会销毁，不开启 persistent worker，避免反复验证遗留进程。
+    import copy
+    loader_args = copy.copy(args)
+    loader_args.persistent_workers = False
     loader, _ = old._make_loader(
-        selected, args, rank=rank, world_size=world, shuffle=False, epoch_seed=args.seed
+        selected, loader_args, rank=rank, world_size=world, shuffle=False, epoch_seed=args.seed
     )
     loader.generator = torch.Generator().manual_seed(args.seed + 72)
+    iterator = iter(loader)
+    if _ACTIVE_TERMINATION is not None:
+        _ACTIVE_TERMINATION.register_iterator(iterator)
     totals = Counter()
     was_training = decoder.training
     decoder.eval()
     try:
-        for idx, prepared in enumerate(loader):
+        idx = 0
+        while True:
+            try:
+                prepared = next(iterator)
+                has_sample = 1
+            except StopIteration:
+                prepared = None
+                has_sample = 0
+            if _ACTIVE_TERMINATION is not None:
+                # 各 rank 的 val shard 可相差一条；短 shard 仍参加同步，避免 collective 数量不一致。
+                if _ACTIVE_TERMINATION.sync_signal(world, runtime.device):
+                    raise _TerminationDuringValidation
+                if world > 1:
+                    present = torch.tensor(has_sample, dtype=torch.int32, device=runtime.device)
+                    torch.distributed.all_reduce(
+                        present, op=torch.distributed.ReduceOp.SUM
+                    )
+                    if int(present.item()) == 0:
+                        break
+                elif not has_sample:
+                    break
+            elif not has_sample:
+                break
+            if not has_sample:
+                continue
             if progress:
                 progress.detail = idx == 0
             report("validation/forward", rank_evaluated=idx)
@@ -248,8 +373,11 @@ def evaluate(
                 )
                 write_json(Path(dump_dir) / f"rank{rank}_case{idx:06d}.json", audit)
             report("validation/data_wait")
+            idx += 1
     finally:
         decoder.train(was_training)
+        if _ACTIVE_TERMINATION is not None:
+            _ACTIVE_TERMINATION.close_iterator(iterator)
         if progress:
             progress.detail = False
     report("validation/rank_merge", announce=True, rank_evaluated=int(totals["samples"]))
@@ -267,15 +395,22 @@ def run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flow
     import torch
     import torch.distributed as dist
 
+    global _ACTIVE_TERMINATION
+    coordinator = TerminationCoordinator()
+    _archive_stale_termination(out, rank, world)
     try:
-        _run_training_loop(
-            args=args, rows=rows, plan=plan, runtime=runtime, model=model, decoder=decoder,
-            config=config, flow_config=flow_config, optimizer=optimizer, scheduler=scheduler,
-            ema=ema, cursor=cursor, step=step, best=best, device=device, dtype=dtype,
-            rank=rank, world=world, out=out, writer=writer, old=old, hooks=hooks,
-            evaluate_fn=evaluate_fn, checkpoint=checkpoint,
-        )
+        with coordinator:
+            _ACTIVE_TERMINATION = coordinator
+            return _run_training_loop(
+                args=args, rows=rows, plan=plan, runtime=runtime, model=model, decoder=decoder,
+                config=config, flow_config=flow_config, optimizer=optimizer, scheduler=scheduler,
+                ema=ema, cursor=cursor, step=step, best=best, device=device, dtype=dtype,
+                rank=rank, world=world, out=out, writer=writer, old=old, hooks=hooks,
+                evaluate_fn=evaluate_fn, checkpoint=checkpoint, termination=coordinator,
+            )
     finally:
+        coordinator.close_iterators()
+        _ACTIVE_TERMINATION = None
         if writer:
             writer.close()
         if dist.is_initialized():
@@ -284,12 +419,63 @@ def run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flow
 
 def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flow_config,
                        optimizer, scheduler, ema, cursor, step, best, device, dtype,
-                       rank, world, out, writer, old, hooks, evaluate_fn, checkpoint):
+                       rank, world, out, writer, old, hooks, evaluate_fn, checkpoint,
+                       termination):
     """执行训练；公共包装负责异常时关闭日志和进程组。"""
     import torch
     import torch.distributed as dist
 
     from qwen3vl_local.action_prior.flow_matching import flow_matching_loss, make_training_flow
+
+    epoch_counts = Counter()
+
+    def save_termination(save_cursor, signum):
+        """所有 rank 保存同一个安全 cursor，确认 rank0 原子落盘后再退出。"""
+        if hooks.epoch_audit and epoch_counts:
+            parts = [None] * world
+            if world > 1:
+                dist.all_gather_object(parts, dict(epoch_counts))
+            else:
+                parts[0] = dict(epoch_counts)
+            save_cursor = dict(save_cursor, epoch_counts_by_rank=parts)
+            if rank == 0 and save_cursor.get("validation_full_epoch"):
+                completed_counts = Counter()
+                for part in parts:
+                    completed_counts.update(part)
+                validation_epoch = int(save_cursor["validation_epoch"])
+                write_json(
+                    out / "epoch_audit" / f"epoch_{validation_epoch+1:03d}_step{step:08d}.json",
+                    dict(completed_counts),
+                )
+        checkpoint(out / "latest.pt", save_cursor, step, best)
+        if world > 1:
+            dist.barrier()
+        if rank == 0:
+            write_json(
+                out / "termination.json",
+                dict(
+                    schema="action_training_graceful_termination_v1",
+                    signal=int(signum),
+                    signal_name=signal.Signals(signum).name,
+                    received_at=termination.received_at or time.time(),
+                    checkpoint=str((out / "latest.pt").resolve()),
+                    optimizer_step=step,
+                    cursor=save_cursor,
+                    pid=os.getpid(),
+                ),
+            )
+            print(
+                f"[termination] {signal.Signals(signum).name} received; "
+                f"latest.pt safely saved at optimizer step {step}",
+                flush=True,
+            )
+        report(
+            "termination/checkpoint_saved",
+            announce=True,
+            optimizer_step=step,
+            signal=signal.Signals(signum).name,
+        )
+        return int(signum)
 
     def finish_pending_validation(pending_cursor):
         """补完 epoch/最终验证，再原子发布无待办的 best/latest。"""
@@ -297,10 +483,15 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
         validation_epoch = int(pending_cursor["validation_epoch"])
         # 兼容主线和消融在重构前的两种 cursor 字段名。
         full_epoch = bool(pending_cursor.get("validation_full_epoch", pending_cursor.get("full_epoch", False)))
-        with ema.apply_to(model):
-            metrics = evaluate_fn(
-                runtime, model, config, rows["val"], args, dtype, rank, world,
-                0 if full_epoch else args.val_max_samples,
+        try:
+            with ema.apply_to(model):
+                metrics = evaluate_fn(
+                    runtime, model, config, rows["val"], args, dtype, rank, world,
+                    0 if full_epoch else args.val_max_samples,
+                )
+        except _TerminationDuringValidation:
+            return pending_cursor, save_termination(
+                pending_cursor, termination.signum or signal.SIGTERM
             )
         if rank == 0:
             write_json(out / "validation" / f"epoch_{validation_epoch+1:03d}_step{step:08d}.json", metrics)
@@ -313,10 +504,15 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
             best = score
             checkpoint(out / "best.pt", clean_cursor, step, best)
         checkpoint(out / "latest.pt", clean_cursor, step, best)
-        return clean_cursor
+        requested_signal = termination.sync_signal(world, device)
+        if requested_signal:
+            return clean_cursor, save_termination(clean_cursor, requested_signal)
+        return clean_cursor, None
 
     if cursor.get("validation_pending"):
-        cursor = finish_pending_validation(cursor)
+        cursor, stopped = finish_pending_validation(cursor)
+        if stopped:
+            return stopped
     if budget_complete(step, plan, cursor):
         return
     window = Counter()
@@ -341,6 +537,7 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
             epoch_seed=args.seed,
         )
         loader.generator = torch.Generator().manual_seed(args.seed + epoch)
+        iterator = termination.register_iterator(iter(loader))
         # 保存的是每个 rank 的计数，恢复后仍按原 world size 汇总完整 epoch。
         epoch_counts = Counter(
             cursor.get("epoch_counts_by_rank", [{}] * world)[rank] if start and hooks.epoch_audit else {}
@@ -353,7 +550,7 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
                grad_accum_steps=args.grad_accum_steps,
                logging_steps=args.logging_steps, val_steps=args.val_steps)
         report("train/data_wait")
-        for local_micro, prepared in enumerate(loader):
+        for local_micro, prepared in enumerate(iterator):
             micro = start + local_micro
             if current():
                 current().detail = local_micro == 0
@@ -429,6 +626,9 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
             )
             if full_epoch or step >= plan["actual_step_limit"]:
                 next_cursor = with_validation_pending(next_cursor, epoch, full_epoch)
+            requested_signal = termination.sync_signal(world, device)
+            if requested_signal:
+                return save_termination(next_cursor, requested_signal)
             if step == first_update_step or step % args.logging_steps == 0:
                 report("train/metrics_rank_merge")
                 values = hooks.summarize(merge_counts(window, world))
@@ -455,23 +655,31 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
                 window.clear()
                 log_started = time.monotonic()
             if step % args.val_steps == 0:
-                with ema.apply_to(model):
-                    metrics = evaluate_fn(
-                        runtime,
-                        model,
-                        config,
-                        rows["val"],
-                        args,
-                        dtype,
-                        rank,
-                        world,
-                        args.val_max_samples,
+                try:
+                    with ema.apply_to(model):
+                        metrics = evaluate_fn(
+                            runtime,
+                            model,
+                            config,
+                            rows["val"],
+                            args,
+                            dtype,
+                            rank,
+                            world,
+                            args.val_max_samples,
+                        )
+                except _TerminationDuringValidation:
+                    return save_termination(
+                        next_cursor, termination.signum or signal.SIGTERM
                     )
                 if rank == 0:
                     write_json(out / "validation" / f"step_{step:08d}.json", metrics)
                     for k, v in metrics.items():
                         writer.add_scalar(f"val/{k}", v, step)
                 # 小验证集只观察趋势；best.pt 统一由 epoch 全量验证选取。
+                requested_signal = termination.sync_signal(world, device)
+                if requested_signal:
+                    return save_termination(next_cursor, requested_signal)
             if (
                 step % args.save_steps == 0
                 or step >= plan["actual_step_limit"]
@@ -488,14 +696,18 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
             if step >= plan["actual_step_limit"]:
                 break
             report("train/data_wait")
+        termination.close_iterator(iterator)
         if hooks.epoch_audit:
             report("train/epoch_rank_merge")
             counts = merge_counts(epoch_counts, world)
             if rank == 0:
                 write_json(out / "epoch_audit" / f"epoch_{epoch+1:03d}_step{step:08d}.json", dict(counts))
-        cursor = finish_pending_validation(next_cursor)
+        cursor, stopped = finish_pending_validation(next_cursor)
+        if stopped:
+            return stopped
         if step >= plan["actual_step_limit"]:
             break
+    return None
 
 
 def make_model_and_config(args, device):

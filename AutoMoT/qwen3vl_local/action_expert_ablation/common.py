@@ -27,7 +27,7 @@ from qwen3vl_local.action_prior.flow_matching import (
 )
 from qwen3vl_local.action_prior.precision import PRECISION_POLICY, decoder_forward
 from qwen3vl_local.action_prior.training_core import (
-    MetricHooks, budget_complete, trim_tensorboard_for_resume,
+    GracefulTerminationExit, MetricHooks, budget_complete, trim_tensorboard_for_resume,
     with_validation_pending, clear_validation_pending, merge_counts,
     evaluate as evaluate_shared, run_training_loop,
     make_model_and_config, make_optimization, save_training_checkpoint, restore_training_state,
@@ -316,6 +316,7 @@ def contract_source_paths(variant: str) -> list[str]:
         f"qwen3vl_local/action_expert_ablation/{variant}/eval.sh",
         f"qwen3vl_local/action_expert_ablation/{variant}/run_full_pipeline.sh",
         "qwen3vl_local/action_expert_ablation/pipeline_common.sh",
+        "qwen3vl_local/action_prior/launch.py",
         "qwen3vl_local/action_prior/flow_matching.py",
         "qwen3vl_local/action_prior/precision.py",
         "qwen3vl_local/action_prior/config.py",
@@ -824,7 +825,7 @@ def train_main(variant: str) -> None:
         if args.resume:
             trim_tensorboard_for_resume(out / "tb", step)
         writer = SummaryWriter(out / "tb")
-    run_training_loop(
+    termination_signal = run_training_loop(
         args=args, rows=rows, plan=plan, runtime=runtime, model=model, decoder=decoder,
         config=config, flow_config=flow_config, optimizer=optimizer, scheduler=scheduler,
         ema=ema, cursor=cursor, step=step, best=best, device=device, dtype=dtype,
@@ -834,6 +835,8 @@ def train_main(variant: str) -> None:
             path, model, optimizer, scheduler, ema, args, contract, dataset_hashes,
             cursor, step, best, rank, world, variant),
     )
+    if termination_signal:
+        raise GracefulTerminationExit(termination_signal)
 
 
 def eval_main(variant: str) -> None:

@@ -475,6 +475,11 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/resume.sh checkpoints/action_pri
 也可 `RESUME=... bash qwen3vl_local/action_prior/run_full_pipeline.sh`，恢复完成后继续最终 eval/probe。
 checkpoint 保存 optimizer/scheduler/EMA、各 rank RNG、下一 epoch/micro cursor 和数据 SHA。
 未完成 epoch 的各 rank invalid/损失累积计数一起恢复；若在 epoch 验证中退出，恢复后先补验证和 best 选择。
+`SIGTERM/SIGINT` 只在 optimizer 安全点跨 rank 同步：完成当前累积窗后原子保存 `latest.pt` 和
+`termination.json`，validation 中止不发布残缺指标，保存完成后以 143/130 停止流水线。
+resume 会把旧终止标记归档到 `termination_history/`。显式清理 DataLoader iterator 可减少 semaphore
+退出告警；`SIGKILL`、节点掉电或永久卡死仍只能恢复最近一次周期 checkpoint。该实现属于执行指纹，
+改动前 checkpoint 须用对应旧代码恢复。
 checkpoint 容器为 `action_prior_checkpoint_v4`；自然语言分析协议为 v5，轨迹为联合条件 Flow
 Matching。验证的 `eps/t` 与 Euler 初始噪声按样本身份固定，best 仅按纯噪声采样后的加权 route/waypoint
 ADE 选取（checkpoint 明确记录 `best_metric=weighted_sampled_route_waypoint_ade_m`），FM MSE 只作诊断。R3 不是高速事实，`RS_HIGHWAY` 必须独立确认。旧 Linear+cumsum、逐点 FM、

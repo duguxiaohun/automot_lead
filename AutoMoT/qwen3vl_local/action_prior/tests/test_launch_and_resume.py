@@ -1,6 +1,7 @@
 """启动参数、恢复和累积边界检查，不调用 GPU、torchrun 或实际训练。"""
 
 import json
+import signal
 from pathlib import Path
 import sys
 
@@ -125,6 +126,29 @@ def test_tail_accumulation_keeps_mean_scale():
     assert sum(1 / accumulation_state(i, 10, 4)[0] for i in (8, 9)) == 1
 
 
+def test_launcher_signal_targets_torchrun_workers(monkeypatch):
+    """多卡时只先通知 worker，让 torchrun 留在原位等待它们完成安全保存。"""
+    original_read_text = Path.read_text
+
+    def fake_read_text(path, *args, **kwargs):
+        if str(path) == "/proc/123/task/123/children":
+            return "201 202"
+        return original_read_text(path, *args, **kwargs)
+
+    sent = []
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+    monkeypatch.setattr(launch.os, "kill", lambda pid, signum: sent.append((pid, signum)))
+    targets = launch._signal_training_process(
+        SimpleNamespace(pid=123), signal.SIGTERM, torchrun=True
+    )
+    assert targets == [201, 202]
+    assert sent == [(201, signal.SIGTERM), (202, signal.SIGTERM)]
+    sent.clear()
+    targets = launch._signal_training_process(SimpleNamespace(pid=123), signal.SIGINT)
+    assert targets == [123]
+    assert sent == [(123, signal.SIGINT)]
+
+
 def test_run_logged_appends_both_streams_and_propagates_failure(tmp_path, capsys):
     import subprocess
     path = tmp_path / "run with spaces" / "train.log"
@@ -138,3 +162,32 @@ def test_run_logged_appends_both_streams_and_propagates_failure(tmp_path, capsys
     assert "[exit] code=7" in saved
     console = capsys.readouterr().out
     assert "second run" in console and "failure detail" in console
+
+
+def test_run_logged_forwards_sigterm_and_returns_signal_code(tmp_path):
+    """launcher 自身收到 SIGTERM 时通知单卡训练子进程，并阻止后续流水线。"""
+    import subprocess
+
+    code = """
+import os
+import signal
+import sys
+import time
+
+def stop(_signum, _frame):
+    print("child received SIGTERM", flush=True)
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, stop)
+os.kill(os.getppid(), signal.SIGTERM)
+while True:
+    time.sleep(0.01)
+"""
+    log = tmp_path / "signal.log"
+    with pytest.raises(subprocess.CalledProcessError) as caught:
+        launch.run_logged([sys.executable, "-c", code], log)
+    assert caught.value.returncode == 128 + signal.SIGTERM
+    saved = log.read_text(encoding="utf-8")
+    assert "child received SIGTERM" in saved
+    assert "[launcher] forwarded SIGTERM" in saved
+    assert "[exit] code=143" in saved
