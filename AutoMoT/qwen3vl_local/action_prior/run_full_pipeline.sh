@@ -20,8 +20,13 @@ DEFAULT_PRIOR_LABELS=checkpoints/action_prior_labels/prior_labels.jsonl
 explicit_labels=0
 [[ -z "${PRIOR_LABELS+x}" ]] || explicit_labels=1
 PRIOR_LABELS="${PRIOR_LABELS:-$DEFAULT_PRIOR_LABELS}"
+explicit_event_balance_index=0
+[[ -z "${EVENT_BALANCE_INDEX+x}" ]] || explicit_event_balance_index=1
+EVENT_BALANCE_INDEX="${EVENT_BALANCE_INDEX:-}"
 ARGS=()
 want_labels=0
+want_event_balance_index=0
+event_balance_index_in_args=0
 explicit_prior_source="$DATASET_PRIORS_ENV_SET"
 for item in "$@"; do
  if [[ "$want_labels" == 1 ]]; then
@@ -30,16 +35,27 @@ for item in "$@"; do
   want_labels=0
   continue
  fi
+ if [[ "$want_event_balance_index" == 1 ]]; then
+  EVENT_BALANCE_INDEX="$item"
+  explicit_event_balance_index=1
+  ARGS+=(--event-balance-index "$item")
+  event_balance_index_in_args=1
+  want_event_balance_index=0
+  continue
+ fi
  case "$item" in
   --dataset-priors) DATASET_PRIORS=1; explicit_prior_source=1 ;;
   --no-dataset-priors) DATASET_PRIORS=0; explicit_prior_source=1 ;;
   # 自定义标签索引由本脚本统一转交 train.sh，避免出现两个 --prior-labels。
   --prior-labels) want_labels=1 ;;
   --prior-labels=*) PRIOR_LABELS="${item#*=}"; explicit_labels=1 ;;
+  --event-balance-index) want_event_balance_index=1 ;;
+  --event-balance-index=*) EVENT_BALANCE_INDEX="${item#*=}"; explicit_event_balance_index=1; event_balance_index_in_args=1; ARGS+=("$item") ;;
   *) ARGS+=("$item") ;;
  esac
 done
 [[ "$want_labels" == 0 ]] || { echo "--prior-labels needs a path" >&2; exit 2; }
+[[ "$want_event_balance_index" == 0 ]] || { echo "--event-balance-index needs a path" >&2; exit 2; }
 if [[ -n "${RESUME:-}" && "$explicit_prior_source" == 0 ]]; then
  RESUME_CONFIG="$(dirname -- "$RESUME")/config.json"
  if [[ -f "$RESUME_CONFIG" ]]; then
@@ -75,6 +91,9 @@ if [[ -n "${RESUME:-}" ]]; then
  if [[ "$DATASET_PRIORS" == 1 && "$explicit_labels" != 0 ]]; then
   RESUME_ARGS+=(--prior-labels "$PRIOR_LABELS")
  fi
+ if [[ "$explicit_event_balance_index" != 0 && "$event_balance_index_in_args" == 0 ]]; then
+  RESUME_ARGS+=(--event-balance-index "$EVENT_BALANCE_INDEX")
+ fi
  bash "$HERE/resume.sh" "$RESUME" "${RESUME_ARGS[@]+"${RESUME_ARGS[@]}"}"
 elif [[ "$DATASET_PRIORS" == 1 ]]; then
  # 标定真值逐帧命中，不选择也不固定任何 LoRA；预检只核验 base、BEV 与标签索引。
@@ -103,12 +122,15 @@ fi
 RUN_DIR="$OUTPUT_DIR/run_$RUN_TAG"
 [[ "${NO_RUN_SUBDIR:-0}" != 1 ]] || RUN_DIR="$OUTPUT_DIR"
 [[ -z "${RESUME:-}" ]] || RUN_DIR="$(dirname -- "$RESUME")"
-# 轨迹 head 的最优点按验证 loss，和上游 LoRA 的 best_generation 区分。
+# 轨迹 head 的最优点按验证采样 ADE（可显式改为事件均衡 ADE），和上游 LoRA 的 best_generation 区分。
 test -f "$RUN_DIR/best.pt"
 # eval/probe 默认沿用 checkpoint 自己记录的先验来源；显式标签搬迁必须贯穿旧 best.pt。
 EVAL_ARGS=()
 if [[ "$DATASET_PRIORS" == 1 && "$explicit_labels" != 0 ]]; then
  EVAL_ARGS+=(--prior-labels "$PRIOR_LABELS")
+fi
+if [[ "$explicit_event_balance_index" != 0 ]]; then
+ EVAL_ARGS+=(--event-balance-index "$EVENT_BALANCE_INDEX")
 fi
 bash "$HERE/eval.sh" --checkpoint "$RUN_DIR/best.pt" --split test --output-dir "$RUN_DIR/test" "${EVAL_ARGS[@]+"${EVAL_ARGS[@]}"}"
 bash "$HERE/probe.sh" --checkpoint "$RUN_DIR/best.pt" --split test --output-dir "$RUN_DIR/probe" "${EVAL_ARGS[@]+"${EVAL_ARGS[@]}"}"

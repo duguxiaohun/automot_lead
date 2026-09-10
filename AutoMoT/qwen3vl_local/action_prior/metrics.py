@@ -46,6 +46,23 @@ def sample_groups(audit, sample):
         "upstream_exposure", {"combined": "unknown"}
     ).items():
         groups.append(f"upstream/{phase}/{exposure}")
+    # 仅在显式接入全帧 event map 时存在。它是离线审计标签，不是模型预测事件，
+    # 也不参与总样本分母。评测必须使用 all_special_buckets：被 Phase3 动作问答
+    # 过滤的特殊帧仍是特殊驾驶情境，不能因此掉进“普通”或完全不统计。
+    if sample.get("event_balance_bucket"):
+        groups.append(f"event_balance/{sample['event_balance_bucket']}")
+    elif "event_balance_status" in sample:
+        status = str(sample.get("event_balance_status") or "unconfirmed")
+        groups.append(f"event_balance_status/{status}")
+        buckets = tuple(sample.get("event_balance_all_special_buckets") or ())
+        groups.extend(f"event_balance/{bucket}" for bucket in buckets)
+        if status == "confirmed_regular":
+            groups.append("event_balance/REGULAR_BACKGROUND")
+        contexts = set(sample.get("event_balance_scene_contexts") or ())
+        # 当前 full-map builder 没有可靠 recovery_pending 证据，故不会命中；保留
+        # 该审计组只为未来接入显式帧级状态，不能由 RE2 bucket 本身触发。
+        if "RE2_RECOVERY_PENDING" in contexts:
+            groups.append("event_balance/UE2_TO_RE2_RECOVERY")
     return groups
 
 

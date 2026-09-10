@@ -1,6 +1,7 @@
 """不加载真实大模型，验证权重/提示词/数据合同。"""
 
 import json
+from collections import Counter
 from pathlib import Path
 import sys
 
@@ -15,6 +16,11 @@ from qwen3vl_local.action_prior import priors
 from qwen3vl_local.action_prior.build_dataset import route_group, split_for
 from qwen3vl_local.action_prior.config import parser, validate_args
 from qwen3vl_local.action_prior.train import audit_counts, metrics_from_counts
+from qwen3vl_local.action_prior.training_core import (
+    best_validation_max_samples,
+    scalar_metric_items,
+)
+from qwen3vl_local.action_prior.event_balance import EVENT_BALANCE_WEIGHTS
 from qwen3vl_local.sft_new_loop_phase1 import prompts as p1
 from qwen3vl_local.sft_new_loop_phase2 import prompts as p2
 
@@ -182,6 +188,26 @@ def test_invalid_still_in_denominator():
     c.update(audit_counts(dict(invalid={}, analysis_truncated=False)))
     m = metrics_from_counts(c)
     assert m["samples"] == 2 and m["prior/invalid_samples"] == 0.5
+
+
+def test_event_bucket_train_window_without_ode_metrics_never_reads_ade_or_writes_text_scalar():
+    """默认 train_sampled_metrics=False 只有 FM MSE，coverage 文本仍可写 JSON。"""
+    counts = Counter(samples=12, loss=6.0, route_fm_mse=3.0, waypoint_fm_mse=3.0)
+    for bucket, weight in EVENT_BALANCE_WEIGHTS.items():
+        prefix = f"group/event_balance/{bucket}"
+        counts[f"{prefix}/samples"] = weight
+        counts[f"{prefix}/route_fm_mse"] = float(weight)
+    metrics = metrics_from_counts(counts)
+    assert metrics["event_balance_bucket_coverage_complete"] == 1
+    assert metrics["event_balance_bucket_coverage_missing"] == ""
+    assert "event_balanced_route_ade_m" not in metrics
+    assert all(isinstance(value, (int, float)) and not isinstance(value, bool)
+               for _, value in scalar_metric_items(metrics))
+
+
+def test_best_selection_validation_is_always_full_even_when_diagnostic_val_limit_is_small():
+    args = parser().parse_args(["--val-max-samples", "1", "--max-train-steps", "1"])
+    assert best_validation_max_samples(args) == 0
 
 
 def test_forbid_future_truth_navigation():

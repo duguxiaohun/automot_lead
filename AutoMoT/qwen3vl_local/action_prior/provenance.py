@@ -27,6 +27,7 @@ EXECUTION_SEEDS = (
             "train",
             "build_dataset",
             "metrics",
+            "event_balance",
             "provenance",
         )
     ],

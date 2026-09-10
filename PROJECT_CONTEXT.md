@@ -863,6 +863,29 @@ RS/EVENT **YES** 选择短的英文自然描述：道路结构、独立 highway 
 仍包含 system + 四图 + user 场景先验/导航 + assistant 摘要，所以 MoT 接到的是完整图像、提示词和
 分析 KV，而非仅分析 KV。
 
+2026-09-10 新增可选 `--sampling-mode event_balanced` 课程：先由
+`action_prior/build_event_balance_index.py` 用当前、完整的 Phase3 candidate 和**全部逐帧标注**写
+`full_event_mapping.jsonl`。映射将 UE1–UE7、RE2、RE3、RE5 真实 special、确认常规、未确认和
+special-but-filtered 分开；只有确认常规进入权重 2 的 `REGULAR_BACKGROUND`，所以 candidate 因动作窗口/
+视觉风险过滤而缺席的 UE 不会被伪装为普通。每个 special bucket 权重 1，全局先配齐 `1:…:1:2`
+presentation 再切 DDP rank；单帧总重复受 epoch budget 和 `event_balance_max_frame_repeats` 硬限制，
+联合全局 max-flow 搜索最小必要的 frame repeat 层；每层从零重解并允许跨 bucket 重路由，候选充足时
+不会提前重复少数 UE 帧，也不会把早期共享 frame 选择锁死后续可行配额。
+`sampling/epoch_*.json` 记录精确配额、实际重复直方图、最大重复、唯一帧及 route 数。固定的全帧
+scene context 在 train/val/test 都附加，且 Phase3 规则开发 physical routes 强制 train-only。默认 `uniform`
+不读取该 source，保持原始全量 shuffle。索引 manifest/映射合同/内容 hash 进入 checkpoint identity，绝对路径
+只作审计；离线文件搬迁可在 eval/resume 用新 `--event-balance-index` 重映射，纯采样闭环不依赖它。
+full-map schema 已升级至 v2；旧 v1 因可能将隔离/未解析 R-E2/3/5 误作普通背景而被强制拒绝并必须重建。
+参与 best 选择的验证始终全量遍历 val，不受 `val_max_samples` 限制。验证同时报自然分布总体与真实桶 ADE/FDE、桶覆盖；当前 source mapping 没有可靠的“已绕过且待恢复”
+帧级状态，因此不生成 UE2→RE2 recovery 专项，保留接口供未来审计证据接入。可用
+`best_selection_metric=event_balanced_ade` 按固定权重选 best，但缺任一 validation bucket 会预检失败。
+
+均衡课程默认**不改** Qwen 输入。单独的 `--event-balanced-scene-priors` 只允许
+`--dataset-priors --prior-noise 0` 的离线特权实验；它把 explicit context 转为简短自然英文背景，
+不渲染 UE/RE code、YES/NO 或动作标签。当前 RE2 仅区分普通导航变道和早先障碍记录；“已通过障碍且
+恢复待完成”等待可靠帧级证据接入，不能从 RE2 编号、all-NO 或当前图像不足凭空产生。CARLA/Bench2Drive
+没有该 transition/history 标签，因此会明确拒绝这种 checkpoint，不能把它用于闭环或宣称闭环可迁移。
+
 轨迹 decoder 为 `ConditionalFlowMatchingDecoder`。将 route `(B,10,2)` 和 future waypoint
 `(B,8,2)` 分别按 30m/20m 缩放后拼成连续变量；训练采样
 `eps~N(0,I), t~U(0,1), x_t=(1-t)eps+t*x_gt`，回归向量场 `x_gt-eps` 的 route/waypoint 加权 MSE。

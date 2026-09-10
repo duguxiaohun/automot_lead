@@ -127,9 +127,18 @@ def validate_checkpoint(cli, pinned=None):
     if state.get("schema") != "action_prior_checkpoint_v4" or state.get("trajectory_decoder") != "conditional_joint_trajectory_flow_matching_v2":
         raise ValueError("requires action_prior_checkpoint_v4 joint-trajectory Flow Matching")
     args = argparse.Namespace(**state["args"])
+    if bool(state["args"].get("event_balanced_scene_priors", False)):
+        raise ValueError(
+            "Bench2Drive has no audited Phase3 transition context or memory; checkpoint was trained "
+            "with --event-balanced-scene-priors and is offline-only."
+        )
     args.selection_manifest = ""
     args.selection_output = ""
     args.lora_bundle = ""
+    # 纯采样的 full map 是训练溯源，不是在线输入；保留 checkpoint identity，清掉
+    # 已搬迁/不可用的离线路径，避免 validate_args 错把它当闭环依赖。
+    if getattr(args, "sampling_mode", "uniform") == "event_balanced":
+        args.event_balance_index = ""
     trained_with_dataset_priors = bool(state["args"].get("dataset_priors", False))
     switch = os.environ.get("ACTION_DATASET_PRIORS")
     args.dataset_priors = (

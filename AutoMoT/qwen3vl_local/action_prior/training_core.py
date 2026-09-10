@@ -147,13 +147,24 @@ def merge_counts(local, world):
     return total
 
 
+def scalar_metric_items(metrics):
+    """TensorBoard 只接收数值；coverage 缺桶等可读诊断保留在 JSON/print。"""
+    import numbers
+
+    return (
+        (key, value)
+        for key, value in metrics.items()
+        if isinstance(value, numbers.Real) and not isinstance(value, bool)
+    )
+
+
 def flow_config_of(decoder):
     """DDP 不透传任意 Python 属性；统一读取未包装 decoder 的 FM 合同。"""
     return getattr(decoder, "module", decoder).flow_config
 
 
 def sampled_trajectory_score(metrics, args):
-    """best.pt 只按实际 Euler 采样轨迹选优，FM loss 仅保留为诊断指标。"""
+    """单样本/自然分布的 Euler 轨迹分数；FM loss 仅作诊断。"""
     required = ("route_ade_m", "waypoint_ade_m")
     if not all(math.isfinite(float(metrics[key])) for key in required):
         raise FloatingPointError("nonfinite sampled trajectory metric")
@@ -161,6 +172,30 @@ def sampled_trajectory_score(metrics, args):
         args.route_loss_weight * float(metrics["route_ade_m"])
         + args.waypoint_loss_weight * float(metrics["waypoint_ade_m"])
     )
+
+
+def best_selection_score(metrics, args):
+    """按配置选择 natural 或固定 1:…:1:2 事件均衡验证分数。"""
+    if getattr(args, "best_selection_metric", "natural_ade") == "event_balanced_ade":
+        if not int(metrics.get("event_balance_bucket_coverage_complete", 0)):
+            raise ValueError(
+                "event-balanced best selection requires validation coverage of "
+                "UE1-7, RE2/3/5 and confirmed regular background; missing="
+                f"{metrics.get('event_balance_bucket_coverage_missing', '')}"
+            )
+        required = ("event_balanced_route_ade_m", "event_balanced_waypoint_ade_m")
+        if not all(math.isfinite(float(metrics[key])) for key in required):
+            raise FloatingPointError("nonfinite event-balanced trajectory metric")
+        return (
+            args.route_loss_weight * float(metrics[required[0]])
+            + args.waypoint_loss_weight * float(metrics[required[1]])
+        )
+    return sampled_trajectory_score(metrics, args)
+
+
+def best_validation_max_samples(_args) -> int:
+    """任何会更新 best.pt 的验证都必须遍历完整 val，避免稀有桶随机漏检。"""
+    return 0
 
 
 def accumulation_state(micro, samples, accumulate):
@@ -481,13 +516,13 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
         """补完 epoch/最终验证，再原子发布无待办的 best/latest。"""
         nonlocal best
         validation_epoch = int(pending_cursor["validation_epoch"])
-        # 兼容主线和消融在重构前的两种 cursor 字段名。
-        full_epoch = bool(pending_cursor.get("validation_full_epoch", pending_cursor.get("full_epoch", False)))
         try:
             with ema.apply_to(model):
                 metrics = evaluate_fn(
                     runtime, model, config, rows["val"], args, dtype, rank, world,
-                    0 if full_epoch else args.val_max_samples,
+                    # 此验证会更新 best.pt（包括 max_train_steps 提前结束）；不得用
+                    # 随机小子集，否则 event_balanced_ade 的必需桶可能随机缺失。
+                    best_validation_max_samples(args),
                 )
         except _TerminationDuringValidation:
             return pending_cursor, save_termination(
@@ -495,11 +530,11 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
             )
         if rank == 0:
             write_json(out / "validation" / f"epoch_{validation_epoch+1:03d}_step{step:08d}.json", metrics)
-            for key, value in metrics.items():
+            for key, value in scalar_metric_items(metrics):
                 writer.add_scalar(f"val_epoch/{key}", value, step)
             writer.flush()
         clean_cursor = clear_validation_pending(pending_cursor)
-        score = sampled_trajectory_score(metrics, args)
+        score = best_selection_score(metrics, args)
         if score < best:
             best = score
             checkpoint(out / "best.pt", clean_cursor, step, best)
@@ -522,9 +557,25 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
         torch.cuda.reset_peak_memory_stats(device)
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(cursor["epoch"], args.num_epochs):
-        ordered = list(rows["train"])
-        random.Random(args.seed + epoch).shuffle(ordered)
-        usable = len(ordered) // world * world
+        if getattr(args, "sampling_mode", "uniform") == "event_balanced":
+            # 每个 epoch 从相同的十个显式事件桶和两份背景池重建课程。先构造全局
+            # presentation，再按 rank 分片，避免每张卡各自均衡而破坏全局 1:…:1:2。
+            from qwen3vl_local.action_prior.event_balance import build_event_balanced_epoch
+
+            usable = int(plan["samples_per_epoch"])
+            ordered, sampling_audit = build_event_balanced_epoch(
+                rows["train"], total=usable, seed=args.seed + epoch,
+                route_diverse=bool(getattr(args, "event_balance_route_diverse", True)),
+                repeat_cap=int(getattr(args, "event_balance_max_frame_repeats", 8)),
+            )
+            if rank == 0:
+                write_json(
+                    out / "sampling" / f"epoch_{epoch + 1:03d}.json", sampling_audit
+                )
+        else:
+            ordered = list(rows["train"])
+            random.Random(args.seed + epoch).shuffle(ordered)
+            usable = len(ordered) // world * world
         rank_rows = ordered[rank:usable:world]
         start = cursor["micro"] if epoch == cursor["epoch"] else 0
         # 固定 generator，DataLoader 建迭代器不得改变 dropout 的全局 RNG。
@@ -649,7 +700,7 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
                         f'{hooks.format_metrics(values)}',
                         flush=True,
                     )
-                    for k, v in values.items():
+                    for k, v in scalar_metric_items(values):
                         writer.add_scalar(f"train/{k}", v, step)
                     writer.flush()
                 window.clear()
@@ -674,7 +725,7 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
                     )
                 if rank == 0:
                     write_json(out / "validation" / f"step_{step:08d}.json", metrics)
-                    for k, v in metrics.items():
+                    for k, v in scalar_metric_items(metrics):
                         writer.add_scalar(f"val/{k}", v, step)
                 # 小验证集只观察趋势；best.pt 统一由 epoch 全量验证选取。
                 requested_signal = termination.sync_signal(world, device)
@@ -800,7 +851,11 @@ def save_training_checkpoint(
             dataset_hashes=dataset_hashes,
             cursor=cursor,
             step=step,
-            best_metric="weighted_sampled_route_waypoint_ade_m",
+            best_metric=(
+                "weighted_event_balanced_route_waypoint_ade_m"
+                if getattr(args, "best_selection_metric", "natural_ade") == "event_balanced_ade"
+                else "weighted_sampled_route_waypoint_ade_m"
+            ),
             best_sampled_trajectory_score=best,
             # 保留这个字段名只为 checkpoint 内部恢复代码稳定；v4 中它明确就是上面的
             # 采样轨迹分数，绝不是 FM vector-field MSE。
@@ -854,8 +909,13 @@ def restore_training_state(state, *, args, dataset_hashes, world, rank, config, 
             raise ValueError(f"resume schedule mismatch: {key}")
     if state["decoder_config"] != asdict(config) or state["flow_config"] != asdict(flow_config):
         raise ValueError("resume decoder/flow config mismatch")
-    if state.get("best_metric") != "weighted_sampled_route_waypoint_ade_m":
-        raise ValueError("resume checkpoint does not identify sampled trajectory ADE as its best metric")
+    expected_best_metric = (
+        "weighted_event_balanced_route_waypoint_ade_m"
+        if getattr(args, "best_selection_metric", "natural_ade") == "event_balanced_ade"
+        else "weighted_sampled_route_waypoint_ade_m"
+    )
+    if state.get("best_metric") != expected_best_metric:
+        raise ValueError("resume checkpoint best-selection metric differs from current configuration")
     model.load_state_dict(state["decoder"], strict=True)
     optimizer.load_state_dict(state["optimizer"])
     scheduler.load_state_dict(state["scheduler"])

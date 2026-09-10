@@ -29,6 +29,7 @@ def stub(tmp_path):
     (binary / "python").chmod(0o755)
     env = dict(os.environ, PATH=f"{binary}{os.pathsep}{os.environ['PATH']}")
     for name in ("DATASET_PRIORS", "PRIOR_LABELS", "PRIOR_NOISE", "ANALYSIS_REVIEW",
+                 "EVENT_BALANCED", "EVENT_BALANCE_INDEX", "EVENT_BALANCED_SCENE_PRIORS",
                  "RESUME", "RUN_TAG", "OUTPUT_DIR", "DATA_DIR"):
         env.pop(name, None)
     return env
@@ -95,6 +96,50 @@ def test_explicit_options_are_never_duplicated_or_overridden(stub):
 def test_analysis_review_env_overrides_the_dataset_default(stub):
     tokens = flags(run("train.sh", [], stub, DATASET_PRIORS="1", ANALYSIS_REVIEW="1"))
     assert "--analysis-review" in tokens and "--no-analysis-review" not in tokens
+
+
+def test_event_balanced_env_forwards_the_full_event_mapping_source(stub):
+    source = "/tmp/action_prior/full_event_mapping.jsonl"
+    tokens = flags(run("train.sh", [], stub, EVENT_BALANCED="1", EVENT_BALANCE_INDEX=source))
+    assert value_of(tokens, "--sampling-mode") == "event_balanced"
+    assert value_of(tokens, "--event-balance-index") == source
+
+
+def test_uniform_scene_priors_env_also_forwards_the_full_event_mapping_source(stub):
+    source = "/tmp/action_prior/full_event_mapping.jsonl"
+    tokens = flags(run(
+        "train.sh", [], stub,
+        DATASET_PRIORS="1", EVENT_BALANCED_SCENE_PRIORS="1", EVENT_BALANCE_INDEX=source,
+    ))
+    assert "--sampling-mode" not in tokens  # uniform 是 parser 默认值
+    assert "--event-balanced-scene-priors" in tokens
+    assert value_of(tokens, "--event-balance-index") == source
+
+
+def test_resume_and_final_eval_remap_event_balance_index(stub, tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "latest.pt"
+    checkpoint.write_bytes(b"")
+    (run_dir / "best.pt").write_bytes(b"")
+    moved = tmp_path / "moved" / "full_event_mapping.jsonl"
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "run_full_pipeline.sh"),
+         "--event-balance-index", str(moved)],
+        cwd=ROOT, env=dict(stub, RESUME=str(checkpoint), OUTPUT_DIR=str(tmp_path / "out")),
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    resume, eval_call, probe_call = all_flags(result.stdout)[:3]
+    assert value_of(resume, "--event-balance-index") == str(moved)
+    assert value_of(eval_call, "--event-balance-index") == str(moved)
+    assert value_of(probe_call, "--event-balance-index") == str(moved)
+
+
+def test_explicit_uniform_mode_overrides_event_balanced_env(stub):
+    tokens = flags(run("train.sh", ["--sampling-mode", "uniform"], stub, EVENT_BALANCED="1"))
+    assert value_of(tokens, "--sampling-mode") == "uniform"
+    assert "--event-balance-index" not in tokens
 
 
 def test_eval_only_fills_missing_label_paths(stub):

@@ -7,7 +7,7 @@ import re
 
 
 # 新提示词进入 transcript KV；旧 v4 的 JSON 条件/经验表不能与本协议混用。
-ANALYSIS_VERSION = "natural_scene_prior_concise_summary_v5"
+ANALYSIS_VERSION = "natural_scene_prior_concise_summary_v6_event_balanced_context"
 MAX_ANALYSIS_WORDS = 80
 
 SYSTEM_PROMPT = """You assist with driving scene understanding and planning. Using the supplied scene description, chronological images, current speed and navigation, write one concise grounded summary of the current situation, relevant interactions and near-term planning considerations. Keep it consistent with the supplied scene description, avoid unsupported details or controls, and stay within 80 words."""
@@ -50,13 +50,47 @@ EVENT_COMPACT_NAMES = {
     "TRAFFIC_LIGHT_ABNORMAL": "abnormal signal hardware",
 }
 
+# 这些只接受全帧映射的显式离线 transition/evidence context。它们从不显示 UE/RE
+# 编号、动作标签或未来轨迹，也不会由当前全 NO 推断。当前 source mapping 没有可靠的
+# “已绕过且待恢复”帧级状态，RE2 仅能使用导航变道或早先障碍记录；强 recovery 文案保留
+# 给未来经过审计的状态来源，构建器当前绝不会产出它。
+EVENT_BALANCED_CONTEXT_DESCRIPTIONS = {
+    "UE1": EVENT_DESCRIPTIONS["UE1"],
+    "UE2": EVENT_DESCRIPTIONS["STATIC_OBSTACLE"],
+    "UE3": EVENT_DESCRIPTIONS["UE3"],
+    "UE4": EVENT_DESCRIPTIONS["VULNERABLE"],
+    "UE5": EVENT_DESCRIPTIONS["UE5"],
+    "UE6": EVENT_DESCRIPTIONS["UE6"],
+    "UE7": EVENT_DESCRIPTIONS["TRAFFIC_LIGHT_ABNORMAL"],
+    "RE2_NAVIGATION_TRANSITION": (
+        "Visible lane geometry and navigation determine whether a route-related lane transition is needed."
+    ),
+    "RE2_PRIOR_OBSTACLE": (
+        "A prior static blockage is recorded; use visible history to determine whether lane recovery remains relevant."
+    ),
+    "RE2_RECOVERY_PENDING": (
+        "A static blockage has been passed and lane recovery remains pending; return only with a clear gap."
+    ),
+    "RE3": (
+        "A ramp, merge, or exit transition is active; match speed and check the target-lane gap."
+    ),
+    "RE5": (
+        "An unsignalized priority junction is active; check crossing traffic and right of way before proceeding."
+    ),
+}
+
+_CONTEXT_DUPLICATES = {
+    "UE1": "UE1", "UE2": "STATIC_OBSTACLE", "UE3": "UE3", "UE4": "VULNERABLE",
+    "UE5": "UE5", "UE6": "UE6", "UE7": "TRAFFIC_LIGHT_ABNORMAL",
+}
+
 
 def _accepted_yes(conditions, key):
     """仅 YES 会进入自然语言；NO 和缺失均不会作为反向答案渲染。"""
     return conditions.get(key) == "YES"
 
 
-def scene_description(conditions):
+def scene_description(conditions, event_balanced_contexts=()):
     """按已确认 RS/事件拼接短自然段，不泄露分类字段或候选反例。"""
     rs = conditions.get("ROAD_STRUCTURE")
     if rs in ROAD_DESCRIPTIONS:
@@ -77,6 +111,17 @@ def scene_description(conditions):
         names = [EVENT_COMPACT_NAMES[key] for key in active_events]
         joined = ", ".join(names[:-1]) + ", and " + names[-1]
         sentences.append("The scene includes " + joined + "; near-term planning should preserve clearance and resolve the relevant conflicts before proceeding.")
+    # 直接 UE context 在已接受的 Phase1/2 条件中已被完整渲染，不能重复占用摘要预算。
+    # RE2/3/5 没有被 Phase1/2 all-NO 反推，只有显式的离线 transition gate 可到这里。
+    contexts = event_balanced_contexts
+    if isinstance(contexts, str):  # 兼容 v6 缓存/单值调用；新 runtime 恒用固定 tuple。
+        contexts = (contexts,)
+    for context in dict.fromkeys(str(value) for value in contexts):
+        if context in EVENT_BALANCED_CONTEXT_DESCRIPTIONS and not (
+            context in _CONTEXT_DUPLICATES
+            and _accepted_yes(conditions, _CONTEXT_DUPLICATES[context])
+        ):
+            sentences.append(EVENT_BALANCED_CONTEXT_DESCRIPTIONS[context])
     return " ".join(sentences)
 
 
@@ -85,7 +130,9 @@ def condition_context(priors, navigation):
     navigation = navigation.split(" Predict the driving actions", 1)[0].strip()
     return (
         "[SCENE_DESCRIPTION]\n"
-        + scene_description(priors["conditions"])
+        + scene_description(
+            priors["conditions"], priors.get("event_balanced_scene_contexts", ())
+        )
         + "\n[/SCENE_DESCRIPTION]\n[CURRENT_NAVIGATION]\n"
         + navigation
         + "\n[/CURRENT_NAVIGATION]"
@@ -166,7 +213,9 @@ def _navigation_hint(navigation):
 
 def fallback_analysis(priors, navigation=""):
     """生成失败时仍用同一简短自然先验，绝不回退到 YES/NO 字段清单。"""
-    description = scene_description(priors["conditions"])
+    description = scene_description(
+        priors["conditions"], priors.get("event_balanced_scene_contexts", ())
+    )
     hint = _navigation_hint(navigation)
     active = [key for key in EVENT_DESCRIPTIONS if _accepted_yes(priors["conditions"], key)]
     if "TRAFFIC_LIGHT_ABNORMAL" in active:

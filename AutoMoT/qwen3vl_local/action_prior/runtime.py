@@ -124,7 +124,9 @@ class PriorEngine:
             trace,
         )
 
-    def condition(self, images, navigation, sample_key, identity=None):
+    def condition(
+        self, images, navigation, sample_key, identity=None, event_balanced_scene_contexts=()
+    ):
         """返回纯 base 吃四张图+先验+生成分析后的 cache，不包含 LoRA 计算的 KV。"""
         if len(images) != 4:
             raise ValueError(
@@ -153,9 +155,15 @@ class PriorEngine:
                 )
             return text, prompt
 
+        # 这些是全帧映射固有的离线事实，不能随本轮抽到的配额桶改变。以 tuple
+        # 进入 cache key，避免同一 RGB 在不同 prompt 条件下误复用分析缓存。
+        event_balanced_scene_contexts = tuple(
+            str(value) for value in event_balanced_scene_contexts if value
+        )
         key = (
             self.text_cache.key(
-                self.contract["identity"], images, navigation, sample_key
+                self.contract["identity"], images, navigation,
+                f"{sample_key}:event_contexts={event_balanced_scene_contexts}"
             )
             if self.text_cache
             else None
@@ -169,6 +177,13 @@ class PriorEngine:
             else:
                 priors = collect_priors(ask, sample_key, recheck_mode=self.recheck_mode,
                                         event_module=prompt_module(2, self.contract["phase2"]["metadata"]))
+            # 这是显式 opt-in 的离线 transition/evidence 条件；默认采样课程不改变
+            # Qwen 输入。文本只会在 prompts.py 变成自然、无类别名的短句。
+            if event_balanced_scene_contexts:
+                priors = dict(
+                    priors,
+                    event_balanced_scene_contexts=event_balanced_scene_contexts,
+                )
             report("condition/base_analysis")
             with self.mode("base"):
                 text, trace = self.generate_messages(
@@ -366,6 +381,7 @@ def make_runtime(args, device, contract):
             self.runner._run_leadmot_qwen_prefill = self.prefill_prior
             self.sample_key = ""
             self.sample_identity = None
+            self.event_balanced_scene_contexts = ()
 
         def prefill_prior(self, rgb_pil_list, user_prompt):
             """仅 navigation 作为公开输入，不把 sample 字典送入 Qwen。"""
@@ -384,7 +400,8 @@ def make_runtime(args, device, contract):
                 )
                 return result
             return self.prior.condition(
-                rgb_pil_list, user_prompt, self.sample_key, self.sample_identity
+                rgb_pil_list, user_prompt, self.sample_key, self.sample_identity,
+                self.event_balanced_scene_contexts,
             )
 
         def forward_sample(
@@ -404,6 +421,11 @@ def make_runtime(args, device, contract):
                 str(sample["scenario"]),
                 str(sample["run_id"]),
                 int(sample["anchor"]),
+            )
+            self.event_balanced_scene_contexts = (
+                tuple(str(value) for value in sample.get("event_balance_scene_contexts", ()) if value)
+                if getattr(args, "event_balanced_scene_priors", False)
+                else ()
             )
 
             def decoder_with_trainable_cache(**kwargs):
