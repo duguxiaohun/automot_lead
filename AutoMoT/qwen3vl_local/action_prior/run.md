@@ -119,8 +119,13 @@ bash qwen3vl_local/action_prior/train.sh \
 train/val/test 都附加固定的多事实 scene context；Phase3 规则开发路线会强制留在 train。val/test
 报告自然分布总体指标、各真实桶 ADE/FDE 和状态覆盖。当前 source mapping 尚无“已绕障且恢复待执行”的
 可靠帧级证据，所以不会生成 `UE2_TO_RE2_RECOVERY` 专项或强 RE2 文案；该字段保留给未来接入审计状态后使用。
-联合分配从一帧一次开始搜索最小必要 repeat 层，并在每层从零重解允许跨 bucket 重路由；候选充足时不会
-为了填配额提前重复少数帧，也不会锁死共享 frame 的可行配额。v1 full map
+分配使用**全局最小费用流**：每帧首次使用免费，后续使用计费，在固定配额和每帧总上限下精确最大化
+整个 epoch 的唯一帧数，包括跨桶共享帧。相同事件归属的帧先压缩为小图求解，再按路线轮转展开；
+桶内候选略少于配额时会先覆盖全部候选，稀缺桶也不会连带增加充足桶的重复。
+`sampling/epoch_*.json` 的 v4 审计包含 `optimal_unique_frames`、`unique_frames`、
+`repeat_presentations`、`bucket_unique_frames`、`bucket_max_frame_repeats` 和 `membership_groups`；
+`repeat_presentations = total - unique_frames`，表示额外重复呈现数。route 轮转在同归属组内生效，
+不是硬性每路线等额约束。v1 full map
 因普通背景规则不完整已被拒绝，必须重新生成 v2。可用 `BEST_SELECTION_METRIC=event_balanced_ade`
 按固定 1:…:1:2 验证分数选 best；它要求 val 每桶覆盖完整，且所有更新 `best.pt` 的验证都会强制遍历完整 val，
 否则在加载大模型前失败。索引内容身份而非绝对路径进入合同；搬迁后给 eval/resume 传新的
@@ -132,6 +137,73 @@ train/val/test 都附加固定的多事实 scene context；Phase3 规则开发�
 “已通过障碍且恢复仍待完成”保留为未来有可靠帧级状态证据时的分支，当前绝不会从 RE2 编号推断。这是没有闭环可用
 history/transition 标签的特权条件，Bench2Drive/
 CARLA runtime 会明确拒绝该 checkpoint，不能把离线结果称为闭环表现。
+
+### 开关 demo 与新训练顺序
+
+以下使用上面固定的 action index 和 v2 full map。首次使用 dataset-priors 时，先准备
+`checkpoints/action_prior_labels/prior_labels.jsonl`；缺失时运行
+`python qwen3vl_local/action_prior/build_prior_labels.py`。full pipeline 会自动构建缺失的默认标签文件，
+单独 preflight/train/smoke 不自动构建。所有路径均相对 `AutoMoT/`。
+
+```bash
+# 1. 预检：只读配置、索引和模型合同，不加载 Qwen，不启动训练。
+ACTION_MODE=preflight DATA_DIR=checkpoints/action_prior_data_event_v1 \
+EVENT_BALANCED=1 EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl \
+bash qwen3vl_local/action_prior/train.sh --dataset-priors
+
+# 2. 真实模型 smoke：默认自动选一张卡、四次更新；最终 best 验证仍遍历完整 val。
+DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 \
+EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl \
+OUTPUT_DIR=checkpoints/action_prior_event_smoke bash qwen3vl_local/action_prior/smoke.sh --dataset-priors
+GPU_IDS=0 DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 \
+EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl \
+OUTPUT_DIR=checkpoints/action_prior_event_smoke bash qwen3vl_local/action_prior/smoke.sh --dataset-priors
+
+# 3. 新训练：默认 61 epoch、自动预算、每帧单 epoch 最多 8 次；均衡采样不改变 Qwen prompt。
+DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 \
+EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl \
+EVENT_BALANCE_MAX_FRAME_REPEATS=8 EVENT_BALANCED_EPOCH_SAMPLES=0 \
+OUTPUT_DIR=checkpoints/action_prior_event bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+GPU_IDS=0,1,2,3 DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 \
+EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl \
+OUTPUT_DIR=checkpoints/action_prior_event bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+
+# 4. 关闭均衡开关（CLI 优先于 EVENT_BALANCED 环境变量）。
+DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 \
+OUTPUT_DIR=checkpoints/action_prior_uniform bash qwen3vl_local/action_prior/train.sh --dataset-priors --sampling-mode uniform
+GPU_IDS=0,1,2,3 DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 \
+OUTPUT_DIR=checkpoints/action_prior_uniform bash qwen3vl_local/action_prior/train.sh --dataset-priors --sampling-mode uniform
+
+# 5. 可选独立场景先验：uniform 保持自然采样，仅加入离线自然场景文字。不能用于闭环。
+DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED_SCENE_PRIORS=1 PRIOR_NOISE=0 \
+EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl \
+OUTPUT_DIR=checkpoints/action_prior_scene bash qwen3vl_local/action_prior/train.sh --dataset-priors
+GPU_IDS=0,1,2,3 DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED_SCENE_PRIORS=1 PRIOR_NOISE=0 \
+EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl \
+OUTPUT_DIR=checkpoints/action_prior_scene bash qwen3vl_local/action_prior/train.sh --dataset-priors
+# 在上面的命令加 EVENT_BALANCED=1 可同时开启重采样；追加 --no-event-balanced-scene-priors 可关闭场景文字。
+
+# 6. 同一代码版本的续训/评测：采样设置从 checkpoint 恢复，索引搬迁只传新路径。
+bash qwen3vl_local/action_prior/resume.sh checkpoints/action_prior_event/latest/latest.pt \
+  --event-balance-index checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/resume.sh checkpoints/action_prior_event/latest/latest.pt \
+  --event-balance-index checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl
+bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior_event/latest/best.pt \
+  --event-balance-index checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl
+GPU_IDS=0 bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior_event/latest/best.pt \
+  --event-balance-index checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl
+```
+
+`EVENT_BALANCED_EPOCH_SAMPLES` 显式值须为 `lcm(12, world_size)` 的正倍数且可行。
+`BEST_SELECTION_METRIC=event_balanced_ade` 可加入训练命令，只有完整 val 覆盖全部 11 桶才通过预检；
+默认仍为 `natural_ade`。训练后同时观察各 UE/RE 的采样 ADE/FDE、普通背景指标与实际唯一帧数，
+不能用总体 FM loss 接近 0.5 判定 UE 已学好。比较 uniform 与 balanced 时，应额外核对实际 route split：
+balanced 会排除 holdout 中 Phase3 开发路线；相同原始 index 不自动代表相同评测集合。
+
+本次修改改变采样算法和执行源码指纹，**新代码开新 run，旧 checkpoint 继续使用原代码恢复**。
+已有有效 v2 full map 的标签语义未变，可以复用；v1 必须重建。CPU 回归只能确认代码与合成配额，
+训练机上的 preflight 和真实模型 smoke 均成功后，再执行第 3 步。无可靠历史状态的 UE2→RE2 强提示仍未启用，
+不会把该未实现能力作为纯均衡采样训练的前置条件。
 
 全量周期 val 和最终离线 test 不等于 CARLA 闭环；正式 Bench2Drive 220 路线需已配置好
 CARLA 环境后用 `BENCH2DRIVE=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh`，

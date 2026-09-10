@@ -309,3 +309,22 @@ def test_bench2drive_resume_reuses_the_pinned_adapters(tmp_path, monkeypatch):
     # 首次运行没有旧 manifest，仍然自动选并把结果固定下来。
     assert bench2drive.validate_checkpoint(cli)[1] == {
         "phase1": "auto/new_best", "phase2": "auto/new_best2"}
+
+
+def test_explicit_scene_prior_disable_overrides_env_without_requiring_unused_index(stub):
+    tokens = flags(run("train.sh", ["--no-event-balanced-scene-priors"], stub,
+                       EVENT_BALANCED_SCENE_PRIORS="1"))
+    assert "--event-balanced-scene-priors" not in tokens
+    assert "--event-balance-index" not in tokens
+    assert "--no-event-balanced-scene-priors" in tokens
+
+
+def test_event_preflight_demo_forwards_mode_dataset_and_index(stub):
+    tokens = flags(run("train.sh", ["--dataset-priors"], stub,
+                       ACTION_MODE="preflight", DATA_DIR="checkpoints/action_prior_data_event_v1",
+                       EVENT_BALANCED="1", EVENT_BALANCE_INDEX="checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl"))
+    assert tokens[2] == "preflight"
+    assert value_of(tokens, "--sampling-mode") == "event_balanced"
+    assert value_of(tokens, "--data-dir") == "checkpoints/action_prior_data_event_v1"
+    assert value_of(tokens, "--event-balance-index").endswith("full_event_mapping.jsonl")
+    assert "--dataset-priors" in tokens

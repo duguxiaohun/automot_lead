@@ -9,6 +9,13 @@
 # --dataset-priors：不加载 LoRA，用数据集标定真值，base 每帧只生成一次（默认不再复核）；
 # 只在使用默认路径且文件缺失时自动生成 checkpoints/action_prior_labels/prior_labels.jsonl。
 # PRIOR_NOISE=0.1：10% 的帧按审计错误方向把 RS 或 EVENT 先验改成错误值/invalid。
+# UE/特殊 RE 均衡采样（先按 run.md 构建 action index 和 v2 full map）：
+#   DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+#   GPU_IDS=0,1,2,3 DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+# 关闭采样开关：上面的命令追加 --sampling-mode uniform；恢复自然分布，保留 dataset-priors 选择。
+# 重复上限 EVENT_BALANCE_MAX_FRAME_REPEATS=8；自动 epoch 预算 EVENT_BALANCED_EPOCH_SAMPLES=0。
+# 可选 BEST_SELECTION_METRIC=event_balanced_ade 要求 val 全桶覆盖；默认 natural_ade。
+# 可选 EVENT_BALANCED_SCENE_PRIORS=1 只用于 dataset-priors + PRIOR_NOISE=0 的离线条件实验，闭环禁用。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

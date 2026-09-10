@@ -2,6 +2,8 @@
 # 在 AutoMoT/ 下直接复制执行：
 #   bash qwen3vl_local/action_prior/audit_priors.sh --max-samples 24 --split val
 # 只比较两次 LoRA 回答的一致性；传 --dataset-priors 会报错。
+# EVENT_BALANCED 是 train.sh / run_full_pipeline.sh 的轨迹训练开关；本入口不启用均衡训练。
+# 构建、开启/关闭以及独立场景先验 demo 见 run.md「UE/特殊 RE 均衡课程」。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

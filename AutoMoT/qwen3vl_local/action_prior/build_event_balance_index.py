@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """构建 action-prior 均衡课程的全帧 Phase3 语义映射。
 
+从 AutoMoT/ 目录构建（先准备当前 Phase3 candidate 和 action 三 split）：
+    python qwen3vl_local/action_prior/build_event_balance_index.py --candidate-index checkpoints/sft_new_loop_phase3_data_v7/candidate_frames.jsonl --action-data-dir checkpoints/action_prior_data_event_v1 --output-dir checkpoints/action_prior_event_balance_v2
+训练开关 demo 见 run.md 和 train.sh 开头；构建不读取或生成未来动作作为模型输入。
+
 这不是 ``candidate_frames.jsonl`` 的复制品：它先扫描所有原始逐帧 RS/EVENT 标注，再用
 当前 Phase3 mapping/review 合同恢复 special context；candidate 只标记该 special frame 是否
 通过了 Phase3 的动作窗口、横向证据和视觉风险门。由此普通背景池只接受明确 regular，未确认

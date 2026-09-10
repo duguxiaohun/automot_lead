@@ -3,6 +3,8 @@
 #   DATA_DIR=checkpoints/action_prior_data bash qwen3vl_local/action_prior/run_ablation.sh
 #   DATASET_PRIORS=1 DATA_DIR=checkpoints/action_prior_data bash qwen3vl_local/action_prior/run_ablation.sh
 # 开关只对 prior 臂生效，base 臂本来就没有先验。
+# EVENT_BALANCED 是 train.sh / run_full_pipeline.sh 的轨迹训练开关；本入口不启用均衡训练。
+# 构建、开启/关闭以及独立场景先验 demo 见 run.md「UE/特殊 RE 均衡课程」。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# EVENT_BALANCED 是 train.sh / run_full_pipeline.sh 的轨迹训练开关；本入口不启用均衡训练。
+# 构建、开启/关闭以及独立场景先验 demo 见 run.md「UE/特殊 RE 均衡课程」。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
