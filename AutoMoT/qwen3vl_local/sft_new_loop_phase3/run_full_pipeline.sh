@@ -7,6 +7,7 @@
 # 常用覆盖：
 #   SKIP_BUILD=1 SKIP_TRAIN=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 #   HISTORY_RGB_MODE=2rgb_endpoints bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+#   ACTION_OUTPUT_MODE=choice bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 
 set -euo pipefail
 
@@ -28,6 +29,7 @@ DATA_ROOT="${DATA_ROOT:-lead_data}"
 COLLECTION_DIR="${COLLECTION_DIR:-keyframe_filter/collection_output}"
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-4rgb}"
+ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE:-binary}"
 TRAIN_MODE="${TRAIN_MODE:-ddp}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
@@ -40,7 +42,11 @@ RUN_ROOT="${RUN_ROOT:-${OUTPUT_DIR:-${PIPELINE_ROOT}/train}}"
 mkdir -p "${PIPELINE_ROOT}"
 exec > >(tee -a "${PIPELINE_ROOT}/pipeline.log") 2>&1
 
-echo "[phase3-pipeline] root=${PIPELINE_ROOT} index=${INDEX} history_rgb_mode=${HISTORY_RGB_MODE}"
+case "${ACTION_OUTPUT_MODE}" in
+  binary|choice) ;;
+  *) echo "Unknown ACTION_OUTPUT_MODE=${ACTION_OUTPUT_MODE}. Use binary or choice." >&2; exit 2 ;;
+esac
+echo "[phase3-pipeline] root=${PIPELINE_ROOT} index=${INDEX} history_rgb_mode=${HISTORY_RGB_MODE} action_output_mode=${ACTION_OUTPUT_MODE}"
 
 echo
 echo "========== 1/4 RGB audit coverage =========="
@@ -99,13 +105,13 @@ if [[ "${SKIP_TRAIN}" == "1" ]]; then
   echo "[skip] SKIP_TRAIN=1"
 else
   INDEX="${INDEX}" DATA_ROOT="${DATA_ROOT}" MODEL_DIR="${MODEL_DIR}" \
-  HISTORY_RGB_MODE="${HISTORY_RGB_MODE}" OUTPUT_DIR="${RUN_ROOT}" \
+  HISTORY_RGB_MODE="${HISTORY_RGB_MODE}" ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE}" OUTPUT_DIR="${RUN_ROOT}" \
     bash qwen3vl_local/sft_new_loop_phase3/train.sh "${TRAIN_MODE}"
 fi
 
 
 
-adapter_history_rgb_mode() {
+adapter_contract() {
   local adapter_input="$1"
   python - "${adapter_input}" <<'PY'
 import json
@@ -117,10 +123,13 @@ for candidate in (root / "best_generation", root / "final", root / "fallback_gen
     cfg_path = candidate / "sft_new_loop_phase3_adapter_config.json"
     if cfg_path.is_file():
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-        mode = str(cfg.get("history_rgb_mode", ""))
-        if mode not in {"4rgb", "2rgb_endpoints"}:
-            raise SystemExit(f"invalid history_rgb_mode={mode!r} in {cfg_path}")
-        print(mode)
+        rgb_mode = str(cfg.get("history_rgb_mode", ""))
+        action_mode = str(cfg.get("action_output_mode", "binary"))
+        if rgb_mode not in {"4rgb", "2rgb_endpoints"}:
+            raise SystemExit(f"invalid history_rgb_mode={rgb_mode!r} in {cfg_path}")
+        if action_mode not in {"binary", "choice"}:
+            raise SystemExit(f"invalid action_output_mode={action_mode!r} in {cfg_path}")
+        print(f"{rgb_mode} {action_mode}")
         raise SystemExit(0)
 raise SystemExit(f"missing sft_new_loop_phase3_adapter_config.json under {root}")
 PY
@@ -134,8 +143,8 @@ elif [[ ! -e "${RUN_ROOT}" ]]; then
   echo "[error] no trained run at ${RUN_ROOT}; set RUN_ROOT when SKIP_TRAIN=1" >&2
   exit 1
 else
-  ADAPTER_RGB_MODE="$(adapter_history_rgb_mode "${RUN_ROOT}")"
-  BUNDLE_NAME="${BUNDLE_BASENAME:-sft_new_loop_phase3_${TIMESTAMP}_${ADAPTER_RGB_MODE}_audit_bundle}"
+  read -r ADAPTER_RGB_MODE ADAPTER_ACTION_MODE < <(adapter_contract "${RUN_ROOT}")
+  BUNDLE_NAME="${BUNDLE_BASENAME:-sft_new_loop_phase3_${TIMESTAMP}_${ADAPTER_RGB_MODE}_${ADAPTER_ACTION_MODE}_audit_bundle}"
   ADAPTER_DIR="${RUN_ROOT}" INDEX="${INDEX}" DATA_ROOT="${DATA_ROOT}" MODEL_DIR="${MODEL_DIR}" \
   TIMESTAMP="${TIMESTAMP}" BUNDLE_BASENAME="${BUNDLE_NAME}" BUNDLE_MAX_MB="${BUNDLE_MAX_MB:-30}" \
   OUTPUT_ROOT="${PIPELINE_ROOT}/eval" \

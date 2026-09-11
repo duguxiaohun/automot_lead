@@ -2,6 +2,51 @@
 from typing import Any, Dict, Mapping, Tuple
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_KEYS
 
+
+def choice_generation_guards(
+    metrics: Mapping[str, float], *, min_format_valid_rate: float, min_exact_accuracy: float = 0.50
+) -> Dict[str, Any]:
+    """严格单选合同的上线守卫。
+
+    choice 已明确排除 all-NO、invalid 和多动作标签，所以不复用它们的 binary 守卫。
+    仍要求整串 parser 格式、整体单选准确率，以及五个 high-level 的实际支持、精确率和召回。
+    """
+
+    values: Dict[str, float] = {
+        "strict_format_valid_rate": float(metrics.get("format_valid_rate", 0.0)),
+        "choice_exact_accuracy": float(metrics.get("exact_accuracy", 0.0)),
+    }
+    floors: Dict[str, float] = {
+        "strict_format_valid_rate": float(min_format_valid_rate),
+        "choice_exact_accuracy": float(min_exact_accuracy),
+    }
+    for action in ACTION_KEYS:
+        prefix = f"action/{action.lower()}"
+        values[f"{action}_support"] = float(metrics.get(prefix + "_gt_yes", 0.0))
+        values[f"{action}_precision"] = float(metrics.get(prefix + "_precision", 0.0))
+        values[f"{action}_recall"] = float(metrics.get(prefix + "_recall", 0.0))
+        floors[f"{action}_support"] = 1.0
+        floors[f"{action}_precision"] = 0.50
+        floors[f"{action}_recall"] = 0.50
+    passed = {key: values[key] >= floors[key] for key in values}
+    return {"all_ok": all(passed.values()), "values": values, "floors": floors, "passed": passed}
+
+
+def choice_generation_score(metrics: Mapping[str, float], *, min_format_valid_rate: float) -> Tuple[float, float, float, float, float]:
+    """choice checkpoint 先按守卫，再按单选 exact 和覆盖比例排序。"""
+
+    report = choice_generation_guards(metrics, min_format_valid_rate=min_format_valid_rate)
+    ratios = [
+        1.0 if report["floors"][key] <= 0 else report["values"][key] / report["floors"][key]
+        for key in report["values"]
+    ]
+    passed = list(report["passed"].values())
+    exact = float(metrics.get("exact_accuracy", 0.0))
+    fmt = float(metrics.get("format_valid_rate", 0.0))
+    if report["all_ok"]:
+        return (1.0, exact, min(ratios), fmt, float(sum(passed)))
+    return (0.0, float(sum(passed)) / max(1.0, float(len(passed))), min(ratios), exact, fmt)
+
 def generation_checkpoint_guards(
     metrics: Mapping[str, float],
     *,

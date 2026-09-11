@@ -312,6 +312,7 @@
   `DECELERATE` / `STOP` / `RESUME` / `LANE_CHANGE_LEFT` / `LANE_CHANGE_RIGHT`；未来 meta
   仅用于离线 expert-label（纵向速度窗、同 road 的 OpenDRIVE lane-id 切换），绝不能写入 prompt。
   Phase3 v2 保持五动作；完整 RS 四问全 NO 恢复 R3，未问不作 NO，HIGHWAY 为独立事实；并发异常保留。普通无灯路口不自动 U-E7，原 U7 用既有灯故障答案表适配；新增 R5/R-E5 常规让行，与七异常及 R-E2/R-E3 共十个 context 1:1。R-E2 包含目标变道及绕障恢复，不按 24 帧截断，两条变道 NO 不清除恢复状态；最终目标 y 符号不决定变道侧。invalid 必须覆盖每个 asked context；未来轨迹只用于离线标签，默认异常 route/RGB 风险过滤。逐帧人工审计与机器覆盖分开记录；详见 sft_new_loop_phase3/MAPPING_AUDIT_20260905.md。
+  `ACTION_OUTPUT_MODE=binary|choice` 只切换 prompt/target/parser：默认 binary 保持逐题 YES/NO；choice 严格按有效事件 context 给三选一/五选一 high-level 动作词组集合，不添加 `NONE`、invalid 或动作组合。候选词组按 case seed 稳定打乱，模型只输出选中的完整动作词组，不能输出 A/B/C。全 NO、invalid、多个动作 YES 的旧多标签行无法从真值导出唯一动作，必须在 choice 训练/评测显式排除并报告数量，不能编造优先级。choice adapter 绑定独立 prompt hash，必须重训；eval.sh 从 adapter 配置读取并硬校验该模式，代码、训练/eval/audit 脚本和运行文档同步维护。
   代码、prompt、训练/eval/probe/audit 脚本、测试和
   运行文档允许修改、追踪、commit 和 push；训练/eval/checkpoint 与 RGB sheet 等大产物仍写
   `AutoMoT/checkpoints/` 或本地输出目录，不入库。）

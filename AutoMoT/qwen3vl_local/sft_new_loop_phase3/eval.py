@@ -163,9 +163,11 @@ from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (  # noqa: E402
     balanced_invalid_items,
     invalid_subgroup_keys,
     invalid_subgroup_report,
+    unique_cases,
 )
 from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     ANSWER_KEYS,
+    CHOICE_SYSTEM_PROMPT,
     INVALID_KEY,
     PROMPT_NAME,
     SYSTEM_PROMPT,
@@ -175,11 +177,14 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     action_prompt_sha256,
     build_action_messages,
     build_action_prompt,
+    choice_action_for_answers,
+    choice_rejection_reason,
     make_prompt_spec,
     parse_action_answer_lines,
     parse_action_output,
     prompt_spec_to_json,
     spec_metric_items,
+    validate_action_output_mode,
 )
 from qwen3vl_local.sft_new_loop_phase3.sampling import (  # noqa: E402
     even_quota_with_capacity,
@@ -477,7 +482,7 @@ def _raw_focus_bin_counts(rows: Sequence[FrameRow]) -> Dict[str, int]:
     return dict(counts)
 
 
-def _make_item(row: FrameRow, *, seed: int) -> WorkItem:
+def _make_item(row: FrameRow, *, seed: int, action_output_mode: str = "binary") -> WorkItem:
     """构造单轮动作 case。"""
 
     spec = make_prompt_spec(
@@ -489,8 +494,27 @@ def _make_item(row: FrameRow, *, seed: int) -> WorkItem:
         goal_xy=row.goal_ego_xy,
         context_detail=row.context_detail,
         current_speed_mps=row.current_speed_mps,
+        action_output_mode=action_output_mode,
     )
     return WorkItem(row=row, spec=spec, balance_key=f"all_random_order/class/{_balance_class(row)}")
+
+
+def _choice_filter_report(rows: Sequence[FrameRow], *, seed: int) -> Dict[str, Any]:
+    """记录严格单选可用行和被拒绝的旧多标签行，供结果审计。"""
+
+    report: Counter = Counter()
+    for row in rows:
+        spec = _make_item(row, seed=seed, action_output_mode="choice").spec
+        reason = choice_rejection_reason(spec)
+        if reason is not None:
+            report[f"excluded/{reason}"] += 1
+            continue
+        action = choice_action_for_answers(spec)
+        assert action is not None
+        report["eligible/total"] += 1
+        report[f"eligible/context/{row.context_id}"] += 1
+        report[f"eligible/action/{action}"] += 1
+    return dict(sorted(report.items()))
 
 
 def _balanced_cases(
@@ -500,8 +524,59 @@ def _balanced_cases(
     seed: int,
     route_diverse: bool = False,
     require_invalid_coverage: bool = True,
+    action_output_mode: str = "binary",
 ) -> List[WorkItem]:
     """按动作上下文抽样评估 case；上下文内再按动作签名尽量均分。"""
+
+    if validate_action_output_mode(action_output_mode) == "choice":
+        eligible: List[WorkItem] = []
+        rejected: Counter = Counter()
+        for row in rows:
+            item = _make_item(row, seed=seed, action_output_mode="choice")
+            reason = choice_rejection_reason(item.spec)
+            if reason is not None:
+                rejected[reason] += 1
+                continue
+            eligible.append(item)
+        by_context: Dict[str, List[WorkItem]] = defaultdict(list)
+        for item in eligible:
+            by_context[item.row.context_id].append(item)
+        missing = [key for key in CONTEXT_IDS if not by_context.get(key)]
+        if missing:
+            raise ValueError(
+                "choice eval requires one-positive-action examples for every context; "
+                f"missing={missing} rejected={dict(sorted(rejected.items()))}"
+            )
+        rng = random.Random(f"{seed}:phase3_choice_eval:{len(eligible)}:{cases_per_bin}")
+        out: List[WorkItem] = []
+        for context_id in sorted(by_context):
+            items = by_context[context_id]
+            if int(cases_per_bin) == 0:
+                out.extend(items)
+                continue
+            by_action: Dict[str, List[WorkItem]] = defaultdict(list)
+            for item in items:
+                action = choice_action_for_answers(item.spec)
+                assert action is not None
+                by_action[action].append(item)
+            quotas = even_quota_with_capacity(
+                {action: len(bucket) for action, bucket in by_action.items()}, int(cases_per_bin)
+            )
+            selected: List[WorkItem] = []
+            for action, count in sorted(quotas.items()):
+                bucket = list(by_action[action])
+                rng.shuffle(bucket)
+                selected.extend(
+                    route_diverse_sample(bucket, target=int(count), rng=rng)
+                    if route_diverse else [bucket[i % len(bucket)] for i in range(int(count))]
+                )
+            if len(selected) < int(cases_per_bin):
+                fallback = list(items)
+                rng.shuffle(fallback)
+                selected.extend(fallback[i % len(fallback)] for i in range(int(cases_per_bin) - len(selected)))
+            out.extend(selected)
+        rng.shuffle(out)
+        return unique_cases(out)
 
     class_counts = Counter(_balance_class(row) for row in rows)
     missing = [key for key in BALANCE_CLASSES if class_counts.get(key, 0) <= 0]
@@ -513,7 +588,7 @@ def _balanced_cases(
         )
     groups: Dict[str, List[WorkItem]] = defaultdict(list)
     for row in rows:
-        item = _make_item(row, seed=seed)
+        item = _make_item(row, seed=seed, action_output_mode=action_output_mode)
         groups[item.balance_key].append(item)
     rng = random.Random(f"{seed}:new_phase3_eval_balance:{len(rows)}:{cases_per_bin}")
     out: List[WorkItem] = []
@@ -553,7 +628,6 @@ def _balanced_cases(
             selected.extend(items[i % len(items)] for i in range(shortfall))
         out.extend(selected)
     rng.shuffle(out)
-    from qwen3vl_local.sft_new_loop_phase3.invalid_balance import unique_cases
     return unique_cases(out)
 
 
@@ -578,7 +652,9 @@ def _adapter_config_path(adapter_dir: pathlib.Path) -> pathlib.Path:
     return adapter_dir / "sft_new_loop_phase3_adapter_config.json"
 
 
-def _validate_action_adapter(adapter_dir: pathlib.Path, model_dir: pathlib.Path) -> Dict[str, Any]:
+def _validate_action_adapter(
+    adapter_dir: pathlib.Path, model_dir: pathlib.Path, *, action_output_mode: Optional[str] = None
+) -> Dict[str, Any]:
     """硬校验 phase3 adapter 的路线、prompt、RGB 模式和 base model 身份。"""
 
     cfg_path = _adapter_config_path(adapter_dir)
@@ -592,12 +668,19 @@ def _validate_action_adapter(adapter_dir: pathlib.Path, model_dir: pathlib.Path)
     if cfg.get("prompt_name") != PROMPT_NAME:
         raise ValueError(f"adapter prompt_name mismatch: {cfg.get('prompt_name')!r}")
     history_rgb_mode = validate_history_rgb_mode(str(cfg.get("history_rgb_mode", "")))
+    persisted_output_mode = validate_action_output_mode(str(cfg.get("action_output_mode", "binary")))
+    if action_output_mode is not None and validate_action_output_mode(action_output_mode) != persisted_output_mode:
+        raise ValueError(
+            f"adapter action_output_mode mismatch: adapter={persisted_output_mode} requested={action_output_mode}"
+        )
     from qwen3vl_local.sft_new_loop_phase3.source_mapping import validate_mapping_contract
     validate_mapping_contract(cfg)
     saved_prompt_hash = str(cfg.get("production_prompt_sha256") or "")
     if not saved_prompt_hash:
         raise ValueError("adapter config missing production_prompt_sha256")
-    expected_prompt_hash = action_prompt_sha256(audit=False, history_rgb_mode=history_rgb_mode)
+    expected_prompt_hash = action_prompt_sha256(
+        audit=False, history_rgb_mode=history_rgb_mode, action_output_mode=persisted_output_mode
+    )
     if saved_prompt_hash != expected_prompt_hash:
         raise ValueError(
             "adapter production_prompt_sha256 mismatch: "
@@ -648,6 +731,23 @@ def _resolve_history_rgb_mode(
     persisted = adapter_cfg.get("history_rgb_mode", DEFAULT_HISTORY_RGB_MODE)
     source = "adapter_config" if "history_rgb_mode" in adapter_cfg else "legacy_adapter_default_4rgb"
     return validate_history_rgb_mode(str(persisted)), source
+
+
+def _resolve_action_output_mode(
+    requested_mode: Optional[str], adapter_cfg: Optional[Mapping[str, Any]]
+) -> Tuple[str, str]:
+    """解析输出合同；LoRA 必须按保存时的 choice/binary 模式评测。"""
+
+    if adapter_cfg is None:
+        return validate_action_output_mode(requested_mode or "binary"), "base_cli"
+    persisted = validate_action_output_mode(str(adapter_cfg.get("action_output_mode", "binary")))
+    if requested_mode is not None and validate_action_output_mode(requested_mode) != persisted:
+        raise ValueError(
+            "--action-output-mode conflicts with the LoRA adapter contract; "
+            f"adapter requires {persisted}."
+        )
+    source = "adapter_config" if "action_output_mode" in adapter_cfg else "legacy_adapter_default_binary"
+    return persisted, source
 
 
 def load_eval_bundle(
@@ -831,6 +931,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         else None
     )
     history_rgb_mode, history_rgb_mode_source = _resolve_history_rgb_mode(args.history_rgb_mode, adapter_cfg)
+    action_output_mode, action_output_mode_source = _resolve_action_output_mode(
+        args.action_output_mode, adapter_cfg
+    )
     output_dir = _resolve_output_dir(
         pathlib.Path(args.output_dir),
         timestamp_output=bool(args.timestamp_output),
@@ -854,12 +957,14 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         expected_excluded_cases=int(args.expected_excluded_cases),
     )
     raw_focus_bin_availability = _raw_focus_bin_counts(rows)
+    choice_filter_report = _choice_filter_report(rows, seed=int(args.seed)) if action_output_mode == "choice" else None
     cases = _balanced_cases(
         rows,
         cases_per_bin=int(args.cases_per_bin),
         seed=int(args.seed),
         route_diverse=bool(args.route_diverse_sampling),
         require_invalid_coverage=bool(args.require_invalid_coverage),
+        action_output_mode=action_output_mode,
     )
     if int(args.expected_total_cases) > 0 and len(cases) != int(args.expected_total_cases):
         raise ValueError(
@@ -881,6 +986,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     )
     total = 0
     exact = 0
+    strict_format_valid = 0
     answer_only_exact = 0
     answer_only_format_valid = 0
     metric_names = list(ANSWER_KEYS)
@@ -924,8 +1030,10 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             answer_only_ok_by_key = {key: answer_only_parsed.get(key) == gt[key] for key in spec.output_keys}
             answer_only_all_ok = all(answer_only_ok_by_key.values())
             answer_only_is_valid = all(value is not None for value in answer_only_bool.values())
+            strict_is_valid = all(value is not None for value in parsed_bool.values())
             total += 1
             exact += int(all_ok)
+            strict_format_valid += int(strict_is_valid)
             answer_only_exact += int(answer_only_all_ok)
             answer_only_format_valid += int(answer_only_is_valid)
             balance_class = _balance_class(row)
@@ -1011,11 +1119,15 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 "answer_only_ok_by_key": answer_only_ok_by_key,
                 "answer_only_all_ok": answer_only_all_ok,
                 "answer_only_format_valid": answer_only_is_valid,
+                "strict_format_valid": strict_is_valid,
                 "raw_output": raw,
                 "action_user_prompt": prompt if bool(args.save_prompts) else None,
                 "actual_chat_messages": (
                     [
-                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {
+                            "role": "system",
+                            "content": CHOICE_SYSTEM_PROMPT if action_output_mode == "choice" else SYSTEM_PROMPT,
+                        },
                         {
                             "role": "user",
                             "content": [
@@ -1037,6 +1149,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     local_payload = {
         "total": total,
         "exact": exact,
+        "strict_format_valid": strict_format_valid,
         "answer_only_exact": answer_only_exact,
         "answer_only_format_valid": answer_only_format_valid,
         "metric_counts": {key: dict(counter) for key, counter in metric_counts.items()},
@@ -1058,6 +1171,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
 
     total = sum(int(item.get("total", 0)) for item in gathered)
     exact = sum(int(item.get("exact", 0)) for item in gathered)
+    strict_format_valid = sum(int(item.get("strict_format_valid", 0)) for item in gathered)
     answer_only_exact = sum(int(item.get("answer_only_exact", 0)) for item in gathered)
     answer_only_format_valid = sum(int(item.get("answer_only_format_valid", 0)) for item in gathered)
     metric_counts = {key: Counter() for key in metric_names}
@@ -1112,13 +1226,17 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
         "prompt_mode": "audit" if bool(args.audit_prompt) else "production",
+        "action_output_mode": action_output_mode,
+        "action_output_mode_source": action_output_mode_source,
         "history_rgb_mode": history_rgb_mode,
         "history_rgb_mode_source": history_rgb_mode_source,
         "history_rgb_count": len(history_rgb_indices(history_rgb_mode)),
         "history_rgb_selected_indices": list(history_rgb_indices(history_rgb_mode)),
-        "production_prompt_sha256": action_prompt_sha256(audit=False, history_rgb_mode=history_rgb_mode),
+        "production_prompt_sha256": action_prompt_sha256(
+            audit=False, history_rgb_mode=history_rgb_mode, action_output_mode=action_output_mode
+        ),
         "eval_prompt_sha256": action_prompt_sha256(
-            audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode
+            audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode, action_output_mode=action_output_mode
         ),
         "adapter_dir": str(args.adapter_dir) if args.adapter_dir else None,
         "adapter_dir_resolve_source": getattr(args, "adapter_dir_resolve_source", None),
@@ -1127,6 +1245,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         ),
         "audit_prompt": bool(args.audit_prompt),
         "sampling_contract": (
+            "Strict context-owned 3/5-way action selection: only rows with exactly one positive asked action and "
+            "INVALID_ACTION_CONTEXT=NO are eligible; all-NO, invalid, and multi-action rows are excluded and reported."
+            if action_output_mode == "choice" else
             "Single-turn high-level action eval: ten contexts target 1:1; repeated inputs are deduplicated so actual counts can differ and each context "
             "is split as evenly as capacity allows over its action signatures; mismatched-context INVALID "
             "rows keep their source/true-RS/asked-context balance."
@@ -1135,6 +1256,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             "split_rows_before_exclusion": int(split_rows_before_exclusion),
             "exclusion": exclusion_report,
             "raw_focus_bin_availability": raw_focus_bin_availability,
+            "choice_filter": choice_filter_report,
             "raw_invalid_subgroups": invalid_subgroup_report(rows),
             "target_cases_per_bin": int(args.cases_per_bin),
             "route_diverse_sampling": bool(args.route_diverse_sampling),
@@ -1146,11 +1268,16 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "output_dir": str(output_dir),
         "total_cases": total,
         "exact_match_accuracy": float(exact) / max(1, total),
+        "format_valid_rate": float(strict_format_valid) / max(1, total),
         "answer_only_diagnostics": {
             "non_scoring": True,
             "format_valid_rate": float(answer_only_format_valid) / max(1, total),
             "exact_match_accuracy": float(answer_only_exact) / max(1, total),
-            "contract": "Parse only the ordered YES/NO prefix; strict exact_match_accuracy remains the production score.",
+            "contract": (
+                "Parse only the first high-level action phrase; strict format_valid_rate and exact_match_accuracy remain production scores."
+                if action_output_mode == "choice"
+                else "Parse only the ordered YES/NO prefix; strict exact_match_accuracy remains the production score."
+            ),
         },
         "slice_reports": {
             name.lower(): {
@@ -1178,7 +1305,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "error_rgb_layout": "error_cases/<CONTEXT>/case_<id>_<scenario>_f<frame>/rgb/history_source_<original_index>_*.jpg",
         "world_size": int(world_size),
     }
-    from qwen3vl_local.sft_new_loop_phase3.quality_guards import generation_checkpoint_guards
+    from qwen3vl_local.sft_new_loop_phase3.quality_guards import choice_generation_guards, generation_checkpoint_guards
     flat = {f"slice/{key}_{field}": value
             for key, report in metrics["slice_reports"].items()
             for field, value in (("exact", report["exact_match_accuracy"]), ("samples", report["cases"]))}
@@ -1190,19 +1317,35 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     flat["invalid_subgroup/reason/same_rs_wrong_event_exact"] = invalid_subgroup_accuracy.get(
         "reason/same_rs_wrong_event", {}).get("exact_match_accuracy", 0.0)
     cfg = adapter_cfg or {}
-    metrics["generation_guards"] = generation_checkpoint_guards(flat,
-        min_invalid_exact=float(cfg.get("generation_eval_min_invalid_exact", .8)),
-        min_lane_change_recall=float(cfg.get("generation_eval_min_lane_change_recall", .6)),
-        min_stop_recall=float(cfg.get("generation_eval_min_stop_recall", .8)),
-        min_no_action_exact=float(cfg.get("generation_eval_min_no_action_exact", .5)))
-    metrics["production_ready"] = bool(not args.audit_prompt and metrics["generation_guards"]["all_ok"]
-        and all(report.get("invalid_rate", 1) == 0 for report in per_key.values()))
+    if action_output_mode == "choice":
+        # choice guard 既要整体严格格式/单选 exact，也要逐动作 P/R；后者在 flat 中。
+        choice_guard_metrics = {
+            **flat,
+            "format_valid_rate": float(metrics["format_valid_rate"]),
+            "exact_accuracy": float(metrics["exact_match_accuracy"]),
+        }
+        metrics["generation_guards"] = choice_generation_guards(
+            choice_guard_metrics,
+            min_format_valid_rate=float(cfg.get("generation_eval_min_valid_rate", 1.0)),
+        )
+        metrics["production_ready"] = bool(
+            not args.audit_prompt and metrics["generation_guards"]["all_ok"]
+        )
+    else:
+        metrics["generation_guards"] = generation_checkpoint_guards(flat,
+            min_invalid_exact=float(cfg.get("generation_eval_min_invalid_exact", .8)),
+            min_lane_change_recall=float(cfg.get("generation_eval_min_lane_change_recall", .6)),
+            min_stop_recall=float(cfg.get("generation_eval_min_stop_recall", .8)),
+            min_no_action_exact=float(cfg.get("generation_eval_min_no_action_exact", .5)))
+        metrics["production_ready"] = bool(not args.audit_prompt and metrics["generation_guards"]["all_ok"]
+            and all(report.get("invalid_rate", 1) == 0 for report in per_key.values()))
     (output_dir / "metrics.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
     lines = [
         "# sft_new_loop_phase3 eval",
         "",
         f"- prompt_name: `{PROMPT_NAME}`",
         f"- prompt_mode: `{'audit' if bool(args.audit_prompt) else 'production'}`",
+        f"- action_output_mode: `{action_output_mode}`",
         f"- history_rgb_mode: `{history_rgb_mode}` ({len(history_rgb_indices(history_rgb_mode))} images)",
         f"- eval_prompt_sha256: `{metrics['eval_prompt_sha256']}`",
         f"- adapter: `{args.adapter_dir or 'BASE_QWEN'}`",
@@ -1268,6 +1411,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", default="")
     p.add_argument("--split", default="test")
     p.add_argument("--history-rgb-mode", choices=HISTORY_RGB_MODES, default=None)
+    p.add_argument(
+        "--action-output-mode", choices=("binary", "choice"), default=None,
+        help="base eval selects this contract; LoRA defaults to and validates its saved contract",
+    )
     p.add_argument("--device", default="auto")
     p.add_argument("--max-frames", type=int, default=0)
     p.add_argument(
@@ -1311,10 +1458,12 @@ def parse_args() -> argparse.Namespace:
         if args.adapter_dir
         else None
     )
+    action_output_mode, _ = _resolve_action_output_mode(args.action_output_mode, adapter_cfg)
     history_rgb_mode, _ = _resolve_history_rgb_mode(args.history_rgb_mode, adapter_cfg)
     if not args.output_dir:
         name = "lora_high_level_action_final" if args.adapter_dir else "base_high_level_action_final"
         name += f"_{history_rgb_mode_tag(history_rgb_mode)}"
+        name += f"_{action_output_mode}"
         if args.audit_prompt:
             name += "_audit"
         args.output_dir = str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_eval" / name)

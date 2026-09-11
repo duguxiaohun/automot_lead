@@ -84,10 +84,13 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     action_prompt_sha256,
     build_action_messages,
     build_action_target,
+    choice_action_for_answers,
+    choice_rejection_reason,
     make_prompt_spec,
     parse_action_output,
     prompt_spec_to_json,
     spec_metric_items,
+    validate_action_output_mode,
 )
 from qwen3vl_local.sft_new_loop_phase3.sampling import (  # noqa: E402
     even_quota_with_capacity,
@@ -347,7 +350,7 @@ def _raw_focus_bin_counts(rows: Sequence[FrameRow]) -> Dict[str, int]:
     return dict(counts)
 
 
-def _make_item(row: FrameRow, *, seed: int) -> WorkItem:
+def _make_item(row: FrameRow, *, seed: int, action_output_mode: str = "binary") -> WorkItem:
     """构造单轮动作 case。"""
 
     spec = make_prompt_spec(
@@ -359,8 +362,27 @@ def _make_item(row: FrameRow, *, seed: int) -> WorkItem:
         goal_xy=row.goal_ego_xy,
         context_detail=row.context_detail,
         current_speed_mps=row.current_speed_mps,
+        action_output_mode=action_output_mode,
     )
     return WorkItem(row=row, spec=spec, balance_key=f"all_random_order/class/{_balance_class(row)}")
+
+
+def _choice_filter_report(rows: Sequence[FrameRow], *, seed: int) -> Dict[str, int]:
+    """统计严格三选一/五选一可用的唯一正动作标签和显式剔除原因。"""
+
+    counts: Counter = Counter()
+    for row in rows:
+        spec = _make_item(row, seed=seed, action_output_mode="choice").spec
+        reason = choice_rejection_reason(spec)
+        if reason is not None:
+            counts[f"excluded/{reason}"] += 1
+            continue
+        action = choice_action_for_answers(spec)
+        assert action is not None
+        counts["eligible/total"] += 1
+        counts[f"eligible/context/{row.context_id}"] += 1
+        counts[f"eligible/action/{action}"] += 1
+    return dict(sorted(counts.items()))
 
 
 def _balanced_work(
@@ -371,8 +393,56 @@ def _balanced_work(
     invalid_multiplier: float = 2.0,
     route_diverse: bool = False,
     require_invalid_coverage: bool = True,
+    action_output_mode: str = "binary",
 ) -> List[WorkItem]:
     """按动作上下文构建 deterministic work list；上下文内再按动作签名尽量均分。"""
+
+    output_mode = validate_action_output_mode(action_output_mode)
+    if output_mode == "choice":
+        eligible: List[WorkItem] = []
+        rejected: Counter = Counter()
+        for row in rows:
+            item = _make_item(row, seed=seed, action_output_mode=output_mode)
+            reason = choice_rejection_reason(item.spec)
+            if reason is not None:
+                rejected[reason] += 1
+                continue
+            eligible.append(item)
+        class_counts = Counter(item.row.context_id for item in eligible)
+        missing = [key for key in CONTEXT_IDS if class_counts.get(key, 0) <= 0]
+        if missing:
+            raise ValueError(
+                "choice training requires one-positive-action examples for every context; "
+                f"missing={missing} eligible={dict(sorted(class_counts.items()))} rejected={dict(sorted(rejected.items()))}"
+            )
+        effective_target = int(target_per_bin) or min(int(class_counts[key]) for key in CONTEXT_IDS)
+        groups: Dict[str, List[WorkItem]] = defaultdict(list)
+        for item in eligible:
+            groups[f"all_random_order/context/{item.row.context_id}"].append(item)
+        rng = random.Random(f"{seed}:phase3_choice_balance:{len(eligible)}:{effective_target}")
+        work: List[WorkItem] = []
+        for key in sorted(groups):
+            by_action: Dict[str, List[WorkItem]] = defaultdict(list)
+            for item in groups[key]:
+                action = choice_action_for_answers(item.spec)
+                assert action is not None
+                by_action[action].append(item)
+            quotas = even_quota_with_capacity({name: len(items) for name, items in by_action.items()}, effective_target)
+            selected: List[WorkItem] = []
+            for action, count in sorted(quotas.items()):
+                bucket = list(by_action[action])
+                rng.shuffle(bucket)
+                selected.extend(
+                    route_diverse_sample(bucket, target=int(count), rng=rng)
+                    if route_diverse else [bucket[i % len(bucket)] for i in range(int(count))]
+                )
+            if len(selected) < effective_target:
+                fallback = list(groups[key])
+                rng.shuffle(fallback)
+                selected.extend(fallback[i % len(fallback)] for i in range(effective_target - len(selected)))
+            work.extend(selected)
+        rng.shuffle(work)
+        return work
 
     class_counts = Counter(_balance_class(row) for row in rows)
     missing = [key for key in BALANCE_CLASSES if class_counts.get(key, 0) <= 0]
@@ -388,7 +458,7 @@ def _balanced_work(
 
     groups: Dict[str, List[WorkItem]] = defaultdict(list)
     for row in rows:
-        item = _make_item(row, seed=seed)
+        item = _make_item(row, seed=seed, action_output_mode=action_output_mode)
         groups[item.balance_key].append(item)
     rng = random.Random(f"{seed}:new_phase3_balance:{len(rows)}:{effective_target}:{invalid_multiplier:.6f}")
     work: List[WorkItem] = []
@@ -427,11 +497,22 @@ def _balanced_work(
     return work
 
 
-def _effective_class_target(rows: Sequence[FrameRow], requested: int) -> int:
+def _effective_class_target(rows: Sequence[FrameRow], requested: int, *, action_output_mode: str = "binary") -> int:
     """返回全部平衡类别的共同基数。"""
 
     if int(requested) > 0:
         return int(requested)
+    if validate_action_output_mode(action_output_mode) == "choice":
+        class_counts: Counter = Counter()
+        for row in rows:
+            action_keys = CONTEXT_BY_ID[row.context_id].action_keys
+            positives = sum(bool(row.answers.get(key, False)) for key in action_keys)
+            if not bool(row.answers.get(INVALID_KEY, False)) and positives == 1:
+                class_counts[row.context_id] += 1
+        missing = [key for key in CONTEXT_IDS if class_counts.get(key, 0) <= 0]
+        if missing:
+            raise ValueError(f"cannot infer choice target; missing={missing} eligible={dict(sorted(class_counts.items()))}")
+        return min(int(class_counts[key]) for key in CONTEXT_IDS)
     class_counts = Counter(_balance_class(row) for row in rows)
     missing = [key for key in BALANCE_CLASSES if class_counts.get(key, 0) <= 0]
     if missing:
@@ -448,9 +529,13 @@ def _load_images(paths: Sequence[str]) -> List[Image.Image]:
 
 
 def _line_value_span(text: str, key: str) -> Tuple[int, int]:
-    """返回某个答案行中 YES/NO 的字符 span。"""
+    """返回某个目标行值（choice 为完整动作词组）的字符 span。"""
 
-    match = re.search(rf"(?im)^\s*{re.escape(key)}\s*:\s*(YES|NO)\b", text)
+    if key == "ACTION_CHOICE":
+        match = re.fullmatch(r"\s*([A-Z_]+)\s*", text)
+        if match:
+            return match.start(1), match.end(1)
+    match = re.search(rf"(?im)^\s*{re.escape(key)}\s*:\s*([A-Z]+)\b", text)
     if not match:
         raise ValueError(f"target missing {key}: {text!r}")
     return match.start(1), match.end(1)
@@ -470,7 +555,7 @@ def _target_token_weights(
     offsets = [(int(a), int(b)) for a, b in enc["offset_mapping"]]
     weights = [float(format_loss_weight) for _ in token_ids]
     component_ids = [FORMAT_COMPONENT_ID for _ in token_ids]
-    for component_id, key in enumerate(spec.output_keys, start=1):
+    for component_id, key in enumerate(spec.target_output_keys, start=1):
         lo, hi = _line_value_span(target, key)
         for i, (a, b) in enumerate(offsets):
             if a < hi and b > lo:
@@ -525,8 +610,9 @@ def _build_inputs(
     target_ids, token_weights, token_components = _target_token_weights(
         bundle, target, spec=spec, format_loss_weight=float(format_loss_weight)
     )
-    pos = _find_subsequence(expanded, target_ids, 0)
     asst_header_ids = list(bundle.tokenizer("<|im_start|>assistant\n", add_special_tokens=False)["input_ids"])
+    header_pos = _find_subsequence(expanded, asst_header_ids, 0, last=True)
+    pos = _find_subsequence(expanded, target_ids, header_pos + len(asst_header_ids))
     _assert_inside_assistant_turn(expanded, pos, asst_header_ids, 0)
     for j, weight in enumerate(token_weights):
         if weight > 0:
@@ -587,9 +673,13 @@ def _loss_one(bundle: Any, packed: Mapping[str, Any], spec: PromptSpec) -> Tuple
             (pred[format_active] == shift_labels[format_active]).float().mean().item() if bool(format_active.any()) else 0.0
         ),
     }
-    for component_id, key in enumerate(spec.output_keys, start=1):
+    for component_id, key in enumerate(spec.target_output_keys, start=1):
         mask = active & shift_comp.eq(component_id)
         stats[f"answer/{key.lower()}_ok"] = float(bool(mask.any() and torch.equal(pred[mask], shift_labels[mask])))
+    if spec.action_output_mode == "choice":
+        # choice 的监督值只有单一动作词组，不伪装成每个旧 YES/NO 行都答对。
+        choice_ok = float(stats.get(f"answer/{spec.target_output_keys[0].lower()}_ok", 0.0))
+        stats["choice_action_exact"] = choice_ok
     return loss, stats
 
 
@@ -673,6 +763,8 @@ def evaluate_loss(
     invalid_line_ok = 0.0
     invalid_actions_all_no_ok = 0.0
     invalid_joint_ok = 0.0
+    choice_action_ok = 0.0
+    choice_action_count = 0.0
     invalid_subgroup_ok: Counter = Counter()
     invalid_subgroup_total: Counter = Counter()
     for item in work:
@@ -698,11 +790,15 @@ def evaluate_loss(
         value_token_acc_sum += float(stats.get("value_token_acc", 0.0))
         format_token_acc_sum += float(stats.get("format_token_acc", 0.0))
         all_answer_ok = True
-        for output_key, metric_key, _ in spec_metric_items(spec):
-            ok = float(stats.get(f"answer/{output_key.lower()}_ok", 0.0))
-            metric_ok[metric_key] += ok
-            metric_count[metric_key] += 1
-            all_answer_ok = all_answer_ok and bool(ok)
+        if spec.action_output_mode == "choice":
+            choice_action_ok += float(stats.get("choice_action_exact", 0.0))
+            choice_action_count += 1.0
+        else:
+            for output_key, metric_key, _ in spec_metric_items(spec):
+                ok = float(stats.get(f"answer/{output_key.lower()}_ok", 0.0))
+                metric_ok[metric_key] += ok
+                metric_count[metric_key] += 1
+                all_answer_ok = all_answer_ok and bool(ok)
         if bool(row.answers.get(INVALID_KEY, False)):
             invalid_gt_total += 1.0
             invalid_line = bool(stats.get(f"answer/{INVALID_KEY.lower()}_ok", 0.0))
@@ -730,6 +826,8 @@ def evaluate_loss(
         invalid_line_ok,
         invalid_actions_all_no_ok,
         invalid_joint_ok,
+        choice_action_ok,
+        choice_action_count,
     ]
     values.extend(metric_ok[name] for name in metric_names)
     values.extend(metric_count[name] for name in metric_names)
@@ -738,7 +836,7 @@ def evaluate_loss(
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
     vals = [float(x) for x in tensor.detach().cpu().tolist()]
     total_samples = max(1.0, vals[1])
-    offset = 10
+    offset = 12
     metrics: Dict[str, float] = {
         "loss": vals[0] / total_samples,
         "samples": vals[1],
@@ -750,6 +848,8 @@ def evaluate_loss(
         "invalid_line_token_ok_rate": vals[7] / max(1.0, vals[6]),
         "invalid_actions_all_no_token_ok_rate": vals[8] / max(1.0, vals[6]),
         "invalid_joint_token_ok_rate": vals[9] / max(1.0, vals[6]),
+        "choice_action_exact": vals[10] / max(1.0, vals[11]),
+        "choice_action_samples": vals[11],
     }
     metric_ok_vals = vals[offset : offset + len(metric_names)]
     offset += len(metric_names)
@@ -1005,7 +1105,7 @@ def evaluate_generation_probe(
 
 
 from qwen3vl_local.sft_new_loop_phase3.quality_guards import (
-    generation_checkpoint_guards, generation_checkpoint_score)
+    choice_generation_guards, choice_generation_score, generation_checkpoint_guards, generation_checkpoint_score)
 
 
 def _save_adapter(
@@ -1021,7 +1121,10 @@ def _save_adapter(
         "route": "sft_new_loop_phase3_high_level_action",
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
-        "production_prompt_sha256": action_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
+        "production_prompt_sha256": action_prompt_sha256(
+            audit=False, history_rgb_mode=args.history_rgb_mode, action_output_mode=args.action_output_mode
+        ),
+        "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "train_script": str(_THIS),
@@ -1104,6 +1207,7 @@ def _write_run_metadata(
     eval_work_rank: int,
     generation_eval_global: int,
     total_steps: int,
+    choice_filter: Optional[Mapping[str, int]] = None,
 ) -> None:
     """写入 TB 和 JSON manifest，保证训练目录、TB、日志路径互相可追。"""
 
@@ -1140,7 +1244,11 @@ def _write_run_metadata(
         "focus_balance_count": int(args.focus_balance_count),
         "train_route_diverse": bool(args.train_route_diverse),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
-        "production_prompt_sha256": action_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
+        "choice_filter": dict(choice_filter) if choice_filter is not None else None,
+        "production_prompt_sha256": action_prompt_sha256(
+            audit=False, history_rgb_mode=args.history_rgb_mode, action_output_mode=args.action_output_mode
+        ),
+        "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
     }
     (output_dir / "train_run_manifest.json").write_text(
@@ -1206,8 +1314,11 @@ def train(args: argparse.Namespace) -> None:
         max_frames=int(args.max_frames),
         data_root=pathlib.Path(args.data_root),
     )
+    choice_filter = _choice_filter_report(rows, seed=int(args.seed)) if args.action_output_mode == "choice" else None
     raw_focus_counts = _raw_focus_bin_counts(rows)
-    effective_target = _effective_class_target(rows, int(args.focus_balance_count))
+    effective_target = _effective_class_target(
+        rows, int(args.focus_balance_count), action_output_mode=args.action_output_mode
+    )
     full_work = _balanced_work(
         rows,
         target_per_bin=int(args.focus_balance_count),
@@ -1215,6 +1326,7 @@ def train(args: argparse.Namespace) -> None:
         invalid_multiplier=float(args.invalid_focus_multiplier),
         route_diverse=bool(args.train_route_diverse),
         require_invalid_coverage=bool(args.require_invalid_coverage),
+        action_output_mode=args.action_output_mode,
     )
     if not full_work:
         raise ValueError("balanced work list is empty")
@@ -1238,6 +1350,7 @@ def train(args: argparse.Namespace) -> None:
                 target_per_bin=int(args.eval_balance_count),
                 seed=int(args.seed) + 1009,
                 require_invalid_coverage=bool(args.require_invalid_coverage),
+                action_output_mode=args.action_output_mode,
             )
             eval_work = _split_work_for_rank(full_eval_work, rank=rank, world_size=world_size)
             if int(args.generation_eval_steps) > 0 and int(args.generation_eval_balance_count) > 0:
@@ -1245,6 +1358,7 @@ def train(args: argparse.Namespace) -> None:
                     eval_rows,
                     target_per_bin=int(args.generation_eval_balance_count),
                     seed=int(args.generation_eval_sampling_seed),
+                    action_output_mode=args.action_output_mode,
                     route_diverse=bool(args.generation_eval_route_diverse),
                     require_invalid_coverage=bool(args.require_invalid_coverage),
                 )
@@ -1358,6 +1472,7 @@ def train(args: argparse.Namespace) -> None:
             eval_work_rank=len(eval_work),
             generation_eval_global=len(full_generation_eval_work),
             total_steps=total_steps,
+            choice_filter=choice_filter,
         )
 
     global_step = 0
@@ -1387,11 +1502,15 @@ def train(args: argparse.Namespace) -> None:
                 invalid_multiplier=float(args.invalid_focus_multiplier),
                 route_diverse=bool(args.train_route_diverse),
                 require_invalid_coverage=bool(args.require_invalid_coverage),
+                action_output_mode=args.action_output_mode,
             )
         random.Random(int(args.seed) + epoch * 1_000_003).shuffle(full_work)
         work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
         if rank == 0:
-            epoch_invalid_report = invalid_subgroup_report(full_work)
+            epoch_invalid_report = (
+                {"not_applicable": "choice excludes invalid/all-NO/multi-action rows"}
+                if args.action_output_mode == "choice" else invalid_subgroup_report(full_work)
+            )
             epoch_balance_dir = output_dir / "balance"
             epoch_balance_dir.mkdir(parents=True, exist_ok=True)
             (epoch_balance_dir / f"epoch_{epoch + 1:04d}.json").write_text(
@@ -1399,7 +1518,10 @@ def train(args: argparse.Namespace) -> None:
                     {
                         "epoch": int(epoch + 1),
                         "seed": int(args.seed) + epoch * 1_000_003,
-                        "class_counts": dict(Counter(_balance_class(item.row) for item in full_work)),
+                        "class_counts": dict(Counter(
+                            item.row.context_id if args.action_output_mode == "choice" else _balance_class(item.row)
+                            for item in full_work
+                        )),
                         "action_signature_counts": dict(
                             Counter(item.row.action_signature for item in full_work)
                         ),
@@ -1411,7 +1533,7 @@ def train(args: argparse.Namespace) -> None:
                 ),
                 encoding="utf-8",
             )
-            if writer:
+            if writer and args.action_output_mode != "choice":
                 for dimension in ("source_class", "true_rs", "asked_context", "joint_signature"):
                     for value, count in epoch_invalid_report[dimension]["counts"].items():
                         writer.add_scalar(
@@ -1450,11 +1572,12 @@ def train(args: argparse.Namespace) -> None:
                 window_samples += 1
                 for key, value in stats.items():
                     window_stats[key] += float(value)
-                for output_key, metric_key, _ in spec_metric_items(spec):
-                    stat_key = f"answer/{output_key.lower()}_ok"
-                    if stat_key in stats:
-                        window_metric_ok[metric_key] += float(stats[stat_key])
-                        window_metric_count[metric_key] += 1
+                if spec.action_output_mode != "choice":
+                    for output_key, metric_key, _ in spec_metric_items(spec):
+                        stat_key = f"answer/{output_key.lower()}_ok"
+                        if stat_key in stats:
+                            window_metric_ok[metric_key] += float(stats[stat_key])
+                            window_metric_count[metric_key] += 1
             (loss / grad_accum).backward()
             accum_steps += 1
             optimizer_stepped = False
@@ -1488,10 +1611,13 @@ def train(args: argparse.Namespace) -> None:
                 }
                 for key, value in window_stats.items():
                     window_payload[f"mean/{key}"] = float(value) / float(window_den)
-                for key in ANSWER_KEYS:
-                    denom = max(1.0, float(window_metric_count[key]))
-                    window_payload[f"answer_acc/{key}"] = float(window_metric_ok[key]) / denom
-                    window_payload[f"answer_samples/{key}"] = float(window_metric_count[key])
+                if args.action_output_mode == "choice":
+                    window_payload["choice_action_exact"] = float(window_stats["choice_action_exact"]) / float(window_den)
+                else:
+                    for key in ANSWER_KEYS:
+                        denom = max(1.0, float(window_metric_count[key]))
+                        window_payload[f"answer_acc/{key}"] = float(window_metric_ok[key]) / denom
+                        window_payload[f"answer_samples/{key}"] = float(window_metric_count[key])
                 _append_jsonl(train_metrics_path, window_payload)
                 _write_scalar_dict(writer, "train_window", window_payload, global_step)
                 print(
@@ -1621,20 +1747,30 @@ def train(args: argparse.Namespace) -> None:
                         and format_gate_ok
                         and generation_metrics is not None
                     ):
-                        guard_report = generation_checkpoint_guards(
-                            generation_metrics,
-                            min_invalid_exact=float(args.generation_eval_min_invalid_exact),
-                            min_lane_change_recall=float(args.generation_eval_min_lane_change_recall),
-                            min_stop_recall=float(args.generation_eval_min_stop_recall),
-                            min_no_action_exact=float(args.generation_eval_min_no_action_exact),
-                        )
-                        gen_score = generation_checkpoint_score(
-                            generation_metrics,
-                            min_invalid_exact=float(args.generation_eval_min_invalid_exact),
-                            min_lane_change_recall=float(args.generation_eval_min_lane_change_recall),
-                            min_stop_recall=float(args.generation_eval_min_stop_recall),
-                            min_no_action_exact=float(args.generation_eval_min_no_action_exact),
-                        )
+                        if args.action_output_mode == "choice":
+                            guard_report = choice_generation_guards(
+                                generation_metrics,
+                                min_format_valid_rate=float(args.generation_eval_min_valid_rate),
+                            )
+                            gen_score = choice_generation_score(
+                                generation_metrics,
+                                min_format_valid_rate=float(args.generation_eval_min_valid_rate),
+                            )
+                        else:
+                            guard_report = generation_checkpoint_guards(
+                                generation_metrics,
+                                min_invalid_exact=float(args.generation_eval_min_invalid_exact),
+                                min_lane_change_recall=float(args.generation_eval_min_lane_change_recall),
+                                min_stop_recall=float(args.generation_eval_min_stop_recall),
+                                min_no_action_exact=float(args.generation_eval_min_no_action_exact),
+                            )
+                            gen_score = generation_checkpoint_score(
+                                generation_metrics,
+                                min_invalid_exact=float(args.generation_eval_min_invalid_exact),
+                                min_lane_change_recall=float(args.generation_eval_min_lane_change_recall),
+                                min_stop_recall=float(args.generation_eval_min_stop_recall),
+                                min_no_action_exact=float(args.generation_eval_min_no_action_exact),
+                            )
                         guard_ok = bool(guard_report["all_ok"])
                         slot = "best_generation" if guard_ok else "fallback_generation"
                         previous_score = best_generation_score if guard_ok else best_fallback_score
@@ -1668,7 +1804,7 @@ def train(args: argparse.Namespace) -> None:
                             )
                             print(
                                 f"[{slot}] step={global_step} guards_ok={guard_ok} "
-                                f"guards={guard_report['passed']} "
+                                f"guards={guard_report.get('passed', {})} "
                                 f"exact={generation_metrics.get('exact_accuracy', 0.0):.4f} adapter={selected_dir}"
                             )
             checkpoint_due = int(args.save_steps) > 0 and global_step % int(args.save_steps) == 0
@@ -1756,6 +1892,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_runs/manual"))
     p.add_argument("--split", default="train")
     p.add_argument("--history-rgb-mode", choices=HISTORY_RGB_MODES, default=DEFAULT_HISTORY_RGB_MODE)
+    p.add_argument(
+        "--action-output-mode", choices=("binary", "choice"), default="binary",
+        help="binary: per-action YES/NO lines; choice: one event-domain high-level action phrase",
+    )
     p.add_argument("--device", default="auto")
     p.add_argument("--ddp-timeout-seconds", type=int, default=3600,
                    help="NCCL collective timeout, including waiting for rank0 generation validation")
@@ -1824,6 +1964,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=20260904)
     p.add_argument("--no-tb", action="store_true")
     args = p.parse_args()
+    args.action_output_mode = validate_action_output_mode(args.action_output_mode)
     if args.ddp_timeout_seconds <= 0 or args.generation_eval_log_every <= 0:
         p.error("--ddp-timeout-seconds and --generation-eval-log-every must be positive")
     if int(args.generation_eval_steps) > 0 and int(args.eval_steps) > 0:
