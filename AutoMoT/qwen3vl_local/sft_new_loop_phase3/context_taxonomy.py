@@ -139,25 +139,7 @@ class ActionContext:
         return DOMAIN_ACTION_KEYS[self.question_domain]
 
 
-ROAD_STRUCTURE_TEXT: Dict[str, str] = {
-    "R1": (
-        "an ordinary same-direction road where lane keeping, car following and safe-gap "
-        "control are the governing rules"
-    ),
-    "R2": (
-        "a road whose usable forward space is close to a single lane, so the opposing lane "
-        "can take part in the decision"
-    ),
-    "R3": (
-        "a limited-access highway, ramp, merge or exit corridor where speed matching, "
-        "rear-side gaps and the target lane are the governing rules"
-    ),
-    "R4": "a local junction whose traffic-signal head is the governing rule",
-    "R5": (
-        "a local junction with no usable signal rule, so right of way, gap acceptance and "
-        "crossing or oncoming flow govern the decision"
-    ),
-}
+ROAD_STRUCTURE_TEXT: Dict[str, str] = {'R1': 'an ordinary same-direction road', 'R2': 'a narrow forward corridor where the opposing lane may be involved', 'R3': 'a limited-access highway, ramp, merge or exit corridor', 'R4': 'a local junction controlled by traffic signals', 'R5': 'a local junction governed by stop/yield or crossing priority, without usable signal control'}
 
 
 ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
@@ -168,12 +150,10 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R1", "R2", "R3", "R4", "R5"),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "the vehicle already in ego's forward path has braked hard or suddenly slowed enough "
-            "to interrupt normal following"
+            'the lead vehicle has suddenly braked or slowed'
         ),
         scope_text=(
-            "Ego is following that vehicle in its own lane. Only longitudinal speed control is "
-            "asked here; no lane change is available as an answer."
+            ''
         ),
     ),
     ActionContext(
@@ -183,14 +163,10 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R1", "R2", "R3", "R4", "R5"),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "a static blockage such as a crashed vehicle, construction barrier, parked or stalled "
-            "vehicle or roadside hazard occupies ego's current path"
+            "a static obstacle occupies ego's path"
         ),
         scope_text=(
-            "Ego must assess how much of its lane the blockage occupies and whether to slow, "
-            "hold still and wait for a usable gap, or leave the blocked lane to the left or to the "
-            "right. Leaving to the left may mean borrowing the opposing lane. Vehicles wholly "
-            "inside a parking bay with an open ego corridor do not establish a blockage."
+            'Parking-bay vehicles outside the path alone are insufficient.'
         ),
     ),
     ActionContext(
@@ -200,12 +176,10 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R1", "R2", "R3", "R4", "R5"),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "another vehicle is moving into, or is visibly about to occupy, ego's immediate "
-            "forward corridor"
+            "another vehicle is entering or visibly about to enter ego's immediate path"
         ),
         scope_text=(
-            "Answer longitudinal speed control for that intruding vehicle. Ego's lateral "
-            "decision is not asked and is not implied by this question set."
+            ''
         ),
     ),
     ActionContext(
@@ -215,13 +189,10 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R1", "R2", "R3", "R4", "R5"),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "a pedestrian or cyclist is relevant to ego's immediate decision: crossing, entering "
-            "the path, or travelling along its edge with insufficient passing clearance"
+            "a pedestrian or cyclist crosses, enters, or leaves insufficient passing space beside ego's path"
         ),
         scope_text=(
-            "Distinguish a crossing user from a same-direction cyclist. Slow or wait while the "
-            "path is unsafe; a deliberate lane change to pass with clearance requires a usable "
-            "gap and an actual lane boundary crossing. A distant sidewalk user alone is insufficient."
+            'A distant sidewalk user alone is insufficient.'
         ),
     ),
     ActionContext(
@@ -231,13 +202,10 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R1", "R2", "R3", "R4", "R5"),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "an oncoming or opposite-direction vehicle is abnormally intruding into ego's usable "
-            "corridor"
+            "an oncoming vehicle intrudes into ego's usable path"
         ),
         scope_text=(
-            "Ego is the passive side and must give the invading vehicle time and space by "
-            "longitudinal control only. Check successive oncoming actors: one vehicle passing "
-            "does not mean a second intruder has cleared. Cones alone do not establish intrusion."
+            'Cones alone are insufficient; one passing vehicle does not rule out another intruder.'
         ),
     ),
     ActionContext(
@@ -247,12 +215,10 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R4", "R5"),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "another vehicle is violating the junction rule and entering ego's conflict path while "
-            "ego should have priority"
+            "another vehicle enters ego's junction path against ego's priority"
         ),
         scope_text=(
-            "Ego is inside or entering that junction. Only longitudinal yielding, waiting for the "
-            "conflict to clear and resuming are asked here."
+            ''
         ),
     ),
     ActionContext(
@@ -262,13 +228,10 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R4", "R5"),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "installed traffic signals have an established malfunction, so ego cannot rely on a red or green "
-            "phase and must watch every approach"
+            'installed traffic signals have an established malfunction'
         ),
         scope_text=(
-            "Ego must also respect applicable stop/yield priority. An ordinary unsignalized "
-            "junction, a red light, or unreadable lamps in fog do not establish a signal failure. "
-            "One visible green lamp also cannot by itself disprove an established system fault."
+            'A red or unreadable lamp alone is insufficient; one green lamp does not disprove a system fault.'
         ),
     ),
     ActionContext(
@@ -278,14 +241,10 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R1", "R2", "R3", "R4", "R5"),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "a route-lane transition is pending: ego may need to recover its lane after a bypass "
-            "or move into a navigation-required target lane"
+            'a route-lane transition is pending, either bypass recovery or a navigation lane change'
         ),
         scope_text=(
-            "The question is whether the next high-level step is to move back toward ego's original "
-            "or route-target lane, and on which side that lane now lies. Answer both lane-change "
-            "lines NO when ego must still stay in the current lane. Both NO answers only describe "
-            "the next three seconds; they do not prove the recovery has completed."
+            'Check which stage is visible; pending does not mean crossing within 3 seconds.'
         ),
     ),
     ActionContext(
@@ -295,14 +254,10 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R5",),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "ego is negotiating a normal unsignalized junction using stop/yield rules and "
-            "the priority of crossing or oncoming traffic"
+            'ego is negotiating an unsignalized junction under stop/yield and traffic priority'
         ),
         scope_text=(
-            "Respect any visible STOP requirement even without other traffic. A vehicle with "
-            "priority is not a rule violator; absence of traffic lights is not a signal failure. "
-            "The junction must govern the current local decision; a distant intersection ahead "
-            "of an otherwise continuous car-following corridor is insufficient."
+            'The junction must govern the current decision; a distant junction is insufficient.'
         ),
     ),
     ActionContext(
@@ -312,15 +267,10 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R3",),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "ego is in an active ramp, merge, lane-join or exit transition toward its route target"
+            'ego is in an active ramp, merge, lane-join or exit transition'
         ),
         scope_text=(
-            "The question is whether the next high-level step is a lane change into the target "
-            "lane, and on which side. Answer both lane-change lines NO when ego only has to keep "
-            "the current lane and match speed along an actual ramp transition. Stable main-line "
-            "following or parallel traffic alone is not an active merge. An ordinary navigation "
-            "lane change on a continuous main line belongs to the route-lane-transition question, "
-            "not automatically to this ramp/merge/exit situation."
+            'Stable main-line following or parallel traffic alone is insufficient.'
         ),
     ),
 )

@@ -37,6 +37,6 @@ def test_no_string_is_not_true_in_temporal_slices():
     row["history_rgb_paths_all4"] = ["a", "b", "c", "d"]
     row["gt"] = {"STOP":"NO", "DECELERATE":"NO", "RESUME":"YES", "INVALID_ACTION_CONTEXT":"NO"}
     row["action_evidence"]["future_speeds_exact_mps"] = [0,.8,2,3,4,5,6,7,8]
-    assert temporal_slices(row) == ["stationary_anchor_future_resume"]
+    assert set(temporal_slices(row)) == {"stationary_anchor_future_resume", "isolated_near_stop_in_1_5s"}
     row["gt"]["INVALID_ACTION_CONTEXT"] = "YES"
     assert temporal_slices(row) == []
