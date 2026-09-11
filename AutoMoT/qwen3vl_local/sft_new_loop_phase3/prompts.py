@@ -48,14 +48,13 @@ from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import (
 )
 from qwen3vl_local.sft_new_loop_phase3.history_rgb import (
     DEFAULT_HISTORY_RGB_MODE,
-    HISTORY_RGB_MODE_ALL4,
     history_rgb_prompt_description,
     validate_history_rgb_mode,
 )
 from qwen3vl_local.sft_new_loop_phase3.navigation_goal import render_navigation_goal
 
 
-PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v6_observed_behavior_forecast"
+PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v7_compact_observed_forecast"
 INVALID_KEY = "INVALID_ACTION_CONTEXT"
 ANSWER_KEYS: Tuple[str, ...] = (*ACTION_KEYS, INVALID_KEY)
 ANSWER_VALUES = ("YES", "NO")
@@ -65,38 +64,27 @@ VARIANT_ORDER = tuple(VARIANT_WEIGHTS.keys())
 SUBSET_COUNTS: Tuple[int, ...] = ()
 GROUP_DEFINITIONS: Dict[str, Tuple[str, str, str, set]] = {}
 
-ACTION_HORIZON_TEXT = (
-    "The answer is a forecast of the recorded driver's behavior for the next few seconds after the newest frame, "
-    "two seconds for the speed lines and three seconds for the lane lines. At 4 Hz, near-stop means two consecutive speed samples at or below 0.5 m/s within the immediate 1.5 seconds. A meaningful speed change is at least max(1.2 m/s, 20% of the current speed); a speed gain needs two consecutive samples, while a reduction uses the first qualifying sample. Use these definitions for the forecast; only the current speed and past RGB are observed."
-)
+# 规则只说一次；不把安全建议混入采集行为预测，详见 20260911 RGB 审计。
+SYSTEM_PROMPT = "Predict the recorded ego vehicle's next actions. Follow the requested YES/NO format."
 
-SYSTEM_PROMPT = """You forecast the recorded ego driver's near-term behavior from causal observations.
-The input is a stitched three-camera RGB history ordered from oldest to newest, a road structure and driving situation proposed by an earlier perception or transition step for the newest frame, and the route target point in ego coordinates. Check the proposed context against the RGB before predicting the high-level actions ego is likely to execute next. This is behavior prediction; the output does not certify that an action is safe or that a traffic obligation is satisfied. Answer every listed action question independently from the visible RGB history, the given situation and the route target. Do not use scenario names, dataset labels, maps, hidden state, or future frames."""
+SPEED_RULES = """Speed: next 2 seconds, at most one YES.
+STOP: two consecutive 4-Hz samples at or below 0.5 m/s within 1.5 seconds. Include the current sample: still waiting at the next sample counts, even if ego accelerates later. STOP takes priority.
+Otherwise, use the FIRST qualifying change from current speed: a drop of at least max(1.2 m/s, 20%) means DECELERATE; a gain of that size for two consecutive samples means RESUME. An isolated gain is insufficient. If neither qualifies, all speed answers are NO. A stop beyond 1.5 seconds does not cancel DECELERATE."""
 
+LANE_RULES = """Lane: next 3 seconds, at most one side YES.
+Predict the FIRST crossing of an ego lane boundary after the newest frame: LANE_CHANGE_LEFT or LANE_CHANGE_RIGHT, relative to ego's heading. Ignore later return crossings and crossings already in the input.
+Steering input, a curved lane, an in-lane pass, a connecting road without a boundary crossing, and another vehicle's lane change do not count. Speed and lane YES can coexist."""
 
-ACTION_DEFINITIONS: Dict[str, str] = {
-    "DECELERATE": """DECELERATE - clearly reduce speed without coming to rest:
-YES when the first meaningful speed change is a slowdown in the next about two seconds, without a sustained near-stop in the immediate one-and-a-half-second window. Examples include holding a safe lead gap, yielding to an intruding actor, and waiting for a usable lane-change gap. A possible stop beyond that immediate window does not by itself cancel DECELERATE. NO when STOP applies, acceleration comes first, or the speed only jitters around the same cruising value.""",
-    "STOP": """STOP - come to rest, or stay at rest, and wait:
-YES when ego is likely to reach a sustained near-stop within about one and a half seconds, or continue waiting at rest, including staying stopped while an obstacle, a queue, a crossing user or a conflicting vehicle still blocks the path. A stopped ego that continues waiting for the next sampled frame is STOP even if it can pull away later in this window. NO when ego only slows down but keeps rolling, or is already starting a continuous pull-away without further waiting.""",
-    "RESUME": """RESUME - clearly build speed toward normal travel speed:
-YES when ego is likely to make a sustained speed gain in the next about two seconds. This includes pulling away from a standstill, gaining speed through a usable bypass gap, and recovering after a blocking actor or conflict clears enough. A previous stop or a completed yield is not implied. NO for a brief isolated speed pulse followed by renewed slowing, NO when a meaningful slowdown or a stop still comes first inside that window, and NO for steady cruising with no real speed gain. Starting to roll does not by itself prove a stop-sign obligation or a lane-change gap is satisfied.""",
-    "LANE_CHANGE_LEFT": """LANE_CHANGE_LEFT - move out of the current lane into the lane on ego's left:
-YES when the FIRST ego lane-boundary crossing within the next about three seconds is to the left. A later return crossing does not change this first direction. This includes borrowing the opposing lane to get around a blockage, moving left into a main-line lane while merging, and moving left back toward the route-target lane. Left is relative to ego's own heading, not to the image. NO when ego only follows a curved lane: a bend makes the steering angle, the vehicle heading and the lane markings sweep across the image while ego stays between the same two lane boundaries, and that is lane keeping, not a lane change. NO when ego stays inside its lane while passing a slower or stopped vehicle, when ego only follows a ramp or connecting road that physically becomes the next lane without crossing a lane boundary, and NO when another vehicle rather than ego is the one changing lane.""",
-    "LANE_CHANGE_RIGHT": """LANE_CHANGE_RIGHT - move out of the current lane into the lane on ego's right:
-YES when the FIRST ego lane-boundary crossing within the next about three seconds is to the right. A later return crossing does not change this first direction. This includes returning from a borrowed or opposing lane back into ego's own lane after a blockage, moving right into a deceleration or exit lane, and moving right toward the route-target lane. Right is relative to ego's own heading, not to the image. The same negative boundaries as the left line apply: a curved lane, an in-lane pass, a ramp that becomes the next lane without a boundary crossing, and another vehicle's lane change are all NO.""",
-}
-
-
-DOMAIN_DESCRIPTIONS: Dict[str, str] = {
-    DOMAIN_LONGITUDINAL: (
-        "This question set covers speed control only. No lane-change line is asked here; "
-        "unasked lateral actions remain unknown and must not be interpreted as NO."
-    ),
-    DOMAIN_MANEUVER: (
-        "This question set covers both speed control and a possible lane change, because the given "
-        "situation can require ego to leave or to re-enter a lane."
-    ),
+# 只压缩已知旧索引模板；未知在线历史原样保留，不补写未观察到的绕障状态。
+HISTORY_TEXT_COMPACT = {
+    "Earlier ego encountered a static blockage in its normal path. Check from the visible history whether it actually left that lane and whether recovery is still pending. Waiting for a gap does not end a pending recovery state.":
+        "Earlier blockage in ego's normal path; departure and recovery are not confirmed. Check RGB.",
+    "No static-obstacle bypass history is asserted. Use visible lane geometry and the current navigation requirement to distinguish a target lane change from lane keeping.":
+        "No bypass history is asserted.",
+    "Concurrent observed condition: another vehicle is violating the junction rule and entering ego's conflict path while ego should have priority.":
+        "Also reported: another vehicle enters ego's junction path against priority.",
+    "Concurrent observed condition: installed traffic signals have an established malfunction, so ego cannot rely on a red or green phase and must watch every approach.":
+        "Also reported: established traffic-signal malfunction.",
 }
 
 
@@ -248,18 +236,15 @@ def prompt_spec_to_json(spec: PromptSpec) -> Dict[str, object]:
 
 
 def _scene_context_block(spec: PromptSpec) -> str:
-    """渲染来自上游事实或常规候选步骤、需要与RGB核对的场景前提。"""
-
+    """仅提供可核查事实，不给建议动作；保留未确认历史的边界。"""
     context = CONTEXT_BY_ID[spec.context_id]
+    detail = HISTORY_TEXT_COMPACT.get(spec.context_detail, spec.context_detail)
+    history = f"\nHistory: {detail}" if detail else ""
     return (
         "[SCENE_CONTEXT]\n"
-        f"ROAD_STRUCTURE: The newest frame is on {ROAD_STRUCTURE_TEXT[spec.road_structure]}.\n"
-        f"SITUATION: The proposed current situation is that {context.situation_text}.\n"
-        f"SCOPE: {context.scope_text}\n"
-        f"OBSERVED_HISTORY: {spec.context_detail or 'No additional transition history is asserted.'}\n"
-        "This context is a premise, not a label to repeat. Check it against the RGB history: if the "
-        "visible road structure contradicts the stated ROAD_STRUCTURE or visible evidence clearly rules out the stated situation, the whole question set is invalid.\n"
-        "[/SCENE_CONTEXT]"
+        f"Proposed road: {ROAD_STRUCTURE_TEXT[spec.road_structure]}.\n"
+        f"Situation: {context.situation_text}. {context.scope_text}"
+        f"{history}\n[/SCENE_CONTEXT]"
     )
 
 
@@ -269,99 +254,33 @@ def build_action_prompt(
     audit: bool = False,
     history_rgb_mode: str = DEFAULT_HISTORY_RGB_MODE,
 ) -> str:
-    """构造单轮 high-level 动作 prompt。"""
-
+    """为小型 Qwen 保留必要合同，删除重复问法、流程和无关横向说明。"""
     mode = validate_history_rgb_mode(history_rgb_mode)
-    history = history_rgb_prompt_description(mode)
-    endpoint_notice = (
-        ""
-        if mode == HISTORY_RGB_MODE_ALL4
-        else " Only the first and fourth frames of the original four-frame history are visible; do not assume intermediate evidence exists."
-    )
     if spec is None:
         spec = make_prompt_spec(
-            variant="all_random_order",
-            answers={key: False for key in ANSWER_KEYS},
-            seed_key="default",
-            context_id="LEAD_BRAKE",
-            road_structure="R1",
+            variant="all_random_order", answers={key: False for key in ANSWER_KEYS},
+            seed_key="default", context_id="LEAD_BRAKE", road_structure="R1",
             goal_xy=(40.0, -2.0),
         )
-    action_defs = "\n\n".join(
-        ACTION_DEFINITIONS[key] for key in spec.output_keys if key in ACTION_DEFINITIONS
-    )
-    question_lines = "\n".join(
-        f"{idx}. {q.output_key}: {q.question}" for idx, q in enumerate(spec.questions, start=1)
-    )
+    speed = "unknown" if spec.current_speed_mps is None else f"{spec.current_speed_mps:.3f} m/s"
+    lane = "\n\n" + LANE_RULES if spec.question_domain == DOMAIN_MANEUVER else ""
+    output = "\n".join(f"{q.output_key}: <YES or NO>" for q in spec.questions)
     if audit:
-        answer_lines = "\n".join(f"{q.output_key}: <YES or NO>" for q in spec.questions)
-        evidence_lines = "\n".join(
-            f"EVIDENCE_{q.output_key}: <visible RGB or route-target cue; max 14 words>"
-            for q in spec.questions
-        )
-        output_lines = f"{answer_lines}\n{evidence_lines}"
-        audit_contract = f"""
-
-[AUDIT_EVIDENCE_CONTRACT]
-Every EVIDENCE line is mandatory and must contain a non-empty visible cue, including for a NO answer. For NO, state the visible absence or boundary, such as "lead gap steady, no braking cue"; never leave text after the colon blank. For {INVALID_KEY}, describe either the visible layout mismatch for YES or why the given situation remains visually plausible for NO. Keep every cue at 14 words or fewer.
-[/AUDIT_EVIDENCE_CONTRACT]"""
-    else:
-        output_lines = "\n".join(f"{q.output_key}: <YES or NO>" for q in spec.questions)
-        audit_contract = ""
-    output_label = "AUDIT_OUTPUT" if audit else "OUTPUT"
-
-    return f"""
-[PROMPT_NAME]
-{PROMPT_NAME}
-[/PROMPT_NAME]
-
-[VISUAL_CHECK_ORDER]
-Use the {history}. First read the given road structure and situation, then confirm from the newest frame that the visible layout can host that situation. Then read ego's own motion across the history: whether the lead gap is closing, whether ego is already braking or already stopped, and whether ego is still centred between the same two lane boundaries. Older frames only establish how the newest state developed. {ACTION_HORIZON_TEXT}{endpoint_notice}
-[/VISUAL_CHECK_ORDER]
+        output += "\n" + "\n".join(f"EVIDENCE_{q.output_key}: <cue>" for q in spec.questions)
+        output += "\nEach cue: 1-14 words; use 'unclear' when not observable. Never leave it blank."
+    return f"""RGB: {history_rgb_prompt_description(mode)}. Each image is left/front/right stitched views.
+Predict actual driving, not recommended driving. Only past RGB and current state are observed.
 
 {_scene_context_block(spec)}
-
-[CURRENT_EGO_STATE]
-Current measured speed: {"unknown" if spec.current_speed_mps is None else f"{spec.current_speed_mps:.3f} m/s"}. This is the newest-frame speed, not a future speed.
-[/CURRENT_EGO_STATE]
-
+Current speed: {speed}.
 {render_navigation_goal(spec.goal_xy)}
 
-[QUESTION_SCOPE]
-{DOMAIN_DESCRIPTIONS[spec.question_domain]}
-[/QUESTION_SCOPE]
+{SPEED_RULES}{lane}
 
-[QUESTIONS]
-{question_lines}
-[/QUESTIONS]
+INVALID_ACTION_CONTEXT: YES only if RGB clearly contradicts the proposed road or event; then all actions NO. Otherwise NO. Poor visibility, an occluded event, or no required action alone is not invalid. All actions NO is a valid prediction.
 
-[DECISION_RULES]
-{action_defs}
-
-DECISION ORDER:
-1. If the stated road structure is clearly wrong or the given situation is clearly contradicted by visible evidence, answer every action line NO and {INVALID_KEY}: YES.
-2. Otherwise keep {INVALID_KEY}: NO and judge every listed action line on its own.
-3. When no listed action is needed, answer every action line NO and keep {INVALID_KEY}: NO. Holding the current lane at the current speed is a normal, valid outcome, not an invalid context.
-
-LONGITUDINAL EXCLUSIVITY:
-{ACTION_KEYS[0]}, {ACTION_KEYS[1]} and {ACTION_KEYS[2]} describe the same speed decision at different levels, so at most one of them is YES. First apply STOP for a sustained near-stop within about one and a half seconds, including ego that is still waiting now even if it will pull away later. Do not replace current waiting with a later RESUME. Otherwise use the first meaningful speed change within about two seconds: slowdown means DECELERATE and a sustained speed gain means RESUME. An isolated acceleration pulse is insufficient for RESUME. Ignore brief near-zero flicker and ordinary speed noise. STOP and a lane-change YES can coexist because the speed and lane horizons differ; they do not request simultaneous stopping and lateral motion.
-
-LATERAL EVIDENCE BOUNDARY:
-A lane change means ego crosses a lane boundary into a neighbouring lane. Predict the FIRST crossing, even if ego later returns inside the same three-second window; the final lane is not the label. Steering input, a vehicle yaw offset, lane markings sweeping across the image, or the road bending are not lane-change evidence: on a curved lane ego keeps the same two lane boundaries and both lane lines stay NO. Do not turn another vehicle's cut-in, ego passing a stopped or slower vehicle inside its own lane, or a ramp that physically becomes the next lane into a lane change. Left and right are relative to ego's heading. When a lane change is required, exactly one side is YES.
-
-ROUTE TARGET USE:
-The route target offset says where the navigation goal lies relative to ego now, with negative y on ego's left and positive y on ego's right. It is the final destination, not the centre of the next required lane. Its sign cannot choose a lane-change side: a destination far to the left can still require returning right after bypassing an obstacle. Determine the immediate target lane from visible boundaries, the established bypass history and any available current navigation instruction. a target far ahead and slightly off centre is normal lane following, and a lane change still needs visible room and a visible boundary to cross.
-
-{INVALID_KEY}:
-Use {INVALID_KEY}: YES only for a clear mismatch between the given situation and the newest frame, for example a blocked-lane bypass situation on a clean open corridor with nothing blocking ego, a local-junction conflict situation on a continuous limited-access highway with no junction, or a ramp merge and exit situation on an ordinary local surface street with no ramp, merge or exit geometry. Night, fog, glare, occlusion, congestion, an ordinary queue, or simply needing no action are not invalid. When invalid is YES, every action line must be NO.
-[/DECISION_RULES]
-{audit_contract}
-
-[{output_label}]
-Output exactly these lines and nothing else:
-{output_lines}
-[/{output_label}]
-""".strip()
+Output these lines in order, with no extra text:
+{output}""".strip()
 
 
 def build_action_messages(

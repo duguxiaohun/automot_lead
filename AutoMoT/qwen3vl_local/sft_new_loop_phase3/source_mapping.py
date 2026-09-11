@@ -24,6 +24,7 @@ def mapping_contract_hash():
              Path(__file__).with_name("annotation_repair.py"),
              Path(__file__).with_name("annotation_repairs_20260910.json"),
              Path(__file__).with_name("development_route_groups_20260910.json"),
+             Path(__file__).with_name("development_route_groups_20260911.json"),
              Path(__file__).with_name("lateral_rgb_uncertainties_v1.jsonl"), ANSWER_TABLE, HIGHWAY_DECISIONS, REVIEW_DECISIONS, EVENT_ADDITIONS,
              Path(__file__).with_name('same_rs_invalid_review_v1.jsonl'),
              Path(__file__).with_name('development_route_groups_20260907.json'),

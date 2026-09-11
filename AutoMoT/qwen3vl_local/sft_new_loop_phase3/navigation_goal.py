@@ -40,24 +40,11 @@ def goal_sentence(goal_x: float, goal_y: float) -> str:
 
 
 def render_navigation_goal(goal: Optional[Tuple[float, float]]) -> str:
-    """渲染 prompt 中的 ``[NAVIGATION_GOAL]`` 块。"""
-
-    if goal is None:
-        return (
-            "[NAVIGATION_GOAL]\n"
-            "ROUTE_TARGET_XY: UNKNOWN\n"
-            "No route target offset is available for this moment; decide from the RGB history alone.\n"
-            "[/NAVIGATION_GOAL]"
-        )
-    goal_x, goal_y = float(goal[0]), float(goal[1])
+    """短导航事实；终点偏移不等于下一次变道方向。"""
+    xy = "UNKNOWN" if goal is None else f"(x={goal[0]:+.1f} m, y={goal[1]:+.1f} m)"
     return (
         "[NAVIGATION_GOAL]\n"
-        f"ROUTE_TARGET_XY: (x={goal_x:+.1f} m, y={goal_y:+.1f} m)\n"
-        "This offset is expressed in ego coordinates at the newest frame. x is the signed distance "
-        "straight ahead of ego, positive in front and negative behind. y is the signed lateral "
-        "distance, negative to ego's LEFT and positive to ego's RIGHT.\n"
-        f"{goal_sentence(goal_x, goal_y)}\n"
-        "Use this only as the navigation target of the route. It is not a label, it does not say "
-        "which lane is currently drivable, and it never replaces the visible RGB evidence.\n"
-        "[/NAVIGATION_GOAL]"
+        f"ROUTE_TARGET_XY: {xy}. Final destination, not the next lane. "
+        "Ego coordinates: x forward; y negative LEFT, positive RIGHT. "
+        "Its sign cannot choose a lane-change side.\n[/NAVIGATION_GOAL]"
     )

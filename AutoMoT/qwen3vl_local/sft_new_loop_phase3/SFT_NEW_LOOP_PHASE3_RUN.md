@@ -1,3 +1,6 @@
+> 2026-09-11：收到20260910四图结果：production 518/765，审计见 [AUDIT_SUMMARY_20260911.md](AUDIT_SUMMARY_20260911.md)。77例逐帧复核后，prompt改为v7 compact，默认新索引为v8；精确隔离、文本缩减及验证见 [EVAL_REVIEW_20260911.md](EVAL_REVIEW_20260911.md)。下方旧版本说明保留为历史；新版尚无训练成绩。
+> 本次v8重建test每类46题，完整配对评测请用 `CASES_PER_BIN=0 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh`；默认64会先补齐再去重，不能把呈现预算当独立题数。
+
 > 2026-09-10：当前默认数据为 v7，行为预测 prompt 与旧 adapter 不兼容；修复、重建及训练状态见 [REPAIR_20260910.md](REPAIR_20260910.md)。旧成绩不表示新模型验证。
 
 > 2026-09-07：当前规则已升级为 current_wait_first_crossing_v6，prompt为v5_current_phase，旧索引/adapter不兼容。最新修订、逐帧证据和运行方式见 [REPAIR_20260907.md](REPAIR_20260907.md)；下文v5动作规则及旧成绩属于历史。
