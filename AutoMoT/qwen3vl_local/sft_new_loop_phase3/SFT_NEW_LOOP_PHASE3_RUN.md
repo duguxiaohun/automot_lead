@@ -70,12 +70,23 @@ seed 稳定打乱；同一 case 可复现，换 case 的显示顺序会变化，
 | `DECELERATE` | 明显减速，但不满足优先的 STOP 条件 |
 | `STOP` | 达到或保持持续近停，包括继续停车等待 |
 | `RESUME` | 持续增速，不要求此前停过车 |
-| `LANE_CHANGE_LEFT` | 第一次跨越车道边界的方向为自车朝向的左侧 |
-| `LANE_CHANGE_RIGHT` | 第一次跨越车道边界的方向为自车朝向的右侧 |
+| `LANE_CHANGE_LEFT` | 最新帧之后第一次跨越车道边界，方向为自车朝向的左侧 |
+| `LANE_CHANGE_RIGHT` | 最新帧之后第一次跨越车道边界，方向为自车朝向的右侧 |
 
 时间窗和数值阈值仍由候选上方的统一规则限定。模型只输出冒号前的动作名称，例如
 `LANE_CHANGE_LEFT`，不能附带释义。释义进入 choice prompt hash；新训练使用此合同，
 此前不含释义的 choice adapter 与新提示词不兼容，binary 合同不受影响。
+
+例如纵向事件某次乱序后的候选是：
+
+```text
+- RESUME: Sustain a speed increase; a previous stop is not required.
+- STOP: Reach or remain at a sustained near-stop, including continued waiting.
+- DECELERATE: Reduce speed meaningfully without meeting the STOP condition.
+```
+
+若答案是继续停车等待，模型只输出 `STOP`。变道问题忽略输入历史中已经发生的跨线，
+并只预测未来窗口的第一次跨线，之后的归位不另选一次。
 
 全 NO、`INVALID_ACTION_CONTEXT=YES` 与多个动作同时 YES 的旧行不进入 choice：它们没有一个
 可以从标定真值推导出的唯一动作。过滤统计会写入 choice 的训练 manifest、eval metrics 与 case

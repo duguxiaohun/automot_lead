@@ -987,3 +987,5 @@ Phase3 choice 候选补充一句英文动作释义（`prompts.py::CHOICE_ACTION_
 说明减速与 STOP 的优先关系、STOP 包含继续等待、RESUME 不要求此前停车，左右跨线以自车朝向为准。
 只渲染所属三/五项，名称和释义一起乱序；阈值与时间窗保持原规则，target/parser 仍仅接受动作名称。
 释义由完整渲染自动进入 choice prompt hash，旧 choice adapter 不能与新提示词混用；binary hash 不变。
+横向释义明确从最新帧之后预测，规则排除输入历史中的跨线及首次跨线之后的归位；
+运行文档提供带释义的三选一示例，输出仍仅为动作名称。

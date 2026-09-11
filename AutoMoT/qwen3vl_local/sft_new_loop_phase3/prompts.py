@@ -75,8 +75,8 @@ CHOICE_ACTION_DESCRIPTIONS: Dict[str, str] = {
     "DECELERATE": "Reduce speed meaningfully without meeting the STOP condition.",
     "STOP": "Reach or remain at a sustained near-stop, including continued waiting.",
     "RESUME": "Sustain a speed increase; a previous stop is not required.",
-    "LANE_CHANGE_LEFT": "Make the first lane-boundary crossing to the left, relative to ego's heading.",
-    "LANE_CHANGE_RIGHT": "Make the first lane-boundary crossing to the right, relative to ego's heading.",
+    "LANE_CHANGE_LEFT": "Cross an ego lane boundary to the left after the newest frame, relative to ego's heading.",
+    "LANE_CHANGE_RIGHT": "Cross an ego lane boundary to the right after the newest frame, relative to ego's heading.",
 }
 
 SPEED_RULES = """Speed: next 2 seconds, at most one YES.
@@ -356,7 +356,8 @@ def build_action_prompt(
         )
         lane_rule = (
             "For lane options, use only the FIRST ego lane-boundary crossing within 3 seconds; "
-            "a curve, steering, or another vehicle changing lanes is not ego lane change."
+            "ignore crossings already in the input and later return crossings. "
+            "A curve, steering, or another vehicle changing lanes is not ego lane change."
             if spec.question_domain == DOMAIN_MANEUVER else ""
         )
         return f"""RGB: {history_rgb_prompt_description(mode)}. Each image is left/front/right stitched views.
