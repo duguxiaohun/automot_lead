@@ -14,6 +14,7 @@ ROOT = SCRIPTS.parents[1]
 DEFAULT_LABELS = "checkpoints/action_prior_labels/prior_labels.jsonl"
 STUB = """#!/usr/bin/env bash
 case "$1" in
+  */prepare_event_balance.py) echo "PREPARE $*" >&2; echo "/auto/full_event_mapping.jsonl"; exit 0 ;;
   */launch.py|*/build_prior_labels.py|*/build_dataset.py|*/resume.py|*/audit_bundle.py) echo "STUB $*"; exit 0 ;;
 esac
 exec {python} "$@"
@@ -328,3 +329,133 @@ def test_event_preflight_demo_forwards_mode_dataset_and_index(stub):
     assert value_of(tokens, "--data-dir") == "checkpoints/action_prior_data_event_v1"
     assert value_of(tokens, "--event-balance-index").endswith("full_event_mapping.jsonl")
     assert "--dataset-priors" in tokens
+
+
+@pytest.mark.parametrize("args,env_overrides", [
+    (["--event-balanced"], {}),
+    (["--sampling-mode=event_balanced"], {}),
+    ([], {"EVENT_BALANCED": "1"}),
+    (["--event-balanced-scene-priors"], {}),
+])
+def test_pipeline_auto_prepares_before_preflight_and_passes_map_to_eval(stub, tmp_path, args, env_overrides):
+    """验证真正 shell 顺序，所有昂贵入口使用桩；无需传 DATA_DIR 或索引路径。"""
+    out = tmp_path / "out"
+    run_dir = out / "run_demo"
+    run_dir.mkdir(parents=True)
+    (run_dir / "best.pt").write_bytes(b"stub")
+    labels = tmp_path / "labels.jsonl"
+    labels.write_text("{}\n")
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "run_full_pipeline.sh"), "--dataset-priors", *args],
+        cwd=ROOT, env=dict(stub, OUTPUT_DIR=str(out), RUN_TAG="demo", PRIOR_LABELS=str(labels), **env_overrides),
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "PREPARE" in result.stdout + result.stderr
+    calls = all_flags(result.stdout)
+    assert calls[0][1].endswith("build_dataset.py")
+    preflight = next(c for c in calls if len(c) > 2 and c[2] == "preflight")
+    training = next(c for c in calls if len(c) > 2 and c[2] == "train")
+    for tokens in (preflight, training):
+        assert value_of(tokens, "--event-balance-index") == "/auto/full_event_mapping.jsonl"
+        assert value_of(tokens, "--data-dir").endswith("action_prior_data/run_demo")
+    for mode in ("eval", "probe"):
+        tokens = next(c for c in calls if len(c) > 2 and c[2] == mode)
+        assert value_of(tokens, "--event-balance-index") == "/auto/full_event_mapping.jsonl"
+
+
+def test_pipeline_disable_skips_auto_preparation_and_preserves_custom_paths(stub, tmp_path):
+    out = tmp_path / "out"
+    (out / "run_demo").mkdir(parents=True)
+    (out / "run_demo" / "best.pt").write_bytes(b"stub")
+    labels = tmp_path / "labels.jsonl"
+    labels.write_text("{}\n")
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "run_full_pipeline.sh"), "--dataset-priors", "--no-event-balanced",
+         "--data-dir", str(tmp_path / "custom index"), "--data-root", str(tmp_path / "custom data")],
+        cwd=ROOT, env=dict(stub, OUTPUT_DIR=str(out), RUN_TAG="demo", PRIOR_LABELS=str(labels), EVENT_BALANCED="1"),
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "PREPARE" not in result.stdout + result.stderr
+    assert str(tmp_path / "custom index") in result.stdout
+    assert str(tmp_path / "custom data") in result.stdout
+    training = next(c for c in all_flags(result.stdout) if len(c) > 2 and c[2] == "train")
+    assert value_of(training, "--sampling-mode") == "uniform"
+    assert "--event-balance-index" not in training
+
+
+def test_pipeline_balanced_resume_does_not_rebuild_inputs(stub, tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "latest.pt").write_bytes(b"")
+    (run_dir / "best.pt").write_bytes(b"")
+    (run_dir / "config.json").write_text(json.dumps(dict(dataset_priors=True, sampling_mode="event_balanced")))
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "run_full_pipeline.sh")],
+        cwd=ROOT, env=dict(stub, RESUME=str(run_dir / "latest.pt"), OUTPUT_DIR=str(tmp_path / "out")),
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "PREPARE" not in result.stdout + result.stderr
+    assert "build_dataset.py" not in result.stdout
+    assert "--sampling-mode" not in all_flags(result.stdout)[0]
+
+
+@pytest.mark.parametrize("options,env_extra,prepared", [
+    (["--dataset-priors", "--event-balanced"], {}, True),
+    (["--dataset-priors", "--sampling-mode=event_balanced"], {}, True),
+    (["--dataset-priors"], {"EVENT_BALANCED": "1"}, True),
+    (["--dataset-priors", "--no-event-balanced"], {"EVENT_BALANCED": "1"}, False),
+    (["--dataset-priors", "--event-balanced-scene-priors"], {}, True),
+    (["--dataset-priors", "--no-event-balanced-scene-priors"], {"EVENT_BALANCED_SCENE_PRIORS": "1"}, False),
+])
+def test_pipeline_simple_switch_prepares_inputs_before_preflight_and_propagates_index(stub, tmp_path, options, env_extra, prepared):
+    """执行真实 shell，用桩边界验证一条命令的准备/训练/评测顺序。"""
+    out, data = tmp_path / "out", tmp_path / "my data"
+    run_dir = out / "run_simple"
+    run_dir.mkdir(parents=True)
+    (run_dir / "best.pt").write_bytes(b"stub")
+    labels = tmp_path / "labels.jsonl"
+    labels.write_text("{}")
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "run_full_pipeline.sh"), *options,
+         "--data-dir", str(data), "--data-root", str(tmp_path / "raw data"),
+         "--prior-labels", str(labels)],
+        cwd=ROOT, env=dict(stub, OUTPUT_DIR=str(out), RUN_TAG="simple", **env_extra),
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    calls = all_flags(result.stdout)
+    preflight = next(c for c in calls if len(c) > 2 and c[2] == "preflight")
+    training = next(c for c in calls if len(c) > 2 and c[2] == "train")
+    evaluations = [c for c in calls if len(c) > 2 and c[2] in ("eval", "probe")]
+    assert "--event-balanced" not in training  # alias 已翻译为 canonical sampling-mode
+    if prepared:
+        assert "PREPARE" in result.stdout + result.stderr
+        assert result.stdout.index("build_dataset.py") < result.stdout.index("launch.py preflight")
+        for call in (preflight, training, *evaluations):
+            assert value_of(call, "--event-balance-index") == "/auto/full_event_mapping.jsonl"
+    else:
+        assert "PREPARE" not in result.stdout + result.stderr
+        assert "--event-balance-index" not in training
+
+
+def test_pipeline_explicit_event_index_does_not_build_replacement(stub, tmp_path):
+    out = tmp_path / "out"
+    (out / "run_explicit").mkdir(parents=True)
+    (out / "run_explicit/best.pt").write_bytes(b"stub")
+    labels = tmp_path / "labels.jsonl"
+    labels.write_text("{}")
+    supplied = tmp_path / "supplied.jsonl"
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "run_full_pipeline.sh"), "--dataset-priors", "--event-balanced",
+         "--event-balance-index", str(supplied), "--prior-labels", str(labels)],
+        cwd=ROOT, env=dict(stub, OUTPUT_DIR=str(out), RUN_TAG="explicit", DATA_DIR=str(tmp_path / "data")),
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "PREPARE" not in result.stdout + result.stderr
+    for call in all_flags(result.stdout):
+        if len(call) > 2 and call[2] in ("train", "eval", "probe", "preflight"):
+            assert value_of(call, "--event-balance-index") == str(supplied)
