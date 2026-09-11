@@ -9,7 +9,7 @@
 # 索引搬迁时只覆盖路径（内容必须相同），无需再次传 EVENT_BALANCED：
 #   bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/latest/best.pt --event-balance-index checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl
 #   GPU_IDS=0 bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/action_prior/latest/best.pt --event-balance-index checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl
-# 新训练开关与构建步骤见 run.md「UE/特殊 RE 均衡课程」。
+# 新训练开关与构建步骤见 run.md。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

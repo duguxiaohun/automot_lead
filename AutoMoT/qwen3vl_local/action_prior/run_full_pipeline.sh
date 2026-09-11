@@ -1,21 +1,13 @@
 #!/usr/bin/env bash
-# 在 AutoMoT/ 下直接复制执行：
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh
+# 从 AutoMoT/ 目录运行，索引/标签缺失时自动构建，无需手写 DATA_DIR 或 EVENT_BALANCE_INDEX：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
-#   PRIOR_NOISE=0.1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
-#   GPU_IDS=0,1,2,3 PRIOR_NOISE=0.1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --prior-labels /自定义/prior_labels.jsonl
-# 不传开关：Phase1/Phase2 LoRA 逐帧问答作先验（冷启动 11 次生成）。
-# --dataset-priors：不加载 LoRA，用数据集标定真值，base 每帧只生成一次（默认不再复核）；
-# 只在使用默认路径且文件缺失时自动生成 checkpoints/action_prior_labels/prior_labels.jsonl。
-# PRIOR_NOISE=0.1：10% 的帧按审计错误方向把 RS 或 EVENT 先验改成错误值/invalid。
-# UE/特殊 RE 均衡采样（先按 run.md 构建 action index 和 v2 full map）：
-#   DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
-#   GPU_IDS=0,1,2,3 DATA_DIR=checkpoints/action_prior_data_event_v1 EVENT_BALANCED=1 EVENT_BALANCE_INDEX=checkpoints/action_prior_event_balance_v2/full_event_mapping.jsonl bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
-# 关闭采样开关：上面的命令追加 --sampling-mode uniform；恢复自然分布，保留 dataset-priors 选择。
-# 重复上限 EVENT_BALANCE_MAX_FRAME_REPEATS=8；自动 epoch 预算 EVENT_BALANCED_EPOCH_SAMPLES=0。
-# 可选 BEST_SELECTION_METRIC=event_balanced_ade 要求 val 全桶覆盖；默认 natural_ade。
-# 可选 EVENT_BALANCED_SCENE_PRIORS=1 只用于 dataset-priors + PRIOR_NOISE=0 的离线条件实验，闭环禁用。
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --prior-noise 0.1
+# 默认自动选卡；不传 --event-balanced 使用自然采样，--no-event-balanced 显式关闭。
+#   RESUME=checkpoints/action_prior/latest/latest.pt bash qwen3vl_local/action_prior/run_full_pipeline.sh
+#   bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/latest/tb
+# 常用说明见 run.md；可选审计见 AUDIT.md。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,38 +23,43 @@ explicit_event_balance_index=0
 [[ -z "${EVENT_BALANCE_INDEX+x}" ]] || explicit_event_balance_index=1
 EVENT_BALANCE_INDEX="${EVENT_BALANCE_INDEX:-}"
 ARGS=()
-want_labels=0
-want_event_balance_index=0
-event_balance_index_in_args=0
+sampling_mode=uniform
+if [[ "${EVENT_BALANCED:-0}" == 1 ]]; then sampling_mode=event_balanced; fi
+scene_priors="${EVENT_BALANCED_SCENE_PRIORS:-0}"
+sampling_explicit=0
 explicit_prior_source="$DATASET_PRIORS_ENV_SET"
-for item in "$@"; do
- if [[ "$want_labels" == 1 ]]; then
-  PRIOR_LABELS="$item"
-  explicit_labels=1
-  want_labels=0
-  continue
- fi
- if [[ "$want_event_balance_index" == 1 ]]; then
-  EVENT_BALANCE_INDEX="$item"
-  explicit_event_balance_index=1
-  ARGS+=(--event-balance-index "$item")
-  event_balance_index_in_args=1
-  want_event_balance_index=0
-  continue
- fi
- case "$item" in
+# 消费 pipeline 负责的选项，其余原样传给训练；CLI 优先于环境变量。
+while (( $# )); do
+ case "$1" in
   --dataset-priors) DATASET_PRIORS=1; explicit_prior_source=1 ;;
   --no-dataset-priors) DATASET_PRIORS=0; explicit_prior_source=1 ;;
-  # 自定义标签索引由本脚本统一转交 train.sh，避免出现两个 --prior-labels。
-  --prior-labels) want_labels=1 ;;
-  --prior-labels=*) PRIOR_LABELS="${item#*=}"; explicit_labels=1 ;;
-  --event-balance-index) want_event_balance_index=1 ;;
-  --event-balance-index=*) EVENT_BALANCE_INDEX="${item#*=}"; explicit_event_balance_index=1; event_balance_index_in_args=1; ARGS+=("$item") ;;
-  *) ARGS+=("$item") ;;
+  --event-balanced) sampling_mode=event_balanced; sampling_explicit=1 ;;
+  --no-event-balanced) sampling_mode=uniform; sampling_explicit=1 ;;
+  --sampling-mode|--data-dir|--data-root|--prior-labels|--event-balance-index)
+   flag="$1"
+   [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { echo "$flag needs a value" >&2; exit 2; }
+   value="$2"; shift
+   case "$flag" in
+    --sampling-mode) sampling_mode="$value"; sampling_explicit=1 ;;
+    --data-dir) DATA_DIR="$value"; ARGS+=(--data-dir "$value") ;;
+    --data-root) DATA_ROOT="$value"; ARGS+=(--data-root "$value") ;;
+    --prior-labels) PRIOR_LABELS="$value"; explicit_labels=1 ;;
+    --event-balance-index) EVENT_BALANCE_INDEX="$value"; explicit_event_balance_index=1 ;;
+   esac ;;
+  --sampling-mode=*) sampling_mode="${1#*=}"; sampling_explicit=1 ;;
+  --data-dir=*) DATA_DIR="${1#*=}"; ARGS+=("$1") ;;
+  --data-root=*) DATA_ROOT="${1#*=}"; ARGS+=("$1") ;;
+  --prior-labels=*) PRIOR_LABELS="${1#*=}"; explicit_labels=1 ;;
+  --event-balance-index=*) EVENT_BALANCE_INDEX="${1#*=}"; explicit_event_balance_index=1 ;;
+  --event-balanced-scene-priors) scene_priors=1; ARGS+=("$1") ;;
+  --no-event-balanced-scene-priors) scene_priors=0; ARGS+=("$1") ;;
+  *) ARGS+=("$1") ;;
  esac
+ shift
 done
-[[ "$want_labels" == 0 ]] || { echo "--prior-labels needs a path" >&2; exit 2; }
-[[ "$want_event_balance_index" == 0 ]] || { echo "--event-balance-index needs a path" >&2; exit 2; }
+[[ "$sampling_mode" == uniform || "$sampling_mode" == event_balanced ]] || { echo "invalid sampling mode: $sampling_mode" >&2; exit 2; }
+[[ "$sampling_explicit" == 0 ]] || ARGS+=(--sampling-mode "$sampling_mode")
+export EVENT_BALANCED_SCENE_PRIORS="$scene_priors"
 if [[ -n "${RESUME:-}" && "$explicit_prior_source" == 0 ]]; then
  RESUME_CONFIG="$(dirname -- "$RESUME")/config.json"
  if [[ -f "$RESUME_CONFIG" ]]; then
@@ -92,13 +89,26 @@ if [[ "$DATASET_PRIORS" == 1 ]]; then
 else
  echo "[prior source] phase1/phase2 LoRA inference"
 fi
+prepare_event_inputs() {
+ # 所有自动生成均在模型预检前完成；显式索引保留原内容并由训练预检校验。
+ if [[ "$sampling_mode" == event_balanced || "$scene_priors" == 1 ]]; then
+  if [[ ! -f "$DATA_DIR/manifest.json" || ! -f "$DATA_DIR/train.jsonl" || ! -f "$DATA_DIR/val.jsonl" || ! -f "$DATA_DIR/test.jsonl" ]]; then
+   python "$HERE/build_dataset.py" --data-root "$DATA_ROOT" --output-dir "$DATA_DIR"
+  fi
+  if [[ -z "$EVENT_BALANCE_INDEX" ]]; then
+   EVENT_BALANCE_INDEX="$(python "$HERE/prepare_event_balance.py" --data-root "$DATA_ROOT" --action-data-dir "$DATA_DIR")"
+  fi
+  export EVENT_BALANCE_INDEX
+  echo "[event balance index] $EVENT_BALANCE_INDEX"
+ fi
+}
 if [[ -n "${RESUME:-}" ]]; then
  # 标签索引搬家后旧 config.json 的路径已失效；显式路径必须继续传给续训入口。
  RESUME_ARGS=("${ARGS[@]+"${ARGS[@]}"}")
  if [[ "$DATASET_PRIORS" == 1 && "$explicit_labels" != 0 ]]; then
   RESUME_ARGS+=(--prior-labels "$PRIOR_LABELS")
  fi
- if [[ "$explicit_event_balance_index" != 0 && "$event_balance_index_in_args" == 0 ]]; then
+ if [[ "$explicit_event_balance_index" != 0 ]]; then
   RESUME_ARGS+=(--event-balance-index "$EVENT_BALANCE_INDEX")
  fi
  bash "$HERE/resume.sh" "$RESUME" "${RESUME_ARGS[@]+"${RESUME_ARGS[@]}"}"
@@ -109,8 +119,12 @@ elif [[ "$DATASET_PRIORS" == 1 ]]; then
    echo "[prior labels missing] $PRIOR_LABELS: build it explicitly with build_prior_labels.py --output-dir $(dirname -- "$PRIOR_LABELS")" >&2
    exit 2
   fi
+  if [[ ! -f checkpoints/sft_new_loop_phase1_data/frame_index.jsonl ]]; then
+   python "$HERE/../sft_new_loop_phase1/build_dataset.py" --data-root "$DATA_ROOT" --output-dir checkpoints/sft_new_loop_phase1_data
+  fi
   python "$HERE/build_prior_labels.py" --output-dir "$(dirname -- "$PRIOR_LABELS")"
  fi
+ prepare_event_inputs
  ACTION_MODE=preflight bash "$HERE/train.sh" --models-only "${ARGS[@]+"${ARGS[@]}"}"
  if [[ ! -f "$DATA_DIR/manifest.json" ]]; then
   python "$HERE/build_dataset.py" --data-root "$DATA_ROOT" --output-dir "$DATA_DIR"
@@ -119,6 +133,7 @@ elif [[ "$DATASET_PRIORS" == 1 ]]; then
 else
  # 先核验权重和 prompt 合同，缺权重时不先构建全量索引。
  SELECTION_FILE="$OUTPUT_DIR/selection_${RUN_TAG}.json"
+ prepare_event_inputs
  ACTION_MODE=preflight bash "$HERE/train.sh" --models-only --selection-output "$SELECTION_FILE" "${ARGS[@]+"${ARGS[@]}"}"
  if [[ ! -f "$DATA_DIR/manifest.json" ]]; then
   python "$HERE/build_dataset.py" --data-root "$DATA_ROOT" --output-dir "$DATA_DIR"
@@ -136,7 +151,7 @@ EVAL_ARGS=()
 if [[ "$DATASET_PRIORS" == 1 && "$explicit_labels" != 0 ]]; then
  EVAL_ARGS+=(--prior-labels "$PRIOR_LABELS")
 fi
-if [[ "$explicit_event_balance_index" != 0 ]]; then
+if [[ -n "$EVENT_BALANCE_INDEX" ]]; then
  EVAL_ARGS+=(--event-balance-index "$EVENT_BALANCE_INDEX")
 fi
 bash "$HERE/eval.sh" --checkpoint "$RUN_DIR/best.pt" --split test --output-dir "$RUN_DIR/test" "${EVAL_ARGS[@]+"${EVAL_ARGS[@]}"}"
