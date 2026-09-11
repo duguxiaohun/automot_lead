@@ -5,6 +5,7 @@
 #   ADAPTER_DIR=checkpoints/sft_new_loop_phase3_runs/latest bash qwen3vl_local/sft_new_loop_phase3/eval.sh
 # 或：
 #   bash qwen3vl_local/sft_new_loop_phase3/eval.sh checkpoints/sft_new_loop_phase3_runs/latest/final
+# choice adapter 示例：CASES_PER_BIN=0 bash qwen3vl_local/sft_new_loop_phase3/eval.sh <run-or-adapter>
 
 set -euo pipefail
 
@@ -36,7 +37,9 @@ AUDIT_PER_TARGET="${AUDIT_PER_TARGET:-8}"
 RUN_BASE_EVAL="${RUN_BASE_EVAL:-1}"
 RUN_VISUAL_AUDIT="${RUN_VISUAL_AUDIT:-1}"
 SCAN_VISUAL_RISKS="${SCAN_VISUAL_RISKS:-0}"
-RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL:-1}"
+# choice 的 audit prompt 与 production 完全相同，默认不重复生成；binary 保留原 audit。
+# 显式设为 0 或 1 可以覆盖 auto。
+RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL:-auto}"
 TIMESTAMP="${TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-checkpoints/sft_new_loop_phase3_eval_review/${TIMESTAMP}}"
 ADAPTER_INPUT="${ADAPTER_DIR:-${CKPT_DIR:-${1:-}}}"
@@ -76,7 +79,17 @@ print(str(config["history_rgb_mode"]))
 PY
 }
 
+read_adapter_action_output_mode() {
+  python - "$1" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1]) / "sft_new_loop_phase3_adapter_config.json"
+config = json.loads(path.read_text(encoding="utf-8"))
+print(str(config.get("action_output_mode", "binary")))
+PY
+}
+
 BASE_HISTORY_RGB_MODE="$(read_adapter_history_rgb_mode "${ADAPTER_DIR}")"
+BASE_ACTION_OUTPUT_MODE="$(read_adapter_action_output_mode "${ADAPTER_DIR}")"
 case "${BASE_HISTORY_RGB_MODE}" in
   4rgb|2rgb_endpoints) ;;
   *)
@@ -84,12 +97,34 @@ case "${BASE_HISTORY_RGB_MODE}" in
     exit 2
     ;;
 esac
-BUNDLE_BASENAME="${BUNDLE_BASENAME:-${PHASE_NAME}_${TIMESTAMP}_${BASE_HISTORY_RGB_MODE}_audit_bundle}"
+case "${BASE_ACTION_OUTPUT_MODE}" in
+  binary|choice) ;;
+  *)
+    echo "Unknown adapter action_output_mode=${BASE_ACTION_OUTPUT_MODE}." >&2
+    exit 2
+    ;;
+esac
+case "${RUN_AUDIT_PROMPT_EVAL}" in
+  auto)
+    if [[ "${BASE_ACTION_OUTPUT_MODE}" == "choice" ]]; then
+      RUN_AUDIT_PROMPT_EVAL=0
+    else
+      RUN_AUDIT_PROMPT_EVAL=1
+    fi
+    ;;
+  0|1) ;;
+  *)
+    echo "Unknown RUN_AUDIT_PROMPT_EVAL=${RUN_AUDIT_PROMPT_EVAL}. Use auto, 0, or 1." >&2
+    exit 2
+    ;;
+esac
+BUNDLE_BASENAME="${BUNDLE_BASENAME:-${PHASE_NAME}_${TIMESTAMP}_${BASE_HISTORY_RGB_MODE}_${BASE_ACTION_OUTPUT_MODE}_audit_bundle}"
 
 COMMON_ARGS=(
   --index "${INDEX}"
   --data-root "${DATA_ROOT}"
   --model-dir "${MODEL_DIR}"
+  --action-output-mode "${BASE_ACTION_OUTPUT_MODE}"
   --split "${SPLIT}"
   --cases-per-bin "${CASES_PER_BIN}"
   --max-frames "${MAX_EVAL_FRAMES}"
@@ -176,7 +211,7 @@ build_bundle() {
   ADAPTER_INPUT="${ADAPTER_INPUT}" ADAPTER_CONFIG_NAME="${ADAPTER_CONFIG_NAME}" \
   BUNDLE_MAX_MB="${BUNDLE_MAX_MB}" BUNDLE_BASENAME="${BUNDLE_BASENAME}" \
   TIMESTAMP="${TIMESTAMP}" MODEL_DIR="${MODEL_DIR}" INDEX="${INDEX}" SPLIT="${SPLIT}" \
-  HISTORY_RGB_MODE="${BASE_HISTORY_RGB_MODE}" EVAL_SCRIPT="${EVAL_PY}" \
+  HISTORY_RGB_MODE="${BASE_HISTORY_RGB_MODE}" ACTION_OUTPUT_MODE="${BASE_ACTION_OUTPUT_MODE}" EVAL_SCRIPT="${EVAL_PY}" \
   RUN_BASE_EVAL="${RUN_BASE_EVAL}" RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL}" \
   RUN_VISUAL_AUDIT="${RUN_VISUAL_AUDIT}" python - <<'PY'
 import datetime
@@ -284,6 +319,7 @@ def adapter_identity() -> dict:
         "global_step": cfg.get("global_step"),
         "base_model_dir": cfg.get("base_model_dir"),
         "history_rgb_mode": history_mode,
+        "action_output_mode": cfg.get("action_output_mode", "binary"),
         "history_rgb_count": cfg.get("history_rgb_count") or (len(selected_indices) if selected_indices else None),
         "history_rgb_selected_indices": selected_indices,
     }
@@ -299,6 +335,7 @@ def eval_identity() -> dict:
         "adapter_dir_resolve_source",
         "adapter_production_prompt_sha256",
         "history_rgb_mode",
+        "action_output_mode",
         "exact_match_accuracy",
         "total_cases",
     )
@@ -317,6 +354,16 @@ def eval_identity() -> dict:
     if mismatched_modes:
         raise SystemExit(
             f"refuse mixed-RGB-mode Phase3 bundle: expected={expected_mode} got={mismatched_modes}"
+        )
+    expected_action_mode = os.environ.get("ACTION_OUTPUT_MODE", "")
+    mismatched_action_modes = {
+        name: item.get("action_output_mode")
+        for name, item in per_eval.items()
+        if item.get("action_output_mode") != expected_action_mode
+    }
+    if mismatched_action_modes:
+        raise SystemExit(
+            f"refuse mixed-output-mode Phase3 bundle: expected={expected_action_mode} got={mismatched_action_modes}"
         )
     prompt_names = sorted({str(item["prompt_name"]) for item in per_eval.values() if item.get("prompt_name")})
     production_hashes = sorted({str(item["production_prompt_sha256"]) for item in per_eval.values() if item.get("production_prompt_sha256")})
@@ -342,6 +389,7 @@ def bundle_identity() -> dict:
         "index": os.environ.get("INDEX", ""),
         "split": os.environ.get("SPLIT", ""),
         "history_rgb_mode": os.environ.get("HISTORY_RGB_MODE", ""),
+        "action_output_mode": os.environ.get("ACTION_OUTPUT_MODE", ""),
         "prompt_name": eval_meta.get("prompt_name") or adapter.get("prompt_name"),
         "production_prompt_sha256": eval_meta.get("production_prompt_sha256") or adapter.get("production_prompt_sha256"),
         "adapter": adapter,
@@ -538,7 +586,7 @@ print(json.dumps({"archive": str(archive), "bundle_dir": str(bundle), "bytes": f
 PY
 }
 
-echo "[phase3-eval] adapter=${ADAPTER_DIR} history_rgb_mode=${BASE_HISTORY_RGB_MODE} gpus=${GPU_IDS} output=${OUTPUT_ROOT}"
+echo "[phase3-eval] adapter=${ADAPTER_DIR} history_rgb_mode=${BASE_HISTORY_RGB_MODE} action_output_mode=${BASE_ACTION_OUTPUT_MODE} gpus=${GPU_IDS} output=${OUTPUT_ROOT}"
 
 if [[ "${RUN_VISUAL_AUDIT}" == "1" ]]; then
   VISUAL_ARGS=(--output "${OUTPUT_ROOT}/visual_audit_manifest.json")

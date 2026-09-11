@@ -6,6 +6,7 @@
 #   GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase3/train.sh single
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase3/train.sh ddp
 # 默认使用四帧；HISTORY_RGB_MODE=2rgb_endpoints 时只喂第 1 帧和第 4 帧。
+# ACTION_OUTPUT_MODE=choice 时，每个事件只输出其事件域候选中的一个完整动作词组；需重新训练。
 # 不传模式时默认四卡 DDP；需要单卡 smoke 时显式传 single 或 check。
 
 set -euo pipefail
@@ -28,6 +29,7 @@ MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v8/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-4rgb}"
+ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE:-binary}"
 case "${HISTORY_RGB_MODE}" in
   4rgb|2rgb_endpoints) HISTORY_RGB_TAG="${HISTORY_RGB_MODE}" ;;
   *)
@@ -35,9 +37,16 @@ case "${HISTORY_RGB_MODE}" in
     exit 1
     ;;
 esac
+case "${ACTION_OUTPUT_MODE}" in
+  binary|choice) ;;
+  *)
+    echo "Unknown ACTION_OUTPUT_MODE=${ACTION_OUTPUT_MODE}. Use binary or choice." >&2
+    exit 1
+    ;;
+esac
 OUTPUT_DIR_BASE="checkpoints/sft_new_loop_phase3_runs"
-FINAL_RUN_NAME="run_high_level_action_${HISTORY_RGB_TAG}"
-CHECK_RUN_NAME="check_high_level_action_${HISTORY_RGB_TAG}"
+FINAL_RUN_NAME="run_high_level_action_${HISTORY_RGB_TAG}_${ACTION_OUTPUT_MODE}"
+CHECK_RUN_NAME="check_high_level_action_${HISTORY_RGB_TAG}_${ACTION_OUTPUT_MODE}"
 RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 FINAL_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${FINAL_RUN_NAME}/${RUN_TIMESTAMP}"
 CHECK_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${CHECK_RUN_NAME}/${RUN_TIMESTAMP}"
@@ -138,6 +147,7 @@ COMMON_ARGS=(
   --data-root "${DATA_ROOT}"
   --output-dir "${OUTPUT_DIR}"
   --history-rgb-mode "${HISTORY_RGB_MODE}"
+  --action-output-mode "${ACTION_OUTPUT_MODE}"
   --ddp-timeout-seconds "${DDP_TIMEOUT_SECONDS:-3600}"
   --num-epochs "${NUM_EPOCHS:-3}"
   --max-frames "${MAX_FRAMES:-0}"
@@ -200,7 +210,7 @@ else
   COMMON_ARGS+=(--save-final)
 fi
 
-echo "[phase3-train] mode=${MODE} gpus=${CUDA_VISIBLE_DEVICES:-unset} nproc=${NPROC} output=${OUTPUT_DIR}"
+echo "[phase3-train] mode=${MODE} output_mode=${ACTION_OUTPUT_MODE} gpus=${CUDA_VISIBLE_DEVICES:-unset} nproc=${NPROC} output=${OUTPUT_DIR}"
 if [[ "${MODE}" == "ddp" && "${NPROC}" -gt 1 ]]; then
   torchrun --nproc_per_node="${NPROC}" \
     --master_addr="${MASTER_ADDR}" --master_port="${MASTER_PORT}" \

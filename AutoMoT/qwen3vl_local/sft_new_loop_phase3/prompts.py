@@ -1,4 +1,4 @@
-"""新 Phase3 的单轮 high-level ACTION YES/NO prompt、目标渲染与严格解析。
+"""新 Phase3 的单轮 high-level ACTION prompt、目标渲染与严格解析。
 
 输入合同：一个 system turn + 一个 user turn。user turn 里包含
 四帧（或两端点）拼接 RGB history、由 Phase1/Phase2 或常规候选步骤提出的场景上下文文本、
@@ -66,6 +66,18 @@ GROUP_DEFINITIONS: Dict[str, Tuple[str, str, str, set]] = {}
 
 # 规则只说一次；不把安全建议混入采集行为预测，详见 20260911 RGB 审计。
 SYSTEM_PROMPT = "Predict the recorded ego vehicle's next actions. Follow the requested YES/NO format."
+CHOICE_SYSTEM_PROMPT = "Predict the recorded ego vehicle's next action. Output one listed high-level action only."
+ACTION_OUTPUT_MODES = ("binary", "choice")
+CHOICE_OUTPUT_KEY = "ACTION_CHOICE"
+
+# 候选释义只解释动作含义；时间窗和阈值由下方共用规则限定，不暗示该帧真值。
+CHOICE_ACTION_DESCRIPTIONS: Dict[str, str] = {
+    "DECELERATE": "Reduce speed meaningfully without meeting the STOP condition.",
+    "STOP": "Reach or remain at a sustained near-stop, including continued waiting.",
+    "RESUME": "Sustain a speed increase; a previous stop is not required.",
+    "LANE_CHANGE_LEFT": "Make the first lane-boundary crossing to the left, relative to ego's heading.",
+    "LANE_CHANGE_RIGHT": "Make the first lane-boundary crossing to the right, relative to ego's heading.",
+}
 
 SPEED_RULES = """Speed: next 2 seconds, at most one YES.
 STOP: two consecutive 4-Hz samples at or below 0.5 m/s within 1.5 seconds. Include the current sample: still waiting at the next sample counts, even if ego accelerates later. STOP takes priority.
@@ -110,6 +122,7 @@ class PromptSpec:
     question_domain: str
     road_structure: str
     invalid_context: bool
+    action_output_mode: str = "binary"
     context_detail: str = ""
     goal_xy: Optional[Tuple[float, float]] = None
     current_speed_mps: Optional[float] = None
@@ -119,6 +132,12 @@ class PromptSpec:
         """返回严格输出行顺序。"""
 
         return tuple(q.output_key for q in self.questions)
+
+    @property
+    def target_output_keys(self) -> Tuple[str, ...]:
+        """返回实际文本 target 的行键；choice 把多个语义标签压成一个动作词组。"""
+
+        return (CHOICE_OUTPUT_KEY,) if self.action_output_mode == "choice" else self.output_keys
 
 
 ACTION_QUESTIONS: Dict[str, str] = {
@@ -163,6 +182,63 @@ def action_keys_for_domain(question_domain: str) -> Tuple[str, ...]:
     return DOMAIN_ACTION_KEYS.get(str(question_domain), ACTION_KEYS)
 
 
+def validate_action_output_mode(mode: str) -> str:
+    """校验二值逐题或事件条件选择题输出合同。"""
+
+    value = str(mode).strip().lower()
+    if value not in ACTION_OUTPUT_MODES:
+        raise ValueError(f"unknown action output mode {mode!r}; expected one of {ACTION_OUTPUT_MODES}")
+    return value
+
+
+def choice_options(spec: PromptSpec) -> Tuple[str, ...]:
+    """返回当前 context 的随机顺序三/五个 high-level 动作词组。
+
+    choice 不另加 ``NONE``、invalid 或组合动作：它严格等于 context_taxonomy.py
+    定义的三选一/五选一。顺序仅由 case seed 稳定决定；目标动作词组本身不变。
+    全 NO、invalid、多动作标签由训练/评测采样层显式排除。
+    """
+
+    keys = [question.output_key for question in spec.questions if question.output_key != INVALID_KEY]
+    _stable_rng("phase3_choice_option_order", spec.seed_key, spec.context_id).shuffle(keys)
+    return tuple(keys)
+
+
+def choice_action_for_answers(spec: PromptSpec) -> Optional[str]:
+    """返回唯一正 high-level 动作；不可表示标签返回 None，交给采样层剔除。"""
+
+    if bool(spec.invalid_context):
+        return None
+    answers = spec_answers(spec)
+    positive = [key for key in spec.output_keys if key != INVALID_KEY and bool(answers[key])]
+    return positive[0] if len(positive) == 1 else None
+
+
+def choice_rejection_reason(spec: PromptSpec) -> Optional[str]:
+    """说明为何旧多标签行不能进入严格 high-level 单选数据。"""
+
+    if bool(spec.invalid_context):
+        return "invalid_context"
+    positives = sum(bool(value) for key, value in spec_answers(spec).items() if key != INVALID_KEY)
+    if positives == 0:
+        return "no_high_level_action"
+    if positives > 1:
+        return "multiple_high_level_actions"
+    return None
+
+
+def choice_target_action(spec: PromptSpec) -> str:
+    """返回唯一正 high-level 动作词组，作为 choice 的完整监督文本。"""
+
+    action = choice_action_for_answers(spec)
+    if action in choice_options(spec):
+        return str(action)
+    raise ValueError(
+        "choice mode requires exactly one positive context action and INVALID_ACTION_CONTEXT=NO: "
+        f"context={spec.context_id} answers={spec_answers(spec)}"
+    )
+
+
 def make_prompt_spec(
     *,
     variant: str,
@@ -177,12 +253,14 @@ def make_prompt_spec(
     subset_count: int = 1,
     group_id: str = "",
     detail_key: str = "",
+    action_output_mode: str = "binary",
 ) -> PromptSpec:
     """按上下文构造一次 high-level 动作提问。"""
 
     del focus, subset_count, group_id, detail_key
     if str(variant) != "all_random_order":
         raise ValueError(f"unknown phase3 action variant: {variant}")
+    output_mode = validate_action_output_mode(action_output_mode)
     context = CONTEXT_BY_ID.get(str(context_id))
     if context is None:
         raise ValueError(f"unknown phase3 action context: {context_id!r}")
@@ -202,6 +280,7 @@ def make_prompt_spec(
         question_domain=context.question_domain,
         road_structure=str(road_structure),
         invalid_context=bool(answers.get(INVALID_KEY, False)),
+        action_output_mode=output_mode,
         goal_xy=goal,
         context_detail=str(context_detail),
         current_speed_mps=current_speed_mps,
@@ -219,9 +298,16 @@ def prompt_spec_to_json(spec: PromptSpec) -> Dict[str, object]:
         "question_domain": spec.question_domain,
         "road_structure": spec.road_structure,
         "invalid_context": bool(spec.invalid_context),
+        "action_output_mode": spec.action_output_mode,
         "current_speed_mps": spec.current_speed_mps,
         "goal_xy": list(spec.goal_xy) if spec.goal_xy is not None else None,
         "output_keys": list(spec.output_keys),
+        "target_output_keys": list(spec.target_output_keys),
+        "choice_options": list(choice_options(spec)) if spec.action_output_mode == "choice" else [],
+        "choice_target_action": (
+            choice_target_action(spec)
+            if spec.action_output_mode == "choice" and choice_action_for_answers(spec) is not None else None
+        ),
         "questions": [
             {
                 "output_key": q.output_key,
@@ -263,6 +349,31 @@ def build_action_prompt(
             goal_xy=(40.0, -2.0),
         )
     speed = "unknown" if spec.current_speed_mps is None else f"{spec.current_speed_mps:.3f} m/s"
+    output_mode = validate_action_output_mode(spec.action_output_mode)
+    if output_mode == "choice":
+        options = "\n".join(
+            f"- {action}: {CHOICE_ACTION_DESCRIPTIONS[action]}" for action in choice_options(spec)
+        )
+        lane_rule = (
+            "For lane options, use only the FIRST ego lane-boundary crossing within 3 seconds; "
+            "a curve, steering, or another vehicle changing lanes is not ego lane change."
+            if spec.question_domain == DOMAIN_MANEUVER else ""
+        )
+        return f"""RGB: {history_rgb_prompt_description(mode)}. Each image is left/front/right stitched views.
+Predict actual driving, not recommended driving. Only past RGB and current state are observed.
+
+{_scene_context_block(spec)}
+Current speed: {speed}.
+{render_navigation_goal(spec.goal_xy)}
+
+Choose exactly one listed high-level action. Speed rules: predict the first qualifying change in the next 2 seconds. STOP means two consecutive 4-Hz samples at or below 0.5 m/s within 1.5 seconds, including the current sample; STOP has priority. Otherwise DECELERATE needs a drop of at least max(1.2 m/s,20%) from current speed. RESUME needs that size gain for two consecutive samples; an isolated gain is insufficient. A stop beyond 1.5 seconds does not cancel DECELERATE.
+{lane_rule}
+
+Choices:
+{options}
+
+Output exactly one listed action phrase (the name before ':'), with no description or extra text:
+<ACTION_NAME>""".strip()
     lane = "\n\n" + LANE_RULES if spec.question_domain == DOMAIN_MANEUVER else ""
     output = "\n".join(f"{q.output_key}: <YES or NO>" for q in spec.questions)
     if audit:
@@ -301,7 +412,7 @@ def build_action_messages(
         }
     )
     messages: List[Dict[str, object]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": CHOICE_SYSTEM_PROMPT if spec.action_output_mode == "choice" else SYSTEM_PROMPT},
         {"role": "user", "content": content},
     ]
     if target is not None:
@@ -310,14 +421,19 @@ def build_action_messages(
 
 
 def build_action_target(spec: PromptSpec) -> str:
-    """渲染严格的 YES/NO target。"""
+    """渲染严格的 YES/NO 或选择题 target。"""
 
+    if spec.action_output_mode == "choice":
+        return choice_target_action(spec)
     return "\n".join(f"{q.output_key}: {'YES' if bool(q.answer) else 'NO'}" for q in spec.questions)
 
 
-def action_prompt_sha256(*, audit: bool = False, history_rgb_mode: str = DEFAULT_HISTORY_RGB_MODE) -> str:
+def action_prompt_sha256(
+    *, audit: bool = False, history_rgb_mode: str = DEFAULT_HISTORY_RGB_MODE, action_output_mode: str = "binary"
+) -> str:
     """返回完整 prompt 表面的指纹，任何措辞/顺序变化都会改变它。"""
 
+    output_mode = validate_action_output_mode(action_output_mode)
     parts: List[str] = [
         json.dumps(
             {
@@ -334,6 +450,18 @@ def action_prompt_sha256(*, audit: bool = False, history_rgb_mode: str = DEFAULT
             separators=(",", ":"),
         )
     ]
+    # binary 的序列化保持旧指纹，便于加载既有 YES/NO adapter；choice 自身另行绑定模式。
+    if output_mode != "binary":
+        parts.append(json.dumps(
+            {
+                "action_output_mode": output_mode,
+                "choice_output_key": CHOICE_OUTPUT_KEY,
+                "choice_system_prompt": CHOICE_SYSTEM_PROMPT,
+                "choice_target_format": "one high-level action phrase",
+                "choice_option_order": "stable seed shuffle",
+            },
+            sort_keys=True,
+        ))
     dummy = {key: False for key in ANSWER_KEYS}
     for context_id in CONTEXT_IDS:
         context = CONTEXT_BY_ID[context_id]
@@ -347,6 +475,7 @@ def action_prompt_sha256(*, audit: bool = False, history_rgb_mode: str = DEFAULT
                     road_structure=road_structure,
                     goal_xy=goal,
                     current_speed_mps=8.125,
+                    action_output_mode=output_mode,
                 )
                 parts.append(build_action_prompt(spec=spec, audit=audit, history_rgb_mode=history_rgb_mode))
     for domain, keys in sorted(DOMAIN_ACTION_KEYS.items()):
@@ -361,6 +490,13 @@ def parse_action_answer_lines(text: str, *, spec: PromptSpec) -> Dict[str, Optio
 
     invalid: Dict[str, Optional[bool]] = {q.output_key: None for q in spec.questions}
     lines = (text or "").strip().splitlines()
+    if spec.action_output_mode == "choice":
+        if not lines:
+            return invalid
+        action = lines[0]
+        if action not in choice_options(spec):
+            return invalid
+        return {key: (key == action) if key != INVALID_KEY else False for key in invalid}
     answer_count = len(spec.questions)
     if len(lines) < answer_count:
         return invalid
@@ -383,8 +519,8 @@ def parse_action_output(
 
     invalid: Dict[str, Optional[bool]] = {q.output_key: None for q in spec.questions}
     lines = (text or "").strip().splitlines()
-    answer_count = len(spec.questions)
-    expected_count = answer_count * (2 if audit else 1)
+    answer_count = 1 if spec.action_output_mode == "choice" else len(spec.questions)
+    expected_count = 1 if spec.action_output_mode == "choice" else answer_count * (2 if audit else 1)
     if len(lines) != expected_count:
         return invalid
 
@@ -392,6 +528,9 @@ def parse_action_output(
     if any(value is None for value in parsed.values()):
         return invalid
 
+    if audit and spec.action_output_mode == "choice":
+        # 单选输出合同严格只允许一个动作词组；audit 复用 production prompt 和 parser。
+        return parsed
     if audit:
         for line, question in zip(lines[answer_count:], spec.questions):
             prefix = f"EVIDENCE_{question.output_key}: "

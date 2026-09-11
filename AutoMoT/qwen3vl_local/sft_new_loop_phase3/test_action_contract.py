@@ -13,6 +13,7 @@ from __future__ import annotations
 import pathlib
 import random
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -48,6 +49,8 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     action_prompt_sha256,
     build_action_prompt,
     build_action_target,
+    choice_rejection_reason,
+    choice_options,
     make_prompt_spec,
     parse_action_output,
     spec_answers,
@@ -382,6 +385,124 @@ def test_target_and_strict_parser_round_trip() -> None:
     assert parsed == spec_answers(spec)
 
 
+def test_choice_longitudinal_contract_is_exactly_three_actions() -> None:
+    """纵向事件严格只列 context 所属的三个 high-level 动作。"""
+
+    stop_spec = make_prompt_spec(
+        variant="all_random_order", answers={**_no_answers(), "STOP": True}, seed_key="choice-stop",
+        context_id="LEAD_BRAKE", road_structure="R1", goal_xy=(42.0, -3.0), action_output_mode="choice",
+    )
+    assert len(choice_options(stop_spec)) == 3
+    assert set(choice_options(stop_spec)) == {"DECELERATE", "STOP", "RESUME"}
+    target = build_action_target(stop_spec)
+    assert target == "STOP"
+    assert parse_action_output(target, spec=stop_spec) == spec_answers(stop_spec)
+    assert "Output exactly one listed action phrase" in build_action_prompt(spec=stop_spec)
+    assert "DECELERATE: <YES or NO>" not in build_action_prompt(spec=stop_spec)
+
+    none_spec = make_prompt_spec(
+        variant="all_random_order", answers=_no_answers(), seed_key="choice-none",
+        context_id="DYNAMIC_CUTIN", road_structure="R1", action_output_mode="choice",
+    )
+    invalid_spec = make_prompt_spec(
+        variant="all_random_order", answers={**_no_answers(), INVALID_KEY: True}, seed_key="choice-invalid",
+        context_id="DYNAMIC_CUTIN", road_structure="R1", action_output_mode="choice",
+    )
+    assert choice_rejection_reason(none_spec) == "no_high_level_action"
+    assert choice_rejection_reason(invalid_spec) == "invalid_context"
+    with pytest.raises(ValueError, match="exactly one positive"):
+        build_action_target(none_spec)
+    with pytest.raises(ValueError, match="exactly one positive"):
+        build_action_target(invalid_spec)
+
+
+def test_choice_maneuver_is_exactly_five_actions_and_rejects_combinations() -> None:
+    """机动事件只给五个 high-level 动作，组合标签必须显式剔除。"""
+
+    spec = make_prompt_spec(
+        variant="all_random_order",
+        answers={**_no_answers(), "DECELERATE": True, "LANE_CHANGE_LEFT": True},
+        seed_key="choice-maneuver", context_id="STATIC_BLOCKAGE", road_structure="R1",
+        action_output_mode="choice",
+    )
+    assert len(choice_options(spec)) == 5
+    assert choice_rejection_reason(spec) == "multiple_high_level_actions"
+    with pytest.raises(ValueError, match="exactly one positive"):
+        build_action_target(spec)
+
+    left_only = make_prompt_spec(
+        variant="all_random_order", answers={**_no_answers(), "LANE_CHANGE_LEFT": True},
+        seed_key="choice-left", context_id="STATIC_BLOCKAGE", road_structure="R1", action_output_mode="choice",
+    )
+    assert set(choice_options(left_only)) == set(ACTION_KEYS)
+    assert build_action_target(left_only) == "LANE_CHANGE_LEFT"
+    assert parse_action_output("LANE_CHANGE_LEFT", spec=left_only) == spec_answers(left_only)
+    assert all(value is None for value in parse_action_output("D", spec=left_only).values())
+    assert all(value is None for value in parse_action_output("LANE_CHANGE_LEFT\nextra", spec=left_only).values())
+
+
+def test_choice_option_order_is_seed_stable_but_not_fixed() -> None:
+    """同一 case 可复现，跨 case 会打乱词组顺序且不改变词组 target。"""
+
+    orders = set()
+    for index in range(12):
+        spec = make_prompt_spec(
+            variant="all_random_order",
+            answers={**_no_answers(), "STOP": True},
+            seed_key=f"choice-order-{index}",
+            context_id="LEAD_BRAKE",
+            road_structure="R1",
+            action_output_mode="choice",
+        )
+        assert choice_options(spec) == choice_options(spec)
+        assert build_action_target(spec) == "STOP"
+        orders.add(choice_options(spec))
+    assert len(orders) > 1
+
+
+def test_choice_phrase_span_and_quality_guard_cover_full_action_name() -> None:
+    """多 token 动作词组整段受监督，格式正确但动作全错不能上线。"""
+
+    from qwen3vl_local.sft_new_loop_phase3 import train as train_module
+    from qwen3vl_local.sft_new_loop_phase3.quality_guards import choice_generation_guards
+
+    assert train_module._line_value_span("LANE_CHANGE_LEFT", "ACTION_CHOICE") == (0, 16)
+    broken = {"format_valid_rate": 1.0, "exact_accuracy": 0.0}
+    healthy = {"format_valid_rate": 1.0, "exact_accuracy": 0.8}
+    for action in ACTION_KEYS:
+        prefix = f"action/{action.lower()}"
+        broken.update({f"{prefix}_gt_yes": 1, f"{prefix}_precision": 1, f"{prefix}_recall": 1})
+        healthy.update({f"{prefix}_gt_yes": 1, f"{prefix}_precision": 0.8, f"{prefix}_recall": 0.8})
+    assert not choice_generation_guards(broken, min_format_valid_rate=1.0)["all_ok"]
+    assert choice_generation_guards(healthy, min_format_valid_rate=1.0)["all_ok"]
+
+
+def test_choice_sampling_excludes_non_single_labels_without_inventing_actions() -> None:
+    """choice worklist 只保留每个 context 恰好一个正 high-level 动作的行。"""
+
+    from qwen3vl_local.sft_new_loop_phase3 import train as train_module
+    rows = []
+    for index, context_id in enumerate(CONTEXT_IDS):
+        context = CONTEXT_BY_ID[context_id]
+        answers = _no_answers()
+        answers[context.action_keys[0]] = True
+        rows.append(SimpleNamespace(
+            scenario="choice", route_id=f"route_{index}", frame_id=index,
+            context_id=context_id, prompt_road_structure=context.allowed_rs[0],
+            goal_ego_xy=(10.0, 0.0), context_detail="", current_speed_mps=4.0,
+            answers=answers, action_signature=context.action_keys[0],
+        ))
+    # 这三类不能可靠映射为三选一/五选一的某一个 token。
+    invalid = rows[0]
+    rows.append(SimpleNamespace(**{**invalid.__dict__, "route_id": "invalid", "answers": {**_no_answers(), INVALID_KEY: True}}))
+    rows.append(SimpleNamespace(**{**invalid.__dict__, "route_id": "none", "answers": _no_answers()}))
+    rows.append(SimpleNamespace(**{**invalid.__dict__, "route_id": "multi", "answers": {**_no_answers(), "DECELERATE": True, "STOP": True}}))
+    work = train_module._balanced_work(rows, target_per_bin=1, seed=7, action_output_mode="choice")
+    assert len(work) == len(CONTEXT_IDS)
+    assert {item.row.route_id for item in work}.isdisjoint({"invalid", "none", "multi"})
+    assert all(choice_rejection_reason(item.spec) is None for item in work)
+
+
 def test_strict_parser_rejects_reordered_missing_and_trailing_text() -> None:
     """行乱序、缺行或尾随解释都必须整条失效。"""
 
@@ -426,6 +547,7 @@ def test_prompt_fingerprint_is_stable_and_mode_sensitive() -> None:
         history_rgb_mode="2rgb_endpoints"
     )
     assert action_prompt_sha256(audit=False) != action_prompt_sha256(audit=True)
+    assert action_prompt_sha256() != action_prompt_sha256(action_output_mode="choice")
 
 
 def test_prompt_question_order_is_deterministic_per_seed() -> None:

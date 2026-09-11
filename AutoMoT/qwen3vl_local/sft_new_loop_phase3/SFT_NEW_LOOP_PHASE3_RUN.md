@@ -1,5 +1,7 @@
 > 2026-09-11：收到20260910四图结果：production 518/765，审计见 [AUDIT_SUMMARY_20260911.md](AUDIT_SUMMARY_20260911.md)。77例逐帧复核后，prompt改为v7 compact，默认新索引为v8；精确隔离、文本缩减及验证见 [EVAL_REVIEW_20260911.md](EVAL_REVIEW_20260911.md)。下方旧版本说明保留为历史；新版尚无训练成绩。
 > 本次v8重建test每类46题，完整配对评测请用 `CASES_PER_BIN=0 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh`；默认64会先补齐再去重，不能把呈现预算当独立题数。
+>
+> 2026-09-11 新增并精修 `ACTION_OUTPUT_MODE=choice`：训练和输出改为**事件所属 high-level 的一个完整动作词组**，不是在每个事件重复问完五个 YES/NO，也不输出 A/B/C。纵向事件严格三选一 `DECELERATE / STOP / RESUME`；机动事件严格五选一。每条 case 会稳定地打乱候选词组顺序，target 始终是实际动作词组。旧标签的全 NO、invalid、或多动作同时 YES 不能凭空折成某个动作，choice 会显式排除并在 manifest/metrics 报告数量。choice 的 prompt/hash/adapter 合同独立，必须重新训练，不能拿旧 binary adapter 直接评测。
 
 > 2026-09-10：当前默认数据为 v7，行为预测 prompt 与旧 adapter 不兼容；修复、重建及训练状态见 [REPAIR_20260910.md](REPAIR_20260910.md)。旧成绩不表示新模型验证。
 
@@ -49,6 +51,43 @@ GPU_IDS=0,1,2,3 DDP_TIMEOUT_SECONDS=3600 GENERATION_EVAL_LOG_EVERY=10 \
 - 不渲染任何 `R1/R4/U-E2/UE3` 之类的数据集 code，也没有 synthetic assistant 前缀；
 - 每个问题组最后都回答 `INVALID_ACTION_CONTEXT`。
 
+### 输出模式：`binary` 与 `choice`
+
+默认 `ACTION_OUTPUT_MODE=binary` 保持原合同：纵向 context 输出三条速度动作加
+`INVALID_ACTION_CONTEXT`，机动 context 输出五条动作加 invalid。`choice` 则由已确认的
+事件 context 决定候选集合，模型只输出一行完整动作词组，例如 `STOP`。候选词组按 case
+seed 稳定打乱；同一 case 可复现，换 case 的显示顺序会变化，答案词组本身不变：
+
+| 事件域 | 动作候选 | 额外候选 | 输出例子 |
+| --- | --- | --- | --- |
+| 纵向让行（U-E1/U-E3/U-E5/U-E6/U-E7/R-E5） | `DECELERATE`、`STOP`、`RESUME` | 无 | `STOP` |
+| 机动（U-E2/U-E4/R-E2/R-E3） | 五个 high-level 动作 | 无 | `LANE_CHANGE_LEFT` |
+
+候选按 `动作名称: 简要英文释义` 显示，名称和释义一起乱序，仅展示当前事件所属的三/五项：
+
+| 动作名称 | 释义要点 |
+| --- | --- |
+| `DECELERATE` | 明显减速，但不满足优先的 STOP 条件 |
+| `STOP` | 达到或保持持续近停，包括继续停车等待 |
+| `RESUME` | 持续增速，不要求此前停过车 |
+| `LANE_CHANGE_LEFT` | 第一次跨越车道边界的方向为自车朝向的左侧 |
+| `LANE_CHANGE_RIGHT` | 第一次跨越车道边界的方向为自车朝向的右侧 |
+
+时间窗和数值阈值仍由候选上方的统一规则限定。模型只输出冒号前的动作名称，例如
+`LANE_CHANGE_LEFT`，不能附带释义。释义进入 choice prompt hash；新训练使用此合同，
+此前不含释义的 choice adapter 与新提示词不兼容，binary 合同不受影响。
+
+全 NO、`INVALID_ACTION_CONTEXT=YES` 与多个动作同时 YES 的旧行不进入 choice：它们没有一个
+可以从标定真值推导出的唯一动作。过滤统计会写入 choice 的训练 manifest、eval metrics 与 case
+审计；binary 保持覆盖这些行。choice parser 严格接受**恰好一行、且完全等于该 case 候选之一**的
+动作词组，用单选 exact、per-action precision/recall 与 RGB 错例审计评测；训练日志中的
+`choice_action_exact` 是完整动作词组的单选正确率。`production_ready` 同时要求严格格式、整体
+单选准确率及五种动作各自的有效支持、precision/recall，不会因仅输出合法前缀而通过。
+
+choice 没有独立 audit 输出格式，因而 `eval.sh` 默认将 `RUN_AUDIT_PROMPT_EVAL=auto` 解析为
+`0`，避免和 production 做一遍相同生成；仍会生成 production 错例 RGB 审计包和可视化审计。
+如需调试可显式设 `RUN_AUDIT_PROMPT_EVAL=1`，其结果只是重复生成，不能作为独立证据。
+
 ## 1. Phase1 / Phase2 答案 → ROAD_STRUCTURE / EVENT
 
 Phase1 完整问法输出 8 行；subset/hierarchical 只包含实际问过的结构行，不能把未问当 NO。完整问法：`HIGHWAY / STATIC_OBSTACLE / VULNERABLE /
@@ -97,7 +136,7 @@ Phase1 RS + Phase2 valid UE flags
              ↓
 4 RGB frames + natural-language context + ego route-target offset → Phase3 LoRA
              ↓
-five action YES/NO lines + INVALID_ACTION_CONTEXT
+binary：事件域动作 YES/NO 行 + INVALID_ACTION_CONTEXT；choice：一个动作词组
 ```
 
 The route-planner cue is only a caller-side candidate gate. It is never rendered as an answer,
@@ -224,6 +263,11 @@ python qwen3vl_local/sft_new_loop_phase3/build_dataset.py
 `LANE_CHANGE_*` / `NONE` / 组合）尽量均分，保证五个动作都有足够正类。
 train 用 route 轮转选帧，val/test 用确定性抽样。
 
+这段构建口径是 binary 的完整监督集。`choice` 不改索引，但训练/评测会在读取后只保留
+“当前 context 所属动作中恰有一个 YES 且 invalid=NO”的行，再在每个 context 内按该唯一动作
+平衡；全 NO、invalid 和组合动作行会以 `excluded/*` 原因写入 manifest/metrics。choice 因此不能
+宣称覆盖 binary 的 invalid、no-action 或组合动作能力。
+
 快速 smoke（每个 scenario 只取 40 条 route）：
 
 ```bash
@@ -247,6 +291,18 @@ bash qwen3vl_local/sft_new_loop_phase3/train.sh check
 bash qwen3vl_local/sft_new_loop_phase3/train.sh
 GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase3/train.sh single
 GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase3/train.sh ddp
+```
+
+选择题训练示例（新 run 名会带 `_choice`，避免与 binary 输出混放）：
+
+```bash
+# 先走 2 step 执行链检查；不产生成绩结论
+ACTION_OUTPUT_MODE=choice CHECK_MAX_STEPS=2 \
+  bash qwen3vl_local/sft_new_loop_phase3/train.sh check
+
+# 正式 DDP 训练；choice adapter 必须从头训练
+ACTION_OUTPUT_MODE=choice GPU_IDS=0,1,2,3 \
+  bash qwen3vl_local/sft_new_loop_phase3/train.sh ddp
 ```
 
 常用覆盖：
@@ -302,6 +358,14 @@ ADAPTER_DIR=checkpoints/sft_new_loop_phase3_runs/latest \
   bash qwen3vl_local/sft_new_loop_phase3/eval.sh
 ```
 
+`eval.sh` 从 adapter 配置读取并硬校验 `action_output_mode`，base、LoRA production 与 audit
+会使用同一个 mode。choice 的完整测试集评测例子：
+
+```bash
+CASES_PER_BIN=0 ADAPTER_DIR=checkpoints/sft_new_loop_phase3_runs/<choice-run> \
+  bash qwen3vl_local/sft_new_loop_phase3/eval.sh
+```
+
 传 run 根目录时，`eval.py` 与 `eval.sh` 都按
 `best_generation/ → final/ → fallback_generation/` 解析，并要求候选目录中存在
 `sft_new_loop_phase3_adapter_config.json`，不会因残留空目录误选权重。
@@ -341,6 +405,10 @@ python qwen3vl_local/sft_new_loop_phase3/audit_eval_cases.py \
 ```bash
 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 bash qwen3vl_local/sft_new_loop_phase3/run_rgb_mode_matrix.sh
+
+# 从构建到评测都使用 choice；完整 test 不补齐呈现预算
+ACTION_OUTPUT_MODE=choice CASES_PER_BIN=0 \
+  bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 ```
 
 ## 11. 合同测试

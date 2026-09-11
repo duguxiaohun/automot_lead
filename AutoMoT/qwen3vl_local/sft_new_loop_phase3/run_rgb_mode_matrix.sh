@@ -3,6 +3,7 @@
 #
 # 从 AutoMoT/ 目录运行：
 #   bash qwen3vl_local/sft_new_loop_phase3/run_rgb_mode_matrix.sh
+#   ACTION_OUTPUT_MODE=choice bash qwen3vl_local/sft_new_loop_phase3/run_rgb_mode_matrix.sh
 #
 # 每个模式独立训练一个 adapter，再各自评测，避免用一个 adapter 混跑两种输入合同。
 
@@ -13,10 +14,11 @@ AUTOMOT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${AUTOMOT_ROOT}"
 
 MODES="${MODES:-4rgb 2rgb_endpoints}"
-INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data/frame_index.jsonl}"
+INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v8/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 TRAIN_MODE="${TRAIN_MODE:-ddp}"
+ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE:-binary}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
 TIMESTAMP="${TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 MATRIX_ROOT="${MATRIX_ROOT:-checkpoints/sft_new_loop_phase3_rgb_matrix/${TIMESTAMP}}"
@@ -24,12 +26,17 @@ MATRIX_ROOT="${MATRIX_ROOT:-checkpoints/sft_new_loop_phase3_rgb_matrix/${TIMESTA
 mkdir -p "${MATRIX_ROOT}"
 exec > >(tee -a "${MATRIX_ROOT}/matrix.log") 2>&1
 
+case "${ACTION_OUTPUT_MODE}" in
+  binary|choice) ;;
+  *) echo "Unknown ACTION_OUTPUT_MODE=${ACTION_OUTPUT_MODE}. Use binary or choice." >&2; exit 2 ;;
+esac
+
 for mode in ${MODES}; do
   echo
   echo "########## history_rgb_mode=${mode} ##########"
-  RUN_ROOT="checkpoints/sft_new_loop_phase3_runs/run_high_level_action_${mode}/latest"
+  RUN_ROOT="checkpoints/sft_new_loop_phase3_runs/run_high_level_action_${mode}_${ACTION_OUTPUT_MODE}/latest"
   if [[ "${SKIP_TRAIN}" != "1" ]]; then
-    INDEX="${INDEX}" DATA_ROOT="${DATA_ROOT}" MODEL_DIR="${MODEL_DIR}" HISTORY_RGB_MODE="${mode}" \
+    INDEX="${INDEX}" DATA_ROOT="${DATA_ROOT}" MODEL_DIR="${MODEL_DIR}" HISTORY_RGB_MODE="${mode}" ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE}" \
       bash qwen3vl_local/sft_new_loop_phase3/train.sh "${TRAIN_MODE}"
   fi
   if [[ ! -e "${RUN_ROOT}" ]]; then
@@ -37,7 +44,7 @@ for mode in ${MODES}; do
     continue
   fi
   ADAPTER_DIR="${RUN_ROOT}" INDEX="${INDEX}" DATA_ROOT="${DATA_ROOT}" MODEL_DIR="${MODEL_DIR}" \
-  OUTPUT_ROOT="${MATRIX_ROOT}/${mode}" RUN_BASE_EVAL="${RUN_BASE_EVAL:-1}" \
+  OUTPUT_ROOT="${MATRIX_ROOT}/${mode}_${ACTION_OUTPUT_MODE}" RUN_BASE_EVAL="${RUN_BASE_EVAL:-1}" \
     bash qwen3vl_local/sft_new_loop_phase3/eval.sh
 done
 
@@ -51,6 +58,7 @@ for metrics_path in sorted(root.glob("*/*/metrics.json")):
     rows.append(
         {
             "mode": metrics_path.parent.parent.name,
+            "action_output_mode": payload.get("action_output_mode"),
             "run": metrics_path.parent.name,
             "cases": payload.get("total_cases"),
             "exact": payload.get("exact_match_accuracy"),
@@ -58,10 +66,10 @@ for metrics_path in sorted(root.glob("*/*/metrics.json")):
         }
     )
 (root / "matrix_summary.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
-lines = ["# sft_new_loop_phase3 RGB mode matrix", "", "| mode | run | cases | exact | invalid_joint_ok |", "|---|---|---:|---:|---:|"]
+lines = ["# sft_new_loop_phase3 RGB mode matrix", "", "| mode | action output | run | cases | exact | invalid_joint_ok |", "|---|---|---|---:|---:|---:|"]
 for row in rows:
     lines.append(
-        f"| {row['mode']} | {row['run']} | {row['cases']} | "
+        f"| {row['mode']} | {row['action_output_mode']} | {row['run']} | {row['cases']} | "
         f"{float(row['exact'] or 0.0):.4f} | {float(row['invalid_joint_ok'] or 0.0):.4f} |"
     )
 (root / "matrix_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

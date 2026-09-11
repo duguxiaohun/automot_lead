@@ -980,3 +980,10 @@ Phase3当前prompt为 `v7_compact_observed_forecast`，system 120→12英文词�
 审计与操作见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/EVAL_REVIEW_20260911.md` 和 `AUDIT_SUMMARY_20260911.md`。
 全源重建已通过：train/val/test为13,524/396/552行；3,274条run原meta回读无速度或有效动作不一致，物理route划分无交叉。本次完整test用 `CASES_PER_BIN=0` 评测552个独立题。
 第二轮续审累计89例（78错例+11对照）、64个run、1,217张不同RGB；新增12例未支持扩大隔离或改阈值，短prompt保持冻结。新增 `audit_review_transitions.py` 仅报告身份变化/确认时刻，不自动推断视觉左右；详见 `EVAL_REVIEW_20260911_CONTINUED.md`。
+
+2026-09-11 新增 `ACTION_OUTPUT_MODE=choice`，只修改 Phase3 的 prompt、target 与严格 parser：纵向有效事件严格在减速、停车等待、增速恢复三选一；机动事件严格在五动作中单选。默认仍是兼容旧 adapter 的 `binary` 逐题 YES/NO；choice 不加入 `NONE`、invalid 或组合动作。候选 high-level 动作词组按 case seed 稳定打乱，模型必须输出选中的完整词组而非 A/B/C。全 NO、invalid、多个动作 YES 的旧多标签行无法无依据地选择一个动作，choice 训练/评测明确剔除并记录原因和数量；choice 写入独立 prompt hash 和 adapter config，必须新训，eval/base/LoRA/audit bundle 强制使用同一 mode。运行示例见 `sft_new_loop_phase3/SFT_NEW_LOOP_PHASE3_RUN.md`。
+
+Phase3 choice 候选补充一句英文动作释义（`prompts.py::CHOICE_ACTION_DESCRIPTIONS`）：
+说明减速与 STOP 的优先关系、STOP 包含继续等待、RESUME 不要求此前停车，左右跨线以自车朝向为准。
+只渲染所属三/五项，名称和释义一起乱序；阈值与时间窗保持原规则，target/parser 仍仅接受动作名称。
+释义由完整渲染自动进入 choice prompt hash，旧 choice adapter 不能与新提示词混用；binary hash 不变。
