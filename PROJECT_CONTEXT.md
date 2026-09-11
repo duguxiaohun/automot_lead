@@ -863,6 +863,15 @@ RS/EVENT **YES** 选择短的英文自然描述：道路结构、独立 highway 
 仍包含 system + 四图 + user 场景先验/导航 + assistant 摘要，所以 MoT 接到的是完整图像、提示词和
 分析 KV，而非仅分析 KV。
 
+2026-09-11 入口简化：`run_full_pipeline.sh --dataset-priors --event-balanced` 即可启用均衡课程；
+兼容 `EVENT_BALANCED=1` / `--sampling-mode event_balanced`，`--no-event-balanced` 显式关闭。
+新训练自动准备 action 索引、缺失的默认 Phase1 索引/标定先验标签，并调用 `prepare_event_balance.py`
+自动构建候选与 full map；按原始标注内容、data-root、规则/构建源码与 action split hash 复用私有缓存，
+flock 串行构建、临时目录校验成功后原子发布，不依赖手工先建 Phase3 产物，也不训练 Phase1/Phase3。
+CLI data-root/data-dir 贯穿构建与训练；显式标签/full-map 路径保持用户指定，缺失不被替换。
+续训沿用原配置和索引，自动准备不参与续训；最终 eval/probe 使用同一 full map。
+`run.md` 只保留训练/续训/测试/TensorBoard 常用命令；可选审计移至 `AUDIT.md`，实现合同移至 `DESIGN.md`。
+
 2026-09-10 新增可选 `--sampling-mode event_balanced` 课程：先由
 `action_prior/build_event_balance_index.py` 用当前、完整的 Phase3 candidate 和**全部逐帧标注**写
 `full_event_mapping.jsonl`。映射将 UE1–UE7、RE2、RE3、RE5 真实 special、确认常规、未确认和
