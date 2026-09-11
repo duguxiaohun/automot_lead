@@ -477,6 +477,43 @@ def test_choice_phrase_span_and_quality_guard_cover_full_action_name() -> None:
     assert choice_generation_guards(healthy, min_format_valid_rate=1.0)["all_ok"]
 
 
+@pytest.mark.parametrize("context_id", CONTEXT_IDS)
+def test_choice_descriptions_follow_options_without_entering_answers(context_id) -> None:
+    """候选解释随顺序绑定且只显示所属动作，答案不能复制解释或带其它候选。"""
+
+    from qwen3vl_local.sft_new_loop_phase3.prompts import CHOICE_ACTION_DESCRIPTIONS
+
+    context = CONTEXT_BY_ID[context_id]
+    for action in context.action_keys:
+        spec = make_prompt_spec(
+            variant="all_random_order", answers={**_no_answers(), action: True},
+            seed_key=f"descriptions-{action}", context_id=context_id,
+            road_structure=context.allowed_rs[0], action_output_mode="choice",
+        )
+        prompt = build_action_prompt(spec=spec)
+        option_lines = [line for line in prompt.splitlines() if line.startswith("- ")]
+        assert option_lines == [
+            f"- {key}: {CHOICE_ACTION_DESCRIPTIONS[key]}" for key in choice_options(spec)
+        ]
+        assert len(option_lines) == len(context.action_keys)
+        assert build_action_target(spec) == action
+        assert parse_action_output(action, spec=spec) == spec_answers(spec)
+        described = f"{action}: {CHOICE_ACTION_DESCRIPTIONS[action]}"
+        assert all(value is None for value in parse_action_output(described, spec=spec).values())
+
+
+def test_choice_description_changes_invalidate_only_choice_fingerprint(monkeypatch) -> None:
+    """修改实际释义必须阻止旧 choice adapter 混用，同时保留 binary 合同。"""
+
+    from qwen3vl_local.sft_new_loop_phase3.prompts import CHOICE_ACTION_DESCRIPTIONS
+
+    binary_before = action_prompt_sha256()
+    choice_before = action_prompt_sha256(action_output_mode="choice")
+    monkeypatch.setitem(CHOICE_ACTION_DESCRIPTIONS, "STOP", "Changed STOP definition for contract test.")
+    assert action_prompt_sha256() == binary_before
+    assert action_prompt_sha256(action_output_mode="choice") != choice_before
+
+
 def test_choice_sampling_excludes_non_single_labels_without_inventing_actions() -> None:
     """choice worklist 只保留每个 context 恰好一个正 high-level 动作的行。"""
 
