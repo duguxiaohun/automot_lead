@@ -143,6 +143,8 @@ def parser():
         )
     p.add_argument("--preflight", action="store_true")
     p.add_argument("--models-only", action="store_true")
+    from qwen3vl_local.action_prior.event_balance import add_sampling_aliases
+    add_sampling_aliases(p)
     return p
 
 
@@ -240,27 +242,9 @@ def validate_args(args):
         raise ValueError("invalid recheck mode")
     if args.condition_mode not in ("prior", "base"):
         raise ValueError("condition mode must be prior/base")
-    from qwen3vl_local.action_prior.event_balance import (
-        SAMPLING_MODE_EVENT_BALANCED,
-        SAMPLING_MODES,
-    )
+    from qwen3vl_local.action_prior.event_balance import validate_sampling_args
 
-    if args.sampling_mode not in SAMPLING_MODES:
-        raise ValueError(f"sampling_mode must be one of {SAMPLING_MODES}")
-    if (
-        args.sampling_mode == SAMPLING_MODE_EVENT_BALANCED
-        or args.event_balanced_scene_priors
-    ):
-        if not args.event_balance_index and not (
-            not args.event_balanced_scene_priors
-            and getattr(args, "event_balance_source_identity", None)
-        ):
-            raise ValueError(
-                "event-balanced sampling/scene priors require --event-balance-index "
-                "pointing to build_event_balance_index.py full_event_mapping.jsonl"
-            )
-        if args.event_balance_index and not Path(args.event_balance_index).expanduser().is_file():
-            raise FileNotFoundError(args.event_balance_index)
+    validate_sampling_args(args)
     if args.event_balanced_scene_priors:
         if args.condition_mode != "prior" or not args.dataset_priors:
             raise ValueError(
@@ -314,12 +298,6 @@ def validate_args(args):
         )
     if args.max_train_steps < 0 or args.val_max_samples < 0 or args.num_workers < 0:
         raise ValueError("step/sample/worker limits must be nonnegative")
-    if args.event_balanced_epoch_samples < 0 or args.event_balance_max_frame_repeats < 1:
-        raise ValueError("event-balanced epoch samples must be nonnegative and repeat cap positive")
-    if args.best_selection_metric not in ("natural_ade", "event_balanced_ade"):
-        raise ValueError("best_selection_metric must be natural_ade/event_balanced_ade")
-    if args.best_selection_metric == "event_balanced_ade" and args.sampling_mode != "event_balanced":
-        raise ValueError("event_balanced_ade best selection requires --sampling-mode event_balanced")
     if args.learning_rate <= 0 or not 0 <= args.warmup_ratio < 1:
         raise ValueError("invalid LR/warmup")
     if args.loss_type != "mse":
@@ -477,19 +455,11 @@ def build_contract(args):
             )
         },
     )
-    from qwen3vl_local.action_prior.event_balance import source_contract
+    from qwen3vl_local.action_prior.event_balance import sampling_contract
 
-    event_balance = source_contract(args)
+    event_balance = sampling_contract(args)
     if event_balance:
-        identity_payload["event_balanced_sampling"] = dict(
-            mode=args.sampling_mode,
-            source=event_balance,
-            route_diverse=bool(args.event_balance_route_diverse),
-            scene_priors=bool(args.event_balanced_scene_priors),
-            epoch_samples=int(args.event_balanced_epoch_samples),
-            max_frame_repeats=int(args.event_balance_max_frame_repeats),
-            best_selection_metric=args.best_selection_metric,
-        )
+        identity_payload["event_balanced_sampling"] = event_balance
     # 旧 LoRA run 的身份负载保持逐字节不变；数据集模式才追加先验来源字段。
     if dataset:
         identity_payload["prior_source"] = prior_labels["prior_source"]
@@ -579,7 +549,7 @@ def training_plan(args, rows, world):
             effective_epoch_samples=usable,
             best_selection_metric=args.best_selection_metric,
         )
-        val_available = available_counts(rows["val"])
+        val_available = available_counts(rows["val"], for_evaluation=True)
         val_missing = [
             key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
             if int(val_available.get(key, 0)) <= 0

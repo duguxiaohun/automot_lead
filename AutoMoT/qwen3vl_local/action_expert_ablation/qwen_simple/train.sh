@@ -4,9 +4,20 @@
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh
 # 续训（使用与 checkpoint 匹配的代码版本）：
 #   bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --resume checkpoints/action_expert_ablation/qwen_simple/latest/latest.pt
+# 事件均衡（full pipeline 自动准备；train.sh 需显式 EVENT_BALANCE_INDEX 或 --event-balance-index）：
+#   bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
+# 兼容 EVENT_BALANCED=1；--no-event-balanced 关闭。课程/比例直接引用 action_prior，详见 ../run.md。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 export PYTHONUNBUFFERED=1
+source qwen3vl_local/action_prior/event_balance_common.sh
+action_event_balance_options "$@"
+set -- "${ACTION_EVENT_BALANCE_ARGS[@]}"
+# 消融拒绝特权 scene prior；纯采样开关不会引入先验文本。
+if [[ "${EVENT_BALANCED_SCENE_PRIORS:-0}" == 1 ]]; then
+  set -- --event-balanced-scene-priors "$@"
+fi
 
 resume_requested=0
 if [[ -n "${RESUME:-}" ]]; then

@@ -184,9 +184,12 @@ def test_full_pipeline_passes_selection_manifest_and_continues_to_test(tmp_path)
     import shutil
     pipeline = Path(__file__).resolve().parents[1] / "run_full_pipeline.sh"
     shutil.copy(pipeline, tmp_path / pipeline.name)
+    shutil.copy(pipeline.with_name("event_balance_common.sh"), tmp_path / "event_balance_common.sh")
     data = tmp_path / "data"
     data.mkdir()
     (data / "manifest.json").write_text("{}")
+    for split in ("train", "val", "test"):
+        (data / f"{split}.jsonl").write_text("{}\n")
     recorder = tmp_path / "record.py"
     recorder.write_text('''import json, os, pathlib, sys
 stage = sys.argv[1]

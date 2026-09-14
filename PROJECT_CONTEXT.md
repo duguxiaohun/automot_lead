@@ -838,6 +838,38 @@ eval/probe 默认沿用 checkpoint 记录的先验来源与噪声。dataset 标�
 `--prior-labels /新路径`，脚本从原 config.json 恢复 dataset 模式，并把新路径贯穿续训、最终 test 和 probe；
 闭环没有 dataset 标签，必须显式切回 LoRA 并披露条件迁移。
 
+### 2026-09-14 Action 消融共用事件均衡课程
+
+`action_expert_ablation/{qwen_simple,bev_only}/run_full_pipeline.sh --event-balanced` 与主线共用
+`action_prior/event_balance_common.sh`、`prepare_event_balance.py`、`event_balance.py`、
+`config.py`、`metrics.py`、`training_core.py`；开关/比例/算法/预算/验证聚合不维护消融副本。
+支持 `EVENT_BALANCED=1`、`--sampling-mode event_balanced`、`--no-event-balanced`；CLI 优先。
+full map 只用于采样与真实事件桶指标，不注入模型；消融拒绝 `--event-balanced-scene-priors`，
+保持 qwen_simple 简短导航 prompt 与 bev_only 空 Qwen KV。主线 planning/分析 prompt 仍只在
+`action_prior/prompts.py` 维护，不被无先验消融消费。均衡时追加事件桶/覆盖/ADE/FDE 与 sampling 审计；
+uniform 仍仅核心指标。checkpoint 绑定同一采样合同，续训恢复课程且不自动重建 full map；
+`--event-balance-index` 搬迁贯穿训练与最终 eval。三组配对须使用同一 action split 索引、seed、
+world size、预算和源码；这次执行指纹变化要求新 run，旧 checkpoint 使用原代码。
+实现与开启/关闭/调参/续训 demo 见 `AutoMoT/qwen3vl_local/action_expert_ablation/run.md`。
+
+同日代码复审修复四处边界：action 的开发路线隔离原先只有 312 组，漏了最近两次审计的
+397 组；现直接调用 Phase3 当前构建器的名单并规范为 action route_group，当前 709 组在三个
+入口均强制 train-only。验证预检原先统计 eligible 桶，现按全部语义桶统计，含 special_filtered，
+与实际 ADE/FDE 分母一致；训练 eligibility 不变。自动 epoch 容量不再写死背景除以 2，
+而是逐桶除以共享 EVENT_BALANCE_WEIGHTS 的正整数权重。主线与两个消融首次构建索引
+共用 event_balance_common.sh 内的 `.build.lock`，同时检查 manifest 和三个 split 才复用。
+源码及有效 split 变化要求新 run；原始 action 索引可继续作为读取来源，由 read_rows 执行开发路线迁移。
+full map 自动准备按当前源码/内容生成缓存；旧 checkpoint 仍用原代码。CPU/合成回归为
+282 passed / 1 skipped（缺 TensorBoard），未运行真实 Qwen/BEV GPU/DDP 训练。独立均衡短预算
+pipeline demo 见 action_expert_ablation/run.md，完整 val/test 仍可能耗时较长。
+
+2026-09-14 主线 pipeline 续训入口修复：`run_full_pipeline.sh --resume 路径` /
+`--resume=路径` / `RESUME=路径` 共用 `resume.py` 恢复配置，CLI 优先；进入流程前解析
+checkpoint 真实路径，最终 test/probe 固定原 run 的 best.pt，不受 latest 改指影响。
+显式 data-root/data-dir/model-dir/lead-bev-ckpt 路径（含环境变量）和标签/full-map 路径
+贯穿恢复与最终评测；未显式提供时不把脚本默认值覆盖到旧配置。续训不自动构建索引或重选 LoRA。
+操作与搬迁 demo 见 `AutoMoT/qwen3vl_local/action_prior/run.md`；此修复不放宽 checkpoint 合同。
+
 ### Action prior UE 规划经验（2026-09-07）
 
 > 历史 v4 记录。以下语言协议已由 2026-09-09 v5 替代。

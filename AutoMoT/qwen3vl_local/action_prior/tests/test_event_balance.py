@@ -61,6 +61,79 @@ def _write_source(tmp_path, *, mapping_hash=None):
     return index
 
 
+def test_current_phase3_development_routes_are_train_only_in_all_entries(tmp_path, monkeypatch):
+    """真实读取三 split，覆盖最新审计名单；未开发路线仍留在各自 holdout。"""
+    from qwen3vl_local.action_prior import config
+    from qwen3vl_local.action_prior.build_dataset import route_group
+    from qwen3vl_local.action_expert_ablation import common
+    from qwen3vl_local.sft_new_loop_phase3.build_dataset import development_route_groups
+    import lead_video_tools.abnormal_duration_filter as abnormal
+
+    current = {route_group(*value.split("/", 1)) for value in development_route_groups()}
+    assert balance.development_route_groups() == current
+    # 用完整当前名单保证未来新增审计批次也被本回归覆盖。
+    rows = {split: [] for split in ("train", "val", "test")}
+    for number, group in enumerate(sorted(current)):
+        scenario, run_id = group.split("/", 1)
+        split = "val" if number % 2 else "test"
+        rows[split].append(dict(scenario=scenario, run_id=run_id, anchor=0,
+                                route_group=group, split=split))
+    for split in rows:
+        rows[split].append(dict(scenario="Unseen", run_id=split, anchor=0,
+                                route_group=f"Unseen/{split}", split=split))
+        for row in rows[split]:
+            row.update(schema="action_prior_data_v1", tp_mode="route_lookahead",
+                       rgb_frame_count=4, rgb_frame_step=1)
+            (tmp_path / row["scenario"] / row["run_id"]).mkdir(parents=True, exist_ok=True)
+        (tmp_path / f"{split}.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows[split]))
+    monkeypatch.setattr(abnormal, "is_abnormal_lead_route", lambda *a: (False, {}))
+    # 此测试只隔离 full-map IO；名单、物理路线迁移与三个入口的读取均为真实实现。
+    monkeypatch.setattr(balance, "annotate_rows", lambda *a: None)
+    for variant in ("prior", "qwen_simple", "bev_only"):
+        parser = config.parser() if variant == "prior" else common.parser(variant)
+        args = parser.parse_args(["--event-balanced", "--data-dir", str(tmp_path),
+                                  "--data-root", str(tmp_path)])
+        read = config.read_rows if variant == "prior" else common.read_rows
+        actual = {split: read(args, split) for split in rows}
+        assert {row["route_group"] for row in actual["train"]} == current | {"Unseen/train"}
+        for split in ("val", "test"):
+            assert [row["route_group"] for row in actual[split]] == [f"Unseen/{split}"]
+
+
+def test_validation_preflight_counts_filtered_special_like_actual_metrics(tmp_path):
+    """动作候选过滤不应让有真实事件的 validation 被误报缺桶而阻止训练。"""
+    from collections import Counter
+    from qwen3vl_local.action_prior import config, metrics
+    from qwen3vl_local.action_expert_ablation import common
+
+    source = _write_source(tmp_path)
+    index = balance.EventBalanceIndex(source)
+    training = [_action_row(i) for i in range(40)]
+    index.annotate(training)
+    validation = [dict(row, route_group="Val/" + row["route_group"]) for row in training]
+    for row in validation:
+        if row.get("event_balance_all_special_buckets"):
+            row.update(event_balance_buckets=[], event_balance_status=balance.SPECIAL_FILTERED)
+    actual = Counter()
+    for row in validation:
+        actual.update(metrics.event_grouped_counts(row, {}))
+    for variant in ("prior", "qwen_simple", "bev_only"):
+        parser = config.parser() if variant == "prior" else common.parser(variant)
+        args = parser.parse_args(["--event-balanced", "--event-balance-index", str(source),
+                                  "--best-selection-metric", "event_balanced_ade"])
+        splits = dict(train=training, val=validation,
+                      test=[dict(row, route_group="Test/" + row["route_group"]) for row in validation])
+        plan = (config.training_plan(args, splits, 1) if variant == "prior"
+                else common.training_plan(args, splits, 1, variant))
+        assert plan["sampling"]["validation_bucket_coverage_complete"]
+        for bucket in (*balance.SPECIAL_BUCKETS, balance.REGULAR_BACKGROUND):
+            assert plan["sampling"]["validation_available"][bucket] == actual[f"group/event_balance/{bucket}/samples"]
+        # 真正缺少一个事件时依旧拒绝，不能以总体 ADE 静默兜底。
+        missing = [row for row in validation if "UE7" not in row.get("event_balance_all_special_buckets", ())]
+        with pytest.raises(ValueError, match="every bucket in validation"):
+            config.training_plan(args, dict(splits, val=missing), 1)
+
+
 def test_event_balanced_epoch_has_exact_1_to_2_contract_fixed_context_and_repeat_audit(tmp_path):
     source = balance.EventBalanceIndex(_write_source(tmp_path))
     rows = [_action_row(index) for index in range(40)]
@@ -100,6 +173,27 @@ def test_epoch_budget_never_allows_unbounded_rare_frame_repeats(tmp_path):
     total = balance.event_balanced_total(rows, requested=0, repeat_cap=2, world=1)
     _, audit = balance.build_event_balanced_epoch(rows, total=total, seed=3, repeat_cap=2)
     assert audit["max_frame_repeats"] <= 2
+
+
+@pytest.mark.parametrize("background_weight", [1, 2, 3])
+def test_auto_budget_follows_custom_weight_table(monkeypatch, background_weight):
+    """独立桶可直接计算最优预算，修改比例后自动预算与采样配额必须同步。"""
+    weights = {**{key: 1 for key in balance.SPECIAL_BUCKETS}, balance.REGULAR_BACKGROUND: background_weight}
+    weights["UE1"] = 2
+    monkeypatch.setattr(balance, "EVENT_BALANCE_WEIGHTS", weights)
+    rows = []
+    for bucket in weights:
+        for number in range(6 if bucket == balance.REGULAR_BACKGROUND else 30):
+            rows.append(dict(scenario="S", run_id=bucket, anchor=number,
+                             event_balance_buckets=[] if bucket == balance.REGULAR_BACKGROUND else [bucket],
+                             event_balance_status=(balance.CONFIRMED_REGULAR if bucket == balance.REGULAR_BACKGROUND
+                                                   else balance.SPECIAL_ELIGIBLE)))
+    total = balance.event_balanced_total(rows, requested=0, repeat_cap=1, world=1)
+    expected_unit_count = min(30 // weights[key] for key in balance.SPECIAL_BUCKETS)
+    expected_unit_count = min(expected_unit_count, 6 // background_weight)
+    assert total == expected_unit_count * sum(weights.values())
+    _, report = balance.build_event_balanced_epoch(rows, total=total, seed=1, repeat_cap=1)
+    assert report["sampled"] == {key: expected_unit_count * weight for key, weight in weights.items()}
 
 
 def _allocation_rows(*, ue1_extra=False):

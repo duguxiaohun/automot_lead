@@ -5,12 +5,17 @@
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --prior-noise 0.1
 # 默认自动选卡；不传 --event-balanced 使用自然采样，--no-event-balanced 显式关闭。
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
 #   RESUME=checkpoints/action_prior/latest/latest.pt bash qwen3vl_local/action_prior/run_full_pipeline.sh
 #   bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/latest/tb
 # 常用说明见 run.md；可选审计见 AUDIT.md。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$HERE/event_balance_common.sh"
+action_event_balance_options "$@"
+set -- "${ACTION_EVENT_BALANCE_ARGS[@]}"
 # 开关会写进 checkpoint 的 args 与合同身份；后续 eval/probe 默认按模型自己的记录跑。
 DATASET_PRIORS_ENV_SET=0
 [[ -z "${DATASET_PRIORS+x}" ]] || DATASET_PRIORS_ENV_SET=1
@@ -22,6 +27,11 @@ PRIOR_LABELS="${PRIOR_LABELS:-$DEFAULT_PRIOR_LABELS}"
 explicit_event_balance_index=0
 [[ -z "${EVENT_BALANCE_INDEX+x}" ]] || explicit_event_balance_index=1
 EVENT_BALANCE_INDEX="${EVENT_BALANCE_INDEX:-}"
+# 只记录用户显式给出的路径，续训不能把稍后生成的脚本默认值当作覆盖。
+declare -A pipeline_paths=()
+for name in DATA_ROOT DATA_DIR MODEL_DIR LEAD_BEV_CKPT; do
+ if [[ -v "$name" ]]; then pipeline_paths["$name"]="${!name}"; fi
+done
 ARGS=()
 sampling_mode=uniform
 if [[ "${EVENT_BALANCED:-0}" == 1 ]]; then sampling_mode=event_balanced; fi
@@ -35,20 +45,28 @@ while (( $# )); do
   --no-dataset-priors) DATASET_PRIORS=0; explicit_prior_source=1 ;;
   --event-balanced) sampling_mode=event_balanced; sampling_explicit=1 ;;
   --no-event-balanced) sampling_mode=uniform; sampling_explicit=1 ;;
-  --sampling-mode|--data-dir|--data-root|--prior-labels|--event-balance-index)
+  --resume|--sampling-mode|--data-dir|--data-root|--model-dir|--lead-bev-ckpt|--prior-labels|--event-balance-index)
    flag="$1"
    [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { echo "$flag needs a value" >&2; exit 2; }
    value="$2"; shift
    case "$flag" in
+    --resume) RESUME="$value" ;;
     --sampling-mode) sampling_mode="$value"; sampling_explicit=1 ;;
-    --data-dir) DATA_DIR="$value"; ARGS+=(--data-dir "$value") ;;
-    --data-root) DATA_ROOT="$value"; ARGS+=(--data-root "$value") ;;
+    --data-dir) DATA_DIR="$value"; pipeline_paths[DATA_DIR]="$value" ;;
+    --data-root) DATA_ROOT="$value"; pipeline_paths[DATA_ROOT]="$value" ;;
+    --model-dir) pipeline_paths[MODEL_DIR]="$value" ;;
+    --lead-bev-ckpt) pipeline_paths[LEAD_BEV_CKPT]="$value" ;;
     --prior-labels) PRIOR_LABELS="$value"; explicit_labels=1 ;;
     --event-balance-index) EVENT_BALANCE_INDEX="$value"; explicit_event_balance_index=1 ;;
    esac ;;
+  --resume=*)
+   RESUME="${1#*=}"
+   [[ -n "$RESUME" ]] || { echo "--resume needs a value" >&2; exit 2; } ;;
   --sampling-mode=*) sampling_mode="${1#*=}"; sampling_explicit=1 ;;
-  --data-dir=*) DATA_DIR="${1#*=}"; ARGS+=("$1") ;;
-  --data-root=*) DATA_ROOT="${1#*=}"; ARGS+=("$1") ;;
+  --data-dir=*) DATA_DIR="${1#*=}"; pipeline_paths[DATA_DIR]="$DATA_DIR" ;;
+  --data-root=*) DATA_ROOT="${1#*=}"; pipeline_paths[DATA_ROOT]="$DATA_ROOT" ;;
+  --model-dir=*) pipeline_paths[MODEL_DIR]="${1#*=}" ;;
+  --lead-bev-ckpt=*) pipeline_paths[LEAD_BEV_CKPT]="${1#*=}" ;;
   --prior-labels=*) PRIOR_LABELS="${1#*=}"; explicit_labels=1 ;;
   --event-balance-index=*) EVENT_BALANCE_INDEX="${1#*=}"; explicit_event_balance_index=1 ;;
   --event-balanced-scene-priors) scene_priors=1; ARGS+=("$1") ;;
@@ -57,6 +75,20 @@ while (( $# )); do
  esac
  shift
 done
+PATH_ARGS=()
+for name in DATA_ROOT DATA_DIR MODEL_DIR LEAD_BEV_CKPT; do
+ if [[ -v "pipeline_paths[$name]" ]]; then
+  option="${name,,}"
+  PATH_ARGS+=("--${option//_/-}" "${pipeline_paths[$name]}")
+ fi
+done
+ARGS+=("${PATH_ARGS[@]}")
+# CLI 与环境变量共用同一续训分支；提前固定真实路径，防止 latest 在训练期间被改指。
+if [[ -n "${RESUME:-}" ]]; then
+ RESUME="$(realpath -e -- "$RESUME")"
+ [[ -f "$RESUME" ]] || { echo "resume checkpoint is not a file: $RESUME" >&2; exit 2; }
+ export RESUME
+fi
 [[ "$sampling_mode" == uniform || "$sampling_mode" == event_balanced ]] || { echo "invalid sampling mode: $sampling_mode" >&2; exit 2; }
 [[ "$sampling_explicit" == 0 ]] || ARGS+=(--sampling-mode "$sampling_mode")
 export EVENT_BALANCED_SCENE_PRIORS="$scene_priors"
@@ -92,11 +124,9 @@ fi
 prepare_event_inputs() {
  # 所有自动生成均在模型预检前完成；显式索引保留原内容并由训练预检校验。
  if [[ "$sampling_mode" == event_balanced || "$scene_priors" == 1 ]]; then
-  if [[ ! -f "$DATA_DIR/manifest.json" || ! -f "$DATA_DIR/train.jsonl" || ! -f "$DATA_DIR/val.jsonl" || ! -f "$DATA_DIR/test.jsonl" ]]; then
-   python "$HERE/build_dataset.py" --data-root "$DATA_ROOT" --output-dir "$DATA_DIR"
-  fi
+  action_build_shared_index_if_needed "$DATA_ROOT" "$DATA_DIR"
   if [[ -z "$EVENT_BALANCE_INDEX" ]]; then
-   EVENT_BALANCE_INDEX="$(python "$HERE/prepare_event_balance.py" --data-root "$DATA_ROOT" --action-data-dir "$DATA_DIR")"
+   EVENT_BALANCE_INDEX="$(action_prepare_event_balance_index "$DATA_ROOT" "$DATA_DIR")"
   fi
   export EVENT_BALANCE_INDEX
   echo "[event balance index] $EVENT_BALANCE_INDEX"
@@ -105,6 +135,13 @@ prepare_event_inputs() {
 if [[ -n "${RESUME:-}" ]]; then
  # 标签索引搬家后旧 config.json 的路径已失效；显式路径必须继续传给续训入口。
  RESUME_ARGS=("${ARGS[@]+"${ARGS[@]}"}")
+ if [[ "$explicit_prior_source" != 0 ]]; then
+  if [[ "$DATASET_PRIORS" == 1 ]]; then
+   RESUME_ARGS+=(--dataset-priors)
+  else
+   RESUME_ARGS+=(--no-dataset-priors)
+  fi
+ fi
  if [[ "$DATASET_PRIORS" == 1 && "$explicit_labels" != 0 ]]; then
   RESUME_ARGS+=(--prior-labels "$PRIOR_LABELS")
  fi
@@ -126,18 +163,14 @@ elif [[ "$DATASET_PRIORS" == 1 ]]; then
  fi
  prepare_event_inputs
  ACTION_MODE=preflight bash "$HERE/train.sh" --models-only "${ARGS[@]+"${ARGS[@]}"}"
- if [[ ! -f "$DATA_DIR/manifest.json" ]]; then
-  python "$HERE/build_dataset.py" --data-root "$DATA_ROOT" --output-dir "$DATA_DIR"
- fi
+ action_build_shared_index_if_needed "$DATA_ROOT" "$DATA_DIR"
  bash "$HERE/train.sh" "${ARGS[@]+"${ARGS[@]}"}"
 else
  # 先核验权重和 prompt 合同，缺权重时不先构建全量索引。
  SELECTION_FILE="$OUTPUT_DIR/selection_${RUN_TAG}.json"
  prepare_event_inputs
  ACTION_MODE=preflight bash "$HERE/train.sh" --models-only --selection-output "$SELECTION_FILE" "${ARGS[@]+"${ARGS[@]}"}"
- if [[ ! -f "$DATA_DIR/manifest.json" ]]; then
-  python "$HERE/build_dataset.py" --data-root "$DATA_ROOT" --output-dir "$DATA_DIR"
- fi
+ action_build_shared_index_if_needed "$DATA_ROOT" "$DATA_DIR"
  # 数据构建期间即使上游产生新 best，也必须继续使用本次预检已展示的权重。
  bash "$HERE/train.sh" "${ARGS[@]+"${ARGS[@]}"}" --selection-manifest "$SELECTION_FILE"
 fi
@@ -147,7 +180,7 @@ RUN_DIR="$OUTPUT_DIR/run_$RUN_TAG"
 # 轨迹 head 的最优点按验证采样 ADE（可显式改为事件均衡 ADE），和上游 LoRA 的 best_generation 区分。
 test -f "$RUN_DIR/best.pt"
 # eval/probe 默认沿用 checkpoint 自己记录的先验来源；显式标签搬迁必须贯穿旧 best.pt。
-EVAL_ARGS=()
+EVAL_ARGS=("${PATH_ARGS[@]}")
 if [[ "$DATASET_PRIORS" == 1 && "$explicit_labels" != 0 ]]; then
  EVAL_ARGS+=(--prior-labels "$PRIOR_LABELS")
 fi

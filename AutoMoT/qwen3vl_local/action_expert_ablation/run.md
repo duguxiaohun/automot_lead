@@ -11,7 +11,8 @@
 | `qwen_simple/` | 4 张 stitched RGB + LeadMoT 原简短导航 prompt 的 base Qwen KV + frozen BEV | 对照“没有推理/先验摘要”的 Qwen 视觉语言 encoder |
 | `bev_only/` | frozen LEAD BEV(RGB+LiDAR) + speed/target/next target/final goal + route/waypoint query；Qwen prefix KV 长度为 0 | 对照“完全没有 Qwen 图文 KV”的 action expert |
 
-两者都不读取 Phase1/Phase2 adapter，不读取 `prior_labels.jsonl`，不写 RS/EVENT/UNKNOWN 分桶 loss。
+两者都不读取 Phase1/Phase2 adapter 或 `prior_labels.jsonl`。开启 `--event-balanced` 后只读取共享 full map
+用于采样与真实事件分桶评测，不把这些标签送入 Qwen/BEV/decoder，也不生成先验复核指标。
 `bev_only` 仍沿用 action_prior 的 LEAD BEV encoder 输入与导航状态；这个 BEV backbone
 仍融合当前 stitched RGB 与 LiDAR BEV，所以它不是纯 LiDAR/完全无视觉实验。区别是 Qwen
 engine 不初始化，decoder 每层拿到的是 zero-length prefix KV。
@@ -27,7 +28,7 @@ engine 不初始化，decoder 每层拿到的是 zero-length prefix KV。
 - TensorBoard 核心日志、checkpoint 保存、恢复配置校验、待完成验证和预算停止。
 
 `common.py` 只保留消融的输入构造、配置/条件合同、简化审计与入口组装；
-主线通过审计接口继续记录 RS/EVENT 指标，消融不产生这些分桶或先验 case 审计。
+主线通过审计接口继续记录先验指标；消融只在启用均衡时追加共享 full-map 事件桶，不产生先验 case 审计。
 后续修改上述训练行为应修改 `training_core.py`，三条入口会共同使用新实现。
 先验生成、Qwen simple prompt 和无 Qwen 输入仍分别由各自 runtime 管理；修改这些条件分支
 不会自动改变其他实验的定义。
@@ -48,8 +49,9 @@ python qwen3vl_local/action_expert_ablation/build_dataset.py \
 
 该 wrapper 直接调用 `action_prior/build_dataset.py`，所以异常时长 route 剔除、4Hz anchor、
 物理 route 分 split、route10/waypoint8 监督都与主线一致。若目录已存在不会覆盖。
-两个消融的 full pipeline 默认共享该目录；首次启动时会用 `.build.lock` 文件配合
-`flock` 做进程级构建锁，拿到锁后再次检查 `train/val/test` 三个 split，避免并发实验
+两个消融的 full pipeline 默认共享该目录；主线指定同目录时也使用同一份共享构建函数。
+首次启动时会用 `.build.lock` 文件配合 `flock` 做进程级构建锁，拿到锁后再次检查
+`manifest.json` 和 `train/val/test` 三个 split，避免并发实验
 同时写同名临时文件。锁文件残留不会阻塞后续启动，进程退出会自动释放文件锁。
 
 ## 快速运行
@@ -95,6 +97,90 @@ LR、epoch、梯度累积、数据索引等非默认参数；launcher 在选 GPU
 `training_plan.json` 恢复原始 `world_size` 默认值。命令行显式传入的参数仍优先生效，
 用于数据/Qwen/BEV 路径搬迁等场景。`train.sh --resume` 不会再自动注入脚本默认 LR、
 epoch、梯度累积或默认索引；只有用户实际传入的 CLI 参数或环境变量会作为覆盖传给 Python。
+
+## 与主线完全共用 event-balanced
+
+三个 full pipeline / train.sh 共用 `action_prior/event_balance_common.sh` 解析开关和环境变量，
+自动准备调用 `action_prior/prepare_event_balance.py`。不传开关默认 `uniform`；
+`--event-balanced` 与 `EVENT_BALANCED=1`、`--sampling-mode event_balanced` 等价，
+`--no-event-balanced` 显式关闭。CLI 优先于环境变量，多个 CLI 开关按最后一次取值。
+两个消融无需传 `--dataset-priors`，也不会构建 Phase1 标定先验索引或加载 Phase1/2 模型。
+
+```bash
+# 三组固定同一个 action split 索引；full map 缺省时自动构建/按内容缓存复用。
+DATA_DIR=checkpoints/action_prior_data bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
+GPU_IDS=0,1,2,3 DATA_DIR=checkpoints/action_prior_data bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
+bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
+bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced
+
+# 环境变量写法；CLI 可显式覆盖关闭。
+EVENT_BALANCED=1 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh
+GPU_IDS=0,1,2,3 EVENT_BALANCED=1 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh
+EVENT_BALANCED=1 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --no-event-balanced
+GPU_IDS=0,1,2,3 EVENT_BALANCED=1 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --no-event-balanced
+```
+
+默认 UE1–UE7、RE2、RE3、RE5 十个 special 桶各权重 1，`REGULAR_BACKGROUND` 权重 2。
+只有确认常规帧进入背景；未确认和被过滤的特殊帧不会伪装成常规。全局配额、跨桶共享帧去重、
+最小费用流最大化唯一帧数、每帧重复硬上限和 DDP 分片都直接使用主线实现。
+权重表使用正整数；自动 epoch 预算也按该表逐桶计算容量，不再写死背景除以 2。
+`event_balance_route_diverse` 是组内物理路线轮转偏好，不是路线硬配额。
+
+| 调整项 | 唯一实现/用法 |
+| --- | --- |
+| 桶、比例、重复和分配算法 | `action_prior/event_balance.py`：`SPECIAL_BUCKETS`、`EVENT_BALANCE_WEIGHTS`、`build_event_balanced_epoch` |
+| 标注映射、候选/缓存准备 | `action_prior/build_event_balance_index.py`、`prepare_event_balance.py` |
+| 训练默认值、数据读取、split 隔离、预算 | `action_prior/config.py`，两个消融直接引用 |
+| 梯度更新、验证、选优 | `action_prior/training_core.py` |
+| 事件桶与 ADE/FDE 聚合 | `action_prior/metrics.py`，三组直接引用 |
+| epoch 呈现数 | `EVENT_BALANCED_EPOCH_SAMPLES` / `--event-balanced-epoch-samples`；默认 0，自动选择可行预算 |
+| 每帧总重复上限 | `EVENT_BALANCE_MAX_FRAME_REPEATS` / `--event-balance-max-frame-repeats`；默认 8 |
+| 组内路线轮转 | `EVENT_BALANCE_ROUTE_DIVERSE=0/1` / `--no-event-balance-route-diverse` / `--event-balance-route-diverse` |
+| best 选优 | `BEST_SELECTION_METRIC` / `--best-selection-metric`；默认 `natural_ade`，可选 `event_balanced_ade` |
+
+采样配置与 full map 内容身份写入 checkpoint 合同。比例/逻辑更改后用同一版本重新训练三组；
+不能给既有 checkpoint 临时换课程或用新源码强行续训。共享的是采样与训练行为：主线 planning
+自然先验、分析 prompt 仍只维护在 `action_prior/prompts.py`，两个消融没有副本，也不消费它们。
+`qwen_simple` 的简短导航 prompt 继续由 LeadMoT 提供，`bev_only` 无 Qwen prompt。
+`--event-balanced-scene-priors`（包括对应环境变量）在消融入口明确拒绝，避免破坏无先验定义。
+
+```bash
+# 已有索引后只训练；将路径替换为 pipeline 打印的 [event balance index]。
+EVENT_BALANCE_INDEX=checkpoints/shared_event_map/full_event_mapping.jsonl \
+  bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --event-balanced \
+  --event-balance-max-frame-repeats 4 --best-selection-metric event_balanced_ade
+GPU_IDS=0,1,2,3 EVENT_BALANCE_INDEX=checkpoints/shared_event_map/full_event_mapping.jsonl \
+  bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --event-balanced \
+  --event-balance-max-frame-repeats 4 --best-selection-metric event_balanced_ade
+
+# 同版本续训自动恢复课程/预算；标签搬迁只覆盖路径，同时传给最终 test。
+bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh \
+  --resume checkpoints/action_expert_ablation/bev_only/latest/latest.pt \
+  --event-balance-index checkpoints/moved_event_map/full_event_mapping.jsonl
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh \
+  --resume checkpoints/action_expert_ablation/bev_only/latest/latest.pt \
+  --event-balance-index checkpoints/moved_event_map/full_event_mapping.jsonl
+
+# 独立评测沿用 checkpoint 课程；搬迁时需连同 manifest.json 一起移动。
+bash qwen3vl_local/action_expert_ablation/bev_only/eval.sh \
+  --checkpoint checkpoints/action_expert_ablation/bev_only/latest/best.pt \
+  --event-balance-index checkpoints/moved_event_map/full_event_mapping.jsonl
+```
+
+`train.sh` 不自动构建 full map；新实验建议用 full pipeline。显式路径缺失会报错，不会替换为默认文件。
+续训不自动准备新的 full map；源内容与合同不符会拒绝。三组还应核对相同 seed、world size、累积数、
+epoch 呈现预算、重复上限、best 指标和 `training_plan.json` 中的 sampling source/quotas。
+共享 full map 按同一规则将 Phase3 开发物理路线限制在 train；val/test 保持自然分布遍历，不进行均衡重采样。
+开发名单直接复用 Phase3 当前构建器（2026-09-14 共 709 组），不在 action 维护日期列表。
+验证预检与实际指标均按全部真实语义桶统计，包含 `special_filtered`；训练仍只采 eligibility 通过的帧。
+验证覆盖全部桶时额外提供均衡加权 ADE/FDE；选择 `event_balanced_ade`
+但 val 缺桶会预检失败，不能悄悄退回总体 ADE。
+
+均衡模式追加 `sampling/epoch_*.json` 的配额、唯一帧、重复次数审计，以及 TensorBoard/metrics 中的
+`group/event_balance/*`、桶覆盖和 `event_balanced_*`；默认训练不做 Euler 采样时只记 FM MSE
+与覆盖，ADE/FDE 在验证中生成。普通 uniform 消融继续只记核心轨迹指标。
 
 ## SIGTERM / SIGINT 安全停止
 
@@ -165,7 +251,8 @@ bash qwen3vl_local/tb_serve.sh checkpoints/action_expert_ablation/bev_only/lates
 FM MSE 下降快只说明向量场训练误差下降快；最终效果看从纯噪声 Euler 采样的
 `val_epoch/route_ade_m`、`val_epoch/waypoint_ade_m`、对应 FDE 与独立 test。
 `best.pt` 按加权采样 route/waypoint ADE 选取。完整 epoch 使用全量 val；
-`MAX_TRAIN_STEPS` 在 epoch 中途截断时，只做固定小验证集，smoke 的 best 不能与正式全量选优混用。
+用于 best 选择的验证始终遍历全量 val（包括 epoch 中途截断预算），周期验证才受 `val_max_samples` 限制。
+smoke 的训练预算很短，不能与正式训练成绩混用。
 正式 test 不参与训练选优。
 
 ## Checkpoint
@@ -205,3 +292,29 @@ python -m pytest -q qwen3vl_local/action_expert_ablation/tests qwen3vl_local/act
 本机未执行这一真实文件路径。CPU 测试不能替代真实 GPU/DDP 或 Qwen/BEV 前向检查。
 远端首次运行可先使用上面的 `smoke.sh`，确认 loss 有限、best/latest 保存和独立 eval 可运行，
 再按正式预算训练。smoke 是独立短预算 run，不能直接把它改成正式长预算续训。
+
+2026-09-14 event-balanced 复审：修复开发名单漏排 397 组、验证预检误用候选桶、自动预算写死背景权重、
+主线与消融首次并发构建未共用锁的问题。主线与消融测试共 **282 passed / 1 skipped**。
+CPU 小模型验证了三组均衡采样顺序、配额审计、预算、事件桶指标和参数更新一致，以及课程恢复；
+shell 桩检查自动准备、CLI/环境优先级、显式路径与最终 eval 搬迁转发；内容合同检查路径搬迁可用、
+课程变更拒绝。跳过项是缺少 TensorBoard 依赖的真实事件文件裁剪；未运行真实 GPU 训练。
+
+首次上机可用独立短预算完整 pipeline 验证均衡采样、权重加载、保存与 test。以下每组只训练 4 次更新，
+仍会在选 best 时遍历全量 val，并完成全量 test，因此总耗时并非只有 4 步。确认后用上面的正式命令另开 run。
+
+```bash
+OUTPUT_DIR=checkpoints/action_expert_ablation/qwen_simple_smoke \
+  bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced --max-train-steps 4
+GPU_IDS=0,1,2,3 OUTPUT_DIR=checkpoints/action_expert_ablation/qwen_simple_smoke \
+  bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced --max-train-steps 4
+OUTPUT_DIR=checkpoints/action_expert_ablation/bev_only_smoke \
+  bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced --max-train-steps 4
+GPU_IDS=0,1,2,3 OUTPUT_DIR=checkpoints/action_expert_ablation/bev_only_smoke \
+  bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced --max-train-steps 4
+```
+
+
+2026-09-14 主线续训接口已与两个消融对齐：三个 `run_full_pipeline.sh` 均支持
+`--resume 路径` / `--resume=路径` / `RESUME=路径`，并提前解析真实 checkpoint 路径。
+主线显式数据/Qwen/BEV 路径覆盖也会传给最终 test/probe；原课程、LR、epoch 和卡数默认值
+由原 run 恢复，不把新训练默认参数带入续训。主线操作见[续训示例](../action_prior/run.md#续训)。

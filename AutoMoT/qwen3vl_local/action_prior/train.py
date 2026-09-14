@@ -16,7 +16,7 @@ from qwen3vl_local.action_prior.config import (
     training_plan,
 )
 from qwen3vl_local.action_prior.contracts import file_hash, require_contract
-from qwen3vl_local.action_prior.metrics import grouped_counts
+from qwen3vl_local.action_prior.metrics import grouped_counts, metrics_from_counts
 from qwen3vl_local.action_prior.progress import current, observed, report
 from qwen3vl_local.action_prior.training_core import (
     GracefulTerminationExit, MetricHooks, write_json, merge_counts, flow_config_of,
@@ -92,70 +92,6 @@ def format_prior_metrics(values):
         f'fallback={values["prior/analysis_fallback"]:.3f} '
         f'reason_fields={json.dumps(reasons, ensure_ascii=False, separators=(",", ":"))}'
     )
-
-
-def metrics_from_counts(counts):
-    """并列报告计数与样本均值，字段 invalid 次数可大于样本数。"""
-    n = counts["samples"]
-    if not n:
-        raise ValueError("no successfully evaluated samples")
-    result = {
-        k: v / n
-        for k, v in counts.items()
-        if k != "samples" and not k.startswith("group/")
-    }
-    for key, value in counts.items():
-        if key.startswith("group/"):
-            prefix, metric = key.rsplit("/", 1)
-            result[key] = (
-                value if metric == "samples" else value / counts[prefix + "/samples"]
-            )
-    result["samples"] = n
-    # 自然分布分数仍用于可比的总体报告；事件均衡分数则严格按 1:…:1:2
-    # 聚合每个真实全帧桶。缺桶显式标为不完整，不能悄悄以总体 ADE 代替。
-    from qwen3vl_local.action_prior.event_balance import (
-        EVENT_BALANCE_WEIGHTS,
-        REGULAR_BACKGROUND,
-        SPECIAL_BUCKETS,
-    )
-
-    event_keys = (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
-    has_event_map = any(key.startswith("group/event_balance/") for key in counts)
-    missing = [
-        key for key in event_keys
-        if result.get(f"group/event_balance/{key}/samples", 0) <= 0
-    ]
-    if has_event_map:
-        result["event_balance_bucket_coverage_complete"] = int(not missing)
-        result["event_balance_bucket_coverage_missing"] = ",".join(missing)
-    sampled_metrics = ("route_ade_m", "waypoint_ade_m", "route_fde_m", "waypoint_fde_m")
-    has_event_sampling_metrics = has_event_map and all(
-        f"group/event_balance/{bucket}/{metric}" in result
-        for bucket in event_keys
-        for metric in sampled_metrics
-    )
-    # 默认训练窗口只记录 FM MSE，不运行 Euler ODE；此时依旧报告桶覆盖，
-    # 但绝不能试图从不存在的 ADE/FDE 组指标构造事件均衡分数。
-    if has_event_sampling_metrics and not missing:
-        weight_sum = sum(EVENT_BALANCE_WEIGHTS[key] for key in event_keys)
-        for metric in sampled_metrics:
-            result[f"event_balanced_{metric}"] = sum(
-                EVENT_BALANCE_WEIGHTS[key]
-                * result[f"group/event_balance/{key}/{metric}"]
-                for key in event_keys
-            ) / weight_sum
-        result["event_balanced_trajectory_score"] = (
-            result["event_balanced_route_ade_m"]
-            + result["event_balanced_waypoint_ade_m"]
-        ) / 2.0
-    result.update(
-        {
-            f"count/{k}": v
-            for k, v in counts.items()
-            if k.startswith(("prior/", "recheck/"))
-        }
-    )
-    return result
 
 
 def add_dataset_coverage(plan, args, rows):

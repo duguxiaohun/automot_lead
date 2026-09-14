@@ -47,7 +47,7 @@ def harness(tmp_path, monkeypatch):
         (data / f"{split}.jsonl").write_text("\n".join(map(json.dumps, rows[split])))
     monkeypatch.setattr(common, "read_rows", lambda args, split: rows[split])
     monkeypatch.setattr(train, "read_rows", lambda args, split: rows[split])
-    state = SimpleNamespace(failure=None, train_cases=[], eval_cases=[], logs={})
+    state = SimpleNamespace(failure=None, train_cases=[], eval_cases=[], logs={}, rows=rows)
     tb = ModuleType("torch.utils.tensorboard")
     def writer(path):
         logs = state.logs.setdefault(str(Path(path).parent), [])
@@ -81,11 +81,12 @@ def harness(tmp_path, monkeypatch):
     monkeypatch.setattr(common, "make_runtime", lambda *a: Runtime())
     monkeypatch.setattr(runtime, "make_runtime", lambda *a: Runtime())
 
-    def run(variant, out, *, resume=False, limit=0, val_steps=2):
+    def run(variant, out, *, resume=False, limit=0, val_steps=2, extra=()):
         argv = ["train", "--data-dir", str(data), "--output-dir", str(out),
                 "--num-epochs", "2", "--grad-accum-steps", "2", "--num-workers", "0",
                 "--val-steps", str(val_steps), "--save-steps", "1", "--logging-steps", "1",
                 "--max-train-steps", str(limit), "--decoder-dtype", "float32"]
+        argv += list(extra)
         if resume:
             argv += ["--resume", str(out / "latest.pt")]
         monkeypatch.setattr(sys, "argv", argv)
@@ -237,3 +238,53 @@ def test_sigterm_during_validation_preserves_pre_validation_cursor(harness, tmp_
     assert restored["step"] == reference["step"]
     assert restored["cursor"] == reference["cursor"]
     assert torch.equal(restored["decoder"]["weight"], reference["decoder"]["weight"])
+
+
+def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_path):
+    """真实共享循环：同源均衡课程、best 指标、样本顺序和参数更新三组一致。"""
+    from qwen3vl_local.action_prior.tests.test_event_balance import _write_source, _action_row
+    from qwen3vl_local.action_prior.event_balance import EventBalanceIndex
+
+    run, state = harness
+    source = _write_source(tmp_path)
+    from qwen3vl_local.action_prior.contracts import file_hash
+    source_rows = [json.loads(line) for line in source.read_text().splitlines()]
+    source.write_text("".join(json.dumps(dict(row, scenario=split, source_split=split)) + "\n"
+                              for split in state.rows for row in source_rows))
+    manifest_path = source.parent / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["index_sha256"] = file_hash(source)
+    manifest_path.write_text(json.dumps(manifest))
+    index = EventBalanceIndex(source)
+    for split in state.rows:
+        state.rows[split] = [dict(_action_row(i), scenario=split, split=split,
+                                 route_group=f"{split}/route_{i % 3}") for i in range(40)]
+        index.annotate(state.rows[split])
+    extra = ["--event-balanced", "--event-balance-index", str(source),
+             "--event-balanced-epoch-samples", "24", "--event-balance-max-frame-repeats", "2",
+             "--best-selection-metric", "event_balanced_ade"]
+    results = []
+    for variant in ("prior", "qwen_simple", "bev_only"):
+        state.train_cases.clear(); state.eval_cases.clear()
+        out = tmp_path / variant
+        ckpt = run(variant, out, extra=extra, val_steps=100)
+        audit = json.loads((out / "sampling/epoch_001.json").read_text())
+        assert audit["total"] == 24
+        assert audit["max_frame_repeats"] <= 2
+        metrics = json.loads(next((out / "validation").glob("*.json")).read_text())
+        assert metrics["event_balance_bucket_coverage_complete"] == 1
+        assert "event_balanced_route_ade_m" in metrics
+        event_metrics = {k: v for k, v in metrics.items() if "event_balance" in k}
+        results.append((ckpt, list(state.train_cases), list(state.eval_cases), audit, event_metrics))
+        if variant != "prior":
+            assert not any("prior/" in tag or "group/condition/" in tag
+                           for tag, *_ in state.logs[str(out)])
+            calls = len(state.train_cases)
+            restored = run(variant, out, resume=True, val_steps=100)
+            assert restored["args"]["sampling_mode"] == "event_balanced"
+            assert restored["args"]["event_balanced_epoch_samples"] == 24
+            assert len(state.train_cases) == calls
+    for result in results[1:]:
+        assert result[1:] == results[0][1:]
+        assert torch.equal(result[0]["decoder"]["weight"], results[0][0]["decoder"]["weight"])
+        assert result[0]["best_sampled_trajectory_score"] == results[0][0]["best_sampled_trajectory_score"]

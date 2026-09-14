@@ -9,6 +9,9 @@ set -euo pipefail
 export PYTHONUNBUFFERED=1
 # 参数用数组传递，路径包含空格时也不会被拆开。
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$HERE/event_balance_common.sh"
+action_event_balance_options "$@"
+set -- "${ACTION_EVENT_BALANCE_ARGS[@]}"
 has_flag() { local flag="$1"; shift; [[ " $* " == *" $flag "* || " $* " == *" $flag="* ]]; }
 has_value() { local flag="$1" value="$2"; shift 2; [[ " $* " == *" $flag $value "* || " $* " == *" $flag=$value "* ]]; }
 args=(--data-root "${DATA_ROOT:-lead_data}" --data-dir "${DATA_DIR:-checkpoints/action_prior_data}"
@@ -22,9 +25,6 @@ args+=(--logging-steps "${LOGGING_STEPS:-10}")
 # EVENT_BALANCED=1 或 --sampling-mode event_balanced：按 action_prior 全帧映射的
 # UE1-7/RE2/RE3/RE5 十桶各一份、确认常规背景两份重建每个 epoch。只影响训练抽样；
 # EVENT_BALANCED_SCENE_PRIORS=1 是另一个 dataset-only 的离线自然文本条件，闭环禁用。
-if [[ "${EVENT_BALANCED:-0}" == 1 ]] && ! has_flag --sampling-mode "$@"; then
- args+=(--sampling-mode event_balanced)
-fi
 # 采样课程与离线 scene prior 都读取同一份 full map。uniform + scene-priors
 # 同样必须传索引，不能只因未启用重采样而遗漏 EVENT_BALANCE_INDEX。
 scene_priors_requested=0
@@ -41,15 +41,7 @@ fi
 if [[ "$scene_priors_requested" == 1 ]] && ! has_flag --event-balanced-scene-priors "$@"; then
  args+=(--event-balanced-scene-priors)
 fi
-if ! has_flag --event-balanced-epoch-samples "$@"; then
- args+=(--event-balanced-epoch-samples "${EVENT_BALANCED_EPOCH_SAMPLES:-0}")
-fi
-if ! has_flag --event-balance-max-frame-repeats "$@"; then
- args+=(--event-balance-max-frame-repeats "${EVENT_BALANCE_MAX_FRAME_REPEATS:-8}")
-fi
-if ! has_flag --best-selection-metric "$@"; then
- args+=(--best-selection-metric "${BEST_SELECTION_METRIC:-natural_ade}")
-fi
+# 采样默认值统一由 config.DEFAULTS 提供，显式环境变量已由共享 helper 转成 CLI。
 # v5 条件 Flow Matching：10 步 Euler 是默认起点；坐标缩放/时间编码均写入 checkpoint 合同。
 args+=(--flow-sample-steps "${FLOW_SAMPLE_STEPS:-10}"
  --flow-route-coordinate-scale-m "${FLOW_ROUTE_COORDINATE_SCALE_M:-30}"

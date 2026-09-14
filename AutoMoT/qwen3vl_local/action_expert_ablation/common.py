@@ -21,6 +21,10 @@ if str(AUTOMOT_ROOT) not in sys.path:
 
 from qwen3vl_local.action_prior import config as prior_config
 from qwen3vl_local.action_prior.contracts import digest, file_hash
+from qwen3vl_local.action_prior.event_balance import (
+    add_sampling_aliases, sampling_contract, validate_sampling_args,
+)
+from qwen3vl_local.action_prior.metrics import event_grouped_counts, metrics_from_counts
 from qwen3vl_local.action_prior.flow_matching import (
     ConditionalFlowMatchingDecoder,
     FlowMatchingConfig,
@@ -125,6 +129,7 @@ def parser(variant: str) -> argparse.ArgumentParser:
         )
         p.add_argument("--" + key.replace("_", "-"), default=value, **kwargs)
     p.set_defaults(**{key: defaults[key] for key in ignored if key in defaults})
+    add_sampling_aliases(p)
     p.add_argument("--preflight", action="store_true")
     return p
 
@@ -193,6 +198,12 @@ def validate_args(args: argparse.Namespace, variant: str) -> None:
 
     if variant not in VARIANTS:
         raise ValueError(f"unknown ablation variant: {variant}")
+    if args.event_balanced_scene_priors:
+        raise ValueError(
+            "ablations do not accept --event-balanced-scene-priors; "
+            "use --event-balanced for sampling only, or action_prior for scene priors"
+        )
+    validate_sampling_args(args)
     if (
         not args.use_final_goal
         or not args.use_bev
@@ -252,7 +263,7 @@ def training_plan(args: argparse.Namespace, rows: dict[str, list[dict]], world: 
         final_base_prefills_per_presentation=1 if VARIANTS[variant]["uses_qwen"] else 0,
         shared_text_cache=False,
         tensorboard_note=(
-            "Only core FM/planning scalars are logged; no RS/EVENT/prior grouped losses."
+            "Core FM/planning scalars plus shared full-map event buckets when enabled; no prior/review metrics."
         ),
     )
     return plan
@@ -320,6 +331,11 @@ def contract_source_paths(variant: str) -> list[str]:
         "qwen3vl_local/action_prior/flow_matching.py",
         "qwen3vl_local/action_prior/precision.py",
         "qwen3vl_local/action_prior/config.py",
+        "qwen3vl_local/action_prior/event_balance.py",
+        "qwen3vl_local/action_prior/event_balance_common.sh",
+        "qwen3vl_local/action_prior/prepare_event_balance.py",
+        "qwen3vl_local/action_prior/build_event_balance_index.py",
+        "qwen3vl_local/action_prior/metrics.py",
         "qwen3vl_local/action_prior/build_dataset.py",
         "qwen3vl_local/action_prior/training_core.py",
         "qwen3vl_local/action_prior/progress.py",
@@ -411,6 +427,9 @@ def build_contract(args: argparse.Namespace, variant: str) -> dict:
             )
         },
     )
+    event_balance = sampling_contract(args)
+    if event_balance:
+        identity_payload["event_balanced_sampling"] = event_balance
     return dict(
         schema="action_expert_ablation_condition_v1",
         git_commit=git_commit,
@@ -663,14 +682,10 @@ def make_runtime(args: argparse.Namespace, device, variant: str):
     raise ValueError(f"unknown ablation variant: {variant}")
 
 
-def scalar_metrics_from_counts(counts: Counter) -> dict[str, float]:
+def scalar_metrics_from_counts(counts: Counter) -> dict[str, float | str]:
     """Average scalar counters by sample count, preserving raw count/* diagnostics."""
 
-    n = int(counts["samples"])
-    if n <= 0:
-        raise ValueError("no samples in metrics window")
-    result = {key: value / n for key, value in counts.items() if key != "samples"}
-    result["samples"] = n
+    result = metrics_from_counts(counts)
     for key, value in counts.items():
         if key.startswith("condition/"):
             result[f"count/{key}"] = value
@@ -678,9 +693,14 @@ def scalar_metrics_from_counts(counts: Counter) -> dict[str, float]:
 
 
 def metric_hooks():
-    """消融只保留核心指标，不构造先验标签或 RS/EVENT 审计。"""
+    """事件标签仅作采样/评测分组，不注入消融模型输入。"""
+    def sample_counts(runtime, sample, planning):
+        counts = Counter(runtime.last_audit or {"samples": 1})
+        counts.update(event_grouped_counts(sample, planning))
+        return counts
+
     return MetricHooks(
-        sample_counts=lambda runtime, sample, planning: Counter(runtime.last_audit or {"samples": 1}),
+        sample_counts=sample_counts,
         summarize=scalar_metrics_from_counts,
         case_record=lambda runtime, sample: dict(sample=sample, condition=runtime.last_audit),
         format_metrics=lambda values: (
@@ -848,6 +868,7 @@ def eval_main(variant: str) -> None:
     p.add_argument("--data-dir", default="")
     p.add_argument("--model-dir", default="")
     p.add_argument("--lead-bev-ckpt", default="")
+    p.add_argument("--event-balance-index", default="", help="搬迁 full map；内容身份须与 checkpoint 一致")
     p.add_argument("--output-dir", default="")
     p.add_argument("--split", choices=["val", "test"], default="test")
     p.add_argument("--max-samples", type=int, default=0)
@@ -870,7 +891,7 @@ def eval_main(variant: str) -> None:
     if state.get("ablation_variant") != variant:
         raise ValueError(f"checkpoint variant {state.get('ablation_variant')} != requested {variant}")
     args = argparse.Namespace(**state["args"])
-    for key in ("data_root", "data_dir", "model_dir", "lead_bev_ckpt"):
+    for key in ("data_root", "data_dir", "model_dir", "lead_bev_ckpt", "event_balance_index"):
         if getattr(cli, key):
             setattr(args, key, getattr(cli, key))
     validate_args(args, variant)

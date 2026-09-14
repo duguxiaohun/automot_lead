@@ -262,6 +262,7 @@ python() {{
   printf 'train\\n' > "$out/train.jsonl"
   printf 'val\\n' > "$out/val.jsonl"
   printf 'test\\n' > "$out/test.jsonl"
+  printf '{{}}\\n' > "$out/manifest.json"
 }}
 action_ablation_build_index_if_needed lead_data "{index_dir}"
 test -s "{index_dir}/train.jsonl"
@@ -303,6 +304,7 @@ python() {{
   printf 'train\\n' > "$out/train.jsonl"
   printf 'val\\n' > "$out/val.jsonl"
   printf 'test\\n' > "$out/test.jsonl"
+  printf '{{}}\\n' > "$out/manifest.json"
 }}
 bash() {{
   printf '%s\\n' "$*" >> "{bash_log}"

@@ -5,27 +5,13 @@
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh
 # 将 bev_only 换成 qwen_simple 即运行另一组消融。
 ulimit -S -c 0 2>/dev/null || true
+source qwen3vl_local/action_prior/event_balance_common.sh
 action_ablation_index_ready() {
-  local data_dir="$1"
-  [[ -s "$data_dir/train.jsonl" && -s "$data_dir/val.jsonl" && -s "$data_dir/test.jsonl" ]]
+  action_shared_index_ready "$1"
 }
 
 action_ablation_build_index_if_needed() {
-  local data_root="$1"
-  local data_dir="$2"
-  if action_ablation_index_ready "$data_dir"; then
-    return 0
-  fi
-  mkdir -p "$data_dir"
-  local lock_file="$data_dir/.build.lock"
-  (
-    flock -x 9
-    if ! action_ablation_index_ready "$data_dir"; then
-      python qwen3vl_local/action_expert_ablation/build_dataset.py \
-        --data-root "$data_root" \
-        --output-dir "$data_dir"
-    fi
-  ) 9>"$lock_file"
+  action_build_shared_index_if_needed "$1" "$2"
 }
 
 action_ablation_config_value() {
@@ -59,6 +45,24 @@ action_ablation_run_full_pipeline() {
   local variant="$1"
   local default_output_dir="$2"
   shift 2
+
+  action_event_balance_options "$@"
+  set -- "${ACTION_EVENT_BALANCE_ARGS[@]}"
+  local sampling_mode="$ACTION_EVENT_SAMPLING_MODE"
+  local event_balance_index="$ACTION_EVENT_BALANCE_INDEX"
+  # 在构建数据之前拒绝先验输入，避免把标签静默加入消融。
+  local scene_priors="${EVENT_BALANCED_SCENE_PRIORS:-0}"
+  local item
+  for item in "$@"; do
+    case "$item" in
+      --event-balanced-scene-priors) scene_priors=1 ;;
+      --no-event-balanced-scene-priors) scene_priors=0 ;;
+    esac
+  done
+  if [[ "$scene_priors" == 1 ]]; then
+    echo "ablations do not accept --event-balanced-scene-priors; use --event-balanced for sampling only" >&2
+    return 2
+  fi
 
   local data_root="${DATA_ROOT:-lead_data}"
   local data_dir="${DATA_DIR:-checkpoints/action_prior_data}"
@@ -187,6 +191,15 @@ action_ablation_run_full_pipeline() {
 
   action_ablation_build_index_if_needed "$data_root" "$data_dir"
 
+  # 续训的采样参数/来源由 config.json 恢复，不自动重选或重建 full map。
+  if [[ -z "$train_resume" && "$sampling_mode" == event_balanced ]]; then
+    if [[ -z "$event_balance_index" ]]; then
+      event_balance_index="$(action_prepare_event_balance_index "$data_root" "$data_dir")"
+      passthrough+=(--event-balance-index "$event_balance_index")
+    fi
+    echo "[event balance index] $event_balance_index"
+  fi
+
   local train_args=(
     --data-root "$data_root"
     --data-dir "$data_dir"
@@ -221,6 +234,9 @@ action_ablation_run_full_pipeline() {
   fi
   if [[ -n "$lead_bev_ckpt" ]]; then
     eval_args+=(--lead-bev-ckpt "$lead_bev_ckpt")
+  fi
+  if [[ -n "$event_balance_index" ]]; then
+    eval_args+=(--event-balance-index "$event_balance_index")
   fi
   bash "qwen3vl_local/action_expert_ablation/$variant/eval.sh" "${eval_args[@]}"
 }

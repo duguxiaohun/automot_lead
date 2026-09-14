@@ -22,3 +22,16 @@ TB tag 与 `qwen_simple` 相同；由于没有 Qwen prefill，吞吐可用
 默认四卡 × 16 累积为 64 case/完整 step，epoch 尾部可能不足。
 FM loss 用于看训练趋势，效果看采样 ADE/FDE 和独立 test。
 完整对比条件、续训参数及代码版本限制见[总运行文档](../run.md)。
+
+## 事件均衡开关
+
+```bash
+bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced
+# 关闭：--no-event-balanced；环境变量写法：EVENT_BALANCED=1。
+```
+
+自动准备、UE1–UE7/RE2/RE3/RE5 各 1 份与确认常规背景 2 份、重复上限、DDP 采样和事件桶评测
+均直接引用 `action_prior`。不加 `--dataset-priors`，事件标签只用于采样与指标。
+先验文本开关 `--event-balanced-scene-priors` 不适用于本消融。
+共享实现位置、比例/预算调整、显式索引、续训与搬迁 demo 见[总文档](../run.md#与主线完全共用-event-balanced)。

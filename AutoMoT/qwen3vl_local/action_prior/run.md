@@ -64,6 +64,10 @@ TB_PORT=6006 bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/latest/tb
 
 ```bash
 # 继续训练并完成最终 test/probe；采样开关和索引从原配置恢复。
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
+
+# 兼容环境变量写法；CLI --resume 优先于 RESUME。
 RESUME=checkpoints/action_prior/latest/latest.pt bash qwen3vl_local/action_prior/run_full_pipeline.sh
 GPU_IDS=0,1,2,3 RESUME=checkpoints/action_prior/latest/latest.pt bash qwen3vl_local/action_prior/run_full_pipeline.sh
 
@@ -73,6 +77,29 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/resume.sh checkpoints/action_pri
 ```
 
 续训使用原代码版本和原配置。更改采样算法或实验条件时开新 run；不要修改旧 checkpoint 的合同。
+`--resume 路径`、`--resume=路径` 与 `RESUME=路径` 共用专用恢复入口，恢复原 LR、epoch、累积、
+采样课程、标签路径与卡数默认值，不执行新训练的数据构建或 LoRA 重选。
+pipeline 在读取配置前解析 checkpoint 的真实路径；即使另一个实验修改 `latest`，
+续训和最终 test/probe 也固定使用原 run 及其 `best.pt`。缺值或不存在的 checkpoint 会提前报错。
+
+```bash
+# 搬迁后仅覆盖路径；full map 要连同 manifest.json 一起移动，内容身份仍严格核验。
+bash qwen3vl_local/action_prior/run_full_pipeline.sh \
+  --resume checkpoints/action_prior/latest/latest.pt \
+  --data-root lead_data --data-dir checkpoints/action_prior_data \
+  --prior-labels checkpoints/moved_labels/prior_labels.jsonl \
+  --event-balance-index checkpoints/moved_event_map/full_event_mapping.jsonl
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh \
+  --resume checkpoints/action_prior/latest/latest.pt \
+  --data-root lead_data --data-dir checkpoints/action_prior_data \
+  --prior-labels checkpoints/moved_labels/prior_labels.jsonl \
+  --event-balance-index checkpoints/moved_event_map/full_event_mapping.jsonl
+```
+
+上述标签搬迁示例适用于 dataset-priors run；LoRA run 不传 `--prior-labels`。
+显式 `--data-root`、`--data-dir`、`--model-dir`、`--lead-bev-ckpt` 及对应环境变量，
+连同标签/full-map 路径覆盖都会贯穿续训与最终 test/probe，CLI 优先。
+未显式指定时沿用原配置和 checkpoint，脚本默认路径不会覆盖旧 run。
 
 ## 独立测试
 
@@ -86,3 +113,31 @@ GPU_IDS=0 bash qwen3vl_local/action_prior/probe.sh --checkpoint checkpoints/acti
 ```
 
 默认沿用 checkpoint 的先验设置，test 不进行均衡重采样。闭环、审计、权重迁移等少用操作见 [AUDIT.md](AUDIT.md)，模型与采样合同见 [DESIGN.md](DESIGN.md)。
+
+## 两个无先验消融使用同一均衡课程
+
+`action_expert_ablation/qwen_simple` 与 `bev_only` 现在直接引用本目录的开关解析、候选/full-map
+自动准备、采样/预算/合同校验、训练循环和事件桶指标。调整比例只改 `event_balance.py` 的
+`EVENT_BALANCE_WEIGHTS`，不需要复制逻辑；三个实验须统一源码版本、action 索引、seed 与训练预算。
+主线本脚本默认每次创建 run 索引；配对实验请显式 `DATA_DIR=checkpoints/action_prior_data`，
+与两个消融的默认索引对齐。主线 planning 先验和分析 prompt 只由本目录维护；消融保持各自的无先验输入定义。
+
+```bash
+bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
+bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced
+```
+
+完整三组配对、课程参数、续训/索引搬迁命令见[消融运行文档](../action_expert_ablation/run.md#与主线完全共用-event-balanced)。
+
+2026-09-14 复审后，三组同时首次启动也共用 action 索引构建锁；索引必须同时有 manifest 和三个 split。
+均衡采样直接使用 Phase3 当前开发路线名单隔离 holdout（当前 709 组），验证覆盖按全部真实事件桶统计，
+不会把 `special_filtered` 误报成缺桶。修改正整数权重表后，自动 epoch 预算与配额均同步更新。
+本次执行源码和有效数据划分有变化，使用新 run；旧 checkpoint 仍用原代码恢复。
+
+
+2026-09-14 验证：主线与消融回归共 **291 passed / 1 skipped**，Python/shell 语法检查通过。
+新增测试执行真实 `resume.py` 配置恢复，仅替换模型 launcher，覆盖三种续训写法、CLI 优先、
+路径搬迁、latest 改指与非法 checkpoint 提前失败。跳过项为缺少 TensorBoard 依赖的事件文件测试；
+尚未运行真实 Qwen/BEV GPU/DDP 训练，首次上机先使用消融文档中的独立短预算 pipeline。

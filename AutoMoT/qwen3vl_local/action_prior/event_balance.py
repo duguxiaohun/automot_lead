@@ -48,11 +48,13 @@ def _identity(row: Mapping[str, Any]) -> Tuple[str, str, int]:
 def development_route_groups() -> frozenset[str]:
     """读取 Phase3 明确声明已经参与规则开发的 physical routes。"""
     from qwen3vl_local.action_prior.build_dataset import route_group
+    from qwen3vl_local.sft_new_loop_phase3.build_dataset import (
+        development_route_groups as phase3_development_route_groups,
+    )
 
-    root = Path(__file__).resolve().parents[1] / "sft_new_loop_phase3"
-    groups = set()
-    for name in ("development_route_groups_20260907.json", "development_route_groups_20260910.json"):
-        groups.update(json.loads((root / name).read_text(encoding="utf-8"))["groups"])
+    # 复用候选构建器的当前名单，避免新增审计批次后 action holdout 漏排开发路线。
+    # Phase3 与 action 的物理路线 key 格式不同，仍须统一转为 action route_group。
+    groups = phase3_development_route_groups()
     normalized = set()
     for value in groups:
         scenario, separator, run_id = str(value).partition("/")
@@ -234,10 +236,12 @@ def weighted_quotas(total: int) -> Dict[str, int]:
     return {key: base * EVENT_BALANCE_WEIGHTS[key] for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)}
 
 
-def available_counts(rows: Sequence[Mapping[str, Any]]) -> Dict[str, int]:
+def available_counts(rows: Sequence[Mapping[str, Any]], *, for_evaluation: bool = False) -> Dict[str, int]:
+    """训练统计可采样桶；验证统计全部真实语义桶，包含 special_filtered。"""
     counts = Counter()
+    bucket_field = "event_balance_all_special_buckets" if for_evaluation else "event_balance_buckets"
     for row in rows:
-        for bucket in row.get("event_balance_buckets", ()): counts[bucket] += 1
+        for bucket in row.get(bucket_field, ()): counts[bucket] += 1
         if row.get("event_balance_status") == CONFIRMED_REGULAR: counts[REGULAR_BACKGROUND] += 1
         counts[f"status/{row.get('event_balance_status', UNCONFIRMED)}"] += 1
     return dict(counts)
@@ -406,20 +410,20 @@ def event_balanced_total(rows: Sequence[Mapping[str, Any]], *, requested: int, r
     multiple = math.lcm(unit, int(world))
     counts = available_counts(rows)
     independent_max = min(
-        [int(counts.get(key, 0)) * repeat_cap for key in SPECIAL_BUCKETS]
-        + [int(counts.get(REGULAR_BACKGROUND, 0)) * repeat_cap // 2]
+        int(counts.get(key, 0)) * repeat_cap // EVENT_BALANCE_WEIGHTS[key]
+        for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
     )
     if requested:
         total = int(requested)
         if total % multiple:
             raise ValueError(
-                f"event-balanced epoch budget must be divisible by lcm(12, world_size)={multiple}"
+                f"event-balanced epoch budget must be divisible by lcm({unit}, world_size)={multiple}"
             )
         quotas = weighted_quotas(total)
         if _joint_allocation(rows, quotas, repeat_cap=repeat_cap) is None:
             raise ValueError("event-balanced epoch budget is infeasible under shared-frame repeat caps")
         return total
-    # base quota x must make 12*x divisible by world. Search only such values and use
+    # base quota x must make unit*x divisible by world. Search only such values and use
     # max-flow, rather than independently counting each bucket and discovering conflict mid-epoch.
     scale = multiple // unit
     high = independent_max // scale
@@ -473,3 +477,57 @@ def build_event_balanced_epoch(rows: Sequence[Mapping[str, Any]], *, total: int,
         diversity_first=True,
         route_diverse=bool(route_diverse),
     )
+
+
+def validate_sampling_args(args):
+    """主线与消融共用采样配置校验；场景先验的输入权限由各自入口校验。"""
+    if args.sampling_mode not in SAMPLING_MODES:
+        raise ValueError(f"sampling_mode must be one of {SAMPLING_MODES}")
+    if (
+        args.sampling_mode == SAMPLING_MODE_EVENT_BALANCED
+        or args.event_balanced_scene_priors
+    ):
+        if not args.event_balance_index and not (
+            not args.event_balanced_scene_priors
+            and getattr(args, "event_balance_source_identity", None)
+        ):
+            raise ValueError(
+                "event-balanced sampling/scene priors require --event-balance-index "
+                "pointing to build_event_balance_index.py full_event_mapping.jsonl"
+            )
+        if args.event_balance_index and not Path(args.event_balance_index).expanduser().is_file():
+            raise FileNotFoundError(args.event_balance_index)
+    if args.event_balanced_epoch_samples < 0 or args.event_balance_max_frame_repeats < 1:
+        raise ValueError("event-balanced epoch samples must be nonnegative and repeat cap positive")
+    if args.best_selection_metric not in ("natural_ade", "event_balanced_ade"):
+        raise ValueError("best_selection_metric must be natural_ade/event_balanced_ade")
+    if args.best_selection_metric == "event_balanced_ade" and args.sampling_mode != "event_balanced":
+        raise ValueError("event_balanced_ade best selection requires --sampling-mode event_balanced")
+
+
+def sampling_contract(args):
+    """采样来源、预算与规则共同进入身份，路径搬迁不改变内容身份。"""
+    source = source_contract(args)
+    if source is None:
+        return None
+    return dict(
+        mode=args.sampling_mode,
+        source=source,
+        route_diverse=bool(args.event_balance_route_diverse),
+        scene_priors=bool(args.event_balanced_scene_priors),
+        epoch_samples=int(args.event_balanced_epoch_samples),
+        max_frame_repeats=int(args.event_balance_max_frame_repeats),
+        best_selection_metric=args.best_selection_metric,
+    )
+
+
+def add_sampling_aliases(parser):
+    """两个布尔别名直接写入 sampling_mode，与标准选项按 CLI 顺序覆盖。"""
+    import argparse
+
+    parser.add_argument("--event-balanced", dest="sampling_mode", action="store_const",
+                        const=SAMPLING_MODE_EVENT_BALANCED, default=argparse.SUPPRESS,
+                        help="与 --sampling-mode event_balanced 相同，均衡 UE/RE 采样")
+    parser.add_argument("--no-event-balanced", dest="sampling_mode", action="store_const",
+                        const="uniform", default=argparse.SUPPRESS,
+                        help="与 --sampling-mode uniform 相同，使用自然采样")

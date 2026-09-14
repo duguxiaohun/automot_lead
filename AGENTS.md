@@ -202,7 +202,7 @@
   **2026-09-07 dataset-priors 补充**：`--dataset-priors` 直接读取标定 RS/Phase1/EVENT 标签并默认关闭 analysis review，不加载 Phase1/2 LoRA；冷启动每帧为 1 次 base 分析生成 + 1 次最终 base KV prefill。`PRIOR_NOISE` 可注入 RS/EVENT confusion 或 invalid，噪声率、invalid 占比和 seed 均进入先验合同身份；eval/probe 默认沿用 checkpoint 记录。标签搬迁续训可只传 `--prior-labels /新路径`，pipeline 从旧 `config.json` 恢复 dataset 模式并贯穿最终 test/probe；闭环没有 dataset 标签，必须显式切回 LoRA 并披露条件迁移。**2026-09-09 修订**：`RS_HIGHWAY` 是独立 Phase1 事实，R3 不能反推高速；验证按样本身份固定 `eps/t` 和 Euler 初始噪声，并以从纯噪声 Euler 采样得到的加权 route/waypoint ADE 选取 best，FM MSE 仅作诊断。
   **2026-09-09 采样修订**：训练默认仅计算向量场 MSE，不执行 ODE 诊断采样；只在显式 `TRAIN_SAMPLED_METRICS=1` 时采样，且轨迹 Transformer 的 dropout 会临时关闭。闭环由 `--policy-seed` / `ACTION_POLICY_SEED` 派生每条 route 的独立 FM 高斯序列，优先级固定为 CLI > 环境变量 > Traffic Manager `--seed`，记录在 benchmark manifest/model contract。CPU BF16 eval/no_grad 在轨迹 Transformer 内安全回退 FP32，CUDA 路径保持原生 autocast。
 - `AutoMoT/qwen3vl_local/action_expert_ablation/`
-  （按用户同意新增：action expert 两个无 RS/EVENT 先验消融实验，代码/脚本/测试/文档可追踪，权重、日志、训练输出不入库。`qwen_simple/` 使用四张 LEAD stitched RGB + LeadMoT 原简短导航 prompt 的 base Qwen KV + frozen BEV；不跑 Phase1/2 LoRA、不生成分析摘要、不读取 dataset prior。`bev_only/` 不初始化 Qwen、不传图文 KV，给 LeadMoT Prefix-KV attention 提供 zero-length prefix，保留 frozen LEAD BEV（当前 stitched RGB + LiDAR BEV 融合）、speed、target_point、next_target_point、final_goal 和 query token 训练；它测的是移除 Qwen 图文分支，不是纯 LiDAR/完全无视觉。两者与主线共同调用 `action_prior/training_core.py` 的模型构造、FP32 AdamW/EMA、DDP 分片/梯度累积、FM 训练/验证、日志、checkpoint 保存及恢复校验，复用 `build_dataset.py` 索引；入口仅提供不同 runtime、条件合同与审计接口，后续公共训练行为必须改共享模块，不再复制循环。三组统一记录 `train/samples_seen` 累计训练呈现数和 `train/step_samples` 本次更新样本数，默认完整 step 为 64 case；本次重构改变执行源码指纹，旧 run 需原代码恢复；共享索引首次构建用 `.build.lock` 文件配合 `flock` 加锁，进程退出自动释放，残留锁文件不阻塞后续启动，拿锁后重查 split 完整性，避免两个变体并发写同名 tmp。epoch 尾部不足完整累积窗口时只在同索引/同卡数/同累积/同 seed 下可比。full pipeline 训练前固定本次 `RUN_TAG` 和真实 run dir，`--resume` 指向 `latest/latest.pt` 等软链接时先解析真实 checkpoint，最终 eval 直接读同一 run 的 `best.pt`；CLI `--data-root/--data-dir` 和显式 `MODEL_DIR`/`--model-dir`、`LEAD_BEV_CKPT`/`--lead-bev-ckpt` 贯穿构建、训练和 eval。仅传 `--resume` 时训练入口先从 run `config.json` 恢复原 LR/epoch/梯度累积/索引等参数，launcher 在选 GPU 前从 `training_plan.json` 恢复原 `world_size` 默认值，`train.sh --resume` 不注入脚本默认 LR/epoch/梯度累积/索引；显式 CLI 或环境变量覆盖仍优先生效。resume 会归档 TB 中 checkpoint step 之后的旧 event，并保留 checkpoint step。执行指纹覆盖消融入口、共享 action_prior/LeadMoT/BEV 依赖和关键运行库版本，但不绑定未使用的 Phase1/2 prompt。TensorBoard 只保留核心 `loss`、`route_fm_mse`、`waypoint_fm_mse`、ADE/FDE、LR、grad_norm、吞吐与显存，不记录 RS/EVENT/UNKNOWN 分桶。运行见 `action_expert_ablation/run.md`。）
+  （按用户同意新增：action expert 两个无 RS/EVENT 先验消融实验，代码/脚本/测试/文档可追踪，权重、日志、训练输出不入库。`qwen_simple/` 使用四张 LEAD stitched RGB + LeadMoT 原简短导航 prompt 的 base Qwen KV + frozen BEV；不跑 Phase1/2 LoRA、不生成分析摘要、不读取 dataset prior。`bev_only/` 不初始化 Qwen、不传图文 KV，给 LeadMoT Prefix-KV attention 提供 zero-length prefix，保留 frozen LEAD BEV（当前 stitched RGB + LiDAR BEV 融合）、speed、target_point、next_target_point、final_goal 和 query token 训练；它测的是移除 Qwen 图文分支，不是纯 LiDAR/完全无视觉。两者与主线共同调用 `action_prior/training_core.py` 的模型构造、FP32 AdamW/EMA、DDP 分片/梯度累积、FM 训练/验证、日志、checkpoint 保存及恢复校验，复用 `build_dataset.py` 索引；入口仅提供不同 runtime、条件合同与审计接口，后续公共训练行为必须改共享模块，不再复制循环。三组统一记录 `train/samples_seen` 累计训练呈现数和 `train/step_samples` 本次更新样本数，默认完整 step 为 64 case；本次重构改变执行源码指纹，旧 run 需原代码恢复；共享索引首次构建用 `.build.lock` 文件配合 `flock` 加锁，进程退出自动释放，残留锁文件不阻塞后续启动，拿锁后重查 split 完整性，避免两个变体并发写同名 tmp。epoch 尾部不足完整累积窗口时只在同索引/同卡数/同累积/同 seed 下可比。full pipeline 训练前固定本次 `RUN_TAG` 和真实 run dir，`--resume` 指向 `latest/latest.pt` 等软链接时先解析真实 checkpoint，最终 eval 直接读同一 run 的 `best.pt`；CLI `--data-root/--data-dir` 和显式 `MODEL_DIR`/`--model-dir`、`LEAD_BEV_CKPT`/`--lead-bev-ckpt` 贯穿构建、训练和 eval。仅传 `--resume` 时训练入口先从 run `config.json` 恢复原 LR/epoch/梯度累积/索引等参数，launcher 在选 GPU 前从 `training_plan.json` 恢复原 `world_size` 默认值，`train.sh --resume` 不注入脚本默认 LR/epoch/梯度累积/索引；显式 CLI 或环境变量覆盖仍优先生效。resume 会归档 TB 中 checkpoint step 之后的旧 event，并保留 checkpoint step。执行指纹覆盖消融入口、共享 action_prior/LeadMoT/BEV 依赖和关键运行库版本，但不绑定未使用的 Phase1/2 prompt。默认 uniform 的 TensorBoard 只保留核心 `loss`、`route_fm_mse`、`waypoint_fm_mse`、ADE/FDE、LR、grad_norm、吞吐与显存，不记录 RS/EVENT/UNKNOWN 分桶。运行见 `action_expert_ablation/run.md`。）
 - `AutoMoT/qwen3vl_local/tb_serve.sh`
   （SFT / GoalGen / LeadMoT / VAE 共用 TensorBoard 启动器；从 `AutoMoT/` 目录下用
   `bash qwen3vl_local/tb_serve.sh <logdir>` 启动）
@@ -885,3 +885,32 @@ collector的R4恢复逐帧要求局部路口空间证据；Phase3只撤回有明
 原collection与原audit bundle不回写；精确修订通过Phase3映射层，Phase1/2既有权重不会自动更正。所有已暴露test的191个物理路线组加入train-only开发集合，累计709组；新holdout不得复用。
 v9全源重建train/val/test=13500/348/468，14316行及3272run原meta回读无速度/有效动作不一致、物理路线无跨split；139项回归通过。新prompt/mapping与旧adapter/索引不兼容，新模型尚未训练，CPU索引验证不代表新模型提升。
 运行使用CASES_PER_BIN=0完整评测；详见AutoMoT/qwen3vl_local/sft_new_loop_phase3/EVAL_REVIEW_20260914.md、AUDIT_COMPARISON_20260914.md及SFT_NEW_LOOP_PHASE3_RUN.md。代码、精确修订、轻量手写笔记/文档可追踪，probe_output RGB/HTML与checkpoints索引审计大产物不入库。
+
+
+### 2026-09-14 Action 消融共用事件均衡课程
+
+`action_expert_ablation/{qwen_simple,bev_only}/run_full_pipeline.sh --event-balanced` 与主线共用
+`action_prior/event_balance_common.sh`、`prepare_event_balance.py`、`event_balance.py`、
+`config.py`、`metrics.py`、`training_core.py`；开关/比例/算法/预算/验证聚合不维护消融副本。
+支持 `EVENT_BALANCED=1`、`--sampling-mode event_balanced`、`--no-event-balanced`；CLI 优先。
+full map 只用于采样与真实事件桶指标，不注入模型；消融拒绝 `--event-balanced-scene-priors`，
+保持 qwen_simple 简短导航 prompt 与 bev_only 空 Qwen KV。主线 planning/分析 prompt 仍只在
+`action_prior/prompts.py` 维护，不被无先验消融消费。均衡时追加事件桶/覆盖/ADE/FDE 与 sampling 审计；
+uniform 仍仅核心指标。checkpoint 绑定同一采样合同，续训恢复课程且不自动重建 full map；
+`--event-balance-index` 搬迁贯穿训练与最终 eval。三组配对须使用同一 action split 索引、seed、
+world size、预算和源码；这次执行指纹变化要求新 run，旧 checkpoint 使用原代码。
+实现与开启/关闭/调参/续训 demo 见 `AutoMoT/qwen3vl_local/action_expert_ablation/run.md`。
+
+同日复审：开发路线名单直接复用 Phase3 当前构建器并转成 action physical-route key，
+当前隔离 709 组，禁止在 action 另写日期列表。验证覆盖按全部语义桶（含 special_filtered）统计，
+训练 eligibility 不变；自动 epoch 容量逐桶使用 EVENT_BALANCE_WEIGHTS 的正整数权重。
+三组 pipeline 首次构建 action 索引共用 `.build.lock`，完整性检查包含 manifest 与三个 split。
+本次源码及有效划分变化用于新 run，旧 checkpoint 使用原代码；远端均衡 smoke 见同一运行文档。
+
+
+2026-09-14 主线 pipeline 续训入口修复：`run_full_pipeline.sh --resume 路径` /
+`--resume=路径` / `RESUME=路径` 共用 `resume.py` 恢复配置，CLI 优先；进入流程前解析
+checkpoint 真实路径，最终 test/probe 固定原 run 的 best.pt，不受 latest 改指影响。
+显式 data-root/data-dir/model-dir/lead-bev-ckpt 路径（含环境变量）和标签/full-map 路径
+贯穿恢复与最终评测；未显式提供时不把脚本默认值覆盖到旧配置。续训不自动构建索引或重选 LoRA。
+操作与搬迁 demo 见 `AutoMoT/qwen3vl_local/action_prior/run.md`；此修复不放宽 checkpoint 合同。
