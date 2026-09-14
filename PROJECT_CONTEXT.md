@@ -989,3 +989,17 @@ Phase3 choice 候选补充一句英文动作释义（`prompts.py::CHOICE_ACTION_
 释义由完整渲染自动进入 choice prompt hash，旧 choice adapter 不能与新提示词混用；binary hash 不变。
 横向释义明确从最新帧之后预测，规则排除输入历史中的跨线及首次跨线之后的归位；
 运行文档提供带释义的三选一示例，输出仍仅为动作名称。
+
+
+### 2026-09-14 Phase3 binary/choice 全错例 RGB 审计
+
+20260911_174046 包：binary production 373/552=67.57%，choice在306个单动作题上241/306=78.76%；同题binary203/306。choice不评NONE/INVALID/联合动作，不当完整任务替代品。
+本次逐帧复核202题、122个run、2566个不同主审计帧，覆盖binary179及choice65个production错例的193题并集，另9题正确对照；不是全数据随机噪声调查，自动源规则命中不得记作人工确认。
+当前默认索引v9、split seed20260914、prompt v8_shared_temporal_rules；STOP两帧≤0.5m/s都须在1.5s内，普通速度变化窗口2s、首次越线窗口3s，+3.25s仅确认末端越线。数值动作规则仍v7，没有为模型答案调阈值。
+collector的R4恢复逐帧要求局部路口空间证据；Phase3只撤回有明确R1来源的stable_meta_light_with_untrusted_xodr弱恢复，保留独立事件。DynamicObjectCrossing hazard-only切入标待审，不整类改NO；精确RGB排除两条U-E3帧段、隔离两条局部RS帧段及一处lane_id/视觉跨线未确认转移。
+原collection与原audit bundle不回写；精确修订通过Phase3映射层，Phase1/2既有权重不会自动更正。所有已暴露test的191个物理路线组加入train-only开发集合，累计709组；新holdout不得复用。
+v9全源重建train/val/test=13500/348/468，14316行及3272run原meta回读无速度/有效动作不一致、物理路线无跨split；139项回归通过。新prompt/mapping与旧adapter/索引不兼容，新模型尚未训练，CPU索引验证不代表新模型提升。
+运行使用CASES_PER_BIN=0完整评测；详见AutoMoT/qwen3vl_local/sft_new_loop_phase3/EVAL_REVIEW_20260914.md、AUDIT_COMPARISON_20260914.md及SFT_NEW_LOOP_PHASE3_RUN.md。代码、精确修订、轻量手写笔记/文档可追踪，probe_output RGB/HTML与checkpoints索引审计大产物不入库。
+
+本轮全源审计覆盖42个scenario、7241个run、914466帧；弱R4恢复撤回13459帧为自动规则结果，仅定向RGB样本及4个额外四帧对照被查看，不能外推为13459个人工确认错误。U-E3待审912帧保留候选，精确排除32帧单列。RS精确隔离32帧，完整决定绑定run/frame。
+新mapping hash=d90ef1eca13fe31987690ad13f0a8cf0cb994a0256c84da118ba7dec6a1ca62d。索引独立题数13387/348/468，train重复呈现113、最大input复用7；3272run对应3271物理组。相同RS错误事件测试仅2条独立路线，拒绝泛化证据不足。

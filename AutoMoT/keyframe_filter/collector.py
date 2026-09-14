@@ -36,7 +36,9 @@ _DEFAULT_XML_ROOT = _AUTOMOT_ROOT / "data" / "lead"
 _DEFAULT_CARLA_ROOT = _AUTOMOT_ROOT / "CARLA_0915"
 
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
-from keyframe_filter.evidence_guards import has_signal_support, merge_trigger_supported
+from keyframe_filter.evidence_guards import (
+    has_signal_support, merge_trigger_supported, local_junction_supported,
+    dynamic_cutin_actor_unverified)
 
 # ============================================================================
 # 辅助函数
@@ -2561,6 +2563,9 @@ class RoadEventRuleEngine:
             "review_required": False,
             "review_reasons": [],
         }
+        if dynamic_cutin_actor_unverified(scenario_name, rules, metrics):
+            event_evidence["review_required"] = True
+            event_evidence["review_reasons"].append("dynamic_cutin_actor_unverified")
         return events, primary_event, event_evidence
 
 
@@ -9696,6 +9701,12 @@ class ScenarioCollector:
                 else:
                     rel_start = min(len(segment) - 1, meta_offsets[0] + 14)
                 recovery_segment = segment[rel_start:]
+            # 20260914 RGB: 持续灯态会覆盖整条连续街道；统计只记录实际获空间支持的帧。
+            recovery_segment = [ann for ann in recovery_segment
+                                if local_junction_supported(ann.get("evidence") or {})]
+            if not recovery_segment:
+                continue
+            recovered_frames = [ann.get("frame_id") for ann in recovery_segment]
             for ann in recovery_segment:
                 recovery_note = {
                     "from": RoadStructure.R1.value,
@@ -9703,6 +9714,7 @@ class ScenarioCollector:
                     "reason": recovery_reason,
                     "segment_start_frame": recovery_segment[0].get("frame_id"),
                     "segment_end_frame": recovery_segment[-1].get("frame_id"),
+                    "recovered_frames": recovered_frames,
                 }
                 self._rewrite_rs_label(
                     ann,
@@ -9732,6 +9744,7 @@ class ScenarioCollector:
                     "from": RoadStructure.R1.value,
                     "to": RoadStructure.R4.value,
                     "length": len(recovery_segment),
+                    "recovered_frames": recovered_frames,
                     "source_segment_length": length,
                     "light_count": light_count,
                     "meta_light_count": meta_light_count,

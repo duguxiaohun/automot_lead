@@ -1,4 +1,17 @@
-> 2026-09-11：收到20260910四图结果：production 518/765，审计见 [AUDIT_SUMMARY_20260911.md](AUDIT_SUMMARY_20260911.md)。77例逐帧复核后，prompt改为v7 compact，默认新索引为v8；精确隔离、文本缩减及验证见 [EVAL_REVIEW_20260911.md](EVAL_REVIEW_20260911.md)。下方旧版本说明保留为历史；新版尚无训练成绩。
+> 2026-09-14 当前入口：默认索引 **v9**、split seed **20260914**、prompt **v8_shared_temporal_rules**，动作数值阈值仍为 v7。20260911 包 binary 373/552、choice 241/306；202 题逐帧审计与修订见 [EVAL_REVIEW_20260914.md](EVAL_REVIEW_20260914.md)，完整指标见 [AUDIT_COMPARISON_20260914.md](AUDIT_COMPARISON_20260914.md)。本地 v9 已重建为 train/val/test=13500/348/468，原 meta 回读无不一致；新合同尚无训练成绩。
+>
+> 旧 adapter 和旧 v8 索引不兼容当前 prompt/mapping。远端从 `AutoMoT/` 工作目录执行以下命令，pipeline 默认重建索引，分别启动新的 binary/choice run。已有环境变量 `INDEX`、`DATA_DIR`、`SKIP_BUILD`、`SPLIT_SEED` 会覆盖默认值，应检查其是否仍指旧版本。两种模式按顺序运行即可，共用相同 v9 数据合同；choice 仍只评估有效单动作子集。
+
+```bash
+ACTION_OUTPUT_MODE=binary CASES_PER_BIN=0 \
+  bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+ACTION_OUTPUT_MODE=choice CASES_PER_BIN=0 \
+  bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+```
+
+本次 test 468 个独立题，完整评测用 `CASES_PER_BIN=0`。新 test 不含本次暴露的 191 个旧 test 物理路线组；它们已加入 train-only 开发集。下面带日期的旧版本说明保留为历史。
+
+> 2026-09-11：收到20260910四图结果：production 518/765，审计见 [AUDIT_SUMMARY_20260911.md](AUDIT_SUMMARY_20260911.md)。77例逐帧复核后，prompt改为v7 compact，默认新索引为v8；精确隔离、文本缩减及验证见 [EVAL_REVIEW_20260911.md](EVAL_REVIEW_20260911.md)。
 > 本次v8重建test每类46题，完整配对评测请用 `CASES_PER_BIN=0 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh`；默认64会先补齐再去重，不能把呈现预算当独立题数。
 >
 > 2026-09-11 新增并精修 `ACTION_OUTPUT_MODE=choice`：训练和输出改为**事件所属 high-level 的一个完整动作词组**，不是在每个事件重复问完五个 YES/NO，也不输出 A/B/C。纵向事件严格三选一 `DECELERATE / STOP / RESUME`；机动事件严格五选一。每条 case 会稳定地打乱候选词组顺序，target 始终是实际动作词组。旧标签的全 NO、invalid、或多动作同时 YES 不能凭空折成某个动作，choice 会显式排除并在 manifest/metrics 报告数量。choice 的 prompt/hash/adapter 合同独立，必须重新训练，不能拿旧 binary adapter 直接评测。

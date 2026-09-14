@@ -97,7 +97,8 @@ def test_blind_negative_labels_are_separate_from_error_driven_development():
         groups.add(group)
         assert group not in development_route_groups()
         assert row['model_outputs_inspected'] is False
-        assert row['frozen_prompt_sha256'] == action_prompt_sha256()
+        # 冻结的是9月11日v7合同，不随后续prompt迭代重写历史盲标证据。
+        assert row['frozen_prompt_sha256'] == '7e3c31e89fbb905aae82e38d9c6eb7d91c99e2b86e9bec68e56488bb9f2f3f06'
         assert _split(row['scenario'], row['route_id'], 20260911, .1, .05) == 'val'
         assert len(row['original_rgb_frames']) == len(row['input_rgb_sha256']) == 4
     assert len(groups) == 3

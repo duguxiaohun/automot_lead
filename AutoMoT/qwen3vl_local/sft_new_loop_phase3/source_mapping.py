@@ -23,6 +23,9 @@ def mapping_contract_hash():
     paths = (ROOT / "keyframe_filter/evidence_guards.py",
              Path(__file__).with_name("annotation_repair.py"),
              Path(__file__).with_name("annotation_repairs_20260910.json"),
+             Path(__file__).with_name("annotation_repairs_20260914.json"),
+             Path(__file__).with_name("event_rgb_exclusions_20260914.jsonl"),
+             Path(__file__).with_name("development_route_groups_20260914.json"),
              Path(__file__).with_name("development_route_groups_20260910.json"),
              Path(__file__).with_name("development_route_groups_20260911.json"),
              Path(__file__).with_name("lateral_rgb_uncertainties_v1.jsonl"), ANSWER_TABLE, HIGHWAY_DECISIONS, REVIEW_DECISIONS, EVENT_ADDITIONS,
@@ -61,6 +64,17 @@ def review_decisions():
 
 
 @lru_cache(maxsize=1)
+def event_exclusions():
+    """只排除有逐帧 RGB 反证的事件候选，不把未知样本改造成 NO/invalid。"""
+    rows = [json.loads(line) for line in Path(__file__).with_name(
+        "event_rgb_exclusions_20260914.jsonl").read_text().splitlines() if line.strip()]
+    for row in rows:
+        if row["decision"] != "EXCLUDE_EVENT" or row["event"] != "U-E3":
+            raise ValueError("unsupported RGB event exclusion")
+    return rows
+
+
+@lru_cache(maxsize=1)
 def evidence_tables():
     """缺失上游证据时显式失败，避免静默退回旧映射。"""
     table = json.loads(ANSWER_TABLE.read_text())
@@ -91,6 +105,11 @@ def mapped_contexts(scenario: str, route_id: str, frame_id: int, rs: str,
                 and decision["start_frame"] <= frame_id <= decision["end_frame"]):
             codes.append(decision["event"])
             evidence.setdefault("phase3_rgb_event_additions", []).append(decision)
+    for decision in event_exclusions():
+        if (scenario == decision["scenario"] and route_id == decision["route_id"]
+                and decision["start_frame"] <= frame_id <= decision["end_frame"]):
+            codes = [c for c in codes if c != decision["event"]]
+            evidence.setdefault("phase3_rgb_event_exclusions", []).append(decision)
     if "U-E7" in codes and confirmed is not True:
         codes = [c for c in codes if c != "U-E7"]
         evidence["excluded_legacy_u7"] = "no_explicit_signal_failure_evidence"

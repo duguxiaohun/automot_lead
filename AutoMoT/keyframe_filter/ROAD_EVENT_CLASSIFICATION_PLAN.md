@@ -1492,3 +1492,14 @@ scenario README
   `primary_event` 一致，`frame_rs_annotation.label` 与 `primary_road_structure` 一致。
 
 这套结构更贴近你的原始意图：先判断当前处于哪套驾驶决策规则空间，再在该空间下判断可能发生的事件。
+
+## 2026-09-14 补充：局部路口空间门控与参与者待审
+
+根据 Phase3 两份 20260911 audit bundle 的 202 题逐帧审计，新增以下约束；完整取证、精确 run/frame 决定与范围见 [EVAL_REVIEW_20260914.md](../qwen3vl_local/sft_new_loop_phase3/EVAL_REVIEW_20260914.md)。
+
+- R1→R4 的时间连续性恢复必须逐帧有局部空间支持：near_junction、bbox junction hint 或可信 XODR is_junction。持续灯态、trigger 接近、停车本身不构成道路几何。collector 只记录实际恢复帧，不能把原整个区间视作已恢复。
+- 旧 collection 中明确 `stable_meta_light_with_untrusted_xodr` 的 R1→R4 弱恢复，Phase3 映射层在缺少局部支持时撤回原 R1，并去除伴生 R-E4，保留独立事件。不能据此把任意缺证据 R4 自动改 R1。
+- DynamicObjectCrossing 的 `event_dynamic_cutin_or_occupancy` 缺少 brake_cutin 和有效 cutin 距离时标记 `dynamic_cutin_actor_unverified`，仅要求待审。vehicle_hazard 同时存在于真切入、跟车和行人事件；不能整类改 NO。
+- 只有连续 RGB 反证的精确帧段才排除 U-E3 候选；不把候选排除变成 INVALID 负例、不抹去其它事件，也不把未来横穿反填当前标签。
+- Phase3 精确隔离两个错误局部 RS 帧段、两个 U-E3 帧段及一个 lane_id/视觉越线未确认转移。既有 collection 结果未回写；Phase1/2 的原训练产物不会自动被这些 Phase3 修订替换。
+- 自动规则影响帧数、待审帧数和真实逐帧 RGB 审计数量分别报告。没有看过的帧不记作“人工确认”；仅因黑暗/雾/遮挡不可见时保留待核，不等同反证。

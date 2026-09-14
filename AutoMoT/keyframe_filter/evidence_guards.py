@@ -12,3 +12,22 @@ def has_signal_support(valid_light_state, ego_light_bbox, trusted_near_signal):
 def merge_trigger_supported(scenario, trusted_ramp_hint):
     """只有合流任务的 trigger 或可信匝道拓扑可以激活合流候选。"""
     return scenario in MERGE_SCENARIOS or bool(trusted_ramp_hint)
+
+
+def local_junction_supported(evidence):
+    """灯态时间连续性不能替代当前路口空间证据；trigger/停车也不是道路几何。"""
+    diagnostic = evidence.get("diagnostic_attribution") or {}
+    flags = diagnostic.get("window_flags") or {}
+    used = diagnostic.get("used_inputs") or {}
+    xodr = evidence.get("xodr") or {}
+    return bool(flags.get("near_junction") or used.get("bbox_junction_hint")
+                or flags.get("bbox_junction_hint")
+                or (xodr.get("xodr_topology_trusted") and xodr.get("map_is_junction")))
+
+
+def dynamic_cutin_actor_unverified(scenario, rules, metrics):
+    """纯 vehicle_hazard 同时出现在真切入和行人/跟车中，只标待审，不自动改 NO。"""
+    return (scenario == "DynamicObjectCrossing"
+            and "event_dynamic_cutin_or_occupancy" in rules
+            and not metrics.get("brake_cutin")
+            and metrics.get("dist_to_cutin_vehicle") is None)

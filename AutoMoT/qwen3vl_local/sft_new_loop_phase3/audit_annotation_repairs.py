@@ -10,7 +10,7 @@ from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
 from qwen3vl_local.sft_new_loop_phase3.annotation_repair import repair_annotation
 from qwen3vl_local.sft_new_loop_phase3.build_dataset import _rs_label, _event_codes
 from qwen3vl_local.sft_new_loop_phase3.collection_reader import iter_routes
-from qwen3vl_local.sft_new_loop_phase3.source_mapping import mapping_contract_hash
+from qwen3vl_local.sft_new_loop_phase3.source_mapping import mapping_contract_hash, event_exclusions
 
 
 def audit(collection_dir, data_root, output_dir, scenarios="all"):
@@ -50,15 +50,23 @@ def audit(collection_dir, data_root, output_dir, scenarios="all"):
                     counts["frames"] += 1
                     rs, primary, codes, trace = repair_annotation(scenario, run, frame, ann,
                         _rs_label(ann), str(ann.get("primary_event") or "UNKNOWN"), _event_codes(ann))
-                    if not trace["changes"]:
+                    exclusions = [r for r in event_exclusions() if r["scenario"] == scenario
+                        and r["route_id"] == run and r["start_frame"] <= frame <= r["end_frame"]]
+                    reviews = trace.get("review_reasons", [])
+                    if not trace["changes"] and not reviews and not exclusions:
                         continue
-                    counts["changed_frames"] += 1
+                    counts["changed_frames"] += bool(trace["changes"] or exclusions)
+                    counts["review_required_frames"] += bool(reviews)
+                    counts["event_exclusion_frames"] += bool(exclusions)
                     changes.update(trace["changes"])
                     per_scenario[scenario] += 1
                     out.write(json.dumps(dict(scenario=scenario, route_id=run, frame_id=frame,
                         source_file=source.name, repair=trace, repaired_primary_event=primary,
+                        event_exclusions=exclusions, review_reasons=reviews,
                         rs_quarantined=rs == "UNKNOWN", automatic_rule_hit=True,
-                        manual_rgb_confirmed="rgb_confirmed_mainline_not_signalized_junction" in trace["changes"]),
+                        manual_rgb_confirmed=bool(exclusions or set(trace["changes"]) & {
+                            "rgb_confirmed_mainline_not_signalized_junction",
+                            "quarantine_rgb_disproved_local_junction"})),
                         ensure_ascii=False)+"\n")
     temp.replace(target)
     report = dict(mapping_contract_hash=mapping_contract_hash(), counts=dict(counts),

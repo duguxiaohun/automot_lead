@@ -107,6 +107,7 @@ def development_route_groups() -> frozenset:
     groups = set(json.loads(path.read_text())["groups"])
     groups.update(json.loads(path.with_name("development_route_groups_20260910.json").read_text())["groups"])
     groups.update(json.loads(path.with_name("development_route_groups_20260911.json").read_text())["groups"])
+    groups.update(json.loads(path.with_name("development_route_groups_20260914.json").read_text())["groups"])
     return frozenset(groups)
 
 
@@ -369,6 +370,8 @@ def iter_base_frames(
                 if risk_stats is not None:
                     for reason in repair["changes"]:
                         risk_stats[f"annotation_repair/{reason}"] += 1
+                    for reason in repair.get("review_reasons", []):
+                        risk_stats[f"annotation_review/{reason}"] += 1
                 if rs == "UNKNOWN":
                     continue
                 contexts, mapping = mapped_contexts(scenario, route_id, frame_id, rs, primary, codes)
@@ -807,7 +810,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--collection-dir", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v8"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v9"))
     p.add_argument(
         "--review-root",
         default=str(
@@ -821,7 +824,7 @@ def parse_args() -> argparse.Namespace:
                    help="audit/smoke only: reuse cached routes; never claim full-dataset coverage")
     p.add_argument("--candidate-cache", default="",
                    help="audit only: reuse candidate_frames.jsonl with the same trajectory rule version")
-    p.add_argument("--split-seed", type=int, default=20260911)
+    p.add_argument("--split-seed", type=int, default=20260914)
     p.add_argument("--test-ratio", type=float, default=0.10)
     p.add_argument("--val-ratio", type=float, default=0.05)
     p.add_argument(

@@ -3,12 +3,15 @@ from functools import lru_cache
 import json
 from pathlib import Path
 
-from keyframe_filter.evidence_guards import has_signal_support, merge_trigger_supported
+from keyframe_filter.evidence_guards import (
+    has_signal_support, merge_trigger_supported, local_junction_supported,
+    dynamic_cutin_actor_unverified)
 
 
 @lru_cache(maxsize=1)
 def decisions():
-    return json.loads(Path(__file__).with_name("annotation_repairs_20260910.json").read_text())
+    return [row for name in ("annotation_repairs_20260910.json", "annotation_repairs_20260914.json")
+            for row in json.loads(Path(__file__).with_name(name).read_text())]
 
 
 def repair_annotation(scenario, route_id, frame_id, ann, rs, primary, events):
@@ -27,6 +30,16 @@ def repair_annotation(scenario, route_id, frame_id, ann, rs, primary, events):
     changes = []
     codes = list(events)
     original = dict(rs=rs, primary_event=primary, event_codes=list(events))
+    # 只撤回源记录明确记为 R1 -> R4 的弱恢复，不从候选分数猜道路类别。
+    weak_recovery = any(r.get("from") == "R1" and r.get("to") == "R4"
+                        and r.get("reason") == "stable_meta_light_with_untrusted_xodr"
+                        for r in evidence.get("r4_context_recovery", []))
+    if rs == "R4" and weak_recovery and not local_junction_supported(evidence):
+        rs = "R1"
+        codes = [c for c in codes if c != "R-E4"]
+        if primary == "R-E4":
+            primary = "UNKNOWN"
+        changes.append("undo_signal_recovery_without_local_junction")
     if rs == "R4" and "r4_light_hazard" in rules and not independent_signal:
         rs = "UNKNOWN"
         changes.append("quarantine_hazard_only_signalized_road")
@@ -48,5 +61,8 @@ def repair_annotation(scenario, route_id, frame_id, ann, rs, primary, events):
         if primary == "R-E3":
             primary = "UNKNOWN"
         changes.append("remove_generic_trigger_only_ramp_event")
-    return rs, primary, tuple(codes), dict(version="rgb_evidence_repair_20260910_v1",
-        source=original, changes=changes, repaired_rs=rs, repaired_event_codes=codes)
+    review_reasons = (["dynamic_cutin_actor_unverified"]
+        if dynamic_cutin_actor_unverified(scenario, erules, event.get("metrics") or {}) else [])
+    return rs, primary, tuple(codes), dict(version="rgb_evidence_repair_20260914_v2",
+        source=original, changes=changes, review_reasons=review_reasons,
+        repaired_rs=rs, repaired_event_codes=codes)

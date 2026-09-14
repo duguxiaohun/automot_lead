@@ -83,18 +83,20 @@ def prepare(bundle, data_root, output, extra_ids=(), only_ids=None):
         valid = r['gt']['INVALID_ACTION_CONTEXT'] == 'NO'
         label_mismatches = [k for k, v in r['gt'].items() if k != 'INVALID_ACTION_CONTEXT'
                             and valid and (labels is None or labels[k] != (v == 'YES'))]
-        frames = [int(f.stem) for f in inputs] + list(range(anchor+1, anchor+13))
-        canvas = Image.new('RGB', (2304, 4*224+50), '#101010')
+        # 3秒末帧的首次越线由下一采样确认；+3.25s只用于确认，不扩张预测窗口。
+        frames = [int(f.stem) for f in inputs] + list(range(anchor+1, anchor+14))
+        canvas = Image.new('RGB', (2304, ((len(frames)+3)//4)*224+50), '#101010')
         draw = ImageDraw.Draw(canvas)
         positive = lambda d: '+'.join(k for k,v in d.items() if v == 'YES') or 'NONE'
         draw.text((8,5), f"#{i} {r['scenario']} f{anchor} {r['context_id']} RS={r['prompt_road_structure']}", fill='white')
         draw.text((8,23), f"GT {positive(r['gt'])} | PRED {positive(r['parsed'])} | FIRST ROW=INPUT, other rows=FUTURE EVIDENCE", fill='yellow')
-        frame_rows = []
+        frame_rows, missing_frames = [], []
         for j, f in enumerate(frames):
             rgb, meta = run/'rgb'/f'{f:04d}.jpg', traj.metas.get(f)
             x, y = (j % 4)*576, 50+(j//4)*224
             if not rgb.exists() or meta is None:
                 draw.text((x+4,y+4),f'MISSING f{f}',fill='red')
+                missing_frames.append(f)
                 continue
             with Image.open(rgb) as im:
                 canvas.paste(im.convert('RGB').resize((576,192)),(x,y))
@@ -104,6 +106,7 @@ def prepare(bundle, data_root, output, extra_ids=(), only_ids=None):
             frame_rows.append(dict(frame=f, input=j<4, rgb=str(rgb), rgb_sha256=digest(rgb),
                 meta_sha256=digest(run/'metas'/f'{f:04d}.pkl'), speed=speed,
                 road_id=meta.get('road_id'), lane_id=meta.get('lane_id'), section_id=meta.get('section_id'),
+                confirmation_only=f == anchor+13,
                 brake=bool(meta.get('brake')), throttle=float(meta.get('throttle',0)),
                 vehicle_hazard=bool(meta.get('vehicle_hazard')), light_hazard=bool(meta.get('light_hazard'))))
         sheet=output/f'case_{i:03d}.jpg'
@@ -111,7 +114,9 @@ def prepare(bundle, data_root, output, extra_ids=(), only_ids=None):
         evidence.append(dict(case_index=i, scenario=r['scenario'], route_id=r['route_id'],
             frame_id=anchor,context=r['context_id'],gt=r['gt'],pred=r['parsed'],correct=r['all_ok'],
             context_detail=r['context_detail'], label_mismatches=label_mismatches,
-            raw_speed_match=True, input_sha256_match=True, frames=frame_rows, sheet=str(sheet)))
+            raw_speed_match=True, input_sha256_match=True, frames=frame_rows,
+            missing_frames=missing_frames, lateral_window_issue=signals.get('lateral_window_issue'),
+            sheet=str(sheet)))
         print(f"prepared #{i}: {r['context_id']}",flush=True)
     result=dict(bundle=str(bundle),route_checks=checks,cases=evidence,
                 human_review_complete=False,selection='targeted errors plus context controls; not random noise-rate sample')
