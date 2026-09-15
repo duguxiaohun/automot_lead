@@ -19,7 +19,7 @@ def pipeline(tmp_path):
     """真实 resume.py 读取旧配置；缺少 train/builder 桩使误走新训练立即失败。"""
     scripts = tmp_path / "scripts"
     scripts.mkdir()
-    for name in ("run_full_pipeline.sh", "event_balance_common.sh", "resume.sh",
+    for name in ("run_full_pipeline.sh", "train.sh", "event_balance_common.sh", "resume.sh",
                  "resume.py", "eval.sh", "probe.sh"):
         shutil.copy(SCRIPTS / name, scripts / name)
     (scripts / "launch.py").write_text('''import json, os, sys
@@ -55,7 +55,12 @@ if sys.argv[1] == "train":
     for key in ("RESUME", "DATASET_PRIORS", "PRIOR_LABELS", "EVENT_BALANCED", "EVENT_BALANCE_INDEX",
                 "EVENT_BALANCED_SCENE_PRIORS", "EVENT_BALANCED_EPOCH_SAMPLES", "EVENT_BALANCE_MAX_FRAME_REPEATS",
                 "EVENT_BALANCE_ROUTE_DIVERSE", "BEST_SELECTION_METRIC", "DATA_ROOT", "DATA_DIR", "MODEL_DIR",
-                "LEAD_BEV_CKPT", "DDP_GPU_COUNT", "NPROC_PER_NODE", "BENCH2DRIVE", "PIPELINE_LOG", "NO_RUN_SUBDIR"):
+                "LEAD_BEV_CKPT", "DDP_GPU_COUNT", "NPROC_PER_NODE", "BENCH2DRIVE", "PIPELINE_LOG", "NO_RUN_SUBDIR",
+                "GENERATE_ANALYSIS", "ANALYSIS_REVIEW", "NUM_EPOCHS", "LR", "GRAD_ACCUM", "VAL_STEPS",
+                "SAVE_STEPS", "NUM_WORKERS", "LOGGING_STEPS", "PRIOR_NOISE", "PRIOR_NOISE_INVALID_SHARE",
+                "CHECKPOINT_ROOT", "SELECTION_POLICY", "PHASE1_ADAPTER", "PHASE2_ADAPTER", "FLOW_SAMPLE_STEPS",
+                "FLOW_ROUTE_COORDINATE_SCALE_M", "FLOW_WAYPOINT_COORDINATE_SCALE_M", "FLOW_TIME_EMBED_DIM",
+                "FLOW_TRAJECTORY_LAYERS", "FLOW_TRAJECTORY_HEADS", "TRAIN_SAMPLED_METRICS"):
         env.pop(key, None)
     env.update(PYTHONPATH=str(ROOT), TRACE_FILE=str(tmp_path / "trace.jsonl"),
                LATEST_LINK=str(link), OTHER_RUN=str(other), OUTPUT_DIR=str(tmp_path / "output"), RUN_TAG="test")
@@ -82,6 +87,7 @@ def test_resume_restores_config_and_pins_real_run(pipeline, style):
     assert [c["argv"][0] for c in (train, evaluate, probe)] == ["train", "eval", "probe"]
     restored = parser().parse_args(train["argv"][1:])
     assert restored.dataset_priors is True
+    assert restored.generate_analysis is False
     assert restored.data_dir == "old index"
     assert restored.prior_labels == "old labels.jsonl"
     assert restored.sampling_mode == "event_balanced"
@@ -97,6 +103,80 @@ def test_resume_restores_config_and_pins_real_run(pipeline, style):
         assert "--data-dir" not in argv
         assert "--prior-labels" not in argv
     assert not (Path(env["OUTPUT_DIR"]) / "run_test").exists()
+
+
+@pytest.mark.parametrize("entrypoint", ["run_full_pipeline.sh", "train.sh"])
+@pytest.mark.parametrize("saved,environment,cli,expected", [
+    (True, None, [], True), (False, None, [], False), (None, None, [], True),
+    (True, "0", [], False), (False, "1", [], True),
+    (True, "1", ["--no-generate-analysis"], False),
+    (False, "0", ["--generate-analysis"], True),
+])
+def test_resume_preserves_generation_mode_and_explicit_precedence(pipeline, saved, environment, cli, expected, entrypoint):
+    """真实 resume 恢复摘要配置；显式覆盖仍由后续正式 checkpoint 合同守卫拒绝错配。"""
+    scripts, run, link, env = pipeline
+    cfg = json.loads((run / "config.json").read_text())
+    if saved is None:
+        cfg.pop("generate_analysis")
+    else:
+        cfg["generate_analysis"] = saved
+    (run / "config.json").write_text(json.dumps(cfg))
+    if environment is not None:
+        env["GENERATE_ANALYSIS"] = environment
+    result = subprocess.run(
+        ["bash", str(scripts / entrypoint), "--resume", str(link / "latest.pt"), *cli],
+        cwd=ROOT, env=env, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = [json.loads(line)["argv"] for line in Path(env["TRACE_FILE"]).read_text().splitlines()]
+    assert parser().parse_args(calls[0][1:]).generate_analysis is expected
+    # 最终 test/probe 读取同一 checkpoint，不能被 launcher 环境临时改变输入分布。
+    for call in calls[1:]:
+        assert "--generate-analysis" not in call and "--no-generate-analysis" not in call
+
+
+@pytest.mark.parametrize("style", ["separate", "equals", "environment"])
+def test_direct_train_resume_recovers_full_config_before_defaults(pipeline, style):
+    """底层 train.sh 三种续训写法恢复原 LR、索引、摘要及卡数，CLI 路径优先。"""
+    scripts, run, link, env = pipeline
+    cfg = json.loads((run / "config.json").read_text())
+    cfg["generate_analysis"] = True
+    (run / "config.json").write_text(json.dumps(cfg))
+    checkpoint = str(link / "latest.pt")
+    env["RESUME"] = checkpoint if style == "environment" else "/ignored/environment.pt"
+    args = (["--resume", checkpoint] if style == "separate"
+            else ["--resume=" + checkpoint] if style == "equals" else [])
+    result = subprocess.run(["bash", str(scripts / "train.sh"), *args], cwd=ROOT,
+                            env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = [json.loads(line) for line in Path(env["TRACE_FILE"]).read_text().splitlines()]
+    assert len(calls) == 1 and calls[0]["argv"][0] == "train"
+    restored = parser().parse_args(calls[0]["argv"][1:])
+    for key in ("generate_analysis", "analysis_review", "learning_rate", "num_epochs", "grad_accum_steps",
+                "dataset_priors", "prior_labels", "data_dir", "data_root", "sampling_mode", "event_balance_index"):
+        assert getattr(restored, key) == cfg[key]
+    assert calls[0]["resume"] == str(run / "latest.pt") and calls[0]["world"] == "2"
+    assert not Path(env["OUTPUT_DIR"]).exists()
+
+
+@pytest.mark.parametrize("cli_override", [False, True])
+def test_direct_train_resume_only_forwards_explicit_env_overrides(pipeline, cli_override):
+    """默认不覆盖，显式环境仍有效，CLI 对标量、路径和布尔参数均优先。"""
+    scripts, run, link, env = pipeline
+    env.update(LR="0.0003", DATA_ROOT="environment data", ANALYSIS_REVIEW="1",
+               FLOW_SAMPLE_STEPS="12", NUM_WORKERS="3")
+    cli = (["--learning-rate", "0.0004", "--data-root", "CLI data", "--no-analysis-review"]
+           if cli_override else [])
+    result = subprocess.run(["bash", str(scripts / "train.sh"), "--resume", str(link / "latest.pt"), *cli],
+                            cwd=ROOT, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    call = json.loads(Path(env["TRACE_FILE"]).read_text())
+    restored = parser().parse_args(call["argv"][1:])
+    assert restored.learning_rate == (0.0004 if cli_override else 0.0003)
+    assert restored.data_root == ("CLI data" if cli_override else "environment data")
+    assert restored.analysis_review is (not cli_override)
+    assert restored.flow_sample_steps == 12 and restored.num_workers == 3
+    assert restored.num_epochs == 7 and restored.grad_accum_steps == 8
 
 
 @pytest.mark.parametrize("style", ["cli", "environment"])
@@ -122,12 +202,13 @@ def test_resume_path_overrides_reach_training_test_and_probe(pipeline, style):
             assert argv[argv.index(option) + 1] == value
 
 
+@pytest.mark.parametrize("entrypoint", ["run_full_pipeline.sh", "train.sh"])
 @pytest.mark.parametrize("args", [["--resume"], ["--resume="], ["--resume", "--event-balanced"],
                                   ["--resume", "/missing/action/checkpoint.pt"]])
-def test_bad_resume_fails_before_creating_run(pipeline, args):
+def test_bad_resume_fails_before_creating_run(pipeline, args, entrypoint):
     """缺值或不存在的 checkpoint 不得误走新训练或数据构建。"""
     scripts, run, link, env = pipeline
-    result = subprocess.run(["bash", str(scripts / "run_full_pipeline.sh"), *args],
+    result = subprocess.run(["bash", str(scripts / entrypoint), *args],
                             cwd=ROOT, env=env, capture_output=True, text=True)
     assert result.returncode != 0
     assert not Path(env["TRACE_FILE"]).exists()

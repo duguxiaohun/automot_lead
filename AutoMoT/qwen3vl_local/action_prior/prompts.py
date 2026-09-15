@@ -1,4 +1,4 @@
-"""把接受的 RS/EVENT 条件压缩为自然场景先验，供 base Qwen 形成短分析。"""
+"""自然场景先验与导航默认直接编码为 KV，可选生成短分析后再编码。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,9 @@ import re
 # 新提示词进入 transcript KV；旧 v4 的 JSON 条件/经验表不能与本协议混用。
 ANALYSIS_VERSION = "natural_scene_prior_concise_summary_v6_event_balanced_context"
 MAX_ANALYSIS_WORDS = 80
+
+PREFILL_VERSION = "natural_scene_prior_input_only_v1"
+PREFILL_SYSTEM_PROMPT = """You assist with driving scene understanding and planning. Use the supplied scene description, chronological images, current speed and navigation to understand the current situation, relevant interactions and near-term planning constraints. Avoid unsupported details or controls."""
 
 SYSTEM_PROMPT = """You assist with driving scene understanding and planning. Using the supplied scene description, chronological images, current speed and navigation, write one concise grounded summary of the current situation, relevant interactions and near-term planning considerations. Keep it consistent with the supplied scene description, avoid unsupported details or controls, and stay within 80 words."""
 
@@ -142,6 +145,11 @@ def condition_context(priors, navigation):
 def analysis_prompt(priors, navigation):
     """让 base 将简短先验、图像与导航自然地总结为一个段落。"""
     return condition_context(priors, navigation) + "\nWrite the concise planning summary now."
+
+
+def prefill_prompt(priors, navigation):
+    """直接编码已确认先验和公开导航，不要求生成摘要或追加 assistant 内容。"""
+    return condition_context(priors, navigation)
 
 
 def review_prompt(priors, navigation, draft):

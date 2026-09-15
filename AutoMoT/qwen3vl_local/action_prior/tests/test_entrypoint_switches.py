@@ -29,7 +29,7 @@ def stub(tmp_path):
     (binary / "python").write_text(STUB.format(python=sys.executable))
     (binary / "python").chmod(0o755)
     env = dict(os.environ, PATH=f"{binary}{os.pathsep}{os.environ['PATH']}")
-    for name in ("DATASET_PRIORS", "PRIOR_LABELS", "PRIOR_NOISE", "ANALYSIS_REVIEW",
+    for name in ("DATASET_PRIORS", "PRIOR_LABELS", "PRIOR_NOISE", "ANALYSIS_REVIEW", "GENERATE_ANALYSIS",
                  "EVENT_BALANCED", "EVENT_BALANCE_INDEX", "EVENT_BALANCED_SCENE_PRIORS",
                  "RESUME", "RUN_TAG", "OUTPUT_DIR", "DATA_DIR"):
         env.pop(name, None)
@@ -58,10 +58,22 @@ def value_of(tokens, flag):
     return tokens[tokens.index(flag) + 1]
 
 
-def test_lora_default_keeps_the_independent_review(stub):
+def test_lora_default_disables_generation_but_keeps_optional_review_setting(stub):
     tokens = flags(run("train.sh", [], stub))
+    assert "--no-generate-analysis" in tokens
     assert "--analysis-review" in tokens
     assert "--dataset-priors" not in tokens and "--prior-labels" not in tokens
+
+
+@pytest.mark.parametrize("cli,env,enabled", [
+    ([], "1", True), ([], "0", False),
+    (["--generate-analysis"], "0", True), (["--no-generate-analysis"], "1", False),
+])
+def test_generate_analysis_cli_overrides_env(stub, cli, env, enabled):
+    """生成开关的 CLI 优先级与其它训练参数一致。"""
+    tokens = flags(run("train.sh", cli, stub, GENERATE_ANALYSIS=env))
+    assert tokens.count("--generate-analysis") == int(enabled)
+    assert tokens.count("--no-generate-analysis") == int(not enabled)
 
 
 @pytest.mark.parametrize(

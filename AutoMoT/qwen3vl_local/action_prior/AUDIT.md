@@ -25,7 +25,10 @@ python qwen3vl_local/action_prior/audit_bundle.py --root checkpoints/action_prio
 
 - `sampling/epoch_*.json`：精确配额、最优/实际唯一帧数、重复直方图和各桶路线数；`repeat_presentations` 是额外重复次数。
 - `validation/`：自然分布与各桶 ADE/FDE。`--best-selection-metric event_balanced_ade` 按 1:…:1:2 选 best，要求 val 全桶覆盖；默认 `natural_ade`。参与 best 选优的验证始终完整遍历 val。
-- `epoch_audit/`：实际呈现计数。`audit/`：先验接受/无效和摘要 fallback 的少量案例。
+- `epoch_audit/`：实际呈现计数。`audit/`：先验接受/无效和可选摘要 fallback 的少量案例。
+  默认摘要关闭，`analysis_acceptance=disabled`、`analysis=""`、`final_cache_content=inputs_only`；这不属于生成失败。
+  轨迹指标归入 `summary_disabled`，不计入 `summary_model_accepted` 或 `summary_fallback`。
+  摘要开关与运行 demo 见 [run.md](run.md#qwen-kv-输入与摘要开关)。
 - `domain_inapplicable` 是正常域外；判断复核失败看 `unconfirmed`，不能把全部 invalid 都当错误。
 - `history/independent/compare` 比较复核方式；compare 仍按 history 接受，一致率不代表准确率。
 - 上游候选池重叠只是可能见过的上界，不能当作实际训练命中；来源缺失记 unknown。

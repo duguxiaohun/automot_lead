@@ -27,13 +27,15 @@ class PriorEngine:
         recheck_mode="history",
         labels=None,
         analysis_review=True,
+        generate_analysis=False,
     ):
         self.engine, self.contract = engine, contract
         self.analysis_tokens = analysis_tokens
         self.text_cache = text_cache
         self.recheck_mode = recheck_mode
         self.labels = labels
-        self.analysis_review = bool(analysis_review)
+        self.generate_analysis = bool(generate_analysis)
+        self.analysis_review = bool(analysis_review) and self.generate_analysis
         self.adapters = None
         self.last_audit = None
         if labels is not None:
@@ -127,7 +129,7 @@ class PriorEngine:
     def condition(
         self, images, navigation, sample_key, identity=None, event_balanced_scene_contexts=()
     ):
-        """返回纯 base 吃四张图+先验+生成分析后的 cache，不包含 LoRA 计算的 KV。"""
+        """默认直接编码四图与先验提示词；显式开启时追加生成分析，最终 KV 均来自 base。"""
         if len(images) != 4:
             raise ValueError(
                 "action prior requires four chronological stitched RGB images"
@@ -164,6 +166,7 @@ class PriorEngine:
             self.text_cache.key(
                 self.contract["identity"], images, navigation,
                 f"{sample_key}:event_contexts={event_balanced_scene_contexts}"
+                f":generate_analysis={self.generate_analysis}"
             )
             if self.text_cache
             else None
@@ -183,6 +186,16 @@ class PriorEngine:
                 priors = dict(
                     priors,
                     event_balanced_scene_contexts=event_balanced_scene_contexts,
+                )
+            if not self.generate_analysis:
+                # 只缓存先验，不运行 base decode、摘要复核或 fallback；空文本不进最终 KV。
+                return dict(
+                    priors, analysis="", raw_analysis="", analysis_fallback=False,
+                    analysis_truncated=False, analysis_rejection="none",
+                    analysis_review=None, analysis_review_raw="",
+                    analysis_review_truncated=False, analysis_review_enabled=False,
+                    analysis_acceptance="disabled", analysis_semantic_guarantee=False,
+                    generate_analysis=False,
                 )
             report("condition/base_analysis")
             with self.mode("base"):
@@ -231,6 +244,7 @@ class PriorEngine:
 
             return dict(
                 priors,
+                generate_analysis=True,
                 analysis=text,
                 raw_analysis=raw_analysis,
                 analysis_fallback=fallback,
@@ -257,7 +271,15 @@ class PriorEngine:
             priors, cache_hit = compute(), False
         from qwen3vl_local.action_prior.contracts import digest
 
-        if priors["analysis_fallback"]:
+        if not self.generate_analysis:
+            accepted = (
+                priors.get("generate_analysis") is False
+                and priors.get("analysis") == ""
+                and priors.get("raw_analysis") == ""
+                and priors.get("analysis_acceptance") == "disabled"
+                and not priors.get("analysis_fallback")
+            )
+        elif priors["analysis_fallback"]:
             accepted = priors["analysis"] == prompts.fallback_analysis(
                 priors, navigation
             )
@@ -275,19 +297,22 @@ class PriorEngine:
             )
         if not accepted:
             raise ValueError(
-                "cached analysis lacks its paired review or valid fallback"
+                "cached prior/analysis does not match the configured KV mode or review"
             )
         report("condition/base_final_prefill", text_cache_hit=cache_hit)
         with self.mode("base"):
-            text = priors["analysis"]
-            # 首次和缓存命中都完整重建相同 assistant transcript，保证 KV 分布完全一致。
+            # 首次和缓存命中都完整 prefill；默认只编码 system/user 图文，生成开关
+            # 开启后才使用旧摘要 prompt 和 assistant transcript。
             self.engine._last_decode_state = None
             messages = self.engine.build_messages(
-                prompts.SYSTEM_PROMPT,
-                prompts.analysis_prompt(priors, navigation),
+                prompts.SYSTEM_PROMPT if self.generate_analysis else prompts.PREFILL_SYSTEM_PROMPT,
+                (prompts.analysis_prompt if self.generate_analysis else prompts.prefill_prompt)(
+                    priors, navigation
+                ),
                 images,
             )
-            messages.append({"role": "assistant", "content": text})
+            if self.generate_analysis:
+                messages.append({"role": "assistant", "content": priors["analysis"]})
             chat = self.engine.processor.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=False
             )
@@ -305,6 +330,7 @@ class PriorEngine:
             text_cache_hit=cache_hit,
             base_cache_tokens=length,
             rope_position_offset=offset,
+            final_cache_content="inputs_and_analysis" if self.generate_analysis else "inputs_only",
         )
         report("condition/base_kv_ready")
         return cache, offset
@@ -376,6 +402,7 @@ def make_runtime(args, device, contract):
                 args.recheck_mode,
                 labels,
                 args.analysis_review,
+                generate_analysis=args.generate_analysis,
             )
             self.base_prefill = self.runner._run_leadmot_qwen_prefill
             self.runner._run_leadmot_qwen_prefill = self.prefill_prior

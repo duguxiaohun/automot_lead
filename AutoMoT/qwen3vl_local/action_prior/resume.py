@@ -18,6 +18,13 @@ def main():
     cli, extra = p.parse_known_args()
     checkpoint = Path(cli.checkpoint).resolve()
     cfg = json.loads((checkpoint.parent / "config.json").read_text())
+    # 新 run 恢复保存的开关；旧 run 缺字段时保留原摘要语义，执行指纹仍严格检查。
+    cfg.setdefault("generate_analysis", True)
+    if "GENERATE_ANALYSIS" in os.environ:
+        value = os.environ["GENERATE_ANALYSIS"]
+        if value not in ("0", "1"):
+            raise ValueError("GENERATE_ANALYSIS must be 0 or 1")
+        cfg["generate_analysis"] = value == "1"
     plan = json.loads((checkpoint.parent / "training_plan.json").read_text())
     selected = json.loads((checkpoint.parent / "selected_priors.json").read_text())
     if selected.get("phase1"):

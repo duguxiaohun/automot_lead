@@ -1,6 +1,19 @@
 # AGENTS.md
 
-> 2026-09-09 action_prior v5：最终 base KV 保留四图、简短自然 RS/EVENT 场景描述、导航与 base 摘要；
+### 2026-09-15 Action 默认直接图文 KV（覆盖下文历史摘要流程）
+
+`action_prior` 默认 `generate_analysis=False`：四图＋自然 RS/EVENT 先验＋速度/导航直接
+base prefill，跳过摘要生成、复核、fallback 和 assistant 回答；dataset-priors 默认零文字生成，
+LoRA 来源仍做 Phase1/2 先验问答。`--generate-analysis` / `GENERATE_ANALYSIS=1` 保留原摘要＋完整 KV
+路径，`--no-generate-analysis` / `GENERATE_ANALYSIS=0` 显式关闭，CLI 优先。开关绑定缓存与 checkpoint
+合同，resume/eval/probe/闭环沿用保存值，不允许同一 decoder 临时切换 KV 模式。旧 run 需原源码恢复。
+运行 demo 见 `AutoMoT/qwen3vl_local/action_prior/run.md`、`train.sh`、`run_full_pipeline.sh`；
+设计见同目录 `DESIGN.md`。
+底层 `train.sh --resume`（含等号/环境变量写法）也先进入共用恢复逻辑，禁止用新训练默认值
+覆盖原摘要开关、LR 或索引；显式环境覆盖仍有效，CLI 优先，checkpoint 合同检查保持严格。
+
+> 2026-09-15 action_prior：默认四图＋自然 RS/EVENT 先验＋导航直接 base prefill 得到 KV；
+> 仅显式 `--generate-analysis` / `GENERATE_ANALYSIS=1` 才生成摘要并追加其 KV。
 > 不向下游注入 YES/NO/UNKNOWN、类别 JSON 或逐帧动作。轨迹 decoder 为联合轨迹条件 Flow Matching，
 > 从高斯噪声以 Euler 积分生成 route/waypoint；旧 Linear+cumsum 及逐点独立 FM checkpoint 不兼容。
 
@@ -189,8 +202,8 @@
   依赖该目录内 `.gitignore` 排除输出产物；若要提交新产物，必须先确认它不是可再生 evidence）
 - `AutoMoT/qwen3vl_local/`（含 `tb_serve.sh` 通用 TensorBoard launcher；`goalgen/` 子包详见 PROJECT_CONTEXT.md §15；`eval_carla/` 子包详见上）
 - `AutoMoT/qwen3vl_local/action_prior/`
-  （按用户同意新增：Phase1/2 先验 → 禁用所有 LoRA 的 base Qwen 单段短分析 → 四图/自然场景先验/
-  导航/分析完整 KV + 冻结 LEAD BEV → 条件 Flow Matching 轨迹 decoder。自然先验只由确认的 RS/EVENT YES
+  （按用户同意新增：Phase1/2 先验 → 禁用所有 LoRA 的 base Qwen 直接编码四图/自然场景先验/
+  导航 KV（默认不生成摘要，`--generate-analysis` 才追加摘要）+ 冻结 LEAD BEV → 条件 Flow Matching 轨迹 decoder。自然先验只由确认的 RS/EVENT YES
   查表组成，不泄露 NO/UNKNOWN 或类别 JSON；FM 联合 route(B,10,2)+waypoint(B,8,2)，训练回归直线流的向量场，
   每步以小型 trajectory Transformer 让全部带噪点交互，推理从高斯噪声以默认10步 Euler 采样。自动选择仅接受 best_generation 并核验 prompt/hash/Git/RGB
   与权重指纹；Phase1 做全问+RS 分层复核，Phase2 使用已训练的 EVENT 双域全问+域内续问，
@@ -198,8 +211,8 @@
   frozen 问答/简述可按合同与实际图像缓存文本，最终 KV 每次由 base 完整 prefill；不接 Phase3。
   全量4Hz索引、物理 route 分割、61 epoch 起始配置、DDP/EMA/TB/频繁验证和独立 eval/probe，
   运行见 action_prior/run.md。代码/脚本/测试/文档可追踪；权重、SQLite、审计和训练输出不入库。）
-  **2026-09-06 审查修订**：action_prior 可训练参数/AdamW/EMA 保持 FP32，BF16 仅用于 decoder autocast；base 按先验/当前速度/导航自行组织短分析，不提供标准答案；独立文本模型复核五项判定，通过保留原文，失败才 fallback，模型判定不保证语义正确；导航 CLI 覆盖索引，未接通的多帧 BEV 直接拒绝。跨 rank 共享原子文本缓存，执行指纹按真实入口依赖展开，覆盖共享 Qwen/LeadMoT/只读 runner 与 BEV 工具，排除未接入 Phase3；只读源码只计算哈希，不入库。提供 history/independent/compare 复核审计、上游训练候选池重叠/未知分组及同预算 base/prior 配对消融；审计来源与生成 identity 分离，来源移动/缺失不阻断恢复；续训沿用原审计快照，eval 支持来源重映射并单列内容变化。轨迹分组区分全部确认/仅正常域外/实际未确认；compare 仍按 history 接受且不要求跨模式共识，不把候选池重叠当实际采样命中、不把一致率当准确率。checkpoint 容器为 v4（联合轨迹 conditional Flow Matching）；旧模板、Linear+cumsum 与逐点独立 FM 合同不兼容。
-  **2026-09-07 dataset-priors 补充**：`--dataset-priors` 直接读取标定 RS/Phase1/EVENT 标签并默认关闭 analysis review，不加载 Phase1/2 LoRA；冷启动每帧为 1 次 base 分析生成 + 1 次最终 base KV prefill。`PRIOR_NOISE` 可注入 RS/EVENT confusion 或 invalid，噪声率、invalid 占比和 seed 均进入先验合同身份；eval/probe 默认沿用 checkpoint 记录。标签搬迁续训可只传 `--prior-labels /新路径`，pipeline 从旧 `config.json` 恢复 dataset 模式并贯穿最终 test/probe；闭环没有 dataset 标签，必须显式切回 LoRA 并披露条件迁移。**2026-09-09 修订**：`RS_HIGHWAY` 是独立 Phase1 事实，R3 不能反推高速；验证按样本身份固定 `eps/t` 和 Euler 初始噪声，并以从纯噪声 Euler 采样得到的加权 route/waypoint ADE 选取 best，FM MSE 仅作诊断。
+  **2026-09-06 审查修订**：action_prior 可训练参数/AdamW/EMA 保持 FP32，BF16 仅用于 decoder autocast；仅开启摘要时 base 按先验/当前速度/导航自行组织短分析，不提供标准答案；独立文本模型复核五项判定，通过保留原文，失败才 fallback，模型判定不保证语义正确；导航 CLI 覆盖索引，未接通的多帧 BEV 直接拒绝。跨 rank 共享原子文本缓存，执行指纹按真实入口依赖展开，覆盖共享 Qwen/LeadMoT/只读 runner 与 BEV 工具，排除未接入 Phase3；只读源码只计算哈希，不入库。提供 history/independent/compare 复核审计、上游训练候选池重叠/未知分组及同预算 base/prior 配对消融；审计来源与生成 identity 分离，来源移动/缺失不阻断恢复；续训沿用原审计快照，eval 支持来源重映射并单列内容变化。轨迹分组区分全部确认/仅正常域外/实际未确认；compare 仍按 history 接受且不要求跨模式共识，不把候选池重叠当实际采样命中、不把一致率当准确率。checkpoint 容器为 v4（联合轨迹 conditional Flow Matching）；旧模板、Linear+cumsum 与逐点独立 FM 合同不兼容。
+  **2026-09-07 dataset-priors 补充**：`--dataset-priors` 直接读取标定 RS/Phase1/EVENT 标签并默认关闭 analysis review，不加载 Phase1/2 LoRA；默认冷启动每帧仅 1 次最终 base KV prefill；显式 `--generate-analysis` 才增加 base 分析生成。`PRIOR_NOISE` 可注入 RS/EVENT confusion 或 invalid，噪声率、invalid 占比和 seed 均进入先验合同身份；eval/probe 默认沿用 checkpoint 记录。标签搬迁续训可只传 `--prior-labels /新路径`，pipeline 从旧 `config.json` 恢复 dataset 模式并贯穿最终 test/probe；闭环没有 dataset 标签，必须显式切回 LoRA 并披露条件迁移。**2026-09-09 修订**：`RS_HIGHWAY` 是独立 Phase1 事实，R3 不能反推高速；验证按样本身份固定 `eps/t` 和 Euler 初始噪声，并以从纯噪声 Euler 采样得到的加权 route/waypoint ADE 选取 best，FM MSE 仅作诊断。
   **2026-09-09 采样修订**：训练默认仅计算向量场 MSE，不执行 ODE 诊断采样；只在显式 `TRAIN_SAMPLED_METRICS=1` 时采样，且轨迹 Transformer 的 dropout 会临时关闭。闭环由 `--policy-seed` / `ACTION_POLICY_SEED` 派生每条 route 的独立 FM 高斯序列，优先级固定为 CLI > 环境变量 > Traffic Manager `--seed`，记录在 benchmark manifest/model contract。CPU BF16 eval/no_grad 在轨迹 Transformer 内安全回退 FP32，CUDA 路径保持原生 autocast。
 - `AutoMoT/qwen3vl_local/action_expert_ablation/`
   （按用户同意新增：action expert 两个无 RS/EVENT 先验消融实验，代码/脚本/测试/文档可追踪，权重、日志、训练输出不入库。`qwen_simple/` 使用四张 LEAD stitched RGB + LeadMoT 原简短导航 prompt 的 base Qwen KV + frozen BEV；不跑 Phase1/2 LoRA、不生成分析摘要、不读取 dataset prior。`bev_only/` 不初始化 Qwen、不传图文 KV，给 LeadMoT Prefix-KV attention 提供 zero-length prefix，保留 frozen LEAD BEV（当前 stitched RGB + LiDAR BEV 融合）、speed、target_point、next_target_point、final_goal 和 query token 训练；它测的是移除 Qwen 图文分支，不是纯 LiDAR/完全无视觉。两者与主线共同调用 `action_prior/training_core.py` 的模型构造、FP32 AdamW/EMA、DDP 分片/梯度累积、FM 训练/验证、日志、checkpoint 保存及恢复校验，复用 `build_dataset.py` 索引；入口仅提供不同 runtime、条件合同与审计接口，后续公共训练行为必须改共享模块，不再复制循环。三组统一记录 `train/samples_seen` 累计训练呈现数和 `train/step_samples` 本次更新样本数，默认完整 step 为 64 case；本次重构改变执行源码指纹，旧 run 需原代码恢复；共享索引首次构建用 `.build.lock` 文件配合 `flock` 加锁，进程退出自动释放，残留锁文件不阻塞后续启动，拿锁后重查 split 完整性，避免两个变体并发写同名 tmp。epoch 尾部不足完整累积窗口时只在同索引/同卡数/同累积/同 seed 下可比。full pipeline 训练前固定本次 `RUN_TAG` 和真实 run dir，`--resume` 指向 `latest/latest.pt` 等软链接时先解析真实 checkpoint，最终 eval 直接读同一 run 的 `best.pt`；CLI `--data-root/--data-dir` 和显式 `MODEL_DIR`/`--model-dir`、`LEAD_BEV_CKPT`/`--lead-bev-ckpt` 贯穿构建、训练和 eval。仅传 `--resume` 时训练入口先从 run `config.json` 恢复原 LR/epoch/梯度累积/索引等参数，launcher 在选 GPU 前从 `training_plan.json` 恢复原 `world_size` 默认值，`train.sh --resume` 不注入脚本默认 LR/epoch/梯度累积/索引；显式 CLI 或环境变量覆盖仍优先生效。resume 会归档 TB 中 checkpoint step 之后的旧 event，并保留 checkpoint step。执行指纹覆盖消融入口、共享 action_prior/LeadMoT/BEV 依赖和关键运行库版本，但不绑定未使用的 Phase1/2 prompt。默认 uniform 的 TensorBoard 只保留核心 `loss`、`route_fm_mse`、`waypoint_fm_mse`、ADE/FDE、LR、grad_norm、吞吐与显存，不记录 RS/EVENT/UNKNOWN 分桶。运行见 `action_expert_ablation/run.md`。）

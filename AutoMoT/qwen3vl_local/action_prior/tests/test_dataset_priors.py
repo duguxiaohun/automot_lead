@@ -353,7 +353,8 @@ def test_runtime_never_loads_a_lora_and_generates_once_without_review(tmp_path, 
 
     def run(analysis_review):
         engine_prior = PriorEngine(
-            engine, {"identity": "dataset"}, labels=index, analysis_review=analysis_review
+            engine, {"identity": "dataset"}, labels=index, analysis_review=analysis_review,
+            generate_analysis=True,
         )
         assert engine_prior.adapters is None
         generated = []
@@ -433,7 +434,8 @@ def test_truncated_analysis_always_falls_back(tmp_path, monkeypatch, analysis_re
     )
     index = labels.PriorLabelIndex(write_index(tmp_path / "labels", [row()]))
     engine_prior = PriorEngine(
-        engine, {"identity": "dataset"}, labels=index, analysis_review=analysis_review
+        engine, {"identity": "dataset"}, labels=index, analysis_review=analysis_review,
+        generate_analysis=True,
     )
     cut = "The ordinary surface-road corridor continues toward the navigation target and the"
     assert prompts.analysis_format_valid(cut)

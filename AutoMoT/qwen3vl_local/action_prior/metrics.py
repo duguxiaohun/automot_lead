@@ -25,7 +25,9 @@ def sample_groups(audit, sample):
         "baseline"
         if audit.get("condition_mode") == "base"
         else (
-            "summary_fallback"
+            "summary_disabled"
+            if audit.get("analysis_acceptance") == "disabled"
+            else "summary_fallback"
             if audit.get("analysis_fallback")
             else "summary_model_accepted"
         )

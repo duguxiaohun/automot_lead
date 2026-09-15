@@ -10,6 +10,14 @@
 #   RESUME=checkpoints/action_prior/latest/latest.pt bash qwen3vl_local/action_prior/run_full_pipeline.sh
 #   bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/latest/tb
 # 常用说明见 run.md；可选审计见 AUDIT.md。
+# 默认四图+先验 prompt 直接编码 KV，无 talk/摘要。保留旧生成+摘要 KV 的开关 demo：
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --generate-analysis
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --generate-analysis
+#   GENERATE_ANALYSIS=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+#   GPU_IDS=0,1,2,3 GENERATE_ANALYSIS=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-generate-analysis
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-generate-analysis
+# eval/probe/闭环沿用 checkpoint 开关；resume 沿用原配置，不能在同一 decoder 上换 KV 模式。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

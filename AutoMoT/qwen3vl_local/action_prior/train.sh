@@ -4,6 +4,14 @@
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
 # 本脚本是已准备好索引时的底层训练入口，不负责自动构建。日常操作见 run.md。
 #   bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/latest/tb
+# 默认不生成 talk/摘要；下面为已备好索引的开启/关闭 demo（参数也可传给 full pipeline）：
+#   bash qwen3vl_local/action_prior/train.sh --generate-analysis
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --generate-analysis
+#   GENERATE_ANALYSIS=0 bash qwen3vl_local/action_prior/train.sh
+#   GPU_IDS=0,1,2,3 GENERATE_ANALYSIS=0 bash qwen3vl_local/action_prior/train.sh
+# 直接续训会恢复原配置（包含摘要开关），不注入新训练默认值：
+#   bash qwen3vl_local/action_prior/train.sh --resume checkpoints/action_prior/latest/latest.pt
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --resume checkpoints/action_prior/latest/latest.pt
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 export PYTHONUNBUFFERED=1
@@ -14,6 +22,53 @@ action_event_balance_options "$@"
 set -- "${ACTION_EVENT_BALANCE_ARGS[@]}"
 has_flag() { local flag="$1"; shift; [[ " $* " == *" $flag "* || " $* " == *" $flag="* ]]; }
 has_value() { local flag="$1" value="$2"; shift 2; [[ " $* " == *" $flag $value "* || " $* " == *" $flag=$value "* ]]; }
+# 在拼接任何新训练默认值之前分流；保留数组边界，兼容带空格的路径与 CLI > RESUME。
+resume_checkpoint="${RESUME:-}"
+train_cli=()
+while (( $# )); do
+ case "$1" in
+  --resume)
+   [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { echo "--resume needs a value" >&2; exit 2; }
+   resume_checkpoint="$2"; shift ;;
+  --resume=*)
+   resume_checkpoint="${1#*=}"
+   [[ -n "$resume_checkpoint" ]] || { echo "--resume needs a value" >&2; exit 2; } ;;
+  *) train_cli+=("$1") ;;
+ esac
+ shift
+done
+set -- "${train_cli[@]}"
+if [[ -n "$resume_checkpoint" ]]; then
+ resume_checkpoint="$(realpath -e -- "$resume_checkpoint")"
+ [[ -f "$resume_checkpoint" ]] || { echo "resume checkpoint is not a file: $resume_checkpoint" >&2; exit 2; }
+ # 只传用户显式设置的环境值；未设置时全部由 resume.py 从原 run 恢复。
+ # CLI 放最后，继续覆盖环境变量；摘要开关环境值由共用 resume.py 处理。
+ resume_overrides=()
+ for mapping in DATA_ROOT:data-root DATA_DIR:data-dir MODEL_DIR:model-dir LEAD_BEV_CKPT:lead-bev-ckpt \
+  CHECKPOINT_ROOT:checkpoint-root SELECTION_POLICY:selection-policy NUM_EPOCHS:num-epochs \
+  LR:learning-rate GRAD_ACCUM:grad-accum-steps VAL_STEPS:val-steps SAVE_STEPS:save-steps \
+  NUM_WORKERS:num-workers LOGGING_STEPS:logging-steps PRIOR_LABELS:prior-labels PRIOR_NOISE:prior-noise \
+  PRIOR_NOISE_INVALID_SHARE:prior-noise-invalid-share PHASE1_ADAPTER:phase1-adapter PHASE2_ADAPTER:phase2-adapter \
+  EVENT_BALANCE_INDEX:event-balance-index FLOW_SAMPLE_STEPS:flow-sample-steps \
+  FLOW_ROUTE_COORDINATE_SCALE_M:flow-route-coordinate-scale-m \
+  FLOW_WAYPOINT_COORDINATE_SCALE_M:flow-waypoint-coordinate-scale-m FLOW_TIME_EMBED_DIM:flow-time-embed-dim \
+  FLOW_TRAJECTORY_LAYERS:flow-trajectory-layers FLOW_TRAJECTORY_HEADS:flow-trajectory-heads; do
+  name="${mapping%%:*}"; option="${mapping#*:}"
+  if [[ -v "$name" ]]; then resume_overrides+=("--$option" "${!name}"); fi
+ done
+ for mapping in DATASET_PRIORS:dataset-priors ANALYSIS_REVIEW:analysis-review \
+  TRAIN_SAMPLED_METRICS:train-sampled-metrics EVENT_BALANCED_SCENE_PRIORS:event-balanced-scene-priors; do
+  name="${mapping%%:*}"; option="${mapping#*:}"
+  if [[ -v "$name" ]]; then
+   case "${!name}" in
+    1) resume_overrides+=("--$option") ;;
+    0) resume_overrides+=("--no-$option") ;;
+    *) echo "$name must be 0 or 1" >&2; exit 2 ;;
+   esac
+  fi
+ done
+ exec bash "$HERE/resume.sh" "$resume_checkpoint" "${resume_overrides[@]}" "$@"
+fi
 args=(--data-root "${DATA_ROOT:-lead_data}" --data-dir "${DATA_DIR:-checkpoints/action_prior_data}"
  --checkpoint-root "${CHECKPOINT_ROOT:-checkpoints}" --selection-policy "${SELECTION_POLICY:-available}"
  --model-dir "${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
@@ -22,6 +77,14 @@ args=(--data-root "${DATA_ROOT:-lead_data}" --data-dir "${DATA_DIR:-checkpoints/
  --grad-accum-steps "${GRAD_ACCUM:-16}" --val-steps "${VAL_STEPS:-250}"
  --save-steps "${SAVE_STEPS:-1000}" --num-workers "${NUM_WORKERS:-8}")
 args+=(--logging-steps "${LOGGING_STEPS:-10}")
+# 默认一次图文 prefill；CLI 明确开关优先于环境变量，摘要复核不能隐式开启生成。
+if ! has_flag --generate-analysis "$@" && ! has_flag --no-generate-analysis "$@"; then
+ case "${GENERATE_ANALYSIS:-0}" in
+  1) args+=(--generate-analysis) ;;
+  0) args+=(--no-generate-analysis) ;;
+  *) echo "GENERATE_ANALYSIS must be 0 or 1" >&2; exit 2 ;;
+ esac
+fi
 # EVENT_BALANCED=1 或 --sampling-mode event_balanced：按 action_prior 全帧映射的
 # UE1-7/RE2/RE3/RE5 十桶各一份、确认常规背景两份重建每个 epoch。只影响训练抽样；
 # EVENT_BALANCED_SCENE_PRIORS=1 是另一个 dataset-only 的离线自然文本条件，闭环禁用。
@@ -64,7 +127,7 @@ if [[ "$dataset" == 1 ]]; then
  has_flag --prior-noise-invalid-share "$@" ||
   args+=(--prior-noise-invalid-share "${PRIOR_NOISE_INVALID_SHARE:-0.25}")
 fi
-# 标定真值不需要再让 base 复核自己是否与先验矛盾；默认省掉第二次生成。
+# 仅 generate-analysis 开启时该复核设置才生效；标定真值默认省掉复核生成。
 if ! has_flag --analysis-review "$@" && ! has_flag --no-analysis-review "$@"; then
  review="${ANALYSIS_REVIEW:-$([[ "$dataset" == 1 ]] && echo 0 || echo 1)}"
  [[ "$review" == 1 ]] && args+=(--analysis-review) || args+=(--no-analysis-review)

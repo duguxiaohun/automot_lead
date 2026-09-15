@@ -4,9 +4,17 @@
 
 ## 模型
 
-四张 4 Hz stitched RGB、当前速度与导航进入冻结 Qwen。默认用 Phase1/2 LoRA 提供先验，再禁用所有 LoRA 由 base 生成短摘要。
-`dataset-priors` 直接读取标定标签，默认关闭摘要模型复核；冷启动为一次 base 生成和一次完整 KV prefill。
-最终 KV 保留四图、自然 RS/EVENT 描述、导航和摘要，不注入类别 JSON、NO/UNKNOWN 或逐帧动作标签。
+四张 4 Hz stitched RGB、当前速度与导航进入冻结 Qwen。默认用 Phase1/2 LoRA 提供先验，再禁用所有 LoRA，
+将四图、自然 RS/EVENT 描述和导航直接 prefill 得到 KV；不生成摘要，不追加 assistant 消息。
+`dataset-priors` 直接读取标定标签，默认冷启动没有文字生成，仅一次完整 base KV prefill。
+最终 KV 不注入类别 JSON、NO/UNKNOWN 或逐帧动作标签。
+
+`--generate-analysis` / `GENERATE_ANALYSIS=1` 保留原摘要路径：base 生成短摘要、按配置复核/fallback，
+再把 system＋user 四图/先验/导航＋assistant 摘要完整 prefill。`--no-generate-analysis` 为默认。
+直接模式用 `PREFILL_SYSTEM_PROMPT` / `prefill_prompt`，没有要求写摘要的指令；
+两条路径都使用 `add_generation_prompt=False`，直接模式也不追加空的 assistant 起始头。
+摘要关闭时忽略复核设置，不产生摘要 fallback。先验问答、invalid 处理和轨迹监督照常执行。
+开关进入条件身份和缓存 key，最终 KV 每次重建，M-RoPE 偏移仍按输入长度加 `rope_deltas` 计算。
 
 冻结 LEAD BEV，与 KV 共同条件化联合 Flow Matching 轨迹 decoder：route `(10,2)`、waypoint `(8,2)`。
 训练默认仅向量场 MSE；验证从高斯噪声默认 10 步 Euler 采样，按样本身份固定噪声。
@@ -41,6 +49,10 @@ UE1–7、RE2/3/5 十桶各一份，普通背景两份；开发路线强制 trai
 v1 map 必须重建。候选规则或构建代码变化产生新的自动缓存目录，旧产物保留。
 
 模型/adapter 字节指纹、prompt、导航、RGB 和执行源码共同约束 checkpoint 与文本缓存。
-LoRA 选择会固定来源并复制到 run/lora；摘要缓存可共享，但最终 KV 每次完整 prefill。
+LoRA 选择会固定来源并复制到 run/lora；先验及可选摘要的文本缓存可跨 rank 共享，但最终 KV 每次完整 prefill。
+续训、离线评测和闭环从保存配置恢复摘要开关，不能用同一 decoder 临时换模式；缺字段的旧配置按历史摘要语义解释，
+但仍需通过严格执行指纹检查。本次变更用于新 run，旧 run 用原代码恢复。开启/关闭 demo 见 run.md。
+`train.sh --resume`（含等号写法和 `RESUME` 环境变量）在注入任何新训练默认值前进入同一
+`resume.py`；恢复原摘要开关、LR、索引等参数，只转发显式环境覆盖和 CLI，CLI 优先。
 审计来源身份与实际生成身份分开，来源不可访问记 unknown；同内容路径迁移不应改变生成条件。
 详细历史事实以仓库根目录 PROJECT_CONTEXT.md 为准。

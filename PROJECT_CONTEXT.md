@@ -690,7 +690,7 @@ TB 只记录核心 FM/planning loss、ADE/FDE、LR、grad_norm、吞吐和显存
 后续修改公共训练行为必须落在共享模块，不能在消融复制循环。
 三组新增 `train/samples_seen` 累计训练呈现数与 `train/step_samples` 本次更新样本数；
 `train/samples` 仍是日志窗口计数。默认完整 step 为四卡×16=64 case，epoch 尾部按实际分母。
-`action_prior` 对 `qwen_simple` 衡量先验+分析+prompt 的整体变化，不能孤立归因于推理文字；
+`action_prior` 对 `qwen_simple` 默认衡量先验+prompt 的整体变化；仅开启 `--generate-analysis` 才额外含分析，不能孤立归因于推理文字；
 `bev_only` 仍含 BEV RGB 融合。FM MSE 仅为训练诊断，最终比较同口径采样 ADE/FDE 与 test。
 共享循环兼容两种历史 pending cursor 字段，但代码指纹已改变，旧 run 仍需原代码恢复。
 CPU 回归覆盖同模拟条件三入口更新/指标一致、两个消融中途及验证中断恢复、预算完成后不超训；
@@ -890,10 +890,10 @@ LoRA 与 dataset-priors（包括噪声后条件）共用 `[PLANNING_EXPERIENCE]`
 `PLANNING_EXPERIENCE`、YES/NO/UNKNOWN 或类别词组塞入 Qwen 上下文。它只从最终接受的
 RS/EVENT **YES** 选择短的英文自然描述：道路结构、独立 highway 事实及每个当前正事件均可提供
 一条可用于近端规划的背景句；NO/null 不被渲染成反例或“正常”断言。罕见多事件并发会压成一条
-自然并列句，但不丢任何已接受正类。base 读取该短段、四张 chronological RGB、当前速度/导航，
-输出不超过 80 词的一段总结；fallback 也使用同一自然先验，不能退化成字段清单。最终 base prefill
-仍包含 system + 四图 + user 场景先验/导航 + assistant 摘要，所以 MoT 接到的是完整图像、提示词和
-分析 KV，而非仅分析 KV。
+自然并列句，但不丢任何已接受正类。2026-09-15 起默认将该短段、四张 chronological RGB、当前速度/导航
+作为 system/user 图文输入，直接由 base prefill 得到 KV，不执行文字 decode，也不追加 assistant 起始头或回答。
+仅 `--generate-analysis` 开启时，base 才输出不超过 80 词的一段总结；复核/fallback 使用同一自然先验，
+最终完整 prefill 加入 assistant 摘要。两种模式都保留完整四图与先验/导航提示词。
 
 2026-09-11 入口简化：`run_full_pipeline.sh --dataset-priors --event-balanced` 即可启用均衡课程；
 兼容 `EVENT_BALANCED=1` / `--sampling-mode event_balanced`，`--no-event-balanced` 显式关闭。
@@ -958,6 +958,29 @@ best 按纯噪声 Euler 采样的加权 route/waypoint ADE 选取，FM MSE 仅�
 policy seed 优先级为显式 `--policy-seed`、环境 `ACTION_POLICY_SEED`、最后才是 Traffic Manager `--seed`；
 后续多 seed 稳定性评测可只改变该 seed。PyTorch 2.3 CPU BF16 的 eval/no_grad Transformer fastpath 在
 轨迹块内部回退 FP32；CUDA BF16 没有被这一兼容分支降级。
+
+### 2026-09-15 Action 默认直接图文 KV
+
+`action_prior/config.py::DEFAULTS.generate_analysis=False`，CLI 为 `--generate-analysis` /
+`--no-generate-analysis`，`train.sh` 与 `run_full_pipeline.sh` 支持 `GENERATE_ANALYSIS=1/0`（CLI 优先）。
+`runtime.py::PriorEngine.condition` 默认只获取先验，再用 `prompts.py::PREFILL_SYSTEM_PROMPT` /
+`prefill_prompt` 构造 system＋user 四图/自然先验/导航，`add_generation_prompt=False`，一次 base prefill
+返回完整 `past_key_values`，位置偏移仍为输入 token 长度加 `rope_deltas`。无摘要生成、复核、fallback，
+也没有空 assistant 回答。dataset 模式默认零文字生成；LoRA 模式保留原 Phase1/2 问答。
+
+开启后保留原摘要生成与可选复核/fallback，再完整 prefill 图像、提示词和 assistant 摘要。
+`analysis_review` 只在开启摘要时生效；开关、prompt 版本及 `final_cache_content` 进入合同身份，
+文本缓存另显式区分开关，冷启动与命中均重新 prefill。逐例审计保留空 analysis 以兼容指标，
+用 `analysis_acceptance=disabled` 和 `final_cache_content=inputs_only` 标记默认模式。
+训练计划区分实际摘要复核和文字生成预算；dataset 为 0 / 1 / 2 次（关闭 / 摘要 / 摘要＋复核）。
+
+resume、eval/probe 和闭环从保存参数恢复模式，不提供评测时临时切换 KV 模式；分别训练才能比较。
+缺字段旧配置按历史摘要语义解释，但不豁免严格源码身份检查，本次代码用于新 run。
+开启/关闭与迁移边界见 `AutoMoT/qwen3vl_local/action_prior/run.md` 和 `DESIGN.md`。
+
+同日续训修复：底层 `train.sh --resume 路径` / `--resume=路径` / `RESUME=路径` 也在注入
+新训练默认参数之前转入共用 `resume.py`，避免默认关闭摘要覆盖原 run 的开启状态；原 LR、
+累积步数、索引与卡数一并恢复，仅显式环境值作为覆盖，CLI 优先。仍严格校验 checkpoint 合同。
 
 ### Action prior DDP 梯度布局与日志（2026-09-07）
 

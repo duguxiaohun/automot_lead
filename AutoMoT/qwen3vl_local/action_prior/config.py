@@ -16,7 +16,9 @@ from qwen3vl_local.action_prior.contracts import (
     select_adapter,
 )
 from qwen3vl_local.action_prior.priors import PROTOCOL_VERSION
-from qwen3vl_local.action_prior.prompts import ANALYSIS_VERSION, SYSTEM_PROMPT
+from qwen3vl_local.action_prior.prompts import (
+    ANALYSIS_VERSION, SYSTEM_PROMPT, PREFILL_VERSION, PREFILL_SYSTEM_PROMPT,
+)
 
 DEFAULTS = dict(
     model_dir="checkpoints/Qwen3-VL-4B-Instruct",
@@ -48,6 +50,8 @@ DEFAULTS = dict(
     # 短摘要最多 80 词；128 token 防截断又不会让失控生成拉长 final KV。
     analysis_tokens=128,
     analysis_review=True,
+    # 默认图像+先验 prompt 一次 prefill，显式开启才生成摘要并追加到最终 KV。
+    generate_analysis=False,
     recheck_mode="history",
     condition_mode="prior",
     dataset_priors=False,
@@ -212,6 +216,10 @@ def read_rows(args, split):
 
 def validate_args(args):
     """防止兼容参数改变该路线的核心条件。"""
+    # 缺字段只可能来自旧保存配置：其历史行为是生成摘要，不能套用新训练默认值。
+    # 后续仍严格核验执行指纹，补字段不表示旧 checkpoint 可以跨源码恢复。
+    if not hasattr(args, "generate_analysis"):
+        args.generate_analysis = True
     if getattr(args, "selection_policy", "strict") not in ("available", "strict"):
         raise ValueError("selection_policy must be available or strict")
     if (
@@ -429,8 +437,10 @@ def build_contract(args):
         phase2=p2["fingerprint"] if p2 else None,
         bev=bev_hash,
         protocol=PROTOCOL_VERSION,
-        analysis=ANALYSIS_VERSION,
-        system=SYSTEM_PROMPT,
+        analysis=ANALYSIS_VERSION if args.generate_analysis else PREFILL_VERSION,
+        system=SYSTEM_PROMPT if args.generate_analysis else PREFILL_SYSTEM_PROMPT,
+        generate_analysis=args.generate_analysis,
+        final_cache_content="inputs_and_analysis" if args.generate_analysis else "inputs_only",
         analysis_tokens=args.analysis_tokens,
         analysis_review=args.analysis_review,
         trajectory_decoder="conditional_joint_trajectory_flow_matching_v2",
@@ -575,15 +585,16 @@ def training_plan(args, rows, world):
         injected_prior_noise_rate=(
             args.prior_noise if getattr(args, "dataset_priors", False) else 0.0
         ),
-        independent_analysis_review=args.analysis_review,
+        generate_analysis=args.generate_analysis,
+        final_cache_content="inputs_and_analysis" if args.generate_analysis else "inputs_only",
+        independent_analysis_review=args.generate_analysis and args.analysis_review,
         cold_generations_per_unique_frame=(
             0
             if args.condition_mode == "base"
             else (
-                (2 if args.analysis_review else 1)
-                if getattr(args, "dataset_priors", False)
-                else (16 if args.recheck_mode == "compare" else 10)
-                + (1 if args.analysis_review else 0)
+                (0 if getattr(args, "dataset_priors", False)
+                 else (15 if args.recheck_mode == "compare" else 9))
+                + (1 + int(args.analysis_review) if args.generate_analysis else 0)
             )
         ),
         final_base_prefills_per_presentation=1,

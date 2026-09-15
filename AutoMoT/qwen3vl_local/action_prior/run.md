@@ -2,6 +2,40 @@
 
 以下命令在训练机的 `AutoMoT/` 目录执行。准备好 `lead_data`、已有人工标注和本地 Qwen/BEV 权重；脚本自动构建所需索引，不下载模型。
 
+## Qwen KV 输入与摘要开关
+
+默认 `generate_analysis=False`：**四张图像＋含自然 RS/EVENT 先验、当前速度与导航的提示词 → frozen base Qwen 一次 prefill → KV 交给轨迹 decoder**。
+不生成 talk/CoT/摘要，不追加 assistant 回答，也不运行摘要复核或 fallback。LoRA 来源仍执行 Phase1/2 的先验问答；
+`--dataset-priors` 则直接查标签，因此默认每帧没有文字生成，只有一次最终 base KV prefill。
+
+```bash
+# 显式关闭摘要（默认行为）；可与 --event-balanced 等原开关组合。
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-generate-analysis
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-generate-analysis
+
+# 保留原路径：生成摘要，然后把图像、先验提示词及摘要一起编码到最终 KV。
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --generate-analysis
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --generate-analysis
+
+# 等价环境变量，0 关闭 / 1 开启；显式 CLI 优先。
+GENERATE_ANALYSIS=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+GPU_IDS=0,1,2,3 GENERATE_ANALYSIS=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+```
+
+`train.sh` 和 `train.py` 同样接受 `--generate-analysis` / `--no-generate-analysis`。
+`--analysis-review` / `ANALYSIS_REVIEW` 仅在摘要开启时生效，不会单独开启生成；开启摘要后，
+LoRA 来源默认复核，dataset 来源在 shell 入口默认不复核，可显式覆盖。摘要失败时保留原 fallback。
+
+模式写入 `config.json`、checkpoint 条件合同和训练计划；逐例审计用 `final_cache_content=inputs_only` /
+`inputs_and_analysis` 区分，关闭时 `analysis_acceptance=disabled`。两种模式不共用文本缓存条目。
+**续训、eval、probe 和闭环自动沿用 checkpoint 模式**，测试命令无需重复开关，也不接受临时切换 KV 模式。
+比较两种模式需要分别训练 decoder。本次源码指纹改变，旧 run 必须用原源码恢复；开启摘要并不绕过旧 checkpoint 兼容检查。
+
+2026-09-15 本地验证：直接图文 KV、冷/热缓存、摘要开启及复核/fallback、CLI/环境优先级、
+真实 resume 配置恢复、生成预算和 `summary_disabled` 分组回归通过，Python/shell 语法检查通过。
+未运行真实 Qwen/BEV GPU 训练；当前环境缺 peft 和只读 `leaderboard/team_code/mot_lead_offline_runner.py`，
+真实双 LoRA 测试及完整执行源码指纹集成检查未完成。模式合同单测固定无关源码身份；正式指纹守卫没有放宽。
+
 ## 开始训练
 
 ```bash
@@ -81,11 +115,18 @@ GPU_IDS=0,1,2,3 RESUME=checkpoints/action_prior/latest/latest.pt bash qwen3vl_lo
 # 仅续训：
 bash qwen3vl_local/action_prior/resume.sh checkpoints/action_prior/latest/latest.pt
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/resume.sh checkpoints/action_prior/latest/latest.pt
+
+# 底层训练入口也会先恢复配置，包含原摘要开关；兼容 --resume=路径 和 RESUME=路径。
+bash qwen3vl_local/action_prior/train.sh --resume checkpoints/action_prior/latest/latest.pt
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --resume checkpoints/action_prior/latest/latest.pt
 ```
 
 续训使用原代码版本和原配置。更改采样算法或实验条件时开新 run；不要修改旧 checkpoint 的合同。
 `--resume 路径`、`--resume=路径` 与 `RESUME=路径` 共用专用恢复入口，恢复原 LR、epoch、累积、
 采样课程、标签路径与卡数默认值，不执行新训练的数据构建或 LoRA 重选。
+`train.sh` 同样在拼接新训练默认参数前转入共用恢复入口，不再用默认
+`--no-generate-analysis` 覆盖原 run 的 `True`。仅显式环境变量才作为覆盖传入，CLI 优先；
+不要显式切换摘要模式续训，条件合同仍会拒绝不同 KV 模式。
 pipeline 在读取配置前解析 checkpoint 的真实路径；即使另一个实验修改 `latest`，
 续训和最终 test/probe 也固定使用原 run 及其 `best.pt`。缺值或不存在的 checkpoint 会提前报错。
 

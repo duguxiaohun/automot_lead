@@ -305,7 +305,7 @@ def test_text_cache_image_and_contract_invalidation(tmp_path):
     assert cache.get(cache.key("contract1", images, "nav", "case")) is None
 
 
-@pytest.mark.parametrize("review_case", ["pass", "reject", "malformed"])
+@pytest.mark.parametrize("review_case", ["off", "pass", "reject", "malformed"])
 def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch, review_case):
     from PIL import Image
     from peft import LoraConfig, get_peft_model
@@ -349,7 +349,8 @@ def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch, review
         prompt_name=event_prompts.PROMPT_NAME, history_rgb_mode="4rgb",
         production_prompt_sha256=event_prompts.event_prompt_sha256(history_rgb_mode="4rgb"))
     runtime = PriorEngine(
-        engine, contract, text_cache=TextCache(tmp_path / "text.sqlite")
+        engine, contract, text_cache=TextCache(tmp_path / "text.sqlite"),
+        generate_analysis=review_case != "off",
     )
     counter = []
 
@@ -392,10 +393,13 @@ def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch, review
     k1, o1 = runtime.condition(images, "nav", "case")
     k2, o2 = runtime.condition(images, "nav", "case")
     assert len(counter) == 1 and runtime.last_audit["text_cache_hit"]
-    assert len(generated_calls) == 2  # 命中不再次生成/复核。
-    assert runtime.last_audit["raw_analysis"] == draft
+    assert len(generated_calls) == (0 if review_case == "off" else 2)
+    assert runtime.last_audit["raw_analysis"] == ("" if review_case == "off" else draft)
     assert runtime.last_audit["analysis_semantic_guarantee"] is False
-    if review_case == "pass":
+    if review_case == "off":
+        assert runtime.last_audit["analysis"] == ""
+        assert runtime.last_audit["analysis_acceptance"] == "disabled"
+    elif review_case == "pass":
         assert runtime.last_audit["analysis"] == draft
         assert not runtime.last_audit["analysis_fallback"]
     else:
