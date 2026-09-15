@@ -900,6 +900,13 @@ RS/EVENT **YES** 选择短的英文自然描述：道路结构、独立 highway 
 新训练自动准备 action 索引、缺失的默认 Phase1 索引/标定先验标签，并调用 `prepare_event_balance.py`
 自动构建候选与 full map；按原始标注内容、data-root、规则/构建源码与 action split hash 复用私有缓存，
 flock 串行构建、临时目录校验成功后原子发布，不依赖手工先建 Phase3 产物，也不训练 Phase1/Phase3。
+2026-09-15 发布冲突修复：候选与 full map 共用校验/发布 helper，处理 EEXIST/ENOTEMPTY；
+并发目标校验通过且数据文件内容相同才复用，残缺自动缓存改名到 `.invalid-*` 保留后重建。
+full map 额外核验实际 candidate SHA256；非目录冲突的 I/O 错误和内容不一致仍失败。
+`.prepare.lock` 不删除，进程退出自动释放内核锁；等待时输出日志。显式 full-map 输入仍严格校验。
+真实双进程锁竞争、持锁者被 SIGTERM 终止后的恢复、损坏 JSON/缺文件、发布冲突与 I/O 错误均有回归；
+准备/均衡/入口三组测试 88 项通过，消融扩展另 14 项通过、2 项因本地缺只读
+`leaderboard/team_code/mot_lead_offline_runner.py` 未通过。未复现远端共享文件系统或运行全量数据构建。
 CLI data-root/data-dir 贯穿构建与训练；显式标签/full-map 路径保持用户指定，缺失不被替换。
 续训沿用原配置和索引，自动准备不参与续训；最终 eval/probe 使用同一 full map。
 `run.md` 只保留训练/续训/测试/TensorBoard 常用命令；可选审计移至 `AUDIT.md`，实现合同移至 `DESIGN.md`。

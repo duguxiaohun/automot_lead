@@ -923,3 +923,9 @@ Phase3 先规划同 RS 人工负例/RS/问题域覆盖，再分配均衡 source 
 `validation_sampling`。`AUTO_EVAL_BALANCE_COUNT=0` 可关闭增容；`train.py --sampling-only`
 复用正式 CPU 采样预检，不加载图像/权重、不初始化 NCCL 或写运行目录，直接 Python 默认索引已对齐 v9。
 细节见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/SFT_NEW_LOOP_PHASE3_RUN.md`；本次未验证远端真实训练。
+
+### 2026-09-15 Action 自动准备缓存发布修复
+
+`prepare_event_balance.py` 对候选/full map 的目录发布冲突重新校验，内容一致才复用；
+残缺自动缓存改名到 `.invalid-*` 保留后重建，不删除 `.prepare.lock`。显式索引仍严格校验。
+原因、恢复与验证边界见 `PROJECT_CONTEXT.md` 和 `AutoMoT/qwen3vl_local/action_prior/run.md`。

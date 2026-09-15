@@ -1,6 +1,10 @@
 """自动数据准备：替换重型数据扫描，保留真实产物校验、内容身份、锁和原子发布。"""
 import json
+import errno
+import multiprocessing
 from pathlib import Path
+import shutil
+import signal
 import sys
 
 import pytest
@@ -60,7 +64,7 @@ def prepared_sources(tmp_path, monkeypatch):
     return data, collection, cache, state
 
 
-def test_prepare_builds_reuses_and_rebuilds_for_changed_sources(prepared_sources):
+def test_prepare_builds_reuses_and_rebuilds_for_changed_sources(prepared_sources, capsys):
     data, collection, cache, state = prepared_sources
     first = preparation.prepare('raw', data, collection, cache)
     assert first.is_file()
@@ -78,6 +82,33 @@ def test_prepare_builds_reuses_and_rebuilds_for_changed_sources(prepared_sources
     (collection / 'Scenario_result.json').write_text('{"changed":true}')
     assert preparation.prepare('raw', data, collection, cache) != third
     assert state['calls'][-2:] == ['build_dataset.py', 'build_event_balance_index.py']
+    captured = capsys.readouterr()
+    assert captured.out == ''
+    assert '[prepare] published:' in captured.err and '[prepare] reuse cache:' in captured.err
+
+
+@pytest.mark.parametrize('script_name', ['build_dataset.py', 'build_event_balance_index.py'])
+def test_invalid_fresh_output_is_never_published(prepared_sources, monkeypatch, script_name):
+    """新构建器输出非法内容应中止，不能套旧缓存的自动修复循环。"""
+    data, collection, cache, state = prepared_sources
+    original_builder = preparation.run_builder
+
+    def builder(script, arguments):
+        """先构建完整小产物，再破坏当前阶段索引来触发正式校验。"""
+        original_builder(script, arguments)
+        if Path(script).name == script_name:
+            args = dict(zip(arguments[::2], arguments[1::2]))
+            name = 'candidate_frames.jsonl' if script_name == 'build_dataset.py' else 'full_event_mapping.jsonl'
+            (Path(args['--output-dir']) / name).write_text('{}\n')
+
+    monkeypatch.setattr(preparation, 'run_builder', builder)
+    with pytest.raises(ValueError):
+        preparation.prepare('raw', data, collection, cache)
+    assert state['calls'].count(script_name) == 1
+    prefix = 'phase3_' if script_name == 'build_dataset.py' else 'full_'
+    assert not list(cache.glob(prefix + '*'))
+    assert not list(cache.glob('.invalid-*'))
+    assert not list(cache.glob('.candidate-*')) and not list(cache.glob('.full-*'))
 
 
 def test_prepare_failure_does_not_publish_partial_output_and_can_retry(prepared_sources):
@@ -92,9 +123,177 @@ def test_prepare_failure_does_not_publish_partial_output_and_can_retry(prepared_
     assert state['calls'].count('build_dataset.py') == 1
 
 
-def test_prepare_rejects_corrupt_cached_mapping(prepared_sources):
-    data, collection, cache, _ = prepared_sources
+@pytest.mark.parametrize('stage', ['candidate', 'full'])
+@pytest.mark.parametrize('damage', ['row', 'manifest_syntax', 'manifest_shape', 'missing', 'counts_shape'])
+def test_prepare_preserves_corrupt_cache_and_rebuilds(prepared_sources, stage, damage):
+    """残缺自动缓存不能卡死重跑，原文件保留在隔离目录供排查。"""
+    data, collection, cache, state = prepared_sources
     first = preparation.prepare('raw', data, collection, cache)
-    first.write_text('{}\n')
-    with pytest.raises(ValueError, match='hash mismatch'):
+    corrupt = first if stage == 'full' else next(cache.glob('phase3_*')) / 'candidate_frames.jsonl'
+    if damage.startswith('manifest'):
+        corrupt = corrupt.with_name('manifest.json')
+    if damage == 'counts_shape' and stage == 'candidate':
+        corrupt = corrupt.with_name('candidate_counts.json')
+    broken = 'null\n' if damage in ('manifest_shape', 'counts_shape') else '{}\n'
+    if damage == 'manifest_syntax':
+        broken = '{"incomplete":\n'
+    if damage == 'missing':
+        corrupt.unlink()
+    else:
+        corrupt.write_text(broken)
+    assert preparation.prepare('raw', data, collection, cache) == first
+    preserved = list(cache.glob('.invalid-*'))
+    assert len(preserved) == 1
+    if damage == 'missing':
+        assert not (preserved[0] / corrupt.name).exists()
+    else:
+        assert (preserved[0] / corrupt.name).read_text() == broken
+    assert state['calls'].count('build_dataset.py') == (2 if stage == 'candidate' else 1)
+    assert state['calls'].count('build_event_balance_index.py') == (2 if stage == 'full' else 1)
+    calls = list(state['calls'])
+    assert preparation.prepare('raw', data, collection, cache) == first
+    assert state['calls'] == calls
+
+
+@pytest.mark.parametrize('prefix', ['phase3_', 'full_'])
+@pytest.mark.parametrize('conflict', ['valid', 'partial', 'different'])
+@pytest.mark.parametrize('error_number', [errno.EEXIST, errno.ENOTEMPTY])
+def test_publication_collision(prepared_sources, monkeypatch, prefix, conflict, error_number):
+    """模拟检查之后、rename 之前的外部发布，覆盖两种系统目录冲突 errno。"""
+    data, collection, cache, state = prepared_sources
+    original_rename = Path.rename
+    injected = []
+
+    def race(source, target):
+        """在真实产物校验之后注入完整或残缺目标，保持其余 rename 正常。"""
+        target = Path(target)
+        if target.name.startswith(prefix) and not injected:
+            injected.append(target)
+            if conflict == 'partial':
+                target.mkdir()
+                (target / '.partial').write_text('interrupted external builder')
+            else:
+                shutil.copytree(source, target)
+                if conflict == 'different':
+                    name = 'candidate_frames.jsonl' if prefix == 'phase3_' else 'full_event_mapping.jsonl'
+                    index = target / name
+                    row = json.loads(index.read_text())
+                    row['frame_id'] = 2
+                    index.write_text(json.dumps(row) + '\n')
+                    if prefix == 'full_':
+                        manifest = target / 'manifest.json'
+                        value = json.loads(manifest.read_text())
+                        value['index_sha256'] = file_hash(index)
+                        manifest.write_text(json.dumps(value))
+            raise OSError(error_number, 'injected directory publication conflict', str(target))
+        return original_rename(source, target)
+
+    monkeypatch.setattr(Path, 'rename', race)
+    if conflict == 'different':
+        with pytest.raises(ValueError, match='valid cache content differs'):
+            preparation.prepare('raw', data, collection, cache)
+    else:
+        assert preparation.prepare('raw', data, collection, cache).is_file()
+        assert state['calls'] == ['build_dataset.py', 'build_event_balance_index.py']
+    assert len(injected) == 1 and injected[0].is_dir()
+    assert len(list(cache.glob('.invalid-*'))) == (1 if conflict == 'partial' else 0)
+    assert not list(cache.glob('.candidate-*')) and not list(cache.glob('.full-*'))
+
+
+@pytest.mark.parametrize('error_number', [errno.EACCES, errno.ENOSPC, errno.EIO])
+def test_publication_io_errors_are_not_cache_hits(prepared_sources, monkeypatch, error_number):
+    """权限、空间和 I/O 错误必须原样上报，不能吞掉后继续训练。"""
+    data, collection, cache, _ = prepared_sources
+
+    def fail_rename(source, target):
+        """仅模拟原子发布失败，不改动任何已有目录。"""
+        raise OSError(error_number, 'injected I/O failure')
+
+    monkeypatch.setattr(Path, 'rename', fail_rename)
+    with pytest.raises(OSError) as error:
         preparation.prepare('raw', data, collection, cache)
+    assert error.value.errno == error_number
+    assert not list(cache.glob('phase3_*')) and not list(cache.glob('full_*'))
+
+
+def test_full_map_must_match_current_candidate(prepared_sources):
+    """合法格式但绑定其它候选的 full map 也必须保留并重建。"""
+    data, collection, cache, state = prepared_sources
+    path = preparation.prepare('raw', data, collection, cache)
+    manifest = path.with_name('manifest.json')
+    value = json.loads(manifest.read_text())
+    value['candidate_sha256'] = '0' * 64
+    manifest.write_text(json.dumps(value))
+    assert preparation.prepare('raw', data, collection, cache) == path
+    assert state['calls'].count('build_event_balance_index.py') == 2
+    assert len(list(cache.glob('.invalid-full_*'))) == 1
+
+
+@pytest.mark.parametrize('terminate_first', [False, True])
+def test_concurrent_preparation_builds_once(prepared_sources, monkeypatch, terminate_first):
+    """真实 flock 竞争：正常等待复用，持锁者被终止后自动释放并重建。"""
+    data, collection, cache, _ = prepared_sources
+    context = multiprocessing.get_context('fork')
+    building, release, waiting = (context.Event() for _ in range(3))
+    calls, results = context.Queue(), context.Queue()
+    original_builder, original_flock = preparation.run_builder, preparation.fcntl.flock
+
+    def builder(script, arguments):
+        """首个构建器暂挂到竞争者明确进入等锁分支。"""
+        calls.put(Path(script).name)
+        if Path(script).name == 'build_dataset.py':
+            first_builder = not building.is_set()
+            building.set()
+            if terminate_first and first_builder:
+                # 不在共享 Event.wait 内杀进程，避免损坏测试同步原语自身的锁。
+                signal.pause()
+            assert release.wait(10)
+        original_builder(script, arguments)
+
+    def flock(handle, operation):
+        """保留真实内核锁，只观察非阻塞竞争失败。"""
+        try:
+            return original_flock(handle, operation)
+        except BlockingIOError:
+            waiting.set()
+            raise
+
+    def worker():
+        """通过队列回传跨进程路径或异常供主测试断言。"""
+        try:
+            results.put(('ok', str(preparation.prepare('raw', data, collection, cache))))
+        except Exception as exc:
+            results.put(('error', repr(exc)))
+
+    monkeypatch.setattr(preparation, 'run_builder', builder)
+    monkeypatch.setattr(preparation.fcntl, 'flock', flock)
+    cache.mkdir()
+    # 残留锁文件本身不表示仍被持锁，不能靠删除文件来“解锁”。
+    (cache / '.prepare.lock').write_text('previous process exited')
+    processes = [context.Process(target=worker) for _ in range(2)]
+    try:
+        processes[0].start()
+        assert building.wait(10)
+        processes[1].start()
+        assert waiting.wait(10)
+        if terminate_first:
+            processes[0].terminate()
+            processes[0].join(timeout=5)
+            assert processes[0].exitcode == -15
+        release.set()
+        output = [results.get(timeout=10) for _ in range(1 if terminate_first else 2)]
+        assert all(item == output[0] and item[0] == 'ok' for item in output)
+        for process in processes[1:] if terminate_first else processes:
+            process.join(timeout=10)
+            assert process.exitcode == 0
+        expected = ['build_dataset.py'] * (2 if terminate_first else 1) + ['build_event_balance_index.py']
+        assert [calls.get(timeout=2) for _ in expected] == expected
+        assert len(list(cache.glob('phase3_*'))) == len(list(cache.glob('full_*'))) == 1
+    finally:
+        release.set()
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)
+        calls.close()
+        results.close()

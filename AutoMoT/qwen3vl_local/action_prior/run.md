@@ -22,6 +22,13 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-p
 这只构建数据，不训练 Phase1/Phase3。首次准备可能较慢，终端和 pipeline 日志会显示进度。
 不需要手写 `DATA_DIR` 或 `EVENT_BALANCE_INDEX`。
 
+如果旧版在准备阶段报 `staging.rename(...)` 的 `FileExistsError`，同步新版源码后直接重跑原命令。
+候选与 full map 发布时会重新校验已存在的目录；并发结果完整且内容一致时复用，残缺缓存移到
+`checkpoints/action_prior_prepared/.invalid-*` 保留后重建。不要删除 `.prepare.lock` 来解锁：
+进程退出会自动释放锁，文件残留不妨碍重跑；等锁时会打印 `[prepare] waiting for cache lock`。
+该恢复仅作用于自动准备的缓存，显式指定的 `--event-balance-index` 仍严格校验。
+不同内容的完整发布冲突、权限、磁盘空间及 I/O 错误仍会中止并报告原因。
+
 ```bash
 # 使用 Phase1/2 LoRA 现场生成先验（耗时更长，需已有 LoRA 权重）。
 bash qwen3vl_local/action_prior/run_full_pipeline.sh --event-balanced
