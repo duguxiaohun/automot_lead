@@ -184,6 +184,12 @@ COMMON_ARGS=(
   --seed "${SEED:-20260904}"
   "${EXTRA_ARGS[@]}"
 )
+# 验证预算不足时按覆盖规划增容；严格配对实验可关闭并显式指定预算。
+if [[ "${AUTO_EVAL_BALANCE_COUNT:-1}" == "0" ]]; then
+  COMMON_ARGS+=(--no-auto-eval-balance-count)
+else
+  COMMON_ARGS+=(--auto-eval-balance-count)
+fi
 if [[ "${TRAIN_ROUTE_DIVERSE:-1}" == "0" ]]; then
   COMMON_ARGS+=(--no-train-route-diverse)
 else

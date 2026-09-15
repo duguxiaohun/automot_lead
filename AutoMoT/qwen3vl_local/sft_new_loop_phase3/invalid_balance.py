@@ -186,6 +186,88 @@ def unique_cases(items: Sequence[_T]) -> List[_T]:
     return list({case_identity(item): item for item in reversed(items)}.values())[::-1]
 
 
+class InvalidQuotaError(ValueError):
+    """候选齐全但预算不足；与缺失标签/签名错误分开处理。"""
+
+    def __init__(self, target: int, required_target: int, source_seeds: Mapping[str, int]):
+        self.target = int(target)
+        # 这是当前确定性覆盖方案的可行预算，不宣称全局最小值。
+        self.required_target = int(required_target)
+        self.source_seeds = dict(sorted(source_seeds.items()))
+        super().__init__(
+            f"INVALID target={target} cannot cover the planned reviewed same-RS/RS/context seeds "
+            f"with balanced sources; feasible_target={required_target}, "
+            f"source_seed_counts={self.source_seeds}. Increase the balance count; "
+            "this is a quota shortage, not missing dataset coverage."
+        )
+
+
+def _coverage_plan(by_source, *, require_coverage: bool):
+    """先规划覆盖，再分配来源余数；规划不依赖目标数量或随机数。"""
+
+    buckets = [(parse_invalid_source(key), bucket)
+               for source in sorted(by_source)
+               for key, bucket in sorted(by_source[source].items())]
+    same_by_asked = defaultdict(list)
+    for signature, bucket in buckets:
+        reviewed = [item for item in bucket
+                    if getattr(_row_of(item), "invalid_reason", "") == "same_rs_wrong_event"]
+        if reviewed:
+            same_by_asked[signature.asked_context].append((signature, reviewed))
+    planned = []
+    used: Counter[str] = Counter()
+    covered_rs, covered_contexts = set(), set()
+
+    def add(candidates):
+        """优先低负载来源，并让一条种子同时覆盖多个维度。"""
+
+        signature, bucket = min(candidates, key=lambda pair: (
+            used[pair[0].source_class],
+            -(int(pair[0].true_rs not in covered_rs) +
+              int(pair[0].asked_context not in covered_contexts)),
+            pair[0].canonical,
+        ))
+        planned.append((signature, bucket))
+        used[signature.source_class] += 1
+        covered_rs.add(signature.true_rs)
+        covered_contexts.add(signature.asked_context)
+
+    # 同 RS 问题先占位；只有一个来源的问题先处理，避免被通用覆盖抢占。
+    for asked in sorted(same_by_asked, key=lambda key: (
+        len({sig.source_class for sig, _ in same_by_asked[key]}), key
+    )):
+        add(same_by_asked[asked])
+    if require_coverage:
+        for rs in REQUIRED_TRUE_RS:
+            if rs not in covered_rs:
+                add([(sig, bucket) for sig, bucket in buckets if sig.true_rs == rs])
+        for asked in REQUIRED_WRONG_CONTEXTS:
+            if asked not in covered_contexts:
+                add([(sig, bucket) for sig, bucket in buckets if sig.asked_context == asked])
+    return planned, used
+
+
+def _source_quotas_with_seeds(keys, target, seed_counts, *, require_coverage, rng):
+    """在来源计数最大差1的约束下，把余数优先分给覆盖种子较多的来源。"""
+
+    ordered = sorted(keys)
+    floors = {key: max(seed_counts[key], int(require_coverage)) for key in ordered}
+    maximum = max(floors.values(), default=0)
+    feasible = (len(ordered) * (maximum - 1) + sum(n == maximum for n in floors.values())
+                if maximum else 0)
+    if target < feasible:
+        raise InvalidQuotaError(target, feasible, floors)
+    quotas = _even_quotas(ordered, target, rng)
+    # 只调整余数归属，不牺牲严格来源均衡，也不增加总量。
+    for key in ordered:
+        if quotas[key] < floors[key]:
+            donor = next(other for other in ordered
+                         if quotas[other] > max(quotas[key], floors[other]))
+            quotas[donor] -= 1
+            quotas[key] += 1
+    return quotas
+
+
 def balanced_invalid_items(
     items: Sequence[_T],
     *,
@@ -216,74 +298,28 @@ def balanced_invalid_items(
         )
     if int(target) == 0:
         return list(items)
-    source_quotas = _even_quotas(tuple(by_source), int(target), rng)
+    plan, seed_counts = _coverage_plan(by_source, require_coverage=require_coverage)
+    source_quotas = _source_quotas_with_seeds(
+        tuple(by_source), int(target), seed_counts, require_coverage=require_coverage, rng=rng
+    )
     sampled: List[_T] = []
     source_used: Counter[str] = Counter()
     signature_used: Counter[str] = Counter()
-
-    # 同 RS 的人工负例不能在二次采样时静默消失；仅用已有样本，不造新负例。
-    same_rs = [item for item in items if getattr(_row_of(item), 'invalid_reason', '') == 'same_rs_wrong_event']
-    if same_rs:
-        by_asked = defaultdict(list)
-        seeded_routes = set()
-        for item in same_rs:
-            by_asked[signature_for_row(_row_of(item)).asked_context].append(item)
-        # 先照顾只有少量来源的题，再补有多个来源的题；已具备的同 RS 题覆盖必须保留。
-        ordered = sorted(by_asked, key=lambda key: (
-            len({signature_for_row(_row_of(x)).source_class for x in by_asked[key]}), key))
-        for asked in ordered:
-            eligible = [item for item in by_asked[asked]
-                        if source_used[signature_for_row(_row_of(item)).source_class]
-                        < source_quotas[signature_for_row(_row_of(item)).source_class]]
-            if not eligible:
-                raise ValueError(f'INVALID quota cannot retain reviewed same-RS context {asked}; increase balance count')
-            rng.shuffle(eligible)
-            chosen = min(eligible, key=lambda item: (
-                (getattr(_row_of(item), "scenario", ""), getattr(_row_of(item), "route_id", "")) in seeded_routes,
-                source_used[signature_for_row(_row_of(item)).source_class]))
-            seeded_routes.add((getattr(_row_of(chosen), "scenario", ""), getattr(_row_of(chosen), "route_id", "")))
-            signature = signature_for_row(_row_of(chosen))
-            sampled.append(chosen)
-            source_used[signature.source_class] += 1
-            signature_used[signature.canonical] += 1
-
-    def _seed_coverage(predicate) -> None:
-        """从尚有 source 配额的候选里取一条，保证抽样结果而非候选池有覆盖。"""
-
-        candidates: List[Tuple[str, str, List[_T]]] = []
-        for source_class, signature_buckets in by_source.items():
-            if source_used[source_class] >= source_quotas[source_class]:
-                continue
-            for signature, bucket in signature_buckets.items():
-                if bucket and predicate(signature_for_row(_row_of(bucket[0]))):
-                    candidates.append((source_class, signature, bucket))
-        if not candidates:
-            raise AssertionError("INVALID coverage candidate disappeared after quota allocation")
+    same_rs = [item for item in items
+               if getattr(_row_of(item), "invalid_reason", "") == "same_rs_wrong_event"]
+    seeded_routes = set()
+    for signature, bucket in plan:
+        # 同一签名内仍按 seed 随机抽样，优先不同路线；不复制人工题来充覆盖。
+        candidates = list(bucket)
         rng.shuffle(candidates)
-        candidates.sort(key=lambda item: (source_used[item[0]], item[0], item[1]))
-        source_class, _, bucket = candidates[0]
-        sampled.extend(_cycle_sample(bucket, 1, rng))
-        source_used[source_class] += 1
-        signature_used[signature_for_row(_row_of(bucket[0])).canonical] += 1
-
-    # 先满足真实 RS 与错误 context 的可观测覆盖，然后仍严格补齐 source 的等额配额。
-    # 这修复了旧逻辑“候选池覆盖完整但小型 generation-eval 实际只抽到 R1”的问题。
-    if require_coverage:
-        if int(target) < len(REQUIRED_TRUE_RS) + len(REQUIRED_WRONG_CONTEXTS):
-            raise ValueError(
-                f"INVALID target={target} is too small for true-RS and wrong-context coverage"
-            )
-        for true_rs in REQUIRED_TRUE_RS:
-            if not any(signature_for_row(_row_of(item)).true_rs == true_rs for item in sampled):
-                _seed_coverage(lambda signature, value=true_rs: signature.true_rs == value)
-        for asked_context in REQUIRED_WRONG_CONTEXTS:
-            # 一个 true-RS coverage seed 可能已同时满足某个 asked-context；不要为了
-            # 重复同一维度消耗最后一个 source quota。
-            already_present = any(
-                signature_for_row(_row_of(item)).asked_context == asked_context for item in sampled
-            )
-            if not already_present:
-                _seed_coverage(lambda signature, value=asked_context: signature.asked_context == value)
+        chosen = min(candidates, key=lambda item: (
+            getattr(_row_of(item), "scenario", ""), getattr(_row_of(item), "route_id", "")
+        ) in seeded_routes)
+        seeded_routes.add((getattr(_row_of(chosen), "scenario", ""),
+                           getattr(_row_of(chosen), "route_id", "")))
+        sampled.append(chosen)
+        source_used[signature.source_class] += 1
+        signature_used[signature.canonical] += 1
 
     for source_class in sorted(by_source):
         signature_buckets = by_source[source_class]

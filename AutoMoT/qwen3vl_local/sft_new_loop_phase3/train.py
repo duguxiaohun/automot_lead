@@ -70,9 +70,11 @@ from qwen3vl_local.sft_new_loop_phase3.history_rgb import (  # noqa: E402
     validate_history_rgb_mode,
 )
 from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (  # noqa: E402
+    InvalidQuotaError,
     balanced_invalid_items,
     invalid_subgroup_keys,
     invalid_subgroup_report,
+    unique_cases,
 )
 from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     ANSWER_KEYS,
@@ -497,6 +499,40 @@ def _balanced_work(
     return work
 
 
+def _validation_work(
+    rows: Sequence[FrameRow], *, target_per_bin: int, seed: int,
+    auto_increase: bool = True, route_diverse: bool = False,
+    require_invalid_coverage: bool = True, action_output_mode: str = "binary",
+) -> Tuple[List[WorkItem], Dict[str, Any]]:
+    """仅对明确的 INVALID 预算不足增容，维持十类与 INVALID 的 10:2 比例。"""
+
+    requested = int(target_per_bin)
+    if requested <= 0:
+        raise ValueError("validation target_per_bin must be positive")
+    effective = requested
+    # 验证固定 INVALID 倍率为 2；训练倍率不能经调用参数悄悄影响验证增容。
+    kwargs = dict(invalid_multiplier=2.0, route_diverse=route_diverse,
+                  require_invalid_coverage=require_invalid_coverage,
+                  action_output_mode=action_output_mode)
+    audit: Dict[str, Any] = {"requested": requested, "effective": effective,
+                             "auto_increase": bool(auto_increase), "adjusted": False}
+    try:
+        work = _balanced_work(rows, target_per_bin=effective, seed=seed, **kwargs)
+    except InvalidQuotaError as exc:
+        if not auto_increase:
+            raise
+        effective = max(requested + 1, (exc.required_target + 1) // 2)
+        audit.update(effective=effective, adjusted=True, reason=str(exc),
+                     source_seed_counts=exc.source_seeds,
+                     feasible_invalid_target=exc.required_target)
+        # 覆盖规划不依赖 target/seed；只重试一次，任何数据/签名错误原样失败。
+        work = _balanced_work(rows, target_per_bin=effective, seed=seed, **kwargs)
+    audit["sampled_cases"] = len(work)
+    audit["unique_cases"] = len(unique_cases(work))
+    audit["class_counts"] = dict(sorted(Counter(_balance_class(item.row) for item in work).items()))
+    return work, audit
+
+
 def _effective_class_target(rows: Sequence[FrameRow], requested: int, *, action_output_mode: str = "binary") -> int:
     """返回全部平衡类别的共同基数。"""
 
@@ -903,7 +939,6 @@ def evaluate_generation_probe(
 ) -> Dict[str, float]:
     """在固定独立 val 样本上以真实 greedy generation 检查输出行格式与语义。"""
 
-    from qwen3vl_local.sft_new_loop_phase3.invalid_balance import unique_cases
     sampled_count = len(work)
     work = unique_cases(work)
     started_at = time.monotonic()
@@ -1155,6 +1190,7 @@ def _save_adapter(
         "eval_split": str(args.eval_split),
         "eval_steps": int(args.eval_steps),
         "eval_balance_count": int(args.eval_balance_count),
+        "validation_sampling": getattr(args, "validation_sampling", {}),
         "format_loss_weight": float(args.format_loss_weight),
         "generation_eval_steps": int(args.generation_eval_steps),
         "ddp_timeout_seconds": int(args.ddp_timeout_seconds),
@@ -1236,6 +1272,7 @@ def _write_run_metadata(
         "train_work_rank": int(train_work_rank),
         "eval_steps": int(args.eval_steps),
         "eval_balance_count": int(args.eval_balance_count),
+        "validation_sampling": getattr(args, "validation_sampling", {}),
         "eval_work_rank": int(eval_work_rank),
         "generation_eval_steps": int(args.generation_eval_steps),
         "generation_eval_balance_count": int(args.generation_eval_balance_count),
@@ -1292,20 +1329,16 @@ def train(args: argparse.Namespace) -> None:
     validate_history_rgb_mode(args.history_rgb_mode)
     from qwen3vl_local.sft_new_loop_phase3.preflight import check_index, check_model
     check_index(args.index)
-    check_model(args.model_dir)
-    rank, local_rank, world_size = setup_distributed(int(args.ddp_timeout_seconds))
-    device = (
-        torch.device(f"cuda:{local_rank}")
-        if world_size > 1
-        else torch.device(
-            args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu")
-        )
-    )
+    if not args.sampling_only:
+        check_model(args.model_dir)
+    # 先完成纯 CPU 采样预检；失败时尚未创建 NCCL 进程组。
+    rank = int(os.environ.get("RANK", "0"))
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
     if rank == 0:
         print(
-            f"[startup] world_size={world_size} device={device} index={args.index} split={args.split} "
+            f"[startup] world_size={world_size} index={args.index} split={args.split} "
             f"focus_balance_count={args.focus_balance_count} eval_steps={args.eval_steps} "
-            f"ddp_timeout_seconds={args.ddp_timeout_seconds}",
+            f"ddp_timeout_seconds={args.ddp_timeout_seconds} sampling_preflight=cpu",
             flush=True,
         )
     rows = _read_rows(
@@ -1337,7 +1370,9 @@ def train(args: argparse.Namespace) -> None:
     full_eval_work: List[WorkItem] = []
     eval_work: List[WorkItem] = []
     full_generation_eval_work: List[WorkItem] = []
+    args.validation_sampling = {}
     if int(args.eval_steps) > 0 and int(args.eval_balance_count) > 0:
+        stage = "loss"
         try:
             eval_rows = _read_rows(
                 pathlib.Path(args.index),
@@ -1345,29 +1380,66 @@ def train(args: argparse.Namespace) -> None:
                 max_frames=int(args.max_eval_frames),
                 data_root=pathlib.Path(args.data_root),
             )
-            full_eval_work = _balanced_work(
+            full_eval_work, loss_audit = _validation_work(
                 eval_rows,
                 target_per_bin=int(args.eval_balance_count),
                 seed=int(args.seed) + 1009,
+                auto_increase=bool(args.auto_eval_balance_count),
                 require_invalid_coverage=bool(args.require_invalid_coverage),
                 action_output_mode=args.action_output_mode,
             )
+            args.eval_balance_count = loss_audit["effective"]
+            args.validation_sampling["loss"] = loss_audit
             eval_work = _split_work_for_rank(full_eval_work, rank=rank, world_size=world_size)
             if int(args.generation_eval_steps) > 0 and int(args.generation_eval_balance_count) > 0:
-                full_generation_eval_work = _balanced_work(
+                stage = "generation"
+                full_generation_eval_work, generation_audit = _validation_work(
                     eval_rows,
                     target_per_bin=int(args.generation_eval_balance_count),
                     seed=int(args.generation_eval_sampling_seed),
+                    auto_increase=bool(args.auto_eval_balance_count),
                     action_output_mode=args.action_output_mode,
                     route_diverse=bool(args.generation_eval_route_diverse),
                     require_invalid_coverage=bool(args.require_invalid_coverage),
                 )
-        except Exception as exc:
+                args.generation_eval_balance_count = generation_audit["effective"]
+                args.validation_sampling["generation"] = generation_audit
+        except (ValueError, AssertionError) as exc:
             raise RuntimeError(
-                "periodic validation was requested but its split cannot satisfy the required class balance. "
-                "Rebuild/fix the dataset instead of silently training without validation."
+                f"periodic {stage} validation sampling failed: split={args.eval_split} "
+                f"index={args.index}, eval_balance_count={args.eval_balance_count}, "
+                f"generation_eval_balance_count={args.generation_eval_balance_count}. "
+                f"{exc} Validation remains required."
             ) from exc
+    if rank == 0:
+        for stage, audit in args.validation_sampling.items():
+            print(f"[validation-balance] stage={stage} "
+                  + json.dumps(audit, ensure_ascii=False, sort_keys=True), flush=True)
 
+    if args.sampling_only:
+        # 与正式训练共用完整采样路径；不读 RGB/权重、不建进程组或运行目录。
+        if rank == 0:
+            print("[sampling-preflight] " + json.dumps({
+                "ok": True, "index": str(args.index),
+                "history_rgb_mode": args.history_rgb_mode,
+                "action_output_mode": args.action_output_mode,
+                "train_sampled_cases": len(full_work),
+                "train_unique_cases": len(unique_cases(full_work)),
+                "train_invalid_subgroups": invalid_subgroup_report(full_work),
+                "validation_sampling": args.validation_sampling,
+                "loss_invalid_subgroups": invalid_subgroup_report(full_eval_work),
+                "generation_invalid_subgroups": invalid_subgroup_report(full_generation_eval_work),
+            }, ensure_ascii=False, sort_keys=True), flush=True)
+        return
+
+    rank, local_rank, world_size = setup_distributed(int(args.ddp_timeout_seconds))
+    device = (
+        torch.device(f"cuda:{local_rank}")
+        if world_size > 1
+        else torch.device(
+            args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu")
+        )
+    )
     if rank == 0:
         output_dir.mkdir(parents=True, exist_ok=True)
         val_balance: Dict[str, Any] = {}
@@ -1402,6 +1474,7 @@ def train(args: argparse.Namespace) -> None:
                         "rank0_shard": dict(Counter(item.balance_key for item in work)),
                         "global_invalid_subgroups": invalid_subgroup_report(full_work),
                     },
+                    "validation_sampling": args.validation_sampling,
                     "eval": {
                         "split": str(args.eval_split),
                         "eval_steps": int(args.eval_steps),
@@ -1886,7 +1959,9 @@ def parse_args() -> argparse.Namespace:
     """解析 CLI 参数。"""
 
     p = argparse.ArgumentParser(description="Train sft_new_loop_phase3 single-turn high-level action LoRA")
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v8/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v9/frame_index.jsonl"))
+    p.add_argument("--sampling-only", action="store_true",
+                   help="check actual train/validation sampling on CPU without loading weights or writing a run")
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_runs/manual"))
@@ -1929,6 +2004,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--eval-split", default="val")
     p.add_argument("--eval-steps", type=int, default=2_000)
     p.add_argument("--eval-balance-count", type=int, default=16)
+    p.add_argument(
+        "--auto-eval-balance-count", action=argparse.BooleanOptionalAction, default=True,
+        help="increase validation class budgets only when reviewed INVALID coverage needs more source quota",
+    )
     p.add_argument("--max-eval-frames", type=int, default=0)
     p.add_argument("--format-loss-weight", type=float, default=0.25)
     p.add_argument("--generation-eval-steps", type=int, default=2_000)

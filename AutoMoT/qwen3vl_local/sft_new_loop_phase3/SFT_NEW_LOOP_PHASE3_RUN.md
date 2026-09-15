@@ -11,6 +11,41 @@ ACTION_OUTPUT_MODE=choice CASES_PER_BIN=0 \
 
 本次 test 468 个独立题，完整评测用 `CASES_PER_BIN=0`。新 test 不含本次暴露的 191 个旧 test 物理路线组；它们已加入 train-only 开发集。下面带日期的旧版本说明保留为历史。
 
+## 2026-09-15：启动时报 INVALID quota 不足
+
+`INVALID quota cannot retain reviewed same-RS context STATIC_BLOCKAGE` 可能来自小验证预算，
+即使候选齐全也会发生：人工同 RS 负例集中在少数 source，原先随机分配的 source 配额不够保留它们。
+现在先规划人工题、真实 RS 和问题域覆盖，再把整数余数分给需要它的 source。
+仍要求 source 数量最大差 1、保留已有人工问题域、每个同 RS 人工输入最多使用一次。
+
+若预算仍不足，loss/generation 验证默认分别自动增容，保持十类各 N 条、INVALID 2N 条。
+只捕获明确的 `InvalidQuotaError`；缺类别、缺来源、缺 RS/问题域、坏签名仍报错。
+规划给出确定的可行预算，不保证全局最小；训练预算和独立 eval 的预算保持显式配置。
+choice 无 INVALID，不因该逻辑增容；两帧/四帧使用相同采样规则。
+
+先对已构建的远端索引运行只读 CPU 预检（使用已有 PyTorch 环境）：
+
+```bash
+python qwen3vl_local/sft_new_loop_phase3/train.py --sampling-only \
+  --index checkpoints/sft_new_loop_phase3_data_v9/frame_index.jsonl \
+  --focus-balance-count 1024 --eval-balance-count 16 --generation-eval-balance-count 32
+```
+
+用 `--history-rgb-mode 2rgb_endpoints` / `--action-output-mode choice` 可检查其它组合。
+自定义训练参数时，预检须传相同 index、split、seed、采样预算和截断参数。
+预检共用正式采样路径，不读取 RGB/模型权重、不建立 NCCL 进程组、不创建训练目录；
+它验证的是索引合同和采样，不检查图像可读性或 GPU 推理。
+
+随后可照原 pipeline 命令启动新的 run，`AUTO_EVAL_BALANCE_COUNT=1` 默认生效，无需手工猜预算。
+严格配对实验可用 `AUTO_EVAL_BALANCE_COUNT=0`，并显式给所有 run 相同的
+`EVAL_BALANCE_COUNT` / `GENERATION_EVAL_BALANCE_COUNT`；Python 对应 `--no-auto-eval-balance-count`。
+预算不足时应据错误中的 `feasible_target` 上调，不关闭覆盖检查。
+
+启动日志 `[validation-balance]` 和 `validation_sampling`（train_balance、run metadata、adapter config）
+保存 requested/effective、是否增容、原因、各类实际呈现数与独立题数；自由生成仍去重计分，
+增容后的呈现比例不代表去重后的评分比例。增容会增加验证耗时，按实际 generation 进度评估超时预算。
+本次仅 CPU/合成验证，远端原索引及真实 Qwen/DDP 训练尚待验证；标签、prompt 和权重未改变。
+
 > 2026-09-11：收到20260910四图结果：production 518/765，审计见 [AUDIT_SUMMARY_20260911.md](AUDIT_SUMMARY_20260911.md)。77例逐帧复核后，prompt改为v7 compact，默认新索引为v8；精确隔离、文本缩减及验证见 [EVAL_REVIEW_20260911.md](EVAL_REVIEW_20260911.md)。
 > 本次v8重建test每类46题，完整配对评测请用 `CASES_PER_BIN=0 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh`；默认64会先补齐再去重，不能把呈现预算当独立题数。
 >

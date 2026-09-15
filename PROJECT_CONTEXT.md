@@ -1035,3 +1035,12 @@ v9全源重建train/val/test=13500/348/468，14316行及3272run原meta回读无�
 
 本轮全源审计覆盖42个scenario、7241个run、914466帧；弱R4恢复撤回13459帧为自动规则结果，仅定向RGB样本及4个额外四帧对照被查看，不能外推为13459个人工确认错误。U-E3待审912帧保留候选，精确排除32帧单列。RS精确隔离32帧，完整决定绑定run/frame。
 新mapping hash=d90ef1eca13fe31987690ad13f0a8cf0cb994a0256c84da118ba7dec6a1ca62d。索引独立题数13387/348/468，train重复呈现113、最大input复用7；3272run对应3271物理组。相同RS错误事件测试仅2条独立路线，拒绝泛化证据不足。
+
+### 2026-09-15 Phase3 INVALID 验证预算修复
+
+Phase3 先规划同 RS 人工负例/RS/问题域覆盖，再分配均衡 source 余数；只有明确预算不足才用
+`InvalidQuotaError` 触发 loss/generation 各自自动增容，保持十类与 INVALID 的 10:2 呈现比例。
+缺数据/签名错误仍失败，同 RS 人工输入不重复；实际请求/有效预算、呈现与独立题数进入
+`validation_sampling`。`AUTO_EVAL_BALANCE_COUNT=0` 可关闭增容；`train.py --sampling-only`
+复用正式 CPU 采样预检，不加载图像/权重、不初始化 NCCL 或写运行目录，直接 Python 默认索引已对齐 v9。
+细节见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/SFT_NEW_LOOP_PHASE3_RUN.md`；本次未验证远端真实训练。
