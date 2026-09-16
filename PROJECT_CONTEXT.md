@@ -17,6 +17,19 @@ Qwen3-VL-Instruct frozen prefill + LeadMoT / GoalGen decoder 能直接消费的�
 `AutoMoT/Automot/` 与 `AutoMoT/leaderboard/team_code/` 仅作为本地参考源码，
 不再由本仓库追踪或推送；下文涉及其中实现的内容只表示技术背景，不表示 Git 白名单。
 
+### 2026-09-16 Git 历史清理
+
+按用户要求从远程历史移除 8754 个旧审计产物、索引及 ZIP 路径；清理时两个分支的
+527 个不同提交逐个核验，当前文件 tree、作者、日期、提交消息与父子关系保持不变。
+提交 SHA 已重写，21 个旧签名保存在原始备份中。新远程完整克隆对象包约 8.63 MiB
+（清理前约 84.22 MiB）；随后远程 `tune-batched-training-defaults-h20` 已删除，仅保留 main。
+清理后 main 基点为 `3c7e627b71bda5d549f04bbd6f870d45298b37ca`，后续提交在此基础上继续。
+本机备份目录为 `/home/codon/git-cleanups/automot_lead_20260916_130159/`，其中
+`before-cleanup.bundle` 保存原历史，`commit-map.tsv` 保存旧/新 SHA 对照，`report.json`
+保存验证结果；这些是仓库外本地备份，不随代码 push，其它机器不能假定该路径存在。
+旧 checkpoint 如需原源码，使用隔离备份回查，不把旧历史合并回 main，也不修改其合同。
+日常 push 的分支、白名单和全历史审核要求见 AGENTS.md / CLAUDE.md 同名 Git 规则。
+
 ## 1. 目录角色
 
 | 目录/文件 | 角色 |

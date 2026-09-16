@@ -653,6 +653,35 @@ LoRA 来源仍做 Phase1/2 先验问答。`--generate-analysis` / `GENERATE_ANAL
 
 ## 5. Git 规则
 
+### 清理历史后的 push 约定（2026-09-16）
+
+- 远程 `origin` 为 `https://github.com/duguxiaohun/automot_lead.git`，日常只推
+  `main`，显式使用 `git push origin main:main`；执行前确认当前工作分支是 `main`。
+  `tune-batched-training-defaults-h20` 已按用户要求删除远程分支，本地同名分支仅保留参考，
+  不得自动重新发布；新建、恢复或删除远程分支须在用户授权范围内。
+- 日常禁止 `git push --all`、`--mirror`、`--tags`、`--force` 或带 `+` 的强推 refspec；
+  不推 `refs/codex/*`、`refs/original/*`、备份引用或旧标签。再次重写历史必须有专项授权、
+  外部备份和验证，并使用绑定已核验远程 SHA 的 `--force-with-lease=<ref>:<sha>`。
+- push 前先成功 `git fetch --prune origin`，再检查 `git status`、
+  `git diff --cached --name-status`、`git log --oneline origin/main..main`、
+  `git log --name-status origin/main..main`，以及
+  `git rev-list --objects main --not origin/main` 列出的新增历史对象和 blob 大小。
+  必须检查全部待推送提交，不能只看当前文件或最终 diff：曾提交后又删除的产物仍会随历史上传。
+  fetch 失败时先解决连接问题，不能把旧的 `origin/main` 当作最新远程。
+- 正常 push 必须满足 `git merge-base --is-ancestor origin/main main`；
+  该检查不能代替历史产物审核。发现分叉、旧历史合并或白名单外新增对象时先处理，
+  不用强推或 `--allow-unrelated-histories` 绕过。
+- 继续精确 add 原白名单；目录白名单不包含其数据、权重、缓存、视频、RGB 证据和压缩包。
+  `collection_output/` 只保留原先明确允许的 Phase1 标签 JSON/JSONL；
+  已清理的旧审计产物、索引和 `AutoMoT-main.zip` / `lead.zip` / `lead_xml.zip` 不得重新入库。
+  `.gitignore` 不会清除已追踪文件或历史对象，文档白名单也不是 Git 自动拦截器。
+- 清理后的 main 基点为 `3c7e627b71bda5d549f04bbd6f870d45298b37ca`。
+  旧 clone、旧提交 SHA、bundle 和历史备份只用于回查；不能把清理前历史 merge/push 回远程。
+  旧机器先保护本地修改、数据和权重，再迁移必要代码差异到新历史；不得借机 `git clean`。
+  旧 checkpoint 需要原源码时使用隔离备份或提交映射，不能篡改 checkpoint 合同。备份索引见
+  `PROJECT_CONTEXT.md`「2026-09-16 Git 历史清理」。
+- 本节不构成后续 push 的永久授权，仍遵守本文件的用户授权规则。
+
 ### 5.1 拉取远程更新
 
 当用户说“拉取远程最新代码覆盖本地”“更新到远程最新代码”或类似表达时，含义是：
