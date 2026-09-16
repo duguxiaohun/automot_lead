@@ -89,7 +89,7 @@ def prepare(bundle, data_root, output, extra_ids=(), only_ids=None):
         draw = ImageDraw.Draw(canvas)
         positive = lambda d: '+'.join(k for k,v in d.items() if v == 'YES') or 'NONE'
         draw.text((8,5), f"#{i} {r['scenario']} f{anchor} {r['context_id']} RS={r['prompt_road_structure']}", fill='white')
-        draw.text((8,23), f"GT {positive(r['gt'])} | PRED {positive(r['parsed'])} | FIRST ROW=INPUT, other rows=FUTURE EVIDENCE", fill='yellow')
+        draw.text((8,23), f"GT {positive(r['gt'])} | PRED {positive(r['parsed'])} | FIRST {len(inputs)} PANELS=INPUT, others=FUTURE EVIDENCE", fill='yellow')
         frame_rows, missing_frames = [], []
         for j, f in enumerate(frames):
             rgb, meta = run/'rgb'/f'{f:04d}.jpg', traj.metas.get(f)
@@ -102,8 +102,8 @@ def prepare(bundle, data_root, output, extra_ids=(), only_ids=None):
                 canvas.paste(im.convert('RGB').resize((576,192)),(x,y))
             speed = float(meta['speed'])
             caption = f"f{f} t={(f-anchor)*.25:+.2f}s v={speed:.3f} road/lane={meta.get('road_id')}/{meta.get('lane_id')} brake={int(bool(meta.get('brake')))}"
-            draw.text((x+3,y+195),caption,fill='yellow' if j<4 else 'white')
-            frame_rows.append(dict(frame=f, input=j<4, rgb=str(rgb), rgb_sha256=digest(rgb),
+            draw.text((x+3,y+195),caption,fill='yellow' if j<len(inputs) else 'white')
+            frame_rows.append(dict(frame=f, input=j<len(inputs), rgb=str(rgb), rgb_sha256=digest(rgb),
                 meta_sha256=digest(run/'metas'/f'{f:04d}.pkl'), speed=speed,
                 road_id=meta.get('road_id'), lane_id=meta.get('lane_id'), section_id=meta.get('section_id'),
                 confirmation_only=f == anchor+13,

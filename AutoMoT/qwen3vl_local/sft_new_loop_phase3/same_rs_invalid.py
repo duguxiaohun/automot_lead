@@ -1,5 +1,6 @@
 """显式逐帧 RGB 决定构造同 RS 错事件负例；不从未标注推断事件不存在。"""
 import json
+import hashlib
 from pathlib import Path
 
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID, ACTION_KEYS
@@ -7,6 +8,7 @@ from qwen3vl_local.sft_new_loop_phase3.trajectory_action import load_route_traje
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
 
 DECISIONS = Path(__file__).with_name('same_rs_invalid_review_v1.jsonl')
+NEW_DECISIONS = Path(__file__).with_name('same_rs_invalid_review_20260916.jsonl')
 
 
 def reviewed_invalid_rows(args, scanned_routes):
@@ -34,7 +36,7 @@ def reviewed_invalid_rows(args, scanned_routes):
                     review = old.get('mapping_evidence', {}).get('same_rs_rgb_review')
                     if review:
                         cached_reviewed.add(json.dumps(review, sort_keys=True))
-    for line in DECISIONS.read_text().splitlines():
+    for line in (DECISIONS.read_text() + '\n' + NEW_DECISIONS.read_text()).splitlines():
         if not line.strip():
             continue
         d = json.loads(line)
@@ -60,6 +62,9 @@ def reviewed_invalid_rows(args, scanned_routes):
         history = _history(run, d['frame_id'])
         if history is None or any(int(Path(path).stem) not in d['original_rgb_frames'] for path in history):
             raise ValueError(f'unreviewed history in same-RS decision: {key}/{d["frame_id"]}')
+        fingerprints = d.get('input_rgb_sha256')
+        if fingerprints and [hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in history] != fingerprints:
+            raise ValueError(f'changed RGB in same-RS decision: {key}/{d["frame_id"]}')
         trajectory = load_route_trajectory(run)
         signals = trajectory.signals(d['frame_id']) if trajectory is not None else None
         if signals is None or not signals['goal_available']:

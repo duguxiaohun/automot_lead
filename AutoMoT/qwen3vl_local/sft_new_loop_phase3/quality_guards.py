@@ -2,6 +2,8 @@
 from typing import Any, Dict, Mapping, Tuple
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_KEYS
 
+MIN_SAME_RS_PHYSICAL_ROUTES = 2
+
 
 def choice_generation_guards(
     metrics: Mapping[str, float], *, min_format_valid_rate: float, min_exact_accuracy: float = 0.50
@@ -76,7 +78,7 @@ def generation_checkpoint_guards(
         "stop_recall": float(min_stop_recall),
         "no_action_context_exact": float(min_no_action_exact),
         "valid_exact": 0.50,
-        "same_rs_unique_routes": 2.0,
+        "same_rs_unique_routes": float(MIN_SAME_RS_PHYSICAL_ROUTES),
         "same_rs_exact": 0.50,
     }
     # 固定最低能力策略，不由此次 test 成绩拟合；无正例/无NONE证据不能通过。

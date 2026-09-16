@@ -29,7 +29,7 @@ from qwen3vl_local.sft_new_loop_phase3.lateral_rgb_audit import lateral_uncertai
 
 
 FRAME_DT_SECONDS = 0.25
-ACTION_RULE_VERSION = "current_wait_first_crossing_v7_rgb_guard"
+ACTION_RULE_VERSION = "current_wait_first_crossing_v8_bounded_window"
 
 
 @lru_cache(maxsize=1)
@@ -344,58 +344,79 @@ class RouteTrajectory:
         }
 
 
-def label_actions(signals: Mapping[str, Any]) -> Optional[Dict[str, bool]]:
-    """由未来真实轨迹给出五个 high-level 动作的 YES/NO 标签。
+def longitudinal_decision(speeds: Sequence[float], *, sample_count: Optional[int] = None) -> Dict[str, Any]:
+    """固定当前至 +2s 的九个采样，返回标签与离线判定轨迹。
 
-    先检查即时窗持续停车；否则按减速/加速第一次达到阈值的时间选择，三者互斥。
-    “先减速再恢复”只给 DECELERATE；变道与纵向动作互相独立。
+    窗外速度不能触发动作或撤回窗内标签；缺帧/无效值不写成 NONE。
+    所有速度变化相对最新帧，增速两次确认都须在窗内；阈值沿用原规则。
     """
-
-    if int(signals.get("future_speed_count", 0)) < LONGITUDINAL_HORIZON_FRAMES + 1:
-        return None
-    speeds = list(signals.get("future_speeds", []))
-    if len(speeds) < LONGITUDINAL_HORIZON_FRAMES + 1 or not all(
-            math.isfinite(float(v)) and float(v) >= 0 for v in speeds):
-        return None
-    speed = float(speeds[0])
+    required = LONGITUDINAL_HORIZON_FRAMES + 1
+    trace: Dict[str, Any] = dict(eligible=False, action=None, reason="incomplete_speed_window",
+        window_end_s=LONGITUDINAL_HORIZON_FRAMES * FRAME_DT_SECONDS,
+        samples_used=min(len(speeds), required), ignored_tail_samples=max(0, len(speeds)-required))
+    if len(speeds) < required or (sample_count is not None and sample_count < required):
+        return trace
+    try:
+        values = [float(v) for v in speeds[:required]]
+    except (TypeError, ValueError, OverflowError):
+        return dict(trace, reason="invalid_speed_sample")
+    if not all(math.isfinite(v) and v >= 0 for v in values):
+        return dict(trace, reason="invalid_speed_sample")
+    speed = values[0]
     threshold = max(LONGITUDINAL_MIN_DELTA_MPS, LONGITUDINAL_RELATIVE_DELTA * max(speed, 1.0))
-
-    immediate = speeds[:IMMEDIATE_HORIZON_FRAMES + 1]
-    stopped_pairs = [i for i in range(len(immediate) - 1)
-                     if max(immediate[i:i + 2]) <= STOP_SPEED_MPS]
-    # RGB #14/#104/#147：当前及下一采样仍静止，随后起步不能回写成当前 RESUME。
-    # 仍用既有两采样确认与速度阈值；不根据 test 分数搜索新阈值。
-    stop = bool(stopped_pairs)
-    decrease_at = next((i for i, v in enumerate(speeds[1:], 1) if speed - v >= threshold), 999)
-    # RGB 复核 HardBreakRoute/Town13 f213：单帧速度峰值后前车制动、间距缩小，
-    # 不应抢在真正减速前标 RESUME。加速需两个连续采样达到阈值；减速保留即时响应，
-    # 防止窗口末端出现制动时因缺少下一帧确认被写成不减速。
-    increase_at = next((i for i in range(1, len(speeds) - 1)
-                        if min(speeds[i:i + 2]) - speed >= threshold), 999)
-    # RGB #13/#658：短暂增速后明显回落，单个 RESUME 无法表达反复启停。
-    # 当前等待有明确 STOP；其余增速先于减速/停车的混合窗留作边界审计，不写全 NO。
-    if not (stopped_pairs and stopped_pairs[0] == 0) and increase_at < decrease_at:
-        # 训练侧 AccidentTwoWays/Town01 001543 f93：5.36→11.50→10.16，
-        # RGB仍在持续通过障碍；峰后回调但保留显著净增速不应隔离。
-        # VehicleOpensDoorTwoWays/Town13 85_0 f126：起步、再次近停、再起步。
-        # 必须逐时刻更新已见峰值，不能让后面更高的峰掩盖前面已发生的回落。
+    drop = next((i for i in range(1, required) if speed-values[i] >= threshold), None)
+    gain = next((i for i in range(1, required-1)
+                 if min(values[i:i+2])-speed >= threshold), None)
+    pairs = [i for i in range(required-1) if max(values[i:i+2]) <= STOP_SPEED_MPS]
+    immediate_pairs = [i for i in pairs if i+1 <= IMMEDIATE_HORIZON_FRAMES]
+    seconds = lambda i: None if i is None else i * FRAME_DT_SECONDS
+    first_pair = pairs[0] if pairs else None
+    trace.update(baseline_speed_mps=speed, delta_threshold_mps=threshold,
+        first_drop_s=seconds(drop), gain_start_s=seconds(gain),
+        gain_confirmed_s=seconds(None if gain is None else gain+1),
+        stop_start_s=seconds(first_pair), stop_confirmed_s=seconds(None if first_pair is None else first_pair+1),
+        stop_qualifies=bool(immediate_pairs), reversal_s=None,
+        stop_pair_crosses_1_5s_boundary=IMMEDIATE_HORIZON_FRAMES in pairs and not immediate_pairs,
+        isolated_near_stop_in_1_5s=any(v <= STOP_SPEED_MPS for v in values[:IMMEDIATE_HORIZON_FRAMES+1])
+            and not immediate_pairs,
+        subthreshold_drop_present=0 < speed-min(values[1:]) < threshold,
+        first_drop_single_sample=drop is not None and drop < required-1 and speed-values[drop+1] < threshold,
+        isolated_gain_present=any(values[i]-speed >= threshold
+            and (i == 1 or values[i-1]-speed < threshold)
+            and (i == required-1 or values[i+1]-speed < threshold) for i in range(1, required)),
+        gain_unconfirmed_at_2s_boundary=values[-1]-speed >= threshold and values[-2]-speed < threshold)
+    # 当前已确认等待优先；随后释放不会回写当前动作。
+    if immediate_pairs and immediate_pairs[0] == 0:
+        return dict(trace, eligible=True, action="STOP", reason="current_confirmed_wait")
+    # 保持既有混合窗隔离：先增速、随后明显回落且不再保留显著净增速。
+    if gain is not None and (drop is None or gain < drop):
         peak = speed
-        reversal = False
-        for value in speeds[increase_at:]:
-            peak = max(peak, value)
-            if peak - value >= threshold and value - speed < threshold:
-                reversal = True
-                break
-        if reversal or (stopped_pairs and increase_at < stopped_pairs[0]):
-            return None
-    decelerate = not stop and decrease_at < increase_at
-    resume = not stop and increase_at < decrease_at
+        for i in range(gain, required):
+            peak = max(peak, values[i])
+            if peak-values[i] >= threshold and values[i]-speed < threshold:
+                return dict(trace, reason="mixed_longitudinal_phase", reversal_s=seconds(i))
+        if immediate_pairs and gain < immediate_pairs[0]:
+            return dict(trace, reason="mixed_longitudinal_phase")
+    if immediate_pairs:
+        return dict(trace, eligible=True, action="STOP", reason="near_stop_confirmed_in_immediate_window")
+    if drop is not None and (gain is None or drop < gain):
+        return dict(trace, eligible=True, action="DECELERATE", reason="first_qualifying_drop")
+    if gain is not None and (drop is None or gain < drop):
+        return dict(trace, eligible=True, action="RESUME", reason="first_confirmed_gain")
+    return dict(trace, eligible=True, action="NONE", reason="no_qualifying_speed_change")
 
+
+def label_actions(signals: Mapping[str, Any]) -> Optional[Dict[str, bool]]:
+    """由同一判定轨迹生成标签；缺证据或混合阶段返回 None，不伪造全 NO。"""
+    decision = longitudinal_decision(signals.get("future_speeds", []),
+        sample_count=int(signals.get("future_speed_count", 0)))
+    if not decision["eligible"]:
+        return None
     direction = signals.get("lane_change_direction")
     return {
-        "DECELERATE": bool(decelerate),
-        "STOP": bool(stop),
-        "RESUME": bool(resume),
+        "DECELERATE": decision["action"] == "DECELERATE",
+        "STOP": decision["action"] == "STOP",
+        "RESUME": decision["action"] == "RESUME",
         "LANE_CHANGE_LEFT": direction == DIRECTION_LEFT,
         "LANE_CHANGE_RIGHT": direction == DIRECTION_RIGHT,
     }
@@ -415,6 +436,8 @@ def action_evidence(signals: Mapping[str, Any]) -> Dict[str, Any]:
         "rule_code_sha256": action_rule_sha256(),
         "temporal_semantics": "current_wait_precedes_future_release; first_confirmed_lane_crossing",
         "resume_confirmation_samples": 2,
+        "longitudinal_decision": longitudinal_decision(signals.get("future_speeds", []),
+            sample_count=int(signals.get("future_speed_count", 0))),
         "lane_type_str": signals.get("lane_type_str"),
         "lateral_window_issue": signals.get("lateral_window_issue"),
         "future_speed_min_mps": round(float(signals["speed_min"]), 3),

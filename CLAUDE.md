@@ -570,3 +570,27 @@ Phase3 先规划同 RS 人工负例/RS/问题域覆盖，再分配均衡 source 
 `prepare_event_balance.py` 对候选/full map 的目录发布冲突重新校验，内容一致才复用；
 残缺自动缓存改名到 `.invalid-*` 保留后重建，不删除 `.prepare.lock`。显式索引仍严格校验。
 原因、恢复与验证边界见 `PROJECT_CONTEXT.md` 和 `AutoMoT/qwen3vl_local/action_prior/run.md`。
+
+### 2026-09-16 Phase3 逐帧续审与覆盖预检
+
+Phase3 当前新训练默认索引 v10、split seed20260916；prompt v8_shared_temporal_rules 和动作规则 v7 不变。
+79 个定向 RGB 窗口（60 个 run）及 8 条冻结 prompt 后的新负例候选已逐帧审阅；6 条接受、2 条证据不足拒绝。
+新同 RS 错事件负例仅覆盖 R3 的两个事件，val 2/test 4 个独立物理路线，不代表全域拒绝能力。
+binary preflight 在模型/NCCL 前要求 val/test 各至少 2 个同 RS 负例物理路线，生成验证实际采样再检查；
+Rep/采集时间不增加独立支持，choice 豁免该项。eval 默认全量 CASES_PER_BIN=0，2RGB 证据图只标实际两张输入。
+本轮暴露的 176 个 test 物理组后续 train-only；精确 U-E3 撤回仅限核验的121–124窗口，真实源只有124是正例且默认风险过滤已排除，不造NO。
+新 mapping 必须重建索引，旧 adapter/run 要原源码与原合同；本轮未全量重建或训练新模型。
+证据、边界及运行见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/EVAL_REVIEW_20260916.md` 和同目录运行文档。
+
+### 2026-09-16 Phase3 标定与提示词继续完善（覆盖同日首轮冻结状态）
+
+用户进一步要求完善标定及提示词后，当前 prompt 为 v9_explicit_window_baseline，动作实现为
+current_wait_first_crossing_v8_bounded_window，数值阈值和横向规则不变；新索引目录仍为待全量构建的v10。
+longitudinal_decision 内部只使用当前至+2s的九个采样，窗外尾部不能触发动作或隔离窗内标签；
+标定、离线action_evidence和时间诊断共用判定轨迹，缺帧/非法速度/混合阶段分开记录，不注入模型输入。
+提示词明确当前速度基准、增速两次确认都在2s内；binary/choice共用横向规则，已完成历史跨线忽略，
+已开始但未来才跨线仍可成立。输出模式、STOP优先级和场景定义不变。
+198项测试通过；40,000标准合成窗口及60条已审run的8,587帧原meta与旧实现配对，标签变化0；79个已审案例回查通过。
+未全量重建/训练；必须按新prompt/规则源码/mapping合同重建并新训，旧adapter要原源码。
+6条负例保留旧prompt冻结时的盲审SHA，不倒写历史，也不声称它们在最终v9冻结后新增。
+详见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/TEMPORAL_REFINEMENT_20260916.md`。

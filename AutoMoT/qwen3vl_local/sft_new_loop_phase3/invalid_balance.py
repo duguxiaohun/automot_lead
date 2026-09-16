@@ -312,11 +312,8 @@ def balanced_invalid_items(
         # 同一签名内仍按 seed 随机抽样，优先不同路线；不复制人工题来充覆盖。
         candidates = list(bucket)
         rng.shuffle(candidates)
-        chosen = min(candidates, key=lambda item: (
-            getattr(_row_of(item), "scenario", ""), getattr(_row_of(item), "route_id", "")
-        ) in seeded_routes)
-        seeded_routes.add((getattr(_row_of(chosen), "scenario", ""),
-                           getattr(_row_of(chosen), "route_id", "")))
+        chosen = min(candidates, key=lambda item: physical_group_for_item(item) in seeded_routes)
+        seeded_routes.add(physical_group_for_item(chosen))
         sampled.append(chosen)
         source_used[signature.source_class] += 1
         signature_used[signature.canonical] += 1
@@ -409,6 +406,23 @@ def _count_report(counter: Mapping[str, int]) -> Dict[str, Any]:
     }
 
 
+def physical_group_for_item(item):
+    """与数据分割共用物理路线身份，重复采集不能增加独立支持。"""
+    from qwen3vl_local.sft_new_loop_phase3.build_dataset import physical_route_group
+    row = _row_of(item)
+    # 仅有签名的诊断对象共用空身份，绝不能被算作多条独立路线。
+    return physical_route_group(getattr(row, "scenario", ""), getattr(row, "route_id", ""))
+
+
+def require_same_rs_support(items, *, stage):
+    """检查实际采样后的支持，不能只验证原始候选池。"""
+    from qwen3vl_local.sft_new_loop_phase3.quality_guards import MIN_SAME_RS_PHYSICAL_ROUTES
+    count = invalid_subgroup_report(items)["same_rs_unique_routes"]
+    if count < MIN_SAME_RS_PHYSICAL_ROUTES:
+        raise ValueError(f"{stage}: sampled same_rs_wrong_event has {count} independent physical routes; "
+                         f"requires >= {MIN_SAME_RS_PHYSICAL_ROUTES}; review/rebuild the pool or its sampling coverage")
+
+
 def invalid_subgroup_report(items: Sequence[Any]) -> Dict[str, Any]:
     """统计 source、true RS、错误上下文和三者联合签名。"""
 
@@ -440,7 +454,8 @@ def invalid_subgroup_report(items: Sequence[Any]) -> Dict[str, Any]:
     return {
         "unique_cases": len(unique_cases(items)),
         "same_rs_unique_cases": len(unique_cases(same)),
-        "same_rs_unique_routes": len({(getattr(_row_of(x), "scenario", ""), getattr(_row_of(x), "route_id", "")) for x in same}),
+        "same_rs_unique_routes": len({physical_group_for_item(x) for x in same}),
+        "same_rs_route_count_unit": "physical_route_without_rep_or_timestamp",
         "same_rs_max_case_repeat": max(Counter(case_identity(x) for x in same).values(), default=0),
         "total": int(sum(source_counts.values())),
         "source_class": source_report,

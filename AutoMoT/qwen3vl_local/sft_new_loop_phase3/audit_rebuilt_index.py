@@ -7,14 +7,15 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
+from qwen3vl_local.sft_new_loop_phase3.build_dataset import physical_route_group
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import label_actions
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
 from qwen3vl_local.sft_new_loop_phase3.prompts import make_prompt_spec, build_action_prompt
 
 
-def audit(index, data_root):
+def audit(index, data_root, action_output_mode="binary"):
     """逐行验证被问动作，按split报告独立case/负例/动作；不伪造视觉审核。"""
-    report = check_index(index)
+    report = check_index(index, action_output_mode=action_output_mode)
     signatures = defaultdict(Counter)
     repeats = defaultdict(Counter)
     negatives = defaultdict(set)
@@ -69,7 +70,10 @@ def audit(index, data_root):
         rounded_evidence_boundary_recheck=dict(near_boundary),
         rounded_evidence_boundary_cases=boundary_cases,
         max_input_repeat={k: max(v.values()) for k, v in repeats.items()},
-        same_rs={k: dict(unique_cases=len(v), unique_routes=len({r[:2] for r in v}),
+        same_rs={k: dict(unique_cases=len(v),
+                         unique_routes=len({physical_route_group(r[0], r[1]) for r in v}),
+                         route_count_unit='physical_route_without_rep_or_timestamp',
+                         unique_runs=len({r[:2] for r in v}),
                          contexts=sorted({r[-1] for r in v})) for k, v in negatives.items()})
     return report
 
@@ -79,8 +83,9 @@ def main():
     parser.add_argument('--index', required=True, type=Path)
     parser.add_argument('--data-root', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--action-output-mode', choices=('binary', 'choice'), default='binary')
     args = parser.parse_args()
-    result = audit(args.index, args.data_root)
+    result = audit(args.index, args.data_root, args.action_output_mode)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps({k: v for k, v in result.items() if k not in ('signature_counts', 'asked_action_counts')}, ensure_ascii=False))
 

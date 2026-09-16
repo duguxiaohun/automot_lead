@@ -12,8 +12,8 @@ from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
 from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
 
 
-def audit(index, data_root):
-    result = check_index(index)
+def audit(index, data_root, action_output_mode="binary"):
+    result = check_index(index, action_output_mode=action_output_mode)
     groups = defaultdict(list)
     for line in Path(index).open():
         row = json.loads(line)
@@ -54,8 +54,9 @@ def main():
     p.add_argument("--index", required=True, type=Path)
     p.add_argument("--data-root", required=True, type=Path)
     p.add_argument("--output", required=True, type=Path)
+    p.add_argument('--action-output-mode', choices=('binary', 'choice'), default='binary')
     args = p.parse_args()
-    result = audit(args.index, args.data_root)
+    result = audit(args.index, args.data_root, args.action_output_mode)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2)+"\n")
     print(json.dumps({k:v for k,v in result.items() if k != "counts"}))

@@ -1404,7 +1404,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Evaluate base Qwen or new Phase3 LoRA on balanced high-level action cases"
     )
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v8/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v10/frame_index.jsonl"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument("--adapter-dir", default="")
@@ -1420,7 +1420,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--cases-per-bin",
         type=int,
-        default=64,
+        default=0,
         help="positive: sampled cases per action context; 0: keep all rows while still validating INVALID signatures",
     )
     p.add_argument("--route-diverse-sampling", action=argparse.BooleanOptionalAction, default=False)

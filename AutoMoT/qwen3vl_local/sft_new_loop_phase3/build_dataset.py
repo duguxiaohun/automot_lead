@@ -60,6 +60,7 @@ from qwen3vl_local.sft_new_loop_phase3.trajectory_action import (  # noqa: E402
     ACTION_RULE_VERSION,
     action_evidence,
     label_actions,
+    longitudinal_decision,
     load_route_trajectory,
     validate_action_rule,
 )
@@ -108,6 +109,7 @@ def development_route_groups() -> frozenset:
     groups.update(json.loads(path.with_name("development_route_groups_20260910.json").read_text())["groups"])
     groups.update(json.loads(path.with_name("development_route_groups_20260911.json").read_text())["groups"])
     groups.update(json.loads(path.with_name("development_route_groups_20260914.json").read_text())["groups"])
+    groups.update(json.loads(path.with_name("development_route_groups_20260916.json").read_text())["groups"])
     return frozenset(groups)
 
 
@@ -390,7 +392,8 @@ def iter_base_frames(
                 labels = label_actions(signals)
                 if labels is None:
                     if risk_stats is not None:
-                        reason = "incomplete_speed_window" if signals["future_speed_count"] < 9 else "mixed_longitudinal_phase"
+                        reason = longitudinal_decision(signals["future_speeds"],
+                            sample_count=signals["future_speed_count"])["reason"]
                         risk_stats[f"action_excluded/{reason}"] += 1
                     continue
                 if (CONTEXT_BY_ID[context_id].question_domain == "FULL_MANEUVER"
@@ -810,7 +813,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--collection-dir", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v9"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v10"))
     p.add_argument(
         "--review-root",
         default=str(
@@ -824,7 +827,7 @@ def parse_args() -> argparse.Namespace:
                    help="audit/smoke only: reuse cached routes; never claim full-dataset coverage")
     p.add_argument("--candidate-cache", default="",
                    help="audit only: reuse candidate_frames.jsonl with the same trajectory rule version")
-    p.add_argument("--split-seed", type=int, default=20260914)
+    p.add_argument("--split-seed", type=int, default=20260916)
     p.add_argument("--test-ratio", type=float, default=0.10)
     p.add_argument("--val-ratio", type=float, default=0.05)
     p.add_argument(

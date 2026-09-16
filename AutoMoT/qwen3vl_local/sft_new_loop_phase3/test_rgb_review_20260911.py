@@ -45,7 +45,7 @@ def test_compact_prompt_preserves_schema_and_causal_inputs(context_id):
     assert len(SYSTEM_PROMPT.split()) <= 20
     assert len((SYSTEM_PROMPT + ' ' + prompt).split()) <= 400
     assert '1.5 seconds' in prompt and 'two consecutive' in prompt
-    assert 'max(1.2 m/s, 20%)' in prompt
+    assert 'max(1.2 m/s, 20% of current speed)' in prompt
     assert '8.125 m/s' in prompt and 'y=-3.0 m' in prompt
     assert 'negative LEFT, positive RIGHT' in prompt
     assert '[VISUAL_CHECK_ORDER]' not in prompt and '[QUESTIONS]' not in prompt

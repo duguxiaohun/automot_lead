@@ -125,10 +125,10 @@ def test_cpu_preflight_uses_real_worklists_without_model_or_nccl(monkeypatch, tm
                                      "--action-output-mode", mode, "--history-rgb-mode", rgb,
                                      "--output-dir", str(tmp_path / "not_created")])
     args = train.parse_args()
-    assert "data_v9" in args.index
+    assert "data_v10" in args.index
     for key, value in {"WORLD_SIZE": "4", "RANK": "0", "LOCAL_RANK": "0"}.items():
         monkeypatch.setenv(key, value)
-    monkeypatch.setattr(preflight, "check_index", lambda path: {})
+    monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
     monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: candidate_rows())
 
     def forbidden(*args, **kwargs):
@@ -151,8 +151,8 @@ def test_strict_validation_failure_precedes_distributed_setup(monkeypatch):
 
     monkeypatch.setattr(sys, "argv", ["train.py", "--focus-balance-count", "32",
                                      "--no-auto-eval-balance-count"])
-    monkeypatch.setattr(preflight, "check_index", lambda path: {})
-    monkeypatch.setattr(preflight, "check_model", lambda path: {})
+    monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
+    monkeypatch.setattr(preflight, "check_model", lambda path, **kwargs: {})
     monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: candidate_rows())
     monkeypatch.setattr(train, "setup_distributed", lambda *a: pytest.fail("NCCL initialized before sampling"))
     with pytest.raises(RuntimeError, match="periodic loss validation sampling failed.*quota shortage") as caught:
@@ -166,7 +166,7 @@ def test_generation_budget_can_increase_independently(monkeypatch):
 
     monkeypatch.setattr(sys, "argv", ["train.py", "--sampling-only", "--focus-balance-count", "32",
                                      "--eval-balance-count", "32", "--generation-eval-balance-count", "16"])
-    monkeypatch.setattr(preflight, "check_index", lambda path: {})
+    monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
     monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: candidate_rows())
     args = train.parse_args()
     train.train(args)

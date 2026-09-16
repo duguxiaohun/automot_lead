@@ -20,7 +20,10 @@ EVENT_ADDITIONS = Path(__file__).with_name("event_rgb_additions_v1.jsonl")
 @lru_cache(maxsize=1)
 def mapping_contract_hash():
     """训练索引绑定实际语义决定；旧索引不能绕过新隔离/同 RS 负例规则。"""
-    paths = (ROOT / "keyframe_filter/evidence_guards.py",
+    paths = (Path(__file__).with_name("event_rgb_exclusions_20260916.jsonl"),
+             Path(__file__).with_name("development_route_groups_20260916.json"),
+             Path(__file__).with_name("same_rs_invalid_review_20260916.jsonl"),
+             ROOT / "keyframe_filter/evidence_guards.py",
              Path(__file__).with_name("annotation_repair.py"),
              Path(__file__).with_name("annotation_repairs_20260910.json"),
              Path(__file__).with_name("annotation_repairs_20260914.json"),
@@ -65,9 +68,10 @@ def review_decisions():
 
 @lru_cache(maxsize=1)
 def event_exclusions():
-    """只排除有逐帧 RGB 反证的事件候选，不把未知样本改造成 NO/invalid。"""
-    rows = [json.loads(line) for line in Path(__file__).with_name(
-        "event_rgb_exclusions_20260914.jsonl").read_text().splitlines() if line.strip()]
+    """撤回逐帧核验后不支持的事件正例，不把证据不足改造成 NO/invalid。"""
+    rows = [json.loads(line) for name in ("event_rgb_exclusions_20260914.jsonl",
+                                        "event_rgb_exclusions_20260916.jsonl")
+            for line in Path(__file__).with_name(name).read_text().splitlines() if line.strip()]
     for row in rows:
         if row["decision"] != "EXCLUDE_EVENT" or row["event"] != "U-E3":
             raise ValueError("unsupported RGB event exclusion")

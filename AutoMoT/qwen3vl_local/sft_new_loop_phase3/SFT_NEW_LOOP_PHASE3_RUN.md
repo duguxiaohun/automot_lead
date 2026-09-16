@@ -1,15 +1,44 @@
-> 2026-09-14 当前入口：默认索引 **v9**、split seed **20260914**、prompt **v8_shared_temporal_rules**，动作数值阈值仍为 v7。20260911 包 binary 373/552、choice 241/306；202 题逐帧审计与修订见 [EVAL_REVIEW_20260914.md](EVAL_REVIEW_20260914.md)，完整指标见 [AUDIT_COMPARISON_20260914.md](AUDIT_COMPARISON_20260914.md)。本地 v9 已重建为 train/val/test=13500/348/468，原 meta 回读无不一致；新合同尚无训练成绩。
->
-> 旧 adapter 和旧 v8 索引不兼容当前 prompt/mapping。远端从 `AutoMoT/` 工作目录执行以下命令，pipeline 默认重建索引，分别启动新的 binary/choice run。已有环境变量 `INDEX`、`DATA_DIR`、`SKIP_BUILD`、`SPLIT_SEED` 会覆盖默认值，应检查其是否仍指旧版本。两种模式按顺序运行即可，共用相同 v9 数据合同；choice 仍只评估有效单动作子集。
+# SFT New Loop Phase3 当前运行入口（2026-09-16）
+
+默认索引 **v10**、split seed **20260916**；prompt 为 **v9_explicit_window_baseline**，动作实现为 **v8_bounded_window**（数值阈值不变）。
+79 个窗口逐帧审计、盲审负例与修复见 [EVAL_REVIEW_20260916.md](EVAL_REVIEW_20260916.md)，
+四组历史指标见 [AUDIT_COMPARISON_20260915.md](AUDIT_COMPARISON_20260915.md)。
+标定内部时间窗限制、判定轨迹及提示词完善见 [TEMPORAL_REFINEMENT_20260916.md](TEMPORAL_REFINEMENT_20260916.md)。
+**本轮尚未全量重建 v10 或训练新模型。** 早先同名 v10 的 smoke/索引也必须重建，不能仅凭目录名复用。 旧 run 请使用原源码与原索引恢复评测；新 mapping 合同拒绝混用旧 adapter/索引。
+
+从 `AutoMoT/` 工作目录，先构建并检查新索引（使用已有 PyTorch 环境）：
 
 ```bash
-ACTION_OUTPUT_MODE=binary CASES_PER_BIN=0 \
+python qwen3vl_local/sft_new_loop_phase3/build_dataset.py
+python qwen3vl_local/sft_new_loop_phase3/preflight.py \
+  --index checkpoints/sft_new_loop_phase3_data_v10/frame_index.jsonl
+python qwen3vl_local/sft_new_loop_phase3/train.py --sampling-only \
+  --index checkpoints/sft_new_loop_phase3_data_v10/frame_index.jsonl \
+  --focus-balance-count 1024 --eval-balance-count 16 --generation-eval-balance-count 32
+```
+
+`preflight` 的 binary val/test 各要求至少两条同 RS 错事件**物理路线**；不同 Rep/采集时间不增加支持。
+`--sampling-only` 再核验实际生成验证采样；不读取模型权重或初始化 NCCL。choice 加 `--action-output-mode choice`。
+不足时补充独立、盲审的路线证据，不以重复采样或关闭 guard 解决。
+
+预检后新训；已构建且通过合同检查时可显式复用索引：
+
+```bash
+SKIP_BUILD=1 ACTION_OUTPUT_MODE=binary \
   bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
-ACTION_OUTPUT_MODE=choice CASES_PER_BIN=0 \
+SKIP_BUILD=1 ACTION_OUTPUT_MODE=choice \
+  bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+# 端点两图需独立训练：
+SKIP_BUILD=1 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary \
+  bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+SKIP_BUILD=1 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=choice \
   bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 ```
 
-本次 test 468 个独立题，完整评测用 `CASES_PER_BIN=0`。新 test 不含本次暴露的 191 个旧 test 物理路线组；它们已加入 train-only 开发集。下面带日期的旧版本说明保留为历史。
+不设置 `SKIP_BUILD=1` 时 pipeline 默认重新构建。独立 eval 默认 `CASES_PER_BIN=0` 全量；choice 仍只保留有效单动作子集。
+`INDEX`、`DATA_DIR`、`SPLIT_SEED`、`CASES_PER_BIN` 等已有环境变量会覆盖默认值，启动前检查。
+新负例增加 val 2/test 4 个物理路线，仅覆盖 R3 的两个错事件；不是完整拒绝能力证明。
+本轮暴露的 176 个 test 物理组后续 train-only。下面按日期保留历史说明，旧索引题数不代表 v10。
 
 ## 2026-09-15：启动时报 INVALID quota 不足
 

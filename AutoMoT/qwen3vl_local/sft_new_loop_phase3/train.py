@@ -74,6 +74,8 @@ from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (  # noqa: E402
     balanced_invalid_items,
     invalid_subgroup_keys,
     invalid_subgroup_report,
+    physical_group_for_item,
+    require_same_rs_support,
     unique_cases,
 )
 from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
@@ -1003,7 +1005,7 @@ def evaluate_generation_probe(
                 slice_counts["no_action/total"] += 1
                 slice_counts["no_action/exact"] += int(all_ok)
         elif row.invalid_reason == "same_rs_wrong_event":
-            same_rs_routes.add((row.scenario, row.route_id))
+            same_rs_routes.add(physical_group_for_item(row))
         for key in ACTION_KEYS:
             if key not in spec.output_keys:
                 continue
@@ -1328,7 +1330,7 @@ def train(args: argparse.Namespace) -> None:
 
     validate_history_rgb_mode(args.history_rgb_mode)
     from qwen3vl_local.sft_new_loop_phase3.preflight import check_index, check_model
-    check_index(args.index)
+    check_index(args.index, action_output_mode=args.action_output_mode)
     if not args.sampling_only:
         check_model(args.model_dir)
     # 先完成纯 CPU 采样预检；失败时尚未创建 NCCL 进程组。
@@ -1404,6 +1406,8 @@ def train(args: argparse.Namespace) -> None:
                 )
                 args.generation_eval_balance_count = generation_audit["effective"]
                 args.validation_sampling["generation"] = generation_audit
+                if args.action_output_mode == "binary":
+                    require_same_rs_support(full_generation_eval_work, stage="generation validation")
         except (ValueError, AssertionError) as exc:
             raise RuntimeError(
                 f"periodic {stage} validation sampling failed: split={args.eval_split} "
@@ -1959,7 +1963,7 @@ def parse_args() -> argparse.Namespace:
     """解析 CLI 参数。"""
 
     p = argparse.ArgumentParser(description="Train sft_new_loop_phase3 single-turn high-level action LoRA")
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v9/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v10/frame_index.jsonl"))
     p.add_argument("--sampling-only", action="store_true",
                    help="check actual train/validation sampling on CPU without loading weights or writing a run")
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
