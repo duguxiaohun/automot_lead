@@ -95,7 +95,13 @@ bash qwen3vl_local/tb_serve.sh checkpoints/action_prior
 bash qwen3vl_local/tb_serve.sh checkpoints
 ```
 
-启动器会递归发现 `events.out.tfevents.*`，解析 `latest -> run_时间戳` 软链接并显式交给 TensorBoard；因此上面两个父目录命令在 TensorBoard 2.21 fast loader 下也能显示 run。启动时会打印发现的 event 叶目录数。若训练刚创建、尚未写出 event，待首次写入后重启一次启动器即可把新的子 run 纳入列表。
+启动器默认只在最多 4 层内枚举标准的 `tb/`、`eval_tb/` 目录（不逐文件扫描模型和权重），解析 `latest -> run_时间戳` 软链接并显式交给 TensorBoard；因此上面两个父目录命令在 TensorBoard 2.21 fast loader 下也能显示 run，且传 `checkpoints/` 不会因全量检索权重而长时间不显示端口。启动时会先打印快速发现提示和发现的 event 叶目录数。若某个旧实验将 event 放在非标准、超过 4 层的位置，再显式使用完整扫描：
+
+```bash
+TB_DISCOVER_DEEP=1 bash qwen3vl_local/tb_serve.sh checkpoints
+```
+
+若训练刚创建、尚未写出 event，待首次写入后重启一次启动器即可把新的子 run 纳入列表。
 
 打开终端显示的地址。主要看 `train/loss`、`train/samples_seen`、`val_epoch/route_ade_m` 和 `val_epoch/waypoint_ade_m`；均衡训练还可查看各事件组指标。FM loss 只反映训练拟合，轨迹质量以验证 ADE/FDE 为准。
 

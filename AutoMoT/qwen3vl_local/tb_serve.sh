@@ -16,7 +16,7 @@
 #   bash qwen3vl_local/tb_serve.sh checkpoints/goalgen_v1_dit
 #
 # 想同时看训练 + eval 两条 TB run，把 logdir 指到 OUTPUT_DIR 根目录即可。
-# 本脚本会主动递归发现 events.out.tfevents.*，并解析 latest 这类软链接后以
+# 本脚本会主动发现标准 tb/、eval_tb/ 目录，解析 latest 这类软链接后以
 # --logdir_spec 传给 TensorBoard。不要依赖 TensorBoard 2.21 fast loader 对父目录
 # 和软链接的递归扫描：该路径在部分版本中会显示 "No dashboards are active"。
 #
@@ -25,6 +25,8 @@
 #   TB_BIND=0.0.0.0 ← 改 bind 地址；默认 --bind_all（等价 0.0.0.0）
 #   TB_EXTRA="--samples_per_plugin images=200"  ← 透传给 tensorboard 的额外参数
 #   TB_DISCOVER=0  ← 关闭 event 目录展开，完全交给 TensorBoard 原生 --logdir 扫描
+#   TB_DISCOVER_DEPTH=4 ← 默认只枚举此深度内的 tb/、eval_tb/（不逐文件扫描模型/权重）
+#   TB_DISCOVER_DEEP=1  ← 罕见的非标准目录布局才启用完整递归扫描；大 checkpoints 会较慢
 #   TB_LOAD_FAST=0 ← 传 --load_fast=false；仅用于排查 TensorBoard 自身扫描问题
 #   TB_SCALAR_SAMPLES=0 ← scalar 不做 TensorBoard reservoir 抽样（0 = 保留全部点）
 #
@@ -112,24 +114,27 @@ if [[ -n "${TB_EXTRA:-}" ]]; then
     EXTRA_ARGS=(${TB_EXTRA})
 fi
 
-# -P 把 latest 之类的父级软链接解析成实际目录；后续发现仍使用 find -L，故两类
-# 软链接布局都能被覆盖。目录不存在时保留一个可读的绝对显示路径。
+# -P 把 latest 之类的父级软链接解析成实际目录。目录不存在时保留一个可读的
+# 绝对显示路径。
 LOGDIR_ABS="$(cd -P -- "$(dirname -- "${LOGDIR}")" 2>/dev/null && pwd || pwd)/$(basename -- "${LOGDIR}")"
 
 # ---- 4. 找到实际 event 叶目录 ----
 # TensorBoard 2.21 默认启用 fast data loading。它在一些环境不会把父目录下的
 # latest/ -> run_xxx/ 软链接递归成可用 run；显式 --logdir_spec 指向每个 event
-# 所在目录可避开这个版本差异。find -L 同时支持直接目录和软链接目录。
+# 所在目录可避开这个版本差异。默认只扫描目录项而不遍历 checkpoint 内所有文件，
+# 防止 `checkpoints/` 内模型权重很多时端口提示长期卡住。
 TB_INPUT_ARGS=(--logdir "${LOGDIR}")
 DISCOVERED_EVENT_DIRS=()
 DISCOVERED_EVENT_LABELS=()
 if [[ "${TB_DISCOVER:-1}" != "0" && -d "${LOGDIR_ABS}" ]]; then
     declare -A SEEN_EVENT_DIRS=()
-    while IFS= read -r -d '' event_dir; do
+    register_event_dir() {
+        local event_dir="$1"
+        local real_event_dir event_label
         real_event_dir="$(readlink -f -- "${event_dir}" 2>/dev/null || printf '%s' "${event_dir}")"
         # latest/tb 和 run_xxx/tb 可能是同一物理目录；只显示一次。
         if [[ -n "${SEEN_EVENT_DIRS[${real_event_dir}]+x}" ]]; then
-            continue
+            return
         fi
         SEEN_EVENT_DIRS["${real_event_dir}"]=1
         if [[ "${event_dir}" == "${LOGDIR_ABS}" ]]; then
@@ -139,9 +144,87 @@ if [[ "${TB_DISCOVER:-1}" != "0" && -d "${LOGDIR_ABS}" ]]; then
         fi
         DISCOVERED_EVENT_DIRS+=("${real_event_dir}")
         DISCOVERED_EVENT_LABELS+=("${event_label}")
-    done < <(
-        find -L "${LOGDIR_ABS}" -type f -name 'events.out.tfevents.*' -printf '%h\0' 2>/dev/null | sort -zu
-    )
+    }
+
+    case "${TB_DISCOVER_DEEP:-0}" in
+        0|false|False|FALSE|"")
+            DISCOVER_DEPTH="${TB_DISCOVER_DEPTH:-4}"
+            if [[ ! "${DISCOVER_DEPTH}" =~ ^[0-9]+$ ]] || (( DISCOVER_DEPTH < 1 )); then
+                echo "[tb][error] TB_DISCOVER_DEPTH 必须是正整数，当前为：${DISCOVER_DEPTH}" >&2
+                exit 2
+            fi
+            echo "[tb] 正在快速发现 tb/eval_tb（最多 ${DISCOVER_DEPTH} 层；不扫描权重文件）..." >&2
+            # os.scandir 只检查目录项，且到 tb/eval_tb 立刻停止向下递归；比 find 全量
+            # 扫 events 更适合 checkpoints/ 这种同时存放大模型权重的根目录。NUL 输出
+            # 保留带空格路径，realpath visited 则防止 latest 链接形成重复/循环扫描。
+            while IFS= read -r -d '' candidate_dir; do
+                while IFS= read -r -d '' event_dir; do
+                    register_event_dir "${event_dir}"
+                done < <(
+                    find -L "${candidate_dir}" -maxdepth 1 -type f \
+                        -name 'events.out.tfevents.*' -printf '%h\0' 2>/dev/null | sort -zu
+                )
+            done < <(
+                python - "${LOGDIR_ABS}" "${DISCOVER_DEPTH}" <<'PY'
+import os
+import sys
+
+root = os.path.abspath(sys.argv[1])
+max_depth = int(sys.argv[2])
+leaf_names = {"tb", "eval_tb"}
+visited = set()
+
+def emit(path):
+    sys.stdout.buffer.write(os.fsencode(path) + b"\0")
+
+def walk(path, remaining, *, is_root=False):
+    try:
+        resolved = os.path.realpath(path)
+    except OSError:
+        return
+    if resolved in visited:
+        return
+    visited.add(resolved)
+    if is_root:
+        # 支持用户直接传某个 tb/ 或任意 event 所在目录。
+        emit(path)
+    if remaining <= 0:
+        return
+    try:
+        with os.scandir(path) as entries:
+            children = sorted(entries, key=lambda entry: entry.name)
+    except OSError:
+        return
+    for child in children:
+        try:
+            if not child.is_dir(follow_symlinks=True):
+                continue
+        except OSError:
+            continue
+        if child.name in leaf_names:
+            emit(child.path)
+            # event 叶目录不再向下扫描 profiles/ 等内容。
+            continue
+        walk(child.path, remaining - 1)
+
+walk(root, max_depth, is_root=True)
+PY
+            )
+            ;;
+        1|true|True|TRUE)
+            echo "[tb][warn] 正在完整递归发现 event；大 checkpoints 可能需要较长时间..." >&2
+            while IFS= read -r -d '' event_dir; do
+                register_event_dir "${event_dir}"
+            done < <(
+                find -L "${LOGDIR_ABS}" -type f -name 'events.out.tfevents.*' \
+                    -printf '%h\0' 2>/dev/null | sort -zu
+            )
+            ;;
+        *)
+            echo "[tb][error] TB_DISCOVER_DEEP 只能是 0 或 1，当前为：${TB_DISCOVER_DEEP}" >&2
+            exit 2
+            ;;
+    esac
 
     # 单一叶目录仍沿用 --logdir，保留原来的 run 命名；父目录或多叶目录则显式
     # 提供全部实际路径，彻底避开 fast loader 的链接发现差异。
