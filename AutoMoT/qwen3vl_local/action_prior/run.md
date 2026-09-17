@@ -84,12 +84,30 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-p
 另开一个终端：
 
 ```bash
+# 最新一个 run：
 bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/latest/tb
 # 指定端口：
 TB_PORT=6006 bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/latest/tb
+
+# 同时看 action_prior 的所有历史 run（包含 latest 软链接）：
+bash qwen3vl_local/tb_serve.sh checkpoints/action_prior
+# 看 checkpoints 下所有实验：
+bash qwen3vl_local/tb_serve.sh checkpoints
 ```
 
+启动器会递归发现 `events.out.tfevents.*`，解析 `latest -> run_时间戳` 软链接并显式交给 TensorBoard；因此上面两个父目录命令在 TensorBoard 2.21 fast loader 下也能显示 run。启动时会打印发现的 event 叶目录数。若训练刚创建、尚未写出 event，待首次写入后重启一次启动器即可把新的子 run 纳入列表。
+
 打开终端显示的地址。主要看 `train/loss`、`train/samples_seen`、`val_epoch/route_ade_m` 和 `val_epoch/waypoint_ade_m`；均衡训练还可查看各事件组指标。FM loss 只反映训练拟合，轨迹质量以验证 ADE/FDE 为准。
+
+TensorBoard 的横轴是 optimizer step，不是数据量；`train/samples_seen` 是用于核对实际累计 case 呈现数的独立 tag，不能直接被 Scalars 页面选作横轴。不同 run 的曲线密度/平滑程度因而不必然可比：训练日志每 `logging_steps` 个 update 写一个“该窗口的样本均值”，而 Scalars 的 smoothing 又按**点数**而非样本数做 EMA。看真实性能时先把 smoothing 设为 `0`，并核对 `samples_seen`、相同的 GPU 数与 `GRAD_ACCUM`；事件组还应同时查看同路径的 `/samples`，小分母的组损失天然更抖。
+
+很长的 run 还可能被 TensorBoard 对 scalar 的默认 reservoir 抽样而显得稀疏。需要逐点查看时用（`0` 表示不抽样；大日志会增加浏览器内存和加载时间）：
+
+```bash
+TB_SCALAR_SAMPLES=0 bash qwen3vl_local/tb_serve.sh checkpoints/action_prior
+```
+
+若目标是让不同总步数的**新实验**在图上各有近似相同数量的、等间隔的点，给每个 run 预先取相同目标点数 `N`，设置 `LOGGING_STEPS=ceil(总 optimizer steps / N)`（例如想保留约 250 点，14,000 step 的 run 取约 `56`）。这会改变每点的平均窗口宽度，适合看总体收敛趋势；要比较短期噪声，应保持相同的 `LOGGING_STEPS` 与有效 global batch，而不是人为下采样。
 
 每次训练使用独立的 `checkpoints/action_prior/run_时间戳/`，`latest` 指向最新 run：
 
