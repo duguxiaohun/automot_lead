@@ -14,7 +14,7 @@ AUTOMOT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${AUTOMOT_ROOT}"
 
 MODES="${MODES:-4rgb 2rgb_endpoints}"
-INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v10/frame_index.jsonl}"
+INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v11/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 TRAIN_MODE="${TRAIN_MODE:-ddp}"

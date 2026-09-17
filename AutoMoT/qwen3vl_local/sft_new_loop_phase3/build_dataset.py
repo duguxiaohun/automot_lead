@@ -50,7 +50,9 @@ from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (  # noqa: E402
     mismatched_contexts,
     mismatched_road_contexts,
 )
-from qwen3vl_local.sft_new_loop_phase3.prompts import ANSWER_KEYS, INVALID_KEY  # noqa: E402
+from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
+    ANSWER_KEYS, INVALID_KEY, PROMPT_NAME, action_prompt_sha256,
+)
 from qwen3vl_local.sft_new_loop_phase3.sampling import (  # noqa: E402
     even_quota_with_capacity,
     route_diverse_sample,
@@ -737,6 +739,18 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         "action_review_status": "automatic_candidates_with_explicit_rgb_exclusions",
         "action_rule_version": ACTION_RULE_VERSION,
         "mapping_contract_hash": mapping_contract_hash(),
+        "prompt_contract": {
+            "prompt_name": PROMPT_NAME,
+            "production_prompt_sha256": {
+                output_mode: {
+                    history_mode: action_prompt_sha256(
+                        audit=False, history_rgb_mode=history_mode, action_output_mode=output_mode,
+                    )
+                    for history_mode in ("4rgb", "2rgb_endpoints")
+                }
+                for output_mode in ("binary", "choice")
+            },
+        },
         "dataset_name": DATASET_NAME,
         "frame_index": str(target),
         "context_contract": (
@@ -813,7 +827,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--collection-dir", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v10"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v11"))
     p.add_argument(
         "--review-root",
         default=str(

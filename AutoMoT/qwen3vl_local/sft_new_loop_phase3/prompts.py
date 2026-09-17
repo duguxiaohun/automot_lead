@@ -54,7 +54,9 @@ from qwen3vl_local.sft_new_loop_phase3.history_rgb import (
 from qwen3vl_local.sft_new_loop_phase3.navigation_goal import render_navigation_goal
 
 
-PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v9_explicit_window_baseline"
+# v11 恢复 v7 的紧凑表达和单选措辞；动作真值仍由 trajectory_action 的
+# v8 bounded-window 合同生成。不要把这层语言合同误当成标定回退。
+PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v11_compact_choice_v10_calibration"
 INVALID_KEY = "INVALID_ACTION_CONTEXT"
 ANSWER_KEYS: Tuple[str, ...] = (*ACTION_KEYS, INVALID_KEY)
 ANSWER_VALUES = ("YES", "NO")
@@ -79,16 +81,17 @@ CHOICE_ACTION_DESCRIPTIONS: Dict[str, str] = {
     "LANE_CHANGE_RIGHT": "Cross an ego lane boundary to the right after the newest frame, relative to ego's heading.",
 }
 
-SPEED_ACTION_RULES = """Newest frame = t=0; deadlines are inclusive.
-STOP: two consecutive 4-Hz samples at or below 0.5 m/s, BOTH within 1.5 seconds. Include t=0: current and next near-stop samples count, even before later acceleration. One sample is insufficient. STOP has priority among speed actions.
-Otherwise, measure changes from CURRENT speed, never from a peak: max(1.2 m/s, 20% of current speed). FIRST qualifying change: one drop reaching it means DECELERATE; two consecutive samples reaching that gain, BOTH within 2 seconds, mean RESUME. An isolated gain is insufficient. Changes after 2 seconds do not count. A stop beyond 1.5 seconds does not cancel DECELERATE."""
+# v7 的有效长处是用一段连续、任务导向的说明约束模型，而不是把判定器的
+# 全部边界逐条重复给模型。这里保留 v7 文本；v10 的严格时间边界只在离线标定
+# 与证据中执行，并由测试保证不会因 prompt 精简而回退。
+SPEED_ACTION_RULES = """STOP: two consecutive 4-Hz samples at or below 0.5 m/s within 1.5 seconds. Include the current sample: still waiting at the next sample counts, even if ego accelerates later. STOP takes priority.
+Otherwise, use the FIRST qualifying change from current speed: a drop of at least max(1.2 m/s, 20%) means DECELERATE; a gain of that size for two consecutive samples means RESUME. An isolated gain is insufficient."""
 SPEED_RULES = ("Speed: next 2 seconds, at most one YES.\n" + SPEED_ACTION_RULES
-               + " If neither qualifies, all speed answers are NO.")
+               + " If neither qualifies, all speed answers are NO. A stop beyond 1.5 seconds does not cancel DECELERATE.")
 
-LANE_ACTION_RULES = """Predict the FIRST crossing of an ego lane boundary after the newest frame and within 3 seconds, relative to ego's heading. Ignore later return crossings and crossings already in the input. An earlier-started maneuver counts only if its crossing is still ahead.
+LANE_ACTION_RULES = """Predict the FIRST crossing of an ego lane boundary after the newest frame: LANE_CHANGE_LEFT or LANE_CHANGE_RIGHT, relative to ego's heading. Ignore later return crossings and crossings already in the input.
 Steering input, a curved lane, an in-lane pass, a connecting road without a boundary crossing, and another vehicle's lane change do not count."""
-LANE_RULES = ("Lane: next 3 seconds, at most one side YES.\n" + LANE_ACTION_RULES
-              + " Judge speed and lane separately; speed and lane YES can coexist.")
+LANE_RULES = "Lane: next 3 seconds, at most one side YES.\n" + LANE_ACTION_RULES + " Speed and lane YES can coexist."
 
 # 只压缩已知旧索引模板；未知在线历史原样保留，不补写未观察到的绕障状态。
 HISTORY_TEXT_COMPACT = {
@@ -357,7 +360,12 @@ def build_action_prompt(
         options = "\n".join(
             f"- {action}: {CHOICE_ACTION_DESCRIPTIONS[action]}" for action in choice_options(spec)
         )
-        lane_rule = LANE_ACTION_RULES if spec.question_domain == DOMAIN_MANEUVER else ""
+        lane_rule = (
+            "For lane options, use only the FIRST ego lane-boundary crossing within 3 seconds; "
+            "ignore crossings already in the input and later return crossings. "
+            "A curve, steering, or another vehicle changing lanes is not ego lane change."
+            if spec.question_domain == DOMAIN_MANEUVER else ""
+        )
         return f"""RGB: {history_rgb_prompt_description(mode)}. Each image is left/front/right stitched views.
 Predict actual driving, not recommended driving. Only past RGB and current state are observed.
 
@@ -365,8 +373,7 @@ Predict actual driving, not recommended driving. Only past RGB and current state
 Current speed: {speed}.
 {render_navigation_goal(spec.goal_xy)}
 
-Choose exactly one listed high-level action. A reported event does not by itself imply braking or a lane crossing. Speed window: next 2 seconds.
-{SPEED_ACTION_RULES}
+Choose exactly one listed high-level action. Speed rules: predict the first qualifying change in the next 2 seconds. STOP means two consecutive 4-Hz samples at or below 0.5 m/s within 1.5 seconds, including the current sample; STOP has priority. Otherwise DECELERATE needs a drop of at least max(1.2 m/s,20%) from current speed. RESUME needs that size gain for two consecutive samples; an isolated gain is insufficient. A stop beyond 1.5 seconds does not cancel DECELERATE.
 {lane_rule}
 
 Choices:
@@ -386,10 +393,9 @@ Predict actual driving, not recommended driving. Only past RGB and current state
 Current speed: {speed}.
 {render_navigation_goal(spec.goal_xy)}
 
-INVALID_ACTION_CONTEXT: YES only when RGB clearly contradicts the proposed road or event; then all actions NO. Otherwise NO. Poor visibility, occlusion, or no action alone is not invalid. All actions NO is valid.
-
-History and situation do not require action. Predict from the newest frame.
 {SPEED_RULES}{lane}
+
+INVALID_ACTION_CONTEXT: YES only if RGB clearly contradicts the proposed road or event; then all actions NO. Otherwise NO. Poor visibility, an occluded event, or no required action alone is not invalid. All actions NO is a valid prediction.
 
 Output these lines in order, with no extra text:
 {output}""".strip()

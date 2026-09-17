@@ -1963,7 +1963,7 @@ def parse_args() -> argparse.Namespace:
     """解析 CLI 参数。"""
 
     p = argparse.ArgumentParser(description="Train sft_new_loop_phase3 single-turn high-level action LoRA")
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v10/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v11/frame_index.jsonl"))
     p.add_argument("--sampling-only", action="store_true",
                    help="check actual train/validation sampling on CPU without loading weights or writing a run")
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))

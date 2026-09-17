@@ -94,6 +94,18 @@ def test_same_version_changed_rule_source_rejects_cache():
                                                 'rule_code_sha256': 'stale'}})
 
 
+def test_preflight_rejects_v10_index_manifest_after_v11_prompt_change(tmp_path):
+    """索引的动作标签虽可沿用，但训练输入合同变更后必须显式重建 v11 索引。"""
+    from qwen3vl_local.sft_new_loop_phase3 import preflight
+    index = tmp_path / "frame_index.jsonl"
+    index.write_text("")
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "prompt_contract": {"prompt_name": "sft_new_loop_phase3_high_level_action_v9_explicit_window_baseline"}
+    }))
+    with pytest.raises(ValueError, match="prompt_name mismatch"):
+        preflight.check_index(index)
+
+
 def test_physical_route_split_preserves_legacy_route_number():
     a = "Town12_Rep0_Town12_route15_route0_01_10_00_00_00"
     b = "Town12_Rep3_Town12_route15_route0_01_11_00_00_00"

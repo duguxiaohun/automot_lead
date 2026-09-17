@@ -1,19 +1,21 @@
-# SFT New Loop Phase3 当前运行入口（2026-09-16）
+# SFT New Loop Phase3 当前运行入口（2026-09-17，v11）
 
-默认索引 **v10**、split seed **20260916**；prompt 为 **v9_explicit_window_baseline**，动作实现为 **v8_bounded_window**（数值阈值不变）。
-79 个窗口逐帧审计、盲审负例与修复见 [EVAL_REVIEW_20260916.md](EVAL_REVIEW_20260916.md)，
-四组历史指标见 [AUDIT_COMPARISON_20260915.md](AUDIT_COMPARISON_20260915.md)。
-标定内部时间窗限制、判定轨迹及提示词完善见 [TEMPORAL_REFINEMENT_20260916.md](TEMPORAL_REFINEMENT_20260916.md)。
-**本轮尚未全量重建 v10 或训练新模型。** 早先同名 v10 的 smoke/索引也必须重建，不能仅凭目录名复用。 旧 run 请使用原源码与原索引恢复评测；新 mapping 合同拒绝混用旧 adapter/索引。
+默认索引 **v11**、split seed **20260916**；prompt 为
+**v11_compact_choice_v10_calibration**：恢复 09/11 v7 的紧凑表达与 choice 措辞，
+但保留 **v10** 的 RGB 映射修复、路线隔离和 **v8_bounded_window** 动作实现（数值阈值不变）。
+这是新的 prompt/index/adapter 合同，不是把 09/11 的数据、标定或权重整体回退。
+历史取舍和理由见 [V11_COMBINATION_20260917.md](V11_COMBINATION_20260917.md)。
+79 个窗口的既有审计只作为标定证据保留；**v11 不要求、也不启动新的逐帧 RGB 审计**。
+旧 run 必须使用原源码与原索引恢复评测；v10 索引与旧 adapter 会被 prompt-contract 校验拒绝，必须重建 v11 并新训。
 
 从 `AutoMoT/` 工作目录，先构建并检查新索引（使用已有 PyTorch 环境）：
 
 ```bash
 python qwen3vl_local/sft_new_loop_phase3/build_dataset.py
 python qwen3vl_local/sft_new_loop_phase3/preflight.py \
-  --index checkpoints/sft_new_loop_phase3_data_v10/frame_index.jsonl
+  --index checkpoints/sft_new_loop_phase3_data_v11/frame_index.jsonl
 python qwen3vl_local/sft_new_loop_phase3/train.py --sampling-only \
-  --index checkpoints/sft_new_loop_phase3_data_v10/frame_index.jsonl \
+  --index checkpoints/sft_new_loop_phase3_data_v11/frame_index.jsonl \
   --focus-balance-count 1024 --eval-balance-count 16 --generation-eval-balance-count 32
 ```
 
@@ -38,7 +40,7 @@ SKIP_BUILD=1 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=choice \
 不设置 `SKIP_BUILD=1` 时 pipeline 默认重新构建。独立 eval 默认 `CASES_PER_BIN=0` 全量；choice 仍只保留有效单动作子集。
 `INDEX`、`DATA_DIR`、`SPLIT_SEED`、`CASES_PER_BIN` 等已有环境变量会覆盖默认值，启动前检查。
 新负例增加 val 2/test 4 个物理路线，仅覆盖 R3 的两个错事件；不是完整拒绝能力证明。
-本轮暴露的 176 个 test 物理组后续 train-only。下面按日期保留历史说明，旧索引题数不代表 v10。
+本轮暴露的 176 个 test 物理组仍为 train-only。下面按日期保留历史说明，旧索引题数不代表 v11。
 
 ## 2026-09-15：启动时报 INVALID quota 不足
 

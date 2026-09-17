@@ -4,10 +4,10 @@ from dataclasses import replace
 import pytest
 
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import (
-    longitudinal_decision, label_actions, action_evidence,
+    ACTION_RULE_VERSION, longitudinal_decision, label_actions, action_evidence,
 )
 from qwen3vl_local.sft_new_loop_phase3.prompts import (
-    make_prompt_spec, build_action_prompt, SPEED_ACTION_RULES, LANE_ACTION_RULES,
+    PROMPT_NAME, make_prompt_spec, build_action_prompt, SPEED_ACTION_RULES, LANE_ACTION_RULES,
 )
 from qwen3vl_local.sft_new_loop_phase3.test_action_contract import _signals
 
@@ -68,7 +68,8 @@ def test_evidence_explains_label_without_changing_input_prompt():
 
 @pytest.mark.parametrize('mode', ['binary', 'choice'])
 @pytest.mark.parametrize('rgb', ['4rgb', '2rgb_endpoints'])
-def test_shared_prompt_rules_are_answer_independent(mode, rgb):
+def test_v11_compact_prompt_is_answer_independent_while_v10_calibration_stays_bounded(mode, rgb):
+    """v11 只恢复 v7 的紧凑措辞，不能倒退 v10 的离线判定器。"""
     spec = make_prompt_spec(variant='all_random_order', answers={'STOP': True}, seed_key='same-input',
         context_id='STATIC_BLOCKAGE', road_structure='R2', goal_xy=(30, 1),
         current_speed_mps=5, action_output_mode=mode)
@@ -76,7 +77,15 @@ def test_shared_prompt_rules_are_answer_independent(mode, rgb):
     changed = replace(spec, invalid_context=True,
         questions=tuple(replace(q, answer=not q.answer) for q in spec.questions))
     assert prompt == build_action_prompt(spec=changed, history_rgb_mode=rgb)
-    assert SPEED_ACTION_RULES in prompt and LANE_ACTION_RULES in prompt
-    assert 'BOTH within 2 seconds' in prompt and '20% of current speed' in prompt
-    assert 'crossings already in the input' in prompt and 'earlier-started maneuver' in prompt
+    assert PROMPT_NAME.endswith("v11_compact_choice_v10_calibration")
+    assert ACTION_RULE_VERSION == "current_wait_first_crossing_v8_bounded_window"
+    if mode == "binary":
+        assert SPEED_ACTION_RULES in prompt
+        assert LANE_ACTION_RULES in prompt
+        assert 'two consecutive samples' in prompt and 'max(1.2 m/s, 20%)' in prompt
+    else:
+        assert "Speed rules: predict the first qualifying change in the next 2 seconds." in prompt
+        assert 'two consecutive samples' in prompt and 'max(1.2 m/s,20%)' in prompt
+    assert 'crossings already in the input' in prompt
+    assert 'earlier-started maneuver' not in prompt
     assert 'longitudinal_decision' not in prompt and 'future_speeds' not in prompt

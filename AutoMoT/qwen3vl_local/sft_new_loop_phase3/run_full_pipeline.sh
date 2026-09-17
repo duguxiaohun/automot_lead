@@ -23,7 +23,7 @@ export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
-DATA_DIR="${DATA_DIR:-checkpoints/sft_new_loop_phase3_data_v10}"
+DATA_DIR="${DATA_DIR:-checkpoints/sft_new_loop_phase3_data_v11}"
 INDEX="${INDEX:-${DATA_DIR}/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 COLLECTION_DIR="${COLLECTION_DIR:-keyframe_filter/collection_output}"

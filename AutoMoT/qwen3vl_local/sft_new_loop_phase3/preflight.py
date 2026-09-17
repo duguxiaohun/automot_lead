@@ -12,15 +12,43 @@ from qwen3vl_local.sft_new_loop_phase3.source_mapping import validate_mapping_co
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import validate_action_rule
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_IDS
 from qwen3vl_local.sft_new_loop_phase3.quality_guards import MIN_SAME_RS_PHYSICAL_ROUTES
+from qwen3vl_local.sft_new_loop_phase3.prompts import PROMPT_NAME, action_prompt_sha256
 
 
 def check_index(path, action_output_mode="binary"):
     """全索引检查；不加载 Qwen 或读取未来状态作为模型条件。"""
+    path = Path(path)
+    manifest_path = path.with_name("manifest.json")
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        prompt_contract = manifest.get("prompt_contract")
+        if not isinstance(prompt_contract, dict):
+            raise ValueError(
+                f"{manifest_path}: missing prompt_contract; rebuild this index for the current prompt"
+            )
+        if prompt_contract.get("prompt_name") != PROMPT_NAME:
+            raise ValueError(
+                f"{manifest_path}: prompt_name mismatch: {prompt_contract.get('prompt_name')!r}; "
+                "rebuild the index for the current prompt contract"
+            )
+        expected_hashes = {
+            output_mode: {
+                history_mode: action_prompt_sha256(
+                    audit=False, history_rgb_mode=history_mode, action_output_mode=output_mode,
+                )
+                for history_mode in ("4rgb", "2rgb_endpoints")
+            }
+            for output_mode in ("binary", "choice")
+        }
+        if prompt_contract.get("production_prompt_sha256") != expected_hashes:
+            raise ValueError(
+                f"{manifest_path}: prompt hash mismatch; rebuild this index for the current prompt contract"
+            )
     counts = Counter()
     groups = {}
     unique = defaultdict(set)
     same_rs_groups = defaultdict(set)
-    for line in Path(path).open():
+    for line in path.open():
         row = json.loads(line)
         validate_action_rule(row)
         validate_mapping_contract(row)
