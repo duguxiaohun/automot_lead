@@ -56,7 +56,7 @@ if sys.argv[1] == "train":
                 "EVENT_BALANCED_SCENE_PRIORS", "EVENT_BALANCED_EPOCH_SAMPLES", "EVENT_BALANCE_MAX_FRAME_REPEATS",
                 "EVENT_BALANCE_ROUTE_DIVERSE", "BEST_SELECTION_METRIC", "DATA_ROOT", "DATA_DIR", "MODEL_DIR",
                 "LEAD_BEV_CKPT", "DDP_GPU_COUNT", "NPROC_PER_NODE", "BENCH2DRIVE", "PIPELINE_LOG", "NO_RUN_SUBDIR",
-                "GENERATE_ANALYSIS", "ANALYSIS_REVIEW", "NUM_EPOCHS", "LR", "GRAD_ACCUM", "VAL_STEPS",
+                "GENERATE_ANALYSIS", "HIGH_LEVEL_PLANNING", "HIGH_LEVEL_ACTION_PRIOR", "HIGH_LEVEL_ACTION_INDEX", "ANALYSIS_REVIEW", "NUM_EPOCHS", "LR", "GRAD_ACCUM", "VAL_STEPS",
                 "SAVE_STEPS", "NUM_WORKERS", "LOGGING_STEPS", "PRIOR_NOISE", "PRIOR_NOISE_INVALID_SHARE",
                 "CHECKPOINT_ROOT", "SELECTION_POLICY", "PHASE1_ADAPTER", "PHASE2_ADAPTER", "FLOW_SAMPLE_STEPS",
                 "FLOW_ROUTE_COORDINATE_SCALE_M", "FLOW_WAYPOINT_COORDINATE_SCALE_M", "FLOW_TIME_EMBED_DIM",
@@ -105,6 +105,7 @@ def test_resume_restores_config_and_pins_real_run(pipeline, style):
     assert not (Path(env["OUTPUT_DIR"]) / "run_test").exists()
 
 
+@pytest.mark.parametrize("option", ["generate_analysis", "high_level_planning", "high_level_action_prior"])
 @pytest.mark.parametrize("entrypoint", ["run_full_pipeline.sh", "train.sh"])
 @pytest.mark.parametrize("saved,environment,cli,expected", [
     (True, None, [], True), (False, None, [], False), (None, None, [], True),
@@ -112,27 +113,31 @@ def test_resume_restores_config_and_pins_real_run(pipeline, style):
     (True, "1", ["--no-generate-analysis"], False),
     (False, "0", ["--generate-analysis"], True),
 ])
-def test_resume_preserves_generation_mode_and_explicit_precedence(pipeline, saved, environment, cli, expected, entrypoint):
+def test_resume_preserves_generation_mode_and_explicit_precedence(pipeline, saved, environment, cli, expected, entrypoint, option):
     """真实 resume 恢复摘要配置；显式覆盖仍由后续正式 checkpoint 合同守卫拒绝错配。"""
     scripts, run, link, env = pipeline
+    cli = [value.replace("generate-analysis", option.replace("_", "-")) for value in cli]
+    if saved is None and option != "generate_analysis":
+        expected = False
     cfg = json.loads((run / "config.json").read_text())
     if saved is None:
-        cfg.pop("generate_analysis")
+        cfg.pop(option)
     else:
-        cfg["generate_analysis"] = saved
+        cfg[option] = saved
     (run / "config.json").write_text(json.dumps(cfg))
     if environment is not None:
-        env["GENERATE_ANALYSIS"] = environment
+        env[option.upper()] = environment
     result = subprocess.run(
         ["bash", str(scripts / entrypoint), "--resume", str(link / "latest.pt"), *cli],
         cwd=ROOT, env=env, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     calls = [json.loads(line)["argv"] for line in Path(env["TRACE_FILE"]).read_text().splitlines()]
-    assert parser().parse_args(calls[0][1:]).generate_analysis is expected
+    assert getattr(parser().parse_args(calls[0][1:]), option) is expected
     # 最终 test/probe 读取同一 checkpoint，不能被 launcher 环境临时改变输入分布。
     for call in calls[1:]:
-        assert "--generate-analysis" not in call and "--no-generate-analysis" not in call
+        assert "--" + option.replace("_", "-") not in call
+        assert "--no-" + option.replace("_", "-") not in call
 
 
 @pytest.mark.parametrize("style", ["separate", "equals", "environment"])
@@ -185,7 +190,7 @@ def test_resume_path_overrides_reach_training_test_and_probe(pipeline, style):
     scripts, run, link, env = pipeline
     args = ["--resume", str(link / "latest.pt")]
     paths = dict(data_root="new data", data_dir="new index", model_dir="new qwen",
-                 lead_bev_ckpt="new bev.pth", prior_labels="new labels.jsonl", event_balance_index="new map.jsonl")
+                 lead_bev_ckpt="new bev.pth", prior_labels="new labels.jsonl", event_balance_index="new map.jsonl", high_level_action_index="new actions.jsonl")
     for key, value in paths.items():
         env[key.upper()] = value if style == "environment" else "ignored path"
         if style == "cli":

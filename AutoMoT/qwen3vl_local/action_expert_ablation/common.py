@@ -104,6 +104,9 @@ def parser(variant: str) -> argparse.ArgumentParser:
         "checkpoint_roots",
         "analysis_review",
         "analysis_tokens",
+        "high_level_planning",  # 仅 action_prior 消费该提示词，消融不能暴露无效开关。
+        "high_level_action_prior",
+        "high_level_action_index",
         "recheck_mode",
         "condition_mode",
         "dataset_priors",

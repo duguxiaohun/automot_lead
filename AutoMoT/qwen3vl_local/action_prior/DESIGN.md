@@ -7,7 +7,7 @@
 四张 4 Hz stitched RGB、当前速度与导航进入冻结 Qwen。默认用 Phase1/2 LoRA 提供先验，再禁用所有 LoRA，
 将四图、自然 RS/EVENT 描述和导航直接 prefill 得到 KV；不生成摘要，不追加 assistant 消息。
 `dataset-priors` 直接读取标定标签，默认冷启动没有文字生成，仅一次完整 base KV prefill。
-最终 KV 不注入类别 JSON、NO/UNKNOWN 或逐帧动作标签。
+默认最终 KV 不注入类别 JSON、NO/UNKNOWN 或逐帧动作标签；显式具体动作开关的扩展见下节。
 
 `--generate-analysis` / `GENERATE_ANALYSIS=1` 保留原摘要路径：base 生成短摘要、按配置复核/fallback，
 再把 system＋user 四图/先验/导航＋assistant 摘要完整 prefill。`--no-generate-analysis` 为默认。
@@ -31,6 +31,43 @@
 - 复核一致只表示接受条件，摘要模型复核也不保证语义正确；失败可 fallback。
 - `event-balanced-scene-priors` 仅适用于无噪声 dataset 条件，是额外的离线实验。
 - RE2 当前可描述导航变道或早先障碍记录；没有可靠证据时不声称“UE2 刚结束且恢复待完成”。
+
+## 可选 high-level planning
+
+`high_level_planning=False` 默认保持原提示词。开启后，`prompts.py` 保留确认的 RS/HIGHWAY 和全部事件事实，
+用一段条件性的减速、停车/继续等待、持续增速文字替换旧规划；静态障碍/弱势参与者及显式 RE2/RE3 才补左右首次未来跨线。
+语义参考 Phase3 的 `CHOICE_ACTION_DESCRIPTIONS` 与三/五动作域，但不 import Phase3 runtime，
+不增加 adapter/生成，不读取未来动作标签，也不复制其单选格式和标定阈值。未确认事实与绕障历史不自动补齐。
+
+开关独立于 `generate_analysis`，直接 prefill、可选摘要、复核、fallback 都一致使用；高层 fallback 只重复短规划/导航，
+完整事实留在 user prompt。`HIGH_LEVEL_PLANNING_VERSION` 与开关进入条件身份，缓存另显式区分开关，审计记录实际模式。
+resume 从原配置恢复，eval/probe/闭环从 checkpoint args 恢复；改先验来源也不能放宽 planning 合同。
+旧配置缺字段解释为关闭，严格源码校验不变。开启/关闭、CLI/环境优先级与续训 demo 见 run.md 和两个训练 shell 入口。
+
+## 具体 high-level 动作输入
+
+默认关闭的 `high_level_action_prior` 依赖 `high_level_planning`。新训练无需填写动作索引：
+`prepare_action_priors.py` 复用自动准备器的 Phase3 全量候选和 full map，缺失时调用原构建器，
+读取当前规则的 `action_labels`，按 Phase3 三/五动作域投影后对齐 action 三 split。
+候选只是特殊帧 eligibility，缺席不能反推普通背景；不使用最终均衡 frame_index 作为全帧动作表。
+
+仅 UE1–7、RE2/3/5 中 `special_eligible` 的帧追加规划域及固定释义的具体动作。
+确认普通背景、过滤特殊帧及未确认帧都记 `not_applicable`，保持原提示词。
+`selected / no_action / unavailable` 区分选中动作、有效全 NO、缺帧/无效预测，不能互换。
+普通背景两份配额不变；动作开关不隐式改变 uniform/event_balanced 采样模式。
+
+这是用户显式开启的离线真值条件实验，来源标记 `phase3_oracle` 和
+`privileged_action_conditioning=True`，不冒充 Phase3 模型推理。候选标签依赖未来轨迹证据，
+动作域、规则代码、映射、candidate/full map、action split 和动作文件内容均绑定来源合同。
+先剔除异常 route；缓存构建有锁和原子发布，损坏的自动产物隔离后重建，续训不重新标注。
+开发路线强制 train-only；来源/状态/覆盖写入训练计划，逐帧动作进入文本缓存 key。
+
+`action_input.py` 负责严格输入校验与精确帧查表；任意上游文本不进入 prompt。
+默认 dataset 条件仍零文字生成；摘要/复核/fallback 使用同一动作，背景不出现额外动作段。
+`--high-level-action-index` 仅用于搬迁或高级 prediction/provided 输入，后者也必须提供事件作用域，
+不能给普通背景塞入动作。自动索引搬迁需携带 manifest，内容必须与 checkpoint 相同。
+闭环尚无在线 provider，入口拒绝此模式；后续可复用规范化动作接口，但需补齐在线门控及来源合同。
+无先验消融不暴露此开关；开启/关闭与恢复 demo 见 run.md。
 
 ## 均衡采样
 

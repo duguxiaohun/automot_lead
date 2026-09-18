@@ -29,7 +29,7 @@ def stub(tmp_path):
     (binary / "python").write_text(STUB.format(python=sys.executable))
     (binary / "python").chmod(0o755)
     env = dict(os.environ, PATH=f"{binary}{os.pathsep}{os.environ['PATH']}")
-    for name in ("DATASET_PRIORS", "PRIOR_LABELS", "PRIOR_NOISE", "ANALYSIS_REVIEW", "GENERATE_ANALYSIS",
+    for name in ("DATASET_PRIORS", "PRIOR_LABELS", "PRIOR_NOISE", "ANALYSIS_REVIEW", "GENERATE_ANALYSIS", "HIGH_LEVEL_PLANNING", "HIGH_LEVEL_ACTION_PRIOR", "HIGH_LEVEL_ACTION_INDEX",
                  "EVENT_BALANCED", "EVENT_BALANCE_INDEX", "EVENT_BALANCED_SCENE_PRIORS",
                  "RESUME", "RUN_TAG", "OUTPUT_DIR", "DATA_DIR"):
         env.pop(name, None)
@@ -65,15 +65,17 @@ def test_lora_default_disables_generation_but_keeps_optional_review_setting(stub
     assert "--dataset-priors" not in tokens and "--prior-labels" not in tokens
 
 
+@pytest.mark.parametrize("option", ["generate-analysis", "high-level-planning", "high-level-action-prior"])
 @pytest.mark.parametrize("cli,env,enabled", [
     ([], "1", True), ([], "0", False),
     (["--generate-analysis"], "0", True), (["--no-generate-analysis"], "1", False),
 ])
-def test_generate_analysis_cli_overrides_env(stub, cli, env, enabled):
+def test_generate_analysis_cli_overrides_env(stub, cli, env, enabled, option):
     """生成开关的 CLI 优先级与其它训练参数一致。"""
-    tokens = flags(run("train.sh", cli, stub, GENERATE_ANALYSIS=env))
-    assert tokens.count("--generate-analysis") == int(enabled)
-    assert tokens.count("--no-generate-analysis") == int(not enabled)
+    cli = [value.replace("generate-analysis", option) for value in cli]
+    tokens = flags(run("train.sh", cli, stub, **{option.replace("-", "_").upper(): env}))
+    assert tokens.count("--" + option) == int(enabled)
+    assert tokens.count("--no-" + option) == int(not enabled)
 
 
 @pytest.mark.parametrize(
@@ -127,6 +129,18 @@ def test_uniform_scene_priors_env_also_forwards_the_full_event_mapping_source(st
     assert "--sampling-mode" not in tokens  # uniform 是 parser 默认值
     assert "--event-balanced-scene-priors" in tokens
     assert value_of(tokens, "--event-balance-index") == source
+
+
+def test_uniform_action_priors_forward_explicit_full_map_or_allow_auto_prepare(stub):
+    """动作开关独立于重采样，显式 map 优先；不填索引交给自动准备。"""
+    for source in ("", "/tmp/action/full_event_mapping.jsonl"):
+        overrides = dict(EVENT_BALANCE_INDEX=source) if source else {}
+        tokens = flags(run("train.sh", ["--high-level-planning", "--high-level-action-prior"], stub, **overrides))
+        assert "--high-level-action-index" not in tokens
+        if source:
+            assert value_of(tokens, "--event-balance-index") == source
+        else:
+            assert "--event-balance-index" not in tokens
 
 
 def test_resume_and_final_eval_remap_event_balance_index(stub, tmp_path):
@@ -421,6 +435,9 @@ def test_pipeline_balanced_resume_does_not_rebuild_inputs(stub, tmp_path):
     (["--dataset-priors", "--no-event-balanced"], {"EVENT_BALANCED": "1"}, False),
     (["--dataset-priors", "--event-balanced-scene-priors"], {}, True),
     (["--dataset-priors", "--no-event-balanced-scene-priors"], {"EVENT_BALANCED_SCENE_PRIORS": "1"}, False),
+    (["--dataset-priors", "--high-level-planning", "--high-level-action-prior"], {}, True),
+    (["--dataset-priors", "--high-level-planning"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, True),
+    (["--dataset-priors", "--high-level-planning", "--no-high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, False),
 ])
 def test_pipeline_simple_switch_prepares_inputs_before_preflight_and_propagates_index(stub, tmp_path, options, env_extra, prepared):
     """执行真实 shell，用桩边界验证一条命令的准备/训练/评测顺序。"""

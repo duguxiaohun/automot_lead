@@ -10,6 +10,7 @@ from qwen3vl_local.sft_new_loop_phase2 import prompts as p2
 from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
 from qwen3vl_local.action_prior.prompt_versions import prompt_module
 from qwen3vl_local.action_prior.progress import report
+from qwen3vl_local.action_prior.action_input import HighLevelActionIndex, normalize_action
 
 
 class PriorEngine:
@@ -28,6 +29,8 @@ class PriorEngine:
         labels=None,
         analysis_review=True,
         generate_analysis=False,
+        high_level_planning=False,
+        high_level_action_prior=False,
     ):
         self.engine, self.contract = engine, contract
         self.analysis_tokens = analysis_tokens
@@ -35,6 +38,10 @@ class PriorEngine:
         self.recheck_mode = recheck_mode
         self.labels = labels
         self.generate_analysis = bool(generate_analysis)
+        self.high_level_planning = bool(high_level_planning)
+        self.high_level_action_prior = bool(high_level_action_prior)
+        if self.high_level_action_prior and not self.high_level_planning:
+            raise ValueError("specific high-level action requires high-level planning")
         self.analysis_review = bool(analysis_review) and self.generate_analysis
         self.adapters = None
         self.last_audit = None
@@ -127,7 +134,8 @@ class PriorEngine:
         )
 
     def condition(
-        self, images, navigation, sample_key, identity=None, event_balanced_scene_contexts=()
+        self, images, navigation, sample_key, identity=None, event_balanced_scene_contexts=(),
+        high_level_action=None,
     ):
         """默认直接编码四图与先验提示词；显式开启时追加生成分析，最终 KV 均来自 base。"""
         if len(images) != 4:
@@ -138,6 +146,10 @@ class PriorEngine:
             raise ValueError("dataset priors need the (scenario, run_id, frame) identity")
 
         question_count = 0
+        # 单帧动作接口：当前查自动 Phase3 标注/显式索引，后续可接 Phase3 predictor。
+        # 关闭时完全忽略外部字段，不改变默认图文输入。
+        action = normalize_action(high_level_action) if self.high_level_action_prior else None
+        from qwen3vl_local.action_prior.contracts import digest
 
         def ask(phase, spec, history):
             nonlocal question_count
@@ -167,6 +179,8 @@ class PriorEngine:
                 self.contract["identity"], images, navigation,
                 f"{sample_key}:event_contexts={event_balanced_scene_contexts}"
                 f":generate_analysis={self.generate_analysis}"
+                f":high_level_planning={self.high_level_planning}"
+                f":high_level_action_prior={self.high_level_action_prior}:action={digest(action)}"
             )
             if self.text_cache
             else None
@@ -182,6 +196,10 @@ class PriorEngine:
                                         event_module=prompt_module(2, self.contract["phase2"]["metadata"]))
             # 这是显式 opt-in 的离线 transition/evidence 条件；默认采样课程不改变
             # Qwen 输入。文本只会在 prompts.py 变成自然、无类别名的短句。
+            priors = dict(priors, high_level_planning=self.high_level_planning)
+            priors.update(high_level_action_prior=self.high_level_action_prior)
+            if self.high_level_action_prior:
+                priors["high_level_action"] = action
             if event_balanced_scene_contexts:
                 priors = dict(
                     priors,
@@ -295,7 +313,9 @@ class PriorEngine:
                     require_review=self.analysis_review,
                 )
             )
-        if not accepted:
+        if (not accepted or priors.get("high_level_planning", False) != self.high_level_planning
+                or priors.get("high_level_action_prior", False) != self.high_level_action_prior
+                or (self.high_level_action_prior and priors.get("high_level_action") != action)):
             raise ValueError(
                 "cached prior/analysis does not match the configured KV mode or review"
             )
@@ -403,12 +423,21 @@ def make_runtime(args, device, contract):
                 labels,
                 args.analysis_review,
                 generate_analysis=args.generate_analysis,
+                high_level_planning=args.high_level_planning,
+                high_level_action_prior=getattr(args, "high_level_action_prior", False),
             )
+            self.action_index = (
+                HighLevelActionIndex(args.high_level_action_index)
+                if getattr(args, "high_level_action_prior", False) else None
+            )
+            if self.action_index and self.action_index.identity != contract["identity_payload"]["high_level_action_input"]:
+                raise ValueError("high-level action file changed after contract preflight")
             self.base_prefill = self.runner._run_leadmot_qwen_prefill
             self.runner._run_leadmot_qwen_prefill = self.prefill_prior
             self.sample_key = ""
             self.sample_identity = None
             self.event_balanced_scene_contexts = ()
+            self.high_level_action = None
 
         def prefill_prior(self, rgb_pil_list, user_prompt):
             """仅 navigation 作为公开输入，不把 sample 字典送入 Qwen。"""
@@ -429,6 +458,7 @@ def make_runtime(args, device, contract):
             return self.prior.condition(
                 rgb_pil_list, user_prompt, self.sample_key, self.sample_identity,
                 self.event_balanced_scene_contexts,
+                high_level_action=self.high_level_action,
             )
 
         def forward_sample(
@@ -449,11 +479,18 @@ def make_runtime(args, device, contract):
                 str(sample["run_id"]),
                 int(sample["anchor"]),
             )
+            self.high_level_action = self.action_index.get(self.sample_identity) if self.action_index else None
             self.event_balanced_scene_contexts = (
                 tuple(str(value) for value in sample.get("event_balance_scene_contexts", ()) if value)
                 if getattr(args, "event_balanced_scene_priors", False)
                 else ()
             )
+            if self.action_index:
+                # Phase3 明确标注的 UE/特殊 RE 提供规划域；普通背景与不可用帧不附加。
+                self.event_balanced_scene_contexts = tuple(dict.fromkeys((
+                    *self.event_balanced_scene_contexts,
+                    *self.action_index.planning_contexts(self.sample_identity),
+                )))
 
             def decoder_with_trainable_cache(**kwargs):
                 report("train_or_eval/decoder_forward")

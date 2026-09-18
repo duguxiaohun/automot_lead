@@ -1,5 +1,25 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-17 Action 自动 Phase3 high-level 动作输入
+
+在 high-level planning 基础上，`--high-level-action-prior` / `HIGH_LEVEL_ACTION_PRIOR=1`
+可追加“接下来具体采取什么动作”；默认关闭。新训练无需 `--high-level-action-index`：
+自动复用 Phase3 candidate/full map，缺失时按原构建器生成，投影当前三/五动作域并对齐 action 三 split。
+仅 `special_eligible` 的 UE1–7、RE2/3/5 注入规划域和动作；确认普通背景维持原 prompt 与两份采样权重，
+filtered/unconfirmed 不补动作。动作开关不改变采样模式，十桶各一份/背景两份仍由 event-balanced 控制。
+这是显式授权的离线未来动作真值条件实验，记录 `phase3_oracle` / privileged 属性，不是 Phase3 模型预测；
+不加载 Phase3 adapter。该开关是下文“默认不注入逐帧动作”的例外，单独 planning 不读取动作标签。
+来源、规则、split、文件和开关绑定合同，逐帧动作绑定缓存；resume/eval/probe 恢复原产物，不重新标注。
+索引参数仅保留搬迁/高级输入，自动索引需同目录 manifest；无在线 provider，Bench2Drive/CARLA 拒绝该模式。
+接口与 demo 见 `AutoMoT/qwen3vl_local/action_prior/run.md` / `DESIGN.md` / `prepare_action_priors.py`。
+
+### 2026-09-17 Action 可选 high-level planning
+
+`action_prior` 新增默认关闭的 `--high-level-planning` / `HIGH_LEVEL_PLANNING=1`：
+保留自然场景事实，以 Phase3 三/五动作语义的简短条件性规划替换旧措辞；单独开启时不接 Phase3 模型或逐帧动作标签。
+与摘要开关独立，默认仍直接图文 prefill；模式绑定缓存/合同，resume/eval/probe/闭环沿用保存值。
+设计及开启/关闭 demo 见 `AutoMoT/qwen3vl_local/action_prior/DESIGN.md`、`run.md` 和训练 shell 入口。
+
 ### 2026-09-15 Action 默认直接图文 KV（覆盖下文历史摘要流程）
 
 `action_prior` 默认 `generate_analysis=False`：四图＋自然 RS/EVENT 先验＋速度/导航直接

@@ -18,6 +18,20 @@
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-generate-analysis
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-generate-analysis
 # eval/probe/闭环沿用 checkpoint 开关；resume 沿用原配置，不能在同一 decoder 上换 KV 模式。
+# 可选 Phase3 语义的 high-level planning 替换（默认关闭，仍默认不生成摘要）：
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning
+#   GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning
+#   GPU_IDS=0,1,2,3 HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+#   HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-high-level-planning
+#   GPU_IDS=0 HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-high-level-planning
+# CLI 优先；resume/eval/probe/闭环沿用 checkpoint，不能在同一 decoder 上切换。
+# 自动准备 Phase3 离线动作标注并输入具体 high-level 动作（默认关闭）：
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning --high-level-action-prior
+#   GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning --high-level-action-prior
+#   GPU_IDS=0,1,2,3 HIGH_LEVEL_PLANNING=1 HIGH_LEVEL_ACTION_PRIOR=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning --no-high-level-action-prior
+#   GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning --no-high-level-action-prior
+# resume 自动恢复开关；文件格式与后续 Phase3 接口见 run.md，当前尚无在线动作 provider。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,13 +51,14 @@ explicit_event_balance_index=0
 EVENT_BALANCE_INDEX="${EVENT_BALANCE_INDEX:-}"
 # 只记录用户显式给出的路径，续训不能把稍后生成的脚本默认值当作覆盖。
 declare -A pipeline_paths=()
-for name in DATA_ROOT DATA_DIR MODEL_DIR LEAD_BEV_CKPT; do
+for name in DATA_ROOT DATA_DIR MODEL_DIR LEAD_BEV_CKPT HIGH_LEVEL_ACTION_INDEX; do
  if [[ -v "$name" ]]; then pipeline_paths["$name"]="${!name}"; fi
 done
 ARGS=()
 sampling_mode=uniform
 if [[ "${EVENT_BALANCED:-0}" == 1 ]]; then sampling_mode=event_balanced; fi
 scene_priors="${EVENT_BALANCED_SCENE_PRIORS:-0}"
+action_priors="${HIGH_LEVEL_ACTION_PRIOR:-0}"
 sampling_explicit=0
 explicit_prior_source="$DATASET_PRIORS_ENV_SET"
 # 消费 pipeline 负责的选项，其余原样传给训练；CLI 优先于环境变量。
@@ -53,7 +68,7 @@ while (( $# )); do
   --no-dataset-priors) DATASET_PRIORS=0; explicit_prior_source=1 ;;
   --event-balanced) sampling_mode=event_balanced; sampling_explicit=1 ;;
   --no-event-balanced) sampling_mode=uniform; sampling_explicit=1 ;;
-  --resume|--sampling-mode|--data-dir|--data-root|--model-dir|--lead-bev-ckpt|--prior-labels|--event-balance-index)
+  --resume|--sampling-mode|--data-dir|--data-root|--model-dir|--lead-bev-ckpt|--prior-labels|--event-balance-index|--high-level-action-index)
    flag="$1"
    [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { echo "$flag needs a value" >&2; exit 2; }
    value="$2"; shift
@@ -64,6 +79,7 @@ while (( $# )); do
     --data-root) DATA_ROOT="$value"; pipeline_paths[DATA_ROOT]="$value" ;;
     --model-dir) pipeline_paths[MODEL_DIR]="$value" ;;
     --lead-bev-ckpt) pipeline_paths[LEAD_BEV_CKPT]="$value" ;;
+    --high-level-action-index) pipeline_paths[HIGH_LEVEL_ACTION_INDEX]="$value" ;;
     --prior-labels) PRIOR_LABELS="$value"; explicit_labels=1 ;;
     --event-balance-index) EVENT_BALANCE_INDEX="$value"; explicit_event_balance_index=1 ;;
    esac ;;
@@ -75,16 +91,19 @@ while (( $# )); do
   --data-root=*) DATA_ROOT="${1#*=}"; pipeline_paths[DATA_ROOT]="$DATA_ROOT" ;;
   --model-dir=*) pipeline_paths[MODEL_DIR]="${1#*=}" ;;
   --lead-bev-ckpt=*) pipeline_paths[LEAD_BEV_CKPT]="${1#*=}" ;;
+  --high-level-action-index=*) pipeline_paths[HIGH_LEVEL_ACTION_INDEX]="${1#*=}" ;;
   --prior-labels=*) PRIOR_LABELS="${1#*=}"; explicit_labels=1 ;;
   --event-balance-index=*) EVENT_BALANCE_INDEX="${1#*=}"; explicit_event_balance_index=1 ;;
   --event-balanced-scene-priors) scene_priors=1; ARGS+=("$1") ;;
   --no-event-balanced-scene-priors) scene_priors=0; ARGS+=("$1") ;;
+  --high-level-action-prior) action_priors=1; ARGS+=("$1") ;;
+  --no-high-level-action-prior) action_priors=0; ARGS+=("$1") ;;
   *) ARGS+=("$1") ;;
  esac
  shift
 done
 PATH_ARGS=()
-for name in DATA_ROOT DATA_DIR MODEL_DIR LEAD_BEV_CKPT; do
+for name in DATA_ROOT DATA_DIR MODEL_DIR LEAD_BEV_CKPT HIGH_LEVEL_ACTION_INDEX; do
  if [[ -v "pipeline_paths[$name]" ]]; then
   option="${name,,}"
   PATH_ARGS+=("--${option//_/-}" "${pipeline_paths[$name]}")
@@ -131,7 +150,7 @@ else
 fi
 prepare_event_inputs() {
  # 所有自动生成均在模型预检前完成；显式索引保留原内容并由训练预检校验。
- if [[ "$sampling_mode" == event_balanced || "$scene_priors" == 1 ]]; then
+ if [[ "$sampling_mode" == event_balanced || "$scene_priors" == 1 || "$action_priors" == 1 ]]; then
   action_build_shared_index_if_needed "$DATA_ROOT" "$DATA_DIR"
   if [[ -z "$EVENT_BALANCE_INDEX" ]]; then
    EVENT_BALANCE_INDEX="$(action_prepare_event_balance_index "$DATA_ROOT" "$DATA_DIR")"

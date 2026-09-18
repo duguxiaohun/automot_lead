@@ -24,6 +24,11 @@ class ActionPriorRunner:
         if state.get("schema") != "action_prior_checkpoint_v4" or state.get("trajectory_decoder") != "conditional_joint_trajectory_flow_matching_v2":
             raise ValueError("closed loop requires action_prior_checkpoint_v4 joint-trajectory Flow Matching")
         self.args = args = argparse.Namespace(**state["args"])
+        if bool(state["args"].get("high_level_action_prior", False)):
+            raise NotImplementedError(
+                "high-level-action-prior currently uses offline action labels or predictions; "
+                "connect a live Phase3 action provider before CARLA evaluation"
+            )
         if bool(state["args"].get("event_balanced_scene_priors", False)):
             raise ValueError(
                 "this checkpoint used dataset-only event-balanced scene priors (including RE2 transition history); "

@@ -127,6 +127,11 @@ def validate_checkpoint(cli, pinned=None):
     if state.get("schema") != "action_prior_checkpoint_v4" or state.get("trajectory_decoder") != "conditional_joint_trajectory_flow_matching_v2":
         raise ValueError("requires action_prior_checkpoint_v4 joint-trajectory Flow Matching")
     args = argparse.Namespace(**state["args"])
+    if bool(state["args"].get("high_level_action_prior", False)):
+        raise NotImplementedError(
+            "high-level-action-prior currently uses an offline external index; "
+            "connect a live Phase3 action provider before CARLA evaluation"
+        )
     if bool(state["args"].get("event_balanced_scene_priors", False)):
         raise ValueError(
             "Bench2Drive has no audited Phase3 transition context or memory; checkpoint was trained "

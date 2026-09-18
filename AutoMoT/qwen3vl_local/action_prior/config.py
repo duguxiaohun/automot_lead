@@ -18,6 +18,7 @@ from qwen3vl_local.action_prior.contracts import (
 from qwen3vl_local.action_prior.priors import PROTOCOL_VERSION
 from qwen3vl_local.action_prior.prompts import (
     ANALYSIS_VERSION, SYSTEM_PROMPT, PREFILL_VERSION, PREFILL_SYSTEM_PROMPT,
+    HIGH_LEVEL_PLANNING_VERSION,
 )
 
 DEFAULTS = dict(
@@ -52,6 +53,10 @@ DEFAULTS = dict(
     analysis_review=True,
     # 默认图像+先验 prompt 一次 prefill，显式开启才生成摘要并追加到最终 KV。
     generate_analysis=False,
+    # 默认保留原自然先验；显式开启才替换为 Phase3 语义的条件性高层规划。
+    high_level_planning=False,
+    high_level_action_prior=False,
+    high_level_action_index="",
     recheck_mode="history",
     condition_mode="prior",
     dataset_priors=False,
@@ -161,6 +166,7 @@ def read_rows(args, split):
     event_active = (
         getattr(args, "sampling_mode", "uniform") == "event_balanced"
         or getattr(args, "event_balanced_scene_priors", False)
+        or getattr(args, "high_level_action_prior", False)
     )
     # Phase3 RGB/规则开发路线只能 train；为保持 physical route 隔离，原 val/test 文件中
     # 的同组帧在训练读取时移入 train，holdout 读取时排除。
@@ -220,6 +226,17 @@ def validate_args(args):
     # 后续仍严格核验执行指纹，补字段不表示旧 checkpoint 可以跨源码恢复。
     if not hasattr(args, "generate_analysis"):
         args.generate_analysis = True
+    if not hasattr(args, "high_level_planning"):
+        args.high_level_planning = False
+    if not hasattr(args, "high_level_action_prior"):
+        args.high_level_action_prior = False
+    if not hasattr(args, "high_level_action_index"):
+        args.high_level_action_index = ""
+    if args.high_level_action_prior and not args.high_level_planning:
+        raise ValueError("--high-level-action-prior requires --high-level-planning")
+    # 关闭时路径仅为未使用的配置，允许 CLI 关闭开关覆盖环境中保留的索引路径。
+    if args.high_level_planning and args.condition_mode != "prior":
+        raise ValueError("high-level planning requires condition-mode prior")
     if getattr(args, "selection_policy", "strict") not in ("available", "strict"):
         raise ValueError("selection_policy must be available or strict")
     if (
@@ -324,6 +341,8 @@ def validate_args(args):
 
 def build_contract(args):
     """冻结上游身份和运行协议；权重路径可迁移，权重字节不能变。"""
+    from qwen3vl_local.action_prior.action_input import action_input_contract
+    action_input = action_input_contract(args)
     policy = getattr(args, "selection_policy", "strict")
     manifest_path = getattr(args, "selection_manifest", "")
     pinned = read_json(manifest_path) if manifest_path else None
@@ -440,6 +459,10 @@ def build_contract(args):
         analysis=ANALYSIS_VERSION if args.generate_analysis else PREFILL_VERSION,
         system=SYSTEM_PROMPT if args.generate_analysis else PREFILL_SYSTEM_PROMPT,
         generate_analysis=args.generate_analysis,
+        high_level_planning=args.high_level_planning,
+        planning_version=HIGH_LEVEL_PLANNING_VERSION if args.high_level_planning else "natural_default",
+        high_level_action_prior=getattr(args, "high_level_action_prior", False),
+        high_level_action_input=action_input,
         final_cache_content="inputs_and_analysis" if args.generate_analysis else "inputs_only",
         analysis_tokens=args.analysis_tokens,
         analysis_review=args.analysis_review,
@@ -586,6 +609,8 @@ def training_plan(args, rows, world):
             args.prior_noise if getattr(args, "dataset_priors", False) else 0.0
         ),
         generate_analysis=args.generate_analysis,
+        high_level_planning=args.high_level_planning,
+        high_level_action_prior=getattr(args, "high_level_action_prior", False),
         final_cache_content="inputs_and_analysis" if args.generate_analysis else "inputs_only",
         independent_analysis_review=args.generate_analysis and args.analysis_review,
         cold_generations_per_unique_frame=(

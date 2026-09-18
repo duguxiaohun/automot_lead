@@ -36,6 +36,119 @@ LoRA 来源默认复核，dataset 来源在 shell 入口默认不复核，可显
 未运行真实 Qwen/BEV GPU 训练；当前环境缺 peft 和只读 `leaderboard/team_code/mot_lead_offline_runner.py`，
 真实双 LoRA 测试及完整执行源码指纹集成检查未完成。模式合同单测固定无关源码身份；正式指纹守卫没有放宽。
 
+## 可选 high-level planning 先验
+
+`--high-level-planning` / `HIGH_LEVEL_PLANNING=1` 把原来“保留空间、等待冲突消除”等规划措辞替换成
+参考 `sft_new_loop_phase3/prompts.py` 和 `context_taxonomy.py` 的短条件性规划段落。
+默认关闭，`--no-high-level-planning` / `HIGH_LEVEL_PLANNING=0` 保留原提示词；CLI 优先。
+它与摘要开关独立，开启后默认仍一次图文 prefill，不增加文字生成或加载 Phase3 模型。
+
+- 急刹前车、切入、对向侵入、路口冲突、灯故障：减速、停车/继续等待、条件允许后持续增速；增速不要求之前停车。
+- 静态障碍、弱势交通参与者：再考虑相对自车方向的左右首次未来跨线，区分弯道和已完成跨线。
+- 显式 `event-balanced-scene-priors` 的 RE2/RE3 可增加横向语义，RE5 仅纵向；不从 RS 或全 NO 推断这些事件。
+- 多事件事实全部保留，只写一段规划；没有确认事件时只保留车道/导航与按当前证据调速的通用提示。
+
+例如静态障碍对应的规划文字（前面仍有道路和障碍事实）：
+
+> If progress is constrained, decelerate or stop/continue waiting; once the path and priority permit, sustain a speed increase, without requiring a previous stop. If needed and clear, cross left or right relative to ego's heading; consider the first future lane-boundary crossing, not a curve or an already completed crossing.
+
+单独开启本开关时，这是供轨迹生成参考的条件性动作语义，不是该帧动作答案；不注入 Phase3 标签、未来轨迹、动作 code 或单选回答要求。
+Phase3 的预测任务/数值标定时间阈值不搬进 action prompt。导航、四图和轨迹训练目标照常保留。
+
+```bash
+# 开启 high-level 替换，默认仍不生成摘要；也可追加 --event-balanced。
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning
+GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning
+GPU_IDS=0,1,2,3 HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+
+# 显式保留原提示词；CLI 覆盖环境变量。
+HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-high-level-planning
+GPU_IDS=0 HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-high-level-planning
+
+# 已备好索引的底层入口；可选再生成摘要。
+bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-planning --generate-analysis
+GPU_IDS=0 bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-planning --generate-analysis
+
+# 续训自动恢复保存的模式，eval/probe/闭环也只读 checkpoint 设置。
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
+```
+
+开关与 planning 版本进入合同、训练计划、文本缓存及逐例审计。两种模式需分别训练 decoder；
+更换先验来源的评测许可也不能绕过 planning 模式校验。缺字段旧配置按关闭处理，但旧 run 仍需原源码通过执行指纹检查。
+本开关支持 LoRA 与 dataset 来源，不要求均衡采样；`condition-mode base` 无先验消融会拒绝它。
+若同时开启摘要，生成与复核读取同一新版先验；失败 fallback 只重述条件性规划及简短导航，全部事实仍留在 user prompt。
+
+2026-09-17 本地验证：137 项提示词/缓存/合同/续训/入口回归通过，Python 与 shell 语法、
+无先验消融不暴露该开关的检查通过。未运行真实 Qwen/BEV 训练或闭环，尚无动作质量提升结论。
+
+## 再加入“接下来具体采取什么动作”
+
+`--high-level-action-prior` / `HIGH_LEVEL_ACTION_PRIOR=1` 默认关闭，需要同时开启
+`--high-level-planning`。**新训练不需要提供 `--high-level-action-index`**：自动复用当前 Phase3
+候选与全帧事件映射，缺少产物时调用 `sft_new_loop_phase3/build_dataset.py` 的原标注逻辑生成，
+再按 `(scenario, run_id, anchor)` 对齐 action 的 train/val/test。使用完整 `candidate_frames.jsonl`，
+不会拿 Phase3 均衡抽样后的 `frame_index.jsonl` 代替全量标签。
+
+只有 `special_eligible` 的 UE1–UE7、RE2/RE3/RE5 追加条件性规划域和具体动作块
+`[UPCOMING_HIGH_LEVEL_ACTION]`。三动作域只保留 DECELERATE / STOP / RESUME，五动作域再允许
+LANE_CHANGE_LEFT / LANE_CHANGE_RIGHT，严格复用 Phase3 的动作标签与域定义，不另设轨迹阈值。
+RE2 沿用原映射门控和导航变道/早先障碍区分，不把所有变道描述成“绕障恢复”。
+
+**普通背景保持原先提示词，不追加具体动作块**；`special_filtered` 和 `unconfirmed` 也不补动作。
+它们记录 `not_applicable`；有效特殊帧的全 NO 记录 `no_action`，缺失外部结果记 `unavailable`，不混同。
+只有开启 `--event-balanced` 时采用十个特殊桶各一份、确认普通背景两份的配额；动作开关本身不改变采样方式。
+Phase3 已参与规则开发的物理路线仍强制放入 train，避免进入 val/test。
+
+此模式使用 **Phase3 离线标注真值（`phase3_oracle`）**，其中动作标签依赖未来轨迹证据，
+属于带额外真值条件的实验，不能当作 Phase3 模型预测的评测结果。没有加载 Phase3 adapter；
+默认 dataset-priors 仍只做一次最终图文 prefill，零文字生成。显式开启摘要时，摘要/复核/fallback 使用同一动作。
+
+```bash
+# 自动准备动作标签，特殊十桶各一份、普通背景两份；不用填写动作索引。
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-planning --high-level-action-prior
+GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-planning --high-level-action-prior
+
+# 环境变量等价写法。
+HIGH_LEVEL_PLANNING=1 HIGH_LEVEL_ACTION_PRIOR=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
+GPU_IDS=0,1,2,3 HIGH_LEVEL_PLANNING=1 HIGH_LEVEL_ACTION_PRIOR=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
+
+# 关闭具体动作输入，保持上一版条件性 planning。
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning --no-high-level-action-prior
+GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning --no-high-level-action-prior
+
+# 底层训练入口也会自动准备动作及其依赖，普通 uniform 采样保持不变。
+bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-planning --high-level-action-prior
+GPU_IDS=0 bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-planning --high-level-action-prior
+
+# 续训自动恢复保存的开关和索引，不重新标注。
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
+GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
+```
+
+自动缓存位于 `checkpoints/action_prior_prepared/` 的 `phase3_*`、`full_*`、`actions_*` 目录，
+使用锁、校验和、临时目录与原子发布。需要本地原始 LEAD 数据及现有人工标注；不会下载数据或训练 Phase3。
+先剔除异常时长 route，再对齐动作。旧缓存规则/内容不匹配时隔离保留并重建；显式输入不静默替换。
+来源、规则、三 split 内容和文件 SHA256 进入 checkpoint 合同，逐帧动作进入文本缓存 key。
+训练计划记录来源、真值条件属性及各 split 的状态/覆盖统计。
+
+`--high-level-action-index` / `HIGH_LEVEL_ACTION_INDEX` 仅保留为路径搬迁或高级外部输入接口，
+正常开启不需要它。自动索引搬迁须同时携带同目录 `manifest.json`，full map 搬迁另用
+`--event-balance-index`；resume/eval/probe 只接受与 checkpoint 同内容的产物。不能在同一个 decoder
+上临时切换动作开关或替换标注，旧 run 仍需原源码恢复。
+
+高级输入使用 `scoped_phase3_high_level_action_v2`，除精确帧身份、来源、status/actions 外，
+必须明确 `event_status`、`event_buckets` 和 `planning_contexts`，普通背景必须为 `not_applicable`。
+`prediction/provided` 供后续显式接入，来源声明本身不证明模型质量；任意自由文本不注入 prompt。
+当前没有在线 Phase3 provider，Bench2Drive/CARLA 拒绝此模式。后续可复用
+`PriorEngine.condition(..., high_level_action=...)`，仍需接通预测、事件门控和来源合同。
+
+2026-09-18 本地验证：本次 266 项针对性测试全部通过，包含自动准备/复用、候选缺失与动作冲突拒绝、
+异常 route 剔除、背景 prompt 不变、文件搬迁、续训和 CLI/环境变量优先级；23 个修改文件的 Python/shell
+语法与 git diff 格式检查通过。全目录测试为 397 通过、19 失败，失败来自本机缺少 PEFT 或只读
+`leaderboard/team_code/mot_lead_offline_runner.py`；未放宽正式依赖/指纹检查。
+未执行真实数据全量构建、Qwen/BEV 训练或闭环，自动准备流程以小型合成索引验证。
+
 ## 开始训练
 
 ```bash

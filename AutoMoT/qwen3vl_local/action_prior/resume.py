@@ -20,6 +20,20 @@ def main():
     cfg = json.loads((checkpoint.parent / "config.json").read_text())
     # 新 run 恢复保存的开关；旧 run 缺字段时保留原摘要语义，执行指纹仍严格检查。
     cfg.setdefault("generate_analysis", True)
+    cfg.setdefault("high_level_planning", False)
+    cfg.setdefault("high_level_action_prior", False)
+    if "HIGH_LEVEL_ACTION_PRIOR" in os.environ:
+        value = os.environ["HIGH_LEVEL_ACTION_PRIOR"]
+        if value not in ("0", "1"):
+            raise ValueError("HIGH_LEVEL_ACTION_PRIOR must be 0 or 1")
+        cfg["high_level_action_prior"] = value == "1"
+    if "HIGH_LEVEL_ACTION_INDEX" in os.environ:
+        cfg["high_level_action_index"] = os.environ["HIGH_LEVEL_ACTION_INDEX"]
+    if "HIGH_LEVEL_PLANNING" in os.environ:
+        value = os.environ["HIGH_LEVEL_PLANNING"]
+        if value not in ("0", "1"):
+            raise ValueError("HIGH_LEVEL_PLANNING must be 0 or 1")
+        cfg["high_level_planning"] = value == "1"
     if "GENERATE_ANALYSIS" in os.environ:
         value = os.environ["GENERATE_ANALYSIS"]
         if value not in ("0", "1"):

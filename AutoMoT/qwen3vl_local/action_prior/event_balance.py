@@ -202,7 +202,7 @@ def source_for_args(args) -> EventBalanceIndex:
 
 
 def source_contract(args) -> Dict[str, Any] | None:
-    active = getattr(args, "sampling_mode", "uniform") == SAMPLING_MODE_EVENT_BALANCED or getattr(args, "event_balanced_scene_priors", False)
+    active = getattr(args, "sampling_mode", "uniform") == SAMPLING_MODE_EVENT_BALANCED or getattr(args, "event_balanced_scene_priors", False) or getattr(args, "high_level_action_prior", False)
     if not active:
         return None
     if getattr(args, "event_balance_index", ""):
@@ -217,7 +217,7 @@ def source_audit(args) -> Dict[str, Any] | None:
 
 
 def annotate_rows(args, rows: Iterable[Mapping[str, Any]]) -> None:
-    active = getattr(args, "sampling_mode", "uniform") == SAMPLING_MODE_EVENT_BALANCED or getattr(args, "event_balanced_scene_priors", False)
+    active = getattr(args, "sampling_mode", "uniform") == SAMPLING_MODE_EVENT_BALANCED or getattr(args, "event_balanced_scene_priors", False) or getattr(args, "high_level_action_prior", False)
     if active and getattr(args, "event_balance_index", ""):
         source = source_for_args(args)
         source.validate_action_dataset(args.data_dir)

@@ -2,7 +2,7 @@
 # 推荐自动准备数据并训练：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
-# 本脚本是已准备好索引时的底层训练入口，不负责自动构建。日常操作见 run.md。
+# 本脚本默认需要准备好的索引；high-level-action-prior 可自动准备动作及其依赖。日常操作见 run.md。
 #   bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/latest/tb
 # 默认不生成 talk/摘要；下面为已备好索引的开启/关闭 demo（参数也可传给 full pipeline）：
 #   bash qwen3vl_local/action_prior/train.sh --generate-analysis
@@ -12,6 +12,20 @@
 # 直接续训会恢复原配置（包含摘要开关），不注入新训练默认值：
 #   bash qwen3vl_local/action_prior/train.sh --resume checkpoints/action_prior/latest/latest.pt
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --resume checkpoints/action_prior/latest/latest.pt
+# 可选 Phase3 语义的 high-level planning 替换（默认关闭，仍默认不生成摘要）：
+#   bash qwen3vl_local/action_prior/train.sh --high-level-planning
+#   GPU_IDS=0 bash qwen3vl_local/action_prior/train.sh --high-level-planning
+#   GPU_IDS=0,1,2,3 HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/train.sh
+#   HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/train.sh --no-high-level-planning
+#   GPU_IDS=0 HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/train.sh --no-high-level-planning
+# CLI 优先；resume/eval/probe/闭环沿用 checkpoint，不能在同一 decoder 上切换。
+# 自动准备 Phase3 离线动作标注并输入具体 high-level 动作（默认关闭）：
+#   bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-planning --high-level-action-prior
+#   GPU_IDS=0 bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-planning --high-level-action-prior
+#   GPU_IDS=0,1,2,3 HIGH_LEVEL_PLANNING=1 HIGH_LEVEL_ACTION_PRIOR=1 bash qwen3vl_local/action_prior/train.sh --dataset-priors
+#   bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-planning --no-high-level-action-prior
+#   GPU_IDS=0 bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-planning --no-high-level-action-prior
+# resume 自动恢复开关；文件格式与后续 Phase3 接口见 run.md，当前尚无在线动作 provider。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 export PYTHONUNBUFFERED=1
@@ -77,6 +91,25 @@ args=(--data-root "${DATA_ROOT:-lead_data}" --data-dir "${DATA_DIR:-checkpoints/
  --grad-accum-steps "${GRAD_ACCUM:-16}" --val-steps "${VAL_STEPS:-250}"
  --save-steps "${SAVE_STEPS:-1000}" --num-workers "${NUM_WORKERS:-8}")
 args+=(--logging-steps "${LOGGING_STEPS:-10}")
+# 具体动作默认自动复用/生成 Phase3 标注；默认关闭，需显式开启 high-level planning。
+if ! has_flag --high-level-action-prior "$@" && ! has_flag --no-high-level-action-prior "$@"; then
+ case "${HIGH_LEVEL_ACTION_PRIOR:-0}" in
+  1) args+=(--high-level-action-prior) ;;
+  0) args+=(--no-high-level-action-prior) ;;
+  *) echo "HIGH_LEVEL_ACTION_PRIOR must be 0 or 1" >&2; exit 2 ;;
+ esac
+fi
+if [[ -n "${HIGH_LEVEL_ACTION_INDEX:-}" ]] && ! has_flag --high-level-action-index "$@"; then
+ args+=(--high-level-action-index "$HIGH_LEVEL_ACTION_INDEX")
+fi
+# 默认保留原 planning；CLI 优先，续训环境值由 resume.py 处理。
+if ! has_flag --high-level-planning "$@" && ! has_flag --no-high-level-planning "$@"; then
+ case "${HIGH_LEVEL_PLANNING:-0}" in
+  1) args+=(--high-level-planning) ;;
+  0) args+=(--no-high-level-planning) ;;
+  *) echo "HIGH_LEVEL_PLANNING must be 0 or 1" >&2; exit 2 ;;
+ esac
+fi
 # 默认一次图文 prefill；CLI 明确开关优先于环境变量，摘要复核不能隐式开启生成。
 if ! has_flag --generate-analysis "$@" && ! has_flag --no-generate-analysis "$@"; then
  case "${GENERATE_ANALYSIS:-0}" in
@@ -95,10 +128,21 @@ if [[ "${EVENT_BALANCED_SCENE_PRIORS:-0}" == 1 ]] || has_flag --event-balanced-s
  scene_priors_requested=1
 fi
 if has_flag --no-event-balanced-scene-priors "$@"; then scene_priors_requested=0; fi
-if has_value --sampling-mode event_balanced "$@" || { [[ "${EVENT_BALANCED:-0}" == 1 ]] && ! has_flag --sampling-mode "$@"; } || [[ "$scene_priors_requested" == 1 ]]; then
+action_priors_requested="${HIGH_LEVEL_ACTION_PRIOR:-0}"
+for option in "$@"; do
+ case "$option" in
+  --high-level-action-prior) action_priors_requested=1 ;;
+  --no-high-level-action-prior) action_priors_requested=0 ;;
+ esac
+done
+if has_value --sampling-mode event_balanced "$@" || { [[ "${EVENT_BALANCED:-0}" == 1 ]] && ! has_flag --sampling-mode "$@"; } || [[ "$scene_priors_requested" == 1 || "$action_priors_requested" == 1 ]]; then
  if ! has_flag --event-balance-index "$@"; then
-  : "${EVENT_BALANCE_INDEX:?set EVENT_BALANCE_INDEX to action_prior full_event_mapping.jsonl}"
-  args+=(--event-balance-index "$EVENT_BALANCE_INDEX")
+  if [[ -n "${EVENT_BALANCE_INDEX:-}" ]]; then
+   args+=(--event-balance-index "$EVENT_BALANCE_INDEX")
+  elif [[ "$action_priors_requested" != 1 ]]; then
+   echo "set EVENT_BALANCE_INDEX to action_prior full_event_mapping.jsonl" >&2; exit 2
+  fi
+  # 具体动作开关允许 train.py 在预检前自动准备 full map 和 Phase3 标注。
  fi
 fi
 if [[ "$scene_priors_requested" == 1 ]] && ! has_flag --event-balanced-scene-priors "$@"; then

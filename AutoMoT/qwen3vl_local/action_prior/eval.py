@@ -27,6 +27,7 @@ def main():
     # 默认跟随 checkpoint 自己的先验来源；只有显式关闭才回到 LoRA 推理。
     p.add_argument("--dataset-priors", action=argparse.BooleanOptionalAction, default=None)
     p.add_argument("--prior-labels", default="")
+    p.add_argument("--high-level-action-index", default="", help="relocated high-level action JSONL; content must match checkpoint")
     p.add_argument(
         "--event-balance-index", default="",
         help="relocated current full_event_mapping.jsonl; path is audit-only when bytes match checkpoint contract",
@@ -74,6 +75,8 @@ def main():
     args.selection_manifest = ""
     args.selection_output = ""
     args.lora_bundle = ""
+    if cli.high_level_action_index:
+        args.high_level_action_index = cli.high_level_action_index
     # 映射文件路径可迁移；build_contract 比较的是 manifest/index 内容身份而不是绝对路径。
     # 该 override 也让离线 val/test 获得和训练相同的固定 scene contexts。
     if cli.event_balance_index:
@@ -190,6 +193,7 @@ def main():
                 ema=not cli.raw,
                 contract_identity=contract["identity"],
                 contract_match=contract_match,
+                high_level_action_input=contract["identity_payload"].get("high_level_action_input"),
                 prior_source=contract.get("prior_source", "phase_loras"),
                 trained_with_dataset_priors=trained_with_dataset_priors,
                 trained_prior_noise=trained_prior_noise,

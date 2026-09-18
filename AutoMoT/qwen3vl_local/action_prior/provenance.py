@@ -8,12 +8,15 @@ from qwen3vl_local.action_prior.build_dataset import route_group
 
 
 # 真实 action 入口及已核对的延迟调用；不递归扫描所有实验目录。
+# 可选 Phase3 数据准备由动作索引 source_contract 的规则/构建器哈希绑定，
+# 不把该离线依赖加入关闭动作开关时的默认执行指纹。
 EXECUTION_SEEDS = (
     *[
         "qwen3vl_local/action_prior/" + name + ".py"
         for name in (
             "__init__",
             "runtime",
+            "action_input",
             "prompts",
             "priors",
             "precision",

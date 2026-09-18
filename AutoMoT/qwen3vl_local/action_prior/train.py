@@ -41,6 +41,9 @@ def audit_counts(audit):
         }
     )
     rejection = audit.get("analysis_rejection", "none")
+    if audit.get("high_level_action_prior", False):
+        status = audit["high_level_action"]["status"]
+        c[f"prior/high_level_action/{status}"] += 1
     if rejection != "none":
         c[f"prior/analysis_rejection/{rejection}"] += 1
     for criterion, passed in (audit.get("analysis_review") or {}).items():
@@ -96,6 +99,11 @@ def format_prior_metrics(values):
 
 def add_dataset_coverage(plan, args, rows):
     """标定先验必须先报命中率；缺帧的样本会退化成完全无条件，不能静默发生。"""
+    if getattr(args, "high_level_action_prior", False):
+        from qwen3vl_local.action_prior.action_input import HighLevelActionIndex
+        index = HighLevelActionIndex(args.high_level_action_index)
+        plan["high_level_action_coverage"] = index.coverage(rows)
+        plan["high_level_action_source"] = index.identity
     if not getattr(args, "dataset_priors", False):
         return plan
     from qwen3vl_local.action_prior.dataset_labels import PriorLabelIndex
@@ -167,6 +175,10 @@ def training_device(local_rank):
 def main():
     """先验证配置和数据，再加载模型；只优化轨迹 decoder。"""
     args = parser().parse_args()
+    # 模型加载前自动复用/生成 Phase3 动作标注；rank 间通过准备器 flock 共用产物。
+    if args.high_level_action_prior:
+        from qwen3vl_local.action_prior.prepare_action_priors import ensure_action_inputs
+        ensure_action_inputs(args)
     validate_args(args)
     for name in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
         os.environ[name] = "1"
