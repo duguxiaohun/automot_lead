@@ -1,37 +1,20 @@
 #!/usr/bin/env bash
-# 从 AutoMoT/ 目录运行，索引/标签缺失时自动构建，无需手写 DATA_DIR 或 EVENT_BALANCE_INDEX：
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+# 在 AutoMoT/ 下运行；自动准备索引、自动选卡，默认直接图文 KV，不生成摘要。
+# 1. 数据集先验 + 均衡采样（去掉 --event-balanced 即自然采样）：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --prior-noise 0.1
-# 默认自动选卡；不传 --event-balanced 使用自然采样，--no-event-balanced 显式关闭。
+#
+# 2. 再加 high-level planning + Phase3 离线动作真值（自动标注，无需动作索引）：
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-planning --high-level-action-prior
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-planning --high-level-action-prior
+#   去掉 --high-level-action-prior 只保留条件性 planning；两个开关默认均关闭。
+#
+# 3. 续训（自动恢复原配置和开关）：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
-#   RESUME=checkpoints/action_prior/latest/latest.pt bash qwen3vl_local/action_prior/run_full_pipeline.sh
-#   bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/latest/tb
-# 常用说明见 run.md；可选审计见 AUDIT.md。
-# 默认四图+先验 prompt 直接编码 KV，无 talk/摘要。保留旧生成+摘要 KV 的开关 demo：
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --generate-analysis
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --generate-analysis
-#   GENERATE_ANALYSIS=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
-#   GPU_IDS=0,1,2,3 GENERATE_ANALYSIS=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-generate-analysis
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-generate-analysis
-# eval/probe/闭环沿用 checkpoint 开关；resume 沿用原配置，不能在同一 decoder 上换 KV 模式。
-# 可选 Phase3 语义的 high-level planning 替换（默认关闭，仍默认不生成摘要）：
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning
-#   GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning
-#   GPU_IDS=0,1,2,3 HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
-#   HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-high-level-planning
-#   GPU_IDS=0 HIGH_LEVEL_PLANNING=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --no-high-level-planning
-# CLI 优先；resume/eval/probe/闭环沿用 checkpoint，不能在同一 decoder 上切换。
-# 自动准备 Phase3 离线动作标注并输入具体 high-level 动作（默认关闭）：
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning --high-level-action-prior
-#   GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning --high-level-action-prior
-#   GPU_IDS=0,1,2,3 HIGH_LEVEL_PLANNING=1 HIGH_LEVEL_ACTION_PRIOR=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning --no-high-level-action-prior
-#   GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --high-level-planning --no-high-level-action-prior
-# resume 自动恢复开关；文件格式与后续 Phase3 接口见 run.md，当前尚无在线动作 provider。
+#
+# 可选追加：--generate-analysis 生成摘要；--prior-noise 0.1 注入先验噪声。
+# 更多开关/环境变量见 run.md，审计见 AUDIT.md；动作真值模式暂不支持闭环。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
